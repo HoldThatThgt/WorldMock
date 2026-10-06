@@ -29,20 +29,22 @@ from worldmock.life.activities import (
 from worldmock.life.body import last_flows, settle_shared_body
 from worldmock.life.candidates import CandidateEntry, CandidateInputs, LocationView, recall
 from worldmock.life.models import ActivityKind, ActivityStartParams, AgentState, BodyState
+from worldmock.life.scenario import GameConfig
 from worldmock.life.world_setup import load_scenario
 from worldmock.profile.models import Tastes
 from worldmock.run_setup import _agent_specs, _content_genre_catalog
 
-_FORMAL = Path("scenarios/white-collar-12-weeks.json")
-#: 规格 1.2 的数值核对口径：内容缓解速率 0.30/小时（正式场景的网文条目），清醒累积 0.08/小时（目录），f = 0.5。
+_ENVIRONMENT = Path(__file__).resolve().parents[1] / "fixtures/environment/scenarios/single-person.json"
+#: 规格 1.2 的数值核对口径：内容缓解速率 0.30/小时（人工环境的网文条目），清醒累积 0.08/小时（目录），f = 0.5。
 _NOVEL = "novel-0002"
 _NOVEL_RATE = 0.3
+_LIFESTYLE_EFFECTS = {"entertainment": 0.2, "social": 0.1, "health": 0.6}
 
 
 @pytest.fixture(scope="module")
 def body_config():
-    """正式场景组装后的身体参数：场景没有声明下限偏好，取缺省 0.5。"""
-    return load_scenario(_FORMAL)[0].body
+    """人工环境组装后的身体参数：场景没有声明下限偏好，取缺省 0.5。"""
+    return load_scenario(_ENVIRONMENT)[0].body
 
 
 @pytest.fixture(autouse=True)
@@ -66,6 +68,8 @@ def _running(agent: AgentState, kind: ActivityKind, target: str | None, config, 
     request = ActivityStartParams(activity_type=kind, planned_duration_seconds=10_800, target_id=target)
     person, activity = start_activity(agent, request, 0, ActivityOrigin("a", "d", "e"), config)
     activity.data.update(data or {})
+    if kind == ActivityKind.LIFESTYLE:
+        activity.data["effects"] = dict(_LIFESTYLE_EFFECTS)
     return person, activity
 
 
@@ -129,9 +133,18 @@ def _compiled(genres: tuple[str, ...]):
     return lambda agent: card
 
 
+def _game_scenario():
+    """@brief 只为口味编译声明三个人工游戏，不加载真实游戏文件。"""
+    scenario, _ = load_scenario(_ENVIRONMENT)
+    games = tuple(GameConfig(game_id=f"test-game-{seed}", title=f"人工游戏 {seed}", seed=seed,
+                             game_path=f"test-game-{seed}.ulx", game_sha256="0" * 64,
+                             walkthrough_sha256="1" * 64) for seed in range(1, 4))
+    return scenario.model_copy(update={"games": games})
+
+
 def test_runtime_computes_game_weights_with_the_content_algorithm() -> None:
     """创建运行的人物档案为每个游戏按 game_id 计算口味权重：精确交集 ÷ 条目题材数，没有题材声明的为 0。"""
-    scenario, _ = load_scenario(_FORMAL)
+    scenario = _game_scenario()
     games = [item.game_id for item in scenario.games]
     genres = {games[0]: ("解谜", "冒险"), games[1]: ("解谜", "动作")}
     specs = _agent_specs(scenario, persona_compiler=_compiled(("解谜", "冒险")), content_genres=genres)
@@ -143,9 +156,9 @@ def test_runtime_computes_game_weights_with_the_content_algorithm() -> None:
 
 
 def test_games_without_genre_declarations_fall_to_the_floor(body_config) -> None:
-    """正式场景的 TextWorld 游戏在题材表里没有声明：权重为 0，实际缓解 = f × 目录游戏费率，仍大于 0。"""
-    scenario, _ = load_scenario(_FORMAL)
-    genres = _content_genre_catalog(_FORMAL, scenario)
+    """人工环境的 TextWorld 游戏在题材表里没有声明：权重为 0，实际缓解 = f × 目录游戏费率，仍大于 0。"""
+    scenario = _game_scenario()
+    genres = {}
     specs = _agent_specs(scenario, persona_compiler=_compiled(("解谜",)), content_genres=genres)
     weights = specs[0]["profile"]["taste_weights"]
     game = scenario.games[0].game_id
@@ -189,7 +202,7 @@ _PATH_CASES = {
     "watch-partly-liked-repeat": (ActivityKind.WATCH, _NOVEL, 0.6, 3),
     "watch-liked": (ActivityKind.WATCH, _NOVEL, 1.0, 1),
     "game-no-genre": (ActivityKind.PLAY_GAME, "textworld-1201", 0.0, None),
-    "lifestyle": (ActivityKind.LIFESTYLE, "jogging", 0.0, None),
+    "lifestyle": (ActivityKind.LIFESTYLE, "quiet-rest", 0.0, None),
     "wait": (ActivityKind.WAIT, None, 0.0, None),
 }
 
@@ -215,7 +228,7 @@ def test_single_and_shared_paths_settle_the_same_net_effect(body_config, case: s
                 else min(1.0, need + body_config.entertainment_need_per_awake_hour * hours))
     assert shared == pytest.approx(expected, abs=1e-12)
     if kind == ActivityKind.LIFESTYLE:
-        assert relief == pytest.approx(lifestyle_relief_rates("jogging")[0]) and relief > 0
+        assert relief == pytest.approx(lifestyle_relief_rates(_LIFESTYLE_EFFECTS)[0]) and relief > 0
 
 
 def test_parallel_relieving_activities_add_up_in_the_shared_settlement(body_config) -> None:
@@ -224,10 +237,10 @@ def test_parallel_relieving_activities_add_up_in_the_shared_settlement(body_conf
     其中较大的一项，也不叠加清醒累积。"""
     agent = _agent(0.9, {})
     _, watching = _watch(agent, body_config)
-    _, jogging = _running(agent, ActivityKind.LIFESTYLE, "jogging", body_config)
+    _, jogging = _running(agent, ActivityKind.LIFESTYLE, "quiet-rest", body_config)
     parts = tuple((item.kind, shared_activity_factors(item, agent, body_config)) for item in (watching, jogging))
     reliefs = [factors.entertainment_relief_per_hour for _, factors in parts]
-    assert reliefs == [pytest.approx(_NOVEL_RATE * 0.5), pytest.approx(lifestyle_relief_rates("jogging")[0])]
+    assert reliefs == [pytest.approx(_NOVEL_RATE * 0.5), pytest.approx(lifestyle_relief_rates(_LIFESTYLE_EFFECTS)[0])]
     settled = settle_shared_body(agent.body, parts, 3600, body_config)
     assert settled.after.entertainment_need == pytest.approx(0.9 - sum(reliefs)) and 0.9 - sum(reliefs) > 0
     flows = [entry for entry in last_flows() if entry.resource == "entertainment_need"]

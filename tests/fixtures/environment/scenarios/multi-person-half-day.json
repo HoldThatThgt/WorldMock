@@ -1,0 +1,143 @@
+{
+  "schema_version": 6,
+  "scenario_id": "multi-person-half-day-test",
+  "timezone": "Asia/Shanghai",
+  "start_at": "2026-01-01T08:00:00+08:00",
+  "end_at": "2026-01-01T12:00:00+08:00",
+  "random_seed": 7,
+  "activity_feedback_seconds": 900,
+  "rotation_stale_seconds": 3600,
+  "corpus_root": "../corpora",
+  "corpus_manifest_sha256": "e85627f5f971b2db2809adfaefcdb5cbdcbe2803378a2c3a9275725af61518c0",
+  "catalog_version": {
+    "major": 3,
+    "minor": 0
+  },
+  "accounts": [
+    {
+      "account_id": "employer",
+      "money_fen": 10000,
+      "role": "employer:test"
+    },
+    {
+      "account_id": "transport",
+      "money_fen": 0,
+      "role": "transport:service"
+    },
+    {
+      "account_id": "merchant",
+      "money_fen": 0,
+      "role": "merchant"
+    },
+    {
+      "account_id": "scenario",
+      "money_fen": 0,
+      "role": "external:scenario"
+    }
+  ],
+  "body": {
+    "mass_kg": 70.0,
+    "initial_energy_kcal": 2000.0,
+    "initial_sleep_debt_hours": 0.0,
+    "initial_entertainment_need": 0.8
+  },
+  "agents": [
+    {
+      "agent_id": 1,
+      "name": "Test Person",
+      "trait_source_kind": "experiment_assumption",
+      "home_location_id": "home",
+      "initial_balance_fen": 10000,
+      "skill_levels": {},
+      "qualifications": [],
+      "lifestyle_activities": [
+        "quiet-rest"
+      ],
+      "interaction_menu": null,
+      "work_schedule": null,
+      "initial_inventory": {
+        "home": {
+          "milk": 2.0
+        }
+      }
+    },
+    {
+      "agent_id": 2,
+      "name": "Second Test Person",
+      "trait_source_kind": "experiment_assumption",
+      "home_location_id": "home",
+      "initial_balance_fen": 10000,
+      "skill_levels": {},
+      "qualifications": [],
+      "lifestyle_activities": [
+        "quiet-rest"
+      ],
+      "interaction_menu": null,
+      "work_schedule": null,
+      "initial_inventory": {
+        "home": {
+          "milk": 2.0
+        }
+      }
+    }
+  ],
+  "map_dataset": {
+    "path": "artificial-map/dataset.json",
+    "sha256": "46494e3817e875bc5ca01b284d9b7cc07f8f96cba10242155e6a6d111d71b96a",
+    "dataset_id": "artificial-test-map",
+    "version": 1
+  },
+  "locations": [
+    {
+      "location_id": "home"
+    }
+  ],
+  "interaction_menus_by_location_kind": {
+    "home": {
+      "allowed_actions": [
+        "browse",
+        "call",
+        "chat",
+        "consume",
+        "do",
+        "play",
+        "purchase",
+        "read",
+        "sleep",
+        "travel_to",
+        "wait",
+        "watch",
+        "work"
+      ]
+    }
+  },
+  "products": [
+    {
+      "product_id": "milk"
+    }
+  ],
+  "supplies": [],
+  "tasks": [],
+  "messages": [],
+  "contents": [
+    {
+      "item_id": "test-content",
+      "title": "人工测试内容",
+      "kind": "subtitle_experience",
+      "duration_seconds": 600,
+      "timeline_path": "content/test.srt",
+      "timeline_sha256": "24351c56d170060418c5485860deb7805a91dd3ad1991070763a973e3f9f4c9e",
+      "entertainment_relief_per_hour": 0.2,
+      "experience_label": "Human-authored test content"
+    }
+  ],
+  "games": [],
+  "calendar": {
+    "spring_festival_dates": [],
+    "makeup_work_dates": [],
+    "overtime_opportunity_dates": [],
+    "sick_leave_date": "2026-02-01",
+    "personal_leave_date": "2026-02-02",
+    "social_dinner_date": "2026-02-03"
+  }
+}

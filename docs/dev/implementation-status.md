@@ -16,13 +16,24 @@
 | 可核对内容 | 当前证据与判定边界 |
 | --- | --- |
 | 全部冻结契约 | `tests/fixtures/layering-acceptance.json` 将十五个主题映射到实际非跳过测试；`tests/test_layering_acceptance.py` 完整性守卫 |
-| 完整日行为不变 | `tests/fixtures/dayrun-layering-baseline.json` 保存改造前同输入重复两次的相同签名；改造后完整日必须实际执行并比对 |
+| 完整日行为不变 | 两份分层与共享规则历史基线保存原始签名；当前结构 6 的完整日执行原有业务断言，并逐字段核对实际存储与导出，重建时间线核对全文；不宣称新旧格式输出摘要相同 |
 | 原有源码变异不丢失 | `tests/fixtures/mutation-symbol-baseline.json` 保存原有 147 项改造前变异字节；新定位后的生成器需逐项相同，基线与杀死结果仍须实际执行 |
 | 当前文档唯一归属 | 五项已验收增量并入所属正文与 CONTRACTS；历史规格、实施与执行证据在 `docs/archive/` 保留，当前引用由完整文档门禁失败关闭 |
 | 实测工程结果 | 以本次统一全量入口回执、覆盖率、文档与汇编门禁及独立审查为准，当前尚未宣称全部通过 |
 
 当前追溯见 [规格与实际测试](ANALYSIS-spec-coverage.md#analysis-spec-coverage-规格测试用例覆盖率追溯矩阵)。
 真实十二周、三次隔离盲评与 LabelKit 完整自然日交付仍为 NOT-COMPLETE；归档不改变真实复验、配对全天复跑与 strict 端点探针的原状态。
+
+<a name="implementation-status-idle-fillers"></a>
+## 让「等待」成为例外开发状态
+
+[冻结规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)的班次与休息时段起止唤醒、
+系统层第 7、14、15、16 条与零点计划模板第三、五、六条已分别随远端提交 `1e4af0a`、`725a741`、`4a9c049` 实施。
+本次整合保留这些行为与逐字合同，当前场景结构因环境归属为 6，正式环境从显式数据仓路径加载。
+旧阶段 4 的第三份旧格式完整日夹具计划未执行；当前完整日沿用环境归属的真实存储、完整导出、原始哈希与时间线全文核验，
+两份历史证明及签名实现保持原字节。阶段 5 的完整收口与配对全天复跑未取得本次完成证据，不能以阶段 1–3 代替。
+本次全量与覆盖率须核对整合后实际源码、测试和外部输入的收据；
+[跨平台完整日提案](PROPOSAL_2026-10-05_CROSS_PLATFORM_DAY_BASELINE.md)仍为未冻结、未实施方案，历史平台取证不作为当前平台放行。
 
 
 <a name="implementation-status-共享规则与可重建环境开发状态"></a>
@@ -39,7 +50,7 @@ macOS 实际新克隆重建为 387 passed；Ubuntu x86_64 为 387 passed，另�
 Windows 尚未取得成功证据，完整平台放行未完成。
 实现文件清单、源码摘要、命令与各次被测提交统一登记于该记录。
 下文旧特性的发布版本、AS2 身份、全量数字与跳过计数均保留当时源码身份；
-现行目录为 5.4，AS2 来源与摘要按共享规则规格及 SERIES；合并后证据须重新测量。
+正式目录版本由数据仓的发布清单定义，AS2 来源与摘要按共享规则规格及 SERIES；合并后证据须重新测量。
 
 <a name="implementation-status-个人事务与工作安排开发状态"></a>
 ## 个人事务与工作安排开发状态
@@ -439,7 +450,8 @@ $ uv run pytest -q
 | `ErrandState` | `errand_id`、`name`、`outcome`、`product_id`、`quantity`、`progress`、`memo`、`registered_at`、`remind_at`、`reminded_at`、`origin_action_id`、`origin_event_id` |
 | 观察事件（不属世界状态） | 待办层增 `errands`，私有绑定增 `errand_bindings`（未完成事务）与 `errand_item_bindings`（全部商品名到商品身份），均列入提示禁键 |
 
-生活场景同一特性升为结构 5：人物配置增必填可空的 `work_schedule` 与可选的 `leave_work_window`、`arrive_home_window`，结构 4 的场景按版本拒绝；`catalog_version` 不变。
+生活场景在个人事务与工作安排特性发布时升为结构 5：人物配置增必填可空的 `work_schedule` 与可选的 `leave_work_window`、`arrive_home_window`，结构 4 的场景按版本拒绝；`catalog_version` 不变。
+当前因[环境数据归属规格](SPEC-environment-data-ownership.md)使用场景结构 6；结构 5 的旧输入同样拒绝，具体环境从显式的数据仓路径加载。
 
 7→8 的结构变化如下，字段名以 `src/worldmock/life/models.py` 为准，合同见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「领域枚举」节的版本 8 表，逐字段说明见 `docs/design/09-io-formats.md#io-formats-worldmock-产品设计说明书-输入输出格式`「3.1 WorldState（世界状态）」「3.2 AgentState（人物状态）」「3.4 ActivityState（活动状态）」：
 

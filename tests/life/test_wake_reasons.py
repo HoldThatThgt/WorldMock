@@ -1,5 +1,7 @@
 """环境事件、承诺威胁与双重估间隔的精确边界合同。"""
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
 from dataclasses import replace
 from datetime import datetime
@@ -390,7 +392,7 @@ def test_checkpoint_restore_does_not_redeliver_same_task_warning(engine_factory)
     assert checkpoint.checkpoint_id
     run_dir = engine.context.store.run_dir
     engine.close()
-    restored = LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), run_dir)
+    restored = LifeEngine.open(ENVIRONMENT_ROOT / "scenarios/single-person.json", run_dir)
     try:
         assert _task_warning_ids(restored.context.state.agents[1]) == {task.task_id}
         wake_by_mail(restored, offset=60)
@@ -771,7 +773,7 @@ def _wake_at(engine, moment: int, name: str) -> list[str]:
 def test_report_anchor_moves_on_start_report_and_resume_and_paused_activity_never_reports(tmp_path):
     """播报锚点在开始、对该活动播报与恢复时写入当前时刻，暂停不动锚点；progress_report_due 只由进行中活动距其锚点
     满间隔触发，暂停的活动不再播报（第八章「活动」，第七章「播报与控制都作用于活动」）。"""
-    engine = _custom_engine("white-collar-12-weeks.json", _report_every_ten_minutes, tmp_path, "report-anchor")
+    engine = _custom_engine("single-person.json", _report_every_ten_minutes, tmp_path, "report-anchor")
     try:
         stage_day_plan(engine)
         start = engine.context.state.current_time
@@ -812,7 +814,7 @@ def test_report_anchor_moves_on_start_report_and_resume_and_paused_activity_neve
 def test_sleeping_person_gets_no_progress_report_wakeups(tmp_path):
     """睡眠是进行中活动，播报锚点照常到期，但睡眠中的边界不因 progress_report_due 提供决策；醒来时睡眠已结束待收尾，
     也不再为它播报（第八章「活动」，第一章不变项）。"""
-    engine = _custom_engine("white-collar-12-weeks.json", _report_every_ten_minutes, tmp_path, "report-sleep")
+    engine = _custom_engine("single-person.json", _report_every_ten_minutes, tmp_path, "report-sleep")
     try:
         stage_day_plan(engine)
         start = engine.context.state.current_time

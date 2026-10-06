@@ -1,5 +1,7 @@
 """动机候选必须服从具体门店、真实营业与可达性事实。"""
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 from dataclasses import replace
 
 import pytest
@@ -104,7 +106,7 @@ def test_lifestyle_candidates_use_current_explicit_location_environments():
     jogging = next(item for item in context.lifestyle_items if item.activity_id == "jogging")
     context = replace(context, body=context.body.model_copy(update={
         "activity_met": {**context.body.activity_met, "lifestyle:jogging": jogging.met_value}}))
-    transforms = load_motivation_transforms("catalog/rules")
+    transforms = load_motivation_transforms(ENVIRONMENT_ROOT / "catalog/rules")
     assert any(item.candidate.family == "lifestyle" for item in evaluate_motivation(
         context, _profile(), transforms, top_k=30))
     indoors = replace(context, locations={"home": _location("home").model_copy(

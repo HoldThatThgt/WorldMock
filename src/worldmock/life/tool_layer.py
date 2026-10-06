@@ -13,7 +13,7 @@ import logging
 from dataclasses import dataclass, replace
 from typing import Any
 
-from worldmock.catalog.affordances import default_affordances
+from worldmock.catalog.affordances import engine_affordances
 from worldmock.categories import Action
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life import activity_control, admission, giving, same_moment, social, social_actions
@@ -23,7 +23,7 @@ from worldmock.life.basket import (delivery_expected_at, held_quantity, meal_por
 from worldmock.life.category_contract import require_item_rules
 from worldmock.life.content import restarts_from_beginning
 from worldmock.life.control_items import CONTROL_TOOLS
-from worldmock.life.durations import derived_activity_duration
+from worldmock.life.durations import content_remaining_seconds, derived_activity_duration
 from worldmock.life.discovery import DiscoveryContext, place_row
 from worldmock.life.guidance import Refusal, refusal_for_code, rejection_guidance
 from worldmock.life.vocabulary import GIVE_WAY
@@ -412,6 +412,11 @@ def _action_facts(context: LayerContext, row: dict, action: dict) -> dict:
         held = agent.inventory.get(row.get("location_id") or agent.location_id, {}).get(product.product_id, 0)
         portion, seconds = meal_portion(product, action["use_mode"], held)
         return {**facts, "duration": duration_phrase(seconds), "quantity": portion_phrase(portion)}
+    if canonical == "watch":
+        item = context.rules.content(row["object_id"])
+        progress = context.state.agents[context.agent_id].content_progress.get(item.item_id)
+        seconds = content_remaining_seconds(item, progress)
+        return {**facts, "duration": duration_phrase(seconds)}
     seconds = _facts_seconds(context, row, action)
     return {**facts, "duration": duration_phrase(seconds) if seconds is not None and seconds >= 60 else None}
 
@@ -419,7 +424,7 @@ def _action_facts(context: LayerContext, row: dict, action: dict) -> dict:
 def _travel_facts(context: LayerContext, row: dict, action: dict) -> dict:
     """@brief 出行的路费（免费不写）、按出发时刻折算的时长与费力程度。"""
     route, seconds = _route(context, row["object_id"], action["travel_mode"])
-    key = default_affordances().met_lookup_key("travel", travel_mode=action["travel_mode"])
+    key = engine_affordances().met_lookup_key("travel", travel_mode=action["travel_mode"])
     effort = route_effort(context.semantics.body.activity_met[key])
     return {"price": money_phrase(route.fare_fen) if route.fare_fen > 0 else None,
             "duration": duration_phrase(seconds), "note": f"费力程度：{effort}"}

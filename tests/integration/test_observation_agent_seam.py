@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import copy
 import os
 import json
@@ -234,7 +236,7 @@ async def test_real_game_observation_starts_visible_game_and_restores_activity(_
     engine.checkpoint({"agent:1": reference})
     run_dir = engine.context.store.run_dir
     engine.close()
-    restored = LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), run_dir)
+    restored = LifeEngine.open(ENVIRONMENT_ROOT / "scenarios/single-person.json", run_dir)
     try:
         assert restored.context.state.activities[activity.activity_id].target_id == game["object_id"]
         visible = restored.observations._observation_data(restored.context.state.agents[1])
@@ -293,7 +295,7 @@ async def test_native_goal_tools_persist_empty_revision_progress_and_restore(_en
     assert checkpoint.last_event_seq > 0
     run_dir = engine.context.store.run_dir
     engine.close()
-    restored = LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), run_dir)
+    restored = LifeEngine.open(ENVIRONMENT_ROOT / "scenarios/single-person.json", run_dir)
     try:
         assert restored.context.state.agents[1].day_plan.model_dump(mode="json") == expected
         observation, _, restored_tools = await _agent_action(

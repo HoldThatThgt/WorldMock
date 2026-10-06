@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import copy
 import hashlib
 import json
@@ -46,7 +48,7 @@ def _write_json(path, value):
 def _restricted_engine(tmp_path):
     """@brief 复制正式冻结输入并声明进入资格，所有哈希按真实准入重新钉扎。"""
     corpus = tmp_path / "corpora"
-    shutil.copytree(ROOT / "corpora", corpus)
+    shutil.copytree(ENVIRONMENT_ROOT / "corpora", corpus)
     places_path = corpus / "zhangjiang-map/locations.json"
     places = json.loads(places_path.read_text(encoding="utf-8"))
     restricted = next(item for item in places["locations"] if item["location_id"] == STORE)
@@ -63,13 +65,13 @@ def _restricted_engine(tmp_path):
             path = corpus / entry["path"]
             entry.update(sha256=hashlib.sha256(path.read_bytes()).hexdigest(), size_bytes=path.stat().st_size)
     manifest_sha = _write_json(manifest_path, manifest)
-    document = _document("white-collar-12-weeks.json")
+    document = _document("single-person.json")
     document.update(start_at="2026-01-05T08:00:00+08:00", corpus_root="../corpora",
                     corpus_manifest_sha256=manifest_sha)
     document["map_dataset"]["sha256"] = dataset_sha
     scenarios = tmp_path / "scenarios"
     scenarios.mkdir()
-    shutil.copytree(ROOT / "catalog", tmp_path / "catalog")
+    shutil.copytree(ENVIRONMENT_ROOT / "catalog", tmp_path / "catalog")
     path = scenarios / "restricted.json"
     _write_json(path, document)
     return LifeEngine.create(path, tmp_path / "run-arrival", _identity(document, "restricted-arrival"))
@@ -92,7 +94,7 @@ def arrival_engine(tmp_path, request):
                 "stock": 0, "due_at": "2026-01-05T08:01:00+08:00", "source": _source()}]
 
     engine = (_restricted_engine(tmp_path) if case == "access" else
-              _custom_engine("white-collar-12-weeks.json", configure, tmp_path, run_id="arrival"))
+              _custom_engine("single-person.json", configure, tmp_path, run_id="arrival"))
     stage_day_plan(engine)
     if case == "closed":
         staged = engine.context.state.model_copy(deep=True)

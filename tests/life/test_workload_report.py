@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import argparse
 import importlib
 import json
@@ -24,7 +26,7 @@ from worldmock.evaluation.workload_metrics import workday_inputs, workday_report
 from worldmock.profile.models import persona_card_struct
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCENARIO_NAME = "white-collar-12-weeks.json"
+SCENARIO_NAME = "single-person.json"
 #: 人物 1 的运行工作区没有结构化卡片时子命令追加的说明（与行为评估的报告说明同为中文）。
 MISSING_CARD_NOTE = "人物 1 的运行工作区没有结构化卡片，作息窗口按 null 计"
 #: 子命令输出的四个键（规格 6.2「产出入口」）。
@@ -98,7 +100,7 @@ def test_workday_command_rejects_a_scenario_that_is_not_the_runs_scenario(engine
     engine = engine_factory(mutate=declare())
     engine.close()
     run_dir = tmp_path / "run-0"
-    result = _workday(run_dir, REPO_ROOT / "scenarios" / SCENARIO_NAME)
+    result = _workday(run_dir, ENVIRONMENT_ROOT / "scenarios" / SCENARIO_NAME)
     assert result.returncode != 0
     assert result.stdout == ""
     assert result.stderr.strip() == "Scenario file does not match the run manifest scenario_sha256"
@@ -170,7 +172,7 @@ def test_workday_command_reads_each_persons_own_workspace_card(engine_factory, t
     打印四键，每次只为没有卡片的那一个人物写一条「没有结构化卡片」的说明。"""
     engine = engine_factory("multi-person.json")
     engine.close()
-    run_dir, scenario = tmp_path / "run-0", REPO_ROOT / "scenarios" / "multi-person.json"
+    run_dir, scenario = tmp_path / "run-0", ENVIRONMENT_ROOT / "scenarios" / "multi-person.json"
     for holder, missing in ((2, 1), (1, 2)):
         _only_card_holder(run_dir, holder, (1, 2))
         result = _workday(run_dir, scenario)

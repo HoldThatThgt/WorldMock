@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import copy
 import os
 from datetime import datetime
@@ -25,7 +27,7 @@ from worldmock.runtime import _require_runtime_identity
 from worldmock.run_setup import validate_stage_model_identity
 from tests.integration.as2_fixtures import use_fake_as2
 
-_SCENARIO = Path("scenarios/white-collar-12-weeks.json")
+_SCENARIO = ENVIRONMENT_ROOT / "scenarios/single-person.json"
 
 
 @pytest.mark.parametrize("field,expected", [("transport_max_retries", 3), ("max_react_turns", 16)])

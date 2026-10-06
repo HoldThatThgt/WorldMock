@@ -1,5 +1,0 @@
-1
-00:00:00,000 --> 01:30:00,000
-《Microsoft Flight Simulator》（2020）Simulation/Flight｜单局典型时长 90 分钟
-开发商：Asobo Studio
-游戏简介：以卫星与航拍数据重建地球的飞行模拟，从起飞爬升到仪表进近的每个环节都拟真到苛刻。

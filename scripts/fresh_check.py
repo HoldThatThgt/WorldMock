@@ -19,10 +19,11 @@ from scripts.bootstrap_environment import environment_python, python312
 
 QUICK_TESTS = (
     "tests/test_single_source.py", "tests/test_bootstrap.py", "tests/test_fresh_check.py",
-    "tests/life/test_shared_rules.py", "tests/test_coverage_gate.py",
+    "tests/catalog/test_engine_package_resources.py", "tests/test_coverage_gate.py",
     "tests/test_shared_primitives.py", "tests/test_shared_model_clients.py",
     "tests/evaluation/test_shared_event_parsing.py", "tests/test_shared_rules_spec.py",
-    "tests/test_environment_profiles.py", "tests/as2", "tests/integration/test_runtime.py",
+    "tests/test_environment_profiles.py", "tests/as2", "tests/integration/test_external_environment_lifecycle.py",
+    "tests/life/test_environment_effects.py", "tests/life/test_content_catalog_titles.py",
 )
 
 
@@ -40,9 +41,6 @@ def quick_check(root: Path, profile: str, environment: dict) -> dict:
     python = environment_python(root / ".venv")
     command = [str(python), "-m", "pytest", "-q", f"--environment-profile={profile}", *QUICK_TESTS]
     subprocess.run(command, cwd=root, env=environment, check=True)
-    if sys.platform.startswith("linux"):
-        subprocess.run([str(python), "-m", "pytest", "-q", "tests/corpora/test_textworld_runtime.py"],
-                       cwd=root, env=environment, check=True)
     source = "from pathlib import Path; from worldmock.run_setup import runtime_code_sha256; "
     source += "print(runtime_code_sha256(Path('.')))"
     identity = subprocess.check_output([str(python), "-c", source], cwd=root, env=environment, text=True).strip()

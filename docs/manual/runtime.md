@@ -6,6 +6,8 @@
 
 准备模型凭据、选择场景和新输出目录后，就能启动自己的生活模拟。
 本页也说明恢复已有运行和编写反事实干预文件的方法。
+命令均在 WorldMock 根目录执行，显式使用同一父目录下 WorldMock-Dataset 发布的环境。
+数据采集与制作按数据仓说明执行，WorldMock 安装与导入不要求源码仓中有正式环境数据。
 
 [返回手册](README.md#readme-用户配置手册) · [生活场景](scenarios.md#scenarios-生活场景) · [数据生成](delivery.md#delivery-自定义训练数据交付)
 
@@ -58,7 +60,21 @@ Ray 的子进程需要它加载原生模块。`worldmock validate` 会在独立�
 执行相同引导、源码身份核对与固定快速检查。Windows 必须通过跨平台核心与重建检查，TextWorld 语料验收在 Linux x86_64 必跑；
 两者共同组成完整环境放行，任何跳过、xfail 或缺失证据都不能报完整通过。
 测试统一由 `python scripts/run_tests.py --tier fast|standard|full --workers 4` 执行，集合按[分层与测试层次规格](../dev/SPEC-layering-and-test-tiers.md#layering-tiers)定义。
-覆盖率门禁使用环境 Python 执行 `python scripts/coverage_gate.py --shards 4`，不要求 uv；`--shards` 映射同一 full runner 的 worker 数。
+引擎最小端到端固定使用人工夹具 `tests/fixtures/environment/`；正式来源、数量与重建验收在 Dataset 执行。
+完整行为回归针对发布环境执行时须显式选择路径，不能沿用旧正式环境的测试收据：
+
+```bash
+python scripts/run_tests.py --tier full --workers 4 \
+  --environment-root ../WorldMock-Dataset/environment/zhangjiang-baseline
+```
+完整发布环境的覆盖率门禁使用相同显式路径，并绑定外部环境的实际字节摘要：
+
+```bash
+python scripts/coverage_gate.py --shards 4 \
+  --environment-root ../WorldMock-Dataset/environment/zhangjiang-baseline
+```
+
+不要求 uv；`--shards` 映射同一 full runner 的 worker 数。
 `--from-json` 只接受同一运行身份下的完整收集、worker 选择和完成回执及其覆盖摘要；
 全量节点三阶段必须完整且全部 passed，重复、跳过、旧绿色证据或输入字节变化均不能通过。
 
@@ -139,10 +155,10 @@ flowchart LR
 
 ```bash
 worldmock validate \
-  --scenario scenarios/my-persona-day.json \
-  --coverage-out /tmp/my-persona-day-coverage.json
+  --scenario ../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-persona-day.json \
+  --coverage-out .work/my-persona-day-coverage.json
 worldmock run \
-  --scenario scenarios/my-persona-day.json \
+  --scenario ../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-persona-day.json \
   --output runs/my-persona-day
 worldmock status --run-dir runs/my-persona-day
 ```
@@ -183,7 +199,7 @@ worldmock export \
 
 ```bash
 worldmock resume \
-  --scenario scenarios/my-persona-day.json \
+  --scenario ../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-persona-day.json \
   --parent runs/my-persona-day \
   --checkpoint CHECKPOINT_ID \
   --output runs/my-persona-day-resumed
@@ -227,7 +243,7 @@ python - <<'PY'
 from pathlib import Path
 from worldmock.life.models import CounterfactualIntervention
 
-item = CounterfactualIntervention.model_validate_json(Path("/tmp/my-intervention.json").read_text())
+item = CounterfactualIntervention.model_validate_json(Path(".work/my-intervention.json").read_text(encoding="utf-8"))
 print(item.kind, item.agent_id)
 PY
 ```
@@ -236,10 +252,10 @@ PY
 
 ```bash
 worldmock replay \
-  --scenario scenarios/my-persona-day.json \
+  --scenario ../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-persona-day.json \
   --parent runs/my-persona-day \
   --checkpoint CHECKPOINT_ID \
-  --intervention /tmp/my-intervention.json \
+  --intervention .work/my-intervention.json \
   --output runs/my-persona-day-lower-balance
 ```
 

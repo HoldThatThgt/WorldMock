@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import pytest
 
-from worldmock.catalog.affordances import default_affordances
+from worldmock.catalog.affordances import engine_affordances
 from worldmock.errors import BusinessRuleError
 from worldmock.life.activities import activity_factors, advance_activity_shared, shared_activity_factors
 from worldmock.life.body import ActivityFactors, last_flows, settle_shared_body
@@ -16,7 +18,7 @@ from worldmock.life.social_actions import advance_social_shared, social_activity
 
 def test_shared_settlement_truncates_overdrawn_activity_sets_at_zero() -> None:
     """共同结算对任何活动集合都以 0 截断：步行加等待的成本超过余额时只扣掉余额，不报错。"""
-    config = load_scenario("scenarios/white-collar-12-weeks.json")[0].body
+    config = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0].body
     walking = config.activity_met["travel:walking"]
     last_flows()
     body = BodyState(energy_kcal=5, entertainment_need=0.3)
@@ -32,7 +34,7 @@ def test_shared_settlement_truncates_overdrawn_activity_sets_at_zero() -> None:
 def _active(kind: ActivityKind, now: int, duration: int = 60) -> ActivityState:
     """构造直接公共进度接口所需的有效活动；占用取第五章占用表（交谈、通话占说与听，其余按注册表）。"""
     social = kind in {ActivityKind.CHAT, ActivityKind.CALL}
-    claims = set(SOCIAL_RESOURCE_CLAIMS) if social else set(default_affordances().resource_claims(kind.value))
+    claims = set(SOCIAL_RESOURCE_CLAIMS) if social else set(engine_affordances().resource_claims(kind.value))
     return ActivityState(activity_id=f"activity-{kind.value}", agent_id=1,
                          location_id="home", kind=kind,
                          status=ActivityStatus.ACTIVE, started_at=now, planned_end_at=now + duration,

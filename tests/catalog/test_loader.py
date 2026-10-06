@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from tests.categories.conftest import raw_object
+from tests.catalog.admission_fixtures import category_requirements
 from worldmock.categories import compute_catalog_identity, refresh_manifest_identity
 from worldmock.catalog import CategoryError, load_catalog, load_object_declarations
 
@@ -147,14 +148,13 @@ def test_affordances_changes_catalog_content_identity(catalog_dir: Path) -> None
 
 
 def _prepare_identity_dependencies(catalog_dir: Path) -> None:
-    """@brief 用真实时长规则和完整素材要求建立当前算法可加载的身份基线。"""
+    """@brief 用人工时长规则和品类要求建立真实加载器可接受的身份基线。"""
     travel_path = catalog_dir / "rules/travel-time.toml"
     travel_path.parent.mkdir(exist_ok=True)
-    travel_path.write_bytes(Path("catalog/rules/travel-time.toml").read_bytes())
+    travel_path.write_text("version = 1\n[factors]\nwalking = 1.0\n", encoding="utf-8")
     manifest_path = catalog_dir / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["category_requirements"] = json.loads(
-        Path("catalog/manifest.json").read_text(encoding="utf-8"))["category_requirements"]
+    manifest["category_requirements"] = category_requirements()
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     refresh_manifest_identity(catalog_dir)
 

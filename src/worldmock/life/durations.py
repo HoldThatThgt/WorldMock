@@ -16,12 +16,17 @@ def capped_duration_seconds(duration: int) -> int:
     return min(duration, DERIVED_DURATION_CAP_SECONDS)
 
 
-def content_duration_seconds(item: Any, progress: ContentProgress | None) -> int:
-    """@brief 内容已看完或剩余不足一分钟时从头，否则使用剩余时长，再按一般活动上限受理。"""
+def content_remaining_seconds(item: Any, progress: ContentProgress | None) -> int:
+    """@brief 计算重启或续看的内容时长并封顶一天，呈现可说明不足一分钟的真实内容。"""
     position = progress.position_seconds if progress is not None else 0
     duration = item.duration_seconds if restarts_from_beginning(position, item.duration_seconds) else (
         item.duration_seconds - position)
-    return capped_duration_seconds(int(duration))
+    return min(int(duration), DERIVED_DURATION_CAP_SECONDS)
+
+
+def content_duration_seconds(item: Any, progress: ContentProgress | None) -> int:
+    """@brief 内容的受理计划复用呈现时长，仍拒绝不足一分钟的活动。"""
+    return capped_duration_seconds(content_remaining_seconds(item, progress))
 
 
 def derived_activity_duration(kind: ActivityKind, agent: AgentState, item: Any, feedback_seconds: int) -> int:

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import math
 from dataclasses import replace
-from pathlib import Path
 from types import MappingProxyType
 
 import pytest
@@ -18,29 +19,23 @@ from worldmock.life import semantics as semantics_module
 from worldmock.life.semantics import ScenarioSemantics, assemble_semantics
 from worldmock.life.travel_time import parse_travel_time_profile
 
-_CATALOG = Path("catalog")
-_SCENARIOS = (Path("scenarios/multi-person.json"), Path("scenarios/white-collar-12-weeks.json"))
+_CATALOG = (ENVIRONMENT_ROOT / "catalog")
+_SCENARIO = ENVIRONMENT_ROOT / "scenarios/single-person.json"
 
 
 @pytest.fixture(scope="module")
 def semantics() -> ScenarioSemantics:
     """组装正式十二周场景作为共享夹具。"""
-    document, _ = parse_scenario_document(_SCENARIOS[1])
-    return assemble_semantics(document, load_catalog(_CATALOG), load_map_dataset(Path("corpora"), document.map_dataset))
+    document, _ = parse_scenario_document(_SCENARIO)
+    return assemble_semantics(document, load_catalog(_CATALOG), load_map_dataset((ENVIRONMENT_ROOT / "corpora"), document.map_dataset))
 
 
-def test_travel_fare_rule_reproduces_every_frozen_route(semantics) -> None:
-    """闭集 walking/driving 费率逐条复现全部冻结报价。"""
-    for path in _SCENARIOS:
-        document, _ = parse_scenario_document(path)
-        dataset = load_map_dataset(Path("corpora"), document.map_dataset)
-        for route in dataset.routes:
-            if route.mode == TravelMode.WALKING:
-                expected = 0
-            else:
-                expected = max(500, math.ceil(route.distance_meters * 0.2))
-            assert semantics.travel_fare(route.mode.value, route.distance_meters) == expected
-            assert route.fare_fen == expected
+@pytest.mark.parametrize("distance", [0, 1250, 2500, 2501, 5000])
+@pytest.mark.parametrize("mode", [TravelMode.WALKING, TravelMode.DRIVING])
+def test_travel_fare_rule_applies_distance_rounding_and_minimum(semantics, distance, mode) -> None:
+    """步行固定免费，驾车闭集算子按距离舍入并执行最低费用边界。"""
+    expected = 0 if mode == TravelMode.WALKING else max(500, math.ceil(distance * 0.2))
+    assert semantics.travel_fare(mode.value, distance) == expected
 
 
 def test_contract_math_matches_the_engine_settlement(semantics) -> None:
@@ -69,31 +64,32 @@ def test_energy_thresholds_come_from_catalog_alert_rules(semantics) -> None:
 
 
 def test_products_and_supplies_resolve_their_separate_responsibilities(semantics) -> None:
-    """商品保留热量与使用效果；独立供给声明价格、库存与具体卖方。"""
-    milk = next(item for item in semantics.scenario.products
-                if item.product_id == "food-6923644266066")
-    umbrella = next(item for item in semantics.scenario.products
-                    if item.product_id == "item-umbrella")
-    supplies = {item.product_id: item for item in semantics.scenario.supplies if item.location_id == "market"}
-    assert supplies[milk.product_id].quotes[0].price_fen == 690 and milk.energy_kcal_per_unit == 185
-    assert supplies[milk.product_id].seller_account_id == "merchant:grocery"
-    assert supplies[umbrella.product_id].quotes[0].price_fen == 4022 and umbrella.energy_kcal_per_unit == 0
-    assert supplies[umbrella.product_id].seller_account_id == "merchant:grocery"
-    assert umbrella.effect == "weather_protection"
-    assert supplies[milk.product_id].quotes[0].price_version == "supply-market-food-6923644266066:seed-20260105:v1"
-    assert not {"price_fen", "merchant_account_id", "initial_stock"} & type(milk).model_fields.keys()
+    """商品的使用语义来自目录，独立供给的卖方、报价和库存来自所选地图。"""
+    for product in semantics.scenario.products:
+        original = semantics.catalog.objects[product.product_id]
+        sources = [edge for edge in original.edges if edge.on == "consume" and edge.resource == "energy_kcal"]
+        assert product.energy_kcal_per_unit == (sources[0].amount if sources else 0)
+        assert (product.effect, product.consumable, product.use_modes) == (
+            original.effect, original.consumable, original.use_modes)
+        assert not {"price_fen", "merchant_account_id", "initial_stock"} & type(product).model_fields.keys()
+    selected = {item.supply_id: item.initial_stock for item in semantics.document.supplies}
+    original_supplies = {item.supply_id: item for item in semantics.scenario.map_dataset.supplies}
+    for supply in semantics.scenario.supplies:
+        original = original_supplies[supply.supply_id]
+        assert (supply.product_id, supply.seller_account_id, supply.quotes) == (
+            original.product_id, original.seller_account_id, original.quotes)
+        stock = selected[supply.supply_id]
+        assert supply.initial_stock == (original.initial_stock if stock is None else stock)
 
 
 def test_ledger_accounts_exclude_the_external_anchor(semantics) -> None:
     """运行账本包含服务与人物账户，外部锚点只做守恒吸收。"""
-    assert "external:scenario" not in semantics.accounts
-    assert semantics.accounts["agent:1"] == 800000
-    assert semantics.accounts["employer:zhangjiang"] == 4000000
-    # 正餐供给明确绑定餐饮账户，独立门店可以复用同一个业务角色。
-    assert semantics.accounts["merchant:restaurant"] == 10000000
-    assert set(semantics.accounts) == {
-        "agent:1", "merchant:grocery", "merchant:general", "merchant:restaurant",
-        "employer:zhangjiang", "transport:service", "merchant:haode", "merchant:nonggongshang"}
+    anchors = {item.account_id for item in semantics.document.accounts if item.role == "external:scenario"}
+    assert anchors and anchors.isdisjoint(semantics.accounts)
+    expected = {item.account_id: item.money_fen for item in semantics.document.accounts
+                if item.account_id not in anchors}
+    expected.update({f"agent:{item.agent_id}": item.initial_balance_fen for item in semantics.document.agents})
+    assert dict(semantics.accounts) == expected
 
 
 def _drifted_catalog(semantics: ScenarioSemantics, mutate) -> Catalog:
@@ -158,7 +154,8 @@ def test_arbitrary_expression_evaluator_is_removed(semantics) -> None:
 def test_admission_refs_cover_accounts_and_objects(semantics) -> None:
     """准入引用包含对象闭集与角色账户绑定。"""
     refs = semantics.refs
-    assert (refs.catalog_major, refs.catalog_minor) == (5, 4)
+    assert (refs.catalog_major, refs.catalog_minor) == (
+        semantics.catalog.version_major, semantics.catalog.version_minor)
     roles = {account.role for account in refs.accounts}
     assert {"buyer", "traveler", "worker", "merchant:grocery", "merchant:general",
             "employer:zhangjiang", "transport:service", "external:scenario"} <= roles

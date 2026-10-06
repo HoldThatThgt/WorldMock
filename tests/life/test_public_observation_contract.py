@@ -17,7 +17,7 @@ _LAYERS = ("tool_layer", "todo_layer", "environment_layer", "memory_layer", "pro
 
 
 @pytest.mark.parametrize("scenario_name", [
-    "white-collar-12-weeks.json", "multi-person.json", "multi-person-half-day.json",
+    "single-person.json", "multi-person.json", "multi-person-half-day.json",
 ])
 def test_real_observation_uses_readable_objects_and_private_bindings(engine_factory, scenario_name: str) -> None:
     """@brief 人物只见工具层的可读目标；引擎在同一观察里保留独立的身份绑定。

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import pytest
 
 from worldmock.life.activities import (
@@ -35,7 +37,7 @@ from worldmock.life.world_setup import load_scenario
 @pytest.fixture(scope="module")
 def body_config():
     """读取正式场景中已经冻结的身体与工作工具参数。"""
-    return load_scenario("scenarios/white-collar-12-weeks.json")[0].body
+    return load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0].body
 
 
 def _agent(skill: float = 0.8, *, notes: bool = False, need: float = 0.5) -> AgentState:

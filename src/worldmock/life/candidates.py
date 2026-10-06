@@ -42,7 +42,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from worldmock.catalog.affordances import default_affordances
+from worldmock.catalog.affordances import engine_affordances
 from worldmock.footprints.models import sha256_json
 from worldmock.life.models import ActivityKind, DERIVED_DURATION_CAP_SECONDS
 from worldmock.life.scenario import LocationConfig
@@ -487,7 +487,7 @@ def _enabled_reason(entry: CandidateEntry, inputs: CandidateInputs) -> Exclusion
 def _resource_reason(entry: CandidateEntry, inputs: CandidateInputs) -> ExclusionReason | None:
     """@brief 候选与全部 ACTIVE 活动按同一注册表的显式占用交集判定（内容条目按内容品类的条件占用）。"""
     kind = CANDIDATE_ACTIVITY_KINDS[entry.kind]
-    claims = default_affordances().resource_claims(kind.value, content_kind=entry.content_kind)
+    claims = engine_affordances().resource_claims(kind.value, content_kind=entry.content_kind)
     return "ELIGIBILITY_RESOURCE_CONFLICT" if claims & inputs.occupied_resources else None
 
 

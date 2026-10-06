@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+from tests.frozen_inputs import relative_corpus
+
 import json
 import hashlib
 import shutil
@@ -24,7 +27,7 @@ from worldmock.life.models import (
 )
 from worldmock.life.scenario import parse_scenario_document
 
-_SCENARIO = Path("scenarios/white-collar-12-weeks.json")
+_SCENARIO = ENVIRONMENT_ROOT / "scenarios/single-person.json"
 _INPUT_CATEGORY = "durable-sealed"
 _OUTPUT_CATEGORY = "durable-opened"
 _INPUT_OBJECT = "sealed-item"
@@ -186,13 +189,12 @@ def _fixture(tmp_path: Path, *, input_state: str = "defined",
     root = tmp_path / "fixture"
     catalog_dir = root / "catalog"
     scenarios_dir = root / "scenarios"
-    shutil.copytree("catalog", catalog_dir)
+    shutil.copytree(ENVIRONMENT_ROOT / "catalog", catalog_dir)
     scenarios_dir.mkdir(parents=True)
     _add_recipe_catalog(catalog_dir, input_state, output_state, maximum, coefficient)
     refresh_manifest_identity(catalog_dir)
     scenario = _read_json(_SCENARIO)
     scenario["scenario_id"] = f"category-runtime-{input_state}-{output_state}-{held}-{output_held}"
-    scenario["corpus_root"] = str(Path("corpora").resolve())
     inventory = {_INPUT_OBJECT: held}
     if output_held:
         inventory[_OUTPUT_OBJECT] = output_held
@@ -208,7 +210,7 @@ def _fixture(tmp_path: Path, *, input_state: str = "defined",
 def _isolate_inventory_map(root: Path, scenario: dict) -> None:
     """隔离库存对象扩大目录时，门店仍显式选择原发布集合，不伪造新增可售库存。"""
     corpus = root / "corpora"
-    shutil.copytree("corpora", corpus)
+    shutil.copytree(ENVIRONMENT_ROOT / "corpora", corpus)
     dataset_path = corpus / scenario["map_dataset"]["path"]
     dataset = _read_json(dataset_path)
     supplies = _read_json(corpus / dataset["supplies_file"]["path"])["supplies"]
@@ -229,18 +231,19 @@ def _isolate_inventory_map(root: Path, scenario: dict) -> None:
             source = corpus / entry["path"]
             entry.update(sha256=hashlib.sha256(source.read_bytes()).hexdigest(), size_bytes=source.stat().st_size)
     _write_json(manifest_path, manifest)
-    scenario.update(corpus_root=str(corpus), corpus_manifest_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest())
+    scenario.update(corpus_root=relative_corpus(corpus, root / "scenarios"),
+                    corpus_manifest_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest())
 
 def _formal_fixture(tmp_path: Path) -> tuple[Path, Path, dict]:
     """复制正式目录和场景，供启动前门禁变异测试。"""
     root = tmp_path / "formal-fixture"
     catalog_dir = root / "catalog"
     scenario_dir = root / "scenarios"
-    shutil.copytree("catalog", catalog_dir)
+    shutil.copytree(ENVIRONMENT_ROOT / "catalog", catalog_dir)
     scenario_dir.mkdir(parents=True)
     scenario = _read_json(_SCENARIO)
     scenario["scenario_id"] = f"category-admission-{tmp_path.name}"
-    scenario["corpus_root"] = str(Path("corpora").resolve())
+    scenario["corpus_root"] = relative_corpus(ENVIRONMENT_ROOT / "corpora", scenario_dir)
     path = scenario_dir / "scenario.json"
     _write_json(path, scenario)
     return path, catalog_dir, scenario
@@ -263,7 +266,7 @@ def _scenario_source() -> dict:
 def _replace_map_file(root: Path, scenario: dict, kind: str, rows: list[dict]) -> None:
     """复制真实地图语料，修改隔离文件并刷新内容身份。"""
     corpus = root / "corpora"
-    shutil.copytree("corpora", corpus)
+    shutil.copytree(ENVIRONMENT_ROOT / "corpora", corpus)
     relative = f"zhangjiang-map/{kind}.json"
     data_path = corpus / relative
     _write_json(data_path, {"schema_version": MAP_SCHEMA_VERSION, kind: rows})
@@ -281,7 +284,8 @@ def _replace_map_file(root: Path, scenario: dict, kind: str, rows: list[dict]) -
             target = corpus / entry["path"]
             entry.update(sha256=hashlib.sha256(target.read_bytes()).hexdigest(), size_bytes=target.stat().st_size)
     _write_json(manifest_path, manifest)
-    scenario.update(corpus_root=str(corpus), corpus_manifest_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest())
+    scenario.update(corpus_root=relative_corpus(corpus, root / "scenarios"),
+                    corpus_manifest_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest())
 
 
 def _isolate_hidden_product(catalog_dir: Path, contract: dict, scenario: dict) -> str:
@@ -298,8 +302,8 @@ def _isolate_hidden_product(catalog_dir: Path, contract: dict, scenario: dict) -
             item["category_id"] = category_id
     assert [item["object_id"] for item in objects if item["category_id"] == category_id] == [product["product_id"]]
     objects_path.write_text("".join(json.dumps(item) + "\n" for item in objects))
-    dataset = _read_json(Path("corpora") / scenario["map_dataset"]["path"])
-    supplies = _read_json(Path("corpora") / dataset["supplies_file"]["path"])["supplies"]
+    dataset = _read_json((ENVIRONMENT_ROOT / "corpora") / scenario["map_dataset"]["path"])
+    supplies = _read_json((ENVIRONMENT_ROOT / "corpora") / dataset["supplies_file"]["path"])["supplies"]
     targets = {item["supply_id"] for item in supplies if item["product_id"] == product["product_id"]}
     for item in scenario["supplies"]:
         item["initial_stock"] = 0 if item["supply_id"] in targets else 1

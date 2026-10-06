@@ -42,7 +42,7 @@ FacetName = Literal["genre", "language", "duration_bucket"]
 FACET_NAMES: tuple[FacetName, ...] = ("genre", "language", "duration_bucket")
 
 #: 地点类取值取自生活活动地点类的单一封闭集（docs/CONTRACTS.md#contracts-worldmock-接口合同「地点类词表」）。
-#: 与 `catalog/affordances.toml`、`corpora/lifestyle/enrichment.json` 三处逐值一致。
+#: 引擎包 `worldmock.data` 的 `affordances.toml` 定义闭集，环境素材仅声明其中的地点类。
 LOCATION_KINDS: tuple[str, ...] = ("home", "office", "outdoor", "fitness", "venue", "anywhere")
 
 #: 恒可行的地点类：声明它表示该条目在任意地点均可受理。

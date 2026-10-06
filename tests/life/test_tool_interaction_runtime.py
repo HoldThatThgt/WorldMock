@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
 from copy import deepcopy
 from dataclasses import replace
@@ -27,7 +29,7 @@ from tests.life.conftest import context, stage_day_plan
 
 
 def _document():
-    return json.loads(Path("scenarios/multi-person.json").read_text(encoding="utf-8"))
+    return json.loads((ENVIRONMENT_ROOT / "scenarios/multi-person.json").read_text(encoding="utf-8"))
 
 
 def _agent(agent_id=1):
@@ -285,7 +287,7 @@ def test_memo_and_appointment_survive_persistent_reopen(engine_factory, tmp_path
     expected = rejected_today(SimpleNamespace(state=engine.context.state, scenario=engine.context.scenario, agent_id=1), engine.context.store)
     run_directory = engine.context.store.run_dir
     engine.close()
-    scenario_path = tmp_path / "scenario-0" / "scenarios" / "white-collar-12-weeks.json"
+    scenario_path = tmp_path / "scenario-0" / "scenarios" / "single-person.json"
     reopened = LifeEngine.open(scenario_path, run_directory)
     try:
         observed = reopened.observe(context(reopened, "reopened-memo"))

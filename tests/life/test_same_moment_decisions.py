@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
 from collections import Counter
 from pathlib import Path
@@ -35,7 +37,7 @@ from worldmock.life.scenario import LifeScenario
 from worldmock.life.world_setup import load_scenario
 from worldmock.life.schedule import WakeSnapshot, evaluate_wake_reasons
 
-_FORMAL = Path("scenarios/white-collar-12-weeks.json")
+_FORMAL = ENVIRONMENT_ROOT / "scenarios/single-person.json"
 _RESTRICTED = "SAME_MOMENT_ACTION_RESTRICTED"
 _RESTRICTED_REASON = "This same-moment stage only accepts its offered action types."
 
@@ -306,7 +308,7 @@ def test_feedback_interval_60_bounds_same_second_rounds(tmp_path) -> None:
         """@brief 等待的计划时长取最小的结算间隔。"""
         document["activity_feedback_seconds"] = 60
 
-    engine = _custom_engine("white-collar-12-weeks.json", feedback_60, tmp_path, "feedback-60")
+    engine = _custom_engine("single-person.json", feedback_60, tmp_path, "feedback-60")
     try:
         stage_day_plan(engine)
         limit = engine.context.scenario.max_same_moment_decisions
@@ -462,7 +464,7 @@ def _short_intervals(document: dict) -> None:
 
 def test_first_decision_includes_reconsideration_candidate(tmp_path) -> None:
     """首次决策（从未决策过）即含重估候选；重估候选恒为本次决策时刻加间隔（规则 7）。"""
-    engine = _custom_engine("white-collar-12-weeks.json", _short_intervals, tmp_path, "reconsider")
+    engine = _custom_engine("single-person.json", _short_intervals, tmp_path, "reconsider")
     try:
         stage_day_plan(engine)
         assert engine.context.state.agents[1].last_decision_time is None
@@ -484,7 +486,7 @@ def test_first_decision_includes_reconsideration_candidate(tmp_path) -> None:
 
 def test_idle_interval_only_while_waiting_without_commitments(tmp_path) -> None:
     """只在等待且没有其他在手承诺时用空闲重估间隔；有可见未完成任务时用常规间隔。"""
-    engine = _custom_engine("white-collar-12-weeks.json", _short_intervals, tmp_path, "idle-interval")
+    engine = _custom_engine("single-person.json", _short_intervals, tmp_path, "idle-interval")
     try:
         stage_day_plan(engine)
         start = engine.context.state.current_time
@@ -512,7 +514,7 @@ def _game_intervals(document: dict) -> None:
 
 def test_game_start_follows_decision_rhythm(tmp_path) -> None:
     """开始游戏后下一决策按决策节律（规则 7）：重估与播报候选照常，不被游戏的计划结束取代。"""
-    engine = _custom_engine("white-collar-12-weeks.json", _game_intervals, tmp_path, "game-rhythm")
+    engine = _custom_engine("single-person.json", _game_intervals, tmp_path, "game-rhythm")
     try:
         stage_day_plan(engine)
         observed = engine.observe(context(engine, "game-rhythm-preview"))
@@ -567,7 +569,7 @@ def test_motivation_internal_survives_parameter_swap(engine_factory) -> None:
 
 def test_scenario_with_max_consecutive_rejections_is_rejected(tmp_path) -> None:
     """含旧键 max_consecutive_rejections 的场景按未知字段拒绝（场景参数）。"""
-    document = _document("white-collar-12-weeks.json")
+    document = _document("single-person.json")
     assert "max_consecutive_rejections" not in document
     assert LifeScenario.model_validate(document).max_same_moment_decisions == 3
     document["max_consecutive_rejections"] = 10

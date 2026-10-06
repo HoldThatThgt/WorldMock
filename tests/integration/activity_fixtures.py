@@ -1,6 +1,6 @@
 """活动集合的明确测试数据构造，不修改任何真实引擎输出。"""
 
-from worldmock.catalog.affordances import default_affordances
+from worldmock.catalog.affordances import engine_affordances
 from worldmock.life.social import SOCIAL_RESOURCE_CLAIMS
 
 
@@ -12,8 +12,8 @@ def occupied_resources(rows: list[dict]) -> list[str]:
         kind = row["kind"]
         if kind in {"chat", "call"}:
             claims.update(SOCIAL_RESOURCE_CLAIMS)
-        elif kind in default_affordances().kinds:
-            claims.update(default_affordances().resource_claims(kind, row.get("travel_mode"), row.get("content_kind")))
+        elif kind in engine_affordances().kinds:
+            claims.update(engine_affordances().resource_claims(kind, row.get("travel_mode"), row.get("content_kind")))
     return sorted(claims)
 
 

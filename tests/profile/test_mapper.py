@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from importlib.resources import files
+
 import pytest
 
 from worldmock.profile.mapper import (
@@ -73,10 +75,10 @@ def test_extremes_stay_in_bounds():
             map_world_dynamics(make_big_five(**scores), config).model_dump())
 
 
-def test_default_config_resolves_repo_rules_file():
-    from worldmock.profile.mapper import default_mapping_path
-    path = default_mapping_path()
-    assert path.name == "persona-mapping.toml" and path.is_file()
+def test_default_config_reads_packaged_rules():
+    """@brief 默认动力学规则作为引擎包资源发布。"""
+    resource = files("worldmock.data").joinpath("persona-mapping.toml")
+    assert resource.name == "persona-mapping.toml" and resource.is_file()
     config = load_mapping_config()
     assert config["version"] == 2
     assert {"sleep_need_hours", "chronotype_midsleep"} <= set(config["defaults"])
@@ -96,8 +98,7 @@ def test_config_validation_rejects_missing_or_wrong_sections(tmp_path):
 def test_config_rejects_wrong_dynamics_field_set(tmp_path):
     """@brief [world_dynamics] 键集必须精确等于八参数清单：少 section 即断言失败。"""
     import re
-    from worldmock.profile.mapper import default_mapping_path
-    full = default_mapping_path().read_text(encoding="utf-8")
+    full = files("worldmock.data").joinpath("persona-mapping.toml").read_text(encoding="utf-8")
     partial = tmp_path / "partial.toml"
     partial.write_text(
         re.sub(r"\[world_dynamics\.present_preference\][^\[]*", "", full),
@@ -108,8 +109,7 @@ def test_config_rejects_wrong_dynamics_field_set(tmp_path):
 
 def test_config_rejects_unknown_dimension_slope(tmp_path):
     """@brief slope 键必须命名大五维度：拼错维度名加载期失败。"""
-    from worldmock.profile.mapper import default_mapping_path
-    full = default_mapping_path().read_text(encoding="utf-8")
+    full = files("worldmock.data").joinpath("persona-mapping.toml").read_text(encoding="utf-8")
     tampered = tmp_path / "tampered.toml"
     tampered.write_text(full.replace("slope_neuroticism = 0.4",
                                      "slope_neuroticism = 0.4\nslope_greed = 0.1", 1),

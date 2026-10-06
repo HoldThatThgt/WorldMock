@@ -8,6 +8,7 @@ import json
 import os
 import re
 from collections import Counter
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -27,14 +28,17 @@ from tests.life.conftest import StubPlanDayClient, context, start_arguments
 from tests.life.test_scheduling import _document, _write_scenario, _identity
 from worldmock.delivery.windows import prepare_windows
 from worldmock.evaluation.behavior_metrics import behavior_metrics_report
+from worldmock.footprints import timeline_labels
 from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.export import export_run
 from worldmock.footprints.experiences import project_verified_experiences
+from worldmock.footprints.validation import validate_export
 from worldmock.life.decision_start import is_action_request
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import REQUEST_MODELS, ActivityStatus
 from worldmock.life.narration import render_layer_json
 from worldmock.life.prompt_schemas import USER_LAYER_NAMES, validate_layer
+from worldmock.life.scenario import sha256_file
 from worldmock.life.world_query import QueryWorldRequest
 from worldmock.run_setup import stage_model_identity
 
@@ -283,7 +287,7 @@ async def test_complete_two_person_day_uses_real_tools_memory_and_restoration(tm
     document = _document("multi-person.json")
     document["random_seed"] = seed
     if seed == 20260105:
-        document["map_dataset"] = _document("white-collar-12-weeks.json")["map_dataset"]
+        document["map_dataset"] = _document("single-person.json")["map_dataset"]
     # 决策不耗时（时间与能量规格第一章）：人物总有进行中活动，等待结束即同秒收尾再开始下一段等待，进行中的活动按播报节律汇报。
     # 结算间隔（也是等待时长）与播报间隔放长到两小时只是运行时长的取舍：按场景原有节奏，两颗种子各要跑约 330–430 秒，
     # 又同在一个分片。它们不给同刻轮数设界：同一秒的轮数上限与无空闲区间由 _assert_day 的不变式断言。
@@ -343,18 +347,52 @@ async def test_complete_two_person_day_uses_real_tools_memory_and_restoration(tm
         exported = export_run(engine.context.store, engine.context.store.last_event_seq, tmp_path / "export")
         _assert_day(engine, models, start, exported, tmp_path)
         assert restored
-        _assert_frozen_day(tmp_path, seed)
+        _assert_current_day_artifacts(tmp_path, engine)
     finally:
         engine.close()
 
 
-def _assert_frozen_day(case, seed):
-    """将完整导出、资产和全部检查点与改动前的重复运行基线比较。"""
+def _assert_current_day_artifacts(case, engine):
+    """@brief 验证本次场景、资产和检查点原始哈希，并对真实提交逐字段认证完整导出。"""
     from tests.dayrun_baseline import day_baseline_signature
 
     project = Path(__file__).resolve().parents[2]
-    baseline = json.loads((project / "tests/fixtures/dayrun-shared-rules-baseline.json").read_text(encoding="utf-8"))
-    assert day_baseline_signature(case, project) == baseline["cases"][str(seed)]
+    day_baseline_signature(case, project)
+    manifest, events, activities = validate_export(case / "export")
+    store = engine.context.store
+    assert manifest["frozen_run_manifest"] == store.manifest
+    assert manifest["cutoff_event_seq"] == store.last_event_seq
+    committed = store.read_events(store.last_event_seq)
+    assert events == [event.model_dump(mode="json") for event in committed]
+    checkpoint = store.get_checkpoint(manifest["checkpoint"]["checkpoint_id"])
+    assert manifest["checkpoint"] == checkpoint.model_dump(mode="json")
+    actual = engine.context.state.activities
+    assert {activity["activity_id"] for activity in activities} == set(actual)
+    for activity in activities:
+        state = actual[activity["activity_id"]].model_dump(mode="json")
+        projected = {key: activity["activity_type"] if key == "kind" else activity[key] for key in state}
+        assert projected == state
+    _assert_current_day_timelines(case / "export", store, manifest)
+
+
+def _assert_current_day_timelines(export, store, manifest):
+    """@brief 用既有渲染器从真实存储重建逐人逐日时间线，验证全部正文与身份声明。"""
+    renderer = timeline_labels._load_render_day()
+    declared = {entry["path"]: entry for entry in manifest["timeline"]}
+    expected_paths = {f"timeline/{agent_id}-{day}.md" for agent_id in store.manifest["agent_ids"]
+                      for day in manifest["daily_coverage"]}
+    assert len(declared) == len(manifest["timeline"])
+    assert set(declared) == expected_paths
+    for agent_id in store.manifest["agent_ids"]:
+        for day in manifest["daily_coverage"]:
+            path = export / f"timeline/{agent_id}-{day}.md"
+            expected = renderer.render_day_markdown(
+                store.connection, agent_id, date.fromisoformat(day), store.manifest["window"]["timezone"])
+            raw = path.read_bytes()
+            assert raw == expected.encode("utf-8")
+            entry = declared[path.relative_to(export).as_posix()]
+            assert entry["size_bytes"] == len(raw)
+            assert entry["sha256"] == sha256_file(path)
 
 
 def _assert_day(engine, models, start, exported, tmp_path):

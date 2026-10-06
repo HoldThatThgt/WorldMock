@@ -21,7 +21,7 @@ import hashlib
 import logging
 from dataclasses import replace
 from datetime import datetime
-from pathlib import Path
+from importlib.resources import files
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -943,17 +943,16 @@ def _validate_plan_goals(goals: Any, progressed_intents: tuple[str, ...]) -> str
 
 
 def affordance_registry_sha256() -> str:
-    """@brief 返回仓库默认可供性注册表文件的 SHA-256（工具面审计指纹输入）。"""
+    """@brief 返回引擎包内可供性注册表原始字节的 SHA-256（工具面审计指纹输入）。"""
 
-    root = Path(__file__).resolve().parents[2]
     return hashlib.sha256(
-        (root / "catalog" / AFFORDANCES_FILE).read_bytes()).hexdigest()
+        files("worldmock.data").joinpath(AFFORDANCES_FILE).read_bytes()).hexdigest()
 
 
 def life_tool_schema_sha256() -> str:
     """@brief 返回正式生活决策闭集工具 Schema + 注册表摘要的稳定 SHA-256。
 
-    原生工具整次运行不变（不绑定逐轮枚举），指纹另绑定 affordances.toml 字节摘要，确保内容目录与工具面一起留证。
+    原生工具整次运行不变（不绑定逐轮枚举），指纹另绑定包内 affordances.toml 字节摘要，确保引擎规则与工具面一起留证。
     """
     schemas = [_tool_schema(name, _TOOL_MODELS[name]) for name in _TOOL_MODELS]
     encoded = json.dumps(

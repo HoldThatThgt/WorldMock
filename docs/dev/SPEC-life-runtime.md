@@ -23,12 +23,21 @@
 品类继承、有向三态配对、闭集金额计算、使用完成时的库存转换与运行内容身份由
 [品类契约规格](SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格)统一定义；这些规则接入本规格已有的动作、活动与提交路径。
 
+当前环境归属按[环境数据归属规格](SPEC-environment-data-ownership.md)执行：具体 `corpora/`、`catalog/`、`scenarios/`
+及制作工具由 WorldMock-Dataset 维护，正式环境为 `environment/zhangjiang-baseline/`；通用活动、动机与人物映射
+由 WorldMock 包资源提供，环境冻结副本须逐字节一致。当前场景结构为 `6`，单人物文件为 `single-person.json`。
+本文中的新环境放行须另核对本次收据，历史验收数字不证明当前组合已经通过。
+
 <a name="spec-life-runtime-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
 
 按[共享规则与可重建环境规格](SPEC-shared-rules-and-rebuildable-env.md)修订；验收结果独立记录。
 
 资源效率曲线由目录和生活模型共同读取有限非负约束；缓解预估与实际结算读取同一速率。工具清单和受理使用相同活动时长推导，邮件头与社交资源分录共用实现；身体睡眠判定不启用 sleep_channel。
+
+内容标题直接投影场景 `contents[].title`，不再读取来源专属标题目录。生活活动从实际 `corpus_root`
+读取必填不可变 `effects`，键恰为 `entertainment`、`social`、`health`，值为有限数值 0–1。候选预演使用条目效果，
+启动复制到 `ActivityState.data["effects"]`；推进与恢复只读冻结值，缺失记录错误并拒绝，不回查全局文件。
 
 <a name="spec-life-runtime-状态归属与生命周期"></a>
 ## 状态归属与生命周期
@@ -768,7 +777,7 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 ### 资金与合同
 
 币种、账户初始余额、合同实例金额与工作机会时长、交通服务账户和路线实例由 `docs/EXPERIMENT.md#experiment-worldmock-实验设置`「场景参数」章说明。
-品类费率、计酬槽位与算法统一由 `catalog/exchange-rules.json` 的闭集规则定义，行为归[品类契约规格](SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格)。
+品类费率、计酬槽位与算法统一由 环境 `../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/exchange-rules.json` 的闭集规则定义，行为归[品类契约规格](SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格)。
 本节判定资金结算行为：
 
 - 计时与计件两类合同都按实际合格产出结算，交付通过验收是付款条件
@@ -1383,9 +1392,9 @@ AS2 调度已支持同刻多轮：`society.step` 在有人就绪时执行决策�
   （`src/worldmock/life/schedule.py`）。此后 `commitment_threatened` 只来自
   临近截止与临近闭店。随之无用的 `RhythmInputs.recovery_kinds` 与 `engine.recovery_kinds`（`src/worldmock/life/engine.py`）一并删除。
 - 删除可供性字段 `energy_projection`、派生出的 `energy_limit_kinds`，以及观察合同键 `energy_projection`（`src/worldmock/life/engine.py`，
-  合同键由六个改为五个）。注册表用同一个键闭集校验场景目录副本，所以本仓库的 `catalog/affordances.toml` 与数据集副本
-  要同批更新，并刷新目录清单；按目录自身约定（`catalog/affordances.toml:9`「修改即 catalog_version 级变更」）升
-  `catalog_version`，三份仓库场景与数据集场景同步（裁决 #25）。
+  合同键由六个改为五个）。注册表用同一个键闭集校验场景目录副本；当前唯一来源为
+  `src/worldmock/data/affordances.toml`，Dataset 构建器据此生成冻结副本并刷新目录清单，
+  按实际内容发布环境版本，场景钉定其真实身份（原裁决 #25 的行为要求保留，归属按环境数据规格更新）。
 - 删除暂停控制行的 `minimum_energy_cost_kcal`、`resume_energy_feasible`（`src/worldmock/life/observe.py`）；删除候选排除理由
   `ELIGIBILITY_ENERGY_INSUFFICIENT`（`candidates.py` 的 `_energy_reason`，生产路径不会触发）；删除无调用方的
   `_remaining_activity_energy`（`src/worldmock/life/engine.py`）；删除闸门移除后无人调用的共同能量预测：`activities` 的
@@ -1549,7 +1558,7 @@ items 不合法、项数越界或目标重复（`to` 也相同），改报 `ACTI
 **占用**（裁决 #23）。准入保留注册表显式声明的占用交集判定（life-runtime「活动组合政策」的机制
 不变），只重列占用。占用名是内部声明：槽位闭集为 `src/worldmock/catalog/affordances.py` 的 `RESOURCE_CLAIM_SLOTS`
 ，各活动的占用写在
-`catalog/affordances.toml` 的 `resource_claims` 与 `src/worldmock/life/social.py::SOCIAL_RESOURCE_CLAIMS` 中。播客与其他观看同属
+`src/worldmock/data/affordances.toml` 的 `resource_claims` 与 `src/worldmock/life/social.py::SOCIAL_RESOURCE_CLAIMS` 中。播客与其他观看同属
 `watch`，改造前条件占用只接受 `mode:` 条件；当前由 `src/worldmock/catalog/affordances.py::_parse_resource_claims` 增加按内容类型的
 条件，`affordances.resource_claims` 与 `_expected_activity_claims`同步。暂停与终态释放占用，名额
 另计。表中未列的组合按此表判定。
@@ -1658,7 +1667,8 @@ items 不合法、项数越界或目标重复（`to` 也相同），改报 `ACTI
 不足一份也可以吃：份量取实际持有，时长为 max(60, round(整份时长 × 份量)) 秒，进食时长的校验按份量折算，工具层的数量、
 时长与热量同一口径（人物 Prompt 规格第五章「进食」）。按反馈间隔派生的活动（等待）不变。计划时长以人读形式写进工具层动作的
 `duration` 与受理结果的 `details.planned`。
-仓库正式场景（`scenarios/white-collar-12-weeks.json`、`multi-person.json`；`multi-person-half-day.json` 含其中两条）中的
+Dataset 发布环境 `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/` 的 `single-person.json`、`multi-person.json`
+（`multi-person-half-day.json` 含其中两条）的原始超长内容案例中
 段子流（138264 秒）、微博流（96759 秒）与 `novel-0003`（88324 秒）从头开始永远报 `ACTIVITY_DURATION_INVALID`，由此修复；
 练秋湖数据集场景没有超长内容。出行超过上限仍以 `ROUTE_DURATION_INVALID` 拒绝；非出行活动最短 60 秒；地点、截止时间仍须
 校验。`ACTIVITY_DURATION_INVALID` 与 `ROUTE_DURATION_INVALID` 一起写入接口合同「请求字段与结算检查」下新设的「活动受理

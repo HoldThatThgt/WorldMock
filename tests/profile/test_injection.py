@@ -7,6 +7,8 @@ BIZ 的冻结地图事实；游戏权重条目只按显式输入判定，与权�
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -37,7 +39,7 @@ from worldmock.profile.models import BigFiveProfile, HabitSignature, PersonaCard
 from worldmock.profile.taste import compute_taste_weights
 
 _FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "dayrun_fidelity_inputs.json"
-_SCENARIO = Path("scenarios/white-collar-12-weeks.json")
+_SCENARIO = ENVIRONMENT_ROOT / "scenarios/single-person.json"
 
 
 def _run(name: str) -> dict:

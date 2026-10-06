@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
 import copy
 import logging
@@ -12,7 +14,7 @@ import pytest
 
 import agentsociety2.config as agentsociety_config
 from agentsociety2.society import DirectToolCall
-from worldmock.catalog.affordances import default_affordances
+from worldmock.catalog.affordances import engine_affordances
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_pending, context,
                                  progress_calls, stage_day_plan, start_activity, submit_round, target_actions,
@@ -445,7 +447,7 @@ def _work_moment(engine, now: int, worked: int = 0, effective: float = 0.0):
             status="completed", started_at=now - worked, ended_at=now, planned_end_at=now, last_settled_at=now,
             elapsed_seconds=worked, planned_duration_seconds=worked, effective_work_seconds=effective,
             target_id=task.task_id, concluded_at=now,
-            resource_claims=set(default_affordances().resource_claims("work")),
+            resource_claims=set(engine_affordances().resource_claims("work")),
             origin_action_id="done-work", origin_decision_id="done-work-decision",
             origin_request_event_id="done-work-request")
         staged.activities[done.activity_id] = done
@@ -540,7 +542,7 @@ def _stage_second_task_ready(engine) -> None:
     staged = _completed_work_state(engine, hourly, 3600, hourly.required_effective_seconds)
     done = next(item for item in staged.activities.values() if item.target_id == hourly.task_id)
     staged.activities[done.activity_id] = done.model_copy(
-        update={"resource_claims": set(default_affordances().resource_claims("work"))})
+        update={"resource_claims": set(engine_affordances().resource_claims("work"))})
     now = staged.current_time
     staged.pending_events = [event for event in staged.pending_events if event.due_at > now]
     staged.agents[2] = staged.agents[2].model_copy(
@@ -652,10 +654,10 @@ def test_frozen_real_deepseek_responses_accept_paraphrase_and_reject_hallucinati
     """真实 DeepSeek 工具响应经过当前严格解析器保持正例通过、反例拒绝。"""
     fixture = json.loads(Path("tests/life/fixtures/work_review_deepseek_responses.json").read_text(
         encoding="utf-8"))
-    scenario, _ = load_scenario(Path("scenarios/white-collar-12-weeks.json"))
+    scenario, _ = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")
     task = scenario.tasks[0]
-    source = load_work_input(Path("corpora"), task)
-    oracle = load_work_oracle(Path("corpora"), task)
+    source = load_work_input((ENVIRONMENT_ROOT / "corpora"), task)
+    oracle = load_work_oracle((ENVIRONMENT_ROOT / "corpora"), task)
     observed = []
     for case in fixture["cases"]:
         request = SubmitWorkRequest(task_id=task.task_id, deliverable=_fixture_minutes(case))
@@ -673,13 +675,13 @@ def _prepared_review_and_raw_response():
     """从真实响应夹具和真实工作输入生成可走完整公开链的评审。"""
     fixture = json.loads(Path("tests/life/fixtures/work_review_deepseek_responses.json").read_text(
         encoding="utf-8"))
-    scenario, _ = load_scenario(Path("scenarios/white-collar-12-weeks.json"))
+    scenario, _ = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")
     task = scenario.tasks[0]
     case = fixture["cases"][0]
     request = SubmitWorkRequest(task_id=task.task_id, deliverable=_fixture_minutes(case))
     submission = WorkSubmission(
         task, None, request, WorkMetrics(60_000, 14_400, 14_400),
-        load_work_oracle(Path("corpora"), task), load_work_input(Path("corpora"), task))
+        load_work_oracle((ENVIRONMENT_ROOT / "corpora"), task), load_work_input((ENVIRONMENT_ROOT / "corpora"), task))
     return prepare_work_review(submission, fixture["model"]), copy.deepcopy(case["raw_response"])
 
 
@@ -821,7 +823,7 @@ def test_work_review_request_uses_required_strict_contract() -> None:
     """独立工作验收使用同一 beta strict 参数且本地保留数组非空硬约束。"""
     fixture = json.loads(Path("tests/life/fixtures/work_review_deepseek_responses.json").read_text(
         encoding="utf-8"))
-    scenario, _ = load_scenario(Path("scenarios/white-collar-12-weeks.json"))
+    scenario, _ = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")
     task = scenario.tasks[0]
     case = fixture["cases"][0]
     request = SubmitWorkRequest(
@@ -833,8 +835,8 @@ def test_work_review_request_uses_required_strict_contract() -> None:
         None,
         request,
         WorkMetrics(60_000, 14_400, 14_400),
-        load_work_oracle(Path("corpora"), task),
-        load_work_input(Path("corpora"), task),
+        load_work_oracle((ENVIRONMENT_ROOT / "corpora"), task),
+        load_work_input((ENVIRONMENT_ROOT / "corpora"), task),
     )
 
     prepared = prepare_work_review(submission, "deepseek-flash")

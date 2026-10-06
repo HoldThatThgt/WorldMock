@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
 import math
 from pathlib import Path
@@ -20,7 +22,7 @@ from worldmock.life.world_setup import load_scenario
 from worldmock.life.world_setup import load_runtime_scenario
 
 
-_FORMAL = Path("scenarios/white-collar-12-weeks.json")
+_FORMAL = ENVIRONMENT_ROOT / "scenarios/single-person.json"
 
 #: 契约默认值（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「场景常量」一节）。
 _CONTRACT_DEFAULTS = {
@@ -33,7 +35,7 @@ _CONTRACT_DEFAULTS = {
 #: 三个生活场景文档；evaluation.json 不是瘦身场景文档（由 worldmock.evaluation
 #: 的独立加载器读取，键集封闭且不含生活运行参数），因此不在此列。
 _LIFE_SCENARIOS = (
-    "white-collar-12-weeks.json",
+    "single-person.json",
     "multi-person.json",
     "multi-person-half-day.json",
 )
@@ -53,7 +55,7 @@ def _assert_invalid(payload: dict, message: str) -> None:
 @pytest.mark.parametrize("name", _LIFE_SCENARIOS)
 def test_candidate_constants_are_declared_in_every_life_scenario(name: str) -> None:
     """三份生活场景都能加载，且五个候选常量取到契约默认值与声明的阈值。"""
-    scenario, digest = load_scenario(Path("scenarios") / name)
+    scenario, digest = load_scenario((ENVIRONMENT_ROOT / "scenarios") / name)
 
     assert len(digest) == 64
     for field, expected in _CONTRACT_DEFAULTS.items():
@@ -69,12 +71,12 @@ def test_evaluation_scenario_is_not_a_life_scenario_document() -> None:
     窗口与抽样），既不经过 `load_scenario`，也不是 `LifeScenario`；把候选常量塞进
     去会同时破坏那个加载器与评估层的职责边界。
     """
-    evaluation = json.loads(Path("scenarios/evaluation.json").read_text(encoding="utf-8"))
+    evaluation = json.loads((ENVIRONMENT_ROOT / "scenarios/evaluation.json").read_text(encoding="utf-8"))
 
     assert "candidate_presentation_limit" not in evaluation
     assert "rotation_stale_seconds" not in evaluation
     with pytest.raises(IntegrityError, match="Scenario validation failed"):
-        load_scenario(Path("scenarios/evaluation.json"))
+        load_scenario(ENVIRONMENT_ROOT / "scenarios/evaluation.json")
 
 
 def test_candidate_constants_are_reachable_from_assembled_semantics() -> None:

@@ -7,6 +7,8 @@ LifeEngine.open）。恢复后的世界状态里事务逐字段相同，同一�
 """
 
 from __future__ import annotations
+
+from tests.data_paths import ENVIRONMENT_ROOT
 from worldmock.footprints.checkpoint import restore_branch
 
 import json
@@ -20,7 +22,7 @@ from tests.life.test_errand_reminder import moment
 from worldmock.life.engine import LifeEngine
 
 #: 单人白领场景（engine_factory 的缺省场景）。
-_SCENARIO = Path("scenarios/white-collar-12-weeks.json")
+_SCENARIO = ENVIRONMENT_ROOT / "scenarios/single-person.json"
 
 
 def _rendered(layer: dict) -> bytes:

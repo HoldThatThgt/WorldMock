@@ -203,7 +203,7 @@ def visible_object_labels(scenario: RuntimeScenario, corpus_root: Path) -> dict[
 
     名称写法与观察投影同一来源（object_labels）；内容与游戏标题、生活活动名称取自语料，与引擎运行时装载的是同一份。
     """
-    titles = load_content_titles(scenario.contents, corpus_root)
+    titles = load_content_titles(scenario.contents)
     lifestyle = load_lifestyle_items(corpus_root, scenario.body.activity_met)
     shared = _world_labels(scenario, titles)
     return {agent.agent_id: _group(shared + _agent_labels(scenario, agent, lifestyle)) for agent in scenario.agents}

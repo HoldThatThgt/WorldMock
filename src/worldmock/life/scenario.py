@@ -11,9 +11,9 @@ from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
-from worldmock.catalog.affordances import REFERENCEABLE_RESOURCES, default_affordances
+from worldmock.catalog.affordances import REFERENCEABLE_RESOURCES, engine_affordances
 from worldmock.errors import IntegrityError
 from worldmock.life.felt import APPETITE_STARVING_KCAL
 from worldmock.life.interaction_menu import InteractionMenu
@@ -178,7 +178,7 @@ class MotivationProfile(FrozenModel):
         # 注册表规则 6：画像注意力键集 == attention_required=true 键集，多键/少键
         # 均拒绝（取代动机采样侧 .get(kind, 0) 的静默缺省）；attention_required=false
         # 的品类（game_session/subtitle_experience）合法地不在键集内。
-        if set(self.attention_prior) != default_affordances().attention_required_kinds:
+        if set(self.attention_prior) != engine_affordances().attention_required_kinds:
             raise ValueError("motivation attention_prior keys must equal the registry attention_required kinds")
         return self
 
@@ -460,6 +460,7 @@ class ContentItemConfig(FrozenModel):
     """@brief 可接触内容及其真实时间轴。"""
 
     item_id: str = Field(min_length=1)
+    title: str = Field(min_length=1)
     kind: CONTENT_KINDS
     duration_seconds: int = Field(gt=0)
     timeline_path: str = Field(min_length=1)
@@ -468,6 +469,15 @@ class ContentItemConfig(FrozenModel):
     audio_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     entertainment_relief_per_hour: float = Field(ge=0, le=1)
     experience_label: str = Field(min_length=1)
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        """@brief 内容标题必须是当前环境声明的非空可读文本。"""
+        if not isinstance(value, str) or not value.strip():
+            logging.error("Content title must be a nonempty string")
+            raise ValueError("content title must be a nonempty string")
+        return value.strip()
 
     @model_validator(mode="after")
     def validate_audio(self) -> "ContentItemConfig":
@@ -622,7 +632,7 @@ class BodyInstanceConfig(FrozenModel):
 class LifeScenario(FrozenModel):
     """@brief 瘦身场景文档：实例数据与目录引用，静态语义全部来自目录。"""
 
-    schema_version: Literal[5]
+    schema_version: Literal[6]
     scenario_id: str = Field(min_length=1)
     timezone: str = Field(min_length=1)
     start_at: datetime
@@ -776,7 +786,7 @@ class RuntimeScenario(FrozenModel):
     领域模块（commerce/travel/work/rules/body）消费的全部静态语义都在此处。
     """
 
-    schema_version: Literal[5]
+    schema_version: Literal[6]
     scenario_id: str = Field(min_length=1)
     timezone: str = Field(min_length=1)
     start_at: datetime

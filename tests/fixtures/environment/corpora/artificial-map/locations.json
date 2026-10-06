@@ -1,0 +1,29 @@
+{
+  "schema_version": 3,
+  "locations": [
+    {
+      "location_id": "home",
+      "name": "Test Home",
+      "kind": "home",
+      "business_kind": "home",
+      "longitude": 0.5,
+      "latitude": 0.5,
+      "location_kinds": [
+        "home"
+      ],
+      "opening_calendars": [],
+      "required_qualifications": [],
+      "brand": null,
+      "source": {
+        "kind": "scenario",
+        "url": "fixture://environment",
+        "retrieved_at": "2026-01-01T00:00:00+08:00",
+        "license": "CC0-1.0",
+        "notice": "Artificial human-authored test data",
+        "fact_cutoff": "2026-01-01",
+        "applicability": "Engine tests only"
+      },
+      "affordances": {}
+    }
+  ]
+}

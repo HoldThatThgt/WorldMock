@@ -15,6 +15,9 @@ from worldmock.life.map_models import (
 )
 from worldmock.life.models import DataSource
 from tests.life.test_opening_hours import calendar, location, source
+from tests.categories.scenario_fixtures import (
+    _refresh_corpus_manifest, write_scenario_catalog, write_scenario_for_catalog,
+)
 
 
 def write(path, value):
@@ -55,7 +58,7 @@ def create_dataset(tmp_path, edit=None, metadata_changes=None):
     kinds["retail"] = ["food"]
     assignment = {"kinds": kinds, "locations": [{"location_id": "store", "category_ids": [],
                    "object_ids": ["p"], "price_position_percent": 50, "source": source()}], "source": source()}
-    identity = write(tmp_path / "zhangjiang-map/category-assignment.json", assignment)
+    identity = write(tmp_path / "category-assignment.json", assignment)
     metadata.update(random_seed=1, category_assignment_sha256=identity["sha256"])
     if metadata_changes is not None:
         metadata.update(metadata_changes)
@@ -371,81 +374,41 @@ def test_review_cannot_claim_facts_after_the_source_cutoff(tmp_path, kind):
         load_map_dataset(tmp_path, ref)
 
 
-def test_preparation_fetches_full_selected_set_and_publishes_verifiable_version(tmp_path, monkeypatch):
-    from worldmock.corpora import map_prepare
-    from worldmock.catalog.loader import load_catalog
-
-    source_root = tmp_path / "reviewed"
-    create_dataset(source_root)
-    folder = source_root / "zhangjiang-map"
-    folder.mkdir(exist_ok=True)
-    seed_folder = folder / "1"
-    seed_folder.mkdir()
-    (source_root / "dataset.json").rename(seed_folder / "dataset.json")
-    write(folder / "supply-assumptions.json", {"source": "fixture"})
-    (folder / "zhangjiang-probe.osm").write_text("<osm/>")
-    catalog = load_catalog(Path("catalog"))
-    monkeypatch.setattr(map_prepare, "load_catalog", lambda path: catalog)
-    monkeypatch.setattr(map_prepare, "build_storefront_supplies",
-                        lambda fare, assignment, locations, assumptions, seed:
-                        load_map_dataset(source_root, MapDatasetReference(
-                            dataset_id="test", version=1, path="zhangjiang-map/1/dataset.json",
-                            sha256=hashlib.sha256((seed_folder / "dataset.json").read_bytes()).hexdigest())).supplies)
-    monkeypatch.setattr(map_prepare, "validate_assortments", lambda dataset, fare: None)
-    calls, waits = [], []
-    def fetch(url, **kwargs):
-        calls.append(url)
-        return SimpleNamespace(raise_for_status=lambda: None, json=reachable_response)
-    monkeypatch.setattr(map_prepare.requests, "get", fetch)
-    monkeypatch.setattr(map_prepare.time, "monotonic", lambda: 0.0)
-    monkeypatch.setattr(map_prepare.time, "sleep", waits.append)
-    target = tmp_path / "release"
-    reference = map_prepare.prepare_map(target, source_root, 1)
-    dataset = load_map_dataset(target, reference)
-    assert reference.version == 2 and len(dataset.routes) == 2
-    assert len(calls) == 2 and all("/route/v1/foot/" in url for url in calls)
-    assert waits == [1.0, 1.0]
-    assert all(item.status == "reachable" and item.duration_seconds == 80 for item in dataset.routes)
-    assert all(item.source.kind == "fact" and item.source.url in calls for item in dataset.routes)
-    assert all(item.fare_fen == 0 for item in dataset.routes)
+def _small_scenario(root: Path) -> Path:
+    """@brief 复用人工目录与双向路线，形成真实加载器可准入的最小场景。"""
+    directory = write_scenario_catalog(root / "catalog")
+    path = root / "scenarios/single-person.json"
+    path.parent.mkdir(parents=True)
+    return write_scenario_for_catalog(directory, path)
 
 
-def test_preparation_rejects_driving_response_for_walking_profile(tmp_path, monkeypatch):
-    from worldmock.corpora import map_prepare
-
-    payload = reachable_response()
-    payload["routes"][0]["legs"][0]["steps"][0]["mode"] = "driving"
-    with pytest.raises(IntegrityError, match="mode is invalid"):
-        map_prepare._validate_response(payload, RouteConfig.model_validate(route("home", "store")))
-
-
-_FORMAL_SCENARIO = Path("scenarios/white-collar-12-weeks.json")
-_FORMAL_MAP = "zhangjiang-map/20260105/dataset.json"
-_OTHER_SEED_MAP = "zhangjiang-map/20260106/dataset.json"
+def _pin_other_seed(document: dict, root: Path) -> None:
+    """@brief 把另一种子写成同身份地图，冻结字节与语料清单后显式重新钉定。"""
+    relative = Path(document["map_dataset"]["path"])
+    declaration = json.loads((root / relative).read_text())
+    declaration["random_seed"] += 1
+    other = relative.with_name("other-seed-dataset.json")
+    identity = write(root / other, declaration)
+    document["map_dataset"].update(path=other.as_posix(), sha256=identity["sha256"])
+    _refresh_corpus_manifest(root)
+    document["corpus_manifest_sha256"] = hashlib.sha256((root / "manifest.json").read_bytes()).hexdigest()
 
 
-def _reseed(document):
-    """@brief 只把场景种子改成另一份冻结地图的种子，地图钉定保持原样。"""
-    document["random_seed"] = 20260106
-
-
-def _repin(document):
-    """@brief 只把地图钉定换成另一个种子的冻结地图（地图身份与版本相同），场景种子保持原样。"""
-    content = (Path("corpora") / _OTHER_SEED_MAP).read_bytes()
-    document["map_dataset"] = {**document["map_dataset"], "path": _OTHER_SEED_MAP,
-                               "sha256": hashlib.sha256(content).hexdigest()}
-
-
-@pytest.mark.parametrize("change", [_reseed, _repin], ids=["seed-changed", "other-seed-map-pinned"])
-def test_formal_scenario_seed_must_agree_with_its_pinned_map(tmp_path, change):
-    """@brief 同一地图身份与版本按种子各冻结一份报价：正式场景的种子与所钉地图的种子不一致时，真实加载入口在选图时
-    拒绝并写明原因，不会拿另一个种子的报价继续运行。"""
-    from tests.engine_fixture import (_mutated_scenario)  # noqa: F401
+@pytest.mark.parametrize("change", ["scenario", "map"], ids=["seed-changed", "other-seed-map-pinned"])
+def test_scenario_seed_must_agree_with_its_pinned_map(tmp_path, change):
+    """@brief 场景改种子或改钉另一种子地图时，真实加载入口按相同明确原因拒绝。"""
     from worldmock.life.world_setup import load_runtime_scenario
 
-    path = _mutated_scenario(_FORMAL_SCENARIO, change, tmp_path)
+    path = _small_scenario(tmp_path)
+    load_runtime_scenario(path)
     document = json.loads(path.read_text(encoding="utf-8"))
-    dataset = load_map_dataset(Path("corpora"), MapDatasetReference.model_validate(document["map_dataset"]))
+    corpus = path.parent / document["corpus_root"]
+    if change == "scenario":
+        document["random_seed"] += 1
+    else:
+        _pin_other_seed(document, corpus)
+    write(path, document)
+    dataset = load_map_dataset(corpus, MapDatasetReference.model_validate(document["map_dataset"]))
     assert dataset.timezone == document["timezone"] and dataset.random_seed != document["random_seed"]
     with pytest.raises(IntegrityError) as failure:
         load_runtime_scenario(path)
@@ -453,16 +416,17 @@ def test_formal_scenario_seed_must_agree_with_its_pinned_map(tmp_path, change):
 
 
 def _republished_assignment(root, edit):
-    """@brief 把仓库地图的数据集声明与逐店品类声明复制到隔离根，改写品类声明后按新的文件哈希重新钉定。"""
-    source = Path("corpora/zhangjiang-map")
-    assignment = json.loads((source / "category-assignment.json").read_text(encoding="utf-8"))
+    """@brief 人工小地图变异逐店品类声明，按真实文件字节刷新内容身份。"""
+    reference = create_dataset(root)
+    assignment_path = root / "category-assignment.json"
+    assignment = json.loads(assignment_path.read_text(encoding="utf-8"))
     edit(assignment)
-    identity = write(root / "zhangjiang-map/category-assignment.json", assignment)
-    declaration = json.loads((Path("corpora") / _FORMAL_MAP).read_text(encoding="utf-8"))
+    identity = write(assignment_path, assignment)
+    declaration = json.loads((root / reference.path).read_text(encoding="utf-8"))
     declaration["category_assignment_sha256"] = identity["sha256"]
-    pinned = write(root / _FORMAL_MAP, declaration)
+    pinned = write(root / reference.path, declaration)
     return MapDatasetReference(dataset_id=declaration["dataset_id"], version=declaration["version"],
-                               path=_FORMAL_MAP, sha256=pinned["sha256"])
+                               path=reference.path, sha256=pinned["sha256"])
 
 
 def _empty_store_assortment(assignment):

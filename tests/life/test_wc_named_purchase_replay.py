@@ -11,6 +11,8 @@ runs/2026-09-28-4a5b0e6-day）摘出：三次 start_activity 的原始请求（�
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
 import os
 from datetime import datetime
@@ -38,8 +40,8 @@ def wc_world(tmp_path_factory):
     """落了 WC 事实的隔离世界（语料、地图、目录与手机配置都按真实准入重新钉扎）。"""
     channel, goods = _FIXTURE["channel"], {row["name"]: row for row in _FIXTURE["goods"]}
     document = json.loads(SCENARIO.read_text(encoding="utf-8"))
-    dataset = json.loads((ROOT / "corpora" / document["map_dataset"]["path"]).read_text(encoding="utf-8"))
-    published = json.loads((ROOT / "corpora" / dataset["supplies_file"]["path"]).read_text(encoding="utf-8"))["supplies"]
+    dataset = json.loads((ENVIRONMENT_ROOT / "corpora" / document["map_dataset"]["path"]).read_text(encoding="utf-8"))
+    published = json.loads((ENVIRONMENT_ROOT / "corpora" / dataset["supplies_file"]["path"]).read_text(encoding="utf-8"))["supplies"]
     names = {product: name for name, product in _PRODUCTS.items()}
     # 所有同商品供给仅送到家，保持办公室没有可行替代候选的原始场景前提。
     supplies = {row["supply_id"]: {

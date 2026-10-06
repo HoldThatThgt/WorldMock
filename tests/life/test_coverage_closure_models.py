@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import logging
 from pathlib import Path
 from types import SimpleNamespace
@@ -121,7 +123,7 @@ def test_menu_resolution_fails_closed_on_a_damaged_runtime_view(
 
 def test_assembly_pairing_lookup_leaves_non_defined_pairings_to_admission() -> None:
     """组装期只解析 defined 配对：真实目录的未定义配对与无作用配对都返回空，且不查规则表。"""
-    catalog = load_catalog(Path("catalog"))
+    catalog = load_catalog((ENVIRONMENT_ROOT / "catalog"))
     defined = optional_defined_rule(catalog, "contract-hourly", Action.WORK_SETTLE)
     assert defined is not None and defined.match()["category_id"] == "contract-hourly"
     pairing = catalog.pairing(PERSON_CATEGORY_ID, "travel-service", Action.CONSUME_EAT)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 from pathlib import Path
 
 import pytest
@@ -84,7 +86,7 @@ def test_merged_selection_combines_one_order_or_one_meal_only():
 
 def test_scenario_menus_admit_only_current_start_actions():
     """场景菜单使用当前内部闭集，内容提交和消息发送是独立工具。"""
-    scenario, _ = load_scenario(Path("scenarios/white-collar-12-weeks.json"))
+    scenario, _ = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")
     for menu in scenario.interaction_menus_by_location_kind.values():
         assert set(menu.allowed_actions) <= START_ACTIVITY_ACTIONS
         assert {"wait", "sleep"} <= set(menu.allowed_actions)

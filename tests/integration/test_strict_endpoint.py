@@ -7,6 +7,8 @@ AS2 配置仍是主站即拒绝。父运行清单冻结在主站的运行，经�
 """
 
 from __future__ import annotations
+
+from tests.data_paths import ENVIRONMENT_ROOT
 import worldmock.run_setup as worldmock_run_setup_module
 
 import os
@@ -34,7 +36,7 @@ from worldmock.profile.models import HabitSignature, Tastes  # noqa: E402
 from worldmock.runtime import ResumeRequest, _prepare_resume  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
-SCENARIO = ROOT / "scenarios" / "white-collar-12-weeks.json"
+SCENARIO = ENVIRONMENT_ROOT / "scenarios" / "single-person.json"
 STRICT_ENDPOINT = "https://api.deepseek.com/beta"
 MAIN_SITE = "https://api.deepseek.com"
 #: 主站地址被阶段身份核对拒绝时的英文原因。

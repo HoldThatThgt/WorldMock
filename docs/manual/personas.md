@@ -1,6 +1,8 @@
 <a name="personas-人物画像"></a>
 # 人物画像
 
+本页命令以 WorldMock 为当前工作目录，场景输入显式位于 `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/`。
+
 > 2026-10-01：[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)已冻结并已实现；本手册描述当前程序实际读取的配置。
 > 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步个人事务与提醒的说明（阶段 2）。
 > 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步下班与到家作息、场景工作安排（阶段 3）。
@@ -10,7 +12,7 @@
 正式运行从生活场景的 `agents` 数组读取人物，主要正文是 `background_story`。
 可以用 UTF-8 文本文件单独起草，但场景没有 `persona_file` 或画像文件引用字段。
 
-[返回手册](README.md#readme-用户配置手册) · [完整白领场景](../../scenarios/white-collar-12-weeks.json)
+[返回手册](README.md#readme-用户配置手册) · 完整白领场景（`../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/single-person.json`）
 
 <a name="personas-写出一个能够生活的人"></a>
 ## 写出一个能够生活的人
@@ -196,11 +198,11 @@ python - <<'PY'
 import json
 from pathlib import Path
 
-scene = json.loads(Path("scenarios/my-persona-day.json").read_text(encoding="utf-8"))
-Path("/tmp/my-persona.txt").write_text(scene["agents"][0]["background_story"], encoding="utf-8")
+scene = json.loads(Path("../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-persona-day.json").read_text(encoding="utf-8"))
+Path(".work/my-persona.txt").write_text(scene["agents"][0]["background_story"], encoding="utf-8")
 PY
 worldmock profile compile \
-  --text /tmp/my-persona.txt --out /tmp/my-persona.compiled.json
+  --text .work/my-persona.txt --out .work/my-persona.compiled.json
 ```
 
 编译默认独立抽取三次，会调用模型。查看产物的 `persona_card_text`、`card` 和 `warnings`：
@@ -212,7 +214,7 @@ worldmock profile compile \
 需要进一步检查提取稳定性时运行：
 
 ```bash
-worldmock profile check --text /tmp/my-persona.txt
+worldmock profile check --text .work/my-persona.txt
 ```
 
 它执行三轮独立编译，每轮默认三次抽取，正常情况共九次模型请求，解析重试会增加调用量。
@@ -222,8 +224,8 @@ worldmock profile check --text /tmp/my-persona.txt
 
 ```bash
 worldmock profile validate \
-  --scenario scenarios/my-persona-day.json \
-  --coverage-out /tmp/my-persona-coverage.json
+  --scenario ../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-persona-day.json \
+  --coverage-out .work/my-persona-coverage.json
 ```
 
 这一步也会调用模型。可执行比例必须至少为 80%；失败时根据缺失项修改表达或补充世界素材，

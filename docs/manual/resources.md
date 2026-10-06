@@ -1,13 +1,14 @@
 <a name="resources-定义地点门店供给与世界素材"></a>
 # 定义地点、门店供给与世界素材
 
-> 更新日期：2026-10-05。工具交互已实现；当前目录 5.4、品类契约与规则绑定 3、场景结构 5、地图结构 3。
+> 更新日期：2026-10-05。当前场景结构 6、地图结构 3、品类契约与规则绑定 3；正式目录身份以 Dataset 环境清单为准。
 > 地图按场景种子分别冻结完整供给，商品价格范围和真实料理输入输出均参与加载与行为校验。
-> 合同以[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)为准，世界结构 9、场景结构 5 与查询筛选以[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)为准；本页命令使用当前已发布格式。
+> 合同以[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)为准，世界结构 9 与查询筛选以[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)为准；本页命令使用当前已发布格式。
 
 要让人物去新的地点、买新的商品、参加新的活动或接触自己的内容，需要同时准备**素材定义、场景引用和文件清单**。
 先从现有场景选择素材，确实需要改变素材本身时，再修改对应的目录或语料文件。
-本页命令都在仓库根目录执行；场景基础写法见[场景配置](scenarios.md#scenarios-生活场景)。
+本页命令都在 WorldMock 根目录执行，显式使用 `../WorldMock-Dataset/environment/zhangjiang-baseline/`。
+表中的 `catalog/`、`corpora/` 均指该 Dataset 环境内的目录；制作工具由 Dataset 维护。场景基础写法见[场景配置](scenarios.md#scenarios-生活场景)。
 
 ```mermaid
 flowchart LR
@@ -38,8 +39,8 @@ flowchart LR
 | 地点名称、坐标、营业时间、活动环境 | 地图的 `locations.json` | `locations[].location_id` |
 | 同一商品在某家门店的价格、库存、配送范围 | 对应种子的地图 `supplies.json` | `supplies[].supply_id` |
 | 商品的份量、热量、使用方式 | `catalog/objects.jsonl` 和品类契约 | `products[].product_id`；实际取目录中的 `object_id` |
-| 可参加的生活活动、地点要求、时间窗口 | `corpora/lifestyle/enrichment.json` 与生活活动生成器 | 运行时固定读取 `lifestyle/items.json` |
-| 可观看或阅读的具体内容 | 内容元数据、SRT 时间轴和场景的 `contents` | `item_id`、`timeline_path`、`timeline_sha256` |
+| 可参加的生活活动、地点要求、时间窗口和效果 | Dataset 活动输入与生成器 | 在所选 `corpus_root` 下读取 `lifestyle/items.json` |
+| 可观看或阅读的具体内容 | 内容元数据、SRT 时间轴和场景的 `contents` | 必填 `item_id`、非空 `title`、`timeline_path`、`timeline_sha256` |
 | 工作的实际材料和验收答案 | 语料中的输入、答案文件和场景的 `tasks` | `input_path`、`oracle_path` 及各自的 SHA-256 |
 | 全局身体、品类或交换规则 | `catalog/` 中的规则与资源定义 | 见[规则配置](rules.md#rules-调整世界规则与人物动机参数) |
 
@@ -51,26 +52,28 @@ flowchart LR
 地图内部的 `locations_file.path`、`supplies_file.path`、`routes_file.path` 也相对语料根目录，
 并不是相对 `dataset.json`。
 
-目录位置由场景路径决定：`scenarios/example.json` 使用其上两级目录下的 `catalog/`。
+目录位置由场景路径决定：环境内的 `scenarios/example.json` 使用其上两级目录下的 `catalog/`。
 `catalog_version` 只钉定版本，不是目录路径。运行命令目前没有 `--catalog` 参数；
-需要独立目录时，可以采用 `experiments/my-world/scenarios/` 与 `experiments/my-world/catalog/` 的并列布局。
+需要独立环境时，可以采用 `../WorldMock-Dataset/environment/my-world/scenarios/` 与
+`../WorldMock-Dataset/environment/my-world/catalog/` 的并列布局，并提供同环境的 `corpora/`。
 
 **地图加载器支持 `map_dataset.path`，但完整世界素材校验仍固定读取 `zhangjiang-map/locations.json`。**
 其他固定语料路径包括 `lifestyle/items.json`、`meals/items.json`、`scene-stock/home-pantry.json`、
 `scenario-contacts/contacts.json`、`scenario-work/materials.json`，以及下文列出的内容元数据路径。
 自定义语料根目录应保留这些布局；只改地图路径不能让所有校验器同时使用另一套文件名。
 
-生活活动的名称与 MET 对应检查会使用场景语料根目录，但活动 `effects` 当前仍从**仓库内**
-`corpora/lifestyle/items.json` 读取并缓存。只切换 `corpus_root`，不能保证活动效果也切换到了另一份语料。
+生活活动的名称、MET 对应检查和 `effects` 都读取实际 `corpus_root` 下的活动条目。
+候选预演使用该条目的效果；启动活动时将三项效果复制到 `ActivityState.data["effects"]`。
+推进、暂停后继续与检查点恢复只读该冻结值，不再回查另一环境或默认数据；缺失效果拒绝加载或结算并记录错误。
 
 <a name="resources-输入与生成文件"></a>
 ### 输入与生成文件
 
 | 文件 | 当前维护方式 | 修改时的注意点 |
 | --- | --- | --- |
-| `catalog/category-contract.json`、`exchange-rules.json`、`affordances.toml`、`rules/*.toml` | 人工维护的规则输入 | 修改后重新生成或刷新目录身份；见[规则配置](rules.md#rules-调整世界规则与人物动机参数) |
-| `catalog/resources.jsonl`、`objects.jsonl`、`manifest.json`、`overrides/tombstones.jsonl` | 正式基线由 `scripts/build_catalog.py` 生成 | 基线生成器会重写这些文件；独立自定义目录不要再用它覆盖 |
-| `scripts/catalog-snapshot-legacy-scenario.json` | 目录生成器仍在读取的冻结输入 | 文件名中的 `legacy` 不代表已停止使用；它不是运行场景 |
+| `catalog/category-contract.json`、`exchange-rules.json`、`rules/travel-time.toml` | Dataset 的品类、交换与交通系数输入 | 修改后发布新目录身份；见[规则配置](rules.md#rules-调整世界规则与人物动机参数) |
+| 引擎包 `worldmock.data` 中的活动声明、动机参数与人物映射 | WorldMock 维护的固定通用规则 | Dataset 不维护另一份权威；运行冻结副本须逐字节等于包资源 |
+| `catalog/resources.jsonl`、`objects.jsonl`、`manifest.json`、`overrides/tombstones.jsonl` | 正式基线由 Dataset 构建工具发布 | 发布前核对来源与完整身份，独立环境使用自己的输入 |
 | `corpora/lifestyle/enrichment.json` | 生活活动的人工补充字段 | `entries` 必须与生成器的活动身份一一对应 |
 | `corpora/lifestyle/items.json` | 生活活动生成结果 | 重建后还要更新语料清单及目录中的活动 MET 表 |
 | 地图 JSON 与路线响应 | 已发布的地图数据 | 修改后发布新的地图版本并更新逐层哈希 |
@@ -89,8 +92,8 @@ import json
 from pathlib import Path
 from worldmock.life.world_setup import load_scenario
 
-source = Path("scenarios/white-collar-12-weeks.json")
-target = Path("scenarios/my-resources.json")
+source = Path("../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/single-person.json")
+target = Path("../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-resources.json")
 document = json.loads(source.read_text(encoding="utf-8"))
 document["scenario_id"] = "my-resources"
 supply = next(item for item in document["supplies"]
@@ -112,8 +115,8 @@ PY
 ## 编写地点与营业时间
 
 地图主文件声明身份、版本、坐标系、时区、边界、生成种子以及三个子文件的路径与哈希。
-完整模板见[种子 20260105 地图](../../corpora/zhangjiang-map/20260105/dataset.json)、
-[种子 20260106 地图](../../corpora/zhangjiang-map/20260106/dataset.json)和[共享地点](../../corpora/zhangjiang-map/locations.json)。
+完整模板见种子 20260105 地图（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/zhangjiang-map/20260105/dataset.json`）、
+种子 20260106 地图（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/zhangjiang-map/20260106/dataset.json`）和共享地点（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/zhangjiang-map/locations.json`）。
 地图声明与地点、供给、路线文件均使用 `schema_version: 3`，声明必填 `random_seed/category_assignment_sha256`；
 种子必须与场景一致，类别声明的字节哈希必须匹配，旧结构直接拒绝。
 
@@ -185,20 +188,9 @@ PY
 基础时长来自冻结响应；实际计划时长还乘[出行时长规则](rules.md#rules-出行时长)。
 路线车费必须与当前交换规则重新计算的金额一致。
 
-当前地图准备命令是对**已通过加载校验的张江地图**重新取得路线，需联网：
-
-```bash
-python scripts/prepare_map.py \
-  --source-root corpora \
-  --destination experiments/worldmock-map-release-20260105 \
-  --random-seed 20260105
-```
-
-目标必须不存在。命令读取源目录中的 `zhangjiang-map/20260105/dataset.json` 和相邻的 `catalog/`，
-按完整逐店声明重新生成该种子供给，并联网重新取得已声明范围的路线。
-另一实验种子使用 `--random-seed 20260106` 和独立新目标目录，不能复用前一份报价。
-命令不提供城市搜索或任意地点配置参数，也不补齐完整语料目录或更新场景。
-新增地点前，先在源地图中补齐对应的显式路线状态；准备后纳入完整语料目录并更新下文身份引用。
+地图采集和路线重新取得由 Dataset 的制作工具执行。新版本须按环境种子发布完整逐店供给、
+冻结路线响应和逐层文件身份，并同步场景选择；WorldMock 只加载已发布快照。
+新增地点前先补齐该地点涉及的显式路线状态，再按数据仓说明发布，不能由运行时在线补路线。
 
 <a name="resources-编写门店供给与商品"></a>
 ## 编写门店供给与商品
@@ -209,8 +201,8 @@ python scripts/prepare_map.py \
 实际交易仍取所选门店的当前 Quote。
 
 供给文件顶层是 `{"schema_version": 3, "supplies": [...]}`，模板见
-[种子 20260105 供给](../../corpora/zhangjiang-map/20260105/supplies.json)和
-[种子 20260106 供给](../../corpora/zhangjiang-map/20260106/supplies.json)。
+种子 20260105 供给（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/zhangjiang-map/20260105/supplies.json`）和
+种子 20260106 供给（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/zhangjiang-map/20260106/supplies.json`）。
 供给保持独立报价、库存、卖方和履约定义。
 
 <a name="resources-完整类别供给与冻结价格"></a>
@@ -328,8 +320,8 @@ category使用本轮callable_index已经展示的公开品类标签，非法时�
 | `poi-3538682404` | `meal-0011` 至 `meal-0020` | 本店自提 |
 | `poi-3538682408` | `meal-0021` 至 `meal-0030` | 本店自提 |
 
-完整声明与来源保存在[类别与逐店声明](../../corpora/zhangjiang-map/category-assignment.json)，
-库存、履约和价格派生假设见[供给假设](../../corpora/zhangjiang-map/supply-assumptions.json)。
+完整声明与来源保存在类别与逐店声明（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/zhangjiang-map/category-assignment.json`），
+库存、履约和价格派生假设见供给假设（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/zhangjiang-map/supply-assumptions.json`）。
 逐店完整集合必须通过丰富度和菜单差异门禁；不售卖地点保持无供给，售罄或闭店不自动补货。
 
 <a name="resources-新增商品对象"></a>
@@ -371,7 +363,7 @@ category使用本轮callable_index已经展示的公开品类标签，非法时�
 新增对象后，构建按每店的 `category_ids` 后代对象与
 `object_ids` 并集完整生成该店实际供给，并验证全部属于kind准入池，不把准入池全部复制给各地点。
 正式场景显式选择对应全部商品和供给，不继续维护逐对象稀疏手填模式。
-当前发布为目录 5.4、品类和规则绑定 3、场景 5（个人事务与工作安排规格阶段 3 起）、地图 3，世界状态为 9（该规格阶段 2 起）。
+当前场景结构 6、品类和规则绑定 3、地图 3、世界状态 9；具体目录版本与摘要以 Dataset 发布清单为准。
 目录 5.0 是已验收冻结的完整供给阶段；真实料理与后续目录变化已发布新版本；
 后续内容变更另发新版本，不同内容不能覆盖同版，最终认证记录实际版本和摘要。
 如果只是初始持有且不可购买，可通过人物 `initial_inventory` 引用对象，无需假造门店供给。
@@ -390,7 +382,7 @@ category使用本轮callable_index已经展示的公开品类标签，非法时�
 不开发多材料配方，不把无产出的「家常做饭」当成已做出晚饭；公开结果写明消耗、产物和份数，
 没有物品变化时也明确返回相应英文说明。三个正式场景已绑定
 `ingredient-vegetable-kit` → `meal-0030`，输出品类为唯一的 `prepared-meal-vegetable-stir-fry`。
-输入食材、食材包与配方的真实来源见[食材语料](../../corpora/ingredients/items.json)；
+输入食材、食材包与配方的真实来源见食材语料（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/ingredients/items.json`）；
 正式行为夹具通过真实购买、制作和食用核对库存及热量，旧无产出料理活动已删除。
 
 <a name="resources-编写生活活动"></a>
@@ -408,12 +400,12 @@ category使用本轮callable_index已经展示的公开品类标签，非法时�
 | `location_kinds` | 非空闭集列表；活动允许额外使用 `anywhere` |
 | `time_window` | 整数小时 `start_hour < end_hour`，范围 0–24；目前不能用一个区间表达跨午夜 |
 | `needs_partner` | 布尔值 |
-| `effects` | 恰好包含 `entertainment`、`social`、`health`，每项 0–1 |
+| `effects` | 必填不可变映射，键恰好为 `entertainment`、`social`、`health`；每项有限数值 0–1，不能缺项或填布尔值 |
 
 当前 `location_kinds` 参与活动地点准入，也决定生活活动窗口列不列它：与人物所在地点环境不合适的活动不列出，
 按名写它时以「这里不适合做这件事」拒绝。`time_window` 只参与排序（此刻落在窗口内的排得更靠前），`needs_partner` 只做了
 数据形状校验，二者都没有接成运行时的时间或伙伴受理限制。`effects` 分别折算为娱乐缓解、社交缓解和健康相关情绪变化
-（娱乐缓解不按人物口味调整），读取位置受上文的仓库固定路径限制；健康效果并不创建独立的“健康值”资源。
+（娱乐缓解不按人物口味调整），从本次环境条目读入并在活动开始时冻结；健康效果并不创建独立的“健康值”资源。
 
 下面是 `enrichment.json` 的 `entries` 中一个**完整条目值**，可替换已有 `3d-printing` 条目的值：
 
@@ -426,28 +418,9 @@ category使用本轮callable_index已经展示的公开品类标签，非法时�
 }
 ```
 
-补充文件只负责这四组字段；名称、描述、时长、MET 和活动清单仍由
-[`scripts/build_lifestyle_corpus.py`](../../scripts/build_lifestyle_corpus.py) 内的来源映射生成。
-当前生成器约束总量为 180–200 条，并依赖固定外部输入目录中的已核验
-`hobbies.csv`、`exercises.jsonl`、`meditation-dataset.json`、`events.csv`。
-脚本当前没有可用的 `--hf-dir` 参数，也不会自动下载这些输入。
-这是现有构建工具的跨机器限制；本次供给构建使用仓库或场景基准的相对路径，不继承固定机器路径做法。
-
-输入齐备后执行：
-
-```bash
-python scripts/build_lifestyle_corpus.py
-python scripts/build_lifestyle_corpus.py --check
-```
-
-随后更新语料清单，重建资源目录并校验：
-
-```bash
-python scripts/build_catalog.py
-python scripts/build_catalog.py --check
-```
-
-这些构建命令固定写仓库内的正式基线；它们不是任意自定义目录的通用导入器。
+补充文件负责地点环境、时间窗口、伙伴声明和效果；来源、名称、时长、MET 及正式活动全集由 Dataset 的
+活动制作工具维护。按数据仓说明生成 `lifestyle/items.json`，更新语料清单，随后发布含对应 MET 的资源目录。
+正式来源、数量和可复现重建的验收在 Dataset 执行；引擎用人工最小环境验证加载、候选、结算与恢复行为。
 
 <a name="resources-编写内容与工作材料"></a>
 ## 编写内容与工作材料
@@ -478,6 +451,7 @@ python scripts/build_catalog.py --check
 ```json
 {
   "item_id": "sintel-en-subtitles",
+  "title": "Sintel 字幕体验",
   "kind": "subtitle_experience",
   "duration_seconds": 630,
   "timeline_path": "sintel/sintel_en.srt",
@@ -486,6 +460,9 @@ python scripts/build_catalog.py --check
   "experience_label": "subtitle_experience"
 }
 ```
+
+每条内容必填非空 `title`；引擎直接将它用于呈现、名称解析和活动标题，不读取来源专属标题映射。
+场景结构必须为 `6`，旧结构与缺标题条目直接拒绝。
 
 `kind` 只接受 `feature_film`、`drama_series`、`podcast_episode`、`webnovel_excerpt`、`news_feed`、`joke_feed`、
 `subtitle_experience`、`game_session`。时长为正整数秒，娱乐缓解率为每小时 0–1。
@@ -499,13 +476,13 @@ python scripts/build_catalog.py --check
 
 现有 NASA `podcast_episode` 使用 Houston We Have a Podcast — Space Habitat 的
 00:01:52–00:14:58 英文访谈选段，选段媒体时长 786 秒。
-[官方页快照](../../corpora/podcasts/nasa-space-habitat.source.html)、
-[原始锚点与音频身份](../../corpora/podcasts/nasa-space-habitat.identity.json)、
-[本地音频选段](../../corpora/podcasts/nasa-space-habitat.excerpt.mp3)和
-[派生时间轴](../../corpora/podcasts/podcast-0001.srt)随语料清单绑定。
-`python scripts/build_nasa_podcast.py --check` 可按官方段落锚点复核 SRT 与身份文件。
+官方页快照（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/podcasts/nasa-space-habitat.source.html`）、
+原始锚点与音频身份（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/podcasts/nasa-space-habitat.identity.json`）、
+本地音频选段（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/podcasts/nasa-space-habitat.excerpt.mp3`）和
+派生时间轴（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/podcasts/podcast-0001.srt`）随语料清单绑定。
+按 Dataset 的播客制作与复核说明检查官方段落锚点、SRT 和身份文件；WorldMock 不提供该来源制作器。
 只在媒体位置完整越过下一官方锚点后揭示该段文字；该时间轴没有逐词精度。
-来源使用条件见[语料通知](../../corpora/LICENSES.md)，不得暗示 NASA 认可本项目。
+来源使用条件见语料通知（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/LICENSES.md`），不得暗示 NASA 认可本项目。
 
 <a name="resources-配置可玩的游戏"></a>
 ### 配置可玩的游戏
@@ -538,7 +515,7 @@ import hashlib
 import json
 from pathlib import Path
 
-content = Path("corpora/textworld/game-1201.json").read_bytes()
+content = Path("../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/textworld/game-1201.json").read_bytes()
 walkthrough = json.loads(content)["metadata"]["walkthrough"]
 encoded = json.dumps(walkthrough, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 print(json.dumps({"game_sha256": hashlib.sha256(content).hexdigest(),
@@ -560,9 +537,9 @@ PY
 ### 编写工作验收答案
 
 工作输入是人物逐步接触的 UTF-8 正文。隐藏答案由一份 oracle JSON 和它引用的参考摘要文件组成，
-不能把答案放进人物输入。可从[现有输入](../../corpora/scenario-work/inputs/work-0001.txt)、
-[现有答案](../../corpora/scenario-work/references/work-0001.oracle.json)和
-[现有参考摘要](../../corpora/scenario-work/references/work-0001.reference.json)复制。
+不能把答案放进人物输入。可从现有输入（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/scenario-work/inputs/work-0001.txt`）、
+现有答案（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/scenario-work/references/work-0001.oracle.json`）和
+现有参考摘要（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/scenario-work/references/work-0001.reference.json`）复制。
 
 下面是自定义 `scenario-work/references/custom-work.oracle.json` 的**完整示例**：
 
@@ -608,9 +585,9 @@ PY
 
 | 文件 | 写法与需要同步的内容 |
 | --- | --- |
-| [正餐](../../corpora/meals/items.json) | 顶层 `items`；每餐有 `meal_id`、名称、份量、每份热量、`energy_source`、`price_fen`、`meal_duration_minutes`、堂食或配送声明。热量来源需有数据库、URL、取得日期、每百克热量和换算说明，并有同名可消费目录对象 |
-| [家庭储备](../../corpora/scene-stock/home-pantry.json) | `items[]` 的 `object_id` 必须是可消费目录对象，`quantity` 是份数；总量满足目录早餐储备要求。实际人物库存仍写 `agents[].initial_inventory` |
-| [联系人素材](../../corpora/scenario-contacts/contacts.json) | `personas` 列表声明人物身份，`contacts[]` 写所属 `persona_id`、`contact_id`、`contact_type`、名称、渠道、映射和回复策略。同事映射已有人物、策略为 `persona`；老友和家人映射为 `null`、策略为 `model` |
+| 正餐（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/meals/items.json`） | 顶层 `items`；每餐有 `meal_id`、名称、份量、每份热量、`energy_source`、`price_fen`、`meal_duration_minutes`、堂食或配送声明。热量来源需有数据库、URL、取得日期、每百克热量和换算说明，并有同名可消费目录对象 |
+| 家庭储备（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/scene-stock/home-pantry.json`） | `items[]` 的 `object_id` 必须是可消费目录对象，`quantity` 是份数；总量满足目录早餐储备要求。实际人物库存仍写 `agents[].initial_inventory` |
+| 联系人素材（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/scenario-contacts/contacts.json`） | `personas` 列表声明人物身份，`contacts[]` 写所属 `persona_id`、`contact_id`、`contact_type`、名称、渠道、映射和回复策略。同事映射已有人物、策略为 `persona`；老友和家人映射为 `null`、策略为 `model` |
 
 联系人类型只支持 `colleague`、`old_friend`、`family`。真正用于运行的联系人仍需写入人物 `contacts`，
 详见[人物画像](personas.md#personas-人物画像)。正餐语料中的价格是素材声明；实际交易取地图供给的报价，修改它不会自动更新门店。
@@ -648,16 +625,15 @@ import hashlib
 import json
 from pathlib import Path
 
-path = Path("corpora/sintel/sintel_en.srt")
+path = Path("../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/sintel/sintel_en.srt")
 content = path.read_bytes()
 print(json.dumps({"sha256": hashlib.sha256(content).hexdigest(),
                   "size_bytes": len(content)}, indent=2))
 PY
 ```
 
-目前没有“给任意语料目录自动补清单”的通用 CLI。
-`worldmock prepare-corpora --output experiments/worldmock-corpora` 会联网重新取得固定来源子集，
-要求输出不存在；它不是扫描自定义文件并注册素材的命令。
+WorldMock 不提供数据准备入口。来源采集、制作和清单发布在 Dataset 执行；
+具体操作以数据仓维护的工具说明为准。引擎负责读取并核验已经发布的实际文件。
 
 <a name="resources-验证修改"></a>
 ## 验证修改
@@ -672,7 +648,7 @@ from worldmock.catalog.admission import validate_world_categories
 from worldmock.corpora.manifest import load_manifest
 from worldmock.life.world_setup import load_scenario
 
-path = Path("scenarios/my-resources.json").resolve()
+path = Path("../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-resources.json").resolve()
 scenario, _ = load_scenario(path)
 root = (path.parent / scenario.corpus_root).resolve()
 manifest = load_manifest(root, scenario.corpus_manifest_sha256)
@@ -686,7 +662,7 @@ PY
 正式运行前再执行完整项目校验：
 
 ```bash
-worldmock validate --scenario scenarios/my-resources.json
+worldmock validate --scenario ../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-resources.json
 ```
 
 人物有 `background_story` 时，完整校验会调用模型编译画像并检查素材覆盖率，还会写出覆盖率报告。

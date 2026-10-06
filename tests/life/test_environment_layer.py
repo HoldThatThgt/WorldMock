@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 from dataclasses import replace
 from pathlib import Path
 
@@ -77,8 +79,8 @@ def test_place_types_cover_every_scenario_location_kind_and_unknown_kinds_are_de
     场景，核对环境层仍保留的运行中兜底。
     """
     kinds = set()
-    for name in ("white-collar-12-weeks.json", "multi-person.json", "multi-person-half-day.json"):
-        semantics, _ = load_runtime_scenario(Path("scenarios") / name)
+    for name in ("single-person.json", "multi-person.json", "multi-person-half-day.json"):
+        semantics, _ = load_runtime_scenario((ENVIRONMENT_ROOT / "scenarios") / name)
         kinds |= {item.kind for item in semantics.scenario.locations}
     assert kinds and kinds <= set(PLACE_TYPES)
     engine = engine_factory()

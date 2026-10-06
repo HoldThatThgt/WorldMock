@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from tests.data_paths import ENVIRONMENT_ROOT
+
 from types import SimpleNamespace
 
 import pytest
@@ -12,14 +13,11 @@ from worldmock.life.semantics import ScenarioSemantics
 from worldmock.life.world_setup import load_runtime_scenario
 from worldmock.life.travel_time import parse_travel_time_profile
 
-ROOT = Path(__file__).resolve().parents[2]
-
-
 @pytest.fixture(scope="module")
 def semantics() -> ScenarioSemantics:
-    """@brief 加载正式半日场景与同目录冻结语义。"""
+    """@brief 加载测试显式选择的环境与同目录冻结语义。"""
     result, _ = load_runtime_scenario(
-        ROOT / "scenarios/multi-person-half-day.json", ROOT / "catalog",
+        ENVIRONMENT_ROOT / "scenarios/single-person.json", ENVIRONMENT_ROOT / "catalog",
     )
     return result
 
@@ -51,7 +49,7 @@ def test_travel_match_rejects_unknown_mode(semantics: ScenarioSemantics) -> None
 
 def test_travel_time_factor_rejects_missing_branch() -> None:
     """时长表查询拒绝不存在的方式与小时分支。"""
-    profile = parse_travel_time_profile((ROOT / "catalog/rules/travel-time.toml").read_bytes())
+    profile = parse_travel_time_profile((ENVIRONMENT_ROOT / "catalog/rules/travel-time.toml").read_bytes())
     with pytest.raises(IntegrityError, match="has no branch for cycling_12"):
         profile.factor("cycling", 12)
 

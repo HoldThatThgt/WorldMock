@@ -22,7 +22,7 @@ import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from worldmock.catalog.affordances import default_affordances
+from worldmock.catalog.affordances import engine_affordances
 from worldmock.life import felt, sleep
 from worldmock.base_models import CurvePoint
 from worldmock.life.models import (ActivityKind, BodyState)
@@ -40,7 +40,7 @@ from worldmock.resources.models import (
 #: 只供内部动机评分按能量取舍（maximum_energy_duration_seconds），不代表世界规则：结算对所有活动
 #: 集合都以 0 截断（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「删除的机制」）。
 ENERGY_RECOVERY_ACTIVITY_KINDS = frozenset(
-    ActivityKind(name) for name in default_affordances().energy_recovery_kinds)
+    ActivityKind(name) for name in engine_affordances().energy_recovery_kinds)
 
 #: 身体域 level 资源的分录标识（与 BodyState 字段及 tests/resources 夹具同名）。
 #: 修订合同删除 sleep_debt_hours 资源：睡眠侧分录改为 sleep_deficit_hours。

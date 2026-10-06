@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
 import shutil
 from pathlib import Path
@@ -22,7 +24,7 @@ from worldmock.scheduling.effects import apply_scheduled_effect
 from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-MULTI_PERSON = PROJECT_ROOT / "scenarios" / "multi-person.json"
+MULTI_PERSON = ENVIRONMENT_ROOT / "scenarios" / "multi-person.json"
 
 
 @pytest.fixture(scope="module")
@@ -75,10 +77,10 @@ def _identity(document, run_id):
 @pytest.fixture
 def engine(tmp_path):
     document = json.loads(MULTI_PERSON.read_text(encoding="utf-8"))
-    document["corpus_root"] = str(PROJECT_ROOT / "corpora")
+    document["corpus_root"] = str(ENVIRONMENT_ROOT / "corpora")
     scenarios = tmp_path / "scenarios"
     scenarios.mkdir(parents=True)
-    shutil.copytree(PROJECT_ROOT / "catalog", tmp_path / "catalog")
+    shutil.copytree(ENVIRONMENT_ROOT / "catalog", tmp_path / "catalog")
     path = scenarios / "custom.json"
     path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
     return LifeEngine.create(path, tmp_path / "run", _identity(document, "effects"))

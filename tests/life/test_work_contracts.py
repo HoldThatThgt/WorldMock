@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import hashlib
 import json
 from datetime import datetime, timedelta
@@ -135,12 +137,12 @@ def test_work_start_rejects_skill_location_and_deadline_boundaries(engine_factor
 
 def test_scenario_material_oracles_load_explicit_json_references() -> None:
     """scenario 材料走显式 JSON 参考装载：摘要句注入 expected，输入/参考分离。"""
-    scenario, _ = load_scenario(Path("scenarios/white-collar-12-weeks.json"))
+    scenario, _ = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")
     task = next(item for item in scenario.tasks
                 if item.oracle_path == "scenario-work/references/work-0021.oracle.json")
-    source = load_work_input(Path("corpora"), task)
-    oracle = load_work_oracle(Path("corpora"), task)
-    reference = json.loads(Path("corpora/scenario-work/references/work-0021.reference.json").read_text(
+    source = load_work_input((ENVIRONMENT_ROOT / "corpora"), task)
+    oracle = load_work_oracle((ENVIRONMENT_ROOT / "corpora"), task)
+    reference = json.loads((ENVIRONMENT_ROOT / "corpora/scenario-work/references/work-0021.reference.json").read_text(
         encoding="utf-8"))
     assert oracle["type"] == "scenario"
     assert oracle["expected"]["summary"] == reference["summary_sentences"]
@@ -347,7 +349,7 @@ def deadline_engine(tmp_path):
     def mutate(document: dict) -> None:
         document["tasks"][0]["due_at"] = _DEADLINE
 
-    engine = _custom_engine("white-collar-12-weeks.json", mutate, tmp_path, "resume-deadline")
+    engine = _custom_engine("single-person.json", mutate, tmp_path, "resume-deadline")
     yield engine
     engine.close()
 

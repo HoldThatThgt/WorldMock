@@ -3,22 +3,20 @@
 from __future__ import annotations
 from worldmock.life.social import CALL_MET, CHAT_MET
 
-import json
 import logging
 import math
 from dataclasses import dataclass
-from functools import lru_cache
-from pathlib import Path
 from typing import Mapping
 
-from worldmock.catalog.affordances import default_affordances
-from worldmock.errors import BusinessRuleError
+from worldmock.catalog.affordances import engine_affordances
+from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life import felt
 from worldmock.life.body import (
     ActivityFactors,
     BodySettlement,
     settle_body,
 )
+from worldmock.life.content import validate_lifestyle_effects
 from worldmock.life.models import (
     ActivityChange,
     ActivityKind,
@@ -55,10 +53,10 @@ class ActivityOrigin:
 #: 到期反馈边界闭集（含生活活动）——自可供性注册表 kinds.*.feedback_boundary 派生
 #: （M1：字面常量已删，注册表即事实）。
 FEEDBACK_ACTIVITY_KINDS = frozenset(
-    ActivityKind(name) for name in default_affordances().feedback_kinds)
+    ActivityKind(name) for name in engine_affordances().feedback_kinds)
 
 #: 可供性注册表视图（冻结文件加载一次；资源锁/缓解通道/MET 模板查表用）。
-_AFFORDANCES = default_affordances()
+_AFFORDANCES = engine_affordances()
 
 #: 生活活动 effects 娱乐缓解的每小时尺度（experiment_assumption：锚定目录既有
 #: 娱乐缓解费率 watch 0.3 / play_game 0.4，effects 权重 1.0 的生活活动对标
@@ -73,36 +71,21 @@ LIFESTYLE_SOCIAL_SCALE_PER_HOUR = 0.5
 LIFESTYLE_HEALTH_MOOD_PER_HOUR = 0.1
 
 
-#: 语料根目录（仓库内 corpora/），地点类声明两侧共用同一读法。
-_CORPORA_ROOT = Path(__file__).resolve().parents[3] / "corpora"
-#: 生活活动语料相对路径（effects 与地点类声明同源）。
-LIFESTYLE_ITEMS_RELATIVE = "lifestyle/items.json"
+def lifestyle_relief_rates(effects: Mapping[str, float]) -> tuple[float, float, float]:
+    """@brief 把活动的冻结效果转换为娱乐、社交与健康的每小时结算量。"""
+    validate_lifestyle_effects(effects)
+    return (effects["entertainment"] * LIFESTYLE_ENTERTAINMENT_SCALE_PER_HOUR,
+            effects["social"] * LIFESTYLE_SOCIAL_SCALE_PER_HOUR,
+            effects["health"] * LIFESTYLE_HEALTH_MOOD_PER_HOUR)
 
 
-@lru_cache(maxsize=1)
-def lifestyle_effects() -> Mapping[str, Mapping[str, float]]:
-    """@brief 生活活动目录的 effects 表（activity_id -> 各需要池效应权重）。
-
-    读取 corpora/lifestyle/items.json 的 v2 字段（A10：location_kinds/
-    time_window/needs_partner/effects）；目录条目由准入检查保证逐条携带
-    effects，此处只做形状防御（缺 effects 的行按全零处理）。
-    """
-    payload = json.loads((_CORPORA_ROOT / LIFESTYLE_ITEMS_RELATIVE).read_text(encoding="utf-8"))
-    return {row["activity_id"]: {key: float(value) for key, value in
-                             (row.get("effects") or {}).items()}
-            for row in payload["items"]}
-
-
-def lifestyle_relief_rates(activity_id: str) -> tuple[float, float, float]:
-    """@brief 条目 effects 折算的 (娱乐缓解/小时, 社交缓解/小时, 健康情绪幅度/小时)。
-
-    娱乐缓解走既有结算分录通道（settle_body 的 relief 因子）；社交与健康在
-    活动推进时直接作用于身体（与 chat/call 的账本外直接落账同构）。
-    """
-    effects = lifestyle_effects().get(activity_id, {})
-    return (effects.get("entertainment", 0.0) * LIFESTYLE_ENTERTAINMENT_SCALE_PER_HOUR,
-            effects.get("social", 0.0) * LIFESTYLE_SOCIAL_SCALE_PER_HOUR,
-            effects.get("health", 0.0) * LIFESTYLE_HEALTH_MOOD_PER_HOUR)
+def _frozen_lifestyle_effects(activity: ActivityState) -> Mapping[str, float]:
+    """@brief 只读取活动启动时冻结的效果，缺失时明确终止。"""
+    try:
+        return activity.data["effects"]
+    except KeyError as error:
+        logging.error("Lifestyle activity has no frozen effects: %s", activity.activity_id)
+        raise IntegrityError("Lifestyle activity has no frozen effects") from error
 
 
 def location_kinds_allow(place_location_kinds: frozenset[str], needed: frozenset[str]) -> bool:
@@ -241,7 +224,7 @@ def _apply_lifestyle_felt_relief(agent: AgentState, activity: ActivityState,
     if activity.kind != ActivityKind.LIFESTYLE or seconds <= 0:
         return agent
     _entertainment_rate, social_rate, health_rate = lifestyle_relief_rates(
-        activity.target_id or "")
+        _frozen_lifestyle_effects(activity))
     if social_rate <= 0 and health_rate <= 0:
         return agent
     hours = seconds / 3600
@@ -322,7 +305,7 @@ def entertainment_relief_rate(activity: ActivityState, preference: float, config
     channel = _AFFORDANCES.relief_channel(activity.kind.value)
     if channel == "none":
         if activity.kind == ActivityKind.LIFESTYLE:
-            return lifestyle_relief_rates(activity.target_id or "")[0]
+            return lifestyle_relief_rates(_frozen_lifestyle_effects(activity))[0]
         return 0.0
     if channel == "content_rate":
         return content_entertainment_relief_rate(activity.data.get("entertainment_relief_per_hour"),

@@ -5,6 +5,8 @@
 """
 
 from __future__ import annotations
+
+from tests.data_paths import ENVIRONMENT_ROOT
 from dataclasses import replace
 
 import json
@@ -27,7 +29,7 @@ from worldmock.life.readable import duration_phrase, iso_time
 from worldmock.life.models import (ActivityRequestItem, ActivityStatus, RecallTaskSummaryRequest, SameMomentStage, SessionKind,
                                    SessionStatus, StartActivityRequest, active_activities)
 
-_FORMAL = Path("scenarios/white-collar-12-weeks.json")
+_FORMAL = ENVIRONMENT_ROOT / "scenarios/single-person.json"
 
 
 def _round(engine: LifeEngine, name: str, tool: str, request, agent_id: int = 1):

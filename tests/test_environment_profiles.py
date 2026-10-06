@@ -1,5 +1,7 @@
 """@brief 缺组件不能放行，可变测试世界必须与正式冻结输入隔离。"""
 
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
+
 import ast
 import json
 import shutil
@@ -65,18 +67,50 @@ def test_dev_environment_receipt_records_missing_without_absolute_paths(tmp_path
     assert json.loads(content) == result
 
 
+def _isolation_supply(root):
+    """@brief 给人工地图声明一条真实供给，按实际文件重算钉扎后才开始隔离断言。"""
+    from tests.categories.scenario_fixtures import _refresh_corpus_manifest
+    from tests.life.purchase_worlds import _write
+    from worldmock.life.map_models import SupplyConfig
+
+    scenario_path = root / "scenarios/single-person.json"
+    document = json.loads(scenario_path.read_text(encoding="utf-8"))
+    corpus = root / "corpora"
+    dataset_path = corpus / document["map_dataset"]["path"]
+    dataset = json.loads(dataset_path.read_text(encoding="utf-8"))
+    locations = json.loads((corpus / dataset["locations_file"]["path"]).read_text(encoding="utf-8"))["locations"]
+    supply = SupplyConfig.model_validate({
+        "supply_id": "isolation-milk", "product_id": document["products"][0]["product_id"],
+        "location_id": locations[0]["location_id"], "seller_account_id": "merchant", "quotes": [],
+        "initial_stock": 2, "fulfillment_modes": ["pickup"], "delivery_destination_ids": [],
+        "delivery_delay_seconds": 0, "required_qualifications": [], "source": dataset["source"],
+    }).model_dump(mode="json")
+    dataset["supplies_file"]["sha256"] = _write(
+        corpus / dataset["supplies_file"]["path"], {"schema_version": 3, "supplies": [supply]})
+    document["supplies"] = [{"supply_id": supply["supply_id"], "initial_stock": supply["initial_stock"]}]
+    document["map_dataset"]["sha256"] = _write(dataset_path, dataset)
+    _refresh_corpus_manifest(corpus)
+    import hashlib
+    document["corpus_manifest_sha256"] = hashlib.sha256((corpus / "manifest.json").read_bytes()).hexdigest()
+    _write(scenario_path, document)
+    return document, dataset
+
+
 def test_purchase_world_edits_leave_formal_input_bytes_and_inodes_unchanged(tmp_path, monkeypatch):
     """@brief 真实购买夹具改地图、供给和清单后，源文件字节及文件身份始终不变。"""
     from tests.life import purchase_worlds
 
     source_root = tmp_path / "source"
     for name in ("corpora", "catalog", "scenarios"):
-        shutil.copytree(ROOT / name, source_root / name)
-    monkeypatch.setattr(purchase_worlds, "ROOT", source_root)
-    monkeypatch.setattr(purchase_worlds, "SCENARIO", source_root / "scenarios/white-collar-12-weeks.json")
+        shutil.copytree(ARTIFICIAL_ENVIRONMENT_ROOT / name, source_root / name)
+    monkeypatch.setattr(purchase_worlds, "ENVIRONMENT_ROOT", source_root)
+    monkeypatch.setattr(purchase_worlds, "SCENARIO", source_root / "scenarios/single-person.json")
     corpus = source_root / "corpora"
-    relative_paths = ["manifest.json", "zhangjiang-map/locations.json",
-                      "zhangjiang-map/20260105/dataset.json", "zhangjiang-map/20260105/supplies.json"]
+    document, dataset = _isolation_supply(source_root)
+    dataset_path = document["map_dataset"]["path"]
+    monkeypatch.setattr(purchase_worlds, "_DATASET", dataset_path)
+    relative_paths = ["manifest.json", dataset["locations_file"]["path"],
+                      dataset_path, dataset["supplies_file"]["path"]]
     before = {relative: ((corpus / relative).read_bytes(), (corpus / relative).stat().st_ino)
               for relative in relative_paths}
     locations = json.loads((corpus / relative_paths[1]).read_text("utf-8"))["locations"]

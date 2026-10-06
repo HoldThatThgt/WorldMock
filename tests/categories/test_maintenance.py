@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from tests.categories.conftest import raw_object, review
+from tests.categories.scenario_fixtures import write_scenario_catalog, write_scenario_for_catalog
 from worldmock.catalog import CategoryError, load_catalog
 from worldmock.categories import CategoryError, refresh_manifest_identity
 from worldmock.categories.maintenance import (
@@ -51,23 +52,6 @@ def _candidate(source, destination):
     _write(destination / "manifest.json", manifest)
     refresh_manifest_identity(destination)
     return destination
-
-
-def _formal_source(destination):
-    """@brief 复制正式目录，并按本次执行的摘要算法建立合法源目录。"""
-    shutil.copytree(Path("catalog"), destination)
-    refresh_manifest_identity(destination)
-    return destination
-
-
-def _scenario_for(directory, path):
-    """@brief 让真实半日场景绑定给定目录版本和实际语料路径。"""
-    scenario = _read(Path("scenarios/multi-person-half-day.json"))
-    scenario["corpus_root"] = str(Path("corpora").resolve())
-    manifest = _read(directory / "manifest.json")
-    scenario["catalog_version"] = {"major": manifest["version_major"], "minor": manifest["version_minor"]}
-    _write(path, scenario)
-    return path
 
 
 def _child(identity, schema):
@@ -242,14 +226,14 @@ def test_empty_refinement_and_multiple_observed_rules_do_not_invent_suggestions(
 
 
 def test_publish_runs_actual_scenario_admission_and_preserves_source(tmp_path):
-    source = _formal_source(tmp_path / "source")
+    source = write_scenario_catalog(tmp_path / "source")
     candidate = _candidate(source, tmp_path / "candidate")
-    scenario_path = _scenario_for(candidate, tmp_path / "scenario.json")
+    scenario_path = write_scenario_for_catalog(candidate, tmp_path / "scenario.json")
     before = _snapshot(source)
     result = publish_catalog(source, candidate, tmp_path / "published", {}, (scenario_path,))
     published = load_catalog(tmp_path / "published")
-    assert published.category_contract_version == 4
-    assert len(published.objects) == 172
+    assert published.category_contract_version == 3
+    assert set(published.objects) == set(load_catalog(source).objects)
     assert published.category_requirements == load_catalog(source).category_requirements
     assert result["identity"]["catalog_content_sha256"] == published.catalog_content_sha256
     assert _snapshot(source) == before
@@ -258,9 +242,9 @@ def test_publish_runs_actual_scenario_admission_and_preserves_source(tmp_path):
 
 def test_publication_rejects_real_undefined_route_without_destination_or_source_changes(tmp_path):
     """真实场景的可触达路线未定义时，发布准入拒绝且不留下目录。"""
-    source = _formal_source(tmp_path / "source")
+    source = write_scenario_catalog(tmp_path / "source")
     candidate = _candidate(source, tmp_path / "candidate")
-    scenario = _scenario_for(candidate, tmp_path / "scenario.json")
+    scenario = write_scenario_for_catalog(candidate, tmp_path / "scenario.json")
     load_runtime_scenario(scenario, catalog_dir=candidate)
     contract = _read(candidate / "category-contract.json")
     pairing_index = next(index for index, row in enumerate(contract["pairings"]) if row["action"] == "travel:driving")
@@ -273,7 +257,7 @@ def test_publication_rejects_real_undefined_route_without_destination_or_source_
         source_record["paths"] = [path for path in source_record["paths"] if path != removed_path]
     _write(candidate / "category-contract.json", contract)
     refresh_manifest_identity(candidate)
-    assert load_catalog(candidate).pairing("person", "travel-service", "travel:driving").state == "undefined"
+    assert load_catalog(candidate).pairing("person", "service", "travel:driving").state == "undefined"
     before = _snapshot(source)
     candidate_before = _snapshot(candidate)
 
@@ -380,7 +364,7 @@ def test_publication_rejects_nonincreasing_version_when_catalog_and_real_scenari
     tmp_path, version_kind, decrement,
 ):
     """除目标版本未递增外，候选目录与真实场景先独立证明全部合法。"""
-    source = _candidate(Path("catalog"), tmp_path / "source")
+    source = write_scenario_catalog(tmp_path / "source")
     candidate = _candidate(source, tmp_path / "candidate")
     if version_kind == "contract":
         previous = _read(source / "category-contract.json")["contract_version"]
@@ -395,7 +379,7 @@ def test_publication_rejects_nonincreasing_version_when_catalog_and_real_scenari
         _write(candidate / "manifest.json", document)
         expected_message = "Published catalog version must increase"
     refresh_manifest_identity(candidate)
-    scenario = _scenario_for(candidate, tmp_path / "scenario.json")
+    scenario = write_scenario_for_catalog(candidate, tmp_path / "scenario.json")
     load_runtime_scenario(scenario, catalog_dir=candidate)
     before, candidate_before = _snapshot(source), _snapshot(candidate)
 
@@ -425,14 +409,14 @@ def test_category_cli_executes_check_and_refinement(valid_catalog_dir, tmp_path,
 
 def test_category_cli_publishes_assignment_and_next_object_version_with_real_scenario(tmp_path, capsys):
     """命令实际读取确认清单，经真实场景准入后发布对象新归属和下一版本。"""
-    source = _formal_source(tmp_path / "source")
+    source = write_scenario_catalog(tmp_path / "source")
     candidate = _candidate(source, tmp_path / "candidate")
-    child = {"category_id": "dairy-child", "name": "Dairy child", "parent_id": "food-dairy", "kind": "product",
+    child = {"category_id": "dairy-child", "name": "Dairy child", "parent_id": "food", "kind": "product",
              "slots": {}, "values": {"absolute": {}, "relative": {}, "proportional": {}}}
     _add_children(candidate, [child])
-    scenario = _scenario_for(candidate, tmp_path / "scenario.json")
+    scenario = write_scenario_for_catalog(candidate, tmp_path / "scenario.json")
     assignments = tmp_path / "assignments.json"
-    object_id = "food-6923644266066"
+    object_id = "milk"
     _write(assignments, {object_id: "dairy-child"})
     previous = load_catalog(source).raw_objects[object_id]
 

@@ -78,7 +78,7 @@ def test_paid_meal_pause_checkpoint_resume_preserves_actual_consumption(tmp_path
     def lunch(document):
         document["start_at"] = "2026-01-05T08:00:00+08:00"
 
-    engine = _custom_engine("white-collar-12-weeks.json", lunch, tmp_path, "meal-checkpoint")
+    engine = _custom_engine("single-person.json", lunch, tmp_path, "meal-checkpoint")
     try:
         stage_day_plan(engine)
         _, trip = _start(engine, "travel", "location", RESTAURANT, "步行")

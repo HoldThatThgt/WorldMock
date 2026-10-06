@@ -6,6 +6,8 @@ C8 交付了计算侧（worldmock_run_setup_module._agent_specs 写 profile["tas
 """
 
 from __future__ import annotations
+
+from tests.data_paths import ENVIRONMENT_ROOT
 import worldmock.run_setup as worldmock_run_setup_module
 
 import os
@@ -19,7 +21,7 @@ from worldmock.life.engine import LifeEngine  # noqa: E402
 from worldmock.life.models import ModelIdentity, RunIdentity  # noqa: E402
 from worldmock.life.world_setup import load_scenario
 
-_SCENARIO = Path("scenarios/white-collar-12-weeks.json")
+_SCENARIO = ENVIRONMENT_ROOT / "scenarios/single-person.json"
 
 
 def _run_identity(scenario, run_id: str) -> RunIdentity:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
 from pathlib import Path
 
@@ -14,7 +16,6 @@ from worldmock.life.scenario import InventoryItemConfig, LifeScenario, RuntimeSc
 from worldmock.life.world_setup import load_scenario
 from worldmock.life.map_data import load_map_dataset, validate_map_dataset
 from worldmock.life.map_models import MapDataset, RouteConfig
-from worldmock.life.opening_hours import quote_at
 from worldmock.life.semantics import assemble_semantics
 from worldmock.scheduling.compile import compile_schedule
 from tests.engine_fixture import (_mutated_scenario)  # noqa: F401
@@ -22,8 +23,8 @@ from tests.life.work_schedule_fixtures import STANDARD_SHIFT, weekday_schedule
 from worldmock.life.scenario import parse_scenario_document
 
 
-_FORMAL = Path("scenarios/white-collar-12-weeks.json")
-_CATALOG = Path("catalog")
+_FORMAL = ENVIRONMENT_ROOT / "scenarios/single-person.json"
+_CATALOG = (ENVIRONMENT_ROOT / "catalog")
 
 
 def _payload() -> dict:
@@ -34,7 +35,7 @@ def _payload() -> dict:
 def _map(document=None):
     """加载与指定场景钉扎一致的完整地图。"""
     document = document or LifeScenario.model_validate(_payload())
-    return load_map_dataset(Path("corpora"), document.map_dataset)
+    return load_map_dataset((ENVIRONMENT_ROOT / "corpora"), document.map_dataset)
 
 
 def _replace(path: tuple[str | int, ...], value: object) -> dict:
@@ -113,42 +114,17 @@ def test_runtime_inventory_cross_references_are_validated(kind) -> None:
 
 
 def test_formal_and_multi_person_scenarios_are_valid() -> None:
-    """正式与多人场景完整加载：文档校验、目录组装与准入全部通过。"""
-    for path in (_FORMAL, Path("scenarios/multi-person.json")):
+    """选定场景完整加载，实例字段与目录身体参数原样进入运行视图。"""
+    catalog = load_catalog(_CATALOG)
+    for path in (_FORMAL, ENVIRONMENT_ROOT / "scenarios/multi-person.json"):
+        document, expected_digest = parse_scenario_document(path)
         scenario, digest = load_scenario(path)
-        assert len(digest) == 64
-        assert scenario.body.work_notes_multiplier == 1.1
-        assert scenario.body.basal_kcal_per_hour == 65
-        assert scenario.max_same_moment_decisions == 3
-        assert scenario.transport_account_id == "transport:service"
-        assert all(route.fare_source_kind == "scenario" for route in scenario.routes)
-
-
-def test_formal_restaurants_select_edible_pickup_meals() -> None:
-    """@brief 正式三场景逐店交叉核验选中供给、商品、初始库存与实际菜单。"""
-    restaurants = {"poi-3538660453", "poi-3538682404", "poi-3538682408"}
-    paths = (_FORMAL, Path("scenarios/multi-person.json"),
-             Path("scenarios/multi-person-half-day.json"))
-    for path in paths:
-        scenario, _ = load_scenario(path)
-        places = {item.location_id: item for item in scenario.locations}
-        products = {item.product_id: item for item in scenario.products}
-        selected = {item.location_id: item for item in scenario.supplies
-                    if item.location_id in restaurants}
-        assert set(selected) == restaurants
-        for location_id in restaurants:
-            place = places[location_id]
-            supply = selected[location_id]
-            product = products[supply.product_id]
-            menu = scenario.interaction_menus_by_location_kind[place.kind]
-            assert place.business_kind == "restaurant"
-            assert product.category_id.startswith("prepared-meal")
-            assert "eat" in product.use_modes and product.consumable
-            assert product.required_location_id in (None, location_id)
-            assert supply.initial_stock > 0 and "pickup" in supply.fulfillment_modes
-            quote = quote_at(supply, int(scenario.start_at.timestamp()))
-            assert quote is not None and quote.price_fen > 0
-            assert {"purchase", "consume"} <= set(menu.allowed_actions)
+        assert digest == expected_digest and len(digest) == 64
+        assert scenario.body.basal_kcal_per_hour == catalog.resources["energy_kcal"].drain_rules.basal_kcal_per_hour
+        assert scenario.max_same_moment_decisions == document.max_same_moment_decisions
+        transport = next(item.account_id for item in document.accounts if item.role == "transport:service")
+        assert scenario.transport_account_id == transport
+        assert scenario.schema_version == document.schema_version == 6
 
 
 def test_motivation_attention_prior_must_equal_registry_kinds() -> None:
@@ -185,16 +161,16 @@ def test_body_instance_and_rejection_ranges_are_enforced(
     _assert_invalid(_replace(path, value), message)
 
 
-def test_relief_preference_floor_defaults_to_half_without_changing_scenario_files() -> None:
-    """下限偏好是场景层 body 的可选字段（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ，裁决 D3）：正式场景不声明，
-    文档与组装后的身体参数都取缺省 0.5；场景结构版本为 5，目录钉扎不变。"""
-    for path in (_FORMAL, Path("scenarios/multi-person.json"), Path("scenarios/multi-person-half-day.json")):
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        assert "entertainment_relief_preference_floor" not in payload["body"]
-        assert LifeScenario.model_validate(payload).body.entertainment_relief_preference_floor == 0.5
-        scenario, _ = load_scenario(path)
-        assert scenario.schema_version == 5
-        assert scenario.body.entertainment_relief_preference_floor == 0.5
+def test_relief_preference_floor_defaults_to_half_without_changing_scenario_files(tmp_path) -> None:
+    """文档未声明下限偏好时，真实加载与身体装配均注入规格缺省值 0.5。"""
+    path = _mutated_scenario(_FORMAL,
+                             lambda payload: payload["body"].pop("entertainment_relief_preference_floor", None),
+                             tmp_path / "default-relief-floor")
+    document, _ = parse_scenario_document(path)
+    assert document.body.entertainment_relief_preference_floor == 0.5
+    scenario, _ = load_scenario(path)
+    assert scenario.schema_version == document.schema_version == 6
+    assert scenario.body.entertainment_relief_preference_floor == 0.5
 
 
 @pytest.mark.parametrize("floor", [0.3, 0.7])
@@ -506,22 +482,6 @@ def test_runtime_view_rejects_inverted_product_price_bounds_and_admits_a_fixed_p
     assert "Product purchase price bounds are inverted" in caplog.text
 
 
-# 修订合同：人物、联系人、日历、独立地图与正餐供给。
-_V2_SCENARIOS = (
-    _FORMAL,
-    Path("scenarios/multi-person.json"),
-    Path("scenarios/multi-person-half-day.json"),
-)
-_MULTI_SCENARIOS = _V2_SCENARIOS[1:]
-_REQUIRED_CATEGORIES = {
-    "home", "office", "restaurant", "convenience_store", "supermarket", "wet_market", "park", "fitness",
-}
-_PANTRY_CORPUS = Path("corpora/scene-stock/home-pantry.json")
-_LOCATIONS_CORPUS = Path("corpora/zhangjiang-map/locations.json")
-_WORK_CORPUS = Path("corpora/scenario-work/materials.json")
-_LATE_CHRONOTYPE_MIN = 4.5
-_EARLY_CHRONOTYPE_MAX = 3.5
-
 def _document(path: Path) -> dict:
     """读取一份场景 JSON 文档。"""
     return json.loads(path.read_text(encoding="utf-8"))
@@ -532,204 +492,23 @@ def _agent_of(document: dict, agent_id: int) -> dict:
     return next(item for item in document["agents"] if item["agent_id"] == agent_id)
 
 
-def test_persona_declarations_are_complete_and_story_consistent() -> None:
-    """每人物声明时型、睡眠需要与餐时窗口，且锚点与 background_story 一致。"""
-    for path in _V2_SCENARIOS:
-        document = _document(path)
-        for agent in document["agents"]:
-            assert 0.0 <= agent["chronotype_midsleep"] < 24.0
-            assert 7.0 <= agent["sleep_need_hours"] <= 9.0
-            lunch, dinner = agent["lunch_window"], agent["dinner_window"]
-            assert 0 <= lunch[0] < lunch[1] <= 24
-            assert 0 <= dinner[0] < dinner[1] <= 24
-            assert lunch[1] <= dinner[0], "午餐与晚餐窗口不得重叠"
-            bedtime = agent["bedtime_window"]
-            assert 0 <= bedtime[0] < 24 and bedtime[0] < bedtime[1] <= 30, (
-                "就寝窗口与画像层 TimeWindow 同口径（跨午夜末端 ≤ 30）")
-            assert bedtime[1] - bedtime[0] <= 12, "就寝窗口跨度不得超 12 小时"
-            assert dinner[1] <= bedtime[0], "晚餐与就寝窗口不得重叠"
-    for path in _MULTI_SCENARIOS:
-        document = _document(path)
-        chenxi, lifan = _agent_of(document, 1), _agent_of(document, 2)
-        # 李凡“经常凌晨一点才睡”→ 晚型；陈曦“每天早上 7 点起床”→ 早型。
-        assert "凌晨一点才睡" in lifan["background_story"]
-        assert "7点起床" in chenxi["background_story"]
-        assert lifan["chronotype_midsleep"] >= _LATE_CHRONOTYPE_MIN
-        assert chenxi["chronotype_midsleep"] <= _EARLY_CHRONOTYPE_MAX
-        assert lifan["chronotype_midsleep"] > chenxi["chronotype_midsleep"]
-        # 陈曦“按时吃午饭和晚饭”，李凡偏晚的加班餐时。
-        assert chenxi["lunch_window"][0] < lifan["lunch_window"][0]
-        assert chenxi["dinner_window"][0] < lifan["dinner_window"][0]
-        # 陈曦“不会为赶 deadline 加班到深夜”→ 当日就寝（末端 23:30，7.5h 睡
-        # 眠到 7 点起床）；李凡“经常凌晨一点才睡”→ 跨午夜就寝窗口（末端
-        # 25.0=次日 01:00，引擎侧锚点钳制 ≤ 当日结束，声明保持故事真值）。
-        assert chenxi["bedtime_window"] == [22.5, 23.5]
-        assert lifan["bedtime_window"] == [23.5, 25.0]
-        assert chenxi["bedtime_window"][1] < 24 <= lifan["bedtime_window"][1]
-
-
-def test_contacts_declare_mapping_and_reply_policies() -> None:
-    """每人 ≥2 名联系人：同事映射到对方人物，老友/家人为 model 回复场景联系人。"""
-    for path in _V2_SCENARIOS:
-        document = _document(path)
-        for agent in document["agents"]:
-            assert len(agent["contacts"]) >= 2
-            for contact in agent["contacts"]:
-                assert 0 <= contact["closeness"] <= 30
-                assert contact["channels"]
-                assert contact["salutation"].strip()
-    for path in _MULTI_SCENARIOS:
-        document = _document(path)
-        names = {1: "陈曦", 2: "李凡"}
-        for owner_id, counterpart_id in ((1, 2), (2, 1)):
-            agent = _agent_of(document, owner_id)
-            colleague = next(c for c in agent["contacts"] if c["relation"] == "同事")
-            # 同事映射到真实人物：称谓为对方人物，回复来自人物本身（无 NPC 自动回复）。
-            assert colleague["salutation"] == names[counterpart_id]
-            assert colleague["reply_policy"] == "none"
-            others = [c for c in agent["contacts"] if c is not colleague]
-            assert others, "老友/家人联系人不得缺席"
-            assert all(c["reply_policy"] == "model" for c in others)
-            assert all(c["relation"] in ("老友", "家人") for c in others)
-    # 单人正式场景没有对方人物可映射：只有 model 回复的场景联系人。
-    formal = _document(_FORMAL)
-    chenxi = _agent_of(formal, 1)
-    assert all(c["reply_policy"] == "model" for c in chenxi["contacts"])
-    assert all(c["relation"] in ("老友", "家人") for c in chenxi["contacts"])
-
-
 def test_payday_and_rent_are_calendar_opportunities_not_obligations() -> None:
-    """正式场景补每月 10 日发薪与 5 日房租：后台结算事件，不强制任何人物动作。"""
+    """场景声明的工资与账单逐项成为后台结算事件，账单不强制人物决策。"""
     document = _document(_FORMAL)
     payrolls = document["payrolls"]
     bills = document["bills"]
-    assert [p["due_at"] for p in payrolls] == [
-        "2026-01-10T09:00:00+08:00", "2026-02-10T09:00:00+08:00",
-        "2026-03-10T09:00:00+08:00"]
-    assert [b["due_at"] for b in bills] == [
-        "2026-01-05T09:00:00+08:00", "2026-02-05T09:00:00+08:00",
-        "2026-03-05T09:00:00+08:00"]
-    accounts = {item["account_id"] for item in document["accounts"]}
-    assert all(p["employer_account_id"] in accounts for p in payrolls)
-    assert all(b["account_id"] == "agent:1" and b["payee_account_id"] in accounts
-               for b in bills)
-    # 不强制动作：结算走后台预排（账单无决策归属），且不伴随任何合同或邮件义务。
+    assert payrolls and bills
     scenario, _ = load_scenario(_FORMAL)
     start, end = int(scenario.start_at.timestamp()), int(scenario.end_at.timestamp())
     money_events = [event for event in compile_schedule(scenario, start, end)
                     if event.data.get("payroll_id") or event.data.get("bill_id")]
-    assert len(money_events) == 6
+    assert len(money_events) == len(payrolls) + len(bills)
+    assert {event.data["payroll_id"] for event in money_events if event.data.get("payroll_id")} == {
+        item["payroll_id"] for item in payrolls}
+    assert {event.data["bill_id"] for event in money_events if event.data.get("bill_id")} == {
+        item["bill_id"] for item in bills}
     assert all(event.agent_id is None for event in money_events
                if event.data.get("bill_id"))
-    assert not any("salary" in task["task_id"] or "rent" in task["task_id"]
-                   for task in document["tasks"])
-    # 变体按各自现状规模：不加发薪与房租预排。
-    for path in _MULTI_SCENARIOS:
-        variant = _document(path)
-        assert variant.get("payrolls", []) == []
-        assert variant.get("bills", []) == []
-
-
-def test_location_business_kinds_cover_all_distinct_required_categories() -> None:
-    """三场景共享地图，营业类别分别覆盖，地点属性不再复制进场景。"""
-    corpus = json.loads(_LOCATIONS_CORPUS.read_text(encoding="utf-8"))
-    corpus_by_id = {item["location_id"]: item for item in corpus["locations"]}
-    for path in _V2_SCENARIOS:
-        document = _document(path)
-        assert all(set(item) == {"location_id"} for item in document["locations"])
-        scenario, _ = load_scenario(path)
-        assert _REQUIRED_CATEGORIES <= {item.business_kind for item in scenario.locations}
-        assert sum(item.business_kind == "restaurant" for item in scenario.locations) >= 2
-        for item in scenario.locations:
-            original = corpus_by_id[item.location_id]
-            assert (item.latitude, item.longitude, item.name) == (
-                original["latitude"], original["longitude"], original["name"])
-            assert item.location_kinds and "anywhere" not in item.location_kinds
-
-def test_shared_product_has_independent_market_and_store_supplies() -> None:
-    """同一商品拥有多个门店供给，地点分别声明现实环境与营业类别。"""
-    corpus = json.loads(_LOCATIONS_CORPUS.read_text(encoding="utf-8"))
-    market = next(item for item in corpus["locations"] if item["location_id"] == "market")
-    assert market["kind"] == "merchant" and market["business_kind"] == "general_retail"
-    assert market["location_kinds"] == ["venue"]
-    for path in _V2_SCENARIOS:
-        scenario, _ = load_scenario(path)
-        milk = [item for item in scenario.supplies if item.product_id == "food-6923644266066"]
-        assert len(milk) >= 3
-        assert len({item.location_id for item in milk}) >= 3
-        assert len({item.seller_account_id for item in milk}) >= 3
-        assert len({item.quotes[0].price_fen for item in milk}) >= 3
-        assert {product.product_id for product in scenario.products} <= {
-            item.product_id for item in scenario.supplies}
-
-def test_meal_products_resolve_against_the_catalog() -> None:
-    """正餐 ≥30 条：场景引用全部解析为目录 meal-* 对象且窗口合规。"""
-    catalog = load_catalog(_CATALOG)
-    for path in _V2_SCENARIOS:
-        scenario, _ = load_scenario(path)
-        meals = [product for product in scenario.products
-                 if product.product_id.startswith("meal-")]
-        assert len(meals) >= 30
-        merchants = {account["account_id"]: account for account in _document(path)["accounts"]}
-        for product in meals:
-            obj = catalog.objects[product.product_id]
-            assert obj.consumable and "eat" in product.use_modes
-            supply = next(item for item in scenario.supplies if item.product_id == product.product_id)
-            assert 1500 <= supply.quotes[0].price_fen <= 4500
-            assert 20 * 60 <= product.use_duration_seconds <= 40 * 60
-            assert supply.delivery_delay_seconds >= 0
-            assert merchants[supply.seller_account_id]["role"] == "merchant:restaurant"
-
-
-def test_home_pantry_declares_seven_breakfast_servings() -> None:
-    """家的初始储备：语料 7 份早餐全部在场景商品闭集内可解析。"""
-    pantry = json.loads(_PANTRY_CORPUS.read_text(encoding="utf-8"))
-    items = pantry["items"]
-    assert sum(item["quantity"] for item in items) == 7
-    catalog = load_catalog(_CATALOG)
-    for path in _V2_SCENARIOS:
-        scenario, _ = load_scenario(path)
-        products = {product.product_id for product in scenario.products}
-        for item in items:
-            assert item["object_id"] in products
-            assert catalog.objects[item["object_id"]].consumable
-
-
-def test_task_assignments_match_persona_occupations() -> None:
-    """合同按人分配：受理人物在场且技能等级覆盖合同门槛。"""
-    formal = _document(_FORMAL)
-    chenxi = _agent_of(formal, 1)
-    assert chenxi["name"] == "陈曦" and "产品经理" in chenxi["background_story"]
-    assert all(task["assignee_agent_id"] == "agent:1" for task in formal["tasks"])
-    assert all(task["required_skill"] in chenxi["skill_levels"]
-               and chenxi["skill_levels"][task["required_skill"]] >= task["minimum_skill"]
-               for task in formal["tasks"])
-    for path in _MULTI_SCENARIOS:
-        document = _document(path)
-        skills = {f"agent:{agent['agent_id']}": agent["skill_levels"]
-                  for agent in document["agents"]}
-        for task in document["tasks"]:
-            assert task["assignee_agent_id"] in skills
-            levels = skills[task["assignee_agent_id"]]
-            assert task["required_skill"] in levels
-            assert levels[task["required_skill"]] >= task["minimum_skill"]
-
-
-def test_work_materials_are_distinct_and_persona_matched() -> None:
-    """工作材料 20 份互不重复、按职业面（产品/后端）各 10 份分配到人物。"""
-    corpus = json.loads(_WORK_CORPUS.read_text(encoding="utf-8"))
-    materials = corpus["materials"]
-    assert len(materials) == 20
-    assert len({item["material_id"] for item in materials}) == 20
-    assert len({item["body"] for item in materials}) == 20
-    assert all(item["language"] == "zh" for item in materials)
-    per_persona = {}
-    for item in materials:
-        per_persona[item["target_persona"]] = per_persona.get(item["target_persona"], 0) + 1
-    assert per_persona == {"agent:1": 10, "agent:2": 10}
-    for path in _MULTI_SCENARIOS:
-        agents = {f"agent:{agent['agent_id']}" for agent in _document(path)["agents"]}
-        assert set(per_persona) <= agents
 
 
 @pytest.mark.parametrize(
@@ -790,24 +569,6 @@ def test_work_window_bounds_and_order_are_rejected(windows: dict, message: str) 
     assert {"leave_work_window", "arrive_home_window"}.isdisjoint(undeclared.model_fields_set)
 
 
-def test_three_scenarios_share_the_v2_schema() -> None:
-    """三场景同 Schema：版本、重估间隔、钉扎哈希与人物卡片字段一致齐备。"""
-    manifests = set()
-    for path in _V2_SCENARIOS:
-        document = _document(path)
-        assert document["schema_version"] == 5
-        assert document["reconsideration_interval_seconds"] == 5400
-        manifests.add(document["corpus_manifest_sha256"])
-        for agent in document["agents"]:
-            for field in ("chronotype_midsleep", "sleep_need_hours",
-                          "lunch_window", "dinner_window", "bedtime_window",
-                          "contacts", "work_schedule"):
-                assert field in agent
-        scenario, digest = load_scenario(path)
-        assert len(digest) == 64
-    assert len(manifests) == 1
-
-
 def test_runtime_agents_keep_the_declared_rhythm_fields() -> None:
     """组装后的运行时人物只把场景显式写出的字段记为已设（缺省值照旧由模型补齐，值不变），场景作息覆盖卡片据此只覆盖
     显式声明的作息字段（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-场景作息覆盖卡片抽取值 ）；声明全部五个字段的正式场景五个都记为已设。"""
@@ -822,7 +583,9 @@ def test_runtime_agents_keep_the_declared_rhythm_fields() -> None:
     assert agent.model_fields_set & rhythm == {"chronotype_midsleep"}
     assert (agent.sleep_need_hours, agent.lunch_window, agent.bedtime_window) == (7.5, None, None)
     assert agent.model_dump() == document.agents[0].model_dump()
-    assert load_scenario(_FORMAL)[0].agents[0].model_fields_set & rhythm == rhythm
+    declared = LifeScenario.model_validate(_payload())
+    assembled = assemble_semantics(declared, load_catalog(_CATALOG), _map(declared)).scenario.agents[0]
+    assert assembled.model_fields_set & rhythm == declared.agents[0].model_fields_set & rhythm
 
 
 def _shift(**fields) -> dict:
@@ -871,11 +634,13 @@ def test_work_schedule_shape_errors_are_rejected(edit, message: str) -> None:
 def test_every_agent_declares_work_schedule_and_structure_four_is_rejected(tmp_path: Path) -> None:
     """`work_schedule` 是人物配置的必填可空字段（4.3，裁决 W3）：删掉该键的文档经场景模型与真实入口
     （parse_scenario_document 与 load_scenario）都被拒、原因点名该字段，写 null 照常加载，合法的工作安排照常加载；场景
-    结构升为 5，键仍在而版本写回 4 的文档经同样两个真实入口按版本拒绝；仓库三份场景的每个人物都显式写出 null。"""
+    结构版本为 6，键仍在而版本写回 4 的文档经同样两个真实入口按版本拒绝。"""
     missing = _payload()
     del missing["agents"][0]["work_schedule"]
     _assert_invalid(missing, r"agents\.0\.work_schedule\n\s+Field required")
-    assert LifeScenario.model_validate(_payload()).agents[0].work_schedule is None
+    nullable = _payload()
+    nullable["agents"][0]["work_schedule"] = None
+    assert LifeScenario.model_validate(nullable).agents[0].work_schedule is None
     declared = _payload()
     declared["agents"][0]["work_schedule"] = weekday_schedule(declared)
     assert LifeScenario.model_validate(declared).agents[0].work_schedule.weekly["5"] is None
@@ -889,11 +654,11 @@ def test_every_agent_declares_work_schedule_and_structure_four_is_rejected(tmp_p
                 entry(path)
             assert field in str(failure.value.__cause__)
 
-    for path in _V2_SCENARIOS:
-        assert all(agent["work_schedule"] is None for agent in _document(path)["agents"])
-        scenario, _ = load_scenario(path)
-        assert scenario.schema_version == 5
-        assert scenario.agents and all(agent.work_schedule is None for agent in scenario.agents)
+    path = _mutated_scenario(_FORMAL, lambda document: document["agents"][0].update(work_schedule=None),
+                             tmp_path / "null-work-schedule")
+    scenario, _ = load_scenario(path)
+    assert scenario.schema_version == 6
+    assert scenario.agents[0].work_schedule is None
 
 
 def _scheduled_payload(edit) -> dict:

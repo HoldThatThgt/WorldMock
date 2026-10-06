@@ -8,6 +8,8 @@ fail-closed、检查点身份校验与 close 双重故障分支。只新增测�
 """
 
 from __future__ import annotations
+
+from tests.data_paths import ENVIRONMENT_ROOT
 from worldmock.footprints.checkpoint import restore_branch
 
 import hashlib
@@ -39,7 +41,7 @@ from worldmock.life.models import (
 )
 from worldmock.life.world_setup import load_scenario
 
-_SCENARIO = Path("scenarios/white-collar-12-weeks.json")
+_SCENARIO = ENVIRONMENT_ROOT / "scenarios/single-person.json"
 
 
 def _identity(scenario, tag: str) -> RunIdentity:

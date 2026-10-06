@@ -17,13 +17,16 @@
 
 | 现成场景 | 适合用来修改什么 |
 | --- | --- |
-| [白领十二周](../../scenarios/white-collar-12-weeks.json) | 单人物、工作合同、工资和生活支出；首页示例由它裁出一天 |
-| [多人场景](../../scenarios/multi-person.json) | 多人物与按人分配工作 |
-| [多人半天](../../scenarios/multi-person-half-day.json) | 短时段、多人、没有工作任务的生活观察 |
+| `single-person.json` | 单人物、工作合同、工资和生活支出；首页示例由它裁出一天 |
+| `multi-person.json` | 多人物与按人分配工作 |
+| `multi-person-half-day.json` | 短时段、多人、没有工作任务的生活观察 |
 
-新场景放在仓库的 `scenarios/` 下。解析器用场景的上两级目录定位 `catalog/`，
+这些文件均位于 WorldMock-Dataset 的 `environment/zhangjiang-baseline/scenarios/`。
+本页命令在 WorldMock 根目录执行；新场景放在 `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/` 下。解析器用场景的上两级目录定位 `catalog/`，
 场景中的 `corpus_root` 则相对场景所在目录解析。不要把场景移动到 `scenarios/custom/` 等更深目录而不调整整个项目布局。
-`schema_version` 当前为 5：每个人物须显式写 `work_schedule`（对象或 `null`）；多余字段和旧结构的输入都严格拒绝。
+`schema_version` 当前为 `6`：每个人物须显式写 `work_schedule`（对象或 `null`），
+每条 `contents[]` 须显式写非空 `title`；多余字段和旧结构的输入都严格拒绝。标题由引擎直接呈现，
+不再按来源元数据另找名称；生活活动的三项效果由所选语料根提供，见[生活活动](resources.md#resources-编写生活活动)。
 
 <a name="scenarios-看懂场景的组成"></a>
 ## 看懂场景的组成
@@ -258,7 +261,7 @@ flowchart LR
   加班机会日与聚餐日不要求班次；时间窗外的日期不核对，写了例外也不拒绝。日历是场景级的，病假、事假日对所有声明了班次的人物同时生效。
 - 班次形状错误报 `Scenario validation failed`（明细在异常链）；地点与日历核对的错误是 `Work schedules are not admissible: …`，
   逐条写明人物、日期与字段。
-- 现成三份场景的人物都写 `null`。
+- 工作安排字段首版的三份场景都写 `null`；当前外部环境以实际人物声明为准。
 
 **效果。** 声明了工作安排的人物每轮在环境层看到 `duty`：当班日写「工作日」、班次钟点、工作地点名、休息时段与状态
 （「未到上班时间」「当班中」「休息时段」「已下班」之一，只由时钟与班次决定，不看人物在不在场）；不当班的日子写「休息日」；
@@ -408,4 +411,5 @@ flowchart LR
 正式products/supplies列表包含选中门店全部声明商品和生成供给，不沿用旧稀疏选择。
 保持现有场景random_seed，按对应种子分别冻结供给发布；地图3、场景4、目录5.0分别在首次受影响阶段发布，后续目录内容变更另发版本，world8沿用。
 其后个人事务与工作安排规格把世界结构升为 9、场景结构升为 5，当时目录仍为 5.3。
-当前目录按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)发布为 5.4，只更正可供性声明的说明，业务数值与其它格式版本不变。
+共享规则与可重建环境规格曾发布目录 5.4。当前按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)
+使用场景结构 6，正式目录和地图的具体版本及内容摘要由 Dataset 环境清单绑定，不沿用历史版本推断当前字节。

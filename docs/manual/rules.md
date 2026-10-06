@@ -2,11 +2,12 @@
 # 调整世界规则与人物动机参数
 
 > 更新日期：2026-10-05。[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)中的构建价格范围、完整类别供给、
-> 正式食材配方和发布身份已实现并发布（当前目录 5.4、品类契约与规则绑定 3）；下文所说的格式即现行格式；下班与到家锚点、卡片结构 3 见[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)，画像映射表不变。
+> 正式食材配方和发布身份已实现；当前场景结构 6、品类契约与规则绑定 3，目录身份以 Dataset 环境清单为准；下班与到家锚点、卡片结构 3 见[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)，画像映射表不变。
 
 要改变人物的初始状态，先改[场景](scenarios.md#scenarios-生活场景)；要改变“商品怎样起效、行为怎样耗能、出行怎样计时”，
 再修改这里的规则。规则在加载时冻结，修改文件不会改变已经运行的世界。
-本页命令都在仓库根目录执行。
+本页命令都在 WorldMock 根目录执行，输入显式位于 `../WorldMock-Dataset/environment/zhangjiang-baseline/`。
+具体环境的身体、交通、品类和商品数据由 Dataset 维护；固定活动闭集、动机算法参数及人物映射由 WorldMock 包维护。
 
 ```mermaid
 flowchart LR
@@ -35,23 +36,23 @@ flowchart LR
 | --- | --- | --- |
 | `catalog/category-contract.json` | 品类继承、槽位约束、共享值、品类配对 | 随场景所用目录加载，版本与规则绑定 |
 | `catalog/exchange-rules.json` | 已实现算子的字段与系数所引用的规则 | 随目录加载；不支持表达式或自定义算子代码 |
-| `catalog/affordances.toml` | 已实现活动的身体结算、占用资源、候选生成和发现声明 | 场景装配会读目录副本，但实际结算、内部动机等仍有多处固定读取仓库默认文件；见[活动声明](rules.md#rules-活动声明) |
+| 引擎包 `worldmock.data/affordances.toml` | 固定活动闭集、占用资源、候选生成声明 | 通过包资源读取；环境目录的同名副本只绑定冻结身份，字节必须一致 |
 | `catalog/rules/travel-time.toml` | 驾车各小时的时长倍数 | 先被目录读取为不可变字节，再由运行场景解析 |
-| `catalog/rules/motivation.toml` | 跨人物的评分变换、归一化与习惯参数 | 从本次目录的 `rules/` 加载 |
+| 引擎包 `worldmock.data/motivation.toml` | 跨人物的评分变换、归一化与习惯参数 | 环境的 `catalog/rules/motivation.toml` 是包资源冻结副本，加载须逐字节一致 |
 | `agents[].motivation` | 单个人物的内部评分参数 | 从场景加载，当前结构版本为 `1` |
-| `catalog/rules/persona-mapping.toml` | 画像编译中的大五映射和缺省时间锚点 | 优先 `WORLDMOCK_PERSONA_MAPPING`，否则仓库文件位置，再检查当前工作目录 |
+| 引擎包 `worldmock.data/persona-mapping.toml` | 画像编译中的大五映射和缺省时间锚点 | 编译默认读取包资源；显式文件只供明确传参的编译，运行冻结副本须与包一致 |
 | `catalog/rules/off-foods.mapping.toml` | 已冻结食品来源的映射说明 | 纳入目录内容身份；当前没有执行该 TOML 的导入器 |
 | `catalog/resources.jsonl` 与合同品类属性 | 身体耗能、睡眠债、娱乐需要、效率曲线 | 目录生成结果；具体来源见[身体规则](rules.md#rules-身体规则) |
 
 场景默认目录位置是“场景文件上两级目录下的 `catalog/`”。`catalog_version` 仅检查版本，不能选择路径。
-目录清单会绑定规则文件的原始字节；改注释也需要刷新身份。
+目录清单会绑定规则文件的原始字节；改注释也需要刷新身份。通用规则副本若与包不一致，即使目录摘要已刷新也会拒绝场景装配。
 新建一个 TOML 文件、添加一个算子名或活动类型，不会自动新增引擎能力。
 
 <a name="rules-品类契约"></a>
 ## 品类契约
 
 先考虑把商品挂在已有品类下。只有现有品类确实无法表达共同属性或配对时，才新增品类。
-完整文件从[当前品类契约](../../catalog/category-contract.json)复制；不要从一个局部片段覆盖整个文件。
+完整文件从当前品类契约（`../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/category-contract.json`）复制；不要从一个局部片段覆盖整个文件。
 
 | 字段 | 必填与约束 | 用户应如何使用 |
 | --- | --- | --- |
@@ -116,7 +117,7 @@ flowchart LR
 <a name="rules-交换规则"></a>
 ## 交换规则
 
-[`exchange-rules.json`](../../catalog/exchange-rules.json) 顶层要求
+`exchange-rules.json`（`../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/exchange-rules.json`） 顶层要求
 `format_version: 1`、`contract_version`、`rules`、`sources`、`review`。
 每条规则共有 `rule_id`、`category_id`、`action`、`resource_id`、`unit`、`conservation`、`operator`。
 规则的目标品类和动作必须与引用它的配对一致。
@@ -183,7 +184,7 @@ flowchart LR
 `recipe_output_bindings` 明确绑定输出对象，双方 `inventory_unit=item`，库存资源仍为 `inventory/item`，不新增多材料算子。
 制作完成才扣输入并入库输出，之后食用才产生食品能量；暂停、取消或提前结束不制造半件产物。
 原料 `ingredient` 是此次新增的真实品类分支，必须有来源、对象和规则；无产出做饭活动直接删除重复绑定。
-工具交互首次发布采用目录 5.0、品类与规则绑定 3、场景 4、地图 3（当时世界状态为 8），现行目录为 5.4；旧输入直接拒绝，不提供迁移或兼容。
+工具交互首次发布采用目录 5.0、品类与规则绑定 3、场景 4、地图 3（当时世界状态为 8），正式目录的当前身份以 Dataset 清单为准；旧输入直接拒绝，不提供迁移或兼容。
 这些正式数据与生成行为已实现，没有为它们增加 `category check/refine/publish` 的参数或运行开关。
 
 <a name="rules-检查与发布品类修改"></a>
@@ -192,7 +193,7 @@ flowchart LR
 现有目录可直接离线检查：
 
 ```bash
-worldmock category check --catalog catalog
+worldmock category check --catalog ../WorldMock-Dataset/environment/zhangjiang-baseline/catalog
 ```
 
 查询某组配对时，先保存以下**完整文件**为 `experiments/worldmock-pairings.json`：
@@ -204,7 +205,7 @@ worldmock category check --catalog catalog
 ```
 
 ```bash
-worldmock category check --catalog catalog --queries experiments/worldmock-pairings.json
+worldmock category check --catalog ../WorldMock-Dataset/environment/zhangjiang-baseline/catalog --queries experiments/worldmock-pairings.json
 ```
 
 检查报告可以包含 `undefined`；它本身不代表场景准入已通过。
@@ -212,33 +213,32 @@ worldmock category check --catalog catalog --queries experiments/worldmock-pairi
 
 ```bash
 worldmock category refine \
-  --catalog catalog --candidate experiments/worldmock-candidate \
+  --catalog ../WorldMock-Dataset/environment/zhangjiang-baseline/catalog --candidate ../WorldMock-Dataset/environment/candidate/catalog \
   --parent-category food
 
 worldmock category publish \
-  --catalog catalog --candidate experiments/worldmock-candidate \
-  --output experiments/worldmock-published \
+  --catalog ../WorldMock-Dataset/environment/zhangjiang-baseline/catalog --candidate ../WorldMock-Dataset/environment/candidate/catalog \
+  --output ../WorldMock-Dataset/environment/my-world/catalog \
   --assignments experiments/worldmock-assignments.json \
-  --scenario scenarios/my-life.json
+  --scenario ../WorldMock-Dataset/environment/my-world/scenarios/my-life.json
 ```
 
 这些命令需要先准备完整候选目录和场景，不是空目录初始化命令。
 `assignments` 是明确确认的 `{"对象身份": "目标品类身份"}` 映射，无归属变化时为 `{}`。
 候选的契约版本和目录版本都必须递增，规则版本同步；所有目标场景应钉定候选目录版本。
 同一对象改挂品类要追加下一对象版本，不能跳过确认。可重复 `--scenario` 检查多个场景；输出目录必须不存在。
-发布不会改写原目录，也不会自动让运行命令找到 `experiments/worldmock-published`，还需按场景目录布局放置。
+发布不会改写原目录，也不会自动让运行命令找到 `../WorldMock-Dataset/environment/my-world/catalog`，还需按场景目录布局放置。
 
 <a name="rules-活动声明"></a>
 ## 活动声明
 
-[`affordances.toml`](../../catalog/affordances.toml) 有两层：`kinds` 声明引擎活动，`families` 将活动分组用于内部动机评分。
+[引擎包的 `affordances.toml`](../../src/worldmock/data/affordances.toml) 有两层：`kinds` 声明引擎活动，`families` 将活动分组用于内部动机评分。
 此处是已有能力的配置，不是插件接口。`ActivityKind`、工具协议、生成器原型、支持资源和出行方式仍受代码闭集约束。
 
-**独立 `catalog/` 副本中的活动声明目前不能完整切换运行行为。** 场景装配会读取并校验该副本，
-但反馈类型、资源锁、娱乐缓解通道、MET 模板、能量豁免（只供内部动机评分，不参与受理与结算），以及内部动机家族和候选参数，
-仍有消费者在导入时从仓库默认 `catalog/affordances.toml` 读取并缓存。
-例如只修改副本的 `resource_claims` 或 `candidate.max_tasks`，不能保证实际执行采用副本值。
-下表介绍声明格式；涉及这些运行参数时，当前有效入口仍是仓库默认文件，并需要启动新进程重新加载。
+所有消费者读取安装包内同一份不可变活动声明。环境目录中的 `affordances.toml` 是用于内容身份绑定的冻结副本，
+装配时须逐字节等于包资源，不能独立修改占用、反馈、候选参数或活动闭集。
+内容标题直接取场景 `title`；具体活动的娱乐、社交与健康效果取环境 `lifestyle/items.json` 并在活动开始时冻结。
+来源专属标题位置、目标语料和发现映射已删除。下表说明固定声明的格式；新增能力须随引擎实现与发布。
 
 | 常调字段 | 合法写法与影响 |
 | --- | --- |
@@ -248,12 +248,11 @@ worldmock category publish \
 | `resource_claims` | 占用名 `idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work`（[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第五章「并行准入」占用表）；`conditional` 子句按 `mode:<出行方式>` 或 `content_kind:<内容品类>` 追加占用；同一人物进行中活动的占用相交即 `RESOURCE_CONFLICT` |
 | `feedback_boundary`、`game_boundary` | 普通活动反馈与游戏反馈，不能同时开启 |
 | `action` | 启动该活动的内部标准动作名（动作闭集之一），`none` 表示不经 `start_activity` 启动；人物工具面固定，不按活动另设工具 |
-| `target_discovery` | `none`、`browse_result` 或带 `field/id_key` 的 `catalog_field` 声明 |
 | `families.<家族>.candidate` | 已登记生成器及其允许参数；未知生成器或参数会拒绝 |
-| `attention`、`content_kinds` | 采样限额、需要的注意力键、标题元数据位置；与人物 `attention_prior` 一致 |
+| `attention` | 采样限额和需要的注意力键；与人物 `attention_prior` 一致，内容标题直接取场景 `title` |
 | `habit_members` | 工具和活动类型的习惯归组；归并键是内部标准动作名（如 `travel_to`、`watch`），不是模型看到的五个动词；按名精确归并，每个动作名至多归一个家族 |
 
-例如以下是现有 `families.work` 中的**局部替换行**：
+例如以下是包内 `families.work` 的声明形状，供理解固定候选生成参数：
 
 ```toml
 candidate = { generator = "task_slot", max_tasks = 2 }
@@ -262,7 +261,7 @@ candidate = { generator = "task_slot", max_tasks = 2 }
 它控制内部动机评分为工作候选枚举多少任务，不改变模型提示中的候选呈现上限。
 用户可见候选数量由场景 `candidate_presentation_limit` 等参数控制，见[场景配置](scenarios.md#scenarios-生活场景)。
 
-修改活动声明后，需要检查资源目录中 MET/娱乐缓解键、语料路径、人物注意力键和工具菜单是否一致。
+WorldMock 发布活动声明变更时，需要检查环境资源中的 MET/娱乐缓解键、人物注意力键和工具菜单是否一致。
 单纯给 TOML 加一个新类型，并不能实现新的动作执行器。
 
 <a name="rules-出行时长"></a>
@@ -282,13 +281,10 @@ driving_08 = 1.85
 
 `provenance.factors` 必须有 `type`、`producer`、`source`、`artifact`、`method`、`paths`，
 且 `paths` 恰好为 `["/factors"]`。如果修改了系数，来源说明也要对应新的依据。
-当前交通锚点和生成方法见[交通快照说明](../../catalog/snapshots/traffic/README.md)。
+当前交通锚点和生成方法见交通快照说明（`../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/snapshots/traffic/README.md`）。
 
-```bash
-python scripts/calibrate_traffic.py --check
-```
-
-该命令检查现有锚点的可复现输出；自定义实验表若有意偏离锚点，不能再声称它是原校准产物。
+交通锚点校准和输出复核在 Dataset 的制作工具中执行，操作见数据仓说明。
+自定义实验表若有意偏离锚点，不能再声称它是原校准产物。
 
 <a name="rules-动机评分"></a>
 ## 动机评分
@@ -299,7 +295,7 @@ python scripts/calibrate_traffic.py --check
 <a name="rules-跨人物的通用参数"></a>
 ### 跨人物的通用参数
 
-[`motivation.toml`](../../catalog/rules/motivation.toml) 必须保留以下五组运行字段：
+[引擎包的 `motivation.toml`](../../src/worldmock/data/motivation.toml) 固定提供以下五组运行字段：
 
 | 分组与字段 | 约束与单位 | 作用 |
 | --- | --- | --- |
@@ -313,7 +309,7 @@ python scripts/calibrate_traffic.py --check
 | `habit.weight` | 0–1 | 习惯项权重 |
 | `habit.discount` | 大于等于 0、小于 1 | 对更早事件的折扣 |
 
-例如在原文件中替换整个 `[habit]` 段，其他段保持完整：
+例如包内 `[habit]` 段的字段形状如下，解释的是引擎算法参数：
 
 ```toml
 [habit]
@@ -321,9 +317,9 @@ weight = 0.2
 discount = 0.9
 ```
 
-这表示降低习惯频次对内部评分的影响。`version` 和 `provenance` 是现有文件的声明字段，
-修改参数应同步说明；当前读取器主要验证运行字段，不把任意 provenance 文本当作已核验研究证据。
-文件缺席时该评分仪表不启用；文件存在但结构或数值错误会阻止场景装配。
+`weight` 决定习惯频次对内部评分的影响。`version` 和 `provenance` 是包资源的声明字段，
+修改参数须随引擎发布并同步来源说明，不能把任意 provenance 文本当作已核验研究证据。
+环境冻结副本缺失、结构错误或字节不同都会阻止场景装配，不能删除文件来关闭评分仪表。
 
 <a name="rules-单个人物的参数"></a>
 ### 单个人物的参数
@@ -376,7 +372,7 @@ discount = 0.9
 <a name="rules-人物映射表"></a>
 ## 人物映射表
 
-[`persona-mapping.toml`](../../catalog/rules/persona-mapping.toml) 当前要求 `version = 2`，
+[引擎包的 `persona-mapping.toml`](../../src/worldmock/data/persona-mapping.toml) 当前要求 `version = 2`，
 有 `big_five_center`、`world_dynamics`、`defaults` 三组。画像编译中的大五刻度是 **1–7**，
 与上文场景 `motivation.big_five` 的 1–10 校验范围不同。
 
@@ -392,7 +388,7 @@ discount = 0.9
 | `conversation_relief_per_hour` | 0–1，每小时 |
 | `diversity_weight`、`invitation_acceptance`、`reply_tendency`、`present_preference` | 0–1 |
 
-以下是原文件 `[defaults]` 和子表的**完整替换片段**，用于故事未明确提及时的编译缺省：
+以下是 `[defaults]` 和子表的声明形状，用于故事未明确提及时的编译缺省；通用默认值随引擎发布：
 
 ```toml
 [defaults]
@@ -412,8 +408,10 @@ bedtime = "23:00-24:00"
 没有场景字段，故事不提时总取这里的缺省，见[人物画像](personas.md#personas-正文与实际世界条件要一致)。
 下班与到家（卡片的 `leave_work`、`arrive_home`）没有缺省：本表 `[defaults.time_anchors]` 仍只有五个键，`version` 仍为 2，目录身份不变；故事与场景都没写固定时刻时，卡片与人设层的这两项为 null。
 
-独立文件可通过相对路径 `WORLDMOCK_PERSONA_MAPPING=experiments/persona-mapping.toml` 选择；
-这不是场景字段，也不会自动跟随另一个自定义 `catalog/` 目录。
+编译默认调用 `load_mapping_config()` 读取包资源；明确的编译实验可调用
+`load_mapping_config(Path("../WorldMock-Dataset/environment/my-world/persona-mapping.toml"))`，
+再将所得 `config` 传给 `compile_persona`。不通过环境变量或当前目录搜索映射文件。
+实际场景装配要求 `catalog/rules/persona-mapping.toml` 与包资源逐字节一致，不能将另一份映射当成可替换的运行规则。
 当前运行时主要从编译结果接入人物卡片和口味权重，**尚未把整份 `world_dynamics` 自动应用到世界状态**。
 改变映射表可以改变编译输出，不能据此声称运行中的情绪、社交和邀约参数都已相应改变。
 需要明确人物睡眠与作息时，仍在场景人物字段中填写，详见[人物画像](personas.md#personas-人物画像)。
@@ -425,7 +423,7 @@ bedtime = "23:00-24:00"
 目录身份会计入它，构建脚本会检查它存在，但并不执行文件里的字段映射或表达式。
 因此修改它不会自动抓取食品、增加商品、换算热量或更新份量。
 
-实际正式目录由 `scripts/build_catalog.py` 读取冻结食品语料、白名单和品类映射生成。
+实际正式目录由 Dataset 的构建工具读取冻结食品语料、白名单和品类映射生成。
 食品定制入口及商品原始模型见[资源与素材](resources.md#resources-新增商品对象)。
 文件里保留的旧映射措辞不代表当前支持对象 `edges`、动态公式或缺失营养数据时的自动推断。
 
@@ -446,8 +444,8 @@ bedtime = "23:00-24:00"
 | 口味不合时的缓解下限 | 场景 `body.entertainment_relief_preference_floor` | 下限偏好 `f`，开区间 (0, 1)，缺省 `0.5`；观看与游戏的实际缓解为缓解速率 × (`f + (1 − f)·w`)，`w` 是口味权重，候选排序仍用 `w`；实验假设，见[实验假设声明](../EXPERIMENT.md#experiment-实验假设声明)；目录不含此键，改它不涉及目录版本 |
 | 工作效率因子、笔记倍率 | 合同品类解析后的属性 | 所有合同模板需一致；曲线必须能合法插值 |
 
-正式基线生成器从 `scripts/catalog-snapshot-legacy-scenario.json` 的 `body` 读取基础身体参数，
-合并 `lifestyle/items.json` 的 MET，再写入资源目录。
+身体参数与生活活动 MET 的数据输入由 Dataset 维护，构建器发布对应资源目录；
+引擎加载所选环境的身体系数，同时要求活动 MET 键与该环境活动条目一致。
 工作效率则由合同品类属性解析。把运行期 `BodyConfig` 的完整字段直接塞进场景 `body` 会因未知字段被拒绝。
 
 当前[睡眠模型](../../src/worldmock/life/sleep.py)冻结了两过程时间常数、睡眠不足账的增长与恢复算法、
@@ -460,57 +458,36 @@ bedtime = "23:00-24:00"
 <a name="rules-在独立目录中调参并验证"></a>
 ## 在独立目录中调参并验证
 
-下面是完整离线示例：复制规则目录和现有场景，降低习惯项权重，提升目录次版本，刷新真实目录身份，
-然后经真实场景装配读取。它不改正式目录、不调用模型、不启动模拟。
+下面是完整离线示例：复制 Dataset 的完整环境，在新场景里改人物初始能量，再经真实加载器校验。
+它保留包资源的通用规则副本，不调用模型，也不启动模拟；目标目录须不存在。
 
 ```bash
-python - <<'PY'
+python - <<'PYCODE'
 import json
 import shutil
 from pathlib import Path
-from worldmock.categories.identity import refresh_manifest_identity
 from worldmock.life.world_setup import load_runtime_scenario
 
-root = Path("experiments/rules-demo")
-root.mkdir(parents=True, exist_ok=False)
-shutil.copytree("catalog", root / "catalog")
-(root / "scenarios").mkdir()
-rules = root / "catalog/rules/motivation.toml"
-text = rules.read_text(encoding="utf-8")
-assert "weight = 0.3" in text
-rules.write_text(text.replace("weight = 0.3", "weight = 0.2", 1), encoding="utf-8")
-manifest_path = root / "catalog/manifest.json"
-manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-manifest["version_minor"] += 1
-manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-refresh_manifest_identity(root / "catalog")
-scenario = json.loads(Path("scenarios/white-collar-12-weeks.json").read_text(encoding="utf-8"))
+source = Path("../WorldMock-Dataset/environment/zhangjiang-baseline")
+root = Path("../WorldMock-Dataset/environment/rules-demo")
+shutil.copytree(source, root)
+scenario_path = root / "scenarios/single-person.json"
+scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
 scenario["scenario_id"] = "rules-demo"
-scenario["corpus_root"] = "../../../corpora"
-scenario["catalog_version"] = {"major": manifest["version_major"], "minor": manifest["version_minor"]}
-scenario_path = root / "scenarios/scenario.json"
+scenario["body"]["initial_energy_kcal"] = 1400
 scenario_path.write_text(json.dumps(scenario, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 semantics, _ = load_runtime_scenario(scenario_path)
-assert semantics.motivation_transforms.habit_weight == 0.2
-print("Custom motivation rules are valid")
-PY
+assert semantics.scenario.body.initial_energy_kcal == 1400
+print("Custom environment body parameters are valid")
+PYCODE
 ```
 
-目标实验目录必须不存在。示例沿用假设性质的习惯来源声明；用于正式实验时，补充本次取值理由。
-这是在既有模型内调参数，不是 `category publish` 的品类结构发布流程。
-`refresh_manifest_identity` 只重新计算身份，不证明规则正确；因此示例在最后执行了实际场景装配。
-
-对于正式基线，由生成器刷新资源、对象和目录清单：
+这个初值是实验假设，正式实验须登记取值理由。场景初值改变不涉及目录发布；身体规则、品类、商品或交通系数
+改变则需在 Dataset 发布新的目录身份。`refresh_manifest_identity` 只重新计算摘要，不证明数据正确；
+发布仍须通过实际加载及相应行为验收。只读检查这份环境目录：
 
 ```bash
-python scripts/build_catalog.py
-python scripts/build_catalog.py --check
-```
-
-不要把这个固定基线生成器用于上面的独立目录。只读检查某份自定义目录：
-
-```bash
-worldmock category check --catalog experiments/rules-demo/catalog
+worldmock category check --catalog ../WorldMock-Dataset/environment/rules-demo/catalog
 ```
 
 正式运行前继续执行[资源文件校验](resources.md#resources-验证修改)和完整项目校验；

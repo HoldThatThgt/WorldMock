@@ -252,7 +252,7 @@ worldmock deliver --export exports/my-world --output deliveries/my-world
 | 四种规则变体不完整或重复 | 恢复现有四变体、单组单次配置，检查生成报告 |
 | LabelKit 退出成功但没有 WorldMock 成功清单 | 继续检查宿主的来源、评审、训练装载和规则门禁；单独跑 LabelKit 不会完成正式交付 |
 
-更多 LabelKit 字段见随仓库提供的[模型配置手册](../../vendor/labelkit/docs/manual/06-config-toml.md)、
-[任务配置手册](../../vendor/labelkit/docs/manual/07-project-toml.md)和
-[序列生成手册](../../vendor/labelkit/docs/manual/27-sequence-generation.md)。
+更多 LabelKit 字段见[固定来源声明](../../requirements/labelkit-source.json)所绑定版本中的
+LabelKit 手册中的 `06-config-toml.md`（模型配置）、`07-project-toml.md`（任务配置）和
+`27-sequence-generation.md`（序列生成）；按该固定来源安装后在 LabelKit 的手册目录阅读。
 WorldMock 的最终接入范围仍以上述约束为准。

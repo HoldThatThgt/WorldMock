@@ -14,6 +14,11 @@
 > 补充依据：《对象模型重分析》的「可达性：池变大后靠什么被看到」「被裁掉的对象怎么办」「曝光轮转」「地点语义粒度该取什么值」四节，见 `.work/object-model-reanalysis/REPORT.md` 与同目录 `LOCATION-GRANULARITY.md`
 > 范围：人物的记忆写入与巩固、动机层的内部仪表与呈现、当日目标、世界素材品类准入、素材可达性与呈现轮转、画像编译、商品数量合同、运行呈现与导出投影
 
+当前环境归属按[环境数据归属规格](SPEC-environment-data-ownership.md)执行：具体 `corpora/`、`catalog/`、`scenarios/`
+及制作工具由 WorldMock-Dataset 维护，正式环境为 `environment/zhangjiang-baseline/`；通用活动、动机与人物映射
+由 WorldMock 包资源提供，环境冻结副本须逐字节一致。当前场景结构为 `6`，单人物文件为 `single-person.json`。
+本文中的新环境放行须另核对本次收据，历史验收数字不证明当前组合已经通过。
+
 <a name="spec-life-realism-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
 
@@ -292,9 +297,9 @@ flowchart LR
 | 家的可供性 | 晨间例程（洗漱 15 分钟）与家中储备食品：场景初始储备 7 份早餐类食品，进食扣减，选择支持配送的门店供给补充至家中；储备为场景假设并留痕 |
 | 办公室的可供性 | 茶水间饮水（免费、5 分钟、微量娱乐缓解）、会议室（会议任务）、同事在场 |
 | 正餐 | 至少 30 个正餐类商品（热食、餐馆菜、外卖套餐），热量来源为中国食物成分表或 USDA FNDDS 并标注来源，门店供给报价 15–45 元为场景假设，用餐时长 20–40 分钟，可堂食或配送 |
-| 内容 | 每个观看条目必须有 `title`、`genre[]`、`language`、`age_rating`；白领场景拒绝 `age_rating ≥ 18` 的条目；现有 `drama` 语料（英文视觉小说脚本）整体替换；此外每个条目必须携带可作检索分区键的条目属性——题材（`genre[]`）、语言（`language`）、时长段（由 `duration_seconds` 落格）三项不得缺省，检索分区即由这三项的组合构成 |
+| 内容 | 每个场景观看条目必填非空 `title`，引擎直接呈现、不按来源映射找标题；内容元数据仍须有 `title`、`genre[]`、`language`、`age_rating`；白领场景拒绝 `age_rating ≥ 18` 的条目；现有 `drama` 语料（英文视觉小说脚本）整体替换；此外每个条目必须携带可作检索分区键的条目属性——题材（`genre[]`）、语言（`language`）、时长段（由 `duration_seconds` 落格）三项不得缺省，检索分区即由这三项的组合构成 |
 | 工作 | 84 天至少 20 份互不相同、与人物职业匹配的中文输入材料；`tasks[].assignee_agent_id` 必填，合同按人分配；每项至少有一封关联通知邮件，每封非空 `related_task_id` 均引用存在任务且收件人为该任务受派人物；正式材料在通知前已经有效 |
-| 生活活动 | 条目 Schema 增加 `location_kinds`、`time_window`、`needs_partner`、`effects`（娱乐、社交、健康）；启用集由画像编译产生 |
+| 生活活动 | 条目 Schema 增加 `location_kinds`、`time_window`、`needs_partner`、`effects`（必填不可变映射，恰含 entertainment/social/health 三键、有限数值 0–1）；从实际语料根加载，预演读条目效果，启动冻结到活动状态、推进与恢复只读冻结值；启用集由画像编译产生 |
 | 联系人 | 每个人物都要配到至少两名联系人：同事与其他人物对应，老友或家人由场景联系人担任；联系人与回复策略的行为规则见 `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「社交最小可行版」 |
 
 任务输入的 `appointment` 必填：普通工作为 null，真实预约为 `{starts_at, reason}`，两键必填且原因非空、时刻带时区。
@@ -378,8 +383,8 @@ flowchart LR
 
 依据：《对象模型重分析》「曝光轮转」的「不做：永久退役」一半，以及「被裁掉的对象怎么办」的三条约束。
 
-当前场景目录只用了 192 条内容中的 10 条、129 种食品中的 5 种；因此本规格不要求增加同类条目数量，
-只要求补齐上表缺失的品类。语料获取仍走 `prepare-corpora`，来源、许可与哈希进入 `corpora/manifest.json`。
+本特性的原始分析观察到场景目录只用了 192 条内容中的 10 条、129 种食品中的 5 种；因此本规格不要求增加同类条目数量，
+只要求补齐上表缺失的品类。语料获取、来源整理和制作在 Dataset 执行，来源、许可与哈希进入发布环境的 `corpora/manifest.json`。
 
 <a name="spec-life-realism-候选与呈现"></a>
 ## 候选与呈现
@@ -618,22 +623,22 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 | `custom/agents/life_agent.py` | 单一行动阶段（删除决策自述阶段与身份前言，system 为系统层）与同秒续接中 `reasoning_content` 原样回传；工具描述只写用途；商家或可配送时开放购买与进食；日程工具请求模型；记忆列表允许为空 |
 | `custom/envs/life_env.py` | 注册日程与多件商务动作 |
 | `src/worldmock/life/models.py`、`scenario.py` | 日程与人物卡片相关 Schema、多件购买与多件进食请求、品类与人物卡片覆盖率准入检查 |
-| `src/worldmock/life/motivation.py`、`catalog/rules/motivation.toml`、`catalog/affordances.toml` | 单位时间成本、价格单计、正餐门槛、家族上限、只从人物启用集采样、relief 通道、按感官特异性饱足降权、结果写入 `motivation_internal`（`drive_summary` 删除） |
+| `src/worldmock/life/motivation.py`、`src/worldmock/data/motivation.toml`、`src/worldmock/data/affordances.toml` | 单位时间成本、价格单计、正餐门槛、家族上限、只从人物启用集采样、relief 通道、按感官特异性饱足降权、结果写入 `motivation_internal`（`drive_summary` 删除） |
 | `src/worldmock/life/engine.py` | 目标实际推进与目标投影；`motivation_internal` 字段；多件商务结算 |
 | `src/worldmock/life/commerce.py`、`activities.py` | 多件购买与整单拒绝、家中储备补货 |
-| `src/worldmock/profile/extractor.py`、`mapper.py`、`textgen.py`、`models.py`、`taste.py`、`catalog/rules/persona-mapping.toml` | 卡片抽取、大五到世界层动力学映射、卡片渲染、覆盖率校验、`taste_weights` 降级为纯排序权重（零权重不出局） |
+| `src/worldmock/profile/extractor.py`、`mapper.py`、`textgen.py`、`models.py`、`taste.py`、`src/worldmock/data/persona-mapping.toml` | 卡片抽取、大五到世界层动力学映射、卡片渲染、覆盖率校验、`taste_weights` 降级为纯排序权重（零权重不出局） |
 | `src/worldmock/footprints/models.py`、`quality.py`、`export.py` | `decision_started.data` 为闭集 `{round_id, round_order, world_state_version, wake_reasons}`，带 `decision_statement` 即拒绝；时间线投影、指标接入 |
 | `src/worldmock/delivery/windows.py` | dreaming 窗口读 `self_note` 与实际请求中的层 JSON，不再重新渲染 `scene` |
 | `src/worldmock/evaluation/review.py`、`public_evidence.py` | 盲评记录的地点与同伴列 |
 | `scripts/inspect_run.py`、`scripts/render_day.py`、`tools/run-viewer.html` | `tool_name` 修正、时间线投影生成、“一天”视图 |
-| `catalog/resources.jsonl`、`objects.jsonl`、`manifest.json`、`scripts/build_catalog.py`、`scripts/build_lifestyle_corpus.py`、`src/worldmock/corpora/fetch.py`、`corpora/` | 正餐、地点、内容元数据、生活活动 Schema、联系人、工作材料；替换 `drama` 语料 |
-| `scenarios/multi-person.json`、`white-collar-12-weeks.json` | 按新 Schema 重新生成：人物卡片、联系人、地点、正餐、内容元数据、合同分配、日历补发薪与房租日 |
+| Dataset `../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/`、`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/` 及数据仓制作工具 | 正餐、地点、内容元数据、生活活动 Schema、联系人、工作材料；替换 `drama` 语料 |
+| Dataset `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/multi-person.json`、`single-person.json` | 按新 Schema 重新生成：人物卡片、联系人、地点、正餐、内容元数据、合同分配、日历补发薪与房租日 |
 | AS2 的必要生命周期补丁；`custom/agents/life_agent.py`、`life_memory.py`、`life_memory_store.py` | AS2 保留 `reasoning_content` 回传与严格存储；LifeAgent 维护观察单写，WorldMock 维护空记忆、巩固触发与提示、同类相似合并 |
 | `src/worldmock/life/motivation.py`、`observe.py`、`activities.py`、`projection.py` | 娱乐与生活活动候选的入选条件去掉「偏好权重为正」；地点类交集门与稳定原因码；候选上限与下推游标；被挡项带原因码而非静默消失 |
 | `src/worldmock/profile/taste.py` | 零权重语义改为「排最后」而非「不可选」 |
 | `src/worldmock/catalog/admission.py`、`affordances.py` | 地点与内容品类的 `location_kinds` 声明完整性校验；分区键齐备与分区可达性校验（准入期阻断） |
-| `catalog/affordances.toml`、`catalog/manifest.json`、`corpora/zhangjiang-map/locations.json`、`corpora/lifestyle/enrichment.json` | 地点补语义键；七个内容品类各补一行地点类；目录版本递增；`location_kinds` 词表三处逐值一致 |
-| `src/worldmock/life/scenario.py`、`scenarios/*.json` | `LocationConfig` 增 `location_kinds` 并声明六值封闭集；三份生活场景（`white-collar-12-weeks.json`、`multi-person.json`、`multi-person-half-day.json`）只引用具有明确活动环境的地图地点，`evaluation.json` 无 `locations` 键、不在其列；单次呈现上限与换新名额作为场景常量 |
+| `src/worldmock/data/affordances.toml`、环境 `../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/manifest.json`、`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/zhangjiang-map/locations.json`、`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/lifestyle/enrichment.json` | 地点补语义键；七个内容品类各补一行地点类；目录版本递增；`location_kinds` 词表三处逐值一致 |
+| `src/worldmock/life/scenario.py`、Dataset `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/*.json` | `LocationConfig` 增 `location_kinds` 并声明六值封闭集；三份生活场景（`single-person.json`、`multi-person.json`、`multi-person-half-day.json`）只引用具有明确活动环境的地图地点，`evaluation.json` 无 `locations` 键、不在其列；单次呈现上限与换新名额作为场景常量 |
 | `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态` | 记录本规格各项的实际门禁结果 |
 
 **实施顺序**：
@@ -1195,7 +1200,7 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 - `TimeAnchors` 增 `leave_work`、`arrive_home`，类型为可空窗口、必填无缺省；null 统一表示「没有固定时刻或故事未提及」。
 - 两者不进入回绕归一的名字元组，也不进入五锚点的全序校验（否则 null 会让归一整体放弃）。另设顺序约束：`leave_work` 非空时出门起点 ≤ 下班起点；两者都非空时下班起点 ≤ 到家起点；`leave_work` 为 null 而 `arrive_home` 非空时出门起点 ≤ 到家起点；任一非空时其起点 ≤ 归一后的就寝起点；与午餐、晚餐不设先后。首版不支持跨午夜的下班与到家。
 - **抽取。** 抽取载荷新增独立顶层键 `work_anchors: {leave_work, arrive_home}`，单独取共识，下班锚点的摇摆不连带改变其余五个锚点。提示补一句：故事写明固定的下班或到家时刻才填；没有固定工作地点、时间不固定、落在次日或未提及写 null，不要推测。
-- **不设缺省。** 两键为 null 时保持 null，不读映射表缺省（裁决 W2）；`catalog/rules/persona-mapping.toml` 不改，目录身份不变。
+- **不设缺省。** 两键为 null 时保持 null，不读映射表缺省（裁决 W2）；`src/worldmock/data/persona-mapping.toml` 不改，目录身份不变。
 - **降级而不失败。** 新锚点不满足顺序约束时按固定顺序降级为 null：先核 `leave_work`（对出门与就寝），再核 `arrive_home`（对仍有效的下班或出门，以及就寝）。单次采样只为放行校验而降级，不写回载荷，也不触发解析重试（格式错误仍走重试）；共识对原始的 `work_anchors` 取众数；降级说明只在共识后的最终卡片上生成，每个被置空的锚点一条。不得因此让整张卡片编译失败。
 - **降级说明的出口。** 抽取结果增一个承载说明的只读字段，编译警告把它接在一致性警告之后。画像编译警告进运行输入警告的唯一通道是 `PERSONA_AGREEMENT_LOW`：该码改为泛指「画像编译留下的警告」，消息不再预设原因是一致性偏低，`details.compiler_warning` 带原文；警告码闭集仍为 10。
 - 编译产物的卡片结构版本为 3，抽取提示版本 `card-v3`；旧结构化卡片因缺这两个必填键被拒。
@@ -1212,7 +1217,7 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 <a name="errands-workday-作息补全与工作安排-工作安排声明"></a>
 ### 工作安排声明
 
-人物配置增必填可空字段 `work_schedule`（裁决 W3）；null 表示这个人物没有任何在岗语义。场景结构版本升为 5，旧场景按版本拒绝；仓库三份场景同批显式写出该字段，它们的 `scenario_sha256` 随之改变。
+人物配置增必填可空字段 `work_schedule`（裁决 W3）；null 表示这个人物没有任何在岗语义。该工作安排特性当时将场景结构升为 5；当前结构为 6，旧场景按版本拒绝。数据仓三份场景同批显式写出该字段，它们的 `scenario_sha256` 随之改变。
 
 ```json
 {
@@ -1236,7 +1241,7 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 - 不从星期推断，不从任务分布推断，不带时区字段（复用场景唯一的 `timezone`）。
 - **校验的落点。** 班次形状错误留在场景模型的校验器。跨引用放在加载检查（失败为顶层英文明细，写明人物、日期与字段）：工作地点是所选地点；与场景日历交叉核对——补班日必须有班次，春节、病假、事假日必须不当班，加班机会日不要求班次。
   交叉核对只对落在场景时间窗内的日历日期执行；时间窗外的例外日期不拒绝。场景日历是场景级的，病假、事假日对所有声明了班次的人物同时生效。
-- 仓库三份场景的全部人物首版写 null，只做结构升级；是否给正式十二周场景声明班次是实验条件，另行裁决并登记实验假设（裁决 W4）。班次行为的验收一律用 `engine_factory` 加 `mutate` 构造。
+- 当时三份正式场景的全部人物首版写 null，只做结构升级；是否给正式十二周场景声明班次是实验条件，另行裁决并登记实验假设（裁决 W4）。班次行为的验收一律用 `engine_factory` 加 `mutate` 构造。
 
 <a name="errands-workday-作息补全与工作安排-环境层-duty"></a>
 ### 环境层 `duty`

@@ -3,13 +3,18 @@
 
 > **状态**：DRAFT；接口与行为以冻结合同和规格为准；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 EX1），已实现<br>
 > **日期**：2026-10-05
-> **版本**：v1.9\
+> **版本**：v1.10\
 > **工具交互修订**：价格构建范围、方式解析、英文错误明细与真实做饭链已冻结，已实现；本次生产验收单独记录；以[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)为本次合同。
 > **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)阶段 4 同步（查询筛选与返回精简，[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D2 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）；该规格其余阶段不改本文。
 > **范围**：维护交换规则、查询适用规则、校验交换条件、计算投入产出、校验资源分录与返回规则结果
 
 本文说明交换引擎提供哪些规则能力，以及这些能力的输入和输出。
 接口定义见[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)，具体计算规则见[生活运行时规格](../dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)。
+
+具体环境及制作工具按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)归 WorldMock-Dataset，
+正式环境为 `environment/zhangjiang-baseline/`；WorldMock 提供引擎及包内固定通用规则。
+本章的 `catalog/`、`corpora/`、`scenarios/` 指外部环境目录，命令以 WorldMock 为当前工作目录并显式传路径。
+当前场景结构 6，内容标题必填，活动效果随环境加载并在启动时冻结；新组合放行另核对实际收据。
 
 <a name="design-02-exchange-engine-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
@@ -424,7 +429,7 @@ sequenceDiagram
 身体规则的执行、状态更新和完整生活运行验收归模拟引擎；保存与审计验收归记录引擎。
 新增交换行为仍须有相应的计算和校验能力，不能仅凭登记了一个新条目就宣称支持。
 状态接入的当前边界见[人物状态模型](../../src/worldmock/life/models.py)，语料维护的当前边界见
-[语料准备](../../src/worldmock/corpora/fetch.py)与[语料清单校验](../../src/worldmock/corpora/manifest.py)。
+Dataset 的语料准备工具与引擎的[语料清单校验](../../src/worldmock/corpora/manifest.py)。
 
 <a name="exchange-engine-分阶段验证与完成条件"></a>
 ### 分阶段验证与完成条件
@@ -466,6 +471,7 @@ flowchart LR
 | v1.6 | 2026-10-01 | 工具交互设计冻结并已实现：区分对象构建范围与真实门店报价；单食材包制作及产物反馈；拒绝使用具体路径、合法值和完整调用候选 |
 | v1.7 | 2026-10-03 | 同步个人事务与工作安排规格阶段 4（实施计划 D2-01–D2-03、D2-06）：`query_world` 改六键，来源筛选与购买 `from` 同一解析，只看此刻能做的筛选读取冻结观察的可用性、不重新求值交换条件，结果不附候选；购买来源的写法更正为地点显示名（含「家」「住处」）或渠道称呼；版本表改为末行最新 |
 | v1.8 | 2026-10-04 | 个人事务与工作安排规格实现后文档（实施计划 D2-05）：文件头修订行注明已实现并链接个人事务与工作安排验收记录（证据为离线测试，规格阶段 6 的配对全天复跑未执行）；正文不变 |
+| 环境数据归属 | 2026-10-05 | 按环境数据归属规格同步双仓职责、包内通用规则与显式环境路径；场景结构 6、必填标题和冻结活动效果按正文说明，最终验收另记实际收据 |
 
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 当前职责对象与依赖方向、五项行为正文归属、固定历史来源和稳定引用；业务与持久合同保持不变 |
 | 共享规则与可重建环境 | 2026-10-05 | 同步规则归属、源码重建与验收合同 |

@@ -1,5 +1,7 @@
 """@brief 正式工厂的世界隔离和真实生产装配仍完整执行。"""
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
 from pathlib import Path
 
@@ -30,14 +32,14 @@ def test_mutated_factory_does_not_use_formal_input_cache(engine_factory, frozen_
     mutated = engine_factory(mutate=lambda document: document.update(activity_feedback_seconds=1800))
     assert mutated.context.scenario.activity_feedback_seconds == 1800
     assert len(frozen_inputs.records) == before
-    path = mutated.context.store.run_dir.parent / "scenario-0/scenarios/white-collar-12-weeks.json"
+    path = mutated.context.store.run_dir.parent / "scenario-0/scenarios/single-person.json"
     document = json.loads(path.read_text(encoding="utf-8"))
     assert not Path(document["corpus_root"]).is_absolute()
 
 
 def test_direct_create_and_open_still_run_real_loaders_after_cache_use(engine_factory, monkeypatch, tmp_path):
     engine_factory()
-    path = Path("scenarios/white-collar-12-weeks.json")
+    path = ENVIRONMENT_ROOT / "scenarios/single-person.json"
     document = json.loads(path.read_text(encoding="utf-8"))
     calls = []
     for name in ("load_runtime_scenario", "load_manifest"):
@@ -67,7 +69,7 @@ def test_uncached_input_manifest_and_restore_identity_are_actually_validated(eng
     engine = engine_factory()
     run_dir = engine.context.store.run_dir
     engine.close()
-    path = _mutated_scenario(Path("scenarios/white-collar-12-weeks.json"),
+    path = _mutated_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json",
                              lambda document: document.update(activity_feedback_seconds=1800), tmp_path / "reopen")
     with pytest.raises(IntegrityError, match="scenario identity mismatch"):
         LifeEngine.open(path, run_dir)

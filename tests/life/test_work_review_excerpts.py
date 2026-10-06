@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import hashlib
 import json
 import re
@@ -67,7 +69,7 @@ def _excerpts(arguments: str) -> list[str]:
 def _white_collar_source() -> str:
     """WC 评审的来源即仓库 AMI 语料的 ES2002a 转写（按哈希核对是同一份字节）。"""
     record = _FIXTURE["white_collar"]
-    path = _ROOT / "corpora" / record["source_path"]
+    path = ENVIRONMENT_ROOT / "corpora" / record["source_path"]
     assert hashlib.sha256(path.read_bytes()).hexdigest() == record["source_sha256"]
     return path.read_text(encoding="utf-8")
 

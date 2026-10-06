@@ -1,8 +1,10 @@
 <a name="evaluation-自定义评估与盲评输入"></a>
 # 自定义评估与盲评输入
 
+本页命令以 WorldMock 为当前工作目录，场景输入显式位于 `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/`。
+
 评估配置决定“比较同一时间段内哪些活动、使用哪些公开参照、请评审判断哪些维度”。
-从 [scenarios/evaluation.json](../../scenarios/evaluation.json) 复制完整文件修改。
+从 scenarios/evaluation.json（`../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/evaluation.json`） 复制完整文件修改。
 它和[人物运行场景](scenarios.md#scenarios-生活场景)是两种不同输入，不要把它传给 `worldmock run`。
 所有命令均在仓库根目录执行。
 
@@ -32,7 +34,7 @@ flowchart LR
 
 | 文件或目录 | 谁填写 | 用途 |
 |---|---|---|
-| `scenarios/my-evaluation.json` | 用户 | 时间窗口、类别映射、参照来源、评审设计和旧交付身份 |
+| `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-evaluation.json` | 用户 | 时间窗口、类别映射、参照来源、评审设计和旧交付身份 |
 | `--human-reference` 指向目录的 `manifest.json` | 真人数据提供方 | 可选；声明规范化真人轨迹的文件、时间范围和身份 |
 | 三份 `review-record-1` JSON | 评审组织者根据真实评审结果填写 | 绑定实际评审包、会话、原始回答和每项判断 |
 | `metrics.json`、`mapping-report.json`、`official-reference.json` | 程序生成 | 统计与适配结果，不是用户配置 |
@@ -53,8 +55,8 @@ python - <<'PY'
 import json
 from pathlib import Path
 
-source = Path("scenarios/evaluation.json")
-target = Path("scenarios/my-evaluation.json")
+source = Path("../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/evaluation.json")
+target = Path("../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-evaluation.json")
 config = json.loads(source.read_text(encoding="utf-8"))
 config["scenario_id"] = "my-white-collar-evaluation"
 config["bootstrap"]["seed"] = 20260921
@@ -208,7 +210,7 @@ from pathlib import Path
 from worldmock.evaluation.adapters import adapt_human_reference
 from worldmock.evaluation.scenario import load_scenario
 
-scenario = load_scenario(Path("scenarios/my-evaluation.json"))
+scenario = load_scenario(Path("../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-evaluation.json"))
 view = adapt_human_reference(Path("references/my-human"), scenario)
 print({"valid": True, "events": len(view.events), "activities": len(view.activities)})
 PY
@@ -224,7 +226,7 @@ python - <<'PY'
 from pathlib import Path
 from worldmock.evaluation.scenario import load_scenario
 
-scenario = load_scenario(Path("scenarios/my-evaluation.json"))
+scenario = load_scenario(Path("../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-evaluation.json"))
 print({"valid": True, "scenario_id": scenario.scenario_id, "days": len(scenario.window.days)})
 PY
 ```
@@ -235,7 +237,7 @@ PY
 worldmock evaluate \
   --legacy deliveries/legacy-white-collar \
   --worldmock exports/my-world \
-  --scenario scenarios/my-evaluation.json \
+  --scenario ../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-evaluation.json \
   --output evaluations/my-comparison
 ```
 
@@ -332,7 +334,7 @@ from pathlib import Path
 from worldmock.evaluation.review import ingest_reviews
 from worldmock.evaluation.scenario import load_scenario
 
-scenario = load_scenario(Path("scenarios/my-evaluation.json"))
+scenario = load_scenario(Path("../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-evaluation.json"))
 paths = sorted(Path("reviews/my-comparison").glob("reviewer-??.json"))
 result = ingest_reviews(paths, Path("evaluations/my-comparison"), scenario)
 print({"valid": True, "records": len(result["records"])})

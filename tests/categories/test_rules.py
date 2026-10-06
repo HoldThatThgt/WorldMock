@@ -136,24 +136,10 @@ def test_inventory_transform_unit_must_match_resource_unit() -> None:
         InventoryTransformRule.model_validate(payload)
 
 
-def test_every_operator_rejects_the_wrong_resource_shape() -> None:
+def test_every_operator_rejects_the_wrong_resource_shape(tmp_path) -> None:
     """每个闭集算子都要求其实际资源形态，不能只比较单位和守恒字符串。"""
-    catalog = load_catalog(Path(__file__).resolve().parents[2] / "catalog")
-    rules = list(catalog.exchange_rules.rules.values())
-    rules.append(InventoryTransformRule.model_validate({
-        "rule_id": "unseal",
-        "category_id": "durable",
-        "action": "consume:use",
-        "operator": "inventory_transform",
-        "resource_id": "inventory_closed",
-        "unit": "item",
-        "conservation": "closed",
-        "input_category_id": "durable",
-        "output_category_id": "durable",
-        "input_quantity": 1,
-        "output_quantity": 1,
-        "inventory_unit": "item",
-    }))
+    rule_set = _operator_rule_set(tmp_path)
+    rules = list(rule_set.rules.values())
     seen = set()
     for rule in rules:
         seen.add(rule.operator.value)
@@ -161,7 +147,7 @@ def test_every_operator_rejects_the_wrong_resource_shape() -> None:
             "food_energy_source", "durable_use", "inventory_transform",
         } else "level"
         resource = _resource_for_rule(rule, wrong_kind)
-        rule_set = replace(catalog.exchange_rules, rules={rule.rule_id: rule})
+        rule_set = replace(rule_set, rules={rule.rule_id: rule})
         with pytest.raises(CategoryError) as excinfo:
             validate_rule_resource_domains(rule_set, {rule.resource_id: resource})
         assert excinfo.value.code == "EXCHANGE_RESOURCE_DOMAIN_MISMATCH"
@@ -173,15 +159,15 @@ def test_every_operator_rejects_the_wrong_resource_shape() -> None:
 
 @pytest.mark.parametrize(
     ("rule_id", "wrong_id"),
-    [("purchase-product", "other_money"), ("consume-food", "other_energy")],
+    [("buy-product", "other_money"), ("eat-food", "other_energy")],
 )
-def test_fixed_runtime_resources_reject_same_domain_aliases(rule_id: str, wrong_id: str) -> None:
+def test_fixed_runtime_resources_reject_same_domain_aliases(rule_id: str, wrong_id: str, tmp_path) -> None:
     """货币与身体能量算子不能静默绑定同形但运行引擎不读取的另一资源。"""
-    catalog = load_catalog(Path(__file__).resolve().parents[2] / "catalog")
-    rule = catalog.exchange_rules.require(rule_id).model_copy(update={"resource_id": wrong_id})
-    kind = "account" if rule_id == "purchase-product" else "level"
+    rule_set = _operator_rule_set(tmp_path)
+    rule = rule_set.require(rule_id).model_copy(update={"resource_id": wrong_id})
+    kind = "account" if rule_id == "buy-product" else "level"
     resource = _resource_for_rule(rule, kind)
-    rule_set = replace(catalog.exchange_rules, rules={rule.rule_id: rule})
+    rule_set = replace(rule_set, rules={rule.rule_id: rule})
     with pytest.raises(CategoryError) as excinfo:
         validate_rule_resource_domains(rule_set, {wrong_id: resource})
     assert excinfo.value.code == "EXCHANGE_RESOURCE_DOMAIN_MISMATCH"
@@ -190,18 +176,42 @@ def test_fixed_runtime_resources_reject_same_domain_aliases(rule_id: str, wrong_
 @pytest.mark.parametrize(
     "operator", ["purchase_transfer", "travel_fare", "work_hourly", "work_piece", "work_package"],
 )
-def test_money_operators_require_a_closed_domain_even_when_resource_agrees(operator: str) -> None:
+def test_money_operators_require_a_closed_domain_even_when_resource_agrees(operator: str, tmp_path) -> None:
     """@brief 货币算子与资源共同声明开放域时仍不能产生或销毁资金。"""
-    catalog = load_catalog(Path(__file__).resolve().parents[2] / "catalog")
-    original = next(rule for rule in catalog.exchange_rules.rules.values() if rule.operator.value == operator)
+    rule_set = _operator_rule_set(tmp_path)
+    original = next(rule for rule in rule_set.rules.values() if rule.operator.value == operator)
     payload = original.model_dump(mode="json")
     payload["conservation"] = "open"
     rule = type(original).model_validate(payload)
     resource = _resource_for_rule(rule, "account")
-    rule_set = replace(catalog.exchange_rules, rules={rule.rule_id: rule})
+    rule_set = replace(rule_set, rules={rule.rule_id: rule})
     with pytest.raises(CategoryError) as excinfo:
         validate_rule_resource_domains(rule_set, {rule.resource_id: resource})
     assert excinfo.value.code == "EXCHANGE_RESOURCE_DOMAIN_MISMATCH"
+
+
+def _operator_rule_set(root: Path):
+    """@brief 从有限人工声明加载每种闭集算子的规则，不依赖正式目录。"""
+    contract = load_category_contract(write_contract(root, contract_document()))
+    document = rules_document()
+    definitions = [
+        ("durable_use", "consume:use", "inventory", "item", "open", {}),
+        ("travel_fare", "travel:driving", "money_fen", "fen", "closed",
+         {"minimum_fen": 0, "fen_per_meter": 0.2}),
+        ("work_hourly", "work:settle", "money_fen", "fen", "closed",
+         {"rate_slot": "hourly_fen", "maximum_duration_slot": "maximum_seconds"}),
+        ("work_piece", "work:settle", "money_fen", "fen", "closed", {"rate_slot": "piece_fen"}),
+        ("work_package", "work:settle", "money_fen", "fen", "closed", {"amount_slot": "package_fen"}),
+        ("inventory_transform", "consume:use", "inventory_closed", "item", "closed",
+         {"input_category_id": "product", "output_category_id": "product",
+          "input_quantity": 1, "output_quantity": 1, "inventory_unit": "item"}),
+    ]
+    for operator, action, resource, unit, conservation, fields in definitions:
+        document["rules"].append({"rule_id": operator, "category_id": "product", "action": action,
+                                  "operator": operator, "resource_id": resource, "unit": unit,
+                                  "conservation": conservation, **fields})
+    document["sources"] = [source("operator-declarations", ["/rules"])]
+    return load_exchange_rules(write_rules(root, document), contract)
 
 
 def _resource_for_rule(rule, kind: str) -> ResourceDefinition:

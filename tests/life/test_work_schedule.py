@@ -10,6 +10,8 @@
 """
 
 from __future__ import annotations
+
+from tests.data_paths import ENVIRONMENT_ROOT
 from worldmock.footprints.checkpoint import restore_branch
 
 import json
@@ -26,7 +28,7 @@ from tests.life.conftest import (StubPlanDayClient, advance_next, conclude_pendi
 from tests.life.test_work_contracts import (AcceptingReviewer, _clock, _completed_work_state, _decide, _decide_at,
                                             _drive, _pause, _resume, _stage_office, _start_work, _submission)
 from tests.life.work_schedule_fixtures import STANDARD_SHIFT, declare
-from worldmock.catalog.affordances import default_affordances
+from worldmock.catalog.affordances import engine_affordances
 from worldmock.footprints.models import EventDraft
 from worldmock.life import sessions
 from worldmock.life.day_plan_inputs import plan_inputs
@@ -39,7 +41,7 @@ from worldmock.life.work_schedule import (DAY_REST, DAY_WORK, DUTY_DAYS, DUTY_ST
                                           STATUS_BREAK, STATUS_ON_DUTY, break_spans, day_arrangement, duty,
                                           duty_status, shift_on, shift_span)
 
-_FORMAL = Path("scenarios/white-collar-12-weeks.json")
+_FORMAL = ENVIRONMENT_ROOT / "scenarios/single-person.json"
 _ZONE = "Asia/Shanghai"
 _PLACES = {"office": "张江高科技园区办公室（冻结场景锚点）", "home": "张江居所（冻结场景锚点）"}
 
@@ -215,7 +217,7 @@ def _stage_finished_work(engine, worked: int) -> None:
     staged = _completed_work_state(engine, task, worked, float(task.required_effective_seconds))
     done = next(item for item in staged.activities.values() if item.target_id == task.task_id)
     staged.activities[done.activity_id] = done.model_copy(
-        update={"resource_claims": set(default_affordances().resource_claims("work"))})
+        update={"resource_claims": set(engine_affordances().resource_claims("work"))})
     now = staged.current_time
     staged.pending_events = [item for item in staged.pending_events if item.due_at > now]
     staged = sessions.open_stay(sessions.end_all(staged), 1, {item.location_id: item.name for item in engine.context.scenario.locations})
@@ -279,7 +281,7 @@ def test_environment_layer_is_byte_identical_after_checkpoint_restore(engine_fac
     checkpoint = engine.checkpoint(snapshots)
     original = _observe(engine, "restored")["environment_layer"]
     restore_branch(engine.context.store, checkpoint.checkpoint_id, tmp_path / 'branch').close()
-    branch = LifeEngine.open(tmp_path / "scenario-0" / "scenarios" / "white-collar-12-weeks.json", tmp_path / "branch")
+    branch = LifeEngine.open(tmp_path / "scenario-0" / "scenarios" / "single-person.json", tmp_path / "branch")
     try:
         restored = _observe(branch, "restored")["environment_layer"]
         assert json.dumps(restored, ensure_ascii=False) == json.dumps(original, ensure_ascii=False)
