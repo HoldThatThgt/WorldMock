@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_layering_acceptance import ARCHIVED_FEATURES, FEATURES
+
 from scripts.documentation_owners import (
     ACCEPTANCE_FIXTURE, OWNER_FIXTURE, find_owner_problems, owner_problem, substantive_body,
 )
@@ -31,8 +33,8 @@ def _fixtures(root: Path, owners: dict, acceptance: dict) -> None:
 
 
 def test_all_accepted_features_have_complete_current_normative_owners():
-    """@brief 五份增量的规范要求、验收主题和变异约束都定位到非占位现行正文。"""
-    assert set(OWNERS) == {"time-and-energy", "persona-prompt", "dayrun-fidelity", "tool-interaction", "errands-workday"}
+    """@brief 已归档与当前冻结特性的规范、验收和变异要求均有实际正文所有者。"""
+    assert set(OWNERS) == set(FEATURES)
     assert find_owner_problems(ROOT) == []
 
 
@@ -44,7 +46,7 @@ def test_titles_anchors_and_navigation_cannot_replace_normative_body(body):
     assert not substantive_body(body)
 
 
-@pytest.mark.parametrize("feature", list(OWNERS))
+@pytest.mark.parametrize("feature", ARCHIVED_FEATURES)
 def test_removing_each_archived_feature_current_body_fails(tmp_path, feature):
     """@brief 每个已归档特性的现行所有者即使保留文件、标题和标识，删除正文仍失败。"""
     reference = next(iter(OWNERS[feature].values()))

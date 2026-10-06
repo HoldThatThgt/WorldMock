@@ -1,0 +1,182 @@
+{
+  "分类与规则归系统（分类与规则归系统）": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-固定规则与常数",
+    "tests": [],
+    "implementation": []
+  },
+  "环境登记与错误码": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-注册校验与错误",
+    "tests": [],
+    "implementation": []
+  },
+  "同类店铺同商品（同类店铺同商品）": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-店铺食品与外卖",
+    "tests": [],
+    "implementation": []
+  },
+  "地图生成连通且字节稳定（地图连通且长度可计时）": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-环境格式",
+    "tests": [],
+    "implementation": []
+  },
+  "最短路与完整路径决胜": {
+    "stage": "2",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-地图与出行",
+    "tests": [],
+    "implementation": []
+  },
+  "包资源身份与原子发布": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-环境目录文件",
+    "tests": [],
+    "implementation": []
+  },
+  "占用闭集与并行准入": {
+    "stage": "4",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-闭集",
+    "tests": [],
+    "implementation": []
+  },
+  "场景 7 与世界 10 的拒绝边界": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-状态事件检查点与导出",
+    "tests": [],
+    "implementation": []
+  },
+  "出行按图计时计费": {
+    "stage": "2",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-地图与出行",
+    "tests": [],
+    "implementation": []
+  },
+  "位置记录与地图一致（位置记录与地图一致）": {
+    "stage": "2",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-地图与出行",
+    "tests": [],
+    "implementation": []
+  },
+  "全地图外卖（全地图外卖）": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-店铺食品与外卖",
+    "tests": [],
+    "implementation": []
+  },
+  "app 与店铺绑定有效（app 与店铺绑定有效）": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-店铺食品与外卖",
+    "tests": [],
+    "implementation": []
+  },
+  "食品热量固定（食品热量固定）": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-三类食品与进食",
+    "tests": [],
+    "implementation": []
+  },
+  "购买足迹与画像": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-观察与工具面",
+    "tests": [],
+    "implementation": []
+  },
+  "娱乐只从所选 app 取内容（娱乐只从所选 app 取内容）": {
+    "stage": "4",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送",
+    "tests": [],
+    "implementation": []
+  },
+  "推送与消费关联（推送与消费关联）": {
+    "stage": "4",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送",
+    "tests": [],
+    "implementation": []
+  },
+  "时间窗口精确（时间窗口精确）": {
+    "stage": "4",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送",
+    "tests": [],
+    "implementation": []
+  },
+  "随机和状态可恢复（随机和状态可恢复）": {
+    "stage": "4",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送",
+    "tests": [],
+    "implementation": []
+  },
+  "最终唤醒词表": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-状态事件检查点与导出",
+    "tests": [],
+    "implementation": []
+  },
+  "游戏链退出": {
+    "stage": "4",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-删除清单",
+    "tests": [],
+    "implementation": []
+  },
+  "工作由时间决定（工作由时间决定）": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-工作主题与叙述",
+    "tests": [],
+    "implementation": []
+  },
+  "工作面与阶段身份": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-工作主题与叙述",
+    "tests": [],
+    "implementation": []
+  },
+  "系统层逐字": {
+    "stage": "6",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-系统层",
+    "tests": [],
+    "implementation": []
+  },
+  "app 目标与 Schema": {
+    "stage": "4",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-观察与工具面",
+    "tests": [],
+    "implementation": []
+  },
+  "工具面与工作 Schema": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-观察与工具面",
+    "tests": [],
+    "implementation": []
+  },
+  "查看器协议": {
+    "stage": "6",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-现行文档原位改写",
+    "tests": [],
+    "implementation": []
+  },
+  "app 足迹来自真实动作（app 足迹来自真实动作）": {
+    "stage": "7",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-状态事件检查点与导出",
+    "tests": [],
+    "implementation": []
+  },
+  "完整日基线": {
+    "stage": "8",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-门禁与平台",
+    "tests": [],
+    "implementation": []
+  },
+  "工程门禁与文档一致性": {
+    "stage": "8",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-门禁与平台",
+    "tests": [],
+    "implementation": []
+  },
+  "完整回归与数据仓回执（只报告）": {
+    "stage": "9",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-数据仓交接",
+    "tests": [],
+    "implementation": []
+  }
+}

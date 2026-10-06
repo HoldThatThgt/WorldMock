@@ -210,6 +210,11 @@
 变异执行与基线成功。标准层墙钟采用相同源码、节点集合、环境和 worker 数的标准层实测，不能拿全量层部分
 耗时替代。
 
+<a name="analysis-spec-coverage-资源与规则简化映射"></a>
+## 资源与规则简化映射
+
+[冻结规格](SPEC-resource-and-rule-simplification.md#spec-rrs-验收台账)的全部契约、行为用例与源码变异由 `tests/fixtures/rrs-acceptance.json`、`tests/rrs_acceptance.py` 和 `tests/test_rrs_acceptance.py` 登记及核对。冻结时完成集合为空；阶段 1–5 的真实所有者证据和引擎持久化闭环通过后一次关闭该集成波次，随后依次关闭剩余实施阶段。登记结构通过不代表业务行为或平台回执已经通过。正式数据仓发布与真实平台证据由交接阶段单独登记。
+
 <a name="analysis-spec-coverage-其他现行特性的证据归属"></a>
 ## 其他现行特性的证据归属
 
@@ -238,3 +243,4 @@
 | --- | --- |
 | 2026-10-05 | 当前追溯按实际机器登记逐行核对；历史矩阵移为固定提交原文引用，旧通过统计不冒充本次执行结论 |
 | 2026-10-06 | 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1（暂停的活动不占名额）同步改名的登记节点：`test_two_running_activities_block_a_third_until_one_is_paused`、`test_both_paused_at_the_limit_open_start_or_resume`、`test_concluding_a_paused_activity_in_start_or_resume_is_restricted`、`test_rejected_resume_with_both_paused_stays_in_start_or_resume`、`test_conclusion_branch_and_start_or_resume_of_the_ladder`、`test_both_paused_at_the_limit_open_starting_and_resuming_not_ending`；登记行与口径不变 |
+| 2026-10-07 | 资源与规则简化冻结登记：按实际阶段台账追溯合同、纯所有者节点、晚期集成节点和行为变异，冻结阶段不宣称实现完成 |

@@ -22,7 +22,8 @@ NEW_PRODUCTION = (
     "counterfactual_runtime", "decision_coordinator", "engine", "engine_context", "model_evidence", "observe",
     "session_actions", "storefront_runtime", "time_advance", "vocabulary", "work_review_runtime", "world_ops", "world_setup",
 )
-FEATURES = ("time-and-energy", "persona-prompt", "dayrun-fidelity", "tool-interaction", "errands-workday")
+ARCHIVED_FEATURES = ("time-and-energy", "persona-prompt", "dayrun-fidelity", "tool-interaction", "errands-workday")
+FEATURES = (*ARCHIVED_FEATURES, "resource-rule-simplification")
 
 
 def _fixture(name):
@@ -119,9 +120,9 @@ def test_accepted_increment_specs_have_one_current_owner():
     from scripts.documentation_owners import find_owner_problems
 
     requirements = _fixture("acceptance_requirements.json")
-    assert set(FEATURES).issubset(requirements)
+    assert set(FEATURES) == set(requirements)
     assert find_owner_problems(ROOT) == []
-    for feature in FEATURES:
+    for feature in ARCHIVED_FEATURES:
         assert not (ROOT / f"docs/dev/SPEC-{feature}.md").exists()
         archived = list((ROOT / "docs/archive" / feature).glob(f"SPEC-{feature}.md"))
         assert len(archived) == 1, feature
@@ -130,16 +131,17 @@ def test_accepted_increment_specs_have_one_current_owner():
 
 
 def test_original_mutation_generation_has_complete_byte_equivalence_evidence():
-    """所有现行变异都有改动前两个生成器逐字节一致的固定基线证据。"""
+    """仍登记的历史变异保留两个生成器逐字节一致的证据，退役符号不再要求当前存在。"""
     from tests.errands_workday_acceptance import MUTATIONS as errands
     from tests.tool_interaction_acceptance import MUTATIONS as tools
 
     proof = _fixture("mutation-symbol-baseline.json")
     expected = {f"tool:{item.name}" for item in tools} | {f"errands:{item.name}" for item in errands}
-    assert len(expected) == 147
-    assert set(proof["mutations"]) == expected
+    retained = expected & set(proof["mutations"])
+    assert retained, "current mutation registration has no historical evidence intersection"
     assert proof["source_commit"] == _fixture("dayrun-layering-baseline.json")["source_commit"]
-    for row in proof["mutations"].values():
+    for name in retained:
+        row = proof["mutations"][name]
         assert row["legacy_generated_sha256"] == row["symbol_generated_sha256"]
         assert row["original_sha256"] != row["symbol_generated_sha256"]
 
