@@ -691,3 +691,24 @@ def test_target_met_while_still_working_states_the_three_facts_separately(deadli
     assert rejected.data["reason"] == "This work activity is still in progress."
     assert engine.context.state.activities[work_id].status == "active"
     assert tuple(reason.value for reason in WakeReason) == _WAKE_REASONS
+
+
+def test_work_reference_declaration_is_joined_with_forward_slashes_on_every_platform(tmp_path, monkeypatch):
+    """参考摘要的声明只用 "/" 拼接：以 Windows 路径类替换 work.Path 时，str(Path(...)) 会拼出反斜杠而被安全文件拒绝。"""
+    from pathlib import PureWindowsPath
+    from types import SimpleNamespace
+
+    from worldmock.life import work
+
+    declared = []
+
+    def read(root, relative, label):
+        declared.append(relative)
+        raise LookupError("stop after recording the declaration")
+
+    monkeypatch.setattr(work, "Path", PureWindowsPath)
+    monkeypatch.setattr(work, "_read_regular_file", read)
+    task = SimpleNamespace(oracle_path="ami-es2002/oracles/ES2002a.json")
+    with pytest.raises(LookupError):
+        work._load_reference_summary(tmp_path, task, {"source_reference": "references/ES2002a.abssumm.xml"})
+    assert declared == ["ami-es2002/references/ES2002a.abssumm.xml"]

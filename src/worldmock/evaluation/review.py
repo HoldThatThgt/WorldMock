@@ -574,9 +574,9 @@ def _verify_packets(
 
 
 def _packet_path(root: Path, descriptor: Mapping[str, Any]) -> Path:
-    """@brief 将公开索引中的隔离包路径约束在准备目录。"""
+    """@brief 将公开索引中的隔离包路径约束在准备目录：评审槽只能是生成时的 reviewer- 加两位以上数字。"""
     slot = descriptor.get("reviewer_slot")
-    if not isinstance(slot, str) or not slot.startswith("reviewer-"):
+    if not isinstance(slot, str) or not re.fullmatch(r"reviewer-[0-9]{2,}", slot):
         raise EvaluationError("invalid_review", "blind review packet slot is invalid")
     return (root / "review-packets" / f"{slot}.json").resolve()
 

@@ -7,7 +7,7 @@ import json
 import logging
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
 from worldmock.corpora.manifest import safe_file
@@ -291,7 +291,8 @@ def _load_reference_summary(root: Path, task: RuntimeWorkTask, oracle: dict) -> 
     if not isinstance(source, str) or not source:
         raise IntegrityError("Work oracle source reference is missing")
     collection = Path(task.oracle_path).parts[0]
-    content = _read_regular_file(root, str(Path(collection) / source), "Work reference")
+    # 声明只用 "/" 分隔：str(Path(...)) 在 Windows 上会拼出反斜杠。
+    content = _read_regular_file(root, (PurePosixPath(collection) / source).as_posix(), "Work reference")
     if source.endswith(".json"):
         return _load_scenario_reference_summary(content)
     return _load_ami_reference_summary(content)

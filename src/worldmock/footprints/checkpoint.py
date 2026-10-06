@@ -19,12 +19,6 @@ from worldmock.footprints.assets import AssetStore, atomic_write
 from worldmock.footprints.models import AssetRef, EventDraft, canonical_json
 from worldmock.footprints.store import FootprintStore
 
-#: Windows 保留给设备的文件名（不分大小写，不看扩展名），任何一级都不能作为普通文件恢复。
-_WINDOWS_DEVICE_NAMES = frozenset({"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",
-                                   *(f"{port}{digit}" for port in ("COM", "LPT") for digit in "0123456789¹²³")})
-#: Windows 文件名里不能出现的字符。
-_WINDOWS_FORBIDDEN_CHARACTERS = frozenset('<>:"|?*') | {chr(code) for code in range(32)}
-
 
 def snapshot_directory(directory: Path, assets: AssetStore) -> AssetRef:
     """@brief 保存目录中完整普通文件，拒绝符号链接与目录联接并固定归档元信息；
@@ -87,7 +81,7 @@ def _check_members(members: list[tarfile.TarInfo],
     Unicode 规范形式后互不重名，且没有文件同时是另一个成员的上级目录。"""
     files: set[str] = set()
     for member in members:
-        if member.type != tarfile.REGTYPE or member.issparse() or not _portable_member(member.name):
+        if member.type != tarfile.REGTYPE or member.issparse() or not relative_declaration(member.name):
             raise IntegrityError(message)
         key = unicodedata.normalize("NFD", unicodedata.normalize("NFD", member.name).casefold())
         key = PurePosixPath(key).as_posix()
@@ -96,22 +90,6 @@ def _check_members(members: list[tarfile.TarInfo],
         files.add(key)
     if files & {parent.as_posix() for key in files for parent in PurePosixPath(key).parents}:
         raise IntegrityError(message)
-
-
-def _portable_member(name: str) -> bool:
-    """@brief 成员名是只用 "/" 分隔的根内相对路径，每一级都能在任何平台上原样存为普通文件名。"""
-    if not relative_declaration(name) or "\\" in name:
-        return False
-    parts = PurePosixPath(name).parts
-    return bool(parts) and all(map(_portable_part, parts))
-
-
-def _portable_part(part: str) -> bool:
-    """@brief 一级名字不以点或空格结尾、不是 Windows 设备名、不含 Windows 禁用字符或孤立代理码点，UTF-8 不超过 255 字节。"""
-    return (not part.endswith((".", " ")) and part.split(".")[0].rstrip(" ").upper() not in _WINDOWS_DEVICE_NAMES
-            and not _WINDOWS_FORBIDDEN_CHARACTERS.intersection(part)
-            and not any("\ud800" <= character <= "\udfff" for character in part)
-            and len(part.encode("utf-8")) <= 255)
 
 
 def restore_branch(store: FootprintStore, checkpoint_id: str, destination: Path,

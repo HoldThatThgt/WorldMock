@@ -104,6 +104,19 @@ def test_source_archive_rejects_unsafe_entries(tmp_path, name, kind):
     assert not (tmp_path / "outside").exists()
 
 
+def test_source_archive_rechecks_the_path_left_after_stripping_the_prefix(tmp_path):
+    """成员名 pkg//<路径> 整体是相对路径，去掉前缀 pkg/ 后却是绝对路径；这里指向临时目录内，越界也只落在测试目录里。"""
+    escaped = tmp_path / "escaped.txt"
+    archive = tmp_path / "prefixed.tar"
+    with tarfile.open(archive, "w") as stream:
+        member = tarfile.TarInfo("pkg//" + "/".join(escaped.parts[1:]))
+        member.size = 1
+        stream.addfile(member, io.BytesIO(b"x"))
+    with pytest.raises(RuntimeError, match="unsafe path"):
+        sources.extract_archive(archive, tmp_path / "output", "pkg")
+    assert not escaped.exists()
+
+
 def test_wheelhouse_missing_labelkit_artifact_never_accesses_network(tmp_path, monkeypatch):
     root = _source_repository(tmp_path)
     monkeypatch.setattr(sources.urllib.request, "urlopen",

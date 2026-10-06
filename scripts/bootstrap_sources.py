@@ -67,6 +67,9 @@ def extract_archive(archive: Path, destination: Path, prefix: str = "") -> None:
                 if not name.startswith(prefix + "/"):
                     continue
                 relative = PurePosixPath(name[len(prefix) + 1:])
+                # 去掉前缀后重新核对："pkg//x" 去掉 "pkg/" 后是绝对路径。
+                if relative.is_absolute():
+                    raise RuntimeError("Source archive contains an unsafe path")
             target = destination.joinpath(*relative.parts)
             if member.isdir():
                 target.mkdir(parents=True, exist_ok=True)
