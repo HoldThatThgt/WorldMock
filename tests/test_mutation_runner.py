@@ -82,7 +82,7 @@ def test_original_must_be_unique_inside_the_definition(tmp_path, monkeypatch):
         mutated_source(_case())
 
 
-@pytest.mark.parametrize("symbol", ["worldmock.sample", "worldmock.sample::", "os::path", "custom.x::a..b"])
+@pytest.mark.parametrize("symbol", ["worldmock.sample", "worldmock.sample::", "os::path", "tools.sample::answer", "tests.sample::answer", "custom.x::a..b"])
 def test_symbol_rejects_nonproduction_or_malformed_location(symbol):
     """@brief 固定生产包根不接受任意模块与畸形限定名。"""
     with pytest.raises(ValueError):
@@ -94,3 +94,15 @@ def test_source_mutation_has_only_current_symbol_fields():
     assert set(SourceMutation.__dataclass_fields__) == {"name", "symbol", "original", "replacement", "tests"}
     assert source_location("custom.agents.life_agent::LifeAgent.step") == (
         "custom.agents.life_agent", "custom/agents/life_agent.py")
+
+
+def test_source_mutation_resolves_actual_python_production_roots():
+    """@brief 三个实际 Python 生产根只解析当前物理模块。"""
+    for symbol, relative in (
+        ("worldmock.life.work::begin_work", "src/worldmock/life/work.py"),
+        ("custom.agents.life_agent::LifeAgent.step", "custom/agents/life_agent.py"),
+        ("scripts.freeze_rrs_baseline::freeze_matching_baseline", "scripts/freeze_rrs_baseline.py"),
+    ):
+        module, path = source_location(symbol)
+        assert module == symbol.split("::")[0] and path == relative
+        assert (mutation_runner.REPO_ROOT / path).is_file()

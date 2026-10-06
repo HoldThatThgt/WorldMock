@@ -1,7 +1,7 @@
 <a name="readme-worldmock"></a>
 # WorldMock
 
-> 按[资源与规则引擎简化规格](docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「实验与数据、命令」（阶段 1）；食品菜单、店铺 app 与实际消费的阅读入口（阶段 3）。
+> 按[资源与规则引擎简化规格](docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「安装、实验与数据、命令及实施证据边界」（阶段 8）；此前阶段的修订并入同一现行合同。
 
 
 WorldMock 用 AgentSociety 2（下称 AS2）与 DeepSeek 驱动数字人的日常生活，把生活过程写成可追溯的数字足迹，
@@ -56,8 +56,8 @@ flowchart LR
 
 使用 Python 3.12、Git 和 Node。AS2 与 LabelKit 的 protobuf 依赖范围互斥，分别使用固定源码及各自环境。
 引导从仓库内上游源码与补丁重建 AS2，从固定 HTTPS 制品取得 LabelKit，不需要 SSH 密钥或预先安装 uv。
-当前 Linux 64 位完整环境的验收范围为 x86_64；Linux ARM64/aarch64 无法安装锁定的 TextWorld 组合。
-平台支持范围与验收要求以[冻结规格](docs/dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-门禁可选部件与操作系统)为准。
+使用 `.python-version` 固定的 CPython 3.12.13；每个平台的重建与运行能力须有真实回执。
+人工环境验收在 macOS 执行，Windows 与其他未执行平台不能据此宣称通过，见[实施状态](docs/dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态)。
 
 ```sh
 python scripts/bootstrap.py --profile release
@@ -86,7 +86,7 @@ DeepSeek 凭据保存于用户目录 `~/.config/worldmock/deepseek.env`，文件
 <a name="readme-实验与数据"></a>
 ## 实验与数据
 
-正式环境由 WorldMock-Dataset 重制发布，路径由数据仓决定，`corpora/`、`catalog/`、`scenarios/` 并列。
+正式环境由 WorldMock-Dataset 重制发布，尚未取得新发布回执；路径由实际发布身份确定，`corpora/`、`catalog/`、`scenarios/` 并列。
 目录为七份 JSON 与三份包 TOML 副本，场景结构为 `7`，使用环境标识和版本钉。
 内容标题与摘要来自目录，生活活动效果来自语料；系统分类、身体和交换常数由 WorldMock 固定规则包提供。
 人物自行选择行动；日历控制可用机会，不能将规定动作序列冒充模型决策。
@@ -118,7 +118,7 @@ worldmock deliver --export runs/white-collar/exports/final --output runs/white-c
 引擎最小端到端测试使用人工夹具 `tests/fixtures/environment/`。验证 Dataset 环境下的完整行为回归时显式选择环境：
 
 ```sh
-python scripts/run_tests.py --tier full --workers 4 \
+python scripts/run_tests.py --tier full --workers 6 \
   --environment-root experiments/published-environment
 ```
 
@@ -134,4 +134,13 @@ python scripts/run_tests.py --tier full --workers 4 \
 真实性评估分两阶段：`evaluate` 提供双方数据、配置和新目录以生成固定统计及盲评包；
 评审完成后，只传同一 `--output` 与三个 `--reviews` 文件进行解盲和结论发布。不能把模型评审称为真人评审。
 
-环境检查已提供真实目录与全部场景加载，完整新格式 LifeEngine 运行在资源与规则引擎简化阶段 5 闭合；检查通过不替代运行、恢复、足迹与交付的实际证据。
+人工环境已在真实 LifeEngine 中完成活动、持久化、重开、认证导出与重算的阶段验收；app 使用、内容与推送来自实际事件，工作完成只取实际工时。导出清单含事件、活动、已核验经历、购买和 app 使用五类工件，字段以合同为准。
+
+阶段 1–8 已实现，macOS 人工完整日已双跑一致并冻结第三基线。工程门禁和独立审查按报告身份判定；正式环境和平台的未执行边界见[实施状态](docs/dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态)。目录检查不能替代真实模型、长期相似度或完整自然日 LabelKit 交付。
+
+<a name="readme-项目版本表"></a>
+## 版本表
+
+| 版本 | 日期 | 变更 |
+| --- | --- | --- |
+| `2026-10-06-rrs-docs` | 2026-10-07 | 当前环境入口、固定 Python 与数字足迹链路；正式发布及平台证明按实际回执 |

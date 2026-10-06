@@ -329,9 +329,50 @@ def _holders_in(request: dict, value: str) -> list[str | None]:
     return [holder for text in _presented(request) if value in text for holder in _holders(_json(text), value)]
 
 
+def _without_work_result_echo(value, contract):
+    """@brief 只扣除真实结果与进度层播报位置中、工时一致的 details.work 回显。"""
+    if not isinstance(value, dict):
+        return value
+    value = copy.deepcopy(value)
+    results = []
+    if value.get("layer") == "进度层":
+        results = [row["result"] for row in value.get("events", [])
+                   if row.get("type") == "tool_call" and row.get("tool") == "report_status" and "result" in row]
+    elif "result" in value and set(value) <= {"result", "events"}:
+        results = [value["result"]]
+    for result in results:
+        details = result.get("details", {})
+        for row in details.get("work", []):
+            if (set(row) == {"name", "done", "remaining"}
+                    and row["name"].rsplit("（", 1)[0] == "工作" + contract["topic"]
+                    and row["done"] == contract["done"] and row["remaining"] == contract["remaining"]):
+                row["remaining"] = ""
+    return value
+
+
+def _work_contract_holders(request: dict, remaining: str, contracts: list) -> list:
+    """@brief 相同剩余文字的主题逐项核对，只扣除各自规定的状态与播报回显。"""
+    holders = []
+    current = _current(request)["targets"]
+    for text in _presented(request):
+        value = _json(text)
+        for contract in contracts:
+            progress = f"已做{contract['done']}，还差{remaining}"
+            if (isinstance(value, dict) and value.get("kind") == "activity"
+                    and value.get("name", "").rsplit("（", 1)[0] == "工作" + contract["topic"]
+                    and current.get(value["name"]) == value
+                    and (value.get("state") == progress or (value.get("phase") == "刚结束"
+                     and value.get("state") in {f"{ending}，{progress}"
+                                                for ending in ("按计划结束", "提前结束", "失败")}))):
+                value = {**value, "state": value["state"].removesuffix(progress)}
+            value = _without_work_result_echo(value, contract)
+        holders.extend(_holders(value, remaining))
+    return holders
+
+
 def _assert_once_each(request: dict) -> None:
     """看法、偏好、暂停进度和完整工作合同只呈现一次。合同中的目标、已做、剩余和动作时长可以有相同文字，
-    但剩余字段只在自己的合同里，其他记录不能复述它。固定菜单对象只有一份，别处可按名称引用；消息与记忆全文至多一份。"""
+    工作活动累计状态与 details.work 回显按冻结裁决保留，其他记录不能复述剩余。固定菜单对象只有一份，别处可按名称引用；消息与记忆全文至多一份。"""
     seen = _current(request)
     items = [item["view"] for item in seen["relationships"].values() if item["view"]]
     items += [item["preference"] for item in seen["preferences"].values()]
@@ -342,7 +383,8 @@ def _assert_once_each(request: dict) -> None:
     for contract, count in Counter(_compact(contract) for contract in contracts).items():
         assert _occurrences(request, contract) == count, contract
     for remaining, count in Counter(contract["remaining"] for contract in contracts).items():
-        holders = _holders_in(request, remaining)
+        matching = [item for item in contracts if item["remaining"] == remaining]
+        holders = _work_contract_holders(request, remaining, matching)
         assert holders.count("remaining") == count, (remaining, holders)
         assert all(key in {"target", "done", "remaining", "duration"} for key in holders), (remaining, holders)
     for target in seen["targets"].values():
@@ -589,6 +631,23 @@ def test_the_presence_and_readability_checks_have_teeth(_engine_factory) -> None
     _assert_once_each(continued({"result": {"details": {}}, "changes": {"targets": {"updated": [task]}}}))
     for payload in ({"result": {"details": {"contract": remaining}}},
                     {"result": {"details": {"contract": task["contract"]}}}):
+        with pytest.raises(AssertionError):
+            _assert_once_each(continued(payload))
+    activity = {"name": "工作" + task["contract"]["topic"] + "（1月5日 09:00 起）",
+                "kind": "activity", "phase": "进行中",
+                "state": f"已做{task['contract']['done']}，还差{remaining}",
+                "actions": [], "tools": []}
+    work_request = _with(request, lambda layers: layers[0]["targets"].append(activity))
+    _assert_once_each(work_request)
+    report = {"name": activity["name"], "done": task["contract"]["done"], "remaining": remaining}
+    _assert_once_each(continued({"result": {"details": {"work": [report]}}}))
+    with pytest.raises(AssertionError):
+        _assert_once_each(_with(work_request, lambda layers: layers[4]["location"]["fixed_rules"].append(remaining)))
+    bad_state = {**activity, "state": "另有重复信息，" + activity["state"]}
+    with pytest.raises(AssertionError):
+        _assert_once_each(_with(request, lambda layers: layers[0]["targets"].append(bad_state)))
+    for payload in ({"result": {"details": {"work": [{**report, "done": "约 3 小时"}]}}},
+                    {"result": {"details": {"other": {"details": {"work": [report]}}}}}):
         with pytest.raises(AssertionError):
             _assert_once_each(continued(payload))
     product = {"name": "集市出售的鸡汤面", "kind": "product", "phase": None, "state": None, "actions": [], "tools": []}

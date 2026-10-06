@@ -457,3 +457,12 @@ def test_source_mutation_cannot_use_a_structural_guard_as_its_behavior_killer() 
     with pytest.raises(AssertionError):
         _check_mutation_definitions({mutation.name: ({"earliest_runnable_killer_stage": "8"}, {"T56"})},
                                     _ledger(), registration.BEHAVIOUR_CASES, (mutation,))
+
+
+def test_all_implementation_stages_are_complete_and_dataset_is_report_only():
+    """@brief 最终收口不允许保留任何实现阶段，数据仓交接保持真实只报告边界。"""
+    assert registration.STAGES_DONE == registration.IMPLEMENTATION_STAGES == frozenset(str(i) for i in range(1, 9))
+    assert registration.REPORT_ONLY_STAGES == frozenset({"9"})
+    _check_ledger(_ledger(), _spec_table(LEDGER_ANCHOR, LEDGER_HEADER), registration.STAGES_DONE)
+    _check_cases(registration.BEHAVIOUR_CASES, _spec_table(LEDGER_ANCHOR, LEDGER_HEADER),
+                 _ledger(), registration.STAGES_DONE)

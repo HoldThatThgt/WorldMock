@@ -1,7 +1,7 @@
 <a name="runtime-运行配置"></a>
 # 运行配置
 
-> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「准备环境、使用已安装的环境、从校验到新建运行、从检查点恢复、常见错误」（阶段 1）。
+> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「准备环境、工具交互的运行检查及发布身份」（阶段 8）；此前阶段的修订并入同一现行合同。
 
 > 2026-10-01：[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)已冻结并已实现；本手册描述当前程序实际读取的配置。
 > 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步就寝反思的严格工具与校验重试（阶段 1）、个人事务与检查点恢复（阶段 2）、查询六键（阶段 4）。
@@ -16,8 +16,8 @@
 <a name="runtime-准备环境"></a>
 ## 准备环境
 
-当前 Linux 64 位 release 环境与 TextWorld 验收使用 x86_64；Linux ARM64/aarch64 无法完成锁定组合的安装。
-平台支持范围以[冻结规格](../dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-门禁可选部件与操作系统)为准。
+使用 `.python-version` 固定的 CPython 3.12.13；平台能力须有安装、运行与恢复回执。
+当前人工环境在 macOS 验收，Windows 与其他未执行平台不能推定通过，见[实施状态](../dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态)。
 
 在仓库根目录执行，使用 Python 3.12 和项目锁定的依赖：
 
@@ -61,8 +61,8 @@ Ray 的子进程需要它加载原生模块。`worldmock validate` 会在独立�
 准备依赖可能联网，但安装本身不启动模拟。
 
 新机器重建检查运行 `python scripts/fresh_check.py`，克隆指定提交且禁止 SSH、不使用 pip 缓存，
-执行相同引导、源码身份核对与固定快速检查。Windows 必须通过跨平台核心与重建检查，TextWorld 语料验收在 Linux x86_64 必跑；
-两者共同组成完整环境放行，任何跳过、xfail 或缺失证据都不能报完整通过。
+执行相同引导、源码身份核对与固定快速检查；Windows 和 POSIX 各须真实重建与运行回执，不能沿用其他平台结果。
+任何跳过、xfail 或缺失必需证据都不能报完整通过。
 测试统一由 `python scripts/run_tests.py --tier fast|standard|full --workers 4` 执行，集合按[分层与测试层次规格](../dev/SPEC-layering-and-test-tiers.md#layering-tiers)定义。
 引擎最小端到端固定使用人工夹具 `tests/fixtures/environment/`；正式来源、数量与重建验收在 Dataset 执行。
 完整行为回归针对发布环境执行时须显式选择路径，不能沿用旧正式环境的测试收据：
@@ -301,16 +301,25 @@ worldmock replay \
 <a name="runtime-工具交互的运行检查"></a>
 ## 工具交互的运行检查
 
-原生工具包含七个世界请求、两个世界查询及三个记忆查询。start_activity删除actions，
-改为items一项一个{target,way,from,to}对象及answering/prefer，旧actions与数组直接拒绝。
-含购买项prefer必须为“最快拿到”或“到手价最低”，非购买必须null；to=null统一本人。
-report_status、pause_activity、conclude_activity必填请求级errands（可为空数组；每条八个键都要写出，不用的写null，
-change取“新增”“更新”“取消”），个人事务不另设工具；缺errands的旧请求按缺字段拒绝，事务的名称与商品名称错误不带完整请求候选。
-query_world必填name/way/category/from/available_only/offset六键，from写地点显示名或渠道称呼、与购买的from同一解析，
-available_only为true时只留已确认此刻可执行的条目，category取公开品类标签；
-返回matches/total_count/next_offset可遍历全集，每项不再附候选，筛选后无匹配是合法空页；
-它与recall_task_summary即时只读，不消耗世界时间或同刻轮数，仍受十六模型回合预算。
-每条错误提供完整path、written、allowed_values、expected、why和完整请求候选，英文报错；
-有限枚举完整列出，无法枚举的范围和格式由expected说明。
-各纵向阶段只发布自己所需的新身份，任务阶段不捆绑新版地图；供给阶段地图生成种子匹配场景。
-已发布目录内容变更不得同版覆盖，旧检查点按已有身份校验拒绝，重新运行。
+原生工具包含六个世界请求（`start_activity`、`report_status`、`pause_activity`、`resume_activity`、`conclude_activity`、`revise_day_plan`）、两个世界查询（`recall_task_summary`、`query_world`）及三个记忆查询，共十一项；稳定公共请求面为八项。世界 10、场景 7，运行阶段只含 `action`。
+
+`start_activity` 使用 `items[]`，每项四键 `{target, way, from, to}`，另有 `answering` 和 `prefer`。购买偏好必须为“最快拿到”或“到手价最低”，非购买必须为 null；`to=null` 表示本人。app 使用显示名和“打开”，工作使用已分配主题显示名；主题的目标、已做及剩余工时由环境计算，自述不能改变实际累计。
+
+`report_status`、`pause_activity`、`conclude_activity` 必填请求级 `errands`（可为空；每条八键全写，不用的写 null，`change` 为“新增”“更新”“取消”）。个人事务没有独立工具；名称错误不提供完整请求候选，其他参数错误保留英文完整校验路径、写入值、允许值、格式和原因。
+
+`query_world` 必填 `name/way/category/from/available_only/offset` 六键，`from` 为地点或 app 显示名，与购买共用解析；可执行筛选先于分页，无匹配为合法空页。返回 `matches/total_count/next_offset`。查询及回看即时只读，不推进世界时间或同刻轮数，仍受十六模型回合预算。
+
+```bash
+worldmock validate --environment experiments/my-world
+worldmock run --scenario experiments/my-world/scenarios/single-person.json --output runs/my-persona-day
+worldmock export --run-dir runs/my-persona-day --output runs/my-persona-day/exports/final
+```
+
+目录、规则包副本、图和运行身份必须一致；地图种子属于 `map.json`，不与场景种子绑定。已发布字节不原版覆盖，旧检查点直接拒绝，不迁移；恢复和假设分支新目录。导出 3 的五类工件、质量 5、交付 3 按[现行合同](../CONTRACTS.md#contracts-worldmock-接口合同)核对；正式数据仓与跨平台未执行项见[实施状态](../dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态)。
+
+<a name="runtime-版本表"></a>
+## 版本表
+
+| 版本 | 日期 | 变更 |
+| --- | --- | --- |
+| `2026-10-06-rrs-docs` | 2026-10-07 | 固定 Python、十一项原生工具、当前主题与 app 请求、环境身份和运行检查 |

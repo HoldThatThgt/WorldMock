@@ -1,11 +1,9 @@
 <a name="verification-worldmock-验收标准"></a>
 # WorldMock 验收标准
 
-> 2026-10-07：按[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 7 的记录、导出、交付与评估合同。
+> 按[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「资源与规则简化门禁、测试矩阵、发布身份与证据边界」（阶段 8）；此前阶段的修订并入同一现行合同。
 
-> 2026-10-07：按[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题验收口径。
 
-> 按[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「品类契约特性门禁、工程门禁」（阶段 1）；「随机地图与共享菜单」（阶段 2）；「工具交互特性门禁、一日运行保真特性门禁、测试矩阵」（阶段 3）；「共享规则与可重建环境特性门禁、一日行为可信性特性门禁、工程门禁、测试矩阵」（阶段 4，app 使用、内容进度与推送）。
 
 
 > 状态：整体实现 **NOT-COMPLETE**。正式 DeepSeek 十二周运行、三次隔离盲评与 LabelKit 完整自然日交付尚未完成，未完成项不得以离线测试通过替代。各特性及合并后的工程门禁按具体源码身份留证。按人物 Prompt 规格修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](archive/persona-prompt/persona-prompt-verification.md)）。按[一日运行保真规格](VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」第 26 行修订（一日运行保真 VF1）：新增「一日运行保真特性门禁」，测试矩阵中补入该规格条款的十四行；该规格已全部实现并通过离线验收（证据见[一日运行保真验收记录](archive/dayrun-fidelity/dayrun-fidelity-verification.md)），这十四行已按实现改回 `离线覆盖`。
@@ -29,6 +27,22 @@ flowchart LR
 
 三项真实验收各自对应「最终门禁」表中的一行：正式十二周运行对应「十二周」，三次隔离盲评对应「比较」，
 LabelKit 完整自然日交付对应「真实端到端」。三行状态均未达到通过，整体实现状态保持 NOT-COMPLETE。
+
+<a name="verification-资源与规则引擎简化特性门禁"></a>
+## 资源与规则引擎简化特性门禁
+
+[冻结规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-门禁与平台)的逐行范围由 `tests/fixtures/rrs-acceptance.json`、`tests/rrs_acceptance.py` 登记，`tests/test_rrs_acceptance.py` 检查完整性、实际节点和完成阶段。当前九个现行特性守卫及归属守卫共同执行，不能用旧统计、空壳节点、跳过或缩小收集代替。
+
+| 验收对象 | 必需证据与边界 |
+| --- | --- |
+| 人工完整日 | 同场景同种子在获授权的 macOS 跑两次完整日，逐项一致后通过唯一入口原子冻结第三基线；旧两份 JSON 与原基线实现字节不改 |
+| 标准、全量和覆盖率 | 同一最终源码及人工环境的统一入口回执；分支至少 85%、未覆盖公共接口为零；标准耗时取真实墙钟，不相加分片 |
+| 语义变异 | 未变异源码先通过基线，隔离执行登记行为变异并由真正语义断言检出；删枚举的导入失败不算；独立审查另留证 |
+| 文档与汇编 | 实际执行 `python scripts/documentation_gate.py` 与 `python scripts/build_design_doc.py --check`，条款、引用、版本和机器登记一致 |
+| 平台及依赖 | OS、架构、CPython 3.12.13、`.python-version`、实际依赖锁与同步 uv 锁身份；不从 macOS 推定其他平台 |
+| 正式环境交接 | 数据仓发布后才跑正式 full、覆盖率、完整日及换目录恢复；未执行项如实登记，不能归入人工环境通过 |
+
+实际执行见[实施状态](dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态)，逐行节点见[机器追溯](dev/ANALYSIS-spec-coverage.md#analysis-spec-coverage-资源与规则简化映射)。生成[覆盖率](dev/coverage-report.json)与[测试耗时](dev/test-durations.json)按其源码、环境及平台身份解释，报告只证明记录的输入环境，不将历史身份或人工环境结果改称新正式环境通过。
 
 <a name="verification-共享规则与可重建环境特性门禁"></a>
 ## 共享规则与可重建环境特性门禁
@@ -170,7 +184,7 @@ summary、worker 选择与完成回执的同一运行身份和覆盖数据摘要
 | `app_pushes` | `pushed`, `opened_in_session`, `consumed_pinned`, `released_by_completion`, `expired_with_session`, `outside_window_violations` |
 | `work_topics` | `topics`, `completed`, `worked_seconds_by_topic`, `reports` |
 
-推送计数按唯一 `push_id` 与真实 session 状态转换，主题工时按每个人物、主题的累计终值；缺失或无法重算即拒绝。
+推送按唯一 `push_id` 与真实 session 转换计数；主题工时只累计各人物、主题的非失败唯一工作活动实际区间，不相加累计进度快照；缺失或无法重算即拒绝。
 唤醒原因分桶读取当前 22 个名字。阶段 7 的实际执行状态由回执登记，不以正文替代。
 <a name="verification-当日目标特性门禁"></a>
 ### 当日目标特性门禁
@@ -547,8 +561,9 @@ flowchart LR
 
 | 本次特性 | 新验收 | 当前状态 |
 | --- | --- | --- |
+| 资源与规则引擎简化 | 固定规则和目录、图上出行、食品外卖、app 内容与推送、主题工时、当前提示工具面、认证五工件和交付 | 阶段 1–8 修订条款已实现，macOS 人工完整日双跑一致并冻结；工程门禁结果及阶段 9 未执行项按[实施状态](dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态)登记，不由旧特性记录替代 |
 | 工具交互 | `items[]` 请求、英文完整错误、只读批次与十六回合预算、工作主题累计、同类型食品菜单、固定价格与店铺 app 绑定、操作备忘、无损紧凑呈现、交付证据边界及发布身份 | 已实现部分与阶段 5 工作主题定向证据分别以对应验收记录为准；不以历史工具交互收据替代阶段 5 收据 |
-| 个人事务与工作安排 | 严格反思、只读查询转发、计划重复意图定位与故障日志；个人事务的记下、更新与取消，完成依据与结算、提醒、检查点与交付边界；系统层第 1、4、6、14 条与工具用途句；下班与到家锚点、场景工作安排与环境层 `duty`；`query_world` 六键筛选与返回精简；质量报告结构 4 与行为评估两项 | 已实现（阶段 1–4），阶段 5 的全量门禁与独立源码变异审查已完成；阶段 6 配对全天复跑未执行、只报告；实际结果见[个人事务与工作安排验收记录](archive/errands-workday/errands-workday-verification.md)，验收口径见[个人事务与工作安排特性门禁](VERIFICATION.md#verification-个人事务与工作安排特性门禁) |
+| 个人事务与工作安排 | 严格反思、只读查询转发、计划重复意图定位与故障日志；个人事务的记下、更新与取消，完成依据与结算、提醒、检查点与交付边界；系统层第 1、4、6、14 条与工具用途句；下班与到家锚点、场景工作安排与环境层 `duty`；`query_world` 六键筛选与返回精简；当前质量报告保留事务和收尾记忆分组，行为评估保留两项 | 已实现（阶段 1–4），阶段 5 的全量门禁与独立源码变异审查已完成；阶段 6 配对全天复跑未执行、只报告；实际结果见[个人事务与工作安排验收记录](archive/errands-workday/errands-workday-verification.md)，验收口径见[个人事务与工作安排特性门禁](VERIFICATION.md#verification-个人事务与工作安排特性门禁) |
 
 「证据位置」列中的 `AS2 vendor` 指 `vendor/agentsociety2/packages/agentsociety2/tests/`，其余路径均在仓库根下。
 
@@ -569,7 +584,7 @@ flowchart LR
 | 内容知识 | 内容标题、摘要、来源、时长与 app 绑定通过目录准入；人物只选 app；全局 `ContentProgress` 跨 app 保存位置和完成轮数，暂停先写回、恢复读最新位置；真实完成才增加轮数并解除推送 | `tests/catalog/test_loader.py`、`tests/life/test_app_progress.py`、`tests/life/test_app_push.py`、`tests/life/test_content_catalog_titles.py` | 离线覆盖 |
 | 存储完整 | 素材损坏、事务中断、保存失败、模型未知结果 | `tests/footprints/`、`tests/integration/test_life_agent_protocol.py`、AS2 vendor `test_direct_runner_failures.py` | 离线覆盖 |
 | 决策协议 | 有限回合错误反馈、原子拒绝、世界请求登记即结束且登记后不追加 tool 消息、没有决策自述请求、`decision_started` 与首个行动请求同批且在前、记忆无 refs 且查询结果只序列化一次、完整证据、致命异常不返工；宿主纠错与环境拒绝共用错误结构 `error_code`、`reason`、`fix`、`items`、`unmet`，纠错不含 Pydantic 转储与网址；输出截断的回合丢弃、纠错替换不叠加，重试关闭思考并 `tool_choice=required`；控制工具 `items` 形状的本地上限校验；三个控制工具带请求级必填 `errands`（可为空数组，回执也是空数组），结构、枚举、交叉约束、名称与状态相关错误由宿主纠错并给完整 `path`（与活动名、参数结构错误并入同一次纠错，不带候选），环境用同一函数复核、失败合并为一次 `ACTION_REQUEST_INVALID`，被业务拒绝的请求其事务变更一并不生效（被拒的收尾其记忆照常入库、事务未记下、没有事务事件），每条被受理的变更恰好一条事件，成功结果在 `details.errands` 按请求顺序给回执 | `tests/integration/test_life_agent_protocol.py`、`tests/integration/test_grounded_evidence.py`、`tests/integration/test_seven_layer_request.py`、AS2 vendor `test_agent_react_validation.py`、`test_llm_dispatcher_no_retry.py`；错误结构见 `tests/life/test_error_contract.py`、`tests/integration/test_host_feedback.py`，截断见 `tests/integration/test_output_truncation.py`，控制工具见 `tests/integration/test_conclude_memories.py`、`tests/life/test_control_items.py`，个人事务变更见 `tests/life/test_errand_requests.py`、`tests/life/test_errand_names.py`、`tests/life/test_errand_completion.py`、`tests/integration/test_activity_schema.py`（另含上列 `test_life_agent_protocol.py`、`test_conclude_memories.py`）；另见[一日运行保真规格](VERIFICATION.md#verification-incremental-evidence)验收台账「错误合同」「截断处理」「控制工具」、[个人事务与工作安排规格](VERIFICATION.md#verification-incremental-evidence)验收台账「事务变更与原子受理」「事务名称与错误」 | 离线覆盖 |
-| 共同恢复 | 世界、人物、记忆、全局 app 内容进度与会话推送状态一致，坏快照拒绝，父目录不变；未完成的个人事务随共同检查点保存，恢复后待办层逐字节相同，不重复记下、完成与提醒，旧结构检查点与导出被拒 | `tests/integration/test_runtime.py`、`tests/life/test_counterfactual.py`、`tests/footprints/test_store.py`、`tests/life/test_app_progress.py`、`tests/life/test_app_push.py` 与实际 resume／replay；个人事务见 `tests/integration/test_errand_checkpoint.py`、`tests/life/test_session_state.py`、`tests/delivery/test_publication.py`，另见[个人事务与工作安排规格](VERIFICATION.md#verification-incremental-evidence)验收台账「检查点」 | 离线覆盖，真实运行待执行 |
+| 共同恢复 | 世界 10、人物、记忆、全局 app 内容进度、会话推送及实际工作累计一致，坏快照拒绝，父目录不变；未完成的个人事务随共同检查点保存，恢复后待办层逐字节相同，不重复记下、完成与提醒，旧结构检查点与导出被拒 | `tests/integration/test_runtime.py`、`tests/life/test_counterfactual.py`、`tests/footprints/test_store.py`、`tests/life/test_app_progress.py`、`tests/life/test_app_push.py` 与实际 resume／replay；个人事务见 `tests/integration/test_errand_checkpoint.py`、`tests/life/test_session_state.py`、`tests/delivery/test_publication.py`，另见[个人事务与工作安排规格](VERIFICATION.md#verification-incremental-evidence)验收台账「检查点」 | 离线覆盖，真实运行待执行 |
 | LabelKit 输入 | 前置状态、知识截止、活动和自然日边界；意图与 `dreaming` 窗口中动作请求事件的投影不含 `conclude_activity.items[].memories`，动作窗口保留完整`items[]`请求，实际请求原文照原样保留；交付不调用提示渲染器，`self_note` 随实际请求进入动作与意图窗口，dreaming 读 `self_note` 与实际请求中的层 JSON（`input.decision_layers`，来源写 `provenance.decision_layer_sources`）；检查点结构版本、代码、输入和工具与提示身份不符时交付被拒；控制工具只接受现行 `items` 形状，意图与 dreaming 窗口对三个控制请求的投影逐项不含 `memories`、`views` 与请求级 `errands`（原事件不被原地修改），动作窗口的目标保留完整请求，观察里的待办层原样进入窗口，缺 `errands` 键的旧控制请求被拒；六种事务事件不带决策与动作身份、不进任何窗口的目标，他人动作触发的办成事件不落进对方决策的分组；含事务提醒与办成记录的导出能构造动作、意图与 dreaming 三类窗口；决策提示取动作之前最后一份不带 `purpose` 的请求并核对其工具含该动作的工具名，含就寝反思的决策其窗口提示仍是行动请求；只读查询原样留证而不生成世界动作目标 | `tests/delivery/test_windows.py`、`tests/delivery/test_replay.py`、`tests/footprints/test_validation.py`、`tests/delivery/test_publication.py`；个人事务的交付边界与含反思决策的提示选取见 `tests/integration/test_errand_delivery_windows.py`、`tests/life/test_control_items.py`、`tests/integration/test_dayrun_complete_days.py`（另含上列 `test_windows.py`），另见[个人事务与工作安排规格](VERIFICATION.md#verification-incremental-evidence)验收台账「交付边界」「严格反思」；工具交互的证据见[工具交互验收记录](archive/tool-interaction/tool-interaction-verification.md) | 离线覆盖 |
 | 语义质量 | 独立 verify、目标盲审、原始事实守恒、失败不发布 | `tests/delivery/test_labelkit_process.py`、`tests/delivery/test_training.py` 和真实模型 trace | 离线覆盖，真实运行待执行 |
 | 目标数据 | DatasetDict 保存重载、独立规则预期、来源分组 | `tests/delivery/test_training.py`、`tests/delivery/test_generation.py`、`tests/delivery/test_rules.py` 和完整真实 deliver | 离线覆盖，真实运行待执行 |
@@ -606,7 +621,7 @@ flowchart LR
 <a name="errands-workday-度量与下游-质量报告"></a>
 ### 质量报告
 
-`quality.json` 的 `schema_version` 由 3 升为 4（阶段 2 一次升完），新增两个顶层分组，登记落点为记录引擎设计；沿用质量报告现有的分组与空值约定，只读同批已认证事件与冻结清单，可逐值重算，全部只报告。
+个人事务特性当时把 `quality.json.schema_version` 从 3 升为 4；当前结构为 5，保留该特性引入的两个顶层分组，登记落点为记录引擎设计；沿用质量报告现有的分组与空值约定，只读同批已认证事件与冻结清单，可逐值重算，全部只报告。
 
 `errand_metrics`（不使用任何当日目标指标的键名，不以目标数为分母，不写进 `day_plan_metrics`）。没有任何新增事件时整组为 null；有事务时各计数键没有命中记 0。
 
@@ -616,7 +631,7 @@ flowchart LR
 | `completed_count`、`cancelled_count`、`open_at_cutoff_count` | 三者之和恒等于 `registered_count` |
 | `carried_overnight_count` | 记下后跨过至少一个本地零点仍未完成的事务数 |
 | `visible_observation_count`、`expected_observation_count` | 事务未完成期间本人各次观察中待办层含该事务的次数，与同期观察数；二者应相等 |
-| `reminded_errand_count`、`acted_after_reminder_count` | 至少被提醒过一次的事务数；其中提醒后到下一个本地零点或终态前，本人有被受理且指向同一商品的购买、制作或进食请求的事务数 |
+| `reminded_errand_count`、`acted_after_reminder_count` | 至少被提醒过一次的事务数；其中提醒后到下一个本地零点或终态前，本人有被受理且指向同一食品的购买或进食请求的事务数 |
 | `completed_without_evidence_count` | 完成事件缺证据引用或证据不可复核的条数；完整性计数，应恒为 0 |
 
 `conclusion_memories`：`total_count`、`routine_count`（类型为 `routine` 的收尾记忆条数）、`errand_overlap_count`（文字包含同决策观察里某条未完成事务的名称或其商品名称的收尾记忆条数；事务名称取该观察的待办层，商品名称取同一观察的私有绑定）。没有收尾记忆时整组为 null。
@@ -646,6 +661,8 @@ flowchart LR
 
 <a name="errands-workday-度量与下游-首次受影响发布身份"></a>
 ### 首次受影响发布身份
+
+本特性当前身份为世界 10、场景 7、运行与导出清单 3、质量 5、交付 3；十一项原生工具与最终系统提示分别由 `tool_schema_sha256`、`prompt_sha256` 在运行中计算，不保存字面摘要。环境身份绑定实际目录与地图字节，正式发布路径待数据仓回执。
 
 生产代码变更由 `code_sha256` 绑定；原生工具签名与查询字段变更由 `tool_schema_sha256` 绑定；
 两份系统层与七层 Schema 的变更由 `prompt_sha256` 绑定，零点计划与就寝反思的后台模板不在其内，只由 `code_sha256` 绑定；
@@ -860,3 +877,4 @@ flowchart LR
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题、实际工作秒数与最终工具闭集验收口径 |
 | `2026-10-06-rrs-prompt` | 2026-10-07 | 剩余系统规则、提示身份与当前查看器验收 |
 | `2026-10-06-rrs-record` | 2026-10-07 | 阶段 7：内容、出行、质量报告 5、交付清单 3 与真实性证据边界；执行结论按实际回执登记 |
+| `2026-10-06-rrs-docs` | 2026-10-07 | 资源与规则简化人工环境门禁、当前恢复和发布身份；正式环境及平台回执按实际范围登记 |
