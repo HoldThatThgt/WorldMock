@@ -2,10 +2,11 @@
 # WorldMock 产品设计说明书 — 配置规格
 
 > **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 CF1），已实现；按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D8 作业），已随代码落地到阶段 1–4<br>
-> **日期**：2026-10-05
-> **版本**：v1.20\
+> **日期**：2026-10-06
+> **版本**：v1.21\
 > **工具交互修订**：地点完整供给、构建价格范围、任务可用类型与请求形状设计已冻结，已实现；本次生产验收单独记录；以[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)为本次合同。
 > **让「等待」成为例外修订**：按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「工作安排声明」（阶段 1）。
+> **同时做两件事修订**：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「文件位置与合同」发布目标表的当前目录版本（阶段 2）。
 > **目标读者**：算法工程师、开发工程师、实验设计者
 
 配置文件的编写步骤和可复制示例见[用户配置手册](../manual/README.md#readme-用户配置手册)。本文维护配置职责与设计边界。
@@ -57,6 +58,7 @@
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | | 当前职责对象与依赖方向、五项行为正文归属、固定历史来源和稳定引用；业务与持久合同保持不变 |
 | 共享门禁独立复核 | 2026-10-05 | Codex | 冻结真实读取的换行规则与交付工程输入，排除实际输出和缓存，同次证据身份一致 |
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | Claude | 按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1 同步：「工作安排声明」补班次与休息时段的起止另给清醒的人物各一次决策机会（四个唤醒原因），不结束任何活动、不叫醒睡着的人，唤醒原因不进提示；声明班次因此增加该人物的决策机会，每个当班日由起止直接新增的提供决策的边界至多 2 + 2 × 休息时段数 个，与既有机会同秒的不另计；文件头增该规格修订行，版本改为 v1.20 |
+| `2026-10-06-parallel-activities-claims` | 2026-10-06 | Claude | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2 同步：「文件位置与合同」发布目标表的当前目录改为 5.5（可供性占用声明重列为每种动作占自己的名字，只有同一种动作互斥）；目录内容摘要与 `tool_schema_sha256` 随 `catalog/affordances.toml` 的字节改变，场景引用随之更新，场景结构 5、地图结构 3、品类契约与规则绑定 3、世界结构 9 不变 |
 
 <a name="configuration-模块概述"></a>
 ## 1. 模块概述
@@ -196,7 +198,7 @@ flowchart LR
 | 格式 | 首次受影响的发布目标 | 拒绝边界 |
 | --- | --- | --- |
 | 地图文件 `schema_version` | 3 | 当前实现 3；必填 `random_seed/category_assignment_sha256`，分类声明由地图和语料清单共同钉定，旧地图直接拒绝 |
-| 商品目录 `version_major` | 5（首次 5.0，当前 5.4） | 构建价格范围、真实原料对象与单输入单输出配方；内容改变另发版本，旧身份不兼容读取 |
+| 商品目录 `version_major` | 5（首次 5.0，当前 5.5） | 构建价格范围、真实原料对象与单输入单输出配方；内容改变另发版本，旧身份不兼容读取 |
 | 品类与交换规则 `contract_version` | 3 | 当前实现 3；价格范围槽与原料品类，购买仍读取独立供给当前报价 |
 | 生活场景 `schema_version` | 5 | 当前实现 5；每个人物显式声明 `work_schedule`（对象或 null），`appointment` 仍为 null 或约定对象，开放时刻只在运行时派生；场景结构 4 的旧场景直接拒绝 |
 | 世界状态 `schema_version` | 9 | 旧检查点（含版本 8）以版本不符拒绝；活动集合、地点会话（一段停留或一段路）与活动的收尾、播报锚点和会话归属、共同身体时刻、威胁交付签名、同刻计数、按人物暂存的呈现留痕、当日计划与提醒（目标的 `remind_at`、`reminded_at`、大致时刻 `around_at` 与已生成计划的日期 `plan_submitted_dates`）与供给事实完整保存；活动快照地点为开始地点；另存引起会话切换的动作 `opened_by_action_id`、活动的暂停时刻 `paused_at` 与进食的开吃份量 `opened`、订单的 `recipient_id` 与 `request_message_id`、联系人持有 `contact_holdings` 与人物发给场景联系人的 `outbox`；另存每个人物的未完成个人事务 `errands`（按事务身份存放：名称、结果种类、商品、数量、已累计量、备注 `memo`、记下时刻、提醒时刻与已提醒时刻、来源动作与请求事件），办成或取消即移出 |

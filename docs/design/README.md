@@ -31,7 +31,7 @@
 每章改了什么见该章版本表，各章文件头注明该规格修订的状态。
 发布身份为世界状态 9、质量报告 4（阶段 2），场景 5、卡片 3 与 `card-v3`（阶段 3）；
 当时地图 3、目录 5.3、品类与规则绑定 3、导出清单 2、运行清单 2 不变。
-当前目录按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)发布为 5.4；其它上述格式版本不变。
+当前目录按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)发布 5.4 之后，又按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-占用声明)重列占用声明发布为 5.5；其它上述格式版本不变。
 该规格已实现；逐条证据、源码变异审查与门禁结果见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)，
 实现状态见[实现状态](../dev/implementation-status.md#implementation-status-worldmock-实现状态)。证据是离线测试；规格阶段 6 的配对全天复跑是计费的真实运行，
 只在用户要求时启动，未执行。
@@ -76,6 +76,14 @@
 [交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎)（可供性与活动声明）、
 [模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎)（发现与比较门店供给、校验与占用安排、活动生命周期、验收重点）与
 [输入输出格式](09-io-formats.md#io-formats-worldmock-产品设计说明书-输入输出格式)（人物状态的受限轮阶段与名额）。
+阶段 2 只有同一种动作互斥：可供性占用声明重列为 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel` 十一个，
+每种动作占自己的名字，睡眠与一切互斥，驾车只能再听播客或和人说话，准入机制不变；旧的身体部位占用名在解析时拒绝。
+目录升为 5.5，`tool_schema_sha256`、目录内容摘要与代码身份随之变化，`prompt_sha256`、世界结构 9、质量报告结构 4、场景结构 5 不变；
+此前的检查点因活动占用与注册表不符不能再恢复。受影响章节：
+[交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎)（可供性与活动声明）、
+[资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎)（构建与版本）、
+[配置规格](08-configuration.md#configuration-worldmock-产品设计说明书-配置规格)（文件位置与合同）与
+[输入输出格式](09-io-formats.md#io-formats-worldmock-产品设计说明书-输入输出格式)（人物状态与活动状态的占用名）。
 
 
 <a name="readme-这是什么"></a>
@@ -274,3 +282,4 @@ flowchart TB
 | `2026-10-05-idle-fillers-a` | 2026-10-05 | 按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 2 同步：「让「等待」成为例外修订」一节补阶段 2：系统层第 7、14、15、16 条原位改写（仍为十八条），告诉人物何时会再请他决策、哪些事到点会请他决策而手上的活动照常进行，作息与今日计划里的钟点只是大概，空下来照自己的习惯做点别的，等待只留给几分钟内就有事请他决策的时候，环境不设等待上限、不替人物选择内容；`prompt_sha256` 与代码身份随之变化，`tool_schema_sha256`、世界结构 9、质量报告结构 4、场景结构 5 不变；列出阶段 2 受影响的章节（总体架构与数据交付的分阶段身份、模拟引擎的当前实现边界） |
 | `2026-10-05-idle-fillers-b` | 2026-10-05 | 按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 3 同步：「让「等待」成为例外修订」一节补阶段 3：零点计划模板第三、五、六条改写，零点计划只写今天与平常不同的安排、要办的事和要按时起床、出门的提醒（要按时起床的填起床的时刻，出门去上班、上课、接人、赴约这类要按时到的事填该出门的时刻，几点去睡不设提醒），天天如此的作息与消遣不写成目标，目标文字只给和人约好的事写钟点，大致时刻只表示大概在那前后；校验器与目标字段不变，只变代码身份；列出阶段 3 受影响的章节（总体架构与数据交付的分阶段身份、模拟引擎的接收当日目标并记录实际推进与当前实现边界） |
 | `2026-10-06-parallel-activities-slots` | 2026-10-06 | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1 同步：新增「同时做两件事修订」一节，链接该规格，写明暂停的活动不占名额、开始、出行与恢复暂停的活动都要有空名额、受限轮不再按名额分流且只变代码身份，并列出阶段 1 受影响的章节（总体架构、交换引擎、模拟引擎、输入输出格式）；日期改为 2026-10-06 |
+| `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2 同步：「个人事务与工作安排设计同步」一节的当前目录改为 5.5；新增「同时做两件事修订」一节，链接该规格并列出阶段 2 受影响的章节（交换引擎、资源引擎、配置规格、输入输出格式）：占用声明重列为每种动作占自己的名字，只有同一种动作互斥，目录 5.5，`tool_schema_sha256`、目录内容摘要与代码身份变化，`prompt_sha256` 与各结构版本不变 |

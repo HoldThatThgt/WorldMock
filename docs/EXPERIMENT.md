@@ -5,7 +5,8 @@
 > 工具交互修订：按[工具交互规格](dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结目标实验身份；本次修订已实现，发布身份与行为、变异证据见[工具交互验收记录](archive/tool-interaction/tool-interaction-verification.md)。
 > 个人事务与工作安排修订：按[个人事务与工作安排规格](VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」第 1、5、7、11、14、15、16、17 行修订（个人事务与工作安排 EX2–EX18）：工作安排作为场景声明的事实、各阶段指纹与结构版本的目标身份、就寝反思的身份绑定、事务提醒进入决策边界、个人事务容量上限登记为实验假设。登记的实验假设、口径与各阶段的指纹、结构版本变化已随实现落地（证据见[个人事务与工作安排验收记录](archive/errands-workday/errands-workday-verification.md)）：阶段 1（运行修复入库，只改变 `code_sha256`）、阶段 2（个人事务与提示分工：世界结构 `9`、质量报告结构 `4`，两个指纹改变）、阶段 3（作息与工作安排：场景结构 `5`、卡片结构 `3`，`prompt_sha256` 与仓库三份场景的 `scenario_sha256` 改变）与阶段 4（查询筛选与返回精简：只改变 `tool_schema_sha256` 与 `code_sha256`）。
 > 让「等待」成为例外修订：按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「交互菜单与运行身份」「决策点节奏」（阶段 1）与「交互菜单与运行身份」（阶段 2、3）。
-> 日期：2026-10-05
+> 同时做两件事修订：按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「交互菜单与运行身份」「地图与门店供给的实验身份」（阶段 2）。
+> 日期：2026-10-06
 > 范围：单人物 84 天正式实验，上海张江白领，时区 Asia/Shanghai。
 > 接口签名、字段与目录结构见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`；行为规则见 `docs/dev/SPEC-*.md`；验收门禁见 `docs/VERIFICATION.md#verification-worldmock-验收标准`。
 
@@ -92,6 +93,7 @@ timeline
 `available_only`、`offset`）与用途句改变 `tool_schema_sha256`，系统层与层 Schema 不变；四键旧请求按缺字段拒绝。
 [让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)把系统层第 7、14、15、16 条原位改写（仍为 18 条），改变 `prompt_sha256`，
 工具面与各层 Schema 不变，`tool_schema_sha256` 不变；该改写实施前后的运行不可合并比较；零点计划模板第三、五、六条的改写只改变 `code_sha256`。
+[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-占用声明)重列可供性占用声明（只有同一种动作互斥）：`tool_schema_sha256` 绑定 `catalog/affordances.toml` 的字节，因而与目录内容摘要、`code_sha256` 一起改变，`prompt_sha256`、世界结构 9、质量报告结构 4、场景结构 5 不变；活动占用随世界状态保存并在恢复时与注册表逐项核对，此前的检查点与运行不能再恢复或重放，实施前后的运行不可合并比较。
 运行清单的阶段身份 `stage_model_identity` 只有 `action` 与 `work_review` 两个阶段键，
 含 `decision_statement` 的旧清单被拒绝；同秒续接开关 `same_second_continuation`（`worldmock run --same-second-continuation on|off`，
 缺省 `on`）冻结进 `stages.action` 与人物配置，恢复与重放继承父清单的值，不能覆盖，恢复时人物配置与父清单不符即拒绝。
@@ -354,8 +356,8 @@ LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md#contracts
 阶段 3 发布场景结构 `5` 与卡片结构 `3`（抽取提示 `card-v3`）：旧场景按版本拒绝，缺 `leave_work`、`arrive_home` 两个必填键的旧结构化卡片被拒；
 仓库三份场景的 `scenario_sha256` 随结构升版改变。
 每个独立阶段使用自己的代码、输入、工具和提示身份复验，正式认证记录实际已发布身份，不能预先宣称最终组合通过。
-当前发布为目录 `5.4`、品类绑定 `3`、地图结构 `3`、场景结构 `5`、卡片结构 `3`。
-共享规则特性按既有内容身份合同发布目录 `5.4`，只修正睡眠通道的说明；场景引用随之更新，业务数值与格式保持现行合同。
+当前发布为目录 `5.5`、品类绑定 `3`、地图结构 `3`、场景结构 `5`、卡片结构 `3`。
+共享规则特性按既有内容身份合同发布目录 `5.4`，只修正睡眠通道的说明；[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-占用声明)重列活动占用声明后发布目录 `5.5`，目录内容摘要与 `tool_schema_sha256` 随之改变；两次都随之更新场景引用，业务数值与格式保持现行合同。
 类别供给声明由地图摘要和语料清单共同钉定，单一 `category-assignment.json` 保存 kind 准入池与逐店
 `{location_id, category_ids, object_ids, price_position_percent, source}`。每店实际集合为本店类别后代对象全集与显式对象并集，
 都须属于 kind 池；不将根池复制到每店，也不随机抽样。门店价格位置必须为 5–95 的整数，
@@ -468,3 +470,4 @@ LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md#contracts
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1（班次与休息时段起止的唤醒）修订：「决策点节奏」的触发点清单补班次与休息时段的起止，四个成员（`shift_start`、`shift_end`、`break_start`、`break_end`）是触发点，清醒的人物精确在该时刻获得一次决策机会、进行中的活动继续，睡眠中的人物不计入候选、睡过的不补；声明了工作安排的人物每个当班日由起止直接新增的提供决策的边界至多 2 + 2 × 休息时段数 个，与既有机会同秒的不另计，这些边界上同一秒的再决策与其后引出的边界照常计入 `D`，仓库三份场景不受影响；「交互菜单与运行身份」写明班次边界唤醒只改变 `code_sha256`，两个指纹、世界结构 9、质量报告结构 4、场景结构与 AS2 锁定摘要都不变，没有声明班次的场景行为不变；文件头补该规格的修订说明，日期改为 2026-10-05 |
 | `2026-10-05-idle-fillers-a` | 2026-10-05 | 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 2（系统层第 7、14、15、16 条）修订：「交互菜单与运行身份」写明系统层这四条原位改写（仍为 18 条）改变 `prompt_sha256`，工具面与各层 Schema 不变、`tool_schema_sha256` 不变，该改写实施前后的运行不可合并比较；文件头修订说明补本阶段 |
 | `2026-10-05-idle-fillers-b` | 2026-10-05 | 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 3（零点计划模板第三、五、六条）修订：「交互菜单与运行身份」在系统层改写一句之后写明零点计划模板第三、五、六条的改写只改变 `code_sha256`，`prompt_sha256`、`tool_schema_sha256` 与各层 Schema 不受影响；文件头修订说明补本阶段 |
+| `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2（乙）修订：「交互菜单与运行身份」补一段：可供性占用声明重列为只有同一种动作互斥，`tool_schema_sha256` 绑定 `catalog/affordances.toml` 的字节而与目录内容摘要、`code_sha256` 一起改变，`prompt_sha256` 与各结构版本不变，此前的检查点与运行不能再恢复或重放；「地图与门店供给的实验身份」的当前目录改为 `5.5` |

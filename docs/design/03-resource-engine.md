@@ -2,10 +2,11 @@
 # WorldMock 产品设计说明书 — 资源引擎
 
 > **状态**：DRAFT，整合设计；接口与行为仍以冻结合同和规格为准；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 RS1），已实现\
-> **日期**：2026-10-05
-> **版本**：v1.13\
+> **日期**：2026-10-06
+> **版本**：v1.14\
 > **工具交互修订**：类别完整供给、冻结价格范围及真实食材配方设计已冻结，已实现；本次生产验收单独记录；以[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)为本次合同。
 > **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D3 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）；该规格阶段 1 不改本文。
+> **同时做两件事修订**：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「构建与版本」的当前目录版本（阶段 2）。
 > **范围**：资源定义、内容与语料、目录发布、来源校验、检索和提供
 
 资源引擎管理资源定义、对象属性、内容与固化语料，回答“有哪些资源、来自哪里、如何查询和读取”。
@@ -394,7 +395,7 @@ python scripts/build_catalog.py --check
 命令输入和输出见[接口合同](../CONTRACTS.md#contracts-cli)。
 
 调用方以 `catalog_version.major/minor` 指定目录；条目使用自己的整数 `version`。
-当前目录为 `5.4`，品类契约和交换规则绑定版本为 `3`；生活场景结构为 `5`（人物配置增必填可空的 `work_schedule`）、地图结构为 `3`，
+当前目录为 `5.5`（可供性占用声明按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-占用声明)重列后发布），品类契约和交换规则绑定版本为 `3`；生活场景结构为 `5`（人物配置增必填可空的 `work_schedule`）、地图结构为 `3`，
 世界状态结构为 `9`（个人事务与工作安排规格阶段 2：人物状态增未完成的个人事务）。目录共 172 个对象，正式场景完整选择 168 件可购买商品与每种子 431 条独立供给。
 完整供给阶段已按目录 `5.0` 独立验收并冻结，真实料理及后续目录内容修改按现行规则发布为新版本。
 当前生产身份取自正式清单；旧输入和检查点通过版本、内容、模板与代码身份直接拒绝。
@@ -685,3 +686,4 @@ sequenceDiagram
 
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 当前职责对象与依赖方向、五项行为正文归属、固定历史来源和稳定引用；业务与持久合同保持不变 |
 | 共享规则与可重建环境 | 2026-10-05 | 同步规则归属、源码重建与验收合同；目录按可供性声明注释的字节身份发布 5.4，业务数值与品类契约、规则绑定版本不变，历史发布记录保留原版本 |
+| `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2 同步：「构建与版本」的当前目录改为 5.5，可供性占用声明重列后发布，品类契约与规则绑定 3、场景结构 5、地图结构 3、世界结构 9 不变 |

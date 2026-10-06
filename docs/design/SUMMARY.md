@@ -30,7 +30,7 @@
 每章改了什么见该章版本表，各章文件头注明该规格修订的状态。
 发布身份为世界状态 9、质量报告 4（阶段 2），场景 5、卡片 3 与 `card-v3`（阶段 3）；
 当时地图 3、目录 5.3、品类与规则绑定 3、导出清单 2、运行清单 2 不变。
-当前目录按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)发布为 5.4；其它上述格式版本不变。
+当前目录按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)发布 5.4 之后，又按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-占用声明)重列占用声明发布为 5.5；其它上述格式版本不变。
 该规格已实现；逐条证据、源码变异审查与门禁结果见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)，
 实现状态见[实现状态](../dev/implementation-status.md#implementation-status-worldmock-实现状态)。证据是离线测试；规格阶段 6 的配对全天复跑是计费的真实运行，
 只在用户要求时启动，未执行。
@@ -298,6 +298,7 @@ docs/design/
 [同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)分阶段实现，各设计章节、本目录入口与本文随各阶段原位改写：
 暂停的活动不占名额，两个名额只由进行中与待收尾的活动占，开始、出行与恢复暂停的活动都要有空名额，同刻上限后的受限轮不再按名额分流
 （阶段 1，只变代码身份，世界结构 9、质量报告结构 4、场景结构 5 与目录不变）。
+只有同一种动作互斥，每种动作占自己的名字，睡眠与一切互斥，驾车只能再听播客或和人说话（阶段 2，占用声明重列，目录 5.5，`tool_schema_sha256`、目录内容摘要与代码身份变化，`prompt_sha256` 与各结构版本不变）。
 
 
 <a name="summary-后续维护建议"></a>

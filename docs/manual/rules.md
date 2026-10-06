@@ -1,8 +1,9 @@
 <a name="rules-调整世界规则与人物动机参数"></a>
 # 调整世界规则与人物动机参数
 
-> 更新日期：2026-10-05。[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)中的构建价格范围、完整类别供给、
-> 正式食材配方和发布身份已实现并发布（当前目录 5.4、品类契约与规则绑定 3）；下文所说的格式即现行格式；下班与到家锚点、卡片结构 3 见[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)，画像映射表不变。
+> 更新日期：2026-10-06。[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)中的构建价格范围、完整类别供给、
+> 正式食材配方和发布身份已实现并发布（当前目录 5.5、品类契约与规则绑定 3）；下文所说的格式即现行格式；下班与到家锚点、卡片结构 3 见[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)，画像映射表不变。
+> 2026-10-06：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)同步「活动声明」的占用名与「供给与制作边界」的现行目录 5.5（阶段 2）。
 
 要改变人物的初始状态，先改[场景](scenarios.md#scenarios-生活场景)；要改变“商品怎样起效、行为怎样耗能、出行怎样计时”，
 再修改这里的规则。规则在加载时冻结，修改文件不会改变已经运行的世界。
@@ -183,7 +184,7 @@ flowchart LR
 `recipe_output_bindings` 明确绑定输出对象，双方 `inventory_unit=item`，库存资源仍为 `inventory/item`，不新增多材料算子。
 制作完成才扣输入并入库输出，之后食用才产生食品能量；暂停、取消或提前结束不制造半件产物。
 原料 `ingredient` 是此次新增的真实品类分支，必须有来源、对象和规则；无产出做饭活动直接删除重复绑定。
-工具交互首次发布采用目录 5.0、品类与规则绑定 3、场景 4、地图 3（当时世界状态为 8），现行目录为 5.4；旧输入直接拒绝，不提供迁移或兼容。
+工具交互首次发布采用目录 5.0、品类与规则绑定 3、场景 4、地图 3（当时世界状态为 8），现行目录为 5.5；旧输入直接拒绝，不提供迁移或兼容。
 这些正式数据与生成行为已实现，没有为它们增加 `category check/refine/publish` 的参数或运行开关。
 
 <a name="rules-检查与发布品类修改"></a>
@@ -245,7 +246,7 @@ worldmock category publish \
 | `kinds.<活动>.met_key` | 资源目录 MET 键；出行允许尾部 `{mode}`，生活活动允许尾部 `{item_id}` |
 | `sleep_channel` | 解析值为 `recovery` 或 `awake`；当前身体结算仍按实际 `sleep` 活动分支执行，不靠改该字段切换睡眠行为 |
 | `relief.channel` | `none`、`preference_rate`、`content_rate`；需与娱乐缓解费率表匹配。`content_rate`（观看）为条目费率 × 有效偏好 ÷ 接触次数，`preference_rate`（游戏）为有效偏好 × 目录费率；两个通道都用有效偏好 `f + (1 − f)·w`，游戏的口味权重 `w` 与内容同一算法，没有题材的条目 `w = 0`、按下限 `f` 缓解，见[身体规则](rules.md#rules-身体规则) |
-| `resource_claims` | 占用名 `idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work`（[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第五章「并行准入」占用表）；`conditional` 子句按 `mode:<出行方式>` 或 `content_kind:<内容品类>` 追加占用；同一人物进行中活动的占用相交即 `RESOURCE_CONFLICT` |
+| `resource_claims` | 占用名 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel`（[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第五章「并行准入」占用表）：每种动作占自己的名字，只有同一种动作互斥，睡眠占全部名字，驾车另占除 `watch`、`talk` 以外的八个；`conditional` 子句按 `mode:<出行方式>` 或 `content_kind:<内容品类>` 追加占用；同一人物进行中活动的占用相交即 `RESOURCE_CONFLICT`；写旧的 `idle`、`eyes`、`ears`、`hands`、`voice` 在加载时拒绝 |
 | `feedback_boundary`、`game_boundary` | 普通活动反馈与游戏反馈，不能同时开启 |
 | `action` | 启动该活动的内部标准动作名（动作闭集之一），`none` 表示不经 `start_activity` 启动；人物工具面固定，不按活动另设工具 |
 | `target_discovery` | `none`、`browse_result` 或带 `field/id_key` 的 `catalog_field` 声明 |

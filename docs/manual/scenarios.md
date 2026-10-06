@@ -5,7 +5,7 @@
 > 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步个人事务与提醒（阶段 2）。
 > 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步场景结构 5 的工作安排（阶段 3）。
 > 2026-10-05：按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)同步班次与休息时段起止的决策机会（阶段 1）。
-> 2026-10-06：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)同步暂停的活动不占名额与同刻上限后的受限轮（阶段 1）。
+> 2026-10-06：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)同步暂停的活动不占名额与同刻上限后的受限轮（阶段 1）；「工作通知与目标发布」的现行目录 5.5（阶段 2）。
 
 生活场景决定模拟谁、从什么时候到什么时候、有哪些生活机会，以及世界开始时的状态。
 从[手册首页](README.md#readme-创建自己的第一个场景)复制现有场景开始，按本页调整自己的条件。
@@ -409,4 +409,4 @@ flowchart LR
 正式products/supplies列表包含选中门店全部声明商品和生成供给，不沿用旧稀疏选择。
 保持现有场景random_seed，按对应种子分别冻结供给发布；地图3、场景4、目录5.0分别在首次受影响阶段发布，后续目录内容变更另发版本，world8沿用。
 其后个人事务与工作安排规格把世界结构升为 9、场景结构升为 5，当时目录仍为 5.3。
-当前目录按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)发布为 5.4，只更正可供性声明的说明，业务数值与其它格式版本不变。
+当前目录按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)发布 5.4（只更正可供性声明的说明）之后，又按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-占用声明)重列活动占用声明发布为 5.5；场景的 `catalog_version` 随之写 5.5，其它格式版本不变。

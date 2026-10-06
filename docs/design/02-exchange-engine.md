@@ -6,7 +6,7 @@
 > **版本**：v1.10\
 > **工具交互修订**：价格构建范围、方式解析、英文错误明细与真实做饭链已冻结，已实现；本次生产验收单独记录；以[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)为本次合同。
 > **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)阶段 4 同步（查询筛选与返回精简，[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D2 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）；该规格其余阶段不改本文。
-> **同时做两件事修订**：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「可供性与活动声明」（阶段 1）。
+> **同时做两件事修订**：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「可供性与活动声明」（阶段 1）；「可供性与活动声明」的占用名（阶段 2）。
 > **范围**：维护交换规则、查询适用规则、校验交换条件、计算投入产出、校验资源分录与返回规则结果
 
 本文说明交换引擎提供哪些规则能力，以及这些能力的输入和输出。
@@ -200,7 +200,9 @@ flowchart LR
 同一活动应使用一致的条件和效果规则。对象如何被检索、怎样向数字人呈现，见资源引擎；
 数字人何时行动、活动如何推进，见模拟引擎。
 
-活动声明同时明确占用 `idle`、`travel`、`eyes`、`ears`、`hands`、`voice` 或 `work` 中的资源。
+活动声明同时明确占用 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel`
+中的资源：每种动作占自己的名字，只有同一种动作互斥；睡眠占全部名字，驾车另占除 `watch`、`talk` 以外的八个，
+`screen` 只用来让驾车拒绝播客以外的内容。
 交换条件对每一启动项重算地点（出行中为「途中」）、资格、目标与占用；模拟引擎对原子组合在同一暂存世界重算全部条件。
 同时两条出行、途中到店取得一律拒绝；能量不参与交换条件。每人两个活动名额，进行中与待收尾的活动各占一个，暂停的不占，恢复暂停的活动要有空名额。
 没有声明的资源不占用，暂停和终态释放占用，不能用隐藏的全局位置锁或组合白名单替代声明。声明表及允许组合见[一日行为可信性规格](../dev/SPEC-dayrun-behavior.md#spec-dayrun-behavior-唯一状态与资源准入)。
@@ -470,3 +472,4 @@ flowchart LR
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 当前职责对象与依赖方向、五项行为正文归属、固定历史来源和稳定引用；业务与持久合同保持不变 |
 | 共享规则与可重建环境 | 2026-10-05 | 同步规则归属、源码重建与验收合同 |
 | `2026-10-06-parallel-activities-slots` | 2026-10-06 | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1 同步：「可供性与活动声明」的两个活动名额只由进行中与待收尾的活动各占一个，暂停的不占，恢复暂停的活动要有空名额；文件头补修订说明，版本升为 v1.10；版本表并回表外的末两行 |
+| `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2 同步：「可供性与活动声明」的占用名改为 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel`，每种动作占自己的名字，只有同一种动作互斥；睡眠占全部名字，驾车另占除 `watch`、`talk` 以外的八个 |

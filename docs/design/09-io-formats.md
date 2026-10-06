@@ -14,7 +14,7 @@
 
 > 按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「3.2 AgentState（人物状态）」（阶段 1）；班次与休息时段起止的唤醒不新增状态字段，世界结构仍为 9。
 
-> 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「3.2 AgentState（人物状态）」（阶段 1）；暂停的活动不占名额，受限轮阶段闭集不变，世界结构仍为 9。
+> 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「3.2 AgentState（人物状态）」（阶段 1）；暂停的活动不占名额，受限轮阶段闭集不变，世界结构仍为 9；「3.2 AgentState（人物状态）」与「3.4 ActivityState（活动状态）」的占用名（阶段 2）；字段形状不变，世界结构仍为 9，带旧占用名的检查点恢复时与注册表核对不符而拒绝。
 
 <a name="design-09-io-formats-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
@@ -295,7 +295,8 @@ JSON 解析失败定位参数对象、附行列与必要闭集；未知工具定
 活动身份只存在于 `WorldState.activities`，人物不另存当前活动槽或活动身份列表。每人两个名额：进行中与待收尾（`completed`、`failed` 或 `cancelled` 而 `concluded_at` 为空；`truncated` 不收尾）的活动各占一个，暂停的不占，`pause_activity` 让出名额，`conclude_activity` 之后释放；名额由活动集合派生，不另存。
 观察 `active_activities` 是按开始时间和身份排序的完整 ACTIVE 控制行集合，`pending_conclusions` 是待收尾活动的控制行；
 每项独立控制。`occupied_resources` 是这些活动显式资源声明的排序并集，仅为观察派生量；占用名按[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)
-第五章「并行准入」重列为 `idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work`。
+第五章「并行准入」重列为 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel`，
+每种动作占自己的名字，只有同一种动作互斥（[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-占用声明)）。
 私有证据窗口 `verified_experiences` 由截止前已提交事件确定，只用于记忆来源核对，不进人物提示；记录格式与共同身体结算引用由
 [记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)定义，人物自述不得写入该窗口。记忆层的 `settled` 另有来源：由已提交结果与世界事件生成的确定性句子。
 超过 1800 秒或人物位置改变则该凭据不可用；呈现另一供给不续期。直接下钻与有时长浏览均以实际返回窗口更新，
@@ -349,7 +350,7 @@ JSON 解析失败定位参数对象、附行列与必要闭集；未知工具定
 | `destination_id` | str \| None | 否 | 目的地 ID |
 | `travel_mode` | TravelMode \| None | 否 | 出行方式 |
 | `playback_speed` | float | 是 | 播放速度，[0.5, 2] |
-| `resource_claims` | set[str] | 是 | 资源占用，取第五章占用名（`idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work`）；观看另按 `data.content_kind`（播客只占 `ears`），恢复时按注册表核对 |
+| `resource_claims` | set[str] | 是 | 资源占用，取第五章占用名（`wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel`）；观看另按 `data.content_kind`（播客只占 `watch`，其余内容另占 `screen`），恢复时按注册表核对，旧占用名不符即拒绝 |
 | `origin_action_id` | str | 是 | 源动作 ID |
 | `origin_decision_id` | str | 是 | 源决策 ID |
 | `origin_request_event_id` | str | 是 | 源请求事件 ID |
@@ -477,3 +478,4 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 | 共享规则与可重建环境 | 2026-10-05 | 同步规则归属、源码重建与验收合同 |
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1 同步：「3.2 AgentState」的 `pending_wake_reasons` 补班次与休息时段的起止恰在边界时记 `shift_start`、`shift_end`、`break_start` 或 `break_end`（同秒重合的各记一次、按枚举顺序），只对清醒人物，由场景工作安排与世界时钟求值、不另存状态，睡过的不补，已判定未决策的成员随检查点恢复；不新增状态字段，世界结构仍为 9；版本表去掉隔开末两行的空行；文件头增该规格修订说明，版本改为 v1.22 |
 | `2026-10-06-parallel-activities-slots` | 2026-10-06 | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1 同步：「3.2 AgentState」的 `same_moment_stage` 注明 `resume_or_conclude` 与 `conclude_only` 只留在闭集中、现行阶梯不再进入（到达上限时有待收尾进入 `conclude_pending`，没有进行中也没有待收尾时进入 `start_or_resume`）；名额说明改为进行中与待收尾的活动各占一个，暂停的不占，`pause_activity` 让出名额；不新增状态字段，世界结构仍为 9；文件头增该规格修订说明，版本改为 v1.23 |
+| `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2 同步：「3.2 AgentState」的 `occupied_resources` 与「3.4 ActivityState」的 `resource_claims` 占用名改为 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel`（播客只占 `watch`，其余观看另占 `screen`）；字段形状不变，世界结构仍为 9，带旧占用名的检查点恢复时与注册表核对不符而拒绝 |

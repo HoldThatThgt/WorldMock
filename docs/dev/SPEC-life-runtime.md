@@ -13,7 +13,7 @@
 > 个人事务、上班安排在七层中的位置，两种进度层记录及其浓缩口径；只读查询的执行位置，`query_world` 六键、筛选与返回；
 > 顺带更正 `report_status` 的 summary 去向、来源写法与可调用索引括注三处既有漂移；修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。
 > 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「共享时钟」「决策节律：结算边界与唤醒条件分离」、「决策不耗时：时间只在做事时流动」的「规则」与「不变项」、「个人事务」的「提醒时刻」与「验收矩阵」（阶段 1），以及「个人事务」的「零点计划、修订与只读问答」（阶段 3）。
-> 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「活动组合政策」、「决策不耗时：时间只在做事时流动」的「规则」与「实现约定」、「并行准入」、「三层结构」、「活动的生命周期」与「验收矩阵」（阶段 1）。
+> 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「活动组合政策」、「决策不耗时：时间只在做事时流动」的「规则」与「实现约定」、「并行准入」、「三层结构」、「活动的生命周期」与「验收矩阵」（阶段 1）；「活动组合政策」的占用、「社交最小可行版」的通话占用、「并行准入」的占用与同时发生的组合（阶段 2）。
 > 日期：2026-10-06
 > 实施基线：`9b7fbc8`
 > 范围：LifeEnv 的状态归属与生命周期、共享时钟与并发活动、消费生产与需求模型、语料准入与内容提供、场景与身体规则、观察投影与提示合同、候选契约与呈现规则、社交最小可行版
@@ -702,23 +702,27 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 ### 活动组合政策
 
 **正式场景活动组合**：
-- 同一人物的活动集合由 `WorldState.activities` 唯一保存；占用槽位为 `idle`、`travel`、`eyes`、`ears`、`hands`、
-  `voice` 与 `work`，均须由注册表显式声明。准入仍按占用交集判定，互斥不另设按动作名的规则；另按目标在场、
-  实际地点、出行方式与物品状态判定；能量不参与；整组原子受理。
+- 同一人物的活动集合由 `WorldState.activities` 唯一保存；占用名闭集为 `wait`、`work`、`watch`、`screen`、`play_game`、
+  `read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel` 十一个，均须由注册表显式声明。每种动作占自己的名字，
+  只有同一种动作互斥；睡眠占全部名字，驾车另占除 `watch`、`talk` 以外的八个，`screen` 只用来让驾车拒绝播客以外的内容。
+  准入仍按占用交集判定，互斥不另设按动作名的规则；另按目标在场、实际地点、出行方式与物品状态判定；能量不参与；整组原子受理。
 - 各活动的占用：
 
   | 活动 | 占用 |
   | --- | --- |
-  | 等待 | `idle` |
-  | 睡眠 | `idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work`（全部） |
-  | 步行 | `travel`、`idle` |
-  | 驾车 | `travel`、`idle`、`eyes`、`hands` |
-  | 工作 | `work`、`idle` |
-  | 视频、剧集、网文、段子等观看 | `eyes`、`ears` |
-  | 播客（`podcast_episode`） | `ears` |
-  | 游戏、读信、浏览 | `eyes`、`hands` |
-  | 食用或使用、生活活动 | `hands` |
-  | 交谈、通话 | `voice`、`ears` |
+  | 等待 | `wait` |
+  | 睡眠 | 十一个占用名（全部） |
+  | 步行 | `travel` |
+  | 驾车 | `travel`、`wait`、`work`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle` |
+  | 工作 | `work` |
+  | 视频、剧集、网文、段子等观看 | `watch`、`screen` |
+  | 播客（`podcast_episode`） | `watch` |
+  | 游戏 | `play_game` |
+  | 读信 | `read_mail` |
+  | 浏览 | `browse` |
+  | 食用、制作或使用 | `consume` |
+  | 生活活动 | `lifestyle` |
+  | 交谈、通话 | `talk` |
 
 - 每人两个活动名额，进行中与待收尾的活动各占一个，暂停的不占，暂停的个数不设上限。
 - 暂停及终态释放占用；`pause_activity` 让出名额，进行中与待收尾的名额在 `conclude_activity` 后释放，恢复暂停的活动要有空名额；配送和消息仍是独立后台过程。完整声明和边界以
@@ -732,7 +736,8 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
   事务变更与同一请求的活动状态转换同批校验、同一事务提交，请求被业务拒绝或任一条变更不合法时整请求不生效、世界不变；
   事务不是活动、不占名额，本次决策点不出一项进行中、暂停或待收尾的活动时没有变更入口；携带事务不改变三个请求既有的控制效果
   （[个人事务与工作安排规格](SPEC-as2-integration.md#errands-workday-运行修复入库) 2.2、2.3）
-- 活动使用注册表声明的 `idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work` 占用
+- 活动使用注册表声明的 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、
+  `talk`、`travel` 占用
 - 场景中声明地点和资格要求，组合由显式占用声明与准入事实决定
 - 不允许的组合整组拒绝，不能自动退出旧活动或自动挑选替代行动
 
@@ -1160,7 +1165,7 @@ flowchart LR
 | 在场可见 | 观察列出同一地点的其他人物及其当前活动家族与可交谈状态，途中人物不算在场；可交谈判定为对方清醒且不在主动游戏；在场人物集合变化构成唤醒条件 |
 | 消息 | 发送是瞬时动作，只在决策阶段登记；收件方在进度层的 `message_arrival` 中看到全文（链首快照之后同秒到达的随续接 tool 消息的 `events` 返回），送达另记为一条环境事件（`message_arrival`）；发给场景联系人的消息记入发送人的 `AgentState.outbox`；清醒的收件人在同一秒获得决策机会，计入其同刻轮数；睡眠中不唤醒；收件人必须是同世界人物或场景联系人，否则整个请求被拒绝 |
 | 交谈 | 必须双方同处一地且对方处于可交谈状态，否则拒绝；发起方把它作为前台活动结算，对方收到一条 `chat_invite` 消息（进度层 `message_arrival`，`kind=chat_invite`）；对方对发起人选择交谈即接受，不再发邀请，对方交谈的计划结束时刻对齐发起方；接受时双方按同一速率缓解社交需要，被拒绝时只有发起方按较低速率缓解、对方为零；一方结束时对方同秒结束 |
-| 通话 | 面向场景联系人；时长由场景 `activity_feedback_seconds` 派生后截到 600–3600 秒，受理结果写明计划时长，不因派生值拒绝；可与驾车并行，占用 `voice`、`ears`；按结算费率缓解社交需要 |
+| 通话 | 面向场景联系人；时长由场景 `activity_feedback_seconds` 派生后截到 600–3600 秒，受理结果写明计划时长，不因派生值拒绝；可与驾车并行，与交谈同占 `talk`；按结算费率缓解社交需要 |
 | 联系人 | 按人物在场景里声明，亲密度沿用画像关系的整数刻度，渠道限定可达的联系方式，回复策略取闭集；可声明收货地点 `receive_location_id`（可空，为空时不能收实物），收到的物品记入 `WorldState.contact_holdings`；在人设层的 `relationships` 中出现，只来自场景联系人的项不带亲密度与渠道 |
 | 联系人回复 | 策略开启的联系人对每条收到的消息至多回复一次：模型回复由独立 DeepSeek 调用生成并保存完整请求响应；回复策略行为、幂等键、请求字段、落库标记与回复影响见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「社交接口」章的「联系人回复」节；回复请求带双方往来 `history`（双方消息按时间排序，至多 20 条）与对方实际收到的物品 `received`；回复只落到收件方的收件箱，不改动资源与任务状态；联系人回复为预排送达，送达时以 `message_arrival` 唤醒，睡眠中过滤 |
 
@@ -1554,26 +1559,32 @@ items 不合法、项数越界或目标重复（`to` 也相同），改报 `ACTI
 空名额（`SESSION_LIMIT_EXCEEDED`，原因与下一步同上）与占用冲突（`RESOURCE_CONFLICT`）；一个请求里恢复两项时逐项检查，与开始两项的写法一致，
 前一项恢复后即占名额。工具层与待办层的 `available`、`reason` 与受理同文。
 
-**占用**（裁决 #23）。准入保留注册表显式声明的占用交集判定（life-runtime「活动组合政策」的机制
-不变），只重列占用。占用名是内部声明：槽位闭集为 `src/worldmock/catalog/affordances.py` 的 `RESOURCE_CLAIM_SLOTS`
-，各活动的占用写在
+**占用**（裁决 #23；[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-占用声明)「乙」重列）。准入保留注册表显式声明的占用交集判定（life-runtime「活动组合政策」的机制
+不变），只重列占用：每种动作占自己的名字，只有同一种动作互斥，睡眠与一切互斥，驾车时只能再听播客或和人说话。
+占用名是内部声明：槽位闭集为 `src/worldmock/catalog/affordances.py` 的 `RESOURCE_CLAIM_SLOTS`，即 `wait`、`work`、`watch`、`screen`、
+`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel` 十一个；`screen` 只用来让驾车拒绝播客以外的内容。
+旧的身体部位名 `idle`、`eyes`、`ears`、`hands`、`voice` 与此前退役的 `position`、`attention`、`device`、`vehicle` 一样在解析时拒绝。
+各活动的占用写在
 `catalog/affordances.toml` 的 `resource_claims` 与 `src/worldmock/life/social.py::SOCIAL_RESOURCE_CLAIMS` 中。播客与其他观看同属
-`watch`，改造前条件占用只接受 `mode:` 条件；当前由 `src/worldmock/catalog/affordances.py::_parse_resource_claims` 增加按内容类型的
-条件，`affordances.resource_claims` 与 `_expected_activity_claims`同步。暂停与终态释放占用，名额
-另计。表中未列的组合按此表判定。
+`watch`，播客以外的内容另占 `screen`；改造前条件占用只接受 `mode:` 条件；当前由 `src/worldmock/catalog/affordances.py::_parse_resource_claims` 增加按内容类型的
+条件，`affordances.resource_claims` 与 `_expected_activity_claims`同步。食用、制作与使用同算一种；同一请求里同一方式的两样食物照旧合成一顿，
+只占一个名额。暂停与终态释放占用，名额另计。表中未列的组合按此表判定。
 
-| 活动 | 占用 |
-| --- | --- |
-| 等待 | `idle` |
-| 睡眠 | `idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work`（全部） |
-| 步行 | `travel`、`idle` |
-| 驾车 | `travel`、`idle`、`eyes`、`hands` |
-| 工作 | `work`、`idle` |
-| 视频、剧集、网文、段子等观看 | `eyes`、`ears` |
-| 播客（`podcast_episode`） | `ears` |
-| 游戏、读信、浏览 | `eyes`、`hands` |
-| 食用或使用、生活活动 | `hands` |
-| 交谈、通话 | `voice`、`ears` |
+| 活动 | 占用 | 与谁互斥 |
+| --- | --- | --- |
+| 等待 | `wait` | 另一段等待 |
+| 工作 | `work` | 另一项工作 |
+| 视频、剧集、网文、段子等观看 | `watch`、`screen` | 另一项观看或收听 |
+| 播客（`podcast_episode`） | `watch` | 另一项观看或收听 |
+| 游戏 | `play_game` | 另一局游戏 |
+| 读信 | `read_mail` | 另一封信 |
+| 浏览 | `browse` | 另一次浏览 |
+| 食用、制作或使用 | `consume` | 另一项食用、制作或使用 |
+| 生活活动 | `lifestyle` | 另一项生活活动 |
+| 交谈、通话 | `talk` | 另一段交谈或通话 |
+| 步行 | `travel` | 另一段出行 |
+| 驾车 | `travel`、`wait`、`work`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle` | 除听播客与说话以外的全部 |
+| 睡眠 | 十一个占用名（全部） | 全部 |
 
 | 准入事实 | 规则 |
 | --- | --- |
@@ -1587,10 +1598,12 @@ items 不合法、项数越界或目标重复（`to` 也相同），改报 `ACTI
 | 同时发生 | 结果 |
 | --- | --- |
 | 驾车与播客、通话 | 受理：与出行在同一请求中开始，或在途中的决策机会开始；归入路上会话，到达时一并结束 |
-| 驾车与视频、游戏、浏览、食用、睡眠 | 拒绝（`RESOURCE_CONFLICT`） |
+| 驾车与视频、游戏、读信、浏览、食用、生活活动、等待、睡眠 | 拒绝（`RESOURCE_CONFLICT`） |
 | 驾车与办公室工作、当面交谈、到店取得 | 拒绝（目标在场） |
-| 工作与食用、观看、播客 | 受理 |
-| 两段观看、观看与游戏、交谈与通话、两条出行 | 拒绝（`RESOURCE_CONFLICT`） |
+| 工作与等待、食用、观看、播客 | 受理 |
+| 观看与游戏、读信、浏览、交谈、通话、生活活动；食用与生活活动、读信、浏览；读信、浏览与游戏两两之间；等待与步行 | 受理 |
+| 步行与办公室工作 | 拒绝（目标在场） |
+| 两段观看（含播客）、两项食用或制作、两项生活活动、交谈与通话、两条出行、两段等待 | 拒绝（`RESOURCE_CONFLICT`） |
 | 驾车时发消息、远程下单、提交成果 | 拒绝（`ACTIVITY_PRECONDITION_UNMET`） |
 
 整组提交中任一项不成立，就整组拒绝。有待收尾活动时，开始请求的顶层码为 `ACTIVITY_CONCLUSION_REQUIRED`（第七章「活动一结束
@@ -2694,3 +2707,4 @@ stateDiagram-v2
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1 改写：唤醒闭集在 `errand_reminder_due` 之后依次追加 `shift_start`、`shift_end`、`break_start`、`break_end`，四个都不进睡眠允许集合；「决策节律：结算边界与唤醒条件分离」触发表增班次与休息时段起止一行（清醒人物精确在起止那一秒得到一次决策机会，活动照常继续，不结束、暂停或开始活动，不写事件、不进提示；起止由场景与时钟求值、不存交付状态；睡眠中不入候选、不形成静默边界、不被叫醒，睡过的不补），`plan_reminder_due` 一行写明提醒结束睡眠的边界上人物已清醒、同秒成立的其他原因照常按枚举顺序并列，下一次决策机会增班次与休息时段的起止时刻；「共享时钟」推进规则第 3 条与「决策不耗时」的不变项补清醒人物的起止；规则 6 与「个人事务」的「提醒时刻」把新增成员的程序改为照数字人交互规格「冻结条款修订」第 1 行登记的同步点；验收矩阵「决策节律」「工作安排与上班安排呈现」两行补判据与该规格验收台账的证据，矩阵前言补一句；文件头补修订说明；版本表并回表外的末两行 |
 | `2026-10-05-idle-fillers-b` | 2026-10-05 | 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 3 修订「个人事务」的「零点计划、修订与只读问答」：零点计划不照抄日常作息和事务，天天如此的事（睡觉、起床、上下班、吃饭、休息、每天的消遣）不写成目标，只写今天不同的安排、要办的事与要按时起床或出门的提醒（模板第三条），可以为打算执行的事务写一条今天的目标；模板仍不进提示指纹、由代码身份绑定；文件头修订说明补本阶段 |
 | `2026-10-06-parallel-activities-slots` | 2026-10-06 | 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1（暂停的活动不占名额）改写：「活动组合政策」「并行准入」「三层结构」「活动的生命周期」的名额口径为进行中与待收尾的活动各占一个，暂停的不占、个数不设上限，`pause_activity` 让出名额，开始、出行与恢复暂停的活动都要有空名额；「并行准入」删去两个名额都被暂停活动占满时出行一支，写明名额超限的两种原因与按被点名活动能否暂停分三种写法的下一步、恢复的检查次序（开始地点、工作截止与合同、空名额、占用冲突）与一个请求恢复两项时逐项检查，只有暂停的活动时可以出发、它们留在原地；生命周期状态图的恢复边补「在开始地点且有空名额」，「两项都暂停时」一段改为「只有暂停的活动时」；「决策不耗时」规则 3 的阶梯写成有待收尾时只收尾、没有进行中也没有待收尾时开始或恢复，不按名额分流，「实现约定」写明 `resume_or_conclude` 与 `conclude_only` 留在闭集中、现行阶梯不再进入，世界结构仍为 9；「验收矩阵」同刻决策一行随之改写；只变 `code_sha256`；文件头补修订说明、日期改为 2026-10-06 |
+| `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2（乙）修订：「活动组合政策」与「并行准入」的占用重列为 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel` 十一个，每种动作占自己的名字，只有同一种动作互斥，睡眠与一切互斥，驾车只能再听播客或和人说话，`screen` 只用来让驾车拒绝播客以外的内容；旧的 `idle`、`eyes`、`ears`、`hands`、`voice` 与此前退役的名字一样在解析时拒绝；「社交最小可行版」的通话与交谈同占 `talk`；同时发生的组合表里观看与游戏、读信、浏览、交谈、通话、生活活动，食用与生活活动、读信、浏览，读信、浏览与游戏两两之间，等待与工作、步行改为受理，同种的两件仍以 `RESOURCE_CONFLICT` 拒绝，步行与办公室工作仍按目标在场拒绝 |

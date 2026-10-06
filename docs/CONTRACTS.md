@@ -5,7 +5,7 @@
 > 本次工具交互合同于 2026-10-01 按[工具交互规格](dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结，已实现；本次生产验收单独记录；既有验收只证明此前版本。
 > 2026-10-02 [个人事务与工作安排规格](VERIFICATION.md#verification-incremental-evidence)冻结：本文件相应条款按[配套实施计划](archive/errands-workday/errands-workday-implementation-plan.md)的文档同步作业随该规格阶段 1–4 的代码逐阶段修订；阶段 1–4 的修订均已实现并通过离线验收（证据见[个人事务与工作安排验收记录](archive/errands-workday/errands-workday-verification.md)）；冻结时在「请求组成」加的三处修订指针已随阶段 1、阶段 3 全部删去；修订内容见「版本表」`2026-10-02-errands-workday-freeze`、`2026-10-03-errands-workday-stage-1`、`2026-10-03-errands-workday-stage-1-review`、`2026-10-03-errands-workday-stage-2`、`2026-10-03-errands-workday-stage-4`、`2026-10-03-errands-workday-stage-3`、`2026-10-04-errands-workday-stage-3-review` 与 `2026-10-04-errands-workday-implemented` 各行。
 > 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「工作安排声明」（阶段 1）、「请求组成」与「七层 Schema」（阶段 2）、「请求组成」的零点计划模板（阶段 3）。
-> 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「状态归属」「人物工具与管理接口」、「个人事务」的入口、「请求字段与结算检查」「活动受理拒绝码」「动作状态与动作结果」与「七层字段」的待办层（阶段 1）。
+> 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「状态归属」「人物工具与管理接口」、「个人事务」的入口、「请求字段与结算检查」「活动受理拒绝码」「动作状态与动作结果」与「七层字段」的待办层（阶段 1）；「状态归属」的占用名、「交谈与通话」与「活动控制行」的占用，以及「冻结地图与场景引用」「类别供给的构建合同」「品类契约与目录字段」的目录版本（阶段 2）。
 > 范围：LifeEnv 与 LifeAgent 适配接口、数字足迹事件与存储、语料内容目录、LabelKit 输入输出与交付格式、命令行与运行状态。
 > 权威：记录引擎的事件、素材、存储与导出合同统一在[记录引擎设计](design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)定义；其余接口签名、字段名、枚举值、Schema、文件格式与命令行参数在本文件定义。其他文档只引用所属合同，代码变更先更新对应合同。
 
@@ -46,7 +46,7 @@ LabelKit 固定制品身份、`node_version`、`missing_components`、`passed`�
 | 世界 | `simulation_time`, `locations`, `weather`, `corpus_version`, `calendar`, `scheduled_events` | 环境规则 |
 | 人物身体 | `available_energy_kcal`, `sleep_deficit_hours`, `entertainment_need`, `recent_activities`, `physiological_state` | 时间推进、进食、睡眠和活动结算 |
 | 人物资产 | `account_balance`, `inventory`, `consumables_count`, `access_rights` | 交易、交付、使用与合同结算 |
-| 人物活动 | `activity_type`, `start_time`, `progress`, `next_decision_time`, `occupied_resources`（占用名为 `idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work`，按[时间与能量规格](dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第五章「并行准入」由注册表声明）, `pause_reason`, `end_reason`, `same_moment_rounds`（本秒已进行的决策轮数）, `same_moment_stage`（受限轮阶段：`open`、`conclude_pending`、`start_or_resume`、`resume_or_conclude`、`conclude_only`；`resume_or_conclude` 与 `conclude_only` 留在闭集中，现行阶梯不再进入它们：到达同刻上限时有待收尾进入 `conclude_pending`，没有进行中也没有待收尾时进入 `start_or_resume`，开始或恢复被拒后留在原阶段）；活动名额为常量 2（进行中与待收尾的活动各占一个，暂停的不占，暂停的个数不设上限；`pause_activity` 与 `conclude_activity` 之后名额让出，恢复暂停的活动要有空名额） | 人物申请，环境验证并执行；同刻计数与受限轮阶段由环境随决策轮与时钟推进维护 |
+| 人物活动 | `activity_type`, `start_time`, `progress`, `next_decision_time`, `occupied_resources`（占用名为 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel` 十一个，每种动作占自己的名字，只有同一种动作互斥，按[时间与能量规格](dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第五章「并行准入」由注册表声明）, `pause_reason`, `end_reason`, `same_moment_rounds`（本秒已进行的决策轮数）, `same_moment_stage`（受限轮阶段：`open`、`conclude_pending`、`start_or_resume`、`resume_or_conclude`、`conclude_only`；`resume_or_conclude` 与 `conclude_only` 留在闭集中，现行阶梯不再进入它们：到达同刻上限时有待收尾进入 `conclude_pending`，没有进行中也没有待收尾时进入 `start_or_resume`，开始或恢复被拒后留在原阶段）；活动名额为常量 2（进行中与待收尾的活动各占一个，暂停的不占，暂停的个数不设上限；`pause_activity` 与 `conclude_activity` 之后名额让出，恢复暂停的活动要有空名额） | 人物申请，环境验证并执行；同刻计数与受限轮阶段由环境随决策轮与时钟推进维护 |
 | 地点会话 | `sessions`：一段地点停留或两地之间的一段路（`kind` 取 `stay`、`transit`，`status` 取 `active`、`ended`），名称为地点或路段加开始时刻，例如「在家（1月5日 00:00 起）」「去张江办公室的路上（1月5日 14:17 起）」 | 环境随出发与到达开始和结束；人物不手动开始或结束会话 |
 | 工作 | `task`, `materials`, `deadline`, `deliverable`, `review_result`, `contract`, `payment_status` | 任务来源、人物交付与独立验收规则 |
 | 个人事务 | `errands`：本人未完成的个人事务，键为事务身份，每条 `ErrandState` 记 `errand_id`、`name`、`outcome`、`product_id`、`quantity`、`progress`、`memo`、`registered_at`、`remind_at`、`reminded_at`、`origin_action_id`、`origin_event_id`（字段见「个人事务」）；完成或取消即移出 | 人物经 `report_status`、`pause_activity`、`conclude_activity` 的请求级 `errands` 记下（新增）、更新、取消；完成只由环境按结算证据写入，人物不能自报完成；提醒的交付由环境记下 |
@@ -927,7 +927,7 @@ ScheduledKind = Literal[
 商品没有卖方、门店、购买报价、库存或配送处理时长；商品效果与取得后的持有仍按 `product_id`。
 运行时 `ProductConfig` 继承 `InventoryItemConfig`，共享 `category_id`、`inventory_unit` 和使用语义；购买可供性由独立供给补充。
 
-当前版本边界为地图文件结构 3、商品目录 5.4（major 5）、品类契约版本 3、交换规则绑定版本 3、场景结构 5、世界状态结构 9。
+当前版本边界为地图文件结构 3、商品目录 5.5（major 5）、品类契约版本 3、交换规则绑定版本 3、场景结构 5、世界状态结构 9。
 这些版本分别约束不同输入，不能相互替代。地图文件结构随地点字段 `branch_label` 由 1 升到 2，数据集声明与地点、供给、路线三个目录文件
 同用这一版本，结构 1 的地图直接拒绝；仓库地图已按结构 2 重新发布（数据未变，只有结构版本与文件摘要变化），场景结构、世界状态结构与目录版本不变。
 其后随类别供给（见「类别供给的构建合同」）地图结构升到 3、场景结构升到 4、目录升到 5.x、品类契约与规则绑定升到 3，结构 3 以外的地图
@@ -961,7 +961,7 @@ price_fen=min+((max-min)*percent+50)//100。整数四舍五入，小幅扰动不
 固定扰动不配置，min=max合法；定位差至少十个百分点时同商品高低不逆转，舍入可同价。
 一次写入冻结Quote，观察、查询、购买、恢复不重抽。显式调价受对象范围约束，配送费单列，旧成交价不改写。
 地图种子等于场景random_seed，不同种子发布独立供给，共享地点路线来源但不改实验种子。
-当前实现采用上述合同；正式地图结构 3，目录 5.4，品类契约与规则绑定 3。
+当前实现采用上述合同；正式地图结构 3，目录 5.5，品类契约与规则绑定 3。
 
 <a name="contracts-营业与报价声明"></a>
 ### 营业与报价声明
@@ -1104,7 +1104,7 @@ MessageKind = Literal["direct", "chat_invite"]
 | 通话时长 | 由场景 `activity_feedback_seconds` 派生后截取到 600–3600 秒，受理结果写明计划时长 |
 | 社交需要缓解速率 | 交谈被接受：双方各 0.5/小时；交谈被拒绝：发起方 0.2/小时；通话：0.4/小时 |
 | 接受判定 | 发起人正有以对方为伙伴标识的进行中交谈活动时，对方对发起人选择交谈即接受，对方交谈的计划结束时刻对齐发起人；一方结束时，对方以其为伙伴的进行中交谈同秒结束（`partner_ended`） |
-| 资源占用 | 交谈、通话占用 `voice`、`ears`（[时间与能量规格](dev/SPEC-life-runtime.md#time-and-energy-五类生活动作与并行准入-并行准入)）；交谈要求双方在场且都不在途中，通话可与驾车并行；不可暂停，取消任意时刻允许并保留已结算进度 |
+| 资源占用 | 交谈、通话同占 `talk`，彼此互斥，可与观看、播客等其他种类的活动并行（[时间与能量规格](dev/SPEC-life-runtime.md#time-and-energy-五类生活动作与并行准入-并行准入)）；交谈要求双方在场且都不在途中，通话可与驾车并行；不可暂停，取消任意时刻允许并保留已结算进度 |
 
 <a name="contracts-contact-reply"></a>
 ### 联系人回复
@@ -1558,7 +1558,8 @@ WorldState.activities 是唯一活动事实源；人物另外持久保存 body_s
 进行中与刚结束的活动各是工具层的一个活动目标（`phase` 为「进行中」或「刚结束」，`state` 为客观进度，刚结束时写终态原因），
 暂停的活动只在待办层；活动集合逐项呈现，不能把其中一项描述为人物的全部活动。
 观察 `occupied_resources` 是这些 ACTIVE 显式资源声明的排序并集（占用名按[时间与能量规格](dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)
-第五章「并行准入」重列为 `idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work`）；不另存状态。
+第五章「并行准入」按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-占用声明)重列为 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、
+`lifestyle`、`talk`、`travel`）；不另存状态。
 候选与环境准入按同一注册表资源交集判定；工具层目标与原生工具不按占用剪裁，冲突的动作照常列出，标 `available=false`
 并以同一原因写 `reason`，选了由环境以 `RESOURCE_CONFLICT` 业务拒绝。
 
@@ -2179,7 +2180,7 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 ## 品类契约与目录字段
 
 行为规则由 [品类契约规格](dev/SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格) 定义；本节固定文件字段与命令输入。
-当前原生目录为 `5.4`；品类契约及交换规则的 `contract_version`
+当前原生目录为 `5.5`（[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-占用声明)重列可供性占用声明后发布；声明旧占用名的目录在解析时拒绝）；品类契约及交换规则的 `contract_version`
 均为 `3`；格式版本与运行结构版本分别校验。
 原始对象声明、解析后的运行视图与人物浏览使用的活动品类是不同层次，不能混用其字段。
 
@@ -2790,3 +2791,4 @@ RunPhase = Literal[
 | `2026-10-05-idle-fillers-a` | 2026-10-05 | 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 2（系统层第 7、14、15、16 条）修订「请求组成」的生活决策系统层（仍为十八条，`custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER` 与之逐字相同）：第 7 条说明醒着时活动（等待也一样）一般做满工具层写的时长才再请人物决策、做得久的中途隔一阵也请一次，本人下的单送到、提醒到点、有人联系、有工作可以开始、到了定下的上下班时刻与写明的休息时段起止也会请人物决策而手上的活动照常进行，空下来照自己的习惯做点别的，等待只留给几分钟内就有事请人物决策的时候；第 14 条在上班安排一句之前插入一句：作息里的钟点、今日计划目标文字里的钟点与 `around_time` 都只是大概，到时不一定请人物决策，差不多到了就做、早一点晚一点都算照常，和人约好的事宁早勿晚，非准点不可的靠目标的提醒时刻；第 15 条写只是「有点想吃」时正餐留到平常的饭点前后吃，下单的东西送到、拿到手才能吃；第 16 条写有点乏、困是睡前的常态，还没到就寝时间就照常过晚上、到了就可以睡、不用撑到某个钟点；「七层 Schema」的分阶段指纹叙述补该阶段使 `prompt_sha256` 重钉、`tool_schema_sha256` 不变；文件头修订说明补本阶段 |
 | `2026-10-05-idle-fillers-b` | 2026-10-05 | 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 3（零点计划模板第三、五、六条）修订「请求组成」的零点计划中文模板（仍为八条，第一、二、四、七、八条与开头四行逐字不变，`src/worldmock/life/day_planning.py::PLAN_DAY_PROMPT` 与之逐字相同）：第三条写 `remind_time` 是到点提醒或叫醒人物的时刻，要按时起床的填起床的时刻，出门去上班、上课、接人、赴约这类要按时到的事填该出门的时刻，一条目标含几件时填最早的，只打算在某个时段做的事填 null，就寝不设提醒；第五条写人物档案与背景里天天如此的事（睡觉、起床、上下班、吃饭、休息、每天的消遣）不写成目标，只写今天与平常不同的安排（写清哪里不同）、要办的事与照第三条要提醒的事，清单可以很短；第六条写大致时刻只表示大概在那前后，不是开始的钟点，也不提醒人物，goal 里只给和人约好的事写钟点，其余只写时段或先后；本地校验、输出 Schema 与 `around_time` 的字段形状不变，模板仍只由 `code_sha256` 绑定；文件头修订说明补本阶段 |
 | `2026-10-06-parallel-activities-slots` | 2026-10-06 | 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1（暂停的活动不占名额）修订：「状态归属」的活动名额仍为常量 2，进行中与待收尾的活动各占一个，暂停的不占、个数不设上限，`pause_activity` 与 `conclude_activity` 之后让出名额，恢复要有空名额；受限轮阶段闭集仍为五个值，`resume_or_conclude` 与 `conclude_only` 留在闭集中、现行阶梯不再进入，世界结构仍为 9；「人物工具与管理接口」`pause_activity` 暂停让出名额，`report_status` 恢复要有空名额，`conclude_activity` 在任何地点都可直接结束暂停的活动；「个人事务」的入口与「请求字段与结算检查」的名额口径随之改写；「活动受理拒绝码」`SESSION_LIMIT_EXCEEDED` 改为进行中与待收尾的活动占满名额，开始、出行与恢复暂停的活动都可能触发，写明两种原因、按被点名活动能否暂停分三种写法的下一步、恢复的检查次序（开始地点、工作截止与合同、空名额、占用冲突）与缺省原因，删去两个名额都被暂停活动占满时出行一支；「动作状态与动作结果」写明到达上限时没有进行中也没有待收尾的活动一律进入 `start_or_resume`，受限轮不再进入 `resume_or_conclude`；「七层字段」待办层 `paused_activities[].tools` 恢复的不可用原因增名额占满，与受理同文；只变 `code_sha256`，`prompt_sha256`、`tool_schema_sha256`、目录、世界结构 9、质量报告结构 4 与场景结构 5 不变；文件头补该规格的修订说明 |
+| `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2（乙）修订：「状态归属」的 `occupied_resources` 占用名重列为 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel` 十一个，每种动作占自己的名字，只有同一种动作互斥；「交谈与通话」改为同占 `talk`，彼此互斥、可与其他种类并行；「活动控制行」的占用名同步；当前目录 5.5（「冻结地图与场景引用」「类别供给的构建合同」「品类契约与目录字段」），声明旧占用名 `idle`、`eyes`、`ears`、`hands`、`voice` 的目录在解析时拒绝；占用声明属于 `catalog/affordances.toml` 的字节，`tool_schema_sha256` 与目录内容摘要随之改变，此前的检查点不能再恢复 |

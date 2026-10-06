@@ -4,7 +4,8 @@
 > 状态：冻结特性合同；独立地图分支与品类主线组合均已通过离线验收。当前结果见 [主线组合验收](research/map-and-storefront-main-verification.md)，原 [独立分支验收](research/map-and-storefront-verification.md) 保留历史身份；项目级三项真实验收未完成。「地点发现与候选呈现」「记录、恢复与交付」「验收台账」中关于发现、暂停活动恢复与提示供给行的条款按 [时间与能量规格](SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)「冻结条款修订」第 25 行修订，已随该规格实现并通过离线验收（证据见[时间与能量验收记录](../archive/time-and-energy/time-and-energy-verification.md)）；修订记录见「版本表」。
 > 「地点发现与候选呈现」「整单购买与履约」「记录、恢复与交付」「验收台账」中关于购买资格、来源标记、到店餐食与供给去重的条款按[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；修订记录见「版本表」。
 > 「产品行为与边界」「冻结输入与身份」「地点发现与候选呈现」「整单购买与履约」「记录、恢复与交付」「验收台账」中关于挑店、同名地点与加载校验、配送路线状态、指名购买、可见期与浏览结果的条款按[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)修订（一日运行保真 MS1）；修订部分已实现并通过离线验收，改动的台账行「地图唯一来源」「人物选择边界」「供给候选身份」「自提与配送」四行已改记“通过”。
-> 日期：2026-10-05
+> 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「冻结输入与身份」的当前目录版本（阶段 2）。
+> 日期：2026-10-06
 > 「地点发现与候选呈现」「验收台账」中关于 `query_world` 六键、来源与可执行筛选的条款按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)修订（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 MS1–MS4、MS11）；修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）；购买来源写法一处属更正既有表述。
 > 授权：本次任务要求审查提案、修订最终规格并完整实现。本文采用提案的建议产品范围，并纠正已失效的现状与业界判断。
 > 取代：[地图与门店供给提案](PROPOSAL-map-and-storefront.md)中待裁决的数据结构与实现范围。
@@ -58,7 +59,7 @@ flowchart LR
 运行时价格和库存不得从商品对象推断。
 运行期 `ProductConfig` 继承库存使用定义，保留 `category_id`、`inventory_unit`、规格与使用效果；不把报价或卖方塞回商品。
 
-当前实现使用目录 `5.4`、品类契约与交换规则绑定版本 `3`、地图结构 `3`、场景结构 `5`、世界结构 `9`。
+当前实现使用目录 `5.5`、品类契约与交换规则绑定版本 `3`、地图结构 `3`、场景结构 `5`、世界结构 `9`。
 本次首次受影响发布目标为目录 `5.0`、品类契约与交换规则绑定版本 `3`、场景结构 `4`、地图结构 `3`；世界结构 `8`
 保持现有字段形状。地图声明新增必填 `random_seed/category_assignment_sha256`，绑定生成种子与分类文件。
 独立阶段只更新受影响产物，料理及后续目录内容变更发布新版本；最终认证记录实际版本和摘要，禁止同版覆盖。
@@ -592,3 +593,4 @@ MapDataset 必填 random_seed、category_assignment_sha256，哈希同时绑定 
 
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 五项已验收增量行为并回所属正文；提示唯一文本、机器验收登记与稳定引用同步，历史过程归档 |
 | 共享规则与可重建环境 | 2026-10-05 | 当前目录因可供性声明注释更正按既有字节身份发布 5.4；品类和规则绑定 3、地图结构 3、场景结构 5、世界结构 9 不变；保留历史版本记录 |
+| `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2 修订「冻结输入与身份」：当前目录随可供性占用声明重列发布为 5.5；品类和规则绑定 3、地图结构 3、场景结构 5、世界结构 9 不变 |
