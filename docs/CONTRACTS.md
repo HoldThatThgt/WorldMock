@@ -5,7 +5,7 @@
 > 本次工具交互合同于 2026-10-01 按[工具交互规格](dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结，已实现；本次生产验收单独记录；既有验收只证明此前版本。
 > 2026-10-02 [个人事务与工作安排规格](VERIFICATION.md#verification-incremental-evidence)冻结：本文件相应条款按[配套实施计划](archive/errands-workday/errands-workday-implementation-plan.md)的文档同步作业随该规格阶段 1–4 的代码逐阶段修订；阶段 1–4 的修订均已实现并通过离线验收（证据见[个人事务与工作安排验收记录](archive/errands-workday/errands-workday-verification.md)）；冻结时在「请求组成」加的三处修订指针已随阶段 1、阶段 3 全部删去；修订内容见「版本表」`2026-10-02-errands-workday-freeze`、`2026-10-03-errands-workday-stage-1`、`2026-10-03-errands-workday-stage-1-review`、`2026-10-03-errands-workday-stage-2`、`2026-10-03-errands-workday-stage-4`、`2026-10-03-errands-workday-stage-3`、`2026-10-04-errands-workday-stage-3-review` 与 `2026-10-04-errands-workday-implemented` 各行。
 > 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「工作安排声明」（阶段 1）、「请求组成」与「七层 Schema」（阶段 2）、「请求组成」的零点计划模板（阶段 3）。
-> 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「状态归属」「人物工具与管理接口」、「个人事务」的入口、「请求字段与结算检查」「活动受理拒绝码」「动作状态与动作结果」与「七层字段」的待办层（阶段 1）；「状态归属」的占用名、「交谈与通话」与「活动控制行」的占用，以及「冻结地图与场景引用」「类别供给的构建合同」「品类契约与目录字段」的目录版本（阶段 2）。
+> 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「状态归属」「人物工具与管理接口」、「个人事务」的入口、「请求字段与结算检查」「活动受理拒绝码」「动作状态与动作结果」与「七层字段」的待办层（阶段 1）；「状态归属」的占用名、「交谈与通话」与「活动控制行」的占用，以及「冻结地图与场景引用」「类别供给的构建合同」「品类契约与目录字段」的目录版本（阶段 2）；「请求组成」与「七层 Schema」（阶段 3）。
 > 范围：LifeEnv 与 LifeAgent 适配接口、数字足迹事件与存储、语料内容目录、LabelKit 输入输出与交付格式、命令行与运行状态。
 > 权威：记录引擎的事件、素材、存储与导出合同统一在[记录引擎设计](design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)定义；其余接口签名、字段名、枚举值、Schema、文件格式与命令行参数在本文件定义。其他文档只引用所属合同，代码变更先更新对应合同。
 
@@ -1491,7 +1491,8 @@ category 取公开 callable_index 的 `query_categories` 标签。`name` 只写�
 的新说明使后者重钉；阶段 3：系统层第 1、14 条原位改写（仍为十八条）、人设层 `rhythm` 增 `leave_work`、`arrive_home`、环境层增 `duty`
 使前者重钉，后者不变；阶段 4：`query_world` 的六键请求与用途句使后者重钉，前者不变（本阶段不改系统层与各层 Schema）；
 [让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 2：系统层第 7、14、15、16 条原位改写（仍为十八条）使 `prompt_sha256` 重钉，
-`tool_schema_sha256` 不变；旧运行按模型身份与 `code_sha256` 拒绝恢复。
+`tool_schema_sha256` 不变；[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 3：系统层第 8 条原位改写（仍为十八条）
+使 `prompt_sha256` 重钉，`tool_schema_sha256` 不变；旧运行按模型身份与 `code_sha256` 拒绝恢复。
 
 | 常量或函数 | 内容 |
 | --- | --- |
@@ -1837,7 +1838,7 @@ system 是一份固定的系统层 JSON：键依次为 `layer`、`role`、`rules
     "回复正文可以留空；写了会作为该次调用的 self_note 保留到本段停留或路程结束，不进入记忆。",
     "思考只在同一时刻的连续决策之间保留，时间推进后丢弃。以后要买到、拿到或吃掉的具体东西，在 report_status、pause_activity 或 conclude_activity 的 errands 里记成个人事务，它一直留在待办层，到提醒时刻只提醒一次，不会叫醒睡着的你；其他需要延续的打算写进 pause_activity 或 conclude_activity 的 summary，report_status 的 summary 只留到本段停留或路程结束。想记住的事只记以后做决定用得上的新情况，人设层已有的作息和待办层已有的事务不再记。",
     "时间只在你有进行中的活动时推进；没有进行中的活动时，同一时刻会继续请你决策。等待与睡觉也是活动。醒着时，活动（等待也一样）一般要做满工具层写的时长才会再请你决策，做得久的中途隔一阵也会请一次；自己下的单送到、提醒到点、有人找你、有工作可以开始做了、到了定下的上下班时刻、写明的休息时段开始或结束，到时也会请你决策，手上的活动照常进行，哪一次想停都可以结束。所以空下来不必干等，像平常人那样照自己的习惯做点别的，刷刷手机、看点东西、收拾一下都算，不用等闷了才做；等待只留给几分钟内就有事请你决策的时候。",
-    "你最多同时有两项活动，进行中、暂停与刚结束的都算；活动一结束，同一时刻先用 conclude_activity 收尾，再做别的。",
+    "你可以同时做两件事。环境只拦同一种的两件：吃、做饭、用东西算一种，工具层里方式为「进行」的都算生活活动这一种（不看名称），看和听内容算一种，读信、浏览、玩游戏、等待、工作、出行、和人说话各算一种。不同种的两件环境不拦，但没拦不等于做得到，做不做得到由你照常理判断：边吃边看、边吃边刷手机、边做家务边听，做得到；两只手都占着的事，比如洗漱、洗碗、打扫，配不了吃东西，也配不了拿着手机看，只适合再配听的；你自己觉得别扭的组合就不要一起做，一件做完再做另一件。想一起吃或喝的两样东西，在同一个 start_activity 里写成两项，算一顿；已经在吃了，另一样等这一顿吃完再开始。开车时只能再听播客或和人说话，睡觉时不做别的。手上有一件在进行时，轮到你决策就可以再开始一件，原来那件照常进行。同时进行的最多两项，刚结束还没收尾的也算，暂停的不算，恢复暂停的活动要有空位；活动一结束，同一时刻先用 conclude_activity 收尾，再做别的。",
     "出发前先结束或暂停手上的活动，交谈与通话不能暂停；路上开始的活动不能暂停，到达时与出行一起结束，再逐项收尾。",
     "暂停的活动只能回到原来的地点恢复，用 report_status 点名即恢复；在别处可以直接结束。",
     "工具层列出的动作都可以提交；available 为 false 的会被拒绝，原因就是 reason 所写，照着调整即可。",
@@ -2792,3 +2793,4 @@ RunPhase = Literal[
 | `2026-10-05-idle-fillers-b` | 2026-10-05 | 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 3（零点计划模板第三、五、六条）修订「请求组成」的零点计划中文模板（仍为八条，第一、二、四、七、八条与开头四行逐字不变，`src/worldmock/life/day_planning.py::PLAN_DAY_PROMPT` 与之逐字相同）：第三条写 `remind_time` 是到点提醒或叫醒人物的时刻，要按时起床的填起床的时刻，出门去上班、上课、接人、赴约这类要按时到的事填该出门的时刻，一条目标含几件时填最早的，只打算在某个时段做的事填 null，就寝不设提醒；第五条写人物档案与背景里天天如此的事（睡觉、起床、上下班、吃饭、休息、每天的消遣）不写成目标，只写今天与平常不同的安排（写清哪里不同）、要办的事与照第三条要提醒的事，清单可以很短；第六条写大致时刻只表示大概在那前后，不是开始的钟点，也不提醒人物，goal 里只给和人约好的事写钟点，其余只写时段或先后；本地校验、输出 Schema 与 `around_time` 的字段形状不变，模板仍只由 `code_sha256` 绑定；文件头修订说明补本阶段 |
 | `2026-10-06-parallel-activities-slots` | 2026-10-06 | 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1（暂停的活动不占名额）修订：「状态归属」的活动名额仍为常量 2，进行中与待收尾的活动各占一个，暂停的不占、个数不设上限，`pause_activity` 与 `conclude_activity` 之后让出名额，恢复要有空名额；受限轮阶段闭集仍为五个值，`resume_or_conclude` 与 `conclude_only` 留在闭集中、现行阶梯不再进入，世界结构仍为 9；「人物工具与管理接口」`pause_activity` 暂停让出名额，`report_status` 恢复要有空名额，`conclude_activity` 在任何地点都可直接结束暂停的活动；「个人事务」的入口与「请求字段与结算检查」的名额口径随之改写；「活动受理拒绝码」`SESSION_LIMIT_EXCEEDED` 改为进行中与待收尾的活动占满名额，开始、出行与恢复暂停的活动都可能触发，写明两种原因、按被点名活动能否暂停分三种写法的下一步、恢复的检查次序（开始地点、工作截止与合同、空名额、占用冲突）与缺省原因，删去两个名额都被暂停活动占满时出行一支；「动作状态与动作结果」写明到达上限时没有进行中也没有待收尾的活动一律进入 `start_or_resume`，受限轮不再进入 `resume_or_conclude`；「七层字段」待办层 `paused_activities[].tools` 恢复的不可用原因增名额占满，与受理同文；只变 `code_sha256`，`prompt_sha256`、`tool_schema_sha256`、目录、世界结构 9、质量报告结构 4 与场景结构 5 不变；文件头补该规格的修订说明 |
 | `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2（乙）修订：「状态归属」的 `occupied_resources` 占用名重列为 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel` 十一个，每种动作占自己的名字，只有同一种动作互斥；「交谈与通话」改为同占 `talk`，彼此互斥、可与其他种类并行；「活动控制行」的占用名同步；当前目录 5.5（「冻结地图与场景引用」「类别供给的构建合同」「品类契约与目录字段」），声明旧占用名 `idle`、`eyes`、`ears`、`hands`、`voice` 的目录在解析时拒绝；占用声明属于 `catalog/affordances.toml` 的字节，`tool_schema_sha256` 与目录内容摘要随之改变，此前的检查点不能再恢复 |
+| `2026-10-06-parallel-activities-rule8` | 2026-10-06 | 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 3（系统层第 8 条）修订「请求组成」的生活决策系统层（仍为十八条，`custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER` 与之逐字相同）：第 8 条说明人物可以同时做两件事，环境只拦同一种的两件（吃、做饭、用东西一种，工具层方式为「进行」的生活活动一种，看和听内容一种，读信、浏览、玩游戏、等待、工作、出行、和人说话各一种），不同种的两件环境不拦、做不做得到由人物照常理判断，想一起吃或喝的两样在同一个 `start_activity` 里写成两项、算一顿，开车时只能再听播客或和人说话、睡觉时不做别的，手上有一件在进行时轮到决策就可以再开始一件、原来那件照常进行；同时进行的最多两项，刚结束还没收尾的也算，暂停的不算，恢复暂停的活动要有空位，活动一结束同一时刻先用 `conclude_activity` 收尾；「七层 Schema」的分阶段指纹叙述补该阶段使 `prompt_sha256` 重钉、`tool_schema_sha256` 不变；文件头修订说明补本阶段 |

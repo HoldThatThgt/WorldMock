@@ -433,7 +433,8 @@ def test_plan_day_is_no_person_tool_and_revision_carries_remind_time() -> None:
 
 
 def test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages() -> None:
-    """起居规则只在系统层 rules 写一次：生活决策的每个请求都带同一份系统层；只读问答用自己的系统层；「怎样过一天」已删。"""
+    """起居规则只在系统层 rules 写一次：生活决策的每个请求都带同一份系统层；只读问答用自己的系统层；「怎样过一天」已删。
+    同时进行的名额只在第 8 条说一次（docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-丙第8条）。"""
     agent = _prepared()
     request = ReactLoopRequest(0, _context().observed_at, _observations())
     agent.prepare_react_loop(request)
@@ -446,7 +447,7 @@ def test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages() -> 
     assert readonly_system == render_layer_json(READONLY_SYSTEM_LAYER)
     rules = json.loads(action_system)["rules"]
     assert len(rules) == 18
-    for sentence in ("你最多同时有两项活动", "睡着时只有提醒或睡够了才会醒，早睡也就早醒。", "能送到这里的都算",
+    for sentence in ("同时进行的最多两项", "睡着时只有提醒或睡够了才会醒，早睡也就早醒。", "能送到这里的都算",
                      "说打算做或说已经做过，都不等于做了。", "今日计划写明今天与平常不同的安排时，按计划"):
         assert sum(sentence in rule for rule in rules) == 1
     for system in (action_system, readonly_system):

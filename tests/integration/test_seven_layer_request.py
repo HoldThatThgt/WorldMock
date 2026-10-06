@@ -307,6 +307,27 @@ async def test_retired_meal_delivery_and_bedtime_readings_are_gone_from_the_syst
     assert "还没到就寝时间就照常过晚上" in rules[15]
 
 
+#: 同时做两件事规格第 8 条的新说法（docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-丙第8条）：只在第 8 条出现。
+_PARALLEL_RULE_8_PHRASES = ("暂停的不算", "恢复暂停的活动要有空位", "环境只拦同一种的两件", "原来那件照常进行")
+#: 被第 8 条改写取代的旧名额读法：任何一条规则里都不再出现。
+_RETIRED_SLOT_READING = "进行中、暂停与刚结束的都算"
+
+
+@pytest.mark.asyncio
+async def test_rule_8_says_paused_activities_do_not_count_and_only_same_kinds_collide() -> None:
+    """系统层第 8 条的新说法（docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-丙第8条）：真实生活决策请求里，
+    第 8 条说同时进行的最多两项而暂停的不算、恢复暂停的活动要有空位，环境只拦同一种的两件，手上有一件在进行时再开始一件、
+    原来那件照常进行；每个说法只出现在第 8 条。旧读法「进行中、暂停与刚结束的都算」不再出现在请求、模块常量与接口合同
+    「请求组成」登记的任何一条规则里。"""
+    rules = await _request_rules()
+    life, _ = _contract_system_layers()
+    assert len(rules) == 18 and rules == LIFE_SYSTEM_LAYER["rules"] == life["rules"]
+    for phrase in _PARALLEL_RULE_8_PHRASES:
+        assert [number for number, rule in enumerate(rules) if phrase in rule] == [7], phrase
+    for place in (rules, LIFE_SYSTEM_LAYER["rules"], life["rules"]):
+        assert [rule for rule in place if _RETIRED_SLOT_READING in rule] == []
+
+
 def test_viewer_fixture_system_layers_are_the_host_system_message() -> None:
     """查看器夹具 tests/fixtures/viewer-context.json 里行动请求与续接请求两处系统层就是宿主 system_message(False) 的输出，
     逐字相等（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-测试与夹具）；legacy_ 开头的两处记录的是历史请求，不在比较之列。"""
