@@ -564,8 +564,13 @@
   "系统层逐字": {
     "stage": "6",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-系统层",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/integration/test_seven_layer_request.py::test_resource_rule_system_text_is_the_frozen_app_and_work_contract",
+      "tests/integration/test_seven_layer_request.py::test_each_resource_rule_change_moves_only_the_prompt_fingerprint"
+    ],
+    "implementation": [
+      "custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER"
+    ]
   },
   "app 目标与 Schema": {
     "stage": "4",
@@ -614,8 +619,15 @@
   "查看器协议": {
     "stage": "6",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-现行文档原位改写",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/integration/test_seven_layer_request.py::test_viewer_fixture_system_layers_are_the_host_system_message",
+      "tests/integration/test_run_viewer_recording.py::test_viewer_fixture_is_recorded_from_the_current_host",
+      "tests/tools/test_run_viewer.py::test_run_viewer_recorded_names"
+    ],
+    "implementation": [
+      "custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER",
+      "src/worldmock/footprints/models.py::WAKE_REASON_NAMES"
+    ]
   },
   "app 足迹来自真实动作（app 足迹来自真实动作）": {
     "stage": "7",

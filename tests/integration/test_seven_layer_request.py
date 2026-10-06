@@ -327,13 +327,41 @@ async def test_rule_8_says_paused_activities_do_not_count_and_only_same_kinds_co
         assert [rule for rule in place if _RETIRED_SLOT_READING in rule] == []
 
 
+@pytest.mark.asyncio
+async def test_resource_rule_system_text_is_the_frozen_app_and_work_contract() -> None:
+    """资源与规则简化的系统层（docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-系统层）：
+    实际请求、宿主常量与合同逐字使用冻结的推送、并行、名称、购买来源与实际工时规则；娱乐句只在名称规则末尾。
+    旧工作开放、主动选择内容、做饭或播客例外、渠道与截止提交读法均不再进入人物请求。"""
+    spec = section_text((_REPO_ROOT / "docs/dev/SPEC-resource-and-rule-simplification.md").read_text(encoding="utf-8"),
+                        "spec-rrs-系统层")
+    positions = {6, 7, 11, 12, 16}
+    expected = {int(number) - 1: text for number, text in re.findall(r"第 (\d+) 条\n([^\n]+)", spec)
+                if int(number) - 1 in positions}
+    assert set(expected) == positions
+    rules = await _request_rules()
+    life, _ = _contract_system_layers()
+    for place in (rules, LIFE_SYSTEM_LAYER["rules"], life["rules"]):
+        assert len(place) == 18
+        assert {index: place[index] for index in positions} == expected
+        for phrase, index in (("有 app 推送", 6), ("娱乐只选 app", 11), ("按主题计工时", 16)):
+            assert [i for i, text in enumerate(place) if phrase in text] == [index]
+            assert sum(text.count(phrase) for text in place) == 1
+        entertainment = ("娱乐只选 app、方式写打开，看什么由 app 决定；这段停留或路程里收到推送后打开那个 app，"
+                         "先看的是推送的内容，不打开也可以。")
+        assert place[11].endswith(entertainment)
+        retired = ("有工作可以开始做了", "吃、做饭、用东西", "看和听内容算一种", "读信、浏览、玩游戏", "只适合再配听的",
+                   "开车时只能再听播客", "商品、生活活动、内容、地点", "门店或渠道", "留意截止时间与已完成的有效工时",
+                   "工时达标不等于已经提交", "过了截止再提交会被拒绝")
+        assert [phrase for phrase in retired for text in place if phrase in text] == []
+
+
 def test_viewer_fixture_system_layers_are_the_host_system_message() -> None:
     """查看器夹具 tests/fixtures/viewer-context.json 里行动请求与续接请求两处系统层就是宿主 system_message(False) 的输出，
-    逐字相等（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-测试与夹具）；legacy_ 开头的两处记录的是历史请求，不在比较之列。"""
+    逐字相等（docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-测试与夹具）；夹具只记录这两种当前请求。"""
     fixture = json.loads((_REPO_ROOT / "tests" / "fixtures" / "viewer-context.json").read_text(encoding="utf-8"))
     expected = system_message(False)
     assert [fixture[kind]["messages"][0] for kind in ("action", "continuation")] == [expected, expected]
-    assert sorted(kind for kind in fixture if kind.startswith("legacy_")) == ["legacy_action", "legacy_prelude"]
+    assert set(fixture) == {"action", "continuation"}
 
 
 
@@ -722,6 +750,32 @@ def test_prompt_fingerprint_binds_the_layer_schemas(monkeypatch) -> None:
     changed = {**prompt_schemas.LAYER_SCHEMAS, "人设层": {**prompt_schemas.LAYER_SCHEMAS["人设层"], "title": "改"}}
     monkeypatch.setattr(life_prompt, "LAYER_SCHEMAS", changed)
     assert life_prompt.life_prompt_sha256() != original
+
+
+@pytest.mark.parametrize("index,current,retired", [
+    (6, "有 app 推送", "有工作可以开始做了"),
+    (7, "用手机 app 算一种", "看和听内容算一种"),
+    (11, "商品、生活活动、app、地点", "商品、生活活动、内容、地点"),
+    (12, "门店或 app", "门店或渠道"),
+    (16, "按主题计工时", "留意截止时间与已完成的有效工时"),
+])
+def test_each_resource_rule_change_moves_only_the_prompt_fingerprint(monkeypatch, index, current, retired) -> None:
+    """五条规则的语义都绑定新运行提示指纹（docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-系统层）：
+    任一条换回旧读法时实际模型身份的提示指纹变化，工具指纹不变；所有指纹实时计算，不钉字面摘要。"""
+    from custom.agents import life_prompt
+    from custom.agents.life_agent import life_tool_schema_sha256
+    from worldmock.run_setup import _model_identity
+
+    prompt, tools = life_prompt.life_prompt_sha256(), life_tool_schema_sha256()
+    identity = _model_identity()
+    assert (identity.prompt_sha256, identity.tool_schema_sha256) == (prompt, tools)
+    changed = copy.deepcopy(LIFE_SYSTEM_LAYER)
+    assert changed["rules"][index].count(current) == 1
+    changed["rules"][index] = changed["rules"][index].replace(current, retired)
+    monkeypatch.setattr(life_prompt, "LIFE_SYSTEM_LAYER", changed)
+    identity = _model_identity()
+    assert identity.prompt_sha256 == life_prompt.life_prompt_sha256() != prompt
+    assert identity.tool_schema_sha256 == life_tool_schema_sha256() == tools
 
 
 def test_prompt_fingerprint_binds_the_callable_index_schema(monkeypatch) -> None:

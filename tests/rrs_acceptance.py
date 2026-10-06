@@ -9,7 +9,7 @@ STAGE_IDS: frozenset[str] = frozenset(str(stage) for stage in range(10))
 IMPLEMENTATION_STAGES: frozenset[str] = frozenset(str(stage) for stage in range(1, 9))
 REPORT_ONLY_STAGES: frozenset[str] = frozenset({"9"})
 #: 阶段一到五完整通过后原子关闭，随后按前缀增长。
-STAGES_DONE: frozenset[str] = frozenset({"1", "2", "3", "4", "5"})
+STAGES_DONE: frozenset[str] = frozenset({"1", "2", "3", "4", "5", "6"})
 #: 本特性已真实改动的生产与测试文件，按物理阶段扩充。
 FEATURE_PRODUCTION_FILES: tuple[str, ...] = ('custom/agents/life_agent.py',
  'custom/agents/life_memory.py',
@@ -142,6 +142,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = ('custom/agents/life_agent.py',
  'src/worldmock/scheduling/effects.py',
  'src/worldmock/scheduling/events.py',
  'src/worldmock/validation.py',
+ 'tools/run-viewer-context-view.js',
  'tools/run-viewer-context.js',
  'tools/run-viewer.html')
 FEATURE_TEST_FILES: tuple[str, ...] = ('tests/catalog/conftest.py',
@@ -203,6 +204,7 @@ FEATURE_TEST_FILES: tuple[str, ...] = ('tests/catalog/conftest.py',
  'tests/integration/test_rrs_engine_wave.py',
  'tests/integration/test_run_manifest.py',
  'tests/integration/test_runtime.py',
+ 'tests/integration/test_run_viewer_recording.py',
  'tests/integration/test_same_second_continuation.py',
  'tests/integration/test_storefront_tools.py',
  'tests/integration/test_strict_endpoint.py',
@@ -343,7 +345,8 @@ FEATURE_TEST_FILES: tuple[str, ...] = ('tests/catalog/conftest.py',
  'tests/time_and_energy_acceptance.py',
  'tests/tool_interaction_acceptance.py',
  'tests/tools/run_viewer.test.cjs',
- 'tests/tools/run_viewer_context.test.cjs')
+ 'tests/tools/run_viewer_context.test.cjs',
+ 'tests/tools/test_run_viewer.py')
 RECEIPTS = REPO_ROOT / ".work/rrs/mutation-receipts"
 
 #: 行为最早所有权与晚期集成证据分别登记，只有真实存在的节点可以加入。
@@ -719,7 +722,10 @@ BEHAVIOUR_CASES: dict[str, dict] = {'T1': {'owner_stage': '1',
  'T48': {'owner_stage': '5',
          'owner_nodes': ('tests/life/test_work_topics.py::test_actual_day_plan_inputs_use_topic_target_and_worked_hours_without_acceptance',),
          'integration_nodes': ()},
- 'T49': {'owner_stage': '6', 'owner_nodes': (), 'integration_nodes': ()},
+ 'T49': {'owner_stage': '6',
+         'owner_nodes': ('tests/integration/test_seven_layer_request.py::test_resource_rule_system_text_is_the_frozen_app_and_work_contract',
+                         'tests/integration/test_seven_layer_request.py::test_each_resource_rule_change_moves_only_the_prompt_fingerprint'),
+         'integration_nodes': ()},
  'T50': {'owner_stage': '5',
          'owner_nodes': ('tests/life/test_work_protocol.py::test_work_tool_and_stage_closed_sets_match_real_host',
                          'tests/life/test_work_protocol.py::test_work_prompt_schema_rejects_old_contract_review_and_completion_shapes',
@@ -731,7 +737,11 @@ BEHAVIOUR_CASES: dict[str, dict] = {'T1': {'owner_stage': '1',
                          'tests/life/test_prompt_layers.py::test_work_contract_appears_only_in_the_task_target',
                          'tests/life/test_prompt_layers.py::test_paused_work_does_not_repeat_the_contract_in_the_todo_layer'),
          'integration_nodes': ()},
- 'T51': {'owner_stage': '6', 'owner_nodes': (), 'integration_nodes': ()},
+ 'T51': {'owner_stage': '6',
+         'owner_nodes': ('tests/integration/test_seven_layer_request.py::test_viewer_fixture_system_layers_are_the_host_system_message',
+                         'tests/integration/test_run_viewer_recording.py::test_viewer_fixture_is_recorded_from_the_current_host',
+                         'tests/tools/test_run_viewer.py::test_run_viewer_recorded_names'),
+         'integration_nodes': ()},
  'T52': {'owner_stage': '7', 'owner_nodes': (), 'integration_nodes': ()},
  'T53': {'owner_stage': '7', 'owner_nodes': (), 'integration_nodes': ()},
  'T54': {'owner_stage': '7', 'owner_nodes': (), 'integration_nodes': ()},
@@ -745,8 +755,7 @@ MUTATION_ROWS: dict[str, dict] = {'加载器接受目录食品行里的 `kcal` �
                                                   'earliest_runnable_killer_stage': '1',
                                                   'mutations': ('rrs_food_kcal_from_environment',)},)},
  '`evaluate_food_energy` 不看食品类别，始终按 `meal` 计算': {'stage': '1',
-                                                 'clauses': ({'text': '`evaluate_food_energy` 不看食品类别，始终按 '
-                                                                      '`meal` 计算',
+                                                 'clauses': ({'text': '`evaluate_food_energy` 不看食品类别，始终按 `meal` 计算',
                                                               'contract': '分类与规则归系统（分类与规则归系统）',
                                                               'earliest_runnable_killer_stage': '1',
                                                               'mutations': ('rrs_food_energy_always_meal',)},)},
@@ -794,8 +803,8 @@ MUTATION_ROWS: dict[str, dict] = {'加载器接受目录食品行里的 `kcal` �
                                            'earliest_runnable_killer_stage': '1',
                                            'mutations': ('rrs_length_minimum_one',)})},
  '`--check` 与 `validate --environment` 不比对重生成结果': {'stage': '1',
-                                                   'clauses': ({'text': '`--check` 与 `validate '
-                                                                        '--environment` 不比对重生成结果',
+                                                   'clauses': ({'text': '`--check` 与 `validate --environment` '
+                                                                        '不比对重生成结果',
                                                                 'contract': '地图生成连通且字节稳定（地图连通且长度可计时）',
                                                                 'earliest_runnable_killer_stage': '1',
                                                                 'mutations': ('rrs_map_check_skipped',
@@ -954,18 +963,15 @@ MUTATION_ROWS: dict[str, dict] = {'加载器接受目录食品行里的 `kcal` �
                                                                                            '活动读取自己的陈旧游标，不读取最新全局 '
                                                                                            '`ContentProgress.position_seconds`',
                                                                                    'contract': '娱乐只从所选 app '
-                                                                                               '取内容（娱乐只从所选 '
-                                                                                               'app 取内容）',
+                                                                                               '取内容（娱乐只从所选 app 取内容）',
                                                                                    'earliest_runnable_killer_stage': '4',
                                                                                    'mutations': ('rrs_app_resume_stale_cursor',
                                                                                                  'rrs_app_completed_resume_stale_cursor')},)},
  '别的 app 已完成一轮后，陈旧暂停活动在恢复时再次增加 `completed_rounds` 或重复释放推送': {'stage': '4',
-                                                             'clauses': ({'text': '别的 app '
-                                                                                  '已完成一轮后，陈旧暂停活动在恢复时再次增加 '
-                                                                                  '`completed_rounds` '
-                                                                                  '或重复释放推送',
-                                                                          'contract': '娱乐只从所选 app 取内容（娱乐只从所选 '
-                                                                                      'app 取内容）',
+                                                             'clauses': ({'text': '别的 app 已完成一轮后，陈旧暂停活动在恢复时再次增加 '
+                                                                                  '`completed_rounds` 或重复释放推送',
+                                                                          'contract': '娱乐只从所选 app 取内容（娱乐只从所选 app '
+                                                                                      '取内容）',
                                                                           'earliest_runnable_killer_stage': '4',
                                                                           'mutations': ('rrs_app_resume_adds_round',
                                                                                         'rrs_app_completion_double_round')},)},
@@ -1057,13 +1063,12 @@ MUTATION_ROWS: dict[str, dict] = {'加载器接受目录食品行里的 `kcal` �
                                               'earliest_runnable_killer_stage': '4',
                                               'mutations': ('rrs_driving_loses_app_claim',)})},
  '`app_push` 记录只写摘要前 20 字；环境事件把 `data.kind` 覆写为 `content_kind`': {'stage': '4',
-                                                                  'clauses': ({'text': '`app_push` 记录只写摘要前 '
-                                                                                       '20 字',
+                                                                  'clauses': ({'text': '`app_push` 记录只写摘要前 20 字',
                                                                                'contract': 'app 目标与 Schema',
                                                                                'earliest_runnable_killer_stage': '4',
                                                                                'mutations': ('rrs_push_summary_truncated_20',)},
-                                                                              {'text': '环境事件把 `data.kind` '
-                                                                                       '覆写为 `content_kind`',
+                                                                              {'text': '环境事件把 `data.kind` 覆写为 '
+                                                                                       '`content_kind`',
                                                                                'contract': '推送与消费关联（推送与消费关联）',
                                                                                'earliest_runnable_killer_stage': '4',
                                                                                'mutations': ('rrs_push_kind_overwritten',)})},
@@ -1117,20 +1122,19 @@ MUTATION_ROWS: dict[str, dict] = {'加载器接受目录食品行里的 `kcal` �
                                   'clauses': ({'text': '第 7 条「有 app 推送」改回「有工作可以开始做了」',
                                                'contract': '系统层逐字',
                                                'earliest_runnable_killer_stage': '6',
-                                               'mutations': ()},)},
+                                               'mutations': ('system_app_push_timing',)},)},
  '第 12 条的娱乐句移到第 13 条': {'stage': '6',
                         'clauses': ({'text': '第 12 条的娱乐句移到第 13 条',
                                      'contract': '系统层逐字',
                                      'earliest_runnable_killer_stage': '6',
-                                     'mutations': ()},)},
+                                     'mutations': ('system_entertainment_in_purchase_rule',)},)},
  '第 17 条改回「留意截止时间与已完成的有效工时」': {'stage': '6',
                                'clauses': ({'text': '第 17 条改回「留意截止时间与已完成的有效工时」',
                                             'contract': '系统层逐字',
                                             'earliest_runnable_killer_stage': '6',
-                                            'mutations': ()},)},
+                                            'mutations': ('system_work_deadline_effective_hours',)},)},
  '`app-usage.jsonl` 不写 `content_consumed` 事实': {'stage': '7',
-                                                'clauses': ({'text': '`app-usage.jsonl` 不写 '
-                                                                     '`content_consumed` 事实',
+                                                'clauses': ({'text': '`app-usage.jsonl` 不写 `content_consumed` 事实',
                                                              'contract': 'app 足迹来自真实动作（app 足迹来自真实动作）',
                                                              'earliest_runnable_killer_stage': '7',
                                                              'mutations': ()},)},
@@ -1659,4 +1663,19 @@ MUTATIONS: tuple[SourceMutation, ...] = (SourceMutation(name='rrs_food_kcal_from
                 symbol='worldmock.footprints.models::WAKE_REASON_NAMES',
                 original='    "app_push",\n',
                 replacement='',
-                tests=('tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_is_the_frozen_spec_set',)))
+                tests=('tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_is_the_frozen_spec_set',)),
+ SourceMutation(name='system_app_push_timing',
+                symbol='custom.agents.life_prompt::LIFE_SYSTEM_LAYER',
+                original='有 app 推送',
+                replacement='有工作可以开始做了',
+                tests=('tests/integration/test_seven_layer_request.py::test_resource_rule_system_text_is_the_frozen_app_and_work_contract',)),
+ SourceMutation(name='system_entertainment_in_purchase_rule',
+                symbol='custom.agents.life_prompt::LIFE_SYSTEM_LAYER',
+                original='        "写得不准时会返回最接近的候选，不会替你改。"\n        "娱乐只选 app、方式写打开，看什么由 app 决定；这段停留或路程里收到推送后打开那个 app，先看的是推送的内容，不打开也可以。",\n        "start_activity 一项一个对象，写 target、way、from、to；方式决定动作。to 写 null 统一表示本人，给他人写实名；"\n        "给予必须写他人，其他非转移动作的 from、to 都写 null。购买 from 可写门店或 app，prefer 必须写最快拿到或到手价最低；"\n        "不购买时 prefer 写 null。替别人办事时用 answering 关联未回复消息。",\n',
+                replacement='        "写得不准时会返回最接近的候选，不会替你改。",\n        "start_activity 一项一个对象，写 target、way、from、to；方式决定动作。to 写 null 统一表示本人，给他人写实名；"\n        "给予必须写他人，其他非转移动作的 from、to 都写 null。购买 from 可写门店或 app，prefer 必须写最快拿到或到手价最低；"\n        "不购买时 prefer 写 null。替别人办事时用 answering 关联未回复消息。"\n        "娱乐只选 app、方式写打开，看什么由 app 决定；这段停留或路程里收到推送后打开那个 app，先看的是推送的内容，不打开也可以。",\n',
+                tests=('tests/integration/test_seven_layer_request.py::test_resource_rule_system_text_is_the_frozen_app_and_work_contract',)),
+ SourceMutation(name='system_work_deadline_effective_hours',
+                symbol='custom.agents.life_prompt::LIFE_SYSTEM_LAYER',
+                original='按主题计工时',
+                replacement='留意截止时间与已完成的有效工时',
+                tests=('tests/integration/test_seven_layer_request.py::test_resource_rule_system_text_is_the_frozen_app_and_work_contract',)),)

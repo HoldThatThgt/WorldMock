@@ -1,6 +1,8 @@
 <a name="spec-labelkit-delivery-特性规格数字足迹接入-labelkit"></a>
 # 特性规格：数字足迹接入 LabelKit
 
+> 2026-10-07：按资源与规则引擎简化规格同步剩余系统规则、最终提示身份与查看器（阶段 6）。
+
 > 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的单一行动阶段身份。
 
 > 状态：定稿冻结（FROZEN）；2026-09-27 按人物 Prompt 规格修订（[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)「冻结条款修订」第 18 行），修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)修订「窗口构造规则」与验收矩阵「私有载体边界」（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 LK1–LK3、LK5）：决策提示的选取一句属更正既有表述；修订部分已实现并通过离线验收（该规格阶段 1 的就寝反思请求改带严格工具、阶段 2 的 `errands` 投影与个人事务事件；证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。数字足迹接入 LabelKit 的输入范围、加工责任、来源关联、信息范围、交付产物、长序列与数据划分，以及真实调用的生产与验证步骤以本规格为准；实现状态见 `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态`；按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「下游」（阶段 1、阶段 2、阶段 3）；按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「下游」（阶段 3）；按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「证据窗口与输入结构」（阶段 4）。
@@ -305,6 +307,12 @@ LabelKit 的固定文件、进程内跨计算组处理与跨独立执行恢复�
   [让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)的系统层第 7、14、15、16 条原位改写（阶段 2，仍为十八条）再改一次 `prompt_sha256`，`code_sha256` 随之改变；`tool_schema_sha256`、世界结构 9 与当前场景结构 6 不变；零点计划模板第三、五、六条的改写（阶段 3）只改变 `code_sha256`。
   [同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)的系统层第 8 条原位改写（阶段 3，仍为十八条）再改一次 `prompt_sha256`，`code_sha256` 随之改变；`tool_schema_sha256`、世界结构 9 与当前场景结构 6 不变。
 
+剩余系统规则已按冻结合同同步：推送时机、并行活动、名称、购买来源与工作主题。
+这次改写只更新最终 `prompt_sha256` 与代码身份，`tool_schema_sha256` 沿用工作阶段已验收的工具面；
+改写前后的运行不能恢复、重放或合并比较。运行中的系统层与工具定义始终保持各自冻结字节。
+
+
+
 <a name="dayrun-fidelity-下游与质量报告"></a>
 ## 下游与质量报告
 
@@ -373,3 +381,4 @@ LabelKit 的固定文件、进程内跨计算组处理与跨独立执行恢复�
 | `2026-10-06-parallel-activities-rule8` | 2026-10-06 | 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 3 修订「下游」：「版本」补独立一句，系统层第 8 条原位改写（仍为十八条）再改一次 `prompt_sha256`，`code_sha256` 随之改变，`tool_schema_sha256`、世界结构 9 与当前场景结构 6 不变；状态行末补该规格的修订说明 |
 | `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：`app_push` 成为唯一具有公开投影的环境事件；其余窗口选择、个人事务与来源核验规则保持不变。 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步单一行动阶段身份 |
+| `2026-10-06-rrs-prompt` | 2026-10-07 | 剩余系统规则与提示身份、当前 app 和工作主题查看器；工具身份保持已验收形状 |

@@ -8,40 +8,6 @@ const ViewerContext = {};
     ['environment', '环境层'], ['progress', '进度层']];
   const LABELS = {system: '系统层', tools: '工具定义', message: '完整消息', ...Object.fromEntries(USER_LAYERS)};
   const UNVERIFIED = '未经核验';
-  /** 历史运行的旧模板：身份规则全文、行动阶段预算声明、场景起始与段标题；只用于识别并推断分段旧运行的行动请求。 */
-  const LEGACY = {
-    template: `你不是AI助手，也不是在等待指令的程序。你是{name}，一个有自己性格、需要和处境的人，
-正过着自己的日子：会饿、会困、会心烦，也会在意身边的人和没做完的事。
-人物卡片写的就是你这个人：你是谁、日子过得怎么样、身边有谁、
-平时喜欢什么、压力大了靠什么缓一缓。
-场景段落是你此刻的真实处境：什么时间、在哪儿、身边有谁、身体感觉如何、
-手头正有什么事。
-事实清单是此刻对你有用的信息。
-凭你自己的性子和眼下的处境拿主意，像一个真实的人那样过日子。
-
-怎样过一天：
-你的一天由你自己安排。时间只在你做着某件事时流逝，所以每次想好之后都要落到一件具体的事上，哪怕只是歇一会儿或去睡觉。
-一件事做完了，先给它收个尾，说说做得怎样、有什么想记住的，再开始下一件。
-你手上最多同时挂两件事，暂停的也算；暂停的事只能回到原来的地方接着做，在别处可以直接收尾。
-要出门，先把手上的事收尾或暂停；交谈和通话不能暂停，只能先结束。路上想听点什么、打个电话，出发时一并开始，到了再收尾，到了地方还可以接着听。
-有的事一时做不了，世界会告诉你原因和该先做什么，照着调整就好。
-困了就去睡。想在某个时刻起来，就在当天的目标里写上提醒时间；要到明天才起的，睡前收尾时说清几点起。睡着时只有提醒或睡够了才会醒。
-工作要在要求的地方做，留意截止时间和已经做了多少；来不及做完时，想清楚先做哪部分。
-你会饿、会困、会累。力气来自吃下去的东西，饿着或困着做事会慢，走路比坐车更费力。饿了就趁早去弄吃的，别拖到饿得发慌。
-感到饿，或到了你的用餐时段，就把吃饭和手头的事一起考虑：先看手边能吃的和已经在路上的餐食；手边没有时，看看列出的餐食，需要时浏览商品。当前地点没有卖吃的，不代表不能送到这里。下单后要等送到，拿到手才能吃。
-花钱量力而行；有人找你时，按你们的关系和当时的情况回应。
-说打算做、说已经做过，都不等于真的做了，只有实际开始并完成的事才算数。你可以暂缓一件事，下次有机会时再随身体和处境重新权衡。`,
-    budget: '\n\nAuthoritative ReAct model-turn budget:\n',
-    lowBudget: '\n\n剩余回合已经不多：当前阶段是before_action，请尽快提交本阶段需要的动作或结束。',
-    sceneStart: new RegExp('^现在是 \\d{4} 年 \\d{1,2} 月 \\d{1,2} 日星期[一二三四五六日] '
-      + '\\d{2}:\\d{2}(?:（Unix epoch：当前 \\d+）)?。'),
-    markers: {verified_experiences: '已核验经历：\n', subjective_summary: '主观归纳：\n',
-      recent_subjective_episodes: '最近的人物自述：\n', decision_statement: '你刚才心里想的是：'},
-    order: ['persona', 'scene', 'verified_experiences', 'subjective_summary', 'recent_subjective_episodes', 'facts',
-      'decision_statement'],
-    labels: {system: '身份规则', persona: '人物卡片', scene: '此刻场景', subjective_summary: '主观归纳',
-      recent_subjective_episodes: '最近人物自述', facts: '事实清单', decision_statement: '刚形成的自述'},
-  };
   const rules = {
     system: {
       label: '系统层', source: 'custom/agents/life_prompt.py · LIFE_SYSTEM_LAYER、system_message',
@@ -103,7 +69,7 @@ const ViewerContext = {};
     },
     progress: {
       label: '进度层', source: 'src/worldmock/life/progress_layer.py · progress_view',
-      fill: '本段停留或路程中的调用与结果、消息全文、配送、截止与提醒，以及事务提醒与办成两种只写事务名称的记录，'
+      fill: '本段停留或路程中的调用与结果、消息全文、配送、app 推送、工作主题完成与提醒，以及事务提醒与办成两种只写事务名称的记录，'
         + '按发生时刻排列。',
       steps: [
         ['段落边界', '运行开始、出发与到达时重新开始，结果保留到本段结束。'],
@@ -198,32 +164,9 @@ const ViewerContext = {};
     return isObject(layer) && layer.layer === '系统层' && layer.role === LIFE_ROLE;
   }
 
-  /** @brief 取得精确匹配旧运行生活身份规则之后的阶段文字；不是旧模板时返回 null。 */
-  function legacySuffix(request) {
-    const first = request?.messages?.[0];
-    if (first?.role !== 'system' || typeof first.content !== 'string') return null;
-    const [prefix, body] = LEGACY.template.split('{name}');
-    if (!first.content.startsWith(prefix)) return null;
-    const bodyIndex = first.content.indexOf(body, prefix.length);
-    const name = bodyIndex < 0 ? '' : first.content.slice(prefix.length, bodyIndex);
-    if (!name.trim() || name.includes('\n')) return null;
-    return first.content.slice(bodyIndex + body.length);
-  }
-
-  /** @brief 旧运行的行动请求：旧模板身份规则后接行动阶段的回合预算声明，并带工具数组。 */
-  function legacyAction(request) {
-    const suffix = legacySuffix(request);
-    if (suffix === null || !Array.isArray(request.tools)) return false;
-    const text = suffix.startsWith(LEGACY.lowBudget) ? suffix.slice(LEGACY.lowBudget.length) : suffix;
-    if (!text.startsWith(LEGACY.budget)) return false;
-    const budget = tryJson(text.slice(LEGACY.budget.length));
-    return isObject(budget) && budget.phase === 'before_action';
-  }
-
-  /** @brief 按系统层 JSON 与工具字段识别行动请求；历史运行按原模板识别行动请求，其决策自述请求归入其他调用并显示未解析。 */
+  /** @brief 只按当前系统层 JSON 与工具数组识别行动请求，其余调用保留原始正文。 */
   function classify(request, purpose) {
     if (lifeSystem(request) && Array.isArray(request.tools)) return {stage: 'action', label: '选择动作'};
-    if (legacyAction(request)) return {stage: 'legacy', label: '选择动作·旧模板'};
     return {stage: 'other', label: purpose ? `其他调用·${purpose}` : '其他调用·未解析'};
   }
 
@@ -285,50 +228,6 @@ const ViewerContext = {};
     return layers;
   }
 
-  /** @brief 旧模板的段标题：明确标题或以花括号起始的事实清单候选段。 */
-  function legacyMarker(text) {
-    for (const [key, marker] of Object.entries(LEGACY.markers)) {
-      if (text.startsWith(marker)) return key;
-    }
-    return text.startsWith('{') ? 'facts' : null;
-  }
-
-  /** @brief 旧行动请求的段唯一且有序，必须有事实清单且没有已核验经历段（该段只在旧自述请求中）。 */
-  function legacyOrder(parts) {
-    const keys = parts.map(part => part.key);
-    if (new Set(keys).size !== keys.length) return false;
-    if (keys.some((key, index) => index > 0 && LEGACY.order.indexOf(key) < LEGACY.order.indexOf(keys[index - 1]))) {
-      return false;
-    }
-    return keys.includes('facts') && !keys.includes('verified_experiences');
-  }
-
-  /** @brief 旧模板段正文校验：事实清单是一行对象 JSON，标题段有正文，最近自述以人物自述标记起始。 */
-  function legacyPart(part, text) {
-    if (part.key === 'facts') return !text.includes('\n') && !text.includes('\r') && isObject(tryJson(text));
-    const marker = LEGACY.markers[part.key];
-    if (!marker) return text.trim().length > 0;
-    const body = text.slice(marker.length);
-    return body.trim().length > 0 && (part.key !== 'recent_subjective_episodes' || body.startsWith('- [subjective] '));
-  }
-
-  /** @brief 旧行动请求首个 user 按场景时间边界与段标题无损切片；归档未保存来源边界，分段只是模板推断。 */
-  function splitLegacy(text) {
-    const lines = Array.from(text.matchAll(/\n\n/g), match => ({start: match.index, body: match.index + 2}));
-    const scenes = lines.filter(item => LEGACY.sceneStart.test(text.slice(item.body)));
-    if (scenes.length !== 1 || scenes[0].start === 0) return null;
-    const parts = [{key: 'persona', start: 0}, {key: 'scene', start: scenes[0].start}];
-    for (const line of lines.filter(item => item.start > scenes[0].start)) {
-      const key = legacyMarker(text.slice(line.body));
-      if (key) parts.push({key, start: line.start});
-    }
-    if (!legacyOrder(parts)) return null;
-    const slices = parts.map((part, index) => ({
-      ...part, text: text.slice(part.start, parts[index + 1]?.start ?? text.length),
-    }));
-    return slices.every((part, index) => legacyPart(part, index ? part.text.slice(2) : part.text)) ? slices : null;
-  }
-
   /** @brief 为未解析消息添加明确状态，并以英文记录解析失败原因。 */
   function unparsed(message, index, warnings, reason) {
     warnings.push(`消息 ${index + 1} 未解析：${reason}；完整正文已保留。`);
@@ -336,7 +235,7 @@ const ViewerContext = {};
     return [makeBlock('message', messageText(message), index, message?.role, '未解析 · 完整消息')];
   }
 
-  /** @brief 首个 user 之外的消息整条展示；行动请求的首条 system 对应系统层规则，旧模板行动请求的首条 system 是身份规则。 */
+  /** @brief 首个 user 之外的消息整条展示；行动请求的首条 system 对应系统层规则。 */
   function wholeMessage(message, index, stage) {
     const role = message?.role;
     const key = role === 'system' ? 'system' : 'message';
@@ -344,7 +243,7 @@ const ViewerContext = {};
     const block = makeBlock(key, messageText(message), index, role, label);
     if (stage !== 'action' || (role === 'system' && index !== 0)) block.rule = null;
     if (role === 'system' && block.rule === null) {
-      block.label = stage === 'legacy' && index === 0 ? LEGACY.labels.system : '系统消息';
+      block.label = '系统消息';
     }
     return block;
   }
@@ -374,20 +273,7 @@ const ViewerContext = {};
       .filter(id => typeof id === 'string');
   }
 
-  /** @brief 旧模板行动请求的首个 user 按模板推断分段，每段标明来源未核验；不符合模板时整条保留为未解析。 */
-  function legacyMessage(message, index, warnings) {
-    const parts = splitLegacy(message.content);
-    if (!parts) {
-      const blocks = unparsed(message, index, warnings, '旧模板内容边界缺失、重复或顺序冲突');
-      blocks[0].rule = null;
-      return blocks;
-    }
-    return parts.map(part => ({...makeBlock(part.key, part.text, index, message.role,
-      `${LEGACY.labels[part.key]} · 来源未核验`), rule: null, interpretation: 'template'}));
-  }
-
-  /** @brief 行动请求的首个 user 按六层切片，旧模板行动请求按模板推断分段；其他调用或不符合合同的输入整条保留为未解析；
-   * 续接前缀按来源决策标注。 */
+  /** @brief 行动请求的首个 user 按六层切片；其余输入完整保留，续接前缀按来源决策标注。 */
   function parseMessage(message, index, context) {
     if (context.sources && index > context.firstUser) return continuationMessage(message, index, context.sources);
     if (index !== context.firstUser) return [wholeMessage(message, index, context.stage)];
@@ -399,10 +285,8 @@ const ViewerContext = {};
     const hasExtraFields = Object.keys(message).some(key => !['role', 'content'].includes(key));
     if (typeof message.content !== 'string' || hasExtraFields) {
       const blocks = unparsed(message, index, context.warnings, '消息含结构化内容或附加字段');
-      if (context.stage === 'legacy') blocks[0].rule = null;
       return blocks;
     }
-    if (context.stage === 'legacy') return legacyMessage(message, index, context.warnings);
     const layers = splitLayers(message.content);
     if (!layers) return unparsed(message, index, context.warnings, '顶层数组无法无损切片、某层不可解析或层序不符');
     return layers.map(layer => ({...makeBlock(layer.key, layer.text, index, message.role),
@@ -467,11 +351,12 @@ const ViewerContext = {};
     return items;
   }
 
-  /** @brief 进度层下钻：每条记录一项，标签写时刻、类型与记录的主体（工具、发件人、订单、任务、目标或事务名称）；
+  /** @brief 进度层下钻：每条记录一项，标签写时刻、类型与记录的主体（工具、发件人、订单、app、主题、目标或事务名称）；
    * 带 self_note 的记录在标签与正文中标明未经核验。 */
   function progressItems(layer) {
     return (Array.isArray(layer?.events) ? layer.events : []).map(record => {
-      const subject = record.tool ?? record.sender ?? record.order ?? record.task ?? record.goal ?? record.errand ?? '';
+      const subject = record.tool ?? record.sender ?? record.subject ?? record.order ?? record.app ??
+        record.topic ?? record.goal ?? record.errand ?? '';
       const hasNote = typeof record.self_note === 'string';
       const note = hasNote ? `self_note（${UNVERIFIED}）：${record.self_note}\n\n` : '';
       return {label: `${record.occurred_at} · ${record.type}${subject ? ' · ' + subject : ''}` +

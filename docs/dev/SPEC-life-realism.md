@@ -1,6 +1,8 @@
 <a name="spec-life-realism-特性规格人物决策与画像"></a>
 # 特性规格：人物决策与画像
 
+> 2026-10-07：按资源与规则引擎简化规格同步剩余系统规则、最终提示身份与查看器（阶段 6）。
+
 > 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的人物可见的工作主题与累计。
 
 > 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「世界素材品类要求、`location_kinds` 的运行期强制语义」（阶段 1）；「画像编译、地图、门店供给与活动环境、商务与进食、动机层、候选确定性、呈现上限与下推游标、呈现轮转、素材淘汰与检索机制的禁止项、验收矩阵、工具层的紧凑编码与即时查询、单一行动阶段、工作安排声明」（阶段 3）；「app 内容边界、工具层、进度层、动机层与素材可达性」（阶段 4）。
@@ -501,7 +503,7 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 - `scripts/inspect_run.py` 读取 `tool_name`
 - `export` 增加确定性投影 `timeline/<agent>-<date>.md`，合并静默边界与同一活动、显示名称而非标识，
   由 `scripts/render_day.py` 生成；并行进度交错时仍按活动身份独立合并，重叠活动分别显示；时间线只出现中文名称：
-  生活活动、观看、游戏、工作、通话与交谈都有标题，种类名取 `src/worldmock/life/readable.py` 的中文种类表（单一来源），
+  生活活动、app 使用、工作、通话与交谈都有标题，种类名取 `src/worldmock/life/readable.py` 的中文种类表（单一来源），
   不出现 `call`、`work` 等英文种类名与 `task-` 一类内部标识形态，质量报告另查时间线标签（[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要) 7.4）
 - `verified-experiences.jsonl` 从已提交事件的固定截止完整前缀导出，摘要绑定并由消费端重算；
   观察每轮只在私有证据中保存本人最近五条，不再写成句子发给模型。等待、原因未知的等待、真实内容接触与人物经过时间并集分别报告
@@ -514,6 +516,11 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 
 本规格不改变 `docs/CONTRACTS.md#contracts-worldmock-接口合同` 中 LabelKit 最终数据合同的字段；训练目标是否改为叙事化 completion
 不由本规格决定。
+
+查看器使用食品、app、内容与工作主题的真实名称索引；app 活动标题取 app 名，工作活动标题取主题。
+出行展示实际起点、终点与路径名称，冻结活动类型不含观看或游戏。
+
+
 
 <a name="spec-life-realism-默认裁决与备选"></a>
 ## 默认裁决与备选
@@ -596,7 +603,7 @@ flowchart LR
 | 世界交互规则；登记与结果的区别 | 系统层 `rules` | 工具 description、身份前言、「怎样过一天」 |
 | 工具名称与参数定义 | 原生 `tools` | 工具层 JSON |
 | 目标、动作、方式、条件、价格、耗时、数量；在场的人；持有物（含他处持有物） | 公开工具层的 `groups`；冻结观察保留 `targets` | 场景、事实清单、环境层 |
-| 工作合同的截止、剩余要求与前景 | 工具层 task 目标的 `contract` | 待办层、截止提醒事件、活动的客观进度 |
+| 工作主题、目标、已做与还需工时 | 工具层 task 目标的四键 `contract` | 待办层、完成记录、活动的客观进度 |
 | 进行中与刚结束活动的客观进度 | 工具层 activity 目标的 `state` | 进度层、环境层 |
 | 暂停活动的地点、进度与可用的控制工具 | 待办层 | 工具层、进度层、记忆层 |
 | 今日目标与提醒时刻 | 待办层 `day_plan` | 目标提醒事件只写目标名 |
@@ -611,8 +618,12 @@ flowchart LR
 | 思考 | 本秒续接消息中 assistant 的 `reasoning_content` | 七层中的任何一层 |
 | 邮件正文 | 阅读动作的结果 | 到达事件、工具层 |
 | 记忆查询返回的条目 | 本秒续接消息中的 tool 消息 | 不登记进度层事件 |
-| 浏览得到的供给 | 工具层商品目标 | 浏览调用的结果只列名称，名称写完整标签「<门店>出售的<商品>」（[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要) 5.3） |
 | 回看的 summary | 仍在记忆层时不重复，结果只写「已在记忆层」与活动名；不在时写入回看结果 | — |
+
+app 名称列在工具层，本 session 推送在进度层呈现；选择 app 后才取得内容。
+工作主题的目标和已做工时只在工具层四键 `contract` 中完整呈现；播报是人物叙述，不能改变累计。
+
+
 
 <a name="persona-prompt-七层请求-通用格式"></a>
 ### 通用格式
@@ -631,6 +642,12 @@ flowchart LR
 ### 系统层
 
 提示与模板的唯一权威文本见 `docs/CONTRACTS.md#contracts-model-request`。
+
+剩余系统规则已按冻结合同同步：推送时机、并行活动、名称、购买来源与工作主题。
+这次改写只更新最终 `prompt_sha256` 与代码身份，`tool_schema_sha256` 沿用工作阶段已验收的工具面；
+改写前后的运行不能恢复、重放或合并比较。运行中的系统层与工具定义始终保持各自冻结字节。
+
+
 
 <a name="persona-prompt-七层请求-工具层"></a>
 ### 工具层
@@ -712,7 +729,7 @@ flowchart LR
 | `identity` | `name`、`age`、`occupation`、`living_arrangement` |
 | `rhythm` | 键序 `wake, leave_home, lunch, leave_work, arrive_home, dinner, bedtime, sleep_midpoint, sleep_need`：起床、出门、午餐、下班、到家、晚餐、就寝窗口与睡眠中点、睡眠需要，均为可读短语；`leave_work`、`arrive_home` 没有固定时刻或故事未提及时为 `null`，不取缺省（刻钟也要写对，现行 `_hour_text` 只识别半点，`src/worldmock/profile/textgen.py::_hour_text`） |
 | `habits` | 至多五条 `{trigger, response, time_window}` |
-| `tastes`、`coping` | 卡片原有的口味与压力时的应对方式 |
+| `tastes`、`coping` | 卡片原有的偏好散文与压力时的应对方式 |
 | `relationships[]` | `person`、`role`、`closeness`、`channels`、`view`（人物对此人的最新看法；提案中的同名字段 `self_note` 改名为 `view`，以免与进度层的 `self_note` 混淆） |
 | `preferences[]` | 人物写下的偏好 `{subject, preference, noted_on}`，`noted_on` 为写下的本地日期 |
 
@@ -734,6 +751,10 @@ flowchart LR
   同一对象按事件顺序取最后一条，存储仍只追加。relationship 的 `about`（存储为 `subject`）须是已知人物（卡片关系名、联系人姓名或称谓、同世界人物名）。
   这两类条目只在人设层出现，不进记忆层，也从进度层该调用的参数中略去。
 - **反例。** 购买本身不写偏好。首次购买后人物只写了「明天还想吃」这类非偏好记忆时，`preferences` 为空；巩固摘要不进提示（〔#36〕）。
+
+`tastes` 是卡片里的散文，只帮助人物理解偏好；不参与内容抽取、食品热量、工作工时或准入计算。
+
+
 
 <a name="persona-prompt-七层请求-记忆层"></a>
 ### 记忆层
@@ -1303,3 +1324,4 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
 | `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：娱乐目标统一为 app；内容以五类、摘要、时长和 app 绑定准入；工具层、进度层与素材可达性改为 app 内容和 app 推送协议 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题、目标工时与人物可见累计 |
+| `2026-10-06-rrs-prompt` | 2026-10-07 | 剩余系统规则与提示身份、当前 app 和工作主题查看器；工具身份保持已验收形状 |
