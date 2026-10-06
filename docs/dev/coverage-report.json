@@ -1,20 +1,20 @@
 {
-  "generated_at": "2026-10-05T17:41:55+00:00",
-  "command": "python scripts/run_tests.py --tier full --workers 6 --environment-root ../WorldMock-Dataset/environment/zhangjiang-baseline",
+  "generated_at": "2026-10-06T03:43:20+00:00",
+  "command": "python scripts/run_tests.py --tier full --workers 6 --base origin/main --environment-root ../WorldMock-Dataset/environment/zhangjiang-baseline",
   "evidence_manifest": {
-    "snapshot_id": "62ea003c-7c41-475f-98ea-a6184d997fb8",
-    "manifest_hash": "d5ab132bee93af15f5ac8b51be23ff7c5e36141747bb7dacacb8303cb3e932bb",
-    "source_identity": "ccd20cc7fca82f2d75452ed03d3ed0b31aa5a813",
-    "source_sha256": "d0ba1029149bf52015b6f0d0ba2d49b28ba941a34440c631414c47d7ea400b51",
-    "collection_sha256": "32565cef175be96e1fdb02519675d445c60550418396e9bc457801a86869d271"
+    "snapshot_id": "aa5045b2-6281-40a6-a0a3-3a7f7aa39cc4",
+    "manifest_hash": "d595686990da4daddb9a631370d4c714ae7e5f955b0b13333ed93f78c32983a3",
+    "source_identity": "942e82e8eac5a1211871f26dd837359108996280",
+    "source_sha256": "6c96f385dc3ee49dffa4926f76c0053a209e17a9fd39018c51fa91284e226dba",
+    "collection_sha256": "cf3225d6c05bf2022dbfa11ab717b0c5b43f1fdb069f3a902361b79c1be91ab6"
   },
   "thresholds": {
     "branch_coverage_percent_min": 85.0
   },
   "branch_coverage": {
-    "covered_branches": 8368,
+    "covered_branches": 8378,
     "missing_branches": 370,
-    "total_branches": 8738,
+    "total_branches": 8748,
     "percent": 95.77,
     "passed": true
   },
@@ -674,6 +674,12 @@
       "percent": 100.0
     },
     {
+      "file": "src/worldmock/life/duty_edges.py",
+      "covered_branches": 8,
+      "missing_branches": 0,
+      "percent": 100.0
+    },
+    {
       "file": "src/worldmock/life/engine.py",
       "covered_branches": 8,
       "missing_branches": 0,
@@ -987,7 +993,7 @@
     },
     {
       "file": "src/worldmock/life/schedule.py",
-      "covered_branches": 92,
+      "covered_branches": 94,
       "missing_branches": 0,
       "percent": 100.0
     },
@@ -1313,7 +1319,7 @@
   "uncovered_public_interfaces": [],
   "passed": true,
   "test_results": {
-    "tests": 6502,
+    "tests": 6588,
     "failures": 0,
     "errors": 0,
     "skipped": 0
