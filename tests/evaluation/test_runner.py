@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from tests.evaluation.conftest import _write_canonical, make_review_records
-from worldmock.delivery import rules
+from worldmock.evaluation import causal_checks as rules
 from worldmock.evaluation.adapters import adapt_worldmock
 from worldmock.evaluation.causality import evaluate_causality
 from worldmock.evaluation.errors import EvaluationError
@@ -130,5 +130,4 @@ def _prepare(evaluation_fixture):
         evaluation_fixture.scenario_path,
         evaluation_fixture.output_root,
     )
-
 

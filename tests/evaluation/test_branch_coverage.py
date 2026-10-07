@@ -357,7 +357,7 @@ def test_evaluate_causality_reports_unavailable_checker(monkeypatch) -> None:
     import worldmock.evaluation.causality as causality
 
     with monkeypatch.context() as patch:
-        patch.setitem(sys.modules, "worldmock.delivery.rules", None)
+        patch.setitem(sys.modules, "worldmock.evaluation.causal_checks", None)
         with pytest.raises(EvaluationError, match="causal evaluator is unavailable"):
             importlib.reload(causality)
     importlib.reload(causality)

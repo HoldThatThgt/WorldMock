@@ -2,7 +2,7 @@
 
 就寝反思的模型调用只带 submit_reflection 一个严格工具（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-就寝反思经严格工具提交 ）：响应须恰好一次该工具的
 调用，message.content 不读取；条数、引用与正文都在本地校验，不合合同时抛 ReflectionOutputError，由记忆运行时
-（custom/agents/life_memory.py）附回英文错误做有界重试。文案、Schema 与重试次数是本模块的常量，只由 code_sha256 绑定：
+（src/worldmock/agents/life_memory.py）附回英文错误做有界重试。文案、Schema 与重试次数是本模块的常量，只由 code_sha256 绑定：
 submit_reflection 不属于人物工具面，不进 tool_schema_sha256，文案不进 prompt_sha256。
 """
 

@@ -164,7 +164,7 @@ WorldMock 当前十种活动类型。
 `purchases.jsonl`、`app-usage.jsonl` 五类正文。导出清单结构为 3，检查点世界结构为 10，
 冻结清单的 `environment_identity` 必须与实际环境和规则身份一致。
 评估要求 `experiment_completed: true`，检查点位于窗口终点，并验证实际导出内容。
-[训练数据交付](delivery.md#delivery-自定义训练数据交付)产生的 `training.jsonl` 不能替代这里的足迹导出。
+LabelKit-DataSet 的训练记录不能替代这里的完整足迹导出。
 
 `--legacy` 指向旧 LabelKit 交付根目录。当前适配器固定读取以下文件族：
 

@@ -3,14 +3,14 @@
 
 > 状态：FROZEN。本文件是本特性的唯一开发规格；条款随阶段 1–6 的集成波次一次生效，波次合入之前，当前行为、接口与设计正文仍以所属合同与[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)为准。
 > 日期：2026-10-07。
-> 代码基线：490ae4bb0ab226c0cf90e77531ccafffcca38f97。
+> 代码基线：05a295ab464165e9ce3bd7cd7783e0513fb57e8d。
 > 来源：[提案](PROPOSAL_2026-10-07_APP_ACTION_RESOURCE_AND_RULE_SIMPLIFICATION.md)（用户原话、心智模型、简化后的设计、六个补充选择、差距与路线）；本文按 2026-10-07 用户给定的审查准则与对现行合同、规格、设计和代码的逐条核对收敛，六个补充选择与提案没有写明之处在「裁决记录」逐项定稿。
-> 范围：系统动作只留出行、睡眠、购买，等待是时间原语；库存、进食、给予与联系人持有删除，商品收货即结算；其余行为由数据集以 app、动作、内容三类对象登记，由一个执行器按内容时长执行、按历史选择内容并保留 app 推送；导航、购物、支付 app 由人物点名并写进足迹；类别、使用方式、效果与供给表归 WorldMock 固定（`RULES_VERSION = 2`）；目录格式 2、场景结构 8、世界结构 11 与足迹合同一并更换，旧格式一律拒绝；数据仓按新格式重制正式环境。
+> 范围：系统动作只留出行、睡眠、购买，等待是时间原语；库存、进食、给予与联系人持有删除，商品收货即结算；其余行为由数据集以 app、动作、内容三类对象登记，由一个执行器按内容时长执行、按历史选择内容并保留 app 推送；导航、购物、支付 app 由人物点名并写进足迹；类别、使用方式、效果与供给表归 WorldMock 固定（`RULES_VERSION = 2`）；目录格式 2、场景结构 8、世界结构 11 与足迹合同一并更换，旧格式一律拒绝；数据仓按新格式重制正式环境，下游的 LabelKit-DataSet 按新足迹合同适配手机信号投影与数据加工。
 
 <a name="spec-acs-用户得到什么"></a>
 ## 用户得到什么
 
-环境只登记五类对象：app（真实名称；可带导航、购物、支付用途，购物 app 写明能用哪些支付 app）、地点、商品（五个固定类别之一、价格、在哪些店卖）、动作（名称、说明、五个固定类别之一；可以绑定 app 并选一种使用方式，也可以不绑定）和内容（必须绑定一个动作；标题、摘要、时长，电视剧按集带系列与集数）。人物能做的事只有四种写法：出行（可点名一个导航 app）、睡眠、购买（网购点名购物 app 与它绑定的一个支付 app，到店可点名支付 app 也可不用），以及「进行」一个数据集命名的动作（动作绑定了 app 就再选一个 app，社交类动作另写对方是谁）；空下来仍可等待，等待只是让时间流过的原语。买的东西到手即结算，没有库存也没有「吃」这一步：吃的加热量，休闲用品缓解一点娱乐需要，日常用品带来一次小的情绪脉冲。做动作时看哪一条、做哪个主题由系统选：先看这段停留或路程里推给这个 app 与这个动作的那条，再接没看完的，再接追到一半的剧的下一集，再取没看过的，都看过才重播并如实记下第几轮；动作自己没有时长，内容多长就做多久，娱乐类看完一条自动接下一条直到人物停下，其余类别做完一条就结束；工作也是动作，场景分配给人物的工作内容做完不再重做。运行之后的足迹只写真实发生过的 app 使用：持续用手机或其他设备的动作有一行使用区间和逐条内容消费记录，借助 app 的线下动作与导航只有开始和结束两个触点，没有 app 的动作不留 app 记录；订单记下实际用到的购物 app 与支付 app，每次收货恰有一条收货记录；每一行都能追到产生它的那个模拟事件。类别、数值与结算规则由 WorldMock 定死，WorldMock-Dataset 只提供名字、摘要、价格、时长与绑定。
+环境只登记五类对象：app（真实名称；可带导航、购物、支付用途，购物 app 写明能用哪些支付 app）、地点、商品（五个固定类别之一、价格、在哪些店卖）、动作（名称、说明、五个固定类别之一；可以绑定 app 并选一种使用方式，也可以不绑定）和内容（必须绑定一个动作；标题、摘要、时长，电视剧按集带系列与集数）。人物能做的事只有四种写法：出行（可点名一个导航 app）、睡眠、购买（网购点名购物 app 与它绑定的一个支付 app，到店可点名支付 app 也可不用），以及「进行」一个数据集命名的动作（动作绑定了 app 就再选一个 app，社交类动作另写对方是谁）；空下来仍可等待，等待只是让时间流过的原语。买的东西到手即结算，没有库存也没有「吃」这一步：吃的加热量，休闲用品缓解一点娱乐需要，日常用品带来一次小的情绪脉冲。做动作时看哪一条、做哪个主题由系统选：先看这段停留或路程里推给这个 app 与这个动作的那条，再接没看完的，再接追到一半的剧的下一集，再取没看过的，都看过才重播并如实记下第几轮；动作自己没有时长，内容多长就做多久，娱乐类看完一条自动接下一条直到人物停下，其余类别做完一条就结束；工作也是动作，场景分配给人物的工作内容做完不再重做。运行之后的足迹只写真实发生过的 app 使用：持续用手机或其他设备的动作有一行使用区间和逐条内容消费记录，借助 app 的线下动作与导航只有开始和结束两个触点，没有 app 的动作不留 app 记录；订单记下实际用到的购物 app 与支付 app，每次收货恰有一条收货记录；每一行都能追到产生它的那个模拟事件。类别、数值与结算规则由 WorldMock 定死，WorldMock-Dataset 只提供名字、摘要、价格、时长与绑定。WorldMock 交出的是完整认证的足迹导出；手机信号投影、LabelKit 窗口、训练与规则数据由 LabelKit-DataSet 从导出加工，本仓库不产出它们，也不安装或调用 LabelKit。
 
 ```mermaid
 flowchart LR
@@ -19,15 +19,15 @@ flowchart LR
         S1["阶段 1 固定规则、目录格式与加载边界<br/>闭集与常数、目录 2、场景 8、世界 11"] --> S2["阶段 2 收货结算<br/>一个结算函数；删除库存、进食、给予"]
         S2 --> S3["阶段 3 动作执行、内容选择与推送<br/>一个执行器、按历史选择、类别与方式占用"]
         S3 --> S4["阶段 4 人物请求、工具层与系统层<br/>最终请求；首个引擎端到端闭环"]
-        S4 --> S5["阶段 5 记录、导出、交付与评估<br/>六种 app 使用事实、收货行、足迹不变量"]
+        S4 --> S5["阶段 5 记录、导出与评估<br/>六种 app 使用事实、收货行、足迹不变量"]
         S5 --> S6["阶段 6 收口<br/>第四份完整日基线、台账与文档闭合"]
     end
-    S7["阶段 7 数据仓交接与正式回执<br/>工具、最小移植、内容重制"]
+    S7["阶段 7 数据仓交接与正式回执<br/>WorldMock-Dataset：工具、最小移植、内容重制<br/>LabelKit-DataSet：手机信号投影与下游适配"]
     S0 --> S1
     S6 --> S7
 ```
 
-不做的事：不引入推荐模型、口味权重、数据集可调的重复权重或评分；不引入规则语言、插件或逐 app 执行器；不设兼容层、迁移工具或双格式；不新建状态池；不为每条内容的完成增加决策、唤醒原因或工具；动作没有自己的时长或窗口，人物也不填时长；不为行程、睡眠或交易登记内容；不设计时的下单或支付活动；不设现金或支付渠道闭集；一个订单行不超过一件；不模拟剩余份量、耐用品或设备持有；不给场景联系人身体或持有；目录内容不引用场景人物；环境里不放规则哈希或规则副本；不合成用餐活动；不重新设计地图、地点类型、推送网格、session 或人物画像编译；不归档资源与规则引擎简化规格。
+不做的事：不引入推荐模型、口味权重、数据集可调的重复权重或评分；不引入规则语言、插件或逐 app 执行器；不设兼容层、迁移工具或双格式；不新建状态池；不为每条内容的完成增加决策、唤醒原因或工具；动作没有自己的时长或窗口，人物也不填时长；不为行程、睡眠或交易登记内容；不设计时的下单或支付活动；不设现金或支付渠道闭集；一个订单行不超过一件；不模拟剩余份量、耐用品或设备持有；不给场景联系人身体或持有；目录内容不引用场景人物；环境里不放规则哈希或规则副本；不合成用餐活动；不重新设计地图、地点类型、推送网格、session 或人物画像编译；不在本仓库或数据仓实现手机信号投影、LabelKit 窗口或任何数据加工命令；不归档资源与规则引擎简化规格。
 
 <a name="spec-acs-裁决记录"></a>
 ## 裁决记录
@@ -71,8 +71,8 @@ flowchart LR
 | P-4 | `CONTENT_MIN_SECONDS = 60`：每条内容登记时 `duration_seconds` 不小于 60，违反以 `ENVIRONMENT_NUMBER_INVALID` 拒绝；不设上限；下限只约束登记，恢复时的内容余量可以更短 | 每条内容的结束都带一次全世界的结算与提交；不足一分钟的内容不给手机足迹增加信息，却成倍增加事件量（行为审查 5、简化审查 CADENCE） |
 | P-5 | 「内容」只指绑定到数据集动作的目录 `Content`。三种系统动作没有内容：行程时长按发布图与固定速度逐次计算并存在出行活动上；睡眠的计划长度沿用现行睡眠需要规则，按实际秒数结算；购买与支付是零模拟秒的时点事实，不建活动、不占名额；配送等待是既有预排事件。登记拒绝动作上的任何时长字段 | 行程、睡眠与交易没有可供数据集撰写的对象；计时的下单活动需要一个编造的常数，并写出一段编造长度的购物 app 使用（足迹审查 10、行为审查 9、简化审查 SYSCONTENT） |
 | P-6 | 足迹合同在冻结时定稿，随阶段 5 在波次内实现。`app-usage.jsonl` 的事实为 `app_use`、`app_touch`、`content_consumed`、`push_delivered`、`push_opened`、`push_released`，`purchases.jsonl` 的事实为 `purchase`、`order_attempt`、`receipt`；导出工件仍是五个文件。行取自带非空 app 身份的活动快照，不看活动类型；`MANNER_DEVICE` 把 `phone_continuous`、`offline_assisted` 映射到 `phone`，把 `other_device` 映射到 `other`。`phone_continuous` 与 `other_device` 写一行带 `segments` 的 `app_use` 和每次结算一行 `content_consumed`；`offline_assisted` 只在受理开始与实际结束各写一个 `app_touch`；没有 app 的活动零行。七条不变量由 `validate_export` 检查；导出不作亮屏或前台声明 | 提案规定了哪些足迹不得存在，没有定义存在的记录；现行导出按活动类型 `use_app` 取行且区间跨过暂停，线下辅助动作照此写出的正是被禁止的全程区间；每次导出都从事件重算 app 使用，事件从第一段代码起就要带齐动作、方式、支付 app 与收货证据（足迹审查 2、足迹审查 6） |
-| P-7 | 两份足迹工件及其不变量归 WorldMock。数据仓的 `tools/simulate_phone.py` 是逐行投影：只筛 `device = phone`，一行对一行，不带自己的规则。`worldmock deliver` 在清单里绑定这两份工件，不向 LabelKit 展示手机行；第三仓库的消费者仍是未完成的验收。现行文档里把「手机行」写成交付产物的句子在「现行文档原位改写」更正 | 活在数据仓投影脚本里的规则与「规则在 WorldMock 钉死」相悖；只写「手机投影」而不点名工件、归属与字段的规格，可以通过全部门禁却交不出消费者读得了的东西（足迹审查 4、足迹审查 6） |
-| P-8 | 收货只有一个结算函数，由到店受理处与既有 `delivery_arrival` 事件处调用：`pending → delivered`、`received_at`、状态效果与收货人资源流的排空都在这一个函数内；已是 `delivered` 的订单再遇事件原样返回且不写任何东西，重复提交的动作返回已存结果。模拟人物收货恰写一条 `data.kind = "goods_received"` 的 `environment_event`：归收货人所有、对其可见、`source_kind = "environment"`、与状态改变同一次提交，以 `order_id` 和 `caused_by` 关联；LabelKit 窗口的公开投影为 `{kind, goods, category_label, quantity}` | 进食删除后收货是「东西被消费了」的唯一证据，必须是全程审计最严的记录；现行摄入流只在时钟推进时排空，不立这条规则它会挂到下一个、可能属于别人的事件上，第三方收货人的能量变化也没有自己的事件（足迹审查 3、行为审查 8） |
+| P-7 | 两份足迹工件 `app-usage.jsonl`、`purchases.jsonl`、它们的行形状与 `validate_export` 的七条不变量归 WorldMock。手机信号投影归 LabelKit-DataSet，本规格只把它写成交接要求：逐行投影，只筛 `device = phone`，一行对一行，不带自己的规则；由订单派生的下单、付款、送达通知三种信号按「数字足迹合同」归属表写明的取法。本仓库与 WorldMock-Dataset 都不实现这份投影；WorldMock 不安装也不调用 LabelKit，没有数据加工命令，也没有交付清单。LabelKit 窗口及其对事件的公开投影同归 LabelKit-DataSet（P-8、P-27）；下游消费者仍是未完成的验收 | 活在下游投影脚本里的规则与「规则在 WorldMock 钉死」相悖；只写「手机投影」而不点名工件、归属与字段的规格，可以通过全部门禁却交不出消费者读得了的东西（足迹审查 4、足迹审查 6）；三个仓库的归属按 2026-10-07 的用户裁决，即现行文档版本表的 `2026-10-07-repository-ownership` 行 |
+| P-8 | 收货只有一个结算函数，由到店受理处与既有 `delivery_arrival` 事件处调用：`pending → delivered`、`received_at`、状态效果与收货人资源流的排空都在这一个函数内；已是 `delivered` 的订单再遇事件原样返回且不写任何东西，重复提交的动作返回已存结果。模拟人物收货恰写一条 `data.kind = "goods_received"` 的 `environment_event`：归收货人所有、对其可见、`source_kind = "environment"`、与状态改变同一次提交，以 `order_id` 和 `caused_by` 关联；事件连同完整载荷、所有人与可见性原样进入 `events.jsonl`，下游窗口怎样投影它是对 LabelKit-DataSet 的交接要求（「数据仓交接」） | 进食删除后收货是「东西被消费了」的唯一证据，必须是全程审计最严的记录；现行摄入流只在时钟推进时排空，不立这条规则它会挂到下一个、可能属于别人的事件上，第三方收货人的能量变化也没有自己的事件（足迹审查 3、行为审查 8） |
 | P-9 | 食品收货沿用现行 `apply_food`，包括睡眠不足利用率曲线与能量上限：`provided` 为类别千卡乘数量，`applied` 为实际变化，超出上限的部分丢失且不转成任何东西；`GOODS_ENERGY_KCAL` 为 `meal` 600、`snack` 200、`drink` 100，进食时长删除 | 身体轨迹与既有基线保持可比，不新增常数；标注者凭记录里的两个数就能核对一笔收货（足迹审查 3、行为审查 8） |
 | P-10 | 配送在既有 `delivery_arrival` 事件上结算给订单的收货人，不论其身在何处、是否睡着；门口不留任何东西。睡着的收货人不被叫醒；醒着的模拟收货人以既有 `delivery_arrival` 原因唤醒；不是收货人的买家保留唤醒与进度记录 | 「等人在场再结算」是换了名字的库存；不写明则留下一条能量在公司上涨、货却送到家里而无规则可依的足迹（足迹审查 14、行为审查 8） |
 | P-11 | `AppPurpose` 为 `navigation`、`shopping`、`payment`，app 的 `purposes` 可为空。`shopping` 在用途里当且仅当至少一家店铺绑定该 app；`payment_app_ids` 非空当且仅当有 `shopping` 用途，每项指向带 `payment` 用途的 app，可以指向自己；违反为 `APP_PURPOSE_INVALID`。`APP_UNBOUND` 保留码名，含义改为既无用途也无动作绑定。购物 app 总是绑定地图店铺；无店铺电商、包裹与次日达不在范围内，真实电商 app 以绑定超市的即时零售登记并声明为环境假设 | U1 点名三种用途；多用途的真实 app 可以如实登记，导航与支付 app 不必伪造娱乐内容；二十分钟送达的包裹电商订单是地图表达不了的渠道（足迹审查 4、简化审查 APPPURPOSE） |
@@ -91,15 +91,15 @@ flowchart LR
 | P-24 | 类别表的接续方式、MET 与按实际秒数的状态效果由 WorldMock 固定，数据集碰不到任何一列。`exercise` 的 MET 5.0 与 `daily_care` 的 MET 2.0 是新增的实验假设，其余取现行值；现在定义在 `life/felt.py`、`life/social.py`、`life/activities.py` 的社交、情绪与运动速率移入 `exchange`，并进入单一来源归属表 | 新造的数只有两个；这些常数现在处于 `RULES_VERSION` 的归属之外，「规则钉死在一处」尚不成立（行为与成本、简化与数据两份审查的类别常数项） |
 | P-25 | `ContentProgress{content_id, position_seconds, completed_rounds, last_consumed_at}` 以人物与内容为键、跨 app 共享。`last_consumed_at` 是最近一次消费秒数为正的结算的模拟秒，是「看过」「执行过」的唯一定义；推送送达、摘要展示、进入候选与零秒暂停都不算。不另存当前内容、所属动作或 app。预留集合在抽取时派生、从不保存：该人物其他进行中或暂停活动里选中的内容，加上当前 session 待消费或已打开推送置顶的内容；只在另有合格内容时跳过 | 可推导事实的存储副本是每次恢复都要校验、还可能与目录不一致的新检查点状态；零秒暂停若算看过，会标记一条从未产生 `content_consumed` 行的内容（足迹审查 9、简化审查 DERIVED） |
 | P-26 | 选择只读冻结目录、`content_progress`、当前 session 的推送、该人物的活动与 `WorldState.random_state`；每个候选集与并列集都按 `content_id` 排序；抽取用现行带键 sha256 流，键为 `activity_id:draw_index`（开始时为 0，每接续一条加 1），推送用 `scheduled_id`；不用内置 `hash()`、集合次序或墙钟。选中的内容存在活动数据与 session 推送里，暂停、恢复与检查点恢复从不重抽；键格式属 `RULES_VERSION` 范围 | 选择依赖历史之后，缺了排序与带键决胜，两台机器或一次检查点恢复就会抽到不同内容，内容足迹不再逐字节可复现（足迹审查 9） |
-| P-27 | 推送的白天网格、每个 session 每个 app 至多一条、session 有效期与不打断睡眠不变。推送只从类别 `entertainment` 且方式 `phone_continuous` 的动作的内容里抽，单元规则与历史同一次打开；`push_id` 公式与逐 session 键不变，环境事件与进度层记录增加动作名。`push_opened` 是同一 session 内对该 app 该动作第一次被受理的开始；开始该 app 的另一个动作既不打开也不消费它，接续从不打开它。LabelKit 公开投影仍是 `{kind, app, kind_label, summary}` 四个键 | 工作主题与打卡页成为内容之后可能被推送，那是没有手机会显示的通知；人物不知道推送属于哪个动作就会打开错的那个，推送、打开、消费的链条合不上（足迹审查 8） |
+| P-27 | 推送的白天网格、每个 session 每个 app 至多一条、session 有效期与不打断睡眠不变。推送只从类别 `entertainment` 且方式 `phone_continuous` 的动作的内容里抽，单元规则与历史同一次打开；`push_id` 公式与逐 session 键不变，环境事件与进度层记录增加动作名。`push_opened` 是同一 session 内对该 app 该动作第一次被受理的开始；开始该 app 的另一个动作既不打开也不消费它，接续从不打开它。WorldMock 导出的是人物可见的 `app_push` 原始事件及其载荷；下游窗口对它的投影归 LabelKit-DataSet，列为交接要求（「数据仓交接」） | 工作主题与打卡页成为内容之后可能被推送，那是没有手机会显示的通知；人物不知道推送属于哪个动作就会打开错的那个，推送、打开、消费的链条合不上（足迹审查 8） |
 | P-28 | 工具名与数量不变。`start_activity.items[]` 为 `{target, way, app, to, pay_app}`，每个键必填、不用时写 null；请求里没有时长、内容、主题或数量键；`WAYS` 为 步行、驾车、睡觉、等待、购买、进行。工具层新增目标类 `action`：内容里至少有一条未被分配或分配给本人的每个动作始终列出（不看内容是否已完成、人物此刻在哪里），每个绑定的 app 一行，没有 app 的一行 `app: null`，动作不轮转；列出的行没有合格内容时不可用并写 `CONTENT_EXHAUSTED` 的原因；候选种类只剩 `product`，`lifestyle`、`task` 两种候选、生活活动检索表、`named_catalog.py` 与非商品对象的轮转退出。动作行显示的时长只由内容派生 | 人物只选动作与可选的 app（U3）；对象少到可以全列之后，三种候选的轮转与呈现管线没有重新挂键的必要；动作行不显示时长，人物会在常人不会开始的时刻开始长内容（行为审查 14） |
 | P-29 | 系统层保持十八条及其位置；只改写提到进食、持有物、以 app 为目标、工作主题或工具层时长的条文，新文逐字写在「系统层」；其他特性台账逐字钉住的句子原样保留 | 旧文在每一次决策里告诉人物去做世界已不支持的事（送到才能吃、打开 app、按主题计工时），诱发重复下单与无意义的决策（行为审查 7、行为审查 14） |
 | P-30 | 当日计划意图落到新对象上：睡眠对应睡眠；晨间例程、家务对应 `daily_care`；通勤、外出对应出行；工作对应带分配内容的 `work_study`；用餐对应本人在既有时间容差内收到一件 `meal` 商品；休息对应等待或 `daily_care`；娱乐对应 `entertainment`；社交对应 `social`；运动对应 `exercise` | 不改则用餐目标永远无法推进，整天挂作未完成的承诺；生活活动类别消失后若干意图失去证据（行为审查 7） |
 | P-31 | 规则文件只从包读取；`runtime_code_sha256` 另外哈希 `src/worldmock/data/` 下的每个文件，规则字节由 `code_sha256` 钉住。目录清单保留 `rules_version`（必须等于 2），不加规则哈希；`environment_identity` 仍是五个字段；`require_engine_rules` 与 `catalog/rules/` 的副本删除；清单的 `files` 恰列六个文件 | 包内规则文件现在只靠环境里的字节副本进入运行身份，撤掉副本而不扩大哈希范围，规则可以在 `RULES_VERSION` 不动时改变而旧运行仍能恢复；把哈希放进清单则要数据仓去算引擎包的字节（简化审查 RULEHASH） |
 | P-32 | 发布环境是 `catalog/` 加 `scenarios/`，引擎不再读 `corpora/`。场景结构 8 删除 `corpus_root`、`corpus_manifest_sha256`；世界结构 11 删除 `content_manifest_sha256`；运行清单 4 去掉语料钉 | 生活活动语料退出后引擎不读 `corpora/` 下的任何文件；钉住没有运行期读取方的文件只产生与行为无关的身份不符（简化审查 CORPORA） |
-| P-33 | 内部动机评分器随本特性退役：删除 `src/worldmock/life/motivation.py`、`src/worldmock/exchange/motivation.py`、`src/worldmock/data/motivation.toml`、`affordances.toml` 的家族层及其解析、`observation.data.motivation_internal`；场景结构 8 删除整个 `agents[].motivation`（十个字段都随评分器失去读取方），`MotivationProfile` 与 `MotivationProfileSource` 一并删除 | 它读取的输入（持有食品与进食时间、生活活动效果与典型时长、主题目标工时）全部被本特性删除；输出不进提示，在评估、足迹、交付、脚本与工具里没有读取方；保留等于为一个没人用的数重写三个生成器（简化审查 MOTIVATION） |
+| P-33 | 内部动机评分器随本特性退役：删除 `src/worldmock/life/motivation.py`、`src/worldmock/exchange/motivation.py`、`src/worldmock/data/motivation.toml`、`affordances.toml` 的家族层及其解析、`observation.data.motivation_internal`；场景结构 8 删除整个 `agents[].motivation`（十个字段都随评分器失去读取方），`MotivationProfile` 与 `MotivationProfileSource` 一并删除 | 它读取的输入（持有食品与进食时间、生活活动效果与典型时长、主题目标工时）全部被本特性删除；输出不进提示，在评估、足迹、脚本与工具里没有读取方；保留等于为一个没人用的数重写三个生成器（简化审查 MOTIVATION） |
 | P-34 | 进食与持有删除后失去来源的读取方逐项定稿：`meal_diversity` 改按食品类别 `receipt` 行的 `goods_id`；质量报告 `conversion_efficiency.food` 改按收货的 `applied / provided`；`activity_distribution` 去掉用餐族，并在口径里写明参照用餐分钟没有模拟对应物；已核验经历删除 `consumed`、加入 `received`，`played.app_id` 可为 null；个人事务结果「吃掉」与结果键删除，事务在收货时办成；`SOCIAL_NEED_SHARED_MEAL_RATE` 与共餐规则删除；评估域 `eat` 删除；评估以「快照有 app 且 `device = phone`」判定手机数字交互，以 `goods_received` 与 `delivery_arrival.orders[]` 为收货证据；质量 `content_contact.by_app` 只计 app 使用行，新增 `by_action` 计全部内容结算，并在 `repeat_watch` 旁给出重播秒数占比；时间线与查看器只在快照有 app 时写 app 名，只对 `device = phone` 写「用手机」；系统从不合成用餐活动 | 这些读取方不会报错，只会读出零并被当成行为解读；八小时工作若继续算作数字交互，正是提案对手机禁止的结果（足迹审查 12、足迹审查 13） |
-| P-35 | 身份号：目录 `format_version` 2；`RULES_VERSION` 2；场景结构 8；世界结构 11；运行清单 4；导出清单 4；质量报告 6；交付清单 4；行为报告 `behavior-metrics-2`；`affordances.toml` 版本 2；数据仓 `environment_version "2"` 与手机清单 2。不变：地图结构 1 与生成器规则 1、`Event` 与 `Checkpoint` 结构 1、22 个唤醒原因、事件类型集合、`environment_identity` 的五个字段。每个入口拒绝旧号，不迁移、不双读 | 行形状、状态字段与抽取键都在变；有一个号没写明，就会出现漏掉某道门的查找替换式升级（足迹真实性、简化与数据两份审查的身份号项） |
+| P-35 | 身份号：目录 `format_version` 2；`RULES_VERSION` 2；场景结构 8；世界结构 11；运行清单 4；导出清单 4；质量报告 6；行为报告 `behavior-metrics-2`；`affordances.toml` 版本 2；WorldMock-Dataset 的 `environment_version "2"`；LabelKit-DataSet 所有的下游手机投影清单（随新行形状升号，号由该仓库定）。不变：地图结构 1 与生成器规则 1、`Event` 与 `Checkpoint` 结构 1、22 个唤醒原因、事件类型集合、`environment_identity` 的五个字段。每个入口拒绝旧号，不迁移、不双读 | 行形状、状态字段与抽取键都在变；有一个号没写明，就会出现漏掉某道门的查找替换式升级（足迹真实性、简化与数据两份审查的身份号项） |
 | P-36 | 新代码的位置：收货结算 `src/worldmock/life/receipt.py`，执行器 `src/worldmock/life/action_run.py`，选择 `src/worldmock/life/content_select.py`；`session_actions.py` 与 `life/models.py` 的行数只许减少或持平。可供性注册表保留 TOML 载体，类型行改为 `wait`、`sleep`、`travel`、`action`，现行条件占用机制增加 `category` 与 `manner` 两个维度 | 风格门限制单个文件的行数，逼近上限的正是这两个文件；条件占用已为出行方式存在，不另造机制（简化与数据审查的代码落点项） |
 | P-37 | 提案的四段落成阶段 0、一个集成波次（阶段 1–6）与阶段 7。波次在一条特性分支上开发、一次合入主干；阶段 1–6 各有自己的提交和所有者测试，行为是纯函数的阶段 1–3 的所有者测试不导入 `LifeEngine`；后继与被替换的路径在同一提交里交换，新旧不并存；不留空壳、兼容重导出、跳过的检查或延期标记；整文件在最后一个消费者离开的阶段删除。完成集合 `STAGES_DONE` 只接受 `∅ → {1,2,3,4,5,6} → {1,…,7}`。阶段 4 的首个 `LifeEngine` 创建、决策、推进、检查点、重开闭环就是提案的「最小端到端闭环」里程碑，不是合入点；阶段 7 只登记回执 | 不许兼容路径、引擎创建急切读取整个目录、只有一套夹具环境和一种请求形状，「最小端到端闭环」与「完整运行替换」不可能分别合入，理由同前序规格的 B-33；足迹读取方若留到最后一段，会在整整一段里失效（简化审查 STAGE、足迹审查 6） |
 | P-38 | 台账至多 30 个契约点；属于引擎行为的契约点至少有一个走真实请求、引擎与 SQLite 路径的行为用例，每个契约点至少一个源码变异；不建前序规格那种规模的变异表。必有一行成本：一次不少于两小时、跨不少于 20 条内容的 `entertainment` 执行恰产生一行 `app_use`、每条内容一行内容证据，且可归于这次执行的 `decision_started` 事件不多于 `2 + floor(seconds / progress_report_interval_seconds)`；新的完整日基线运行把每人每日决策数报告为观测值（写在阶段 6 的回执与实现状态里，不设阈值） | 成本行让节律规则可测，并在十二周运行开始之前给出实测成本（行为与成本审查的成本证据项、简化与数据审查的预算项） |
@@ -107,7 +107,7 @@ flowchart LR
 | P-40 | 设计章节、CONTRACTS 与各规格在使句子成真的代码所属阶段原位改写，汇编 HTML 进同一提交；章节正文不写相对于阶段的句子。被改写文档的版本表行标识为 `2026-10-07-acs-<阶段短名>`，短名依次为 `freeze`、`rules`、`receipt`、`action`、`request`、`record`、`close`、`dataset` | 用户要求设计文档优先；中间两段的边界不定，逐阶段改写章节就无法执行，前序特性留下的过期阶段句即由此而来（简化与数据审查的设计文档项） |
 | P-41 | 人工环境在本规格逐行冻结，幸存对象保留现有标识，至少包含：一个导航 app 与一个只有支付用途的 app；一个带支付绑定的购物 app；一个带两个不同方式动作的 app；一个绑定两个 app 的动作；一个没有 app 的动作；一个 `other_device` 动作；一个 `offline_assisted` 动作；每个类别一个动作；一个三集的系列；一条分配的工作内容与一条未分配、可重复的 `work_study` 内容；现有夹具已有的每个食品类别各一种食品、一种休闲用品、一种日常用品；一个模拟第三方收货人场景与一个联系人收货人 | 每条规则都要有一个真实对象走过真实请求、引擎与 SQLite 路径；缺一行，那条规则就只在辅助函数上得证（足迹真实性、简化与数据两份审查的夹具项） |
 | P-42 | 数据仓门槛由数据仓的测试检查，不进引擎：至少一个导航 app 与一个支付 app；每个类别、每种方式至少一个动作；至少一部三集以上的电视剧系列与一部电影，使用真实片名；每个 `entertainment` 动作与 app 的组合绑定的内容总时长不少于 10800 秒（实验假设：按锚定使用量一天之内不重复）；每个商品类别至少五种商品；每个人物的初始余额加运行期内预排工资减预排账单不少于 运行天数 × 7000 分（实验假设；场景失去初始库存且不作补偿）。来源信息留在数据仓的来源文件里，引擎目录除 `summary_source` 外不加来源字段 | 未看优先只在有未看内容时起作用，足迹的多样性是数据规模的属性，引擎修不了；人物中途没钱，之后的足迹只剩饥饿与拒绝（足迹审查 15、行为审查 13、行为审查 15） |
-| P-43 | 数据仓次序：不再发布任何格式 1 的改动，并钉在波次之前的引擎提交上，直到波次进入主干；之后依次是工具、以 `environment_version "2"` 发布的最小移植、内容重制（只换内容的再发布，不需要引擎改动），最后由 WorldMock 登记正式环境回执。「数据仓交接」列出数据仓工具导入的每个引擎符号及其新名字或删除 | 数据仓工具按名字导入引擎内部符号，波次落地即在导入处断开；两个仓库的次序一乱，发布环境与引擎分叉，产不出任何正式运行，也就没有真实足迹（简化审查 DATASET） |
+| P-43 | 阶段 7 面向两个兄弟仓库，波次进入主干之前二者都不按新格式发布。WorldMock-Dataset（环境）的次序：不再发布任何格式 1 的改动，并钉在波次之前的引擎提交上，直到波次进入主干；之后依次是工具、以 `environment_version "2"` 发布的最小移植、内容重制（只换内容的再发布，不需要引擎改动），最后由 WorldMock 登记正式环境回执。LabelKit-DataSet（导出的下游消费者）在波次进入主干之后把手机信号投影、窗口、训练与规则数据改到新的事件种类、活动种类、事实行与身份号。「数据仓交接」列出数据仓工具导入的每个引擎符号及其新名字或删除，以及对 LabelKit-DataSet 的交接要求 | 数据仓工具按名字导入引擎内部符号，波次落地即在导入处断开；仓库之间的次序一乱，发布环境或下游读取方与引擎分叉，产不出任何正式运行，也就没有真实足迹（简化审查 DATASET） |
 
 <a name="spec-acs-裁决提案出入"></a>
 ### 与提案文字的出入
@@ -133,11 +133,11 @@ flowchart LR
 <a name="spec-acs-裁决前序规格"></a>
 ### 对前序冻结规格的修订
 
-前序规格自己的裁决表原文不改，被取代与被修订的裁决只在本表记录；「被取代」「被修订」两栏都没有点名的条款继续有效。各文档正文的改写作业见「现行文档原位改写」。前五行的文档是[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)，其余各行一份规格一行。
+前序规格自己的裁决表原文不改，被取代与被修订的裁决只在本表记录；「被取代」「被修订」两栏都没有点名的条款继续有效。各文档正文的改写作业见「现行文档原位改写」。前五行的文档是[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)，其余各行一份规格一行。LabelKit 窗口与手机信号投影的规格不在本仓库，对它们的要求只写在「数据仓交接」。
 
 | 文档 | 对象 | 被取代 | 被修订 | 保留 |
 | --- | --- | --- | --- | --- |
-| 资源与规则引擎简化规格 | 裁决 | D-12、D-14、D-15、D-51、C-5（app 目标、方式「打开」与固定使用窗口；R1、P-1、P-2、P-28）；D-20、D-50、B-6、B-42（工作主题目录与主题上限；R6、P-4）；D-34（来源为空时取最小 `app_id`；P-12、P-16）；B-2、B-3（系统层句子；P-29）；B-26（非食品退出目录、生活服务由语料表达；R2、P-22）；D-28 的生活活动 `location_kinds` 半句（P-23）；D-41 的 `read_mail` 半句（P-20） | D2（绑定规则推广到商品；P-22）；D4、B-16（推送候选；P-27）；D7 后半句（生活活动改为数据集动作）；D8、C-4（千卡保留，进食秒数与食用窗口删除；P-9）；D9（加入 R4 … R6 的次序、预留与有限内容）；D-18、C-3（速率不变，只用于娱乐；P-21）；D-19（加 `last_consumed_at`；P-25）；D-22、D-49（叙述通道保留，目标类 `task` 退出）；D-35（`APP_CONTENT_EMPTY` 由 `CONTENT_EXHAUSTED` 取代，其余码以「活动受理拒绝码」为准）；D-36（`APP_UNBOUND` 改义；P-11）；D-43（系列决定选择次序；R5）；D-44（事实种类与逐行投影；P-6、P-7）；D-46、B-7（人工环境与第四份基线；P-41）；D-52、B-30（打开键改为 `activity_id:draw_index`；P-26）；B-1（改写集合；P-29）；B-4（进度记录加动作名，系统不再代选 app）；B-9（常数名）；B-17（数量门槛；P-42）；B-20（`WORK_SCHEDULE_REQUIRED` 的条件改为分配了工作内容）；B-21（随 P-33）；B-22、B-23（占用闭集与「人物选动作与可选 app、系统选内容」；P-17、P-28）；B-25（内容时长下限；P-4） | D1、D3、D5、D6、D10、D-11、D-13、D-16、D-17、D-21、D-23 … D-27、D-29 … D-33、D-37、D-40、D-42、D-45、D-47、D-48、C-1、C-2、C-6、C-8、B-10 … B-14、B-24、B-29、B-31、B-32、B-35、B-43 |
+| 资源与规则引擎简化规格 | 裁决 | D-12、D-14、D-15、D-51、C-5（app 目标、方式「打开」与固定使用窗口；R1、P-1、P-2、P-28）；D-20、D-50、B-6、B-42（工作主题目录与主题上限；R6、P-4）；D-34（来源为空时取最小 `app_id`；P-12、P-16）；B-2、B-3（系统层句子；P-29）；B-26（非食品退出目录、生活服务由语料表达；R2、P-22）；D-28 的生活活动 `location_kinds` 半句（P-23）；D-41 的 `read_mail` 半句（P-20） | D2（绑定规则推广到商品；P-22）；D4、B-16（推送候选；P-27）；D7 后半句（生活活动改为数据集动作）；D8、C-4（千卡保留，进食秒数与食用窗口删除；P-9）；D9（加入 R4 … R6 的次序、预留与有限内容）；D-18、C-3（速率不变，只用于娱乐；P-21）；D-19（加 `last_consumed_at`；P-25）；D-22、D-49（叙述通道保留，目标类 `task` 退出）；D-35（`APP_CONTENT_EMPTY` 由 `CONTENT_EXHAUSTED` 取代，其余码以「活动受理拒绝码」为准）；D-36（`APP_UNBOUND` 改义；P-11）；D-43（系列决定选择次序；R5）；D-44（事实种类，逐行投影归 LabelKit-DataSet；P-6、P-7）；D-46、B-7（人工环境与第四份基线；P-41）；D-52、B-30（打开键改为 `activity_id:draw_index`；P-26）；B-1（改写集合；P-29）；B-4（进度记录加动作名，系统不再代选 app）；B-9（常数名）；B-17（数量门槛；P-42）；B-20（`WORK_SCHEDULE_REQUIRED` 的条件改为分配了工作内容）；B-21（随 P-33）；B-22、B-23（占用闭集与「人物选动作与可选 app、系统选内容」；P-17、P-28）；B-25（内容时长下限；P-4） | D1、D3、D5、D6、D10、D-11、D-13、D-16、D-17、D-21、D-23 … D-27、D-29 … D-33、D-37、D-40、D-42、D-45、D-47、D-48、C-1、C-2、C-6、C-8、B-10 … B-14、B-24、B-29、B-31、B-32、B-35、B-43 |
 | 同上 | 闭集 | `FoodCategory`（由 `GoodsCategory`）；`ActivityKind`（十个减为 `wait`、`sleep`、`travel`、`action`）；`RESOURCE_CLAIM_SLOTS`（成员换为 `wait`、`travel`、`talk`、`use_app`、`entertainment`、`work_study`、`exercise`、`daily_care`）；`WAYS`（十六个减为六个）及随之收缩的 `ACTION_WAYS`；`START_ACTIVITY_ACTIONS`（十一个减为五个）；`CandidateKind`（只剩 `product`）；`TARGET_KINDS`（改为 `location`、`product`、`action`、`person`、`contact`、`self`、`activity`） | `FOOD_STORE_KINDS` 改名 `STORE_KINDS`；`ContentKind` 的必填条件（P-21）；`environment_event.data.kind` 加 `goods_received`，`work_topic_completed` 改名 `work_content_completed` | `LocationKind`、`PLACE_KIND_ENVIRONMENTS`、`SummarySourceKind`、`ScheduledKind`、`WakeReason` 的 22 个成员与次序 |
 | 同上 | 常数 | `APP_USE_DEFAULT_SECONDS`；`FOOD_CONSTANTS` 的进食秒数；`BODY_CONSTANTS.activity_met` 的 `work`、`use_app`、`read_mail`、`consume`、`chat`、`call` 键与生活活动条目自带的 `met_value`（由 `CATEGORY_MET`） | `RULES_VERSION` 由 1 改为 2；`FOOD_CONSTANTS` 的千卡改名 `GOODS_ENERGY_KCAL`；`CONTENT_RELIEF_PER_HOUR` 值不变、只用于娱乐；新增 `GOODS_RECEIPT_EFFECTS`、`CONTENT_MIN_SECONDS` | 出行、配送、地图与推送常数；身体常数，含 `food_efficiency_curve` 与能量上限；`wait`、`sleep`、`travel:walking`、`travel:driving` 的 MET；`DERIVED_DURATION_CAP_SECONDS` |
 | 同上 | 章节 | 「三类食品与进食」整节；「娱乐：app、内容与推送」的内容选择、固定窗口与活动生命周期条款；「工作主题与叙述」的主题目录、分配与完成条款；「数据仓交接」 | 「用户得到什么」；「固定规则与常数」；「环境格式」的目录文件、场景结构 7、注册校验与错误；「店铺、食品与外卖」的即时交付到当地持有与持有条款；「观察与工具面」「系统层」；「状态、事件、检查点与导出」；「人工环境」；「验收台账」「行为用例」「变异登记」里随测试退役的行，在删除该测试的同一提交删除 | 「地图与出行」；「店铺、食品与外卖」的同类型同菜单、全地图可达、配送时间与费用、商家账户条款；「娱乐：app、内容与推送」的推送网格与 session 条款；「工作主题与叙述」的叙述通道与按实际秒数计时；规格不归档，其机器登记仍是现行特性 |
@@ -153,7 +153,6 @@ flowchart LR
 | `docs/dev/SPEC-dayrun-behavior.md` | 条款族 | 餐馆的实际进食路径 | 等待与内容接触；占用与资源准入；共同时间结算里的 app 内容边界；事件投影（已核验经历与 app 使用事实） | 其余 |
 | `docs/dev/SPEC-decision-context.md` | 条款族 | — | 供给比较与结算结果里的食品、持有措辞；结果通道承载收货结果 | 其余 |
 | `docs/dev/SPEC-agent-interaction.md` | 条款族 | 以 app 为目标的条款 | 对象与动作选择；动作时长的来源；会话字段里的推送；稳定工具面；决策触发表 | 三级结构与七层上下文 |
-| `docs/dev/SPEC-labelkit-delivery.md` | 条款族 | — | 证据窗口的公开环境事件投影（加入 `goods_received`）；下游版本号与工件表；手机行的出处（P-7） | 窗口机制与 `app_push` 的四键投影 |
 | `docs/dev/SPEC-as2-integration.md` | 条款族 | — | 错误合同示例与验收矩阵里的进食、给予条目 | 其余 |
 | `docs/dev/SPEC-run-viewer-names.md` | 条款族 | — | 名称索引的来源（动作与商品取代食品、工作主题、生活活动）；活动标题 | 地点名称、缺失与重新加载 |
 | `docs/dev/SPEC-run-viewer-context.md` | 条款族 | — | 名称索引的来源与事件标签（`use_app`、方式「打开」、工作主题完成） | 请求选择与关联、22 个唤醒标签 |
@@ -534,7 +533,7 @@ WorldMock 拥有全部分类、常数与交换公式，定义在 `src/worldmock/
 
 预排、session 与状态机沿用[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送)「娱乐：app、内容与推送」，只改候选、选择、载荷与打开四处。
 
-- 不变：每个人物、每个当地日、`PUSH_HOURS_LOCAL` 的每个整点一个 `app_push` 预排事件；一个 session 每个 app 至多一条（`session.app_pushes[app_id]` 任何状态的条目都阻止再推）；`push_id` 为 `<scheduled_id>:<app_id>:<content_id>`；状态 `pending`、`opened`、`released`；醒着的人以 `app_push` 唤醒，睡眠中照常写入、不唤醒；到达当秒的推送属于新的停留 session；session 结束即失去资格，内容进度保留；窗口只限制新推送；app 使用中收到推送不打断；没有合格 app 时结算为系统可见的 `{kind: "app_push", pushed: false, session_id}`；LabelKit 公开投影仍是 `{kind, app, kind_label, summary}` 四键。
+- 不变：每个人物、每个当地日、`PUSH_HOURS_LOCAL` 的每个整点一个 `app_push` 预排事件；一个 session 每个 app 至多一条（`session.app_pushes[app_id]` 任何状态的条目都阻止再推）；`push_id` 为 `<scheduled_id>:<app_id>:<content_id>`；状态 `pending`、`opened`、`released`；醒着的人以 `app_push` 唤醒，睡眠中照常写入、不唤醒；到达当秒的推送属于新的停留 session；session 结束即失去资格，内容进度保留；窗口只限制新推送；app 使用中收到推送不打断；没有合格 app 时结算为系统可见的 `{kind: "app_push", pushed: false, session_id}`。
 - 候选（改）：只推送类别 `entertainment` 且使用方式 `phone_continuous` 的动作的内容。合格 app 是当前 session 没有推送条目、且至少有一个这样的动作对该人物合格集合非空的 app。工作内容、打卡页、其他设备与线下动作的内容永不被推送。
 - 选择（改）：以 `scheduled_id` 为键的同一条随机流依次从排序候选取 app、取该 app 上合格的动作，再按「内容选择」第 2–5 步取内容。单元规则、历史与预留排除和打开时相同，所以推送不越集，也不选别处已预留的内容。
 - 载荷（改）：人物可见的环境事件与进度层的 `app_push` 记录加动作名，推送事实加 `action_id`。
@@ -658,7 +657,7 @@ WorldMock 拥有全部分类、常数与交换公式，定义在 `src/worldmock/
 <a name="spec-acs-系统层"></a>
 ### 系统层
 
-十八条与下标不变（P-29）。改写第 6、7、8、12、13、15、17 条，其余十一条逐字不动；第 2 条列出的六个世界请求与工具面一致，不改。落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的系统层 JSON 块，模块常量 `custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER` 与之逐字相同；只读系统层不变。下面围栏块是七条的冻结全文，取代[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-系统层)「系统层」围栏块里的第 7、8、12、13、17 条，逐条锁定测试改读本节。
+十八条与下标不变（P-29）。改写第 6、7、8、12、13、15、17 条，其余十一条逐字不动；第 2 条列出的六个世界请求与工具面一致，不改。落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的系统层 JSON 块，模块常量 `src/worldmock/agents/life_prompt.py::LIFE_SYSTEM_LAYER` 与之逐字相同；只读系统层不变。下面围栏块是七条的冻结全文，取代[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-系统层)「系统层」围栏块里的第 7、8、12、13、17 条，逐条锁定测试改读本节。
 
 ```text
 第 6 条
@@ -744,7 +743,7 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 - 已核验经历四种：`waited`、`arrived` 不变；`played{content_id, app_id, position_before_seconds, position_after_seconds, interval_start, interval_end}` 的 `app_id` 可空，来源是任一 `action` 活动位置前进的结算；`received{order_id, goods_id, category, quantity}` 的来源是本人的 `goods_received` 事件，公共字段 `activity_id` 为 null；`consumed` 删除，去重与排序键里的 `food_id` 随之删除。
 - 进度层记录类型仍是九种。`app_push` 加 `action`，为 `{occurred_at, type, app, action, title, kind, summary}`。`work_completed{topic}` 的 `topic` 写完成的那条工作内容的标题。`delivery{order, status, message}` 的 `status` 只有 `delivered`：付款人照旧从 `delivery_arrival` 得到「已送到<地点>」（收货人不是自己时写明收货人）；不是付款人的模拟收货人从自己的 `goods_received` 得到一条，`message` 写「<付款人>买的，已送到<地点>」。订单名为「<商品> 1 份（HH:MM 购买）」，在线订单写「（HH:MM 经<购物 app>购买）」。邮件的 `message_arrival` 同时带 `subject` 与 `text`（正文）；交谈邀请的 `text` 结尾改为「，开始一项不用 app 的社交动作并在 to 写<发起人>即接受」。
 - 记忆层 `settled` 句：活动句仍是「<活动名>：<起止>（暂停 …），<终局>」，`action` 活动后接已完成内容的标题「，《A》《B》」，当前内容有实际推进而未完成时再写「（《C》未完）」，一条都没有推进时不接；活动名已含动作名与 app 名，句中不另写 app。订单句为「HH:MM 购买<商品> 1 份，付 N 元」，在线订单在「购买」前写「经<购物 app>」并接「，预计 HH:MM 送到<地点>」，有支付 app 时在金额后写「（<支付 app>）」，回应与收货人的括注不变。完成句为「HH:MM 完成「<内容标题>」」。「吃了…」「丢弃…」与「把…给了…」三种句子删除。零点计划输入的经历句：`played` 写「<起止> <动作名>《<标题>》」，有 app 时在动作名前写「用<app>」；`received` 写「HH:MM 收到<商品> 1 份」。
-- LabelKit 窗口的公开投影（`worldmock.delivery.windows::_public_event_data`）：人物可见的 `goods_received` 为 `{kind, goods, category_label, quantity}`（商品名与类别标签）；`app_push` 仍是 `{kind, app, kind_label, summary}` 四键；其他环境事件仍为空对象（P-8、P-27）。
+- 交给下游的事件：WorldMock 不构造 LabelKit 窗口，也不定义环境事件在窗口里的公开投影。导出的 `events.jsonl` 原样带着人物可见的 `goods_received` 与 `app_push`，各有本节前两条写明的完整载荷，连同所有人、可见性与 `caused_by`；窗口怎样裁剪它们是对 LabelKit-DataSet 的交接要求，写在「数据仓交接」（P-8、P-27）。
 
 <a name="spec-acs-数字足迹合同"></a>
 ### 数字足迹合同
@@ -778,9 +777,9 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 
 | 归属 | 拥有 | 不做 |
 | --- | --- | --- |
-| WorldMock | 两份足迹工件、它们的行形状与「足迹不变量」 | 不产出手机行 |
-| WorldMock-Dataset | `tools/simulate_phone.py`：只筛 `device` 为 `phone` 的行，一行对一行地投影；下单取 `purchase` 的 `created_at` 与 `app_id`，付款取 `created_at` 与 `payment_app_id`，送达通知取配送订单的 `receipt` 行并发给付款人，并按 `order_id` 取同一订单 `purchase` 行的 `app_id` 与 `fulfillment`，这是送达通知唯一允许的查找 | 不带自己的规则，不再读 `events.jsonl` 推导送达（P-7） |
-| `worldmock deliver` | 在交付清单里绑定这两份工件 | 不向 LabelKit 展示手机行；第三仓库的消费者仍是未完成的验收 |
+| WorldMock | 两份足迹工件、它们的行形状与「足迹不变量」 | 不产出手机行；不安装也不调用 LabelKit，没有数据加工命令，也没有交付清单 |
+| LabelKit-DataSet | 手机信号投影，本规格只作交接要求（「数据仓交接」）：只筛 `device` 为 `phone` 的行，一行对一行地投影；下单取 `purchase` 的 `created_at` 与 `app_id`，付款取 `created_at` 与 `payment_app_id`，送达通知取配送订单的 `receipt` 行并发给付款人，并按 `order_id` 取同一订单 `purchase` 行的 `app_id` 与 `fulfillment`，这是送达通知唯一允许的查找。LabelKit 窗口、训练与规则数据同归它；下游消费者仍是未完成的验收 | 不带自己的规则，不再读 `events.jsonl` 推导送达（P-7） |
+| WorldMock-Dataset | 环境素材、制作工具与环境发布（「数据仓交接」） | 不实现手机信号投影 |
 
 <a name="spec-acs-足迹不变量"></a>
 ### 足迹不变量
@@ -824,24 +823,23 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 <a name="spec-acs-结构版本"></a>
 ### 结构版本
 
-十二个身份号（P-35）：前十个随集成波次一次升级，后两个属数据仓；每个入口拒绝旧号，不迁移、不双读。
+十一个身份号（P-35）：前九个随集成波次一次升级，后两个分属 WorldMock-Dataset 与 LabelKit-DataSet；每个入口拒绝旧号，不迁移、不双读。
 
 | 身份 | 今天 → 之后 | 定义处 | 拒绝旧号的入口 |
 | --- | --- | --- | --- |
 | 目录 `format_version` | 1 → 2 | `CatalogManifest`（`src/worldmock/catalog/models.py`） | 目录加载：`validate`、`run`、`resume`、`replay`、`worldmock validate --environment` |
 | `RULES_VERSION` | 1 → 2 | `src/worldmock/exchange/constants.py` | 清单 `rules_version` 不等即 `RULES_VERSION_MISMATCH`；`environment_identity.rules_version` 不等时恢复、重放与导出校验拒绝 |
 | 场景结构 | 7 → 8 | `LifeScenario.schema_version`（`src/worldmock/life/scenario.py`） | 场景加载：`validate`、`run`、`resume`、`replay` |
-| 世界结构 | 10 → 11 | `WORLD_SCHEMA_VERSION` | 打开存储、恢复与重放（`WorldState` 的字面量）；`validate_export`；交付门禁 `_require_current_world_schema` |
+| 世界结构 | 10 → 11 | `WORLD_SCHEMA_VERSION` | 打开存储、恢复与重放（`WorldState` 的字面量）；`validate_export` |
 | 运行清单 | 3 → 4 | `src/worldmock/life/world_setup.py` 的清单构造 | `require_environment_identity`（恢复、重放）；导出校验的 `_validate_run_identity` |
-| 导出清单 | 3 → 4 | `src/worldmock/footprints/export.py` 的 `_export_identity` | `validate_export` 的 `_validate_identity`；`deliver`；评估的 `_validate_canonical_manifest`；数据仓的手机投影经 `validate_export` |
+| 导出清单 | 3 → 4 | `src/worldmock/footprints/export.py` 的 `_export_identity` | `validate_export` 的 `_validate_identity`；评估的 `_validate_canonical_manifest`；下游读取方先以 `validate_export` 认证导出（对 LabelKit-DataSet 的交接要求） |
 | 质量报告 | 5 → 6 | `build_quality_report` | `validate_export` 从事件重算并整份比对，旧报告不相等即拒绝 |
-| 交付清单 | 3 → 4 | `src/worldmock/delivery/pipeline.py` | 仓内没有读取它的入口；旧输入由导出清单与世界结构两道门禁拒绝 |
 | 行为报告 | `behavior-metrics-1` → `behavior-metrics-2` | `behavior_metrics_report` | 只写不读；不同标识的报告不合并比较 |
 | `affordances.toml` 的 `version` | 1 → 2 | `src/worldmock/data/affordances.toml` | 注册表加载，即引擎建立与工具指纹计算 |
-| 数据仓 `environment_version` | "2" | 数据仓发布的 `catalog/manifest.json` | 场景的环境钉不符即 `ENVIRONMENT_PIN_MISMATCH` |
-| 数据仓手机清单 | 1 → 2 | 数据仓 `tools/simulate_phone.py` | 数据仓自己的读取方 |
+| WorldMock-Dataset 的 `environment_version` | "2" | 数据仓发布的 `catalog/manifest.json` | 场景的环境钉不符即 `ENVIRONMENT_PIN_MISMATCH` |
+| 下游手机投影清单 | 随新行形状升号，号由 LabelKit-DataSet 定 | LabelKit-DataSet 的手机信号投影 | 该仓库自己的读取方 |
 
-不变：地图结构 1 与生成器规则 1、`Event` 与 `Checkpoint` 结构 1、22 个唤醒原因、十四个事件类型、`environment_identity` 的五个字段、交付证据编码版本 1。
+不变：地图结构 1 与生成器规则 1、`Event` 与 `Checkpoint` 结构 1、22 个唤醒原因、十四个事件类型、`environment_identity` 的五个字段。
 
 <a name="spec-acs-删除清单"></a>
 ## 删除清单
@@ -971,7 +969,7 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | [EW] | 变异 `scenario_structure_four_admitted`、`system_layer_copy_diverges` | 1、4 | 前者改写原文（结构字面量 8）；后者不动（钉住的第 6 条源码整行逐字保留，见「系统层」） |
 | [RRS] | 行为用例 T27、T29、T48（全部所有者节点在被删文件里） | 1、2、3 | 删除，连同只由它们杀死的变异行：T29 随评分器在阶段 1，T27 在阶段 2，T48 在阶段 3；引用它们的台账行（食品热量固定、随机和状态可恢复、工作面与阶段身份）同提交去掉这三个编号，各行仍有保留的用例；行为由本特性台账的收货与分配工作内容各契约点接管 |
 | [RRS] | 行为用例 T43、T44、T45、T46（台账行「工作由时间决定」只列这四个，绑在该行的四条变异只由 T44、T45、T46 杀死） | 3、4 | 改指：四个用例行留在该规格的表与登记里，所有者节点换到 `tests/life/test_action_run.py` 的分配工作内容节点（只按实际秒数累计、暂停不计、叙述不触发完成、做满内容时长即完成且不再选中），`tests/life/test_work_protocol.py` 的节点在阶段 4 改指；语句里已退役的分句（主题目录与主题上限、并行进食）同提交删去 |
-| [RRS] | 行为用例 T13 的规则副本节点，T30 的进食证据节点，T33、T41 的 app 目标节点，T47、T50 的工作提示闭集节点；T15、T16、T54 里节点名写着世界 10、运行清单 3、导出清单 3 的所有者节点 | 1 … 5 | 行保留；被删节点与语句里已退役的分句同提交删去；写着旧结构号的节点在升级该号的阶段原位改名并同步登记 |
+| [RRS] | 行为用例 T13 的规则副本节点，T30 的进食证据节点，T33、T41 的 app 目标节点，T47、T50 的工作提示闭集节点；T15、T16 里节点名写着世界 10、运行清单 3 的所有者节点 | 1 … 5 | 行保留；被删节点与语句里已退役的分句同提交删去；写着旧结构号的节点在升级该号的阶段原位改名并同步登记 |
 | [RRS] | 行为用例 T15、T16、T17、T19、T22、T33、T34、T36、T39 在 `tests/integration/test_rrs_engine_wave.py` 的晚期集成节点 | 4 | 改指 `tests/integration/test_acs_engine_wave.py` 的同义节点；写着结构 9 的节点改名为拒绝世界 10 并同步登记；持有未登记食品与进食证据两个节点删除 |
 | [RRS] | 变异 `second_food_interval_repeats_full_portion`、`rrs_food_snack_enters_meal_candidates`、`rrs_package_snapshots_unchecked`、`system_entertainment_in_purchase_rule`、`system_work_deadline_effective_hours` | 1 … 4 | 删除（进食、动机候选、规则副本、「娱乐只选 app」与「按主题计工时」两句都已不存在） |
 | [RRS] | 变异：`worldmock.life.content` 上十三个、`work_totals` 上三个、`rrs_completed_work_topic_remains_visible`、`rrs_food_named_unbound_store_succeeds` | 3、4 | 换成执行器、选择器、工具层与购买解析上的同义变异（共享进度不分 app、恢复不重抽、完成只加一轮、暂停不计工时、完成的分配内容不再列出、未绑定的购物 app 被拒） |
@@ -1014,17 +1012,17 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | 4 | `tests/test_start_activity_contract.py`、`tests/life/conftest.py`、`tests/life/test_tool_protocol.py`、`test_tool_layer.py`、`test_prompt_layers.py`、`test_callable_index.py`、`test_name_resolution.py`、`test_error_contract.py`、`test_world_query.py`、`test_world_query_filters.py`、`test_request_linking.py`、`test_control_name_rejections.py`、`test_interaction_menu_invariants.py`、`test_interaction_menu_runtime.py`、`test_activity_menu.py`、`test_readable.py`、`test_environment_layer.py`、`test_candidates.py`、`test_food_presentation.py`、`test_menu_discovery.py`、`test_app_vocabulary.py` | 六种方式与同义词表，退役方式仍被拒；五个键的请求项与逐键拒绝码；动作行、购买行与 `app` 字段；时长只由内容派生；`callable_index` 四个键；`query_world.app`；候选只有商品；宿主与环境同码同文 |
 | 4 | `tests/integration/test_seven_layer_request.py`、`test_tool_description_references.py`、`test_life_agent_protocol.py`、`test_activity_schema.py`、`test_strict_endpoint.py`、`test_interaction_menu.py`、`test_grounded_targets.py`、`test_storefront_tools.py`、`test_decision_context_protocol.py`、`test_unique_presence_run.py`、`test_external_environment_lifecycle.py` | 系统层七条的正向断言与新增退役读法、两句用途句、工具数 11 与稳定面 8 不变、最终 `prompt_sha256` 与 `tool_schema_sha256`；逐条锁定测试改读本文件「系统层」 |
 | 4 | `tests/life/test_tool_interaction_habits.py`、`tests/fixtures/tool_interaction_habits.json`、`tests/fixtures/viewer-context.json`、`tests/integration/test_run_viewer_recording.py` | 习惯链改为 购买、进行；查看器夹具的 `action`、`continuation` 从新格式运行重录，`legacy_*` 不动 |
-| 5 | `tests/footprints/test_app_usage.py`、`test_purchases.py`、`test_export.py`、`test_validation.py`、`test_quality.py`、`test_event_fields.py`、`test_branch_coverage.py`、`test_goal_export.py`、`test_errand_export.py`、`tests/life/test_export_integration.py`、`test_timeline_labels.py` | 六种 app 使用事实与三种使用方式的行形状、`receipt` 行、导出清单 4、质量报告 6；`validate_export` 的七条不变量每条一个正例与一个反例；`export_run` 与 `validate_export` 的重算比对 |
+| 5 | `tests/footprints/test_app_usage.py`、`test_purchases.py`、`test_export.py`、`test_validation.py`、`test_quality.py`、`test_event_fields.py`、`test_branch_coverage.py`、`test_goal_export.py`、`test_errand_export.py`、`tests/life/test_export_integration.py`、`test_timeline_labels.py` | 六种 app 使用事实与三种使用方式的行形状、`receipt` 行、导出清单 4、质量报告 6；`validate_export` 的七条不变量每条一个正例与一个反例；`export_run` 与 `validate_export` 的重算比对；`validate_export` 拒绝导出清单 3 与世界 10 的导出；`events.jsonl` 原样带着人物可见的 `goods_received` 与 `app_push`（完整载荷、所有人与可见性），导出侧不做窗口投影 |
 | 5 | `tests/integration/test_acs_engine_wave.py` | 导出与成本节点：两小时以上、不少于 20 条内容的娱乐执行恰一行 `app_use`、每条内容一条证据，决策数不超过 P-38 的上限 |
-| 5 | `tests/delivery/test_windows.py`、`test_publication.py`、`test_host_delivery_coverage.py`、`test_generation.py`、`tests/evaluation/conftest.py`、`test_adapters.py`、`test_behavior_metrics.py`、`test_branch_coverage.py`、`test_errand_metrics.py`、`test_goal_metrics.py`、`test_workload_metrics.py`、`tests/evaluation/fixtures/scenario.json` | 交付清单 4 与旧世界结构拒绝；`goods_received` 的四键投影，`app_push` 仍是四键；`behavior-metrics-2`、新家族表、`meal_diversity` 与手机数字交互的判定；评估场景夹具去掉域 `eat` 与旧活动映射行 |
+| 5 | `tests/evaluation/conftest.py`、`test_adapters.py`、`test_behavior_metrics.py`、`test_branch_coverage.py`、`test_errand_metrics.py`、`test_goal_metrics.py`、`test_workload_metrics.py`、`tests/evaluation/fixtures/scenario.json` | 评估入口拒绝导出清单 3 的导出；`behavior-metrics-2`、新家族表、`meal_diversity` 与手机数字交互的判定；评估场景夹具去掉域 `eat` 与旧活动映射行 |
 | 5 | `tests/footprints/test_render_day.py`、`tests/integration/test_biz_timeline_recording.py`、`tests/fixtures/dayrun-biz-timeline.json`、`tests/tools/run_viewer.test.cjs`、`run_viewer_context.test.cjs`、`test_run_viewer.py`、`tests/life/test_rerun_metrics.py` | 一个 `action` 标签器与名称索引 `goods`、`actions`、`apps`、`contents`；时间线夹具从新格式夹具运行重新生成；`rerun` 的进食项改按食品收货 |
 | 1–5 | `tests/life/test_domain_branch_coverage.py`、`test_engine_branch_coverage.py`、`test_public_interface_evidence.py`、`test_public_interface_guards.py`、`tests/test_rrs_public_interfaces_external.py`、`tests/integration/test_host_branch_coverage.py`、`test_agent_branch_coverage.py` | 删除符号的同一提交删去只覆盖它的节点；新增的每个公开函数由所有者测试执行全部函数体，覆盖率门的零未覆盖公开接口在阶段 6 核对 |
-| 1–5 | 表内没有点名、但引用被删名字的其余 43 个测试文件：`tests/delivery/test_replay.py`、`tests/evaluation/test_shared_event_parsing.py`、`tests/integration/test_conclude_memories.py`、`test_dayrun_parallel_agent.py`、`test_grounded_evidence.py`、`test_host_feedback.py`、`test_interaction_menu_roundtrip.py`、`test_observation_agent_seam.py`、`test_parallel_rejection_contract.py`、`test_presentation_habits.py`、`test_same_second_continuation.py`、`test_verified_memory.py`、`tests/life/test_activity_title_embedding.py`、`test_candidate_contract_boundaries.py`、`test_candidate_wiring.py`、`test_continuation_metrics.py`、`test_coverage_closure_models.py`、`test_coverage_closure_projection.py`、`test_coverage_closure_scenario.py`、`test_decision_budget.py`、`test_decision_context_projection.py`、`test_engine_feedback.py`、`test_engine_round.py`、`test_errand_reminder.py`、`test_errand_todo_layer.py`、`test_grounded_observation.py`、`test_location_sessions.py`、`test_model_input_killpoints.py`、`test_money_settlement.py`、`test_narration.py`、`test_persona_layer.py`、`test_public_observation_contract.py`、`test_query_cost_report.py`、`test_session_attribution.py`、`test_shift_edge_runs.py`、`test_sleep_billing.py`、`test_state_write_recheck.py`、`test_todo_layer.py`、`test_tool_interaction_runtime.py`、`test_travel_graph.py`、`test_wait_passive_entertainment.py`、`tests/test_environment_profiles.py`、`test_tool_interaction_acceptance.py` | 在删除该名字的提交原位改写；依赖引擎的从阶段 4 起恢复运行。加上本行，本章各表列全了要删除、要改写与新增的测试文件 |
+| 1–5 | 表内没有点名、但引用被删名字的其余 42 个测试文件：`tests/evaluation/test_shared_event_parsing.py`、`tests/integration/test_conclude_memories.py`、`test_dayrun_parallel_agent.py`、`test_grounded_evidence.py`、`test_host_feedback.py`、`test_interaction_menu_roundtrip.py`、`test_observation_agent_seam.py`、`test_parallel_rejection_contract.py`、`test_presentation_habits.py`、`test_same_second_continuation.py`、`test_verified_memory.py`、`tests/life/test_activity_title_embedding.py`、`test_candidate_contract_boundaries.py`、`test_candidate_wiring.py`、`test_continuation_metrics.py`、`test_coverage_closure_models.py`、`test_coverage_closure_projection.py`、`test_coverage_closure_scenario.py`、`test_decision_budget.py`、`test_decision_context_projection.py`、`test_engine_feedback.py`、`test_engine_round.py`、`test_errand_reminder.py`、`test_errand_todo_layer.py`、`test_grounded_observation.py`、`test_location_sessions.py`、`test_model_input_killpoints.py`、`test_money_settlement.py`、`test_narration.py`、`test_persona_layer.py`、`test_public_observation_contract.py`、`test_query_cost_report.py`、`test_session_attribution.py`、`test_shift_edge_runs.py`、`test_sleep_billing.py`、`test_state_write_recheck.py`、`test_todo_layer.py`、`test_tool_interaction_runtime.py`、`test_travel_graph.py`、`test_wait_passive_entertainment.py`、`tests/test_environment_profiles.py`、`test_tool_interaction_acceptance.py` | 在删除该名字的提交原位改写；依赖引擎的从阶段 4 起恢复运行。加上本行，本章各表列全了要删除、要改写与新增的测试文件 |
 | 6 | `tests/integration/test_dayrun_complete_days.py`、`tests/scripts/test_freeze_rrs_baseline.py`、`tests/fixtures/dayrun-action-content-baseline.json`（新增） | 脚本日改在新人工环境上（到店购买并收货、经购物 app 与支付 app 下外卖、带导航 app 出行、一次带推送的娱乐执行、无 app 动作、分配的工作内容与播报、睡眠）；同一场景与同一种子完整运行两次，`scripts/freeze_rrs_baseline.py` 的 `freeze_matching_baseline` 逐项一致后冻结第四份基线，基线 JSON 的键集与冻结脚本不变；每人每日 `decision_started` 数由完整日用例从该次运行的事件计算，写进阶段 6 的回执与 `docs/dev/implementation-status.md` 的「动作与内容简化开发状态」，不设阈值；`PROTECTED` 加入第三份基线 |
 | 6 | `tests/fixtures/acs-acceptance.json`、`tests/acs_acceptance.py`、`tests/test_acs_acceptance.py`、`docs/dev/test-durations.json`、`docs/dev/coverage-report.json` | `STAGES_DONE` 由空集改为 `{1,2,3,4,5,6}`；核对最终文件集合与全部变异回执；首次运行标准层、全量层与覆盖率门并重录耗时；不在本阶段首次解除阶段 1–5 的钉住 |
 | 7 | `tests/fixtures/acs-acceptance.json`、`tests/acs_acceptance.py` | 只登记正式环境回执并把 `STAGES_DONE` 改为 `{1,…,7}`；不改任何行为用例 |
 
-字节不动的证据文件（历史基线、历史运行的录制样本与两份历史比对基准）：`tests/dayrun_baseline.py`、`tests/fixtures/dayrun-layering-baseline.json`、`dayrun-shared-rules-baseline.json`、`dayrun-resource-rule-baseline.json`、`mutation-symbol-baseline.json`、`layering-public-api.json`、`dayrun_truncations.json`、`dayrun-contact-replies.json`、`control-request-generations.json`、`archive-assets.json`、`tests/resources/fixtures/anchor-money.json`、`tests/delivery/fixtures/labelkit-action.json`。
+字节不动的证据文件（历史基线、历史运行的录制样本与两份历史比对基准）：`tests/dayrun_baseline.py`、`tests/fixtures/dayrun-layering-baseline.json`、`dayrun-shared-rules-baseline.json`、`dayrun-resource-rule-baseline.json`、`mutation-symbol-baseline.json`、`layering-public-api.json`、`dayrun_truncations.json`、`dayrun-contact-replies.json`、`control-request-generations.json`、`archive-assets.json`、`tests/resources/fixtures/anchor-money.json`。
 
 <a name="spec-acs-现行文档原位改写"></a>
 ## 现行文档原位改写
@@ -1037,40 +1035,39 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | 规则 | 要求与依据 |
 | --- | --- |
 | 原位改写 | 与本规格冲突的条款在所属正文原位改写，同一件事任何时刻只有一条有效要求；不另起并列小节，不留新旧两套文字。每项作业落在使其句子成真的代码所属阶段（P-40），阶段 0 不预写 |
-| 锚点 | 现有 `<a name>` 一律保留，新增小节另给新锚点。十个章节的标题锚点从不改名：`src/`、`custom/`、`tests/` 的注释与文档字符串只引用它们，门禁逐条解析。标题文字随语义改，锚点不动 |
+| 锚点 | 现有 `<a name>` 一律保留，新增小节另给新锚点。九个章节的标题锚点从不改名：`src/`、`custom/`、`tests/` 的注释与文档字符串只引用它们，门禁逐条解析。标题文字随语义改，锚点不动 |
 | 被取代的节 | 整节被取代时，正文改写为现行规则的一两句并指向所属合同，不留空节：`tests/fixtures/current-feature-owners.json` 把其他特性的要求登记到这些节，例如 `docs/dev/SPEC-life-runtime.md#persona-prompt-交互语义-进食`、`docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-区间事实只有一个来源社交账与共同用餐`、`docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序`，正文为空即门禁失败 |
 | 版本表行 | 有版本表的文档在改写它的每个阶段于表末加一行，行标识 `2026-10-07-acs-<阶段短名>`，短名依次为 `freeze`、`rules`、`receipt`、`action`、`request`、`record`、`close`、`dataset`；日期写实际提交日，内容写被改写条款的现行语义。`docs/design/08-configuration.md` 的版本表是四列，作者列写实际提交者 |
 | 文件头说明行 | 每份被改写的文档在文件头保留一行「按动作与内容简化规格修订「<节名>」（阶段 N）」，规格名链接本规格标题锚点 `spec-acs-动作与内容简化开发规格`，后续阶段在同一行补节名与阶段。设计章节把这一行放在带键引用块（`> **状态**` 至 `> **目标读者**` 或 `> **范围**`）之后：`scripts/build_design_doc.py` 只在文件头前十二行里读 `> **键**：值`，排在带键块之前的说明行会把状态、日期、版本挤出汇编封面。手册沿用带日期的文件头修订说明 |
 | 章节版本 | 设计章节（05 除外）在本特性第一次改写它的阶段把文件头「版本」末位加一并改「日期」，之后各阶段只改日期；`docs/design/05-recording-engine.md` 只加特性标识行，版本号不变。新行一律加在版本表最后一行之后，汇编取表末行作该章的最新修订 |
 | 只写现行语义 | 章节、合同与规格的正文只陈述改写当时成立的语义，不写「本阶段」「在阶段 N 接入」「随后切换」这类相对阶段的句子；阶段只出现在文件头说明行与版本表。前序特性留下的这类句子在触及它所在小节的阶段删除，逐条列在下面各表 |
 | 汇编 | 改动任一设计章节或 `docs/CONTRACTS.md` 被摘录十五节之一的每个提交，都运行 `python scripts/build_design_doc.py` 并一并提交 `docs/design/worldmock-design.html`，以 `python scripts/build_design_doc.py --check` 通过为准。十五节的锚点是 `contracts-person-tools`、`contracts-day-goal-request`、`contracts-request-settlement`、`contracts-closed-request-models`、`contracts-action-results`、`contracts-social-errors`、`contracts-seven-layers`、`contracts-seven-layer-schema`、`contracts-model-request`、`contracts-tool-result-channel`、`contracts-turn-budget`、`contracts-generation-parameters`、`contracts-model-identity`、`contracts-reasoning-return`、`contracts-cli`；摘录到下一个同级或更高级标题为止，所以其下的 `contracts-交互菜单声明与有效菜单`、`contracts-活动受理拒绝码`、`contracts-运行状态枚举`、`contracts-运行诊断输出` 同样触发 |
-| 共享规则引用 | 十个章节与 `docs/CONTRACTS.md`、`docs/ARCHITECTURE.md` 各保留对共享规则与可重建环境规格文件的引用，各章「共享规则与可重建环境修订」一节不删：`tests/test_shared_rules_spec.py` 逐份核对这十二个文件。不新增第十一个 `0N-` 章节 |
+| 共享规则引用 | 九个章节与 `docs/CONTRACTS.md`、`docs/ARCHITECTURE.md` 各保留对共享规则与可重建环境规格文件的引用，各章「共享规则与可重建环境修订」一节不删：`tests/test_shared_rules_spec.py` 逐份核对这十一个文件，并断言文件数恰为十一。不新增第十个 `0N-` 章节，移交后空出的 06 也不补 |
 | 系统层与用途句 | `docs/CONTRACTS.md#contracts-model-request` 的系统层 JSON 块与 `docs/CONTRACTS.md#contracts-person-tools` 逐字登记的两句用途句，与模块常量 `LIFE_SYSTEM_LAYER`、`TOOL_DESCRIPTIONS` 在阶段 4 的同一提交改，逐字相同。同一节的字段说明定稿表里，个人事务的各行（去掉 `outcome` 一行、`item` 的新说明）随阶段 2 删除 `ErrandChange.outcome` 的提交与代码里的字段说明同改：`tests/integration/test_tool_description_references.py` 逐字比对二者。除此之外各阶段不碰这几处文字，锁定测试始终成立 |
 | 源码引用 | 现行文档里指向 `src/`、`custom/`、`tests/`、`scripts/` 的链接与 `路径::名字` 形式的引用，在移动、改名或删除该文件或定义的同一提交改写（门禁解析它们）；`docs/dev/ANALYSIS-spec-coverage.md` 各增量映射里指向被删测试节点的行属于此类，随删除该节点的提交删除或改指。本特性新建的符号在文档里写点分模块形式或只写名字 |
-| 不改的文件 | `docs/archive/`、`docs/dev/research/`、已裁决与未冻结的提案（含本特性的提案）、既有验收记录、其他冻结规格的裁决表原文不改。资源与规则引擎简化规格的正文与锚点不由本章改写，被取代与被修订的条款以「对前序冻结规格的修订」为准；文件头说明行与版本表行按本章各阶段添加。它另有两类改动：(1) 正文引用的定义被本特性删除或改名时，在同一提交于文件头前二十行内加一行引用出处行，格式为「> 引用出处：`<路径>::<名字>` @ `490ae4bb0ab226c0cf90e77531ccafffcca38f97`」（与 `docs/dev/SPEC-interaction-menu.md` 文件头的做法相同，提交取本规格的代码基线），正文不改；(2)「验收台账」「行为用例」「变异登记」三张表里随测试退役或改指的行，由「既有特性台账里被钉住的行」在删改该测试的同一提交同步修改（守卫核对表与登记一致） |
+| 不改的文件 | `docs/archive/`、`docs/dev/research/`、已裁决与未冻结的提案（含本特性的提案）、既有验收记录、其他冻结规格的裁决表原文不改。资源与规则引擎简化规格的正文与锚点不由本章改写，被取代与被修订的条款以「对前序冻结规格的修订」为准；文件头说明行与版本表行按本章各阶段添加。它另有两类改动：(1) 正文引用的定义被本特性删除或改名时，在同一提交于文件头前二十行内加一行引用出处行，格式为「> 引用出处：`<路径>::<名字>` @ `05a295ab464165e9ce3bd7cd7783e0513fb57e8d`」（与 `docs/dev/SPEC-interaction-menu.md` 文件头的做法相同，提交取本规格的代码基线），正文不改；(2)「验收台账」「行为用例」「变异登记」三张表里随测试退役或改指的行，由「既有特性台账里被钉住的行」在删改该测试的同一提交同步修改（守卫核对表与登记一致） |
 
 <a name="spec-acs-设计文档清单"></a>
 ### 设计文档确认清单
 
-`docs/design/` 下十三个文件的全部改动一屏列完；单元格是该阶段被改写的小节，逐节语义在其后各阶段表。阶段 0 不动这个目录。每章在被改写的阶段另加版本表行并更新文件头，表内不再重复。
+`docs/design/` 下十二个文件（九章、入口、总结与汇编 HTML）的全部改动一屏列完；单元格是该阶段被改写的小节，逐节语义在其后各阶段表。阶段 0 不动这个目录。每章在被改写的阶段另加版本表行并更新文件头，表内不再重复。
 
 | 文件 | 阶段 1 | 阶段 2 | 阶段 3 | 阶段 4 | 阶段 5 | 阶段 6、7 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `00-overview.md` | 文件头、环境说明段、核心原则、核心术语、需求映射表（两行旧文）、设计决策、设计假设、开放问题、参考文献、版本历史（并表） | 地图中的消费行为、数据质量原则、需求映射表、背书总表 | 需求映射表、背书总表 | 地图中的消费行为、需求映射表 | 解决方案 | 6：复核 |
+| `00-overview.md` | 文件头、环境说明段、核心原则、核心术语、需求映射表（两行旧文）、设计决策、设计假设、开放问题、参考文献、版本历史（并表） | 地图中的消费行为、数据质量原则、需求映射表、背书总表 | 需求映射表、背书总表 | 地图中的消费行为、需求映射表 | 解决方案 | 6：复核；7：系统目标的下游对接一行 |
 | `01-architecture.md` | 文件头、环境说明段、职责与交接、状态归属与写入边界、准备与初始化、地图与门店供给的交接、配置与运行入口、状态与记录、代码对应关系 | 状态归属与写入边界、地图与门店供给的交接、状态与记录 | 系统定位、状态归属与写入边界、观察行动与执行、事件驱动的时间推进、已采用的设计决策、实际生产依赖与状态归属 | 系统定位、观察行动与执行、地图与门店供给的交接、状态与记录 | 状态与记录 | 6：复核 |
 | `02-exchange-engine.md` | 环境说明段、系统固定类型与常数、交换对象与资源变化声明、门店供给的时态与履约判断、当前实现与验收三节、纯规则与执行职责、可供性与活动声明（注册表的声明） | 功能设计、校验交换条件、资源变化的计算、不同交换的计算依据、返回规则结果、食品交换的规则调用 | 可供性与活动声明、不同交换的计算依据 | 返回规则结果 | 无 | 6：复核 |
 | `03-resource-engine.md` | 环境说明段、项目框架映射、职责约定、语料五节、组织与发布目录、随机地图的生成与发布、可计量资源定义、交换对象与内容条目、地点商品与门店供给、文件职责、构建与版本、文件身份校验、准入三节、基础类型与资源装配 | 可计量资源定义、地点商品与门店供给 | 检索与呈现（候选种类一句） | 检索与呈现、地点发现与供给比较、无结果与范围限制、检索呈现的实现与验收 | 无 | 6：复核 |
 | `04-simulation-engine.md` | 文件头、环境说明段、共享规则节一句、地图与供给初始化、输入与启动流程、恢复与反事实运行编排、当前实现入口、当前实现边界 | 项目框架映射、与其他模块的分工、输入与启动流程、提供当前可见的处境、发现与比较门店供给、校验与占用安排、预排事件、活动生命周期、身体变化与效率、反馈续行与结束、从实际进度到世界变化、调用并等待人物决策、当日目标、失败处理、验收重点 | 校验与占用安排、预排事件、app 使用时长、活动生命周期、身体变化与效率、反馈续行与结束、判断唤醒条件、结算边界与决策机会、从实际进度到世界变化、当日目标、恢复与反事实运行编排、当前运行职责对象、验收重点 | 人物所见与可做之事、发现与比较门店供给、调用并等待人物决策、校验与占用安排、将真实结果交还人物、失败处理、当前实现边界 | 无 | 6：复核 |
 | `05-recording-engine.md` | 文件头、必须保存的内容、持久化结构、检查点创建、地图与供给的恢复身份 | 必须保存的内容、事件类型枚举、事件正文与资源证据、地图与门店供给证据、共同身体结算与决策证据、activity_progress 事件、已核验经历、检查点创建、恢复身份、记录生活全过程的验收 | 事件字段、事件类型枚举、事件正文与资源证据、activity_progress 事件、已核验经历、工具纠错与只读查询的证据、检查点创建 | 必须保存的内容、地图与门店供给证据、工具纠错与只读查询的证据 | 导出行为、完整性验证、质量报告、固定截止导出的验收、调试工具 | 6：复核 |
-| `06-delivery.md` | 文件头、接收记录引擎导出 | 语义候选结构 | 无 | 动作窗口提取规则 | 共享规则节一句、接收记录引擎导出、地图与门店供给的证据窗口、manifest.json 结构、完整性校验清单、当前交付边界与来源 | 6：复核 |
 | `07-evaluation.md` | 无 | 无 | 无 | 无 | 文件头、协议门禁、报告项、24 小时重复率、证据事件、活动、适配器职责、两个数据集对比、比较边界 | 6：复核；7：两阶段执行的命令路径 |
 | `08-configuration.md` | 环境说明段、职责与边界、配置层级、加载与校验、参数归属、文件位置与合同、交互菜单声明、供给初值、身体资源初值、人物差异与衍生体感、工作安排声明、规则来源与配置边界、资源目录引用、语料引用、规则配置入口、validate 命令、校验清单、配置版本与运行绑定、语料管理、规则维护、与其他模块的关系、冻结输入与可重建测试、校验报告、错误分类与提示 | 人物差异与衍生体感 | 无 | 无 | 无 | 6：复核；7：validate 命令的路径 |
-| `09-io-formats.md` | 文件头、环境说明段、职责与边界、WorldState、AgentState、工具请求一节的结构号一句 | 职责与边界、WorldState、AgentState、BodyState、当前工具请求查询与错误格式（个人事务变更） | AgentState、ActivityState | 当前工具请求、查询与错误格式 | LabelKit 交付格式 | 6：复核 |
-| `README.md` | 无 | 无 | 无 | 无 | 无 | 6：文件头说明段、工具交互设计同步、新增「动作与内容简化修订」、个人事务与工作安排设计同步、让「等待」成为例外修订、文档清单、地图与门店供给的一致性、更新约定、版本；7：按任务读 |
-| `SUMMARY.md` | 无 | 无 | 无 | 无 | 无 | 6：文件头说明段、工具交互设计同步、新增「动作与内容简化修订」、个人事务与工作安排设计同步、六章的内容亮点、地图与门店供给修订、让「等待」成为例外修订 |
+| `09-io-formats.md` | 文件头、环境说明段、职责与边界、WorldState、AgentState、工具请求一节的结构号一句 | 职责与边界、WorldState、AgentState、BodyState、当前工具请求查询与错误格式（个人事务变更） | AgentState、ActivityState | 当前工具请求、查询与错误格式 | 无 | 6：复核 |
+| `README.md` | 无 | 无 | 无 | 无 | 无 | 6：文件头、文档状态说明、更新约定、版本表；7：文档状态说明的下游消费一句 |
+| `SUMMARY.md` | 无 | 无 | 无 | 无 | 无 | 6：复核；7：维护与证据的下游消费一句 |
 | `worldmock-design.html` | 重新汇编 | 重新汇编 | 重新汇编 | 重新汇编 | 重新汇编 | 6、7：凡有章节改动即重新汇编 |
 
-十章、入口与总结没有一份不动。保持原样的最大几块是：05 的「保存与关联证据」「一致性保存与校验」（「持久化结构」除外）与「恢复与反事实分支」；06 的「字段字典编码」「LabelKit 集成」「来源关联」与「端到端流程图」；07 的「盲评流程」「统计方法」与「报告生成」；02 六个只留锚点的空节照旧为空。
+九章与入口没有一份不动；总结今天已不写结构号、特性修订清单与逐章亮点，阶段 6 只复核。保持原样的最大几块是：05 的「保存与关联证据」「一致性保存与校验」（「持久化结构」除外）与「恢复与反事实分支」；07 的「盲评流程」「统计方法」与「报告生成」；02 六个只留锚点的空节照旧为空。原第 06 章随数据加工移交 LabelKit-DataSet 而删除：窗口、加工清单与手机信号投影不再是本仓库的文档，对它们的要求只写在「数据仓交接」。
 
 <a name="spec-acs-文档阶段0"></a>
 ### 阶段 0（冻结）
@@ -1086,7 +1083,7 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 
 | 文档与位置 | 改写后的语义 |
 | --- | --- |
-| `docs/design/00-overview.md`、`docs/design/01-architecture.md`、`docs/design/04-simulation-engine.md`、`docs/design/05-recording-engine.md`、`docs/design/06-delivery.md`、`docs/design/09-io-formats.md` 的文件头 | 带键引用块上移到标题之下，现有不带键的资源与规则引擎简化说明行移到带键块之后，本特性说明行排在它们后面；改后状态、日期、版本都落在前十二行。今天汇编封面上这六章与 07 的版本、其中 01、04、06 与 07 的日期显示为「—」，原因就是说明行排在带键块之前；07 在阶段 5 第一次被改写时同样处理 |
+| `docs/design/00-overview.md`、`docs/design/01-architecture.md`、`docs/design/04-simulation-engine.md`、`docs/design/05-recording-engine.md`、`docs/design/09-io-formats.md` 的文件头 | 带键引用块上移到标题之下，现有不带键的资源与规则引擎简化说明行移到带键块之后，本特性说明行排在它们后面；改后状态、日期、版本都落在前十二行。今天汇编封面上这五章与 07 的版本、其中 01、04 与 07 的日期显示为「—」，原因就是说明行排在带键块之前；07 在阶段 5 第一次被改写时同样处理 |
 | 00、01、02、03、04、08、09 七章文件头之后以「具体环境及制作工具」开头的环境说明段；`docs/design/04-simulation-engine.md#design-04-simulation-engine-共享规则与可重建环境修订` 与 `docs/design/09-io-formats.md#io-formats-当前工具请求查询与错误格式` 里各一句「当前场景结构 6」 | 现行结构号统一为场景结构 8、世界结构 11（今天 00、04 写 6，其余五章写 7）；「活动效果随环境加载并在启动时冻结」改为「类别、使用方式、效果与供给表由 WorldMock 固定，环境只登记对象、绑定与价格、内容时长、集数三种数」；外部环境目录只列 `catalog/`、`scenarios/`；正式环境一句统一成 02、03、08 已用的「正式重制环境路径由 WorldMock-Dataset 发布决定」（00、01、04 今天写的 `environment/zhangjiang-baseline/` 在数据仓并不存在）。其他特性自述当时身份的句子不动 |
 | `docs/design/00-overview.md#overview-核心原则` | 「离线语料」一行改为：环境只经目录登记进入引擎，引擎不读语料；真实名称、合成或有出处的摘要与合成数值由数据仓的目录提供 |
 | `docs/design/00-overview.md#overview-核心术语`、`docs/design/00-overview.md#overview-设计决策`、`docs/design/00-overview.md#overview-设计假设若不成立需回到设计层`、`docs/design/00-overview.md#overview-开放问题后续版本议题`、`docs/design/00-overview.md#overview-参考文献` | 资源引擎一行改为登记 app、地点、商品、动作、内容及其绑定。新增三个术语：动作（五个固定类别之一，可绑定 app 并取一种使用方式）、内容（绑定恰好一个动作，自带时长）、商品（五个固定类别，收货即结算）；app 改为「带固定用途、可被动作绑定的渠道」；「工作主题」改为「分配的工作内容」（场景 `work_content_ids`）。设计决策与设计假设的绑定链写内容→动作→可选的 app；开放问题的类型一行写五种内容形式只属娱乐类、动作类别五个；参考文献加本规格 |
@@ -1102,7 +1099,6 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | `docs/design/03-resource-engine.md#resource-engine-准入边界`、`docs/design/03-resource-engine.md#resource-engine-准入失败的处理`、`docs/design/03-resource-engine.md#resource-engine-资源校验的实现与验收` | 登记校验是「注册校验与错误」的 32 个码：内容绑定恰好一个动作，动作有 app 时内容的 app 集合是其非空子集，空集合不表示全部 app；动作上不许有时长字段，内容时长不小于 60 秒；导航与支付 app 不需要内容；店铺类型不能供给的类别不能绑定。反例随新码补齐。「实际图查询在阶段 2 接入」一句删除 |
 | `docs/design/04-simulation-engine.md#simulation-engine-地图与供给初始化`、`docs/design/04-simulation-engine.md#simulation-engine-输入与启动流程`、`docs/design/04-simulation-engine.md#simulation-engine-恢复与反事实运行编排`、`docs/design/04-simulation-engine.md#simulation-engine-当前实现入口`、`docs/design/04-simulation-engine.md#simulation-engine-当前实现边界` | 「地图与供给初始化」里的结构号写场景结构 8、世界结构 11。启动读目录格式 2 与场景结构 8，不读语料；恢复与重放核对世界结构 11、运行清单 4 与五字段环境身份，旧号直接拒绝。恢复一节两处「游戏」是前序特性之前的旧文，删去。实现边界补本特性的现行身份一句（目录 2、规则 2、场景 8、世界 11、运行清单 4）；实现入口的源码链接随模块增删同提交改 |
 | `docs/design/05-recording-engine.md#recording-engine-必须保存的内容`、`docs/design/05-recording-engine.md#recording-engine-持久化结构`、`docs/design/05-recording-engine.md#recording-engine-检查点创建`、`docs/design/05-recording-engine.md#recording-engine-地图与供给的恢复身份` | 运行清单结构 4：去掉语料钉，`environment_identity` 五个字段不变。恢复输入、检查点与恢复身份写世界结构 11。「持久化结构」里 `category_matches` 一句是前序特性之前的旧文，删除 |
-| `docs/design/06-delivery.md#delivery-接收记录引擎导出` | 世界结构门禁写 11；「新消费者在阶段 7 接入」「本阶段保持实际消费者的阶段边界」两句相对阶段的遗留删除 |
 | `docs/design/08-configuration.md#configuration-职责与边界`、`docs/design/08-configuration.md#configuration-配置层级`、`docs/design/08-configuration.md#configuration-加载与校验`、`docs/design/08-configuration.md#configuration-参数归属`、`docs/design/08-configuration.md#configuration-文件位置与合同` | 环境目录一行：app（用途与支付绑定）、地点、商品、动作、内容、发布图与清单。场景结构 8 一行与字段表照「场景结构 8」：删语料根与语料清单摘要、`initial_inventory`、`lifestyle_activities`、`work_topic_ids` 与整个 `motivation`，加 `work_content_ids`。WorldMock 包一行：闭集、类别表、常数与算子。参数归属删「初始食品持有」，工作一行改为目录内容加人物的 `work_content_ids`，类别效果与收货效果归 WorldMock。「在阶段 5 验证」一句删除 |
 | `docs/design/08-configuration.md#configuration-交互菜单声明`、`docs/design/08-configuration.md#configuration-地图引用与门店供给初值`、`docs/design/08-configuration.md#configuration-身体资源初值`、`docs/design/08-configuration.md#configuration-人物差异与衍生体感`、`docs/design/08-configuration.md#configuration-工作安排声明` | 菜单的 `allowed_actions` 取 `travel_to`、`sleep`、`wait`、`purchase`、`do`，必须含 `wait` 与 `sleep`。没有初始食品持有，也没有任何替代字段；人物不带动机参数。声明 `work_schedule` 的人物至少分配一条工作内容，分配时长之和不少于排班秒数（`WORK_CONTENT_REQUIRED`、`WORK_CONTENT_INSUFFICIENT`），分配的内容只能在 `workplace_location_id` 做。「app 动作切换在阶段 4 发生」等相对阶段的遗留句删除 |
 | `docs/design/08-configuration.md#configuration-规则来源与配置边界`、`docs/design/08-configuration.md#configuration-资源目录引用`、`docs/design/08-configuration.md#configuration-语料引用`、`docs/design/08-configuration.md#configuration-规则配置入口`、`docs/design/08-configuration.md#configuration-validate-命令`、`docs/design/08-configuration.md#configuration-校验清单`、`docs/design/08-configuration.md#configuration-配置版本与运行绑定`、`docs/design/08-configuration.md#configuration-语料管理`、`docs/design/08-configuration.md#configuration-规则维护` | 规则只从包读取，环境里没有规则副本，包内规则文件是可供性注册表与人物映射，动机规则文件退役，`runtime_code_sha256` 另外哈希 `src/worldmock/data/` 下的每个文件。目录身份是清单加六个文件；场景不引用语料。`worldmock validate --environment` 的成功结果是 `{valid, environment_id, environment_version, scenarios}`。校验清单去掉语料清单、规则副本与食品持有。运行绑定为运行清单 4。数据仓再发布只换对象与绑定，改规则就是改 WorldMock 并升 `RULES_VERSION`。各节「阶段 N」的遗留句删除 |
@@ -1132,6 +1128,7 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | `docs/manual/scenarios.md#scenarios-选择起点与文件位置`、`docs/manual/scenarios.md#scenarios-校验自己的场景`、`docs/manual/scenarios.md#scenarios-声明工作安排`；`docs/manual/personas.md#personas-正文与实际世界条件要一致` | 场景不写 `corpus_root`，动作的效果由 WorldMock 按类别固定，不由语料根提供；校验一节去掉语料与包资源副本，结构号写 8；工作安排的例子与规则改用 `work_content_ids` 与四个 `WORK_*` 码；人物一节去掉 `agents[].motivation` 与食品持有 |
 | `docs/manual/rules.md#rules-配置入口与生效范围`、`docs/manual/rules.md#rules-身体规则`、`docs/manual/rules.md#rules-活动声明`、`docs/manual/rules.md#rules-动机评分`、`docs/manual/rules.md#rules-跨人物的通用参数`、`docs/manual/rules.md#rules-单个人物的参数`、`docs/manual/rules.md#rules-人物映射表`、`docs/manual/rules.md#rules-在独立目录中调参并验证`；`docs/manual/runtime.md#runtime-从检查点恢复` | 配置入口去掉初始食品持有与环境规则副本两处，可调的只剩人物映射与场景参数；身体规则只列每份热量，食用秒数删除。活动声明写注册表版本 2 的四个种类行、八个占用名与类别固定表，这些都不可由环境或场景调整。动机评分三节各改写为一句：内部动机评分退役，没有可调参数。人物映射表去掉「与 `catalog/rules/persona-mapping.toml` 逐字节一致」与 `motivation.big_five` 两处；独立目录调参一节去掉语料、包规则副本与人物动机。恢复一节写旧结构号直接拒绝，没有迁移 |
 | `tests/fixtures/environment/README.md` | 按「人工环境」重写：七个地点、八个 app、六种商品、七个动作、十五条内容与种子 7 的图；没有语料目录与规则副本的说明 |
+| `docs/manual/runtime.md#runtime-工具交互的运行检查`、`docs/manual/scenarios.md#scenarios-配置日历和预排事件`、`docs/manual/evaluation.md#evaluation-绑定真实候选输入`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-场景与身体规则`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-地图与门店供给行为`、`docs/VERIFICATION.md#errands-workday-度量与下游-首次受影响发布身份` 与两份手册里写到结构号的其余句子 | 只改结构号与规则副本的说法：场景结构 8、世界结构 11、运行清单 4，规则文件只从包读取、环境里没有规则副本；数值与拒绝入口以「结构版本」为准。这些小节里的导出清单与质量报告号在阶段 5 改 |
 
 <a name="spec-acs-文档阶段2"></a>
 ### 阶段 2（收货结算）
@@ -1149,7 +1146,7 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | `docs/design/05-recording-engine.md#recording-engine-必须保存的内容`、`docs/design/05-recording-engine.md#recording-engine-事件类型枚举`、`docs/design/05-recording-engine.md#recording-engine-事件正文与资源证据` | 必须保存的内容加付款、待收货订单、收货时刻与一次结算的 `provided`、`applied`；个人事务一行去掉「库存」。`environment_event.data.kind` 加 `goods_received`，十四个事件类型不变。`action_result.data` 的 `orders[]` 是 `DeliveryState` 的 JSON，删 `given`、`discarded`、`inventory_changes` 与进食的结果条目；`delivery_arrival` 为 `{kind, scheduled_id, orders[]}`，仍归付款人；模拟收货人每次收货恰有一条 `goods_received`，字段照「事件与证据」；个人事务的完成证据只有事务所有人自己的 `goods_received` |
 | `docs/design/05-recording-engine.md#recording-engine-地图与门店供给证据` | 本节里前序特性之前的供给、报价版本、`purchase_pairing_state`、浏览与可见凭据旧文整段删除，改写为订单与收货证据：付款人、收货人、收货地、订单身份、`payment_app_id` 与 `received_at`；付款成功不产生商品效果；联系人收货只有订单变为 `delivered`，没有 `goods_received` |
 | `docs/design/05-recording-engine.md#recording-engine-共同身体结算与决策证据`、`docs/design/05-recording-engine.md#recording-engine-activity_progress-事件`、`docs/design/05-recording-engine.md#recording-engine-已核验经历与主观记忆`、`docs/design/05-recording-engine.md#recording-engine-检查点创建`、`docs/design/05-recording-engine.md#recording-engine-地图与供给的恢复身份`、`docs/design/05-recording-engine.md#recording-engine-记录生活全过程的验收` | 「是否共同用餐」删除；收货引起的身体变化不属于区间结算，记在 `goods_received` 自己的资源分录里。`activity_progress` 的 `consumption` 键与 `food_efficiency` 删除。已核验经历删 `consumed`，加 `received{order_id, goods_id, category, quantity}`，来源是本人的 `goods_received`。检查点快照没有食品持有与联系人持有，订单带 `goods_id`、`category`、`payment_app_id`、`received_at`。验收表「订单收货人」一行改为送达即结算给收货人 |
-| `docs/design/06-delivery.md#delivery-语义候选结构`；`docs/design/08-configuration.md#configuration-人物差异与衍生体感` | 语义候选示例去掉「立即进食」的说法；食品利用效率一句改为在收货结算时生效 |
+| `docs/design/08-configuration.md#configuration-人物差异与衍生体感` | 食品利用效率一句改为在收货结算时生效 |
 | `docs/design/09-io-formats.md#io-formats-职责与边界`、`docs/design/09-io-formats.md#io-formats-worldstate世界状态`、`docs/design/09-io-formats.md#io-formats-agentstate人物状态`、`docs/design/09-io-formats.md#io-formats-bodystate身体状态`、`docs/design/09-io-formats.md#io-formats-当前工具请求查询与错误格式` | 世界状态里只有实际订单，没有食品持有；事件与经历用 `goods_id` 与类别。删 `contact_holdings` 与 `AgentState.inventory`；`DeliveryState` 的字段与两个状态取值照「世界状态」；`PlanGoal` 加 `progress_order_id`；`ErrandState` 删 `outcome` 键，格式一节的个人事务变更写七个键。人物状态一节里前序特性之前的可见供给旧文删除。身体表「进食补充」改为「食品收货补充」，社交需要一行去掉共同用餐 |
 | `docs/CONTRACTS.md#contracts-lifeenv-状态字段`、`docs/CONTRACTS.md#contracts-状态归属`、`docs/CONTRACTS.md#contracts-资源与需求字段`、`docs/CONTRACTS.md#contracts-持久化当下事实`、`docs/CONTRACTS.md#contracts-场景联系人` | 人物资产只有账户余额；`inventory` 与 `contact_holdings` 两行、「库存按地点和食品身份记份数」一句删除；检查点封存订单、内容进度与推送。联系人可以作收货人：订单到 `delivered` 并写 `received_at`，不建持有、不写 `goods_received` |
 | `docs/CONTRACTS.md#contracts-request-settlement`、`docs/CONTRACTS.md#contracts-地点发现与购买身份`、`docs/CONTRACTS.md#contracts-供给结算与事件载荷`、`docs/CONTRACTS.md#contracts-action-results`、`docs/CONTRACTS.md#contracts-领域枚举` | 购买依次检查供给、余额与绑定，受理当秒付款，订单以 `pending` 建立；到店在同一次结算、配送在 `delivery_arrival` 到期时，由唯一的收货结算函数结算一次。同餐合并消费与食品持有各段删除。商品字段照「目录文件」。`DeliveryState` 与订单状态闭集照「世界状态」，「世界 10 → 11」表补 `inventory`、`contact_holdings` 与订单字段各行。`goods_received` 与 `delivery_arrival` 的载荷、`action_result.data` 删去 `given` 与 `inventory_changes` 照「事件与证据」 |
@@ -1211,7 +1208,7 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | `docs/design/04-simulation-engine.md#simulation-engine-发现与比较门店供给`、`docs/design/04-simulation-engine.md#simulation-engine-调用并等待人物决策` | 供给一节去掉 `from`、`prefer` 与「来源为空时取最小 `app_id`」的默认：网购点名购物 app 与它绑定的支付 app，缺失或未绑定是带候选的名称拒绝。`query_world` 的六个键与明细照「请求形状」 |
 | `docs/design/04-simulation-engine.md#simulation-engine-校验与占用安排`、`docs/design/04-simulation-engine.md#simulation-engine-将真实结果交还人物`、`docs/design/04-simulation-engine.md#simulation-engine-失败处理`、`docs/design/04-simulation-engine.md#simulation-engine-当前实现边界` | 名称解析的对象是地点、商品、动作、人物与联系人；出行可点名一个导航用途的 app，写在活动的 `navigation_app_id`，不占名额、不属于行程身份。开始与恢复的结果带 `details.content{action, app, title, kind, summary, duration, pushed}`，取代 `details.app_content` 与 `details.work`。失败表的指名购买一行按新的名称类拒绝码。实现边界加提示与工具两个指纹取得新值的一句 |
 | `docs/design/05-recording-engine.md#recording-engine-必须保存的内容`、`docs/design/05-recording-engine.md#recording-engine-地图与门店供给证据`、`docs/design/05-recording-engine.md#recording-engine-工具纠错只读查询与当天操作备忘的证据` | 动作执行一行补请求五键、订单的支付 app 与出行的导航 app；出行证据加可空的 `navigation_app_id`；查询证据的键为 `name`、`way`、`category`、`app`、`available_only`、`offset`，工具层紧凑形状的动作行带 `app` |
-| `docs/design/06-delivery.md#delivery-动作窗口提取规则`；`docs/design/09-io-formats.md#io-formats-当前工具请求查询与错误格式` | 窗口原样保留每项的 `target`、`way`、`app`、`to`、`pay_app`。格式一节按「请求形状」重写：五键请求与六键查询；`appointment` 一段（前序特性之前的旧文）、生活活动效果复制到活动数据的一段与相对阶段的遗留句删除 |
+| `docs/design/09-io-formats.md#io-formats-当前工具请求查询与错误格式` | 按「请求形状」重写：五键请求与六键查询；`appointment` 一段（前序特性之前的旧文）、生活活动效果复制到活动数据的一段与相对阶段的遗留句删除 |
 | `docs/CONTRACTS.md#contracts-person-tools`、`docs/CONTRACTS.md#contracts-closed-request-models` | `start_activity` 为 `{items, answering}`，每项五键，没有 `prefer`；`query_world` 六键。`start_activity` 与 `query_world` 两句用途句的定稿照「系统层」。可写名称的对象是地点、人物、联系人、商品、动作与活动，商品与动作直接写登记名称。方式闭集六个，键与动作的对应表、同义词表照「请求形状」，来源与去向表删除；「`use_app` 没有可指定内容的参数」一段改为请求里没有时长、内容、主题与数量键 |
 | `docs/CONTRACTS.md#contracts-活动受理拒绝码`、`docs/CONTRACTS.md#contracts-tool-result-channel`、`docs/CONTRACTS.md#contracts-social-errors` | 新增 `APP_REQUIRED`、`APP_NOT_OFFERED`、`PAYMENT_APP_REQUIRED`、`PAYMENT_APP_NOT_BOUND`，离开的来源与履约码照「活动受理拒绝码」；「英文原因与下一步逐字采用资源与规则引擎简化规格」一句对本表新增、改名与改义的码改指本规格；宿主码表同步。社交码的文字不变，触发位置由 `target` 移到 `to` |
 | `docs/CONTRACTS.md#contracts-观察投影字段`、`docs/CONTRACTS.md#contracts-seven-layers`、`docs/CONTRACTS.md#contracts-工具交互公开投影`、`docs/CONTRACTS.md#contracts-seven-layer-schema`、`docs/CONTRACTS.md#contracts-活动控制行`、`docs/CONTRACTS.md#contracts-候选与呈现合同`、`docs/CONTRACTS.md#contracts-候选对象与来源`、`docs/CONTRACTS.md#contracts-排除原因码`、`docs/CONTRACTS.md#contracts-private-fields` | 七层的目标类、各类目标的 `state` 与动作行、`callable_index` 四键、进度层记录与结果详情的键照「工具层」「事件与证据」；目标的 `contract` 键删除。活动名为「<动作名>（<app 名>）（M月D日 HH:MM 起）」，没有 app 时省去中间一段，不含内容标题。候选种类只剩 `product`，来源 `carried` 删除。禁键表以 `goods_id`、`payment_app_id`、`navigation_app_id` 取代 `food_id`、`topic_id`、`work_topics`、`task_bindings`、`catalog_bindings` |
@@ -1229,61 +1226,57 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | `docs/manual/resources.md#resources-只读查询与有时长浏览`、`docs/manual/scenarios.md#scenarios-修改日期与模拟节奏` | `query_world` 的筛选键写 `app`；候选与 `callable_index` 两段改为候选只有商品、索引四个键，生活活动窗口的说法删除 |
 
 <a name="spec-acs-文档阶段5"></a>
-### 阶段 5（记录、导出、交付与评估）
+### 阶段 5（记录、导出与评估）
 
 | 文档与位置 | 改写后的语义 |
 | --- | --- |
-| `docs/design/07-evaluation.md` 的文件头 | 07 在本阶段第一次被改写：带键引用块上移、不带键的说明行移到其后，版本末位加一，做法同阶段 1 的六章 |
+| `docs/design/07-evaluation.md` 的文件头 | 07 在本阶段第一次被改写：带键引用块上移、不带键的说明行移到其后，版本末位加一，做法同阶段 1 的五章 |
 | `docs/design/00-overview.md#overview-解决方案` | 补一句产品定位：产出是动作与 app 使用的数字足迹，身体、资金、地图与工作为它提供处境；足迹只写真实发生的 app 使用，持续使用留区间与逐条内容消费，线下辅助与导航只留起止两个触点，没有 app 的动作不留 app 记录，每一行都能追到一个模拟事件 |
-| `docs/design/01-architecture.md#architecture-状态与记录` | 现行身份补导出清单 4、质量报告 6、交付清单 4 与行为报告 `behavior-metrics-2` |
+| `docs/design/01-architecture.md#architecture-状态与记录` | 现行身份补导出清单 4、质量报告 6 与行为报告 `behavior-metrics-2` |
 | `docs/design/05-recording-engine.md#recording-engine-导出行为`、`docs/design/05-recording-engine.md#recording-engine-完整性验证`、`docs/design/05-recording-engine.md#recording-engine-固定截止导出的验收` | 导出清单结构 4，工件仍是五个文件。`app-usage.jsonl` 的六种事实、八个共有字段与按使用方式的行形状，`purchases.jsonl` 的 `purchase`、`order_attempt` 与 `receipt` 三种行，逐字段照「数字足迹合同」；行取自带 app 身份的活动快照，不看活动种类；导出不作亮屏、前台或通知被点开的声明。`validate_export` 在重算比对之外另查「足迹不变量」七条，任何一条不成立即 `IntegrityError`；验收表加这七条与收货行 |
 | `docs/design/05-recording-engine.md#recording-engine-质量报告` | `quality.json` 结构 6。`conversion_efficiency.food` 按食品收货的 `applied / provided`，空原因为 `no_food_receipt`；`content_contact` 的 `by_app` 只计 `content_consumed` 行，新增 `by_action`，`by_kind` 只计类型非空的，`repeat_watch` 旁加 `repeat_seconds_share`；`work_topics` 键名不变、改读分配内容；`errand_metrics` 只认受理的购买与 `goods_received` |
 | `docs/design/05-recording-engine.md#recording-engine-调试工具` | 名称索引以 `goods`、`actions` 取代 `foods`、`work_topics`。时间线与查看器用一个 `action` 标签器：只在快照有 app 时写 app 名，只对 `device` 为 `phone` 写「用手机」；订单行按 `goods_id` 并显示支付 app；事件标签加 `goods_received`、`work_content_completed`。运行检查的进食次数与首餐前最低能量改按本人的食品类 `goods_received`，重复下单按 `goods_id` |
-| `docs/design/06-delivery.md#design-06-delivery-共享规则与可重建环境修订`、`docs/design/06-delivery.md#delivery-接收记录引擎导出`、`docs/design/06-delivery.md#delivery-完整性校验清单`、`docs/design/06-delivery.md#design-delivery-current-responsibility` | 现行身份为导出清单 4、质量报告 6、交付清单 4。完整性校验清单加一段：两份足迹工件由清单绑定，七条不变量已由导出校验。共享规则一节与「当前交付边界与来源」里「在阶段 7 验证」的遗留句删除，共享规则一节对该规格的引用保留 |
-| `docs/design/06-delivery.md#delivery-manifestjson-结构` | 交付清单 `schema_version` 为 4，逐字复制 `environment_identity` 与列出来源工件的做法不变。示例里的 `"schema_version": 2` 改为 4：代码今天写的是 3，示例自前序特性起就没有跟上。「在阶段 7 同时接入」的遗留句删除 |
-| `docs/design/06-delivery.md#delivery-地图与门店供给的证据窗口`、`docs/design/09-io-formats.md#io-formats-labelkit-交付格式` | 购买窗口取 `goods_id`、`store_id`、`app_id`、`payment_app_id`；人物可见的 `goods_received` 公开投影为 `{kind, goods, category_label, quantity}`，`app_push` 仍是四个键。两章里「手机行来自 `app-usage.jsonl` 的五种 `fact_kind`」的说法改正：`worldmock deliver` 不产出手机行，也不向 LabelKit 展示手机行，只在交付清单里绑定 `app-usage.jsonl` 与 `purchases.jsonl`；手机行由数据仓的 `tools/simulate_phone.py` 从这两份工件逐行投影，归属照「数字足迹合同」。LabelKit 只接收交付清单结构 4，最终检查点须为世界结构 11 |
 | `docs/design/07-evaluation.md#evaluation-协议门禁gates`、`docs/design/07-evaluation.md#evaluation-报告项reports`、`docs/design/07-evaluation.md#evaluation-小时重复率` | 质量报告 6 的键照「进食与持有的读者处置」。`meal_diversity` 与 24 小时重复率按本人收货的食品类 `receipt` 行的 `goods_id`；`content_contact_minutes` 读娱乐类的内容结算；`workload` 读内容在本人 `work_content_ids` 里的 `work_study` 结算；`activity_distribution` 去掉用餐族，`wait` 计休息、`travel` 计通勤、`action` 按类别计娱乐、工作、社交、运动、家务，口径写明参照的用餐与个人卫生分钟没有模拟对应物。报告标识 `behavior-metrics-2` |
 | `docs/design/07-evaluation.md#evaluation-证据事件publicevidence`、`docs/design/07-evaluation.md#evaluation-活动activitysession`、`docs/design/07-evaluation.md#evaluation-适配器职责`、`docs/design/07-evaluation.md#evaluation-两个数据集对比`、`docs/design/07-evaluation.md#evaluation-门店选择与供给假设的比较边界` | 适配器读导出清单 4 的五个工件。动作映射按 `action` 的类别；收货证据读 `goods_received`（每单一行，键为 `order_id`）与 `delivery_arrival` 的订单列表。快照有 app 且 `device` 为 `phone` 才是手机数字交互，`other` 是数字交互但不是手机，没有 app 的是线下活动。官方域 `eat` 删除，映射与评审闭集改用四个活动种类、五个类别、`goods_id` 与 `content_id`。分别核验的事实是付款与收货 |
-| `docs/CONTRACTS.md#contracts-labelkit-输入结构与窗口编码` | 公开投影加 `goods_received` 的四个键，`app_push` 四键不变；公开窗口禁键随字段改名。「手机行」一段改正：手机行不是 `worldmock deliver` 的产物；两份足迹工件与不变量归 WorldMock，数据仓的 `tools/simulate_phone.py` 只筛 `device` 为 `phone` 的行并一行对一行投影，下单取 `purchase` 行的 `created_at` 与 `app_id`，付款取 `created_at` 与 `payment_app_id`，送达通知取配送订单的 `receipt` 行并发给付款人，不再读 `events.jsonl` 推导送达；第三仓库的消费者仍是未完成的验收 |
-| `docs/CONTRACTS.md#contracts-labelkit-训练记录与交付格式`、`docs/CONTRACTS.md#contracts-交付格式`、`docs/CONTRACTS.md#contracts-版本表` | 导出清单 4 的五个工件与两份足迹工件的行字段照「数字足迹合同」，`purchases.jsonl` 的行以 `goods_id` 取代 `food_id` 并加 `category`、`payment_app_id` 与 `receipt` 行；交付清单 4。版本表加行：导出 4、质量 6、交付 4、`behavior-metrics-2` |
-| `docs/ARCHITECTURE.md#architecture-一条完整生活经历如何形成数据` | 流程图与正文改为：三种系统动作与统一执行的动作产生事件，收货结算写收货证据，导出按使用方式写 app 使用事实与收货行，交付绑定两份足迹工件 |
-| `docs/VERIFICATION.md#verification-协议门禁`、`docs/VERIFICATION.md#verification-报告项report-only`、`docs/VERIFICATION.md#verification-交付阶段与通过条件`、`docs/VERIFICATION.md#errands-workday-度量与下游-质量报告`、`docs/VERIFICATION.md#errands-workday-度量与下游-行为评估`、`docs/VERIFICATION.md#verification-真实性评估与结论边界`、`docs/VERIFICATION.md#verification-测试矩阵` | 质量报告 6 的键与行为报告项按新的读取口径；交付阶段的通过条件写六种 app 使用事实、收货行与七条不变量；真实性评估不含用餐时长，并写明离线通过不证明第三仓库已能消费手机行。测试矩阵的行为指标与 LabelKit 输入两行改写 |
-| `docs/dev/SPEC-labelkit-delivery.md#spec-labelkit-delivery-证据窗口与输入结构`、`docs/dev/SPEC-labelkit-delivery.md#persona-prompt-下游`、`docs/dev/SPEC-labelkit-delivery.md#dayrun-fidelity-下游与质量报告`、`docs/dev/SPEC-labelkit-delivery.md#spec-labelkit-delivery-验收矩阵` | 公开环境事件的投影是 `app_push` 四键与 `goods_received` 四键，其余为空对象。下游版本表写运行清单 4、世界 11、导出 4（五个工件）、质量 6、交付 4；「手机合成只读 app 使用和购买事实」一格改为手机行由数据仓投影，交付只绑定两份工件 |
+| `docs/CONTRACTS.md#contracts-版本表` | 加行：导出 4、质量 6、`behavior-metrics-2`。`docs/CONTRACTS.md#contracts-足迹交接` 在本阶段不改写：五类工件一句照旧成立，字段仍指向记录引擎的导出合同（`purchases.jsonl` 多出 `receipt` 行不改变工件个数）；手机信号投影与 LabelKit 任务归 LabelKit-DataSet 的现行句已与 P-7 一致，本合同不定义这份投影，也不定义 `goods_received`、`app_push` 在下游窗口里的投影 |
+| `docs/ARCHITECTURE.md#architecture-一条完整生活经历如何形成数据` | 流程图与正文改为：三种系统动作与统一执行的动作产生事件，收货结算写收货证据，导出按使用方式写 app 使用事实与收货行；流程图末端「认证导出：五类工件」交给 LabelKit-DataSet 的一步不变 |
+| `docs/VERIFICATION.md#verification-协议门禁`、`docs/VERIFICATION.md#verification-报告项report-only`、`docs/VERIFICATION.md#verification-交付阶段与通过条件`、`docs/VERIFICATION.md#errands-workday-度量与下游-质量报告`、`docs/VERIFICATION.md#errands-workday-度量与下游-行为评估`、`docs/VERIFICATION.md#verification-真实性评估与结论边界`、`docs/VERIFICATION.md#verification-测试矩阵` | 质量报告 6 的键与行为报告项按新的读取口径；「交付阶段与通过条件」表的「内容与出行」一行写六种 app 使用事实，「完整足迹导出」一行写导出清单 4、质量报告 6、收货行与七条不变量；真实性评估不含用餐时长。测试矩阵的行为指标一行改写 |
 | `docs/dev/SPEC-run-viewer-names.md#spec-run-viewer-names-运行内对象名称`、`docs/dev/SPEC-run-viewer-names.md#spec-run-viewer-names-活动标题`、`docs/dev/SPEC-run-viewer-names.md#spec-run-viewer-names-验证`；`docs/dev/SPEC-run-viewer-context.md#spec-run-viewer-context-结构与原文`、`docs/dev/SPEC-run-viewer-context.md#spec-run-viewer-context-验证与边界` | 名称索引读 `goods`、`actions`、`apps`、`contents`；`action` 活动的标题是动作名，有 app 时加 app 名。事件标签去掉 `use_app`、方式「打开」与工作主题完成，加 `goods_received`、`work_content_completed`；22 个唤醒标签与十一个工具标签不变 |
-| `docs/dev/SPEC-life-realism.md#spec-life-realism-呈现与导出`；`docs/dev/SPEC-dayrun-behavior.md#spec-dayrun-behavior-事件投影`；`docs/dev/SPEC-day-plan-goals.md#spec-day-plan-goals-三层度量与质量导出` | 时间线只在快照有 app 时写 app 名，只对 `device` 为 `phone` 写「用手机」；`app-usage.jsonl` 写六种事实，「手机行只从这些认证事实投影」一句改为归数据仓投影；工作时间线读 `content_id`、内容进度与 `work_content_completed`。事件投影的 app 使用事实按使用方式。目标度量按同一判定读 `progress_order_id` |
+| `docs/dev/SPEC-life-realism.md#spec-life-realism-呈现与导出`；`docs/dev/SPEC-dayrun-behavior.md#spec-dayrun-behavior-事件投影`；`docs/dev/SPEC-day-plan-goals.md#spec-day-plan-goals-三层度量与质量导出` | 时间线只在快照有 app 时写 app 名，只对 `device` 为 `phone` 写「用手机」；`app-usage.jsonl` 写六种事实，「手机行只从这些认证事实投影」一句改为：手机信号投影归 LabelKit-DataSet，只从 `app-usage.jsonl` 与 `purchases.jsonl` 逐行投影；工作时间线读 `content_id`、内容进度与 `work_content_completed`。事件投影的 app 使用事实按使用方式。目标度量按同一判定读 `progress_order_id` |
 | `docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-版本表` 与文件头说明行 | 加行 `2026-10-07-acs-record`：「状态、事件、检查点与导出」由本规格同名章节取代，D-44 的事实种类与投影归属按 P-6、P-7 |
-| `docs/manual/delivery.md#delivery-修改规则数据`、`docs/manual/evaluation.md#evaluation-修改类别映射和公开参照` | 规则数据的来源路径写两份足迹工件，并写明手机行的交接在数据仓。类别映射按四个活动种类与五个动作类别，没有用餐族 |
+| `docs/manual/evaluation.md#evaluation-修改类别映射和公开参照` | 类别映射按四个活动种类与五个动作类别，没有用餐族 |
+| `docs/manual/runtime.md#runtime-工具交互的运行检查`、`docs/manual/evaluation.md#evaluation-绑定真实候选输入`、`docs/VERIFICATION.md#errands-workday-度量与下游-首次受影响发布身份`、`docs/INDEX.md#index-主文档` | 只改身份号：导出清单 4、质量报告 6、行为报告 `behavior-metrics-2`；`docs/VERIFICATION.md` 测试矩阵与通过条件里写到这三个号的句子同改 |
 
 <a name="spec-acs-文档阶段6"></a>
 ### 阶段 6（收口）
 
 | 文档与位置 | 改写后的语义 |
 | --- | --- |
-| 十个设计章节与 `docs/design/worldmock-design.html` | 逐章复核并改正遗漏：正文不留相对阶段的句子；写「当前」「现行」的结构号一律是场景 8、世界 11、运行清单 4、导出 4、质量 6、交付 4；被取代的旧名（食品持有、工作主题、`use_app`、方式「打开」）只留在版本表与其他特性自述当时身份的句子里；每章的共享规则引用仍在。有改动的章加行 `2026-10-07-acs-close` 并重新汇编 |
-| `docs/design/README.md#readme-worldmock-设计文档集`、`docs/design/README.md#readme-工具交互设计同步`、`docs/design/README.md#readme-资源与规则引擎简化修订` 之后新增的「动作与内容简化修订」、`docs/design/README.md#readme-个人事务与工作安排设计同步`、`docs/design/README.md#readme-让等待成为例外修订` | 文件头说明段与「工具交互设计同步」写现行身份（场景 8、世界 11、导出 4、质量 6、交付 4）与现行选择方式：人物选出行、睡眠、购买或一个动作及可选的 app，内容由系统选；正式环境以数据仓发布与阶段 7 的回执为准。新增一节用「阶段、受影响章节、当前语义」三列表列出阶段 1–6，内容取自「设计文档确认清单」。「当前场景结构为 6」一句改为 8。系统层摘要里第 7、15 条的说法随新文改 |
-| `docs/design/README.md#readme-文档清单`、`docs/design/README.md#readme-地图与门店供给的一致性`、`docs/design/README.md#readme-更新约定`、`docs/design/README.md#readme-版本` | 02、03 两行的职责改为固定类别与收货效果、登记 app、地点、商品、动作、内容。「模拟引擎保存当前报价/库存并按事件推进」是前序特性之前的旧文，改为模拟引擎保存订单并在收货时结算。更新约定加一条：特性说明行放在带键引用块之后。版本表加行 `2026-10-07-acs-close` |
-| `docs/design/SUMMARY.md#summary-worldmock-设计文档集-创建总结`、`docs/design/SUMMARY.md#summary-工具交互设计同步`、`docs/design/SUMMARY.md#summary-资源与规则引擎简化修订` 之后新增的「动作与内容简化修订」、`docs/design/SUMMARY.md#summary-个人事务与工作安排设计同步`、`docs/design/SUMMARY.md#summary-exchange-enginemd`、`docs/design/SUMMARY.md#summary-resource-enginemd`、`docs/design/SUMMARY.md#summary-simulation-enginemd`、`docs/design/SUMMARY.md#summary-recording-enginemd`、`docs/design/SUMMARY.md#summary-evaluationmd`、`docs/design/SUMMARY.md#summary-configurationmd`、`docs/design/SUMMARY.md#summary-地图与门店供给修订`、`docs/design/SUMMARY.md#summary-让等待成为例外修订` | 文件头说明段的结构号写现行值（今天写场景 7、世界 10，同文件另有两处写场景 6）。新增一节用「阶段、受影响章节」两列表列出阶段 1–6。「个人事务与工作安排设计同步」里「当前场景结构为 6」一句改为 8。六章的亮点条目去掉食品常数、app 使用时长、工作主题与「吃掉」，换成类别固定表、收货结算、动作与内容、足迹合同。「到店购买直接增加当地食品持有」改为到店受理即结算，所列生产与测试路径随删除与新增的文件改 |
+| 九个设计章节与 `docs/design/worldmock-design.html` | 逐章复核并改正遗漏：正文不留相对阶段的句子；写「当前」「现行」的结构号一律是场景 8、世界 11、运行清单 4、导出 4、质量 6；被取代的旧名（食品持有、工作主题、`use_app`、方式「打开」）只留在版本表与其他特性自述当时身份的句子里；每章的共享规则引用仍在。有改动的章加行 `2026-10-07-acs-close` 并重新汇编 |
+| `docs/design/README.md#readme-worldmock-设计文档集`、`docs/design/README.md#readme-文档状态说明`、`docs/design/README.md#readme-更新约定`、`docs/design/README.md#readme-版本` | 文件头加本特性说明行并改日期。「文档状态说明」的结构号写现行值：场景 8、世界 11、运行清单与导出清单 4、质量报告 6（今天写 7、10、3、5）；同节正式环境与下游消费的两句不在本阶段改。更新约定加一条：设计章节的特性说明行放在带键引用块之后。版本表加行 `2026-10-07-acs-close`。入口今天没有按特性分列的修订小节、阅读路径与供给一致性说明，不为本特性另起小节；「文档清单」九行的职责说法在波次之后仍成立，只复核 |
+| `docs/design/SUMMARY.md#summary-完成状态`、`docs/design/SUMMARY.md#summary-文档结构` | 只复核，不预定改写：总结今天不写结构号、特性修订清单、逐章亮点与生产路径，原先落在这些内容上的作业没有对象。复核两节对覆盖范围与章节组成的说法在波次之后仍成立；发现不成立的句子才改，并在 `docs/design/SUMMARY.md#summary-版本历史` 加行 `2026-10-07-acs-close` |
 | `docs/INDEX.md#index-特性规格与提案`、`docs/INDEX.md#index-按任务读`、`docs/INDEX.md#index-版本表` 与文件头说明行 | 各规格行的后缀改为「修订条款已实现」并写明同步过正文的阶段；本规格一行与「按任务读」一行写阶段 1–6 的实际状态，阶段 7 写未执行。版本表加行 `2026-10-07-acs-close` |
 | `docs/INDEX.md#index-环境数据归属`、`docs/INDEX.md#index-用户配置手册`、`docs/INDEX.md#index-核心系统`、`docs/INDEX.md#index-测试` | 环境说明段写目录格式 2、场景结构 8，引擎不读语料，流程图的冻结环境节点只列 `catalog` 与 `scenarios`。手册一行与文件归属两张表按新的目录文件、`src/worldmock/life/` 下的收货结算、执行器与选择器三个模块及新的测试文件改写，被删模块的行删除 |
 | `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态`、`docs/dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态` 之前新增的「动作与内容简化开发状态」、`docs/dev/implementation-status.md#implementation-status-当前世界格式worldstateschema_version-为-9`、`docs/dev/implementation-status.md#implementation-status-已冻结条款与确定性证据`、`docs/dev/implementation-status.md#implementation-status-项目级真实验收边界`、`docs/dev/implementation-status.md#implementation-status-版本表` | 新增一节：范围、阶段 1–6 各自的提交、证据层级与平台、每人每日决策数的观测值、未执行项（阶段 7、三项真实验收）。资源与规则引擎简化一节保留为带日期的记录，被本特性取代的结论指向新节。「当前世界格式」的标题与正文写 11，锚点不动。两节边界说明里提到进食与工作主题的措辞改为收货与分配的工作内容 |
 | `docs/dev/ANALYSIS-spec-coverage.md#analysis-spec-coverage-资源与规则简化映射` 之后的「动作与内容简化映射」、`docs/dev/ANALYSIS-spec-coverage.md#analysis-spec-coverage-版本表` | 本特性的映射按机器登记的最终内容生成，每个契约点有测试节点。其他特性增量映射里指向已删测试节点的行，已在删除该节点的提交删除或改指，本阶段只复核没有悬空引用 |
 | `docs/VERIFICATION.md#verification-资源与规则引擎简化特性门禁` 之前新增的「动作与内容简化特性门禁」、`docs/VERIFICATION.md#verification-测试矩阵`、`docs/VERIFICATION.md#verification-incremental-evidence`、`docs/VERIFICATION.md#verification-版本表` | 新增一节照「门禁与平台」写本特性的门禁：台账闭合、同场景同种子完整日双跑一致与第四份基线、标准层与全量层、覆盖率门禁、独立源码变异审查，并写明正式环境与平台回执属于阶段 7。测试矩阵的特性表加本特性一行；增量证据边界一节登记本特性实际取得的证据层级 |
 | `docs/dev/SPEC-layering-and-test-tiers.md#layering-baseline`、`docs/dev/SPEC-layering-and-test-tiers.md#layering-acceptance`；`docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-身份与基线`、`docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-身份与基线`；`docs/dev/coverage-baseline.md#coverage-baseline-基线记录` | 完整日基线清单加第四份（结构 8 的人工环境），前三份历史 JSON 保留字节；现行特性集合里本特性的完成集合为 `{1,2,3,4,5,6}`。两份规格的身份一节补质量报告 6 与第四份基线。覆盖率基线记录登记波次合入后的实测 |
-| `docs/manual/README.md#readme-按你想改变的事情选择入口`、`docs/manual/README.md#readme-创建自己的第一个场景`、`docs/manual/README.md#readme-手册版本表`；根 `README.md` 的 `readme-实验与数据`、`readme-命令`、`readme-项目版本表` | 手册入口表与流程图按 app、地点、商品、动作、内容五类对象改写，第一个场景的走查用结构 8 与五键请求。根 README 写清单加六个目录文件、场景结构 8，「生活活动效果来自语料」一句改为效果由 WorldMock 固定 |
+| `docs/manual/README.md#readme-按你想改变的事情选择入口`、`docs/manual/README.md#readme-创建自己的第一个场景`、`docs/manual/README.md#readme-手册版本表`；根 `README.md` 的 `readme-实验与数据`、`readme-项目版本表` | 手册入口表与流程图按 app、地点、商品、动作、内容五类对象改写，第一个场景的走查用结构 8 与五键请求。根 README「实验与数据」写环境根只有 `catalog/` 与 `scenarios/`、目录为清单加六个文件、场景结构 8，「三份包 TOML 副本」的说法删除，导出清单五类工件一句不变；版本表加行 `2026-10-07-acs-close` |
 | `docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-版本表` 与文件头说明行 | 加行 `2026-10-07-acs-close`：「用户得到什么」的叙述由本规格取代；该规格不归档，机器登记仍是现行特性，随测试退役的台账行已按「对前序冻结规格的修订」处理 |
 
 <a name="spec-acs-文档阶段7"></a>
 ### 阶段 7（数据仓交接与正式回执）
 
-本阶段只登记回执，不改任何行为条款。
+本阶段只登记两个兄弟仓库的回执，不改任何行为条款：WorldMock-Dataset 的环境发布，与 LabelKit-DataSet 对导出的下游消费。
 
 | 文档与位置 | 改写后的语义 |
 | --- | --- |
-| `docs/design/07-evaluation.md#evaluation-两阶段执行`、`docs/design/08-configuration.md#configuration-validate-命令`、`docs/design/README.md#readme-按任务读` | 命令示例与阅读路径里的 `environment/zhangjiang-baseline/` 改为阶段 7 回执登记的环境根；该目录名在数据仓并不存在。07、08 加行 `2026-10-07-acs-dataset` 并重新汇编，README 版本表加同名行 |
+| `docs/design/07-evaluation.md#evaluation-两阶段执行`、`docs/design/08-configuration.md#configuration-validate-命令` | 命令示例里的 `environment/zhangjiang-baseline/` 改为阶段 7 回执登记的环境根；该目录名在数据仓并不存在。07、08 加行 `2026-10-07-acs-dataset` 并重新汇编 |
 | `docs/EXPERIMENT.md#experiment-实验身份与范围`、`docs/EXPERIMENT.md#experiment-交互菜单与运行身份`、`docs/EXPERIMENT.md#experiment-命令入口`、`docs/EXPERIMENT.md#experiment-场景参数`、`docs/EXPERIMENT.md#experiment-内容与语料绑定`、`docs/EXPERIMENT.md#experiment-实验假设声明` | 正式场景与目录的路径写回执登记的环境根，环境版本 `"2"`。内容与语料绑定按发布的目录改写：真实 app 名、真实剧集与电影名、合成或有出处的摘要、合成数值，不再引用语料清单。实验假设声明登记数据仓门槛里的两个假设：每个娱乐类动作与 app 的组合绑定时长不少于 10800 秒，每人每天 7000 分 |
 | `docs/CONTRACTS.md#contracts-环境数据归属合同`、`docs/INDEX.md#index-环境数据归属`、`docs/INDEX.md#index-场景与配置`、`docs/INDEX.md#index-版本表` | 「当前正式环境」的路径、版本与结构号写回执登记的值；场景与配置表去掉语料目录一行，目录一行写五类对象与图。版本表加行 `2026-10-07-acs-dataset` |
 | 现行规格与手册里其余写着正式环境字面路径的位置，包括 `docs/dev/SPEC-life-runtime.md`、`docs/dev/SPEC-life-realism.md`、`docs/dev/SPEC-interaction-menu.md`、`docs/dev/SPEC-map-and-storefront.md`、`docs/dev/SPEC-idle-fillers.md`、`docs/dev/SPEC-shared-rules-and-rebuildable-env.md`、`docs/dev/SPEC-layering-and-test-tiers.md` 的文件头说明段，`docs/dev/SPEC-environment-data-ownership.md`「实施结果与验收入口」，`docs/manual/runtime.md#runtime-准备环境`、`docs/manual/runtime.md#runtime-使用已安装的环境`，`docs/manual/personas.md` 与 `docs/manual/evaluation.md` 的开头说明 | 统一写回执登记的环境根；阶段 7 之后，除版本表行、其他特性自述当时身份的句子与资源与规则引擎简化规格的正文外，现行文档不再把 `environment/zhangjiang-baseline/` 写成正式环境。命令示例的 `--environment` 与 `--environment-root` 参数随之改 |
-| `docs/dev/implementation-status.md` 的「动作与内容简化开发状态」、`docs/dev/coverage-baseline.md#coverage-baseline-基线记录`、`docs/VERIFICATION.md` 的「动作与内容简化特性门禁」 | 登记数据仓的发布提交、正式环境上标准层与全量层的回执、逐平台结论与未取得的证据；完成集合为 `{1,…,7}`。没有取得的回执照实写未执行，不以人工环境的结果代替 |
+| `docs/dev/implementation-status.md` 的「动作与内容简化开发状态」、`docs/dev/coverage-baseline.md#coverage-baseline-基线记录`、`docs/VERIFICATION.md` 的「动作与内容简化特性门禁」 | 登记数据仓的发布提交、正式环境上标准层与全量层的回执、逐平台结论与未取得的证据；完成集合为 `{1,…,7}`。LabelKit-DataSet 一侧只登记状态：它是否已按新结构（导出清单 4、新的事件种类、活动种类与事实行）改好手机信号投影、窗口、训练与规则数据，照该仓库自己的回执写，本仓库不运行也不代它声明通过。没有取得的回执照实写未执行，不以人工环境的结果代替 |
+| `docs/design/README.md#readme-文档状态说明`、`docs/design/SUMMARY.md#summary-后续维护建议`、`docs/design/00-overview.md#overview-系统目标`、`docs/CONTRACTS.md#contracts-足迹交接`、`docs/ARCHITECTURE.md#architecture-数据加工归属`、`docs/INDEX.md#index-数据加工归属`、`docs/VERIFICATION.md#verification-数据加工验收边界`、`docs/EXPERIMENT.md#experiment-数据加工归属`、`docs/dev/implementation-status.md#implementation-status-目录与数据加工归属`，根 `README.md` 的 `readme-命令` | 这十处各有一句写下游的新消费验收尚未取得。LabelKit-DataSet 给出按新结构消费的回执之后，各句改写为回执登记的状态；没有回执就原句不动，不写成已通过。有改动时 00 加行 `2026-10-07-acs-dataset` 并重新汇编，入口与总结的版本表加同名行 |
 | `docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-版本表` 与文件头说明行 | 加行 `2026-10-07-acs-dataset`：「数据仓交接」由本规格同名章节取代 |
 
 <a name="spec-acs-验收台账"></a>
@@ -1327,7 +1320,7 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | 进食与持有的读者 | 5 | T46、T47：质量报告、脚本与查看器；行为报告与评估 |
 | 完整日基线 | 6 | T48 |
 | 工程门禁与文档一致性 | 6 | T49、T50 |
-| 正式环境与平台回执（只报告） | 7 | 「数据仓交接」与「门禁与平台」；不登记测试节点 |
+| 正式环境与平台回执（只报告） | 7 | 「数据仓交接」与「门禁与平台」：WorldMock-Dataset 发布之后的正式环境回执与平台回执；LabelKit-DataSet 对新导出的消费（手机信号投影，窗口对 `goods_received` 与 `app_push` 的公开投影）由该仓库验收，本仓库不运行也不声明；不登记测试节点 |
 
 <a name="spec-acs-行为用例"></a>
 ### 行为用例
@@ -1373,7 +1366,7 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | T35 | 实际请求、`docs/CONTRACTS.md` 的系统层 JSON 块与模块常量三者逐字相等，共十八条；第 6、7、8、12、13、15、17 条等于「系统层」的围栏块，其余十一条字节不变；「系统层」列出的既有文字约束与新增退役读法的反向断言全部通过；两句用途句等于「系统层」的定稿；提示指纹与工具指纹随本阶段改变 |
 | T36 | 成本：人工环境副本把 `douyin` 上「刷推荐」的内容换成二十条各 360 秒的短视频，场景经 `mutate` 去掉这段时间里的其他预排唤醒，`progress_report_interval_seconds` 为缺省的 1800；人物开始「刷推荐」（抖音），被请决策时只播报，满 7200 秒结束：`app-usage.jsonl` 恰一行 `app_use`，二十条内容各恰一条 `completed` 为 true 的内容证据，从开始到结束归于该人物的 `decision_started` 不多于 `2 + floor(7200 / 1800)` 即 6 个 |
 | T37 | 一次真实运行的导出：「刷推荐」（抖音，中途暂停一次）→ 一行 `app_use`（`segments` 两段、不含暂停、`device` 为 `phone`）与每次内容结算一行 `content_consumed`；「学课程」（哔哩哔哩）→ 同样两种行，`device` 为 `other`；「跑步」（Keep）→ 只有 `edge` 为 `start`、`end` 的两行 `app_touch`；带高德地图的步行 → 出发与到达两行 `app_touch`，`action_id` 为 null，同一路段走两次是两组不同 `activity_id` 的行；没点名导航的出行、「安静休息」「办公」「聊天」与睡眠零行；运行终点截断的「跑步」没有 `end` 行；每行带齐八个共有字段，三种推送行带 `action_id` |
-| T38 | `purchases.jsonl`：`purchase` 行带 `goods_id`、`category`、`payment_app_id`（到店未写支付 app 为 null）；每张 `delivered` 订单恰一行 `receipt`，`agent_id` 是付款人、`provided` 与 `applied` 取自收货人的 `goods_received`，联系人收货时为 null，`pending` 订单没有 `receipt`；导出仍是五个工件，导出清单 4、质量报告 6、交付清单 4、行为报告 `behavior-metrics-2`；`validate_export`、交付门禁与评估各拒绝导出清单 3 或世界 10 的导出；LabelKit 窗口把 `goods_received` 投影为恰好 `{kind, goods, category_label, quantity}`，`app_push` 仍是四键 |
+| T38 | `purchases.jsonl`：`purchase` 行带 `goods_id`、`category`、`payment_app_id`（到店未写支付 app 为 null）；每张 `delivered` 订单恰一行 `receipt`，`agent_id` 是付款人、`provided` 与 `applied` 取自收货人的 `goods_received`，联系人收货时为 null，`pending` 订单没有 `receipt`；导出仍是五个工件，导出清单 4、质量报告 6、行为报告 `behavior-metrics-2`；`validate_export` 与评估各拒绝导出清单 3 或世界 10 的导出；`events.jsonl` 原样带着人物可见的 `goods_received` 与 `app_push`，载荷、所有人、可见性与 `caused_by` 同「事件与证据」，导出不含窗口投影 |
 | T39 | 不变量 1：事件流让没有 app 的「安静休息」的 `activity_id` 出现在 `app-usage.jsonl` → `validate_export` 以 `IntegrityError` 拒绝 |
 | T40 | 不变量 2：同一人物的「刷推荐」（抖音）与「语音通话」（微信）两段 `device` 为 `phone` 的 `segments` 重叠 60 秒 → 拒绝；与 `device` 为 `other` 的「学课程」重叠不拒绝 |
 | T41 | 不变量 3：`delivered` 订单没有或有两行 `receipt`；模拟收货人的订单没有或有两条 `goods_received`；联系人收货的订单带一条 `goods_received` → 各拒绝 |
@@ -1467,22 +1460,26 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 - 双跑规则：第四份完整日基线以同一人工场景、同一种子在两个独立进程里各完整运行一次，两个候选逐项一致才由生产冻结入口写出；不能用两粒种子各跑一次代替重复性证明；`tests/dayrun_baseline.py` 与前三份基线 JSON 的字节不变。基线只证明产生它的那台主机上的人工环境。
 - 变异审查：全部杀手先在未变异源码上建立通过基线，再逐个运行 `tests/acs_acceptance.py` 登记的变异并杀死；另由独立审查在干净提交的隔离工作树上重做一遍。复用别的平台或历史的回执不算，导入期失败不算。
 - 回执写明：真实命令与退出码、OS、架构、CPython 版本、`.python-version` 内容、实际安装的 `requirements/lock.txt` 与同步的 `uv.lock` 的身份；分层运行的回执恰好覆盖所选节点的多重集；变异审查为未变异基线与每个变异各留一份回执。结果按实际产生的证据层级报告。
-- 登记为未执行：Windows 平台回执不由本特性产出（「已知局限」），不从其他平台推定；带 `--environment-root` 的正式环境全量层、覆盖率、完整日与换目录恢复以数据仓发布的 `environment_version "2"` 环境为输入，阶段 7 之前在实现状态里写「未执行」，不写成通过；人工环境上的本仓库门禁不等待数据仓。严格的跨平台事件相等、第三仓库的手机行消费者与三项项目级真实验收不因本特性的离线门禁改变状态。
+- 登记为未执行：Windows 平台回执不由本特性产出（「已知局限」），不从其他平台推定；带 `--environment-root` 的正式环境全量层、覆盖率、完整日与换目录恢复以数据仓发布的 `environment_version "2"` 环境为输入，阶段 7 之前在实现状态里写「未执行」，不写成通过；人工环境上的本仓库门禁不等待数据仓。LabelKit-DataSet 对新导出的消费（手机信号投影、窗口、训练与规则数据）由该仓库验收并登记，本仓库没有数据加工命令，不运行也不从自己的门禁推定它。严格的跨平台事件相等与三项项目级真实验收不因本特性的离线门禁改变状态。
 
 <a name="spec-acs-数据仓交接"></a>
 ## 数据仓交接
 
-正式环境的重制是 WorldMock-Dataset 的工作，在数据仓以它自己的提交进行，本仓库不写它的文件；本仓库交付的是格式合同（「环境格式」「数字足迹合同」）、登记校验器与 `worldmock validate --environment`、人工环境的样例（「人工环境」），以及本章的清单。本章全部属阶段 7（P-42、P-43）。数据仓现行的正式环境是 `environment/shanghai-simplified/`（目录格式 1、`environment_version "1"`），下文的数据仓路径相对这个目录或数据仓根。
+阶段 7 面向两个兄弟仓库（P-42、P-43），各在自己的仓库以自己的提交进行，本仓库不写它们的文件。归属以 `docs/CONTRACTS.md#contracts-足迹交接` 与 `docs/ARCHITECTURE.md#architecture-数据加工归属` 为准：环境仓库 WorldMock-Dataset（下称数据仓）持有环境素材、制作工具与环境发布，本章第一部分是它对正式环境的重制；下游仓库 LabelKit-DataSet 持有输入整理、手机信号投影、LabelKit 窗口与任务配置、模型加工、训练数据加载和规则测试数据，本章第二部分是对它的交接要求。本仓库提供的是格式合同（「环境格式」「数字足迹合同」）、登记校验器与 `worldmock validate --environment`、认证导出的 `validate_export`、人工环境的样例（「人工环境」），以及本章的清单；本仓库没有数据加工命令，也没有交付清单。本章全部属阶段 7。数据仓现行的正式环境是 `environment/shanghai-simplified/`（目录格式 1、`environment_version "1"`），下文的数据仓路径相对这个目录或数据仓根。
 
-次序固定，前一步做完才做后一步：
+次序固定，前一步做完才做后一步；波次合入本仓库主干之前，两个仓库都不按新格式发布：
 
 | 步 | 做什么 | 做完的标志 |
 | --- | --- | --- |
-| 1 | 不再发布任何格式 1 的改动；数据仓钉在集成波次之前的引擎提交上 | 持续到波次合入本仓库主干 |
-| 2 | 改工具（本章的工具表与引擎符号表） | 工具以安装的波次后引擎导入，数据仓自己的测试通过 |
-| 3 | 最小移植：现有 app、地点、内容、食品、工作主题、生活活动与场景搬到格式 2，只补新格式必需的用途、支付绑定、动作、类别、使用方式与工作内容分配 | 以 `environment_version "2"` 发布，本章的校验命令通过 |
+| 1 | 数据仓不再发布任何格式 1 的改动，并钉在集成波次之前的引擎提交上；LabelKit-DataSet 不发布按新足迹合同读取的投影、窗口或数据 | 持续到波次合入本仓库主干 |
+| 2 | 数据仓改工具（第一部分的工具表与引擎符号表） | 工具以安装的波次后引擎导入，数据仓自己的测试通过 |
+| 3 | 最小移植：现有 app、地点、内容、食品、工作主题、生活活动与场景搬到格式 2，只补新格式必需的用途、支付绑定、动作、类别、使用方式与工作内容分配 | 以 `environment_version "2"` 发布，第一部分的校验命令通过 |
 | 4 | 内容重制：以普通电视剧、电影与常见商品取代开放数据集的食品行、生活活动行与机构类标题；只换内容的再发布，不需要引擎改动 | 按现行规则发布新的环境版本并更新场景的 `environment` 钉；数量、真实名称与余额门槛通过 |
 | 5 | 本仓库登记正式环境回执 | 本仓库的完成集合由 `{1,…,6}` 写为 `{1,…,7}` |
+
+LabelKit-DataSet 的适配不在这五步里排号：它在波次进入主干之后进行，验收由该仓库登记；步 5 只登记正式环境回执。
+
+第一部分，环境仓库 WorldMock-Dataset：
 
 - 未提交的考勤改动：数据仓工作树里新增了 app `dingtalk`「钉钉」、内容 `attendance-dingtalk`「考勤打卡」（占位类型 `article`）与办公地点 `wc-office` 的 `app_ids` 绑定，它依赖没有进入本仓库主干的引擎改动，现行登记校验拒绝它。这部分环境与来源文件不以格式 1 提交或发布，改作最小移植里的第一个格式 2 动作：绑定 `dingtalk` 的一个动作，使用方式 `offline_assisted`，类别由数据仓从五个固定类别里选；打卡内容的 `kind` 为 null、时长不短于 `CONTENT_MIN_SECONDS`；办公地点的 `app_ids` 清空（只有 `STORE_KINDS` 地点可以绑定 app）。它的足迹是起止两个 `app_touch`，永不被推送；引擎不把它限定在办公地点（「已知局限」）。
 - 不可变证据：`requests/*/inputs/**`、`runs/**`、`execution/**` 原样保留，不按新格式改写。
@@ -1506,7 +1503,7 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 - 作者目录：`sources/catalog/{foods.json, work_topics.json}`；`sources/corpora/manifest.json` 与 `sources/corpora/lifestyle/**`（含开放数据集的原始输入）；`scenario-contacts`、`scenario-mail` 的作者稿是否留存由数据仓定，不再进入发布环境。
 - 工具与测试：`tools/environment_rules.py`（规则副本的唯一写入方）、`tests/zhangjiang/test_corpora.py`。
 
-要改写的工具：
+要改写的工具（环境制作、冻结与运行驱动；手机信号投影、输入整理与来源审计见第二部分）：
 
 | 工具 | 改写 |
 | --- | --- |
@@ -1516,11 +1513,9 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | `tools/preflight_persona.py` | 工时核对改读 `agents[].work_content_ids` 所指内容的 `duration_seconds`；同一条件引擎已在场景加载时以 `WORK_CONTENT_INSUFFICIENT` 检查 |
 | `tools/shared_media.py` | 产出带 `action_id` 的 `contents.json` 行，非娱乐内容 `kind` 为 null |
 | `tools/{action_chain, verify_scenario_repairs}.py` | 请求项写五个键；以方式「进行」与动作名开始活动，不再按 `use_app` 找对象；读 `inventory` 的持有核对删除，改核对订单的收货；不再复制语料目录 |
-| `tools/simulate_phone.py` | 改为逐行投影，见本章手机投影各条 |
-| `tools/{labelkit_input, audit_sources}.py` | 接受新增的事实类型与收货行；来源记录不再带 `corpus_manifest_sha256`；推送记录带动作名 |
-| `tools/{run_day, verify_day_run, dataset_preflight, preflight_runtime, verify_environment_ownership, environment_baseline}.py` | 命令行不变；随运行清单 4、导出清单 4、世界结构 11 与新事件形状核对各自读取的字段 |
+| `tools/{run_day, verify_day_run, dataset_preflight, preflight_runtime, verify_environment_ownership, environment_baseline}.py` | 随运行清单 4、导出清单 4、世界结构 11 与新事件形状核对各自读取的字段；`run_day.py` 的 `phone`、`labelkit`、`audit` 三个阶段与 `verify_day_run.py` 对来源审计的调用，随第二部分那三项职责的归属处置，其余命令行不变 |
 
-今天导入的引擎符号与它们在波次之后的去向（数据仓工具；数据仓测试另有的在表后）：
+今天导入的引擎符号与它们在波次之后的去向（取自核对时可见的数据仓 `tools/`；导入方为 `simulate_phone.py`、`labelkit_input.py`、`audit_sources.py` 的属第二部分的职责；数据仓测试另有的在表后）：
 
 | 引擎符号 | 导入它的工具 | 波次之后 |
 | --- | --- | --- |
@@ -1544,13 +1539,6 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 
 数据仓测试另外导入的符号里：`worldmock.life.work.work_totals` 删除（工时改读内容进度的 `position_seconds`）；`worldmock.catalog.identity.REQUIRED_CATALOG_FILES` 的成员改为六个目录文件；`worldmock.life.models.DeliveryState` 的 `food_id` 改为 `goods_id`；`refresh_manifest_identity`、`parse_catalog_model`、`channel_key`、`generate_map`、`map_bytes`、`RegistrationError`、`ActivityState`、`Event`、`EventDraft`、`FootprintStore` 名字保留；私有函数 `_initial_state` 不在本合同内。
 
-手机投影（P-7；行形状只在「数字足迹合同」定义）：
-
-- `tools/simulate_phone.py` 在 `validate_export` 认证导出之后只做四件事：取本人物 `device` 为 `phone` 的行、一行对一行改写成手机行、按时刻稳定排序、写身份。它不带自己的规则，不再从 `events.jsonl` 的 `delivery_arrival` 推导送达；行里没有的展示字段（推送的标题、类型与摘要）仍按 `source_event_id` 查来源事件。
-- `app-usage.jsonl`：`app_use` 一行带 `segments`（顶层 `started_at` 已不存在）；`app_touch` 一行带 `edge`，时刻取 `occurred_at`；`content_consumed` 与三种推送行的取法不变并多带 `action_id`；事实类型闭集按六种核对。`device` 为 `other` 的行与没有 app 的动作不产生手机行。
-- `purchases.jsonl`：下单取 `purchase` 行的 `created_at` 与 `app_id`（到店订单没有这一行）；付款取同一行的 `created_at` 与 `payment_app_id`（为 null 即没有这一行）；送达通知取配送订单的 `receipt` 行的 `received_at`，发给付款人，所用 app 与履约方式按 `order_id` 取同一订单 `purchase` 行的 `app_id` 与 `fulfillment`，这是送达通知唯一允许的查找。
-- 手机清单 `schema_version` 由 1 改为 2，其余字段不变；投影不作亮屏、前台或通知被点开的声明。LabelKit-DataSet 对手机行的消费在第三仓库，不属本特性的验收。
-
 校验命令与通过条件：
 
 | 命令或检查 | 通过条件 |
@@ -1558,7 +1546,6 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | `worldmock validate --environment environment/shanghai-simplified` | 退出码 0，结果为 `{valid, environment_id, environment_version, scenarios}`：登记校验、地图重生成比对与每个场景的真实加载（含四个 `WORK_*` 码）全部通过 |
 | `tools/environment_prepare/catalog.py --environment … --check`、`tools/scenario_build.py --environment … --check`、`worldmock environment generate-map --check` | 都报告与作者文件的重建结果逐字节相同 |
 | 数据仓 `tests/zhangjiang/*` | 重写为：登记往返、重生成字节稳定、每个动作及每个动作与 app 的组合有内容、同类型店铺同菜单、图连通、每个场景能以安装的引擎加载；`verification.json`、`assertion-transfer.json` 重新生成 |
-| 手机投影用例 | 以一次真实导出核对上面四条；`device` 为 `other` 的行不出现在手机行里 |
 
 数量、真实名称与余额门槛（P-42；取代前序规格的 B-17，由数据仓测试判定，不进引擎）：
 
@@ -1572,17 +1559,45 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | 余额 | 每个人物的初始余额加运行期内预排工资减预排账单，不少于 运行天数 × 7000 分 | 实验假设：场景失去初始库存且不作补偿 |
 | 来源 | 留在数据仓的来源文件；引擎目录除 `summary_source` 外没有来源字段 | 结构 |
 
+第二部分，下游仓库 LabelKit-DataSet：本仓库与数据仓都不实现下面的任何一项（P-7）；它们是对 LabelKit-DataSet 的交接要求，由该仓库实现并验收。核对时可见的 LabelKit-DataSet 检出只有 `sms_abstract/`，没有投影、输入整理或 LabelKit 任务的文件；这些职责今天可见的实现仍在数据仓的 `tools/simulate_phone.py`（手机信号投影）、`tools/labelkit_input.py`（输入整理，含人物可见事件的交接投影）与 `tools/audit_sources.py`（对前两者的来源审计），测试在数据仓的 `tests/test_phone_purchase_projection.py` 与 `tests/test_labelkit_subjective_fields.py`。下面的要求针对职责，不针对文件今天的位置。
+
+它读的东西在波次之后的变化：
+
+| 读的东西 | 波次之后 |
+| --- | --- |
+| 导出身份 | 导出清单 `schema_version` 4、检查点里的世界结构 11、冻结的运行清单 4、质量报告 6（「结构版本」）；读任何工件之前先以 `worldmock.footprints.validation.validate_export` 认证导出，旧号在这里被拒绝，不迁移、不双读。冻结的运行清单不再有 `corpus_manifest_sha256`，来源记录不再带它；`environment_identity` 仍是五个字段。导出仍是五个工件，没有交付清单 |
+| 活动 | `ActivityKind` 只有 `wait`、`sleep`、`travel`、`action`；`work`、`use_app`、`read_mail`、`consume`、`lifestyle`、`chat`、`call` 不再出现。`action` 活动的 `data` 带目录动作的 `action_id`、五个类别之一的 `category`（`entertainment`、`work_study`、`social`、`exercise`、`daily_care`）、可空的 `app_id` 与 `manner`，形状见「世界状态」；活动没有 `target_id`；出行的 `data` 可带 `navigation_app_id` |
+| `app-usage.jsonl` | 六种 `fact_kind`：`app_use`、`app_touch`、`content_consumed`、`push_delivered`、`push_opened`、`push_released`，各带八个共有字段 `fact_kind`、`agent_id`、`activity_id`、`app_id`、`action_id`、`manner`、`device`、`source_event_id`（「数字足迹合同」）。`app_use` 带 `segments`，顶层 `started_at`、`ended_at` 已不存在；`app_touch` 是新事实，带 `edge` 与 `occurred_at`；行取自带 app 身份的活动快照，不再按活动种类 `use_app` |
+| `purchases.jsonl` | `purchase` 行的 `food_id` 改名 `goods_id`，另带 `category` 与可空的 `payment_app_id`；`order_attempt.way` 只有 购买；新增 `receipt` 行，每张 `delivered` 订单恰一行，字段为 `agent_id`、`order_id`、`recipient_id`、`received_at`、`goods_id`、`category`、`quantity`、`provided`、`applied`、`source_event_id` |
+| 环境事件 | 人物可见的 `goods_received` 是新事件，归收货人，载荷见「事件与证据」；`work_topic_completed` 改名 `work_content_completed`，载荷 `{kind, content_id}`；`app_push` 的载荷加 `action_id` 与 `action`；`delivery_arrival` 为 `{kind, scheduled_id, orders[]}`，订单里 `food_id` 改名 `goods_id`，另带 `category`、`payment_app_id`、`received_at`，状态只有 `pending`、`delivered`。事件类型集合与 22 个唤醒原因不变 |
+| 退出的证据 | 进食与持有的证据全部退出：`activity_progress.data` 的 `consumption` 与 `work`，`action_result.data` 的 `given`、`inventory_changes`、`app_content`、`work`，`delivery_arrival` 的 `inventory_changes`，已核验经历 `consumed`，事务的 `outcome`。读它们的窗口、训练字段与规则数据改读收货（`goods_received`、`receipt` 行、经历 `received`）与内容结算（`activity_progress.data.content`）；系统不合成用餐活动，足迹里没有用餐区间（「已知局限」） |
+| 人物请求 | `action_requested` 里 `start_activity` 的请求项恰为 `target`、`way`、`app`、`to`、`pay_app` 五个键，方式只有六种（「请求形状」）；`prompt_sha256` 与 `tool_schema_sha256` 随波次改变（「系统层」） |
+
+手机信号投影（P-7；行形状只在「数字足迹合同」定义）：
+
+- 投影在 `validate_export` 认证导出之后只做四件事：取本人物 `device` 为 `phone` 的行、一行对一行改写成手机行、按时刻稳定排序、写身份。它不带自己的规则，不再从 `events.jsonl` 的 `delivery_arrival` 推导送达；行里没有的展示字段（推送的标题、类型与摘要）仍按 `source_event_id` 查来源事件。
+- `app-usage.jsonl`：`app_use` 一行带 `segments`（顶层 `started_at` 已不存在）；`app_touch` 一行带 `edge`，时刻取 `occurred_at`；`content_consumed` 与三种推送行的取法不变并多带 `action_id`；事实类型闭集按六种核对。`device` 为 `other` 的行与没有 app 的动作不产生手机行。
+- `purchases.jsonl`：下单取 `purchase` 行的 `created_at` 与 `app_id`（到店订单没有这一行）；付款取同一行的 `created_at` 与 `payment_app_id`（为 null 即没有这一行）；送达通知取配送订单的 `receipt` 行的 `received_at`，发给付款人，所用 app 与履约方式按 `order_id` 取同一订单 `purchase` 行的 `app_id` 与 `fulfillment`，这是送达通知唯一允许的查找。
+- 投影清单随新行形状升号，号由 LabelKit-DataSet 定（可见的实现今天写 `schema_version` 1），旧号由它自己的读取方拒绝；投影不作亮屏、前台或通知被点开的声明。
+- 核对：以一次真实导出核对上面各条；`device` 为 `other` 的行不出现在手机行里。
+
+窗口对人物可见环境事件的公开投影（P-8、P-27）：WorldMock 只导出原始事件及其完整载荷（「事件与证据」），窗口里的投影由 LabelKit-DataSet 定义。`goods_received` 投影为恰好 `{kind, goods, category_label, quantity}`（商品名与类别标签）；`app_push` 仍是 `{kind, app, kind_label, summary}` 四键；其他环境事件仍为空对象。
+
+输入整理与来源审计：接受新增的事实类型与收货行；来源记录不再带 `corpus_manifest_sha256`；推送记录带动作名。
+
 本仓库登记为未执行、等数据仓发布后补的回执（发布之前在 `docs/dev/implementation-status.md` 写「未执行」，不写成通过）：
 
 - 正式环境的全量层 `python scripts/run_tests.py --tier full --workers 6 --environment-root ../WorldMock-Dataset/environment/shanghai-simplified` 与 `scripts/coverage_gate.py --from-json`；`docs/dev/coverage-report.json`、`docs/dev/test-durations.json` 以该环境重录。
-- 正式环境上的完整日与换目录恢复回执，以及数据仓对导出的手机投影与来源审计。
+- 正式环境上的完整日与换目录恢复回执。
 - `docs/CONTRACTS.md` 与 `docs/manual/README.md` 里的正式环境路径与版本。
 - 不由本特性产出的回执照「已知局限」登记，不从其他平台或人工环境推定。
+
+LabelKit-DataSet 按新结构消费导出的回执（手机信号投影、输入整理与来源审计、窗口、训练与规则数据）由该仓库产出；本仓库不运行也不代它声明，实现状态里只照它的实际回执登记，取得之前写「未执行」。
 
 <a name="spec-acs-实施阶段"></a>
 ## 实施阶段与提交
 
-[提案](PROPOSAL_2026-10-07_APP_ACTION_RESOURCE_AND_RULE_SIMPLIFICATION.md)的四段在本规格落成三部分（P-37）：「固定新合同」是阶段 0；「最小端到端闭环」与「完整运行替换」合成一个集成波次，即阶段 1–6，在一条特性分支上开发、一次合入主干；「完整数据与交付」分在两处，仓内读取方（导出、质量报告、交付、评估、脚本与查看器）是波次里的阶段 5，数据仓重制与正式回执是阶段 7。中间两段不能分别合入，原因有四：不许兼容路径、迁移或双格式；引擎创建在构造期读完整个目录（规则引擎的构造、场景语义组装、加载检查与人物初始状态），目录格式一变旧路径即不能启动；人工环境只有一套，人物请求只有一种形状；足迹读取方按活动种类取行，种类一变即失效。这与[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-实施阶段)把它的阶段 1–5 定为一个波次是同一个理由。阶段 4 的首个 `LifeEngine` 创建 → 决策 → 推进 → 检查点 → 重开闭环就是提案的「最小端到端闭环」里程碑，它是波次内的门禁，不是合入点。
+[提案](PROPOSAL_2026-10-07_APP_ACTION_RESOURCE_AND_RULE_SIMPLIFICATION.md)的四段在本规格落成三部分（P-37）：「固定新合同」是阶段 0；「最小端到端闭环」与「完整运行替换」合成一个集成波次，即阶段 1–6，在一条特性分支上开发、一次合入主干；「完整数据与交付」分在两处，仓内读取方（导出、质量报告、评估、脚本与查看器）是波次里的阶段 5，数据仓重制、下游仓库 LabelKit-DataSet 的适配与正式回执是阶段 7。中间两段不能分别合入，原因有四：不许兼容路径、迁移或双格式；引擎创建在构造期读完整个目录（规则引擎的构造、场景语义组装、加载检查与人物初始状态），目录格式一变旧路径即不能启动；人工环境只有一套，人物请求只有一种形状；足迹读取方按活动种类取行，种类一变即失效。这与[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-实施阶段)把它的阶段 1–5 定为一个波次是同一个理由。阶段 4 的首个 `LifeEngine` 创建 → 决策 → 推进 → 检查点 → 重开闭环就是提案的「最小端到端闭环」里程碑，它是波次内的门禁，不是合入点。
 
 波次规则：
 
@@ -1601,22 +1616,22 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | --- | --- | --- | --- |
 | 0 冻结 | 本规格定稿；INDEX 登记本规格并把提案行改为 `已裁决`；不动 `docs/design/`、其他文档、测试与提案文件 | 本规格文件、`docs/INDEX.md` | `docs:` |
 | 1 固定规则、目录格式与加载边界 | `exchange` 的闭集、常数与算子（`RULES_VERSION = 2`）；可供性注册表的最终声明；内部动机评分器整体删除；目录格式 2 与登记校验；场景结构 8、世界结构 11、运行清单 4 与加载链；规则文件只从包读取并进入 `code_sha256`；语料钉删除；人工环境重写；机器登记创建、完成集合为空 | `exchange/{types,constants,operators,body}.py`、`catalog/{models,loader,admission,errors,identity,affordances}.py`、`data/affordances.toml`、`corpora/{__init__,manifest}.py`（删语料清单的读取，路径安全函数留在原处）、`life/{scenario,semantics,load_checks,world_setup,engine_context,run_identity,engine}.py`、`life/models.py`（状态字段与 `WORLD_SCHEMA_VERSION`）、`life/rules.py`（构造期读取）、`life/{felt,social,activities}.py`（常数迁入 `exchange`）、`life/{body,rhythm,social_actions}.py`（只改迁入常数的读取处）、`life/{content,retrieval}.py`（生活活动语料的读取）、`life/presentation.py`（候选游标的 `catalog_digest` 改取 `catalog_content_sha256`）、`life/work.py`（`WorkTopic` 的导入换成内容行模型）、`life/durations.py`（`APP_USE_DEFAULT_SECONDS` 的导入与 `USE_APP` 分支）、`life/{observe,projection}.py`（只删 `motivation_internal` 的读取方）、`life/decision_coordinator.py`（`consecutive_rejections` 的两处写入）、`run_setup.py`、`validation.py`、`cli.py`（`validate` 的帮助文字）、`profile/{coverage_targets,injection}.py`、`scripts/run_tests.py`（环境输入摘要不再要求 `corpora/`）；删除 `life/motivation.py`、`exchange/motivation.py`、`data/motivation.toml`；`tests/fixtures/environment/**`；新建的三个登记文件 `tests/fixtures/acs-acceptance.json`、`tests/acs_acceptance.py`、`tests/test_acs_acceptance.py` 与三处注册表 | `feat(exchange):`、`feat(catalog):`、`feat(life):`、`chore(scripts):`、`test:`、`docs:` |
-| 2 收货结算 | 唯一的收货结算函数接在到店受理与 `delivery_arrival` 两处；库存、进食、给予、联系人持有与事务的结果键同提交删除；订单带支付 app 与收货时刻；`goods_received` 事件；事务与用餐目标改由收货推进；已核验经历 `received` | 新增 `life/receipt.py`；删除 `life/giving.py`；`life/{activity_control,activity_evidence,activity_validation,admission,basket,callable_index,commerce,contact_exchange,control_items,day_plan_inputs,discovery,errand_state,errands,guidance,interaction_menu,memory_layer,name_resolution,named_purchase,narration,object_labels,order_routing,progress_layer,prompt_schemas,purchase_offers,recipients,request_linking,result_projection,routing,same_moment,schedule,session_actions,settled_text,storefront_runtime,time_advance,todo_layer,tool_layer,vocabulary,world_ops,world_query}.py`、`scheduling/effects.py`、`footprints/experiences.py`、`custom/agents/life_memory.py` | `feat(life):`、`feat(scheduling):`、`docs:` |
+| 2 收货结算 | 唯一的收货结算函数接在到店受理与 `delivery_arrival` 两处；库存、进食、给予、联系人持有与事务的结果键同提交删除；订单带支付 app 与收货时刻；`goods_received` 事件；事务与用餐目标改由收货推进；已核验经历 `received` | 新增 `life/receipt.py`；删除 `life/giving.py`；`life/{activity_control,activity_evidence,activity_validation,admission,basket,callable_index,commerce,contact_exchange,control_items,day_plan_inputs,discovery,errand_state,errands,guidance,interaction_menu,memory_layer,name_resolution,named_purchase,narration,object_labels,order_routing,progress_layer,prompt_schemas,purchase_offers,recipients,request_linking,result_projection,routing,same_moment,schedule,session_actions,settled_text,storefront_runtime,time_advance,todo_layer,tool_layer,vocabulary,world_ops,world_query}.py`、`scheduling/effects.py`、`footprints/experiences.py`、`agents/life_memory.py` | `feat(life):`、`feat(scheduling):`、`docs:` |
 | 3 动作执行、内容选择与推送 | 一个执行器执行全部数据集动作；按历史选择、系列与耗尽；推送归到动作之下；`ActivityKind` 换为四个，并行准入按类别与使用方式；七种旧活动种类在各模块的读取方与读信活动删除 | 新增 `life/{action_run,content_select}.py`；删除 `life/named_catalog.py`；`life/{activity_titles,app_push,candidates,error_contract,readable,relevance}.py`、`scripts/fresh_check.py`（`QUICK_TESTS` 随所列旧测试文件的删除改写） | `feat(life):`、`docs:` |
-| 4 人物请求、工具层与系统层 | 最终请求形状与词表；名称解析与路由；工具层、可调用索引与 `query_world`；系统层七条与两句用途句；导航 app、购物 app 与支付 app 的点名和选店；首个引擎闭环 | `life/{business_feedback,request_errors,tool_groups,travel}.py`、`custom/agents/{life_agent,life_prompt}.py`；阶段 2、3 动过的请求与呈现文件在本阶段取得最终形状 | `feat(life):`、`feat(prompt):`、`feat(host):`、`docs:` |
-| 5 记录、导出、交付与评估 | 六种 app 使用事实与收货行；`validate_export` 的七条不变量；导出清单 4、质量报告 6、交付清单 4、行为报告 `behavior-metrics-2`；评估、脚本与查看器 | `footprints/{app_usage,export,purchases,quality,validation}.py`、`delivery/{pipeline,windows}.py`、`evaluation/{adapters,behavior_metrics,errand_metrics,goal_metrics,public_evidence,review,validation,workload_metrics}.py`、`scripts/{inspect_run,render_day}.py`、`tools/run-viewer.html`、`tools/run-viewer-context.js` | `feat(footprints):`、`feat(delivery):`、`feat(evaluation):`、`docs:` |
-| 6 收口 | 同场景同种子的双跑完整日与第四份基线；台账闭合；标准层、全量层与覆盖率门禁；源码变异审查；文档收口 | 冻结入口沿用 `scripts/freeze_rrs_baseline.py`，不改它，也不新增入口；完整日脚本与第四份基线 `tests/fixtures/dayrun-action-content-baseline.json`、登记模块的完成集合；`docs/INDEX.md`、`docs/dev/implementation-status.md`、`docs/design/README.md`、`docs/design/SUMMARY.md` 与汇编 HTML | `test:`、`docs:` |
-| 7 数据仓交接与正式回执（只报告） | 数据仓改工具、最小移植、内容重制（「数据仓交接」）；本仓库登记正式环境回执 | 数据仓有自己的提交；本仓库只改实现状态、覆盖率与耗时报告、正式环境路径与登记模块的完成集合，不改契约点 | 数据仓：`feat(environment):`；本仓库：`docs:`、`test:` |
+| 4 人物请求、工具层与系统层 | 最终请求形状与词表；名称解析与路由；工具层、可调用索引与 `query_world`；系统层七条与两句用途句；导航 app、购物 app 与支付 app 的点名和选店；首个引擎闭环 | `life/{business_feedback,request_errors,tool_groups,travel}.py`、`agents/life_prompt.py`、`custom/agents/life_agent.py`；阶段 2、3 动过的请求与呈现文件在本阶段取得最终形状 | `feat(life):`、`feat(prompt):`、`feat(host):`、`docs:` |
+| 5 记录、导出与评估 | 六种 app 使用事实与收货行；`validate_export` 的七条不变量；导出清单 4、质量报告 6、行为报告 `behavior-metrics-2`；评估、脚本与查看器 | `footprints/{app_usage,export,purchases,quality,validation}.py`、`evaluation/{adapters,behavior_metrics,errand_metrics,goal_metrics,public_evidence,review,validation,workload_metrics}.py`、`scripts/{inspect_run,render_day}.py`、`tools/run-viewer.html`、`tools/run-viewer-context.js` | `feat(footprints):`、`feat(evaluation):`、`docs:` |
+| 6 收口 | 同场景同种子的双跑完整日与第四份基线；台账闭合；标准层、全量层与覆盖率门禁；源码变异审查；文档收口 | 冻结入口沿用 `scripts/freeze_rrs_baseline.py`，不改它，也不新增入口；完整日脚本与第四份基线 `tests/fixtures/dayrun-action-content-baseline.json`、登记模块的完成集合；`docs/INDEX.md`、`docs/dev/implementation-status.md`、`docs/design/README.md` 与汇编 HTML，`docs/design/SUMMARY.md` 只复核 | `test:`、`docs:` |
+| 7 数据仓交接与正式回执（只报告） | 两个兄弟仓库（「数据仓交接」）：WorldMock-Dataset 改工具、最小移植、内容重制；LabelKit-DataSet 把手机信号投影、窗口、训练与规则数据改到新的事件种类、活动种类、事实行与身份号；本仓库登记正式环境回执 | 两个仓库各有自己的提交；本仓库只改实现状态、覆盖率与耗时报告、正式环境路径与登记模块的完成集合，不改契约点 | 数据仓：`feat(environment):`；LabelKit-DataSet：按该仓库的约定；本仓库：`docs:`、`test:` |
 
 跨阶段再改的文件里有约束的五处：
 
 - 阶段 1 先动、所属行为在后的文件：`life/{content,retrieval,presentation}.py`、`life/{body,rhythm,social_actions}.py`、`life/{work,durations,decision_coordinator}.py` 与 `life/{observe,projection}.py` 在阶段 1 只做表里括注的那一处改动。`body`、`rhythm`、`observe`、`projection` 在阶段 2 再删进食、共餐与持有的部分；`content`、`retrieval`、`presentation`、`social_actions`、`work`、`durations`、`decision_coordinator` 的其余改动在阶段 3，随执行器、选择器与新的活动种类落地。
 - `life/models.py` 与 `life/session_actions.py` 在阶段 1–4 都会被改（前者依次是世界状态字段、订单与事务模型、`ActivityKind` 与活动启动参数、人物请求模型；后者依次是进食与给予的入口、旧活动种类的启动、请求分发），两个文件的行数在每个阶段的提交之后都不高于代码基线（P-36）。
 - `life/{tool_layer,projection,observe,name_resolution,vocabulary,prompt_schemas,callable_index,world_query}.py` 在阶段 2 只删持有、进食与给予的部分，在阶段 3 删工作主题、生活活动、app 目标与读信的部分，最终的目标类、行形状与索引键在阶段 4 完成。
-- `custom/agents/life_prompt.py` 只在阶段 4 改一次：系统层七条与两句用途句同提交落地，此前各阶段不改系统层文本。
+- `agents/life_prompt.py` 只在阶段 4 改一次：系统层七条与两句用途句同提交落地，此前各阶段不改系统层文本。
 - `footprints/experiences.py` 在观察路径上，不留到阶段 5：`received` 随阶段 2，`played` 的可空 `app_id` 随阶段 3。
 
-依赖顺序固定为 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7：阶段 2 用阶段 1 的商品类别、收货常数与订单字段；阶段 3 用阶段 1 的动作与内容目录，并改阶段 2 已清掉进食入口的同一批文件；阶段 4 把请求接到阶段 2、3 的结算与执行器上；阶段 5 读阶段 2–4 写出的事件；阶段 6 只收证据；阶段 7 以主干上的波次为输入。阶段内可以按互不重叠的文件或函数并行：阶段 1 的 `exchange` 先行，目录登记与场景、世界模型并行，评分器的删除与注册表的最终声明同提交；阶段 2 的结算函数及其两个调用点与各文件里持有读取方的删除并行，但同提交落地；阶段 3 的选择器与占用准入并行，执行器与推送在选择器之后；阶段 4 的请求与名称解析、工具层与索引、系统层文本三路并行，引擎闭环最后；阶段 5 在两份足迹工件的行形状定下之后，质量报告、评估、交付、脚本与查看器并行。不能跨阶段提前删除仍有消费者的模块，也不能把行为留到阶段 6。
+依赖顺序固定为 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7：阶段 2 用阶段 1 的商品类别、收货常数与订单字段；阶段 3 用阶段 1 的动作与内容目录，并改阶段 2 已清掉进食入口的同一批文件；阶段 4 把请求接到阶段 2、3 的结算与执行器上；阶段 5 读阶段 2–4 写出的事件；阶段 6 只收证据；阶段 7 以主干上的波次为输入。阶段内可以按互不重叠的文件或函数并行：阶段 1 的 `exchange` 先行，目录登记与场景、世界模型并行，评分器的删除与注册表的最终声明同提交；阶段 2 的结算函数及其两个调用点与各文件里持有读取方的删除并行，但同提交落地；阶段 3 的选择器与占用准入并行，执行器与推送在选择器之后；阶段 4 的请求与名称解析、工具层与索引、系统层文本三路并行，引擎闭环最后；阶段 5 在两份足迹工件的行形状定下之后，质量报告、评估、脚本与查看器并行。不能跨阶段提前删除仍有消费者的模块，也不能把行为留到阶段 6。
 
 <a name="spec-acs-已知局限"></a>
 ## 已知局限
@@ -1625,17 +1640,17 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 - 用餐没有进食时间，到店没有停留：食品在收货当秒结算，足迹里只有下单、支付与收货三个时点，没有用餐活动；餐馆里的停留只在人物另外等待或做别的动作时才存在，行为报告没有可与参照对比的用餐分钟。
 - 配送结算给不在场或睡着的收货人：身体状态的变化可以发生在收货人不在收货地或正在睡觉的时刻；收货事件如实记下收货人当秒所在地点与是否在睡，不代表人物当时在收货地接了货。
 - 十二周内的足迹多样性受数据仓内容量限制：未看的内容用完之后只能重播，重播如实记轮并在质量报告里以重播秒数占比报告；引擎不能让有限的目录不重复。
-- 电脑上的工作与线下活动不再算手机使用：其他设备的使用不进手机投影，没有 app 的动作零行；手机使用区间比此前的运行稀疏而更真实，app 使用时长与此前的基线不可直接比较。
+- 电脑上的工作与线下活动不再算手机使用：其他设备的使用不进下游的手机信号投影，没有 app 的动作零行；手机使用区间比此前的运行稀疏而更真实，app 使用时长与此前的基线不可直接比较。
 - 新增的数全是实验假设：运动与日常照护的代谢当量、两种非食品收货效果、内容时长下限、娱乐内容量门槛与每日余额门槛；本规格不承诺由它们得到的行为指标，每人每日决策数只作为观测值报告。
 - 场所合理性在粗粒度的类别表之外靠人物的常识：只有运动与分配的工作内容受场所限制，打卡、家务一类动作在任何地点都会被受理，足迹里可能出现地点不合常理的动作。
 - 无店铺电商无法表达：购物 app 必须绑定地图上的店铺，真实电商 app 只能登记为绑定超市的即时零售（环境假设），订单在几十分钟内送达，没有包裹、驿站与次日达的足迹。
 - 导出不作亮屏、前台或后台的声明：`app_use` 只表示持续使用，`push_opened` 只表示同一 session 里开始了那个 app 的那个动作；需要屏幕级事件的消费者不能从两份足迹工件得到。
-- 整单里的多行各有记录：足迹行以订单行为单位，一张整单含两行时，手机投影有两条同秒的下单、付款与送达记录，它们对应同一笔转账。
-- Windows 回执与第三仓库的手机行消费者不由本特性产出：Windows 上没有执行回执，不从其他平台推定；LabelKit-DataSet 对手机行的消费仍是未完成的验收。
+- 整单里的多行各有记录：足迹行以订单行为单位，一张整单含两行时，下游逐行投影的手机信号有两条同秒的下单、付款与送达记录，它们对应同一笔转账。
+- Windows 回执与下游消费的验收不由本特性产出：Windows 上没有执行回执，不从其他平台推定；手机信号投影、LabelKit 窗口、训练与规则数据归 LabelKit-DataSet，它按新结构消费导出仍是未完成的验收，本仓库不运行也不代它声明。
 
 <a name="spec-acs-版本表"></a>
 ## 版本表
 
 | 版本 | 日期 | 修改 |
 | --- | --- | --- |
-| `2026-10-07-acs-freeze` | 2026-10-07 | 冻结：提案收敛为本规格；提案的六个补充选择（R1 … R6）与按系统主目的的补定（P-1 … P-43）定稿；实施计划（阶段 0–7）、各阶段的文件清单与设计文档改写清单对照代码基线提交核定 |
+| `2026-10-07-acs-freeze` | 2026-10-07 | 冻结：提案收敛为本规格；提案的六个补充选择（R1 … R6）与按系统主目的的补定（P-1 … P-43）定稿；实施计划（阶段 0–7）、各阶段的文件清单与设计文档改写清单对照代码基线提交核定；各清单已按含同日数据加工归属变更（现行文档版本表的 `2026-10-07-repository-ownership` 行）的代码基线重新核对，手机信号投影与 LabelKit 窗口列为对 LabelKit-DataSet 的交接要求 |

@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING, Any
 from agentsociety2.agent.base.react import MemoryUpdateEvidence
 from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig, MemoryStepOutcome, PersonMemoryRuntime
 from agentsociety2.agent.person_prompt import xml_block
-from custom.agents.life_memory_store import WorldMockMemoryStore
-from custom.agents.life_reflection import (REFLECTION_PROMPT, REFLECTION_VALIDATION_RETRIES, ReflectionOutputError,
+from worldmock.agents.life_memory_store import WorldMockMemoryStore
+from worldmock.agents.life_reflection import (REFLECTION_PROMPT, REFLECTION_VALIDATION_RETRIES, ReflectionOutputError,
                                            reflection_correction, reflection_insights, reflection_tool)
 from worldmock.life.memory_evidence import SUBJECTIVE_TYPES, valid_subjective_snapshot
 from worldmock.errors import ProtocolError

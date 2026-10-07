@@ -15,7 +15,6 @@ from scripts.bootstrap_sources import file_sha256
 
 PROFILE_ENV = "WORLDMOCK_ENVIRONMENT_PROFILE"
 MISSING_NODE = "Node.js with working node:sqlite is unavailable for the dev environment profile"
-MISSING_LABELKIT = "The isolated LabelKit CLI is not installed for the dev environment profile"
 ROOT = Path(__file__).resolve().parents[1]
 
 # 与查看器相同，真实执行绑定写入和两种 JSON 查询，不以模块名或版本代替能力。
@@ -34,11 +33,6 @@ _NODE_SQLITE_PROBE = (
 def environment_python(directory: Path) -> Path:
     """@brief 取本操作系统虚拟环境内的唯一 Python 路径。"""
     return directory / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-
-
-def labelkit_cli(root: Path) -> Path:
-    """@brief 保持独立 LabelKit CLI 的跨平台公开安装位置。"""
-    return root / "vendor/labelkit/.venv" / ("Scripts/labelkit.exe" if os.name == "nt" else "bin/labelkit")
 
 
 def required_python_version(root: Path) -> str:
@@ -157,14 +151,12 @@ def _chinese_font_available(root: Path) -> bool:
 
 
 def component_status(root: Path) -> dict:
-    """@brief 核对实际 SQLite、生产字体和独立 CLI，返回明确能力与缺失集合。"""
+    """@brief 核对查看器 SQLite 与评估字体的实际能力及缺失集合。"""
     node_version, node_sqlite_available = _node_status()
     chinese_chart_font_available = _chinese_font_available(root)
     missing = []
     if not node_sqlite_available:
         missing.append("Node")
-    if not labelkit_cli(root).is_file():
-        missing.append("LabelKit")
     if not chinese_chart_font_available:
         missing.append("Chinese font")
     return {"node_version": node_version, "node_sqlite_available": node_sqlite_available,

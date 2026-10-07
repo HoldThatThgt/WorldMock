@@ -1,4 +1,4 @@
-"""LifeEngine 到认证导出与训练窗口的真实链路测试。"""
+"""LifeEngine 到完整终态与认证导出的真实链路测试。"""
 
 from __future__ import annotations
 
@@ -12,10 +12,9 @@ import pytest
 from agentsociety2.society import DirectToolCall
 from agentsociety2.agent.base import MemoryUpdateEvidence, ModelCallEvidence
 
-from custom.agents.life_prompt import life_user_layers, system_message, user_message
+from worldmock.agents.life_prompt import life_user_layers, system_message, user_message
 from tests.life.conftest import (advance_next, conclude_request, context, pending_names, stage_day_plan,
                                  start_activity, submit_round, wake_by_mail, start_request)
-from worldmock.delivery.windows import prepare_windows
 from worldmock.footprints.export import export_run, write_jsonl
 from worldmock.footprints.models import Event, EventDraft
 from worldmock.footprints.validation import validate_export
@@ -135,7 +134,7 @@ def _conclusion_memory_evidence(ctx, observation: dict) -> MemoryUpdateEvidence:
         verified_event_ids=tuple(dict.fromkeys(row["source_event_id"] for row in observation["verified_experiences"])))
 
 
-def test_completed_activity_exports_terminal_outcome_and_training_windows(engine_factory, tmp_path: Path) -> None:
+def test_completed_activity_exports_terminal_outcome_and_recorded_prompt(engine_factory, tmp_path: Path) -> None:
     """真实活动终态回链原动作，并通过 export、认证和三类训练窗口消费；链上有一次带记忆的收尾：动作窗口目标保留
     完整请求，意图与 dreaming 窗口中的动作请求投影不含记忆正文（规格第七章「finish 并入 conclude_activity」、第九章交付链）；
     行动请求按真实七层记录，dreaming 读其中的层 JSON。"""
@@ -172,7 +171,6 @@ def test_completed_activity_exports_terminal_outcome_and_training_windows(engine
     export_dir = tmp_path / "life-export"
     manifest = export_run(engine.context.store, checkpoint.last_event_seq, export_dir)
     validated, events, activities = validate_export(export_dir)
-    windows = prepare_windows(export_dir)
 
     assert manifest["experiment_completed"] is True
     assert validated["checkpoint"]["checkpoint_id"] == checkpoint.checkpoint_id
@@ -181,51 +179,21 @@ def test_completed_activity_exports_terminal_outcome_and_training_windows(engine
     assert activity["location_id"] == observation["location_id"]
     assert activity["segments"] == [{"started_at": engine.context.state.end_time - duration,
                                      "ended_at": engine.context.state.end_time}]
-    action = next(item for item in windows["action"]
-                  if item["target"]["request"]["action_id"] == action_id)
-    outcomes = action["target"]["outcomes"]
-    assert any(item["event_id"] == terminal.event_id and item["data"]["status"] == "completed"
-               for item in outcomes)
-    assert observation["observation_event_id"] in action["provenance"]["source_event_ids"]
-    assert action["input"]["decision_prompt"] == recorded_prompt
-    assert windows["intent"] and windows["dreaming"] and events[-1]["event_type"] == "checkpoint_created"
-    concluded = next(item for item in windows["action"] if item["target"]["request"]["action_id"] == "action-wait-end")
-    assert concluded["target"]["request"]["data"]["request"]["items"][0]["memories"] == [_MEMORY]
+    [prompt] = [event for event in events if event["event_type"] == "model_request"
+                and event["decision_id"] == ctx.decision_id and event["data"]["phase"] == "request"]
+    assert prompt["data"]["request"] == recorded_prompt
+    [exported_request] = [event for event in events if event["event_type"] == "action_requested"
+                         and event["action_id"] == action_id]
+    assert exported_request["data"]["self_note"] == _SELF_NOTE
+    [concluded_request] = [event for event in events if event["event_type"] == "action_requested"
+                           and event["action_id"] == "action-wait-end"]
+    assert concluded_request["data"]["request"]["items"][0]["memories"] == [_MEMORY]
     updated = [event for event in events if event["event_type"] == "memory_updated"]
     assert [(event["decision_id"], event["data"]["trigger"]) for event in updated] == [
         (conclusion.decision_id, ["activity_conclusion"])]
-    projected = [row for item in windows["intent"] + windows["dreaming"] for row in item["input"]["events"]]
-    inputs = json.dumps(projected, ensure_ascii=False)
-    assert _MEMORY["text"] not in inputs and "memories" not in inputs
-    # 实际请求原样保留：此后决策的进度层按第一章把这次收尾的参数（routine 记忆不略去）写进请求，这是模型所见，不裁剪。
     assert _MEMORY["text"] in recorded_prompt["messages"][1]["content"]
-    _assert_seven_layer_windows(engine, windows, action)
+    assert events[-1]["event_type"] == "checkpoint_created"
 
-
-def _assert_seven_layer_windows(engine, windows: dict, action: dict) -> None:
-    """交付窗口读原样保存的四个环境层与 self_note，按 progress_event_ids 展开先前结果，dreaming 不含 decision_started
-    （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「交付」）。"""
-    records = windows["action"] + windows["intent"] + windows["dreaming"]
-    rows = [row for record in records for row in record["input"]["events"]]
-    observed = [row for row in rows if row["event_type"] == "observation"]
-    assert observed and all(set(row["data"]) == _OBSERVATION_LAYERS for row in observed)
-    stored = {event.event_id: event.data for event in engine.context.store.read_agent_events("observation", 1)}
-    assert all(row["data"] == {key: stored[row["event_id"]][key] for key in _OBSERVATION_LAYERS} for row in observed)
-    requested = [row for row in rows if row["event_type"] == "action_requested"]
-    assert requested and all(row["data"]["self_note"] == _SELF_NOTE for row in requested)
-    assert all(row["event_type"] != "decision_started" for record in windows["dreaming"]
-               for row in record["input"]["events"])
-    sent = {event.event_id: json.loads(event.data["request"]["messages"][1]["content"])
-            for event in engine.context.store.read_agent_events("model_request", 1) if not event.data.get("purpose")}
-    for record in windows["dreaming"]:
-        acted = [row["event_id"] for row in record["input"]["events"] if row["event_type"] == "action_requested"]
-        assert acted and [item["action_event_id"] for item in record["input"]["decision_layers"]] == acted
-        assert all(item["layers"] == sent[source["event_id"]] for item, source in
-                   zip(record["input"]["decision_layers"], record["provenance"]["decision_layer_sources"]))
-    earlier ={event.event_id for event in engine.context.store.read_agent_events("action_result", 1)
-               if event.action_id == "action-first-wait"}
-    shown = {row["event_id"] for row in action["input"]["events"]}
-    assert earlier & shown, "the final decision's progress layer must expand an earlier decision's result"
 
 
 def test_export_contains_hash_bound_timeline_projections(engine_factory, tmp_path: Path) -> None:

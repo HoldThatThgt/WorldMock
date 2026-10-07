@@ -23,7 +23,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from custom.agents.life_prompt import empty_memory_layer
+from worldmock.agents.life_prompt import empty_memory_layer
 from worldmock.life.narration import PERSONA_CARD_HANZI_BUDGET, RenderBudgetExceededError, count_hanzi
 from worldmock.profile.models import PersonaCardStruct, TimeWindow
 from worldmock.profile.textgen import hour_text, intimacy_text, window_text

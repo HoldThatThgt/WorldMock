@@ -106,7 +106,7 @@
     ],
     "implementation": [
       "tests/acceptance_guard.py::acceptance_section",
-      "custom/agents/life_prompt.py::system_message"
+      "src/worldmock/agents/life_prompt.py::system_message"
     ]
   },
   "符号作用域突变": {
@@ -165,7 +165,7 @@
     "implementation": [
       "tests/tier_support.py::classify",
       "tests/tier_support.py::selected",
-      "conftest.py::pytest_collection_modifyitems"
+      "tests/conftest.py::pytest_collection_modifyitems"
     ]
   },
   "分片完整性": {

@@ -552,7 +552,7 @@
       "tests/life/test_work_topics.py::test_actual_day_plan_inputs_use_topic_target_and_worked_hours_without_acceptance"
     ],
     "implementation": [
-      "custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER",
+      "src/worldmock/agents/life_prompt.py::LIFE_SYSTEM_LAYER",
       "src/worldmock/run_setup.py::validate_stage_model_identity",
       "src/worldmock/run_setup.py::validate_manifest_stage_identity",
       "src/worldmock/life/day_plan_inputs.py::_task_rows",
@@ -569,7 +569,7 @@
       "tests/integration/test_seven_layer_request.py::test_each_resource_rule_change_moves_only_the_prompt_fingerprint"
     ],
     "implementation": [
-      "custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER"
+      "src/worldmock/agents/life_prompt.py::LIFE_SYSTEM_LAYER"
     ]
   },
   "app 目标与 Schema": {
@@ -625,7 +625,7 @@
       "tests/tools/test_run_viewer.py::test_run_viewer_recorded_names"
     ],
     "implementation": [
-      "custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER",
+      "src/worldmock/agents/life_prompt.py::LIFE_SYSTEM_LAYER",
       "src/worldmock/footprints/models.py::WAKE_REASON_NAMES"
     ]
   },
@@ -636,15 +636,12 @@
       "tests/life/test_export_integration.py::test_real_app_export_has_five_source_bound_fact_types_and_exact_quality_sections",
       "tests/life/test_export_integration.py::test_real_app_export_rejects_tampered_or_rehashed_content_facts",
       "tests/footprints/test_quality.py::test_work_topic_quality_uses_actual_activity_seconds_and_real_completions_and_reports",
-      "tests/delivery/test_windows.py::test_actual_committed_app_push_has_only_four_public_fields_and_false_push_stays_private",
-      "tests/delivery/test_host_delivery_coverage.py::test_deliver_success_path_publishes_full_manifest",
       "tests/integration/test_verified_memory.py::test_actual_app_progress_is_written_to_verified_memory_with_source_and_cursor",
       "tests/life/test_experience_sentences.py::test_real_pause_resume_immediate_cancellation_keeps_prior_partial_app_viewing",
       "tests/life/test_experience_sentences.py::test_shared_cursor_advance_from_another_app_is_not_this_activitys_viewing",
       "tests/integration/test_biz_timeline_recording.py::test_business_fixture_is_recorded_from_current_engine",
       "tests/integration/test_biz_timeline_recording.py::test_current_inspection_names_actual_work_and_app_progress",
       "tests/footprints/test_render_day.py::test_real_biz_run_rows_name_the_calls_and_the_work_task",
-      "tests/delivery/test_publication.py::test_delivery_world_schema_ten_rejects_nine_before_consumers",
       "tests/footprints/test_validation.py::test_current_export_identity_is_required_before_any_consumer"
     ],
     "implementation": [
@@ -652,8 +649,6 @@
       "src/worldmock/footprints/app_usage.py::project_app_usage",
       "src/worldmock/footprints/validation.py::validate_export",
       "src/worldmock/footprints/quality.py::build_quality_report",
-      "src/worldmock/delivery/pipeline.py::_require_current_world_schema",
-      "src/worldmock/delivery/windows.py::prepare_windows",
       "scripts/render_day.py::render_day_markdown",
       "scripts/inspect_run.py::_brief"
     ]
@@ -796,7 +791,7 @@
       "tests/test_test_tiers.py::test_external_environment_identity_survives_relocation_and_rejects_changed_bytes",
       "tests/test_test_tiers.py::test_explicit_external_environment_requires_all_three_nonempty_inputs",
       "tests/test_test_tiers.py::test_fixed_dependency_and_patch_bytes_are_part_of_the_frozen_test_input",
-      "tests/test_test_tiers.py::test_delivery_generated_directories_are_not_test_source_inputs",
+      "tests/test_test_tiers.py::test_generated_work_and_bytecode_are_not_test_source_inputs",
       "tests/test_test_tiers.py::test_changed_selection_includes_staged_unstaged_and_untracked",
       "tests/test_test_tiers.py::test_real_serial_and_parallel_workers_return_identical_complete_nodes",
       "tests/test_test_tiers.py::test_real_pytest_rejects_other_run_old_format_or_duplicate_selection",

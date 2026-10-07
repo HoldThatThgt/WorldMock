@@ -43,7 +43,7 @@ import jsonschema  # noqa: E402
 import requests  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
 
-from custom.agents.life_prompt import system_message  # noqa: E402
+from worldmock.agents.life_prompt import system_message  # noqa: E402
 from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL  # noqa: E402
 from worldmock.profile.extractor import ExtractionError, resolve_api_key  # noqa: E402
 

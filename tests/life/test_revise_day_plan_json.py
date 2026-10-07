@@ -16,7 +16,7 @@ from pydantic import ValidationError
 from agentsociety2.agent.base import ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 from custom.agents.life_agent import LifeAgent
-from custom.agents.life_feedback import FEEDBACK_INSTRUCTION
+from worldmock.agents.life_feedback import FEEDBACK_INSTRUCTION
 from tests.integration.test_life_agent_protocol import (_context, _Environment, _GroundedCorrectionDispatcher,
                                                         _ModelResponse, _observations, _wire_agent)
 from tests.life.conftest import StubPlanDayClient, context, settle_day_plans

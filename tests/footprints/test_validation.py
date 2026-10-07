@@ -16,8 +16,7 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from tests.integration.as2_fixtures import use_fake_as2
 from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT, ENVIRONMENT_ROOT
 from tests.profile.conftest import make_card, make_window
-from tests.delivery.prompt_fixtures import layered_user, six_layers
-from worldmock.delivery.windows import prepare_windows
+from tests.footprints.prompt_fixtures import layered_user
 from worldmock.errors import IntegrityError
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft
@@ -100,20 +99,16 @@ def complete_export(tmp_path):
     return directory
 
 
-def test_production_windows_require_and_accept_complete_authenticated_export(complete_export):
+def test_export_accepts_complete_authenticated_run(complete_export):
+    """@brief 完整模拟终态可经公共导出认证，并保留真实模型请求。"""
     manifest, events, activities = validate_export(complete_export)
     assert manifest['experiment_completed'] is True
     assert len(events) == 5 and activities == []
-    windows = prepare_windows(complete_export)
-    assert {task: len(rows) for task, rows in windows.items()} == {'action': 1, 'intent': 1, 'dreaming': 3}
-    assert windows['action'][0]['input']['decision_prompt']['messages'][1] == layered_user()
-    assert all(record['input']['decision_layers'][0]['layers'] == six_layers() for record in windows['dreaming'])
-    assert windows['action'][0]['provenance']['decision_prompt_event_id'] == events[1]['event_id']
-
+    assert events[1]['data']['request']['messages'][1] == layered_user()
 
 @pytest.mark.parametrize('field', ['version', 'committed', 'completed', 'rows', 'path', 'cutoff', 'window',
                                   'coverage', 'source_runs', 'checkpoint_hash', 'missing_asset', 'event_hash'])
-def test_incomplete_or_tampered_export_never_reaches_labelkit(complete_export, field):
+def test_incomplete_or_tampered_export_is_rejected(complete_export, field):
     path = complete_export / 'manifest.json'
     manifest = json.loads(path.read_text())
     if field == 'version': manifest['schema_version'] = 999
@@ -129,7 +124,7 @@ def test_incomplete_or_tampered_export_never_reaches_labelkit(complete_export, f
     if field == 'missing_asset': next((complete_export / 'assets').iterdir()).unlink()
     if field == 'event_hash': (complete_export / 'events.jsonl').write_text('{}\n')
     path.write_text(json.dumps(manifest))
-    with pytest.raises(IntegrityError): prepare_windows(complete_export)
+    with pytest.raises(IntegrityError): validate_export(complete_export)
 
 
 @pytest.mark.parametrize('rehash', [False, True])
@@ -163,7 +158,6 @@ def test_export_rejects_retired_version_or_noncurrent_artifact_set(complete_expo
         validate_export(complete_export)
 
 
-@pytest.mark.requires_labelkit
 def test_validate_project_passes_and_writes_persona_coverage(tmp_path, monkeypatch):
     """validate 全链路通过：品类准入+任务受理+阶段身份+persona_coverage.json。"""
     monkeypatch.setattr(worldmock_run_setup_module, "_configure_process", lambda _root: None)
@@ -183,7 +177,6 @@ def test_validate_project_passes_and_writes_persona_coverage(tmp_path, monkeypat
     assert document["agents"][0]["covered_items"] == report["covered_items"]
 
 
-@pytest.mark.requires_labelkit
 def test_validate_project_rejects_a_retired_stage_through_the_manifest_validator(tmp_path, monkeypatch):
     """校验入口与新建、打开、恢复同用 validate_manifest_stage_identity：新运行将冻结的阶段身份含退役的决策自述阶段即拒绝
     （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「清单」）。"""
@@ -204,7 +197,6 @@ def test_validate_project_rejects_a_retired_stage_through_the_manifest_validator
     assert seen == [None]
 
 
-@pytest.mark.requires_labelkit
 def test_validate_project_rejects_coverage_below_threshold(tmp_path, monkeypatch):
     """可执行比例低于 80% 时校验失败并列出缺失项（画像写了世界里没有的东西）。"""
     monkeypatch.setattr(worldmock_run_setup_module, "_configure_process", lambda _root: None)
@@ -221,7 +213,6 @@ def test_validate_project_rejects_coverage_below_threshold(tmp_path, monkeypatch
     assert "播客" in str(caught.value)
 
 
-@pytest.mark.requires_labelkit
 def test_validate_project_rejects_an_invalid_current_food_registration(tmp_path, monkeypatch):
     """@brief 当前食品绑定违反真实登记合同，在任何人物启动或画像生成前即拒绝。"""
     from worldmock.catalog.identity import refresh_manifest_identity
@@ -351,4 +342,4 @@ def test_current_export_identity_is_required_before_any_consumer(complete_export
     with pytest.raises(IntegrityError, match=message):
         validate_export(complete_export)
     with pytest.raises(IntegrityError, match=message):
-        prepare_windows(complete_export)
+        validate_export(complete_export)

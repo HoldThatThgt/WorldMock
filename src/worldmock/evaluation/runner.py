@@ -102,7 +102,7 @@ def _causal_results(
     """@brief 对两方分别调用生产检查器且不信任输入清单结论。"""
     return {
         "schema_version": "causal-validation-1",
-        "checker": "worldmock.delivery.rules.evaluate_causal_events",
+        "checker": "worldmock.evaluation.causal_checks.evaluate_causal_events",
         "support": support,
         "left": evaluate_causality(left, support).to_dict(),
         "right": evaluate_causality(right, support).to_dict(),

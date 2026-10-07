@@ -28,7 +28,7 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from agentsociety2.agent.base import ModelCallEvidence, ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 from custom.agents.life_agent import _MEMORY_TOOL_MODELS, LifeAgent
-from custom.agents.life_prompt import (LIFE_SYSTEM_LAYER, TOOL_DESCRIPTIONS, life_user_layers, system_message,
+from worldmock.agents.life_prompt import (LIFE_SYSTEM_LAYER, TOOL_DESCRIPTIONS, life_user_layers, system_message,
                                        user_message)
 from tests.integration.test_life_agent_protocol import (
     _Environment,
@@ -701,8 +701,8 @@ def test_system_layers_persona_memory_and_tools_validate_against_the_layer_schem
     """两份系统层、没有卡片的人设层（含场景联系人与看法偏好）、空记忆层与每个原生工具定义都通过七层 Schema。"""
     from jsonschema import Draft202012Validator
 
-    from custom.agents.life_persona import persona_layer
-    from custom.agents.life_prompt import READONLY_SYSTEM_LAYER, empty_memory_layer
+    from worldmock.agents.life_persona import persona_layer
+    from worldmock.agents.life_prompt import READONLY_SYSTEM_LAYER, empty_memory_layer
     from worldmock.life.prompt_schemas import TOOL_DEFINITION_SCHEMA, validate_layer
 
     views = {"relationships": [{"person": "王磊", "view": "做事靠谱"}],
@@ -723,7 +723,7 @@ def test_recorded_prompt_fingerprint_is_recomputed_from_the_eighteen_rules_and_t
     """prompt_sha256 只计算、不钉常量，随系统层与待办层 Schema 重钉（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-系统层照作息过日子较强一档才改、8.2）：新运行的
     模型身份记录的提示指纹就是按现行十八条系统层与带 around_time 的待办层 Schema 算出的值；去掉新第 14 条回到十七条、
     或去掉待办层目标的 around_time，指纹都不同。"""
-    from custom.agents import life_prompt
+    from worldmock.agents import life_prompt
     from worldmock.life import prompt_schemas
     from worldmock.run_setup import _model_identity
 
@@ -743,7 +743,7 @@ def test_recorded_prompt_fingerprint_is_recomputed_from_the_eighteen_rules_and_t
 
 def test_prompt_fingerprint_binds_the_layer_schemas(monkeypatch) -> None:
     """提示指纹绑定七层 Schema：任何一层的 Schema 改动都改变运行指纹。"""
-    from custom.agents import life_prompt
+    from worldmock.agents import life_prompt
     from worldmock.life import prompt_schemas
 
     original = life_prompt.life_prompt_sha256()
@@ -762,7 +762,7 @@ def test_prompt_fingerprint_binds_the_layer_schemas(monkeypatch) -> None:
 def test_each_resource_rule_change_moves_only_the_prompt_fingerprint(monkeypatch, index, current, retired) -> None:
     """五条规则的语义都绑定新运行提示指纹（docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-系统层）：
     任一条换回旧读法时实际模型身份的提示指纹变化，工具指纹不变；所有指纹实时计算，不钉字面摘要。"""
-    from custom.agents import life_prompt
+    from worldmock.agents import life_prompt
     from custom.agents.life_agent import life_tool_schema_sha256
     from worldmock.run_setup import _model_identity
 
@@ -781,7 +781,7 @@ def test_each_resource_rule_change_moves_only_the_prompt_fingerprint(monkeypatch
 def test_prompt_fingerprint_binds_the_callable_index_schema(monkeypatch) -> None:
     """工具层 Schema 登记可调用索引 callable_index（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引）：它是工具层的必填键，形状为
     lifestyle、goods、query_categories 三个键；新运行的模型身份记录的提示指纹按带索引的 Schema 算出，去掉索引指纹就不同。"""
-    from custom.agents import life_prompt
+    from worldmock.agents import life_prompt
     from worldmock.life import prompt_schemas
     from worldmock.run_setup import _model_identity
 

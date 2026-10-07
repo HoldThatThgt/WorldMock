@@ -8,8 +8,6 @@ __pycache__/
 *.egg-info/
 *.pyc
 .DS_Store
-labelkit-projects/out/
-labelkit-projects/data/
 
 # agent instructions
 CLAUDE.md
@@ -18,7 +16,6 @@ CLAUDE.md
 .coverage
 .coverage.*
 vendor/agentsociety2/
-vendor/labelkit/
 .work-shared-rules*.log
 argv.json
 docs/coverage-report.json

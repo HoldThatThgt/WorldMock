@@ -20,13 +20,12 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 import worldmock.runtime as runtime_module
 from agentsociety2.society import SocietyCheckpointRequest
 from custom.agents.life_agent import _MEMORY_TOOL_MODELS, LifeAgent, _tool_schema
-from custom.agents.life_prompt import LIFE_SYSTEM_LAYER
+from worldmock.agents.life_prompt import LIFE_SYSTEM_LAYER
 from custom.envs.life_env import LifeEnv
 from tests.integration.test_life_agent_protocol import _ModelResponse, _TextResponse
 from tests.integration.test_unique_presence_run import _assert_once_each, _assert_readable, _identities
 from tests.life.conftest import StubPlanDayClient, context, start_arguments
 from tests.life.scenario_fixtures import read_scenario, run_identity, write_scenario
-from worldmock.delivery.windows import prepare_windows
 from worldmock.evaluation.behavior_metrics import behavior_metrics_report
 from worldmock.footprints import timeline_labels
 from worldmock.footprints.checkpoint import snapshot_directory
@@ -490,7 +489,7 @@ def _assert_day(engine, models, start, exported, tmp_path):
     _assert_decision_events(events, _identities(engine))
     retried = {model.seed in _REFLECTION_RETRY_SEEDS for model in models.values()}
     assert len(retried) == 1
-    _assert_reflection_requests(events, tmp_path / "export", retried.pop())
+    _assert_reflection_requests(events, retried.pop())
 
 
 def _assert_food_and_delivery(engine, events):
@@ -593,7 +592,7 @@ def _is_decision_request(event) -> bool:
             and "start_activity" in _tool_names(event))
 
 
-def _assert_reflection_requests(events, export_dir, retried):
+def _assert_reflection_requests(events, retried):
     """规格 1.1：真实日运行里就寝反思经唯一严格工具提交——请求不带 purpose、思考关闭、tool_choice=required，不是
     行动请求、不产生 decision_started；洞见落进带 source=reflection 快照的 memory_updated；含反思的决策，其动作与意图
     窗口的决策提示仍是该决策里工具含 start_activity 的那份请求。retried 时每次反思恰有一次校验重试：两人的附回消息
@@ -623,7 +622,6 @@ def _assert_reflection_requests(events, export_dir, retried):
                and any(row.get("source") == "reflection" for row in event.data["episodes"])]
     assert {event.decision_id for event in updates} == {event.decision_id for event in reflections}
     assert all("reflection" in event.data["trigger"] for event in updates)
-    windows = prepare_windows(export_dir)
     for reflection in reflections:
         [action] = [event for event in events if event.event_type == "action_requested"
                     and event.decision_id == reflection.decision_id]
@@ -631,12 +629,9 @@ def _assert_reflection_requests(events, export_dir, retried):
         prompt = max((event for event in events if _is_decision_request(event)
                       and event.decision_id == reflection.decision_id and event.event_seq < action.event_seq),
                      key=lambda event: event.event_seq)
-        for kind in ("action", "intent"):
-            [record] = [item for item in windows[kind] if item["target"]["request"]["action_id"] == action.action_id]
-            assert record["provenance"]["decision_prompt_event_id"] == prompt.event_id != reflection.event_id
-            offered = [tool["function"]["name"] for tool in record["input"]["decision_prompt"]["tools"]]
-            assert "start_activity" in offered and "submit_reflection" not in offered
-
+        assert prompt.event_id != reflection.event_id
+        offered = [tool["function"]["name"] for tool in prompt.data["request"]["tools"]]
+        assert "start_activity" in offered and "submit_reflection" not in offered
 
 def _assert_decision_events(events, identities):
     """第二章：每次决策的 decision_started 与首个行动请求同批提交且排在它之前，data 为闭集；没有决策自述请求；

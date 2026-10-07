@@ -24,7 +24,6 @@ WorldMock-Dataset 提供具体世界，WorldMock 执行这个世界并记录结�
 | 地点、生成图、店铺、食品、app 与内容、生活活动和语料 | [世界素材](resources.md#resources-定义地点门店供给与世界素材) | 七份目录 JSON、生活活动和联系人邮件语料 |
 | 人物动机、身体初值和画像映射 | [规则配置](rules.md#rules-调整世界规则与人物动机参数) | 场景人物参数与明确画像编译；固定规则与常数由引擎包维护 |
 | 模型凭据、新建运行、恢复和反事实条件 | [运行配置](runtime.md#runtime-运行配置) | 私密凭据、命令参数、干预 JSON |
-| 把足迹加工成训练数据与规则测试数据 | [数据生成](delivery.md#delivery-自定义训练数据交付) | `labelkit-projects/` |
 | 评估数据、统计设置、人工参照与盲评 | [真实性评估](evaluation.md#evaluation-自定义评估与盲评输入) | 评估配置、评审文件 |
 
 ```mermaid

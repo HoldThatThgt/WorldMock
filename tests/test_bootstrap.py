@@ -26,8 +26,6 @@ ORIGINAL_AS2_DIGEST = "65a902ec66df42296d4e4c85e424bce3512e437133fc6be9fa597766f
 
 def _source_repository(tmp_path):
     shutil.copytree(ROOT / "patches", tmp_path / "patches")
-    (tmp_path / "requirements").mkdir()
-    shutil.copy2(ROOT / "requirements/labelkit-source.json", tmp_path / "requirements/labelkit-source.json")
     return tmp_path
 
 
@@ -117,21 +115,6 @@ def test_source_archive_rechecks_the_path_left_after_stripping_the_prefix(tmp_pa
     assert not escaped.exists()
 
 
-def test_wheelhouse_missing_labelkit_artifact_never_accesses_network(tmp_path, monkeypatch):
-    root = _source_repository(tmp_path)
-    monkeypatch.setattr(sources.urllib.request, "urlopen",
-                        lambda *args, **kwargs: pytest.fail("offline bootstrap accessed the network"))
-    with pytest.raises(RuntimeError, match="Locked artifact hash differs"):
-        sources.labelkit_artifact(root, tmp_path / "wheelhouse")
-
-
-def test_existing_labelkit_source_is_identity_checked_without_network(monkeypatch):
-    monkeypatch.setattr(sources.urllib.request, "urlopen",
-                        lambda *args, **kwargs: pytest.fail("valid source must not download"))
-    result = sources.restore_labelkit(ROOT)
-    assert result["commit"] == "d0afd606decbc3f4aa64c64ef5339586120c5a7a"
-
-
 def _requirements(path):
     rows = {}
     for block in path.read_text(encoding="utf-8").split("\n\n"):
@@ -141,30 +124,26 @@ def _requirements(path):
     return rows
 
 
-@pytest.mark.parametrize("lock,export", [("uv.lock", "lock.txt"),
-                                         ("vendor/labelkit/uv.lock", "labelkit-lock.txt")])
-def test_exported_dependency_versions_and_all_hashes_match_original_lock(lock, export):
-    packages = tomllib.loads((ROOT / lock).read_text(encoding="utf-8"))["package"]
+def test_exported_dependency_versions_and_all_hashes_match_original_lock():
+    packages = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))["package"]
     originals = {(package["name"], package["version"]): package for package in packages
                  if "registry" in package["source"]}
-    rows = _requirements(ROOT / "requirements" / export)
+    rows = _requirements(ROOT / "requirements/lock.txt")
     assert rows
     assert {(name, version) for name, version, marker in rows} == set(originals)
     for (name, version, marker), hashes in rows.items():
         package = originals[name, version]
         artifacts = [*package.get("wheels", []), *([package["sdist"]] if "sdist" in package else [])]
         assert hashes == {artifact["hash"] for artifact in artifacts}
-    if export == "lock.txt":
-        assert "textworld" not in {name for name, version, marker in rows}
-        assert ("hatchling", "1.32.4") in originals
+    assert "textworld" not in {name for name, version, marker in rows}
+    assert ("hatchling", "1.32.4") in originals
 
 
-@pytest.mark.parametrize("export", ["lock.txt", "labelkit-lock.txt"])
 @pytest.mark.parametrize("platform", ["linux", "win32", "darwin"])
-def test_recursive_backend_locks_do_not_conflict_with_application_dependencies(export, platform):
+def test_recursive_backend_locks_do_not_conflict_with_application_dependencies(platform):
     from packaging.markers import Marker
 
-    paths = [ROOT / "requirements" / export]
+    paths = [ROOT / "requirements/lock.txt"]
     versions = {}
     context = {"python_full_version": "3.12.13", "python_version": "3.12", "sys_platform": platform}
     while paths:
@@ -179,7 +158,7 @@ def test_recursive_backend_locks_do_not_conflict_with_application_dependencies(e
     assert versions["hatchling"] == {"1.32.4"}
     assert versions["setuptools"] == {"84.0.0"}
     assert versions["editables"] == {"0.6"}
-    assert versions["packaging"] == {"26.3" if export == "lock.txt" else "26.2"}
+    assert versions["packaging"] == {"26.3"}
 
 
 def test_pip_offline_install_requires_hashes_and_source_build_uses_locked_backend(tmp_path, monkeypatch):
@@ -249,41 +228,22 @@ def test_bootstrap_rejects_wrong_patch_or_implementation(monkeypatch, identity):
         environment.python_command()
 
 
-def test_bootstrap_checks_source_before_installs_and_uses_two_environments(tmp_path, monkeypatch):
+def test_bootstrap_checks_source_before_installs_and_uses_one_environment(tmp_path, monkeypatch):
     calls = []
-    (tmp_path / "requirements").mkdir()
     monkeypatch.setattr(entry, "restore_as2", lambda root: calls.append("as2") or "a" * 64)
-    source = {"commit": "c", "sha256": "d", "source_sha256": "e"}
-    (tmp_path / "requirements/labelkit-source.json").write_text(json.dumps(source))
-    monkeypatch.setattr(entry, "restore_labelkit", lambda root, wheels: calls.append("labelkit") or source)
     monkeypatch.setattr(entry, "create_environment", lambda directory, uv: calls.append(directory) or directory)
     monkeypatch.setattr(entry, "install_requirements", lambda *args: calls.append(("requirements", args)))
     monkeypatch.setattr(entry, "install_source", lambda *args: calls.append(("source", args)))
     monkeypatch.setattr(entry, "write_receipt", lambda root, profile, sources: sources)
     result = entry.bootstrap(tmp_path, "release")
-    assert calls[:2] == ["as2", "labelkit"]
-    assert [item for item in calls if isinstance(item, Path)] == [tmp_path / ".venv", tmp_path / "vendor/labelkit/.venv"]
-    assert result["as2_source_sha256"] == "a" * 64
-
-
-def test_dev_offline_missing_labelkit_remains_a_nonpassing_environment(tmp_path, monkeypatch):
-    (tmp_path / "requirements").mkdir()
-    metadata = {"archive": "locked-labelkit.tar.gz", "source_sha256": "l" * 64, "commit": "c", "sha256": "s"}
-    (tmp_path / "requirements/labelkit-source.json").write_text(json.dumps(metadata))
-    monkeypatch.setattr(entry, "restore_as2", lambda root: "a" * 64)
-    monkeypatch.setattr(entry, "restore_labelkit", lambda *args: pytest.fail("missing optional artifact was downloaded"))
-    monkeypatch.setattr(entry, "create_environment", lambda directory, uv: directory)
-    monkeypatch.setattr(entry, "install_requirements", lambda *args: None)
-    monkeypatch.setattr(entry, "install_source", lambda *args: None)
-    (tmp_path / "requirements/lock.txt").write_text("")
-    (tmp_path / ".python-version").write_text("3.12.13\n")
-    monkeypatch.setattr(environment.subprocess, "check_output",
-                        lambda *args, **kwargs: json.dumps({"implementation": "CPython", "version": "3.12.13"}))
-    monkeypatch.setattr(environment, "component_status",
-                        lambda root: {"node_version": "v24", "missing_components": ["LabelKit"]})
-    receipt = entry.bootstrap(tmp_path, "dev", wheelhouse=tmp_path / "wheelhouse")
-    assert receipt["passed"] is False
-    assert receipt["missing_components"] == ["LabelKit"]
+    assert calls[0] == "as2"
+    assert [item for item in calls if isinstance(item, Path)] == [tmp_path / ".venv"]
+    assert [item for item in calls if isinstance(item, tuple)] == [
+        ("requirements", (tmp_path / ".venv", tmp_path / "requirements/lock.txt", None, False)),
+        ("source", (tmp_path / ".venv", tmp_path / "vendor/agentsociety2/packages/agentsociety2", False)),
+        ("source", (tmp_path / ".venv", tmp_path, False)),
+    ]
+    assert result == {"as2_source_sha256": "a" * 64}
 
 
 def _capability_receipt_root(tmp_path, monkeypatch, status):

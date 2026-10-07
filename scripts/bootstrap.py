@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -17,28 +16,17 @@ sys.path.insert(0, str(ROOT))
 
 from scripts.bootstrap_environment import (create_environment, install_requirements, install_source,
                                            write_receipt)
-from scripts.bootstrap_sources import restore_as2, restore_labelkit
+from scripts.bootstrap_sources import restore_as2
 
 
 def bootstrap(root: Path, profile: str, wheelhouse: Path | None = None, use_uv: bool = False) -> dict:
-    """@brief 先重建和核对源码，再按哈希锁分别安装宿主和独立 LabelKit 环境。"""
+    """@brief 先核对 AS2 源码，再按唯一哈希锁安装 WorldMock 环境。"""
     as2_digest = restore_as2(root)
-    labelkit = json.loads((root / "requirements/labelkit-source.json").read_text(encoding="utf-8"))
-    available = (profile == "release" or wheelhouse is None or (root / "vendor/labelkit/pyproject.toml").is_file()
-                 or (wheelhouse / labelkit["archive"]).is_file())
-    if available:
-        labelkit = restore_labelkit(root, wheelhouse)
     python = create_environment(root / ".venv", use_uv)
     install_requirements(python, root / "requirements/lock.txt", wheelhouse, use_uv)
     install_source(python, root / "vendor/agentsociety2/packages/agentsociety2", use_uv)
     install_source(python, root, use_uv)
-    if available:
-        labelkit_python = create_environment(root / "vendor/labelkit/.venv", use_uv)
-        install_requirements(labelkit_python, root / "requirements/labelkit-lock.txt", wheelhouse, use_uv)
-        install_source(labelkit_python, root / "vendor/labelkit", use_uv)
-    sources = {"as2_source_sha256": as2_digest,
-               "labelkit_artifact": {key: labelkit[key] for key in ("commit", "sha256", "source_sha256")}}
-    return write_receipt(root, profile, sources)
+    return write_receipt(root, profile, {"as2_source_sha256": as2_digest})
 
 
 def main() -> int:

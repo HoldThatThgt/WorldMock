@@ -32,7 +32,7 @@ from agentsociety2.agent.runner import _step_agent_batch_async
 import agentsociety2.society.society as society_module
 from agentsociety2.society import AgentSociety, AgentSocietyConfig, DecisionContext, DirectToolCall
 from custom.agents.life_agent import LifeAgent, _conclusion_memories, life_action_tool_names
-from custom.agents.life_feedback import FEEDBACK_INSTRUCTION
+from worldmock.agents.life_feedback import FEEDBACK_INSTRUCTION
 from custom.envs.life_env import LifeEnv
 from tests.integration.test_life_agent_protocol import (
     _Environment,

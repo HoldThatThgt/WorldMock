@@ -138,7 +138,7 @@ MUTATIONS = (
     ),
     SourceMutation(
         'continuation_reads_removed_prompt_targets',
-        'custom.agents.life_continuation::_view.tools',
+        'worldmock.agents.life_continuation::_view.tools',
         '    tools = expand_tool_layer(compact_render(by_name["工具层"]))',
         ('    tools = expand_tool_layer(compact_render(by_name["工具层"]))\n'
          '    if "groups" in by_name["工具层"]:\n'

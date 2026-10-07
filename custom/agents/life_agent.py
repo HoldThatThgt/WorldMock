@@ -3,16 +3,16 @@
 一次决策只有一个行动阶段（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第二章「单一行动阶段」）：请求由原生 tools、系统层
 system 与六层 user 组成；可以先做记忆查询，世界请求登记即结束本次决策，登记后不追加任何 tool 消息。原生工具
 整次运行不变，不按轮绑定名称枚举；名称只按观察私有绑定做本地校验，可用性由环境受理判定。同一秒的后续决策
-在准备阶段之后注入环境交来的续接链（第二章「同秒续接」，custom/agents/life_continuation.py）。本地校验失败写成
+在准备阶段之后注入环境交来的续接链（第二章「同秒续接」，src/worldmock/agents/life_continuation.py）。本地校验失败写成
 宿主与环境共用的错误结构回给模型，多项请求逐项报全部名称类错误（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章，
-custom/agents/life_feedback.py）；三个控制工具请求级的个人事务变更与环境复核调用同一纯函数
+src/worldmock/agents/life_feedback.py）；三个控制工具请求级的个人事务变更与环境复核调用同一纯函数
 （worldmock.life.errands.change_issues）、读同一份冻结观察的两类私有事务绑定，问题并入同一次纠错
 （docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误 ）。宿主不写入事务，事务变更也不是记忆写入点。思考用尽输出上限的截断回合丢弃并
-纠错，随后以关闭思考、强制工具调用的请求重试一次（7.2，custom/agents/life_truncation.py）。
+纠错，随后以关闭思考、强制工具调用的请求重试一次（7.2，src/worldmock/agents/life_truncation.py）。
 """
 
 from __future__ import annotations
-from custom.agents.life_memory import WorldMockMemoryRuntime
+from worldmock.agents.life_memory import WorldMockMemoryRuntime
 from worldmock.footprints.experiences import validate_verified_experiences
 from worldmock.catalog.affordances import AFFORDANCES_FILE
 
@@ -35,17 +35,17 @@ from agentsociety2.agent.base import (
 )
 from agentsociety2.agent.memory_runtime import MemoryStepOutcome
 from agentsociety2.society import DirectToolCall
-from custom.agents import life_menu
-from custom.agents.life_context import persona_card_text
-from custom.agents.life_continuation import continuation_messages, end_continuation, send_check
-from custom.agents.life_feedback import (HostFeedback, HostIssue, argument_feedback, feedback_content,
+from worldmock.agents import life_menu
+from worldmock.agents.life_context import persona_card_text
+from worldmock.agents.life_continuation import continuation_messages, end_continuation, send_check
+from worldmock.agents.life_feedback import (HostFeedback, HostIssue, argument_feedback, feedback_content,
                                           feedback_report, host_feedback,
                                          merged_feedback)
-from custom.agents.life_memory import memory_update_evidence
-from custom.agents.life_persona import known_persons, persona_layer, readonly_layers, write_prompt_snapshot
-from custom.agents.life_prompt import (TOOL_DESCRIPTIONS, life_user_layers, readonly_messages, system_message,
+from worldmock.agents.life_memory import memory_update_evidence
+from worldmock.agents.life_persona import known_persons, persona_layer, readonly_layers, write_prompt_snapshot
+from worldmock.agents.life_prompt import (TOOL_DESCRIPTIONS, life_user_layers, readonly_messages, system_message,
                                        user_message)
-from custom.agents.life_truncation import (RETRY_THINKING, RETRY_TOOL_CHOICE, retry_due, thinking_enabled, truncated,
+from worldmock.agents.life_truncation import (RETRY_THINKING, RETRY_TOOL_CHOICE, retry_due, thinking_enabled, truncated,
                                            truncation_feedback, with_feedback)
 from worldmock.life import errands
 from worldmock.life.continuation import CONTINUATION_KEY

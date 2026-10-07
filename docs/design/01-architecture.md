@@ -38,7 +38,7 @@
 ### 1.1 系统定位
 
 WorldMock 模拟并记录任意性格数字人的数字足迹。数字人依据自身画像、需求、观察和记忆选择行动，
-系统组织环境交互、计算实际结果并保存可追溯记录，供 LabelKit 加工模型训练数据与规则引擎测试数据。
+系统组织环境交互、计算实际结果并保存可追溯记录，完整导出交给 LabelKit-DataSet 数据加工。
 
 | 目标维度 | 架构要求 |
 | --- | --- |
@@ -47,7 +47,7 @@ WorldMock 模拟并记录任意性格数字人的数字足迹。数字人依据�
 | 数字人数量 | 场景声明参与者，各数字人共享同一世界时钟；具体人数和社交范围属于运行配置与验收范围 |
 | 行动选择 | 复用 AgentSociety 2 的人物决策和记忆机制；数字人选择行动，环境判断可行性并执行 |
 | 过程记录 | 观察、决策、执行、状态变化、结果与记忆都有来源和关联，支持检查点恢复及反事实分支 |
-| 数据交付 | 记录引擎提供固定截止的认证导出，数据交付通过 LabelKit 加工并校验成品 |
+| 足迹交接 | 记录引擎提供固定截止的完整认证导出，下游加工与发布归 LabelKit-DataSet |
 
 白领生活、单数字人和连续十二周是已有实验场景的设置，具体身份见[实验定义](../EXPERIMENT.md#experiment-worldmock-实验设置)。
 实验时长和内容样本不构成产品覆盖范围或模拟时长上限；可配置时长也不代表任意长度的运行已经完成验证。
@@ -63,14 +63,14 @@ WorldMock 模拟并记录任意性格数字人的数字足迹。数字人依据�
 | 社交互动 | 可选，v1.0 最小可行版 | 看见同地他人，与联系人通讯 |
 | 记录引擎 | 必选 | 事件、素材、检查点、分支、导出与诊断统一见[记录引擎设计](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎) |
 | 检查点恢复 | 必选 | 完整世界与工作区快照，支持从已验证的共同检查点建立新分支 |
-| LabelKit 交付 | 必选 | JSONL 格式导出，包含动作序列、意图、dreaming |
+| 完整足迹导出 | 必选 | JSONL 保留事件、活动、已核验经历、购买与 app 使用 |
 | 行为评估 | 必选 | 多维度指标评估，生成对比报告 |
 
 <a name="architecture-系统边界"></a>
 ### 1.2 系统边界
 
 系统包含数字人与环境的交互、资源与内容提供、交换规则、时间与活动推进、
-数字足迹记录、恢复与分支，以及向 LabelKit 的数据交付。
+数字足迹记录、恢复与分支，以及向 LabelKit-DataSet 提供完整足迹导出。
 
 系统不包含物理仿真或三维渲染、模型训练或托管、实时交互式界面、
 社会级宏观模拟或真实银行、电商等外部业务系统集成，也不保证与任何特定真实个体的行为一致。
@@ -96,7 +96,7 @@ flowchart TB
         C --> W[更新数字人、活动和世界状态]
     end
     W --> F[记录引擎<br/>保存状态、足迹与共同检查点]
-    F -->|认证导出| D[数据交付<br/>LabelKit 加工与离线 Dreaming]
+    F -->|认证导出| D[LabelKit-DataSet<br/>数据加工与发布]
     F -->|已保存事实与客观统计| E[行为评估]
     F -.->|分支存储与恢复材料| S
     D --> O[模型训练数据与规则引擎测试数据]
@@ -116,11 +116,11 @@ LifeAgent 承载数字人，LifeEnv 是模拟引擎接入 AgentSociety 2 的环�
 | [交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎) | 维护与查询交换规则，校验条件，计算投入产出，校验资源分录 | 返回条件判定、资源变化明细、履约条件或拒绝原因 |
 | [模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎) | 初始化、观察与决策机会、动作受理、时间推进、实际活动与会话切换、身体变化与效率、零点计划（运行时后台任务 `plan_day`，不经人物）、计划与提醒、个人事务的受理、按结算证据确认办成与事务提醒、按场景工作安排求值今天的上班安排、状态更新、恢复后的执行 | 向数字人提供观察与反馈，向记录引擎提交实际过程、结果与共同快照 |
 | [记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎) | 保存与关联足迹、素材和状态，校验记录一致性，保存检查点，构建分支存储，认证导出与诊断 | 返回保存确认、已核验的恢复材料、认证导出和客观统计 |
-| [数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付) | 证据窗口、离线经历回顾与假设推演、LabelKit 加工、样本校验与发布 | 交付可追溯的训练数据与规则测试数据 |
+| LabelKit-DataSet 数据加工 | 证据窗口、离线经历回顾与假设推演、LabelKit 加工、样本校验与发布 | 交付可追溯的训练数据与规则测试数据 |
 | [行为评估](07-evaluation.md#evaluation-worldmock-产品设计说明书-行为评估) | 根据已保存事实计算行为指标、比较实验并形成真实性评价；工作负荷与作息偏离两个只报告项另读一个可选的打包输入（各人物的班次、任务的预约与要求地点、住处、覆盖后的作息窗口与播报间隔），缺输入的人物报告 null | 评估报告与证据关联 |
 
 LifeEnv 与活动属于模拟引擎的执行职责；数字足迹、检查点和分支存储属于记录引擎。
-Dreaming 按当前[交付规格](../dev/SPEC-labelkit-delivery.md#spec-labelkit-delivery-特性规格数字足迹接入-labelkit)消费认证导出，
+离线数据加工由 LabelKit-DataSet 消费认证导出，
 默认不写回仍在运行的数字人；数字人运行中的记忆与反思由人物模块维护。
 反事实分支中的实际执行由模拟引擎编排，分支保存和来源关系由记录引擎维护。
 
@@ -306,19 +306,18 @@ flowchart LR
 完整规则见[记录引擎](05-recording-engine.md#recording-engine-恢复与反事实分支)与[模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎)。
 
 <a name="architecture-数据交付与评估"></a>
-### 3.5 数据交付与评估
+### 3.5 足迹交接与评估
 
 ```mermaid
 flowchart LR
-    F[记录引擎<br/>固定截止的认证导出] --> W[数据交付<br/>动作、意图与 Dreaming 证据窗口]
-    W --> L[LabelKit 加工与独立校验]
+    F[记录引擎<br/>固定截止的认证导出] --> L[LabelKit-DataSet<br/>数据加工、模型任务与独立校验]
     L --> O[训练数据与规则测试数据]
     F --> E[行为评估<br/>指标、实验对比与真实性报告]
 ```
 
 离线 Dreaming 基于已有足迹归纳经历或提出假设，默认不写回运行中的数字人。
 实际反事实运行由明确的运行请求触发，并按新的分支身份保存；不能将生成的假设文本冒充执行结果。
-交付和评估的输入范围、校验与发布条件见[交付规格](../dev/SPEC-labelkit-delivery.md#spec-labelkit-delivery-特性规格数字足迹接入-labelkit)和[验收门禁](../VERIFICATION.md#verification-worldmock-验收标准)。
+交付和评估的输入范围、校验与发布条件见LabelKit-DataSet 数据加工和[验收门禁](../VERIFICATION.md#verification-worldmock-验收标准)。
 
 <a name="architecture-已采用的设计决策"></a>
 ## 4. 已采用的设计决策
@@ -342,12 +341,12 @@ flowchart LR
 
 | 职责 | 现有承载位置 | 详细设计 |
 | --- | --- | --- |
-| 数字人 | [LifeAgent](../../custom/agents/life_agent.py)、[就寝反思工具](../../custom/agents/life_reflection.py)、[人物画像](../../src/worldmock/profile)、AgentSociety 2 人物与记忆模块 | [人物规格](../dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像) |
+| 数字人 | [LifeAgent](../../custom/agents/life_agent.py)、[就寝反思工具](../../src/worldmock/agents/life_reflection.py)、[人物画像](../../src/worldmock/profile)、AgentSociety 2 人物与记忆模块 | [人物规格](../dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像) |
 | 资源引擎 | [目录登记、加载与图查询](../../src/worldmock/catalog)、[通用语料加载](../../src/worldmock/corpora)、[内容读取](../../src/worldmock/life/content.py)及检索、呈现模块 | [资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎) |
 | 交换引擎 | [固定类型、常数与算子](../../src/worldmock/exchange)、[固定活动声明](../../src/worldmock/data/affordances.toml)、[资源分录计算与校验](../../src/worldmock/resources)及生活模型中的条件、费用和报酬规则 | [交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎) |
 | 模拟引擎 | [运行入口](../../src/worldmock/runtime.py)、[LifeEnv](../../custom/envs/life_env.py)、[只读查询转发](../../src/worldmock/life/read_query_runtime.py)、[生活运行逻辑](../../src/worldmock/life/engine.py)及活动、身体和调度模块 | [模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎) |
 | 记录引擎 | [足迹存储](../../src/worldmock/footprints)、[素材存储](../../src/worldmock/footprints/assets.py) | [记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎) |
-| 数据交付与评估 | [交付模块](../../src/worldmock/delivery)、[评估模块](../../src/worldmock/evaluation) | [数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付)、[行为评估](07-evaluation.md#evaluation-worldmock-产品设计说明书-行为评估) |
+| 完整导出与评估 | [导出模块](../../src/worldmock/footprints/export.py)、[评估模块](../../src/worldmock/evaluation) | [记录引擎](05-recording-engine.md#recording-engine-固定截止导出)、[行为评估](07-evaluation.md#evaluation-worldmock-产品设计说明书-行为评估) |
 
 LifeEngine 是现有内部代码载体，不作为四个引擎之外的另一项顶层职责。
 身体相关资源、体感与活动效率在模拟引擎中计算，资源定义来自资源引擎，
@@ -369,7 +368,7 @@ LifeEngine 是现有内部代码载体，不作为四个引擎之外的另一项
 
 运行参数与场景选定版本后，由模拟引擎组织目录登记、发布图读取与场景 7 加载，资源和交换引擎分别核验自己的输入。
 具体命令签名和字段只在所属合同维护，不在总体架构中另列一套示例接口。
-Python、AgentSociety 2、LabelKit、SQLite 与模型服务的版本和运行绑定见[实验定义](../EXPERIMENT.md#experiment-worldmock-实验设置)。
+Python、AgentSociety 2、SQLite 与模型服务的版本和运行绑定见[实验定义](../EXPERIMENT.md#experiment-worldmock-实验设置)。
 
 <a name="architecture-状态与记录"></a>
 ### 6.2 状态与记录
@@ -449,7 +448,6 @@ flowchart LR
 | --- | --- | --- |
 | 世界推进与交换 | 实际区间可对账，规则结果与已落实状态一致，故障如实反馈 | [运行时规格](../dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)、[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)、[人物 Prompt 规格](../dev/SPEC-life-realism.md#persona-prompt-七层请求)、[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库) |
 | 数字足迹与恢复 | 事件和状态连续、引用完整，检查点可核验，分支保留来源关系 | [记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎) |
-| 训练数据与规则测试数据 | 输入范围、来源、独立校验、真实加载与执行满足交付要求 | [交付规格](../dev/SPEC-labelkit-delivery.md#spec-labelkit-delivery-特性规格数字足迹接入-labelkit) |
 | 工程质量与行为真实性 | 执行当前门禁，报告测试与真实运行证据的适用范围 | [验收门禁](../VERIFICATION.md#verification-worldmock-验收标准) |
 
 代码覆盖率的统计范围、分支门槛和公共接口门槛见[覆盖率基线](../dev/coverage-baseline.md#coverage-baseline-覆盖率门禁口径与基线)；
@@ -512,3 +510,4 @@ flowchart TD
 | `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
 | `2026-10-06-rrs-prompt` | 2026-10-07 | 剩余系统规则与提示身份、当前 app 和工作主题查看器；工具身份保持已验收形状 |
+| `2026-10-07-repository-ownership` | 2026-10-07 | 按用户裁决收敛目录与职责：WorldMock 保留模拟、记录、完整认证足迹与评估；下游加工、模型任务、训练和规则数据归 LabelKit-DataSet，源码快照已接收，新消费验收另记实际证据 |

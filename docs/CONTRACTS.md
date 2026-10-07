@@ -11,7 +11,7 @@
 > 2026-10-02 [个人事务与工作安排规格](VERIFICATION.md#verification-incremental-evidence)冻结：本文件相应条款按[配套实施计划](archive/errands-workday/errands-workday-implementation-plan.md)的文档同步作业随该规格阶段 1–4 的代码逐阶段修订；阶段 1–4 的修订均已实现并通过离线验收（证据见[个人事务与工作安排验收记录](archive/errands-workday/errands-workday-verification.md)）；冻结时在「请求组成」加的三处修订指针已随阶段 1、阶段 3 全部删去；修订内容见「版本表」`2026-10-02-errands-workday-freeze`、`2026-10-03-errands-workday-stage-1`、`2026-10-03-errands-workday-stage-1-review`、`2026-10-03-errands-workday-stage-2`、`2026-10-03-errands-workday-stage-4`、`2026-10-03-errands-workday-stage-3`、`2026-10-04-errands-workday-stage-3-review` 与 `2026-10-04-errands-workday-implemented` 各行。
 > 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「工作安排声明」（阶段 1）、「请求组成」与「七层 Schema」（阶段 2）、「请求组成」的零点计划模板（阶段 3）。
 > 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「状态归属」「人物工具与管理接口」、「个人事务」的入口、「请求字段与结算检查」「活动受理拒绝码」「动作状态与动作结果」与「七层字段」的待办层（阶段 1）；「状态归属」的占用名、「交谈与通话」与「活动控制行」的占用，以及「品类契约与目录字段」的占用声明来源与旧占用名环境的拒绝（阶段 2）；「请求组成」与「七层 Schema」（阶段 3）。
-> 范围：LifeEnv 与 LifeAgent 适配接口、数字足迹事件与存储、语料内容目录、LabelKit 输入输出与交付格式、命令行与运行状态。
+> 范围：LifeEnv 与 LifeAgent 适配接口、数字足迹事件与存储、语料内容目录、完整足迹交接、命令行与运行状态。
 > 权威：记录引擎的事件、素材、存储与导出合同统一在[记录引擎设计](design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)定义；其余接口签名、字段名、枚举值、Schema、文件格式与命令行参数在本文件定义。其他文档只引用所属合同，代码变更先更新对应合同。
 
 <a name="contracts-共享规则与可重建环境修订"></a>
@@ -29,13 +29,13 @@
 | `python scripts/bootstrap.py` | `--profile` 取 `release` 或 `dev`，默认 release；`--wheelhouse PATH` 只消费离线制品；`--use-uv` 显式选 uv，缺失报错 | Python 必须 3.12；固定来源先核对，哈希锁安装，源码不解析额外依赖；`.work/environment-receipt.json` 只记相对路径 |
 | `python scripts/fresh_check.py` | `--repository`、`--commit`、`--profile`、`--wheelhouse`、`--output`；`--compare` 读取两份实际平台结果 | 无子模块、无 SSH、无 pip 缓存的新 clone；任一命令失败退出；比较要求同提交、同源码摘要且都通过 |
 | `python scripts/coverage_gate.py` | `--shards N` 映射 worker 数；`--environment-root` 显式选择发布环境并绑定实际字节摘要；`--from-json` 核验 collection、summary、worker 选择与完成回执的同一运行身份及覆盖数据摘要 | 唯一入口 `scripts/run_tests.py` 按实测文件权重调度完整文件；当前解释器、进程数据隔离、选择/收集/完成节点多重集精确一致且无重复；全量节点三阶段完整且均 passed；输入字节、运行身份和覆盖摘要匹配，无失败、无跳过、非空、有效收据、分支至少 85%、公共接口零缺口才通过 |
-| 安装 profile | release 缺 Node 或 LabelKit 失败；dev 固定原因标明缺失和对应检查 | dev 缺部件不能产生最终通过收据；跨平台核心与重建必须有实际平台收据 |
+| 安装 profile | release 缺 Node 或中文字体失败；dev 固定原因标明缺失和对应检查 | dev 缺部件不能产生最终通过收据；跨平台核心与重建必须有实际平台收据 |
 
 Linux 完整环境的架构边界与安装限制以[冻结规格](dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-门禁可选部件与操作系统)为准；
 Linux ARM64/aarch64 的锁定组合安装失败不能按可选部件缺失跳过，也不能产生通过收据。
 
 收据字段为 `schema_version`、`profile`、`python_version`、`dependency_locks`、AS2 源码摘要、
-LabelKit 固定制品身份、`node_version`、`missing_components`、`passed`。
+`node_version`、`missing_components`、`passed`。
 安全路径只接受根内相对普通文件，逐组件拒绝链接和父引用；所属错误构造只在失败时执行一次。
 公共曲线输入与输出均为有限非负数且拒绝布尔；资源名非空白，效率曲线非空。
 目录模型深冻结，严格模型拒绝未知字段。
@@ -81,7 +81,7 @@ WorldMock-Dataset 发布具体环境的 app、地点、食品、内容、工作�
 | 内容接触 | 跨 app 的 `content_progress{content_id: {content_id, position_seconds, completed_rounds}}` 与活动 `played[]`；实际接触事实 | 实际 app 活动推进；暂停与结算写回，恢复读取最新全局位置 |
 | 记忆 | AS2 人物记忆及其版本、`source_event`, `retrieval_results` | 人物记忆流程 |
 
-人物身体与资产的准确数值属于世界事实，只进入足迹与评估。人物实际收到的是七层 JSON 请求（见「七层字段」），身体只以环境层 `body` 中由确定性规则算出的五项体感分级进入；训练数据导出再按目标系统的信息范围裁剪，不默认线上设备能读到环境隐藏状态。
+人物身体与资产的准确数值属于世界事实，只进入足迹与评估。人物实际收到的是七层 JSON 请求（见「七层字段」），身体只以环境层 `body` 中由确定性规则算出的五项体感分级进入；WorldMock 的完整导出保留事实与可见性；LabelKit-DataSet 按目标系统的信息范围决定训练字段，不默认线上设备能读到环境隐藏状态。
 
 <a name="contracts-资源与需求字段"></a>
 ### 资源与需求字段
@@ -1786,7 +1786,7 @@ system 是一份固定的系统层 JSON：键依次为 `layer`、`role`、`rules
 没有记忆字段；条数零至八、意图唯一、文字长度与提醒时刻（晚于生成时刻、早于次日零点）由本地校验执行，大致时刻只校验格式，同「当日目标请求」。
 
 就寝反思是记忆运行时在就寝边界发出的后台请求（见「记忆字段」）：没有可反思的主观记忆时不调用模型；请求不带 `purpose`，
-思考由 AS2 记忆调度关闭。文案、Schema 与参数是模块常量（`custom/agents/life_reflection.py`），只由 `code_sha256` 绑定：
+思考由 AS2 记忆调度关闭。文案、Schema 与参数是模块常量（`src/worldmock/agents/life_reflection.py`），只由 `code_sha256` 绑定：
 `submit_reflection` 不属于人物工具面、不进 `tool_schema_sha256`，文案不进 `prompt_sha256`，与 `submit_day_plan` 同一处理。
 
 就寝反思的 system 文案（逐字）：
@@ -1830,9 +1830,9 @@ tool 消息对应上一决策世界请求的 `tool_call_id`。
 冻结观察上本地求值，`LifeEnv.read_query` 的 `query_world` 分支是同一组纯函数的第二入口：受理时两入口对同一观察、同一请求的
 结果逐值相等，拒绝时两入口给出同一份校验报告（见「人物工具与管理接口」的 `read_query` 行）。
 
-协议纠错正文由 `LifeAgent` 覆写 AS2 的 `_protocol_feedback_content` 生成（锁定提交不改，`custom/agents/life_feedback.py`）；
+协议纠错正文由 `LifeAgent` 覆写 AS2 的 `_protocol_feedback_content` 生成（锁定提交不改，`src/worldmock/agents/life_feedback.py`）；
 截断回合由覆写的 `_parse_react_responses` 判定，纠错进入消息历史的方式由覆写的 `_append_react_protocol_feedback` 决定
-（`custom/agents/life_truncation.py`，见「回合预算」）。
+（`src/worldmock/agents/life_truncation.py`，见「回合预算」）。
 错误码取宿主闭集（`worldmock.life.error_contract.HOST_ERROR_CODES`，十六码）；全部入口逐项报告可独立判定的参数、名称与业务错误，不依赖英语错误串转成位置。
 表末四码是失败阶段码，只标出失败发生的阶段与调用位置，不虚构参数或执行结果，不是对请求参数的协议纠错
 （`MEMORY_QUERY_FAILED` 是失败的查询结果，其余三码不回给模型）：
@@ -1892,7 +1892,7 @@ tool 消息对应上一决策世界请求的 `tool_call_id`。
 （重试自己再截断时不再重试）；行动与只读问答经同一请求入口，判定相同，其余请求（含只读问答）的参数不变。思考模式拒收
 `tool_choice=required`（HTTP 400 "Thinking mode does not support this tool_choice"），关闭思考后可用，所以重试与零点计划同为
 关闭思考加 `required`；DeepSeek 没有独立的思考预算，这是限制思考并强制给出结果的唯一办法。`max_tokens` 仍为 8000，`reasoning_effort`
-仍不发送；重试参数是代码常量（`custom/agents/life_truncation.py`，由 `code_sha256` 覆盖），阶段身份 `action` 的键不变。
+仍不发送；重试参数是代码常量（`src/worldmock/agents/life_truncation.py`，由 `code_sha256` 覆盖），阶段身份 `action` 的键不变。
 
 零点计划与联系人回复一样使用独立客户端：模型与端点取运行清单的模型身份并逐项核对，客户端 `max_retries=0`，
 不流式输出。输出不合法（JSON、条数、意图唯一性、文字长度、`remind_time` 的格式或时刻有误）时，在原请求之后追加
@@ -1955,7 +1955,7 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 恢复人物工作区时，实际 config.json 也必须显式包含整数 `max_react_turns=16`，
 与清单一致；缺失、类型错误或错值均在恢复执行前拒绝，不使用 Agent 默认预算。
 此传输策略适用于仿真 LLMClient；画像抽取使用独立 requests 客户端，当前仍使用凭据池首把，
-不属于运行阶段 Router 的分摊与传输重试范围。LabelKit 的独立请求合同见下文。
+不属于运行阶段 Router 的分摊与传输重试范围。
 
 阶段键恰为 `action`：值为 `{thinking: "enabled", tool_choice: "auto", max_tokens: 8000, same_second_continuation}`。
 逐阶段参数、重试次数、模型身份、提示指纹与工具 Schema 指纹一起冻结进运行清单，
@@ -2100,7 +2100,7 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 | `MERCHANT_ACCOUNT_MISSING` | 已选食品店铺没有 `merchant:<location_id>` 账户 | "A selected food store has no merchant account." |
 | `WORK_SCHEDULE_REQUIRED` | 有主题的人物没有 `work_schedule` | "A person with work topics must declare a work schedule." |
 
-场景加载还执行既有的 `src/worldmock/life/load_checks.py::check_work_schedules`、`check_location_kinds`（改对 `LocationKind`）与可见标签唯一性（地点、食品、app「应用：<name>」）；app 名与地点名冲突是登记错误，不再是警告。世界结构 9、场景结构 6、目录 5.x 与地图结构 3 在每个入口直接拒绝（加载器严格模型、`WorldState.schema_version` 字面量、运行清单校验器、交付门禁），没有迁移与双读。
+场景加载还执行既有的 `src/worldmock/life/load_checks.py::check_work_schedules`、`check_location_kinds`（改对 `LocationKind`）与可见标签唯一性（地点、食品、app「应用：<name>」）；app 名与地点名冲突是登记错误，不再是警告。世界结构 9、场景结构 6、目录 5.x 与地图结构 3 在每个入口直接拒绝（加载器严格模型、`WorldState.schema_version` 字面量、运行清单校验器、导出认证），没有迁移与双读。
 
 <a name="contracts-语料内容目录字段"></a>
 ## 语料内容目录字段
@@ -2296,209 +2296,19 @@ source=reflection、epistemic_status=subjective，不产出 relationship、prefe
 
 app 使用的已结算事实句按实际 `played[]` 写「用<app>看了《A》《B》（《C》看了一部分）」，不把完整摘要或推送到达说成已经消费；跨 app 共享的内容游标属于世界事实。
 
-<a name="contracts-labelkit-输入结构与窗口编码"></a>
-## LabelKit 输入结构与窗口编码
+<a name="contracts-足迹交接"></a>
+## 足迹交接
 
-人物可见的 `app_push` 源事件公开投影恰为
-`{kind: "app_push", app, kind_label, summary}`；`kind_label` 必须等于
-`CONTENT_KIND_LABELS[source.content_kind]`。源事件的判别键始终是 `kind="app_push"`，
-`content_kind` 只表示内容类型。`{kind: "app_push", pushed: false, session_id}` 是系统结算，
-不进入人物窗口，也不能由交付层补成一次推送。
+WorldMock 的公共输出是完整认证足迹导出，事件、活动、已核验经历、购买和 app 使用五类工件的字段、
+固定截止、来源认证与环境身份见[记录引擎的导出合同](design/05-recording-engine.md#recording-engine-固定截止导出)。
+模拟的原始事实、人物可见投影和下游模型内容分别保留来源，导出不替数据集决定训练字段或模型目标。
 
-手机行在完整 `validate_export` 通过后读取 `app-usage.jsonl`，以 `fact_kind` 区分 app 使用、内容消费
-和推送的交付、打开、释放；采购只投影 `purchases.jsonl` 中非空的真实 `app_id`，送达只投影
-`events.jsonl` 中 `delivery_arrival.orders[]` 已送达订单的非空 `app_id`。只选择本人公开来源，
-应用显示名取同一场景绑定的 `catalog/apps.json`，不从相邻事件或模型文字猜测。
-配置只含 `{agent_id, timezone, scenario_path}`，其中场景路径相对配置文件；来源为 `source_kind="worldmock"`，
-清单保存 `environment_identity`，没有 `phone_config_sha256`。`app_use` 保留真实起止，
-`content_consumed` 保留内容事实，不重复添加使用时段；没有真实推送的事实不能补为通知。
-公开窗口禁键包含 `app_id`、`content_id`、`push_id`、`trip_id`、
-`path`、`food_id`、`store_id` 与 `topic_id`，名称与中文标签只由已认证来源投影。
-运行、人物、环境与源事件身份留在来源记录中回链；推送公开正文保持上述四键。
-控制请求里的主观记忆、看法与个人事务按既有窗口边界移除。
+LabelKit-DataSet 负责输入整理、手机信号投影、LabelKit 任务配置、模型加工、训练数据加载和规则测试数据。
+这些接口由所属仓库定义；WorldMock 不安装 LabelKit，也不提供 `deliver` 命令。
+LabelKit-DataSet 已保存本次移交的来源快照并核对摘要；整合后的正式消费者与新消费验收尚未取得证明。
 
-WorldMock-Dataset 已生成这种来源交接；独立 LabelKit-DataSet 当前没有直接读取 `phone_event` 的入口，
-其原生导出消费路径仍使用旧字段，尚未完成新导出与共同目录接入验收。数据仓交接通过不能替代第三仓消费验收。
-
-<a name="contracts-输入结构示例"></a>
-### 输入结构示例
-
-下列为设计示例，不是已采集经历。
-
-```json
-{
-  "sample_id": "string",
-  "run_id": "string",
-  "agent_id": "string",
-  "source_event_ids": ["string"],
-  "task": "action_sequence" | "intent" | "dreaming" | "rule_test",
-  "evidence": {
-    "window_start": "ISO8601",
-    "window_end": "ISO8601",
-    "boundary": "activity_completed" | "interrupted" | "time_cutoff",
-    "events": [
-      {
-        "event_id": "string",
-        "time": "ISO8601",
-        "type": "EventType",
-        "content": "string"
-      }
-    ]
-  }
-}
-```
-
-JSONL 实际每个对象一行；`input.text_field = "evidence"` 使用 LabelKit 已有的对象序列化能力，顶层来源字段配置透传。不使用 LabelKit 保留的 `_meta.event` 冒充其内部生成 stream。
-
-<a name="contracts-窗口声明与字段字典编码"></a>
-### 窗口声明与字段字典编码
-
-每个输入窗口声明起止、知识截止、活动身份与边界类型；上下文超限明确失败，不自动裁正文。
-动作和意图窗口以同人物、同决策、动作之前最后一份不带 `purpose` 的 `model_request` 的 `messages`、`tools` 和
-模型可见请求参数作为 prompt 权威来源：其工具须含该动作的工具名，不满足是完整性故障，不回退到更早的请求；输出截断后的
-重试请求照此被选中，就寝反思请求（含其校验重试）晚于动作登记、不会被选中（见「生成参数」末段）。来源索引以原请求事件
-身份和 canonical SHA-256 绑定；同一秒续接的请求中，
-`messages` 含本秒前序决策的原生 assistant（带 `reasoning_content`）与 tool 消息，原样保留。
-只提取实际发给生活人物模型的决策请求（按上述选取规则，含截断重试）；画像抽取、就寝反思与记忆巩固等私有请求
-不得进入任何训练输入或目标。
-窗口内其他事件只补实际可见事实与可引用来源，不得据结构化观察反推、替换或增加实际 prompt 中没有的
-七层内容（工具层、人设层、记忆层、待办层、环境层、进度层）。`self_note` 作为实际请求的一部分进入动作与意图窗口；
-dreaming 输入读 `action_requested.data.self_note` 与实际请求中的层 JSON，不读 `scene`：窗口内每个动作请求取同人物、同决策、
-动作之前最后一份不带 `purpose` 且工具含该动作工具名的请求（与动作窗口同一 prompt 权威与选取规则，不回退；截断重试照此
-被选中，就寝反思请求不会被选中），把其首个 user 的六层 JSON 连同该动作请求的事件身份写入
-`input.decision_layers`（`[{action_event_id, layers}]`），请求事件身份与层 JSON 的 canonical SHA-256 写入
-`provenance.decision_layer_sources`（`[{event_id, sha256}]`），这些请求事件同时进入 `provenance.source_event_ids`；
-实际请求缺失或首个 user 不是层序正确的六层 JSON 时明确拒绝。意图与 dreaming 窗口对三个控制工具的请求投影经 `control_items`
-读出、按现行形状只留每项的 `activity_name` 与 `summary`（投影恒不带 `items[].memories`、`items[].views` 与请求级 `errands`，三者
-同等对待，投影函数签名不变，由用例守住而不是靠白名单遗漏；投影写进新字典，原事件不被原地修改；缺 `errands` 的旧形状记录经
-`control_items` 以完整性故障拒绝），指窗口事件中 `action_requested` 的请求投影；`decision_prompt` 与 `decision_layers` 是模型实际
-收到的原文，照原样保留，其中的待办层（含 `errands`）原样进入窗口，也可以合法地含有本 session 进度层参数或记忆层 `self_notes`
-（取 `items[]` 的 summary 与普通记忆）里的常规收尾记忆原文（`views` 本就不进这两处）。动作窗口的目标保留完整请求（含 `errands`）。
-六种个人事务事件（见「个人事务」）的决策与动作身份都为空，只经 `caused_by` 关联，不进入任何动作窗口的目标，也不落进别人那次决策
-的分组；被进度层消费的 `errand_completed`、`errand_reminded` 是人物可见事件（每个进度来源都须是本人可见的结果或事件，否则是完整性
-故障），它们作为窗口事件出现时公开投影仍为空对象。含事务提醒与办成记录的导出须能构造动作、意图与 dreaming 三类窗口。
-动作窗口的 prompt 截止在目标动作前；意图窗口可以读取已发生的公开结果，
-但目标事实仍与输入分开。观察的禁用键必须在字段级投影后才可进入窗口；私有响应不得混入。
-`decision_prompt` 必须保留实际请求中的 assistant `reasoning_content`，因为工具调用后模型确实收到该字段；
-窗口的其他事件和目标不得额外混入 `reasoning_content`。前置状态与 `events[0].data` 相同时只保存事件引用，
-不复制整棵状态。
-文字、动作和意图窗口按请求人物核对其 decision/action 组的可见来源；
-同一不透明标识关联到其他人物时明确拒绝。
-
-模型输入统一采用窗口内字段字典表示，普通窗口和真实重执行窗口经过同一编码入口。字典与表示版本始终显式存在，未共享的字段保留原值。仅同一窗口内重复出现的完整字段值可以共享；是否共享按 canonical JSON 的实际字节计算，只有重复原值的总字节大于全部指针与一份字典项的总字节时才选入，整体收益不足以抵消字典项与指针开销时清空字典、保留字段原值，不裁剪任何内容。
-
-| 编码合同 | 规定 |
-| --- | --- |
-| 引用形式 | RFC 6901 JSON Pointer，在本记录内单跳取得完整字段值 |
-| 字典项 | 保存字段名、完整 SHA-256 与原值 |
-| 拒绝条件 | 外部或跨记录引用、字段不符、摘要不符、嵌套引用、未使用字典项 |
-| 依赖 | `jsonpointer==3.0.0`，在根依赖中直接声明 |
-| 身份 | 逻辑 `window_id` 绑定解码后的完整输入；LabelKit 记录身份绑定实际读取的编码行，来源索引另存模型输入摘要 |
-| 隔离 | 未来目标及其他人物、窗口的数据不得成为共享来源 |
-
-<a name="contracts-labelkit-训练记录与交付格式"></a>
-## LabelKit 训练记录与交付格式
-
-LabelKit 只接收通过认证的导出清单 3。清单的 `artifacts` 恰好列出 `events`、`activities`、
-`verified_experiences`、`purchases` 与 `app_usage` 五项；对应文件是 `events.jsonl`、
-`activities.jsonl`、`verified-experiences.jsonl`、`purchases.jsonl` 与 `app-usage.jsonl`。
-交付清单结构版本为 3，逐字复制来源运行的 `environment_identity`，并把 `app_usage` 列入来源工件。
-最终检查点的世界结构必须为 10；结构 9 及更早版本在构造窗口前拒绝。
-
-手机训练行只从 `app-usage.jsonl`、`purchases.jsonl.app_id` 与真实送达订单的 `app_id` 生成，
-不从提示、当前目录或模型文字补造。
-`app-usage.jsonl` 每行以 `fact_kind` 判别 `app_use`、`content_consumed`、`push_delivered`、
-`push_opened` 或 `push_released`；消费端从 `events.jsonl` 和认证检查点独立重算并逐行核对。
-
-<a name="contracts-交付格式"></a>
-### 交付格式
-
-| 产物 | 最小字段 |
-| --- | --- |
-| 动作训练记录 | `task`, `input`（允许看到的历史）, `target`（下一动作及参数）, `provenance`（来源引用）, `terminal` / `truncated` |
-| 意图训练记录 | `input`（允许看到的足迹）, `target`（意图标签）, `evidence_events`, `annotation_source`, `ambiguity_state` |
-| dreaming 训练记录 | `input`（截止时刻的经历）, `target`（归纳或反思目标）, `hypothesis`, `branch_source` |
-| 规则测试夹具 | `initial_state`, `events`（有序输入）, `expected`, `rule_version`, `trigger_time`, `state_assertions`, `provenance` |
-| 交付清单 3 | `schema_version`, `committed`, `run_id`, `environment_identity`, `artifacts`, `files`, `gates`, `consumers` |
-
-来源导出清单必须为结构 3，五个工件是 `events`、`activities`、`verified_experiences`、
-`purchases` 与 `app_usage`。交付清单逐字复制 `environment_identity` 并列出 `app_usage`；最终检查点
-`WorldState.schema_version` 必须为 10。缺文件、摘要不符、旧世界结构或无法独立重算的事实都在发布前拒绝。
-
-`purchases.jsonl` 的 `purchase` 行保留 `agent_id`、`order_id`、`food_id`、`store_id`、`app_id`、
-`quantity`、`unit_price_fen`、`delivery_fee_fen`、`total_price_fen`、`fulfillment`、`recipient_id`、
-`request_message_id`、`created_at`、`action_id` 与 `source_event_id`；`order_attempt` 行保留，目录浏览行删除。
-`app-usage.jsonl` 用 `fact_kind` 表示五种 app 事实，手机合成只读这些事实。
-
-标注 Schema 的候选只包含 `target`；`task`、`input`、`provenance` 和 `target.facts` 在语义评审通过后
-一次性组装。动作目标保留在原始行的独立 `target` 中，不能发送给模型充当动作前历史。
-
-<a name="contracts-数据集字段与划分"></a>
-### 数据集字段与划分
-
-训练正式记录使用 `task`、`input`、`target`、`provenance`，其中 `provenance` 保存来源组、事件、运行和模型身份；目标加载器在保持这些事实字段的同时输出明确的 `prompt` / `completion` 消息结构。规则夹具使用 `initial_state`、`events`、`expected`、`provenance`，表达式、预期和输入分别冻结。
-
-`input`、`target`、`provenance` 三列使用 Datasets 原生 `Json(decode=False)` 保存 JSON 文本，以标准 `json.loads` 逐记录核对原值，保留缺失与 `null` 的区别和浮点数；`prompt`、`completion` 使用已核验的 JSON 文本。所有来源连通组只能进入一个 split；只有一个连通组时允许全部进入同一 split。
-
-<a name="contracts-反事实与重演字段"></a>
-### 反事实与重演字段
-
-`deliver --replay-export` 接受实际完成的反事实分支导出。父检查点之前的事件必须逐字相同，分支清单、一次真实干预的摘要和父检查点内的可见来源必须匹配。余额条件干预使用 `set_balance_fen`，应用于子分支首次决策之前，随后由人物自主选择。
-
-| 字段 | 取值与含义 |
-| --- | --- |
-| `world_kind` | `observed` 表示普通反事实输入，其事实只属于原世界；`resimulated` 只用于实际执行并认证过的环境分支 |
-| `environment_replay` | 没有环境重演的普通反事实材料为 `null`，不能声称已经执行或观察到想象结果 |
-| dreaming 记录绑定 | 声明假设条件与 `resimulated` 世界，绑定父运行、父检查点、干预事件、实际结果事件和最终检查点 |
-| dreaming 材料字段 | 来源事件、知识截止时刻、生成模型与规则版本；任务可为经验归纳、反思或反事实推演 |
-
-规则扰动单独使用 LabelKit 现有 sequence generation，覆盖缺失、乱序和超时；消费前验证其成功 manifest、运行身份、main/stream 行数与哈希，模型不生成夹具的预期结论。
-
-<a name="contracts-运行报告"></a>
-### 运行报告
-
-足迹导出的 `quality.json` 字段与核验规则统一见[记录引擎的质量报告](design/05-recording-engine.md#recording-engine-质量报告)。
-
-最终交付清单绑定全部加工输入、输出、评审轨迹、日志、规则及实际 DatasetDict 文件；DatasetDict 必须经 `save_to_disk` 后重新 `load_from_disk` 验证行守恒。
-
-<a name="contracts-labelkit-语义候选与标签值"></a>
-## LabelKit 语义候选与标签值
-
-| 字段 | 上限 |
-| --- | --- |
-| `claims` | 最多 32 条 |
-| claim 正文 | 最多 512 字符 |
-| claim 引用 | 最多 64 个引用，单个引用标识最多 64 字符 |
-| `intent_candidates` | 最多 8 个且不重复 |
-| `uncertainty` | 最多 1024 字符 |
-
-三十二条是上限而非目标数量。数组超过 `maxItems` 时，错误包含字段路径、允许的最大数量和实际数量，候选全文只放在返工提示的原始输出中。每条只引用直接支持正文所需的真实事件，不为了完整保存原始材料穷举全部引用身份。
-
-| 标签 | 取值与含义 |
-| --- | --- |
-| `fact` | 正文中的每个独立断言都由该 claim 所列来源直接支持；来源已明确给出的类别、持续性与因果关系仍可标为 `fact` |
-| `inference` | 具有可追溯依据，明确区别于已证实结果 |
-| `hypothesis` | 假设条件为未执行的动作与可见触发情境（含触发时刻的可见数值）；可能结果用推测措辞陈述且不得标为 `fact`，其 `evidence_event_ids` 只须支持假设条件 |
-| `intent` | 可见证据不能支持具体意图时取 `unknown`；`basis=uncertain` 与 `intent=unknown` 是合法组合 |
-| `uncertainty` | 只保留「假设结果未在观察世界发生、无法验证」的一般性声明，不复述 hypothesis claim 已回答的具体反事实问题 |
-
-身份字段视为不透明标识，除非可见输入明确说明其组成语义，否则不得从数字或片段解释步骤、时间或结果。命名布尔字段的 `false` 只否定该字段表达的命题，不能据此推出未提供的上位类别或其反面。
-
-<a name="contracts-labelkit-调用配置"></a>
-## LabelKit 调用配置
-
-动作、意图和 dreaming 使用 LabelKit 普通 process，固定输入文件且关闭去重、重新语义分段和分类。
-
-| 配置项 | 值 |
-| --- | --- |
-| 生成与独立评审 `context_window` | `1000000` |
-| 语义候选输出 | `thinking=disabled`，`max_tokens=131072` |
-| 独立评审输出 | `thinking=enabled`，`max_tokens=65536`，使用单独 judge 角色 |
-| 语义返工 | `verify.policy=repair`，最多三轮，每轮返工后重新独立评审 |
-| 传输重试 | `max_retries=0`，每次实际 HTTP attempt 只发送一次请求 |
-| 请求截止 | `timeout_s` 为总墙钟截止，持续收到响应字节不延长截止；同时保留 HTTPX 连接、读取、写入和连接池超时 |
-| 失败归类 | 总截止归类为明确的 provider 请求失败 |
-| 响应校验 | 2xx 响应先通过 JSON 顶层对象校验，再调用供应商字段解析器；非对象响应记录 `malformed provider response` 与类型，不记录响应原文或敏感内容，也不合成空结果 |
+真实性评估仍由 WorldMock 执行。评估所需的旧候选数据认证属于公共输入合同，见
+[评估输入手册](manual/evaluation.md#evaluation-自定义评估与盲评输入)，不承担候选数据的生产。
 
 <a name="contracts-人物卡片覆盖率产出"></a>
 ## 人物卡片覆盖率产出
@@ -2577,7 +2387,6 @@ LabelKit 只接收通过认证的导出清单 3。清单的 `artifacts` 恰好�
 | `replay` | `parent_checkpoint`, `intervention`, `output_dir` | 指定父运行、共同检查点及一次余额条件干预，在新反事实分支实际执行 |
 | `status` | `run_dir` | 只读显示已确认模拟时间、阶段、人物活动与调用统计 |
 | `export` | `run_dir`, `cutoff_event`, `output_dir` | 固定截止事件和活动边界，形成完整证据 JSONL、来源索引与哈希 |
-| `deliver` | `export_dir`, `labelkit_project`, `output_dir` | 执行 LabelKit、独立校验、训练加载与规则执行，最后发布成功清单 |
 | `evaluate` | `baseline_dir`, `experiment_dir`, `output_dir` | 核对两套数据身份与可比范围，产出机器报告、图表和中文结论 |
 | `profile compile` | `text`, `runs`, `out` | 编译指定文本的人物卡片、大五与世界层动力学，输出卡片、卡片渲染文本（`render_card`，不再进入模型请求；进入请求的是人设层 JSON）与溯源 |
 | `profile check` | `text`, `runs` | 重复编译并断言卡片一致性与大五众数稳定 |
@@ -2588,7 +2397,7 @@ LabelKit 只接收通过认证的导出清单 3。清单的 `artifacts` 恰好�
 | `environment generate-map` | `--locations PATH --seed INT --output PATH` 读取地点并写规范 LF 地图；`--check` 不写文件、逐字节比对，失配报 `MAP_NOT_REGENERATED` |
 | `validate --environment` | `--environment ROOT` 校验目录登记、重生成地图、语料清单、三份包 TOML 与全部场景；每个失败输出稳定码与英文原因，任一失败非零退出 |
 
-`validate --scenario` 与 `validate --environment` 二选一。项目校验继续执行 AS2 锁定、LabelKit Schema、依赖、阶段身份和覆盖率 0.8 检查；环境校验不启动完整引擎。
+`validate --scenario` 与 `validate --environment` 二选一。项目校验继续执行 AS2 锁定、依赖、阶段身份和覆盖率 0.8 检查；环境校验不启动完整引擎。
 
 <a name="contracts-运行状态枚举"></a>
 ### 运行状态枚举
@@ -2701,16 +2510,17 @@ RunPhase = Literal[
 | 共享规则与可重建环境 | 2026-10-05 | 同步唯一规则归宿、固定源码补丁和平台验收合同；可供性声明注释更正按既有字节身份发布目录 5.4，业务数值及品类契约与规则绑定 3 不变 |
 | `2026-10-05-environment-data-ownership` | 2026-10-05 | 环境与制作工具归 Dataset；通用规则从包资源读取且冻结副本逐字节一致；场景结构 6、必填内容标题与不可变活动效果、启动冻结及恢复合同；删除引擎数据准备命令。最终放行另核对本次实际验收收据 |
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1（班次与休息时段起止的唤醒）修订「工作安排声明」的效力与边界：班次与休息时段的起止是唤醒原因（`shift_start`、`shift_end`、`break_start`、`break_end`），只给清醒的人物在该时刻一次决策机会，不结束任何活动，不进入睡眠允许集合，不写事件，也不新增进度层记录；通常表现为环境层 `duty.status` 的变化，首尾相接的休息时段没有可见变化；闭集、触发条件与候选口径见生活运行时规格的决策节律；文件头补该规格的修订说明 |
-| `2026-10-05-idle-fillers-a` | 2026-10-05 | 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 2（系统层第 7、14、15、16 条）修订「请求组成」的生活决策系统层（仍为十八条，`custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER` 与之逐字相同）：第 7 条说明醒着时活动（等待也一样）一般做满工具层写的时长才再请人物决策、做得久的中途隔一阵也请一次，本人下的单送到、提醒到点、有人联系、有工作可以开始、到了定下的上下班时刻与写明的休息时段起止也会请人物决策而手上的活动照常进行，空下来照自己的习惯做点别的，等待只留给几分钟内就有事请人物决策的时候；第 14 条在上班安排一句之前插入一句：作息里的钟点、今日计划目标文字里的钟点与 `around_time` 都只是大概，到时不一定请人物决策，差不多到了就做、早一点晚一点都算照常，和人约好的事宁早勿晚，非准点不可的靠目标的提醒时刻；第 15 条写只是「有点想吃」时正餐留到平常的饭点前后吃，下单的东西送到、拿到手才能吃；第 16 条写有点乏、困是睡前的常态，还没到就寝时间就照常过晚上、到了就可以睡、不用撑到某个钟点；「七层 Schema」的分阶段指纹叙述补该阶段使 `prompt_sha256` 重钉、`tool_schema_sha256` 不变；文件头修订说明补本阶段 |
+| `2026-10-05-idle-fillers-a` | 2026-10-05 | 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 2（系统层第 7、14、15、16 条）修订「请求组成」的生活决策系统层（仍为十八条，`src/worldmock/agents/life_prompt.py::LIFE_SYSTEM_LAYER` 与之逐字相同）：第 7 条说明醒着时活动（等待也一样）一般做满工具层写的时长才再请人物决策、做得久的中途隔一阵也请一次，本人下的单送到、提醒到点、有人联系、有工作可以开始、到了定下的上下班时刻与写明的休息时段起止也会请人物决策而手上的活动照常进行，空下来照自己的习惯做点别的，等待只留给几分钟内就有事请人物决策的时候；第 14 条在上班安排一句之前插入一句：作息里的钟点、今日计划目标文字里的钟点与 `around_time` 都只是大概，到时不一定请人物决策，差不多到了就做、早一点晚一点都算照常，和人约好的事宁早勿晚，非准点不可的靠目标的提醒时刻；第 15 条写只是「有点想吃」时正餐留到平常的饭点前后吃，下单的东西送到、拿到手才能吃；第 16 条写有点乏、困是睡前的常态，还没到就寝时间就照常过晚上、到了就可以睡、不用撑到某个钟点；「七层 Schema」的分阶段指纹叙述补该阶段使 `prompt_sha256` 重钉、`tool_schema_sha256` 不变；文件头修订说明补本阶段 |
 | `2026-10-05-idle-fillers-b` | 2026-10-05 | 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 3（零点计划模板第三、五、六条）修订「请求组成」的零点计划中文模板（仍为八条，第一、二、四、七、八条与开头四行逐字不变，`src/worldmock/life/day_planning.py::PLAN_DAY_PROMPT` 与之逐字相同）：第三条写 `remind_time` 是到点提醒或叫醒人物的时刻，要按时起床的填起床的时刻，出门去上班、上课、接人、赴约这类要按时到的事填该出门的时刻，一条目标含几件时填最早的，只打算在某个时段做的事填 null，就寝不设提醒；第五条写人物档案与背景里天天如此的事（睡觉、起床、上下班、吃饭、休息、每天的消遣）不写成目标，只写今天与平常不同的安排（写清哪里不同）、要办的事与照第三条要提醒的事，清单可以很短；第六条写大致时刻只表示大概在那前后，不是开始的钟点，也不提醒人物，goal 里只给和人约好的事写钟点，其余只写时段或先后；本地校验、输出 Schema 与 `around_time` 的字段形状不变，模板仍只由 `code_sha256` 绑定；文件头修订说明补本阶段 |
 | 环境归属与等待行为整合 | 2026-10-06 | 保留已实施的班次唤醒、系统层与零点计划文本；现行场景结构 6 与显式数据仓输入，完整日核验实际工件，历史两份证明不改；跨平台方案仍未实施 |
 | `2026-10-06-windows-path-safety` | 2026-10-06 | 「共享规则与可重建环境修订」的安全文件一句补 Windows 下的声明规则：无盘符的根路径算绝对路径，反斜杠与任一平台不能原样保存的名字一并拒绝，目录联接与符号链接同样拒绝 |
 | `2026-10-06-parallel-activities-slots` | 2026-10-06 | 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1（暂停的活动不占名额）修订：「状态归属」的活动名额仍为常量 2，进行中与待收尾的活动各占一个，暂停的不占、个数不设上限，`pause_activity` 与 `conclude_activity` 之后让出名额，恢复要有空名额；受限轮阶段闭集仍为五个值，`resume_or_conclude` 与 `conclude_only` 留在闭集中、现行阶梯不再进入，世界结构仍为 9；「人物工具与管理接口」`pause_activity` 暂停让出名额，`report_status` 恢复要有空名额，`conclude_activity` 在任何地点都可直接结束暂停的活动；「个人事务」的入口与「请求字段与结算检查」的名额口径随之改写；「活动受理拒绝码」`SESSION_LIMIT_EXCEEDED` 改为进行中与待收尾的活动占满名额，开始、出行与恢复暂停的活动都可能触发，写明两种原因、按被点名活动能否暂停分三种写法的下一步、恢复的检查次序（开始地点、工作截止与合同、空名额、占用冲突）与缺省原因，删去两个名额都被暂停活动占满时出行一支；「动作状态与动作结果」写明到达上限时没有进行中也没有待收尾的活动一律进入 `start_or_resume`，受限轮不再进入 `resume_or_conclude`；「七层字段」待办层 `paused_activities[].tools` 恢复的不可用原因增名额占满，与受理同文；只变 `code_sha256`，`prompt_sha256`、`tool_schema_sha256`、目录、世界结构 9、质量报告结构 4 与场景结构 6 不变；文件头补该规格的修订说明 |
 | `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2（乙）修订：「状态归属」的 `occupied_resources` 占用名重列为 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel` 十一个，每种动作占自己的名字，只有同一种动作互斥；「交谈与通话」改为同占 `talk`，彼此互斥、可与其他种类并行；「活动控制行」的占用名同步；「品类契约与目录字段」写明占用声明属于引擎包资源 `src/worldmock/data/affordances.toml` 的字节，旧占用名 `idle`、`eyes`、`ears`、`hands`、`voice` 在解析时拒绝，`tool_schema_sha256` 随之改变，此前的检查点不能再恢复；测试环境 `tests/fixtures/environment/catalog/` 下的副本逐字节重新同步，仍带旧占用名的已发布环境（WorldMock-Dataset）与包资源字节不同，在加载时拒绝，须按新占用名重新发布 |
-| `2026-10-06-parallel-activities-rule8` | 2026-10-06 | 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 3（系统层第 8 条）修订「请求组成」的生活决策系统层（仍为十八条，`custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER` 与之逐字相同）：第 8 条说明人物可以同时做两件事，环境只拦同一种的两件（吃、做饭、用东西一种，工具层方式为「进行」的生活活动一种，看和听内容一种，读信、浏览、玩游戏、等待、工作、出行、和人说话各一种），不同种的两件环境不拦、做不做得到由人物照常理判断，想一起吃或喝的两样在同一个 `start_activity` 里写成两项、算一顿，开车时只能再听播客或和人说话、睡觉时不做别的，手上有一件在进行时轮到决策就可以再开始一件、原来那件照常进行；同时进行的最多两项，刚结束还没收尾的也算，暂停的不算，恢复暂停的活动要有空位，活动一结束同一时刻先用 `conclude_activity` 收尾；「七层 Schema」的分阶段指纹叙述补该阶段使 `prompt_sha256` 重钉、`tool_schema_sha256` 不变；文件头修订说明补本阶段 |
+| `2026-10-06-parallel-activities-rule8` | 2026-10-06 | 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 3（系统层第 8 条）修订「请求组成」的生活决策系统层（仍为十八条，`src/worldmock/agents/life_prompt.py::LIFE_SYSTEM_LAYER` 与之逐字相同）：第 8 条说明人物可以同时做两件事，环境只拦同一种的两件（吃、做饭、用东西一种，工具层方式为「进行」的生活活动一种，看和听内容一种，读信、浏览、玩游戏、等待、工作、出行、和人说话各一种），不同种的两件环境不拦、做不做得到由人物照常理判断，想一起吃或喝的两样在同一个 `start_activity` 里写成两项、算一顿，开车时只能再听播客或和人说话、睡觉时不做别的，手上有一件在进行时轮到决策就可以再开始一件、原来那件照常进行；同时进行的最多两项，刚结束还没收尾的也算，暂停的不算，恢复暂停的活动要有空位，活动一结束同一时刻先用 `conclude_activity` 收尾；「七层 Schema」的分阶段指纹叙述补该阶段使 `prompt_sha256` 重钉、`tool_schema_sha256` 不变；文件头修订说明补本阶段 |
 | `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
 | `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
 | `2026-10-06-rrs-app` | 2026-10-07 | app 使用、共享内容进度、会话推送、八项占用与封闭公开 app 结果；删除字幕、游戏与倍速合同 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 工作主题、实际工时累计、单一行动阶段与最终人物工具面；删除工作开放、截止、材料、提交与评审合同 |
 | `2026-10-06-rrs-record` | 2026-10-07 | 阶段 7：导出清单 3、质量报告 5、交付清单 3、app 使用五类事实与运行诊断组件闭集 |
+| `2026-10-07-repository-ownership` | 2026-10-07 | 按用户裁决收敛目录与职责：WorldMock 保留模拟、记录、完整认证足迹与评估；下游加工、模型任务、训练和规则数据归 LabelKit-DataSet，源码快照已接收，新消费验收另记实际证据 |

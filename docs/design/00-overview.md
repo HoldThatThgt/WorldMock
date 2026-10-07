@@ -41,12 +41,12 @@
 <a name="overview-解决方案"></a>
 ### 1.2 解决方案
 
-WorldMock 通过**数字人生活模拟**生产高质量训练数据：
+WorldMock 通过**数字人生活模拟**生产完整、连续、可追溯的数字足迹：
 
-1. **AgentSociety 2 驱动**：复用成熟的 Agent 框架，数字人按自身需求与环境交互
-2. **确定性规则引擎**：环境侧用确定性代码维护世界状态，保证数据可信
-3. **完整数字足迹**：记录观察、决策、执行、状态变化、结果、记忆的完整过程
-4. **LabelKit 交付**：数字足迹自动加工成模型训练数据与规则引擎测试数据
+- **AgentSociety 2 驱动**：复用成熟的 Agent 框架，数字人按自身需求与环境交互
+- **确定性规则引擎**：环境侧用确定性代码维护世界状态，保证数据可信
+- **完整数字足迹**：记录观察、决策、执行、状态变化、结果、记忆的完整过程
+- **完整导出**：认证足迹交给 LabelKit-DataSet，由其完成数据加工和发布
 
 ```mermaid
 flowchart TB
@@ -81,7 +81,7 @@ flowchart TB
 | **数据质量** | 可追溯、可验证、结构完整、来源明确 |
 | **真实性** | 行为模式通过多维度评估，符合真实人类行为特征 |
 | **可扩展性** | 支持多人物、多场景、反事实分支 |
-| **下游对接** | LabelKit 可直接消费，生成模型训练与规则测试数据 |
+| **下游对接** | 完整导出交给 LabelKit-DataSet；新消费验收仍待完成 |
 
 <a name="overview-非目标明确不做"></a>
 ### 1.4 非目标（明确不做）
@@ -105,7 +105,7 @@ flowchart TB
 | **[交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎)** | 维护注册表中的交换规则及其引用关系；运行时查询适用规则、校验交换条件、计算投入产出、校验资源分录并返回规则结果，例如判定购买条件、计算食品数量与付款金额、依合同计算报酬 |
 | **[模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎)** | 组织数字人与生活环境（`LifeEnv`）的交互，提供观察与决策机会，推进共享时钟和实际活动，计算身体变化与效率，调用交换规则并落实状态变化，编排恢复与实际反事实运行 |
 | **[记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)** | 保存并关联模拟引擎提交的观察、决策、执行、状态变化、结果与记忆，核验记录一致性并导出数字足迹；保存共同检查点、构建分支存储并提供恢复材料，保留原分支与来源关系；恢复后的执行由模拟引擎编排 |
-| **[数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付)** | 消费记录引擎的认证导出，通过 LabelKit 加工训练数据与规则夹具；离线经历回顾、反思与假设推演（Dreaming）在此进行，默认不写回运行中的数字人 |
+| **LabelKit-DataSet 数据加工** | 消费记录引擎的认证导出，通过 LabelKit 加工训练数据与规则夹具；离线经历回顾、反思与假设推演（Dreaming）在此进行，默认不写回运行中的数字人 |
 | **app** | 人物选择的娱乐入口；所有登记 app 始终显示，环境只从该 app 绑定的内容中抽取并推进全局内容进度 |
 | **app 推送** | 当前地点会话内的一条 app 内容提醒；状态依次为 pending、opened、released，人物可以不打开 |
 | **工作主题** | 场景分配给人物的工作累计单位；目录给出目标工时，人物的非失败工作活动按实际经过秒数累计 |
@@ -172,10 +172,8 @@ flowchart TB
 | 人物提示为七层 JSON，每项信息只出现一次；同一秒的连续决策续接原生消息 | [模拟引擎](04-simulation-engine.md#simulation-engine-人物所见与可做之事)「人物所见与可做之事」与[人物 Prompt 规格](../dev/SPEC-life-realism.md#persona-prompt-七层请求)第一、二章 | DRAFT |
 | 人物把以后要买到、拿到或吃掉的具体东西记成个人事务：跨日保留在待办层，办成只由环境按结算证据确认，人物只能取消并写原因 | [模拟引擎](04-simulation-engine.md#simulation-engine-人物所见与可做之事)「人物所见与可做之事」「依规则落实结算」「判断唤醒条件」与[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)第二、三章 | 已实现，验收证据另列 |
 | 作息含下班与到家；场景按人物声明工作安排，环境层每轮写明今天的上班安排，今日计划改不了它，环境不因此拒绝请求 | [模拟引擎](04-simulation-engine.md#simulation-engine-人物所见与可做之事)「初始化运行世界」「人物所见与可做之事」「接收当日目标并记录实际推进」、[配置管理](08-configuration.md#configuration-worldmock-产品设计说明书-配置规格)与[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)第四章 | 已实现，验收证据另列 |
-| 基于已有经历归纳、反思或进行假设推演 | [数据交付](06-delivery.md#delivery-dreaming-窗口提取规则)「dreaming 窗口提取规则」 | DRAFT |
 | 完整记录观察、决策、执行、状态变化 | [记录引擎的事件结构](05-recording-engine.md#recording-engine-数字足迹事件结构) | 冻结约束已承接 |
 | 支持检查点恢复与反事实分支 | [保存共同检查点](05-recording-engine.md#recording-engine-保存共同检查点)与[恢复与反事实分支](05-recording-engine.md#recording-engine-恢复与反事实分支) | 冻结约束已承接 |
-| 交付给 LabelKit 生成训练数据 | `06-delivery.md` §LabelKit 接口与证据窗口 | DRAFT |
 | 行为真实性多维度评估 | `07-evaluation.md` §指标定义与对比协议 | DRAFT |
 | 场景可配置：地点、日历、天气、交通 | `08-configuration.md` §场景文件规格 | DRAFT |
 | 明确区分规则产生、模型生成、外部服务 | [来源与可见性](05-recording-engine.md#recording-engine-来源与可见性) | 冻结约束已承接 |
@@ -196,7 +194,7 @@ flowchart TB
 | 数字足迹存储 | SQLite 事务 + 文件引用 | 事件溯源（Event Sourcing）模式 |
 | 检查点恢复 | 完整状态快照 + 增量事件 | Git 的 snapshot + delta 模型 |
 | 资源结算 | 货币双边转账；能量与娱乐需要单边流水；睡眠和时间按各自规则核验 | [交换引擎](02-exchange-engine.md#exchange-engine-校验资源分录)「校验资源分录」与[记录引擎](05-recording-engine.md#recording-engine-资金守恒验证)「资金守恒验证」 |
-| 数据交付 | JSONL 批处理 | LabelKit 输入格式规范 |
+| 足迹交接 | 固定截止 JSONL | 记录引擎的导出与来源认证合同 |
 | 行为评估 | 多维度指标 + 对比协议 | 社会模拟评估标准实践 |
 
 <a name="overview-设计决策"></a>
@@ -226,7 +224,7 @@ flowchart TB
 | **存储** | 单人物 12 周数字足迹 ≤ 10 GB（数据库 + 素材文件） |
 | **可靠性** | 检查点恢复成功率 100%，状态版本连续性 100% |
 | **可维护性** | 代码覆盖率 ≥ 85%，公共接口覆盖率 100% |
-| **依赖** | Python 3.12，AgentSociety 2，LabelKit，SQLite 3.35+ |
+| **依赖** | Python 3.12，AgentSociety 2，SQLite 3.35+ |
 | **平台** | Linux x86_64 / macOS；Windows 必须完成跨平台核心与重建验收。当前 macOS 收据与尚未执行的 Windows 收据分别登记，不能由单平台结果推定跨平台放行；平台边界以[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-门禁可选部件与操作系统)为准 |
 
 <a name="overview-设计假设若不成立需回到设计层"></a>
@@ -238,7 +236,6 @@ flowchart TB
 | DeepSeek API 可稳定提供服务 | 记录并传播服务故障，保持固定模型身份，不替换模型 |
 | 单人物场景足以验证系统可行性 | 需重新设计多人物协调机制 |
 | 12 周时间跨度足以覆盖日常行为模式 | 需调整实验时长 |
-| LabelKit 可消费 JSONL 格式的数字足迹 | 需重新设计交付格式 |
 | app 与内容的显式绑定足以支撑人物选择入口、环境抽取内容和完整来源追溯 | 需重新评估内容目录与 app 绑定合同 |
 | SQLite 事务性能足以支撑实时记录 | 需评估批量提交或其他数据库 |
 
@@ -258,19 +255,18 @@ flowchart TB
 <a name="overview-参考文献"></a>
 ## 10. 参考文献
 
-1. AgentSociety 2 文档：https://github.com/OpenBMB/AgentSociety
-2. [LabelKit 交付规格](../dev/SPEC-labelkit-delivery.md#spec-labelkit-delivery-特性规格数字足迹接入-labelkit)：独立进程、输入输出和交付验收合同
-3. [LifeEnv 运行时规格](../dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)：身体模型的算法、参数来源与仿真假设
-4. Daan、Beersma 与 Borbély (1984)：两过程睡眠模型，采用方式见运行时规格
-5. Event Sourcing Pattern - Martin Fowler
-6. Git Internals - Scott Chacon
-7. [资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送)：app 绑定、确定性抽取、推送与全局内容进度
+- AgentSociety 2 文档：https://github.com/OpenBMB/AgentSociety
+- [LifeEnv 运行时规格](../dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)：身体模型的算法、参数来源与仿真假设
+- Daan、Beersma 与 Borbély (1984)：两过程睡眠模型，采用方式见运行时规格
+- Event Sourcing Pattern - Martin Fowler
+- Git Internals - Scott Chacon
+- [资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送)：app 绑定、确定性抽取、推送与全局内容进度
 
 
 <a name="design-overview-current-responsibility"></a>
 ## 当前实现与验收入口
 
-人物行为、世界结算、事件顺序、提示、检查点、导出和交付合同保持不变。当前业务规则按基础规格的所属正文读取；五份已验收增量规格及其执行过程已归档，归档不改变真实十二周、隔离盲评、LabelKit 交付和真实模型复跑的未完成状态。
+人物行为、世界结算、事件顺序、提示、检查点与完整导出合同保持；下游加工合同已移交 LabelKit-DataSet。当前业务规则按基础规格的所属正文读取；五份已验收增量规格及其执行过程已归档，归档不改变真实十二周、隔离盲评、LabelKit 交付和真实模型复跑的未完成状态。
 文档引用按显式稳定章节标识定位；代码依据按仓库相对的文件与实际定义定位。完整工程验收共用快速、标准、全量运行入口，以 `docs/VERIFICATION.md` 的工程门禁为准。
 
 <a name="overview-版本历史"></a>
@@ -297,3 +293,4 @@ flowchart TB
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
 | `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：娱乐入口统一为 app，内容由 app 绑定、确定性抽取、推送优先并使用全局进度；删除 TextWorld、旧游戏与 facet 设计。版本保持 v1.13。 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题累计的工程依据，版本号不变 |
+| `2026-10-07-repository-ownership` | 2026-10-07 | 按用户裁决收敛目录与职责：WorldMock 保留模拟、记录、完整认证足迹与评估；下游加工、模型任务、训练和规则数据归 LabelKit-DataSet，源码快照已接收，新消费验收另记实际证据 |

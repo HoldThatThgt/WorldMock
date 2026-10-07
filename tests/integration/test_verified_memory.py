@@ -19,8 +19,8 @@ from agentsociety2.agent.base.react import MemoryUpdateEvidence
 from tests.life.conftest import stage_day_plan, start_activity
 from tests.life.test_location_sessions import _round, _until_ended
 from custom.agents.life_agent import _conclusion_memories
-from custom.agents.life_memory import WorldMockMemoryRuntime, render_memory_view
-from custom.agents.life_reflection import REFLECTION_PROMPT, reflection_tool
+from worldmock.agents.life_memory import WorldMockMemoryRuntime, render_memory_view
+from worldmock.agents.life_reflection import REFLECTION_PROMPT, reflection_tool
 from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore

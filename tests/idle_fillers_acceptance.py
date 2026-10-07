@@ -35,7 +35,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/footprints/models.py",
     "src/worldmock/evaluation/workload_metrics.py",
     "tools/run-viewer.html",
-    "custom/agents/life_prompt.py",
+    "src/worldmock/agents/life_prompt.py",
     "src/worldmock/life/day_planning.py",
 )
 
@@ -171,7 +171,7 @@ def _vocabulary_lacks(member: str) -> SourceMutation:
                           _VOCABULARY_LINE, f"    {remaining},\n", (_T2,))
 
 
-_LIFE_PROMPT = "custom.agents.life_prompt::LIFE_SYSTEM_LAYER"
+_LIFE_PROMPT = "worldmock.agents.life_prompt::LIFE_SYSTEM_LAYER"
 _SEVEN_LAYERS = "tests/integration/test_seven_layer_request.py::"
 #: 系统层三方逐字（接口合同登记、模块常量与实际请求）与第 7、14、16 条新说法的正向断言。
 _SYSTEM_VERBATIM = _SEVEN_LAYERS + "test_system_layers_are_the_contract_registration_verbatim"

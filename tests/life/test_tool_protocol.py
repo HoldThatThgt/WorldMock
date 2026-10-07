@@ -16,8 +16,8 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 from agentsociety2.agent.base import ReactDecision
 from agentsociety2.society import DirectToolCall
 from custom.agents.life_agent import LifeAgent, MemoryTimeRangeRequest, _TOOL_MODELS, _validate_request
-from custom.agents.life_feedback import argument_feedback, feedback_report
-from custom.agents.life_truncation import TRUNCATION_CONTENT
+from worldmock.agents.life_feedback import argument_feedback, feedback_report
+from worldmock.agents.life_truncation import TRUNCATION_CONTENT
 from tests.life.conftest import context, stage_day_plan
 from worldmock.life.control_items import control_items
 from worldmock.footprints.purchases import project_purchase_facts

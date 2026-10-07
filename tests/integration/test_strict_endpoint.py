@@ -65,15 +65,8 @@ def _covered(story: str) -> SimpleNamespace:
 
 
 def _validate_root(tmp_path: Path) -> Path:
-    """validate 的工程根：真实 _configure_process 要求的 custom/agents/life_agent.py、空的 labelkit-projects 与 LabelKit
-    命令占位（这里核对的是模型身份，不执行 LabelKit）。"""
-    root = write_project(tmp_path / "project")
-    (root / "labelkit-projects").mkdir()
-    command = root / "vendor/labelkit/.venv" / ("Scripts/labelkit.exe" if os.name == "nt" else "bin/labelkit")
-    command.parent.mkdir(parents=True)
-    command.write_bytes(b"")
-    return root
-
+    """@brief 模型身份校验的工程根只包含实际 AS2 注册入口。"""
+    return write_project(tmp_path / "project")
 
 def _configure_as(monkeypatch, tmp_path: Path, as2_base: str) -> None:
     """真实 _configure_process 的前提：隔离 HOME 下的假密钥池，改写的环境变量在测试结束时复原；进程里已导入的 AS2 配置

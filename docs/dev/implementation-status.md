@@ -9,6 +9,19 @@
 > 历史基线：工作树 HEAD `9b7fbc84d4429c2f05ec4b526df53539f0ed5d78`（另含当时未提交的文档重构与候选呈现代码）；除新增特性验收记录外，下文旧测试数字和真实运行描述均为该次实测快照，不代表新版本已重新完成真实运行
 > 口径：接口与字段以 `docs/CONTRACTS.md#contracts-worldmock-接口合同` 为准，验收门禁与证据规则以 `docs/VERIFICATION.md#verification-worldmock-验收标准` 为准，覆盖率口径见 `docs/dev/coverage-baseline.md#coverage-baseline-覆盖率门禁口径与基线`；当前特性结论与带身份的历史验收分开记录，变更过程由 Git 承载
 
+<a name="implementation-status-目录与数据加工归属"></a>
+## 目录与数据加工归属
+
+2026-10-07 按用户确认的职责整理：WorldMock 保留模拟、记录、完整导出与真实性评估，环境素材归 WorldMock-Dataset，
+LabelKit 模型任务、输入整理、训练加载和规则测试数据归 LabelKit-DataSet。
+
+`custom/` 仅保留 LifeAgent 与 LifeEnv 的实际类定义，十个人物辅助模块移至 `src/worldmock/agents/`；
+测试公共配置统一为 `tests/conftest.py`。旧工作计划、下游加工目录、`deliver` 命令和 LabelKit 安装条件已删除。
+因果核对归 `evaluation/causal_checks.py`，旧详细加工说明不再作为本仓库当前合同。
+
+LabelKit-DataSet 会话已复制 261 个来源文件并核对摘要，证明来源材料接收；整合后的新消费验收尚未取得。
+目录整理的本次工程验证由实际回执登记，不能沿用此前完整日、覆盖率或平台结果声称通过。
+
 <a name="implementation-status-资源与规则引擎简化开发状态"></a>
 ## 资源与规则引擎简化开发状态
 
@@ -42,7 +55,7 @@
 | 正式环境完整回归与覆盖率 | 首次 macOS/Linux standard 失败收据保留；测试来源及依赖探针已修复，本轮最新源码的完整执行与覆盖率按[正式回归修复验收](resource-rule-formal-repair.md#resource-rule-formal-repair-正式回归修复验收)的实际平台收据判定 |
 | Linux、Windows 与跨机器恢复 | Linux 独立重建通过，首次正式回归失败与本轮新收据分别保留；macOS 关闭的检查点在 Linux 重开后状态一致并完成原全天，独立导出认证通过；首次内存不足的失败保留；Windows 无可用执行主机，另一个物理机器未执行 |
 | 跨平台业务结果严格比较 | 冻结清单、终态、动作、检查点、素材及活动六区段相等；事件中五条困意数值末位不同，严格事件一致性未通过，原值和差异保留 |
-| 原生 LabelKit-DataSet 消费 | Dataset 纯事实交接通过；第三仓当前仍读取旧原生导出，接入修改范围等待用户确认，尚未取得消费验收 |
+| 原生 LabelKit-DataSet 消费 | Dataset 纯事实交接通过；所属范围已授权接收并保存来源快照，整合后的新消费者尚未取得消费验收 |
 
 实际被测引擎发布提交为 `6d1130129907def4e7187104cb53745293aa3258`，生产摘要为
 `4cafc45f6f326cbf2eb49f288e6759db9b51f17aeb7f041d21cd4e39505e9cbf`。
@@ -535,7 +548,7 @@ $ uv run pytest -q
 <a name="implementation-status-当前世界格式worldstateschema_version-为-9"></a>
 ### 当前世界格式：`WorldState.schema_version` 为 10
 
-[资源与规则引擎简化](SPEC-resource-and-rule-simplification.md#spec-rrs-状态事件检查点与导出)一次升级当前结构：世界 10、场景 7、运行清单 3、导出清单 3、质量报告 5、交付清单 3。旧状态、场景和清单直接按版本或必填字段拒绝，不迁移、不双读；历史文件原始字节仍保留。
+[资源与规则引擎简化](SPEC-resource-and-rule-simplification.md#spec-rrs-状态事件检查点与导出)一次升级当前结构：世界 10、场景 7、运行清单 3、导出清单 3、质量报告 5。旧状态、场景和清单直接按版本或必填字段拒绝，不迁移、不双读；历史文件原始字节仍保留。
 
 | 当前状态 | 恢复与来源要求 |
 | --- | --- |

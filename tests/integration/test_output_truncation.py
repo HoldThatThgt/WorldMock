@@ -23,8 +23,8 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from agentsociety2.agent.base import ReactLoopRequest  # noqa: E402
 
 from custom.agents.life_agent import LifeAgent  # noqa: E402
-from custom.agents.life_feedback import FEEDBACK_INSTRUCTION  # noqa: E402
-from custom.agents.life_truncation import TRUNCATION_DETAIL, TRUNCATION_CONTENT  # noqa: E402
+from worldmock.agents.life_feedback import FEEDBACK_INSTRUCTION  # noqa: E402
+from worldmock.agents.life_truncation import TRUNCATION_DETAIL, TRUNCATION_CONTENT  # noqa: E402
 from tests.integration.test_life_agent_protocol import (_Environment, _GroundedCorrectionDispatcher,  # noqa: E402
                                                         _ModelResponse, _context, _wire_agent)
 from tests.integration.life_host_fixtures import TruncatedResponse  # noqa: E402

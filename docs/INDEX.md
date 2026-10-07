@@ -34,10 +34,19 @@ flowchart LR
     W --> R[运行记录、检查点与导出]
 ```
 
+<a name="index-数据加工归属"></a>
+## 数据加工归属
+
+WorldMock 负责模拟、记录、完整认证导出和真实性评估；LabelKit-DataSet 负责输入整理、LabelKit 模型任务、
+训练数据加载和规则测试数据。环境素材与制作工具继续归 WorldMock-Dataset。
+WorldMock 不再安装或调用 LabelKit，不提供数据加工命令或详细任务合同。
+
+本次来源快照已交接并核对摘要，整合后的新消费验收尚未取得；状态见[实现状态](dev/implementation-status.md#implementation-status-worldmock-实现状态)。
+
 <a name="index-这是什么"></a>
 ## 这是什么
 
-WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把生活过程写成可追溯的数字足迹，再交给 LabelKit 生产模型训练数据与规则引擎测试数据。正式实验是上海张江白领的单人物十二周（2026-01-05 至 2026-03-30）。**数字足迹**指一次生活过程留下的、可追溯的观察、决策、执行、状态变化、结果、记忆与相互关系。
+WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把生活过程写成可追溯的数字足迹，完整导出再交给 LabelKit-DataSet 组织数据加工与数据集发布。正式实验是上海张江白领的单人物十二周（2026-01-05 至 2026-03-30）。**数字足迹**指一次生活过程留下的、可追溯的观察、决策、执行、状态变化、结果、记忆与相互关系。
 
 文档集按职责分工：`ARCHITECTURE.md` 写分层理由，`CONTRACTS.md` 提供跨模块接口定义与导航，
 `docs/dev/SPEC-*.md` 写对应特性的行为，`VERIFICATION.md` 写通过条件，`implementation-status.md` 写当前状态。
@@ -55,9 +64,9 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | --- | --- | --- |
 | `docs/INDEX.md#index-worldmock-文档入口` | 本文件：文档地图、阅读路径、权威层级与文件归属 | 入口 |
 | `docs/ARCHITECTURE.md#architecture-worldmock-架构设计` | 系统分层、职责边界、数据流与核心决策的理由 | FROZEN |
-| `docs/CONTRACTS.md#contracts-worldmock-接口合同` | 跨模块接口合同与导航；记录引擎定义引用所属设计，其余接口在本文件维护；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步；阶段 7 的导出清单 3、app 使用事实、交付清单 3 与诊断组件正文已同步 | FROZEN |
-| `docs/EXPERIMENT.md#experiment-worldmock-实验设置` | 实验身份：时间窗与日历情境、依赖冻结、运行绑定、场景参数、内容与语料绑定、样本划分与外部参照；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步 | FROZEN |
-| `docs/VERIFICATION.md#verification-worldmock-验收标准` | 放行门禁（最终门禁、协议门禁、工程门禁、报告项）、交付阶段与通过条件、测试矩阵、验收原则与结论边界；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步；阶段 7 的内容、出行、质量与交付通过条件已同步，执行状态按实际回执登记 | NOT-COMPLETE |
+| `docs/CONTRACTS.md#contracts-worldmock-接口合同` | 跨模块接口合同与导航；记录引擎定义引用所属设计，其余接口在本文件维护；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步；阶段 7 的导出清单 3、app 使用事实 与诊断组件正文已同步 | FROZEN |
+| `docs/EXPERIMENT.md#experiment-worldmock-实验设置` | 实验身份：时间窗与日历情境、依赖冻结、运行绑定、场景参数、内容与语料绑定与外部参照；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步 | FROZEN |
+| `docs/VERIFICATION.md#verification-worldmock-验收标准` | 放行门禁（最终门禁、协议门禁、工程门禁、报告项）、交付阶段与通过条件、测试矩阵、验收原则与结论边界；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步；阶段 7 的内容、出行、质量与足迹导出通过条件已同步，执行状态按实际回执登记 | NOT-COMPLETE |
 | `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态` | 当前实现状态：确定性范围与测试基线实测、覆盖率口径、规格追溯与突变守卫、未完成项与阻塞 | NOT-COMPLETE |
 | `docs/dev/coverage-baseline.md#coverage-baseline-覆盖率门禁口径与基线` | 覆盖率门禁的判定口径、测量与排除范围、失败关闭约定、历史基线及本次正式门禁阻断 | 现行口径 |
 | `docs/dev/coverage-report.json` | 门禁生成物：分支覆盖率、未覆盖公共接口与逐文件分项，由 `scripts/coverage_gate.py` 写入 | 生成物 |
@@ -77,7 +86,6 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | [世界素材](manual/resources.md#resources-定义地点门店供给与世界素材) | 准备地点、图、店铺、食品、app 与内容及生活活动、联系人邮件语料 |
 | [规则配置](manual/rules.md#rules-调整世界规则与人物动机参数) | 调整人物身体初值和画像映射，理解引擎固定类型、身体及交换规则 |
 | [运行配置](manual/runtime.md#runtime-运行配置) | 模型凭据、新建运行、恢复和反事实干预文件 |
-| [数据生成](manual/delivery.md#delivery-自定义训练数据交付) | LabelKit 项目、生成设置与规则测试数据 |
 | [真实性评估](manual/evaluation.md#evaluation-自定义评估与盲评输入) | 评估配置、人工参照和评审输入 |
 
 <a name="index-特性规格与提案"></a>
@@ -139,7 +147,6 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | `docs/dev/research/day-plan-goals-bob-metrics-recheck.md` | 三个存活补丁在新增行为断言后的原样复验 | 审查记录 |
 | `docs/dev/SPEC-decision-context.md#spec-decision-context-特性规格决策上下文与工具结果` | 决策自述、冻结上下文、动作登记与结果通道、场景信息、预算、修改清单与验收台账；决策自述与场景信息由人物 Prompt 七层规格取代（决策就是所选世界请求，场景信息改为七层归属），冻结上下文、预算、修改清单与验收台账由其修订，登记与结果通道约束保留，修订条款已实现；按名调用、指名购买口径与公开结果键由一日运行保真规格修订，修订条款已实现；任务回看的执行位置、同秒续接 `changes` 与 `events` 的口径、公开结果 `details.errands` 与 `query_world` 六键由个人事务与工作安排规格修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；食品与画像的阶段三正文已同步，阶段 5 的结果通道已删除 `work_review` 与 `task_deadline` 特例，执行结果按实际验收登记；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，随阶段 2、4 提交实现 | FROZEN |
 | `docs/dev/SPEC-interaction-menu.md#spec-interaction-menu-特性规格交互菜单` | 地点类与人物交互菜单、工具和活动类型准入、冻结观察、模型与环境共同门控、运行身份及验收台账；按名调用与控制工具的参数形状由一日运行保真规格修订，修订条款已实现；控制工具的请求级 `errands` 与 `query_world` 六键由个人事务与工作安排规格修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；食品与画像的阶段三正文已同步，执行结果按实际验收登记；阶段 4 的 `use_app` 与店铺 app 来源正文已同步；阶段 5 的工作主题上限准入正文已同步；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，随阶段 1、3、4、7 提交实现 | FROZEN |
-| `docs/dev/SPEC-labelkit-delivery.md#spec-labelkit-delivery-特性规格数字足迹接入-labelkit` | 数字足迹接入 LabelKit 的输入范围与加工责任、证据窗口与来源关联、交付产物与发布边界、长序列与数据划分、真实调用的生产与验证步骤；意图与 dreaming 窗口裁去 `errands`、缺 `errands` 的旧控制请求被拒、含就寝反思的决策其窗口提示仍取行动请求由个人事务与工作安排规格修订（决策提示的选取保持现行实现），修订条款已实现；唤醒原因分桶与班次边界唤醒的指纹叙述由[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订（阶段 1），修订条款已实现；系统层改写的指纹叙述由同一规格修订（阶段 2），修订条款已实现；零点计划模板改写的指纹叙述由同一规格修订（阶段 3），修订条款已实现；系统层第 8 条改写的指纹叙述（阶段 3）由[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；阶段 4 的 `app_push` 唯一公开投影正文已同步；阶段 5 的运行阶段身份恰为 `{action}`；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步；阶段 7 的导出清单 3、质量报告 5、交付清单 3 与手机事实来源正文已同步；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，随阶段 5 提交实现 | FROZEN |
 | `docs/dev/PROPOSAL-agent-interaction.md#proposal-agent-interaction-数字人交互方案` | **已裁决并冻结**：数字人交互的原始问题、心智模型逐条对账与取舍记录；行为定义已由 `docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面` 承载 | FROZEN |
 | `docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面` | **FROZEN**：三级结构（当日目标、地点会话、活动）、七层上下文与进度层、稳定工具面、决策轮循环与播报节律、前置条件前置、活动名额、午夜浓缩；显式修订七条既有冻结条款并随冻结生效；工具面、会话与记忆写入点由时间与能量规格修订；七层上下文与进度层由人物 Prompt 七层规格取代（进度层只含当前 session），修订条款已实现；控制工具的参数形状、按名调用、名称类拒绝与公开结果键由一日运行保真规格修订，修订条款已实现；控制工具的请求级 `errands`、待办层的个人事务与新增唤醒成员 `errand_reminder_due` 的同步、环境层 `duty` 与 `query_world` 六键由个人事务与工作安排规格修订，修订条款已实现；触发表增四个班次边界成员、新增唤醒成员的同步点清单改以冻结条款修订第 1 行为准由[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订（阶段 1），修订条款已实现；名额只算进行中与待收尾、暂停让出名额与受限轮清单（阶段 1）由[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；食品与画像的阶段三正文已同步，执行结果按实际验收登记；阶段 4 的 app 目标、内容、推送与全局内容进度正文已同步；阶段 5 的十一项原生工具、八项稳定面、工作主题四键合同与 `last_report` 正文已同步；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，随阶段 3、4 提交实现 | FROZEN |
 | `docs/dev/research/agent-interaction-document-impact.md` | 文档影响与文件修改清单：爆炸半径实测、五处词表同步点、导出重建约束、冻结规格与设计文档修订清单 | 调研证据 |
@@ -241,7 +248,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | 找某个接口、字段、枚举、目录结构、命令行参数或提示词模板 | `docs/CONTRACTS.md#contracts-worldmock-接口合同`；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步 | 设计理由在 `docs/ARCHITECTURE.md#architecture-worldmock-架构设计` 与对应 SPEC |
 | 知道现在跑到哪一步、已有哪些实测证据 | `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态` | `docs/dev/coverage-baseline.md#coverage-baseline-覆盖率门禁口径与基线` 与 `docs/dev/coverage-report.json` |
 | 判断能不能放行、本次要交哪些证据 | `docs/VERIFICATION.md#verification-worldmock-验收标准`；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步 | `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态` 取源码身份与命令收据 |
-| 复现实验：依赖版本、场景参数、时间窗、样本划分 | `docs/EXPERIMENT.md#experiment-worldmock-实验设置`；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步 | `docs/CONTRACTS.md#contracts-worldmock-接口合同` 取运行接口与目录结构 |
+| 复现实验：依赖版本、场景参数与时间窗 | `docs/EXPERIMENT.md#experiment-worldmock-实验设置`；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步 | `docs/CONTRACTS.md#contracts-worldmock-接口合同` 取运行接口与目录结构 |
 | 理解地图、门店供给与交易 | `docs/dev/SPEC-map-and-storefront.md#spec-map-and-storefront-地图数据集合与门店供给开发规格`；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步 | `docs/CONTRACTS.md#contracts-worldmock-接口合同` 取字段，各引擎设计取定义、判断、结算和记录；研究核验说明路线与许可边界 |
 | 配置或修改地点类与人物交互菜单 | `docs/dev/SPEC-interaction-menu.md#spec-interaction-menu-特性规格交互菜单`；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步 | `docs/design/08-configuration.md#configuration-worldmock-产品设计说明书-配置规格` 取配置，`docs/design/04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎` 取执行链路 |
 | 查历史调研、审计与根因结论 | `docs/dev/research/` | 对应 SPEC 看结论如何落地为条款 |
@@ -353,7 +360,6 @@ flowchart TB
 | `src/worldmock/profile/` | 人物卡片编译 |
 | `src/worldmock/corpora/` | 生活活动、场景联系人与场景邮件语料加载校验 |
 | `src/worldmock/data/` | 固定活动闭集、动机算法参数和人物映射包资源 |
-| `src/worldmock/delivery/` | LabelKit 交付 |
 | `src/worldmock/evaluation/` | 行为指标与协议门禁 |
 | `src/worldmock/exchange/` | 系统固定类型、常数和食品、出行、配送、资金交换算子 |
 | `src/worldmock/catalog/` | 目录声明、严格登记、加载、身份与发布图查询 |
@@ -366,7 +372,6 @@ flowchart TB
 | `tests/life/` | 生活规则与运行时行为 |
 | `tests/footprints/` | 事件存储、检查点与恢复 |
 | `tests/integration/` | 跨模块集成与协议 |
-| `tests/delivery/` | LabelKit 交付行为 |
 | `tests/evaluation/` | 行为指标与协议门禁 |
 | `tests/exchange/` | 固定规则、常数与纯交换结果 |
 | `tests/catalog/` | 人工目录登记、身份、地图生成与查询 |
@@ -381,7 +386,6 @@ flowchart TB
 | `docs/manual/` | 当前可用配置的用户编写手册与校验示例 |
 | `WorldMock-Dataset/environment/shanghai-simplified/corpora/` | 已发布生活活动、联系人和邮件语料 |
 | `WorldMock-Dataset/environment/shanghai-simplified/catalog/` | 地点、食品、app、内容、主题和图；规则包副本须与引擎字节一致 |
-| `labelkit-projects/` | LabelKit 项目配置 |
 
 <a name="index-状态与变更约定"></a>
 ## 状态与变更约定
@@ -462,4 +466,5 @@ flowchart TB
 | `2026-10-06-rrs-docs` | 2026-10-07 | 当前规格、提案和实施阶段，exchange/catalog/corpora 归属与手册入口；正式发布及平台未执行 |
 | `2026-10-07-rrs-formal-docs` | 2026-10-07 | 正式环境路径、纯事实手机投影与评估输入入口同步；正式回归、覆盖率与平台结论仍按实际回执分别判定 |
 | `2026-10-07-rrs-formal-repair` | 2026-10-07 | 明确人工行为测试与正式验收来源，保存恢复使用同一来源；依赖验证执行真实 SQLite 与生产字体选择器；原失败与最新正式门禁各保留实际身份 |
+| `2026-10-07-repository-ownership` | 2026-10-07 | 按用户裁决收敛目录与职责：WorldMock 保留模拟、记录、完整认证足迹与评估；下游加工、模型任务、训练和规则数据归 LabelKit-DataSet，源码快照已接收，新消费验收另记实际证据 |
 | `2026-10-07-acs-freeze` | 2026-10-07 | 登记动作与内容简化规格为 FROZEN、提案为已裁决；注明被修订规格及其实施阶段，增加阅读与权威入口；实施计划、各阶段文件清单与设计文档改写清单已对照代码基线核定，实现与平台状态由后续台账与回执证明 |

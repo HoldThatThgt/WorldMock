@@ -1,17 +1,14 @@
-"""@brief 在启动人物前验证完整场景、语料和实际数据消费者。"""
+"""@brief 在启动人物前验证完整场景、语料和模拟运行条件。"""
 
 from __future__ import annotations
 
 import importlib.metadata
 import json
 import logging
-import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
-
-from jsonschema import Draft202012Validator
 
 from worldmock.corpora.manifest import load_manifest
 from worldmock.errors import IntegrityError
@@ -21,10 +18,8 @@ from worldmock.footprints.assets import atomic_write
 
 def validate_project(project_root: Path, scenario_path: Path, *,
                      persona_compiler=None, coverage_out: Path | None = None) -> dict:
-    """@brief 真实场景加载后保留 AS2 锁、依赖、LabelKit、阶段身份和八成画像覆盖门禁。"""
+    """@brief 真实场景加载后核对 AS2 锁、运行依赖、阶段身份和八成画像覆盖门禁。"""
     from worldmock import run_setup
-    from worldmock.delivery.generation import EXPRESSIONS
-    from worldmock.delivery.rules import execute_fixture
     from worldmock.life.world_setup import load_runtime_scenario
 
     run_setup.require_locked_as2()
@@ -34,28 +29,16 @@ def validate_project(project_root: Path, scenario_path: Path, *,
     if not corpus_root.is_absolute():
         corpus_root = scenario_path.resolve().parent / corpus_root
     corpus = load_manifest(corpus_root, scenario.corpus_manifest_sha256)
-    schemas = sorted((project_root / "labelkit-projects").rglob("*.json"))
-    for path in schemas:
-        Draft202012Validator.check_schema(json.loads(path.read_text(encoding="utf-8")))
     versions = {name: importlib.metadata.version(name) for name in
-                ("agentsociety2", "ray", "litellm", "mcp", "datasets", "rule-engine")}
+                ("agentsociety2", "ray", "litellm", "mcp")}
     _require_ray_worker_import()
-    labelkit = (project_root / "vendor/labelkit/.venv/Scripts/labelkit.exe" if os.name == "nt"
-                else project_root / "vendor/labelkit/.venv/bin/labelkit")
-    if not labelkit.is_file():
-        raise IntegrityError("The isolated LabelKit CLI environment is not installed")
-    fixture = {"initial_state": {"deadline_seconds": 60},
-               "events": [{"role": role, "timestamp_seconds": value} for role, value in
-                          (("request", 0), ("accept", 1), ("complete", 2))],
-               "expected": {"allowed": True}, "provenance": {"kind": "validation_fixture"}}
-    execute_fixture(fixture, EXPRESSIONS)
     run_setup._configure_process(project_root)
     identity = run_setup.validate_manifest_stage_identity()
     coverage = validate_persona_coverage(
         scenario_path, persona_compiler=persona_compiler, coverage_out=coverage_out,
         _scenario=scenario, _corpus_root=corpus_root)
     return {"valid": True, "scenario_id": scenario.scenario_id, "scenario_sha256": scenario_sha256,
-            "corpus_entries": len(corpus.entries), "checked_schemas": len(schemas),
+            "corpus_entries": len(corpus.entries),
             "dependencies": versions, "model_identity": {"stages": sorted(identity["stages"]),
                                                           "consistent": True},
             "persona_coverage": coverage["agents"], "input_warnings": coverage["input_warnings"]}

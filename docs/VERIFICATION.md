@@ -1,6 +1,8 @@
 <a name="verification-worldmock-验收标准"></a>
 # WorldMock 验收标准
 
+> 引用出处：`docs/dev/SPEC-labelkit-delivery.md` @ `490ae4bb0ab226c0cf90e77531ccafffcca38f97`
+
 > 按[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「资源与规则简化门禁、测试矩阵、发布身份与证据边界」（阶段 8）；此前阶段的修订并入同一现行合同。
 
 
@@ -58,7 +60,7 @@ AS2 先复现旧源码身份，再完成 WorldMock 记忆与观察业务的移�
 summary、worker 选择与完成回执的同一运行身份和覆盖数据摘要；选择、收集与完成节点的全局多重集
 必须精确相等且无重复，每个全量节点的 setup、call、teardown 三阶段完整且均为 passed。
 拒绝未知结果、空集合、失败、跳过、缺失或失效收据以及真实输入字节变化；输入包括根 `.gitattributes`
-和交付 `labelkit-projects` 配置、hooks 与 schemas。要求测试、风格、文档链接、
+和引擎人工测试环境。要求测试、风格、文档链接、
 设计汇编、整体分支覆盖率至少 85% 和未覆盖公共接口为零；跳过、预期失败、空运行均不能取得通过。
 新机器检查必须真实引导固定源码与哈希依赖。资源与规则引擎简化特性的当前平台证据只登记本次 macOS
 本机双跑、地图生成与 app 资源校验的真实结果；Windows 回执尚未执行，不能由 macOS 结果推定。
@@ -81,6 +83,14 @@ summary、worker 选择与完成回执的同一运行身份和覆盖数据摘要
 该确定性运行、全仓覆盖门禁、目录语料身份、文档一致性及隔离源码语义突变审查共同构成特性验收。
 它们不替代本页定义的真实供应商、十二周、盲评和 LabelKit 交付要求。
 
+<a name="verification-数据加工验收边界"></a>
+## 数据加工验收边界
+
+LabelKit 模型任务、训练数据加载和规则测试数据已归 LabelKit-DataSet，其验收不在本仓库运行或声明。
+WorldMock 验收模拟行为、持久记录、完整认证导出和真实性评估；评估候选数据只作为待认证输入。
+历史 LabelKit 验收与未完成项保留原身份，不能证明整合后的新消费者通过。
+本次来源快照接收并核对摘要已完成，新消费验收尚未取得。
+
 <a name="verification-放行门禁"></a>
 ## 放行门禁
 
@@ -94,7 +104,7 @@ summary、worker 选择与完成回执的同一运行身份和覆盖数据摘要
 | --- | --- | --- |
 | 规范闭合 | 全部规范要求映射到生产入口和行为测试；不存在 stub、TODO、skip、xfail 或只检查接口存在的替代验收 | 离线判定 |
 | 正常和异常 | 每个生活模块覆盖正常、拒绝、边界、中断与重复请求；故障传播覆盖真实 actor/runner 边界 | 离线判定 |
-| 真实端到端 | AS2 → DeepSeek LifeAgent → LifeEnv → SQLite → LabelKit → DatasetDict 和 rule-engine 实际调用通过 | 部分 |
+| 真实端到端 | AS2 → DeepSeek LifeAgent → LifeEnv → SQLite → 完整认证足迹导出与真实性评估实际读取通过 | 部分 |
 | 并发与恢复 | 多人实际运行；颠倒到达顺序不改变结算；共同检查点损坏拒绝；新分支父目录不变 | 部分 |
 | Uncle Bob | 干净本地提交的隔离 worktree，基线通过后进行源码语义突变，逐条记录 killed/survived；修复测试缺口后原样复测 | 离线判定 |
 | 十二周 | DeepSeek 真实选择，已确认时钟达到结束边界、足迹与模型证据完整、正式输出和完整窗口交付通过 | 未执行 |
@@ -406,13 +416,12 @@ issue #1 绿色基线是实施前置：`python scripts/run_tests.py --tier full`
 
 **来源可追溯**
 
-来源关联的合同见 `docs/design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎`「导出认证」与 `docs/dev/SPEC-labelkit-delivery.md#spec-labelkit-delivery-特性规格数字足迹接入-labelkit`「来源关联」，划分口径见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「数据集字段与划分」。本门禁要求观察到的是：
-
-- 导出物保留样本到原始事件的关联，逐事件导出另存输入文件与行号、人物和出现位置，回溯链路能够逐条核对。
-- 后处理只搬运已经存在的事实，不新增事件标识，也不靠模型补出关联。
-- 生成分支产出的事件不被当作已经发生过的原始经历；同一来源组的材料不跨训练、验证与测试。
-
-验证：`tests/delivery/test_windows.py`、`tests/delivery/test_replay.py`、`tests/footprints/test_validation.py`。
+完整导出保留原始事件、人物、运行、素材与共同检查点关系；固定截止之外的事实不进入该导出。
+导出认证独立重算活动、已核验经历、购买与 app 使用，拒绝重新计算文件摘要后伪造的足迹。
+实际反事实分支保留父检查点与干预身份，不冒充父运行中的既有事实。
+合同见[记录引擎的导出认证](design/05-recording-engine.md#recording-engine-导出认证)，
+验证使用 `tests/footprints/test_validation.py`、`tests/life/test_counterfactual.py` 与 `tests/life/test_export_integration.py`。
+下游窗口、训练划分、模型加工与规则测试数据由 LabelKit-DataSet 独立验收。
 
 **源码硬规范**
 
@@ -536,19 +545,19 @@ app 内容可达性按 `docs/dev/SPEC-life-realism.md#spec-life-realism-特性�
 flowchart LR
     A[接口验证] --> B[基础生活]
     B --> C[内容与出行]
-    C --> D[数据生产]
+    C --> D[完整足迹导出]
     D --> E[长时间与多人]
 ```
 
 | 交付阶段 | 完整结果 | 通过条件 |
 | --- | --- | --- |
-| 接口验证 | LifeAgent → LifeEnv → 数字足迹 → LabelKit → 一个训练样本与一个规则夹具 | 使用真实 AS2 与 LabelKit 路径；来源关联完整；真实加载器能够读取 |
+| 接口验证 | LifeAgent → LifeEnv → 数字足迹 → 完整认证导出 | 使用真实 AS2 与模型路径；来源关联完整；导出可重算 |
 | 基础生活 | 工作、进食、睡眠及消费，包含拒绝、中断与恢复 | 资源与时间结算正确，人物自主选择，异常不会静默通过 |
 | 内容与出行 | app 使用、内容消费、推送、邮件、食品、地点与图上出行 | `app-usage.jsonl` 五种事实与真实活动、推送状态一致；路线保留 `trip_id`、路径、距离与方式 |
-| 数据生产 | 完整动作、意图和 dreaming 项目，正反规则测试 | 导出清单 3 的五个工件可独立重算；质量报告 5 与交付清单 3 通过结构和来源门禁，无未来泄漏 |
-| 长时间与多人 | 多天、多人物、多活动与故障恢复 | 稳定运行和数据交付均通过；有实际性能与行为分布报告 |
+| 完整足迹导出 | 事件、活动、已核验经历、购买与 app 使用 | 导出清单 3 的五个工件可独立重算；质量报告 5  通过结构和来源门禁，无未来泄漏 |
+| 长时间与多人 | 多天、多人物、多活动与故障恢复 | 稳定运行和完整导出均通过；有实际性能与行为分布报告 |
 
-最小端到端阶段包含真实模型选择和真实 LabelKit 加工。手工 JSON、模拟模型响应或仅解析成功不能替代该阶段。
+最小端到端阶段包含真实模型选择、持久记录与完整认证导出。手工 JSON、模拟模型响应或仅解析成功不能替代该阶段。
 每阶段保留可运行路径，随后扩充内容和规模；不为尚未实现的复杂度拆除已验证链路。
 
 阶段 7 的导出、重算、质量与交付是否通过，只看同一源码身份的实际回执；本文同步合同，不预写标准层、
@@ -571,7 +580,7 @@ flowchart LR
 `离线覆盖，真实运行待执行` 表示该观察的完全通过还需要真实模型运行、完整窗口或盲评收据。
 `离线验收待执行` 表示本次新增确定性实现与测试仍须在最终源码身份运行并登记结果；人物 Prompt 七层修订的各行已按[人物 Prompt 验收记录](archive/persona-prompt/persona-prompt-verification.md)改回 `离线覆盖`。
 一日运行保真规格冻结时补入该规格条款的十四行同样在重新验收之前另记待验收一档，其中十二行在 `34a41ee`、「观察投影」「指名购买」两行在 `e377669` 的代码与测试上重新验收，都已改回 `离线覆盖`（证据测试写在各行；判据见[该规格验收台账](VERIFICATION.md#verification-incremental-evidence)，台账逐行的证据测试见 `docs/dev/ANALYSIS-spec-coverage.md#analysis-spec-coverage-规格测试用例覆盖率追溯矩阵`「一日运行保真增量映射」）。
-个人事务与工作安排规格的条款在实现后补入下表：改写十行（决策协议、共同恢复、LabelKit 输入、决策节律、七层提示、同秒续接、记忆层、工作主题累计、画像编译、行为指标），新增「个人事务」「工作安排」「世界查询」三行，特性表增一行；证据测试写在各行，判据见[该规格验收台账](VERIFICATION.md#verification-incremental-evidence)，台账逐行的证据测试见 `docs/dev/ANALYSIS-spec-coverage.md#analysis-spec-coverage-规格测试用例覆盖率追溯矩阵`「个人事务与工作安排增量映射」。「LabelKit 输入」「七层提示」「记忆层」三行原先记在状态词表之外，同批改回 `离线覆盖`，工具交互的证据指向[工具交互验收记录](archive/tool-interaction/tool-interaction-verification.md)。
+个人事务与工作安排规格的条款在实现后补入下表：改写十行（决策协议、共同恢复、完整导出、决策节律、七层提示、同秒续接、记忆层、工作主题累计、画像编译、行为指标），新增「个人事务」「工作安排」「世界查询」三行，特性表增一行；证据测试写在各行，判据见[该规格验收台账](VERIFICATION.md#verification-incremental-evidence)，台账逐行的证据测试见 `docs/dev/ANALYSIS-spec-coverage.md#analysis-spec-coverage-规格测试用例覆盖率追溯矩阵`「个人事务与工作安排增量映射」。「LabelKit 输入」「七层提示」「记忆层」三行原先记在状态词表之外，同批改回 `离线覆盖`，工具交互的证据指向[工具交互验收记录](archive/tool-interaction/tool-interaction-verification.md)。
 [让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)改写「决策节律」「工作安排」（C：班次与休息时段起止的唤醒）与「七层提示」（A：系统层第 7、14、15、16 条）三行，证据写在各行，判据见该规格「验收台账」。
 实测通过记录一律引 `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态`，本表不重复断言。
 
@@ -584,10 +593,7 @@ flowchart LR
 | 内容知识 | 内容标题、摘要、来源、时长与 app 绑定通过目录准入；人物只选 app；全局 `ContentProgress` 跨 app 保存位置和完成轮数，暂停先写回、恢复读最新位置；真实完成才增加轮数并解除推送 | `tests/catalog/test_loader.py`、`tests/life/test_app_progress.py`、`tests/life/test_app_push.py`、`tests/life/test_content_catalog_titles.py` | 离线覆盖 |
 | 存储完整 | 素材损坏、事务中断、保存失败、模型未知结果 | `tests/footprints/`、`tests/integration/test_life_agent_protocol.py`、AS2 vendor `test_direct_runner_failures.py` | 离线覆盖 |
 | 决策协议 | 有限回合错误反馈、原子拒绝、世界请求登记即结束且登记后不追加 tool 消息、没有决策自述请求、`decision_started` 与首个行动请求同批且在前、记忆无 refs 且查询结果只序列化一次、完整证据、致命异常不返工；宿主纠错与环境拒绝共用错误结构 `error_code`、`reason`、`fix`、`items`、`unmet`，纠错不含 Pydantic 转储与网址；输出截断的回合丢弃、纠错替换不叠加，重试关闭思考并 `tool_choice=required`；控制工具 `items` 形状的本地上限校验；三个控制工具带请求级必填 `errands`（可为空数组，回执也是空数组），结构、枚举、交叉约束、名称与状态相关错误由宿主纠错并给完整 `path`（与活动名、参数结构错误并入同一次纠错，不带候选），环境用同一函数复核、失败合并为一次 `ACTION_REQUEST_INVALID`，被业务拒绝的请求其事务变更一并不生效（被拒的收尾其记忆照常入库、事务未记下、没有事务事件），每条被受理的变更恰好一条事件，成功结果在 `details.errands` 按请求顺序给回执 | `tests/integration/test_life_agent_protocol.py`、`tests/integration/test_grounded_evidence.py`、`tests/integration/test_seven_layer_request.py`、AS2 vendor `test_agent_react_validation.py`、`test_llm_dispatcher_no_retry.py`；错误结构见 `tests/life/test_error_contract.py`、`tests/integration/test_host_feedback.py`，截断见 `tests/integration/test_output_truncation.py`，控制工具见 `tests/integration/test_conclude_memories.py`、`tests/life/test_control_items.py`，个人事务变更见 `tests/life/test_errand_requests.py`、`tests/life/test_errand_names.py`、`tests/life/test_errand_completion.py`、`tests/integration/test_activity_schema.py`（另含上列 `test_life_agent_protocol.py`、`test_conclude_memories.py`）；另见[一日运行保真规格](VERIFICATION.md#verification-incremental-evidence)验收台账「错误合同」「截断处理」「控制工具」、[个人事务与工作安排规格](VERIFICATION.md#verification-incremental-evidence)验收台账「事务变更与原子受理」「事务名称与错误」 | 离线覆盖 |
-| 共同恢复 | 世界 10、人物、记忆、全局 app 内容进度、会话推送及实际工作累计一致，坏快照拒绝，父目录不变；未完成的个人事务随共同检查点保存，恢复后待办层逐字节相同，不重复记下、完成与提醒，旧结构检查点与导出被拒 | `tests/integration/test_runtime.py`、`tests/life/test_counterfactual.py`、`tests/footprints/test_store.py`、`tests/life/test_app_progress.py`、`tests/life/test_app_push.py` 与实际 resume／replay；个人事务见 `tests/integration/test_errand_checkpoint.py`、`tests/life/test_session_state.py`、`tests/delivery/test_publication.py`，另见[个人事务与工作安排规格](VERIFICATION.md#verification-incremental-evidence)验收台账「检查点」 | 离线覆盖，真实运行待执行 |
-| LabelKit 输入 | 前置状态、知识截止、活动和自然日边界；意图与 `dreaming` 窗口中动作请求事件的投影不含 `conclude_activity.items[].memories`，动作窗口保留完整`items[]`请求，实际请求原文照原样保留；交付不调用提示渲染器，`self_note` 随实际请求进入动作与意图窗口，dreaming 读 `self_note` 与实际请求中的层 JSON（`input.decision_layers`，来源写 `provenance.decision_layer_sources`）；检查点结构版本、代码、输入和工具与提示身份不符时交付被拒；控制工具只接受现行 `items` 形状，意图与 dreaming 窗口对三个控制请求的投影逐项不含 `memories`、`views` 与请求级 `errands`（原事件不被原地修改），动作窗口的目标保留完整请求，观察里的待办层原样进入窗口，缺 `errands` 键的旧控制请求被拒；六种事务事件不带决策与动作身份、不进任何窗口的目标，他人动作触发的办成事件不落进对方决策的分组；含事务提醒与办成记录的导出能构造动作、意图与 dreaming 三类窗口；决策提示取动作之前最后一份不带 `purpose` 的请求并核对其工具含该动作的工具名，含就寝反思的决策其窗口提示仍是行动请求；只读查询原样留证而不生成世界动作目标 | `tests/delivery/test_windows.py`、`tests/delivery/test_replay.py`、`tests/footprints/test_validation.py`、`tests/delivery/test_publication.py`；个人事务的交付边界与含反思决策的提示选取见 `tests/integration/test_errand_delivery_windows.py`、`tests/life/test_control_items.py`、`tests/integration/test_dayrun_complete_days.py`（另含上列 `test_windows.py`），另见[个人事务与工作安排规格](VERIFICATION.md#verification-incremental-evidence)验收台账「交付边界」「严格反思」；工具交互的证据见[工具交互验收记录](archive/tool-interaction/tool-interaction-verification.md) | 离线覆盖 |
-| 语义质量 | 独立 verify、目标盲审、原始事实守恒、失败不发布 | `tests/delivery/test_labelkit_process.py`、`tests/delivery/test_training.py` 和真实模型 trace | 离线覆盖，真实运行待执行 |
-| 目标数据 | DatasetDict 保存重载、独立规则预期、来源分组 | `tests/delivery/test_training.py`、`tests/delivery/test_generation.py`、`tests/delivery/test_rules.py` 和完整真实 deliver | 离线覆盖，真实运行待执行 |
+| 共同恢复 | 世界 10、人物、记忆、全局 app 内容进度、会话推送及实际工作累计一致，坏快照拒绝，父目录不变；未完成的个人事务随共同检查点保存，恢复后待办层逐字节相同，不重复记下、完成与提醒，旧结构检查点与导出被拒 | `tests/integration/test_runtime.py`、`tests/life/test_counterfactual.py`、`tests/footprints/test_store.py`、`tests/life/test_app_progress.py`、`tests/life/test_app_push.py` 与实际 resume／replay；个人事务见 `tests/integration/test_errand_checkpoint.py`、`tests/life/test_session_state.py`，另见[个人事务与工作安排规格](VERIFICATION.md#verification-incremental-evidence)验收台账「检查点」 | 离线覆盖，真实运行待执行 |
 | 长期有效性 | 84 天、多人、行为、失败、吞吐、成本和盲评 | `tests/evaluation/`、`tests/footprints/test_quality.py`、实际十二周 export／quality 与评估报告 | 离线覆盖，真实运行待执行 |
 | 决策节律 | 无唤醒条件的边界不调用人物决策模型；`WakeReason` 最终 22 项，`ScheduledKind` 最终 7 项，睡眠允许集合仍为 4 项；app 内容完成静默接续，推送只给清醒人物机会；工作主题可见、累计与完成不产生旧任务唤醒；事务提醒、计划提醒及班次与休息时段边界沿现行规则各触发一次 | `tests/life/test_wake_reasons.py`、`tests/life/test_scheduling.py`、`tests/scheduling/test_branch_coverage.py`、`tests/life/test_app_push.py`、`tests/life/test_errand_reminder.py`、`tests/life/test_shift_edge_runs.py` | 阶段 5 定向证据待最终收据 |
 | 同刻决策 | 运行开始、活动结束、瞬时动作与业务拒绝之后同秒再决策；同秒轮数不超过上限加三；受限轮逐级开放，收尾、结束与等待不被业务拒绝；时钟推进时人人有进行中活动且没有待收尾活动；重放轮计入同刻轮数；同一秒各轮的呈现窗口不变；名称类拒绝不计同刻轮数、不施加情绪脉冲，每人每秒至多 2 次，第 3 次起照常 | `tests/life/test_same_moment_decisions.py`、`tests/life/test_name_resolution.py`；另见[一日运行保真规格](VERIFICATION.md#verification-incremental-evidence)验收台账「名称类预算」 | 离线覆盖 |
@@ -662,7 +668,7 @@ flowchart LR
 <a name="errands-workday-度量与下游-首次受影响发布身份"></a>
 ### 首次受影响发布身份
 
-本特性当前身份为世界 10、场景 7、运行与导出清单 3、质量 5、交付 3；十一项原生工具与最终系统提示分别由 `tool_schema_sha256`、`prompt_sha256` 在运行中计算，不保存字面摘要。环境身份绑定实际目录与地图字节，正式发布路径待数据仓回执。
+本特性当前身份为世界 10、场景 7、运行与导出清单 3、质量 5；十一项原生工具与最终系统提示分别由 `tool_schema_sha256`、`prompt_sha256` 在运行中计算，不保存字面摘要。环境身份绑定实际目录与地图字节，正式发布路径待数据仓回执。
 
 生产代码变更由 `code_sha256` 绑定；原生工具签名与查询字段变更由 `tool_schema_sha256` 绑定；
 两份系统层与七层 Schema 的变更由 `prompt_sha256` 绑定，零点计划与就寝反思的后台模板不在其内，只由 `code_sha256` 绑定；
@@ -849,7 +855,7 @@ flowchart LR
 | `2026-09-25-time-and-energy-stage-0` | 2026-09-25 | 时间与能量规格阶段 0：「地图与门店供给」的世界版本 5 与目录 4.0 注明为该特性验收时的身份，现行版本见接口合同「领域枚举」；「实施顺序」的引擎与状态行改为使用当前世界状态版本，不写死数字 |
 | `2026-09-25-time-and-energy-stage-1` | 2026-09-25 | 时间与能量规格阶段 1（VF2）：「协议门禁」的观察重复门禁改按 `decision_id` 计，同一 user 观察文本出现于不同决策请求中的最大数目，同一决策内重发只计一次；静默边界占比注明同刻轮次不写共同身体结算，不进分母 |
 | `2026-09-25-time-and-energy-stage-5` | 2026-09-25 | 时间与能量规格阶段 5（VF2）：「协议门禁」的观察重复门禁排除带 `purpose` 的系统请求，除 `purpose="work_review"` 外也排除零点计划 `purpose="plan_day"` 的请求，与源码 `behavior_metrics._decision_model_requests` 一致 |
-| `2026-09-26-time-and-energy-stage-9` | 2026-09-26 | 时间与能量规格阶段 9（VF12）：「时间与能量特性门禁」末尾补「证据统一见本特性验收记录」并链接该记录；测试矩阵中冻结时改写或新增、记为离线验收待执行的「时间一致」「资源结算」「决策协议」「LabelKit 输入」「同刻决策」「身体语义」「观察投影」「两阶段决策」「社交」九行按本特性验收记录改回离线覆盖，其中「LabelKit 输入」的证据位置补 `tests/delivery/test_publication.py`（检查点结构版本不符时交付被拒），「观察投影」补 `tests/life/test_public_observation_contract.py`（商品热量与路线费力标签）与 `tests/life/test_dayrun_restaurants.py`（饿时吃饭途径句）；「决策节律」行当时补过浏览结果不产生 `discovery_result` 的引擎级用例；该旧节点已随原浏览行为退役，当前可执行证据 `tests/life/test_same_moment_decisions.py::test_same_second_results_stay_in_the_progress_layer` 只覆盖浏览结果在同秒后续观察中置顶，原验收记录保留当时结论，证据位置另含 `tests/life/test_day_planning.py`、`tests/life/test_same_moment_decisions.py`；文件头日期改写 |
+| `2026-09-26-time-and-energy-stage-9` | 2026-09-26 | 时间与能量规格阶段 9（VF12）：「时间与能量特性门禁」末尾补「证据统一见本特性验收记录」并链接该记录；测试矩阵中冻结时改写或新增、记为离线验收待执行的「时间一致」「资源结算」「决策协议」「LabelKit 输入」「同刻决策」「身体语义」「观察投影」「两阶段决策」「社交」九行按本特性验收记录改回离线覆盖，其中「LabelKit 输入」的证据位置补 （检查点结构版本不符时交付被拒），「观察投影」补 `tests/life/test_public_observation_contract.py`（商品热量与路线费力标签）与 `tests/life/test_dayrun_restaurants.py`（饿时吃饭途径句）；「决策节律」行当时补过浏览结果不产生 `discovery_result` 的引擎级用例；该旧节点已随原浏览行为退役，当前可执行证据 `tests/life/test_same_moment_decisions.py::test_same_second_results_stay_in_the_progress_layer` 只覆盖浏览结果在同秒后续观察中置顶，原验收记录保留当时结论，证据位置另含 `tests/life/test_day_planning.py`、`tests/life/test_same_moment_decisions.py`；文件头日期改写 |
 | `2026-09-27-persona-prompt` | 2026-09-27 | 按[人物 Prompt 七层规格](dev/SPEC-life-realism.md#persona-prompt-七层请求)冻结，修订部分待实现：新增「人物 Prompt 七层特性门禁」，引该规格验收台账并列出独立语义突变的检验点；「决策上下文」门禁删自述重试，含 `decision_statement` 阶段键的清单在五个入口被拒绝；「地图与门店供给」的可见供给行注明只授权实际呈现是该特性验收时的口径；协议门禁的观察重复改按（人物，模拟秒）的续接链计并补两个测试名，MEMORY.md 身份残留改为检查记忆层 JSON；报告项的 prompt token 中位数按单次行动请求（含续接）计，用餐多样性只计本人进食、给予排除；测试矩阵删「两阶段决策」行与观察投影中的吃饭途径句，「资源结算」「决策协议」「LabelKit 输入」「观察投影」「社交」「画像编译」「候选与呈现一致性」按新行为改写，增「七层提示」「同秒续接」「记忆层」「工作截止与提交」「指名购买」五行，改动行记离线验收待执行；「实施顺序」的两阶段决策改为七层提示与单次行动请求；文件头状态句补修订说明，日期改写 |
 | `2026-09-28-persona-prompt-implemented` | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账阶段 8，按最终代码 `f798ea7` 核对）：人物 Prompt 实现后文档（VF10）：状态头改为修订部分已实现并通过离线验收；「人物 Prompt 七层特性门禁」补验收登记表与完整性守卫，并链接本特性验收记录；测试矩阵中冻结时记离线验收待执行的「资源结算」「决策协议」「LabelKit 输入」「观察投影」「七层提示」「同秒续接」「记忆层」「工作截止与提交」「指名购买」「社交」「画像编译」「候选与呈现一致性」十二行按验收记录改回离线覆盖，状态说明注明当前没有该状态的行；按最终代码核对：协议门禁 `memory_md_identity_residue` 仍检查调用方传入的 `MEMORY.md` 文本（冻结时误写为记忆层 JSON，改回），报告项 `decision_prompt_token_median` 按不带 `purpose` 的全部请求计，「七层提示」行注明最后一个回合去掉记忆查询工具，「LabelKit 输入」行写明裁去记忆只作用于动作请求事件的投影并补 dreaming 的层 JSON 字段，「社交」行补 `tests/life/test_contact_exchange.py` |
 | `2026-09-29-design-aio` | 2026-09-29 | 「工程门禁」增「设计说明书汇编与源一致」一行：`scripts/build_design_doc.py --check`，机器证据 `tests/test_design_doc_build.py` |
@@ -878,3 +884,4 @@ flowchart LR
 | `2026-10-06-rrs-prompt` | 2026-10-07 | 剩余系统规则、提示身份与当前查看器验收 |
 | `2026-10-06-rrs-record` | 2026-10-07 | 阶段 7：内容、出行、质量报告 5、交付清单 3 与真实性证据边界；执行结论按实际回执登记 |
 | `2026-10-06-rrs-docs` | 2026-10-07 | 资源与规则简化人工环境门禁、当前恢复和发布身份；正式环境及平台回执按实际范围登记 |
+| `2026-10-07-repository-ownership` | 2026-10-07 | 按用户裁决收敛目录与职责：WorldMock 保留模拟、记录、完整认证足迹与评估；下游加工、模型任务、训练和规则数据归 LabelKit-DataSet，源码快照已接收，新消费验收另记实际证据 |

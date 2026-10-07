@@ -28,8 +28,8 @@ from agentsociety2.agent.memory_runtime import (
 )
 from agentsociety2.agent.person import PersonAgent
 from custom.agents.life_agent import LifeAgent
-from custom.agents.life_memory import WorldMockMemoryRuntime
-from custom.agents.life_memory_store import WorldMockMemoryStore, bigram_jaccard
+from worldmock.agents.life_memory import WorldMockMemoryRuntime
+from worldmock.agents.life_memory_store import WorldMockMemoryStore, bigram_jaccard
 from agentsociety2.agent.person_prompt import build_react_messages
 from agentsociety2.society import DecisionContext
 

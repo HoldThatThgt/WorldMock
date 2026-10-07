@@ -18,7 +18,7 @@ from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
 from custom.agents.life_agent import LifeAgent, MemorySearchRequest
-from custom.agents.life_prompt import TOOL_DESCRIPTIONS
+from worldmock.agents.life_prompt import TOOL_DESCRIPTIONS
 from tests.integration.test_life_agent_protocol import (
     _OBSERVED_AT, _TASK, _WAIT, _add_objects, _memory, _observations, _offer, _visible_object, _with_activities,
 )

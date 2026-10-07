@@ -68,7 +68,7 @@ ENVIRONMENT = {
         'tests/as2/test_worldmock_life_hooks.py::test_structured_observation_appears_once_in_user_message',
     ),
     '环境引导与收据': (
-        'tests/test_bootstrap.py::test_bootstrap_checks_source_before_installs_and_uses_two_environments',
+        'tests/test_bootstrap.py::test_bootstrap_checks_source_before_installs_and_uses_one_environment',
         'tests/test_bootstrap.py::test_pip_offline_install_requires_hashes_and_source_build_uses_locked_backend',
         'tests/test_bootstrap.py::test_exported_dependency_versions_and_all_hashes_match_original_lock',
         'tests/test_bootstrap.py::test_locked_hatchling_backend_installs_real_editable_source_offline',

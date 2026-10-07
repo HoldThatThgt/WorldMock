@@ -1002,13 +1002,6 @@ def copy_dict(value):
     return _copy.deepcopy(value)
 
 
-def test_validate_project_requires_installed_labelkit_cli(tmp_path, monkeypatch):
-    """独立 LabelKit CLI 环境缺失时拒绝校验。"""
-    from worldmock.validation import validate_project
-
-    monkeypatch.setattr('worldmock.validation.importlib.metadata.version', lambda _name: 'fixture')
-    with pytest.raises(IntegrityError, match="LabelKit CLI environment is not installed"):
-        validate_project(tmp_path, SCENARIO)
 
 
 def test_validate_persona_coverage_accepts_absolute_corpus_and_skips_plain_agents(tmp_path):
@@ -1124,17 +1117,10 @@ def test_cli_dispatch_reads_status_and_exports_run(tmp_path, capsys):
         engine.close()
 
 
-def test_cli_dispatch_delivers_and_validates(monkeypatch, tmp_path):
-    """交付和校验分支连接真实生产模块，制作环境数据不再是引擎命令。"""
+def test_cli_dispatch_validates_and_rejects_dataset_processing(monkeypatch, tmp_path):
+    """@brief 模拟校验仍连接真实入口，数据集加工命令不属于引擎。"""
     from worldmock import cli
     from worldmock import validation as validation_module
-    from worldmock.delivery import pipeline as pipeline_module
-    monkeypatch.setattr(pipeline_module, "deliver",
-                        lambda export, output, root, replays: {"committed": True})
-    result = cli._dispatch(cli.build_parser().parse_args(
-        ["deliver", "--export", "/tmp/e", "--output", "/tmp/o", "--replay-export", "/tmp/r"]))
-    assert result == {"committed": True}
-
     monkeypatch.setattr(validation_module, "validate_project",
                         lambda root, scenario, coverage_out=None: {"valid": True})
     result = cli._dispatch(cli.build_parser().parse_args(
@@ -1144,6 +1130,9 @@ def test_cli_dispatch_delivers_and_validates(monkeypatch, tmp_path):
     with pytest.raises(SystemExit):
         cli.build_parser().parse_args(["prepare-corpora", "--output", str(tmp_path / "corpora")])
 
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["deliver", "--export", str(tmp_path / "export"),
+                                      "--output", str(tmp_path / "dataset")])
 
 def test_cli_run_command_writes_receipt_and_final_status(monkeypatch, tmp_path):
     """run 命令：成功写 result.json 与 completed 状态；失败写 failed 状态。"""

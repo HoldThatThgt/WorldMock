@@ -157,7 +157,7 @@ def test_layering_implementation_ledger_is_bidirectional():
         "scripts/documentation_refs.py", "scripts/documentation_gate.py", "scripts/documentation_owners.py",
         "scripts/run_tests.py",
         "tests/frozen_inputs.py", "tests/engine_fixture.py", "tests/dayrun_baseline.py",
-        "tests/mutation_runner.py", "tests/tier_support.py", "tests/test_import_graph.py", "conftest.py",
+        "tests/mutation_runner.py", "tests/tier_support.py", "tests/test_import_graph.py", "tests/conftest.py",
     }
     actual = {reference.split("::")[0] for reference in references}
     assert expected <= actual, sorted(expected - actual)

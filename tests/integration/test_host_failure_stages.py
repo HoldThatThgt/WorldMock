@@ -19,7 +19,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ModelCallEvidence, ReactDecision
-from custom.agents.life_feedback import HostFeedback
+from worldmock.agents.life_feedback import HostFeedback
 from tests.integration.test_life_agent_protocol import _Environment, _context, _prepared, _wire_agent
 from tests.integration.test_strict_reflection import _waking_decision
 from tests.engine_fixture import (engine_factory)  # noqa: F401

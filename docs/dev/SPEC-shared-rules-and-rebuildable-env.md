@@ -1,6 +1,8 @@
 <a name="shared-rules-特性规格共享规则单一归宿与可重建环境"></a>
 # 特性规格：共享规则单一归宿与可重建环境
 
+> 2026-10-07 按用户确认的[数据加工归属](../ARCHITECTURE.md#architecture-数据加工归属)修订：WorldMock 负责模拟、记录、完整认证足迹导出与真实性评估；LabelKit 加工、模型任务、训练装载与规则测试归 LabelKit-DataSet；环境素材归 WorldMock-Dataset。历史验收数字只证明原源码基线，不代表本次消费链已验收。
+
 > 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题摘要与安全路径。
 
 > 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「活动规则、共享规则、防漂移守卫、新机器检查、文档原子同步清单、摘要、安全路径、持久写入与错误」（阶段 1）；「摘要、安全路径、持久写入与错误」（阶段 2）；「app 资源与内容规则、活动常数、候选种类与平台证据边界」（阶段 4）。
@@ -152,7 +154,7 @@ AS2 的 WorldMock 专用测试移至 `tests/as2`，由根测试发现和覆盖�
 上游许可和修改说明随源码与补丁保存。
 
 先以完整补丁复现当前 `65a902ec66df42296d4e4c85e424bce3512e437133fc6be9fa597766fc30a334`，
-证明重建本身没有改变身份。随后完成提案要求的缩小：WorldMock 专用记忆规则移至 `custom/agents`，
+证明重建本身没有改变身份。随后完成提案要求的缩小：WorldMock 专用记忆规则归 `src/worldmock/agents`，框架注册入口保留在 `custom/agents`，
 观察单写的业务覆写归 LifeAgent。环境注册扫描必须继续接受完整实现直接环境合同的 LifeEnv；
 保留通用直接环境合同的注册校验，其必要性由真实运行装配、环境 actor 和只读查询测试证明。
 扫描校验检查完整方法集合，不按 WorldMock 类名放行；不新增另一套注册路径或兼容格式。
@@ -160,9 +162,7 @@ AS2 保留调度、失败传播、恢复、直接环境注册、工具请求与�
 缩小后的唯一源码摘要为 `bb655cb3b4d7a68c725431a507192389b4e6770015e9673d6f5e9ef92dba1c46`，必须同步记录在 SERIES、运行核对、规格和验收记录中，旧摘要只作历史证据。
 本次不保留两套安装来源；生成源码的目录由引导管理，Git 状态必须如实呈现，不宣称普通目录是原子模块指针。
 
-LabelKit 固定 `d0afd606decbc3f4aa64c64ef5339586120c5a7a` 的匿名 HTTPS 源制品和哈希，
-从已有源码与锁建立独立 `.venv`，WorldMock 不在进程内 import LabelKit。
-不发布新外部制品、不假定 LabelKit 许可；仅消费其当前公开固定源码。
+LabelKit 的安装、模型任务与数据加工由 LabelKit-DataSet 管理。
 
 <a name="shared-rules-环境引导与收据"></a>
 ### 环境引导与收据
@@ -173,14 +173,12 @@ LabelKit 固定 `d0afd606decbc3f4aa64c64ef5339586120c5a7a` 的匿名 HTTPS 源�
 
 创建根 `.venv`，用 `python -m pip install --require-hashes` 安装 `requirements/lock.txt`；
 锁由 `uv.lock` 导出，排除本地 editable 来源，包含固定构建后端；安装源码使用 `--no-deps --no-build-isolation`。
-LabelKit 使用 `requirements/labelkit-lock.txt` 和独立的 `requirements/labelkit-build-lock.txt`，
-构建依赖不得覆盖应用原锁中已有的版本；同样全部记录哈希；测试验证导出内容与原锁一致，不依赖机器装有 uv。
 wheelhouse 明确使用 `--no-index --find-links` 和固定源制品，不访问网络，不静默改成在线下载。
 `--use-uv` 仅是用户显式选择的同一锁安装入口，uv 缺失必须报错。
 
-引导先恢复并核对固定源码，再安装 editable AS2、WorldMock 和独立进程 LabelKit。
+引导先恢复并核对固定源码，再安装 editable AS2 与 WorldMock。
 有效既有源码要核对身份；错误源码不能被引导静默覆盖成正确结果。
-收据包含 Python 版本、各依赖锁摘要、AS2 摘要、LabelKit 制品身份、Node 版本、profile 和缺失部件，
+收据包含 Python 版本、各依赖锁摘要、AS2 摘要、Node 版本、profile 和缺失部件，
 只使用相对项目路径，不含机器身份、密钥或私有凭据。
 
 <a name="shared-rules-门禁可选部件与操作系统"></a>
@@ -197,12 +195,11 @@ runner 使用本次运行的唯一身份绑定 collection、summary、worker 选
 预收集、各 worker 选择与实际收集均非空且节点唯一，其全局多重集与完成回执精确相等；
 每个全量节点的 setup、call、teardown 三阶段完整且均为 passed，未知阶段结果也按失效回执拒绝。
 输入摘要绑定本次真实读取的源码、测试、设计、依赖锁、源码补丁、人工测试环境与显式外部环境、根 `.gitattributes`，
-以及交付实际消费的 `labelkit-projects` 配置、hooks 和 schemas；该工程的 data、out 和 `__pycache__`
-不纳入输入，自动生成的计时与覆盖报告仍按现有排除范围处理。
+自动生成的计时与覆盖报告及 `__pycache__` 仍按现有排除范围处理；下游数据加工不作为引擎测试输入。
 空集合、失败、跳过、缺失或失效收据、输入字节变化均不能报告 `passed: true`，不得另建测试执行器。
 保留整体分支覆盖率至少 85% 与未覆盖公共接口为零两项既有阈值。
 
-release 缺少 Node 或 LabelKit 即失败；dev 明确记录缺失，并按固定原因跳过对应检查，
+release 缺少 Node 或中文图表字体即失败；dev 明确记录缺失，Node 消费者按固定原因跳过对应检查，
 不能因此取得最终通过。删除 validation 的静默跳过，使用同一 profile 规则。
 阶段 4 只登记当前 macOS 上实际执行的 app 资源与纯行为门禁；它不等于完整引擎闭环，也不是跨平台放行。
 Windows 重建回执尚未执行，必须单独标为未执行；没有真实成功回执时不能据 macOS 结果宣称 Windows 或跨机器通过。
@@ -237,7 +234,6 @@ CI 比较两系统代码摘要，不能只分别检查摘要格式。
 | `docs/design/03-resource-engine.md` | 路径安全、严格环境登记、固定身体常数与只读目录模型 |
 | `docs/design/04-simulation-engine.md` | AS2 补丁、WorldMock 记忆归属、模型客户端和活动家族 |
 | `docs/design/05-recording-engine.md` | 规范 JSON、原子写、整数区间、本地日与实际字节身份 |
-| `docs/design/06-delivery.md` | trace 摘要与固定 LabelKit 独立环境 |
 | `docs/design/07-evaluation.md` | 区间、事件一次解析、活动家族缺证、反思证据 |
 | `docs/design/08-configuration.md`、`09-io-formats.md` | 环境 profile、收据、依赖锁、源码来源与严格数值 |
 | `docs/design/README.md`、`SUMMARY.md`、`worldmock-design.html` | 入口职责、当前目录身份与特性引用；重新生成汇编并通过 --check |
@@ -247,10 +243,10 @@ CI 比较两系统代码摘要，不能只分别检查摘要格式。
 | `docs/dev/SPEC-life-runtime.md` | 已并入时间与能量、一日运行保真及工具交互的现行正文：app 固定时长、五类缓解率、全局内容进度、session 推送、八项占用、中文名称和纠正预算；固定源码来源与实际字节身份 |
 | `docs/dev/SPEC-layering-and-test-tiers.md` | 共享规则由实际职责对象直接消费；统一 full runner、实测文件权重调度、节点恰一次和同次收据核验 |
 | `docs/dev/SPEC-map-and-storefront.md` | 当前目录七份 JSON 与 RULES_VERSION 身份，地图消费者随阶段 2 切换；历史发布版本保留在记录 |
-| `docs/dev/SPEC-life-runtime.md`、`SPEC-resource-and-rule-simplification.md`、`SPEC-labelkit-delivery.md` | 固定规则、环境登记身份、模型冻结、资源日志与制品安装来源 |
+| `docs/dev/SPEC-life-runtime.md`、`SPEC-resource-and-rule-simplification.md` | 固定规则、环境登记身份、模型冻结、资源日志与制品安装来源 |
 | `docs/ARCHITECTURE.md`、`docs/EXPERIMENT.md` | 共享规则职责、固定源码补丁、宿主记忆与最终运行身份 |
 | `README.md`、`docs/manual/runtime.md` | 替换安装步骤，记录 Python、Node、profile、离线和新机器检查 |
-| `docs/manual/README.md`、`personas.md`、`delivery.md`、`scenarios.md` | 入口说明激活后的命令环境，画像命令删除隐式 uv，LabelKit 使用独立已安装 CLI；场景手册区分历史与当前目录身份 |
+| `docs/manual/README.md`、`personas.md`、`scenarios.md` | 入口说明激活后的命令环境，画像命令删除隐式 uv；场景手册区分历史与当前目录身份 |
 | `docs/manual/resources.md`、`rules.md`、`evaluation.md` | app 目录与内容、路径、睡眠通道和评估边界 |
 | `docs/VERIFICATION.md`、`docs/dev/coverage-baseline.md` | 无 uv 门禁、跳过拒绝放行、双平台与语料证据边界 |
 | 原提案、`docs/INDEX.md`、`docs/dev/implementation-status.md` | 指向本规格，标记历史提案不再是实施权威 |

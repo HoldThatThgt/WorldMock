@@ -26,10 +26,10 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
-from custom.agents.life_reflection import MEMORY_REFLECTION_MAX_INSIGHTS
-from custom.agents import life_reflection
+from worldmock.agents.life_reflection import MEMORY_REFLECTION_MAX_INSIGHTS
+from worldmock.agents import life_reflection
 from custom.agents.life_agent import LifeAgent
-from custom.agents.life_reflection import (REFLECTION_PROMPT, REFLECTION_VALIDATION_RETRIES, ReflectionOutputError,
+from worldmock.agents.life_reflection import (REFLECTION_PROMPT, REFLECTION_VALIDATION_RETRIES, ReflectionOutputError,
                                            ReflectionRequest, reflection_correction, reflection_insights,
                                            reflection_tool)
 from custom.envs.life_env import LifeEnv

@@ -1,6 +1,8 @@
 <a name="spec-life-runtime-特性规格lifeenv-运行时行为与结算规则"></a>
 # 特性规格：LifeEnv 运行时行为与结算规则
 
+> 2026-10-07 按用户确认的[数据加工归属](../ARCHITECTURE.md#architecture-数据加工归属)修订：WorldMock 负责模拟、记录、完整认证足迹导出与真实性评估；LabelKit 加工、模型任务、训练装载与规则测试归 LabelKit-DataSet；环境素材归 WorldMock-Dataset。历史验收数字只证明原源码基线，不代表本次消费链已验收。
+
 > 2026-10-07：按资源与规则引擎简化规格同步剩余系统规则、最终提示身份与查看器（阶段 6）。
 
 > 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题运行合同。
@@ -1722,12 +1724,12 @@ app 使用沿用同一生命周期。开始时优先打开当前 session 的 pen
 - **来源由系统记录。** 记忆不再有 `refs`。`conclude_activity` 的 `action_result.data` 增加私有字段
   `memory_sources: [{task, activity_id, session_id, verified_event_ids}]`。`memory_updated.data` 增加写入点列表 `trigger`
   （按 `activity_conclusion`、`reflection` 的顺序列出本步实际发生的写入点；醒来那一轮的收尾记忆与就寝反思
-  可同在一步，见 `custom/agents/life_memory.py` 的 `after_step`），并以 `decision_id` 关联。条目的 `source` 由系统固定为同一组
+  可同在一步，见 `src/worldmock/agents/life_memory.py` 的 `after_step`），并以 `decision_id` 关联。条目的 `source` 由系统固定为同一组
   取值，取代「`finish` 固定为 `decision_observation`」。模型不填、不选任何身份。字段定稿在记录引擎设计「已核验经历与主观
   记忆」中。
 - **瞬时的生活动作**（发消息、下单、提交成果）不是活动，不另写记忆；就寝反思保留。
 - **巩固。** 结束活动写入的条目，计入待巩固条数与重要度累计；就寝反思的条目不计。
-  `custom/agents/life_memory.py::WorldMockMemoryRuntime` 负责业务触发：只按 `unconsolidated()` 中
+  `src/worldmock/agents/life_memory.py::WorldMockMemoryRuntime` 负责业务触发：只按 `unconsolidated()` 中
   `source` 不为 `reflection` 的条目计条数与重要度，固定阈值为十条或重要度累计 3.0；就寝边界触发不变。
   阈值与同类记忆合并由 WorldMock 维护，AS2 的通用配置不承载生活业务规则。
   当前源码来源、唯一摘要及测试归属按[共享规则与可重建环境规格](SPEC-shared-rules-and-rebuildable-env.md#shared-rules-源码与换行身份)。
@@ -1737,7 +1739,7 @@ app 使用沿用同一生命周期。开始时优先打开当前 session 的 pen
 
 - 适用范围：人物模型的全部请求（生活决策与只读问答）与零点计划 `plan_day` 的请求，覆盖系统层、user 各层、原生工具 Schema、
   续接消息与工具返回。以下不在此限：
-  - 交付给 LabelKit 的窗口按 `event_id` 引证（交付设计「6.4 语义校验规则」）；
+  - 完整认证导出保留 `event_id` 来源，LabelKit-DataSet 自行定义加工窗口；
   - 就寝反思是记忆运行时的后台调用，沿用 AS2 的条目身份作为内部 `refs`（AS2 `_reflection_messages` 传入条目 `id`；
     输出不再经 AS2 `_parse_reflection`，由 WorldMock 记忆运行时覆写的 `_run_reflection` 以唯一严格工具 `submit_reflection`
     （`tool_choice=required`；不属于人物工具面；请求不带 `purpose`，思考由 AS2 记忆调度关闭）接收并在本地校验：恰一次调用、
@@ -1745,7 +1747,7 @@ app 使用沿用同一生命周期。开始时优先打开当前 session 的 pen
     条目身份只留在 `refs`、不随正文进入记忆层；输出不合合同是协议违约，取与零点计划同形的有界校验重试：附回英文校验错误重新请求，
     首次之外至多三次（独立常量，与零点计划的次数同值，与传输重试分开计数），耗尽为运行故障，不写洞见、不登记 `memory_updated`、
     不降级为空反思；每次尝试是 AS2 记忆调度下的一次独立模型调用，请求与响应照常留证，校验错误随下一次请求的附回消息留证；
-    AS2 必需调度补丁保留、其记忆调度不覆写，见个人事务与工作安排规格 1.1）；阈值巩固（`custom/agents/life_memory.py` 的 `_consolidate_subjective`）
+    AS2 必需调度补丁保留、其记忆调度不覆写，见个人事务与工作安排规格 1.1）；阈值巩固（`src/worldmock/agents/life_memory.py` 的 `_consolidate_subjective`）
     只传 {type, text, time}，不传完整内部记录；
   - `tool_call_id` 是协议句柄，不属于内部身份。
 - 发给模型的名称都是人能读懂的短语，内部身份只存在于私有绑定中。
@@ -1954,11 +1956,11 @@ app 内容按实际经过时间，以内容类型的固定每小时速率缓解�
 
 **当前读取。** `control_items(tool, request)` 只读取当前形状（`items` 加请求级 `errands`），
 `task[]`、`summary[]`、`memories[][]` 与旧 `subject` 请求字段直接拒绝。缺 `errands` 键的控制请求同样按完整性故障直接拒绝。
-进度层、记忆层、交付窗口、质量报告、零点计划输入、宿主与环境控制，以及运行查看器统一改用当前形状，都要求请求带 `errands` 键（个人事务与工作安排规格 2.3、2.9，阶段 2 落地）；
+进度层、记忆层、质量报告、零点计划输入、宿主与环境控制，以及运行查看器统一改用当前形状，都要求请求带 `errands` 键（个人事务与工作安排规格 2.3、2.9，阶段 2 落地）；
 不保留旧形状读取、迁移或回退。`views.about` 转成存储记忆的 `subject`，属于当前接口的字段映射。
 
 **验收。** 新形状经本地校验的上限（1–2 项、≤ 8 条记忆、文本长度）；`views` 写入后的持久记忆带 `subject`；`control_items` 对旧形状直接报错；
-查看器、交付窗口、质量报告、进度层、零点计划输入与记忆层都不再直接读 `task`/`memories`。
+查看器、质量报告、进度层、零点计划输入与记忆层都不再直接读 `task`/`memories`。
 
 <a name="tool-interaction-工具请求"></a>
 ## 工具请求
@@ -2325,7 +2327,7 @@ stateDiagram-v2
 | `errand_reminded` | 提醒实际交付时 | — | `agent` |
 
 - 六种事件的决策身份与动作身份都为空，只经 `caused_by` 关联：它们不进入任何动作窗口的结果，也不落进别人那次决策的分组（证据可以是别人的动作，例如他人买给本人）。
-- 两种被进度层消费的事件必须是人物可见的：交付窗口要求每个进度来源都是本人可见的结果或事件，否则是完整性故障。它们在窗口里作为事件出现时公开投影仍为空对象。其余四种只供审计与指标。
+- 两种被进度层消费的事件必须是人物可见的：进度层要求每个进度来源都是本人可见的结果或事件，否则是完整性故障。其余四种只供审计与指标。
 - 一条事件只对应一条事务，人物字段为事务所有人，来源为环境；载荷为 `{kind, errand}`（`errand` 为事务快照），结算两种另带 `quantity_added`，取消另带 `reason`；不得含 `activity` 与 `resource_changes` 键。
 - 事务变化与触发它的事件、世界状态在同一 SQLite 事务提交。世界结构版本升为 9（只升一次）：版本 8 的检查点与导出按版本拒绝，不迁移（裁决 E7）。代码注释记载的「其后新增字段都并入 8」随之改写。
 - 共同检查点保存未完成事务；恢复后待办层逐字节相同，不重复登记、不重复完成、不重复提醒。
@@ -2340,12 +2342,12 @@ stateDiagram-v2
 - 模板完整文本唯一登记在 `docs/CONTRACTS.md#contracts-model-request`，从真实请求与合同比较；模板不进提示指纹，由代码身份绑定。
 - 只读问答只带人设层、记忆层与外部问题，不含待办层，因此外部问答不直接读取未完成事务。
 
-<a name="errands-workday-个人事务-交付边界"></a>
-### 交付边界
+<a name="errands-workday-个人事务-控制请求记录"></a>
+### 控制请求记录
 
-- `control_items` 是控制请求的唯一读取入口，缺 `errands` 键即完整性故障；经它读取的环境处理器、同刻请求分类、宿主校验、进度层、记忆层、记忆证据、零点计划输入、质量报告与交付窗口都随之严格。查看器是独立的镜像实现，同步为缺键报错。
-- 意图与 dreaming 窗口对控制请求的投影恒不带 `errands`（与 `memories`、`views` 同等对待，投影函数签名不变，由用例守住而不是靠白名单遗漏）；动作窗口的目标保留完整请求；观察里的待办层原样进入窗口。
-- 事务事件不带动作身份，不进入任何窗口的目标。含事务提醒与办成记录的导出必须能构造动作、意图与 dreaming 三类窗口。
+- `control_items` 是控制请求的唯一读取入口，缺 `errands` 键即完整性故障；环境处理器、同刻请求分类、宿主校验、进度层、记忆层、记忆证据、零点计划输入与质量报告都按同一形状读取，拒绝缺键的旧形状。查看器读取原始请求时同步拒绝缺键。
+- SQLite 和完整导出保留控制请求的完整原始参数，包括 `errands`；进度层记录的控制请求参数与实际请求相同，观察中的待办层保留人物当时可见的事务状态。
+- 事务事件不带动作身份，保留所有人、可见性和因果来源。WorldMock 导出这些原始事实并验证来源；意图、动作、dreaming 窗口及训练投影由 LabelKit-DataSet 定义、加工和验收。
 - 配对复跑的基线臂产出的是世界结构 8 的运行，用基线提交的查看器查看。
 
 
@@ -2361,7 +2363,7 @@ stateDiagram-v2
 | 要求 | 必须通过的观察 | 当前生产与测试入口 | 证据状态 |
 | --- | --- | --- | --- |
 | 固定规则与身体结算 | `RULES_VERSION`、食品热量和时长、移动与配送常数、app 固定 1800 秒及五类内容缓解率只来自 `exchange`；场景不能覆盖；能量、睡眠、娱乐和社交按实际区间结算，资源分录守恒 | `src/worldmock/exchange/`、`src/worldmock/life/body.py`；`tests/exchange/`、`tests/life/test_shared_rules.py`、`tests/life/test_rrs_food_body.py` | 现行实现；阶段 8 汇总收据待登记 |
-| 环境目录与身份 | 场景结构 7 选择地点、人物、食品、app 与工作主题；目录登记地点、连通加权图、食品、app、内容、工作主题和可供性；运行清单恰含环境标识、环境版本、规则版本、目录内容摘要和地图摘要，恢复、重放、导出与交付拒绝不一致身份；世界状态只接受结构 10 | `src/worldmock/catalog/`、`src/worldmock/life/run_identity.py`、`src/worldmock/life/models.py`；`tests/catalog/`、`tests/integration/test_environment_identity.py`、`tests/life/test_session_state.py` | 现行实现；正式环境发布与数据仓回执在阶段 9 |
+| 环境目录与身份 | 场景结构 7 选择地点、人物、食品、app 与工作主题；目录登记地点、连通加权图、食品、app、内容、工作主题和可供性；运行清单恰含环境标识、环境版本、规则版本、目录内容摘要和地图摘要，恢复、重放与导出拒绝不一致身份；世界状态只接受结构 10 | `src/worldmock/catalog/`、`src/worldmock/life/run_identity.py`、`src/worldmock/life/models.py`；`tests/catalog/`、`tests/integration/test_environment_identity.py`、`tests/life/test_session_state.py` | 现行实现；正式环境发布与数据仓回执在阶段 9 |
 | 生命周期、共享时钟与同秒决策 | 新建、恢复、重放和分支失败关闭；模型上下文时间等于结算时间；静默边界不产生人物决策；无活动或有待收尾活动时同秒继续，轮数和受限阶段受闭集约束；暂停不占名额，恢复重新检查地点、主题上限、名额和占用 | `src/worldmock/life/engine.py`、`src/worldmock/life/session_actions.py`；`tests/integration/test_env_lifecycle_coverage.py`、`tests/life/test_engine_round.py`、`tests/life/test_same_moment_decisions.py`、`tests/life/test_paused_slots.py` | 现行实现；阶段 8 汇总收据待登记 |
 | 唤醒与预排事件 | 最终唤醒原因闭集为 22 项，睡眠允许集合仍为 4 项；预排事件闭集为 7 类；清醒人物在班次、休息、提醒和 app 推送边界得到实际原因，睡眠不被 app 推送或工作边界唤醒；重复当地小时保留 `fold=0` 的第一次，各网格点不按 epoch 去重 | `src/worldmock/life/schedule.py`、`src/worldmock/life/app_push.py`、`src/worldmock/footprints/models.py`；`tests/life/test_wake_reasons.py`、`tests/life/test_app_push.py`、`tests/footprints/test_event_fields.py` | 现行实现；阶段 8 汇总收据待登记 |
 | 地图、出行与地点会话 | 地图确定生成并保持连通；步行和驾车按图最短距离及固定常数报价，付款失败不改变账户；`trip_id` 贯穿路径、到达和导出；出发、到达与运行结束提交真实地点或路途会话，暂停间隙不算活动 | `src/worldmock/catalog/mapgen.py`、`src/worldmock/catalog/graph.py`、`src/worldmock/life/travel.py`；`tests/catalog/test_mapgen.py`、`tests/catalog/test_graph.py`、`tests/life/test_travel_graph.py`、`tests/life/test_location_sessions.py` | 现行实现；阶段 8 汇总收据待登记 |
@@ -2371,7 +2373,7 @@ stateDiagram-v2
 | 稳定工具面与七层请求 | 原生工具共 11 项、稳定动作面共 8 项；生活请求由系统层、原生工具与六层 user 组成，续接另带本秒原生消息；禁止键、内部身份和退役工具不进入请求；每项事实只出现一次，容量收缩保护进行中或刚结束活动、暂停活动、未了结订单和本轮新记录 | `src/worldmock/life/prompt_schemas.py`、`src/worldmock/life/tool_layer.py`、`src/worldmock/life/interaction_menu.py`；`tests/life/test_prompt_layers.py`、`tests/life/test_tool_layer.py`、`tests/integration/test_seven_layer_request.py`、`tests/integration/test_decision_context_protocol.py` | 现行实现；阶段 8 汇总收据待登记 |
 | 固定菜单、名称与只读查询 | `callable_index` 恰含 `lifestyle`、`goods`、`query_categories` 三键；app 始终作为目标列出，工作主题按分配进入工具层；内容不成为人物目标；购买与工作主题按名称唯一解析，歧义返回可照填候选；`query_world` 只读并在切页前过滤，不制造候选、曝光或世界变化 | `src/worldmock/life/callable_index.py`、`src/worldmock/life/interaction_menu.py`、`src/worldmock/life/named_catalog.py`、`src/worldmock/life/world_query.py`；`tests/life/test_app_ui.py`、`tests/life/test_interaction_menu_invariants.py`、`tests/life/test_name_resolution.py`、`tests/life/test_world_query.py`、`tests/life/test_world_query_filters.py` | 现行实现；阶段 8 汇总收据待登记 |
 | 邮件、社交与个人事务 | 邮件是普通消息，没有关联工作字段；交谈要求双方同处、清醒且各自占用允许，一方结束时另一方同秒结束；消息在睡眠中不唤醒，醒后首个边界读取；个人事务的登记、跨夜、完成证据、幂等结算、提醒和检查点恢复保持现行合同 | `src/worldmock/life/social.py`、`src/worldmock/life/errands.py`；`tests/life/test_mail_reading.py`、`tests/life/test_social.py`、`tests/life/test_social_rounds.py`、`tests/life/test_errand_completion.py`、`tests/integration/test_errand_checkpoint.py` | 现行实现；阶段 8 汇总收据待登记 |
-| 记录、导出、质量与交付 | 已认证事件和检查点生成导出清单 3 的五个工件；app 使用只从真实快照、进度和完成证据生成，零 app 事实与未完成证据分开；质量报告 5 含 app 与工作主题键；交付清单 3 在写工件前核对五字段环境身份和世界结构 10；评估活动时长来自冻结活动形状，活动占用区间来自 `activity_progress` 的起止字段，不把暂停空档算入 | `src/worldmock/footprints/export.py`、`src/worldmock/footprints/app_usage.py`、`src/worldmock/footprints/quality.py`、`src/worldmock/delivery/`；`tests/footprints/test_export.py`、`tests/footprints/test_app_usage.py`、`tests/footprints/test_quality.py`、`tests/delivery/` | 现行实现；阶段 8 汇总收据待登记 |
+| 记录、导出与质量 | 已认证事件和检查点生成导出清单 3 的五个工件；app 使用只从真实快照、进度和完成证据生成，零 app 事实与未完成证据分开；质量报告 5 含 app 与工作主题键；下游加工与消费验收归 LabelKit-DataSet | `src/worldmock/footprints/export.py`、`src/worldmock/footprints/app_usage.py`、`src/worldmock/footprints/quality.py`；`tests/footprints/test_export.py`、`tests/footprints/test_app_usage.py`、`tests/footprints/test_quality.py` | 现行实现；阶段 8 汇总收据待登记 |
 | 完整日双跑与第三基线 | 人工环境脚本日保留 86400 秒、共同身体分区、同秒上限、零点计划、反思、活动协议、食品、app 推送、远程配送、工作主题、检查点和导出断言；同一场景和种子完整运行两次，两个候选的场景摘要、种子和完整摘要逐项相等后，生产冻结入口才原子写第三基线；失配和引导身份不符时旧目标字节不变，两个历史基线与 `tests/dayrun_baseline.py` 字节不变 | `tests/integration/test_dayrun_complete_days.py`、`scripts/freeze_rrs_baseline.py`、`tests/scripts/test_freeze_rrs_baseline.py` | 冻结入口与定向证据已建立；实际双跑、第三基线及其回执待执行 |
 | 最终工程与发布边界 | 文档、设计汇编、标准层、全量层、覆盖率、机器台账、源码变异与独立 Uncle Bob 审查分别留实际收据；真实 DeepSeek 端点另记真实运行；当前 macOS 回执不能推定 Windows、其他 POSIX 或正式环境；WorldMock-Dataset 发布后才登记阶段 9 正式环境身份与平台结果 | `scripts/documentation_gate.py`、`scripts/build_design_doc.py`、`scripts/run_tests.py`、`scripts/coverage_gate.py`、`tests/rrs_acceptance.py` | 阶段 8 最终收据待登记；Windows、其他 POSIX、正式环境与真实端点未执行 |
 

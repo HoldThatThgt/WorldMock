@@ -26,8 +26,8 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 from agentsociety2.agent.base import ModelCallEvidence, ReactDecision, ReactLoopRequest  # noqa: E402
 from agentsociety2.society import DirectToolCall  # noqa: E402
 from custom.agents.life_agent import ACTION_THINKING, LifeAgent  # noqa: E402
-from custom.agents.life_feedback import argument_feedback, feedback_content  # noqa: E402
-from custom.agents.life_reflection import (REFLECTION_PROMPT, ReflectionOutputError,  # noqa: E402
+from worldmock.agents.life_feedback import argument_feedback, feedback_content  # noqa: E402
+from worldmock.agents.life_reflection import (REFLECTION_PROMPT, ReflectionOutputError,  # noqa: E402
                                            reflection_correction, reflection_insights, reflection_tool)
 from tests.integration.test_life_agent_protocol import _ModelResponse, _TextResponse  # noqa: E402
 from tests.life.conftest import context, stage_day_plan  # noqa: E402

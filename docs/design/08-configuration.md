@@ -26,7 +26,7 @@
 
 按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)修订；验收结果独立记录。
 
-环境引导只提供 release/dev、wheelhouse 和显式 uv 安装选择，不增加场景配置层。收据绑定 Python、依赖锁、AS2 与 LabelKit 身份及缺失部件，全部项目路径相对仓库。release 缺 Node 或 LabelKit 失败；dev 可明确跳过相关检查，但不能取得完整放行。
+环境引导只提供 release/dev、wheelhouse 和显式 uv 安装选择，不增加场景配置层。收据绑定 Python、依赖锁、AS2 身份及缺失部件，全部项目路径相对仓库。release 缺 Node 或中文图表字体失败；dev 可明确跳过相关检查，但不能取得完整放行。
 
 
 <a name="design-configuration-current-responsibility"></a>
@@ -36,8 +36,7 @@
 测试工厂缓存以实际文件相对路径和真实字节为键，复制可变分支，只共享递归验证的不可变输入；临时场景和修改后的输入不使用正式缓存。场景副本使用相对资源引用，可变工作区通过标准库普通独立 `copy2` 复制资源，不以硬链接共享仓库输入；修改副本不得改变源文件字节，不保存机器绝对路径。
 
 测试运行摘要还绑定实际读取的源码、测试、设计、依赖锁、补丁、场景与语料、根 `.gitattributes`，
-以及交付工程 `labelkit-projects` 的配置、hooks 和 schemas；该工程的 data、out 和 `__pycache__`
-不纳入输入，自动生成的计时与覆盖报告保留现有排除范围。
+自动生成的计时、覆盖报告与 `__pycache__` 保留现有排除范围；下游加工工程不作为引擎测试输入。
 收集、worker 选择、完成回执和覆盖数据摘要必须属于同一运行，不能借同输入的旧绿色证据放行。
 
 <a name="configuration-版本历史"></a>
@@ -328,7 +327,7 @@ worldmock validate --scenario ../WorldMock-Dataset/environment/zhangjiang-baseli
 | 发布图与种子生成结果逐字节相同 | `worldmock validate --environment` 和 generate-map 的 `--check` |
 | 语料清单与三个 TOML 副本 | 环境校验与真实场景加载 |
 | 全部场景环境钉、食品持有、卖方账户与工作安排 | 对 `scenarios/` 每份 JSON 执行真实 `load_runtime_scenario` |
-| AS2 锁、LabelKit、依赖、阶段身份与 0.8 覆盖率 | 原有 `validate --scenario` 项目检查 |
+| AS2 锁、依赖、阶段身份与 0.8 覆盖率 | 原有 `validate --scenario` 项目检查 |
 
 环境检查不启动完整引擎，完整最小运行在阶段 5 验证。
 

@@ -105,7 +105,7 @@ class _Calls:
 
     def __init__(self, path):
         self.path = Path(path).resolve()
-        projects = [folder for folder in self.path.parents if (folder / "conftest.py").is_file()]
+        projects = [folder for folder in self.path.parents if (folder / "pyproject.toml").is_file()]
         self.root = projects[-1] if projects else self.path.parent
         self.markers = set()
         self.day_loop = False
@@ -310,7 +310,7 @@ class _Calls:
             command = args[0] if args else keywords.get("args", _UNKNOWN)
             words = command if isinstance(command, list) else shlex.split(command) if isinstance(command, str) else []
             executable = Path(words[0]).name.lower() if words and isinstance(words[0], str) else ""
-            if executable in {"node", "node.exe", "labelkit", "labelkit.exe"} or "labelkit" in words:
+            if executable in {"node", "node.exe"}:
                 self.markers.add("external")
             return _UNKNOWN
         if name == "worldmock.life.engine.LifeEngine.run_until" and any(

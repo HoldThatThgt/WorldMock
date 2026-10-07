@@ -8,7 +8,7 @@
 > 按[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「环境发布与运行身份、经济参数、能量感知标签、身体初始值、效率曲线、需求状态、实验假设声明」（阶段 1）；「地图与门店供给的实验身份」（阶段 2）；「内容与语料绑定、实验身份与范围」（阶段 3）；再次修订「交互菜单与运行身份、内容与语料绑定、决策点节奏、实验假设声明」（阶段 4）。
 
 
-> 状态：FROZEN。本文件是实验身份、时间窗、依赖、场景参数、内容语料、样本划分与外部参照的冻结口径。按人物 Prompt 规格修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](archive/persona-prompt/persona-prompt-verification.md)）。按[一日运行保真规格](VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」第 1、13、25 行修订（一日运行保真 EXP1）：两个指纹再变、困意档界、娱乐与社交口径、名称类拒绝、轮转上界按分区，并登记该规格的实验假设；登记的实验假设与口径已随实现生效，两个指纹的变化（含工具层 `callable_index` 使 `prompt_sha256`、`start_activity` 的 `prefer` 与方式「购买」使 `tool_schema_sha256` 再变）已随实现落地。
+> 状态：FROZEN。本文件是实验身份、时间窗、依赖、场景参数、内容语料与外部参照的冻结口径。按人物 Prompt 规格修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](archive/persona-prompt/persona-prompt-verification.md)）。按[一日运行保真规格](VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」第 1、13、25 行修订（一日运行保真 EXP1）：两个指纹再变、困意档界、娱乐与社交口径、名称类拒绝、轮转上界按分区，并登记该规格的实验假设；登记的实验假设与口径已随实现生效，两个指纹的变化（含工具层 `callable_index` 使 `prompt_sha256`、`start_activity` 的 `prefer` 与方式「购买」使 `tool_schema_sha256` 再变）已随实现落地。
 > 工具交互修订：按[工具交互规格](dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结目标实验身份；本次修订已实现，发布身份与行为、变异证据见[工具交互验收记录](archive/tool-interaction/tool-interaction-verification.md)。
 > 个人事务与工作安排修订：按[个人事务与工作安排规格](VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」第 1、5、7、11、14、15、16、17 行修订（个人事务与工作安排 EX2–EX18）：工作安排作为场景声明的事实、各阶段指纹与结构版本的目标身份、就寝反思的身份绑定、事务提醒进入决策边界、个人事务容量上限登记为实验假设。登记的实验假设、口径与各阶段的指纹、结构版本变化已随实现落地（证据见[个人事务与工作安排验收记录](archive/errands-workday/errands-workday-verification.md)）：阶段 1（运行修复入库，只改变 `code_sha256`）、阶段 2（个人事务与提示分工：世界结构 `9`、质量报告结构 `4`，两个指纹改变）、阶段 3（作息与工作安排：场景结构 `5`、卡片结构 `3`，`prompt_sha256` 与当时三份场景的 `scenario_sha256` 改变）与阶段 4（查询筛选与返回精简：只改变 `tool_schema_sha256` 与 `code_sha256`）。
 > 让「等待」成为例外修订：按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「交互菜单与运行身份」「决策点节奏」（阶段 1）与「交互菜单与运行身份」（阶段 2、3）。
@@ -20,7 +20,7 @@
 <a name="experiment-实验身份与范围"></a>
 ## 实验身份与范围
 
-本次实验运行在 AgentSociety 2（下称 AS2）之上：由 AS2 调度进程并提供模型服务，驱动一个数字人过日常生活；这一过程产生的可追溯记录构成数字足迹，再由 LabelKit 加工成训练输入与规则引擎夹具。首个城市、职业、日期、模型、内容、身体参数、训练加载器和规则消费者全部由本文件绑定。
+本次实验运行在 AgentSociety 2（下称 AS2）之上：由 AS2 调度进程并提供模型服务，驱动一个数字人过日常生活；这一过程产生的可追溯记录构成数字足迹，认证导出交给 LabelKit-DataSet 加工。本文件只绑定城市、职业、日期、模型、内容、身体参数和评估参照。
 
 | 项目 | 冻结值 |
 | --- | --- |
@@ -153,7 +153,7 @@ timeline
 | --- | --- |
 | AS2 环境扩展 | `custom/envs/life_env.py` |
 | AS2 人物扩展 | `custom/agents/life_agent.py` |
-| WorldMock 记忆业务扩展 | `custom/agents/life_memory.py` 及同目录存储扩展 |
+| WorldMock 记忆业务扩展 | `src/worldmock/agents/life_memory.py` 及同目录存储扩展 |
 | AS2 环境 actor 与代理扩展（只读查询转发） | `src/worldmock/life/read_query_runtime.py` |
 | 运行目录 | 项目 `runs/` 下 |
 
@@ -170,9 +170,7 @@ flowchart LR
     LifeAgent["LifeAgent<br/>custom/agents/life_agent.py"]
     RunDir["运行目录<br/>项目 runs/ 下"]
     Export["固定截止导出<br/>证据 JSONL 与来源索引"]
-    LabelKit["LabelKit<br/>process 与 sequence generation"]
-    Train["datasets 5.0.1<br/>训练加载"]
-    RuleEngine["rule-engine 5.0.2<br/>规则执行"]
+    LabelKit["LabelKit-DataSet<br/>任务编排与数据集发布"]
 
     AS2 --> LifeEnv
     AS2 --> LifeAgent
@@ -180,8 +178,6 @@ flowchart LR
     LifeAgent --> RunDir
     RunDir --> Export
     Export --> LabelKit
-    LabelKit --> Train
-    LabelKit --> RuleEngine
 ```
 
 <a name="experiment-命令入口"></a>
@@ -190,27 +186,18 @@ flowchart LR
 对外入口只有 `worldmock`；每个命令的参数、行为、失败语义与运行状态枚举见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「CLI 命令接口」，本文件只绑定本次实验用哪几个命令以及怎么用。
 
 环境由 WorldMock-Dataset 发布，数据采集和制作按数据仓工具说明执行。
-本次实验使用 `validate`、`run`、`resume`、`replay`、`status`、`export`、`deliver`、`evaluate`：正式窗口由 `run` 从 `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/single-person.json` 新建运行目录并执行到场景终点，`export` 的固定截止导出是全部加工的输入，`deliver` 是链路终点，`replay` 产生的反事实分支必须保留来源，`evaluate` 的结果与基线数据对照后交付。
+本次实验使用 `validate`、`run`、`resume`、`replay`、`status`、`export`、`evaluate`：正式窗口由 `run` 从 `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/single-person.json` 新建运行目录并执行到场景终点，`export` 的固定截止完整导出是与 LabelKit-DataSet 的交接边界，`replay` 产生的反事实分支必须保留来源，`evaluate` 的结果与基线数据对照后交付。
 
 <a name="experiment-运行目录约定"></a>
 ### 运行目录约定
 
-每次运行在项目 `runs/` 下独占一个运行目录，既有运行目录不得被覆盖；正式窗口运行、反事实分支运行与交付运行各自独占一个运行目录。运行目录的内容清单见 `docs/design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎`「持久化结构」。
+每次运行在项目 `runs/` 下独占一个运行目录，既有运行目录不得被覆盖；正式窗口运行与反事实分支运行各自独占一个运行目录。运行目录的内容清单见 `docs/design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎`「持久化结构」。
 
-<a name="experiment-训练与规则消费"></a>
-### 训练与规则消费
+<a name="experiment-数据加工归属"></a>
+### 数据加工归属
 
-| 组件 | 版本 | 消费方式 |
-| --- | --- | --- |
-| `datasets` | 5.0.1 | 训练加载：`load_dataset("json", features=...)`，实际加载全部成功样本并形成 DatasetDict |
-| `rule-engine` | 5.0.2 | 规则消费：严格 Context 读取时序事实并执行冻结表达式 |
-
-LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「LabelKit 调用配置」为准；字段级格式与交付格式以 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「LabelKit 训练记录与交付格式」为准。
-
-本次实验的消费者绑定：
-
-- 动作、意图以及 dreaming 走 LabelKit 普通 process。
-- 规则扰动走 LabelKit 现有 sequence generation，覆盖的变体与消费前的核验项以 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「反事实与重演字段」为准。
+完整认证导出交给 LabelKit-DataSet；任务输入、模型配置、训练数据格式、加载器与规则测试数据由该仓库维护。
+WorldMock 不声明这些下游依赖，也不安装或调用 LabelKit。来源快照已交接并核对摘要，新消费验收仍待所属仓库完成。
 
 <a name="experiment-场景参数"></a>
 ## 场景参数
@@ -367,15 +354,6 @@ LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md#contracts
 地点选择可以比较图上距离、到手价与等待时间，但人物仍自主选择，不强制某家店胜出。同类菜单和合成数值是实验条件，不能作为真实门店供给或真实道路证据。
 三份包 TOML 字节副本继续与包资源一致；规则变化升 `RULES_VERSION`，对象或图变化发布新环境版本，旧运行和历史输入字节不重写。
 
-<a name="experiment-样本编码与来源分组"></a>
-## 样本编码与来源分组
-
-| 项目 | 冻结做法 |
-| --- | --- |
-| 训练数据编码与核对 | 见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「数据集字段与划分」 |
-| 来源分组 | 划分与来源组字段以 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「数据集字段与划分」为准；本实验不另立分组规则 |
-| 划分比例立场 | 不能为了比例而制造泄漏 |
-
 <a name="experiment-基线数据参照"></a>
 ## 基线数据参照
 
@@ -481,3 +459,4 @@ LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md#contracts
 | `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：内容改为五类 app 内容与摘要来源；推送窗口固定为当地 08:00–21:00 整点，app 使用固定 1800 秒并按内容类型缓解；两个指纹随 app 协议变化，工作协议仍待阶段 5。 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题与目标工时实验参数 |
 | `2026-10-06-rrs-prompt` | 2026-10-07 | 剩余系统规则与提示身份、当前 app 和工作主题查看器；工具身份保持已验收形状 |
+| `2026-10-07-repository-ownership` | 2026-10-07 | 按用户裁决收敛目录与职责：WorldMock 保留模拟、记录、完整认证足迹与评估；下游加工、模型任务、训练和规则数据归 LabelKit-DataSet，源码快照已接收，新消费验收另记实际证据 |

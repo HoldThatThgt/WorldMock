@@ -116,7 +116,7 @@ def _model_identity() -> ModelIdentity:
         ACTION_TOOL_CHOICE,
         life_tool_schema_sha256,
     )
-    from custom.agents.life_prompt import life_prompt_sha256
+    from worldmock.agents.life_prompt import life_prompt_sha256
 
     return ModelIdentity(
         provider="openai_compatible",

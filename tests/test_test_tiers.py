@@ -21,6 +21,23 @@ def pinned_interpreter_input(tmp_path):
     shutil.copy2(run_tests.ROOT / ".python-version", tmp_path / ".python-version")
 
 
+def _copy_test_session(directory):
+    """@brief 隔离调度测试使用真实会话钩子，环境组件由样板明确提供。"""
+    source_root = run_tests.ROOT
+    for folder in ("tests", "scripts"):
+        (directory / folder).mkdir(parents=True, exist_ok=True)
+    for name in ("__init__.py", "tier_support.py", "frozen_inputs.py", "engine_fixture.py", "data_paths.py",
+                 "conftest.py"):
+        shutil.copy2(source_root / "tests" / name, directory / "tests" / name)
+    for name in ("bootstrap_sources.py", "bootstrap_environment.py"):
+        shutil.copy2(source_root / "scripts" / name, directory / "scripts" / name)
+    with (directory / "tests/conftest.py").open("a", encoding="utf-8") as handle:
+        handle.write("\n\ndef pytest_sessionstart(session):\n"
+                     "    session.config.worldmock_component_status = {'missing_components': []}\n")
+    (directory / "pyproject.toml").write_text(
+        '[tool.pytest.ini_options]\npythonpath = ["src", "."]\ntestpaths = ["tests"]\n', encoding="utf-8")
+
+
 def _record(name="test_plain", markers=(), imports=(), file="tests/test_sample.py"):
     return {"nodeid": f"{file}::{name}", "file": file, "markers": list(markers), "imports": list(imports)}
 
@@ -38,8 +55,6 @@ def _record(name="test_plain", markers=(), imports=(), file="tests/test_sample.p
      "def unused(): Driver.create(None, None, None)\n"
      "def test_any(): pass", [], set()),
     ("import subprocess as process\ndef test_any(): process.run(['node', 'test.cjs'])", [], {"external"}),
-    ("import subprocess\nfrom pathlib import Path\n"
-     "def test_any(): subprocess.run([str(Path('vendor/labelkit/.venv/bin/labelkit'))])", [], {"external"}),
 ])
 def test_new_driver_and_fixture_dependencies_are_classified(tmp_path, source, fixtures, expected):
     path = tmp_path / "test_new_feature.py"
@@ -108,11 +123,7 @@ def test_actual_fixture_objects_helpers_and_returned_factories_are_followed_per_
 
 
 def test_real_pytest_collection_classifies_each_test_and_actual_fixture_closure(tmp_path):
-    source_root = run_tests.ROOT
-    (tmp_path / "tests").mkdir()
-    for name in ("__init__.py", "tier_support.py", "frozen_inputs.py", "engine_fixture.py", "data_paths.py"):
-        shutil.copy2(source_root / "tests" / name, tmp_path / "tests" / name)
-    shutil.copy2(source_root / "conftest.py", tmp_path / "conftest.py")
+    _copy_test_session(tmp_path)
     (tmp_path / "pyproject.toml").write_text('[tool.pytest.ini_options]\npythonpath = ["src"]\n', "utf-8")
     package = tmp_path / "src/worldmock/life"
     package.mkdir(parents=True)
@@ -151,7 +162,7 @@ def test_real_pytest_collection_classifies_each_test_and_actual_fixture_closure(
         "class TestMethods:\n    def helper(self):\n        return Creator.create()\n"
         "    def test_bound_helper(self):\n        self.helper()\n", "utf-8")
     manifest = tmp_path / "collection.json"
-    process = subprocess.run([sys.executable, "-m", "pytest", "--collect-only", "-q",
+    process = subprocess.run([sys.executable, "-m", "pytest", "tests", "--collect-only", "-q",
                               f"--worldmock-manifest={manifest}"], cwd=tmp_path,
                              capture_output=True, text=True, check=False)
     assert process.returncode == 0, process.stdout + process.stderr
@@ -318,12 +329,13 @@ def test_changed_engine_time_is_separate_from_default_fast_reference():
 
 
 def test_input_identity_changes_when_source_changes_and_skips_are_reported(tmp_path, monkeypatch):
-    for file in ("conftest.py", "pyproject.toml", "uv.lock", ".gitattributes"):
+    for file in ("tests/conftest.py", "pyproject.toml", "uv.lock", ".gitattributes"):
+        (tmp_path / file).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / file).write_text("initial", encoding="utf-8")
     monkeypatch.setattr(run_tests, "ROOT", tmp_path)
     digest = run_tests.source_digest()
     run_tests.require_unchanged_input(digest)
-    (tmp_path / "conftest.py").write_text("changed", encoding="utf-8")
+    (tmp_path / "tests/conftest.py").write_text("changed", encoding="utf-8")
     with pytest.raises(RuntimeError, match="input changed"):
         run_tests.require_unchanged_input(digest)
     record = _record()
@@ -339,7 +351,8 @@ def test_external_environment_identity_survives_relocation_and_rejects_changed_b
     engine = tmp_path / "engine"
     engine.mkdir()
     shutil.copy2(run_tests.ROOT / ".python-version", engine / ".python-version")
-    for name in ("conftest.py", "pyproject.toml", "uv.lock", ".gitattributes"):
+    for name in ("tests/conftest.py", "pyproject.toml", "uv.lock", ".gitattributes"):
+        (engine / name).parent.mkdir(parents=True, exist_ok=True)
         (engine / name).write_text("frozen", encoding="utf-8")
     environment = tmp_path / "environment"
     for name in ("catalog", "corpora", "scenarios"):
@@ -369,16 +382,14 @@ def test_explicit_external_environment_requires_all_three_nonempty_inputs(tmp_pa
         run_tests.environment_source_digest(tmp_path)
 
 
-@pytest.mark.parametrize("relative", ["requirements/build-lock.txt", "requirements/runtime-lock.txt",
-                                      "requirements/labelkit-lock.txt", "patches/agentsociety2/SERIES.json",
-                                      "patches/agentsociety2/base.tar.gz", "patches/agentsociety2/source.json",
-                                      "patches/agentsociety2/lifecycle.patch", ".gitattributes",
-                                      ".python-version",
-                                      "labelkit-projects/hooks.py", "labelkit-projects/rule-hooks.py",
-                                      "labelkit-projects/action.toml", "labelkit-projects/schemas/semantic-target.json"])
+@pytest.mark.parametrize("relative", ["requirements/build-lock.txt", "requirements/lock.txt",
+                                      "patches/agentsociety2/SERIES", "patches/agentsociety2/baseline.tar.gz",
+                                      "patches/agentsociety2/decision-round.patch", ".gitattributes",
+                                      ".python-version"])
 def test_fixed_dependency_and_patch_bytes_are_part_of_the_frozen_test_input(tmp_path, monkeypatch, relative):
     """@brief 锁、源制品和补丁内容改变，即使生产 Python 没变也拒绝原测试身份。"""
-    for name in ("conftest.py", "pyproject.toml", "uv.lock", ".gitattributes"):
+    for name in ("tests/conftest.py", "pyproject.toml", "uv.lock", ".gitattributes"):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / name).write_text("frozen", encoding="utf-8")
     target = tmp_path / relative
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -391,11 +402,11 @@ def test_fixed_dependency_and_patch_bytes_are_part_of_the_frozen_test_input(tmp_
         run_tests.require_unchanged_input(digest)
 
 
-@pytest.mark.parametrize("relative", ["labelkit-projects/data/input.jsonl", "labelkit-projects/out/action.jsonl",
-                                      "labelkit-projects/__pycache__/hooks.pyc"])
-def test_delivery_generated_directories_are_not_test_source_inputs(tmp_path, monkeypatch, relative):
-    """@brief 与真实交付 copytree 一致，data/out/__pycache__ 产物不成为源码输入。"""
-    for name in ("conftest.py", "pyproject.toml", "uv.lock", ".gitattributes"):
+@pytest.mark.parametrize("relative", [".work/output/result.json", "src/worldmock/__pycache__/module.pyc"])
+def test_generated_work_and_bytecode_are_not_test_source_inputs(tmp_path, monkeypatch, relative):
+    """@brief 工作目录和解释器缓存不成为冻结测试的源码输入。"""
+    for name in ("tests/conftest.py", "pyproject.toml", "uv.lock", ".gitattributes"):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / name).write_text("frozen", encoding="utf-8")
     target = tmp_path / relative
     target.parent.mkdir(parents=True)
@@ -426,12 +437,8 @@ def test_changed_selection_includes_staged_unstaged_and_untracked(tmp_path, monk
 
 def test_real_serial_and_parallel_workers_return_identical_complete_nodes(tmp_path, monkeypatch):
     """@brief 实测权重交错目录后，串并行均保留局部夹具作用域和完整节点。"""
-    source_root = run_tests.ROOT
-    (tmp_path / "tests").mkdir()
-    for name in ("__init__.py", "tier_support.py", "frozen_inputs.py", "engine_fixture.py", "data_paths.py"):
-        shutil.copy2(source_root / "tests" / name, tmp_path / "tests" / name)
-    shutil.copy2(source_root / "conftest.py", tmp_path / "conftest.py")
-    with (tmp_path / "conftest.py").open("a", encoding="utf-8") as handle:
+    _copy_test_session(tmp_path)
+    with (tmp_path / "tests/conftest.py").open("a", encoding="utf-8") as handle:
         handle.write("\n@pytest.fixture\ndef shared_value():\n    return 42\n")
     records = []
     nested = tmp_path / "tests/nested"
@@ -470,11 +477,7 @@ def test_real_serial_and_parallel_workers_return_identical_complete_nodes(tmp_pa
 @pytest.mark.parametrize("damage", ["old_run", "old_array", "duplicated"])
 def test_real_pytest_rejects_other_run_old_format_or_duplicate_selection(tmp_path, damage):
     """@brief 真实 pytest 在执行前拒绝不属于本轮的选单，不读取旧数组格式。"""
-    source_root = run_tests.ROOT
-    (tmp_path / "tests").mkdir()
-    for name in ("__init__.py", "tier_support.py", "frozen_inputs.py", "engine_fixture.py", "data_paths.py"):
-        shutil.copy2(source_root / "tests" / name, tmp_path / "tests" / name)
-    shutil.copy2(source_root / "conftest.py", tmp_path / "conftest.py")
+    _copy_test_session(tmp_path)
     (tmp_path / "tests/test_plain.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
     (tmp_path / "pyproject.toml").write_text('[tool.pytest.ini_options]\n', encoding="utf-8")
     target = tmp_path / ".work/test-runs/current/shard-0"
@@ -497,6 +500,25 @@ def test_real_pytest_rejects_other_run_old_format_or_duplicate_selection(tmp_pat
     assert receipt["exit_code"] != 0
 
 
+def test_missing_dev_component_is_recorded_as_failed_acceptance(tmp_path):
+    """@brief 会话缺组件即使普通用例通过，进程与落盘回执仍一致拒绝验收。"""
+    _copy_test_session(tmp_path)
+    with (tmp_path / "tests/conftest.py").open("a", encoding="utf-8") as handle:
+        handle.write("\n\ndef pytest_sessionstart(session):\n"
+                     "    session.config.worldmock_component_status = {'missing_components': ['Node']}\n")
+    (tmp_path / "tests/test_plain.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    target = tmp_path / ".work/test-runs/current/shard-0"
+    target.mkdir(parents=True)
+    receipt_path = target / "receipt.json"
+    result = subprocess.run([sys.executable, "-m", "pytest", "-q", "tests/test_plain.py",
+                             "--environment-profile", "dev", "--worldmock-receipt", str(receipt_path)],
+                            cwd=tmp_path, capture_output=True, text=True, check=False)
+    assert result.returncode == 1, result.stdout + result.stderr
+    receipt = json.loads(receipt_path.read_text("utf-8"))
+    assert receipt["exit_code"] == result.returncode
+    assert receipt["tests"]["tests/test_plain.py::test_ok"]["phases"]["call"]["outcome"] == "passed"
+
+
 def test_missing_coverage_report_cannot_pass(tmp_path, monkeypatch):
     monkeypatch.setattr(run_tests, "_run", lambda *args, **kwargs: Namespace(returncode=0, stdout="", stderr=""))
     with pytest.raises(RuntimeError, match="Coverage combination failed"):
@@ -507,9 +529,7 @@ def test_real_parallel_coverage_is_combined_for_the_current_normal_source(tmp_pa
     source_root = run_tests.ROOT
     for name in ("tests", "scripts", "src/worldmock", "docs/dev"):
         (tmp_path / name).mkdir(parents=True)
-    for name in ("__init__.py", "tier_support.py", "frozen_inputs.py", "engine_fixture.py", "data_paths.py"):
-        shutil.copy2(source_root / "tests" / name, tmp_path / "tests" / name)
-    shutil.copy2(source_root / "conftest.py", tmp_path / "conftest.py")
+    _copy_test_session(tmp_path)
     for name in ("coverage_gate.py", "run_tests.py", "bootstrap_sources.py", "bootstrap_environment.py"):
         shutil.copy2(source_root / "scripts" / name, tmp_path / "scripts" / name)
     (tmp_path / "src/worldmock/__init__.py").write_text("", encoding="utf-8")

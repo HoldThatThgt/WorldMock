@@ -9,7 +9,7 @@ from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from pydantic import ValidationError
 
 from custom.agents.life_agent import LifeAgent
-from custom.agents.life_prompt import LIFE_SYSTEM_LAYER
+from worldmock.agents.life_prompt import LIFE_SYSTEM_LAYER
 from custom.envs.life_env import LifeEnv, _STABLE_TOOL_SURFACE
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context, pause_request, report_request,
                                  stage_day_plan, start_activity, submit_round, wake_by_mail)
