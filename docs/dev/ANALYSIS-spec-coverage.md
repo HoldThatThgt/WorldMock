@@ -1,3003 +1,350 @@
 <a name="analysis-spec-coverage-规格测试用例覆盖率追溯矩阵"></a>
 # 规格与实际测试的追溯
 
-> 阶段 4 投影：本文件由该投影树实际登记生成。登记存在、测试执行与真实运行分别核对，不能互相替代。
-> 尚未进入本阶段的所有者保持未登记；本文不提前声明后续阶段完成。
+> 按[动作与内容简化规格](SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界、收货结算」（阶段 1、2）。
 
-现行行为由所属规格与接口合同定义；本文件仅列出本阶段真实存在且经静态解析的登记节点。
+> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「资源与规则简化逐行映射、现行特性证据归属与历史边界」（阶段 8）；此前阶段的修订并入同一现行合同。
+
+> 状态：当前登记已映射到实际测试定义；本次分层实现的全量工程门禁与独立源码变异验收正在执行。
+> 日期：2026-10-07
+> 口径：登记存在、测试通过、真实运行完成分别核对，不能互相替代。
+
+当前追溯仅覆盖 WorldMock 的模拟、记录、完整认证足迹导出与真实性评估；LabelKit 模型任务、数据加工、训练装载和规则测试由 LabelKit-DataSet 的台账登记。
+
+本文件只说明规范与证据归属，不定义行为。现行行为见所属 SPEC 与 [接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)，放行条件及真实验收边界见 [验收标准](../VERIFICATION.md#verification-worldmock-验收标准)。
+
+五项已验收增量的要求按主题保存在 `tests/fixtures/acceptance_requirements.json`；各 Python 登记将主题映射到实际行为节点。完整性守卫核对所有要求、节点真实存在且不跳过、生产与测试不存在延期标记或空壳。提示逐字校验只读取接口合同的唯一权威段落。
+
+下表由当前登记逐行核对，每个节点通过 AST 解析。节点数量只统计登记，不能作为本次执行通过数；“工程门禁”“文档一致性”登记门禁自身的测试，真实 full 运行与源码变异结果仍需实际回执。
 
 <a name="analysis-spec-coverage-个人事务与工作安排增量映射"></a>
 ## 个人事务与工作安排增量映射
 
-#### `tests/errands_workday_acceptance.py`
+仅保留当前仍有效的条款和行为节点；旧通知开放、预约、截止、评审、固定内容分类、营业与料理等退役断言已从规范登记移除。app 推送、内容进度、分配内容实际工时及七层工具合同改指[资源与规则简化映射](#analysis-spec-coverage-资源与规则简化映射)，历史执行数字不继承为当前通过。
 
-当期登记共有 301 个唯一源码或测试节点，排序后摘要为 `e7b38159b7918b2fe927bcafb0e57c152ab87be55d9df82fffd3f6f45137b28a`。以下是完整登记；本表只证明登记与本树节点闭合，不声称后续阶段或执行门禁通过。
+机器登记：`tests/errands_workday_acceptance.py::LEDGER`；完整性守卫：`tests/test_errands_workday_acceptance.py::test_rows_of_done_stages_list_tests_and_every_registered_node_resolves`。
 
-- `custom/agents/life_agent.py`
-- `scripts/inspect_run.py`
-- `src/worldmock/agents/life_continuation.py`
-- `src/worldmock/agents/life_memory.py`
-- `src/worldmock/agents/life_persona.py`
-- `src/worldmock/agents/life_prompt.py`
-- `src/worldmock/agents/life_reflection.py`
-- `src/worldmock/evaluation/behavior_metrics.py`
-- `src/worldmock/evaluation/errand_metrics.py`
-- `src/worldmock/evaluation/workload_metrics.py`
-- `src/worldmock/footprints/models.py`
-- `src/worldmock/footprints/quality.py`
-- `src/worldmock/life/activity_control.py`
-- `src/worldmock/life/callable_index.py`
-- `src/worldmock/life/control_items.py`
-- `src/worldmock/life/day_plan_inputs.py`
-- `src/worldmock/life/day_planning.py`
-- `src/worldmock/life/engine.py`
-- `src/worldmock/life/environment_layer.py`
-- `src/worldmock/life/errand_state.py`
-- `src/worldmock/life/errands.py`
-- `src/worldmock/life/load_checks.py`
-- `src/worldmock/life/models.py`
-- `src/worldmock/life/name_resolution.py`
-- `src/worldmock/life/narration.py`
-- `src/worldmock/life/observe.py`
-- `src/worldmock/life/progress_layer.py`
-- `src/worldmock/life/prompt_schemas.py`
-- `src/worldmock/life/purchase_offers.py`
-- `src/worldmock/life/read_query_runtime.py`
-- `src/worldmock/life/reminders.py`
-- `src/worldmock/life/result_projection.py`
-- `src/worldmock/life/rhythm.py`
-- `src/worldmock/life/scenario.py`
-- `src/worldmock/life/schedule.py`
-- `src/worldmock/life/semantics.py`
-- `src/worldmock/life/session_actions.py`
-- `src/worldmock/life/settled_text.py`
-- `src/worldmock/life/todo_layer.py`
-- `src/worldmock/life/tool_groups.py`
-- `src/worldmock/life/work_schedule.py`
-- `src/worldmock/life/world_query.py`
-- `src/worldmock/profile/compile.py`
-- `src/worldmock/profile/extractor.py`
-- `src/worldmock/profile/injection.py`
-- `src/worldmock/profile/models.py`
-- `src/worldmock/profile/textgen.py`
-- `src/worldmock/runtime.py`
-- `tests/errands_workday_acceptance.py`
-- `tests/evaluation/test_behavior_metrics.py::test_reflection_requests_and_their_retries_are_not_decision_requests`
-- `tests/evaluation/test_errand_metrics.py`
-- `tests/evaluation/test_errand_metrics.py::test_a_completion_without_checkable_evidence_is_counted`
-- `tests/evaluation/test_errand_metrics.py::test_acted_after_reminder_needs_an_accepted_request_for_the_same_product`
-- `tests/evaluation/test_errand_metrics.py::test_conclusion_memories_count_routine_and_errand_overlap`
-- `tests/evaluation/test_errand_metrics.py::test_counts_follow_their_definitions_and_the_identity_holds`
-- `tests/evaluation/test_errand_metrics.py::test_no_errand_or_no_conclusion_memory_gives_null`
-- `tests/evaluation/test_errand_metrics.py::test_the_denominator_is_registered_errands_not_goals`
-- `tests/evaluation/test_errand_metrics.py::test_visible_and_expected_observations_agree`
-- `tests/evaluation/test_workload_metrics.py`
-- `tests/evaluation/test_workload_metrics.py::test_a_real_run_leaving_on_duty_is_recomputed_as_early_leave`
-- `tests/evaluation/test_workload_metrics.py::test_declared_breaks_are_not_absence_and_rest_days_are_left_out`
-- `tests/evaluation/test_workload_metrics.py::test_missing_inputs_are_null_with_a_note`
-- `tests/evaluation/test_workload_metrics.py::test_people_without_a_schedule_have_null_leave_items_and_still_report_arrival_home`
-- `tests/evaluation/test_workload_metrics.py::test_reports_are_byte_reproducible`
-- `tests/evaluation/test_workload_metrics.py::test_routine_deviation_reports_three_items_with_evidence_tolerance_and_sleep_flags`
-- `tests/evaluation/test_workload_metrics.py::test_routine_deviation_uses_none_of_the_removed_plan_deviation_names`
-- `tests/evaluation/test_workload_metrics.py::test_workday_inputs_take_shifts_home_windows_and_interval_from_the_scenario_and_cards`
-- `tests/evaluation/test_workload_metrics.py::test_workload_fields_follow_their_definitions_on_a_hand_built_day`
-- `tests/footprints/test_errand_export.py`
-- `tests/footprints/test_errand_export.py::test_an_exported_run_reports_errands_and_recertifies_value_for_value`
-- `tests/footprints/test_goal_export.py::test_export_command_uses_authenticated_cutoff_and_manifest_code`
-- `tests/footprints/test_quality.py::test_errand_reminder_due_is_a_known_wake_reason`
-- `tests/footprints/test_quality.py::test_report_sections_are_the_documented_grouping_without_a_language_count`
-- `tests/integration/test_activity_schema.py::test_control_tool_schemas_inline_the_errand_change_object`
-- `tests/integration/test_agent_branch_coverage.py::test_tool_messages_follow_memory_queries_only`
-- `tests/integration/test_conclude_memories.py::test_rejected_conclusion_keeps_its_memories_but_registers_no_errand`
-- `tests/integration/test_conclude_memories.py::test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime_reflection`
-- `tests/integration/test_dayrun_complete_days.py::test_complete_two_person_day_uses_real_tools_memory_and_restoration`
-- `tests/integration/test_errand_checkpoint.py`
-- `tests/integration/test_errand_checkpoint.py::test_a_restored_branch_shows_the_same_todo_layer_and_repeats_nothing`
-- `tests/integration/test_errand_prompt_separation.py`
-- `tests/integration/test_errand_prompt_separation.py::test_errand_changes_write_no_memory_and_stay_out_of_self_notes_and_progress_arguments`
-- `tests/integration/test_errand_prompt_separation.py::test_the_next_action_request_shows_the_errand_in_the_todo_layer_without_any_memory_query`
-- `tests/integration/test_host_failure_stages.py::test_evidence_write_failure_stops_with_structured_stage`
-- `tests/integration/test_host_failure_stages.py::test_model_service_failure_on_the_real_engine_is_logged_once_and_reraised_unchanged`
-- `tests/integration/test_host_failure_stages.py::test_model_service_failure_persists_stage_without_parsing_exception_text`
-- `tests/integration/test_host_failure_stages.py::test_tool_service_failure_on_the_real_engine_is_logged_and_raised_with_its_stage`
-- `tests/integration/test_host_failure_stages.py::test_tool_service_failure_points_to_real_call_without_claiming_execution`
-- `tests/integration/test_input_warnings.py::test_a_conflicting_scenario_work_window_keeps_the_null_card_slot_and_is_frozen_as_a_conflict`
-- `tests/integration/test_input_warnings.py::test_a_demotion_note_is_frozen_as_a_compiler_warning_that_does_not_blame_agreement`
-- `tests/integration/test_input_warnings.py::test_card_only_work_anchors_never_enter_the_plan_input`
-- `tests/integration/test_input_warnings.py::test_extracted_work_anchors_reach_the_real_request_persona_layer`
-- `tests/integration/test_input_warnings.py::test_scenario_declared_work_windows_reach_the_card_the_persona_layer_and_the_plan_input`
-- `tests/integration/test_life_agent_protocol.py::test_decision_failure_is_logged_once_and_reraised_unchanged`
-- `tests/integration/test_life_agent_protocol.py::test_errand_errors_join_the_single_host_correction`
-- `tests/integration/test_life_agent_protocol.py::test_memory_persistence_failure_aborts_society_before_commit`
-- `tests/integration/test_life_agent_protocol.py::test_reflection_contract_failure_aborts_society_before_commit`
-- `tests/integration/test_output_truncation.py::test_a_truncated_turn_is_dropped_and_retried_once_without_thinking`
-- `tests/integration/test_read_query_runtime.py`
-- `tests/integration/test_read_query_runtime.py::test_life_env_actor_class_fixes_single_concurrency_without_parameters`
-- `tests/integration/test_read_query_runtime.py::test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query`
-- `tests/integration/test_read_query_runtime.py::test_task_recall_crosses_real_ray_without_world_mutation`
-- `tests/integration/test_read_query_runtime.py::test_unwrapped_actor_read_query_equals_direct_environment_call`
-- `tests/integration/test_same_second_continuation.py::test_an_errand_completed_in_the_same_second_appears_once_in_the_continuation_events`
-- `tests/integration/test_same_second_continuation.py::test_duty_is_constant_within_a_same_second_chain_and_never_enters_changes`
-- `tests/integration/test_same_second_continuation.py::test_errand_changes_reach_the_next_tool_message_as_added_and_removed`
-- `tests/integration/test_seven_layer_request.py::test_rules_1_4_6_divide_errands_summaries_and_memories`
-- `tests/integration/test_seven_layer_request.py::test_rules_1_and_14_state_the_duty_arrangement_verbatim`
-- `tests/integration/test_seven_layer_request.py::test_system_layers_are_the_contract_registration_verbatim`
-- `tests/integration/test_seven_layer_request.py::test_the_retired_continuation_sentence_is_gone_everywhere`
-- `tests/integration/test_strict_reflection.py`
-- `tests/integration/test_strict_reflection.py::test_corrected_reflection_is_recorded_once_by_the_real_engine`
-- `tests/integration/test_strict_reflection.py::test_exhausted_reflection_leaves_evidence_but_no_memory_update_in_the_run_database`
-- `tests/integration/test_strict_reflection.py::test_invalid_reflection_cannot_enter_memory`
-- `tests/integration/test_strict_reflection.py::test_reflection_correction_appends_one_compact_message_without_touching_the_original`
-- `tests/integration/test_strict_reflection.py::test_reflection_prompt_ends_with_the_errand_sentences`
-- `tests/integration/test_strict_reflection.py::test_reflection_prompt_is_the_contract_text`
-- `tests/integration/test_strict_reflection.py::test_reflection_records_only_valid_subjective_insights`
-- `tests/integration/test_strict_reflection.py::test_reflection_requires_exactly_one_tool_call`
-- `tests/integration/test_strict_reflection.py::test_reflection_retry_bound_is_its_own_constant_with_the_plan_day_value`
-- `tests/integration/test_strict_reflection.py::test_reflection_tool_arguments_must_be_a_json_string`
-- `tests/integration/test_strict_reflection.py::test_reflection_tool_schema_is_inline_strict_and_bound_to_the_host_limit`
-- `tests/integration/test_strict_reflection.py::test_runtime_feeds_each_contract_violation_back_and_stores_only_the_corrected_reflection`
-- `tests/integration/test_strict_reflection.py::test_runtime_makes_no_model_call_when_there_is_nothing_to_reflect_on`
-- `tests/integration/test_strict_reflection.py::test_runtime_propagates_transport_failures_without_validation_retries`
-- `tests/integration/test_strict_reflection.py::test_runtime_stops_with_a_run_fault_after_three_validation_retries_and_stores_no_reflection`
-- `tests/integration/test_strict_reflection.py::test_runtime_submits_reflection_through_the_only_strict_tool`
-- `tests/integration/test_tool_description_references.py::test_control_tool_purposes_and_errand_descriptions_are_the_contract_text`
-- `tests/integration/test_tool_description_references.py::test_every_native_tool_has_a_purpose_only_description`
-- `tests/integration/test_tool_description_references.py::test_parameter_descriptions_are_purpose_only`
-- `tests/integration/test_tool_description_references.py::test_query_world_purpose_is_the_contract_text_and_moves_only_the_tool_fingerprint`
-- `tests/integration/test_unique_presence_run.py::test_an_errand_full_row_appears_only_in_the_todo_layer`
-- `tests/integration/test_verified_memory.py::test_sleep_reflection_is_subjective_and_its_id_is_reported`
-- `tests/life/test_acs_receipt_readers.py::test_actual_contact_delivery_never_completes_buyers_errand_or_meal_goal`
-- `tests/life/test_control_items.py::test_a_current_request_without_errands_is_rejected`
-- `tests/life/test_control_items.py::test_control_errands_reads_every_change_in_order`
-- `tests/life/test_control_items.py::test_current_shape_items_carry_views_as_subject_memories`
-- `tests/life/test_day_planning.py::test_plan_day_input_lists_open_errands_read_only`
-- `tests/life/test_day_planning.py::test_plan_day_input_writes_no_line_for_an_errand_completed_before_midnight`
-- `tests/life/test_day_planning.py::test_plan_input_carries_the_plan_dates_duty_arrangement_without_status`
-- `tests/life/test_day_planning.py::test_plan_input_duty_is_for_the_new_day_at_the_midnight_boundary`
-- `tests/life/test_day_planning.py::test_plan_template_first_line_and_rule_eight_are_the_contract_text`
-- `tests/life/test_day_planning.py::test_plan_template_is_the_contract_text_and_asks_only_for_differences_with_around_times`
-- `tests/life/test_engine_branch_coverage.py::test_only_action_requests_satisfy_the_predicate`
-- `tests/life/test_errand_changes.py`
-- `tests/life/test_errand_completion.py`
-- `tests/life/test_errand_completion.py::test_a_completed_errand_frees_its_name_and_product_for_a_new_errand`
-- `tests/life/test_errand_completion.py::test_a_remote_order_completes_only_in_the_commit_that_receives_it`
-- `tests/life/test_errand_completion.py::test_an_unaffordable_purchase_leaves_the_errand_and_world_unchanged`
-- `tests/life/test_errand_completion.py::test_goals_and_claimed_completion_leave_the_errand_open`
-- `tests/life/test_errand_completion.py::test_noting_then_buying_at_the_store_completes_with_no_inventory`
-- `tests/life/test_errand_completion.py::test_quantity_two_with_one_received_stays_open_and_a_second_receipt_completes`
-- `tests/life/test_errand_completion.py::test_receipt_completion_tolerance_has_both_sides`
-- `tests/life/test_errand_names.py`
-- `tests/life/test_errand_names.py::test_a_request_bypassing_the_host_is_refused_once_and_the_world_is_unchanged`
-- `tests/life/test_errand_names.py::test_cancel_requires_a_reason`
-- `tests/life/test_errand_names.py::test_cancelling_and_adding_again_with_the_original_name_and_a_new_quantity_is_accepted`
-- `tests/life/test_errand_names.py::test_duplicate_added_names_same_outcome_and_product_and_a_ninth_errand_are_rejected`
-- `tests/life/test_errand_names.py::test_one_errand_named_twice_and_two_additions_with_one_outcome_and_product_are_rejected`
-- `tests/life/test_errand_names.py::test_unknown_item_reports_nearest_product_names_in_why_without_candidates`
-- `tests/life/test_errand_names.py::test_unknown_or_ambiguous_errand_name_lists_every_open_name_and_substitutes_nothing`
-- `tests/life/test_errand_names.py::test_update_and_cancel_use_the_todo_layer_name`
-- `tests/life/test_errand_names.py::test_whatever_the_host_accepts_the_environment_accepts`
-- `tests/life/test_errand_overnight.py`
-- `tests/life/test_errand_overnight.py::test_a_condensed_request_still_carries_the_todo_layer_errands`
-- `tests/life/test_errand_overnight.py::test_an_errand_stays_in_the_todo_layer_after_midnight_plan_generation_and_plan_revision`
-- `tests/life/test_errand_overnight.py::test_an_errand_stays_when_the_memory_layer_overflows_its_window`
-- `tests/life/test_errand_overnight.py::test_the_memory_layer_writes_no_line_for_errands`
-- `tests/life/test_errand_reminder.py`
-- `tests/life/test_errand_reminder.py::test_a_clock_equal_to_the_acceptance_time_means_the_next_local_day`
-- `tests/life/test_errand_reminder.py::test_a_reminder_delivered_with_the_arrival_stays_out_of_the_new_stay_session`
-- `tests/life/test_errand_reminder.py::test_a_reminder_due_at_local_midnight_is_delivered_by_the_midnight_rhythm`
-- `tests/life/test_errand_reminder.py::test_a_sleeper_gets_no_boundary_no_delivery_and_no_consumption_and_is_reminded_at_the_wake_boundary`
-- `tests/life/test_errand_reminder.py::test_an_awake_person_is_reminded_once_exactly_on_time_and_the_errand_is_unchanged`
-- `tests/life/test_errand_reminder.py::test_completed_or_cancelled_errands_are_not_reminded`
-- `tests/life/test_errand_reminder.py::test_errand_and_goal_reminders_due_together_are_listed_in_enum_order`
-- `tests/life/test_errand_reminder.py::test_errands_due_together_are_one_opportunity_with_one_event_each`
-- `tests/life/test_errand_reminder.py::test_open_errands_do_not_change_the_reconsideration_interval`
-- `tests/life/test_errand_reminder.py::test_partial_progress_after_the_reminder_does_not_remind_again`
-- `tests/life/test_errand_reminder.py::test_updating_the_reminder_clock_arms_it_again`
-- `tests/life/test_errand_requests.py`
-- `tests/life/test_errand_requests.py::test_a_rejected_request_registers_no_errand_and_writes_no_errand_event`
-- `tests/life/test_errand_requests.py::test_a_replayed_request_does_not_register_twice`
-- `tests/life/test_errand_requests.py::test_a_request_cannot_mark_an_errand_completed`
-- `tests/life/test_errand_requests.py::test_each_control_tool_records_errand_changes_with_one_event_per_change_and_an_ordered_receipt`
-- `tests/life/test_errand_requests.py::test_empty_errands_is_valid_and_the_receipt_is_an_empty_list`
-- `tests/life/test_errand_requests.py::test_every_structural_error_reports_the_full_errand_path`
-- `tests/life/test_errand_settlement_idempotence.py`
-- `tests/life/test_errand_settlement_idempotence.py::test_a_replayed_action_adds_neither_payment_receipt_nor_errand_progress`
-- `tests/life/test_errand_settlement_idempotence.py::test_parallel_order_result_is_not_an_extra_copy_of_receipt_evidence`
-- `tests/life/test_errand_settlement_idempotence.py::test_purchase_commit_and_delivery_commit_each_credit_their_own_receipt_once`
-- `tests/life/test_errand_settlement_idempotence.py::test_repeated_due_delivery_has_no_second_receipt_or_errand_evidence`
-- `tests/life/test_errand_settlement_idempotence.py::test_same_commit_registration_uses_event_order_instead_of_equal_clock`
-- `tests/life/test_errand_state.py`
-- `tests/life/test_errand_todo_layer.py`
-- `tests/life/test_errand_todo_layer.py::test_observation_carries_private_errand_bindings_outside_every_layer`
-- `tests/life/test_export_integration.py::test_completed_activity_exports_terminal_outcome_and_recorded_prompt`
-- `tests/life/test_food_errand_evidence.py`
-- `tests/life/test_food_errand_evidence.py::test_actual_payment_orders_are_not_errand_evidence_even_when_delivered`
-- `tests/life/test_food_errand_evidence.py::test_actual_pending_delivery_does_not_credit_and_restored_receipt_credits_once`
-- `tests/life/test_food_errand_evidence.py::test_actual_pickup_credits_only_receipt_recipient_and_repeat_settlement_emits_no_evidence`
-- `tests/life/test_food_errand_evidence.py::test_goods_receipt_rejects_an_invalid_simulated_recipient`
-- `tests/life/test_food_errand_evidence.py::test_receipt_before_registration_in_same_commit_does_not_count_but_after_it_does`
-- `tests/life/test_food_errand_evidence.py::test_retired_giving_consumption_and_self_reports_cannot_progress_errands`
-- `tests/life/test_food_errand_evidence.py::test_two_actual_receipts_accumulate_quantity_and_remove_only_the_completed_recipient_errand`
-- `tests/life/test_food_errand_evidence.py::test_unaffordable_actual_purchase_preserves_open_errand_quantity_and_all_world_bytes`
-- `tests/life/test_food_presentation.py::test_real_food_candidates_page_without_gaps_using_the_actual_order_key`
-- `tests/life/test_load_checks.py::test_a_null_work_schedule_is_not_cross_checked_and_others_still_are`
-- `tests/life/test_load_checks.py::test_overtime_dates_and_dates_outside_the_window_are_not_checked`
-- `tests/life/test_load_checks.py::test_real_loader_rejects_malformed_work_shift_and_break`
-- `tests/life/test_load_checks.py::test_work_schedule_must_agree_with_the_calendar_inside_the_window`
-- `tests/life/test_load_checks.py::test_work_schedule_workplace_must_be_a_selected_location`
-- `tests/life/test_name_resolution.py::test_location_home_and_current_ways_are_normalized_without_app_guess`
-- `tests/life/test_name_resolution.py::test_registered_action_name_is_exact_and_app_is_not_an_activity_target`
-- `tests/life/test_named_purchase.py::test_named_purchase_rejects_unknown_goods_and_unbound_apps_atomically`
-- `tests/life/test_persona_layer.py::test_a_declared_work_schedule_is_not_rendered_in_the_persona_layer`
-- `tests/life/test_persona_layer.py::test_rhythm_lists_the_work_anchors_in_contract_order_and_null_when_absent`
-- `tests/life/test_persona_layer.py::test_structured_card_without_work_anchor_keys_is_rejected_on_restore`
-- `tests/life/test_plan_day_duplicate_feedback.py`
-- `tests/life/test_plan_day_duplicate_feedback.py::test_plan_day_duplicate_intents_are_fed_back_with_every_position_then_registered`
-- `tests/life/test_plan_day_duplicate_feedback.py::test_plan_day_reports_over_capacity_together_with_duplicates`
-- `tests/life/test_plan_day_duplicate_feedback.py::test_repeated_work_goals_are_located_and_correction_requires_merging`
-- `tests/life/test_progress_events.py::test_an_errand_completed_in_the_session_is_one_record_and_folds_to_one_line`
-- `tests/life/test_prompt_layers.py::test_duty_enumerations_are_the_work_schedule_constants`
-- `tests/life/test_query_cost_report.py`
-- `tests/life/test_query_cost_report.py::test_query_cost_counts_failures_empty_filtered_pages_and_reflection_retries`
-- `tests/life/test_query_cost_report.py::test_query_cost_of_a_run_without_queries_and_the_printed_keys`
-- `tests/life/test_query_cost_report.py::test_query_cost_on_a_real_engine_exchange`
-- `tests/life/test_revise_day_plan_json.py`
-- `tests/life/test_revise_day_plan_json.py::test_duplicate_intent_in_provider_json_returns_nested_validation_error`
-- `tests/life/test_revise_day_plan_json.py::test_engine_keeps_at_most_eight_goals_with_one_goal_per_intent`
-- `tests/life/test_revise_day_plan_json.py::test_engine_rejects_a_duplicate_revision_locating_first_and_later_entries`
-- `tests/life/test_revise_day_plan_json.py::test_engine_reports_over_capacity_and_duplicates_in_the_same_rejection`
-- `tests/life/test_revise_day_plan_json.py::test_host_corrects_duplicate_intents_from_real_json_arguments`
-- `tests/life/test_revise_day_plan_json.py::test_nine_goals_with_a_duplicate_report_capacity_and_positions_in_one_validation`
-- `tests/life/test_scenario.py::test_structure_eight_rejects_old_scenario_version`
-- `tests/life/test_scenario.py::test_structure_eight_rejects_old_scenario_version[4]`
-- `tests/life/test_scenario.py::test_work_schedule_shape_errors_are_rejected`
-- `tests/life/test_scenario.py::test_work_window_bounds_and_order_are_rejected`
-- `tests/life/test_session_state.py::test_run_with_version_8_world_state_is_rejected_on_open`
-- `tests/life/test_session_state.py::test_world_state_schema_version_8_is_rejected`
-- `tests/life/test_tool_interaction_runtime.py::test_compact_layer_preserves_false_zero_current_action_and_control_tools`
-- `tests/life/test_tool_interaction_runtime.py::test_read_queries_keep_actual_model_exchange_without_progress_events`
-- `tests/life/test_tool_protocol.py::test_final_turn_and_truncation_retry_disable_every_query`
-- `tests/life/test_tool_protocol.py::test_query_dispatch_has_no_world_side_effect`
-- `tests/life/test_tool_protocol.py::test_world_query_mixed_batches_are_atomic`
-- `tests/life/test_work_schedule.py`
-- `tests/life/test_work_schedule.py::test_duty_follows_the_clock_through_a_working_day`
-- `tests/life/test_work_schedule.py::test_duty_stays_on_duty_after_topic_completion`
-- `tests/life/test_work_schedule.py::test_environment_layer_is_byte_identical_after_checkpoint_restore`
-- `tests/life/test_work_schedule.py::test_leaving_the_workplace_on_duty_is_listed_and_accepted_without_new_event_kinds`
-- `tests/life/test_work_schedule.py::test_people_without_a_schedule_have_no_duty_while_others_keep_theirs`
-- `tests/life/test_work_schedule.py::test_rest_days_come_from_weekly_null_and_exception_null_and_an_exception_shift_overrides_weekly`
-- `tests/life/test_work_schedule.py::test_revising_the_day_plan_does_not_change_duty`
-- `tests/life/test_work_schedule.py::test_work_can_start_before_the_shift_and_continue_after_it`
-- `tests/life/test_workload_report.py`
-- `tests/life/test_workload_report.py::test_workday_command_prints_the_four_keys_for_a_real_run`
-- `tests/life/test_workload_report.py::test_workday_command_rejects_a_scenario_that_is_not_the_runs_scenario`
-- `tests/life/test_workload_report.py::test_workday_command_reports_null_windows_without_a_workspace_card`
-- `tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets`
-- `tests/life/test_world_query.py::test_empty_filter_reports_each_position_and_keeps_other_type_errors`
-- `tests/life/test_world_query.py::test_every_query_field_is_required`
-- `tests/life/test_world_query.py::test_filter_errors_are_aggregated_and_never_hidden_by_offset_or_type_errors`
-- `tests/life/test_world_query.py::test_unknown_app_and_store_names_have_the_exact_new_error_contract`
-- `tests/life/test_world_query_filters.py`
-- `tests/life/test_world_query_filters.py::test_action_app_and_category_filters_use_real_action_names_and_labels`
-- `tests/life/test_world_query_filters.py::test_available_only_is_specific_to_the_selected_app_and_way`
-- `tests/life/test_world_query_filters.py::test_full_query_contains_goods_beyond_the_current_presentation_window`
-- `tests/life/test_world_query_filters.py::test_query_remains_frozen_after_the_source_world_and_catalog_order_change`
-- `tests/life/test_world_query_filters.py::test_shopping_app_filters_the_real_goods_target_without_store_expansion`
-- `tests/life/work_schedule_fixtures.py`
-- `tests/mutation_runner.py`
-- `tests/profile/test_compile.py::test_demotion_notes_follow_the_agreement_warning_and_stand_alone_without_it`
-- `tests/profile/test_extractor.py::test_a_work_anchor_past_midnight_is_demoted_even_before_a_later_bedtime`
-- `tests/profile/test_extractor.py::test_malformed_or_missing_work_anchors_take_the_parse_retry`
-- `tests/profile/test_extractor.py::test_null_work_anchors_keep_the_after_midnight_bedtime_normalised`
-- `tests/profile/test_extractor.py::test_out_of_order_consensus_demotes_leave_work_then_arrive_home_and_still_compiles`
-- `tests/profile/test_extractor.py::test_out_of_order_sample_is_admitted_without_a_parse_retry`
-- `tests/profile/test_extractor.py::test_samples_out_of_order_on_their_own_but_legal_in_consensus_are_not_demoted`
-- `tests/profile/test_extractor.py::test_stated_work_anchors_are_extracted_into_the_card`
-- `tests/profile/test_extractor.py::test_unmentioned_work_anchors_stay_null_without_toml_defaults`
-- `tests/profile/test_extractor.py::test_wavering_leave_work_does_not_change_the_five_anchors`
-- `tests/profile/test_injection.py::test_a_null_card_slot_takes_the_scenario_work_window_and_is_reported_as_overridden`
-- `tests/profile/test_injection.py::test_a_scenario_window_violating_the_work_anchor_order_keeps_the_card_value_as_a_conflict`
-- `tests/profile/test_injection.py::test_an_unrepresentable_work_window_is_a_conflict_on_a_null_slot`
-- `tests/profile/test_injection.py::test_work_windows_declared_together_land_together_and_the_result_is_a_fixed_point`
-- `tests/profile/test_models.py::test_settle_work_anchors_demotes_in_the_fixed_order_with_one_text_each`
-- `tests/profile/test_models.py::test_work_anchor_order_constraints_are_enforced`
-- `tests/profile/test_models.py::test_work_anchors_are_required_nullable_and_outside_the_five_anchor_order`
-- `tests/profile/test_textgen.py::test_non_null_work_anchors_each_append_a_clause_and_count_towards_the_budget`
-- `tests/profile/test_textgen.py::test_render_card_is_byte_identical_to_the_pre_persona_layer_renderer`
-- `tests/test_coverage_gate.py::test_branch_threshold_boundary`
-- `tests/test_coverage_gate.py::test_uncovered_public_interface_detection`
-- `tests/test_dayrun_fidelity_acceptance.py::test_anchored_links_in_docs_point_to_existing_headings`
-- `tests/test_dayrun_fidelity_acceptance.py::test_docs_carry_no_pending_markers_of_this_feature`
-- `tests/test_design_doc_build.py::test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current`
-- `tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve`
-- `tests/test_errands_workday_acceptance.py`
-- `tests/test_style_gate.py::test_style_gate_admits_no_new_violations`
-- `tools/run-viewer-context.js`
-- `tools/run-viewer.html`
+| 契约主题 | 实际行为或门禁节点 | 当前证据边界 |
+| --- | --- | --- |
+| 严格反思 | `tests/integration/test_strict_reflection.py::test_runtime_submits_reflection_through_the_only_strict_tool`<br>`tests/integration/test_strict_reflection.py::test_runtime_feeds_each_contract_violation_back_and_stores_only_the_corrected_reflection`<br>`tests/integration/test_strict_reflection.py::test_runtime_stops_with_a_run_fault_after_three_validation_retries_and_stores_no_reflection`<br>`tests/integration/test_strict_reflection.py::test_runtime_propagates_transport_failures_without_validation_retries`<br>`tests/integration/test_strict_reflection.py::test_runtime_makes_no_model_call_when_there_is_nothing_to_reflect_on`<br>`tests/integration/test_strict_reflection.py::test_reflection_prompt_is_the_contract_text`<br>`tests/integration/test_strict_reflection.py::test_exhausted_reflection_leaves_evidence_but_no_memory_update_in_the_run_database`<br>`tests/integration/test_strict_reflection.py::test_corrected_reflection_is_recorded_once_by_the_real_engine`<br>`tests/integration/test_life_agent_protocol.py::test_reflection_contract_failure_aborts_society_before_commit`<br>`tests/integration/test_verified_memory.py::test_sleep_reflection_is_subjective_and_its_id_is_reported`<br>`tests/integration/test_conclude_memories.py::test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime_reflection`<br>`tests/integration/test_dayrun_complete_days.py::test_complete_two_person_day_uses_real_tools_memory_and_restoration`<br>`tests/life/test_engine_branch_coverage.py::test_only_action_requests_satisfy_the_predicate`<br>`tests/integration/test_strict_reflection.py::test_reflection_tool_schema_is_inline_strict_and_bound_to_the_host_limit`<br>`tests/integration/test_strict_reflection.py::test_reflection_records_only_valid_subjective_insights`<br>`tests/integration/test_strict_reflection.py::test_invalid_reflection_cannot_enter_memory`<br>`tests/integration/test_strict_reflection.py::test_reflection_requires_exactly_one_tool_call`<br>`tests/integration/test_strict_reflection.py::test_reflection_tool_arguments_must_be_a_json_string`<br>`tests/integration/test_strict_reflection.py::test_reflection_correction_appends_one_compact_message_without_touching_the_original`<br>`tests/integration/test_strict_reflection.py::test_reflection_retry_bound_is_its_own_constant_with_the_plan_day_value`<br>`tests/evaluation/test_behavior_metrics.py::test_reflection_requests_and_their_retries_are_not_decision_requests` | 已登记到实际定义；执行结论取本次回执 |
+| 只读查询转发 | `tests/integration/test_read_query_runtime.py::test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query`<br>`tests/integration/test_read_query_runtime.py::test_task_recall_crosses_real_ray_without_world_mutation`<br>`tests/integration/test_read_query_runtime.py::test_unwrapped_actor_read_query_equals_direct_environment_call`<br>`tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets`<br>`tests/integration/test_read_query_runtime.py::test_life_env_actor_class_fixes_single_concurrency_without_parameters` | 已登记到实际定义；执行结论取本次回执 |
+| 计划重复意图 | `tests/life/test_revise_day_plan_json.py::test_engine_rejects_a_duplicate_revision_locating_first_and_later_entries`<br>`tests/life/test_revise_day_plan_json.py::test_engine_reports_over_capacity_and_duplicates_in_the_same_rejection`<br>`tests/life/test_revise_day_plan_json.py::test_engine_keeps_at_most_eight_goals_with_one_goal_per_intent`<br>`tests/life/test_plan_day_duplicate_feedback.py::test_plan_day_duplicate_intents_are_fed_back_with_every_position_then_registered`<br>`tests/life/test_plan_day_duplicate_feedback.py::test_plan_day_reports_over_capacity_together_with_duplicates`<br>`tests/life/test_revise_day_plan_json.py::test_host_corrects_duplicate_intents_from_real_json_arguments`<br>`tests/life/test_revise_day_plan_json.py::test_duplicate_intent_in_provider_json_returns_nested_validation_error`<br>`tests/life/test_revise_day_plan_json.py::test_nine_goals_with_a_duplicate_report_capacity_and_positions_in_one_validation`<br>`tests/life/test_plan_day_duplicate_feedback.py::test_repeated_work_goals_are_located_and_correction_requires_merging` | 已登记到实际定义；执行结论取本次回执 |
+| 故障传播 | `tests/integration/test_host_failure_stages.py::test_tool_service_failure_on_the_real_engine_is_logged_and_raised_with_its_stage`<br>`tests/integration/test_host_failure_stages.py::test_model_service_failure_on_the_real_engine_is_logged_once_and_reraised_unchanged`<br>`tests/integration/test_life_agent_protocol.py::test_decision_failure_is_logged_once_and_reraised_unchanged`<br>`tests/integration/test_host_failure_stages.py::test_tool_service_failure_points_to_real_call_without_claiming_execution`<br>`tests/integration/test_life_agent_protocol.py::test_memory_persistence_failure_aborts_society_before_commit`<br>`tests/integration/test_host_failure_stages.py::test_model_service_failure_persists_stage_without_parsing_exception_text`<br>`tests/integration/test_host_failure_stages.py::test_evidence_write_failure_stops_with_structured_stage`<br>`tests/integration/test_agent_branch_coverage.py::test_tool_messages_follow_memory_queries_only` | 已登记到实际定义；执行结论取本次回执 |
+| 事务变更与原子受理 | `tests/life/test_errand_requests.py::test_each_control_tool_records_errand_changes_with_one_event_per_change_and_an_ordered_receipt`<br>`tests/life/test_errand_requests.py::test_empty_errands_is_valid_and_the_receipt_is_an_empty_list`<br>`tests/life/test_errand_requests.py::test_every_structural_error_reports_the_full_errand_path`<br>`tests/life/test_errand_requests.py::test_a_rejected_request_registers_no_errand_and_writes_no_errand_event`<br>`tests/life/test_errand_requests.py::test_a_request_cannot_mark_an_errand_completed`<br>`tests/life/test_errand_requests.py::test_a_replayed_request_does_not_register_twice`<br>`tests/integration/test_activity_schema.py::test_control_tool_schemas_inline_the_errand_change_object`<br>`tests/integration/test_conclude_memories.py::test_rejected_conclusion_keeps_its_memories_but_registers_no_errand` | 已登记到实际定义；执行结论取本次回执 |
+| 事务名称与错误 | `tests/life/test_errand_names.py::test_update_and_cancel_use_the_todo_layer_name`<br>`tests/life/test_errand_names.py::test_unknown_or_ambiguous_errand_name_lists_every_open_name_and_substitutes_nothing`<br>`tests/life/test_errand_names.py::test_unknown_item_reports_nearest_product_names_in_why_without_candidates`<br>`tests/life/test_errand_names.py::test_cancel_requires_a_reason`<br>`tests/life/test_errand_names.py::test_duplicate_added_names_same_outcome_and_product_and_a_ninth_errand_are_rejected`<br>`tests/life/test_errand_names.py::test_one_errand_named_twice_and_two_additions_with_one_outcome_and_product_are_rejected`<br>`tests/life/test_errand_names.py::test_cancelling_and_adding_again_with_the_original_name_and_a_new_quantity_is_accepted`<br>`tests/life/test_errand_names.py::test_a_request_bypassing_the_host_is_refused_once_and_the_world_is_unchanged`<br>`tests/life/test_errand_names.py::test_whatever_the_host_accepts_the_environment_accepts`<br>`tests/integration/test_life_agent_protocol.py::test_errand_errors_join_the_single_host_correction`<br>`tests/life/test_errand_completion.py::test_a_completed_errand_frees_its_name_and_product_for_a_new_errand` | 已登记到实际定义；执行结论取本次回执 |
+| 跨夜可见 | `tests/life/test_errand_overnight.py::test_an_errand_stays_in_the_todo_layer_after_midnight_plan_generation_and_plan_revision`<br>`tests/life/test_errand_overnight.py::test_an_errand_stays_when_the_memory_layer_overflows_its_window`<br>`tests/life/test_errand_overnight.py::test_a_condensed_request_still_carries_the_todo_layer_errands`<br>`tests/life/test_errand_overnight.py::test_the_memory_layer_writes_no_line_for_errands`<br>`tests/integration/test_errand_prompt_separation.py::test_the_next_action_request_shows_the_errand_in_the_todo_layer_without_any_memory_query`<br>`tests/life/test_day_planning.py::test_plan_day_input_lists_open_errands_read_only`<br>`tests/life/test_day_planning.py::test_plan_day_input_writes_no_line_for_an_errand_completed_before_midnight`<br>`tests/life/test_day_planning.py::test_plan_template_is_the_contract_text_and_asks_only_for_differences_with_around_times` | 已登记到实际定义；执行结论取本次回执 |
+| 完成依据 | `tests/life/test_food_errand_evidence.py::test_actual_pickup_credits_only_receipt_recipient_and_repeat_settlement_emits_no_evidence`<br>`tests/life/test_food_errand_evidence.py::test_retired_giving_consumption_and_self_reports_cannot_progress_errands`<br>`tests/life/test_food_errand_evidence.py::test_actual_pending_delivery_does_not_credit_and_restored_receipt_credits_once`<br>`tests/life/test_food_errand_evidence.py::test_two_actual_receipts_accumulate_quantity_and_remove_only_the_completed_recipient_errand`<br>`tests/life/test_errand_completion.py::test_a_remote_order_completes_only_in_the_commit_that_receives_it`<br>`tests/life/test_errand_completion.py::test_noting_then_buying_at_the_store_completes_with_no_inventory`<br>`tests/life/test_errand_completion.py::test_quantity_two_with_one_received_stays_open_and_a_second_receipt_completes`<br>`tests/life/test_errand_completion.py::test_goals_and_claimed_completion_leave_the_errand_open`<br>`tests/life/test_errand_completion.py::test_an_unaffordable_purchase_leaves_the_errand_and_world_unchanged`<br>`tests/life/test_errand_completion.py::test_receipt_completion_tolerance_has_both_sides`<br>`tests/life/test_food_errand_evidence.py::test_actual_payment_orders_are_not_errand_evidence_even_when_delivered`<br>`tests/life/test_food_errand_evidence.py::test_receipt_before_registration_in_same_commit_does_not_count_but_after_it_does`<br>`tests/life/test_food_errand_evidence.py::test_goods_receipt_rejects_an_invalid_simulated_recipient`<br>`tests/life/test_food_errand_evidence.py::test_unaffordable_actual_purchase_preserves_open_errand_quantity_and_all_world_bytes`<br>`tests/life/test_acs_receipt_readers.py::test_actual_contact_delivery_never_completes_buyers_errand_or_meal_goal` | 真实收货纯节点覆盖本人归属、付款不当证据、登记顺序、异常人物来源与恢复幂等；引擎结论取本次回执 |
+| 结算幂等 | `tests/life/test_errand_settlement_idempotence.py::test_a_replayed_action_adds_neither_payment_receipt_nor_errand_progress`<br>`tests/life/test_errand_settlement_idempotence.py::test_repeated_due_delivery_has_no_second_receipt_or_errand_evidence`<br>`tests/life/test_errand_settlement_idempotence.py::test_parallel_order_result_is_not_an_extra_copy_of_receipt_evidence`<br>`tests/life/test_errand_settlement_idempotence.py::test_purchase_commit_and_delivery_commit_each_credit_their_own_receipt_once`<br>`tests/life/test_errand_settlement_idempotence.py::test_same_commit_registration_uses_event_order_instead_of_equal_clock` | 已登记到实际定义；执行结论取本次回执 |
+| 事务提醒 | `tests/life/test_errand_reminder.py::test_an_awake_person_is_reminded_once_exactly_on_time_and_the_errand_is_unchanged`<br>`tests/life/test_errand_reminder.py::test_a_clock_equal_to_the_acceptance_time_means_the_next_local_day`<br>`tests/life/test_errand_reminder.py::test_a_sleeper_gets_no_boundary_no_delivery_and_no_consumption_and_is_reminded_at_the_wake_boundary`<br>`tests/life/test_errand_reminder.py::test_errands_due_together_are_one_opportunity_with_one_event_each`<br>`tests/life/test_errand_reminder.py::test_errand_and_goal_reminders_due_together_are_listed_in_enum_order`<br>`tests/life/test_errand_reminder.py::test_completed_or_cancelled_errands_are_not_reminded`<br>`tests/life/test_errand_reminder.py::test_updating_the_reminder_clock_arms_it_again`<br>`tests/life/test_errand_reminder.py::test_a_reminder_due_at_local_midnight_is_delivered_by_the_midnight_rhythm`<br>`tests/life/test_errand_reminder.py::test_open_errands_do_not_change_the_reconsideration_interval`<br>`tests/footprints/test_errand_export.py::test_an_exported_run_reports_errands_and_recertifies_value_for_value`<br>`tests/footprints/test_quality.py::test_errand_reminder_due_is_a_known_wake_reason` | 已登记到实际定义；执行结论取本次回执 |
+| 检查点 | `tests/life/test_session_state.py::test_run_with_version_8_world_state_is_rejected_on_open`<br>`tests/life/test_session_state.py::test_world_state_schema_version_8_is_rejected``tests/integration/test_errand_checkpoint.py::test_a_restored_branch_shows_the_same_todo_layer_and_repeats_nothing` | 已登记到实际定义；执行结论取本次回执 |
+| 提示与唯一出现 | `tests/integration/test_seven_layer_request.py::test_system_layers_are_the_contract_registration_verbatim`<br>`tests/integration/test_seven_layer_request.py::test_rules_1_4_6_divide_errands_summaries_and_memories`<br>`tests/integration/test_seven_layer_request.py::test_the_retired_continuation_sentence_is_gone_everywhere`<br>`tests/integration/test_tool_description_references.py::test_control_tool_purposes_and_errand_descriptions_are_the_contract_text`<br>`tests/integration/test_tool_description_references.py::test_every_native_tool_has_a_purpose_only_description`<br>`tests/integration/test_tool_description_references.py::test_parameter_descriptions_are_purpose_only`<br>`tests/integration/test_strict_reflection.py::test_reflection_prompt_is_the_contract_text`<br>`tests/integration/test_strict_reflection.py::test_reflection_prompt_ends_with_the_errand_sentences`<br>`tests/integration/test_unique_presence_run.py::test_an_errand_full_row_appears_only_in_the_todo_layer`<br>`tests/life/test_errand_todo_layer.py::test_observation_carries_private_errand_bindings_outside_every_layer`<br>`tests/integration/test_same_second_continuation.py::test_errand_changes_reach_the_next_tool_message_as_added_and_removed`<br>`tests/integration/test_same_second_continuation.py::test_an_errand_completed_in_the_same_second_appears_once_in_the_continuation_events`<br>`tests/life/test_progress_events.py::test_an_errand_completed_in_the_session_is_one_record_and_folds_to_one_line`<br>`tests/life/test_errand_reminder.py::test_a_reminder_delivered_with_the_arrival_stays_out_of_the_new_stay_session`<br>`tests/integration/test_errand_prompt_separation.py::test_errand_changes_write_no_memory_and_stay_out_of_self_notes_and_progress_arguments` | 已登记到实际定义；执行结论取本次回执 |
+| 事务与收尾记忆指标 | `tests/evaluation/test_errand_metrics.py::test_counts_follow_their_definitions_and_the_identity_holds`<br>`tests/evaluation/test_errand_metrics.py::test_the_denominator_is_registered_errands_not_goals`<br>`tests/evaluation/test_errand_metrics.py::test_visible_and_expected_observations_agree`<br>`tests/evaluation/test_errand_metrics.py::test_acted_after_reminder_needs_an_accepted_request_for_the_same_product`<br>`tests/evaluation/test_errand_metrics.py::test_a_completion_without_checkable_evidence_is_counted`<br>`tests/evaluation/test_errand_metrics.py::test_conclusion_memories_count_routine_and_errand_overlap`<br>`tests/evaluation/test_errand_metrics.py::test_no_errand_or_no_conclusion_memory_gives_null`<br>`tests/integration/test_dayrun_complete_days.py::test_complete_two_person_day_uses_real_tools_memory_and_restoration`<br>`tests/footprints/test_goal_export.py::test_export_command_uses_authenticated_cutoff_and_manifest_code`<br>`tests/footprints/test_quality.py::test_report_sections_are_the_documented_grouping_without_a_language_count`<br>`tests/footprints/test_errand_export.py::test_an_exported_run_reports_errands_and_recertifies_value_for_value` | 已登记到实际定义；执行结论取本次回执 |
+| 作息锚点 | `tests/profile/test_extractor.py::test_stated_work_anchors_are_extracted_into_the_card`<br>`tests/profile/test_extractor.py::test_unmentioned_work_anchors_stay_null_without_toml_defaults`<br>`tests/profile/test_extractor.py::test_wavering_leave_work_does_not_change_the_five_anchors`<br>`tests/profile/test_extractor.py::test_out_of_order_sample_is_admitted_without_a_parse_retry`<br>`tests/profile/test_extractor.py::test_out_of_order_consensus_demotes_leave_work_then_arrive_home_and_still_compiles`<br>`tests/profile/test_extractor.py::test_samples_out_of_order_on_their_own_but_legal_in_consensus_are_not_demoted`<br>`tests/profile/test_extractor.py::test_malformed_or_missing_work_anchors_take_the_parse_retry`<br>`tests/profile/test_extractor.py::test_null_work_anchors_keep_the_after_midnight_bedtime_normalised`<br>`tests/profile/test_extractor.py::test_a_work_anchor_past_midnight_is_demoted_even_before_a_later_bedtime`<br>`tests/profile/test_compile.py::test_demotion_notes_follow_the_agreement_warning_and_stand_alone_without_it`<br>`tests/profile/test_models.py::test_work_anchors_are_required_nullable_and_outside_the_five_anchor_order`<br>`tests/profile/test_models.py::test_work_anchor_order_constraints_are_enforced`<br>`tests/profile/test_models.py::test_settle_work_anchors_demotes_in_the_fixed_order_with_one_text_each`<br>`tests/integration/test_input_warnings.py::test_a_demotion_note_is_frozen_as_a_compiler_warning_that_does_not_blame_agreement`<br>`tests/integration/test_input_warnings.py::test_extracted_work_anchors_reach_the_real_request_persona_layer`<br>`tests/profile/test_textgen.py::test_non_null_work_anchors_each_append_a_clause_and_count_towards_the_budget`<br>`tests/profile/test_textgen.py::test_render_card_is_byte_identical_to_the_pre_persona_layer_renderer`<br>`tests/life/test_persona_layer.py::test_rhythm_lists_the_work_anchors_in_contract_order_and_null_when_absent`<br>`tests/life/test_persona_layer.py::test_structured_card_without_work_anchor_keys_is_rejected_on_restore`<br>`tests/life/test_persona_layer.py::test_a_declared_work_schedule_is_not_rendered_in_the_persona_layer`<br>`tests/integration/test_input_warnings.py::test_scenario_declared_work_windows_reach_the_card_the_persona_layer_and_the_plan_input`<br>`tests/integration/test_input_warnings.py::test_card_only_work_anchors_never_enter_the_plan_input`<br>`tests/integration/test_input_warnings.py::test_a_conflicting_scenario_work_window_keeps_the_null_card_slot_and_is_frozen_as_a_conflict`<br>`tests/profile/test_injection.py::test_a_null_card_slot_takes_the_scenario_work_window_and_is_reported_as_overridden`<br>`tests/profile/test_injection.py::test_a_scenario_window_violating_the_work_anchor_order_keeps_the_card_value_as_a_conflict`<br>`tests/profile/test_injection.py::test_work_windows_declared_together_land_together_and_the_result_is_a_fixed_point`<br>`tests/profile/test_injection.py::test_an_unrepresentable_work_window_is_a_conflict_on_a_null_slot`<br>`tests/life/test_scenario.py::test_work_window_bounds_and_order_are_rejected` | 已登记到实际定义；执行结论取本次回执 |
+| 工作安排加载 | `tests/life/test_scenario.py::test_every_agent_declares_work_schedule_and_structure_four_is_rejected`<br>`tests/life/test_load_checks.py::test_work_schedule_workplace_must_be_a_selected_location`<br>`tests/life/test_load_checks.py::test_real_loader_rejects_malformed_work_shift_and_break`<br>`tests/life/test_load_checks.py::test_work_schedule_must_agree_with_the_calendar_inside_the_window`<br>`tests/life/test_load_checks.py::test_overtime_dates_and_dates_outside_the_window_are_not_checked`<br>`tests/life/test_load_checks.py::test_a_null_work_schedule_is_not_cross_checked_and_others_still_are`<br>`tests/life/test_scenario.py::test_work_schedule_shape_errors_are_rejected` | 已登记到实际定义；执行结论取本次回执 |
+| 上班安排呈现 | `tests/life/test_work_schedule.py::test_duty_follows_the_clock_through_a_working_day`<br>`tests/life/test_work_schedule.py::test_duty_stays_on_duty_after_topic_completion`<br>`tests/life/test_work_schedule.py::test_revising_the_day_plan_does_not_change_duty`<br>`tests/life/test_work_schedule.py::test_rest_days_come_from_weekly_null_and_exception_null_and_an_exception_shift_overrides_weekly`<br>`tests/life/test_work_schedule.py::test_people_without_a_schedule_have_no_duty_while_others_keep_theirs`<br>`tests/life/test_work_schedule.py::test_environment_layer_is_byte_identical_after_checkpoint_restore`<br>`tests/life/test_work_schedule.py::test_leaving_the_workplace_on_duty_is_listed_and_accepted_without_new_event_kinds`<br>`tests/integration/test_same_second_continuation.py::test_duty_is_constant_within_a_same_second_chain_and_never_enters_changes`<br>`tests/life/test_prompt_layers.py::test_duty_enumerations_are_the_work_schedule_constants` | 已登记到实际定义；执行结论取本次回执 |
+| 计划与义务 | `tests/integration/test_seven_layer_request.py::test_rules_1_and_14_state_the_duty_arrangement_verbatim`<br>`tests/life/test_day_planning.py::test_plan_template_first_line_and_rule_eight_are_the_contract_text`<br>`tests/life/test_day_planning.py::test_plan_input_duty_is_for_the_new_day_at_the_midnight_boundary`<br>`tests/life/test_day_planning.py::test_plan_input_carries_the_plan_dates_duty_arrangement_without_status` | 已登记到实际定义；执行结论取本次回执 |
+| 工作主题与工作安排边界 | `tests/life/test_work_schedule.py::test_work_can_start_before_the_shift_and_continue_after_it`<br>`tests/life/test_action_run.py::test_assigned_work_requires_actual_workplace_and_unassigned_study_does_not`<br>`tests/life/test_work_schedule.py::test_duty_stays_on_duty_after_topic_completion` | 已登记到实际定义；执行结论取本次回执 |
+| 工作负荷与作息偏离 | `tests/evaluation/test_workload_metrics.py::test_a_real_run_leaving_on_duty_is_recomputed_as_early_leave`<br>`tests/evaluation/test_workload_metrics.py::test_workload_fields_follow_their_definitions_on_a_hand_built_day`<br>`tests/evaluation/test_workload_metrics.py::test_declared_breaks_are_not_absence_and_rest_days_are_left_out`<br>`tests/evaluation/test_workload_metrics.py::test_routine_deviation_reports_three_items_with_evidence_tolerance_and_sleep_flags`<br>`tests/evaluation/test_workload_metrics.py::test_people_without_a_schedule_have_null_leave_items_and_still_report_arrival_home`<br>`tests/evaluation/test_workload_metrics.py::test_missing_inputs_are_null_with_a_note`<br>`tests/evaluation/test_workload_metrics.py::test_routine_deviation_uses_none_of_the_removed_plan_deviation_names`<br>`tests/evaluation/test_workload_metrics.py::test_workday_inputs_take_shifts_home_windows_and_interval_from_the_scenario_and_cards`<br>`tests/evaluation/test_workload_metrics.py::test_actual_work_counts_only_the_part_of_an_interval_inside_the_shift`<br>`tests/evaluation/test_workload_metrics.py::test_a_real_run_counts_actual_work_only_inside_the_shift`<br>`tests/evaluation/test_workload_metrics.py::test_reports_are_byte_reproducible`<br>`tests/life/test_workload_report.py::test_workday_command_prints_the_four_keys_for_a_real_run`<br>`tests/life/test_workload_report.py::test_workday_command_rejects_a_scenario_that_is_not_the_runs_scenario`<br>`tests/life/test_workload_report.py::test_workday_command_reports_null_windows_without_a_workspace_card` | 已登记到实际定义；执行结论取本次回执 |
+| 查询请求 | `tests/life/test_world_query.py::test_every_query_field_is_required`<br>`tests/life/test_world_query.py::test_every_query_field_is_required`<br>`tests/life/test_world_query.py::test_empty_filter_reports_each_position_and_keeps_other_type_errors`<br>`tests/life/test_world_query.py::test_empty_filter_reports_each_position_and_keeps_other_type_errors`<br>`tests/life/test_world_query.py::test_filter_errors_are_aggregated_and_never_hidden_by_offset_or_type_errors`<br>`tests/life/test_world_query_filters.py::test_shopping_app_filters_the_real_goods_target_without_store_expansion`<br>`tests/life/test_world_query_filters.py::test_query_remains_frozen_after_the_source_world_and_catalog_order_change`<br>`tests/integration/test_tool_description_references.py::test_query_world_purpose_is_the_contract_text_and_moves_only_the_tool_fingerprint` | 阶段三固定菜单与食品事实节点；完整宿主、运行与导出证据由所属集成阶段另行留证 |
+| 来源筛选 | `tests/life/test_purchase_apps.py::test_unbound_app_refuses_with_exact_reason_and_bound_app_next_step`<br>`tests/life/test_world_query_filters.py::test_shopping_app_filters_the_real_goods_target_without_store_expansion`<br>`tests/life/test_world_query_filters.py::test_query_remains_frozen_after_the_source_world_and_catalog_order_change` | 阶段三固定菜单与食品事实节点；完整宿主、运行与导出证据由所属集成阶段另行留证 |
+| 可执行筛选 | `tests/life/test_world_query_filters.py::test_shopping_app_filters_the_real_goods_target_without_store_expansion`<br>`tests/life/test_world_query_filters.py::test_query_remains_frozen_after_the_source_world_and_catalog_order_change` | 阶段三固定菜单与食品事实节点；完整宿主、运行与导出证据由所属集成阶段另行留证 |
+| 分页与返回 | `tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets`<br>`tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets`<br>`tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets`<br>`tests/life/test_world_query_filters.py::test_shopping_app_filters_the_real_goods_target_without_store_expansion`<br>`tests/life/test_world_query_filters.py::test_query_remains_frozen_after_the_source_world_and_catalog_order_change` | 阶段三固定菜单与食品事实节点；完整宿主、运行与导出证据由所属集成阶段另行留证 |
+| 查询只读 | `tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets`<br>`tests/life/test_tool_protocol.py::test_world_query_mixed_batches_are_atomic`<br>`tests/life/test_tool_protocol.py::test_final_turn_and_truncation_retry_disable_every_query`<br>`tests/life/test_tool_protocol.py::test_query_dispatch_has_no_world_side_effect`<br>`tests/life/test_tool_interaction_runtime.py::test_read_queries_keep_actual_model_exchange_without_progress_events`<br>`tests/life/test_world_query_filters.py::test_shopping_app_filters_the_real_goods_target_without_store_expansion`<br>`tests/life/test_world_query_filters.py::test_query_remains_frozen_after_the_source_world_and_catalog_order_change`<br>`tests/life/test_query_cost_report.py::test_query_cost_on_a_real_engine_exchange`<br>`tests/life/test_query_cost_report.py::test_query_cost_counts_failures_empty_filtered_pages_and_reflection_retries`<br>`tests/life/test_query_cost_report.py::test_query_cost_of_a_run_without_queries_and_the_printed_keys`<br>`tests/integration/test_output_truncation.py::test_a_truncated_turn_is_dropped_and_retried_once_without_thinking` | 阶段三固定菜单与食品事实节点；完整宿主、运行与导出证据由所属集成阶段另行留证 |
+| 工程门禁 | `tests/test_style_gate.py::test_style_gate_admits_no_new_violations`<br>`tests/test_coverage_gate.py::test_branch_threshold_boundary`<br>`tests/test_coverage_gate.py::test_uncovered_public_interface_detection`<br>`tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve` | 已登记到实际定义；执行结论取本次回执 |
+| 复跑指标（只报告） | 无真实运行节点 | 只报告；读取/统计测试不代表真实运行已执行 |
+| 文档一致性 | `tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve`<br>`tests/test_design_doc_build.py::test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current`<br>`tests/test_dayrun_fidelity_acceptance.py::test_anchored_links_in_docs_point_to_existing_headings`<br>`tests/test_dayrun_fidelity_acceptance.py::test_docs_carry_no_pending_markers_of_this_feature` | 已登记到实际定义；执行结论取本次回执 |
 
+本表逐项核对规范机器登记；登记集合与实际执行结论分别按当前登记和匹配源码回执解释。
+
+复跑指标（只报告）：白领与商务的配对全天复跑按规格只报告、不作门禁：它是计费的真实运行，只在用户明确要求时启动，指标与全部成功、失败写进验收记录；少于每臂三次时验收记录写明未达复跑要求。
 
 <a name="analysis-spec-coverage-一日运行保真增量映射"></a>
 ## 一日运行保真增量映射
 
-#### `tests/dayrun_fidelity_acceptance.py`
+仅保留当前仍有效的条款和行为节点；旧通知开放、预约、截止、评审、固定内容分类、营业与料理等退役断言已从规范登记移除。app 推送、内容进度、分配内容实际工时及七层工具合同改指[资源与规则简化映射](#analysis-spec-coverage-资源与规则简化映射)，历史执行数字不继承为当前通过。
 
-当期登记共有 347 个唯一源码或测试节点，排序后摘要为 `0d1ee8f73939cd87754fd48a3290a645ffce8d5204d20080d856103fe8a11ffe`。以下是完整登记；本表只证明登记与本树节点闭合，不声称后续阶段或执行门禁通过。
+机器登记：`tests/dayrun_fidelity_acceptance.py::LEDGER`；完整性守卫：`tests/test_dayrun_fidelity_acceptance.py`。
 
-- `custom/agents/life_agent.py`
-- `custom/envs/life_env.py`
-- `scripts/probe_deepseek_strict.py`
-- `scripts/render_day.py`
-- `src/worldmock/agents/life_feedback.py`
-- `src/worldmock/agents/life_memory.py`
-- `src/worldmock/agents/life_prompt.py`
-- `src/worldmock/agents/life_truncation.py`
-- `src/worldmock/evaluation/goal_metrics.py`
-- `src/worldmock/evaluation/public_evidence.py`
-- `src/worldmock/footprints/purchases.py`
-- `src/worldmock/footprints/quality.py`
-- `src/worldmock/footprints/timeline_labels.py`
-- `src/worldmock/life/activities.py`
-- `src/worldmock/life/activity_control.py`
-- `src/worldmock/life/activity_titles.py`
-- `src/worldmock/life/admission.py`
-- `src/worldmock/life/basket.py`
-- `src/worldmock/life/body.py`
-- `src/worldmock/life/callable_index.py`
-- `src/worldmock/life/candidates.py`
-- `src/worldmock/life/contact_exchange.py`
-- `src/worldmock/life/content.py`
-- `src/worldmock/life/control_items.py`
-- `src/worldmock/life/day_plan_inputs.py`
-- `src/worldmock/life/day_planning.py`
-- `src/worldmock/life/engine.py`
-- `src/worldmock/life/environment_layer.py`
-- `src/worldmock/life/error_contract.py`
-- `src/worldmock/life/felt.py`
-- `src/worldmock/life/guidance.py`
-- `src/worldmock/life/interaction_menu.py`
-- `src/worldmock/life/load_checks.py`
-- `src/worldmock/life/memory_evidence.py`
-- `src/worldmock/life/memory_layer.py`
-- `src/worldmock/life/models.py`
-- `src/worldmock/life/name_resolution.py`
-- `src/worldmock/life/named_purchase.py`
-- `src/worldmock/life/narration.py`
-- `src/worldmock/life/object_labels.py`
-- `src/worldmock/life/observe.py`
-- `src/worldmock/life/order_routing.py`
-- `src/worldmock/life/presentation.py`
-- `src/worldmock/life/progress_layer.py`
-- `src/worldmock/life/projection.py`
-- `src/worldmock/life/prompt_capacity.py`
-- `src/worldmock/life/prompt_schemas.py`
-- `src/worldmock/life/purchase_offers.py`
-- `src/worldmock/life/readable.py`
-- `src/worldmock/life/relevance.py`
-- `src/worldmock/life/reply_guard.py`
-- `src/worldmock/life/result_projection.py`
-- `src/worldmock/life/rhythm.py`
-- `src/worldmock/life/rotation.py`
-- `src/worldmock/life/routing.py`
-- `src/worldmock/life/same_moment.py`
-- `src/worldmock/life/scenario.py`
-- `src/worldmock/life/schedule.py`
-- `src/worldmock/life/semantics.py`
-- `src/worldmock/life/session_actions.py`
-- `src/worldmock/life/settled_text.py`
-- `src/worldmock/life/sleep.py`
-- `src/worldmock/life/social.py`
-- `src/worldmock/life/storefront_runtime.py`
-- `src/worldmock/life/todo_layer.py`
-- `src/worldmock/life/tool_layer.py`
-- `src/worldmock/life/wayfinding.py`
-- `src/worldmock/life/work.py`
-- `src/worldmock/model_endpoint.py`
-- `src/worldmock/profile/__init__.py`
-- `src/worldmock/profile/coverage.py`
-- `src/worldmock/profile/extractor.py`
-- `src/worldmock/profile/injection.py`
-- `src/worldmock/runtime.py`
-- `src/worldmock/validation.py`
-- `tests/acceptance_guard.py`
-- `tests/dayrun_fidelity_acceptance.py`
-- `tests/evaluation/test_goal_metrics.py::test_changing_only_the_around_time_keeps_the_instance_and_moves_its_window`
-- `tests/evaluation/test_goal_metrics.py::test_goal_with_an_around_time_counts_only_activity_that_ran_near_it`
-- `tests/evaluation/test_goal_metrics.py::test_routine_goals_are_reported_apart_from_the_progress_ratio`
-- `tests/footprints/test_goal_export.py::test_exported_quality_counts_only_non_routine_goals_and_agrees_with_engine_progress`
-- `tests/footprints/test_purchases.py`
-- `tests/footprints/test_purchases.py::test_actual_order_facts_preserve_food_store_app_and_fixed_money`
-- `tests/footprints/test_quality.py`
-- `tests/footprints/test_quality.py::test_contact_reply_guard_counts_attempts_and_replies_without_evidence_separately`
-- `tests/footprints/test_quality.py::test_input_warnings_section_counts_the_frozen_manifest_warnings`
-- `tests/footprints/test_quality.py::test_memory_quality_reads_current_control_items_and_structured_errors`
-- `tests/footprints/test_quality.py::test_name_rejections_are_counted_apart_from_other_protocol_errors`
-- `tests/footprints/test_quality.py::test_report_sections_are_the_documented_grouping_without_a_language_count`
-- `tests/footprints/test_quality.py::test_timeline_labels_count_english_kind_names_and_internal_ids_in_the_rendered_timeline`
-- `tests/footprints/test_quality.py::test_timeline_labels_count_hexadecimal_and_hash_identifiers_as_internal_ids`
-- `tests/footprints/test_quality.py::test_truncation_tokens_missing_from_a_response_stay_unknown_instead_of_zero`
-- `tests/footprints/test_quality.py::test_truncations_count_length_responses_with_their_output_and_reasoning_tokens`
-- `tests/footprints/test_quality.py::test_truncations_match_the_recorded_day_runs`
-- `tests/footprints/test_render_day.py::test_real_biz_run_rows_name_the_calls_and_the_work_task`
-- `tests/footprints/test_render_day.py::test_unresolvable_targets_show_only_the_chinese_kind_name`
-- `tests/footprints/test_render_day.py::test_work_call_and_chat_rows_name_the_task_contact_and_person`
-- `tests/integration/test_activity_schema.py::test_all_action_tools_use_closed_strict_schemas_from_one_model`
-- `tests/integration/test_activity_schema.py::test_control_summaries_are_limited_to_500_characters_by_the_local_check`
-- `tests/integration/test_activity_schema.py::test_control_tool_fields_carry_format_and_source_descriptions`
-- `tests/integration/test_activity_schema.py::test_start_activity_uses_readable_frozen_objects_and_paired_actions`
-- `tests/integration/test_conclude_memories.py::test_conclusion_memory_limits_accept_the_boundaries`
-- `tests/integration/test_conclude_memories.py::test_conclusion_memory_limits_are_protocol_errors_retried_in_the_same_decision`
-- `tests/integration/test_conclude_memories.py::test_conclusion_sources_are_registered_by_the_system`
-- `tests/integration/test_conclude_memories.py::test_views_persist_as_memories_byte_identical_to_the_subject_shape`
-- `tests/integration/test_host_feedback.py`
-- `tests/integration/test_host_feedback.py::test_a_candidate_submitted_verbatim_is_accepted_through_the_host_and_the_engine`
-- `tests/integration/test_host_feedback.py::test_a_second_item_failing_is_reported_at_index_one_with_fill_in_candidates`
-- `tests/integration/test_host_feedback.py::test_a_view_about_an_unknown_person_in_the_second_item_is_reported_at_index_one`
-- `tests/integration/test_host_feedback.py::test_all_name_errors_are_reported_and_other_conditions_report_the_first`
-- `tests/integration/test_host_feedback.py::test_an_unknown_activity_name_does_not_hide_an_unknown_view_in_another_item`
-- `tests/integration/test_host_feedback.py::test_argument_errors_are_written_per_field_without_any_validation_dump`
-- `tests/integration/test_host_feedback.py::test_each_host_code_has_a_concrete_reason_through_the_host`
-- `tests/integration/test_host_feedback.py::test_every_unknown_relationship_view_is_reported_at_its_own_item`
-- `tests/integration/test_host_feedback.py::test_feedback_rejects_bare_strings_instead_of_reconstructing_positions`
-- `tests/integration/test_host_feedback.py::test_feedback_structure_survives_copying_and_evidence_stays_a_plain_string`
-- `tests/integration/test_host_feedback.py::test_protocol_feedback_is_the_shared_structure_with_the_fixed_instruction`
-- `tests/integration/test_input_warnings.py`
-- `tests/integration/test_input_warnings.py::test_a_conflicting_scenario_window_keeps_the_card_value_and_is_frozen_as_a_conflict`
-- `tests/integration/test_input_warnings.py::test_a_scenario_declaring_only_the_midpoint_changes_only_the_midpoint_in_the_request`
-- `tests/integration/test_input_warnings.py::test_body_settlement_day_plan_inputs_and_the_persona_layer_read_the_same_rhythm`
-- `tests/integration/test_input_warnings.py::test_empty_warning_uses_real_app_content_bindings_and_keeps_offline_action_names`
-- `tests/integration/test_input_warnings.py::test_restore_verifies_the_frozen_card_rhythm_against_the_scenario`
-- `tests/integration/test_input_warnings.py::test_run_creation_freezes_input_warnings_into_the_manifest_ops_log_and_quality_report`
-- `tests/integration/test_input_warnings.py::test_runtime_warning_caller_logs_and_freezes_all_six_codes`
-- `tests/integration/test_input_warnings.py::test_validate_prints_the_same_warnings_the_run_froze`
-- `tests/integration/test_input_warnings.py::test_validate_still_fails_below_the_coverage_threshold_after_printing_the_warnings`
-- `tests/integration/test_output_truncation.py`
-- `tests/integration/test_output_truncation.py::test_a_rejected_retry_turn_is_dropped_so_a_continued_decision_keeps_every_thought`
-- `tests/integration/test_output_truncation.py::test_a_retry_still_without_a_tool_call_follows_the_turn_budget`
-- `tests/integration/test_output_truncation.py::test_a_retry_that_is_truncated_again_is_not_retried_again`
-- `tests/integration/test_output_truncation.py::test_a_truncated_turn_is_dropped_and_retried_once_without_thinking`
-- `tests/integration/test_output_truncation.py::test_a_truncation_in_a_continued_decision_leaves_the_chain_prefix_untouched`
-- `tests/integration/test_output_truncation.py::test_a_world_request_from_the_retry_ends_the_decision_and_breaks_the_same_second_chain`
-- `tests/integration/test_output_truncation.py::test_identical_corrections_replace_each_other_across_consecutive_truncations`
-- `tests/integration/test_output_truncation.py::test_only_a_reply_that_ran_out_while_thinking_is_a_truncation`
-- `tests/integration/test_output_truncation.py::test_readonly_questions_keep_their_parameters_and_a_truncated_answer_is_retried_with_finish_only`
-- `tests/integration/test_output_truncation.py::test_the_exported_quality_report_counts_the_truncations_the_run_recorded`
-- `tests/integration/test_persona_profile.py::test_initial_agent_state_and_profile_do_not_keep_numeric_tastes`
-- `tests/integration/test_persona_profile.py::test_restored_persona_profile_rejects_retired_taste_weights`
-- `tests/integration/test_presentation_habits.py`
-- `tests/integration/test_presentation_habits.py::test_run_creation_freezes_habit_responses_and_ranks_the_hit_entry_first`
-- `tests/integration/test_run_manifest.py::test_engine_direct_runs_keep_input_warnings_null_and_unrecorded`
-- `tests/integration/test_runtime.py::test_agent_specs_inject_compiled_persona_card_text`
-- `tests/integration/test_runtime.py::test_model_identity_freezes_complete_strict_endpoint_and_request`
-- `tests/integration/test_seven_layer_request.py::test_callable_index_rides_in_the_tool_layer_and_counts_toward_capacity`
-- `tests/integration/test_seven_layer_request.py::test_felt_bands_named_by_the_rules_are_the_felt_band_texts`
-- `tests/integration/test_seven_layer_request.py::test_prompt_fingerprint_binds_the_callable_index_schema`
-- `tests/integration/test_seven_layer_request.py::test_recorded_prompt_fingerprint_is_recomputed_from_the_eighteen_rules_and_the_around_time_schema`
-- `tests/integration/test_seven_layer_request.py::test_rule_14_makes_the_routine_the_default_and_the_day_plan_override_it`
-- `tests/integration/test_seven_layer_request.py::test_system_layers_are_the_contract_registration_verbatim`
-- `tests/integration/test_seven_layer_request.py::test_the_system_layer_asks_for_no_particular_language`
-- `tests/integration/test_storefront_tools.py`
-- `tests/integration/test_storefront_tools.py::test_real_goods_targets_validate_against_the_production_tool_layer_schema`
-- `tests/integration/test_storefront_tools.py::test_retired_browse_activity_request_is_strictly_rejected`
-- `tests/integration/test_strict_endpoint.py`
-- `tests/integration/test_strict_endpoint.py::test_resume_refuses_a_parent_run_frozen_on_the_main_site`
-- `tests/integration/test_strict_endpoint.py::test_validate_checks_a_stage_identity_on_the_strict_endpoint`
-- `tests/integration/test_strict_endpoint.py::test_validate_refuses_the_main_site`
-- `tests/life/purchase_worlds.py`
-- `tests/life/test_action_run.py`
-- `tests/life/test_action_run.py::test_category_effects_and_met_are_fixed_not_content_types`
-- `tests/life/test_action_run.py::test_exercise_location_rule_is_shared_with_rule_engine`
-- `tests/life/test_activity_title_embedding.py::test_action_and_content_titles_are_carried_into_actual_activity_events`
-- `tests/life/test_app_progress.py`
-- `tests/life/test_callable_index.py`
-- `tests/life/test_callable_index.py::test_every_goods_index_example_resolves_to_the_actual_fixed_menu`
-- `tests/life/test_candidates.py::test_actual_world_constraints_are_reported`
-- `tests/life/test_candidates.py::test_candidates_and_cursor_are_deterministic`
-- `tests/life/test_candidates.py::test_relevance_changes_order_without_changing_membership`
-- `tests/life/test_commerce.py`
-- `tests/life/test_commerce.py::test_delivery_receives_at_due_time_even_after_recipient_moves`
-- `tests/life/test_commerce.py::test_insufficient_funds_rejects_entire_order_before_receipt`
-- `tests/life/test_commerce.py::test_purchase_rejection_is_atomic_with_exact_code`
-- `tests/life/test_commerce.py::test_self_delivery_during_travel_is_refused_before_payment`
-- `tests/life/test_commerce.py::test_store_purchase_settles_energy_and_receipt_once_in_the_payment_result`
-- `tests/life/test_commerce.py::test_two_goods_rows_pay_one_delivery_fee_and_one_transfer`
-- `tests/life/test_contact_reply_guard.py`
-- `tests/life/test_contact_reply_guard.py::test_contract_registers_the_template_guard_closed_set_and_fallback_verbatim`
-- `tests/life/test_contact_reply_guard.py::test_each_incoming_message_gets_one_reply_event_even_after_a_retry`
-- `tests/life/test_contact_reply_guard.py::test_each_registered_alternative_catches_its_short_form`
-- `tests/life/test_contact_reply_guard.py::test_fallback_reply_appears_only_when_both_attempts_hit`
-- `tests/life/test_contact_reply_guard.py::test_overreach_reply_is_retried_once_in_the_same_settlement`
-- `tests/life/test_contact_reply_guard.py::test_quality_report_counts_guard_hits_retries_and_fallbacks`
-- `tests/life/test_contact_reply_guard.py::test_real_harmless_reply_passes_the_guard`
-- `tests/life/test_contact_reply_guard.py::test_real_overreach_reply_hits_its_registered_categories`
-- `tests/life/test_contact_reply_guard.py::test_reply_request_carries_sender_name_now_presence_and_receive_location`
-- `tests/life/test_contact_reply_guard.py::test_samples_cover_every_category_and_the_fallback_passes`
-- `tests/life/test_control_items.py`
-- `tests/life/test_control_items.py::test_current_requests_preserve_each_items_content_and_order`
-- `tests/life/test_control_items.py::test_current_shape_items_carry_views_as_subject_memories`
-- `tests/life/test_control_items.py::test_readers_project_current_items_events_consistently`
-- `tests/life/test_control_items.py::test_recorded_parallel_array_requests_are_rejected`
-- `tests/life/test_control_items.py::test_unrecognised_or_malformed_requests_fail_as_integrity_errors`
-- `tests/life/test_control_name_rejections.py`
-- `tests/life/test_control_name_rejections.py::test_a_known_and_an_unknown_name_report_only_the_unknown_second_item`
-- `tests/life/test_control_name_rejections.py::test_a_resolved_name_that_is_not_the_persons_activity_is_refused_without_items`
-- `tests/life/test_control_name_rejections.py::test_an_ambiguous_and_an_unknown_name_are_reported_with_their_own_codes`
-- `tests/life/test_control_name_rejections.py::test_the_restricted_round_recheck_reports_every_unknown_name_too`
-- `tests/life/test_control_name_rejections.py::test_two_unknown_activity_names_are_both_reported_in_one_rejection`
-- `tests/life/test_coverage_closure_models.py::test_model_identity_accepts_only_the_configured_deepseek_endpoint`
-- `tests/life/test_coverage_closure_projection.py::test_continuation_pages_follow_the_cursor_without_a_rotation_offset`
-- `tests/life/test_day_plan.py::test_around_time_is_required_nullable_hh_mm_and_needs_no_later_than_now`
-- `tests/life/test_day_plan.py::test_around_time_skips_a_goal_outside_its_window_and_needs_the_actual_start`
-- `tests/life/test_day_plan.py::test_empty_plan_is_registered_once_and_can_be_revised`
-- `tests/life/test_day_plan.py::test_progress_with_an_around_time_requires_the_activity_to_run_near_it`
-- `tests/life/test_day_plan.py::test_revision_compares_four_fields_and_changing_only_around_keeps_registration`
-- `tests/life/test_day_plan.py::test_routine_intents_are_the_four_routine_kinds_of_the_closed_set`
-- `tests/life/test_day_planning.py::test_plan_template_is_the_contract_text_and_asks_only_for_differences_with_around_times`
-- `tests/life/test_day_planning.py::test_revision_carries_around_time_and_changing_only_it_keeps_registration`
-- `tests/life/test_day_planning.py::test_wake_time_noted_at_conclusion_still_becomes_a_reminder_that_ends_the_sleep`
-- `tests/life/test_day_planning.py::test_zero_hour_plan_items_carry_around_time_and_a_malformed_one_is_retried`
-- `tests/life/test_discomfort_and_sleep_messages.py`
-- `tests/life/test_discomfort_and_sleep_messages.py::test_a_round_observed_while_asleep_marks_no_message_read`
-- `tests/life/test_discomfort_and_sleep_messages.py::test_discomfort_counts_only_the_hungry_and_sleepy_bands`
-- `tests/life/test_discomfort_and_sleep_messages.py::test_each_boundary_is_billed_only_for_its_new_hours_past_the_threshold`
-- `tests/life/test_discomfort_and_sleep_messages.py::test_hunger_pulse_starts_after_two_hours_and_bills_only_what_it_applies`
-- `tests/life/test_discomfort_and_sleep_messages.py::test_messages_delivered_during_sleep_are_read_at_the_first_boundary_after_waking`
-- `tests/life/test_discomfort_and_sleep_messages.py::test_the_boundary_decision_segment_reads_no_message_while_asleep`
-- `tests/life/test_engine_feedback.py::test_business_rejection_is_reported_in_progress_and_run_continues`
-- `tests/life/test_error_contract.py`
-- `tests/life/test_error_contract.py::test_goods_rejection_reason_is_the_declared_exact_text`
-- `tests/life/test_error_contract.py::test_retired_food_and_store_rejection_codes_have_no_default`
-- `tests/life/test_felt_states.py::TestMood::test_discomfort_pulse_is_linear_in_billed_hours`
-- `tests/life/test_felt_states.py::test_sleepiness_band_names_and_count_are_unchanged`
-- `tests/life/test_felt_states.py::test_sleepiness_level_boundaries`
-- `tests/life/test_food_presentation.py`
-- `tests/life/test_food_presentation.py::test_actual_menu_sources_are_activated_and_never_claim_browse_history`
-- `tests/life/test_food_presentation.py::test_goods_exposure_stamps_are_shared_by_goods_id_across_stores`
-- `tests/life/test_food_presentation.py::test_product_targets_use_current_store_or_real_delivery_apps`
-- `tests/life/test_food_presentation.py::test_real_food_candidates_page_without_gaps_using_the_actual_order_key`
-- `tests/life/test_goal_around_time.py`
-- `tests/life/test_goal_around_time.py::test_a_lunch_goal_around_noon_is_progressed_by_an_actual_receipt_inside_the_window`
-- `tests/life/test_goal_around_time.py::test_morning_app_use_does_not_progress_an_evening_entertainment_goal`
-- `tests/life/test_goal_around_time.py::test_sleep_begun_before_midnight_does_not_progress_a_sleep_goal_around_2330`
-- `tests/life/test_interaction_menu_invariants.py::test_selection_resolves_exact_action_and_way_synonym_and_menu_judges_canonical_actions`
-- `tests/life/test_load_checks.py`
-- `tests/life/test_load_checks.py::test_registered_branch_labels_make_selected_locations_distinguishable`
-- `tests/life/test_load_checks.py::test_registered_duplicate_location_display_names_are_rejected`
-- `tests/life/test_memory_evidence.py::test_write_points_read_current_control_items`
-- `tests/life/test_name_resolution.py`
-- `tests/life/test_name_resolution.py::test_location_home_and_current_ways_are_normalized_without_app_guess`
-- `tests/life/test_name_resolution.py::test_registered_action_name_is_exact_and_app_is_not_an_activity_target`
-- `tests/life/test_named_purchase.py`
-- `tests/life/test_named_purchase.py::test_named_purchase_rejects_unknown_goods_and_unbound_apps_atomically`
-- `tests/life/test_named_purchase.py::test_offers_choose_earliest_arrival_then_store_identity`
-- `tests/life/test_named_purchase.py::test_onsite_name_purchase_has_no_app_and_guidance_uses_real_places`
-- `tests/life/test_parallel_admission.py::test_malformed_request_gets_the_default_reason_without_the_validation_text`
-- `tests/life/test_persona_layer.py::test_persona_card_struct_is_saved_on_new_runs_and_validated_on_restore`
-- `tests/life/test_persona_layer.py::test_subject_is_required_for_relationship_and_preference_and_stripped_before_memory`
-- `tests/life/test_persona_upgrade.py::test_memory_view_identity_uses_the_card_text_or_the_scenario_persona_fields`
-- `tests/life/test_progress_events.py::test_conclude_arguments_omit_relationship_and_preference_memories`
-- `tests/life/test_progress_layer_projection.py::test_activity_control_takes_one_object_per_activity`
-- `tests/life/test_prompt_layers.py::test_callable_index_schema_takes_names_counts_and_up_to_three_examples`
-- `tests/life/test_prompt_layers.py::test_current_goods_presentation_order_version_is_three`
-- `tests/life/test_prompt_layers.py::test_schema_enums_are_literal_copies_of_the_source_closed_sets`
-- `tests/life/test_purchase_apps.py`
-- `tests/life/test_purchase_apps.py::test_delivery_to_other_person_uses_their_current_receiving_location`
-- `tests/life/test_purchase_apps.py::test_unbound_app_refuses_with_exact_reason_and_bound_app_next_step`
-- `tests/life/test_purchase_stages.py`
-- `tests/life/test_purchase_stages.py::test_explicit_app_excludes_a_closer_unbound_store`
-- `tests/life/test_purchase_stages.py::test_named_app_null_selects_only_the_actual_present_store`
-- `tests/life/test_readable.py::test_chinese_kind_tables_have_a_single_source`
-- `tests/life/test_relevance.py`
-- `tests/life/test_relevance.py::test_actual_goods_window_uses_frozen_habit_relevance`
-- `tests/life/test_relevance.py::test_product_habit_relevance_uses_name_or_category_without_double_counting`
-- `tests/life/test_rotation.py::test_bound_holds_per_partition_regardless_of_other_partitions`
-- `tests/life/test_rotation.py::test_equally_stale_members_are_released_in_order_key_order`
-- `tests/life/test_rotation.py::test_quota_goes_to_the_longest_unpresented_members_first`
-- `tests/life/test_rotation.py::test_quota_is_capped_by_subtype_count_only_not_by_tag_similarity`
-- `tests/life/test_rotation.py::test_rotation_criterion_is_last_presented_at_not_exposure_count`
-- `tests/life/test_rotation.py::test_rotation_has_no_cursor_and_depends_only_on_the_stamps`
-- `tests/life/test_rotation.py::test_worst_case_unpresented_interval_is_bounded_by_exact_form`
-- `tests/life/test_same_moment_decisions.py::test_contact_reply_arrival_filtered_during_sleep`
-- `tests/life/test_same_moment_decisions.py::test_same_second_rounds_keep_presentation_window_and_rotation`
-- `tests/life/test_same_moment_decisions.py::test_sleeping_recipient_is_not_woken_by_person_message`
-- `tests/life/test_scenario.py::test_runtime_agents_keep_the_declared_rhythm_fields`
-- `tests/life/test_scenario.py::test_structure_eight_rejects_body_and_message_retired_fields`
-- `tests/life/test_semantics.py::test_energy_thresholds_come_from_worldmock_body_constants`
-- `tests/life/test_sleep_billing.py`
-- `tests/life/test_sleep_billing.py::test_a_call_ending_at_the_boundary_is_billed_once_by_the_call_ledger`
-- `tests/life/test_sleep_billing.py::test_first_awake_interval_after_waking_accrues_a_quarter_hour`
-- `tests/life/test_sleep_billing.py::test_ledger_without_a_draft_falls_back_to_activities_ending_now`
-- `tests/life/test_sleep_billing.py::test_sleep_completing_at_a_boundary_leaves_social_need_unchanged`
-- `tests/life/test_sleep_billing.py::test_sleep_ended_early_by_a_reminder_leaves_social_need_unchanged`
-- `tests/life/test_sleep_billing.py::test_social_ledger_awake_classification_follows_the_settlement_activity_ids`
-- `tests/life/test_sleep_two_process.py::TestAnchorTrajectory::test_anchor_trajectory_reads_awake_awake_tired_sleepy`
-- `tests/life/test_sleep_two_process.py::TestAnchorTrajectory::test_band_onsets_under_the_default_assumption`
-- `tests/life/test_sleep_two_process.py::TestSleepinessCrossingPrediction::test_prediction_from_current_pressure_is_not_later_than_actual`
-- `tests/life/test_sleep_two_process.py::TestSleepinessGradeBands::test_band_edges_sit_on_the_kss_equivalent_cuts`
-- `tests/life/test_sleep_two_process.py::TestSleepinessGradeBands::test_grade_boundaries`
-- `tests/life/test_sleep_two_process.py::TestSleepinessGradeBands::test_sleep_grades_and_felt_bands_are_one_table`
-- `tests/life/test_sleep_two_process.py::TestWeekdaySteadyStateOnsets::test_band_onsets_match_the_spec`
-- `tests/life/test_sleep_two_process.py::TestWeekdaySteadyStateOnsets::test_the_same_steady_state_reproduces_the_retired_edges_row`
-- `tests/life/test_sleep_two_process.py::TestWeekdaySteadyStateOnsets::test_weekday_sleep_against_the_declared_need`
-- `tests/life/test_timeline_labels.py`
-- `tests/life/test_timeline_labels.py::test_exported_timeline_names_chats_calls_and_work_in_chinese`
-- `tests/life/test_todo_layer.py::test_day_plan_lists_eight_goals_in_plan_order_with_progress_and_reminders`
-- `tests/life/test_tool_layer.py`
-- `tests/life/test_tool_layer.py::test_all_registered_actions_listed_with_explicit_apps_and_no_app_targets`
-- `tests/life/test_tool_layer.py::test_empty_action_tool_reason_matches_actual_content_exhaustion`
-- `tests/life/test_tool_protocol.py::test_deleted_activity_fields_are_rejected`
-- `tests/life/test_wayfinding.py`
-- `tests/life/test_wayfinding.py::test_discovery_quotes_the_same_graph_trip_without_old_route_fields`
-- `tests/life/test_wayfinding.py::test_go_step_directly_names_the_destination_even_for_a_multi_hop_path`
-- `tests/profile/test_coverage.py::test_app_name_substrings_no_longer_count_as_coverage_hits`
-- `tests/profile/test_extractor.py::test_request_payload_shape`
-- `tests/profile/test_injection.py`
-- `tests/profile/test_injection.py::test_coverage_below_threshold_reuses_the_validate_report`
-- `tests/profile/test_injection.py::test_empty_content_warns_for_media_and_habits_only`
-- `tests/profile/test_injection.py::test_frozen_warnings_keep_the_closed_shape_and_null_means_not_computed`
-- `tests/profile/test_injection.py::test_only_explicitly_declared_fields_are_overridden`
-- `tests/profile/test_injection.py::test_out_of_order_window_keeps_the_card_value_and_records_a_conflict`
-- `tests/profile/test_injection.py::test_persona_compiler_agreement_warnings_are_passed_through`
-- `tests/profile/test_injection.py::test_suspicious_display_names_are_reported_only_for_coordinates_and_identifiers`
-- `tests/profile/test_injection.py::test_the_warning_code_set_is_the_closed_six`
-- `tests/profile/test_injection.py::test_unrepresentable_and_after_midnight_windows`
-- `tests/profile/test_injection.py::test_values_are_quantised_to_the_card_grid`
-- `tests/profile/test_injection.py::test_wc_scenario_rhythm_overrides_the_extracted_card_values`
-- `tests/profile/test_injection.py::test_windows_that_only_fit_together_are_both_applied_and_the_result_is_a_fixed_point`
-- `tests/test_coverage_gate.py::test_branch_pass_and_fail_states`
-- `tests/test_coverage_gate.py::test_uncovered_public_interface_detection`
-- `tests/test_dayrun_fidelity_acceptance.py`
-- `tests/test_dayrun_fidelity_acceptance.py::test_anchored_links_in_docs_point_to_existing_headings`
-- `tests/test_dayrun_fidelity_acceptance.py::test_docs_carry_no_pending_markers_of_this_feature`
-- `tests/test_design_doc_build.py::test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current`
-- `tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve`
-- `tests/test_probe_deepseek_strict.py`
-- `tests/test_probe_deepseek_strict.py::test_argument_value_reads_one_key_of_the_named_call`
-- `tests/test_probe_deepseek_strict.py::test_conclusions_need_the_specific_outcomes_not_just_any_failure`
-- `tests/test_probe_deepseek_strict.py::test_default_transport_posts_json_and_records_failures`
-- `tests/test_probe_deepseek_strict.py::test_enum_violations_count_invalid_json_and_keep_missing_calls_and_failures_apart`
-- `tests/test_probe_deepseek_strict.py::test_host_rejection_is_separate_from_shape_errors`
-- `tests/test_probe_deepseek_strict.py::test_main_reads_the_worldmock_key_pool_prints_and_writes_the_report`
-- `tests/test_probe_deepseek_strict.py::test_main_reports_a_missing_key_without_sending_requests`
-- `tests/test_probe_deepseek_strict.py::test_report_sends_every_probe_request_and_classifies_the_results`
-- `tests/test_probe_deepseek_strict.py::test_requests_use_the_host_conclude_tool_and_stage_parameters`
-- `tests/test_probe_deepseek_strict.py::test_strict_probe_functions_bypass_the_local_schema_check`
-- `tests/test_probe_deepseek_strict.py::test_strict_response_outcomes`
-- `tests/test_probe_deepseek_strict.py::test_tool_call_classification_edges`
-- `tests/test_start_activity_contract.py::test_control_requests_pair_each_task_with_its_summary`
-- `tests/test_start_activity_contract.py::test_start_activity_schema_rejects_model_supplied_calculation`
-- `tests/test_start_activity_contract.py::test_unresolvable_selection_keeps_exact_name_or_way_error`
-- `tests/test_start_activity_contract.py::test_ways_vocabulary_maps_each_way_to_exactly_one_life_verb`
-- `tests/test_style_gate.py::test_style_gate_admits_no_new_violations`
-- `tests/tools/test_run_viewer.py::test_run_viewer_recorded_names`
-- `tools/run-viewer.html`
+| 契约主题 | 实际行为或门禁节点 | 当前证据边界 |
+| --- | --- | --- |
+| 睡眠计费 | `tests/life/test_sleep_billing.py::test_sleep_completing_at_a_boundary_leaves_social_need_unchanged`<br>`tests/life/test_sleep_billing.py::test_sleep_ended_early_by_a_reminder_leaves_social_need_unchanged`<br>`tests/life/test_sleep_billing.py::test_first_awake_interval_after_waking_accrues_a_quarter_hour`<br>`tests/life/test_sleep_billing.py::test_social_ledger_awake_classification_follows_the_settlement_activity_ids`<br>`tests/life/test_sleep_billing.py::test_a_call_ending_at_the_boundary_is_billed_once_by_the_call_ledger`<br>`tests/life/test_sleep_billing.py::test_ledger_without_a_draft_falls_back_to_activities_ending_now` | 已登记到实际定义；执行结论取本次回执 |
+| 身体旧字段退役与固定常数 | `tests/life/test_scenario.py::test_structure_eight_rejects_body_and_message_retired_fields`<br>`tests/life/test_semantics.py::test_energy_thresholds_come_from_worldmock_body_constants` | 资源与规则引擎简化阶段 1：旧偏好下限场景字段拒绝，身体阈值来自 WorldMock 常数；实际执行以本阶段回执为准 |
+| 输入警告 | `tests/profile/test_injection.py::test_the_warning_code_set_is_the_closed_six`<br>`tests/profile/test_injection.py::test_empty_content_warns_for_media_and_habits_only`<br>`tests/profile/test_injection.py::test_coverage_below_threshold_reuses_the_validate_report`<br>`tests/profile/test_injection.py::test_wc_scenario_rhythm_overrides_the_extracted_card_values`<br>`tests/profile/test_injection.py::test_out_of_order_window_keeps_the_card_value_and_records_a_conflict`<br>`tests/profile/test_injection.py::test_persona_compiler_agreement_warnings_are_passed_through`<br>`tests/profile/test_injection.py::test_suspicious_display_names_are_reported_only_for_coordinates_and_identifiers`<br>`tests/integration/test_input_warnings.py::test_empty_warning_uses_real_app_content_bindings_and_keeps_offline_action_names`<br>`tests/integration/test_input_warnings.py::test_runtime_warning_caller_logs_and_freezes_all_six_codes`<br>`tests/profile/test_injection.py::test_frozen_warnings_keep_the_closed_shape_and_null_means_not_computed`<br>`tests/integration/test_input_warnings.py::test_run_creation_freezes_input_warnings_into_the_manifest_ops_log_and_quality_report`<br>`tests/integration/test_input_warnings.py::test_validate_prints_the_same_warnings_the_run_froze`<br>`tests/integration/test_input_warnings.py::test_validate_still_fails_below_the_coverage_threshold_after_printing_the_warnings`<br>`tests/footprints/test_quality.py::test_input_warnings_section_counts_the_frozen_manifest_warnings`<br>`tests/integration/test_run_manifest.py::test_engine_direct_runs_keep_input_warnings_null_and_unrecorded`<br>`tests/profile/test_coverage.py::test_app_name_substrings_no_longer_count_as_coverage_hits` | 已登记到实际定义；执行结论取本次回执 |
+| 困意档界 | `tests/life/test_felt_states.py::test_sleepiness_band_names_and_count_are_unchanged`<br>`tests/life/test_felt_states.py::test_sleepiness_level_boundaries`<br>`tests/life/test_sleep_two_process.py::TestSleepinessGradeBands::test_grade_boundaries`<br>`tests/life/test_sleep_two_process.py::TestSleepinessGradeBands::test_sleep_grades_and_felt_bands_are_one_table`<br>`tests/life/test_sleep_two_process.py::TestSleepinessGradeBands::test_band_edges_sit_on_the_kss_equivalent_cuts`<br>`tests/life/test_sleep_two_process.py::TestWeekdaySteadyStateOnsets::test_band_onsets_match_the_spec`<br>`tests/life/test_sleep_two_process.py::TestWeekdaySteadyStateOnsets::test_the_same_steady_state_reproduces_the_retired_edges_row`<br>`tests/life/test_sleep_two_process.py::TestWeekdaySteadyStateOnsets::test_weekday_sleep_against_the_declared_need`<br>`tests/life/test_sleep_two_process.py::TestAnchorTrajectory::test_anchor_trajectory_reads_awake_awake_tired_sleepy`<br>`tests/life/test_sleep_two_process.py::TestAnchorTrajectory::test_band_onsets_under_the_default_assumption`<br>`tests/life/test_sleep_two_process.py::TestSleepinessCrossingPrediction::test_prediction_from_current_pressure_is_not_later_than_actual` | 已登记到实际定义；执行结论取本次回执 |
+| 不适脉冲与消息 | `tests/life/test_discomfort_and_sleep_messages.py::test_hunger_pulse_starts_after_two_hours_and_bills_only_what_it_applies`<br>`tests/life/test_discomfort_and_sleep_messages.py::test_each_boundary_is_billed_only_for_its_new_hours_past_the_threshold`<br>`tests/life/test_discomfort_and_sleep_messages.py::test_discomfort_counts_only_the_hungry_and_sleepy_bands`<br>`tests/life/test_discomfort_and_sleep_messages.py::test_messages_delivered_during_sleep_are_read_at_the_first_boundary_after_waking`<br>`tests/life/test_discomfort_and_sleep_messages.py::test_the_boundary_decision_segment_reads_no_message_while_asleep`<br>`tests/life/test_discomfort_and_sleep_messages.py::test_a_round_observed_while_asleep_marks_no_message_read`<br>`tests/life/test_felt_states.py::TestMood::test_discomfort_pulse_is_linear_in_billed_hours`<br>`tests/life/test_same_moment_decisions.py::test_sleeping_recipient_is_not_woken_by_person_message`<br>`tests/life/test_same_moment_decisions.py::test_contact_reply_arrival_filtered_during_sleep` | 已登记到实际定义；执行结论取本次回执 |
+| 场景作息 | `tests/profile/test_injection.py::test_only_explicitly_declared_fields_are_overridden`<br>`tests/profile/test_injection.py::test_wc_scenario_rhythm_overrides_the_extracted_card_values`<br>`tests/profile/test_injection.py::test_out_of_order_window_keeps_the_card_value_and_records_a_conflict`<br>`tests/profile/test_injection.py::test_values_are_quantised_to_the_card_grid`<br>`tests/profile/test_injection.py::test_windows_that_only_fit_together_are_both_applied_and_the_result_is_a_fixed_point`<br>`tests/profile/test_injection.py::test_unrepresentable_and_after_midnight_windows`<br>`tests/integration/test_input_warnings.py::test_a_scenario_declaring_only_the_midpoint_changes_only_the_midpoint_in_the_request`<br>`tests/integration/test_input_warnings.py::test_a_conflicting_scenario_window_keeps_the_card_value_and_is_frozen_as_a_conflict`<br>`tests/integration/test_input_warnings.py::test_body_settlement_day_plan_inputs_and_the_persona_layer_read_the_same_rhythm`<br>`tests/integration/test_input_warnings.py::test_restore_verifies_the_frozen_card_rhythm_against_the_scenario`<br>`tests/integration/test_input_warnings.py::test_validate_prints_the_same_warnings_the_run_froze`<br>`tests/life/test_scenario.py::test_runtime_agents_keep_the_declared_rhythm_fields`<br>`tests/integration/test_runtime.py::test_agent_specs_inject_compiled_persona_card_text`<br>`tests/life/test_persona_layer.py::test_persona_card_struct_is_saved_on_new_runs_and_validated_on_restore`<br>`tests/life/test_persona_upgrade.py::test_memory_view_identity_uses_the_card_text_or_the_scenario_persona_fields` | 已登记到实际定义；执行结论取本次回执 |
+| 系统层 | `tests/integration/test_seven_layer_request.py::test_system_layers_are_the_contract_registration_verbatim`<br>`tests/integration/test_seven_layer_request.py::test_rule_14_makes_the_routine_the_default_and_the_day_plan_override_it`<br>`tests/integration/test_seven_layer_request.py::test_felt_bands_named_by_the_rules_are_the_felt_band_texts`<br>`tests/integration/test_seven_layer_request.py::test_recorded_prompt_fingerprint_is_recomputed_from_the_eighteen_rules_and_the_around_time_schema`<br>`tests/life/test_day_planning.py::test_plan_template_is_the_contract_text_and_asks_only_for_differences_with_around_times`<br>`tests/life/test_day_planning.py::test_wake_time_noted_at_conclusion_still_becomes_a_reminder_that_ends_the_sleep`<br>`tests/life/test_day_plan.py::test_empty_plan_is_registered_once_and_can_be_revised` | 已登记到实际定义；执行结论取本次回执 |
+| 名称解析 | `tests/life/test_name_resolution.py::test_registered_action_name_is_exact_and_app_is_not_an_activity_target`<br>`tests/integration/test_host_feedback.py::test_all_name_errors_are_reported_and_other_conditions_report_the_first`<br>`tests/integration/test_host_feedback.py::test_every_unknown_relationship_view_is_reported_at_its_own_item`<br>`tests/integration/test_host_feedback.py::test_an_unknown_activity_name_does_not_hide_an_unknown_view_in_another_item`<br>`tests/life/test_control_name_rejections.py::test_two_unknown_activity_names_are_both_reported_in_one_rejection`<br>`tests/life/test_control_name_rejections.py::test_an_ambiguous_and_an_unknown_name_are_reported_with_their_own_codes`<br>`tests/life/test_control_name_rejections.py::test_the_restricted_round_recheck_reports_every_unknown_name_too`<br>`tests/life/test_control_name_rejections.py::test_a_resolved_name_that_is_not_the_persons_activity_is_refused_without_items`<br>`tests/life/test_interaction_menu_invariants.py::test_selection_resolves_exact_action_and_way_synonym_and_menu_judges_canonical_actions`<br>`tests/test_start_activity_contract.py::test_unresolvable_selection_keeps_exact_name_or_way_error`<br>`tests/life/test_engine_feedback.py::test_business_rejection_is_reported_in_progress_and_run_continues`<br>`tests/life/test_name_resolution.py::test_location_home_and_current_ways_are_normalized_without_app_guess`<br>`tests/life/test_named_purchase.py::test_named_purchase_rejects_unknown_goods_and_unbound_apps_atomically`<br>`tests/life/test_callable_index.py::test_every_goods_index_example_resolves_to_the_actual_fixed_menu` | 本阶段固定食品、app 来源与错误文本节点；原完整名称、宿主与集成行为按所属后续节点留证 |
+| 指名购买 | `tests/life/test_named_purchase.py::test_named_purchase_rejects_unknown_goods_and_unbound_apps_atomically`<br>`tests/life/test_named_purchase.py::test_explicit_shopping_and_payment_apps_record_the_actual_identities`<br>`tests/life/test_named_purchase.py::test_onsite_name_purchase_has_no_app_and_guidance_uses_real_places`<br>`tests/life/test_named_purchase.py::test_offers_choose_earliest_arrival_then_store_identity` | 已登记到实际定义；执行结论取本次回执 |
+| 名称类预算 | `tests/life/test_name_resolution.py::test_registered_action_name_is_exact_and_app_is_not_an_activity_target`<br>`tests/footprints/test_quality.py::test_name_rejections_are_counted_apart_from_other_protocol_errors` | 本阶段固定食品、app 来源与错误文本节点；原完整名称、宿主与集成行为按所属后续节点留证 |
+| 更简单的购买请求 | `tests/life/test_named_purchase.py::test_named_purchase_rejects_unknown_goods_and_unbound_apps_atomically`<br>`tests/life/test_named_purchase.py::test_explicit_shopping_and_payment_apps_record_the_actual_identities`<br>`tests/life/test_named_purchase.py::test_onsite_name_purchase_has_no_app_and_guidance_uses_real_places`<br>`tests/life/test_named_purchase.py::test_offers_choose_earliest_arrival_then_store_identity` | 已登记到实际定义；执行结论取本次回执 |
+| 错误合同 | `tests/life/test_error_contract.py::test_goods_rejection_reason_is_the_declared_exact_text`<br>`tests/integration/test_host_feedback.py::test_each_host_code_has_a_concrete_reason_through_the_host`<br>`tests/integration/test_host_feedback.py::test_a_second_item_failing_is_reported_at_index_one_with_fill_in_candidates`<br>`tests/integration/test_host_feedback.py::test_a_view_about_an_unknown_person_in_the_second_item_is_reported_at_index_one`<br>`tests/integration/test_host_feedback.py::test_a_candidate_submitted_verbatim_is_accepted_through_the_host_and_the_engine`<br>`tests/integration/test_host_feedback.py::test_protocol_feedback_is_the_shared_structure_with_the_fixed_instruction`<br>`tests/integration/test_host_feedback.py::test_argument_errors_are_written_per_field_without_any_validation_dump`<br>`tests/integration/test_host_feedback.py::test_feedback_rejects_bare_strings_instead_of_reconstructing_positions`<br>`tests/integration/test_host_feedback.py::test_feedback_structure_survives_copying_and_evidence_stays_a_plain_string`<br>`tests/life/test_control_name_rejections.py::test_a_known_and_an_unknown_name_report_only_the_unknown_second_item`<br>`tests/life/test_name_resolution.py::test_registered_action_name_is_exact_and_app_is_not_an_activity_target`<br>`tests/life/test_parallel_admission.py::test_malformed_request_gets_the_default_reason_without_the_validation_text`<br>`tests/integration/test_activity_schema.py::test_all_action_tools_use_closed_strict_schemas_from_one_model` | 本阶段固定食品、app 来源与错误文本节点；原完整名称、宿主与集成行为按所属后续节点留证 |
+| 呈现 | `tests/life/test_action_run.py::test_exercise_location_rule_is_shared_with_rule_engine`<br>`tests/life/test_candidates.py::test_candidates_and_cursor_are_deterministic`<br>`tests/life/test_relevance.py::test_actual_goods_window_uses_frozen_habit_relevance`<br>`tests/life/test_relevance.py::test_product_habit_relevance_uses_name_or_category_without_double_counting`<br>`tests/life/test_rotation.py::test_quota_goes_to_the_longest_unpresented_members_first`<br>`tests/life/test_rotation.py::test_bound_holds_per_partition_regardless_of_other_partitions`<br>`tests/life/test_rotation.py::test_worst_case_unpresented_interval_is_bounded_by_exact_form`<br>`tests/life/test_prompt_layers.py::test_current_goods_presentation_order_version_is_three`<br>`tests/life/test_rotation.py::test_rotation_criterion_is_last_presented_at_not_exposure_count`<br>`tests/life/test_rotation.py::test_quota_goes_to_the_longest_unpresented_members_first`<br>`tests/life/test_rotation.py::test_bound_holds_per_partition_regardless_of_other_partitions`<br>`tests/life/test_rotation.py::test_equally_stale_members_are_released_in_order_key_order`<br>`tests/life/test_rotation.py::test_rotation_has_no_cursor_and_depends_only_on_the_stamps`<br>`tests/life/test_rotation.py::test_quota_is_capped_by_subtype_count_only_not_by_tag_similarity`<br>`tests/life/test_candidates.py::test_candidates_have_only_current_product_kind`<br>`tests/life/test_candidates.py::test_actual_world_constraints_are_reported`<br>`tests/life/test_candidates.py::test_candidates_and_cursor_are_deterministic`<br>`tests/life/test_candidates.py::test_relevance_changes_order_without_changing_membership`<br>`tests/life/test_relevance.py::test_product_habit_relevance_uses_name_or_category_without_double_counting`<br>`tests/life/test_relevance.py::test_product_habit_relevance_uses_name_or_category_without_double_counting`<br>`tests/life/test_relevance.py::test_product_habit_relevance_uses_name_or_category_without_double_counting`<br>`tests/integration/test_presentation_habits.py::test_run_creation_freezes_habit_responses_and_ranks_the_hit_entry_first`<br>`tests/life/test_coverage_closure_projection.py::test_continuation_pages_follow_the_cursor_without_a_rotation_offset`<br>`tests/life/test_same_moment_decisions.py::test_same_second_rounds_keep_presentation_window_and_rotation`<br>`tests/life/test_callable_index.py::test_every_goods_index_example_resolves_to_the_actual_fixed_menu`<br>`tests/integration/test_seven_layer_request.py::test_callable_index_rides_in_the_tool_layer_and_counts_toward_capacity`<br>`tests/integration/test_seven_layer_request.py::test_prompt_fingerprint_binds_the_callable_index_schema`<br>`tests/life/test_prompt_layers.py::test_callable_index_schema_takes_names_counts_and_up_to_three_examples`<br>`tests/life/test_callable_index.py::test_every_goods_index_example_resolves_to_the_actual_fixed_menu` | 阶段 4 候选闭集、排序键 3 与确定性节点已登记；完整引擎呈现链由阶段 5 集成，本行不据此宣称通过 |
+| 浏览与提示 | `tests/life/test_menu_discovery.py::test_same_kind_stores_share_goods_and_product_discovery_deduplicates_real_app_bindings`<br>`tests/life/test_menu_discovery.py::test_goods_tool_state_category_energy_apps_and_fixed_price` | 食品按固定菜单、类别热量、固定价格与 app 绑定呈现；执行取本阶段回执 |
+| 控制工具 | `tests/integration/test_conclude_memories.py::test_conclusion_memory_limits_are_protocol_errors_retried_in_the_same_decision`<br>`tests/integration/test_conclude_memories.py::test_conclusion_memory_limits_accept_the_boundaries`<br>`tests/integration/test_activity_schema.py::test_control_summaries_are_limited_to_500_characters_by_the_local_check`<br>`tests/integration/test_activity_schema.py::test_control_tool_fields_carry_format_and_source_descriptions`<br>`tests/test_start_activity_contract.py::test_control_requests_pair_each_task_with_its_summary`<br>`tests/life/test_progress_layer_projection.py::test_activity_control_takes_one_object_per_activity`<br>`tests/integration/test_conclude_memories.py::test_views_persist_as_memories_byte_identical_to_the_subject_shape`<br>`tests/integration/test_conclude_memories.py::test_conclusion_sources_are_registered_by_the_system`<br>`tests/life/test_persona_layer.py::test_subject_is_required_for_relationship_and_preference_and_stripped_before_memory`<br>`tests/life/test_control_items.py::test_current_shape_items_carry_views_as_subject_memories`<br>`tests/life/test_control_items.py::test_recorded_parallel_array_requests_are_rejected`<br>`tests/life/test_control_items.py::test_current_requests_preserve_each_items_content_and_order`<br>`tests/life/test_control_items.py::test_readers_project_current_items_events_consistently`<br>`tests/life/test_control_items.py::test_unrecognised_or_malformed_requests_fail_as_integrity_errors`<br>`tests/tools/test_run_viewer.py::test_run_viewer_recorded_names``tests/footprints/test_quality.py::test_memory_quality_reads_current_control_items_and_structured_errors`<br>`tests/life/test_progress_events.py::test_conclude_arguments_omit_relationship_and_preference_memories`<br>`tests/life/test_memory_evidence.py::test_write_points_read_current_control_items` | 已登记到实际定义；执行结论取本次回执 |
+| 截断处理 | `tests/integration/test_output_truncation.py::test_a_truncated_turn_is_dropped_and_retried_once_without_thinking`<br>`tests/integration/test_output_truncation.py::test_only_a_reply_that_ran_out_while_thinking_is_a_truncation`<br>`tests/integration/test_output_truncation.py::test_identical_corrections_replace_each_other_across_consecutive_truncations`<br>`tests/integration/test_output_truncation.py::test_a_retry_that_is_truncated_again_is_not_retried_again`<br>`tests/integration/test_output_truncation.py::test_a_retry_still_without_a_tool_call_follows_the_turn_budget`<br>`tests/integration/test_output_truncation.py::test_a_world_request_from_the_retry_ends_the_decision_and_breaks_the_same_second_chain`<br>`tests/integration/test_output_truncation.py::test_a_rejected_retry_turn_is_dropped_so_a_continued_decision_keeps_every_thought`<br>`tests/integration/test_output_truncation.py::test_a_truncation_in_a_continued_decision_leaves_the_chain_prefix_untouched`<br>`tests/integration/test_output_truncation.py::test_readonly_questions_keep_their_parameters_and_a_truncated_answer_is_retried_with_finish_only`<br>`tests/integration/test_output_truncation.py::test_the_exported_quality_report_counts_the_truncations_the_run_recorded`<br>`tests/footprints/test_quality.py::test_truncations_count_length_responses_with_their_output_and_reasoning_tokens`<br>`tests/footprints/test_quality.py::test_truncation_tokens_missing_from_a_response_stay_unknown_instead_of_zero`<br>`tests/footprints/test_quality.py::test_truncations_match_the_recorded_day_runs` | 已登记到实际定义；执行结论取本次回执 |
+| 联系人回复 | `tests/life/test_contact_reply_guard.py::test_real_overreach_reply_hits_its_registered_categories`<br>`tests/life/test_contact_reply_guard.py::test_overreach_reply_is_retried_once_in_the_same_settlement`<br>`tests/life/test_contact_reply_guard.py::test_real_harmless_reply_passes_the_guard`<br>`tests/life/test_contact_reply_guard.py::test_each_registered_alternative_catches_its_short_form`<br>`tests/life/test_contact_reply_guard.py::test_samples_cover_every_category_and_the_fallback_passes`<br>`tests/life/test_contact_reply_guard.py::test_fallback_reply_appears_only_when_both_attempts_hit`<br>`tests/life/test_contact_reply_guard.py::test_reply_request_carries_sender_name_now_presence_and_receive_location`<br>`tests/life/test_contact_reply_guard.py::test_each_incoming_message_gets_one_reply_event_even_after_a_retry`<br>`tests/life/test_contact_reply_guard.py::test_contract_registers_the_template_guard_closed_set_and_fallback_verbatim`<br>`tests/life/test_contact_reply_guard.py::test_quality_report_counts_guard_hits_retries_and_fallbacks`<br>`tests/footprints/test_quality.py::test_contact_reply_guard_counts_attempts_and_replies_without_evidence_separately` | 已登记到实际定义；执行结论取本次回执 |
+| 时间线 | `tests/life/test_timeline_labels.py::test_exported_timeline_names_chats_calls_and_work_in_chinese`<br>`tests/footprints/test_render_day.py::test_unresolvable_targets_show_only_the_chinese_kind_name`<br>`tests/footprints/test_render_day.py::test_work_call_and_chat_rows_name_the_task_contact_and_person`<br>`tests/footprints/test_render_day.py::test_real_biz_run_rows_name_the_calls_and_the_work_task`<br>`tests/life/test_activity_title_embedding.py::test_action_and_content_titles_are_carried_into_actual_activity_events`<br>`tests/life/test_activity_title_embedding.py::test_action_and_content_titles_are_carried_into_actual_activity_events`<br>`tests/life/test_activity_title_embedding.py::test_action_and_content_titles_are_carried_into_actual_activity_events`<br>`tests/life/test_readable.py::test_chinese_kind_tables_have_a_single_source`<br>`tests/footprints/test_quality.py::test_timeline_labels_count_english_kind_names_and_internal_ids_in_the_rendered_timeline`<br>`tests/footprints/test_quality.py::test_timeline_labels_count_hexadecimal_and_hash_identifiers_as_internal_ids` | 已登记到实际定义；执行结论取本次回执 |
+| 目标推进 | `tests/life/test_goal_around_time.py::test_sleep_begun_before_midnight_does_not_progress_a_sleep_goal_around_2330`<br>`tests/life/test_goal_around_time.py::test_morning_app_use_does_not_progress_an_evening_entertainment_goal`<br>`tests/life/test_goal_around_time.py::test_a_lunch_goal_around_noon_is_progressed_by_an_actual_receipt_inside_the_window`<br>`tests/life/test_day_plan.py::test_progress_with_an_around_time_requires_the_activity_to_run_near_it`<br>`tests/life/test_day_plan.py::test_around_time_skips_a_goal_outside_its_window_and_needs_the_actual_start`<br>`tests/life/test_day_plan.py::test_around_time_is_required_nullable_hh_mm_and_needs_no_later_than_now`<br>`tests/life/test_day_plan.py::test_revision_compares_four_fields_and_changing_only_around_keeps_registration`<br>`tests/life/test_day_plan.py::test_routine_intents_are_the_four_routine_kinds_of_the_closed_set`<br>`tests/life/test_day_planning.py::test_revision_carries_around_time_and_changing_only_it_keeps_registration`<br>`tests/life/test_day_planning.py::test_zero_hour_plan_items_carry_around_time_and_a_malformed_one_is_retried`<br>`tests/life/test_todo_layer.py::test_day_plan_lists_eight_goals_in_plan_order_with_progress_and_reminders`<br>`tests/evaluation/test_goal_metrics.py::test_goal_with_an_around_time_counts_only_activity_that_ran_near_it`<br>`tests/evaluation/test_goal_metrics.py::test_changing_only_the_around_time_keeps_the_instance_and_moves_its_window`<br>`tests/evaluation/test_goal_metrics.py::test_routine_goals_are_reported_apart_from_the_progress_ratio`<br>`tests/footprints/test_goal_export.py::test_exported_quality_counts_only_non_routine_goals_and_agrees_with_engine_progress` | 已登记到实际定义；执行结论取本次回执 |
+| strict 端点 | `tests/test_probe_deepseek_strict.py::test_strict_probe_functions_bypass_the_local_schema_check`<br>`tests/test_probe_deepseek_strict.py::test_report_sends_every_probe_request_and_classifies_the_results`<br>`tests/test_probe_deepseek_strict.py::test_conclusions_need_the_specific_outcomes_not_just_any_failure`<br>`tests/test_probe_deepseek_strict.py::test_requests_use_the_host_conclude_tool_and_stage_parameters`<br>`tests/test_probe_deepseek_strict.py::test_enum_violations_count_invalid_json_and_keep_missing_calls_and_failures_apart`<br>`tests/test_probe_deepseek_strict.py::test_argument_value_reads_one_key_of_the_named_call`<br>`tests/test_probe_deepseek_strict.py::test_strict_response_outcomes`<br>`tests/test_probe_deepseek_strict.py::test_host_rejection_is_separate_from_shape_errors`<br>`tests/test_probe_deepseek_strict.py::test_main_reads_the_worldmock_key_pool_prints_and_writes_the_report`<br>`tests/test_probe_deepseek_strict.py::test_tool_call_classification_edges`<br>`tests/test_probe_deepseek_strict.py::test_default_transport_posts_json_and_records_failures`<br>`tests/test_probe_deepseek_strict.py::test_main_reports_a_missing_key_without_sending_requests`<br>`tests/integration/test_strict_endpoint.py::test_validate_checks_a_stage_identity_on_the_strict_endpoint`<br>`tests/integration/test_strict_endpoint.py::test_validate_refuses_the_main_site`<br>`tests/integration/test_strict_endpoint.py::test_resume_refuses_a_parent_run_frozen_on_the_main_site`<br>`tests/integration/test_runtime.py::test_model_identity_freezes_complete_strict_endpoint_and_request`<br>`tests/life/test_coverage_closure_models.py::test_model_identity_accepts_only_the_configured_deepseek_endpoint`<br>`tests/profile/test_extractor.py::test_request_payload_shape` | 已登记到实际定义；执行结论取本次回执 |
+| 复跑指标（只报告） | `tests/footprints/test_quality.py::test_input_warnings_section_counts_the_frozen_manifest_warnings`<br>`tests/footprints/test_quality.py::test_truncations_count_length_responses_with_their_output_and_reasoning_tokens`<br>`tests/footprints/test_quality.py::test_truncations_match_the_recorded_day_runs`<br>`tests/footprints/test_quality.py::test_timeline_labels_count_english_kind_names_and_internal_ids_in_the_rendered_timeline`<br>`tests/footprints/test_quality.py::test_contact_reply_guard_counts_attempts_and_replies_without_evidence_separately`<br>`tests/footprints/test_quality.py::test_name_rejections_are_counted_apart_from_other_protocol_errors`<br>`tests/footprints/test_quality.py::test_memory_quality_reads_current_control_items_and_structured_errors`<br>`tests/footprints/test_quality.py::test_report_sections_are_the_documented_grouping_without_a_language_count`<br>`tests/evaluation/test_goal_metrics.py::test_routine_goals_are_reported_apart_from_the_progress_ratio`<br>`tests/footprints/test_goal_export.py::test_exported_quality_counts_only_non_routine_goals_and_agrees_with_engine_progress`<br>`tests/footprints/test_purchases.py::test_actual_order_facts_preserve_food_store_app_and_fixed_money` | 阶段三固定菜单与食品事实节点；完整宿主、运行与导出证据由所属集成阶段另行留证 |
+| 文档一致性 | `tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve`<br>`tests/test_design_doc_build.py::test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current`<br>`tests/test_dayrun_fidelity_acceptance.py::test_docs_carry_no_pending_markers_of_this_feature`<br>`tests/test_dayrun_fidelity_acceptance.py::test_anchored_links_in_docs_point_to_existing_headings` | 已登记到实际定义；执行结论取本次回执 |
+| 工程门禁 | `tests/test_style_gate.py::test_style_gate_admits_no_new_violations`<br>`tests/test_coverage_gate.py::test_branch_pass_and_fail_states`<br>`tests/test_coverage_gate.py::test_uncovered_public_interface_detection`<br>`tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve` | 已登记到实际定义；执行结论取本次回执 |
+
+本表逐项核对规范机器登记；登记集合与实际执行结论分别按当前登记和匹配源码回执解释。
+
+复跑指标（只报告）：WC 与 BIZ 全天复跑按规格只报告、不作门禁，需要用户的模型账号与修复后的数据集；登记的测试验证复跑要读的质量报告各节（输入警告、截断、时间线标签、联系人回复守卫、名称类拒绝、收尾形状类协议错误与零点计划的非例行推进比例）与导出的 purchases.jsonl 购买事实（按方式同义表计入的尝试下单，「规格消费全部可成交」据此核对）。
+
+追加裁决约束见 `tests/dayrun_fidelity_acceptance.py::RULINGS`，由对应完整性守卫逐行核对。
 
 
 <a name="analysis-spec-coverage-人物-prompt-七层增量映射"></a>
 ## 人物 Prompt 七层增量映射
 
-#### `tests/persona_prompt_acceptance.py`
+仅保留当前仍有效的条款和行为节点；旧通知开放、预约、截止、评审、固定内容分类、营业与料理等退役断言已从规范登记移除。app 推送、内容进度、分配内容实际工时及七层工具合同改指[资源与规则简化映射](#analysis-spec-coverage-资源与规则简化映射)，历史执行数字不继承为当前通过。
 
-当期登记共有 347 个唯一源码或测试节点，排序后摘要为 `879aaa44de263b044a6e6de4f2bd6a5c2fea033cce97028f243609eddada5bd4`。以下是完整登记；本表只证明登记与本树节点闭合，不声称后续阶段或执行门禁通过。
+机器登记：`tests/persona_prompt_acceptance.py::LEDGER`；完整性守卫：`tests/test_persona_prompt_acceptance.py`。
 
-- `custom/agents/life_agent.py`
-- `custom/envs/life_env.py`
-- `scripts/inspect_run.py`
-- `src/worldmock/agents/life_context.py`
-- `src/worldmock/agents/life_continuation.py`
-- `src/worldmock/agents/life_memory.py`
-- `src/worldmock/agents/life_persona.py`
-- `src/worldmock/agents/life_prompt.py`
-- `src/worldmock/cli.py`
-- `src/worldmock/evaluation/behavior_metrics.py`
-- `src/worldmock/evaluation/validation.py`
-- `src/worldmock/footprints/export.py`
-- `src/worldmock/footprints/models.py`
-- `src/worldmock/footprints/purchases.py`
-- `src/worldmock/footprints/quality.py`
-- `src/worldmock/footprints/store.py`
-- `src/worldmock/footprints/validation.py`
-- `src/worldmock/life/activities.py`
-- `src/worldmock/life/activity_control.py`
-- `src/worldmock/life/activity_evidence.py`
-- `src/worldmock/life/admission.py`
-- `src/worldmock/life/basket.py`
-- `src/worldmock/life/commerce.py`
-- `src/worldmock/life/contact_exchange.py`
-- `src/worldmock/life/continuation.py`
-- `src/worldmock/life/day_plan_inputs.py`
-- `src/worldmock/life/decision_start.py`
-- `src/worldmock/life/engine.py`
-- `src/worldmock/life/environment_layer.py`
-- `src/worldmock/life/guidance.py`
-- `src/worldmock/life/interaction_menu.py`
-- `src/worldmock/life/memory_evidence.py`
-- `src/worldmock/life/memory_layer.py`
-- `src/worldmock/life/models.py`
-- `src/worldmock/life/named_purchase.py`
-- `src/worldmock/life/narration.py`
-- `src/worldmock/life/observe.py`
-- `src/worldmock/life/order_routing.py`
-- `src/worldmock/life/progress_layer.py`
-- `src/worldmock/life/projection.py`
-- `src/worldmock/life/prompt_capacity.py`
-- `src/worldmock/life/prompt_schemas.py`
-- `src/worldmock/life/readable.py`
-- `src/worldmock/life/recipients.py`
-- `src/worldmock/life/reminders.py`
-- `src/worldmock/life/request_linking.py`
-- `src/worldmock/life/result_projection.py`
-- `src/worldmock/life/rhythm.py`
-- `src/worldmock/life/routing.py`
-- `src/worldmock/life/same_moment.py`
-- `src/worldmock/life/scenario.py`
-- `src/worldmock/life/session_actions.py`
-- `src/worldmock/life/session_bounds.py`
-- `src/worldmock/life/sessions.py`
-- `src/worldmock/life/settled_text.py`
-- `src/worldmock/life/social.py`
-- `src/worldmock/life/storefront_runtime.py`
-- `src/worldmock/life/todo_layer.py`
-- `src/worldmock/life/tool_layer.py`
-- `src/worldmock/life/work.py`
-- `src/worldmock/profile/models.py`
-- `src/worldmock/profile/textgen.py`
-- `src/worldmock/runtime.py`
-- `src/worldmock/validation.py`
-- `tests/agents/test_life_memory.py::test_received_memory_line_preserves_actual_goods_quantity_and_source`
-- `tests/evaluation/test_behavior_metrics.py::test_observation_gate_allows_same_second_continuation_chain_reuse`
-- `tests/evaluation/test_behavior_metrics.py::test_observation_gate_fails_on_cross_second_or_cross_agent_duplicate`
-- `tests/footprints/test_event_fields.py::test_decision_started_data_is_the_closed_four_field_set`
-- `tests/footprints/test_event_fields.py::test_persisted_decision_started_is_validated_when_reading_events`
-- `tests/footprints/test_event_fields.py::test_retired_decision_statement_field_is_rejected_on_event_drafts`
-- `tests/footprints/test_purchases.py`
-- `tests/footprints/test_purchases.py::test_actual_order_facts_preserve_food_store_app_and_fixed_money`
-- `tests/footprints/test_quality.py::test_decision_rhythm_counts_silent_boundaries_and_wake_reasons`
-- `tests/footprints/test_render_day.py::test_resolves_names_from_seven_layer_observation_evidence_keys`
-- `tests/footprints/test_store.py::test_action_request_cutoff_counts_only_thinking_requests_with_the_action_tools`
-- `tests/footprints/test_store.py::test_commit_last_seq_groups_one_versioned_commit_without_later_same_version_appends`
-- `tests/integration/test_acs_engine_wave.py::test_real_arrived_mail_body_occurs_once_in_the_actual_host_model_request`
-- `tests/integration/test_acs_engine_wave.py::test_unknown_action_name_has_the_same_explicit_field_error_in_host_and_actual_environment`
-- `tests/integration/test_agent_branch_coverage.py::test_restricted_rounds_do_not_narrow_the_host_tool_surface`
-- `tests/integration/test_agent_branch_coverage.py::test_tool_messages_follow_memory_queries_only`
-- `tests/integration/test_agent_branch_coverage.py::test_visible_objects_freeze_verb_way_and_bound_internal_action`
-- `tests/integration/test_conclude_memories.py::test_memory_queries_and_the_reply_body_reach_the_next_progress_layer`
-- `tests/integration/test_conclude_memories.py::test_nothing_sent_to_the_person_model_carries_an_internal_identity`
-- `tests/integration/test_conclude_memories.py::test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime_reflection`
-- `tests/integration/test_dayrun_complete_days.py::test_complete_two_person_day_uses_real_tools_memory_and_restoration`
-- `tests/integration/test_decision_context_protocol.py::test_followup_requests_hide_receipts_and_keep_memory_pairing_and_initial_user`
-- `tests/integration/test_decision_context_protocol.py::test_readonly_loop_uses_only_persona_memory_and_question`
-- `tests/integration/test_decision_context_roundtrip.py::test_real_context_roundtrip_preserves_evidence_and_delays_results`
-- `tests/integration/test_grounded_evidence.py::test_grounded_tool_uses_unique_readable_names_without_internal_ids`
-- `tests/integration/test_grounded_evidence.py::test_model_request_persists_exact_grounded_tools`
-- `tests/integration/test_host_branch_coverage.py::test_prepare_contact_reply_builds_disabled_thinking_request`
-- `tests/integration/test_interaction_menu.py::test_actual_tool_schema_is_stable_whatever_the_menu`
-- `tests/integration/test_life_agent_protocol.py::test_blacklisted_observation_fields_never_enter_messages`
-- `tests/integration/test_life_agent_protocol.py::test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages`
-- `tests/integration/test_life_agent_protocol.py::test_life_agent_schema_is_closed_and_host_fields_are_hidden`
-- `tests/integration/test_life_agent_protocol.py::test_native_react_submits_one_host_bound_life_action`
-- `tests/integration/test_life_agent_protocol.py::test_react_messages_are_system_layer_and_six_layer_user`
-- `tests/integration/test_life_agent_protocol.py::test_session_names_are_not_recall_names`
-- `tests/integration/test_observation_agent_seam.py::test_goal_recall_names_are_the_goal_texts_written_in_the_todo_layer`
-- `tests/integration/test_observation_agent_seam.py::test_recall_accepts_the_activity_name_as_written_in_self_notes`
-- `tests/integration/test_observation_agent_seam.py::test_relationship_memory_may_name_a_same_world_person_who_is_elsewhere`
-- `tests/integration/test_persona_profile.py::test_frozen_persona_identity_reaches_the_native_agent_prompt_as_the_persona_layer`
-- `tests/integration/test_run_manifest.py::test_engine_create_rejects_retired_stage_before_writing_run_artifacts`
-- `tests/integration/test_run_manifest.py::test_retired_stage_is_rejected_even_beside_the_current_stage`
-- `tests/integration/test_run_manifest.py::test_runtime_restore_rejects_retired_stage_even_when_code_identity_matches`
-- `tests/integration/test_same_second_continuation.py`
-- `tests/integration/test_same_second_continuation.py::test_a_counterfactual_branch_breaks_the_chain`
-- `tests/integration/test_same_second_continuation.py::test_a_decision_with_memory_and_correction_turns_is_continued_byte_for_byte`
-- `tests/integration/test_same_second_continuation.py::test_a_message_already_returned_in_the_chain_is_not_repeated_by_a_later_tool_message`
-- `tests/integration/test_same_second_continuation.py::test_a_missing_result_of_the_previous_request_breaks_the_chain`
-- `tests/integration/test_same_second_continuation.py::test_a_plain_resume_from_a_mid_second_checkpoint_sends_the_same_request`
-- `tests/integration/test_same_second_continuation.py::test_a_real_continuation_run_preserves_requests_and_the_observation_gate`
-- `tests/integration/test_same_second_continuation.py::test_a_recorded_request_without_its_response_breaks_the_chain`
-- `tests/integration/test_same_second_continuation.py::test_a_rejected_request_continues_with_the_rejection_reason`
-- `tests/integration/test_same_second_continuation.py::test_a_same_second_departure_breaks_the_chain`
-- `tests/integration/test_same_second_continuation.py::test_a_three_decision_chain_keeps_every_prefix_and_reports_each_change_once`
-- `tests/integration/test_same_second_continuation.py::test_after_time_advances_the_request_has_no_native_turns_or_earlier_thinking`
-- `tests/integration/test_same_second_continuation.py::test_another_persons_same_second_message_appears_once_in_the_whole_request`
-- `tests/integration/test_same_second_continuation.py::test_budget_step_zero_ends_the_continuation_before_any_condensation`
-- `tests/integration/test_same_second_continuation.py::test_budget_step_zero_starts_the_decision_from_a_fresh_snapshot_for_every_turn`
-- `tests/integration/test_same_second_continuation.py::test_changes_overlay_relationships_and_preferences_so_later_tool_messages_do_not_repeat_them`
-- `tests/integration/test_same_second_continuation.py::test_continuation_messages_read_earlier_changes_and_skip_memory_and_feedback_tool_messages`
-- `tests/integration/test_same_second_continuation.py::test_layer_changes_overlay_earlier_changes_and_keep_the_latest`
-- `tests/integration/test_same_second_continuation.py::test_life_env_freezes_the_switch_into_the_manifest`
-- `tests/integration/test_same_second_continuation.py::test_missing_model_evidence_breaks_the_chain`
-- `tests/integration/test_same_second_continuation.py::test_missing_thinking_breaks_the_chain`
-- `tests/integration/test_same_second_continuation.py::test_real_pause_and_body_changes_reach_the_next_tool_message_once`
-- `tests/integration/test_same_second_continuation.py::test_recorded_evidence_decides_whether_the_chain_holds`
-- `tests/integration/test_same_second_continuation.py::test_replay_with_an_intervention_inherits_the_parent_switch`
-- `tests/integration/test_same_second_continuation.py::test_resume_and_replay_cannot_override_the_switch`
-- `tests/integration/test_same_second_continuation.py::test_resume_inherits_the_parent_switch_and_rejects_a_diverged_profile`
-- `tests/integration/test_same_second_continuation.py::test_switch_off_every_decisions_first_request_has_exactly_two_messages`
-- `tests/integration/test_same_second_continuation.py::test_the_continued_request_starts_with_the_previous_request_byte_for_byte`
-- `tests/integration/test_same_second_continuation.py::test_the_pre_send_check_breaks_a_chain_whose_assistant_lacks_thinking`
-- `tests/integration/test_same_second_continuation.py::test_the_pre_send_check_fails_when_the_current_decision_lacks_thinking`
-- `tests/integration/test_same_second_continuation.py::test_the_stage_identity_requires_a_boolean_switch`
-- `tests/integration/test_same_second_continuation.py::test_the_switch_is_frozen_into_the_run_manifest_and_the_agent_profile`
-- `tests/integration/test_seven_layer_request.py`
-- `tests/integration/test_seven_layer_request.py::test_a_decision_without_memory_queries_sends_exactly_one_request_and_no_prelude`
-- `tests/integration/test_seven_layer_request.py::test_abort_flushes_the_pending_start_without_model_evidence`
-- `tests/integration/test_seven_layer_request.py::test_decision_started_is_committed_with_and_before_the_first_action_request`
-- `tests/integration/test_seven_layer_request.py::test_native_tools_are_stable_purpose_only_and_drop_memory_only_on_the_last_turn`
-- `tests/integration/test_seven_layer_request.py::test_no_card_persona_layer_keeps_the_name_and_scene_contacts`
-- `tests/integration/test_seven_layer_request.py::test_non_action_requests_leave_the_start_to_the_engine_driven_fallback`
-- `tests/integration/test_seven_layer_request.py::test_observe_stores_the_body_without_the_host_only_progress_keys`
-- `tests/integration/test_seven_layer_request.py::test_self_note_ignores_other_decisions_and_failed_calls`
-- `tests/integration/test_seven_layer_request.py::test_self_note_is_the_latest_reply_body_of_the_decision`
-- `tests/integration/test_seven_layer_request.py::test_system_layer_is_byte_identical_across_turns_and_decisions`
-- `tests/integration/test_seven_layer_request.py::test_system_layers_are_the_contract_registration_verbatim`
-- `tests/integration/test_seven_layer_request.py::test_system_layers_persona_memory_and_tools_validate_against_the_layer_schemas`
-- `tests/integration/test_seven_layer_request.py::test_user_content_is_one_json_array_in_the_fixed_layer_order`
-- `tests/integration/test_storefront_tools.py`
-- `tests/integration/test_storefront_tools.py::test_real_goods_targets_validate_against_the_production_tool_layer_schema`
-- `tests/integration/test_storefront_tools.py::test_retired_browse_activity_request_is_strictly_rejected`
-- `tests/integration/test_tool_description_references.py::test_description_scan_has_teeth`
-- `tests/integration/test_tool_description_references.py::test_every_native_tool_has_a_purpose_only_description`
-- `tests/integration/test_tool_description_references.py::test_interaction_rules_live_only_in_the_system_layer`
-- `tests/integration/test_tool_description_references.py::test_parameter_descriptions_are_purpose_only`
-- `tests/integration/test_unique_presence_run.py`
-- `tests/integration/test_unique_presence_run.py::test_every_request_of_a_multi_state_run_presents_each_item_once`
-- `tests/integration/test_unique_presence_run.py::test_the_presence_and_readability_checks_have_teeth`
-- `tests/integration/test_verified_memory.py::test_zero_recent_memory_limit_returns_no_recent_entries`
-- `tests/life/routing_fixtures.py`
-- `tests/life/test_acs_amended_runtime.py::test_real_work_pause_report_restore_completion_and_exhaustion`
-- `tests/life/test_action_guarantees.py::test_work_reports_never_change_real_content_seconds_or_claim_completion`
-- `tests/life/test_action_run.py::test_actual_remaining_under_one_minute_starts_and_resume_never_selects`
-- `tests/life/test_action_run.py::test_assigned_content_is_finite_and_completion_pulse_is_applied_once`
-- `tests/life/test_action_run.py::test_assigned_work_requires_actual_workplace_and_unassigned_study_does_not`
-- `tests/life/test_commerce.py`
-- `tests/life/test_commerce.py::test_delivery_receives_at_due_time_even_after_recipient_moves`
-- `tests/life/test_commerce.py::test_insufficient_funds_rejects_entire_order_before_receipt`
-- `tests/life/test_commerce.py::test_purchase_rejection_is_atomic_with_exact_code`
-- `tests/life/test_commerce.py::test_two_goods_rows_pay_one_delivery_fee_and_one_transfer`
-- `tests/life/test_contact_exchange.py`
-- `tests/life/test_contact_exchange.py::test_messages_to_contacts_go_to_the_outbox_and_the_reply_request_carries_both_sides`
-- `tests/life/test_contact_exchange.py::test_received_lists_only_actual_delivered_orders_to_the_contact`
-- `tests/life/test_contact_exchange.py::test_reply_history_keeps_the_latest_twenty_messages_in_time_order`
-- `tests/life/test_continuation_metrics.py`
-- `tests/life/test_continuation_metrics.py::test_a_pre_feature_run_has_no_switch_and_cannot_be_an_arm`
-- `tests/life/test_continuation_metrics.py::test_a_real_run_reports_chain_positions_reasoning_cache_cost_and_topics`
-- `tests/life/test_continuation_metrics.py::test_errors_are_classified_with_400_separate_and_partial_tokens_fall_back_to_chars`
-- `tests/life/test_continuation_metrics.py::test_the_baseline_comparison_refuses_runs_that_are_not_comparable`
-- `tests/life/test_continuation_metrics.py::test_the_subcommand_opens_the_run_read_only`
-- `tests/life/test_decision_budget.py`
-- `tests/life/test_decision_budget.py::test_a_replayed_rejection_in_the_last_restricted_round_exhausts_the_budget`
-- `tests/life/test_decision_budget.py::test_a_successful_last_restricted_round_carries_the_latest_rejection_code`
-- `tests/life/test_decision_budget.py::test_budget_exhausted_with_a_pending_conclusion_beside_a_running_activity`
-- `tests/life/test_decision_budget.py::test_budget_exhaustion_units`
-- `tests/life/test_decision_budget.py::test_restricted_rounds_used_up_without_an_activity_pause_technically`
-- `tests/life/test_decision_context_projection.py::test_an_adjacent_earlier_condensed_record_is_merged_into_the_next_fold`
-- `tests/life/test_decision_context_projection.py::test_below_threshold_returns_the_request_untouched`
-- `tests/life/test_decision_context_projection.py::test_capacity_failure_keeps_protected_records_and_logs_every_part`
-- `tests/life/test_decision_context_projection.py::test_exactly_85_percent_triggers_condensation`
-- `tests/life/test_decision_context_projection.py::test_host_request_condenses_progress_from_observation_metadata`
-- `tests/life/test_decision_context_projection.py::test_oldest_unprotected_run_folds_into_one_condensed_record_then_the_next`
-- `tests/life/test_decision_context_projection.py::test_self_notes_are_removed_oldest_first_one_at_a_time_and_protected_notes_stay`
-- `tests/life/test_engine_branch_coverage.py::test_first_action_request_pops_the_pending_start_once`
-- `tests/life/test_engine_branch_coverage.py::test_presented_messages_come_from_the_decision_observation`
-- `tests/life/test_engine_branch_coverage.py::test_purchase_by_unlisted_name_resolves_only_existing_supplies`
-- `tests/life/test_engine_branch_coverage.py::test_response_self_note_is_the_stripped_reply_body_or_none`
-- `tests/life/test_environment_layer.py`
-- `tests/life/test_food_presentation.py`
-- `tests/life/test_food_presentation.py::test_actual_menu_sources_are_activated_and_never_claim_browse_history`
-- `tests/life/test_food_presentation.py::test_product_targets_use_current_store_or_real_delivery_apps`
-- `tests/life/test_grounded_observation.py::test_observation_keeps_current_time_without_plan_conversion_anchors`
-- `tests/life/test_grounded_observation.py::test_real_observation_fixed_menu_purchase_keeps_food_available`
-- `tests/life/test_interaction_menu_runtime.py::test_availability_judges_the_menu_first_with_the_admission_reason`
-- `tests/life/test_location_sessions.py::test_recall_by_goal_and_activity_names_is_current_read_only_evidence`
-- `tests/life/test_location_sessions.py::test_self_report_stays_out_of_the_tool_layer_and_is_only_a_call_argument`
-- `tests/life/test_memory_evidence.py::test_reflection_snapshots_carry_their_source_and_both_checks_accept_it`
-- `tests/life/test_memory_layer.py`
-- `tests/life/test_memory_layer.py::test_a_chat_ended_by_the_partner_is_settled_as_partner_ended`
-- `tests/life/test_memory_layer.py::test_a_real_memory_layer_over_the_window_drops_reflections_then_shrinks_the_oldest_entry`
-- `tests/life/test_memory_layer.py::test_a_stay_spanning_midnight_is_one_entry_of_the_day_it_ended_with_dated_clocks`
-- `tests/life/test_memory_layer.py::test_bedtime_reflection_lands_on_the_date_of_the_sleep_it_follows`
-- `tests/life/test_memory_layer.py::test_decimal_price_order_sentences_come_from_real_settlements`
-- `tests/life/test_memory_layer.py::test_departure_and_arrival_attribute_same_second_calls_to_the_right_session`
-- `tests/life/test_memory_layer.py::test_departure_request_belongs_wholly_to_the_old_session`
-- `tests/life/test_memory_layer.py::test_en_route_conclusion_keeps_the_conclusion_in_the_transit_session`
-- `tests/life/test_memory_layer.py::test_experiment_end_closes_the_last_session_into_the_memory_layer`
-- `tests/life/test_memory_layer.py::test_failures_replays_recalls_queries_and_empty_sessions_leave_no_entry`
-- `tests/life/test_memory_layer.py::test_memory_layer_is_byte_identical_after_restore_and_the_cache_only_accelerates`
-- `tests/life/test_memory_layer.py::test_messages_sent_and_deliveries_received_on_the_road_land_in_the_transit_entry`
-- `tests/life/test_memory_layer.py::test_nap_reflection_stays_out_until_the_next_day`
-- `tests/life/test_memory_layer.py::test_paused_interval_appears_in_the_concluded_activity_sentence`
-- `tests/life/test_memory_layer.py::test_recalled_summary_still_in_the_memory_layer_is_not_repeated`
-- `tests/life/test_memory_layer.py::test_reflection_date_is_the_local_date_six_hours_before_sleep_start`
-- `tests/life/test_memory_layer.py::test_reply_bodies_stay_in_their_session_and_never_reach_the_memory_layer`
-- `tests/life/test_memory_layer.py::test_reply_body_stays_in_its_session_progress_and_never_enters_the_memory_layer`
-- `tests/life/test_memory_layer.py::test_sentences_write_portions_money_and_cross_day_clocks`
-- `tests/life/test_memory_layer.py::test_unanswered_message_crosses_midnight_counts_as_presented_and_a_reply_resolves_it`
-- `tests/life/test_memory_layer.py::test_unfinished_app_self_report_writes_no_purchase_sentence`
-- `tests/life/test_memory_layer.py::test_unresolved_order_crosses_midnight_into_earlier_days_and_disappears_when_delivered`
-- `tests/life/test_memory_layer.py::test_window_deletes_oldest_reflections_then_shrinks_oldest_today_entries_and_keeps_exemptions`
-- `tests/life/test_named_purchase.py`
-- `tests/life/test_named_purchase.py::test_named_purchase_rejects_unknown_goods_and_unbound_apps_atomically`
-- `tests/life/test_named_purchase.py::test_offers_choose_earliest_arrival_then_store_identity`
-- `tests/life/test_named_purchase.py::test_onsite_name_purchase_has_no_app_and_guidance_uses_real_places`
-- `tests/life/test_narration.py::TestFieldBlacklist::test_internal_identity_cannot_hide_inside_a_progress_result`
-- `tests/life/test_narration.py::TestFieldBlacklist::test_private_observation_keys_are_registered_as_forbidden`
-- `tests/life/test_parallel_admission.py::test_en_route_person_is_nowhere_and_has_no_inventory`
-- `tests/life/test_persona_layer.py`
-- `tests/life/test_persona_layer.py::test_card_path_renders_card_fields_and_merges_relationships_by_exact_name`
-- `tests/life/test_persona_layer.py::test_consolidation_is_kept_but_its_summary_never_reaches_the_prompt`
-- `tests/life/test_persona_layer.py::test_first_purchase_writes_no_preference_and_leaves_no_trace_after_delivery_and_midnight`
-- `tests/life/test_persona_layer.py::test_later_view_replaces_earlier_while_events_keep_both`
-- `tests/life/test_persona_layer.py::test_no_card_person_keeps_the_name_only_path_and_view_only_people_get_an_item`
-- `tests/life/test_persona_layer.py::test_persona_card_struct_is_saved_on_new_runs_and_validated_on_restore`
-- `tests/life/test_persona_layer.py::test_quarter_hour_times_are_written_as_quarters`
-- `tests/life/test_persona_layer.py::test_readonly_questions_use_the_latest_decision_snapshot`
-- `tests/life/test_persona_layer.py::test_six_hundred_hanzi_cap_checks_only_card_derived_fields`
-- `tests/life/test_persona_layer.py::test_subject_is_required_for_relationship_and_preference_and_stripped_before_memory`
-- `tests/life/test_persona_upgrade.py::test_persona_layer_from_the_scenario_profile_reaches_the_native_llm_prompt`
-- `tests/life/test_progress_events.py`
-- `tests/life/test_progress_events.py::test_a_rejection_without_a_next_step_writes_null`
-- `tests/life/test_progress_events.py::test_arrival_session_is_time_bound_and_excludes_the_departure`
-- `tests/life/test_progress_events.py::test_conclude_arguments_omit_relationship_and_preference_memories`
-- `tests/life/test_progress_events.py::test_delivery_appears_once_with_order_label_and_message`
-- `tests/life/test_progress_events.py::test_direct_message_is_presented_in_full_and_marked_presented`
-- `tests/life/test_progress_events.py::test_en_route_conclusion_opens_a_session_bounded_by_the_conclusion_result`
-- `tests/life/test_progress_events.py::test_memory_queries_keep_evidence_without_progress_events`
-- `tests/life/test_progress_events.py::test_meta_marks_records_after_the_last_action_request_as_protected_and_writes_lines`
-- `tests/life/test_progress_events.py::test_plan_reminder_appears_once_and_precedes_same_second_events`
-- `tests/life/test_progress_events.py::test_records_after_gives_the_progress_records_whose_sources_follow_the_bound`
-- `tests/life/test_progress_events.py::test_round_commit_reads_only_messages_presented_in_full`
-- `tests/life/test_progress_events.py::test_run_start_session_is_time_bound_and_keeps_every_result`
-- `tests/life/test_progress_events.py::test_same_second_departure_opens_a_session_bounded_by_its_result`
-- `tests/life/test_progress_events.py::test_self_note_is_copied_from_the_request_and_omitted_when_empty`
-- `tests/life/test_progress_events.py::test_started_activity_record_shows_the_latest_result_of_the_request`
-- `tests/life/test_progress_layer_projection.py::test_fresh_result_preserves_feedback_without_action_id`
-- `tests/life/test_progress_layer_projection.py::test_recall_reads_task_and_activity_without_identities`
-- `tests/life/test_prompt_layers.py`
-- `tests/life/test_prompt_layers.py::test_a_trip_ending_with_its_companion_leaves_the_arrival_to_the_memory_layer`
-- `tests/life/test_prompt_layers.py::test_action_prompt_schema_rejects_retired_contract_review_and_completion_shapes`
-- `tests/life/test_prompt_layers.py::test_current_tool_surface_and_action_only_stage_identity_match_the_actual_host`
-- `tests/life/test_prompt_layers.py::test_direct_message_and_invite_text_appear_only_in_the_progress_layer`
-- `tests/life/test_prompt_layers.py::test_env_layers_validate_through_purchase_rejection_pause_travel_and_arrival`
-- `tests/life/test_prompt_layers.py::test_memory_layer_and_persona_views_are_empty_at_run_start`
-- `tests/life/test_prompt_layers.py::test_paused_activity_progress_appears_only_in_the_todo_layer`
-- `tests/life/test_prompt_layers.py::test_paused_work_has_only_actual_progress_and_control_tools`
-- `tests/life/test_prompt_layers.py::test_schema_enums_are_literal_copies_of_the_source_closed_sets`
-- `tests/life/test_prompt_layers.py::test_work_content_appears_only_in_the_action_result`
-- `tests/life/test_purchase_apps.py`
-- `tests/life/test_purchase_apps.py::test_delivery_to_other_person_uses_their_current_receiving_location`
-- `tests/life/test_purchase_apps.py::test_unbound_app_refuses_with_exact_reason_and_bound_app_next_step`
-- `tests/life/test_purchase_stages.py`
-- `tests/life/test_purchase_stages.py::test_explicit_app_excludes_a_closer_unbound_store`
-- `tests/life/test_purchase_stages.py::test_named_app_null_selects_only_the_actual_present_store`
-- `tests/life/test_readable.py`
-- `tests/life/test_readable.py::test_duration_phrase_rounds_minutes_then_half_hours`
-- `tests/life/test_readable.py::test_iso_time_and_local_date_use_the_scene_timezone_with_offset`
-- `tests/life/test_readable.py::test_money_and_portion_phrases_keep_at_most_two_decimals`
-- `tests/life/test_request_linking.py`
-- `tests/life/test_request_linking.py::test_real_food_order_keeps_message_link_and_rejects_duplicate_after_restore`
-- `tests/life/test_restored_model_identity.py::test_create_open_resume_and_replay_call_the_one_manifest_validator`
-- `tests/life/test_restored_model_identity.py::test_direct_engine_open_rejects_retired_stage`
-- `tests/life/test_restored_model_identity.py::test_environment_lifecycles_reject_invalid_saved_stage_identity`
-- `tests/life/test_restored_model_identity.py::test_environment_validation_rejects_a_retired_stage`
-- `tests/life/test_restored_model_identity.py::test_new_run_rejects_a_retired_stage_identity`
-- `tests/life/test_restored_model_identity.py::test_resume_and_replay_identity_rejects_a_retired_stage_before_comparing`
-- `tests/life/test_revision_contract.py::test_public_observation_excludes_private_fields_and_fixed_menu_remains_visible`
-- `tests/life/test_same_moment_decisions.py::test_conclude_pending_stage_accepts_only_concluding_every_pending_activity`
-- `tests/life/test_same_moment_decisions.py::test_pending_conclusion_rejects_other_requests_until_concluded_within_limit_plus_three`
-- `tests/life/test_same_moment_decisions.py::test_purchase_result_names_the_order_in_the_progress_layer`
-- `tests/life/test_same_moment_decisions.py::test_read_observed_messages_marks_only_presented_messages_of_open_rounds`
-- `tests/life/test_same_moment_decisions.py::test_rejected_start_stays_in_start_or_resume_and_marks_the_option`
-- `tests/life/test_same_moment_decisions.py::test_restricted_observation_marks_closed_actions_unavailable`
-- `tests/life/test_same_moment_decisions.py::test_restricted_stage_check_and_ladder_units`
-- `tests/life/test_same_moment_decisions.py::test_same_second_results_stay_in_the_progress_layer`
-- `tests/life/test_same_moment_decisions.py::test_start_or_resume_schema_matches_engine_dispatch`
-- `tests/life/test_session_attribution.py`
-- `tests/life/test_session_attribution.py::test_answering_binds_progress_messages_and_only_unreplied_memory_messages`
-- `tests/life/test_session_attribution.py::test_arrival_commit_belongs_wholly_to_the_transit_session`
-- `tests/life/test_session_attribution.py::test_chat_invitation_writes_no_settled_line_for_condensation`
-- `tests/life/test_session_attribution.py::test_departure_commit_belongs_wholly_to_the_old_session`
-- `tests/life/test_session_attribution.py::test_open_order_record_stays_uncondensed_while_older_records_fold`
-- `tests/life/test_session_attribution.py::test_plan_inputs_keep_resumed_pause_intervals_in_ended_activity_sentences`
-- `tests/life/test_social.py::test_model_reply_request_and_finalize_validate_200_chars`
-- `tests/life/test_todo_layer.py`
-- `tests/life/test_todo_layer.py::test_same_second_pauses_from_two_decisions_follow_the_pause_event_order`
-- `tests/life/test_tool_layer.py`
-- `tests/life/test_tool_layer.py::test_action_targets_and_push_schema_are_closed_without_content_kind_or_private_identity`
-- `tests/life/test_tool_layer.py::test_current_push_title_is_visible_only_for_its_bound_action_and_app_until_released`
-- `tests/life/test_tool_layer.py::test_driving_marks_messages_unavailable_with_the_admission_reason`
-- `tests/life/test_tool_layer.py::test_every_listed_item_matches_admission_at_run_start`
-- `tests/life/test_tool_layer.py::test_paused_activity_controls_match_real_resume_and_conclusion`
-- `tests/life/test_tool_layer.py::test_pending_conclusion_marks_everything_but_conclusion_unavailable`
-- `tests/life/test_tool_layer.py::test_restricted_round_marks_closed_items_with_the_same_moment_reason`
-- `tests/life/test_tool_layer.py::test_road_activity_cannot_be_paused_and_matches_admission`
-- `tests/persona_prompt_acceptance.py`
-- `tests/profile/test_textgen.py::test_render_card_is_byte_identical_to_the_pre_persona_layer_renderer`
-- `tests/profile/test_textgen.py::test_window_ends_at_or_after_midnight_render_as_clock_hours`
-- `tests/test_coverage_gate.py::test_branch_pass_and_fail_states`
-- `tests/test_coverage_gate.py::test_uncovered_public_interface_detection`
-- `tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve`
-- `tests/test_persona_prompt_acceptance.py`
-- `tests/test_start_activity_contract.py::test_illegal_combinations_keep_the_same_host_and_environment_business_code`
-- `tests/test_start_activity_contract.py::test_legal_app_payment_recipient_and_answering_combinations_route_each_item`
-- `tests/test_start_activity_contract.py::test_route_fields_are_individual_nullable_strings`
-- `tests/test_start_activity_contract.py::test_start_activity_schema_rejects_model_supplied_calculation`
-- `tests/test_start_activity_contract.py::test_unknown_recipient_is_recipient_not_found_before_admission`
-- `tests/test_start_activity_contract.py::test_ways_vocabulary_maps_each_way_to_exactly_one_life_verb`
-- `tests/test_style_gate.py::test_style_gate_admits_no_new_violations`
-- `tests/tools/test_run_viewer.py::test_run_viewer_recorded_names`
-- `tools/run-viewer-context-view.js`
-- `tools/run-viewer-context.js`
-- `tools/run-viewer.html`
+| 契约主题 | 实际行为或门禁节点 | 当前证据边界 |
+| --- | --- | --- |
+| 七层请求 | `tests/integration/test_seven_layer_request.py::test_user_content_is_one_json_array_in_the_fixed_layer_order`<br>`tests/integration/test_seven_layer_request.py::test_system_layers_persona_memory_and_tools_validate_against_the_layer_schemas`<br>`tests/integration/test_life_agent_protocol.py::test_react_messages_are_system_layer_and_six_layer_user`<br>`tests/integration/test_life_agent_protocol.py::test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages`<br>`tests/integration/test_life_agent_protocol.py::test_blacklisted_observation_fields_never_enter_messages`<br>`tests/integration/test_grounded_evidence.py::test_model_request_persists_exact_grounded_tools`<br>`tests/integration/test_conclude_memories.py::test_nothing_sent_to_the_person_model_carries_an_internal_identity`<br>`tests/life/test_prompt_layers.py::test_schema_enums_are_literal_copies_of_the_source_closed_sets`<br>`tests/life/test_prompt_layers.py::test_memory_layer_and_persona_views_are_empty_at_run_start`<br>`tests/life/test_prompt_layers.py::test_env_layers_validate_through_purchase_rejection_pause_travel_and_arrival`<br>`tests/life/test_revision_contract.py::test_public_observation_excludes_private_fields_and_fixed_menu_remains_visible`<br>`tests/life/test_grounded_observation.py::test_observation_keeps_current_time_without_plan_conversion_anchors`<br>`tests/life/test_readable.py::test_iso_time_and_local_date_use_the_scene_timezone_with_offset`<br>`tests/life/test_readable.py::test_duration_phrase_rounds_minutes_then_half_hours`<br>`tests/life/test_readable.py::test_money_and_portion_phrases_keep_at_most_two_decimals`<br>`tests/integration/test_life_agent_protocol.py::test_session_names_are_not_recall_names`<br>`tests/life/test_progress_layer_projection.py::test_recall_reads_task_and_activity_without_identities`<br>`tests/life/test_location_sessions.py::test_recall_by_goal_and_activity_names_is_current_read_only_evidence`<br>`tests/life/test_todo_layer.py::test_same_second_pauses_from_two_decisions_follow_the_pause_event_order`<br>`tests/integration/test_unique_presence_run.py::test_every_request_of_a_multi_state_run_presents_each_item_once`<br>`tests/integration/test_unique_presence_run.py::test_the_presence_and_readability_checks_have_teeth`<br>`tests/integration/test_dayrun_complete_days.py::test_complete_two_person_day_uses_real_tools_memory_and_restoration`<br>`tests/integration/test_observation_agent_seam.py::test_goal_recall_names_are_the_goal_texts_written_in_the_todo_layer`<br>`tests/life/test_tool_layer.py::test_action_targets_and_push_schema_are_closed_without_content_kind_or_private_identity`<br>`tests/life/test_prompt_layers.py::test_action_prompt_schema_rejects_retired_contract_review_and_completion_shapes`<br>`tests/life/test_acs_amended_runtime.py::test_real_work_pause_report_restore_completion_and_exhaustion` | app 与工作主题的当前 Schema 节点已登记；执行结论取阶段 5 最终回执 |
+| 唯一出现 | `tests/life/test_prompt_layers.py::test_direct_message_and_invite_text_appear_only_in_the_progress_layer`<br>`tests/life/test_prompt_layers.py::test_paused_activity_progress_appears_only_in_the_todo_layer`<br>`tests/life/test_prompt_layers.py::test_work_content_appears_only_in_the_action_result`<br>`tests/life/test_prompt_layers.py::test_paused_work_has_only_actual_progress_and_control_tools`<br>`tests/life/test_tool_layer.py::test_all_registered_actions_listed_with_explicit_apps_and_no_app_targets`<br>`tests/life/test_tool_layer.py::test_current_push_title_is_visible_only_for_its_bound_action_and_app_until_released`<br>`tests/integration/test_observation_agent_seam.py::test_real_action_observation_starts_visible_action_and_restores_activity`<br>`tests/life/test_prompt_layers.py::test_a_trip_ending_with_its_companion_leaves_the_arrival_to_the_memory_layer`<br>`tests/life/test_progress_events.py::test_conclude_arguments_omit_relationship_and_preference_memories`<br>`tests/life/test_progress_events.py::test_memory_queries_keep_evidence_without_progress_events`<br>`tests/integration/test_conclude_memories.py::test_memory_queries_and_the_reply_body_reach_the_next_progress_layer`<br>`tests/life/test_memory_layer.py::test_departure_and_arrival_attribute_same_second_calls_to_the_right_session`<br>`tests/life/test_location_sessions.py::test_self_report_stays_out_of_the_tool_layer_and_is_only_a_call_argument`<br>`tests/life/test_memory_layer.py::test_recalled_summary_still_in_the_memory_layer_is_not_repeated`<br>`tests/integration/test_acs_engine_wave.py::test_real_arrived_mail_body_occurs_once_in_the_actual_host_model_request`<br>`tests/integration/test_unique_presence_run.py::test_every_request_of_a_multi_state_run_presents_each_item_once`<br>`tests/integration/test_unique_presence_run.py::test_the_presence_and_readability_checks_have_teeth`<br>`tests/integration/test_dayrun_complete_days.py::test_complete_two_person_day_uses_real_tools_memory_and_restoration` | 阶段 4 的 app 目标、推送提示与公开结果节点已登记；完整日链路由阶段 5 集成，本行不据此宣称通过 |
+| 系统层与工具 | `tests/integration/test_seven_layer_request.py::test_system_layer_is_byte_identical_across_turns_and_decisions`<br>`tests/integration/test_seven_layer_request.py::test_system_layers_are_the_contract_registration_verbatim`<br>`tests/integration/test_seven_layer_request.py::test_native_tools_are_stable_purpose_only_and_drop_memory_only_on_the_last_turn`<br>`tests/integration/test_same_second_continuation.py::test_the_continued_request_starts_with_the_previous_request_byte_for_byte`<br>`tests/integration/test_interaction_menu.py::test_actual_tool_schema_is_stable_whatever_the_menu`<br>`tests/integration/test_agent_branch_coverage.py::test_restricted_rounds_do_not_narrow_the_host_tool_surface`<br>`tests/integration/test_tool_description_references.py::test_every_native_tool_has_a_purpose_only_description`<br>`tests/integration/test_tool_description_references.py::test_interaction_rules_live_only_in_the_system_layer`<br>`tests/integration/test_tool_description_references.py::test_description_scan_has_teeth`<br>`tests/integration/test_tool_description_references.py::test_parameter_descriptions_are_purpose_only`<br>`tests/integration/test_dayrun_complete_days.py::test_complete_two_person_day_uses_real_tools_memory_and_restoration` | 已登记到实际定义；执行结论取本次回执 |
+| 单一行动阶段 | `tests/integration/test_seven_layer_request.py::test_a_decision_without_memory_queries_sends_exactly_one_request_and_no_prelude`<br>`tests/integration/test_seven_layer_request.py::test_decision_started_is_committed_with_and_before_the_first_action_request`<br>`tests/integration/test_seven_layer_request.py::test_non_action_requests_leave_the_start_to_the_engine_driven_fallback`<br>`tests/integration/test_seven_layer_request.py::test_abort_flushes_the_pending_start_without_model_evidence`<br>`tests/footprints/test_event_fields.py::test_decision_started_data_is_the_closed_four_field_set`<br>`tests/footprints/test_event_fields.py::test_retired_decision_statement_field_is_rejected_on_event_drafts`<br>`tests/life/test_engine_branch_coverage.py::test_first_action_request_pops_the_pending_start_once`<br>`tests/integration/test_agent_branch_coverage.py::test_tool_messages_follow_memory_queries_only`<br>`tests/integration/test_life_agent_protocol.py::test_native_react_submits_one_host_bound_life_action`<br>`tests/integration/test_decision_context_protocol.py::test_followup_requests_hide_receipts_and_keep_memory_pairing_and_initial_user` | 已登记到实际定义；执行结论取本次回执 |
+| 回复正文 | `tests/integration/test_seven_layer_request.py::test_self_note_is_the_latest_reply_body_of_the_decision`<br>`tests/integration/test_seven_layer_request.py::test_self_note_ignores_other_decisions_and_failed_calls`<br>`tests/life/test_engine_branch_coverage.py::test_response_self_note_is_the_stripped_reply_body_or_none`<br>`tests/life/test_progress_events.py::test_self_note_is_copied_from_the_request_and_omitted_when_empty`<br>`tests/integration/test_conclude_memories.py::test_memory_queries_and_the_reply_body_reach_the_next_progress_layer`<br>`tests/integration/test_decision_context_roundtrip.py::test_real_context_roundtrip_preserves_evidence_and_delays_results`<br>`tests/life/test_memory_layer.py::test_reply_body_stays_in_its_session_progress_and_never_enters_the_memory_layer`<br>`tests/life/test_memory_layer.py::test_reply_bodies_stay_in_their_session_and_never_reach_the_memory_layer` | 已登记到实际定义；执行结论取本次回执 |
+| 同秒续接 | `tests/integration/test_same_second_continuation.py::test_the_continued_request_starts_with_the_previous_request_byte_for_byte`<br>`tests/integration/test_same_second_continuation.py::test_a_three_decision_chain_keeps_every_prefix_and_reports_each_change_once`<br>`tests/integration/test_same_second_continuation.py::test_another_persons_same_second_message_appears_once_in_the_whole_request`<br>`tests/integration/test_same_second_continuation.py::test_a_message_already_returned_in_the_chain_is_not_repeated_by_a_later_tool_message`<br>`tests/integration/test_same_second_continuation.py::test_after_time_advances_the_request_has_no_native_turns_or_earlier_thinking`<br>`tests/integration/test_same_second_continuation.py::test_a_same_second_departure_breaks_the_chain`<br>`tests/integration/test_same_second_continuation.py::test_a_counterfactual_branch_breaks_the_chain`<br>`tests/integration/test_same_second_continuation.py::test_missing_thinking_breaks_the_chain`<br>`tests/integration/test_same_second_continuation.py::test_missing_model_evidence_breaks_the_chain`<br>`tests/integration/test_same_second_continuation.py::test_recorded_evidence_decides_whether_the_chain_holds`<br>`tests/integration/test_same_second_continuation.py::test_a_plain_resume_from_a_mid_second_checkpoint_sends_the_same_request`<br>`tests/integration/test_same_second_continuation.py::test_switch_off_every_decisions_first_request_has_exactly_two_messages`<br>`tests/integration/test_same_second_continuation.py::test_the_switch_is_frozen_into_the_run_manifest_and_the_agent_profile`<br>`tests/integration/test_same_second_continuation.py::test_resume_inherits_the_parent_switch_and_rejects_a_diverged_profile`<br>`tests/integration/test_same_second_continuation.py::test_the_pre_send_check_fails_when_the_current_decision_lacks_thinking`<br>`tests/integration/test_same_second_continuation.py::test_the_pre_send_check_breaks_a_chain_whose_assistant_lacks_thinking`<br>`tests/integration/test_same_second_continuation.py::test_a_decision_with_memory_and_correction_turns_is_continued_byte_for_byte`<br>`tests/integration/test_same_second_continuation.py::test_changes_overlay_relationships_and_preferences_so_later_tool_messages_do_not_repeat_them`<br>`tests/integration/test_same_second_continuation.py::test_real_pause_and_body_changes_reach_the_next_tool_message_once`<br>`tests/integration/test_same_second_continuation.py::test_a_recorded_request_without_its_response_breaks_the_chain`<br>`tests/integration/test_same_second_continuation.py::test_replay_with_an_intervention_inherits_the_parent_switch`<br>`tests/integration/test_same_second_continuation.py::test_a_real_continuation_run_preserves_requests_and_the_observation_gate` | 已登记到实际定义；执行结论取本次回执 |
+| 可用性 | `tests/life/test_tool_layer.py::test_every_listed_item_matches_admission_at_run_start`<br>`tests/life/test_tool_layer.py::test_pending_conclusion_marks_everything_but_conclusion_unavailable`<br>`tests/life/test_tool_layer.py::test_restricted_round_marks_closed_items_with_the_same_moment_reason`<br>`tests/life/test_tool_layer.py::test_road_activity_cannot_be_paused_and_matches_admission`<br>`tests/life/test_tool_layer.py::test_driving_marks_messages_unavailable_with_the_admission_reason`<br>`tests/life/test_tool_layer.py::test_restricted_round_marks_closed_items_with_the_same_moment_reason`<br>`tests/life/test_tool_layer.py::test_pending_conclusion_marks_everything_but_conclusion_unavailable`<br>`tests/life/test_tool_layer.py::test_pending_conclusion_marks_everything_but_conclusion_unavailable`<br>`tests/life/test_same_moment_decisions.py::test_pending_conclusion_rejects_other_requests_until_concluded_within_limit_plus_three`<br>`tests/life/test_tool_layer.py::test_empty_action_tool_reason_matches_actual_content_exhaustion`<br>`tests/life/test_action_run.py::test_actual_remaining_under_one_minute_starts_and_resume_never_selects`<br>`tests/integration/test_acs_engine_wave.py::test_real_resume_checks_location_then_completed_assignment_before_slots_and_claims`<br>`tests/integration/test_storefront_tools.py::test_retired_browse_activity_request_is_strictly_rejected` | 已登记到实际定义；执行结论取本次回执 |
+| 进度层 | `tests/life/test_progress_events.py::test_run_start_session_is_time_bound_and_keeps_every_result`<br>`tests/life/test_progress_events.py::test_started_activity_record_shows_the_latest_result_of_the_request`<br>`tests/life/test_progress_events.py::test_same_second_departure_opens_a_session_bounded_by_its_result`<br>`tests/life/test_progress_events.py::test_arrival_session_is_time_bound_and_excludes_the_departure`<br>`tests/life/test_progress_events.py::test_en_route_conclusion_opens_a_session_bounded_by_the_conclusion_result`<br>`tests/life/test_progress_events.py::test_direct_message_is_presented_in_full_and_marked_presented`<br>`tests/life/test_progress_events.py::test_delivery_appears_once_with_order_label_and_message`<br>`tests/life/test_progress_events.py::test_plan_reminder_appears_once_and_precedes_same_second_events`<br>`tests/life/test_progress_events.py::test_records_after_gives_the_progress_records_whose_sources_follow_the_bound`<br>`tests/integration/test_same_second_continuation.py::test_another_persons_same_second_message_appears_once_in_the_whole_request`<br>`tests/life/test_same_moment_decisions.py::test_same_second_results_stay_in_the_progress_layer`<br>`tests/life/test_progress_events.py::test_a_rejection_without_a_next_step_writes_null`<br>`tests/life/test_same_moment_decisions.py::test_purchase_result_names_the_order_in_the_progress_layer`<br>`tests/footprints/test_store.py::test_action_request_cutoff_counts_only_thinking_requests_with_the_action_tools`<br>`tests/footprints/test_store.py::test_commit_last_seq_groups_one_versioned_commit_without_later_same_version_appends`<br>`tests/life/test_session_attribution.py::test_departure_commit_belongs_wholly_to_the_old_session`<br>`tests/life/test_session_attribution.py::test_arrival_commit_belongs_wholly_to_the_transit_session` | 已登记到实际定义；执行结论取本次回执 |
+| 记忆层 | `tests/life/test_memory_layer.py::test_departure_and_arrival_attribute_same_second_calls_to_the_right_session`<br>`tests/life/test_memory_layer.py::test_departure_request_belongs_wholly_to_the_old_session`<br>`tests/life/test_memory_layer.py::test_en_route_conclusion_keeps_the_conclusion_in_the_transit_session`<br>`tests/life/test_memory_layer.py::test_experiment_end_closes_the_last_session_into_the_memory_layer`<br>`tests/life/test_memory_layer.py::test_failures_replays_recalls_queries_and_empty_sessions_leave_no_entry`<br>`tests/life/test_memory_layer.py::test_sentences_write_portions_money_and_cross_day_clocks`<br>`tests/life/test_memory_layer.py::test_paused_interval_appears_in_the_concluded_activity_sentence`<br>`tests/life/test_memory_layer.py::test_unresolved_order_crosses_midnight_into_earlier_days_and_disappears_when_delivered`<br>`tests/life/test_memory_layer.py::test_unanswered_message_crosses_midnight_counts_as_presented_and_a_reply_resolves_it`<br>`tests/life/test_memory_layer.py::test_reflection_date_is_the_local_date_six_hours_before_sleep_start`<br>`tests/life/test_memory_layer.py::test_bedtime_reflection_lands_on_the_date_of_the_sleep_it_follows`<br>`tests/life/test_memory_layer.py::test_nap_reflection_stays_out_until_the_next_day`<br>`tests/life/test_memory_layer.py::test_window_deletes_oldest_reflections_then_shrinks_oldest_today_entries_and_keeps_exemptions`<br>`tests/life/test_memory_layer.py::test_memory_layer_is_byte_identical_after_restore_and_the_cache_only_accelerates`<br>`tests/life/test_memory_layer.py::test_a_real_memory_layer_over_the_window_drops_reflections_then_shrinks_the_oldest_entry`<br>`tests/life/test_memory_layer.py::test_a_stay_spanning_midnight_is_one_entry_of_the_day_it_ended_with_dated_clocks`<br>`tests/life/test_memory_layer.py::test_decimal_price_order_sentences_come_from_real_settlements`<br>`tests/life/test_memory_layer.py::test_a_chat_ended_by_the_partner_is_settled_as_partner_ended`<br>`tests/life/test_memory_layer.py::test_messages_sent_and_deliveries_received_on_the_road_land_in_the_transit_entry`<br>`tests/life/test_session_attribution.py::test_departure_commit_belongs_wholly_to_the_old_session`<br>`tests/life/test_session_attribution.py::test_arrival_commit_belongs_wholly_to_the_transit_session`<br>`tests/life/test_session_attribution.py::test_plan_inputs_keep_resumed_pause_intervals_in_ended_activity_sentences`<br>`tests/integration/test_observation_agent_seam.py::test_recall_accepts_the_activity_name_as_written_in_self_notes` | 已登记到实际定义；执行结论取本次回执 |
+| 人设层 | `tests/life/test_persona_layer.py::test_card_path_renders_card_fields_and_merges_relationships_by_exact_name`<br>`tests/life/test_persona_layer.py::test_quarter_hour_times_are_written_as_quarters`<br>`tests/life/test_persona_layer.py::test_no_card_person_keeps_the_name_only_path_and_view_only_people_get_an_item`<br>`tests/life/test_persona_layer.py::test_six_hundred_hanzi_cap_checks_only_card_derived_fields`<br>`tests/life/test_persona_layer.py::test_persona_card_struct_is_saved_on_new_runs_and_validated_on_restore`<br>`tests/life/test_persona_layer.py::test_later_view_replaces_earlier_while_events_keep_both`<br>`tests/life/test_persona_layer.py::test_first_purchase_writes_no_preference_and_leaves_no_trace_after_delivery_and_midnight`<br>`tests/life/test_persona_layer.py::test_consolidation_is_kept_but_its_summary_never_reaches_the_prompt`<br>`tests/integration/test_persona_profile.py::test_frozen_persona_identity_reaches_the_native_agent_prompt_as_the_persona_layer`<br>`tests/life/test_persona_upgrade.py::test_persona_layer_from_the_scenario_profile_reaches_the_native_llm_prompt`<br>`tests/integration/test_observation_agent_seam.py::test_relationship_memory_may_name_a_same_world_person_who_is_elsewhere`<br>`tests/profile/test_textgen.py::test_window_ends_at_or_after_midnight_render_as_clock_hours`<br>`tests/profile/test_textgen.py::test_render_card_is_byte_identical_to_the_pre_persona_layer_renderer` | 已登记到实际定义；执行结论取本次回执 |
+| 预算 | `tests/life/test_decision_context_projection.py::test_below_threshold_returns_the_request_untouched`<br>`tests/life/test_decision_context_projection.py::test_self_notes_are_removed_oldest_first_one_at_a_time_and_protected_notes_stay`<br>`tests/life/test_decision_context_projection.py::test_oldest_unprotected_run_folds_into_one_condensed_record_then_the_next`<br>`tests/life/test_decision_context_projection.py::test_an_adjacent_earlier_condensed_record_is_merged_into_the_next_fold`<br>`tests/life/test_decision_context_projection.py::test_exactly_85_percent_triggers_condensation`<br>`tests/life/test_decision_context_projection.py::test_capacity_failure_keeps_protected_records_and_logs_every_part`<br>`tests/life/test_decision_context_projection.py::test_host_request_condenses_progress_from_observation_metadata`<br>`tests/life/test_progress_events.py::test_meta_marks_records_after_the_last_action_request_as_protected_and_writes_lines`<br>`tests/integration/test_same_second_continuation.py::test_budget_step_zero_ends_the_continuation_before_any_condensation`<br>`tests/integration/test_same_second_continuation.py::test_budget_step_zero_starts_the_decision_from_a_fresh_snapshot_for_every_turn`<br>`tests/life/test_memory_layer.py::test_window_deletes_oldest_reflections_then_shrinks_oldest_today_entries_and_keeps_exemptions`<br>`tests/life/test_memory_layer.py::test_a_real_memory_layer_over_the_window_drops_reflections_then_shrinks_the_oldest_entry`<br>`tests/life/test_session_attribution.py::test_chat_invitation_writes_no_settled_line_for_condensation`<br>`tests/life/test_session_attribution.py::test_open_order_record_stays_uncondensed_while_older_records_fold` | 已登记到实际定义；执行结论取本次回执 |
+| 来源与去向 | `tests/test_start_activity_contract.py::test_legal_app_payment_recipient_and_answering_combinations_route_each_item`<br>`tests/test_start_activity_contract.py::test_illegal_combinations_keep_the_same_host_and_environment_business_code`<br>`tests/test_start_activity_contract.py::test_route_fields_are_individual_nullable_strings`<br>`tests/test_start_activity_contract.py::test_unknown_recipient_is_recipient_not_found_before_admission`<br>`tests/life/test_named_purchase.py::test_named_purchase_rejects_unknown_goods_and_unbound_apps_atomically`<br>`tests/life/test_purchase_apps.py::test_unbound_app_refuses_with_exact_reason_and_bound_app_next_step`<br>`tests/life/test_purchase_apps.py::test_delivery_to_other_person_uses_their_current_receiving_location`<br> | 已登记到实际定义；执行结论取本次回执 |
+| 指名购买 | `tests/life/test_named_purchase.py::test_named_purchase_rejects_unknown_goods_and_unbound_apps_atomically`<br>`tests/life/test_named_purchase.py::test_explicit_shopping_and_payment_apps_record_the_actual_identities`<br>`tests/life/test_named_purchase.py::test_onsite_name_purchase_has_no_app_and_guidance_uses_real_places`<br>`tests/life/test_named_purchase.py::test_offers_choose_earliest_arrival_then_store_identity` | 已登记到实际定义；执行结论取本次回执 |
+| 代点关联 | `tests/life/test_session_attribution.py::test_answering_binds_progress_messages_and_only_unreplied_memory_messages`<br>`tests/life/test_request_linking.py::test_real_food_order_keeps_message_link_and_rejects_duplicate_after_restore` | 已登记到实际定义；执行结论取本次回执 |
+| 最小完整路径 | `tests/life/test_commerce.py::test_pending_order_checkpoint_restore_receives_once_and_keeps_payment_once` | 已登记到实际定义；执行结论取本次回执 |
+| 程序错误 | `tests/life/test_progress_events.py::test_direct_message_is_presented_in_full_and_marked_presented`<br>`tests/life/test_progress_events.py::test_round_commit_reads_only_messages_presented_in_full`<br>`tests/life/test_same_moment_decisions.py::test_read_observed_messages_marks_only_presented_messages_of_open_rounds`<br>`tests/life/test_engine_branch_coverage.py::test_presented_messages_come_from_the_decision_observation`<br>`tests/life/test_prompt_layers.py::test_direct_message_and_invite_text_appear_only_in_the_progress_layer`<br>`tests/life/test_memory_layer.py::test_unanswered_message_crosses_midnight_counts_as_presented_and_a_reply_resolves_it`<br>`tests/life/test_acs_loading.py::test_world_eleven_rejects_old_version_and_corpus_identity`<br>`tests/life/test_action_run.py::test_actual_remaining_under_one_minute_starts_and_resume_never_selects`<br>`tests/life/test_action_guarantees.py::test_thirty_paused_minutes_never_increase_actual_assigned_content_seconds`<br>`tests/life/test_prompt_layers.py::test_action_prompt_schema_rejects_retired_contract_review_and_completion_shapes`<br>`tests/life/test_tool_layer.py::test_empty_action_tool_reason_matches_actual_content_exhaustion`<br>`tests/footprints/test_purchases.py::test_actual_order_facts_preserve_food_store_app_and_fixed_money`<br>`tests/integration/test_verified_memory.py::test_zero_recent_memory_limit_returns_no_recent_entries` | 已登记到实际定义；执行结论取本次回执 |
+| 强制等待与预算 | `tests/life/test_decision_budget.py::test_restricted_rounds_used_up_without_an_activity_pause_technically`<br>`tests/life/test_decision_budget.py::test_a_successful_last_restricted_round_carries_the_latest_rejection_code`<br>`tests/life/test_decision_budget.py::test_a_replayed_rejection_in_the_last_restricted_round_exhausts_the_budget`<br>`tests/life/test_decision_budget.py::test_budget_exhausted_with_a_pending_conclusion_beside_a_running_activity`<br>`tests/life/test_decision_budget.py::test_budget_exhaustion_units`<br>`tests/life/test_same_moment_decisions.py::test_rejected_start_stays_in_start_or_resume_and_marks_the_option`<br>`tests/life/test_same_moment_decisions.py::test_restricted_stage_check_and_ladder_units`<br>`tests/footprints/test_quality.py::test_decision_rhythm_counts_silent_boundaries_and_wake_reasons` | 已登记到实际定义；执行结论取本次回执 |
+| 足迹交接与查看器 | `tests/footprints/test_event_fields.py::test_retired_decision_statement_field_is_rejected_on_event_drafts`<br>`tests/footprints/test_event_fields.py::test_persisted_decision_started_is_validated_when_reading_events`<br>`tests/footprints/test_quality.py::test_decision_rhythm_counts_silent_boundaries_and_wake_reasons`<br>`tests/evaluation/test_behavior_metrics.py::test_observation_gate_allows_same_second_continuation_chain_reuse`<br>`tests/evaluation/test_behavior_metrics.py::test_observation_gate_fails_on_cross_second_or_cross_agent_duplicate`<br>`tests/footprints/test_purchases.py::test_actual_order_facts_preserve_food_store_app_and_fixed_money`<br>`tests/integration/test_same_second_continuation.py::test_a_real_continuation_run_preserves_requests_and_the_observation_gate`<br>`tests/tools/test_run_viewer.py::test_run_viewer_recorded_names`<br>`tests/life/test_continuation_metrics.py::test_the_subcommand_opens_the_run_read_only`<br>`tests/life/test_continuation_metrics.py::test_the_baseline_comparison_refuses_runs_that_are_not_comparable`<br>`tests/integration/test_run_manifest.py::test_retired_stage_is_rejected_even_beside_the_current_stage`<br>`tests/integration/test_run_manifest.py::test_engine_create_rejects_retired_stage_before_writing_run_artifacts`<br>`tests/integration/test_run_manifest.py::test_runtime_restore_rejects_retired_stage_even_when_code_identity_matches`<br>`tests/life/test_restored_model_identity.py::test_environment_lifecycles_reject_invalid_saved_stage_identity`<br>`tests/life/test_restored_model_identity.py::test_direct_engine_open_rejects_retired_stage`<br>`tests/life/test_restored_model_identity.py::test_new_run_rejects_a_retired_stage_identity`<br>`tests/life/test_restored_model_identity.py::test_resume_and_replay_identity_rejects_a_retired_stage_before_comparing`<br>`tests/life/test_restored_model_identity.py::test_environment_validation_rejects_a_retired_stage`<br>`tests/life/test_restored_model_identity.py::test_create_open_resume_and_replay_call_the_one_manifest_validator`<br>`tests/life/test_continuation_metrics.py::test_a_pre_feature_run_has_no_switch_and_cannot_be_an_arm`<br>`tests/footprints/test_render_day.py::test_resolves_names_from_seven_layer_observation_evidence_keys` | 阶段三固定菜单与食品事实节点；完整宿主、运行与导出证据由所属集成阶段另行留证 |
+| 真实复验（只报告） | `tests/life/test_continuation_metrics.py::test_a_real_run_reports_chain_positions_reasoning_cache_cost_and_topics`<br>`tests/life/test_continuation_metrics.py::test_the_subcommand_opens_the_run_read_only`<br>`tests/life/test_continuation_metrics.py::test_errors_are_classified_with_400_separate_and_partial_tokens_fall_back_to_chars`<br>`tests/life/test_continuation_metrics.py::test_the_baseline_comparison_refuses_runs_that_are_not_comparable`<br>`tests/life/test_continuation_metrics.py::test_a_pre_feature_run_has_no_switch_and_cannot_be_an_arm` | 已登记到实际定义；执行结论取本次回执 |
+| 文档一致性 | `tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve` | 已登记到实际定义；执行结论取本次回执 |
+| 工程门禁 | `tests/test_style_gate.py::test_style_gate_admits_no_new_violations`<br>`tests/test_coverage_gate.py::test_branch_pass_and_fail_states`<br>`tests/test_coverage_gate.py::test_uncovered_public_interface_detection`<br>`tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve` | 已登记到实际定义；执行结论取本次回执 |
+
+本表逐项核对规范机器登记；登记集合与实际执行结论分别按当前登记和匹配源码回执解释。
+
+真实复验（只报告）：白领全天与双人半日的真实模型运行按规格只报告、不作门禁，需要用户的模型账号；登记的测试验证续接对比所用的只读子命令 scripts/inspect_run.py continuation。
+
+程序错误、缺口与裁决约束分别见 `tests/persona_prompt_acceptance.py::PROGRAM_ERRORS`、`tests/persona_prompt_acceptance.py::GAPS`、`tests/persona_prompt_acceptance.py::RULINGS`；对应机器主题由同一完整性守卫逐行核对。
 
 
 <a name="analysis-spec-coverage-时间与能量增量映射"></a>
 ## 时间与能量增量映射
 
-#### `tests/time_and_energy_acceptance.py`
+仅保留当前仍有效的条款和行为节点；旧通知开放、预约、截止、评审、固定内容分类、营业与料理等退役断言已从规范登记移除。app 推送、内容进度、分配内容实际工时及七层工具合同改指[资源与规则简化映射](#analysis-spec-coverage-资源与规则简化映射)，历史执行数字不继承为当前通过。
 
-当期登记共有 332 个唯一源码或测试节点，排序后摘要为 `77fee1c2492f33682851978abf22b027c3a5fb83fc49059b4009e58ec7f62222`。以下是完整登记；本表只证明登记与本树节点闭合，不声称后续阶段或执行门禁通过。
+机器登记：`tests/time_and_energy_acceptance.py::ACCEPTANCE`；完整性守卫：`tests/test_time_and_energy_completeness.py`。
 
-- `tests/catalog/test_affordances.py::test_driving_allows_only_social_without_continuous_phone_use`
-- `tests/catalog/test_affordances.py::test_each_category_and_manner_combination_has_fixed_claims`
-- `tests/catalog/test_affordances.py::test_registry_only_declares_final_activity_kinds_and_body_keys`
-- `tests/catalog/test_affordances.py::test_retired_claim_names_are_rejected`
-- `tests/evaluation/test_adapters.py::test_digital_interaction_follows_activity_type_regardless_of_claim_names`
-- `tests/evaluation/test_adapters.py::test_start_items_follow_the_started_activity_kind_then_the_order_then_the_way`
-- `tests/evaluation/test_behavior_metrics.py::test_plan_day_requests_are_not_decision_requests`
-- `tests/evaluation/test_behavior_metrics.py::test_wait_is_judged_by_the_started_activity_kind_not_the_request`
-- `tests/evaluation/test_behavior_metrics.py::test_wake_reason_distribution_counts_same_moment_round_reasons`
-- `tests/evaluation/test_goal_metrics.py::test_guided_rejections_count_as_other_rejections_not_external_constraints`
-- `tests/evaluation/test_goal_metrics.py::test_zero_point_plan_event_registers_goals_that_revisions_keep`
-- `tests/footprints/test_event_fields.py::test_new_wake_reasons_are_accepted_by_validation`
-- `tests/footprints/test_event_fields.py::test_unknown_wake_reason_is_rejected_on_body_settlement_write`
-- `tests/footprints/test_event_fields.py::test_unknown_wake_reason_is_rejected_on_decision_started_write`
-- `tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_is_the_frozen_spec_set`
-- `tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_matches_the_engine_side_enum`
-- `tests/footprints/test_goal_export.py::test_real_engine_midnight_settlement_exports_old_day_goal_progress`
-- `tests/footprints/test_quality.py::test_conclusion_and_reflection_in_one_step_are_each_matched_to_their_registration`
-- `tests/footprints/test_quality.py::test_decision_rhythm_counts_same_moment_rounds`
-- `tests/footprints/test_quality.py::test_memory_quality_reports_conclusion_without_memory_update`
-- `tests/footprints/test_quality.py::test_memory_update_whose_write_point_has_no_registration_has_no_source`
-- `tests/footprints/test_quality.py::test_model_usage_counts_plan_day_and_lists_it_by_purpose`
-- `tests/footprints/test_quality.py::test_plan_day_response_naming_memories_is_no_memory_problem`
-- `tests/footprints/test_store.py::test_action_request_cutoff_counts_only_thinking_requests_with_the_action_tools`
-- `tests/footprints/test_verified_experiences.py::test_arrival_snapshot_at_origin_still_projects_arrived`
-- `tests/integration/test_acs_engine_wave.py::test_real_arrived_mail_body_occurs_once_in_the_actual_host_model_request`
-- `tests/integration/test_acs_engine_wave.py::test_real_chat_partner_ending_requires_both_conclusions_before_time_advances`
-- `tests/integration/test_acs_engine_wave.py::test_real_face_chat_invites_awake_partner_immediately_and_never_wakes_sleeping_partner`
-- `tests/integration/test_acs_engine_wave.py::test_real_paused_work_keeps_its_last_report_across_departure_return_and_resume`
-- `tests/integration/test_acs_engine_wave.py::test_real_resume_checks_location_then_completed_assignment_before_slots_and_claims`
-- `tests/integration/test_activity_schema.py::test_revise_day_plan_schema_inlines_goal_with_required_nullable_remind_time`
-- `tests/integration/test_agent_branch_coverage.py::test_corrupt_observation_fails_before_any_model_tool`
-- `tests/integration/test_agent_branch_coverage.py::test_empty_interactive_layer_decision_continues_without_failure`
-- `tests/integration/test_agent_branch_coverage.py::test_visible_objects_freeze_verb_way_and_bound_internal_action`
-- `tests/integration/test_conclude_memories.py::test_budget_exhausted_without_a_registered_world_request_fails_the_run`
-- `tests/integration/test_conclude_memories.py::test_conclusion_memories_flatten_by_task_with_system_source`
-- `tests/integration/test_conclude_memories.py::test_conclusion_memory_limits_accept_the_boundaries`
-- `tests/integration/test_conclude_memories.py::test_conclusion_memory_limits_are_protocol_errors_retried_in_the_same_decision`
-- `tests/integration/test_conclude_memories.py::test_conclusion_rejected_at_settlement_keeps_its_memories`
-- `tests/integration/test_conclude_memories.py::test_conclusion_sources_are_registered_by_the_system`
-- `tests/integration/test_conclude_memories.py::test_life_tool_surface_never_offers_finish`
-- `tests/integration/test_conclude_memories.py::test_memory_runtime_accepts_only_system_sourced_conclusion_memories`
-- `tests/integration/test_conclude_memories.py::test_nothing_sent_to_the_person_model_carries_an_internal_identity`
-- `tests/integration/test_conclude_memories.py::test_only_conclude_activity_carries_memories`
-- `tests/integration/test_conclude_memories.py::test_readonly_finish_batched_with_another_tool_is_rejected`
-- `tests/integration/test_conclude_memories.py::test_registered_world_request_ends_the_decision_and_memory_queries_do_not`
-- `tests/integration/test_conclude_memories.py::test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime_reflection`
-- `tests/integration/test_dayrun_complete_days.py::test_complete_two_person_day_uses_real_tools_memory_and_restoration`
-- `tests/integration/test_decision_context_protocol.py::test_start_activity_description_says_notes_give_length_or_unmet_condition`
-- `tests/integration/test_env_lifecycle_coverage.py::test_full_round_drives_engine_interfaces`
-- `tests/integration/test_grounded_targets.py::test_day_start_offers_the_normal_tools_and_readonly_keeps_its_gate`
-- `tests/integration/test_grounded_targets.py::test_start_rejects_invalid_pairs_before_dispatch`
-- `tests/integration/test_host_branch_coverage.py::test_plan_day_client_enforces_manifest_identity`
-- `tests/integration/test_host_branch_coverage.py::test_plan_day_client_serializes_model_responses`
-- `tests/integration/test_host_branch_coverage.py::test_require_runtime_identity_rejects_diverged_manifest`
-- `tests/integration/test_host_branch_coverage.py::test_settle_pending_day_plans_builds_client_from_manifest_only_when_needed`
-- `tests/integration/test_life_agent_protocol.py::test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages`
-- `tests/integration/test_life_agent_protocol.py::test_plan_day_is_no_person_tool_and_revision_carries_remind_time`
-- `tests/integration/test_parallel_rejection_contract.py::test_conflicting_pair_is_rejected_as_a_whole_and_explained_to_the_person`
-- `tests/integration/test_parallel_rejection_contract.py::test_location_menu_denies_actions_outside_its_closed_set`
-- `tests/integration/test_parallel_rejection_contract.py::test_menu_denies_the_whole_group_when_one_item_is_outside_it`
-- `tests/integration/test_parallel_rejection_contract.py::test_protected_self_actions_remain_usable`
-- `tests/integration/test_run_manifest.py::test_run_identity_records_git_state_as_a_pair`
-- `tests/integration/test_runtime.py::test_as2_file_read_failure_is_an_identity_refusal`
-- `tests/integration/test_runtime.py::test_as2_identity_is_independent_of_install_location`
-- `tests/integration/test_runtime.py::test_as2_lookup_failures_are_identity_refusals`
-- `tests/integration/test_runtime.py::test_code_identity_covers_every_imported_as2_file_except_pycache`
-- `tests/integration/test_runtime.py::test_counterfactual_init_waits_for_the_intervention_checkpoint`
-- `tests/integration/test_runtime.py::test_experiment_registers_the_locked_as2_source_digest_verbatim`
-- `tests/integration/test_runtime.py::test_git_state_is_null_when_git_is_unavailable_or_status_fails`
-- `tests/integration/test_runtime.py::test_git_state_records_head_and_dirty_flag_of_the_checkout`
-- `tests/integration/test_runtime.py::test_imported_as2_matches_rebuildable_locked_source`
-- `tests/integration/test_runtime.py::test_life_env_checkpoint_plans_the_start_day_after_the_initial_checkpoint`
-- `tests/integration/test_runtime.py::test_life_env_commit_settles_model_reply_into_inbox`
-- `tests/integration/test_runtime.py::test_life_env_step_plans_midnight_before_the_step_checkpoint`
-- `tests/integration/test_runtime.py::test_plain_resume_plans_the_missing_day_in_init_once`
-- `tests/integration/test_runtime.py::test_plan_day_failure_at_a_midnight_step_is_one_run_failure_through_society_run`
-- `tests/integration/test_runtime.py::test_plan_day_failure_at_the_initial_checkpoint_is_one_run_failure_through_society_init`
-- `tests/integration/test_runtime.py::test_plan_day_failure_during_resume_init_is_registered_before_raising`
-- `tests/integration/test_runtime.py::test_run_manifest_records_git_commit_and_dirty_flag`
-- `tests/integration/test_runtime.py::test_unlocked_as2_refuses_run_resume_replay_and_validate`
-- `tests/life/test_action_run.py::test_actual_remaining_under_one_minute_starts_and_resume_never_selects`
-- `tests/life/test_action_run.py::test_assigned_content_is_finite_and_completion_pulse_is_applied_once`
-- `tests/life/test_action_run.py::test_assigned_work_requires_actual_workplace_and_unassigned_study_does_not`
-- `tests/life/test_action_run.py::test_category_effects_and_met_are_fixed_not_content_types`
-- `tests/life/test_activity_effects.py::test_hunger_crossing_reverted_by_meal_window_end_is_not_skipped`
-- `tests/life/test_activity_effects.py::test_hunger_downward_crossing_at_meal_window_end`
-- `tests/life/test_activity_effects.py::test_hunger_upward_crossing_is_not_later_than_actual`
-- `tests/life/test_activity_effects.py::test_meal_window_edges_are_boundary_candidates`
-- `tests/life/test_affordance_contract.py::test_contract_shape_matches_registry_one_to_one`
-- `tests/life/test_app_progress.py::test_cross_app_progress_uses_latest_global_position_and_owner_isolation`
-- `tests/life/test_app_progress.py::test_other_app_completed_round_resume_starts_latest_round_zero_and_does_not_count_twice`
-- `tests/life/test_body.py::test_every_activity_truncates_at_zero`
-- `tests/life/test_content_select.py::test_transit_does_not_count_as_presence_at_work_location`
-- `tests/life/test_day_plan.py::test_empty_plan_is_registered_once_and_can_be_revised`
-- `tests/life/test_day_plan.py::test_midnight_final_interval_progresses_old_plan_before_expiry`
-- `tests/life/test_day_plan.py::test_recall_task_summary_by_goal_name_round_trips`
-- `tests/life/test_day_planning.py::test_invalid_output_after_three_retries_is_a_run_fault_with_evidence`
-- `tests/life/test_day_planning.py::test_mid_day_start_attaches_the_error_and_retries_invalid_output`
-- `tests/life/test_day_planning.py::test_midnight_is_the_local_date_change_when_dst_skips_00_00`
-- `tests/life/test_day_planning.py::test_midnight_settles_the_old_day_then_plans_then_judges_the_second`
-- `tests/life/test_day_planning.py::test_plan_inputs_list_only_accepted_conclusions_once`
-- `tests/life/test_day_planning.py::test_plan_inputs_read_world_facts_and_self_reports_but_not_the_persons_mind`
-- `tests/life/test_day_planning.py::test_reminder_staged_without_a_rhythm_pass_is_the_next_boundary_and_ends_the_sleep`
-- `tests/life/test_day_planning.py::test_reminders_wake_once_merge_and_fire_after_the_goal_progressed`
-- `tests/life/test_day_planning.py::test_resume_and_counterfactual_branches_follow_plan_submitted_dates`
-- `tests/life/test_day_planning.py::test_review_window_is_empty_at_a_midnight_start_and_the_old_day_at_a_midnight_boundary`
-- `tests/life/test_day_planning.py::test_revision_keeps_replaces_and_cancels_reminders`
-- `tests/life/test_day_planning.py::test_run_ending_at_midnight_runs_no_plan_day_and_nothing_follows_run_ended`
-- `tests/life/test_day_planning.py::test_sleep_crosses_midnight_and_the_new_reminder_ends_it_once`
-- `tests/life/test_day_planning.py::test_sleep_ending_as_planned_at_the_reminder_keeps_planned_end`
-- `tests/life/test_day_planning.py::test_sleep_keeps_the_reminder_among_the_next_decision_candidates`
-- `tests/life/test_day_planning.py::test_start_path_generates_the_day_plan_once_and_leaves_the_person_untouched`
-- `tests/life/test_day_planning.py::test_system_entry_refuses_a_second_registration_and_an_invalid_plan`
-- `tests/life/test_day_planning.py::test_transport_failure_is_a_run_fault_after_the_evidence_is_kept`
-- `tests/life/test_dayrun_restaurants.py::test_delivery_eta_is_readable_and_matches_actual_receipt`
-- `tests/life/test_dayrun_restaurants.py::test_goods_paths_are_discoverable_once_without_holdings`
-- `tests/life/test_dayrun_restaurants.py::test_goods_without_an_online_channel_rejects_before_payment`
-- `tests/life/test_decision_budget.py::test_a_replayed_rejection_in_the_last_restricted_round_exhausts_the_budget`
-- `tests/life/test_decision_budget.py::test_a_successful_last_restricted_round_carries_the_latest_rejection_code`
-- `tests/life/test_decision_budget.py::test_budget_exhausted_with_a_pending_conclusion_beside_a_running_activity`
-- `tests/life/test_decision_budget.py::test_restricted_rounds_used_up_without_an_activity_pause_technically`
-- `tests/life/test_domain_branch_coverage.py::test_chat_acceptance_keeps_selected_content_and_rejects_absent_partner`
-- `tests/life/test_domain_branch_coverage.py::test_ending_chat_ends_partner_same_second_without_rewinding_content`
-- `tests/life/test_domain_branch_coverage.py::test_shared_chat_seconds_uses_reciprocal_overlap_and_actual_start`
-- `tests/life/test_domain_branch_coverage.py::test_social_ledger_uses_actual_remote_or_reciprocal_seconds`
-- `tests/life/test_domain_branch_coverage.py::test_work_start_uses_assigned_content_and_actual_workplace`
-- `tests/life/test_energy_feasibility.py::test_checkpoint_with_overdrawn_activity_restores`
-- `tests/life/test_energy_feasibility.py::test_derived_duration_beyond_energy_is_accepted_and_settles_at_zero`
-- `tests/life/test_energy_feasibility.py::test_energy_gate_symbols_are_gone_from_production_code`
-- `tests/life/test_energy_feasibility.py::test_hunger_band_crossing_wakes_during_activity`
-- `tests/life/test_energy_feasibility.py::test_hunger_band_crossing_wakes_during_chat`
-- `tests/life/test_energy_feasibility.py::test_hunger_crossing_just_before_lunch_end_wakes_during_wait`
-- `tests/life/test_energy_feasibility.py::test_routes_are_feasible_by_reachability_not_energy`
-- `tests/life/test_energy_feasibility.py::test_zero_energy_observation_offers_every_action_without_energy_projection`
-- `tests/life/test_energy_feasibility.py::test_zero_energy_resume_is_accepted`
-- `tests/life/test_energy_feasibility.py::test_zero_energy_start_is_accepted`
-- `tests/life/test_energy_feasibility.py::test_zero_energy_travel_and_work_are_accepted`
-- `tests/life/test_engine_branch_coverage.py::test_body_projection_renders_five_band_texts_and_numeric_values`
-- `tests/life/test_engine_branch_coverage.py::test_next_body_boundary_skips_zero_rates_when_nothing_due`
-- `tests/life/test_engine_branch_coverage.py::test_send_message_rejects_unknown_recipient_and_delivers_to_none_policy_contact`
-- `tests/life/test_engine_feedback.py::test_business_rejection_is_reported_in_progress_and_run_continues`
-- `tests/life/test_engine_feedback.py::test_pause_report_resume_and_conclude_name_the_activity`
-- `tests/life/test_experience_sentences.py::test_every_experience_kind_is_written_as_a_sentence_without_identities`
-- `tests/life/test_experience_sentences.py::test_observation_keeps_experiences_private_and_out_of_the_layers`
-- `tests/life/test_export_integration.py::test_completed_activity_exports_terminal_outcome_and_recorded_prompt`
-- `tests/life/test_export_integration.py::test_lifecycle_records_and_export_match_the_final_checkpoint`
-- `tests/life/test_export_integration.py::test_model_npc_reply_at_most_once_per_message`
-- `tests/life/test_export_integration.py::test_model_npc_reply_loop_delivers_to_inbox_with_evidence`
-- `tests/life/test_export_integration.py::test_person_conclusion_keeps_memories_in_request_and_registers_private_sources`
-- `tests/life/test_felt_states.py::TestLowEnergyAppetite::test_below_emergency_threshold_is_at_least_unbearable`
-- `tests/life/test_felt_states.py::TestLowEnergyAppetite::test_below_starving_constant_is_starving`
-- `tests/life/test_felt_states.py::TestLowEnergyAppetite::test_emergency_floor_ignores_meal_and_circadian_terms`
-- `tests/life/test_felt_states.py::TestLowEnergyAppetite::test_starving_is_not_an_appetite_band`
-- `tests/life/test_felt_states.py::TestLowEnergyAppetite::test_summary_applies_the_same_rules`
-- `tests/life/test_felt_states.py::test_body_config_rejects_emergency_threshold_not_above_starving`
-- `tests/life/test_felt_states.py::test_environment_cannot_override_system_energy_threshold`
-- `tests/life/test_food_presentation.py::test_product_targets_use_current_store_or_real_delivery_apps`
-- `tests/life/test_grounded_observation.py::test_real_observation_during_active_activity_keeps_decision_open`
-- `tests/life/test_interaction_menu_invariants.py::test_binding_action_projects_verb_and_way_publicly_and_keeps_execution_private`
-- `tests/life/test_interaction_menu_invariants.py::test_every_way_maps_to_one_verb_and_covers_every_internal_action`
-- `tests/life/test_interaction_menu_invariants.py::test_merged_selection_combines_only_purchase_and_keeps_other_actions_independent`
-- `tests/life/test_interaction_menu_invariants.py::test_selection_resolves_exact_action_and_way_synonym_and_menu_judges_canonical_actions`
-- `tests/life/test_interaction_menu_runtime.py::test_menu_rejects_unoffered_semantic_action_before_travel`
-- `tests/life/test_interaction_menu_runtime.py::test_observation_exposes_semantic_choices_and_keeps_bindings_private`
-- `tests/life/test_location_sessions.py::test_both_paused_redecide_same_second_until_one_resumes`
-- `tests/life/test_location_sessions.py::test_cross_day_duplicate_activity_names_get_ordinals`
-- `tests/life/test_location_sessions.py::test_departure_and_arrival_switch_sessions_and_end_road_activities`
-- `tests/life/test_location_sessions.py::test_departure_with_running_activity_is_rejected_naming_it`
-- `tests/life/test_location_sessions.py::test_ending_travel_midway_ends_road_activities_and_stays_at_origin`
-- `tests/life/test_location_sessions.py::test_experiment_end_ends_every_session_without_conclusion`
-- `tests/life/test_location_sessions.py::test_experiment_end_export_matches_the_final_checkpoint_for_every_truncated_activity`
-- `tests/life/test_location_sessions.py::test_just_ended_requires_conclusion_in_the_same_second`
-- `tests/life/test_location_sessions.py::test_lifecycle_records_and_export_match_the_final_checkpoint`
-- `tests/life/test_location_sessions.py::test_other_activity_keeps_running_while_the_ended_one_is_concluded`
-- `tests/life/test_location_sessions.py::test_paused_activity_can_be_concluded_elsewhere`
-- `tests/life/test_location_sessions.py::test_paused_activity_resumes_only_at_its_start_location`
-- `tests/life/test_location_sessions.py::test_pausing_an_activity_on_the_road_is_unavailable`
-- `tests/life/test_location_sessions.py::test_recall_by_goal_and_activity_names_is_current_read_only_evidence`
-- `tests/life/test_location_sessions.py::test_recall_of_content_started_with_a_walk_names_the_road`
-- `tests/life/test_location_sessions.py::test_run_start_opens_one_stay_session_per_agent`
-- `tests/life/test_location_sessions.py::test_same_named_activities_get_ordinals_instead_of_failing`
-- `tests/life/test_location_sessions.py::test_self_report_stays_out_of_the_tool_layer_and_is_only_a_call_argument`
-- `tests/life/test_location_sessions.py::test_sessions_and_pending_conclusion_survive_reopen`
-- `tests/life/test_location_sessions.py::test_slot_counting_durations_and_session_helpers_are_pure`
-- `tests/life/test_location_sessions.py::test_start_request_shape_errors_are_action_request_invalid`
-- `tests/life/test_location_sessions.py::test_travel_with_full_slots_is_rejected_for_slots_before_the_departure_check`
-- `tests/life/test_location_sessions.py::test_two_item_start_with_one_free_slot_says_only_one_slot_is_left`
-- `tests/life/test_location_sessions.py::test_two_running_activities_block_a_third_until_one_is_paused`
-- `tests/life/test_location_sessions.py::test_waking_with_the_sleep_awaiting_conclusion_offers_its_conclusion`
-- `tests/life/test_memory_evidence.py::test_conclusion_memories_record_the_activity_conclusion_write_point`
-- `tests/life/test_memory_evidence.py::test_episodes_written_without_any_write_point_are_a_protocol_violation`
-- `tests/life/test_memory_evidence.py::test_rejected_conclusion_keeps_its_memories_as_self_report`
-- `tests/life/test_memory_evidence.py::test_waking_round_lists_conclusion_then_reflection`
-- `tests/life/test_memory_evidence.py::test_write_points_follow_the_registered_conclusion_and_the_wake_from_sleep_round`
-- `tests/life/test_opslog.py::test_opslog_component_follows_the_internal_action_of_the_chosen_way`
-- `tests/life/test_parallel_acceptance.py::test_incompatible_pair_is_rejected_without_partial_state`
-- `tests/life/test_parallel_acceptance.py::test_parallel_progress_uses_one_shared_body_interval`
-- `tests/life/test_parallel_admission.py::test_a_repeated_observation_of_one_decision_is_ambiguous_on_every_read`
-- `tests/life/test_parallel_admission.py::test_an_instant_obtain_joins_a_timed_activity_in_one_request`
-- `tests/life/test_parallel_admission.py::test_daily_care_with_walk_is_accepted_in_either_order`
-- `tests/life/test_parallel_admission.py::test_departure_with_a_running_activity_names_it_in_reason_and_next_step`
-- `tests/life/test_parallel_admission.py::test_driving_rejects_messages_and_exact_named_remote_orders`
-- `tests/life/test_parallel_admission.py::test_driving_with_a_remote_order_in_one_request_says_order_first`
-- `tests/life/test_parallel_admission.py::test_driving_with_office_work_or_face_chat_fails_target_presence`
-- `tests/life/test_parallel_admission.py::test_en_route_person_is_nowhere_and_has_no_inventory`
-- `tests/life/test_parallel_admission.py::test_listed_actions_are_menu_allowed_and_self_is_always_offered`
-- `tests/life/test_parallel_admission.py::test_malformed_request_gets_the_default_reason_without_the_validation_text`
-- `tests/life/test_parallel_admission.py::test_order_routing_groups_only_matching_app_payment_and_fulfillment`
-- `tests/life/test_parallel_admission.py::test_overlapping_pairs_are_resource_conflicts`
-- `tests/life/test_parallel_admission.py::test_products_show_one_purchase_way_and_explicit_app_choices`
-- `tests/life/test_parallel_admission.py::test_remote_order_is_available_and_delivered_at_every_selected_place`
-- `tests/life/test_parallel_admission.py::test_two_goods_share_one_delivery_fee_and_distinct_receipts`
-- `tests/life/test_parallel_admission.py::test_walking_accepts_messages_and_refuses_self_delivery_during_transit`
-- `tests/life/test_parallel_admission.py::test_work_with_phone_entertainment_settles_one_shared_body`
-- `tests/life/test_progress_events.py::test_arrival_session_is_time_bound_and_excludes_the_departure`
-- `tests/life/test_progress_layer_projection.py::test_activity_targets_carry_only_readable_objective_progress`
-- `tests/life/test_progress_layer_projection.py::test_conclude_marks_named_just_ended_activities_and_keeps_their_status`
-- `tests/life/test_progress_layer_projection.py::test_progress_rows_follow_pause_resume_end_and_conclusion`
-- `tests/life/test_progress_layer_projection.py::test_recall_reads_task_and_activity_without_identities`
-- `tests/life/test_progress_layer_projection.py::test_work_objective_progress_grows_with_settlement`
-- `tests/life/test_prompt_layers.py::test_current_tool_surface_and_action_only_stage_identity_match_the_actual_host`
-- `tests/life/test_prompt_layers.py::test_paused_activity_progress_appears_only_in_the_todo_layer`
-- `tests/life/test_public_observation_contract.py::test_food_energy_label_rounds_half_up_to_ten_kcal`
-- `tests/life/test_public_observation_contract.py::test_low_energy_prompt_carries_levels_and_labels_but_no_body_numbers`
-- `tests/life/test_public_observation_contract.py::test_products_show_fixed_energy_and_no_inventory_targets`
-- `tests/life/test_public_observation_contract.py::test_real_observation_uses_readable_objects_and_private_bindings`
-- `tests/life/test_public_observation_contract.py::test_route_effort_bands_follow_travel_met`
-- `tests/life/test_public_observation_contract.py::test_routes_carry_effort_and_only_reachable_routes_are_listed_at_zero_energy`
-- `tests/life/test_rerun_metrics.py::test_rerun_command_reports_not_applicable_metrics_for_a_run_without_records`
-- `tests/life/test_rerun_metrics.py::test_rerun_metrics_on_a_real_engine_day`
-- `tests/life/test_rerun_metrics.py::test_rerun_metrics_on_a_stored_run_with_gaps_driving_only_and_missed_meals`
-- `tests/life/test_resource_conflict_progress.py::test_active_work_is_listed_with_note_and_conflict_redecides_in_same_second`
-- `tests/life/test_revision_contract.py::test_plan_day_registration_and_retry_after_rejection`
-- `tests/life/test_revision_contract.py::test_public_observation_excludes_private_fields_and_fixed_menu_remains_visible`
-- `tests/life/test_routing.py::test_navigation_is_the_explicit_app_and_collection_rejects_all_route_values`
-- `tests/life/test_same_moment_decisions.py::test_activity_end_boundary_offers_no_active_activity_and_redecides`
-- `tests/life/test_same_moment_decisions.py::test_awake_recipient_gets_same_second_opportunity`
-- `tests/life/test_same_moment_decisions.py::test_both_paused_at_the_limit_open_start_or_resume`
-- `tests/life/test_same_moment_decisions.py::test_business_rejection_redecides_in_same_second_with_rejection_feedback`
-- `tests/life/test_same_moment_decisions.py::test_clock_advances_only_when_everyone_has_an_active_activity`
-- `tests/life/test_same_moment_decisions.py::test_conclude_pending_stage_accepts_only_concluding_every_pending_activity`
-- `tests/life/test_same_moment_decisions.py::test_concluding_a_paused_activity_in_start_or_resume_is_restricted`
-- `tests/life/test_same_moment_decisions.py::test_conclusion_branch_and_start_or_resume_of_the_ladder`
-- `tests/life/test_same_moment_decisions.py::test_conclusion_only_round_does_not_use_up_message_opportunity`
-- `tests/life/test_same_moment_decisions.py::test_contact_reply_arrival_filtered_during_sleep`
-- `tests/life/test_same_moment_decisions.py::test_feedback_interval_60_bounds_same_second_rounds`
-- `tests/life/test_same_moment_decisions.py::test_first_decision_includes_reconsideration_candidate`
-- `tests/life/test_same_moment_decisions.py::test_idle_interval_only_while_waiting_without_commitments`
-- `tests/life/test_same_moment_decisions.py::test_out_of_bounds_request_is_rejected_and_counted`
-- `tests/life/test_same_moment_decisions.py::test_partner_ended_at_the_limit_restarts_the_ladder_from_conclusion`
-- `tests/life/test_same_moment_decisions.py::test_partner_ended_chat_redecides_same_second_with_planned_end`
-- `tests/life/test_same_moment_decisions.py::test_pending_conclusion_beside_a_running_activity_holds_the_clock_past_the_limit`
-- `tests/life/test_same_moment_decisions.py::test_pending_conclusion_rejects_other_requests_until_concluded_within_limit_plus_three`
-- `tests/life/test_same_moment_decisions.py::test_presentation_staging_survives_reopen`
-- `tests/life/test_same_moment_decisions.py::test_purchase_result_names_the_order_in_the_progress_layer`
-- `tests/life/test_same_moment_decisions.py::test_recipient_at_limit_gets_message_at_next_boundary`
-- `tests/life/test_same_moment_decisions.py::test_recipient_in_same_round_is_not_overwritten_by_its_own_success`
-- `tests/life/test_same_moment_decisions.py::test_rejected_paired_start_leaves_no_chat_invite`
-- `tests/life/test_same_moment_decisions.py::test_rejected_resume_with_both_paused_stays_in_start_or_resume`
-- `tests/life/test_same_moment_decisions.py::test_rejected_start_stays_in_start_or_resume_and_marks_the_option`
-- `tests/life/test_same_moment_decisions.py::test_rejection_with_active_activity_retries_until_limit_then_follows_rhythm`
-- `tests/life/test_same_moment_decisions.py::test_replay_round_counts_toward_same_moment_rounds`
-- `tests/life/test_same_moment_decisions.py::test_report_with_active_activity_does_not_redecide_in_same_second`
-- `tests/life/test_same_moment_decisions.py::test_restricted_conclusions_endings_and_waits_pass_the_stage_check`
-- `tests/life/test_same_moment_decisions.py::test_restricted_observation_marks_closed_actions_unavailable`
-- `tests/life/test_same_moment_decisions.py::test_restricted_round_does_not_use_up_message_opportunity`
-- `tests/life/test_same_moment_decisions.py::test_restricted_stage_check_and_ladder_units`
-- `tests/life/test_same_moment_decisions.py::test_run_start_and_instant_action_redecide_in_same_second`
-- `tests/life/test_same_moment_decisions.py::test_same_moment_state_survives_reopen`
-- `tests/life/test_same_moment_decisions.py::test_same_second_results_stay_in_the_progress_layer`
-- `tests/life/test_same_moment_decisions.py::test_same_second_rounds_keep_presentation_window_and_rotation`
-- `tests/life/test_same_moment_decisions.py::test_scenario_with_max_consecutive_rejections_is_rejected`
-- `tests/life/test_same_moment_decisions.py::test_service_refused_pulse_at_most_once_per_second`
-- `tests/life/test_same_moment_decisions.py::test_sleep_does_not_wake_for_no_active_activity`
-- `tests/life/test_same_moment_decisions.py::test_sleeping_recipient_is_not_woken_by_person_message`
-- `tests/life/test_same_moment_decisions.py::test_start_or_resume_accepts_start_and_resume_but_not_other_reports`
-- `tests/life/test_same_moment_decisions.py::test_start_or_resume_schema_matches_engine_dispatch`
-- `tests/life/test_same_moment_decisions.py::test_two_agents_same_round_keep_their_presentation_stamps`
-- `tests/life/test_same_moment_decisions.py::test_wake_reasons_replaced_per_round_single_bedtime_reflection`
-- `tests/life/test_scenario.py::test_body_instance_and_rejection_ranges_are_enforced`
-- `tests/life/test_scheduling.py::test_actual_scheduled_payroll_transfers_fixed_salary_without_work_or_submission`
-- `tests/life/test_semantics.py::test_energy_thresholds_come_from_worldmock_body_constants`
-- `tests/life/test_session_state.py::test_run_with_version_7_world_state_is_rejected_on_open`
-- `tests/life/test_session_state.py::test_world_schema_version_is_8`
-- `tests/life/test_session_state.py::test_world_state_schema_version_7_is_rejected`
-- `tests/life/test_shift_edges.py::test_t10_app_content_boundary_after_shift_end_does_not_hide_the_edge`
-- `tests/life/test_shift_edges.py::test_t12_app_can_pause_at_shift_edge_and_content_completion_stays_quiet`
-- `tests/life/test_sleep_two_process.py::TestInitialBodyFromUsualWake::test_lianqiu_midnight_start_first_observation_is_at_least_sleepy`
-- `tests/life/test_sleep_two_process.py::TestInitialBodyFromUsualWake::test_pressure_counts_awake_hours_since_the_most_recent_usual_wake`
-- `tests/life/test_sleep_two_process.py::TestInitialBodyFromUsualWake::test_usual_wake_hour_wraps_modulo_24`
-- `tests/life/test_sleep_two_process.py::TestSleepinessCrossingPrediction::test_prediction_from_current_pressure_is_not_later_than_actual`
-- `tests/life/test_social.py::test_reply_policy_branches_with_at_most_once_idempotency`
-- `tests/life/test_social_rounds.py::test_acceptance_with_less_than_one_minute_remaining_is_allowed`
-- `tests/life/test_social_rounds.py::test_common_seconds_are_independent_of_people_advance_order`
-- `tests/life/test_social_rounds.py::test_duplicate_or_absent_partner_is_rejected_and_social_cannot_pause`
-- `tests/life/test_social_rounds.py::test_invitation_acceptance_keeps_own_content_and_partner_end_partial_progress`
-- `tests/life/test_social_rounds.py::test_shared_social_advance_uses_only_real_body_settlement_once`
-- `tests/life/test_social_rounds.py::test_template_reply_is_scheduled_once_with_actual_recipient_and_fixed_delay`
-- `tests/life/test_todo_layer.py::test_paused_activities_are_ordered_by_pause_time_not_start_time`
-- `tests/life/test_todo_layer.py::test_resume_elsewhere_is_unavailable_and_names_the_place`
-- `tests/life/test_tool_layer.py::test_action_duration_matches_read_only_selector_and_actual_admission`
-- `tests/life/test_tool_layer.py::test_action_name_and_perform_synonym_use_exact_registered_object_and_leave_app_explicit`
-- `tests/life/test_tool_layer.py::test_every_listed_item_matches_admission_at_run_start`
-- `tests/life/test_tool_layer.py::test_most_recent_unfinished_content_duration_is_remaining_and_observation_does_not_select`
-- `tests/life/test_tool_layer.py::test_paused_activity_controls_match_real_resume_and_conclusion`
-- `tests/life/test_tool_layer.py::test_pending_conclusion_marks_everything_but_conclusion_unavailable`
-- `tests/life/test_tool_layer.py::test_restricted_round_marks_closed_items_with_the_same_moment_reason`
-- `tests/life/test_tool_layer.py::test_retired_open_watch_game_and_food_ways_have_no_compatibility_synonyms`
-- `tests/life/test_travel_graph.py::test_travel_progress_snapshot_keeps_origin_and_arrival_is_verified`
-- `tests/life/test_wake_reasons.py::test_activity_infeasible_and_commitment_threatened_have_no_retired_source`
-- `tests/life/test_wake_reasons.py::test_commitments_exclude_messages_history_and_completed_activities`
-- `tests/life/test_wake_reasons.py::test_frozen_wake_and_intent_names`
-- `tests/life/test_wake_reasons.py::test_low_energy_bands_match_the_decision_reference`
-- `tests/life/test_wake_reasons.py::test_progress_report_due_counts_only_active_activities_from_their_anchor`
-- `tests/life/test_wake_reasons.py::test_report_anchor_moves_on_start_report_and_resume_and_paused_activity_never_reports`
-- `tests/life/test_wake_reasons.py::test_sleep_allowed_reasons_include_plan_reminder_and_alarm`
-- `tests/life/test_wake_reasons.py::test_sleeping_person_gets_no_progress_report_wakeups`
-- `tests/life/test_wake_reasons.py::test_unread_inbox_message_yields_message_arrival_then_is_marked_read`
-- `tests/life/test_wake_reasons.py::test_zero_energy_during_activity_raises_neither_infeasible_nor_threat`
-- `tests/test_coverage_gate.py::test_branch_threshold_boundary`
-- `tests/test_coverage_gate.py::test_uncovered_public_interface_detection`
-- `tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve`
-- `tests/test_single_source.py::test_current_registry_and_observation_contract_retire_energy_and_game_keys`
-- `tests/test_start_activity_contract.py::test_conclude_ends_only_selected_activities_with_own_summaries`
-- `tests/test_start_activity_contract.py::test_conclude_naming_none_of_the_just_ended_activities_is_rejected`
-- `tests/test_start_activity_contract.py::test_two_offered_selections_resolve_item_by_item_to_internal_actions`
-- `tests/test_start_activity_contract.py::test_unresolvable_selection_keeps_exact_name_or_way_error`
-- `tests/test_start_activity_contract.py::test_ways_vocabulary_maps_each_way_to_exactly_one_life_verb`
-- `tests/test_style_gate.py::test_style_gate_admits_no_new_violations`
-- `tests/test_time_and_energy_completeness.py::test_removed_symbols_of_done_stages_are_absent`
-- `tests/tools/test_run_viewer.py::test_run_viewer_recorded_names`
+| 契约主题 | 实际行为或门禁节点 | 当前证据边界 |
+| --- | --- | --- |
+| 绿色基线 | `tests/integration/test_dayrun_complete_days.py::test_complete_two_person_day_uses_real_tools_memory_and_restoration`<br>`tests/integration/test_agent_branch_coverage.py::test_empty_interactive_layer_decision_continues_without_failure`<br>`tests/life/test_grounded_observation.py::test_real_observation_during_active_activity_keeps_decision_open`<br>`tests/life/test_session_state.py::test_world_schema_version_is_8`<br>`tests/life/test_session_state.py::test_world_state_schema_version_7_is_rejected`<br>`tests/life/test_session_state.py::test_run_with_version_7_world_state_is_rejected_on_open`<br>`tests/footprints/test_verified_experiences.py::test_arrival_snapshot_at_origin_still_projects_arrived`<br>`tests/life/test_travel_graph.py::test_travel_progress_snapshot_keeps_origin_and_arrival_is_verified`<br>`tests/life/test_day_plan.py::test_recall_task_summary_by_goal_name_round_trips`<br>`tests/life/test_action_run.py::test_assigned_content_is_finite_and_completion_pulse_is_applied_once`<br>`tests/life/test_acs_amended_runtime.py::test_real_work_pause_report_restore_completion_and_exhaustion`<br>`tests/life/test_prompt_layers.py::test_current_tool_surface_and_action_only_stage_identity_match_the_actual_host`<br>`tests/integration/test_acs_engine_wave.py::test_unknown_action_name_has_the_same_explicit_field_error_in_host_and_actual_environment` | 当前节点可解析；本行不替代阶段 5 完整引擎、导出或跨平台执行回执 |
+| 同刻决策 | `tests/life/test_same_moment_decisions.py::test_run_start_and_instant_action_redecide_in_same_second`<br>`tests/life/test_same_moment_decisions.py::test_activity_end_boundary_offers_no_active_activity_and_redecides`<br>`tests/life/test_same_moment_decisions.py::test_business_rejection_redecides_in_same_second_with_rejection_feedback`<br>`tests/life/test_same_moment_decisions.py::test_rejection_with_active_activity_retries_until_limit_then_follows_rhythm`<br>`tests/life/test_same_moment_decisions.py::test_rejected_start_stays_in_start_or_resume_and_marks_the_option`<br>`tests/life/test_same_moment_decisions.py::test_out_of_bounds_request_is_rejected_and_counted`<br>`tests/life/test_same_moment_decisions.py::test_start_or_resume_accepts_start_and_resume_but_not_other_reports`<br>`tests/life/test_same_moment_decisions.py::test_replay_round_counts_toward_same_moment_rounds`<br>`tests/life/test_same_moment_decisions.py::test_clock_advances_only_when_everyone_has_an_active_activity`<br>`tests/life/test_same_moment_decisions.py::test_report_with_active_activity_does_not_redecide_in_same_second`<br>`tests/life/test_same_moment_decisions.py::test_wake_reasons_replaced_per_round_single_bedtime_reflection`<br>`tests/life/test_same_moment_decisions.py::test_sleep_does_not_wake_for_no_active_activity`<br>`tests/life/test_same_moment_decisions.py::test_service_refused_pulse_at_most_once_per_second`<br>`tests/life/test_same_moment_decisions.py::test_scenario_with_max_consecutive_rejections_is_rejected`<br>`tests/life/test_same_moment_decisions.py::test_restricted_stage_check_and_ladder_units`<br>`tests/life/test_same_moment_decisions.py::test_restricted_observation_marks_closed_actions_unavailable`<br>`tests/life/test_same_moment_decisions.py::test_start_or_resume_schema_matches_engine_dispatch`<br>`tests/life/test_same_moment_decisions.py::test_awake_recipient_gets_same_second_opportunity`<br>`tests/life/test_same_moment_decisions.py::test_recipient_in_same_round_is_not_overwritten_by_its_own_success`<br>`tests/life/test_same_moment_decisions.py::test_recipient_at_limit_gets_message_at_next_boundary`<br>`tests/life/test_same_moment_decisions.py::test_restricted_round_does_not_use_up_message_opportunity`<br>`tests/life/test_same_moment_decisions.py::test_sleeping_recipient_is_not_woken_by_person_message`<br>`tests/life/test_same_moment_decisions.py::test_rejected_paired_start_leaves_no_chat_invite`<br>`tests/life/test_same_moment_decisions.py::test_contact_reply_arrival_filtered_during_sleep`<br>`tests/life/test_same_moment_decisions.py::test_same_second_rounds_keep_presentation_window_and_rotation`<br>`tests/life/test_same_moment_decisions.py::test_same_second_results_stay_in_the_progress_layer`<br>`tests/life/test_same_moment_decisions.py::test_two_agents_same_round_keep_their_presentation_stamps`<br>`tests/life/test_scenario.py::test_body_instance_and_rejection_ranges_are_enforced`<br>`tests/life/test_engine_feedback.py::test_business_rejection_is_reported_in_progress_and_run_continues`<br>`tests/integration/test_agent_branch_coverage.py::test_corrupt_observation_fails_before_any_model_tool`<br>`tests/life/test_tool_layer.py::test_restricted_round_marks_closed_items_with_the_same_moment_reason`<br>`tests/life/test_export_integration.py::test_model_npc_reply_loop_delivers_to_inbox_with_evidence`<br>`tests/life/test_export_integration.py::test_model_npc_reply_at_most_once_per_message`<br>`tests/integration/test_runtime.py::test_life_env_commit_settles_model_reply_into_inbox`<br>`tests/life/test_wake_reasons.py::test_unread_inbox_message_yields_message_arrival_then_is_marked_read`<br>`tests/integration/test_dayrun_complete_days.py::test_complete_two_person_day_uses_real_tools_memory_and_restoration`<br>`tests/life/test_location_sessions.py::test_just_ended_requires_conclusion_in_the_same_second`<br>`tests/life/test_location_sessions.py::test_two_running_activities_block_a_third_until_one_is_paused`<br>`tests/life/test_location_sessions.py::test_both_paused_redecide_same_second_until_one_resumes`<br>`tests/life/test_tool_layer.py::test_pending_conclusion_marks_everything_but_conclusion_unavailable`<br>`tests/life/test_todo_layer.py::test_resume_elsewhere_is_unavailable_and_names_the_place`<br>`tests/life/test_same_moment_decisions.py::test_pending_conclusion_rejects_other_requests_until_concluded_within_limit_plus_three`<br>`tests/life/test_same_moment_decisions.py::test_conclude_pending_stage_accepts_only_concluding_every_pending_activity`<br>`tests/life/test_same_moment_decisions.py::test_both_paused_at_the_limit_open_start_or_resume`<br>`tests/life/test_same_moment_decisions.py::test_concluding_a_paused_activity_in_start_or_resume_is_restricted`<br>`tests/life/test_same_moment_decisions.py::test_rejected_resume_with_both_paused_stays_in_start_or_resume`<br>`tests/life/test_same_moment_decisions.py::test_restricted_conclusions_endings_and_waits_pass_the_stage_check`<br>`tests/life/test_same_moment_decisions.py::test_conclusion_branch_and_start_or_resume_of_the_ladder`<br>`tests/life/test_same_moment_decisions.py::test_conclusion_only_round_does_not_use_up_message_opportunity`<br>`tests/life/test_same_moment_decisions.py::test_same_second_results_stay_in_the_progress_layer`<br>`tests/life/test_same_moment_decisions.py::test_purchase_result_names_the_order_in_the_progress_layer`<br>`tests/life/test_same_moment_decisions.py::test_partner_ended_chat_redecides_same_second_with_planned_end`<br>`tests/life/test_same_moment_decisions.py::test_partner_ended_at_the_limit_restarts_the_ladder_from_conclusion`<br>`tests/life/test_social_rounds.py::test_invitation_acceptance_keeps_own_content_and_partner_end_partial_progress`<br>`tests/life/test_social_rounds.py::test_duplicate_or_absent_partner_is_rejected_and_social_cannot_pause`<br>`tests/life/test_resource_conflict_progress.py::test_active_work_is_listed_with_note_and_conflict_redecides_in_same_second`<br>`tests/life/test_social_rounds.py::test_invitation_acceptance_keeps_own_content_and_partner_end_partial_progress`<br>`tests/life/test_same_moment_decisions.py::test_pending_conclusion_beside_a_running_activity_holds_the_clock_past_the_limit`<br>`tests/life/test_decision_budget.py::test_restricted_rounds_used_up_without_an_activity_pause_technically`<br>`tests/life/test_decision_budget.py::test_a_successful_last_restricted_round_carries_the_latest_rejection_code`<br>`tests/life/test_decision_budget.py::test_a_replayed_rejection_in_the_last_restricted_round_exhausts_the_budget`<br>`tests/life/test_decision_budget.py::test_budget_exhausted_with_a_pending_conclusion_beside_a_running_activity` | 已登记到实际定义；执行结论取本次回执 |
+| 候选时刻 | `tests/life/test_same_moment_decisions.py::test_first_decision_includes_reconsideration_candidate`<br>`tests/life/test_same_moment_decisions.py::test_idle_interval_only_while_waiting_without_commitments`<br>`tests/life/test_same_moment_decisions.py::test_app_start_follows_decision_rhythm`<br>`tests/life/test_wake_reasons.py::test_commitments_exclude_messages_history_and_completed_activities`<br>`tests/life/test_sleep_two_process.py::TestSleepinessCrossingPrediction::test_prediction_from_current_pressure_is_not_later_than_actual`<br>`tests/life/test_activity_effects.py::test_hunger_upward_crossing_is_not_later_than_actual`<br>`tests/life/test_activity_effects.py::test_hunger_downward_crossing_at_meal_window_end`<br>`tests/life/test_activity_effects.py::test_hunger_crossing_reverted_by_meal_window_end_is_not_skipped`<br>`tests/life/test_energy_feasibility.py::test_hunger_crossing_just_before_lunch_end_wakes_during_wait`<br>`tests/life/test_activity_effects.py::test_meal_window_edges_are_boundary_candidates`<br>`tests/life/test_activity_effects.py::test_chat_and_call_are_predicted_but_sleep_and_game_are_not`<br>`tests/life/test_engine_branch_coverage.py::test_next_body_boundary_skips_zero_rates_when_nothing_due` | 已登记到实际定义；执行结论取本次回执 |
+| 唤醒词表 | `tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_is_the_frozen_spec_set`<br>`tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_matches_the_engine_side_enum`<br>`tests/footprints/test_event_fields.py::test_unknown_wake_reason_is_rejected_on_decision_started_write`<br>`tests/footprints/test_event_fields.py::test_unknown_wake_reason_is_rejected_on_body_settlement_write`<br>`tests/footprints/test_event_fields.py::test_new_wake_reasons_are_accepted_by_validation`<br>`tests/life/test_wake_reasons.py::test_frozen_wake_and_intent_names`<br>`tests/life/test_wake_reasons.py::test_sleep_allowed_reasons_include_plan_reminder_and_alarm`<br>`tests/life/test_wake_reasons.py::test_concrete_wake_reasons_are_preserved`<br>`tests/life/test_wake_reasons.py::test_activity_infeasible_and_commitment_threatened_have_no_retired_source`<br>`tests/life/test_wake_reasons.py::test_zero_energy_during_activity_raises_neither_infeasible_nor_threat`<br>`tests/footprints/test_quality.py::test_decision_rhythm_counts_same_moment_rounds`<br>`tests/evaluation/test_behavior_metrics.py::test_wake_reason_distribution_counts_same_moment_round_reasons` | 已登记到实际定义；执行结论取本次回执 |
+| 能量感知 | `tests/life/test_felt_states.py::TestLowEnergyAppetite::test_below_emergency_threshold_is_at_least_unbearable`<br>`tests/life/test_felt_states.py::TestLowEnergyAppetite::test_below_starving_constant_is_starving`<br>`tests/life/test_felt_states.py::TestLowEnergyAppetite::test_emergency_floor_ignores_meal_and_circadian_terms`<br>`tests/life/test_felt_states.py::TestLowEnergyAppetite::test_starving_is_not_an_appetite_band`<br>`tests/life/test_felt_states.py::TestLowEnergyAppetite::test_summary_applies_the_same_rules`<br>`tests/life/test_engine_branch_coverage.py::test_body_projection_renders_five_band_texts_and_numeric_values`<br>`tests/life/test_semantics.py::test_energy_thresholds_come_from_worldmock_body_constants`<br>`tests/life/test_felt_states.py::test_body_config_rejects_emergency_threshold_not_above_starving`<br>`tests/life/test_felt_states.py::test_environment_cannot_override_system_energy_threshold`<br>`tests/life/test_wake_reasons.py::test_low_energy_bands_match_the_decision_reference`<br>`tests/life/test_public_observation_contract.py::test_low_energy_prompt_carries_levels_and_labels_but_no_body_numbers`<br>`tests/life/test_public_observation_contract.py::test_food_energy_label_rounds_half_up_to_ten_kcal`<br>`tests/life/test_public_observation_contract.py::test_products_show_fixed_energy_and_no_inventory_targets`<br>`tests/life/test_public_observation_contract.py::test_route_effort_bands_follow_travel_met`<br>`tests/life/test_public_observation_contract.py::test_routes_carry_effort_and_only_reachable_routes_are_listed_at_zero_energy`<br>`tests/life/test_energy_feasibility.py::test_routes_are_feasible_by_reachability_not_energy` | 已登记到实际定义；执行结论取本次回执 |
+| 能量不拦人 | `tests/life/test_energy_feasibility.py::test_zero_energy_start_is_accepted`<br>`tests/life/test_energy_feasibility.py::test_derived_duration_beyond_energy_is_accepted_and_settles_at_zero`<br>`tests/life/test_energy_feasibility.py::test_zero_energy_travel_and_work_are_accepted`<br>`tests/life/test_energy_feasibility.py::test_zero_energy_resume_is_accepted`<br>`tests/life/test_energy_feasibility.py::test_checkpoint_with_overdrawn_activity_restores`<br>`tests/life/test_energy_feasibility.py::test_hunger_band_crossing_wakes_during_activity`<br>`tests/life/test_energy_feasibility.py::test_hunger_band_crossing_wakes_during_chat`<br>`tests/life/test_energy_feasibility.py::test_energy_gate_symbols_are_gone_from_production_code`<br>`tests/life/test_body.py::test_every_activity_truncates_at_zero`<br>`tests/life/test_dayrun_restaurants.py::test_goods_paths_are_discoverable_once_without_holdings`<br>`tests/life/test_affordance_contract.py::test_contract_shape_matches_registry_one_to_one`<br>`tests/life/test_energy_feasibility.py::test_zero_energy_observation_offers_every_action_without_energy_projection`<br>`tests/life/test_parallel_admission.py::test_two_goods_share_one_delivery_fee_and_distinct_receipts` | 已登记到实际定义；执行结论取本次回执 |
+| 零点计划与提醒 | `tests/life/test_day_planning.py::test_start_path_generates_the_day_plan_once_and_leaves_the_person_untouched`<br>`tests/life/test_day_planning.py::test_mid_day_start_attaches_the_error_and_retries_invalid_output`<br>`tests/life/test_day_planning.py::test_invalid_output_after_three_retries_is_a_run_fault_with_evidence`<br>`tests/life/test_day_planning.py::test_system_entry_refuses_a_second_registration_and_an_invalid_plan`<br>`tests/life/test_day_planning.py::test_transport_failure_is_a_run_fault_after_the_evidence_is_kept`<br>`tests/life/test_day_planning.py::test_midnight_settles_the_old_day_then_plans_then_judges_the_second`<br>`tests/life/test_day_planning.py::test_midnight_is_the_local_date_change_when_dst_skips_00_00`<br>`tests/life/test_day_planning.py::test_sleep_crosses_midnight_and_the_new_reminder_ends_it_once`<br>`tests/life/test_day_planning.py::test_sleep_ending_as_planned_at_the_reminder_keeps_planned_end`<br>`tests/life/test_day_planning.py::test_sleep_keeps_the_reminder_among_the_next_decision_candidates`<br>`tests/life/test_day_planning.py::test_reminder_staged_without_a_rhythm_pass_is_the_next_boundary_and_ends_the_sleep`<br>`tests/life/test_day_planning.py::test_reminders_wake_once_merge_and_fire_after_the_goal_progressed`<br>`tests/life/test_day_planning.py::test_revision_keeps_replaces_and_cancels_reminders`<br>`tests/life/test_day_planning.py::test_plan_inputs_read_world_facts_and_self_reports_but_not_the_persons_mind`<br>`tests/life/test_day_planning.py::test_plan_inputs_list_only_accepted_conclusions_once`<br>`tests/life/test_day_planning.py::test_review_window_is_empty_at_a_midnight_start_and_the_old_day_at_a_midnight_boundary`<br>`tests/life/test_day_planning.py::test_run_ending_at_midnight_runs_no_plan_day_and_nothing_follows_run_ended`<br>`tests/life/test_day_planning.py::test_resume_and_counterfactual_branches_follow_plan_submitted_dates`<br>`tests/integration/test_runtime.py::test_life_env_checkpoint_plans_the_start_day_after_the_initial_checkpoint`<br>`tests/integration/test_runtime.py::test_life_env_step_plans_midnight_before_the_step_checkpoint`<br>`tests/integration/test_runtime.py::test_plain_resume_plans_the_missing_day_in_init_once`<br>`tests/integration/test_runtime.py::test_counterfactual_init_waits_for_the_intervention_checkpoint`<br>`tests/integration/test_runtime.py::test_plan_day_failure_during_resume_init_is_registered_before_raising`<br>`tests/integration/test_runtime.py::test_plan_day_failure_at_a_midnight_step_is_one_run_failure_through_society_run`<br>`tests/integration/test_runtime.py::test_plan_day_failure_at_the_initial_checkpoint_is_one_run_failure_through_society_init`<br>`tests/integration/test_host_branch_coverage.py::test_plan_day_client_enforces_manifest_identity`<br>`tests/integration/test_host_branch_coverage.py::test_plan_day_client_serializes_model_responses`<br>`tests/integration/test_host_branch_coverage.py::test_settle_pending_day_plans_builds_client_from_manifest_only_when_needed`<br>`tests/integration/test_life_agent_protocol.py::test_plan_day_is_no_person_tool_and_revision_carries_remind_time`<br>`tests/footprints/test_store.py::test_action_request_cutoff_counts_only_thinking_requests_with_the_action_tools`<br>`tests/evaluation/test_behavior_metrics.py::test_plan_day_requests_are_not_decision_requests`<br>`tests/footprints/test_quality.py::test_model_usage_counts_plan_day_and_lists_it_by_purpose`<br>`tests/footprints/test_quality.py::test_plan_day_response_naming_memories_is_no_memory_problem``tests/evaluation/test_goal_metrics.py::test_zero_point_plan_event_registers_goals_that_revisions_keep`<br>`tests/footprints/test_goal_export.py::test_real_engine_midnight_settlement_exports_old_day_goal_progress`<br>`tests/life/test_day_plan.py::test_midnight_final_interval_progresses_old_plan_before_expiry`<br>`tests/life/test_day_plan.py::test_empty_plan_is_registered_once_and_can_be_revised`<br>`tests/life/test_revision_contract.py::test_plan_day_registration_and_retry_after_rejection`<br>`tests/integration/test_activity_schema.py::test_revise_day_plan_schema_inlines_goal_with_required_nullable_remind_time`<br>`tests/integration/test_grounded_targets.py::test_day_start_offers_the_normal_tools_and_readonly_keeps_its_gate`<br>`tests/integration/test_env_lifecycle_coverage.py::test_full_round_drives_engine_interfaces` | 已登记到实际定义；执行结论取本次回执 |
+| 动作与并行 | `tests/catalog/test_affordances.py::test_each_category_and_manner_combination_has_fixed_claims`<br>`tests/catalog/test_affordances.py::test_each_category_and_manner_combination_has_fixed_claims`<br>`tests/catalog/test_affordances.py::test_each_category_and_manner_combination_has_fixed_claims`<br>`tests/life/test_tool_layer.py::test_retired_open_watch_game_and_food_ways_have_no_compatibility_synonyms`<br>`tests/life/test_parallel_acceptance.py::test_app_can_share_time_with_compatible_activity`<br>`tests/life/test_parallel_acceptance.py::test_incompatible_pair_is_rejected_without_partial_state`<br>`tests/life/test_parallel_acceptance.py::test_parallel_progress_uses_one_shared_body_interval`<br>`tests/life/test_action_run.py::test_assigned_work_requires_actual_workplace_and_unassigned_study_does_not`<br>`tests/integration/test_acs_engine_wave.py::test_real_resume_checks_location_then_completed_assignment_before_slots_and_claims`<br>`tests/life/test_parallel_admission.py::test_en_route_person_is_nowhere_and_has_no_inventory`<br>`tests/life/test_parallel_admission.py::test_departure_with_a_running_activity_names_it_in_reason_and_next_step`<br>`tests/life/test_parallel_admission.py::test_listed_actions_are_menu_allowed_and_self_is_always_offered`<br>`tests/life/test_parallel_admission.py::test_two_goods_share_one_delivery_fee_and_distinct_receipts`<br>`tests/life/test_parallel_admission.py::test_order_routing_groups_only_matching_app_payment_and_fulfillment`<br>`tests/life/test_parallel_admission.py::test_products_show_one_purchase_way_and_explicit_app_choices`<br>`tests/life/test_parallel_admission.py::test_an_instant_obtain_joins_a_timed_activity_in_one_request`<br>`tests/life/test_parallel_admission.py::test_malformed_request_gets_the_default_reason_without_the_validation_text`<br>`tests/life/test_social_rounds.py::test_invitation_acceptance_keeps_own_content_and_partner_end_partial_progress`<br>`tests/life/test_social_rounds.py::test_duplicate_or_absent_partner_is_rejected_and_social_cannot_pause`<br>`tests/life/test_social_rounds.py::test_common_seconds_are_independent_of_people_advance_order`<br>`tests/test_start_activity_contract.py::test_ways_vocabulary_maps_each_way_to_exactly_one_life_verb`<br>`tests/test_start_activity_contract.py::test_unresolvable_selection_keeps_exact_name_or_way_error`<br>`tests/test_start_activity_contract.py::test_two_offered_selections_resolve_item_by_item_to_internal_actions`<br>`tests/life/test_interaction_menu_invariants.py::test_every_way_maps_to_one_verb_and_covers_every_internal_action`<br>`tests/life/test_interaction_menu_invariants.py::test_binding_action_projects_verb_and_way_publicly_and_keeps_execution_private`<br>`tests/life/test_interaction_menu_invariants.py::test_selection_resolves_exact_action_and_way_synonym_and_menu_judges_canonical_actions`<br>`tests/life/test_action_run.py::test_action_run_minimal_real_catalog_body_progress_and_silent_continuation`<br>`tests/life/test_app_progress.py::test_cross_app_progress_uses_latest_global_position_and_owner_isolation`<br>`tests/life/test_tool_layer.py::test_every_listed_item_matches_admission_at_run_start`<br>`tests/integration/test_parallel_rejection_contract.py::test_conflicting_pair_is_rejected_as_a_whole_and_explained_to_the_person`<br>`tests/integration/test_grounded_targets.py::test_start_rejects_invalid_pairs_before_dispatch` | 当前 app、八项占用、主题准入与候选节点已登记；执行结论取阶段 5 最终回执 |
+| 常驻提示 | `tests/integration/test_life_agent_protocol.py::test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages` | 已登记到实际定义；执行结论取本次回执 |
+| 会话、活动与记忆 | `tests/life/test_location_sessions.py::test_run_start_opens_one_stay_session_per_agent`<br>`tests/life/test_location_sessions.py::test_departure_and_arrival_switch_sessions_and_end_road_activities`<br>`tests/life/test_location_sessions.py::test_other_activity_keeps_running_while_the_ended_one_is_concluded`<br>`tests/life/test_location_sessions.py::test_departure_with_running_activity_is_rejected_naming_it`<br>`tests/life/test_location_sessions.py::test_paused_activity_resumes_only_at_its_start_location`<br>`tests/life/test_location_sessions.py::test_paused_activity_can_be_concluded_elsewhere`<br>`tests/life/test_location_sessions.py::test_pausing_an_activity_on_the_road_is_unavailable`<br>`tests/life/test_location_sessions.py::test_ending_travel_midway_ends_road_activities_and_stays_at_origin`<br>`tests/life/test_location_sessions.py::test_experiment_end_ends_every_session_without_conclusion`<br>`tests/life/test_location_sessions.py::test_same_named_activities_get_ordinals_instead_of_failing`<br>`tests/life/test_location_sessions.py::test_recall_by_goal_and_activity_names_is_current_read_only_evidence`<br>`tests/life/test_location_sessions.py::test_lifecycle_records_and_export_match_the_final_checkpoint`<br>`tests/life/test_location_sessions.py::test_slot_counting_durations_and_session_helpers_are_pure`<br>`tests/life/test_location_sessions.py::test_waking_with_the_sleep_awaiting_conclusion_offers_its_conclusion`<br>`tests/life/test_location_sessions.py::test_two_item_start_with_one_free_slot_says_only_one_slot_is_left`<br>`tests/life/test_location_sessions.py::test_travel_with_full_slots_is_rejected_for_slots_before_the_departure_check`<br>`tests/life/test_location_sessions.py::test_start_request_shape_errors_are_action_request_invalid`<br>`tests/life/test_location_sessions.py::test_experiment_end_export_matches_the_final_checkpoint_for_every_truncated_activity`<br>`tests/life/test_location_sessions.py::test_recall_of_content_started_with_a_walk_names_the_road`<br>`tests/integration/test_conclude_memories.py::test_life_tool_surface_never_offers_finish`<br>`tests/integration/test_conclude_memories.py::test_registered_world_request_ends_the_decision_and_memory_queries_do_not`<br>`tests/integration/test_conclude_memories.py::test_conclusion_memories_flatten_by_task_with_system_source`<br>`tests/integration/test_conclude_memories.py::test_only_conclude_activity_carries_memories`<br>`tests/integration/test_conclude_memories.py::test_conclusion_memory_limits_are_protocol_errors_retried_in_the_same_decision`<br>`tests/integration/test_conclude_memories.py::test_conclusion_memory_limits_accept_the_boundaries`<br>`tests/integration/test_conclude_memories.py::test_memory_runtime_accepts_only_system_sourced_conclusion_memories`<br>`tests/integration/test_conclude_memories.py::test_conclusion_sources_are_registered_by_the_system`<br>`tests/integration/test_conclude_memories.py::test_conclusion_rejected_at_settlement_keeps_its_memories`<br>`tests/integration/test_conclude_memories.py::test_nothing_sent_to_the_person_model_carries_an_internal_identity`<br>`tests/integration/test_conclude_memories.py::test_budget_exhausted_without_a_registered_world_request_fails_the_run`<br>`tests/integration/test_conclude_memories.py::test_readonly_finish_batched_with_another_tool_is_rejected`<br>`tests/integration/test_conclude_memories.py::test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime_reflection`<br>`tests/life/test_experience_sentences.py::test_observation_keeps_experiences_private_and_out_of_the_layers`<br>`tests/life/test_experience_sentences.py::test_every_experience_kind_is_written_as_a_sentence_without_identities`<br>`tests/life/test_memory_evidence.py::test_write_points_follow_the_registered_conclusion_and_the_wake_from_sleep_round`<br>`tests/life/test_memory_evidence.py::test_episodes_written_without_any_write_point_are_a_protocol_violation`<br>`tests/life/test_memory_evidence.py::test_conclusion_memories_record_the_activity_conclusion_write_point`<br>`tests/life/test_memory_evidence.py::test_rejected_conclusion_keeps_its_memories_as_self_report`<br>`tests/life/test_memory_evidence.py::test_waking_round_lists_conclusion_then_reflection`<br>`tests/footprints/test_quality.py::test_memory_quality_reports_conclusion_without_memory_update`<br>`tests/footprints/test_quality.py::test_conclusion_and_reflection_in_one_step_are_each_matched_to_their_registration`<br>`tests/footprints/test_quality.py::test_memory_update_whose_write_point_has_no_registration_has_no_source`<br>`tests/life/test_export_integration.py::test_person_conclusion_keeps_memories_in_request_and_registers_private_sources`<br>`tests/test_start_activity_contract.py::test_conclude_ends_only_selected_activities_with_own_summaries`<br>`tests/test_start_activity_contract.py::test_conclude_naming_none_of_the_just_ended_activities_is_rejected`<br>`tests/integration/test_dayrun_complete_days.py::test_complete_two_person_day_uses_real_tools_memory_and_restoration`<br>`tests/life/test_progress_layer_projection.py::test_recall_reads_task_and_activity_without_identities`<br>`tests/life/test_progress_layer_projection.py::test_conclude_marks_named_just_ended_activities_and_keeps_their_status`<br>`tests/life/test_progress_layer_projection.py::test_activity_targets_carry_only_readable_objective_progress`<br>`tests/life/test_progress_events.py::test_arrival_session_is_time_bound_and_excludes_the_departure`<br>`tests/life/test_todo_layer.py::test_paused_activities_are_ordered_by_pause_time_not_start_time`<br>`tests/life/test_engine_feedback.py::test_pause_report_resume_and_conclude_name_the_activity`<br>`tests/life/test_action_run.py::test_action_result_has_exact_six_real_content_fields`<br>`tests/life/test_app_progress.py::test_cross_app_progress_uses_latest_global_position_and_owner_isolation`<br>`tests/footprints/test_quality.py::test_repeat_watch_counts_completed_rounds`<br>`tests/life/test_parallel_admission.py::test_departure_with_a_running_activity_names_it_in_reason_and_next_step`<br>`tests/life/test_parallel_admission.py::test_daily_care_with_walk_is_accepted_in_either_order`<br>`tests/life/test_parallel_admission.py::test_an_instant_obtain_joins_a_timed_activity_in_one_request`<br>`tests/integration/test_acs_engine_wave.py::test_real_paused_work_keeps_its_last_report_across_departure_return_and_resume` | 已登记到实际定义；执行结论取本次回执 |
+| 本机运行修复 | `tests/integration/test_runtime.py::test_imported_as2_matches_rebuildable_locked_source`<br>`tests/integration/test_runtime.py::test_code_identity_covers_every_imported_as2_file_except_pycache`<br>`tests/integration/test_runtime.py::test_as2_identity_is_independent_of_install_location`<br>`tests/integration/test_runtime.py::test_unlocked_as2_refuses_run_resume_replay_and_validate`<br>`tests/integration/test_runtime.py::test_as2_lookup_failures_are_identity_refusals`<br>`tests/integration/test_runtime.py::test_as2_file_read_failure_is_an_identity_refusal`<br>`tests/integration/test_runtime.py::test_experiment_registers_the_locked_as2_source_digest_verbatim`<br>`tests/integration/test_runtime.py::test_git_state_records_head_and_dirty_flag_of_the_checkout`<br>`tests/integration/test_runtime.py::test_git_state_is_null_when_git_is_unavailable_or_status_fails`<br>`tests/integration/test_runtime.py::test_run_manifest_records_git_commit_and_dirty_flag`<br>`tests/integration/test_run_manifest.py::test_run_identity_records_git_state_as_a_pair`<br>`tests/integration/test_host_branch_coverage.py::test_require_runtime_identity_rejects_diverged_manifest`<br>`tests/life/test_sleep_two_process.py::TestInitialBodyFromUsualWake::test_lianqiu_midnight_start_first_observation_is_at_least_sleepy`<br>`tests/life/test_sleep_two_process.py::TestInitialBodyFromUsualWake::test_pressure_counts_awake_hours_since_the_most_recent_usual_wake`<br>`tests/life/test_sleep_two_process.py::TestInitialBodyFromUsualWake::test_usual_wake_hour_wraps_modulo_24`<br>`tests/life/test_dayrun_restaurants.py::test_delivery_eta_is_readable_and_matches_actual_receipt`<br>`tests/life/test_dayrun_restaurants.py::test_goods_without_an_online_channel_rejects_before_payment`<br>`tests/life/test_wake_reasons.py::test_progress_report_due_counts_only_active_activities_from_their_anchor`<br>`tests/life/test_wake_reasons.py::test_report_anchor_moves_on_start_report_and_resume_and_paused_activity_never_reports`<br>`tests/life/test_wake_reasons.py::test_sleeping_person_gets_no_progress_report_wakeups`<br>`tests/life/test_progress_layer_projection.py::test_progress_rows_follow_pause_resume_end_and_conclusion`<br>`tests/life/test_progress_layer_projection.py::test_work_objective_progress_grows_with_settlement`<br>`tests/life/test_prompt_layers.py::test_paused_activity_progress_appears_only_in_the_todo_layer`<br>`tests/life/test_location_sessions.py::test_self_report_stays_out_of_the_tool_layer_and_is_only_a_call_argument`<br>`tests/life/test_location_sessions.py::test_lifecycle_records_and_export_match_the_final_checkpoint`<br>`tests/life/test_export_integration.py::test_lifecycle_records_and_export_match_the_final_checkpoint`<br>`tests/life/test_location_sessions.py::test_experiment_end_export_matches_the_final_checkpoint_for_every_truncated_activity`<br>`tests/life/test_action_run.py::test_actual_remaining_under_one_minute_starts_and_resume_never_selects`<br>`tests/life/test_action_guarantees.py::test_work_reports_never_change_real_content_seconds_or_claim_completion`<br>`tests/life/test_action_run.py::test_assigned_content_is_finite_and_completion_pulse_is_applied_once`<br>`tests/life/test_tool_layer.py::test_most_recent_unfinished_content_duration_is_remaining_and_observation_does_not_select`<br>`tests/life/test_grounded_observation.py::test_real_observation_uses_registered_app_and_content_names`<br>`tests/life/test_app_progress.py::test_cross_app_progress_uses_latest_global_position_and_owner_isolation`<br>`tests/tools/test_run_viewer.py::test_run_viewer_recorded_names` | 当前节点可解析；阶段 5 完整引擎、导出与平台回执仍按各自阶段验收 |
+| 无新增故障 | `tests/life/test_same_moment_decisions.py::test_feedback_interval_60_bounds_same_second_rounds`<br>`tests/life/test_same_moment_decisions.py::test_same_moment_state_survives_reopen`<br>`tests/life/test_same_moment_decisions.py::test_presentation_staging_survives_reopen`<br>`tests/life/test_location_sessions.py::test_cross_day_duplicate_activity_names_get_ordinals`<br>`tests/life/test_location_sessions.py::test_ending_travel_midway_ends_road_activities_and_stays_at_origin`<br>`tests/life/test_location_sessions.py::test_sessions_and_pending_conclusion_survive_reopen`<br>`tests/life/test_day_planning.py::test_sleep_ending_as_planned_at_the_reminder_keeps_planned_end`<br>`tests/life/test_day_planning.py::test_midnight_settles_the_old_day_then_plans_then_judges_the_second`<br>`tests/life/test_day_planning.py::test_run_ending_at_midnight_runs_no_plan_day_and_nothing_follows_run_ended`<br>`tests/life/test_energy_feasibility.py::test_zero_energy_observation_offers_every_action_without_energy_projection`<br>`tests/life/test_revision_contract.py::test_public_observation_excludes_private_fields_and_fixed_menu_remains_visible`<br>`tests/life/test_same_moment_decisions.py::test_partner_ended_chat_redecides_same_second_with_planned_end`<br>`tests/life/test_social_rounds.py::test_common_seconds_are_independent_of_people_advance_order`<br>`tests/life/test_social_rounds.py::test_invitation_acceptance_keeps_own_content_and_partner_end_partial_progress`<br>`tests/life/test_social_rounds.py::test_acceptance_with_less_than_one_minute_remaining_is_allowed`<br>`tests/life/test_energy_feasibility.py::test_zero_energy_travel_and_work_are_accepted`<br>`tests/life/test_energy_feasibility.py::test_zero_energy_resume_is_accepted`<br>`tests/integration/test_agent_branch_coverage.py::test_empty_interactive_layer_decision_continues_without_failure`<br>`tests/life/test_grounded_observation.py::test_real_observation_during_active_activity_keeps_decision_open`<br>`tests/life/test_location_sessions.py::test_departure_and_arrival_switch_sessions_and_end_road_activities`<br>`tests/life/test_same_moment_decisions.py::test_pending_conclusion_rejects_other_requests_until_concluded_within_limit_plus_three`<br>`tests/life/test_location_sessions.py::test_same_named_activities_get_ordinals_instead_of_failing` | 已登记到实际定义；执行结论取本次回执 |
+| 真实复验 | `tests/life/test_rerun_metrics.py::test_rerun_metrics_on_a_real_engine_day`<br>`tests/life/test_rerun_metrics.py::test_rerun_metrics_on_a_stored_run_with_gaps_driving_only_and_missed_meals`<br>`tests/life/test_rerun_metrics.py::test_rerun_command_reports_not_applicable_metrics_for_a_run_without_records` | 已登记到实际定义；执行结论取本次回执 |
+| 文档一致性 | `tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve`<br>`tests/test_time_and_energy_completeness.py::test_removed_symbols_of_done_stages_are_absent` | 已登记到实际定义；执行结论取本次回执 |
+| 工程门禁 | `tests/test_style_gate.py::test_style_gate_admits_no_new_violations`<br>`tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve`<br>`tests/test_coverage_gate.py::test_branch_threshold_boundary`<br>`tests/test_coverage_gate.py::test_uncovered_public_interface_detection`<br>`tests/tools/test_run_viewer.py::test_run_viewer_recorded_names` | 已登记到实际定义；执行结论取本次回执 |
+
+本表逐项核对规范机器登记；登记集合与实际执行结论分别按当前登记和匹配源码回执解释。
+
+真实复验：原记录未执行；只报告，不作工程门禁。
 
 
 <a name="analysis-spec-coverage-工具交互增量映射"></a>
 ## 工具交互增量映射
 
-#### `tests/tool_interaction_acceptance.py`
+仅保留当前仍有效的条款和行为节点；旧通知开放、预约、截止、评审、固定内容分类、营业与料理等退役断言已从规范登记移除。app 推送、内容进度、分配内容实际工时及七层工具合同改指[资源与规则简化映射](#analysis-spec-coverage-资源与规则简化映射)，历史执行数字不继承为当前通过。
 
-当期登记共有 39 个唯一源码或测试节点，排序后摘要为 `6c2b1508db5fc5ec9c86c9faa059f21996b906787f878a6513c6153686ab9ede`。以下是完整登记；本表只证明登记与本树节点闭合，不声称后续阶段或执行门禁通过。
+本阶段食品购买与消费使用人工环境验证固定菜单、价格与真实份量；旧类别供给、地点定价和料理主题退出当前登记。执行结论取实际收据，不继承历史数字。
 
-- `tests/footprints/test_quality.py::test_protocol_quality_uses_structured_evidence_without_log_inference`
-- `tests/integration/test_acs_engine_wave.py::test_real_arrived_mail_body_occurs_once_in_the_actual_host_model_request`
-- `tests/integration/test_host_failure_stages.py::test_evidence_write_failure_stops_with_structured_stage`
-- `tests/integration/test_host_failure_stages.py::test_model_service_failure_persists_stage_without_parsing_exception_text`
-- `tests/integration/test_host_failure_stages.py::test_tool_service_failure_points_to_real_call_without_claiming_execution`
-- `tests/life/test_action_guarantees.py::test_work_reports_never_change_real_content_seconds_or_claim_completion`
-- `tests/life/test_action_run.py::test_assigned_content_is_finite_and_completion_pulse_is_applied_once`
-- `tests/life/test_action_run.py::test_assigned_work_requires_actual_workplace_and_unassigned_study_does_not`
-- `tests/life/test_commerce.py::test_pending_order_checkpoint_restore_receives_once_and_keeps_payment_once`
-- `tests/life/test_commerce.py::test_store_purchase_settles_energy_and_receipt_once_in_the_payment_result`
-- `tests/life/test_commerce.py::test_two_goods_rows_pay_one_delivery_fee_and_one_transfer`
-- `tests/life/test_routing.py::test_explicit_route_errors_have_full_declared_names_and_complete_candidates`
-- `tests/life/test_tool_interaction_runtime.py::test_actual_frozen_tool_layer_and_prompt_groups_restore_identically`
-- `tests/life/test_tool_interaction_runtime.py::test_compact_layer_preserves_false_zero_current_action_and_control_tools`
-- `tests/life/test_tool_interaction_runtime.py::test_compact_prompt_continuation_preserves_head_and_exact_target_changes`
-- `tests/life/test_tool_interaction_runtime.py::test_memo_caps_recent_entries_and_reason_without_truncating_audit`
-- `tests/life/test_tool_interaction_runtime.py::test_memo_is_derived_across_sessions_with_acceptance_and_clears_next_day`
-- `tests/life/test_tool_interaction_runtime.py::test_memo_survives_persistent_reopen`
-- `tests/life/test_tool_interaction_runtime.py::test_plan_times_display_exact_declared_local_format`
-- `tests/life/test_tool_interaction_runtime.py::test_read_queries_keep_actual_model_exchange_without_progress_events`
-- `tests/life/test_tool_interaction_runtime.py::test_visible_arrived_mail_contains_only_actual_subject_and_body`
-- `tests/life/test_tool_protocol.py::test_cross_field_interval_and_goal_bounds_keep_explicit_locations`
-- `tests/life/test_tool_protocol.py::test_engine_revalidates_constructed_bad_requests_with_complete_fields`
-- `tests/life/test_tool_protocol.py::test_final_turn_and_truncation_retry_disable_every_query`
-- `tests/life/test_tool_protocol.py::test_parser_reports_malformed_json_and_unknown_tool_complete_locations`
-- `tests/life/test_tool_protocol.py::test_read_batch_reports_every_error_with_real_call_indices`
-- `tests/life/test_tool_protocol.py::test_retired_purchase_preference_is_rejected_for_every_value`
-- `tests/life/test_tool_protocol.py::test_root_validator_keeps_argument_root_and_original_json`
-- `tests/life/test_tool_protocol.py::test_route_errors_return_null_only_and_all_independent_fields`
-- `tests/life/test_tool_protocol.py::test_strict_nested_type_positions_are_preserved`
-- `tests/life/test_tool_protocol.py::test_unused_route_fields_preserve_json_null_in_feedback`
-- `tests/life/test_tool_protocol.py::test_world_query_mixed_batches_are_atomic`
-- `tests/life/test_wake_reasons.py::test_sleep_accepts_only_existing_sleep_reasons`
-- `tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets`
-- `tests/life/test_world_query.py::test_offset_is_a_strict_nonnegative_json_integer`
-- `tests/life/test_world_query_filters.py::test_full_query_contains_goods_beyond_the_current_presentation_window`
-- `tests/test_design_doc_build.py::test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current`
-- `tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve`
-- `tests/test_start_activity_contract.py::test_illegal_combinations_keep_the_same_host_and_environment_business_code`
+机器登记：`tests/tool_interaction_acceptance.py::BEHAVIOR`；完整性守卫：`tests/test_tool_interaction_acceptance.py::test_tool_interaction_every_spec_behavior_has_executable_tests`。
+
+| 契约主题 | 实际行为或门禁节点 | 当前证据边界 |
+| --- | --- | --- |
+| 工作主题从运行开始可见 | `tests/life/test_action_run.py::test_assigned_work_requires_actual_workplace_and_unassigned_study_does_not`<br>`tests/life/test_action_run.py::test_assigned_content_is_finite_and_completion_pulse_is_applied_once`<br>`tests/life/test_acs_amended_runtime.py::test_real_work_pause_report_restore_completion_and_exhaustion` | 已登记到实际定义；执行结论取本次回执 |
+| 未读、阅读与睡眠 | `tests/life/test_tool_interaction_runtime.py::test_visible_arrived_mail_contains_only_actual_subject_and_body`<br>`tests/integration/test_acs_engine_wave.py::test_real_arrived_mail_body_occurs_once_in_the_actual_host_model_request`<br>`tests/integration/test_acs_engine_wave.py::test_real_arrived_mail_body_occurs_once_in_the_actual_host_model_request`<br>`tests/integration/test_acs_engine_wave.py::test_real_arrived_mail_body_occurs_once_in_the_actual_host_model_request` | 已登记到实际定义；执行结论取本次回执 |
+| 全部接口错误入口 | `tests/life/test_tool_protocol.py::test_retired_purchase_preference_is_rejected_for_every_value`<br>`tests/life/test_tool_protocol.py::test_unused_route_fields_preserve_json_null_in_feedback`<br>`tests/life/test_tool_protocol.py::test_strict_nested_type_positions_are_preserved`<br>`tests/life/test_tool_protocol.py::test_engine_revalidates_constructed_bad_requests_with_complete_fields`<br>`tests/life/test_tool_protocol.py::test_root_validator_keeps_argument_root_and_original_json`<br>`tests/life/test_tool_protocol.py::test_cross_field_interval_and_goal_bounds_keep_explicit_locations`<br>`tests/life/test_tool_protocol.py::test_native_purchase_routing_derives_way_without_action_field`<br>`tests/life/test_tool_protocol.py::test_retired_ways_return_complete_current_closed_set`<br>`tests/life/test_tool_protocol.py::test_parser_reports_malformed_json_and_unknown_tool_complete_locations`<br>`tests/integration/test_host_failure_stages.py::test_model_service_failure_persists_stage_without_parsing_exception_text`<br>`tests/integration/test_host_failure_stages.py::test_evidence_write_failure_stops_with_structured_stage`<br>`tests/integration/test_host_failure_stages.py::test_tool_service_failure_points_to_real_call_without_claiming_execution`<br>`tests/life/test_tool_interaction_runtime.py::test_plan_times_display_exact_declared_local_format` | 已登记到实际定义；执行结论取本次回执 |
+| 原子批次 | `tests/life/test_tool_protocol.py::test_read_batch_reports_every_error_with_real_call_indices`<br>`tests/life/test_tool_protocol.py::test_world_query_mixed_batches_are_atomic`<br>`tests/life/test_tool_protocol.py::test_route_errors_return_null_only_and_all_independent_fields` | 已登记到实际定义；执行结论取本次回执 |
+| 购买与收货 | `tests/life/test_commerce.py::test_store_purchase_settles_energy_and_receipt_once_in_the_payment_result`<br>`tests/life/test_commerce.py::test_two_goods_rows_pay_one_delivery_fee_and_one_transfer`<br>`tests/life/test_commerce.py::test_pending_order_checkpoint_restore_receives_once_and_keeps_payment_once` | 付款一次，实际收货一次；执行结论取本次回执 |
+| 查询与预算 | `tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets`<br>`tests/life/test_world_query.py::test_offset_is_a_strict_nonnegative_json_integer`<br>`tests/life/test_world_query_filters.py::test_full_query_contains_goods_beyond_the_current_presentation_window`<br>`tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets`<br>`tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets`<br>`tests/life/test_tool_protocol.py::test_final_turn_and_truncation_retry_disable_every_query`<br>`tests/life/test_tool_interaction_runtime.py::test_read_queries_keep_actual_model_exchange_without_progress_events` | 已登记到实际定义；执行结论取本次回执 |
+| 操作备忘 | `tests/life/test_tool_interaction_runtime.py::test_memo_is_derived_across_sessions_with_acceptance_and_clears_next_day`<br>`tests/life/test_tool_interaction_runtime.py::test_memo_survives_persistent_reopen` | 已登记到实际定义；执行结论取本次回执 |
+| 紧凑呈现 | `tests/life/test_tool_interaction_runtime.py::test_compact_layer_preserves_false_zero_current_action_and_control_tools`<br>`tests/life/test_tool_interaction_runtime.py::test_actual_frozen_tool_layer_and_prompt_groups_restore_identically`<br>`tests/life/test_tool_interaction_runtime.py::test_compact_prompt_continuation_preserves_head_and_exact_target_changes` | 已登记到实际定义；执行结论取本次回执 |
+| 文档与身份 | `tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve`<br>`tests/test_design_doc_build.py::test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current` | 已登记到实际定义；执行结论取本次回执 |
+
+本表逐项核对规范机器登记；登记集合与实际执行结论分别按当前登记和匹配源码回执解释。
 
 
 <a name="analysis-spec-coverage-分层与测试层次当前映射"></a>
 ## 分层与测试层次当前映射
 
-本阶段不在此处复制登记；分层门禁直接读取本树测试与所有者夹具，执行结论只取实际回执。
+冻结开发规格见 [分层与测试层次](SPEC-layering-and-test-tiers.md#layering-outcome)。机器登记 `tests/fixtures/layering-acceptance.json` 冻结全部十五个契约主题；`tests/test_layering_acceptance.py` 判定节点实际存在、没有跳过或空壳，并核对归档、公开签名和原有变异字节。
+
+| 契约主题 | 当前规范 | 实际测试节点 |
+| --- | --- | --- |
+| 完整导入图 | [完整导入图](docs/dev/SPEC-layering-and-test-tiers.md#layering-imports) | `tests/test_import_graph.py::test_production_import_graph_obeys_all_boundaries`<br>`tests/test_import_graph.py::test_cycle_guard_covers_every_import_form` |
+| 延迟与基础层 | [延迟与基础层](docs/dev/SPEC-layering-and-test-tiers.md#layering-imports) | `tests/test_import_graph.py::test_local_registry_rejects_missing_and_stale_entries`<br>`tests/test_import_graph.py::test_foundation_cannot_depend_on_execution`<br>`tests/test_import_graph.py::test_only_environment_can_import_facade` |
+| 显式引擎协作 | [显式引擎协作](docs/dev/SPEC-layering-and-test-tiers.md#layering-engine) | `tests/test_layering_acceptance.py::test_facade_keeps_public_signatures_and_has_no_business_mixin`<br>`tests/test_layering_acceptance.py::test_context_has_one_state_owner_and_no_facade_back_reference`<br>`tests/life/test_engine_round.py::test_real_wait_round_advances_and_records_complete_activity` |
+| 完整日不变 | [完整日不变](docs/dev/SPEC-layering-and-test-tiers.md#layering-baseline) | `tests/integration/test_dayrun_complete_days.py::test_complete_two_person_day_uses_real_tools_memory_and_restoration`<br>`tests/test_dayrun_baseline.py::test_signature_is_stable_across_machine_locations` |
+| 当前引用门禁 | [当前引用门禁](docs/dev/SPEC-layering-and-test-tiers.md#layering-documents) | `tests/test_documentation_gate.py::test_current_document_violations_fail`<br>`tests/test_documentation_gate.py::test_definitions_resolve_classes_nested_functions_and_assignments`<br>`tests/test_documentation_gate.py::test_source_and_test_references_require_current_explicit_sections` |
+| 历史基线 | [历史基线](docs/dev/SPEC-layering-and-test-tiers.md#layering-documents) | `tests/test_documentation_gate.py::test_history_refuses_short_missing_dirty_or_undisclaimed_commit`<br>`tests/test_documentation_gate.py::test_archive_snapshot_disclaims_unreconstructible_execution` |
+| 正文与归档 | [正文与归档](docs/dev/SPEC-layering-and-test-tiers.md#layering-archive) | `tests/test_layering_acceptance.py::test_accepted_increment_specs_have_one_current_owner`<br>`tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve` |
+| 文本与验收解耦 | [文本与验收解耦](docs/dev/SPEC-layering-and-test-tiers.md#layering-archive) | `tests/integration/test_seven_layer_request.py::test_system_layers_are_the_contract_registration_verbatim`<br>`tests/test_tool_interaction_acceptance.py::test_tool_interaction_every_spec_behavior_has_executable_tests`<br>`tests/test_errands_workday_acceptance.py::test_rows_of_done_stages_list_tests_and_every_registered_node_resolves` |
+| 符号作用域突变 | [符号作用域突变](docs/dev/SPEC-layering-and-test-tiers.md#layering-mutations) | `tests/test_layering_acceptance.py::test_original_mutation_generation_has_complete_byte_equivalence_evidence`<br>`tests/test_mutation_runner.py::test_mutation_changes_only_the_named_definition_with_duplicate_text_elsewhere`<br>`tests/test_mutation_runner.py::test_missing_imported_or_ambiguous_symbol_is_rejected`<br>`tests/test_tool_interaction_acceptance.py::test_tool_interaction_source_mutation_is_killed`<br>`tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed` |
+| 缓存隔离 | [缓存隔离](docs/dev/SPEC-layering-and-test-tiers.md#layering-cache) | `tests/test_frozen_inputs.py::test_only_verified_immutable_branches_are_shared`<br>`tests/test_frozen_inputs.py::test_cache_key_changes_for_real_bytes_outside_the_scenario`<br>`tests/test_frozen_inputs.py::test_session_guard_rejects_mutated_cached_object_and_source`<br>`tests/life/test_frozen_inputs_runtime.py::test_formal_factory_worlds_and_storage_are_independent`<br>`tests/life/test_frozen_inputs_runtime.py::test_mutated_factory_does_not_use_formal_input_cache` |
+| 真实装配 | [真实装配](docs/dev/SPEC-layering-and-test-tiers.md#layering-cache) | `tests/life/test_frozen_inputs_runtime.py::test_direct_create_and_open_still_run_real_loaders_after_cache_use`<br>`tests/life/test_restored_model_identity.py::test_environment_lifecycles_reject_invalid_saved_stage_identity`<br>`tests/life/test_restored_model_identity.py::test_new_run_rejects_a_retired_stage_identity` |
+| 自动分层 | [自动分层](docs/dev/SPEC-layering-and-test-tiers.md#layering-tiers) | `tests/test_test_tiers.py::test_new_driver_and_fixture_dependencies_are_classified`<br>`tests/test_test_tiers.py::test_new_source_mutation_execution_is_classified_without_hand_written_marker`<br>`tests/test_test_tiers.py::test_fast_selection_adds_only_direct_changed_engine_dependencies`<br>`tests/test_test_tiers.py::test_standard_and_full_sets_preserve_external_and_long_reviews` |
+| 分片完整性 | [分片完整性](docs/dev/SPEC-layering-and-test-tiers.md#layering-runner) | `tests/test_test_tiers.py::test_incomplete_worker_evidence_is_rejected`<br>`tests/test_test_tiers.py::test_equal_node_count_cannot_hide_a_wrong_test_or_failed_phase`<br>`tests/test_test_tiers.py::test_real_serial_and_parallel_workers_return_identical_complete_nodes` |
+| 覆盖与耗时 | [覆盖与耗时](docs/dev/SPEC-layering-and-test-tiers.md#layering-runner) | `tests/test_coverage_gate.py::test_gate_uses_the_current_interpreter_and_the_shared_full_runner`<br>`tests/test_coverage_gate.py::test_missing_coverage_json_fails_closed`<br>`tests/test_test_tiers.py::test_duration_report_covers_phases_slow_fast_tests_and_file_totals`<br>`tests/test_test_tiers.py::test_changed_engine_time_is_separate_from_default_fast_reference`<br>`tests/test_test_tiers.py::test_real_parallel_coverage_is_combined_for_the_current_normal_source` |
+| 文档设计一致 | [文档设计一致](docs/dev/SPEC-layering-and-test-tiers.md#layering-consistency) | `tests/test_design_doc_build.py::test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current`<br>`tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve` |
+
+分层与共享规则的完整日历史基线保持原始字节。当前结构 6 的完整日重新执行全部业务断言，逐字段核对真实
+存储与完整导出，并重建时间线比较全部正文；正式输入冻结与逐字节重建归数据仓，新旧格式输出不作摘要相同
+的声明。`tests/fixtures/mutation-symbol-baseline.json` 保存原有 147 项变异的搬移前生成字节；生成等价不替代
+变异执行与基线成功。标准层墙钟采用相同源码、节点集合、环境和 worker 数的标准层实测，不能拿全量层部分
+耗时替代。
 
 <a name="analysis-spec-coverage-资源与规则简化映射"></a>
 ## 资源与规则简化映射
 
-#### `tests/rrs_acceptance.py`
+下表逐行从规范机器台账 `tests/fixtures/rrs-acceptance.json` 的行名、顺序、阶段、条款、实际实现及行为节点生成。行为用例和语义变异由 `tests/rrs_acceptance.py` 绑定，`tests/test_rrs_acceptance.py` 核对机器表与冻结规格；本表不能增加、删减或改名台账条款。
 
-当期登记共有 827 个唯一源码或测试节点，排序后摘要为 `81a034929e980c257604e913346c1e7c702e03cce92ea4cfeda1e14b6a8a782a`。以下是完整登记；本表只证明登记与本树节点闭合，不声称后续阶段或执行门禁通过。
+当前实施完成集合为 1–8，macOS 人工环境同场景同种子双跑完整日一致，第三基线已原子冻结；节点存在与完成集合均不代表工程门禁、独立审查或其他平台通过。实际状态见[实施状态](implementation-status.md#implementation-status-资源与规则引擎简化开发状态)。正式发布、完整回归和平台回执单独登记，未执行不转换成通过。
 
-- `custom/agents/life_agent.py`
-- `custom/envs/life_env.py`
-- `scripts/bootstrap_environment.py`
-- `scripts/documentation_gate.py`
-- `scripts/documentation_refs.py`
-- `scripts/freeze_rrs_baseline.py`
-- `scripts/fresh_check.py`
-- `scripts/inspect_run.py`
-- `scripts/render_day.py`
-- `scripts/run_tests.py`
-- `src/worldmock/agents/life_memory.py`
-- `src/worldmock/agents/life_prompt.py`
-- `src/worldmock/base_models.py`
-- `src/worldmock/catalog/__init__.py`
-- `src/worldmock/catalog/admission.py`
-- `src/worldmock/catalog/affordances.py`
-- `src/worldmock/catalog/errors.py`
-- `src/worldmock/catalog/graph.py`
-- `src/worldmock/catalog/identity.py`
-- `src/worldmock/catalog/loader.py`
-- `src/worldmock/catalog/mapgen.py`
-- `src/worldmock/catalog/models.py`
-- `src/worldmock/cli.py`
-- `src/worldmock/data/affordances.toml`
-- `src/worldmock/evaluation/adapters.py`
-- `src/worldmock/evaluation/aggregate_reference.py`
-- `src/worldmock/evaluation/behavior_metrics.py`
-- `src/worldmock/evaluation/errand_metrics.py`
-- `src/worldmock/evaluation/goal_metrics.py`
-- `src/worldmock/evaluation/models.py`
-- `src/worldmock/evaluation/public_evidence.py`
-- `src/worldmock/evaluation/review.py`
-- `src/worldmock/evaluation/validation.py`
-- `src/worldmock/evaluation/workload_metrics.py`
-- `src/worldmock/exchange/__init__.py`
-- `src/worldmock/exchange/body.py`
-- `src/worldmock/exchange/constants.py`
-- `src/worldmock/exchange/operators.py`
-- `src/worldmock/exchange/types.py`
-- `src/worldmock/footprints/app_usage.py`
-- `src/worldmock/footprints/experiences.py`
-- `src/worldmock/footprints/export.py`
-- `src/worldmock/footprints/models.py`
-- `src/worldmock/footprints/purchases.py`
-- `src/worldmock/footprints/quality.py`
-- `src/worldmock/footprints/store.py`
-- `src/worldmock/footprints/validation.py`
-- `src/worldmock/life/action_evidence.py`
-- `src/worldmock/life/activities.py`
-- `src/worldmock/life/activity_control.py`
-- `src/worldmock/life/activity_evidence.py`
-- `src/worldmock/life/activity_titles.py`
-- `src/worldmock/life/activity_validation.py`
-- `src/worldmock/life/admission.py`
-- `src/worldmock/life/app_push.py`
-- `src/worldmock/life/basket.py`
-- `src/worldmock/life/body.py`
-- `src/worldmock/life/business_feedback.py`
-- `src/worldmock/life/callable_index.py`
-- `src/worldmock/life/candidates.py`
-- `src/worldmock/life/commerce.py`
-- `src/worldmock/life/contact_exchange.py`
-- `src/worldmock/life/content.py`
-- `src/worldmock/life/counterfactual_runtime.py`
-- `src/worldmock/life/day_plan_inputs.py`
-- `src/worldmock/life/decision_coordinator.py`
-- `src/worldmock/life/discovery.py`
-- `src/worldmock/life/durations.py`
-- `src/worldmock/life/engine.py`
-- `src/worldmock/life/engine_context.py`
-- `src/worldmock/life/environment_layer.py`
-- `src/worldmock/life/errands.py`
-- `src/worldmock/life/error_contract.py`
-- `src/worldmock/life/felt.py`
-- `src/worldmock/life/guidance.py`
-- `src/worldmock/life/interaction_menu.py`
-- `src/worldmock/life/load_checks.py`
-- `src/worldmock/life/memory_layer.py`
-- `src/worldmock/life/model_evidence.py`
-- `src/worldmock/life/models.py`
-- `src/worldmock/life/name_resolution.py`
-- `src/worldmock/life/named_purchase.py`
-- `src/worldmock/life/narration.py`
-- `src/worldmock/life/object_labels.py`
-- `src/worldmock/life/observe.py`
-- `src/worldmock/life/order_routing.py`
-- `src/worldmock/life/presentation.py`
-- `src/worldmock/life/progress_layer.py`
-- `src/worldmock/life/projection.py`
-- `src/worldmock/life/prompt_schemas.py`
-- `src/worldmock/life/purchase_offers.py`
-- `src/worldmock/life/randomness.py`
-- `src/worldmock/life/readable.py`
-- `src/worldmock/life/recipients.py`
-- `src/worldmock/life/relevance.py`
-- `src/worldmock/life/request_linking.py`
-- `src/worldmock/life/result_projection.py`
-- `src/worldmock/life/retrieval.py`
-- `src/worldmock/life/rhythm.py`
-- `src/worldmock/life/routing.py`
-- `src/worldmock/life/rules.py`
-- `src/worldmock/life/run_identity.py`
-- `src/worldmock/life/same_moment.py`
-- `src/worldmock/life/scenario.py`
-- `src/worldmock/life/schedule.py`
-- `src/worldmock/life/semantics.py`
-- `src/worldmock/life/session_actions.py`
-- `src/worldmock/life/settled_text.py`
-- `src/worldmock/life/settlement.py`
-- `src/worldmock/life/sleep.py`
-- `src/worldmock/life/social.py`
-- `src/worldmock/life/social_actions.py`
-- `src/worldmock/life/storefront_runtime.py`
-- `src/worldmock/life/time_advance.py`
-- `src/worldmock/life/todo_layer.py`
-- `src/worldmock/life/tool_groups.py`
-- `src/worldmock/life/tool_layer.py`
-- `src/worldmock/life/travel.py`
-- `src/worldmock/life/vocabulary.py`
-- `src/worldmock/life/wayfinding.py`
-- `src/worldmock/life/work.py`
-- `src/worldmock/life/world_ops.py`
-- `src/worldmock/life/world_query.py`
-- `src/worldmock/life/world_setup.py`
-- `src/worldmock/model_feedback.py`
-- `src/worldmock/opslog.py`
-- `src/worldmock/profile/__init__.py`
-- `src/worldmock/profile/coverage.py`
-- `src/worldmock/profile/coverage_targets.py`
-- `src/worldmock/profile/injection.py`
-- `src/worldmock/resources/models.py`
-- `src/worldmock/run_setup.py`
-- `src/worldmock/runtime.py`
-- `src/worldmock/scheduling/compile.py`
-- `src/worldmock/scheduling/effects.py`
-- `src/worldmock/scheduling/events.py`
-- `src/worldmock/validation.py`
-- `tests/catalog/conftest.py`
-- `tests/catalog/test_admission.py`
-- `tests/catalog/test_admission.py::test_registration_rejects_duplicate_identity`
-- `tests/catalog/test_admission.py::test_registration_rejects_every_retired_file`
-- `tests/catalog/test_admission.py::test_registration_rejects_file_identity_drift`
-- `tests/catalog/test_admission.py::test_registration_rejects_invalid_map`
-- `tests/catalog/test_admission.py::test_registration_rejects_invalid_map[disconnected]`
-- `tests/catalog/test_admission.py::test_registration_rejects_invalid_map[self]`
-- `tests/catalog/test_admission.py::test_registration_rejects_manifest_values`
-- `tests/catalog/test_admission.py::test_registration_rejects_manifest_values[rules_version-1]`
-- `tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample`
-- `tests/catalog/test_admission.py::test_registration_rejects_missing_manifest_file_entry`
-- `tests/catalog/test_admission.py::test_registration_rejects_noninteger_content_duration`
-- `tests/catalog/test_admission.py::test_registration_rejects_too_small_map`
-- `tests/catalog/test_admission.py::test_registration_rejects_unbound_app`
-- `tests/catalog/test_affordances.py`
-- `tests/catalog/test_affordances.py::test_categories_share_only_the_phone_claim_when_different`
-- `tests/catalog/test_affordances.py::test_driving_allows_only_social_without_continuous_phone_use`
-- `tests/catalog/test_affordances.py::test_each_category_and_manner_combination_has_fixed_claims`
-- `tests/catalog/test_affordances.py::test_registry_only_declares_final_activity_kinds_and_body_keys`
-- `tests/catalog/test_affordances.py::test_retired_claim_names_are_rejected`
-- `tests/catalog/test_engine_package_resources.py`
-- `tests/catalog/test_engine_package_resources.py::test_catalog_has_only_six_object_files_and_no_engine_rule_copies`
-- `tests/catalog/test_graph.py`
-- `tests/catalog/test_graph.py::test_catalog_graph_does_not_recreate_published_edges`
-- `tests/catalog/test_graph.py::test_catalog_routes_through_an_unselected_intermediate_location`
-- `tests/catalog/test_graph.py::test_full_path_lexicographic_tie_ignores_discovery_and_edge_order`
-- `tests/catalog/test_graph.py::test_hand_calculated_paths_and_same_place_zero`
-- `tests/catalog/test_identity.py`
-- `tests/catalog/test_identity.py::test_catalog_identity_publication_is_atomic`
-- `tests/catalog/test_loader.py`
-- `tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes`
-- `tests/catalog/test_loader.py::test_catalog_rejects_retired_object_fields`
-- `tests/catalog/test_mapgen.py`
-- `tests/catalog/test_mapgen.py::test_map_check_rejects_changed_bytes_without_rewriting`
-- `tests/catalog/test_mapgen.py::test_map_edge_counts_length_bounds_and_connectivity`
-- `tests/catalog/test_mapgen.py::test_map_edge_counts_length_bounds_and_connectivity[7]`
-- `tests/catalog/test_mapgen.py::test_map_generation_is_deterministic_and_seeded`
-- `tests/catalog/test_mapgen.py::test_map_matches_frozen_artificial_seed`
-- `tests/catalog/test_mapgen.py::test_runtime_catalog_does_not_regenerate_map`
-- `tests/catalog/test_mapgen.py::test_sorted_nodes_independent_tree_stream_and_length_assignment`
-- `tests/dayrun_fidelity_acceptance.py`
-- `tests/errands_workday_acceptance.py`
-- `tests/evaluation/conftest.py`
-- `tests/evaluation/fixtures/scenario.json`
-- `tests/evaluation/test_adapters.py`
-- `tests/evaluation/test_adapters.py::test_graph_travel_result_projects_trip_identity_and_full_path`
-- `tests/evaluation/test_behavior_metrics.py`
-- `tests/evaluation/test_branch_coverage.py`
-- `tests/evaluation/test_errand_metrics.py`
-- `tests/evaluation/test_evaluation_scenario.py`
-- `tests/evaluation/test_goal_metrics.py`
-- `tests/evaluation/test_metrics.py`
-- `tests/evaluation/test_review.py`
-- `tests/evaluation/test_shared_event_parsing.py`
-- `tests/evaluation/test_workload_metrics.py`
-- `tests/exchange/test_constants.py`
-- `tests/exchange/test_constants.py::test_body_constants_and_resource_metas`
-- `tests/exchange/test_constants.py::test_goods_receipt_effects_are_immutable_and_bounded`
-- `tests/exchange/test_models.py`
-- `tests/exchange/test_operators.py`
-- `tests/exchange/test_operators.py::test_decimal_precision_does_not_change_settlement`
-- `tests/exchange/test_operators.py::test_fixed_operators_keep_existing_decimal_settlement_results`
-- `tests/exchange/test_operators.py::test_goods_receipt_has_quantity_only_for_food`
-- `tests/exchange/test_operators.py::test_travel_and_delivery_round_up_with_fare_minimum`
-- `tests/exchange/test_types.py`
-- `tests/exchange/test_types.py::test_fixed_type_sets_and_labels`
-- `tests/fixtures/acceptance_requirements.json`
-- `tests/fixtures/current-feature-owners.json`
-- `tests/fixtures/dayrun-biz-timeline.json`
-- `tests/fixtures/dayrun-resource-rule-baseline.json`
-- `tests/fixtures/environment/catalog/manifest.json`
-- `tests/fixtures/environment/scenarios/multi-person-half-day.json`
-- `tests/fixtures/environment/scenarios/multi-person.json`
-- `tests/fixtures/environment/scenarios/single-person.json`
-- `tests/fixtures/idle-fillers-acceptance.json`
-- `tests/fixtures/layering-acceptance.json`
-- `tests/fixtures/layering-public-api.json`
-- `tests/fixtures/rrs-acceptance.json`
-- `tests/fixtures/tool_interaction_habits.json`
-- `tests/fixtures/viewer-context.json`
-- `tests/footprints/test_app_usage.py`
-- `tests/footprints/test_branch_coverage.py`
-- `tests/footprints/test_errand_export.py`
-- `tests/footprints/test_event_fields.py`
-- `tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_is_the_frozen_spec_set`
-- `tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_matches_the_engine_side_enum`
-- `tests/footprints/test_export.py`
-- `tests/footprints/test_goal_export.py`
-- `tests/footprints/test_purchases.py`
-- `tests/footprints/test_purchases.py::test_actual_order_facts_preserve_food_store_app_and_fixed_money`
-- `tests/footprints/test_quality.py`
-- `tests/footprints/test_quality.py::test_work_topic_quality_uses_actual_activity_seconds_and_real_completions_and_reports`
-- `tests/footprints/test_render_day.py`
-- `tests/footprints/test_render_day.py::test_real_biz_run_rows_name_the_calls_and_the_work_task`
-- `tests/footprints/test_validation.py`
-- `tests/footprints/test_validation.py::test_current_export_identity_is_required_before_any_consumer`
-- `tests/footprints/test_verified_experiences.py`
-- `tests/footprints/test_verified_experiences.py::test_real_goods_receipt_commit_projects_only_its_received_order`
-- `tests/footprints/test_verified_experiences.py::test_received_orders_are_distinct_and_projection_is_idempotent`
-- `tests/frozen_inputs.py`
-- `tests/idle_fillers_acceptance.py`
-- `tests/integration/life_host_fixtures.py`
-- `tests/integration/runtime_fixtures.py`
-- `tests/integration/test_acs_engine_wave.py::test_real_app_interleaving_uses_shared_content_cursor_and_reopens_it`
-- `tests/integration/test_acs_engine_wave.py::test_real_app_push_is_persisted_without_reissue_after_open`
-- `tests/integration/test_acs_engine_wave.py::test_real_create_checkpoint_and_resume_preserve_world_and_parent`
-- `tests/integration/test_acs_engine_wave.py::test_real_open_rejects_negative_driving_days`
-- `tests/integration/test_acs_engine_wave.py::test_real_open_rejects_world_structure_ten`
-- `tests/integration/test_acs_engine_wave.py::test_real_paused_work_keeps_its_last_report_across_departure_return_and_resume`
-- `tests/integration/test_acs_engine_wave.py::test_real_published_route_and_store_purchase_emits_receipt_without_holding`
-- `tests/integration/test_acs_engine_wave.py::test_real_replay_entry_rejects_world_ten_before_model_runtime`
-- `tests/integration/test_acs_engine_wave.py::test_real_restore_and_replay_preparation_reject_world_ten_before_publication`
-- `tests/integration/test_acs_engine_wave.py::test_real_resume_checks_location_then_completed_assignment_before_slots_and_claims`
-- `tests/integration/test_acs_engine_wave.py::test_real_resume_checks_slots_before_claims_when_location_and_assignment_are_eligible`
-- `tests/integration/test_acs_engine_wave.py::test_real_resume_rejects_same_version_changed_catalog_before_publication`
-- `tests/integration/test_acs_engine_wave.py::test_unknown_action_name_has_the_same_explicit_field_error_in_host_and_actual_environment`
-- `tests/integration/test_activity_schema.py`
-- `tests/integration/test_agent_branch_coverage.py`
-- `tests/integration/test_biz_timeline_recording.py`
-- `tests/integration/test_biz_timeline_recording.py::test_business_fixture_is_recorded_from_current_engine`
-- `tests/integration/test_biz_timeline_recording.py::test_current_inspection_names_actual_work_and_app_progress`
-- `tests/integration/test_conclude_memories.py`
-- `tests/integration/test_dayrun_complete_days.py`
-- `tests/integration/test_dayrun_complete_days.py::test_complete_two_person_day_uses_real_tools_memory_and_restoration`
-- `tests/integration/test_dayrun_parallel_agent.py`
-- `tests/integration/test_environment_identity.py`
-- `tests/integration/test_environment_identity.py::test_environment_identity_rejects_retired_run_manifest_versions`
-- `tests/integration/test_environment_identity.py::test_environment_identity_requires_every_frozen_value`
-- `tests/integration/test_environment_identity.py::test_loaded_environment_identity_is_five_exact_file_bound_values`
-- `tests/integration/test_errand_checkpoint.py`
-- `tests/integration/test_errand_prompt_separation.py`
-- `tests/integration/test_external_environment_lifecycle.py`
-- `tests/integration/test_grounded_targets.py`
-- `tests/integration/test_host_branch_coverage.py`
-- `tests/integration/test_host_feedback.py`
-- `tests/integration/test_input_warnings.py`
-- `tests/integration/test_input_warnings.py::test_catalog_names_drive_coverage_without_phone_configuration`
-- `tests/integration/test_input_warnings.py::test_empty_warning_uses_real_app_content_bindings_and_keeps_offline_action_names`
-- `tests/integration/test_input_warnings.py::test_low_coverage_writes_report_and_warns_before_gate`
-- `tests/integration/test_input_warnings.py::test_runtime_warning_caller_logs_and_freezes_all_six_codes`
-- `tests/integration/test_input_warnings.py::test_validate_persona_coverage_reuses_actual_creation_warnings`
-- `tests/integration/test_input_warnings.py::test_warning_caller_rejects_catalog_identity_tampering`
-- `tests/integration/test_interaction_menu.py`
-- `tests/integration/test_interaction_menu_roundtrip.py`
-- `tests/integration/test_life_agent_protocol.py`
-- `tests/integration/test_life_agent_protocol.py::test_affordance_registry_fingerprint_reads_packaged_rule_bytes`
-- `tests/integration/test_life_agent_protocol.py::test_life_tool_schema_fingerprint_is_the_person_tool_surface_without_the_reflection_tool`
-- `tests/integration/test_life_agent_protocol.py::test_life_tool_schema_fingerprint_pins_registry_digest`
-- `tests/integration/test_observation_agent_seam.py`
-- `tests/integration/test_output_truncation.py`
-- `tests/integration/test_parallel_rejection_contract.py`
-- `tests/integration/test_persona_profile.py`
-- `tests/integration/test_persona_profile.py::test_deleted_template_fields_stay_out_of_documents[consumption_preference]`
-- `tests/integration/test_persona_profile.py::test_deleted_template_fields_stay_out_of_documents[occupation]`
-- `tests/integration/test_persona_profile.py::test_deleted_template_fields_stay_out_of_documents[risk_preference]`
-- `tests/integration/test_persona_profile.py::test_deleted_template_fields_stay_out_of_documents[routine_preference]`
-- `tests/integration/test_persona_profile.py::test_frozen_persona_identity_reaches_the_native_agent_prompt_as_the_persona_layer`
-- `tests/integration/test_persona_profile.py::test_initial_agent_state_and_profile_do_not_keep_numeric_tastes`
-- `tests/integration/test_persona_profile.py::test_persona_traits_cannot_be_silently_omitted[trait_source_kind]`
-- `tests/integration/test_persona_profile.py::test_restored_persona_profile_rejects_retired_taste_weights[profile0]`
-- `tests/integration/test_persona_profile.py::test_restored_persona_profile_rejects_retired_taste_weights[profile1]`
-- `tests/integration/test_presentation_habits.py`
-- `tests/integration/test_run_manifest.py`
-- `tests/integration/test_run_viewer_recording.py`
-- `tests/integration/test_run_viewer_recording.py::test_viewer_fixture_is_recorded_from_the_current_host`
-- `tests/integration/test_runtime.py`
-- `tests/integration/test_same_second_continuation.py`
-- `tests/integration/test_seven_layer_request.py::test_each_resource_rule_change_moves_only_the_prompt_fingerprint`
-- `tests/integration/test_seven_layer_request.py::test_resource_rule_system_text_is_the_frozen_app_and_work_contract`
-- `tests/integration/test_seven_layer_request.py::test_viewer_fixture_system_layers_are_the_host_system_message`
-- `tests/integration/test_storefront_tools.py`
-- `tests/integration/test_strict_endpoint.py`
-- `tests/integration/test_unique_presence_run.py`
-- `tests/integration/test_verified_memory.py`
-- `tests/integration/test_verified_memory.py::test_actual_app_progress_is_written_to_verified_memory_with_source_and_cursor`
-- `tests/life/conftest.py`
-- `tests/life/purchase_worlds.py`
-- `tests/life/routing_fixtures.py`
-- `tests/life/scenario_fixtures.py`
-- `tests/life/test_acs_amended_runtime.py::test_real_work_pause_report_restore_completion_and_exhaustion`
-- `tests/life/test_acs_loading.py`
-- `tests/life/test_acs_loading.py::test_run_manifest_has_five_environment_fields_without_corpus_pin`
-- `tests/life/test_acs_loading.py::test_runtime_code_identity_binds_each_packaged_data_file`
-- `tests/life/test_acs_loading.py::test_world_eleven_rejects_old_version_and_corpus_identity`
-- `tests/life/test_acs_receipt_readers.py::test_actual_contact_delivery_never_completes_buyers_errand_or_meal_goal`
-- `tests/life/test_acs_receipt_readers.py::test_actual_self_receipt_completes_its_errand_and_meal_goal_once_with_one_goal_pulse`
-- `tests/life/test_acs_receipt_readers.py::test_another_payer_actual_receipt_completes_only_the_recipients_errand_and_goal`
-- `tests/life/test_action_guarantees.py::test_thirty_paused_minutes_never_increase_actual_assigned_content_seconds`
-- `tests/life/test_action_guarantees.py::test_work_reports_never_change_real_content_seconds_or_claim_completion`
-- `tests/life/test_action_restore_and_text.py::test_daily_plan_played_sentence_uses_actual_action_and_optional_app`
-- `tests/life/test_action_run.py`
-- `tests/life/test_action_run.py::test_action_result_has_exact_six_real_content_fields`
-- `tests/life/test_action_run.py::test_action_run_minimal_real_catalog_body_progress_and_silent_continuation`
-- `tests/life/test_action_run.py::test_actual_remaining_under_one_minute_starts_and_resume_never_selects`
-- `tests/life/test_action_run.py::test_assigned_content_is_finite_and_completion_pulse_is_applied_once`
-- `tests/life/test_action_run.py::test_assigned_work_requires_actual_workplace_and_unassigned_study_does_not`
-- `tests/life/test_action_run.py::test_category_effects_and_met_are_fixed_not_content_types`
-- `tests/life/test_action_run.py::test_content_pool_is_exact_action_app_intersection_and_empty_bindings_never_borrow`
-- `tests/life/test_action_run.py::test_person_named_fields_are_never_filled_by_executor`
-- `tests/life/test_action_run.py::test_unassigned_study_repeats_without_completion_pulse`
-- `tests/life/test_activity_effects.py`
-- `tests/life/test_activity_menu.py`
-- `tests/life/test_activity_title_embedding.py`
-- `tests/life/test_activity_wake_facts.py`
-- `tests/life/test_affordance_contract.py`
-- `tests/life/test_app_progress.py`
-- `tests/life/test_app_progress.py::test_continuation_does_not_open_a_later_push_and_completion_releases_cross_app_pushes`
-- `tests/life/test_app_progress.py::test_cross_app_progress_uses_latest_global_position_and_owner_isolation`
-- `tests/life/test_app_progress.py::test_other_app_completed_round_resume_starts_latest_round_zero_and_does_not_count_twice`
-- `tests/life/test_app_progress.py::test_same_app_other_action_never_opens_push`
-- `tests/life/test_app_progress.py::test_stop_then_same_session_start_uses_same_pinned_remainder`
-- `tests/life/test_app_push.py`
-- `tests/life/test_app_push.py::test_departure_and_arrival_invalidate_old_pushes_without_deleting_history`
-- `tests/life/test_app_push.py::test_distinct_declared_grid_points_at_same_epoch_are_preserved`
-- `tests/life/test_app_push.py::test_each_app_is_issued_once_per_session_even_after_release`
-- `tests/life/test_app_push.py::test_full_push_summary_and_source_discriminator_project_from_committed_event`
-- `tests/life/test_app_push.py::test_no_eligible_app_is_system_visible_without_person_record_or_wake`
-- `tests/life/test_app_push.py::test_open_reopen_release_and_after_22_follow_current_session_only`
-- `tests/life/test_app_push.py::test_push_draw_uses_one_b30_stream_sorted_candidates_and_stable_identity`
-- `tests/life/test_app_push.py::test_push_grid_preserves_fold_zero_and_gap_pretransition_offset`
-- `tests/life/test_app_push.py::test_push_grid_uses_local_hours_and_strict_window`
-- `tests/life/test_app_push.py::test_push_grid_uses_local_hours_and_strict_window[Asia/Shanghai]`
-- `tests/life/test_app_push.py::test_push_identity_validation_rejects_unregistered_references_in_historical_session`
-- `tests/life/test_app_push.py::test_queue_is_popped_before_effect_checkpoint_and_restore_never_reissues`
-- `tests/life/test_app_push.py::test_release_only_changes_current_session_and_keeps_historical_matching_push`
-- `tests/life/test_app_push.py::test_sleep_stores_push_without_wake_and_existing_activity_is_unchanged`
-- `tests/life/test_app_vocabulary.py`
-- `tests/life/test_app_vocabulary.py::test_game_runtime_and_textworld_dependencies_are_removed`
-- `tests/life/test_app_vocabulary.py::test_game_way_cannot_be_restored_in_the_public_way_table`
-- `tests/life/test_body.py`
-- `tests/life/test_body_flows.py`
-- `tests/life/test_callable_index.py`
-- `tests/life/test_candidate_constants.py`
-- `tests/life/test_candidate_contract_boundaries.py`
-- `tests/life/test_candidates.py`
-- `tests/life/test_commerce.py`
-- `tests/life/test_commerce.py::test_delivery_receives_at_due_time_even_after_recipient_moves`
-- `tests/life/test_commerce.py::test_insufficient_funds_rejects_entire_order_before_receipt`
-- `tests/life/test_commerce.py::test_purchase_rejection_is_atomic_with_exact_code`
-- `tests/life/test_commerce.py::test_self_delivery_during_travel_is_refused_before_payment`
-- `tests/life/test_commerce.py::test_store_purchase_settles_energy_and_receipt_once_in_the_payment_result`
-- `tests/life/test_commerce.py::test_two_goods_rows_pay_one_delivery_fee_and_one_transfer`
-- `tests/life/test_contact_exchange.py`
-- `tests/life/test_contact_reply_guard.py`
-- `tests/life/test_content_catalog_titles.py`
-- `tests/life/test_content_select.py::test_selection_is_stable_under_mapping_order_and_does_not_advance_world_randomness`
-- `tests/life/test_continuation_metrics.py`
-- `tests/life/test_control_items.py`
-- `tests/life/test_control_name_rejections.py`
-- `tests/life/test_coverage_closure_models.py`
-- `tests/life/test_coverage_closure_projection.py`
-- `tests/life/test_coverage_closure_scenario.py`
-- `tests/life/test_day_plan.py`
-- `tests/life/test_day_planning.py`
-- `tests/life/test_dayrun_restaurants.py`
-- `tests/life/test_decision_budget.py`
-- `tests/life/test_decision_context_projection.py`
-- `tests/life/test_discomfort_and_sleep_messages.py`
-- `tests/life/test_domain_branch_coverage.py`
-- `tests/life/test_duration_boundaries.py`
-- `tests/life/test_energy_feasibility.py`
-- `tests/life/test_engine_branch_coverage.py`
-- `tests/life/test_engine_feedback.py`
-- `tests/life/test_engine_round.py`
-- `tests/life/test_environment_layer.py`
-- `tests/life/test_errand_changes.py`
-- `tests/life/test_errand_completion.py`
-- `tests/life/test_errand_names.py`
-- `tests/life/test_errand_overnight.py`
-- `tests/life/test_errand_reminder.py`
-- `tests/life/test_errand_requests.py`
-- `tests/life/test_errand_settlement_idempotence.py`
-- `tests/life/test_errand_todo_layer.py`
-- `tests/life/test_error_contract.py`
-- `tests/life/test_experience_sentences.py`
-- `tests/life/test_experience_sentences.py::test_real_pause_resume_immediate_cancellation_keeps_prior_partial_action_consumption`
-- `tests/life/test_experience_sentences.py::test_shared_cursor_advance_from_another_app_is_not_this_activitys_consumption`
-- `tests/life/test_export_integration.py`
-- `tests/life/test_export_integration.py::test_real_app_export_has_five_source_bound_fact_types_and_exact_quality_sections`
-- `tests/life/test_export_integration.py::test_real_app_export_rejects_tampered_or_rehashed_content_facts`
-- `tests/life/test_felt_states.py`
-- `tests/life/test_food_errand_evidence.py`
-- `tests/life/test_food_presentation.py`
-- `tests/life/test_food_presentation.py::test_product_targets_use_current_store_or_real_delivery_apps`
-- `tests/life/test_frozen_inputs_runtime.py`
-- `tests/life/test_frozen_observation_lookup.py`
-- `tests/life/test_goal_around_time.py`
-- `tests/life/test_grounded_observation.py`
-- `tests/life/test_interaction_menu_invariants.py`
-- `tests/life/test_interaction_menu_runtime.py`
-- `tests/life/test_load_checks.py`
-- `tests/life/test_load_checks.py::test_real_loader_rejects_registration_counterexamples`
-- `tests/life/test_location_sessions.py`
-- `tests/life/test_memory_layer.py`
-- `tests/life/test_menu_discovery.py`
-- `tests/life/test_menu_discovery.py::test_goods_tool_state_category_energy_apps_and_fixed_price`
-- `tests/life/test_menu_discovery.py::test_same_kind_stores_share_goods_and_product_discovery_deduplicates_real_app_bindings`
-- `tests/life/test_model_input_killpoints.py`
-- `tests/life/test_money_settlement.py`
-- `tests/life/test_name_resolution.py`
-- `tests/life/test_named_purchase.py`
-- `tests/life/test_named_purchase.py::test_named_purchase_rejects_unknown_goods_and_unbound_apps_atomically`
-- `tests/life/test_named_purchase.py::test_offers_choose_earliest_arrival_then_store_identity`
-- `tests/life/test_named_purchase.py::test_onsite_name_purchase_has_no_app_and_guidance_uses_real_places`
-- `tests/life/test_narration.py`
-- `tests/life/test_parallel_acceptance.py`
-- `tests/life/test_parallel_activities.py`
-- `tests/life/test_parallel_admission.py`
-- `tests/life/test_paused_slots.py`
-- `tests/life/test_persona_layer.py`
-- `tests/life/test_persona_upgrade.py`
-- `tests/life/test_progress_events.py`
-- `tests/life/test_progress_layer_projection.py`
-- `tests/life/test_prompt_layers.py`
-- `tests/life/test_prompt_layers.py::test_action_prompt_schema_rejects_retired_contract_review_and_completion_shapes`
-- `tests/life/test_prompt_layers.py::test_current_tool_surface_and_action_only_stage_identity_match_the_actual_host`
-- `tests/life/test_prompt_layers.py::test_paused_work_has_only_actual_progress_and_control_tools`
-- `tests/life/test_prompt_layers.py::test_work_content_appears_only_in_the_action_result`
-- `tests/life/test_public_observation_contract.py`
-- `tests/life/test_purchase_apps.py`
-- `tests/life/test_purchase_apps.py::test_delivery_to_other_person_uses_their_current_receiving_location`
-- `tests/life/test_purchase_apps.py::test_unbound_app_refuses_with_exact_reason_and_bound_app_next_step`
-- `tests/life/test_purchase_stages.py`
-- `tests/life/test_query_cost_report.py`
-- `tests/life/test_readable.py`
-- `tests/life/test_relevance.py`
-- `tests/life/test_request_linking.py`
-- `tests/life/test_rerun_metrics.py`
-- `tests/life/test_resource_conflict_progress.py`
-- `tests/life/test_restored_model_identity.py`
-- `tests/life/test_restored_model_identity.py::test_environment_lifecycles_reject_invalid_saved_stage_identity`
-- `tests/life/test_retrieval.py`
-- `tests/life/test_revision_contract.py`
-- `tests/life/test_routing.py::test_navigation_is_the_explicit_app_and_collection_rejects_all_route_values`
-- `tests/life/test_same_moment_decisions.py`
-- `tests/life/test_scenario.py`
-- `tests/life/test_scenario.py::test_body_instance_and_rejection_ranges_are_enforced`
-- `tests/life/test_scenario.py::test_formal_and_multi_person_scenarios_are_valid`
-- `tests/life/test_scenario.py::test_structure_eight_rejects_body_and_message_retired_fields`
-- `tests/life/test_scenario.py::test_structure_eight_rejects_each_retired_scenario_field`
-- `tests/life/test_scenario.py::test_structure_eight_rejects_old_scenario_version`
-- `tests/life/test_scenario.py::test_structure_eight_rejects_retired_agent_fields`
-- `tests/life/test_scenario.py::test_structure_eight_rejects_retired_menu_actions`
-- `tests/life/test_scenario.py::test_structure_eight_rejects_retired_menu_kinds`
-- `tests/life/test_scheduling.py`
-- `tests/life/test_scheduling.py::test_actual_scheduled_payroll_transfers_fixed_salary_without_work_or_submission`
-- `tests/life/test_semantics.py`
-- `tests/life/test_semantics.py::test_energy_thresholds_come_from_worldmock_body_constants`
-- `tests/life/test_semantics.py::test_initial_agent_preserves_declared_body_needs`
-- `tests/life/test_semantics.py::test_registered_objects_and_body_instances_are_preserved`
-- `tests/life/test_session_attribution.py`
-- `tests/life/test_session_state.py`
-- `tests/life/test_session_state.py::test_agent_state_rejects_retired_supply_and_qualification_fields`
-- `tests/life/test_session_state.py::test_world_state_rejects_retired_supply_fields`
-- `tests/life/test_session_state.py::test_world_state_schema_version_11_is_valid`
-- `tests/life/test_shared_body.py`
-- `tests/life/test_shared_rules.py`
-- `tests/life/test_shift_edge_runs.py`
-- `tests/life/test_shift_edges.py`
-- `tests/life/test_sleep_billing.py`
-- `tests/life/test_sleep_two_process.py`
-- `tests/life/test_social.py`
-- `tests/life/test_social_rounds.py`
-- `tests/life/test_state_serialization.py`
-- `tests/life/test_state_serialization.py::test_json_mode_sorts_every_persisted_string_set`
-- `tests/life/test_state_write_recheck.py`
-- `tests/life/test_storefront_commerce.py`
-- `tests/life/test_timeline_labels.py`
-- `tests/life/test_todo_layer.py`
-- `tests/life/test_tool_interaction_habits.py`
-- `tests/life/test_tool_interaction_runtime.py`
-- `tests/life/test_tool_layer.py`
-- `tests/life/test_tool_layer.py::test_action_name_and_perform_synonym_use_exact_registered_object_and_leave_app_explicit`
-- `tests/life/test_tool_layer.py::test_action_targets_and_push_schema_are_closed_without_content_kind_or_private_identity`
-- `tests/life/test_tool_layer.py::test_all_registered_actions_listed_with_explicit_apps_and_no_app_targets`
-- `tests/life/test_tool_layer.py::test_current_push_title_is_visible_only_for_its_bound_action_and_app_until_released`
-- `tests/life/test_tool_layer.py::test_empty_action_tool_reason_matches_actual_content_exhaustion`
-- `tests/life/test_tool_protocol.py`
-- `tests/life/test_travel_cost.py`
-- `tests/life/test_travel_cost.py::test_route_quote_is_paid_once_into_the_declared_transport_account`
-- `tests/life/test_travel_cost.py::test_unaffordable_departure_changes_no_account`
-- `tests/life/test_travel_cost.py::test_walking_records_zero_fare_without_inventing_a_payment`
-- `tests/life/test_travel_graph.py`
-- `tests/life/test_travel_graph.py::test_graph_departure_and_arrival_switch_real_sessions_without_engine`
-- `tests/life/test_travel_graph.py::test_minimum_length_driving_trip_is_quoted_accepted_and_initialized`
-- `tests/life/test_travel_graph.py::test_persisted_travel_evidence_drift_is_rejected`
-- `tests/life/test_travel_graph.py::test_plan_uses_full_graph_fixed_speed_and_fare`
-- `tests/life/test_travel_graph.py::test_request_duration_is_recomputed_from_the_published_graph`
-- `tests/life/test_travel_graph.py::test_same_place_travel_is_a_precondition_rejection`
-- `tests/life/test_travel_graph.py::test_tool_targets_list_all_other_selected_places_with_both_graph_quotes`
-- `tests/life/test_travel_graph.py::test_travel_activity_evidence_uses_trip_and_full_path`
-- `tests/life/test_travel_graph.py::test_travel_progress_snapshot_keeps_origin_and_arrival_is_verified`
-- `tests/life/test_travel_graph.py::test_unselected_place_is_not_a_destination_but_remains_a_path_node`
-- `tests/life/test_wait_passive_entertainment.py`
-- `tests/life/test_wake_reasons.py`
-- `tests/life/test_wake_reasons.py::test_frozen_wake_and_intent_names`
-- `tests/life/test_wake_reasons.py::test_sleep_allowed_reasons_include_plan_reminder_and_alarm`
-- `tests/life/test_wayfinding.py`
-- `tests/life/test_wayfinding.py::test_discovery_quotes_the_same_graph_trip_without_old_route_fields`
-- `tests/life/test_work_schedule.py`
-- `tests/life/test_world_query.py`
-- `tests/life/test_world_query_filters.py`
-- `tests/life/test_world_setup.py`
-- `tests/mutation_runner.py`
-- `tests/persona_prompt_acceptance.py`
-- `tests/profile/test_coverage.py`
-- `tests/profile/test_coverage.py::test_app_name_substrings_no_longer_count_as_coverage_hits`
-- `tests/profile/test_coverage.py::test_below_threshold_rejected_with_missing_items`
-- `tests/profile/test_coverage.py::test_content_genres_stay_prose_and_do_not_enter_coverage`
-- `tests/profile/test_coverage.py::test_empty_card_is_vacuously_covered`
-- `tests/profile/test_coverage.py::test_full_coverage_passes`
-- `tests/profile/test_coverage.py::test_habit_response_keyword_substring_matching`
-- `tests/profile/test_coverage.py::test_report_serializes_to_coverage_json_shape`
-- `tests/profile/test_coverage.py::test_threshold_boundary_passes_at_exactly_80_percent`
-- `tests/profile/test_injection.py`
-- `tests/profile/test_injection.py::test_a_conflicting_scenario_leave_work_keeps_the_non_null_card_slot_and_the_card_arrive_home`
-- `tests/profile/test_injection.py::test_a_null_card_slot_takes_the_scenario_work_window_and_is_reported_as_overridden`
-- `tests/profile/test_injection.py::test_a_scenario_bedtime_before_the_card_leave_work_keeps_the_card_leave_work`
-- `tests/profile/test_injection.py::test_a_scenario_window_violating_the_work_anchor_order_keeps_the_card_value_as_a_conflict`
-- `tests/profile/test_injection.py::test_an_unrepresentable_work_window_is_a_conflict_on_a_null_slot`
-- `tests/profile/test_injection.py::test_coverage_below_threshold_reuses_the_validate_report`
-- `tests/profile/test_injection.py::test_empty_content_warns_for_media_and_habits_only`
-- `tests/profile/test_injection.py::test_frozen_warnings_keep_the_closed_shape_and_null_means_not_computed`
-- `tests/profile/test_injection.py::test_only_explicitly_declared_fields_are_overridden`
-- `tests/profile/test_injection.py::test_out_of_order_window_keeps_the_card_value_and_records_a_conflict`
-- `tests/profile/test_injection.py::test_persona_compiler_agreement_warnings_are_passed_through`
-- `tests/profile/test_injection.py::test_retired_warning_codes_are_rejected_at_manifest_boundary`
-- `tests/profile/test_injection.py::test_suspicious_display_names_are_reported_only_for_coordinates_and_identifiers`
-- `tests/profile/test_injection.py::test_the_warning_code_set_is_the_closed_six`
-- `tests/profile/test_injection.py::test_unrepresentable_and_after_midnight_windows`
-- `tests/profile/test_injection.py::test_values_are_quantised_to_the_card_grid`
-- `tests/profile/test_injection.py::test_wc_scenario_rhythm_overrides_the_extracted_card_values`
-- `tests/profile/test_injection.py::test_windows_that_each_fit_alone_but_not_together_land_in_slot_order`
-- `tests/profile/test_injection.py::test_windows_that_only_fit_together_are_both_applied_and_the_result_is_a_fixed_point`
-- `tests/profile/test_injection.py::test_work_windows_declared_together_land_together_and_the_result_is_a_fixed_point`
-- `tests/rrs_acceptance.py`
-- `tests/scheduling/test_branch_coverage.py`
-- `tests/scripts/test_freeze_rrs_baseline.py`
-- `tests/scripts/test_freeze_rrs_baseline.py::test_generation_rejects_nonmatching_bootstrap_identity`
-- `tests/scripts/test_freeze_rrs_baseline.py::test_historical_complete_day_evidence_keeps_original_bytes`
-- `tests/scripts/test_freeze_rrs_baseline.py::test_invalid_current_candidate_is_rejected_before_publication`
-- `tests/scripts/test_freeze_rrs_baseline.py::test_matching_full_candidates_publish_complete_summary_and_actual_generation`
-- `tests/scripts/test_freeze_rrs_baseline.py::test_mismatched_complete_day_candidates_preserve_existing_target`
-- `tests/shared_rules_acceptance.py`
-- `tests/test_bootstrap.py`
-- `tests/test_cli.py`
-- `tests/test_cli.py::test_generate_map_check_preserves_matching_and_mismatched_output`
-- `tests/test_cli.py::test_generate_map_check_uses_the_real_cli_dispatch`
-- `tests/test_cli.py::test_generate_map_command_writes_the_real_library_bytes`
-- `tests/test_coverage_gate.py`
-- `tests/test_current_feature_owners.py`
-- `tests/test_current_feature_owners.py::test_all_accepted_features_have_complete_current_normative_owners`
-- `tests/test_current_feature_owners.py::test_archived_non_markdown_assets_preserve_exact_original_bytes`
-- `tests/test_current_feature_owners.py::test_new_acceptance_topic_requires_an_owner_and_missing_fixture_fails`
-- `tests/test_current_feature_owners.py::test_removing_each_archived_feature_current_body_fails`
-- `tests/test_current_feature_owners.py::test_removing_normative_owner_and_body_cannot_remove_the_requirement`
-- `tests/test_current_feature_owners.py::test_title_and_prose_can_change_without_changing_the_requirement_owner`
-- `tests/test_current_feature_owners.py::test_titles_anchors_and_navigation_cannot_replace_normative_body`
-- `tests/test_dayrun_fidelity_acceptance.py`
-- `tests/test_dayrun_fidelity_acceptance.py::test_anchored_links_in_docs_point_to_existing_headings`
-- `tests/test_dayrun_fidelity_acceptance.py::test_deferral_pattern_catches_every_marker`
-- `tests/test_dayrun_fidelity_acceptance.py::test_deferral_pattern_leaves_ordinary_code_alone`
-- `tests/test_dayrun_fidelity_acceptance.py::test_docs_carry_no_pending_markers_of_this_feature`
-- `tests/test_dayrun_fidelity_acceptance.py::test_every_input_warning_code_has_one_registered_example`
-- `tests/test_dayrun_fidelity_acceptance.py::test_every_ledger_row_is_registered_and_every_registered_row_exists`
-- `tests/test_dayrun_fidelity_acceptance.py::test_every_registered_node_resolves_to_a_collected_unskipped_test`
-- `tests/test_dayrun_fidelity_acceptance.py::test_feature_files_carry_no_deferral_markers`
-- `tests/test_dayrun_fidelity_acceptance.py::test_feature_python_files_have_no_stub_functions`
-- `tests/test_dayrun_fidelity_acceptance.py::test_frozen_feature_file_lists_name_existing_files_once`
-- `tests/test_dayrun_fidelity_acceptance.py::test_pending_marker_scan_catches_every_form_and_leaves_history_alone`
-- `tests/test_dayrun_fidelity_acceptance.py::test_report_only_rows_stay_report_only_in_the_spec`
-- `tests/test_dayrun_fidelity_acceptance.py::test_resolver_rejects_missing_uncollected_and_skipped_tests`
-- `tests/test_dayrun_fidelity_acceptance.py::test_rulings_are_decided_except_the_registered_and_the_withdrawn_and_each_decided_one_is_registered`
-- `tests/test_dayrun_fidelity_acceptance.py::test_stub_detection_catches_pass_ellipsis_and_docstring_only_bodies`
-- `tests/test_design_doc_build.py`
-- `tests/test_design_doc_build.py::test_appendix_identifier_survives_title_rename_and_duplicate_identifier_aborts`
-- `tests/test_design_doc_build.py::test_blockquote_and_paragraph_hard_breaks`
-- `tests/test_design_doc_build.py::test_check_command_detects_source_changes_and_missing_output`
-- `tests/test_design_doc_build.py::test_contract_appendix_rewrites_links_relative_to_the_assembled_page`
-- `tests/test_design_doc_build.py::test_contract_sections_are_excerpted_verbatim_with_promoted_headings`
-- `tests/test_design_doc_build.py::test_cover_and_toc_take_chapter_metadata`
-- `tests/test_design_doc_build.py::test_explicit_section_survives_heading_rename_without_visible_markup`
-- `tests/test_design_doc_build.py::test_heading_ids_are_unique_and_the_build_is_deterministic`
-- `tests/test_design_doc_build.py::test_list_continuation_and_one_level_nesting`
-- `tests/test_design_doc_build.py::test_mermaid_fence_and_fenced_pseudo_headings`
-- `tests/test_design_doc_build.py::test_missing_sibling_identifier_aborts_instead_of_opening_the_chapter`
-- `tests/test_design_doc_build.py::test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current`
-- `tests/test_design_doc_build.py::test_same_chapter_anchor_links_get_the_chapter_prefix`
-- `tests/test_design_doc_build.py::test_sibling_links_map_to_in_document_anchors_and_others_stay`
-- `tests/test_design_doc_build.py::test_table_cells_keep_escaped_and_code_span_pipes`
-- `tests/test_documentation_gate.py`
-- `tests/test_documentation_gate.py::test_archive_cannot_replace_original_snapshot_with_unrelated_substantive_body`
-- `tests/test_documentation_gate.py::test_archive_header_without_original_body_cannot_claim_complete_snapshot`
-- `tests/test_documentation_gate.py::test_archive_relative_links_resolve_from_original_path_without_rewriting_body`
-- `tests/test_documentation_gate.py::test_archive_snapshot_disclaims_unreconstructible_execution`
-- `tests/test_documentation_gate.py::test_assignment_reexports_are_not_actual_definitions`
-- `tests/test_documentation_gate.py::test_attribute_documentation_and_field_description_use_current_sections`
-- `tests/test_documentation_gate.py::test_constructed_assignment_and_local_parameter_are_actual_definitions`
-- `tests/test_documentation_gate.py::test_current_document_violations_fail`
-- `tests/test_documentation_gate.py::test_definitions_resolve_classes_nested_functions_and_assignments`
-- `tests/test_documentation_gate.py::test_document_file_reading_argument_is_not_a_contract_reference`
-- `tests/test_documentation_gate.py::test_duplicate_identifier_across_documents_has_one_owner`
-- `tests/test_documentation_gate.py::test_exact_reference_source_is_explicit_and_does_not_search_other_baselines`
-- `tests/test_documentation_gate.py::test_historical_ruling_definition_requires_exact_real_provenance`
-- `tests/test_documentation_gate.py::test_history_refuses_short_missing_dirty_or_undisclaimed_commit`
-- `tests/test_documentation_gate.py::test_literal_container_and_mixed_destructuring_keep_actual_local_definitions`
-- `tests/test_documentation_gate.py::test_main_fails_closed_and_reports_english_problem`
-- `tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve`
-- `tests/test_documentation_gate.py::test_retained_ruling_resolves_only_its_declared_historical_definition`
-- `tests/test_documentation_gate.py::test_retired_paths_require_real_declared_history`
-- `tests/test_documentation_gate.py::test_scan_covers_unregistered_design_manual_and_actual_root_entries`
-- `tests/test_documentation_gate.py::test_source_and_test_references_require_current_explicit_sections`
-- `tests/test_documentation_gate.py::test_title_change_preserves_explicit_identity_and_body`
-- `tests/test_documentation_gate.py::test_transparent_calls_preserve_real_constructions_and_custom_factories`
-- `tests/test_documentation_gate.py::test_wildcard_import_preserves_local_constants_constructions_and_parameters`
-- `tests/test_environment_profiles.py`
-- `tests/test_environment_profiles.py::test_dev_environment_receipt_records_missing_without_absolute_paths`
-- `tests/test_environment_profiles.py::test_dev_marks_only_tests_that_need_a_missing_component`
-- `tests/test_environment_profiles.py::test_mutable_test_tree_copies_do_not_use_hard_links`
-- `tests/test_environment_profiles.py::test_purchase_world_edits_leave_formal_input_bytes_and_inodes_unchanged`
-- `tests/test_environment_profiles.py::test_release_rejects_each_missing_component`
-- `tests/test_environment_profiles.py::test_release_rejects_expected_failure_even_when_it_could_pass`
-- `tests/test_errands_workday_acceptance.py::test_every_implementation_stage_is_done`
-- `tests/test_errands_workday_acceptance.py::test_feature_and_registered_files_carry_no_deferral_markers`
-- `tests/test_errands_workday_acceptance.py::test_feature_and_registered_python_files_have_no_stub_functions`
-- `tests/test_errands_workday_acceptance.py::test_feature_file_lists_name_existing_files_once`
-- `tests/test_errands_workday_acceptance.py::test_ledger_section_has_one_three_column_table_matching_the_registration`
-- `tests/test_errands_workday_acceptance.py::test_mutations_are_named_once_and_anchored_in_main_process_production_code`
-- `tests/test_errands_workday_acceptance.py::test_report_only_rows_stay_report_only_in_the_spec`
-- `tests/test_errands_workday_acceptance.py::test_rows_of_done_stages_list_tests_and_every_registered_node_resolves`
-- `tests/test_errands_workday_acceptance.py::test_spec_mutation_sentences_are_registered_in_order_and_done_stages_are_covered`
-- `tests/test_fresh_check.py`
-- `tests/test_frozen_inputs.py`
-- `tests/test_idle_fillers_acceptance.py::test_behaviour_cases_match_the_spec_and_done_rows_list_their_nodes`
-- `tests/test_idle_fillers_acceptance.py::test_every_row_points_to_an_existing_spec_anchor`
-- `tests/test_idle_fillers_acceptance.py::test_feature_and_registered_files_carry_no_deferral_markers`
-- `tests/test_idle_fillers_acceptance.py::test_feature_and_registered_python_files_have_no_stub_functions`
-- `tests/test_idle_fillers_acceptance.py::test_feature_file_lists_name_existing_files_once`
-- `tests/test_idle_fillers_acceptance.py::test_ledger_rows_match_the_spec_table_in_order_and_stage`
-- `tests/test_idle_fillers_acceptance.py::test_mutation_rows_match_the_spec_table_and_cover_done_stages`
-- `tests/test_idle_fillers_acceptance.py::test_mutations_are_named_once_and_anchored_in_main_process_production_code`
-- `tests/test_idle_fillers_acceptance.py::test_rows_of_done_stages_list_evidence_and_every_registered_node_and_symbol_resolves`
-- `tests/test_import_graph.py`
-- `tests/test_import_graph.py::test_cycle_guard_covers_every_import_form`
-- `tests/test_import_graph.py::test_dynamic_relative_imports_resolve_the_real_package`
-- `tests/test_import_graph.py::test_footprint_store_has_no_branch_restoration_compatibility_method`
-- `tests/test_import_graph.py::test_foundation_cannot_depend_on_execution`
-- `tests/test_import_graph.py::test_local_registry_rejects_missing_and_stale_entries`
-- `tests/test_import_graph.py::test_moved_declarations_have_no_same_name_binding_at_old_modules`
-- `tests/test_import_graph.py::test_only_environment_can_import_facade`
-- `tests/test_import_graph.py::test_production_import_graph_obeys_all_boundaries`
-- `tests/test_import_graph.py::test_type_checking_edges_do_not_create_runtime_cycles`
-- `tests/test_import_graph.py::test_unknown_dynamic_import_targets_or_object_proxies_fail_closed`
-- `tests/test_layering_acceptance.py`
-- `tests/test_layering_acceptance.py::test_accepted_increment_specs_have_one_current_owner`
-- `tests/test_layering_acceptance.py::test_context_has_one_state_owner_and_no_facade_back_reference`
-- `tests/test_layering_acceptance.py::test_every_layering_clause_has_executable_nonempty_evidence`
-- `tests/test_layering_acceptance.py::test_facade_keeps_public_signatures_and_has_no_business_mixin`
-- `tests/test_layering_acceptance.py::test_layering_implementation_ledger_is_bidirectional`
-- `tests/test_layering_acceptance.py::test_new_production_responsibilities_have_no_deferred_or_empty_implementation`
-- `tests/test_layering_acceptance.py::test_original_mutation_generation_has_complete_byte_equivalence_evidence`
-- `tests/test_layering_acceptance.py::test_real_day_baseline_was_frozen_only_after_two_matching_runs`
-- `tests/test_mutation_runner.py`
-- `tests/test_mutation_runner.py::test_invalid_original_equal_replacement_and_invalid_program_are_rejected`
-- `tests/test_mutation_runner.py::test_missing_imported_or_ambiguous_symbol_is_rejected`
-- `tests/test_mutation_runner.py::test_mutation_changes_only_the_named_definition_with_duplicate_text_elsewhere`
-- `tests/test_mutation_runner.py::test_mutation_resolves_nested_function_and_module_assignment`
-- `tests/test_mutation_runner.py::test_original_must_be_unique_inside_the_definition`
-- `tests/test_mutation_runner.py::test_symbol_rejects_nonproduction_or_malformed_location`
-- `tests/test_persona_prompt_acceptance.py::test_deferral_pattern_catches_every_marker`
-- `tests/test_persona_prompt_acceptance.py::test_deferral_pattern_leaves_ordinary_code_alone`
-- `tests/test_persona_prompt_acceptance.py::test_every_chapter_six_row_is_registered_and_every_registered_row_exists`
-- `tests/test_persona_prompt_acceptance.py::test_every_ledger_row_is_registered_and_every_registered_row_exists`
-- `tests/test_persona_prompt_acceptance.py::test_every_registered_node_resolves_to_a_collected_unskipped_test`
-- `tests/test_persona_prompt_acceptance.py::test_feature_files_carry_no_deferral_markers`
-- `tests/test_persona_prompt_acceptance.py::test_feature_python_files_have_no_stub_functions`
-- `tests/test_persona_prompt_acceptance.py::test_frozen_feature_file_lists_name_existing_files_once`
-- `tests/test_persona_prompt_acceptance.py::test_program_error_ledger_row_carries_every_chapter_six_regression`
-- `tests/test_persona_prompt_acceptance.py::test_report_only_rows_stay_report_only_in_the_spec`
-- `tests/test_persona_prompt_acceptance.py::test_resolver_rejects_missing_uncollected_and_skipped_tests`
-- `tests/test_persona_prompt_acceptance.py::test_rulings_21_to_38_are_adopted_and_each_is_registered`
-- `tests/test_persona_prompt_acceptance.py::test_stub_detection_catches_pass_ellipsis_and_docstring_only_bodies`
-- `tests/test_rrs_acceptance.py`
-- `tests/test_rrs_acceptance.py::test_all_implementation_stages_are_complete_and_dataset_is_report_only`
-- `tests/test_rrs_acceptance.py::test_app_owners_execute_without_the_complete_engine`
-- `tests/test_rrs_acceptance.py::test_behaviour_cases_match_spec_and_earliest_contract_ownership`
-- `tests/test_rrs_acceptance.py::test_complete_wave_prefixes_are_allowed`
-- `tests/test_rrs_acceptance.py::test_every_registered_node_and_implementation_resolves_immediately`
-- `tests/test_rrs_acceptance.py::test_every_spec_anchor_has_a_registered_current_normative_body_owner`
-- `tests/test_rrs_acceptance.py::test_feature_file_lists_are_real_relative_and_have_no_deferral_or_stubs`
-- `tests/test_rrs_acceptance.py::test_future_nodes_and_empty_test_bodies_are_rejected`
-- `tests/test_rrs_acceptance.py::test_ledger_rows_match_the_spec_table_in_order_and_stage`
-- `tests/test_rrs_acceptance.py::test_map_owners_execute_without_the_complete_engine`
-- `tests/test_rrs_acceptance.py::test_missing_contract_wrong_stage_and_empty_finished_evidence_are_rejected`
-- `tests/test_rrs_acceptance.py::test_missing_mutation_wrong_contract_and_delayed_killer_are_rejected`
-- `tests/test_rrs_acceptance.py::test_mutation_rows_have_exact_contracts_stages_and_due_coverage`
-- `tests/test_rrs_acceptance.py::test_partial_waves_and_report_only_completion_are_rejected`
-- `tests/test_rrs_acceptance.py::test_registered_mutations_have_real_production_anchors_and_behavior_killers`
-- `tests/test_rrs_acceptance.py::test_registered_owner_and_due_integration_nodes_are_collectable`
-- `tests/test_rrs_acceptance.py::test_resource_claim_and_package_identity_owner_stages_cannot_be_swapped`
-- `tests/test_rrs_acceptance.py::test_skipped_nodes_and_nonproduction_implementation_are_rejected`
-- `tests/test_rrs_acceptance.py::test_stage_one_pure_collection_does_not_import_the_complete_engine`
-- `tests/test_rrs_acceptance.py::test_stage_sets_allow_only_the_integrated_wave_and_later_prefixes`
-- `tests/test_shared_model_clients.py`
-- `tests/test_shared_primitives.py`
-- `tests/test_shared_rules_spec.py::test_all_frozen_shared_rule_rows_have_real_behavior_evidence`
-- `tests/test_shared_rules_spec.py::test_design_chapters_and_contracts_reference_the_frozen_feature`
-- `tests/test_shared_rules_spec.py::test_every_environment_clause_has_real_behavior_evidence`
-- `tests/test_shared_rules_spec.py::test_frozen_current_as2_identity_agrees_with_installation_and_runtime`
-- `tests/test_single_source.py`
-- `tests/test_single_source.py::test_copied_rule_table_fails_even_after_renaming`
-- `tests/test_single_source.py::test_current_registry_and_observation_contract_retire_energy_and_game_keys`
-- `tests/test_single_source.py::test_import_logger_type_and_thin_protocol_hooks_are_not_business_clones`
-- `tests/test_single_source.py::test_new_function_clone_fails_even_with_different_name_and_docstring`
-- `tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones`
-- `tests/test_single_source.py::test_protocol_hook_with_business_branch_is_scanned`
-- `tests/test_single_source.py::test_wrong_shared_rule_owner_fails`
-- `tests/test_start_activity_contract.py`
-- `tests/test_start_activity_contract.py::test_ways_vocabulary_maps_each_way_to_exactly_one_life_verb`
-- `tests/test_style_gate.py`
-- `tests/test_style_gate.py::test_style_gate_admits_no_new_violations`
-- `tests/test_test_tiers.py`
-- `tests/test_test_tiers.py::test_actual_fixture_objects_helpers_and_returned_factories_are_followed_per_test`
-- `tests/test_test_tiers.py::test_changed_engine_time_is_separate_from_default_fast_reference`
-- `tests/test_test_tiers.py::test_changed_selection_includes_staged_unstaged_and_untracked`
-- `tests/test_test_tiers.py::test_duplicate_selected_and_collected_nodes_cannot_be_hidden_by_the_test_dictionary`
-- `tests/test_test_tiers.py::test_duration_balancing_keeps_new_files_and_file_nodes_together`
-- `tests/test_test_tiers.py::test_duration_report_covers_phases_slow_fast_tests_and_file_totals`
-- `tests/test_test_tiers.py::test_equal_node_count_cannot_hide_a_wrong_test_or_failed_phase`
-- `tests/test_test_tiers.py::test_explicit_external_environment_requires_both_nonempty_inputs`
-- `tests/test_test_tiers.py::test_external_environment_identity_survives_relocation_and_rejects_changed_bytes`
-- `tests/test_test_tiers.py::test_fast_selection_adds_only_direct_changed_engine_dependencies`
-- `tests/test_test_tiers.py::test_fixed_dependency_and_patch_bytes_are_part_of_the_frozen_test_input`
-- `tests/test_test_tiers.py::test_generated_work_and_bytecode_are_not_test_source_inputs`
-- `tests/test_test_tiers.py::test_incomplete_worker_evidence_is_rejected`
-- `tests/test_test_tiers.py::test_input_identity_changes_when_source_changes_and_skips_are_reported`
-- `tests/test_test_tiers.py::test_missing_coverage_report_cannot_pass`
-- `tests/test_test_tiers.py::test_new_driver_and_fixture_dependencies_are_classified`
-- `tests/test_test_tiers.py::test_real_parallel_coverage_is_combined_for_the_current_normal_source`
-- `tests/test_test_tiers.py::test_real_pytest_collection_classifies_each_test_and_actual_fixture_closure`
-- `tests/test_test_tiers.py::test_real_pytest_rejects_other_run_old_format_or_duplicate_selection`
-- `tests/test_test_tiers.py::test_real_serial_and_parallel_workers_return_identical_complete_nodes`
-- `tests/test_test_tiers.py::test_standard_and_full_sets_preserve_external_and_long_reviews`
-- `tests/test_test_tiers.py::test_standard_wall_time_reuses_only_the_same_verified_run`
-- `tests/test_test_tiers.py::test_worker_receipts_cannot_belong_to_another_run`
-- `tests/test_test_tiers.py::test_worker_receipts_require_real_pytest_phase_outcomes`
-- `tests/test_time_and_energy_completeness.py::test_activity_duration_limits_use_the_shared_model_constants`
-- `tests/test_time_and_energy_completeness.py::test_deferral_pattern_catches_every_skip_form`
-- `tests/test_time_and_energy_completeness.py::test_done_rows_list_resolvable_unskipped_tests`
-- `tests/test_time_and_energy_completeness.py::test_every_implementation_stage_is_done`
-- `tests/test_time_and_energy_completeness.py::test_no_deferral_markers`
-- `tests/test_time_and_energy_completeness.py::test_registry_covers_exactly_the_acceptance_ledger_rows`
-- `tests/test_time_and_energy_completeness.py::test_registry_entries_name_known_stages`
-- `tests/test_time_and_energy_completeness.py::test_removed_symbol_scan_detects_a_definition_moved_to_another_file`
-- `tests/test_time_and_energy_completeness.py::test_removed_symbols_of_done_stages_are_absent`
-- `tests/test_tool_interaction_acceptance.py`
-- `tests/test_tool_interaction_acceptance.py::test_tool_interaction_declared_interface_contains_only_new_parameters`
-- `tests/test_tool_interaction_acceptance.py::test_tool_interaction_every_spec_behavior_has_executable_tests`
-- `tests/test_tool_interaction_acceptance.py::test_tool_interaction_sources_have_no_deferred_or_empty_implementation`
-- `tests/test_validation.py`
-- `tests/test_validation.py::test_validate_environment_checks_every_scenario_after_a_scenario_failure`
-- `tests/test_validation.py::test_validate_environment_command_accepts_the_actual_artificial_environment`
-- `tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[disconnected-MAP_DISCONNECTED]`
-- `tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[identity-ENVIRONMENT_IDENTITY_MISMATCH]`
-- `tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[retired-ENVIRONMENT_STALE_FILE]`
-- `tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[rules_version-RULES_VERSION_MISMATCH]`
-- `tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[self_edge-MAP_EDGE_INVALID]`
-- `tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[small_map-MAP_TOO_SMALL]`
-- `tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[unbound-APP_UNBOUND]`
-- `tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[unlisted-ENVIRONMENT_FILE_UNLISTED]`
-- `tests/test_validation.py::test_validate_environment_command_rejects_real_registration_counterexamples`
-- `tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references[merchant-MERCHANT_ACCOUNT_MISSING]`
-- `tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references[pin-ENVIRONMENT_PIN_MISMATCH]`
-- `tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references[schedule-WORK_SCHEDULE_REQUIRED]`
-- `tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references[topic-WORK_CONTENT_UNKNOWN]`
-- `tests/test_validation.py::test_validate_environment_ignores_unread_extra_root_directories`
-- `tests/test_validation.py::test_validate_environment_rejects_map_bytes_even_when_manifest_is_republished`
-- `tests/test_validation.py::test_validate_environment_rejects_no_scenarios`
-- `tests/test_validation.py::test_validate_environment_rejects_retired_rule_copies`
-- `tests/tier_support.py`
-- `tests/time_and_energy_acceptance.py`
-- `tests/tool_interaction_acceptance.py`
-- `tests/tools/run_viewer.test.cjs`
-- `tests/tools/run_viewer_context.test.cjs`
-- `tests/tools/test_run_viewer.py`
-- `tests/tools/test_run_viewer.py::test_run_viewer_recorded_names`
-- `tools/run-viewer-context-view.js`
-- `tools/run-viewer-context.js`
-- `tools/run-viewer.html`
-
-#### `tests/shared_rules_acceptance.py`
-
-当期登记共有 64 个唯一源码或测试节点，排序后摘要为 `c371e296aaaff9f1657beab9774773374374861f31ab403708479d7a8b55788b`。以下是完整登记；本表只证明登记与本树节点闭合，不声称后续阶段或执行门禁通过。
-
-- `tests/as2/test_worldmock_life_hooks.py::test_consolidation_triggers_pending_threshold`
-- `tests/as2/test_worldmock_life_hooks.py::test_structured_observation_appears_once_in_user_message`
-- `tests/as2/test_worldmock_memory_boundaries.py::test_host_merge_similarity_uses_the_frozen_threshold`
-- `tests/as2/test_worldmock_memory_boundaries.py::test_host_merge_window_has_closed_twenty_four_hour_boundary`
-- `tests/as2/test_worldmock_memory_boundaries.py::test_host_restore_refuses_corrupt_episode_snapshot_without_repair`
-- `tests/as2/test_worldmock_registration.py::test_actual_scanner_accepts_life_env_with_the_complete_direct_environment_contract`
-- `tests/as2/test_worldmock_registration.py::test_scan_diagnostic_rejects_an_incomplete_direct_environment_contract`
-- `tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample`
-- `tests/catalog/test_affordances.py::test_driving_allows_only_social_without_continuous_phone_use`
-- `tests/catalog/test_affordances.py::test_each_category_and_manner_combination_has_fixed_claims`
-- `tests/catalog/test_graph.py::test_full_path_lexicographic_tie_ignores_discovery_and_edge_order`
-- `tests/catalog/test_identity.py::test_catalog_identity_publication_is_atomic`
-- `tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes`
-- `tests/evaluation/test_shared_event_parsing.py::test_canonical_adapter_validates_each_event_once_for_statistics_and_public_evidence`
-- `tests/evaluation/test_shared_event_parsing.py::test_metric_and_review_date_blocks_share_full_window_partition`
-- `tests/exchange/test_models.py::test_deep_model_freezes_nested_containers_and_serializes`
-- `tests/life/test_action_run.py::test_action_run_minimal_real_catalog_body_progress_and_silent_continuation`
-- `tests/life/test_action_run.py::test_assigned_work_requires_actual_workplace_and_unassigned_study_does_not`
-- `tests/life/test_action_run.py::test_category_effects_and_met_are_fixed_not_content_types`
-- `tests/life/test_action_run.py::test_exercise_location_rule_is_shared_with_rule_engine`
-- `tests/life/test_action_run.py::test_non_entertainment_completes_one_content_without_continuation`
-- `tests/life/test_app_progress.py::test_zero_second_pause_never_creates_consumption_history`
-- `tests/life/test_body_flows.py::test_sleep_emits_no_entertainment_flow`
-- `tests/life/test_candidates.py::test_zero_second_purchase_candidates_do_not_occupy_activity_resources`
-- `tests/life/test_duration_boundaries.py::test_feedback_duration_matches_listing_and_real_admission`
-- `tests/life/test_duration_boundaries.py::test_sleep_duration_uses_personal_need_in_listing_and_real_admission`
-- `tests/life/test_readable.py::test_chinese_kind_tables_have_a_single_source`
-- `tests/life/test_shared_body.py::test_shared_activity_factors_use_social_met_and_declared_factors`
-- `tests/life/test_shared_rules.py::test_declared_sleep_channel_does_not_control_body_sleep_settlement`
-- `tests/life/test_shared_rules.py::test_social_category_advances_the_social_goal`
-- `tests/life/test_shared_rules.py::test_travel_plan_matches_tool_layer_admission_and_engine_validation`
-- `tests/life/test_shared_rules.py::test_unknown_action_category_does_not_advance_the_plan`
-- `tests/life/test_tool_layer.py::test_action_duration_matches_read_only_selector_and_actual_admission`
-- `tests/life/test_travel_graph.py::test_plan_uses_full_graph_fixed_speed_and_fare`
-- `tests/life/test_wayfinding.py::test_discovery_quotes_the_same_graph_trip_without_old_route_fields`
-- `tests/test_bootstrap.py::test_bootstrap_checks_source_before_installs_and_uses_one_environment`
-- `tests/test_bootstrap.py::test_exported_dependency_versions_and_all_hashes_match_original_lock`
-- `tests/test_bootstrap.py::test_locked_hatchling_backend_installs_real_editable_source_offline`
-- `tests/test_bootstrap.py::test_original_full_patch_rebuilds_the_original_locked_identity`
-- `tests/test_bootstrap.py::test_pip_offline_install_requires_hashes_and_source_build_uses_locked_backend`
-- `tests/test_bootstrap.py::test_same_committed_source_identity_survives_autocrlf_checkouts`
-- `tests/test_bootstrap.py::test_series_rebuilds_the_real_package_and_refuses_source_corruption`
-- `tests/test_coverage_gate.py::test_from_json_rejects_skipped_empty_failed_stale_or_incomplete_runs`
-- `tests/test_coverage_gate.py::test_gate_uses_the_current_interpreter_and_the_shared_full_runner`
-- `tests/test_environment_profiles.py::test_purchase_world_edits_leave_formal_input_bytes_and_inodes_unchanged`
-- `tests/test_environment_profiles.py::test_release_rejects_each_missing_component`
-- `tests/test_fresh_check.py::test_fresh_checkout_disables_submodules_ssh_and_pip_cache`
-- `tests/test_fresh_check.py::test_platform_comparison_rejects_mismatch_and_incomplete_evidence`
-- `tests/test_shared_model_clients.py::test_original_clients_share_single_call_serialization_and_request_isolation`
-- `tests/test_shared_model_clients.py::test_plan_and_reflection_corrections_keep_tools_budgets_and_channel_echo`
-- `tests/test_shared_primitives.py::test_atomic_publication_order_and_failed_replace_cleanup`
-- `tests/test_shared_primitives.py::test_body_settlement_subject_filter_is_shared_and_strict`
-- `tests/test_shared_primitives.py::test_curve_models_shared_by_body_and_life_reject_invalid_numbers`
-- `tests/test_shared_primitives.py::test_efficiency_factor_blank_and_empty_constraints_and_freeze_distinction`
-- `tests/test_shared_primitives.py::test_independent_reflection_snapshot_is_valid_across_memory_quality_and_behavior`
-- `tests/test_shared_primitives.py::test_interval_consumers_do_not_count_invalid_settlements`
-- `tests/test_shared_primitives.py::test_original_safe_file_consumers_reject_symlink_before_hash_or_schema`
-- `tests/test_shared_primitives.py::test_renderer_and_label_report_use_manifest_timezone_and_real_local_day`
-- `tests/test_shared_primitives.py::test_safe_file_consumers_reject_parent_reference_that_resolves_inside_root`
-- `tests/test_shared_primitives.py::test_safe_file_consumers_reject_symlink_that_resolves_inside_root`
-- `tests/test_shared_primitives.py::test_sha256_format_is_strict`
-- `tests/test_shared_primitives.py::test_structured_digest_and_raw_string_contracts_use_same_bytes`
-- `tests/test_shared_primitives.py::test_value_error_rejection_logs_once_and_preserves_message`
-- `tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones`
+| 台账行名 | 阶段 | 冻结条款 | 实际实现 | 行为证据 |
+| --- | --- | --- | --- | --- |
+| 分类与规则归系统（分类与规则归系统） | 1 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-固定规则与常数) | `src/worldmock/exchange/constants.py::RULES_VERSION`、`src/worldmock/exchange/body.py::BODY_CONSTANTS`、`src/worldmock/exchange/types.py::LocationKind`、`src/worldmock/exchange/operators.py::evaluate_goods_receipt`、`src/worldmock/exchange/operators.py::evaluate_travel_fare` | `tests/exchange/test_types.py::test_fixed_type_sets_and_labels`、`tests/exchange/test_constants.py::test_goods_receipt_effects_are_immutable_and_bounded`、`tests/exchange/test_constants.py::test_body_constants_and_resource_metas`、`tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones`、`tests/exchange/test_operators.py::test_goods_receipt_has_quantity_only_for_food`、`tests/exchange/test_operators.py::test_travel_and_delivery_round_up_with_fare_minimum`、`tests/exchange/test_operators.py::test_decimal_precision_does_not_change_settlement`、`tests/exchange/test_operators.py::test_fixed_operators_keep_existing_decimal_settlement_results`、`tests/catalog/test_loader.py::test_catalog_rejects_retired_object_fields`、`tests/catalog/test_admission.py::test_registration_rejects_every_retired_file`、`tests/catalog/test_admission.py::test_registration_rejects_manifest_values[rules_version-1]` |
+| 环境登记与错误码 | 1 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-注册校验与错误) | `src/worldmock/catalog/admission.py::validate_manifest`、`src/worldmock/catalog/admission.py::validate_registration`、`src/worldmock/catalog/errors.py::RegistrationError`、`src/worldmock/cli.py::_environment_command`、`src/worldmock/cli.py::_environment_arguments`、`src/worldmock/validation.py::validate_environment`、`src/worldmock/validation.py::_validate_environment_scenarios` | `tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes`、`tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample`、`tests/catalog/test_admission.py::test_registration_rejects_manifest_values`、`tests/catalog/test_admission.py::test_registration_rejects_missing_manifest_file_entry`、`tests/catalog/test_admission.py::test_registration_rejects_file_identity_drift`、`tests/catalog/test_admission.py::test_registration_rejects_duplicate_identity`、`tests/catalog/test_admission.py::test_registration_rejects_too_small_map`、`tests/catalog/test_admission.py::test_registration_rejects_noninteger_content_duration`、`tests/catalog/test_admission.py::test_registration_rejects_unbound_app`、`tests/test_cli.py::test_generate_map_command_writes_the_real_library_bytes`、`tests/test_cli.py::test_generate_map_check_preserves_matching_and_mismatched_output`、`tests/test_cli.py::test_generate_map_check_uses_the_real_cli_dispatch`、`tests/test_validation.py::test_validate_environment_command_accepts_the_actual_artificial_environment`、`tests/test_validation.py::test_validate_environment_rejects_map_bytes_even_when_manifest_is_republished`、`tests/test_validation.py::test_validate_environment_checks_every_scenario_after_a_scenario_failure`、`tests/test_validation.py::test_validate_environment_rejects_no_scenarios`、`tests/test_validation.py::test_validate_environment_command_rejects_real_registration_counterexamples`、`tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[rules_version-RULES_VERSION_MISMATCH]`、`tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[retired-ENVIRONMENT_STALE_FILE]`、`tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[unlisted-ENVIRONMENT_FILE_UNLISTED]`、`tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[identity-ENVIRONMENT_IDENTITY_MISMATCH]`、`tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[unbound-APP_UNBOUND]`、`tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[small_map-MAP_TOO_SMALL]`、`tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[self_edge-MAP_EDGE_INVALID]`、`tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[disconnected-MAP_DISCONNECTED]`、`tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references[pin-ENVIRONMENT_PIN_MISMATCH]`、`tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references[topic-WORK_CONTENT_UNKNOWN]`、`tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references[merchant-MERCHANT_ACCOUNT_MISSING]`、`tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references[schedule-WORK_SCHEDULE_REQUIRED]`、`tests/test_validation.py::test_validate_environment_rejects_retired_rule_copies`、`tests/test_validation.py::test_validate_environment_ignores_unread_extra_root_directories` |
+| 同类店铺同商品（同类店铺同商品） | 1 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-店铺食品与外卖) | `src/worldmock/catalog/admission.py::_check_goods`、`src/worldmock/catalog/loader.py::_catalog_view` | `tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes`、`tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample` |
+| 地图生成连通且字节稳定（地图连通且长度可计时） | 1 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-环境格式) | `src/worldmock/catalog/mapgen.py::generate_map`、`src/worldmock/catalog/mapgen.py::require_regenerated_map`、`src/worldmock/catalog/admission.py::validate_map`、`src/worldmock/cli.py::_environment_command`、`src/worldmock/cli.py::_environment_arguments`、`src/worldmock/validation.py::validate_environment`、`src/worldmock/validation.py::_validate_environment_scenarios` | `tests/catalog/test_mapgen.py::test_map_generation_is_deterministic_and_seeded`、`tests/catalog/test_mapgen.py::test_map_edge_counts_length_bounds_and_connectivity`、`tests/catalog/test_mapgen.py::test_map_matches_frozen_artificial_seed`、`tests/catalog/test_mapgen.py::test_sorted_nodes_independent_tree_stream_and_length_assignment`、`tests/catalog/test_mapgen.py::test_map_edge_counts_length_bounds_and_connectivity[7]`、`tests/catalog/test_admission.py::test_registration_rejects_invalid_map`、`tests/catalog/test_admission.py::test_registration_rejects_too_small_map`、`tests/catalog/test_mapgen.py::test_map_check_rejects_changed_bytes_without_rewriting`、`tests/catalog/test_mapgen.py::test_runtime_catalog_does_not_regenerate_map`、`tests/test_cli.py::test_generate_map_check_uses_the_real_cli_dispatch`、`tests/test_validation.py::test_validate_environment_rejects_map_bytes_even_when_manifest_is_republished`、`tests/catalog/test_admission.py::test_registration_rejects_invalid_map[disconnected]`、`tests/catalog/test_admission.py::test_registration_rejects_invalid_map[self]` |
+| 最短路与完整路径决胜 | 2 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-地图与出行) | `src/worldmock/catalog/graph.py::Graph.shortest_paths`、`src/worldmock/catalog/models.py::Catalog.shortest_m` | `tests/catalog/test_graph.py::test_full_path_lexicographic_tie_ignores_discovery_and_edge_order`、`tests/catalog/test_graph.py::test_hand_calculated_paths_and_same_place_zero`、`tests/catalog/test_graph.py::test_catalog_routes_through_an_unselected_intermediate_location`、`tests/catalog/test_graph.py::test_catalog_graph_does_not_recreate_published_edges` |
+| 包资源身份与原子发布 | 1 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-环境目录文件) | `src/worldmock/run_setup.py::runtime_code_sha256`、`src/worldmock/catalog/identity.py::refresh_manifest_identity` | `tests/catalog/test_engine_package_resources.py::test_catalog_has_only_six_object_files_and_no_engine_rule_copies`、`tests/life/test_acs_loading.py::test_runtime_code_identity_binds_each_packaged_data_file`、`tests/catalog/test_identity.py::test_catalog_identity_publication_is_atomic` |
+| 占用闭集与并行准入 | 4 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-闭集) | `src/worldmock/catalog/affordances.py::RESOURCE_CLAIM_SLOTS`、`src/worldmock/catalog/affordances.py::_parse_resource_claims`、`src/worldmock/life/admission.py::require_group` | `tests/catalog/test_affordances.py::test_registry_only_declares_final_activity_kinds_and_body_keys`、`tests/catalog/test_affordances.py::test_each_category_and_manner_combination_has_fixed_claims`、`tests/catalog/test_affordances.py::test_retired_claim_names_are_rejected`、`tests/catalog/test_affordances.py::test_driving_allows_only_social_without_continuous_phone_use`、`tests/catalog/test_affordances.py::test_categories_share_only_the_phone_claim_when_different`、`tests/life/test_action_run.py::test_category_effects_and_met_are_fixed_not_content_types`、`tests/life/test_routing.py::test_navigation_is_the_explicit_app_and_collection_rejects_all_route_values` |
+| 场景 7 与世界 10 的拒绝边界 | 1 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-状态事件检查点与导出) | `src/worldmock/life/scenario.py::LifeScenario`、`src/worldmock/life/scenario.py::BodyInstanceConfig`、`src/worldmock/life/models.py::WorldState`、`src/worldmock/life/world_setup.py::load_runtime_scenario`、`src/worldmock/life/world_setup.py::_run_manifest`、`src/worldmock/life/run_identity.py::environment_identity`、`src/worldmock/life/run_identity.py::require_environment_identity` | `tests/life/test_scenario.py::test_structure_eight_rejects_each_retired_scenario_field`、`tests/life/test_scenario.py::test_structure_eight_rejects_retired_agent_fields`、`tests/life/test_scenario.py::test_structure_eight_rejects_body_and_message_retired_fields`、`tests/life/test_scenario.py::test_structure_eight_rejects_old_scenario_version`、`tests/life/test_scenario.py::test_structure_eight_rejects_retired_menu_actions`、`tests/life/test_scenario.py::test_structure_eight_rejects_retired_menu_kinds`、`tests/life/test_scenario.py::test_formal_and_multi_person_scenarios_are_valid`、`tests/life/test_scenario.py::test_body_instance_and_rejection_ranges_are_enforced`、`tests/life/test_load_checks.py::test_real_loader_rejects_registration_counterexamples`、`tests/life/test_semantics.py::test_energy_thresholds_come_from_worldmock_body_constants`、`tests/life/test_semantics.py::test_registered_objects_and_body_instances_are_preserved`、`tests/life/test_semantics.py::test_initial_agent_preserves_declared_body_needs`、`tests/life/test_session_state.py::test_world_state_schema_version_11_is_valid`、`tests/life/test_session_state.py::test_world_state_rejects_retired_supply_fields`、`tests/life/test_session_state.py::test_agent_state_rejects_retired_supply_and_qualification_fields`、`tests/life/test_state_serialization.py::test_json_mode_sorts_every_persisted_string_set`、`tests/life/test_acs_loading.py::test_world_eleven_rejects_old_version_and_corpus_identity`、`tests/integration/test_acs_engine_wave.py::test_real_open_rejects_world_structure_ten`、`tests/integration/test_acs_engine_wave.py::test_real_restore_and_replay_preparation_reject_world_ten_before_publication`、`tests/integration/test_acs_engine_wave.py::test_real_replay_entry_rejects_world_ten_before_model_runtime`、`tests/integration/test_environment_identity.py::test_loaded_environment_identity_is_five_exact_file_bound_values`、`tests/integration/test_environment_identity.py::test_environment_identity_requires_every_frozen_value`、`tests/integration/test_environment_identity.py::test_environment_identity_rejects_retired_run_manifest_versions`、`tests/life/test_acs_loading.py::test_run_manifest_has_five_environment_fields_without_corpus_pin`、`tests/integration/test_acs_engine_wave.py::test_real_create_checkpoint_and_resume_preserve_world_and_parent`、`tests/integration/test_acs_engine_wave.py::test_real_resume_rejects_same_version_changed_catalog_before_publication`、`tests/integration/test_acs_engine_wave.py::test_real_open_rejects_negative_driving_days` |
+| 出行按图计时计费 | 2 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-地图与出行) | `src/worldmock/life/travel.py::plan_trip`、`src/worldmock/life/travel.py::planned_travel`、`src/worldmock/life/travel.py::pay_travel_fare`、`src/worldmock/life/travel.py::persisted_trip`、`src/worldmock/life/travel.py::update_travel`、`src/worldmock/life/tool_layer.py::_travel_check`、`src/worldmock/life/activities.py::start_activity`、`src/worldmock/life/sessions.py::begin_transit` | `tests/life/test_travel_graph.py::test_plan_uses_full_graph_fixed_speed_and_fare`、`tests/life/test_travel_graph.py::test_request_duration_is_recomputed_from_the_published_graph`、`tests/life/test_travel_cost.py::test_route_quote_is_paid_once_into_the_declared_transport_account`、`tests/life/test_travel_cost.py::test_unaffordable_departure_changes_no_account`、`tests/life/test_travel_cost.py::test_walking_records_zero_fare_without_inventing_a_payment`、`tests/integration/test_acs_engine_wave.py::test_real_published_route_and_store_purchase_emits_receipt_without_holding`、`tests/life/test_travel_graph.py::test_same_place_travel_is_a_precondition_rejection`、`tests/life/test_travel_graph.py::test_unselected_place_is_not_a_destination_but_remains_a_path_node`、`tests/life/test_travel_graph.py::test_tool_targets_list_all_other_selected_places_with_both_graph_quotes`、`tests/life/test_travel_graph.py::test_minimum_length_driving_trip_is_quoted_accepted_and_initialized`、`tests/life/test_wayfinding.py::test_discovery_quotes_the_same_graph_trip_without_old_route_fields`、`tests/life/test_travel_graph.py::test_travel_progress_snapshot_keeps_origin_and_arrival_is_verified`、`tests/life/test_travel_graph.py::test_persisted_travel_evidence_drift_is_rejected`、`tests/life/test_travel_graph.py::test_graph_departure_and_arrival_switch_real_sessions_without_engine` |
+| 位置记录与地图一致（位置记录与地图一致） | 2 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-地图与出行) | `src/worldmock/life/travel.py::travel_activity_data`、`src/worldmock/life/observe.py::_location_catalog`、`src/worldmock/evaluation/public_evidence.py::worldmock_public_evidence` | `tests/life/test_travel_graph.py::test_travel_activity_evidence_uses_trip_and_full_path`、`tests/evaluation/test_adapters.py::test_graph_travel_result_projects_trip_identity_and_full_path` |
+| 全地图外卖（全地图外卖） | 3 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-店铺食品与外卖) | `src/worldmock/life/basket.py::purchase_order`、`src/worldmock/life/basket.py::_order_rows`、`src/worldmock/life/basket.py::_order_fulfillment`、`src/worldmock/life/basket.py::plan_delivery`、`src/worldmock/life/basket.py::_delivery_events`、`src/worldmock/life/commerce.py::deliver_order`、`src/worldmock/life/order_routing.py::order_requests`、`src/worldmock/scheduling/effects.py::apply_scheduled_effect` | `tests/life/test_commerce.py::test_delivery_receives_at_due_time_even_after_recipient_moves`、`tests/life/test_commerce.py::test_two_goods_rows_pay_one_delivery_fee_and_one_transfer`、`tests/life/test_commerce.py::test_self_delivery_during_travel_is_refused_before_payment`、`tests/life/test_purchase_apps.py::test_delivery_to_other_person_uses_their_current_receiving_location`、`tests/life/test_commerce.py::test_purchase_rejection_is_atomic_with_exact_code`、`tests/life/test_commerce.py::test_insufficient_funds_rejects_entire_order_before_receipt` |
+| app 与店铺绑定有效（app 与店铺绑定有效） | 3 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-店铺食品与外卖) | `src/worldmock/life/basket.py::_order_fulfillment`、`src/worldmock/life/purchase_offers.py::offers`、`src/worldmock/life/purchase_offers.py::choose`、`src/worldmock/life/named_purchase.py::resolve_named_supply`、`src/worldmock/life/routing.py::_item_errors` | `tests/life/test_menu_discovery.py::test_same_kind_stores_share_goods_and_product_discovery_deduplicates_real_app_bindings`、`tests/life/test_commerce.py::test_store_purchase_settles_energy_and_receipt_once_in_the_payment_result`、`tests/life/test_named_purchase.py::test_named_purchase_rejects_unknown_goods_and_unbound_apps_atomically`、`tests/integration/test_acs_engine_wave.py::test_real_published_route_and_store_purchase_emits_receipt_without_holding`、`tests/life/test_purchase_apps.py::test_unbound_app_refuses_with_exact_reason_and_bound_app_next_step`、`tests/life/test_named_purchase.py::test_offers_choose_earliest_arrival_then_store_identity`、`tests/life/test_commerce.py::test_purchase_rejection_is_atomic_with_exact_code`、`tests/life/test_named_purchase.py::test_onsite_name_purchase_has_no_app_and_guidance_uses_real_places` |
+| 食品热量固定（食品热量固定） | 3 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-三类食品与进食) | `src/worldmock/life/tool_layer.py::_product_state`、`src/worldmock/life/callable_index.py::callable_index`、`src/worldmock/life/observe.py::_supply_entries` | `tests/life/test_menu_discovery.py::test_goods_tool_state_category_energy_apps_and_fixed_price`、`tests/life/test_food_presentation.py::test_product_targets_use_current_store_or_real_delivery_apps` |
+| 购买足迹与画像 | 3 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-观察与工具面) | `src/worldmock/profile/injection.py::frozen_input_warnings`、`src/worldmock/profile/coverage_targets.py::build_coverage_targets`、`src/worldmock/run_setup.py::creation_inputs`、`src/worldmock/runtime.py::_society_specs`、`src/worldmock/footprints/purchases.py::project_purchase_facts`、`src/worldmock/footprints/purchases.py::_purchases`、`src/worldmock/life/errands.py::evidence_rows`、`src/worldmock/life/errands.py::settle`、`src/worldmock/footprints/experiences.py::_received` | `tests/footprints/test_verified_experiences.py::test_real_goods_receipt_commit_projects_only_its_received_order`、`tests/footprints/test_verified_experiences.py::test_received_orders_are_distinct_and_projection_is_idempotent`、`tests/footprints/test_purchases.py::test_actual_order_facts_preserve_food_store_app_and_fixed_money`、`tests/life/test_acs_receipt_readers.py::test_actual_self_receipt_completes_its_errand_and_meal_goal_once_with_one_goal_pulse`、`tests/life/test_acs_receipt_readers.py::test_another_payer_actual_receipt_completes_only_the_recipients_errand_and_goal`、`tests/life/test_acs_receipt_readers.py::test_actual_contact_delivery_never_completes_buyers_errand_or_meal_goal`、`tests/profile/test_injection.py::test_the_warning_code_set_is_the_closed_six`、`tests/profile/test_injection.py::test_empty_content_warns_for_media_and_habits_only`、`tests/profile/test_injection.py::test_coverage_below_threshold_reuses_the_validate_report`、`tests/profile/test_injection.py::test_persona_compiler_agreement_warnings_are_passed_through`、`tests/profile/test_injection.py::test_wc_scenario_rhythm_overrides_the_extracted_card_values`、`tests/profile/test_injection.py::test_only_explicitly_declared_fields_are_overridden`、`tests/profile/test_injection.py::test_values_are_quantised_to_the_card_grid`、`tests/profile/test_injection.py::test_out_of_order_window_keeps_the_card_value_and_records_a_conflict`、`tests/profile/test_injection.py::test_windows_that_only_fit_together_are_both_applied_and_the_result_is_a_fixed_point`、`tests/profile/test_injection.py::test_unrepresentable_and_after_midnight_windows`、`tests/profile/test_injection.py::test_a_null_card_slot_takes_the_scenario_work_window_and_is_reported_as_overridden`、`tests/profile/test_injection.py::test_a_scenario_window_violating_the_work_anchor_order_keeps_the_card_value_as_a_conflict`、`tests/profile/test_injection.py::test_work_windows_declared_together_land_together_and_the_result_is_a_fixed_point`、`tests/profile/test_injection.py::test_an_unrepresentable_work_window_is_a_conflict_on_a_null_slot`、`tests/profile/test_injection.py::test_windows_that_each_fit_alone_but_not_together_land_in_slot_order`、`tests/profile/test_injection.py::test_a_conflicting_scenario_leave_work_keeps_the_non_null_card_slot_and_the_card_arrive_home`、`tests/profile/test_injection.py::test_a_scenario_bedtime_before_the_card_leave_work_keeps_the_card_leave_work`、`tests/profile/test_injection.py::test_suspicious_display_names_are_reported_only_for_coordinates_and_identifiers`、`tests/profile/test_injection.py::test_frozen_warnings_keep_the_closed_shape_and_null_means_not_computed`、`tests/profile/test_coverage.py::test_full_coverage_passes`、`tests/profile/test_coverage.py::test_below_threshold_rejected_with_missing_items`、`tests/profile/test_coverage.py::test_threshold_boundary_passes_at_exactly_80_percent`、`tests/profile/test_coverage.py::test_habit_response_keyword_substring_matching`、`tests/profile/test_coverage.py::test_app_name_substrings_no_longer_count_as_coverage_hits`、`tests/profile/test_coverage.py::test_empty_card_is_vacuously_covered`、`tests/profile/test_coverage.py::test_report_serializes_to_coverage_json_shape`、`tests/profile/test_coverage.py::test_content_genres_stay_prose_and_do_not_enter_coverage`、`tests/integration/test_persona_profile.py::test_frozen_persona_identity_reaches_the_native_agent_prompt_as_the_persona_layer`、`tests/integration/test_persona_profile.py::test_persona_traits_cannot_be_silently_omitted[trait_source_kind]`、`tests/integration/test_persona_profile.py::test_deleted_template_fields_stay_out_of_documents[occupation]`、`tests/integration/test_persona_profile.py::test_deleted_template_fields_stay_out_of_documents[routine_preference]`、`tests/integration/test_persona_profile.py::test_deleted_template_fields_stay_out_of_documents[consumption_preference]`、`tests/integration/test_persona_profile.py::test_deleted_template_fields_stay_out_of_documents[risk_preference]`、`tests/integration/test_persona_profile.py::test_initial_agent_state_and_profile_do_not_keep_numeric_tastes`、`tests/integration/test_persona_profile.py::test_restored_persona_profile_rejects_retired_taste_weights[profile0]`、`tests/integration/test_persona_profile.py::test_restored_persona_profile_rejects_retired_taste_weights[profile1]`、`tests/integration/test_input_warnings.py::test_catalog_names_drive_coverage_without_phone_configuration`、`tests/integration/test_input_warnings.py::test_empty_warning_uses_real_app_content_bindings_and_keeps_offline_action_names`、`tests/integration/test_input_warnings.py::test_validate_persona_coverage_reuses_actual_creation_warnings`、`tests/integration/test_input_warnings.py::test_low_coverage_writes_report_and_warns_before_gate`、`tests/integration/test_input_warnings.py::test_runtime_warning_caller_logs_and_freezes_all_six_codes`、`tests/integration/test_input_warnings.py::test_warning_caller_rejects_catalog_identity_tampering`、`tests/profile/test_injection.py::test_retired_warning_codes_are_rejected_at_manifest_boundary`、`tests/life/test_commerce.py::test_store_purchase_settles_energy_and_receipt_once_in_the_payment_result` |
+| 娱乐只从所选 app 取内容（娱乐只从所选 app 取内容） | 4 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送) | `src/worldmock/life/content_select.py::select_content`、`src/worldmock/life/action_run.py::initialize_action`、`src/worldmock/life/action_run.py::settle_action`、`src/worldmock/life/action_run.py::resume_action`、`src/worldmock/life/schedule.py::activity_family`、`src/worldmock/life/schedule.py::progress_day_plan` | `tests/life/test_app_progress.py::test_same_app_other_action_never_opens_push`、`tests/life/test_content_select.py::test_selection_is_stable_under_mapping_order_and_does_not_advance_world_randomness`、`tests/life/test_tool_layer.py::test_empty_action_tool_reason_matches_actual_content_exhaustion`、`tests/life/test_tool_layer.py::test_action_targets_and_push_schema_are_closed_without_content_kind_or_private_identity`、`tests/life/test_tool_layer.py::test_all_registered_actions_listed_with_explicit_apps_and_no_app_targets`、`tests/life/test_tool_layer.py::test_action_name_and_perform_synonym_use_exact_registered_object_and_leave_app_explicit`、`tests/life/test_action_restore_and_text.py::test_daily_plan_played_sentence_uses_actual_action_and_optional_app`、`tests/integration/test_acs_engine_wave.py::test_real_app_interleaving_uses_shared_content_cursor_and_reopens_it`、`tests/life/test_app_progress.py::test_cross_app_progress_uses_latest_global_position_and_owner_isolation`、`tests/life/test_action_run.py::test_action_run_minimal_real_catalog_body_progress_and_silent_continuation`、`tests/life/test_action_run.py::test_actual_remaining_under_one_minute_starts_and_resume_never_selects`、`tests/life/test_app_progress.py::test_other_app_completed_round_resume_starts_latest_round_zero_and_does_not_count_twice`、`tests/life/test_app_progress.py::test_stop_then_same_session_start_uses_same_pinned_remainder`、`tests/life/test_action_run.py::test_category_effects_and_met_are_fixed_not_content_types`、`tests/life/test_routing.py::test_navigation_is_the_explicit_app_and_collection_rejects_all_route_values`、`tests/catalog/test_affordances.py::test_driving_allows_only_social_without_continuous_phone_use`、`tests/life/test_action_run.py::test_content_pool_is_exact_action_app_intersection_and_empty_bindings_never_borrow`、`tests/life/test_action_run.py::test_unassigned_study_repeats_without_completion_pulse`、`tests/life/test_action_run.py::test_action_result_has_exact_six_real_content_fields`、`tests/life/test_action_run.py::test_person_named_fields_are_never_filled_by_executor` |
+| 推送与消费关联（推送与消费关联） | 4 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送) | `src/worldmock/life/app_push.py::open_app_push`、`src/worldmock/life/app_push.py::release_app_pushes`、`src/worldmock/scheduling/effects.py::process_scheduled_events` | `tests/life/test_app_push.py::test_open_reopen_release_and_after_22_follow_current_session_only`、`tests/life/test_app_push.py::test_departure_and_arrival_invalidate_old_pushes_without_deleting_history`、`tests/life/test_app_push.py::test_release_only_changes_current_session_and_keeps_historical_matching_push`、`tests/life/test_app_push.py::test_sleep_stores_push_without_wake_and_existing_activity_is_unchanged`、`tests/life/test_app_push.py::test_full_push_summary_and_source_discriminator_project_from_committed_event`、`tests/life/test_action_run.py::test_actual_remaining_under_one_minute_starts_and_resume_never_selects`、`tests/life/test_app_progress.py::test_other_app_completed_round_resume_starts_latest_round_zero_and_does_not_count_twice`、`tests/life/test_tool_layer.py::test_action_targets_and_push_schema_are_closed_without_content_kind_or_private_identity`、`tests/life/test_tool_layer.py::test_current_push_title_is_visible_only_for_its_bound_action_and_app_until_released`、`tests/life/test_app_progress.py::test_stop_then_same_session_start_uses_same_pinned_remainder`、`tests/life/test_app_progress.py::test_continuation_does_not_open_a_later_push_and_completion_releases_cross_app_pushes`、`tests/life/test_action_run.py::test_action_result_has_exact_six_real_content_fields` |
+| 时间窗口精确（时间窗口精确） | 4 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送) | `src/worldmock/scheduling/compile.py::_push_rows`、`src/worldmock/life/app_push.py::issue_app_push` | `tests/life/test_app_push.py::test_push_grid_uses_local_hours_and_strict_window`、`tests/life/test_app_push.py::test_push_grid_preserves_fold_zero_and_gap_pretransition_offset`、`tests/life/test_app_push.py::test_distinct_declared_grid_points_at_same_epoch_are_preserved`、`tests/life/test_app_push.py::test_each_app_is_issued_once_per_session_even_after_release`、`tests/life/test_app_push.py::test_no_eligible_app_is_system_visible_without_person_record_or_wake`、`tests/life/test_app_push.py::test_push_grid_uses_local_hours_and_strict_window[Asia/Shanghai]`、`tests/integration/test_acs_engine_wave.py::test_real_app_push_is_persisted_without_reissue_after_open` |
+| 随机和状态可恢复（随机和状态可恢复） | 4 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送) | `src/worldmock/life/randomness.py::random_stream`、`src/worldmock/life/action_run.py::resume_action`、`src/worldmock/scheduling/effects.py::process_scheduled_events` | `tests/life/test_app_push.py::test_push_draw_uses_one_b30_stream_sorted_candidates_and_stable_identity`、`tests/life/test_app_progress.py::test_same_app_other_action_never_opens_push`、`tests/life/test_action_run.py::test_actual_remaining_under_one_minute_starts_and_resume_never_selects`、`tests/life/test_app_push.py::test_queue_is_popped_before_effect_checkpoint_and_restore_never_reissues`、`tests/life/test_app_push.py::test_push_identity_validation_rejects_unregistered_references_in_historical_session`、`tests/life/test_commerce.py::test_delivery_receives_at_due_time_even_after_recipient_moves`、`tests/life/test_commerce.py::test_two_goods_rows_pay_one_delivery_fee_and_one_transfer` |
+| 最终唤醒词表 | 5 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-状态事件检查点与导出) | `src/worldmock/life/schedule.py::WakeReason`、`src/worldmock/footprints/models.py::WAKE_REASON_NAMES` | `tests/life/test_wake_reasons.py::test_frozen_wake_and_intent_names`、`tests/life/test_wake_reasons.py::test_sleep_allowed_reasons_include_plan_reminder_and_alarm`、`tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_is_the_frozen_spec_set`、`tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_matches_the_engine_side_enum`、`tests/integration/test_acs_engine_wave.py::test_real_app_push_is_persisted_without_reissue_after_open` |
+| 游戏链退出 | 4 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-删除清单) | `src/worldmock/life/vocabulary.py::WAYS`、`src/worldmock/life/models.py::ActivityKind` | `tests/life/test_app_vocabulary.py::test_game_way_cannot_be_restored_in_the_public_way_table`、`tests/life/test_app_vocabulary.py::test_game_runtime_and_textworld_dependencies_are_removed`、`tests/tools/test_run_viewer.py::test_run_viewer_recorded_names`、`tests/test_start_activity_contract.py::test_ways_vocabulary_maps_each_way_to_exactly_one_life_verb` |
+| 工作由时间决定（工作由时间决定） | 5 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-工作主题与叙述) | `src/worldmock/life/action_run.py::settle_action`、`src/worldmock/life/day_plan_inputs.py::_task_rows`、`src/worldmock/life/activities.py::_advanced_activity`、`src/worldmock/life/time_advance.py::TimeAdvanceCoordinator._advance_activities`、`src/worldmock/life/content_select.py::eligible_contents` | `tests/life/test_action_run.py::test_assigned_work_requires_actual_workplace_and_unassigned_study_does_not`、`tests/life/test_action_run.py::test_actual_remaining_under_one_minute_starts_and_resume_never_selects`、`tests/integration/test_acs_engine_wave.py::test_real_resume_checks_location_then_completed_assignment_before_slots_and_claims`、`tests/integration/test_acs_engine_wave.py::test_real_resume_checks_slots_before_claims_when_location_and_assignment_are_eligible`、`tests/integration/test_acs_engine_wave.py::test_unknown_action_name_has_the_same_explicit_field_error_in_host_and_actual_environment`、`tests/life/test_action_guarantees.py::test_thirty_paused_minutes_never_increase_actual_assigned_content_seconds`、`tests/life/test_action_guarantees.py::test_work_reports_never_change_real_content_seconds_or_claim_completion`、`tests/life/test_acs_amended_runtime.py::test_real_work_pause_report_restore_completion_and_exhaustion`、`tests/integration/test_acs_engine_wave.py::test_real_paused_work_keeps_its_last_report_across_departure_return_and_resume`、`tests/life/test_action_run.py::test_assigned_content_is_finite_and_completion_pulse_is_applied_once`、`tests/life/test_app_progress.py::test_other_app_completed_round_resume_starts_latest_round_zero_and_does_not_count_twice` |
+| 工作面与阶段身份 | 5 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-工作主题与叙述) | `src/worldmock/agents/life_prompt.py::LIFE_SYSTEM_LAYER`、`src/worldmock/run_setup.py::validate_stage_model_identity`、`src/worldmock/run_setup.py::validate_manifest_stage_identity`、`src/worldmock/scheduling/compile.py::_payroll_rows`、`src/worldmock/scheduling/effects.py::_payroll` | `tests/life/test_prompt_layers.py::test_current_tool_surface_and_action_only_stage_identity_match_the_actual_host`、`tests/life/test_restored_model_identity.py::test_environment_lifecycles_reject_invalid_saved_stage_identity`、`tests/life/test_scheduling.py::test_actual_scheduled_payroll_transfers_fixed_salary_without_work_or_submission` |
+| 系统层逐字 | 6 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-系统层) | `src/worldmock/agents/life_prompt.py::LIFE_SYSTEM_LAYER` | `tests/integration/test_seven_layer_request.py::test_resource_rule_system_text_is_the_frozen_app_and_work_contract`、`tests/integration/test_seven_layer_request.py::test_each_resource_rule_change_moves_only_the_prompt_fingerprint` |
+| app 目标与 Schema | 4 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-观察与工具面) | `src/worldmock/life/tool_layer.py::_binding_target`、`src/worldmock/life/prompt_schemas.py::_RESULT` | `tests/life/test_app_progress.py::test_same_app_other_action_never_opens_push`、`tests/life/test_content_select.py::test_selection_is_stable_under_mapping_order_and_does_not_advance_world_randomness`、`tests/life/test_tool_layer.py::test_empty_action_tool_reason_matches_actual_content_exhaustion`、`tests/life/test_tool_layer.py::test_action_targets_and_push_schema_are_closed_without_content_kind_or_private_identity`、`tests/life/test_tool_layer.py::test_all_registered_actions_listed_with_explicit_apps_and_no_app_targets`、`tests/life/test_tool_layer.py::test_action_name_and_perform_synonym_use_exact_registered_object_and_leave_app_explicit`、`tests/life/test_action_restore_and_text.py::test_daily_plan_played_sentence_uses_actual_action_and_optional_app`、`tests/integration/test_acs_engine_wave.py::test_real_app_interleaving_uses_shared_content_cursor_and_reopens_it`、`tests/life/test_tool_layer.py::test_current_push_title_is_visible_only_for_its_bound_action_and_app_until_released`、`tests/life/test_app_push.py::test_full_push_summary_and_source_discriminator_project_from_committed_event`、`tests/life/test_action_run.py::test_action_result_has_exact_six_real_content_fields`、`tests/life/test_action_run.py::test_person_named_fields_are_never_filled_by_executor`、`tests/life/test_action_run.py::test_content_pool_is_exact_action_app_intersection_and_empty_bindings_never_borrow` |
+| 工具面与工作 Schema | 5 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-观察与工具面) | `custom/agents/life_agent.py::_TOOL_MODELS`、`custom/envs/life_env.py::_STABLE_TOOL_SURFACE`、`src/worldmock/life/models.py::REQUEST_MODELS`、`src/worldmock/life/prompt_schemas.py::_TARGET` | `tests/life/test_prompt_layers.py::test_current_tool_surface_and_action_only_stage_identity_match_the_actual_host`、`tests/life/test_restored_model_identity.py::test_environment_lifecycles_reject_invalid_saved_stage_identity`、`tests/life/test_scheduling.py::test_actual_scheduled_payroll_transfers_fixed_salary_without_work_or_submission`、`tests/life/test_prompt_layers.py::test_action_prompt_schema_rejects_retired_contract_review_and_completion_shapes`、`tests/life/test_acs_amended_runtime.py::test_real_work_pause_report_restore_completion_and_exhaustion`、`tests/integration/test_acs_engine_wave.py::test_real_paused_work_keeps_its_last_report_across_departure_return_and_resume`、`tests/integration/test_life_agent_protocol.py::test_life_tool_schema_fingerprint_pins_registry_digest`、`tests/integration/test_life_agent_protocol.py::test_life_tool_schema_fingerprint_is_the_person_tool_surface_without_the_reflection_tool`、`tests/integration/test_life_agent_protocol.py::test_affordance_registry_fingerprint_reads_packaged_rule_bytes`、`tests/life/test_prompt_layers.py::test_work_content_appears_only_in_the_action_result`、`tests/life/test_prompt_layers.py::test_paused_work_has_only_actual_progress_and_control_tools` |
+| 查看器协议 | 6 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-现行文档原位改写) | `src/worldmock/agents/life_prompt.py::LIFE_SYSTEM_LAYER`、`src/worldmock/footprints/models.py::WAKE_REASON_NAMES` | `tests/integration/test_seven_layer_request.py::test_viewer_fixture_system_layers_are_the_host_system_message`、`tests/integration/test_run_viewer_recording.py::test_viewer_fixture_is_recorded_from_the_current_host`、`tests/tools/test_run_viewer.py::test_run_viewer_recorded_names` |
+| app 足迹来自真实动作（app 足迹来自真实动作） | 7 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-状态事件检查点与导出) | `src/worldmock/footprints/export.py::export_run`、`src/worldmock/footprints/app_usage.py::project_app_usage`、`src/worldmock/footprints/validation.py::validate_export`、`src/worldmock/footprints/quality.py::build_quality_report`、`scripts/render_day.py::render_day_markdown`、`scripts/inspect_run.py::_brief` | `tests/life/test_export_integration.py::test_real_app_export_has_five_source_bound_fact_types_and_exact_quality_sections`、`tests/life/test_export_integration.py::test_real_app_export_rejects_tampered_or_rehashed_content_facts`、`tests/footprints/test_quality.py::test_work_topic_quality_uses_actual_activity_seconds_and_real_completions_and_reports`、`tests/integration/test_verified_memory.py::test_actual_app_progress_is_written_to_verified_memory_with_source_and_cursor`、`tests/life/test_experience_sentences.py::test_real_pause_resume_immediate_cancellation_keeps_prior_partial_action_consumption`、`tests/life/test_experience_sentences.py::test_shared_cursor_advance_from_another_app_is_not_this_activitys_consumption`、`tests/footprints/test_validation.py::test_current_export_identity_is_required_before_any_consumer`、`tests/integration/test_biz_timeline_recording.py::test_business_fixture_is_recorded_from_current_engine`、`tests/integration/test_biz_timeline_recording.py::test_current_inspection_names_actual_work_and_app_progress`、`tests/footprints/test_render_day.py::test_real_biz_run_rows_name_the_calls_and_the_work_task` |
+| 完整日基线 | 8 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-门禁与平台) | `scripts/freeze_rrs_baseline.py::freeze_matching_baseline` | `tests/scripts/test_freeze_rrs_baseline.py::test_matching_full_candidates_publish_complete_summary_and_actual_generation`、`tests/scripts/test_freeze_rrs_baseline.py::test_mismatched_complete_day_candidates_preserve_existing_target`、`tests/scripts/test_freeze_rrs_baseline.py::test_invalid_current_candidate_is_rejected_before_publication`、`tests/scripts/test_freeze_rrs_baseline.py::test_generation_rejects_nonmatching_bootstrap_identity`、`tests/scripts/test_freeze_rrs_baseline.py::test_historical_complete_day_evidence_keeps_original_bytes`、`tests/integration/test_dayrun_complete_days.py::test_complete_two_person_day_uses_real_tools_memory_and_restoration` |
+| 工程门禁与文档一致性 | 8 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-门禁与平台) | `scripts/documentation_gate.py::find_problems`、`scripts/build_design_doc.py::assemble`、`scripts/run_tests.py::run`、`scripts/bootstrap_environment.py::require_python_identity` | `tests/test_style_gate.py::test_style_gate_admits_no_new_violations`、`tests/test_import_graph.py::test_production_import_graph_obeys_all_boundaries`、`tests/test_import_graph.py::test_cycle_guard_covers_every_import_form`、`tests/test_import_graph.py::test_type_checking_edges_do_not_create_runtime_cycles`、`tests/test_import_graph.py::test_local_registry_rejects_missing_and_stale_entries`、`tests/test_import_graph.py::test_foundation_cannot_depend_on_execution`、`tests/test_import_graph.py::test_only_environment_can_import_facade`、`tests/test_import_graph.py::test_dynamic_relative_imports_resolve_the_real_package`、`tests/test_import_graph.py::test_unknown_dynamic_import_targets_or_object_proxies_fail_closed`、`tests/test_import_graph.py::test_moved_declarations_have_no_same_name_binding_at_old_modules`、`tests/test_import_graph.py::test_footprint_store_has_no_branch_restoration_compatibility_method`、`tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones`、`tests/test_single_source.py::test_current_registry_and_observation_contract_retire_energy_and_game_keys`、`tests/test_single_source.py::test_new_function_clone_fails_even_with_different_name_and_docstring`、`tests/test_single_source.py::test_copied_rule_table_fails_even_after_renaming`、`tests/test_single_source.py::test_wrong_shared_rule_owner_fails`、`tests/test_single_source.py::test_import_logger_type_and_thin_protocol_hooks_are_not_business_clones`、`tests/test_single_source.py::test_protocol_hook_with_business_branch_is_scanned`、`tests/test_layering_acceptance.py::test_every_layering_clause_has_executable_nonempty_evidence`、`tests/test_layering_acceptance.py::test_new_production_responsibilities_have_no_deferred_or_empty_implementation`、`tests/test_layering_acceptance.py::test_facade_keeps_public_signatures_and_has_no_business_mixin`、`tests/test_layering_acceptance.py::test_context_has_one_state_owner_and_no_facade_back_reference`、`tests/test_layering_acceptance.py::test_accepted_increment_specs_have_one_current_owner`、`tests/test_layering_acceptance.py::test_original_mutation_generation_has_complete_byte_equivalence_evidence`、`tests/test_layering_acceptance.py::test_layering_implementation_ledger_is_bidirectional`、`tests/test_layering_acceptance.py::test_real_day_baseline_was_frozen_only_after_two_matching_runs`、`tests/test_persona_prompt_acceptance.py::test_every_ledger_row_is_registered_and_every_registered_row_exists`、`tests/test_persona_prompt_acceptance.py::test_every_chapter_six_row_is_registered_and_every_registered_row_exists`、`tests/test_persona_prompt_acceptance.py::test_rulings_21_to_38_are_adopted_and_each_is_registered`、`tests/test_persona_prompt_acceptance.py::test_report_only_rows_stay_report_only_in_the_spec`、`tests/test_persona_prompt_acceptance.py::test_program_error_ledger_row_carries_every_chapter_six_regression`、`tests/test_persona_prompt_acceptance.py::test_every_registered_node_resolves_to_a_collected_unskipped_test`、`tests/test_persona_prompt_acceptance.py::test_resolver_rejects_missing_uncollected_and_skipped_tests`、`tests/test_persona_prompt_acceptance.py::test_frozen_feature_file_lists_name_existing_files_once`、`tests/test_persona_prompt_acceptance.py::test_deferral_pattern_catches_every_marker`、`tests/test_persona_prompt_acceptance.py::test_deferral_pattern_leaves_ordinary_code_alone`、`tests/test_persona_prompt_acceptance.py::test_stub_detection_catches_pass_ellipsis_and_docstring_only_bodies`、`tests/test_persona_prompt_acceptance.py::test_feature_files_carry_no_deferral_markers`、`tests/test_persona_prompt_acceptance.py::test_feature_python_files_have_no_stub_functions`、`tests/test_tool_interaction_acceptance.py::test_tool_interaction_every_spec_behavior_has_executable_tests`、`tests/test_tool_interaction_acceptance.py::test_tool_interaction_sources_have_no_deferred_or_empty_implementation`、`tests/test_tool_interaction_acceptance.py::test_tool_interaction_declared_interface_contains_only_new_parameters`、`tests/test_time_and_energy_completeness.py::test_registry_covers_exactly_the_acceptance_ledger_rows`、`tests/test_time_and_energy_completeness.py::test_registry_entries_name_known_stages`、`tests/test_time_and_energy_completeness.py::test_every_implementation_stage_is_done`、`tests/test_time_and_energy_completeness.py::test_done_rows_list_resolvable_unskipped_tests`、`tests/test_time_and_energy_completeness.py::test_deferral_pattern_catches_every_skip_form`、`tests/test_time_and_energy_completeness.py::test_no_deferral_markers`、`tests/test_time_and_energy_completeness.py::test_removed_symbols_of_done_stages_are_absent`、`tests/test_time_and_energy_completeness.py::test_activity_duration_limits_use_the_shared_model_constants`、`tests/test_time_and_energy_completeness.py::test_removed_symbol_scan_detects_a_definition_moved_to_another_file`、`tests/test_idle_fillers_acceptance.py::test_ledger_rows_match_the_spec_table_in_order_and_stage`、`tests/test_idle_fillers_acceptance.py::test_every_row_points_to_an_existing_spec_anchor`、`tests/test_idle_fillers_acceptance.py::test_rows_of_done_stages_list_evidence_and_every_registered_node_and_symbol_resolves`、`tests/test_idle_fillers_acceptance.py::test_feature_file_lists_name_existing_files_once`、`tests/test_idle_fillers_acceptance.py::test_feature_and_registered_files_carry_no_deferral_markers`、`tests/test_idle_fillers_acceptance.py::test_feature_and_registered_python_files_have_no_stub_functions`、`tests/test_idle_fillers_acceptance.py::test_mutations_are_named_once_and_anchored_in_main_process_production_code`、`tests/test_idle_fillers_acceptance.py::test_behaviour_cases_match_the_spec_and_done_rows_list_their_nodes`、`tests/test_idle_fillers_acceptance.py::test_mutation_rows_match_the_spec_table_and_cover_done_stages`、`tests/test_errands_workday_acceptance.py::test_ledger_section_has_one_three_column_table_matching_the_registration`、`tests/test_errands_workday_acceptance.py::test_rows_of_done_stages_list_tests_and_every_registered_node_resolves`、`tests/test_errands_workday_acceptance.py::test_report_only_rows_stay_report_only_in_the_spec`、`tests/test_errands_workday_acceptance.py::test_feature_file_lists_name_existing_files_once`、`tests/test_errands_workday_acceptance.py::test_feature_and_registered_files_carry_no_deferral_markers`、`tests/test_errands_workday_acceptance.py::test_feature_and_registered_python_files_have_no_stub_functions`、`tests/test_errands_workday_acceptance.py::test_every_implementation_stage_is_done`、`tests/test_errands_workday_acceptance.py::test_spec_mutation_sentences_are_registered_in_order_and_done_stages_are_covered`、`tests/test_errands_workday_acceptance.py::test_mutations_are_named_once_and_anchored_in_main_process_production_code`、`tests/test_dayrun_fidelity_acceptance.py::test_every_ledger_row_is_registered_and_every_registered_row_exists`、`tests/test_dayrun_fidelity_acceptance.py::test_rulings_are_decided_except_the_registered_and_the_withdrawn_and_each_decided_one_is_registered`、`tests/test_dayrun_fidelity_acceptance.py::test_report_only_rows_stay_report_only_in_the_spec`、`tests/test_dayrun_fidelity_acceptance.py::test_every_input_warning_code_has_one_registered_example`、`tests/test_dayrun_fidelity_acceptance.py::test_every_registered_node_resolves_to_a_collected_unskipped_test`、`tests/test_dayrun_fidelity_acceptance.py::test_frozen_feature_file_lists_name_existing_files_once`、`tests/test_dayrun_fidelity_acceptance.py::test_feature_files_carry_no_deferral_markers`、`tests/test_dayrun_fidelity_acceptance.py::test_feature_python_files_have_no_stub_functions`、`tests/test_dayrun_fidelity_acceptance.py::test_docs_carry_no_pending_markers_of_this_feature`、`tests/test_dayrun_fidelity_acceptance.py::test_anchored_links_in_docs_point_to_existing_headings`、`tests/test_dayrun_fidelity_acceptance.py::test_resolver_rejects_missing_uncollected_and_skipped_tests`、`tests/test_dayrun_fidelity_acceptance.py::test_deferral_pattern_catches_every_marker`、`tests/test_dayrun_fidelity_acceptance.py::test_deferral_pattern_leaves_ordinary_code_alone`、`tests/test_dayrun_fidelity_acceptance.py::test_stub_detection_catches_pass_ellipsis_and_docstring_only_bodies`、`tests/test_dayrun_fidelity_acceptance.py::test_pending_marker_scan_catches_every_form_and_leaves_history_alone`、`tests/test_shared_rules_spec.py::test_all_frozen_shared_rule_rows_have_real_behavior_evidence`、`tests/test_shared_rules_spec.py::test_every_environment_clause_has_real_behavior_evidence`、`tests/test_shared_rules_spec.py::test_frozen_current_as2_identity_agrees_with_installation_and_runtime`、`tests/test_shared_rules_spec.py::test_design_chapters_and_contracts_reference_the_frozen_feature`、`tests/test_current_feature_owners.py::test_all_accepted_features_have_complete_current_normative_owners`、`tests/test_current_feature_owners.py::test_titles_anchors_and_navigation_cannot_replace_normative_body`、`tests/test_current_feature_owners.py::test_removing_each_archived_feature_current_body_fails`、`tests/test_current_feature_owners.py::test_removing_normative_owner_and_body_cannot_remove_the_requirement`、`tests/test_current_feature_owners.py::test_new_acceptance_topic_requires_an_owner_and_missing_fixture_fails`、`tests/test_current_feature_owners.py::test_title_and_prose_can_change_without_changing_the_requirement_owner`、`tests/test_current_feature_owners.py::test_archived_non_markdown_assets_preserve_exact_original_bytes`、`tests/test_environment_profiles.py::test_release_rejects_each_missing_component`、`tests/test_environment_profiles.py::test_dev_marks_only_tests_that_need_a_missing_component`、`tests/test_environment_profiles.py::test_release_rejects_expected_failure_even_when_it_could_pass`、`tests/test_environment_profiles.py::test_dev_environment_receipt_records_missing_without_absolute_paths`、`tests/test_environment_profiles.py::test_purchase_world_edits_leave_formal_input_bytes_and_inodes_unchanged`、`tests/test_environment_profiles.py::test_mutable_test_tree_copies_do_not_use_hard_links`、`tests/test_test_tiers.py::test_new_driver_and_fixture_dependencies_are_classified`、`tests/test_test_tiers.py::test_fast_selection_adds_only_direct_changed_engine_dependencies`、`tests/test_test_tiers.py::test_actual_fixture_objects_helpers_and_returned_factories_are_followed_per_test`、`tests/test_test_tiers.py::test_real_pytest_collection_classifies_each_test_and_actual_fixture_closure`、`tests/test_test_tiers.py::test_standard_and_full_sets_preserve_external_and_long_reviews`、`tests/test_test_tiers.py::test_duration_balancing_keeps_new_files_and_file_nodes_together`、`tests/test_test_tiers.py::test_incomplete_worker_evidence_is_rejected`、`tests/test_test_tiers.py::test_equal_node_count_cannot_hide_a_wrong_test_or_failed_phase`、`tests/test_test_tiers.py::test_worker_receipts_require_real_pytest_phase_outcomes`、`tests/test_test_tiers.py::test_duplicate_selected_and_collected_nodes_cannot_be_hidden_by_the_test_dictionary`、`tests/test_test_tiers.py::test_worker_receipts_cannot_belong_to_another_run`、`tests/test_test_tiers.py::test_duration_report_covers_phases_slow_fast_tests_and_file_totals`、`tests/test_test_tiers.py::test_standard_wall_time_reuses_only_the_same_verified_run`、`tests/test_test_tiers.py::test_changed_engine_time_is_separate_from_default_fast_reference`、`tests/test_test_tiers.py::test_input_identity_changes_when_source_changes_and_skips_are_reported`、`tests/test_test_tiers.py::test_external_environment_identity_survives_relocation_and_rejects_changed_bytes`、`tests/test_test_tiers.py::test_explicit_external_environment_requires_both_nonempty_inputs`、`tests/test_test_tiers.py::test_fixed_dependency_and_patch_bytes_are_part_of_the_frozen_test_input`、`tests/test_test_tiers.py::test_generated_work_and_bytecode_are_not_test_source_inputs`、`tests/test_test_tiers.py::test_changed_selection_includes_staged_unstaged_and_untracked`、`tests/test_test_tiers.py::test_real_serial_and_parallel_workers_return_identical_complete_nodes`、`tests/test_test_tiers.py::test_real_pytest_rejects_other_run_old_format_or_duplicate_selection`、`tests/test_test_tiers.py::test_missing_coverage_report_cannot_pass`、`tests/test_test_tiers.py::test_real_parallel_coverage_is_combined_for_the_current_normal_source`、`tests/test_design_doc_build.py::test_table_cells_keep_escaped_and_code_span_pipes`、`tests/test_design_doc_build.py::test_list_continuation_and_one_level_nesting`、`tests/test_design_doc_build.py::test_blockquote_and_paragraph_hard_breaks`、`tests/test_design_doc_build.py::test_mermaid_fence_and_fenced_pseudo_headings`、`tests/test_design_doc_build.py::test_sibling_links_map_to_in_document_anchors_and_others_stay`、`tests/test_design_doc_build.py::test_same_chapter_anchor_links_get_the_chapter_prefix`、`tests/test_design_doc_build.py::test_missing_sibling_identifier_aborts_instead_of_opening_the_chapter`、`tests/test_design_doc_build.py::test_heading_ids_are_unique_and_the_build_is_deterministic`、`tests/test_design_doc_build.py::test_cover_and_toc_take_chapter_metadata`、`tests/test_design_doc_build.py::test_contract_sections_are_excerpted_verbatim_with_promoted_headings`、`tests/test_design_doc_build.py::test_contract_appendix_rewrites_links_relative_to_the_assembled_page`、`tests/test_design_doc_build.py::test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current`、`tests/test_design_doc_build.py::test_check_command_detects_source_changes_and_missing_output`、`tests/test_design_doc_build.py::test_explicit_section_survives_heading_rename_without_visible_markup`、`tests/test_design_doc_build.py::test_appendix_identifier_survives_title_rename_and_duplicate_identifier_aborts`、`tests/test_documentation_gate.py::test_scan_covers_unregistered_design_manual_and_actual_root_entries`、`tests/test_documentation_gate.py::test_title_change_preserves_explicit_identity_and_body`、`tests/test_documentation_gate.py::test_current_document_violations_fail`、`tests/test_documentation_gate.py::test_definitions_resolve_classes_nested_functions_and_assignments`、`tests/test_documentation_gate.py::test_retained_ruling_resolves_only_its_declared_historical_definition`、`tests/test_documentation_gate.py::test_historical_ruling_definition_requires_exact_real_provenance`、`tests/test_documentation_gate.py::test_assignment_reexports_are_not_actual_definitions`、`tests/test_documentation_gate.py::test_constructed_assignment_and_local_parameter_are_actual_definitions`、`tests/test_documentation_gate.py::test_transparent_calls_preserve_real_constructions_and_custom_factories`、`tests/test_documentation_gate.py::test_wildcard_import_preserves_local_constants_constructions_and_parameters`、`tests/test_documentation_gate.py::test_literal_container_and_mixed_destructuring_keep_actual_local_definitions`、`tests/test_documentation_gate.py::test_duplicate_identifier_across_documents_has_one_owner`、`tests/test_documentation_gate.py::test_source_and_test_references_require_current_explicit_sections`、`tests/test_documentation_gate.py::test_attribute_documentation_and_field_description_use_current_sections`、`tests/test_documentation_gate.py::test_document_file_reading_argument_is_not_a_contract_reference`、`tests/test_documentation_gate.py::test_retired_paths_require_real_declared_history`、`tests/test_documentation_gate.py::test_history_refuses_short_missing_dirty_or_undisclaimed_commit`、`tests/test_documentation_gate.py::test_archive_snapshot_disclaims_unreconstructible_execution`、`tests/test_documentation_gate.py::test_archive_header_without_original_body_cannot_claim_complete_snapshot`、`tests/test_documentation_gate.py::test_archive_cannot_replace_original_snapshot_with_unrelated_substantive_body`、`tests/test_documentation_gate.py::test_archive_relative_links_resolve_from_original_path_without_rewriting_body`、`tests/test_documentation_gate.py::test_exact_reference_source_is_explicit_and_does_not_search_other_baselines`、`tests/test_documentation_gate.py::test_main_fails_closed_and_reports_english_problem`、`tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve`、`tests/test_mutation_runner.py::test_mutation_changes_only_the_named_definition_with_duplicate_text_elsewhere`、`tests/test_mutation_runner.py::test_mutation_resolves_nested_function_and_module_assignment`、`tests/test_mutation_runner.py::test_missing_imported_or_ambiguous_symbol_is_rejected`、`tests/test_mutation_runner.py::test_invalid_original_equal_replacement_and_invalid_program_are_rejected`、`tests/test_mutation_runner.py::test_original_must_be_unique_inside_the_definition`、`tests/test_mutation_runner.py::test_symbol_rejects_nonproduction_or_malformed_location`、`tests/test_rrs_acceptance.py::test_stage_sets_allow_only_the_integrated_wave_and_later_prefixes`、`tests/test_rrs_acceptance.py::test_every_spec_anchor_has_a_registered_current_normative_body_owner`、`tests/test_rrs_acceptance.py::test_ledger_rows_match_the_spec_table_in_order_and_stage`、`tests/test_rrs_acceptance.py::test_behaviour_cases_match_spec_and_earliest_contract_ownership`、`tests/test_rrs_acceptance.py::test_every_registered_node_and_implementation_resolves_immediately`、`tests/test_rrs_acceptance.py::test_registered_owner_and_due_integration_nodes_are_collectable`、`tests/test_rrs_acceptance.py::test_stage_one_pure_collection_does_not_import_the_complete_engine`、`tests/test_rrs_acceptance.py::test_map_owners_execute_without_the_complete_engine`、`tests/test_rrs_acceptance.py::test_app_owners_execute_without_the_complete_engine`、`tests/test_rrs_acceptance.py::test_feature_file_lists_are_real_relative_and_have_no_deferral_or_stubs`、`tests/test_rrs_acceptance.py::test_mutation_rows_have_exact_contracts_stages_and_due_coverage`、`tests/test_rrs_acceptance.py::test_registered_mutations_have_real_production_anchors_and_behavior_killers`、`tests/test_rrs_acceptance.py::test_partial_waves_and_report_only_completion_are_rejected`、`tests/test_rrs_acceptance.py::test_missing_contract_wrong_stage_and_empty_finished_evidence_are_rejected`、`tests/test_rrs_acceptance.py::test_resource_claim_and_package_identity_owner_stages_cannot_be_swapped`、`tests/test_rrs_acceptance.py::test_missing_mutation_wrong_contract_and_delayed_killer_are_rejected`、`tests/test_rrs_acceptance.py::test_future_nodes_and_empty_test_bodies_are_rejected`、`tests/test_rrs_acceptance.py::test_skipped_nodes_and_nonproduction_implementation_are_rejected`、`tests/test_rrs_acceptance.py::test_complete_wave_prefixes_are_allowed`、`tests/test_rrs_acceptance.py::test_all_implementation_stages_are_complete_and_dataset_is_report_only` |
+| 完整回归与数据仓回执（只报告） | 9 | [冻结条款](SPEC-resource-and-rule-simplification.md#spec-rrs-数据仓交接) | 只报告 | 只报告 |
 
 
 <a name="analysis-spec-coverage-动作与内容简化映射"></a>
 ## 动作与内容简化映射
 
-#### `tests/acs_acceptance.py`
+机器登记为 `tests/fixtures/acs-acceptance.json`、`tests/acs_acceptance.py`、`tests/test_acs_acceptance.py`。夹具键是下表条款名称；阶段与稳定锚点在冻结时登记，测试节点、实现符号与变异证据按当前真实实现填写。登记存在、测试执行与正式运行完成分别核验。
 
-当期登记共有 581 个唯一源码或测试节点，排序后摘要为 `ddbf395d7c80d9d53d7faeaa0f96b845524f96b34a08cdaae896af59c0187052`。以下是完整登记；本表只证明登记与本树节点闭合，不声称后续阶段或执行门禁通过。
+生产与测试差异清单以 `main` 的 `6e0a1aa` 为基线，包含当前仍存在的已跟踪修改与新增文件。`tests/acs_acceptance.py` 的 `FEATURE_PRODUCTION_FILES` 覆盖 `src`、`custom`、`scripts`、`tools` 的全部实际差异，`FEATURE_TEST_FILES` 覆盖 `tests` 的全部实际差异；删除文件不再登记。行为变异必须改变真实执行分支，并由订单受理、全局内容身份、内容资格、活动完成状态或真实完成事件的具体断言杀死，异常、导入失败与纯登记检查不充当行为证据。 保留接口的公开模型、真实分配内容、购物对象与地点前置条件由当前接口回归用例守住；目录查找按实际注册名称的归一化结果返回对象，动作启动参数不携带派生时长。
 
-- `custom/agents/life_agent.py`
-- `custom/envs/life_env.py`
-- `scripts/fresh_check.py`
-- `src/worldmock/agents/life_memory.py`
-- `src/worldmock/agents/life_prompt.py`
-- `src/worldmock/catalog/admission.py`
-- `src/worldmock/catalog/affordances.py`
-- `src/worldmock/catalog/errors.py`
-- `src/worldmock/catalog/identity.py`
-- `src/worldmock/catalog/loader.py`
-- `src/worldmock/catalog/models.py`
-- `src/worldmock/cli.py`
-- `src/worldmock/corpora/__init__.py`
-- `src/worldmock/corpora/manifest.py`
-- `src/worldmock/data/affordances.toml`
-- `src/worldmock/exchange/body.py`
-- `src/worldmock/exchange/constants.py`
-- `src/worldmock/exchange/operators.py`
-- `src/worldmock/exchange/types.py`
-- `src/worldmock/footprints/experiences.py`
-- `src/worldmock/footprints/models.py`
-- `src/worldmock/footprints/store.py`
-- `src/worldmock/life/action_run.py`
-- `src/worldmock/life/activities.py`
-- `src/worldmock/life/activity_control.py`
-- `src/worldmock/life/activity_evidence.py`
-- `src/worldmock/life/activity_titles.py`
-- `src/worldmock/life/activity_validation.py`
-- `src/worldmock/life/admission.py`
-- `src/worldmock/life/alarm.py`
-- `src/worldmock/life/app_push.py`
-- `src/worldmock/life/basket.py`
-- `src/worldmock/life/body.py`
-- `src/worldmock/life/business_feedback.py`
-- `src/worldmock/life/callable_index.py`
-- `src/worldmock/life/candidates.py`
-- `src/worldmock/life/commerce.py`
-- `src/worldmock/life/contact_exchange.py`
-- `src/worldmock/life/content.py`
-- `src/worldmock/life/content_select.py`
-- `src/worldmock/life/continuation.py`
-- `src/worldmock/life/control_items.py`
-- `src/worldmock/life/day_plan_inputs.py`
-- `src/worldmock/life/day_planning.py`
-- `src/worldmock/life/decision_coordinator.py`
-- `src/worldmock/life/discovery.py`
-- `src/worldmock/life/durations.py`
-- `src/worldmock/life/engine.py`
-- `src/worldmock/life/engine_context.py`
-- `src/worldmock/life/errand_state.py`
-- `src/worldmock/life/errands.py`
-- `src/worldmock/life/error_contract.py`
-- `src/worldmock/life/felt.py`
-- `src/worldmock/life/fuel.py`
-- `src/worldmock/life/guidance.py`
-- `src/worldmock/life/interaction_menu.py`
-- `src/worldmock/life/load_checks.py`
-- `src/worldmock/life/memory_layer.py`
-- `src/worldmock/life/models.py`
-- `src/worldmock/life/name_resolution.py`
-- `src/worldmock/life/named_purchase.py`
-- `src/worldmock/life/narration.py`
-- `src/worldmock/life/object_labels.py`
-- `src/worldmock/life/observe.py`
-- `src/worldmock/life/order_routing.py`
-- `src/worldmock/life/parcel.py`
-- `src/worldmock/life/presentation.py`
-- `src/worldmock/life/progress_layer.py`
-- `src/worldmock/life/projection.py`
-- `src/worldmock/life/prompt_schemas.py`
-- `src/worldmock/life/purchase_offers.py`
-- `src/worldmock/life/readable.py`
-- `src/worldmock/life/receipt.py`
-- `src/worldmock/life/recipients.py`
-- `src/worldmock/life/relevance.py`
-- `src/worldmock/life/request_errors.py`
-- `src/worldmock/life/request_linking.py`
-- `src/worldmock/life/result_projection.py`
-- `src/worldmock/life/retrieval.py`
-- `src/worldmock/life/rhythm.py`
-- `src/worldmock/life/routing.py`
-- `src/worldmock/life/rules.py`
-- `src/worldmock/life/run_identity.py`
-- `src/worldmock/life/same_moment.py`
-- `src/worldmock/life/scenario.py`
-- `src/worldmock/life/schedule.py`
-- `src/worldmock/life/semantics.py`
-- `src/worldmock/life/session_actions.py`
-- `src/worldmock/life/settled_text.py`
-- `src/worldmock/life/social.py`
-- `src/worldmock/life/social_actions.py`
-- `src/worldmock/life/storefront_runtime.py`
-- `src/worldmock/life/time_advance.py`
-- `src/worldmock/life/todo_layer.py`
-- `src/worldmock/life/tool_groups.py`
-- `src/worldmock/life/tool_layer.py`
-- `src/worldmock/life/vocabulary.py`
-- `src/worldmock/life/work.py`
-- `src/worldmock/life/world_ops.py`
-- `src/worldmock/life/world_query.py`
-- `src/worldmock/life/world_setup.py`
-- `src/worldmock/profile/coverage.py`
-- `src/worldmock/profile/coverage_targets.py`
-- `src/worldmock/profile/injection.py`
-- `src/worldmock/run_setup.py`
-- `src/worldmock/scheduling/effects.py`
-- `src/worldmock/scheduling/events.py`
-- `src/worldmock/validation.py`
-- `tests/acs_acceptance.py`
-- `tests/agents/test_life_memory.py`
-- `tests/agents/test_life_memory.py::test_received_memory_line_preserves_actual_goods_quantity_and_source`
-- `tests/agents/test_life_memory.py::test_retired_consumed_kind_cannot_render_as_a_verified_fact`
-- `tests/agents/test_life_memory.py::test_subjective_receipt_claims_cannot_create_verified_goods_receipts`
-- `tests/catalog/conftest.py`
-- `tests/catalog/test_admission.py`
-- `tests/catalog/test_admission.py::test_content_accepts_custom_actions_without_a_system_content_kind`
-- `tests/catalog/test_admission.py::test_registration_accepts_content_minimum_without_upper_limit`
-- `tests/catalog/test_admission.py::test_registration_accepts_self_payment_binding`
-- `tests/catalog/test_admission.py::test_registration_reasons_have_only_the_frozen_error_codes`
-- `tests/catalog/test_admission.py::test_registration_rejects_action_without_bound_content`
-- `tests/catalog/test_admission.py::test_registration_rejects_binding_identity_errors`
-- `tests/catalog/test_admission.py::test_registration_rejects_empty_rules_directory`
-- `tests/catalog/test_admission.py::test_registration_rejects_every_retired_file`
-- `tests/catalog/test_admission.py::test_registration_rejects_file_identity_drift`
-- `tests/catalog/test_admission.py::test_registration_rejects_invalid_map`
-- `tests/catalog/test_admission.py::test_registration_rejects_legacy_catalog_version`
-- `tests/catalog/test_admission.py::test_registration_rejects_manifest_values`
-- `tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample`
-- `tests/catalog/test_admission.py::test_registration_rejects_missing_content_fields`
-- `tests/catalog/test_admission.py::test_registration_rejects_missing_goods_binding`
-- `tests/catalog/test_admission.py::test_registration_rejects_missing_manifest_file_entry`
-- `tests/catalog/test_admission.py::test_registration_rejects_noninteger_content_duration`
-- `tests/catalog/test_admission.py::test_registration_rejects_stale_manifest_path`
-- `tests/catalog/test_admission.py::test_registration_rejects_too_small_map`
-- `tests/catalog/test_admission.py::test_registration_rejects_unbound_app`
-- `tests/catalog/test_admission.py::test_registration_uses_episode_number_for_series_index`
-- `tests/catalog/test_affordances.py`
-- `tests/catalog/test_affordances.py::test_driving_allows_only_social_without_continuous_phone_use`
-- `tests/catalog/test_affordances.py::test_each_category_and_manner_combination_has_fixed_claims`
-- `tests/catalog/test_affordances.py::test_family_layer_and_old_interfaces_are_deleted`
-- `tests/catalog/test_affordances.py::test_registry_only_declares_final_activity_kinds_and_body_keys`
-- `tests/catalog/test_affordances.py::test_retired_claim_names_are_rejected`
-- `tests/catalog/test_engine_package_resources.py`
-- `tests/catalog/test_engine_package_resources.py::test_catalog_has_only_six_object_files_and_no_engine_rule_copies`
-- `tests/catalog/test_identity.py`
-- `tests/catalog/test_loader.py`
-- `tests/catalog/test_loader.py::test_catalog_indexes_are_frozen`
-- `tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes`
-- `tests/catalog/test_loader.py::test_catalog_rejects_retired_object_fields`
-- `tests/catalog/test_scenario_admission.py`
-- `tests/catalog/test_scenario_admission.py::test_scenario_accepts_work_content_covering_whole_shift`
-- `tests/catalog/test_scenario_admission.py::test_scenario_rejects_invalid_catalog_references`
-- `tests/catalog/test_supplement.py`
-- `tests/catalog/test_supplement.py::test_action_communication_mode_has_only_explicit_remote_social_values`
-- `tests/catalog/test_supplement.py::test_communication_mode_is_required_and_does_not_guess_from_name`
-- `tests/catalog/test_supplement.py::test_gas_sells_only_fuel_and_parcel_has_no_goods_or_app`
-- `tests/catalog/test_supplement.py::test_goods_cannot_cross_gas_supply_boundary`
-- `tests/catalog/test_supplement.py::test_shipping_and_station_types_are_strict`
-- `tests/catalog/test_supplement.py::test_shipping_seconds_is_required_and_long_transport_is_registered`
-- `tests/data_paths.py`
-- `tests/dayrun_fidelity_acceptance.py`
-- `tests/engine_fixture.py`
-- `tests/errands_workday_acceptance.py`
-- `tests/exchange/test_constants.py`
-- `tests/exchange/test_constants.py::test_body_constants_and_resource_metas`
-- `tests/exchange/test_constants.py::test_category_met_is_fixed_and_deeply_immutable`
-- `tests/exchange/test_constants.py::test_fixed_constants_preserve_travel_delivery_map_and_push`
-- `tests/exchange/test_constants.py::test_goods_receipt_effects_are_immutable_and_bounded`
-- `tests/exchange/test_constants.py::test_social_mood_and_exercise_rates_keep_their_frozen_values`
-- `tests/exchange/test_operators.py`
-- `tests/exchange/test_operators.py::test_decimal_precision_does_not_change_settlement`
-- `tests/exchange/test_operators.py::test_fixed_operators_keep_existing_decimal_settlement_results`
-- `tests/exchange/test_operators.py::test_goods_receipt_has_quantity_only_for_food`
-- `tests/exchange/test_types.py`
-- `tests/exchange/test_types.py::test_device_and_place_mappings_are_fixed`
-- `tests/exchange/test_types.py::test_fixed_type_sets_and_labels`
-- `tests/exchange/test_types.py::test_goods_store_supply_is_fixed_for_every_category`
-- `tests/fixtures/acceptance_requirements.json`
-- `tests/fixtures/acs-acceptance.json`
-- `tests/fixtures/current-feature-owners.json`
-- `tests/fixtures/environment/README.md`
-- `tests/fixtures/environment/catalog/actions.json`
-- `tests/fixtures/environment/catalog/apps.json`
-- `tests/fixtures/environment/catalog/contents.json`
-- `tests/fixtures/environment/catalog/goods.json`
-- `tests/fixtures/environment/catalog/locations.json`
-- `tests/fixtures/environment/catalog/manifest.json`
-- `tests/fixtures/environment/scenarios/multi-person-half-day.json`
-- `tests/fixtures/environment/scenarios/multi-person.json`
-- `tests/fixtures/environment/scenarios/single-person.json`
-- `tests/fixtures/idle-fillers-acceptance.json`
-- `tests/fixtures/rrs-acceptance.json`
-- `tests/footprints/test_errand_export.py`
-- `tests/footprints/test_goal_export.py`
-- `tests/footprints/test_verified_experiences.py`
-- `tests/footprints/test_verified_experiences.py::test_arrival_snapshot_at_origin_still_projects_arrived`
-- `tests/footprints/test_verified_experiences.py::test_missing_settlement_evidence_is_an_error_not_a_guessed_fact`
-- `tests/footprints/test_verified_experiences.py::test_observed_window_rejects_invalid_boundary_duplicates_and_reordering`
-- `tests/footprints/test_verified_experiences.py::test_projection_rejects_uncommitted_origin_conflict_and_invalid_cutoff`
-- `tests/footprints/test_verified_experiences.py::test_real_goods_receipt_commit_projects_only_its_received_order`
-- `tests/footprints/test_verified_experiences.py::test_received_orders_are_distinct_and_projection_is_idempotent`
-- `tests/footprints/test_verified_experiences.py::test_received_quantity_requires_positive_finite_actual_evidence`
-- `tests/footprints/test_verified_experiences.py::test_received_recent_window_pages_past_nonprojected_activity_sources`
-- `tests/footprints/test_verified_experiences.py::test_received_source_requires_environment_recipient_visibility_and_no_activity`
-- `tests/footprints/test_verified_experiences.py::test_received_window_ignores_payment_delivery_and_retired_consumption`
-- `tests/footprints/test_verified_experiences.py::test_recent_experience_reader_rejects_uncommitted_cutoff_and_bad_query`
-- `tests/footprints/test_verified_experiences.py::test_recent_reader_returns_no_experience_from_another_person`
-- `tests/footprints/test_verified_experiences.py::test_recent_window_only_projects_own_committed_progress_before_observation`
-- `tests/footprints/test_verified_experiences.py::test_recent_window_returns_latest_five_before_cutoff_with_more_history`
-- `tests/footprints/test_verified_experiences.py::test_reference_window_rejects_other_person_and_future_time`
-- `tests/footprints/test_verified_experiences.py::test_zero_playback_and_unfinished_travel_do_not_become_completed_facts`
-- `tests/frozen_inputs.py`
-- `tests/idle_fillers_acceptance.py`
-- `tests/integration/test_acs_engine_wave.py`
-- `tests/integration/test_activity_schema.py`
-- `tests/integration/test_agent_branch_coverage.py`
-- `tests/integration/test_biz_timeline_recording.py`
-- `tests/integration/test_conclude_memories.py`
-- `tests/integration/test_dayrun_complete_days.py`
-- `tests/integration/test_dayrun_parallel_agent.py`
-- `tests/integration/test_decision_context_protocol.py`
-- `tests/integration/test_environment_identity.py`
-- `tests/integration/test_errand_checkpoint.py`
-- `tests/integration/test_errand_prompt_separation.py`
-- `tests/integration/test_external_environment_lifecycle.py`
-- `tests/integration/test_grounded_evidence.py`
-- `tests/integration/test_grounded_targets.py`
-- `tests/integration/test_host_branch_coverage.py`
-- `tests/integration/test_host_feedback.py`
-- `tests/integration/test_input_warnings.py`
-- `tests/integration/test_interaction_menu.py`
-- `tests/integration/test_interaction_menu_roundtrip.py`
-- `tests/integration/test_life_agent_protocol.py`
-- `tests/integration/test_life_agent_protocol.py::test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages`
-- `tests/integration/test_observation_agent_seam.py`
-- `tests/integration/test_output_truncation.py`
-- `tests/integration/test_parallel_rejection_contract.py`
-- `tests/integration/test_presentation_habits.py`
-- `tests/integration/test_read_query_runtime.py`
-- `tests/integration/test_run_manifest.py`
-- `tests/integration/test_run_viewer_recording.py`
-- `tests/integration/test_same_second_continuation.py`
-- `tests/integration/test_seven_layer_request.py`
-- `tests/integration/test_storefront_tools.py`
-- `tests/integration/test_tool_description_references.py`
-- `tests/integration/test_unique_presence_run.py`
-- `tests/integration/test_verified_memory.py`
-- `tests/life/action_contract_world.py`
-- `tests/life/action_worlds.py`
-- `tests/life/conftest.py`
-- `tests/life/current_world.py`
-- `tests/life/purchase_worlds.py`
-- `tests/life/routing_fixtures.py`
-- `tests/life/scenario_fixtures.py`
-- `tests/life/test_acs_amended_runtime.py`
-- `tests/life/test_acs_amended_runtime.py::test_alarm_ends_real_sleep_after_elapsed_seconds_and_reopen`
-- `tests/life/test_acs_contract_guards.py`
-- `tests/life/test_acs_loading.py`
-- `tests/life/test_acs_loading.py::test_run_identity_rejects_old_manifest_and_different_environment`
-- `tests/life/test_acs_loading.py::test_run_manifest_has_five_environment_fields_without_corpus_pin`
-- `tests/life/test_acs_loading.py::test_runtime_code_identity_binds_each_packaged_data_file`
-- `tests/life/test_acs_loading.py::test_world_eleven_rejects_old_version_and_corpus_identity`
-- `tests/life/test_acs_receipt_readers.py`
-- `tests/life/test_acs_receipt_readers.py::test_actual_contact_delivery_never_completes_buyers_errand_or_meal_goal`
-- `tests/life/test_acs_receipt_readers.py::test_actual_nonmeal_receipt_completes_goods_errand_without_a_meal_goal_pulse`
-- `tests/life/test_acs_receipt_readers.py::test_actual_receipt_without_a_day_plan_changes_no_goal_or_goal_mood`
-- `tests/life/test_acs_receipt_readers.py::test_actual_self_receipt_completes_its_errand_and_meal_goal_once_with_one_goal_pulse`
-- `tests/life/test_acs_receipt_readers.py::test_another_payer_actual_receipt_completes_only_the_recipients_errand_and_goal`
-- `tests/life/test_acs_receipt_readers.py::test_conclusion_projects_only_real_activity_ending_without_item_changes`
-- `tests/life/test_acs_receipt_readers.py::test_contact_received_uses_actual_received_time_and_registered_goods_only`
-- `tests/life/test_acs_receipt_readers.py::test_control_errand_reader_has_exact_seven_fields_and_rejects_retired_outcome`
-- `tests/life/test_acs_receipt_readers.py::test_goal_rejects_missing_duplicate_or_premature_evidence`
-- `tests/life/test_acs_receipt_readers.py::test_goods_result_receipt_progress_and_contact_received_use_real_goods_without_given`
-- `tests/life/test_acs_receipt_readers.py::test_goods_tool_query_and_observation_have_no_holding_or_consume_path`
-- `tests/life/test_acs_receipt_readers.py::test_meal_goal_progresses_from_its_own_received_order_including_registration_second`
-- `tests/life/test_acs_receipt_readers.py::test_meal_receipt_around_time_uses_the_receipt_second_and_includes_both_window_edges`
-- `tests/life/test_acs_receipt_readers.py::test_meal_receipt_must_be_registered_and_received_within_its_day`
-- `tests/life/test_acs_receipt_readers.py::test_only_meal_receipts_progress_meal_goals`
-- `tests/life/test_acs_receipt_readers.py::test_order_evidence_is_unique_within_a_day_but_independent_of_activity_identity`
-- `tests/life/test_acs_receipt_readers.py::test_pending_delivery_and_contact_receipt_have_no_meal_goal_evidence`
-- `tests/life/test_acs_receipt_readers.py::test_pure_receipt_reader_import_closure_has_no_life_engine_or_retired_module`
-- `tests/life/test_acs_receipt_readers.py::test_real_receipt_from_another_payer_only_progresses_the_recipient_meal_goal`
-- `tests/life/test_acs_receipt_readers.py::test_receipt_evidence_cannot_progress_again_or_progress_another_intent`
-- `tests/life/test_acs_receipt_readers.py::test_unreceived_order_or_retired_evidence_cannot_progress_a_meal_goal`
-- `tests/life/test_acs_receipt_readers.py::test_world_and_agent_reject_retired_inventory_fields`
-- `tests/life/test_acs_runtime.py`
-- `tests/life/test_acs_runtime.py::test_custom_game_music_and_podcast_execute_real_content_and_continue_after_reopen`
-- `tests/life/test_acs_runtime.py::test_first_registered_environment_loop_rest_feed_reopen_and_delivery`
-- `tests/life/test_acs_system_core.py`
-- `tests/life/test_acs_system_core.py::test_actual_driving_dates_zero_repeat_midnight_and_refuel_do_not_double_charge`
-- `tests/life/test_acs_system_core.py::test_alarm_bounds_reject_atomically`
-- `tests/life/test_acs_system_core.py::test_alarm_model_rejects_non_whole_second_or_unzoned_values`
-- `tests/life/test_acs_system_core.py::test_alarm_same_second_sources_and_checkpoint_restore_ring_once`
-- `tests/life/test_acs_system_core.py::test_car_environment_fields_are_strict_and_never_inferred_from_story`
-- `tests/life/test_acs_system_core.py::test_closest_station_distance_tie_uses_location_identity_on_registered_map`
-- `tests/life/test_acs_system_core.py::test_collection_away_pending_and_another_person_orders_never_receive`
-- `tests/life/test_acs_system_core.py::test_collection_receives_only_all_self_orders_and_has_true_result_cause_after_restore`
-- `tests/life/test_acs_system_core.py::test_different_recipient_homes_same_station_share_one_payment_and_fee`
-- `tests/life/test_acs_system_core.py::test_driving_admission_no_car_and_cross_midnight_balance_are_atomic`
-- `tests/life/test_acs_system_core.py::test_driving_days_use_local_dates_across_daylight_saving`
-- `tests/life/test_acs_system_core.py::test_fuel_instant_self_purchase_adds_seven_without_body_or_inventory`
-- `tests/life/test_acs_system_core.py::test_invalid_fuel_is_rejected_atomically_before_any_payment`
-- `tests/life/test_acs_system_core.py::test_long_contact_and_wrong_home_address_reject_before_payment`
-- `tests/life/test_acs_system_core.py::test_long_shipping_uses_recipient_home_and_arrival_has_no_receipt_effect`
-- `tests/life/test_acs_system_core.py::test_missing_closest_selected_station_rejects_instead_of_choosing_farther`
-- `tests/life/test_acs_system_core.py::test_null_shipping_quotes_once_and_preserves_duration_after_home_redirect`
-- `tests/life/test_acs_system_core.py::test_order_timestamps_match_actual_fulfillment_on_restore`
-- `tests/life/test_acs_system_core.py::test_same_purchase_splits_notifications_by_recipient_without_extra_fee`
-- `tests/life/test_acs_system_core.py::test_shipping_threshold_and_quote_use_registered_complete_duration`
-- `tests/life/test_action_guarantees.py`
-- `tests/life/test_action_guarantees.py::test_completed_assigned_content_cannot_resume_old_paused_work_or_reset_progress`
-- `tests/life/test_action_guarantees.py::test_thirty_paused_minutes_never_increase_actual_assigned_content_seconds`
-- `tests/life/test_action_guarantees.py::test_work_reports_never_change_real_content_seconds_or_claim_completion`
-- `tests/life/test_action_restore_and_text.py`
-- `tests/life/test_action_restore_and_text.py::test_action_modules_import_in_fresh_process_without_life_engine`
-- `tests/life/test_action_restore_and_text.py::test_completed_action_played_identity_survives_real_continuation`
-- `tests/life/test_action_restore_and_text.py::test_persisted_action_binding_drift_is_rejected`
-- `tests/life/test_action_restore_and_text.py::test_persisted_communication_mode_is_real_declared_fact_and_restore_rejects_drift`
-- `tests/life/test_action_restore_and_text.py::test_persisted_navigation_is_optional_but_nonempty_identity_requires_navigation_purpose`
-- `tests/life/test_action_restore_and_text.py::test_persisted_social_requires_actual_other_person_or_own_contact`
-- `tests/life/test_action_restore_and_text.py::test_real_action_restores_from_registered_identity`
-- `tests/life/test_action_run.py`
-- `tests/life/test_action_run.py::test_action_result_has_exact_six_real_content_fields`
-- `tests/life/test_action_run.py::test_action_run_minimal_real_catalog_body_progress_and_silent_continuation`
-- `tests/life/test_action_run.py::test_actual_remaining_under_one_minute_starts_and_resume_never_selects`
-- `tests/life/test_action_run.py::test_alarm_reason_is_real_allowed_sleep_wake_without_content_reason`
-- `tests/life/test_action_run.py::test_assigned_content_is_finite_and_completion_pulse_is_applied_once`
-- `tests/life/test_action_run.py::test_assigned_work_requires_actual_workplace_and_unassigned_study_does_not`
-- `tests/life/test_action_run.py::test_category_effects_and_met_are_fixed_not_content_types`
-- `tests/life/test_action_run.py::test_content_duration_day_cap_leaves_partial_progress_and_ceil_uses_actual_position`
-- `tests/life/test_action_run.py::test_exercise_has_only_fixed_hourly_mood_effect`
-- `tests/life/test_action_run.py::test_mail_body_is_visible_at_real_arrival_without_reading_activity`
-- `tests/life/test_action_run.py::test_non_entertainment_completes_one_content_without_continuation`
-- `tests/life/test_action_run.py::test_person_named_fields_are_never_filled_by_executor`
-- `tests/life/test_action_run.py::test_report_opportunity_is_consumed_for_all_due_active_activities_without_a_report`
-- `tests/life/test_action_run.py::test_unassigned_study_repeats_without_completion_pulse`
-- `tests/life/test_action_run.py::test_work_completion_event_is_owner_visible_and_never_for_unassigned_study`
-- `tests/life/test_activities.py`
-- `tests/life/test_activity_effects.py`
-- `tests/life/test_activity_menu.py`
-- `tests/life/test_activity_title_embedding.py`
-- `tests/life/test_activity_wake_facts.py`
-- `tests/life/test_affordance_contract.py`
-- `tests/life/test_app_progress.py`
-- `tests/life/test_app_progress.py::test_actual_consumption_is_keyed_once_by_content_across_apps`
-- `tests/life/test_app_progress.py::test_checkpoint_restore_keeps_current_content_and_future_sequence`
-- `tests/life/test_app_progress.py::test_continuation_does_not_open_a_later_push_and_completion_releases_cross_app_pushes`
-- `tests/life/test_app_progress.py::test_cross_app_progress_uses_latest_global_position_and_owner_isolation`
-- `tests/life/test_app_progress.py::test_other_app_completed_round_resume_starts_latest_round_zero_and_does_not_count_twice`
-- `tests/life/test_app_progress.py::test_progress_rejects_retired_missing_history_shape`
-- `tests/life/test_app_progress.py::test_same_app_other_action_never_opens_push`
-- `tests/life/test_app_progress.py::test_session_change_drops_pinning_but_keeps_global_progress`
-- `tests/life/test_app_progress.py::test_silent_continuation_never_opens_same_app_push_that_arrived_during_activity`
-- `tests/life/test_app_progress.py::test_stop_then_same_session_start_uses_same_pinned_remainder`
-- `tests/life/test_app_progress.py::test_zero_second_pause_never_creates_consumption_history`
-- `tests/life/test_app_push.py`
-- `tests/life/test_app_push.py::test_departure_and_arrival_invalidate_old_pushes_without_deleting_history`
-- `tests/life/test_app_push.py::test_each_app_is_issued_once_per_session_even_after_release`
-- `tests/life/test_app_push.py::test_full_push_summary_and_source_discriminator_project_from_committed_event`
-- `tests/life/test_app_push.py::test_no_eligible_app_is_system_visible_without_person_record_or_wake`
-- `tests/life/test_app_push.py::test_open_reopen_release_and_after_22_follow_current_session_only`
-- `tests/life/test_app_push.py::test_push_draw_uses_one_b30_stream_sorted_candidates_and_stable_identity`
-- `tests/life/test_app_push.py::test_push_identity_validation_rejects_unregistered_references_in_historical_session`
-- `tests/life/test_app_push.py::test_queue_is_popped_before_effect_checkpoint_and_restore_never_reissues`
-- `tests/life/test_app_push.py::test_release_only_changes_current_session_and_keeps_historical_matching_push`
-- `tests/life/test_app_push.py::test_sleep_stores_push_without_wake_and_existing_activity_is_unchanged`
-- `tests/life/test_app_vocabulary.py`
-- `tests/life/test_body.py`
-- `tests/life/test_body_flows.py`
-- `tests/life/test_callable_index.py`
-- `tests/life/test_candidate_contract_boundaries.py`
-- `tests/life/test_candidate_wiring.py`
-- `tests/life/test_candidates.py`
-- `tests/life/test_commerce.py`
-- `tests/life/test_commerce.py::test_delivery_receives_at_due_time_even_after_recipient_moves`
-- `tests/life/test_commerce.py::test_pending_order_checkpoint_restore_receives_once_and_keeps_payment_once`
-- `tests/life/test_commerce.py::test_store_purchase_settles_energy_and_receipt_once_in_the_payment_result`
-- `tests/life/test_commerce.py::test_two_goods_rows_pay_one_delivery_fee_and_one_transfer`
-- `tests/life/test_contact_exchange.py`
-- `tests/life/test_content_catalog_titles.py`
-- `tests/life/test_content_select.py`
-- `tests/life/test_content_select.py::test_assigned_work_is_owner_only_location_bound_and_finite`
-- `tests/life/test_content_select.py::test_current_activity_is_not_its_own_reservation`
-- `tests/life/test_content_select.py::test_delivered_push_without_consumption_remains_unseen`
-- `tests/life/test_content_select.py::test_exhausted_content_uses_minimum_rounds_then_uniform_tie`
-- `tests/life/test_content_select.py::test_just_completed_content_is_skipped_when_another_content_exists`
-- `tests/life/test_content_select.py::test_most_recent_unfinished_content_precedes_unseen_and_ties_by_identity`
-- `tests/life/test_content_select.py::test_multiple_started_series_choose_recent_then_representative_identity`
-- `tests/life/test_content_select.py::test_only_eligible_unit_can_be_reserved_and_immediately_replayed`
-- `tests/life/test_content_select.py::test_other_running_or_paused_activity_reserves_content_when_alternative_exists`
-- `tests/life/test_content_select.py::test_progress_is_shared_between_apps_and_isolated_between_people`
-- `tests/life/test_content_select.py::test_push_is_not_adopted_by_other_app_action_continuation_or_generation`
-- `tests/life/test_content_select.py::test_push_reservation_is_skipped_without_opening_during_continuation`
-- `tests/life/test_content_select.py::test_reservations_then_recent_completion_exclusions_are_applied_in_order`
-- `tests/life/test_content_select.py::test_reserved_series_representative_excludes_the_whole_series`
-- `tests/life/test_content_select.py::test_same_app_action_push_precedes_history_without_mutating_status`
-- `tests/life/test_content_select.py::test_selection_is_stable_under_mapping_order_and_does_not_advance_world_randomness`
-- `tests/life/test_content_select.py::test_selector_import_and_cross_process_results_are_hash_seed_independent`
-- `tests/life/test_content_select.py::test_started_series_next_episode_precedes_unseen_units`
-- `tests/life/test_content_select.py::test_transit_does_not_count_as_presence_at_work_location`
-- `tests/life/test_content_select.py::test_unassigned_work_content_can_repeat_anywhere_for_any_person`
-- `tests/life/test_content_select.py::test_unfinished_content_precedes_started_series`
-- `tests/life/test_content_select.py::test_unseen_selection_samples_units_once_not_each_episode`
-- `tests/life/test_content_select.py::test_unseen_units_precede_seen_incomplete_rounds`
-- `tests/life/test_continuation_metrics.py`
-- `tests/life/test_control_items.py`
-- `tests/life/test_coverage_closure_models.py`
-- `tests/life/test_coverage_closure_scenario.py`
-- `tests/life/test_day_plan.py`
-- `tests/life/test_day_planning.py`
-- `tests/life/test_dayrun_restaurants.py`
-- `tests/life/test_decision_budget.py`
-- `tests/life/test_discomfort_and_sleep_messages.py`
-- `tests/life/test_domain_branch_coverage.py`
-- `tests/life/test_duration_boundaries.py`
-- `tests/life/test_energy_feasibility.py`
-- `tests/life/test_engine_branch_coverage.py`
-- `tests/life/test_engine_feedback.py`
-- `tests/life/test_engine_round.py`
-- `tests/life/test_environment_layer.py`
-- `tests/life/test_errand_changes.py`
-- `tests/life/test_errand_completion.py`
-- `tests/life/test_errand_names.py`
-- `tests/life/test_errand_overnight.py`
-- `tests/life/test_errand_reminder.py`
-- `tests/life/test_errand_requests.py`
-- `tests/life/test_errand_settlement_idempotence.py`
-- `tests/life/test_errand_state.py`
-- `tests/life/test_errand_state.py::test_a_reminder_delivery_requires_an_earlier_reminder`
-- `tests/life/test_errand_state.py::test_a_valid_open_errand_keeps_every_field_as_written`
-- `tests/life/test_errand_state.py::test_limits_words_and_event_kinds_are_the_spec_values`
-- `tests/life/test_errand_state.py::test_progress_is_kept_to_nine_decimals_and_must_stay_below_the_quantity`
-- `tests/life/test_errand_state.py::test_quantity_outside_one_to_nine_is_rejected`
-- `tests/life/test_errand_state.py::test_retired_outcome_is_an_unknown_field_for_every_previous_value`
-- `tests/life/test_errand_state.py::test_the_model_is_closed_frozen_and_every_field_is_required`
-- `tests/life/test_errand_todo_layer.py`
-- `tests/life/test_error_contract.py`
-- `tests/life/test_experience_sentences.py`
-- `tests/life/test_export_integration.py`
-- `tests/life/test_felt_states.py`
-- `tests/life/test_food_errand_evidence.py`
-- `tests/life/test_food_errand_evidence.py::test_actual_payment_orders_are_not_errand_evidence_even_when_delivered`
-- `tests/life/test_food_errand_evidence.py::test_actual_pending_delivery_does_not_credit_and_restored_receipt_credits_once`
-- `tests/life/test_food_errand_evidence.py::test_actual_pickup_credits_only_receipt_recipient_and_repeat_settlement_emits_no_evidence`
-- `tests/life/test_food_errand_evidence.py::test_goods_receipt_rejects_an_invalid_simulated_recipient`
-- `tests/life/test_food_errand_evidence.py::test_receipt_before_registration_in_same_commit_does_not_count_but_after_it_does`
-- `tests/life/test_food_errand_evidence.py::test_retired_giving_consumption_and_self_reports_cannot_progress_errands`
-- `tests/life/test_food_errand_evidence.py::test_two_actual_receipts_accumulate_quantity_and_remove_only_the_completed_recipient_errand`
-- `tests/life/test_food_errand_evidence.py::test_unaffordable_actual_purchase_preserves_open_errand_quantity_and_all_world_bytes`
-- `tests/life/test_food_presentation.py`
-- `tests/life/test_frozen_inputs_runtime.py`
-- `tests/life/test_goal_around_time.py`
-- `tests/life/test_grounded_observation.py`
-- `tests/life/test_interaction_menu_invariants.py`
-- `tests/life/test_interaction_menu_runtime.py`
-- `tests/life/test_load_checks.py`
-- `tests/life/test_load_checks.py::test_assigned_work_content_covers_the_full_shift_including_breaks`
-- `tests/life/test_load_checks.py::test_real_loader_rejects_registration_counterexamples`
-- `tests/life/test_load_checks.py::test_work_content_requires_a_schedule_for_the_other_person`
-- `tests/life/test_location_sessions.py`
-- `tests/life/test_memory_layer.py`
-- `tests/life/test_menu_discovery.py`
-- `tests/life/test_model_input_killpoints.py`
-- `tests/life/test_money_settlement.py`
-- `tests/life/test_name_resolution.py`
-- `tests/life/test_named_purchase.py`
-- `tests/life/test_named_purchase.py::test_named_purchase_rejects_unknown_goods_and_unbound_apps_atomically`
-- `tests/life/test_narration.py`
-- `tests/life/test_opslog.py`
-- `tests/life/test_parallel_acceptance.py`
-- `tests/life/test_parallel_activities.py`
-- `tests/life/test_parallel_admission.py`
-- `tests/life/test_paused_slots.py`
-- `tests/life/test_persona_layer.py`
-- `tests/life/test_product_discovery.py`
-- `tests/life/test_progress_events.py`
-- `tests/life/test_progress_layer_projection.py`
-- `tests/life/test_prompt_layers.py`
-- `tests/life/test_public_interface_evidence.py`
-- `tests/life/test_public_interface_guards.py`
-- `tests/life/test_public_observation_contract.py`
-- `tests/life/test_purchase_apps.py`
-- `tests/life/test_purchase_stages.py`
-- `tests/life/test_query_cost_report.py`
-- `tests/life/test_readable.py`
-- `tests/life/test_receipt.py`
-- `tests/life/test_receipt.py::test_contact_receipt_has_only_delivered_order_without_body_or_goods_event`
-- `tests/life/test_receipt.py::test_daily_receipt_is_one_mood_pulse_without_resource_flow`
-- `tests/life/test_receipt.py::test_delivery_event_requires_unique_nonempty_orders`
-- `tests/life/test_receipt.py::test_delivery_receives_in_park_while_original_destination_remains_home`
-- `tests/life/test_receipt.py::test_every_food_category_uses_fixed_calories_with_actual_efficiency`
-- `tests/life/test_receipt.py::test_leisure_receipt_reduces_need_once_with_exact_resource_cause`
-- `tests/life/test_receipt.py::test_orders_and_world_reject_inventory_and_retired_order_fields`
-- `tests/life/test_receipt.py::test_receipt_rejects_missing_and_not_due_order_without_any_effect`
-- `tests/life/test_receipt.py::test_sleeping_recipient_receives_now_without_waking_but_payer_still_wakes`
-- `tests/life/test_receipt.py::test_third_party_food_receipt_owns_exact_effect_and_drains_flow`
-- `tests/life/test_receipt.py::test_travelling_recipient_receives_without_claiming_presence_at_a_location`
-- `tests/life/test_relevance.py`
-- `tests/life/test_request_linking.py`
-- `tests/life/test_rerun_metrics.py`
-- `tests/life/test_resource_conflict_progress.py`
-- `tests/life/test_retrieval.py`
-- `tests/life/test_revision_contract.py`
-- `tests/life/test_routing.py`
-- `tests/life/test_same_moment_decisions.py`
-- `tests/life/test_scenario.py`
-- `tests/life/test_scenario.py::test_formal_and_multi_person_scenarios_are_valid`
-- `tests/life/test_scenario.py::test_structure_eight_rejects_body_and_message_retired_fields`
-- `tests/life/test_scenario.py::test_structure_eight_rejects_each_retired_scenario_field`
-- `tests/life/test_scenario.py::test_structure_eight_rejects_old_scenario_version`
-- `tests/life/test_scenario.py::test_structure_eight_rejects_retired_agent_fields`
-- `tests/life/test_scenario.py::test_structure_eight_rejects_retired_menu_actions`
-- `tests/life/test_scenario.py::test_structure_eight_requires_both_protected_menu_actions`
-- `tests/life/test_scheduling.py`
-- `tests/life/test_scheduling.py::test_real_delivery_event_after_json_restore_receives_actual_goods_once`
-- `tests/life/test_scheduling.py::test_retired_food_supply_changes_are_not_schedulable`
-- `tests/life/test_semantics.py`
-- `tests/life/test_session_attribution.py`
-- `tests/life/test_session_state.py`
-- `tests/life/test_shared_body.py`
-- `tests/life/test_shared_rules.py`
-- `tests/life/test_shift_edge_runs.py`
-- `tests/life/test_shift_edges.py`
-- `tests/life/test_sleep_billing.py`
-- `tests/life/test_sleep_two_process.py`
-- `tests/life/test_social.py`
-- `tests/life/test_social.py::test_send_message_accepts_300_chars_and_rejects_301`
-- `tests/life/test_social.py::test_send_message_delivers_to_world_agent_and_contact`
-- `tests/life/test_social_rounds.py`
-- `tests/life/test_social_rounds.py::test_acceptance_with_less_than_one_minute_remaining_is_allowed`
-- `tests/life/test_social_rounds.py::test_chat_start_after_initialization_ignores_its_own_new_activity`
-- `tests/life/test_social_rounds.py::test_common_seconds_are_independent_of_people_advance_order`
-- `tests/life/test_social_rounds.py::test_duplicate_or_absent_partner_is_rejected_and_social_cannot_pause`
-- `tests/life/test_social_rounds.py::test_invitation_acceptance_keeps_own_content_and_partner_end_partial_progress`
-- `tests/life/test_social_rounds.py::test_remote_invalid_mode_cannot_guess_a_voice_path`
-- `tests/life/test_social_rounds.py::test_remote_text_and_voice_use_same_actual_seconds_rate`
-- `tests/life/test_social_rounds.py::test_remote_voice_executes_real_contact_path_and_text_never_calls_it`
-- `tests/life/test_social_rounds.py::test_shared_social_advance_uses_only_real_body_settlement_once`
-- `tests/life/test_state_serialization.py`
-- `tests/life/test_state_write_recheck.py`
-- `tests/life/test_storefront_commerce.py`
-- `tests/life/test_timeline_labels.py`
-- `tests/life/test_todo_layer.py`
-- `tests/life/test_tool_interaction_habits.py`
-- `tests/life/test_tool_interaction_runtime.py`
-- `tests/life/test_tool_layer.py`
-- `tests/life/test_tool_layer.py::test_action_duration_matches_read_only_selector_and_actual_admission`
-- `tests/life/test_tool_layer.py::test_most_recent_unfinished_content_duration_is_remaining_and_observation_does_not_select`
-- `tests/life/test_tool_protocol.py`
-- `tests/life/test_travel_graph.py`
-- `tests/life/test_wait_passive_entertainment.py`
-- `tests/life/test_wait_passive_entertainment.py::test_direct_wait_activity_preserves_plain_accrual`
-- `tests/life/test_wait_passive_entertainment.py::test_wait_has_only_awake_entertainment_accrual`
-- `tests/life/test_wait_passive_entertainment.py::test_wait_met_cost_remains_declared`
-- `tests/life/test_wake_reasons.py`
-- `tests/life/test_work_schedule.py`
-- `tests/life/test_world_query.py`
-- `tests/life/test_world_query_filters.py`
-- `tests/life/test_world_setup.py`
-- `tests/life/work_runtime.py`
-- `tests/persona_prompt_acceptance.py`
-- `tests/rrs_acceptance.py`
-- `tests/shared_rules_acceptance.py`
-- `tests/test_acs_acceptance.py`
-- `tests/test_import_graph.py`
-- `tests/test_layering_acceptance.py`
-- `tests/test_rrs_public_interfaces_external.py`
-- `tests/test_single_source.py`
-- `tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones`
-- `tests/test_start_activity_contract.py`
-- `tests/test_start_activity_contract.py::test_illegal_combinations_keep_the_same_host_and_environment_business_code`
-- `tests/test_tool_interaction_acceptance.py`
-- `tests/test_validation.py`
-- `tests/test_validation.py::test_validate_environment_command_accepts_the_actual_artificial_environment`
-- `tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples`
-- `tests/test_validation.py::test_validate_environment_command_rejects_missing_action_and_work_content`
-- `tests/test_validation.py::test_validate_environment_command_rejects_real_registration_counterexamples`
-- `tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references`
-- `tests/test_validation.py::test_validate_environment_rejects_map_bytes_even_when_manifest_is_republished`
-- `tests/time_and_energy_acceptance.py`
-- `tests/tool_interaction_acceptance.py`
+| 条款名称 | 阶段 | 权威锚点 |
+| --- | --- | --- |
+| 分类与规则归系统 | 1 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-固定规则与常数` |
+| 环境登记与错误码 | 1 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-固定规则与常数` |
+| 用途、供给与内容绑定 | 1 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-固定规则与常数` |
+| 场景 8、世界 11 与工作内容检查 | 1 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-固定规则与常数` |
+| 收货恰好一次 | 2 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-收货结算` |
+| 收货事件归收货人 | 2 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-收货结算` |
+| 没有库存 | 2 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-收货结算` |
+| 时长只来自内容 | 3 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-其他动作` |
+| 娱乐接续与单条完成 | 3 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-其他动作` |
+| 内容选择次序 | 3 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-其他动作` |
+| 进度与确定性 | 3 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-其他动作` |
+| 推送资格与打开 | 3 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-其他动作` |
+| 按类别与方式占用 | 3 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-其他动作` |
+| 社交、等待与邮件 | 3 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-其他动作` |
+| 订单点名购物与支付 app | 4 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-观察与工具面` |
+| 请求形状与工具面 | 4 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-观察与工具面` |
+| 系统层逐字 | 4 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-观察与工具面` |
+| 接续成本 | 5 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同` |
+| 足迹事实与导出身份 | 5 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同` |
+| 足迹不变量 1 | 5 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同` |
+| 足迹不变量 2 | 5 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同` |
+| 足迹不变量 3 | 5 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同` |
+| 足迹不变量 4 | 5 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同` |
+| 足迹不变量 5 | 5 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同` |
+| 足迹不变量 6 | 5 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同` |
+| 足迹不变量 7 | 5 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同` |
+| 进食与持有的读者 | 5 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同` |
+| 完整日基线 | 6 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-门禁与平台` |
+| 工程门禁与文档一致性 | 6 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-门禁与平台` |
+| 正式环境与平台回执（只报告） | 7 | `docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数据仓交接` |
 
+真实引擎证据按行为归属登记：领取事件验证付款人与收货人分离，推送恢复验证实际推送，面对面聊天只归社交行为。共享 `engine_factory` 的证据必须沿真实导入的夹具源码找到 `LifeEngine.create` 或 `LifeEngine.open`；纯 `registered_world` 与只有同名工厂的测试不能充当引擎闭环。
+
+| 行为 | 当前真实证据 |
+| --- | --- |
+| 付款人与收货人、领取通知和收货事件 | `tests/footprints/test_acs_export.py::test_real_station_export_keeps_purchase_payer_and_actual_recipient_notifications_and_receipt[True]` |
+| 到站、本人领取与恢复均无库存 | `tests/life/test_acs_amended_runtime.py::test_long_delivery_arrival_collection_and_reopen_have_no_inventory` |
+| 推送持久化、旧会话推送不被新会话采用 | `tests/integration/test_acs_engine_wave.py::test_real_app_push_is_persisted_without_reissue_after_open`、`tests/integration/test_acs_engine_wave.py::test_real_navigation_and_action_batch_selects_once_in_new_road_session_and_exports` |
+| 类别与手机占用、驾车冲突、不同方式并行 | `tests/life/test_parallel_admission.py::test_driving_with_eyes_or_hands_activities_is_a_resource_conflict_in_either_order`、`tests/life/test_parallel_admission.py::test_overlapping_pairs_are_resource_conflicts`、`tests/life/test_parallel_admission.py::test_work_with_phone_entertainment_settles_one_shared_body`、`tests/life/test_parallel_admission.py::test_daily_care_with_walk_is_accepted_in_either_order` |
+| 明确购物与支付应用、明确无应用的到店购买 | `tests/test_start_activity_contract.py::test_purchase_uses_each_observed_quote_and_single_unit`、`tests/test_start_activity_contract.py::test_purchase_preserves_chosen_pickup_when_delivery_is_also_available` |
+| 自定义游戏、音乐与播客内容在恢复后继续消费 | `tests/life/test_acs_runtime.py::test_custom_game_music_and_podcast_execute_real_content_and_continue_after_reopen` |
+| 无应用休息、娱乐中途恢复与订单按实际时间收货 | `tests/life/test_acs_runtime.py::test_first_registered_environment_loop_rest_feed_reopen_and_delivery` |
+| 夹具构造证据的正反校验 | `tests/test_acs_acceptance.py::test_imported_engine_factory_is_real_evidence_but_registered_world_is_not`、`tests/test_acs_acceptance.py::test_factory_name_without_life_engine_constructor_is_not_real_engine_evidence`、`tests/test_acs_acceptance.py::test_unimported_real_factory_cannot_count_as_the_test_fixture` |
 
 <a name="analysis-spec-coverage-其他现行特性的证据归属"></a>
 ## 其他现行特性的证据归属
 
-#### `tests/idle_fillers_acceptance.py`
+其他特性的当前行为与证据文件遵循 [文档入口](../INDEX.md#index-worldmock-文档入口) 与 [验收测试矩阵](../VERIFICATION.md#verification-测试矩阵)。下列链接保留各自固定代码与历史执行边界，不因本次分层改造自动成为新的通过记录。
 
-当期登记共有 65 个唯一源码或测试节点，排序后摘要为 `91d8fceb670b9e0f3ad05261038470986083f0589fa00f3a43444adba9d65d4d`。以下是完整登记；本表只证明登记与本树节点闭合，不声称后续阶段或执行门禁通过。
-
-- `src/worldmock/agents/life_prompt.py`
-- `src/worldmock/evaluation/workload_metrics.py`
-- `src/worldmock/footprints/models.py`
-- `src/worldmock/life/day_planning.py`
-- `src/worldmock/life/duty_edges.py`
-- `src/worldmock/life/rhythm.py`
-- `src/worldmock/life/schedule.py`
-- `src/worldmock/life/time_advance.py`
-- `tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_is_the_frozen_spec_set`
-- `tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_matches_the_engine_side_enum`
-- `tests/idle_fillers_acceptance.py`
-- `tests/integration/test_seven_layer_request.py::test_retired_meal_delivery_and_bedtime_readings_are_gone_from_the_system_layer`
-- `tests/integration/test_seven_layer_request.py::test_rule_14_makes_the_routine_the_default_and_the_day_plan_override_it`
-- `tests/integration/test_seven_layer_request.py::test_rules_7_14_16_say_when_decisions_come_and_that_clock_times_are_approximate`
-- `tests/integration/test_seven_layer_request.py::test_system_layers_are_the_contract_registration_verbatim`
-- `tests/life/test_action_run.py::test_assigned_content_is_finite_and_completion_pulse_is_applied_once`
-- `tests/life/test_activity_wake_facts.py`
-- `tests/life/test_app_push.py::test_sleep_stores_push_without_wake_and_existing_activity_is_unchanged`
-- `tests/life/test_day_planning.py::test_plan_template_is_the_contract_text_and_asks_only_for_differences_with_around_times`
-- `tests/life/test_day_planning.py::test_routine_goals_without_reminders_are_accepted_by_zero_hour_plan_and_revision`
-- `tests/life/test_day_planning.py::test_zero_hour_plan_items_carry_around_time_and_a_malformed_one_is_retried`
-- `tests/life/test_shift_edge_runs.py`
-- `tests/life/test_shift_edge_runs.py::test_t10_an_app_boundary_after_the_edge_does_not_hide_the_edge_from_the_clock`
-- `tests/life/test_shift_edge_runs.py::test_t11_in_a_call_the_call_goes_on_and_pausing_is_still_refused`
-- `tests/life/test_shift_edge_runs.py::test_t11_in_a_conversation_both_chats_go_on_and_pausing_is_still_refused`
-- `tests/life/test_shift_edge_runs.py::test_t11_on_the_road_the_walk_goes_on_and_pausing_is_still_refused`
-- `tests/life/test_shift_edge_runs.py::test_t12_an_app_keeps_its_boundary_and_can_pause_at_the_shift_end`
-- `tests/life/test_shift_edge_runs.py::test_t13_an_around_time_is_still_not_a_boundary`
-- `tests/life/test_shift_edge_runs.py::test_t14_after_restore_and_a_counterfactual_branch_the_edge_fires_once`
-- `tests/life/test_shift_edge_runs.py::test_t15_an_offline_run_with_a_shift_exports_validates_and_reports`
-- `tests/life/test_shift_edge_runs.py::test_t15_the_four_names_are_known_wake_reasons_in_the_quality_report`
-- `tests/life/test_shift_edge_runs.py::test_t19_a_run_starting_on_a_shift_start_records_only_run_start`
-- `tests/life/test_shift_edge_runs.py::test_t19_an_alarm_at_the_shift_start_keeps_the_edge_after_the_reminder`
-- `tests/life/test_shift_edge_runs.py::test_t1_a_waiting_person_is_asked_exactly_at_the_shift_end_and_the_wait_goes_on`
-- `tests/life/test_shift_edge_runs.py::test_t20_an_edge_ends_the_technical_pause_after_the_same_second_budget`
-- `tests/life/test_shift_edge_runs.py::test_t2_each_edge_offers_one_decision_with_its_name_and_moves_the_duty_status`
-- `tests/life/test_shift_edge_runs.py::test_t3_edges_end_no_activity_write_no_new_kind_and_keep_the_shift_in_the_environment_layer`
-- `tests/life/test_shift_edge_runs.py::test_t4_a_sleeper_has_no_edge_boundaries_and_slept_edges_are_not_made_up`
-- `tests/life/test_shift_edge_runs.py::test_t5_of_two_people_on_one_shift_only_the_awake_one_is_asked_and_the_sleeper_sleeps_on`
-- `tests/life/test_shift_edge_runs.py::test_t6_people_without_a_schedule_get_no_edges_and_never_take_anothers`
-- `tests/life/test_shift_edge_runs.py::test_t7_rest_days_have_no_edges_and_a_date_exception_sets_the_clock`
-- `tests/life/test_shift_edge_runs.py::test_t8_coinciding_edges_reminders_and_a_planned_end_are_one_opportunity_in_enum_order`
-- `tests/life/test_shift_edge_runs.py::test_t9_midnight_edges_are_judged_by_the_midnight_rhythm`
-- `tests/life/test_shift_edges.py`
-- `tests/life/test_shift_edges.py::test_awake_snapshot_with_every_condition_lists_the_declaration_order`
-- `tests/life/test_shift_edges.py::test_date_exceptions_override_the_weekly_shift`
-- `tests/life/test_shift_edges.py::test_dst_day_edges_match_shift_and_break_spans`
-- `tests/life/test_shift_edges.py::test_duty_edge_members_follow_errand_reminder_due_and_stay_out_of_sleep`
-- `tests/life/test_shift_edges.py::test_each_duty_edge_member_is_filtered_while_asleep`
-- `tests/life/test_shift_edges.py::test_each_duty_edge_member_is_filtered_while_asleep[break_end]`
-- `tests/life/test_shift_edges.py::test_each_duty_edge_member_is_filtered_while_asleep[break_start]`
-- `tests/life/test_shift_edges.py::test_each_duty_edge_member_is_filtered_while_asleep[shift_end]`
-- `tests/life/test_shift_edges.py::test_each_duty_edge_member_is_filtered_while_asleep[shift_start]`
-- `tests/life/test_shift_edges.py::test_midnight_edges_come_from_the_previous_and_next_local_day`
-- `tests/life/test_shift_edges.py::test_next_decision_time_takes_duty_edges_only_while_awake`
-- `tests/life/test_shift_edges.py::test_rest_days_and_missing_schedules_have_no_edges`
-- `tests/life/test_shift_edges.py::test_strictly_later_excludes_the_query_second_and_exactly_at_includes_it`
-- `tests/life/test_shift_edges.py::test_t10_app_content_boundary_after_shift_end_does_not_hide_the_edge`
-- `tests/life/test_shift_edges.py::test_t12_app_can_pause_at_shift_edge_and_content_completion_stays_quiet`
-- `tests/life/test_wake_reasons.py::test_concrete_wake_reasons_are_preserved`
-- `tests/life/test_wake_reasons.py::test_frozen_wake_and_intent_names`
-- `tests/life/test_wake_reasons.py::test_sleep_allowed_reasons_include_plan_reminder_and_alarm`
-- `tests/test_idle_fillers_acceptance.py`
-- `tests/tools/test_run_viewer.py::test_run_viewer_recorded_names`
-- `tools/run-viewer.html`
+| 特性 | 规范与独立证据 |
+| --- | --- |
+| 一日行为 | [现行规范](SPEC-dayrun-behavior.md#spec-dayrun-behavior-一日行为可信性特性开发规格)、[固定身份验收](research/dayrun-behavior/verification.md) |
+| 当日目标 | [现行规范](SPEC-day-plan-goals.md#spec-day-plan-goals-当日目标特性开发规格)、[固定身份验收](research/day-plan-goals-verification.md) |
+| 地图与门店供给 | [现行规范](SPEC-map-and-storefront.md#spec-map-and-storefront-地图数据集合与门店供给开发规格)、[固定身份验收](research/map-and-storefront-verification.md)、[品类主线组合](research/map-and-storefront-main-verification.md) |
+| 品类契约（已退役） | [历史规范](../archive/category-contract/SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格)、[固定身份验收](../archive/category-contract/category-contract-verification.md) |
+| 决策上下文 | [现行规范](SPEC-decision-context.md#spec-decision-context-特性规格决策上下文与工具结果)、[固定身份验收](research/decision-context-verification.md) |
+| 交互菜单 | [现行规范](SPEC-interaction-menu.md#spec-interaction-menu-特性规格交互菜单)、[固定身份验收](research/interaction-menu-verification.md) |
 
 <a name="analysis-spec-coverage-历史基线说明"></a>
 ## 历史基线说明
 
-历史提交只说明当时证据，不替代本投影的登记闭合或执行回执。
+原 435 行矩阵、全部修订和旧测试统计保存于 [归档快照提交中的原文](https://github.com/HoldThatThgt/WorldMock/blob/2cf230115f4084aef2376e9d77bc976efbed43ea/docs/dev/ANALYSIS-spec-coverage.md)。该完整提交用于定位本次改造前文档原文，不是原审计或本次审查的执行证明。原矩阵自身已说明条款与部分测试被后续特性取代；被删除的测试不再以占位句或白名单充当当前证据。
+
+真实十二周、三次隔离盲评与 LabelKit 完整自然日交付仍未完成。真实复验、strict 端点探针、配对全天复跑的未执行与失败情况见 [当前增量证据边界](../VERIFICATION.md#verification-incremental-evidence)，历史报告保留原事实与实际完整代码基线。
 
 <a name="analysis-spec-coverage-版本表"></a>
 ## 版本表
 
-| 版本 | 说明 |
+| 日期 | 修订 |
 | --- | --- |
-| `2026-10-08-acs-stage-4` | 从阶段 4 实际登记全量生成；未拥有节点不登记，不提前声明通过 |
+| 2026-10-05 | 当前追溯按实际机器登记逐行核对；历史矩阵移为固定提交原文引用，旧通过统计不冒充本次执行结论 |
+| 2026-10-06 | 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1（暂停的活动不占名额）同步改名的登记节点：`test_two_running_activities_block_a_third_until_one_is_paused`、`test_both_paused_at_the_limit_open_start_or_resume`、`test_concluding_a_paused_activity_in_start_or_resume_is_restricted`、`test_rejected_resume_with_both_paused_stays_in_start_or_resume`、`test_conclusion_branch_and_start_or_resume_of_the_ladder`、`test_both_paused_at_the_limit_open_starting_and_resuming_not_ending`；登记行与口径不变 |
+| 2026-10-07 | 资源与规则简化冻结登记：按实际阶段台账追溯合同、纯所有者节点、晚期集成节点和行为变异，冻结阶段不宣称实现完成 |
+| `2026-10-06-rrs-rules` | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
+| `2026-10-06-rrs-store` | 2026-10-07 | 输入警告、食品购买消费与退役主题的实际测试来源同步中央登记；历史数字不作为本阶段执行结论 |
+| `2026-10-06-rrs-work` | 2026-10-07 | 工作主题、最终工具面与退役工作开放、截止、材料、提交、评审的当前测试节点；只登记可执行定义，不代替最终运行回执 |
+| `2026-10-06-rrs-docs`（2026-10-07） | 规范机器台账生成资源与规则简化逐行映射；当前证据与历史特性及正式发布回执分开 |
+| `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |
+| `2026-10-07-acs-receipt` | 2026-10-07 | 被删进食、给予、持有与旧购买节点改指真实收货算子、已核验收货投影及当前付款与收货测试；实际执行以回执为准。 |

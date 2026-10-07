@@ -31,6 +31,9 @@ from worldmock.footprints.models import AssetRef, Event, EventDraft, canonical_j
 from worldmock.footprints.quality import build_quality_report
 from worldmock.footprints.store import FootprintStore
 from worldmock.footprints.validation import validate_export
+from worldmock.life.run_identity import environment_identity
+from worldmock.life.world_setup import load_runtime_scenario
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 
 
 # ---------------------------------------------------------------------------
@@ -53,7 +56,7 @@ def _event(sequence, event_type, *, occurred_at=None, run_id="run", wall_ms=None
 
 
 def _manifest(start=100, end=1100, **extra):
-    payload = {"run_id": "run", "source_group_id": "group",
+    payload = {"run_id": "run", "source_group_id": "group", "work_content_ids": {"1": []},
                "window": {"start": start, "end": end, "timezone": "Asia/Shanghai"}}
     payload.update(extra)
     return payload
@@ -95,7 +98,8 @@ def _run_report(events, activities, manifest):
 
 
 def _make_store(tmp_path, agent_ids=(1,)):
-    manifest = {"run_id": "run", "agent_ids": list(agent_ids),
+    manifest = {"run_id": "run", "source_group_id": "run", "agent_ids": list(agent_ids),
+                "work_content_ids": {str(i): [] for i in agent_ids},
                 "window": {"start": 100, "end": 300, "timezone": "UTC"}}
     return FootprintStore.create(tmp_path / "run", manifest,
                                  {"version": 0, "current_time": 100})
@@ -104,13 +108,15 @@ def _make_store(tmp_path, agent_ids=(1,)):
 def _complete_export(tmp_path):
     """@brief 构造一个可通过 validate_export 的完整终态导出，返回目录。"""
     manifest = {"run_id": "run", "source_group_id": "run", "agent_ids": [1],
+                "schema_version": 4, "work_content_ids": {"1": []},
+                "environment_identity": environment_identity(load_runtime_scenario(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]),
                 "model_identity": {"name": "fixture"},
                 "window": {"start": 100, "end": 200, "timezone": "UTC"}}
-    store = FootprintStore.create(tmp_path / "run", manifest, {"version": 0, "current_time": 100})
+    store = FootprintStore.create(tmp_path / "run", manifest, {"schema_version": 11, "version": 0, "current_time": 100})
     observation = EventDraft(event_type="observation", occurred_at=100, agent_id=1,
                              decision_id="decision", data={"energy_kcal": 100})
     store.commit(store.state, [observation])
-    store.commit({"version": 1, "current_time": 200},
+    store.commit({"schema_version": 11, "version": 1, "current_time": 200},
                  [EventDraft(event_type="run_ended", occurred_at=200, visibility="system")])
     reference = store.assets.put_json({"saved": "complete"}, {"kind": "fixture"})
     point = store.checkpoint(store.state, {"agent:1": reference, "life": reference})
@@ -206,31 +212,17 @@ def test_watch_repeat_report_missing_targets_and_single_session_groups():
     report = _run_report([actual], activities, _manifest(end=200))['content_contact']
     assert report['repeat_watch'] == 1
     assert report['by_app'] == {'bilibili': 1}
-    assert report['by_kind'] == {'long_video': 1}
+    assert report['by_action'] == {'recommend': 1}
+    assert report['repeat_seconds_share'] == 1.0
 
 
 def test_efficiency_reports_missing_and_partial_samples():
     events = [
-        # 工作结算：一个有效、一个无效（时长为零）。
-        _event(1, "activity_progress", data={
-            "activity": {"kind": "work"},
-            "interval_start": 100, "interval_end": 101, "activity_efficiency": 0.5,
-        }),
-        _event(2, "activity_progress", data={
-            "activity": {"kind": "work"},
-            "interval_start": 102, "interval_end": 102, "activity_efficiency": 0.5,
-        }),
-        # 非食用不进入食品利用效率分母。
-        _event(3, "activity_progress", data={
-            "activity": {"kind": "consume"}, "consumption": {"use_mode": "use"},
-        }),
-        # 正增量食用已发生，但本活动食品效率缺失。
-        _event(4, "activity_progress", data={
-            "activity": {"kind": "consume"},
-            "interval_start": 103, "interval_end": 104,
-            "consumption": {"use_mode": "eat", "items": [{"food_id": "food", "interval_portion": 0.5}]},
-        }),
-        _event(5, "run_ended", occurred_at=200),
+        _event(1, "environment_event", agent_id=1,
+               data={"kind": "goods_received", "category": "daily", "provided": 0.05, "applied": 0.02}),
+        _event(2, "environment_event", agent_id=1,
+               data={"kind": "goods_received", "category": "meal", "provided": 400, "applied": None}),
+        _event(3, "run_ended", occurred_at=200),
     ]
     efficiency = _run_report(events, [], _manifest(end=200))["conversion_efficiency"]
     assert "work" not in efficiency

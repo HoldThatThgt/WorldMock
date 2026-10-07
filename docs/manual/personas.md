@@ -71,7 +71,6 @@ flowchart LR
 
 画像对照登记动作、地点、商品与 app 名称，习惯按关键词，媒体对动作名作双向子串匹配、对全部 app 名作精确匹配；`tastes` 是散文，不产生数值权重。
 
-
 <a name="personas-在场景中填写人物"></a>
 ## 在场景中填写人物
 
@@ -249,7 +248,6 @@ worldmock profile validate \
 与人物有关的警告码见下方常见错误。警告本身不让校验失败；覆盖率低于 80% 时校验仍然失败（先写出警告），
 新建运行对同样的卡片只记 `COVERAGE_BELOW_THRESHOLD` 警告，照常运行。
 
-
 <a name="personas-常见错误"></a>
 ## 常见错误
 
@@ -270,7 +268,6 @@ worldmock profile validate \
 [画像规格](../dev/SPEC-life-realism.md#spec-life-realism-画像编译)和[人物配置加载器](../../src/worldmock/life/scenario.py)。
 
 运行警告只有六个码；无内容警告的 `details` 为 `media` 与 `habits`，不保留口味或游戏权重字段。覆盖率失败时核对目录食品名、习惯关键词、五个内容标签与全部 app 名。
-
 
 <a name="personas-习惯的行为核验目标"></a>
 ## 习惯的行为核验目标

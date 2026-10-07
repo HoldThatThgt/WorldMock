@@ -309,6 +309,9 @@ def test_real_navigation_and_action_batch_selects_once_in_new_road_session_and_e
     monkeypatch.setattr(action_run, "select_content", select)
     pump(engine, lambda: engine.context.state.current_time == engine.context.state.end_time)
     point = checkpoint(engine)
+    directory = tmp_path / "road-export"
+    manifest = export_run(engine.context.store, point.last_event_seq, directory)
+    assert validate_export(directory)[0] == manifest
 
 
 @pytest.mark.parametrize("asleep", [False, True])

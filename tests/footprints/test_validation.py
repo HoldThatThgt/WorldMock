@@ -52,7 +52,7 @@ def _covered_card():
         habits=(HabitSignature(trigger="下班到家", response="去五里公园散步",
                                time_window=make_window(19.0, 20.0)),),
         tastes=Tastes(content_genres=("悬疑",), food_preferences=("牛肉面",),
-                      media=("长视频",)))
+                      media=("刷推荐",)))
 
 
 def _story_scenario(tmp_path):
@@ -69,10 +69,10 @@ def _story_scenario(tmp_path):
 
 @pytest.fixture
 def complete_export(tmp_path):
-    manifest = {'schema_version': 3, 'environment_identity': environment_identity(load_runtime_scenario(SCENARIO)[0]),
+    manifest = {'schema_version': 4, 'work_content_ids': {'1': []}, 'environment_identity': environment_identity(load_runtime_scenario(SCENARIO)[0]),
                 'run_id': 'run', 'source_group_id': 'run', 'agent_ids': [1],
                 'model_identity': {'name': 'fixture'}, 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}}
-    store = FootprintStore.create(tmp_path / 'run', manifest, {'schema_version': 10, 'version': 0, 'current_time': 100})
+    store = FootprintStore.create(tmp_path / 'run', manifest, {'schema_version': 11, 'version': 0, 'current_time': 100})
     observation = EventDraft(event_type='observation', occurred_at=100, agent_id=1, decision_id='decision',
                               data={'energy_kcal': 100})
     model_request = EventDraft(event_type='model_request', occurred_at=100, agent_id=1,
@@ -87,10 +87,10 @@ def complete_export(tmp_path):
                                    }})
     request = EventDraft(event_type='action_requested', occurred_at=100, agent_id=1, decision_id='decision',
                          action_id='request', data={'tool_name': 'start_activity', 'request': StartActivityRequest(
-                             items=[{'target': '自己', 'way': '等待', 'from': None, 'to': None}],
-                             answering=None, prefer=None).model_dump(mode='json')})
+                             items=[{'target': '自己', 'way': '等待', 'app': None, 'to': None, 'pay_app': None}],
+                             answering=None).model_dump(mode='json')})
     store.commit(store.state, [observation, model_request, request])
-    store.commit({'schema_version': 10, 'version': 1, 'current_time': 200}, [EventDraft(event_type='run_ended', occurred_at=200, visibility='system')])
+    store.commit({'schema_version': 11, 'version': 1, 'current_time': 200}, [EventDraft(event_type='run_ended', occurred_at=200, visibility='system')])
     reference = store.assets.put_json({'saved': 'complete'}, {'kind': 'fixture'})
     point = store.checkpoint(store.state, {'agent:1': reference, 'life': reference})
     directory = tmp_path / 'export'
@@ -219,9 +219,9 @@ def test_validate_project_rejects_an_invalid_current_food_registration(tmp_path,
 
     monkeypatch.setattr(worldmock_run_setup_module, "_configure_process", lambda _root: None)
     path = _story_scenario(tmp_path)
-    foods = path.parent.parent / "catalog/foods.json"
+    foods = path.parent.parent / "catalog/goods.json"
     payload = json.loads(foods.read_text())
-    payload["foods"][0]["store_ids"] = ["unknown-store"]
+    payload["goods"][0]["store_ids"] = ["unknown-store"]
     foods.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     refresh_manifest_identity(foods.parent)
     output = tmp_path / "persona_coverage.json"
@@ -236,17 +236,16 @@ def test_build_coverage_targets_derives_from_catalog_and_corpora():
     from worldmock.life.world_setup import load_scenario
 
     scenario = load_scenario(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
-    targets = build_coverage_targets(scenario, load_catalog(ARTIFICIAL_ENVIRONMENT_ROOT / "catalog"),
-                                     ARTIFICIAL_ENVIRONMENT_ROOT / "corpora")
+    targets = build_coverage_targets(scenario, load_catalog(ARTIFICIAL_ENVIRONMENT_ROOT / "catalog"))
 
     assert "五里公园" in targets.habit_response_keywords
     assert "安静休息" in targets.habit_response_keywords
     assert "牛肉面" in targets.food_kinds
-    assert set(targets.media_kinds) == {"文章", "图文", "短视频", "长视频", "实况"}
-    assert set(targets.app_names) == {"哔哩哔哩", "抖音", "饿了么", "美团"}
+    assert {"刷推荐", "办公"} <= set(targets.action_names)
+    assert "media_kinds" not in type(targets).model_fields
+    assert {"哔哩哔哩", "抖音", "饿了么", "美团"} <= set(targets.app_names)
     assert "content_genres" not in type(targets).model_fields
-    again = build_coverage_targets(scenario, load_catalog(ARTIFICIAL_ENVIRONMENT_ROOT / "catalog"),
-                                   ARTIFICIAL_ENVIRONMENT_ROOT / "corpora")
+    again = build_coverage_targets(scenario, load_catalog(ARTIFICIAL_ENVIRONMENT_ROOT / "catalog"))
     assert again == targets
 
 

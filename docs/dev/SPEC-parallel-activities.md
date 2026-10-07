@@ -32,7 +32,6 @@ flowchart LR
 
 环境不判断跨种组合合不合情理（issue 待裁决 8，用户裁定先只改第 8 条措辞）；两个名额仍是常量 2；交谈与通话仍不能暂停，路上的活动仍不能暂停。
 
-
 <a name="spec-parallel-activities-裁决记录"></a>
 ## 裁决记录
 
@@ -59,7 +58,6 @@ flowchart LR
 | R9 | 本修复不设独立的验收登记与变异登记，证据由「随实现一起改的测试」与「门禁与平台」给出；含义已不成立的既有用例改名，并同步登记它们的既有台账，其余原位改断言 |
 | R10 | 与把引擎资源和发布环境分开的 `main` 合流后，完整日不再与冻结签名逐字节比较，而是逐字段核对实际存储（[环境数据归属规格](SPEC-environment-data-ownership.md)），本修复不需要新的完整日夹具；完整回归要用 `--environment-root` 指向发布环境，仍带旧占用名的发布环境重新发布之后才能运行（阶段 5） |
 
-
 <a name="spec-parallel-activities-甲名额"></a>
 ## 甲：暂停的活动不占名额
 
@@ -72,7 +70,6 @@ flowchart LR
 - `SESSION_LIMIT_EXCEEDED` 的原因点名占名额的活动：只剩一个名额时 `Only one activity slot remains because … occupies a slot.`，名额占满时 `Both activity slots are occupied by ….`；下一步按 R3。未带原因抛出该码时的缺省原因不再提暂停的活动。
 - 出发前仍要结束或暂停进行中的活动；只有暂停的活动时可以出发，它们留在原地。
 - 同刻决策：到达同刻上限、没有进行中也没有待收尾的活动时，下一阶段一律是开始或恢复（`start_or_resume`），不再按名额分流。待收尾时仍进入只收尾的阶段。
-
 
 <a name="spec-parallel-activities-名额情形"></a>
 ### 各种情形
@@ -88,7 +85,6 @@ flowchart LR
 | 在别处结束暂停的活动 | 受理 | 受理 |
 | 名额被一项通话与一项 app 使用占满 | 下一步写结束或暂停任一项 | `Conclude one of …, or pause …, first.`，暂停只点名 app 使用 |
 
-
 <a name="spec-parallel-activities-名额落点"></a>
 ### 代码落点
 
@@ -100,7 +96,6 @@ flowchart LR
 | life/session_actions.py | 世界请求原子结算，结束与暂停保留真实内容进度 |
 | life/same_moment.py、decision_coordinator.py | 同秒阶梯与预算不按暂停数量分流 |
 | life/models.py | 世界结构 11，暂停、待收尾、内容进度、驾驶日和闹钟完整恢复 |
-
 
 
 <a name="spec-parallel-activities-乙同一种"></a>
@@ -134,7 +129,6 @@ flowchart LR
 规则只从包资源 src/worldmock/data/affordances.toml 读取；只声明四种活动 wait、sleep、travel、action，类别与使用方式的占用由固定表派生。目录格式 2 只有六份环境文件，不含规则副本。
 
 catalog/affordances.py 解析固定 kinds 视图；exchange/types.py 和 constants.py 定义类别、方式及资源闭集。admission、activity_control 与 models 共用同一固定占用计算，恢复逐项核对真实快照与登记。旧占用名、家族、动作类和规则副本直接拒绝，不兼容或迁移。
-
 
 
 <a name="spec-parallel-activities-丙第8条"></a>
@@ -182,7 +176,6 @@ catalog/affordances.py 解析固定 kinds 视图；exchange/types.py 和 constan
 | `docs/manual/scenarios.md`「修改日期与模拟节奏」「限制人物可以做什么」 | 同刻上限后只开放开始或恢复；暂停的活动不占名额 |
 | `tests/fixtures/acceptance_requirements.json` 同刻决策与会话两行的判据文字 | 随文更正（不改节点名与状态列） |
 
-
 <a name="spec-parallel-activities-文档乙"></a>
 ### 阶段 2（乙）
 
@@ -195,7 +188,6 @@ catalog/affordances.py 解析固定 kinds 视图；exchange/types.py 和 constan
 | `docs/manual/rules.md`「活动声明」 | 占用名 |
 | `docs/EXPERIMENT.md`「交互菜单与运行身份」 | 占用声明改变 `tool_schema_sha256`；仍带旧占用名的外部环境要重新发布 |
 
-
 <a name="spec-parallel-activities-文档丙"></a>
 ### 阶段 3（丙）
 
@@ -205,13 +197,10 @@ catalog/affordances.py 解析固定 kinds 视图；exchange/types.py 和 constan
 | `docs/CONTRACTS.md`「七层 Schema」的分阶段指纹叙述 | 补一句：系统层第 8 条原位改写（仍为十八条）使 `prompt_sha256` 重钉，`tool_schema_sha256` 不变 |
 | `docs/EXPERIMENT.md`「交互菜单与运行身份」、`docs/design/04-simulation-engine.md`「当前实现边界」 | 第 8 条改写改变 `prompt_sha256`，工具面与各层 Schema 不变 |
 
-
 <a name="spec-parallel-activities-文档记录"></a>
 ### 阶段 4（记录）
 
 `docs/dev/implementation-status.md` 新增本修复一节（范围、三个阶段的提交、证据层级与平台、未执行的完整日基线）；`docs/INDEX.md` 冻结时登记本规格（`FROZEN`），被修订的生活运行时、数字人交互、人物规格、一日行为、LabelKit 交付各行注明修订部分与阶段，阶段落地后写「修订条款已实现」，版本表加行。
-
-
 
 <a name="spec-parallel-activities-测试"></a>
 ## 随实现一起改的测试
@@ -241,7 +230,6 @@ catalog/affordances.py 解析固定 kinds 视图；exchange/types.py 和 constan
 | 既有登记与变异不回退 | 1–3 | 既有特性的登记守卫；个人事务与让「等待」成为例外的变异执行（未变异时杀手节点全部通过） |
 | 文档与汇编 | 1–4 | 设计说明书汇编 `--check`、文档门禁、风格门禁、导入图与单一来源守卫 |
 
-
 <a name="spec-parallel-activities-实施阶段"></a>
 ## 实施阶段与提交
 
@@ -256,12 +244,10 @@ catalog/affordances.py 解析固定 kinds 视图；exchange/types.py 和 constan
 
 每个代码提交前，以针对文件的 pytest 运行该阶段改动与新增的测试文件、直接相关的测试文件和既有特性的登记守卫；设计汇编 `--check`。
 
-
 <a name="spec-parallel-activities-门禁与平台"></a>
 ## 门禁与平台
 
 本机（Windows）`scripts/run_tests.py` 在收集阶段因 TextWorld 没有 Windows 制品失败，按[让「等待」成为例外规格的门禁与平台](SPEC-idle-fillers.md#spec-idle-fillers-门禁与平台)的口径以针对文件的 pytest 代替；文档门禁与字节相关的检查在 `core.autocrlf=false` 的独立检出里执行。标准层、全量层、覆盖率门禁与完整日基线在 POSIX 平台执行，未执行的如实写进实现状态，不写成通过。
-
 
 <a name="spec-parallel-activities-配对复跑"></a>
 ## 配对复跑指标
@@ -278,12 +264,10 @@ catalog/affordances.py 解析固定 kinds 视图；exchange/types.py 和 constan
 
 守护项：当班时段的观看分钟；暂停活动的个数与最长暂停时长；同刻决策轮数与 `decision_budget_exhausted`；午餐与晚餐各一次；工时与提交；就寝时间。
 
-
 <a name="spec-parallel-activities-不在本规格内"></a>
 ## 不在本规格内
 
 issue #4 的下列待裁决事项不由本规格决定，现行行为不变：系统层第 7 条与等待的默认时长（待裁决 2、5）；工具层的正面并行提示（4）；人设卡「饭后」触发词（6）；准入读仓库注册表还是场景目录的声明（7）；环境侧拦不合情理组合的排除项（8）；场景没有播客时「只适合再配听的」落空（9，数据集一侧补播客）；做饭时能否吃（10）；一顿最多两样（11）。
-
 
 <a name="spec-parallel-activities-已知局限"></a>
 ## 已知局限
@@ -293,7 +277,6 @@ issue #4 的下列待裁决事项不由本规格决定，现行行为不变：�
 - `RESOURCE_CONFLICT` 的下一步仍写「Conclude or pause …」，被点名的是交谈或通话时暂停会被拒（R3 只改名额超限）。
 - 暂停的活动没有上限，长期不处理会在待办层堆积（R1）。
 - 一个请求里恢复两项而只剩一个名额时，第二项的原因点名第一项（R4）。
-
 
 <a name="spec-parallel-activities-版本表"></a>
 ## 版本表

@@ -15,8 +15,9 @@
 
 from __future__ import annotations
 
-from worldmock.life.schedule import ACTIVITY_KIND_FAMILIES, LIFESTYLE_CATEGORY_FAMILIES, activity_family
+from worldmock.life.schedule import ACTIVITY_KIND_FAMILIES, ACTION_CATEGORY_FAMILIES, activity_family
 from worldmock.footprints.intervals import valid_interval, body_settlements
+from worldmock.footprints.purchases import project_purchase_facts
 from worldmock.footprints.timeline_labels import local_day_bounds, window_days
 from worldmock.life.memory_evidence import valid_subjective_snapshot
 import math
@@ -31,22 +32,9 @@ from worldmock.evaluation.workload_metrics import WorkdayInputs, workday_reports
 
 #: 十类活动家族闭集（外出 outing 并入通勤，见 CONVENTIONS）。
 ACTIVITY_FAMILY_ORDER = (
-    "sleep", "morning_routine", "commute", "work", "meal", "rest",
+    "sleep", "morning_routine", "commute", "work", "rest",
     "entertainment", "social", "chore", "exercise",
 )
-
-#: 原始活动 kind 到家族的确定性映射；wait 计入休息，consume 需实际 eat 证据才计用餐。
-
-#: lifestyle 快照携带 category（现有语料品类）或 family（闭集名）时的映射。
-
-_FAMILY_ALIASES = {
-    "sleep": "sleep", "睡眠": "sleep", "morning_routine": "morning_routine",
-    "晨间例程": "morning_routine", "commute": "commute", "通勤": "commute",
-    "work": "work", "工作": "work", "meal": "meal", "用餐": "meal", "rest": "rest",
-    "休息": "rest", "entertainment": "entertainment", "娱乐": "entertainment",
-    "social": "social", "社交": "social", "chore": "chore", "家务": "chore",
-    "exercise": "exercise", "运动": "exercise", "outing": "outing", "外出": "outing",
-}
 
 #: 2018 年全国时间利用调查公报参照（分钟；城镇/工作日口径，居民均值，docs/VERIFICATION.md#verification-worldmock-验收标准「真实性评估与结论边界」）。
 #: 睡觉 9h13m、个人卫生 50m、用餐 1h44m、就业参与者工作 7h40m、交通 44m、
@@ -63,12 +51,11 @@ REFERENCE_SOURCE = (
 
 #: JS 距离口径说明（闭集聚合与参照桶的合并规则）。
 CONVENTIONS = [
-    "外出(outing)并入通勤(commute)口径，闭集聚合为十类",
     "wait 活动时间计入休息(rest)",
-    "consume 活动仅有 eat 真实进度时计入用餐；use 模式未归类",
-    "参照的看电视(100m)与休闲娱乐(65m)合并为屏幕娱乐 165m 口径",
-    "休息与家务无参照项，并入无参照桶（参照 0 分钟）",
-    "lifestyle 活动缺 family/category 字段时计为未归类分钟，不进入 JS 距离",
+    "action 活动按五个固定类别归入对应家族",
+    "参照的用餐与个人卫生分钟没有模拟活动对应物",
+    "参照的看电视与休闲娱乐合并为屏幕娱乐 165 分钟",
+    "休息与家务无参照项，并入无参照桶",
 ]
 
 #: MEMORY.md 示例身份残留标记（来源：AS2 memory_runtime.py:55-56 巩固提示示例）。
@@ -155,7 +142,7 @@ def _group_report(
         "workload": workload["workload"],
         "routine_deviation": workload["routine_deviation"],
     }
-    return {"schema_version": "behavior-metrics-1", "gates": gates, "reports": reports, "notes": notes}
+    return {"schema_version": "behavior-metrics-2", "gates": gates, "reports": reports, "notes": notes}
 
 
 def _gate(value: Any, comparison: str, threshold: Any, note: str | None = None) -> dict[str, Any]:
@@ -437,7 +424,8 @@ def _content_contact_minutes(events: list[dict[str, Any]]) -> dict[str, Any]:
     """@brief 只计真实前进的媒体位置，不把等待或浏览目录算内容接触。"""
     per_agent: dict[str, float] = {}
     for event in _activity_progress_events(events):
-        if _snapshot(event).get("kind") != "use_app":
+        if _snapshot(event).get("kind") != "action" or (
+                _snapshot(event).get("data", {}).get("category") != "entertainment"):
             continue
         content = event.get("data", {}).get("content")
         if not isinstance(content, dict):
@@ -560,33 +548,14 @@ def _sleep_summary(valid: list[dict[str, Any]], zone: ZoneInfo) -> dict[str, Any
 
 
 def _meal_sessions(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """@brief 把真实 eat 正增量按活动去重，购买与提交请求不算进食。"""
-    sessions: dict[str, dict[str, Any]] = {}
-    for event in _activity_progress_events(events):
-        if _snapshot(event).get("kind") != "consume":
-            continue
-        consumption = event.get("data", {}).get("consumption")
-        if not isinstance(consumption, dict) or consumption.get("use_mode") != "eat":
-            continue
-        items = consumption.get("items")
-        if not isinstance(items, list):
-            continue
-        products = {str(item["food_id"]) for item in items if isinstance(item, dict)
-                    and isinstance(item.get("food_id"), str)
-                    and isinstance(item.get("interval_portion"), (int, float))
-                    and item["interval_portion"] > 0}
-        if not products:
-            continue
-        identity = str(event.get("activity_id"))
-        session = sessions.setdefault(identity, {"occurred_at": event.get("occurred_at"),
-                                                 "products": set()})
-        session["products"].update(products)
-    return [{"activity_id": identity, "occurred_at": item["occurred_at"],
-             "products": sorted(item["products"])} for identity, item in sorted(sessions.items())]
+    """@brief 每张本人食品收货订单是一次真实收货，不推导用餐区间。"""
+    return [{"occurred_at": row["received_at"], "products": [row["goods_id"]], "order_id": row["order_id"]}
+            for row in project_purchase_facts(events) if row["fact_kind"] == "receipt"
+            and row["category"] in {"meal", "drink", "snack"}]
 
 
 def _meal_diversity(events: list[dict[str, Any]]) -> dict[str, Any]:
-    """@brief 只以真实食用活动的食品标识计算 Simpson 集中度与 24 小时重复率。"""
+    """@brief 只以本人食品收货的商品标识计算 Simpson 集中度与 24 小时重复率。"""
     consumed = _meal_sessions(events)
     product_counts: Counter[str] = Counter()
     for event in consumed:
@@ -594,11 +563,11 @@ def _meal_diversity(events: list[dict[str, Any]]) -> dict[str, Any]:
     total_units = sum(product_counts.values())
     if not product_counts or not total_units:
         return {"simpson_concentration": None, "repetition_24h_rate": None,
-                "consume_event_count": len(consumed), "distinct_products": len(product_counts)}
+                "receipt_count": len(consumed), "distinct_products": len(product_counts)}
     simpson = sum((count / total_units) ** 2 for count in product_counts.values())
     return {"simpson_concentration": round(simpson, 6),
             "repetition_24h_rate": _repetition_24h(consumed),
-            "consume_event_count": len(consumed), "distinct_products": len(product_counts),
+            "receipt_count": len(consumed), "distinct_products": len(product_counts),
             "product_counts": dict(sorted(product_counts.items()))}
 
 
@@ -619,15 +588,9 @@ def _repetition_24h(consumed: list[dict[str, Any]]) -> float | None:
 
 
 def _family_of(snapshot_data: Mapping[str, Any]) -> str | None:
-    """@brief 将活动快照映射到十类闭集；lifestyle 需 family/category 字段。"""
-    kind = str(snapshot_data.get("kind"))
-    if kind != "lifestyle":
-        return ACTIVITY_KIND_FAMILIES.get(activity_family(snapshot_data))
-    for field, table in (("family", _FAMILY_ALIASES), ("category", LIFESTYLE_CATEGORY_FAMILIES)):
-        value = snapshot_data.get(field)
-        if isinstance(value, str) and value.lower() in table:
-            return table[value.lower()]
-    return None
+    """@brief 系统活动与动作类别使用共同家族映射。"""
+    token = activity_family(snapshot_data)
+    return {**ACTIVITY_KIND_FAMILIES, **ACTION_CATEGORY_FAMILIES}.get(token)
 
 
 def _family_minutes(events: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
@@ -637,10 +600,6 @@ def _family_minutes(events: list[dict[str, Any]]) -> dict[str, dict[str, float]]
         run_id = str(event.get("run_id"))
         agent = str(event.get("agent_id"))
         family = _family_of(_snapshot(event))
-        if _snapshot(event).get("kind") == "consume":
-            consumption = event.get("data", {}).get("consumption")
-            if not isinstance(consumption, dict) or consumption.get("use_mode") != "eat":
-                family = None
         bucket = totals.setdefault(run_id, {}).setdefault(agent, {})
         key = family or "unclassified"
         bucket[key] = bucket.get(key, 0.0) + _interval_minutes(event)
@@ -665,7 +624,7 @@ def _js_buckets(family_minutes: Mapping[str, float]) -> list[float]:
     commute = family_minutes.get("commute", 0.0) + family_minutes.get("outing", 0.0)
     return [
         family_minutes.get("sleep", 0.0), family_minutes.get("morning_routine", 0.0),
-        family_minutes.get("meal", 0.0), family_minutes.get("work", 0.0), commute,
+        0.0, family_minutes.get("work", 0.0), commute,
         family_minutes.get("social", 0.0), family_minutes.get("exercise", 0.0),
         family_minutes.get("entertainment", 0.0),
         family_minutes.get("rest", 0.0) + family_minutes.get("chore", 0.0),
@@ -753,9 +712,11 @@ def _social(events: list[dict[str, Any]], notes: list[str]) -> dict[str, Any]:
     for event in events:
         data = event.get("data", {})
         if event.get("event_type") == "activity_progress":
-            kind = _snapshot(event).get("kind")
-            if kind in {"chat", "call"}:
-                minutes[kind] += _interval_minutes(event)
+            snapshot = _snapshot(event)
+            activity = snapshot.get("data", {})
+            if snapshot.get("kind") == "action" and activity.get("category") == "social":
+                mode = "call" if activity.get("communication_mode") == "voice" else "chat"
+                minutes[mode] += _interval_minutes(event)
         if event.get("event_type") == "action_requested" and data.get("tool_name") == "send_message":
             sent += 1
         if event.get("event_type") == "environment_event" and data.get("kind") == "message_arrival":

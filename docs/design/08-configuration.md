@@ -31,7 +31,6 @@
 环境引导只提供 release/dev、wheelhouse 和显式 uv 安装选择，不增加场景配置层。收据绑定 Python、依赖锁、AS2 身份及缺失部件，全部项目路径相对仓库。release 缺 Node 或中文图表字体失败；dev 可明确跳过相关检查，但不能取得完整放行。
 
 
-
 <a name="design-configuration-current-responsibility"></a>
 ## 冻结输入与可重建测试
 
@@ -77,7 +76,6 @@
 | `2026-10-07-acs-rules` | 2026-10-07 | Codex | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |
 | `2026-10-07-acs-receipt` | 2026-10-07 | 付款与收货分别留证，收货由唯一函数恰好结算一次，效果与证据归收货人；个人事务七键，用餐目标按本人 meal 收货推进。 | Codex |
 
-
 <a name="configuration-模块概述"></a>
 ## 1. 模块概述
 
@@ -113,8 +111,6 @@ flowchart LR
 | **溯源分类** | 参数注明来源 | 分类与字段见[资源引擎的来源分类](03-resource-engine.md#resource-engine-来源分类) |
 | **确定性加载** | 相同配置产生相同行为 | 禁止运行时随机化 |
 | **凭证隔离** | 敏感信息不进版本控制 | 凭证位于 `~/.config/worldmock/` |
-
-
 
 <a name="configuration-配置层级与加载顺序"></a>
 ## 2. 配置层级与加载顺序
@@ -153,7 +149,6 @@ flowchart LR
 | 人物差异、作息覆盖与编译映射 | 人物画像和场景既有合同 |
 
 没有初始商品持有或人物动机配置。
-
 
 
 <a name="configuration-场景配置文件"></a>
@@ -248,7 +243,6 @@ null，不读映射表缺省），AgentConfig 的缺省值不进卡片。
 `runtime_code_sha256` 另外哈希 `src/worldmock/data/` 下每个文件，目录不重复存储规则哈希。
 
 
-
 <a name="configuration-资源目录引用"></a>
 ## 4. 资源目录引用
 
@@ -302,7 +296,6 @@ null，不读映射表缺省），AgentConfig 的缺省值不进卡片。
 └── deepseek.env
 ```
 
-
 <a name="configuration-格式与加载边界"></a>
 ### 7.2 格式与加载边界
 
@@ -314,8 +307,6 @@ null，不读映射表缺省），AgentConfig 的缺省值不进卡片。
 逐段去除首尾空白并按出现顺序去重后，把密钥池交给 LiteLLM Router 分摊请求。
 `0600` 是推荐权限，当前加载器没有权限位强制检查，也没有密钥长度大于 20 的检查。
 画像抽取与模拟启动的凭据读取顺序不同，详见手册；不在此处保留与实际实现不同的加载伪代码。
-
-
 
 <a name="configuration-配置验证"></a>
 ## 8. 配置验证
@@ -366,7 +357,6 @@ uv run worldmock validate --environment examples/environment
 完整登记码见[注册校验与错误](../dev/SPEC-action-and-content-simplification.md#spec-acs-注册校验与错误)。
 
 
-
 <a name="configuration-配置版本与运行绑定"></a>
 ## 9. 配置版本与运行绑定
 
@@ -391,7 +381,6 @@ uv run worldmock validate --environment examples/environment
 | **真实初始状态** | 按能量、睡眠不足与需要的实际单位设置初值，满足各自边界并保留实验假设来源 |
 | **显式交互菜单** | 每个地点类与人物都按当前合同声明；人物无限制使用显式 `null`，不省略字段 |
 
-
 <a name="configuration-语料管理"></a>
 ### 10.2 语料管理
 
@@ -404,7 +393,6 @@ uv run worldmock validate --environment examples/environment
 
 对象与绑定更新由数据仓再发布。类别、状态效果、供给表或交换公式变化由 WorldMock 修改并提高 `RULES_VERSION`，不保留旧格式。
 包内固定规则和人物映射进入代码身份；规则不复制到环境，也不接受场景覆盖。
-
 
 
 <a name="configuration-参考文献"></a>

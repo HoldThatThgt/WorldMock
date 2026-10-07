@@ -60,6 +60,7 @@ system 为 JSON、`layer` 为「系统层」且 `role` 为生活决策的角色�
 
 
 
+
 <a name="spec-run-viewer-context-增长与退出"></a>
 ## 增长与退出
 
@@ -89,6 +90,7 @@ system 为 JSON、`layer` 为「系统层」且 `role` 为生活决策的角色�
 最终导出夹具还必须覆盖 `use_app`、方式“打开”、`app_push`“app 推送”、
 `work_topic_completed`“工作主题完成”，并核对 22 个唤醒标签。该计数是 Node 用例的强制断言；
 执行结论只来自阶段 7 同一源码身份的实际回执，不由本文声明。
+
 
 <a name="spec-run-viewer-context-版本表"></a>
 ## 版本表

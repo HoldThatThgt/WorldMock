@@ -265,7 +265,7 @@ def test_interval_consumers_do_not_count_invalid_settlements(start, end):
     assert not valid_interval(start, end)
     assert quality._activity_quality([], [event])['body_settlements_missing_interval'] == 1
     assert behavior_metrics._person_elapsed_minutes([row], [])['missing_interval_events'] == 1
-    agent = workload_metrics.AgentWorkday(None, 'home', None, None)
+    agent = workload_metrics.AgentWorkday(None, 'home', (), None, None)
     timeline = workload_metrics._timeline([row], agent, __import__('zoneinfo').ZoneInfo('UTC'))
     assert (timeline.start, timeline.end) == (0, 0)
     progress = {**row, 'event_type': 'activity_progress', 'activity_id': 'activity',
@@ -307,7 +307,7 @@ def test_renderer_and_label_report_use_manifest_timezone_and_real_local_day(zone
     assert behavior_metrics._agent_days([{'agent_id': 1, 'occurred_at': start},
                                         {'agent_id': 1, 'occurred_at': end-1}], '1', zone_info) == 1
     body = _body(start, end).model_dump()
-    agent = workload_metrics.AgentWorkday(None, 'home', None, None)
+    agent = workload_metrics.AgentWorkday(None, 'home', (), None, None)
     timeline = workload_metrics._timeline([body], agent, zone_info)
     assert workload_metrics._days(timeline, zone_info) == [day]
 

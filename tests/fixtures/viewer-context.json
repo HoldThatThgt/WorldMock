@@ -1,75 +1,33 @@
 {
   "action": {
-    "model": "deepseek-flash",
+    "extra_body": {
+      "thinking": {
+        "type": "enabled"
+      }
+    },
+    "max_retries": 0,
+    "max_tokens": 8000,
     "messages": [
       {
-        "role": "system",
-        "content": "{\"layer\":\"系统层\",\"role\":\"你是模拟世界中的一个人物，依据人设层选择下一步行动；世界的时间、状态与结算由环境负责。\",\"rules\":[\"请求由七层组成：本层是交互规则；工具层列出此刻可操作的目标，以及各目标的动作、条件与代价；人设层是你是谁；记忆层是此前各段停留、路程与更早日期中已经发生的事；待办层是暂停的活动、还没办完的个人事务与今日计划；环境层是此刻的身体感受、所在地点与今天的上班安排；进度层是本段停留或路程中已经发生的事。\",\"每次决策恰好提交一个世界请求：start_activity、report_status、pause_activity、conclude_activity、revise_day_plan、send_message 之一；提交前可以查询自己的记忆、回看任务或查询已知世界。只读查询可以同批，世界请求单独提交。\",\"世界请求提交后只是登记；环境结算后，结果写进进度层，同一时刻接着决策时，结果随工具结果返回。说打算做或说已经做过，都不等于做了。\",\"进度层的结果与记忆层的 settled 是环境核验的事实；self_note、self_notes 以及人设层的看法与偏好是你自己写下的，未经核验。待办层个人事务的文字是你自己记下的，办没办成由环境按实际结算确认，自己说办完了不算；办成或取消的事务不再列在待办层。消息只核验了对方这样说过，说已经做了、正在赶来，都不等于发生了。\",\"回复正文可以留空；写了会作为该次调用的 self_note 保留到本段停留或路程结束，不进入记忆。\",\"思考只在同一时刻的连续决策之间保留，时间推进后丢弃。以后要买到、拿到或吃掉的具体东西，在 report_status、pause_activity 或 conclude_activity 的 errands 里记成个人事务，它一直留在待办层，到提醒时刻只提醒一次，不会叫醒睡着的你；其他需要延续的打算写进 pause_activity 或 conclude_activity 的 summary，report_status 的 summary 只留到本段停留或路程结束。想记住的事只记以后做决定用得上的新情况，人设层已有的作息和待办层已有的事务不再记。\",\"时间只在你有进行中的活动时推进；没有进行中的活动时，同一时刻会继续请你决策。等待与睡觉也是活动。醒着时，活动（等待也一样）一般要做满工具层写的时长才会再请你决策，做得久的中途隔一阵也会请一次；自己下的单送到、提醒到点、有人找你、有 app 推送、到了定下的上下班时刻、写明的休息时段开始或结束，到时也会请你决策，手上的活动照常进行，哪一次想停都可以结束。所以空下来不必干等，像平常人那样照自己的习惯做点别的，刷刷手机、看点东西、收拾一下都算，不用等闷了才做；等待只留给几分钟内就有事请你决策的时候。\",\"你可以同时做两件事。环境只拦同一种的两件：吃、用东西算一种，工具层里方式为「进行」的都算生活活动这一种（不看名称），用手机 app 算一种，读信、等待、工作、出行、和人说话各算一种。不同种的两件环境不拦，但没拦不等于做得到，做不做得到由你照常理判断：边吃边看、边吃边刷手机、边做家务边听，做得到；两只手都占着的事，比如洗漱、洗碗、打扫，配不了吃东西，也配不了拿着手机看；你自己觉得别扭的组合就不要一起做，一件做完再做另一件。想一起吃或喝的两样东西，在同一个 start_activity 里写成两项，算一顿；已经在吃了，另一样等这一顿吃完再开始。开车时只能再和人说话，睡觉时不做别的。手上有一件在进行时，轮到你决策就可以再开始一件，原来那件照常进行。同时进行的最多两项，刚结束还没收尾的也算，暂停的不算，恢复暂停的活动要有空位；活动一结束，同一时刻先用 conclude_activity 收尾，再做别的。\",\"出发前先结束或暂停手上的活动，交谈与通话不能暂停；路上开始的活动不能暂停，到达时与出行一起结束，再逐项收尾。\",\"暂停的活动只能回到原来的地点恢复，用 report_status 点名即恢复；在别处可以直接结束。\",\"工具层列出的动作都可以提交；available 为 false 的会被拒绝，原因就是 reason 所写，照着调整即可。\",\"名称照工具层、待办层中的写法填写；商品、生活活动、app、地点都可以直接写名称，即使此刻没有展示；写得不准时会返回最接近的候选，不会替你改。娱乐只选 app、方式写打开，看什么由 app 决定；这段停留或路程里收到推送后打开那个 app，先看的是推送的内容，不打开也可以。\",\"start_activity 一项一个对象，写 target、way、from、to；方式决定动作。to 写 null 统一表示本人，给他人写实名；给予必须写他人，其他非转移动作的 from、to 都写 null。购买 from 可写门店或 app，prefer 必须写最快拿到或到手价最低；不购买时 prefer 写 null。替别人办事时用 answering 关联未回复消息。\",\"人设层的作息和习惯是你平常的过法：到了平常的钟点、在平常的地方，就照平常做；今日计划写明今天与平常不同的安排时，按计划；身体的感觉没到更强的一档，就不为它改作息。人设层没写作息，或者今天不在平常的环境里，就按身体的感觉来。作息里的钟点，和今日计划目标文字里的钟点、around_time，都只是大概的时候，到时不一定会请你决策：差不多到了就做，早一点晚一点都算照常，不为凑钟点干等；和人约好的事宁早勿晚，非准点不可的要靠目标的提醒时刻。环境层写了上班安排的日子，那是定下的安排，不是习惯：今日计划改不了它，手上的工作交了也还在班上，写明的休息时段和工作要求去别处的外出除外。\",\"你会饿、会困、会累，饿着或困着做事会慢，走路比坐车更费力。只是「有点想吃」时，正餐留到平常的饭点前后吃，离饭点还早可以喝点东西或吃点手边的零食；到了「饿」，离平常饭点一小时以内可以提前准备或下单，更早就先垫一点；到了「很饿」或更饿，别等饭点，马上弄吃的。手边的、在路上的、这里能买的、能送到这里的都算；下单的东西送到、拿到手才能吃。每个饭点的正餐只吃一次，提前吃过的那顿就算吃过了。\",\"晚上照人设层作息里的就寝时间去睡（没写就寝时间，就困了再睡）：有点乏、困是睡前的常态，还没到就寝时间就照常过晚上，到了就可以睡，不用撑到某个钟点；很困或撑不住了可以提前，精神还好也可以晚些。想在某个时刻起来，就给今日计划的目标写上提醒时刻；睡着时只有提醒或睡够了才会醒，早睡也就早醒。\",\"工作要在要求的地点做，按主题计工时：播报时用自己的话写这段做了什么、做到哪里；写的进度不改变工时，做满目标工时环境会结束它。\",\"花钱量力而行；有人找你时，按你们的关系与当时的情况回应。联系人只能发消息或通话，不会来到你身边。\"]}"
+        "content": "{\"layer\":\"系统层\",\"role\":\"你是模拟世界中的一个人物，依据人设层选择下一步行动；世界的时间、状态与结算由环境负责。\",\"rules\":[\"请求由七层组成：本层是交互规则；工具层列出此刻可操作的目标，以及各目标的动作、条件与代价；人设层是你是谁；记忆层是此前各段停留、路程与更早日期中已经发生的事；待办层是暂停的活动、还没办完的个人事务与今日计划；环境层是此刻的身体感受、所在地点与今天的上班安排；进度层是本段停留或路程中已经发生的事。\",\"每次决策恰好提交一个世界请求：start_activity、report_status、pause_activity、conclude_activity、revise_day_plan、send_message、set_alarm 之一；提交前可以查询自己的记忆、回看任务或查询已知世界。只读查询可以同批，世界请求单独提交。\",\"世界请求提交后只是登记；环境结算后，结果写进进度层，同一时刻接着决策时，结果随工具结果返回。说打算做或说已经做过，都不等于做了。\",\"进度层的结果与记忆层的 settled 是环境核验的事实；self_note、self_notes 以及人设层的看法与偏好是你自己写下的，未经核验。待办层个人事务的文字是你自己记下的，办没办成由环境按实际结算确认，自己说办完了不算；办成或取消的事务不再列在待办层。消息只核验了对方这样说过，说已经做了、正在赶来，都不等于发生了。\",\"回复正文可以留空；写了会作为该次调用的 self_note 保留到本段停留或路程结束，不进入记忆。\",\"思考只在同一时刻的连续决策之间保留，时间推进后丢弃。以后要买到或拿到的具体东西，在 report_status、pause_activity 或 conclude_activity 的 errands 里记成个人事务，它一直留在待办层，到提醒时刻只提醒一次，不会叫醒睡着的你；其他需要延续的打算写进 pause_activity 或 conclude_activity 的 summary，report_status 的 summary 只留到本段停留或路程结束。想记住的事只记以后做决定用得上的新情况，人设层已有的作息和待办层已有的事务不再记。\",\"时间只在你有进行中的活动时推进；没有进行中的活动时，同一时刻会继续请你决策。等待与睡觉也是活动。醒着时，等待与出行一般要做满工具层写的时长才会再请你决策；其他动作自己没有时长，做多久由这次拿到的内容决定：工具层写的是大概要多久，开始的结果里写明这次是哪一条、有多长，这一条做完活动就结束并请你决策，只有娱乐类的会自己接着下一条，直到你停下。做得久的中途隔一阵也会请一次；自己下的单送到或到站可领、提醒或闹钟到点、有人找你、有 app 推送、到了定下的上下班时刻、写明的休息时段开始或结束，到时也会请你决策，手上的活动照常进行，哪一次想停都可以结束。所以空下来不必干等，像平常人那样照自己的习惯做点别的，刷刷手机、看点东西、收拾一下都算，不用等闷了才做；等待只留给几分钟内就有事请你决策的时候。\",\"你可以同时做两件事。环境只拦同一种的两件：工具层里类别相同的动作算一种，写着「持续使用手机 app」的动作不论类别另算一种，等待、出行各算一种。不同种的两件环境不拦，但没拦不等于做得到，做不做得到由你照常理判断：边做家务边听、边走边聊，做得到；两只手都占着的事，比如洗漱、洗碗、打扫，配不了拿着手机看；你自己觉得别扭的组合就不要一起做，一件做完再做另一件。开车时只能再和人说话，睡觉时不做别的。手上有一件在进行时，轮到你决策就可以再开始一件，原来那件照常进行。同时进行的最多两项，刚结束还没收尾的也算，暂停的不算，恢复暂停的活动要有空位；活动一结束，同一时刻先用 conclude_activity 收尾，再做别的。\",\"出发前先结束或暂停手上的活动，交谈与通话不能暂停；路上开始的活动不能暂停，到达时与出行一起结束，再逐项收尾。\",\"暂停的活动只能回到原来的地点恢复，用 report_status 点名即恢复；在别处可以直接结束。\",\"工具层列出的动作都可以提交；available 为 false 的会被拒绝，原因就是 reason 所写，照着调整即可。\",\"名称照工具层、待办层中的写法填写；商品、地点都可以直接写名称，即使此刻没有展示；写得不准时会返回最接近的候选，不会替你改。出行、睡觉、等待、购买、领取以外的事都是工具层里的动作，做哪一条内容由环境定，你只选动作和它列出的 app，开始的结果里会写明这次是哪一条。这段停留或路程里收到推送后，用那个 app 开始推送所属的动作，先做的是推送的内容，不开始也可以。\",\"start_activity 一项一个对象，写 target、way、app、to、pay_app，用不上的写 null；方式决定动作。出行：target 写地点，way 写步行或驾车，app 可以写一个导航 app，不用导航就写 null。购买：target 写商品，way 写购买，一项一件；人在店里买，app 写 null，pay_app 可以写一个支付 app，写 null 就是不经 app 付款；网上买，app 写购物 app，pay_app 写这个购物 app 能用的一个支付 app，由环境安排门店送来；to 写 null 是自己收，给别人买就写对方实名。工具层里的动作：target 写动作名，way 写进行，动作列了 app 就在 app 写其中一个，没列就写 null；社交类的动作在 to 写对方实名，其他动作 to 写 null。睡觉与等待 target 写自己。替别人办事时用 answering 关联未回复消息。驿站领取 target 写地点里的驿站，way 写领取，app、to、pay_app 都写 null；要本人到场，领取不保存库存。\",\"人设层的作息和习惯是你平常的过法：到了平常的钟点、在平常的地方，就照平常做；今日计划写明今天与平常不同的安排时，按计划；身体的感觉没到更强的一档，就不为它改作息。人设层没写作息，或者今天不在平常的环境里，就按身体的感觉来。作息里的钟点，和今日计划目标文字里的钟点、around_time，都只是大概的时候，到时不一定会请你决策：差不多到了就做，早一点晚一点都算照常，不为凑钟点干等；和人约好的事宁早勿晚，非准点不可的要靠目标的提醒时刻。环境层写了上班安排的日子，那是定下的安排，不是习惯：今日计划改不了它，手上的工作交了也还在班上，写明的休息时段和工作要求去别处的外出除外。\",\"你会饿、会困、会累，饿着或困着做事会慢，走路比坐车更费力。东西买到手或直送收到就算用掉；长途先到驿站，只通知领取，本人到场领取后才算收到：吃的喝的当场算吃了，别的东西当场算用了，没有另外吃或用的一步，也存不下来。只是「有点想吃」时，正餐留到平常的饭点前后吃，离饭点还早可以买点喝的或零食；到了「饿」，离平常饭点一小时以内可以提前下单，更早就先买点东西垫一下；到了「很饿」或更饿，别等饭点，马上买吃的。在路上的、这里能买的、能送到这里的都算；下单的东西要送到才算吃上。每个饭点的正餐只吃一次，提前吃过的那顿就算吃过了。\",\"晚上照人设层作息里的就寝时间去睡（没写就寝时间，就困了再睡）：有点乏、困是睡前的常态，还没到就寝时间就照常过晚上，到了就可以睡，不用撑到某个钟点；很困或撑不住了可以提前，精神还好也可以晚些。想在某个时刻起来，可以用 set_alarm 设置一次闹钟，也可以给今日计划的目标写上提醒时刻；睡着时只有提醒、闹钟或睡够了才会醒，早睡也就早醒。\",\"安排给你的工作要在要求的地点做，做哪一项由环境安排，按实际做的时间计进度：播报时用自己的话写这段做了什么、做到哪里；写的进度不改变已做的时间，一项做满它的时长环境会结束这次活动，做完的不再安排。\",\"花钱量力而行；有人找你时，按你们的关系与当时的情况回应。联系人只能发消息或通过工具层列出的社交动作远程交流，不会来到你身边；文字交流只记录话题与实际用时，具体聊天内容和进展由你播报，不会自动生成对方回复。\"]}",
+        "role": "system"
       },
       {
-        "role": "user",
-        "content": "[{\"layer\":\"工具层\",\"groups\":[{\"kind\":\"task\",\"action\":\"interact\",\"way\":\"工作\",\"shared\":{\"contract\":{\"topic\":\"季度销售数据整理\",\"target\":\"约 8 小时\",\"done\":\"约 0 小时\",\"remaining\":\"约 8 小时\"},\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"duration\":\"约 8 小时\"},\"targets\":[{\"name\":\"工作：季度销售数据整理\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"5 元\",\"duration\":\"约 2 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：三杯咖啡\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"0 元\",\"duration\":\"约 10 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：三杯咖啡\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"5 元\",\"duration\":\"约 4 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：一心面馆\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"0 元\",\"duration\":\"约 26 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：一心面馆\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"5 元\",\"duration\":\"约 2 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：二味小炒\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"0 元\",\"duration\":\"约 10 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：二味小炒\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"6.55 元\",\"duration\":\"约 8 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：公司\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"0 元\",\"duration\":\"约 45 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：公司\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"5 元\",\"duration\":\"不到 1 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：五里公园\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"0 元\",\"duration\":\"约 5 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：五里公园\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"5 元\",\"duration\":\"约 2 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：四季便利\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"0 元\",\"duration\":\"约 13 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：四季便利\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"到店\",\"shared\":{\"state\":\"正餐，每份约 600 千卡；可用饿了么、美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"25 元\",\"quantity\":\"1 份\"},\"targets\":[{\"name\":\"三杯咖啡出售的三明治\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"远程下单\",\"shared\":{\"state\":\"正餐，每份约 600 千卡；可用饿了么、美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"30 元\",\"quantity\":\"1 份\",\"note\":\"预计 10:31 送到\"},\"targets\":[{\"name\":\"三杯咖啡出售的三明治\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"到店\",\"shared\":{\"state\":\"正餐，每份约 600 千卡；可用美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"28 元\",\"quantity\":\"1 份\"},\"targets\":[{\"name\":\"一心面馆出售的牛肉面\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"远程下单\",\"shared\":{\"state\":\"正餐，每份约 600 千卡；可用美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"33 元\",\"quantity\":\"1 份\",\"note\":\"预计 10:35 送到\"},\"targets\":[{\"name\":\"一心面馆出售的牛肉面\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"到店\",\"shared\":{\"state\":\"零食，每份约 200 千卡；可用美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"8 元\",\"quantity\":\"1 份\"},\"targets\":[{\"name\":\"一心面馆出售的薯片\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"远程下单\",\"shared\":{\"state\":\"零食，每份约 200 千卡；可用美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"13 元\",\"quantity\":\"1 份\",\"note\":\"预计 10:35 送到\"},\"targets\":[{\"name\":\"一心面馆出售的薯片\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"到店\",\"shared\":{\"state\":\"饮品，每份约 100 千卡；可用饿了么、美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"12 元\",\"quantity\":\"1 份\"},\"targets\":[{\"name\":\"三杯咖啡出售的柠檬茶\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"远程下单\",\"shared\":{\"state\":\"饮品，每份约 100 千卡；可用饿了么、美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"17 元\",\"quantity\":\"1 份\",\"note\":\"预计 10:31 送到\"},\"targets\":[{\"name\":\"三杯咖啡出售的柠檬茶\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"到店\",\"shared\":{\"state\":\"饮品，每份约 100 千卡；可用美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"12 元\",\"quantity\":\"1 份\"},\"targets\":[{\"name\":\"一心面馆出售的柠檬茶\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"远程下单\",\"shared\":{\"state\":\"饮品，每份约 100 千卡；可用美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"17 元\",\"quantity\":\"1 份\",\"note\":\"预计 10:35 送到\"},\"targets\":[{\"name\":\"一心面馆出售的柠檬茶\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"到店\",\"shared\":{\"state\":\"零食，每份约 200 千卡；可用饿了么、美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"8 元\",\"quantity\":\"1 份\"},\"targets\":[{\"name\":\"三杯咖啡出售的薯片\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"远程下单\",\"shared\":{\"state\":\"零食，每份约 200 千卡；可用饿了么、美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"13 元\",\"quantity\":\"1 份\",\"note\":\"预计 10:31 送到\"},\"targets\":[{\"name\":\"三杯咖啡出售的薯片\"}]},{\"kind\":\"app\",\"action\":\"interact\",\"way\":\"打开\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"duration\":\"约 30 分钟\"},\"targets\":[{\"name\":\"应用：哔哩哔哩\",\"state\":\"3 条内容\"},{\"name\":\"应用：抖音\",\"state\":\"有推送：《测试短视频》（短视频）\"},{\"name\":\"应用：饿了么\",\"state\":\"0 条内容\"},{\"name\":\"应用：美团\",\"state\":\"0 条内容\"}]},{\"kind\":\"lifestyle\",\"action\":\"interact\",\"way\":\"进行\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"duration\":\"约 15 分钟\"},\"targets\":[{\"name\":\"活动：安静休息\"}]},{\"kind\":\"message\",\"action\":\"interact\",\"way\":\"阅读\",\"shared\":{\"state\":\"未读\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"duration\":\"约 15 分钟\"},\"targets\":[{\"name\":\"邮件：人工测试通知（2026年01月05日 09:58:00）\"},{\"name\":\"邮件：稍后处理个人事务（2026年01月05日 10:04:00）\"}]},{\"kind\":\"self\",\"action\":\"interact\",\"way\":\"等待\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"duration\":\"约 15 分钟\"},\"targets\":[{\"name\":\"自己\"}]},{\"kind\":\"self\",\"action\":\"sleep\",\"way\":\"睡觉\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"duration\":\"约 7.5 小时\"},\"targets\":[{\"name\":\"自己\"}]},{\"kind\":\"activity\",\"action\":null,\"way\":null,\"shared\":{\"phase\":\"刚结束\",\"state\":\"按计划结束，已做约 15 分钟\",\"tools\":[{\"tool\":\"report_status\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\"},{\"tool\":\"pause_activity\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\"},{\"tool\":\"conclude_activity\",\"available\":true}]},\"targets\":[{\"name\":\"等待（1月5日 10:04 起）\"}]}],\"callable_index\":{\"lifestyle\":[\"安静休息\"],\"goods\":[{\"category\":\"正餐\",\"count\":\"2 个\",\"examples\":[\"牛肉面\",\"三明治\"]},{\"category\":\"零食\",\"count\":\"1 个\",\"examples\":[\"薯片\"]},{\"category\":\"饮品\",\"count\":\"1 个\",\"examples\":[\"柠檬茶\"]}],\"query_categories\":[{\"category\":\"正餐\",\"count\":4},{\"category\":\"零食\",\"count\":4},{\"category\":\"饮品\",\"count\":4}]}},{\"layer\":\"人设层\",\"identity\":{\"name\":\"人物1\",\"age\":null,\"occupation\":null,\"living_arrangement\":null},\"rhythm\":null,\"habits\":[],\"tastes\":null,\"coping\":null,\"relationships\":[{\"person\":\"沈昊\",\"role\":\"老友\",\"closeness\":null,\"channels\":[],\"view\":null},{\"person\":\"陈母\",\"role\":\"家人\",\"closeness\":null,\"channels\":[],\"view\":null}],\"preferences\":[]},{\"layer\":\"记忆层\",\"earlier_days\":[],\"earlier_today\":[]},{\"layer\":\"待办层\",\"paused_activities\":[{\"name\":\"打开哔哩哔哩（1月5日 10:03 起）\",\"paused_at\":\"2026-01-05T10:04:00+08:00\",\"place\":\"家\",\"progress\":\"已做约 1 分钟，还剩约 29 分钟\",\"tools\":[{\"tool\":\"report_status\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\"},{\"tool\":\"conclude_activity\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\"}]}],\"errands\":[{\"name\":\"买柠檬茶\",\"done_when\":\"取得柠檬茶 1 份\",\"progress\":\"已取得 0 份\",\"memo\":null,\"remind_time\":null,\"noted_on\":\"2026-01-05\"},{\"name\":\"买牛肉面\",\"done_when\":\"取得牛肉面 1 份\",\"progress\":\"已取得 0 份\",\"memo\":null,\"remind_time\":\"18:30\",\"noted_on\":\"2026-01-05\"}],\"day_plan\":{\"date\":\"2026-01-05\",\"goals\":[]}},{\"layer\":\"环境层\",\"observed_at\":\"2026-01-05T10:19:00+08:00\",\"body\":{\"appetite\":\"不饿\",\"sleepiness\":\"清醒\",\"entertainment\":\"很想放松\",\"social\":\"不想找人\",\"mood\":\"平静\"},\"location\":{\"session_kind\":\"stay\",\"name\":\"家\",\"place_type\":\"家\",\"fixed_rules\":[]},\"duty\":{\"day\":\"工作日\",\"hours\":\"09:00–18:00\",\"place\":\"公司\",\"breaks\":[],\"status\":\"当班中\"}},{\"layer\":\"进度层\",\"session_started_at\":\"2026-01-05T09:54:00+08:00\",\"events\":[{\"occurred_at\":\"2026-01-05T09:54:00+08:00\",\"type\":\"tool_call\",\"tool\":\"start_activity\",\"arguments\":{\"answering\":null,\"items\":[{\"from\":null,\"target\":\"自己\",\"to\":null,\"way\":\"等待\"}],\"prefer\":null},\"result\":{\"occurred_at\":\"2026-01-05T09:58:00+08:00\",\"status\":\"cancelled\",\"error_code\":null,\"message\":\"Activity cancelled\",\"details\":{}}},{\"occurred_at\":\"2026-01-05T09:58:00+08:00\",\"type\":\"message_arrival\",\"sender\":null,\"kind\":\"mail\",\"subject\":\"人工测试通知\"},{\"occurred_at\":\"2026-01-05T09:58:00+08:00\",\"type\":\"tool_call\",\"tool\":\"conclude_activity\",\"arguments\":{\"items\":[{\"activity_name\":\"等待（1月5日 09:54 起）\",\"summary\":\"先吃点零食。\",\"memories\":[]}]},\"result\":{\"occurred_at\":\"2026-01-05T09:58:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activities concluded\",\"details\":{\"outcome\":[{\"activity\":\"等待（1月5日 09:54 起）\",\"items\":[],\"note\":\"No item changes.\",\"outcome\":\"提前结束\"}],\"errands\":[{\"change\":\"新增\",\"errand\":\"吃掉薯片\"},{\"change\":\"新增\",\"errand\":\"买柠檬茶\"},{\"change\":\"新增\",\"errand\":\"买牛肉面\"}]}},\"self_note\":\"先把事务记下来。\"},{\"occurred_at\":\"2026-01-05T09:58:00+08:00\",\"type\":\"tool_call\",\"tool\":\"start_activity\",\"arguments\":{\"answering\":null,\"items\":[{\"from\":null,\"target\":\"薯片\",\"to\":null,\"way\":\"食用\"}],\"prefer\":null},\"result\":{\"occurred_at\":\"2026-01-05T10:03:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activity completed\",\"details\":{}}},{\"occurred_at\":\"2026-01-05T10:00:00+08:00\",\"type\":\"app_push\",\"app\":\"抖音\",\"title\":\"测试短视频\",\"kind\":\"短视频\",\"summary\":\"测试短视频的人工合成摘要。\"},{\"occurred_at\":\"2026-01-05T10:00:00+08:00\",\"type\":\"errand_reminder\",\"errand\":\"买柠檬茶\"},{\"occurred_at\":\"2026-01-05T10:00:00+08:00\",\"type\":\"tool_call\",\"tool\":\"report_status\",\"arguments\":{\"items\":[{\"activity_name\":\"食用薯片（1月5日 09:58 起）\",\"summary\":\"继续做完。\"}]},\"result\":{\"occurred_at\":\"2026-01-05T10:00:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activity status reported\",\"details\":{\"errands\":[]}}},{\"occurred_at\":\"2026-01-05T10:03:00+08:00\",\"type\":\"errand_completed\",\"errand\":\"吃掉薯片\"},{\"occurred_at\":\"2026-01-05T10:03:00+08:00\",\"type\":\"tool_call\",\"tool\":\"conclude_activity\",\"arguments\":{\"items\":[{\"activity_name\":\"食用薯片（1月5日 09:58 起）\",\"summary\":\"零食吃完了。\",\"memories\":[]}]},\"result\":{\"occurred_at\":\"2026-01-05T10:03:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activities concluded\",\"details\":{\"outcome\":[{\"activity\":\"食用薯片（1月5日 09:58 起）\",\"items\":[{\"discarded\":\"0 份\",\"eaten\":\"1 份\",\"product\":\"薯片\",\"remaining\":\"0 份\"}],\"note\":null,\"outcome\":\"完成\"}],\"errands\":[]}}},{\"occurred_at\":\"2026-01-05T10:03:00+08:00\",\"type\":\"tool_call\",\"tool\":\"start_activity\",\"arguments\":{\"answering\":null,\"items\":[{\"from\":null,\"target\":\"应用：哔哩哔哩\",\"to\":null,\"way\":\"打开\"}],\"prefer\":null},\"result\":{\"occurred_at\":\"2026-01-05T10:03:00+08:00\",\"status\":\"in_progress\",\"error_code\":null,\"message\":\"Activity started\",\"details\":{\"planned\":[{\"name\":\"打开哔哩哔哩（1月5日 10:03 起）\",\"duration\":\"约 30 分钟\"}],\"app_content\":{\"app\":\"哔哩哔哩\",\"title\":\"测试文章\",\"kind\":\"文章\",\"summary\":\"测试文章的人工合成摘要。\",\"pushed\":false}}}},{\"occurred_at\":\"2026-01-05T10:04:00+08:00\",\"type\":\"message_arrival\",\"sender\":null,\"kind\":\"mail\",\"subject\":\"稍后处理个人事务\"},{\"occurred_at\":\"2026-01-05T10:04:00+08:00\",\"type\":\"tool_call\",\"tool\":\"pause_activity\",\"arguments\":{\"items\":[{\"activity_name\":\"打开哔哩哔哩（1月5日 10:03 起）\",\"summary\":\"先歇一会儿。\"}]},\"result\":{\"occurred_at\":\"2026-01-05T10:04:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activity paused\",\"details\":{\"errands\":[]}}},{\"occurred_at\":\"2026-01-05T10:04:00+08:00\",\"type\":\"tool_call\",\"tool\":\"start_activity\",\"arguments\":{\"answering\":null,\"items\":[{\"from\":null,\"target\":\"自己\",\"to\":null,\"way\":\"等待\"}],\"prefer\":null},\"result\":{\"occurred_at\":\"2026-01-05T10:19:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activity completed\",\"details\":{}}}],\"rejected_today\":[]}]"
+        "content": "[{\"layer\":\"工具层\",\"groups\":[{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Driving requires a car owned by this persona.\",\"price\":\"5 元\",\"duration\":\"约 2 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：三杯咖啡\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":true,\"price\":\"0 元\",\"duration\":\"约 10 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：三杯咖啡\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Driving requires a car owned by this persona.\",\"price\":\"5 元\",\"duration\":\"约 4 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：一心面馆\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":true,\"price\":\"0 元\",\"duration\":\"约 26 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：一心面馆\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Driving requires a car owned by this persona.\",\"price\":\"5 元\",\"duration\":\"约 2 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：二味小炒\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":true,\"price\":\"0 元\",\"duration\":\"约 10 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：二味小炒\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Driving requires a car owned by this persona.\",\"price\":\"6.55 元\",\"duration\":\"约 8 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：公司\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":true,\"price\":\"0 元\",\"duration\":\"约 45 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：公司\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Driving requires a car owned by this persona.\",\"price\":\"5 元\",\"duration\":\"不到 1 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：五里公园\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":true,\"price\":\"0 元\",\"duration\":\"约 5 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：五里公园\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Driving requires a car owned by this persona.\",\"price\":\"5 元\",\"duration\":\"约 2 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：四季便利\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":true,\"price\":\"0 元\",\"duration\":\"约 13 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：四季便利\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"购买\",\"shared\":{\"quantity\":\"1 份\"},\"targets\":[{\"name\":\"薯片\",\"state\":\"零食，每份约 200 千卡\",\"available\":false,\"reason\":\"Purchase requires presence at 三杯咖啡.\",\"price\":\"8 元\"},{\"name\":\"薯片\",\"state\":\"零食，每份约 200 千卡\",\"app\":\"饿了么\",\"available\":true,\"price\":\"13 元\",\"note\":\"预计 08:12 送到；可用支付宝付款\"},{\"name\":\"薯片\",\"state\":\"零食，每份约 200 千卡\",\"app\":\"美团\",\"available\":true,\"price\":\"13 元\",\"note\":\"预计 08:12 送到；可用支付宝、微信付款\"},{\"name\":\"牛肉面\",\"state\":\"正餐，每份约 600 千卡\",\"available\":false,\"reason\":\"Purchase requires presence at 二味小炒.\",\"price\":\"28 元\"},{\"name\":\"牛肉面\",\"state\":\"正餐，每份约 600 千卡\",\"app\":\"美团\",\"available\":true,\"price\":\"33 元\",\"note\":\"预计 08:16 送到；可用支付宝、微信付款\"},{\"name\":\"柠檬茶\",\"state\":\"饮品，每份约 100 千卡\",\"available\":false,\"reason\":\"Purchase requires presence at 三杯咖啡.\",\"price\":\"12 元\"},{\"name\":\"柠檬茶\",\"state\":\"饮品，每份约 100 千卡\",\"app\":\"饿了么\",\"available\":true,\"price\":\"17 元\",\"note\":\"预计 08:12 送到；可用支付宝付款\"},{\"name\":\"柠檬茶\",\"state\":\"饮品，每份约 100 千卡\",\"app\":\"美团\",\"available\":true,\"price\":\"17 元\",\"note\":\"预计 08:12 送到；可用支付宝、微信付款\"}]},{\"kind\":\"action\",\"action\":\"interact\",\"way\":\"进行\",\"shared\":{},\"targets\":[{\"name\":\"刷推荐\",\"state\":\"娱乐；进行刷推荐。\",\"app\":\"哔哩哔哩\",\"available\":true,\"duration\":\"约 5 分钟至 40 分钟\",\"note\":\"持续使用手机 app\"},{\"name\":\"刷推荐\",\"state\":\"娱乐；进行刷推荐。\",\"app\":\"抖音\",\"available\":true,\"duration\":\"约 25 分钟\",\"note\":\"持续使用手机 app；有推送：《测试实况》\"},{\"name\":\"办公\",\"state\":\"工作与学习；进行办公。\",\"available\":false,\"reason\":\"进行办公 requires presence at 公司.\"},{\"name\":\"安静休息\",\"state\":\"日常照护；进行安静休息。\",\"available\":true,\"duration\":\"约 15 分钟\"},{\"name\":\"跑步\",\"state\":\"运动；进行跑步。\",\"app\":\"Keep\",\"available\":true,\"duration\":\"约 20 分钟\",\"note\":\"借助 app 安排或记录线下行为\"},{\"name\":\"聊天\",\"state\":\"社交；进行聊天。\",\"available\":true,\"duration\":\"约 10 分钟\",\"note\":\"to 写对方\"},{\"name\":\"学课程\",\"state\":\"工作与学习；进行学课程。\",\"app\":\"哔哩哔哩\",\"available\":true,\"duration\":\"约 30 分钟\",\"note\":\"通过其他设备使用 app\"},{\"name\":\"语音通话\",\"state\":\"社交；进行语音通话。\",\"app\":\"微信\",\"available\":true,\"duration\":\"约 10 分钟\",\"note\":\"持续使用手机 app；to 写对方\"}]},{\"kind\":\"person\",\"action\":null,\"way\":null,\"shared\":{\"state\":\"正在等待\",\"tools\":[{\"tool\":\"send_message\",\"available\":true}]},\"targets\":[{\"name\":\"人物：Second Test Person\"}]},{\"kind\":\"contact\",\"action\":null,\"way\":null,\"shared\":{\"tools\":[{\"tool\":\"send_message\",\"available\":true}]},\"targets\":[{\"name\":\"联系人：王磊\"}]},{\"kind\":\"self\",\"action\":\"interact\",\"way\":\"等待\",\"shared\":{\"available\":true,\"duration\":\"约 2 小时\"},\"targets\":[{\"name\":\"自己\"}]},{\"kind\":\"self\",\"action\":\"sleep\",\"way\":\"睡觉\",\"shared\":{\"available\":true,\"duration\":\"约 7.5 小时\"},\"targets\":[{\"name\":\"自己\"}]}],\"callable_index\":{\"goods\":[{\"category\":\"正餐\",\"count\":\"1 个\",\"examples\":[\"牛肉面\"]},{\"category\":\"零食\",\"count\":\"1 个\",\"examples\":[\"薯片\"]},{\"category\":\"饮品\",\"count\":\"1 个\",\"examples\":[\"柠檬茶\"]}],\"navigation_apps\":[\"高德地图\"],\"payment_apps\":[\"支付宝\",\"微信\"],\"query_categories\":[{\"category\":\"娱乐\",\"count\":1},{\"category\":\"工作与学习\",\"count\":2},{\"category\":\"日常照护\",\"count\":1},{\"category\":\"正餐\",\"count\":1},{\"category\":\"社交\",\"count\":2},{\"category\":\"运动\",\"count\":1},{\"category\":\"零食\",\"count\":1},{\"category\":\"饮品\",\"count\":1}]}},{\"layer\":\"人设层\",\"identity\":{\"name\":\"Person 1\",\"age\":null,\"occupation\":null,\"living_arrangement\":null},\"rhythm\":null,\"habits\":[],\"tastes\":null,\"coping\":null,\"relationships\":[],\"preferences\":[]},{\"layer\":\"记忆层\",\"earlier_days\":[{\"date\":\"2026-01-04\",\"settled\":[],\"self_notes\":[{\"activity\":null,\"text\":\"我希望继续留意自己的感受。\"}]}],\"earlier_today\":[]},{\"layer\":\"待办层\",\"paused_activities\":[{\"name\":\"等待（1月5日 07:45 起）\",\"paused_at\":\"2026-01-05T08:00:00+08:00\",\"place\":\"家\",\"progress\":\"已做约 15 分钟，还剩约 2 小时\",\"tools\":[{\"tool\":\"report_status\",\"available\":true,\"reason\":null},{\"tool\":\"conclude_activity\",\"available\":true,\"reason\":null}]}],\"errands\":[],\"day_plan\":{\"date\":\"2026-01-05\",\"goals\":[{\"intent_kind\":\"用餐\",\"goal\":\"找一份餐食\",\"progressed\":false,\"remind_time\":null,\"around_time\":null},{\"intent_kind\":\"娱乐\",\"goal\":\"用应用看一会内容\",\"progressed\":false,\"remind_time\":null,\"around_time\":null}]}},{\"layer\":\"环境层\",\"observed_at\":\"2026-01-05T08:00:00+08:00\",\"body\":{\"appetite\":\"不饿\",\"sleepiness\":\"清醒\",\"entertainment\":\"很想放松\",\"social\":\"不想找人\",\"mood\":\"平静\"},\"location\":{\"session_kind\":\"stay\",\"name\":\"家\",\"place_type\":\"家\",\"fixed_rules\":[]},\"duty\":{\"day\":\"工作日\",\"hours\":\"09:00–18:00\",\"place\":\"公司\",\"breaks\":[],\"status\":\"未到上班时间\"}},{\"layer\":\"进度层\",\"session_started_at\":\"2026-01-05T00:00:00+08:00\",\"events\":[{\"occurred_at\":\"2026-01-05T00:00:00+08:00\",\"type\":\"tool_call\",\"tool\":\"start_activity\",\"arguments\":{\"answering\":null,\"items\":[{\"app\":null,\"pay_app\":null,\"target\":\"自己\",\"to\":null,\"way\":\"睡觉\"}]},\"result\":{\"occurred_at\":\"2026-01-05T07:30:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activity completed\",\"details\":{}}},{\"occurred_at\":\"2026-01-05T07:30:00+08:00\",\"type\":\"tool_call\",\"tool\":\"conclude_activity\",\"arguments\":{\"items\":[{\"activity_name\":\"睡觉（1月5日 00:00 起）\",\"summary\":\"这件事先到这里。\",\"memories\":[{\"type\":\"reflection\",\"text\":\"我以为自己已经吃过一顿饭。\",\"importance\":0.2,\"keywords\":[\"猜想\"]}]}]},\"result\":{\"occurred_at\":\"2026-01-05T07:30:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activities concluded\",\"details\":{\"outcome\":[{\"activity\":\"睡觉（1月5日 00:00 起）\",\"outcome\":\"完成\"}],\"errands\":[]}}},{\"occurred_at\":\"2026-01-05T07:30:00+08:00\",\"type\":\"tool_call\",\"tool\":\"start_activity\",\"arguments\":{\"answering\":null,\"items\":[{\"app\":null,\"pay_app\":null,\"target\":\"安静休息\",\"to\":null,\"way\":\"进行\"}]},\"result\":{\"occurred_at\":\"2026-01-05T07:45:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activity completed\",\"details\":{}}},{\"occurred_at\":\"2026-01-05T07:45:00+08:00\",\"type\":\"tool_call\",\"tool\":\"conclude_activity\",\"arguments\":{\"items\":[{\"activity_name\":\"安静休息（1月5日 07:30 起）\",\"summary\":\"这件事先到这里。\",\"memories\":[]}]},\"result\":{\"occurred_at\":\"2026-01-05T07:45:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activities concluded\",\"details\":{\"outcome\":[{\"activity\":\"安静休息（1月5日 07:30 起）\",\"outcome\":\"完成\"}],\"errands\":[]}}},{\"occurred_at\":\"2026-01-05T07:45:00+08:00\",\"type\":\"tool_call\",\"tool\":\"start_activity\",\"arguments\":{\"answering\":null,\"items\":[{\"app\":null,\"pay_app\":null,\"target\":\"自己\",\"to\":null,\"way\":\"等待\"}]},\"result\":{\"occurred_at\":\"2026-01-05T07:45:00+08:00\",\"status\":\"in_progress\",\"error_code\":null,\"message\":\"Activity started\",\"details\":{\"planned\":[{\"name\":\"等待（1月5日 07:45 起）\",\"duration\":\"约 2 小时\"}]}}},{\"occurred_at\":\"2026-01-05T08:00:00+08:00\",\"type\":\"app_push\",\"app\":\"抖音\",\"action\":\"刷推荐\",\"title\":\"测试实况\",\"summary\":\"测试实况的测试用合成摘要。\"},{\"occurred_at\":\"2026-01-05T08:00:00+08:00\",\"type\":\"tool_call\",\"tool\":\"pause_activity\",\"arguments\":{\"items\":[{\"activity_name\":\"等待（1月5日 07:45 起）\",\"summary\":\"按当前进展继续。\"}]},\"result\":{\"occurred_at\":\"2026-01-05T08:00:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activity paused\",\"details\":{\"errands\":[]}}}],\"rejected_today\":[{\"written\":\"invented_wait_tool\",\"why\":\"The tool is not offered in this round.\",\"times\":1,\"last\":\"2026-01-05T00:00:00+08:00\",\"accepted_as\":null}]}]",
+        "role": "user"
       }
     ],
+    "model": "deepseek-flash",
     "stream": false,
+    "tool_choice": "auto",
     "tools": [
       {
-        "type": "function",
         "function": {
+          "description": "开始一项或两项活动：逐项写目标、方式、所用应用、对方或收货人与付款应用。",
           "name": "start_activity",
-          "description": "开始一项或两项活动：逐项写目标、方式、来源与收货人。",
           "parameters": {
             "additionalProperties": false,
             "properties": {
-              "items": {
-                "items": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "target": {
-                      "pattern": "\\S",
-                      "title": "Target",
-                      "type": "string"
-                    },
-                    "way": {
-                      "pattern": "\\S",
-                      "title": "Way",
-                      "type": "string"
-                    },
-                    "from": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "From"
-                    },
-                    "to": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "To"
-                    }
-                  },
-                  "required": [
-                    "target",
-                    "way",
-                    "from",
-                    "to"
-                  ],
-                  "title": "ActivityRequestItem",
-                  "type": "object"
-                },
-                "title": "Items",
-                "type": "array"
-              },
               "answering": {
                 "anyOf": [
                   {
@@ -81,36 +39,83 @@
                 ],
                 "title": "Answering"
               },
-              "prefer": {
-                "description": "购买时选择最快拿到或到手价最低，不购买时写空值。",
-                "enum": [
-                  "最快拿到",
-                  "到手价最低",
-                  null
-                ],
-                "title": "Prefer",
-                "type": [
-                  "string",
-                  "null"
-                ]
+              "items": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "app": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "App"
+                    },
+                    "pay_app": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Pay App"
+                    },
+                    "target": {
+                      "pattern": "\\S",
+                      "title": "Target",
+                      "type": "string"
+                    },
+                    "to": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "To"
+                    },
+                    "way": {
+                      "pattern": "\\S",
+                      "title": "Way",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "target",
+                    "way",
+                    "app",
+                    "to",
+                    "pay_app"
+                  ],
+                  "title": "ActivityRequestItem",
+                  "type": "object"
+                },
+                "title": "Items",
+                "type": "array"
               }
             },
             "required": [
               "items",
-              "answering",
-              "prefer"
+              "answering"
             ],
             "title": "StartActivityRequest",
             "type": "object"
           },
           "strict": true
-        }
+        },
+        "type": "function"
       },
       {
-        "type": "function",
         "function": {
-          "name": "send_message",
           "description": "按人物名给对方发一条消息。",
+          "name": "send_message",
           "parameters": {
             "additionalProperties": false,
             "properties": {
@@ -132,16 +137,118 @@
             "type": "object"
           },
           "strict": true
-        }
+        },
+        "type": "function"
       },
       {
-        "type": "function",
         "function": {
-          "name": "report_status",
           "description": "按活动名写下一两项活动的进展，并写下个人事务的变更。",
+          "name": "report_status",
           "parameters": {
             "additionalProperties": false,
             "properties": {
+              "errands": {
+                "description": "要新增、更新或取消的个人事务，一条一个对象，没有就写空列表。",
+                "items": {
+                  "additionalProperties": false,
+                  "description": "一条个人事务的变更：做什么、名称、要办成的事、备注、提醒钟点与取消原因。",
+                  "properties": {
+                    "change": {
+                      "description": "这条变更做什么，从列出的三种里选一种。",
+                      "enum": [
+                        "新增",
+                        "更新",
+                        "取消"
+                      ],
+                      "title": "Change",
+                      "type": "string"
+                    },
+                    "item": {
+                      "anyOf": [
+                        {
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "要取得的商品名称。",
+                      "title": "Item"
+                    },
+                    "memo": {
+                      "anyOf": [
+                        {
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "用自己的话写打算怎么办、去哪办。",
+                      "title": "Memo"
+                    },
+                    "name": {
+                      "description": "事务的名称，新增时自己起，之后照待办层里的写法写。",
+                      "pattern": "\\S",
+                      "title": "Name",
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "要办成的份数。",
+                      "title": "Quantity"
+                    },
+                    "reason": {
+                      "anyOf": [
+                        {
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "不办了的原因。",
+                      "title": "Reason"
+                    },
+                    "remind_time": {
+                      "anyOf": [
+                        {
+                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "想被提醒去办这件事的钟点。",
+                      "title": "Remind Time"
+                    }
+                  },
+                  "required": [
+                    "change",
+                    "name",
+                    "item",
+                    "quantity",
+                    "memo",
+                    "remind_time",
+                    "reason"
+                  ],
+                  "title": "ErrandChange",
+                  "type": "object"
+                },
+                "title": "Errands",
+                "type": "array"
+              },
               "items": {
                 "description": "要播报进展的活动，一项一个对象。",
                 "items": {
@@ -170,7 +277,26 @@
                 },
                 "title": "Items",
                 "type": "array"
-              },
+              }
+            },
+            "required": [
+              "items",
+              "errands"
+            ],
+            "title": "ReportStatusRequest",
+            "type": "object"
+          },
+          "strict": true
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "按活动名暂停一两项进行中的活动并写下进展与个人事务的变更。",
+          "name": "pause_activity",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
               "errands": {
                 "description": "要新增、更新或取消的个人事务，一条一个对象，没有就写空列表。",
                 "items": {
@@ -187,25 +313,6 @@
                       "title": "Change",
                       "type": "string"
                     },
-                    "name": {
-                      "description": "事务的名称，新增时自己起，之后照待办层里的写法写。",
-                      "pattern": "\\S",
-                      "title": "Name",
-                      "type": "string"
-                    },
-                    "outcome": {
-                      "description": "要办成的结果，从列出的两种里选一种。",
-                      "enum": [
-                        "取得",
-                        "吃掉",
-                        null
-                      ],
-                      "title": "Outcome",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
                     "item": {
                       "anyOf": [
                         {
@@ -216,20 +323,8 @@
                           "type": "null"
                         }
                       ],
-                      "description": "要取得或吃掉的商品名称。",
+                      "description": "要取得的商品名称。",
                       "title": "Item"
-                    },
-                    "quantity": {
-                      "anyOf": [
-                        {
-                          "type": "integer"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "description": "要办成的份数。",
-                      "title": "Quantity"
                     },
                     "memo": {
                       "anyOf": [
@@ -244,18 +339,23 @@
                       "description": "用自己的话写打算怎么办、去哪办。",
                       "title": "Memo"
                     },
-                    "remind_time": {
+                    "name": {
+                      "description": "事务的名称，新增时自己起，之后照待办层里的写法写。",
+                      "pattern": "\\S",
+                      "title": "Name",
+                      "type": "string"
+                    },
+                    "quantity": {
                       "anyOf": [
                         {
-                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
-                          "type": "string"
+                          "type": "integer"
                         },
                         {
                           "type": "null"
                         }
                       ],
-                      "description": "想被提醒去办这件事的钟点。",
-                      "title": "Remind Time"
+                      "description": "要办成的份数。",
+                      "title": "Quantity"
                     },
                     "reason": {
                       "anyOf": [
@@ -269,12 +369,24 @@
                       ],
                       "description": "不办了的原因。",
                       "title": "Reason"
+                    },
+                    "remind_time": {
+                      "anyOf": [
+                        {
+                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "想被提醒去办这件事的钟点。",
+                      "title": "Remind Time"
                     }
                   },
                   "required": [
                     "change",
                     "name",
-                    "outcome",
                     "item",
                     "quantity",
                     "memo",
@@ -286,26 +398,7 @@
                 },
                 "title": "Errands",
                 "type": "array"
-              }
-            },
-            "required": [
-              "items",
-              "errands"
-            ],
-            "title": "ReportStatusRequest",
-            "type": "object"
-          },
-          "strict": true
-        }
-      },
-      {
-        "type": "function",
-        "function": {
-          "name": "pause_activity",
-          "description": "按活动名暂停一两项进行中的活动并写下进展与个人事务的变更。",
-          "parameters": {
-            "additionalProperties": false,
-            "properties": {
+              },
               "items": {
                 "description": "要暂停的进行中活动，一项一个对象。",
                 "items": {
@@ -334,7 +427,26 @@
                 },
                 "title": "Items",
                 "type": "array"
-              },
+              }
+            },
+            "required": [
+              "items",
+              "errands"
+            ],
+            "title": "PauseActivityRequest",
+            "type": "object"
+          },
+          "strict": true
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "按活动名结束一两项活动，写下总结、想记住的事、形成的看法与个人事务的变更。",
+          "name": "conclude_activity",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
               "errands": {
                 "description": "要新增、更新或取消的个人事务，一条一个对象，没有就写空列表。",
                 "items": {
@@ -351,25 +463,6 @@
                       "title": "Change",
                       "type": "string"
                     },
-                    "name": {
-                      "description": "事务的名称，新增时自己起，之后照待办层里的写法写。",
-                      "pattern": "\\S",
-                      "title": "Name",
-                      "type": "string"
-                    },
-                    "outcome": {
-                      "description": "要办成的结果，从列出的两种里选一种。",
-                      "enum": [
-                        "取得",
-                        "吃掉",
-                        null
-                      ],
-                      "title": "Outcome",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
                     "item": {
                       "anyOf": [
                         {
@@ -380,20 +473,8 @@
                           "type": "null"
                         }
                       ],
-                      "description": "要取得或吃掉的商品名称。",
+                      "description": "要取得的商品名称。",
                       "title": "Item"
-                    },
-                    "quantity": {
-                      "anyOf": [
-                        {
-                          "type": "integer"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "description": "要办成的份数。",
-                      "title": "Quantity"
                     },
                     "memo": {
                       "anyOf": [
@@ -408,18 +489,23 @@
                       "description": "用自己的话写打算怎么办、去哪办。",
                       "title": "Memo"
                     },
-                    "remind_time": {
+                    "name": {
+                      "description": "事务的名称，新增时自己起，之后照待办层里的写法写。",
+                      "pattern": "\\S",
+                      "title": "Name",
+                      "type": "string"
+                    },
+                    "quantity": {
                       "anyOf": [
                         {
-                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
-                          "type": "string"
+                          "type": "integer"
                         },
                         {
                           "type": "null"
                         }
                       ],
-                      "description": "想被提醒去办这件事的钟点。",
-                      "title": "Remind Time"
+                      "description": "要办成的份数。",
+                      "title": "Quantity"
                     },
                     "reason": {
                       "anyOf": [
@@ -433,12 +519,24 @@
                       ],
                       "description": "不办了的原因。",
                       "title": "Reason"
+                    },
+                    "remind_time": {
+                      "anyOf": [
+                        {
+                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "想被提醒去办这件事的钟点。",
+                      "title": "Remind Time"
                     }
                   },
                   "required": [
                     "change",
                     "name",
-                    "outcome",
                     "item",
                     "quantity",
                     "memo",
@@ -450,26 +548,7 @@
                 },
                 "title": "Errands",
                 "type": "array"
-              }
-            },
-            "required": [
-              "items",
-              "errands"
-            ],
-            "title": "PauseActivityRequest",
-            "type": "object"
-          },
-          "strict": true
-        }
-      },
-      {
-        "type": "function",
-        "function": {
-          "name": "conclude_activity",
-          "description": "按活动名结束一两项活动，写下总结、想记住的事、形成的看法与个人事务的变更。",
-          "parameters": {
-            "additionalProperties": false,
-            "properties": {
+              },
               "items": {
                 "description": "要结束的活动，一项一个对象。",
                 "items": {
@@ -482,38 +561,12 @@
                       "title": "Activity Name",
                       "type": "string"
                     },
-                    "summary": {
-                      "description": "用自己的话写这项活动的总结。",
-                      "pattern": "\\S",
-                      "title": "Summary",
-                      "type": "string"
-                    },
                     "memories": {
                       "description": "关于这项活动、以后做决定用得上的新情况，一条一个对象，没有就写空列表。",
                       "items": {
                         "additionalProperties": false,
                         "description": "一条想记住的事：类型、文字、重要程度与关键词。",
                         "properties": {
-                          "type": {
-                            "description": "这条记忆的类型，从列出的七种里选一种；对人的看法与对事物的偏好另外写。",
-                            "enum": [
-                              "commitment",
-                              "goal",
-                              "conflict",
-                              "resolution",
-                              "identity",
-                              "routine",
-                              "reflection"
-                            ],
-                            "title": "Type",
-                            "type": "string"
-                          },
-                          "text": {
-                            "description": "用自己的话写下想记住的事，不写编号或身份串。",
-                            "pattern": "\\S",
-                            "title": "Text",
-                            "type": "string"
-                          },
                           "importance": {
                             "description": "这件事对自己的重要程度，0 到 1 之间的数。",
                             "maximum": 1,
@@ -529,6 +582,26 @@
                             },
                             "title": "Keywords",
                             "type": "array"
+                          },
+                          "text": {
+                            "description": "用自己的话写下想记住的事，不写编号或身份串。",
+                            "pattern": "\\S",
+                            "title": "Text",
+                            "type": "string"
+                          },
+                          "type": {
+                            "description": "这条记忆的类型，从列出的七种里选一种；对人的看法与对事物的偏好另外写。",
+                            "enum": [
+                              "commitment",
+                              "goal",
+                              "conflict",
+                              "resolution",
+                              "identity",
+                              "routine",
+                              "reflection"
+                            ],
+                            "title": "Type",
+                            "type": "string"
                           }
                         },
                         "required": [
@@ -543,31 +616,22 @@
                       "title": "Memories",
                       "type": "array"
                     },
+                    "summary": {
+                      "description": "用自己的话写这项活动的总结。",
+                      "pattern": "\\S",
+                      "title": "Summary",
+                      "type": "string"
+                    },
                     "views": {
                       "description": "这项活动让你形成的对人的看法或对事物的偏好，一条一个对象，没有就写空列表。",
                       "items": {
                         "additionalProperties": false,
                         "description": "一条看法或偏好：类型、对象、文字、重要程度与关键词。",
                         "properties": {
-                          "type": {
-                            "description": "看法的类型：对某个人的看法，或对某样东西、地方、事情的偏好。",
-                            "enum": [
-                              "relationship",
-                              "preference"
-                            ],
-                            "title": "Type",
-                            "type": "string"
-                          },
                           "about": {
                             "description": "看法或偏好的对象：人照人设层里的写法写名字或称呼，东西、地方或事情写它的名称。",
                             "pattern": "\\S",
                             "title": "About",
-                            "type": "string"
-                          },
-                          "text": {
-                            "description": "用自己的话写下这条看法或偏好，不写编号或身份串。",
-                            "pattern": "\\S",
-                            "title": "Text",
                             "type": "string"
                           },
                           "importance": {
@@ -585,6 +649,21 @@
                             },
                             "title": "Keywords",
                             "type": "array"
+                          },
+                          "text": {
+                            "description": "用自己的话写下这条看法或偏好，不写编号或身份串。",
+                            "pattern": "\\S",
+                            "title": "Text",
+                            "type": "string"
+                          },
+                          "type": {
+                            "description": "看法的类型：对某个人的看法，或对某样东西、地方、事情的偏好。",
+                            "enum": [
+                              "relationship",
+                              "preference"
+                            ],
+                            "title": "Type",
+                            "type": "string"
                           }
                         },
                         "required": [
@@ -612,122 +691,6 @@
                 },
                 "title": "Items",
                 "type": "array"
-              },
-              "errands": {
-                "description": "要新增、更新或取消的个人事务，一条一个对象，没有就写空列表。",
-                "items": {
-                  "additionalProperties": false,
-                  "description": "一条个人事务的变更：做什么、名称、要办成的事、备注、提醒钟点与取消原因。",
-                  "properties": {
-                    "change": {
-                      "description": "这条变更做什么，从列出的三种里选一种。",
-                      "enum": [
-                        "新增",
-                        "更新",
-                        "取消"
-                      ],
-                      "title": "Change",
-                      "type": "string"
-                    },
-                    "name": {
-                      "description": "事务的名称，新增时自己起，之后照待办层里的写法写。",
-                      "pattern": "\\S",
-                      "title": "Name",
-                      "type": "string"
-                    },
-                    "outcome": {
-                      "description": "要办成的结果，从列出的两种里选一种。",
-                      "enum": [
-                        "取得",
-                        "吃掉",
-                        null
-                      ],
-                      "title": "Outcome",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "item": {
-                      "anyOf": [
-                        {
-                          "pattern": "\\S",
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "description": "要取得或吃掉的商品名称。",
-                      "title": "Item"
-                    },
-                    "quantity": {
-                      "anyOf": [
-                        {
-                          "type": "integer"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "description": "要办成的份数。",
-                      "title": "Quantity"
-                    },
-                    "memo": {
-                      "anyOf": [
-                        {
-                          "pattern": "\\S",
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "description": "用自己的话写打算怎么办、去哪办。",
-                      "title": "Memo"
-                    },
-                    "remind_time": {
-                      "anyOf": [
-                        {
-                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "description": "想被提醒去办这件事的钟点。",
-                      "title": "Remind Time"
-                    },
-                    "reason": {
-                      "anyOf": [
-                        {
-                          "pattern": "\\S",
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "description": "不办了的原因。",
-                      "title": "Reason"
-                    }
-                  },
-                  "required": [
-                    "change",
-                    "name",
-                    "outcome",
-                    "item",
-                    "quantity",
-                    "memo",
-                    "remind_time",
-                    "reason"
-                  ],
-                  "title": "ErrandChange",
-                  "type": "object"
-                },
-                "title": "Errands",
-                "type": "array"
               }
             },
             "required": [
@@ -738,13 +701,13 @@
             "type": "object"
           },
           "strict": true
-        }
+        },
+        "type": "function"
       },
       {
-        "type": "function",
         "function": {
-          "name": "revise_day_plan",
           "description": "用完整的新清单替换今日计划中尚未推进的目标。",
+          "name": "revise_day_plan",
           "parameters": {
             "additionalProperties": false,
             "properties": {
@@ -753,6 +716,23 @@
                   "additionalProperties": false,
                   "description": "今日计划的一个目标：意图、目标文字、提醒时刻与大致时刻。",
                   "properties": {
+                    "around_time": {
+                      "anyOf": [
+                        {
+                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Around Time"
+                    },
+                    "goal": {
+                      "pattern": "\\S",
+                      "title": "Goal",
+                      "type": "string"
+                    },
                     "intent_kind": {
                       "enum": [
                         "睡眠",
@@ -770,11 +750,6 @@
                       "title": "Intent Kind",
                       "type": "string"
                     },
-                    "goal": {
-                      "pattern": "\\S",
-                      "title": "Goal",
-                      "type": "string"
-                    },
                     "remind_time": {
                       "anyOf": [
                         {
@@ -786,18 +761,6 @@
                         }
                       ],
                       "title": "Remind Time"
-                    },
-                    "around_time": {
-                      "anyOf": [
-                        {
-                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Around Time"
                     }
                   },
                   "required": [
@@ -820,13 +783,35 @@
             "type": "object"
           },
           "strict": true
-        }
+        },
+        "type": "function"
       },
       {
-        "type": "function",
         "function": {
-          "name": "recall_task_summary",
+          "description": "设置一个指定时刻响起的闹钟。",
+          "name": "set_alarm",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "at": {
+                "title": "At",
+                "type": "string"
+              }
+            },
+            "required": [
+              "at"
+            ],
+            "title": "SetAlarmRequest",
+            "type": "object"
+          },
+          "strict": true
+        },
+        "type": "function"
+      },
+      {
+        "function": {
           "description": "按名称回看一项任务、目标或活动的进展，不改变世界。",
+          "name": "recall_task_summary",
           "parameters": {
             "additionalProperties": false,
             "properties": {
@@ -843,17 +828,17 @@
             "type": "object"
           },
           "strict": true
-        }
+        },
+        "type": "function"
       },
       {
-        "type": "function",
         "function": {
+          "description": "按已知名称、方式、公开品类或所用应用查询世界，可只看此刻能做的，按返回的偏移量翻页。",
           "name": "query_world",
-          "description": "按已知名称、方式、公开品类或购买来源查询世界，可只看此刻能做的，按返回的偏移量翻页。",
           "parameters": {
             "additionalProperties": false,
             "properties": {
-              "name": {
+              "app": {
                 "anyOf": [
                   {
                     "type": "string"
@@ -862,18 +847,11 @@
                     "type": "null"
                   }
                 ],
-                "title": "Name"
+                "title": "App"
               },
-              "way": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Way"
+              "available_only": {
+                "title": "Available Only",
+                "type": "boolean"
               },
               "category": {
                 "anyOf": [
@@ -886,7 +864,7 @@
                 ],
                 "title": "Category"
               },
-              "from": {
+              "name": {
                 "anyOf": [
                   {
                     "type": "string"
@@ -895,23 +873,30 @@
                     "type": "null"
                   }
                 ],
-                "title": "From"
-              },
-              "available_only": {
-                "title": "Available Only",
-                "type": "boolean"
+                "title": "Name"
               },
               "offset": {
                 "minimum": 0,
                 "title": "Offset",
                 "type": "integer"
+              },
+              "way": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Way"
               }
             },
             "required": [
               "name",
               "way",
               "category",
-              "from",
+              "app",
               "available_only",
               "offset"
             ],
@@ -919,13 +904,13 @@
             "type": "object"
           },
           "strict": true
-        }
+        },
+        "type": "function"
       },
       {
-        "type": "function",
         "function": {
-          "name": "memory_recent",
           "description": "读取自己最近的记忆。",
+          "name": "memory_recent",
           "parameters": {
             "additionalProperties": false,
             "properties": {
@@ -943,26 +928,26 @@
             "type": "object"
           },
           "strict": true
-        }
+        },
+        "type": "function"
       },
       {
-        "type": "function",
         "function": {
-          "name": "memory_search",
           "description": "按关键词检索自己的记忆。",
+          "name": "memory_search",
           "parameters": {
             "additionalProperties": false,
             "properties": {
-              "query": {
-                "pattern": "\\S",
-                "title": "Query",
-                "type": "string"
-              },
               "limit": {
                 "maximum": 50,
                 "minimum": 1,
                 "title": "Limit",
                 "type": "integer"
+              },
+              "query": {
+                "pattern": "\\S",
+                "title": "Query",
+                "type": "string"
               }
             },
             "required": [
@@ -973,21 +958,16 @@
             "type": "object"
           },
           "strict": true
-        }
+        },
+        "type": "function"
       },
       {
-        "type": "function",
         "function": {
-          "name": "memory_time_range",
           "description": "读取某一时间段内自己的记忆。",
+          "name": "memory_time_range",
           "parameters": {
             "additionalProperties": false,
             "properties": {
-              "start_time": {
-                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}",
-                "title": "Start Time",
-                "type": "string"
-              },
               "end_time": {
                 "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}",
                 "title": "End Time",
@@ -998,6 +978,11 @@
                 "minimum": 1,
                 "title": "Limit",
                 "type": "integer"
+              },
+              "start_time": {
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}",
+                "title": "Start Time",
+                "type": "string"
               }
             },
             "required": [
@@ -1009,109 +994,59 @@
             "type": "object"
           },
           "strict": true
-        }
+        },
+        "type": "function"
       }
-    ],
-    "tool_choice": "auto",
-    "max_retries": 0,
-    "extra_body": {
-      "thinking": {
-        "type": "enabled"
-      }
-    },
-    "max_tokens": 8000
+    ]
   },
   "continuation": {
-    "model": "deepseek-flash",
+    "extra_body": {
+      "thinking": {
+        "type": "enabled"
+      }
+    },
+    "max_retries": 0,
+    "max_tokens": 8000,
     "messages": [
       {
-        "role": "system",
-        "content": "{\"layer\":\"系统层\",\"role\":\"你是模拟世界中的一个人物，依据人设层选择下一步行动；世界的时间、状态与结算由环境负责。\",\"rules\":[\"请求由七层组成：本层是交互规则；工具层列出此刻可操作的目标，以及各目标的动作、条件与代价；人设层是你是谁；记忆层是此前各段停留、路程与更早日期中已经发生的事；待办层是暂停的活动、还没办完的个人事务与今日计划；环境层是此刻的身体感受、所在地点与今天的上班安排；进度层是本段停留或路程中已经发生的事。\",\"每次决策恰好提交一个世界请求：start_activity、report_status、pause_activity、conclude_activity、revise_day_plan、send_message 之一；提交前可以查询自己的记忆、回看任务或查询已知世界。只读查询可以同批，世界请求单独提交。\",\"世界请求提交后只是登记；环境结算后，结果写进进度层，同一时刻接着决策时，结果随工具结果返回。说打算做或说已经做过，都不等于做了。\",\"进度层的结果与记忆层的 settled 是环境核验的事实；self_note、self_notes 以及人设层的看法与偏好是你自己写下的，未经核验。待办层个人事务的文字是你自己记下的，办没办成由环境按实际结算确认，自己说办完了不算；办成或取消的事务不再列在待办层。消息只核验了对方这样说过，说已经做了、正在赶来，都不等于发生了。\",\"回复正文可以留空；写了会作为该次调用的 self_note 保留到本段停留或路程结束，不进入记忆。\",\"思考只在同一时刻的连续决策之间保留，时间推进后丢弃。以后要买到、拿到或吃掉的具体东西，在 report_status、pause_activity 或 conclude_activity 的 errands 里记成个人事务，它一直留在待办层，到提醒时刻只提醒一次，不会叫醒睡着的你；其他需要延续的打算写进 pause_activity 或 conclude_activity 的 summary，report_status 的 summary 只留到本段停留或路程结束。想记住的事只记以后做决定用得上的新情况，人设层已有的作息和待办层已有的事务不再记。\",\"时间只在你有进行中的活动时推进；没有进行中的活动时，同一时刻会继续请你决策。等待与睡觉也是活动。醒着时，活动（等待也一样）一般要做满工具层写的时长才会再请你决策，做得久的中途隔一阵也会请一次；自己下的单送到、提醒到点、有人找你、有 app 推送、到了定下的上下班时刻、写明的休息时段开始或结束，到时也会请你决策，手上的活动照常进行，哪一次想停都可以结束。所以空下来不必干等，像平常人那样照自己的习惯做点别的，刷刷手机、看点东西、收拾一下都算，不用等闷了才做；等待只留给几分钟内就有事请你决策的时候。\",\"你可以同时做两件事。环境只拦同一种的两件：吃、用东西算一种，工具层里方式为「进行」的都算生活活动这一种（不看名称），用手机 app 算一种，读信、等待、工作、出行、和人说话各算一种。不同种的两件环境不拦，但没拦不等于做得到，做不做得到由你照常理判断：边吃边看、边吃边刷手机、边做家务边听，做得到；两只手都占着的事，比如洗漱、洗碗、打扫，配不了吃东西，也配不了拿着手机看；你自己觉得别扭的组合就不要一起做，一件做完再做另一件。想一起吃或喝的两样东西，在同一个 start_activity 里写成两项，算一顿；已经在吃了，另一样等这一顿吃完再开始。开车时只能再和人说话，睡觉时不做别的。手上有一件在进行时，轮到你决策就可以再开始一件，原来那件照常进行。同时进行的最多两项，刚结束还没收尾的也算，暂停的不算，恢复暂停的活动要有空位；活动一结束，同一时刻先用 conclude_activity 收尾，再做别的。\",\"出发前先结束或暂停手上的活动，交谈与通话不能暂停；路上开始的活动不能暂停，到达时与出行一起结束，再逐项收尾。\",\"暂停的活动只能回到原来的地点恢复，用 report_status 点名即恢复；在别处可以直接结束。\",\"工具层列出的动作都可以提交；available 为 false 的会被拒绝，原因就是 reason 所写，照着调整即可。\",\"名称照工具层、待办层中的写法填写；商品、生活活动、app、地点都可以直接写名称，即使此刻没有展示；写得不准时会返回最接近的候选，不会替你改。娱乐只选 app、方式写打开，看什么由 app 决定；这段停留或路程里收到推送后打开那个 app，先看的是推送的内容，不打开也可以。\",\"start_activity 一项一个对象，写 target、way、from、to；方式决定动作。to 写 null 统一表示本人，给他人写实名；给予必须写他人，其他非转移动作的 from、to 都写 null。购买 from 可写门店或 app，prefer 必须写最快拿到或到手价最低；不购买时 prefer 写 null。替别人办事时用 answering 关联未回复消息。\",\"人设层的作息和习惯是你平常的过法：到了平常的钟点、在平常的地方，就照平常做；今日计划写明今天与平常不同的安排时，按计划；身体的感觉没到更强的一档，就不为它改作息。人设层没写作息，或者今天不在平常的环境里，就按身体的感觉来。作息里的钟点，和今日计划目标文字里的钟点、around_time，都只是大概的时候，到时不一定会请你决策：差不多到了就做，早一点晚一点都算照常，不为凑钟点干等；和人约好的事宁早勿晚，非准点不可的要靠目标的提醒时刻。环境层写了上班安排的日子，那是定下的安排，不是习惯：今日计划改不了它，手上的工作交了也还在班上，写明的休息时段和工作要求去别处的外出除外。\",\"你会饿、会困、会累，饿着或困着做事会慢，走路比坐车更费力。只是「有点想吃」时，正餐留到平常的饭点前后吃，离饭点还早可以喝点东西或吃点手边的零食；到了「饿」，离平常饭点一小时以内可以提前准备或下单，更早就先垫一点；到了「很饿」或更饿，别等饭点，马上弄吃的。手边的、在路上的、这里能买的、能送到这里的都算；下单的东西送到、拿到手才能吃。每个饭点的正餐只吃一次，提前吃过的那顿就算吃过了。\",\"晚上照人设层作息里的就寝时间去睡（没写就寝时间，就困了再睡）：有点乏、困是睡前的常态，还没到就寝时间就照常过晚上，到了就可以睡，不用撑到某个钟点；很困或撑不住了可以提前，精神还好也可以晚些。想在某个时刻起来，就给今日计划的目标写上提醒时刻；睡着时只有提醒或睡够了才会醒，早睡也就早醒。\",\"工作要在要求的地点做，按主题计工时：播报时用自己的话写这段做了什么、做到哪里；写的进度不改变工时，做满目标工时环境会结束它。\",\"花钱量力而行；有人找你时，按你们的关系与当时的情况回应。联系人只能发消息或通话，不会来到你身边。\"]}"
+        "content": "{\"layer\":\"系统层\",\"role\":\"你是模拟世界中的一个人物，依据人设层选择下一步行动；世界的时间、状态与结算由环境负责。\",\"rules\":[\"请求由七层组成：本层是交互规则；工具层列出此刻可操作的目标，以及各目标的动作、条件与代价；人设层是你是谁；记忆层是此前各段停留、路程与更早日期中已经发生的事；待办层是暂停的活动、还没办完的个人事务与今日计划；环境层是此刻的身体感受、所在地点与今天的上班安排；进度层是本段停留或路程中已经发生的事。\",\"每次决策恰好提交一个世界请求：start_activity、report_status、pause_activity、conclude_activity、revise_day_plan、send_message、set_alarm 之一；提交前可以查询自己的记忆、回看任务或查询已知世界。只读查询可以同批，世界请求单独提交。\",\"世界请求提交后只是登记；环境结算后，结果写进进度层，同一时刻接着决策时，结果随工具结果返回。说打算做或说已经做过，都不等于做了。\",\"进度层的结果与记忆层的 settled 是环境核验的事实；self_note、self_notes 以及人设层的看法与偏好是你自己写下的，未经核验。待办层个人事务的文字是你自己记下的，办没办成由环境按实际结算确认，自己说办完了不算；办成或取消的事务不再列在待办层。消息只核验了对方这样说过，说已经做了、正在赶来，都不等于发生了。\",\"回复正文可以留空；写了会作为该次调用的 self_note 保留到本段停留或路程结束，不进入记忆。\",\"思考只在同一时刻的连续决策之间保留，时间推进后丢弃。以后要买到或拿到的具体东西，在 report_status、pause_activity 或 conclude_activity 的 errands 里记成个人事务，它一直留在待办层，到提醒时刻只提醒一次，不会叫醒睡着的你；其他需要延续的打算写进 pause_activity 或 conclude_activity 的 summary，report_status 的 summary 只留到本段停留或路程结束。想记住的事只记以后做决定用得上的新情况，人设层已有的作息和待办层已有的事务不再记。\",\"时间只在你有进行中的活动时推进；没有进行中的活动时，同一时刻会继续请你决策。等待与睡觉也是活动。醒着时，等待与出行一般要做满工具层写的时长才会再请你决策；其他动作自己没有时长，做多久由这次拿到的内容决定：工具层写的是大概要多久，开始的结果里写明这次是哪一条、有多长，这一条做完活动就结束并请你决策，只有娱乐类的会自己接着下一条，直到你停下。做得久的中途隔一阵也会请一次；自己下的单送到或到站可领、提醒或闹钟到点、有人找你、有 app 推送、到了定下的上下班时刻、写明的休息时段开始或结束，到时也会请你决策，手上的活动照常进行，哪一次想停都可以结束。所以空下来不必干等，像平常人那样照自己的习惯做点别的，刷刷手机、看点东西、收拾一下都算，不用等闷了才做；等待只留给几分钟内就有事请你决策的时候。\",\"你可以同时做两件事。环境只拦同一种的两件：工具层里类别相同的动作算一种，写着「持续使用手机 app」的动作不论类别另算一种，等待、出行各算一种。不同种的两件环境不拦，但没拦不等于做得到，做不做得到由你照常理判断：边做家务边听、边走边聊，做得到；两只手都占着的事，比如洗漱、洗碗、打扫，配不了拿着手机看；你自己觉得别扭的组合就不要一起做，一件做完再做另一件。开车时只能再和人说话，睡觉时不做别的。手上有一件在进行时，轮到你决策就可以再开始一件，原来那件照常进行。同时进行的最多两项，刚结束还没收尾的也算，暂停的不算，恢复暂停的活动要有空位；活动一结束，同一时刻先用 conclude_activity 收尾，再做别的。\",\"出发前先结束或暂停手上的活动，交谈与通话不能暂停；路上开始的活动不能暂停，到达时与出行一起结束，再逐项收尾。\",\"暂停的活动只能回到原来的地点恢复，用 report_status 点名即恢复；在别处可以直接结束。\",\"工具层列出的动作都可以提交；available 为 false 的会被拒绝，原因就是 reason 所写，照着调整即可。\",\"名称照工具层、待办层中的写法填写；商品、地点都可以直接写名称，即使此刻没有展示；写得不准时会返回最接近的候选，不会替你改。出行、睡觉、等待、购买、领取以外的事都是工具层里的动作，做哪一条内容由环境定，你只选动作和它列出的 app，开始的结果里会写明这次是哪一条。这段停留或路程里收到推送后，用那个 app 开始推送所属的动作，先做的是推送的内容，不开始也可以。\",\"start_activity 一项一个对象，写 target、way、app、to、pay_app，用不上的写 null；方式决定动作。出行：target 写地点，way 写步行或驾车，app 可以写一个导航 app，不用导航就写 null。购买：target 写商品，way 写购买，一项一件；人在店里买，app 写 null，pay_app 可以写一个支付 app，写 null 就是不经 app 付款；网上买，app 写购物 app，pay_app 写这个购物 app 能用的一个支付 app，由环境安排门店送来；to 写 null 是自己收，给别人买就写对方实名。工具层里的动作：target 写动作名，way 写进行，动作列了 app 就在 app 写其中一个，没列就写 null；社交类的动作在 to 写对方实名，其他动作 to 写 null。睡觉与等待 target 写自己。替别人办事时用 answering 关联未回复消息。驿站领取 target 写地点里的驿站，way 写领取，app、to、pay_app 都写 null；要本人到场，领取不保存库存。\",\"人设层的作息和习惯是你平常的过法：到了平常的钟点、在平常的地方，就照平常做；今日计划写明今天与平常不同的安排时，按计划；身体的感觉没到更强的一档，就不为它改作息。人设层没写作息，或者今天不在平常的环境里，就按身体的感觉来。作息里的钟点，和今日计划目标文字里的钟点、around_time，都只是大概的时候，到时不一定会请你决策：差不多到了就做，早一点晚一点都算照常，不为凑钟点干等；和人约好的事宁早勿晚，非准点不可的要靠目标的提醒时刻。环境层写了上班安排的日子，那是定下的安排，不是习惯：今日计划改不了它，手上的工作交了也还在班上，写明的休息时段和工作要求去别处的外出除外。\",\"你会饿、会困、会累，饿着或困着做事会慢，走路比坐车更费力。东西买到手或直送收到就算用掉；长途先到驿站，只通知领取，本人到场领取后才算收到：吃的喝的当场算吃了，别的东西当场算用了，没有另外吃或用的一步，也存不下来。只是「有点想吃」时，正餐留到平常的饭点前后吃，离饭点还早可以买点喝的或零食；到了「饿」，离平常饭点一小时以内可以提前下单，更早就先买点东西垫一下；到了「很饿」或更饿，别等饭点，马上买吃的。在路上的、这里能买的、能送到这里的都算；下单的东西要送到才算吃上。每个饭点的正餐只吃一次，提前吃过的那顿就算吃过了。\",\"晚上照人设层作息里的就寝时间去睡（没写就寝时间，就困了再睡）：有点乏、困是睡前的常态，还没到就寝时间就照常过晚上，到了就可以睡，不用撑到某个钟点；很困或撑不住了可以提前，精神还好也可以晚些。想在某个时刻起来，可以用 set_alarm 设置一次闹钟，也可以给今日计划的目标写上提醒时刻；睡着时只有提醒、闹钟或睡够了才会醒，早睡也就早醒。\",\"安排给你的工作要在要求的地点做，做哪一项由环境安排，按实际做的时间计进度：播报时用自己的话写这段做了什么、做到哪里；写的进度不改变已做的时间，一项做满它的时长环境会结束这次活动，做完的不再安排。\",\"花钱量力而行；有人找你时，按你们的关系与当时的情况回应。联系人只能发消息或通过工具层列出的社交动作远程交流，不会来到你身边；文字交流只记录话题与实际用时，具体聊天内容和进展由你播报，不会自动生成对方回复。\"]}",
+        "role": "system"
       },
       {
-        "role": "user",
-        "content": "[{\"layer\":\"工具层\",\"groups\":[{\"kind\":\"task\",\"action\":\"interact\",\"way\":\"工作\",\"shared\":{\"contract\":{\"topic\":\"季度销售数据整理\",\"target\":\"约 8 小时\",\"done\":\"约 0 小时\",\"remaining\":\"约 8 小时\"},\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"duration\":\"约 8 小时\"},\"targets\":[{\"name\":\"工作：季度销售数据整理\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"5 元\",\"duration\":\"约 2 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：三杯咖啡\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"0 元\",\"duration\":\"约 10 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：三杯咖啡\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"5 元\",\"duration\":\"约 4 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：一心面馆\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"0 元\",\"duration\":\"约 26 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：一心面馆\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"5 元\",\"duration\":\"约 2 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：二味小炒\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"0 元\",\"duration\":\"约 10 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：二味小炒\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"6.55 元\",\"duration\":\"约 8 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：公司\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"0 元\",\"duration\":\"约 45 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：公司\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"5 元\",\"duration\":\"不到 1 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：五里公园\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"0 元\",\"duration\":\"约 5 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：五里公园\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"5 元\",\"duration\":\"约 2 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：四季便利\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"0 元\",\"duration\":\"约 13 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：四季便利\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"到店\",\"shared\":{\"state\":\"正餐，每份约 600 千卡；可用饿了么、美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"25 元\",\"quantity\":\"1 份\"},\"targets\":[{\"name\":\"三杯咖啡出售的三明治\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"远程下单\",\"shared\":{\"state\":\"正餐，每份约 600 千卡；可用饿了么、美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"30 元\",\"quantity\":\"1 份\",\"note\":\"预计 10:31 送到\"},\"targets\":[{\"name\":\"三杯咖啡出售的三明治\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"到店\",\"shared\":{\"state\":\"正餐，每份约 600 千卡；可用美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"28 元\",\"quantity\":\"1 份\"},\"targets\":[{\"name\":\"一心面馆出售的牛肉面\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"远程下单\",\"shared\":{\"state\":\"正餐，每份约 600 千卡；可用美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"33 元\",\"quantity\":\"1 份\",\"note\":\"预计 10:35 送到\"},\"targets\":[{\"name\":\"一心面馆出售的牛肉面\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"到店\",\"shared\":{\"state\":\"零食，每份约 200 千卡；可用美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"8 元\",\"quantity\":\"1 份\"},\"targets\":[{\"name\":\"一心面馆出售的薯片\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"远程下单\",\"shared\":{\"state\":\"零食，每份约 200 千卡；可用美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"13 元\",\"quantity\":\"1 份\",\"note\":\"预计 10:35 送到\"},\"targets\":[{\"name\":\"一心面馆出售的薯片\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"到店\",\"shared\":{\"state\":\"饮品，每份约 100 千卡；可用饿了么、美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"12 元\",\"quantity\":\"1 份\"},\"targets\":[{\"name\":\"三杯咖啡出售的柠檬茶\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"远程下单\",\"shared\":{\"state\":\"饮品，每份约 100 千卡；可用饿了么、美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"17 元\",\"quantity\":\"1 份\",\"note\":\"预计 10:31 送到\"},\"targets\":[{\"name\":\"三杯咖啡出售的柠檬茶\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"到店\",\"shared\":{\"state\":\"饮品，每份约 100 千卡；可用美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"12 元\",\"quantity\":\"1 份\"},\"targets\":[{\"name\":\"一心面馆出售的柠檬茶\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"远程下单\",\"shared\":{\"state\":\"饮品，每份约 100 千卡；可用美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"17 元\",\"quantity\":\"1 份\",\"note\":\"预计 10:35 送到\"},\"targets\":[{\"name\":\"一心面馆出售的柠檬茶\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"到店\",\"shared\":{\"state\":\"零食，每份约 200 千卡；可用饿了么、美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"8 元\",\"quantity\":\"1 份\"},\"targets\":[{\"name\":\"三杯咖啡出售的薯片\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"远程下单\",\"shared\":{\"state\":\"零食，每份约 200 千卡；可用饿了么、美团下单\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"price\":\"13 元\",\"quantity\":\"1 份\",\"note\":\"预计 10:31 送到\"},\"targets\":[{\"name\":\"三杯咖啡出售的薯片\"}]},{\"kind\":\"app\",\"action\":\"interact\",\"way\":\"打开\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"duration\":\"约 30 分钟\"},\"targets\":[{\"name\":\"应用：哔哩哔哩\",\"state\":\"3 条内容\"},{\"name\":\"应用：抖音\",\"state\":\"有推送：《测试短视频》（短视频）\"},{\"name\":\"应用：饿了么\",\"state\":\"0 条内容\"},{\"name\":\"应用：美团\",\"state\":\"0 条内容\"}]},{\"kind\":\"lifestyle\",\"action\":\"interact\",\"way\":\"进行\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"duration\":\"约 15 分钟\"},\"targets\":[{\"name\":\"活动：安静休息\"}]},{\"kind\":\"message\",\"action\":\"interact\",\"way\":\"阅读\",\"shared\":{\"state\":\"未读\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"duration\":\"约 15 分钟\"},\"targets\":[{\"name\":\"邮件：人工测试通知（2026年01月05日 09:58:00）\"},{\"name\":\"邮件：稍后处理个人事务（2026年01月05日 10:04:00）\"}]},{\"kind\":\"self\",\"action\":\"interact\",\"way\":\"等待\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"duration\":\"约 15 分钟\"},\"targets\":[{\"name\":\"自己\"}]},{\"kind\":\"self\",\"action\":\"sleep\",\"way\":\"睡觉\",\"shared\":{\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\",\"duration\":\"约 7.5 小时\"},\"targets\":[{\"name\":\"自己\"}]},{\"kind\":\"activity\",\"action\":null,\"way\":null,\"shared\":{\"phase\":\"刚结束\",\"state\":\"按计划结束，已做约 15 分钟\",\"tools\":[{\"tool\":\"report_status\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\"},{\"tool\":\"pause_activity\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\"},{\"tool\":\"conclude_activity\",\"available\":true}]},\"targets\":[{\"name\":\"等待（1月5日 10:04 起）\"}]}],\"callable_index\":{\"lifestyle\":[\"安静休息\"],\"goods\":[{\"category\":\"正餐\",\"count\":\"2 个\",\"examples\":[\"牛肉面\",\"三明治\"]},{\"category\":\"零食\",\"count\":\"1 个\",\"examples\":[\"薯片\"]},{\"category\":\"饮品\",\"count\":\"1 个\",\"examples\":[\"柠檬茶\"]}],\"query_categories\":[{\"category\":\"正餐\",\"count\":4},{\"category\":\"零食\",\"count\":4},{\"category\":\"饮品\",\"count\":4}]}},{\"layer\":\"人设层\",\"identity\":{\"name\":\"人物1\",\"age\":null,\"occupation\":null,\"living_arrangement\":null},\"rhythm\":null,\"habits\":[],\"tastes\":null,\"coping\":null,\"relationships\":[{\"person\":\"沈昊\",\"role\":\"老友\",\"closeness\":null,\"channels\":[],\"view\":null},{\"person\":\"陈母\",\"role\":\"家人\",\"closeness\":null,\"channels\":[],\"view\":null}],\"preferences\":[]},{\"layer\":\"记忆层\",\"earlier_days\":[],\"earlier_today\":[]},{\"layer\":\"待办层\",\"paused_activities\":[{\"name\":\"打开哔哩哔哩（1月5日 10:03 起）\",\"paused_at\":\"2026-01-05T10:04:00+08:00\",\"place\":\"家\",\"progress\":\"已做约 1 分钟，还剩约 29 分钟\",\"tools\":[{\"tool\":\"report_status\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\"},{\"tool\":\"conclude_activity\",\"available\":false,\"reason\":\"Conclude the finished activities 等待（1月5日 10:04 起） first.\"}]}],\"errands\":[{\"name\":\"买柠檬茶\",\"done_when\":\"取得柠檬茶 1 份\",\"progress\":\"已取得 0 份\",\"memo\":null,\"remind_time\":null,\"noted_on\":\"2026-01-05\"},{\"name\":\"买牛肉面\",\"done_when\":\"取得牛肉面 1 份\",\"progress\":\"已取得 0 份\",\"memo\":null,\"remind_time\":\"18:30\",\"noted_on\":\"2026-01-05\"}],\"day_plan\":{\"date\":\"2026-01-05\",\"goals\":[]}},{\"layer\":\"环境层\",\"observed_at\":\"2026-01-05T10:19:00+08:00\",\"body\":{\"appetite\":\"不饿\",\"sleepiness\":\"清醒\",\"entertainment\":\"很想放松\",\"social\":\"不想找人\",\"mood\":\"平静\"},\"location\":{\"session_kind\":\"stay\",\"name\":\"家\",\"place_type\":\"家\",\"fixed_rules\":[]},\"duty\":{\"day\":\"工作日\",\"hours\":\"09:00–18:00\",\"place\":\"公司\",\"breaks\":[],\"status\":\"当班中\"}},{\"layer\":\"进度层\",\"session_started_at\":\"2026-01-05T09:54:00+08:00\",\"events\":[{\"occurred_at\":\"2026-01-05T09:54:00+08:00\",\"type\":\"tool_call\",\"tool\":\"start_activity\",\"arguments\":{\"answering\":null,\"items\":[{\"from\":null,\"target\":\"自己\",\"to\":null,\"way\":\"等待\"}],\"prefer\":null},\"result\":{\"occurred_at\":\"2026-01-05T09:58:00+08:00\",\"status\":\"cancelled\",\"error_code\":null,\"message\":\"Activity cancelled\",\"details\":{}}},{\"occurred_at\":\"2026-01-05T09:58:00+08:00\",\"type\":\"message_arrival\",\"sender\":null,\"kind\":\"mail\",\"subject\":\"人工测试通知\"},{\"occurred_at\":\"2026-01-05T09:58:00+08:00\",\"type\":\"tool_call\",\"tool\":\"conclude_activity\",\"arguments\":{\"items\":[{\"activity_name\":\"等待（1月5日 09:54 起）\",\"summary\":\"先吃点零食。\",\"memories\":[]}]},\"result\":{\"occurred_at\":\"2026-01-05T09:58:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activities concluded\",\"details\":{\"outcome\":[{\"activity\":\"等待（1月5日 09:54 起）\",\"items\":[],\"note\":\"No item changes.\",\"outcome\":\"提前结束\"}],\"errands\":[{\"change\":\"新增\",\"errand\":\"吃掉薯片\"},{\"change\":\"新增\",\"errand\":\"买柠檬茶\"},{\"change\":\"新增\",\"errand\":\"买牛肉面\"}]}},\"self_note\":\"先把事务记下来。\"},{\"occurred_at\":\"2026-01-05T09:58:00+08:00\",\"type\":\"tool_call\",\"tool\":\"start_activity\",\"arguments\":{\"answering\":null,\"items\":[{\"from\":null,\"target\":\"薯片\",\"to\":null,\"way\":\"食用\"}],\"prefer\":null},\"result\":{\"occurred_at\":\"2026-01-05T10:03:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activity completed\",\"details\":{}}},{\"occurred_at\":\"2026-01-05T10:00:00+08:00\",\"type\":\"app_push\",\"app\":\"抖音\",\"title\":\"测试短视频\",\"kind\":\"短视频\",\"summary\":\"测试短视频的人工合成摘要。\"},{\"occurred_at\":\"2026-01-05T10:00:00+08:00\",\"type\":\"errand_reminder\",\"errand\":\"买柠檬茶\"},{\"occurred_at\":\"2026-01-05T10:00:00+08:00\",\"type\":\"tool_call\",\"tool\":\"report_status\",\"arguments\":{\"items\":[{\"activity_name\":\"食用薯片（1月5日 09:58 起）\",\"summary\":\"继续做完。\"}]},\"result\":{\"occurred_at\":\"2026-01-05T10:00:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activity status reported\",\"details\":{\"errands\":[]}}},{\"occurred_at\":\"2026-01-05T10:03:00+08:00\",\"type\":\"errand_completed\",\"errand\":\"吃掉薯片\"},{\"occurred_at\":\"2026-01-05T10:03:00+08:00\",\"type\":\"tool_call\",\"tool\":\"conclude_activity\",\"arguments\":{\"items\":[{\"activity_name\":\"食用薯片（1月5日 09:58 起）\",\"summary\":\"零食吃完了。\",\"memories\":[]}]},\"result\":{\"occurred_at\":\"2026-01-05T10:03:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activities concluded\",\"details\":{\"outcome\":[{\"activity\":\"食用薯片（1月5日 09:58 起）\",\"items\":[{\"discarded\":\"0 份\",\"eaten\":\"1 份\",\"product\":\"薯片\",\"remaining\":\"0 份\"}],\"note\":null,\"outcome\":\"完成\"}],\"errands\":[]}}},{\"occurred_at\":\"2026-01-05T10:03:00+08:00\",\"type\":\"tool_call\",\"tool\":\"start_activity\",\"arguments\":{\"answering\":null,\"items\":[{\"from\":null,\"target\":\"应用：哔哩哔哩\",\"to\":null,\"way\":\"打开\"}],\"prefer\":null},\"result\":{\"occurred_at\":\"2026-01-05T10:03:00+08:00\",\"status\":\"in_progress\",\"error_code\":null,\"message\":\"Activity started\",\"details\":{\"planned\":[{\"name\":\"打开哔哩哔哩（1月5日 10:03 起）\",\"duration\":\"约 30 分钟\"}],\"app_content\":{\"app\":\"哔哩哔哩\",\"title\":\"测试文章\",\"kind\":\"文章\",\"summary\":\"测试文章的人工合成摘要。\",\"pushed\":false}}}},{\"occurred_at\":\"2026-01-05T10:04:00+08:00\",\"type\":\"message_arrival\",\"sender\":null,\"kind\":\"mail\",\"subject\":\"稍后处理个人事务\"},{\"occurred_at\":\"2026-01-05T10:04:00+08:00\",\"type\":\"tool_call\",\"tool\":\"pause_activity\",\"arguments\":{\"items\":[{\"activity_name\":\"打开哔哩哔哩（1月5日 10:03 起）\",\"summary\":\"先歇一会儿。\"}]},\"result\":{\"occurred_at\":\"2026-01-05T10:04:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activity paused\",\"details\":{\"errands\":[]}}},{\"occurred_at\":\"2026-01-05T10:04:00+08:00\",\"type\":\"tool_call\",\"tool\":\"start_activity\",\"arguments\":{\"answering\":null,\"items\":[{\"from\":null,\"target\":\"自己\",\"to\":null,\"way\":\"等待\"}],\"prefer\":null},\"result\":{\"occurred_at\":\"2026-01-05T10:19:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activity completed\",\"details\":{}}}],\"rejected_today\":[]}]"
+        "content": "[{\"layer\":\"工具层\",\"groups\":[{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Driving requires a car owned by this persona.\",\"price\":\"5 元\",\"duration\":\"约 2 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：三杯咖啡\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":true,\"price\":\"0 元\",\"duration\":\"约 10 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：三杯咖啡\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Driving requires a car owned by this persona.\",\"price\":\"5 元\",\"duration\":\"约 4 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：一心面馆\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":true,\"price\":\"0 元\",\"duration\":\"约 26 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：一心面馆\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Driving requires a car owned by this persona.\",\"price\":\"5 元\",\"duration\":\"约 2 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：二味小炒\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":true,\"price\":\"0 元\",\"duration\":\"约 10 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：二味小炒\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Driving requires a car owned by this persona.\",\"price\":\"6.55 元\",\"duration\":\"约 8 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：公司\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":true,\"price\":\"0 元\",\"duration\":\"约 45 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：公司\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Driving requires a car owned by this persona.\",\"price\":\"5 元\",\"duration\":\"不到 1 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：五里公园\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":true,\"price\":\"0 元\",\"duration\":\"约 5 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：五里公园\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"驾车\",\"shared\":{\"available\":false,\"reason\":\"Driving requires a car owned by this persona.\",\"price\":\"5 元\",\"duration\":\"约 2 分钟\",\"note\":\"费力程度：轻松\"},\"targets\":[{\"name\":\"地点：四季便利\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"available\":true,\"price\":\"0 元\",\"duration\":\"约 13 分钟\",\"note\":\"费力程度：费力\"},\"targets\":[{\"name\":\"地点：四季便利\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"购买\",\"shared\":{\"quantity\":\"1 份\"},\"targets\":[{\"name\":\"薯片\",\"state\":\"零食，每份约 200 千卡\",\"available\":false,\"reason\":\"Purchase requires presence at 三杯咖啡.\",\"price\":\"8 元\"},{\"name\":\"薯片\",\"state\":\"零食，每份约 200 千卡\",\"app\":\"饿了么\",\"available\":true,\"price\":\"13 元\",\"note\":\"预计 08:12 送到；可用支付宝付款\"},{\"name\":\"薯片\",\"state\":\"零食，每份约 200 千卡\",\"app\":\"美团\",\"available\":true,\"price\":\"13 元\",\"note\":\"预计 08:12 送到；可用支付宝、微信付款\"},{\"name\":\"牛肉面\",\"state\":\"正餐，每份约 600 千卡\",\"available\":false,\"reason\":\"Purchase requires presence at 二味小炒.\",\"price\":\"28 元\"},{\"name\":\"牛肉面\",\"state\":\"正餐，每份约 600 千卡\",\"app\":\"美团\",\"available\":true,\"price\":\"33 元\",\"note\":\"预计 08:16 送到；可用支付宝、微信付款\"},{\"name\":\"柠檬茶\",\"state\":\"饮品，每份约 100 千卡\",\"available\":false,\"reason\":\"Purchase requires presence at 三杯咖啡.\",\"price\":\"12 元\"},{\"name\":\"柠檬茶\",\"state\":\"饮品，每份约 100 千卡\",\"app\":\"饿了么\",\"available\":true,\"price\":\"17 元\",\"note\":\"预计 08:12 送到；可用支付宝付款\"},{\"name\":\"柠檬茶\",\"state\":\"饮品，每份约 100 千卡\",\"app\":\"美团\",\"available\":true,\"price\":\"17 元\",\"note\":\"预计 08:12 送到；可用支付宝、微信付款\"}]},{\"kind\":\"action\",\"action\":\"interact\",\"way\":\"进行\",\"shared\":{},\"targets\":[{\"name\":\"刷推荐\",\"state\":\"娱乐；进行刷推荐。\",\"app\":\"哔哩哔哩\",\"available\":true,\"duration\":\"约 5 分钟至 40 分钟\",\"note\":\"持续使用手机 app\"},{\"name\":\"刷推荐\",\"state\":\"娱乐；进行刷推荐。\",\"app\":\"抖音\",\"available\":true,\"duration\":\"约 25 分钟\",\"note\":\"持续使用手机 app；有推送：《测试实况》\"},{\"name\":\"办公\",\"state\":\"工作与学习；进行办公。\",\"available\":false,\"reason\":\"进行办公 requires presence at 公司.\"},{\"name\":\"安静休息\",\"state\":\"日常照护；进行安静休息。\",\"available\":true,\"duration\":\"约 15 分钟\"},{\"name\":\"跑步\",\"state\":\"运动；进行跑步。\",\"app\":\"Keep\",\"available\":true,\"duration\":\"约 20 分钟\",\"note\":\"借助 app 安排或记录线下行为\"},{\"name\":\"聊天\",\"state\":\"社交；进行聊天。\",\"available\":true,\"duration\":\"约 10 分钟\",\"note\":\"to 写对方\"},{\"name\":\"学课程\",\"state\":\"工作与学习；进行学课程。\",\"app\":\"哔哩哔哩\",\"available\":true,\"duration\":\"约 30 分钟\",\"note\":\"通过其他设备使用 app\"},{\"name\":\"语音通话\",\"state\":\"社交；进行语音通话。\",\"app\":\"微信\",\"available\":true,\"duration\":\"约 10 分钟\",\"note\":\"持续使用手机 app；to 写对方\"}]},{\"kind\":\"person\",\"action\":null,\"way\":null,\"shared\":{\"state\":\"正在等待\",\"tools\":[{\"tool\":\"send_message\",\"available\":true}]},\"targets\":[{\"name\":\"人物：Second Test Person\"}]},{\"kind\":\"contact\",\"action\":null,\"way\":null,\"shared\":{\"tools\":[{\"tool\":\"send_message\",\"available\":true}]},\"targets\":[{\"name\":\"联系人：王磊\"}]},{\"kind\":\"self\",\"action\":\"interact\",\"way\":\"等待\",\"shared\":{\"available\":true,\"duration\":\"约 2 小时\"},\"targets\":[{\"name\":\"自己\"}]},{\"kind\":\"self\",\"action\":\"sleep\",\"way\":\"睡觉\",\"shared\":{\"available\":true,\"duration\":\"约 7.5 小时\"},\"targets\":[{\"name\":\"自己\"}]}],\"callable_index\":{\"goods\":[{\"category\":\"正餐\",\"count\":\"1 个\",\"examples\":[\"牛肉面\"]},{\"category\":\"零食\",\"count\":\"1 个\",\"examples\":[\"薯片\"]},{\"category\":\"饮品\",\"count\":\"1 个\",\"examples\":[\"柠檬茶\"]}],\"navigation_apps\":[\"高德地图\"],\"payment_apps\":[\"支付宝\",\"微信\"],\"query_categories\":[{\"category\":\"娱乐\",\"count\":1},{\"category\":\"工作与学习\",\"count\":2},{\"category\":\"日常照护\",\"count\":1},{\"category\":\"正餐\",\"count\":1},{\"category\":\"社交\",\"count\":2},{\"category\":\"运动\",\"count\":1},{\"category\":\"零食\",\"count\":1},{\"category\":\"饮品\",\"count\":1}]}},{\"layer\":\"人设层\",\"identity\":{\"name\":\"Person 1\",\"age\":null,\"occupation\":null,\"living_arrangement\":null},\"rhythm\":null,\"habits\":[],\"tastes\":null,\"coping\":null,\"relationships\":[],\"preferences\":[]},{\"layer\":\"记忆层\",\"earlier_days\":[{\"date\":\"2026-01-04\",\"settled\":[],\"self_notes\":[{\"activity\":null,\"text\":\"我希望继续留意自己的感受。\"}]}],\"earlier_today\":[]},{\"layer\":\"待办层\",\"paused_activities\":[{\"name\":\"等待（1月5日 07:45 起）\",\"paused_at\":\"2026-01-05T08:00:00+08:00\",\"place\":\"家\",\"progress\":\"已做约 15 分钟，还剩约 2 小时\",\"tools\":[{\"tool\":\"report_status\",\"available\":true,\"reason\":null},{\"tool\":\"conclude_activity\",\"available\":true,\"reason\":null}]}],\"errands\":[],\"day_plan\":{\"date\":\"2026-01-05\",\"goals\":[{\"intent_kind\":\"用餐\",\"goal\":\"找一份餐食\",\"progressed\":false,\"remind_time\":null,\"around_time\":null},{\"intent_kind\":\"娱乐\",\"goal\":\"用应用看一会内容\",\"progressed\":false,\"remind_time\":null,\"around_time\":null}]}},{\"layer\":\"环境层\",\"observed_at\":\"2026-01-05T08:00:00+08:00\",\"body\":{\"appetite\":\"不饿\",\"sleepiness\":\"清醒\",\"entertainment\":\"很想放松\",\"social\":\"不想找人\",\"mood\":\"平静\"},\"location\":{\"session_kind\":\"stay\",\"name\":\"家\",\"place_type\":\"家\",\"fixed_rules\":[]},\"duty\":{\"day\":\"工作日\",\"hours\":\"09:00–18:00\",\"place\":\"公司\",\"breaks\":[],\"status\":\"未到上班时间\"}},{\"layer\":\"进度层\",\"session_started_at\":\"2026-01-05T00:00:00+08:00\",\"events\":[{\"occurred_at\":\"2026-01-05T00:00:00+08:00\",\"type\":\"tool_call\",\"tool\":\"start_activity\",\"arguments\":{\"answering\":null,\"items\":[{\"app\":null,\"pay_app\":null,\"target\":\"自己\",\"to\":null,\"way\":\"睡觉\"}]},\"result\":{\"occurred_at\":\"2026-01-05T07:30:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activity completed\",\"details\":{}}},{\"occurred_at\":\"2026-01-05T07:30:00+08:00\",\"type\":\"tool_call\",\"tool\":\"conclude_activity\",\"arguments\":{\"items\":[{\"activity_name\":\"睡觉（1月5日 00:00 起）\",\"summary\":\"这件事先到这里。\",\"memories\":[{\"type\":\"reflection\",\"text\":\"我以为自己已经吃过一顿饭。\",\"importance\":0.2,\"keywords\":[\"猜想\"]}]}]},\"result\":{\"occurred_at\":\"2026-01-05T07:30:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activities concluded\",\"details\":{\"outcome\":[{\"activity\":\"睡觉（1月5日 00:00 起）\",\"outcome\":\"完成\"}],\"errands\":[]}}},{\"occurred_at\":\"2026-01-05T07:30:00+08:00\",\"type\":\"tool_call\",\"tool\":\"start_activity\",\"arguments\":{\"answering\":null,\"items\":[{\"app\":null,\"pay_app\":null,\"target\":\"安静休息\",\"to\":null,\"way\":\"进行\"}]},\"result\":{\"occurred_at\":\"2026-01-05T07:45:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activity completed\",\"details\":{}}},{\"occurred_at\":\"2026-01-05T07:45:00+08:00\",\"type\":\"tool_call\",\"tool\":\"conclude_activity\",\"arguments\":{\"items\":[{\"activity_name\":\"安静休息（1月5日 07:30 起）\",\"summary\":\"这件事先到这里。\",\"memories\":[]}]},\"result\":{\"occurred_at\":\"2026-01-05T07:45:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activities concluded\",\"details\":{\"outcome\":[{\"activity\":\"安静休息（1月5日 07:30 起）\",\"outcome\":\"完成\"}],\"errands\":[]}}},{\"occurred_at\":\"2026-01-05T07:45:00+08:00\",\"type\":\"tool_call\",\"tool\":\"start_activity\",\"arguments\":{\"answering\":null,\"items\":[{\"app\":null,\"pay_app\":null,\"target\":\"自己\",\"to\":null,\"way\":\"等待\"}]},\"result\":{\"occurred_at\":\"2026-01-05T07:45:00+08:00\",\"status\":\"in_progress\",\"error_code\":null,\"message\":\"Activity started\",\"details\":{\"planned\":[{\"name\":\"等待（1月5日 07:45 起）\",\"duration\":\"约 2 小时\"}]}}},{\"occurred_at\":\"2026-01-05T08:00:00+08:00\",\"type\":\"app_push\",\"app\":\"抖音\",\"action\":\"刷推荐\",\"title\":\"测试实况\",\"summary\":\"测试实况的测试用合成摘要。\"},{\"occurred_at\":\"2026-01-05T08:00:00+08:00\",\"type\":\"tool_call\",\"tool\":\"pause_activity\",\"arguments\":{\"items\":[{\"activity_name\":\"等待（1月5日 07:45 起）\",\"summary\":\"按当前进展继续。\"}]},\"result\":{\"occurred_at\":\"2026-01-05T08:00:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activity paused\",\"details\":{\"errands\":[]}}}],\"rejected_today\":[{\"written\":\"invented_wait_tool\",\"why\":\"The tool is not offered in this round.\",\"times\":1,\"last\":\"2026-01-05T00:00:00+08:00\",\"accepted_as\":null}]}]",
+        "role": "user"
       },
       {
+        "content": "",
         "role": "assistant",
-        "content": "歇好了，记得买柠檬茶。",
         "tool_calls": [
           {
-            "id": "call-action",
-            "type": "function",
             "function": {
-              "name": "conclude_activity",
-              "arguments": "{\"items\": [{\"activity_name\": \"等待（1月5日 10:04 起）\", \"summary\": \"歇好了。\", \"memories\": [], \"views\": []}], \"errands\": []}"
-            }
+              "arguments": "{\"items\": [{\"target\": \"刷推荐\", \"way\": \"进行\", \"app\": \"抖音\", \"to\": null, \"pay_app\": null}, {\"target\": \"刷推荐\", \"way\": \"进行\", \"app\": \"抖音\", \"to\": null, \"pay_app\": null}], \"answering\": null}",
+              "name": "start_activity"
+            },
+            "id": "call-1-10",
+            "type": "function"
           }
-        ],
-        "reasoning_content": "照当前处境处理手上的事。"
+        ]
       },
       {
+        "content": "{\"error_code\": \"ARGUMENTS_INVALID\", \"reason\": \"a target may repeat only with a different recipient\", \"fix\": \"Correct all reported errors and resubmit the entire batch.\", \"items\": [{\"path\": [\"tool_calls\", 0, \"function\", \"arguments\", \"items\"], \"written\": [{\"target\": \"刷推荐\", \"way\": \"进行\", \"app\": \"抖音\", \"to\": null, \"pay_app\": null}, {\"target\": \"刷推荐\", \"way\": \"进行\", \"app\": \"抖音\", \"to\": null, \"pay_app\": null}], \"error_code\": \"ARGUMENTS_INVALID\", \"allowed_values\": [], \"expected\": \"JSON type: array.\", \"why\": \"a target may repeat only with a different recipient\", \"candidates\": []}], \"unmet\": [], \"instruction\": \"No world action was registered. Correct the reported parameters and submit again.\"}",
         "role": "tool",
-        "tool_call_id": "call-action",
-        "content": "{\"result\":{\"occurred_at\":\"2026-01-05T10:19:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Activities concluded\",\"details\":{\"outcome\":[{\"activity\":\"等待（1月5日 10:04 起）\",\"items\":[],\"note\":\"No item changes.\",\"outcome\":\"完成\"}],\"errands\":[]}},\"changes\":{\"targets\":{\"updated\":[{\"contract\":{\"topic\":\"季度销售数据整理\",\"target\":\"约 8 小时\",\"done\":\"约 0 小时\",\"remaining\":\"约 8 小时\"},\"name\":\"工作：季度销售数据整理\",\"kind\":\"task\",\"phase\":null,\"state\":null,\"tools\":[],\"actions\":[{\"action\":\"interact\",\"way\":\"工作\",\"available\":false,\"reason\":\"工作季度销售数据整理 requires presence at 公司.\",\"price\":null,\"duration\":\"约 8 小时\",\"quantity\":null,\"note\":null}]},{\"name\":\"地点：三杯咖啡\",\"kind\":\"location\",\"phase\":null,\"state\":null,\"tools\":[],\"actions\":[{\"action\":\"travel\",\"way\":\"驾车\",\"available\":true,\"reason\":null,\"price\":\"5 元\",\"duration\":\"约 2 分钟\",\"quantity\":null,\"note\":\"费力程度：轻松\"},{\"action\":\"travel\",\"way\":\"步行\",\"available\":true,\"reason\":null,\"price\":\"0 元\",\"duration\":\"约 10 分钟\",\"quantity\":null,\"note\":\"费力程度：费力\"}]},{\"name\":\"地点：一心面馆\",\"kind\":\"location\",\"phase\":null,\"state\":null,\"tools\":[],\"actions\":[{\"action\":\"travel\",\"way\":\"驾车\",\"available\":true,\"reason\":null,\"price\":\"5 元\",\"duration\":\"约 4 分钟\",\"quantity\":null,\"note\":\"费力程度：轻松\"},{\"action\":\"travel\",\"way\":\"步行\",\"available\":true,\"reason\":null,\"price\":\"0 元\",\"duration\":\"约 26 分钟\",\"quantity\":null,\"note\":\"费力程度：费力\"}]},{\"name\":\"地点：二味小炒\",\"kind\":\"location\",\"phase\":null,\"state\":null,\"tools\":[],\"actions\":[{\"action\":\"travel\",\"way\":\"驾车\",\"available\":true,\"reason\":null,\"price\":\"5 元\",\"duration\":\"约 2 分钟\",\"quantity\":null,\"note\":\"费力程度：轻松\"},{\"action\":\"travel\",\"way\":\"步行\",\"available\":true,\"reason\":null,\"price\":\"0 元\",\"duration\":\"约 10 分钟\",\"quantity\":null,\"note\":\"费力程度：费力\"}]},{\"name\":\"地点：公司\",\"kind\":\"location\",\"phase\":null,\"state\":null,\"tools\":[],\"actions\":[{\"action\":\"travel\",\"way\":\"驾车\",\"available\":true,\"reason\":null,\"price\":\"6.55 元\",\"duration\":\"约 8 分钟\",\"quantity\":null,\"note\":\"费力程度：轻松\"},{\"action\":\"travel\",\"way\":\"步行\",\"available\":true,\"reason\":null,\"price\":\"0 元\",\"duration\":\"约 45 分钟\",\"quantity\":null,\"note\":\"费力程度：费力\"}]},{\"name\":\"地点：五里公园\",\"kind\":\"location\",\"phase\":null,\"state\":null,\"tools\":[],\"actions\":[{\"action\":\"travel\",\"way\":\"驾车\",\"available\":true,\"reason\":null,\"price\":\"5 元\",\"duration\":\"不到 1 分钟\",\"quantity\":null,\"note\":\"费力程度：轻松\"},{\"action\":\"travel\",\"way\":\"步行\",\"available\":true,\"reason\":null,\"price\":\"0 元\",\"duration\":\"约 5 分钟\",\"quantity\":null,\"note\":\"费力程度：费力\"}]},{\"name\":\"地点：四季便利\",\"kind\":\"location\",\"phase\":null,\"state\":null,\"tools\":[],\"actions\":[{\"action\":\"travel\",\"way\":\"驾车\",\"available\":true,\"reason\":null,\"price\":\"5 元\",\"duration\":\"约 2 分钟\",\"quantity\":null,\"note\":\"费力程度：轻松\"},{\"action\":\"travel\",\"way\":\"步行\",\"available\":true,\"reason\":null,\"price\":\"0 元\",\"duration\":\"约 13 分钟\",\"quantity\":null,\"note\":\"费力程度：费力\"}]},{\"state\":\"正餐，每份约 600 千卡；可用饿了么、美团下单\",\"name\":\"三杯咖啡出售的三明治\",\"kind\":\"product\",\"phase\":null,\"tools\":[],\"actions\":[{\"action\":\"obtain\",\"way\":\"到店\",\"available\":false,\"reason\":\"到店三杯咖啡出售的三明治 requires presence at 三杯咖啡.\",\"price\":\"25 元\",\"duration\":null,\"quantity\":\"1 份\",\"note\":null},{\"action\":\"obtain\",\"way\":\"远程下单\",\"available\":true,\"reason\":null,\"price\":\"30 元\",\"duration\":null,\"quantity\":\"1 份\",\"note\":\"预计 10:31 送到\"}]},{\"state\":\"正餐，每份约 600 千卡；可用美团下单\",\"name\":\"一心面馆出售的牛肉面\",\"kind\":\"product\",\"phase\":null,\"tools\":[],\"actions\":[{\"action\":\"obtain\",\"way\":\"到店\",\"available\":false,\"reason\":\"到店一心面馆出售的牛肉面 requires presence at 一心面馆.\",\"price\":\"28 元\",\"duration\":null,\"quantity\":\"1 份\",\"note\":null},{\"action\":\"obtain\",\"way\":\"远程下单\",\"available\":true,\"reason\":null,\"price\":\"33 元\",\"duration\":null,\"quantity\":\"1 份\",\"note\":\"预计 10:35 送到\"}]},{\"state\":\"零食，每份约 200 千卡；可用美团下单\",\"name\":\"一心面馆出售的薯片\",\"kind\":\"product\",\"phase\":null,\"tools\":[],\"actions\":[{\"action\":\"obtain\",\"way\":\"到店\",\"available\":false,\"reason\":\"到店一心面馆出售的薯片 requires presence at 一心面馆.\",\"price\":\"8 元\",\"duration\":null,\"quantity\":\"1 份\",\"note\":null},{\"action\":\"obtain\",\"way\":\"远程下单\",\"available\":true,\"reason\":null,\"price\":\"13 元\",\"duration\":null,\"quantity\":\"1 份\",\"note\":\"预计 10:35 送到\"}]},{\"state\":\"饮品，每份约 100 千卡；可用饿了么、美团下单\",\"name\":\"三杯咖啡出售的柠檬茶\",\"kind\":\"product\",\"phase\":null,\"tools\":[],\"actions\":[{\"action\":\"obtain\",\"way\":\"到店\",\"available\":false,\"reason\":\"到店三杯咖啡出售的柠檬茶 requires presence at 三杯咖啡.\",\"price\":\"12 元\",\"duration\":null,\"quantity\":\"1 份\",\"note\":null},{\"action\":\"obtain\",\"way\":\"远程下单\",\"available\":true,\"reason\":null,\"price\":\"17 元\",\"duration\":null,\"quantity\":\"1 份\",\"note\":\"预计 10:31 送到\"}]},{\"state\":\"饮品，每份约 100 千卡；可用美团下单\",\"name\":\"一心面馆出售的柠檬茶\",\"kind\":\"product\",\"phase\":null,\"tools\":[],\"actions\":[{\"action\":\"obtain\",\"way\":\"到店\",\"available\":false,\"reason\":\"到店一心面馆出售的柠檬茶 requires presence at 一心面馆.\",\"price\":\"12 元\",\"duration\":null,\"quantity\":\"1 份\",\"note\":null},{\"action\":\"obtain\",\"way\":\"远程下单\",\"available\":true,\"reason\":null,\"price\":\"17 元\",\"duration\":null,\"quantity\":\"1 份\",\"note\":\"预计 10:35 送到\"}]},{\"state\":\"零食，每份约 200 千卡；可用饿了么、美团下单\",\"name\":\"三杯咖啡出售的薯片\",\"kind\":\"product\",\"phase\":null,\"tools\":[],\"actions\":[{\"action\":\"obtain\",\"way\":\"到店\",\"available\":false,\"reason\":\"到店三杯咖啡出售的薯片 requires presence at 三杯咖啡.\",\"price\":\"8 元\",\"duration\":null,\"quantity\":\"1 份\",\"note\":null},{\"action\":\"obtain\",\"way\":\"远程下单\",\"available\":true,\"reason\":null,\"price\":\"13 元\",\"duration\":null,\"quantity\":\"1 份\",\"note\":\"预计 10:31 送到\"}]},{\"name\":\"应用：哔哩哔哩\",\"state\":\"3 条内容\",\"kind\":\"app\",\"phase\":null,\"tools\":[],\"actions\":[{\"action\":\"interact\",\"way\":\"打开\",\"available\":true,\"reason\":null,\"price\":null,\"duration\":\"约 30 分钟\",\"quantity\":null,\"note\":null}]},{\"name\":\"应用：抖音\",\"state\":\"有推送：《测试短视频》（短视频）\",\"kind\":\"app\",\"phase\":null,\"tools\":[],\"actions\":[{\"action\":\"interact\",\"way\":\"打开\",\"available\":true,\"reason\":null,\"price\":null,\"duration\":\"约 30 分钟\",\"quantity\":null,\"note\":null}]},{\"name\":\"应用：饿了么\",\"state\":\"0 条内容\",\"kind\":\"app\",\"phase\":null,\"tools\":[],\"actions\":[{\"action\":\"interact\",\"way\":\"打开\",\"available\":false,\"reason\":\"This app has no content to use.\",\"price\":null,\"duration\":\"约 30 分钟\",\"quantity\":null,\"note\":null}]},{\"name\":\"应用：美团\",\"state\":\"0 条内容\",\"kind\":\"app\",\"phase\":null,\"tools\":[],\"actions\":[{\"action\":\"interact\",\"way\":\"打开\",\"available\":false,\"reason\":\"This app has no content to use.\",\"price\":null,\"duration\":\"约 30 分钟\",\"quantity\":null,\"note\":null}]},{\"name\":\"活动：安静休息\",\"kind\":\"lifestyle\",\"phase\":null,\"state\":null,\"tools\":[],\"actions\":[{\"action\":\"interact\",\"way\":\"进行\",\"available\":true,\"reason\":null,\"price\":null,\"duration\":\"约 15 分钟\",\"quantity\":null,\"note\":null}]},{\"state\":\"未读\",\"name\":\"邮件：人工测试通知（2026年01月05日 09:58:00）\",\"kind\":\"message\",\"phase\":null,\"tools\":[],\"actions\":[{\"action\":\"interact\",\"way\":\"阅读\",\"available\":true,\"reason\":null,\"price\":null,\"duration\":\"约 15 分钟\",\"quantity\":null,\"note\":null}]},{\"state\":\"未读\",\"name\":\"邮件：稍后处理个人事务（2026年01月05日 10:04:00）\",\"kind\":\"message\",\"phase\":null,\"tools\":[],\"actions\":[{\"action\":\"interact\",\"way\":\"阅读\",\"available\":true,\"reason\":null,\"price\":null,\"duration\":\"约 15 分钟\",\"quantity\":null,\"note\":null}]},{\"name\":\"自己\",\"kind\":\"self\",\"phase\":null,\"state\":null,\"tools\":[],\"actions\":[{\"action\":\"interact\",\"way\":\"等待\",\"available\":true,\"reason\":null,\"price\":null,\"duration\":\"约 15 分钟\",\"quantity\":null,\"note\":null},{\"action\":\"sleep\",\"way\":\"睡觉\",\"available\":true,\"reason\":null,\"price\":null,\"duration\":\"约 7.5 小时\",\"quantity\":null,\"note\":null}]}],\"removed\":[\"等待（1月5日 10:04 起）\"]},\"paused_activities\":{\"added\":[{\"name\":\"打开哔哩哔哩（1月5日 10:03 起）\",\"paused_at\":\"2026-01-05T10:04:00+08:00\",\"place\":\"家\",\"progress\":\"已做约 1 分钟，还剩约 29 分钟\",\"tools\":[{\"tool\":\"report_status\",\"available\":true,\"reason\":null},{\"tool\":\"conclude_activity\",\"available\":true,\"reason\":null}]}]}}}"
+        "tool_call_id": "call-1-10"
       }
     ],
+    "model": "deepseek-flash",
     "stream": false,
+    "tool_choice": "auto",
     "tools": [
       {
-        "type": "function",
         "function": {
+          "description": "开始一项或两项活动：逐项写目标、方式、所用应用、对方或收货人与付款应用。",
           "name": "start_activity",
-          "description": "开始一项或两项活动：逐项写目标、方式、来源与收货人。",
           "parameters": {
             "additionalProperties": false,
             "properties": {
-              "items": {
-                "items": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "target": {
-                      "pattern": "\\S",
-                      "title": "Target",
-                      "type": "string"
-                    },
-                    "way": {
-                      "pattern": "\\S",
-                      "title": "Way",
-                      "type": "string"
-                    },
-                    "from": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "From"
-                    },
-                    "to": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "To"
-                    }
-                  },
-                  "required": [
-                    "target",
-                    "way",
-                    "from",
-                    "to"
-                  ],
-                  "title": "ActivityRequestItem",
-                  "type": "object"
-                },
-                "title": "Items",
-                "type": "array"
-              },
               "answering": {
                 "anyOf": [
                   {
@@ -1123,36 +1058,83 @@
                 ],
                 "title": "Answering"
               },
-              "prefer": {
-                "description": "购买时选择最快拿到或到手价最低，不购买时写空值。",
-                "enum": [
-                  "最快拿到",
-                  "到手价最低",
-                  null
-                ],
-                "title": "Prefer",
-                "type": [
-                  "string",
-                  "null"
-                ]
+              "items": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "app": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "App"
+                    },
+                    "pay_app": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Pay App"
+                    },
+                    "target": {
+                      "pattern": "\\S",
+                      "title": "Target",
+                      "type": "string"
+                    },
+                    "to": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "To"
+                    },
+                    "way": {
+                      "pattern": "\\S",
+                      "title": "Way",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "target",
+                    "way",
+                    "app",
+                    "to",
+                    "pay_app"
+                  ],
+                  "title": "ActivityRequestItem",
+                  "type": "object"
+                },
+                "title": "Items",
+                "type": "array"
               }
             },
             "required": [
               "items",
-              "answering",
-              "prefer"
+              "answering"
             ],
             "title": "StartActivityRequest",
             "type": "object"
           },
           "strict": true
-        }
+        },
+        "type": "function"
       },
       {
-        "type": "function",
         "function": {
-          "name": "send_message",
           "description": "按人物名给对方发一条消息。",
+          "name": "send_message",
           "parameters": {
             "additionalProperties": false,
             "properties": {
@@ -1174,16 +1156,118 @@
             "type": "object"
           },
           "strict": true
-        }
+        },
+        "type": "function"
       },
       {
-        "type": "function",
         "function": {
-          "name": "report_status",
           "description": "按活动名写下一两项活动的进展，并写下个人事务的变更。",
+          "name": "report_status",
           "parameters": {
             "additionalProperties": false,
             "properties": {
+              "errands": {
+                "description": "要新增、更新或取消的个人事务，一条一个对象，没有就写空列表。",
+                "items": {
+                  "additionalProperties": false,
+                  "description": "一条个人事务的变更：做什么、名称、要办成的事、备注、提醒钟点与取消原因。",
+                  "properties": {
+                    "change": {
+                      "description": "这条变更做什么，从列出的三种里选一种。",
+                      "enum": [
+                        "新增",
+                        "更新",
+                        "取消"
+                      ],
+                      "title": "Change",
+                      "type": "string"
+                    },
+                    "item": {
+                      "anyOf": [
+                        {
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "要取得的商品名称。",
+                      "title": "Item"
+                    },
+                    "memo": {
+                      "anyOf": [
+                        {
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "用自己的话写打算怎么办、去哪办。",
+                      "title": "Memo"
+                    },
+                    "name": {
+                      "description": "事务的名称，新增时自己起，之后照待办层里的写法写。",
+                      "pattern": "\\S",
+                      "title": "Name",
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "要办成的份数。",
+                      "title": "Quantity"
+                    },
+                    "reason": {
+                      "anyOf": [
+                        {
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "不办了的原因。",
+                      "title": "Reason"
+                    },
+                    "remind_time": {
+                      "anyOf": [
+                        {
+                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "想被提醒去办这件事的钟点。",
+                      "title": "Remind Time"
+                    }
+                  },
+                  "required": [
+                    "change",
+                    "name",
+                    "item",
+                    "quantity",
+                    "memo",
+                    "remind_time",
+                    "reason"
+                  ],
+                  "title": "ErrandChange",
+                  "type": "object"
+                },
+                "title": "Errands",
+                "type": "array"
+              },
               "items": {
                 "description": "要播报进展的活动，一项一个对象。",
                 "items": {
@@ -1212,7 +1296,26 @@
                 },
                 "title": "Items",
                 "type": "array"
-              },
+              }
+            },
+            "required": [
+              "items",
+              "errands"
+            ],
+            "title": "ReportStatusRequest",
+            "type": "object"
+          },
+          "strict": true
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "按活动名暂停一两项进行中的活动并写下进展与个人事务的变更。",
+          "name": "pause_activity",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
               "errands": {
                 "description": "要新增、更新或取消的个人事务，一条一个对象，没有就写空列表。",
                 "items": {
@@ -1229,25 +1332,6 @@
                       "title": "Change",
                       "type": "string"
                     },
-                    "name": {
-                      "description": "事务的名称，新增时自己起，之后照待办层里的写法写。",
-                      "pattern": "\\S",
-                      "title": "Name",
-                      "type": "string"
-                    },
-                    "outcome": {
-                      "description": "要办成的结果，从列出的两种里选一种。",
-                      "enum": [
-                        "取得",
-                        "吃掉",
-                        null
-                      ],
-                      "title": "Outcome",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
                     "item": {
                       "anyOf": [
                         {
@@ -1258,20 +1342,8 @@
                           "type": "null"
                         }
                       ],
-                      "description": "要取得或吃掉的商品名称。",
+                      "description": "要取得的商品名称。",
                       "title": "Item"
-                    },
-                    "quantity": {
-                      "anyOf": [
-                        {
-                          "type": "integer"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "description": "要办成的份数。",
-                      "title": "Quantity"
                     },
                     "memo": {
                       "anyOf": [
@@ -1286,18 +1358,23 @@
                       "description": "用自己的话写打算怎么办、去哪办。",
                       "title": "Memo"
                     },
-                    "remind_time": {
+                    "name": {
+                      "description": "事务的名称，新增时自己起，之后照待办层里的写法写。",
+                      "pattern": "\\S",
+                      "title": "Name",
+                      "type": "string"
+                    },
+                    "quantity": {
                       "anyOf": [
                         {
-                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
-                          "type": "string"
+                          "type": "integer"
                         },
                         {
                           "type": "null"
                         }
                       ],
-                      "description": "想被提醒去办这件事的钟点。",
-                      "title": "Remind Time"
+                      "description": "要办成的份数。",
+                      "title": "Quantity"
                     },
                     "reason": {
                       "anyOf": [
@@ -1311,12 +1388,24 @@
                       ],
                       "description": "不办了的原因。",
                       "title": "Reason"
+                    },
+                    "remind_time": {
+                      "anyOf": [
+                        {
+                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "想被提醒去办这件事的钟点。",
+                      "title": "Remind Time"
                     }
                   },
                   "required": [
                     "change",
                     "name",
-                    "outcome",
                     "item",
                     "quantity",
                     "memo",
@@ -1328,26 +1417,7 @@
                 },
                 "title": "Errands",
                 "type": "array"
-              }
-            },
-            "required": [
-              "items",
-              "errands"
-            ],
-            "title": "ReportStatusRequest",
-            "type": "object"
-          },
-          "strict": true
-        }
-      },
-      {
-        "type": "function",
-        "function": {
-          "name": "pause_activity",
-          "description": "按活动名暂停一两项进行中的活动并写下进展与个人事务的变更。",
-          "parameters": {
-            "additionalProperties": false,
-            "properties": {
+              },
               "items": {
                 "description": "要暂停的进行中活动，一项一个对象。",
                 "items": {
@@ -1376,7 +1446,26 @@
                 },
                 "title": "Items",
                 "type": "array"
-              },
+              }
+            },
+            "required": [
+              "items",
+              "errands"
+            ],
+            "title": "PauseActivityRequest",
+            "type": "object"
+          },
+          "strict": true
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "按活动名结束一两项活动，写下总结、想记住的事、形成的看法与个人事务的变更。",
+          "name": "conclude_activity",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
               "errands": {
                 "description": "要新增、更新或取消的个人事务，一条一个对象，没有就写空列表。",
                 "items": {
@@ -1393,25 +1482,6 @@
                       "title": "Change",
                       "type": "string"
                     },
-                    "name": {
-                      "description": "事务的名称，新增时自己起，之后照待办层里的写法写。",
-                      "pattern": "\\S",
-                      "title": "Name",
-                      "type": "string"
-                    },
-                    "outcome": {
-                      "description": "要办成的结果，从列出的两种里选一种。",
-                      "enum": [
-                        "取得",
-                        "吃掉",
-                        null
-                      ],
-                      "title": "Outcome",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
                     "item": {
                       "anyOf": [
                         {
@@ -1422,20 +1492,8 @@
                           "type": "null"
                         }
                       ],
-                      "description": "要取得或吃掉的商品名称。",
+                      "description": "要取得的商品名称。",
                       "title": "Item"
-                    },
-                    "quantity": {
-                      "anyOf": [
-                        {
-                          "type": "integer"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "description": "要办成的份数。",
-                      "title": "Quantity"
                     },
                     "memo": {
                       "anyOf": [
@@ -1450,18 +1508,23 @@
                       "description": "用自己的话写打算怎么办、去哪办。",
                       "title": "Memo"
                     },
-                    "remind_time": {
+                    "name": {
+                      "description": "事务的名称，新增时自己起，之后照待办层里的写法写。",
+                      "pattern": "\\S",
+                      "title": "Name",
+                      "type": "string"
+                    },
+                    "quantity": {
                       "anyOf": [
                         {
-                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
-                          "type": "string"
+                          "type": "integer"
                         },
                         {
                           "type": "null"
                         }
                       ],
-                      "description": "想被提醒去办这件事的钟点。",
-                      "title": "Remind Time"
+                      "description": "要办成的份数。",
+                      "title": "Quantity"
                     },
                     "reason": {
                       "anyOf": [
@@ -1475,12 +1538,24 @@
                       ],
                       "description": "不办了的原因。",
                       "title": "Reason"
+                    },
+                    "remind_time": {
+                      "anyOf": [
+                        {
+                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "想被提醒去办这件事的钟点。",
+                      "title": "Remind Time"
                     }
                   },
                   "required": [
                     "change",
                     "name",
-                    "outcome",
                     "item",
                     "quantity",
                     "memo",
@@ -1492,26 +1567,7 @@
                 },
                 "title": "Errands",
                 "type": "array"
-              }
-            },
-            "required": [
-              "items",
-              "errands"
-            ],
-            "title": "PauseActivityRequest",
-            "type": "object"
-          },
-          "strict": true
-        }
-      },
-      {
-        "type": "function",
-        "function": {
-          "name": "conclude_activity",
-          "description": "按活动名结束一两项活动，写下总结、想记住的事、形成的看法与个人事务的变更。",
-          "parameters": {
-            "additionalProperties": false,
-            "properties": {
+              },
               "items": {
                 "description": "要结束的活动，一项一个对象。",
                 "items": {
@@ -1524,38 +1580,12 @@
                       "title": "Activity Name",
                       "type": "string"
                     },
-                    "summary": {
-                      "description": "用自己的话写这项活动的总结。",
-                      "pattern": "\\S",
-                      "title": "Summary",
-                      "type": "string"
-                    },
                     "memories": {
                       "description": "关于这项活动、以后做决定用得上的新情况，一条一个对象，没有就写空列表。",
                       "items": {
                         "additionalProperties": false,
                         "description": "一条想记住的事：类型、文字、重要程度与关键词。",
                         "properties": {
-                          "type": {
-                            "description": "这条记忆的类型，从列出的七种里选一种；对人的看法与对事物的偏好另外写。",
-                            "enum": [
-                              "commitment",
-                              "goal",
-                              "conflict",
-                              "resolution",
-                              "identity",
-                              "routine",
-                              "reflection"
-                            ],
-                            "title": "Type",
-                            "type": "string"
-                          },
-                          "text": {
-                            "description": "用自己的话写下想记住的事，不写编号或身份串。",
-                            "pattern": "\\S",
-                            "title": "Text",
-                            "type": "string"
-                          },
                           "importance": {
                             "description": "这件事对自己的重要程度，0 到 1 之间的数。",
                             "maximum": 1,
@@ -1571,6 +1601,26 @@
                             },
                             "title": "Keywords",
                             "type": "array"
+                          },
+                          "text": {
+                            "description": "用自己的话写下想记住的事，不写编号或身份串。",
+                            "pattern": "\\S",
+                            "title": "Text",
+                            "type": "string"
+                          },
+                          "type": {
+                            "description": "这条记忆的类型，从列出的七种里选一种；对人的看法与对事物的偏好另外写。",
+                            "enum": [
+                              "commitment",
+                              "goal",
+                              "conflict",
+                              "resolution",
+                              "identity",
+                              "routine",
+                              "reflection"
+                            ],
+                            "title": "Type",
+                            "type": "string"
                           }
                         },
                         "required": [
@@ -1585,31 +1635,22 @@
                       "title": "Memories",
                       "type": "array"
                     },
+                    "summary": {
+                      "description": "用自己的话写这项活动的总结。",
+                      "pattern": "\\S",
+                      "title": "Summary",
+                      "type": "string"
+                    },
                     "views": {
                       "description": "这项活动让你形成的对人的看法或对事物的偏好，一条一个对象，没有就写空列表。",
                       "items": {
                         "additionalProperties": false,
                         "description": "一条看法或偏好：类型、对象、文字、重要程度与关键词。",
                         "properties": {
-                          "type": {
-                            "description": "看法的类型：对某个人的看法，或对某样东西、地方、事情的偏好。",
-                            "enum": [
-                              "relationship",
-                              "preference"
-                            ],
-                            "title": "Type",
-                            "type": "string"
-                          },
                           "about": {
                             "description": "看法或偏好的对象：人照人设层里的写法写名字或称呼，东西、地方或事情写它的名称。",
                             "pattern": "\\S",
                             "title": "About",
-                            "type": "string"
-                          },
-                          "text": {
-                            "description": "用自己的话写下这条看法或偏好，不写编号或身份串。",
-                            "pattern": "\\S",
-                            "title": "Text",
                             "type": "string"
                           },
                           "importance": {
@@ -1627,6 +1668,21 @@
                             },
                             "title": "Keywords",
                             "type": "array"
+                          },
+                          "text": {
+                            "description": "用自己的话写下这条看法或偏好，不写编号或身份串。",
+                            "pattern": "\\S",
+                            "title": "Text",
+                            "type": "string"
+                          },
+                          "type": {
+                            "description": "看法的类型：对某个人的看法，或对某样东西、地方、事情的偏好。",
+                            "enum": [
+                              "relationship",
+                              "preference"
+                            ],
+                            "title": "Type",
+                            "type": "string"
                           }
                         },
                         "required": [
@@ -1654,122 +1710,6 @@
                 },
                 "title": "Items",
                 "type": "array"
-              },
-              "errands": {
-                "description": "要新增、更新或取消的个人事务，一条一个对象，没有就写空列表。",
-                "items": {
-                  "additionalProperties": false,
-                  "description": "一条个人事务的变更：做什么、名称、要办成的事、备注、提醒钟点与取消原因。",
-                  "properties": {
-                    "change": {
-                      "description": "这条变更做什么，从列出的三种里选一种。",
-                      "enum": [
-                        "新增",
-                        "更新",
-                        "取消"
-                      ],
-                      "title": "Change",
-                      "type": "string"
-                    },
-                    "name": {
-                      "description": "事务的名称，新增时自己起，之后照待办层里的写法写。",
-                      "pattern": "\\S",
-                      "title": "Name",
-                      "type": "string"
-                    },
-                    "outcome": {
-                      "description": "要办成的结果，从列出的两种里选一种。",
-                      "enum": [
-                        "取得",
-                        "吃掉",
-                        null
-                      ],
-                      "title": "Outcome",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "item": {
-                      "anyOf": [
-                        {
-                          "pattern": "\\S",
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "description": "要取得或吃掉的商品名称。",
-                      "title": "Item"
-                    },
-                    "quantity": {
-                      "anyOf": [
-                        {
-                          "type": "integer"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "description": "要办成的份数。",
-                      "title": "Quantity"
-                    },
-                    "memo": {
-                      "anyOf": [
-                        {
-                          "pattern": "\\S",
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "description": "用自己的话写打算怎么办、去哪办。",
-                      "title": "Memo"
-                    },
-                    "remind_time": {
-                      "anyOf": [
-                        {
-                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "description": "想被提醒去办这件事的钟点。",
-                      "title": "Remind Time"
-                    },
-                    "reason": {
-                      "anyOf": [
-                        {
-                          "pattern": "\\S",
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "description": "不办了的原因。",
-                      "title": "Reason"
-                    }
-                  },
-                  "required": [
-                    "change",
-                    "name",
-                    "outcome",
-                    "item",
-                    "quantity",
-                    "memo",
-                    "remind_time",
-                    "reason"
-                  ],
-                  "title": "ErrandChange",
-                  "type": "object"
-                },
-                "title": "Errands",
-                "type": "array"
               }
             },
             "required": [
@@ -1780,13 +1720,13 @@
             "type": "object"
           },
           "strict": true
-        }
+        },
+        "type": "function"
       },
       {
-        "type": "function",
         "function": {
-          "name": "revise_day_plan",
           "description": "用完整的新清单替换今日计划中尚未推进的目标。",
+          "name": "revise_day_plan",
           "parameters": {
             "additionalProperties": false,
             "properties": {
@@ -1795,6 +1735,23 @@
                   "additionalProperties": false,
                   "description": "今日计划的一个目标：意图、目标文字、提醒时刻与大致时刻。",
                   "properties": {
+                    "around_time": {
+                      "anyOf": [
+                        {
+                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Around Time"
+                    },
+                    "goal": {
+                      "pattern": "\\S",
+                      "title": "Goal",
+                      "type": "string"
+                    },
                     "intent_kind": {
                       "enum": [
                         "睡眠",
@@ -1812,11 +1769,6 @@
                       "title": "Intent Kind",
                       "type": "string"
                     },
-                    "goal": {
-                      "pattern": "\\S",
-                      "title": "Goal",
-                      "type": "string"
-                    },
                     "remind_time": {
                       "anyOf": [
                         {
@@ -1828,18 +1780,6 @@
                         }
                       ],
                       "title": "Remind Time"
-                    },
-                    "around_time": {
-                      "anyOf": [
-                        {
-                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Around Time"
                     }
                   },
                   "required": [
@@ -1862,13 +1802,35 @@
             "type": "object"
           },
           "strict": true
-        }
+        },
+        "type": "function"
       },
       {
-        "type": "function",
         "function": {
-          "name": "recall_task_summary",
+          "description": "设置一个指定时刻响起的闹钟。",
+          "name": "set_alarm",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "at": {
+                "title": "At",
+                "type": "string"
+              }
+            },
+            "required": [
+              "at"
+            ],
+            "title": "SetAlarmRequest",
+            "type": "object"
+          },
+          "strict": true
+        },
+        "type": "function"
+      },
+      {
+        "function": {
           "description": "按名称回看一项任务、目标或活动的进展，不改变世界。",
+          "name": "recall_task_summary",
           "parameters": {
             "additionalProperties": false,
             "properties": {
@@ -1885,17 +1847,17 @@
             "type": "object"
           },
           "strict": true
-        }
+        },
+        "type": "function"
       },
       {
-        "type": "function",
         "function": {
+          "description": "按已知名称、方式、公开品类或所用应用查询世界，可只看此刻能做的，按返回的偏移量翻页。",
           "name": "query_world",
-          "description": "按已知名称、方式、公开品类或购买来源查询世界，可只看此刻能做的，按返回的偏移量翻页。",
           "parameters": {
             "additionalProperties": false,
             "properties": {
-              "name": {
+              "app": {
                 "anyOf": [
                   {
                     "type": "string"
@@ -1904,18 +1866,11 @@
                     "type": "null"
                   }
                 ],
-                "title": "Name"
+                "title": "App"
               },
-              "way": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Way"
+              "available_only": {
+                "title": "Available Only",
+                "type": "boolean"
               },
               "category": {
                 "anyOf": [
@@ -1928,7 +1883,7 @@
                 ],
                 "title": "Category"
               },
-              "from": {
+              "name": {
                 "anyOf": [
                   {
                     "type": "string"
@@ -1937,23 +1892,30 @@
                     "type": "null"
                   }
                 ],
-                "title": "From"
-              },
-              "available_only": {
-                "title": "Available Only",
-                "type": "boolean"
+                "title": "Name"
               },
               "offset": {
                 "minimum": 0,
                 "title": "Offset",
                 "type": "integer"
+              },
+              "way": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Way"
               }
             },
             "required": [
               "name",
               "way",
               "category",
-              "from",
+              "app",
               "available_only",
               "offset"
             ],
@@ -1961,13 +1923,13 @@
             "type": "object"
           },
           "strict": true
-        }
+        },
+        "type": "function"
       },
       {
-        "type": "function",
         "function": {
-          "name": "memory_recent",
           "description": "读取自己最近的记忆。",
+          "name": "memory_recent",
           "parameters": {
             "additionalProperties": false,
             "properties": {
@@ -1985,26 +1947,26 @@
             "type": "object"
           },
           "strict": true
-        }
+        },
+        "type": "function"
       },
       {
-        "type": "function",
         "function": {
-          "name": "memory_search",
           "description": "按关键词检索自己的记忆。",
+          "name": "memory_search",
           "parameters": {
             "additionalProperties": false,
             "properties": {
-              "query": {
-                "pattern": "\\S",
-                "title": "Query",
-                "type": "string"
-              },
               "limit": {
                 "maximum": 50,
                 "minimum": 1,
                 "title": "Limit",
                 "type": "integer"
+              },
+              "query": {
+                "pattern": "\\S",
+                "title": "Query",
+                "type": "string"
               }
             },
             "required": [
@@ -2015,21 +1977,16 @@
             "type": "object"
           },
           "strict": true
-        }
+        },
+        "type": "function"
       },
       {
-        "type": "function",
         "function": {
-          "name": "memory_time_range",
           "description": "读取某一时间段内自己的记忆。",
+          "name": "memory_time_range",
           "parameters": {
             "additionalProperties": false,
             "properties": {
-              "start_time": {
-                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}",
-                "title": "Start Time",
-                "type": "string"
-              },
               "end_time": {
                 "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}",
                 "title": "End Time",
@@ -2040,6 +1997,11 @@
                 "minimum": 1,
                 "title": "Limit",
                 "type": "integer"
+              },
+              "start_time": {
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}",
+                "title": "Start Time",
+                "type": "string"
               }
             },
             "required": [
@@ -2051,16 +2013,9 @@
             "type": "object"
           },
           "strict": true
-        }
+        },
+        "type": "function"
       }
-    ],
-    "tool_choice": "auto",
-    "max_retries": 0,
-    "extra_body": {
-      "thinking": {
-        "type": "enabled"
-      }
-    },
-    "max_tokens": 8000
+    ]
   }
 }

@@ -48,7 +48,6 @@ LabelKit 完整自然日交付对应「真实端到端」。三行状态均未�
 
 实际执行见[实施状态](dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态)，逐行节点见[机器追溯](dev/ANALYSIS-spec-coverage.md#analysis-spec-coverage-资源与规则简化映射)。生成[覆盖率](dev/coverage-report.json)与[测试耗时](dev/test-durations.json)按其源码、环境及平台身份解释，报告只证明记录的输入环境，不将历史身份或人工环境结果改称新正式环境通过。
 
-
 <a name="verification-共享规则与可重建环境特性门禁"></a>
 ## 共享规则与可重建环境特性门禁
 
@@ -71,10 +70,8 @@ summary、worker 选择与完成回执的同一运行身份和覆盖数据摘要
 所有新规则必须经干净提交的隔离 worktree 源码变异审查，存活变异补测后原样复验。
 本特性工程证据不替代现有正式模型、十二周、盲评和完整自然日交付门禁。
 
-
 <a name="verification-品类契约特性门禁"></a>
 ## 品类契约特性门禁
-
 
 
 
@@ -88,7 +85,6 @@ summary、worker 选择与完成回执的同一运行身份和覆盖数据摘要
 该确定性运行、全仓覆盖门禁、目录语料身份、文档一致性及隔离源码语义突变审查共同构成特性验收。
 它们不替代本页定义的真实供应商、十二周、盲评和 LabelKit 交付要求。
 
-
 <a name="verification-数据加工验收边界"></a>
 ## 数据加工验收边界
 
@@ -96,7 +92,6 @@ LabelKit 模型任务、训练数据加载和规则测试数据已归 LabelKit-D
 WorldMock 验收模拟行为、持久记录、完整认证导出和真实性评估；评估候选数据只作为待认证输入。
 历史 LabelKit 验收与未完成项保留原身份，不能证明整合后的新消费者通过。
 本次来源快照接收并核对摘要已完成，新消费验收尚未取得。
-
 
 <a name="verification-放行门禁"></a>
 ## 放行门禁
@@ -135,7 +130,6 @@ WorldMock 验收模拟行为、持久记录、完整认证导出和真实性评�
 - 三次隔离盲评：现有盲评包为 smoke 包，不构成实际盲评；三个隔离模型评审会话尚未产生实际评审记录。
 - LabelKit 完整自然日交付：真实运行中尚无完整自然日的最终交付清单。
 
-
 <a name="verification-地图与门店供给"></a>
 ### 随机地图与共享菜单
 
@@ -161,7 +155,7 @@ WorldMock 验收模拟行为、持久记录、完整认证导出和真实性评�
 ### 协议门禁
 
 协议门禁由 `worldmock.evaluation.behavior_metrics.behavior_metrics_report` 计算：以冻结足迹事件为输入，
-按事件顶层 `code_sha256` 分组，返回 `{"schema_version": "behavior-metrics-1", "gates": ..., "reports": ..., "notes": ...}`。
+按事件顶层 `code_sha256` 分组，返回 `{"schema_version": "behavior-metrics-2", "gates": ..., "reports": ..., "notes": ...}`。
 `gates` 是放行门禁，`reports` 是只报告项。既有四项门禁的键名、比较符与阈值以源码为唯一依据：
 
 | 门禁键 | 判定对象 | 比较 | 阈值 | 失败含义 |
@@ -190,21 +184,22 @@ WorldMock 验收模拟行为、持久记录、完整认证导出和真实性评�
 既有四项协议门禁未整体接入生产质量导出。
 当日目标新增的三层度量及外部约束门禁单独进入 `quality.json.day_plan_metrics`；
 其接线不改变既有记忆协议的额外证据要求。
-个人事务与收尾记忆的度量最初随质量报告结构 4 引入，当前在结构 5 中继续作为 `quality.json` 的
+个人事务与收尾记忆的度量最初随质量报告结构 4 引入，当前在结构 6 中继续作为 `quality.json` 的
 `errand_metrics` 与 `conclusion_memories` 两个顶层分组（紧随 `day_plan_metrics`），只报告；不写进
 `day_plan_metrics`，不使用当日目标指标的键名，不以目标数为分母。
 导出里没有任何事务新增事件时 `errand_metrics` 整组为 null（有事务时各计数没有命中记 0），没有收尾记忆时 `conclusion_memories` 整组为 null。
 
-认证导出另要求 `quality.json.schema_version == 5`，并从同批事件与活动独立重算三组当前事实：
+认证导出另要求 `quality.json.schema_version == 6`，并从同批事件与活动独立重算三组当前事实：
 
 | 质量键 | 必须存在的字段 |
 | --- | --- |
-| `content_contact` | `by_app`, `by_kind`, `repeat_watch` |
+| `content_contact` | `by_app`, `by_action`, `repeat_watch`, `repeat_seconds_share`；只读真实 `content_consumed`，没有 `by_kind` |
 | `app_pushes` | `pushed`, `opened_in_session`, `consumed_pinned`, `released_by_completion`, `expired_with_session`, `outside_window_violations` |
 | `work_topics` | `topics`, `completed`, `worked_seconds_by_topic`, `reports` |
 
-推送按唯一 `push_id` 与真实 session 转换计数；主题工时只累计各人物、主题的非失败唯一工作活动实际区间，不相加累计进度快照；缺失或无法重算即拒绝。
-唤醒原因分桶读取当前 22 个名字。阶段 7 的实际执行状态由回执登记，不以正文替代。
+推送按唯一 `push_id` 与真实 session 转换计数；工作统计只累计本人分配内容的真实消费区间，以 `content_id` 汇总，完成取 `work_content_completed`；缺失或无法重算即拒绝。
+唤醒原因分桶读取当前 23 个名字。阶段 7 的实际执行状态由回执登记，不以正文替代。
+
 
 <a name="verification-当日目标特性门禁"></a>
 ### 当日目标特性门禁
@@ -221,7 +216,6 @@ WorldMock 验收模拟行为、持久记录、完整认证导出和真实性评�
 本项只对应当日目标特性验收时的源码）、修订保护、活动证据、防重复脉冲、威胁与间隔、报告分母和质量接线。
 存活突变必须补测后以原补丁复验。证据统一见 [本特性验收记录](dev/research/day-plan-goals-verification.md)。
 
-
 <a name="verification-时间与能量特性门禁"></a>
 ### 时间与能量特性门禁
 
@@ -231,7 +225,6 @@ issue #1 绿色基线是实施前置：`python scripts/run_tests.py --tier full`
 用 Uncle Bob 语义突变检验同刻上限、能量截断、唤醒闭集、提醒只触发一次、名额释放与内部身份不进提示。
 存活突变必须补测后以原补丁复验。练秋湖与 r14 场景的真实复验只报告，不作门禁。
 证据统一见 [本特性验收记录](archive/time-and-energy/time-and-energy-verification.md)。
-
 
 <a name="verification-人物-prompt-七层特性门禁"></a>
 ### 人物 Prompt 七层特性门禁
@@ -252,7 +245,6 @@ issue #1 绿色基线是实施前置：`python scripts/run_tests.py --tier full`
 
 
 
-
 <a name="verification-一日运行保真特性门禁"></a>
 ### 一日运行保真特性门禁
 
@@ -269,7 +261,6 @@ issue #1 绿色基线是实施前置：`python scripts/run_tests.py --tier full`
 证据统一见 [本特性验收记录](archive/dayrun-fidelity/dayrun-fidelity-verification.md)。
 
 食品购买来源改为目录 app 绑定，消费请求 `product_id` 保留而事件 `food_id`；六警告闭集与真实目录覆盖率由本阶段节点验证。原已裁决历史行为与执行收据保留其原身份。
-
 
 <a name="verification-工具交互特性门禁"></a>
 ### 工具交互特性门禁
@@ -307,7 +298,6 @@ issue #1 绿色基线是实施前置：`python scripts/run_tests.py --tier full`
 
 
 旧地点供给、供给价格与料理验收行退出当前合同；同类食品菜单、固定价格、app 来源、单订单结算与真实消费由资源与规则引擎简化阶段三的实际节点和独立变异留证，不沿用旧执行数字。
-
 
 <a name="verification-个人事务与工作安排特性门禁"></a>
 ### 个人事务与工作安排特性门禁
@@ -355,7 +345,6 @@ issue #1 绿色基线是实施前置：`python scripts/run_tests.py --tier full`
 「复跑指标（只报告）」一行不登记测试节点，由复跑报告承载。
 阶段 6 配对全天复跑是计费的真实运行，只在用户要求时启动，本特性验收时未执行；少于每臂三次时验收记录写明未达复跑要求。
 证据统一见[本特性验收记录](archive/errands-workday/errands-workday-verification.md)。
-
 
 <a name="verification-工程门禁"></a>
 ### 工程门禁
@@ -511,7 +500,7 @@ app 内容可达性按 `docs/dev/SPEC-life-realism.md#spec-life-realism-特性�
 报告项只进报告，不参与放行，也不反馈成行动脚本。全部键名取自同一份 `reports` 输出。`workload` 与
 `routine_deviation` 需要事件之外的输入：各人物的工作安排、住处、覆盖后的下班与到家窗口与播报间隔，打包为
 `behavior_metrics_report` 的一个可选关键字参数 `workday`；没有它时两项为 null 并写一条说明，报告结构标识
-`behavior-metrics-1` 不变，不进 `quality.json`，不解析任何提示文本。`workday --scenario <场景文件>` 的场景摘要须等于运行清单的
+`behavior-metrics-2`，不进 `quality.json`，不解析任何提示文本。`workday --scenario <场景文件>` 的场景摘要须等于运行清单的
 `scenario_sha256`；班次、住处与播报间隔取场景，作息窗口取人物工作区的结构化卡片。
 
 | 报告项键 | 说明 |
@@ -522,8 +511,8 @@ app 内容可达性按 `docs/dev/SPEC-life-realism.md#spec-life-realism-特性�
 | `wait_minutes` | wait 活动总分钟 |
 | `early_arrival_minutes` | 到达地点早于开门的分钟 |
 | `sleep_schedule` | 就寝与起床时刻、睡眠时长，与人物卡片就寝窗口比较 |
-| `meal_diversity` | 本人进食（`consume` 指向自己）商品的 Simpson 集中度与 24 小时重复率；给予不计入 |
-| `activity_distribution` | 十类活动日时间分布与外部参照的 JS 距离 |
+| `meal_diversity` | 本人实际收到的 meal、snack、drink 类 receipt 商品按 goods_id 计算 Simpson 集中度与 24 小时重复率；替他人付款不算本人收货 |
+| `activity_distribution` | 当前活动家族日时间分布与外部参照的 JS 距离；用餐与个人卫生参照分钟没有模拟活动对应物 |
 | `persona_distinguishability` | 同代码 ≥3 次运行中两人物活动分布的留一最近邻准确率 |
 | `social` | 交谈与通话分钟、发送与收到的消息数 |
 | `habitual_consistency` | 相同可观测情境的活动家族一致率；只报告，不声称识别心理习惯 |
@@ -546,8 +535,8 @@ app 内容可达性按 `docs/dev/SPEC-life-realism.md#spec-life-realism-特性�
 以及反思校验重试次数：工具只有 `submit_reflection` 且带附回消息的模型请求数），口径取已落库的模型工具交换证据；
 对照运行同时报告协议错误，降低返回量不能以购买失败为代价。
 
-活动分布的口径固定为：外出并入通勤，wait 计入休息，consume 仅在有 eat 正实际进度时计入用餐，use 模式未归类，
-参照的看电视与休闲娱乐合并为屏幕娱乐 165 分钟，休息与家务并入无参照桶。
+活动分布按四种活动与动作类别计算：travel 计入通勤，wait 计入休息，sleep 计入睡眠，action 按五个固定类别计入娱乐、工作、社交、运动或家务。
+参照的用餐与个人卫生分钟没有模拟活动对应物；看电视与休闲娱乐合并为屏幕娱乐 165 分钟，休息与家务并入无参照桶。
 
 外部参照仅为 2018 年全国时间利用调查公报，各项口径不同、均为居民均值：
 睡觉休息 9 小时 13 分钟、个人卫生护理 50 分钟、用餐 1 小时 44 分钟、就业参与者工作日 7 小时 40 分钟、
@@ -571,8 +560,8 @@ flowchart LR
 | --- | --- | --- |
 | 接口验证 | LifeAgent → LifeEnv → 数字足迹 → 完整认证导出 | 使用真实 AS2 与模型路径；来源关联完整；导出可重算 |
 | 基础生活 | 工作、进食、睡眠及消费，包含拒绝、中断与恢复 | 资源与时间结算正确，人物自主选择，异常不会静默通过 |
-| 内容与出行 | app 使用、内容消费、推送、邮件、食品、地点与图上出行 | `app-usage.jsonl` 五种事实与真实活动、推送状态一致；路线保留 `trip_id`、路径、距离与方式 |
-| 完整足迹导出 | 事件、活动、已核验经历、购买与 app 使用 | 导出清单 3 的五个工件可独立重算；质量报告 5  通过结构和来源门禁，无未来泄漏 |
+| 内容与出行 | app 使用、内容消费、推送、邮件、商品、地点与图上出行 | `app-usage.jsonl` 六种事实与真实活动、使用方式和推送状态一致；路线保留 `trip_id`、路径、距离与方式 |
+| 完整足迹导出 | 事件、活动、已核验经历、购买与 app 使用 | 导出清单 4 的五个工件可独立重算；质量报告 6、收货行和七条足迹不变量全部通过，无未来泄漏 |
 | 长时间与多人 | 多天、多人物、多活动与故障恢复 | 稳定运行和完整导出均通过；有实际性能与行为分布报告 |
 
 最小端到端阶段包含真实模型选择、持久记录与完整认证导出。手工 JSON、模拟模型响应或仅解析成功不能替代该阶段。
@@ -580,6 +569,7 @@ flowchart LR
 
 阶段 7 的导出、重算、质量与交付是否通过，只看同一源码身份的实际回执；本文同步合同，不预写标准层、
 全量层、覆盖率或平台通过。「长时间与多人」依赖的正式十二周运行尚未启动，「数据生产」尚无完整自然日的最终交付清单。真实运行收据见 `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态`。
+
 
 
 <a name="verification-测试矩阵"></a>
@@ -648,7 +638,7 @@ flowchart LR
 <a name="errands-workday-度量与下游-质量报告"></a>
 ### 质量报告
 
-个人事务特性当时把 `quality.json.schema_version` 从 3 升为 4；当前结构为 5，保留该特性引入的两个顶层分组，登记落点为记录引擎设计；沿用质量报告现有的分组与空值约定，只读同批已认证事件与冻结清单，可逐值重算，全部只报告。
+个人事务特性当时把 `quality.json.schema_version` 从 3 升为 4；当前结构为 6，保留该特性引入的两个顶层分组，登记落点为记录引擎设计；沿用质量报告现有的分组与空值约定，只读同批已认证事件与冻结清单，可逐值重算，全部只报告。
 
 `errand_metrics`（不使用任何当日目标指标的键名，不以目标数为分母，不写进 `day_plan_metrics`）。没有任何新增事件时整组为 null；有事务时各计数键没有命中记 0。
 
@@ -658,11 +648,12 @@ flowchart LR
 | `completed_count`、`cancelled_count`、`open_at_cutoff_count` | 三者之和恒等于 `registered_count` |
 | `carried_overnight_count` | 记下后跨过至少一个本地零点仍未完成的事务数 |
 | `visible_observation_count`、`expected_observation_count` | 事务未完成期间本人各次观察中待办层含该事务的次数，与同期观察数；二者应相等 |
-| `reminded_errand_count`、`acted_after_reminder_count` | 至少被提醒过一次的事务数；其中提醒后到下一个本地零点或终态前，本人有被受理且指向同一食品的购买或进食请求的事务数 |
-| `completed_without_evidence_count` | 完成事件缺证据引用或证据不可复核的条数；完整性计数，应恒为 0 |
+| `reminded_errand_count`、`acted_after_reminder_count` | 至少被提醒过一次的事务数；其中提醒后到下一个本地零点或终态前，本人有被受理且指向同一商品的购买请求的事务数 |
+| `completed_without_evidence_count` | 完成事件缺少更早且属于事务所有人的同商品 `goods_received` 证据的条数；完整性计数，应恒为 0 |
 
 `conclusion_memories`：`total_count`、`routine_count`（类型为 `routine` 的收尾记忆条数）、`errand_overlap_count`（文字包含同决策观察里某条未完成事务的名称或其商品名称的收尾记忆条数；事务名称取该观察的待办层，商品名称取同一观察的私有绑定）。没有收尾记忆时整组为 null。
 「自述完成而没有证据」没有可判定字段，不计量。
+
 
 
 <a name="errands-workday-度量与下游-行为评估"></a>
@@ -670,10 +661,10 @@ flowchart LR
 ### 行为评估
 
 `behavior_metrics` 的 `reports` 保留 `workload` 与 `routine_deviation` 两个只报告键；它们需要事件之外的输入，
-不进 `quality.json`，报告结构标识 `behavior-metrics-1` 不变。
+不进 `quality.json`，报告结构标识为 `behavior-metrics-2`。
 
 - `workload` 只统计有工作安排的人物与当班日，汇总班次秒数、班次内在工作地点秒数、真实工作活动秒数、
-  在岗空闲秒数、休息时段、声明例外、缺勤与早退。工作活动秒数取非失败工作活动的实际区间，
+  在岗空闲秒数、休息时段、声明例外、缺勤与早退。工作秒数只取类别为 `work_study` 且内容在本人 `work_content_ids` 中的真实结算区间，
   没有有效工时、效率折扣或任务外出；声明例外只含班次内休息时段。
 - `routine_deviation` 继续报告离开工作地点与到家的时刻、对班次或作息窗口的偏离、睡眠端点与证据事件；
   它不读取当日计划或工作主题文本。
@@ -682,12 +673,12 @@ flowchart LR
   `{run_id, workload, routine_deviation, notes}`。这些结果不构成正式环境发布或长期运行通过。
 
 
+
 <a name="errands-workday-度量与下游-查询成本只报告"></a>
 ### 查询成本（只报告）
 
 `scripts/inspect_run.py` 的只读子命令 `queries` 按运行打印 `{run_id, calls, failures, returned_chars, filtered_calls, empty_after_filter, model_calls_to_purchase, reflection_retries}`：查询调用数、失败数、返回字符数、带筛选的调用数、筛选后为空的次数、从首次查询到购买结算的模型调用数，以及反思校验重试次数（工具只有 `submit_reflection` 且带附回消息的模型请求数）。
 口径取已落库的模型工具交换证据；决策 token 用量取质量报告既有的模型用量分组。降低返回量不能以购买失败为代价，对照运行同时报告协议错误。
-
 
 <a name="errands-workday-度量与下游-首次受影响发布身份"></a>
 ### 首次受影响发布身份
@@ -726,20 +717,16 @@ flowchart LR
 短窗口、测试夹具、语义评审和完整十二周交付各自记录，不能相互替代。
 这些入口规定验收方式；实际通过的源码身份、命令与收据集中记录在 `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态`。
 
-
 <a name="verification-源码突变审查"></a>
 ### 源码突变审查
 
 生产功能按明确接口与规则规范执行 Uncle Bob 源码突变审查，覆盖改变时钟顺序、提前暴露内容、重复结算、
 吞掉保存错误、丢失来源和混合分支等真实行为破坏。
 
-
 <a name="verification-最终报告构成"></a>
 ### 最终报告构成
 
 最终报告分别列出实现证据、结构验证证据、真实模型运行证据、语义质量证据、数据加载证据和规则执行证据。
-
-
 
 <a name="verification-真实性评估与结论边界"></a>
 ## 真实性评估与结论边界
@@ -767,10 +754,10 @@ WorldMock 内部模型思考、私有记忆与隐藏身体值不进入共同评�
 盲评每侧同时提供活动区间和公开结构证据，分别保留时长统计与即时状态事实。公开证据只含时间、活动类别、交互、
 对象类型、已证实状态、匿名对象引用和双方共同支持的闭集属性。共同支持按「类别 × 字段」求交集，
 逐侧报告实际存在数和适用数；某行缺字段保留缺失，不能填造取值。订单、付款、交付、邮件到达与阅读等状态
-必须由对应结构事件证明。商品使用依据实际 `use_mode` 区分进食与非食品使用；活动时长和公开证据使用相同分类。
+必须由对应结构事件证明。商品效果由实际收货事件证明，付款与收货分别核验，不推定食品持有或额外进食活动；活动时长与公开证据按当前动作类别和实际使用方式分类。
 活动控制后的状态读取真实活动快照；app 使用读取 `app_use` 与 `content_consumed` 的实际位置和完成状态，
 推送漏斗读取交付、打开、消费绑定、完成释放及 session 到期事实。动作回执只证明该次请求执行结果。
-工作主题完成事件只证明实际累计工时首次达到目标；播报与工资仍各由独立事实证明。旧数据的 `actionInfo` 只证明声明的行动，
+`work_content_completed` 只证明本人指派内容的实际消费首次达到时长；播报与工资仍各由独立事实证明。旧数据的 `actionInfo` 只证明声明的行动，
 不能直接证明导航已经到达或订单已经提交。会话标识只证明属于同一会话，不能当作真实订单、内容或跨日对象的身份；
 没有对象身份就不制造因果链。
 
@@ -814,7 +801,6 @@ WorldMock 内部模型思考、私有记忆与隐藏身体值不进入共同评�
 重放只能复原已经记录下来的结果；再次调用模型时，模型不一定给出相同选择。
 本设计不对同一外部服务调用承诺恰好一次，也不以重新调用模型冒充精确重放。恢复与重放的协议与证据见 `docs/design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎`「重放与重新调用的区别」。
 
-
 <a name="verification-实施顺序"></a>
 ## 实施顺序
 
@@ -827,7 +813,6 @@ WorldMock 内部模型思考、私有记忆与隐藏身体值不进入共同评�
 
 每个阶段都要留下可运行的路径，并通过该阶段的全部现有测试；不得为了推进后一阶段而拆掉前一阶段已经验证过的链路。
 
-
 <a name="verification-结论边界"></a>
 ## 结论边界
 
@@ -838,7 +823,6 @@ WorldMock 内部模型思考、私有记忆与隐藏身体值不进入共同评�
 整体实现状态为 NOT-COMPLETE：正式 DeepSeek 十二周运行、三次隔离盲评与 LabelKit 完整自然日交付尚未完成。
 离线绿证、短窗口运行、测试夹具或单条语义通过都不能改变这一状态，也不能替代这三项真实验收。
 「最终门禁」表中状态为 `部分`、`未执行` 与 `UNVERIFIABLE` 的行，在取得对应真实运行收据之前都不得记为通过。
-
 
 
 <a name="verification-incremental-evidence"></a>
@@ -853,7 +837,6 @@ WorldMock 内部模型思考、私有记忆与隐藏身体值不进入共同评�
 | 工具交互真实完整日 | 原真实 CLI 调用以 ConnectionError 失败；无成功真实完整日认证 |
 | 个人事务与工作安排配对全天复跑及 strict 端点探针 | 原记录未执行；配对全天复跑只报告，不作工程门禁 |
 | 真实十二周、隔离盲评与 LabelKit 交付 | 项目当前 NOT-COMPLETE 状态继续有效，需各自实际证据 |
-
 
 <a name="verification-test-tiers"></a>
 ## 快速、标准与全量的统一工程入口
@@ -870,7 +853,6 @@ flowchart LR
 全量运行生成 `docs/dev/test-durations.json`，登记节点、标记、阶段耗时、文件汇总、默认快速层超过一秒的用例以及标准层合计和墙钟耗时，报告实测环境与超目标提醒。
 标准层墙钟必须来自源码内容、节点集合、执行环境与 worker 数相同的标准层实际运行；已有匹配回执可以复用。
 没有匹配回执时，全量入口先实际运行标准层，不能将全量运行中部分文件的耗时拼成标准层墙钟。
-
 
 
 <a name="verification-版本表"></a>

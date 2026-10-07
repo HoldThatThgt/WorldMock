@@ -2,17 +2,19 @@
 # WorldMock 产品设计说明书 — 模拟引擎
 
 > **状态**：DRAFT；职责设计，现行接口与行为仍以冻结合同和规格为准；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 SE1–SE8），已实现<br>
-> **日期**：2026-10-07
-> **版本**：v1.22
+> **日期**：2026-10-08
+> **版本**：v1.23
 > **工具交互修订**：按[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结本次设计；本次修订已实现，既有验收不覆盖新行为。
 > **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D4 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。
 > **让「等待」成为例外修订**：按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「一轮运行」「结算边界与决策机会」「当前实现边界」「验收重点」（阶段 1）、「当前实现边界」（阶段 2）与「接收当日目标并记录实际推进」「当前实现边界」（阶段 3）。
 > **同时做两件事修订**：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「发现与比较门店供给」「校验与占用安排」「活动生命周期」「验收重点」（阶段 1）；「当前实现边界」（阶段 3）。
 > **范围**：运行初始化、观察与决策机会、七层人物提示、同刻决策、同秒续接、动作受理、活动名额与生命周期、共享时钟、活动推进、结算、零点计划、个人事务与事务提醒、上班安排、唤醒与恢复编排
 
+按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「统一动作执行、内容选择、真实进度与系统补订」（阶段 3）。
+
 > 2026-10-07：按资源与规则引擎简化规格同步剩余系统规则、最终提示身份与查看器（阶段 6）。
 
-> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题累计、准入与完成。
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的分配内容准入、进度与完成。
 
 > 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「输入与启动流程」、「地图与供给初始化」、「9. 恢复与反事实运行编排」、「当前实现入口」、「失败处理」（阶段 2）；「发现与比较门店供给、预排事件、校验与占用安排、验收重点、调用并等待人物决策、门店营业与报价事件」（阶段 3）；「人物所见与可做之事、校验与占用安排、预排事件、活动生命周期、反馈续行与结束、结算边界与决策机会、真实结果与验收重点」（阶段 4，app 使用、内容进度与推送）。
 
@@ -40,7 +42,6 @@
 检查点及逐人逐日时间线正文。正式输入冻结与逐字节重建由数据仓验收，不宣称新旧格式输出摘要相同。
 两份基线的用途与当前验收边界见[行为不变基线](../dev/SPEC-layering-and-test-tiers.md#layering-baseline)。
 
-
 <a name="simulation-engine-职责与边界"></a>
 ## 1. 职责与边界
 
@@ -55,7 +56,6 @@
 查询记忆、回看任务与查询世界当场得到答案；世界请求登记即结束本次决策，登记不回给人物；真实结果由环境结算后写进进度层，
 同一秒接着决策时随工具结果交还人物。
 模拟引擎负责维持这个闭环，人物模块负责其中的选择与记忆。
-
 
 <a name="simulation-engine-项目框架映射"></a>
 ### 项目框架映射
@@ -152,8 +152,6 @@ flowchart TB
 [SimPy 的时间与调度说明](https://simpy.readthedocs.io/en/latest/topical_guides/time_and_scheduling.html)。
 本项目由现有运行框架与生活环境执行这些职责。
 
-
-
 <a name="simulation-engine-初始化运行世界"></a>
 ## 2. 初始化运行世界
 
@@ -212,8 +210,6 @@ flowchart LR
 任何必需输入失败都停止启动，不能用空人物、空目录、全量菜单或默认动作继续。
 创建新运行与打开已有运行是不同操作；已有目录不得覆盖，恢复失败不得隐式创建空运行。
 运行参数见[配置设计](08-configuration.md#configuration-worldmock-产品设计说明书-配置规格)，目录身份与保存规则见[记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)。
-
-
 
 <a name="simulation-engine-组织观察与决策机会"></a>
 ## 3. 组织观察与决策机会
@@ -357,7 +353,6 @@ sequenceDiagram
 目标每人每天按意图唯一登记，只有真实活动或本人收货能够推进。action 的活动家族就是 category；娱乐、社交、运动、日常照料、工作学习分别推进相应意图。work_study 只有实际消费本人分配内容才推进工作学习目标。用餐由本人收到 meal 商品推进，不能由活动名称或模型总结代替。
 
 
-
 <a name="simulation-engine-收齐并有序受理动作"></a>
 ## 4. 收齐并有序受理动作
 
@@ -374,7 +369,6 @@ sequenceDiagram
 必要决策发生异常时，该轮尚未执行的提案不再结算，保留请求与失败证据并终止。
 不可逆付款和消息发送使用稳定动作身份防止重试重复结算。
 
-
 <a name="simulation-engine-校验与占用安排"></a>
 ### 校验与占用安排
 
@@ -385,7 +379,6 @@ sequenceDiagram
 分配内容只对本人合格，且要求本人工作地点；未分配学习内容可重复。运动只限固定类别场所。实际执行与工具可用性共用拒绝来源，地点错误仍列动作但标不可用。
 
 绑定 app 的社交动作必须声明 `communication_mode`。文字模式只记录实际动作内容、位置与人物自行撰写的主题性文字，不调用通话域函数；语音模式才建立真实通话。两者均按真实经过秒数推进，人物叙述不能伪造发送、回复、通话或内容进度。
-
 
 
 <a name="simulation-engine-推进共享时钟"></a>
@@ -437,7 +430,6 @@ flowchart TB
 模拟时间统一使用 UTC epoch 秒；输出给其他模块的时间保持同一发生时刻和排序。
 本次推进秒数必须恰好对应上次确认时刻到结束时刻的间隔。
 
-
 <a name="simulation-engine-预排事件"></a>
 ### 预排事件
 
@@ -452,7 +444,6 @@ flowchart TB
 ### 内容时长与实际执行
 
 活动只有 `wait`、`sleep`、`travel`、`action`。系统动作负责购买、领取、闹钟、出行、睡眠与等待；全部数据集动作使用同一个执行器。选内容不耗时，按实际经过秒数推进身体和内容。`remaining = min(ceil(duration_seconds - position_seconds), 86400)`；开始、换内容和恢复时，计划时长为已做秒数加余量，计划结束为当前时刻加余量。娱乐在同一活动静默接续；其他四类做完一条即完成。暂停不消费，提前结束只留下真实部分，恢复沿用原内容并读取全局最新位置，不重抽。
-
 
 
 <a name="simulation-engine-推进实际活动"></a>
@@ -502,7 +493,6 @@ flowchart TD
 活动只有 `wait`、`sleep`、`travel`、`action`。系统动作负责购买、领取、闹钟、出行、睡眠与等待；全部数据集动作使用同一个执行器。选内容不耗时，按实际经过秒数推进身体和内容。`remaining = min(ceil(duration_seconds - position_seconds), 86400)`；开始、换内容和恢复时，计划时长为已做秒数加余量，计划结束为当前时刻加余量。娱乐在同一活动静默接续；其他四类做完一条即完成。暂停不消费，提前结束只留下真实部分，恢复沿用原内容并读取全局最新位置，不重抽。
 
 结算边界和决策机会分别判断。娱乐内容完成只结算和提交，不增加决策；其他类别内容完成使活动结束。长时间动作的固定机会是 `progress_report_due`，该机会提出后，不论人物使用哪个工具、受理还是拒绝，都把当时到期的活动播报锚点移到当前秒。既有唤醒原因共 23 个，包含 `alarm_ring`，没有内容完成原因。睡眠只接受工作边界、目标提醒、实验结束和闹钟等既有允许原因；娱乐推送送达不叫醒。
-
 
 
 <a name="simulation-engine-依规则落实结算"></a>
@@ -579,7 +569,6 @@ sequenceDiagram
 事件字段、素材发布、事务、资金对账和版本连续性只在
 [记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)维护，本文不再定义另一套存储结构或事件枚举。
 
-
 <a name="simulation-engine-共同检查点的调用时机"></a>
 ### 共同检查点的调用时机
 
@@ -589,8 +578,6 @@ sequenceDiagram
 
 检查点失败就是运行故障；已确认状态保留，不能将半成品作为恢复入口。
 保存和校验细节见[保存共同检查点](05-recording-engine.md#recording-engine-保存共同检查点)与[恢复与反事实分支](05-recording-engine.md#recording-engine-恢复与反事实分支)。
-
-
 
 <a name="simulation-engine-判断唤醒条件"></a>
 ## 8. 判断唤醒条件
@@ -607,7 +594,6 @@ sequenceDiagram
 
 <a name="simulation-engine-门店营业与报价事件"></a>
 ### 门店营业与报价事件
-
 
 
 
@@ -679,7 +665,6 @@ sequenceDiagram
 ### 验收重点
 
 验收以真实发布目录、纯所有者测试、引擎闭环、SQLite 事件、检查点重开和导出为证据。必须证明选择一次、恢复不重抽、共享进度不分 app、零秒不消费、娱乐静默接续、其他类别单条完成、并行占用、真实社交对象、正文即时可见、收货恰一次、燃油按驾驶日期扣减、驿站先到站再领取、闹钟睡眠结束，以及模型注记不能伪造事实。
-
 
 
 <a name="design-simulation-engine-current-responsibility"></a>

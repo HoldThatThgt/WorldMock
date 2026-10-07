@@ -47,7 +47,6 @@ flowchart LR
 新机器快速检查仍是固定的重建检查集合，不新增测试层或通用配置框架。
 向上游提交改动属于外部协作，不是本次仓库功能。
 
-
 <a name="shared-rules-共享规则"></a>
 ## 共享规则
 
@@ -169,7 +168,6 @@ AS2 保留调度、失败传播、恢复、直接环境注册、工具请求与�
 
 LabelKit 的安装、模型任务与数据加工由 LabelKit-DataSet 管理。
 
-
 <a name="shared-rules-环境引导与收据"></a>
 ### 环境引导与收据
 
@@ -186,7 +184,6 @@ wheelhouse 明确使用 `--no-index --find-links` 和固定源制品，不访问
 有效既有源码要核对身份；错误源码不能被引导静默覆盖成正确结果。
 收据包含 Python 版本、各依赖锁摘要、AS2 摘要、Node 版本、profile 和缺失部件，
 只使用相对项目路径，不含机器身份、密钥或私有凭据。
-
 
 <a name="shared-rules-门禁可选部件与操作系统"></a>
 ### 门禁、可选部件与操作系统
@@ -215,7 +212,6 @@ Windows 重建回执尚未执行，必须单独标为未执行；没有真实成
 可变测试工作区使用标准库 `shutil.copytree` 的普通独立 `copy2` 复制，不以硬链接共享仓库输入，
 不增加复制辅助抽象或回退路径；真实夹具构建和修改后必须保持源文件字节不变，副本与源文件不共享 inode。
 
-
 <a name="shared-rules-新机器检查"></a>
 ### 新机器检查
 
@@ -227,8 +223,6 @@ CI 在 Ubuntu x86_64 与 Windows 执行同一路径，checkout 不初始化子�
 CI 比较两系统代码摘要，不能只分别检查摘要格式。
 
 阶段 1 的 `tests/test_single_source.py::OWNERS` 登记 `FOOD_CONSTANTS`、`CONTENT_RELIEF_PER_HOUR`、`PLACE_KIND_ENVIRONMENTS`、`TARGET_LABELS`、`START_ACTIVITY_ACTIONS`、`BODY_CONSTANTS` 及现行唯一归属，原二十项保持。`QUICK_TESTS` 到阶段 4 才改为新目录、交换规则与 app 纯测试，不在本阶段提前声明该快速集合已经替换。
-
-
 
 <a name="shared-rules-文档原子同步清单"></a>
 ## 文档原子同步清单
@@ -274,7 +268,6 @@ CI 比较两系统代码摘要，不能只分别检查摘要格式。
 新机器检查、平台身份核对、完整测试、风格、文档链接、设计汇编与覆盖率均是必要门禁。
 新功能按 `uncle-bob-review` 在干净提交的隔离 worktree 中执行语义变异，存活变异补测试后重审。
 真实模型全天运行与十二周实验仍由已有总体规格验收，本特性不凭离线测试声称这些实验完成。
-
 
 <a name="shared-rules-版本表"></a>
 ## 版本表

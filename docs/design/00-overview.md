@@ -2,12 +2,14 @@
 # WorldMock 产品设计说明书 — 概述
 
 > **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）<br>
-> **日期**：2026-10-07
-> **版本**：v1.14
+> **日期**：2026-10-08
+> **版本**：v1.16
 > **工具交互修订**：按[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结本次设计；本次修订已实现，既有验收不覆盖新行为。
 > **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D0 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。
 > **共享规则与可重建环境修订**：按[冻结规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)同步框架职责、固定依赖与平台验收要求；实际证据见[本特性验收记录](../dev/shared-rules-and-rebuildable-env-verification.md)。
 > **目标读者**：开发工程师、算法工程师、测试工程师、产品经理
+
+按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「统一动作执行、内容选择、真实进度与系统补订」（阶段 3）。
 
 > 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题工程依据。
 
@@ -19,7 +21,7 @@
 正式重制环境路径由 WorldMock-Dataset 发布决定；WorldMock 提供引擎及包内固定通用规则。
 本章的 `catalog/`、`scenarios/` 指外部环境目录，命令以 WorldMock 为当前工作目录并显式传路径。
 当前场景结构 8、世界结构 11；类别、使用方式、效果与供给表由 WorldMock 固定，
-环境只登记对象、绑定与价格、内容时长、集数三种数；新组合放行另核对实际收据。
+环境登记对象与绑定，并只填写规格允许的数值字段；新组合放行另核对实际收据。
 
 <a name="overview-文档定位"></a>
 ## 文档定位
@@ -27,7 +29,6 @@
 本文档是 WorldMock 设计文档集的概述章节，提供背景、目标、术语、设计原则与需求映射。
 详细设计承接已有冻结规格：行为与算法以 [LifeEnv 运行时规格](../dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)为准，
 接口与字段以[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)为准。本目录仍为草稿，修订不改变冻结规格或实现状态。
-
 
 <a name="overview-背景与目标"></a>
 ## 1. 背景与目标
@@ -42,11 +43,12 @@
 - **覆盖不全**：难以覆盖长时间跨度的复杂生活场景
 - **溯源困难**：标注结果与原始数据的关联关系难以追踪
 
-
 <a name="overview-解决方案"></a>
 ### 1.2 解决方案
 
 WorldMock 通过**数字人生活模拟**生产完整、连续、可追溯的数字足迹：
+
+产出是动作与 app 使用的数字足迹，身体、资金、地图与工作为这些足迹提供处境。只有真实发生的 app 使用才写 app 事实：持续使用保留区间与逐条内容消费，线下辅助与导航只保留起止触点，没有 app 的动作不写 app 记录；每一行都能追到一个已提交的模拟事件。
 
 - **AgentSociety 2 驱动**：复用成熟的 Agent 框架，数字人按自身需求与环境交互
 - **确定性规则引擎**：环境侧用确定性代码维护世界状态，保证数据可信
@@ -64,6 +66,7 @@ flowchart TB
     end
     W --> F[记录引擎保存状态与足迹]
 ```
+
 
 
 <a name="overview-地图中的消费行为"></a>
@@ -91,7 +94,6 @@ flowchart TB
 | **可扩展性** | 支持多人物、多场景、反事实分支 |
 | **下游对接** | 完整导出交给 LabelKit-DataSet；新消费验收仍待完成 |
 
-
 <a name="overview-非目标明确不做"></a>
 ### 1.4 非目标（明确不做）
 
@@ -100,8 +102,6 @@ flowchart TB
 - 不做实时交互式界面
 - 不做社会级宏观模拟（经济系统、政治系统）
 - 不保证与任何特定真实个体的行为一致
-
-
 
 <a name="overview-术语与缩写"></a>
 ## 2. 术语与缩写
@@ -136,8 +136,6 @@ flowchart TB
 | JSONL | JSON Lines，每行一个 JSON 对象的文本格式 |
 | SHA-256 | 安全哈希算法 256 位 |
 
-
-
 <a name="overview-设计原则"></a>
 ## 3. 设计原则
 
@@ -166,7 +164,6 @@ flowchart TB
 | **资源结算可核验** | 金钱转账两端守恒；能量与娱乐需要按流水和边界校验；睡眠按演化规则核对；共享时钟推进与实际结算时长一致 |
 | **引用完整性** | 内容引用、记忆来源（由系统登记）、人际关系引用指向有效实体；relationship、preference 记忆的 `subject` 指向人设层中的对象（relationship 须是已知人物）；就寝反思每条洞见的 `refs` 非空、条内不重复且全部取自本次输入的记忆身份，不合合同的反思不写入任何洞见；个人事务的完成事件引用事务所有人自己的收货证据事件，缺证据的完成计入质量报告的完整性计数（`errand_metrics.completed_without_evidence_count`）且应恒为 0 |
 | **来源明确性** | 每条内容标记来源数据集、版本、区间与许可 |
-
 
 
 <a name="overview-需求映射表"></a>
@@ -250,7 +247,6 @@ flowchart TB
 | **依赖** | Python 3.12，AgentSociety 2，SQLite 3.35+ |
 | **平台** | Linux x86_64 / macOS；Windows 必须完成跨平台核心与重建验收。当前 macOS 收据与尚未执行的 Windows 收据分别登记，不能由单平台结果推定跨平台放行；平台边界以[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-门禁可选部件与操作系统)为准 |
 
-
 <a name="overview-设计假设若不成立需回到设计层"></a>
 ## 8. 设计假设（若不成立需回到设计层）
 
@@ -296,7 +292,6 @@ flowchart TB
 
 人物行为、世界结算、事件顺序、提示、检查点与完整导出合同保持；下游加工合同已移交 LabelKit-DataSet。当前业务规则按基础规格的所属正文读取；五份已验收增量规格及其执行过程已归档，归档不改变真实十二周、隔离盲评、LabelKit 交付和真实模型复跑的未完成状态。
 文档引用按显式稳定章节标识定位；代码依据按仓库相对的文件与实际定义定位。完整工程验收共用快速、标准、全量运行入口，以 `docs/VERIFICATION.md` 的工程门禁为准。
-
 
 <a name="overview-版本历史"></a>
 ## 版本历史

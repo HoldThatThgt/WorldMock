@@ -36,7 +36,6 @@
 
 计划、相关度与指标读取同一个活动家族函数；缺品类不猜进度，外部参照保留缺证或未归类。实际推进的有效区间为非布尔整数秒且起点小于终点。本次不改变 around_time、登记后的活动起点和同秒推进合同。
 
-
 <a name="spec-day-plan-goals-心智模型与范围"></a>
 ## 心智模型与范围
 
@@ -75,7 +74,6 @@ flowchart LR
 不改变其他活动的资格与资源结算。旧时段字段、段起点唤醒、段级照做函数和偏离分钟指标直接删除，
 不提供兼容形状、迁移或回退。
 
-
 <a name="spec-day-plan-goals-当日目标与生命周期"></a>
 ## 当日目标与生命周期
 
@@ -105,7 +103,6 @@ flowchart LR
   零点计划 `plan_day` 对未完成事务只读（输入键「个人事务」：名称、要办成什么、已办到哪、备注、提醒时刻），不创建、不更改、不终结事务，
   事务也不经修订请求增删（个人事务与工作安排规格 2.1、2.8）。
 
-
 <a name="spec-day-plan-goals-实际推进与情绪"></a>
 ### 实际推进与情绪
 
@@ -126,7 +123,6 @@ flowchart LR
   零点先结算旧日的有效区间、清除过期计划，再执行零点计划。
 
 用餐目标只由本人作为收货人的 `meal` 类 `goods_received` 推进。收货秒不早于目标登记、在当日内；带 around_time 时落在前后 GOAL_TIME_TOLERANCE_SECONDS 的既有容差内。一次收货推进清单里第一条未推进用餐目标，一张订单当日只推进一个目标；零食、饮品、非食品、别人或联系人收货不推进。PlanGoal 增加 progress_order_id，目标已推进时它与 progress_activity_id 恰有一个非空。系统不合成用餐活动。
-
 
 
 <a name="spec-day-plan-goals-事件驱动的决策节律"></a>
@@ -155,7 +151,6 @@ flowchart LR
 截止或同行人承诺。睡眠只接受四个既定原因；`errand_reminder_due`、四个班次原因与 `app_push` 都不叫醒。
 app 内容完成仍是静默边界。零点计划、修订和目标推进本身不推进世界时钟。
 
-
 <a name="spec-day-plan-goals-人物可见内容与工具"></a>
 ## 人物可见内容与工具
 
@@ -174,7 +169,6 @@ app 内容完成仍是静默边界。零点计划、修订和目标推进本身�
   人物工具只有 `revise_day_plan`，有清单即开放，可改提醒，允许空清单后追加目标。
 - 零点计划与 LifeAgent 修订各自到 LifeEngine、SQLite、下一次观察、检查点恢复必须有完整路径测试；
   只检查纯函数或字符串不算贯通。
-
 
 <a name="spec-day-plan-goals-三层度量与质量导出"></a>
 ## 三层度量与质量导出
@@ -294,7 +288,6 @@ app 内容完成仍是静默边界。零点计划、修订和目标推进本身�
 最终验收记录必须给出相对开发基线的实际完整文件清单，不能用此预估表替代 diff。
 
 
-
 <a name="time-and-energy-零点计划与计划提醒"></a>
 ## 零点计划与计划提醒
 
@@ -350,7 +343,6 @@ flowchart LR
     P --> R["提醒到期"]
     R --> W["提供人物决策机会"]
 ```
-
 
 <a name="time-and-energy-零点计划与计划提醒-输入调用失败与记录"></a>
 ### 输入、调用、失败与记录
@@ -463,8 +455,6 @@ flowchart LR
 `ACTION_REQUEST_INVALID`，不晚于修订时刻或不早于次日零点报 `PLAN_REMIND_TIME_INVALID`；计划结束与提醒同秒时记
 `boundary_type=planned_end`，提醒记为已触发。
 
-
-
 <a name="dayrun-fidelity-加载校验与当日目标推进"></a>
 ## 加载校验与当日目标推进
 
@@ -494,8 +484,6 @@ flowchart LR
 **验收。** 零点前开始、零点后结算的睡眠不推进大致时刻为 23:30 的睡眠目标；08:40 的浏览不推进大致时刻为 23:00 的娱乐目标；大致时刻 12:00 的午餐目标被 10:20–10:45 的进食推进
 （进行区间与窗口有交集）、被 09:30–09:55 的不推进；`around_time` 为空的目标沿用现行判定；`revise_day_plan` 与零点计划的条目带 `around_time`，格式错误报 `ACTION_REQUEST_INVALID`；
 只改 `around_time` 的修订保留登记时刻；待办层只显示 `HH:MM` 或 `null`；`goal_metrics` 与推进判定一致；例行意图的目标不计入推进比例。
-
-
 
 
 <a name="spec-day-plan-goals-验收台账"></a>
@@ -528,7 +516,6 @@ flowchart LR
 
 本特性所有行都必须有实现与测试，禁止 skip、xfail、占位或延期。已有十二周正式运行、
 盲评与完整自然日 LabelKit 交付仍属项目总体验收，不能由本特性离线门禁替代。
-
 
 <a name="spec-day-plan-goals-版本表"></a>
 ## 版本表

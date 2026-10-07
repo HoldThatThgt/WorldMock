@@ -57,7 +57,7 @@ _PRICING = {
 def build_quality_report(events: list[Event], activities: list[dict], manifest: dict) -> dict:
     """@brief 汇总完成、异常、内容、效率、记忆、模型用量、实测加速比、当日目标、个人事务与收尾记忆、运行输入警告与输出截断。
 
-    报告结构 5：个人事务与工作安排规格的两个只报告分组 errand_metrics、conclusion_memories 紧随 day_plan_metrics
+    报告结构 6：个人事务与工作安排规格的两个只报告分组 errand_metrics、conclusion_memories 紧随 day_plan_metrics
     （docs/VERIFICATION.md#errands-workday-度量与下游-质量报告 ）；三者读同一份事件字典，按事件模型的 JSON 形状只构造一次。
 
     @param events 已经认证且按 event_seq 排序的完整事件。
@@ -68,9 +68,9 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
     _validate_inputs(events, activities, manifest)
     rows = [{**event.model_dump(mode="json"), "code_sha256": manifest.get("code_sha256")} for event in events]
     return {
-        "schema_version": 5,
+        "schema_version": 6,
         "run_id": manifest["run_id"],
-        "source_group_id": manifest.get("source_group_id", manifest["run_id"]),
+        "source_group_id": manifest["source_group_id"],
         "event_range": {
             "first_event_seq": events[0].event_seq,
             "last_event_seq": events[-1].event_seq,
@@ -81,7 +81,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
         "actions": _action_quality(events),
         "activities": _activity_quality(activities, events),
         **app_usage_quality(rows, manifest["window"]["timezone"]),
-        "work_topics": _work_quality(events, activities),
+        "work_topics": _work_quality(events, activities, manifest),
         "conversion_efficiency": _efficiency_quality(events),
         "decision_rhythm": _decision_rhythm_quality(events),
         "memory_references": _memory_quality(events),
@@ -102,7 +102,9 @@ def _validate_inputs(events: list[Event], activities: list[dict], manifest: dict
     """@brief 核对报告依赖的身份、顺序和窗口，不重复执行导出认证。"""
     if not events:
         raise IntegrityError("Quality report requires at least one authenticated event")
-    if not isinstance(manifest, dict) or not isinstance(manifest.get("run_id"), str):
+    if (not isinstance(manifest, dict) or not isinstance(manifest.get("run_id"), str)
+            or not isinstance(manifest.get("source_group_id"), str)
+            or not isinstance(manifest.get("work_content_ids"), dict)):
         raise IntegrityError("Quality report manifest has no run identity")
     window = manifest.get("window")
     if not isinstance(window, dict):
@@ -224,79 +226,60 @@ def _person_elapsed_seconds(events: list[Event]) -> dict[str, int]:
     return dict(sorted(totals.items()))
 
 
-def _work_quality(events: list[Event], activities: list[dict]) -> dict:
-    """@brief 工时只加权威活动时长，完成只认真实主题完成事件，播报只认唯一成功回执。"""
+def _work_quality(events: list[Event], activities: list[dict], manifest: dict) -> dict:
+    """@brief 分配条数由冻结场景声明，工时和完成只由实际内容结算计入。"""
+    assignments = {(int(agent), content) for agent, contents in manifest["work_content_ids"].items()
+                   for content in contents}
     totals: Counter[str] = Counter()
-    topics: set[tuple[int, str]] = set()
-    for activity in activities:
-        if activity.get("activity_type") != "work":
-            continue
-        topic = activity.get("target_id")
-        if topic is None:
-            continue
-        topics.add((activity["agent_id"], topic))
-        if activity.get("status") != "failed":
-            totals[topic] += activity["elapsed_seconds"]
-    completed: set[tuple[int, str]] = set()
-    reported: set[str] = set()
+    completed = set()
+    requested = {event.action_id: event.data.get("tool_name") for event in events
+                 if event.event_type == "action_requested"}
+    reported = set()
     reports = 0
+    working = {row["activity_id"] for row in activities
+               if row.get("data", {}).get("category") == "work_study"}
     for event in events:
-        if event.event_type == "observation":
-            topics.update((event.agent_id, row["topic_id"]) for row in event.data.get("work_topics", []))
-        if event.event_type == "environment_event" and event.data.get("kind") == "work_topic_completed":
-            pair = (event.agent_id, event.data["topic_id"])
-            topics.add(pair)
-            completed.add(pair)
+        if event.event_type == "activity_progress" and "content" in event.data:
+            content = event.data["content"]
+            if (event.agent_id, content["content_id"]) in assignments:
+                totals[content["content_id"]] += event.data["interval_end"] - event.data["interval_start"]
+        if event.event_type == "environment_event" and event.data.get("kind") == "work_content_completed":
+            completed.add((event.agent_id, event.data["content_id"]))
         if (event.event_type == "action_result" and event.action_id not in reported
-                and event.data.get("status") == "completed"):
+                and event.data.get("status") == "completed" and requested.get(event.action_id) == "report_status"):
             reported.add(event.action_id)
-            reports += len(event.data.get("data", {}).get("work", []))
-    return {"topics": len(topics), "completed": len(completed),
+            reports += sum(identity in working for identity in event.data.get("data", {}).get("activity_ids", []))
+    return {"topics": len(assignments), "completed": len(completed),
             "worked_seconds_by_topic": dict(sorted(totals.items())), "reports": reports}
 
 
 def _efficiency_quality(events: list[Event]) -> dict:
-    """@brief 只以真实食品结算区间加权热量利用效率。"""
+    """@brief 食品效率按真实收货提供千卡加权，不能拿进食时长替代。"""
     food, food_missing = _food_efficiency_samples(events)
-    return {
-        "food": _weighted_efficiency(food, food_missing, "no_food_consumption_progress"),
-        "method": "Duration-weighted values from persisted activity_progress settlements",
-    }
-
-
+    return {"food": _weighted_efficiency(food, food_missing, "no_food_receipt"),
+            "method": "Calorie-weighted applied/provided values from persisted goods_received events"}
 
 
 def _food_efficiency_samples(events: list[Event]) -> tuple[list[tuple[float, float]], int]:
-    """@brief 只读取实际食品进食区间及其结算利用效率。"""
-    samples = []
-    missing = 0
+    """@brief 每次食品收货以实际提供千卡和实际应用千卡形成效率样本。"""
+    samples, missing = [], 0
     for event in events:
-        if event.event_type != "activity_progress" or "consumption" not in event.data:
+        data = event.data
+        if (event.event_type != "environment_event" or data.get("kind") != "goods_received"
+                or data.get("category") not in {"meal", "snack", "drink"}):
             continue
-        consumption = event.data.get("consumption")
-        if not isinstance(consumption, dict) or consumption.get("use_mode") != "eat":
-            continue
-        items = consumption.get("items")
-        if not isinstance(items, list) or not any(
-            isinstance(item, dict) and _is_positive_number(item.get("interval_portion")) for item in items
-        ):
-            continue
-        start, end = event.data.get("interval_start"), event.data.get("interval_end")
-        efficiency = consumption.get("food_efficiency")
-        sample = (float(end - start), float(efficiency)) if (
-            valid_interval(start, end) and _is_nonnegative_number(efficiency)
-        ) else None
-        if sample is None:
+        provided, applied = data.get("provided"), data.get("applied")
+        if not _is_positive_number(provided) or not _is_nonnegative_number(applied):
             missing += 1
         else:
-            samples.append(sample)
+            samples.append((float(provided), float(applied) / float(provided)))
     return samples, missing
 
 
 def _weighted_efficiency(samples: list[tuple[float, float]], missing: int, empty_reason: str) -> dict:
     """@brief 输出已知加权值、覆盖情况和不可用原因。"""
-    duration = sum(item[0] for item in samples)
-    known_mean = sum(seconds * value for seconds, value in samples) / duration if duration else None
+    provided_kcal = sum(item[0] for item in samples)
+    known_mean = sum(kcal * value for kcal, value in samples) / provided_kcal if provided_kcal else None
     complete = bool(samples) and missing == 0
     reason = None
     if not samples:
@@ -310,7 +293,7 @@ def _weighted_efficiency(samples: list[tuple[float, float]], missing: int, empty
         "known_weighted_mean": known_mean,
         "minimum": min((item[1] for item in samples), default=None),
         "maximum": max((item[1] for item in samples), default=None),
-        "known_duration_seconds": duration if samples else None,
+        "known_provided_kcal": provided_kcal if samples else None,
         "sample_count": len(samples),
         "missing_sample_count": missing,
         "unavailable_or_incomplete_reason": reason,

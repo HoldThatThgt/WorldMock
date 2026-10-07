@@ -63,6 +63,10 @@ def _validate_scenario(scenario: EvaluationScenario) -> None:
             raise EvaluationError("invalid_scenario", "special date key is invalid") from exc
         if parsed not in scenario.window.days or not calendar_class:
             raise EvaluationError("invalid_scenario", "special date is outside the declared window")
+    if set(scenario.worldmock_activity_map) - {"sleep", "travel", "wait"}:
+        raise EvaluationError("invalid_scenario", "WorldMock mappings only declare sleep, travel and wait")
+    if "eat" in scenario.official_domain_map:
+        raise EvaluationError("invalid_scenario", "Eating is not a current evaluation domain")
     _validate_official_reference(scenario)
     _validate_expected_labelkit(scenario.expected_labelkit)
 

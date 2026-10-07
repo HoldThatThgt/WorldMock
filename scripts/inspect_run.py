@@ -119,7 +119,8 @@ def _brief(r: dict) -> str:
         return f"{d.get('kind')} {d.get('scheduled_id','')}"
     if t == "activity_progress":
         act = d.get("activity", {})
-        return f"{act['name']} → {act['status']}"
+        content = f"《{act['content_title']}》" if act["kind"] == "action" else ""
+        return f"{act['name']}{content} → {act['status']}"
     if t == "memory_updated":
         return f"{len(d.get('episode_ids', []))} 条"
     if "resource_changes" in d and d["resource_changes"]:
@@ -263,22 +264,13 @@ def hungriest_level(conn: sqlite3.Connection) -> str | None:
     return ranked[-1] if ranked else None
 
 
-def eat_progress(conn: sqlite3.Connection) -> list[tuple[int, str, int]]:
-    """@brief 进食正进度：consumption.use_mode 为 eat 且有物品本区间用量为正的活动进展，(人物, 活动, 区间起点)。
-
-    判据与质量报告的食物利用效率取样相同：只看实际食品使用区间。
-    """
-    rows = _select(conn, "activity_progress",
-                   "json_extract(body, '$.agent_id'), json_extract(body, '$.data.activity.activity_id'), "
-                   "json_extract(body, '$.data.interval_start'), json_extract(body, '$.data.consumption.use_mode'), "
-                   "json_extract(body, '$.data.consumption.items')")
-    meals = []
-    for agent, activity_id, start, use_mode, items in rows:
-        quantities = [item.get("interval_portion") for item in json.loads(items or "[]") if isinstance(item, dict)]
-        if use_mode == "eat" and isinstance(start, int) and any(
-                isinstance(value, (int, float)) and value > 0 for value in quantities):
-            meals.append((agent, activity_id, start))
-    return meals
+def food_receipts(conn: sqlite3.Connection) -> list[tuple[int, str, int]]:
+    """@brief 本人食品收货的真实订单身份和发生秒数，不构造用餐活动。"""
+    rows = _select(conn, "environment_event",
+        "json_extract(body, '$.agent_id'), json_extract(body, '$.data.order_id'), "
+        "json_extract(body, '$.occurred_at'), json_extract(body, '$.data.category')", "goods_received")
+    return [(agent, order, moment) for agent, order, moment, category in rows
+            if category in {"meal", "snack", "drink"}]
 
 
 def _local_date(epoch: int, zone: ZoneInfo) -> str:
@@ -307,7 +299,7 @@ def lowest_energy_before_meal(conn: sqlite3.Connection, zone: ZoneInfo) -> list[
     当日没有进食时取全日最低并标 ate=False；进食前没有结算记录时 energy_kcal 为 None。
     """
     first_meal: dict[tuple[int, str], int] = {}
-    for agent, _, start in eat_progress(conn):
+    for agent, _, start in food_receipts(conn):
         key = (agent, _local_date(start, zone))
         first_meal[key] = min(first_meal.get(key, start), start)
     report = []
@@ -321,7 +313,7 @@ def lowest_energy_before_meal(conn: sqlite3.Connection, zone: ZoneInfo) -> list[
 
 def meal_count(conn: sqlite3.Connection) -> int:
     """@brief 进食次数：有进食正进度的活动数（同一活动的多段进展只计一次）。"""
-    return len({(agent, activity_id) for agent, activity_id, _ in eat_progress(conn)})
+    return len({(agent, activity_id) for agent, activity_id, _ in food_receipts(conn)})
 
 
 def walking_share(conn: sqlite3.Connection) -> dict:
@@ -551,7 +543,7 @@ def _repeat_orders(conn: sqlite3.Connection, zone: ZoneInfo) -> dict[str, int]:
     for fact in project_purchase_facts(events):
         if fact["fact_kind"] != "purchase":
             continue
-        key = (fact["agent_id"], fact["food_id"], _local_date(fact["created_at"], zone))
+        key = (fact["agent_id"], fact["goods_id"], _local_date(fact["created_at"], zone))
         if key in seen:
             repeats[decisions.get(fact["action_id"])] += 1
         seen.add(key)
@@ -768,8 +760,8 @@ def _query_page(call: dict, answers: dict[tuple, list[tuple[int, str]]]) -> tupl
 
 
 def _query_filtered(arguments: dict | None) -> bool:
-    """@brief 调用带阶段 4 的两种筛选之一：from 不为 null 或 available_only 为 true；旧四键与解析不了的参数都不算。"""
-    return isinstance(arguments, dict) and (arguments.get("from") is not None
+    """@brief 查询明确应用或仅看当前可用对象时计入筛选调用；解析不了的参数不计。"""
+    return isinstance(arguments, dict) and (arguments.get("app") is not None
                                             or arguments.get("available_only") is True)
 
 

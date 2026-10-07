@@ -59,7 +59,6 @@ flowchart TB
 引擎从产生该次观察的冻结状态解析对象和动作，并计算执行参数。已结算动作的公开结果属于
 **进度层**：系统写客观结果，人物写主观进展；这不增加上下文层。
 
-
 <a name="spec-agent-interaction-权威来源与范围裁决"></a>
 ## 权威来源与范围裁决
 
@@ -80,7 +79,6 @@ flowchart TB
 
 **跨规格边界**：评估、画像、语料与账本的领域规则分别由其规格负责；数据加工和模型任务由 LabelKit-DataSet 的规格负责。
 WorldMock 保存实际发送给模型的最终请求与响应，并通过完整导出交接，保证下游能够读取原始事实。
-
 
 <a name="spec-agent-interaction-三级结构与概念边界"></a>
 ## 三级结构与概念边界
@@ -110,7 +108,6 @@ WorldMock 保存实际发送给模型的最终请求与响应，并通过完整�
 **目标层的证据规则不变**：`PlanGoal` 仍只由「正时长结算的活动」推进，`progress_activity_id` 仍是单值。
 **会话不参与目标证据的判定**——它只是按地点停留与路段分组的组织单位。
 （推论：服务同一目标的多项活动不会各自改写目标证据，目标证据仍由第一个匹配活动一次性盖章。）
-
 
 <a name="spec-agent-interaction-会话与活动的关系"></a>
 ### 会话与活动的关系
@@ -143,7 +140,6 @@ stateDiagram-v2
 
 **会话状态闭集**：`active` / `ended`；`kind` 取 `stay`（地点停留）或 `transit`（路上）。
 
-
 <a name="spec-agent-interaction-会话的状态位置"></a>
 ### 会话的状态位置
 
@@ -156,8 +152,6 @@ stateDiagram-v2
 | 结构版本 | `WORLD_SCHEMA_VERSION` **5 → 6**（本规格引入会话）；时间与能量规格升为 **7**（地点会话与活动新增字段）；人物 Prompt 规格升为 **8**（观察改为七层数据）；个人事务与工作安排规格阶段 2 升为 **9**（`AgentState.errands`，只升一次，版本 8 的检查点与导出按版本拒绝）。资源与规则引擎简化规格整体升为 **10**，旧结构直接拒绝；定义在 `src/worldmock/life/models.py::AgentState.errands`，`WorldState.schema_version` 是 `Literal[WORLD_SCHEMA_VERSION]` 且**无默认值** |
 | 场景声明 | **不需要**（会话是运行期生成物，同 `activities` / `deliveries`） |
 | 旧检查点 | **拒绝加载**：`schema_version` 是 `Literal[WORLD_SCHEMA_VERSION]` 且**无默认值**；**不提供迁移或降级读取路径**，既有运行目录的检查点一律视为作废，需重跑而非恢复 |
-
-
 
 <a name="spec-agent-interaction-会话字段"></a>
 ## 会话字段
@@ -359,7 +353,6 @@ DeepSeek strict 模式**禁用六个 Schema 键**
 共同校验（名额、目标在场、出行方式、类别、使用方式与注册表占用，能量不参与），任一项不成立则整组拒绝。
 `revise_day_plan` 是独立登记工具，**不是** `actions` 的取值。
 
-
 <a name="spec-agent-interaction-保护项修订"></a>
 ### 保护项修订
 
@@ -396,7 +389,6 @@ DeepSeek strict 模式**禁用六个 Schema 键**
 但名称类拒绝不计、也不施加 `service_refused` 情绪脉冲，每人每秒至多 2 次，第 3 次起照常（[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要) 3.4）。阶段取值见[时间与能量规格](SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)
 第一章「规则」第 3 条与「实现约定」。
 
-
 <a name="spec-agent-interaction-即时查询完整纠错与紧凑呈现"></a>
 ### 即时查询、完整纠错与紧凑呈现
 
@@ -404,24 +396,22 @@ DeepSeek strict 模式**禁用六个 Schema 键**
 在生活决策中可同批调用；整批参数通过校验后按请求顺序返回。查询不登记世界请求、不结束决策、不推进模拟时间、
 不增加同刻轮数，每次实际模型回复仍占用 `MAX_REACT_TURNS=16` 的回合预算。世界请求必须单独调用，
 与查询混批或含多个世界请求时整批拒绝，所有调用均未执行。
-`query_world(name, way, category, from, available_only, offset)` 六键均必填、无缺省，旧四键请求按缺字段拒绝；
-`name`、`way`、`category`、`from` 为 `str|null`，至少一个非 null（四者全空时在四个位置各报一条），非 null 不得为空白；
+`query_world(name, way, category, app, available_only, offset)` 六键均必填、无缺省；
+`name`、`way`、`category`、`app` 为 `str|null`，至少一个非 null（四者全空时在四个位置各报一条），非 null 不得为空白；
 `available_only` 为严格 JSON 布尔（拒绝字符串、数字与 `null`），不单独构成查询条件；
 `offset` 为严格非负 JSON 整数（拒绝布尔值、数字字符串及浮点数），首批显式写 `0`，不能省略；
-`way` 取现有方式闭集，写「购买」（及其同义写法）等同于同时写「到店」与「远程下单」；`category` 匹配公开 `callable_index` 的类别标签；
-`from` 写登记店铺显示名或 app 名，与购买请求共用同一来源解析，只匹配食品条目，认不出时以 `ARGUMENTS_INVALID` 定位 `from`，
-并给至多三条换了 `from` 的完整 `query_world` 候选（个人事务与工作安排规格 5.1、5.2、5.5）。
+`way` 取现有方式闭集；`category` 匹配公开 `callable_index` 的类别标签；`app` 写登记 app 名，匹配商品供给或动作行实际支持的 app，
+认不出时以 `ARGUMENTS_INVALID` 定位 `app` 并给至多三条换了 `app` 的完整请求候选。
 查询只读取本轮冻结观察、已有私有绑定与可调用索引权限内的完整匹配集合，
-不读未揭示邮件正文或他人食品持有；食品查询只读固定菜单，不通过浏览揭示事实。
+不读未揭示邮件正文或私有内容进度；商品查询只读固定菜单，不通过浏览揭示事实。
 `query_world` 的固定返回为 `{matches, total_count, next_offset}`，不新增说明键；`matches` 每项是冻结目标的无损紧凑投影
-（`name, kind, phase, state, contract, actions, tools`，`contract` 仅任务目标有；紧凑规则复用工具层分组已有的实现，只省略 `null` 与空集合，
+（`name, kind, phase, state, actions, tools`；紧凑规则复用工具层分组已有的实现，只省略 `null` 与空集合，
 保留 `false`、零值与明确的未知原因），不再逐项附完整请求候选——照抄 `name` 与所选动作的 `way` 即可提交，候选只出现在错误合同里；
 筛选在排序与切页之前施加，每批沿用现有 `candidate_presentation_limit=20`；`total_count` 是全部筛选交集后的完整匹配数，`next_offset` 必填可空。
 还有结果时返回下一批偏移，没有更多结果时为 `null`；同一冻结观察内重复传回偏移可遍历筛选后的全集。
 除下述两种参数错误外，任何筛选组合无匹配、或偏移恰为 `total_count` 时返回 `matches=[]`、`next_offset=null`（无匹配时 `total_count=0`），
-不报错、不自动放宽、不换来源；`from` 解析成功但该来源没有权限内供给、`name` 写完整标签而 `from` 写另一家店都是合法空页。
-两种参数错误都是 `ARGUMENTS_INVALID`：`from` 既不是地点显示名也不是渠道称呼（定位 `from`，给至多三条换了 `from` 的完整 `query_world` 候选）；
-`from` 为 `null`、`name` 按对象名称解析无任何匹配且其写法恰是一个渠道称呼（定位 `name`，给一条把该值移到 `from`、`name` 写 `null` 的完整候选，不自动改写）。
+不报错、不自动放宽、不换 app；登记 app 与其余筛选条件没有交集是合法空页。app 名无法解析时以 `ARGUMENTS_INVALID`
+定位 `app` 并给至多三条完整候选，不自动改写。
 偏移超出时按参数错误定位 `offset`，范围只在全部筛选合法后计算；不另设分页配置（个人事务与工作安排规格 5.3、5.4、5.5）。
 查询结果即时通过原生 tool 消息返回，留存于模型交互证据；外部只读问答仍只开放人物记忆查询与 `finish`。
 
@@ -435,8 +425,7 @@ DeepSeek strict 模式**禁用六个 Schema 键**
 不完整 JSON 定位该调用的 `function.arguments`，`expected` 含解析器的行列与该工具参数所需的闭集，
 不推测尚未成功解析的参数字段。所有可独立确定的参数与名称错误一并报告，不能用一个粗略顶层字段掩盖嵌套位置。
 候选统一为 `{tool, arguments, note}`，`note` 为英文说明或 `null`；`arguments` 是该工具完整合法的新请求，候选可原样提交。
-`prefer` 的错误枚举按已合法的方式判定：含购买项返回 `["最快拿到", "到手价最低"]`，
-没有购买项返回 `[null]`；尚不能判明方式时列声明的三值并说明跨字段约束，不猜购买类型。
+购物与支付 app 的约束错误定位到实际写错的 `app` 或 `pay_app`，候选只由登记绑定构造，不替人物选择。
 名称字段不是封闭枚举，不把全量商品名塞进 `allowed_values`。业务前置条件中所有可独立确定的问题按既定准入顺序列出，
 定位有关请求参数并给合法方式或下一步；需要合法对象才能判定的条件不凭空推断。
 
@@ -452,13 +441,13 @@ DeepSeek strict 模式**禁用六个 Schema 键**
 冲突元信息是渲染错误。只省略 `null` 和空集合，保留 `false`、零值与明确的未知原因。
 工具层提示使用按对象类别与方式分组的紧凑 JSON：共同字段只写一次，名称、可用性及其差异留在组内，
 空字段省略，共同不可用原因提至组级；续接 `changes` 使用同一确定性编码。
-编码必须能无损还原目标、方式、可用性、原因、价格、时长、数量、任务合同和其他工具可用性；
+编码必须能无损还原目标、方式、app、可用性、原因、价格、时长、类别和其他工具可用性；
 冻结观察的工具层结构、私有绑定、可调用索引与世界权限不变。紧凑编码不是预算浓缩，不能减少对象或事实。
 
-`query_world(name, way, category, from, available_only, offset)` 六键必填，来源解析为目录店铺或 app，返回固定菜单的紧凑 `{matches, total_count, next_offset}`。
-商品价格固定，类别标签来自食品类别；`available_only` 只按人在店内或店铺绑定 app 判断，不检查报价、营业、库存、配送区域或可见凭据。查询不揭示新世界事实、不推进时间、不占名额，只保存实际模型与 tool 交换证据。
+`query_world(name, way, category, app, available_only, offset)` 六键必填，app 解析为登记名称，返回紧凑
+`{matches, total_count, next_offset}`。商品价格固定，类别标签来自商品与动作的公开类别；`available_only` 只保留当前工具层已确认可执行的行。
+查询不揭示新世界事实、不推进时间、不占名额，只保存实际模型与 tool 交换证据。
 查询与世界请求不得混批，先整批校验，再按原执行位置返回；有效交互菜单、同秒预算、名称纠错与只读权限保持原合同。
-
 
 
 <a name="spec-agent-interaction-决策轮循环与播报节律"></a>
@@ -557,13 +546,11 @@ if snap.is_asleep:
 - 冻结观察的工具层 `targets` 照常列出运行内可能满足条件的对象与动作，不按人物当前状态剪裁；发布图连通，其他已选地点均列出步行与驾车；不能执行的动作保留所属合同的原因；
   条件未满足的动作 `available=false`，`reason` 是环境受理时的拒绝原文，前置地点在 `reason` 中点名；需要前往时只写 `Go to <place>.`，地点名称来自目录，不能生成多跳或配送区域提示。
 
-
 <a name="spec-agent-interaction-游戏简化"></a>
 ## 游戏简化（已被 app 使用协议取代）
 
 本节锚点为既有引用保留；阶段 4 删除独立游戏对象、命令回路、反馈边界和工具。
 娱乐统一为人物选择 app、方式写「打开」、环境在该 app 内抽取内容；会话推送优先，其他内容按冻结随机链选择。
-
 
 <a name="spec-agent-interaction-上下文分层"></a>
 ## 上下文分层
@@ -640,7 +627,6 @@ if snap.is_asleep:
 人物自述 500 字符等领域字段限额继续生效。
 模型返回的实际 token 用量用于校核预估器；下一次请求仍须先完成全量计数。
 
-
 <a name="spec-agent-interaction-午夜浓缩"></a>
 ### 午夜浓缩
 
@@ -650,7 +636,6 @@ if snap.is_asleep:
 个人事务不在当日计划里：零点置空当日计划与 `revise_day_plan` 的整表替换都不改动它，零点计划的输入只读它；未完成的事务跨零点原样留在待办层，
 不进记忆层、不占 8000 字符窗口，记忆层不为它写 `settled` 句，记忆层「未了结事项」的口径不变（个人事务与工作安排规格 2.1、2.6、2.8）。
 午夜处理与上述 **85% 发送前浓缩**是两个不同触发条件，均不得改写客观结算、已核验证据或原始事件。
-
 
 <a name="spec-agent-interaction-遗忘是派生视图不是销毁"></a>
 ### 遗忘是派生视图，不是销毁
@@ -663,8 +648,6 @@ if snap.is_asleep:
 - `episodes_sha256` 证据链不变；
 - 记忆层由环境从已提交事件与世界状态派生，模型写下的内容只进入 `self_notes`，不能改写 `settled`；
 - 更早的 summary 可按活动名（记忆层 `self_notes` 所写的活动名即可）用 `recall_task_summary` 回看，结束活动写下的记忆与反思可用记忆查询取得。
-
-
 
 <a name="spec-agent-interaction-事件与重建约束"></a>
 ## 事件与重建约束
@@ -695,7 +678,6 @@ if snap.is_asleep:
 **这同时确认**：进展自述一旦提交就永久留在 append-only 记录里，提示层的浓缩只改变
 下一次所见，不会删除原始记录。
 
-
 <a name="spec-agent-interaction-冻结条款修订"></a>
 ## 冻结条款修订
 
@@ -712,7 +694,6 @@ if snap.is_asleep:
 **未被修订的既有语义**：只有环境能改世界状态；一次决策一个生活动作；沉默边界不调用人物决策模型；
 体感数值不进提示；已核验经历只由已提交事件确定性投影；SQLite 记录是唯一提交权威。
 
-
 <a name="spec-agent-interaction-实现顺序"></a>
 ## 实现顺序
 
@@ -727,7 +708,6 @@ flowchart LR
     D --> E["工具面收敛<br/>七个世界请求、五个只读查询，选择与创作分开"]
     E --> F["删除<br/>game_action / change_playback_speed / GameProgress"]
 ```
-
 
 <a name="spec-agent-interaction-与既有文档的一致性核对"></a>
 ## 与既有文档的一致性核对
@@ -749,7 +729,6 @@ flowchart LR
 原提案和只读审计是历史证据，不再作为最终行为合同。`docs/dev/implementation-status.md#implementation-status-worldmock-实现状态`
 记录当前代码实况，仅在行为实现并验证后更新，不能提前写成已落地。
 
-
 <a name="spec-agent-interaction-文件修改清单"></a>
 ## 文件修改清单
 
@@ -761,7 +740,6 @@ flowchart LR
 | 完整足迹与公开结果一致性 | `src/worldmock/footprints/export.py` 与 `src/worldmock/evaluation/public_evidence.py`；保存实际请求并认证其来源 |
 | 合同与设计文档 | 上节表中的所有文档，以及 `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态` 的实际实现状态 |
 | 验证 | `tests/life/` 的对象绑定、活动参数、非致命拒绝、进度容量测试；`tests/integration/` 的真实人物工具、原始请求持久化与完整导出测试 |
-
 
 <a name="spec-agent-interaction-验收台账"></a>
 ## 验收台账
@@ -784,7 +762,6 @@ flowchart LR
 | 记忆与检查点 | 午夜目标单句与记忆巩固不改已核验证据与事件，巩固摘要不进提示；记忆层按场景本地日期分区，未了结事项处理后消失；旧世界结构检查点被拒，未做迁移或兼容读取 |
 | 事件与足迹导出 | 人物请求及系统结算可由事件审计；完整导出保留实际模型请求、来源与可见性；数据集样本选择由 LabelKit-DataSet 验收 |
 | 文档一致性 | 上节每份冻结合同同步；相互链接与锚点可解析，旧 7 工具、单会话 4000 字符、只计 user 字符、独立结果层、三段消息载体、`scene`、`facts`、身份前言与「怎样过一天」的表述均不存在或注明被取代 |
-
 
 <a name="spec-agent-interaction-版本表"></a>
 ## 版本表

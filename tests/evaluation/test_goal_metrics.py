@@ -25,7 +25,7 @@ def clock(day=0, hour=8, minute=0):
 
 def event(sequence, kind, at, data=None, **fields):
     return {"event_id": f"e{sequence}", "event_seq": sequence, "event_type": kind, "occurred_at": at,
-            "run_id": "run", "agent_id": 1, "code_sha256": CODE, "data": data or {}, **fields}
+            "run_id": "run", "agent_id": 1, "code_sha256": CODE, "action_id": None, "data": data or {}, **fields}
 
 
 def goal(kind="工作", text="推进报告", registered_at=None, **fields):
@@ -44,11 +44,14 @@ def plan_result(sequence, goals, at=None, day=0, generated=False, **fields):
                  action_id=f"plan-{sequence}", **fields)
 
 
-def progress(sequence, start, end, kind="work", goals=None, day=0, activity_id=None, **fields):
+def progress(sequence, start, end, kind="work_study", goals=None, day=0, activity_id=None, **fields):
     activity_id = activity_id or f"activity-{sequence}"
     data = {"interval_start": start, "interval_end": end, "activity": {
         "activity_id": activity_id, "agent_id": fields.get("agent_id", 1), "kind": kind,
-        "status": "active", "location_id": "office"}}
+        "status": "active", "location_id": "office",
+        "data": {"category": kind}}}
+    if kind in {"work_study", "entertainment", "exercise", "social", "daily_care"}:
+        data["activity"]["kind"] = "action"
     if goals is not None:
         data["day_plan"] = {"day_end": clock(day + 1, 0), "goals": goals}
     return event(sequence, "activity_progress", end, data, activity_id=activity_id, **fields)
@@ -146,9 +149,9 @@ def test_goal_progress_requires_matching_actual_positive_settlement(change):
         data.update(interval_start=clock(0, 6), interval_end=clock(0, 7))
         settled["progressed_at"] = actual["occurred_at"] = clock(0, 7)
     elif change == "wrong_family":
-        snapshot["kind"] = "use_app"
+        snapshot["data"]["category"] = "entertainment"
     elif change == "missing_category":
-        snapshot["kind"] = "lifestyle"
+        snapshot["data"].pop("category")
     elif change == "next_day":
         data.update(interval_start=clock(1, 8), interval_end=clock(1, 9))
         settled["progressed_at"] = actual["occurred_at"] = clock(1, 9)
@@ -208,9 +211,9 @@ def test_goal_with_an_around_time_counts_only_activity_that_ran_near_it(started,
     （快照的实际开始时刻至结算止点）须与 [around − 90 分钟, around + 90 分钟] 有正时长交集；08:40 的浏览即使快照声称推进了
     大致时刻为 23:00 的娱乐目标也不计，21:00 开始的观看计入；快照没有开始时刻或开始时刻晚于结算起点时不计。"""
     registered = goal("娱乐", "睡前刷会儿", around_at=clock(0, 23))
-    claimed = dict(registered, progressed_at=interval[1], progress_activity_id="use_app")
+    claimed = dict(registered, progressed_at=interval[1], progress_activity_id="entertainment")
     events = [plan_result(1, [registered], generated=True),
-              _started(progress(2, *interval, "use_app", [claimed], activity_id="use_app"), started)]
+              _started(progress(2, *interval, "entertainment", [claimed], activity_id="entertainment"), started)]
     day = report(events)["deliberate_goals"]["per_agent_day"]["run:1:2026-09-21"]
     assert day["goals"][0]["around_at"] == clock(0, 23)
     assert (day["goals"][0]["status"] == "progressed") is counted and day["progressed_count"] == int(counted)
@@ -223,12 +226,12 @@ def test_changing_only_the_around_time_keeps_the_instance_and_moves_its_window()
     early = dict(evening, progressed_at=clock(0, 11, 45), progress_activity_id="walk-noon")
     late = dict(evening, progressed_at=clock(0, 19, 15), progress_activity_id="walk-evening")
     events = [plan_result(1, [noon], generated=True), plan_result(2, [evening], clock(0, 11)),
-              _started(progress(3, clock(0, 11, 30), clock(0, 11, 45), "lifestyle", [early],
+              _started(progress(3, clock(0, 11, 30), clock(0, 11, 45), "exercise", [early],
                                 activity_id="walk-noon"), clock(0, 11, 30)),
-              _started(progress(4, clock(0, 19), clock(0, 19, 15), "lifestyle", [late],
+              _started(progress(4, clock(0, 19), clock(0, 19, 15), "exercise", [late],
                                 activity_id="walk-evening"), clock(0, 19))]
     for item in events[2:]:
-        item["data"]["activity"]["category"] = "sport"
+        item["data"]["activity"]["data"]["category"] = "exercise"
     day = report(events)["deliberate_goals"]["per_agent_day"]["run:1:2026-09-21"]
     [instance] = day["goals"]
     assert (instance["registration_event_id"], instance["around_at"], instance["status"]) == (
@@ -265,8 +268,8 @@ def test_routine_goals_are_reported_apart_from_the_progress_ratio():
 def test_lifestyle_uses_actual_category_and_cross_midnight_interval_stays_in_old_day():
     original = goal("运动", "散步运动", clock(0, 23))
     settled = dict(original, progressed_at=clock(1, 0), progress_activity_id="exercise")
-    actual = progress(2, clock(0, 23), clock(1, 0), "lifestyle", [settled], activity_id="exercise")
-    actual["data"]["activity"]["category"] = "sport"
+    actual = progress(2, clock(0, 23), clock(1, 0), "exercise", [settled], activity_id="exercise")
+    actual["data"]["activity"]["data"]["category"] = "exercise"
     events = [plan_result(1, [original], clock(0, 23)), actual, plan_result(3, [], clock(1, 8), day=1)]
     days = report(events)["deliberate_goals"]["per_agent_day"]
     assert days["run:1:2026-09-21"]["progressed_count"] == 1
@@ -288,9 +291,9 @@ def test_report_isolates_runs_agents_days_and_code_groups():
 
 def test_habit_uses_first_settlement_context_two_days_and_weighted_pairs():
     events = [progress(1, clock(), clock(0, 8, 10), activity_id="first"),
-              progress(2, clock(0, 9), clock(0, 9, 10), "use_app", activity_id="first"),
+              progress(2, clock(0, 9), clock(0, 9, 10), "entertainment", activity_id="first"),
               progress(3, clock(1), clock(1, 8, 10)),
-              progress(4, clock(1, 8, 20), clock(1, 8, 30), "use_app"),
+              progress(4, clock(1, 8, 20), clock(1, 8, 30), "entertainment"),
               progress(5, clock(0, 9), clock(0, 9, 10), "wait"),
               progress(6, clock(1, 9), clock(1, 9, 10), "wait"),
               progress(7, clock(0, 10), clock(0, 10, 10), "wait")]
@@ -320,8 +323,8 @@ def test_habit_zero_duration_cannot_create_or_claim_first_activity_sample():
     empty_habit = report([empty])["habitual_consistency"]
     assert empty_habit["groups"] == {}
     assert empty_habit["missing_samples"]["no_positive_activity_settlement"] == 1
-    events = [empty, progress(2, clock(0, 9), clock(0, 9, 10), "use_app", activity_id="same"),
-              progress(3, clock(1, 9), clock(1, 9, 10), "use_app", activity_id="next-day")]
+    events = [empty, progress(2, clock(0, 9), clock(0, 9, 10), "entertainment", activity_id="same"),
+              progress(3, clock(1, 9), clock(1, 9, 10), "entertainment", activity_id="next-day")]
     habit = report(events)["habitual_consistency"]
     assert set(habit["groups"]) == {"run:1:office:9"}
     group = habit["groups"]["run:1:office:9"]
@@ -342,7 +345,7 @@ def test_same_day_repetition_is_not_cross_day_habit_evidence():
 
 
 def test_missing_lifestyle_category_or_location_does_not_guess_habits():
-    events = [progress(1, clock(), clock(0, 8, 10), "lifestyle"),
+    events = [progress(1, clock(), clock(0, 8, 10), "action"),
               progress(2, clock(1), clock(1, 8, 10))]
     events[0]["data"]["activity"]["family"] = "work"
     events[1]["data"]["activity"].pop("location_id")
@@ -468,9 +471,9 @@ def test_terminal_rejections_and_activity_failures_have_distinct_public_counts(s
 
 
 def test_habit_does_not_replace_missing_first_settlement_with_later_known_context():
-    first = progress(1, clock(), clock(0, 8, 10), "lifestyle", activity_id="same")
-    later = progress(2, clock(1), clock(1, 8, 10), "lifestyle", activity_id="same")
-    later["data"]["activity"]["category"] = "sport"
+    first = progress(1, clock(), clock(0, 8, 10), "action", activity_id="same")
+    later = progress(2, clock(1), clock(1, 8, 10), "action", activity_id="same")
+    later["data"]["activity"]["data"]["category"] = "exercise"
     habit = report([first, later])["habitual_consistency"]
     assert habit["groups"] == {}
     assert habit["missing_samples"]["missing_activity_family_or_location"] == 1
@@ -478,8 +481,41 @@ def test_habit_does_not_replace_missing_first_settlement_with_later_known_contex
 
 def test_habit_outdoor_and_travel_share_the_established_commute_family():
     travel = progress(1, clock(), clock(0, 8, 10), "travel")
-    outdoor = progress(2, clock(1), clock(1, 8, 10), "lifestyle")
-    outdoor["data"]["activity"]["category"] = "outdoor"
+    outdoor = progress(2, clock(1), clock(1, 8, 10), "travel")
     habit = report([travel, outdoor])["habitual_consistency"]
     assert habit["consistency_rate"] == 1 and habit["comparable_pair_count"] == 2
     assert [sample["family"] for sample in habit["groups"]["run:1:office:8"]["samples"]] == ["commute", "commute"]
+
+
+@pytest.mark.parametrize('change', ['valid', 'snack', 'before_registration', 'other_agent', 'next_day',
+                                    'outside_window', 'duplicate'])
+def test_meal_goal_uses_only_own_current_day_receipt_once(change):
+    """@brief 用餐目标依真实收货推进，按主人、本地日期、登记与大致时刻隔离，不伪造进食活动。"""
+    meal = goal('用餐', '午饭', around_at=clock(0, 12))
+    registration = plan_result(1, [meal], generated=True)
+    received = event(2, 'environment_event', clock(0, 12), {
+        'kind': 'goods_received', 'category': 'meal', 'order_id': 'order-meal', 'goods_id': 'noodles',
+        'quantity': 1, 'provided': {'energy_kcal': 650}, 'applied': {'energy_kcal': 650}})
+    if change == 'snack':
+        received['data']['category'] = 'snack'
+    elif change == 'before_registration':
+        received['occurred_at'] = clock(0, 7)
+    elif change == 'other_agent':
+        received['agent_id'] = 2
+    elif change == 'next_day':
+        received['occurred_at'] = clock(1, 12)
+    elif change == 'outside_window':
+        received['occurred_at'] = clock(0, 14)
+    events = [registration, received]
+    if change == 'duplicate':
+        repeated = deepcopy(received)
+        repeated.update(event_id='repeated-receipt', event_seq=3)
+        events.append(repeated)
+    day = report(events)['deliberate_goals']['per_agent_day']['run:1:2026-09-21']
+    counted = change in {'valid', 'duplicate'}
+    assert day['routine_goals']['progressed_count'] == int(counted)
+    [record] = day['goals']
+    if counted:
+        assert record['progress_order_id'] == 'order-meal'
+        assert record['progress_activity_id'] is None
+        assert record['progress_event_id'] == 'e2'

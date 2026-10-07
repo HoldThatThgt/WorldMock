@@ -2,9 +2,11 @@
 # WorldMock 产品设计说明书 — 输入输出格式
 
 > **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 IO1），已实现；按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D9 作业），已随代码落地到阶段 1–4<br>
-> **日期**：2026-10-07
-> **版本**：v1.25
+> **日期**：2026-10-08
+> **版本**：v1.27
 > **目标读者**：算法工程师、开发工程师
+
+按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「统一动作执行、内容选择、真实进度与系统补订」（阶段 3）。
 
 > 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 7 的记录、导出、交付与评估合同。
 
@@ -28,7 +30,7 @@
 正式重制环境路径由 WorldMock-Dataset 发布决定；WorldMock 提供引擎及包内固定通用规则。
 本章的 `catalog/`、`scenarios/` 指外部环境目录，命令以 WorldMock 为当前工作目录并显式传路径。
 当前场景结构 8、世界结构 11；类别、使用方式、效果与供给表由 WorldMock 固定，
-环境只登记对象、绑定与价格、内容时长、集数三种数；新组合放行另核对实际收据。
+环境登记对象与绑定，并只填写规格允许的数值字段；新组合放行另核对实际收据。
 
 <a name="design-09-io-formats-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
@@ -36,7 +38,6 @@
 按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)修订；验收结果独立记录。
 
 规范 JSON 通过 canonical_json 与 sha256_json 唯一编码，禁止 NaN 和无穷值。结算端点严格为非布尔整数且起点小于终点；曲线采用有限非负数。普通字段冻结与品类递归深度冻结分别定义，不能混成同一种输入语义。安全相对路径和字节原子发布遵守资源与记录引擎合同。
-
 
 <a name="io-formats-模块概述"></a>
 ## 1. 模块概述
@@ -67,7 +68,6 @@ flowchart TB
     CKPT -->|恢复| FOOT
 ```
 
-
 <a name="io-formats-核心设计原则"></a>
 ### 1.3 核心设计原则
 
@@ -78,8 +78,6 @@ flowchart TB
 | **序号严格递增** | 事件序号全局唯一且有序 | event_seq 由存储分配，gt=0 |
 | **引用完整性** | 素材引用包含哈希与大小 | AssetRef 包含 sha256、size_bytes |
 | **确定性编码** | 相同输入产生相同字节 | canonical_json 排序键、排序集合 |
-
-
 
 <a name="io-formats-记录引擎的数据格式"></a>
 ## 记录引擎的数据格式
@@ -101,7 +99,6 @@ flowchart TB
 途中按出发地菜单解析，再由出行方式的准入收窄。它是事件级工具支持
 证据，不新增 `WorldState` 或 `AgentState` 字段，也不在 user 消息中复制。菜单声明本身由
 `scenario_sha256` 绑定，运行时有效值由观察事件留证。
-
 
 <a name="io-formats-世界与人物状态格式"></a>
 ## 世界与人物状态格式
@@ -253,7 +250,6 @@ JSON 解析失败定位参数对象、附行列与必要闭集；未知工具定
 `ActivityState` 保存真实身份、所有人、起始地点、种类、状态、起止、经过秒数、计划时长、内容游标、占用、原始动作因果、播报锚点与模型注记。目标身份不再是公共 target_id。action.data 恰为 `{action_id, category, app_id, manner, communication_mode, counterpart, content_id, start_position_seconds, pinned_by_push_id, draw_index, played}`，played 每项恰为 `{content_id, from_position, to_position}`；app_id、manner、communication_mode、counterpart、pinned_by_push_id 可空。任务类型只有 none 与 goal。出行数据保留实际行程身份、路径与米数，可带 navigation_app_id。
 
 
-
 <a name="io-formats-通用校验说明"></a>
 ## 通用校验说明
 
@@ -272,7 +268,6 @@ JSON 解析失败定位参数对象、附行列与必要闭集；未知工具定
 | `pattern=r"^[a-f0-9]{64}$"` | SHA-256 格式 |
 | `min_length=1` | 非空字符串 |
 
-
 <a name="io-formats-业务规则校验"></a>
 ### 9.2 业务规则校验
 
@@ -285,7 +280,6 @@ JSON 解析失败定位参数对象、附行列与必要闭集；未知工具定
 | 引用完整性 | artifact_refs | 立即失败 |
 | 时间范围合法 | current_time ≤ end_time | 立即失败 |
 | 账户余额非负 | accounts | 立即失败 |
-
 
 <a name="io-formats-确定性编码规则"></a>
 ### 9.3 确定性编码规则
@@ -320,14 +314,11 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 ```
 
 
-
-
 <a name="design-io-formats-current-responsibility"></a>
 ## 职责搬移后的格式与身份
 
 本次分层没有新增事件、世界状态、检查点、运行清单、人物工具或交付字段。当前结构版本仍按本章各格式的冻结定义；历史首次受影响版本保留在归档证据，不作为当前发布身份。
 持久路径使用仓库或工件相对引用；相同输入保持相同身份。测试侧固定随机身份和壁钟只服务行为不变验证，不改变生产运行身份算法。
-
 
 <a name="io-formats-版本历史"></a>
 ## 版本历史

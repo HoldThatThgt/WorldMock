@@ -32,7 +32,6 @@ flowchart LR
 
 不做的事：不引入推荐系统、规则解释器、插件、兼容层、迁移工具或旧格式的读取分支；不模拟库存、营业时间、报价版本、做饭、游戏（TextWorld）、字幕、音轨、工作材料与独立验收；不给数据集任何覆盖热量、速度、费用、推送策略或配送规则的字段；不新造 app session、社交系统或第二套调度器；不改变人物画像、作息、时区、账本、检查点与导出的机制；不把真实 app 与作品名称当作对真实平台的任何承诺。
 
-
 <a name="spec-rrs-裁决记录"></a>
 ## 裁决记录
 
@@ -53,7 +52,6 @@ flowchart LR
 | D8 | 三类食品每份固定常数：零食 200 千卡 / 300 秒，饮品 100 千卡 / 180 秒，正餐 600 千卡 / 1200 秒；登记为实验假设；`portion_duration`、60–14400 秒食用窗口、食品利用效率与能量上限保留 | 提案第二章「三类食品只保留“份”和固定热量」；值的锚点见 C-4 |
 | D9 | 内容进度按 `content_id` 跨 app 共享；允许重看，完成后可再次抽到并记新一轮；不设排除集合与耗尽停止规则 | 提案「设计决策点」内容进度与重看（推荐项） |
 | D10 | 工作工时 = 处于工作活动中的实际秒数累计；效率不再是完成门槛；累计达到目标工时即完成 | 提案「设计决策点」工作工时（推荐项）；Jira 的 Time Spent 对 Original Estimate 口径（Atlassian「Configuring estimation and tracking」https://confluence.atlassian.com/spaces/JIRASOFTWARESERVER/pages/938845319/Configuring+estimation+and+tracking ） |
-
 
 <a name="spec-rrs-裁决综合决定"></a>
 ### 综合阶段的决定 D-11 … D-52（全部采纳，C-1 … C-8 覆盖处以 C 为准）
@@ -103,7 +101,6 @@ flowchart LR
 | D-51 | app 目标的 `state` 只写待消费推送或内容条数；逐内容进度只出现在结果与 `settled` 句里，不列标题清单 | 提案「必须钉住的行为」个人不能直接指定内容 |
 | D-52 | 随机抽取用 `WorldState.random_state` 的哈希链：推送键 `scheduled_id`，打开键 `action_id:app_id`，接续键 `activity_id:draw_index`；`random_state` 只在今天推进它的地方推进；恢复与重放抽到同一序列 | 提案「必须钉住的行为」随机和状态可恢复；NumPy Bit generators https://numpy.org/doc/stable/reference/random/bit_generators/index.html 与 Mesa `Model` seed 约定 https://mesa.readthedocs.io/stable/apis/model.html |
 
-
 <a name="spec-rrs-裁决最终覆盖"></a>
 ### 最终覆盖 C-1 … C-8
 
@@ -117,7 +114,6 @@ flowchart LR
 | C-6 | 推送网格：当地整点 08:00 … 21:00；每人每小时至多一条；每 app 每 session 至多一条；`app_push` 是醒着的人的唤醒原因；睡眠中照常产生并存储、不唤醒；摘要在登记时不超过 200 字符 | 同 D4；08:00–22:00 窗口是用户要求 |
 | C-7 | 第三份完整日基线在本机 macOS 由人工环境上两次一致运行生成，逐项比对并记录真实平台、架构、Python 与依赖身份；Windows 回执在「门禁与平台」登记为未执行，阶段 9 另交接正式环境和其余平台回执 | 2026-10-06 用户对 C-7 的后续明确授权；`docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-门禁与平台` 的平台口径 |
 | C-8 | 每条内容必带 `summary_source{kind: real 或 synthetic, url: str 或 null, notice: str 或 null}`，`kind = real` 时 `url` 必填；食品不带摘要（只有名称与价格） | 提案第二章「真实摘要保留来源信息，合成摘要明确标记合成」；用户原话未要求食品摘要 |
-
 
 <a name="spec-rrs-裁决早期备忘"></a>
 ### 两份早期备忘的条目与处置
@@ -255,7 +251,6 @@ flowchart LR
 | E10 | 版本：世界 10、导出清单 3、质量报告 5、运行清单 3；事件与检查点结构仍为 1 | 并入「状态、事件、检查点与导出」 |
 | E11 | 只校验字节的历史完整日证明保留；驱动已删行为的夹具随测试删除 | 并入「测试与夹具」 |
 
-
 <a name="spec-rrs-裁决本规格补定"></a>
 ### 本规格补定
 
@@ -308,8 +303,6 @@ rulings-final 留给本文决定的点，取与「WorldMock 定规则、数据�
 | B-43 | 人物可见推送环境事件的判别键固定为 `data.kind = "app_push"`，内容类型另写 `data.content_kind`。D-45 的公开投影固定 `kind = "app_push"`，`kind_label = CONTENT_KIND_LABELS[data.content_kind]`；不得以内容类型覆盖事件判别键，也不改其他事件既有的 `kind` 机制 | 第 3 轮覆盖审查；保持当前环境事件按 `data.kind` 分派的单一机制 |
 | B-44 | 阶段 1–3 保留当前十一项 `RESOURCE_CLAIM_SLOTS` 与仍在使用它们的包资源。阶段 4 在删除 `watch`、`play_game`、`browse` 活动及最后消费者的同一提交中，删除占用 `watch`、`screen`、`play_game`、`browse`，加入 `use_app`，一次得到最终八项闭集；不发布临时空占用、借用占用或兼容声明。阶段 1 只证明包资源身份与原子发布，最终闭集、旧名拒绝和配对由阶段 4 证明 | 第 3 轮可实现性审查；真实解析器在加载包资源时立即校验占用闭集，提前收紧会使阶段 1 无法加载 |
 
-
-
 <a name="spec-rrs-固定规则与常数"></a>
 ## 固定规则与常数
 
@@ -338,7 +331,6 @@ WorldMock 拥有全部分类、常数与交换公式，定义在新包 `src/worl
 | 运行输入警告 | D-39 的六个码 | 删 `TASTE_GENRES_UNMATCHED`、`CONTENT_WEIGHTS_ALL_ZERO`、`GAMES_WITHOUT_TASTE_WEIGHTS`、`DELIVERY_ROUTE_UNAVAILABLE` |
 | `OPS_COMPONENTS` | `engine`、`agent_runtime`、`memory`、`commerce`、`travel`、`checkpoint`、`runtime`、`push` | 删除 `review`；诊断与测试只接受这八个值 |
 | `environment_event.data.kind` | 现有成员减 `location_track`、`price_change`、`supply_quote_change`、`product_release`、`work_available`、`task_expired`，加 `app_push`、`work_topic_completed` | 定义见「状态、事件、检查点与导出」 |
-
 
 <a name="spec-rrs-常数表"></a>
 ### 常数表
@@ -377,7 +369,6 @@ WorldMock 拥有全部分类、常数与交换公式，定义在新包 `src/worl
 
 算子（`src/worldmock/exchange/operators.py`，Decimal 精确舍入沿用今天的 `categories/operators.py`）：`evaluate_purchase(unit_price_fen, quantity)`、`evaluate_food_energy(category, consumed_fraction)`、`evaluate_travel_fare(mode, distance_m)`、`travel_seconds(mode, distance_m) = ceil(distance_m ÷ 速度)`、`delivery_seconds(distance_m) = DELIVERY_PREP_SECONDS + ceil(distance_m ÷ DELIVERY_METERS_PER_SECOND)`、`delivery_fee_fen() = DELIVERY_FEE_FEN`。签名不带系数：环境没有任何字段能进入这些函数。
 
-
 <a name="spec-rrs-活动受理拒绝码"></a>
 ### 活动受理拒绝码
 
@@ -401,8 +392,6 @@ WorldMock 拥有全部分类、常数与交换公式，定义在新包 `src/worl
 
 `DESTINATION_NOT_FOUND` 只用于给他人下单且收货人的 `receive_location_id` 不在场景已选地点；给本人下单没有收货地点参数，不能触发该码。`ROUTE_DURATION_MISMATCH` 的公开原因改为 "The persisted route duration differs from the graph."。本文未列出的保留码继续使用现行专属公开文字。
 
-
-
 <a name="spec-rrs-环境格式"></a>
 ## 环境格式
 
@@ -425,7 +414,6 @@ WorldMock 拥有全部分类、常数与交换公式，定义在新包 `src/worl
 
 阶段 1 登记时冻结在 `Catalog` 上的非图派生索引：`menus_by_kind`、`foods_by_store`、`stores_by_app`、`contents_by_app`、`apps_by_store`、`location_kinds(kind)`。阶段 2 加入图对象与 `shortest_m(a, b)`；阶段 1 不声明占位方法。目录里不再有资源定义、品类树、交换规则、对象增量、墓碑、来源指针、检索分区、营业日历、报价、库存、路线、坐标、字幕、音轨、游戏与工作材料。
 
-
 <a name="spec-rrs-场景结构7"></a>
 ### 场景结构 7
 
@@ -433,7 +421,6 @@ WorldMock 拥有全部分类、常数与交换公式，定义在新包 `src/worl
 - 新增：`schema_version: 7`；`environment{environment_id, environment_version}`（取代 `catalog_version`）；`agents[].work_topic_ids: [topic_id]`（非空时该人物必须声明 `work_schedule`）；`agents[].initial_inventory{location_id: {food_id: 份数}}`；`accounts[]` 的角色 `merchant:<location_id>`（每个已选食品店铺一个）、`employer:*`、`transport:service`、`external:scenario`。人物账户仍由 `agents[].initial_balance_fen` 隐式建立，不声明 `buyer`。
 - 删除：`map_dataset`、`products`、`supplies`、`tasks`、`contents`、`games`、`price_changes`、`product_releases`、`recipe_output_bindings`、`phone_simulation_config`、`phone_simulation_config_sha256`、`catalog_version`、`retrieval_index_threshold`、`agents[].skill_levels`、`agents[].qualifications`、`body.entertainment_relief_preference_floor`、`messages[].related_task_id`。
 - 卖家、雇主、交通与外部账户都是场景声明；只有人物账户沿用 `agents[].initial_balance_fen` 的隐式身份；配送费与货款同一笔付给 `merchant:<store_id>`，车费付给 `transport:service`。
-
 
 <a name="spec-rrs-注册校验与错误"></a>
 ### 注册校验与错误
@@ -469,15 +456,12 @@ WorldMock 拥有全部分类、常数与交换公式，定义在新包 `src/worl
 
 场景加载还执行既有的 `src/worldmock/life/load_checks.py::check_work_schedules`、`check_location_kinds`（改对 `LocationKind`）与可见标签唯一性（地点、食品、app「应用：<name>」）；app 名与地点名冲突是登记错误，不再是警告。世界结构 9、场景结构 6、目录 5.x 与地图结构 3 在每个入口直接拒绝（加载器严格模型、`WorldState.schema_version` 字面量、运行清单校验器、导出认证），没有迁移与双读。
 
-
 <a name="spec-rrs-环境命令"></a>
 ### 环境命令
 
 - `worldmock environment generate-map --locations <locations.json> --seed <整数> --output <map.json>`：读地点清单，按 B-13 生成并以 LF 写出；加 `--check` 时不写文件，与已存在的输出逐字节比对，不同则非零退出并打印 `MAP_NOT_REGENERATED`。
 - `worldmock validate --environment <环境根>`：登记校验全目录、重生成比对 `map.json`、校验 `corpora/manifest.json` 与三个包 TOML 字节、加载 `scenarios/` 下每个场景并跑场景加载检查；输出每个失败的码与英文原因，任何失败非零退出。`worldmock validate` 既有的 AS2 锁定、依赖版本、阶段身份与覆盖率 0.8 检查不变。
 - `worldmock category` 子命令删除。
-
-
 
 <a name="spec-rrs-地图与出行"></a>
 ## 地图与出行
@@ -490,7 +474,6 @@ WorldMock 拥有全部分类、常数与交换公式，定义在新包 `src/worl
 - 出行身份：活动 `data{trip_id, path, distance_meters, travel_payment{trip_id, fare_fen, …}, arrival{location_id, access_status}}`；事件、`DeliveryState`、公开证据 `object_type = "route"` 的键与禁键表全部用 `trip_id`，`route_id` 不再出现。
 - 工具层地点目标：每个其他已选地点各列一行，动作 步行、驾车 各带 `price`、`duration = ceil(长度 ÷ 速度)`、费力程度（MET 不变）；私有观察 `data.routes[{trip_id, origin_id, destination_id, mode, distance_meters, duration_seconds, fare_fen}]`、`data.locations[{location_id, name, kind}]`；坐标、`business_kind`、路线状态不再出现。
 - 位置记录：出行事件与活动行引用 `origin_id`、`destination_id`、`path`、`distance_meters`；GPS 轨迹采样、球面距离、折线插值整段删除。
-
 
 <a name="spec-rrs-店铺食品与外卖"></a>
 ## 店铺、食品与外卖
@@ -516,7 +499,6 @@ WorldMock 拥有全部分类、常数与交换公式，定义在新包 `src/worl
 - 进食证据：`activity_progress.data.consumption{use_mode, location_id, items[{food_id, category, interval_portion, cumulative_portion, interval_kcal}], food_efficiency}`；已核验经历 `consumed{food_id, category, location_id, interval_portion, cumulative_portion}`；质量报告 `meal_diversity` 按 `food_id`。
 - 删除：逐食品热量密度、营养来源、`energy_kcal_per_unit`、`energy_kcal_per_serving`、食品算子的槽位、做饭与配方、耐用品使用、家庭储备下限检查。
 
-
 <a name="spec-rrs-娱乐app内容与推送"></a>
 ## 娱乐：app、内容与推送
 
@@ -530,7 +512,6 @@ WorldMock 拥有全部分类、常数与交换公式，定义在新包 `src/worl
 - 确定性：抽取只读 `WorldState.random_state` 与固定键，不推进它；恢复与反事实重演抽到同一序列；推送事件在提交前弹出，恢复不重发。
 - `APP_CONTENT_EMPTY`：打开没有内容的 app 在受理时拒绝，与工具层 `reason` 同文；不从别的 app 借内容、不临时合成。
 
-
 <a name="spec-rrs-工作主题与叙述"></a>
 ## 工作主题与叙述
 
@@ -541,7 +522,6 @@ WorldMock 拥有全部分类、常数与交换公式，定义在新包 `src/worl
 - 叙述：播报仍走 `report_status.items[].summary`（`with_note(anchor=True)` 存 `progress_note` 与 `note_history`）；工具层任务目标 `contract{topic, target: "约 8 小时", done: "约 2.5 小时", remaining: "约 5.5 小时"}`，工作活动目标 `state = "已做约 X 小时，还差约 Y 小时"` 与 `last_report`（上一次 `progress_note`，跨 session 保留）；`report_status` 的结果带 `details.work[{name, done, remaining}]`；模型写的百分比或「已完成」不改变工时、不触发完成；`recall_task_summary` 仍返回 `note_history`。
 - 工资：沿用场景 `payrolls[]` 的 `payroll` 预排事件与雇主账户；主题没有报酬字段；没有任务付款、验收付款与返工。
 - 删除：材料、输入与答案文件、逐段揭示、`submit_work`、独立语义验收、`WORK_AVAILABLE`、`TASK_EXPIRED`、任务通知邮件、技能与效率因子、`effective_work_seconds`、`activity_efficiency`、`BodySettlement.work_efficiency`、`sleep.work_efficiency`、模型阶段 `work_review`（校验器与 `decision_statement` 同列拒绝）。
-
 
 <a name="spec-rrs-观察与工具面"></a>
 ## 观察与工具面
@@ -583,8 +563,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 
 文本必须同时满足 `tests/integration/test_seven_layer_request.py`、`tests/integration/test_tool_description_references.py` 与 `tests/integration/test_life_agent_protocol.py` 的既有约束：十八条；「上班安排」只在第 1、14 条；「待办」只在第 1、4、6、12 条；`reason` 只在第 11 条；「只是登记」「available 为 false 的会被拒绝」各一次；「同时进行的最多两项」「暂停的不算」「恢复暂停的活动要有空位」「环境只拦同一种的两件」「原来那件照常进行」只在第 8 条；「到时也会请你决策，手上的活动照常进行」「等待只留给几分钟内就有事请你决策的时候」只在第 7 条；「到时不一定会请你决策」「不为凑钟点干等」只在第 14 条；「不用撑到某个钟点」只在第 16 条；第 15 条的「」引语恰好三处；不写工具用途句、不含语言指定词、不新增行动次序；被取代的旧读法（`tests/integration/test_seven_layer_request.py` 登记的名额、饭点、送达与就寝四处旧句）不再出现。模块常量里第 7、14、15、16 条的登记原文各落在同一源码行内（B-1）。`TOOL_DESCRIPTIONS` 删 `submit_work`，其余用途句不变。
 
-
-
 <a name="spec-rrs-状态事件检查点与导出"></a>
 ## 状态、事件、检查点与导出
 
@@ -605,7 +583,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 - 私有字段禁键表：加 `app_id`、`content_id`、`push_id`、`trip_id`、`path`、`food_id`、`store_id`、`topic_id`；删 `route_id`、`supply_id`、`price_version`、`taste_weights`、`game_catalog`、`material_reveals`。
 - 查看器：`tools/run-viewer.html` 与 `run-viewer-context.js` 的标签加 `use_app`、「打开」、`app_push`（「app 推送」）、`work_topic_completed`，删被删事件与码的标签，唤醒标签 22 个；名称索引读 `foods`、`apps`、`contents`、`work_topics`；出行显示起点、终点与路径名称，不画图；`scripts/render_day.py` 的 `NAME_KINDS` 为 `foods`、`locations`、`messages`、`apps`、`contents`、`work_topics`、`people`，媒体标签「用<app>看《title》」，工作标签写主题；`scripts/inspect_run.py` 的 `walking_share` 从 `activity_progress` 的出行方式算。
 - 结构版本一次升级：世界 10、场景 7、运行清单 3、导出清单 3、质量报告 5、目录清单 `format_version: 1`、地图 `schema_version: 1`、`RULES_VERSION = 1`；每个入口拒绝旧版本，不迁移、不双读。
-
 
 <a name="spec-rrs-删除清单"></a>
 ## 删除清单
@@ -632,7 +609,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | 4 | `src/worldmock/life/game.py` | [TE] 游戏会话节点；`docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-游戏简化` 被取代 |
 | 5 | `src/worldmock/life/work_review.py`、`src/worldmock/life/work_review_runtime.py` | [API] `prepare_pending_work_review`；[LA] `NEW_PRODUCTION`、显式引擎协作 实现行；[DF] `FEATURE_PRODUCTION_FILES`；[TE] `_WORK_REVIEW` 行 |
 | 4 | `pyproject.toml` 的 `textworld==1.7.0` 与 `external` 标记条款；`scripts/bootstrap_environment.py` 的 TextWorld/Inform7 步骤 | `tests/test_test_tiers.py` 的 TextWorld 用例 |
-
 
 <a name="spec-rrs-删除生产符号"></a>
 ### 生产符号（文件保留）
@@ -667,7 +643,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | 3 | `worldmock.life.schedule::WakeReason.LOCATION_HOURS_CHANGE`、`schedule.CLOSING_WARNING_SECONDS`、`WakeSnapshot.location_closing_at/location_just_opened`、`NextDecisionQuery.location_hours_change_times/location_closing_at`、`rhythm._closing_at/_just_opened/_location_change_times/_warning_signatures["closing"]` 与足迹侧对应行 | 与 `opening_hours.py` 的最后运行消费者同一提交退出；[IF] 九个同步点 |
 | 5 | `worldmock.life.schedule::WakeReason.TASK_AVAILABLE`、`TASK_DUE_SOON`、`WORK_REVIEW_RESULT` 与 `footprints.models.WAKE_REASON_NAMES` 的对应行 | 与任务编译、节律和评审来源同一提交退出；[IF] 九个同步点；[EW] `WAKE_REASON_NAMES` 变异行 |
 
-
 <a name="spec-rrs-删除场景与目录字段"></a>
 ### 场景与目录字段
 
@@ -675,7 +650,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | --- | --- |
 | 1 | 目录：`category-contract.json`、`exchange-rules.json`、`objects.jsonl`、`resources.jsonl`、`overrides/`、`rules/travel-time.toml`、`rules/off-foods.mapping.toml`、`snapshots/`、`category_requirements`、`category_contract_version`、`category_contract_sha256`、`exchange_rules_sha256`、目录 `version_major/version_minor`；地图语料 `dataset.json`、`routes.json`、`supplies.json`、`category-assignment.json`、`supply-assumptions.json`、坐标、`business_kind`、`location_kinds`（地点）、`opening_calendars`、`required_qualifications`、`brand`、`affordances`、逐地点 `source`、`seller_account_id`、`initial_stock`、`fulfillment_modes`、`delivery_destination_ids`、`delivery_delay_seconds`；内容的 `genre`、`language`、`age_rating`、`timeline_path`、`audio_path`、分段与检索分区；`meals`、`ingredients`、`home-pantry`、`scene-stock`、`scenario-work`、`games`、`textworld`、`sintel`、`ami-es2002`、`open-food-facts`、`foods` 扩展与价格范围语料 |
 | 1 | 场景：「场景结构 7」删除列表里的全部字段；`interaction_menus_by_location_kind` 的旧键 `merchant`、`wet_market` 与旧动作 `watch`、`play`、`browse` |
-
 
 <a name="spec-rrs-删除错误码与名字"></a>
 ### 错误码与唤醒、预排名字
@@ -688,7 +662,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | 4 | `CONTENT_TIMELINE_NOT_FOUND`、`CONTENT_END_EXCEEDED`、`PLAYBACK_SPEED_NOT_ALLOWED`、`GAME_NOT_FOUND`、`CONTENT_NOT_FOUND` | 同阶段加预排与唤醒成员 `app_push`，临时 `WakeReason` 为 25 个 |
 | 5 | `WORK_INCOMPLETE`、`WORK_TASK_IN_PROGRESS`、`WORK_SUBMISSION_LATE`、`WORK_TASK_ALREADY_PAID`、`WORK_REQUIRES_REWORK`、`WORK_DURATION_EXCEEDS_CONTRACT`、`WORK_WOULD_MISS_DEADLINE`、`WORK_TASK_NOT_AVAILABLE`、`WORK_TASK_NOT_VISIBLE`、`EMPLOYER_FUNDS_INSUFFICIENT`；唤醒 `task_available`、`task_due_soon`、`work_review_result`；预排 `work_available`、`task_expired`；同名 `environment_event.data.kind`；模型阶段键 `work_review` | `WORK_TASK_NOT_FOUND` → `WORK_TOPIC_NOT_FOUND`；原因与下一步只引用「活动受理拒绝码」 |
 
-
 <a name="spec-rrs-删除测试文件"></a>
 ### 测试文件
 
@@ -700,7 +673,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | 4 | `tests/life/test_content_catalog_titles.py`、`test_content_game.py`（邮件节点移到 `test_mail_reading.py`）、`test_content_progress_presentation.py`、`test_news_feed.py`、`test_dayrun_podcast_playback.py`、`tests/corpora/test_dayrun_podcast.py`、`tests/integration/test_unavailable_content.py`、`tests/test_test_tiers.py` 的 TextWorld 用例 | [QT]（`test_content_catalog_titles` 由 `tests/catalog/test_loader.py` 取代）；[TE] `_NEWS_FEED`；[DF] `_INDEX` 内容节点 |
 | 5 | `tests/life/test_work_contracts.py`（有序成员表移到 `test_wake_reasons.py`）、`test_work_review.py`、`test_work_review_protocol.py`、`test_work_review_excerpts.py`、`test_work_efficiency_factors.py`、`test_tool_interaction_runtime.py` 的材料与预约节点 | [IF] 同步点 5、T18；[TE] 绿色基线 六节点、`_WORK_REVIEW`；[DF] `_EXCERPTS`；[PP] 三个程序错误行 |
 
-
 <a name="spec-rrs-删除测试节点"></a>
 ### 测试节点（文件保留）
 
@@ -711,7 +683,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | 3 | `tests/life/test_domain_branch_coverage.py` 的配方节点；`tests/life/test_scenario.py` 的报价、库存、配方节点；`tests/integration/test_input_warnings.py` 的地图与手机节点；`tests/profile/test_injection.py` 的口味、游戏、路线节点；`tests/life/test_motivation.py`、`test_candidates.py`、`test_presentation_fidelity.py`、`tests/integration/test_runtime.py`、`test_host_branch_coverage.py`、`tests/life/test_storefront_commerce.py`、`test_dayrun_restaurants.py` 的口味、库存、营业、范围与旧目录节点 | 最后品类、店铺、食品消费者切换时同步删除或改写；[DF]、[PP]、[TE] 登记同提交更新 |
 | 4 | `tests/integration/test_observation_agent_seam.py` 的真实游戏节点；`tests/life/test_activity_effects.py` 的重看曝光节点；`tests/life/test_parallel_admission.py` 的播客、驾车、游戏、制作节点（改写为 app 使用的同种与跨种行）；`tests/life/test_duration_boundaries.py` 的游戏节点；`tests/life/test_shared_rules.py` 的内容时长节点；`tests/life/test_candidates.py` 的驾车只留播客节点；`tests/life/test_paused_slots.py` 的通话与观看占满节点（改用 `use_app`）；`tests/integration/test_life_agent_protocol.py` 的未知游戏工具节点；`tests/integration/test_host_branch_coverage.py` 的游戏类型节点；`tests/integration/test_runtime.py` 的 genre 目录节点；`tests/life/test_tool_interaction_habits.py` 做饭与点名数据集内容的用例 | [SR] 活动时长；[TE] `_ADMISSION`、`_LOCATION`；[PP] |
 | 5 | `tests/test_shared_model_clients.py` 的 `WorkReviewer` 参数化；`tests/integration/test_activity_schema.py` 的 `submit_work` 节点；`tests/integration/test_strict_endpoint.py` 的工作部分；`tests/life/test_engine_branch_coverage.py` 的评审与任务节点；`tests/life/test_domain_branch_coverage.py` 的评审、材料、游戏、倍速节点；`tests/life/test_wake_reasons.py` 的任务预警节点；`tests/life/test_activity_wake_facts.py` 的任务开放节点；`tests/life/test_scheduling.py` 的工作、价格、发布节点；`tests/scheduling/test_branch_coverage.py` 的工作与价格节点；`tests/life/test_progress_events.py` 的截止与提交节点；`tests/life/test_session_attribution.py` 的到期提醒节点；`tests/life/test_tool_layer.py` 的提交与逾期节点；`tests/life/test_activity_effects.py` 的技能与笔记节点；`tests/life/test_paused_slots.py` 的工作截止节点（改为主题上限）；`tests/integration/test_life_agent_protocol.py` 的未完成提交节点；`tests/integration/test_host_branch_coverage.py` 的未分配任务节点；`tests/evaluation/test_errand_metrics.py` 的配方产出节点 | [IF] 第 7 条引擎证据 行里的任务开放节点（改指推送节点）；[PP]；[EW] `_ERRAND_METRICS`、`_WORKLOAD` |
-
 
 <a name="spec-rrs-删除夹具"></a>
 ### 夹具
@@ -730,8 +701,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | 7 | `tests/fixtures/dayrun-biz-timeline.json` | 从新格式夹具运行重新生成 |
 | 8 | `tests/fixtures/rrs-acceptance.json` | 只登记阶段 8 完成、最终文件集合和最终变异回执；`mutation-symbol-baseline.json`、`dayrun-layering-baseline.json`、`dayrun-shared-rules-baseline.json`、`dayrun_truncations.json`、`dayrun-contact-replies.json`、`control-request-generations.json`、`archive-assets.json`、`tests/resources/fixtures/anchor-money.json`、 字节不动 |
 
-
-
 <a name="spec-rrs-现行文档原位改写"></a>
 ## 现行文档原位改写
 
@@ -747,7 +716,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | `docs/dev/ANALYSIS-spec-coverage.md#analysis-spec-coverage-规格测试用例覆盖率追溯矩阵` | 新增「资源与规则引擎简化当前映射」一节，写机器登记 `tests/rrs_acceptance.py` 与夹具键 `resource-rule-simplification`，冻结时各行只有阶段与锚点；版本表加行 |
 | `docs/dev/SPEC-layering-and-test-tiers.md#layering-mutations` | 「全部一百四十七项登记直接写现行定义」改为「基线 JSON 字节冻结；守卫核对 登记 ∩ 基线」；同一提交 `tests/test_layering_acceptance.py` 去掉 147 字面量（D-47） |
 | `docs/dev/SPEC-layering-and-test-tiers.md#layering-archive`、`docs/dev/SPEC-layering-and-test-tiers.md#layering-acceptance` | 「正文与归档」一行：归档断言只对已归档特性成立；第六个特性的规格是现行文件 |
-
 
 <a name="spec-rrs-文档阶段1"></a>
 ### 阶段 1（固定规则与环境格式）
@@ -807,7 +775,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | `docs/dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-文档原子同步清单` | 删除旧品类契约同步项，登记统一资源目录与地点环境派生。 |
 | `docs/dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-摘要安全路径持久写入与错误` | 安全路径消费者改为统一资源目录和地点环境派生。 |
 
-
 <a name="spec-rrs-文档阶段2"></a>
 ### 阶段 2（地图与出行）
 
@@ -830,7 +797,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | `docs/dev/SPEC-decision-context.md#spec-decision-context-地点发现与供给比较` | 路线比较改为图最短距离和冻结并列处理。 |
 | `docs/design/00-overview.md#overview-地图中的消费行为` | 地点选择改为图最短距离。 |
 | `docs/dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-摘要安全路径持久写入与错误` | 出行响应消费者改为图最短距离结果。 |
-
 
 <a name="spec-rrs-文档阶段3"></a>
 ### 阶段 3（店铺、食品与外卖；画像）
@@ -896,7 +862,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | `docs/EXPERIMENT.md#experiment-实验身份与范围` | 删除世界日历约束营业和工作机会的范围声明，保留消息等现行实验边界。 |
 | `docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-工作安排声明` | 删除营业日历命名与单位，改为冻结固定营业语义。 |
 | `docs/manual/README.md#readme-修改配置前要知道的约定` | 删除营业时间特殊单位约定，说明固定营业规则。 |
-
 
 <a name="spec-rrs-文档阶段4"></a>
 ### 阶段 4（娱乐与推送）
@@ -967,7 +932,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | `docs/CONTRACTS.md#contracts-person-tools、docs/CONTRACTS.md#contracts-seven-layers、docs/CONTRACTS.md#contracts-seven-layer-schema、docs/CONTRACTS.md#contracts-观察投影字段、docs/CONTRACTS.md#contracts-工具交互公开投影` | 只改 app 相关协议：目标类加 app、删 content/game/catalog，可调用索引三键，进度加 app_push，结果加 app_content；不提前删除 submit_work 或加入工作主题字段。 |
 | `docs/dev/SPEC-life-realism.md#persona-prompt-七层请求-工具层、docs/dev/SPEC-life-realism.md#persona-prompt-七层请求-进度层、docs/dev/SPEC-life-runtime.md#spec-life-runtime-七层请求` | 只改 app 目标、app_push 与 app 内容结果；本阶段重钉 app 结构对应的 prompt_sha256。 |
 
-
 <a name="spec-rrs-文档阶段5"></a>
 ### 阶段 5（工作主题）
 
@@ -1019,7 +983,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | `docs/CONTRACTS.md#contracts-person-tools、docs/CONTRACTS.md#contracts-seven-layers、docs/CONTRACTS.md#contracts-seven-layer-schema、docs/CONTRACTS.md#contracts-观察投影字段、docs/CONTRACTS.md#contracts-工具交互公开投影` | 删除 submit_work；任务 contract 改四键，活动加 last_report，进度加 work_completed；记录阶段 5 最终 tool_schema_sha256。 |
 | `docs/dev/SPEC-life-realism.md#persona-prompt-七层请求-工具层、docs/dev/SPEC-life-realism.md#persona-prompt-七层请求-进度层、docs/dev/SPEC-life-runtime.md#spec-life-runtime-七层请求` | 同步工作主题、work_completed、contract 与 last_report 的 Schema；不改仍归阶段 6 的五条系统层文本。 |
 
-
 <a name="spec-rrs-文档阶段6"></a>
 ### 阶段 6（剩余系统层与查看器）
 
@@ -1032,7 +995,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | `docs/VERIFICATION.md#verification-人物-prompt-七层特性门禁`、`docs/VERIFICATION.md#verification-测试矩阵` | 七层提示行括注补本阶段改写的第 7、8、12、13、17 条；退役行删除 |
 | `docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-系统层` | 其余系统层条款由本规格第 7、8、12、13、17 条定稿取代。 |
 | `docs/dev/SPEC-life-realism.md#spec-life-realism-呈现与导出` | 查看器与中文标题把观看和游戏改为 app 使用，并使用冻结活动类型。 |
-
 
 <a name="spec-rrs-文档阶段7"></a>
 ### 阶段 7（记录、导出与评估）
@@ -1049,7 +1011,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | `docs/design/07-evaluation.md#evaluation-活动activitysession` | 评估适配的 ActivitySession 删除旧 segments，按冻结导出活动形状构造。 |
 | `docs/VERIFICATION.md#verification-真实性评估与结论边界` | 评估与盲评证据用 app 内容状态和工作主题累计替代游戏终局、工作截止与评审。 |
 | `docs/dev/SPEC-dayrun-behavior.md#spec-dayrun-behavior-事件投影` | verified_experiences 与离线导出把目录浏览和游戏 played 改为 app 使用、内容消费与推送事实。 |
-
 
 <a name="spec-rrs-文档阶段8"></a>
 ### 阶段 8（文档与登记收口）
@@ -1075,8 +1036,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | `docs/dev/ANALYSIS-spec-coverage.md#analysis-spec-coverage-个人事务与工作安排增量映射` | 删除退役个人事务和工作映射，重指冻结规格与新验收证据。 |
 | `docs/dev/ANALYSIS-spec-coverage.md#analysis-spec-coverage-人物-prompt-七层增量映射` | 删除退役工具与字段映射，重指冻结七层合同。 |
 | `docs/dev/ANALYSIS-spec-coverage.md#analysis-spec-coverage-时间与能量增量映射` | 删除退役边界映射，重指冻结 app 推送与主题累计语义。 |
-
-
 
 <a name="spec-rrs-测试与夹具"></a>
 ## 随实现一起改的测试与夹具
@@ -1141,8 +1100,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | `corpora/manifest.json`、`corpora/lifestyle/items.json` | 只有生活活动（安静休息，显式声明娱乐、社交与健康效果） |
 | `scenarios/single-person.json` | 结构 7；一个人物，家在 `home`，工作安排为工作日 09:00–18:00 在 `office`，`work_topic_ids: [topic-sales]`，`initial_inventory` 在家一份薯片；账户 `merchant:noodle-1`、`merchant:noodle-2`、`merchant:cafe`、`merchant:store`、`employer:test`、`transport:service`、`external:scenario`；人物账户由 `initial_balance_fen` 隐式建立；`payrolls[]` 一条；菜单键为八个类型 |
 | `scenarios/multi-person.json`、`scenarios/multi-person-half-day.json` | 两个人物（一人有工作安排与主题，一人没有），其余同上；半天版窗口为四小时 |
-
-
 
 <a name="spec-rrs-验收台账"></a>
 ## 验收台账
@@ -1254,7 +1211,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 
 
 
-
 <a name="spec-rrs-变异登记"></a>
 ## 变异登记
 
@@ -1342,7 +1298,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 - 数量与真实名称（B-17，由数据仓测试判定）：八个地点类型各至少一个，餐馆至少两家且至少一家绑定 app、至少一家不绑定；app 至少四个并用真实名称（外卖类与内容类各至少一个）；食品至少三十种、每类至少五种、价格为合成分值；内容至少五十条、每类至少五条，标题用真实作品名（电视剧按集、带 `series`），摘要按 `summary_source` 标记真实（带 `url`）或合成；工作主题至少四个，分配给某人物的主题目标工时之和不少于该人物在实验窗内班次总工时；地图种子登记在 `map.json`；真实名称不代表对真实平台的任何承诺，README 写明。
 - 本仓库登记为未执行、等发布后补的回执：全量层 `python scripts/run_tests.py --tier full --workers 6 --environment-root ../WorldMock-Dataset/environment/<新标识>` 与 `scripts/coverage_gate.py --from-json`（`docs/dev/coverage-report.json`、`docs/dev/test-durations.json` 重录）、Windows、POSIX 与正式环境 macOS 的完整日与换目录恢复回执、`docs/CONTRACTS.md#contracts-环境数据归属合同` 与手册里的环境路径。发布前这些行在实现状态里写「未执行」，不写成通过。
 
-
 <a name="spec-rrs-实施阶段"></a>
 ## 实施阶段与提交
 
@@ -1365,7 +1320,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 
 依赖顺序固定为 P1/P2/P3 → P4 → P5/P6/P11 → P7/P8 → P9 → P10 → P12 → P13/P14 → P15。可以在一个阶段内按互不重叠的函数并行，但不能跨过最后消费者提前删模块，也不能把最终行为延期到阶段 8：阶段 8 只收完整日、机器登记、变异与文档证据。
 
-
 <a name="spec-rrs-门禁与平台"></a>
 ## 门禁与平台
 
@@ -1378,7 +1332,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 - 带 `--environment-root` 的正式环境全量层必须以数据仓重制后的环境为输入；发布前不能运行，`docs/dev/coverage-report.json` 与 `docs/dev/test-durations.json` 在阶段 9 重录。人工环境的本仓库门禁不等待数据仓。
 - 变异审查在未变异源码先建立通过基线，再逐项运行 `tests/rrs_acceptance.py` 登记的行为变异并杀死；导入期删枚举不充当行为变异。跳到别的平台或复用历史回执不算。
 - 每个文档提交运行 `python scripts/documentation_gate.py` 与 `python scripts/build_design_doc.py --check`；现行文档的临时标记、锚点、来源引用、版本表最后位置和机器登记由门禁核对。
-
 
 <a name="spec-rrs-第1轮审查的阻断发现"></a>
 ## 第 1 轮审查的阻断发现
@@ -1422,7 +1375,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | 实现-B7 `WAYS` 漏八个保留方式 | 与覆盖-B7 同一修复；闭集列出步行、驾车、工作、交谈、通话、阅读、进行、等待、睡觉、到店、远程下单、购买、打开、食用、使用、给予 | T11、T42 | 已关闭 |
 | 实现-B8 测试名与路径不存在 | 阶段 4 改为真实 `tests/integration/test_observation_agent_seam.py`；阶段 5 使用真实八类型节点名并改为九类型断言 | T42、T50；节点收集守卫 | 已关闭 |
 
-
 <a name="spec-rrs-第2轮审查的阻断发现"></a>
 ## 第 2 轮审查的阻断发现
 
@@ -1456,7 +1408,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | 可实现性镜头：物理删除同提交解除守卫但旧守卫统一归阶段 8 | 测试与夹具表把 [TI]/[DF]/[PP]/[TE]/[EW]/[IF]/[SR]/[LA]/[OWN]/[API]/[DOC]/[IG]/[QT]/[MB] 的精确改指拆回阶段 1–7；阶段 8 只做最终集合和全部守卫汇总 | 各阶段守卫行；阶段 5 首次完整收集；T56 最终汇总 | 已关闭 |
 | 可实现性镜头：Python 源码变异器不能把 `tools/` 当作可导入根 | B-38 与机器登记限定 Python 变异根为 `worldmock.*`、`custom.*`、`scripts.*`，拒绝 `tools.*`/`tests.*`；查看器由现有 Node 用例和阶段 8 隔离 Uncle Bob 源码变异审查 | T51、T56 | 已关闭 |
 
-
 <a name="spec-rrs-第3轮审查的阻断发现"></a>
 ## 第 3 轮审查的阻断发现
 
@@ -1467,7 +1418,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | 冲突镜头：有限正但不足一分钟的工作主题永远不能开始或完成 | B-25/B-42 与目录、登记错误表统一要求 `round(target_hours × 3600) >= 60`，不新增错误码；运行时对先前真实工作后剩余不足一分钟的拒绝保持不变 | T4 的 59 秒拒绝与 60 秒受理；T43 的运行时剩余 59 秒 | 已关闭 |
 | 覆盖镜头：推送事件判别键与内容类型共用 `kind` | B-43 与环境事件形状固定 `data.kind = "app_push"`、内容类型写 `content_kind`；D-45 只从同一源事件投影 `CONTENT_KIND_LABELS[content_kind]`，其他事件的 `kind` 不改 | T41 的真实源事件 Schema；T52 的源事件到四键窗口投影；判别键覆写变异 | 已关闭 |
 | 可实现性镜头：阶段 1 的最终占用闭集无法解析到阶段 4 才退出的包资源 | B-44 让阶段 1–3 保留当前十一项声明，阶段 4 与旧娱乐最后消费者同提交切换到最终八项；阶段 1 的包资源身份/原子发布与阶段 4 的最终闭集/并行准入拆为两个契约点 | T12 在阶段 1 与刷新后的阶段 4 分别验证包资源身份；T11/T40 在阶段 4 验证最终闭集、旧名拒绝与配对 | 已关闭 |
-
 
 <a name="spec-rrs-已知局限"></a>
 ## 已知局限
@@ -1480,7 +1430,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 - 推送、打开与接续的随机序列绑定 `random_state` 与固定键；改变键格式会改变序列，属 `RULES_VERSION` 范围。
 - 数据仓的正式环境重制与 LabelKit-DataSet 的 `phone_event` 改形不在本仓库完成，完整回归在它们发布后才有回执。
 - 当前 macOS 的人工环境双跑不能证明 Windows 或其他机器一致；Windows、正式环境、换目录恢复与各平台时区数据库身份在阶段 9 前均登记为未执行。
-
 
 <a name="spec-rrs-版本表"></a>
 ## 版本表
@@ -1497,3 +1446,4 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | `2026-10-07-acs-receipt` | 2026-10-07 | 「三类食品与进食」整节与「店铺、食品与外卖」即时交付到当地持有及持有条款，由动作与内容简化规格「购买与支付」「收货结算」取代。 |
 | `2026-10-07-acs-action` | 2026-10-08 | 「娱乐：app、内容与推送」的选择、时长与生命周期及「工作主题与叙述」的目录、分配与完成由动作与内容简化规格「其他动作：统一执行、内容与推送」取代；推送网格、session 与叙述通道继续有效 |
 | `2026-10-07-acs-request` | 2026-10-08 | 「观察与工具面」「系统层」由动作与内容简化规格同名章节取代；系统层逐条锁定测试改读该规格的冻结全文 |
+| `2026-10-07-acs-record` | 2026-10-08 | 「状态、事件、检查点与导出」由动作与内容简化规格同名章节取代；事实种类与投影归属按现行数字足迹合同 |

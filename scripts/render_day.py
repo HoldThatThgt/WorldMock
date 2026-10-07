@@ -33,7 +33,7 @@ from worldmock.footprints.intervals import valid_interval  # noqa: E402
 from worldmock.life.readable import ACTIVITY_KIND_LABELS, TRAVEL_WAYS  # noqa: E402
 
 #: 名称索引的类别：品名（带使用方式）、地名、邮件主题、内容标题、app 名称、工作主题、人名（联系人与同世界人物）。
-NAME_KINDS = ("foods", "locations", "messages", "apps", "contents", "work_topics", "people")
+NAME_KINDS = ("goods", "locations", "messages", "apps", "contents", "actions", "people")
 #: 种类表之外的活动种类的中文名。
 _UNKNOWN_KIND_LABEL = "活动"
 
@@ -131,9 +131,9 @@ def _object_name(label: object) -> object:
 
 def _absorb_observation(names: dict, data: dict) -> None:
     """@brief 吸收一条 observation/action_result 里的公开名称索引。"""
-    fields = {"foods": ("food_id", "name"), "locations": ("location_id", "name"),
+    fields = {"goods": ("goods_id", "name"), "locations": ("location_id", "name"),
               "messages": ("message_id", "subject"), "apps": ("app_id", "name"),
-              "contents": ("content_id", "title"), "work_topics": ("topic_id", "topic")}
+              "contents": ("content_id", "title"), "actions": ("action_id", "name")}
     for category, (identity, label) in fields.items():
         for row in _dict_rows(data.get(category)):
             _remember(names[category], row.get(identity), row.get(label))
@@ -175,56 +175,23 @@ def _travel_label(snapshot: dict, names: dict) -> str:
     return f"{mode}去{destination}" if destination else mode
 
 
-def _app_label(snapshot: dict, names: dict) -> str:
-    """@brief 应用与当前作品取真实快照及名称索引，不把作品身份当作应用目标。"""
-    app = _title(snapshot) or names["apps"].get(snapshot.get("target_id"))
-    content = snapshot.get("content_title") or names["contents"].get(_snapshot_data(snapshot).get("content_id"))
-    if app and content:
-        return f"用{app}看《{content}》"
-    return f"用{app}" if app else ACTIVITY_KIND_LABELS["use_app"]
+def _action_label(snapshot: dict, names: dict) -> str:
+    """@brief 动作、应用与内容均取当前事实，只对手机使用方式显示用手机。"""
+    from worldmock.exchange.types import MANNER_DEVICE
+
+    data = _snapshot_data(snapshot)
+    action = names["actions"].get(data["action_id"]) or _title(snapshot)
+    app = names["apps"].get(data["app_id"]) if data["app_id"] is not None else None
+    label = action if action is not None else ACTIVITY_KIND_LABELS["action"]
+    if app is not None:
+        prefix = "用手机" if MANNER_DEVICE[data["manner"]] == "phone" else "用"
+        label = f"{prefix}{app}，{action}"
+    content = snapshot.get("content_title") or names["contents"].get(data["content_id"])
+    return f"{label}《{content}》" if content else label
 
 
-def _mail_label(snapshot: dict, names: dict) -> str:
-    """@brief 读邮件标签：带邮件主题。"""
-    subject = names["messages"].get(snapshot.get("target_id"))
-    return f"读邮件「{subject}」" if subject else ACTIVITY_KIND_LABELS["read_mail"]
-
-
-def _consume_label(snapshot: dict, names: dict) -> str:
-    """@brief 进食标签只读取实际食品名称。"""
-    food = names["foods"].get(snapshot.get("target_id"))
-    return f"吃 {food}" if food else ACTIVITY_KIND_LABELS["consume"]
-
-
-def _lifestyle_label(snapshot: dict, names: dict) -> str:
-    """@brief 生活活动标签：活动名称本身。"""
-    return _title(snapshot) or ACTIVITY_KIND_LABELS["lifestyle"]
-
-
-def _work_label(snapshot: dict, names: dict) -> str:
-    """@brief 工作标签带实际工作主题。"""
-    title = _title(snapshot) or names["work_topics"].get(snapshot.get("target_id"))
-    return f"工作「{title}」" if title else ACTIVITY_KIND_LABELS["work"]
-
-
-def _call_label(snapshot: dict, names: dict) -> str:
-    """@brief 通话标签：和联系人通话（称谓取快照标题或名称索引）。"""
-    name = _title(snapshot) or names["people"].get(_snapshot_data(snapshot).get("contact_id"))
-    return f"和{name}通话" if name else ACTIVITY_KIND_LABELS["call"]
-
-
-def _chat_label(snapshot: dict, names: dict) -> str:
-    """@brief 交谈标签：和同世界人物当面交谈（姓名取快照标题或名称索引）。"""
-    name = _title(snapshot) or names["people"].get(_snapshot_data(snapshot).get("partner_id"))
-    return f"和{name}交谈" if name else ACTIVITY_KIND_LABELS["chat"]
-
-
-#: 带对象的活动种类 → 标签函数；等待与睡眠只写种类名。
-_LABELERS: dict[str, Callable[[dict, dict], str]] = {
-    "travel": _travel_label, "use_app": _app_label, "read_mail": _mail_label,
-    "consume": _consume_label, "lifestyle": _lifestyle_label, "work": _work_label,
-    "call": _call_label, "chat": _chat_label,
-}
+#: 只按四种当前活动读取，动作使用真实目录身份。
+_LABELERS: dict[str, Callable[[dict, dict], str]] = {"travel": _travel_label, "action": _action_label}
 
 
 def _activity_label(snapshot: dict, names: dict) -> str:

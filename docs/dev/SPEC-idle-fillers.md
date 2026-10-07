@@ -34,7 +34,6 @@ flowchart LR
 本特性实施基线的场景结构为 5；当前主线因[环境数据归属规格](SPEC-environment-data-ownership.md)升为 6，
 正式环境位于 WorldMock-Dataset 的 `environment/zhangjiang-baseline/`，必须显式选择，旧结构 5 不保留读取分支。
 
-
 <a name="spec-idle-fillers-裁决记录"></a>
 ## 裁决记录
 
@@ -73,7 +72,6 @@ flowchart LR
 | R11 | 裁决 S11（计划只写今天与平常不同的事、不重述作息）仍然成立：起床与要按时到的出门照模板第三条写带提醒的目标，是原有「除非需要提醒」例外的具体化，`around_time` 因此也落在带提醒的目标上。S11 的机器登记在内容列末尾追加收窄说明（B 阶段），裁决原文与状态列不改；验收标准测试矩阵「七层提示」行的「零点计划模板不重述作息」与当日目标规格文件头的「零点计划不重述作息」照这一例外理解，保留不改 |
 | R12 | 系统层第 7、14、15、16 条写给人物的是平常人的过法，不是规则：等待、娱乐与拖延始终列出、照常受理，环境不按次数或时长处理。这与 `docs/dev/SPEC-life-runtime.md#spec-life-runtime-资源表达`「不替人物优化人生」、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-身体参数与单位`「不把运行后指标反馈成秘密行动脚本」与 `docs/VERIFICATION.md#verification-报告项report-only`「也不反馈成行动脚本」相容：改动公开登记、由指纹绑定，写的是引擎事实与平常人的过法，没有行动次序与数值目标（D11），`wait_minutes` 仍只报告，那几处条款不改。2026-10-05 的用户裁决取代 `docs/dev/PROPOSAL-dayrun-behavior.md` 采纳过的「不预设等待越少越好」，那份历史文档不改 |
 | R13 | 新唤醒原因与系统层第 7 条耦合：新增成员若给醒着的人带来事件驱动的决策机会，同步核对第 7 条的事件清单（见「新增成员的同步点」第 9 项） |
-
 
 <a name="spec-idle-fillers-系统层"></a>
 ## A：系统层第 7、14、15、16 条
@@ -137,7 +135,6 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 
 已知局限：同一意图只写一条目标、一条目标只有一个提醒，一条外出目标里并着两次接送时只能给较早的一次填提醒，第二次靠人物白天用 `revise_day_plan` 再设；已经推进过的目标不能修订。本特性不改这条约束。
 
-
 <a name="spec-idle-fillers-班次边界唤醒"></a>
 ## C：班次与休息时段起止的唤醒
 
@@ -153,7 +150,6 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 - 同一秒重合的多个起止各记一次，按枚举次序并列，与同一秒的其他原因合为一次机会。
 - 当日目标的大致时刻与人设层作息的钟点不属于这一条，本身不触发决策（午餐、晚餐窗口起止只在体感跨档时提供机会）。
 - 世界结构 9、质量报告结构 4、当前场景结构 6 不因本特性升级；两个指纹不变；变化只由 `code_sha256` 绑定。AS2 补丁不含唤醒原因内容，不改。
-
 
 <a name="spec-idle-fillers-班次边界机制"></a>
 ### 机制与代码落点
@@ -173,7 +169,6 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 不改：`src/worldmock/life/environment_layer.py`、`src/worldmock/life/work_schedule.py`（两处各有登记变异的原文）、`src/worldmock/life/reminders.py::boundary_candidates`、`src/worldmock/life/decision_coordinator.py`、`src/worldmock/footprints/quality.py`（直接读足迹侧词表分桶）、人物状态键集合与全部结构版本。
 登记在 `src/worldmock/footprints/models.py::WAKE_REASON_NAMES` 末行、`src/worldmock/life/schedule.py::SLEEP_ALLOWED_REASONS` 末行、`src/worldmock/life/rhythm.py::_wake_snapshot` 与 `src/worldmock/life/time_advance.py::TimeAdvanceCoordinator.advance` 上的既有变异原文保持各自唯一。
 新模块的公开函数必须被测试执行（覆盖率门禁要求未覆盖公共接口为零），每个函数带中文文档字符串，遵守风格门禁。
-
 
 <a name="spec-idle-fillers-班次边界情形"></a>
 ### 各种情形
@@ -196,7 +191,6 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 | 检查点与恢复、反事实重演 | 不为起止另存状态，起止按场景与时钟重新求值；已经判定而尚未决策的原因照常留在人物状态的 `pending_wake_reasons` 里随检查点恢复，不重复、不补发 |
 
 设计刻意不做的事：不按处境收窄（在路上或不在岗也给机会）；不给模型新的进度层记录；`around_time` 不被任何新代码读取。
-
 
 <a name="spec-idle-fillers-班次边界同步点"></a>
 
@@ -227,8 +221,6 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 > 容差 `tolerance_seconds` 等于播报间隔，是没有班次边界唤醒的运行里清醒且有进行中活动的人物在班次结束后首个决策机会的滞后上界；同一份评估代码读修订前后两臂的导出，这个定义对两臂都成立；它只写进报告，不作用于偏离值。
 
 四处是：`docs/design/07-evaluation.md#evaluation-报告项reports`、`docs/VERIFICATION.md#verification-报告项report-only`、`docs/VERIFICATION.md#errands-workday-度量与下游-行为评估` 与 `src/worldmock/evaluation/workload_metrics.py` 的模块文档字符串。本特性不新增报告项。
-
-
 
 <a name="spec-idle-fillers-身份与基线"></a>
 ## 身份、版本与完整日基线
@@ -304,7 +296,6 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 | `docs/manual/scenarios.md` | `#scenarios-声明工作安排` 补：班次开始、班次结束与每个休息时段的开始、结束，人物醒着就在那一秒得到一次决策机会，正在做的事照常继续，睡着的人不被叫醒、睡过的不补，声明班次会让人物每个当班日多出几次决策机会；`#scenarios-修改日期与模拟节奏` 的提醒一段补起止不是提醒；文件头补带日期的修订说明 |
 | `docs/INDEX.md` | 文档地图里被 C 修订的各行（生活运行时、人物规格、当日目标、一日行为、查看器对象名称、LabelKit 交付、数字人交互）把冻结时写的「随阶段 1 提交实现」改为「修订条款已实现」；版本表加行 |
 
-
 <a name="spec-idle-fillers-文档a"></a>
 ### A 阶段
 
@@ -323,7 +314,6 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 | `docs/manual/personas.md#personas-正文与实际世界条件要一致` | 在讲大致时刻与提醒的一段之后补：作息和计划里的钟点都只是大概，系统层告诉人物临近就可以去做、不必为对准钟点干等，非准点不可的事靠目标的提醒时刻；文件头补带日期的修订说明 |
 | `docs/dev/implementation-status.md#implementation-status-已冻结条款与确定性证据` | 能量不阻断一行的「只是「有点想吃」时等平常的饭点」改为「只是「有点想吃」时正餐留到平常的饭点前后」，括注补由让「等待」成为例外规格改写 |
 | `docs/INDEX.md` | 被 A 修订的各行的「随阶段 2 提交实现」改为「修订条款已实现」；版本表加行 |
-
 
 <a name="spec-idle-fillers-文档b"></a>
 ### B 阶段
@@ -344,7 +334,6 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 | `docs/INDEX.md` | 被 B 修订的各行的「随阶段 3 提交实现」改为「修订条款已实现」；版本表加行 |
 | `docs/manual/personas.md#personas-正文与实际世界条件要一致` | 计划只写今天与平常不同的事和要办的事，正文里天天如此的睡觉、起床、上下班、吃饭、休息和每天的消遣除非今天不同或需要提醒不写成目标，清单可以很短；大致时刻只表示大概在那前后，不提醒人物；正文写明时刻的准点之事（起床，以及出门去上班、上课、接人、赴约这类要按时到的事）零点计划据此设提醒，要去别处的填该出门的时刻；在家进行的约定由零点计划自行判断；提醒能叫醒睡着的人，所以不给睡觉设提醒。其后「系统不从文字推断时刻…就没有可依据的时刻」一句改为：系统不从目标文字推断时刻，大致时刻与提醒都由零点计划填写，依据是正文里的钟点、收尾时写明的起床或出门时刻，以及当天的上班安排（出门上班的时刻由零点计划据此估计，环境不校验）；正文只写“早起”而不写几点、收尾时也没写明的，起床就没有可依据的时刻；只写“按时上班”而场景没有声明工作安排的，出门同样没有可依据的时刻 |
 
-
 <a name="spec-idle-fillers-文档基线与记录"></a>
 ### 基线与记录阶段
 
@@ -359,8 +348,6 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 | `idle-fillers-verification.md`（`docs/dev/` 下新增的验收记录） | 被测源码身份、阶段提交、实现与测试证据、门禁结果、平台与基线生成证据、独立源码变异台账、文件修改清单；登记为 `验收记录`，`> 代码基线` 用阶段 5a 的提交；之后生成或重新生成的证据文件与之后才有的文档锚点用 `> 引用出处：`路径` @ `<完整提交>`` 行绑定，或不链接 |
 
 提案文件本身不改（它按历史文档核对），只改 INDEX 里它的那一行。
-
-
 
 <a name="spec-idle-fillers-测试与夹具"></a>
 ## 随实现一起改的测试与夹具
@@ -491,7 +478,6 @@ C 的行为用例：
 当前整合在 `core.autocrlf=false` 的独立检出中运行相应行为用例、登记守卫、文档与设计汇编门禁，并以显式数据仓环境运行全量与覆盖率。
 阶段 5 的收口与记录、阶段 6 的收费配对复跑仍须各自实际证据，不能因保留已实施行为就称为完成。
 
-
 <a name="spec-idle-fillers-门禁与平台"></a>
 ## 门禁与平台
 
@@ -502,7 +488,6 @@ C 的行为用例：
 - 本机（Windows）上 `scripts/run_tests.py` 的任何一层都在收集阶段失败：语料测试导入 TextWorld，而锁定的 TextWorld 没有 Windows 制品（既有平台边界，见 `docs/dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-门禁可选部件与操作系统`）。本机因此以针对文件与节点的 pytest 执行每个阶段登记的节点及其所在与直接相关的测试文件，另以分片 pytest 运行除需要 TextWorld 的测试文件之外的全部用例作为本机回归证据；标准层、全量层与覆盖率门禁在 POSIX 平台执行。
 - 当前完整日按结构 6 的实际工件核验，不生成第三份旧格式夹具；同平台门禁与跨平台证明分别记录，未测平台不得从历史结果推定通过。
 - 完整放行需要两个平台的证据（`docs/dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-门禁可选部件与操作系统`）；验收记录如实写明各项门禁在哪个平台执行，缺少的平台证据不写成通过。
-
 
 <a name="spec-idle-fillers-配对复跑指标"></a>
 ## 配对复跑指标
@@ -528,7 +513,6 @@ C 的行为用例：
 短活动成串、决策数与 token 上升（每人每日决策数与提示 token）；提醒本身成了等的对象（等待开始时离提醒到点的时间）；计划没有闹钟（各计划是否有起床提醒）；
 休息与晨间例程类目标不再被推进（目标推进比例）；协议错误与截断上升；启动路径上起床提醒早于生成时刻引起的重试；静默边界占比（放行门禁）。
 
-
 <a name="spec-idle-fillers-已知局限"></a>
 ## 已知局限
 
@@ -539,7 +523,6 @@ C 的行为用例：
 - 运行开始晚于平常起床时，第三条的起床提醒可能早于生成时刻而被退回重试，第四次仍无效按运行故障停止；复跑观察启动路径的重试。
 - 完整日签名的平台差异不修，见「门禁与平台」。
 - 写到 24:00 的班次次日休息时看不到「已下班」（见「各种情形」）。
-
 
 <a name="spec-idle-fillers-版本表"></a>
 ## 版本表

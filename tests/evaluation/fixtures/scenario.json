@@ -50,41 +50,25 @@
     "labelkit_sequence_class": {
       "food_order": "purchase",
       "navigation": "travel",
-      "check_in": "work",
-      "weak_no_intent": "browsing",
+      "check_in": "work_study",
+      "weak_no_intent": "entertainment",
       "coffee_order": "purchase",
       "grocery_purchase": "purchase"
     },
     "labelkit_pattern": {
-      "fitness_habit": "fitness",
+      "fitness_habit": "exercise",
       "social_habit": "social",
       "entertainment_habit": "entertainment"
     },
     "worldmock_activity": {
       "sleep": "sleep",
-      "work": "work",
-      "use_app": "browsing",
       "travel": "travel",
-      "read_mail": "work",
-      "consume": "product_use",
-      "wait": "waiting",
-      "lifestyle": "fitness",
-      "call": "social",
-      "chat": "social"
+      "wait": "waiting"
     }
   },
   "official_domain_map": {
     "sleep": [
       "personal_essential"
-    ],
-    "eat": [
-      "personal_essential"
-    ],
-    "work": [
-      "paid_work"
-    ],
-    "fitness": [
-      "discretionary"
     ],
     "social": [
       "discretionary"
@@ -94,6 +78,15 @@
     ],
     "travel": [
       "transportation"
+    ],
+    "work_study": [
+      "paid_work"
+    ],
+    "exercise": [
+      "discretionary"
+    ],
+    "daily_care": [
+      "personal_essential"
     ]
   },
   "official_reference": {

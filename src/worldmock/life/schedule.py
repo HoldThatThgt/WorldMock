@@ -20,13 +20,6 @@ from worldmock.footprints.intervals import valid_interval
 _LOGGER = logging.getLogger(__name__)
 
 
-LIFESTYLE_CATEGORY_FAMILIES = {
-    "sport": "exercise", "household": "chore", "social": "social", "outdoor": "outing",
-    "hobby": "entertainment", "learning": "entertainment", "wellness": "rest",
-    "pet": "chore", "volunteer": "social",
-}
-
-
 def alarm_time(value: str) -> int:
     """@brief 接受带偏移的 ISO 整秒时刻，拒绝小数秒和无时区输入。"""
     pattern = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)"

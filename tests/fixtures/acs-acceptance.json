@@ -248,7 +248,8 @@
       "tests/life/test_food_errand_evidence.py::test_receipt_before_registration_in_same_commit_does_not_count_but_after_it_does",
       "tests/life/test_food_errand_evidence.py::test_goods_receipt_rejects_an_invalid_simulated_recipient",
       "tests/life/test_food_errand_evidence.py::test_two_actual_receipts_accumulate_quantity_and_remove_only_the_completed_recipient_errand",
-      "tests/life/test_food_errand_evidence.py::test_unaffordable_actual_purchase_preserves_open_errand_quantity_and_all_world_bytes"
+      "tests/life/test_food_errand_evidence.py::test_unaffordable_actual_purchase_preserves_open_errand_quantity_and_all_world_bytes",
+      "tests/footprints/test_acs_export.py::test_real_station_export_keeps_purchase_payer_and_actual_recipient_notifications_and_receipt[True]"
     ],
     "implementation": [
       "src/worldmock/life/receipt.py::_receipt_effect",
@@ -538,62 +539,119 @@
   "接续成本": {
     "stage": "5",
     "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/footprints/test_acs_invariants.py::test_twenty_content_completions_still_share_one_actual_app_use",
+      "tests/footprints/test_acs_export.py::test_real_twenty_content_continuations_export_one_use_with_bounded_decisions"
+    ],
+    "implementation": [
+      "src/worldmock/footprints/app_usage.py::_app_snapshot"
+    ]
   },
   "足迹事实与导出身份": {
     "stage": "5",
     "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/footprints/test_acs_invariants.py::test_station_ready_and_received_have_one_actual_recipient_source_without_second_notification",
+      "tests/footprints/test_acs_invariants.py::test_station_notification_guard_rejects_every_wrong_count_time_owner_source_or_cause",
+      "tests/footprints/test_acs_export.py::test_real_station_export_keeps_purchase_payer_and_actual_recipient_notifications_and_receipt",
+      "tests/footprints/test_acs_invariants.py::test_offline_action_and_navigation_only_record_true_start_and_end_touches",
+      "tests/footprints/test_acs_invariants.py::test_no_app_content_counts_action_quality_without_digital_fact_or_empty_app_key",
+      "tests/footprints/test_purchases.py::test_actual_order_facts_preserve_food_store_app_and_fixed_money",
+      "tests/footprints/test_acs_export.py::test_current_export_rejects_every_retired_schema_at_the_consumer[export_three]",
+      "tests/footprints/test_acs_export.py::test_real_manners_pauses_navigation_and_no_app_export_pass_all_invariants"
+    ],
+    "implementation": [
+      "src/worldmock/footprints/app_usage.py::project_app_usage",
+      "src/worldmock/footprints/app_usage.py::_app_binding",
+      "src/worldmock/footprints/purchases.py::_receipts",
+      "src/worldmock/footprints/validation.py::_validate_identity",
+      "src/worldmock/footprints/purchases.py::_pickup_ready"
+    ]
   },
   "足迹不变量 1": {
     "stage": "5",
     "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/footprints/test_acs_invariants.py::test_no_app_action_never_generates_digital_facts_and_guard_rejects_invented_use"
+    ],
+    "implementation": [
+      "src/worldmock/footprints/invariants.py::validate_footprint_facts"
+    ]
   },
   "足迹不变量 2": {
     "stage": "5",
     "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/footprints/test_acs_invariants.py::test_phone_overlap_guard_rejects_real_reprojected_overlap_but_other_device_can_overlap"
+    ],
+    "implementation": [
+      "src/worldmock/footprints/invariants.py::validate_footprint_facts"
+    ]
   },
   "足迹不变量 3": {
     "stage": "5",
     "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/footprints/test_acs_invariants.py::test_delivered_order_guard_rejects_each_missing_or_duplicate_receipt_or_goods_event",
+      "tests/footprints/test_acs_invariants.py::test_contact_receipt_belongs_to_payer_with_null_effects_and_no_goods_event"
+    ],
+    "implementation": [
+      "src/worldmock/footprints/invariants.py::_order_invariants"
+    ]
   },
   "足迹不变量 4": {
     "stage": "5",
     "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/footprints/test_acs_invariants.py::test_receipt_time_guard_rejects_before_purchase_even_when_projection_agrees",
+      "tests/footprints/test_acs_invariants.py::test_receipt_and_arrival_guard_rejects_account_changes_from_actual_source_events"
+    ],
+    "implementation": [
+      "src/worldmock/footprints/invariants.py::_order_invariants"
+    ]
   },
   "足迹不变量 5": {
     "stage": "5",
     "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/footprints/test_acs_invariants.py::test_content_guard_rejects_backwards_cursor_and_consumption_in_pause"
+    ],
+    "implementation": [
+      "src/worldmock/footprints/invariants.py::validate_footprint_facts"
+    ]
   },
   "足迹不变量 6": {
     "stage": "5",
     "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/footprints/test_acs_invariants.py::test_push_reference_guard_rejects_missing_other_person_or_later_delivery"
+    ],
+    "implementation": [
+      "src/worldmock/footprints/invariants.py::validate_footprint_facts"
+    ]
   },
   "足迹不变量 7": {
     "stage": "5",
     "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/footprints/test_acs_invariants.py::test_every_app_fact_source_must_exist_and_be_owned_by_the_fact_persona",
+      "tests/footprints/test_acs_invariants.py::test_purchase_attempt_receipt_and_touch_sources_require_the_actual_owner"
+    ],
+    "implementation": [
+      "src/worldmock/footprints/invariants.py::validate_footprint_facts"
+    ]
   },
   "进食与持有的读者": {
     "stage": "5",
     "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/footprints/test_acs_invariants.py::test_no_app_content_counts_action_quality_without_digital_fact_or_empty_app_key",
+      "tests/evaluation/test_public_evidence.py::test_device_uses_unique_manner_mapping_only_when_snapshot_has_app"
+    ],
+    "implementation": [
+      "src/worldmock/footprints/app_usage.py::app_usage_quality",
+      "src/worldmock/evaluation/public_evidence.py::worldmock_activity_attributes"
+    ]
   },
   "完整日基线": {
     "stage": "6",

@@ -76,7 +76,6 @@ _WORLD_SOURCE_CHANNELS = {
     "run_failed": "lifecycle",
 }
 #: 数字交互只按实际活动类型判定，主题工作、应用使用与读信沿用同一评估通道。
-_DIGITAL_ACTIVITY_TYPES = frozenset({"work", "use_app", "read_mail"})
 _RIGHT_BOUNDARY_EVENTS = {"checkpoint_created", "run_ended", "run_failed"}
 
 
@@ -574,7 +573,7 @@ def _adapt_world_activity(
         activity_type, row.get("data"), scenario.worldmock_activity_map
     )
     resources = _string_list(row.get("resource_claims"), f"activity line {line_number} resource_claims")
-    digital = activity_type in _DIGITAL_ACTIVITY_TYPES
+    digital = activity_type == "action" and row["data"].get("app_id") is not None
     channels = ("digital_interaction",) if digital else ("physical_activity",)
     duration_kind = "world_internet_session" if digital else "world_activity"
     domains = set(scenario.official_domain_map.get(category, ()))
@@ -604,14 +603,14 @@ def _require_activity_fields(row: JsonObject, line_number: int) -> None:
         "activity_id", "agent_id", "activity_type", "status", "started_at", "planned_end_at",
         "ended_at", "elapsed_seconds", "boundary_type", "interruption_reason", "resource_claims",
         "last_settled_at", "planned_duration_seconds",
-        "media_position_seconds", "route_progress_meters", "next_interaction_at", "target_id",
+        "media_position_seconds", "route_progress_meters", "next_interaction_at",
         "destination_id", "travel_mode", "data", "source_event_ids",
     }
     missing = sorted(required - row.keys())
     if missing:
         fields = ", ".join(missing)
         raise EvaluationError("invalid_input", f"activity line {line_number} is missing fields: {fields}")
-    retired = {"effective_work_seconds", "playback_speed"} & row.keys()
+    retired = {"effective_work_seconds", "playback_speed", "target_id"} & row.keys()
     if retired:
         logging.error("WorldMock activity contains retired fields: %s", sorted(retired))
         raise EvaluationError("invalid_input", f"WorldMock activity contains retired fields: {sorted(retired)}")

@@ -2,13 +2,15 @@
 # WorldMock 产品设计说明书 — 记录引擎
 
 > **状态**：已整合；原已冻结的接口与行为约束继续有效，待实现设计单独列出；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 RE1–RE6），已实现；按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D5 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）<br>
-> **日期**：2026-10-07
+> **日期**：2026-10-08
 > **版本**：v1.6
 > **范围**：记录生活全过程、保存与关联证据、一致性保存与校验、保存共同检查点、恢复与反事实分支、固定截止导出、运行查询与诊断
 
+按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「统一动作执行、内容选择、真实进度与系统补订」（阶段 3）。
+
 > 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 7 的记录、导出、交付与评估合同。
 
-> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题证据与质量报告。
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的分配内容证据与质量报告。
 
 > 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「归档引用」（阶段 1）；「地图与门店供给证据」、「地图与供给的恢复身份」、「检查点创建」、「持久化结构」、「必须保存的内容」（阶段 2）；「事件字段、事件类型、事件正文、活动进度、已核验经历、共同身体结算与决策证据」（阶段 4，app 使用与推送）。
 
@@ -18,7 +20,7 @@
 
 > 个人事务与工作安排规格首次受影响的发布：阶段 2 世界结构 9、质量报告结构 4，阶段 3 场景结构 5、卡片结构 3（抽取提示 `card-v3`）；地图 3、目录 5.3、品类与规则绑定 3、导出清单 2、运行清单 2 不变。上一条所说「世界结构仍为 8」只描述工具交互特性发布时的身份。
 
-> 按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「共同身体结算与决策证据」「事件正文与资源证据」「调试工具」（阶段 1）；班次与休息时段起止的唤醒只变代码身份，世界结构 9、质量报告结构 4 与当前场景结构 6 不变。
+> 按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「共同身体结算与决策证据」「事件正文与资源证据」「调试工具」（阶段 1）；该阶段只改变代码身份，现行发布身份见正文。
 
 > 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界、收货结算」（阶段 1、2）。
 
@@ -28,7 +30,6 @@
 按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)修订；验收结果独立记录。
 
 规范 JSON 摘要只有一个实现并拒绝非有限数值。原子发布写字节、同步文件后替换；POSIX 同步父目录，Windows 按平台能力发布。有效结算区间使用非布尔整数秒且起点小于终点；时间线和逐日导出均读取运行清单时区。主观记忆快照共用校验，带反思来源的合法快照不算畸形经历。代码身份继续哈希实际字节，依赖源码由固定补丁重建。
-
 
 <a name="recording-engine-记录引擎负责什么"></a>
 ## 记录引擎负责什么
@@ -88,7 +89,6 @@ flowchart TB
     class PROCESS,EVIDENCE,STORE,CHECKPOINT,BRANCH,EXPORT,DIAGNOSIS engine
 ```
 
-
 <a name="recording-engine-职责与模块边界"></a>
 ### 职责与模块边界
 
@@ -110,7 +110,6 @@ flowchart TB
 不可变事件与快照的组织方式参考 [Microsoft Event Sourcing](https://learn.microsoft.com/en-us/azure/architecture/patterns/event-sourcing)。
 这些工程机制不意味着重新调用模型会重现相同决策。
 
-
 <a name="recording-engine-主题阅读路径"></a>
 ### 主题阅读路径
 
@@ -128,8 +127,6 @@ flowchart TB
 实现差距沿用已有源码核查结论，按主题分列；本次调整不修改生产代码；跨引擎约束在其所属文档维护。
 各主题保留已冻结规范的验收要求与现有测试入口；测试存在不等于本次重新执行通过。
 本次文档整理的验证结果记录在交付说明中，正式运行与跨系统验收仍见[实现状态](../dev/implementation-status.md#implementation-status-worldmock-实现状态)。
-
-
 
 <a name="recording-engine-记录生活全过程"></a>
 ## 记录生活全过程
@@ -164,7 +161,6 @@ flowchart TB
 
 现行身份是目录格式 2、场景结构 8、世界结构 11、运行清单 4。运行清单不含语料钉，五字段
 `environment_identity` 不变；恢复输入与检查点核对世界结构 11。
-
 
 
 <a name="recording-engine-数字足迹事件结构"></a>
@@ -265,7 +261,6 @@ action 活动每次结算带 `content{content_id, app_id, position_before_second
 记忆活动句写活动名、起止、暂停和实际终局，随后写完成内容标题与确有消费的未完内容；静默抽出的下一条不算经历。订单句写购买、商品、付款、真实购物与支付 app；完成句写真实内容标题。
 
 
-
 <a name="recording-engine-工具纠错只读查询与当天操作备忘的证据"></a>
 ### 工具纠错、只读查询与当天操作备忘的证据
 
@@ -274,12 +269,12 @@ action 活动每次结算带 `content{content_id, app_id, position_before_second
 任一 `action` 活动只有在内容位置实际正向推进时才写 `played`，记录真实 `content_id`、可空 `app_id` 与前后位置；目录展示、零秒选择和模型文字都不能伪造内容消费。场景 `work_content_ids` 决定本人分配的工作内容，进度来自同一内容结算，首次做满写 `work_content_completed`；播报只作注记，不改变进度或完成状态。
 
 
+
 <a name="recording-engine-记录生活全过程的实现差距"></a>
 ### 记录生活全过程的实现差距
 
 时间与能量规格登记的同刻决策证据、零点计划后台任务与系统登记入口、记忆来源、经历句子四项已随该规格实现闭合，验收见[记录生活全过程的验收](05-recording-engine.md#recording-engine-记录生活全过程的验收)。
 人物 Prompt 七层规格登记的八项差距（观察保存层数据与 `progress_event_ids`、单一行动阶段与闭集 `decision_started`、`action_requested.data.self_note`、同秒续接的原生消息、记忆层派生与 `subject`、订单收货人与进食份量、`decision_budget_exhausted`、世界结构版本 8）已随该规格实现闭合，验收见[记录生活全过程的验收](05-recording-engine.md#recording-engine-记录生活全过程的验收)与[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)。既有条款没有未闭合差距；2026-10-01 的结构化 `protocol_feedback`、即时世界查询证据与当天操作备忘已随工具交互规格实现，证据见[工具交互验收记录](../archive/tool-interaction/tool-interaction-verification.md)，不由更早的验收证明。
-
 
 <a name="recording-engine-记录生活全过程的验收"></a>
 ### 记录生活全过程的验收
@@ -298,7 +293,6 @@ action 活动每次结算带 `content{content_id, app_id, position_before_second
 | 严格反思留证 | 就寝反思恰一次 `submit_reflection`；输出不合合同时附回英文校验错误重新请求（首次之外至多三次），每次尝试的请求与响应各自留证；耗尽即运行故障，本轮中止、不提交，故障时无 `memory_updated` | [个人事务与工作安排规格「验收台账」](../VERIFICATION.md#verification-incremental-evidence)的「严格反思」行 | 已实现，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md) |
 
 
-
 <a name="recording-engine-保存与关联证据"></a>
 ## 保存与关联证据
 
@@ -312,14 +306,12 @@ action 活动每次结算带 `content{content_id, app_id, position_before_second
 `caused_by`、`decision_id`、`action_id` 与 `activity_id` 连接观察、决策、执行和结果；同秒事件按序号排序。
 已经受理的请求序号不能证明活动完成或资金已支付。
 
-
 <a name="recording-engine-来源与可见性"></a>
 ### 来源与可见性
 
 原始记录保留世界事实、数字人自述与推断的来源区别，按提交内容保存来源和可见性标记。
 模拟引擎负责观察投影与访问范围；记录引擎保留实际交付证据，不能把事后完整状态冒充当时的观察。
 下游的字段裁剪与证据窗口由 LabelKit-DataSet 负责，原始事件保持不变。
-
 
 <a name="recording-engine-素材存储行为"></a>
 ### 素材存储行为
@@ -344,7 +336,6 @@ flowchart LR
 `EventDraft`、`Event` 与 `Checkpoint` 的模型同样拒绝未声明字段；
 具体事件正文的领域约束由对应领域模型验证。
 
-
 <a name="recording-engine-素材存储接口"></a>
 ### 素材存储接口
 
@@ -355,15 +346,12 @@ flowchart LR
 | `AssetStore.put_json` | `(value: object, source: dict) -> AssetRef` | 把结构化值落成素材，复用同一哈希与引用规则 |
 
 
-
 <a name="recording-engine-保存与关联证据的验收"></a>
 ### 保存与关联证据的验收
 
 | 要求 | 必须通过的观察 | 证据位置 | 本次核验状态 |
 | --- | --- | --- | --- |
 | 素材原子写入与不可变引用 | 正文以原子方式落盘并通过核验后才发布为稳定引用；同一份素材被复用，每次接触仍各自生成事件；引用缺失、字节数或摘要对不上时当即失败，绝不返回空内容 | `tests/footprints/test_store.py` 的 `test_missing_or_damaged_asset_prevents_commit_and_checkpoint`；`tests/footprints/test_export.py` 的 `test_export_corrupt_asset_never_publishes_manifest` | 保留要求，本次未复跑 |
-
-
 
 <a name="recording-engine-一致性保存与校验"></a>
 ## 一致性保存与校验
@@ -417,7 +405,6 @@ run/
 
 状态提交接口在本主题定义；素材、检查点、恢复、固定截止读取与运行查询接口分别见对应主题。
 
-
 <a name="recording-engine-存储调用"></a>
 ### 存储调用
 
@@ -428,7 +415,6 @@ run/
 
 生活模型负责验证世界状态与封闭请求类型；存储接收已验证的 JSON 状态与事件，不反向决定活动或资源规则。素材引用包含 SHA-256、字节数、模态与来源。所有业务模块只通过同一个环境实例的存储句柄写入，人物 worker 不能自行修改 `footprints.sqlite`。
 
-
 <a name="recording-engine-存储接口行为"></a>
 ### 存储接口行为
 
@@ -437,7 +423,6 @@ run/
 | 新建运行 | 明确创建新的运行身份与目录；目标存在时拒绝覆盖 |
 | 打开运行 | 只打开已有的有效数据库与冻结清单；缺失数据不能隐式新建 |
 | 提交状态与事件 | 校验状态连续性、资金差额、因果引用和素材后，在同一事务提交全部状态与事件 |
-
 
 
 <a name="recording-engine-事务与失败处理"></a>
@@ -460,14 +445,12 @@ flowchart TD
     ROLLBACK --> STOP[传播运行故障]
 ```
 
-
 <a name="recording-engine-事务范围"></a>
 #### 事务范围
 
 外部模型调用、游戏进程和文件系统整体不在数据库事务内。
 外部调用的开始、结果或未知状态由调用方提交；记录引擎按提交内容保存，不执行或重试外部调用。
 同一次结算的事件批量提交，不逐事件拆散原子边界。
-
 
 <a name="recording-engine-失败分类"></a>
 #### 失败分类
@@ -484,8 +467,6 @@ flowchart TD
 [模拟引擎的失败处理](04-simulation-engine.md#simulation-engine-失败处理)和[AS2 失败传播](../dev/SPEC-as2-integration.md#spec-as2-integration-失败传播改动)约束；
 记录引擎不得把持久化故障包装为成功返回。
 
-
-
 <a name="recording-engine-状态版本与连续性"></a>
 ### 状态版本与连续性
 
@@ -496,13 +477,11 @@ flowchart TD
 仅追加观察等证据、世界内容完全相同时，可以保持同一版本。
 同版本必须具有相同的确定性编码字节，不能隐藏状态修改；时钟不能倒退。
 
-
 <a name="recording-engine-事件序号严格递增"></a>
 #### 事件序号严格递增
 
 序号由存储分配，按提交顺序严格连续递增，同秒事件也有明确次序。
 运行内的截止序号确定固定历史范围，不依赖墙钟时间排序。
-
 
 <a name="recording-engine-状态版本变化必须有事实事件"></a>
 #### 状态版本变化必须有事实事件
@@ -510,14 +489,12 @@ flowchart TD
 版本变化至少对应一个事实事件，禁止静默改变时钟、资源或活动。
 `state_version_before` 与 `state_version_after` 把事件绑定到状态变化，供因果追溯、连续性检查和检查点恢复核对。
 
-
 <a name="recording-engine-状态关联字段"></a>
 #### 状态关联字段
 
 世界快照持久化采用确定性 JSON：键排序、集合按元素排序、编码规则固定。
 新进程和不同 Python 哈希种子必须得到逐字节相同的状态。
 只有事件和状态版本一致仍不足以证明完整恢复，还需检查参与者工作区、内容进度、待发生事件和随机数状态。
-
 
 <a name="recording-engine-资金守恒验证"></a>
 #### 资金守恒验证
@@ -536,15 +513,12 @@ flowchart TD
 这里验证的是已提交余额与资金证据是否一致，不计算价格、报酬或支付资格；
 金额由交换引擎计算，实际状态由模拟引擎提交。
 
-
-
 <a name="recording-engine-一致性保存与校验的实现差距"></a>
 ### 一致性保存与校验的实现差距
 
 | 设计要求 | 当前实现与差距 | 核查位置 |
 | --- | --- | --- |
 | 事件、状态与检查点共同提交 | 已有 SQLite 事务、素材校验、参与者检查与恢复路径；真实验收另见运行证据 | `src/worldmock/footprints/store.py`、`src/worldmock/footprints/checkpoint.py`、`src/worldmock/runtime.py` |
-
 
 
 <a name="recording-engine-一致性保存与校验的验收"></a>
@@ -556,8 +530,6 @@ flowchart TD
 | 状态版本与事件序号连续性 | 时钟回退与版本跳变被拒；状态版本变化必须有至少一个事实事件；同秒事件按严格递增序号排序而不依赖时间戳 | `tests/footprints/test_branch_coverage.py` 的 `test_store_commit_rejects_clock_regression_and_version_jumps`；`tests/footprints/test_store.py` 的 `test_world_change_without_any_event_cannot_be_committed` | 保留要求，本次未复跑 |
 | 资金守恒与对账 | 资金变化的唯一位置是 `Event.data.resource_changes` 顶层，单位为整数分；每条转账两端写清、相加为零；受理与幂等回放不再添支付；只看首笔注资与此后各笔权威资金事件，就能算出最终共同检查点的各账户余额 | `tests/footprints/test_ledger.py` 的 `test_final_checkpoint_balance_must_equal_complete_event_history`、`test_reused_receipt_cannot_record_a_second_payment`、`test_balanced_transfer_reconstructs_actual_final_accounts` | 保留要求，本次未复跑 |
 | 真实存储介质口径 | 所有持久化行为通过真实 SQLite 与文件系统的集成测试，不以内存模拟替代 | `tests/footprints/` 全目录 | 保留要求，本次未复跑 |
-
-
 
 <a name="recording-engine-保存共同检查点"></a>
 ## 保存共同检查点
@@ -583,7 +555,6 @@ flowchart TD
 | 创建检查点 | 校验世界状态和全部参与者素材后提交记录，返回数据库确认的检查点 |
 
 
-
 <a name="recording-engine-地图与供给的恢复身份"></a>
 ### 地图与供给的恢复身份
 
@@ -598,8 +569,6 @@ flowchart TD
 | 要求 | 必须通过的观察 | 证据位置 | 本次核验状态 |
 | --- | --- | --- | --- |
 | 共同检查点的完整性与参与者齐备 | 检查点先校验全部人物、游戏与环境素材再提交；缺少任一参与者的检查点不完整；最终共同检查点缺失或其之后仍有事件时运行不算完成 | `tests/footprints/test_export.py` 的 `test_checkpoint_requires_every_participant`、`test_clock_end_without_successful_final_checkpoint_is_not_complete`、`test_event_after_final_checkpoint_invalidates_completion` | 保留要求，本次未复跑 |
-
-
 
 <a name="recording-engine-恢复与反事实分支"></a>
 ## 恢复与反事实分支
@@ -627,14 +596,12 @@ flowchart TD
 分支只使用检查点封存的工作区，不复制父运行检查点之后变动过的可变文件。
 人物工作区快照只收普通文件，自上而下遍历，遇到符号链接或目录联接即拒绝，不进入它指向的目录；快照与恢复对成员用同一组检查，保存不了恢复不了的快照。恢复先核对全部成员再建目标目录：成员须是普通文件（稀疏等变体不算），名字是只用 `/` 分隔的根内相对路径（声明判定与安全文件共用 `corpora.manifest`），每一级在任何平台上都能原样保存（不以点或空格结尾、不是 Windows 设备名、不含 Windows 禁用字符、控制字符或孤立代理码点、UTF-8 不超过 255 字节），忽略大小写与 Unicode 规范形式后互不重名，且没有文件同时是另一成员的上级目录；写入时目标已存在只能是先前成员的别名（Windows 8.3 短名、大小写或 Unicode 规范化），同样拒绝。任一不符或归档损坏都以 `IntegrityError` 拒绝，不发布分支。
 
-
 <a name="recording-engine-恢复入口边界"></a>
 ### 恢复入口边界
 
 记录引擎的返回值只确认分支存储与恢复材料有效，不表示人物、游戏进程或模型服务已经就绪。
 运行启动与失败传播由[模拟引擎的恢复编排](04-simulation-engine.md#simulation-engine-恢复与反事实运行编排)和
 [AS2 恢复入口](../dev/SPEC-as2-integration.md#spec-as2-integration-恢复与检查点改动)负责。
-
 
 <a name="recording-engine-反事实分支与来源关系"></a>
 ### 反事实分支与来源关系
@@ -644,13 +611,11 @@ flowchart TD
 干预是否受支持、何时执行及如何改变世界，由模拟引擎决定；实际执行结果仍通过事件和状态提交。
 下游样本划分与反事实标签由 LabelKit-DataSet 定义；原始来源身份随完整导出提供。
 
-
 <a name="recording-engine-重放与重新调用的区别"></a>
 ### 重放与重新调用的区别
 
 读取和核验历史只能还原已经保存的事实。重新调用模型与外部服务属于模拟执行，结果不保证相同。
 记录引擎不承诺外部服务严格只调用一次，也不能把新的调用结果冒充原始历史。
-
 
 <a name="recording-engine-分支状态与发布"></a>
 ### 分支状态与发布
@@ -661,13 +626,11 @@ flowchart TD
 分支存储建立时世界版本增加一，追加 `environment_event` 类型的 `branch_created` 事件。
 存储发布与运行就绪分别确认；模拟引擎完成参与者恢复后才允许开始决策。
 
-
 <a name="recording-engine-崩溃恢复"></a>
 ### 崩溃恢复
 
 记录引擎只提供完整共同检查点及其封存材料；未确认尾部不能拼接为检查点内的历史。
 人物和游戏进程的重建见[模拟引擎的恢复编排](04-simulation-engine.md#simulation-engine-恢复与反事实运行编排)。
-
 
 <a name="recording-engine-分支恢复接口"></a>
 ### 分支恢复接口
@@ -682,7 +645,6 @@ flowchart TD
 | 恢复分支 | 校验指定检查点、冻结清单与全部素材；在新目录建立并发布分支存储，父目录保持不变 |
 
 
-
 <a name="recording-engine-恢复与反事实分支的验收"></a>
 ### 恢复与反事实分支的验收
 
@@ -690,8 +652,6 @@ flowchart TD
 | --- | --- | --- | --- |
 | 恢复材料完整且一致 | 未通过素材校验的检查点事务不发布记录；重算摘要与状态不一致的检查点被拒 | `tests/footprints/test_store.py` 的 `test_failed_checkpoint_transaction_does_not_publish_record`、`test_rehashed_checkpoint_with_inconsistent_world_is_rejected` | 保留要求，本次未复跑 |
 | 恢复分支隔离与父目录不变 | 恢复在新目录创建分支存储并提供封存工作区；父运行目录与尾部事件不被覆盖，分叉之后父运行改动过的可变工作区也不复制过来；分支目录不得落在父运行内部 | `tests/footprints/test_store.py` 的 `test_complete_checkpoint_branch_preserves_parent_and_exact_workspace`；`tests/footprints/test_branch_coverage.py` 的 `test_restore_branch_rejects_destinations_inside_parent_run` | 保留要求，本次未复跑 |
-
-
 
 <a name="recording-engine-固定截止导出"></a>
 ## 固定截止导出
@@ -702,22 +662,26 @@ flowchart TD
 ### 导出行为
 
 导出以冻结的截止事件和对应状态为输入，原始运行保持只读。`export_run` 先在临时目录写出、重算并校验，
-最后写清单并原子发布；失败不留下成功清单。导出清单 `schema_version` 为 3，`artifacts` 恰好包含五项：
+最后写清单并原子发布；失败不留下成功清单。导出清单 `schema_version` 为 4，`artifacts` 恰好包含五项：
 
 | 工件 | 文件与事实 |
 | --- | --- |
 | `events` | `events.jsonl`，截止前缀内的持久事件，保留原始身份、顺序与因果引用 |
 | `activities` | `activities.jsonl`，从活动快照重建的冻结活动；出行保留起点、终点、`path`、距离、`route_progress_meters`、`destination_id` 与 `travel_mode`，app 使用保留 `media_position_seconds`；不含 `effective_work_seconds` 或 `playback_speed` |
-| `verified_experiences` | `verified-experiences.jsonl`，等待、消费、到达与实际 app 内容播放经历，由事件独立重算 |
-| `purchases` | `purchases.jsonl`，`fact_kind` 为 `purchase` 或 `order_attempt`；没有目录浏览事实 |
-| `app_usage` | `app-usage.jsonl`，`fact_kind` 为 `app_use`、`content_consumed`、`push_delivered`、`push_opened` 或 `push_released` |
+| `verified_experiences` | `verified-experiences.jsonl`，等待、收货、到达与实际动作内容消费经历，由事件独立重算 |
+| `purchases` | `purchases.jsonl`，`fact_kind` 为 `purchase`、`order_attempt`、`pickup_ready` 或 `receipt`；没有目录浏览事实 |
+| `app_usage` | `app-usage.jsonl`，`fact_kind` 为 `app_use`、`app_touch`、`content_consumed`、`push_delivered`、`push_opened` 或 `push_released` |
 
-`purchase` 行为 `{agent_id, order_id, food_id, store_id, app_id, quantity, unit_price_fen,
-delivery_fee_fen, total_price_fen, fulfillment, recipient_id, request_message_id, created_at, action_id,
-source_event_id}`。`app_use` 行为 `{agent_id, activity_id, app_id, started_at, ended_at, status,
-source_event_id}`；`content_consumed` 行为 `{agent_id, activity_id, app_id, content_id, kind,
-position_before, position_after, completed, push_id, source_event_id}`；三种推送事实都为
-`{agent_id, push_id, app_id, content_id, session_id, occurred_at, source_event_id}`。
+购买投影保留当前四种事实的真实所有者与来源：
+
+| `fact_kind` | 当前字段与来源 |
+| --- | --- |
+| `purchase` | 付款人的 `agent_id`，以及 `order_id`、`goods_id`、`category`、`store_id`、`app_id`、`payment_app_id`、价格与配送费、数量、总价、`fulfillment`、`recipient_id`、`request_message_id`、`created_at`、`action_id`、首次订单结果的 `source_event_id` |
+| `order_attempt` | 请求人物的 `agent_id`、`action_id`、`request_event_id`、规范化后的 `way`、首个结果的 `status` 与 `error_code`、`occurred_at` |
+| `pickup_ready` | 实际模拟收货人的 `agent_id`、`order_id`、购物 `app_id`、`pickup_location_id`、`arrived_at` 与到站事件 `source_event_id` |
+| `receipt` | `order_id`、`recipient_id`、`received_at`、`goods_id`、`category`、`quantity`、`provided`、`applied` 与 `source_event_id`；模拟人物的 `agent_id` 是实际收货人，来源是本人的 `goods_received`；联系人的 `agent_id` 是实际交付来源事件的付款人，来源是该订单结果或 `delivery_arrival` |
+
+六种 app 事实共用 `fact_kind`、`agent_id`、可空 `activity_id`、`app_id`、可空 `action_id`、`manner`、`device`、`source_event_id`。`app_use` 另带活动 `status` 与真实 `segments[{started_at, ended_at}]`；`app_touch` 另带 `edge`、`occurred_at`；`content_consumed` 另带 `content_id`、实际区间、消费前后位置、`completed` 与可空 `push_id`，不含内容分类。三种推送事实另带 `push_id`、`content_id`、`session_id`、`occurred_at`。
 
 清单逐项写文件路径、行数与摘要，`frozen_run_manifest` 保留五字段 `environment_identity`；完整实验导出另带
 最终共同检查点。素材索引、素材字节、`quality.json` 与按人物日期生成的时间线是清单认证的辅助产物，
@@ -733,6 +697,8 @@ position_before, position_after, completed, push_id, source_event_id}`；三种�
 唯一正常结束、最终共同检查点、参与者快照及所有素材。
 只达到场景终点不代表完整；缺少最终共同检查点，或最终检查点之后仍有事件，都不能认定为完成。
 不完整导出只用于诊断，不能作为下游正式加工的认证输入。
+`validate_export` 在重算并逐行比对五个工件后，还逐条检查[足迹不变量](../dev/SPEC-action-and-content-simplification.md#spec-acs-足迹不变量)的七项约束；任一项不成立都以 `IntegrityError` 拒绝导出。
+
 
 
 <a name="recording-engine-导出认证"></a>
@@ -742,7 +708,6 @@ position_before, position_after, completed, push_id, source_event_id}`；三种�
 恢复与反事实分支保留父检查点和来源身份，使下游能够追溯材料来自哪段原始历史。
 认证只证明导出与固定截止的持久事实一致；样本标识、窗口正文展开与数据划分由 LabelKit-DataSet 定义。
 素材哈希与事件身份分别标识内容和发生记录，不能互相代替。
-
 
 <a name="recording-engine-质量报告"></a>
 ### 质量报告
@@ -756,7 +721,7 @@ position_before, position_after, completed, push_id, source_event_id}`；三种�
 
 
 `quality.json` 是同一批冻结事实的只读统计：动作结果计数、已记录活动与内容接触区间汇总（重复观看只计从头重看）、
-食品利用效率、工作主题累计、记忆来源检查、实际模型用量（含零点计划，按 `purpose` 分列：`model_usage.by_purpose` 逐项给出
+食品利用效率、分配内容消费与完成统计、记忆来源检查、实际模型用量（含零点计划，按 `purpose` 分列：`model_usage.by_purpose` 逐项给出
 `purpose`、`request_events`、`provider_responses` 与 `token_usage`；人物决策中发出的请求不带 `purpose`，记为 `decision`，
 后台用途只有 `plan_day`）、冻结价格估算和实测加速比。
 `activities.known_elapsed_seconds` 是各活动自身时间之和；同人并行时另以共同身体结算区间并集报告
@@ -765,9 +730,9 @@ position_before, position_after, completed, push_id, source_event_id}`；三种�
 两份唤醒原因分列：`decision_rhythm` 另按人物与模拟秒统计 `decision_started` 的同刻轮数分布
 （`same_moment_round_counts`，键为同一人物同一秒的轮数，值为出现次数），并按 `decision_started.data.wake_reasons`
 统计轮次原因（`decision_started_wake_reason_counts`，闭集外成员计入
-`unrecognized_decision_started_wake_reason_counts`）；食品利用效率读取进食活动进度；`work_topics` 读取工作活动与主题完成证据。
-报告 `schema_version` 为 5；新增 `work_topics{topics, completed, worked_seconds_by_topic, reports}`，
-删除 `conversion_efficiency.work`，`model_usage.by_purpose` 不再有 `work_review`。此前 `schema_version` 4（版本 2 起 `decision_rhythm` 不再统计决策自述，删去 `decision_started_with_decision_statement` 与
+`unrecognized_decision_started_wake_reason_counts`）；食品利用效率读取实际 `goods_received` 效果；`work_topics` 读取分配内容的实际消费与完成证据。
+报告 `schema_version` 为 6。`conversion_efficiency.food` 按食品类 `goods_received` 的 `applied / provided` 加权，没有食品收货时原因为 `no_food_receipt`。`content_contact.by_app` 只计 `content_consumed`，`by_action` 计全部内容结算，不含 `by_kind`；`repeat_watch` 同时报告 `repeat_seconds_share`。现行 `work_topics{topics, completed, worked_seconds_by_topic, reports}` 读取分配内容，
+删除 `conversion_efficiency.work`，`model_usage.by_purpose` 不再有 `work_review`；`errand_metrics` 的提醒后行动只认受理的购买，完成证据只认 `goods_received`。此前 `schema_version` 4（版本 2 起 `decision_rhythm` 不再统计决策自述，删去 `decision_started_with_decision_statement` 与
 `decision_started_missing_decision_statement`，另以 `decision_budget_exhausted_events` 计 `decision_budget_exhausted` 事件数；
 版本 3 是[一日运行保真规格](../dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要)的新节，全部只报告不放行；版本 4 是
 [个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)的两个新节 `errand_metrics` 与 `conclusion_memories`，同样只报告）。
@@ -782,8 +747,7 @@ position_before, position_after, completed, push_id, source_event_id}`；三种�
 `usage.completion_tokens_details.reasoning_tokens` 之和 `reasoning_tokens`；某次截断缺少对应计数时该合计为 `null`，
 缺失次数记于 `responses_missing_output_tokens`、`responses_missing_reasoning_tokens`，不记为零，没有截断时两项合计为 0。
 宿主判定的截断回合另在该响应的 `error` 记协议错误串「OUTPUT_TRUNCATED: <英文说明>」。
-进食多样性也只取 `consume` 的 eat 正实际增量，按活动身份去重；购买请求、动作登记和未吃下的
-商品不计入进食次数或偏好证据。
+正餐多样性只取本人实际正餐收货，按真实订单收货证据去重；付款、在途与到站待领不算收到或吃过。
 记录引擎不重算身体或资源效果，不推断人物意图，不设置行为真实性或训练样本合格阈值；
 这些判断由对应规则、行为评估与数据交付负责。
 测不到的指标标记未知，不能填成零；价格估算不能称为供应商账单。
@@ -820,7 +784,7 @@ position_before, position_after, completed, push_id, source_event_id}`；三种�
 仍未完成：终态恰在零点不算，截止恰在零点算）、`visible_observation_count` 与 `expected_observation_count`（记下事件之后、终态事件之前
 ——没有终态到截止——本人各次观察中待办层含该事务名称的次数与同期观察数，二者应相等）、`reminded_errand_count`（至少有一条
 `errand_reminded` 的事务数）、`acted_after_reminder_count`（其中某次提醒之后、下一个本地零点与终态事件之前，本人有不是重放的
-`action_accepted` 且指向同一商品的事务数：受理结果顶层订单的商品（在途的也算）、进食请求的商品或制作配方的产出）、
+`action_accepted` 且指向同一商品的事务数：只读取受理结果顶层订单的商品，在途订单也算）、
 `completed_without_evidence_count`（`errand_completed` 事件缺证据引用，或引用的都不是本导出里更早、经 `errands.evidence_rows`
 给出同一所有人、结果种类与商品证据行的事件的条数；完整性计数，应恒为 0）。没有任何 `errand_registered` 事件时整组为 `null`，
 有事务时各计数没有命中记 0。`conclusion_memories` 统计收尾记忆：不是重放的 `conclude_activity` 请求（`action_requested`，不论之后
@@ -831,6 +795,7 @@ position_before, position_after, completed, push_id, source_event_id}`；三种�
 不计量；只报告，不放行。
 消费端先核对报告字节摘要，再从同批事件独立重算；报告存在或摘要正确本身不足以证明统计正确。
 性能分析使用可测量的模型用量、墙钟耗时、模拟时长、事件和素材统计，不把假设阈值当成实测结果。
+
 
 
 <a name="recording-engine-固定截止读取接口"></a>
@@ -846,7 +811,6 @@ position_before, position_after, completed, push_id, source_event_id}`；三种�
 | 固定截止读取 | `read_events(cutoff)` 只返回截止序号以内的事件，后续追加不改变该范围 |
 
 
-
 <a name="recording-engine-固定截止导出的实现差距"></a>
 ### 固定截止导出的实现差距
 
@@ -860,7 +824,6 @@ position_before, position_after, completed, push_id, source_event_id}`；三种�
 最小验证场景是保持同一截止，追加一条同日后续事件，确认导出时间线不变；
 再修改时间线文件，确认消费端拒收。
 
-
 <a name="recording-engine-固定截止导出的验收"></a>
 ### 固定截止导出的验收
 
@@ -868,6 +831,8 @@ position_before, position_after, completed, push_id, source_event_id}`；三种�
 | --- | --- | --- | --- |
 | 导出完整性与导出认证 | 导出以固定截止事件及该事件当时的状态为唯一输入，产物按 本文「持久化结构」落定；完成标志、运行与覆盖身份、主文件哈希与行数、事件全序与因果引用、唯一结束、最终共同检查点全数通过后才可进入正式交付；导出保留原始事件身份与来源位置 | `tests/footprints/test_validation.py` 的 `test_production_windows_require_and_accept_complete_authenticated_export`、`test_incomplete_or_tampered_export_never_reaches_labelkit`；`tests/footprints/test_export.py` 的 `test_export_writes_hash_bound_timeline_projections` | 保留要求，本次未复跑 |
 | 质量报告的确定性与未知口径 | 同一份认证输入逐字节确定；测不到的指标如实留作未知，不落成零；估算价格不得称为供应商账单；消费端先核对报告字节摘要，再顺同一批事件独立重算 | `tests/footprints/test_quality.py` 的 `test_quality_report_is_deterministic_for_the_same_authenticated_input`、`test_missing_measurements_remain_unknown_instead_of_becoming_zero`；`tests/footprints/test_validation.py` 的 `test_quality_report_requires_bytes_and_actual_event_recomputation` | 保留要求，本次未复跑 |
+| 足迹不变量 | app 行只来自带 app 的活动；同一人物手机区间不重叠；收货、账户、内容、推送与来源所有人满足七项约束，重签全部投影也不能掩盖伪造事实 | `tests/footprints/test_acs_export.py::test_real_export_rejects_corrupted_events_after_all_five_projections_and_hashes_agree`、`tests/footprints/test_acs_export.py::test_real_manners_pauses_navigation_and_no_app_export_pass_all_invariants` | 结论取本阶段回执 |
+| 收货行 | 每张已收货订单恰有一行 `receipt`；待领取没有收货行，模拟收货人和联系人各按真实来源归属 | `tests/footprints/test_acs_export.py::test_real_engine_current_five_artifacts_and_receipt_owner`、`tests/footprints/test_acs_export.py::test_real_station_export_keeps_purchase_payer_and_actual_recipient_notifications_and_receipt` | 结论取本阶段回执 |
 | 活动快照与开始地点 | 主动结束与暂停写活动快照，导出的活动与最终共同检查点逐项一致；出行活动的 `location_id` 为出发地，结算不改写，到达经历照常产生 | [时间与能量规格「验收台账」](../VERIFICATION.md#verification-incremental-evidence)的「绿色基线」「本机运行修复」行 | 已实现，证据见[时间与能量验收记录](../archive/time-and-energy/time-and-energy-verification.md) |
 
 
@@ -886,7 +851,6 @@ position_before, position_after, completed, push_id, source_event_id}`；三种�
 
 记录引擎提供事实查询、引用追踪与完整性检查，自身错误使用上述公共日志合同。
 持久事件与操作日志不能互相充当完成证据；已提交请求也不能证明活动完成或支付发生。
-
 
 <a name="recording-engine-调试工具"></a>
 ### 调试工具
@@ -923,18 +887,18 @@ python3 scripts/render_day.py runs/white-collar/footprints.sqlite --agent 0 --da
 否则以英文错误拒绝比较；可比时打印 `{arm, baseline}` 两份报告。只报告，不作门禁。
 `queries` 只读按运行给出[个人事务与工作安排规格](../VERIFICATION.md#errands-workday-度量与下游-查询成本只报告) 6.3 的查询成本，以 JSON 打印
 `{run_id, calls, failures, returned_chars, filtered_calls, empty_after_filter, model_calls_to_purchase, reflection_retries}`：查询调用数、
-失败数、返回字符数、带筛选（`from` 或 `available_only`）的调用数、筛选后为空的次数、从首次查询到购买结算的模型调用数，以及反思校验
+失败数、返回字符数、带筛选（`app` 或 `available_only`）的调用数、筛选后为空的次数、从首次查询到购买结算的模型调用数，以及反思校验
 重试次数（工具只有 `submit_reflection` 且带附回消息的模型请求数）。口径取已落库的模型工具交换证据（`model_request`、`model_response`）：
 调用是 `phase=response` 的 `model_response` 里名为 `query_world` 的工具调用；同一决策其后最先带同一调用身份的 tool 消息是解析为含
 `matches` 的 JSON 对象的结果页时算成功，整批被拒（tool 消息是协议纠错）或从未得到回答算失败；返回字符数只计成功调用结果页的正文；
-带筛选指 `from` 不为 null 或 `available_only` 为 true（旧四键调用不算），筛选后为空指其中成功且 `total_count` 为 0 的；
+带筛选指 `app` 不为 null 或 `available_only` 为 true（旧四键调用不算），筛选后为空指其中成功且 `total_count` 为 0 的；
 `model_calls_to_purchase` 取全运行第一个查询调用的人物与产生它的请求，计该人物从这一请求（含）到其后第一笔购买结算的
 `action_result`（不含）之间开放 `start_activity` 的模型请求（含协议纠错与截断重试），没有查询或其后没有该人物的购买时为 `null`；
 反思校验重试按消息多于原始两条识别。决策 token 用量取质量报告既有的模型用量分组，协议错误取 `continuation` 报告，对照运行同时报告，
 本子命令不另设这些键；降低返回量不能以购买失败为代价。只报告，不作门禁。
 日程工具读取已发生事件，`--out DIR` 将投影写入 `DIR/timeline/<agent>-<date>.md`，不把输出目录再写成 `DIR/timeline`。
-时间线名称索引恰含 `foods`、`locations`、`messages`、`apps`、`contents`、`work_topics`、`people`；
-媒体行写“用<app>看《title》”，工作行写工作主题，出行行显示实际起点、终点和路径名称。缺名时只写中文活动种类，
+时间线名称索引取实际商品、动作、地点、消息、app、内容与人物；
+内容行写真实动作、所选 app 和标题，无 app 不写用手机，工作行写实际内容标题，出行行显示实际起点、终点和路径名称。缺名时只写中文活动种类，
 不写英文种类名、内部标识或其片段。`name_index` 与 `day_rows` 接受已排序事件，质量报告使用同一投影检查标签。
 中文时间线用于阅读，英文日志用于故障定位；投影不能充当人物当时的观察。
 运行查看器 `tools/run-viewer.html` 在浏览器本地只读解析拖入或选择的 `footprints.sqlite`；同一 run 目录的 `manifest.json`（运行清单，或
@@ -948,9 +912,9 @@ python3 scripts/render_day.py runs/white-collar/footprints.sqlite --agent 0 --da
 只显示中文说法。查看器里 `query_world` 请求的显示分支在
 真实运行下不可达（只读查询不登记为世界动作），不计入本特性的验收。
 
-最终标签表包含 `use_app`“用手机”、方式“打开”、`app_push`“app 推送”和
-`work_topic_completed`“工作主题完成”，不保留已退役的浏览、观看、游戏、工作评审或任务截止标签。
-唤醒标签闭集为 22 项，原生工具标签为 11 项；实际 Node 用例和导出重算结果另由阶段 7 回执登记。
+最终标签表包含 `action`“动作”、方式“进行”及“领取”、`app_push`“app 推送”、
+`work_content_completed`“工作内容完成”和 `alarm_ring`“闹钟响铃”。唤醒与原生工具标签与当前生产闭集一致，
+查看器只投影认证事实，实际 Node 与导出重算分别验收。
 
 
 
@@ -969,7 +933,6 @@ flowchart LR
 诊断报告记录缺失、素材损坏、引用断开、版本不一致或资金无法对账等事实。
 停滞判定、重试、重启和监控告警属于运行管理，领域状态是否合理属于对应规则与行为评估。
 
-
 <a name="recording-engine-人物事件查询接口"></a>
 ### 人物事件查询接口
 
@@ -983,12 +946,10 @@ flowchart LR
 | 查询当前状态 | 返回已提交的世界副本与最后事件序号；不能将内存中尚未提交的状态对外宣称为事实 |
 
 
-
 <a name="recording-engine-运行查询与诊断的实现差距"></a>
 ### 运行查询与诊断的实现差距
 
 本主题当前没有未闭合的实现差距：身体浏览已按当前身体模型读取 `body.values` 与 `body.levels`，见[调试工具](05-recording-engine.md#recording-engine-调试工具)。
-
 
 <a name="recording-engine-运行查询与诊断的验收"></a>
 ### 运行查询与诊断的验收
@@ -996,8 +957,6 @@ flowchart LR
 | 要求 | 必须通过的观察 | 证据位置 | 本次核验状态 |
 | --- | --- | --- | --- |
 | 只读状态查询 | 只读呈现已确认的模拟时间、运行阶段、人物活动与模型调用统计，且不向运行目录落任何写操作 | `tests/footprints/test_status.py` 的 `test_status_reads_confirmed_state_without_modifying_any_run_file` | 保留要求，本次未复跑 |
-
-
 
 
 <a name="design-recording-engine-current-responsibility"></a>
@@ -1010,7 +969,6 @@ flowchart LR
     EXPORT[时间线导出编排] --> LABELS[timeline_labels 时间线加载与呈现]
 ```
 分支恢复由 checkpoint 编排，store 只承担存取；时间线渲染加载由 timeline_labels 承担，不回调上层导出入口。事件、检查点、运行身份、排序、提交边界和恢复失败语义保持本章冻结合同。完整自然日基线比较包含因果引用与导出正文，代码身份和壁钟差异只按验收规格明列的范围规范化。
-
 
 <a name="recording-engine-版本表"></a>
 ## 版本表

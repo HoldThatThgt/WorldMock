@@ -47,7 +47,6 @@ flowchart LR
 不增加另一套模拟、播放、账本或记忆检索框架。旧单活动槽和被替换的记忆权威合同直接删除，
 旧快照拒绝，不保留兼容字段、迁移或回退路径。
 
-
 <a name="spec-dayrun-behavior-等待与内容接触"></a>
 ## 等待与内容接触
 
@@ -146,7 +145,6 @@ flowchart LR
   途中结束出行时，路上开始的活动同样记 `route_ended` 并成为待收尾。到达不重置全局内容进度。
   同时结束各自留证，在一轮内一并收尾。实验截止分别截断所有未结束活动，截断不是完成。
 
-
 <a name="spec-dayrun-behavior-共同时间与身体结算"></a>
 ### 共同时间与身体结算
 
@@ -171,7 +169,6 @@ flowchart LR
   只记录自身进度、activity_efficiency 与内容接触；不复制身体账，不把联合代谢成本任意归给某条活动。
   社交账的清醒判定与共同秒数取本区间共同身体结算的 `activity_ids`，不在推进后重新推断。
 - 所有进度都参与当日目标匹配；每个目标和活动仍遵守原来的首次推进、一次情绪脉冲规则。
-
 
 
 <a name="spec-dayrun-behavior-餐馆的实际进食路径"></a>
@@ -206,15 +203,15 @@ flowchart LR
 | 经历 | 来源与内容 |
 | --- | --- |
 | `waited` | 等待活动的真实正时长区间；没有已核验原因时为空 |
-| `consumed` | 食品的实际增量、地点、份数和区间；累计量不能冒充区间增量 |
+| `received` | 本人的 `goods_received`，含订单、商品、类别与件数；付款或到站不能冒充收货 |
 | `arrived` | 出行活动按 `trip_id`、实际路径和到达结算生成的地点事实 |
-| `played` | `use_app` 的真实内容增量，含 `content_id`、`app_id`、前后位置；目录展示或只打开 app 不算消费 |
+| `played` | 任一 `action` 活动的真实内容增量，含 `content_id`、可空 `app_id` 与前后位置；目录展示或零秒活动不算消费 |
 
-离线导出另生成 `app-usage.jsonl`。每行以 `fact_kind` 区分 `app_use`、`content_consumed`、
-`push_delivered`、`push_opened`、`push_released`；打开由首次带 `pinned_by_push_id` 的真实 app 活动证明，
-释放由内容完成和对应 session 的推送状态证明。没有合格 app 的 `pushed: false` 系统结算不生成手机事实。
-离线投影不生成目录浏览或游戏事实。重复读取、暂停恢复与检查点分支保持幂等，畸形结算字段拒绝而不猜测。
-
+离线导出另生成 `app-usage.jsonl`。每行以 `fact_kind` 区分 `app_use`、`app_touch`、`content_consumed`、
+`push_delivered`、`push_opened`、`push_released`。`phone_continuous` 与 `other_device` 生成使用区间和逐条内容消费；
+`offline_assisted` 只在动作开始与实际结束生成触点；没有 app 的动作不生成 app 行。打开推送由匹配动作与 app、带
+`pinned_by_push_id` 的真实活动证明，释放由内容完成和对应 session 状态证明。手机信号投影归 LabelKit-DataSet，
+只从认证的 `app-usage.jsonl` 与 `purchases.jsonl` 逐行加工。重复读取、暂停恢复与检查点分支保持幂等，畸形结算字段拒绝而不猜测。
 
 <a name="spec-dayrun-behavior-主观记忆与巩固"></a>
 ### 主观记忆与巩固
@@ -228,7 +225,7 @@ flowchart LR
 - relationship、preference 两类必须带 `subject`，其他类型的 `subject` 为 `null`；relationship 的 `subject` 须是已知人物。
   这两类只在人设层按对象原地更新（同一对象取事件顺序最后一条，存储仍只追加），不进记忆层；`subject` 写入 AS2 前去掉。
 - 已核验经历、人物自述在实际提示（记忆层的 `settled` 与 `self_notes` 分列）、检索、长期记忆和导出中明确分开。
-  自由主观文字可能包含错误认识，永远不能成为完成事实、结构化经历或客观指标的依据，也不能改变任何世界事实（余额、库存、身体、订单与验收）。
+  自由主观文字可能包含错误认识，永远不能成为完成事实、结构化经历或客观指标的依据，也不能改变任何世界事实（余额、身体、订单、内容进度与验收）。
   当日目标、活动自述与个人事务的文字是人物记下的打算，随人物状态保存、只用于呈现，不是世界事实：个人事务办没办成只由环境按结算证据写入，
   文字不参与结算与完成判定（个人事务与工作安排规格 2.1，个人事务随该规格阶段 2 落地）。
   不使用正则、提示词或另一模型假装能证明任意自由文字属实。
@@ -251,7 +248,6 @@ flowchart LR
   任何写盘失败不能报告成功更新；恢复保留事实、自述和来源身份的区别。
   更新证据区分新增与合并，合法合并旧身份不得被质量检查误报重复；空输入且视图未改变可不写
   memory_updated，视图或反思实际改变时必须写证据。
-
 
 
 <a name="spec-dayrun-behavior-持续活动与必要唤醒"></a>
@@ -299,7 +295,6 @@ flowchart LR
   持续活动不因此结束、暂停或重排，起止不写事件。运行第一秒恰在起止上时只记 `run_start`。
 - 威胁交付状态与身体时刻随共同检查点保存，恢复不重扣区间、不重复同一持续预警。
 
-
 <a name="spec-dayrun-behavior-实现顺序与完整验收"></a>
 ## 实现顺序与完整验收
 
@@ -321,7 +316,6 @@ flowchart LR
 审查出现存活突变时补齐行为测试，再原样复验；不得删除要求、放宽测试或把未实现内容标为后续。
 文件清单、逐条实现映射、命令与收据维护在[实施台账](research/dayrun-behavior/verification.md)中；
 新旧文档双向审查必须通过。
-
 
 <a name="spec-dayrun-behavior-版本表"></a>
 ## 版本表

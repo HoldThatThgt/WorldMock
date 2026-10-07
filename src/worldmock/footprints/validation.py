@@ -20,6 +20,7 @@ from worldmock.footprints.models import AssetRef, Checkpoint, Event, canonical_j
 from worldmock.footprints.app_usage import project_app_usage
 from worldmock.footprints.purchases import project_purchase_facts
 from worldmock.footprints.quality import build_quality_report
+from worldmock.footprints.invariants import validate_footprint_facts
 
 
 def validate_export(directory: Path) -> tuple[dict, list[dict], list[dict]]:
@@ -49,6 +50,7 @@ def validate_export(directory: Path) -> tuple[dict, list[dict], list[dict]]:
     if project_app_usage(events) != app_usage:
         logging.error("Export app usage facts disagree with committed events")
         raise IntegrityError("Export app usage facts disagree with committed events")
+    validate_footprint_facts(events, activities, purchases, app_usage, checkpoint.state)
     _validate_quality(root, manifest, records, activities)
     return manifest, events, activities
 
@@ -70,7 +72,7 @@ def _validate_quality(root: Path, manifest: dict, events: list[Event], activitie
 
 def _validate_identity(manifest: dict) -> None:
     """@brief 冻结运行、覆盖范围和提交状态必须与正式清单相符。"""
-    if manifest.get("schema_version") != 3 or manifest.get("committed") is not True:
+    if manifest.get("schema_version") != 4 or manifest.get("committed") is not True:
         raise IntegrityError("Export manifest is not a committed supported version")
     if manifest.get("experiment_completed") is not True:
         raise IntegrityError("Production delivery requires a completed experiment")
@@ -191,7 +193,12 @@ def _validate_run_identity(frozen: dict) -> None:
     """@brief 在读取工件和启动下游前验证当前运行清单及五字段环境身份。"""
     identity = frozen.get("environment_identity")
     fields = {"environment_id", "environment_version", "rules_version", "catalog_content_sha256", "map_sha256"}
-    valid = frozen.get("schema_version") == 3 and isinstance(identity, dict) and set(identity) == fields
+    valid = frozen.get("schema_version") == 4 and isinstance(identity, dict) and set(identity) == fields
+    assignments = frozen.get("work_content_ids")
+    valid = (valid and isinstance(assignments, dict)
+             and set(assignments) == {str(agent) for agent in frozen["agent_ids"]}
+             and all(isinstance(contents, list) and all(isinstance(value, str) and value for value in contents)
+                     and len(contents) == len(set(contents)) for contents in assignments.values()))
     if valid:
         valid = (all(isinstance(identity[key], str) and identity[key].strip()
                      for key in ("environment_id", "environment_version"))

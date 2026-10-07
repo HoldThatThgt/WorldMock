@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 from worldmock.errors import IntegrityError
 from worldmock.footprints.assets import atomic_write
-from worldmock.footprints.app_usage import activity_snapshots, project_app_usage
+from worldmock.footprints.app_usage import activity_snapshots, append_activity_segment, project_app_usage
 from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.footprints.models import Event, canonical_json
 from worldmock.footprints.purchases import project_purchase_facts
@@ -94,7 +94,7 @@ def _verified_experience_rows(agent_ids: list[int], events: list[Event]) -> list
     rows = [fact for agent_id in sorted(int(item) for item in agent_ids)
             for fact in project_verified_experiences(events, agent_id=agent_id, cutoff_seq=cutoff)]
     return sorted(rows, key=lambda item: (item["event_seq"], item["agent_id"], item["kind"],
-                                          item.get("food_id", "")))
+                                          item.get("goods_id", "")))
 
 
 def _write_timeline_projections(store: FootprintStore, stage: Path,
@@ -134,8 +134,8 @@ def _export_identity(run: dict, events: list[Event]) -> dict:
              and events[-1].event_type == "checkpoint_created" and events[-1].event_seq > ended[0].event_seq)
     failed = any(event.event_type == "run_failed" for event in events)
     complete = end.timestamp() == run["window"]["end"] and saved and not failed
-    return {"schema_version": 3, "committed": True, "run_id": run["run_id"],
-            "source_group_id": run.get("source_group_id", run["run_id"]),
+    return {"schema_version": 4, "committed": True, "run_id": run["run_id"],
+            "source_group_id": run["source_group_id"],
             "source_run_ids": sorted({event.run_id for event in events}),
             "cutoff_event_seq": events[-1].event_seq, "experiment_completed": complete,
             "window": {"start": start.isoformat(), "end": end.isoformat(), "timezone": zone.key},
@@ -163,14 +163,8 @@ def reconstruct_activities(events: list[Event]) -> list[dict]:
 
 
 def _append_segment(segments: list[dict], event: Event) -> None:
-    """@brief 合并连续已执行区间，拒绝时间重叠与未来进度。"""
-    start, end = event.data["interval_start"], event.data["interval_end"]
-    if end <= start or end > event.occurred_at or (segments and start < segments[-1]["ended_at"]):
-        raise IntegrityError("Activity progress interval is invalid")
-    if segments and start == segments[-1]["ended_at"]:
-        segments[-1]["ended_at"] = end
-    else:
-        segments.append({"started_at": start, "ended_at": end})
+    """@brief 与 app 导出使用同一真实区间合并算法。"""
+    append_activity_segment(segments, event.model_dump(mode="json"))
 
 
 def _activity_record(snapshot: dict, segments: list[dict], sources: list[str]) -> dict:

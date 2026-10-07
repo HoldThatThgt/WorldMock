@@ -47,7 +47,6 @@
 类别、使用方式、效果与供给表由系统固定，内容标题与摘要来自目录。历史模型运行和导出不改写，也不证明当前版本的新运行。
 
 
-
 <a name="experiment-时间窗与日历情境"></a>
 ## 时间窗与日历情境
 
@@ -70,7 +69,6 @@ timeline
 
 日历情境只改变机会与约束，不保证人物执行；春节情境同样只改变机会与约束。
 
-
 <a name="experiment-依赖冻结"></a>
 ## 依赖冻结
 
@@ -81,7 +79,6 @@ timeline
 | --- | --- | --- |
 | 人物生成模型 | DeepSeek 官方 OpenAI-compatible 端点，`deepseek-flash` | 保存实际返回模型名、fingerprint、请求参数和 token 使用 |
 | 模型冻结 | - | 固定端点、角色、提示（系统层与七层模板）、Pydantic 基础工具合同和模型参数；原生工具定义整次运行不变（只剩最后一个回合时与输出截断后的那次重试时去掉全部只读查询工具），不逐轮绑定名称枚举，本轮可选的目标与动作只在工具层列出；运行中不切换模型或代选行动 |
-
 
 <a name="experiment-交互菜单与运行身份"></a>
 ### 交互菜单与运行身份
@@ -159,7 +156,6 @@ timeline
 | Ray | 2.55.1 | 取自 AS2 上游提交所锁定的版本 |
 | 新增依赖 | - | 由 WorldMock 锁文件统一锁定 |
 
-
 <a name="experiment-自定义模块位置"></a>
 ### 自定义模块位置
 
@@ -170,8 +166,6 @@ timeline
 | WorldMock 记忆业务扩展 | `src/worldmock/agents/life_memory.py` 及同目录存储扩展 |
 | AS2 环境 actor 与代理扩展（只读查询转发） | `src/worldmock/life/read_query_runtime.py` |
 | 运行目录 | 项目 `runs/` 下 |
-
-
 
 <a name="experiment-运行绑定与消费"></a>
 ## 运行绑定与消费
@@ -196,7 +190,6 @@ flowchart LR
     Export --> LabelKit
 ```
 
-
 <a name="experiment-命令入口"></a>
 ### 命令入口
 
@@ -205,20 +198,16 @@ flowchart LR
 环境由 WorldMock-Dataset 发布，数据采集和制作按数据仓工具说明执行。
 本次实验使用 `validate`、`run`、`resume`、`replay`、`status`、`export`、`evaluate`：正式窗口由 `run` 从 `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/single-person.json` 新建运行目录并执行到场景终点，`export` 的固定截止完整导出是与 LabelKit-DataSet 的交接边界，`replay` 产生的反事实分支必须保留来源，`evaluate` 的结果与基线数据对照后交付。
 
-
 <a name="experiment-运行目录约定"></a>
 ### 运行目录约定
 
 每次运行在项目 `runs/` 下独占一个运行目录，既有运行目录不得被覆盖；正式窗口运行与反事实分支运行各自独占一个运行目录。运行目录的内容清单见 `docs/design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎`「持久化结构」。
-
 
 <a name="experiment-数据加工归属"></a>
 ### 数据加工归属
 
 完整认证导出交给 LabelKit-DataSet；任务输入、模型配置、训练数据格式、加载器与规则测试数据由该仓库维护。
 WorldMock 不声明这些下游依赖，也不安装或调用 LabelKit。来源快照已交接并核对摘要，新消费验收仍待所属仓库完成。
-
-
 
 <a name="experiment-场景参数"></a>
 ## 场景参数
@@ -242,7 +231,6 @@ WorldMock 不声明这些下游依赖，也不安装或调用 LabelKit。来源�
 
 体重、初始能量和睡眠债为场景初值；上限、基础耗能与身体演化常数来自 `worldmock.exchange.body.BODY_CONSTANTS`，来源为 `worldmock:<RULES_VERSION>`，环境不能覆盖。
 
-
 <a name="experiment-两过程睡眠"></a>
 ### 两过程睡眠
 
@@ -257,7 +245,6 @@ WorldMock 不声明这些下游依赖，也不安装或调用 LabelKit。来源�
 | `sleep_deficit_hours` 睡眠恢复率 | 1.0 | hours/hour | - |
 | `sleep_deficit_hours` 下限 | 0 | hours | - |
 | `sleep_deficit_hours` 上限 | 24 | hours | - |
-
 
 <a name="experiment-效率曲线"></a>
 ### 效率曲线
@@ -351,7 +338,6 @@ WorldMock 不声明这些下游依赖，也不安装或调用 LabelKit。来源�
 **与轮转断言的关系**：最大未呈现间隔的闭式上界写作 `⌈N ÷ k⌉ ÷ D`，按检索分区成立（`N`、`k` 取该分区自己的池规模与换新名额），其中 `D` 取本节的实测区间而非单一估计值；池只在人物身处该地点时可达时，有效决策点按 `D × 可达率` 折算。判据与失败口径见 `docs/VERIFICATION.md#verification-worldmock-验收标准`「工程门禁」。同一秒各轮沿用该秒首轮的呈现窗口（`docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动` 第一章），轮转上界中的有效决策点按有 `decision_started` 的不同模拟秒计；同刻轮次出现前两种计法相同。
 
 
-
 <a name="experiment-内容与语料绑定"></a>
 ## 内容与语料绑定
 
@@ -385,7 +371,6 @@ WorldMock 不声明这些下游依赖，也不安装或调用 LabelKit。来源�
 规则文件只从包读取，环境没有副本；规则变化升 `RULES_VERSION`，对象或图变化发布新环境版本，旧运行和历史输入字节不重写。
 
 
-
 <a name="experiment-基线数据参照"></a>
 ## 基线数据参照
 
@@ -396,7 +381,6 @@ WorldMock 不声明这些下游依赖，也不安装或调用 LabelKit。来源�
 | 基线数据来源 | Dataset-Person 的 `archive/white-collar-12-weeks-deepseek16-glm52/repaired/` |
 | 基线数据验证 | 原 manifest、修复报告和最终审计共同验证 |
 | 基线数据身份 | run `ec5742eff472d320dac4f98c6d1fd478`；main 4,380 行、stream 16,320 行、84 个自然日 |
-
 
 <a name="experiment-实验假设声明"></a>
 ## 实验假设声明
@@ -457,7 +441,6 @@ WorldMock 不声明这些下游依赖，也不安装或调用 LabelKit。来源�
 个人事务、收尾记忆、工作负荷、作息偏离与查询成本只按冻结报告口径统计，不追加数值门槛，配对全天复跑只报告。
 
 最后的验收对象包括 AS2、LifeEnv、完整数据生产及真实性评估。外部参照的人群适用性、模型自身选择与来源数据的局限都要如实交代，不得掩盖缺失的实现。
-
 
 <a name="experiment-版本表"></a>
 ## 版本表

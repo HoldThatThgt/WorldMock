@@ -47,7 +47,6 @@ Linux ARM64/aarch64 的锁定组合安装失败不能按可选部件缺失跳过
 环境根只有 `catalog/` 与 `scenarios/`，不读取语料或比对规则副本。
 
 
-
 <a name="contracts-环境数据归属合同"></a>
 ## 环境数据归属合同
 
@@ -105,7 +104,6 @@ WorldMock-Dataset 发布 app、地点、商品、动作、内容、图与绑定�
 | `close` | `()` | 关闭数据库等资源，保留运行终态与未完成活动 |
 
 AS2 的环境扫描要求自定义环境类直接定义在 `custom/envs/*.py`；`LifeEnv` 在该文件定义，业务逻辑导入普通模块。正式实例通过现有 AS2 环境参数传入场景路径；`init` 缺少场景时明确失败，不生成默认世界继续运行。无参检查只用于注册与工具 Schema 发现，运行测试必须传入真实场景参数。
-
 
 <a name="contracts-person-tools"></a>
 ### 人物工具与管理接口
@@ -328,7 +326,6 @@ flowchart LR
 
 用餐目标只由本人作为收货人的 `meal` 类 `goods_received` 推进。收货秒不早于目标登记、在当日内；带 around_time 时落在前后 GOAL_TIME_TOLERANCE_SECONDS 的既有容差内。一次收货推进清单里第一条未推进用餐目标，一张订单当日只推进一个目标；零食、饮品、非食品、别人或联系人收货不推进。PlanGoal 增加 progress_order_id，目标已推进时它与 progress_activity_id 恰有一个非空。系统不合成用餐活动。
 
-
 <a name="contracts-day-plan-template"></a>
 ### 当日目标的配置与质量输出
 场景沿用 `reconsideration_interval_seconds`（默认 5400 秒），并增加
@@ -350,7 +347,6 @@ flowchart LR
 `deliberate_goals` 和 `gates.external_constraint_block_count`；
 字段、错误码闭集、分母、缺证据规则的唯一统计合同见
 [度量输出合同](dev/SPEC-day-plan-goals.md#spec-day-plan-goals-度量输出合同)，门禁地位见 [验证文档](VERIFICATION.md#verification-worldmock-验收标准)。
-
 
 <a name="contracts-个人事务"></a>
 ### 个人事务
@@ -610,7 +606,6 @@ flowchart LR
 
 控制请求采用 items 与 errands，原先平行数组与缺 errands 的记录拒绝。report_status、pause_activity 每项写 activity_name 与 summary；conclude_activity 另写 memories 与 views。点名恢复暂停活动时，先检查原地点、原内容仍合格，再检查名额和占用。自述只写进度注记，不改变实际内容秒数或完成轮数。
 
-
 <a name="contracts-action-results"></a>
 ### 动作状态与动作结果
 ```python
@@ -637,7 +632,6 @@ ActionStatus = Literal[
 工作就是实际消费分配内容：首次完成写本人 `work_content_completed{kind, content_id}`，公开记录 `work_completed{topic}` 的 topic 是真实内容标题。模型播报只写注记，不改变位置或轮数。
 
 收货相关 action_result.data.orders[] 保存 DeliveryState 的完整 JSON；given、discarded、inventory_changes 与进食结果已删除，商品效果只由 goods_received 留证。
-
 
 <a name="contracts-领域枚举"></a>
 ### 领域枚举
@@ -683,8 +677,6 @@ WorldMock 生成图，Dataset 发布图并刷新清单身份。登记校验节�
 
 
 
-
-
 <a name="contracts-环境目录与绑定"></a>
 ## 环境目录与绑定
 
@@ -705,7 +697,6 @@ WorldMock 生成图，Dataset 发布图并刷新清单身份。登记校验节�
 
 
 
-
 <a name="contracts-地点发现与购买身份"></a>
 ### 地点发现与购买身份
 
@@ -722,14 +713,12 @@ WorldMock 生成图，Dataset 发布图并刷新清单身份。登记校验节�
 
 私有菜单行保存 `store_id`、`goods_id`、`category`、固定 `price_fen`、`app_ids` 与图上配送等待。购买没有配对状态、系数或报价版本。
 
-
 <a name="contracts-持久化当下事实"></a>
 ### 持久化当下事实
 
 持久状态只保存真实当前事实：订单及付款和收货时刻、内容的共享进度、选中的活动内容、当前与历史 session 的推送、实际邮件与消息、驾驶天数和闹钟。候选、预留集合、内容选择次序和工具可用性从这些事实与冻结目录派生，不保存副本。
 
 每个人的 `content_progress` 以内容为键，跨 app 共享。记录恰含 `content_id`、`position_seconds`、`completed_rounds`、必填的 `last_consumed_at`；只有正秒消费才创建或更新，推送、展示和零秒暂停不算看过。完成时位置归零、轮数加一，活动 `played` 追加实际消费区间，并释放当前 session 指向该内容的全部推送。
-
 
 
 <a name="contracts-供给结算与事件载荷"></a>
@@ -832,7 +821,6 @@ guaranteeing: (肯定|一定|绝对|保证|保准|准保)(能|来得及|赶得�
 | `taking_over` | 揽下了对方的活或替对方分了工 |
 | `guaranteeing` | 替结果打了包票 |
 
-
 <a name="contracts-social-errors"></a>
 ### 社交拒绝错误码
 | 错误码 | 触发条件 |
@@ -850,7 +838,6 @@ guaranteeing: (肯定|一定|绝对|保证|保准|准保)(能|来得及|赶得�
 条件未满足或占用冲突的动作标 `available=false`，以 `reason` 写一句可读原因（与选了之后的拒绝原因一字不差）。
 业务拒绝（含 `RESOURCE_CONFLICT`）后按[时间与能量规格](dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动-规则)第一章
 在同一秒再决策，受 `max_same_moment_decisions` 约束。
-
 
 
 <a name="contracts-观察投影字段"></a>
@@ -1064,7 +1051,6 @@ flowchart LR
 `same_moment_note`、`drive_summary`、`experiences`、`progress.sessions`、`current_epoch`，以及任务的 `new_material_chars`、`required_skill`、
 `minimum_skill`。同刻上一轮的结果在进度层该调用的结果中（同一秒续接时随 tool 消息返回），受限只由工具层 `available`、`reason` 表达。
 
-
 <a name="contracts-工具交互公开投影"></a>
 ### 工具交互公开投影
 
@@ -1091,7 +1077,6 @@ fix 为 `Correct all listed arguments before submitting the query again.`。
 宿主整批纠错的 fix 为 `Correct all reported errors and resubmit the entire batch.`，路径绑定真实调用下标。
 方式与品类的 allowed_values 来自公开 callable_index，offset 范围在合法筛选后计算；合法无匹配返回空页，不自动放宽。
 全部查询只保存真实模型工具交换，不登记进度事件或活动；邮件正文到达时在进度层仅出现一次。
-
 
 <a name="contracts-seven-layer-schema"></a>
 ### 七层 Schema
@@ -1138,7 +1123,6 @@ Schema 固定的闭集与格式：
 
 动作 Schema 使用 `targets[].kind=action`，逐项方式包含必填可空 app；app_push 保留动作与完整摘要，details.content 为封闭六字段 action、app、title、summary、duration、pushed。本人分配内容完成投影为 work_content_completed，工作播报注记使用 last_report。
 
-
 <a name="contracts-活动控制行"></a>
 ### 活动控制行
 
@@ -1177,7 +1161,6 @@ WorldState.activities 是唯一活动事实源；人物另外持久保存 body_s
 单项动作仍引用它自己的 activity_id。组合请求只在全部子活动终结后产生一次动作聚合终态，
 各子活动此前的完成或取消留在自身 activity_progress；完整聚合规则见特性规格。
 
-
 <a name="contracts-体感与动机证据"></a>
 ### 体感与动机证据
 
@@ -1186,7 +1169,6 @@ WorldState.activities 是唯一活动事实源；人物另外持久保存 body_s
 
 
 食品目标显示类别与固定每份热量，正餐候选以 `category=meal` 判定；画像散文不产生候选数值权重。食品利用效率从 `BODY_CONSTANTS.food_efficiency_curve` 读取，足迹保存收货的 provided、applied 与 efficiency；食品效率在收货当秒取值。
-
 
 <a name="contracts-可见期与提示预算"></a>
 ### 可见期与提示预算
@@ -1213,14 +1195,12 @@ WorldState.activities 是唯一活动事实源；人物另外持久保存 body_s
 
 `app_push` 是未受保护的进度记录，仍按同一预算折叠；记录保留完整摘要，不截成 20 字符。推送送达和实际打开、内容推进分别留证，通知本身不算已消费。
 
-
 <a name="contracts-候选与呈现合同"></a>
 ### 候选与呈现合同
 
 候选管线只处理商品；动作完整声明按登记名称稳定列出，人物、地点与活动依据真实世界状态加入工具层。商品候选使用 goods_id 身份，同商品在多个门店共享一个目标，不按门店扩展为多个购买对象。候选生成、资格、排序、轮转和 last_presented_at 保持原有确定性边界；公开查询的完整集合独立于当前呈现窗口。
 
 商品可用性由现场门店或人物所选购物 app 的真实门店绑定决定；动作按类别、方式、内容、分配、地点和占用决定。不读库存、营业或资格声明，不以画像散文裁掉真实可行选项。动作与 app 不进入商品候选轮转。
-
 
 <a name="contracts-候选对象与来源"></a>
 ### 候选对象与来源
@@ -1229,12 +1209,10 @@ WorldState.activities 是唯一活动事实源；人物另外持久保存 body_s
 
 商品可用性由现场门店或人物所选购物 app 的真实门店绑定决定；动作按类别、方式、内容、分配、地点和占用决定。不读库存、营业或资格声明，不以画像散文裁掉真实可行选项。动作与 app 不进入商品候选轮转。
 
-
 <a name="contracts-排除原因码"></a>
 ### 排除原因码
 
 商品候选的窗口与排序排除记录保持英文原因码、人物与对象身份及确定性来源；不把展示遗漏当作永久不可调用。目录动作完整声明，不再生成生活活动窗口或地点类排除；地点和内容前置条件由工具行 available/reason 与受理共同判定。商品没有营业、库存或下架排除，人物偏好只影响选择，不创建世界事实。
-
 
 <a name="contracts-排序键与游标"></a>
 ### 排序键与游标
@@ -1248,24 +1226,20 @@ WorldState.activities 是唯一活动事实源；人物另外持久保存 body_s
 
 游标身份由（冻结目录摘要、世界状态版本、`order_key_version`、游标）四项决定。游标只承载上一页最后一条的完整排序键，不承载轮转偏移。
 
-
 <a name="contracts-下推返回体"></a>
 ### 下推返回体
 
 返回真实商品身份、公开类别、固定价格及实际可用购买 app；工具层把同一商品的多个门店供给合并成一个目标，每个 app 的行仍独立判定。下推游标与商品候选呈现、轮转同源，不能改变完整查询集合。动作、导航与支付 app 的真实登记名称从目录直接投影。
-
 
 <a name="contracts-场景常量"></a>
 ### 场景常量
 
 候选常量只约束商品呈现窗口、排序与轮转；食品热量、商品效果、动作类别 MET、娱乐与社交缓解、每单配送费和驾车补充规则归系统常数。环境只维护真实商品、动作、内容、app、地点与人物声明，不提供改变执行规则的权重或回退配置。
 
-
 <a name="contracts-派生量字段"></a>
 ### 派生量字段
 
 presentation_state 保存人物与商品身份的 last_presented_at（UTC epoch 秒）。同商品使用 goods_id，不含门店身份；动作不参与候选轮转。世界状态保存真实 content_progress 和活动游标；派生展示只读这些状态，不写新的消费、完成轮数或随机抽取。
-
 
 <a name="contracts-地点类词表"></a>
 ### 地点类词表
@@ -1281,7 +1255,6 @@ LocationKind 包含 home、office、park、fitness、restaurant、cafe、conveni
 | `restaurant`、`cafe`、`convenience_store`、`supermarket` | `venue` |
 
 地点只声明 `kind`，不再自行声明活动环境。场景菜单键显式覆盖全部 `LocationKind`。
-
 
 <a name="contracts-private-fields"></a>
 ### 禁止进入提示的字段
@@ -1519,7 +1492,6 @@ tool 消息对应上一决策世界请求的 `tool_call_id`。
 重试仍没有工具调用时，此后的请求照常开启思考、不再重试，按本节预算处理，耗尽仍无登记的世界请求即人物决策失败；之后的请求再截断，
 另按本段重试一次。
 
-
 <a name="contracts-generation-parameters"></a>
 ### 生成参数
 | 阶段 | `thinking` | `temperature` | `max_tokens` | `tool_choice` | `tools` |
@@ -1578,7 +1550,6 @@ tool 消息对应上一决策世界请求的 `tool_call_id`。
 截断重试的请求关闭思考，按这一判定不是行动请求；它总在本次决策的截断回合之后，`decision_started` 仍随首个行动请求写入。
 交付窗口选取决策提示不用这一判定：取该动作之前最后一份不带 `purpose` 的请求，并核对其工具含该动作的工具名，
 不满足是完整性故障，不回退到更早的请求；截断重试请求照此被选中，就寝反思请求晚于动作登记、不会被选中。
-
 
 <a name="contracts-model-identity"></a>
 ### 模型身份
@@ -1667,8 +1638,6 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 关闭时每次决策都从新快照构造请求，只用于对比运行；两臂对比用只读子命令 `scripts/inspect_run.py continuation`
 （见[记录引擎设计「调试工具」](design/05-recording-engine.md#recording-engine-调试工具)）。
 
-
-
 <a name="contracts-记录引擎接口导航"></a>
 ## 记录引擎接口导航
 
@@ -1681,18 +1650,15 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 见[事件字段与类型](design/05-recording-engine.md#recording-engine-数字足迹事件结构)、
 [保存边界](design/05-recording-engine.md#recording-engine-保存边界)和[来源与可见性](design/05-recording-engine.md#recording-engine-来源与可见性)。
 
-
 <a name="contracts-数字足迹存储接口"></a>
 ### 数字足迹存储接口
 
 见[存储调用与行为](design/05-recording-engine.md#recording-engine-数字足迹存储接口)。
 
-
 <a name="contracts-资金事件字段"></a>
 ### 资金事件字段
 
 见[资金守恒验证](design/05-recording-engine.md#recording-engine-资金守恒验证)。
-
 
 <a name="contracts-共同检查点与恢复"></a>
 ### 共同检查点与恢复
@@ -1707,10 +1673,8 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 运行清单结构 `4` 带五字段 `environment_identity`。世界结构 `11` 封存订单、实际收货、内容进度与会话推送；只有已提交事实能进入历史导出。保存与恢复的事务归[运行目录与数据表](design/05-recording-engine.md#recording-engine-持久化结构)，环境身份不得另存一套兼容键。
 
 
-
 <a name="contracts-品类契约与目录字段"></a>
 ## 品类契约与目录字段
-
 
 
 
@@ -1879,7 +1843,6 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 
 `tastes` 保留为卡片散文；人物口味不生成数值权重或候选排序参数。覆盖率目标使用习惯关键词、食品名、全部 app 名。
 
-
 <a name="contracts-记忆字段"></a>
 ### 记忆字段
 
@@ -1965,7 +1928,6 @@ app 使用的已结算事实句按实际 `played[]` 写「用<app>看了《A》�
 settled 的订单句为「HH:MM 购买<商品> 1 份，付 N 元」；线上在购买前加「经<购物 app>」，并附「，预计 HH:MM 送到<地点>」，有支付 app 时在金额后加「（<支付 app>）」。关联回应消息与收货人的既有括注保留；没有「吃了…」「丢弃…」「把…给了…」句子。
 
 
-
 <a name="contracts-足迹交接"></a>
 ## 足迹交接
 
@@ -1979,7 +1941,6 @@ LabelKit-DataSet 已保存本次移交的来源快照并核对摘要；整合后
 
 真实性评估仍由 WorldMock 执行。评估所需的旧候选数据认证属于公共输入合同，见
 [评估输入手册](manual/evaluation.md#evaluation-自定义评估与盲评输入)，不承担候选数据的生产。
-
 
 <a name="contracts-人物卡片覆盖率产出"></a>
 ## 人物卡片覆盖率产出
@@ -2103,7 +2064,6 @@ RunPhase = Literal[
 
 运行状态使用 `created`、`running`、`completed`、`failed`、`interrupted`；运行阶段使用 `deciding`、`resolving`、`advancing`、`checkpointing`、`stopped`，正常睡眠属于活动状态。不得把已提交请求序号作为已完成活动或支付的证明。
 
-
 <a name="contracts-运行诊断输出"></a>
 ### 运行诊断输出
 
@@ -2128,7 +2088,6 @@ RunPhase = Literal[
 
 操作日志逐条 flush，未作逐条 fsync；写入或关闭失败只报告到 stderr，属于当前诊断输出行为。
 必要模型留证、记忆或数据库写入失败仍按[模拟引擎的失败处理](design/04-simulation-engine.md#simulation-engine-失败处理)停止运行，不因诊断日志的处理方式而放宽。
-
 
 
 <a name="contracts-版本表"></a>
@@ -2209,3 +2168,4 @@ RunPhase = Literal[
 | `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |
 | `2026-10-07-acs-receipt` | 2026-10-07 | 付款与收货分别留证，收货由唯一函数恰好结算一次，效果与证据归收货人；个人事务七键，用餐目标按本人 meal 收货推进。 |
 | `2026-10-08-acs-action` | 2026-10-08 | 统一动作执行、内容历史、推送、社交及用户补订的现行合同 |
+| `2026-10-07-acs-record` | 2026-10-08 | 导出清单 4、质量报告 6、行为报告 `behavior-metrics-2`；数字足迹按真实动作、app 使用方式与收货事实记录 |

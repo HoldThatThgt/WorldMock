@@ -107,8 +107,6 @@ python scripts/coverage_gate.py --shards 4 \
 
 激活后可直接运行 `worldmock environment generate-map --locations experiments/my-world/catalog/locations.json --seed 7 --output experiments/my-world/catalog/map.json [--check]` 与 `worldmock validate --environment experiments/my-world`。这两个纯环境命令不急切加载完整 AS2/LifeEngine 链。
 
-
-
 <a name="runtime-填写模型凭据"></a>
 ## 填写模型凭据
 
@@ -128,8 +126,6 @@ DEEPSEEK_NODE_KEYS=replace-with-your-key
 ```bash
 mkdir -p ~/.config/worldmock
 chmod 700 ~/.config/worldmock
-
-
 # 用编辑器保存 deepseek.env 后执行
 chmod 600 ~/.config/worldmock/deepseek.env
 ```
@@ -170,7 +166,6 @@ AgentSociety2 调度器发送 OpenAI 格式请求，因此必须连接 OpenAI �
 画像编译可用不等于模拟启动凭据已经齐备，两者的读取顺序与完整文件校验不同。
 当前读取与请求身份依据为[运行启动器](../../src/worldmock/runtime.py)、
 [画像抽取器](../../src/worldmock/profile/extractor.py)和[模型凭据合同](../CONTRACTS.md#contracts-model-identity)。
-
 
 <a name="runtime-从校验到新建运行"></a>
 ## 从校验到新建运行
@@ -301,7 +296,6 @@ worldmock replay \
 
 程序会在恢复和应用干预时检查来源身份与可见性。不能用生成一段假想文本代替实际分支运行。
 
-
 <a name="runtime-常见错误"></a>
 ## 常见错误
 
@@ -327,7 +321,6 @@ worldmock replay \
 
 全部登记码见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)。
 
-
 <a name="runtime-工具交互的运行检查"></a>
 ## 工具交互的运行检查
 
@@ -345,8 +338,7 @@ worldmock run --scenario experiments/my-world/scenarios/single-person.json --out
 worldmock export --run-dir runs/my-persona-day --output runs/my-persona-day/exports/final
 ```
 
-目录、包内规则、图和运行身份必须一致；地图种子属于 `map.json`，不与场景种子绑定。已发布字节不原版覆盖，旧检查点直接拒绝，不迁移；恢复和假设分支新目录。导出 3 的五类工件、质量 5 按[现行合同](../CONTRACTS.md#contracts-worldmock-接口合同)核对；正式回归阻断与各平台实际回执见[实施状态](../dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态)。
-
+目录、包内规则、图和运行身份必须一致；地图种子属于 `map.json`，不与场景种子绑定。已发布字节不原版覆盖，旧检查点直接拒绝，不迁移；恢复和假设分支新目录。导出 4 的五类工件、质量 6 按[现行合同](../CONTRACTS.md#contracts-worldmock-接口合同)核对；正式回归阻断与各平台实际回执见[实施状态](../dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态)。
 
 
 <a name="runtime-版本表"></a>

@@ -20,8 +20,7 @@ flowchart LR
 
 按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)修订；验收结果独立记录。
 
-语料和资源引用必须是只用 / 分隔的根内相对路径，不能含 ..、反斜杠或任一平台不能原样保存的名字（以点或空格结尾、Windows 设备名如 NUL、Windows 禁用字符 <>:"|?* 与控制字符、孤立代理码点、一级超过 255 字节），不能使用符号链接或目录联接；文件须为普通文件并符合声明的大小与摘要。修改内容后按现行身份发布流程重新生成声明，不能沿用旧摘要。
-
+目录清单引用必须是只用 / 分隔的根内相对路径，不能含 ..、反斜杠或任一平台不能原样保存的名字（以点或空格结尾、Windows 设备名如 NUL、Windows 禁用字符 <>:"|?* 与控制字符、孤立代理码点、一级超过 255 字节），不能使用符号链接或目录联接；文件须为普通文件并符合声明的大小与摘要。修改内容后按现行身份发布流程重新生成声明，不能沿用旧摘要。
 
 <a name="resources-先找到应该修改的文件"></a>
 ## 先找到应该修改的文件
@@ -42,7 +41,6 @@ flowchart LR
 ### 哪些路径可以换
 
 复制完整环境到自己的相对目录，如 `experiments/my-world/`；其中只有并列的 `catalog/`、`scenarios/`。命令显式传这个根或场景路径；引擎不搜索数据仓或在线素材。正式环境路径由 WorldMock-Dataset 发布决定，完整回归通过 `--environment-root experiments/my-world` 明确选择。
-
 
 <a name="resources-输入与生成文件"></a>
 ### 输入与生成文件
@@ -66,23 +64,24 @@ worldmock environment generate-map --locations experiments/my-world/catalog/loca
 绑定目标具有支付用途，允许绑定自己。导航与支付 app 可以没有内容；app 必须有用途或动作绑定。
 
 
-
 <a name="resources-先完成一个最小修改减少一家门店的初始库存"></a>
-## 先完成一个最小修改：减少一家门店的初始库存
+## 先完成一个最小修改：调整一个商品的价格
 
+在自己的完整环境副本中，修改 `catalog/goods.json` 一条既有商品的 `price_fen`，保留正整数分、类别与店铺绑定。同一商品跨店同价，不在场景或门店上再写价格。随后按下方[更新文件身份](resources.md#resources-修改后更新文件身份)刷新清单和场景钉，再[校验整个环境](resources.md#resources-验证修改)。
 
 <a name="resources-编写地点与营业时间"></a>
 ## 编写地点
 
-在 `catalog/locations.json` 编写地点。每行恰有五个字段，场景只选择 `location_id`，不复制定义。
+在 `catalog/locations.json` 编写地点。下列字段中只有 `branch_label` 可省略，其余显式填写；场景只选择 `location_id`，不复制定义。
 
 | 地点字段 | 必填与取值 | 含义 |
 | --- | --- | --- |
 | `location_id` | 非空字符串，唯一 | 目录、图、场景、人物住处与工作地点的关联身份 |
 | `name` | 非空字符串 | 人物看到并照抄的名称 |
-| `branch_label` | 字符串或 `null`，显式必填 | 分店标签；有标签时显示为「名称（标签）」 |
-| `kind` | `home`、`office`、`park`、`fitness`、`restaurant`、`cafe`、`convenience_store`、`supermarket` | 八个固定类型，决定菜单分类并派生活动环境 |
-| `app_ids` | 排序且无重复的 app 身份列表，可为空 | 仅食品店铺类型可绑定 app；空列表只允许到店 |
+| `branch_label` | 字符串或 `null`，可省略 | 分店标签；有标签时显示为「名称（标签）」 |
+| `kind` | `home`、`office`、`park`、`fitness`、`restaurant`、`cafe`、`convenience_store`、`supermarket`、`gas_station`、`parcel_station` | 十个固定类型；加油站与驿站均派生 `venue` 活动环境 |
+| `app_ids` | 排序且无重复的 app 身份列表，可为空 | 仅店铺可绑定购物 app，驿站必须为空；空列表只允许现场购买 |
+| `shipping_seconds` | 必填，严格正整数或 null | 普通店铺的完整下单至送达或到站秒数；null 使用固定准备时间加图上行程；非店铺与加油站必须为 null |
 
 显示名写人物会说的地名或店名，同名分店用 `branch_label` 区分；显示名须唯一，不能与「应用：<name>」标签冲突。没有经纬度、营业日历、资格或自定义活动环境字段。
 地点修改后，用 `worldmock environment generate-map --locations catalog/locations.json --seed INT --output catalog/map.json` 生成全目录图，再由 Dataset 刷新清单并发布新环境版本。`--check` 逐字节核对现有文件，不写输出；运行只读发布图。
@@ -92,13 +91,10 @@ worldmock environment generate-map --locations experiments/my-world/catalog/loca
 
 地点、店铺和 app 名称保持真实名称语义，具体对象、绑定与来源由 Dataset 发布。距离、速度、食品营养、费用和配送时间属于明确的合成模拟数值，不能冒充真实路网或实时门店数据。
 WorldMock 生成随机连通加权图并提供固定规则，Dataset 保存图种子、生成规则版本和规范字节；目录与规则身份进入运行清单。图不含道路许可、路由响应、坐标或资料有效期。
-内容摘要按目录自己的来源合同维护，语料文件继续经清单验证；不把名称真实性推成数值真实性。
-
+内容摘要按目录自己的来源合同维护，真实来源填写 URL，合成摘要明确 notice；引擎不读取或核验语料文件，不把名称真实性推成数值真实性。
 
 <a name="resources-添加地点时还要补路线"></a>
 ### 添加地点时还要补路线
-
-
 
 
 
@@ -109,7 +105,6 @@ WorldMock 生成随机连通加权图并提供固定规则，Dataset 保存图�
 
 <a name="resources-完整类别供给与冻结价格"></a>
 ### 完整类别供给与冻结价格
-
 
 
 
@@ -135,17 +130,15 @@ WorldMock 生成随机连通加权图并提供固定规则，Dataset 保存图�
 
 
 
-
 <a name="resources-新增商品对象"></a>
 ### 新增商品对象
 
 
 
-
 <a name="resources-真实制作后再食用"></a>
-### 真实制作后再食用
+### 商品在真实收货时结算
 
-
+商品效果只在实际收货时立即施加，不另登记持有、制作产物或进食行为。数据集可以登记日常照护动作及其内容，执行只按真实内容时长与固定类别规则留证，不把动作名称当作库存变化。完整边界见[请求字段与结算检查](../CONTRACTS.md#contracts-request-settlement)。
 
 <a name="resources-编写生活活动"></a>
 ## 编写动作
@@ -227,7 +220,6 @@ python -c 'from pathlib import Path; from worldmock.catalog.identity import refr
 ```
 
 该入口安全读取必需文件，经原子写入更新清单。环境里没有规则副本；规则字节由运行的代码身份绑定。旧运行与历史冻结输入不改写。
-
 
 <a name="resources-验证修改"></a>
 ## 验证修改

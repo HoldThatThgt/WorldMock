@@ -22,14 +22,15 @@ def _event(sequence, kind, data, *, at=START, version=None, activity_id=None, ag
 
 
 def _app(identity="phone", app_id="bilibili", *, session="stay", content="long-video", pin=None,
-         status="active", ended_at=None):
-    """@brief 当前 use_app 模型的活动快照，目标是 app，内容和推送只在运行数据内。"""
-    return ActivityState(activity_id=identity, agent_id=1, kind="use_app", target_id=app_id,
+         status="active", ended_at=None, manner="phone_continuous", action_id="recommend"):
+    """@brief 当前 ACTION 活动的完整应用身份与内容游标。"""
+    return ActivityState(activity_id=identity, agent_id=1, kind="action",
                          status=status, location_id="home", started_at=START, last_settled_at=START, elapsed_seconds=0,
                          planned_end_at=START + 1800, planned_duration_seconds=1800, ended_at=ended_at,
                          origin_action_id="open", origin_decision_id="decision", origin_request_event_id="request",
-                         session_ids=[session], data={"app_id":app_id, "content_id":content,
-                                                     "pinned_by_push_id":pin, "draw_index":0, "played":[]}
+                         session_ids=[session], data={"action_id": action_id, "category": "entertainment",
+                             "app_id": app_id, "manner": manner, "counterpart": None, "content_id": content,
+                             "start_position_seconds": 0, "pinned_by_push_id": pin, "draw_index": 0, "played": []}
                          ).model_dump(mode="json")
 
 
@@ -37,7 +38,7 @@ def _push(sequence, identity="push", app="bilibili", session="stay", content="lo
     """@brief 推送使用现有 environment_event 的完整实际载荷。"""
     return _event(sequence, "environment_event", {"kind":"app_push", "push_id":identity,
                   "app_id":app, "app":"哔哩哔哩", "content_id":content, "title":"城市纪录片",
-                  "content_kind":"long_video", "summary":"城市的一天。", "session_id":session,
+                  "action_id":"recommend", "action":"刷推荐", "summary":"城市的一天。", "session_id":session,
                   "issued_at":START, **fields})
 
 
@@ -54,18 +55,20 @@ def _travel(*, session="transit", completed=False):
 
 def _progress(sequence, activity, *, before=0, after=300, completed=False, rounds=0, content="long-video",
               version=None):
-    """@brief 单个真实结算区间的内容证据与结算后的活动快照，二者允许已经指向不同内容。"""
-    return _event(sequence, "activity_progress", {"activity":activity, "interval_start":START,
-                  "interval_end":START + 300, "content":{"content_id":content, "app_id":activity["target_id"],
-                  "kind":"long_video", "position_before_seconds":before, "position_after_seconds":after,
+    """@brief 实际半开内容结算区间，已接续快照可指向下一条内容。"""
+    start = START + (rounds - int(completed)) * 300 + before
+    end = start + after - before
+    return _event(sequence, "activity_progress", {"activity":activity, "interval_start":start,
+                  "interval_end":end, "content":{"content_id":content, "app_id":activity["data"]["app_id"],
+                  "position_before_seconds":before, "position_after_seconds":after,
                   "completed":completed, "completed_rounds_after":rounds}},
-                  at=START + 300, version=version, activity_id=activity["activity_id"])
+                  at=end, version=version, activity_id=activity["activity_id"])
 
 
 def test_five_app_facts_use_real_sources_and_the_consumed_content_before_automatic_selection():
     opened = _app(pin="push")
     following = _app(content="next-article")
-    following["data"]["content_kind"] = "article"
+    following["data"]["content_id"] = "next-article"
     events = [_push(1), _event(2, "action_accepted", {"activity":opened}, activity_id="phone"),
               _progress(3, following, completed=True, rounds=1),
               _event(4, "environment_event", {"kind":"activity_paused", "activity":{
@@ -74,15 +77,20 @@ def test_five_app_facts_use_real_sources_and_the_consumed_content_before_automat
     assert {row["fact_kind"] for row in facts} == {
         "app_use", "content_consumed", "push_delivered", "push_opened", "push_released"}
     assert facts[0] == {"fact_kind":"app_use", "agent_id":1, "activity_id":"phone", "app_id":"bilibili",
-                        "started_at":START, "ended_at":None, "status":"paused", "source_event_id":"event-4"}
+                        "action_id":"recommend", "manner":"phone_continuous", "device":"phone",
+                        "segments":[{"started_at":START, "ended_at":START + 300}],
+                        "status":"paused", "source_event_id":"event-4"}
     consumed = next(row for row in facts if row["fact_kind"] == "content_consumed")
     assert consumed == {"fact_kind":"content_consumed", "agent_id":1, "activity_id":"phone",
-                        "app_id":"bilibili", "content_id":"long-video", "kind":"long_video",
+                        "app_id":"bilibili", "action_id":"recommend", "manner":"phone_continuous",
+                        "device":"phone", "content_id":"long-video", "interval_start":START,
+                        "interval_end":START + 300,
                         "position_before":0, "position_after":300, "completed":True, "push_id":"push",
                         "source_event_id":"event-3"}
     assert [row["source_event_id"] for row in facts if row["fact_kind"].startswith("push_")] == [
         "event-1", "event-2", "event-3"]
-    assert all(set(row) == {"fact_kind", "agent_id", "push_id", "app_id", "content_id", "session_id",
+    assert all(set(row) == {"fact_kind", "agent_id", "activity_id", "action_id", "manner", "device",
+                            "push_id", "app_id", "content_id", "session_id",
                             "occurred_at", "source_event_id"}
                for row in facts if row["fact_kind"].startswith("push_"))
     assert project_app_usage(events) == facts
@@ -118,7 +126,8 @@ def test_push_funnel_counts_each_push_once_across_partial_consumption_and_repeat
               _progress(5, initial, before=60, after=120)]
     result = app_usage_quality(events, "UTC")
     assert result["app_pushes"]["consumed_pinned"] == result["app_pushes"]["opened_in_session"] == 1
-    assert result["content_contact"] == {"by_app":{"bilibili":2}, "by_kind":{"long_video":2}, "repeat_watch":0}
+    assert result["content_contact"] == {"by_app":{"bilibili":2}, "by_action":{"recommend":2},
+                                        "repeat_watch":0, "repeat_seconds_share":0.0}
 
 
 def test_repeat_watch_counts_real_rounds_at_each_interval_start_including_resumed_intervals():
@@ -127,7 +136,8 @@ def test_repeat_watch_counts_real_rounds_at_each_interval_start_including_resume
               _progress(3, _app(), before=0, after=30, rounds=1),
               _progress(4, _app(identity="phone-douyin", app_id="douyin"), before=30, after=90, rounds=1)]
     result = app_usage_quality(events, "UTC")["content_contact"]
-    assert result == {"by_app":{"bilibili":2, "douyin":1}, "by_kind":{"long_video":3}, "repeat_watch":2}
+    assert result == {"by_app":{"bilibili":2, "douyin":1}, "by_action":{"recommend":3}, "repeat_watch":2,
+                      "repeat_seconds_share":pytest.approx(90 / 390)}
 
 
 def test_no_eligible_app_and_an_unended_cutoff_do_not_invent_push_delivery_or_expiry():
@@ -257,12 +267,12 @@ def test_non_activity_events_cannot_introduce_app_or_travel_snapshots(event_type
 def test_wait_content_payload_cannot_create_consumption_or_repeat_counts():
     """@brief 私自给真实等待快照夹带内容字段，不能制造手机消费或重复观看次数。"""
     row = _progress(1, _app(), rounds=7)
-    row["data"]["activity"] = ActivityState.model_validate({**_app(), "kind":"wait", "target_id":None,
+    row["data"]["activity"] = ActivityState.model_validate({**_app(), "kind":"wait",
                                                          "data":{}}).model_dump(mode="json")
     row = Event.model_validate(row).model_dump(mode="json")
-    with pytest.raises(IntegrityError, match="Content consumption must belong to a use_app activity"):
+    with pytest.raises(IntegrityError, match="Content consumption must use the current action content contract"):
         project_app_usage([row])
-    with pytest.raises(IntegrityError, match="Content consumption must belong to a use_app activity"):
+    with pytest.raises(IntegrityError, match="Content consumption must use the current action content contract"):
         app_usage_quality([row], "UTC")
 
 

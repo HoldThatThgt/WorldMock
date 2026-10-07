@@ -35,7 +35,6 @@ flowchart LR
 
 报告只将非布尔整数秒且起点小于终点的区间计为有效结算；缺活动品类仍报告未归类或缺证。日期按运行时区切分，反思快照使用主观来源校验，不能当作畸形活动经历。
 
-
 <a name="evaluation-先分清要编辑的文件"></a>
 ## 先分清要编辑的文件
 
@@ -50,7 +49,6 @@ flowchart LR
 
 目前没有通用 `adapter.toml` 或任意字段重命名配置。可配置的适配入口是
 `category_mappings` 与 `official_domain_map`；输入文件结构仍须符合现有交付合同。
-
 
 <a name="evaluation-从完整示例开始"></a>
 ## 从完整示例开始
@@ -112,36 +110,23 @@ PY
 保留示例的完整维度集合最便于比较。加载器只检查字符串结构，不会替你检查新维度的语义实现；
 填写未实现名称会在生成盲评包时失败。评审一致性的 `alpha >= 0.80` 门槛也不是配置字段。
 
-
 <a name="evaluation-修改类别映射和公开参照"></a>
 ## 修改类别映射和公开参照
 
-`category_mappings.worldmock_activity` 必须显式覆盖当前十种活动类型；下面是完整键集合，值可按评估方案的
-共同类别调整：
-
-完整配置仍保留 `labelkit_sequence_class` 与 `labelkit_pattern` 两组 LabelKit 类别映射；本节只完整列出
-WorldMock 当前十种活动类型。
+`category_mappings.worldmock_activity` 只允许当前原生活动 `sleep`、`travel`、`wait` 的映射。统一 `action` 活动直接使用实际快照中的五个固定类别：`entertainment`、`work_study`、`social`、`exercise`、`daily_care`，不通过动作名、app 名或旧活动类型猜测。
+完整评估配置仍保留 `labelkit_sequence_class` 与 `labelkit_pattern` 两组真实 LabelKit 上游类别映射；它们不是旧 WorldMock 输入的兼容读取。WorldMock 的当前配置示例为：
 
 ```json
 {
   "worldmock_activity": {
-    "wait": "rest",
     "sleep": "sleep",
-    "work": "work",
-    "use_app": "entertainment",
-    "travel": "commute",
-    "read_mail": "communication",
-    "consume": "meal",
-    "lifestyle": "chore",
-    "chat": "social",
-    "call": "social"
+    "travel": "travel",
+    "wait": "waiting"
   }
 }
 ```
 
-左侧键必须与实际导出活动类型一致。没有映射的类别记为 `unknown`，不会按名称猜测，也不会新增可执行活动。
-`consume` 仍由真实请求的 `use_mode` 细分：`eat` 归进食，`use` 归非食品使用；单改
-`worldmock_activity.consume` 不能覆盖这条语义。不要添加已退役的观看、目录浏览或游戏类型。
+缺合法动作快照类别时报告 `unknown` 或未归类，不补造证据。商品效果在实际收货时结算，食品多样性读取本人食品 `goods_received`，不新增进食或持有活动。数字交互由实际 app 与使用方式确定，其他设备的数字交互不能算成手机使用。
 
 官方参照把共同活动含义映射到统计领域，例如：
 
@@ -149,17 +134,14 @@ WorldMock 当前十种活动类型。
 {
   "official_domain_map": {
     "sleep": ["personal_essential"],
-    "meal": ["personal_essential"],
-    "work": ["paid_work"],
-    "commute": ["transportation"]
+    "work_study": ["paid_work"],
+    "travel": ["transportation"],
+    "daily_care": ["personal_essential"]
   }
 }
 ```
 
-每个数组必须非空且不重复，名称必须存在于 `official_reference.domains`。更新参照时保留发布机构、调查名称、
-发布时间、采集时间、粒度和原始来源地址。每个领域填写 `label_zh`、`supported_duration_kinds`、`urban` 和
-`working_age`；参与分钟为非负数，参与率在零到一之间。`world_activity` 与 `observed_digital_session` 是不同
-时长语义，不能用数字交互时长代替全部现实生活时长。
+每个数组必须非空且不重复，名称必须存在于 `official_reference.domains`。更新参照时保留发布机构、调查名称、发布时间、采集时间、粒度和原始来源地址。每个领域填写 `label_zh`、`supported_duration_kinds`、`urban` 和 `working_age`；参与分钟为非负数，参与率在零到一之间。`world_activity` 与 `observed_digital_session` 是不同的时长语义，不能用数字交互时长代替全部现实生活时长。映射和证据口径见[行为评估设计](../design/07-evaluation.md#evaluation-适配器职责)。
 
 
 <a name="evaluation-绑定真实候选输入"></a>
@@ -167,7 +149,7 @@ WorldMock 当前十种活动类型。
 
 `--worldmock` 指向 `worldmock export` 生成的**已完成运行的足迹导出目录**，其中包含
 `manifest.json`、认证检查点及 `events.jsonl`、`activities.jsonl`、`verified-experiences.jsonl`、
-`purchases.jsonl`、`app-usage.jsonl` 五类正文。导出清单结构为 3，检查点世界结构为 11，
+`purchases.jsonl`、`app-usage.jsonl` 五类正文。导出清单结构为 4，检查点世界结构为 11，
 冻结清单的 `environment_identity` 必须与实际环境和规则身份一致。
 评估要求 `experiment_completed: true`，检查点位于窗口终点，并验证实际导出内容。
 LabelKit-DataSet 的训练记录不能替代这里的完整足迹导出。
@@ -198,7 +180,6 @@ legacy-root/
 | `repair_report_sha256`、`final_audit_sha256` | 对应报告完整文件的实际 SHA-256 |
 
 只有更换了已经认证的基准交付才更新这些值。改哈希不能替代修复链和完整审计。
-
 
 
 <a name="evaluation-可选真人参照"></a>
@@ -237,7 +218,6 @@ print({"valid": True, "events": len(view.events), "activities": len(view.activit
 PY
 ```
 
-
 <a name="evaluation-离线验证并准备评审"></a>
 ## 离线验证并准备评审
 
@@ -270,7 +250,6 @@ worldmock evaluate \
 
 每位评审只读取分配给自己的包和统一评审指令。不要向评审提供 `unblinding-key.json` 或其他槽的材料。
 包中的 `judgeability` 已声明可判断性：`judgeable: false` 的维度必须填写 `unjudgeable`。
-
 
 <a name="evaluation-怎样填写评审收据"></a>
 ## 怎样填写评审收据
@@ -363,7 +342,6 @@ result = ingest_reviews(paths, Path("evaluations/my-comparison"), scenario)
 print({"valid": True, "records": len(result["records"])})
 PY
 ```
-
 
 <a name="evaluation-评审后发布"></a>
 ## 评审后发布

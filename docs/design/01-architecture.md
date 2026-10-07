@@ -2,13 +2,15 @@
 # WorldMock 产品设计说明书 — 总体架构
 
 > **状态**：DRAFT；职责设计，现行接口与行为以所属合同和规格为准；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）\
-> **日期**：2026-10-07
-> **版本**：v1.17
+> **日期**：2026-10-08
+> **版本**：v1.18
 > **工具交互修订**：按[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结本次设计；本次修订已实现，既有验收不覆盖新行为。
 > **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D1 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。
 > **让「等待」成为例外修订**：按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「3.3 事件驱动的时间推进」（阶段 1）与「6.2 状态与记录」（阶段 1、阶段 2、阶段 3）。
 > **同时做两件事修订**：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「2.3 状态归属与写入边界」与「6.2 状态与记录」（阶段 1）。
 > **目标读者**：架构师、开发工程师、系统工程师
+
+按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「统一动作执行、内容选择、真实进度与系统补订」（阶段 3）。
 
 > 2026-10-07：按资源与规则引擎简化规格同步剩余系统规则、最终提示身份与查看器（阶段 6）。
 
@@ -34,7 +36,6 @@
 
 共享规则分别归属于记录、资源和生活模块的唯一实现，呈现、受理、结算与评估直接复用。基础模型位于不依赖业务模块的叶子模块；目录模型深冻结由目录登记合同维护。AS2 负责调度、模型服务和恢复，WorldMock 负责人物的记忆业务规则。
 
-
 <a name="architecture-系统定位与总体规格"></a>
 ## 1. 系统定位与总体规格
 
@@ -53,8 +54,6 @@
 系统不包含物理仿真或三维渲染、模型训练或托管、实时交互式界面、
 社会级宏观模拟或真实银行、电商等外部业务系统集成，也不保证与任何特定真实个体的行为一致。
 资源和规则使用运行前整理并绑定的版本。
-
-
 
 <a name="architecture-总体架构与职责分工"></a>
 ## 2. 总体架构与职责分工
@@ -86,7 +85,6 @@ flowchart TB
 LifeAgent 承载数字人，LifeEnv 是模拟引擎接入 AgentSociety 2 的环境入口。
 现有代码文件可以承载多个引擎的处理逻辑，不能仅凭目录名称判定职责归属。
 
-
 <a name="architecture-职责与交接"></a>
 ### 2.2 职责与交接
 
@@ -114,7 +112,6 @@ LifeEnv 与活动属于模拟引擎的执行职责；数字足迹、检查点和
 购买受理当秒付款，每单一次，不产生提前的商品效果。到店与直送经唯一收货入口结算；完整运输时长严格大于一天时，一次报价仍保持不变，订单改送实际模拟收货人家庭地址最近且场景选中的驿站。到站只进入 `ready_for_pickup` 并通知实际收货人，本人在站零秒领取后才写 `received_at`、`goods_received` 和商品效果。联系人直送只改变订单，不改变模拟人物身体，也不写 `goods_received`。系统没有库存、持有、食用或给予。
 
 只有环境明确声明拥有汽车的人物能够驾车；初始可用天数由环境声明。现场在加油站为本人购买燃油恰增加七天，没有库存或身体效果。每个本地日期首次正秒驾车扣一天，不驾车不扣，同日多次不重扣；跨午夜按实际驾驶覆盖的日期计算，恰好停在午夜不扣次日。车费仍在受理出发时支付一次。
-
 
 
 <a name="architecture-端到端数据流"></a>
@@ -202,7 +199,6 @@ flowchart LR
 假设文本和实际重新模拟得到的结果分别标明来源，新分支结果不改写原分支经历。
 完整规则见[记录引擎](05-recording-engine.md#recording-engine-恢复与反事实分支)与[模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎)。
 
-
 <a name="architecture-数据交付与评估"></a>
 ### 3.5 足迹交接与评估
 
@@ -216,8 +212,6 @@ flowchart LR
 离线 Dreaming 基于已有足迹归纳经历或提出假设，默认不写回运行中的数字人。
 实际反事实运行由明确的运行请求触发，并按新的分支身份保存；不能将生成的假设文本冒充执行结果。
 交付和评估的输入范围、校验与发布条件见LabelKit-DataSet 数据加工和[验收门禁](../VERIFICATION.md#verification-worldmock-验收标准)。
-
-
 
 <a name="architecture-已采用的设计决策"></a>
 ## 4. 已采用的设计决策
@@ -321,7 +315,6 @@ flowchart LR
 | 事件写入 | 写入负载测试达到每秒至少 1000 条事件，吞吐由实际写入耗时测量 |
 | 其他规模 | 记录实际人物数、模拟时长、事件量、耗时、峰值内存和存储增长，按实际结果评估 |
 
-
 <a name="architecture-一致性与交付验收"></a>
 ### 7.2 一致性与交付验收
 
@@ -340,8 +333,6 @@ flowchart LR
 各引擎已实现的能力、尚未完成的部分与验收方法在所属设计中逐项说明。
 全项目的实测结果与未完成项见[实现状态](../dev/implementation-status.md#implementation-status-worldmock-实现状态)；
 本文不以模块存在或文档已整合代替实现完成声明。
-
-
 
 
 <a name="design-architecture-current-responsibility"></a>
