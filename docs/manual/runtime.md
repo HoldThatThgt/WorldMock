@@ -12,7 +12,7 @@
 本页也说明恢复已有运行和编写反事实干预文件的方法。
 命令均在 WorldMock 根目录执行。正式环境根显式使用
 `../WorldMock-Dataset/environment/shanghai-simplified/`；个人实验先按[手册入口](README.md#readme-创建自己的第一个场景)
-创建完整的 `experiments/my-world/` 副本，保留目录与语料相对引用。
+创建完整的 `experiments/my-world/` 副本，保留场景、目录与发布图的相对引用。
 数据采集与制作按数据仓说明执行，WorldMock 安装与导入不要求源码仓中有正式环境数据。
 
 [返回手册](README.md#readme-用户配置手册) · [生活场景](scenarios.md#scenarios-生活场景)
@@ -222,7 +222,6 @@ worldmock export \
 
 环境命令返回每个失败的码和英文原因，任何失败非零退出；项目校验仍执行原有完整检查。新格式最小引擎运行在阶段 5 完成，此处流程不以目录检查通过替代真实运行验收。
 
-
 <a name="runtime-从检查点恢复"></a>
 ## 从检查点恢复
 
@@ -248,7 +247,6 @@ worldmock resume \
 没有检查点或标识不属于该父运行时，不能用猜测的名字代替。
 
 恢复还核对 `environment_identity` 五字段：environment_id、environment_version、rules_version、catalog_content_sha256、map_sha256。不符报 `Runtime environment identity mismatch`。订单及其实际收货时刻、全局内容进度、当前活动内容、会话推送、驾驶可用天数与闹钟随检查点保存；没有食品持有状态。长途订单到站只恢复为待领取，不能因恢复而提前收货或重复施加效果。完整持久事实见[持久化当下事实](../CONTRACTS.md#contracts-持久化当下事实)，恢复边界见[共同检查点与恢复](../CONTRACTS.md#contracts-共同检查点与恢复)。
-
 
 <a name="runtime-编写反事实干预文件"></a>
 ## 编写反事实干预文件
@@ -340,7 +338,6 @@ worldmock export --run-dir runs/my-persona-day --output runs/my-persona-day/expo
 
 目录、包内规则、图和运行身份必须一致；地图种子属于 `map.json`，不与场景种子绑定。已发布字节不原版覆盖，旧检查点直接拒绝，不迁移；恢复和假设分支新目录。导出 4 的五类工件、质量 6 按[现行合同](../CONTRACTS.md#contracts-worldmock-接口合同)核对；正式回归阻断与各平台实际回执见[实施状态](../dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态)。
 
-
 <a name="runtime-版本表"></a>
 ## 版本表
 
@@ -348,3 +345,4 @@ worldmock export --run-dir runs/my-persona-day --output runs/my-persona-day/expo
 | --- | --- | --- |
 | `2026-10-06-rrs-docs` | 2026-10-07 | 固定 Python、十一项原生工具、当前主题与 app 请求、环境身份和运行检查 |
 | `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |
+| `2026-10-08-acs-close` | 2026-10-08 | 当前十二项原生工具、严格五字段动作请求与六字段查询；恢复真实订单、内容、驾驶与闹钟状态，导出 4 与质量 6。 |

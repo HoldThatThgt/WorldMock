@@ -42,7 +42,6 @@
 app 使用标题取 app 名，当前抽中的内容标题随活动快照追加显示；内容名称直接取运行冻结目录的 `contents[].title`，标题必填且非空；来源标题整理在 Dataset 完成，
 不再由引擎读取来源专属标题映射，归属见[环境数据归属规格](SPEC-environment-data-ownership.md)。
 
-
 <a name="spec-run-viewer-names-运行内对象名称"></a>
 ## 运行内对象名称
 
@@ -63,7 +62,6 @@ app 使用标题取 app 名，当前抽中的内容标题随活动快照追加�
 缺名时照「缺失与重新加载」提示。事务内部身份不进活动表、时间线与请求摘要。
 唤醒原因 `shift_start`、`shift_end`、`break_start`、`break_end`（[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)的班次与休息时段起止）用中文说法「班次开始」「班次结束」「休息时段开始」「休息时段结束」显示；它们没有伴随事件，不带名称，不适用「缺失与重新加载」的缺失提示。
 唤醒原因与环境事件 `app_push` 统一显示为「app 推送」，并使用同一事件记录里的 app 名和内容标题；事件判别键仍是 `app_push`，内容类型不充当事件名。
-
 
 <a name="spec-run-viewer-names-缺失与重新加载"></a>
 ## 缺失与重新加载
@@ -88,7 +86,6 @@ HTML 转义和更换数据库。名称索引读取 `foods`、`apps`、`contents`
 最终导出夹具必须断言 `use_app`、方式“打开”、`app_push`“app 推送”和
 `work_topic_completed`“工作主题完成”的标签，并核对唤醒标签 22 项、原生工具标签 11 项。
 不保留目录浏览、观看、游戏、任务评审或任务截止的显示分支。实际通过状态以阶段 7 Node 回执为准。
-
 
 <a name="spec-run-viewer-names-版本表"></a>
 ## 版本表

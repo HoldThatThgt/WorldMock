@@ -432,10 +432,9 @@ WorldMock 只安装 AS2 与自身生产包。LabelKit 模型任务、数据加�
 
 LifeAgent 的全部请求模型按严格 JSON 类型及各字段既有范围、格式校验；不转换数字、布尔值、空串或字符串 null。
 请求模型只接受当前逐项对象 `start_activity` 与当前控制请求形状（`items` 加请求级必填 `errands`），删除旧 `actions` 和旧控制读取；缺 `errands` 键按缺字段拒绝。
-`query_world` 的 `name`、`way`、`category`、`from`、`available_only`、`offset` 六键均必填；前四键为 `str|null` 且至少一个非空白，`available_only` 为严格 JSON 布尔、不单独构成查询条件。
-`way` 取现有方式闭集（写「购买」等同「到店」与「远程下单」），`from` 与购买请求的 `from` 共用同一来源解析纯函数，`category` 匹配公开 `callable_index` 的类别标签；`offset` 是严格非负 JSON 整数（拒绝布尔值、数字字符串及浮点数），首批显式写 `0`。
-`prefer` 的错误枚举按已合法的方式判定：含购买项返回 `["最快拿到", "到手价最低"]`，没有购买项返回 `[null]`；
-方式尚不能判定时返回声明的三值类型闭集并说明跨字段条件，不猜后续依赖条件。
+`query_world` 的 `name`、`way`、`category`、`app`、`available_only`、`offset` 六键均必填；前四键为 `str|null` 且至少一个非空白，`available_only` 为严格 JSON 布尔、不单独构成查询条件。
+`way` 取现有方式闭集，购买只有「购买」；`app` 按登记名称精确筛选动作与商品的应用绑定，`category` 匹配公开 `callable_index` 的类别标签；`offset` 是严格非负 JSON 整数（拒绝布尔值、数字字符串及浮点数），首批显式写 `0`。
+购买逐项显式声明 `app` 与 `pay_app`；请求不接受 `from` 或 `prefer`，环境按实际供给、购物应用与运输时长选择店铺。
 `query_world` 固定返回 `{matches, total_count, next_offset}`，每项是冻结目标的无损紧凑投影，只含权限内公开能力事实，只省略 null 与空集合，不再逐项附完整请求候选（候选只出现在错误合同里）；
 每批沿用现有 `candidate_presentation_limit=20`；`total_count` 为全部筛选交集后的完整权限内匹配数，`next_offset` 必填，剩余结果的下一偏移或 `null`，可遍历权限内全集。
 查询工具集合包括 `query_world`、`recall_task_summary` 与三个记忆查询；`query_world` 由宿主在本次冻结观察上本地求值，`recall_task_summary` 经 `LifeEnvProxy.read_query` 送到环境 actor 并等待真实结果，环境侧 `query_world` 分支是同一组纯函数的第二入口、两入口逐值相等；同批查询全部校验后即时返回，
@@ -572,7 +571,6 @@ AS2 锁定提交不变。结构化宿主反馈存于 `model_response.data.protoc
 错误枚举与实际请求模型及冻结方式闭集一致，候选可原样提交，宿主与环境在同一冻结观察下判定一致。
 变异测试须杀死删除完整路径、漏列枚举、只报首个参数错误、部分执行混批或放行旧字段的变异；
 新功能未实现前，既有运行统计不能记为本条验收通过。
-
 
 <a name="dayrun-fidelity-评审模型调用与叙述"></a>
 ## 评审、模型调用与叙述
@@ -742,7 +740,6 @@ WorldMock 原样记录行动请求、截断重试与反思请求，并以 `purpo
 | 严格反思 | 就寝反思恰一次 `submit_reflection` 调用；洞见一至五条，引用非空、条内不重复且全部取自输入；自由文本、其他工具、多次调用、未知引用不被接受；校验重试首次之外至多三次，耗尽即运行故障，本轮中止、不提交、无 `memory_updated`；请求关闭思考 | `tests/integration/test_strict_reflection.py`（`test_runtime_submits_reflection_through_the_only_strict_tool`、`test_runtime_feeds_each_contract_violation_back_and_stores_only_the_corrected_reflection`、`test_runtime_stops_with_a_run_fault_after_three_validation_retries_and_stores_no_reflection`、`test_runtime_propagates_transport_failures_without_validation_retries`、`test_exhausted_reflection_leaves_evidence_but_no_memory_update_in_the_run_database`、`test_reflection_retry_bound_is_its_own_constant_with_the_plan_day_value`）、`tests/integration/test_life_agent_protocol.py::test_reflection_contract_failure_aborts_society_before_commit`；其余节点见[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「严格反思」行的登记（`tests/errands_workday_acceptance.py`） | 代码层已验证 |
 | 只读查询转发 | 真实 Ray 下 `recall_task_summary` 经代理返回结果字典而非对象引用，世界状态与事件序号不变；worker 侧经代理调用成功；主进程内直接调用未经 `ray.remote` 包装的 `LifeEnvActor.read_query` 等于环境直调；`query_world` 两入口逐值相等；actor 并发度为 1 | `tests/integration/test_read_query_runtime.py`（`test_task_recall_crosses_real_ray_without_world_mutation`、`test_unwrapped_actor_read_query_equals_direct_environment_call`、`test_life_env_actor_class_fixes_single_concurrency_without_parameters`、`test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query`）、`tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets`；[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「只读查询转发」行 | 代码层已验证 |
 | 真实端点集成 | 全部改动通过真实 AS2 与 DeepSeek 端点的集成测试，不用模拟模型或手工 JSON 替代 | `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态` 记录的正式十二周运行与隔离盲评收据 | 待真实运行 |
-
 
 <a name="spec-as2-integration-版本表"></a>
 ## 版本表

@@ -162,7 +162,6 @@ flowchart TB
 现行身份是目录格式 2、场景结构 8、世界结构 11、运行清单 4。运行清单不含语料钉，五字段
 `environment_identity` 不变；恢复输入与检查点核对世界结构 11。
 
-
 <a name="recording-engine-数字足迹事件结构"></a>
 ### 数字足迹事件结构
 
@@ -219,7 +218,6 @@ action 活动每次结算带 `content{content_id, app_id, position_before_second
 
 收货变化不属于区间身体结算；goods_received 保存自身资源分录，不能流入下一身体事件或另一人物事件。
 
-
 <a name="recording-engine-事件类型枚举"></a>
 #### 事件类型枚举
 
@@ -243,14 +241,12 @@ action 活动每次结算带 `content{content_id, app_id, position_before_second
 
 模拟收货人每次真实收货恰有一条人物可见的 `goods_received`，人物所有者是实际收货人，载荷含订单、付款人、商品、类别、数量、目的地、当时地点与睡眠事实、`provided`、`applied`、`efficiency` 和本次资源分录。`caused_by` 引用同次提交中真实的购买、直送或领取结果。直送 `delivery_arrival` 归付款人；驿站到站事件归实际模拟收货人，只携完整订单快照与可取通知。联系人直送只更新订单和 `received_at`，不写 `goods_received` 或身体效果。
 
-
 <a name="recording-engine-activity_progress-事件"></a>
 ##### activity_progress 事件
 
 action 活动每次结算带 `content{content_id, app_id, position_before_seconds, position_after_seconds, completed, completed_rounds_after}`，app_id 可空。区间、活动快照、资源变化和出行 arrival 同一次提交。实际快照另带动作名 title 与当前内容标题 content_title；完成证据归真实消费方。
 
 每个人的 `content_progress` 以内容为键，跨 app 共享。记录恰含 `content_id`、`position_seconds`、`completed_rounds`、必填的 `last_consumed_at`；只有正秒消费才创建或更新，推送、展示和零秒暂停不算看过。完成时位置归零、轮数加一，活动 `played` 追加实际消费区间，并释放当前 session 指向该内容的全部推送。
-
 
 
 <a name="recording-engine-已核验经历与主观记忆"></a>
@@ -273,8 +269,7 @@ action 活动每次结算带 `content{content_id, app_id, position_before_second
 <a name="recording-engine-记录生活全过程的实现差距"></a>
 ### 记录生活全过程的实现差距
 
-时间与能量规格登记的同刻决策证据、零点计划后台任务与系统登记入口、记忆来源、经历句子四项已随该规格实现闭合，验收见[记录生活全过程的验收](05-recording-engine.md#recording-engine-记录生活全过程的验收)。
-人物 Prompt 七层规格登记的八项差距（观察保存层数据与 `progress_event_ids`、单一行动阶段与闭集 `decision_started`、`action_requested.data.self_note`、同秒续接的原生消息、记忆层派生与 `subject`、订单收货人与进食份量、`decision_budget_exhausted`、世界结构版本 8）已随该规格实现闭合，验收见[记录生活全过程的验收](05-recording-engine.md#recording-engine-记录生活全过程的验收)与[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)。既有条款没有未闭合差距；2026-10-01 的结构化 `protocol_feedback`、即时世界查询证据与当天操作备忘已随工具交互规格实现，证据见[工具交互验收记录](../archive/tool-interaction/tool-interaction-verification.md)，不由更早的验收证明。
+时间与能量、七层人物提示、工具交互的既有记录差距已由各自验收覆盖。现行记录入口只读取 ACTION 活动、五字段开始项、六键世界查询、当前订单状态、`goods_received`、闹钟、分配内容与无分类内容进度；旧活动、库存、食用、来源和工作主题载荷直接拒绝。动作与内容简化的新增证据必须由本次验收证明，不能沿用更早的绿色结果代替。
 
 <a name="recording-engine-记录生活全过程的验收"></a>
 ### 记录生活全过程的验收
@@ -291,7 +286,6 @@ action 活动每次结算带 `content{content_id, app_id, position_before_second
 | 个人事务留证 | 三个控制请求里每条被受理的事务变更恰好写一条事务事件；六种事务事件与所记录的事务变化、触发它的事件同一提交，都不带决策与动作身份；请求里无法自报完成；办成与进展事件的 `caused_by` 指向记下之后的结算证据，重放的动作结果与重复到期的配送不重复累计；提醒只在实际交付决策机会时写事件 | [个人事务与工作安排规格「验收台账」](../VERIFICATION.md#verification-incremental-evidence)的「事务变更与原子受理」「完成依据」「结算幂等」「事务提醒」行 | 已实现，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md) |
 | 个人事务检查点 | 共同检查点恢复后待办层逐字节相同，不重复记下、完成与提醒；世界结构版本 8 的检查点与导出按版本拒绝 | [个人事务与工作安排规格「验收台账」](../VERIFICATION.md#verification-incremental-evidence)的「检查点」行 | 已实现，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md) |
 | 严格反思留证 | 就寝反思恰一次 `submit_reflection`；输出不合合同时附回英文校验错误重新请求（首次之外至多三次），每次尝试的请求与响应各自留证；耗尽即运行故障，本轮中止、不提交，故障时无 `memory_updated` | [个人事务与工作安排规格「验收台账」](../VERIFICATION.md#verification-incremental-evidence)的「严格反思」行 | 已实现，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md) |
-
 
 <a name="recording-engine-保存与关联证据"></a>
 ## 保存与关联证据
@@ -398,7 +392,6 @@ run/
 `events` 由数据库触发器限制为只追加，并限制持久序号连续；历史事件不能更新或删除；已提交的检查点记录同样禁止更新或删除。
 `world_state` 保存当前已确认状态，完整历史恢复依靠共同检查点及其关联事件，不能把当前状态误当作任意历史截点的状态。
 素材按内容哈希共享字节，事件和引用中的来源语义仍各自保留。
-
 
 <a name="recording-engine-数字足迹存储接口"></a>
 ### 数字足迹存储接口
@@ -562,7 +555,6 @@ flowchart TD
 运行清单结构 `4` 保存 `environment_identity{environment_id, environment_version, rules_version, catalog_content_sha256, map_sha256}`，检查点的 `manifest_sha256` 钉同一清单。打开、恢复和反事实分支逐字段核对当前身份，差异即拒绝，分支不改父运行。
 旧状态和旧清单直接拒绝，世界不再保存供给库存、报价、营业例外、资格或可见供给字段；实际恢复消费者在共同集成波次验收。
 
-
 <a name="recording-engine-保存共同检查点的验收"></a>
 ### 保存共同检查点的验收
 
@@ -689,7 +681,6 @@ flowchart TD
 禁止 NaN 与无穷值。消费端从 `events.jsonl` 与认证检查点独立重算购买、app 使用、推送状态和质量报告，
 任一不一致都拒绝。
 
-
 <a name="recording-engine-完整性验证"></a>
 ### 完整性验证
 
@@ -698,7 +689,6 @@ flowchart TD
 只达到场景终点不代表完整；缺少最终共同检查点，或最终检查点之后仍有事件，都不能认定为完成。
 不完整导出只用于诊断，不能作为下游正式加工的认证输入。
 `validate_export` 在重算并逐行比对五个工件后，还逐条检查[足迹不变量](../dev/SPEC-action-and-content-simplification.md#spec-acs-足迹不变量)的七项约束；任一项不成立都以 `IntegrityError` 拒绝导出。
-
 
 
 <a name="recording-engine-导出认证"></a>
@@ -797,7 +787,6 @@ flowchart TD
 性能分析使用可测量的模型用量、墙钟耗时、模拟时长、事件和素材统计，不把假设阈值当成实测结果。
 
 
-
 <a name="recording-engine-固定截止读取接口"></a>
 ### 固定截止读取接口
 
@@ -834,7 +823,6 @@ flowchart TD
 | 足迹不变量 | app 行只来自带 app 的活动；同一人物手机区间不重叠；收货、账户、内容、推送与来源所有人满足七项约束，重签全部投影也不能掩盖伪造事实 | `tests/footprints/test_acs_export.py::test_real_export_rejects_corrupted_events_after_all_five_projections_and_hashes_agree`、`tests/footprints/test_acs_export.py::test_real_manners_pauses_navigation_and_no_app_export_pass_all_invariants` | 结论取本阶段回执 |
 | 收货行 | 每张已收货订单恰有一行 `receipt`；待领取没有收货行，模拟收货人和联系人各按真实来源归属 | `tests/footprints/test_acs_export.py::test_real_engine_current_five_artifacts_and_receipt_owner`、`tests/footprints/test_acs_export.py::test_real_station_export_keeps_purchase_payer_and_actual_recipient_notifications_and_receipt` | 结论取本阶段回执 |
 | 活动快照与开始地点 | 主动结束与暂停写活动快照，导出的活动与最终共同检查点逐项一致；出行活动的 `location_id` 为出发地，结算不改写，到达经历照常产生 | [时间与能量规格「验收台账」](../VERIFICATION.md#verification-incremental-evidence)的「绿色基线」「本机运行修复」行 | 已实现，证据见[时间与能量验收记录](../archive/time-and-energy/time-and-energy-verification.md) |
-
 
 
 <a name="recording-engine-运行查询与诊断"></a>
@@ -915,7 +903,6 @@ python3 scripts/render_day.py runs/white-collar/footprints.sqlite --agent 0 --da
 最终标签表包含 `action`“动作”、方式“进行”及“领取”、`app_push`“app 推送”、
 `work_content_completed`“工作内容完成”和 `alarm_ring`“闹钟响铃”。唤醒与原生工具标签与当前生产闭集一致，
 查看器只投影认证事实，实际 Node 与导出重算分别验收。
-
 
 
 <a name="recording-engine-完整性诊断边界"></a>
@@ -1019,3 +1006,4 @@ flowchart LR
 | `2026-10-07-repository-ownership` | 2026-10-07 | 按用户裁决收敛目录与职责：WorldMock 保留模拟、记录、完整认证足迹与评估；下游加工、模型任务、训练和规则数据归 LabelKit-DataSet，源码快照已接收，新消费验收另记实际证据 |
 | `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |
 | `2026-10-07-acs-receipt` | 2026-10-07 | 付款与收货分别留证，收货由唯一函数恰好结算一次，效果与证据归收货人；个人事务七键，用餐目标按本人 meal 收货推进。 |
+| `2026-10-08-acs-action` | 2026-10-08 | 统一动作执行、内容历史、推送、社交及用户补订的现行合同 |

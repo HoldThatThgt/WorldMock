@@ -6,7 +6,6 @@
 > 引用出处：`src/worldmock/life/world_setup.py::_require_engine_rules` @ `05a295ab464165e9ce3bd7cd7783e0513fb57e8d`
 
 > 2026-10-07 按用户确认的[数据加工归属](../ARCHITECTURE.md#architecture-数据加工归属)修订：WorldMock 负责模拟、记录、完整认证足迹导出与真实性评估；LabelKit 加工、模型任务、训练装载与规则测试归 LabelKit-DataSet；环境素材归 WorldMock-Dataset。历史验收数字只证明原源码基线，不代表本次消费链已验收。
-> 按[动作与内容简化规格](SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订动作、内容、请求与记录合同；被取代的资源与规则正文及测试引用只保留为历史裁决。
 
 > 状态：FROZEN。2026-10-07 冲突、覆盖、可实现性三个视角完成复审与实质问题定向复核；第 1 轮 34 项、第 2 轮 25 项、第 3 轮三个阻断均已关闭。本文件是资源与规则简化的实施权威；实现与验收状态按机器台账和真实回执判定。
 > 日期：2026-10-07。
@@ -487,7 +486,6 @@ WorldMock 拥有全部分类、常数与交换公式，定义在新包 `src/worl
 - 结算：每单一笔 `settle_money_transfer(buyer → merchant:<store_id>, 货款 + 配送费)`；订单行 `(store_id, food_id)` 由 `foods_by_store` 解析（菜单没有则 `SUPPLY_NOT_FOUND`）；`ORDER_DUPLICATE_SUPPLY` 改名 `ORDER_DUPLICATE_ITEM`（"The same food from the same store appears twice in one order."）；`ORDER_LOCATION_MISMATCH` 不变；没有库存、报价、资格、营业检查；送达幂等（一个 `delivery_arrival` 一单）。
 - `DeliveryState` 与订单行见「状态、事件、检查点与导出」；工具层食品目标的动作 到店（在场才可用）、远程下单（店铺有 app 才列出），`price` 为到手价，`note` 写「预计 HH:MM 送到」或「经<app>」；`callable_index.goods` 按食品类别标签分组，`obtainable_here = purchase_allowed 且（在场 或 店铺有 app）`。
 - 持有：`AgentState.inventory{location_id: {food_id: 份数}}`；`initial_inventory` 的键必须是目录食品；只有食品可持有、可给予。
-
 
 <a name="spec-rrs-三类食品与进食"></a>
 ## 三类食品与进食
@@ -1067,7 +1065,7 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | 4 | `tests/catalog/test_affordance_shadow.py`、`tests/catalog/test_engine_package_resources.py`、`tests/life/test_parallel_admission.py`、`test_parallel_acceptance.py`、`test_parallel_activities.py`、`test_paused_slots.py`、`test_candidates.py`、`test_presentation_fidelity.py`、`test_relevance.py`、`test_retrieval.py`、`test_readable.py`、`test_lifestyle.py`、`test_mail_reading.py`、`test_duration_boundaries.py`、`test_shared_rules.py`、`test_activity_title_embedding.py`、`test_activities.py`、`test_activity_effects.py`、`tests/test_test_tiers.py`、`tests/life/test_tool_interaction_habits.py` 与 `tests/fixtures/tool_interaction_habits.json` | 与旧娱乐声明同提交刷新包资源及人工环境副本并重跑身份校验；最终八个占用名、十三个退役名拒绝、同种配对；app 使用的同种与跨种行；候选三种；可读名；app 使用时长单一来源（[SR] 活动时长 行改为 `test_app_use_duration_matches_tool_layer_and_admission`）；习惯链改为 打开、到店、远程下单、食用 |
 | 4 | `tests/life/test_wake_reasons.py`、`tests/life/test_scheduling.py`、`tests/scheduling/test_branch_coverage.py`、`test_same_moment_decisions.py`、`test_discomfort_and_sleep_messages.py` | 只加入 `app_push` 预排与唤醒：阶段 4 的唤醒词表为 25 个；推送网格、同秒排序与不打断规则；不提前删除三个工作原因 |
 | 4 | `tests/tool_interaction_acceptance.py`、`tests/dayrun_fidelity_acceptance.py`、`tests/time_and_energy_acceptance.py`、`tests/idle_fillers_acceptance.py`、`tests/shared_rules_acceptance.py`、`tests/test_single_source.py`、`tests/test_test_tiers.py`、`tests/fixtures/idle-fillers-acceptance.json`、`tests/fixtures/mutation-symbol-baseline.json`、`tests/fixtures/current-feature-owners.json`、`tests/fixtures/acceptance_requirements.json`、`scripts/fresh_check.py` | 与旧内容、游戏、TextWorld、口味缓解及 app 推送切换同提交：删除 [TI]/[DF]/[TE]/[SR]/[OWN]/[MB] 中旧观看、游戏、字幕、内容检索和 relief 行，执行 [IF] `app_push` 同步点，删除 TextWorld 层级节点；`QUICK_TESTS` 以 `tests/catalog/test_loader.py` 取代 `tests/life/test_content_catalog_titles.py`；[DOC] 改指 app 内容合同。工作行继续保留到阶段 5 |
-| 5 | `tests/life/test_work_topics.py`（新增） | 行为用例 T43–T46 |
+| 5 | `tests/life/test_action_run.py`（新增） | 行为用例 T43–T46 |
 | 5 | `tests/life/test_wake_reasons.py`、`tests/footprints/test_event_fields.py`、`tests/tools/run_viewer*.test.cjs`、`tests/life/test_scheduling.py`、`tests/scheduling/test_branch_coverage.py`、`tests/life/test_progress_events.py`、`test_session_attribution.py`、`test_activity_wake_facts.py`、`test_day_planning.py` | 删除三个工作唤醒与两个预排名后，最终 22 个名字与次序；有序表从删除的 `test_work_contracts.py` 迁入；足迹事件与查看器计数同步；任务开放节点改为推送节点（[IF] 第 7 条引擎证据） |
 | 5 | `tests/integration/test_external_environment_lifecycle.py`、`tests/life/test_grounded_observation.py`、`tests/life/test_paused_slots.py` | 首个真实引擎持久化节点：创建、实际观察后等待或生活活动、推进、人物状态与检查点有效、关闭、重开身份和状态相等、继续调度；该节点不调用 `export_run` 或 `validate_export`，导出与重算拆成阶段 7 的独立节点；不足一分钟工作原因与下一步改为主题句 |
 | 5 | `tests/integration/test_rrs_engine_wave.py`（新增） | 用真实人工环境与 `LifeEngine` 覆盖阶段 1–4 的真实集成边界：T15 在打开、恢复与重放拒绝结构 9，T16 从 `runtime._prepare_resume` 真实入口拒绝环境身份不匹配并在构造期拒绝不存在的食品标识；再覆盖图上出行与位置证据、购买/配送/进食及检查点幂等、app 抽取/共享进度/推送与跨 app 交错。引用 T15–T41 作为晚期集成节点，不改变其最早归属或变异阶段；导出认证不在本节点，归阶段 7 的 T54 |
@@ -1209,8 +1207,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 - `tests/test_rrs_acceptance.py` 以两个锚点常量分别读取表：契约点与行为用例从 `spec-rrs-验收台账` 读取，变异表从独立的 `spec-rrs-变异登记` 读取；按阶段核对：登记的契约点与台账表首列一致、阶段相等；锚点存在；`STAGES_DONE` 只能取 B-41 的集合；已关闭阶段的每行都有会被收集、未被跳过、不是空壳的测试节点与解析到真实定义的实现符号；未关闭波次里已经登记的纯节点、实现与变异也必须立即解析到真实定义并能运行，不能登记未来名字或占位；特性生产与测试文件没有延期标记与空壳函数；T 编号集合等于行为用例表首列，引用某 T 的台账行所在阶段关闭时该 T 已有节点且列在该行。变异表各行与 `MUTATION_ROWS` 一一对应且顺序相同、阶段相等；用中文分号拆开的变异分句与契约点、最早可运行杀手阶段逐项等长配对，具名契约点存在，owner `stage` 恰等于该契约点的最早行为归属；阶段 1–4 的 `earliest_runnable_killer_stage` 只能等于 owner 或 5，不能晚于 5，其他阶段必须等于 owner。阶段 5 关闭波次时只要求 owner 1–5 的每个分句至少映射一个变异名；阶段 6、7、8 的分句各在自己的阶段关闭时补齐。每次关闭后，所有已到期分句的 `mutations` 扁平集合与已登记且已到期的 `MUTATIONS` 名集合相等且无重复；每个已到期变异原文在登记定义内恰好出现一次且变异后能编译，行为杀手都登记在台账里；T56 等结构守卫不能充当行为杀手。到达 `earliest_runnable_killer_stage` 时，全部杀手在未变异源码上先通过，随后每个变异被杀死（退出码 1，没有收集错误）；阶段 5 只有在 owner 1–5 的全部到期变异通过后才原子关闭 1–5。阶段 1 提交加入按变异参数化的执行用例；阶段 8 提交加入「全部实施阶段已完成」的判定。
 - `tests/fixtures/acceptance_requirements.json["resource-rule-simplification"]` 与 `tests/fixtures/current-feature-owners.json` 的同名键由 `scripts/documentation_owners.py` 核对正文归属。
 
-
-
 <a name="spec-rrs-变异登记"></a>
 ## 变异登记
 
@@ -1282,8 +1278,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | `scripts.freeze_rrs_baseline::freeze_matching_baseline` 跳过两个候选的相等检查，直接写第一份 | 8 | T55 | 完整日基线 | 8 |
 
 删除枚举成员属导入期失败，不登记为变异；`WakeReason` 与 `ActivityKind` 的声明次序由 T39 与 T11 的有序表守住。
-
-
 
 <a name="spec-rrs-数据仓交接"></a>
 ## 数据仓交接
@@ -1444,6 +1438,3 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | `2026-10-06-rrs-freeze` | 2026-10-07 | 三个视角复审及实质问题定向复核通过，全部阻断关闭；冻结实施合同、分阶段机器验收与行为变异，保留用户裁决及 macOS 双跑基线授权；阶段 9 由数据仓执行并登记真实平台回执 |
 | `2026-10-07-acs-rules` | 2026-10-07 | 「固定规则与常数」「环境格式」「人工环境」由动作与内容简化规格同名章节取代，RULES_VERSION 为 2。 |
 | `2026-10-07-acs-receipt` | 2026-10-07 | 「三类食品与进食」整节与「店铺、食品与外卖」即时交付到当地持有及持有条款，由动作与内容简化规格「购买与支付」「收货结算」取代。 |
-| `2026-10-07-acs-action` | 2026-10-08 | 「娱乐：app、内容与推送」的选择、时长与生命周期及「工作主题与叙述」的目录、分配与完成由动作与内容简化规格「其他动作：统一执行、内容与推送」取代；推送网格、session 与叙述通道继续有效 |
-| `2026-10-07-acs-request` | 2026-10-08 | 「观察与工具面」「系统层」由动作与内容简化规格同名章节取代；系统层逐条锁定测试改读该规格的冻结全文 |
-| `2026-10-07-acs-record` | 2026-10-08 | 「状态、事件、检查点与导出」由动作与内容简化规格同名章节取代；事实种类与投影归属按现行数字足迹合同 |

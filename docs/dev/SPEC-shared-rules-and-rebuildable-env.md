@@ -16,9 +16,9 @@
 > 本文件是本次特性的唯一开发规格；提案中的机器现状、估计行数、顺序建议不是验收事实。
 > 范围：提案列出的共享规则、漂移修复、依赖来源、引导、门禁和重建验证；全部要求必须实现。
 
-当前环境归属按[环境数据归属规格](SPEC-environment-data-ownership.md)执行：具体 `corpora/`、`catalog/`、`scenarios/`
-及制作工具由 WorldMock-Dataset 维护，正式环境为 `environment/zhangjiang-baseline/`；通用活动、动机与人物映射
-由 WorldMock 包资源提供，环境冻结副本须逐字节一致。当前场景结构为 `6`，单人物文件为 `single-person.json`。
+当前环境归属按[环境数据归属规格](SPEC-environment-data-ownership.md)执行：具体 `catalog/`、`scenarios/` 及制作工具由 WorldMock-Dataset 维护，正式环境为
+`environment/zhangjiang-baseline/`；固定类别、行为规则、动机与人物映射由 WorldMock 包资源提供，
+环境只登记具体对象，不保留规则副本。当前场景结构为 `6`，单人物文件为 `single-person.json`。
 本文中的新环境放行须另核对本次收据，历史验收数字不证明当前组合已经通过。
 
 <a name="shared-rules-用户行为与实现边界"></a>
@@ -138,9 +138,6 @@ flowchart LR
 
 `tests/test_single_source.py::OWNERS` 登记固定类别、`MANNER_DEVICE`、`STORE_KINDS`、`GOODS_CATEGORY_STORE_KINDS`、`GOODS_ENERGY_KCAL`、`GOODS_RECEIPT_EFFECTS`、`CONTENT_MIN_SECONDS`、`CATEGORY_MET`、`ENTERTAINMENT_RELIEF_PER_HOUR`，以及迁入 exchange 的社交需要、情绪脉冲与半衰期、运动情绪常数。原有固定定义仍由唯一定义处读取，旧食品与内容分类表直接删除。
 
-
-
-
 <a name="shared-rules-可重建环境"></a>
 ## 可重建环境
 
@@ -258,7 +255,6 @@ CI 比较两系统代码摘要，不能只分别检查摘要格式。
 每个修改的冻结文档补本次版本记录，描述当前语义，删除被替换的旧约束；不得并列相互矛盾的现行规则。
 现行业务协议、同秒进度、重试预算、记忆类型和 sleep_channel 语义没有被本次规格推翻。
 无新增依赖层级配置、测试层级工具、运行兼容格式、热更新或外部发布功能。
-
 
 <a name="shared-rules-验收与闭合台账"></a>
 ## 验收与闭合台账

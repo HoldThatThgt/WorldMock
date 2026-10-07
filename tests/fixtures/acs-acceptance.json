@@ -668,12 +668,18 @@
     "stage": "6",
     "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-门禁与平台",
     "tests": [
+      "tests/test_test_tiers.py::test_acs_environment_digest_without_corpora_has_current_identity",
+      "tests/test_style_gate.py::test_style_gate_admits_no_new_violations",
       "tests/test_import_graph.py::test_production_import_graph_obeys_all_boundaries",
       "tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones",
+      "tests/test_test_tiers.py::test_real_pytest_collection_classifies_each_test_and_actual_fixture_closure",
       "tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve",
-      "tests/test_design_doc_build.py::test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current"
+      "tests/test_design_doc_build.py::test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current",
+      "tests/test_acs_acceptance.py::test_feature_file_lists_are_real_relative_and_have_no_deferral_or_stubs"
     ],
     "implementation": [
+      "scripts/run_tests.py::environment_source_digest",
+      "scripts/run_tests.py::collect",
       "scripts/documentation_gate.py::main",
       "scripts/build_design_doc.py::check_current"
     ]

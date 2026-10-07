@@ -7,7 +7,7 @@
 
 本页命令以 WorldMock 为当前工作目录。正式场景位于
 `../WorldMock-Dataset/environment/shanghai-simplified/scenarios/`；预览与修改使用[手册入口](README.md#readme-创建自己的第一个场景)
-创建的完整 `experiments/my-world/` 副本，保留场景、目录与语料相对引用。
+创建的完整 `experiments/my-world/` 副本，保留场景、目录与发布图的相对引用。
 
 > 2026-10-01：[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)已冻结并已实现；本手册描述当前程序实际读取的配置。
 > 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步个人事务与提醒的说明（阶段 2）。
@@ -160,7 +160,6 @@ flowchart LR
 
 场景人物不声明技能、资格或偏好权重；职业、消费和饮食喜好用 `background_story` 散文描述。商品用实际目录的 `goods_id`，分配工作用实际 `work_content_ids`；画像不会自动生成商品、动作、内容或 app 绑定。商品在实际收货时立即施加效果，不创建持有物或独立消费动作，见[请求字段与结算检查](../CONTRACTS.md#contracts-request-settlement)。
 
-
 <a name="personas-正文与实际世界条件要一致"></a>
 ## 正文与实际世界条件要一致
 
@@ -194,7 +193,6 @@ flowchart LR
 也不会自动把 `world_dynamics` 替换到现有身体参数。可用的参数调整入口见[规则配置](rules.md#rules-调整世界规则与人物动机参数)。
 
 画像对照登记动作名、地点显示名、食品类别商品名与全部 app 名；`tastes` 是散文，不产生数值权重。
-
 
 <a name="personas-预览与校验"></a>
 ## 预览与校验
@@ -258,7 +256,7 @@ worldmock profile validate \
 | 故事里有朋友，运行时却无法联系 | 补齐 `contacts` 和渠道；故事不会创建世界对象 |
 | 改了故事中的余额或睡眠，实际数值没变化 | 同步修改对应结构化字段 |
 | 画像编译留下警告（`PERSONA_AGREEMENT_LOW`：三次一致性偏低，或下班、到家时刻与出门、就寝先后冲突而被置为 null）或卡片超过预算 | 缩小矛盾描述，减少重复关系和过多兴趣，再编译检查；下班、到家被置为 null 时，照警告原文把正文里的钟点改成与出门、就寝不冲突的写法 |
-| `PERSONA_COVERAGE_FAILED: executable_ratio=… below 0.8` | 覆盖率不足，校验失败（此前已写出 `COVERAGE_BELOW_THRESHOLD`）；按 `missing` 改写正文或补充世界素材，习惯不按 app 名子串命中，媒体按完整 app 名和类型标签匹配 |
+| `PERSONA_COVERAGE_FAILED: executable_ratio=… below 0.8` | 覆盖率不足，校验失败（此前已写出 `COVERAGE_BELOW_THRESHOLD`）；按 `missing` 改写正文或补充世界素材，习惯不按 app 名子串命中，媒体按完整 app 名与实际动作名匹配 |
 | `Input warning CONTENT_EMPTY_WITH_MEDIA_TASTES` | 没有任何 app 绑定内容，卡片或习惯里却有看、刷、听；补充内容，或从正文删去 |
 | `Input warning CARD_FIELD_OVERRIDDEN` | 场景写出的作息与正文抽取的不同，人设层已取场景值；有意如此可以保留，否则让正文与场景一致 |
 | `Input warning CARD_FIELD_CONFLICT` | 场景窗口与卡片其余锚点先后冲突或不在 0.5 小时格点，人设层保留了卡片值；调整该窗口或正文作息 |
@@ -267,7 +265,7 @@ worldmock profile validate \
 详细限制见[人物卡片合同](../CONTRACTS.md#contracts-人格与卡片字段)、
 [画像规格](../dev/SPEC-life-realism.md#spec-life-realism-画像编译)和[人物配置加载器](../../src/worldmock/life/scenario.py)。
 
-运行警告只有六个码；无内容警告的 `details` 为 `media` 与 `habits`，不保留口味或游戏权重字段。覆盖率失败时核对目录食品名、习惯关键词、五个内容标签与全部 app 名。
+运行警告只有六个码；无内容警告的 `details` 为 `media` 与 `habits`，不保留口味或游戏权重字段。覆盖率目标与匹配口径统一见下方[习惯的行为核验目标](personas.md#personas-习惯的行为核验目标)，不使用内容分类标签。
 
 <a name="personas-习惯的行为核验目标"></a>
 ## 习惯的行为核验目标

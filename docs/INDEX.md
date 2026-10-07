@@ -64,14 +64,13 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | --- | --- | --- |
 | `docs/INDEX.md#index-worldmock-文档入口` | 本文件：文档地图、阅读路径、权威层级与文件归属 | 入口 |
 | `docs/ARCHITECTURE.md#architecture-worldmock-架构设计` | 系统分层、职责边界、数据流与核心决策的理由 | FROZEN |
-| `docs/CONTRACTS.md#contracts-worldmock-接口合同` | 跨模块接口合同与导航；记录引擎定义引用所属设计，其余接口在本文件维护；现行输出身份为导出清单 4、质量报告 6、行为报告 `behavior-metrics-2` | FROZEN |
-| `docs/EXPERIMENT.md#experiment-worldmock-实验设置` | 实验身份：时间窗与日历情境、依赖冻结、运行绑定、场景参数、内容与环境素材绑定、外部参照及现行输出身份 | FROZEN |
-| `docs/VERIFICATION.md#verification-worldmock-验收标准` | 放行门禁、协议门禁、工程门禁、报告项、交付条件、测试矩阵与结论边界；导出清单 4、质量报告 6、行为报告 `behavior-metrics-2` 的验收口径已同步，执行状态按实际回执登记 | NOT-COMPLETE |
+| `docs/CONTRACTS.md#contracts-worldmock-接口合同` | 跨模块接口合同与导航；记录引擎定义引用所属设计，其余接口在本文件维护；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步；现行输出身份为导出清单 4、质量报告 6、行为报告 `behavior-metrics-2` | FROZEN |
+| `docs/EXPERIMENT.md#experiment-worldmock-实验设置` | 实验身份：时间窗与日历情境、依赖冻结、运行绑定、场景参数、内容与环境素材绑定、外部参照及现行输出身份；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步 | FROZEN |
+| `docs/VERIFICATION.md#verification-worldmock-验收标准` | 放行门禁（最终门禁、协议门禁、工程门禁、报告项）、交付阶段与通过条件、测试矩阵、验收原则与结论边界；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步；导出清单 4、质量报告 6、行为报告 `behavior-metrics-2` 的内容、出行、质量与足迹导出通过条件已同步，执行状态按实际回执登记 | NOT-COMPLETE |
 | `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态` | 当前实现状态：确定性范围与测试基线实测、覆盖率口径、规格追溯与突变守卫、未完成项与阻塞 | NOT-COMPLETE |
 | `docs/dev/coverage-baseline.md#coverage-baseline-覆盖率门禁口径与基线` | 覆盖率门禁的判定口径、测量与排除范围、失败关闭约定、历史基线及本次正式门禁阻断 | 现行口径 |
 | `docs/dev/coverage-report.json` | 门禁生成物：分支覆盖率、未覆盖公共接口与逐文件分项，由 `scripts/coverage_gate.py` 写入 | 生成物 |
 | `docs/dev/test-durations.json` | 统一测试入口生成的节点、层次、阶段与文件耗时，标准墙钟取相同内容和执行条件的实际标准层回执 | 生成物 |
-
 
 
 <a name="index-用户配置手册"></a>

@@ -103,7 +103,6 @@ flowchart LR
 
 标准动作闭集只有 `travel_to`、`sleep`、`wait`、`purchase`、`do`；每份菜单继续保护 wait 与 sleep。
 
-
 <a name="spec-interaction-menu-地图地点与发现工具"></a>
 ## 地图地点与发现工具
 
@@ -156,7 +155,6 @@ app 作为 `kind="app"` 的工具目标始终列出，人物用方式「打开�
 活动控制保持原规则，任何菜单都不能放宽活动归属、反馈边界与 app 使用准入。
 恢复请求的活动不存在或不属于当前人物时，由原活动身份校验拒绝；不以菜单错误掩盖既有领域错误。
 
-
 <a name="spec-interaction-menu-实验身份与恢复"></a>
 ## 实验身份与恢复
 
@@ -178,7 +176,6 @@ app 作为 `kind="app"` 的工具目标始终列出，人物用方式「打开�
 `rules_version`、`catalog_content_sha256`、`map_sha256`。
 规则文件只从引擎包读取，环境不发布副本，也不添加规则哈希；`code_sha256` 额外覆盖 `src/worldmock/data/` 下每个文件。
 旧格式与旧结构号直接拒绝，不迁移、不双读。
-
 
 <a name="spec-interaction-menu-文件修改清单"></a>
 ## 文件修改清单
@@ -221,22 +218,11 @@ app 作为 `kind="app"` 的工具目标始终列出，人物用方式「打开�
 
 
 <a name="dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性"></a>
-### 浏览结果与提示看可达性
+### 查询结果与可达性
 
-**改造前观察**（BIZ 午餐往返 17 段的系统侧原因；下列源码定位当前对应职责）：浏览是全局的（`src/worldmock/life/rules.py::LifeRuleEngine.validate_start`、`src/worldmock/life/observe.py::ObservationBuilder._complete_product_browse`），每次 56 条供给里的 20 条，其中 17 条全天在任何地方都买不到；
-进度层的浏览结果只列商品名不带店名（`src/worldmock/life/result_projection.py`），模型把全局目录当成了当前餐馆的菜单；商品可见性绑定在浏览的地点（`src/worldmock/life/projection.py`，有效期 1800 秒），
-人一离开商品就从工具层消失（在场门店的供给不经浏览就进入商品池，`src/worldmock/life/observe.py`；指名路径本就不查可见凭据，`src/worldmock/life/storefront_runtime.py`）；
-下一步提示当时只看供给声明的目的地、不看可达性（到店 `src/worldmock/life/admission.py::_place_refusal`「去{place}」，配送 `src/worldmock/life/admission.py::_delivery_refusal`「去 X 或 Y 再下单」）；
-「暂时送不到这里」当时同时覆盖 4 个 `DELIVERY_*` 码（原因映射对应 `src/worldmock/life/guidance.py::_DEFAULT_REASONS`，配送准入对应 `src/worldmock/life/admission.py::_delivery_refusal` 也使用了同句）。反证：14:59 商品和地点同时出现在工具层时，模型 5 分钟内就完成了购买。
+商品直接使用登记名称，不带店铺前缀。地点显示完整名称，前往建议使用 `Go to <place>.`。地图提供最短路与完整路径；未展示商品可按名购买，环境仍核对实际店铺、购物应用与付款应用。
+查询只有只读结果，不创建浏览活动、库存或新的世界事实。
 
-**设计。**
-
-- 浏览结果保留完整标签「<门店>出售的<食品>」，进度层记录实际返回名称，不生成额外世界事实。
-- 地点发现查询发布图，当前地点到任何其他目录地点都有最短路；需要前往时只写 `Go to <place>.`。
-- 外卖覆盖全地图，没有配送区域或配送路线缺失原因，不生成中转地点提示。
-- 可见性和浏览结果归属仍按各自合同处理；图只提供距离与路径，不改变同一决策只能提交一个世界请求的边界。
-
-**验收。** 地点提示使用完整地点名称，只有 `Go to <place>.` 句式；等长路径按冻结完整路径决胜；配送不返回区域或不可达原因。
 
 <a name="errands-workday-查询筛选与返回精简"></a>
 ## 查询筛选与返回精简
@@ -258,28 +244,25 @@ app 名按登记名称精确匹配。商品要求实际供给店铺绑定该购�
 <a name="errands-workday-查询筛选与返回精简-只看此刻能做的"></a>
 ### 只看此刻能做的
 
-`available_only` 从本轮冻结观察的动作 `available` 读取，不另算。食品到店动作只按人物是否在店内，远程下单只按该店是否绑定所点 app；没有报价、营业、库存或配送区域条件。
-保留条目仍返回全部动作与工具及各自原因；按方式过滤先于稳定排序与切页，`total_count` 为完整交集，空页不自动换来源或放宽。
-本人远程收货只在停留中，路途中自送是实际前置条件拒绝；请求成功仍以环境受理时同一规则重验为准。
+available_only 读取冻结观察里实际命中方式与 app 的 available，不用其他动作的资格替代。现场购买要求本人在供给店铺，远程购买要求真实购物与支付绑定；动作读取同源地点、内容、名额与资源条件。
+筛选在排序与切页之前，合法空页不放宽筛选或代选应用。真实执行仍复核同一组准入规则。
+
 
 <a name="errands-workday-查询筛选与返回精简-返回"></a>
 ### 返回
 
-- 顶层恒为 `{matches, total_count, next_offset}` 三键，不新增说明键。各键取值合法、`offset` 在范围内时，除 5.5 第二行外任何筛选组合无匹配都返回 `matches=[]`、`total_count=0`、`next_offset=null`，不报错、不自动放宽、不换来源；`total_count` 为 0 时合法的 `offset` 只有 0，越界仍按既有错误处理。
-- 每项是冻结目标的无损紧凑投影：键取 `name, kind, phase, state, contract`（仅任务）`, actions, tools`；动作取 `action, way, available, reason, price, duration, quantity, note`。只省略 null 与空集合；false、零价格、零剩余与明确的未知原因逐值保留。紧凑规则复用工具层分组已有的实现。
-- **不再逐项附 `candidates`**（裁决 Q2，修订工具交互规格刚冻结并实现的条款）：照抄 `name` 与所选动作的 `way` 即可提交；候选只出现在错误合同里。冻结条目里的候选与构造它的函数一并删除，不留双形状。门店商品的来源标记 `note` 首版保留。
+顶层恒为 `{matches, total_count, next_offset}`。matches 是公开目标紧凑投影，只省略 null 和空集合，保留 false、零价与所有实际控制行，不返回私有身份或内容标题。动作含可空 app。
+完整集合先筛选再稳定排序和分页，total_count 是完整匹配数，next_offset 是下一页偏移或 null。offset 等于总数允许空末页，超过总数报错；无匹配且 offset=0 返回合法空页。
+查询只保存实际模型与 tool 交换，不写活动、事件或世界状态。
+
 
 <a name="errands-workday-查询筛选与返回精简-错误"></a>
 ### 错误
 
-| 情形 | 处理 |
-| --- | --- |
-| `from` 既不是地点显示名也不是渠道称呼 | 查询参数错误：`path` 为 `from`，`allowed_values` 为 `[]`，`expected` 为 `null, a known place name, or a known channel name is required.`；`candidates` 至多三条换了 `from` 的完整 `query_world` 请求，候选来源只取权限内有供给条目的门店与渠道 |
-| `from` 为 null，`name` 按对象名称解析无任何匹配，且其写法恰是一个渠道称呼（与其余筛选是否为空无关） | 查询参数错误：`path` 为 `name`，`expected` 为 `A channel name belongs in from; name takes an object name.`，`candidates` 给一条把该值移到 `from`、`name` 写 null 的完整请求；不自动改写 |
-| `from` 解析成功但该来源没有权限内供给 | 合法空页，不泄露不可访问门店 |
-| `name` 写完整标签而 `from` 写另一家店 | 合法空页（查询是交集筛选，不是购买请求） |
+独立的方式、类别和 app 错误一次报告，顶层与明细码均为 `ARGUMENTS_INVALID`，错误路径定位实际字段，候选为至多三条完整六键查询。
+未知 app 的 expected 为 `null or a known app name is required.`，why 为 `The written app is not a known app name.`。app 名误写到 name 时 expected 为 `An app name belongs in app; name takes an object name.`，候选把该值移至 app，不自动改写或执行。
+筛选错误不被 offset 或其他类型错误隐藏；offset 范围在筛选合法后计算。
 
-顶层与明细码都是 `ARGUMENTS_INVALID`，不把环境名称类码带进宿主协议反馈。来源错误与方式、品类错误一次全报；`offset` 范围只在全部筛选合法后计算。
 
 <a name="errands-workday-查询筛选与返回精简-执行位置与保留约束"></a>
 ### 执行位置与保留约束
@@ -318,7 +301,6 @@ app 名按登记名称精确匹配。商品要求实际供给店铺绑定该购�
 该记录必须如实区分本特性离线完成与全项目尚未完成的正式长期实验。
 
 本阶段食品查询和购买按同类型菜单、全店同价、店铺 app 绑定验证；app 打开只使用所选 app 的绑定内容，空内容 app 拒绝，商店 app 绑定仍用于食品来源。不再验收私有店铺库存、报价版本、营业或旧游戏动作。历史执行记录按其原始代码身份保留，不能代替本阶段节点。
-
 
 <a name="spec-interaction-menu-版本表"></a>
 ## 版本表

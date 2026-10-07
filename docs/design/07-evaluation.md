@@ -19,7 +19,7 @@
 
 按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)修订；验收结果独立记录。
 
-质量、行为、目标和工作负荷使用同一整数结算区间校验；质量、行为和工作负荷共用共同身体筛选。适配器每行事件只解析一次。生活家族映射同源，chat/call 归社交；外部证据缺品类仍记 unknown、unclassified 或缺证，不猜测进度。主观记忆快照校验与记录侧相同，合法反思不作为重复经历错误。
+质量、行为、目标和工作负荷使用同一整数结算区间校验；质量、行为和工作负荷共用共同身体筛选。适配器每行事件只解析一次。统一动作按实际快照中的固定类别映射，社交按明确通信方式记录；外部证据缺类别仍记 unknown、unclassified 或缺证，不猜测进度。主观记忆快照校验与记录侧相同，合法反思不作为重复经历错误。
 
 工程覆盖门禁复用唯一 full runner：收集、选择、完成回执与覆盖摘要绑定同一运行身份，
 选择、收集与完成节点的全局多重集精确一致且无重复；全量节点的三阶段必须完整且全部通过。
@@ -92,7 +92,7 @@ flowchart TB
 | --- | --- | --- |
 | **确定性可复现** | 固定输入产生逐字节相同输出 | 固定种子、排序稳定、无时间戳依赖 |
 | **Fail-Closed** | 证据缺失时门禁不通过 | `decision_offered` 缺失 → 静默边界门禁失败 |
-| **不推断缺失** | 缺字段标为 `null`，不猜测 | lifestyle 缺 family → 计入 `unclassified` |
+| **不推断缺失** | 缺字段标为 `null`，不猜测 | ACTION 缺合法 category → 计入 `unclassified` |
 | **来源可追溯** | 保留原始事件指针 | `PublicEvidence.source_event_ids` |
 | **结论边界明确** | 不声称已验证人类真实性 | `result_status: comparative_plausibility_only` |
 
@@ -123,7 +123,6 @@ flowchart TB
 
 `model_usage.by_purpose` 不含 `work_review`，`conversion_efficiency` 不含 `work`。这些键属于认证质量报告，
 不能用缺失值、模型文字或当前状态猜测；执行结果取实际门禁回执。
-
 <a name="evaluation-报告项reports"></a>
 ### 2.2 报告项（Reports）
 
@@ -208,7 +207,6 @@ flowchart TB
 - 休息与家务无参照项，并入无参照桶
 
 
-
 <a name="evaluation-指标计算公式"></a>
 ### 2.3 指标计算公式
 
@@ -219,7 +217,7 @@ $$
 C = \sum_{i=1}^{n} \left( \frac{count_i}{total} \right)^2
 $$
 
-其中 $count_i$ 为第 $i$ 个商品的消费次数，$total$ 为总消费次数。值越高越集中。
+其中 $count_i$ 为第 $i$ 个 `goods_id` 的本人食品收货订单数，$total$ 为本人食品收货订单总数；食品包含 `meal`、`snack`、`drink`。同一订单只计一次，值越高越集中。
 
 <a name="evaluation-小时重复率"></a>
 #### 24 小时重复率
@@ -227,7 +225,6 @@ $$
 $$
 R = \frac{\text{与前 24h 本人已收货商品重复的食品收货订单数}}{\text{本人食品收货订单总数}}
 $$
-
 
 <a name="evaluation-js-距离"></a>
 #### JS 距离
@@ -301,7 +298,6 @@ class PublicEvidence:
 结算事件证明。工作证据按真实 `content_id` 与 `work_content_completed` 表示内容累计及完成，不构造任务评审或截止事实。
 无法映射的类别使用 `unknown`，缺失字段保留为缺失，不按名称或相邻时刻补值。
 
-
 <a name="evaluation-活动activitysession"></a>
 #### 活动（ActivitySession）
 
@@ -331,7 +327,6 @@ class ActivitySession:
 占用格和盲评区间由规范 `EvidenceEvent` 中 `activity_progress.data.interval_start`、`interval_end` 的实际推进区间
 构造；相同 `activity_id` 的多段推进保持同一活动身份。`ActivitySession` 不保存或重建 `segments` 字段。
 
-
 <a name="evaluation-适配器职责"></a>
 ### 3.2 适配器职责
 
@@ -348,7 +343,6 @@ class ActivitySession:
 
 一个原始事件可以产生多条共同证据，但每条都保留来源事件指针。无法映射的类别写 `unknown`，一方不支持的
 字段保持缺失；适配器拒绝已退役的 WorldMock 请求形状和游戏、目录浏览、任务评审字段，不设置兼容读取。
-
 
 
 <a name="evaluation-两个数据集对比"></a>
@@ -389,7 +383,6 @@ flowchart LR
 三层事件口径与缺证据规则统一见 [当日目标规格](../dev/SPEC-day-plan-goals.md#spec-day-plan-goals-三层度量与质量导出)。
 纯事件统计由行为评估和生产质量导出共同调用，各层按最终规格的分组键隔离：
 目标按人物日归属，习惯跨不同本地日比较，外部约束按运行与动作去重。
-
 
 <a name="evaluation-盲评流程"></a>
 ## 4. 盲评流程
@@ -729,7 +722,6 @@ $$
 食品多样性按本人食品收货的 `goods_id`，门店归属按 `(store_id, goods_id)`；实际订单金额按真实订单件数和配送费核验，单价不能替代账本总额。付款、配送到达与实际收货分别核验：长途到站只进入 `ready_for_pickup`，本人在站零秒领取后才写 `goods_received` 并施加效果，没有持有或独立进食事实。
 真实地点与商品名称不证明真实价格或路网，价格、边长和店铺明示运输时长是合成输入。报告人物实际看到的信息、明确选择的 app、付款与收货，不预设近店或外卖必胜，也不继承旧目录的验收数字。详细收货边界见[请求字段与结算检查](../CONTRACTS.md#contracts-request-settlement)。
 
-
 <a name="evaluation-外部参照限制"></a>
 ### 7.3 外部参照限制
 
@@ -913,3 +905,4 @@ flowchart LR
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步按实际工作秒数计算的报告项，版本号不变 |
 | `2026-10-06-rrs-record` | 2026-10-07 | 阶段 7：当前 app、出行和工作主题证据，冻结活动行与真实推进区间；版本保持 v1.17 |
+| `2026-10-08-acs-close` | 2026-10-08 | 商品收货按 goods_id 与真实订单计数，付款、到站与领取分开；统一动作类别与实际设备映射，不构造持有或进食事实。 |

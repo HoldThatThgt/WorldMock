@@ -143,7 +143,6 @@ PY
 
 每个数组必须非空且不重复，名称必须存在于 `official_reference.domains`。更新参照时保留发布机构、调查名称、发布时间、采集时间、粒度和原始来源地址。每个领域填写 `label_zh`、`supported_duration_kinds`、`urban` 和 `working_age`；参与分钟为非负数，参与率在零到一之间。`world_activity` 与 `observed_digital_session` 是不同的时长语义，不能用数字交互时长代替全部现实生活时长。映射和证据口径见[行为评估设计](../design/07-evaluation.md#evaluation-适配器职责)。
 
-
 <a name="evaluation-绑定真实候选输入"></a>
 ## 绑定真实候选输入
 
@@ -180,7 +179,6 @@ legacy-root/
 | `repair_report_sha256`、`final_audit_sha256` | 对应报告完整文件的实际 SHA-256 |
 
 只有更换了已经认证的基准交付才更新这些值。改哈希不能替代修复链和完整审计。
-
 
 <a name="evaluation-可选真人参照"></a>
 ## 可选真人参照

@@ -50,7 +50,6 @@
 
 世界状态只有实际订单，没有食品持有与联系人持有；收货事件与经历使用 goods_id 与商品类别。
 
-
 <a name="io-formats-与其他模块的关系"></a>
 ### 1.2 与其他模块的关系
 
@@ -157,7 +156,6 @@ flowchart TB
 
 订单 `DeliveryState` 保留订单身份、付款人 `agent_id`、店铺、购物 app、卖方账户、件数、单价、配送费、总价、收货地、履约方式、收货人、关联消息、创建与预计时刻、路径和配送行程；商品用 `goods_id` 与 `category`，另有可空 `payment_app_id`、可空 `received_at`。状态为 pending、ready_for_pickup、delivered；pending 与 ready_for_pickup 的 received_at 为 null，到店收货时等于 created_at。订单数量恒为 1。没有食品持有或联系人持有。
 
-
 <a name="io-formats-当前工具请求查询与错误格式"></a>
 ### 当前工具请求、查询与错误格式
 
@@ -204,7 +202,6 @@ JSON 解析失败定位参数对象、附行列与必要闭集；未知工具定
 场景还保留作息字段与覆盖规则；`duty` 由场景声明和世界时钟逐轮求值，随观察事件保存，不新增持久副本。每个人物必须显式声明 `owns_car` 与 `initial_driving_days`，无车时天数为零；实际驾驶余额和已扣日保存在人物状态。完整作者字段见[场景结构 8](../dev/SPEC-action-and-content-simplification.md#spec-acs-场景结构8)。
 目录内容包含真实标题、摘要来源、时长和动作与 app 绑定，不含分类；动作必须声明可空 `manner`、`communication_mode`，不含时长与效果。运输时长位于地点的必填可空 `shipping_seconds`，不在商品上。旧请求和旧持久化结构直接拒绝。
 
-
 <a name="io-formats-agentstate人物状态"></a>
 ### 3.2 AgentState（人物状态）
 
@@ -237,7 +234,6 @@ JSON 解析失败定位参数对象、附行列与必要闭集；未知工具定
 `BodyState` 原样交给数字人：数值在 `values` 中留作事件证据，提示只获得 `levels` 的分级文本。
 人物睡眠常量留在状态与档案中，不进入观察投影。完整投影合同见
 [观察投影字段](../CONTRACTS.md#contracts-观察投影字段)。
-
 
 <a name="io-formats-activitystate活动状态"></a>
 
@@ -363,3 +359,5 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 | `2026-10-07-repository-ownership` | 2026-10-07 | 按用户裁决收敛目录与职责：WorldMock 保留模拟、记录、完整认证足迹与评估；下游加工、模型任务、训练和规则数据归 LabelKit-DataSet，源码快照已接收，新消费验收另记实际证据 |
 | `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |
 | `2026-10-07-acs-receipt` | 2026-10-07 | 付款与收货分别留证，收货由唯一函数恰好结算一次，效果与证据归收货人；个人事务七键，用餐目标按本人 meal 收货推进。 |
+| `2026-10-08-acs-action` | 2026-10-08 | 统一动作执行、内容历史、推送、社交及用户补订的现行合同 |
+| `2026-10-08-acs-close` | 2026-10-08 | 同步真实四字段 AppPush、当前曝光暂存、工作内容与汽车字段；闹钟沿现有排期保存，不构造旧任务或库存状态。 |

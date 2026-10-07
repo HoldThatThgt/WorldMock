@@ -1,11 +1,13 @@
 <a name="contracts-worldmock-接口合同"></a>
 # WorldMock 接口合同
 
+按[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「统一动作执行、内容选择、真实进度与系统补订」（阶段 3）。
+
 > 按[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界、收货结算」（阶段 1、2）。
 
 > 2026-10-07：按[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 7 的记录、导出、交付与评估合同。
 
-> 按[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「环境数据归属合同、品类契约与目录字段、类别供给的构建合同、营业与报价声明、环境目录文件、环境目录与绑定、地点类词表、CLI 命令接口、环境与检查命令合同、冻结地图与场景引用、持久化当下事实、LifeEnv 状态字段、资源与需求字段、领域枚举、禁止进入提示的字段、模型身份、共同检查点与恢复、持久化结构、交互菜单声明与有效菜单、状态归属」（阶段 1）；「冻结地图与场景引用」、「地图与门店供给合同」（阶段 2）；「地点发现与购买身份、供给结算与事件载荷、活动受理拒绝码、请求字段与结算检查、请求模型的闭集与字面边界、候选与呈现合同、候选对象与来源、排除原因码、排序键与游标、下推返回体、场景常量、派生量字段、可见期与提示预算、运行输入警告、人物卡片覆盖率产出、体感与动机证据、人格与卡片字段、个人事务」（阶段 3）；app 使用、内容与推送（阶段 4）；工作主题、单一行动阶段与最终人物工具面（阶段 5）；「请求组成」的系统层 app 推送、并行、名称、购买来源与主题工时规则及提示指纹（阶段 6）。
+> 按[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「环境数据归属合同、品类契约与目录字段、类别供给的构建合同、营业与报价声明、环境目录文件、环境目录与绑定、地点类词表、CLI 命令接口、环境与检查命令合同、冻结地图与场景引用、持久化当下事实、LifeEnv 状态字段、资源与需求字段、领域枚举、禁止进入提示的字段、模型身份、共同检查点与恢复、持久化结构、交互菜单声明与有效菜单、状态归属」（阶段 1）；「冻结地图与场景引用」、「地图与门店供给合同」（阶段 2）；「地点发现与购买身份、供给结算与事件载荷、活动受理拒绝码、请求字段与结算检查、请求模型的闭集与字面边界、候选与呈现合同、候选对象与来源、排除原因码、排序键与游标、下推返回体、场景常量、派生量字段、可见期与提示预算、运行输入警告、人物卡片覆盖率产出、体感与动机证据、人格与卡片字段、个人事务」（阶段 3）；app 使用、内容与推送（阶段 4）；分配内容、单一行动阶段与最终人物工具面（阶段 5）；「请求组成」的系统层 app 推送、并行、名称、购买来源与分配内容规则及提示指纹（阶段 6）。
 
 
 > 状态：FROZEN；2026-09-27 按[人物 Prompt 规格](VERIFICATION.md#verification-incremental-evidence)修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](archive/persona-prompt/persona-prompt-verification.md)）；修订内容见「版本表」`2026-09-27-persona-prompt-freeze`、`2026-09-27-persona-prompt` 与 `2026-09-28-persona-prompt-implemented` 三行。2026-09-29 按[一日运行保真规格](VERIFICATION.md#verification-incremental-evidence)的【同】作业 C1–C19 修订，修订部分已实现并通过离线验收；修订内容见「版本表」`2026-09-29-dayrun-fidelity` 行。
@@ -13,7 +15,7 @@
 > 2026-10-02 [个人事务与工作安排规格](VERIFICATION.md#verification-incremental-evidence)冻结：本文件相应条款按[配套实施计划](archive/errands-workday/errands-workday-implementation-plan.md)的文档同步作业随该规格阶段 1–4 的代码逐阶段修订；阶段 1–4 的修订均已实现并通过离线验收（证据见[个人事务与工作安排验收记录](archive/errands-workday/errands-workday-verification.md)）；冻结时在「请求组成」加的三处修订指针已随阶段 1、阶段 3 全部删去；修订内容见「版本表」`2026-10-02-errands-workday-freeze`、`2026-10-03-errands-workday-stage-1`、`2026-10-03-errands-workday-stage-1-review`、`2026-10-03-errands-workday-stage-2`、`2026-10-03-errands-workday-stage-4`、`2026-10-03-errands-workday-stage-3`、`2026-10-04-errands-workday-stage-3-review` 与 `2026-10-04-errands-workday-implemented` 各行。
 > 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「工作安排声明」（阶段 1）、「请求组成」与「七层 Schema」（阶段 2）、「请求组成」的零点计划模板（阶段 3）。
 > 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「状态归属」「人物工具与管理接口」、「个人事务」的入口、「请求字段与结算检查」「活动受理拒绝码」「动作状态与动作结果」与「七层字段」的待办层（阶段 1）；「状态归属」的占用名、「交谈与通话」与「活动控制行」的占用，以及「品类契约与目录字段」的占用声明来源与旧占用名环境的拒绝（阶段 2）；「请求组成」与「七层 Schema」（阶段 3）。
-> 范围：LifeEnv 与 LifeAgent 适配接口、数字足迹事件与存储、语料内容目录、完整足迹交接、命令行与运行状态。
+> 范围：LifeEnv 与 LifeAgent 适配接口、数字足迹事件与存储、内容目录、完整足迹交接、命令行与运行状态。
 > 权威：记录引擎的事件、素材、存储与导出合同统一在[记录引擎设计](design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)定义；其余接口签名、字段名、枚举值、Schema、文件格式与命令行参数在本文件定义。其他文档只引用所属合同，代码变更先更新对应合同。
 
 <a name="contracts-共享规则与可重建环境修订"></a>
@@ -46,7 +48,6 @@ Linux ARM64/aarch64 的锁定组合安装失败不能按可选部件缺失跳过
 
 环境根只有 `catalog/` 与 `scenarios/`，不读取语料或比对规则副本。
 
-
 <a name="contracts-环境数据归属合同"></a>
 ## 环境数据归属合同
 
@@ -56,7 +57,6 @@ WorldMock 维护模拟器、严格模型、加载校验、记录与导出。分�
 WorldMock-Dataset 发布 app、地点、商品、动作、内容、图与绑定。环境根只有 `catalog/` 与 `scenarios/`，正式重制路径由数据仓发布决定。
 目录能填的数只有价格、内容时长与集数；名称真实，摘要有出处或声明合成，数值明确为仿真假设。
 调用方显式给出场景或环境根，运行不搜索相邻仓库。历史运行、导出与冻结输入保持原字节，不提供旧格式兼容。
-
 
 <a name="contracts-lifeenv-状态字段"></a>
 ## LifeEnv 状态字段
@@ -75,7 +75,6 @@ WorldMock-Dataset 发布 app、地点、商品、动作、内容、图与绑定�
 只有环境明确声明拥有汽车的人物能够驾车；初始可用天数由环境声明。现场在加油站为本人购买燃油恰增加七天，没有库存或身体效果。每个本地日期首次正秒驾车扣一天，不驾车不扣，同日多次不重扣；跨午夜按实际驾驶覆盖的日期计算，恰好停在午夜不扣次日。车费仍在受理出发时支付一次。
 
 
-
 <a name="contracts-资源与需求字段"></a>
 ### 资源与需求字段
 
@@ -89,7 +88,6 @@ WorldMock-Dataset 发布 app、地点、商品、动作、内容、图与绑定�
 | `work_need` | 复合对象 | - | 场景分配工作内容与工作安排；实际工时来自真实内容消费 |
 
 资源定义与身体常数归 `worldmock.exchange.body`，食品热量按 GoodsCategory 和 GOODS_ENERGY_KCAL 取得；订单、内容进度与会话推送按[持久化当下事实](#contracts-持久化当下事实)保存。
-
 
 <a name="contracts-生命周期"></a>
 ### 生命周期
@@ -223,8 +221,6 @@ InteractionMenu = {
 再由引擎依据冻结绑定选择对应领域请求；模型不填写库存数量、物品内部身份或结算时长。
 余额调整、天气设定、地点瞬移、验收强制通过和全世界读取不向人物暴露，也不提供通用代码执行接口。
 `readonly=True` 表示调用不改变生活状态，观察调用本身仍需要留下证据。
-
-
 
 <a name="contracts-day-goal-request"></a>
 ### 当日目标请求
@@ -489,7 +485,6 @@ flowchart LR
 
 个人事务只累计实际收货；动作名称或自述不产生商品。
 
-
 <a name="contracts-工作安排声明"></a>
 ### 工作安排声明
 
@@ -558,7 +553,6 @@ flowchart LR
 引用不存在、不是工作与学习类别、重复分配或方式不合要求，以 `WORK_CONTENT_UNKNOWN` 拒绝。
 工作地点取 `work_schedule.workplace_location_id`，分配的工作内容只能在该地点进行；从运行开始可做，班次不改变内容可见性。
 
-
 <a name="contracts-request-settlement"></a>
 ### 请求字段与结算检查
 
@@ -583,8 +577,6 @@ flowchart LR
 只有环境明确声明拥有汽车的人物能够驾车；初始可用天数由环境声明。现场在加油站为本人购买燃油恰增加七天，没有库存或身体效果。每个本地日期首次正秒驾车扣一天，不驾车不扣，同日多次不重扣；跨午夜按实际驾驶覆盖的日期计算，恰好停在午夜不扣次日。车费仍在受理出发时支付一次。
 
 `set_alarm` 只接受必填 `at`，必须是带时区的整秒时刻，严格在当前与运行终点之间。到点先结算实际睡眠秒数再结束睡眠，同秒自然结束保留 `planned_end`，其他活动不停止。每个闹钟有独立证据，同秒只合并一次决策，恢复与重放不漏响或重响。
-
-
 
 
 <a name="contracts-closed-request-models"></a>
@@ -645,7 +637,6 @@ ActivityState 的 kind 不表示 app、内容分类或分配内容；动作身�
 闹钟中断边界与中断原因为 alarm_ring，目标提醒为 plan_reminder，社会对方结束为 partner_ended；这些事实不由人物总结改变。
 
 
-
 <a name="contracts-地图与门店供给合同"></a>
 ## 地图与门店供给合同
 
@@ -670,7 +661,6 @@ WorldMock 生成图，Dataset 发布图并刷新清单身份。登记校验节�
 世界结构 `11`、运行清单 `4`；旧场景、世界与清单直接拒绝。恢复核对五字段 `environment_identity`。
 
 目录格式 2、规则版本 2；环境没有语料与包规则副本，规则字节由 `code_sha256` 绑定。
-
 
 <a name="contracts-类别供给的构建合同"></a>
 ### 类别供给的构建合同
@@ -734,8 +724,6 @@ WorldMock 生成图，Dataset 发布图并刷新清单身份。登记校验节�
 
 模拟收货人每次真实收货恰有一条人物可见的 `environment_event`，`data.kind` 为 `goods_received`，`agent_id` 为收货人，`source_kind` 为 `environment`。载荷保留 `order_id`、`payer_id`、`goods_id`、`category`、`quantity`、`destination_id`、收货人当时的地点与睡眠事实、`provided`、`applied`、`efficiency` 与本次资源分录；`caused_by` 在同次提交内引用真实的购买、配送或领取结果。`delivery_arrival` 载荷为 `{kind, scheduled_id, orders[]}`：直送事件归付款人，驿站到站事件归真实模拟收货人。联系人直送只更新订单与 `received_at`，不写 `goods_received` 或身体效果。
 
-
-
 <a name="contracts-社交接口"></a>
 ## 社交接口
 
@@ -760,7 +748,6 @@ WorldMock 生成图，Dataset 发布图并刷新清单身份。登记校验节�
 ReplyPolicy = Literal["none", "template", "model"]
 ```
 
-
 <a name="contracts-消息与收件箱"></a>
 ### 消息与收件箱
 
@@ -779,7 +766,7 @@ ReplyPolicy = Literal["none", "template", "model"]
 | --- | --- |
 | 策略行为 | `none`：消息照常送达、不回复；`template`：落一条占位回复文本（与模型回复同样预排送达）；`model`：触发一次独立模型调用；给非 `model` 策略联系人发消息不再被拒绝 |
 | 幂等 | 每条收到的消息最多回复一次，幂等键为收件消息的 `message_id` |
-| `model` 回复请求字段 | `contact_id`, `reply_to_message_id`, `recipient_id`, `incoming_text`, `sender_name`, `now`, `presence`, `receive_location`, `history`, `received`：`sender_name` 为写这条来信的人物姓名；`now` 为场景本地时刻（带时区的 ISO 8601，秒精度）；`presence` 固定 `remote`（联系人只通过消息来往）；`receive_location` 为联系人收货地点的名称，没有收货地点时为 `null`；`history[{speaker, time, text}]` 为双方此前的消息（不含本次来信）按时间排序，至多 20 条；`received[{item, quantity, time}]` 为对方实际收到的物品（已送达的订单记预计送达时刻，当面给予记给予时刻）；`thinking` 固定 `disabled`，`max_chars` 固定 200 |
+| `model` 回复请求字段 | `contact_id`, `reply_to_message_id`, `recipient_id`, `incoming_text`, `sender_name`, `now`, `presence`, `receive_location`, `history`, `received`：`sender_name` 为写这条来信的人物姓名；`now` 为场景本地时刻（带时区的 ISO 8601，秒精度）；`presence` 固定 `remote`（联系人只通过消息来往）；`receive_location` 为联系人收货地点的名称，没有收货地点时为 `null`；`history[{speaker, time, text}]` 为双方此前的消息（不含本次来信）按时间排序，至多 20 条；`received[{item, quantity, time}]` 为对方实际收到的物品（实际送达订单记 received_at，不存在给予或库存）；`thinking` 固定 `disabled`，`max_chars` 固定 200 |
 | 回复模型请求 | `thinking` 关闭、无工具、`max_retries` 为 0；system 为下方中文模板；user 为一个 JSON 对象：`contact`（联系人档案 `contact_id`、`salutation`、`relation`、`closeness`、`channels`）、`sender_name`、`now`、`presence`、`receive_location`、`incoming_message`、`history`、`received`、`reply_char_limit` |
 | 后验守卫 | 回复正文按下方四类正则闭集判定（`search` 命中即算）：`arriving`（到达或在路上）、`done_or_bringing`（已完成或带来）、`taking_over`（揽活或替对方分工）、`guaranteeing`（保证结果）。命中任一类时在同一次结算内、提交回复事件之前重试一次：重试请求是原请求的消息之后附被拦下的回复（`assistant`）与一句纠正（`user`，模板见下），其余参数不变；重试仍命中则回复正文取固定兜底句「我这边先看看，稍后回你。」。每条来信至多两次模型调用；守卫只拦常见说法，不是保证，兜底句才是 |
 | 回复文本上限 | 200 字符 |
@@ -838,7 +825,6 @@ guaranteeing: (肯定|一定|绝对|保证|保准|准保)(能|来得及|赶得�
 条件未满足或占用冲突的动作标 `available=false`，以 `reason` 写一句可读原因（与选了之后的拒绝原因一字不差）。
 业务拒绝（含 `RESOURCE_CONFLICT`）后按[时间与能量规格](dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动-规则)第一章
 在同一秒再决策，受 `max_same_moment_decisions` 约束。
-
 
 <a name="contracts-观察投影字段"></a>
 ## 观察投影字段
@@ -1278,8 +1264,6 @@ LocationKind 包含 home、office、park、fitness、restaurant、cafe、conveni
 
 原生 tools 的 schema 不含逐轮动态名称枚举；tool_call_id 仅用于原生工具配对，仍保留。memory 查询结果只提供既有文本与时间，不暴露存储或评审身份。完整活动快照与 ACTION 十一键 data 只用于恢复核对和证据消费者，不能整体复制进提示。当前世界结构 11 没有库存、食用、给予、配方、主题累计或旧来源字段；恢复只读取当前字段。
 
-
-
 <a name="contracts-人物决策提示与生成参数"></a>
 ## 人物决策提示与生成参数
 
@@ -1434,7 +1418,6 @@ Reflection does not register, finish or cancel errands. The supplied episodes ar
 Schema 内联生成，不含 `$ref`、`$defs`，也不在生成后改写；条数、引用与正文由本地校验执行（见「记忆字段」），
 失败处理见「生成参数」。
 
-
 <a name="contracts-tool-result-channel"></a>
 ### 工具返回通道
 | 返回语义 | 宿主证据 | 人物模型可见内容 |
@@ -1476,7 +1459,6 @@ tool 消息对应上一决策世界请求的 `tool_call_id`。
 | `MEMORY_QUERY_FAILED` | 记忆查询在检索时失败：以失败的 tool 结果回给模型，定位到 `tool_calls` 中该调用，可在剩余回合内重试 |
 | `TOOL_SERVICE_FAILED` | 工具服务在取得结果之前失败：先写一条带完整异常链的英文 error 日志（见「运行诊断输出」），再定位到 `tool_calls` 中该调用、以运行故障上抛，不声称失败的调用已执行 |
 
-
 <a name="contracts-turn-budget"></a>
 ### 回合预算
 每次决策至多 16 个回合（`max_react_turns`），全部归行动阶段，世界查询、记忆查询、协议纠错回合与世界请求共用：为世界请求保留 1 个回合，
@@ -1498,7 +1480,7 @@ tool 消息对应上一决策世界请求的 `tool_call_id`。
 | --- | --- | --- | --- | --- | --- |
 | 行动 | `enabled` | 不发送 | 8000 | `auto` | 原生生活工具 |
 | 只读问答 | `enabled` | 不发送 | 8000 | `auto` | 三个记忆工具与只读 `finish` |
-| 截断重试（行动与只读问答） | `disabled` | 不发送 | 8000（不变） | `required` | 行动只保留六个世界请求工具，只读问答只保留只读 `finish`；不含任何查询 |
+| 截断重试（行动与只读问答） | `disabled` | 不发送 | 8000（不变） | `required` | 行动只保留七个世界请求工具，只读问答只保留只读 `finish`；不含任何查询 |
 | 联系人回复 | `disabled` | 不发送 | 8000 | 不发送 | 不发送 |
 | 零点计划 | `disabled` | 不发送 | 8000 | `required` | 单个 `submit_day_plan` 工具 |
 | 就寝反思 | `disabled`（由 AS2 记忆调度固定） | 不发送 | 不发送 | `required` | 单个 `submit_reflection` 工具 |
@@ -1593,7 +1575,6 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 
 `code_sha256` 额外覆盖 `src/worldmock/data/` 下每个文件，包规则字节不会由环境清单另存哈希。
 
-
 <a name="contracts-reasoning-return"></a>
 ### 思考回传
 思考只在同一秒的连续决策中按提供商协议原样回传：本次决策内与同一秒续接链中的每个 assistant 工具消息必须完整回传模型给出的
@@ -1666,12 +1647,10 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 共同检查点同时封存世界和人物状态、已付款订单、实际收货、内容进度与会话推送。恢复前核对 `environment_identity` 的环境标识、版本、规则版本、目录内容摘要与地图摘要，任一不同明确失败。世界结构 10 及更早的检查点不能恢复为结构 11；不重写父运行或历史输入。
 具体存储事务与 AS2 人物工作区核对见[保存共同检查点](design/05-recording-engine.md#recording-engine-保存共同检查点)与[恢复与反事实分支](design/05-recording-engine.md#recording-engine-恢复与反事实分支)。恢复与运行证据分别按冻结验收台账和真实回执核验。
 
-
 <a name="contracts-持久化结构"></a>
 ### 持久化结构
 
 运行清单结构 `4` 带五字段 `environment_identity`。世界结构 `11` 封存订单、实际收货、内容进度与会话推送；只有已提交事实能进入历史导出。保存与恢复的事务归[运行目录与数据表](design/05-recording-engine.md#recording-engine-持久化结构)，环境身份不得另存一套兼容键。
-
 
 <a name="contracts-品类契约与目录字段"></a>
 ## 品类契约与目录字段
@@ -1743,7 +1722,6 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 
 退役的码：`FOOD_BINDING_MISSING`、`FOOD_STORE_NOT_FOOD_STORE`、`FOOD_BINDING_KIND_INCONSISTENT`、`CONTENT_APP_MISSING`、`WORK_TOPIC_UNKNOWN`；场景初始库存的引用检查随字段删除。场景加载还执行既有的 `check_work_schedules`、`check_location_kinds` 与可见标签唯一性（来源随 `TARGET_KINDS` 缩为地点、商品、动作、其他人物、联系人与「自己」，不再读生活活动语料）。目录格式 1 与场景结构 7 在加载器的严格模型处直接拒绝。
 
-
 <a name="contracts-语料内容目录字段"></a>
 ## 内容目录字段
 
@@ -1760,8 +1738,6 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 | 标题 | 目录 `Content.title` 必填且非空白，投影直接读取 `contents.json`；真实作品名或明确模拟的标题由数据仓登记 |
 
 动作效果、代谢当量、场所限制与使用方式由 WorldMock 的固定类别表决定，环境条目不带效果、场所或时间窗字段。
-
-
 
 <a name="contracts-lifeagent-人格与记忆字段"></a>
 ## LifeAgent 人格与记忆字段
@@ -1927,7 +1903,6 @@ app 使用的已结算事实句按实际 `played[]` 写「用<app>看了《A》�
 
 settled 的订单句为「HH:MM 购买<商品> 1 份，付 N 元」；线上在购买前加「经<购物 app>」，并附「，预计 HH:MM 送到<地点>」，有支付 app 时在金额后加「（<支付 app>）」。关联回应消息与收货人的既有括注保留；没有「吃了…」「丢弃…」「把…给了…」句子。
 
-
 <a name="contracts-足迹交接"></a>
 ## 足迹交接
 
@@ -2010,8 +1985,6 @@ LabelKit-DataSet 已保存本次移交的来源快照并核对摘要；整合后
 
 `CONTENT_EMPTY_WITH_MEDIA_TASTES` 在没有任何内容带非空 `app_ids` 时发出。
 
-
-
 <a name="contracts-cli"></a>
 ## CLI 命令接口
 
@@ -2088,7 +2061,6 @@ RunPhase = Literal[
 
 操作日志逐条 flush，未作逐条 fsync；写入或关闭失败只报告到 stderr，属于当前诊断输出行为。
 必要模型留证、记忆或数据库写入失败仍按[模拟引擎的失败处理](design/04-simulation-engine.md#simulation-engine-失败处理)停止运行，不因诊断日志的处理方式而放宽。
-
 
 <a name="contracts-版本表"></a>
 ## 版本表

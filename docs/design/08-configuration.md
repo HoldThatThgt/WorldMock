@@ -2,9 +2,9 @@
 # WorldMock 产品设计说明书 — 配置规格
 
 > **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 CF1），已实现；按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D8 作业），已随代码落地到阶段 1–4<br>
-> **日期**：2026-10-07
-> **版本**：v1.23\
-> **工具交互修订**：地点完整供给、构建价格范围、任务可用类型与请求形状设计已冻结，已实现；本次生产验收单独记录；以[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)为本次合同。
+> **日期**：2026-10-08
+> **版本**：v1.24\
+> **工具交互修订**：固定目录、六项菜单权限与严格五字段动作请求以[现行合同](../CONTRACTS.md#contracts-person-tools)为准；配置校验与实际运行验收分别记录。
 > **让「等待」成为例外修订**：按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「工作安排声明」（阶段 1）。
 > **同时做两件事修订**：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「规则来源与配置边界」的可供性占用声明（阶段 2）。
 > **目标读者**：算法工程师、开发工程师、实验设计者
@@ -21,7 +21,7 @@
 正式重制环境路径由 WorldMock-Dataset 发布决定；WorldMock 提供引擎及包内固定通用规则。
 本章的 `catalog/`、`scenarios/` 指外部环境目录，命令以 WorldMock 为当前工作目录并显式传路径。
 当前场景结构 8、世界结构 11；类别、使用方式、效果与供给表由 WorldMock 固定，
-环境只登记对象、绑定与价格、内容时长、集数三种数；新组合放行另核对实际收据。
+环境登记对象与绑定，并只填写规格允许的数值字段；新组合放行另核对实际收据。
 
 <a name="design-08-configuration-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
@@ -37,7 +37,6 @@
 冻结测试输入仅绑定 `catalog/` 与 `scenarios/` 的字节身份和环境版本。
 人工环境的固定表见[人工环境](../dev/SPEC-action-and-content-simplification.md#spec-acs-人工环境)。
 `FrozenInputs` 在测试会话结束核对缓存输入与对象的摘要；配置校验与完整运行各自保留回执，不以其中一项替代另一项。
-
 
 <a name="configuration-版本历史"></a>
 ## 版本历史
@@ -75,6 +74,7 @@
 | `2026-10-06-rrs-work` | 2026-10-07 | HoldThatThgt | 工作主题从运行开始可见；人物工作安排声明绑定主题地点，旧开放、材料与评审配置退役 |
 | `2026-10-07-acs-rules` | 2026-10-07 | Codex | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |
 | `2026-10-07-acs-receipt` | 2026-10-07 | 付款与收货分别留证，收货由唯一函数恰好结算一次，效果与证据归收货人；个人事务七键，用餐目标按本人 meal 收货推进。 | Codex |
+| `2026-10-08-acs-close` | 2026-10-08 | Codex | 同步目录必填运输与通信字段、汽车条件、十种地点和六项菜单权限；真实输入由现行严格模型接受。 |
 
 <a name="configuration-模块概述"></a>
 ## 1. 模块概述
@@ -85,7 +85,6 @@
 配置只选择环境与人物、声明场景节律和初值；分类、类别效果、收货效果与算子由 WorldMock 固定。
 数据仓发布 app、地点、商品、动作、内容、图与清单。场景结构 8 引用发布目录，不引用语料，不带规则副本或人物动机参数。
 字段与准入要求以[场景合同](../CONTRACTS.md#contracts-冻结地图与场景引用)为准。
-
 
 <a name="configuration-与其他模块的关系"></a>
 ### 1.2 与其他模块的关系
@@ -99,7 +98,6 @@ flowchart LR
     M[人物画像] --> S
     S --> F[记录运行身份与状态]
 ```
-
 
 <a name="configuration-核心设计原则"></a>
 ### 1.3 核心设计原则
@@ -127,14 +125,12 @@ flowchart LR
 
 人物画像映射与场景节律仍有各自配置入口；它们不能覆盖类别规则或交换公式。
 
-
 <a name="configuration-加载与校验"></a>
 ### 2.2 加载与校验
 
 加载先核对目录格式 2、六文件身份与规则版本 2，再严格加载场景结构 8。
 目录模型拒绝未知字段，绑定、供给表、内容下限与发布图在登记时校验；场景工作分配执行四个 `WORK_*` 检查。
 引擎不读取语料，也不检查环境规则副本。校验通过只证明输入有效，完整运行验收另有证据。
-
 
 <a name="configuration-参数归属"></a>
 ### 2.3 参数归属
@@ -150,7 +146,6 @@ flowchart LR
 
 没有初始商品持有或人物动机配置。
 
-
 <a name="configuration-场景配置文件"></a>
 ## 3. 场景配置文件
 
@@ -164,14 +159,12 @@ flowchart LR
 `initial_inventory`、`lifestyle_activities`、`work_topic_ids` 或 `motivation`。
 完整字段表见[场景结构 8](../dev/SPEC-action-and-content-simplification.md#spec-acs-场景结构8)。
 
-
 <a name="configuration-交互菜单声明"></a>
 ### 3.2 交互菜单声明
 
 `allowed_actions` 只取 `travel_to`、`sleep`、`wait`、`purchase`、`do`、`collect_parcel` 六项，并必须包含保护项 `wait` 与 `sleep`。地点菜单键完整覆盖十种 `LocationKind`，包括加油站与驿站；领取是零秒系统行为，不新增活动种类或占用。
 地点类型菜单与人物菜单按既有交集求值；未知动作与缺保护项在加载时拒绝。
 菜单不新增执行器、类别或占用，也不能覆盖包内规则。
-
 
 <a name="configuration-地图引用与门店供给初值"></a>
 ### 地图引用与门店供给初值
@@ -180,14 +173,12 @@ flowchart LR
 商品菜单由目录绑定与固定供给表生成，同类型店铺同菜单；场景不写门店库存、报价或初始商品持有。
 每个已选店铺必须有 `merchant:<location_id>` 账户，否则以 `MERCHANT_ACCOUNT_MISSING` 拒绝。
 
-
 <a name="configuration-身体资源初值"></a>
 ### 3.3 身体资源初值
 
 场景保留 `mass_kg`、`initial_energy_kcal`、`initial_sleep_debt_hours`、`initial_entertainment_need`。
 身体常数、食品利用曲线、能量上限与类别 MET 由 WorldMock 固定，场景不能覆盖。
 人物余额使用正确定义的整数分初值；没有初始食品持有或替代字段。
-
 
 <a name="configuration-人物差异与衍生体感"></a>
 ### 3.4 人物差异与衍生体感
@@ -220,7 +211,6 @@ null，不读映射表缺省），AgentConfig 的缺省值不进卡片。
 
 人物不带内部动机评分参数；选择只来自七层请求，体感与作息覆盖保持既有算法。
 
-
 <a name="configuration-工作安排声明"></a>
 ### 工作安排声明
 
@@ -234,14 +224,12 @@ null，不读映射表缺省），AgentConfig 的缺省值不进卡片。
 
 每周班次、日期例外、休息时段与卡片作息覆盖仍沿用既有 `work_schedule` 合同。
 
-
 <a name="configuration-规则来源与配置边界"></a>
 ### 3.5 规则来源与配置边界
 
 分类、类别效果、收货效果、常数与算子只定义在 `worldmock.exchange`。
 包内规则文件是版本 2 可供性注册表和人物映射，内部动机规则文件退役；环境没有规则副本。
 `runtime_code_sha256` 另外哈希 `src/worldmock/data/` 下每个文件，目录不重复存储规则哈希。
-
 
 <a name="configuration-资源目录引用"></a>
 ## 4. 资源目录引用
@@ -268,20 +256,17 @@ null，不读映射表缺省），AgentConfig 的缺省值不进卡片。
 购物用途存在当且仅当至少一家店铺绑定该 app；支付绑定非空当且仅当有购物用途，
 绑定目标具有支付用途，允许绑定自己。导航与支付 app 可以没有内容；app 必须有用途或动作绑定。
 
-
 <a name="configuration-语料引用"></a>
 ## 5. 语料引用
 
 场景不引用语料根或语料清单。语料整理、来源记录与目录生成归数据仓，
 引擎只加载清单中的目录对象；内容摘要来源见[目录合同](../CONTRACTS.md#contracts-语料内容目录字段)。
 
-
 <a name="configuration-规则配置入口"></a>
 ## 6. 规则配置入口
 
 固定规则从包读取。可供性类别、占用与身体数值不是场景可调项，修改须发布 WorldMock 并提高 `RULES_VERSION`。
 人物映射继续使用包内 `persona-mapping.toml`，场景保留既有节律、人物与初值字段；内部动机评分没有配置入口。
-
 
 <a name="configuration-模型凭证"></a>
 ## 7. 模型凭证
@@ -322,7 +307,6 @@ uv run worldmock validate --environment examples/environment
 路径是用户明确指定的外部环境。环境校验登记目录、重生成比对地图、加载所有场景；
 成功结果为 `{valid, environment_id, environment_version, scenarios}`，不列语料条目数，也不检查规则副本。
 
-
 <a name="configuration-校验清单"></a>
 ### 8.2 校验清单
 
@@ -335,14 +319,12 @@ uv run worldmock validate --environment examples/environment
 
 不校验语料清单、规则副本或初始食品持有。
 
-
 <a name="configuration-校验报告"></a>
 ### 8.3 校验报告
 
 `validate --environment` 成功输出 `{valid, environment_id, environment_version, scenarios}`。
 `validate --scenario` 输出场景校验结果与运行输入警告，不输出 `corpus_entries`。
 错误保留稳定码、英文原因与定位信息，不以跳过对象或替代输入取得成功。
-
 
 <a name="configuration-错误分类与提示"></a>
 ### 8.4 错误分类与提示
@@ -356,7 +338,6 @@ uv run worldmock validate --environment examples/environment
 
 完整登记码见[注册校验与错误](../dev/SPEC-action-and-content-simplification.md#spec-acs-注册校验与错误)。
 
-
 <a name="configuration-配置版本与运行绑定"></a>
 ## 9. 配置版本与运行绑定
 
@@ -365,7 +346,6 @@ uv run worldmock validate --environment examples/environment
 `rules_version`、`catalog_content_sha256`、`map_sha256`。
 规则文件只从引擎包读取，环境不发布副本，也不添加规则哈希；`code_sha256` 额外覆盖 `src/worldmock/data/` 下每个文件。
 旧格式与旧结构号直接拒绝，不迁移、不双读。
-
 
 <a name="configuration-配置最佳实践"></a>
 ## 10. 配置最佳实践
@@ -387,13 +367,11 @@ uv run worldmock validate --environment examples/environment
 语料整理与来源记录归数据仓；WorldMock 不读取、校验或冻结语料目录。
 新增对象与绑定由数据仓重新发布六文件目录，内容真实摘要带 URL、合成摘要带声明。
 
-
 <a name="configuration-规则维护"></a>
 ### 10.3 规则维护
 
 对象与绑定更新由数据仓再发布。类别、状态效果、供给表或交换公式变化由 WorldMock 修改并提高 `RULES_VERSION`，不保留旧格式。
 包内固定规则和人物映射进入代码身份；规则不复制到环境，也不接受场景覆盖。
-
 
 <a name="configuration-参考文献"></a>
 ## 11. 参考文献

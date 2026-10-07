@@ -63,7 +63,6 @@ worldmock environment generate-map --locations experiments/my-world/catalog/loca
 购物用途存在当且仅当至少一家店铺绑定该 app；支付绑定非空当且仅当有购物用途，
 绑定目标具有支付用途，允许绑定自己。导航与支付 app 可以没有内容；app 必须有用途或动作绑定。
 
-
 <a name="resources-先完成一个最小修改减少一家门店的初始库存"></a>
 ## 先完成一个最小修改：调整一个商品的价格
 
@@ -156,7 +155,6 @@ WorldMock 生成随机连通加权图并提供固定规则，Dataset 保存图�
 
 动作不写时长、效果、代谢当量、场所与时间窗；内容提供时长，WorldMock 按类别固定规则。每个动作以及每个动作与 app 的组合至少有一条内容。
 
-
 <a name="resources-编写内容与工作材料"></a>
 ## 编写 app 目录与内容
 
@@ -207,8 +205,6 @@ app 写在 `catalog/apps.json`，内容写在 `catalog/contents.json`。
 | fuel | 本人有车且在加油站为自己现场购买，当秒恰增加七个驾驶可用日，无身体效果或库存 |
 
 没有家庭储备或初始持有。现场购买付款当秒收货，直送在配送到期收货；完整运输时长严格大于 86400 秒时送往实际模拟收货人家庭最近且场景选中的驿站，恰为 86400 秒仍直送。到站只进入 `ready_for_pickup`，本人到站执行零秒领取，才由唯一函数每单结算一次效果与 `goods_received`。给别人买时显式写收货人；联系人使用有效的 `receive_location_id` 直送，收货只记订单终态与 `received_at`，不创建身体或本人收货事件。联系人不能替代长途链所需的模拟收货人家庭地址。详见[请求字段与结算检查](../CONTRACTS.md#contracts-request-settlement)。
-
-
 
 <a name="resources-修改后更新文件身份"></a>
 ## 修改后更新文件身份

@@ -257,7 +257,6 @@ dreaming 的任务取值、每份材料必须携带的字段与分支绑定见 `
 
 内部动机评分器已退役，不计算也不写 `motivation_internal`。人物选择只来自七层请求，体感以环境层分级呈现；环境动作和内容不提供数字权重。
 
-
 <a name="spec-life-realism-当日目标"></a>
 ## 当日目标
 
@@ -323,7 +322,6 @@ flowchart LR
 app 即使没有内容也始终列出，但打开动作不可用并返回 `APP_CONTENT_EMPTY`。这一行为把「能选哪个 app」与
 「app 内实际接触哪条内容」分开，同时保证每次内容足迹能追溯到人物选择、app 绑定、推送状态和真实完成位置。
 
-
 <a name="spec-life-realism-素材淘汰与检索机制的禁止项"></a>
 ### 素材淘汰与检索机制的禁止项
 
@@ -345,7 +343,6 @@ app 即使没有内容也始终列出，但打开动作不可用并返回 `APP_C
 只要求补齐上表缺失的品类。语料获取、来源整理和制作在 Dataset 执行，来源、许可与哈希进入发布环境的 `corpora/manifest.json`。
 
 本阶段商品、生活活动与任务保留确定性呈现管线，app 名称始终列出；食品不依赖库存、下架、报价或检索分区。娱乐管线的最后消费者在娱乐阶段删除。
-
 
 <a name="spec-life-realism-候选与呈现"></a>
 ## 候选与呈现
@@ -450,7 +447,6 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 
 人物有媒体口味但没有任何内容带非空 app_ids 时发出 `CONTENT_EMPTY_WITH_MEDIA_TASTES`。
 
-
 <a name="spec-life-realism-地图门店供给与活动环境"></a>
 ## 地图、门店供给与活动环境
 
@@ -470,7 +466,6 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 
 店铺类型可供给商品类别由 `GOODS_CATEGORY_STORE_KINDS` 固定，不合供给表的类别不能绑定；同类型店铺同菜单。
 
-
 <a name="spec-life-realism-商务与进食"></a>
 ## 购买与收货
 
@@ -482,7 +477,6 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 食品的 `provided` 为类别热量乘件数，`applied` 为按当秒睡眠不足利用率与能量上限得到的实际能量增加，超出上限的部分丢失。休闲用品每行降低娱乐需要 0.10（下限 0），日常用品每行施加情绪脉冲 0.05。没有持有、食用时长、份额、丢弃或装备能力。
 本次食品 `food:intake` 分录与休闲用品 `goods:receipt` 分录在函数返回前立即取走，主体与时刻都是收货人和收货秒，缓冲为空；日常用品不写资源分录。状态变化与 `goods_received` 同一事务提交，事件的 `caused_by` 指向该提交中的真实购买结果或配送到期事件。
 已交付订单再次到期不写状态、效果或事件；重复动作返回已存结果。联系人没有身体，收货只改变订单状态与 `received_at`，不写 `goods_received`。配送保留付款人的到期事件与唤醒，清醒模拟收货人得到同一个到期原因，睡着的不唤醒；到店不唤醒任何人。
-
 
 <a name="spec-life-realism-呈现与导出"></a>
 ## 呈现与导出
@@ -509,7 +503,6 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 
 查看器使用商品、动作、app 与内容的真实名称索引；`action` 标题取动作名，有 app 时加 app 名。
 出行展示实际起点、终点与路径名称，收货与工作完成分别读取 `goods_received`、`work_content_completed`。
-
 
 
 
@@ -616,7 +609,6 @@ app 名称列在工具层，本 session 推送在进度层呈现；选择 app �
 
 
 
-
 <a name="persona-prompt-七层请求-通用格式"></a>
 ### 通用格式
 
@@ -638,7 +630,6 @@ app 名称列在工具层，本 session 推送在进度层呈现；选择 app �
 剩余系统规则已按冻结合同同步：推送时机、并行活动、名称、购买来源与工作主题。
 这次改写只更新最终 `prompt_sha256` 与代码身份，`tool_schema_sha256` 沿用工作阶段已验收的工具面；
 改写前后的运行不能恢复、重放或合并比较。运行中的系统层与工具定义始终保持各自冻结字节。
-
 
 
 
@@ -673,7 +664,6 @@ app 名称列在工具层，本 session 推送在进度层呈现；选择 app �
   （整数，不按呈现窗口截断，也不受查询筛选影响）；它不是目标，不带动作与条件，
   不计入单次呈现上限、计入整次请求的容量计数；索引里的名称按名调用，受理时照常做资格与准入判定。
 - **`to` 的候选**是 `null`（本人）或本层的他人人物目标。
-
 
 <a name="persona-prompt-七层请求-工具层的紧凑编码与即时查询"></a>
 ### 工具层的紧凑编码与即时查询
@@ -714,7 +704,6 @@ app 名称列在工具层，本 session 推送在进度层呈现；选择 app �
 `query_world(name, way, category, from, available_only, offset)` 六键必填，来源解析为目录店铺或 app，返回固定菜单的紧凑 `{matches, total_count, next_offset}`。
 商品价格固定，类别标签来自食品类别；`available_only` 只按人在店内或店铺绑定 app 判断，不检查报价、营业、库存、配送区域或可见凭据。查询不揭示新世界事实、不推进时间、不占名额，只保存实际模型与 tool 交换证据。
 查询与世界请求不得混批，先整批校验，再按原执行位置返回；有效交互菜单、同秒预算、名称纠错与只读权限保持原合同。
-
 
 <a name="persona-prompt-七层请求-人设层"></a>
 ### 人设层
@@ -848,7 +837,6 @@ JSON 部分写到构造本请求快照的那一刻：续接链的快照在链首
 业务前置条件中所有可独立确定的问题按既定准入顺序列出，
 定位有关请求参数并给合法方式或下一步；需要合法对象才能判定的条件不凭空推断。
 
-
 <a name="persona-prompt-决策回复正文与思考"></a>
 ## 决策、回复正文与思考
 
@@ -964,7 +952,6 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 其他层的当前状态（未读、待收货）。购买句只由订单生成；app 使用只按真实内容接触写句。
 
 没有「吃了…」「丢弃…」「把…给了…」三种句子；收货事实只来自 goods_received。
-
 
 <a name="persona-prompt-进度与记忆的更新-self_notes"></a>
 ### `self_notes`
@@ -1110,14 +1097,12 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 
 验收走真实请求与持久事件：事务入口和规则共同存在，事务变更不旁路写主观记忆，不产生记忆更新，完整事务行只出现在待办层。
 
-
 <a name="errands-workday-提示信息分工-工具用途句与字段说明"></a>
 ### 工具用途句与字段说明
 
 工具用途和字段说明完整文本唯一登记在 `docs/CONTRACTS.md#contracts-person-tools`。
 用途只表达行为目的，不加入规则说法与英文机制词；实际 Schema 与合同逐字校验，并通过已有说明扫描。
 控制请求字段、封闭对象、必填与可空条件由接口合同及个人事务行为章节定义，工具指纹绑定这些实际 Schema。
-
 
 <a name="errands-workday-提示信息分工-就寝反思文案补句"></a>
 ### 就寝反思文案补句
@@ -1278,7 +1263,6 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 | 轮转不改目录或对象状态、不下架；未展示间隔遵循精确上界 | `tests/life/test_rotation.py::test_rotation_is_non_destructive_and_defers_without_delisting`、`tests/life/test_rotation.py::test_worst_case_unpresented_interval_is_bounded_by_exact_form`、`tests/life/test_rotation.py::test_exact_bound_is_not_the_continuous_relaxation` |
 | 内容不再进入检索分区；每条内容通过至少一个 app 绑定可达，绑定缺失或未知在目录登记时拒绝 | `tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample`、`tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes` |
 | 曝光凭据由提交写入本秒暂存，推进时钟后写入正式轮转状态，恢复保留 | `tests/life/test_candidate_wiring.py::test_observation_commits_presented_object_stamps`、`tests/life/test_same_moment_decisions.py::test_presentation_staging_survives_reopen` |
-
 
 
 <a name="spec-life-realism-版本表"></a>

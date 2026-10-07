@@ -2,9 +2,9 @@
 # WorldMock 产品设计说明书 — 资源引擎
 
 > **状态**：DRAFT，整合设计；接口与行为仍以冻结合同和规格为准；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 RS1），已实现\
-> **日期**：2026-10-07
-> **版本**：v1.17\
-> **工具交互修订**：类别完整供给、冻结价格范围及真实食材配方设计已冻结，已实现；本次生产验收单独记录；以[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)为本次合同。
+> **日期**：2026-10-08
+> **版本**：v1.18\
+> **工具交互修订**：固定商品菜单、动作与 app 的明确绑定按[现行目录合同](../CONTRACTS.md#contracts-环境目录文件)维护；实际请求与收货证据单独验收。
 > **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D3 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）；该规格阶段 1 不改本文。
 > **同时做两件事修订**：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「构建与版本」的可供性占用声明（阶段 2）。
 > **范围**：目录登记、严格校验、只读对象与派生索引查询
@@ -26,14 +26,14 @@
 正式重制环境路径由 WorldMock-Dataset 发布决定；WorldMock 提供引擎及包内固定通用规则。
 本章的 `catalog/`、`scenarios/` 指外部环境目录，命令以 WorldMock 为当前工作目录并显式传路径。
 当前场景结构 8、世界结构 11；类别、使用方式、效果与供给表由 WorldMock 固定，
-环境只登记对象、绑定与价格、内容时长、集数三种数；新组合放行另核对实际收据。
+环境登记对象与绑定，并只填写规格允许的数值字段；新组合放行另核对实际收据。
 
 <a name="design-03-resource-engine-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
 
 按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)修订；验收结果独立记录。
 
-语料文件只接受根内安全相对路径：拒绝绝对路径（含 Windows 上无盘符的根路径）、任何 .. 组件、反斜杠、任一平台不能原样保存的名字（以点或空格结尾、Windows 设备名、禁用字符与数据流冒号、控制字符、孤立代理码点、一级超过 255 字节），以及符号链接、目录联接与非普通文件。曲线输入和输出必须是有限非负数且拒绝布尔值，效率资源名必须含非空白字符；生活与目录读取同一模型。目录发布与品类身份统一以字节原子写入。
+目录清单引用只接受根内安全相对路径：拒绝绝对路径（含 Windows 上无盘符的根路径）、任何 .. 组件、反斜杠、任一平台不能原样保存的名字（以点或空格结尾、Windows 设备名、禁用字符与数据流冒号、控制字符、孤立代理码点、一级超过 255 字节），以及符号链接、目录联接与非普通文件。曲线输入和输出必须是有限非负数且拒绝布尔值，效率资源名必须含非空白字符；生活与目录读取同一模型。目录发布与品类身份统一以字节原子写入。
 
 <a name="resource-engine-职责与边界"></a>
 ## 1. 职责与边界
@@ -53,14 +53,12 @@ flowchart LR
     X[交换引擎固定规则与常数] --> V
 ```
 
-
 <a name="resource-engine-职责约定"></a>
 ### 职责约定
 
 `worldmock.catalog` 负责登记、严格校验、只读查询与反向索引；`worldmock.exchange` 负责固定分类、规则与常数。
 `Catalog` 冻结 app、地点、商品、动作、内容及图，索引在登记通过后一次生成。
 内容选择、随机抽取、消费进度、推送与观看历史由模拟引擎负责，资源引擎不保存它们。
-
 
 <a name="resource-engine-整理与固化语料"></a>
 ## 2. 整理与固化语料
@@ -71,13 +69,11 @@ flowchart LR
 语料整理、固化与来源记录归 WorldMock-Dataset。引擎不读取、校验或钉住任何 `corpora/` 文件，场景没有语料根与语料清单摘要。
 运行内容来自 `contents.json`：真实摘要保留 URL，合成摘要保留声明；来源合同见[环境目录](../CONTRACTS.md#contracts-环境目录文件)。
 
-
 <a name="resource-engine-来源分类"></a>
 ### 来源分类
 
 语料整理、固化与来源记录归 WorldMock-Dataset。引擎不读取、校验或钉住任何 `corpora/` 文件，场景没有语料根与语料清单摘要。
 运行内容来自 `contents.json`：真实摘要保留 URL，合成摘要保留声明；来源合同见[环境目录](../CONTRACTS.md#contracts-环境目录文件)。
-
 
 <a name="resource-engine-语料清单与文件身份"></a>
 ### 语料清单与文件身份
@@ -85,13 +81,11 @@ flowchart LR
 语料整理、固化与来源记录归 WorldMock-Dataset。引擎不读取、校验或钉住任何 `corpora/` 文件，场景没有语料根与语料清单摘要。
 运行内容来自 `contents.json`：真实摘要保留 URL，合成摘要保留声明；来源合同见[环境目录](../CONTRACTS.md#contracts-环境目录文件)。
 
-
 <a name="resource-engine-语料整理的实现与验收"></a>
 ### 语料整理的实现与验收
 
 语料整理、固化与来源记录归 WorldMock-Dataset。引擎不读取、校验或钉住任何 `corpora/` 文件，场景没有语料根与语料清单摘要。
 运行内容来自 `contents.json`：真实摘要保留 URL，合成摘要保留声明；来源合同见[环境目录](../CONTRACTS.md#contracts-环境目录文件)。
-
 
 <a name="resource-engine-地图资料的冻结与许可"></a>
 ### 随机地图的冻结
@@ -109,14 +103,12 @@ flowchart LR
 语料整理、固化与来源记录归 WorldMock-Dataset。引擎不读取、校验或钉住任何 `corpora/` 文件，场景没有语料根与语料清单摘要。
 运行内容来自 `contents.json`：真实摘要保留 URL，合成摘要保留声明；来源合同见[环境目录](../CONTRACTS.md#contracts-环境目录文件)。
 
-
 <a name="resource-engine-可计量资源定义"></a>
 ### 可计量资源定义
 
 资源元信息和身体规则由 `worldmock.exchange.body` 固定，环境不提供资源定义或效率系数。
 金钱是封闭账本资源；能量、睡眠债与娱乐需要是开放身体资源。资源引擎只登记对象，不保存订单、内容接触历史或进度。
 目录允许声明商品价格、内容时长、系列集数和店铺完整运输时长；各字段遵守唯一目录合同。场景保留人物与账户的初始状态，包括显式汽车归属与初始驾驶可用天数。
-
 
 <a name="resource-engine-交换对象与内容条目"></a>
 ### 交换对象与内容条目
@@ -143,7 +135,6 @@ flowchart LR
 购物用途存在当且仅当至少一家店铺绑定该 app；支付绑定非空当且仅当有购物用途，
 绑定目标具有支付用途，允许绑定自己。导航与支付 app 可以没有内容；app 必须有用途或动作绑定。
 
-
 <a name="resource-engine-地点商品与门店供给"></a>
 ### 地点、商品与门店供给
 
@@ -154,7 +145,6 @@ flowchart LR
 
 模拟引擎只保存实际订单与收货状态，没有食品持有。
 
-
 <a name="resource-engine-冻结地图的准备与发布"></a>
 ### 随机地图的生成与发布
 
@@ -162,7 +152,6 @@ flowchart LR
 `worldmock environment check` 重新生成后逐值核对规范节点与边，并检查目录登记。
 `worldmock validate --environment` 登记完整目录、重生成比对地图并加载全部场景，成功结果为 `{valid, environment_id, environment_version, scenarios}`。
 环境只有 `catalog/` 与 `scenarios/`，不含语料清单或包规则副本。
-
 
 <a name="resource-engine-资源定义的实现与验收"></a>
 ### 资源定义的实现与验收
@@ -203,7 +192,6 @@ flowchart LR
 `catalog.identity.refresh_manifest_identity` 安全读取实际文件，重算文件表与框架化目录摘要，经 `atomic_write` 写出规范 LF 清单。地图由 `worldmock environment generate-map` 发布；`--check` 只比较字节。
 验收核对清单身份、原子发布失败保持旧目标，以及 `worldmock validate --environment` 的真实成功和逐类失败，不用声明摘要替代实际文件。
 
-
 <a name="resource-engine-校验资源可用性"></a>
 ## 5. 校验资源可用性
 
@@ -213,7 +201,6 @@ flowchart LR
 清单的 `files` 恰好登记六个文件，各自绑定路径、sha256 和字节数，目录内容摘要沿用框架化算法。
 严格模型拒绝清单额外字段；未登记文件、缺失必需文件、字节漂移与环境钉不一致分别以登记码拒绝。
 包规则只从包资源读取，不比对环境副本；五字段环境身份与代码身份共同保证恢复一致性。
-
 
 <a name="resource-engine-准入边界"></a>
 ### 准入边界
@@ -232,7 +219,6 @@ flowchart LR
 
 `catalog.admission` 是唯一目录登记校验器；严格模型拒绝未知字段，图和跨对象引用一并校验。
 场景工作分配另执行四个 `WORK_*` 检查，完整 32 个登记码及原因见[登记错误](../CONTRACTS.md#contracts-环境目录与绑定)。
-
 
 <a name="resource-engine-地图关系与道路范围准入"></a>
 ### 图与地点关系准入
@@ -254,14 +240,12 @@ flowchart LR
 `RegistrationError` 继承 `IntegrityError`，保留稳定登记码与英文原因，并记录错误日志。
 不补造对象、不跳过失效绑定、不改读其他环境。错误与修复入口按[注册校验与错误](../dev/SPEC-action-and-content-simplification.md#spec-acs-注册校验与错误)判断。
 
-
 <a name="resource-engine-资源校验的实现与验收"></a>
 ### 资源校验的实现与验收
 
 目录严格模型、登记校验与文件身份分别在 `catalog.models`、`catalog.admission`、`catalog.identity` 实现。
 `tests/catalog/` 使用真实人工环境制造反例，验证绑定、闭集、最小内容时长、供给类别、目录身份与发布命令。
 纯加载测试通过不代表完整引擎执行或正式环境已验收。
-
 
 <a name="resource-engine-检索与呈现"></a>
 ## 6. 检索与呈现
@@ -304,15 +288,12 @@ flowchart LR
 | 验收 | 纯目录、候选与查询节点验证闭集，真实人物请求再证明菜单与受理同源 |
 
 
-
-
 <a name="design-resource-engine-current-responsibility"></a>
 ## 基础类型与资源装配
 
 `worldmock.base_models` 保留严格模型与深冻结基础；`worldmock.exchange.body` 固定身体常数与资源元信息。
 `Catalog` 只装配 app、地点、商品、动作、内容与发布图，不读取语料或环境规则副本。
 反向索引为 `menus_by_kind`、`goods_by_store`、`stores_by_app`、`apps_by_store`、`actions_by_app`、`contents_by_action`、`contents_by_action_app`、`contents_by_series`。
-
 
 <a name="resource-engine-版本历史"></a>
 ## 版本历史
@@ -340,3 +321,4 @@ flowchart LR
 | `2026-10-06-rrs-app` | 2026-10-07 | app 与 app 内容引用、内容可达性和三键可调用索引；内容退出候选、facet、分段读取与资产揭示管线；版本保持 v1.16 |
 | `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |
 | `2026-10-07-acs-receipt` | 2026-10-07 | 付款与收货分别留证，收货由唯一函数恰好结算一次，效果与证据归收货人；个人事务七键，用餐目标按本人 meal 收货推进。 |
+| `2026-10-08-acs-close` | 2026-10-08 | 目录作者字段同步运输时长、通信方式与六类商品；重复文件表引用唯一合同，不新增状态或规则。 |
