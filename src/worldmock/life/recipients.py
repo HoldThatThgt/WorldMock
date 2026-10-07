@@ -1,4 +1,4 @@
-"""@brief 订单与给予的收货人：可读名称与收货地点（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「来源与去向」）。
+"""@brief 订单的收货人：可读名称与收货地点（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「来源与去向」）。
 
 收货人身份：同世界人物为 agent:<id>（付款人自己也是），场景联系人为联系人身份。收货地点不作参数：自己是当前地点
 （途中为出发地，与远程下单的送达地同一口径），同世界人物是其所在地点（途中没有），联系人取
@@ -35,7 +35,7 @@ def person_name(state: WorldState, scenario: RuntimeScenario, agent_id: int, ide
 def recipient_location(state: WorldState, scenario: RuntimeScenario, agent_id: int, recipient_id: str) -> str | None:
     """@brief 收货人此刻的收货地点：自己为当前地点，同世界人物为其所在地点（途中为 None），联系人为其收货地点。
 
-    :param agent_id: 付款或给予的人物（收货人是联系人时按其通讯录查找）。
+    :param agent_id: 付款的人物（收货人是联系人时按其通讯录查找）。
     """
     if recipient_id == agent_identity(agent_id):
         return present_location(state, agent_id)

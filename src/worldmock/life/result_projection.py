@@ -39,7 +39,7 @@ def public_result(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str
 def _details(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str, Any]:
     """@brief details：本次新产生的可读事实，按闭集键逐项给出，没有的键不写。"""
     payload = result.get("data") or {}
-    names = {item.food_id: item.name for item in scenario.foods}
+    names = {item.goods_id: item.name for item in scenario.goods}
     places = {item.location_id: item.display_name for item in scenario.locations}
     details: dict[str, Any] = {}
     if payload.get("orders"):
@@ -48,10 +48,6 @@ def _details(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str, Any
                                  "recipient": people[order["recipient_id"]],
                                  "request": payload.get("answering") if order["request_message_id"] else None}
                                 for order in payload["orders"]]
-    if payload.get("given"):
-        people = _people(scenario)
-        details["given"] = [{"product": names[item["food_id"]], "quantity": portion_phrase(item["quantity"]),
-                             "recipient": people[item["recipient_id"]]} for item in payload["given"]]
     if result["status"] == "in_progress":
         details["planned"] = [{"name": item.get("name"), "duration": duration_phrase(item["planned_duration_seconds"])}
                               for item in _activity_rows(payload)]
@@ -67,7 +63,7 @@ def _details(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str, Any
         details["mail"] = mail
     if "app_content" in payload:
         details["app_content"] = {key: payload["app_content"][key]
-                                  for key in ("app", "title", "kind", "summary", "pushed")}
+                                  for key in ("app", "title", "summary", "pushed")}
     details.update({key: payload[key] for key in _PASSTHROUGH_DETAILS if key in payload})
     return details
 
@@ -96,7 +92,7 @@ def _read_mail(payload: dict[str, Any], scenario: RuntimeScenario) -> dict[str, 
 def _purchase(order: dict[str, Any], names: dict[str, str], places: dict[str, str],
               timezone_name: str) -> dict[str, Any]:
     """@brief 一个订单的公开事实：商品、份数、付款、送达地点与预计时刻（带时区 ISO）；方式是请求参数，不复述。"""
-    return {"product": names[order["food_id"]], "quantity": portion_phrase(order["quantity"]),
+    return {"product": names[order["goods_id"]], "quantity": portion_phrase(order["quantity"]),
             "paid": money_phrase(order["total_price_fen"]), "destination": places[order["destination_id"]],
             "expected_at": iso_time(order["expected_at"], timezone_name)}
 

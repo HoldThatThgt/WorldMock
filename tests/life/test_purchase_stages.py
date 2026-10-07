@@ -3,7 +3,7 @@
 import pytest
 from worldmock.errors import PreconditionError
 from worldmock.life.named_purchase import PurchaseAsk, resolve_named_supply
-from tests.life.purchase_worlds import menu_context
+from tests.life.test_named_purchase import menu_context
 
 
 def test_named_pickup_selects_the_actual_present_store_before_remote_options():

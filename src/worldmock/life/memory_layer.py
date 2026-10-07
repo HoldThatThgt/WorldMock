@@ -9,7 +9,7 @@
   self_notes 取成功的 pause_activity、conclude_activity 写下的 summary 与记忆原文（看法与偏好只在人设层；请求一律经
   control_items 读出，唯一 items 形状），按活动名标注，条目内不重名时去掉开始时刻后缀（note_labels 记下这类短名对应的
   完整活动名，回看按记忆层所见的名称解析）；没有内容的条目不出现。
-- earlier_days：今天之前结束的 session 中此刻仍未了结的事项（本人 pending 或 ready 的订单；收到后没有成功 send_message
+- earlier_days：今天之前结束的 session 中此刻仍未了结的事项（本人 pending 的订单；收到后没有成功 send_message
   回复发件人的直接消息，通话不算回复），按起源日期归入；另加归属该日的就寝反思（睡眠开始时刻前推 6 小时的本地日期）。
 - 窗口：记忆层 JSON 不超过 8000 字符；超出时依次删去最旧日期的反思、再把最旧的今日条目缩成只剩未了结的 settled 句；
   未了结事项与最近一个 session 的条目永不删去，仍超出时写英文日志，交给整次请求的阈值处理。
@@ -36,7 +36,7 @@ from worldmock.life.object_labels import START_SUFFIX
 from worldmock.life.readable import iso_time, local_date
 from worldmock.life.session_bounds import session_lower
 from worldmock.life.settled_text import (
-    SETTLED_STATUSES, ActivityFacts, activity_endings, app_progress, ending_lines, give_sentence, pause_intervals,
+    SETTLED_STATUSES, ActivityFacts, activity_endings, app_progress, ending_lines, pause_intervals,
     purchase_sentence, record_lines, tool_record,
 )
 from worldmock.life.tool_layer import LayerContext
@@ -288,18 +288,16 @@ def _session_lines(build: _Build, bounds: tuple[int, int | None], open_only: boo
 
 
 def _request_lines(build: _Build, request: Event, result: Event) -> list[_Line]:
-    """@brief 一个世界请求的 settled 句；下单逐订单一句，订单仍 pending 或 ready 时标未了结。"""
+    """@brief 一个世界请求的 settled 句；下单逐订单一句，订单仍 pending 时标未了结。"""
     context, key = build.context, (request.occurred_at, request.event_seq)
     orders = (result.data.get("data") or {}).get("orders", [])
     if (request.data["tool_name"] == "start_activity" and orders and result.data.get("status") in SETTLED_STATUSES
             and not request.data.get("reused")):
         deliveries = context.state.deliveries
         data = result.data.get("data") or {}
-        moment = tool_record(context, request)["occurred_at"]
-        return [*(_Line(purchase_sentence(context, order, data.get("answering")), key,
-                        open=deliveries[order["order_id"]].status
-                        in progress_layer.OPEN_ORDER_STATUSES) for order in orders),
-                *(_Line(give_sentence(context, moment, item), key) for item in data.get("given", []))]
+        return [_Line(purchase_sentence(context, order, data.get("answering")), key,
+                      open=deliveries[order["order_id"]].status
+                      in progress_layer.OPEN_ORDER_STATUSES) for order in orders]
     return [_Line(text, key) for text in record_lines(context, tool_record(context, request), [request, result])]
 
 

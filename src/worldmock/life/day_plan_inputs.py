@@ -265,8 +265,8 @@ def _task_rows(context: Any, observations: Any, agent: Any, window: _Window) -> 
 
 
 def _product_names(context: Any) -> dict[str, str]:
-    """@brief 冻结目录里可持有对象的商品身份 → 商品名（个人事务「要办成什么」按它写商品名，与待办层同一张表）。"""
-    return {product_id: item.name for product_id, item in context.semantics.catalog.foods.items()}
+    """@brief 冻结目录里商品的商品身份 → 商品名（个人事务「要办成什么」按它写商品名，与待办层同一张表）。"""
+    return {product_id: item.name for product_id, item in context.semantics.catalog.goods.items()}
 
 
 def _inbox_rows(context: Any, agent: Any, window: _Window) -> list[dict[str, Any]]:
@@ -288,7 +288,7 @@ def _pending_orders(context: Any, agent_id: int, window: _Window) -> list[dict[s
     """@brief 在途订单及预计送达（state.deliveries 中本人待交付的订单）。"""
     return [
         {
-            "商品": context.semantics.catalog.foods[item.food_id].name,
+            "商品": context.semantics.catalog.goods[item.goods_id].name,
             "数量": item.quantity,
             "预计送达": window.when(item.expected_at),
             "送到": _place(context, item.destination_id),

@@ -11,7 +11,6 @@ import logging
 from worldmock.life.models import ActivityKind, ActivityStatus
 from worldmock.life.models import LIFESTYLE_TYPE_PREFIX
 from worldmock.life.readable import _datetime
-from math import ceil
 from worldmock.life.models import ActivityKind
 
 import logging
@@ -181,7 +180,7 @@ class ObservationBuilder:
                 for (activity_id, name) in names["activities"].items()
             ],
             "person_bindings": person_bindings(self.context.state, agent.agent_id),
-            **errands.bindings(agent, self.context.semantics.catalog.foods),
+            **errands.bindings(agent, self.context.semantics.catalog.goods),
         }
 
     def _projection_extras(self, agent, product_rows: list[dict], menu: dict[str, PresentationWindow]) -> dict:
@@ -226,13 +225,13 @@ class ObservationBuilder:
 
 
     def _window_rows(self, agent) -> dict:
-        """@brief 固定菜单一次形成真实食品呈现窗口，候选排序不读取口味或报价。"""
+        """@brief 固定菜单一次形成真实商品呈现窗口，候选排序不读取口味或报价。"""
         context = self._presentation_context(agent)
         entries = self._product_pool(agent)
         inputs = presentation.candidate_inputs(
             context, presentation.entry_sources(entries), moment=False,
             last_presented_at={entry.object_id: self._last_presented(agent.agent_id).get(
-                entry.row["food_id"], 0) for entry in entries})
+                entry.row["goods_id"], 0) for entry in entries})
         window = presentation.present(entries, inputs, "product", None)
         return {"products": list(window.items), "window": window}
 
@@ -306,7 +305,7 @@ class ObservationBuilder:
         data["messages"] = mail_headers(agent, self.context.rules.messages)
         data["affordance_contract"] = self.context.affordance_contract
         context = self._discovery_context(agent)
-        data["foods"] = [food.model_dump(mode="json") for food in self.context.semantics.catalog.foods.values()]
+        data["goods"] = [food.model_dump(mode="json") for food in self.context.semantics.catalog.goods.values()]
         data["menus"] = [entry.row for entry in _supply_entries(context)]
         data["activity_summary"] = self._activity_summary(agent)
         data["pending_deliveries"] = [
@@ -314,9 +313,6 @@ class ObservationBuilder:
             for item in self.context.state.deliveries.values()
             if item.agent_id == agent.agent_id and item.status == "pending"
         ]
-        data["inventory"] = agent.inventory
-        data["available_inventory"] = agent.inventory.get(agent.location_id, {})
-        data["held_foods"] = self._inventory_item_contracts(agent)
         data["work_topics"] = self._work_topic_rows(agent)
         data["routes"] = _route_catalog(
             self.context.scenario, self.context.state, agent.agent_id, self.context.semantics
@@ -400,18 +396,14 @@ class ObservationBuilder:
 
 
 
-    def _visible_product(self, food_id: str) -> dict:
+    def _visible_product(self, goods_id: str) -> dict:
         """@brief 食品事实原样读取唯一目录 Food。"""
-        return self.context.semantics.catalog.foods[food_id].model_dump(mode="json")
+        return self.context.semantics.catalog.goods[goods_id].model_dump(mode="json")
 
     def _discovery_context(self, agent) -> discovery.DiscoveryContext:
         """@brief 装配当前观察的地图事实与分时解释入口。"""
         return discovery.DiscoveryContext(self.context.state, self.context.scenario, self.context.semantics, agent)
 
-    def _inventory_item_contracts(self, agent) -> list[dict]:
-        """@brief 当前地点实际持有的目录食品，不制造耐用品使用合同。"""
-        return [self._visible_product(food_id) for food_id, quantity in sorted(
-            agent.inventory.get(agent.location_id, {}).items()) if quantity > 0]
 
 
 
@@ -552,25 +544,6 @@ def _location_catalog(scenario) -> list[dict]:
 
 
 
-def _recent_meal_counts(activities, agent_id: int, now: int) -> dict[str, int]:
-    """@brief 从近一天实际结算的食用量推导商品重复进食次数。"""
-
-    counts: dict[str, int] = {}
-    for activity in activities:
-        if activity.agent_id != agent_id or activity.kind != ActivityKind.CONSUME:
-            continue
-        if not 0 <= now - activity.started_at <= 86_400:
-            continue
-        if activity.data["request"]["use_mode"] != "eat":
-            continue
-        for product_id, consumed in activity.data["consumed"].items():
-            if consumed > 0:
-                counts[product_id] = counts.get(product_id, 0) + ceil(consumed)
-    return counts
-
-
-
-
 #: 浏览动作的目录对象身份闭集（交互对象层的 catalog 行与事件级支持行同源）。
 
 
@@ -581,16 +554,16 @@ def _recent_meal_counts(activities, agent_id: int, now: int) -> dict[str, int]:
 
 
 def _supply_entries(context: discovery.DiscoveryContext) -> tuple[PoolEntry, ...]:
-    """@brief 把真实固定菜单装成实际食品候选，食品价格只来自 Catalog。"""
+    """@brief 把真实固定菜单装成实际商品候选，商品价格只来自 Catalog。"""
     catalog = context.semantics.catalog
     selected = {location.location_id for location in context.scenario.locations}
     present = present_location(context.state, context.agent.agent_id)
-    return tuple(PoolEntry(object_id=f"{store_id}:{food_id}", kind="product",
-                           row=discovery.supply_row(context, store_id, catalog.foods[food_id]),
-                           category=catalog.foods[food_id].category.value)
-                 for store_id, foods in catalog.foods_by_store.items()
+    return tuple(PoolEntry(object_id=f"{store_id}:{goods_id}", kind="product",
+                           row=discovery.supply_row(context, store_id, catalog.goods[goods_id]),
+                           category=catalog.goods[goods_id].category.value)
+                 for store_id, goods in catalog.goods_by_store.items()
                  if store_id in selected and present is not None
-                 and (store_id == present or catalog.apps_by_store[store_id]) for food_id in foods)
+                 and (store_id == present or catalog.apps_by_store[store_id]) for goods_id in goods)
 
 
 
@@ -608,7 +581,7 @@ def _presentation_stamps(state, presented: tuple[str, ...], catalog) -> dict[str
     @param presented 本轮实际进入窗口的对象身份（可跨多个分区窗口拼接）。
     @return 对象标识 → 当前时刻；本次没有呈现任何对象时为空字典。
     """
-    food_ids = {f"{store_id}:{food_id}": food_id for store_id, foods in catalog.foods_by_store.items()
-                for food_id in foods}
-    return {food_ids[object_id] if object_id in food_ids else object_id: int(state.current_time)
+    goods_ids = {f"{store_id}:{goods_id}": goods_id for store_id, goods in catalog.goods_by_store.items()
+                for goods_id in goods}
+    return {goods_ids[object_id] if object_id in goods_ids else object_id: int(state.current_time)
             for object_id in presented}

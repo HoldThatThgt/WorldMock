@@ -29,7 +29,7 @@ _NULLABLE_TEXT = {"type": ["string", "null"], "minLength": 1}
 _LINES = {"type": "array", "items": _TEXT}
 
 #: 工具层目标类别闭集（英文值；场景联系人并入 person）。
-TARGET_KINDS = ("location", "product", "holding", "person", "contact", "self", "task", "activity",
+TARGET_KINDS = ("location", "product", "person", "contact", "self", "task", "activity",
                 "message", "app", "lifestyle")
 #: 工具层可列出的方式，不含仅在请求中由系统确定方式的「购买」。
 WAY_LABELS = tuple(way for way in WAYS if way != "购买")
@@ -248,7 +248,7 @@ PROGRESS_LAYER_SCHEMA: dict[str, Any] = {
                                   "arguments": {"type": "object"}, "result": _RESULT, "self_note": _TEXT},
                     optional=("self_note",)),
             _MESSAGE_RECORD,
-            _record("delivery", {"order": _TEXT, "status": {"enum": ["ready", "delivered", "cancelled"]},
+            _record("delivery", {"order": _TEXT, "status": {"enum": ["pending", "delivered"]},
                                  "message": _TEXT}),
             _record("app_push", {"app": _TEXT, "title": _TEXT,
                                   "summary": {"type": "string", "maxLength": 200}}),

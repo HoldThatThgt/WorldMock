@@ -13,7 +13,7 @@
 
 > 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「地图中的消费行为」（阶段 2、阶段 3）与「需求映射表、核心术语、算法与工程背书总表、设计决策、非功能约束、设计假设、开放问题、参考文献」（阶段 4）。
 
-> 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界」（阶段 1）。
+> 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界、收货结算」（阶段 1、2）。
 
 具体环境及制作工具按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)归 WorldMock-Dataset，
 正式重制环境路径由 WorldMock-Dataset 发布决定；WorldMock 提供引擎及包内固定通用规则。
@@ -72,7 +72,10 @@ flowchart TB
 运行和恢复使用清单 `environment_identity`，只读发布图；旧道路资料和库存报价合同由现行图与菜单合同取代。真实名称不证明真实数值，合成输入与实际数字足迹分别留证。
 开发范围见[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)，完整运行与平台结论按真实验收记录判定。
 
-外卖来自店铺 app 绑定，每单只一次付款和一次送达；食品热量与完整食用时长按类别固定，数字足迹保留实际消费份额与身体效率。路途中自送须在出发前或到达后下单。
+连续身体变化由时钟推进先结算至收货秒；到店购买在当前同刻受理。到店受理与配送到期共用 `worldmock.life.receipt.settle_receipt`，该函数只施加本次瞬时商品效果并取走本次资源分录。函数同时将订单从 `pending` 改为 `delivered`、写 `received_at`、施加效果并取走本次资源分录。到店在付款的同一次提交内收货，配送在 `delivery_arrival` 当秒收货，不看收货人在哪里或是否睡着。
+食品的 `provided` 为类别热量乘件数，`applied` 为按当秒睡眠不足利用率与能量上限得到的实际能量增加，超出上限的部分丢失。休闲用品每行降低娱乐需要 0.10（下限 0），日常用品每行施加情绪脉冲 0.05。没有持有、食用时长、份额、丢弃或装备能力。
+本次食品 `food:intake` 分录与休闲用品 `goods:receipt` 分录在函数返回前立即取走，主体与时刻都是收货人和收货秒，缓冲为空；日常用品不写资源分录。状态变化与 `goods_received` 同一事务提交，事件的 `caused_by` 指向该提交中的真实购买结果或配送到期事件。
+已交付订单再次到期不写状态、效果或事件；重复动作返回已存结果。联系人没有身体，收货只改变订单状态与 `received_at`，不写 `goods_received`。配送保留付款人的到期事件与唤醒，清醒模拟收货人得到同一个到期原因，睡着的不唤醒；到店不唤醒任何人。
 
 <a name="overview-系统目标"></a>
 ### 1.3 系统目标
@@ -152,7 +155,7 @@ flowchart TB
 | **结构正确性** | 所有事件符合 Schema 定义，字段类型与约束严格校验 |
 | **时序一致性** | 事件序号严格递增，状态版本连续，检查点可恢复 |
 | **资源结算可核验** | 金钱转账两端守恒；能量与娱乐需要按流水和边界校验；睡眠按演化规则核对；共享时钟推进与实际结算时长一致 |
-| **引用完整性** | 内容引用、记忆来源（由系统登记）、人际关系引用指向有效实体；relationship、preference 记忆的 `subject` 指向人设层中的对象（relationship 须是已知人物）；就寝反思每条洞见的 `refs` 非空、条内不重复且全部取自本次输入的记忆身份，不合合同的反思不写入任何洞见；个人事务的完成事件引用使它办成的结算证据事件，缺证据的完成计入质量报告的完整性计数（`errand_metrics.completed_without_evidence_count`）且应恒为 0 |
+| **引用完整性** | 内容引用、记忆来源（由系统登记）、人际关系引用指向有效实体；relationship、preference 记忆的 `subject` 指向人设层中的对象（relationship 须是已知人物）；就寝反思每条洞见的 `refs` 非空、条内不重复且全部取自本次输入的记忆身份，不合合同的反思不写入任何洞见；个人事务的完成事件引用事务所有人自己的收货证据事件，缺证据的完成计入质量报告的完整性计数（`errand_metrics.completed_without_evidence_count`）且应恒为 0 |
 | **来源明确性** | 每条内容标记来源数据集、版本、区间与许可 |
 
 <a name="overview-需求映射表"></a>
@@ -168,7 +171,7 @@ flowchart TB
 | 地点按 kind 池与逐店类别、对象声明提供不同完整供给，门店价格位置加确定性偏移后一次构建报价 | [资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎)、[配置管理](08-configuration.md#configuration-worldmock-产品设计说明书-配置规格) | 已实现，验收证据另列 |
 | 身体相关资源的变化影响体感和活动效率 | [模拟引擎](04-simulation-engine.md#simulation-engine-实际区间身体变化与效率)「实际区间、身体变化与效率」 | DRAFT |
 | 工作消耗时间和能量，按实际经过秒数推进主题；工资由场景独立登记 | [模拟引擎](04-simulation-engine.md#simulation-engine-推进实际活动)「推进实际活动」 | 已实现，验收证据另列 |
-| 购买食品与实际进食分别结算，进食按热量与食品利用效率补充能量 | [模拟引擎](04-simulation-engine.md#simulation-engine-推进实际活动)「推进实际活动」与[交换投入产出](02-exchange-engine.md#exchange-engine-计算投入产出) | DRAFT |
+| 付款与收货分别记录，收货即结算；食品按类别热量与当秒利用效率补充能量 | [模拟引擎](04-simulation-engine.md#simulation-engine-推进实际活动)「推进实际活动」与[交换投入产出](02-exchange-engine.md#exchange-engine-计算投入产出) | DRAFT |
 | 睡眠改变睡眠压力并恢复睡眠不足，睡眠期间仍消耗能量 | [模拟引擎](04-simulation-engine.md#simulation-engine-实际区间身体变化与效率)「实际区间、身体变化与效率」 | DRAFT |
 | 覆盖 app 使用与 app 内容、邮件、导航、购物 | [资源引擎](03-resource-engine.md#resource-engine-交换对象与内容条目)「交换对象与内容条目」 | DRAFT |
 | 真实 app 与作品名、合成或有出处的摘要和合成数值由数据仓目录登记 | [资源引擎](03-resource-engine.md#resource-engine-整理与固化语料)「整理与固化语料」 | DRAFT |
@@ -176,7 +179,7 @@ flowchart TB
 | 决策不耗时，时间只在人人有进行中活动且没有待收尾活动时推进 | [模拟引擎](04-simulation-engine.md#simulation-engine-推进共享时钟)「推进共享时钟」与[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第一章 | DRAFT |
 | 零点计划：场景本地零点由运行时后台任务生成当日计划，不经人物；目标可带提醒 | [模拟引擎](04-simulation-engine.md#simulation-engine-接收当日目标并记录实际推进)「接收当日目标并记录实际推进」与[时间与能量规格](../dev/SPEC-day-plan-goals.md#time-and-energy-零点计划与计划提醒)第四章 | DRAFT |
 | 人物提示为七层 JSON，每项信息只出现一次；同一秒的连续决策续接原生消息 | [模拟引擎](04-simulation-engine.md#simulation-engine-人物所见与可做之事)「人物所见与可做之事」与[人物 Prompt 规格](../dev/SPEC-life-realism.md#persona-prompt-七层请求)第一、二章 | DRAFT |
-| 人物把以后要买到、拿到或吃掉的具体东西记成个人事务：跨日保留在待办层，办成只由环境按结算证据确认，人物只能取消并写原因 | [模拟引擎](04-simulation-engine.md#simulation-engine-人物所见与可做之事)「人物所见与可做之事」「依规则落实结算」「判断唤醒条件」与[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)第二、三章 | 已实现，验收证据另列 |
+| 人物把以后要买到或拿到的具体东西记成个人事务：跨日保留在待办层，办成只由环境按本人收货证据确认，人物只能取消并写原因 | [模拟引擎](04-simulation-engine.md#simulation-engine-人物所见与可做之事)「人物所见与可做之事」「依规则落实结算」「判断唤醒条件」与[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)第二、三章 | 已实现，验收证据另列 |
 | 作息含下班与到家；场景按人物声明工作安排，环境层每轮写明今天的上班安排，今日计划改不了它，环境不因此拒绝请求 | [模拟引擎](04-simulation-engine.md#simulation-engine-人物所见与可做之事)「初始化运行世界」「人物所见与可做之事」「接收当日目标并记录实际推进」、[配置管理](08-configuration.md#configuration-worldmock-产品设计说明书-配置规格)与[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)第四章 | 已实现，验收证据另列 |
 | 完整记录观察、决策、执行、状态变化 | [记录引擎的事件结构](05-recording-engine.md#recording-engine-数字足迹事件结构) | 冻结约束已承接 |
 | 支持检查点恢复与反事实分支 | [保存共同检查点](05-recording-engine.md#recording-engine-保存共同检查点)与[恢复与反事实分支](05-recording-engine.md#recording-engine-恢复与反事实分支) | 冻结约束已承接 |
@@ -193,7 +196,7 @@ flowchart TB
 | 功能点 | 采用方案 | 背书（论文/工业项目） |
 | --- | --- | --- |
 | Agent 框架 | AgentSociety 2 | 开源项目，已验证的多 Agent 调度与模型服务 |
-| 能量与体感 | 进食热量、基础代谢与活动消耗决定可用能量；结合昼夜节律和餐时生成饥饿体感，低能量时饥饿分级不被昼夜项与餐时项压低，另设「饿得发慌」档；能量不阻断任何活动，最低为 0 | [运行时规格](../dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)「其他体感分级」「转换效率算法」及其来源、假设标注；能量不阻断的依据见[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-能量不拦人)第三章；低能量分界是实验假设，见[实验定义](../EXPERIMENT.md#experiment-实验假设声明)「实验假设声明」 |
+| 能量与体感 | 收货热量、基础代谢与活动消耗决定可用能量；结合昼夜节律和餐时生成饥饿体感，低能量时饥饿分级不被昼夜项与餐时项压低，另设「饿得发慌」档；能量不阻断任何活动，最低为 0 | [运行时规格](../dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)「其他体感分级」「转换效率算法」及其来源、假设标注；能量不阻断的依据见[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-能量不拦人)第三章；低能量分界是实验假设，见[实验定义](../EXPERIMENT.md#experiment-实验假设声明)「实验假设声明」 |
 | 睡眠模型 | 两过程模型计算睡眠压力和困意；独立记录睡眠不足并计算效率 | [运行时规格](../dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)「两过程睡眠模型」「睡眠不足账与效率曲线」；食品利用效率关系为仿真假设 |
 | 工作主题 | 工作活动的真实经过秒数跨活动累计，达到目录目标工时即完成；播报文字不改变工时 | [资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-工作主题与叙述) |
 | 内容呈现 | 人物选择 app，环境从该 app 的绑定内容中确定性抽取；推送内容优先，完成后在剩余活动时长内接续 | [资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送) |
@@ -301,3 +304,4 @@ flowchart TB
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题累计的工程依据，版本号不变 |
 | `2026-10-07-repository-ownership` | 2026-10-07 | 按用户裁决收敛目录与职责：WorldMock 保留模拟、记录、完整认证足迹与评估；下游加工、模型任务、训练和规则数据归 LabelKit-DataSet，源码快照已接收，新消费验收另记实际证据 |
 | `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |
+| `2026-10-07-acs-receipt` | 2026-10-07 | 付款与收货分别留证，收货由唯一函数恰好结算一次，效果与证据归收货人；个人事务七键，用餐目标按本人 meal 收货推进。 |

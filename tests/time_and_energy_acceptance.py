@@ -19,8 +19,7 @@ STAGE_IDS = frozenset(str(n) for n in range(10))
 #: 已完成的阶段；每个阶段收尾时把自己的编号加入。
 STAGES_DONE = frozenset({"0", "1", "2", "3", "4", "5", "6", "7"})
 
-_GREEN_BASELINE_TESTS = ['tests/life/test_dayrun_inventory_regressions.py::test_meal_partitions_reach_zero_without_losing_quantity_or_energy',
- 'tests/integration/test_dayrun_complete_days.py::test_complete_two_person_day_uses_real_tools_memory_and_restoration',
+_GREEN_BASELINE_TESTS = ['tests/integration/test_dayrun_complete_days.py::test_complete_two_person_day_uses_real_tools_memory_and_restoration',
  'tests/integration/test_agent_branch_coverage.py::test_empty_interactive_layer_decision_continues_without_failure',
  'tests/life/test_grounded_observation.py::test_real_observation_during_active_activity_keeps_decision_open',
  'tests/life/test_session_state.py::test_world_schema_version_is_8',
@@ -125,7 +124,6 @@ _STAGE2_CANDIDATE_TIME_TESTS = [
     "tests/life/test_activity_effects.py::test_hunger_downward_crossing_at_meal_window_end",
     "tests/life/test_activity_effects.py::test_hunger_crossing_reverted_by_meal_window_end_is_not_skipped",
     "tests/life/test_energy_feasibility.py::test_hunger_crossing_just_before_lunch_end_wakes_during_wait",
-    "tests/life/test_activity_effects.py::test_body_boundary_uses_curve_node_and_food_net_energy",
     "tests/life/test_activity_effects.py::test_meal_window_edges_are_boundary_candidates",
     'tests/life/test_shift_edges.py::test_t12_app_can_pause_at_shift_edge_and_content_completion_stays_quiet',
     "tests/life/test_engine_branch_coverage.py::test_next_body_boundary_skips_zero_rates_when_nothing_due",

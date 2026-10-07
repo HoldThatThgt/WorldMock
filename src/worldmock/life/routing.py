@@ -1,7 +1,7 @@
 """@brief 逐项活动来源、本人或实名收货人及消息关联的统一纯校验。"""
 
 from __future__ import annotations
-from worldmock.life.vocabulary import way_options, way_verb
+from worldmock.life.vocabulary import way_verb
 from worldmock.life.object_labels import names_store, written_place
 
 import logging
@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from worldmock.errors import BusinessRuleError
-from worldmock.life.vocabulary import GIVE_WAY
 
 _INVALID = "ACTION_REQUEST_INVALID"
 RECIPIENT_NOT_FOUND = "RECIPIENT_NOT_FOUND"
@@ -81,9 +80,9 @@ def combination_issues(request: Any, names: RoutingNames) -> list[RouteIssue]:
     return [*issues, *([answer] if answer else [])]
 
 
-def fill_route(verb: str, way: str, written_to: str | None) -> tuple[str | None, str | None]:
-    """@brief 候选的本人来源由引擎推导，只有购买或给予接受实名他人。"""
-    destination = written_to if way == GIVE_WAY or verb == "obtain" else None
+def fill_route(verb: str, written_to: str | None) -> tuple[str | None, str | None]:
+    """@brief 候选的本人来源由引擎推导，只有购买接受实名收货人。"""
+    destination = written_to if verb == "obtain" else None
     return None, destination if destination != "自己" else None
 
 
@@ -114,19 +113,14 @@ def _issue(index: int | None, field: str, written: Any, reason: str, allowed: tu
 
 
 def _item_errors(index: int, item: Any, names: RoutingNames) -> list[RouteIssue]:
-    """@brief 非购买来源必须 null，非转移去向必须 null，给予须实名他人。"""
+    """@brief 非购买来源和去向必须为 null，购买只能写已知收货人。"""
 
-    verb, options = way_verb(item.way), way_options(item.way)
+    verb = way_verb(item.way)
     purchase = verb == "obtain"
     issues = []
     if not purchase and item.from_ is not None:
         issues.append(_issue(index, "from", item.from_, "This way requires from=null.", (None,)))
-    if GIVE_WAY in options:
-        if item.to is None:
-            issues.append(_issue(index, "to", None, "Giving requires a known other person."))
-        elif item.to not in names.people:
-            issues.append(_person_error(index, item.to))
-    elif not purchase and item.to is not None:
+    if not purchase and item.to is not None:
         issues.append(_issue(index, "to", item.to, "This way acts on the caller and requires to=null.", (None,)))
     elif purchase and item.to is not None and item.to not in names.people:
         issues.append(_person_error(index, item.to))

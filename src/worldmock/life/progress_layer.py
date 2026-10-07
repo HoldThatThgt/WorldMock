@@ -32,7 +32,7 @@ from worldmock.life.settled_text import ActivityFacts, record_lines
 from worldmock.life.tool_layer import LayerContext
 
 #: 订单仍在途的状态（相关记录受保护）。
-OPEN_ORDER_STATUSES = frozenset({"pending", "ready"})
+OPEN_ORDER_STATUSES = frozenset({"pending"})
 #: 被进度层消费的两种个人事务事件（人物可见）→ 记录类型；其余四种事务事件只供审计与指标，不进进度层。
 _ERRAND_RECORDS = {REMINDED_KIND: "errand_reminder", COMPLETED_KIND: "errand_completed"}
 
@@ -235,7 +235,7 @@ def _delivery_records(context: LayerContext, event: Event) -> list[_Record]:
     """@brief 一次送达事件中本人所下每个订单一条 delivery 记录：订单名称、状态与送达进展（收货人不是自己时写明收货人）。"""
     zone, now = context.scenario.timezone, context.state.current_time
     places = {item.location_id: item.name for item in context.scenario.locations}
-    names = {item_id: item.name for item_id, item in context.semantics.catalog.foods.items()}
+    names = {item_id: item.name for item_id, item in context.semantics.catalog.goods.items()}
     records = []
     for order in event.data.get("orders", []):
         if order["agent_id"] != context.agent_id:
@@ -243,8 +243,7 @@ def _delivery_records(context: LayerContext, event: Event) -> list[_Record]:
         label = order_label(order, names, (zone, now))
         receiver = ("" if order["recipient_id"] == agent_identity(context.agent_id) else
                     f"，收货人{person_name(context.state, context.scenario, context.agent_id, order['recipient_id'])}")
-        messages = {"delivered": f"已送到{places[order['destination_id']]}{receiver}", "cancelled": "订单已取消",
-                    "ready": f"可以到{places[order['store_id']]}取了"}
+        messages = {"pending": "等待送达", "delivered": f"已送到{places[order['destination_id']]}{receiver}"}
         record = {"occurred_at": iso_time(event.occurred_at, zone), "type": "delivery", "order": label,
                   "status": order["status"], "message": messages[order["status"]]}
         records.append(_Record(record, (event,), _event_key(event.occurred_at, [event]), (order["order_id"],)))

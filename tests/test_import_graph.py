@@ -155,7 +155,10 @@ DELAYED_IMPORTS: dict[tuple[str, str, str], str] = {('worldmock.catalog.admissio
  ('worldmock.runtime', '_call_plan_day', 'worldmock.life.models'): '纯世界校验在实际持久化入口执行，不在收集期加载引擎',
  ('worldmock.runtime', '_commit_contact_reply', 'worldmock.life.models'): '纯世界校验在实际持久化入口执行，不在收集期加载引擎',
  ('worldmock.runtime', '_generate_day_plan', 'worldmock.life.models'): '纯世界校验在实际持久化入口执行，不在收集期加载引擎',
- ('worldmock.validation', 'validate_persona_coverage', 'worldmock.life.semantics'): '纯画像校验读取真实目录与场景语义，不装载完整引擎'}
+ ('worldmock.validation', 'validate_persona_coverage', 'worldmock.life.semantics'): '纯画像校验读取真实目录与场景语义，不装载完整引擎',
+ ('worldmock.life.basket', '_validate_recipients', 'worldmock.life.order_routing'): '购买收货人拒绝共用当前配送引导；延迟导入避免购买与引导相互依赖',
+ ('worldmock.life.named_purchase', '_request_candidate', 'worldmock.life.tool_layer'): '指名购买只在实际请求校验时读取工具层可用商品候选',
+ ('worldmock.life.world_ops', '_activity_origin', 'worldmock.life.activities'): '世界事件只在构造真实活动来源时读取活动详情'}
 
 
 @dataclass(frozen=True)

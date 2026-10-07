@@ -15,7 +15,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 #: 私有绑定类别 → 名称前缀（名称写成「<前缀>：<名称>」）。
-OBJECT_PREFIXES = {"work_topic": "工作", "location": "地点", "holding": "持有物", "app": "应用",
+OBJECT_PREFIXES = {"work_topic": "工作", "location": "地点", "app": "应用",
                    "lifestyle": "活动", "person": "人物", "contact": "联系人", "mail": "邮件"}
 #: 「自己」对象的名称（等待与睡觉两个受保护动作的对象）。
 SELF_LABEL = "自己"
@@ -35,9 +35,6 @@ def supply_label(place: str, product: str) -> str:
     return f"{place}出售的{product}"
 
 
-def remote_holding_label(product: str, place: str) -> str:
-    """@brief 他处持有物的名称：「持有物：<商品名>（<地点显示名>）」。"""
-    return f"{object_label('holding', product)}（{place}）"
 
 
 def mail_name(subject: str, sent_at: int, timezone: str) -> str:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from worldmock.errors import IntegrityError
-from worldmock.life.models import ActivityKind, ActivityState, ConsumeRequest, WorldState
+from worldmock.life.models import ActivityKind, ActivityState, WorldState
 from worldmock.life.travel import persisted_trip
 
 _LOGGER = logging.getLogger(__name__)
@@ -41,8 +41,6 @@ def _target_is_valid(activity: ActivityState, state: WorldState, rules,
         valid = target in rules.messages and data.get("message_id") == target
     elif kind == ActivityKind.LIFESTYLE:
         valid = target in rules.activity_location_kinds
-    elif kind == ActivityKind.CONSUME:
-        valid = _consume_target_is_valid(activity, rules)
     elif kind == ActivityKind.TRAVEL:
         valid = _travel_target_is_valid(activity, graph)
     elif kind == ActivityKind.CHAT:
@@ -57,14 +55,6 @@ def _target_is_valid(activity: ActivityState, state: WorldState, rules,
     return valid and (kind == ActivityKind.TRAVEL or activity.destination_id is None)
 
 
-def _consume_target_is_valid(activity: ActivityState, rules) -> bool:
-    """@brief 已持有商品请求仍须与持久目标和冻结商品目录一致。"""
-    try:
-        request = ConsumeRequest.model_validate(activity.data["request"])
-    except (KeyError, ValueError):
-        return False
-    return (bool(request.items) and activity.target_id == request.items[0].product_id
-            and all(item.product_id in rules.foods for item in request.items))
 
 
 def _travel_target_is_valid(activity: ActivityState, graph) -> bool:

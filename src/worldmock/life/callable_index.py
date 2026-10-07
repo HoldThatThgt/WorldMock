@@ -11,9 +11,9 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from worldmock.exchange.types import FOOD_CATEGORY_LABELS
+from worldmock.exchange.types import GOODS_CATEGORY_LABELS
 from worldmock.life.admission import present_location
-from worldmock.life.purchase_offers import menu_foods
+from worldmock.life.purchase_offers import menu_goods
 from worldmock.life.candidates import tiebreak_digest
 from worldmock.life.discovery import DiscoveryContext
 from worldmock.life.presentation import PresentationWindow
@@ -98,17 +98,17 @@ def _lifestyle_names(context: LayerContext, identities: Sequence[str], order: Ca
 
 
 def _goods_entries(context: LayerContext) -> list[_Entry]:
-    """@brief 从真实固定菜单构建可得到食品的名称索引，按固定食品类别汇总。"""
+    """@brief 从真实固定菜单构建可得到商品的名称索引，按固定商品类别汇总。"""
     if "purchase" not in context.menu.allowed_actions:
         return []
     found = DiscoveryContext(context.state, context.scenario, context.semantics,
                              context.state.agents[context.agent_id])
-    listed = {row["food_id"] for row in context.bindings if row["kind"] == "supply"}
+    listed = {row["goods_id"] for row in context.bindings if row["kind"] == "supply"}
     entries = {}
-    for store_id, food in menu_foods(context):
-        if food.food_id not in entries and obtainable_here(found, store_id):
-            entries[food.food_id] = _Entry(FOOD_CATEGORY_LABELS[food.category], food.name,
-                                          food.food_id, food.food_id in listed)
+    for store_id, food in menu_goods(context):
+        if food.goods_id not in entries and obtainable_here(found, store_id):
+            entries[food.goods_id] = _Entry(GOODS_CATEGORY_LABELS[food.category], food.name,
+                                          food.goods_id, food.goods_id in listed)
     return list(entries.values())
 
 

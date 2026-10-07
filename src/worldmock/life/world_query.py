@@ -19,8 +19,8 @@ from worldmock.life.vocabulary import PURCHASE_WAYS, SYSTEM_PURCHASE_WAY, WAYS
 from worldmock.life.interaction_menu import binding_action
 from worldmock.life.models import purpose_only_schema
 from worldmock.life.name_resolution import channel_key, delivery_sources, near_source_names, resolve_source
-from worldmock.exchange.types import FOOD_CATEGORY_LABELS
-from worldmock.life.purchase_offers import menu_foods
+from worldmock.exchange.types import GOODS_CATEGORY_LABELS
+from worldmock.life.purchase_offers import menu_goods
 from worldmock.life.object_labels import resolve_name
 from worldmock.life.vocabulary import way_options
 from worldmock.life.object_labels import supply_label
@@ -108,38 +108,37 @@ def _complete_bindings(observation: dict, context: Any) -> list[dict]:
 
 
 def _supply_bindings(context: Any) -> list[dict]:
-    """@brief 查询使用实际完整固定菜单，食品身份与 app 绑定从目录一次冻结。"""
+    """@brief 查询冻结完整固定商品菜单与实际店铺、购物 app 绑定。"""
     rows = []
-    for store_id, food in menu_foods(context):
+    for store_id, food in menu_goods(context):
         location = context.semantics.catalog.locations[store_id]
         apps = context.semantics.catalog.apps_by_store[store_id]
         modes = ("pickup", "delivery") if apps else ("pickup",)
         rows.append({"object": supply_label(location.display_name, food.name), "kind": "supply",
-                     "object_id": f"{store_id}:{food.food_id}", "store_id": store_id, "food_id": food.food_id,
+                     "object_id": f"{store_id}:{food.goods_id}", "store_id": store_id, "goods_id": food.goods_id,
                      "app_id": min(apps) if apps else None,
                      "actions": [binding_action(PURCHASE_WAYS[mode], "purchase", fulfillment=mode) for mode in modes]})
     return rows
 
 
 def _frozen_entry(context: Any, target: dict, binding: dict | None) -> dict:
-    """@brief 冻结真实公开工具目标与来源门店，查询不改变购买或持有状态。"""
+    """@brief 冻结真实公开工具目标与实际来源门店，查询不改变世界。"""
     identity = f"{binding['kind']}:{binding['object_id']}" if binding is not None else target["name"]
     aliases, location = [target["name"]], None
     if binding is not None and binding["kind"] == "supply":
-        aliases.append(context.semantics.catalog.foods[binding["food_id"]].name)
+        aliases.append(context.semantics.catalog.goods[binding["goods_id"]].name)
         location = binding["store_id"]
     return {"identity": identity, "category": _category(context, binding), "aliases": aliases,
             "location_id": location, "match": copy.deepcopy(target)}
 
 
 def _category(context: Any, binding: dict | None) -> str | None:
-    """@brief 食品使用系统固定类别，仍保留后续内容消费者的真实类别读点。"""
+    """@brief 商品类别只从冻结商品目录取得。"""
     if binding is None:
         return None
     kind, identity = binding["kind"], binding["object_id"]
-    if kind in {"supply", "holding"}:
-        food_id = binding["food_id"] if kind == "supply" else identity
-        return FOOD_CATEGORY_LABELS[context.semantics.catalog.foods[food_id].category]
+    if kind == "supply":
+        return GOODS_CATEGORY_LABELS[context.semantics.catalog.goods[binding["goods_id"]].category]
     return None
 
 

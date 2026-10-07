@@ -108,11 +108,10 @@ class BodySettlement:
 
 @dataclass(frozen=True, slots=True)
 class ActivityFactors:
-    """@brief 当前活动方式的真实身体消耗、娱乐缓解和食物热量速率。"""
+    """@brief 当前活动方式的真实身体消耗与娱乐缓解速率。"""
 
     met: float
     entertainment_relief_per_hour: float = 0
-    food_energy_kcal_per_hour: float = 0
 
 
 #: 困意与饥饿跨档扫描的最大步长与扫描上限（秒）；步点变档后在该步内二分到整秒
@@ -238,7 +237,7 @@ def _shared_entries(body: BodyState, activities: tuple[tuple[ActivityKind, Activ
 
 
 def apply_food(body: BodyState, calories: float, config: BodyConfig) -> BodySettlement:
-    """@brief 以进食开始时睡眠不足账计算食品利用效率（sleep.food_utilization）。"""
+    """@brief 以收货当秒睡眠不足账计算食品利用效率（sleep.food_utilization）。"""
     if not math.isfinite(calories) or calories < 0:
         logging.error("Food calories must be finite and nonnegative: %s", calories)
         raise ValueError("Food calories must be finite and nonnegative")
@@ -349,7 +348,7 @@ def initial_body(config: BodyConfig, hour_of_day: float,
 def next_body_boundary_seconds(body: BodyState, kind: ActivityKind, config: BodyConfig,
                                factors: ActivityFactors | None = None,
                                clock: BoundaryClock | None = None) -> int | None:
-    """@brief 预测能量阈值、体感分级、餐时窗口或效率曲线的首个未来整秒边界。
+    """@brief 预测能量阈值、体感分级或餐时窗口的首个未来整秒边界。
 
     能量阈值为饥饿、紧急阈值与 felt.APPETITE_STARVING_KCAL（800、400、100 kcal）；困意与饥饿从当前状态
     做跨档扫描（升档、降档都给候选），午餐、晚餐窗口的起止是候选，娱乐按与结算同一口径的净速率、社交按清醒增长速率
@@ -360,10 +359,6 @@ def next_body_boundary_seconds(body: BodyState, kind: ActivityKind, config: Body
     actual = factors or ActivityFactors(config.activity_met[kind.value])
     net_burn = _net_burn_per_hour(actual, config)
     candidates = _energy_boundaries(body.energy_kcal, net_burn, config)
-    deficit_rate = (-1.0 if kind == ActivityKind.SLEEP
-                    else body.sleep_need_hours / (24.0 - body.sleep_need_hours))
-    candidates.extend(_curve_boundaries(body.sleep_deficit_hours, deficit_rate,
-                                         _deficit_curve_points(kind)))
     if clock is not None and kind != ActivityKind.SLEEP:
         candidates.extend(_felt_band_boundaries(_FeltProjection(
             body, net_burn, clock, config, actual.entertainment_relief_per_hour)))
@@ -382,26 +377,18 @@ def next_shared_body_boundary_seconds(body: BodyState,
         return None
     factors = ActivityFactors(max((item.met for _, item in activities), default=1.0),
                               entertainment_relief_per_hour=sum(
-                                  item.entertainment_relief_per_hour for _, item in activities),
-                              food_energy_kcal_per_hour=sum(
-                                  item.food_energy_kcal_per_hour for _, item in activities))
+                                  item.entertainment_relief_per_hour for _, item in activities))
     kinds = {kind for kind, _ in activities}
-    kind = (ActivityKind.WORK if ActivityKind.WORK in kinds
-            else ActivityKind.CONSUME if ActivityKind.CONSUME in kinds else ActivityKind.WAIT)
+    kind = ActivityKind.WORK if ActivityKind.WORK in kinds else ActivityKind.WAIT
     return next_body_boundary_seconds(body, kind, config, factors, clock)
 
 
 def _net_burn_per_hour(factors: ActivityFactors, config: BodyConfig) -> float:
-    """@brief 共同净消耗（千卡/小时）：基础代谢加 MET 增量，减去进食的每小时净可用热量。"""
+    """@brief 共同净消耗（千卡/小时）：基础代谢加 MET 增量。"""
     burn = config.basal_kcal_per_hour + max(factors.met - 1, 0) * config.mass_kg
-    return burn - factors.food_energy_kcal_per_hour
+    return burn
 
 
-def _deficit_curve_points(kind: ActivityKind) -> tuple[CurvePoint, ...]:
-    """@brief 返回当前活动用于边界预测的效率曲线节点（输入 sleep_deficit_hours）。"""
-    if kind == ActivityKind.CONSUME:
-        return BODY_CONSTANTS.food_efficiency_curve
-    return ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -517,16 +504,6 @@ def _energy_boundaries(energy: float, burn_per_hour: float, config: BodyConfig) 
             for threshold in thresholds if energy >= threshold]
 
 
-def _curve_boundaries(value: float, rate_per_hour: float,
-                      points: tuple[CurvePoint, ...]) -> list[int]:
-    """@brief 返回沿当前变化方向首次到达各曲线节点的整秒数。"""
-    if rate_per_hour == 0:
-        return []
-    targets = [point.input_value for point in points
-               if (rate_per_hour > 0 and point.input_value > value)
-               or (rate_per_hour < 0 and point.input_value < value)]
-    return [max(1, math.ceil(abs(target - value) * 3600 / abs(rate_per_hour)))
-            for target in targets]
 
 
 def _energy_cost_entry(kind: ActivityKind, amount: float) -> FlowEntry | None:

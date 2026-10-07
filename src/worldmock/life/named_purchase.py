@@ -1,7 +1,6 @@
 """@brief 按真实食品名称、店铺及 app 来源分段解析购买，失败整组原子拒绝。"""
 
 from __future__ import annotations
-from worldmock.life.tool_layer import Candidate, refusal_for
 
 import logging
 from collections.abc import Callable, Sequence
@@ -9,7 +8,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from worldmock.errors import PreconditionError
-from worldmock.life.error_contract import MAX_CANDIDATES, NAME_REJECTION_CODES, ErrorItem, activity_candidate
+from worldmock.life.error_contract import MAX_CANDIDATES, NAME_REJECTION_CODES, Candidate, ErrorItem, activity_candidate
 from worldmock.life.guidance import (Refusal, default_reason,
                                      items_refusal, refusal_for_code)
 from worldmock.life.interaction_menu import NAMED_SUPPLY_KIND, binding_action
@@ -18,7 +17,7 @@ from worldmock.life.name_resolution import rank
 from worldmock.life.object_labels import resolve_name
 from worldmock.life.order_routing import undeliverable
 from worldmock.life.purchase_offers import (DELIVERY_WAY, PICKUP_WAY, Offer, SourceScope, choose, handed_over,
-                                            menu_foods, near_sources, nearest_store, offers, order_key, serves,
+                                            menu_goods, near_sources, nearest_store, offers, order_key, serves,
                                             source_scope)
 from worldmock.life.readable import clock_phrase, money_phrase
 from worldmock.life.wayfinding import go_step
@@ -67,7 +66,7 @@ def resolve_named_supply(context: LayerContext, ask: PurchaseAsk) -> dict:
         FULFILLMENT_NOT_SUPPORTED 或 ACTIVITY_PRECONDITION_UNMET；逐项明细（参数名、原文与候选）写在私有
         suggested.item，合并时换成可照填的请求（resolve_named_rows）。
     """
-    supplies = menu_foods(context)
+    supplies = menu_goods(context)
     labelled = _named(ask.written, supplies, lambda supply: supply_label(context, supply))
     matches = labelled or _named(ask.written, supplies, lambda supply: _product_name(context, supply))
     if not matches:
@@ -124,7 +123,7 @@ def near_labels(context: LayerContext, name: str, fulfillment: str | None, desti
     purchase_offers.serves），其次按名称与标签、商品名两者 Dice 系数的较大者降序、标签升序；相似度为 0 的不列。确定性，
     不用向量检索与近似最近邻，从不自动替换。"""
     way = PURCHASE_WAYS.get(fulfillment, SYSTEM_PURCHASE_WAY)
-    chosen = rank(name, menu_foods(context),
+    chosen = rank(name, menu_goods(context),
                   lambda supply: (supply_label(context, supply), _product_name(context, supply)),
                   lambda supply: serves(context, supply, way, destination_id))
     return [supply_label(context, supply) for supply in chosen]
@@ -205,7 +204,7 @@ def _spec(context: LayerContext, supply, way: str) -> dict:
 
 def _near_specs(context: LayerContext, ask: PurchaseAsk) -> tuple[dict, ...]:
     """@brief SUPPLY_NOT_FOUND 的候选：至多 3 个近似标签，方式按该供给支持的取。"""
-    supplies = {supply_label(context, supply): supply for supply in menu_foods(context)}
+    supplies = {supply_label(context, supply): supply for supply in menu_goods(context)}
     fulfillment = _MODES.get(ask.way)
     return tuple(_spec(context, supplies[label], _way_for(context, supplies[label], ask.way))
                  for label in near_labels(context, ask.written, fulfillment, ask.destination_id))
@@ -294,9 +293,9 @@ def _served_specs(context: LayerContext, ask: PurchaseAsk, matches: Sequence) ->
     （purchase_offers.handed_over，交不到的到店候选照填也会被结算拒绝），其余能送到收货地的写远程下单；按最快排序，至多
     3 个。"""
     pickups = handed_over(offers(context, matches, PICKUP_WAY, ask.destination_id)[1], ask.destination_id)
-    taken = {(offer.store_id, offer.food.food_id) for offer in pickups}
+    taken = {(offer.store_id, offer.food.goods_id) for offer in pickups}
     deliveries = [offer for offer in offers(context, matches, DELIVERY_WAY, ask.destination_id)[1]
-                  if (offer.store_id, offer.food.food_id) not in taken]
+                  if (offer.store_id, offer.food.goods_id) not in taken]
     ordered = sorted(pickups, key=lambda offer: order_key(offer, "最快拿到")) + sorted(
         deliveries, key=lambda offer: order_key(offer, "最快拿到"))
     return tuple(_spec(context, (offer.store_id, offer.food), offer.way) for offer in ordered[:MAX_NEAR])
@@ -319,11 +318,11 @@ def _note(context: LayerContext, ask: PurchaseAsk, chosen: Offer, count: int,
 
 
 def _binding(context: LayerContext, supply, way: str) -> dict:
-    """@brief 从实际门店和 Food 形成真实购买绑定，没有报价或可见凭据。"""
+    """@brief 从实际门店和 Goods 形成真实购买绑定，没有报价或可见凭据。"""
     store_id, food = supply
     action = binding_action(way, "purchase", fulfillment=_MODES[way])
-    return {"object": supply_label(context, supply), "kind": "supply", "object_id": f"{store_id}:{food.food_id}",
-            "store_id": store_id, "food_id": food.food_id, "actions": [action], "named": True,
+    return {"object": supply_label(context, supply), "kind": "supply", "object_id": f"{store_id}:{food.goods_id}",
+            "store_id": store_id, "goods_id": food.goods_id, "actions": [action], "named": True,
             "selected_action": action}
 
 
@@ -364,7 +363,9 @@ def _error_item(index: int, row: dict, error: PreconditionError, context: LayerC
 def _request_candidate(context: LayerContext, row: dict, spec: dict):
     """@brief 候选完整可提交，冻结业务条件不满足时明确说明。"""
 
-    supplies = [supply for supply in menu_foods(context) if supply_label(context, supply) == spec["target"]]
+    from worldmock.life.tool_layer import refusal_for
+
+    supplies = [supply for supply in menu_goods(context) if supply_label(context, supply) == spec["target"]]
     note = None
     if len(supplies) == 1 and spec["way"] != SYSTEM_PURCHASE_WAY:
         binding = {**_binding(context, supplies[0], spec["way"]),

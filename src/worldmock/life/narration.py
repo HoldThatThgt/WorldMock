@@ -72,7 +72,7 @@ FORBIDDEN_OBSERVATION_KEYS = frozenset({
     "content_id",
     "app_id",
     "push_id",
-    "food_id",
+    "goods_id",
     "store_id",
     "topic_id",
     "work_topics",

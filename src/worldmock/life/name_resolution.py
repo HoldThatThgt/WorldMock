@@ -38,8 +38,7 @@ _WAY_KINDS: dict[str, frozenset[str]] = {
     "阅读": frozenset({"mail"}), "进行": frozenset({"lifestyle"}),
     "等待": frozenset({"self"}), "到店": frozenset({"supply"}), "远程下单": frozenset({"supply"}),
     "购买": frozenset({"supply"}),
-    "食用": frozenset({"holding"}), "使用": frozenset({"holding"}),
-    "给予": frozenset({"holding"}), "睡觉": frozenset({"self"}),
+    "睡觉": frozenset({"self"}),
 }
 #: 动词 → 它的方式列在哪些类别上（所写方式不是方式时按动词增补前缀）。
 _VERB_KINDS: dict[str, frozenset[str]] = {
@@ -65,7 +64,7 @@ class Target:
     """@brief 一个可以写名称调用的对象。
 
     :param label: 唯一写法：工具层目标名、目录绑定名，或冻结地点表的「地点：<显示名>」。
-    :param kind: 私有绑定类别（location、supply、holding、lifestyle、app、person、contact 等）。
+    :param kind: 私有绑定类别（location、supply、lifestyle、app、person、contact 等）。
     :param object_id: 内部身份（只供环境解析，不进提示）。
     :param offers: 列出的（动词，方式）；没有列出路线的地点为步行与驾车（路线由环境判定）。
     :param blocked: 与 offers 逐项对应的此刻不可用的原因（可用为 None）。
@@ -348,7 +347,7 @@ def fill_in(target: Target, verb: str, way: str, written_to: str | None) -> Cand
     else:
         pair = next((offer for offer, reason in zip(offered, target.blocked) if reason is None), offered[0])
     position = offered.index(pair)
-    source, destination = fill_route(pair[0], pair[1], written_to)
+    source, destination = fill_route(pair[0], written_to)
     return activity_candidate(target.label, pair[1], (source, destination),
                               target.blocked[position] or _duration_note(target.notes[position]))
 
@@ -362,19 +361,6 @@ def _duration_note(note: str | None) -> str | None:
     return note.replace("约 ", "About ").replace(" 分钟", " minutes.").replace(" 小时", " hours.")
 
 
-def _acquisition_candidates(book: NameBook, written: str) -> tuple[Candidate, ...]:
-    """@brief 未持有食品的下一步只使用同一冻结观察中可购买或制作的对象。"""
-    pool = [target for target in book.targets if target.listed and
-            any(verb == "obtain" for verb, way in target.offers)]
-    chosen = rank(object_labels.bare_name(written), pool, lambda target: (object_labels.bare_name(target.label),),
-                  lambda target: target.feasible)
-    candidates = []
-    for target in chosen:
-        pair = next(pair for pair in target.offers if pair[0] == "obtain")
-        candidate = fill_in(target, *pair, None)
-        note = candidate.note or "Acquire the item before consuming it."
-        candidates.append(Candidate(candidate.tool, candidate.arguments, note))
-    return tuple(candidates)
 
 
 def near_candidates(book: NameBook, written: str, verb: str, way: str, written_to: str | None) -> tuple[Candidate, ...]:
@@ -486,17 +472,13 @@ def _not_found(book: NameBook, request: Any, index: int) -> Failure:
     item = request.items[index]
     verb = vocabulary.way_verb(item.way)
     candidates = near_candidates(book, item.target, verb, item.way, item.to)
-    acquisition = verb == "consume" and item.way == "食用" and not candidates
-    if acquisition:
-        candidates = _acquisition_candidates(book, item.target)
     if item.way == "工作":
         reason = "The named work topic is not assigned to you."
         error = ErrorItem(("items", index, "target"), item.target, "WORK_TOPIC_NOT_FOUND",
                           expected="Use an exact known work topic name.", why=reason, candidates=candidates)
         return Failure(error, reason, reason)
     reason = f"No known object named {item.target} supports this way; changing spelling cannot create an object."
-    expected = ("A held edible item is required; purchase it first." if acquisition and candidates
-                else "A known object name in the selected way's category is required.")
+    expected = "A known object name in the selected way's category is required."
     error = ErrorItem(("items", index, "target"), item.target, "NAME_NOT_FOUND",
                       expected=expected,
                       why=reason, candidates=candidates)
@@ -577,9 +559,9 @@ def _same_place(book: NameBook, written: str, anchor: str | None) -> bool:
 
 
 def _person(book: NameBook, verb: str, destination: str | None) -> tuple[str | None, tuple[dict, ...]]:
-    """@brief obtain 与 consume 的 to 写的人物名：按人物名称解析，唯一时换成它（记一条归一记录），否则原样交给 routing
+    """@brief obtain 的 to 写的人物名：按人物名称解析，唯一时换成它（记一条归一记录），否则原样交给 routing
     （不是任何人物时环境以 RECIPIENT_NOT_FOUND 拒绝）。"""
-    if destination is None or verb not in {"obtain", "consume"} or destination in book.people:
+    if destination is None or verb != "obtain" or destination in book.people:
         return destination, ()
     match = object_labels.resolve_name(destination, book.people)
     return (match.name, _record(destination, match.name)) if match.name is not None else (destination, ())

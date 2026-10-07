@@ -27,9 +27,6 @@ from worldmock.life import (
     social_actions,
 )
 from worldmock.life.action_evidence import _origin_terminal_draft, _origin_terminal_result, _terminal_action_records
-from worldmock.life.activity_evidence import (
-    meal_consumption_data as _meal_consumption_data,
-)
 from worldmock.life.activity_titles import activity_title
 from worldmock.life.activities import (
     ActivityAdvance,
@@ -38,7 +35,6 @@ from worldmock.life.activities import (
     shared_activity_factors,
     truncate_activity,
 )
-from worldmock.life.basket import apply_meal_progress
 from worldmock.life.body import ActivityFactors, BoundaryClock, next_shared_body_boundary_seconds, settle_shared_body
 from worldmock.life.content import reveal_mail, settle_app_usage
 from worldmock.life.models import (
@@ -117,6 +113,7 @@ class TimeAdvanceCoordinator:
         (drafts, results) = self._advance_activities(staged, target_epoch)
         (staged, background, arrivals) = self._process_scheduled(staged, target_epoch)
         drafts.extend(background)
+        staged = day_planning.settle_receipt_goals(staged, drafts)
         (staged, credited) = errands.settle(staged, drafts)
         drafts.extend(credited)
         boundary = RhythmBoundary(target_epoch, interval, arrivals, drafts)
@@ -248,8 +245,7 @@ class TimeAdvanceCoordinator:
     def _advance_one_activity(self, state: WorldState, activity, target: int, settlement, body_event_id: str):
         """@brief 推进单项进度并引用已排在前面的唯一共同身体事件。"""
         agent = state.agents[activity.agent_id]
-        before_consumed = {"consumed": dict(activity.data.get("consumed", {})),
-                           "media_position_seconds": activity.media_position_seconds}
+        before_consumed = {"media_position_seconds": activity.media_position_seconds}
         if activity.kind in {ActivityKind.CHAT, ActivityKind.CALL}:
             advanced = social_actions.advance_social_shared(
                 activity, agent, target, settlement, social_actions.shared_chat_seconds(state, activity, target)
@@ -331,9 +327,6 @@ class TimeAdvanceCoordinator:
             state.agents, state.activities, state.sessions = changed.agents, changed.activities, changed.sessions
         if activity.kind == ActivityKind.WORK:
             evidence["work"] = work_progress_data(state, activity, self.context.rules.work_topic(activity.target_id))
-        if activity.kind == ActivityKind.CONSUME:
-            evidence["consumption"] = self._apply_consume_effect(
-                state, activity, completed, before_consumed["consumed"])
         if not completed:
             return evidence
         if activity.kind == ActivityKind.READ_MAIL:
@@ -342,14 +335,6 @@ class TimeAdvanceCoordinator:
             )
         return evidence
 
-    def _apply_consume_effect(self, state: WorldState, activity, completed: bool,
-                              before_consumed: dict[str, float]) -> dict:
-        """@brief 真实 Food 份量进度结算及当前区间消费证据使用同一目录。"""
-        agent = state.agents[activity.agent_id]
-        foods = self.context.semantics.catalog.foods
-        state.agents[activity.agent_id] = apply_meal_progress(agent, foods, activity, self.context.semantics.body)
-        state.activities[activity.activity_id] = activity
-        return _meal_consumption_data(activity, state.agents[activity.agent_id], before_consumed, foods)
 
     def _process_scheduled(
         self, state: WorldState, target: int

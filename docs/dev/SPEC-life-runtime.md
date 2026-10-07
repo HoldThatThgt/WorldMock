@@ -1,7 +1,7 @@
 <a name="spec-life-runtime-特性规格lifeenv-运行时行为与结算规则"></a>
 # 特性规格：LifeEnv 运行时行为与结算规则
 
-> 按[动作与内容简化规格](SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界」（阶段 1）。
+> 按[动作与内容简化规格](SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界、收货结算」（阶段 1、2）。
 
 > 2026-10-07 按用户确认的[数据加工归属](../ARCHITECTURE.md#architecture-数据加工归属)修订：WorldMock 负责模拟、记录、完整认证足迹导出与真实性评估；LabelKit 加工、模型任务、训练装载与规则测试归 LabelKit-DataSet；环境素材归 WorldMock-Dataset。历史验收数字只证明原源码基线，不代表本次消费链已验收。
 
@@ -64,12 +64,12 @@
 
 | 状态类别 | 包含内容 | 谁可以改变 |
 | --- | --- | --- |
-| 人物身体 | 身体状态与需求状态、最近活动及必要生理模型状态 | 推进时间，并结算进食、睡眠与实际活动 |
-| 人物资产 | 账户余额、持有商品、消耗品数量、已取得的使用权 | 交易与交付结算（送达只入收货人持有）、物品使用、给予（同处，只转移持有）与合同履约 |
+| 人物身体 | 身体状态与需求状态、最近活动及必要生理模型状态 | 推进时间，并结算食品收货、睡眠与实际活动 |
+| 人物资产 | 账户余额与实际订单；没有持有、消耗品数量与使用权 | 交易付款与收货结算 |
 | 人物活动 | 活动类型、开始时间、进度、下一次决策机会、占用资源与名额、暂停与结束原因 | 人物提交动作申请，环境负责验证与执行 |
 | 地点会话 | 一段地点停留或两地之间的一段路，及其所含活动与 `app_pushes` | 环境随出发与到达开始和结束；推送按本 session 写入 pending/opened/released 状态 |
 | 当日计划与提醒 | 当日有序目标及其提醒时刻 | 零点计划生成，人物清醒时修订 |
-| 个人事务 | 人物记下的未完成事务：名称、完成依据（结果种类、商品、数量）、已累计量、备注与提醒时刻；办成或取消的事务移出状态，终态、原因与证据只留在事件 | 人物经 `report_status`、`pause_activity`、`conclude_activity` 的 `errands` 登记、更新与取消；累计与办成只由环境按结算证据写入；零点处理、`revise_day_plan` 与目标推进不读写它，零点计划只读 |
+| 个人事务 | 人物记下的未完成事务：名称、完成依据（商品、数量）、已累计量、备注与提醒时刻；办成或取消的事务移出状态，终态、原因与证据只留在事件 | 人物经 `report_status`、`pause_activity`、`conclude_activity` 的 `errands` 登记、更新与取消；累计与办成只由环境按结算证据写入；零点处理、`revise_day_plan` 与目标推进不读写它，零点计划只读 |
 | 工作主题累计 | 人物被分配的主题及其目标工时；已做秒数从本人物、本主题全部非失败工作活动派生，上一条叙述留在活动 | 场景分配主题；环境按实际工作区间累计并在首次达到目标时写完成事件；人物只能写叙述 |
 | 内容接触 | 每人每条内容的全局 `content_progress` 与已完成轮次 `played` | app 使用按实际经过时间写回；切 app、暂停与恢复共用，只有真实完成才递增轮次并释放推送 |
 | 记忆 | AS2 的人物记忆条目、记忆版本、来源事件与检索结果 | 人物记忆流程；环境不代写“人物应当喜欢什么” |
@@ -81,7 +81,7 @@
 - 人物实际收到的，是确定性规则换算出的体感分级，以及七层请求中的可读事实（见「观察投影与提示合同」）
 - 准确数值只进入数字足迹与评估；训练数据导出的信息范围裁剪见 `docs/design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎`「来源与可见性」
 
-食品、类型菜单、固定价格、app 绑定与工作主题都是只读目录定义；世界只保存实际订单、食品持有与活动，
+食品、类型菜单、固定价格、app 绑定与工作主题都是只读目录定义；世界只保存实际订单与活动，
 工作主题累计从活动派生，不另存开放、截止、材料、交付、评审、合同或工作日历状态。
 
 <a name="spec-life-runtime-生命周期行为"></a>
@@ -452,13 +452,15 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 - 时间：UTC 整数秒及场景时区；同秒事件另有严格序号
 - 金钱：币种与最小货币单位整数（避免浮点累计误差）
 - 可用能量：kcal（实验中的可用能量状态，不等于人体全部储存热量）
-- 睡眠不足：小时（与食品能量独立，进食不会直接消除）
+- 睡眠不足：小时（与食品能量独立，食品收货不会直接消除）
 - 娱乐需要：归一化状态与明确变化规则；随生活积累，实际娱乐可改变，需要考虑喜好、重复与时长
 - 工作主题：目录给出主题与目标工时，场景按人物分配；进度只取实际工作秒数，未达到目标就是未完成，不设效率、截止或提交状态
 
 所有数值变化由明确规则计算。人物提示描述其处境与选项，允许拖延、过度娱乐、拒绝购买或再次观看。
 
 **规则只限制物理、经济与工作地点等实际可行性，不替人物优化人生。**
+
+食品的收货能量为类别热量 × 件数 × 收货当秒食品利用率，不超过能量上限，超出部分丢失。
 
 <a name="spec-life-runtime-转换效率算法"></a>
 ### 转换效率算法
@@ -467,9 +469,9 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 
 **能量变化**：
 ```
-能量变化 = 类别热量 × 实际消费份额 × 食品利用效率(sleep_deficit_hours)
+能量变化 = 类别热量 × 收货件数 × 食品利用效率(sleep_deficit_hours)
           − 基础消耗率 × 经过时间 − 活动额外消耗
-结算后能量 = max(0, 结算前能量 + 能量变化)
+结算后能量 = min(能量上限, max(0, 结算前能量 + 能量变化))
 ```
 
 **睡眠不足变化**：
@@ -479,11 +481,11 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 
 **娱乐需要变化**：
 ```
-娱乐需要变化 = −内容类型固定缓解速率 × 实际 app 使用小时数
+娱乐需要变化 = −ENTERTAINMENT_RELIEF_PER_HOUR × 实际娱乐小时数
 ```
-固定每小时缓解率为 `article=0.2`、`image_text=0.2`、`short_video=0.3`、`long_video=0.4`、`live=0.3`。
+固定每小时缓解率 ENTERTAINMENT_RELIEF_PER_HOUR 为 0.3，内容没有分类。
 画像散文、旧口味权重、接触次数和下限参数都不参与缓解。app 使用期间不再累积娱乐需要；共同区间结算与单活动结算
-使用同一内容类型和实际经过时间，暂停不推进，只有真实完成才递增该内容的完成轮次。
+使用同一固定速率和实际经过时间，暂停不推进，只有真实完成才递增该内容的完成轮次。
 
 **有效工作量**：
 ```
@@ -511,20 +513,18 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 - 睡眠与食品利用效率之间的关系是用户提出的仿真假设，由 WorldMock 固定常数校准并在报告中标注，不宣称它已被生理学验证
 
 **参数管理**：
-食品利用效率只从 `BODY_CONSTANTS.food_efficiency_curve` 读取，曲线节点 `(0,0.9)`、`(8,0.9)`、`(16,0.85)`、`(24,0.8)`，按既有分段线性算法和上下界求值；不读取目录效率或场景覆盖。
-类别热量与完整食用秒数来自 `FOOD_CONSTANTS`，每次区间结算保存实际份量、效率与热量。娱乐缓解与工作效率的消费者在各自阶段同步，本阶段不以食品规则替换其生命周期。
+收货当秒食品利用效率只从 `BODY_CONSTANTS.food_efficiency_curve` 读取，曲线节点 `(0,0.9)`、`(8,0.9)`、`(16,0.85)`、`(24,0.8)`，按既有分段线性算法和上下界求值；不读取目录效率或场景覆盖。
+类别热量来自 GOODS_ENERGY_KCAL，收货当秒保存 provided、applied 与 efficiency，没有食用时长或份额。娱乐缓解与工作效率的消费者在各自阶段同步，本阶段不以食品规则替换其生命周期。
 
 <a name="spec-life-runtime-具体活动结算"></a>
 ### 具体活动结算
 
 | 活动 | 执行与结算 |
 | --- | --- |
-| 进食 | 类别热量 × 实际消费份额，经 BODY_CONSTANTS 食品利用效率并受能量上限；按 opened/consumed/discarded 留证 |
 | 工作 | 按主题累计全部非失败工作活动的实际经过秒数；每次结算写主题、已做与剩余，首次达到目标写完成事件；叙述不改变工时 |
 | 睡眠 | 持续恢复睡眠状态；按实际睡眠部分结算，中断后不直接恢复到满值 |
 | app 使用 | 固定计划 1800 秒；按实际经过时间推进 app 内抽取的内容，暂停与切 app 写回人物全局 `content_progress`，恢复取最新全局位置；若内容已被另一 app 完成，则从新一轮位置 0 开始。只有真实完成才递增轮次并把关联推送置为 released |
-| 购物 | 按固定食品价格与份数结算；每单一笔转账，外卖加一次 500 分配送费；取得不增加能量 |
-| 给予 | 瞬时，不占名额：从本人手边移出每件 min(1, 持有)，记入对方持有（场景联系人记入 `WorldState.contact_holdings`），任何人都不增加摄入；要求同处（同世界人物在同一地点，联系人则本人位于其收货地点）；内部标准动作仍记为 `consume` |
+| 购买 | 受理当秒付款，收货即结算；每单一笔转账，配送加一次 500 分费用；到店与配送共用 settle_receipt |
 | 出行 | 图最短距离除方式速度，车费按固定规则；保存 trip_id、path、distance_meters 与实际到达 |
 | 等待 | 可以由人物选择；世界其他事件照常发生，身体状态继续变化 |
 
@@ -541,7 +541,7 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 - `report_status.items[].summary` 写入 `progress_note` 与历史，模型文字不改变工时或完成状态。
 - 达到目标只生成一次 `work_topic_completed` 与 `work_completed`，没有提交、评审或返工环节。
 
-食品消费请求仍用 `product_id`，事件与经历用 `food_id`；app 内容与工作主题分别使用各自的进度字段。
+购买请求仍以商品身份解析，订单与收货事件使用 goods_id 和 category。付款成功不产生商品效果，收货才施加效果。
 
 <a name="spec-life-runtime-语料进入环境与内容提供"></a>
 ## 语料进入环境与内容提供
@@ -731,8 +731,10 @@ app 与作品使用真实名称；摘要可以真实或合成，`summary_source`
 ### 资金与合同
 
 资金仍用账户间双边分录，人物账户来自初始余额；工资与账单按明确预排事实结算，不根据人物财富推断能力。
-购买只使用固定食品单价与份数，每单一次把货款和一次配送费付给 `merchant:<store_id>`，没有品类系数、供给报价、库存或补货。步行不扣款，驾车付给 `transport:service`。
+购买只使用固定商品单价与份数，每单一次把货款和一次配送费付给 `merchant:<store_id>`，没有品类系数、供给报价、库存或补货。步行不扣款，驾车付给 `transport:service`。
 工作主题没有付款、提交或评审状态；完成主题不产生工资。明确工资事实仍按 `payroll` 预排事件执行并留下双边分录。
+
+付款成功不产生商品效果，实际收货与资金记录分别留证。
 
 <a name="spec-life-runtime-观察投影与提示合同"></a>
 ## 观察投影与提示合同
@@ -1039,16 +1041,14 @@ app 使用的公开结果在 `details.app_content`；全局位置、完成轮次
 不把 app 或内容重新导出为目录搜索结果。查询对同一冻结观察返回相同的有序结果；合法筛选无匹配时返回空页。
 
 <a name="spec-life-runtime-随身持有与远程订购"></a>
-### 随身持有与远程订购
+### 商品购买与收货结算
 
-人物食品持有按 `inventory{location_id: {food_id: 份数}}` 保存，到店购买即时入当前店铺持有，外卖送到订单地点，只有在当地才能食用或给予。
-`from` 只接受 `null`、登记店铺显示名或 `apps.json` 的 app 名，来源与购买共用同一名称解析；`null` 不额外限制，食品完整标签仍约束标签店铺。
-到店必须人在店内，`app_id=null`；app 配到店以 `SUPPLY_SOURCE_MISMATCH` 拒绝。远程下单要求店铺绑定 app；没有任何 app 是 `FULFILLMENT_NOT_SUPPORTED`，所点 app 未绑定该店是 `APP_NOT_BOUND`，app 的店不卖该食品是 `SUPPLY_NOT_AT_STORE`。
-`from=null` 且店铺绑定多个 app 时取最小 `app_id`，写进 `details.notes`。app 来源从目录绑定派生，不读取手机配置。
-订单行以 `(store_id, food_id)` 标识，重复项以 `ORDER_DUPLICATE_ITEM` 拒绝；同单同店、同卖方、同履约与同收货地点。每单仅一笔人物到 `merchant:<store_id>` 的转账，金额为固定食品单价乘份数再加一次配送费。
-到店即时交付；外卖每单配送费固定 `500` 分，预计时刻为 `now + 600 + ceil(最短距离 / 5.0)`。每单仅一个 `delivery_arrival`，重复结算不重复交付。
-本人收货地点是当前停留地点，路途中自送或与出发同请求自送以 `ACTIVITY_PRECONDITION_UNMET` 拒绝，`unmet=delivery_destination`；给他人按真实收货地点。人物离开后仍送到订单地点，食品归收货人在当地持有。
-只有目录食品可持有与给予；不存在配方产出、耐用品使用或家庭储备下限。
+订单 `DeliveryState` 保留订单身份、付款人 `agent_id`、店铺、购物 app、卖方账户、件数、单价、配送费、总价、收货地、履约方式、收货人、关联消息、创建与预计时刻、路径和配送行程；商品用 `goods_id` 与 `category`，另有可空 `payment_app_id`、可空 `received_at`。状态只有 `pending`、`delivered`；pending 的 received_at 为 null，到店收货时等于 created_at。订单数量恒为 1。没有食品持有或联系人持有。
+
+连续身体变化由时钟推进先结算至收货秒；到店购买在当前同刻受理。到店受理与配送到期共用 `worldmock.life.receipt.settle_receipt`，该函数只施加本次瞬时商品效果并取走本次资源分录。函数同时将订单从 `pending` 改为 `delivered`、写 `received_at`、施加效果并取走本次资源分录。到店在付款的同一次提交内收货，配送在 `delivery_arrival` 当秒收货，不看收货人在哪里或是否睡着。
+食品的 `provided` 为类别热量乘件数，`applied` 为按当秒睡眠不足利用率与能量上限得到的实际能量增加，超出上限的部分丢失。休闲用品每行降低娱乐需要 0.10（下限 0），日常用品每行施加情绪脉冲 0.05。没有持有、食用时长、份额、丢弃或装备能力。
+本次食品 `food:intake` 分录与休闲用品 `goods:receipt` 分录在函数返回前立即取走，主体与时刻都是收货人和收货秒，缓冲为空；日常用品不写资源分录。状态变化与 `goods_received` 同一事务提交，事件的 `caused_by` 指向该提交中的真实购买结果或配送到期事件。
+已交付订单再次到期不写状态、效果或事件；重复动作返回已存结果。联系人没有身体，收货只改变订单状态与 `received_at`，不写 `goods_received`。配送保留付款人的到期事件与唤醒，清醒模拟收货人得到同一个到期原因，睡着的不唤醒；到店不唤醒任何人。
 
 <a name="spec-life-runtime-地图与门店供给行为"></a>
 ## 地图与门店供给行为
@@ -1265,7 +1265,7 @@ AS2 调度已支持同刻多轮：`society.step` 在有人就绪时执行决策�
 <a name="time-and-energy-能量感知-商品热量与路线费力"></a>
 ### 商品热量与路线费力
 
-食品目标状态写类别、每份固定热量及可下单 app 名称；没有逐食品热量密度、营养来源或口味权重。正餐 `meal`，零食与饮品只作轻食后备。
+商品目标状态写类别、每份固定热量及可下单 app 名称；没有逐食品热量密度、营养来源或口味权重。正餐 `meal`，零食与饮品只作轻食后备。
 图连通，可达性恒成立，步行与驾车继续使用固定 MET 费力标签；准确图距离、秒数和费用进入证据。热量与能量感知不构成活动能量准入门槛。
 
 <a name="time-and-energy-能量不拦人"></a>
@@ -1313,18 +1313,18 @@ AS2 调度已支持同刻多轮：`society.step` 在有人就绪时执行决策�
 - 工作效率随能量下降（既有效率因子：800 kcal 以上为 1.0，400 kcal 时 0.8，更低为 0.5）。
 
 <a name="time-and-energy-能量不拦人-让人物趁早吃"></a>
-### 让人物趁早吃
+### 让人物趁早买
 
 1. **饥饿每跨一档都给决策机会**，包括正在工作或使用 app 时（`felt_band_change`；睡眠中照常过滤）。跨档时刻由饥饿跨档扫描
    给出，算法与第八章「节律」的困意扫描相同：按当前共同净消耗推进能量，逐步计算含昼夜项与餐时项的食欲，取首个分级变化
    的整秒，其中含 400、100 千卡两个保底档。交谈、通话与 app 使用期间同样预测，代谢当量取对应活动规则；
    睡眠按睡眠允许原因处理，不另做预测（改 `src/worldmock/life/rhythm.py` 与 `body.py` 的 `next_shared_body_boundary_seconds`）。
-2. **吃饭途径由工具层目标与系统层规则表达**（人物 Prompt 规格第一章）。不再生成吃饭途径句，`scene.local_food_summary`
-   与当地餐食句一并删除。手边能吃的是工具层现场持有物目标的食用动作；在路上的订单在进度层的调用结果与 `delivery` 记录中，
+2. **购买与收货途径由工具层目标与系统层规则表达**（人物 Prompt 规格第一章）。不再生成购买与收货途径句，`scene.local_food_summary`
+   与当地餐食句一并删除。在路上的订单在进度层的调用结果与 `delivery` 记录中，
    跨日未了结的在记忆层；这里能买的与能送到这里的是工具层商品目标的到店与远程下单动作，预计送达写在该动作中；
-   附近能买的地点及其路线是工具层的地点目标。固定食品菜单可以通过 `goods` 与 `query_categories` 查询，也可按名称指名购买；不需要耗时浏览活动。
-3. **饮食行为。** 按体感档位和平常饭点安排饮食，每个饭点的正餐只吃一次；下单后送到手才能吃。提示的唯一权威文本见 `docs/CONTRACTS.md#contracts-model-request`。
-4. **工作中也能吃、能下单**（第五章），配送时刻写成人读的形式（第八章）。
+   附近能买的地点及其路线是工具层的地点目标。固定商品菜单可以通过 `goods` 与 `query_categories` 查询，也可按名称指名购买；不需要耗时浏览活动。
+3. **饮食行为。** 按体感档位和平常饭点安排饮食，每个饭点的正餐只吃一次；到店取得或配送收到食品就结算为吃上。提示的唯一权威文本见 `docs/CONTRACTS.md#contracts-model-request`。
+4. **工作中也能下单**（第五章），配送时刻写成人读的形式（第八章）。
 
 <a name="time-and-energy-五类生活动作与并行准入"></a>
 ## 五类生活动作与并行准入
@@ -1772,24 +1772,22 @@ app 使用沿用同一生命周期。开始时优先打开当前 session 的 pen
 <a name="persona-prompt-交互语义-来源与去向"></a>
 ### 来源与去向
 
-`from` 只接受 `null`、登记店铺显示名或 `apps.json` 的 app 名，来源与购买共用同一名称解析；`null` 不额外限制，食品完整标签仍约束标签店铺。
-到店必须人在店内，`app_id=null`；app 配到店以 `SUPPLY_SOURCE_MISMATCH` 拒绝。远程下单要求店铺绑定 app；没有任何 app 是 `FULFILLMENT_NOT_SUPPORTED`，所点 app 未绑定该店是 `APP_NOT_BOUND`，app 的店不卖该食品是 `SUPPLY_NOT_AT_STORE`。
+`from` 只接受 `null`、登记店铺显示名或 `apps.json` 的 app 名，来源与购买共用同一名称解析；`null` 不额外限制，商品完整标签仍约束标签店铺。
+到店必须人在店内，`app_id=null`；app 配到店以 `SUPPLY_SOURCE_MISMATCH` 拒绝。远程下单要求店铺绑定 app；没有任何 app 是 `FULFILLMENT_NOT_SUPPORTED`，所点 app 未绑定该店是 `APP_NOT_BOUND`，app 的店不卖该商品是 `SUPPLY_NOT_AT_STORE`。
 `from=null` 且店铺绑定多个 app 时取最小 `app_id`，写进 `details.notes`。app 来源从目录绑定派生，不读取手机配置。
 
-订单行以 `(store_id, food_id)` 标识，重复项以 `ORDER_DUPLICATE_ITEM` 拒绝；同单同店、同卖方、同履约与同收货地点。每单仅一笔人物到 `merchant:<store_id>` 的转账，金额为固定食品单价乘份数再加一次配送费。
+订单行以 `(store_id, goods_id)` 标识，重复项以 `ORDER_DUPLICATE_ITEM` 拒绝；同单同店、同卖方、同履约与同收货地点。每单仅一笔人物到 `merchant:<store_id>` 的转账，金额为固定商品单价乘份数再加一次配送费。
 到店即时交付；外卖每单配送费固定 `500` 分，预计时刻为 `now + 600 + ceil(最短距离 / 5.0)`。每单仅一个 `delivery_arrival`，重复结算不重复交付。
-本人收货地点是当前停留地点，路途中自送或与出发同请求自送以 `ACTIVITY_PRECONDITION_UNMET` 拒绝，`unmet=delivery_destination`；给他人按真实收货地点。人物离开后仍送到订单地点，食品归收货人在当地持有。
+本人收货地点是当前停留地点，路途中自送或与出发同请求自送以 `ACTIVITY_PRECONDITION_UNMET` 拒绝，`unmet=delivery_destination`；给他人按真实收货地点。人物离开后仍送到订单地点，到期在订单收货秒结算给收货人，无持有。
 
-食用和给予使用当地真实食品持有，食用两端为 null，给予的 to 为真实人物名；收货地点不是模型参数，不能在路途中用目的地代替本人停留地点。
+
+
+到店购买在 to 写他人时，该收货人须此刻在店；配送只按订单收货地结算，联系人须有 receive_location_id。
 
 <a name="persona-prompt-交互语义-进食"></a>
-### 进食
+### 食品收货
 
-每份零食为 `200` 千卡、`300` 秒，饮品 `100` 千卡、`180` 秒，正餐 `600` 千卡、`1200` 秒，唯一来源是 `FOOD_CONSTANTS[category]`。
-份量时长为 `max(60, round(完整时长 × 份数))`，同餐取各项份量时长最大值，食用窗口仍为 60–14400 秒。原始摄入为类别热量乘实际消费比例，净能量经 `food_utilization_efficiency` 与能量上限；效率唯一来源是 `BODY_CONSTANTS.food_efficiency_curve`。
-开始时移入开吃份量，暂停保留剩余，结束丢弃剩余；分次吃原始热量守恒，重复开始不重复摄入，购买不增加能量。`ConsumeRequest.product_id` 保留为食品身份，事件和经历的字段使用 `food_id`，保存 `category`、份量与实际热量。
-
-工具目标只写类别与固定每份热量，以及真实当地持有份数；消费后只按实际进度增加能量，不把购买、到达或给予当作进食。
+没有进食这一步，食品在收货当秒结算；规则见[收货结算](SPEC-action-and-content-simplification.md#spec-acs-收货结算)。
 
 <a name="persona-prompt-交互语义-指名购买"></a>
 ### 指名购买
@@ -1840,16 +1838,18 @@ app 使用沿用同一生命周期。开始时优先打开当前 session 的 pen
 ## 身体与需要
 
 <a name="dayrun-fidelity-身体与需要-区间事实只有一个来源社交账与共同用餐"></a>
-### 区间事实只有一个来源：社交账与共同用餐
+### 区间事实只有一个来源：社交账与共同交谈通话
 
 **规则。** 一段结算区间里有哪些活动，以该区间共同身体结算（`body_settlement.activity_ids`）所用的活动集合为准；
-社交账的「是否在睡」、交谈与通话的覆盖判断、共同用餐判定都改用这个集合，不在推进后重新推断。社交账的计费小时取本边界的区间
+社交账的「是否在睡」、交谈与通话的覆盖判断都改用这个集合，不在推进后重新推断。社交账的计费小时取本边界的区间
 （`inputs.interval_seconds`，与现行相同），活动集合取该区间的共同身体结算草稿。代谢账不变：基础代谢与
 额外代谢不分清醒睡眠照常扣除，饥饿在睡眠中照常上升；娱乐需要在睡眠中不增长。
 
 
 **验收。** 睡眠在边界完成：社交不变，能量按基础代谢乘小时数下降，睡眠压力下降；睡眠被提醒提前结束：同上；醒后第一段清醒区间：
-社交增加 0.04 × 0.25；性质测试：社交账的清醒分类与共同身体结算所用集合一致；在边界吃完的一餐仍算共同用餐；没有草稿时走 `ended_at == now` 兜底。
+社交增加 0.04 × 0.25；性质测试：社交账的清醒分类与共同身体结算所用集合一致。
+
+社交账只读取共同交谈与通话，食品收货不构成共同用餐；收货资源分录由 goods_received 自己保存，不进入区间身体结算。
 
 <a name="dayrun-fidelity-身体与需要-下限缓解与累积口径"></a>
 ### 固定缓解与累积口径
@@ -2151,10 +2151,10 @@ allowed_values 从该位置的 Pydantic Enum、Literal、JSON Schema 或冻结�
 <a name="errands-workday-个人事务-范围与状态"></a>
 ### 范围与状态
 
-- 个人事务只表达**能由世界结算确认的事**：取得或吃掉一件具体商品。不能绑定具体商品的打算（「买点菜」「早点睡」「回个电话」）不记成事务，仍写当日目标、summary 或记忆（裁决 E2）。
+- 个人事务只表达**能由世界结算确认的事**：取得一件具体商品若干份。不能绑定具体商品的打算（「买点菜」「早点睡」「回个电话」）不记成事务，仍写当日目标、summary 或记忆（裁决 E2）。
 - 状态闭集三值：未完成、已完成、已取消。没有截止与过期；运行结束时仍未完成的照实留在最终状态。
 - 「已完成」只由确定性环境代码按结算证据写入；请求里没有「标记完成」。「已取消」由人物请求触发并必须写原因。
-- 事务是人物记下的打算，与当日目标文字、活动自述同类：它随人物状态保存，但不是世界事实，不改变余额、库存、身体、订单与验收。文字字段只用于呈现，不参与结算与完成判定。
+- 事务是人物记下的打算，与当日目标文字、活动自述同类：它随人物状态保存，但不是世界事实，不改变余额、身体、订单与验收。文字字段只用于呈现，不参与结算与完成判定。
   一日行为规格与接口合同「记忆字段」里「自由主观文字永远不能进入世界状态」一句据此改写为「不能成为完成事实、结构化经历或客观指标的依据，也不能改变任何世界事实」：目标文字与活动自述早已随人物状态保存，原句本就不精确。
 - 工作主题、订单、未回复消息的呈现位置与完成事实不变，待办层不复述它们（裁决 E1）。
 
@@ -2175,7 +2175,6 @@ stateDiagram-v2
 | --- | --- | --- |
 | `errand_id` | 字符串 | 由来源动作身份与序号确定性生成，只存状态与事件 |
 | `name` | 字符串 | 人物起的名称 |
-| `outcome` | `obtain`、`eat` | 结果种类 |
 | `product_id` | 字符串 | 记下时由商品名解析 |
 | `quantity` | 整数 | 要办成的份数 |
 | `progress` | 九位小数 | 已累计量，恒小于数量 |
@@ -2187,6 +2186,8 @@ stateDiagram-v2
 **上限（实验假设，登记进 `docs/EXPERIMENT.md#experiment-worldmock-实验设置`）。** 每人未完成事务至多 8 条；一次请求至多 4 条变更；名称至多 30 字符；备注与取消原因各至多 120 字符；数量 1 至 9。
 待办层不浓缩，没有上限就只能以容量故障收场；上限由校验执行，不静默截取、不自动合并。
 
+同一人物对同一商品至多一条未完成事务，没有 outcome 字段。
+
 <a name="errands-workday-个人事务-记下更新取消"></a>
 ### 记下、更新、取消
 
@@ -2194,16 +2195,15 @@ stateDiagram-v2
 不放进 `items[]`：事务不属于某项活动。不扩到 `start_activity`、`revise_day_plan`，也不新增工具。
 
 入口的边界照实写明：只有本次决策能点名一项活动时才能变更事务——进行中的可播报、暂停或结束；暂停的在其开始地点可用 `report_status`（会恢复它），在任何地点都可用 `conclude_activity`（会结束它）；待收尾的用 `conclude_activity`。
-空闲、只做瞬时动作（购买、给予、发消息、交工、修订计划）期间没有入口；这些既有效果不因携带事务而改变。
+空闲、只做瞬时动作（购买、发消息、交工、修订计划）期间没有入口；这些既有效果不因携带事务而改变。
 就寝反思里想到的事，由人物在其后下一次播报、暂停或收尾时记下；反思文字次日起才进入记忆层。
 
-**每条变更。** 封闭对象，八个键全部必填：
+**每条变更。** 封闭对象，七个键全部必填：
 
 | 键 | 类型 | 说明 |
 | --- | --- | --- |
 | `change` | 「新增」「更新」「取消」 | 没有「完成」 |
 | `name` | 非空白字符串 | 新增时由人物写，兼作描述；更新与取消照待办层写法 |
-| `outcome` | 「取得」「吃掉」或 null | 完成依据的结果种类 |
 | `item` | 字符串或 null | 商品名称，按名称解析到唯一商品 |
 | `quantity` | 整数或 null | 份数 |
 | `memo` | 字符串或 null | 人物写的备注：打算怎么办、去哪办 |
@@ -2214,21 +2214,20 @@ stateDiagram-v2
 
 | 变更 | 必须非空 | 必须为 null | 其余 |
 | --- | --- | --- | --- |
-| 新增 | `outcome`、`item`、`quantity` | `reason` | `memo`、`remind_time` 可空 |
-| 更新 | — | `outcome`、`item`、`quantity`、`reason` | `memo`、`remind_time` 为替换语义，null 即清空 |
-| 取消 | `reason` | `outcome`、`item`、`quantity`、`memo`、`remind_time` | — |
+| 新增 | `item`、`quantity` | `reason` | `memo`、`remind_time` 可空 |
+| 更新 | — | `item`、`quantity`、`reason` | `memo`、`remind_time` 为替换语义，null 即清空 |
+| 取消 | `reason` | `item`、`quantity`、`memo`、`remind_time` | — |
 
 - 完成依据记下后不可改；要改就取消后重新新增，二者可以在同一请求里完成，并可沿用原名。
-- 同一请求内按「取消、更新、新增」的次序求值：重名、同结果同商品与上限都按扣除本请求取消之后的未完成集合判定。同一条未完成事务在一次请求里至多被一条更新或取消点名；两条新增不得同名。
+- 同一请求内按「取消、更新、新增」的次序求值：重名、同商品与上限都按扣除本请求取消之后的未完成集合判定。同一条未完成事务在一次请求里至多被一条更新或取消点名；两条新增不得同名。
 - 事务记下后不可改名，终结后名称可以再用。
 
 ```json
 {
-  "items": [{"activity_name": "睡觉", "summary": "睡醒了，冰箱里的食材包昨晚吃掉了。"}],
+  "items": [{"activity_name": "睡觉", "summary": "睡醒了，今天需要买份正餐。"}],
   "errands": [{
     "change": "新增",
     "name": "补一份素炒什锦食材包",
-    "outcome": "取得",
     "item": "素炒什锦食材包",
     "quantity": 1,
     "memo": "下班前下单送到家",
@@ -2253,38 +2252,23 @@ stateDiagram-v2
 | 缺键、类型、枚举、交叉约束、长度、单次条数、两条新增同名、同一事务被两条更新或取消点名 | `ARGUMENTS_INVALID` | `path` 完整到 `errands[j].<键>`，枚举给全部合法值；`expected` 给类型与格式，上限随校验原因写在 `why` |
 | 更新或取消的 `name` 找不到、多于一个 | `NAME_NOT_FOUND`、`NAME_AMBIGUOUS` | `allowed_values` 列本人全部未完成事务名；不替换 |
 | 新增的 `item` 解析不到唯一商品 | `NAME_NOT_FOUND`、`NAME_AMBIGUOUS` | 最接近的至多三个商品名写在 `why`；不把全量商品名放进 `allowed_values` |
-| 新增的名称与已有未完成事务归一后相同；结果种类与商品都与已有或同请求另一条新增相同；新增后未完成数超过 8 | `ARGUMENTS_INVALID` | 状态相关，但只读冻结观察的私有绑定即可判定；`why` 写明冲突的事务名或上限 |
+| 新增的名称与已有未完成事务归一后相同；商品与已有或同请求另一条新增相同；新增后未完成数超过 8 | `ARGUMENTS_INVALID` | 状态相关，但只读冻结观察的私有绑定即可判定；`why` 写明冲突的事务名或上限 |
 
 - 这些错误都不带 `candidates`，与控制工具活动名错误的现行实现一致：完整请求候选要回显人物刚写的 summary 与记忆文字，不值得。数字人交互规格写控制工具的名称错误「给可照填的候选」与实现不符，一并更正。
 - 事务名是此刻至多 8 个的有限集合，列进 `allowed_values` 是对「名称字段不列全量」的明示例外（先例：动态品类标签）；商品名仍不列全量。
 - 上限写在 `why`、`expected` 只给类型与格式是现行实现的做法；工具交互规格把范围与项数写在 `expected` 的表述属既有漂移，一并更正。
-- 同一人物同时至多一条相同（结果种类，商品）的未完成事务。这从源头消除「一条证据完成多条事务」的歧义。
+- 同一人物同时至多一条相同商品的未完成事务。这从源头消除「一条证据完成多条事务」的歧义。
 - 环境在三个处理器里用同一函数复核，失败合并为一次 `ACTION_REQUEST_INVALID`（业务拒绝，照常计同刻轮数）。绑定指向的事务不在本人未完成集合（观察与世界对不上）按既有做法处理。
 - 事件或导出里的控制请求缺 `errands` 键是完整性故障：旧形状记录直接拒绝，不留读取分支。
-- 观察新增两类私有绑定并列入提示禁键：`errand_bindings`（名称、事务身份、结果种类、商品身份）与 `errand_item_bindings`（全部商品名到商品身份）；`errand_id` 同列禁键。商品名本就可按名调用，不扩大权限。事务名不进回看名称。
+- 观察新增两类私有绑定并列入提示禁键：`errand_bindings`（名称、事务身份、商品身份）与 `errand_item_bindings`（全部商品名到商品身份）；`errand_id` 同列禁键。商品名本就可按名调用，不扩大权限。事务名不进回看名称。
 
 <a name="errands-workday-个人事务-完成依据与结算"></a>
 ### 完成依据与结算
 
-**依据。** 结果种类 × 商品 × 数量。
+个人事务只表达取得一件具体商品若干份，同一人物对同一商品至多一条未完成事务。变更为七个必填键 `change`、`name`、`item`、`quantity`、`memo`、`remind_time`、`reason`，没有 `outcome`；新增必填 item 与 quantity，item 说明为「要取得的商品名称。」。
+完成依据只读取事务所有人自己的 `goods_received`，按 goods_id 匹配并累加 quantity；到店成交、配送送达与别人买给本人都算，买给别人或联系人不算本人取得。证据必须排在记下事件之后，同次提交中已取消的事务不再接受证据；重复提交与恢复不重复累计。达到数量即办成，未完成的保留累计量；待办层的 done_when 与 progress 仍写取得与已取得。
 
-| 结果种类 | 算数的结算证据（都必须在记下之后） |
-| --- | --- |
-| 取得 | 本人作为收货人的订单变为已送达：动作结果顶层 `orders` 里状态为已送达的订单（到店成交与当场送达的远程订单），以及配送送达事件里本次新送达的入库行（经订单身份取收货人）；本人收到的当面给予（动作结果顶层 `given`） |
-| 吃掉 | 本人进食活动的进度结算中该商品的本区间食用量 |
-
-- **不算**：下单受理、未送达订单、活动开始、目标 `progressed`、任何自述；记下前已持有的不算；本人买给别人、送达别人手上的不算本人取得。归属看收货人，不看事件的人物字段。
-- **不含地点条件**：到店成交的物品留在门店，事务照样办成；要在家里用的东西应远程下单送到家，人物可以把这层意思写在备注里。给事务加「在某处取得」登记在范围外。
-- **先后按事件顺序，不按时刻**：以往提交记下、到本次提交的动作全部结算后仍未完成的事务，对本次提交的全部证据有效；本次提交里新增的事务只认排在其新增事件之后的证据；本次提交里被取消的事务不再接受该提交的证据。决策不耗模拟时间，「同一秒先收尾记下、再到店买下」必须能完成。活动进度类证据另要求其结算区间的起点不早于记下的时刻。
-- **只读一处**：动作结果只读顶层的 `orders` 与 `given`，不读并行开始时逐项结果里的同一订单；重放的动作结果不算；只读结果事件，不读受理事件；配送事件只读本次新送达的入库行，重复到期的订单不再产生入库行。
-- **累计与容差**：累计量达到数量减 1e-9 即完成；不足时保持未完成并记录已累计量，此后吃掉或给出不回退。每次购买每件商品一份，数量大于一靠多次结算累计。
-- 缺货、闭店、买不起时事务保持未完成并继续在待办层；原因只出现在它本来的位置（该次购买的拒绝结果、当日操作备忘与工具层商品目标的原因），待办层不重算可用性。
-
-**结算函数。** 纯函数 `settle(状态, 本次提交的事件草稿)`，每次提交恰好调用一次：决策轮提交在全部动作结算之后；时钟推进在后台事件并入之后、构造节律边界之前。
-按草稿先后扫描，命中即累加，达标则把事务移出未完成集合并写完成事件。每条证据至多命中一条事务，证据行只在订单由未送达变为已送达的那一次出现，所以状态里不需要「已消费证据」集合。
-逻辑放新模块，引擎只留这两处接线（`engine.py` 已近文件行数上限）。状态模型与逻辑分两个模块，避免与 `models.py` 循环导入。
-
-取得只来自真实食品购买、送达或给予的持有变化，名为做饭的生活活动没有食品产出。
+每次提交在全部动作或后台事件并入之后恰好调用 errands.settle；evidence_rows 只读取本人 goods_received，不能从动作结果、付款、活动进度或联系人订单合成证据。事件草稿顺序决定本次登记之后的证据，取消优先移出。达标写 errand_completed，未达标写 errand_progressed；重复到期不提供新证据。
 
 <a name="errands-workday-个人事务-提醒时刻"></a>
 ### 提醒时刻
@@ -2306,8 +2290,8 @@ stateDiagram-v2
 | 键 | 内容 |
 | --- | --- |
 | `name` | 人物起的名称 |
-| `done_when` | 「取得<商品名> N 份」或「吃掉<商品名> N 份」 |
-| `progress` | 「已取得 N 份」或「已吃掉 N 份」，尚无进展写 0 份；数量写法复用既有的份量短语 |
+| `done_when` | 「取得<商品名> N 份」 |
+| `progress` | 「已取得 N 份」，尚无进展写 0 份；数量写法复用既有的份量短语 |
 | `memo` | 人物写的备注，可为 null |
 | `remind_time` | 尚未提醒的钟点 `HH:MM`；没有或已提醒为 null |
 | `noted_on` | 记下的本地日期 |
@@ -2337,6 +2321,8 @@ stateDiagram-v2
 - 一条事件只对应一条事务，人物字段为事务所有人，来源为环境；载荷为 `{kind, errand}`（`errand` 为事务快照），结算两种另带 `quantity_added`，取消另带 `reason`；不得含 `activity` 与 `resource_changes` 键。
 - 事务变化与触发它的事件、世界状态在同一 SQLite 事务提交。世界结构版本升为 9（只升一次）：版本 8 的检查点与导出按版本拒绝，不迁移（裁决 E7）。代码注释记载的「其后新增字段都并入 8」随之改写。
 - 共同检查点保存未完成事务；恢复后待办层逐字节相同，不重复登记、不重复完成、不重复提醒。
+
+当前快照为无 outcome 的 ErrandState；完成与推进事件只引用事务所有人自己的 goods_received。世界结构 11 的恢复按结构拒绝旧状态，不迁移。
 
 <a name="errands-workday-个人事务-零点计划修订与只读问答"></a>
 ### 零点计划、修订与只读问答
@@ -2373,12 +2359,12 @@ stateDiagram-v2
 | 生命周期、共享时钟与同秒决策 | 新建、恢复、重放和分支失败关闭；模型上下文时间等于结算时间；静默边界不产生人物决策；无活动或有待收尾活动时同秒继续，轮数和受限阶段受闭集约束；暂停不占名额，恢复重新检查地点、主题上限、名额和占用 | `src/worldmock/life/engine.py`、`src/worldmock/life/session_actions.py`；`tests/integration/test_env_lifecycle_coverage.py`、`tests/life/test_engine_round.py`、`tests/life/test_same_moment_decisions.py`、`tests/life/test_paused_slots.py` | 现行实现；阶段 8 汇总收据待登记 |
 | 唤醒与预排事件 | 最终唤醒原因闭集为 22 项，睡眠允许集合仍为 4 项；预排事件闭集为 7 类；清醒人物在班次、休息、提醒和 app 推送边界得到实际原因，睡眠不被 app 推送或工作边界唤醒；重复当地小时保留 `fold=0` 的第一次，各网格点不按 epoch 去重 | `src/worldmock/life/schedule.py`、`src/worldmock/life/app_push.py`、`src/worldmock/footprints/models.py`；`tests/life/test_wake_reasons.py`、`tests/life/test_app_push.py`、`tests/footprints/test_event_fields.py` | 现行实现；阶段 8 汇总收据待登记 |
 | 地图、出行与地点会话 | 地图确定生成并保持连通；步行和驾车按图最短距离及固定常数报价，付款失败不改变账户；`trip_id` 贯穿路径、到达和导出；出发、到达与运行结束提交真实地点或路途会话，暂停间隙不算活动 | `src/worldmock/catalog/mapgen.py`、`src/worldmock/catalog/graph.py`、`src/worldmock/life/travel.py`；`tests/catalog/test_mapgen.py`、`tests/catalog/test_graph.py`、`tests/life/test_travel_graph.py`、`tests/life/test_location_sessions.py` | 现行实现；阶段 8 汇总收据待登记 |
-| 固定食品与购买配送 | 同类食品共享固定价格和身体效果；本地无 app 店铺只能到店购买，声明 app 的店铺可配送；名称解析、付款、订单、到达与持有为一次提交链，重复到达不增持有；进食按实际份量和经过时间守恒，暂停与恢复保留剩余 | `src/worldmock/life/commerce.py`、`src/worldmock/life/named_purchase.py`、`src/worldmock/life/body.py`；`tests/life/test_commerce.py`、`tests/life/test_named_purchase.py`、`tests/life/test_purchase_apps.py`、`tests/life/test_meal_outcome.py` | 现行实现；阶段 8 汇总收据待登记 |
+| 商品付款与收货 | 每单一次付款；到店与配送共用 settle_receipt，时钟先结算连续身体变化，收货函数再按类别施加瞬时效果；本人、他人、异地与睡眠收货均只结算一次，联系人没有身体事件 | src/worldmock/life/receipt.py；tests/life/test_receipt.py | 按本次实际回执判定 |
 | app、内容与推送 | `use_app` 是唯一 app 活动，app 始终列出但不进入 `callable_index`，内容也不成为人物目标；无可用内容时拒绝；一次使用固定 1800 秒，从所选 app 抽取内容并写全局 `ContentProgress`，暂停、恢复、重复观看和跨 app 延续同一进度；推送状态只在 `pending`、`opened`、`released` 间变化，打开只选择内容，完成或会话结束按真实事实释放 | `src/worldmock/life/content.py`、`src/worldmock/life/app_push.py`、`src/worldmock/life/models.py`；`tests/life/test_app_ui.py`、`tests/life/test_app_progress.py`、`tests/life/test_app_push.py`、`tests/life/test_app_vocabulary.py` | 现行实现；阶段 8 汇总收据待登记 |
 | 工作主题与安排 | 已分配主题从运行开始可见，只能在人物工作地点开始；非失败工作活动按实际经过秒数跨活动累计，暂停、休息和并行非工作活动不计；四键合同、`last_report`、进度投影和一次性完成事实一致；没有开放、截止、预约、材料、提交、效率产出或评审 | `src/worldmock/life/work.py`、`src/worldmock/life/schedule.py`；`tests/life/test_work_topics.py`、`tests/life/test_work_protocol.py`、`tests/life/test_work_schedule.py`、`tests/life/test_workload_report.py` | 现行实现；阶段 8 汇总收据待登记 |
 | 稳定工具面与七层请求 | 原生工具共 11 项、稳定动作面共 8 项；生活请求由系统层、原生工具与六层 user 组成，续接另带本秒原生消息；禁止键、内部身份和退役工具不进入请求；每项事实只出现一次，容量收缩保护进行中或刚结束活动、暂停活动、未了结订单和本轮新记录 | `src/worldmock/life/prompt_schemas.py`、`src/worldmock/life/tool_layer.py`、`src/worldmock/life/interaction_menu.py`；`tests/life/test_prompt_layers.py`、`tests/life/test_tool_layer.py`、`tests/integration/test_seven_layer_request.py`、`tests/integration/test_decision_context_protocol.py` | 现行实现；阶段 8 汇总收据待登记 |
 | 固定菜单、名称与只读查询 | `callable_index` 恰含 `lifestyle`、`goods`、`query_categories` 三键；app 始终作为目标列出，工作主题按分配进入工具层；内容不成为人物目标；购买与工作主题按名称唯一解析，歧义返回可照填候选；`query_world` 只读并在切页前过滤，不制造候选、曝光或世界变化 | `src/worldmock/life/callable_index.py`、`src/worldmock/life/interaction_menu.py`、`src/worldmock/life/named_catalog.py`、`src/worldmock/life/world_query.py`；`tests/life/test_app_ui.py`、`tests/life/test_interaction_menu_invariants.py`、`tests/life/test_name_resolution.py`、`tests/life/test_world_query.py`、`tests/life/test_world_query_filters.py` | 现行实现；阶段 8 汇总收据待登记 |
-| 邮件、社交与个人事务 | 邮件是普通消息，没有关联工作字段；交谈要求双方同处、清醒且各自占用允许，一方结束时另一方同秒结束；消息在睡眠中不唤醒，醒后首个边界读取；个人事务的登记、跨夜、完成证据、幂等结算、提醒和检查点恢复保持现行合同 | `src/worldmock/life/social.py`、`src/worldmock/life/errands.py`；`tests/life/test_mail_reading.py`、`tests/life/test_social.py`、`tests/life/test_social_rounds.py`、`tests/life/test_errand_completion.py`、`tests/integration/test_errand_checkpoint.py` | 现行实现；阶段 8 汇总收据待登记 |
+| 邮件、社交与个人事务 | 邮件是普通消息，没有关联工作字段；交谈要求双方同处、清醒且各自占用允许，一方结束时另一方同秒结束；消息在睡眠中不唤醒，醒后首个边界读取；个人事务的七键变更、跨夜、本人收货完成依据、幂等结算、提醒和检查点恢复保持现行合同 | `src/worldmock/life/social.py`、`src/worldmock/life/errands.py`；`tests/life/test_mail_reading.py`、`tests/life/test_social.py`、`tests/life/test_social_rounds.py`、`tests/life/test_errand_completion.py`、`tests/integration/test_errand_checkpoint.py` | 现行实现；阶段 8 汇总收据待登记 |
 | 记录、导出与质量 | 已认证事件和检查点生成导出清单 3 的五个工件；app 使用只从真实快照、进度和完成证据生成，零 app 事实与未完成证据分开；质量报告 5 含 app 与工作主题键；下游加工与消费验收归 LabelKit-DataSet | `src/worldmock/footprints/export.py`、`src/worldmock/footprints/app_usage.py`、`src/worldmock/footprints/quality.py`；`tests/footprints/test_export.py`、`tests/footprints/test_app_usage.py`、`tests/footprints/test_quality.py` | 现行实现；阶段 8 汇总收据待登记 |
 | 完整日双跑与第三基线 | 人工环境脚本日保留 86400 秒、共同身体分区、同秒上限、零点计划、反思、活动协议、食品、app 推送、远程配送、工作主题、检查点和导出断言；同一场景和种子完整运行两次，两个候选的场景摘要、种子和完整摘要逐项相等后，生产冻结入口才原子写第三基线；失配和引导身份不符时旧目标字节不变，两个历史基线与 `tests/dayrun_baseline.py` 字节不变 | `tests/integration/test_dayrun_complete_days.py`、`scripts/freeze_rrs_baseline.py`、`tests/scripts/test_freeze_rrs_baseline.py` | 冻结入口与定向证据已建立；实际双跑、第三基线及其回执待执行 |
 | 最终工程与发布边界 | 文档、设计汇编、标准层、全量层、覆盖率、机器台账、源码变异与独立 Uncle Bob 审查分别留实际收据；真实 DeepSeek 端点另记真实运行；当前 macOS 回执不能推定 Windows、其他 POSIX 或正式环境；WorldMock-Dataset 发布后才登记阶段 9 正式环境身份与平台结果 | `scripts/documentation_gate.py`、`scripts/build_design_doc.py`、`scripts/run_tests.py`、`scripts/coverage_gate.py`、`tests/rrs_acceptance.py` | 阶段 8 最终收据待登记；Windows、其他 POSIX、正式环境与真实端点未执行 |
@@ -2432,3 +2418,4 @@ stateDiagram-v2
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题运行合同 |
 | `2026-10-06-rrs-prompt` | 2026-10-07 | 剩余系统规则与提示身份、当前 app 和工作主题查看器；工具身份保持已验收形状 |
 | `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |
+| `2026-10-07-acs-receipt` | 2026-10-07 | 付款与收货分别留证，收货由唯一函数恰好结算一次，效果与证据归收货人；个人事务七键，用餐目标按本人 meal 收货推进。 |

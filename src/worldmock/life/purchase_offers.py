@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from worldmock.catalog.models import Food
+from worldmock.catalog.models import Goods
 from worldmock.exchange.operators import delivery_fee_fen, delivery_seconds
 from worldmock.life.admission import present_location
 from worldmock.life.name_resolution import delivery_sources, near_source_names, resolve_source
@@ -38,7 +38,7 @@ class Offer:
     """@brief 固定菜单食品的一条当前可服务购买选择。"""
 
     store_id: str
-    food: Food
+    food: Goods
     way: str
     speed: int
     price: int
@@ -46,11 +46,11 @@ class Offer:
     expected_at: int | None = None
 
 
-def menu_foods(context: LayerContext) -> tuple[tuple[str, Food], ...]:
+def menu_goods(context: LayerContext) -> tuple[tuple[str, Goods], ...]:
     """@brief 已选门店中的实际目录食品，使用同品类共享固定菜单。"""
     selected = {place.location_id for place in context.scenario.locations}
-    return tuple((store_id, food) for store_id, foods in context.semantics.catalog.foods_by_store.items()
-                 if store_id in selected for food_id in foods for food in (context.semantics.catalog.foods[food_id],))
+    return tuple((store_id, food) for store_id, foods in context.semantics.catalog.goods_by_store.items()
+                 if store_id in selected for food_id in foods for food in (context.semantics.catalog.goods[food_id],))
 
 
 def source_scope(context: LayerContext, source: str | None) -> SourceScope | None:
@@ -63,11 +63,11 @@ def source_scope(context: LayerContext, source: str | None) -> SourceScope | Non
 
 def near_sources(context: LayerContext, written: str, feasible: Callable[[frozenset[str]], bool]) -> list[str]:
     """@brief 返回实际目录来源的近名候选，不自动替换来源。"""
-    return near_source_names(written, _places(context), (store for store, _ in menu_foods(context)),
+    return near_source_names(written, _places(context), (store for store, _ in menu_goods(context)),
                              delivery_sources(context.semantics.catalog), feasible)
 
 
-def offers(context: LayerContext, foods: Iterable[tuple[str, Food]], way: str,
+def offers(context: LayerContext, foods: Iterable[tuple[str, Goods]], way: str,
            destination_id: str | None) -> tuple[str, list[Offer]]:
     """@brief 根据人在店内及 app 绑定选择实际到店或配送方式。"""
     candidates = tuple(foods)
@@ -79,7 +79,7 @@ def offers(context: LayerContext, foods: Iterable[tuple[str, Food]], way: str,
     return way, _deliveries(context, candidates, destination_id)
 
 
-def serves(context: LayerContext, food: tuple[str, Food], way: str, destination_id: str | None) -> bool:
+def serves(context: LayerContext, food: tuple[str, Goods], way: str, destination_id: str | None) -> bool:
     """@brief 判断同一实际菜单项是否可以在当前地点交到收货人手中。"""
     chosen, served = offers(context, (food,), way, destination_id)
     return bool(handed_over(served, destination_id) if chosen == PICKUP_WAY else served)
@@ -110,13 +110,13 @@ def nearest_store(context: LayerContext, store_ids: Iterable[str]) -> str:
     return min(set(store_ids), key=lambda identity: (context.semantics.catalog.shortest_m(origin, identity), identity))
 
 
-def _pickups(context: LayerContext, foods: Sequence[tuple[str, Food]]) -> list[Offer]:
+def _pickups(context: LayerContext, foods: Sequence[tuple[str, Goods]]) -> list[Offer]:
     """@brief 当前确实位于门店的到店购买，固定食品价格且没有 app。"""
     here = present_location(context.state, context.agent_id)
     return [Offer(store, food, PICKUP_WAY, 0, food.price_fen) for store, food in foods if store == here]
 
 
-def _deliveries(context: LayerContext, foods: Sequence[tuple[str, Food]],
+def _deliveries(context: LayerContext, foods: Sequence[tuple[str, Goods]],
                 destination_id: str | None) -> list[Offer]:
     """@brief 绑定至少一个 app 的门店向任意已选收货地点配送，固定费用与时长。"""
     if destination_id is None:

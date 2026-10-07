@@ -1,7 +1,7 @@
 <a name="spec-life-realism-特性规格人物决策与画像"></a>
 # 特性规格：人物决策与画像
 
-> 按[动作与内容简化规格](SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界」（阶段 1）。
+> 按[动作与内容简化规格](SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界、收货结算」（阶段 1、2）。
 
 > 2026-10-07 按用户确认的[数据加工归属](../ARCHITECTURE.md#architecture-数据加工归属)修订：WorldMock 负责模拟、记录、完整认证足迹导出与真实性评估；LabelKit 加工、模型任务、训练装载与规则测试归 LabelKit-DataSet；环境素材归 WorldMock-Dataset。历史验收数字只证明原源码基线，不代表本次消费链已验收。
 
@@ -467,26 +467,16 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 店铺类型可供给商品类别由 `GOODS_CATEGORY_STORE_KINDS` 固定，不合供给表的类别不能绑定；同类型店铺同菜单。
 
 <a name="spec-life-realism-商务与进食"></a>
-## 商务与进食
+## 购买与收货
 
-订单行以 `(store_id, food_id)` 标识，重复项以 `ORDER_DUPLICATE_ITEM` 拒绝；同单同店、同卖方、同履约与同收货地点。每单仅一笔人物到 `merchant:<store_id>` 的转账，金额为固定食品单价乘份数再加一次配送费。
-到店即时交付；外卖每单配送费固定 `500` 分，预计时刻为 `now + 600 + ceil(最短距离 / 5.0)`。每单仅一个 `delivery_arrival`，重复结算不重复交付。
-本人收货地点是当前停留地点，路途中自送或与出发同请求自送以 `ACTIVITY_PRECONDITION_UNMET` 拒绝，`unmet=delivery_destination`；给他人按真实收货地点。人物离开后仍送到订单地点，食品归收货人在当地持有。
+购买先校验完整请求，任一商品不可购时整组拒绝且不自动删件。每单只付款一次；付款不产生商品效果。
 
-每份零食为 `200` 千卡、`300` 秒，饮品 `100` 千卡、`180` 秒，正餐 `600` 千卡、`1200` 秒，唯一来源是 `FOOD_CONSTANTS[category]`。
-份量时长为 `max(60, round(完整时长 × 份数))`，同餐取各项份量时长最大值，食用窗口仍为 60–14400 秒。原始摄入为类别热量乘实际消费比例，净能量经 `food_utilization_efficiency` 与能量上限；效率唯一来源是 `BODY_CONSTANTS.food_efficiency_curve`。
-开始时移入开吃份量，暂停保留剩余，结束丢弃剩余；分次吃原始热量守恒，重复开始不重复摄入，购买不增加能量。`ConsumeRequest.product_id` 保留为食品身份，事件和经历的字段使用 `food_id`，保存 `category`、份量与实际热量。
+订单 `DeliveryState` 保留订单身份、付款人 `agent_id`、店铺、购物 app、卖方账户、件数、单价、配送费、总价、收货地、履约方式、收货人、关联消息、创建与预计时刻、路径和配送行程；商品用 `goods_id` 与 `category`，另有可空 `payment_app_id`、可空 `received_at`。状态只有 `pending`、`delivered`；pending 的 received_at 为 null，到店收货时等于 created_at。订单数量恒为 1。没有食品持有或联系人持有。
 
-进食按开吃份量结算：开始进食时，每件取 `min(1, 手边持有)` 从库存移入活动数据的 `opened`，摄入只按 `opened` 与实际进度计算，
-进食期间不再扣库存。暂停保留 `opened` 的剩余，别处不能用，恢复时不再核库存；结束进行中或暂停的进食时丢弃 `opened`
-减已吃的部分，写入活动与结果，不补算摄入，其他份数不动；自然吃完丢弃为 0，实验截止截断时不丢弃。
-不足一份也可以吃：份量取实际持有，时长为 `max(60, round(整份时长 × 份量))` 秒，工具层的数量、时长与热量同一口径；
-收尾结果的 `details.outcome` 逐项写终局与已吃、丢弃、剩余份量（[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)第五章「进食」）。
-
-普通进食沿用库存的九位小数份额口径：累计目标、实际进度与累计消耗使用同一精度，
-身体热量与效果只按实际吃掉的量结算。相同实际进度分成不同结算边界时，最终库存、累计消耗与热量一致；
-保存和恢复不得因舍入误差失败。实际份量不足不超过 `1e-9` 份时只消耗实际持有量，
-超过该容差仍拒绝且不产生状态变化。持有与消费统一沿用九位小数份额精度，保存和恢复按同一口径核对。
+连续身体变化由时钟推进先结算至收货秒；到店购买在当前同刻受理。到店受理与配送到期共用 `worldmock.life.receipt.settle_receipt`，该函数只施加本次瞬时商品效果并取走本次资源分录。函数同时将订单从 `pending` 改为 `delivered`、写 `received_at`、施加效果并取走本次资源分录。到店在付款的同一次提交内收货，配送在 `delivery_arrival` 当秒收货，不看收货人在哪里或是否睡着。
+食品的 `provided` 为类别热量乘件数，`applied` 为按当秒睡眠不足利用率与能量上限得到的实际能量增加，超出上限的部分丢失。休闲用品每行降低娱乐需要 0.10（下限 0），日常用品每行施加情绪脉冲 0.05。没有持有、食用时长、份额、丢弃或装备能力。
+本次食品 `food:intake` 分录与休闲用品 `goods:receipt` 分录在函数返回前立即取走，主体与时刻都是收货人和收货秒，缓冲为空；日常用品不写资源分录。状态变化与 `goods_received` 同一事务提交，事件的 `caused_by` 指向该提交中的真实购买结果或配送到期事件。
+已交付订单再次到期不写状态、效果或事件；重复动作返回已存结果。联系人没有身体，收货只改变订单状态与 `received_at`，不写 `goods_received`。配送保留付款人的到期事件与唤醒，清醒模拟收货人得到同一个到期原因，睡着的不唤醒；到店不唤醒任何人。
 
 <a name="spec-life-realism-呈现与导出"></a>
 ## 呈现与导出
@@ -953,13 +943,15 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 
 | 来源 | 句式 |
 | --- | --- |
-| 瞬时世界请求（下单、给予、发消息） | 各一句：「10:20 远程下单牛肉炒面 1 份，付 32 元，预计 10:35 送到练秋湖研发中心办公室（回应王磊 10:15 的消息，收货人王磊）」「HH:MM 给<人>发消息：<全文>」 |
-| 在本 session 结束的活动 | 每项一句：起止（含暂停区间）、终局（按计划、提前结束、到达、对方结束、失败）、实际份量、app 内容接触或工作主题的实际秒数；工作句不写效率、提交或评审 |
+| 瞬时世界请求（购买、发消息） | 购买句为「HH:MM 购买<商品> 1 份，付 N 元」；线上在购买前加「经<购物 app>」，并附「，预计 HH:MM 送到<地点>」，有支付 app 时在金额后加「（<支付 app>）」。关联回应消息与收货人的括注不变。发消息仍写全文 |
+| 在本 session 结束的活动 | 每项一句：起止（含暂停区间）、终局（按计划、提前结束、到达、对方结束、失败）、app 内容接触或工作主题的实际秒数；工作句不写效率、提交或评审 |
 | 世界事件 | 收到直接消息（全文）、邮件（主题）、送达与工作主题首次完成，各一句 |
 
 不写：失败的请求、记忆查询、回看、`report_status`、暂停与恢复（仍暂停的在待办层）、`revise_day_plan`、提醒与身体结算，
-个人事务的新增、更新、取消、进展、完成与提醒（`errand_completed`、`errand_reminded` 虽是人物可见的事件，也不写句；未完成的在待办层，办成所依据的订单、给予与进食照常各写各的句子）、
-其他层的当前状态（未读、剩余份数）。购买句只由订单生成；app 使用只按真实内容接触写句。
+个人事务的新增、更新、取消、进展、完成与提醒（`errand_completed`、`errand_reminded` 虽是人物可见的事件，也不写句；未完成的在待办层，办成所依据的订单与收货照常各写各的句子）、
+其他层的当前状态（未读、待收货）。购买句只由订单生成；app 使用只按真实内容接触写句。
+
+没有「吃了…」「丢弃…」「把…给了…」三种句子；收货事实只来自 goods_received。
 
 <a name="persona-prompt-进度与记忆的更新-self_notes"></a>
 ### `self_notes`
@@ -1253,7 +1245,7 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 | 世界素材品类 | 地点、家的可供性、办公室可供性、正餐、内容、工作、生活活动与联系人逐条满足；不满足即拒绝启动 | `tests/catalog/`、`tests/corpora/`；正式地点能力由地图准入与实际活动测试验证 | 独立地图分支及[当前主线组合](research/map-and-storefront-main-verification.md)均已通过 |
 | 画像编译 | 卡片字段完整；结构化字段存入 `persona_card_struct` 并渲染为人设层 JSON，不含 `situation`，卡片关系与场景联系人按名称合并，刻钟时刻写对；大五分数与权重不进提示；四个模板字段与随机浮点已删除；场景只声明部分作息字段时只覆盖这些字段，覆盖后锚点乱序时保留卡片值并记警告，身体结算、零点计划输入与人设层三处同值，`validate` 与运行路径结果一致；故事写明时产出下班、到家窗口，未提及为 null 且不取缺省；下班摇摆不改变其余五个锚点；乱序时降级为 null、不失败，三次采样各自乱序但共识合法时不降级，降级说明经画像编译警告透传；场景作息覆盖为七字段，下班、到家两槽沿用现行冲突规则（冲突时该槽保留卡片值并记 `CARD_FIELD_CONFLICT`），卡片槽为 null 时覆盖与告警照常；缺下班、到家两键的旧结构化卡片被拒，卡片结构 3 | `tests/profile/`、`tests/integration/test_persona_profile.py`、`tests/life/test_persona_upgrade.py`、`tests/life/test_persona_layer.py`；场景作息见 `tests/profile/test_injection.py` 的 `test_only_explicitly_declared_fields_are_overridden`、`test_out_of_order_window_keeps_the_card_value_and_records_a_conflict` 与 `tests/integration/test_input_warnings.py` 的 `test_a_scenario_declaring_only_the_midpoint_changes_only_the_midpoint_in_the_request`、`test_body_settlement_day_plan_inputs_and_the_persona_layer_read_the_same_rhythm`、`test_restore_verifies_the_frozen_card_rhythm_against_the_scenario`；见[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「场景作息」；下班与到家锚点见 `tests/profile/test_extractor.py` 的 `test_stated_work_anchors_are_extracted_into_the_card`、`test_unmentioned_work_anchors_stay_null_without_toml_defaults`、`test_wavering_leave_work_does_not_change_the_five_anchors`、`test_out_of_order_consensus_demotes_leave_work_then_arrive_home_and_still_compiles`、`test_samples_out_of_order_on_their_own_but_legal_in_consensus_are_not_demoted`，`tests/profile/test_compile.py::test_demotion_notes_follow_the_agreement_warning_and_stand_alone_without_it` 与 `tests/integration/test_input_warnings.py` 的 `test_a_demotion_note_is_frozen_as_a_compiler_warning_that_does_not_blame_agreement`、`test_extracted_work_anchors_reach_the_real_request_persona_layer`；七字段覆盖见 `tests/profile/test_injection.py` 的 `test_a_null_card_slot_takes_the_scenario_work_window_and_is_reported_as_overridden`、`test_a_scenario_window_violating_the_work_anchor_order_keeps_the_card_value_as_a_conflict` 与 `tests/integration/test_input_warnings.py` 的 `test_scenario_declared_work_windows_reach_the_card_the_persona_layer_and_the_plan_input`、`test_a_conflicting_scenario_work_window_keeps_the_null_card_slot_and_is_frozen_as_a_conflict`；旧结构化卡片被拒见 `tests/life/test_persona_layer.py::test_structured_card_without_work_anchor_keys_is_rejected_on_restore`；见[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「作息锚点」 | 代码层已验证 |
 | 人物卡片覆盖率 | 习惯关键词、食品类别商品名、登记动作名与全部 app 名称形成实际目标集；低于 0.8 的 validate 失败，运行只警告；六警告闭集 |
-| 商务与进食 | 多件购买任一件不可购时整单拒绝且不自动删件；多件进食用餐时长取最长者、热量与效果累加；4 份里拿 1 份，吃到 240/1200 秒时结束：摄入 0.2、丢弃 0.8、库存 3；暂停保留剩余并可恢复；持有 0.25 份时受理、时长 300 秒、热量按 0.25 份；收尾结果写终局与份量 | `tests/life/test_commerce.py`、`tests/life/test_meal_outcome.py` | 代码层已验证 |
+| 购买与收货 | 每单一次付款；到店和配送共用收货函数，效果与证据归收货人；异地、睡眠、联系人和重复到期均按唯一规则结算 | tests/life/test_receipt.py | 按本次实际回执判定 |
 | 素材可达性 | 每条内容至少绑定一个已登记 app；无绑定或引用未知 app 在启动前拒绝；内容不再建立检索分区、facet 或静态可达性脚本 | `tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample`、`tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes` | 阶段 4 纯目录节点已登记；完整引擎组合待阶段 5 |
 | 候选与呈现 | 候选种类恰为 `product`、`lifestyle`、`task`；世界事实排除带原因码，相关度只改变顺序而不改变成员；同一输入与游标身份确定；轮转不改目录或对象状态 | `tests/life/test_candidates.py::test_candidates_have_only_product_lifestyle_and_task_kinds`、`tests/life/test_candidates.py::test_actual_world_constraints_are_reported`、`tests/life/test_candidates.py::test_relevance_changes_order_without_changing_membership`、`tests/life/test_candidates.py::test_candidates_and_cursor_are_deterministic`、`tests/life/test_rotation.py` | 阶段 4 纯候选节点已登记；完整引擎组合待阶段 5 |
 | 呈现与导出 | 时间线投影与 `render_day.py` 输出一致且合并静默边界与同一活动；盲评记录含地点与同伴列；时间线只出现中文名称：没有 `call`、`work` 等英文种类名，没有 `task-` 形态的标识，质量报告的时间线标签检查为零 | `tests/footprints/test_export.py`；`tests/life/test_timeline_labels.py::test_exported_timeline_names_chats_calls_and_work_in_chinese`、`tests/footprints/test_render_day.py`（工作、通话与交谈的行写任务、联系人与人物名，无法解析的目标只写中文种类名）、`tests/footprints/test_quality.py::test_timeline_labels_count_english_kind_names_and_internal_ids_in_the_rendered_timeline`；见[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「时间线」 | 代码层已验证（`tools/run-viewer.html` 的“一天”视图按手工核对验收） |
@@ -1320,3 +1312,4 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 | `2026-10-06-rrs-prompt` | 2026-10-07 | 剩余系统规则与提示身份、当前 app 和工作主题查看器；工具身份保持已验收形状 |
 | `2026-10-06-rrs-record` | 2026-10-07 | 阶段 7：时间线、app 内容状态与工作主题累计的导出事实 |
 | `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |
+| `2026-10-07-acs-receipt` | 2026-10-07 | 付款与收货分别留证，收货由唯一函数恰好结算一次，效果与证据归收货人；个人事务七键，用餐目标按本人 meal 收货推进。 |

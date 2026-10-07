@@ -1,6 +1,6 @@
 """@brief 个人事务的状态模型、上限、枚举词与事件种类（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-范围与状态 、2.2、2.7）。
 
-个人事务是人物记下的、能由世界结算确认的打算：取得或吃掉一件具体商品若干份。`AgentState.errands` 只保存未完成的事务
+个人事务是人物记下的、能由收货结算确认的打算：收到一件具体商品若干份。`AgentState.errands` 只保存未完成的事务
 （键为事务身份），完成或取消时从字典移出，终态、原因与证据只写进同一提交的事件。本模块只放状态模型与常量，只依赖
 pydantic 与标准库；全部逻辑在 errands.py（状态与逻辑分两个模块，models.py 引用本模块而不形成循环导入）。
 """
@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from worldmock.base_models import FrozenModel
 import logging
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -31,10 +30,6 @@ ERRAND_PROGRESS_DIGITS = 9
 #: 变更种类闭集（2.2）：没有「完成」，枚举值不用「登记」；同一请求内按「取消、更新、新增」的次序求值。
 CHANGE_ADD, CHANGE_UPDATE, CHANGE_CANCEL = "新增", "更新", "取消"
 ERRAND_CHANGES = (CHANGE_ADD, CHANGE_UPDATE, CHANGE_CANCEL)
-#: 请求里的结果种类写法与状态里的结果种类代码互为映射。
-OUTCOME_CODES = {"取得": "obtain", "吃掉": "eat"}
-OUTCOME_WORDS = {"obtain": "取得", "eat": "吃掉"}
-
 #: 六种事务事件（environment_event 的 kind，2.7）；提醒与办成两种被进度层消费，必须人物可见。
 REGISTERED_KIND = "errand_registered"
 UPDATED_KIND = "errand_updated"
@@ -50,14 +45,13 @@ class ErrandState(FrozenModel):
     """@brief 一条未完成的个人事务（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-范围与状态 字段表）。
 
     errand_id 由来源动作身份与新增条目在请求中的序号确定性生成，只存状态与事件；name、memo 照人物所写保存，只用于呈现，
-    不参与结算与完成判定；outcome 与 product_id 是完成依据，记下后不可改；progress 是已累计量（九位小数），恒小于
+    不参与结算与完成判定；product_id 是完成依据，记下后不可改；progress 是已累计量（九位小数），恒小于
     quantity；remind_at 是提醒的绝对时刻，reminded_at 是实际交付提醒的时刻。
     """
 
 
     errand_id: str = Field(min_length=1)
     name: str = Field(pattern=r"\S")
-    outcome: Literal["obtain", "eat"]
     product_id: str = Field(min_length=1)
     quantity: int = Field(ge=ERRAND_QUANTITY_MIN, le=ERRAND_QUANTITY_MAX)
     progress: float = Field(ge=0, allow_inf_nan=False)

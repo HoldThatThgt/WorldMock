@@ -312,10 +312,9 @@ def _apply_awake_social_ledger(agent: AgentState, inputs: RhythmInputs) -> Agent
         return agent
     asleep = any(item.kind == ActivityKind.SLEEP for item in activities)
     hours = 0.0 if asleep else inputs.interval_seconds / 3600
-    shared = hours if _shared_meal(agent, inputs, activities) else 0.0
     if hours <= 0 and shared <= 0:
         return agent
-    body = apply_social_ledger(agent.body, felt.SocialExposure(awake_hours=hours, shared_meal_hours=shared))
+    body = apply_social_ledger(agent.body, felt.SocialExposure(awake_hours=hours))
     return agent.model_copy(update={"body": body}, deep=True)
 
 
@@ -349,13 +348,6 @@ def _social_activity_covered(activities: list[ActivityState]) -> bool:
     return any(item.kind in {ActivityKind.CHAT, ActivityKind.CALL} for item in activities)
 
 
-def _shared_meal(agent: AgentState, inputs: RhythmInputs, activities: list[ActivityState]) -> bool:
-    """@brief 本区间是否共同用餐：区间活动集合里有堂食的进食（在本边界吃完的一餐也算），且此刻同地点有他人在场。"""
-    eating = any(
-        item.kind == ActivityKind.CONSUME and item.data.get("request", {}).get("use_mode") == "eat"
-        for item in activities
-    )
-    return eating and bool(_people_here(inputs.state, agent))
 
 
 def is_asleep(state: WorldState, agent_id: int) -> bool:

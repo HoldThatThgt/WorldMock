@@ -32,14 +32,13 @@ from worldmock.life import errands
 from worldmock.life.activities import at_decision_boundary
 from worldmock.life.error_contract import ErrorItem, items_fix
 from worldmock.life.guidance import Refusal, items_refusal, refusal_for_code
-from worldmock.life.vocabulary import GIVE_WAY
 from worldmock.life.action_evidence import (_origin_terminal_draft, _origin_terminal_result,
                                             _terminal_action_records)
 from worldmock.life.models import (CONCLUDABLE_TERMINAL_STATUSES, ActivityKind, ActivityState, ActivityStatus,
                                    PendingAction, WorldState, active_activities)
 from worldmock.life.name_resolution import near_names
 from worldmock.life.object_labels import resolve_name
-from worldmock.life.readable import duration_phrase, portion_phrase
+from worldmock.life.readable import duration_phrase
 from worldmock.life.sessions import at_stay, moment_label, on_road
 from worldmock.life.work import work_start_refusal, work_totals
 
@@ -107,11 +106,9 @@ def free_slots(state: WorldState, agent_id: int) -> int:
     return SLOT_LIMIT - len(slot_activities(state, agent_id))
 
 
-def new_activity_count(actions: list[str], labels: list[str]) -> int:
-    """@brief 一个 start_activity 请求将占用的名额：到店购买、远程下单与给予是瞬时的，不占；同短语的两份食用合成一餐。"""
-    if len(set(labels)) == 1 and actions[0] in {"purchase", "consume"} and labels[0] != GIVE_WAY:
-        return 0 if actions[0] == "purchase" else 1
-    return sum(1 for action, label in zip(actions, labels) if action != "purchase" and label != GIVE_WAY)
+def new_activity_count(actions: list[str]) -> int:
+    """@brief 一个 start_activity 请求将占用的名额：购买是瞬时的，不占名额。"""
+    return sum(action != "purchase" for action in actions)
 
 
 def resumable_here(state: WorldState, activity: ActivityState) -> bool:
@@ -144,15 +141,7 @@ def object_display_name(binding: dict) -> str:
 
 
 def objective_progress(activity: ActivityState) -> str:
-    """@brief 活动客观进度的人读短语：已做时长、进行或暂停中的还剩时长；食用只写「已吃 X 份，剩 Y 份」
-    （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「待办层」，不另写还剩时长）。
-
-    工作不写「还差」：合同剩余只在工具层任务目标的 contract（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。
-    """
-    if activity.kind == ActivityKind.CONSUME and activity.data.get("request", {}).get("use_mode") == "eat":
-        planned = sum(item["quantity"] for item in activity.data["request"]["items"])
-        eaten = sum(activity.data.get("consumed", {}).values())
-        return f"已吃 {portion_phrase(eaten)}，剩 {portion_phrase(max(0.0, planned - eaten))}"
+    """@brief 活动客观进度写已做时长，进行或暂停中的活动另写剩余时长。"""
     parts = [f"已做{duration_phrase(activity.elapsed_seconds)}"]
     if activity.status in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}:
         remaining = max(0, activity.planned_duration_seconds - activity.elapsed_seconds)
@@ -376,7 +365,7 @@ def start_admission_refusal(state: WorldState, agent_id: int, request: tuple[lis
                             names: dict[str, str]) -> Refusal | None:
     """@brief require_start_admission 的判定本身：不成立时返回原因与下一步，成立时为 None（交互对象层据此写说明）。"""
     actions, labels = request
-    refusal = slot_refusal(state, agent_id, new_activity_count(actions, labels), names)
+    refusal = slot_refusal(state, agent_id, new_activity_count(actions), names)
     if refusal is not None:
         return refusal
     running = [item for item in _agent_activities(state, agent_id, _is_active)]

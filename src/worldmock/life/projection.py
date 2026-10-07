@@ -19,11 +19,11 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from worldmock.life import admission, felt, social
-from worldmock.life.vocabulary import ACTION_WAYS, GIVE_WAY, PURCHASE_WAYS, USE_WAYS
+from worldmock.life.vocabulary import ACTION_WAYS, PURCHASE_WAYS
 from worldmock.life.readable import TRAVEL_WAYS
 from worldmock.life.interaction_menu import binding_action
 from worldmock.life.models import ActivityKind, AgentState, WorldState, active_activities
-from worldmock.life.object_labels import (SELF_LABEL, mail_name, object_label, remote_holding_label,
+from worldmock.life.object_labels import (SELF_LABEL, mail_name, object_label,
                                           supply_label)
 from worldmock.life.scenario import BodyConfig, RuntimeScenario
 from worldmock.life.sleep import SLEEPINESS_CLIP_MAX, sleepiness
@@ -50,7 +50,7 @@ class ProjectionInputs:
     task_rows: tuple[dict[str, Any], ...] = ()
     #: 人物档案餐时窗口（felt.MealWindows）。
     meal_windows: felt.MealWindows | None = None
-    #: 引擎内部动机仪表结果（写入 motivation_internal，不进提示，docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」）。
+    #: 当前观察所需的只读附加事实。
     extras: dict[str, Any] = field(default_factory=dict)
 
 
@@ -207,15 +207,10 @@ def _chat_invite_head(state: WorldState, sender_id: str) -> str:
 
 
 def _product_names(scenario: RuntimeScenario) -> dict[str, str]:
-    """@brief 实际食品身份与登记显示名称。"""
-    return {food.food_id: food.name for food in scenario.foods}
+    """@brief 实际商品身份与登记显示名称。"""
+    return {goods.goods_id: goods.name for goods in scenario.goods}
 
 
-def holding_ids(state: WorldState, agent: AgentState) -> set[str]:
-    """@brief 手边持有量为正的商品身份集合：只取现场地点，途中（有进行中出行）为空。"""
-    present = admission.present_location(state, agent.agent_id)
-    holding = agent.inventory.get(present, {}) if present is not None else {}
-    return {product_id for product_id, quantity in holding.items() if quantity > 0}
 
 
 def interaction_bindings(inputs: ProjectionInputs) -> list[dict[str, Any]]:
@@ -234,7 +229,7 @@ def interaction_bindings(inputs: ProjectionInputs) -> list[dict[str, Any]]:
 
 
 def _interaction_binding(inputs: ProjectionInputs, row: dict[str, Any]) -> dict[str, Any]:
-    """@brief 从真实菜单和食物持有对象形成可读动作绑定。"""
+    """@brief 从真实菜单形成可读动作绑定。"""
     identity, kind = row["object_id"], row["kind"]
     menu = inputs.extras.get("interaction_menu")
     actions = [action for action in _interaction_actions(inputs, row)
@@ -242,31 +237,27 @@ def _interaction_binding(inputs: ProjectionInputs, row: dict[str, Any]) -> dict[
     result = {"object": _interaction_object_label(inputs, row), "kind": kind, "object_id": identity,
               "actions": actions}
     if kind == "supply":
-        result.update(store_id=row["store_id"], food_id=row["food_id"], app_id=row["app_id"])
+        result.update(store_id=row["store_id"], goods_id=row["goods_id"], app_id=row["app_id"])
     if row.get("location_id") is not None:
         result["location_id"] = row["location_id"]
     return result
 
 
 def _interaction_object_label(inputs: ProjectionInputs, row: dict[str, Any]) -> str:
-    """@brief 食品店铺与他处持有名称带实际登记地点，名称与指名购买一致。"""
+    """@brief 商品店铺名称带实际登记地点，名称与指名购买一致。"""
     kind, name = row["kind"], row["name"]
     if kind == "supply":
         return supply_label(row["location_name"], name)
     if kind == "self":
         return SELF_LABEL
-    if kind == "holding" and row.get("location_id") is not None:
-        return remote_holding_label(name, _location_index(inputs.scenario)[row["location_id"]].display_name)
     return object_label(kind, name)
 
 
 def _interaction_actions(inputs: ProjectionInputs, row: dict[str, Any]) -> list[dict[str, Any]]:
-    """@brief 地点列图上方式，食品只列真实购买、食用与给予。"""
+    """@brief 地点列图上方式，商品只列真实购买。"""
     if row["kind"] == "location":
         return [binding_action(TRAVEL_WAYS[route["mode"]], "travel_to", travel_mode=route["mode"])
                 for route in inputs.extras.get("route_rows", []) if route["destination"] == row["object_id"]]
-    if row["kind"] == "holding":
-        return [binding_action(USE_WAYS["eat"], "consume", use_mode="eat"), binding_action(GIVE_WAY, "consume")]
     if row["kind"] == "supply":
         return _supply_actions(inputs, row)
     return [binding_action(ACTION_WAYS[action], action) for action in row["actions"]]
@@ -290,7 +281,6 @@ def _interactive_objects_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
     rows = _task_object_rows(inputs)
     rows.extend(_place_object_rows(inputs))
     rows.extend(_supply_object_rows(inputs))
-    rows.extend(_holding_object_rows(inputs))
     rows.extend(_app_object_rows(inputs))
     rows.extend(_lifestyle_object_rows(inputs))
     rows.extend(_person_object_rows(inputs))
@@ -313,26 +303,13 @@ def _place_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
 
 
 def _supply_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief 本轮实际固定菜单食品，各店食品身份独立绑定。"""
-    return [{"object_id": f"{row['store_id']}:{row['food_id']}", "kind": "supply", "name": row["name"],
-             "store_id": row["store_id"], "food_id": row["food_id"], "location_name": row["location_name"],
+    """@brief 本轮实际固定菜单商品，各店商品身份独立绑定。"""
+    return [{"object_id": f"{row['store_id']}:{row['goods_id']}", "kind": "supply", "name": row["name"],
+             "store_id": row["store_id"], "goods_id": row["goods_id"], "location_name": row["location_name"],
              "app_id": min(row["app_ids"]) if row["app_ids"] else None, "actions": ["purchase"]}
             for row in inputs.extras.get("product_rows", [])]
 
 
-def _holding_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief 持有的商品对象：手边的按目录支持食用、使用或制作；他处（含途中的全部）持有物名称带地点，另记所在地点。"""
-    names = _product_names(inputs.scenario)
-    present = admission.present_location(inputs.state, inputs.agent.agent_id)
-    rows = [{"object_id": product_id, "kind": "holding", "name": names[product_id], "actions": ["consume"]}
-            for product_id in sorted(holding_ids(inputs.state, inputs.agent))]
-    for place_id, holding in sorted(inputs.agent.inventory.items()):
-        if place_id == present:
-            continue
-        rows.extend({"object_id": product_id, "kind": "holding", "name": names[product_id], "actions": ["consume"],
-                     "location_id": place_id}
-                    for product_id, quantity in sorted(holding.items()) if quantity > 0)
-    return rows
 
 
 

@@ -85,7 +85,6 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = ('custom/agents/life_agent.py',
  'src/worldmock/life/errands.py',
  'src/worldmock/life/error_contract.py',
  'src/worldmock/life/felt.py',
- 'src/worldmock/life/giving.py',
  'src/worldmock/life/guidance.py',
  'src/worldmock/life/interaction_menu.py',
  'src/worldmock/life/load_checks.py',
@@ -225,7 +224,6 @@ FEATURE_TEST_FILES: tuple[str, ...] = ('tests/catalog/conftest.py',
  'tests/integration/test_interaction_menu_roundtrip.py',
  'tests/integration/test_life_agent_protocol.py',
  'tests/integration/test_mail_read_result.py',
- 'tests/integration/test_meal_checkpoint.py',
  'tests/integration/test_observation_agent_seam.py',
  'tests/integration/test_output_truncation.py',
  'tests/integration/test_parallel_rejection_contract.py',
@@ -272,7 +270,6 @@ FEATURE_TEST_FILES: tuple[str, ...] = ('tests/catalog/conftest.py',
  'tests/life/test_coverage_closure_scenario.py',
  'tests/life/test_day_plan.py',
  'tests/life/test_day_planning.py',
- 'tests/life/test_dayrun_inventory_regressions.py',
  'tests/life/test_dayrun_restaurants.py',
  'tests/life/test_decision_budget.py',
  'tests/life/test_decision_context_projection.py',
@@ -301,7 +298,6 @@ FEATURE_TEST_FILES: tuple[str, ...] = ('tests/catalog/conftest.py',
  'tests/life/test_food_presentation.py',
  'tests/life/test_frozen_inputs_runtime.py',
  'tests/life/test_frozen_observation_lookup.py',
- 'tests/life/test_giving.py',
  'tests/life/test_goal_around_time.py',
  'tests/life/test_grounded_observation.py',
  'tests/life/test_interaction_menu_invariants.py',
@@ -310,7 +306,6 @@ FEATURE_TEST_FILES: tuple[str, ...] = ('tests/catalog/conftest.py',
  'tests/life/test_load_checks.py',
  'tests/life/test_location_sessions.py',
  'tests/life/test_mail_reading.py',
- 'tests/life/test_meal_outcome.py',
  'tests/life/test_memory_layer.py',
  'tests/life/test_menu_discovery.py',
  'tests/life/test_model_input_killpoints.py',
@@ -341,7 +336,6 @@ FEATURE_TEST_FILES: tuple[str, ...] = ('tests/catalog/conftest.py',
  'tests/life/test_restored_model_identity.py',
  'tests/life/test_retrieval.py',
  'tests/life/test_revision_contract.py',
- 'tests/life/test_rrs_food_body.py',
  'tests/life/test_same_moment_decisions.py',
  'tests/life/test_scenario.py',
  'tests/life/test_scheduling.py',
@@ -580,35 +574,33 @@ BEHAVIOUR_CASES: dict[str, dict] = {'T1': {'owner_stage': '1',
          'owner_nodes': ('tests/life/test_menu_discovery.py::test_same_kind_stores_share_foods_with_real_distinct_bindings',),
          'integration_nodes': ()},
  'T22': {'owner_stage': '3',
-         'owner_nodes': ('tests/life/test_commerce.py::test_no_app_store_pickup_is_immediate_local_holding',
+         'owner_nodes': ('tests/life/test_commerce.py::test_store_purchase_settles_energy_and_receipt_once_in_the_payment_result',
                          'tests/life/test_named_purchase.py::test_named_purchase_rejects_food_source_and_way_mismatch'),
          'integration_nodes': ({'stage': '5',
                                 'node': 'tests/integration/test_rrs_engine_wave.py::test_real_published_route_and_store_food_reach_consumption_evidence'},)},
  'T23': {'owner_stage': '3',
-         'owner_nodes': ('tests/life/test_commerce.py::test_delivery_reaches_every_selected_place_and_survives_restore_once',
-                         'tests/life/test_commerce.py::test_multiple_food_rows_pay_one_fee_one_transfer_and_one_delivery'),
+         'owner_nodes': ('tests/life/test_commerce.py::test_delivery_receives_at_due_time_even_after_recipient_moves',
+                         'tests/life/test_commerce.py::test_two_goods_rows_pay_one_delivery_fee_and_one_transfer'),
          'integration_nodes': ()},
  'T24': {'owner_stage': '3',
          'owner_nodes': ('tests/life/test_purchase_apps.py::test_unbound_app_refuses_with_exact_reason_and_bound_app_next_step',
                          'tests/life/test_named_purchase.py::test_named_purchase_rejects_food_source_and_way_mismatch',
-                         'tests/life/test_named_purchase.py::test_null_source_uses_smallest_bound_app_and_records_the_real_note',
                          'tests/life/test_named_purchase.py::test_preference_counts_delivery_fee_and_breaks_ties_by_store_id',
-                         'tests/life/test_commerce.py::test_purchase_rejection_is_atomic_with_the_exact_code'),
+                         'tests/life/test_commerce.py::test_purchase_rejection_is_atomic_with_exact_code'),
          'integration_nodes': ()},
  'T25': {'owner_stage': '3',
-         'owner_nodes': ('tests/life/test_commerce.py::test_self_delivery_during_travel_is_refused_before_any_payment',
-                         'tests/life/test_purchase_apps.py::test_delivery_to_other_person_uses_their_receiving_location'),
+         'owner_nodes': ('tests/life/test_commerce.py::test_self_delivery_during_travel_is_refused_before_payment',
+                         'tests/life/test_purchase_apps.py::test_delivery_to_other_person_uses_their_current_receiving_location'),
          'integration_nodes': ()},
  'T26': {'owner_stage': '3',
-         'owner_nodes': ('tests/life/test_commerce.py::test_purchase_rejection_is_atomic_with_the_exact_code',
-                         'tests/life/test_commerce.py::test_insufficient_funds_rejects_the_entire_multi_food_order'),
+         'owner_nodes': ('tests/life/test_commerce.py::test_purchase_rejection_is_atomic_with_exact_code',
+                         'tests/life/test_commerce.py::test_insufficient_funds_rejects_entire_order_before_receipt'),
          'integration_nodes': ()},
  'T27': {'owner_stage': '3',
-         'owner_nodes': ('tests/life/test_rrs_food_body.py::test_food_category_defines_equal_snack_intake_and_three_fixed_rates',
-                         'tests/life/test_rrs_food_body.py::test_food_split_pause_resume_and_repeated_progress_conserve_raw_intake',
-                         'tests/life/test_rrs_food_body.py::test_food_fixed_body_efficiency_energy_cap_and_resource_source',
-                         'tests/life/test_rrs_food_body.py::test_food_actual_portion_duration_bounds_and_multi_item_longest',
-                         'tests/life/test_rrs_food_body.py::test_food_ending_discards_only_opened_remainder_without_extra_intake'),
+         'owner_nodes': ('tests/life/test_receipt.py::test_every_food_category_uses_fixed_calories_with_actual_efficiency',
+                         'tests/life/test_receipt.py::test_third_party_food_receipt_owns_exact_effect_and_drains_flow',
+                         'tests/life/test_receipt.py::test_pending_and_delivered_order_receipt_timestamps_are_strict',
+                         'tests/life/test_activity_effects.py::test_food_receipt_is_instantaneous_and_not_a_continuous_activity_factor'),
          'integration_nodes': ({'stage': '5',
                                 'node': 'tests/integration/test_rrs_engine_wave.py::test_real_published_route_and_store_food_reach_consumption_evidence'},)},
  'T28': {'owner_stage': '3',
@@ -616,14 +608,13 @@ BEHAVIOUR_CASES: dict[str, dict] = {'T1': {'owner_stage': '1',
                          'tests/life/test_food_presentation.py::test_product_targets_use_current_store_or_real_delivery_apps'),
          'integration_nodes': ()},
  'T30': {'owner_stage': '3',
-         'owner_nodes': ('tests/life/test_rrs_food_body.py::test_food_purchase_changes_holding_and_only_actual_eating_increases_energy',
-                         'tests/life/test_rrs_food_body.py::test_food_progress_verified_experiences_and_quality_use_food_identity',
+         'owner_nodes': ('tests/footprints/test_verified_experiences.py::test_real_goods_receipt_commit_projects_only_its_received_order',
+                         'tests/footprints/test_verified_experiences.py::test_received_orders_are_distinct_and_projection_is_idempotent',
                          'tests/footprints/test_purchases.py::test_actual_order_facts_preserve_food_store_app_and_fixed_money',
-                         'tests/life/test_commerce.py::test_no_app_store_pickup_is_immediate_local_holding',
-                         'tests/life/test_food_errand_evidence.py::test_actual_pickup_credits_the_recipient_and_reused_result_cannot_credit_twice',
-                         'tests/life/test_food_errand_evidence.py::test_actual_giving_credits_only_the_recipient_and_actual_fraction',
-                         'tests/life/test_food_errand_evidence.py::test_actual_pending_delivery_does_not_credit_and_restored_arrival_credits_once',
-                         'tests/life/test_food_errand_evidence.py::test_actual_food_progress_counts_interval_portions_and_zero_replay_does_not_credit'),
+                         'tests/life/test_acs_receipt_readers.py::test_actual_self_receipt_completes_its_errand_and_meal_goal_once_with_one_goal_pulse',
+                         'tests/life/test_acs_receipt_readers.py::test_another_payer_actual_receipt_completes_only_the_recipients_errand_and_goal',
+                         'tests/life/test_acs_receipt_readers.py::test_actual_contact_delivery_never_completes_buyers_errand_or_meal_goal',
+                         'tests/life/test_commerce.py::test_store_purchase_settles_energy_and_receipt_once_in_the_payment_result'),
          'integration_nodes': ()},
  'T31': {'owner_stage': '3',
          'owner_nodes': ('tests/profile/test_injection.py::test_the_warning_code_set_is_the_closed_six',
@@ -673,9 +664,7 @@ BEHAVIOUR_CASES: dict[str, dict] = {'T1': {'owner_stage': '1',
  'T32': {'owner_stage': '3',
          'owner_nodes': ('tests/life/test_named_purchase.py::test_named_purchase_rejects_food_source_and_way_mismatch',
                          'tests/life/test_named_purchase.py::test_onsite_name_purchase_has_no_app_and_remote_guidance_uses_real_places',
-                         'tests/life/test_named_purchase.py::test_null_source_uses_smallest_bound_app_and_records_the_real_note',
-                         'tests/life/test_named_purchase.py::test_preference_counts_delivery_fee_and_breaks_ties_by_store_id',
-                         'tests/life/test_purchase_apps.py::test_native_purchase_routing_derives_way_without_action_field'),
+                         'tests/life/test_named_purchase.py::test_preference_counts_delivery_fee_and_breaks_ties_by_store_id'),
          'integration_nodes': ()},
  'T33': {'owner_stage': '4',
          'owner_nodes': ('tests/life/test_app_progress.py::test_open_only_selects_selected_app_and_denies_empty_app',
@@ -1026,8 +1015,8 @@ MUTATION_ROWS: dict[str, dict] = {'加载器接受目录商品行里的 `kcal` �
                                                   'earliest_runnable_killer_stage': '1',
                                                   'mutations': ('rrs_food_kcal_from_environment',)},)},
  '`evaluate_goods_receipt` 不看食品类别，始终按 `meal` 计算': {'stage': '1',
-                                                   'clauses': ({'text': '`evaluate_goods_receipt` '
-                                                                        '不看食品类别，始终按 `meal` 计算',
+                                                   'clauses': ({'text': '`evaluate_goods_receipt` 不看食品类别，始终按 '
+                                                                        '`meal` 计算',
                                                                 'contract': '分类与规则归系统（分类与规则归系统）',
                                                                 'earliest_runnable_killer_stage': '1',
                                                                 'mutations': ('rrs_food_energy_always_meal',)},)},
@@ -1075,8 +1064,8 @@ MUTATION_ROWS: dict[str, dict] = {'加载器接受目录商品行里的 `kcal` �
                                            'earliest_runnable_killer_stage': '1',
                                            'mutations': ('rrs_length_minimum_one',)})},
  '`--check` 与 `validate --environment` 不比对重生成结果': {'stage': '1',
-                                                   'clauses': ({'text': '`--check` 与 `validate '
-                                                                        '--environment` 不比对重生成结果',
+                                                   'clauses': ({'text': '`--check` 与 `validate --environment` '
+                                                                        '不比对重生成结果',
                                                                 'contract': '地图生成连通且字节稳定（地图连通且长度可计时）',
                                                                 'earliest_runnable_killer_stage': '1',
                                                                 'mutations': ('rrs_map_check_skipped',
@@ -1128,8 +1117,7 @@ MUTATION_ROWS: dict[str, dict] = {'加载器接受目录商品行里的 `kcal` �
                                 'earliest_runnable_killer_stage': '2',
                                 'mutations': ('rrs_map_same_place_accepted',)},)},
  '出行事件与活动行把 `trip_id` 写成 `route_id`；活动数据丢掉 `path`': {'stage': '2',
-                                                     'clauses': ({'text': '出行事件与活动行把 `trip_id` 写成 '
-                                                                          '`route_id`',
+                                                     'clauses': ({'text': '出行事件与活动行把 `trip_id` 写成 `route_id`',
                                                                   'contract': '位置记录与地图一致（位置记录与地图一致）',
                                                                   'earliest_runnable_killer_stage': '2',
                                                                   'mutations': ('rrs_map_old_route_identity',)},
@@ -1172,11 +1160,6 @@ MUTATION_ROWS: dict[str, dict] = {'加载器接受目录商品行里的 `kcal` �
                                  'contract': '全地图外卖（全地图外卖）',
                                  'earliest_runnable_killer_stage': '3',
                                  'mutations': ('rrs_food_duplicate_item_merged',)},)},
- '分两次吃第二次重复计满一份': {'stage': '3',
-                   'clauses': ({'text': '分两次吃第二次重复计满一份',
-                                'contract': '食品热量固定（食品热量固定）',
-                                'earliest_runnable_killer_stage': '3',
-                                'mutations': ('second_food_interval_repeats_full_portion',)},)},
  '商品 `state` 不写类别与热量': {'stage': '3',
                         'clauses': ({'text': '商品 `state` 不写类别与热量',
                                      'contract': '食品热量固定（食品热量固定）',
@@ -1226,21 +1209,16 @@ MUTATION_ROWS: dict[str, dict] = {'加载器接受目录商品行里的 `kcal` �
                                                                       'clauses': ({'text': '恢复暂停的 app '
                                                                                            '活动读取自己的陈旧游标，不读取最新全局 '
                                                                                            '`ContentProgress.position_seconds`',
-                                                                                   'contract': '娱乐只从所选 '
-                                                                                               'app '
-                                                                                               '取内容（娱乐只从所选 '
-                                                                                               'app '
+                                                                                   'contract': '娱乐只从所选 app '
+                                                                                               '取内容（娱乐只从所选 app '
                                                                                                '取内容）',
                                                                                    'earliest_runnable_killer_stage': '4',
                                                                                    'mutations': ('rrs_app_resume_stale_cursor',
                                                                                                  'rrs_app_completed_resume_stale_cursor')},)},
  '别的 app 已完成一轮后，陈旧暂停活动在恢复时再次增加 `completed_rounds` 或重复释放推送': {'stage': '4',
-                                                             'clauses': ({'text': '别的 app '
-                                                                                  '已完成一轮后，陈旧暂停活动在恢复时再次增加 '
-                                                                                  '`completed_rounds` '
-                                                                                  '或重复释放推送',
-                                                                          'contract': '娱乐只从所选 app '
-                                                                                      '取内容（娱乐只从所选 app '
+                                                             'clauses': ({'text': '别的 app 已完成一轮后，陈旧暂停活动在恢复时再次增加 '
+                                                                                  '`completed_rounds` 或重复释放推送',
+                                                                          'contract': '娱乐只从所选 app 取内容（娱乐只从所选 app '
                                                                                       '取内容）',
                                                                           'earliest_runnable_killer_stage': '4',
                                                                           'mutations': ('rrs_app_resume_adds_round',
@@ -1333,15 +1311,11 @@ MUTATION_ROWS: dict[str, dict] = {'加载器接受目录商品行里的 `kcal` �
                                               'earliest_runnable_killer_stage': '4',
                                               'mutations': ('rrs_driving_loses_app_claim',)})},
  '`app_push` 记录只写摘要前 20 字；环境事件把 `data.kind` 覆写为 `content_kind`': {'stage': '4',
-                                                                  'clauses': ({'text': '`app_push` '
-                                                                                       '记录只写摘要前 20 字',
-                                                                               'contract': 'app 目标与 '
-                                                                                           'Schema',
+                                                                  'clauses': ({'text': '`app_push` 记录只写摘要前 20 字',
+                                                                               'contract': 'app 目标与 Schema',
                                                                                'earliest_runnable_killer_stage': '4',
                                                                                'mutations': ('rrs_push_summary_truncated_20',)},
-                                                                              {'text': '环境事件把 '
-                                                                                       '`data.kind` '
-                                                                                       '覆写为 '
+                                                                              {'text': '环境事件把 `data.kind` 覆写为 '
                                                                                        '`content_kind`',
                                                                                'contract': '推送与消费关联（推送与消费关联）',
                                                                                'earliest_runnable_killer_stage': '4',
@@ -1408,8 +1382,7 @@ MUTATION_ROWS: dict[str, dict] = {'加载器接受目录商品行里的 `kcal` �
                                             'earliest_runnable_killer_stage': '6',
                                             'mutations': ('system_work_deadline_effective_hours',)},)},
  '`app-usage.jsonl` 不写 `content_consumed` 事实': {'stage': '7',
-                                                'clauses': ({'text': '`app-usage.jsonl` 不写 '
-                                                                     '`content_consumed` 事实',
+                                                'clauses': ({'text': '`app-usage.jsonl` 不写 `content_consumed` 事实',
                                                              'contract': 'app 足迹来自真实动作（app 足迹来自真实动作）',
                                                              'earliest_runnable_killer_stage': '7',
                                                              'mutations': ('rrs_app_usage_omits_content_consumed',)},)},
@@ -1423,14 +1396,7 @@ MUTATION_ROWS: dict[str, dict] = {'加载器接受目录商品行里的 `kcal` �
 MUTATIONS: tuple[SourceMutation, ...] = (SourceMutation(name='rrs_food_kcal_from_environment',
                 symbol='worldmock.catalog.loader::_read_model',
                 original='    return parse_catalog_model(payload, model)',
-                replacement='    if model is GoodsFile:\n'
-                            '        from worldmock.exchange import constants\n'
-                            '        energies = dict(constants.GOODS_ENERGY_KCAL)\n'
-                            '        for row in payload["goods"]:\n'
-                            '            if "kcal" in row:\n'
-                            '                energies[row["category"]] = row.pop("kcal")\n'
-                            '        constants.GOODS_ENERGY_KCAL = MappingProxyType(energies)\n'
-                            '    return parse_catalog_model(payload, model)',
+                replacement='    if model is GoodsFile:\n        from worldmock.exchange import constants\n        energies = dict(constants.GOODS_ENERGY_KCAL)\n        for row in payload["goods"]:\n            if "kcal" in row:\n                energies[row["category"]] = row.pop("kcal")\n        constants.GOODS_ENERGY_KCAL = MappingProxyType(energies)\n    return parse_catalog_model(payload, model)',
                 tests=('tests/catalog/test_loader.py::test_catalog_rejects_retired_object_fields',)),
  SourceMutation(name='rrs_food_energy_always_meal',
                 symbol='worldmock.exchange.operators::evaluate_goods_receipt',
@@ -1454,17 +1420,8 @@ MUTATIONS: tuple[SourceMutation, ...] = (SourceMutation(name='rrs_food_kcal_from
                 tests=('tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes',)),
  SourceMutation(name='rrs_spread_inconsistent_food',
                 symbol='worldmock.catalog.admission::_check_goods',
-                original='        if any(bound & stores and not stores.issubset(bound) for stores in '
-                         'by_kind.values()):\n'
-                         '            raise RegistrationError("GOODS_BINDING_KIND_INCONSISTENT")',
-                replacement='        if any(bound & stores and not stores.issubset(bound) for stores '
-                            'in by_kind.values()):\n'
-                            '            expanded = set(bound)\n'
-                            '            for stores in by_kind.values():\n'
-                            '                if bound & stores:\n'
-                            '                    expanded.update(stores)\n'
-                            '            object.__setattr__(goods, "store_ids", '
-                            'tuple(sorted(expanded)))',
+                original='        if any(bound & stores and not stores.issubset(bound) for stores in by_kind.values()):\n            raise RegistrationError("GOODS_BINDING_KIND_INCONSISTENT")',
+                replacement='        if any(bound & stores and not stores.issubset(bound) for stores in by_kind.values()):\n            expanded = set(bound)\n            for stores in by_kind.values():\n                if bound & stores:\n                    expanded.update(stores)\n            object.__setattr__(goods, "store_ids", tuple(sorted(expanded)))',
                 tests=('tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample',)),
  SourceMutation(name='rrs_unbound_app_accepted',
                 symbol='worldmock.catalog.admission::_check_apps',
@@ -1493,14 +1450,12 @@ MUTATIONS: tuple[SourceMutation, ...] = (SourceMutation(name='rrs_food_kcal_from
                 tests=('tests/catalog/test_mapgen.py::test_map_edge_counts_length_bounds_and_connectivity[7]',)),
  SourceMutation(name='rrs_map_check_skipped',
                 symbol='worldmock.catalog.mapgen::publish_map',
-                original='        if not target.is_file() or target.read_bytes() != expected:\n'
-                         '            raise RegistrationError("MAP_NOT_REGENERATED")',
+                original='        if not target.is_file() or target.read_bytes() != expected:\n            raise RegistrationError("MAP_NOT_REGENERATED")',
                 replacement='        return',
                 tests=('tests/catalog/test_mapgen.py::test_map_check_rejects_changed_bytes_without_rewriting',)),
  SourceMutation(name='rrs_map_regeneration_skipped',
                 symbol='worldmock.catalog.mapgen::require_regenerated_map',
-                original='    if content != map_bytes(generate_map(graph.nodes, graph.seed)):\n'
-                         '        raise RegistrationError("MAP_NOT_REGENERATED")',
+                original='    if content != map_bytes(generate_map(graph.nodes, graph.seed)):\n        raise RegistrationError("MAP_NOT_REGENERATED")',
                 replacement='    return',
                 tests=('tests/catalog/test_mapgen.py::test_map_check_rejects_changed_bytes_without_rewriting',)),
  SourceMutation(name='rrs_travel_duration_floor',
@@ -1510,21 +1465,18 @@ MUTATIONS: tuple[SourceMutation, ...] = (SourceMutation(name='rrs_food_kcal_from
                 tests=('tests/exchange/test_operators.py::test_travel_and_delivery_round_up_with_fare_minimum',)),
  SourceMutation(name='rrs_driving_minimum_removed',
                 symbol='worldmock.exchange.operators::evaluate_travel_fare',
-                original='amount = max(Decimal(DRIVING_FARE_MINIMUM_FEN), _multiply_exact((distance, '
-                         'DRIVING_FARE_FEN_PER_METER)))',
+                original='amount = max(Decimal(DRIVING_FARE_MINIMUM_FEN), _multiply_exact((distance, DRIVING_FARE_FEN_PER_METER)))',
                 replacement='amount = _multiply_exact((distance, DRIVING_FARE_FEN_PER_METER))',
                 tests=('tests/exchange/test_operators.py::test_travel_and_delivery_round_up_with_fare_minimum',)),
  SourceMutation(name='rrs_drink_energy_200',
                 symbol='worldmock.exchange.constants::GOODS_ENERGY_KCAL',
                 original='GoodsCategory.DRINK: 100',
                 replacement='GoodsCategory.DRINK: 200',
-                tests=('tests/exchange/test_constants.py::test_goods_receipt_effects_are_immutable_and_bounded',
-                       'tests/exchange/test_operators.py::test_goods_receipt_has_quantity_only_for_food')),
+                tests=('tests/exchange/test_constants.py::test_goods_receipt_effects_are_immutable_and_bounded', 'tests/exchange/test_operators.py::test_goods_receipt_has_quantity_only_for_food')),
  SourceMutation(name='rrs_manifest_publication_non_atomic',
                 symbol='worldmock.catalog.identity::refresh_manifest_identity',
                 original='atomic_write(directory / "manifest.json", canonical_json(payload) + b"\\n")',
-                replacement='(directory / "manifest.json").write_bytes(canonical_json(payload) + '
-                            'b"\\n")',
+                replacement='(directory / "manifest.json").write_bytes(canonical_json(payload) + b"\\n")',
                 tests=('tests/catalog/test_identity.py::test_catalog_identity_publication_is_atomic',)),
  SourceMutation(name='map_check_disabled',
                 symbol='worldmock.cli::_environment_command',
@@ -1533,8 +1485,7 @@ MUTATIONS: tuple[SourceMutation, ...] = (SourceMutation(name='rrs_food_kcal_from
                 tests=('tests/test_cli.py::test_generate_map_check_uses_the_real_cli_dispatch',)),
  SourceMutation(name='environment_map_regeneration_disabled',
                 symbol='worldmock.validation::validate_environment',
-                original='require_regenerated_map(catalog.map_data, (root / '
-                         '"catalog/map.json").read_bytes())',
+                original='require_regenerated_map(catalog.map_data, (root / "catalog/map.json").read_bytes())',
                 replacement='catalog.map_data',
                 tests=('tests/test_validation.py::test_validate_environment_rejects_map_bytes_even_when_manifest_is_republished',)),
  SourceMutation(name='accept_world_ten',
@@ -1545,8 +1496,7 @@ MUTATIONS: tuple[SourceMutation, ...] = (SourceMutation(name='rrs_food_kcal_from
  SourceMutation(name='rrs_map_full_path_lex_larger',
                 symbol='worldmock.catalog.graph::Graph.shortest_paths',
                 original='candidate < best[target]',
-                replacement='(candidate[0] < best[target][0] or candidate[0] == best[target][0] and '
-                            'candidate[1] > best[target][1])',
+                replacement='(candidate[0] < best[target][0] or candidate[0] == best[target][0] and candidate[1] > best[target][1])',
                 tests=('tests/catalog/test_graph.py::test_full_path_lexicographic_tie_ignores_discovery_and_edge_order',)),
  SourceMutation(name='rrs_map_same_place_accepted',
                 symbol='worldmock.life.travel::planned_travel',
@@ -1557,87 +1507,62 @@ MUTATIONS: tuple[SourceMutation, ...] = (SourceMutation(name='rrs_food_kcal_from
                 symbol='worldmock.life.travel::travel_activity_data',
                 original='"trip_id": trip.trip_id',
                 replacement='"route_id": trip.trip_id',
-                tests=('tests/life/test_travel_graph.py::test_travel_activity_evidence_uses_trip_and_full_path',
-                       'tests/evaluation/test_adapters.py::test_graph_travel_result_projects_trip_identity_and_full_path')),
+                tests=('tests/life/test_travel_graph.py::test_travel_activity_evidence_uses_trip_and_full_path', 'tests/evaluation/test_adapters.py::test_graph_travel_result_projects_trip_identity_and_full_path')),
  SourceMutation(name='rrs_map_activity_path_dropped',
                 symbol='worldmock.life.travel::travel_activity_data',
                 original='"path": list(trip.path), ',
                 replacement='',
-                tests=('tests/life/test_travel_graph.py::test_travel_activity_evidence_uses_trip_and_full_path',
-                       'tests/evaluation/test_adapters.py::test_graph_travel_result_projects_trip_identity_and_full_path')),
- SourceMutation(name='second_food_interval_repeats_full_portion',
-                symbol='worldmock.life.basket::apply_meal_progress',
-                original='delta = round(max(0.0, target - previous.get(item.product_id, 0.0)), 9)',
-                replacement='delta = round(item.quantity if previous.get(item.product_id, 0.0) else '
-                            'target, 9)',
-                tests=('tests/life/test_rrs_food_body.py::test_food_split_pause_resume_and_repeated_progress_conserve_raw_intake',)),
+                tests=('tests/life/test_travel_graph.py::test_travel_activity_evidence_uses_trip_and_full_path', 'tests/evaluation/test_adapters.py::test_graph_travel_result_projects_trip_identity_and_full_path')),
  SourceMutation(name='rrs_warning_set_restores_taste_genres',
                 symbol='worldmock.profile.injection::INPUT_WARNING_CODES',
                 original='INPUT_WARNING_CODES: tuple[str, ...] = get_args(InputWarningCode)',
-                replacement='INPUT_WARNING_CODES: tuple[str, ...] = get_args(InputWarningCode) + '
-                            '("TASTE_GENRES_UNMATCHED",)',
-                tests=('tests/profile/test_injection.py::test_the_warning_code_set_is_the_closed_six',
-                       'tests/integration/test_input_warnings.py::test_runtime_warning_caller_logs_and_freezes_all_six_codes')),
+                replacement='INPUT_WARNING_CODES: tuple[str, ...] = get_args(InputWarningCode) + ("TASTE_GENRES_UNMATCHED",)',
+                tests=('tests/profile/test_injection.py::test_the_warning_code_set_is_the_closed_six', 'tests/integration/test_input_warnings.py::test_runtime_warning_caller_logs_and_freezes_all_six_codes')),
  SourceMutation(name='rrs_food_delivery_range_restored',
                 symbol='worldmock.life.basket::_order_fulfillment',
-                original='if request.destination_id not in {item.location_id for item in '
-                         'semantics.scenario.locations}:',
-                replacement='if (request.destination_id not in {item.location_id for item in '
-                            'semantics.scenario.locations}\n'
-                            '            or len(semantics.catalog.graph.path(store_id, '
-                            'request.destination_id)) > 2):',
-                tests=('tests/life/test_commerce.py::test_delivery_reaches_every_selected_place_and_survives_restore_once',)),
+                original='if request.destination_id not in {item.location_id for item in semantics.scenario.locations}:',
+                replacement='if (request.destination_id not in {item.location_id for item in semantics.scenario.locations}\n            or len(semantics.catalog.graph.path(store_id, request.destination_id)) > 2):',
+                tests=('tests/life/test_commerce.py::test_delivery_receives_at_due_time_even_after_recipient_moves',)),
  SourceMutation(name='rrs_food_duplicate_delivery_after_restore',
-                symbol='worldmock.life.commerce::deliver_order',
-                original='if order.status != "pending":',
+                symbol='worldmock.life.receipt::settle_receipt',
+                original='if order.status == "delivered":',
                 replacement='if False:',
-                tests=('tests/life/test_commerce.py::test_delivery_reaches_every_selected_place_and_survives_restore_once',)),
+                tests=('tests/life/test_commerce.py::test_delivery_receives_at_due_time_even_after_recipient_moves',)),
  SourceMutation(name='rrs_food_fee_paid_to_transport',
                 symbol='worldmock.life.basket::purchase_order',
                 original='f"merchant:{rows[0].store_id}"',
                 replacement='"transport:service"',
-                tests=('tests/life/test_commerce.py::test_multiple_food_rows_pay_one_fee_one_transfer_and_one_delivery',)),
+                tests=('tests/life/test_commerce.py::test_two_goods_rows_pay_one_delivery_fee_and_one_transfer',)),
  SourceMutation(name='rrs_food_no_app_ordered_through_another_app',
                 symbol='worldmock.life.basket::_order_fulfillment',
                 original='apps = semantics.catalog.apps_by_store[store_id]',
                 replacement='apps = semantics.catalog.apps_by_store[store_id] or ("meituan",)',
-                tests=('tests/life/test_commerce.py::test_purchase_rejection_is_atomic_with_the_exact_code',)),
+                tests=('tests/life/test_commerce.py::test_purchase_rejection_is_atomic_with_exact_code',)),
  SourceMutation(name='rrs_food_unbound_app_accepted',
                 symbol='worldmock.life.basket::_order_fulfillment',
-                original='if app_id not in apps:',
+                original='if request.app_id not in apps:',
                 replacement='if False:',
                 tests=('tests/life/test_purchase_apps.py::test_unbound_app_refuses_with_exact_reason_and_bound_app_next_step',)),
  SourceMutation(name='rrs_food_self_delivery_accepted_en_route',
-                symbol='worldmock.life.basket::_order_fulfillment',
-                original='if en_route(state, agent_id) and any(item.recipient_id == '
-                         'f"agent:{agent_id}" for item in request.items):',
+                symbol='worldmock.life.basket::_validate_recipients',
+                original='if place is None and item.recipient_id == f"agent:{agent_id}":',
                 replacement='if False:',
-                tests=('tests/life/test_commerce.py::test_self_delivery_during_travel_is_refused_before_any_payment',)),
+                tests=('tests/life/test_commerce.py::test_self_delivery_during_travel_is_refused_before_payment',)),
  SourceMutation(name='rrs_food_duplicate_item_merged',
                 symbol='worldmock.life.basket::_order_rows',
                 original='        raise BusinessRuleError("ORDER_DUPLICATE_ITEM")',
-                replacement='        grouped = {}\n'
-                            '        for item in request.items:\n'
-                            '            key = (item.store_id, item.food_id)\n'
-                            '            grouped[key] = item if key not in grouped else '
-                            'item.model_copy(\n'
-                            '                update={"quantity": grouped[key].quantity + '
-                            'item.quantity})\n'
-                            '        request = request.model_copy(update={"items": '
-                            'tuple(grouped.values())})',
-                tests=('tests/life/test_commerce.py::test_purchase_rejection_is_atomic_with_the_exact_code',)),
+                replacement='        request = request.model_copy(update={"items": tuple(dict.fromkeys(request.items))})',
+                tests=('tests/life/test_commerce.py::test_purchase_rejection_is_atomic_with_exact_code',)),
  SourceMutation(name='rrs_food_tool_state_loses_category_energy',
                 symbol='worldmock.life.tool_layer::_product_state',
-                original='state = f"{FOOD_CATEGORY_LABELS[food.category]}，每份约 '
-                         '{FOOD_CONSTANTS[food.category].energy_kcal:g} 千卡"',
+                original='state = GOODS_CATEGORY_LABELS[goods.category]',
                 replacement='state = ""',
                 tests=('tests/life/test_menu_discovery.py::test_food_tool_state_category_energy_apps_and_fixed_price',)),
  SourceMutation(name='rrs_food_pickup_retains_app',
                 symbol='worldmock.life.basket::_build_orders',
                 original='app_id=fulfillment.app_id',
-                replacement='app_id=fulfillment.app_id if request.fulfillment == "delivery" else '
-                            '"meituan"',
-                tests=('tests/life/test_commerce.py::test_no_app_store_pickup_is_immediate_local_holding',)),
+                replacement='app_id=fulfillment.app_id if request.fulfillment == "delivery" else "meituan"',
+                tests=('tests/life/test_commerce.py::test_store_purchase_settles_energy_and_receipt_once_in_the_payment_result',)),
  SourceMutation(name='rrs_food_purchase_fact_loses_app',
                 symbol='worldmock.footprints.purchases::_purchases',
                 original='"app_id": order["app_id"], ',
@@ -1646,9 +1571,7 @@ MUTATIONS: tuple[SourceMutation, ...] = (SourceMutation(name='rrs_food_kcal_from
  SourceMutation(name='rrs_food_named_unbound_store_succeeds',
                 symbol='worldmock.life.named_purchase::_staged',
                 original='raise _unsupported(context, ask, kept)',
-                replacement='return {**_binding(context, kept[0], DELIVERY_WAY),\n'
-                            '                    "app_id": min(context.semantics.catalog.apps), '
-                            '"purchase_note": None}',
+                replacement='return {**_binding(context, kept[0], DELIVERY_WAY),\n                    "app_id": min(context.semantics.catalog.apps), "purchase_note": None}',
                 tests=('tests/life/test_named_purchase.py::test_named_purchase_rejects_food_source_and_way_mismatch',)),
  SourceMutation(name='rrs_retired_watch_claim_accepted',
                 symbol='worldmock.catalog.affordances::_parse_slots',
@@ -1668,40 +1591,27 @@ MUTATIONS: tuple[SourceMutation, ...] = (SourceMutation(name='rrs_food_kcal_from
  SourceMutation(name='rrs_app_progress_partitioned',
                 symbol='worldmock.life.content::_content_snapshot',
                 original='progress = agent.content_progress.get(item.content_id)',
-                replacement='progress = '
-                            'agent.content_progress.get(f"{activity.target_id}:{item.content_id}")',
+                replacement='progress = agent.content_progress.get(f"{activity.target_id}:{item.content_id}")',
                 tests=('tests/life/test_app_progress.py::test_cross_app_pause_resumes_latest_global_position',)),
  SourceMutation(name='rrs_app_completed_content_excluded',
                 symbol='worldmock.life.content::_content_snapshot',
                 original='    progress = agent.content_progress.get(item.content_id)',
-                replacement='    progress = agent.content_progress.get(item.content_id)\n'
-                            '    if progress is not None and progress.completed_rounds >= 1:\n'
-                            '        return activity.model_copy(update={"next_interaction_at": '
-                            'activity.planned_end_at}, deep=True)',
+                replacement='    progress = agent.content_progress.get(item.content_id)\n    if progress is not None and progress.completed_rounds >= 1:\n        return activity.model_copy(update={"next_interaction_at": activity.planned_end_at}, deep=True)',
                 tests=('tests/life/test_app_progress.py::test_short_content_continues_silently_until_plan_and_repeats_allowed',)),
  SourceMutation(name='rrs_app_resume_stale_cursor',
                 symbol='worldmock.life.content::resume_app_usage',
-                original='    changed.activities[activity.activity_id] = _content_snapshot(\n'
-                         '        changed.agents[activity.agent_id], activity, item, '
-                         'activity.data["pinned_by_push_id"])',
-                replacement='    changed.activities[activity.activity_id] = '
-                            'activity.model_copy(deep=True)',
+                original='    changed.activities[activity.activity_id] = _content_snapshot(\n        changed.agents[activity.agent_id], activity, item, activity.data["pinned_by_push_id"])',
+                replacement='    changed.activities[activity.activity_id] = activity.model_copy(deep=True)',
                 tests=('tests/life/test_app_progress.py::test_cross_app_pause_resumes_latest_global_position',)),
  SourceMutation(name='rrs_app_completed_resume_stale_cursor',
                 symbol='worldmock.life.content::resume_app_usage',
-                original='    changed.activities[activity.activity_id] = _content_snapshot(\n'
-                         '        changed.agents[activity.agent_id], activity, item, '
-                         'activity.data["pinned_by_push_id"])',
-                replacement='    changed.activities[activity.activity_id] = '
-                            'activity.model_copy(deep=True)',
+                original='    changed.activities[activity.activity_id] = _content_snapshot(\n        changed.agents[activity.agent_id], activity, item, activity.data["pinned_by_push_id"])',
+                replacement='    changed.activities[activity.activity_id] = activity.model_copy(deep=True)',
                 tests=('tests/life/test_app_progress.py::test_other_app_completed_round_resume_consumes_nothing_then_real_end_adds_once',)),
  SourceMutation(name='rrs_app_resume_adds_round',
                 symbol='worldmock.life.content::resume_app_usage',
                 original='    item = catalog.contents[activity.data["content_id"]]',
-                replacement='    item = catalog.contents[activity.data["content_id"]]\n'
-                            '    progress = '
-                            'changed.agents[activity.agent_id].content_progress[item.content_id]\n'
-                            '    progress.completed_rounds += 1',
+                replacement='    item = catalog.contents[activity.data["content_id"]]\n    progress = changed.agents[activity.agent_id].content_progress[item.content_id]\n    progress.completed_rounds += 1',
                 tests=('tests/life/test_app_progress.py::test_other_app_completed_round_resume_consumes_nothing_then_real_end_adds_once',)),
  SourceMutation(name='rrs_app_completion_double_round',
                 symbol='worldmock.life.content::settle_app_usage',
@@ -1710,21 +1620,13 @@ MUTATIONS: tuple[SourceMutation, ...] = (SourceMutation(name='rrs_food_kcal_from
                 tests=('tests/life/test_app_progress.py::test_other_app_completed_round_resume_consumes_nothing_then_real_end_adds_once',)),
  SourceMutation(name='rrs_app_finished_content_idles',
                 symbol='worldmock.life.content::settle_app_usage',
-                original='            following = choose_app_content(catalog, activity.target_id, '
-                         'changed.random_state,\n'
-                         '                                           '
-                         'f"{activity.activity_id}:{draw_index}")\n'
-                         '            activity = _content_snapshot(agent, activity, following, None)',
-                replacement='            activity = activity.model_copy(update={"next_interaction_at": '
-                            'activity.planned_end_at}, deep=True)',
+                original='            following = choose_app_content(catalog, activity.target_id, changed.random_state,\n                                           f"{activity.activity_id}:{draw_index}")\n            activity = _content_snapshot(agent, activity, following, None)',
+                replacement='            activity = activity.model_copy(update={"next_interaction_at": activity.planned_end_at}, deep=True)',
                 tests=('tests/life/test_app_progress.py::test_short_content_continues_silently_until_plan_and_repeats_allowed',)),
  SourceMutation(name='rrs_app_resume_redraws',
                 symbol='worldmock.life.content::resume_app_usage',
                 original='    item = catalog.contents[activity.data["content_id"]]',
-                replacement='    item = choose_app_content(catalog, activity.target_id, '
-                            'changed.random_state,\n'
-                            '                              activity.activity_id + ":" + '
-                            'str(activity.data["draw_index"]))',
+                replacement='    item = choose_app_content(catalog, activity.target_id, changed.random_state,\n                              activity.activity_id + ":" + str(activity.data["draw_index"]))',
                 tests=('tests/life/test_app_progress.py::test_cross_app_pause_resumes_latest_global_position',)),
  SourceMutation(name='rrs_push_grid_includes_22',
                 symbol='worldmock.scheduling.compile::_push_rows',
@@ -1743,8 +1645,7 @@ MUTATIONS: tuple[SourceMutation, ...] = (SourceMutation(name='rrs_food_kcal_from
                 tests=('tests/life/test_app_push.py::test_each_app_is_issued_once_per_session_even_after_release',)),
  SourceMutation(name='rrs_push_empty_is_person_visible',
                 symbol='worldmock.scheduling.effects::process_scheduled_events',
-                original='visibility = "system" if item.kind == ScheduledKind.APP_PUSH and "push_id" '
-                         'not in outcome.data else "agent"',
+                original='visibility = "system" if item.kind == ScheduledKind.APP_PUSH and "push_id" not in outcome.data else "agent"',
                 replacement='visibility = "agent"',
                 tests=('tests/life/test_app_push.py::test_no_eligible_app_is_system_visible_without_person_record_or_wake',)),
  SourceMutation(name='rrs_push_open_ignores_pending',
@@ -1754,12 +1655,8 @@ MUTATIONS: tuple[SourceMutation, ...] = (SourceMutation(name='rrs_food_kcal_from
                 tests=('tests/life/test_app_push.py::test_open_reopen_release_and_after_22_follow_current_session_only',)),
  SourceMutation(name='rrs_app_push_ignored',
                 symbol='worldmock.life.content::initialize_app_usage',
-                original='    item = (catalog.contents[push.content_id] if push is not None else '
-                         'choose_app_content(\n'
-                         '        catalog, activity.target_id, state.random_state, '
-                         'f"{action_id}:{activity.target_id}"))',
-                replacement='    item = choose_app_content(catalog, activity.target_id, '
-                            'state.random_state, f"{action_id}:{activity.target_id}")',
+                original='    item = (catalog.contents[push.content_id] if push is not None else choose_app_content(\n        catalog, activity.target_id, state.random_state, f"{action_id}:{activity.target_id}"))',
+                replacement='    item = choose_app_content(catalog, activity.target_id, state.random_state, f"{action_id}:{activity.target_id}")',
                 tests=('tests/life/test_app_progress.py::test_paused_resume_retains_content_pin_and_random_state',)),
  SourceMutation(name='rrs_push_completed_content_not_released',
                 symbol='worldmock.life.app_push::release_app_pushes',
@@ -1768,21 +1665,18 @@ MUTATIONS: tuple[SourceMutation, ...] = (SourceMutation(name='rrs_food_kcal_from
                 tests=('tests/life/test_app_push.py::test_open_reopen_release_and_after_22_follow_current_session_only',)),
  SourceMutation(name='rrs_app_completion_release_skipped',
                 symbol='worldmock.life.content::settle_app_usage',
-                original='        changed = release_app_pushes(changed, agent.agent_id, '
-                         'item.content_id)',
+                original='        changed = release_app_pushes(changed, agent.agent_id, item.content_id)',
                 replacement='        changed = changed',
                 tests=('tests/life/test_app_progress.py::test_other_app_completed_round_resume_consumes_nothing_then_real_end_adds_once',)),
  SourceMutation(name='rrs_push_old_session_matches',
                 symbol='worldmock.life.app_push::open_app_push',
                 original='session = current_session(state, agent_id)',
-                replacement='session = next((item for item in state.sessions.values() if item.agent_id '
-                            '== agent_id), None)',
+                replacement='session = next((item for item in state.sessions.values() if item.agent_id == agent_id), None)',
                 tests=('tests/life/test_app_push.py::test_departure_and_arrival_invalidate_old_pushes_without_deleting_history',)),
  SourceMutation(name='rrs_push_old_session_released',
                 symbol='worldmock.life.app_push::release_app_pushes',
                 original='session = current_session(state, agent_id)',
-                replacement='session = next((item for item in state.sessions.values() if item.agent_id '
-                            '== agent_id), None)',
+                replacement='session = next((item for item in state.sessions.values() if item.agent_id == agent_id), None)',
                 tests=('tests/life/test_app_push.py::test_release_only_changes_current_session_and_keeps_historical_matching_push',)),
  SourceMutation(name='rrs_push_wakes_sleeping_person',
                 symbol='worldmock.scheduling.effects::apply_scheduled_effect',
@@ -1796,17 +1690,13 @@ MUTATIONS: tuple[SourceMutation, ...] = (SourceMutation(name='rrs_food_kcal_from
                 tests=('tests/life/test_app_push.py::test_sleep_stores_push_without_wake_and_existing_activity_is_unchanged',)),
  SourceMutation(name='rrs_push_advances_random_state',
                 symbol='worldmock.life.app_push::issue_app_push',
-                original='changed = state.model_copy(update={"sessions": {**state.sessions, '
-                         'session.session_id: session}})',
-                replacement='changed = state.model_copy(update={"sessions": {**state.sessions, '
-                            'session.session_id: session}, "random_state": state.random_state + '
-                            '":advanced"})',
+                original='changed = state.model_copy(update={"sessions": {**state.sessions, session.session_id: session}})',
+                replacement='changed = state.model_copy(update={"sessions": {**state.sessions, session.session_id: session}, "random_state": state.random_state + ":advanced"})',
                 tests=('tests/life/test_app_push.py::test_push_draw_uses_one_b30_stream_sorted_candidates_and_stable_identity',)),
  SourceMutation(name='rrs_app_open_advances_random_state',
                 symbol='worldmock.life.content::initialize_app_usage',
                 original='    changed = changed.model_copy(deep=True)',
-                replacement='    changed = changed.model_copy(update={"random_state": '
-                            'state.random_state + ":opened"}, deep=True)',
+                replacement='    changed = changed.model_copy(update={"random_state": state.random_state + ":opened"}, deep=True)',
                 tests=('tests/life/test_app_progress.py::test_open_only_selects_selected_app_and_denies_empty_app',)),
  SourceMutation(name='rrs_app_seed_full_digest',
                 symbol='worldmock.life.randomness::random_stream',
@@ -1820,12 +1710,8 @@ MUTATIONS: tuple[SourceMutation, ...] = (SourceMutation(name='rrs_food_kcal_from
                 tests=('tests/life/test_app_progress.py::test_b30_exact_seed_bytes_open_and_continuation_keys_survive_roundtrip',)),
  SourceMutation(name='rrs_push_pop_deferred_past_commit',
                 symbol='worldmock.scheduling.effects::process_scheduled_events',
-                original='state = state.model_copy(update={"pending_events": [item for item in '
-                         'state.pending_events\n'
-                         '                                                      if item.due_at != '
-                         'target]})',
-                replacement='state = state.model_copy(update={"pending_events": '
-                            'list(state.pending_events)})',
+                original='state = state.model_copy(update={"pending_events": [item for item in state.pending_events\n                                                      if item.due_at != target]})',
+                replacement='state = state.model_copy(update={"pending_events": list(state.pending_events)})',
                 tests=('tests/life/test_app_push.py::test_queue_is_popped_before_effect_checkpoint_and_restore_never_reissues',)),
  SourceMutation(name='rrs_app_relief_preference_factor',
                 symbol='worldmock.life.activities::content_entertainment_relief_rate',
@@ -1835,8 +1721,7 @@ MUTATIONS: tuple[SourceMutation, ...] = (SourceMutation(name='rrs_food_kcal_from
  SourceMutation(name='rrs_driving_loses_app_claim',
                 symbol='worldmock.catalog.affordances::AffordanceView.resource_claims',
                 original='return frozenset(claims)',
-                replacement='return frozenset(claims - ({"use_app"} if kind_value == "travel" else '
-                            'set()))',
+                replacement='return frozenset(claims - ({"use_app"} if kind_value == "travel" else set()))',
                 tests=('tests/catalog/test_affordances.py::test_driving_allows_only_social_without_continuous_phone_use',)),
  SourceMutation(name='rrs_push_summary_truncated_20',
                 symbol='worldmock.life.progress_layer::_world_records',
@@ -1851,8 +1736,7 @@ MUTATIONS: tuple[SourceMutation, ...] = (SourceMutation(name='rrs_food_kcal_from
  SourceMutation(name='rrs_game_way_restored',
                 symbol='worldmock.life.vocabulary::WAYS',
                 original='"工作": ("interact", "work"), "打开": ("interact", "use_app"),',
-                replacement='"工作": ("interact", "work"), "打开": ("interact", "use_app"), "游玩": '
-                            '("interact", "play"),',
+                replacement='"工作": ("interact", "work"), "打开": ("interact", "use_app"), "游玩": ("interact", "play"),',
                 tests=('tests/life/test_app_vocabulary.py::test_game_way_cannot_be_restored_in_the_public_way_table',)),
  SourceMutation(name='rrs_resume_environment_identity_skipped',
                 symbol='worldmock.runtime::_prepare_resume',
@@ -1862,28 +1746,17 @@ MUTATIONS: tuple[SourceMutation, ...] = (SourceMutation(name='rrs_food_kcal_from
  SourceMutation(name='rrs_paused_work_accumulates',
                 symbol='worldmock.life.work::work_totals',
                 original='sum(item.elapsed_seconds for item in state.activities.values()',
-                replacement='sum(item.elapsed_seconds + (state.current_time - item.last_settled_at if '
-                            'item.status == ActivityStatus.PAUSED else 0) for item in '
-                            'state.activities.values()',
+                replacement='sum(item.elapsed_seconds + (state.current_time - item.last_settled_at if item.status == ActivityStatus.PAUSED else 0) for item in state.activities.values()',
                 tests=('tests/life/test_work_topics.py::test_actual_engine_pause_then_parallel_meal_only_counts_running_work',)),
  SourceMutation(name='rrs_parallel_food_counts_as_work',
                 symbol='worldmock.life.work::work_totals',
-                original='if item.agent_id == agent_id and item.kind == ActivityKind.WORK\n'
-                         '               and item.target_id == topic_id and item.status != '
-                         'ActivityStatus.FAILED',
-                replacement='if item.agent_id == agent_id and item.kind in {ActivityKind.WORK, '
-                            'ActivityKind.CONSUME}\n'
-                            '               and (item.target_id == topic_id or item.kind == '
-                            'ActivityKind.CONSUME) and item.status != ActivityStatus.FAILED',
+                original='if item.agent_id == agent_id and item.kind == ActivityKind.WORK\n               and item.target_id == topic_id and item.status != ActivityStatus.FAILED',
+                replacement='if item.agent_id == agent_id and item.kind in {ActivityKind.WORK, ActivityKind.CONSUME}\n               and (item.target_id == topic_id or item.kind == ActivityKind.CONSUME) and item.status != ActivityStatus.FAILED',
                 tests=('tests/life/test_work_topics.py::test_actual_engine_pause_then_parallel_meal_only_counts_running_work',)),
  SourceMutation(name='rrs_work_report_claims_completion',
                 symbol='worldmock.life.activity_control::with_note',
-                original='update = {"progress_note": summary, "note_updated_at": now, "note_history": '
-                         'history}',
-                replacement='update = {"progress_note": summary, "note_updated_at": now, '
-                            '"note_history": history, "elapsed_seconds": '
-                            'activity.planned_duration_seconds if "已完成" in summary else '
-                            'activity.elapsed_seconds}',
+                original='update = {"progress_note": summary, "note_updated_at": now, "note_history": history}',
+                replacement='update = {"progress_note": summary, "note_updated_at": now, "note_history": history, "elapsed_seconds": activity.planned_duration_seconds if "已完成" in summary else activity.elapsed_seconds}',
                 tests=('tests/life/test_work_topics.py::test_contract_four_keys_and_reports_do_not_change_actual_hours_or_completion',)),
  SourceMutation(name='rrs_work_target_does_not_end_activity',
                 symbol='worldmock.life.activities::_advanced_activity',
@@ -1917,20 +1790,8 @@ MUTATIONS: tuple[SourceMutation, ...] = (SourceMutation(name='rrs_food_kcal_from
                 tests=('tests/life/test_work_protocol.py::test_work_tool_and_stage_closed_sets_match_real_host',)),
  SourceMutation(name='work_identity_accepts_retired_review',
                 symbol='worldmock.run_setup::validate_stage_model_identity',
-                original='        for retired in (RETIRED_DECISION_STATEMENT, RETIRED_STAGE_NAME):\n'
-                         '            if retired in stages:\n'
-                         '                logger.error("Model identity stage %s is retired", retired)\n'
-                         '                raise IntegrityError(f"Model identity stage {retired} is '
-                         'retired")\n'
-                         '    if not isinstance(stages, dict) or set(stages) != {"action"}:',
-                replacement='        for retired in (RETIRED_DECISION_STATEMENT,):\n'
-                            '            if retired in stages:\n'
-                            '                logger.error("Model identity stage %s is retired", '
-                            'retired)\n'
-                            '                raise IntegrityError(f"Model identity stage {retired} is '
-                            'retired")\n'
-                            '    if not isinstance(stages, dict) or set(stages) - {RETIRED_STAGE_NAME} '
-                            '!= {"action"}:',
+                original='        for retired in (RETIRED_DECISION_STATEMENT, RETIRED_STAGE_NAME):\n            if retired in stages:\n                logger.error("Model identity stage %s is retired", retired)\n                raise IntegrityError(f"Model identity stage {retired} is retired")\n    if not isinstance(stages, dict) or set(stages) != {"action"}:',
+                replacement='        for retired in (RETIRED_DECISION_STATEMENT,):\n            if retired in stages:\n                logger.error("Model identity stage %s is retired", retired)\n                raise IntegrityError(f"Model identity stage {retired} is retired")\n    if not isinstance(stages, dict) or set(stages) - {RETIRED_STAGE_NAME} != {"action"}:',
                 tests=('tests/life/test_work_protocol.py::test_work_tool_and_stage_closed_sets_match_real_host',)),
  SourceMutation(name='rrs_footprint_app_push_removed',
                 symbol='worldmock.footprints.models::WAKE_REASON_NAMES',
@@ -1944,22 +1805,8 @@ MUTATIONS: tuple[SourceMutation, ...] = (SourceMutation(name='rrs_food_kcal_from
                 tests=('tests/integration/test_seven_layer_request.py::test_resource_rule_system_text_is_the_frozen_app_and_work_contract',)),
  SourceMutation(name='system_entertainment_in_purchase_rule',
                 symbol='worldmock.agents.life_prompt::LIFE_SYSTEM_LAYER',
-                original='        "写得不准时会返回最接近的候选，不会替你改。"\n'
-                         '        "娱乐只选 app、方式写打开，看什么由 app 决定；这段停留或路程里收到推送后打开那个 '
-                         'app，先看的是推送的内容，不打开也可以。",\n'
-                         '        "start_activity 一项一个对象，写 target、way、from、to；方式决定动作。to 写 null '
-                         '统一表示本人，给他人写实名；"\n'
-                         '        "给予必须写他人，其他非转移动作的 from、to 都写 null。购买 from 可写门店或 app，prefer '
-                         '必须写最快拿到或到手价最低；"\n'
-                         '        "不购买时 prefer 写 null。替别人办事时用 answering 关联未回复消息。",\n',
-                replacement='        "写得不准时会返回最接近的候选，不会替你改。",\n'
-                            '        "start_activity 一项一个对象，写 target、way、from、to；方式决定动作。to 写 null '
-                            '统一表示本人，给他人写实名；"\n'
-                            '        "给予必须写他人，其他非转移动作的 from、to 都写 null。购买 from 可写门店或 app，prefer '
-                            '必须写最快拿到或到手价最低；"\n'
-                            '        "不购买时 prefer 写 null。替别人办事时用 answering 关联未回复消息。"\n'
-                            '        "娱乐只选 app、方式写打开，看什么由 app 决定；这段停留或路程里收到推送后打开那个 '
-                            'app，先看的是推送的内容，不打开也可以。",\n',
+                original='        "写得不准时会返回最接近的候选，不会替你改。"\n        "娱乐只选 app、方式写打开，看什么由 app 决定；这段停留或路程里收到推送后打开那个 app，先看的是推送的内容，不打开也可以。",\n        "start_activity 一项一个对象，写 target、way、from、to；方式决定动作。to 写 null 统一表示本人，给他人写实名；"\n        "给予必须写他人，其他非转移动作的 from、to 都写 null。购买 from 可写门店或 app，prefer 必须写最快拿到或到手价最低；"\n        "不购买时 prefer 写 null。替别人办事时用 answering 关联未回复消息。",\n',
+                replacement='        "写得不准时会返回最接近的候选，不会替你改。",\n        "start_activity 一项一个对象，写 target、way、from、to；方式决定动作。to 写 null 统一表示本人，给他人写实名；"\n        "给予必须写他人，其他非转移动作的 from、to 都写 null。购买 from 可写门店或 app，prefer 必须写最快拿到或到手价最低；"\n        "不购买时 prefer 写 null。替别人办事时用 answering 关联未回复消息。"\n        "娱乐只选 app、方式写打开，看什么由 app 决定；这段停留或路程里收到推送后打开那个 app，先看的是推送的内容，不打开也可以。",\n',
                 tests=('tests/integration/test_seven_layer_request.py::test_resource_rule_system_text_is_the_frozen_app_and_work_contract',)),
  SourceMutation(name='system_work_deadline_effective_hours',
                 symbol='worldmock.agents.life_prompt::LIFE_SYSTEM_LAYER',

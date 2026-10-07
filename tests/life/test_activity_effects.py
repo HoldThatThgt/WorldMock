@@ -60,9 +60,9 @@ def _start(kind: ActivityKind, seconds: int, agent: AgentState, config, target: 
     return start_activity(agent, request, 0, origin, config)
 
 
-def test_work_progress_counts_actual_elapsed_seconds(body_config):
-    """@brief 工作只按实际投入秒数累计，结算没有技能、笔记或有效工时折算。"""
-    person, activity = _start(ActivityKind.WORK, 3600, _agent(), body_config, 'topic')
+def test_activity_progress_counts_actual_elapsed_seconds(body_config):
+    """@brief 活动只按实际投入秒数累计，结算没有技能、笔记或有效工时折算。"""
+    person, activity = _start(ActivityKind.WAIT, 3600, _agent(), body_config, 'wait')
     result = advance_activity(activity, person, 3600, body_config)
     assert result.activity.elapsed_seconds == 3600
     assert 'effective_work_seconds' not in result.activity.model_dump()
@@ -103,31 +103,15 @@ def test_body_boundary_predicts_first_energy_threshold_second(body_config) -> No
     assert seconds == 43
 
 
-def test_body_boundary_uses_curve_node_and_food_net_energy(body_config) -> None:
-    """@brief 进食净增能量时，食欲降档是最早候选，整秒等于饥饿跨档扫描给出的时刻。"""
-    near_emergency = BodyState(energy_kcal=401, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)
-    eating = ActivityFactors(met=1.5, food_energy_kcal_per_hour=500)
-
-    consume_seconds = next_body_boundary_seconds(
-        near_emergency, ActivityKind.CONSUME, body_config, eating, BoundaryClock(12.0))
-
-
-    # 401 kcal、12:00：食欲约 0.91（饿得难受）；进食每小时净增约 402.5 kcal，约 500 秒后降到「很饿」。
-    net_gain = 500 - (body_config.basal_kcal_per_hour + 0.5 * body_config.mass_kg)
-
-    def level(seconds: int) -> str:
-        energy = 401 + net_gain * seconds / 3600
-        appetite = felt.compute_appetite(energy, 12.0 + seconds / 3600)
-        return felt.appetite_level(appetite, energy, body_config.emergency_threshold_kcal)
-
-    assert felt.compute_appetite(401, 12.0) == pytest.approx(0.914, abs=1e-3)
-    assert level(0) == "饿得难受"
-    crossing = next(seconds for seconds in range(1, 3600) if level(seconds) != "饿得难受")
-    assert level(crossing) == "很饿" and 450 <= crossing <= 550
-    assert consume_seconds == crossing
-    # 娱乐需要 0→0.3 档按清醒 0.08/h 增长的候选（13500 秒）仍由体感候选给出，只是晚于食欲降档。
-    scan = _FeltProjection(near_emergency, -net_gain, BoundaryClock(12.0), body_config)
-    assert round(0.3 / 0.08 * 3600) in _felt_band_boundaries(scan)
+def test_food_receipt_is_instantaneous_and_not_a_continuous_activity_factor(body_config) -> None:
+    """@brief 食品只在收货当秒入账，连续活动系数不接受摄入速率。"""
+    with pytest.raises(TypeError, match="food_energy_kcal_per_hour"):
+        ActivityFactors(met=1.5, food_energy_kcal_per_hour=500)
+    body = BodyState(energy_kcal=401, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)
+    factors = ActivityFactors(met=1.5)
+    settled = settle_shared_body(body, ((ActivityKind.WAIT, factors),), 60, body_config)
+    assert settled.after.energy_kcal < body.energy_kcal
+    assert settled.food_energy_kcal == 0 and settled.food_efficiency is None
 
 
 def _quiet(body_config):

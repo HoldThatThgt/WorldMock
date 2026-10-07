@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from worldmock.life.social import SOCIAL_RESOURCE_CLAIMS
+from worldmock.exchange.types import GoodsCategory
 from worldmock.catalog.affordances import engine_affordances
 from worldmock.life.vocabulary import way_options
 from worldmock.life.vocabulary import NAMED_PURCHASE_WAYS
@@ -36,8 +37,6 @@ WORLD_SCHEMA_VERSION = 11
 
 #: 普通活动的派生时长上限。
 DERIVED_DURATION_CAP_SECONDS = 86400
-#: 消费活动的合法时长上界；越界拒绝，不截取。
-CONSUME_DURATION_CAP_SECONDS = 14400
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -486,15 +485,17 @@ def _validate_task_reference(kind: SessionTaskKind, reference: str | None, inten
 
 
 class DeliveryState(StrictModel):
-    """@brief 注册食品购买后的固定价订单和图上履约证据。"""
+    """@brief 已付款商品订单、配送路径与恰好一次收货时刻。"""
 
     order_id: str = Field(min_length=1)
     agent_id: int = Field(gt=0)
-    food_id: str = Field(min_length=1)
+    goods_id: str = Field(min_length=1)
+    category: GoodsCategory
     store_id: str = Field(min_length=1)
     app_id: str | None
+    payment_app_id: str | None
     seller_account_id: str = Field(min_length=1)
-    quantity: int = Field(gt=0)
+    quantity: int = Field(strict=True, ge=1, le=1)
     unit_price_fen: int = Field(gt=0)
     delivery_fee_fen: int = Field(ge=0)
     total_price_fen: int = Field(ge=0)
@@ -504,12 +505,24 @@ class DeliveryState(StrictModel):
     request_message_id: str | None = None
     created_at: int = Field(ge=0)
     expected_at: int = Field(ge=0)
-    status: Literal["pending", "ready", "delivered", "cancelled"]
+    received_at: int | None = Field(ge=0)
+    status: Literal["pending", "delivered"]
     path: tuple[str, ...]
     #: 到店无行程；配送使用图上现有出行方式的稳定行程身份。
     trip_id: str | None
     distance_meters: int = Field(ge=0)
     prep_seconds: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_receipt_time(self) -> "DeliveryState":
+        """@brief 待收货没有收货时刻，已收货必须发生在下单之后。"""
+        if (self.status == "pending") != (self.received_at is None):
+            _LOGGER.error("Order status and receipt timestamp disagree")
+            raise ValueError("Order status and receipt timestamp disagree")
+        if self.received_at is not None and self.received_at < self.created_at:
+            _LOGGER.error("Receipt timestamp precedes order creation")
+            raise ValueError("Receipt timestamp precedes order creation")
+        return self
 
 
 class StoredAction(StrictModel):
@@ -729,23 +742,17 @@ class ChangeActivityRequest(FrozenModel):
 
 
 class PurchaseItem(FrozenModel):
-    """@brief 同一订单明确选择的店铺、食品、数量和收货人。"""
+    """@brief 一个商品行是一件，明确店铺、商品与收货人。"""
 
     store_id: str = Field(pattern=r"\S")
-    food_id: str = Field(pattern=r"\S")
-    quantity: int = Field(gt=0, le=100)
+    goods_id: str = Field(pattern=r"\S")
+    quantity: int = Field(strict=True, ge=1, le=1)
     recipient_id: str = Field(pattern=r"\S")
     request_message_id: str | None = None
 
 
 class PurchaseOrderRequest(FrozenModel):
-    """@brief 购买 1-5 件同一商家、同一履约方式的商品，一次付款一次配送。
-
-    结算时任一件不可购则整单拒绝，不自动删件（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「商务与进食」）。
-    items 以 WithJsonSchema 内联子模型 Schema（strict 合同禁止嵌套引用
-    键，docs/CONTRACTS.md#contracts-worldmock-接口合同「人物工具与管理接口」认可的唯一内联机制）；1-5 件由结算域校验
-    （DeepSeek strict 禁 minItems）。
-    """
+    """@brief 一至两件同店商品一次付款，购物与支付应用由人物明确选择。"""
 
     items: Annotated[
         tuple[PurchaseItem, ...],
@@ -757,34 +764,7 @@ class PurchaseOrderRequest(FrozenModel):
     fulfillment: Literal["delivery", "pickup"]
     destination_id: str = Field(pattern=r"\S")
     app_id: str | None
-
-
-class ConsumeItem(FrozenModel):
-    """@brief 一次进食中的一件已持有食品与数量（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「商务与进食」：1-3 件）。"""
-
-    product_id: str = Field(pattern=r"\S")
-    quantity: float = Field(gt=0, le=100)
-
-
-class ConsumeRequest(FrozenModel):
-    """@brief 使用已经交付并持有的商品。
-
-    多件（1-3）仅限食品同地点一次进食：用餐时长取最长者、热量与效果累加；
-    非食品使用仍为单件（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「商务与进食」）。单件路径沿用域内时长合同
-    （duration_seconds 必须等于商品目录时长）。items 以 WithJsonSchema
-    内联子模型 Schema（strict 合同禁止嵌套引用键）；1-3 件由结算域校验
-    （DeepSeek strict 禁 minItems）。
-    """
-
-    items: Annotated[
-        tuple[ConsumeItem, ...],
-        WithJsonSchema({
-            "type": "array",
-            "items": ConsumeItem.model_json_schema(mode="validation"),
-        }),
-    ]
-    use_mode: Literal["eat", "use"]
-    duration_seconds: int = Field(ge=60, le=CONSUME_DURATION_CAP_SECONDS)
+    payment_app_id: str | None
 
 
 class PlanGoalInput(FrozenModel):
@@ -999,9 +979,9 @@ def _validate_summary(summary: str) -> str:
 _CLOCK_PATTERN = r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
 #: 个人事务变更的交叉约束（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 「每条变更」）：按变更种类必须非空的键与必须为 null 的键；
 #: 其余键（新增的 memo、remind_time，更新的 memo、remind_time）可空。
-_ERRAND_REQUIRED = {"新增": ("outcome", "item", "quantity"), "更新": (), "取消": ("reason",)}
-_ERRAND_NULL = {"新增": ("reason",), "更新": ("outcome", "item", "quantity", "reason"),
-                "取消": ("outcome", "item", "quantity", "memo", "remind_time")}
+_ERRAND_REQUIRED = {"新增": ("item", "quantity"), "更新": (), "取消": ("reason",)}
+_ERRAND_NULL = {"新增": ("reason",), "更新": ("item", "quantity", "reason"),
+                "取消": ("item", "quantity", "memo", "remind_time")}
 
 
 def _errand_text(value: str | None, limit: int, what: str) -> str | None:
@@ -1016,17 +996,14 @@ def _errand_text(value: str | None, limit: int, what: str) -> str | None:
 
 
 class ErrandChange(ToolRequestModel):
-    """@brief 控制工具请求级 errands 的一条个人事务变更（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 ）：封闭对象，八个键全部必填，
+    """@brief 控制工具请求级 errands 的一条个人事务变更：封闭对象，七个键全部必填，
     按变更种类的交叉约束与字符、份数上限由本地校验执行（上限写在原因里，Schema 只给类型与格式）；没有「完成」。"""
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema(
         "一条个人事务的变更：做什么、名称、要办成的事、备注、提醒钟点与取消原因。"))
     change: Literal["新增", "更新", "取消"] = Field(description="这条变更做什么，从列出的三种里选一种。")
     name: str = Field(pattern=r"\S", description="事务的名称，新增时自己起，之后照待办层里的写法写。")
-    outcome: Annotated[Literal["取得", "吃掉"] | None, WithJsonSchema(
-        {"type": ["string", "null"], "enum": ["取得", "吃掉", None],
-         "description": "要办成的结果，从列出的两种里选一种。"})]
-    item: Annotated[str, Field(pattern=r"\S")] | None = Field(description="要取得或吃掉的商品名称。")
+    item: Annotated[str, Field(pattern=r"\S")] | None = Field(description="要取得的商品名称。")
     quantity: int | None = Field(description="要办成的份数。")
     memo: Annotated[str, Field(pattern=r"\S")] | None = Field(description="用自己的话写打算怎么办、去哪办。")
     remind_time: Annotated[str, Field(pattern=_CLOCK_PATTERN)] | None = Field(description="想被提醒去办这件事的钟点。")

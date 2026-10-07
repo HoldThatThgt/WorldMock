@@ -5,7 +5,7 @@ from __future__ import annotations
 import unicodedata
 
 
-LIFE_VERBS = ("travel", "interact", "obtain", "consume", "sleep")
+LIFE_VERBS = ("travel", "interact", "obtain", "sleep")
 
 
 WAYS: dict[str, tuple[str, str]] = {
@@ -14,7 +14,6 @@ WAYS: dict[str, tuple[str, str]] = {
     "交谈": ("interact", "chat"), "通话": ("interact", "call"), "阅读": ("interact", "read"),
  "进行": ("interact", "do"), "等待": ("interact", "wait"),
     "到店": ("obtain", "purchase"), "远程下单": ("obtain", "purchase"), "购买": ("obtain", "purchase"),
-    "食用": ("consume", "consume"), "使用": ("consume", "consume"), "给予": ("consume", "consume"),
     "睡觉": ("sleep", "sleep"),
 }
 
@@ -34,10 +33,8 @@ SYSTEM_PURCHASE_WAY = "购买"
 NAMED_PURCHASE_WAYS = frozenset({*PURCHASE_WAYS.values(), SYSTEM_PURCHASE_WAY})
 
 
-USE_WAYS = {"eat": "食用"}
 
 
-GIVE_WAY = "给予"
 
 
 
@@ -60,8 +57,6 @@ WAY_SYNONYMS: dict[str, frozenset[str]] = {key: frozenset(value) for key, value 
     "外卖": {"远程下单"}, "点外卖": {"远程下单"}, "配送": {"远程下单"}, "送货上门": {"远程下单"},
     "网上下单": {"远程下单"}, "线上下单": {"远程下单"},
     "买": {"购买"}, "下单": {"购买"}, "下单购买": {"购买"}, "点单": {"购买"}, "订购": {"购买"},
-    "吃": {"食用"}, "吃饭": {"食用"}, "用餐": {"食用"}, "进食": {"食用"},
-    "送": {"给予"}, "给": {"给予"}, "赠送": {"给予"},
     "睡": {"睡觉"}, "睡眠": {"睡觉"}, "就寝": {"睡觉"},
 }.items()}
 

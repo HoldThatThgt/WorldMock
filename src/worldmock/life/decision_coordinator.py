@@ -12,7 +12,7 @@ from worldmock.life.world_ops import _request_sha
 import logging
 from worldmock.errors import BusinessRuleError, PreconditionError, ProtocolError
 from worldmock.footprints.models import EventDraft
-from worldmock.life import activity_control, errands, same_moment, social_actions
+from worldmock.life import activity_control, day_planning, errands, same_moment, social_actions
 from worldmock.life.action_evidence import _pending_causes, _remember_action, _result_draft, _result_event_data
 from worldmock.life.guidance import rejection_guidance
 from worldmock.life.business_feedback import business_feedback
@@ -169,6 +169,7 @@ class DecisionCoordinator:
             drafts.extend(action_drafts)
             if not pending.reused:
                 staged = _remember_action(staged, pending, result)
+        staged = day_planning.settle_receipt_goals(staged, drafts)
         (staged, settled) = errands.settle(staged, drafts)
         drafts.extend(settled)
         recipients = {
@@ -383,10 +384,13 @@ class DecisionCoordinator:
                 caused_by=_pending_causes(pending),
                 data=_result_event_data(result, changed, resolved_title),
             )
-            drafts = [accepted, _result_draft(pending, result, "action_result"), *records]
+            result_draft = _result_draft(pending, result, "action_result")
+            drafts = [accepted, result_draft, *records]
+            drafts.extend(self._receipt_drafts(result_draft))
             drafts.extend(self.actions.drain_drafts())
             return (changed, result, drafts)
         except BusinessRuleError as error:
+            self.actions.storefront.drain_receipts()
             (changed, result) = self._after_rejection(state, pending, error)
             agent = changed.agents[pending.agent_id]
             activity = next(iter(active_activities(changed, agent.agent_id)), None)
@@ -406,6 +410,11 @@ class DecisionCoordinator:
             drafts = [rejected, _result_draft(pending, result, "action_result")]
             drafts.extend(self.actions.drain_drafts())
             return (changed, result, drafts)
+
+    def _receipt_drafts(self, result: EventDraft) -> list[EventDraft]:
+        """@brief 到店收货证据以本次真实购买结果为直接原因，随同一次状态提交。"""
+        return [draft.model_copy(update={"caused_by": [result.event_id]})
+                for draft in self.actions.storefront.drain_receipts()]
 
     def _after_success(self, state: WorldState, agent_id: int, tool_name: str) -> WorldState:
         """@brief 受理计入同刻轮数并清零连续拒绝，按同刻规则或决策节律安排下一次决策（第一章规则 2、4、7）。"""

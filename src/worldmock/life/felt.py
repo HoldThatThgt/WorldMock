@@ -107,7 +107,6 @@ MOOD_BASE_LEVEL = "很烦"
 #: experiment_assumption：docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」明示
 #: "数值为实验假设"；Humanoid Agents 的 social 需要与 The Sims 的 Social
 #: motive 为结构依据。
-SOCIAL_NEED_SHARED_MEAL_RATE = 0.3
 
 #: 情绪脉冲表（基础幅度，应用时再乘 (1 + 0.5·N_norm)）。
 #: experiment_assumption：docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」明示"脉冲与半衰期是实验假设"；
@@ -148,14 +147,13 @@ class MealWindows(FrozenModel):
 class SocialExposure(FrozenModel):
     """@brief 一个结算段内的社交暴露量（小时/条数由结算侧从时间线拆解）。
 
-    交谈/通话/共同用餐的小时同时计入清醒小时（账本各项线性叠加，拆解归调用方）。
+    交谈/通话的小时同时计入清醒小时（账本各项线性叠加，拆解归调用方）。
     """
 
 
     awake_hours: float = Field(default=0.0, ge=0)
     conversation_hours: float = Field(default=0.0, ge=0)
     call_hours: float = Field(default=0.0, ge=0)
-    shared_meal_hours: float = Field(default=0.0, ge=0)
     messages_read: int = Field(default=0, ge=0)
 
 
@@ -308,7 +306,6 @@ def apply_social_need_ledger(social_need: float, exposure: SocialExposure) -> fl
         SOCIAL_NEED_AWAKE_RATE * exposure.awake_hours
         - SOCIAL_NEED_CONVERSATION_RATE * exposure.conversation_hours
         - SOCIAL_NEED_CALL_RATE * exposure.call_hours
-        - SOCIAL_NEED_SHARED_MEAL_RATE * exposure.shared_meal_hours
         - SOCIAL_NEED_MESSAGE_RELIEF * exposure.messages_read
     )
     return _clamp(social_need + delta, 0.0, 1.0)

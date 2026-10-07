@@ -16,6 +16,11 @@ from tests.life.purchase_worlds import menu_context
 
 
 def observation(context):
+    # 当前纯呈现输入明确选定各购物 app 的支付 app，人物请求到阶段四统一接线。
+    choices = {"meituan": "wechat", "eleme": "alipay"}
+    bindings = [{**row, "payment_app_id": choices[row["app_id"]]}
+                if row["kind"] == "supply" and row.get("app_id") else row for row in context.bindings]
+    context = replace(context, bindings=bindings)
     value = {"agent_id": 1, "catalog_bindings": [], "home_location_id": "home",
              "locations": [{"location_id": place.location_id, "name": place.display_name}
                            for place in context.scenario.locations],
@@ -31,8 +36,8 @@ def test_frozen_food_query_app_source_uses_actual_store_binding_and_category():
         "from": "美团", "available_only": True, "offset": 0})
     assert validate_world_query(value, request) is None
     result = query_world(value, request)
-    assert {row["name"] for row in result["matches"]} == {"一心面馆出售的牛肉面", "三杯咖啡出售的三明治"}
-    assert result["total_count"] == 2
+    assert {row["name"] for row in result["matches"]} == {"一心面馆出售的牛肉面"}
+    assert result["total_count"] == 1
     assert value["world_query_apps"]["meituan"]["store_ids"] == ["cafe", "noodle-1"]
     assert "world_query_channels" not in value
     assert all("taste_weights" not in row for row in result["matches"])
@@ -58,15 +63,15 @@ def request(**changes):
 def test_source_filter_excludes_real_menus_outside_the_selected_app():
     value = observation(menu_context())
     result = query_world(value, request(**{"from": "美团"}))
-    assert result["total_count"] == 2
-    assert {row["name"] for row in result["matches"]} == {"一心面馆出售的牛肉面", "三杯咖啡出售的三明治"}
+    assert result["total_count"] == 1
+    assert {row["name"] for row in result["matches"]} == {"一心面馆出售的牛肉面"}
 
 
 def test_source_resolution_uses_the_purchase_resolver_instead_of_plain_place_equality():
     value = observation(menu_context())
     submitted = request(**{"from": "  美团  "})
     assert validate_world_query(value, submitted) is None
-    assert query_world(value, submitted)["total_count"] == 2
+    assert query_world(value, submitted)["total_count"] == 1
 
 
 def test_query_requires_the_source_and_availability_keys_without_defaults():
@@ -97,7 +102,7 @@ def test_purchase_way_expands_to_both_real_pickup_and_delivery_actions():
     submitted = request(way="购买")
     assert validate_world_query(value, submitted) is None
     result = query_world(value, submitted)
-    assert result["total_count"] == 4
+    assert result["total_count"] == 3
     assert {action["way"] for row in result["matches"] for action in row["actions"]} == {"到店", "远程下单"}
 
 
@@ -120,13 +125,13 @@ def test_availability_is_filtered_before_paging_and_total_count():
 def test_availability_only_uses_actions_matching_the_written_way():
     value = observation(menu_context())
     assert query_world(value, request(way="到店", available_only=True))["total_count"] == 0
-    assert query_world(value, request(way="远程下单", available_only=True))["total_count"] == 2
+    assert query_world(value, request(way="远程下单", available_only=True))["total_count"] == 1
 
 
 def test_without_way_availability_includes_the_actual_activity_control_tools():
     context = menu_context()
     _, activity = start_activity(context.state.agents[1],
-        ActivityStartParams(activity_type="consume", planned_duration_seconds=300), context.state.current_time,
+        ActivityStartParams(activity_type="wait", planned_duration_seconds=300), context.state.current_time,
         ActivityOrigin("food-control", "decision", "request"), context.semantics.body)
     state = WorldState.model_validate(context.state.model_copy(update={"activities": {activity.activity_id: activity}}).model_dump())
     names = activity_control.visible_names(state, 1, {})
@@ -142,6 +147,6 @@ def test_without_way_availability_includes_the_actual_activity_control_tools():
 
 def test_total_count_is_the_filtered_menu_count():
     value = observation(menu_context())
-    result = query_world(value, request(name="三明治", **{"from": "美团"}))
+    result = query_world(value, request(name="牛肉面", **{"from": "美团"}))
     assert result["total_count"] == 1
     assert len(value["world_query_bindings"]) > result["total_count"]

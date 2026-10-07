@@ -8,19 +8,18 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from worldmock.errors import IntegrityError
-from worldmock.exchange.types import FoodCategory
+from worldmock.exchange.types import GoodsCategory
 from worldmock.footprints.models import Event
 
 if TYPE_CHECKING:
     from worldmock.footprints.store import FootprintStore
 
-_SOURCE_TYPES = frozenset({"activity_progress"})
+_SOURCE_TYPES = frozenset({"activity_progress", "environment_event"})
 _PAGE_SIZE = 32
 _COMMON_FIELDS = frozenset({"kind", "agent_id", "activity_id", "source_event_id", "event_seq", "occurred_at"})
 _KIND_FIELDS = {
     "waited": frozenset({"interval_start", "interval_end", "duration_seconds", "reason"}),
-    "consumed": frozenset({"food_id", "category", "location_id", "interval_portion", "cumulative_portion",
-                           "interval_start", "interval_end"}),
+    "received": frozenset({"order_id", "goods_id", "category", "quantity"}),
     "arrived": frozenset({"location_id", "access_status"}),
     "played": frozenset({"content_id", "app_id", "position_before_seconds", "position_after_seconds",
                          "interval_start", "interval_end"}),
@@ -36,12 +35,12 @@ def validate_verified_experiences(rows: Any, agent_id: int, current_time: int) -
     seen = set()
     for row in rows:
         _validate_fact(row, agent_id, current_time)
-        identity = (row["source_event_id"], row["kind"], row.get("food_id"))
+        identity = (row["source_event_id"], row["kind"])
         if identity in seen:
             _invalid("Observed experience is duplicated")
         seen.add(identity)
         facts.append(dict(row))
-    ordering = lambda item: (item["event_seq"], item["kind"], item.get("food_id", ""))
+    ordering = lambda item: (item["event_seq"], item["kind"])
     if facts != sorted(facts, key=ordering):
         _invalid("Observed experiences are out of event order")
     return facts
@@ -56,18 +55,20 @@ def _validate_fact(row: Any, agent_id: int, current_time: int) -> None:
     if (type(row["agent_id"]) is not int or row["agent_id"] != agent_id
             or type(row["event_seq"]) is not int or row["event_seq"] <= 0
             or type(row["occurred_at"]) is not int or not 0 <= row["occurred_at"] <= current_time
-            or any(not isinstance(row[key], str) or not row[key]
-                   for key in ("activity_id", "source_event_id"))):
+            or not isinstance(row["source_event_id"], str) or not row["source_event_id"]):
         _invalid("Observed experience identity or time is invalid")
     kind = row["kind"]
-    if kind in {"waited", "consumed", "played"}:
+    if ((kind == "received" and row["activity_id"] is not None)
+            or (kind != "received" and (not isinstance(row["activity_id"], str) or not row["activity_id"]))):
+        _invalid("Observed experience activity identity is invalid")
+    if kind in {"waited", "played"}:
         _validate_fact_interval(row, current_time)
     if kind == "waited" and (type(row["duration_seconds"]) is not int
                               or row["duration_seconds"] != row["interval_end"] - row["interval_start"]
                               or row["reason"] is not None):
         _invalid("Observed wait duration or reason is invalid")
-    if kind == "consumed":
-        _validate_consumed_fact(row)
+    if kind == "received":
+        _validate_received_fact(row)
     if kind == "arrived" and (not isinstance(row["location_id"], str) or not row["location_id"]
                                or row["access_status"] not in {"allowed", "denied"}):
         _invalid("Observed arrival is invalid")
@@ -82,21 +83,19 @@ def _validate_fact_interval(row: dict[str, Any], current_time: int) -> None:
         _invalid("Observed experience interval is invalid")
 
 
-def _validate_consumed_fact(row: dict[str, Any]) -> None:
-    """@brief 校验真实食用份额与已结算地点。"""
-    if (any(not isinstance(row[key], str) or not row[key] for key in ("food_id", "location_id"))
-            or row["category"] not in set(FoodCategory)):
-        _invalid("Observed consumption food, category or location is invalid")
-    quantity, cumulative = row["interval_portion"], row["cumulative_portion"]
-    if (not _finite_number(quantity) or not _finite_number(cumulative)
-            or quantity <= 0 or cumulative < quantity):
-        _invalid("Observed consumption quantity is invalid")
+def _validate_received_fact(row: dict[str, Any]) -> None:
+    """@brief 校验本人收货的商品、订单与实际取得份数。"""
+    if (any(not isinstance(row[key], str) or not row[key] for key in ("order_id", "goods_id"))
+            or row["category"] not in set(GoodsCategory)
+            or not _finite_number(row["quantity"]) or row["quantity"] <= 0):
+        _invalid("Observed goods receipt evidence is invalid")
 
 
 def _validate_played_fact(row: dict[str, Any]) -> None:
     """@brief 校验真实播放内容和正向媒体区间。"""
     start, end = row["position_before_seconds"], row["position_after_seconds"]
-    if (any(not isinstance(row[key], str) or not row[key] for key in ("content_id", "app_id"))
+    if (not isinstance(row["content_id"], str) or not row["content_id"]
+            or (row["app_id"] is not None and (not isinstance(row["app_id"], str) or not row["app_id"]))
             or not _finite_number(start) or not _finite_number(end) or not 0 <= start < end):
         _invalid("Observed playback evidence is invalid")
 
@@ -127,6 +126,8 @@ def project_verified_experiences(
         seen[event.event_id] = event
         if event.agent_id != agent_id or event.event_type not in _SOURCE_TYPES:
             continue
+        if event.event_type == "environment_event" and event.data.get("kind") != "goods_received":
+            continue
         if event.source_kind != "environment" or event.visibility != "agent":
             _invalid("Experience source has invalid provenance or visibility")
         facts.extend(_project_event(event))
@@ -147,21 +148,21 @@ def recent_verified_experiences(store: FootprintStore, agent_id: int, cutoff_seq
             sorted(page, key=lambda item: item.event_seq), agent_id=agent_id, cutoff_seq=cutoff_seq,
         ))
         before = page[-1].event_seq
-    facts.sort(key=lambda item: (item["event_seq"], item["kind"], item.get("food_id", "")))
+    facts.sort(key=lambda item: (item["event_seq"], item["kind"]))
     return facts[-5:]
 
 
 def _project_event(event: Event) -> list[dict[str, Any]]:
     """@brief 按结算事件种类分派唯一领域投影。"""
     data = event.data
+    if event.event_type == "environment_event":
+        return [_received(event)]
     activity = data.get("activity")
     if not isinstance(activity, dict):
         _invalid("Activity progress has no activity snapshot")
     kind = activity.get("kind")
     if kind == "wait":
         return [_waited(event, activity)]
-    if kind == "consume":
-        return _consumed(event, activity)
     if kind == "use_app":
         row = _played(event, activity)
         return [row] if row is not None else []
@@ -173,7 +174,7 @@ def _project_event(event: Event) -> list[dict[str, Any]]:
 
 def _base(event: Event, kind: str) -> dict[str, Any]:
     """@brief 保留规范经历共同的来源身份与全序。"""
-    if not isinstance(event.activity_id, str) or not event.activity_id:
+    if kind != "received" and (not isinstance(event.activity_id, str) or not event.activity_id):
         _invalid("Experience source has no activity identity")
     return {"kind": kind, "agent_id": event.agent_id, "activity_id": event.activity_id,
             "source_event_id": event.event_id, "event_seq": event.event_seq,
@@ -196,46 +197,24 @@ def _waited(event: Event, activity: dict[str, Any]) -> dict[str, Any]:
             "duration_seconds": end - start, "reason": None}
 
 
-def _consumed(event: Event, activity: dict[str, Any]) -> list[dict[str, Any]]:
-    """@brief 从 eat 明细的本区间正增量投影实际食用份额。"""
-    data = event.data.get("consumption")
-    if not isinstance(data, dict) or not isinstance(data.get("items"), list):
-        _invalid("Consumption progress has no item evidence")
-    if data.get("use_mode") != "eat":
-        return []
-    start, end = _interval(event)
-    location_id = data.get("location_id")
-    if not isinstance(location_id, str) or not location_id:
-        _invalid("Consumption location is invalid")
-    rows = []
-    for item in data["items"]:
-        quantity, cumulative, food_id, category = _consumption_item(item)
-        if quantity > 0:
-            rows.append({**_base(event, "consumed"), "food_id": food_id, "category": category,
-                         "location_id": location_id, "interval_portion": quantity,
-                         "cumulative_portion": cumulative, "interval_start": start, "interval_end": end})
-    return rows
-
-
-def _consumption_item(item: Any) -> tuple[float, float, str, str]:
-    """@brief 拒绝缺失、负数或累计小于区间量的食用明细。"""
-    if not isinstance(item, dict):
-        _invalid("Consumption item is invalid")
-    food_id, category = item.get("food_id"), item.get("category")
-    quantity, cumulative = item.get("interval_portion"), item.get("cumulative_portion")
-    if (not isinstance(food_id, str) or not food_id or category not in set(FoodCategory)
-            or any(type(value) not in (int, float) or not math.isfinite(value) or value < 0
-                   for value in (quantity, cumulative)) or cumulative < quantity):
-        _invalid("Consumption portion, food or category is invalid")
-    return float(quantity), float(cumulative), food_id, category
+def _received(event: Event) -> dict[str, Any]:
+    """@brief 收货只取本人 goods_received，订单状态和付款不能代替收货事实。"""
+    row = {**_base(event, "received"), **{key: event.data.get(key)
+            for key in ("order_id", "goods_id", "category", "quantity")}}
+    if event.activity_id is not None:
+        _invalid("Goods receipt source has an activity identity")
+    _validate_received_fact(row)
+    return row
 
 
 def _played(event: Event, activity: dict[str, Any]) -> dict[str, Any] | None:
     """@brief 仅以真实前进的媒体位置证明内容接触。"""
     del activity
     content = event.data.get("content")
-    if (not isinstance(content, dict)
-            or any(not isinstance(content.get(key), str) or not content[key] for key in ("content_id", "app_id"))):
+    if (not isinstance(content, dict) or "app_id" not in content
+            or not isinstance(content.get("content_id"), str) or not content["content_id"]
+            or (content.get("app_id") is not None and
+                (not isinstance(content["app_id"], str) or not content["app_id"]))):
         _invalid("Playback progress has no app content evidence")
     start, end = content.get("position_before_seconds"), content.get("position_after_seconds")
     if any(type(value) not in (int, float) or not math.isfinite(value) or value < 0 for value in (start, end)):

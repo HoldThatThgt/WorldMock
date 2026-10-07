@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING, Any
 
 from worldmock.footprints.models import EventDraft, sha256_json, validate_resource_flows
 from worldmock.life import felt
-from worldmock.life.activities import ActivityOrigin
 from worldmock.life.body import last_flows
 from worldmock.life.models import ActivityKind, PendingAction, WorldState, active_activities
 
 if TYPE_CHECKING:
+    from worldmock.life.activities import ActivityOrigin
     from agentsociety2.society import DecisionContext, DirectToolCall, SchedulingState
     from worldmock.footprints.models import Checkpoint
 
@@ -28,6 +28,8 @@ def _put_activity(state: WorldState, agent, activity) -> WorldState:
 
 def _activity_origin(state: WorldState, pending: PendingAction) -> ActivityOrigin:
     """@brief 同一模型动作内给每条活动分配独立身份，保留共同的原动作归因。"""
+    from worldmock.life.activities import ActivityOrigin
+
     ordinal = 1 + sum(item.origin_action_id == pending.action_id for item in state.activities.values())
     return ActivityOrigin(pending.action_id, pending.decision_id, pending.requested_event_id, ordinal)
 
@@ -53,8 +55,6 @@ def _body_settlement_data(settlement) -> dict:
         "duration_seconds": settlement.duration_seconds,
         "basal_energy_kcal": settlement.basal_energy_kcal,
         "extra_energy_kcal": settlement.extra_energy_kcal,
-        "food_energy_kcal": settlement.food_energy_kcal,
-        "food_efficiency": settlement.food_efficiency,
     }
 
 

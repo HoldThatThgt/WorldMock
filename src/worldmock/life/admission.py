@@ -1,18 +1,4 @@
-"""@brief 生活动作的并行准入：现场地点、目标在场、出行方式、占用与物品状态（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章）。
-
-一个 start_activity 请求整组判定：名额（activity_control.require_start_admission，含出发前须先结束或暂停进行中的
-活动）之后，按目标在场与实际地点、出行方式、占用、物品状态的顺序报第一条不成立的准入，结果与组内先后无关：要停在
-一个地点做的事（现场工作、到店取得、当面交谈、生活活动与持有物）都按整组开始之后人在哪里判定，同一请求出发即不在场。
-出行中人物的 location_id 仍是出发地（路线身份、菜单解析与远程下单的送达地），判定现场资格时同时检查进行中的出行：
-有进行中出行即为「途中」，途中不在任何地点、没有可用的持有物、不与任何人同在一处。互斥只由注册表声明的占用交集判定，
-不另设按动作名的规则；合成一单或一餐的两项（interaction_menu.merged_selection）是同一次动作，只与已有活动比较占用。
-同一对人物已有进行中交谈时，重复发起在目标判定这一步以 CHAT_ALREADY_ACTIVE 返回（第五章「交谈」），先于占用；接受时
-发起方的交谈只剩不足一分钟，同一步以 ACTIVITY_TOO_SHORT 返回。工具层的可用性（life.tool_layer.availability）按受理的同一顺序调用这里的判定，
-所以 reason 与拒绝原因一字不差；他处持有物（持有但不在此刻所在地点）在物品状态这一步以 PRODUCT_NOT_HELD 写明
-只能在当地用（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。
-
-下一步提示从已登记连通图查询目标地点，直接写「去<地点>」，见 life.wayfinding。
-"""
+"""@brief 生活动作按实际现场、出行方式与资源占用进行整组准入；工具层和受理使用同一拒绝判定。"""
 
 from __future__ import annotations
 
@@ -26,7 +12,6 @@ from worldmock.errors import BusinessRuleError
 from worldmock.life import activity_control
 from worldmock.life.guidance import Refusal
 from worldmock.life.wayfinding import go_step
-from worldmock.life.vocabulary import GIVE_WAY
 from worldmock.life.readable import TRAVEL_WAYS
 from worldmock.life.interaction_menu import activity_phrase, merged_selection
 from worldmock.life.models import ActivityKind, TravelMode, WorldState, active_activities
@@ -38,10 +23,9 @@ _UNMET = "ACTIVITY_PRECONDITION_UNMET"
 
 @dataclass(frozen=True, slots=True)
 class WorldFacts:
-    """@brief 准入判定所需的冻结目录：任务、供给、可持有物与内容（引擎取自规则，投影取自场景）。"""
+    """@brief 准入判定所需的冻结工作内容与工作地点。"""
 
     work_topics: Mapping[str, Any]
-    items: Mapping[str, Any]
     #: 当前人物工作安排中的现场地点，无工作安排时为空。
     workplace_location_id: str | None = None
 
@@ -73,9 +57,7 @@ class Item:
     :param place: 目标在场要求的地点身份（办公室工作、到店取得、限地点使用的持有物），None 表示不要求。
     :param partner: 当面交谈的对方人物身份，None 表示不是交谈。
     :param manual: 是否是需要手动操作的瞬时动作（远程下单）。
-    :param holding: 是否使用手边持有物（食用、使用、制作）。
     :param site: 是否要停在一个地点做（生活活动）：途中与同一请求出发都做不了。
-    :param held_at: 他处持有物所在的地点身份（持有物不在此刻所在地点），None 表示手边的持有物或不是持有物。
     """
 
     canonical: str
@@ -85,9 +67,7 @@ class Item:
     place: str | None = None
     partner: int | None = None
     manual: bool = False
-    holding: bool = False
     site: bool = False
-    held_at: str | None = None
 
 
 def en_route(state: WorldState, agent_id: int) -> bool:
@@ -107,15 +87,11 @@ def driving_destination(state: WorldState, agent_id: int) -> str | None:
 
 
 def selection_item(row: Mapping[str, Any], action: Mapping[str, Any], facts: WorldFacts) -> Item:
-    """@brief 把一项私有绑定（对象行与所选动作）换成准入事实：占用、目标在场、手动操作、送达地与持有物。
-
-    远程下单只在去向是自己时按本人所在地核对送达地（送给别人的送达地在受理时按收货人核对）；给予只要求手边持有，
-    不占用、不受商品使用地点限制。
-    """
+    """@brief 把私有绑定和所选动作换成资源占用、在场与手动操作事实。"""
     canonical, object_id = action["canonical_action"], row["object_id"]
     item = Item(canonical=canonical, way=action["label"],
                 label=f"{activity_phrase(action)}{activity_control.object_display_name(row)}",
-                claims=_claims(canonical, action, object_id, facts))
+                claims=_claims(canonical, action))
     if canonical == "work" and object_id in facts.work_topics:
         return replace(item, place=facts.workplace_location_id)
     if canonical == "purchase" and action.get("fulfillment") == "pickup":
@@ -124,22 +100,13 @@ def selection_item(row: Mapping[str, Any], action: Mapping[str, Any], facts: Wor
         return replace(item, manual=True)
     if canonical == "chat" and str(object_id).startswith("agent:"):
         return replace(item, partner=int(str(object_id).split(":", 1)[1]))
-    if canonical == "consume" and action["label"] == GIVE_WAY:
-        return replace(item, holding=True, held_at=row.get("location_id"))
-    if canonical == "consume":
-        return replace(item, holding=True, held_at=row.get("location_id"))
     if canonical == "do":
         return replace(item, site=True)
     return item
 
 
 def require_group(context: Context, items: Sequence[Item]) -> None:
-    """@brief 名额之后的整组准入：目标在场与实际地点、出行方式、占用、物品状态，报第一条不成立的。
-
-    :raises PreconditionError: ACTIVITY_PRECONDITION_UNMET（目标在场、实际地点、送达地、驾车时手动操作）、
-        RESOURCE_CONFLICT（占用交集）、PRODUCT_NOT_HELD（途中或出发后没有可用的持有物）、CHAT_ALREADY_ACTIVE 与
-        ACTIVITY_TOO_SHORT（交谈），都带原因与下一步。
-    """
+    """@brief 名额之后按目标在场、手动操作与占用判断整组动作；拒绝带原因与下一步。"""
     refusal = group_refusal(context, items)
     if refusal is not None:
         raise refusal.error()
@@ -160,10 +127,7 @@ def group_refusal(context: Context, items: Sequence[Item]) -> Refusal | None:
         refusal = _hands_free_refusal(context, item, items)
         if refusal is not None:
             return refusal
-    refusal = _claims_refusal(context, items)
-    if refusal is not None or not any(item.holding for item in items):
-        return refusal
-    return _holding_refusal(context, items, present, departs)
+    return _claims_refusal(context, items)
 
 
 def require_hands_free(context: Context, what: str) -> None:
@@ -280,26 +244,11 @@ def _claims_refusal(context: Context, items: Sequence[Item]) -> Refusal | None:
     return None
 
 
-def _holding_refusal(context: Context, items: Sequence[Item], present: str | None,
-                     departs: bool) -> Refusal | None:
-    """@brief 物品状态：持有物只在此刻所在地点可用；途中没有可用的持有物，同一请求出发后手边也没有；
-    他处持有物写明只能在当地用。"""
-    if departs:
-        return Refusal("PRODUCT_NOT_HELD", "Held items cannot be used after departure.",
-                       "Use the item before departure.")
-    if present is None:
-        return Refusal("PRODUCT_NOT_HELD", "Held items cannot be used during travel.", "Use the item after arrival.")
-    elsewhere = next((item.held_at for item in items if item.held_at is not None and item.held_at != present), None)
-    if elsewhere is not None:
-        place = context.place_names[elsewhere]
-        return Refusal("PRODUCT_NOT_HELD", f"This item is at {place} and must be used there.",
-                       go_step(context.graph, context.place_names, _origin(context), elsewhere))
-    return None
 
 
-def _claims(canonical: str, action: Mapping[str, Any], object_id: str, facts: WorldFacts) -> frozenset[str]:
-    """@brief 该项开始后的占用：购买与给予不占，交谈与通话按社交占用，其余按注册表（驾车、观看内容品类的条件占用）。"""
-    if canonical == "purchase" or action.get("label") == GIVE_WAY:
+def _claims(canonical: str, action: Mapping[str, Any]) -> frozenset[str]:
+    """@brief 购买不占资源，交谈与通话用社交占用，其余按注册表的条件占用。"""
+    if canonical == "purchase":
         return frozenset()
     if canonical in {"chat", "call"}:
         return SOCIAL_RESOURCE_CLAIMS

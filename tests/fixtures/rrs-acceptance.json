@@ -243,12 +243,12 @@
     "stage": "3",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-店铺食品与外卖",
     "tests": [
-      "tests/life/test_commerce.py::test_delivery_reaches_every_selected_place_and_survives_restore_once",
-      "tests/life/test_commerce.py::test_multiple_food_rows_pay_one_fee_one_transfer_and_one_delivery",
-      "tests/life/test_commerce.py::test_self_delivery_during_travel_is_refused_before_any_payment",
-      "tests/life/test_purchase_apps.py::test_delivery_to_other_person_uses_their_receiving_location",
-      "tests/life/test_commerce.py::test_purchase_rejection_is_atomic_with_the_exact_code",
-      "tests/life/test_commerce.py::test_insufficient_funds_rejects_the_entire_multi_food_order"
+      "tests/life/test_commerce.py::test_delivery_receives_at_due_time_even_after_recipient_moves",
+      "tests/life/test_commerce.py::test_two_goods_rows_pay_one_delivery_fee_and_one_transfer",
+      "tests/life/test_commerce.py::test_self_delivery_during_travel_is_refused_before_payment",
+      "tests/life/test_purchase_apps.py::test_delivery_to_other_person_uses_their_current_receiving_location",
+      "tests/life/test_commerce.py::test_purchase_rejection_is_atomic_with_exact_code",
+      "tests/life/test_commerce.py::test_insufficient_funds_rejects_entire_order_before_receipt"
     ],
     "implementation": [
       "src/worldmock/life/basket.py::purchase_order",
@@ -266,15 +266,13 @@
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-店铺食品与外卖",
     "tests": [
       "tests/life/test_menu_discovery.py::test_same_kind_stores_share_foods_with_real_distinct_bindings",
-      "tests/life/test_commerce.py::test_no_app_store_pickup_is_immediate_local_holding",
+      "tests/life/test_commerce.py::test_store_purchase_settles_energy_and_receipt_once_in_the_payment_result",
       "tests/life/test_named_purchase.py::test_named_purchase_rejects_food_source_and_way_mismatch",
       "tests/integration/test_rrs_engine_wave.py::test_real_published_route_and_store_food_reach_consumption_evidence",
       "tests/life/test_purchase_apps.py::test_unbound_app_refuses_with_exact_reason_and_bound_app_next_step",
-      "tests/life/test_named_purchase.py::test_null_source_uses_smallest_bound_app_and_records_the_real_note",
       "tests/life/test_named_purchase.py::test_preference_counts_delivery_fee_and_breaks_ties_by_store_id",
-      "tests/life/test_commerce.py::test_purchase_rejection_is_atomic_with_the_exact_code",
-      "tests/life/test_named_purchase.py::test_onsite_name_purchase_has_no_app_and_remote_guidance_uses_real_places",
-      "tests/life/test_purchase_apps.py::test_native_purchase_routing_derives_way_without_action_field"
+      "tests/life/test_commerce.py::test_purchase_rejection_is_atomic_with_exact_code",
+      "tests/life/test_named_purchase.py::test_onsite_name_purchase_has_no_app_and_remote_guidance_uses_real_places"
     ],
     "implementation": [
       "src/worldmock/life/basket.py::_order_fulfillment",
@@ -290,37 +288,34 @@
     "stage": "3",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-三类食品与进食",
     "tests": [
-      "tests/life/test_rrs_food_body.py::test_food_category_defines_equal_snack_intake_and_three_fixed_rates",
-      "tests/life/test_rrs_food_body.py::test_food_split_pause_resume_and_repeated_progress_conserve_raw_intake",
-      "tests/life/test_rrs_food_body.py::test_food_fixed_body_efficiency_energy_cap_and_resource_source",
-      "tests/life/test_rrs_food_body.py::test_food_actual_portion_duration_bounds_and_multi_item_longest",
-      "tests/life/test_rrs_food_body.py::test_food_ending_discards_only_opened_remainder_without_extra_intake",
+      "tests/life/test_receipt.py::test_every_food_category_uses_fixed_calories_with_actual_efficiency",
+      "tests/life/test_receipt.py::test_third_party_food_receipt_owns_exact_effect_and_drains_flow",
+      "tests/life/test_receipt.py::test_pending_and_delivered_order_receipt_timestamps_are_strict",
+      "tests/life/test_activity_effects.py::test_food_receipt_is_instantaneous_and_not_a_continuous_activity_factor",
       "tests/integration/test_rrs_engine_wave.py::test_real_published_route_and_store_food_reach_consumption_evidence",
       "tests/life/test_menu_discovery.py::test_food_tool_state_category_energy_apps_and_fixed_price",
       "tests/life/test_food_presentation.py::test_product_targets_use_current_store_or_real_delivery_apps"
     ],
     "implementation": [
-      "src/worldmock/life/basket.py::apply_meal_progress",
-      "src/worldmock/life/basket.py::meal_duration",
       "src/worldmock/life/body.py::apply_food",
       "src/worldmock/life/sleep.py::food_utilization_efficiency",
       "src/worldmock/life/tool_layer.py::_product_state",
       "src/worldmock/life/callable_index.py::callable_index",
-      "src/worldmock/life/observe.py::_supply_entries"
+      "src/worldmock/life/observe.py::_supply_entries",
+      "src/worldmock/life/receipt.py::settle_receipt",
+      "src/worldmock/life/receipt.py::_receipt_effect"
     ]
   },
   "购买足迹与画像": {
     "stage": "3",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-观察与工具面",
     "tests": [
-      "tests/life/test_rrs_food_body.py::test_food_purchase_changes_holding_and_only_actual_eating_increases_energy",
-      "tests/life/test_rrs_food_body.py::test_food_progress_verified_experiences_and_quality_use_food_identity",
+      "tests/footprints/test_verified_experiences.py::test_real_goods_receipt_commit_projects_only_its_received_order",
+      "tests/footprints/test_verified_experiences.py::test_received_orders_are_distinct_and_projection_is_idempotent",
       "tests/footprints/test_purchases.py::test_actual_order_facts_preserve_food_store_app_and_fixed_money",
-      "tests/life/test_commerce.py::test_no_app_store_pickup_is_immediate_local_holding",
-      "tests/life/test_food_errand_evidence.py::test_actual_pickup_credits_the_recipient_and_reused_result_cannot_credit_twice",
-      "tests/life/test_food_errand_evidence.py::test_actual_giving_credits_only_the_recipient_and_actual_fraction",
-      "tests/life/test_food_errand_evidence.py::test_actual_pending_delivery_does_not_credit_and_restored_arrival_credits_once",
-      "tests/life/test_food_errand_evidence.py::test_actual_food_progress_counts_interval_portions_and_zero_replay_does_not_credit",
+      "tests/life/test_acs_receipt_readers.py::test_actual_self_receipt_completes_its_errand_and_meal_goal_once_with_one_goal_pulse",
+      "tests/life/test_acs_receipt_readers.py::test_another_payer_actual_receipt_completes_only_the_recipients_errand_and_goal",
+      "tests/life/test_acs_receipt_readers.py::test_actual_contact_delivery_never_completes_buyers_errand_or_meal_goal",
       "tests/profile/test_injection.py::test_the_warning_code_set_is_the_closed_six",
       "tests/profile/test_injection.py::test_empty_content_warns_for_media_and_habits_only",
       "tests/profile/test_injection.py::test_coverage_below_threshold_reuses_the_validate_report",
@@ -363,11 +358,10 @@
       "tests/integration/test_input_warnings.py::test_low_coverage_writes_report_and_warns_before_gate",
       "tests/integration/test_input_warnings.py::test_runtime_warning_caller_logs_and_freezes_all_six_codes",
       "tests/integration/test_input_warnings.py::test_warning_caller_rejects_catalog_identity_tampering",
-      "tests/profile/test_injection.py::test_retired_warning_codes_are_rejected_at_manifest_boundary"
+      "tests/profile/test_injection.py::test_retired_warning_codes_are_rejected_at_manifest_boundary",
+      "tests/life/test_commerce.py::test_store_purchase_settles_energy_and_receipt_once_in_the_payment_result"
     ],
     "implementation": [
-      "src/worldmock/life/activity_evidence.py::meal_consumption_data",
-      "src/worldmock/footprints/experiences.py::_consumed",
       "src/worldmock/profile/injection.py::frozen_input_warnings",
       "src/worldmock/profile/coverage_targets.py::build_coverage_targets",
       "src/worldmock/run_setup.py::creation_inputs",
@@ -376,9 +370,7 @@
       "src/worldmock/footprints/purchases.py::_purchases",
       "src/worldmock/life/errands.py::evidence_rows",
       "src/worldmock/life/errands.py::settle",
-      "src/worldmock/life/errands.py::_handed",
-      "src/worldmock/life/errands.py::_arrived",
-      "src/worldmock/life/errands.py::_consumed"
+      "src/worldmock/footprints/experiences.py::_received"
     ]
   },
   "娱乐只从所选 app 取内容（娱乐只从所选 app 取内容）": {
@@ -461,14 +453,13 @@
       "tests/life/test_app_push.py::test_push_draw_uses_one_b30_stream_sorted_candidates_and_stable_identity",
       "tests/life/test_app_push.py::test_queue_is_popped_before_effect_checkpoint_and_restore_never_reissues",
       "tests/life/test_app_push.py::test_push_identity_validation_rejects_unregistered_references_in_historical_session",
-      "tests/life/test_commerce.py::test_delivery_reaches_every_selected_place_and_survives_restore_once",
-      "tests/life/test_commerce.py::test_multiple_food_rows_pay_one_fee_one_transfer_and_one_delivery",
-      "tests/life/test_rrs_food_body.py::test_food_category_defines_equal_snack_intake_and_three_fixed_rates",
-      "tests/life/test_rrs_food_body.py::test_food_split_pause_resume_and_repeated_progress_conserve_raw_intake",
-      "tests/life/test_rrs_food_body.py::test_food_fixed_body_efficiency_energy_cap_and_resource_source",
-      "tests/life/test_rrs_food_body.py::test_food_actual_portion_duration_bounds_and_multi_item_longest",
-      "tests/life/test_rrs_food_body.py::test_food_ending_discards_only_opened_remainder_without_extra_intake",
-      "tests/integration/test_rrs_engine_wave.py::test_real_published_route_and_store_food_reach_consumption_evidence"
+      "tests/life/test_commerce.py::test_delivery_receives_at_due_time_even_after_recipient_moves",
+      "tests/life/test_commerce.py::test_two_goods_rows_pay_one_delivery_fee_and_one_transfer",
+      "tests/integration/test_rrs_engine_wave.py::test_real_published_route_and_store_food_reach_consumption_evidence",
+      "tests/life/test_receipt.py::test_every_food_category_uses_fixed_calories_with_actual_efficiency",
+      "tests/life/test_receipt.py::test_third_party_food_receipt_owns_exact_effect_and_drains_flow",
+      "tests/life/test_receipt.py::test_pending_and_delivered_order_receipt_timestamps_are_strict",
+      "tests/life/test_activity_effects.py::test_food_receipt_is_instantaneous_and_not_a_continuous_activity_factor"
     ],
     "implementation": [
       "src/worldmock/life/randomness.py::random_stream",

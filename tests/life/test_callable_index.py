@@ -12,4 +12,4 @@ def test_every_food_index_example_resolves_to_the_actual_fixed_menu():
     for category in index["goods"]:
         for name in category["examples"]:
             row = resolve_named_supply(context, PurchaseAsk(name, "购买", None, "noodle-2", "最快拿到"))
-            assert row["food_id"] in context.semantics.catalog.foods_by_store[row["store_id"]]
+            assert row["goods_id"] in context.semantics.catalog.goods_by_store[row["store_id"]]

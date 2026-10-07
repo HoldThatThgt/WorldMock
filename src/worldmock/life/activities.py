@@ -263,8 +263,7 @@ def activity_factors(activity: ActivityState, agent: AgentState, config: BodyCon
     """@brief 从活动方式和系统固定缓解量形成结算系数。"""
     met = _activity_met(activity.kind, activity.travel_mode, config)
     relief = entertainment_relief_rate(activity, config)
-    food = _food_energy_rate(activity)
-    return ActivityFactors(met, relief, food_energy_kcal_per_hour=food)
+    return ActivityFactors(met, relief)
 
 
 def entertainment_relief_rate(activity: ActivityState, config: BodyConfig) -> float:
@@ -283,15 +282,6 @@ def content_entertainment_relief_rate() -> float:
 
 
 
-def _food_energy_rate(activity: ActivityState) -> float:
-    """@brief 读取消费活动按当前食物进度形成的每小时净可用热量。"""
-    if activity.kind != ActivityKind.CONSUME:
-        return 0
-    value = activity.data.get("food_energy_kcal_per_hour")
-    if not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
-        logging.error("Consume activity food energy rate is invalid: %s", activity.activity_id)
-        raise ValueError("consume activity food energy rate is invalid")
-    return float(value)
 
 
 def _activity_met(kind: ActivityKind, travel_mode, config: BodyConfig) -> float:

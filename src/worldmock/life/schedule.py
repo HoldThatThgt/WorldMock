@@ -108,7 +108,7 @@ IntentKind = Literal[
 
 #: 活动种类对应的评估聚合家族；计划匹配仍使用活动种类本身作为令牌。
 ACTIVITY_KIND_FAMILIES = {
-    "sleep": "sleep", "travel": "commute", "work": "work", "consume": "meal",
+    "sleep": "sleep", "travel": "commute", "work": "work",
     "use_app": "entertainment",
     "read_mail": "entertainment", "wait": "rest", "chat": "social", "call": "social",
 }
@@ -135,7 +135,7 @@ INTENT_ACTIVITY_FAMILIES: dict[str, frozenset[str]] = {
     "晨间例程": frozenset({"lifestyle:wellness", "wait"}),
     "通勤": frozenset({"travel"}),
     "工作": frozenset({"work"}),
-    "用餐": frozenset({"consume"}),
+    "用餐": frozenset(),
     "休息": frozenset({"wait", "lifestyle:wellness"}),
     "娱乐": frozenset({"use_app", "lifestyle:hobby"}),
     "社交": frozenset({"chat", "call", "lifestyle:social"}),
@@ -269,6 +269,7 @@ class PlanGoal(FrozenModel):
     registered_at: int = Field(ge=0)
     progressed_at: int | None = Field(default=None, ge=0)
     progress_activity_id: str | None = Field(default=None, min_length=1)
+    progress_order_id: str | None = Field(default=None, min_length=1)
     progress_note: str = Field(default="", max_length=500)
     remind_at: int | None = Field(default=None, ge=0)
     reminded_at: int | None = Field(default=None, ge=0)
@@ -277,10 +278,13 @@ class PlanGoal(FrozenModel):
     @model_validator(mode="after")
     def _check_progress(self) -> "PlanGoal":
         """@brief 推进证据必须成对存在，且不能早于登记；只有设了提醒的目标才有触发时刻，且不早于提醒时刻。"""
-        if (self.progressed_at is None) != (self.progress_activity_id is None):
+        evidence_count = sum(item is not None for item in (self.progress_activity_id, self.progress_order_id))
+        if evidence_count != int(self.progressed_at is not None):
             _LOGGER.error("Goal progress evidence is incomplete")
             raise ValueError("goal progress evidence must be present together")
-        if self.progressed_at is not None and self.progressed_at <= self.registered_at:
+        if (self.progressed_at is not None and
+                (self.progressed_at < self.registered_at or
+                 (self.progressed_at == self.registered_at and self.progress_activity_id is not None))):
             _LOGGER.error("Goal progress must follow registration")
             raise ValueError("goal progress must follow registration")
         if self.reminded_at is not None and (self.remind_at is None or self.reminded_at < self.remind_at):
@@ -299,7 +303,9 @@ class DayPlan(FrozenModel):
     def _check_plan(self) -> "DayPlan":
         """@brief 核验意图唯一、活动证据唯一及当日登记和推进边界。"""
         kinds = [goal.intent_kind for goal in self.goals]
-        evidence = [goal.progress_activity_id for goal in self.goals if goal.progress_activity_id is not None]
+        evidence = [(kind, identity) for goal in self.goals
+                    for kind, identity in (("activity", goal.progress_activity_id), ("order", goal.progress_order_id))
+                    if identity is not None]
         if len(kinds) != len(set(kinds)) or len(evidence) != len(set(evidence)):
             _LOGGER.error("Day plan contains duplicate intent or activity evidence")
             raise ValueError("day plan intent and activity evidence must be unique")
@@ -520,6 +526,24 @@ def progress_day_plan(plan: DayPlan, activity: dict, start: int, end: int) -> Da
         if not ran_in_goal_window(goal.around_at, activity.get("started_at"), stop):
             continue
         progressed = goal.model_copy(update={"progressed_at": stop, "progress_activity_id": activity_id})
+        goals = plan.goals[:index] + (progressed,) + plan.goals[index + 1:]
+        return DayPlan(day_end=plan.day_end, goals=goals)
+    return plan
+
+
+def progress_receipt_day_plan(plan: DayPlan, receipt: dict, now: int) -> DayPlan:
+    """@brief 本人的正餐收货在登记之后、当天与大致时刻容差内推进用餐目标，订单证据当天只用一次。"""
+    if receipt.get("kind") != "goods_received" or receipt["category"] != "meal" or now >= plan.day_end:
+        return plan
+    order_id = receipt["order_id"]
+    if any(goal.progress_order_id == order_id for goal in plan.goals):
+        return plan
+    for index, goal in enumerate(plan.goals):
+        if goal.intent_kind != "用餐" or goal.progressed_at is not None or now < goal.registered_at:
+            continue
+        if goal.around_at is not None and abs(now - goal.around_at) > GOAL_TIME_TOLERANCE_SECONDS:
+            continue
+        progressed = goal.model_copy(update={"progressed_at": now, "progress_order_id": order_id})
         goals = plan.goals[:index] + (progressed,) + plan.goals[index + 1:]
         return DayPlan(day_end=plan.day_end, goals=goals)
     return plan

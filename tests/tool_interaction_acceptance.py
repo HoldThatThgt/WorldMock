@@ -26,7 +26,6 @@ BEHAVIOR = {'工作主题累计与地点': ('tests/life/test_work_topics.py::tes
               'tests/life/test_tool_protocol.py::test_engine_revalidates_constructed_bad_requests_with_complete_fields',
               'tests/life/test_tool_protocol.py::test_root_validator_keeps_argument_root_and_original_json',
               'tests/life/test_tool_protocol.py::test_cross_field_interval_and_goal_bounds_keep_explicit_locations',
-              'tests/life/test_purchase_apps.py::test_native_purchase_routing_derives_way_without_action_field',
               'tests/life/test_tool_protocol.py::test_parser_reports_malformed_json_and_unknown_tool_complete_locations',
               'tests/integration/test_host_failure_stages.py::test_model_service_failure_persists_stage_without_parsing_exception_text',
               'tests/integration/test_host_failure_stages.py::test_evidence_write_failure_stops_with_structured_stage',
@@ -35,9 +34,6 @@ BEHAVIOR = {'工作主题累计与地点': ('tests/life/test_work_topics.py::tes
  '原子批次': ('tests/life/test_tool_protocol.py::test_read_batch_reports_every_error_with_real_call_indices',
           'tests/life/test_tool_protocol.py::test_world_query_mixed_batches_are_atomic',
           'tests/life/test_tool_protocol.py::test_route_errors_return_null_only_and_all_independent_fields'),
- '购买与食用': ('tests/life/test_commerce.py::test_no_app_store_pickup_is_immediate_local_holding',
-           'tests/life/test_commerce.py::test_multiple_food_rows_pay_one_fee_one_transfer_and_one_delivery',
-           'tests/life/test_rrs_food_body.py::test_food_split_pause_resume_and_repeated_progress_conserve_raw_intake'),
  '查询与预算': ('tests/life/test_world_query.py::test_world_query_paginates_complete_frozen_set_and_preserves_false_and_zero',
            'tests/life/test_world_query.py::test_world_query_offset_requires_nonnegative_json_integer',
            'tests/life/test_world_query.py::test_world_query_real_engine_reads_all_goods_without_browse_or_world_changes',
@@ -51,7 +47,10 @@ BEHAVIOR = {'工作主题累计与地点': ('tests/life/test_work_topics.py::tes
           'tests/life/test_tool_interaction_runtime.py::test_actual_frozen_tool_layer_and_prompt_groups_restore_identically',
           'tests/life/test_tool_interaction_runtime.py::test_compact_prompt_continuation_preserves_head_and_exact_target_changes'),
  '文档与身份': ('tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve',
-           'tests/test_design_doc_build.py::test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current')}
+           'tests/test_design_doc_build.py::test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current'),
+ '购买与收货': ('tests/life/test_commerce.py::test_store_purchase_settles_energy_and_receipt_once_in_the_payment_result',
+           'tests/life/test_commerce.py::test_two_goods_rows_pay_one_delivery_fee_and_one_transfer',
+           'tests/life/test_commerce.py::test_pending_order_checkpoint_restore_receives_once_and_keeps_payment_once')}
 
 MUTATIONS = (
     SourceMutation(

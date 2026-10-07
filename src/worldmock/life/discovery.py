@@ -24,10 +24,10 @@ def place_row(context: DiscoveryContext, location) -> dict:
 
 
 def supply_row(context: DiscoveryContext, store_id: str, food) -> dict:
-    """@brief 从唯一目录构建固定菜单食品事实，不产生库存、营业或报价状态。"""
+    """@brief 从唯一目录构建固定菜单商品事实。"""
     catalog = context.semantics.catalog
     location = catalog.locations[store_id]
-    return {"store_id": store_id, "food_id": food.food_id, "name": food.name,
+    return {"store_id": store_id, "goods_id": food.goods_id, "name": food.name,
             "location_name": location.display_name, "category": food.category.value,
             "price_fen": food.price_fen, "app_ids": list(catalog.apps_by_store[store_id])}
 

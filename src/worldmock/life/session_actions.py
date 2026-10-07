@@ -1,7 +1,6 @@
 """@brief ActionHandlers 的独立生活运行职责。"""
 
 from __future__ import annotations
-from worldmock.life import sleep as sleep_module
 from worldmock.life import social as social_domain
 from worldmock.life.world_ops import _activity_origin
 from worldmock.life.world_ops import _put_activity
@@ -20,7 +19,6 @@ from worldmock.life.activity_titles import activity_title
 from worldmock.life.control_items import control_items
 from worldmock.life.activities import change_activity, resource_claims, schedule_feedback, start_activity
 from worldmock.life.content import app_content_result, initialize_app_usage, resume_app_usage
-from worldmock.life.basket import meal_duration, meal_food_rate, open_meal, validate_meal_inventory, validate_meal_use
 from worldmock.life.body import apply_mood_pulse
 from worldmock.life.models import (
     ActionResult,
@@ -30,7 +28,6 @@ from worldmock.life.models import (
     ActivityStartParams,
     ActivityStatus,
     ChangeActivityRequest,
-    ConsumeRequest,
     PendingAction,
     REQUEST_MODELS,
     ReviseDayPlanRequest,
@@ -52,20 +49,18 @@ from worldmock.life import (
     activity_control,
     admission,
     errands,
-    giving,
     memory_layer,
     order_routing,
     request_linking,
     routing,
     sessions,
 )
-from worldmock.life.activity_evidence import conclusion_outcome, discard_opened
-from worldmock.life.basket import held_quantity, meal_portion
+from worldmock.life.activity_evidence import conclusion_outcome
 from worldmock.life.durations import capped_duration_seconds, derived_activity_duration
 from worldmock.life.control_items import control_errands, control_items
 from worldmock.life.guidance import Refusal, guided, refusal_for_code
 from worldmock.life.error_contract import ErrorItem
-from worldmock.life.vocabulary import GIVE_WAY, PURCHASE_WAYS
+from worldmock.life.vocabulary import PURCHASE_WAYS
 from worldmock.life.interaction_menu import (
     NAMED_SUPPLY_KIND,
     activity_phrase,
@@ -83,10 +78,7 @@ from worldmock.life.models import (
     ActivityStatus,
     ChangeActivityRequest,
     ConcludeActivityRequest,
-    CONSUME_DURATION_CAP_SECONDS,
     DERIVED_DURATION_CAP_SECONDS,
-    ConsumeItem,
-    ConsumeRequest,
     LIFESTYLE_TYPE_PREFIX,
     PauseActivityRequest,
     PendingAction,
@@ -144,13 +136,12 @@ class ActionHandlers:
         ]
 
     def _conclusion_outcome(
-        self, state: WorldState, agent_id: int, names: list[str], selected: list[ActivityState]
+        self, state: WorldState, names: list[str], selected: list[ActivityState]
     ) -> list[dict]:
-        """@brief 逐项投影真实结算终局与物品变化；人物总结不改变库存。"""
+        """@brief 逐项投影真实结算终局；人物总结不改变终局。"""
         ended = [state.activities[activity.activity_id] for activity in selected]
-        product_names = {item.food_id: item.name for item in self.context.semantics.catalog.foods.values()}
         return [
-            conclusion_outcome(activity, name, product_names, state.agents[agent_id])
+            conclusion_outcome(activity, name)
             for (name, activity) in zip(names, ended, strict=True)
         ]
 
@@ -162,7 +153,7 @@ class ActionHandlers:
 
         进行中或暂停的活动先取消（agent_cancelled）再收尾；待收尾活动不改终态，只写总结并置 concluded_at。
         有待收尾活动而本次没有点名任何一项时以 ACTIVITY_CONCLUSION_REQUIRED 拒绝。记忆由宿主写入，环境只校验形状，
-        并在结果中登记私有来源 memory_sources。进食收尾时丢弃开吃份量中没吃的部分，结果的 outcome 逐项写终局与份量，
+        并在结果中登记私有来源 memory_sources。结果的 outcome 逐项写实际终局，
         未完成的浏览写未取得浏览结果（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「进食」、第六章）。请求级的事务变更在活动名
         解析后复核、在结束与收尾之后应用，回执登记为 errands；其后的任何拒绝都使事务变更一并不生效。
         """
@@ -188,7 +179,7 @@ class ActionHandlers:
         activities = dict(changed.activities)
         for activity, summary in zip(selected, summaries, strict=True):
             activities[activity.activity_id] = activity_control.concluded(
-                discard_opened(activities[activity.activity_id]), summary, state.current_time
+                activities[activity.activity_id], summary, state.current_time
             )
         changed = self._with_goal_summaries(
             changed.model_copy(update={"activities": activities}), list(zip(selected, summaries, strict=True))
@@ -200,7 +191,7 @@ class ActionHandlers:
         (changed, receipt) = self._apply_errands(changed, pending, changes)
         result = self._control_result(state, pending, "Activities concluded", selected)
         data = {**result.data, "errands": receipt, "memory_sources": self._memory_sources(pending, requested, selected)}
-        outcome = self._conclusion_outcome(changed, pending.agent_id, requested, selected)
+        outcome = self._conclusion_outcome(changed, requested, selected)
         if outcome:
             data["outcome"] = outcome
         return (changed, _with_names(result.model_copy(update={"data": data}), zip(written, requested)))
@@ -552,49 +543,7 @@ class ActionHandlers:
             None,
         )
 
-    def _start_consume_action(
-        self, state: WorldState, pending: PendingAction, targets: list[str], bindings: list[dict]
-    ) -> tuple[WorldState, ActionResult]:
-        """@brief 从冻结商品目录推导食品进食或单件耐用品使用的数量和时长。
 
-        食用每件取 min(1, 手边持有)，时长按份量折算（不少于 60 秒）后取最长；使用为一件与目录时长（basket.meal_portion，
-        工具层同一口径，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「进食」）。手边一点都没有时以 PRODUCT_NOT_HELD 拒绝。
-        """
-        products = self.context.semantics.catalog.foods
-        if any((item not in products for item in targets)):
-            _LOGGER.error("Selected food product was not found")
-            raise BusinessRuleError("PRODUCT_NOT_FOUND")
-        mode = bindings[0]["selected_action"]["use_mode"]
-        agent = state.agents[pending.agent_id]
-        portions = [meal_portion(products[item], mode, held_quantity(agent, item)) for item in targets]
-        if not 60 <= max((seconds for (_, seconds) in portions)) <= CONSUME_DURATION_CAP_SECONDS:
-            _LOGGER.error("Derived food consumption duration is outside domain bounds")
-            raise BusinessRuleError("ACTIVITY_DURATION_INVALID")
-        if any((portion <= 0 for (portion, _) in portions)):
-            _LOGGER.error("Selected food is not held at hand")
-            raise BusinessRuleError("PRODUCT_NOT_HELD")
-        items = tuple(
-            (ConsumeItem(product_id=item, quantity=portion) for (item, (portion, _)) in zip(targets, portions))
-        )
-        consume = ConsumeRequest(
-            items=items, use_mode=mode, duration_seconds=max((seconds for (_, seconds) in portions))
-        )
-        return self._consume(state, pending, consume)
-
-    def _give_action(self, state: WorldState, pending: PendingAction, binding: dict) -> tuple[WorldState, ActionResult]:
-        """@brief 瞬时给予：把手边持有物交给去向中的人物，不产生活动、不增加任何人的摄入（life.giving）。"""
-        (changed, given) = giving.give(state, self.context.scenario, pending.agent_id, binding)
-        return (
-            changed,
-            ActionResult(
-                action_id=pending.action_id,
-                agent_id=pending.agent_id,
-                status=ActionStatus.COMPLETED,
-                occurred_at=state.current_time,
-                message="Item handed over",
-                data={"given": [given]},
-            ),
-        )
 
     def _start_purchase_action(self, state: WorldState, pending: PendingAction,
                                bindings: list[dict]) -> tuple[WorldState, ActionResult]:
@@ -707,10 +656,6 @@ class ActionHandlers:
             return self._start_social_action(state, pending, action, targets[0])
         if action == "purchase":
             return self._start_purchase_action(state, pending, bindings)
-        if action == "consume" and bindings[0]["selected_action"]["label"] == GIVE_WAY:
-            return self._give_action(state, pending, bindings[0])
-        if action == "consume":
-            return self._start_consume_action(state, pending, targets, bindings)
         _LOGGER.error("Start activity action is unsupported: %s", action)
         raise BusinessRuleError("ACTION_NOT_SUPPORTED")
 
@@ -833,7 +778,7 @@ class ActionHandlers:
                 )
                 if result.activity_id is not None:
                     started.append((result.activity_id, [binding]))
-                elif action != "purchase" and binding["selected_action"]["label"] != GIVE_WAY:
+                elif action != "purchase":
                     _LOGGER.error("Parallel action neither started an activity nor placed an order")
                     raise BusinessRuleError("ACTION_REQUEST_INVALID")
                 results.append(result)
@@ -842,10 +787,7 @@ class ActionHandlers:
             del self.pending_event_drafts[draft_count:]
             raise
         status = ActionStatus.IN_PROGRESS if started else ActionStatus.COMPLETED
-        instant = (
-            "Purchases accepted" if all((result.data.get("orders") for result in results)) else "Items handed over"
-        )
-        message = "Activities started" if started else instant
+        message = "Activities started" if started else "Purchases accepted"
         return (
             changed,
             ActionResult(
@@ -1005,7 +947,7 @@ class ActionHandlers:
         config = agent_config(self.context.scenario, agent_id)
         workplace = config.work_schedule.workplace_location_id if config.work_schedule is not None else None
         return admission.WorldFacts(work_topics=self.context.rules.work_topics,
-                                    items=self.context.semantics.catalog.foods, workplace_location_id=workplace)
+                                    workplace_location_id=workplace)
 
     def _require_individual_start(self, state: WorldState, pending: PendingAction, selection: list[dict]) -> None:
         """@brief 实际转换前汇总每項可独立判定的世界前置条件。"""
@@ -1148,7 +1090,6 @@ class ActionHandlers:
             logging.error("Start activity selection is not offered in this round")
             raise self._unresolved_start(pending)
         actions = [row["selected_action"]["canonical_action"] for row in selection]
-        ways = [row["selected_action"]["label"] for row in selection]
         named = (
             self._activities_for_names(
                 state, pending, [item.activity_name for item in control_items(pending.tool_name, request)]
@@ -1159,7 +1100,7 @@ class ActionHandlers:
         waiting = frozenset(
             (item.activity_id for item in activity_control.pending_conclusions(state, pending.agent_id))
         )
-        return same_moment.request_kind(pending.tool_name, actions, named, waiting, ways)
+        return same_moment.request_kind(pending.tool_name, actions, named, waiting)
 
     @property
     def record_context(self) -> activity_control.RecordContext:
@@ -1305,30 +1246,6 @@ class ActionHandlers:
         )
         return (changed, result)
 
-    def _consume(self, state: WorldState, pending: PendingAction,
-                 request: ConsumeRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 固定类别食品开始时转入 opened，真实结算只消费实际进度增量。"""
-        agent, foods = state.agents[pending.agent_id], self.context.semantics.catalog.foods
-        validate_meal_use(agent, foods, request)
-        duration = meal_duration(foods, request)
-        start = ActivityStartParams(activity_type=ActivityKind.CONSUME, planned_duration_seconds=duration,
-                                    target_id=request.items[0].product_id)
-        self._require_available_resources(state, pending.agent_id, resource_claims(start))
-        if admission.en_route(state, pending.agent_id):
-            raise guided("PRODUCT_NOT_HELD", "Held food cannot be eaten during travel.", "Eat after arrival.")
-        validate_meal_inventory(agent, request)
-        agent, opened = open_meal(agent, request)
-        agent, activity = start_activity(agent, start, state.current_time, _activity_origin(state, pending),
-                                         self.context.semantics.body)
-        activity = schedule_feedback(activity, state.current_time, self.context.scenario.activity_feedback_seconds)
-        efficiency = sleep_module.food_utilization_efficiency(agent.body.sleep_deficit_hours)
-        activity.data.update(request=request.model_dump(mode="json"), consumed={}, opened=opened,
-                             food_energy_kcal_per_hour=meal_food_rate(foods, request) * efficiency)
-        changed = _put_activity(state, agent, activity)
-        result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id, status=ActionStatus.IN_PROGRESS,
-            occurred_at=state.current_time, activity_id=activity.activity_id, message="Food consumption started",
-            data={"activity": activity_snapshot(activity, self.context.titles, self.context.lifestyle_items)})
-        return changed, result
 
 
     def _revise_day_plan(
@@ -1415,7 +1332,7 @@ class ActionHandlers:
             state = contact_exchange.record_outgoing(state, agent.agent_id, sent.message)
             if contact.reply_policy == "model":
                 reply = contact_exchange.reply_request(
-                    state, self.context.store, self.context.semantics, sent.message, contact
+                    state, self.context.semantics, sent.message, contact
                 )
                 drafts.append(
                     EventDraft(
@@ -1569,9 +1486,7 @@ def _remembered(observed: dict, activity: ActivityState | None) -> dict | None:
 
 
 def _parallel_result_data(results: list[ActionResult]) -> dict:
-    """@brief 逐项派发的合并结果：开始的活动快照（按请求顺序）与逐项结果（activity_results，与请求逐项对应；瞬时的取得
-    是它的订单结果，给予是它的给予记录）；资金变动、品类命中、订单、给予与关联消息汇总到顶层（驾车票价、货款与另一项
-    同时入账）。"""
+    """@brief 逐项派发合并真实活动快照、订单、资金变动与关联消息，顺序与请求一致。"""
     changes: dict[str, int] = {}
     for result in results:
         for account, amount in result.data.get("resource_changes", {}).items():
@@ -1585,9 +1500,6 @@ def _parallel_result_data(results: list[ActionResult]) -> dict:
     orders = [order for result in results for order in result.data.get("orders", [])]
     if orders:
         data["orders"] = orders
-    given = [item for result in results for item in result.data.get("given", [])]
-    if given:
-        data["given"] = given
     answering = next((result.data["answering"] for result in results if "answering" in result.data), None)
     if answering is not None:
         data["answering"] = answering
