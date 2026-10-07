@@ -46,18 +46,20 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
 #topbar .title{font-weight:600;font-size:14px}
 #topbar .meta{color:var(--fg-dim);font-size:12px;font-family:var(--mono)}
 #topbar label{color:var(--fg-dim);font-size:12px;display:flex;align-items:center;gap:6px}
+#topbar .day-step{padding:2px 8px;color:var(--fg-dim)}
 #layout{flex:1;display:flex;min-height:0}
 #sidebar{width:168px;flex:none;background:var(--bg2);border-right:1px solid var(--line);padding:8px 0;display:flex;flex-direction:column;gap:2px}
 .nav-item{display:block;width:100%;text-align:left;background:none;border:none;border-radius:0;padding:8px 16px;color:var(--fg-dim);border-left:2px solid transparent}
 .nav-item:hover{color:var(--fg);background:var(--bg3)}
 .nav-item.on{color:var(--fg);background:var(--bg3);border-left-color:var(--accent)}
-#main{flex:1;overflow:auto;padding:16px 20px;min-width:0}
+/* --main-pad：吸顶的分隔行与时间轴用它抵消上内边距，贴住滚动区顶边，不在内边距里漏出滚过的内容 */
+#main{--main-pad:16px;flex:1;overflow:auto;padding:var(--main-pad) 20px;min-width:0}
 @media(max-width:700px){
   #layout{flex-direction:column}
   #sidebar{width:100%;flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);padding:0}
   .nav-item{width:auto;flex:none;white-space:nowrap;border-left:0;border-bottom:2px solid transparent;padding:8px 10px}
   .nav-item.on{border-left-color:transparent;border-bottom-color:var(--accent)}
-  #main{padding:12px}
+  #main{--main-pad:12px;padding:12px}
 }
 .view{display:none}
 .view.on{display:block}
@@ -66,6 +68,7 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
 .card{background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin-bottom:14px}
 .grid{display:grid;gap:14px}
 .g2{grid-template-columns:1fr 1fr}
+.eco-grid{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
 @media(max-width:1100px){.g2{grid-template-columns:1fr}}
 .kv{display:flex;gap:8px;padding:3px 0;font-size:13px}
 .kv .k{color:var(--fg-dim);width:150px;flex:none}
@@ -83,15 +86,19 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
 .chip{font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid var(--line);background:var(--bg3);cursor:pointer;color:var(--fg-dim);user-select:none}
 .chip[data-t].on{color:#0b0d11;border-color:transparent;background:var(--c,#3d4657);font-weight:600}
 .range-wrap{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-dim)}
-.range-wrap input[type=range]{width:130px;accent-color:var(--accent);padding:0}
+.range-wrap input[type=range]{width:200px;max-width:28vw;accent-color:var(--accent);padding:0}
 
 /* ---------- 时间线 ---------- */
 .tl-row{display:flex;gap:10px;padding:5px 10px;border-bottom:1px solid var(--line);cursor:pointer;align-items:baseline}
 .tl-row:hover{background:var(--bg3)}
-.tl-time{font-family:var(--mono);font-size:12px;color:var(--fg-dim);width:152px;flex:none}
+.tl-time{font-family:var(--mono);font-size:12px;color:var(--fg-dim);width:60px;flex:none}
 .tl-agent{flex:none;width:56px;font-size:11px;text-align:center;border-radius:3px;padding:1px 0}
-.tl-type{flex:none;width:118px;font-size:11px;text-align:center;border-radius:3px;padding:1px 0}
-.tl-sum{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg)}
+.tl-type{flex:none;width:76px;font-size:11px;text-align:center;border-radius:3px;padding:1px 0}
+.tl-sum{flex:1;min-width:0;overflow-wrap:anywhere;color:var(--fg)}
+/* 当地日分隔行：长运行里滚动时始终看得到正在读哪一天 */
+.tl-day{position:sticky;top:calc(-1*var(--main-pad));z-index:1;padding:5px 10px;background:var(--bg3);border-bottom:1px solid var(--line);
+  font:600 12px var(--mono);color:var(--fg)}
+.tl-day .n{font-weight:400;color:var(--fg-dim);margin-left:8px}
 .tl-detail{display:none;background:var(--bg);border-bottom:1px solid var(--line)}
 .tl-detail.on{display:block;padding:10px 12px}
 .tl-detail pre{max-height:480px;overflow:auto;font-family:var(--mono);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-all;color:#a8d4ff}
@@ -105,14 +112,24 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
 .act-table th:hover{color:var(--fg)}
 .act-table th .arrow{font-size:10px;margin-left:3px;color:var(--accent)}
 .act-kind{display:inline-block;padding:1px 8px;border-radius:3px;font-size:11px}
-.act-lanes{overflow:auto;margin-bottom:14px}
-.act-lanes-inner{min-width:900px}
-.act-lane{display:flex;align-items:center;min-height:30px;border-top:1px solid var(--line)}
-.act-lane-label{width:240px;flex:none;padding:4px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.act-lane-track{position:relative;flex:1;height:28px;background:repeating-linear-gradient(to right,
-  transparent 0,transparent calc(25% - 1px),var(--line) calc(25% - 1px),var(--line) 25%)}
-.act-lane-bar{position:absolute;top:6px;height:16px;min-width:2px;border-radius:3px}
-.act-lane-axis{display:flex;margin-left:240px;justify-content:space-between;color:var(--fg-dim);font:11px var(--mono)}
+/* 泳道每行一个当地日，横轴固定为 00:00–24:00：运行再长，条块的宽度也只取决于活动自身的时长 */
+.act-lanes{margin-bottom:14px}
+.act-lane{display:flex;align-items:stretch;border-bottom:1px solid var(--line)}
+.act-lane-label{width:92px;flex:none;padding:3px 8px 3px 0;background:none;border:0;border-radius:0;text-align:left;
+  font:12px var(--mono);color:var(--fg-dim);white-space:nowrap}
+.act-lane-label:hover{color:var(--accent)}
+.act-lane.weekend .act-lane-label{color:var(--warn)}
+.act-lane-track{position:relative;flex:1;min-width:0;border-right:1px solid var(--line);
+  background:repeating-linear-gradient(to right,var(--line) 0,var(--line) 1px,transparent 1px,transparent 12.5%)}
+.act-lane-bar{position:absolute;height:14px;min-width:3px;border-radius:3px;overflow:hidden;container-type:inline-size}
+.act-lane-text{display:block;padding:0 4px;font-size:11px;line-height:14px;color:#0b0d11;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+@container (max-width:44px){.act-lane-text{display:none}}
+.act-lane-axis{position:sticky;top:calc(-1*var(--main-pad));z-index:2;height:22px;margin-left:92px;background:var(--bg2);
+  border-bottom:1px solid var(--line);color:var(--fg-dim);font:11px var(--mono)}
+.act-lane-axis span{position:absolute;top:4px;transform:translateX(-50%);white-space:nowrap}
+.act-lane-axis span:first-child{transform:none}
+.act-lane-axis span:last-child{transform:translateX(-100%)}
 .memory-entry{border-left:3px solid var(--accent);padding:8px 12px;margin:8px 0;background:var(--bg3);border-radius:3px}
 .memory-entry .meta{color:var(--fg-dim);font-size:11px;margin-bottom:4px}
 .memory-entry .text{white-space:pre-wrap;overflow-wrap:anywhere}
@@ -134,7 +151,7 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
 .rs-item{border-bottom:1px solid var(--line);padding:8px 10px;cursor:pointer}
 .rs-item:hover{background:var(--bg3)}
 .rs-head{display:flex;gap:10px;align-items:baseline}
-.rs-head .t{font-family:var(--mono);font-size:12px;color:var(--fg-dim);width:150px;flex:none}
+.rs-head .t{font-family:var(--mono);font-size:12px;color:var(--fg-dim);width:60px;flex:none}
 .rs-head .a{flex:none;width:56px;font-size:11px;text-align:center;border-radius:3px}
 .rs-head .x{color:var(--fg-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .rs-body{display:none;background:var(--bg);padding:10px 12px;border-bottom:1px solid var(--line)}
@@ -178,6 +195,11 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
     <span class="title">WorldMock 运行查看器</span>
     <span class="meta" id="run-meta"></span>
     <span style="flex:1"></span>
+    <label title="只看一个当地日：作用于时间线、活动泳道、身体曲线、经济流水、记忆、思考记录与上下文">日期
+      <button type="button" class="day-step" id="day-prev" title="前一天">‹</button>
+      <select id="day-filter"><option value="">全部</option></select>
+      <button type="button" class="day-step" id="day-next" title="后一天">›</button>
+    </label>
     <label>Agent
       <select id="agent-filter"><option value="">全部</option></select>
     </label>
@@ -200,47 +222,21 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
   </div>
 </div>
 
+<script src="run-viewer-engine.js"></script>
 <script src="run-viewer-context.js"></script>
 <script src="run-viewer-context-view.js"></script>
 <script>
 'use strict';
 /* ================================================================
- * WorldMock 运行数据查看器 —— 纯前端页面，sql.js 读取 footprints.sqlite
- * 两级数据策略：SQL 投影建立轻量索引（json_extract 在 SQLite C 层完成，
- * 不把 140MB+ 的事件 body 拉进 JS），行内全文按 event_seq 懒加载缓存。
+ * WorldMock 运行数据查看器 —— 纯前端页面，SQLite WASM 读取 footprints.sqlite（引擎与分块读文件见
+ * run-viewer-engine.js）。
+ * 两级数据策略：SQL 投影建立轻量索引（json_extract 在 SQLite C 层完成，不把上百 MB 的事件 body 拉进 JS），
+ * 行内全文按 event_seq 懒加载缓存。事件正文只在取它那一类的字段时解析一次（见「事件类型索引」）。
  * ================================================================ */
-
-/* ---------- sql.js 加载（多 CDN 回退，均经 verify 200） ---------- */
-const SQLJS_VERSION = '1.10.3';
-const SQLJS_CDNS = [
-  { js: `https://cdn.jsdelivr.net/npm/sql.js@${SQLJS_VERSION}/dist/sql-wasm.js`,
-    wasm: `https://cdn.jsdelivr.net/npm/sql.js@${SQLJS_VERSION}/dist/sql-wasm.wasm` },
-  { js: `https://unpkg.com/sql.js@${SQLJS_VERSION}/dist/sql-wasm.js`,
-    wasm: `https://unpkg.com/sql.js@${SQLJS_VERSION}/dist/sql-wasm.wasm` },
-];
-function loadScript(src){
-  return new Promise((res, rej)=>{
-    if (window.initSqlJs) return res();
-    const s = document.createElement('script');
-    s.src = src; s.onload = res; s.onerror = ()=>rej(new Error('script load fail: '+src));
-    document.head.appendChild(s);
-  });
-}
-async function loadSqlJs(){
-  const errs = [];
-  for (const c of SQLJS_CDNS){
-    try {
-      await loadScript(c.js);
-      const SQL = await window.initSqlJs({ locateFile: ()=>c.wasm });
-      return SQL;
-    } catch(e){ errs.push(e.message); }
-  }
-  throw new Error('无法加载 sql.js 引擎（需联网访问 jsDelivr 或 unpkg 之一）。\n' + errs.join('\n'));
-}
 
 /* ---------- 全局状态 ---------- */
 const S = {
-  SQL: null, db: null, fileName: '',
+  engine: null, db: null, fileName: '',
   events: [],            // {seq,t,agent,type,sum} 按 seq 升序
   summaries: new Map(),  // seq -> 摘要字段对象
   typeCounts: {},
@@ -255,6 +251,7 @@ const S = {
   nameIdx: null,         // {locations:Map, targets:Map} 来自本次运行记录
   missingNames: new Set(), // 已报告名称缺失的对象
   reminded: new Map(),   // 「人物@时刻」-> [{seq,name}]：事务提醒事件，供唤醒原因写事务名称
+  responses: new Map(),  // 事件身份 -> [seq]：caused_by 写着它的模型响应，供上下文视图按因果找响应
   fmt: null, tzOff: 28800,
   view: 'overview',
   day: null,             // {title, rows[], source} 解析后的 render_day timeline markdown
@@ -275,6 +272,9 @@ function makeFmt(tz){
     mdhm: mk({month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}),
     md:   mk({month:'2-digit',day:'2-digit'}),
     date: mk({year:'numeric',month:'2-digit',day:'2-digit'}),
+    hms:  mk({hour:'2-digit',minute:'2-digit',second:'2-digit'}),
+    hm:   mk({hour:'2-digit',minute:'2-digit'}),
+    wd:   mk({weekday:'short'}),
   };
 }
 /* 模拟时区在 t 时刻的 UTC 偏移（秒），用于画当地日分界线 */
@@ -286,6 +286,35 @@ function tzOffsetSec(tz, t){
 }
 const fmtT = t => t==null?'—':S.fmt.full(new Date(t*1000));
 const fmtHM = t => t==null?'—':S.fmt.mdhm(new Date(t*1000));
+const fmtClock = t => t==null?'—':S.fmt.hms(new Date(t*1000));
+
+/* ---------- 当地日 ----------
+ * 长运行按当地日阅读：日的划分用模拟时区在运行起点的 UTC 偏移（S.tzOff），与曲线图的日分界线同一口径。 */
+/** @brief 时刻 t 所在当地日的序号（自 1970-01-01 起的当地日数）。 */
+const dayIndex = t => Math.floor((t + S.tzOff)/86400);
+/** @brief 当地日 day 的零点时刻。 */
+const dayStart = day => day*86400 - S.tzOff;
+/** @brief 当地日的显示名「月/日 周几」。 */
+const dayLabel = day => { const date = new Date(dayStart(day)*1000); return `${S.fmt.md(date)} ${S.fmt.wd(date)}`; };
+/** @brief 当地日是否周末（1970-01-01 是周四，序号对 7 取余为 2、3 的是周六、周日）。 */
+const isWeekend = day => { const rest = ((day%7)+7)%7; return rest===2 || rest===3; };
+/** @brief 全局日期筛选选中的当地日 [零点, 次日零点)；选「全部」时为 null。 */
+function dayRange(){
+  const value = $('#day-filter').value;
+  return value===''||value==null? null : [dayStart(+value), dayStart(+value+1)];
+}
+/** @brief 时刻 t 是否落在日期筛选之内（未筛选时恒真）。 */
+const inDay = t => { const range = dayRange(); return !range || (t>=range[0] && t<range[1]); };
+/** @brief 区间 [start, end] 是否与日期筛选的那一天有交集；零时长的区间按其时刻判断。 */
+const overlapsDay = (start, end) => {
+  const range = dayRange();
+  return !range || (start<range[1] && (end>range[0] || start>=range[0]));
+};
+/** @brief 改选日期（'' 为全部）并重绘当前视图；SQL 控制台是原始数据视图，不联动。 */
+function selectDay(value){
+  $('#day-filter').value = value;
+  if (S.view!=='sql') switchView(S.view);
+}
 const fmtDur = sec => {
   if (sec==null||isNaN(sec)) return '—';
   sec = Math.round(sec);
@@ -306,7 +335,7 @@ const TYPE_COLORS = {
 const KIND_COLORS = {
   work:'#4f83cc', sleep:'#8a7fd8', travel:'#d0a03f', watch:'#3fae8c',
   play_game:'#c46a9a', consume:'#b0703c', browse:'#6a9ab0', wait:'#6e7681',
-  read_mail:'#9a8f5a',
+  read_mail:'#9a8f5a', lifestyle:'#8fa35e', call:'#d17a6a', chat:'#b58ad6',
 };
 const typeColor = t => TYPE_COLORS[t]||'#768390';
 const kindColor = k => KIND_COLORS[k]||'#768390';
@@ -322,6 +351,7 @@ const TYPE_LABELS = {
 const KIND_LABELS = {
   wait:'等待', sleep:'睡眠', work:'工作', watch:'观看', consume:'进食',
   purchase:'购买', travel:'出行', read_mail:'读邮件', browse:'浏览', play_game:'玩游戏',
+  lifestyle:'生活活动', chat:'交谈', call:'通话',
 };
 const TOOL_LABELS = {
   start_activity:'开始活动', submit_work:'提交工作', send_message:'发送消息',
@@ -339,7 +369,9 @@ const ENVK_LABELS = { initial_funds_injected:'初始资金注入', mail_arrival:
   day_plan_generated:'零点计划生成', activity_concluded:'活动收尾', activity_paused:'活动暂停',
   activity_resumed:'活动恢复', activity_truncated:'活动截断',
   errand_registered:'事务记下', errand_updated:'事务更新', errand_cancelled:'事务取消',
-  errand_progressed:'事务进展', errand_completed:'事务办成', errand_reminded:'事务提醒' };
+  errand_progressed:'事务进展', errand_completed:'事务办成', errand_reminded:'事务提醒',
+  body_settlement:'身体结算', message_arrival:'消息到达', model_npc_reply:'联系人回复',
+  model_npc_reply_pending:'联系人回复待生成', branch_created:'分支创建' };
 /* 六种个人事务事件（environment_event 的 kind）：载荷 data.errand 是事务快照，摘要写其中的事务名称与商品 */
 const ERRAND_KINDS = new Set(['errand_registered', 'errand_updated', 'errand_cancelled', 'errand_progressed',
   'errand_completed', 'errand_reminded']);
@@ -356,7 +388,7 @@ const WAKE_LABELS = {
 };
 const SESSION_KIND_LABELS = { stay:'停留', transit:'路上' };
 const SESSION_STATUS_LABELS = { active:'进行中', ended:'已结束' };
-const MEMOP_LABELS = { append_episodes:'追加记忆片段' };
+const MEMOP_LABELS = { append_episodes:'追加记忆片段', refresh_summary:'刷新主观总结' };
 const MEMORY_TYPE_LABELS = {
   reflection:'反思', routine:'日常', goal:'目标', relationship:'关系',
   commitment:'承诺', preference:'偏好', resolution:'决定',
@@ -477,76 +509,128 @@ function remindedErrands(e){
 }
 
 /* ---------- 查询封装 ---------- */
-function q(sqlText, params){
+/** @brief 逐行执行查询并把每一行交给 fn，不把整个结果集留在内存里（一次观察的名称数组就有上百 KB）。 */
+function eachRow(sqlText, params, fn){
   const stmt = S.db.prepare(sqlText);
   try{
     stmt.bind(params||[]);
-    const rows=[];
-    while(stmt.step()) rows.push(stmt.getAsObject());
-    return rows;
+    while(stmt.step()) fn(stmt.getAsObject());
   } finally { stmt.free(); }
 }
+function q(sqlText, params){
+  const rows=[];
+  eachRow(sqlText, params, row=>rows.push(row));
+  return rows;
+}
+
+/* ---------- 事件类型索引 ----------
+ * 事件正文是大段 JSON，按类型筛选若写成 WHERE json_extract(body,'$.event_type')=…，每条语句都得把全部事件解析一遍。
+ * 这里先把（序号，类型，人物）抄进临时表，此后各类查询从临时表按类型取序号、再按主键读正文：一条事件只在取它那
+ * 一类的字段时解析。两个表达式的写法与足迹库的表达式索引 events_agent_type 一致，有这个索引的库建表时不读正文。 */
+function indexEventTypes(){
+  q('DROP TABLE IF EXISTS temp.viewer_event');
+  q(`CREATE TEMP TABLE viewer_event AS SELECT event_seq, json_extract(body,'$.event_type') AS type,
+     json_extract(body,'$.agent_id') AS agent FROM events`);
+  q('CREATE INDEX temp.viewer_event_type ON viewer_event(type, event_seq)');
+}
+/* 某一类事件的行来源（接在 FROM 之后）：v 是类型索引的行，e 是事件本身；类型作第一个绑定参数。 */
+const EVENTS_OF_TYPE = 'viewer_event v CROSS JOIN events e ON e.event_seq=v.event_seq WHERE v.type IS ?';
 const parseJArr = text => { try{ return JSON.parse(text); }catch(e){ return []; } };
 
-/** @brief 累积非空名称，稀疏观察不会清除此前的记录。 */
-function collectNames(rows, names){
-  for (const row of rows){
-    if (row.id && typeof row.label==='string' && row.label.trim() && row.label.trim()!==row.id){
-      names.set(row.id, row.label);
+/* ---------- 名称索引 ----------
+ * 名称随建索引时各类字段的那一次查询取出（观察里的六个数组、受理里的条目、活动自身的标题），不另开查询、不再解析
+ * 一遍事件正文。各来源先各自累积，最后按固定的先后合并：前五个来源后写的覆盖先写的，后两个只给还没有名称的对象补缺。 */
+/** @brief 一条名称记录是否有效：对象身份非空，名称是非空字符串且不同于对象身份。 */
+const validName = (id, label) => Boolean(id) && typeof label==='string' && label.trim()!=='' && label.trim()!==id;
+/** @brief 覆盖式累积：同一对象留最后一次记录的有效名称，稀疏观察不会清除此前的记录。 */
+function keepLastName(names, id, label){
+  if (validName(id, label)) names.set(id, label);
+}
+/** @brief 补缺式累积：同一对象留最先记录的有效名称。 */
+function keepFirstName(names, id, label){
+  if (validName(id, label) && !names.has(id)) names.set(id, label);
+}
+/** @brief 按码点比较两个字符串（与 SQLite 默认的逐字节比较同序）。 */
+function codePointCompare(a, b){
+  const x = Array.from(a), y = Array.from(b);
+  for (let i=0; i<x.length && i<y.length; i++){
+    const delta = x[i].codePointAt(0) - y[i].codePointAt(0);
+    if (delta) return delta;
+  }
+  return x.length - y.length;
+}
+/** @brief 事务商品名的累积：同一商品留最早那次观察里的有效名称，同一次观察里有几种写法时取码点序最小的一个
+ *  （即按（商品，名称）归并、依最早出现与名称排列后的第一行）。 */
+function keepEarliestName(names, id, label, seq){
+  if (!validName(id, label)) return;
+  const kept = names.get(id);
+  if (!kept) names.set(id, {seq, label});
+  else if (kept.seq===seq && codePointCompare(label, kept.label)<0) kept.label = label;
+}
+/** @brief JSON 文本里数组的各项（对象则取各成员的值）；不是字符串、解析不了或是标量时为空。 */
+function jsonItems(text){
+  if (typeof text!=='string') return [];
+  let value;
+  try{ value = JSON.parse(text); }catch(_){ return []; }
+  if (Array.isArray(value)) return value;
+  return value!==null && typeof value==='object'? Object.values(value) : [];
+}
+/* 观察事件里带名称的六个数组：[路径, 身份键, 名称键, 来源, 累积方式]。邮件主题另加「邮件「…」」的写法。 */
+const OBSERVED_NAMES = [
+  ['$.data.locations', 'location_id', 'name', 'locations', keepLastName],
+  ['$.data.products', 'product_id', 'name', 'products', keepLastName],
+  ['$.data.tasks', 'task_id', 'title', 'tasks', keepLastName],
+  ['$.data.messages', 'message_id', 'subject', 'messages', keepLastName],
+  ['$.data.interaction_bindings', 'object_id', 'object', 'bindings', keepFirstName],
+  ['$.data.errand_item_bindings', 'product_id', 'name', 'errandItems', keepEarliestName],
+];
+/** @brief 新建一组空的名称来源；seen 记各来源上一次读到的数组原文。 */
+function nameSources(){
+  const sources = {seen:{}};
+  for (const name of ['locations','products','tasks','messages','items','titles','bindings','errandItems'])
+    sources[name] = new Map();
+  return sources;
+}
+/** @brief 读一次观察（查询行 row）里的六个名称数组。数组原文与同一来源上一次读到的相同时跳过：个人事务的商品目录
+ *  每次观察都整份列出，三种累积方式对重复的记录都不变。 */
+function observeNames(sources, row){
+  for (const [path, idKey, labelKey, source, keep] of OBSERVED_NAMES){
+    const text = row[path];
+    if (text===sources.seen[source]) continue;
+    sources.seen[source] = text;
+    for (const item of jsonItems(text)){
+      if (item===null || typeof item!=='object') continue;
+      const label = item[labelKey];
+      if (source!=='messages') keep(sources[source], item[idKey], label, row.seq);
+      else if (validName(item[idKey], label)) keep(sources[source], item[idKey], `邮件「${label}」`);
     }
   }
 }
-
-/** @brief 用 SQLite 投影构建名称索引，不加载模型请求或事件全文。 */
-function buildNameIndex(){
-  const locations = new Map(), targets = new Map();
-  const sources = [
-    ['locations', 'location_id', 'name', locations],
-    ['products', 'product_id', 'name', targets],
-    ['tasks', 'task_id', 'title', targets],
-  ];
-  for (const [path, id, label, names] of sources){
-    collectNames(q(`SELECT json_extract(item.value,'$.${id}') AS id,
-      json_extract(item.value,'$.${label}') AS label
-      FROM events e, json_each(e.body,'$.data.${path}') item
-      WHERE json_extract(e.body,'$.event_type')='observation' ORDER BY e.event_seq`), names);
+/** @brief 读一次受理（查询行 row）里目录浏览等结果的条目：身份依次取 item_id、product_id、activity_id、task_id 中
+ *  第一个有值的，名称取 title，没有再取 name。 */
+function acceptedNames(sources, row){
+  for (const item of jsonItems(row['$.data.data.items'])){
+    if (item===null || typeof item!=='object') continue;
+    keepLastName(sources.items, item.item_id ?? item.product_id ?? item.activity_id ?? item.task_id,
+      item.title ?? item.name);
   }
-  const messages = q(`SELECT json_extract(item.value,'$.message_id') AS id,
-    json_extract(item.value,'$.subject') AS label
-    FROM events e, json_each(e.body,'$.data.messages') item
-    WHERE json_extract(e.body,'$.event_type')='observation' ORDER BY e.event_seq`);
-  collectNames(messages.filter(row=>row.label?.trim() && row.label.trim()!==row.id)
-    .map(row=>({id:row.id, label:`邮件「${row.label}」`})), targets);
-  collectNames(q(`SELECT COALESCE(json_extract(item.value,'$.item_id'),
-      json_extract(item.value,'$.product_id'), json_extract(item.value,'$.activity_id'),
-      json_extract(item.value,'$.task_id')) AS id,
-    COALESCE(json_extract(item.value,'$.title'), json_extract(item.value,'$.name')) AS label
-    FROM events e, json_each(e.body,'$.data.data.items') item
-    WHERE json_extract(e.body,'$.event_type')='action_accepted' ORDER BY e.event_seq`), targets);
-  collectNames(q(`SELECT json_extract(body,'$.data.activity.target_id') AS id,
-    json_extract(body,'$.data.activity.title') AS label FROM events
-    WHERE json_extract(body,'$.event_type') IN ('action_accepted','activity_progress')
-    ORDER BY event_seq`), targets);
-  supplementNames(q(`SELECT json_extract(item.value,'$.object_id') AS id,
-    json_extract(item.value,'$.object') AS label
-    FROM events e, json_each(e.body,'$.data.interaction_bindings') item
-    WHERE json_extract(e.body,'$.event_type')='observation' ORDER BY e.event_seq`), targets);
-  /* 个人事务可以指目录里的任一商品，而 data.products 只列此刻看得到或持有的；每次观察的 errand_item_bindings 列全部
-     商品名到商品身份，按（商品，名称）归并后每种一行、按最早出现排列，不把逐次观察的全量行取回页面。 */
-  supplementNames(q(`SELECT json_extract(item.value,'$.product_id') AS id,
-    json_extract(item.value,'$.name') AS label
-    FROM events e, json_each(e.body,'$.data.errand_item_bindings') item
-    WHERE json_extract(e.body,'$.event_type')='observation'
-    GROUP BY id, label ORDER BY MIN(e.event_seq), id, label`), targets);
-  S.nameIdx = {locations, targets};
 }
-
-/** @brief 只补缺的名称来源：对象已有名称时不动，没有时取最先记录的有效名称（非空且不同于对象编号）。 */
-function supplementNames(rows, names){
-  for (const row of rows){
-    if (row.id && typeof row.label==='string' && row.label.trim() && row.label.trim()!==row.id
-        && !names.has(row.id)) names.set(row.id, row.label);
+/** @brief 合并各名称来源为名称索引。地点只有一个来源；其余对象依次写商品、任务、邮件、受理条目与活动自身的标题
+ *  （取自已读出的受理与进展摘要），再由交互绑定与事务商品目录补缺，后者按最早出现、商品身份的先后补。 */
+function buildNameIndex(sources){
+  for (const e of S.events){
+    if (e.type!=='action_accepted' && e.type!=='activity_progress') continue;
+    const s = S.summaries.get(e.seq);
+    if (s) keepLastName(sources.titles, s.tg, s.title);
   }
+  const targets = new Map();
+  for (const source of ['products','tasks','messages','items','titles'])
+    for (const [id, label] of sources[source]) targets.set(id, label);
+  for (const [id, label] of sources.bindings) keepFirstName(targets, id, label);
+  const errandItems = [...sources.errandItems].sort((x, y)=>
+    x[1].seq-y[1].seq || codePointCompare(String(x[0]), String(y[0])));
+  for (const [id, kept] of errandItems) keepFirstName(targets, id, kept.label);
+  S.nameIdx = {locations:sources.locations, targets};
 }
 
 /* ================================================================
@@ -557,22 +641,16 @@ function buildIndex(){
   S.fmt = makeFmt(S.tz); /* 先建默认格式器：makeSummary 会格式化 run_ended 时间 */
 
   log('· 读取事件索引 …');
-  const evRows = q(`SELECT event_seq AS seq, json_extract(body,'$.event_type','$.agent_id','$.occurred_at') AS k
-                    FROM events ORDER BY event_seq`);
-  for (const r of evRows){
-    const [type, agent, t] = parseJArr(r.k);
-    S.events.push({ seq:r.seq, type, agent, t, sum:'' });
-    S.typeCounts[type] = (S.typeCounts[type]||0)+1;
-  }
-  S.t0 = S.events.length? S.events[0].t : 0;
-  S.t1 = S.events.length? S.events[S.events.length-1].t : 0;
+  indexEventTypes();
 
-  /* 按类型投影摘要字段（重路径只跑在相关行上；列名用双引号别名取路径写法） */
-  const P = paths => paths.map(p=>`json_extract(body,'${p}') AS "${p}"`).join(',');
+  /* 按类型投影摘要字段：每类一条语句，只读这一类的事件（列名用双引号别名取路径写法）；事件的发生时刻随它那一类
+     的字段一并取出，一条事件正文只解析这一次。 */
+  const times = new Map(), projected = new Set(), names = nameSources();
+  const P = paths => paths.map(p=>`json_extract(e.body,'${p}') AS "${p}"`).join(',');
   const typeQuery = (type, paths, fn) => {
-    const rows = q(`SELECT event_seq AS seq, ${P(paths)} FROM events
-                    WHERE json_extract(body,'$.event_type')='${type}' ORDER BY event_seq`);
-    for (const r of rows) fn(r);
+    projected.add(type);
+    eachRow(`SELECT v.event_seq AS seq, ${P(['$.occurred_at', ...paths])} FROM ${EVENTS_OF_TYPE}
+             ORDER BY v.event_seq`, [type], r=>{ times.set(r.seq, r['$.occurred_at']); fn(r); });
   };
 
   typeQuery('decision_started', ['$.data.round_order','$.data.wake_reasons'], r=>{
@@ -580,8 +658,10 @@ function buildIndex(){
   });
   typeQuery('observation', ['$.data.balance_fen','$.data.body.values.energy_kcal',
                             '$.data.body.values.sleep_deficit_hours','$.data.body.values.entertainment_need',
-                            '$.data.active_activities','$.data.calendar_context.date'],
+                            '$.data.active_activities','$.data.calendar_context.date',
+                            ...OBSERVED_NAMES.map(([path])=>path)],
   r=>{
+    observeNames(names, r);
     S.summaries.set(r.seq,{bal:r['$.data.balance_fen'],en:r['$.data.body.values.energy_kcal'],
       sl:r['$.data.body.values.sleep_deficit_hours'],et:r['$.data.body.values.entertainment_need'],
       acts:parseJArr(r['$.data.active_activities']),date:r['$.data.calendar_context.date']});
@@ -594,9 +674,11 @@ function buildIndex(){
   });
   typeQuery('action_accepted', ['$.activity_id','$.data.activity.kind','$.data.activity.planned_duration_seconds',
                                 '$.data.activity.target_id','$.data.activity.destination_id',
-                                '$.data.activity.title'], r=>{
+                                '$.data.activity.title','$.data.data.task','$.data.data.items'], r=>{
+    acceptedNames(names, r);
     S.summaries.set(r.seq,{aid:r['$.activity_id'],kind:r['$.data.activity.kind'],dur:r['$.data.activity.planned_duration_seconds'],
-      tg:r['$.data.activity.target_id'],dest:r['$.data.activity.destination_id'],title:r['$.data.activity.title']});
+      tg:r['$.data.activity.target_id'],dest:r['$.data.activity.destination_id'],title:r['$.data.activity.title'],
+      tasks:parseJArr(r['$.data.data.task']||'[]')});
   });
   typeQuery('action_rejected', ['$.data.error_code','$.data.same_moment_round',
                                 '$.data.max_same_moment_decisions'], r=>{
@@ -623,8 +705,13 @@ function buildIndex(){
       purpose:r['$.data.purpose']});
   });
   typeQuery('model_response', ['$.data.response.model','$.data.response.usage.prompt_tokens',
-                               '$.data.response.usage.completion_tokens','$.data.response.usage.total_tokens'],
+                               '$.data.response.usage.completion_tokens','$.data.response.usage.total_tokens',
+                               '$.caused_by'],
   r=>{
+    for (const cause of jsonItems(r['$.caused_by'])){
+      if (!S.responses.has(cause)) S.responses.set(cause, []);
+      S.responses.get(cause).push(r.seq);
+    }
     S.summaries.set(r.seq,{model:r['$.data.response.model'],pt:r['$.data.response.usage.prompt_tokens'],
       ct:r['$.data.response.usage.completion_tokens'],tt:r['$.data.response.usage.total_tokens']});
   });
@@ -648,12 +735,23 @@ function buildIndex(){
     S.summaries.set(r.seq,{end:r['$.data.end_time'],wall:r['$.wall_elapsed_ms']});
   });
 
+  /* 没有专属字段的类型只取发生时刻；随后按序号排出全部事件 */
+  for (const row of q('SELECT DISTINCT type FROM viewer_event')){
+    if (!projected.has(row.type)) typeQuery(row.type, [], ()=>{});
+  }
+  eachRow('SELECT event_seq AS seq, type, agent FROM viewer_event ORDER BY event_seq', [], r=>{
+    S.events.push({ seq:r.seq, type:r.type, agent:r.agent, t:times.get(r.seq), sum:'' });
+    S.typeCounts[r.type] = (S.typeCounts[r.type]||0)+1;
+  });
+  S.t0 = S.events.length? S.events[0].t : 0;
+  S.t1 = S.events.length? S.events[S.events.length-1].t : 0;
+
   /* 观测的 agent/时间补全（从事件索引查，不重复解析 body） */
   const bySeq = new Map(S.events.map(e=>[e.seq,e]));
   for (const o of S.obs){ const e=bySeq.get(o.seq); if(e){ o.t=e.t; o.agent=e.agent; } }
   S.obs = S.obs.filter(o=>o.t!=null);
 
-  buildNameIndex();
+  buildNameIndex(names);
   buildReminders();
 
   for (const e of S.events) e.sum = makeSummary(e);
@@ -793,6 +891,8 @@ function makeSummary(e){
     case 'action_requested': return `请求 ${toolLabel(s.tool)} · ${readableReq(s.tool, s.req)}` +
       (s.note ? ` · self_note（未经核验）：${s.note}` : '');
     case 'action_accepted':
+      /* 不开启活动的受理（播报、暂停、结束、购买、发消息）没有活动种类与计划时长：控制工具写所涉活动的可读名称 */
+      if (!s.kind) return `已受理${Array.isArray(s.tasks) && s.tasks.length? ' · '+s.tasks.join('、') : ''}`;
       return `已受理 · ${actTypeLabel(s.kind, s.tg)}${s.tg||s.dest? ' · '+actTargetText(s):''}` +
         ` · 计划 ${fmtDur(s.dur)}`;
     case 'action_rejected':
@@ -910,6 +1010,7 @@ function buildNav(){
 }
 function switchView(id){
   S.view = id;
+  $('#main').scrollTop = 0;   /* 各视图内容不同，不沿用上一个视图的滚动位置 */
   $$('.nav-item').forEach(b=>b.classList.toggle('on', b.dataset.view===id));
   $$('.view').forEach(v=>v.classList.toggle('on', v.dataset.view===id));
   ({overview:renderOverview, timeline:renderTimeline, day:renderDay, activities:renderActivities,
@@ -919,6 +1020,21 @@ function switchView(id){
 const agentFilterVal = () => $('#agent-filter').value;
 
 /* ---------- 总览 ---------- */
+/** @brief 各人物的模型响应次数与 token 用量合计，取自建索引时读出的各次响应用量，不再查库。口径同按人物分组的
+ *  COUNT 与 SUM：没有人物的一组排最前，其余按人物编号；某项用量在一组里全缺时合计为空。 */
+function modelUsage(){
+  const groups = new Map();
+  for (const e of S.events){
+    if (e.type!=='model_response') continue;
+    if (!groups.has(e.agent)) groups.set(e.agent, {agent:e.agent, n:0, p:null, c:null, t:null});
+    const group = groups.get(e.agent), usage = S.summaries.get(e.seq)||{};
+    group.n++;
+    for (const [key, value] of [['p',usage.pt], ['c',usage.ct], ['t',usage.tt]]){
+      if (value!=null) group[key] = (group[key]??0) + value;
+    }
+  }
+  return [...groups.values()].sort((x,y)=>x.agent==null? -1 : (y.agent==null? 1 : x.agent-y.agent));
+}
 function renderOverview(){
   const el = $('#ov-body');
   const agent = agentFilterVal();
@@ -928,16 +1044,8 @@ function renderOverview(){
   const types = Object.entries(typeCounts).sort((a,b)=>b[1]-a[1]);
   const maxN = types[0]?.[1]||1;
 
-  let modelRows=[], modelTot={n:0,p:0,c:0,t:0};
-  try{
-    modelRows = q(`SELECT json_extract(body,'$.agent_id') AS agent, COUNT(*) AS n,
-      SUM(json_extract(body,'$.data.response.usage.prompt_tokens')) AS p,
-      SUM(json_extract(body,'$.data.response.usage.completion_tokens')) AS c,
-      SUM(json_extract(body,'$.data.response.usage.total_tokens')) AS t
-      FROM events WHERE json_extract(body,'$.event_type')='model_response' GROUP BY 1 ORDER BY 1`);
-    if (agent) modelRows = modelRows.filter(r=>String(r.agent)===agent);
-    for (const r of modelRows){ modelTot.n+=r.n; modelTot.p+=r.p||0; modelTot.c+=r.c||0; modelTot.t+=r.t||0; }
-  }catch(e){}
+  const modelRows = modelUsage().filter(r=>!agent || String(r.agent)===agent), modelTot={n:0,p:0,c:0,t:0};
+  for (const r of modelRows){ modelTot.n+=r.n; modelTot.p+=r.p||0; modelTot.c+=r.c||0; modelTot.t+=r.t||0; }
   const nReq = typeCounts['action_requested']||0;
   const nAcc = typeCounts['action_accepted']||0;
   const nRej = typeCounts['action_rejected']||0;
@@ -1066,29 +1174,39 @@ function inputWarningBody(manifest, agent){
 }
 
 /* ---------- 时间线 ---------- */
-const TL = { chunk:150, rendered:0, filtered:[], types:new Set(), kw:'', tmin:0, tmax:0, observer:null };
+const TL = { chunk:150, rendered:0, filtered:[], types:new Set(), kw:'', tmin:0, tmax:0, lo:null, hi:null, step:600,
+  lastDay:null, dayCounts:new Map(), observer:null };
+/** @brief 时间滑块的两端：日期筛选选中的那一天，未筛选时为整个运行；两端一变，已拖动的范围随之回到两端。 */
+function timelineBounds(){
+  const range = dayRange();
+  const lo = range? Math.max(S.t0, range[0]) : S.t0, hi = range? Math.min(S.t1, range[1]-1) : S.t1;
+  if (TL.lo!==lo || TL.hi!==hi){ TL.lo = lo; TL.hi = hi; TL.tmin = lo; TL.tmax = hi; }
+  TL.step = hi-lo > 2*86400? 600 : 60;
+}
 function renderTimeline(){
   const el = $('#tl-body');
   if (!TL.inited){
     TL.inited = true;
     TL.types = new Set(Object.keys(S.typeCounts));
-    TL.tmin = S.t0; TL.tmax = S.t1;
   }
+  timelineBounds();
+  const counts = {};
+  for (const e of S.events) if (e.t>=TL.lo && e.t<=TL.hi) counts[e.type] = (counts[e.type]||0)+1;
   el.innerHTML = `
   <div class="filter-bar">
     <label>类型
       <span class="chips" id="tl-chips">
-        ${Object.entries(S.typeCounts).sort((a,b)=>b[1]-a[1]).map(([t,n])=>
-          `<span class="chip on" data-t="${esc(t)}" style="--c:${typeColor(t)}" title="${esc(t)}">${esc(typeLabel(t))} ${n}</span>`).join('')}
+        ${Object.entries(S.typeCounts).sort((a,b)=>b[1]-a[1]).map(([t])=>
+          `<span class="chip${TL.types.has(t)?' on':''}" data-t="${esc(t)}" style="--c:${typeColor(t)}" title="${esc(t)}">${esc(typeLabel(t))} ${counts[t]||0}</span>`).join('')}
         <span class="chip" id="tl-all">全选</span><span class="chip" id="tl-none">全不选</span>
       </span>
     </label>
     <label>时间
       <span class="range-wrap">
-        <input type="range" id="tl-r0" min="${S.t0}" max="${S.t1}" step="600" value="${TL.tmin}">
-        <span id="tl-r0v" style="width:104px;font-family:var(--mono);font-size:11px">${fmtHM(TL.tmin)}</span>
-        ~ <input type="range" id="tl-r1" min="${S.t0}" max="${S.t1}" step="600" value="${TL.tmax}">
-        <span id="tl-r1v" style="width:104px;font-family:var(--mono);font-size:11px">${fmtHM(TL.tmax)}</span>
+        <input type="range" id="tl-r0" min="${TL.lo}" max="${TL.hi}" step="${TL.step}" value="${TL.tmin}">
+        <span id="tl-r0v" style="width:76px;font-family:var(--mono);font-size:11px">${fmtHM(TL.tmin)}</span>
+        ~ <input type="range" id="tl-r1" min="${TL.lo}" max="${TL.hi}" step="${TL.step}" value="${TL.tmax}">
+        <span id="tl-r1v" style="width:76px;font-family:var(--mono);font-size:11px">${fmtHM(TL.tmax)}</span>
       </span>
     </label>
     <label>搜索 <input type="search" id="tl-kw" placeholder="摘要关键词或 #seq" value="${esc(TL.kw)}" style="width:150px"></label>
@@ -1106,9 +1224,11 @@ function renderTimeline(){
     $$('#tl-chips .chip[data-t]').forEach(x=>x.classList.toggle('on', TL.types.has(x.dataset.t)));
     refreshTimeline();
   });
-  $('#tl-r0').oninput = ev=>{ TL.tmin=Math.min(+ev.target.value,TL.tmax-600); ev.target.value=TL.tmin;
+  $('#tl-r0').oninput = ev=>{ TL.tmin=Math.min(+ev.target.value,TL.tmax-TL.step); ev.target.value=TL.tmin;
     $('#tl-r0v').textContent=fmtHM(TL.tmin); refreshTimeline(); };
-  $('#tl-r1').oninput = ev=>{ TL.tmax=Math.max(+ev.target.value,TL.tmin+600); ev.target.value=TL.tmax;
+  /* 滑块只取 lo 起每步一格的值，拖到最右也可能差不足一步到不了 hi：最后一格直接算作 hi，末尾的事件不被漏掉 */
+  $('#tl-r1').oninput = ev=>{ const value = +ev.target.value;
+    TL.tmax = value>=TL.hi-TL.step? TL.hi : Math.max(value,TL.tmin+TL.step); ev.target.value=TL.tmax;
     $('#tl-r1v').textContent=fmtHM(TL.tmax); refreshTimeline(); };
   let kwTimer=null;
   $('#tl-kw').oninput = ev=>{ clearTimeout(kwTimer); kwTimer=setTimeout(()=>{ TL.kw=ev.target.value.trim(); refreshTimeline(); },250); };
@@ -1130,9 +1250,19 @@ function refreshTimeline(){
     (!kw || e.sum.toLowerCase().includes(kw) || String(e.seq).includes(TL.kw))
   );
   TL.rendered = 0;
+  TL.lastDay = null;
+  TL.dayCounts = new Map();
+  for (const e of TL.filtered){ const day = dayIndex(e.t); TL.dayCounts.set(day, (TL.dayCounts.get(day)||0)+1); }
   $('#tl-list').innerHTML = '';
   $('#tl-count').textContent = `${nf(TL.filtered.length)} / ${nf(S.events.length)} 条`;
   renderMoreTimeline();
+}
+/** @brief 时间线的当地日分隔行（吸顶）：日期、周几与当前筛选下这一天的事件数；行内只写时分秒，日期由分隔行给出。 */
+function tlDayHeader(day){
+  const head = document.createElement('div');
+  head.className = 'tl-day';
+  head.innerHTML = `${esc(dayLabel(day))}<span class="n">${nf(TL.dayCounts.get(day))} 条</span>`;
+  return head;
 }
 function renderMoreTimeline(){
   if (TL.rendered >= TL.filtered.length){
@@ -1142,7 +1272,11 @@ function renderMoreTimeline(){
   $('#tl-sentinel').textContent = '下拉加载更多 …';
   const frag = document.createDocumentFragment();
   const end = Math.min(TL.rendered+TL.chunk, TL.filtered.length);
-  for (let i=TL.rendered;i<end;i++) frag.appendChild(tlRow(TL.filtered[i]));
+  for (let i=TL.rendered;i<end;i++){
+    const day = dayIndex(TL.filtered[i].t);
+    if (day!==TL.lastDay){ frag.appendChild(tlDayHeader(day)); TL.lastDay = day; }
+    frag.appendChild(tlRow(TL.filtered[i]));
+  }
   TL.rendered = end;
   $('#tl-list').appendChild(frag);
 }
@@ -1150,10 +1284,10 @@ function tlRow(e){
   const row = document.createElement('div');
   row.className='tl-row'; row.dataset.seq=e.seq;
   row.innerHTML = `
-    <span class="tl-time">${fmtT(e.t)}</span>
+    <span class="tl-time" title="${esc(fmtT(e.t))}">${fmtClock(e.t)}</span>
     <span class="tl-agent ${agentCls(e.agent)}">${e.agent==null?'系统':esc(agentName(e.agent))}</span>
     <span class="tl-type" style="background:${typeColor(e.type)}33;color:${typeColor(e.type)}" title="${esc(e.type)}">${esc(typeLabel(e.type))}</span>
-    <span class="tl-sum" title="${esc(e.sum)}">${esc(e.sum)}</span>`;
+    <span class="tl-sum">${esc(e.sum)}</span>`;
   row.onclick = ()=>toggleDetail(row, e.seq);
   return row;
 }
@@ -1185,33 +1319,76 @@ function actTargetText(a){
   if (a.dest) return `→ ${locLabel(a.dest)}`;
   return '—';
 }
-/** @brief 按同一时间轴绘制人物的活动泳道，条块只取已结算区间。 */
+/** @brief 把活动的已结算区间按当地日切开：返回 Map(日序号 -> [{start,end,from,to,act}])，start、end 是落在这一天里的
+ *  一段，from、to 是整个区间；跨零点的区间在每一天各占一段。 */
+function daySegments(activities){
+  const days = new Map();
+  for (const act of activities) for (const [from,to] of act.intervals){
+    for (let day=dayIndex(from); day<=dayIndex(to-1); day++){
+      if (!days.has(day)) days.set(day, []);
+      days.get(day).push({start:Math.max(from,dayStart(day)), end:Math.min(to,dayStart(day+1)), from, to, act});
+    }
+  }
+  return days;
+}
+/** @brief 同一天里时间重叠的条块上下并排：按开始时刻依次放进最先空出来的一排，在每段写上所在排 row，返回排数。 */
+function packRows(segments){
+  const ends = [];
+  for (const segment of segments.sort((x,y)=>x.start-y.start || x.end-y.end)){
+    let row = ends.findIndex(end=>end<=segment.start);
+    if (row<0) row = ends.length;
+    ends[row] = segment.end;
+    segment.row = row;
+  }
+  return ends.length;
+}
+/** @brief 条块上的短名：活动对象（标题、目的地）优先，没有对象的活动写活动类型。 */
+function actShortLabel(a){
+  return a.tg||a.dest? actTargetText(a) : actTypeLabel(a.kind,a.tg);
+}
+/** @brief 一个当地日的泳道行：横轴 00:00–24:00，条块按所在排上下错开；悬停给出整段起止、时长与完整名称。 */
+function renderDayLane(day, segments){
+  const rows = Math.max(1, packRows(segments));
+  const bars = segments.map(segment=>{
+    const a = segment.act;
+    const left = (segment.start-dayStart(day))/864, width = (segment.end-segment.start)/864;
+    const full = `${actTypeLabel(a.kind,a.tg)} ${a.tg||a.dest? actTargetText(a):''}`.trim();
+    const tip = `${fmtHM(segment.from)}–${fmtHM(segment.to)}（${fmtDur(segment.to-segment.from)}） · ${full}`;
+    return `<span class="act-lane-bar" style="left:${left}%;width:${width}%;top:${4+segment.row*17}px;` +
+      `background:${kindColor(a.kind)}" title="${esc(tip)}"><span class="act-lane-text">${esc(actShortLabel(a))}</span></span>`;
+  }).join('');
+  return `<div class="act-lane${isWeekend(day)?' weekend':''}">
+    <button type="button" class="act-lane-label" data-day="${day}" title="只看这一天（再点一次回到全部）">${esc(dayLabel(day))}</button>
+    <div class="act-lane-track" style="height:${7+rows*17}px">${bars}</div></div>`;
+}
+/** @brief 按当地日绘制人物的活动泳道：每行一天、横轴固定 24 小时，条块只取已结算区间；日期筛选下只画选中的那一天。 */
 function renderActivityLanes(activities){
-  const span = Math.max(1,S.t1-S.t0);
-  const ticks = [0,.25,.5,.75,1].map(f=>`<span>${fmtHM(S.t0+span*f)}</span>`).join('');
+  const range = dayRange();
+  const axis = [0,3,6,9,12,15,18,21,24].map(hour=>
+    `<span style="left:${hour/24*100}%">${String(hour).padStart(2,'0')}:00</span>`).join('');
   const agents = [...new Set(activities.map(a=>a.agent))];
   const groups = agents.map(agent=>{
-    const rows = activities.filter(a=>a.agent===agent).sort((a,b)=>a.start-b.start);
-    return `<h3>${esc(agentName(agent))}</h3>${rows.map(a=>{
-      const label = `${actTypeLabel(a.kind,a.tg)} ${actTargetText(a)}`.trim();
-      const bars = a.intervals.map(([start,end])=>{
-        const left = (start-S.t0)/span*100, width = (end-start)/span*100;
-        return `<span class="act-lane-bar" style="left:${left}%;width:${width}%;background:${kindColor(a.kind)}"
-          title="${esc(fmtT(start)+'–'+fmtT(end)+' · '+label)}"></span>`;
-      }).join('');
-      return `<div class="act-lane"><div class="act-lane-label" title="${esc(label)}">${esc(label)}</div>
-        <div class="act-lane-track">${bars}</div></div>`;
-    }).join('')}`;
+    const days = daySegments(activities.filter(a=>a.agent===agent));
+    const keys = [...days.keys()];
+    const first = range? dayIndex(range[0]) : Math.min(...keys), last = range? first : Math.max(...keys);
+    let lanes = '';
+    for (let day=first; day<=last; day++) lanes += renderDayLane(day, days.get(day)||[]);
+    return `<h3>${esc(agentName(agent))}</h3><div class="act-agent">
+      <div class="act-lane-axis">${axis}</div>${lanes}</div>`;
   }).join('');
-  return `<div class="card act-lanes"><div class="act-lanes-inner">
-    <div class="hint">同一时间轴上的条块表示实际执行区间；空白表示尚无结算记录。</div>
-    <div class="act-lane-axis">${ticks}</div>${groups}</div></div>`;
+  const kinds = [...new Set(activities.map(a=>a.kind))];
+  return `<div class="card act-lanes">
+    <div class="hint">每行是一个当地日（00:00–24:00）。同一时间轴上的条块表示实际执行区间，同时进行的活动上下并排；空白表示尚无结算记录。
+      悬停条块看起止与名称，点行首日期只看那一天。</div>
+    <div class="legend">${kinds.map(k=>`<span><span class="sw" style="background:${kindColor(k)}"></span>${esc(actTypeLabel(k,null))}</span>`).join('')}</div>
+    ${groups}</div>`;
 }
 /** @brief 地点会话（一段停留或一段路）只存于世界状态，按开始时刻列出其名称、种类与所含活动。 */
 function renderSessions(agent){
   const acts = S.world?.activities||{};
   const rows = Object.values(S.world?.sessions||{})
     .filter(s=>SESSION_KIND_LABELS[s.kind] && (!agent || String(s.agent_id)===agent))
+    .filter(s=>overlapsDay(s.started_at, s.ended_at??S.t1))
     .sort((x,y)=>x.started_at-y.started_at);
   if (!rows.length) return '';
   const members = s => (s.activity_ids||[]).map(id=>acts[id]?.name).filter(Boolean).join('、')
@@ -1231,10 +1408,10 @@ function renderSessions(agent){
 function renderActivities(){
   const el = $('#act-body');
   const agent = agentFilterVal();
-  AT.filtered = S.acts.filter(a=>!agent || String(a.agent)===agent);
-  if (!AT.filtered.length){ el.innerHTML='<div class="empty">无活动数据</div>'; return; }
+  const mine = S.acts.filter(a=>!agent || String(a.agent)===agent);
+  if (!mine.length){ el.innerHTML='<div class="empty">无活动数据</div>'; return; }
+  AT.filtered = mine.filter(a=>overlapsDay(a.start, a.end));
   if (AT.page >= Math.ceil(AT.filtered.length/AT.pageSize)) AT.page = 0;
-  const kinds = [...new Set(AT.filtered.map(a=>a.kind))];
 
   const sorters = {
     start: (x,y)=> x.start-y.start,
@@ -1244,16 +1421,17 @@ function renderActivities(){
   AT.filtered.sort(sorters[AT.sortKey]||sorters.start);
   if (AT.sortDir<0) AT.filtered.reverse();
 
-  const pages = Math.ceil(AT.filtered.length/AT.pageSize);
+  const pages = Math.max(1, Math.ceil(AT.filtered.length/AT.pageSize));
   const view = AT.filtered.slice(AT.page*AT.pageSize, (AT.page+1)*AT.pageSize);
+  const scope = dayRange()? `${dayLabel(dayIndex(dayRange()[0]))} ` : '';
   const arrow = k => AT.sortKey===k? `<span class="arrow">${AT.sortDir>0?'▲':'▼'}</span>`:'';
   const th = (k,label,extra) =>
     `<th data-sk="${k}" class="${extra||''}">${label}${arrow(k)}</th>`;
 
   el.innerHTML = `
-  ${renderActivityLanes(AT.filtered)}
-  <div class="legend" style="margin-bottom:10px">${kinds.map(k=>`<span><span class="sw" style="background:${kindColor(k)}"></span>${esc(actTypeLabel(k,null))}</span>`).join('')}
-    <span style="margin-left:auto;color:var(--fg-faint)">共 ${AT.filtered.length} 段活动 · 点击表头排序</span></div>
+  ${renderActivityLanes(mine)}
+  <div class="legend" style="margin-bottom:10px">
+    <span style="margin-left:auto;color:var(--fg-faint)">${esc(scope)}共 ${AT.filtered.length} 段活动 · 点击表头排序</span></div>
   <div class="card" style="padding:0 0 0 0">
     <table class="act-table">
       <thead><tr>${th('start','开始')}${th('agent','人物')}${th('kind','活动类型')}
@@ -1265,7 +1443,8 @@ function renderActivities(){
         <td><span class="act-kind" style="background:${kindColor(a.kind)}33;color:${kindColor(a.kind)}">${esc(actTypeLabel(a.kind,a.tg))}</span></td>
         <td>${esc(actTargetText(a))}</td>
         <td style="white-space:nowrap;font-family:var(--mono);font-size:12px">${fmtHM(a.end)}</td>
-        <td class="num">${a.actualSeconds?fmtDur(a.actualSeconds):'—'}</td></tr>`).join('')}
+        <td class="num">${a.actualSeconds?fmtDur(a.actualSeconds):'—'}</td></tr>`).join('')
+        || '<tr><td colspan="6" class="empty">所选日期没有活动</td></tr>'}
       </tbody>
     </table>
     <div class="pager">
@@ -1287,9 +1466,36 @@ function renderActivities(){
   });
   $('#at-prev').onclick = ()=>{ if (AT.page>0){ AT.page--; renderActivities(); } };
   $('#at-next').onclick = ()=>{ if (AT.page<pages-1){ AT.page++; renderActivities(); } };
+  $$('#act-body [data-day]').forEach(label=>{
+    label.onclick = ()=>selectDay(dayRange()? '' : label.dataset.day);
+  });
 }
 
 /* ---------- 折线图（Canvas 手绘 + 悬停读数） ---------- */
+/** @brief 横轴刻度 [{t, label}]，每个刻度画一条竖线：跨度不超过两天时按整点（零点写日期），更长时按当地日零点。
+ *  标签按可用宽度隔开（隔 2 天，再长则隔 1、2、4 周并对齐周一），相邻标签不重叠；没轮到的日分界线标签为空，
+ *  每天不足 6 像素时连线也不画。 */
+function timeTicks(x0, x1, width){
+  const off = S.tzOff, span = x1-x0, ticks = [], room = 46;
+  if (span <= 2*86400){
+    const step = [3600,7200,10800,21600].find(size=>span/size*room <= width) || 43200;
+    for (let t=Math.ceil((x0+off)/step)*step-off; t<=x1; t+=step){
+      const midnight = (t+off)%86400===0;
+      ticks.push({t, label:(midnight? S.fmt.md : S.fmt.hm)(new Date(t*1000))});
+    }
+    return ticks;
+  }
+  const days = span/86400;
+  const every = [1,2,7,14,28].find(count=>days/count*room <= width) || 56;
+  const dense = width/days >= 6;
+  for (let t=Math.ceil((x0+off)/86400)*86400-off; t<=x1; t+=86400){
+    const labelled = (dayIndex(t)-4)%every===0;   /* 序号 4 是周一：隔周的标签都落在周一 */
+    if (labelled || dense) ticks.push({t, label:labelled? S.fmt.md(new Date(t*1000)) : ''});
+  }
+  return ticks;
+}
+/** @brief 画折线图。opts：yfmt 纵轴读数格式；xdomain 固定横轴范围（日期筛选下为选中的那一天，域外的点只用来把线连到
+ *  两端，画线时裁在绘图区内）；guide 悬停处的时刻，画一条竖直参考线。 */
 function drawLineChart(canvas, series, opts){
   opts = opts||{};
   const dpr = devicePixelRatio||1;
@@ -1314,15 +1520,17 @@ function drawLineChart(canvas, series, opts){
     ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
     ctx.fillText(opts.yfmt? opts.yfmt(v): (+v.toFixed(2)), padL-6, y+3);
   }
-  ctx.textAlign='center';
   if (x1>x0){
-    const off = S.tzOff;
-    for (let t=Math.ceil((x0+off)/86400)*86400-off; t<=x1; t+=86400){
-      const xx=X(t); ctx.strokeStyle='#39424f';
+    for (const tick of timeTicks(x0, x1, W-padL-padR)){
+      const xx=X(tick.t); ctx.strokeStyle='#39424f';
       ctx.beginPath(); ctx.moveTo(xx,padT); ctx.lineTo(xx,H-padB); ctx.stroke();
-      ctx.fillStyle='#5b636e'; ctx.fillText(S.fmt.md(new Date(t*1000)), xx, H-4);
+      /* 贴边的标签向内对齐，不被画布边缘切掉 */
+      ctx.textAlign = xx>W-padR-18? 'right' : (xx<padL+18? 'left' : 'center');
+      ctx.fillStyle='#5b636e'; ctx.fillText(tick.label, xx, H-4);
     }
   }
+  ctx.save();
+  ctx.beginPath(); ctx.rect(padL, 0, W-padL-padR, H-padB); ctx.clip();
   for (const s of series){
     ctx.strokeStyle=s.color; ctx.lineWidth=1.5; ctx.beginPath();
     let started=false;
@@ -1330,7 +1538,12 @@ function drawLineChart(canvas, series, opts){
       if (started) ctx.lineTo(X(t),Y(v)); else { ctx.moveTo(X(t),Y(v)); started=true; } }
     ctx.stroke();
   }
-  canvas._chart = {series, x0,x1,y0,y1, X};
+  if (opts.guide!=null){
+    ctx.strokeStyle='#8b949e'; ctx.lineWidth=1; ctx.setLineDash([3,3]);
+    ctx.beginPath(); ctx.moveTo(X(opts.guide),padT); ctx.lineTo(X(opts.guide),H-padB); ctx.stroke();
+  }
+  ctx.restore();
+  canvas._chart = {series, x0,x1,y0,y1, X, opts:{...opts, guide:null}};
 }
 function attachHover(canvas, readoutEl){
   if (!readoutEl) return;
@@ -1340,6 +1553,7 @@ function attachHover(canvas, readoutEl){
     const px = ev.clientX-rect.left;
     let best=null, bd=Infinity;
     for (const s of c.series) for (const [t,v] of s.points){
+      if (t<c.x0 || t>c.x1) continue;
       const d = Math.abs(c.X(t)-px); if (d<bd){bd=d;best=t;}
     }
     if (best==null){ readoutEl.textContent=''; return; }
@@ -1350,17 +1564,33 @@ function attachHover(canvas, readoutEl){
       parts.push(`${s.name}: ${bb==null?'—':(+bb.toFixed(3))}`);
     }
     readoutEl.textContent = parts.join('   |   ');
+    drawLineChart(canvas, c.series, {...c.opts, guide:best});
   };
-  canvas.onmouseleave = ()=>readoutEl.textContent='';
+  canvas.onmouseleave = ()=>{
+    readoutEl.textContent='';
+    if (canvas._chart) drawLineChart(canvas, canvas._chart.series, canvas._chart.opts);
+  };
+}
+/** @brief 日期筛选下一个人物的曲线取点：选中那一天里的观测，加上前后各一个相邻观测，让线连到当日两端。 */
+function dayPoints(list){
+  const range = dayRange();
+  if (!range) return list;
+  const first = list.findIndex(o=>o.t>=range[0]);
+  if (first<0) return list.slice(-1);
+  let last = first;
+  while (last<list.length && list[last].t<range[1]) last++;
+  return list.slice(Math.max(0,first-1), last+1);
 }
 function chartSeries(obs, key){
   const byAgent = new Map();
   for (const o of obs){ if(!byAgent.has(o.agent)) byAgent.set(o.agent,[]); byAgent.get(o.agent).push(o); }
   const palette = ['#58a6ff','#3fb950','#d29922','#f85149','#d2a8ff'];
   return [...byAgent.entries()].map(([a,list],i)=>({
-    name:`${agentName(a)}`, color:palette[i%palette.length], points:list.map(o=>[o.t,o[key]])
+    name:`${agentName(a)}`, color:palette[i%palette.length], points:dayPoints(list).map(o=>[o.t,o[key]])
   }));
 }
+/** @brief 曲线图的横轴范围：日期筛选选中的那一天，未筛选时由数据决定。 */
+const chartDomain = () => dayRange() || undefined;
 
 /* ---------- 身体曲线 ---------- */
 function renderBodyCurves(){
@@ -1370,10 +1600,11 @@ function renderBodyCurves(){
   const seriesEn = chartSeries(obs,'en'), seriesSl = chartSeries(obs,'sl'), seriesEt = chartSeries(obs,'et');
   const agents = [...new Set(obs.map(o=>o.agent))];
   const palette = ['#58a6ff','#3fb950','#d29922','#f85149','#d2a8ff'];
+  const xdomain = chartDomain();
   el.innerHTML = `
   <div class="card">
     <div class="legend">${agents.map((a,i)=>`<span><span class="sw" style="background:${palette[i%palette.length]}"></span>${esc(agentName(a))}</span>`).join('')}
-      <span style="margin-left:auto;color:var(--fg-faint)">共 ${obs.length} 个观测点 · 悬停读取数值</span></div>
+      <span style="margin-left:auto;color:var(--fg-faint)">共 ${obs.filter(o=>inDay(o.t)).length} 个观测点 · 悬停读取数值</span></div>
     <div class="chart-block"><div class="chart-title"><span>能量 energy_kcal</span><span class="hover-readout" style="font-family:var(--mono)"></span></div><canvas id="cv-en"></canvas></div>
     <div class="chart-block"><div class="chart-title"><span>睡眠缺口 sleep_deficit_hours</span>
       <span class="hover-readout" style="font-family:var(--mono)"></span></div><canvas id="cv-sl"></canvas></div>
@@ -1383,7 +1614,7 @@ function renderBodyCurves(){
     const defs = [['cv-en',seriesEn,v=>Math.round(v)], ['cv-sl',seriesSl,v=>(+v.toFixed(1))+'h'], ['cv-et',seriesEt,v=>(+v.toFixed(2))]];
     for (const [id,series,yfmt] of defs){
       const cv = document.getElementById(id);
-      drawLineChart(cv, series, {yfmt});
+      drawLineChart(cv, series, {yfmt, xdomain});
       attachHover(cv, cv.closest('.chart-block').querySelector('.hover-readout'));
     }
   });
@@ -1427,7 +1658,7 @@ function renderEconomy(){
       prev=o;
     }
   }
-  const flows = agent? flowsAll.filter(f=>f.who===`agent:${agent}`) : flowsAll;
+  const flows = flowsAll.filter(f=>inDay(f.t) && (!agent || f.who===`agent:${agent}`));
   flows.sort((x,y)=>y.t-x.t);
   const shown = flows.slice(0,800);
 
@@ -1445,7 +1676,7 @@ function renderEconomy(){
     <canvas id="eco-canvas"></canvas>
     <div class="chart-title" style="margin-top:4px"><span></span><span class="hover-readout" style="font-family:var(--mono);color:var(--fg-dim)"></span></div>
   </div>
-  <div class="grid g2">
+  <div class="grid g2 eco-grid">
     <div class="card">
       <h3 style="margin-top:0">流水明细（新→旧${flows.length>800?'，前 800 / 共 '+flows.length+' 条':'，共 '+flows.length+' 条'}）</h3>
       <div style="max-height:420px;overflow:auto">
@@ -1464,7 +1695,7 @@ function renderEconomy(){
   </div>`;
   requestAnimationFrame(()=>{
     const cv = $('#eco-canvas');
-    drawLineChart(cv, series, {yfmt:v=>nf(Math.round(v))});
+    drawLineChart(cv, series, {yfmt:v=>nf(Math.round(v)), xdomain:chartDomain()});
     attachHover(cv, cv.closest('.card').querySelector('.hover-readout'));
   });
 }
@@ -1473,12 +1704,12 @@ function renderEconomy(){
 function renderMemory(){
   const el = $('#mem-body');
   const agent = agentFilterVal();
-  const rows = q(`SELECT event_seq AS seq, json_extract(body,'$.data.episodes') AS episodes
-    FROM events WHERE json_extract(body,'$.event_type')='memory_updated' ORDER BY event_seq DESC`);
+  const rows = q(`SELECT v.event_seq AS seq, json_extract(e.body,'$.data.episodes') AS episodes
+    FROM ${EVENTS_OF_TYPE} ORDER BY v.event_seq DESC`, ['memory_updated']);
   const events = new Map(S.events.map(e=>[e.seq,e]));
   const entries = rows.flatMap(row=>{
     const event = events.get(row.seq);
-    if (!event || (agent && String(event.agent)!==agent)) return [];
+    if (!event || (agent && String(event.agent)!==agent) || !inDay(event.t)) return [];
     let episodes;
     try{ episodes = JSON.parse(row.episodes||'[]'); }
     catch(error){ console.error('Invalid memory episode JSON:', error); throw error; }
@@ -1492,11 +1723,19 @@ function renderMemory(){
     .filter(([,memory])=>memory.memoryMd).map(([aid,memory])=>
       `<div class="mem-file"><h4>${esc(agentName(aid))} · 主观总结</h4>
         <pre>${esc(memory.memoryMd)}</pre></div>`).join('');
+  let lastDay = null;
+  /** @brief 写入日变化处插入当地日分隔行（吸顶），条目本身只写时分秒。 */
+  const dayHead = t => {
+    const day = dayIndex(t);
+    if (day===lastDay) return '';
+    lastDay = day;
+    return `<div class="tl-day">${esc(dayLabel(day))}</div>`;
+  };
   el.innerHTML = `${summaries}
     <div class="card"><h3 style="margin-top:0">人物记忆正文（${entries.length} 条）</h3>
     <div class="hint">按写入时间从新到旧展示。人物记忆是主观自述，不能直接当作已核验事实。</div>
-    ${entries.map(({event,episode})=>`<div class="memory-entry">
-      <div class="meta">${esc(fmtT(event.t))} · ${esc(agentName(event.agent))} ·
+    ${entries.map(({event,episode})=>`${dayHead(event.t)}<div class="memory-entry">
+      <div class="meta" title="${esc(fmtT(event.t))}">${esc(fmtClock(event.t))} · ${esc(agentName(event.agent))} ·
         ${esc(MEMORY_TYPE_LABELS[episode.type]||episode.type||'记忆')}</div>
       <div class="text">${esc(episode.text||'')}</div></div>`).join('') ||
       '<div class="empty">没有记忆正文</div>'}</div>`;
@@ -1504,17 +1743,17 @@ function renderMemory(){
 
 /* ---------- 思考记录 ---------- */
 const RS = { loaded:false, items:[], filtered:[], rendered:0, kw:'' };
-const RS_PATH = `json_extract(body,'$.data.response.choices[0].message.provider_specific_fields.reasoning_content')`;
+const RS_PATH = `json_extract(e.body,'$.data.response.choices[0].message.provider_specific_fields.reasoning_content')`;
 function rsQuery(kw){
-  let sqlText = `SELECT event_seq AS seq, json_extract(body,'$.agent_id') AS agent,
-    json_extract(body,'$.occurred_at') AS t, ${RS_PATH} AS rc
-    FROM events WHERE json_extract(body,'$.event_type')='model_response' AND ${RS_PATH} IS NOT NULL`;
-  const params=[];
+  let sqlText = `SELECT v.event_seq AS seq, v.agent AS agent,
+    json_extract(e.body,'$.occurred_at') AS t, ${RS_PATH} AS rc
+    FROM ${EVENTS_OF_TYPE} AND ${RS_PATH} IS NOT NULL`;
+  const params=['model_response'];
   if (kw){
     sqlText += ` AND ${RS_PATH} LIKE ? ESCAPE '\\'`;
     params.push('%'+kw.replace(/[\\%_]/g,m=>'\\'+m)+'%');
   }
-  return q(sqlText+' ORDER BY event_seq', params);
+  return q(sqlText+' ORDER BY v.event_seq', params);
 }
 function renderReasoning(){
   const el = $('#rs-body');
@@ -1543,8 +1782,9 @@ function renderReasoning(){
 }
 function refreshRs(){
   const agent = agentFilterVal();
-  RS.filtered = RS.items.filter(x=>!agent || String(x.agent)===agent);
+  RS.filtered = RS.items.filter(x=>(!agent || String(x.agent)===agent) && inDay(x.t));
   RS.rendered = 0;
+  RS.lastDay = null;
   $('#rs-list').innerHTML='';
   $('#rs-count').textContent = `${RS.filtered.length} 条思考记录`;
   renderMoreRs();
@@ -1558,10 +1798,16 @@ function renderMoreRs(){
   const frag = document.createDocumentFragment();
   for (let i=RS.rendered;i<end;i++){
     const it = RS.filtered[i];
+    const day = dayIndex(it.t);
+    if (day!==RS.lastDay){
+      const head = document.createElement('div');
+      head.className = 'tl-day'; head.textContent = dayLabel(day);
+      frag.appendChild(head); RS.lastDay = day;
+    }
     const div = document.createElement('div');
     div.className='rs-item';
     div.innerHTML = `<div class="rs-head">
-      <span class="t">${fmtT(it.t)}</span>
+      <span class="t" title="${esc(fmtT(it.t))}">${fmtClock(it.t)}</span>
       <span class="a ${agentCls(it.agent)}">${it.agent==null?'系统':esc(agentName(it.agent))}</span>
       <span class="x">${esc((it.rc||'').slice(0,160).replace(/\s+/g,' '))}</span></div>
       <div class="rs-body"><pre>${esc(it.rc||'')}</pre></div>`;
@@ -1580,7 +1826,8 @@ function renderSqlConsole(){
   el.innerHTML = `
   <div class="card">
     <p style="color:var(--fg-dim);margin-bottom:8px;line-height:1.8">只读查询（仅允许 SELECT / WITH / PRAGMA / EXPLAIN），最多返回 200 行。<br>
-    表：<code>events(event_seq, event_id, body)</code> · <code>world_state(singleton, version, body)</code> · <code>artifacts(sha256, body)</code> · <code>checkpoints(checkpoint_id, body, record_sha256)</code>。body 为 JSON，可用 <code>json_extract</code> 取字段。</p>
+    表：<code>events(event_seq, event_id, body)</code> · <code>world_state(singleton, version, body)</code> · <code>artifacts(sha256, body)</code> · <code>checkpoints(checkpoint_id, body, record_sha256)</code>。body 为 JSON，可用 <code>json_extract</code> 取字段。<br>
+    按事件类型筛选时连接临时表 <code>viewer_event(event_seq, type, agent)</code>，比逐行对 body 取 <code>$.event_type</code> 快得多。</p>
     <textarea id="sql-input" spellcheck="false">SELECT event_seq, json_extract(body,'$.event_type') AS type, json_extract(body,'$.occurred_at') AS t
 FROM events ORDER BY event_seq DESC LIMIT 20</textarea>
     <button class="primary" id="sql-run">运行 (Ctrl+Enter)</button>
@@ -1701,13 +1948,26 @@ function bindDayInput(){
  * 文件加载与入口
  * file-input 同时承担点击选择与自动化测试（set_input_files）入口。
  * ================================================================ */
+/** @brief 把足迹库分块读进内存，日志末行随读随报进度。文件在读取途中被改动（运行仍在写这个库）时浏览器会拒绝
+ *  继续读：记英文错误日志，向用户说明重试或先复制一份。 */
+async function readDatabaseFile(file, logEl){
+  const head = logEl.textContent, megabytes = bytes => (bytes/1048576).toFixed(1);
+  const report = done => { logEl.textContent = `${head}· 读取 ${file.name}（${megabytes(done)} / ${megabytes(file.size)} MB）…\n`; };
+  report(0);
+  try{ return await ViewerEngine.readChunks(file, report); }
+  catch(error){
+    console.error('Reading the database file failed:', error);
+    throw new Error(`读取 ${file.name} 失败（${error.message}）。运行仍在写入这个库时，读取途中文件变动会失败：` +
+      '请重试，或先复制一份再拖入。');
+  }
+}
 async function handleFiles(fileList, dirEntries){
   const logEl = $('#drop-log'); logEl.style.display='block'; logEl.textContent='';
   const log = m => { logEl.textContent += m+'\n'; logEl.scrollTop = logEl.scrollHeight; };
   const errEl = $('#drop-err'); errEl.style.display='none';
   try{
-    log('· 加载 sql.js 引擎（CDN）…');
-    if (!S.SQL) S.SQL = await loadSqlJs();
+    log('· 加载 SQLite 引擎（CDN）…');
+    if (!S.engine) S.engine = await ViewerEngine.load();
     log('· 引擎就绪');
 
     const files = Array.from(fileList||[]);
@@ -1716,11 +1976,10 @@ async function handleFiles(fileList, dirEntries){
     if (!file && files.length===1) file = files[0];
     if (!file) throw new Error('未找到 .sqlite 文件 —— 请拖入 footprints.sqlite（可与 run 目录一起拖入）');
     S.fileName = file.name;
-    log(`· 读取 ${file.name}（${(file.size/1048576).toFixed(1)} MB）…`);
-    const buf = new Uint8Array(await file.arrayBuffer());
-    log('· 打开数据库（大文件约需数秒）…');
+    const store = await readDatabaseFile(file, logEl);
+    log('· 打开数据库并建立索引（大文件约需数秒）…');
     await new Promise(r=>setTimeout(r,30));
-    S.db = new S.SQL.Database(buf);
+    S.db = ViewerEngine.open(S.engine, store);
     log('· 数据库已打开');
 
     buildIndex();
@@ -1735,6 +1994,7 @@ async function handleFiles(fileList, dirEntries){
       S.agentIds.map(id=>`<option value="${id}">${esc(agentName(id))}</option>`).join('');
     /* 全局 Agent 筛选联动所有视图（SQL 控制台为原始数据视图，不联动） */
     sel.onchange = ()=>{ if (S.view!=='sql') switchView(S.view); };
+    bindDayFilter();
     buildNav();
     $('#drop-zone').classList.add('hidden');
     $('#app').classList.add('on');
@@ -1744,6 +2004,24 @@ async function handleFiles(fileList, dirEntries){
     errEl.textContent = '加载失败：'+e.message;
     log('× 失败');
   }
+}
+
+/** @brief 全局日期筛选：列出运行覆盖的每个当地日（「全部」在前），改选时重绘当前视图；两侧按钮逐日前后移动，
+ *  第一天再往前回到「全部」。 */
+function bindDayFilter(){
+  const sel = $('#day-filter');
+  let options = '<option value="">全部</option>';
+  for (let day=dayIndex(S.t0); day<=dayIndex(S.t1); day++)
+    options += `<option value="${day}">${esc(dayLabel(day))}</option>`;
+  sel.innerHTML = options;
+  sel.onchange = ()=>selectDay(sel.value);
+  const step = delta => ()=>{
+    const next = sel.selectedIndex + delta;
+    if (next<0 || next>=sel.options.length) return;
+    selectDay(sel.options[next].value);
+  };
+  $('#day-prev').onclick = step(-1);
+  $('#day-next').onclick = step(1);
 }
 
 /** @brief 读入与足迹库一起拖入或选择的运行文件：目录中的人物记忆文件；顶层与各层目录中的 manifest.json 作运行清单候选。 */
@@ -1813,9 +2091,10 @@ function bindDnd(){
     S.db=null; S.events=[]; S.summaries=new Map(); S.typeCounts={}; S.obs=[]; S.acts=[];
     S.memFiles={}; S.bodyCache=new Map(); S.world=null; S.runId='';
     S.runManifest=null; S.ignoredManifests=0;
-    S.nameIdx=null; S.missingNames=new Set(); S.reminded=new Map(); S.day=null;
+    S.nameIdx=null; S.missingNames=new Set(); S.reminded=new Map(); S.responses=new Map(); S.day=null;
     AT.page=0; AT.sortKey='start'; AT.sortDir=1;
-    TL.inited=false; TL.types=new Set(); TL.kw=''; TL.rendered=0;
+    TL.inited=false; TL.types=new Set(); TL.kw=''; TL.rendered=0; TL.lo=null; TL.hi=null;
+    $('#day-filter').value='';
     RS.loaded=false; RS.items=[]; RS.kw='';
     ContextView.reset();
     const sqlBody = $('#sql-body'); sqlBody.dataset.inited=''; sqlBody.innerHTML='';

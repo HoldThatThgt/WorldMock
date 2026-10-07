@@ -8,17 +8,17 @@ const ContextView = {};
   const views = {structure:'结构与填充', growth:'增长与退出', comparison:'前后输入对照'};
   const statusNames = {added:'新增', changed:'内容变化', unchanged:'未变', removed:'退出当前输入'};
 
-  /** @brief 只投影请求元数据，避免提前读取整日提示正文。 */
+  /** @brief 只投影请求元数据，避免提前读取整日提示正文；只读模型请求这一类事件。 */
   function index() {
     if (state.items) return state.items;
-    const rows = q(`SELECT event_seq AS seq, json_extract(body,'$.event_id') AS id,
-      json_extract(body,'$.agent_id') AS agent, json_extract(body,'$.occurred_at') AS t,
-      json_extract(body,'$.decision_id') AS decision, json_extract(body,'$.data.purpose') AS purpose,
-      json_extract(body,'$.data.request.messages[0].content') AS system,
-      json_extract(body,'$.data.request.messages[0].role') AS role,
-      json_type(body,'$.data.request.messages[0].content') AS content_type,
-      json_type(body,'$.data.request.tools') AS tools_type
-      FROM events WHERE json_extract(body,'$.event_type')='model_request' ORDER BY event_seq`);
+    const rows = q(`SELECT v.event_seq AS seq, json_extract(e.body,'$.event_id') AS id,
+      v.agent AS agent, json_extract(e.body,'$.occurred_at') AS t,
+      json_extract(e.body,'$.decision_id') AS decision, json_extract(e.body,'$.data.purpose') AS purpose,
+      json_extract(e.body,'$.data.request.messages[0].content') AS system,
+      json_extract(e.body,'$.data.request.messages[0].role') AS role,
+      json_type(e.body,'$.data.request.messages[0].content') AS content_type,
+      json_type(e.body,'$.data.request.tools') AS tools_type
+      FROM ${EVENTS_OF_TYPE} ORDER BY v.event_seq`, ['model_request']);
     state.items = rows.map(row => {
       const request = {messages:[{role:row.role,content:row.content_type === 'text' ? row.system : null}]};
       if (row.tools_type !== null) request.tools = row.tools_type === 'array' ? [] : null;
@@ -29,14 +29,12 @@ const ContextView = {};
     return state.items;
   }
 
-  /** @brief 通过请求事件的因果身份查找响应，不猜测相邻调用。 */
+  /** @brief 通过请求事件的因果身份查找响应，不猜测相邻调用：取建索引时按各响应的 caused_by 记下的对应关系。 */
   function responseFor(item) {
-    const rows = q(`SELECT events.event_seq AS seq FROM events, json_each(events.body,'$.caused_by') AS cause
-      WHERE json_extract(events.body,'$.event_type')='model_response' AND cause.value=?
-      ORDER BY events.event_seq`, [item.id]);
-    if (!rows.length) return null;
-    if (rows.length !== 1) throw new Error('Multiple model responses reference one request');
-    return {seq:rows[0].seq, event:JSON.parse(fetchBody(rows[0].seq))};
+    const responses = item.id == null ? [] : S.responses.get(item.id) || [];
+    if (!responses.length) return null;
+    if (responses.length !== 1) throw new Error('Multiple model responses reference one request');
+    return {seq:responses[0], event:JSON.parse(fetchBody(responses[0]))};
   }
 
   /** @brief 一次决策的首个请求才可能是续接：前序 assistant 的每个 tool_call 身份在本人更早的模型响应中找来源决策。 */
@@ -44,12 +42,11 @@ const ContextView = {};
     if (index().some(row => row.decision === item.decision && row.seq < item.seq)) return null;
     const sources = {};
     for (const id of ViewerContext.prefixCallIds(event?.data?.request)) {
-      const rows = q(`SELECT json_extract(events.body,'$.decision_id') AS decision,
-        json_extract(events.body,'$.occurred_at') AS t FROM events,
-        json_each(events.body,'$.data.response.choices[0].message.tool_calls') AS call
-        WHERE json_extract(events.body,'$.event_type')='model_response' AND json_extract(call.value,'$.id')=?
-        AND json_extract(events.body,'$.agent_id')=? AND events.event_seq<?
-        ORDER BY events.event_seq DESC LIMIT 1`, [id, item.agent, item.seq]);
+      const rows = q(`SELECT json_extract(e.body,'$.decision_id') AS decision,
+        json_extract(e.body,'$.occurred_at') AS t FROM ${EVENTS_OF_TYPE} AND v.agent=? AND v.event_seq<?
+        AND EXISTS (SELECT 1 FROM json_each(e.body,'$.data.response.choices[0].message.tool_calls') AS call
+          WHERE json_extract(call.value,'$.id')=?)
+        ORDER BY v.event_seq DESC LIMIT 1`, ['model_response', item.agent, item.seq, id]);
       if (rows.length) sources[id] = `${fmtT(rows[0].t)} · ${rows[0].decision}`;
     }
     return {sources};
@@ -227,12 +224,12 @@ const ContextView = {};
     bindLayer(model?.current.blocks.find(block => block.id === state.block));
   }
 
-  /** @brief 应用人物与阶段筛选，只读取当前与对照请求全文。 */
+  /** @brief 应用人物、日期与阶段筛选，只读取当前与对照请求全文。 */
   function render() {
     const root = $('#ctx-body');
     try {
       const agent = agentFilterVal();
-      const items = index().filter(item => (!agent || String(item.agent) === agent) &&
+      const items = index().filter(item => (!agent || String(item.agent) === agent) && inDay(item.t) &&
         (state.stage === 'all' || item.stage === state.stage));
       if (!items.some(item => item.seq === state.seq)) state.seq = items[0]?.seq ?? null;
       const model = state.seq === null ? null : read(state.seq);
@@ -244,11 +241,12 @@ const ContextView = {};
     }
   }
 
-  /** @brief 从时间线进入指定真实模型请求。 */
+  /** @brief 从时间线进入指定真实模型请求；该请求不在日期筛选选中的那一天时，日期回到全部。 */
   function select(seq) {
     const item = index().find(row => row.seq === seq);
     if (!item) throw new Error('Model request is not present in the loaded run');
     $('#agent-filter').value = item.agent === null ? '' : String(item.agent);
+    if (!inDay(item.t)) $('#day-filter').value = '';
     state.seq = seq; state.stage = 'all'; state.view = 'structure'; state.block = null; state.rule = null;
     switchView('context');
   }

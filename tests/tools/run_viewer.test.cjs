@@ -643,13 +643,16 @@ test('environment events name midnight plans and activity lifecycle records', t 
       activity_id: 'act-1', kind: 'wait', name: '等待（1月5日 06:00 起）',
     }})),
     event('environment_event', {kind: 'body_settlement'}),
+    event('environment_event', {kind: 'kind_without_label'}),
   ]);
   t.after(() => view.close());
   assert.equal(view.summary(1), '世界事件 · 零点计划生成 · 2 项目标 · 提醒 01/05 08:00');
   assert.equal(view.summary(2), '世界事件 · 零点计划生成 · 0 项目标');
   lifecycle.forEach(([, label], index) => assert.equal(
     view.summary(index + 3), `世界事件 · ${label} · 等待（1月5日 06:00 起）`));
-  assert.equal(view.summary(lifecycle.length + 3), '世界事件 · body_settlement');
+  assert.equal(view.summary(lifecycle.length + 3), '世界事件 · 身体结算');
+  // 标签表里没有的种类原样显示，不编造中文说法。
+  assert.equal(view.summary(lifecycle.length + 4), '世界事件 · kind_without_label');
 });
 
 test('rejections show the same-moment round instead of consecutive rejections', t => {
@@ -1234,6 +1237,269 @@ test('activity lanes preserve simultaneous work and pauses using settled interva
   assert.ok(markup.includes('同一时间轴上的条块表示实际执行区间'));
 });
 
+const HOUR = 3600;
+/** @brief 距 2026-01-05 当地零点 hours 小时的时刻（epoch 是当天 06:00）。 */
+const at = hours => epoch + (hours - 6) * HOUR;
+
+/** @brief 一段已结算的活动：受理一条、进展一条，已结算区间为当地 [from, to] 小时（从 2026-01-05 零点起算）。 */
+function settled(id, kind, from, to, fields = {}) {
+  const snapshot = {activity_id: id, kind, started_at: at(from), ...fields};
+  return [
+    activity('action_accepted', id, snapshot, {occurred_at: at(from)}),
+    activity('activity_progress', id, snapshot, {occurred_at: at(to), data: {
+      activity: snapshot, interval_start: at(from), interval_end: at(to)}}),
+  ];
+}
+
+/** @brief 取出泳道各行：行首日期、是否周末、轨道高度与其中的条块（位置、所在排、悬停文字与条上短名）。 */
+function lanes(markup) {
+  const lane = new RegExp('<div class="act-lane( weekend)?">\\s*<button type="button" class="act-lane-label" ' +
+    'data-day="(\\d+)"[^>]*>([^<]*)</button>\\s*<div class="act-lane-track" style="height:(\\d+)px">' +
+    '([\\s\\S]*?)</div></div>', 'g');
+  const bar = new RegExp('<span class="act-lane-bar" style="left:([\\d.]+)%;width:([\\d.]+)%;top:(\\d+)px;' +
+    'background:[^"]*" title="([^"]*)"><span class="act-lane-text">([^<]*)</span></span>', 'g');
+  return [...markup.matchAll(lane)].map(row => ({
+    weekend: Boolean(row[1]), day: Number(row[2]), label: row[3], height: Number(row[4]),
+    bars: [...row[5].matchAll(bar)].map(match => ({left: Number(match[1]), width: Number(match[2]),
+      top: Number(match[3]), tip: match[4], text: match[5]})),
+  }));
+}
+
+/** @brief 一场六天的运行：周一工作并同时听播客，周一 23:00 睡到周二 07:00，周六做生活活动。 */
+function sixDayRun() {
+  return [
+    ...settled('act-work', 'work', 9, 12, {target_id: 'task-1', title: '会议纪要'}),
+    ...settled('act-podcast', 'watch', 10, 10.5, {target_id: 'podcast-1', title: '播客·工位闲谈'}),
+    ...settled('act-sleep', 'sleep', 23, 31),
+    ...settled('act-wash', 'lifestyle', 5 * 24 + 8, 5 * 24 + 8.25, {target_id: 'wash-1', title: '晨间洗漱'}),
+  ];
+}
+
+test('activity lanes draw one row per local day on a 24-hour axis and split intervals at local midnight', t => {
+  const view = viewer(sixDayRun());
+  t.after(() => view.close());
+  const markup = view.activities();
+  const rows = lanes(markup);
+  // 周一到周六每天一行（中间没有活动的日子也占一行），而不是每个活动一行；周六的行标作周末。
+  assert.deepEqual(rows.map(row => row.label),
+    ['01/05 周一', '01/06 周二', '01/07 周三', '01/08 周四', '01/09 周五', '01/10 周六']);
+  assert.deepEqual(rows.map(row => row.weekend), [false, false, false, false, false, true]);
+  assert.deepEqual(rows.map(row => row.bars.length), [3, 1, 0, 0, 0, 1]);
+  const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} != ${expected}`);
+  const [work, podcast, evening] = rows[0].bars;
+  // 横轴是当天 00:00–24:00：09:00–12:00 的工作从 37.5% 起、宽 12.5%，与运行总时长无关。
+  close(work.left, 9 / 24 * 100); close(work.width, 3 / 24 * 100);
+  close(podcast.left, 10 / 24 * 100); close(podcast.width, 0.5 / 24 * 100);
+  // 同时进行的两个活动上下并排，轨道随之加高；只有一排的日子保持一排的高度。
+  assert.deepEqual([work.top, podcast.top], [4, 21]);
+  assert.deepEqual(rows.map(row => row.height), [41, 24, 24, 24, 24, 24]);
+  // 跨零点的睡眠在两天各占一段，悬停文字都给出整段起止与时长。
+  close(evening.left, 23 / 24 * 100); close(evening.width, 1 / 24 * 100);
+  const [morning] = rows[1].bars;
+  close(morning.left, 0); close(morning.width, 7 / 24 * 100);
+  for (const part of [evening, morning]) assert.equal(part.tip, '01/05 23:00–01/06 07:00（8小时） · 睡眠');
+  // 条上短名：有对象写对象，没有对象写活动类型；类型一律中文。
+  assert.deepEqual([work.text, podcast.text, evening.text, rows[5].bars[0].text],
+    ['会议纪要', '播客·工位闲谈', '睡眠', '晨间洗漱']);
+  assert.equal(rows[5].bars[0].tip, '01/10 08:00–01/10 08:15（15分） · 生活活动 晨间洗漱');
+  assert.ok(markup.includes('00:00</span>') && markup.includes('24:00</span>'));
+  assert.doesNotMatch(markup, />lifestyle<|lifestyle 晨间洗漱/);
+});
+
+test('the day filter narrows lanes, the activity table and sessions to one local day', t => {
+  const session = (id, name, from, to) => ({session_id: id, agent_id: 1, kind: 'stay', status: 'ended',
+    name, started_at: at(from), ended_at: at(to), activity_ids: []});
+  const view = viewer(sixDayRun(), {sessions: {
+    monday: session('monday', '公司（1月5日 09:00 起）', 9, 18),
+    night: session('night', '家（1月5日 18:30 起）', 18.5, 32),
+    saturday: {...session('saturday', '家（1月10日 00:00 起）', 120, 121), status: 'active', ended_at: null},
+  }});
+  t.after(() => view.close());
+  const sessions = () => tableRows(view.activities(), 'session-table').map(cells => cells[2]);
+  assert.equal(targets(view.activities()).length, 4);
+  assert.equal(sessions().length, 3);
+  const tuesday = view.run(`dayIndex(${at(30)})`);
+  view.get('#day-filter').value = String(tuesday);
+  const rows = lanes(view.activities());
+  assert.deepEqual(rows.map(row => [row.day, row.label, row.bars.length]), [[tuesday, '01/06 周二', 1]]);
+  // 表格与会话只留与这一天有交集的：跨零点的睡眠与停留算在两天里。
+  assert.deepEqual(targets(view.activities()), ['—']);
+  assert.deepEqual(sessions(), ['家（1月5日 18:30 起）']);
+  assert.ok(view.activities().includes('01/06 周二 共 1 段活动'));
+  // 没有活动的日子仍画出那一天的空行，表格写明没有活动。
+  view.get('#day-filter').value = String(tuesday + 1);
+  assert.deepEqual(lanes(view.activities()).map(row => [row.label, row.bars.length]), [['01/07 周三', 0]]);
+  assert.ok(view.activities().includes('所选日期没有活动'));
+  // 进行中的会话（没有结束时刻）按运行末尾计。
+  view.get('#day-filter').value = String(tuesday + 4);
+  assert.deepEqual(sessions(), ['家（1月10日 00:00 起）']);
+  // 换一个文件时日期回到全部。
+  view.reload(sixDayRun());
+  assert.equal(view.get('#day-filter').value, '');
+  assert.equal(lanes(view.activities()).length, 6);
+});
+
+/** @brief 重排时间线并取出列表里的行：分隔行给出 {day} 文字，事件行给出 {seq}。 */
+function timelineRows(view) {
+  const list = view.get('#tl-list');
+  list.children.length = 0;
+  view.run('timelineBounds(); refreshTimeline()');
+  return list.children.flatMap(fragment => fragment.children).map(row =>
+    row.className === 'tl-day' ? {day: row.innerHTML} : {seq: Number(row.dataset.seq)});
+}
+
+test('the timeline groups rows under local day headers and follows the day filter', t => {
+  const view = viewer([
+    event('checkpoint_created', {checkpoint_id: 'c-1'}, {occurred_at: at(8), agent_id: null}),
+    event('checkpoint_created', {checkpoint_id: 'c-2'}, {occurred_at: at(23.99), agent_id: null}),
+    event('checkpoint_created', {checkpoint_id: 'c-3'}, {occurred_at: at(24), agent_id: null}),
+    event('checkpoint_created', {checkpoint_id: 'c-4'}, {occurred_at: at(74), agent_id: null}),
+  ]);
+  t.after(() => view.close());
+  view.run('TL.types = new Set(Object.keys(S.typeCounts))');
+  assert.deepEqual(timelineRows(view), [
+    {day: '01/05 周一<span class="n">2 条</span>'}, {seq: 1}, {seq: 2},
+    {day: '01/06 周二<span class="n">1 条</span>'}, {seq: 3},
+    {day: '01/08 周四<span class="n">1 条</span>'}, {seq: 4},
+  ]);
+  // 行内只写时分秒，完整时刻留在悬停文字里；摘要正文完整显示，不再带悬停副本。
+  const row = view.run('tlRow(S.events[2]).innerHTML');
+  assert.match(row, /<span class="tl-time" title="2026\/01\/06 00:00:00">00:00:00<\/span>/);
+  assert.match(row, /<span class="tl-sum">存档<\/span>/);
+  // 选中周二：只剩当天的事件，零点整属于新的一天；滑块两端收到这一天之内，步长随之变细。
+  view.get('#day-filter').value = String(view.run(`dayIndex(${at(24)})`));
+  assert.deepEqual(timelineRows(view), [{day: '01/06 周二<span class="n">1 条</span>'}, {seq: 3}]);
+  assert.deepEqual(JSON.parse(JSON.stringify(view.run('[TL.lo, TL.hi, TL.tmin, TL.tmax, TL.step]'))),
+    [at(24), at(48) - 1, at(24), at(48) - 1, 60]);
+  // 回到全部：两端回到整个运行，多日运行用十分钟步长。
+  view.get('#day-filter').value = '';
+  assert.equal(timelineRows(view).filter(entry => 'seq' in entry).length, 4);
+  assert.deepEqual(JSON.parse(JSON.stringify(view.run('[TL.lo, TL.hi, TL.step]'))), [at(8), at(74), 600]);
+});
+
+test('memory, thinking records and context requests follow the day filter', t => {
+  const reply = text => event('model_response', {response: {choices: [{message: {
+    provider_specific_fields: {reasoning_content: text}}}]}});
+  const memory = text => event('memory_updated', {operation: 'append_episodes', created_episode_ids: ['m'],
+    merged_episode_ids: [], episodes: [{id: 'm', type: 'routine', text}]});
+  const monday = {occurred_at: at(9)}, tuesday = {occurred_at: at(33)};
+  const view = viewer([
+    {...memory('周一的记忆'), ...monday}, {...memory('周二的记忆'), ...tuesday},
+    {...reply('周一的思考'), ...monday}, {...reply('周二的思考'), ...tuesday},
+    {...contextEvent('monday-request', contextRequest()), ...monday},
+    {...contextEvent('tuesday-request', contextRequest()), ...tuesday},
+  ]);
+  t.after(() => view.close());
+  const thinking = () => Array.from(view.run("RS.items = rsQuery(''); refreshRs(); RS.filtered.map(item => item.seq)"));
+  const requests = () => [...view.context().matchAll(/<option value="(\d+)"/g)].map(match => Number(match[1]));
+  // 未筛选：记忆按写入日分组（新的在前），条目只写时分秒。
+  const all = view.memory();
+  assert.ok(all.includes('人物记忆正文（2 条）'));
+  assert.ok(all.indexOf('<div class="tl-day">01/06 周二</div>') < all.indexOf('周二的记忆'));
+  assert.ok(all.indexOf('周二的记忆') < all.indexOf('<div class="tl-day">01/05 周一</div>'));
+  assert.match(all, /<div class="meta" title="2026\/01\/05 09:00:00">09:00:00 · 陈曦 ·/);
+  assert.deepEqual(thinking(), [3, 4]);
+  assert.deepEqual(requests(), [5, 6]);
+  view.get('#day-filter').value = String(view.run(`dayIndex(${at(33)})`));
+  const filtered = view.memory();
+  assert.ok(filtered.includes('人物记忆正文（1 条）') && filtered.includes('周二的记忆'));
+  assert.ok(!filtered.includes('周一的记忆') && !filtered.includes('01/05 周一'));
+  assert.deepEqual(thinking(), [4]);
+  assert.deepEqual(requests(), [6]);
+  // 从时间线进入不在所选日期里的请求：日期回到全部，请求本身照常打开。
+  view.run('ContextView.select(5)');
+  assert.equal(view.get('#day-filter').value, '');
+  assert.deepEqual(requests(), [5, 6]);
+  // 请求就在所选日期里时不动日期。
+  view.get('#day-filter').value = String(view.run(`dayIndex(${at(33)})`));
+  view.run('ContextView.select(6)');
+  assert.notEqual(view.get('#day-filter').value, '');
+});
+
+test('curves and money flows of a filtered day keep one neighbour point on each side', t => {
+  const observed = (hours, balance, energy) => event('observation', {balance_fen: balance, body: {values: {
+    energy_kcal: energy, sleep_deficit_hours: 0, entertainment_need: 0}}}, {occurred_at: at(hours)});
+  const view = viewer([observed(8, 1000, 1500), observed(22, 900, 1300), observed(31, 900, 1700),
+    observed(44, 650, 1400), observed(55, 650, 1600), observed(60, 500, 1500)]);
+  t.after(() => view.close());
+  const points = key => JSON.parse(JSON.stringify(view.run(`chartSeries(S.obs, '${key}')[0].points`)));
+  assert.equal(points('en').length, 6);
+  assert.equal(view.run('chartDomain()'), undefined);
+  assert.ok(view.body().includes('共 6 个观测点'));
+  assert.equal((view.economy().match(/余额变动/g) || []).length, 3);
+  view.get('#day-filter').value = String(view.run(`dayIndex(${at(24)})`));
+  // 周二当天的两个观测，加上周一最后一个与周三第一个，线才能连到当天两端；横轴固定为这一天。
+  assert.deepEqual(points('en'), [[at(22), 1300], [at(31), 1700], [at(44), 1400], [at(55), 1600]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(view.run('chartDomain()'))), [at(24), at(48)]);
+  assert.ok(view.body().includes('共 2 个观测点'));
+  // 流水只列发生在当天的变动。
+  const economy = view.economy();
+  assert.equal((economy.match(/余额变动/g) || []).length, 1);
+  assert.ok(economy.includes('2026/01/06 20:00:00') && economy.includes('-250'));
+  // 所选日期之后才有观测时只留最后一个点，不把整条曲线画进来。
+  view.get('#day-filter').value = String(view.run(`dayIndex(${at(24 * 9)})`));
+  assert.deepEqual(points('en'), [[at(60), 1500]]);
+});
+
+test('chart ticks stay apart at every run length and weekly labels fall on Mondays', t => {
+  const view = viewer([event('checkpoint_created', {checkpoint_id: 'c'}, {occurred_at: at(0)})]);
+  t.after(() => view.close());
+  const ticks = (days, width) => JSON.parse(JSON.stringify(view.run(
+    `timeTicks(${at(0)}, ${at(0) + days * 86400}, ${width})`)));
+  /** @brief 相邻带标签刻度的最小像素间距。 */
+  const gap = (rows, days, width) => {
+    const labelled = rows.filter(row => row.label).map(row => (row.t - at(0)) / (days * 86400) * width);
+    return Math.min(...labelled.slice(1).map((x, index) => x - labelled[index]));
+  };
+  // 一天：整点刻度，零点写日期。
+  const day = ticks(1, 900);
+  assert.deepEqual(day.map(row => row.label),
+    ['01/05', '02:00', '04:00', '06:00', '08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00', '22:00', '01/06']);
+  assert.deepEqual(ticks(1, 300).map(row => row.label), ['01/05', '06:00', '12:00', '18:00', '01/06']);
+  // 两周：每天一条线、每天一个日期。
+  const fortnight = ticks(14, 900);
+  assert.equal(fortnight.length, 15);
+  assert.ok(fortnight.every(row => row.label) && fortnight[0].label === '01/05' && fortnight[14].label === '01/19');
+  // 十二周：每天仍有分界线，日期只写在周一。
+  const formal = ticks(84, 900);
+  assert.equal(formal.length, 85);
+  const mondays = formal.filter(row => row.label);
+  assert.equal(mondays.length, 13);
+  assert.ok(mondays.every(row => view.run(`S.fmt.wd(new Date(${row.t} * 1000))`) === '周一'));
+  // 更窄更长时连没有标签的日分界线也不画。
+  const year = ticks(365, 300);
+  assert.ok(year.length < 10 && year.every(row => row.label));
+  for (const [rows, days, width] of [[day, 1, 900], [fortnight, 14, 900], [formal, 84, 900], [year, 365, 300],
+    [ticks(14, 300), 14, 300], [ticks(84, 400), 84, 400], [ticks(2, 500), 2, 500], [ticks(3, 500), 3, 500]]) {
+    assert.ok(gap(rows, days, width) >= 46, `${days} days at ${width}px: ${gap(rows, days, width)}`);
+  }
+});
+
+test('accepted requests without an activity and the remaining event kinds read in Chinese', t => {
+  const view = viewer([
+    event('action_accepted', {status: 'completed', message: 'Activities concluded', data: {
+      task: ['睡觉（1月5日 00:00 起）', '听播客<节目>（1月5日 07:30 起）'], activity_ids: ['act-1', 'act-2']}}),
+    event('action_accepted', {status: 'completed', message: 'Purchase accepted', data: {total_price_fen: 1200}}),
+    activity('action_accepted', 'act-call', {kind: 'call', title: '和妈妈通话'}),
+    activity('action_accepted', 'act-chat', {kind: 'chat'}),
+    event('environment_event', {kind: 'message_arrival'}),
+    event('environment_event', {kind: 'model_npc_reply_pending'}),
+    event('environment_event', {kind: 'model_npc_reply'}),
+    event('environment_event', {kind: 'branch_created'}),
+    event('memory_updated', {operation: 'refresh_summary', created_episode_ids: [], merged_episode_ids: []}),
+  ]);
+  t.after(() => view.close());
+  assert.equal(view.summary(1), '已受理 · 睡觉（1月5日 00:00 起）、听播客<节目>（1月5日 07:30 起）');
+  assert.equal(view.summary(2), '已受理');
+  assert.ok(view.run('tlRow(S.events[0]).innerHTML').includes('听播客&lt;节目&gt;'));
+  assert.equal(view.summary(3), '已受理 · 通话 · 计划 10分');
+  assert.equal(view.summary(4), '已受理 · 交谈 · 计划 10分');
+  assert.deepEqual([5, 6, 7, 8].map(sequence => view.summary(sequence)), ['世界事件 · 消息到达',
+    '世界事件 · 联系人回复待生成', '世界事件 · 联系人回复', '世界事件 · 分支创建']);
+  assert.equal(view.summary(9), '记忆更新 · 刷新主观总结 · 0 段记忆');
+  for (const entry of view.state.events) assert.doesNotMatch(entry.sum, /undefined|null|·  ·/);
+});
+
 /** @brief 拖入或选择的顶层文件：只提供页面读取的名称与文本；content 不是字符串时按 JSON 写出。 */
 function droppedFile(name, content) {
   return {name, text: async () => typeof content === 'string' ? content : JSON.stringify(content)};
@@ -1386,4 +1652,193 @@ test('reloading another database drops the previous run manifest and its warning
   const card = warningCard(view.overview());
   assert.ok(card.includes('未读取本库所属运行的运行清单') && !card.includes('上一份库的警告'));
   assert.equal(view.state.runManifest, null);
+});
+
+/** @brief 给查看器的数据库装上记录器：此后经它准备的每条语句的 SQL 依次记入返回的数组。 */
+function recordStatements(view) {
+  const statements = [], prepare = view.state.db.prepare;
+  view.state.db.prepare = sql => { statements.push(sql.replace(/\s+/g, ' ')); return prepare(sql); };
+  return statements;
+}
+
+test('the index reads each event type once through the type table and never filters events by parsing every body', t => {
+  const view = viewer([
+    event('observation', {balance_fen: 100, locations: [{location_id: 'poi-1', name: '家'}]}),
+    event('decision_started', {round_order: 0, wake_reasons: ['run_start']}),
+    event('custom_kind', {anything: 1}, {occurred_at: epoch + 500}),
+    {data: {note: 'an event without a type'}, occurred_at: epoch + 600},
+    event('model_response', {response: {usage: {prompt_tokens: 7}}}),
+  ]);
+  t.after(() => view.close());
+  const before = JSON.stringify(view.state.events);
+  // 同一个连接上重建索引：临时表先删后建，结果与第一次相同。
+  const statements = recordStatements(view);
+  view.run('S.events=[]; S.summaries=new Map(); S.typeCounts={}; S.obs=[]; S.responses=new Map(); buildIndex()');
+  assert.equal(JSON.stringify(view.state.events), before);
+  // 没有专属字段的类型与没有类型的事件照样进入事件列表，时刻取自它自己的正文。
+  assert.deepEqual(JSON.parse(JSON.stringify(view.state.events.map(row => [row.seq, row.type, row.t]))), [
+    [1, 'observation', epoch], [2, 'decision_started', epoch + 60], [3, 'custom_kind', epoch + 500],
+    [4, null, epoch + 600], [5, 'model_response', epoch + 240]]);
+  assert.equal(view.summary(3), '');
+  assert.equal(view.state.typeCounts.custom_kind, 1);
+  // 只有建类型表的那一条语句对全部事件取类型；读事件正文的语句都从类型表按类型取行，每类一条。
+  const typed = statements.filter(sql => sql.includes('events e'));
+  assert.ok(typed.every(sql => sql.includes('FROM viewer_event v CROSS JOIN events e ON e.event_seq=v.event_seq WHERE v.type IS ?')));
+  assert.equal(typed.length, 13 + 2, 'thirteen projected types, one unlisted type and the typeless events');
+  assert.deepEqual(statements.filter(sql => sql.includes("json_extract(body,'$.event_type')")).map(sql => sql.slice(0, 34)),
+    ['CREATE TEMP TABLE viewer_event AS ']);
+  assert.ok(statements.every(sql => !sql.includes('json_each')), 'names come with the typed rows, not from extra scans');
+  assert.equal(statements.filter(sql => /FROM events\b/.test(sql)).length, 2, 'the type table and the run identity');
+  // 总览的模型用量取自索引，不再查库；记忆、思考记录与上下文索引各只读自己那一类事件。
+  statements.length = 0;
+  view.overview();
+  assert.deepEqual(statements, []);
+  view.memory();
+  view.run("rsQuery('')");
+  view.run('ContextView.index()');
+  assert.equal(statements.length, 3);
+  assert.ok(statements.every(sql => sql.includes('WHERE v.type IS ?') && !sql.includes("'$.event_type'")));
+});
+
+test('model usage on the overview is summed per person from the index with typeless responses first', t => {
+  const usage = (fields, extra = {}) => event('model_response', {response: {usage: fields}}, extra);
+  const view = viewer([
+    usage({prompt_tokens: 100, completion_tokens: 10, total_tokens: 110}, {agent_id: 2}),
+    usage({prompt_tokens: 5, completion_tokens: 1, total_tokens: 6}),
+    usage({prompt_tokens: 7, total_tokens: 7}),
+    usage({}, {agent_id: null}),
+    event('model_response', {error: 'no usage at all'}, {agent_id: 3}),
+  ]);
+  t.after(() => view.close());
+  assert.deepEqual(JSON.parse(view.run('JSON.stringify(modelUsage())')), [
+    {agent: null, n: 1, p: null, c: null, t: null}, {agent: 1, n: 2, p: 12, c: 1, t: 13},
+    {agent: 2, n: 1, p: 100, c: 10, t: 110}, {agent: 3, n: 1, p: null, c: null, t: null}]);
+  const cells = markup => [...markup.matchAll(/<tr><td>([^<]*)<\/td>((?:<td class="num">[^<]*<\/td>)+)<\/tr>/g)]
+    .map(row => [row[1], ...[...row[2].matchAll(/>([^<]*)<\/td>/g)].map(cell => cell[1])]);
+  assert.deepEqual(cells(view.overview()), [['系统', '1', '—', '—', '—'], ['陈曦', '2', '12', '1', '13'],
+    ['李明', '1', '100', '10', '110'], ['agent 3', '1', '—', '—', '—']]);
+  assert.ok(view.overview().includes('<span class="k">总 tokens</span><span class="v">123</span>'));
+  view.get('#agent-filter').value = '2';
+  assert.deepEqual(cells(view.overview()), [['李明', '1', '100', '10', '110']]);
+});
+
+test('names read with the typed rows keep the override, fill-in and earliest-name rules across observations', t => {
+  const observed = fields => event('observation', fields);
+  const view = viewer([
+    // 同一次观察里一个商品有两种写法：取码点序最小的；数组里的非对象项与空数组不影响其余条目。
+    observed({products: [{product_id: 'food-a', name: '第一种叫法'}, 'stray', null],
+      locations: {home: {location_id: 'poi-home', name: '家'}},
+      messages: [{message_id: 'mail-1', subject: '周报'}, {message_id: 'mail-2', subject: ' '}],
+      errand_item_bindings: [{name: '乙名', product_id: 'food-x'}, {name: '甲名', product_id: 'food-x'},
+        {name: '😀表情名', product_id: 'food-y'}, {name: '￮全角名', product_id: 'food-y'}]}),
+    // 名称改了：覆盖来源取后来的写法；补缺来源仍取最早的。
+    observed({products: [{product_id: 'food-a', name: '第二种叫法'}],
+      errand_item_bindings: [{name: '啊更小的名', product_id: 'food-x'}, {name: '后来才有', product_id: 'food-z'}]}),
+    // 与第一次观察逐字相同的数组再次出现：覆盖来源照样改回去。
+    observed({products: [{product_id: 'food-a', name: '第一种叫法'}, 'stray', null]}),
+    event('action_accepted', {status: 'completed', data: {tool: 'browse_activities', items: [
+      {item_id: null, product_id: 'food-b', title: null, name: '按名称'}, {task_id: 'task-9', title: '按标题', name: '不用'},
+      {activity_id: '', title: '空身份不记'}]}}),
+  ]);
+  t.after(() => view.close());
+  const entries = map => JSON.parse(JSON.stringify([...map]));
+  assert.deepEqual(entries(view.state.nameIdx.locations), [['poi-home', '家']]);
+  assert.deepEqual(entries(view.state.nameIdx.targets), [['food-a', '第一种叫法'], ['mail-1', '邮件「周报」'],
+    ['food-b', '按名称'], ['task-9', '按标题'], ['food-x', '乙名'], ['food-y', '￮全角名'], ['food-z', '后来才有']]);
+  assert.deepEqual(view.errors, []);
+});
+
+test('one request answered twice is reported whether by two responses or by one that lists it twice', () => {
+  const answered = (...causes) => event('model_response', {response: {choices: [{message: {content: 'x'}}]}},
+    {caused_by: causes});
+  for (const responses of [[answered('asked'), answered('asked')], [answered('asked', 'asked')]]) {
+    const app = viewer([contextEvent('asked', contextRequest()), ...responses, contextEvent('quiet', contextRequest()),
+      answered(null, 7, 'someone-else')]);
+    try {
+      assert.throws(() => app.run('ContextView.read(1)'), /Multiple model responses reference one request/);
+      app.run('ContextView.select(1)');
+      assert.ok(app.get('#ctx-body').innerHTML.includes('Context viewer failed: Multiple model responses reference one request'));
+      assert.equal(app.run(`ContextView.read(${responses.length + 2}).response`), null);
+      // 换一个文件后，上一份库的对应关系不留下。
+      app.reload([contextEvent('asked', contextRequest())]);
+      assert.equal(app.run('ContextView.read(1).response'), null);
+      assert.equal(app.state.responses.size, 0);
+    } finally { app.close(); }
+  }
+});
+
+/** @brief 只提供页面读取的那几样的假文件：名称、大小与 slice().arrayBuffer()；broken 为真时读到的块少一个字节。 */
+function chunkedFile(bytes, broken = false) {
+  return {name: 'footprints.sqlite', size: bytes.length, slice: (start, end) => ({
+    arrayBuffer: async () => Uint8Array.from(bytes.slice(start, broken ? end - 1 : end)).buffer})};
+}
+
+test('a database file is read in fixed chunks and reads are stitched across chunk borders up to the end of file', async t => {
+  const view = viewer([event('observation', {})]);
+  t.after(() => view.close());
+  const engine = view.run('ViewerEngine');
+  const bytes = Array.from({length: 10}, (_, index) => index + 1), progress = [];
+  const store = await engine.readChunks(chunkedFile(bytes), (done, total) => progress.push([done, total]), 4);
+  assert.deepEqual(Array.from(store.chunks, chunk => Array.from(chunk)), [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10]]);
+  assert.deepEqual([store.size, store.chunkBytes, progress], [10, 4, [[4, 10], [8, 10], [10, 10]]]);
+  /** @brief 从 offset 读 count 个字节：返回 [拷贝的字节数, 缓冲区内容]，没读到的位置保持 0。 */
+  const read = (offset, count) => {
+    const dest = new Uint8Array(count);
+    return [engine.copyFromChunks(store, dest, offset), Array.from(dest)];
+  };
+  assert.deepEqual(read(0, 4), [4, [1, 2, 3, 4]]);
+  assert.deepEqual(read(2, 7), [7, [3, 4, 5, 6, 7, 8, 9]]);
+  assert.deepEqual(read(7, 3), [3, [8, 9, 10]]);
+  assert.deepEqual(read(8, 5), [2, [9, 10, 0, 0, 0]], 'a read past the end stops at the end of the file');
+  assert.deepEqual(read(10, 2), [0, [0, 0]]);
+  assert.equal((await engine.readChunks(chunkedFile([]), () => {}, 4)).chunks.length, 0);
+  await assert.rejects(engine.readChunks(chunkedFile(bytes, true), () => {}, 4), /File changed while it was being read/);
+});
+
+test('the engine database is used only through the statement interface and frees its file when closed', t => {
+  const view = viewer([event('observation', {})]);
+  t.after(() => view.close());
+  const calls = [];
+  const statement = {bind: values => calls.push(['bind', values]), step: () => { calls.push(['step']); return calls.length < 6; },
+    get: target => { calls.push(['get', target]); return {seq: 1}; }, finalize: () => calls.push(['finalize'])};
+  const wrapped = view.run('ViewerEngine').wrap(
+    {prepare: sql => { calls.push(['prepare', sql]); return statement; }, close: () => calls.push(['close'])},
+    () => calls.push(['release']));
+  const previous = view.state.db;
+  view.state.db = wrapped;
+  try {
+    // 没有绑定值时不调引擎的 bind（它不接受空数组）；每行取成以列名为键的对象；用完即释放语句。
+    assert.deepEqual(JSON.parse(JSON.stringify(view.run("q('SELECT 1')"))), [{seq: 1}, {seq: 1}]);
+    assert.deepEqual(calls.map(call => call[0]), ['prepare', 'step', 'get', 'step', 'get', 'step', 'finalize']);
+    calls.length = 0;
+    view.run("q('SELECT ?', [null])");
+    assert.deepEqual(JSON.parse(JSON.stringify(calls.slice(0, 2))), [['prepare', 'SELECT ?'], ['bind', [null]]]);
+    calls.length = 0;
+    wrapped.close();
+    assert.deepEqual(calls, [['close'], ['release']]);
+  } finally { view.state.db = previous; }
+});
+
+test('loading a dropped database reports progress and explains a file that changed while it was read', async t => {
+  const view = viewer([event('observation', {})]);
+  t.after(() => view.close());
+  const engine = view.run('ViewerEngine');
+  const opened = [];
+  engine.load = async () => ({name: 'stub engine'});
+  engine.open = (sqlite3, store) => { opened.push([sqlite3.name, store.size]); return database([event('run_ended', {})]); };
+  view.get('#btn-reload').onclick();
+  await view.run('handleFiles')([chunkedFile([1, 2, 3, 4, 5, 6, 7, 8])], null);
+  assert.deepEqual(opened, [['stub engine', 8]]);
+  assert.equal(view.state.events.length, 1);
+  const log = view.get('#drop-log').textContent;
+  assert.ok(log.includes('· 读取 footprints.sqlite（0.0 / 0.0 MB）…\n· 打开数据库并建立索引'), log);
+  assert.equal(log.match(/读取 footprints\.sqlite/g).length, 1, 'progress rewrites one line instead of adding lines');
+  assert.equal(view.get('#drop-err').style.display, 'none');
+  view.get('#btn-reload').onclick();
+  await view.run('handleFiles')([chunkedFile([1, 2, 3, 4], true)], null);
+  assert.equal(opened.length, 1, 'a truncated read never reaches the engine');
+  assert.equal(view.get('#drop-err').style.display, 'block');
+  assert.match(view.get('#drop-err').textContent, /^加载失败：读取 footprints\.sqlite 失败（File changed while it was being read）。.*请重试，或先复制一份再拖入。$/);
+  assert.deepEqual(view.errors, ['Reading the database file failed: Error: File changed while it was being read']);
+  view.state.db = database([event('observation', {})]);
 });
