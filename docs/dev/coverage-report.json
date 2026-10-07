@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-10-07T22:01:44+00:00",
+  "generated_at": "2026-10-07T23:43:34+00:00",
   "command": "python scripts/run_tests.py --tier full --workers 6",
   "evidence_manifest": {
-    "snapshot_id": "859031ff-bf91-4ae1-bc23-33f4c10b01c5",
-    "manifest_hash": "91d2014b72df278c2f66a4e5322d94f24c35199a188cbb49f87eb53db7d33179",
-    "source_identity": "5da63f1f3439ae2a643aa1a5b18a019d3efd5bee",
-    "source_sha256": "dd629cf8232221810d46793818a937f5bd6217213268dd591fd0ee842ca16122",
+    "snapshot_id": "ec68b58b-d7a9-4df4-a948-b7d122ca15df",
+    "manifest_hash": "769cc6c2c76c0e2b65785b802481185c3c216ad3bd3297fc92e0f9d4b79d9b39",
+    "source_identity": "72cc7f24f109fca6c9b40f574797dfc3a35f3e5a",
+    "source_sha256": "72aa6af337202d45bab501eab3a62b31fc9657af42985b47076aa5842ab59117",
     "collection_sha256": "79a329b8ed0dbd6a88d3d20c4e28765c7b04ed42f78da6934b7aacf561432e97"
   },
   "thresholds": {
