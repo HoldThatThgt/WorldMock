@@ -8,15 +8,14 @@
 > **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)阶段 4 同步（查询筛选与返回精简，[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D2 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）；该规格其余阶段不改本文。
 > **同时做两件事修订**：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「可供性与活动声明」（阶段 1）；「可供性与活动声明」的占用名（阶段 2）。
 > **范围**：固定类型与常数、纯条件和投入产出求值、资源分录校验
+> **动作与内容简化修订**：现行设计按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)使用统一动作、无分类内容、真实收货与 app 足迹合同；实施与验收状态见[实现状态](../dev/implementation-status.md#implementation-status-动作与内容简化开发状态)。
 
-按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「统一动作执行、内容选择、真实进度与系统补订」（阶段 3）。
 
 > 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「维护交换规则、注册表登记什么、新增状态资源、对象或语料、修改与删除、查询适用规则、交换规则的加载与准入、系统固定类型与常数、交换对象与资源变化声明、可供性与活动声明、校验交换条件、门店供给的时态与履约判断、资源变化的计算、不同交换的计算依据、校验资源分录、食品交换的规则调用、实现职责与证据入口、当前差距、分阶段验证与完成条件、纯规则与执行职责、项目框架映射、与其他引擎的职责边界」（阶段 1）；「返回规则结果」（阶段 3）。
 
 本文说明交换引擎提供哪些规则能力，以及这些能力的输入和输出。
 接口定义见[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)，具体计算规则见[生活运行时规格](../dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)。
 
-> 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界、收货结算」（阶段 1、2）。
 
 具体环境及制作工具按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)归 WorldMock-Dataset，
 正式重制环境路径由 WorldMock-Dataset 发布决定；WorldMock 提供引擎及包内固定通用规则。
@@ -323,4 +322,4 @@ flowchart LR
 | `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |
 | `2026-10-07-acs-receipt` | 2026-10-07 | 付款与收货分别留证，收货由唯一函数恰好结算一次，效果与证据归收货人；个人事务七键，用餐目标按本人 meal 收货推进。 |
 | `2026-10-08-acs-action` | 2026-10-08 | 统一动作执行、内容历史、推送、社交及用户补订的现行合同 |
-| `2026-10-08-acs-close` | 2026-10-08 | 同步六类商品、固定娱乐速率和完整运输时长；到站与实际领取收货分开，字段与分录引用唯一合同。 |
+| `2026-10-07-acs-close` | 2026-10-07 | 同步六类商品、固定娱乐速率和完整运输时长；到站与实际领取收货分开，字段与分录引用唯一合同。 |

@@ -243,7 +243,7 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 资源与规则引擎简化规格允许同场景同种子的两次真实新格式完整日产出一致后冻结第三份基线；两份历史基线 JSON 保持字节。该规格移动 `tool_schema_sha256`、`prompt_sha256` 与 `code_sha256`，重设计前的检查点由世界结构 11 和占用核对拒绝，不能用旧证明宣称新运行通过。
 
 
-现行场景结构 8、世界结构 11、运行清单 4。动作与内容简化修改 prompt_sha256、tool_schema_sha256 与 code_sha256，此前检查点由结构号拒绝；历史基线字节保持。
+现行场景结构 8、世界结构 11、运行清单 4、导出清单 4、质量报告 6。动作与内容简化修改 prompt_sha256、tool_schema_sha256 与 code_sha256，此前检查点由结构号拒绝；同场景同种子独立双跑一致后已冻结第四份 `dayrun-action-content-baseline.json`，历史三份基线字节保持。
 
 <a name="spec-idle-fillers-现行文档"></a>
 ## 现行文档原位改写

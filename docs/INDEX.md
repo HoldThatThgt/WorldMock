@@ -2,11 +2,12 @@
 # WorldMock 文档入口
 
 > 按[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「特性规格与提案、按任务读、模块测试归属、场景手册入口」（阶段 8）；此前阶段的修订并入同一现行合同。
+> 按[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)收口现行入口；阶段 1–6 已实现，阶段 7 数据仓交接未执行。
 
 
 
 
-> 状态：文档集整体处于实现中——此前确定性基线已有验收，新特性以各自实施台账为准，三项真实验收（正式十二周运行、三次隔离盲评、LabelKit 完整自然日交付）未完成。
+> 状态：动作与内容简化阶段 1–6 已实现并完成独立审查，阶段 7 数据仓交接未执行；三项项目级真实验收仍未完成。
 > 日期：2026-10-07
 > 范围：文档地图、按任务阅读路径、权威层级与文件归属。本文件不定义任何接口与行为，只回答「该读哪一份」。
 
@@ -21,14 +22,13 @@
 ## 环境数据归属
 
 [环境数据归属规格](dev/SPEC-environment-data-ownership.md)定义双仓职责；实施与最终验收仍须核对对应收据。
-WorldMock-Dataset 在 `environment/shanghai-simplified/` 发布语料、目录和结构 7 场景，并维护数据制作工具。
-WorldMock 安装包提供引擎和固定通用规则，通过显式场景路径加载环境；引擎仓只保留人工最小测试环境。
-正式环境已发布；当前 macOS 与 Linux 正式回归均在 standard 参考层失败，正式 full 主体尚未执行，
-未产生新的覆盖率测量。平台与完整日证据按[实施状态](dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态)分别核对。
+现行引擎只接受目录格式 2 与场景结构 8；环境根只含 `catalog/` 与 `scenarios/`，不读取语料目录。
+WorldMock 安装包提供引擎和固定通用规则，引擎仓只保留人工最小测试环境。
+适配新格式的正式环境、平台回归、完整日与覆盖率属于阶段 7，尚未取得发布和执行回执；既有正式环境只保留历史身份。
 
 ```mermaid
 flowchart LR
-    D[WorldMock-Dataset：来源与制作工具] --> E[冻结环境：corpora、catalog、scenarios]
+    D[WorldMock-Dataset：来源与制作工具] --> E[冻结环境：catalog、scenarios]
     E -->|显式场景路径| W[WorldMock：加载与模拟]
     P[WorldMock 安装包：固定通用规则] --> W
     W --> R[运行记录、检查点与导出]
@@ -83,8 +83,8 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | --- | --- |
 | [手册入口](manual/README.md#readme-用户配置手册) | 文件分类、一天自定义场景、加载检查与运行 |
 | [人物画像](manual/personas.md#personas-人物画像) | 编写背景故事、作息、关系与人物初值，预览和校验卡片 |
-| [生活场景](manual/scenarios.md#scenarios-生活场景) | 自定义日期、人数、账户、菜单、工作主题分配、消息及预排事件 |
-| [世界素材](manual/resources.md#resources-定义地点门店供给与世界素材) | 准备地点、图、店铺、食品、app 与内容及生活活动、联系人邮件语料 |
+| [生活场景](manual/scenarios.md#scenarios-生活场景) | 自定义日期、人数、账户、菜单、工作内容分配、消息及预排事件 |
+| [世界素材](manual/resources.md#resources-定义地点门店供给与世界素材) | 准备 app、地点、商品、动作、内容及其绑定与图 |
 | [规则配置](manual/rules.md#rules-调整世界规则与人物动机参数) | 调整人物身体初值和画像映射，理解引擎固定类型、身体及交换规则 |
 | [运行配置](manual/runtime.md#runtime-运行配置) | 模型凭据、新建运行、恢复和反事实干预文件 |
 | [真实性评估](manual/evaluation.md#evaluation-自定义评估与盲评输入) | 评估配置、人工参照和评审输入 |
@@ -106,38 +106,38 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | [代码分层、文档测试解耦与测试分层提案](dev/PROPOSAL_2026-10-04_LAYERING_AND_TEST_TIERS.md) | 2026-10-04 可维护性评估第 1–3 项（按 `94595ca` 实测）：完整导入图（含函数内导入）的 17 处回边、无环守卫与 `LifeEngine` 拆分；现行文档的行号引用改为符号引用、突变锚点改为符号作用域、源码文本钉改为结构检查、已验收特性的增量规格合并后归档；按实测耗时把测试分成快速、标准与全量三层；不改变行为 | 未冻结提案 |
 | [共享规则单一归宿与可重建环境提案](dev/PROPOSAL_2026-10-04_SHARED_RULES_AND_REBUILDABLE_ENV.md) | 2026-10-04 历史分析（按 `94595ca` 实测）；已收敛为共享规则与可重建环境冻结规格，原机器状态不作为当前实现事实 | 未冻结提案 |
 | [让「等待」成为例外提案](dev/PROPOSAL_2026-10-05_IDLE_FILLERS.md) | 2026-10-04 五人共享世界运行的 43 次等待（按 `9cca694` 核对）：多数等的是到点没有决策机会的钟点，其余等的事到点会请人物决策而人物不知道；A 系统层第 7、14、15、16 条原位改写，B 零点计划模板第三、五、六条改写，C 班次与休息时段起止的四个唤醒原因；列出定稿文本、被改写的现行条款、指纹与完整日基线的影响、验收台账与变异清单、配对复跑指标，已收敛为冻结规格[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)，本文只保留运行证据、原因链与取舍依据 | 已裁决 |
-| [让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格) | 系统层第 7、14、15、16 条原位改写、零点计划模板第三、五、六条改写与班次和休息时段起止的四个唤醒原因 `shift_start`、`shift_end`、`break_start`、`break_end`；裁决记录、各阶段的现行文档改写、测试与夹具、验收台账与变异登记（`tests/fixtures/idle-fillers-acceptance.json`、`tests/idle_fillers_acceptance.py`）、门禁与平台、配对复跑指标；阶段 1（班次与休息时段起止的唤醒）、阶段 2（系统层第 7、14、15、16 条）与阶段 3（零点计划模板第三、五、六条）已实现；旧第三份完整日夹具计划未执行，由现行结构 6 工件核验替代；门禁与配对复跑按各自实际收据判定；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；阶段 5 的最终 22 项唤醒原因与 7 类预排事件正文已同步；系统层第 7 条与提示指纹仍归阶段 6，不用阶段 5 收据提前证明；阶段 7 的当前唤醒与真实工作累计验收登记已同步；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，随阶段 1、3、4、6、7 提交实现 | FROZEN |
+| [让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格) | 系统层第 7、14、15、16 条原位改写、零点计划模板第三、五、六条改写与班次和休息时段起止的四个唤醒原因 `shift_start`、`shift_end`、`break_start`、`break_end`；裁决记录、各阶段的现行文档改写、测试与夹具、验收台账与变异登记（`tests/fixtures/idle-fillers-acceptance.json`、`tests/idle_fillers_acceptance.py`）、门禁与平台、配对复跑指标；阶段 1（班次与休息时段起止的唤醒）、阶段 2（系统层第 7、14、15、16 条）与阶段 3（零点计划模板第三、五、六条）已实现；旧第三份完整日夹具计划未执行，由现行结构 6 工件核验替代；门禁与配对复跑按各自实际收据判定；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；阶段 5 的最终 22 项唤醒原因与 7 类预排事件正文已同步；系统层第 7 条与提示指纹仍归阶段 6，不用阶段 5 收据提前证明；阶段 7 的当前唤醒与真实工作累计验收登记已同步；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，修订条款已实现；正文同步阶段 1、3、4、6；阶段 7 数据仓交接未执行 | FROZEN |
 | [完整日行为基线跨平台一致提案](dev/PROPOSAL_2026-10-05_CROSS_PLATFORM_DAY_BASELINE.md) | 完整日用例在 Windows 上对 macOS 生成的现行夹具不符（按 `0184c97` 在 Windows 上实测，按 `b83292f` 与 macOS 导出逐条比较）：四处原因已全部定位并经确认实验复现——工作区快照归档次序、工作区文本文件换行、`AGENT.json` 路径分隔符，以及 macOS 数学库在一个难舍入参数上不正确舍入的 `exp`（进入 `sleep_pressure` 与 `sleepiness` 的末位）；前三处的修复在 POSIX 上是空操作，数学库须改用标准库 `decimal` 的正确舍入实现，提议在 Windows 与 macOS 上用同一份当前结构 6 外部输入生成新证明，现存两份历史夹具与签名实现保持原字节；方案未实施 | 未冻结提案 |
-| [环境数据归属规格](dev/SPEC-environment-data-ownership.md) | 正式环境与制作工具归数据仓；通用规则归引擎包；场景结构 6、环境标题与活动效果、显式环境加载及人工测试夹具；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，随阶段 1、7 提交实现 | FROZEN |
+| [环境数据归属规格](dev/SPEC-environment-data-ownership.md) | 正式环境与制作工具归数据仓；通用规则归引擎包；场景结构 6、环境标题与活动效果、显式环境加载及人工测试夹具；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，修订条款已实现；正文同步阶段 1；阶段 7 数据仓交接未执行 | FROZEN |
 | [以 app 为入口的资源与规则引擎简化提案](dev/PROPOSAL_2026-10-06_RESOURCE_AND_RULE_SIMPLIFICATION.md) | 用户需求、运行证据与设计背景；全部推荐及最终裁决已收敛为资源与规则引擎简化冻结规格 | 已裁决 |
 | [以动作和内容组织资源与固定规则的简化提案](dev/PROPOSAL_2026-10-07_APP_ACTION_RESOURCE_AND_RULE_SIMPLIFICATION.md) | 用户原话、心智模型与设计背景；六个补充选择与全部补定已收敛为动作与内容简化冻结规格 | 已裁决 |
-| [动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格) | 系统动作只留出行、睡眠、购买，等待是时间原语；库存与进食删除，收货即结算；其余行为由数据集以 app、动作、内容登记，一个执行器按内容时长执行并按历史选内容；导航、购物、支付 app 由人物点名；app 使用足迹合同（六种事实、收货行与七条不变量）；目录格式 2、场景结构 8、世界结构 11；实施计划为阶段 0 冻结、阶段 1–6 一个集成波次、阶段 7 数据仓交接，各阶段的文件清单与设计文档改写清单已对照代码基线核定；条款随集成波次合入生效，此前现行行为仍以所属合同为准 | FROZEN |
-| [资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格) | 固定规则、目录、图、食品、app 内容推送、主题工作、当前工具和认证足迹；阶段 1–8 修订条款已实现，macOS 人工完整日双跑一致并冻结基线；阶段 9 正式环境已发布，macOS 与 Linux 首次正式回归失败保留，来源职责与依赖探针修复及新门禁按实际收据登记，完整发布与平台结论按实际收据判断；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，随阶段 1、2、3、4、5、6、7 提交实现 | FROZEN |
+| [动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格) | 系统提供出行、睡眠、购买、驿站领取与一次性闹钟，等待是时间原语；库存与进食删除，收货即结算；其余行为由数据集以 app、动作、内容登记，一个执行器按内容时长执行并按历史选内容；导航、购物、支付 app 由人物点名；app 使用足迹合同（六种事实、收货行与七条不变量）；目录格式 2、场景结构 8、世界结构 11；阶段 1–6 修订条款已实现并完成独立审查，阶段 7 数据仓交接未执行；各阶段文件与设计文档改写清单已按实际提交和机器登记收口 | FROZEN |
+| [资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格) | 固定规则、目录、图、食品、app 内容推送、主题工作、当前工具和认证足迹；阶段 1–8 修订条款已实现，macOS 人工完整日双跑一致并冻结基线；阶段 9 正式环境已发布，macOS 与 Linux 首次正式回归失败保留，来源职责与依赖探针修复及新门禁按实际收据登记，完整发布与平台结论按实际收据判断；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，修订条款已实现；正文同步阶段 1、2、3、4、5、6；阶段 7 数据仓交接未执行 | FROZEN |
 | [正式环境验收记录](dev/resource-rule-formal-verification.md#resource-rule-formal-verification-正式环境验收记录) | 已发布 Dataset 与实际引擎身份、确定性完整日和来源投影、首次正式失败、回归修复与新收据及逐平台边界 | 验收记录 |
 | [正式回归修复验收](dev/resource-rule-formal-repair.md#resource-rule-formal-repair-正式回归修复验收) | 测试来源、保存恢复的同源身份、实际 SQLite 与字体能力，以及最新正式 macOS/Linux 全量收据 | 现行记录 |
-| [同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格) | GitHub issue #4 的正式修复：暂停的活动不占两个并行名额、恢复要有空名额、同刻受限轮不再按名额分流（甲）；只有同一种动作互斥，占用名改为每种动作自己的名字，改的是引擎包资源 `src/worldmock/data/affordances.toml`，仍带旧占用名的已发布环境须按新占用名重新发布（乙）；系统层第 8 条原位改写（丙）；裁决记录、各阶段的现行文档改写、随实现一起改的测试、验收、门禁与平台、配对复跑指标与不在本规格内的待裁决事项；条款随阶段 1–3 提交逐阶段实现，完整日基线在 POSIX 平台另行生成；阶段 1（暂停的活动不占名额）、阶段 2（只有同一种动作互斥）与阶段 3（系统层第 8 条）已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；阶段 4 的八项占用与驾车仅可并行交谈正文已同步；阶段 5 的恢复检查改为地点、主题上限、名额、占用；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，随阶段 1、3、4、6 提交实现 | FROZEN |
-| [共享规则与可重建环境规格](dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-特性规格共享规则单一归宿与可重建环境) | 共享规则、固定源码、引导和平台要求；与分层与测试层次规格共同使用唯一 full runner；「安全文件」一行 2026-10-06 补 Windows 路径加固；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；阶段 4 的 app 固定时长、五类固定缓解率与三类候选正文已同步；阶段 5 的规范摘要与安全路径正文已改为工作主题累计；当前 macOS 证据与尚未执行的 Windows 回执分开登记；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，随阶段 1、3、4、7 提交实现 | FROZEN |
+| [同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格) | GitHub issue #4 的正式修复：暂停的活动不占两个并行名额、恢复要有空名额、同刻受限轮不再按名额分流（甲）；只有同一种动作互斥，占用名改为每种动作自己的名字，改的是引擎包资源 `src/worldmock/data/affordances.toml`，仍带旧占用名的已发布环境须按新占用名重新发布（乙）；系统层第 8 条原位改写（丙）；裁决记录、各阶段的现行文档改写、随实现一起改的测试、验收、门禁与平台、配对复跑指标与不在本规格内的待裁决事项；条款随阶段 1–3 提交逐阶段实现，完整日基线在 POSIX 平台另行生成；阶段 1（暂停的活动不占名额）、阶段 2（只有同一种动作互斥）与阶段 3（系统层第 8 条）已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；阶段 4 的八项占用与驾车仅可并行交谈正文已同步；阶段 5 的恢复检查改为地点、主题上限、名额、占用；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，修订条款已实现；正文同步阶段 1、3、4、6 | FROZEN |
+| [共享规则与可重建环境规格](dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-特性规格共享规则单一归宿与可重建环境) | 共享规则、固定源码、引导和平台要求；与分层与测试层次规格共同使用唯一 full runner；「安全文件」一行 2026-10-06 补 Windows 路径加固；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；阶段 4 的 app 固定时长、五类固定缓解率与三类候选正文已同步；阶段 5 的规范摘要与安全路径正文已改为工作主题累计；当前 macOS 证据与尚未执行的 Windows 回执分开登记；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，修订条款已实现；正文同步阶段 1、3、4；阶段 7 数据仓交接未执行 | FROZEN |
 | [共享规则与可重建环境验收记录](dev/shared-rules-and-rebuildable-env-verification.md) | 合并前具体被测身份的实现、完整门禁、平台重建和独立源码变异证据；不证明新主线合并后的代码 | 验收记录 |
 | [个人事务与工作安排规格](archive/errands-workday/SPEC-errands-workday.md) | 历史增量规格；现行行为正文见 `docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库`，提示与工具说明见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`，验收登记由 `tests/fixtures/acceptance_requirements.json` 与相应 Python 登记维护；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步 | 归档 |
 | [个人事务与工作安排验收记录](archive/errands-workday/errands-workday-verification.md) | 源码身份与发布身份（各阶段提交、结构版本与两个指纹）、实施过程与各阶段测试结果、评审与修复、两轮独立源码变异审查、全量门禁与覆盖率（`a7e2fdc` 上的运行，以及含两个查看器提交的分支头 `964de50` 上的最终运行）、验收台账逐行登记（证据节点来自 `tests/errands_workday_acceptance.py`）、代码与规格的出入与裁定（含 `a7e2fdc` 的全量门禁之后由 `1346e0d`、`6c81126` 补齐的查看器事务显示）、文档一致性、环境敏感项；证据层级为离线测试，配对全天复跑（阶段 6，只报告）与 strict 端点探针未执行 | 归档 |
 | [个人事务与工作安排实施计划](archive/errands-workday/errands-workday-implementation-plan.md) | 个人事务与工作安排实施计划：实施阶段与门禁之外的逐文档逐条款的文档同步作业、逐阶段的文件修改清单与被钉点；随规格冻结后作为实施台账维护 | 归档 |
 | [个人事务与工作安排提案设计评审记录](archive/errands-workday/2026-10-02-errands-workday-design-review.md) | 七路源码映射、十路现行规格与设计文档扫描、六个视角评审与逐条复核的结论，以及草稿规格对每条结论的处置 | 归档 |
 | [工具交互定稿方案](archive/tool-interaction/PROPOSAL_2026-09-30_TOOL_INTERACTION.md) | 并发源码核对与最终取舍；行为引用工具交互规格 | 归档 |
-| `docs/dev/SPEC-as2-integration.md#spec-as2-integration-特性规格agentsociety-2-集成与改动` | 选用 AS2 的理由与复用边界、分层职责，以及 AS2 核心链路为本次场景必须发生的确定性改动；「AS2 基线与分支」补登一日运行保真规格的三个 LifeAgent 覆写点，修订条款已实现；覆写点清单补登 `LifeAgent.step` 的异常日志、记忆运行时的严格反思与 `LifeEnvActor`、`LifeEnvProxy` 的只读查询转发，控制请求的请求级 `errands` 与 `query_world` 六键的覆写边界由个人事务与工作安排规格修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款；阶段 5 正文已同步为 app 推送职责、工作主题累计与无独立工作评审，实际通过以阶段 5 收据为准；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，随阶段 2 提交实现 | FROZEN |
-| `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则` | LifeEnv 的状态归属与生命周期、共享时钟与并发活动、身体语义与体感分级、食品消费与需求模型、语料准入与内容提供、场景与身体规则、观察投影与提示合同、候选契约与呈现规则、社交最小可行版；困意档界、社交与娱乐口径、睡眠中不读消息、名称类拒绝、按名调用、候选资格与轮转、可调用索引与购买渠道由一日运行保真规格修订，修订条款已实现；唤醒原因增 `errand_reminder_due`、待办层与环境层投影、场景的 `work_schedule`、决策异常日志、任务回看的执行位置与 `query_world` 六键由个人事务与工作安排规格修订，修订条款已实现；唤醒闭集追加班次与休息时段起止的四个成员、下一边界与下一次决策机会增这些时刻（阶段 1）由[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订，修订条款已实现；零点计划修订一节的写法（阶段 3）由同一规格修订，修订条款已实现；活动名额只算进行中与待收尾、恢复要有空名额、受限轮不再按名额分流（阶段 1）与占用声明改为只有同一种动作互斥（阶段 2）由[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；食品与画像的阶段三正文已同步，执行结果按实际验收登记；阶段 4 的 app 选择、全局内容进度、会话推送与八项占用正文已同步；阶段 5 的工作主题累计、最终 22 项唤醒与 7 类预排事件正文已同步，提示规则第 7、8、12、13、17 条归阶段 6；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，随阶段 1、2、3、4、7 提交实现 | FROZEN |
-| [查看器对象名称](dev/SPEC-run-viewer-names.md#spec-run-viewer-names-运行查看器对象名称) | 地点、活动及内容名称的运行内关联、缺失提示与验证；工作、通话与交谈的活动标题由一日运行保真规格补充，修订条款已实现；个人事务名称的来源、控制请求须带 `errands` 的现行形状、请求摘要写事务变更、事务事件与事务提醒写事务名称与商品名称由个人事务与工作安排规格修订，商品名称的补缺来源（`errand_item_bindings`）、事务变更的逐条读取规则与个人事务的缺失提示按查看器实现的独立核对补充，修订条款已实现（查看器的请求摘要与事务名称由 `1346e0d`、`6c81126` 实现）；四个新唤醒原因的中文说法由[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订（阶段 1），修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；阶段 4 的 app 使用标题与「app 推送」显示正文已同步；阶段 7 的当前 app、内容、工作主题、出行名称与最终导出验证正文已同步；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，随阶段 5 提交实现 | FROZEN |
+| `docs/dev/SPEC-as2-integration.md#spec-as2-integration-特性规格agentsociety-2-集成与改动` | 选用 AS2 的理由与复用边界、分层职责，以及 AS2 核心链路为本次场景必须发生的确定性改动；「AS2 基线与分支」补登一日运行保真规格的三个 LifeAgent 覆写点，修订条款已实现；覆写点清单补登 `LifeAgent.step` 的异常日志、记忆运行时的严格反思与 `LifeEnvActor`、`LifeEnvProxy` 的只读查询转发，控制请求的请求级 `errands` 与 `query_world` 六键的覆写边界由个人事务与工作安排规格修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款；阶段 5 正文已同步为 app 推送职责、工作主题累计与无独立工作评审，实际通过以阶段 5 收据为准；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，修订条款已实现；正文同步阶段 2 | FROZEN |
+| `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则` | LifeEnv 的状态归属与生命周期、共享时钟与并发活动、身体语义与体感分级、食品消费与需求模型、语料准入与内容提供、场景与身体规则、观察投影与提示合同、候选契约与呈现规则、社交最小可行版；困意档界、社交与娱乐口径、睡眠中不读消息、名称类拒绝、按名调用、候选资格与轮转、可调用索引与购买渠道由一日运行保真规格修订，修订条款已实现；唤醒原因增 `errand_reminder_due`、待办层与环境层投影、场景的 `work_schedule`、决策异常日志、任务回看的执行位置与 `query_world` 六键由个人事务与工作安排规格修订，修订条款已实现；唤醒闭集追加班次与休息时段起止的四个成员、下一边界与下一次决策机会增这些时刻（阶段 1）由[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订，修订条款已实现；零点计划修订一节的写法（阶段 3）由同一规格修订，修订条款已实现；活动名额只算进行中与待收尾、恢复要有空名额、受限轮不再按名额分流（阶段 1）与占用声明改为只有同一种动作互斥（阶段 2）由[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；食品与画像的阶段三正文已同步，执行结果按实际验收登记；阶段 4 的 app 选择、全局内容进度、会话推送与八项占用正文已同步；阶段 5 的工作主题累计、最终 22 项唤醒与 7 类预排事件正文已同步，提示规则第 7、8、12、13、17 条归阶段 6；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，修订条款已实现；正文同步阶段 1、2、3、4；阶段 7 数据仓交接未执行 | FROZEN |
+| [查看器对象名称](dev/SPEC-run-viewer-names.md#spec-run-viewer-names-运行查看器对象名称) | 地点、活动及内容名称的运行内关联、缺失提示与验证；工作、通话与交谈的活动标题由一日运行保真规格补充，修订条款已实现；个人事务名称的来源、控制请求须带 `errands` 的现行形状、请求摘要写事务变更、事务事件与事务提醒写事务名称与商品名称由个人事务与工作安排规格修订，商品名称的补缺来源（`errand_item_bindings`）、事务变更的逐条读取规则与个人事务的缺失提示按查看器实现的独立核对补充，修订条款已实现（查看器的请求摘要与事务名称由 `1346e0d`、`6c81126` 实现）；四个新唤醒原因的中文说法由[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订（阶段 1），修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；阶段 4 的 app 使用标题与「app 推送」显示正文已同步；阶段 7 的当前 app、内容、工作主题、出行名称与最终导出验证正文已同步；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，修订条款已实现；正文同步阶段 5 | FROZEN |
 | [查看器名称验收](dev/run-viewer-names-verification.md) | 真实运行、回归测试与独立语义变异闭合 | 验收记录 |
-| [查看器上下文解析](dev/SPEC-run-viewer-context.md#spec-run-viewer-context-运行查看器上下文解析) | 模型请求的选择与关联、输入结构与原文、相邻调用对比与验证边界；按 `layer` 分段与续接识别由人物 Prompt 七层规格修订，修订条款已实现；待办层的个人事务、进度层的两种事务记录与环境层 `duty` 的增长与退出由个人事务与工作安排规格修订，查看器的待办层、环境层、进度层规则文字与工具定义条目已同步（进度层规则文字与工具定义条目由 `1346e0d` 补齐，夹具与补测为 `6c81126`），修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；阶段 7 的 22 项唤醒、11 项原生工具和最终标签验证正文已同步；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，随阶段 5 提交实现 | FROZEN |
+| [查看器上下文解析](dev/SPEC-run-viewer-context.md#spec-run-viewer-context-运行查看器上下文解析) | 模型请求的选择与关联、输入结构与原文、相邻调用对比与验证边界；按 `layer` 分段与续接识别由人物 Prompt 七层规格修订，修订条款已实现；待办层的个人事务、进度层的两种事务记录与环境层 `duty` 的增长与退出由个人事务与工作安排规格修订，查看器的待办层、环境层、进度层规则文字与工具定义条目已同步（进度层规则文字与工具定义条目由 `1346e0d` 补齐，夹具与补测为 `6c81126`），修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；阶段 7 的 22 项唤醒、11 项原生工具和最终标签验证正文已同步；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，修订条款已实现；正文同步阶段 5 | FROZEN |
 | [查看器上下文验收](dev/run-viewer-context-verification.md) | 要求到证据、实际运行验证、测试命令与语义变异审查 | 验收记录 |
 | [一日运行行为设计](dev/PROPOSAL-dayrun-behavior.md) | 等待、通勤、进食、记忆和持续活动的事实核查与采纳依据；其采纳的「不预设等待越少越好」已由[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)取代 | 已裁决 |
-| [一日行为特性规格](dev/SPEC-dayrun-behavior.md#spec-dayrun-behavior-一日行为可信性特性开发规格) | 并行生命周期、共同身体区间、餐食、app 内容接触、已核验经历与主观记忆、预警交付；到店指名购买的口径由一日运行保真规格修订，修订条款已实现；就寝反思的严格工具、主观文字不改变世界事实一句、控制请求携带的个人事务变更、事务提醒与 `query_world` 六键由个人事务与工作安排规格修订，修订条款已实现；下一边界与必要唤醒增班次与休息时段起止（阶段 1）由[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订，修订条款已实现；等待与内容接触补系统层写给人物的过法（阶段 2）由同一规格修订，修订条款已实现；占用名与拒绝的组合（阶段 2）由[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；食品与画像的阶段三正文已同步，执行结果按实际验收登记；阶段 4 的 app 内抽取、八项占用与内容完成边界正文已同步，旧真实音频来源正文已删除；阶段 7 的已核验 app 内容经历和 app 使用五类离线事实正文已同步；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，随阶段 2、3、5 提交实现 | FROZEN |
+| [一日行为特性规格](dev/SPEC-dayrun-behavior.md#spec-dayrun-behavior-一日行为可信性特性开发规格) | 并行生命周期、共同身体区间、餐食、app 内容接触、已核验经历与主观记忆、预警交付；到店指名购买的口径由一日运行保真规格修订，修订条款已实现；就寝反思的严格工具、主观文字不改变世界事实一句、控制请求携带的个人事务变更、事务提醒与 `query_world` 六键由个人事务与工作安排规格修订，修订条款已实现；下一边界与必要唤醒增班次与休息时段起止（阶段 1）由[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订，修订条款已实现；等待与内容接触补系统层写给人物的过法（阶段 2）由同一规格修订，修订条款已实现；占用名与拒绝的组合（阶段 2）由[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；食品与画像的阶段三正文已同步，执行结果按实际验收登记；阶段 4 的 app 内抽取、八项占用与内容完成边界正文已同步，旧真实音频来源正文已删除；阶段 7 的已核验 app 内容经历和 app 使用五类离线事实正文已同步；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，修订条款已实现；正文同步阶段 2、3、5 | FROZEN |
 | [一日行为实施台账](dev/research/dayrun-behavior/verification.md) | 文件修改责任、逐条生产与测试映射、完整自然日及独立审查证据 | 实施台账 |
 | [一日运行修复核查与验收](dev/research/dayrun-reconciliation/verification.md) | dayrun 清单到主线修复、回归与独立突变证据 | 验收记录 |
 | [一日运行保真修复方案](archive/dayrun-fidelity/PROPOSAL-dayrun-fidelity.md) | `4a5b0e6` 白领与商务全天运行暴露的系统问题：睡眠计费、下限缓解与注入警告、困意档界、守作息规则、卡片作息、按名调用与指名购买、App 与门店、错误合同、呈现排序、控制工具改形、中文摘录、输出上限、联系人回复、strict 端点，另含不适脉冲与睡眠中读消息、浏览与提示的可达性、英文与内部名称外泄、当日目标推进、场景加载校验、工作材料正文（范围外），共 G1–G22；数据集侧见 WorldMock-Dataset 的 `PROPOSAL_2026-09-29_DATASET_FIXES.md`；已收敛为冻结规格 `docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要`，本文只保留设计背景、运行证据与取舍依据；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步 | 归档 |
 | [一日运行保真特性规格](archive/dayrun-fidelity/SPEC-dayrun-fidelity.md) | 历史增量规格；现行行为正文见 `docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要`，提示与工具说明见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`，验收登记由 `tests/fixtures/acceptance_requirements.json` 与相应 Python 登记维护；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步 | 归档 |
 | [一日运行保真验收记录](archive/dayrun-fidelity/dayrun-fidelity-verification.md) | 一日运行保真验收记录：源码身份与提交、评审与修复、全量门禁与覆盖率、验收台账逐行登记（证据节点来自 `tests/dayrun_fidelity_acceptance.py`）、三路独立语义突变审查、strict 端点探针结论、代码与规格的出入、文档一致性与锚点核对；真实复验（阶段 7）未执行 | 归档 |
-| `docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像` | 人物的两阶段决策调用、记忆写入与巩固、动机层、当日目标、世界素材品类准入、素材可达性与呈现轮转、候选与呈现、画像编译、商品数量合同、运行呈现与导出投影；两阶段决策改为单一行动阶段，卡片与记忆的提示呈现改为人设层与记忆层，由人物 Prompt 七层规格修订，修订条款已实现；候选决胜键与轮转、按名调用、画像编译（场景作息优先、覆盖率运行只警告）与时间线标题由一日运行保真规格修订，修订条款已实现；就寝反思改经严格工具 `submit_reflection`、个人事务与控制请求的请求级 `errands`、画像作息增下班与到家锚点、`query_world` 六键由个人事务与工作安排规格修订，修订条款已实现；工作安排效力的唤醒一条（阶段 1）由[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订，修订条款已实现；系统层的作息、饥饿、困意与决策机会（阶段 2）由同一规格修订，修订条款已实现；零点计划的写法与提醒（阶段 3）由同一规格修订，修订条款已实现；待办层恢复的不可用原因增名额占满（阶段 1）由[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；食品与画像的阶段三正文已同步，执行结果按实际验收登记；阶段 4 的 app 工具、全局内容进度与按 app 绑定的内容可达性正文已同步；阶段 5 的工作主题、目标工时、实际累计与工作完成进度正文已同步；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步；阶段 7 的时间线、app 内容状态与工作主题累计导出正文已同步；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，随阶段 1、2、3、4、5、7 提交实现 | FROZEN |
-| `docs/dev/SPEC-day-plan-goals.md#spec-day-plan-goals-当日目标特性开发规格` | 当日目标、实际推进证据、修订、环境威胁、三层质量报告与完整验收；生成方式、提醒与部分节律由时间与能量规格修订；目标大致时刻 `around_time`、推进口径与例行意图由一日运行保真规格修订，修订条款已实现；重复意图的逐条定位、零点计划输入与质量报告结构 4 由个人事务与工作安排规格修订，修订条款已实现；事件驱动的决策节律增班次与休息时段起止（阶段 1）由[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订，修订条款已实现；钟点只是大概（阶段 2）由同一规格修订，修订条款已实现；零点计划的写法与提醒（阶段 3）由同一规格修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；阶段 4 的 `use_app → entertainment` 度量映射正文已同步；阶段 5 的零点计划工作主题输入、`{action}` 阶段身份与无关门威胁正文已同步；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，随阶段 1、2、3、5 提交实现 | FROZEN |
+| `docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像` | 人物的两阶段决策调用、记忆写入与巩固、动机层、当日目标、世界素材品类准入、素材可达性与呈现轮转、候选与呈现、画像编译、商品数量合同、运行呈现与导出投影；两阶段决策改为单一行动阶段，卡片与记忆的提示呈现改为人设层与记忆层，由人物 Prompt 七层规格修订，修订条款已实现；候选决胜键与轮转、按名调用、画像编译（场景作息优先、覆盖率运行只警告）与时间线标题由一日运行保真规格修订，修订条款已实现；就寝反思改经严格工具 `submit_reflection`、个人事务与控制请求的请求级 `errands`、画像作息增下班与到家锚点、`query_world` 六键由个人事务与工作安排规格修订，修订条款已实现；工作安排效力的唤醒一条（阶段 1）由[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订，修订条款已实现；系统层的作息、饥饿、困意与决策机会（阶段 2）由同一规格修订，修订条款已实现；零点计划的写法与提醒（阶段 3）由同一规格修订，修订条款已实现；待办层恢复的不可用原因增名额占满（阶段 1）由[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；食品与画像的阶段三正文已同步，执行结果按实际验收登记；阶段 4 的 app 工具、全局内容进度与按 app 绑定的内容可达性正文已同步；阶段 5 的工作主题、目标工时、实际累计与工作完成进度正文已同步；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步；阶段 7 的时间线、app 内容状态与工作主题累计导出正文已同步；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，修订条款已实现；正文同步阶段 1、2、3、4、5；阶段 7 数据仓交接未执行 | FROZEN |
+| `docs/dev/SPEC-day-plan-goals.md#spec-day-plan-goals-当日目标特性开发规格` | 当日目标、实际推进证据、修订、环境威胁、三层质量报告与完整验收；生成方式、提醒与部分节律由时间与能量规格修订；目标大致时刻 `around_time`、推进口径与例行意图由一日运行保真规格修订，修订条款已实现；重复意图的逐条定位、零点计划输入与质量报告结构 4 由个人事务与工作安排规格修订，修订条款已实现；事件驱动的决策节律增班次与休息时段起止（阶段 1）由[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订，修订条款已实现；钟点只是大概（阶段 2）由同一规格修订，修订条款已实现；零点计划的写法与提醒（阶段 3）由同一规格修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；阶段 4 的 `use_app → entertainment` 度量映射正文已同步；阶段 5 的零点计划工作主题输入、`{action}` 阶段身份与无关门威胁正文已同步；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，修订条款已实现；正文同步阶段 1、2、3、5 | FROZEN |
 | `docs/dev/PROPOSAL-day-plan-goals.md` | 目标与时间职责分离的裁决依据，现行行为引用最终规格 | 已裁决 |
 | `docs/dev/research/day-plan-semantics.md` | 当日目标学科调研与核实限制 | 调研证据 |
 | `docs/dev/research/day-plan-goals-verification.md` | 独立 worktree 基线、逐要求验证、实际修改清单与独立变异证据 | 验收记录 |
@@ -146,10 +146,10 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | `docs/dev/research/day-plan-goals-bob-interface.md` | 当日目标工具、观察与叙述的独立源码突变证据 | 审查记录 |
 | `docs/dev/research/day-plan-goals-bob-metrics.md` | 三层统计及导出首次审查，保留三个初次存活结论 | 审查记录 |
 | `docs/dev/research/day-plan-goals-bob-metrics-recheck.md` | 三个存活补丁在新增行为断言后的原样复验 | 审查记录 |
-| `docs/dev/SPEC-decision-context.md#spec-decision-context-特性规格决策上下文与工具结果` | 决策自述、冻结上下文、动作登记与结果通道、场景信息、预算、修改清单与验收台账；决策自述与场景信息由人物 Prompt 七层规格取代（决策就是所选世界请求，场景信息改为七层归属），冻结上下文、预算、修改清单与验收台账由其修订，登记与结果通道约束保留，修订条款已实现；按名调用、指名购买口径与公开结果键由一日运行保真规格修订，修订条款已实现；任务回看的执行位置、同秒续接 `changes` 与 `events` 的口径、公开结果 `details.errands` 与 `query_world` 六键由个人事务与工作安排规格修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；食品与画像的阶段三正文已同步，阶段 5 的结果通道已删除 `work_review` 与 `task_deadline` 特例，执行结果按实际验收登记；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，随阶段 2、4 提交实现 | FROZEN |
-| `docs/dev/SPEC-interaction-menu.md#spec-interaction-menu-特性规格交互菜单` | 地点类与人物交互菜单、工具和活动类型准入、冻结观察、模型与环境共同门控、运行身份及验收台账；按名调用与控制工具的参数形状由一日运行保真规格修订，修订条款已实现；控制工具的请求级 `errands` 与 `query_world` 六键由个人事务与工作安排规格修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；食品与画像的阶段三正文已同步，执行结果按实际验收登记；阶段 4 的 `use_app` 与店铺 app 来源正文已同步；阶段 5 的工作主题上限准入正文已同步；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，随阶段 1、3、4、7 提交实现 | FROZEN |
+| `docs/dev/SPEC-decision-context.md#spec-decision-context-特性规格决策上下文与工具结果` | 决策自述、冻结上下文、动作登记与结果通道、场景信息、预算、修改清单与验收台账；决策自述与场景信息由人物 Prompt 七层规格取代（决策就是所选世界请求，场景信息改为七层归属），冻结上下文、预算、修改清单与验收台账由其修订，登记与结果通道约束保留，修订条款已实现；按名调用、指名购买口径与公开结果键由一日运行保真规格修订，修订条款已实现；任务回看的执行位置、同秒续接 `changes` 与 `events` 的口径、公开结果 `details.errands` 与 `query_world` 六键由个人事务与工作安排规格修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；食品与画像的阶段三正文已同步，阶段 5 的结果通道已删除 `work_review` 与 `task_deadline` 特例，执行结果按实际验收登记；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，修订条款已实现；正文同步阶段 2、4 | FROZEN |
+| `docs/dev/SPEC-interaction-menu.md#spec-interaction-menu-特性规格交互菜单` | 地点类与人物交互菜单、工具和活动类型准入、冻结观察、模型与环境共同门控、运行身份及验收台账；按名调用与控制工具的参数形状由一日运行保真规格修订，修订条款已实现；控制工具的请求级 `errands` 与 `query_world` 六键由个人事务与工作安排规格修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；食品与画像的阶段三正文已同步，执行结果按实际验收登记；阶段 4 的 `use_app` 与店铺 app 来源正文已同步；阶段 5 的工作主题上限准入正文已同步；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，修订条款已实现；正文同步阶段 1、3、4；阶段 7 数据仓交接未执行 | FROZEN |
 | `docs/dev/PROPOSAL-agent-interaction.md#proposal-agent-interaction-数字人交互方案` | **已裁决并冻结**：数字人交互的原始问题、心智模型逐条对账与取舍记录；行为定义已由 `docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面` 承载 | FROZEN |
-| `docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面` | **FROZEN**：三级结构（当日目标、地点会话、活动）、七层上下文与进度层、稳定工具面、决策轮循环与播报节律、前置条件前置、活动名额、午夜浓缩；显式修订七条既有冻结条款并随冻结生效；工具面、会话与记忆写入点由时间与能量规格修订；七层上下文与进度层由人物 Prompt 七层规格取代（进度层只含当前 session），修订条款已实现；控制工具的参数形状、按名调用、名称类拒绝与公开结果键由一日运行保真规格修订，修订条款已实现；控制工具的请求级 `errands`、待办层的个人事务与新增唤醒成员 `errand_reminder_due` 的同步、环境层 `duty` 与 `query_world` 六键由个人事务与工作安排规格修订，修订条款已实现；触发表增四个班次边界成员、新增唤醒成员的同步点清单改以冻结条款修订第 1 行为准由[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订（阶段 1），修订条款已实现；名额只算进行中与待收尾、暂停让出名额与受限轮清单（阶段 1）由[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；食品与画像的阶段三正文已同步，执行结果按实际验收登记；阶段 4 的 app 目标、内容、推送与全局内容进度正文已同步；阶段 5 的十一项原生工具、八项稳定面、工作主题四键合同与 `last_report` 正文已同步；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，随阶段 3、4 提交实现 | FROZEN |
+| `docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面` | **FROZEN**：三级结构（当日目标、地点会话、活动）、七层上下文与进度层、稳定工具面、决策轮循环与播报节律、前置条件前置、活动名额、午夜浓缩；显式修订七条既有冻结条款并随冻结生效；工具面、会话与记忆写入点由时间与能量规格修订；七层上下文与进度层由人物 Prompt 七层规格取代（进度层只含当前 session），修订条款已实现；控制工具的参数形状、按名调用、名称类拒绝与公开结果键由一日运行保真规格修订，修订条款已实现；控制工具的请求级 `errands`、待办层的个人事务与新增唤醒成员 `errand_reminder_due` 的同步、环境层 `duty` 与 `query_world` 六键由个人事务与工作安排规格修订，修订条款已实现；触发表增四个班次边界成员、新增唤醒成员的同步点清单改以冻结条款修订第 1 行为准由[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订（阶段 1），修订条款已实现；名额只算进行中与待收尾、暂停让出名额与受限轮清单（阶段 1）由[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；食品与画像的阶段三正文已同步，执行结果按实际验收登记；阶段 4 的 app 目标、内容、推送与全局内容进度正文已同步；阶段 5 的十一项原生工具、八项稳定面、工作主题四键合同与 `last_report` 正文已同步；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，修订条款已实现；正文同步阶段 3、4 | FROZEN |
 | `docs/dev/research/agent-interaction-document-impact.md` | 文档影响与文件修改清单：爆炸半径实测、五处词表同步点、导出重建约束、冻结规格与设计文档修订清单 | 调研证据 |
 | `docs/archive/time-and-energy/SPEC-time-and-energy.md` | 历史增量规格；现行行为正文见 `docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动`，提示与工具说明见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`，验收登记由 `tests/fixtures/acceptance_requirements.json` 与相应 Python 登记维护；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步 | 归档 |
 | `docs/archive/time-and-energy/time-and-energy-implementation-plan.md` | 时间与能量实施计划：实施阶段与门禁、逐文档逐条款的文档同步作业、文件修改清单与工程约束；随规格冻结后作为实施台账维护 | 归档 |
@@ -168,7 +168,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | `docs/archive/category-contract/category-contract-files.md` | 对照开发基线逐文件核对真实 Git diff 与功能责任 | 归档 |
 | `docs/archive/category-contract/category-contract-bob-review.md` | 独立语义突变、原始证据及修复复审结果 | 归档 |
 | `docs/archive/category-contract/PROPOSAL-category-contract.md` | 品类契约提案裁决记录；规范已收敛到对应 SPEC | 归档 |
-| `docs/dev/SPEC-map-and-storefront.md#spec-map-and-storefront-地图数据集合与门店供给开发规格` | 发布图唯一来源、地点发现、同类型食品菜单、固定价格、店铺 app 来源、单订单付款与配送、食品持有、恢复和完整验收；挑店可交给系统（`prefer`）、`branch_label`、配送路线只警告与浏览结果完整标签由一日运行保真规格修订，修订条款已实现；`query_world` 六键、来源与可执行筛选由个人事务与工作安排规格修订，修订条款已实现；冻结输入与身份里仍带旧占用名的已发布环境在加载时被拒（阶段 2）由[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；食品与画像的阶段三正文已同步，执行结果按实际验收登记；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，随阶段 1、2、4、7 提交实现 | FROZEN |
+| `docs/dev/SPEC-map-and-storefront.md#spec-map-and-storefront-地图数据集合与门店供给开发规格` | 发布图唯一来源、地点发现、同类型食品菜单、固定价格、店铺 app 来源、单订单付款与配送、食品持有、恢复和完整验收；挑店可交给系统（`prefer`）、`branch_label`、配送路线只警告与浏览结果完整标签由一日运行保真规格修订，修订条款已实现；`query_world` 六键、来源与可执行筛选由个人事务与工作安排规格修订，修订条款已实现；冻结输入与身份里仍带旧占用名的已发布环境在加载时被拒（阶段 2）由[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；食品与画像的阶段三正文已同步，执行结果按实际验收登记；由[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订对应条款，修订条款已实现；正文同步阶段 1、2、4；阶段 7 数据仓交接未执行 | FROZEN |
 | `docs/dev/PROPOSAL-map-and-storefront.md` | 已裁决的地图与门店供给心智模型、采纳机制和审查基线差距；行为以开发规格为准 | 调研证据 |
 | `docs/dev/ANALYSIS-map-model.md` | 原始问题与已纠正的历史判断，连接现行开发规格和研究证据 | 调研证据 |
 | `docs/dev/research/map-and-storefront-feasibility.md` | 商品与供给、路线方式、营业、AS2 复用和许可的一手资料核验 | 调研证据 |
@@ -267,7 +267,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | 实现或审查让「等待」成为例外（已冻结）：系统层第 7、14、15、16 条、零点计划模板第三、五、六条、班次与休息时段起止的唤醒 | [让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格) | 「裁决记录」取已定裁决，「现行文档原位改写」取各阶段的文档改写，「验收台账」与 `tests/fixtures/idle-fillers-acceptance.json` 取验收与变异登记，「门禁与平台」取各门禁的执行平台；运行证据与取舍依据见已裁决的提案 |
 | 实现或审查同时做两件事（已冻结）：暂停的活动不占名额、只有同一种动作互斥、系统层第 8 条 | [同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步 | 「随实现一起改的测试」「验收」与 `docs/CONTRACTS.md#contracts-model-request` |
 | 实现或审查资源与规则简化：系统固定规则、随机地图、食品、app 与主题工作 | [资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格) | 「裁决记录」「实施阶段」与「验收台账」；阶段 1–8 修订条款已实现，人工完整日已双跑一致并冻结；工程门禁结果按报告身份判断；阶段 9 正式环境已发布，首次正式回归失败保留，本轮修复与最新全量及覆盖率按实际收据判定；跨平台结论分别核对，见[实施状态](dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态) |
-| 实现或审查动作与内容简化（已冻结；条款随集成波次生效）：三种系统动作与等待原语、收货即结算、数据集动作与内容、app 使用足迹合同 | [动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格) | 「裁决记录」取定稿与同提案文字的出入，「实施阶段与提交」取阶段 0–7 与各阶段拥有的文件，「现行文档原位改写」取设计文档与各合同的逐阶段改写清单，「验收台账」取契约点与行为用例；波次合入之前现行行为仍以所属合同为准 |
+| 实现或审查动作与内容简化（阶段 1–6 已实现，阶段 7 未执行）：系统动作、驿站领取与一次性闹钟、等待原语、收货即结算、数据集动作与内容、app 使用足迹合同 | [动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格) | 「裁决记录」取定稿与同提案文字的出入，「实施阶段与提交」取阶段 0–7 与各阶段拥有的文件，「现行文档原位改写」取设计文档与各合同的改写清单，「验收台账」取契约点与行为用例；阶段 7 只按数据仓与正式环境真实回执关闭 |
 | 找某个文件归谁管、代码在哪 | 本文件「文件归属」 | `docs/ARCHITECTURE.md#architecture-worldmock-架构设计` 看该模块的职责边界 |
 
 <a name="index-权威层级"></a>
@@ -356,14 +356,13 @@ flowchart TB
 | --- | --- |
 | `custom/envs/life_env.py` | AS2 环境适配层（LifeEnv） |
 | `custom/agents/life_agent.py` | AS2 人物适配层（LifeAgent） |
-| `src/worldmock/life/` | 生活规则、身体、活动、社交、叙述 |
-| `src/worldmock/footprints/` | 事件存储、检查点与导出 |
+| `src/worldmock/life/` | 生活运行、收货结算、统一动作执行、内容选择与调度 |
+| `src/worldmock/footprints/` | 事件存储、检查点、导出与认证重算 |
 | `src/worldmock/profile/` | 人物卡片编译 |
-| `src/worldmock/corpora/` | 生活活动、场景联系人与场景邮件语料加载校验 |
-| `src/worldmock/data/` | 固定活动闭集、动机算法参数和人物映射包资源 |
+| `src/worldmock/data/` | 固定可供性注册表与包内规则数据 |
 | `src/worldmock/evaluation/` | 行为指标与协议门禁 |
-| `src/worldmock/exchange/` | 系统固定类型、常数和食品、出行、配送、资金交换算子 |
-| `src/worldmock/catalog/` | 目录声明、严格登记、加载、身份与发布图查询 |
+| `src/worldmock/exchange/` | 系统固定闭集、常数、收货效果、出行、配送与资金算子 |
+| `src/worldmock/catalog/` | 目录模型、严格登记、绑定、身份与发布图查询 |
 
 <a name="index-测试"></a>
 ### 测试
@@ -376,17 +375,18 @@ flowchart TB
 | `tests/evaluation/` | 行为指标与协议门禁 |
 | `tests/exchange/` | 固定规则、常数与纯交换结果 |
 | `tests/catalog/` | 人工目录登记、身份、地图生成与查询 |
-| `tests/fixtures/environment/` | 引擎最小端到端的人工环境，不复制正式世界 |
+| `tests/fixtures/environment/` | 目录格式 2、场景结构 8 的最小人工环境，不复制正式世界 |
+| `tests/acs_acceptance.py`、`tests/fixtures/acs-acceptance.json` | 动作与内容简化的完成集合、契约、行为与变异登记 |
+| `tests/test_acs_acceptance.py`、`tests/integration/test_acs_engine_wave.py` | 登记闭合、真实引擎闭环与退役守卫 |
 
 <a name="index-场景与配置"></a>
 ### 场景与配置
 
 | 路径 | 职责 |
 | --- | --- |
-| `WorldMock-Dataset/environment/shanghai-simplified/scenarios/` | 已发布结构 7 生活场景；其中 evaluation.json 仍是生活运行输入 |
+| WorldMock-Dataset 正式环境的 `scenarios/` | 阶段 7 回执登记的结构 8 场景；发布前不预写路径 |
+| WorldMock-Dataset 正式环境的 `catalog/` | 清单与 app、地点、商品、动作、内容、图六个目录文件；没有语料或规则副本 |
 | `docs/manual/` | 当前可用配置的用户编写手册与校验示例 |
-| `WorldMock-Dataset/environment/shanghai-simplified/corpora/` | 已发布生活活动、联系人和邮件语料 |
-| `WorldMock-Dataset/environment/shanghai-simplified/catalog/` | 地点、食品、app、内容、主题和图；规则包副本须与引擎字节一致 |
 
 <a name="index-状态与变更约定"></a>
 ## 状态与变更约定
@@ -469,3 +469,4 @@ flowchart TB
 | `2026-10-07-rrs-formal-repair` | 2026-10-07 | 明确人工行为测试与正式验收来源，保存恢复使用同一来源；依赖验证执行真实 SQLite 与生产字体选择器；原失败与最新正式门禁各保留实际身份 |
 | `2026-10-07-repository-ownership` | 2026-10-07 | 按用户裁决收敛目录与职责：WorldMock 保留模拟、记录、完整认证足迹与评估；下游加工、模型任务、训练和规则数据归 LabelKit-DataSet，源码快照已接收，新消费验收另记实际证据 |
 | `2026-10-07-acs-freeze` | 2026-10-07 | 登记动作与内容简化规格为 FROZEN、提案为已裁决；注明被修订规格及其实施阶段，增加阅读与权威入口；实施计划、各阶段文件清单与设计文档改写清单已对照代码基线核定，实现与平台状态由后续台账与回执证明 |
+| `2026-10-07-acs-close` | 2026-10-07 | 动作与内容简化阶段 1–6 已实现并收口入口、文件归属与人工环境证据；阶段 7 数据仓交接未执行 |

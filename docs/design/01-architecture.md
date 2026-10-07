@@ -9,8 +9,8 @@
 > **让「等待」成为例外修订**：按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「3.3 事件驱动的时间推进」（阶段 1）与「6.2 状态与记录」（阶段 1、阶段 2、阶段 3）。
 > **同时做两件事修订**：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「2.3 状态归属与写入边界」与「6.2 状态与记录」（阶段 1）。
 > **目标读者**：架构师、开发工程师、系统工程师
+> **动作与内容简化修订**：现行设计按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)使用统一动作、无分类内容、真实收货与 app 足迹合同；实施与验收状态见[实现状态](../dev/implementation-status.md#implementation-status-动作与内容简化开发状态)。
 
-按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「统一动作执行、内容选择、真实进度与系统补订」（阶段 3）。
 
 > 2026-10-07：按资源与规则引擎简化规格同步剩余系统规则、最终提示身份与查看器（阶段 6）。
 
@@ -21,7 +21,6 @@
 跨模块字段与调用合同见[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)，文档权威归属见[文档入口](../INDEX.md#index-worldmock-文档入口)。
 职责划分不代表对应实现已经拆成独立服务，也不构成实现完成或真实运行验收。
 
-> 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界、收货结算」（阶段 1、2）。
 
 具体环境及制作工具按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)归 WorldMock-Dataset，
 正式重制环境路径由 WorldMock-Dataset 发布决定；WorldMock 提供引擎及包内固定通用规则。
@@ -375,3 +374,4 @@ flowchart LR
 | `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |
 | `2026-10-07-acs-receipt` | 2026-10-07 | 付款与收货分别留证，收货由唯一函数恰好结算一次，效果与证据归收货人；个人事务七键，用餐目标按本人 meal 收货推进。 |
 | `2026-10-08-acs-action` | 2026-10-08 | 统一动作执行、内容历史、推送、社交及用户补订的现行合同 |
+| `2026-10-07-acs-close` | 2026-10-07 | 动作与内容简化收口：场景 8、世界 11、运行清单 4、导出 4、质量 6；统一动作、内容、收货与 app 足迹合同。 |

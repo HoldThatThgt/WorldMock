@@ -8,6 +8,7 @@
 > **让「等待」成为例外修订**：按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「工作安排声明」（阶段 1）。
 > **同时做两件事修订**：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「规则来源与配置边界」的可供性占用声明（阶段 2）。
 > **目标读者**：算法工程师、开发工程师、实验设计者
+> **动作与内容简化修订**：现行设计按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)使用统一动作、无分类内容、真实收货与 app 足迹合同；实施与验收状态见[实现状态](../dev/implementation-status.md#implementation-status-动作与内容简化开发状态)。
 
 > 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作安排与主题地点。
 
@@ -15,7 +16,6 @@
 
 配置文件的编写步骤和可复制示例见[用户配置手册](../manual/README.md#readme-用户配置手册)。本文维护配置职责与设计边界。
 
-> 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界、收货结算」（阶段 1、2）。
 
 具体环境及制作工具按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)归 WorldMock-Dataset，
 正式重制环境路径由 WorldMock-Dataset 发布决定；WorldMock 提供引擎及包内固定通用规则。
@@ -74,7 +74,7 @@
 | `2026-10-06-rrs-work` | 2026-10-07 | HoldThatThgt | 工作主题从运行开始可见；人物工作安排声明绑定主题地点，旧开放、材料与评审配置退役 |
 | `2026-10-07-acs-rules` | 2026-10-07 | Codex | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |
 | `2026-10-07-acs-receipt` | 2026-10-07 | 付款与收货分别留证，收货由唯一函数恰好结算一次，效果与证据归收货人；个人事务七键，用餐目标按本人 meal 收货推进。 | Codex |
-| `2026-10-08-acs-close` | 2026-10-08 | Codex | 同步目录必填运输与通信字段、汽车条件、十种地点和六项菜单权限；真实输入由现行严格模型接受。 |
+| `2026-10-07-acs-close` | 2026-10-07 | Codex | 同步目录必填运输与通信字段、汽车条件、十种地点和六项菜单权限；真实输入由现行严格模型接受。 |
 
 <a name="configuration-模块概述"></a>
 ## 1. 模块概述
@@ -178,7 +178,7 @@ flowchart LR
 
 场景保留 `mass_kg`、`initial_energy_kcal`、`initial_sleep_debt_hours`、`initial_entertainment_need`。
 身体常数、食品利用曲线、能量上限与类别 MET 由 WorldMock 固定，场景不能覆盖。
-人物余额使用正确定义的整数分初值；没有初始食品持有或替代字段。
+人物余额使用正确定义的整数分初值；没有初始商品库存或替代字段。
 
 <a name="configuration-人物差异与衍生体感"></a>
 ### 3.4 人物差异与衍生体感
@@ -317,7 +317,7 @@ uv run worldmock validate --environment examples/environment
 - 人物显式汽车归属与初始驾驶天数；需要长途履约时，家庭最近驿站必须由场景选中。
 - 工作内容引用、唯一分配、工作地点、至少一条内容及排班时长供给。
 
-不校验语料清单、规则副本或初始食品持有。
+不校验语料清单、规则副本或商品库存初值。
 
 <a name="configuration-校验报告"></a>
 ### 8.3 校验报告

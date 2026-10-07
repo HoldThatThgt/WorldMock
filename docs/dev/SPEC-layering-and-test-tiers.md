@@ -162,7 +162,7 @@ flowchart TB
 合同提示与工具说明只在 `CONTRACTS.md` 保留权威文本，测试与模型常量比对这一份。
 行为验收、阶段裁定和突变语义台账变成 `tests/` 下机器数据；测试不从增量散文解析验收表、
 不逐字拼回突变句、不比对非权威提示副本。已有要求与行为证据不能因移除散文解析而消失。
-现行特性集合由 `tests/fixtures/acceptance_requirements.json` 与 `current-feature-owners.json` 一致性核对，接纳 `action-content-simplification`，完成集合为空；归档原文断言仅覆盖已经归档的五份历史增量。原始变异字节证明仅核对当前登记与固定历史基线的非空交集，已退役的历史变异不要求继续在当前生产实现中存在；历史基线文件字节不变。
+现行特性集合由 `tests/fixtures/acceptance_requirements.json` 与 `current-feature-owners.json` 一致性核对，接纳 `action-content-simplification`，其完成集合为 `{1,2,3,4,5,6}`；归档原文断言仅覆盖已经归档的五份历史增量。原始变异字节证明仅核对当前登记与固定历史基线的非空交集，已退役的历史变异不要求继续在当前生产实现中存在；历史基线文件字节不变。
 
 原来「必须存在」的生产文本钉改为接口导入或 AST 结构检查；已有行为证据足够的文本钉直接删除。
 「必须不存在」检查覆盖相关生产包，不能挪到另一文件就通过。
@@ -260,6 +260,8 @@ summary、worker 选择清单及完成回执的运行身份与节点多重集；
 数据仓负责当前正式输入的冻结、来源质量及逐字节重建；当前完整性验收不作为跨版本输出摘要相同的证明。
 
 结构 7 当前完整日允许冻结第三份 `dayrun-resource-rule-baseline.json`：同一人工场景与种子真实运行两次，候选全部一致后发布；两份历史 JSON 字节保持。当前活动与导出核验不等同于跨版本旧摘要一致，第三份基线的运行与冻结在阶段 8 执行。
+
+动作与内容简化在结构 8 人工环境上以两个独立进程、同一场景和种子跑满一天，候选逐项一致后由唯一入口冻结第四份 `tests/fixtures/dayrun-action-content-baseline.json`。第四基线摘要为 `48db31a4fd290300bb1b61c89b2ff3f65201c33e95b7a936a2ab1ccb42430015`；前三份 JSON 与原冻结实现字节保持不变。
 
 <a name="layering-files"></a>
 ## 文件修改清单与所属文档

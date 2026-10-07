@@ -8,14 +8,13 @@
 > **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D0 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。
 > **共享规则与可重建环境修订**：按[冻结规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)同步框架职责、固定依赖与平台验收要求；实际证据见[本特性验收记录](../dev/shared-rules-and-rebuildable-env-verification.md)。
 > **目标读者**：开发工程师、算法工程师、测试工程师、产品经理
+> **动作与内容简化修订**：现行设计按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)使用统一动作、无分类内容、真实收货与 app 足迹合同；实施与验收状态见[实现状态](../dev/implementation-status.md#implementation-status-动作与内容简化开发状态)。
 
-按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「统一动作执行、内容选择、真实进度与系统补订」（阶段 3）。
 
 > 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题工程依据。
 
 > 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「地图中的消费行为」（阶段 2、阶段 3）与「需求映射表、核心术语、算法与工程背书总表、设计决策、非功能约束、设计假设、开放问题、参考文献」（阶段 4）。
 
-> 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界、收货结算」（阶段 1、2）。
 
 具体环境及制作工具按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)归 WorldMock-Dataset，
 正式重制环境路径由 WorldMock-Dataset 发布决定；WorldMock 提供引擎及包内固定通用规则。
@@ -309,4 +308,4 @@ flowchart TB
 | `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |
 | `2026-10-07-acs-receipt` | 2026-10-07 | 付款与收货分别留证，收货由唯一函数恰好结算一次，效果与证据归收货人；个人事务七键，用餐目标按本人 meal 收货推进。 |
 | `2026-10-08-acs-action` | 2026-10-08 | 统一动作执行、内容历史、推送、社交及用户补订的现行合同 |
-| `2026-10-08-acs-close` | 2026-10-08 | 同步直送与驿站领取的收货边界、六类商品、动作与真实内容进度；重复细节引用唯一合同。 |
+| `2026-10-07-acs-close` | 2026-10-07 | 同步直送与驿站领取的收货边界、六类商品、动作与真实内容进度；重复细节引用唯一合同。 |

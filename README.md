@@ -83,8 +83,8 @@ Windows 可用 `py -3.12`，其他系统可用 `python3.12`。`--wheelhouse` 指
 <a name="readme-实验与数据"></a>
 ## 实验与数据
 
-正式环境由 WorldMock-Dataset 发布，环境根中 `corpora/`、`catalog/`、`scenarios/` 并列。
-当前场景结构为 `7`，目录含七份 JSON 与三份包 TOML 副本；具体发布身份和验收按实际收据核对。
+正式环境由 WorldMock-Dataset 发布，环境根只含 `catalog/` 与 `scenarios/`。
+当前目录格式为 `2`、场景结构为 `8`；`catalog/` 由清单和 app、地点、商品、动作、内容、图六个 JSON 文件组成，不含语料或规则副本。具体正式发布身份在阶段 7 按实际收据登记。
 人物自行选择行动，场景只提供现实约束、机会和到达事件。
 
 运行输出位于 `runs/`。事件数据库、素材、模型证据和共同检查点保留实际来源，恢复使用新的目录并保留父运行。
@@ -126,3 +126,4 @@ python scripts/run_tests.py --tier full --workers 6 --environment-root experimen
 | 版本 | 日期 | 变更 |
 | --- | --- | --- |
 | `2026-10-07-repository-ownership` | 2026-10-07 | 明确三仓职责，整理框架入口、安装包与测试目录，删除下游加工入口和安装要求；新消费验收仍待所属仓库完成 |
+| `2026-10-07-acs-close` | 2026-10-08 | 环境根收口为 catalog/scenarios，目录格式 2、场景结构 8、清单加六个目录文件；正式发布与下游消费仍按各自回执 |

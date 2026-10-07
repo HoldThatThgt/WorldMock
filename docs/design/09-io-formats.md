@@ -5,8 +5,8 @@
 > **日期**：2026-10-08
 > **版本**：v1.27
 > **目标读者**：算法工程师、开发工程师
+> **动作与内容简化修订**：现行设计按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)使用统一动作、无分类内容、真实收货与 app 足迹合同；实施与验收状态见[实现状态](../dev/implementation-status.md#implementation-status-动作与内容简化开发状态)。
 
-按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「统一动作执行、内容选择、真实进度与系统补订」（阶段 3）。
 
 > 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 7 的记录、导出、交付与评估合同。
 
@@ -24,7 +24,6 @@
 
 > 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「3.2 AgentState（人物状态）」（阶段 1）；暂停的活动不占名额，受限轮阶段闭集不变，世界结构仍为 9；「3.2 AgentState（人物状态）」与「3.4 ActivityState（活动状态）」的占用名（阶段 2）；字段形状不变，世界结构仍为 9，带旧占用名的检查点恢复时与注册表核对不符而拒绝。
 
-> 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界、收货结算」（阶段 1、2）。
 
 具体环境及制作工具按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)归 WorldMock-Dataset，
 正式重制环境路径由 WorldMock-Dataset 发布决定；WorldMock 提供引擎及包内固定通用规则。
@@ -48,7 +47,7 @@
 本章说明人物、世界、活动、运行身份与工具的输入输出格式；完整字段由生产严格模型与[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)校验。
 统一环境目录由清单加六个文件组成，规则只从包读取，没有环境副本；场景结构 8、世界结构 11、运行清单 4。
 
-世界状态只有实际订单，没有食品持有与联系人持有；收货事件与经历使用 goods_id 与商品类别。
+世界状态只有实际订单，不保存商品库存或联系人持有；收货事件与经历使用 goods_id 与商品类别。
 
 <a name="io-formats-与其他模块的关系"></a>
 ### 1.2 与其他模块的关系
@@ -154,7 +153,7 @@ flowchart TB
 世界结构 11 没有供给库存、报价、营业例外或已付款任务集合。SessionState 的 `app_pushes` 以 app 为键，`AppPush` 恰含 `push_id`、`content_id`、`issued_at`、`status` 四字段，状态为 `pending/opened/released`；动作由该内容的 `action_id` 绑定确定，不另存动作字段。已结束会话保留推送历史并核对 app 与内容身份，随检查点保存；完整字段见[持久化当下事实](../CONTRACTS.md#contracts-持久化当下事实)。
 
 
-订单 `DeliveryState` 保留订单身份、付款人 `agent_id`、店铺、购物 app、卖方账户、件数、单价、配送费、总价、收货地、履约方式、收货人、关联消息、创建与预计时刻、路径和配送行程；商品用 `goods_id` 与 `category`，另有可空 `payment_app_id`、可空 `received_at`。状态为 pending、ready_for_pickup、delivered；pending 与 ready_for_pickup 的 received_at 为 null，到店收货时等于 created_at。订单数量恒为 1。没有食品持有或联系人持有。
+订单 `DeliveryState` 保留订单身份、付款人 `agent_id`、店铺、购物 app、卖方账户、件数、单价、配送费、总价、收货地、履约方式、收货人、关联消息、创建与预计时刻、路径和配送行程；商品用 `goods_id` 与 `category`，另有可空 `payment_app_id`、可空 `received_at`。状态为 pending、ready_for_pickup、delivered；pending 与 ready_for_pickup 的 received_at 为 null，到店收货时等于 created_at。订单数量恒为 1。不保存商品库存或联系人持有。
 
 <a name="io-formats-当前工具请求查询与错误格式"></a>
 ### 当前工具请求、查询与错误格式
@@ -360,4 +359,4 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 | `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |
 | `2026-10-07-acs-receipt` | 2026-10-07 | 付款与收货分别留证，收货由唯一函数恰好结算一次，效果与证据归收货人；个人事务七键，用餐目标按本人 meal 收货推进。 |
 | `2026-10-08-acs-action` | 2026-10-08 | 统一动作执行、内容历史、推送、社交及用户补订的现行合同 |
-| `2026-10-08-acs-close` | 2026-10-08 | 同步真实四字段 AppPush、当前曝光暂存、工作内容与汽车字段；闹钟沿现有排期保存，不构造旧任务或库存状态。 |
+| `2026-10-07-acs-close` | 2026-10-07 | 同步真实四字段 AppPush、当前曝光暂存、工作内容与汽车字段；闹钟沿现有排期保存，不构造旧任务或库存状态。 |
