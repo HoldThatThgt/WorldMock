@@ -164,14 +164,9 @@ flowchart TB
 <a name="io-formats-当前工具请求查询与错误格式"></a>
 ### 当前工具请求、查询与错误格式
 
-当前 `start_activity` 只接受必填 `items[{target, way, from, to}]` 一至两项与必填可空的 `answering`、`prefer`，
-每项四键必填，方式唯一推导内部五类动词；旧平行数组和 `actions` 直接拒绝。`prefer` 显式必填可空：只要含「购买」「到店」或「远程下单」项，就必须写「最快拿到」或「到手价最低」；没有购买项时必须为 `null`。`null` 不再默认最快，不接受旧英文或短名。
-不做旧英文、空串、引号或字符串 `null` 的兼容归一。食用、使用与制作两端为 `null`，本人方向由环境推导；
-购买去向 null 表示本人，给他人购买时写真实收货人名称。
-`from=null` 在购买时表示不额外限定卖方或渠道，完整商品标签仍限定标签门店；其他方式的来源由引擎推导，只允许 `null`。
-`to=null` 始终表示本人，购买收货地沿用当前地点规则，不等于本人住处；购买给他人时写真实收货人名称。
-没有食用或给予请求，购买之外的方式不承载商品转移。
-不接受在 `to` 填「自己」或本人姓名的旧写法；出行目的地由 `target` 与方式确定，`from/to` 不承载路线起止地点。
+start_activity 恰为 items 与 answering。items 一至两项，各项 target、way、app、to、pay_app 五键必填；无用途的键显式写 null。方式闭集为步行、驾车、睡觉、等待、购买、进行、领取；人物选择动作、app、对方和支付 app，环境按实际内容决定时长。商品购买一项一件，购物 app 非空时必须配其支持的支付 app；现场购买 app 为 null，支付 app 可空。出行 app 仅为导航，睡觉等待所有路由字段为空。社交动作必须明确 to，其他动作 to 为空。驿站领取只允许地点目标，全部路由字段为空。
+
+query_world 六键为 name、way、category、app、available_only、offset，全部必填；先按完整冻结集合筛选，再稳定分页，布尔和整数必须为实际 JSON 类型。错误返回完整字段位置、所有可独立判断的明细与完整动态合法值；start_activity 候选保留全部五字段和 answering，不代选。
 
 控制工具只接受当前 `items` 对象数组与请求级必填的 `errands` 数组（与 `items` 平级，允许空数组，一次至多 4 条变更）。
 每条事务变更是封闭对象，`change`、`name`、`item`、`quantity`、`memo`、`remind_time`、`reason` 七键全部必填：
@@ -184,17 +179,14 @@ flowchart TB
 成功结果在 `details.errands` 给回执 `[{errand, change}]`（`errand` 为事务名称：更新与取消写待办层里的名称，新增写所写的名称），
 顺序同请求，没有变更时为 `[]`；被拒结果没有该键，请求被拒时同一请求的事务变更一并不生效。
 
-查询工具为 `query_world(name, way, category, from, available_only, offset)`、`recall_task_summary(task_name)` 与三个记忆查询；
-它们在生活决策中可同批即时返回，不登记世界请求、不推进时间、不计同刻轮数，仍占实际模型回合预算。
-`query_world` 六键 `name`、`way`、`category`、`from`、`available_only`、`offset` 均必填、无缺省，旧四键请求按缺字段拒绝；`name`、`way`、`category`、`from` 可为 null 且至少一个非 null（四者全空时在四个位置各报一条；非 null 的 `name`、`way`、`category` 不得为空白，空白的 `from` 与其余无法解析的来源同按来源错误纠正），`from` 写购买来源（地点显示名，含「家」「住处」，或渠道称呼），与 `start_activity` 购买项的 `from` 经同一纯函数解析、只匹配供给条目；`available_only` 为严格布尔（拒绝字符串、数字与 null），true 只留已确认此刻可执行的条目（报价未知、营业未知的也被滤掉），不单独构成查询条件；`way` 写「购买」等同于同时写「到店」与「远程下单」；`category` 匹配公开 `callable_index` 的品类标签（`query_categories`，筛选不改变其计数口径），`offset` 为严格非负 JSON 整数（拒绝布尔值、数字字符串及浮点数），首批显式写 `0`。返回恒为 `{matches, total_count, next_offset}`，`next_offset` 必填可空；筛选在排序与切页之前施加，`total_count` 是全部筛选交集后的完整匹配数；每批沿用现有 `candidate_presentation_limit=20`，还有匹配时返回下一偏移，否则为 `null`。除两种查询参数错误（`from` 既不是地点显示名也不是渠道称呼；`from` 为 null、`name` 按对象名称无任何匹配且其写法恰是一个渠道称呼）外，任何筛选组合无匹配时返回 `matches=[]`、`total_count=0`、`next_offset=null`，不报错、不自动放宽、不换来源。每项是冻结目标的无损紧凑投影（`name, kind, phase, state, contract, actions, tools`，紧凑规则复用工具层分组的实现），只省略 null 与空集合，不再逐项附 `candidates`，候选只出现在错误合同里。同一冻结观察内可遍历完整权限内匹配集合，不公开超权限信息，不替代耗时浏览。外部只读问答仍只开放记忆与 `finish`。
-世界查询不读取未读邮件正文或超权限供给。
+查询工具为 `query_world(name, way, category, app, available_only, offset)`、`recall_task_summary(task_name)` 与三个记忆查询；同批即时返回，不登记世界请求、不推进时间、不计同刻轮数，仍占模型回合预算。
+六键全部必填，四个筛选非空白或 null 且至少一个非 null；app 仅登记应用名。所有筛选取交集，available_only 只判实际命中的方式及 app，offset 为严格非负 JSON 整数。完整匹配集合先筛选再稳定分页，返回 `{matches,total_count,next_offset}`，末页 next_offset=null；等于 total_count 允许空末页，超过范围报错。
+紧凑公开目标保留 name、kind、phase、state、活动的 last_report、actions、tools，只省略 null 和空集合，保留 false 与零值。查询不公开内部身份、未到期邮件正文或可点名内容；未知 app 与类别等独立错误一次报告，候选只来自该字段的真实公开闭集。
 
 错误顶层为 `{error_code, reason, fix, items, unmet}`，`items[]` 为
 `{path, written, error_code, allowed_values, expected, why, candidates}`，不保留旧 `index`、`field`。
 `path` 是完整位置数组，从 `tool_calls` 起保留工具下标、`function.arguments` 和所有嵌套字段与下标。
 有限枚举完整列于 `allowed_values`；无枚举为 `[]`，英文 `expected` 写类型、范围、格式、组合或世界条件。
-`prefer` 的错误枚举按已合法的方式判定：含购买项返回 `["最快拿到", "到手价最低"]`，
-没有购买项返回 `[null]`；尚不能判明方式时列声明的三值并说明跨字段约束，不猜购买类型。
 候选为完整 `{tool, arguments, note}`，`note` 为英文说明或 `null`，参数严格使用当前接口。
 JSON 解析失败定位参数对象、附行列与必要闭集；未知工具定位工具名、列本次实际提供的工具；混批定位 `tool_calls`。
 `reason`、`fix`、`message`、`why` 与错误日志均为英文，中文对象名原样保留；合法名称不作为全量枚举塞进错误。
@@ -214,7 +206,6 @@ JSON 解析失败定位参数对象、附行列与必要闭集；未知工具定
 当前场景结构 8 的工作输入只有目录内容与人物 `work_content_ids`、必填可空的 `work_schedule`；没有工作任务、预约、开放时刻、截止、技能或素材字段。分配内容从运行开始可做，只在本人工作地点合格，邮件与消息不改变内容身份或进度。
 场景还保留作息字段与覆盖规则；`duty` 由场景声明和世界时钟逐轮求值，随观察事件保存，不新增持久副本。每个人物必须显式声明 `owns_car` 与 `initial_driving_days`，无车时天数为零；实际驾驶余额和已扣日保存在人物状态。完整作者字段见[场景结构 8](../dev/SPEC-action-and-content-simplification.md#spec-acs-场景结构8)。
 目录内容包含真实标题、摘要来源、时长和动作与 app 绑定，不含分类；动作必须声明可空 `manner`、`communication_mode`，不含时长与效果。运输时长位于地点的必填可空 `shipping_seconds`，不在商品上。旧请求和旧持久化结构直接拒绝。
-
 
 
 <a name="io-formats-agentstate人物状态"></a>

@@ -253,10 +253,8 @@ flowchart LR
 `path/written/error_code/allowed_values/expected/why/candidates`；`path` 从模型工具调用根开始，保留全部数组下标，
 `why` 写参数、名称或世界前置条件的英文原因。不以笼统失败代替参数诊断，不采用旧 `index/field` 形状。
 可照填候选只用完整 `{tool, arguments, note}` 调用。
-`query_world(name, way, category, from, available_only, offset)` 读取同一冻结权限下的固定食品菜单与价格；category 来自公开可调用索引，
-`from` 与购买请求用同一个来源解析函数（登记店铺显示名或 app 名，只匹配食品条目），`available_only` 只读取冻结观察里已求得的动作与工具
-`available`，不重新求值交换条件，成功仍以受理时的重验为准；以 matches/total_count/next_offset 返回可遍历的每页结果，逐项不再附候选，
-不触发交换求值副作用或呈现留痕。
+`query_world(name, way, category, app, available_only, offset)` 读取完整冻结公开目标，按名称、方式、类别与实际 app 取交集。available_only 读取该命中组合的同源资格，查询不重新结算交换、不推进时钟、不改变状态或呈现记录。
+返回 matches、total_count、next_offset；先筛选后排序与分页，错误候选只在完整参数错误明细中出现，不代选应用或执行。
 
 | 结果内容 | 应表达什么 |
 | --- | --- |
@@ -288,7 +286,6 @@ flowchart LR
 连续身体变化先结算至实际收货秒；唯一收货函数按商品类别与件数求 `provided`，再按收货人当秒状态求 `applied`，取走本次分录并同次提交订单与收货事件。食品使用当秒效率和能量上限，休闲与日常用品施加固定效果，燃油只增加驾驶可用天数。
 直送和现场购买无需等待独立消费动作；长途到站不能提前施加效果。重复到期、重复领取或他人订单不能多结算。完整时长严格大于 86400 秒才进入驿站链，恰为 86400 秒仍直送；驿站由实际模拟收货人家庭地址在完整发布图上的最近站确定，且必须由场景选中。
 字段、分录、归属和幂等细节只在[供给结算与事件载荷](../CONTRACTS.md#contracts-供给结算与事件载荷)及[请求字段与结算检查](../CONTRACTS.md#contracts-request-settlement)定义。
-
 
 
 

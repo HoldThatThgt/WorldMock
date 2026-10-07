@@ -120,7 +120,9 @@ timeline
 工具面与各层 Schema 不变，`tool_schema_sha256` 不变；该改写实施前后的运行不可合并比较；零点计划模板第三、五、六条的改写只改变 `code_sha256`。
 [同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-占用声明)重列可供性占用声明（只有同一种动作互斥）：`tool_schema_sha256` 绑定引擎包资源 `src/worldmock/data/affordances.toml` 的字节，因而与 `code_sha256` 一起改变，`prompt_sha256`、世界结构 9、质量报告结构 4、场景结构 6 不变；活动占用随世界状态保存并在恢复时与注册表逐项核对，此前的检查点与运行不能再恢复或重放，实施前后的运行不可合并比较。
 
-[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送)阶段 4 把娱乐目标改为 app，工具层可调用索引改为 `lifestyle`、`goods`、`query_categories` 三键，进度层加入 app 推送与 app 内容结果；最终八项占用闭集也随包资源字节进入工具指纹。因此 `tool_schema_sha256` 与 `prompt_sha256` 在本阶段都改变，本阶段前后的运行不可合并比较。阶段 5 又删除独立工作交付工具和评审阶段，改为工作主题累计，并同步系统层第 2 条；阶段 6 才改其余五条系统层文本并形成最终提示指纹。
+[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-观察与工具面)统一动作执行与显式 app、导航 app、购物 app 和付款 app；可调用索引为 goods、navigation_apps、payment_apps、query_categories。活动快照、推送动作、内容进度与分配工作内容共同决定当前提示和工具身份。原生工具 Schema、十八条系统规则、层 Schema 与代码摘要分别冻结，改写前后的运行不能合并比较或恢复为当前结构。
+
+当前启动项恰有 `target`、`way`、`app`、`to`、`pay_app`，世界查询使用六键 `name`、`way`、`category`、`app`、`available_only`、`offset`。一次性闹钟新增为原生工具，驿站领取通过 start_activity 的「领取」方式执行；动作通信方式明确区分文字与语音，内容不含分类；这些字段、十二项原生工具与系统层改写共同改变工具和提示身份。上文 `from`、`prefer` 等仅描述历史指纹变更，不是当前输入。
 
 [同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)把系统层第 8 条原位改写（阶段 3，仍为 18 条），改变 `prompt_sha256`，
 工具面与各层 Schema 不变，`tool_schema_sha256` 不变；该改写实施前后的运行不可合并比较。
@@ -133,10 +135,9 @@ timeline
 
 工具交互特性删除模型 `actions` 参数，增加固定 `query_world`，任务回看改为只读，错误位置与候选、
 任务合同元信息、操作备忘及紧凑工具层都改变提示或工具身份，必须重新计算两个指纹并冻结进新运行清单。
-请求采用 `start_activity.items[]` 的一至两项 `{target, way, from, to}`，本人消费两端与本人收货的 `to` 为 null；
-含购买时 `prefer` 必须取「最快拿到」或「到手价最低」，不含购买时必须为 null。
+请求采用 `start_activity.items[]` 的一至两项 `{target, way, app, to, pay_app}`，未使用字段写 null；本人收货的 to 为 null，远程购物与付款应用均由人物明确选择。
 只读查询不作为世界动作或同刻轮数，调用所在模型回复仍计十六回合预算；不添加查询试点开关或旧请求兼容层。
-按错误接口、任务、供给价格、料理、查询、操作备忘与紧凑呈现分别形成端到端实验收据，
+按错误接口、分配工作内容、实际购买与收货、查询、操作备忘与紧凑呈现分别形成端到端实验收据，
 每阶段身份和独立行为、变异门禁见[工具交互特性门禁](VERIFICATION.md#verification-工具交互特性门禁)。不同阶段的代码、数据和提示身份不可合并当成同一实验。
 
 剩余系统规则已按冻结合同同步：推送时机、并行活动、名称、购买来源与工作主题。

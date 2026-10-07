@@ -167,7 +167,7 @@ WorldMock 当前十种活动类型。
 
 `--worldmock` 指向 `worldmock export` 生成的**已完成运行的足迹导出目录**，其中包含
 `manifest.json`、认证检查点及 `events.jsonl`、`activities.jsonl`、`verified-experiences.jsonl`、
-`purchases.jsonl`、`app-usage.jsonl` 五类正文。导出清单结构为 4，检查点世界结构为 11，
+`purchases.jsonl`、`app-usage.jsonl` 五类正文。导出清单结构为 3，检查点世界结构为 11，
 冻结清单的 `environment_identity` 必须与实际环境和规则身份一致。
 评估要求 `experiment_completed: true`，检查点位于窗口终点，并验证实际导出内容。
 LabelKit-DataSet 的训练记录不能替代这里的完整足迹导出。
@@ -198,6 +198,7 @@ legacy-root/
 | `repair_report_sha256`、`final_audit_sha256` | 对应报告完整文件的实际 SHA-256 |
 
 只有更换了已经认证的基准交付才更新这些值。改哈希不能替代修复链和完整审计。
+
 
 
 <a name="evaluation-可选真人参照"></a>

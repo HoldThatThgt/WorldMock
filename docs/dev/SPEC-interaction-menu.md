@@ -123,54 +123,19 @@ app 作为 `kind="app"` 的工具目标始终列出，人物用方式「打开�
 <a name="spec-interaction-menu-观察与人物工具"></a>
 ## 观察与人物工具
 
-观察顶层工具支持数据新增必填 `interaction_menu`，形状就是 `allowed_actions` 的有效菜单。
-它由地点菜单和人物菜单求交集后确定性排序生成；人物为 `null` 时使用地点菜单。
-按权威 `agent.location_id` 查到地点类；缺地点、缺菜单或损坏菜单作为完整性故障记录并终止。
-不得把所有人物的原始菜单声明送给当前人物。
+工具定义整次运行不变，人物请求恰有一个世界请求，提交前可批量只读查询。工具层列出实际登记的动作和各自支持的 app；app 不是单独可打开的目标，内容标题不作为可提交目标。
 
-完整的 `affordance_contract` 保持原义，不因菜单删去条目；完整候选保持原合同。人物请求的载体是七层：
-菜单排除的动作不列入工具层目标，所在场所的固定规则以可读说法写在环境层 `location.fixed_rules`（菜单全开时为 `[]`）。
-工具支持块进入冻结观察与审计证据，不在 user 的七层中重复序列化。
-菜单解析缺失、未知名称、重复、坏类型或缺保护项时，宿主失败关闭并记录英文错误，不使用全量工具替代。
-提示的递归字段校验必须拒绝误入的 `interaction_menu` 和 `interaction_menus_by_location_kind`，
-不靠提示组装当前恰好未复制这些字段来代替合同校验。
-只读记忆路径不需要世界菜单；只读问答阶段只开放记忆查询与 `finish`，不开放 `query_world`。
-生活决策中的 `query_world` 读取世界领域事实仍按冻结菜单和归属校验。
-
-| 工具路径 | 菜单要求 |
+| 工具 | 当前行为 |
 | --- | --- |
-| 稳定模型工具 | 地点菜单不剪裁工具；状态、阶段、同刻上限和预算仍门控具体可用性 |
-| `start_activity` | 必填items/answering/prefer；items一至两项，每项恰为全键必填的{target,way,from,to}，整组原子受理；删除actions和平行targets/ways/from/to数组。宿主与环境共用方式解析，再核对allowed_actions；按名称调用仍检查菜单。to=null统一表示本人，其他人物写实名，旧“自己”值拒绝；食用、使用、制作与非转移动作两端null，给予from=null且to为其他人物。含到店/远程下单/购买项时prefer必须为“最快拿到”或“到手价最低”，否则必须为null；null不默认最快，旧英文枚举拒绝。失败候选为{tool,arguments,note}完整合法调用，不代人物执行 |
-| `query_world` | 稳定只读工具；name/way/category/from/available_only/offset 六键全部必填、无缺省，旧四键请求按缺字段拒绝；name、way、category、from 可空但至少一个非 null，available_only 为布尔且不单独构成查询条件，offset 为非负整数；from 写地点显示名或渠道称呼，与购买请求共用同一来源解析，只匹配固定食品供给，不按需求反查门店、不计算路线；available_only=true 只留已确认此刻可执行的条目，可执行取冻结观察里该条目动作的 available，筛选先于排序与切页（个人事务与工作安排规格第五章，阶段 4 落地）；category只取callable_index已展示的公开品类标签；返回matches/total_count/next_offset，next_offset必填可空，每页沿用现有上限20，按偏移可遍历全集；查询只限冻结观察可读事实，不提交世界请求、不推进时钟、不给data.supplies或工具层目标添加条目；app 与内容不进入查询结果，人物通过始终列出的 app 目标启动 `use_app`；任务检查已告知与归属，库存只读本人可读持有物；不恢复discover_places或商品需求路线查询 |
-| `recall_task_summary` | 接受可读任务名、当日目标名或活动名（会话名不在七层中出现，不接受）；找不到或不唯一时业务拒绝并列出可选名称 |
-| `report_status`、`pause_activity`、`conclude_activity` | `items[]` 一至两项，一项活动一个对象：`report_status`、`pause_activity` 为 `{activity_name, summary}`，`conclude_activity` 为 `{activity_name, summary, memories, views}`（一日运行保真规格第六章）；三者另有请求级必填 `errands[]`（与 `items` 平级，可为 `[]`；新增、更新或取消个人事务，个人事务与工作安排规格 2.2，阶段 2 落地）；`activity_name` 为唯一可读活动名；先校验全部活动、阶段与事务变更，再原子更新；报告可以恢复暂停的活动，结束作用于选中的进行中、暂停或待收尾的活动；事务变更随活动控制提交，与活动控制一样不受地点菜单剪裁（见「声明与准入」），仍服从宿主与环境的同一校验 |
-| `send_message` | 在通讯领域条件满足时开放，正文由人物写入，收件人用可读名称定位；工作主题只经 `start_activity` 与三个活动控制工具推进 |
+| `start_activity` | `{items, answering}`，items 一至两项，每项恰为 `target, way, app, to, pay_app` 五个必填字段；原子解析、准入与执行，未使用值写 null |
+| `query_world` | 六个必填键 `name, way, category, app, available_only, offset`；按完整冻结公开目标取交集再分页，实际 app 与方式共同决定可执行资格 |
+| `recall_task_summary` | 只读回看当日目标文字或活动名，不接受内容标题、工作主题或会话名 |
+| `report_status`、`pause_activity`、`conclude_activity` | 对实际活动名逐项控制，另有必填 errands 数组；恢复在原地点按内容、名额与占用检查，叙述不改客观进度 |
+| `send_message` | 人物写正文并选择真实收件人；通信约束与驾车禁用沿当前准入规则 |
+| `set_alarm` | 人物指定本地钟点；到期只响一次，可以唤醒真实睡眠 |
 
-购买、出行、社交、生活活动与 app 使用都由 `start_activity` 的私有绑定定位；相应标准动作按菜单限制。
-每个登记 app 始终作为 `kind="app"` 的目标列出，只提供方式「打开」和标准动作 `use_app`；app 不进入候选、轮转或
-`callable_index`。没有绑定内容时目标保持可见并说明不可用，直接请求也以 `APP_CONTENT_EMPTY` 拒绝。
-交谈和通话不能暂停。任务或人物名称不展示内部编号、索引或标识符。
-暂停的活动仍在观察与回看选项中可见；播报可在其开始地点恢复它，另核对当前资源与地点条件，能量不参与。
-原生工具整次运行不变（只剩最后一个回合时与输出截断后的那次重试时去掉全部查询工具（`recall_task_summary`、`query_world` 与三个记忆查询），后者见一日运行保真规格 7.2），不逐轮绑定名称枚举；恢复条件由待办层控制工具的 `available`、`reason` 说明，
-不满足时由环境以同一原因业务拒绝。
-菜单控制必须同时出现在工具层（菜单排除的动作不列出）、本地决策校验和直接宿主派发校验，不能依赖模型自觉遵守。
-一次决策的菜单冻结不变；动作登记即结束本次决策，不向模型发送登记确认，同一秒接着决策时结算结果经续接的 tool 消息交还；
-只读工具、单动作协议与纠错预算保持原规格。
-已有活动时，新启动和瞬时动作仍按正常菜单开放，按[时间与能量规格](SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第五章准入，不隐式暂停任何已有活动。
-活动控制按可读活动名（做什么＋对象＋开始时刻）分别开放；恢复须回到活动开始的地点，另核对当前资源与地点条件，能量不参与。
-双对象动作须一次校验全部对象，不能重新开放被菜单移除的动作；可见性只管展示与比较，不限制按名调用（含 `obtain` 的指名购买），
-按名写的对象照常经菜单与准入判定。
-完整并行行为见[一日行为规格](SPEC-dayrun-behavior.md#spec-dayrun-behavior-人物入口与独立控制)。
-
-| 既有目标类别 | 对应菜单资格（内部标准动作；人物方式「工作」「打开」「进行」属 `interact`，「食用」「使用」「给予」属 `consume`，库存转换配方属 `obtain` 的「制作」） |
-| --- | --- |
-| `work_topic` | `start_activity` 的 `work` 动作；公开工具层目标类别仍为 `task` |
-| `app` | `start_activity` 的 `use_app` 动作；内容由所选 app 的绑定决定 |
-| 现有生活活动品类 | `start_activity` 的 `do` 动作 |
-| 物品 | `start_activity` 的 `consume` 动作；食物显示“食用”，耐用品显示“使用”；交给他人显示“给予”（`to` 写人物名），内部标准动作仍为 `consume`（收件人不是自己），菜单、可供性目录与品类配对不变，不新增动作名 |
-
-目标真实存在性继续由现有观察和按名入口判定；菜单不把任意字符串创造为生活活动或 app。
-`query_world.category` 只接受 `callable_index.query_categories` 已列出的固定食品品类，非法品类按既有完整参数错误合同拒绝。
+原生工具共十二个：七个世界请求、两个世界只读查询和三个记忆查询；稳定世界工具面九个。最终回合与截断重试去掉查询工具，控制和受限阶段仍由工具行 available/reason 与真实受理共同约束。
+暂停不占活动名额，待收尾仍占；内容动作按类别和使用方式声明资源。社交不能暂停。
 
 
 <a name="spec-interaction-menu-环境执行与拒绝"></a>
@@ -255,12 +220,8 @@ app 作为 `kind="app"` 的工具目标始终列出，人物用方式「打开�
 <a name="dayrun-fidelity-呈现与浏览-只列名称的可调用索引"></a>
 ### 只列名称的可调用索引
 
-工具层新增字段 `callable_index`（裁决 S5；Schema 登记进 `prompt_schemas.py` 与接口合同「七层字段」:661）：此地此刻可做的生活活动只列名称（家中 107 条、约 415 字）；
-内容和商品只给品类计数与示例名（每类至多 3 个）。它不是目标，不带动作与条件；写在索引里的名称按第三章按名调用，受理时照常做资格与准入判定。
-索引不计入单次呈现上限（它不是候选条目；life-runtime「两级上限」:849、人物规格「呈现上限与下推游标」:319-322 与接口合同「场景常量」:1004 补一句「上限只约束目标条目」），
-但计入整次请求的容量计数（第四章预算不变）。
-
-**验收。** 索引里每个名称都能按名调用；索引不含被地点类资格排除的活动；容量计数含索引。
+`callable_index` 恰含 `goods`、`navigation_apps`、`payment_apps`、`query_categories`。商品按公开类别给计数及至多三个示例，导航与支付应用列登记名称；类别计数来自完整冻结集合，不随某次查询改变。
+索引不占候选展示名额，不公开内部身份，也不替代活动准入。
 
 
 <a name="dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性"></a>
@@ -289,29 +250,15 @@ app 作为 `kind="app"` 的工具目标始终列出，人物用方式「打开�
 <a name="errands-workday-查询筛选与返回精简-请求"></a>
 ### 请求
 
-`query_world(name, way, category, from, available_only, offset)`，六个键全部必填、无缺省；旧四键请求按缺字段拒绝，不留读取分支。
-
-| 键 | 类型 | 含义 |
-| --- | --- | --- |
-| `name`、`way`、`category` | 字符串或 null | 既有含义不变；非 null 不得为空白 |
-| `from` | 字符串或 null | 购买来源：地点显示名（含「家」「住处」）或渠道称呼，与 `start_activity` 购买项的 `from` 同名同义 |
-| `available_only` | 布尔 | true 只留已确认此刻可执行的条目；false 不筛选；拒绝字符串、数字与 null |
-| `offset` | 非负整数 | 既有含义不变 |
-
-- `name`、`way`、`category`、`from` 至少一个非 null；`available_only` 不单独构成查询条件。四者全空时在四个位置各报一条，不落在空根位置。只写 `from` 合法。
-- `name` 只写对象名称，`from` 只写购买来源。门店名写在 `name` 里仍按地点目标匹配。`from` 只匹配供给条目，非供给条目一律排除。
-- `way` 写「购买」（及其同义写法）时等同于同时写「到店」与「远程下单」。
-- 筛选不改变工具层可调用索引里各品类的计数口径（`query_categories`）：它仍是查询权限内的完整条目数。可调用索引在代码与层 Schema 里是四键，接口合同与设计文档写「恰好三键」属既有漂移，随阶段 4 更正。
+`query_world(name, way, category, app, available_only, offset)` 六键全部必填，无缺省；前四键为非空白字符串或 null，至少一个非 null。available_only 是严格 JSON 布尔，offset 是非布尔的非负 JSON 整数。
+名称、方式、公开类别和 app 筛选取交集；购买只有「购买」一种方式，不展开取得方式。`app` 只接受登记应用名，旧 from 字段被严格拒绝。
 
 
 <a name="errands-workday-查询筛选与返回精简-来源解析"></a>
-### 来源解析
+### 应用筛选
 
-`from` 只接受 `null`、登记店铺显示名或 `apps.json` 的 app 名，来源与购买共用同一名称解析；`null` 不额外限制，食品完整标签仍约束标签店铺。
-到店必须人在店内，`app_id=null`；app 配到店以 `SUPPLY_SOURCE_MISMATCH` 拒绝。远程下单要求店铺绑定 app；没有任何 app 是 `FULFILLMENT_NOT_SUPPORTED`，所点 app 未绑定该店是 `APP_NOT_BOUND`，app 的店不卖该食品是 `SUPPLY_NOT_AT_STORE`。
-`from=null` 且店铺绑定多个 app 时取最小 `app_id`，写进 `details.notes`。app 来源从目录绑定派生，不读取手机配置。
-
-`world_query_apps` 从目录 app 与成员店铺构造来源。与购买共用名称归一，不回读手机配置；来源合法但无权限内匹配返回空页，来源错误按完整参数错误合同给实际候选。
+app 名按登记名称精确匹配。商品要求实际供给店铺绑定该购物 app；动作要求动作绑定该 app。店铺与地点名不是 app 值，查询不推断购物或付款应用。
+完整冻结目标先取各筛选交集，商品只保留一个身份，不按店铺展开。未知 app 的候选只能是登记应用，不能混入地点。
 
 
 <a name="errands-workday-查询筛选与返回精简-只看此刻能做的"></a>

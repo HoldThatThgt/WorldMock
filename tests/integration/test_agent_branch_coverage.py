@@ -26,7 +26,7 @@ from tests.integration.test_life_agent_protocol import (
     _GroundedCorrectionDispatcher,
     _ModelResponse,
     _NEWS,
-    _TASK,
+    _WORK_ACTION,
     _WAIT,
     _WAIT_CHOICE,
     _WORK,
@@ -130,7 +130,6 @@ def _misaligned_meta(data: dict) -> None:
     (lambda data: data["activity_bindings"].append({"name": "等待（1月5日 09:00 起）", "activity_id": "activity-x",
                                                     "phase": "进行中", "resumable": False, "note_labels": None}),
      "activity_bindings are invalid"),
-    (lambda data: data["task_bindings"][0].pop("task_name"), "task_bindings are invalid"),
     (lambda data: data.update(goal_bindings=None), "goal_bindings are invalid"),
     (lambda data: data.pop("person_bindings"), "person_bindings are invalid"),
     (lambda data: data.update(interaction_menu={"allowed_actions": ["wait"]}), "interaction menu"),
@@ -184,7 +183,7 @@ async def test_empty_interactive_layer_decision_continues_without_failure() -> N
         assert "enum" not in properties["items"]["items"]["properties"][field]
 
 
-_APP = "应用：哔哩哔哩"
+_APP = "学课程"
 #: 受限轮与名额已满时环境给出的原因（工具层 reason 与私有绑定 note 同一文本）。
 _RESTRICTED = "同一时刻只能先开始或恢复一件事"
 _SLOTS_FULL = "两件事都在做，先结束一件"
@@ -196,9 +195,9 @@ def _restricted_data(stage: str) -> dict:
     data["same_moment_stage"] = stage
     _add_objects(data, _visible_object(
         _APP,
-        "app",
-        "bilibili",
-        _offer("interact", "打开", "use_app", _RESTRICTED),
+        "action",
+        "learn-course",
+        _offer("interact", "进行", "do", _RESTRICTED, app_id=None, category="work_study", manner=None),
     ))
     return _with_activities(data, (_WORK, PHASE_ACTIVE), (_NEWS, PHASE_PAUSED))
 
@@ -220,23 +219,23 @@ def test_visible_objects_freeze_verb_way_and_bound_internal_action() -> None:
     data = copy.deepcopy(_observations()[0]["data"])
     _add_objects(data, _visible_object(
         _APP,
-        "app",
-        "bilibili",
-        _offer("interact", "打开", "use_app", _SLOTS_FULL),
+        "action",
+        "learn-course",
+        _offer("interact", "进行", "do", _SLOTS_FULL, app_id=None, category="work_study", manner=None),
     ))
     person = _prepared(data)
     assert person._life_names["objects"] == {
         "自己": (("interact", "等待", "wait"), ("sleep", "睡觉", "sleep")),
-        _TASK: (("interact", "工作", "work"),),
-        _APP: (("interact", "打开", "use_app"),),
+        _WORK_ACTION: (("interact", "进行", "do"),),
+        _APP: (("interact", "进行", "do"),),
     }
     assert data["tool_layer"]["targets"][1]["actions"][0]["available"] is False
     assert person.validate_react_decisions([
-        _decision("start_activity", _choice(_TASK, "interact", "工作"))], False) == ""
+        _decision("start_activity", _choice(_WORK_ACTION, "interact", "进行"))], False) == ""
     assert "WAY_NOT_OFFERED" in person.validate_react_decisions([
         _decision("start_activity", _choice(_APP, "interact", "等待"))], False)
     start = copy.deepcopy(_functions(person)["start_activity"])
-    assert start["parameters"]["properties"].pop("prefer")["enum"] == ["最快拿到", "到手价最低", None]  # 固定的请求级偏好
+    assert set(start["parameters"]["properties"]) == {"items", "answering"}
     assert '"enum"' not in json.dumps(start)
 
 
@@ -247,7 +246,7 @@ def test_restricted_rounds_do_not_narrow_the_host_tool_surface(stage: str) -> No
     本地校验，交给环境以同一原因业务拒绝。"""
     person = _prepared(_restricted_data(stage))
     assert json.dumps(_functions(person)) == json.dumps(_functions(_prepared()))
-    for decision in (_decision("start_activity", _choice(_APP, "interact", "打开")),
+    for decision in (_decision("start_activity", _choice(_APP, "interact", "进行")),
                      _decision("pause_activity", {"items": [{"activity_name": _WORK, "summary": "先停。"}],
                                                   "errands": []}),
                      _decision("report_status", {"items": [{"activity_name": _NEWS, "summary": "接着看。"}],
@@ -339,8 +338,10 @@ async def test_life_agent_host_guards_fail_closed_on_unprepared_or_wrong_state()
 async def test_recall_dispatch_without_an_environment_fails_closed() -> None:
     """回看由环境按冻结观察读出：人物还没有接上环境时，宿主本地校验通过的 recall_task_summary 在分派处明确失败（宿主内部
     错误，不是人物可触发的业务情形），不虚构回看结果；回看不是世界请求，失败后本轮的世界请求名额仍在。"""
-    person = _prepared()
-    recall = {"task_name": _TASK}
+    data = copy.deepcopy(_observations()[0]["data"])
+    _with_activities(data, (_WORK, PHASE_ACTIVE))
+    person = _prepared(data)
+    recall = {"task_name": _WORK}
     assert person._env is None
     assert person.validate_react_decisions([_decision("recall_task_summary", recall)], False) == ""
     with pytest.raises(RuntimeError, match="Environment is not initialized"):

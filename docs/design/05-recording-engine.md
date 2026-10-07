@@ -269,10 +269,9 @@ action 活动每次结算带 `content{content_id, app_id, position_before_second
 <a name="recording-engine-工具纠错只读查询与当天操作备忘的证据"></a>
 ### 工具纠错、只读查询与当天操作备忘的证据
 
-宿主保存实际模型回复、结构化 `protocol_feedback`、整批拒绝与最终受理结果；当天操作备忘只从这些已提交证据派生。`query_world` 的证据保存 `name`、`way`、`category`、`from`、`available_only`、`offset` 六个必填键。只读查询只进入真实模型与 tool 交换证据，不登记世界请求，不推进时钟，也不改世界或人物状态。
+宿主保存实际模型回复、结构化 `protocol_feedback`、整批拒绝与最终受理结果；当天操作备忘只从这些已提交证据派生。`query_world` 的证据保存 `name`、`way`、`category`、`app`、`available_only`、`offset` 六个必填键。只读查询只进入真实模型与 tool 交换证据，不登记世界请求，不推进时钟，也不改世界或人物状态。
 
 任一 `action` 活动只有在内容位置实际正向推进时才写 `played`，记录真实 `content_id`、可空 `app_id` 与前后位置；目录展示、零秒选择和模型文字都不能伪造内容消费。场景 `work_content_ids` 决定本人分配的工作内容，进度来自同一内容结算，首次做满写 `work_content_completed`；播报只作注记，不改变进度或完成状态。
-
 
 
 <a name="recording-engine-记录生活全过程的实现差距"></a>

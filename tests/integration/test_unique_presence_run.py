@@ -1,9 +1,9 @@
 """唯一出现与人读写法通过真实引擎、SQLite、生活环境及启用记忆的人物模型验证。
 
-双人剧本依次查询主观记忆、打开应用、写下看法、暂停另一项应用使用、阅读邮件并步行到公司；直接消息、邮件正文、
-看法与偏好、暂停活动进度、工作主题合同和固定菜单对象只在各自的公开位置出现。同秒续接按名称替换旧呈现。
-单人剧本通过真实食品消费完成个人事务，保留宿主纠正、环境拒绝、更新和取消；完整事务行只在待办层及规定的回显位置。
-这些断言也供完整日测试使用，故读取与唯一出现检查必须对当前四键工作合同和实际 app、食品事实生效。
+双人剧本依次查询主观记忆、经明确 app 进行登记动作、写下看法、暂停动作、收到邮件并步行到公司做分配工作；
+直接消息、邮件正文、看法、偏好、暂停进度、动作事实和商品对象只在各自的公开位置出现。同秒续接按名称替换旧呈现。
+单人剧本通过真实商品购买收货完成个人事务，保留宿主纠正、环境拒绝、更新和取消；完整事务行只在待办层及规定的回显位置。
+这些断言也供完整日测试使用，故读取与唯一出现检查必须对当前五字段请求和实际动作、app、商品事实生效。
 """
 
 from __future__ import annotations
@@ -44,6 +44,7 @@ from tests.life.routing_fixtures import (  # noqa: E402
     SNACK_NAME,
     single_person_home,
     stage,
+    place,
 )
 from worldmock.life import prompt_capacity  # noqa: E402
 from worldmock.life.activity_control import PHASE_ACTIVE  # noqa: E402
@@ -65,7 +66,7 @@ _EPISODE = "上周六傍晚沿着川杨河散步，风很大，走到桥边才�
 _VIEW = "对方做事很靠谱，这周的会议可以放心交给他。"
 _PREFERENCE = "下午更想喝不加糖的热拿铁。"
 #: 陈曦的剧本阶段，依次推进。
-_PHASES = ("query", "open-first", "using-first", "open-second", "using-second", "read", "reading", "leave", "walking", "office", "done")
+_PHASES = ("query", "open-first", "using-first", "open-second", "using-second", "after-mail", "acting-after-mail", "leave", "walking", "office", "done")
 
 
 @pytest.fixture(autouse=True)
@@ -102,7 +103,8 @@ class _Script:
             return _TextResponse("我按眼前的情况决定接下来做什么。")
         assert "start_activity" in names, f"unexpected non-action request with tools {names}"
         self.requests.append(copy.deepcopy(request))
-        tool, arguments = self._first(_current(request)) if self.agent_id == 1 else self._second(_current(request))
+        tool, arguments = (self._first(_current(request), _MAIL["body"] in str(request["messages"]))
+                           if self.agent_id == 1 else self._second(_current(request)))
         return _ModelResponse(f"call-{self.agent_id}-{len(self.requests)}", tool,
                               json.dumps(arguments, ensure_ascii=False), reasoning_content="按此刻所见决定下一步。")
 
@@ -110,31 +112,32 @@ class _Script:
         """进入下一阶段。"""
         self.phase = _PHASES[_PHASES.index(self.phase) + 1]
 
-    def _first(self, seen: dict) -> tuple[str, dict]:
-        """陈曦：刚结束的先收尾，否则按阶段行动。"""
+    def _first(self, seen: dict, mail_seen: bool) -> tuple[str, dict]:
+        """陈曦按真实动作、邮件到达和活动状态推进，娱乐由本人结束。"""
         pending, running = _activities(seen, "刚结束"), _activities(seen, "进行中")
         if pending:
-            views = []
-            if self.phase == "using-first":
-                other = next(name.removeprefix("人物：") for name, target in seen["targets"].items()
-                             if target["kind"] == "person")
-                views = [_opinion(other, _VIEW), _opinion("咖啡", _PREFERENCE, kind="preference")]
-            if self.phase in {"using-first", "reading", "walking"}:
+            if self.phase in {"acting-after-mail", "walking"}:
                 self._advance()
-            return "conclude_activity", _items("conclude_activity", pending, "这件事先到这里。", views)
-        phase = self.phase
-        if phase == "query":
+            return "conclude_activity", _items("conclude_activity", pending, "这件事先到这里。")
+        if self.phase == "using-first" and running:
+            other = next(name.removeprefix("人物：") for name, target in seen["targets"].items()
+                         if target["kind"] == "person")
+            views = [_opinion(other, _VIEW), _opinion("咖啡", _PREFERENCE, kind="preference")]
+            self._advance()
+            return "conclude_activity", _items("conclude_activity", running, "刷完先停一下。", views)
+        if self.phase == "query":
             self._advance()
             return "memory_recent", {"limit": 5}
-        if phase in {"open-first", "open-second", "read", "leave", "office"}:
+        if self.phase in {"open-first", "open-second", "after-mail", "leave", "office"}:
+            phase = self.phase
             self._advance()
             return "start_activity", _start(seen, phase)
-        if phase == "using-second" and running and any(name.startswith("邮件：") for name in seen["targets"]):
+        if self.phase == "using-second" and running and mail_seen:
             self._advance()
-            return "pause_activity", _items("pause_activity", running, "先看邮件。")
+            return "pause_activity", _items("pause_activity", running, "邮件到了，先停下休息。")
         if running:
             return "report_status", _items("report_status", running, "接着做。")
-        return "start_activity", _start(seen, "office")
+        return "start_activity", _start(seen, "wait")
 
     def _second(self, seen: dict) -> tuple[str, dict]:
         """李凡：先给陈曦发消息，之后刚结束的收尾、进行中的播报，否则等待。"""
@@ -147,7 +150,7 @@ class _Script:
             return "conclude_activity", _items("conclude_activity", pending, "收尾。")
         if running:
             return "report_status", _items("report_status", running, "接着做。")
-        return "start_activity", _start(seen, "office")
+        return "start_activity", _start(seen, "wait")
 
 
 def _items(tool: str, names: list[str], summary: str, views: list[dict] | None = None) -> dict:
@@ -168,25 +171,23 @@ def _activities(seen: dict, phase: str) -> list[str]:
 
 
 def _start(seen: dict, phase: str) -> dict:
-    """按阶段选 start_activity 的一项（对象、动词与方式都取自所见工具层）。"""
-    def pick(accept) -> tuple[str, str, str]:
-        """@brief 第一个满足条件的可用动作。"""
-        return next((name, item["action"], item["way"]) for name, target in seen["targets"].items()
-                    for item in target["actions"] if item["available"] and accept(name, item))
-
-    accepts = {
-        "open-first": lambda name, item: name == "应用：抖音" and item["way"] == "打开",
-        "open-second": lambda name, item: name == "应用：哔哩哔哩" and item["way"] == "打开",
-        "read": lambda name, item: name.startswith("邮件：") and item["way"] == "阅读",
-        "leave": lambda name, item: name == "地点：公司" and item["way"] == "步行",
-        "office": lambda name, item: name == "自己" and item["way"] == "等待",
+    """从当前公开目标选择真实方式和明确 app，不推断默认 app。"""
+    requested = {
+        "open-first": ("刷推荐", "进行", "抖音"),
+        "open-second": ("刷推荐", "进行", "哔哩哔哩"),
+        "after-mail": ("安静休息", "进行", None),
+        "leave": ("地点：公司", "步行", None),
+        "office": ("办公", "进行", None),
+        "wait": ("自己", "等待", None),
     }
-    name, verb, way = pick(accepts[phase])
-    return start_arguments([name], [verb], [way])
+    name, way, app = requested[phase]
+    action = next(item for item in seen["targets"][name]["actions"]
+                  if item["available"] and item["way"] == way and item.get("app") == app)
+    return start_arguments([name], [action["action"]], [way], app=[app])
 
 
 def _engine(engine_factory):
-    """双人场景声明普通邮件；两人登记空计划并在真实十点世界里决策，已分配的工作主题可见。"""
+    """双人场景声明普通邮件；两人登记空计划并在真实十点世界决策，本人的分配工作内容可见。"""
     def mutate(document: dict) -> None:
         """@brief 追加邮件（沿用首封邮件的其余字段）。"""
         document["messages"].append({**document["messages"][0], **_MAIL})
@@ -329,68 +330,20 @@ def _holders_in(request: dict, value: str) -> list[str | None]:
     return [holder for text in _presented(request) if value in text for holder in _holders(_json(text), value)]
 
 
-def _without_work_result_echo(value, contract):
-    """@brief 只扣除真实结果与进度层播报位置中、工时一致的 details.work 回显。"""
-    if not isinstance(value, dict):
-        return value
-    value = copy.deepcopy(value)
-    results = []
-    if value.get("layer") == "进度层":
-        results = [row["result"] for row in value.get("events", [])
-                   if row.get("type") == "tool_call" and row.get("tool") == "report_status" and "result" in row]
-    elif "result" in value and set(value) <= {"result", "events"}:
-        results = [value["result"]]
-    for result in results:
-        details = result.get("details", {})
-        for row in details.get("work", []):
-            if (set(row) == {"name", "done", "remaining"}
-                    and row["name"].rsplit("（", 1)[0] == "工作" + contract["topic"]
-                    and row["done"] == contract["done"] and row["remaining"] == contract["remaining"]):
-                row["remaining"] = ""
-    return value
-
-
-def _work_contract_holders(request: dict, remaining: str, contracts: list) -> list:
-    """@brief 相同剩余文字的主题逐项核对，只扣除各自规定的状态与播报回显。"""
-    holders = []
-    current = _current(request)["targets"]
-    for text in _presented(request):
-        value = _json(text)
-        for contract in contracts:
-            progress = f"已做{contract['done']}，还差{remaining}"
-            if (isinstance(value, dict) and value.get("kind") == "activity"
-                    and value.get("name", "").rsplit("（", 1)[0] == "工作" + contract["topic"]
-                    and current.get(value["name"]) == value
-                    and (value.get("state") == progress or (value.get("phase") == "刚结束"
-                     and value.get("state") in {f"{ending}，{progress}"
-                                                for ending in ("按计划结束", "提前结束", "失败")}))):
-                value = {**value, "state": value["state"].removesuffix(progress)}
-            value = _without_work_result_echo(value, contract)
-        holders.extend(_holders(value, remaining))
-    return holders
-
-
 def _assert_once_each(request: dict) -> None:
-    """看法、偏好、暂停进度和完整工作合同只呈现一次。合同中的目标、已做、剩余和动作时长可以有相同文字，
-    工作活动累计状态与 details.work 回显按冻结裁决保留，其他记录不能复述剩余。固定菜单对象只有一份，别处可按名称引用；消息与记忆全文至多一份。"""
+    """看法、偏好、暂停进度和登记动作事实只完整呈现一次；商品只留一份完整对象。"""
     seen = _current(request)
     items = [item["view"] for item in seen["relationships"].values() if item["view"]]
     items += [item["preference"] for item in seen["preferences"].values()]
     items += [item["progress"] for item in seen["paused_activities"].values()]
-    contracts = [target["contract"] for target in seen["targets"].values() if target["kind"] == "task"]
     for item, count in Counter(items).items():
         assert _values(request, item) == count, item
-    for contract, count in Counter(_compact(contract) for contract in contracts).items():
-        assert _occurrences(request, contract) == count, contract
-    for remaining, count in Counter(contract["remaining"] for contract in contracts).items():
-        matching = [item for item in contracts if item["remaining"] == remaining]
-        holders = _work_contract_holders(request, remaining, matching)
-        assert holders.count("remaining") == count, (remaining, holders)
-        assert all(key in {"target", "done", "remaining", "duration"} for key in holders), (remaining, holders)
     for target in seen["targets"].values():
-        if target["kind"] == "product" and not target["name"].startswith("持有物："):
+        if target["kind"] in {"product", "action"}:
             assert _occurrences(request, _compact(target)) == 1, target["name"]
             assert _holders_in(request, target["name"]).count("name") == 1, target["name"]
+        if target["kind"] == "action":
+            assert _holders_in(request, target["state"]) == ["state"], target["name"]
     for item in (_MESSAGE, _MAIL["body"], _EPISODE):
         assert _occurrences(request, item) <= 1, item
 
@@ -399,13 +352,35 @@ def _identities(engine) -> set[str]:
     """运行里的内部身份：活动、供给、订单、消息、任务、联系人与带连字符的地点身份，以及同世界人物身份。"""
     state, scenario = engine.context.state, engine.context.scenario
     catalog = engine.context.semantics.catalog
-    names = {*state.activities, *catalog.foods, *catalog.apps, *catalog.contents, *catalog.work_topics, *state.deliveries,
+    names = {*state.activities, *catalog.goods, *catalog.apps, *catalog.contents, *catalog.actions,
+             *(content_id for agent in scenario.agents for content_id in agent.work_content_ids), *state.deliveries,
              *(item.message_id for item in scenario.messages),
              *(contact.contact_id for agent in scenario.agents for contact in agent.contacts),
              *(item.location_id for item in scenario.locations if "-" in item.location_id)}
     for agent in state.agents.values():
         names.update(agent.inbox)
-    return names | {f"agent:{agent_id}" for agent_id in state.agents}
+    names.update(f"agent:{agent_id}" for agent_id in state.agents)
+    # 单词身份也可能是正常英文；精确检查 JSON 值，避免把 run together 误判为动作身份泄漏。
+    return {identity if "-" in identity or ":" in identity else json.dumps(identity) for identity in names}
+
+
+def test_identity_scan_distinguishes_public_english_from_every_actual_private_word_value():
+    """@brief 单词身份不匹配英文句子，但真实 JSON 私有值与带分隔符的嵌入身份仍被扫描。"""
+    from types import SimpleNamespace
+    from tests.life.action_worlds import action_world
+
+    semantics, state = action_world()
+    engine = SimpleNamespace(context=SimpleNamespace(
+        state=state, scenario=semantics.scenario, semantics=semantics))
+    identities = _identities(engine)
+    public = _compact({"reason": "These activities cannot run together; keep one paused."})
+    assert not [identity for identity in identities if identity in public]
+    for word in ("run", "keep"):
+        leaked = _compact({"value": word})
+        assert json.dumps(word) in identities
+        assert json.dumps(word) in [identity for identity in identities if identity in leaked]
+    embedded = _compact({"reason": "Private browse-feed was chosen."})
+    assert "browse-feed" in [identity for identity in identities if identity in embedded]
 
 
 #: 固定位置数值字段：人设年龄与记忆查询条数；分页、品类条数、拒绝次数及错误路径另按公开结构扫描。
@@ -542,6 +517,11 @@ async def test_every_request_of_a_multi_state_run_presents_each_item_once(_engin
             _assert_once_each(request)
             _assert_readable(request, identities)
         _assert_seen_in_every_state(models[1].requests)
+        assigned = set(engine.context.scenario.agents[0].work_content_ids)
+        progress = engine.context.state.agents[1].content_progress
+        assert any(content_id in progress and progress[content_id].last_consumed_at > 0 for content_id in assigned)
+        assert any(item.data.get("action_id") == "office-work"
+                   for item in engine.context.state.activities.values() if item.agent_id == 1)
     finally:
         engine.close()
 
@@ -553,17 +533,18 @@ def _observed_at(request: dict) -> str:
 
 def _assert_seen_in_every_state(requests: list[dict]) -> None:
     """陈曦的请求里：消息全文先在同秒续接的 tool 消息、后在进度层、停留结束后在记忆层，送达之后的每个请求都恰好一次；
-    邮件正文出现的次数恰好等于链首进度层里带邮件的阅读结果数（至多一个），停留结束后不再出现；记忆条目只在查询的那一秒
-    （查询回合与同秒续接）出现，时间推进后不再出现；看法、偏好、暂停活动、门店商品目标都被看到过，每个请求都有工作主题目标；
+    邮件全文由真实到达记录交付（至多一份），停留结束后不再出现；记忆条目只在查询的那一秒
+    （查询回合与同秒续接）出现，时间推进后不再出现；看法、偏好、暂停活动、门店商品目标都被看到过，每个请求都有登记工作动作；
     到达公司后的请求消息全文仍恰好一次。"""
     message = set().union(*(_where(request, _MESSAGE) for request in requests))
     assert {"tool 消息", "进度层", "记忆层"} <= message
     arrived = next(index for index, request in enumerate(requests) if _occurrences(request, _MESSAGE))
     assert all(_occurrences(request, _MESSAGE) == 1 for request in requests[arrived:])
-    for request in requests:
-        progress = json.loads(request["messages"][1]["content"])[5]["events"]
-        read = [row for row in progress if row["type"] == "tool_call" and "mail" in row["result"]["details"]]
-        assert _occurrences(request, _MAIL["body"]) == len(read) <= 1
+    mail_arrived = next(index for index, request in enumerate(requests) if _occurrences(request, _MAIL["body"]))
+    origin = json.loads(requests[0]["messages"][1]["content"])[4]["location"]["name"]
+    for index, request in enumerate(requests):
+        location = json.loads(request["messages"][1]["content"])[4]["location"]["name"]
+        assert _occurrences(request, _MAIL["body"]) == int(index >= mail_arrived and location == origin)
     assert "进度层" in set().union(*(_where(request, _MAIL["body"]) for request in requests))
     queried = {_observed_at(request) for request in requests if _occurrences(request, _EPISODE)}
     assert len(queried) == 1
@@ -575,13 +556,13 @@ def _assert_seen_in_every_state(requests: list[dict]) -> None:
     office = [request for request in requests if "公司" in json.loads(request["messages"][1]["content"])[4][
         "location"]["name"]]
     assert office and all(_occurrences(request, _MESSAGE) == 1 for request in office)
-    assert all(any(target["kind"] == "task" for target in _current(request)["targets"].values())
+    assert all(any(target["kind"] == "action" and target["name"] == "办公" for target in _current(request)["targets"].values())
                for request in requests)
     assert any(target["kind"] == "product" for request in requests for target in _current(request)["targets"].values())
 
 
 def _observed_request(engine) -> dict:
-    """一次真实观察按请求写法组成的整次请求（system、六层 user、没有原生工具）：陈曦在家，当前工作主题可见。"""
+    """一次真实观察按请求写法组成的整次请求（system、六层 user、没有原生工具）：陈曦在家，当前登记工作动作可见。"""
     observed = engine.observe(context(engine, "teeth"))
     layers = life_user_layers(observed, persona_layer({}, engine.context.state.agents[1].name, observed["persona_views"]))
     return {"messages": [system_message(False), user_message(layers)], "tools": []}
@@ -596,27 +577,22 @@ def _with(request: dict, change) -> dict:
 
 
 def test_the_presence_and_readability_checks_have_teeth(_engine_factory) -> None:
-    """检查不空转：真实观察组成的请求通过两项检查；把任务合同的剩余写进环境层、把消息全文写两处时唯一出现检查失败；
-    同秒续接的 tool 消息以 changes 取代主题目标不算第二处，在结果里复述完整合同或剩余时失败；门店商品目标名作为调用参数引用不算第二处，结果里再列一个同名商品对象时失败；
-    形状扫描对 duration_seconds 键、
-    以分为单位的整数价格、纯数字字符串、「N 秒」、「0.0166667 小时」这样超过两位小数的数字与 order_id 键都失败，tool
-    消息带内部身份时人读写法检查失败。"""
+    """真实观察通过扫描；在错误层复述动作或商品事实、泄漏身份和数值时检查失败。"""
     engine = _engine(_engine_factory)
     request = _observed_request(engine)
     identities = _identities(engine)
     _assert_once_each(request)
     _assert_readable(request, identities)
-    task = next(target for target in expand_tool_layer(json.loads(request["messages"][1]["content"])[0])["targets"]
-                if target["kind"] == "task")
-    remaining = task["contract"]["remaining"]
-    for change in (lambda layers: layers[4]["location"]["fixed_rules"].append(remaining),
+    targets = expand_tool_layer(json.loads(request["messages"][1]["content"])[0])["targets"]
+    work = next(target for target in targets if target["kind"] == "action" and target["name"] == "办公")
+    for change in (lambda layers: layers[4]["location"]["fixed_rules"].append(work["state"]),
                    lambda layers: layers[4]["location"]["fixed_rules"].extend([_MESSAGE, _MESSAGE])):
         with pytest.raises(AssertionError):
             _assert_once_each(_with(request, change))
     assistant = {"role": "assistant", "content": "", "reasoning_content": "想一想。", "tool_calls": []}
 
     def continued(payload: dict) -> dict:
-        """@brief 请求后接一个 assistant 与一条续接 tool 消息。"""
+        """@brief 真实形状的同秒续接消息。"""
         tool = {"role": "tool", "tool_call_id": "call", "content": _compact(payload)}
         return {**request, "messages": [*request["messages"], assistant, tool]}
 
@@ -624,61 +600,42 @@ def test_the_presence_and_readability_checks_have_teeth(_engine_factory) -> None
         ("items", 1, "memories", 0, "keywords", 2), False, "ARGUMENTS_INVALID"),)).payload()
     _assert_readable(continued(error), identities)
     leaked = copy.deepcopy(error)
-    leaked["items"][0]["path"].append(engine.context.scenario.agents[0].work_topic_ids[0])
+    leaked["items"][0]["path"].append(engine.context.scenario.agents[0].work_content_ids[0])
     with pytest.raises(AssertionError):
         _assert_readable(continued(leaked), identities)
-
-    _assert_once_each(continued({"result": {"details": {}}, "changes": {"targets": {"updated": [task]}}}))
-    for payload in ({"result": {"details": {"contract": remaining}}},
-                    {"result": {"details": {"contract": task["contract"]}}}):
+    _assert_once_each(continued({"result": {"details": {}}, "changes": {"targets": {"updated": [work]}}}))
+    for payload in ({"result": {"details": {"action": work}}},
+                    {"result": {"details": {"state": work["state"]}}}):
         with pytest.raises(AssertionError):
             _assert_once_each(continued(payload))
-    activity = {"name": "工作" + task["contract"]["topic"] + "（1月5日 09:00 起）",
-                "kind": "activity", "phase": "进行中",
-                "state": f"已做{task['contract']['done']}，还差{remaining}",
-                "actions": [], "tools": []}
-    work_request = _with(request, lambda layers: layers[0]["targets"].append(activity))
-    _assert_once_each(work_request)
-    report = {"name": activity["name"], "done": task["contract"]["done"], "remaining": remaining}
-    _assert_once_each(continued({"result": {"details": {"work": [report]}}}))
-    with pytest.raises(AssertionError):
-        _assert_once_each(_with(work_request, lambda layers: layers[4]["location"]["fixed_rules"].append(remaining)))
-    bad_state = {**activity, "state": "另有重复信息，" + activity["state"]}
-    with pytest.raises(AssertionError):
-        _assert_once_each(_with(request, lambda layers: layers[0]["targets"].append(bad_state)))
-    for payload in ({"result": {"details": {"work": [{**report, "done": "约 3 小时"}]}}},
-                    {"result": {"details": {"other": {"details": {"work": [report]}}}}}):
-        with pytest.raises(AssertionError):
-            _assert_once_each(continued(payload))
-    product = {"name": "集市出售的鸡汤面", "kind": "product", "phase": None, "state": None, "actions": [], "tools": []}
-    shop = _with(request, lambda layers: layers[0]["targets"].append(product))
+    product = next(target for target in targets if target["kind"] == "product")
     referenced = {"type": "tool_call", "tool": "start_activity", "arguments": start_arguments(
-        [product["name"]], ["obtain"], ["远程下单"])}
-    _assert_once_each(_with(shop, lambda layers: layers[5]["events"].append(referenced)))
+        [product["name"]], ["purchase"], ["购买"], app=["美团"], pay_app=["支付宝"])}
+    _assert_once_each(_with(request, lambda layers: layers[5]["events"].append(referenced)))
     with pytest.raises(AssertionError):
-        _assert_once_each(_with(shop, lambda layers: layers[5]["events"].append(
+        _assert_once_each(_with(request, lambda layers: layers[5]["events"].append(
             {"type": "tool_call", "result": {"details": {"items": [{"name": product["name"], "price": "8 元"}]}}})))
-    target = next(item for item in expand_tool_layer(json.loads(request["messages"][1]["content"])[0])["targets"] if item["actions"])
+    target = next(item for item in targets if item["actions"])
     priced = {**target, "actions": [{**target["actions"][0], "price": 3200}]}
-    for broken in ({**target, "duration_seconds": 720}, priced, {**target, "state": "3600"}, {**target, "state": "约 30 秒"},
-                   {"contract": {**task["contract"], "remaining": "有效工时还差约 1 分钟（约 0/0.0166667 小时）"}},
+    for broken in ({**target, "duration_seconds": 720}, priced, {**target, "state": "3600"},
+                   {**target, "state": "约 30 秒"}, {"state": "还差约 1 分钟（约 0/0.0166667 小时）"},
                    {"result": {"details": {"order_id": "order-1"}}}):
         with pytest.raises(AssertionError):
             _scan(broken)
     with pytest.raises(AssertionError):
-        _assert_readable(continued({"result": {"details": {"note": f"见 {engine.context.scenario.agents[0].work_topic_ids[0]}"}}}),
+        _assert_readable(continued({"result": {"details": {"note": engine.context.scenario.agents[0].work_content_ids[0]}}}),
                          identities)
 
 
-#: 个人事务那段运行里的三条事务：手边那包薯片吃掉即办成（被宿主纠正过一次备注），牛肉面先记下后改备注，柠檬茶记下后取消。
-_SNACK_ERRAND, _MEAL_ERRAND, _DRINK_ERRAND = "吃掉手边那包薯片", "买一份牛肉面", "备三杯柠檬茶"
+#: 个人事务那段运行里的三条事务：到店购买薯片收货即办成（被宿主纠正过一次备注），牛肉面先记下后改备注，柠檬茶记下后取消。
+_SNACK_ERRAND, _MEAL_ERRAND, _DRINK_ERRAND = "买一包薯片", "买一份牛肉面", "备三杯柠檬茶"
 _SNACK_MEMO, _MEAL_MEMO, _MEAL_MEMO_LATER = "午饭后趁凉喝", "下班顺路去超市", "改成周六上午去面馆"
 _DRINK_REASON = "家里还有饮料"
 #: 超过 120 字的备注：第一个由宿主就地纠正（它以合法备注开头），第二个经绕过宿主的请求由环境拒绝（以更新后的备注开头）。
 _TOO_LONG_MEMO = _SNACK_MEMO + "，" + "顺便把冰箱里的剩菜也清一清" * 10
 _BYPASSED_MEMO = _MEAL_MEMO_LATER + "，" + "顺便看看有没有新到的蔬菜" * 10
 #: 剧本各阶段（陈曦一人），依次推进；bypass 一步不经人物模型，由驱动直接登记给环境。
-_ERRAND_PHASES = ("wait", "note", "note-fixed", "change", "eat", "bypass", "after-bypass", "finish", "end", "done")
+_ERRAND_PHASES = ("wait", "note", "note-fixed", "change", "purchase", "wait-after-buy", "bypass", "after-bypass", "finish", "end", "done")
 
 
 def _errand_items(tool: str, names: list[str], summary: str) -> list[dict]:
@@ -688,7 +645,7 @@ def _errand_items(tool: str, names: list[str], summary: str) -> list[dict]:
 
 
 class _ErrandScript:
-    """只替换远程模型传输：陈曦按阶段记下、纠正、更新、取消个人事务并喝掉那包薯片，按本次请求中模型此刻所见决定唯一一个
+    """只替换远程模型传输：陈曦按阶段记下、纠正、更新、取消个人事务并到店购买薯片收货，按本次请求中模型此刻所见决定唯一一个
     工具调用，保存实际发送的每个行动请求。"""
 
     model_name = "deepseek-flash"
@@ -731,19 +688,21 @@ class _ErrandScript:
         steps = {
             "wait": (True, "start_activity", start_arguments(["自己"], ["interact"], ["等待"])),
             "note": (running, "report_status", {"items": report, "errands": [
-                errand_add(_SNACK_ERRAND, SNACK_NAME, outcome="吃掉", memo=_TOO_LONG_MEMO)]}),
+                errand_add(_SNACK_ERRAND, SNACK_NAME, memo=_TOO_LONG_MEMO)]}),
             "note-fixed": (running, "report_status", {"items": report, "errands": [
-                errand_add(_SNACK_ERRAND, SNACK_NAME, outcome="吃掉", memo=_SNACK_MEMO),
+                errand_add(_SNACK_ERRAND, SNACK_NAME, memo=_SNACK_MEMO),
                 errand_add(_MEAL_ERRAND, MEAL_NAME, memo=_MEAL_MEMO), errand_add(_DRINK_ERRAND, DRINK_NAME, quantity=3)]}),
             "change": (pending, "conclude_activity", {
                 "items": _errand_items("conclude_activity", pending, "不等了。"),
                 "errands": [errand_update(_MEAL_ERRAND, memo=_MEAL_MEMO_LATER), errand_cancel(_DRINK_ERRAND, _DRINK_REASON)]}),
-            "eat": (not pending and not running, "start_activity",
-                      start_arguments([f"持有物：{SNACK_NAME}"], ["consume"], ["食用"])),
+            "purchase": (not pending and not running, "start_activity",
+                         start_arguments([SNACK_NAME], ["purchase"], ["购买"])),
+            "wait-after-buy": (not pending and not running, "start_activity",
+                               start_arguments(["自己"], ["interact"], ["等待"])),
             "after-bypass": (running, "report_status", {
-                "items": _errand_items("report_status", running, "接着吃。"), "errands": []}),
+                "items": _errand_items("report_status", running, "接着等。"), "errands": []}),
             "finish": (pending, "conclude_activity", {
-                "items": _errand_items("conclude_activity", pending, "喝完了。"), "errands": []}),
+                "items": _errand_items("conclude_activity", pending, "等待结束了。"), "errands": []}),
             "end": (not pending and not running, "start_activity", start_arguments(["自己"], ["interact"], ["等待"])),
         }
         ready, tool, arguments = steps.get(self.phase, (False, None, None))
@@ -751,12 +710,12 @@ class _ErrandScript:
 
 
 def _bypass(engine, decision) -> None:
-    """绕过宿主的一次登记（不经人物模型）：播报进行中的吃薯片，同时把牛肉面的备注更新成超过 120 字的写法；请求不经校验
+    """绕过宿主的一次登记（不经人物模型）：播报购买后进行中的等待，同时把牛肉面的备注更新成超过 120 字的写法；请求不经校验
     构造，交给环境复核。"""
     observed = engine.observe(decision)
     [name] = [row["name"] for row in observed["activity_bindings"] if row["phase"] == PHASE_ACTIVE]
     request = REQUEST_MODELS["report_status"].model_construct(
-        items=[ActivityProgressItem(activity_name=name, summary="先吃着。")],
+        items=[ActivityProgressItem(activity_name=name, summary="先等着。")],
         errands=[ErrandChange.model_construct(**errand_update(_MEAL_ERRAND, memo=_BYPASSED_MEMO))])
     engine.submit_action(DirectToolCall(decision, f"action-{decision.round_id}", "report_status", request))
 
@@ -851,17 +810,12 @@ def _row_leaks(request: dict, names: list[str], strip: bool = True) -> list[str]
 
 @pytest.mark.asyncio
 async def test_an_errand_full_row_appears_only_in_the_todo_layer(_engine_factory, tmp_path) -> None:
-    """个人事务的完整行只在待办层（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-待办层与进度层呈现 「唯一出现的口径」）：真实 LifeEngine、SQLite、LifeEnv
-    与从工作区装配、启用记忆的 LifeAgent，单人场景 12:30 在家、手边一包薯片。人物开始等待；12:31 邮件来时播报并记下
-    「吃掉薯片」的事务，备注超过 120 字被宿主就地纠正后连同另两条一起记下（新增带备注）；12:45 等待结束时收尾，更新牛肉面
-    的备注、取消柠檬茶；同一秒续接开始吃薯片；12:46 邮件来时一次绕过宿主的请求把牛肉面备注写成超长，环境整请求拒绝；随后
-    播报吃薯片，12:50 吃完那一刻事务办成（进度层出现只写名称的办成记录），收尾后再开始等待。对陈曦的每一次行动请求（续接
-    与非续接）检查：模型所见每条事务行的要办成什么、已办到哪与备注只在待办层（或续接 changes 里替换它的新行）出现；
-    事务名在别处只作为进度层办成记录与回执的 errand 键出现；规格 2.6 的三处回显位置——同秒续接中上一决策的调用参数与
-    tool 消息里的改动、当日操作备忘的 written 与 accepted_as、被拒结果明细的 written——之外再没有它们；不去掉这三处时
-    确实会查到（例外被用到，检查不空转）。每个请求照常通过唯一出现与人读写法的既有检查（错误路径里的 errands 下标被
-    接受），整次请求里没有事务身份、事务的商品身份与两类私有绑定键。"""
-    engine = single_person_home(_engine_factory, {SNACK_ID: 1.0})
+    """真实宿主和引擎在店里等待、备注纠错、更新取消、购买收货、绕过宿主拒绝与播报收尾。
+    完整事务行只在待办层或指定回显处，办成记录只写事务名；三处回显例外确实使用，扫描不空转。
+    所有实际请求继续核验唯一出现、可读字段和私有身份禁出。
+    """
+    engine = single_person_home(_engine_factory)
+    place(engine, 1, "store")
     wake_by_mail(engine, offset=60)
     wake_by_mail(engine, offset=960)
     environment, script = LifeEnv(), _ErrandScript()

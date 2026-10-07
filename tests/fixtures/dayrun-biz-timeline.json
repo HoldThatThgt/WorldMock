@@ -5,59 +5,119 @@
   "observation": {
     "event_type": "observation",
     "agent_id": 1,
-    "occurred_at": 1767579600,
+    "occurred_at": 1767579000,
     "data": {
+      "actions": [
+        {
+          "action_id": "browse-feed",
+          "app_ids": [
+            "bilibili",
+            "douyin"
+          ],
+          "category": "entertainment",
+          "communication_mode": null,
+          "description": "进行刷推荐。",
+          "manner": "phone_continuous",
+          "name": "刷推荐"
+        },
+        {
+          "action_id": "office-work",
+          "app_ids": [],
+          "category": "work_study",
+          "communication_mode": null,
+          "description": "进行办公。",
+          "manner": null,
+          "name": "办公"
+        },
+        {
+          "action_id": "quiet-rest",
+          "app_ids": [],
+          "category": "daily_care",
+          "communication_mode": null,
+          "description": "进行安静休息。",
+          "manner": null,
+          "name": "安静休息"
+        },
+        {
+          "action_id": "run",
+          "app_ids": [
+            "keep"
+          ],
+          "category": "exercise",
+          "communication_mode": null,
+          "description": "进行跑步。",
+          "manner": "offline_assisted",
+          "name": "跑步"
+        },
+        {
+          "action_id": "small-talk",
+          "app_ids": [],
+          "category": "social",
+          "communication_mode": null,
+          "description": "进行聊天。",
+          "manner": null,
+          "name": "聊天"
+        },
+        {
+          "action_id": "study-course",
+          "app_ids": [
+            "bilibili"
+          ],
+          "category": "work_study",
+          "communication_mode": null,
+          "description": "进行学课程。",
+          "manner": "other_device",
+          "name": "学课程"
+        },
+        {
+          "action_id": "voice-call",
+          "app_ids": [
+            "wechat"
+          ],
+          "category": "social",
+          "communication_mode": "voice",
+          "description": "进行语音通话。",
+          "manner": "phone_continuous",
+          "name": "语音通话"
+        }
+      ],
       "active_activities": [],
       "activity_bindings": [
         {
           "activity_id": "activity-action-call-colleague-1",
-          "name": "通话刘洋（1月5日 09:15 起）",
+          "name": "语音通话（微信）（1月5日 09:15 起）",
           "note_labels": [],
           "phase": "已收尾",
           "resumable": false
         },
         {
           "activity_id": "activity-action-call-client-1",
-          "name": "通话张总（1月5日 09:30 起）",
+          "name": "语音通话（微信）（1月5日 09:25 起）",
           "note_labels": [],
           "phase": "已收尾",
           "resumable": false
         },
         {
-          "activity_id": "activity-action-work-topic-1",
-          "name": "工作季度销售数据整理（1月5日 09:45 起）",
+          "activity_id": "activity-action-assigned-work-1",
+          "name": "办公（1月5日 09:35 起）",
           "note_labels": [],
           "phase": "已收尾",
           "resumable": false
         }
       ],
       "activity_summary": {
-        "drink": 2,
-        "meal": 2,
-        "rest": 1,
-        "snack": 2,
-        "work_topic": 1
+        "drink": 1,
+        "meal": 1,
+        "snack": 1
       },
       "affordance_contract": {
-        "consume": {
-          "action": "consume",
-          "feedback_eligible": true,
-          "target_discovery": "none",
-          "target_field": null
-        },
-        "lifestyle": {
+        "action": {
           "action": "do",
-          "feedback_eligible": true,
-          "target_discovery": "browse_result",
-          "target_field": null
-        },
-        "read_mail": {
-          "action": "read",
           "feedback_eligible": true,
           "target_discovery": "catalog_field",
           "target_field": [
-            "messages",
-            "message_id"
+            "actions",
+            "action_id"
           ]
         },
         "sleep": {
@@ -72,63 +132,87 @@
           "target_discovery": "none",
           "target_field": null
         },
-        "use_app": {
-          "action": "use_app",
-          "feedback_eligible": true,
-          "target_discovery": "catalog_field",
-          "target_field": [
-            "apps",
-            "app_id"
-          ]
-        },
         "wait": {
           "action": "wait",
           "feedback_eligible": true,
           "target_discovery": "none",
           "target_field": null
-        },
-        "work": {
-          "action": "work",
-          "feedback_eligible": true,
-          "target_discovery": "catalog_field",
-          "target_field": [
-            "tasks",
-            "task_id"
-          ]
         }
       },
       "agent_id": 1,
       "app_pushes": {
         "douyin": {
-          "content_id": "c-short",
+          "content_id": "c-short-2",
           "issued_at": 1767578400,
-          "push_id": "push-1-2026-01-05T10:douyin:c-short",
+          "push_id": "push-1-2026-01-05T10:douyin:c-short-2",
           "status": "pending"
         }
       },
       "apps": [
         {
+          "app_id": "alipay",
+          "name": "支付宝",
+          "payment_app_ids": [],
+          "purposes": [
+            "payment"
+          ]
+        },
+        {
+          "app_id": "amap",
+          "name": "高德地图",
+          "payment_app_ids": [],
+          "purposes": [
+            "navigation"
+          ]
+        },
+        {
           "app_id": "bilibili",
-          "content_count": 3,
-          "name": "哔哩哔哩"
+          "name": "哔哩哔哩",
+          "payment_app_ids": [],
+          "purposes": []
         },
         {
           "app_id": "douyin",
-          "content_count": 4,
-          "name": "抖音"
+          "name": "抖音",
+          "payment_app_ids": [],
+          "purposes": []
         },
         {
           "app_id": "eleme",
-          "content_count": 0,
-          "name": "饿了么"
+          "name": "饿了么",
+          "payment_app_ids": [
+            "alipay"
+          ],
+          "purposes": [
+            "shopping"
+          ]
+        },
+        {
+          "app_id": "keep",
+          "name": "Keep",
+          "payment_app_ids": [],
+          "purposes": []
         },
         {
           "app_id": "meituan",
-          "content_count": 0,
-          "name": "美团"
+          "name": "美团",
+          "payment_app_ids": [
+            "alipay",
+            "wechat"
+          ],
+          "purposes": [
+            "shopping"
+          ]
+        },
+        {
+          "app_id": "wechat",
+          "name": "微信",
+          "payment_app_ids": [],
+          "purposes": [
+            "payment"
+          ]
         }
       ],
-      "available_inventory": {},
       "balance_fen": 20000,
       "body": {
         "levels": {
@@ -140,12 +224,12 @@
         },
         "values": {
           "appetite": 0.0,
-          "energy_kcal": 1898.6666666666667,
-          "entertainment_need": 0.8866666666666668,
+          "energy_kcal": 1913.0000000000002,
+          "entertainment_need": 0.8733333333333334,
           "mood_valence": 0.0,
-          "sleep_deficit_hours": 0.49242424242424243,
-          "sleep_pressure": 0.2201059221735998,
-          "sleepiness": 0.07929446608776163,
+          "sleep_deficit_hours": 0.41666666666666663,
+          "sleep_pressure": 0.21293123401679537,
+          "sleepiness": 0.07539381506591009,
           "social_need": 0.023333333333333334
         }
       },
@@ -158,49 +242,84 @@
         "social_dinner_opportunity": false,
         "spring_festival": false
       },
-      "catalog_bindings": [
-        {
-          "kind": "lifestyle",
-          "note": "约 15 分钟",
-          "object": "活动：安静休息",
-          "object_id": "quiet-rest",
-          "reason": "The current location category does not admit this activity.",
-          "way": "进行"
-        }
-      ],
       "contents": [
         {
+          "action_id": "browse-feed",
           "content_id": "c-article",
-          "kind": "article",
           "title": "测试文章"
         },
         {
+          "action_id": "voice-call",
+          "content_id": "c-call",
+          "title": "测试通话"
+        },
+        {
+          "action_id": "small-talk",
+          "content_id": "c-chat",
+          "title": "测试闲聊"
+        },
+        {
+          "action_id": "study-course",
+          "content_id": "c-course",
+          "title": "测试课程"
+        },
+        {
+          "action_id": "browse-feed",
+          "content_id": "c-drama-1",
+          "title": "测试剧集第一集"
+        },
+        {
+          "action_id": "browse-feed",
+          "content_id": "c-drama-2",
+          "title": "测试剧集第二集"
+        },
+        {
+          "action_id": "browse-feed",
+          "content_id": "c-drama-3",
+          "title": "测试剧集第三集"
+        },
+        {
+          "action_id": "browse-feed",
           "content_id": "c-image",
-          "kind": "image_text",
           "title": "测试图文"
         },
         {
+          "action_id": "browse-feed",
           "content_id": "c-live",
-          "kind": "live",
           "title": "测试实况"
         },
         {
+          "action_id": "browse-feed",
           "content_id": "c-long",
-          "kind": "long_video",
           "title": "测试长视频"
         },
         {
+          "action_id": "quiet-rest",
+          "content_id": "c-rest",
+          "title": "测试休息"
+        },
+        {
+          "action_id": "run",
+          "content_id": "c-run",
+          "title": "测试慢跑"
+        },
+        {
+          "action_id": "browse-feed",
           "content_id": "c-short",
-          "kind": "short_video",
           "title": "测试短视频"
         },
         {
+          "action_id": "browse-feed",
           "content_id": "c-short-2",
-          "kind": "short_video",
           "title": "测试短视频二"
+        },
+        {
+          "action_id": "office-work",
+          "content_id": "topic-sales",
+          "title": "季度销售数据整理"
         }
       ],
-      "current_time": 1767579600,
+      "current_time": 1767579000,
       "environment_layer": {
         "body": {
           "appetite": "不饿",
@@ -223,7 +342,7 @@
           "place_type": "办公室",
           "session_kind": "stay"
         },
-        "observed_at": "2026-01-05T10:20:00+08:00"
+        "observed_at": "2026-01-05T10:10:00+08:00"
       },
       "errand_bindings": [],
       "errand_item_bindings": [
@@ -240,18 +359,23 @@
           "product_id": "lemon-tea"
         },
         {
+          "name": "扑克牌",
+          "product_id": "playing-cards"
+        },
+        {
           "name": "饭团",
           "product_id": "rice-ball"
         },
         {
-          "name": "三明治",
-          "product_id": "sandwich"
+          "name": "纸巾",
+          "product_id": "tissue"
         }
       ],
-      "foods": [
+      "goal_bindings": [],
+      "goods": [
         {
           "category": "meal",
-          "food_id": "beef-noodles",
+          "goods_id": "beef-noodles",
           "name": "牛肉面",
           "price_fen": 2800,
           "store_ids": [
@@ -261,21 +385,28 @@
         },
         {
           "category": "snack",
-          "food_id": "chips",
+          "goods_id": "chips",
           "name": "薯片",
           "price_fen": 800,
           "store_ids": "all"
         },
         {
           "category": "drink",
-          "food_id": "lemon-tea",
+          "goods_id": "lemon-tea",
           "name": "柠檬茶",
           "price_fen": 1200,
           "store_ids": "all"
         },
         {
+          "category": "leisure",
+          "goods_id": "playing-cards",
+          "name": "扑克牌",
+          "price_fen": 1500,
+          "store_ids": "all"
+        },
+        {
           "category": "meal",
-          "food_id": "rice-ball",
+          "goods_id": "rice-ball",
           "name": "饭团",
           "price_fen": 1000,
           "store_ids": [
@@ -283,40 +414,24 @@
           ]
         },
         {
-          "category": "meal",
-          "food_id": "sandwich",
-          "name": "三明治",
-          "price_fen": 2500,
+          "category": "daily",
+          "goods_id": "tissue",
+          "name": "纸巾",
+          "price_fen": 600,
           "store_ids": [
-            "cafe"
+            "store"
           ]
         }
       ],
-      "goal_bindings": [],
-      "held_foods": [],
       "home_location_id": "office",
-      "hour_of_day": 10.333333333333334,
+      "hour_of_day": 10.166666666666666,
       "interaction_bindings": [
-        {
-          "actions": [
-            {
-              "canonical_action": "work",
-              "label": "工作",
-              "note": null,
-              "travel_mode": null,
-              "verb": "interact"
-            }
-          ],
-          "kind": "work_topic",
-          "object": "工作：季度销售数据整理",
-          "object_id": "topic-sales"
-        },
         {
           "actions": [
             {
               "canonical_action": "travel_to",
               "label": "驾车",
-              "note": null,
+              "note": "Driving requires a car owned by this persona.",
               "travel_mode": "driving",
               "verb": "travel"
             },
@@ -337,7 +452,7 @@
             {
               "canonical_action": "travel_to",
               "label": "驾车",
-              "note": null,
+              "note": "Driving requires a car owned by this persona.",
               "travel_mode": "driving",
               "verb": "travel"
             },
@@ -358,7 +473,7 @@
             {
               "canonical_action": "travel_to",
               "label": "驾车",
-              "note": null,
+              "note": "Driving requires a car owned by this persona.",
               "travel_mode": "driving",
               "verb": "travel"
             },
@@ -379,7 +494,7 @@
             {
               "canonical_action": "travel_to",
               "label": "驾车",
-              "note": null,
+              "note": "Driving requires a car owned by this persona.",
               "travel_mode": "driving",
               "verb": "travel"
             },
@@ -400,7 +515,7 @@
             {
               "canonical_action": "travel_to",
               "label": "驾车",
-              "note": null,
+              "note": "Driving requires a car owned by this persona.",
               "travel_mode": "driving",
               "verb": "travel"
             },
@@ -421,7 +536,7 @@
             {
               "canonical_action": "travel_to",
               "label": "驾车",
-              "note": null,
+              "note": "Driving requires a car owned by this persona.",
               "travel_mode": "driving",
               "verb": "travel"
             },
@@ -440,279 +555,283 @@
         {
           "actions": [
             {
+              "app_id": null,
               "canonical_action": "purchase",
               "fulfillment": "pickup",
-              "label": "到店",
-              "note": "到店三杯咖啡出售的三明治 requires presence at 三杯咖啡.",
+              "label": "购买",
+              "note": "Purchase requires presence at 一心面馆.",
               "travel_mode": null,
               "verb": "obtain"
             },
             {
+              "app_id": "eleme",
               "canonical_action": "purchase",
               "fulfillment": "delivery",
-              "label": "远程下单",
+              "label": "购买",
+              "note": null,
+              "travel_mode": null,
+              "verb": "obtain"
+            },
+            {
+              "app_id": "meituan",
+              "canonical_action": "purchase",
+              "fulfillment": "delivery",
+              "label": "购买",
               "note": null,
               "travel_mode": null,
               "verb": "obtain"
             }
           ],
-          "app_id": "eleme",
-          "food_id": "sandwich",
+          "app_ids": [
+            "eleme",
+            "meituan"
+          ],
+          "goods_id": "chips",
           "kind": "supply",
-          "object": "三杯咖啡出售的三明治",
-          "object_id": "cafe:sandwich",
+          "object": "薯片",
+          "object_id": "chips",
           "store_id": "cafe"
         },
         {
           "actions": [
             {
+              "app_id": null,
               "canonical_action": "purchase",
               "fulfillment": "pickup",
-              "label": "到店",
-              "note": "到店一心面馆出售的牛肉面 requires presence at 一心面馆.",
+              "label": "购买",
+              "note": "Purchase requires presence at 一心面馆.",
               "travel_mode": null,
               "verb": "obtain"
             },
             {
+              "app_id": "meituan",
               "canonical_action": "purchase",
               "fulfillment": "delivery",
-              "label": "远程下单",
+              "label": "购买",
               "note": null,
               "travel_mode": null,
               "verb": "obtain"
             }
           ],
-          "app_id": "meituan",
-          "food_id": "beef-noodles",
+          "app_ids": [
+            "meituan"
+          ],
+          "goods_id": "beef-noodles",
           "kind": "supply",
-          "object": "一心面馆出售的牛肉面",
-          "object_id": "noodle-1:beef-noodles",
+          "object": "牛肉面",
+          "object_id": "beef-noodles",
           "store_id": "noodle-1"
         },
         {
           "actions": [
             {
+              "app_id": null,
               "canonical_action": "purchase",
               "fulfillment": "pickup",
-              "label": "到店",
-              "note": "到店一心面馆出售的薯片 requires presence at 一心面馆.",
+              "label": "购买",
+              "note": "Purchase requires presence at 一心面馆.",
               "travel_mode": null,
               "verb": "obtain"
             },
             {
+              "app_id": "eleme",
               "canonical_action": "purchase",
               "fulfillment": "delivery",
-              "label": "远程下单",
+              "label": "购买",
+              "note": null,
+              "travel_mode": null,
+              "verb": "obtain"
+            },
+            {
+              "app_id": "meituan",
+              "canonical_action": "purchase",
+              "fulfillment": "delivery",
+              "label": "购买",
               "note": null,
               "travel_mode": null,
               "verb": "obtain"
             }
           ],
-          "app_id": "meituan",
-          "food_id": "chips",
-          "kind": "supply",
-          "object": "一心面馆出售的薯片",
-          "object_id": "noodle-1:chips",
-          "store_id": "noodle-1"
-        },
-        {
-          "actions": [
-            {
-              "canonical_action": "purchase",
-              "fulfillment": "pickup",
-              "label": "到店",
-              "note": "到店三杯咖啡出售的柠檬茶 requires presence at 三杯咖啡.",
-              "travel_mode": null,
-              "verb": "obtain"
-            },
-            {
-              "canonical_action": "purchase",
-              "fulfillment": "delivery",
-              "label": "远程下单",
-              "note": null,
-              "travel_mode": null,
-              "verb": "obtain"
-            }
+          "app_ids": [
+            "eleme",
+            "meituan"
           ],
-          "app_id": "eleme",
-          "food_id": "lemon-tea",
+          "goods_id": "lemon-tea",
           "kind": "supply",
-          "object": "三杯咖啡出售的柠檬茶",
-          "object_id": "cafe:lemon-tea",
+          "object": "柠檬茶",
+          "object_id": "lemon-tea",
           "store_id": "cafe"
         },
         {
           "actions": [
             {
-              "canonical_action": "purchase",
-              "fulfillment": "pickup",
-              "label": "到店",
-              "note": "到店一心面馆出售的柠檬茶 requires presence at 一心面馆.",
+              "app_id": "bilibili",
+              "canonical_action": "do",
+              "category": "entertainment",
+              "label": "进行",
+              "manner": "phone_continuous",
+              "note": null,
               "travel_mode": null,
-              "verb": "obtain"
+              "verb": "interact"
             },
             {
-              "canonical_action": "purchase",
-              "fulfillment": "delivery",
-              "label": "远程下单",
-              "note": null,
-              "travel_mode": null,
-              "verb": "obtain"
-            }
-          ],
-          "app_id": "meituan",
-          "food_id": "lemon-tea",
-          "kind": "supply",
-          "object": "一心面馆出售的柠檬茶",
-          "object_id": "noodle-1:lemon-tea",
-          "store_id": "noodle-1"
-        },
-        {
-          "actions": [
-            {
-              "canonical_action": "purchase",
-              "fulfillment": "pickup",
-              "label": "到店",
-              "note": "到店三杯咖啡出售的薯片 requires presence at 三杯咖啡.",
-              "travel_mode": null,
-              "verb": "obtain"
-            },
-            {
-              "canonical_action": "purchase",
-              "fulfillment": "delivery",
-              "label": "远程下单",
-              "note": null,
-              "travel_mode": null,
-              "verb": "obtain"
-            }
-          ],
-          "app_id": "eleme",
-          "food_id": "chips",
-          "kind": "supply",
-          "object": "三杯咖啡出售的薯片",
-          "object_id": "cafe:chips",
-          "store_id": "cafe"
-        },
-        {
-          "actions": [
-            {
-              "canonical_action": "consume",
-              "label": "食用",
-              "note": "This item is at 家 and must be used there.",
-              "travel_mode": null,
-              "use_mode": "eat",
-              "verb": "consume"
-            },
-            {
-              "canonical_action": "consume",
-              "label": "给予",
-              "note": "This item is at 家 and must be used there.",
-              "travel_mode": null,
-              "verb": "consume"
-            }
-          ],
-          "kind": "holding",
-          "location_id": "home",
-          "object": "持有物：薯片（家）",
-          "object_id": "chips"
-        },
-        {
-          "actions": [
-            {
-              "canonical_action": "use_app",
-              "label": "打开",
+              "app_id": "douyin",
+              "canonical_action": "do",
+              "category": "entertainment",
+              "label": "进行",
+              "manner": "phone_continuous",
               "note": null,
               "travel_mode": null,
               "verb": "interact"
             }
           ],
-          "kind": "app",
-          "object": "应用：哔哩哔哩",
-          "object_id": "bilibili"
+          "app_ids": [
+            "bilibili",
+            "douyin"
+          ],
+          "category": "entertainment",
+          "kind": "action",
+          "manner": "phone_continuous",
+          "object": "刷推荐",
+          "object_id": "browse-feed"
         },
         {
           "actions": [
             {
-              "canonical_action": "use_app",
-              "label": "打开",
+              "app_id": null,
+              "canonical_action": "do",
+              "category": "work_study",
+              "label": "进行",
+              "manner": null,
               "note": null,
               "travel_mode": null,
               "verb": "interact"
             }
           ],
-          "kind": "app",
-          "object": "应用：抖音",
-          "object_id": "douyin"
+          "app_ids": [],
+          "category": "work_study",
+          "kind": "action",
+          "manner": null,
+          "object": "办公",
+          "object_id": "office-work"
         },
         {
           "actions": [
             {
-              "canonical_action": "use_app",
-              "label": "打开",
-              "note": "This app has no content to use.",
-              "travel_mode": null,
-              "verb": "interact"
-            }
-          ],
-          "kind": "app",
-          "object": "应用：饿了么",
-          "object_id": "eleme"
-        },
-        {
-          "actions": [
-            {
-              "canonical_action": "use_app",
-              "label": "打开",
-              "note": "This app has no content to use.",
-              "travel_mode": null,
-              "verb": "interact"
-            }
-          ],
-          "kind": "app",
-          "object": "应用：美团",
-          "object_id": "meituan"
-        },
-        {
-          "actions": [
-            {
-              "canonical_action": "call",
-              "label": "通话",
+              "app_id": null,
+              "canonical_action": "do",
+              "category": "daily_care",
+              "label": "进行",
+              "manner": null,
               "note": null,
               "travel_mode": null,
               "verb": "interact"
             }
           ],
+          "app_ids": [],
+          "category": "daily_care",
+          "kind": "action",
+          "manner": null,
+          "object": "安静休息",
+          "object_id": "quiet-rest"
+        },
+        {
+          "actions": [
+            {
+              "app_id": "keep",
+              "canonical_action": "do",
+              "category": "exercise",
+              "label": "进行",
+              "manner": "offline_assisted",
+              "note": "The current location category does not admit this activity.",
+              "travel_mode": null,
+              "verb": "interact"
+            }
+          ],
+          "app_ids": [
+            "keep"
+          ],
+          "category": "exercise",
+          "kind": "action",
+          "manner": "offline_assisted",
+          "object": "跑步",
+          "object_id": "run"
+        },
+        {
+          "actions": [
+            {
+              "app_id": null,
+              "canonical_action": "do",
+              "category": "social",
+              "label": "进行",
+              "manner": null,
+              "note": null,
+              "travel_mode": null,
+              "verb": "interact"
+            }
+          ],
+          "app_ids": [],
+          "category": "social",
+          "kind": "action",
+          "manner": null,
+          "object": "聊天",
+          "object_id": "small-talk"
+        },
+        {
+          "actions": [
+            {
+              "app_id": "bilibili",
+              "canonical_action": "do",
+              "category": "work_study",
+              "label": "进行",
+              "manner": "other_device",
+              "note": null,
+              "travel_mode": null,
+              "verb": "interact"
+            }
+          ],
+          "app_ids": [
+            "bilibili"
+          ],
+          "category": "work_study",
+          "kind": "action",
+          "manner": "other_device",
+          "object": "学课程",
+          "object_id": "study-course"
+        },
+        {
+          "actions": [
+            {
+              "app_id": "wechat",
+              "canonical_action": "do",
+              "category": "social",
+              "label": "进行",
+              "manner": "phone_continuous",
+              "note": null,
+              "travel_mode": null,
+              "verb": "interact"
+            }
+          ],
+          "app_ids": [
+            "wechat"
+          ],
+          "category": "social",
+          "kind": "action",
+          "manner": "phone_continuous",
+          "object": "语音通话",
+          "object_id": "voice-call"
+        },
+        {
+          "actions": [],
           "kind": "contact",
           "object": "联系人：刘洋",
           "object_id": "colleague"
         },
         {
-          "actions": [
-            {
-              "canonical_action": "call",
-              "label": "通话",
-              "note": null,
-              "travel_mode": null,
-              "verb": "interact"
-            }
-          ],
+          "actions": [],
           "kind": "contact",
           "object": "联系人：张总",
           "object_id": "client"
-        },
-        {
-          "actions": [
-            {
-              "canonical_action": "read",
-              "label": "阅读",
-              "note": null,
-              "travel_mode": null,
-              "verb": "interact"
-            }
-          ],
-          "kind": "mail",
-          "object": "邮件：人工测试通知（2026年01月05日 23:59:00）",
-          "object_id": "test-mail"
         },
         {
           "actions": [
@@ -738,23 +857,13 @@
       ],
       "interaction_menu": {
         "allowed_actions": [
-          "call",
-          "chat",
-          "consume",
+          "collect_parcel",
           "do",
           "purchase",
-          "read",
           "sleep",
           "travel_to",
-          "use_app",
-          "wait",
-          "work"
+          "wait"
         ]
-      },
-      "inventory": {
-        "home": {
-          "chips": 1.0
-        }
       },
       "location_id": "office",
       "locations": [
@@ -802,46 +911,10 @@
       "menus": [
         {
           "app_ids": [
-            "eleme",
-            "meituan"
-          ],
-          "category": "snack",
-          "food_id": "chips",
-          "location_name": "三杯咖啡",
-          "name": "薯片",
-          "price_fen": 800,
-          "store_id": "cafe"
-        },
-        {
-          "app_ids": [
-            "eleme",
-            "meituan"
-          ],
-          "category": "drink",
-          "food_id": "lemon-tea",
-          "location_name": "三杯咖啡",
-          "name": "柠檬茶",
-          "price_fen": 1200,
-          "store_id": "cafe"
-        },
-        {
-          "app_ids": [
-            "eleme",
             "meituan"
           ],
           "category": "meal",
-          "food_id": "sandwich",
-          "location_name": "三杯咖啡",
-          "name": "三明治",
-          "price_fen": 2500,
-          "store_id": "cafe"
-        },
-        {
-          "app_ids": [
-            "meituan"
-          ],
-          "category": "meal",
-          "food_id": "beef-noodles",
+          "goods_id": "beef-noodles",
           "location_name": "一心面馆",
           "name": "牛肉面",
           "price_fen": 2800,
@@ -849,38 +922,41 @@
         },
         {
           "app_ids": [
+            "eleme",
             "meituan"
           ],
           "category": "snack",
-          "food_id": "chips",
-          "location_name": "一心面馆",
+          "goods_id": "chips",
+          "location_name": "三杯咖啡",
           "name": "薯片",
           "price_fen": 800,
-          "store_id": "noodle-1"
+          "store_id": "cafe"
         },
         {
           "app_ids": [
+            "eleme",
             "meituan"
           ],
           "category": "drink",
-          "food_id": "lemon-tea",
-          "location_name": "一心面馆",
+          "goods_id": "lemon-tea",
+          "location_name": "三杯咖啡",
           "name": "柠檬茶",
           "price_fen": 1200,
-          "store_id": "noodle-1"
+          "store_id": "cafe"
         }
       ],
       "message_bindings": [],
       "messages": [
         {
+          "body": "这是用于验证邮件到达和阅读的人工通知。",
           "message_id": "test-mail",
-          "read": false,
           "subject": "人工测试通知",
           "thread_id": "test-mail-thread"
         }
       ],
       "occupied_resources": [],
       "paused_activities": [],
+      "pending_alarms": [],
       "pending_conclusions": [],
       "pending_deliveries": [],
       "person_bindings": [],
@@ -902,13 +978,13 @@
         "0000000000000000000000000000001e",
         "00000000000000000000000000000022",
         "00000000000000000000000000000024",
-        "00000000000000000000000000000038",
-        "00000000000000000000000000000029",
-        "0000000000000000000000000000002c",
+        "0000000000000000000000000000003a",
+        "0000000000000000000000000000002b",
         "0000000000000000000000000000002e",
-        "00000000000000000000000000000033",
-        "00000000000000000000000000000036",
-        "0000000000000000000000000000003a"
+        "00000000000000000000000000000030",
+        "00000000000000000000000000000035",
+        "00000000000000000000000000000038",
+        "0000000000000000000000000000003c"
       ],
       "routes": [
         {
@@ -1091,12 +1167,6 @@
         }
       ],
       "same_moment_stage": "open",
-      "task_bindings": [
-        {
-          "task_name": "工作：季度销售数据整理",
-          "topic_id": "topic-sales"
-        }
-      ],
       "todo_layer": {
         "day_plan": {
           "date": "2026-01-05",
@@ -1111,10 +1181,9 @@
           "goods": [
             {
               "category": "正餐",
-              "count": "2 个",
+              "count": "1 个",
               "examples": [
-                "牛肉面",
-                "三明治"
+                "牛肉面"
               ]
             },
             {
@@ -1132,19 +1201,45 @@
               ]
             }
           ],
-          "lifestyle": [],
+          "navigation_apps": [
+            "高德地图"
+          ],
+          "payment_apps": [
+            "支付宝",
+            "微信"
+          ],
           "query_categories": [
             {
+              "category": "娱乐",
+              "count": 1
+            },
+            {
+              "category": "工作与学习",
+              "count": 2
+            },
+            {
+              "category": "日常照护",
+              "count": 1
+            },
+            {
               "category": "正餐",
-              "count": 4
+              "count": 1
+            },
+            {
+              "category": "社交",
+              "count": 2
+            },
+            {
+              "category": "运动",
+              "count": 1
             },
             {
               "category": "零食",
-              "count": 5
+              "count": 1
             },
             {
               "category": "饮品",
-              "count": 4
+              "count": 1
             }
           ]
         },
@@ -1153,42 +1248,19 @@
           {
             "actions": [
               {
-                "action": "interact",
-                "available": true,
-                "duration": "约 7.5 小时",
-                "note": null,
-                "price": null,
-                "quantity": null,
-                "reason": null,
-                "way": "工作"
-              }
-            ],
-            "contract": {
-              "done": "约 0.6 小时",
-              "remaining": "约 7.4 小时",
-              "target": "约 8 小时",
-              "topic": "季度销售数据整理"
-            },
-            "kind": "task",
-            "name": "工作：季度销售数据整理",
-            "phase": null,
-            "state": null,
-            "tools": []
-          },
-          {
-            "actions": [
-              {
                 "action": "travel",
-                "available": true,
+                "app": null,
+                "available": false,
                 "duration": "约 9 分钟",
                 "note": "费力程度：轻松",
                 "price": "7.93 元",
                 "quantity": null,
-                "reason": null,
+                "reason": "Driving requires a car owned by this persona.",
                 "way": "驾车"
               },
               {
                 "action": "travel",
+                "app": null,
                 "available": true,
                 "duration": "约 55 分钟",
                 "note": "费力程度：费力",
@@ -1208,16 +1280,18 @@
             "actions": [
               {
                 "action": "travel",
-                "available": true,
+                "app": null,
+                "available": false,
                 "duration": "约 8 分钟",
                 "note": "费力程度：轻松",
                 "price": "6.55 元",
                 "quantity": null,
-                "reason": null,
+                "reason": "Driving requires a car owned by this persona.",
                 "way": "驾车"
               },
               {
                 "action": "travel",
+                "app": null,
                 "available": true,
                 "duration": "约 45 分钟",
                 "note": "费力程度：费力",
@@ -1237,16 +1311,18 @@
             "actions": [
               {
                 "action": "travel",
-                "available": true,
+                "app": null,
+                "available": false,
                 "duration": "约 3 分钟",
                 "note": "费力程度：轻松",
                 "price": "5 元",
                 "quantity": null,
-                "reason": null,
+                "reason": "Driving requires a car owned by this persona.",
                 "way": "驾车"
               },
               {
                 "action": "travel",
+                "app": null,
                 "available": true,
                 "duration": "约 19 分钟",
                 "note": "费力程度：费力",
@@ -1266,16 +1342,18 @@
             "actions": [
               {
                 "action": "travel",
-                "available": true,
+                "app": null,
+                "available": false,
                 "duration": "约 10 分钟",
                 "note": "费力程度：轻松",
                 "price": "7.97 元",
                 "quantity": null,
-                "reason": null,
+                "reason": "Driving requires a car owned by this persona.",
                 "way": "驾车"
               },
               {
                 "action": "travel",
+                "app": null,
                 "available": true,
                 "duration": "约 55 分钟",
                 "note": "费力程度：费力",
@@ -1295,16 +1373,18 @@
             "actions": [
               {
                 "action": "travel",
-                "available": true,
+                "app": null,
+                "available": false,
                 "duration": "约 9 分钟",
                 "note": "费力程度：轻松",
                 "price": "7.34 元",
                 "quantity": null,
-                "reason": null,
+                "reason": "Driving requires a car owned by this persona.",
                 "way": "驾车"
               },
               {
                 "action": "travel",
+                "app": null,
                 "available": true,
                 "duration": "约 51 分钟",
                 "note": "费力程度：费力",
@@ -1324,16 +1404,18 @@
             "actions": [
               {
                 "action": "travel",
-                "available": true,
+                "app": null,
+                "available": false,
                 "duration": "约 10 分钟",
                 "note": "费力程度：轻松",
                 "price": "8.45 元",
                 "quantity": null,
-                "reason": null,
+                "reason": "Driving requires a car owned by this persona.",
                 "way": "驾车"
               },
               {
                 "action": "travel",
+                "app": null,
                 "available": true,
                 "duration": "约 59 分钟",
                 "note": "费力程度：费力",
@@ -1353,294 +1435,270 @@
             "actions": [
               {
                 "action": "obtain",
+                "app": null,
                 "available": false,
                 "duration": null,
                 "note": null,
-                "price": "25 元",
+                "price": "8 元",
                 "quantity": "1 份",
-                "reason": "到店三杯咖啡出售的三明治 requires presence at 三杯咖啡.",
-                "way": "到店"
+                "reason": "Purchase requires presence at 一心面馆.",
+                "way": "购买"
               },
               {
                 "action": "obtain",
+                "app": "饿了么",
                 "available": true,
                 "duration": null,
-                "note": "预计 10:43 送到",
-                "price": "30 元",
+                "note": "预计 10:33 送到；可用支付宝付款",
+                "price": "13 元",
                 "quantity": "1 份",
                 "reason": null,
-                "way": "远程下单"
+                "way": "购买"
+              },
+              {
+                "action": "obtain",
+                "app": "美团",
+                "available": true,
+                "duration": null,
+                "note": "预计 10:24 送到；可用支付宝、微信付款",
+                "price": "13 元",
+                "quantity": "1 份",
+                "reason": null,
+                "way": "购买"
               }
             ],
             "kind": "product",
-            "name": "三杯咖啡出售的三明治",
+            "name": "薯片",
             "phase": null,
-            "state": "正餐，每份约 600 千卡；可用饿了么、美团下单",
+            "state": "零食，每份约 200 千卡",
             "tools": []
           },
           {
             "actions": [
               {
                 "action": "obtain",
+                "app": null,
                 "available": false,
                 "duration": null,
                 "note": null,
                 "price": "28 元",
                 "quantity": "1 份",
-                "reason": "到店一心面馆出售的牛肉面 requires presence at 一心面馆.",
-                "way": "到店"
+                "reason": "Purchase requires presence at 一心面馆.",
+                "way": "购买"
               },
               {
                 "action": "obtain",
+                "app": "美团",
                 "available": true,
                 "duration": null,
-                "note": "预计 10:34 送到",
+                "note": "预计 10:24 送到；可用支付宝、微信付款",
                 "price": "33 元",
                 "quantity": "1 份",
                 "reason": null,
-                "way": "远程下单"
+                "way": "购买"
               }
             ],
             "kind": "product",
-            "name": "一心面馆出售的牛肉面",
+            "name": "牛肉面",
             "phase": null,
-            "state": "正餐，每份约 600 千卡；可用美团下单",
+            "state": "正餐，每份约 600 千卡",
             "tools": []
           },
           {
             "actions": [
               {
                 "action": "obtain",
-                "available": false,
-                "duration": null,
-                "note": null,
-                "price": "8 元",
-                "quantity": "1 份",
-                "reason": "到店一心面馆出售的薯片 requires presence at 一心面馆.",
-                "way": "到店"
-              },
-              {
-                "action": "obtain",
-                "available": true,
-                "duration": null,
-                "note": "预计 10:34 送到",
-                "price": "13 元",
-                "quantity": "1 份",
-                "reason": null,
-                "way": "远程下单"
-              }
-            ],
-            "kind": "product",
-            "name": "一心面馆出售的薯片",
-            "phase": null,
-            "state": "零食，每份约 200 千卡；可用美团下单",
-            "tools": []
-          },
-          {
-            "actions": [
-              {
-                "action": "obtain",
+                "app": null,
                 "available": false,
                 "duration": null,
                 "note": null,
                 "price": "12 元",
                 "quantity": "1 份",
-                "reason": "到店三杯咖啡出售的柠檬茶 requires presence at 三杯咖啡.",
-                "way": "到店"
+                "reason": "Purchase requires presence at 一心面馆.",
+                "way": "购买"
               },
               {
                 "action": "obtain",
+                "app": "饿了么",
                 "available": true,
                 "duration": null,
-                "note": "预计 10:43 送到",
+                "note": "预计 10:33 送到；可用支付宝付款",
                 "price": "17 元",
                 "quantity": "1 份",
                 "reason": null,
-                "way": "远程下单"
-              }
-            ],
-            "kind": "product",
-            "name": "三杯咖啡出售的柠檬茶",
-            "phase": null,
-            "state": "饮品，每份约 100 千卡；可用饿了么、美团下单",
-            "tools": []
-          },
-          {
-            "actions": [
-              {
-                "action": "obtain",
-                "available": false,
-                "duration": null,
-                "note": null,
-                "price": "12 元",
-                "quantity": "1 份",
-                "reason": "到店一心面馆出售的柠檬茶 requires presence at 一心面馆.",
-                "way": "到店"
+                "way": "购买"
               },
               {
                 "action": "obtain",
+                "app": "美团",
                 "available": true,
                 "duration": null,
-                "note": "预计 10:34 送到",
+                "note": "预计 10:24 送到；可用支付宝、微信付款",
                 "price": "17 元",
                 "quantity": "1 份",
                 "reason": null,
-                "way": "远程下单"
+                "way": "购买"
               }
             ],
             "kind": "product",
-            "name": "一心面馆出售的柠檬茶",
+            "name": "柠檬茶",
             "phase": null,
-            "state": "饮品，每份约 100 千卡；可用美团下单",
+            "state": "饮品，每份约 100 千卡",
             "tools": []
           },
           {
             "actions": [
               {
-                "action": "obtain",
-                "available": false,
-                "duration": null,
-                "note": null,
-                "price": "8 元",
-                "quantity": "1 份",
-                "reason": "到店三杯咖啡出售的薯片 requires presence at 三杯咖啡.",
-                "way": "到店"
+                "action": "interact",
+                "app": "哔哩哔哩",
+                "available": true,
+                "duration": "约 5 分钟至 40 分钟",
+                "note": "持续使用手机 app",
+                "price": null,
+                "quantity": null,
+                "reason": null,
+                "way": "进行"
               },
               {
-                "action": "obtain",
+                "action": "interact",
+                "app": "抖音",
                 "available": true,
-                "duration": null,
-                "note": "预计 10:43 送到",
-                "price": "13 元",
-                "quantity": "1 份",
+                "duration": "约 2 分钟",
+                "note": "持续使用手机 app；有推送：《测试短视频二》",
+                "price": null,
+                "quantity": null,
                 "reason": null,
-                "way": "远程下单"
+                "way": "进行"
               }
             ],
-            "kind": "product",
-            "name": "三杯咖啡出售的薯片",
+            "kind": "action",
+            "name": "刷推荐",
             "phase": null,
-            "state": "零食，每份约 200 千卡；可用饿了么、美团下单",
-            "tools": []
-          },
-          {
-            "actions": [
-              {
-                "action": "consume",
-                "available": false,
-                "duration": "约 5 分钟",
-                "note": null,
-                "price": null,
-                "quantity": "1 份",
-                "reason": "This item is at 家 and must be used there.",
-                "way": "食用"
-              },
-              {
-                "action": "consume",
-                "available": false,
-                "duration": null,
-                "note": null,
-                "price": null,
-                "quantity": "1 份",
-                "reason": "This item is at 家 and must be used there.",
-                "way": "给予"
-              }
-            ],
-            "kind": "holding",
-            "name": "持有物：薯片（家）",
-            "phase": null,
-            "state": "持有 1 份，零食，每份约 200 千卡",
+            "state": "娱乐；进行刷推荐。",
             "tools": []
           },
           {
             "actions": [
               {
                 "action": "interact",
+                "app": null,
                 "available": true,
-                "duration": "约 30 分钟",
+                "duration": "约 8.5 小时",
                 "note": null,
                 "price": null,
                 "quantity": null,
                 "reason": null,
-                "way": "打开"
+                "way": "进行"
               }
             ],
-            "kind": "app",
-            "name": "应用：哔哩哔哩",
+            "kind": "action",
+            "name": "办公",
             "phase": null,
-            "state": "3 条内容",
+            "state": "工作与学习；进行办公。",
             "tools": []
           },
           {
             "actions": [
               {
                 "action": "interact",
-                "available": true,
-                "duration": "约 30 分钟",
-                "note": null,
-                "price": null,
-                "quantity": null,
-                "reason": null,
-                "way": "打开"
-              }
-            ],
-            "kind": "app",
-            "name": "应用：抖音",
-            "phase": null,
-            "state": "有推送：《测试短视频》（短视频）",
-            "tools": []
-          },
-          {
-            "actions": [
-              {
-                "action": "interact",
-                "available": false,
-                "duration": "约 30 分钟",
-                "note": null,
-                "price": null,
-                "quantity": null,
-                "reason": "This app has no content to use.",
-                "way": "打开"
-              }
-            ],
-            "kind": "app",
-            "name": "应用：饿了么",
-            "phase": null,
-            "state": "0 条内容",
-            "tools": []
-          },
-          {
-            "actions": [
-              {
-                "action": "interact",
-                "available": false,
-                "duration": "约 30 分钟",
-                "note": null,
-                "price": null,
-                "quantity": null,
-                "reason": "This app has no content to use.",
-                "way": "打开"
-              }
-            ],
-            "kind": "app",
-            "name": "应用：美团",
-            "phase": null,
-            "state": "0 条内容",
-            "tools": []
-          },
-          {
-            "actions": [
-              {
-                "action": "interact",
+                "app": null,
                 "available": true,
                 "duration": "约 15 分钟",
                 "note": null,
                 "price": null,
                 "quantity": null,
                 "reason": null,
-                "way": "通话"
+                "way": "进行"
               }
             ],
+            "kind": "action",
+            "name": "安静休息",
+            "phase": null,
+            "state": "日常照护；进行安静休息。",
+            "tools": []
+          },
+          {
+            "actions": [
+              {
+                "action": "interact",
+                "app": "Keep",
+                "available": false,
+                "duration": "约 20 分钟",
+                "note": "借助 app 安排或记录线下行为",
+                "price": null,
+                "quantity": null,
+                "reason": "The current location category does not admit this activity.",
+                "way": "进行"
+              }
+            ],
+            "kind": "action",
+            "name": "跑步",
+            "phase": null,
+            "state": "运动；进行跑步。",
+            "tools": []
+          },
+          {
+            "actions": [
+              {
+                "action": "interact",
+                "app": null,
+                "available": true,
+                "duration": "约 10 分钟",
+                "note": "to 写对方",
+                "price": null,
+                "quantity": null,
+                "reason": null,
+                "way": "进行"
+              }
+            ],
+            "kind": "action",
+            "name": "聊天",
+            "phase": null,
+            "state": "社交；进行聊天。",
+            "tools": []
+          },
+          {
+            "actions": [
+              {
+                "action": "interact",
+                "app": "哔哩哔哩",
+                "available": true,
+                "duration": "约 30 分钟",
+                "note": "通过其他设备使用 app",
+                "price": null,
+                "quantity": null,
+                "reason": null,
+                "way": "进行"
+              }
+            ],
+            "kind": "action",
+            "name": "学课程",
+            "phase": null,
+            "state": "工作与学习；进行学课程。",
+            "tools": []
+          },
+          {
+            "actions": [
+              {
+                "action": "interact",
+                "app": "微信",
+                "available": true,
+                "duration": "约 10 分钟",
+                "note": "持续使用手机 app；to 写对方",
+                "price": null,
+                "quantity": null,
+                "reason": null,
+                "way": "进行"
+              }
+            ],
+            "kind": "action",
+            "name": "语音通话",
+            "phase": null,
+            "state": "社交；进行语音通话。",
+            "tools": []
+          },
+          {
+            "actions": [],
             "kind": "contact",
             "name": "联系人：刘洋",
             "phase": null,
@@ -1654,18 +1712,7 @@
             ]
           },
           {
-            "actions": [
-              {
-                "action": "interact",
-                "available": true,
-                "duration": "约 15 分钟",
-                "note": null,
-                "price": null,
-                "quantity": null,
-                "reason": null,
-                "way": "通话"
-              }
-            ],
+            "actions": [],
             "kind": "contact",
             "name": "联系人：张总",
             "phase": null,
@@ -1682,25 +1729,7 @@
             "actions": [
               {
                 "action": "interact",
-                "available": true,
-                "duration": "约 15 分钟",
-                "note": null,
-                "price": null,
-                "quantity": null,
-                "reason": null,
-                "way": "阅读"
-              }
-            ],
-            "kind": "message",
-            "name": "邮件：人工测试通知（2026年01月05日 23:59:00）",
-            "phase": null,
-            "state": "未读",
-            "tools": []
-          },
-          {
-            "actions": [
-              {
-                "action": "interact",
+                "app": null,
                 "available": true,
                 "duration": "约 15 分钟",
                 "note": null,
@@ -1711,6 +1740,7 @@
               },
               {
                 "action": "sleep",
+                "app": null,
                 "available": true,
                 "duration": "约 7.5 小时",
                 "note": null,
@@ -1728,435 +1758,170 @@
           }
         ]
       },
-      "verified_experiences": [],
+      "verified_experiences": [
+        {
+          "activity_id": "activity-action-call-client-1",
+          "agent_id": 1,
+          "app_id": "wechat",
+          "content_id": "c-call",
+          "event_seq": 23,
+          "interval_end": 1767576900,
+          "interval_start": 1767576300,
+          "kind": "played",
+          "occurred_at": 1767576900,
+          "position_after_seconds": 600,
+          "position_before_seconds": 0.0,
+          "source_event_id": "00000000000000000000000000000017"
+        },
+        {
+          "activity_id": "activity-action-assigned-work-1",
+          "agent_id": 1,
+          "app_id": null,
+          "content_id": "topic-sales",
+          "event_seq": 39,
+          "interval_end": 1767577800,
+          "interval_start": 1767576900,
+          "kind": "played",
+          "occurred_at": 1767577800,
+          "position_after_seconds": 900.0,
+          "position_before_seconds": 0,
+          "source_event_id": "00000000000000000000000000000027"
+        },
+        {
+          "activity_id": "activity-action-assigned-work-1",
+          "agent_id": 1,
+          "app_id": null,
+          "content_id": "topic-sales",
+          "event_seq": 41,
+          "interval_end": 1767578400,
+          "interval_start": 1767577800,
+          "kind": "played",
+          "occurred_at": 1767578400,
+          "position_after_seconds": 1500.0,
+          "position_before_seconds": 900.0,
+          "source_event_id": "00000000000000000000000000000029"
+        },
+        {
+          "activity_id": "activity-action-assigned-work-1",
+          "agent_id": 1,
+          "app_id": null,
+          "content_id": "topic-sales",
+          "event_seq": 50,
+          "interval_end": 1767578700,
+          "interval_start": 1767578400,
+          "kind": "played",
+          "occurred_at": 1767578700,
+          "position_after_seconds": 1800.0,
+          "position_before_seconds": 1500.0,
+          "source_event_id": "00000000000000000000000000000032"
+        },
+        {
+          "activity_id": "activity-action-assigned-work-1",
+          "agent_id": 1,
+          "app_id": null,
+          "content_id": "topic-sales",
+          "event_seq": 52,
+          "interval_end": 1767579000,
+          "interval_start": 1767578700,
+          "kind": "played",
+          "occurred_at": 1767579000,
+          "position_after_seconds": 2100.0,
+          "position_before_seconds": 1800.0,
+          "source_event_id": "00000000000000000000000000000034"
+        }
+      ],
       "wake_reasons": [
         "no_active_activity"
       ],
-      "work_topics": [
-        {
-          "target_seconds": 28800,
-          "topic": "季度销售数据整理",
-          "topic_id": "topic-sales",
-          "worked_seconds": 2100
-        }
-      ],
       "world_query_apps": {
+        "alipay": {
+          "name": "支付宝"
+        },
+        "amap": {
+          "name": "高德地图"
+        },
         "bilibili": {
-          "name": "哔哩哔哩",
-          "store_ids": []
+          "name": "哔哩哔哩"
         },
         "douyin": {
-          "name": "抖音",
-          "store_ids": []
+          "name": "抖音"
         },
         "eleme": {
-          "name": "饿了么",
-          "store_ids": [
-            "cafe"
-          ]
+          "name": "饿了么"
+        },
+        "keep": {
+          "name": "Keep"
         },
         "meituan": {
-          "name": "美团",
-          "store_ids": [
-            "cafe",
-            "noodle-1"
-          ]
+          "name": "美团"
+        },
+        "wechat": {
+          "name": "微信"
         }
       },
       "world_query_bindings": [
         {
           "aliases": [
-            "一心面馆出售的柠檬茶",
-            "柠檬茶"
+            "刷推荐"
           ],
-          "category": "饮品",
-          "identity": "supply:noodle-1:lemon-tea",
-          "location_id": "noodle-1",
+          "category": "娱乐",
+          "identity": "action:browse-feed",
           "match": {
             "actions": [
               {
-                "action": "obtain",
-                "available": false,
-                "duration": null,
-                "note": null,
-                "price": "12 元",
-                "quantity": "1 份",
-                "reason": "到店一心面馆出售的柠檬茶 requires presence at 一心面馆.",
-                "way": "到店"
+                "action": "interact",
+                "app": "哔哩哔哩",
+                "available": true,
+                "duration": "约 5 分钟至 40 分钟",
+                "note": "持续使用手机 app",
+                "price": null,
+                "quantity": null,
+                "reason": null,
+                "way": "进行"
               },
               {
-                "action": "obtain",
+                "action": "interact",
+                "app": "抖音",
                 "available": true,
-                "duration": null,
-                "note": "预计 10:34 送到",
-                "price": "17 元",
-                "quantity": "1 份",
+                "duration": "约 2 分钟",
+                "note": "持续使用手机 app；有推送：《测试短视频二》",
+                "price": null,
+                "quantity": null,
                 "reason": null,
-                "way": "远程下单"
+                "way": "进行"
               }
             ],
-            "kind": "product",
-            "name": "一心面馆出售的柠檬茶",
+            "kind": "action",
+            "name": "刷推荐",
             "phase": null,
-            "state": "饮品，每份约 100 千卡；可用美团下单",
+            "state": "娱乐；进行刷推荐。",
             "tools": []
           }
         },
         {
           "aliases": [
-            "一心面馆出售的牛肉面",
-            "牛肉面"
+            "办公"
           ],
-          "category": "正餐",
-          "identity": "supply:noodle-1:beef-noodles",
-          "location_id": "noodle-1",
+          "category": "工作与学习",
+          "identity": "action:office-work",
           "match": {
             "actions": [
               {
-                "action": "obtain",
-                "available": false,
-                "duration": null,
-                "note": null,
-                "price": "28 元",
-                "quantity": "1 份",
-                "reason": "到店一心面馆出售的牛肉面 requires presence at 一心面馆.",
-                "way": "到店"
-              },
-              {
-                "action": "obtain",
+                "action": "interact",
+                "app": null,
                 "available": true,
-                "duration": null,
-                "note": "预计 10:34 送到",
-                "price": "33 元",
-                "quantity": "1 份",
+                "duration": "约 8.5 小时",
+                "note": null,
+                "price": null,
+                "quantity": null,
                 "reason": null,
-                "way": "远程下单"
+                "way": "进行"
               }
             ],
-            "kind": "product",
-            "name": "一心面馆出售的牛肉面",
+            "kind": "action",
+            "name": "办公",
             "phase": null,
-            "state": "正餐，每份约 600 千卡；可用美团下单",
-            "tools": []
-          }
-        },
-        {
-          "aliases": [
-            "一心面馆出售的薯片",
-            "薯片"
-          ],
-          "category": "零食",
-          "identity": "supply:noodle-1:chips",
-          "location_id": "noodle-1",
-          "match": {
-            "actions": [
-              {
-                "action": "obtain",
-                "available": false,
-                "duration": null,
-                "note": null,
-                "price": "8 元",
-                "quantity": "1 份",
-                "reason": "到店一心面馆出售的薯片 requires presence at 一心面馆.",
-                "way": "到店"
-              },
-              {
-                "action": "obtain",
-                "available": true,
-                "duration": null,
-                "note": "预计 10:34 送到",
-                "price": "13 元",
-                "quantity": "1 份",
-                "reason": null,
-                "way": "远程下单"
-              }
-            ],
-            "kind": "product",
-            "name": "一心面馆出售的薯片",
-            "phase": null,
-            "state": "零食，每份约 200 千卡；可用美团下单",
-            "tools": []
-          }
-        },
-        {
-          "aliases": [
-            "三杯咖啡出售的三明治",
-            "三明治"
-          ],
-          "category": "正餐",
-          "identity": "supply:cafe:sandwich",
-          "location_id": "cafe",
-          "match": {
-            "actions": [
-              {
-                "action": "obtain",
-                "available": false,
-                "duration": null,
-                "note": null,
-                "price": "25 元",
-                "quantity": "1 份",
-                "reason": "到店三杯咖啡出售的三明治 requires presence at 三杯咖啡.",
-                "way": "到店"
-              },
-              {
-                "action": "obtain",
-                "available": true,
-                "duration": null,
-                "note": "预计 10:43 送到",
-                "price": "30 元",
-                "quantity": "1 份",
-                "reason": null,
-                "way": "远程下单"
-              }
-            ],
-            "kind": "product",
-            "name": "三杯咖啡出售的三明治",
-            "phase": null,
-            "state": "正餐，每份约 600 千卡；可用饿了么、美团下单",
-            "tools": []
-          }
-        },
-        {
-          "aliases": [
-            "三杯咖啡出售的柠檬茶",
-            "柠檬茶"
-          ],
-          "category": "饮品",
-          "identity": "supply:cafe:lemon-tea",
-          "location_id": "cafe",
-          "match": {
-            "actions": [
-              {
-                "action": "obtain",
-                "available": false,
-                "duration": null,
-                "note": null,
-                "price": "12 元",
-                "quantity": "1 份",
-                "reason": "到店三杯咖啡出售的柠檬茶 requires presence at 三杯咖啡.",
-                "way": "到店"
-              },
-              {
-                "action": "obtain",
-                "available": true,
-                "duration": null,
-                "note": "预计 10:43 送到",
-                "price": "17 元",
-                "quantity": "1 份",
-                "reason": null,
-                "way": "远程下单"
-              }
-            ],
-            "kind": "product",
-            "name": "三杯咖啡出售的柠檬茶",
-            "phase": null,
-            "state": "饮品，每份约 100 千卡；可用饿了么、美团下单",
-            "tools": []
-          }
-        },
-        {
-          "aliases": [
-            "三杯咖啡出售的薯片",
-            "薯片"
-          ],
-          "category": "零食",
-          "identity": "supply:cafe:chips",
-          "location_id": "cafe",
-          "match": {
-            "actions": [
-              {
-                "action": "obtain",
-                "available": false,
-                "duration": null,
-                "note": null,
-                "price": "8 元",
-                "quantity": "1 份",
-                "reason": "到店三杯咖啡出售的薯片 requires presence at 三杯咖啡.",
-                "way": "到店"
-              },
-              {
-                "action": "obtain",
-                "available": true,
-                "duration": null,
-                "note": "预计 10:43 送到",
-                "price": "13 元",
-                "quantity": "1 份",
-                "reason": null,
-                "way": "远程下单"
-              }
-            ],
-            "kind": "product",
-            "name": "三杯咖啡出售的薯片",
-            "phase": null,
-            "state": "零食，每份约 200 千卡；可用饿了么、美团下单",
-            "tools": []
-          }
-        },
-        {
-          "aliases": [
-            "二味小炒出售的柠檬茶",
-            "柠檬茶"
-          ],
-          "category": "饮品",
-          "identity": "supply:noodle-2:lemon-tea",
-          "location_id": "noodle-2",
-          "match": {
-            "actions": [
-              {
-                "action": "obtain",
-                "available": false,
-                "duration": null,
-                "note": null,
-                "price": "12 元",
-                "quantity": "1 份",
-                "reason": "到店二味小炒出售的柠檬茶 requires presence at 二味小炒.",
-                "way": "到店"
-              }
-            ],
-            "kind": "product",
-            "name": "二味小炒出售的柠檬茶",
-            "phase": null,
-            "state": "饮品，每份约 100 千卡",
-            "tools": []
-          }
-        },
-        {
-          "aliases": [
-            "二味小炒出售的牛肉面",
-            "牛肉面"
-          ],
-          "category": "正餐",
-          "identity": "supply:noodle-2:beef-noodles",
-          "location_id": "noodle-2",
-          "match": {
-            "actions": [
-              {
-                "action": "obtain",
-                "available": false,
-                "duration": null,
-                "note": null,
-                "price": "28 元",
-                "quantity": "1 份",
-                "reason": "到店二味小炒出售的牛肉面 requires presence at 二味小炒.",
-                "way": "到店"
-              }
-            ],
-            "kind": "product",
-            "name": "二味小炒出售的牛肉面",
-            "phase": null,
-            "state": "正餐，每份约 600 千卡",
-            "tools": []
-          }
-        },
-        {
-          "aliases": [
-            "二味小炒出售的薯片",
-            "薯片"
-          ],
-          "category": "零食",
-          "identity": "supply:noodle-2:chips",
-          "location_id": "noodle-2",
-          "match": {
-            "actions": [
-              {
-                "action": "obtain",
-                "available": false,
-                "duration": null,
-                "note": null,
-                "price": "8 元",
-                "quantity": "1 份",
-                "reason": "到店二味小炒出售的薯片 requires presence at 二味小炒.",
-                "way": "到店"
-              }
-            ],
-            "kind": "product",
-            "name": "二味小炒出售的薯片",
-            "phase": null,
-            "state": "零食，每份约 200 千卡",
-            "tools": []
-          }
-        },
-        {
-          "aliases": [
-            "四季便利出售的柠檬茶",
-            "柠檬茶"
-          ],
-          "category": "饮品",
-          "identity": "supply:store:lemon-tea",
-          "location_id": "store",
-          "match": {
-            "actions": [
-              {
-                "action": "obtain",
-                "available": false,
-                "duration": null,
-                "note": null,
-                "price": "12 元",
-                "quantity": "1 份",
-                "reason": "到店四季便利出售的柠檬茶 requires presence at 四季便利.",
-                "way": "到店"
-              }
-            ],
-            "kind": "product",
-            "name": "四季便利出售的柠檬茶",
-            "phase": null,
-            "state": "饮品，每份约 100 千卡",
-            "tools": []
-          }
-        },
-        {
-          "aliases": [
-            "四季便利出售的薯片",
-            "薯片"
-          ],
-          "category": "零食",
-          "identity": "supply:store:chips",
-          "location_id": "store",
-          "match": {
-            "actions": [
-              {
-                "action": "obtain",
-                "available": false,
-                "duration": null,
-                "note": null,
-                "price": "8 元",
-                "quantity": "1 份",
-                "reason": "到店四季便利出售的薯片 requires presence at 四季便利.",
-                "way": "到店"
-              }
-            ],
-            "kind": "product",
-            "name": "四季便利出售的薯片",
-            "phase": null,
-            "state": "零食，每份约 200 千卡",
-            "tools": []
-          }
-        },
-        {
-          "aliases": [
-            "四季便利出售的饭团",
-            "饭团"
-          ],
-          "category": "正餐",
-          "identity": "supply:store:rice-ball",
-          "location_id": "store",
-          "match": {
-            "actions": [
-              {
-                "action": "obtain",
-                "available": false,
-                "duration": null,
-                "note": null,
-                "price": "10 元",
-                "quantity": "1 份",
-                "reason": "到店四季便利出售的饭团 requires presence at 四季便利.",
-                "way": "到店"
-              }
-            ],
-            "kind": "product",
-            "name": "四季便利出售的饭团",
-            "phase": null,
-            "state": "正餐，每份约 600 千卡",
+            "state": "工作与学习；进行办公。",
             "tools": []
           }
         },
@@ -2166,21 +1931,22 @@
           ],
           "category": null,
           "identity": "location:noodle-1",
-          "location_id": null,
           "match": {
             "actions": [
               {
                 "action": "travel",
-                "available": true,
+                "app": null,
+                "available": false,
                 "duration": "约 3 分钟",
                 "note": "费力程度：轻松",
                 "price": "5 元",
                 "quantity": null,
-                "reason": null,
+                "reason": "Driving requires a car owned by this persona.",
                 "way": "驾车"
               },
               {
                 "action": "travel",
+                "app": null,
                 "available": true,
                 "duration": "约 19 分钟",
                 "note": "费力程度：费力",
@@ -2203,21 +1969,22 @@
           ],
           "category": null,
           "identity": "location:cafe",
-          "location_id": null,
           "match": {
             "actions": [
               {
                 "action": "travel",
-                "available": true,
+                "app": null,
+                "available": false,
                 "duration": "约 9 分钟",
                 "note": "费力程度：轻松",
                 "price": "7.93 元",
                 "quantity": null,
-                "reason": null,
+                "reason": "Driving requires a car owned by this persona.",
                 "way": "驾车"
               },
               {
                 "action": "travel",
+                "app": null,
                 "available": true,
                 "duration": "约 55 分钟",
                 "note": "费力程度：费力",
@@ -2240,21 +2007,22 @@
           ],
           "category": null,
           "identity": "location:noodle-2",
-          "location_id": null,
           "match": {
             "actions": [
               {
                 "action": "travel",
-                "available": true,
+                "app": null,
+                "available": false,
                 "duration": "约 10 分钟",
                 "note": "费力程度：轻松",
                 "price": "7.97 元",
                 "quantity": null,
-                "reason": null,
+                "reason": "Driving requires a car owned by this persona.",
                 "way": "驾车"
               },
               {
                 "action": "travel",
+                "app": null,
                 "available": true,
                 "duration": "约 55 分钟",
                 "note": "费力程度：费力",
@@ -2277,21 +2045,22 @@
           ],
           "category": null,
           "identity": "location:park",
-          "location_id": null,
           "match": {
             "actions": [
               {
                 "action": "travel",
-                "available": true,
+                "app": null,
+                "available": false,
                 "duration": "约 9 分钟",
                 "note": "费力程度：轻松",
                 "price": "7.34 元",
                 "quantity": null,
-                "reason": null,
+                "reason": "Driving requires a car owned by this persona.",
                 "way": "驾车"
               },
               {
                 "action": "travel",
+                "app": null,
                 "available": true,
                 "duration": "约 51 分钟",
                 "note": "费力程度：费力",
@@ -2314,21 +2083,22 @@
           ],
           "category": null,
           "identity": "location:store",
-          "location_id": null,
           "match": {
             "actions": [
               {
                 "action": "travel",
-                "available": true,
+                "app": null,
+                "available": false,
                 "duration": "约 10 分钟",
                 "note": "费力程度：轻松",
                 "price": "8.45 元",
                 "quantity": null,
-                "reason": null,
+                "reason": "Driving requires a car owned by this persona.",
                 "way": "驾车"
               },
               {
                 "action": "travel",
+                "app": null,
                 "available": true,
                 "duration": "约 59 分钟",
                 "note": "费力程度：费力",
@@ -2351,21 +2121,22 @@
           ],
           "category": null,
           "identity": "location:home",
-          "location_id": null,
           "match": {
             "actions": [
               {
                 "action": "travel",
-                "available": true,
+                "app": null,
+                "available": false,
                 "duration": "约 8 分钟",
                 "note": "费力程度：轻松",
                 "price": "6.55 元",
                 "quantity": null,
-                "reason": null,
+                "reason": "Driving requires a car owned by this persona.",
                 "way": "驾车"
               },
               {
                 "action": "travel",
+                "app": null,
                 "available": true,
                 "duration": "约 45 分钟",
                 "note": "费力程度：费力",
@@ -2384,206 +2155,169 @@
         },
         {
           "aliases": [
-            "工作：季度销售数据整理"
+            "学课程"
           ],
-          "category": null,
-          "identity": "work_topic:topic-sales",
-          "location_id": null,
+          "category": "工作与学习",
+          "identity": "action:study-course",
           "match": {
             "actions": [
               {
                 "action": "interact",
+                "app": "哔哩哔哩",
                 "available": true,
-                "duration": "约 7.5 小时",
-                "note": null,
+                "duration": "约 30 分钟",
+                "note": "通过其他设备使用 app",
                 "price": null,
                 "quantity": null,
                 "reason": null,
-                "way": "工作"
+                "way": "进行"
               }
             ],
-            "contract": {
-              "done": "约 0.6 小时",
-              "remaining": "约 7.4 小时",
-              "target": "约 8 小时",
-              "topic": "季度销售数据整理"
-            },
-            "kind": "task",
-            "name": "工作：季度销售数据整理",
+            "kind": "action",
+            "name": "学课程",
             "phase": null,
-            "state": null,
+            "state": "工作与学习；进行学课程。",
             "tools": []
           }
         },
         {
           "aliases": [
-            "应用：哔哩哔哩"
+            "安静休息"
           ],
-          "category": null,
-          "identity": "app:bilibili",
-          "location_id": null,
+          "category": "日常照护",
+          "identity": "action:quiet-rest",
           "match": {
             "actions": [
               {
                 "action": "interact",
+                "app": null,
                 "available": true,
-                "duration": "约 30 分钟",
-                "note": null,
-                "price": null,
-                "quantity": null,
-                "reason": null,
-                "way": "打开"
-              }
-            ],
-            "kind": "app",
-            "name": "应用：哔哩哔哩",
-            "phase": null,
-            "state": "3 条内容",
-            "tools": []
-          }
-        },
-        {
-          "aliases": [
-            "应用：抖音"
-          ],
-          "category": null,
-          "identity": "app:douyin",
-          "location_id": null,
-          "match": {
-            "actions": [
-              {
-                "action": "interact",
-                "available": true,
-                "duration": "约 30 分钟",
-                "note": null,
-                "price": null,
-                "quantity": null,
-                "reason": null,
-                "way": "打开"
-              }
-            ],
-            "kind": "app",
-            "name": "应用：抖音",
-            "phase": null,
-            "state": "有推送：《测试短视频》（短视频）",
-            "tools": []
-          }
-        },
-        {
-          "aliases": [
-            "应用：美团"
-          ],
-          "category": null,
-          "identity": "app:meituan",
-          "location_id": null,
-          "match": {
-            "actions": [
-              {
-                "action": "interact",
-                "available": false,
-                "duration": "约 30 分钟",
-                "note": null,
-                "price": null,
-                "quantity": null,
-                "reason": "This app has no content to use.",
-                "way": "打开"
-              }
-            ],
-            "kind": "app",
-            "name": "应用：美团",
-            "phase": null,
-            "state": "0 条内容",
-            "tools": []
-          }
-        },
-        {
-          "aliases": [
-            "应用：饿了么"
-          ],
-          "category": null,
-          "identity": "app:eleme",
-          "location_id": null,
-          "match": {
-            "actions": [
-              {
-                "action": "interact",
-                "available": false,
-                "duration": "约 30 分钟",
-                "note": null,
-                "price": null,
-                "quantity": null,
-                "reason": "This app has no content to use.",
-                "way": "打开"
-              }
-            ],
-            "kind": "app",
-            "name": "应用：饿了么",
-            "phase": null,
-            "state": "0 条内容",
-            "tools": []
-          }
-        },
-        {
-          "aliases": [
-            "持有物：薯片（家）"
-          ],
-          "category": "零食",
-          "identity": "holding:chips",
-          "location_id": null,
-          "match": {
-            "actions": [
-              {
-                "action": "consume",
-                "available": false,
-                "duration": "约 5 分钟",
-                "note": null,
-                "price": null,
-                "quantity": "1 份",
-                "reason": "This item is at 家 and must be used there.",
-                "way": "食用"
-              },
-              {
-                "action": "consume",
-                "available": false,
-                "duration": null,
-                "note": null,
-                "price": null,
-                "quantity": "1 份",
-                "reason": "This item is at 家 and must be used there.",
-                "way": "给予"
-              }
-            ],
-            "kind": "holding",
-            "name": "持有物：薯片（家）",
-            "phase": null,
-            "state": "持有 1 份，零食，每份约 200 千卡",
-            "tools": []
-          }
-        },
-        {
-          "aliases": [
-            "活动：安静休息"
-          ],
-          "category": null,
-          "identity": "lifestyle:quiet-rest",
-          "location_id": null,
-          "match": {
-            "actions": [
-              {
-                "action": "interact",
-                "available": false,
                 "duration": "约 15 分钟",
                 "note": null,
                 "price": null,
                 "quantity": null,
-                "reason": "The current location category does not admit this activity.",
+                "reason": null,
                 "way": "进行"
               }
             ],
-            "kind": "lifestyle",
-            "name": "活动：安静休息",
+            "kind": "action",
+            "name": "安静休息",
             "phase": null,
-            "state": null,
+            "state": "日常照护；进行安静休息。",
+            "tools": []
+          }
+        },
+        {
+          "aliases": [
+            "柠檬茶"
+          ],
+          "category": "饮品",
+          "identity": "supply:lemon-tea",
+          "match": {
+            "actions": [
+              {
+                "action": "obtain",
+                "app": null,
+                "available": false,
+                "duration": null,
+                "note": null,
+                "price": "12 元",
+                "quantity": "1 份",
+                "reason": "Purchase requires presence at 一心面馆.",
+                "way": "购买"
+              },
+              {
+                "action": "obtain",
+                "app": "饿了么",
+                "available": true,
+                "duration": null,
+                "note": "预计 10:33 送到；可用支付宝付款",
+                "price": "17 元",
+                "quantity": "1 份",
+                "reason": null,
+                "way": "购买"
+              },
+              {
+                "action": "obtain",
+                "app": "美团",
+                "available": true,
+                "duration": null,
+                "note": "预计 10:24 送到；可用支付宝、微信付款",
+                "price": "17 元",
+                "quantity": "1 份",
+                "reason": null,
+                "way": "购买"
+              }
+            ],
+            "kind": "product",
+            "name": "柠檬茶",
+            "phase": null,
+            "state": "饮品，每份约 100 千卡",
+            "tools": []
+          }
+        },
+        {
+          "aliases": [
+            "牛肉面"
+          ],
+          "category": "正餐",
+          "identity": "supply:beef-noodles",
+          "match": {
+            "actions": [
+              {
+                "action": "obtain",
+                "app": null,
+                "available": false,
+                "duration": null,
+                "note": null,
+                "price": "28 元",
+                "quantity": "1 份",
+                "reason": "Purchase requires presence at 一心面馆.",
+                "way": "购买"
+              },
+              {
+                "action": "obtain",
+                "app": "美团",
+                "available": true,
+                "duration": null,
+                "note": "预计 10:24 送到；可用支付宝、微信付款",
+                "price": "33 元",
+                "quantity": "1 份",
+                "reason": null,
+                "way": "购买"
+              }
+            ],
+            "kind": "product",
+            "name": "牛肉面",
+            "phase": null,
+            "state": "正餐，每份约 600 千卡",
+            "tools": []
+          }
+        },
+        {
+          "aliases": [
+            "聊天"
+          ],
+          "category": "社交",
+          "identity": "action:small-talk",
+          "match": {
+            "actions": [
+              {
+                "action": "interact",
+                "app": null,
+                "available": true,
+                "duration": "约 10 分钟",
+                "note": "to 写对方",
+                "price": null,
+                "quantity": null,
+                "reason": null,
+                "way": "进行"
+              }
+            ],
+            "kind": "action",
+            "name": "聊天",
+            "phase": null,
+            "state": "社交；进行聊天。",
             "tools": []
           }
         },
@@ -2593,20 +2327,8 @@
           ],
           "category": null,
           "identity": "contact:colleague",
-          "location_id": null,
           "match": {
-            "actions": [
-              {
-                "action": "interact",
-                "available": true,
-                "duration": "约 15 分钟",
-                "note": null,
-                "price": null,
-                "quantity": null,
-                "reason": null,
-                "way": "通话"
-              }
-            ],
+            "actions": [],
             "kind": "contact",
             "name": "联系人：刘洋",
             "phase": null,
@@ -2626,20 +2348,8 @@
           ],
           "category": null,
           "identity": "contact:client",
-          "location_id": null,
           "match": {
-            "actions": [
-              {
-                "action": "interact",
-                "available": true,
-                "duration": "约 15 分钟",
-                "note": null,
-                "price": null,
-                "quantity": null,
-                "reason": null,
-                "way": "通话"
-              }
-            ],
+            "actions": [],
             "kind": "contact",
             "name": "联系人：张总",
             "phase": null,
@@ -2659,11 +2369,11 @@
           ],
           "category": null,
           "identity": "self:agent:1",
-          "location_id": null,
           "match": {
             "actions": [
               {
                 "action": "interact",
+                "app": null,
                 "available": true,
                 "duration": "约 15 分钟",
                 "note": null,
@@ -2674,6 +2384,7 @@
               },
               {
                 "action": "sleep",
+                "app": null,
                 "available": true,
                 "duration": "约 7.5 小时",
                 "note": null,
@@ -2692,28 +2403,104 @@
         },
         {
           "aliases": [
-            "邮件：人工测试通知（2026年01月05日 23:59:00）"
+            "薯片"
           ],
-          "category": null,
-          "identity": "mail:test-mail",
-          "location_id": null,
+          "category": "零食",
+          "identity": "supply:chips",
+          "match": {
+            "actions": [
+              {
+                "action": "obtain",
+                "app": null,
+                "available": false,
+                "duration": null,
+                "note": null,
+                "price": "8 元",
+                "quantity": "1 份",
+                "reason": "Purchase requires presence at 一心面馆.",
+                "way": "购买"
+              },
+              {
+                "action": "obtain",
+                "app": "饿了么",
+                "available": true,
+                "duration": null,
+                "note": "预计 10:33 送到；可用支付宝付款",
+                "price": "13 元",
+                "quantity": "1 份",
+                "reason": null,
+                "way": "购买"
+              },
+              {
+                "action": "obtain",
+                "app": "美团",
+                "available": true,
+                "duration": null,
+                "note": "预计 10:24 送到；可用支付宝、微信付款",
+                "price": "13 元",
+                "quantity": "1 份",
+                "reason": null,
+                "way": "购买"
+              }
+            ],
+            "kind": "product",
+            "name": "薯片",
+            "phase": null,
+            "state": "零食，每份约 200 千卡",
+            "tools": []
+          }
+        },
+        {
+          "aliases": [
+            "语音通话"
+          ],
+          "category": "社交",
+          "identity": "action:voice-call",
           "match": {
             "actions": [
               {
                 "action": "interact",
+                "app": "微信",
                 "available": true,
-                "duration": "约 15 分钟",
-                "note": null,
+                "duration": "约 10 分钟",
+                "note": "持续使用手机 app；to 写对方",
                 "price": null,
                 "quantity": null,
                 "reason": null,
-                "way": "阅读"
+                "way": "进行"
               }
             ],
-            "kind": "message",
-            "name": "邮件：人工测试通知（2026年01月05日 23:59:00）",
+            "kind": "action",
+            "name": "语音通话",
             "phase": null,
-            "state": "未读",
+            "state": "社交；进行语音通话。",
+            "tools": []
+          }
+        },
+        {
+          "aliases": [
+            "跑步"
+          ],
+          "category": "运动",
+          "identity": "action:run",
+          "match": {
+            "actions": [
+              {
+                "action": "interact",
+                "app": "Keep",
+                "available": false,
+                "duration": "约 20 分钟",
+                "note": "借助 app 安排或记录线下行为",
+                "price": null,
+                "quantity": null,
+                "reason": "The current location category does not admit this activity.",
+                "way": "进行"
+              }
+            ],
+            "kind": "action",
+            "name": "跑步",
+            "phase": null,
+            "state": "运动；进行跑步。",
             "tools": []
           }
         }
@@ -2725,25 +2512,42 @@
     {
       "event_type": "activity_progress",
       "agent_id": 1,
-      "occurred_at": 1767576600,
+      "occurred_at": 1767576300,
       "data": {
         "activity": {
           "activity_id": "activity-action-call-colleague-1",
           "agent_id": 1,
           "boundary_type": "planned_end",
           "concluded_at": null,
+          "content_title": "测试通话",
           "data": {
-            "contact_id": "colleague"
+            "action_id": "voice-call",
+            "app_id": "wechat",
+            "category": "social",
+            "communication_mode": "voice",
+            "content_id": "c-call",
+            "counterpart": "colleague",
+            "draw_index": 0,
+            "manner": "phone_continuous",
+            "pinned_by_push_id": null,
+            "played": [
+              {
+                "content_id": "c-call",
+                "from_position": 0,
+                "to_position": 600
+              }
+            ],
+            "start_position_seconds": 0
           },
           "destination_id": null,
-          "elapsed_seconds": 900,
-          "ended_at": 1767576600,
+          "elapsed_seconds": 600,
+          "ended_at": 1767576300,
           "interruption_reason": null,
-          "kind": "call",
-          "last_settled_at": 1767576600,
+          "kind": "action",
+          "last_settled_at": 1767576300,
           "location_id": "office",
-          "media_position_seconds": 0.0,
-          "name": "通话刘洋（1月5日 09:15 起）",
+          "media_position_seconds": 600.0,
+          "name": "语音通话（微信）（1月5日 09:15 起）",
           "next_interaction_at": null,
           "note_history": [],
           "note_updated_at": null,
@@ -2752,12 +2556,13 @@
           "origin_request_event_id": "00000000000000000000000000000005",
           "paused_at": null,
           "plan_goal_intent_kind": null,
-          "planned_duration_seconds": 900,
-          "planned_end_at": 1767576600,
+          "planned_duration_seconds": 600,
+          "planned_end_at": 1767576300,
           "progress_note": "",
           "report_anchor_at": 1767575700,
           "resource_claims": [
-            "talk"
+            "talk",
+            "use_app"
           ],
           "route_progress_meters": 0.0,
           "session_ids": [
@@ -2765,43 +2570,67 @@
           ],
           "started_at": 1767575700,
           "status": "completed",
-          "target_id": null,
           "task_kind": "none",
           "task_ref": null,
-          "title": "刘洋",
+          "title": "语音通话（微信）",
           "travel_mode": null
         },
         "body_settlement_event_id": "00000000000000000000000000000008",
+        "content": {
+          "app_id": "wechat",
+          "completed": true,
+          "completed_rounds_after": 1,
+          "content_id": "c-call",
+          "position_after_seconds": 600,
+          "position_before_seconds": 0
+        },
         "day_plan": {
           "day_end": 1767628800,
           "goals": []
         },
-        "interval_end": 1767576600,
+        "interval_end": 1767576300,
         "interval_start": 1767575700
       }
     },
     {
       "event_type": "activity_progress",
       "agent_id": 1,
-      "occurred_at": 1767577500,
+      "occurred_at": 1767576900,
       "data": {
         "activity": {
           "activity_id": "activity-action-call-client-1",
           "agent_id": 1,
           "boundary_type": "planned_end",
           "concluded_at": null,
+          "content_title": "测试通话",
           "data": {
-            "contact_id": "client"
+            "action_id": "voice-call",
+            "app_id": "wechat",
+            "category": "social",
+            "communication_mode": "voice",
+            "content_id": "c-call",
+            "counterpart": "client",
+            "draw_index": 0,
+            "manner": "phone_continuous",
+            "pinned_by_push_id": null,
+            "played": [
+              {
+                "content_id": "c-call",
+                "from_position": 0.0,
+                "to_position": 600
+              }
+            ],
+            "start_position_seconds": 0.0
           },
           "destination_id": null,
-          "elapsed_seconds": 900,
-          "ended_at": 1767577500,
+          "elapsed_seconds": 600,
+          "ended_at": 1767576900,
           "interruption_reason": null,
-          "kind": "call",
-          "last_settled_at": 1767577500,
+          "kind": "action",
+          "last_settled_at": 1767576900,
           "location_id": "office",
-          "media_position_seconds": 0.0,
-          "name": "通话张总（1月5日 09:30 起）",
+          "media_position_seconds": 600.0,
+          "name": "语音通话（微信）（1月5日 09:25 起）",
           "next_interaction_at": null,
           "note_history": [],
           "note_updated_at": null,
@@ -2810,32 +2639,116 @@
           "origin_request_event_id": "00000000000000000000000000000013",
           "paused_at": null,
           "plan_goal_intent_kind": null,
-          "planned_duration_seconds": 900,
-          "planned_end_at": 1767577500,
+          "planned_duration_seconds": 600,
+          "planned_end_at": 1767576900,
           "progress_note": "",
-          "report_anchor_at": 1767576600,
+          "report_anchor_at": 1767576300,
           "resource_claims": [
-            "talk"
+            "talk",
+            "use_app"
           ],
           "route_progress_meters": 0.0,
           "session_ids": [
             "session-1-0001"
           ],
-          "started_at": 1767576600,
+          "started_at": 1767576300,
           "status": "completed",
-          "target_id": null,
           "task_kind": "none",
           "task_ref": null,
-          "title": "张总",
+          "title": "语音通话（微信）",
           "travel_mode": null
         },
         "body_settlement_event_id": "00000000000000000000000000000016",
+        "content": {
+          "app_id": "wechat",
+          "completed": true,
+          "completed_rounds_after": 2,
+          "content_id": "c-call",
+          "position_after_seconds": 600,
+          "position_before_seconds": 0.0
+        },
         "day_plan": {
           "day_end": 1767628800,
           "goals": []
         },
-        "interval_end": 1767577500,
-        "interval_start": 1767576600
+        "interval_end": 1767576900,
+        "interval_start": 1767576300
+      }
+    },
+    {
+      "event_type": "activity_progress",
+      "agent_id": 1,
+      "occurred_at": 1767577800,
+      "data": {
+        "activity": {
+          "activity_id": "activity-action-assigned-work-1",
+          "agent_id": 1,
+          "boundary_type": "feedback",
+          "concluded_at": null,
+          "content_title": "季度销售数据整理",
+          "data": {
+            "action_id": "office-work",
+            "app_id": null,
+            "category": "work_study",
+            "communication_mode": null,
+            "content_id": "topic-sales",
+            "counterpart": null,
+            "draw_index": 0,
+            "manner": null,
+            "pinned_by_push_id": null,
+            "played": [],
+            "start_position_seconds": 0
+          },
+          "destination_id": null,
+          "elapsed_seconds": 900,
+          "ended_at": null,
+          "interruption_reason": null,
+          "kind": "action",
+          "last_settled_at": 1767577800,
+          "location_id": "office",
+          "media_position_seconds": 900.0,
+          "name": "办公（1月5日 09:35 起）",
+          "next_interaction_at": 1767577800,
+          "note_history": [],
+          "note_updated_at": null,
+          "origin_action_id": "action-assigned-work-1",
+          "origin_decision_id": "decision-assigned-work-1",
+          "origin_request_event_id": "00000000000000000000000000000022",
+          "paused_at": null,
+          "plan_goal_intent_kind": null,
+          "planned_duration_seconds": 32400,
+          "planned_end_at": 1767609300,
+          "progress_note": "",
+          "report_anchor_at": 1767576900,
+          "resource_claims": [
+            "work_study"
+          ],
+          "route_progress_meters": 0.0,
+          "session_ids": [
+            "session-1-0001"
+          ],
+          "started_at": 1767576900,
+          "status": "active",
+          "task_kind": "none",
+          "task_ref": null,
+          "title": "办公",
+          "travel_mode": null
+        },
+        "body_settlement_event_id": "00000000000000000000000000000026",
+        "content": {
+          "app_id": null,
+          "completed": false,
+          "completed_rounds_after": 0,
+          "content_id": "topic-sales",
+          "position_after_seconds": 900.0,
+          "position_before_seconds": 0
+        },
+        "day_plan": {
+          "day_end": 1767628800,
+          "goals": []
+        },
+        "interval_end": 1767577800,
+        "interval_start": 1767576900
       }
     },
     {
@@ -2844,196 +2757,232 @@
       "occurred_at": 1767578400,
       "data": {
         "activity": {
-          "activity_id": "activity-action-work-topic-1",
+          "activity_id": "activity-action-assigned-work-1",
           "agent_id": 1,
-          "boundary_type": "feedback",
+          "boundary_type": null,
           "concluded_at": null,
+          "content_title": "季度销售数据整理",
           "data": {
-            "topic_id": "topic-sales",
-            "worked_before_seconds": 0
+            "action_id": "office-work",
+            "app_id": null,
+            "category": "work_study",
+            "communication_mode": null,
+            "content_id": "topic-sales",
+            "counterpart": null,
+            "draw_index": 0,
+            "manner": null,
+            "pinned_by_push_id": null,
+            "played": [],
+            "start_position_seconds": 0
           },
           "destination_id": null,
-          "elapsed_seconds": 900,
+          "elapsed_seconds": 1500,
           "ended_at": null,
           "interruption_reason": null,
-          "kind": "work",
+          "kind": "action",
           "last_settled_at": 1767578400,
           "location_id": "office",
-          "media_position_seconds": 0.0,
-          "name": "工作季度销售数据整理（1月5日 09:45 起）",
-          "next_interaction_at": 1767578400,
+          "media_position_seconds": 1500.0,
+          "name": "办公（1月5日 09:35 起）",
+          "next_interaction_at": 1767578700,
           "note_history": [],
           "note_updated_at": null,
-          "origin_action_id": "action-work-topic-1",
-          "origin_decision_id": "decision-work-topic-1",
+          "origin_action_id": "action-assigned-work-1",
+          "origin_decision_id": "decision-assigned-work-1",
           "origin_request_event_id": "00000000000000000000000000000022",
           "paused_at": null,
           "plan_goal_intent_kind": null,
-          "planned_duration_seconds": 28800,
-          "planned_end_at": 1767606300,
+          "planned_duration_seconds": 32400,
+          "planned_end_at": 1767609300,
           "progress_note": "",
-          "report_anchor_at": 1767577500,
+          "report_anchor_at": 1767576900,
           "resource_claims": [
-            "work"
+            "work_study"
           ],
           "route_progress_meters": 0.0,
           "session_ids": [
             "session-1-0001"
           ],
-          "started_at": 1767577500,
+          "started_at": 1767576900,
           "status": "active",
-          "target_id": "topic-sales",
-          "task_kind": "work_topic",
-          "task_ref": "topic-sales",
-          "title": "季度销售数据整理",
+          "task_kind": "none",
+          "task_ref": null,
+          "title": "办公",
           "travel_mode": null
         },
-        "body_settlement_event_id": "00000000000000000000000000000026",
+        "body_settlement_event_id": "00000000000000000000000000000028",
+        "content": {
+          "app_id": null,
+          "completed": false,
+          "completed_rounds_after": 0,
+          "content_id": "topic-sales",
+          "position_after_seconds": 1500.0,
+          "position_before_seconds": 900.0
+        },
         "day_plan": {
           "day_end": 1767628800,
           "goals": []
         },
         "interval_end": 1767578400,
-        "interval_start": 1767577500,
-        "work": {
-          "remaining_seconds": 27900,
-          "topic_id": "topic-sales",
-          "worked_seconds": 900
-        }
+        "interval_start": 1767577800
       }
     },
     {
       "event_type": "activity_progress",
       "agent_id": 1,
-      "occurred_at": 1767579300,
+      "occurred_at": 1767578700,
       "data": {
         "activity": {
-          "activity_id": "activity-action-work-topic-1",
+          "activity_id": "activity-action-assigned-work-1",
           "agent_id": 1,
           "boundary_type": "feedback",
           "concluded_at": null,
+          "content_title": "季度销售数据整理",
           "data": {
-            "topic_id": "topic-sales",
-            "worked_before_seconds": 0
+            "action_id": "office-work",
+            "app_id": null,
+            "category": "work_study",
+            "communication_mode": null,
+            "content_id": "topic-sales",
+            "counterpart": null,
+            "draw_index": 0,
+            "manner": null,
+            "pinned_by_push_id": null,
+            "played": [],
+            "start_position_seconds": 0
           },
           "destination_id": null,
           "elapsed_seconds": 1800,
           "ended_at": null,
           "interruption_reason": null,
-          "kind": "work",
-          "last_settled_at": 1767579300,
+          "kind": "action",
+          "last_settled_at": 1767578700,
           "location_id": "office",
-          "media_position_seconds": 0.0,
-          "name": "工作季度销售数据整理（1月5日 09:45 起）",
-          "next_interaction_at": 1767579300,
+          "media_position_seconds": 1800.0,
+          "name": "办公（1月5日 09:35 起）",
+          "next_interaction_at": 1767578700,
           "note_history": [],
           "note_updated_at": 1767578400,
-          "origin_action_id": "action-work-topic-1",
-          "origin_decision_id": "decision-work-topic-1",
+          "origin_action_id": "action-assigned-work-1",
+          "origin_decision_id": "decision-assigned-work-1",
           "origin_request_event_id": "00000000000000000000000000000022",
           "paused_at": null,
           "plan_goal_intent_kind": null,
-          "planned_duration_seconds": 28800,
-          "planned_end_at": 1767606300,
+          "planned_duration_seconds": 32400,
+          "planned_end_at": 1767609300,
           "progress_note": "继续。",
           "report_anchor_at": 1767578400,
           "resource_claims": [
-            "work"
+            "work_study"
           ],
           "route_progress_meters": 0.0,
           "session_ids": [
             "session-1-0001"
           ],
-          "started_at": 1767577500,
+          "started_at": 1767576900,
           "status": "active",
-          "target_id": "topic-sales",
-          "task_kind": "work_topic",
-          "task_ref": "topic-sales",
-          "title": "季度销售数据整理",
+          "task_kind": "none",
+          "task_ref": null,
+          "title": "办公",
           "travel_mode": null
         },
-        "body_settlement_event_id": "0000000000000000000000000000002f",
+        "body_settlement_event_id": "00000000000000000000000000000031",
+        "content": {
+          "app_id": null,
+          "completed": false,
+          "completed_rounds_after": 0,
+          "content_id": "topic-sales",
+          "position_after_seconds": 1800.0,
+          "position_before_seconds": 1500.0
+        },
         "day_plan": {
           "day_end": 1767628800,
           "goals": []
         },
-        "interval_end": 1767579300,
-        "interval_start": 1767578400,
-        "work": {
-          "remaining_seconds": 27000,
-          "topic_id": "topic-sales",
-          "worked_seconds": 1800
-        }
+        "interval_end": 1767578700,
+        "interval_start": 1767578400
       }
     },
     {
       "event_type": "activity_progress",
       "agent_id": 1,
-      "occurred_at": 1767579600,
+      "occurred_at": 1767579000,
       "data": {
         "activity": {
-          "activity_id": "activity-action-work-topic-1",
+          "activity_id": "activity-action-assigned-work-1",
           "agent_id": 1,
           "boundary_type": null,
           "concluded_at": null,
+          "content_title": "季度销售数据整理",
           "data": {
-            "topic_id": "topic-sales",
-            "worked_before_seconds": 0
+            "action_id": "office-work",
+            "app_id": null,
+            "category": "work_study",
+            "communication_mode": null,
+            "content_id": "topic-sales",
+            "counterpart": null,
+            "draw_index": 0,
+            "manner": null,
+            "pinned_by_push_id": null,
+            "played": [],
+            "start_position_seconds": 0
           },
           "destination_id": null,
           "elapsed_seconds": 2100,
           "ended_at": null,
           "interruption_reason": null,
-          "kind": "work",
-          "last_settled_at": 1767579600,
+          "kind": "action",
+          "last_settled_at": 1767579000,
           "location_id": "office",
-          "media_position_seconds": 0.0,
-          "name": "工作季度销售数据整理（1月5日 09:45 起）",
-          "next_interaction_at": 1767580200,
+          "media_position_seconds": 2100.0,
+          "name": "办公（1月5日 09:35 起）",
+          "next_interaction_at": 1767579600,
           "note_history": [],
           "note_updated_at": 1767578400,
-          "origin_action_id": "action-work-topic-1",
-          "origin_decision_id": "decision-work-topic-1",
+          "origin_action_id": "action-assigned-work-1",
+          "origin_decision_id": "decision-assigned-work-1",
           "origin_request_event_id": "00000000000000000000000000000022",
           "paused_at": null,
           "plan_goal_intent_kind": null,
-          "planned_duration_seconds": 28800,
-          "planned_end_at": 1767606300,
+          "planned_duration_seconds": 32400,
+          "planned_end_at": 1767609300,
           "progress_note": "继续。",
           "report_anchor_at": 1767578400,
           "resource_claims": [
-            "work"
+            "work_study"
           ],
           "route_progress_meters": 0.0,
           "session_ids": [
             "session-1-0001"
           ],
-          "started_at": 1767577500,
+          "started_at": 1767576900,
           "status": "active",
-          "target_id": "topic-sales",
-          "task_kind": "work_topic",
-          "task_ref": "topic-sales",
-          "title": "季度销售数据整理",
+          "task_kind": "none",
+          "task_ref": null,
+          "title": "办公",
           "travel_mode": null
         },
-        "body_settlement_event_id": "00000000000000000000000000000031",
+        "body_settlement_event_id": "00000000000000000000000000000033",
+        "content": {
+          "app_id": null,
+          "completed": false,
+          "completed_rounds_after": 0,
+          "content_id": "topic-sales",
+          "position_after_seconds": 2100.0,
+          "position_before_seconds": 1800.0
+        },
         "day_plan": {
           "day_end": 1767628800,
           "goals": []
         },
-        "interval_end": 1767579600,
-        "interval_start": 1767579300,
-        "work": {
-          "remaining_seconds": 26700,
-          "topic_id": "topic-sales",
-          "worked_seconds": 2100
-        }
+        "interval_end": 1767579000,
+        "interval_start": 1767578700
       }
     }
   ],
   "exported_rows": [
-    "| 09:15–09:30 | 和刘洋通话 | 15 分钟 | 1 |",
-    "| 09:30–09:45 | 和张总通话 | 15 分钟 | 1 |",
-    "| 09:45–10:20 | 工作「季度销售数据整理」 | 35 分钟 | 3 |"
+    "| 09:15–09:25 | 用手机微信，语音通话《测试通话》 | 10 分钟 | 1 |",
+    "| 09:25–09:35 | 用手机微信，语音通话《测试通话》 | 10 分钟 | 1 |",
+    "| 09:35–10:10 | 办公《季度销售数据整理》 | 35 分钟 | 4 |"
   ]
 }

@@ -25,17 +25,24 @@ from worldmock.life.models import SessionKind, SessionStatus
 from worldmock.life.sessions import moment_label
 
 _PLACE = "地点：办公室"
-_APP = "应用：抖音"
+_ACTION = "刷推荐"
 
 
 def _prepared() -> LifeAgent:
-    """在正式观察结构中增加可读地点（步行）与应用对象（打开）。"""
+    """在正式观察结构中增加可读地点（步行）与登记动作与明确应用（进行）。"""
     observed = copy.deepcopy(_observations())
-    _add_objects(observed[0]["data"],
+    data = observed[0]["data"]
+    data["actions"].append({"action_id": "action-visible", "name": _ACTION, "category": "entertainment",
+                            "manner": "phone_continuous", "app_ids": ["app-visible"], "communication_mode": None})
+    data["apps"].append({"app_id": "app-visible", "name": "抖音", "purposes": [], "payment_app_ids": []})
+    _add_objects(data,
                  _visible_object(_PLACE, "location", "office",
                                  _offer("travel", "步行", "travel_to", travel_mode="walking")),
-                 _visible_object(_APP, "app", "app-visible",
-                                 _offer("interact", "打开", "use_app")))
+                 _visible_object(_ACTION, "action", "action-visible",
+                                 _offer("interact", "进行", "do", app_id="app-visible",
+                                        category="entertainment", manner="phone_continuous"),
+                                 category="entertainment", manner="phone_continuous",
+                                 app_ids=["app-visible"], communication_mode=None))
     person = LifeAgent()
     person.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observed))
     return person
@@ -43,7 +50,7 @@ def _prepared() -> LifeAgent:
 
 def _decision(targets: list[str], actions: list[str], ways: list[str]) -> ReactDecision:
     """构造一次真实 ReAct 工具决定：对象、动词与方式三个数组。"""
-    return ReactDecision("", "start_activity", start_arguments(targets, actions, ways), "")
+    return ReactDecision("", "start_activity", start_arguments(targets, actions, ways, app=["抖音" if way == "进行" else None for way in ways]), "")
 
 
 def test_parallel_schema_and_local_pairing_use_readable_items() -> None:
@@ -53,20 +60,20 @@ def test_parallel_schema_and_local_pairing_use_readable_items() -> None:
                  for row in person.build_react_tool_schemas(readonly=False)}
     assert "start_parallel_activities" not in functions
     schema = functions["start_activity"]["parameters"]
-    assert set(schema["properties"]) == {"items", "answering", "prefer"}
+    assert set(schema["properties"]) == {"items", "answering"}
     fields = schema["properties"]["items"]["items"]["properties"]
     assert all("enum" not in fields[name] for name in ("target", "way"))
     assert person.validate_react_decisions([
-        _decision([_PLACE, _APP], ["travel", "interact"], ["步行", "打开"]),
+        _decision([_PLACE, _ACTION], ["travel", "interact"], ["步行", "进行"]),
     ], False) == ""
-    incomplete = start_arguments([_PLACE, _APP], ["travel", "interact"], ["步行", "打开"])
+    incomplete = start_arguments([_PLACE, _ACTION], ["travel", "interact"], ["步行", "进行"], app=[None, "抖音"])
     del incomplete["items"][1]["way"]
     error = person.validate_react_decisions([ReactDecision("", "start_activity", incomplete, "")], False)
     assert error.report.items[0].path == ("tool_calls", 0, "function", "arguments", "items", 1, "way")
     assert error.report.items[0].why == "This required field was omitted."
-    for actions, ways in ((["interact", "travel"], ["打开", "步行"]), (["travel", "travel"], ["步行", "步行"])):
+    for actions, ways in ((["interact", "travel"], ["进行", "步行"]), (["travel", "travel"], ["步行", "步行"])):
         assert "does not support" in person.validate_react_decisions([
-            _decision([_PLACE, _APP], actions, ways),
+            _decision([_PLACE, _ACTION], actions, ways),
         ], False)
     assert "different recipient" in person.validate_react_decisions([
         _decision([_PLACE, _PLACE], ["travel", "travel"], ["步行", "步行"]),
@@ -85,14 +92,14 @@ def test_parallel_start_is_atomic_in_real_engine(_engine_factory) -> None:
                  if row["kind"] == "location" and any(
                      action.get("travel_mode") == "walking" for action in row["actions"]))
     content = next(row for row in observed["interaction_bindings"]
-                   if row["kind"] == "app" and any(
-                       action["canonical_action"] == "use_app" for action in row["actions"]))
+                   if row["kind"] == "action" and row["object"] == "刷推荐" and any(
+                       action["canonical_action"] == "do" for action in row["actions"]))
     travel = next(action["label"] for action in place["actions"]
                   if action.get("travel_mode") == "walking")
-    watch = next(action["label"] for action in content["actions"] if action["canonical_action"] == "use_app")
-    assert travel == "步行" and watch == "打开"
+    watch = next(action["label"] for action in content["actions"] if action["canonical_action"] == "do")
+    assert travel == "步行" and watch == "进行"
     request = start_request(
-        targets=[place["object"], content["object"]], actions=["travel", "interact"], ways=[travel, watch])
+        targets=[place["object"], content["object"]], actions=["travel", "interact"], ways=[travel, watch], app=[None, "抖音"])
     before = engine.context.state.model_dump(mode="json")
     engine.submit_action(DirectToolCall(current, "parallel-readable", "start_activity", request))
     assert engine.context.state.model_dump(mode="json") == before
@@ -102,7 +109,7 @@ def test_parallel_start_is_atomic_in_real_engine(_engine_factory) -> None:
     started = moment_label(engine.context.state.current_time, engine.context.scenario.timezone)
     assert {activity.name for activity in engine.context.state.activities.values()} == {
         f"步行前往{object_display_name(place)}（{started} 起）",
-        f"{watch}{object_display_name(content)}（{started} 起）",
+        f"{object_display_name(content)}（抖音）（{started} 起）",
     }
     road = sessions.current_session(engine.context.state, 1)
     assert road.kind == SessionKind.TRANSIT and set(road.activity_ids) == set(engine.context.state.activities)

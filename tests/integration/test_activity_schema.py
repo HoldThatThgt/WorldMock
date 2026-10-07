@@ -20,7 +20,7 @@ from pydantic import ValidationError
 from custom.agents.life_agent import LifeAgent, MemorySearchRequest
 from worldmock.agents.life_prompt import TOOL_DESCRIPTIONS
 from tests.integration.test_life_agent_protocol import (
-    _OBSERVED_AT, _TASK, _WAIT, _add_objects, _memory, _observations, _offer, _visible_object, _with_activities,
+    _OBSERVED_AT, _WORK_ACTION, _WAIT, _add_objects, _memory, _observations, _offer, _visible_object, _with_activities,
 )
 from worldmock.life.activity_control import PHASE_ACTIVE
 from worldmock.life.models import REQUEST_MODELS, deepseek_strict_schema
@@ -31,7 +31,7 @@ _UNSUPPORTED_KEYS = {"oneOf", "minLength", "maxLength", "minItems", "maxItems", 
 #: 稳定工具面的八件人物动作工具；当日计划由零点后台任务 plan_day 生成，不是人物工具（时间与能量规格第四章）。
 _ACTION_TOOLS = {
     "start_activity", "send_message", "recall_task_summary",
-    "report_status", "pause_activity", "conclude_activity", "revise_day_plan",
+    "report_status", "pause_activity", "conclude_activity", "revise_day_plan", "set_alarm",
 }
 
 
@@ -39,7 +39,7 @@ def _prepared_agent(revise: bool = False) -> LifeAgent:
     """用本轮公开事实及私有身份绑定准备实际人物工具（当前停留里有一项进行中的等待）。"""
     observations = deepcopy(_observations())
     data = observations[0]["data"]
-    _add_objects(data, _visible_object("同事", "person", "agent:9", _offer("interact", "交谈", "chat")))
+    _add_objects(data, _visible_object("同事", "person", "agent:9"))
     _with_activities(data, (_WAIT, PHASE_ACTIVE))
     if revise:
         data["todo_layer"]["day_plan"] = {"date": "2026-01-05", "goals": []}
@@ -110,22 +110,21 @@ def _host_error(tool: str, arguments: dict) -> str:
 
 
 def test_start_activity_uses_readable_frozen_objects_and_paired_actions() -> None:
-    """逐项四字段闭合请求，方式推导动作，购买偏好为中文精确闭集。"""
+    """逐项五字段闭合请求，方式推导动作，应用与支付必须明确填写。"""
     schema = _function("start_activity")["parameters"]
     assert schema == deepseek_strict_schema(REQUEST_MODELS["start_activity"])
-    assert set(schema["properties"]) == {"items", "answering", "prefer"}
-    assert schema["required"] == ["items", "answering", "prefer"]
+    assert set(schema["properties"]) == {"items", "answering"}
+    assert schema["required"] == ["items", "answering"]
     item = schema["properties"]["items"]["items"]
-    assert set(item["properties"]) == set(item["required"]) == {"target", "way", "from", "to"}
+    assert set(item["properties"]) == set(item["required"]) == {"target", "way", "app", "to", "pay_app"}
     assert all("enum" not in item["properties"][field] for field in ("target", "way"))
-    assert schema["properties"]["prefer"]["enum"] == ["最快拿到", "到手价最低", None]
     assert "$ref" not in json.dumps(schema) and "$defs" not in json.dumps(schema)
-    valid = start_arguments(["自己", _TASK], ["interact", "interact"], ["等待", "工作"])
+    valid = start_arguments(["自己", _WORK_ACTION], ["interact", "interact"], ["等待", "进行"])
     assert list(Draft202012Validator(schema).iter_errors(valid)) == []
     REQUEST_MODELS["start_activity"].model_validate(valid)
     assert _host_error("start_activity", valid) == ""
-    error = _host_error("start_activity", start_arguments(["internal:task:1"], ["interact"], ["工作"]))
-    assert error.report.error_code == "WORK_TOPIC_NOT_FOUND" and error.report.items[0].written == "internal:task:1"
+    error = _host_error("start_activity", start_arguments(["internal:task:1"], ["interact"], ["进行"]))
+    assert error.report.error_code == "NAME_NOT_FOUND" and error.report.items[0].written == "internal:task:1"
     for way in ("interact", "invented_way"):
         error = _host_error("start_activity", start_arguments(["自己"], ["interact"], [way]))
         assert error.report.error_code == "WAY_NOT_OFFERED" and error.report.items[0].path[-1] == "way"
@@ -160,15 +159,15 @@ def test_activity_control_schemas_use_paired_readable_activity_and_summary(name:
             REQUEST_MODELS[name].model_validate(invalid)
 
 
-#: 一条个人事务变更的八个键，Schema 与请求模型都按这个顺序（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 「每条变更」）。
-_ERRAND_KEYS = ["change", "name", "outcome", "item", "quantity", "memo", "remind_time", "reason"]
+#: 一条个人事务变更的七个键，Schema 与请求模型都按这个顺序（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 「每条变更」）。
+_ERRAND_KEYS = ["change", "name", "item", "quantity", "memo", "remind_time", "reason"]
 
 
 @pytest.mark.parametrize("name", ["report_status", "pause_activity", "conclude_activity"])
 def test_control_tool_schemas_inline_the_errand_change_object(name: str) -> None:
     """三个控制工具的请求级 errands 是内联的变更对象数组（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 ）：模型本轮可见的函数
-    声明就是 DeepSeek strict 校验通过的请求模型 Schema，没有 $ref 与 $defs；变更对象封闭、八个键按序全部必填，change
-    的枚举只有新增、更新、取消三种（没有完成），outcome 是可空的取得、吃掉；item、memo、reason 是非空白字符串或 null，
+    声明就是 DeepSeek strict 校验通过的请求模型 Schema，没有 $ref 与 $defs；变更对象封闭、七个键按序全部必填，change
+    的枚举只有新增、更新、取消三种（没有完成），item、memo、reason 是非空白字符串或 null，
     remind_time 与当日目标同形，quantity 是整数或 null（上限由本地校验执行，Schema 不带长度与范围）。"""
     schema = _function(name)["parameters"]
     assert schema == deepseek_strict_schema(REQUEST_MODELS[name])
@@ -180,7 +179,6 @@ def test_control_tool_schemas_inline_the_errand_change_object(name: str) -> None
     assert list(change["properties"]) == change["required"] == _ERRAND_KEYS
     fields = change["properties"]
     assert fields["change"]["enum"] == ["新增", "更新", "取消"] and fields["change"]["type"] == "string"
-    assert fields["outcome"]["enum"] == ["取得", "吃掉", None] and fields["outcome"]["type"] == ["string", "null"]
     assert fields["name"]["pattern"] == r"\S"
     for key in ("item", "memo", "reason"):
         assert fields[key]["anyOf"] == [{"pattern": r"\S", "type": "string"}, {"type": "null"}]
@@ -188,7 +186,7 @@ def test_control_tool_schemas_inline_the_errand_change_object(name: str) -> None
     assert fields["remind_time"]["anyOf"] == goal["remind_time"]["anyOf"]
     assert fields["quantity"]["anyOf"] == [{"type": "integer"}, {"type": "null"}]
     assert not {"minimum", "maximum", "maxLength", "minLength", "maxItems"} & set(json.dumps(errands).split('"'))
-    add = {"change": "新增", "name": "补一份素炒什锦食材包", "outcome": "取得", "item": "素炒什锦食材包",
+    add = {"change": "新增", "name": "补一份素炒什锦食材包", "item": "素炒什锦食材包",
            "quantity": 1, "memo": "下班前下单送到家", "remind_time": "17:00", "reason": None}
     payload = {**_control_payload(name, [(_WAIT, "我还想等一会儿。")]), "errands": [add]}
     assert list(Draft202012Validator(schema).iter_errors(payload)) == []
@@ -239,7 +237,7 @@ def test_named_content_tools_bind_visible_names_and_inline_deliverable() -> None
     assert set(recall["properties"]) == {"task_name"}
     assert _host_error("send_message", {"recipient_name": "同事", "text": "在吗"}) == ""
     assert _host_error("send_message", {"recipient_name": "自己", "text": "在吗"}).report.error_code == "NAME_NOT_FOUND"
-    for name in (_TASK, _WAIT):
+    for name in (_WAIT,):
         assert _host_error("recall_task_summary", {"task_name": name}) == ""
     for name in ("同事", "自己家（1月4日 18:00 起）"):
         assert _host_error("recall_task_summary", {"task_name": name}) .report.error_code == "NAME_NOT_FOUND"

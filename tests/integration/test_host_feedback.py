@@ -24,7 +24,7 @@ from agentsociety2.agent.base import ReactDecision, ReactLoopRequest  # noqa: E4
 
 from custom.agents.life_agent import LifeAgent  # noqa: E402
 from worldmock.agents.life_feedback import FEEDBACK_INSTRUCTION, HostFeedback, host_feedback  # noqa: E402
-from tests.integration.test_life_agent_protocol import (_TASK, _WAIT, _WAIT_CHOICE, _WORK,  # noqa: E402
+from tests.integration.test_life_agent_protocol import (_WORK_ACTION, _WAIT, _WAIT_CHOICE, _WORK,  # noqa: E402
                                                         _Environment, _GroundedCorrectionDispatcher, _ModelResponse,
                                                         _add_objects, _conclude_args, _context, _memory, _observations,
                                                         _offer, _prepared, _step_observation, _view,
@@ -113,28 +113,39 @@ async def test_protocol_feedback_is_the_shared_structure_with_the_fixed_instruct
     assert len(requests) == 4
 
 
-def _twin_news() -> LifeAgent:
-    """本轮列出同名的内容「内容：晚间新闻」与只能观看的游戏「游戏：晚间新闻」：只写「晚间新闻」归一后对应两个对象。"""
+def _twin_places() -> LifeAgent:
+    """@brief 两个真实地点名称归一为同一简称，完整候选能消除歧义。"""
     observed = _observations()
     _add_objects(observed[0]["data"],
-        _visible_object("邮件：晚间新闻（2026年1月5日09:00:00）", "mail", "news-0900",
-                        _offer("interact", "阅读", "read_mail")),
-        _visible_object("邮件：晚间新闻（2026年1月5日10:00:00）", "mail", "news-1000",
-                        _offer("interact", "阅读", "read_mail")))
+        _visible_object("地点：食堂（模拟）", "location", "cafeteria-east", _offer("travel", "步行", "travel_to")),
+        _visible_object("地点：食堂", "location", "cafeteria-west", _offer("travel", "步行", "travel_to")))
     return _prepared(observed)
 
 
-def _offer_beside_another_store() -> LifeAgent:
-    """本轮列出一件标签写明门店的供给，冻结地点表里另有一家「街角超市」（from 写它是另一个已知地点）。"""
+def _routing_host_cases():
+    """@brief 当前登记动作和真实应用表覆盖应用、支付和社交对方的宿主错误闭集。"""
+    from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
+    from worldmock.catalog.loader import load_catalog
+    catalog = load_catalog(ARTIFICIAL_ENVIRONMENT_ROOT / "catalog")
     observed = _observations()
-    _add_objects(observed[0]["data"], _visible_object(_FOOD_LABEL, "supply", "milk",
-        _offer("obtain", "远程下单", "purchase", fulfillment="delivery"), store_id="store-1"))
-    observed[0]["data"]["locations"].append({"location_id": "store-1", "name": "便利店"})
     data = observed[0]["data"]
-    data["locations"] = [*data["locations"], {"location_id": "corner-shop", "name": "街角超市"}]
-    offer = LifeAgent()
-    offer.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observed))
-    return offer
+    data["actions"] = [row.model_dump(mode="json") for row in catalog.actions.values()]
+    data["apps"] = [row.model_dump(mode="json") for row in catalog.apps.values()]
+    for identity in ("browse-feed", "voice-call"):
+        row = catalog.actions[identity]
+        _add_objects(data, _visible_object(row.name, "action", identity,
+            _offer("interact", "进行", "do", category=row.category.value, app_id=None, manner=None),
+            category=row.category.value, app_ids=list(row.app_ids), manner=None, communication_mode=row.communication_mode))
+    person = _prepared(observed)
+    cases = {
+        "APP_REQUIRED": start_arguments(["刷推荐"], ["interact"], ["进行"]),
+        "APP_NOT_OFFERED": start_arguments(["刷推荐"], ["interact"], ["进行"], app=["微信"]),
+        "PAYMENT_APP_REQUIRED": start_arguments(["牛肉面"], ["obtain"], ["购买"], app=["美团"]),
+        "PAYMENT_APP_NOT_BOUND": start_arguments(["牛肉面"], ["obtain"], ["购买"], app=["美团"], pay_app=["抖音"]),
+        "COUNTERPART_REQUIRED": start_arguments(["语音通话"], ["interact"], ["进行"], app=["微信"]),
+    }
+    return {code: person.validate_react_decisions([_decision("start_activity", arguments)], False)
+            for code, arguments in cases.items()}
 
 
 def _host_cases() -> dict[str, tuple[str, str]]:
@@ -142,7 +153,6 @@ def _host_cases() -> dict[str, tuple[str, str]]:
     （docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-输出截断与思考螺旋 ），名称歧义经统一名称解析（同名的内容与游戏，3.1），来源不一致是列出的标签配
     冻结地点表里的另一个地点（3.2（b））。"""
     agent = _prepared()
-    offer = _offer_beside_another_store()
     concluding = _prepared([{"turn": 0, "action": "observe", "ok": True, "data": _step_observation()}])
     unknown = _conclude_args(_WAIT, memories=[[]], views=[[_view("陌生人")]])
     produced = {
@@ -154,19 +164,16 @@ def _host_cases() -> dict[str, tuple[str, str]]:
             ["自己"] * 3, ["interact"] * 3, ["等待"] * 3))], False),
         "NAME_NOT_FOUND": agent.validate_react_decisions([_decision("start_activity", start_arguments(
             ["不存在的对象"], ["interact"], ["等待"]))], False),
-        "NAME_AMBIGUOUS": _twin_news().validate_react_decisions([_decision("start_activity", start_arguments(
-            ["晚间新闻"], ["interact"], ["阅读"]))], False),
-        "WORK_TOPIC_NOT_FOUND": agent.validate_react_decisions([_decision("start_activity", start_arguments(
-            ["工作：不存在的主题"], ["interact"], ["工作"]))], False),
+        "NAME_AMBIGUOUS": _twin_places().validate_react_decisions([_decision("start_activity", start_arguments(
+            ["食 堂"], ["travel"], ["步行"]))], False),
         "WAY_NOT_OFFERED": agent.validate_react_decisions([_decision("start_activity", start_arguments(
             ["自己"], ["interact"], ["打开"]))], False),
         "ROUTE_FIELDS_INVALID": agent.validate_react_decisions([_decision("start_activity", start_arguments(
-            ["自己"], ["interact"], ["等待"], **{"from": ["自己"]}))], False),
-        "SUPPLY_SOURCE_MISMATCH": offer.validate_react_decisions([_decision("start_activity", start_arguments(
-            [_FOOD_LABEL], ["obtain"], ["远程下单"], **{"from": ["街角超市"]}))], False),
+            ["自己"], ["interact"], ["等待"], app=["自己"]))], False),
         "SUBJECT_NOT_KNOWN": concluding.validate_react_decisions([_decision("conclude_activity", unknown)], False),
         "OUTPUT_TRUNCATED": agent._parse_react_responses(TruncatedResponse("思考写满了输出上限。"))[1],
     }
+    produced.update(_routing_host_cases())
     return {code: _as_report(value) for code, value in produced.items()}
 
 
@@ -180,7 +187,8 @@ def test_each_host_code_has_a_concrete_reason_through_the_host() -> None:
     """每类旧有效错误行为保留，并使用新的英文完整错误合同。"""
     cases = _host_cases()
     assert set(cases) == set(HOST_ERROR_CODES) - {
-        "MODEL_SERVICE_FAILED", "EVIDENCE_WRITE_FAILED", "MEMORY_QUERY_FAILED", "TOOL_SERVICE_FAILED"}
+        "MODEL_SERVICE_FAILED", "EVIDENCE_WRITE_FAILED", "MEMORY_QUERY_FAILED", "TOOL_SERVICE_FAILED",
+        "SUPPLY_NOT_AT_STORE"}
     for code, (produced, reason) in cases.items():
         expected = "ARGUMENTS_INVALID" if code == "TOO_MANY_TARGETS" else code
         assert produced == expected and reason, (code, produced, reason)
@@ -188,9 +196,8 @@ def test_each_host_code_has_a_concrete_reason_through_the_host() -> None:
     assert "world request" in cases["TOOL_CALL_REQUIRED"][1]
     assert "one or two" in cases["TOO_MANY_TARGETS"][1]
     assert "不存在的对象" in cases["NAME_NOT_FOUND"][1]
-    assert "does not support" in cases["WAY_NOT_OFFERED"][1]
-    assert "from" in cases["ROUTE_FIELDS_INVALID"][1]
-    assert "街角超市" in cases["SUPPLY_SOURCE_MISMATCH"][1]
+    assert "closed set" in cases["WAY_NOT_OFFERED"][1]
+    assert "route fields" in cases["ROUTE_FIELDS_INVALID"][1]
     assert "陌生人" in cases["SUBJECT_NOT_KNOWN"][1]
     assert "several" in cases["NAME_AMBIGUOUS"][1]
     assert "truncated" in cases["OUTPUT_TRUNCATED"][1]
@@ -200,18 +207,17 @@ def test_a_second_item_failing_is_reported_at_index_one_with_fill_in_candidates(
     """第二项方式错误仍精确定位，候选均为完整可直接提交的新请求。"""
     agent = _prepared()
     error = agent.validate_react_decisions([_decision("start_activity", start_arguments(
-        [_TASK, "自己"], ["interact", "interact"], ["工作", "打开"]))], False)
+        [_WORK_ACTION, "自己"], ["interact", "interact"], ["进行", "打开"]))], False)
     payload = _feedback(error)
     assert payload["error_code"] == "WAY_NOT_OFFERED"
     [item] = payload["items"]
     assert item["path"] == ["tool_calls", 0, "function", "arguments", "items", 1, "way"]
-    assert item["written"] == "打开" and item["allowed_values"] == ["等待", "睡觉"]
-    assert [row["arguments"]["items"][0] for row in item["candidates"]] == [
-        {"target": "自己", "way": "等待", "from": None, "to": None},
-        {"target": "自己", "way": "睡觉", "from": None, "to": None}]
-    assert all(row["tool"] == "start_activity" and row["arguments"]["prefer"] is None
+    from worldmock.life.vocabulary import WAYS
+    assert item["written"] == "打开" and item["allowed_values"] == list(WAYS)
+    assert item["candidates"] == []
+    assert all(row["tool"] == "start_activity" and set(row["arguments"]) == {"items", "answering"}
                and row["arguments"]["answering"] is None for row in item["candidates"])
-    assert "自己" in payload["reason"] and payload["fix"]
+    assert "closed set" in payload["reason"] and payload["fix"]
 
 
 def test_a_view_about_an_unknown_person_in_the_second_item_is_reported_at_index_one() -> None:
@@ -284,12 +290,15 @@ def test_all_name_errors_are_reported_and_other_conditions_report_the_first() ->
     assert both["error_code"] == "NAME_NOT_FOUND"
     assert [(item["path"][-2], item["error_code"]) for item in both["items"]] == [(0, "NAME_NOT_FOUND"), (1, "WAY_NOT_OFFERED")]
     mixed = _feedback(agent.validate_react_decisions([_decision("start_activity", start_arguments(
-        ["自己", "不存在的对象"], ["interact", "interact"], ["等待", "等待"], **{"from": ["自己", None]}))], False))
+        ["自己", "不存在的对象"], ["interact", "interact"], ["等待", "等待"], app=["自己", None]))], False))
     assert [(item["path"][-2], item["error_code"]) for item in mixed["items"]] == [(1, "NAME_NOT_FOUND"), (0, "ROUTE_FIELDS_INVALID")]
-    route = _feedback(agent.validate_react_decisions([_decision("start_activity", start_arguments(
-        ["自己", _TASK], ["interact", "interact"], ["等待", "工作"], **{"from": ["自己", "自己"]}))], False))
-    assert [item["path"][-3:] for item in route["items"]] == [["items", 0, "from"], ["items", 1, "from"]]
-    assert all(item["allowed_values"] == [None] for item in route["items"])
+    places = _twin_places()
+    route = _feedback(places.validate_react_decisions([_decision("start_activity", start_arguments(
+        ["自己", "地点：食堂"], ["interact", "travel"], ["等待", "步行"],
+        app=["自己", None], to=[None, "自己"]))], False))
+    assert [item["path"][-3:] for item in route["items"]] == [["items", 0, "app"], ["items", 1, "to"]]
+    assert route["items"][0]["allowed_values"] == [None]
+    assert route["items"][1]["allowed_values"] == [None]
 
 
 def test_argument_errors_are_written_per_field_without_any_validation_dump() -> None:
@@ -312,41 +321,46 @@ def test_argument_errors_are_written_per_field_without_any_validation_dump() -> 
 def _obtain_arguments(target: str, candidate: dict | None = None) -> dict:
     """一次远程下单送给自己的 start_activity 参数；给出候选时逐字段照填候选。"""
     if candidate is None:
-        return start_arguments([target], ["obtain"], ["远程下单"])
+        return start_arguments([target], ["obtain"], ["购买"], app=["美团"], pay_app=["支付宝"])
     return candidate["arguments"]
 
 
 @pytest.mark.asyncio
 async def test_a_candidate_submitted_verbatim_is_accepted_through_the_host_and_the_engine(_engine_factory) -> None:
-    """真实 LifeEngine、LifeEnv 与 LifeAgent（脚本化模型）：人物把一件存在但没有列出的商品名写错，宿主按指名购买放行，
-    环境以 SUPPLY_NOT_FOUND 拒绝，items[0] 的候选是可照填的请求；同一秒下一次决策把其中这件商品的候选逐字段原样提交，
+    """真实 LifeEngine、LifeEnv 与 LifeAgent（脚本化模型）：人物用登记购物应用购买其未售的商品，宿主按指名购买放行，
+    环境以 SUPPLY_NOT_AT_STORE 拒绝，应用字段的候选是可照填请求；同秒下一次决策原样提交可售应用的候选，
     宿主不纠错、环境受理并下单（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章验收：候选原样提交可受理）。"""
     engine = _engine_factory()
-    food = engine.context.semantics.catalog.foods["beef-noodles"]
+    food = engine.context.semantics.catalog.goods["beef-noodles"]
     store = engine.context.semantics.catalog.locations["noodle-1"]
-    label = f"{store.display_name}出售的{food.name}"
-    written = f"{food.name}加冰"
+    label = food.name
+    written = food.name
     environment = environment_for(engine)
     await decide(environment, "misspelled", [reply("call-misspelled", "start_activity",
-                                                     _obtain_arguments(written), "买一份。")])
+                                                     start_arguments([written], ["obtain"], ["购买"], app=["饿了么"], pay_app=["支付宝"]), "买一份。")])
     rejected = engine.context.store.read_agent_events("action_result", 1)[-1].data
-    assert (rejected["status"], rejected["error_code"]) == ("rejected", "SUPPLY_NOT_FOUND")
+    assert (rejected["status"], rejected["error_code"]) == ("rejected", "SUPPLY_NOT_AT_STORE")
     seen: dict = {}
 
     def resubmit(observation: dict) -> list:
         """从本次观察进度层的拒绝结果里取这件商品的候选，逐字段原样提交。"""
         details = last_result(observation)["details"]
         [item] = details["items"]
-        seen.update(details=details, candidate=next(row for row in item["candidates"] if row["arguments"]["items"][0]["target"] == label))
+        seen.update(details=details, candidate=item["candidates"][0])
         return [reply("call-candidate", "start_activity", _obtain_arguments(label, seen["candidate"]), "照候选买。")]
 
     _, requests, _ = await decide(environment, "candidate", resubmit)
-    assert seen["candidate"]["arguments"]["items"] == [{"target": label, "way": "远程下单", "from": None, "to": None}]
-    assert seen["details"]["reason"] and seen["details"]["items"][0]["written"] == written
+    [offered] = seen["candidate"]["arguments"]["items"]
+    assert offered["way"] == "购买" and offered["app"] == "美团" and offered["pay_app"] == "支付宝"
+    assert offered["to"] is None and set(offered) == {"target", "way", "app", "to", "pay_app"}
+    assert seen["details"]["reason"] and seen["details"]["items"][0]["written"] == "饿了么"
     assert len(requests) == 1
     accepted = engine.context.store.read_agent_events("action_result", 1)[-1].data
     assert (accepted["status"], accepted["error_code"]) == ("completed", None)
-    assert [(order["store_id"], order["food_id"]) for order in accepted["data"]["orders"]] == [(store.location_id, food.food_id)]
+    [order] = accepted["data"]["orders"]
+    assert order["goods_id"] in engine.context.semantics.catalog.goods
+    assert order["store_id"] in engine.context.semantics.catalog.goods[order["goods_id"]].store_ids
+    assert order["app_id"] == "meituan" and order["payment_app_id"] == "alipay"
 
 
 def test_feedback_rejects_bare_strings_instead_of_reconstructing_positions() -> None:

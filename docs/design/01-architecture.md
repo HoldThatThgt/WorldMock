@@ -172,8 +172,9 @@ flowchart LR
 
 实际动作先只读准备一次，准入通过后初始化；后续活动进度、结算与事件在共享时钟上提交。模型只描述意图与主观经历，不改变真实进度。
 
-社交动作由环境数据声明 `communication_mode`。同 app 文字聊天只记录实际动作内容、进度与人物自行撰写的主题性文字，不调用通话域函数；语音模式才建立真实通话。两者都不能用模型叙述伪造发送、回复、时长或内容位置。
+生活决策的原生工具固定为十二个：七个世界请求、`recall_task_summary` 与 `query_world` 两个世界查询，以及三个记忆查询；环境稳定面是七个世界请求加两个世界查询，共九个。`start_activity` 的一至两项各自恰含 `target`、`way`、`app`、`to`、`pay_app`，方式闭集为「步行」「驾车」「睡觉」「等待」「购买」「进行」「领取」；领取在内部执行 `collect_parcel`。`query_world` 恰含 `name`、`way`、`category`、`app`、`available_only`、`offset`。`set_alarm` 是独立世界请求，参数只有 `at`。完整字段与执行规则只在[人物工具与管理接口](../CONTRACTS.md#contracts-person-tools)维护。
 
+社交动作由环境数据声明 `communication_mode`。同 app 文字聊天只记录实际动作内容、进度与人物自行撰写的主题性文字，不调用通话域函数；语音模式才建立真实通话。两者都不能用模型叙述伪造发送、回复、时长或内容位置。
 
 
 <a name="architecture-事件驱动的时间推进"></a>
@@ -271,20 +272,33 @@ Python、AgentSociety 2、SQLite 与模型服务的版本和运行绑定见[实�
 <a name="architecture-状态与记录"></a>
 ### 6.2 状态与记录
 
-当前只接受目录格式 2、`RULES_VERSION = 2`、场景结构 8、世界结构 11 与运行清单 4。人物资产只有余额与订单；模拟状态另保存实际活动、内容进度、session 推送、驾驶天数与闹钟，没有食品持有或联系人持有。旧输入与旧检查点直接拒绝，不迁移、不双读。
+当前只接受目录格式 2、场景结构 8、世界结构 11、运行清单 4 与现行工具形状。模型侧 `start_activity` 五字段项、六键 `query_world`、七种方式、十二个原生工具及环境九工具稳定面，均由[人物工具与管理接口](../CONTRACTS.md#contracts-person-tools)和[动作状态与动作结果](../CONTRACTS.md#contracts-action-results)唯一维护。操作备忘从已提交事件派生，紧凑工具层只做无损呈现；旧输入、旧请求和旧检查点直接拒绝，不创建迁移或兼容读取路径。历史发布次序只在本章版本表保留。
+现行导出清单为 4，质量报告为 6，行为报告标识为 `behavior-metrics-2`。
 
 ```mermaid
 flowchart LR
-    R[目录与包内规则] --> W[模拟引擎维护世界状态]
-    W --> A[人物状态：位置、身体、余额、订单、活动与内容进度]
-    W --> T[共享时钟、环境事件、推送与闹钟]
-    A --> F[记录引擎：事件、状态与素材关联]
+    R[资源定义与规则输入] --> W[模拟引擎维护世界状态]
+    W --> A[数字人状态<br/>位置、身体资源、订单、活动与未完成的个人事务]
+    W --> T[共享时钟、账户与环境事件]
+    A --> F[记录引擎<br/>事件、状态与素材关联]
     T --> F
-    F --> C[共同检查点]
+    M[数字人记忆与工作区] --> C[共同检查点]
+    F --> C
 ```
 
-运行、检查点与恢复使用五字段 `environment_identity`：`environment_id`、`environment_version`、`rules_version`、`catalog_content_sha256`、`map_sha256`。规则文件只从引擎包读取，环境不发布副本，也不添加规则哈希；`code_sha256` 额外覆盖 `src/worldmock/data/` 下每个文件。人物请求使用四字段 `start_activity` 项与按 `from` 筛选的 `query_world`，模型提示和工具层与该接口同源。
+资金通过账户身份关联，以最小货币单位整数保存；身体资源和睡眠模型保留各自单位与变化规则。
+体感分级、商品每份热量与路线费力供数字人理解处境，准确数值进入足迹与评估；发给模型的请求按七层 JSON 组织，
+同一信息只出现一次，不含内部身份。
+状态字段与修改权限见[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)，事件、检查点与导出格式见
+[记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)；输入输出导航见[格式说明](09-io-formats.md#io-formats-worldmock-产品设计说明书-输入输出格式)。
 
+现行身份是目录格式 2、`RULES_VERSION = 2`、场景结构 8、世界结构 11、运行清单 4。
+运行、检查点与恢复使用五字段 `environment_identity`：`environment_id`、`environment_version`、
+`rules_version`、`catalog_content_sha256`、`map_sha256`。
+规则文件只从引擎包读取，环境不发布副本，也不添加规则哈希；`code_sha256` 额外覆盖 `src/worldmock/data/` 下每个文件。
+旧格式与旧结构号直接拒绝，不迁移、不双读。
+
+这些指纹由实际函数计算，文档不钉中间或最终字面值；每次验收核对实际清单与回执。
 
 
 

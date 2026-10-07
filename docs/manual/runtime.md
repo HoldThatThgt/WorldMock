@@ -331,13 +331,13 @@ worldmock replay \
 <a name="runtime-工具交互的运行检查"></a>
 ## 工具交互的运行检查
 
-原生工具包含六个世界请求（`start_activity`、`report_status`、`pause_activity`、`resume_activity`、`conclude_activity`、`revise_day_plan`）、两个世界查询（`recall_task_summary`、`query_world`）及三个记忆查询，共十一项；稳定公共请求面为八项。世界 11、场景 8、运行清单 4，运行阶段只含 `action`。
+原生工具包含七个世界请求（`start_activity`、`report_status`、`pause_activity`、`conclude_activity`、`revise_day_plan`、`send_message`、`set_alarm`）、两个世界查询（`recall_task_summary`、`query_world`）及三个记忆查询，共十二项；稳定公共请求面为九项。暂停活动通过 `report_status` 恢复。世界 11、场景 8、运行清单 4，运行阶段只含 `action`；工具定义见[人物工具与管理接口](../CONTRACTS.md#contracts-person-tools)。
 
-`start_activity` 使用 `items[]`，每项四键 `{target, way, from, to}`，另有 `answering` 和 `prefer`。购买偏好必须为“最快拿到”或“到手价最低”，非购买必须为 null；`to=null` 表示本人。app 使用显示名和“打开”，工作使用已分配主题显示名；主题的目标、已做及剩余工时由环境计算，自述不能改变实际累计。
+`start_activity` 只含 `items` 与 `answering`；每项五键 `{target, way, app, to, pay_app}` 全写，不用的字段写 null。人物逐字写动作名称并明确选择可用 app；环境从合格内容中选择，按真实剩余时长推进，不接受点名内容或自述工时。购买明确购物与支付 app，现场购买的 `app` 为 null；远程购买在绑定门店中选择预计送达最早者，不代选 app 或支付 app。完整方式、字段与候选见[人物工具与管理接口](../CONTRACTS.md#contracts-person-tools)。
 
 `report_status`、`pause_activity`、`conclude_activity` 必填请求级 `errands`（可为空；每条七键全写，不用的写 null，`change` 为“新增”“更新”“取消”）。个人事务没有独立工具，完成只按本人实际商品收货证据确认；付款、配送到站或自述不能替代收货。参数错误保留英文完整校验路径、写入值、允许值、格式和原因，具体字段见[个人事务](../CONTRACTS.md#contracts-个人事务)。
 
-`query_world` 必填 `name/way/category/from/available_only/offset` 六键，`from` 为地点或 app 显示名，与购买共用解析；可执行筛选先于分页，无匹配为合法空页。返回 `matches/total_count/next_offset`。查询及回看即时只读，不推进世界时间或同刻轮数，仍受十六模型回合预算。
+`query_world` 必填 `name/way/category/app/available_only/offset` 六键，前四项至少一项非 null；`app` 只接受真实 app 显示名。按完整目录取交集，再按该命中方式与 app 的真实可用性筛选，最后分页；合法无匹配为正常空页，未知 app 是参数错误。返回 `matches/total_count/next_offset`。查询及回看即时只读，不推进世界时间或同刻轮数、不抽取内容或改变内容进度，仍受十六模型回合预算。
 
 ```bash
 worldmock validate --environment experiments/my-world

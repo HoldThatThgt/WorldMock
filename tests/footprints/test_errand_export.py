@@ -1,244 +1,141 @@
-"""认证导出的质量报告统计个人事务与收尾记忆，并能从同一批事件逐值重算（docs/VERIFICATION.md#errands-workday-度量与下游-质量报告 、6.4）。
-
-经真实请求、引擎、SQLite、共同检查点与认证导出：两人场景的副本把运行延到 1 月 6 日 01:00（跨过本地零点）。陈曦 22:51
-收尾时记下三条事务（一条带 22:55 的提醒钟点），远程下单的纯牛奶在途；22:55 提醒带来的那次决策里她带三条收尾记忆结束
-等待，随即开始喝手边的纯牛奶；在途订单送达的那次提交办成第一条，过了零点她取消第三条，第二条到运行终点仍未完成。
-
-另有单人场景的三段短生活，报告与指标直接由 SQLite 里已提交的事件算出：改过提醒钟点、第二次提醒之后才行动；提醒之后
-开始制作事务要取得的菜；只记下事务、不写记忆的收尾。
-"""
-
-from __future__ import annotations
+"""@brief 当前收货证据、提醒与跨夜事务经真实引擎完成，再按同批导出事实重算质量。"""
 
 import json
+from datetime import datetime
 
-from tests.engine_fixture import (engine_factory)  # noqa: F401
-from tests.life.conftest import (activity_name, conclude_request, errand_add, errand_cancel, errand_update, report_request, wake_by_mail)  # noqa: F401
-from tests.life.routing_fixtures import (
-    DRINK_NAME,
-    EAT_SNACK_ITEM,
-    HOME,
-    MEAL_ID,
-    MEAL_NAME,
-    SNACK_ID,
-    SNACK_NAME,
-    WAIT_ITEM,
-    _keep_busy,
-    act,
-    buy_food,
-    errand_events,
-    errand_note,
-    observe,
-    open_world,
-    place,
-    routed,
-    run_until,
-    single_person_home,
-    stage,
-    with_colleague,
-)
-from tests.life.test_errand_reminder import evening, moment, until
+from tests.life.conftest import conclude_request, errand_add, errand_cancel, errand_update, report_request
+from tests.life.test_acs_amended_runtime import perform, pump
+from tests.life.test_acs_runtime import request
 from worldmock.evaluation.errand_metrics import conclusion_memories, errand_metrics
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import Event
 from worldmock.footprints.quality import build_quality_report
 from worldmock.footprints.validation import validate_export
-from worldmock.life.activity_control import PHASE_ACTIVE, pending_conclusions
-from worldmock.life.errand_state import CANCELLED_KIND, COMPLETED_KIND, REGISTERED_KIND
+from worldmock.life.models import active_activities
+from worldmock.life.activity_control import is_pending_conclusion
 
-#: 22:55 收尾写下的三条收尾记忆：一条作息（routine），一条含第二条事务的商品名，一条含第三条事务的名称。
+
 _MEMORIES = [
     {"type": "routine", "text": "睡前总要先喝点热的再洗漱。", "importance": 0.3, "keywords": ["睡前"]},
-    {"type": "reflection", "text": f"冰箱里的{MEAL_NAME}已经吃完了。", "importance": 0.5, "keywords": ["冰箱"]},
-    {"type": "goal", "text": "明天下班记得买冰红茶。", "importance": 0.4, "keywords": ["下班"]},
+    {"type": "reflection", "text": "明天记得买牛肉面。", "importance": 0.5, "keywords": ["晚饭"]},
+    {"type": "goal", "text": "明天下班再买薯片。", "importance": 0.4, "keywords": ["下班"]},
 ]
-#: 当日目标报告每个代码摘要下的四个键（个人事务不改变它）。
 _DAY_PLAN_KEYS = {"habitual_consistency", "external_constraints", "deliberate_goals", "gates"}
 
 
-def _until_one_am(document: dict) -> None:
-    """两人场景副本：加同事联系人王磊（routing_fixtures 的缺省改写），运行延到 1 月 6 日 01:00 结束。"""
-    with_colleague(document)
-    document["end_at"] = "2026-01-06T01:00:00+08:00"
+def late_evening(document):
+    """@brief 明确夜间运行窗口，工作时段在窗口外，输入不借旧持有物。"""
+    document.update(start_at="2026-01-05T22:30:00+08:00", end_at="2026-01-06T01:00:00+08:00",
+                    messages=[], payrolls=[], bills=[])
 
 
-def _late_evening(engine_factory):
-    """1 月 5 日 22:50：两人都在家、此刻都可以决策，陈曦手边有一份纯牛奶（集市营业到 23:00，还能远程下单）。"""
-    engine = open_world(engine_factory, mutate=_until_one_am)
-    now = moment(engine, "2026-01-05 22:50")
-
-    def change(state):
-        """推到 22:50，两人此刻都可以决策。"""
-        state.current_time = now
-        state.pending_events = [event for event in state.pending_events if event.due_at > now]
-        for agent in state.agents.values():
-            agent.body_settled_at = agent.next_decision_at = now
-    stage(engine, change)
-    place(engine, 1, HOME, {SNACK_ID: 1.0})
-    return engine
+def moment(value):
+    """@brief 测试时间与场景同源的带偏移整秒时间。"""
+    return int(datetime.fromisoformat(value).timestamp())
 
 
-def _cancel_after_midnight(engine) -> None:
-    """过了零点，以一封邮件给陈曦一次决策机会，她在点名手头活动的控制请求里取消第三条事务。"""
-    run_until(engine, lambda current: current.context.state.current_time > moment(current, "2026-01-06 00:00"))
-    wake_by_mail(engine, 1, offset=60)
-    run_until(engine, lambda current: 1 in current.scheduling_state().ready_agent_ids)
-    tool, request = _keep_busy(engine, 1, "cancel")
-    build = {"report_status": report_request, "conclude_activity": conclude_request}[tool]
-    names = [item.activity_name for item in request.items]
-    cancelled = act(engine, "cancel", build(*names, errands=[errand_cancel("买冰红茶", "家里还有冰红茶")]), tool=tool)
-    assert cancelled.status == "completed", (cancelled.error_code, cancelled.message)
-
-
-def _overnight_export(engine_factory, tmp_path):
-    """跑完记下、提醒、收尾记忆、送达、跨零点取消与运行终点，创建共同检查点并导出：返回（导出目录，引擎）。"""
-    engine = _late_evening(engine_factory)
-    errand_note(engine, "note", [errand_add("买牛奶", SNACK_NAME, remind_time="22:55"), errand_add("补食材包", MEAL_NAME),
-                          errand_add("买冰红茶", DRINK_NAME)])
-    [order] = buy_food(engine, "order", way="远程下单").data["orders"]
-    assert order["status"] == "pending"
-    waited = act(engine, "wait", routed(WAIT_ITEM))
-    until(engine, moment(engine, "2026-01-05 22:55"))
-    concluded = act(engine, "remind", conclude_request(activity_name(engine, waited.activity_id), summary="不等了。",
-                                                       memories=[_MEMORIES]), tool="conclude_activity")
-    assert concluded.status == "completed", (concluded.error_code, concluded.message)
-    assert act(engine, "drink", routed(EAT_SNACK_ITEM)).status == "in_progress"
-    run_until(engine, lambda current: current.context.state.deliveries[order["order_id"]].status == "delivered")
-    _cancel_after_midnight(engine)
-    run_until(engine, lambda current: current.context.state.current_time == current.context.state.end_time)
-    checkpoint = engine.checkpoint({f"agent:{agent_id}": engine.context.store.assets.put_json(
-        {"agent_id": agent_id}, {"kind": "errand_export_test"}) for agent_id in engine.context.state.agents})
-    export_dir = tmp_path / "errand-export"
-    assert export_run(engine.context.store, checkpoint.last_event_seq, export_dir)["experiment_completed"] is True
-    return export_dir, engine
-
-
-def _lives(events: list[dict]) -> dict[str, tuple[dict, dict | None]]:
-    """导出里每条事务的（记下事件，终态事件或 None），按事务名。"""
-    lives = {}
-    for event in events:
-        kind = event["data"].get("kind") if event["event_type"] == "environment_event" else None
-        if kind == REGISTERED_KIND:
-            lives[event["data"]["errand"]["name"]] = (event, None)
-        elif kind in {COMPLETED_KIND, CANCELLED_KIND}:
-            name = event["data"]["errand"]["name"]
-            lives[name] = (lives[name][0], event)
-    return lives
-
-
-def test_an_exported_run_reports_errands_and_recertifies_value_for_value(
-        engine_factory, tmp_path) -> None:  # noqa: F811
-    """导出的 quality.json 结构为 5，errand_metrics 与 conclusion_memories 紧随 day_plan_metrics，计数与事件逐条相符：
-    记下 3 条（分母），办成 1、取消 1、截止时未完成 1；跨夜 2（零点后取消的与到终点仍未完成的；22:55 之后、零点之前
-    送达办成的那条不算）；未完成期间陈曦的每次观察待办层都列着该事务（同期观察数与可见次数相等）；提醒 1 条，提醒后
-    同一本地日、办成之前她开始喝同一商品，算作提醒后行动；每条办成事件都有可复核的证据。收尾记忆 3 条：作息 1 条，含
-    未完成事务名称或商品名称的 2 条。当日目标报告的键集不变。22:55 那次提醒的唤醒原因 errand_reminder_due 在共同身体
-    结算与 decision_started 两处都计入已知原因（各一次），两个未识别原因的分桶为空。认证导出（validate_export）从同一批
-    事件重算出逐字节相同的报告，两个分组再由导出的事件逐值重算也相同。"""
-    export_dir, engine = _overnight_export(engine_factory, tmp_path)
-    manifest, events, activities = validate_export(export_dir)
-    quality = json.loads((export_dir / "quality.json").read_text(encoding="utf-8"))
-    timezone = engine.context.scenario.timezone
-
-    lives = _lives(events)
-    assert {name: life[1]["data"]["kind"] if life[1] else None for name, life in lives.items()} == {
-        "买牛奶": COMPLETED_KIND, "补食材包": None, "买冰红茶": CANCELLED_KIND}
-    delivered = lives["买牛奶"][1]["occurred_at"]
-    assert moment(engine, "2026-01-05 22:55") < delivered < moment(engine, "2026-01-06 00:00")
-    observations = [event["event_seq"] for event in events if event["event_type"] == "observation"
-                    and event["agent_id"] == 1]
-    during = sum(registered["event_seq"] < sequence < (terminal or {"event_seq": float("inf")})["event_seq"]
-                 for registered, terminal in lives.values() for sequence in observations)
-    assert during > 0
-    assert quality["errand_metrics"] == {
-        "registered_count": 3, "completed_count": 1, "cancelled_count": 1, "open_at_cutoff_count": 1,
-        "carried_overnight_count": 2, "visible_observation_count": during, "expected_observation_count": during,
-        "reminded_errand_count": 1, "acted_after_reminder_count": 1, "completed_without_evidence_count": 0}
-    assert quality["conclusion_memories"] == {"total_count": 3, "routine_count": 1, "errand_overlap_count": 2}
-    assert quality["schema_version"] == 5
-    assert quality["day_plan_metrics"] and all(set(group) == _DAY_PLAN_KEYS
-                                               for group in quality["day_plan_metrics"].values())
-    assert "errand" not in json.dumps(quality["day_plan_metrics"])
-    rhythm = quality["decision_rhythm"]
-    assert rhythm["wake_reason_counts"]["errand_reminder_due"] == 1
-    assert rhythm["decision_started_wake_reason_counts"]["errand_reminder_due"] == 1
-    assert rhythm["unrecognized_wake_reason_counts"] == rhythm["unrecognized_decision_started_wake_reason_counts"] == {}
-    rebuilt = build_quality_report([Event.model_validate(row) for row in events], activities,
-                                   manifest["frozen_run_manifest"])
-    assert rebuilt == quality
-    keys = list(rebuilt)
-    assert keys[keys.index("day_plan_metrics"):keys.index("day_plan_metrics") + 3] == [
-        "day_plan_metrics", "errand_metrics", "conclusion_memories"]
-    assert errand_metrics(events, timezone) == quality["errand_metrics"]
-    assert conclusion_memories(events) == quality["conclusion_memories"]
-
-
-def _stored_events(engine) -> list:
-    """运行的 SQLite 里已提交的全部事件（按事件序号）。"""
+def events(engine):
+    """@brief 当前实际 SQLite 的完整严格事件序列。"""
     return engine.context.store.read_events(engine.context.store.last_event_seq)
 
 
-def _stored_metrics(engine) -> dict:
-    """由已提交的全部事件（与导出 events.jsonl 同形的事件字典）直接算出的 errand_metrics。"""
-    return errand_metrics([event.model_dump(mode="json") for event in _stored_events(engine)],
-                          engine.context.scenario.timezone)
+def note(engine, label, errands, memories=()):
+    """@brief 在真实等待收尾中记下事务及可选主观记忆，事务不充当事实证据。"""
+    pump(engine, lambda: 1 in engine.scheduling_state().ready_agent_ids)
+    running = [item for item in engine.context.state.activities.values() if item.agent_id == 1
+               and (item.status == "active" or is_pending_conclusion(item))]
+    if not running:
+        started = perform(engine, f"{label}-wait", request("自己", None, "等待"))
+        assert started.error_code is None
+        running = active_activities(engine.context.state, 1)
+    result = perform(engine, label, conclude_request(*(item.name for item in running), errands=errands,
+                                                     memories=[list(memories) for _ in running]), "conclude_activity")
+    assert result.error_code is None, result.data
+    return result
 
 
-def _end_what_is_running(engine, label: str) -> None:
-    """等到人物 1 可以决策且没有待收尾的活动，结束手头仍在进行的活动（决策不耗模拟时间，同一秒随后还能开始别的）。"""
-    run_until(engine, lambda current: 1 in current.scheduling_state().ready_agent_ids
-              and not pending_conclusions(current.context.state, 1))
-    running = [row["name"] for row in observe(engine, f"{label}-peek")["activity_bindings"]
-               if row["phase"] == PHASE_ACTIVE]
-    if running:
-        ended = act(engine, label, conclude_request(*running, summary="先到这儿。"), tool="conclude_activity")
-        assert ended.status == "completed", (ended.error_code, ended.message)
+def final_export(engine, directory):
+    """@brief 经真实共同时间终点与检查点生成可认证导出。"""
+    pump(engine, lambda: engine.context.state.current_time == engine.context.state.end_time)
+    snapshots = {f"agent:{identity}": engine.context.store.assets.put_json(agent.model_dump(mode="json"),
+                 {"kind": "test_agent_snapshot"}) for identity, agent in engine.context.state.agents.items()}
+    point = engine.checkpoint(snapshots)
+    export_run(engine.context.store, point.last_event_seq, directory)
+    return validate_export(directory)
 
 
-def test_acting_after_a_re_armed_reminder_is_counted_from_the_stored_events(engine_factory) -> None:  # noqa: F811
-    """更新时写下新钟点的事务再提醒一次，提醒后行动按任何一次提醒计（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-提醒时刻 、6.1）。真实
-    请求、引擎与 SQLite：1 月 5 日 23:41 记下「吃掉纯牛奶 1 份」、提醒 23:50；23:50 被提醒的那次播报把钟点改成 00:10
-    （次日），当天没有任何指向纯牛奶的请求；00:10 再被提醒，两条提醒事件分在两个本地日，此时由已提交事件算出的是被
-    提醒 1 条、提醒后行动 0 条。她随即结束等待、开始喝手边的奶，受理于第二次提醒的本地日：提醒后行动变为 1 条。"""
-    engine = evening(engine_factory, "23:40")
-    place(engine, 1, HOME, {SNACK_ID: 1.0})
-    errand_note(engine, "note", [errand_add("睡前喝奶", SNACK_NAME, outcome="吃掉", remind_time="23:50")])
-    waited = act(engine, "wait", routed(WAIT_ITEM))
-    first, second = moment(engine, "2026-01-05 23:50"), moment(engine, "2026-01-06 00:10")
-    until(engine, first)
-    updated = act(engine, "update", report_request(activity_name(engine, waited.activity_id), summary="过会儿再喝。",
-                                                   errands=[errand_update("睡前喝奶", remind_time="00:10")]),
-                  tool="report_status")
-    assert updated.status == "completed", (updated.error_code, updated.message)
-    until(engine, second)
-    assert [event.occurred_at for event in errand_events(engine, kinds=("errand_reminded",))] == [first, second]
-    before = _stored_metrics(engine)
+def test_an_exported_run_reports_errands_and_recertifies_value_for_value(engine_factory, tmp_path):
+    engine = engine_factory(mutate=late_evening)
+    note(engine, "note", [errand_add("买饮料", "柠檬茶", remind_time="22:55"),
+                          errand_add("买晚饭", "牛肉面"), errand_add("买零食", "薯片")])
+    perform(engine, "wait-reminder", request("自己", None, "等待"))
+    pump(engine, lambda: engine.context.state.current_time >= moment("2026-01-05T22:55:00+08:00"))
+    note(engine, "reflect", [], _MEMORIES)
+    purchased = perform(engine, "buy", request("柠檬茶", "美团", "购买", payment="微信"))
+    assert purchased.error_code is None, purchased.data
+    order_id = purchased.data["orders"][0]["order_id"]
+    pump(engine, lambda: engine.context.state.deliveries[order_id].status == "delivered")
+    assert engine.context.state.current_time < moment("2026-01-06T00:00:00+08:00")
+    pump(engine, lambda: engine.context.state.current_time >= moment("2026-01-06T00:00:00+08:00"))
+    note(engine, "cancel", [errand_cancel("买零食", "明天再买。")])
+    manifest, rows, activities = final_export(engine, tmp_path / "export")
+    quality = json.loads((tmp_path / "export/quality.json").read_bytes())
+    metrics = quality["errand_metrics"]
+    assert metrics["registered_count"] == 3 and metrics["completed_count"] == 1
+    assert metrics["cancelled_count"] == metrics["open_at_cutoff_count"] == 1
+    assert metrics["carried_overnight_count"] == 2
+    assert metrics["visible_observation_count"] == metrics["expected_observation_count"] > 0
+    assert metrics["reminded_errand_count"] == metrics["acted_after_reminder_count"] == 1
+    assert metrics["completed_without_evidence_count"] == 0
+    assert quality["conclusion_memories"] == {"total_count": 3, "routine_count": 1, "errand_overlap_count": 2}
+    assert quality["schema_version"] == 6
+    assert all(set(group) == _DAY_PLAN_KEYS for group in quality["day_plan_metrics"].values())
+    assert quality == build_quality_report([Event.model_validate(row) for row in rows], activities,
+                                          manifest["frozen_run_manifest"])
+    assert errand_metrics(rows, engine.context.scenario.timezone) == metrics
+    assert conclusion_memories(rows) == quality["conclusion_memories"]
+    completed = next(event for event in rows if event["data"].get("kind") == "errand_completed")
+    [source_id] = completed["caused_by"]
+    source = next(event for event in rows if event["event_id"] == source_id)
+    assert source["data"]["kind"] == "goods_received" and source["agent_id"] == completed["agent_id"]
+    assert source["data"]["order_id"] == order_id and source["event_seq"] < completed["event_seq"]
+
+
+def test_acting_after_a_re_armed_reminder_is_counted_from_the_stored_events(engine_factory):
+    def window(document):
+        late_evening(document)
+        document["start_at"] = "2026-01-05T23:20:00+08:00"
+    engine = engine_factory(mutate=window)
+    note(engine, "note", [errand_add("睡前零食", "薯片", remind_time="23:50")])
+    waited = perform(engine, "wait", request("自己", None, "等待"))
+    first, second = moment("2026-01-05T23:50:00+08:00"), moment("2026-01-06T00:10:00+08:00")
+    pump(engine, lambda: engine.context.state.current_time >= first)
+    note(engine, "update", [errand_update("睡前零食", remind_time="00:10")])
+    pump(engine, lambda: engine.context.state.current_time >= second)
+    reminders = [event.occurred_at for event in events(engine) if event.data.get("kind") == "errand_reminded"]
+    assert reminders == [first, second]
+    rows = [event.model_dump(mode="json") for event in events(engine)]
+    before = errand_metrics(rows, engine.context.scenario.timezone)
     assert (before["reminded_errand_count"], before["acted_after_reminder_count"]) == (1, 0)
-    _end_what_is_running(engine, "end")
-    drinking = act(engine, "drink", routed(EAT_SNACK_ITEM))
-    assert drinking.status == "in_progress", (drinking.error_code, drinking.message)
-    assert engine.context.state.current_time == second
-    after = _stored_metrics(engine)
+    note(engine, "end-wait", [])
+    purchased = perform(engine, "snack", request("薯片", "美团", "购买", payment="微信"))
+    assert purchased.error_code is None, purchased.data
+    rows = [event.model_dump(mode="json") for event in events(engine)]
+    after = errand_metrics(rows, engine.context.scenario.timezone)
     assert (after["reminded_errand_count"], after["acted_after_reminder_count"]) == (1, 1)
     assert (after["registered_count"], after["open_at_cutoff_count"]) == (1, 1)
 
 
-def test_a_conclusion_that_only_notes_an_errand_is_no_memory_write_point(engine_factory) -> None:  # noqa: F811
-    """个人事务变更不是记忆写入点、不产生 memory_updated（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 、3.4 第 2 项）。真实请求、
-    引擎与 SQLite：人物结束一段等待，收尾里只记下一条事务，没有 memories 与 views。已提交的事件里这条收尾请求带着事务
-    变更，没有任何 memory_updated；由这些事件生成的质量报告里记忆核对没有问题（不报 conclusion_without_memory_update），
-    没有收尾记忆（conclusion_memories 为 null），事务照常计入 errand_metrics。"""
-    engine = single_person_home(engine_factory, {})
-    errand_note(engine, "note", [errand_add("买牛奶", SNACK_NAME)])
-    events = _stored_events(engine)
-    [concluded] = [event for event in events if event.event_type == "action_requested"
+def test_a_conclusion_that_only_notes_an_errand_is_no_memory_write_point(engine_factory):
+    engine = engine_factory(mutate=late_evening)
+    note(engine, "note", [errand_add("买饮料", "柠檬茶")])
+    actual = events(engine)
+    [concluded] = [event for event in actual if event.event_type == "action_requested"
                    and event.data["tool_name"] == "conclude_activity"]
-    request = concluded.data["request"]
-    assert [row["name"] for row in request["errands"]] == ["买牛奶"]
-    assert [(item["memories"], item["views"]) for item in request["items"]] == [([], [])]
-    assert not [event for event in events if event.event_type == "memory_updated"]
-    report = build_quality_report(events, [], engine.context.store.manifest)
-    memory = report["memory_references"]
-    assert (memory["problem_count"], memory["problems"], memory["memory_update_events"]) == (0, [], 0)
+    assert [row["name"] for row in concluded.data["request"]["errands"]] == ["买饮料"]
+    assert [(item["memories"], item["views"]) for item in concluded.data["request"]["items"]] == [([], [])]
+    assert not [event for event in actual if event.event_type == "memory_updated"]
+    report = build_quality_report(actual, [], engine.context.store.manifest)
+    assert report["memory_references"]["problem_count"] == 0
     assert report["conclusion_memories"] is None
     assert (report["errand_metrics"]["registered_count"], report["errand_metrics"]["open_at_cutoff_count"]) == (1, 1)

@@ -20,7 +20,7 @@ from tests.life.routing_fixtures import (
     FOOD_STORE,
     SNACK_ID,
     SNACK_NAME,
-    buy_food,
+    buy_goods,
     current_errand,
     delivery_arrival,
     errand_events,
@@ -60,13 +60,13 @@ def test_a_restored_branch_shows_the_same_todo_layer_and_repeats_nothing(
     随后创建共同检查点并恢复成分支。分支的事务与父运行逐字段相同，同一时刻的待办层逐字节相同（已取得 1 份、提醒 12:35）。
     父运行与分支各自接着过下去：12:35 各提醒一次，订单送达的那次提交各办成一次；分支只有父运行带来的那一条记下事件和一条
     累计事件，检查点之后两边的事务事件逐条相同（提醒、办成各一条），送达事件各一条。"""
-    engine = single_person_home(engine_factory, {})
+    engine = single_person_home(engine_factory)
     errand_note(engine, "note", [errand_add("囤两份牛奶", SNACK_NAME, quantity=2, memo="店里买一份，再送一份到家",
                                      remind_time="12:35")])
-    ordered = buy_food(engine, "order", way="远程下单")
+    ordered = buy_goods(engine, "order", app="美团", pay_app="微信")
     [order] = ordered.data["orders"]
     place(engine, 1, FOOD_STORE)
-    buy_food(engine, "buy")
+    buy_goods(engine, "buy")
     noted = current_errand(engine)
     assert (noted.progress, noted.remind_at, noted.reminded_at) == (1.0, moment(engine, "2026-01-05 12:35"), None)
     assert engine.context.state.deliveries[order["order_id"]].status == "pending"
@@ -90,6 +90,9 @@ def test_a_restored_branch_shows_the_same_todo_layer_and_repeats_nothing(
         arrivals = [event for event in branch.context.store.read_agent_events("environment_event", 1)
                     if event.data.get("kind") == "delivery_arrival"]
         assert arrivals == [arrival] and continued[-1][2]["errand"]["progress"] == 2.0
-        assert branch.context.state.agents[1].inventory.get("home", {}).get(SNACK_ID) == 1.0
+        assert "inventory" not in branch.context.state.agents[1].model_dump()
+        received = [event for event in branch.context.store.read_agent_events("environment_event", 1)
+                    if event.data.get("kind") == "goods_received"]
+        assert len(received) == 2 and len({event.data["order_id"] for event in received}) == 2
     finally:
         branch.close()

@@ -121,6 +121,9 @@ def test_current_tool_surface_and_action_only_stage_identity_match_the_actual_ho
     from worldmock.life.models import REQUEST_MODELS
     from worldmock.run_setup import stage_model_identity, validate_stage_model_identity
 
+    offered = _prepared().build_react_tool_schemas(readonly=False)
+    assert len(offered) == 12 and len(_STABLE_TOOL_SURFACE) == 9
+    assert "set_alarm" in _STABLE_TOOL_SURFACE
     assert "submit_work" not in REQUEST_MODELS and "submit_work" not in _STABLE_TOOL_SURFACE
     assert "submit_work" not in "".join(LIFE_SYSTEM_LAYER["rules"])
     identity = stage_model_identity()

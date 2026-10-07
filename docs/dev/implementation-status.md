@@ -22,6 +22,7 @@ LabelKit 模型任务、输入整理、训练加载和规则测试数据归 Labe
 LabelKit-DataSet 会话已复制 261 个来源文件并核对摘要，证明来源材料接收；整合后的新消费验收尚未取得。
 目录整理的本次工程验证由实际回执登记，不能沿用此前完整日、覆盖率或平台结果声称通过。
 
+
 <a name="implementation-status-资源与规则引擎简化开发状态"></a>
 ## 资源与规则引擎简化开发状态
 
@@ -67,6 +68,7 @@ LabelKit-DataSet 会话已复制 261 个来源文件并核对摘要，证明来�
 正式环境发布和确定性动作链通过均不代表完整回归、跨平台发布或原生消费者完成；
 真实 DeepSeek 十二周、三次隔离盲评及 LabelKit 完整自然日交付仍未取得证明。
 
+
 <a name="implementation-status-同时做两件事开发状态"></a>
 ## 同时做两件事开发状态
 
@@ -84,6 +86,7 @@ LabelKit-DataSet 会话已复制 261 个来源文件并核对摘要，证明来�
 阶段 3 另对锚定在系统层上的五个既有源码变异逐个执行，全部被杀死。标准层、全量层、覆盖率门禁与其余源码变异执行没有运行，
 全量层与完整日用例要以 `--environment-root` 指向发布环境运行，仍带旧占用名的发布环境加载时被拒，要等数据集一侧按新占用名重新发布（规格阶段 5）；本机的回归以仓库人工测试环境与合流前的 `origin/main` 逐用例对照。
 仍声明旧占用名的已发布环境（WorldMock-Dataset 的正式环境与数据集各请求自带的目录）与包资源字节不同，在加载时拒绝，要按新占用名重新发布才能加载；配对复跑未执行。
+
 
 <a name="implementation-status-layering-and-test-tiers"></a>
 ## 分层与测试层次开发状态
@@ -105,6 +108,7 @@ LabelKit-DataSet 会话已复制 261 个来源文件并核对摘要，证明来�
 当前追溯见 [规格与实际测试](ANALYSIS-spec-coverage.md#analysis-spec-coverage-规格测试用例覆盖率追溯矩阵)。
 真实十二周、三次隔离盲评与 LabelKit 完整自然日交付仍为 NOT-COMPLETE；归档不改变真实复验、配对全天复跑与 strict 端点探针的原状态。
 
+
 <a name="implementation-status-idle-fillers"></a>
 ## 让「等待」成为例外开发状态
 
@@ -117,6 +121,7 @@ LabelKit-DataSet 会话已复制 261 个来源文件并核对摘要，证明来�
 两份历史证明及签名实现保持原字节。阶段 5 的完整收口与配对全天复跑未取得本次完成证据，不能以阶段 1–3 代替。
 本次全量与覆盖率须核对整合后实际源码、测试和外部输入的收据；
 [跨平台完整日提案](PROPOSAL_2026-10-05_CROSS_PLATFORM_DAY_BASELINE.md)仍为未冻结、未实施方案，历史平台取证不作为当前平台放行。
+
 
 
 <a name="implementation-status-共享规则与可重建环境开发状态"></a>
@@ -136,6 +141,7 @@ Windows 尚未取得成功证据，完整平台放行未完成。
 实现文件清单、源码摘要、命令与各次被测提交统一登记于该记录。
 下文旧特性的发布版本、AS2 身份、全量数字与跳过计数均保留当时源码身份；
 正式目录版本由数据仓的发布清单定义，AS2 来源与摘要按共享规则规格及 SERIES；合并后证据须重新测量。
+
 
 <a name="implementation-status-个人事务与工作安排开发状态"></a>
 ## 个人事务与工作安排开发状态
@@ -199,6 +205,7 @@ Windows 尚未取得成功证据，完整平台放行未完成。
 「下游」行（交付入口按世界结构版本 9 设门禁）与「世界结构版本 8」行（现行版本为 9）。旧节的表格原文不回改。
 本节只确认本特性离线验收，不改写项目级真实十二周、LabelKit 与盲评的未完成状态：项目整体仍为 NOT-COMPLETE，三项真实验收的状态见下文的验收项表。
 
+
 <a name="implementation-status-工具交互开发状态"></a>
 ## 工具交互开发状态
 
@@ -220,6 +227,7 @@ Windows 尚未取得成功证据，完整平台放行未完成。
 | 验收守卫 | 规格行为表逐行登记可执行节点；独立解释器真实源码变异，不放行存活、未执行或基础失败 |
 
 后续章节保留各特性当时的验收基线与历史接口说明；现行接口以合同和本文件最前面的特性节为准，本节「查询与任务回看」「正式发布」两行已由「个人事务与工作安排开发状态」修订。
+
 
 
 <a name="implementation-status-一日运行保真开发状态"></a>
@@ -262,6 +270,7 @@ Windows 尚未取得成功证据，完整平台放行未完成。
 「数据、日志与模型接入」补截断重试的思考与工具选择和 `/beta` 端点；「地图与品类组合的历史结论」记的地图结构 `1` 是那次组合的固定身份，现行地图文件结构为 `2`。
 本节只确认本特性离线验收，不改写项目级真实十二周、LabelKit 与盲评的未完成状态。
 
+
 <a name="implementation-status-人物-prompt-七层开发状态"></a>
 ## 人物 Prompt 七层开发状态
 
@@ -300,6 +309,7 @@ Windows 尚未取得成功证据，完整平台放行未完成。
 「数据、日志与模型接入」补同秒回传思考。上表「七层请求」「交互语义」「下游」三行的部分表述此后由一日运行保真规格修订（截断重试同样去掉记忆查询工具，
 商品多于一处能服务时按 `prefer` 选定、不再以重名拒绝，质量报告升到 3），现行行为见「一日运行保真开发状态」。本节只确认本特性离线验收，不改写项目级真实十二周、LabelKit 与盲评的未完成状态。
 
+
 <a name="implementation-status-时间与能量开发状态"></a>
 ## 时间与能量开发状态
 
@@ -316,6 +326,7 @@ VF4 在干净提交的隔离工作树上覆盖同刻上限、能量截断、唤�
 逐行台账登记、评审修复、全量门禁、突变台账与文档一致性核对见[时间与能量验收记录](../archive/time-and-energy/time-and-energy-verification.md)，阶段划分与文档同步作业见[实施台账](../archive/time-and-energy/time-and-energy-implementation-plan.md)。
 本节只确认本特性离线验收，不改写项目级真实十二周、LabelKit 与盲评的未完成状态。
 
+
 <a name="implementation-status-一日行为可信性开发状态"></a>
 ## 一日行为可信性开发状态
 
@@ -326,6 +337,7 @@ VF4 在干净提交的隔离工作树上覆盖同刻上限、能量截断、唤�
 三组独立 Bob 审查的四十四个有效语义变异全部关闭，所有曾存活补丁均原样复验。
 完整修改清单、逐条行为测试、设计文档一致性及带身份的原始收据见[实施台账](research/dayrun-behavior/verification.md)。
 本节只确认本特性离线验收，不改写项目级真实十二周、LabelKit 与盲评的未完成状态。
+
 
 <a name="implementation-status-当日目标开发状态"></a>
 ## 当日目标开发状态
@@ -339,6 +351,7 @@ VF4 在干净提交的隔离工作树上覆盖同刻上限、能量截断、唤�
 与 main 新增配置手册的合并保持生产、测试、依赖和锁文件完全相同；组合文档与依赖检查通过，
 冲突处理、手册同步及依赖发布见 [主线组合验收](research/day-plan-goals-main-verification.md)。
 本节不改变以下项目级真实验收的未完成状态。
+
 
 <a name="implementation-status-地图与门店供给开发状态"></a>
 ## 地图与门店供给开发状态
@@ -360,6 +373,7 @@ VF4 在干净提交的隔离工作树上覆盖同刻上限、能量截断、唤�
 原始路线基线的二百二十份响应中，一百零四份步行/驾车复用已修复；全部一百一十条步行响应的步骤方式及全部路线哈希已核验。
 地点活动环境缺口与其缺字段测试漏检均已闭合，真实到达和跨地点恢复有生产入口断言。
 下文各特性的通过数字保留原源码身份；地图分支与 main 品类主线的组合已重新验收，结果单列于下节，不将任一侧旧数字作为本次结果。
+
 
 
 <a name="implementation-status-地图与品类组合的历史结论"></a>
@@ -446,6 +460,7 @@ flowchart LR
 
 链路各段的门禁定义与交付顺序见 `docs/VERIFICATION.md#verification-worldmock-验收标准`。
 
+
 <a name="implementation-status-候选与呈现本轮新增章的落地状态"></a>
 ## 候选与呈现：本轮新增章的落地状态
 
@@ -506,6 +521,7 @@ $ uv run pytest -q
 
 八个文件合并复跑实测 **165 passed**。
 
+
 <a name="implementation-status-历史静态可达性缺陷记录"></a>
 ### 历史静态可达性缺陷记录
 
@@ -517,6 +533,7 @@ $ uv run pytest -q
 （`game-0001`…`game-0080`），另 6 条为 `jokes-feed`、`movie-reviews-feed`、`news-feed`、
 `sintel-en-subtitles`、`weibo-feed`、`zhihu-feed`。即场景 `contents[]` 有 86 条条目自身缺题材与语言声明，
 落不进任何检索分区。这是当时独立记录的缺陷；地图分支已另有完整可达性实测，不能把本段旧结果当作当前阻塞。
+
 
 <a name="implementation-status-历史候选呈现工具面指纹"></a>
 ### 历史候选呈现工具面指纹
@@ -530,6 +547,7 @@ $ uv run pytest -q
 当前呈现留痕测试见 `tests/life/test_candidate_wiring.py`。规格追溯矩阵
 `docs/dev/ANALYSIS-spec-coverage.md#analysis-spec-coverage-规格测试用例覆盖率追溯矩阵` 的旧覆盖计数只保留历史审计身份，不能作为当前工具面的覆盖证明。
 
+
 <a name="implementation-status-已落地的条款口味权重降级为排序信号"></a>
 ### 已取代的历史条款：口味权重曾作为排序信号
 
@@ -538,13 +556,13 @@ $ uv run pytest -q
 资源与规则引擎简化之前，口味权重只影响娱乐候选排序、不作为准入条件；本节原记录的定向运行结果为
 `2 passed, 76 deselected`。这项结果只证明当时的实现，不再作为现行候选或 app 工具面的验收结论。
 
-此前资源与规则简化波次的阶段四曾将候选收敛为 `product`、`lifestyle`、`task`，并把 app 列为工具目标；这些旧目标已由现行动作与内容合同取代。当前候选仅有 `product`，动作列出明确 app 选项。当前纯所有者定义为下面三个节点；是否通过取对应阶段的实际定向回执。
+阶段 4 已删除内容、游戏与目录浏览候选，候选种类收敛为 `product`、`lifestyle`、`task`；app 始终作为工具目标列出，
+画像 `tastes` 只进入散文，不生成候选数值权重。当前纯所有者节点是
+`tests/life/test_candidates.py::test_candidates_have_only_current_product_kind`、
+`tests/life/test_candidates.py::test_relevance_changes_order_without_changing_membership` 与
+`tests/life/test_tool_layer.py::test_all_registered_actions_listed_with_explicit_apps_and_no_app_targets`。
+完整引擎组合属于阶段 1–5 同一集成波次，须由阶段 5 回执闭合；本节不据这些登记宣称已经通过。
 
-- `tests/life/test_candidates.py::test_candidates_have_only_current_product_kind`
-- `tests/life/test_candidates.py::test_relevance_changes_order_without_changing_membership`
-- `tests/life/test_tool_layer.py::test_all_registered_actions_listed_with_explicit_apps_and_no_app_targets`
-
-完整引擎、记录与最终门禁只由对应阶段的实际回执闭合；本节不据登记宣称后续阶段已经通过。
 
 <a name="implementation-status-当前世界格式worldstateschema_version-为-9"></a>
 ### 当前世界格式：`WorldState.schema_version` 为 10
@@ -560,6 +578,8 @@ $ uv run pytest -q
 | 环境身份 | 同一环境标识、版本、规则、目录和地图字节绑定运行及冻结清单；新分支新目录，父目录不改 |
 
 逐字段合同见[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)，当前行为节点由[机器追溯](ANALYSIS-spec-coverage.md#analysis-spec-coverage-资源与规则简化映射)登记。此前版本 6–9 的发布和验收身份见历史特性与归档记录，不充当当前格式证明；正式环境完整日与跨平台换目录恢复仍由阶段 9 留证。
+
+
 
 <a name="implementation-status-已完成的确定性范围"></a>
 ## 已完成的确定性范围
@@ -582,6 +602,7 @@ $ uv run pytest -q
 `133b61819c7bef77858567b032dac9396a1374777cdee71bdcd4eac58a670d4f`（旧版记录值），
 两者不一致曾使套件非零退出、门禁判定 FAILED，即使分支覆盖率与未覆盖公共接口两项数值本身达标。
 
+
 <a name="implementation-status-覆盖率口径"></a>
 ### 覆盖率口径
 
@@ -601,6 +622,7 @@ $ uv run pytest -q
   未覆盖公共接口 0、`passed = true`（`generated_at` = `2026-09-20T11:01:47+00:00`，
   `source_identity` = `a651dc5db539d38be113f494eaf3580e387c3cf2`）。
 
+
 <a name="implementation-status-规格追溯与突变守卫"></a>
 ### 规格追溯与突变守卫
 
@@ -616,6 +638,7 @@ $ uv run pytest -q
   全部存活缺口都补了针对性测试并经独立复验 killed，当前没有已知存活突变。报告与复验记录在
   `.work/verification/bob-target-only/`。
 - 规格验证矩阵不是完整测试地图：`test_branch_coverage` 系列测试独家守住两个突变探针位点。
+
 
 <a name="implementation-status-已冻结条款与确定性证据"></a>
 ### 已冻结条款与确定性证据
@@ -633,6 +656,7 @@ $ uv run pytest -q
 | 反事实假设证据标准 | dreaming 专属合同段定义：hypothesis claim 的证据只须支持假设条件，可能结果用推测措辞且不得标为 fact，评审不得对假设结果本身索要事件级证据，数值界限只能用所列事件中可见的数值或其近似表述 | `labelkit-projects/dreaming.toml` |
 
 收据里的通过数字属于各自基线的运行结果，本文件不把它们当作当前基线数字引用。
+
 
 <a name="implementation-status-数据日志与模型接入"></a>
 ### 数据、日志与模型接入
@@ -660,6 +684,7 @@ $ uv run pytest -q
   `subtitle_experience`、`game_session`；`experience_label` 保留为结算与目录的可读标签。
 - 路径清理：受版本控制的路径中不再保留任何旧工程代码或经验档案。
 
+
 <a name="implementation-status-已具备的真实运行证据"></a>
 ### 已具备的真实运行证据
 
@@ -680,6 +705,8 @@ $ uv run pytest -q
 输入预算 768928；评审 675882，低于 867232。每次实际调用仍执行完整预算检查。这些值不是任意未来意见长度的
 数学保证，也不证明模型已经正确理解全部单跳引用。
 
+
+
 <a name="implementation-status-项目级真实验收边界"></a>
 ## 项目级真实验收边界
 
@@ -693,6 +720,7 @@ $ uv run pytest -q
 旧“九行无测试”“远程订购待实现”描述已被当前逐项映射及门店特性的真实购买、配送、持有与消费断言取代。
 旧工具面指纹仅属于对应历史基线，当前实际动态工具与注册表指纹由完整套件中的钉板测试验证。
 
+
 <a name="implementation-status-结论边界"></a>
 ## 结论边界
 
@@ -704,6 +732,7 @@ $ uv run pytest -q
 - 历史失败原件与收据保留在 `.work/verification/` 与 `runs/`（两者都不在版本控制内），不改写失败输出。
 - `docs/dev/research/` 下的审计与根因文档是当时的历史快照，不描述当前实现。
 - 运行产物、测试探针与环境目录不进入版本控制。
+
 
 <a name="implementation-status-版本表"></a>
 ## 版本表

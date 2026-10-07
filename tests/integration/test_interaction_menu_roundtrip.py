@@ -97,7 +97,7 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
     menus = dict(engine.context.scenario.interaction_menus_by_location_kind)
     office = menus["office"]
     menus["office"] = office.model_copy(update={"allowed_actions": tuple(
-        action for action in office.allowed_actions if action != "work")})
+        action for action in office.allowed_actions if action != "do")})
     scenario = engine.context.scenario.model_copy(update={"interaction_menus_by_location_kind": menus})
     engine.context.semantics = replace(engine.context.semantics, scenario=scenario)
     engine.context.rules.scenario = scenario
@@ -116,7 +116,7 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
     home_requests = await _decide(environment, first, home, "start_activity", walk)
     assert travel["canonical_action"] in home["interaction_menu"]["allowed_actions"]
     assert set(_action_schema(home_requests[0])["parameters"]["properties"]) == (
-        {"items", "answering", "prefer"})
+        {"items", "answering"})
     assert [event for event in home["progress_layer"]["events"] if event["type"] == "tool_call"] == []
     started = engine.commit_decision_round(first.round_id)[0]
     assert started.status.value == "in_progress"
@@ -141,13 +141,13 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
     second = context(engine, "menu-office")
     engine.begin_decision_round([second])
     arrived = await environment.observe(second)
-    assert "work" in home["interaction_menu"]["allowed_actions"]
-    assert "work" not in arrived["interaction_menu"]["allowed_actions"]
+    assert "do" in home["interaction_menu"]["allowed_actions"]
+    assert "do" not in arrived["interaction_menu"]["allowed_actions"]
     [walked] = pending_names(arrived)
     ended = next(target for target in arrived["tool_layer"]["targets"] if target["name"] == walked)
     assert (ended["kind"], ended["phase"]) == ("activity", "刚结束")
     assert "conclude_activity" in [item["tool"] for item in ended["tools"]]
-    assert "工作" not in _ways(arrived) and "等待" in _ways(arrived)
+    assert "进行" not in _ways(arrived) and "等待" in _ways(arrived)
     assert arrived["environment_layer"]["location"]["fixed_rules"]
     conclusion = {"items": [{"activity_name": walked, "summary": "到公司了。", "memories": [], "views": []}],
                   "errands": []}

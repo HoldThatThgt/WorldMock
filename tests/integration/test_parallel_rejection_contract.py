@@ -20,16 +20,22 @@ from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F4
 from tests.life.conftest import (context, stage_day_plan, start_request, start_arguments)  # noqa: F401
 from worldmock.life import prompt_capacity
 from worldmock.life.interaction_menu import InteractionMenu
-from tests.life.conftest import select_start, start_arguments
+from worldmock.life.name_resolution import name_book, resolve_start
+from worldmock.life.models import StartActivityRequest
+from tests.integration.test_life_agent_protocol import _observations
 
-_MILK = "便利店出售的牛奶"
-#: 本轮私有绑定：游戏的游玩与观看、内容的接着看、供给的远程下单都在只含等待与睡觉的菜单之外。
-_BINDINGS = [binding for _, binding in (
-    _visible_object("自己", "self", "self", _offer("interact", "等待", "wait"), _offer("sleep", "睡觉", "sleep")),
-    _visible_object("应用：抖音", "app", "douyin", _offer("interact", "打开", "use_app")),
-    _visible_object("应用：哔哩哔哩", "app", "bilibili", _offer("interact", "打开", "use_app")),
-    _visible_object(_MILK, "supply", "milk", _offer("obtain", "远程下单", "purchase", fulfillment="delivery"), store_id="store-1"),
-)]
+_PRODUCT = "牛肉面"
+#: 完整冻结观察中的动作与商品都能解析，地点菜单仍逐项审查整个请求。
+_OBSERVATION = _observations()[0]["data"]
+_OBSERVATION["actions"] = [
+    {"action_id": "feed", "name": "刷推荐", "category": "entertainment", "manner": "phone_continuous",
+     "app_ids": ["douyin"], "communication_mode": None},
+    {"action_id": "course", "name": "学课程", "category": "work_study", "manner": "other_device",
+     "app_ids": ["bilibili"], "communication_mode": None}]
+_OBSERVATION["interaction_bindings"] = [
+    _visible_object("自己", "self", "self", _offer("interact", "等待", "wait"), _offer("sleep", "睡觉", "sleep"))[1],
+    {"object": _PRODUCT, "kind": "supply", "object_id": "beef-noodles", "goods_id": "beef-noodles",
+     "actions": [_offer("obtain", "购买", "purchase")]}]
 _MENU = InteractionMenu(allowed_actions=("sleep", "wait"))
 _DENIED = "interaction menu denies start_activity"
 
@@ -37,14 +43,15 @@ _DENIED = "interaction menu denies start_activity"
 def _menu_error(targets: list[str], actions: list[str], ways: list[str]) -> str:
     """按本轮私有绑定解析所选各项的内部动作，再由冻结的地点菜单判定整组。"""
     request = start_request(targets=targets, actions=actions, ways=ways)
-    selected = select_start(_BINDINGS, request)
+    outcome = resolve_start(name_book(_OBSERVATION), request)
+    selected = None if outcome.failures else list(outcome.rows)
     assert selected is not None
     return menu_action_error(_MENU, "start_activity",
                              [item["selected_action"]["canonical_action"] for item in selected])
 
 
 @pytest.mark.parametrize("target,verb,way", [
-    ("应用：抖音", "interact", "打开"), ("应用：哔哩哔哩", "interact", "打开"), (_MILK, "obtain", "远程下单"),
+    ("刷推荐", "interact", "进行"), ("学课程", "interact", "进行"), (_PRODUCT, "obtain", "购买"),
 ])
 def test_location_menu_denies_actions_outside_its_closed_set(target: str, verb: str, way: str) -> None:
     """@brief 人物能点名对象，仍不能绕过地点已冻结的动作允许集合：方式经私有绑定映射为内部动作后判定。"""
@@ -60,26 +67,27 @@ def test_protected_self_actions_remain_usable(verb: str, way: str) -> None:
 @pytest.mark.parametrize("wait_first", [True, False])
 def test_menu_denies_the_whole_group_when_one_item_is_outside_it(wait_first: bool) -> None:
     """@brief 一个请求整组算一个生活动作：两项中有一项在菜单外，整组被菜单拒绝，与组内先后无关。"""
-    pair = [("自己", "interact", "等待"), ("应用：抖音", "interact", "打开")]
+    pair = [("自己", "interact", "等待"), ("刷推荐", "interact", "进行")]
     targets, actions, ways = (list(column) for column in zip(*(pair if wait_first else pair[::-1])))
     assert _menu_error(targets, actions, ways) == _DENIED
 
 
 def _world(engine) -> tuple:
-    """@brief 整组拒绝要保持不变的世界事实：位置、账户余额、库存与活动。"""
+    """@brief 整组拒绝要保持不变的世界事实：位置、账户余额、内容进度与活动。"""
     agent = engine.context.state.agents[1]
-    return agent.location_id, dict(engine.context.state.accounts), agent.inventory, dict(engine.context.state.activities)
+    return agent.location_id, dict(engine.context.state.accounts), dict(engine.context.state.activities), dict(agent.content_progress)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("drive_first", [True, False])
 async def test_conflicting_pair_is_rejected_as_a_whole_and_explained_to_the_person(
         _engine_factory, monkeypatch, drive_first: bool) -> None:  # noqa: F811
-    """@brief 人物经真实工具面同时选驾车去办公室与游玩（都占眼和手）：整组以 RESOURCE_CONFLICT 拒绝，与组内先后
-    无关，两项都不开始，位置、余额、库存不变；同一秒的下一轮观察在进度层该调用的结果里写明原因与下一步，并进入
+    """@brief 人物经真实工具面同时选驾车去办公室与刷推荐（都占眼和手）：整组以 RESOURCE_CONFLICT 拒绝，与组内先后
+    无关，两项都不开始，位置、余额、活动和内容进度不变；同一秒的下一轮观察在进度层该调用的结果里写明原因与下一步，并进入
     发给人物模型的内容（原因与下一步不含内部身份）。"""
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_000_000)
-    engine = _engine_factory()
+    engine = _engine_factory(mutate=lambda document: document["agents"][0].update(
+        owns_car=True, initial_driving_days=7))
     stage_day_plan(engine)
     environment = LifeEnv()
     environment.engine = engine
@@ -88,19 +96,20 @@ async def test_conflicting_pair_is_rejected_as_a_whole_and_explained_to_the_pers
     observed = await environment.observe(first)
     office = next(row for row in observed["interaction_bindings"] if row["object_id"] == "office")
     app = next(row for row in observed["interaction_bindings"]
-                if row["kind"] == "app" and any(action["label"] == "打开" for action in row["actions"]))
-    pair = [(office["object"], "travel", "驾车"), (app["object"], "interact", "打开")]
+                if row["kind"] == "action" and row["object"] == "刷推荐")
+    pair = [(office["object"], "travel", "驾车"), (app["object"], "interact", "进行")]
     targets, actions, ways = (list(column) for column in zip(*(pair if drive_first else pair[::-1])))
+    payload = start_arguments(targets, actions, ways, app=[None if way == "驾车" else "抖音" for way in ways])
     before = _world(engine)
     await _decide(environment, first, observed, "start_activity",
-                  start_arguments(targets, actions, ways))
+                  payload)
     [result] = engine.commit_decision_round(first.round_id)
 
     assert (result.status.value, result.error_code) == ("rejected", "RESOURCE_CONFLICT")
     assert _world(engine) == before
     reason, next_step = result.data["reason"], result.data["next_step"]
     assert next_step == "Choose only one of the conflicting activities."
-    assert all(row["object"].split("：", 1)[1] in reason for row in (office, app))
+    assert all(row["object"].split("：", 1)[-1] in reason for row in (office, app))
     for text in (reason, next_step):
         assert office["object_id"] not in text and app["object_id"] not in text and "agent:" not in text
     second = context(engine, "conflict-explained")
@@ -108,7 +117,7 @@ async def test_conflicting_pair_is_rejected_as_a_whole_and_explained_to_the_pers
     shown = await environment.observe(second)
     latest = [event for event in shown["progress_layer"]["events"] if event["type"] == "tool_call"][-1]
     assert (latest["tool"], latest["arguments"]) == ("start_activity",
-                                                     start_arguments(targets, actions, ways))
+                                                     payload)
     assert (latest["result"]["status"], latest["result"]["error_code"]) == ("rejected", "RESOURCE_CONFLICT")
     assert (latest["result"]["details"]["reason"], latest["result"]["details"]["next_step"]) == (reason, next_step)
     requests = await _decide(environment, second, shown, "start_activity", _WAIT_CHOICE)

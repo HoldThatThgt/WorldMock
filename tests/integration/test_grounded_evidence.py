@@ -102,7 +102,8 @@ def test_model_request_persists_exact_grounded_tools(_engine_factory):  # noqa: 
     expected = canonical_json(wire)
     start = next(item for item in tools if item["function"]["name"] == "start_activity")
     fields = start["function"]["parameters"]["properties"]
-    assert set(fields) == {"items", "answering", "prefer"}
+    assert set(fields) == {"items", "answering"}
+    assert set(fields["items"]["items"]["properties"]) == {"target", "way", "app", "to", "pay_app"}
     for field in ("target", "way"):
         assert "enum" not in fields["items"]["items"]["properties"][field]
     engine.record_model_exchange(ModelCallEvidence(ctx, "grounded-call", "request", 1, wire))

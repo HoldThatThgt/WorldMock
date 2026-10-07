@@ -446,7 +446,7 @@ async def test_missing_model_evidence_breaks_the_chain(_engine_factory) -> None:
     ctx = context(engine, "direct")
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
-    engine.submit_action(DirectToolCall(ctx, "action-direct", "start_activity", start_activity("打开", "不存在的对象")))
+    engine.submit_action(DirectToolCall(ctx, "action-direct", "start_activity", start_activity("进行", "不存在的对象")))
     assert engine.commit_decision_round("direct")[0].status == "rejected"
     observation, [request], _ = await _single(_environment(engine), "wait", _wait_reply())
     assert observation["continuation"] is None and len(request["messages"]) == 2
@@ -469,7 +469,7 @@ def _recorded_decision(engine: LifeEngine, messages: list[dict], response: dict 
     engine.record_model_exchange(ModelCallEvidence(ctx, call_id, "request", 1, request))
     if response is not None:
         engine.record_model_exchange(ModelCallEvidence(ctx, call_id, "response", 1, request, response=response))
-    engine.submit_action(DirectToolCall(ctx, "action-recorded", "start_activity", start_activity("打开", "不存在的对象")))
+    engine.submit_action(DirectToolCall(ctx, "action-recorded", "start_activity", start_activity("进行", "不存在的对象")))
     assert engine.commit_decision_round("recorded")[0].status == "rejected"
 
 
@@ -809,7 +809,7 @@ async def test_an_errand_completed_in_the_same_second_appears_once_in_the_contin
     不带决策与动作身份的 errand_completed。第三次决策的 tool 消息里，这次办成作为 events 里一条只写名称的
     errand_completed 记录恰好出现一次，changes 写这条事务从待办层移除；整次请求里办成记录只此一处，链首快照与前一条
     tool 消息都没有它。第三次观察的进度层同样只有这一条办成记录，待办层没有事务。"""
-    engine = single_person_home(_engine_factory, {})
+    engine = single_person_home(_engine_factory)
     place(engine, 1, FOOD_STORE)
     environment = _environment(engine)
     await _single(environment, "wait", _wait_reply(reasoning="在店里等一会儿。"))
@@ -822,8 +822,7 @@ async def test_an_errand_completed_in_the_same_second_appears_once_in_the_contin
         return [_reply("call-end", "conclude_activity", {**_ended([name], "不等了。"), "errands": [errand]},
                        "想起要买茶。")]
 
-    store = engine.context.semantics.catalog.locations[FOOD_STORE].name
-    buy = start_arguments([DRINK_NAME], ["obtain"], ["到店"], **{"from": [store]})
+    buy = start_arguments([DRINK_NAME], ["purchase"], ["购买"])
     await _single(environment, "note", conclude)
     noted, [second], _ = await _single(environment, "buy", [_reply("call-buy", "start_activity", buy, "就在这买。")])
     observation, [third], _ = await _single(environment, "again", _wait_reply("call-wait-again"))

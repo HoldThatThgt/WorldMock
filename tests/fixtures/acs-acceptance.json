@@ -316,7 +316,8 @@
       "tests/life/test_action_run.py::test_category_effects_and_met_are_fixed_not_content_types",
       "tests/life/test_action_run.py::test_exercise_has_only_fixed_hourly_mood_effect",
       "tests/life/test_action_guarantees.py::test_work_reports_never_change_real_content_seconds_or_claim_completion",
-      "tests/life/test_acs_amended_runtime.py::test_real_work_pause_report_restore_completion_and_exhaustion"
+      "tests/life/test_acs_amended_runtime.py::test_real_work_pause_report_restore_completion_and_exhaustion",
+      "tests/integration/test_acs_engine_wave.py::test_real_report_opportunity_consumes_every_due_anchor_when_the_person_sets_an_alarm"
     ],
     "implementation": [
       "src/worldmock/life/action_run.py::settle_action",
@@ -386,7 +387,10 @@
       "tests/life/test_action_restore_and_text.py::test_action_modules_import_in_fresh_process_without_life_engine",
       "tests/life/test_action_restore_and_text.py::test_persisted_communication_mode_is_real_declared_fact_and_restore_rejects_drift",
       "tests/life/test_acs_amended_runtime.py::test_real_work_pause_report_restore_completion_and_exhaustion",
-      "tests/life/test_app_progress.py::test_actual_consumption_is_keyed_once_by_content_across_apps"
+      "tests/life/test_app_progress.py::test_actual_consumption_is_keyed_once_by_content_across_apps",
+      "tests/integration/test_acs_engine_wave.py::test_real_resume_checks_location_then_completed_assignment_before_slots_and_claims",
+      "tests/integration/test_acs_engine_wave.py::test_real_resume_checks_slots_before_claims_when_location_and_assignment_are_eligible",
+      "tests/integration/test_acs_engine_wave.py::test_real_paused_work_keeps_its_last_report_across_departure_return_and_resume"
     ],
     "implementation": [
       "src/worldmock/life/action_run.py::settle_action",
@@ -416,7 +420,9 @@
       "tests/life/test_app_push.py::test_open_reopen_release_and_after_22_follow_current_session_only",
       "tests/life/test_app_push.py::test_departure_and_arrival_invalidate_old_pushes_without_deleting_history",
       "tests/life/test_app_push.py::test_release_only_changes_current_session_and_keeps_historical_matching_push",
-      "tests/life/test_app_progress.py::test_silent_continuation_never_opens_same_app_push_that_arrived_during_activity"
+      "tests/life/test_app_progress.py::test_silent_continuation_never_opens_same_app_push_that_arrived_during_activity",
+      "tests/integration/test_acs_engine_wave.py::test_real_navigation_and_action_batch_selects_once_in_new_road_session_and_exports",
+      "tests/integration/test_acs_engine_wave.py::test_real_app_push_is_persisted_without_reissue_after_open"
     ],
     "implementation": [
       "src/worldmock/life/app_push.py::issue_app_push",
@@ -456,13 +462,16 @@
       "tests/life/test_wait_passive_entertainment.py::test_wait_has_only_awake_entertainment_accrual",
       "tests/life/test_wait_passive_entertainment.py::test_wait_met_cost_remains_declared",
       "tests/life/test_wait_passive_entertainment.py::test_direct_wait_activity_preserves_plain_accrual",
+      "tests/integration/test_acs_engine_wave.py::test_real_arrived_mail_body_occurs_once_in_the_actual_host_model_request",
       "tests/life/test_social.py::test_send_message_accepts_300_chars_and_rejects_301",
       "tests/life/test_social.py::test_send_message_delivers_to_world_agent_and_contact",
       "tests/life/test_scenario.py::test_structure_eight_requires_both_protected_menu_actions",
       "tests/life/test_social_rounds.py::test_remote_voice_executes_real_contact_path_and_text_never_calls_it",
       "tests/life/test_social_rounds.py::test_remote_invalid_mode_cannot_guess_a_voice_path",
       "tests/life/test_acs_amended_runtime.py::test_real_text_chat_notes_and_voice_dispatch_use_declared_mode",
-      "tests/life/test_action_run.py::test_mail_body_is_visible_at_real_arrival_without_reading_activity"
+      "tests/life/test_action_run.py::test_mail_body_is_visible_at_real_arrival_without_reading_activity",
+      "tests/integration/test_acs_engine_wave.py::test_real_face_chat_invites_awake_partner_immediately_and_never_wakes_sleeping_partner",
+      "tests/integration/test_acs_engine_wave.py::test_real_chat_partner_ending_requires_both_conclusions_before_time_advances"
     ],
     "implementation": [
       "src/worldmock/life/social_actions.py::start_chat",
@@ -478,7 +487,9 @@
     "stage": "4",
     "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-观察与工具面",
     "tests": [
-      "tests/life/test_named_purchase.py::test_named_purchase_rejects_unknown_goods_and_unbound_apps_atomically"
+      "tests/life/test_named_purchase.py::test_named_purchase_rejects_unknown_goods_and_unbound_apps_atomically",
+      "tests/test_start_activity_contract.py::test_purchase_uses_each_observed_quote_and_single_unit",
+      "tests/test_start_activity_contract.py::test_purchase_preserves_chosen_pickup_when_delivery_is_also_available"
     ],
     "implementation": [
       "src/worldmock/life/named_purchase.py::_payment"
@@ -497,6 +508,7 @@
       "tests/life/test_action_run.py::test_alarm_reason_is_real_allowed_sleep_wake_without_content_reason",
       "tests/life/test_acs_amended_runtime.py::test_actual_driving_day_fuel_receipt_and_same_day_trip",
       "tests/life/test_acs_amended_runtime.py::test_alarm_ends_real_sleep_after_elapsed_seconds_and_reopen",
+      "tests/test_start_activity_contract.py::test_illegal_combinations_keep_the_same_host_and_environment_business_code",
       "tests/life/test_tool_layer.py::test_action_duration_matches_read_only_selector_and_actual_admission",
       "tests/life/test_tool_layer.py::test_most_recent_unfinished_content_duration_is_remaining_and_observation_does_not_select",
       "tests/life/test_acs_runtime.py::test_first_registered_environment_loop_rest_feed_reopen_and_delivery",
@@ -516,8 +528,12 @@
   "系统层逐字": {
     "stage": "4",
     "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-观察与工具面",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/integration/test_life_agent_protocol.py::test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages"
+    ],
+    "implementation": [
+      "src/worldmock/agents/life_prompt.py::LIFE_SYSTEM_LAYER"
+    ]
   },
   "接续成本": {
     "stage": "5",
@@ -583,7 +599,8 @@
     "stage": "6",
     "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-门禁与平台",
     "tests": [
-      "tests/scripts/test_freeze_rrs_baseline.py::test_mismatched_complete_day_candidates_preserve_existing_target[artifacts]"
+      "tests/scripts/test_freeze_rrs_baseline.py::test_mismatched_complete_day_candidates_preserve_existing_target[artifacts]",
+      "tests/integration/test_dayrun_complete_days.py::test_complete_two_person_day_uses_real_tools_memory_and_restoration"
     ],
     "implementation": [
       "scripts/freeze_rrs_baseline.py::freeze_matching_baseline"

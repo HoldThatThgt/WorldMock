@@ -440,7 +440,8 @@ def _engine_with_paused_app_and_pending_wait(engine_factory) -> tuple[Any, LifeE
     """真实引擎：人物看了五分钟内容后暂停，接着等待到点；此刻有暂停的观看与刚结束、待收尾的等待（只有后者占名额）。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    watch = _settle(engine, "open-app", "start_activity", start_activity("打开", "应用：哔哩哔哩"))
+    watch = _settle(engine, "open-app", "start_activity", start_activity("进行", "刷推荐", app=["哔哩哔哩"]))
+    assert watch.status.value == "in_progress"
     wake_by_mail(engine, offset=300)
     assert advance_until_ready(engine)
     watch_name = activity_name(engine, watch.activity_id)

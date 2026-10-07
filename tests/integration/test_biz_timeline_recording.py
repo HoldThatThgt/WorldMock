@@ -9,6 +9,8 @@ from zoneinfo import ZoneInfo
 from tests.engine_fixture import engine_factory as _engine_factory  # noqa: F401
 from tests.life.conftest import (activity_name, advance_until_ready, conclude_request, context,
                                  report_request, stage_day_plan, start_activity, submit_round, wake_by_mail)
+from tests.life.test_acs_amended_runtime import perform, pump
+from tests.life.test_acs_runtime import request
 from worldmock.footprints.timeline_labels import _load_render_day
 
 
@@ -23,11 +25,11 @@ def _business_scenario(document):
          'channels': ['phone'], 'reply_policy': 'none'}]
 
 
-def _business_activity(engine, target, way, label):
-    """@brief 开始真实活动并确认受理，不复制或改造旧活动快照。"""
-    _, results = submit_round(engine, {1: ('start_activity', start_activity(way, target))}, label)
-    assert results[0].error_code is None
-    return results[0].activity_id
+def _business_activity(engine, target, label, app=None, to=None):
+    """@brief 当前动作与app经真实入口受理，内容由引擎选择。"""
+    result = perform(engine, label, request(target, app, to=to))
+    assert result.error_code is None, result.data
+    return result.activity_id
 
 
 def _finish_call(engine, key):
@@ -46,12 +48,11 @@ def recorded_business_timeline(factory):
     """@brief 收集当前引擎存储中的观察、进度与实际渲染行。"""
     engine = factory(mutate=_business_scenario)
     stage_day_plan(engine)
-    _finish_call(engine, _business_activity(engine, '联系人：刘洋', '通话', 'call-colleague'))
-    _finish_call(engine, _business_activity(engine, '联系人：张总', '通话', 'call-client'))
-    topic = engine.context.scenario.work_topics[0]
+    _finish_call(engine, _business_activity(engine, '语音通话', 'call-colleague', '微信', '联系人：刘洋'))
+    _finish_call(engine, _business_activity(engine, '语音通话', 'call-client', '微信', '联系人：张总'))
     view = engine.observe(context(engine, 'work-topic-preview'))
-    target = next(row['name'] for row in view['tool_layer']['targets'] if row['kind'] == 'task')
-    key = _business_activity(engine, target, '工作', 'work-topic')
+    target = next(row['name'] for row in view['tool_layer']['targets'] if row['kind'] == 'action' and row['name'] == '办公')
+    key = _business_activity(engine, target, 'assigned-work')
     name = activity_name(engine, key)
     wake_by_mail(engine, offset=2100)
     start = engine.context.state.current_time
@@ -82,9 +83,10 @@ def test_business_fixture_is_recorded_from_current_engine(_engine_factory, monke
     candidate = tmp_path / 'biz-record.json'
     candidate.write_text(json.dumps(recorded, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     rows = recorded['exported_rows']
-    assert any('和刘洋通话' in row for row in rows)
-    assert any('和张总通话' in row for row in rows)
-    assert any('工作「季度销售数据整理」' in row for row in rows)
+    assert any('微信，语音通话' in row for row in rows)
+    assert {item['data']['activity']['data']['counterpart'] for item in recorded['progress']
+            if item['data']['activity']['data'].get('category') == 'social'} == {'colleague', 'client'}
+    assert any('办公《季度销售数据整理》' in row for row in rows)
     fixture = Path(__file__).parents[1] / 'fixtures/dayrun-biz-timeline.json'
     assert json.loads(fixture.read_text(encoding='utf-8')) == recorded
 
@@ -96,19 +98,19 @@ def test_current_inspection_names_actual_work_and_app_progress(_engine_factory):
     inspector = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(inspector)
     business = recorded_business_timeline(_engine_factory)
-    work = next(event for event in business['progress'] if event['data']['activity']['kind'] == 'work')
+    work = next(event for event in business['progress'] if event['data']['activity']['data'].get('category') == 'work_study')
     assert '季度销售数据整理' in inspector._brief(work)
     assert 'topic-sales' not in inspector._brief(work)
     engine = _engine_factory()
     stage_day_plan(engine)
     view = engine.observe(context(engine, 'app-inspection-preview'))
-    target = next(row['name'] for row in view['tool_layer']['targets'] if row['kind'] == 'app')
-    key = _business_activity(engine, target, '打开', 'app-inspection')
+    target = next(row['name'] for row in view['tool_layer']['targets'] if row['kind'] == 'action' and row['name'] == '刷推荐')
+    key = _business_activity(engine, target, 'app-inspection', '哔哩哔哩')
     wake_by_mail(engine, offset=120)
     assert advance_until_ready(engine)
     events = engine.context.store.read_events(engine.context.store.last_event_seq)
     event = next(event for event in events if event.event_type == 'activity_progress'
                  and event.data['activity']['activity_id'] == key)
     brief = inspector._brief(event.model_dump(mode='json'))
-    assert target.split('：', 1)[-1] in brief
+    assert target in brief
     assert 'use_app' not in brief and 'target=' not in brief

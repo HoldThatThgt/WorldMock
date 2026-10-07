@@ -21,11 +21,12 @@ from worldmock.life.models import CounterfactualIntervention, REQUEST_MODELS, Ru
 from worldmock.life.world_query import QueryWorldRequest, query_world, validate_world_query
 from worldmock.status import write_status
 
-#: 稳定工具面（docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面「稳定工具面」）：环境侧必须恰好受理八个工具；
+#: 稳定工具面（docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面「稳定工具面」）：环境侧必须恰好受理九个工具；
 #: 零点计划 plan_day 是运行时后台任务，不是人物工具（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章）。
 _STABLE_TOOL_SURFACE = frozenset(
     {
         "start_activity",
+        "set_alarm",
         "recall_task_summary",
         "report_status",
         "pause_activity",

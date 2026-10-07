@@ -1,7 +1,7 @@
 <a name="analysis-spec-coverage-规格测试用例覆盖率追溯矩阵"></a>
 # 规格与实际测试的追溯
 
-> 阶段 3 投影：本文件由该投影树实际登记生成。登记存在、测试执行与真实运行分别核对，不能互相替代。
+> 阶段 4 投影：本文件由该投影树实际登记生成。登记存在、测试执行与真实运行分别核对，不能互相替代。
 > 尚未进入本阶段的所有者保持未登记；本文不提前声明后续阶段完成。
 
 现行行为由所属规格与接口合同定义；本文件仅列出本阶段真实存在且经静态解析的登记节点。
@@ -2332,10 +2332,13 @@
 
 #### `tests/acs_acceptance.py`
 
-当期登记共有 525 个唯一源码或测试节点，排序后摘要为 `701641bd54532252e65ee04685b76890fe8af22ee8cbded9f1f9b720cef280ee`。以下是完整登记；本表只证明登记与本树节点闭合，不声称后续阶段或执行门禁通过。
+当期登记共有 581 个唯一源码或测试节点，排序后摘要为 `ddbf395d7c80d9d53d7faeaa0f96b845524f96b34a08cdaae896af59c0187052`。以下是完整登记；本表只证明登记与本树节点闭合，不声称后续阶段或执行门禁通过。
 
+- `custom/agents/life_agent.py`
+- `custom/envs/life_env.py`
 - `scripts/fresh_check.py`
 - `src/worldmock/agents/life_memory.py`
+- `src/worldmock/agents/life_prompt.py`
 - `src/worldmock/catalog/admission.py`
 - `src/worldmock/catalog/affordances.py`
 - `src/worldmock/catalog/errors.py`
@@ -2523,6 +2526,8 @@
 - `tests/fixtures/environment/scenarios/single-person.json`
 - `tests/fixtures/idle-fillers-acceptance.json`
 - `tests/fixtures/rrs-acceptance.json`
+- `tests/footprints/test_errand_export.py`
+- `tests/footprints/test_goal_export.py`
 - `tests/footprints/test_verified_experiences.py`
 - `tests/footprints/test_verified_experiences.py::test_arrival_snapshot_at_origin_still_projects_arrived`
 - `tests/footprints/test_verified_experiences.py::test_missing_settlement_evidence_is_an_error_not_a_guessed_fact`
@@ -2542,6 +2547,40 @@
 - `tests/footprints/test_verified_experiences.py::test_zero_playback_and_unfinished_travel_do_not_become_completed_facts`
 - `tests/frozen_inputs.py`
 - `tests/idle_fillers_acceptance.py`
+- `tests/integration/test_acs_engine_wave.py`
+- `tests/integration/test_activity_schema.py`
+- `tests/integration/test_agent_branch_coverage.py`
+- `tests/integration/test_biz_timeline_recording.py`
+- `tests/integration/test_conclude_memories.py`
+- `tests/integration/test_dayrun_complete_days.py`
+- `tests/integration/test_dayrun_parallel_agent.py`
+- `tests/integration/test_decision_context_protocol.py`
+- `tests/integration/test_environment_identity.py`
+- `tests/integration/test_errand_checkpoint.py`
+- `tests/integration/test_errand_prompt_separation.py`
+- `tests/integration/test_external_environment_lifecycle.py`
+- `tests/integration/test_grounded_evidence.py`
+- `tests/integration/test_grounded_targets.py`
+- `tests/integration/test_host_branch_coverage.py`
+- `tests/integration/test_host_feedback.py`
+- `tests/integration/test_input_warnings.py`
+- `tests/integration/test_interaction_menu.py`
+- `tests/integration/test_interaction_menu_roundtrip.py`
+- `tests/integration/test_life_agent_protocol.py`
+- `tests/integration/test_life_agent_protocol.py::test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages`
+- `tests/integration/test_observation_agent_seam.py`
+- `tests/integration/test_output_truncation.py`
+- `tests/integration/test_parallel_rejection_contract.py`
+- `tests/integration/test_presentation_habits.py`
+- `tests/integration/test_read_query_runtime.py`
+- `tests/integration/test_run_manifest.py`
+- `tests/integration/test_run_viewer_recording.py`
+- `tests/integration/test_same_second_continuation.py`
+- `tests/integration/test_seven_layer_request.py`
+- `tests/integration/test_storefront_tools.py`
+- `tests/integration/test_tool_description_references.py`
+- `tests/integration/test_unique_presence_run.py`
+- `tests/integration/test_verified_memory.py`
 - `tests/life/action_contract_world.py`
 - `tests/life/action_worlds.py`
 - `tests/life/conftest.py`
@@ -2550,6 +2589,8 @@
 - `tests/life/routing_fixtures.py`
 - `tests/life/scenario_fixtures.py`
 - `tests/life/test_acs_amended_runtime.py`
+- `tests/life/test_acs_amended_runtime.py::test_alarm_ends_real_sleep_after_elapsed_seconds_and_reopen`
+- `tests/life/test_acs_contract_guards.py`
 - `tests/life/test_acs_loading.py`
 - `tests/life/test_acs_loading.py::test_run_identity_rejects_old_manifest_and_different_environment`
 - `tests/life/test_acs_loading.py::test_run_manifest_has_five_environment_fields_without_corpus_pin`
@@ -2579,12 +2620,20 @@
 - `tests/life/test_acs_receipt_readers.py::test_unreceived_order_or_retired_evidence_cannot_progress_a_meal_goal`
 - `tests/life/test_acs_receipt_readers.py::test_world_and_agent_reject_retired_inventory_fields`
 - `tests/life/test_acs_runtime.py`
+- `tests/life/test_acs_runtime.py::test_custom_game_music_and_podcast_execute_real_content_and_continue_after_reopen`
+- `tests/life/test_acs_runtime.py::test_first_registered_environment_loop_rest_feed_reopen_and_delivery`
 - `tests/life/test_acs_system_core.py`
+- `tests/life/test_acs_system_core.py::test_actual_driving_dates_zero_repeat_midnight_and_refuel_do_not_double_charge`
+- `tests/life/test_acs_system_core.py::test_alarm_bounds_reject_atomically`
+- `tests/life/test_acs_system_core.py::test_alarm_model_rejects_non_whole_second_or_unzoned_values`
+- `tests/life/test_acs_system_core.py::test_alarm_same_second_sources_and_checkpoint_restore_ring_once`
 - `tests/life/test_acs_system_core.py::test_car_environment_fields_are_strict_and_never_inferred_from_story`
 - `tests/life/test_acs_system_core.py::test_closest_station_distance_tie_uses_location_identity_on_registered_map`
 - `tests/life/test_acs_system_core.py::test_collection_away_pending_and_another_person_orders_never_receive`
 - `tests/life/test_acs_system_core.py::test_collection_receives_only_all_self_orders_and_has_true_result_cause_after_restore`
 - `tests/life/test_acs_system_core.py::test_different_recipient_homes_same_station_share_one_payment_and_fee`
+- `tests/life/test_acs_system_core.py::test_driving_admission_no_car_and_cross_midnight_balance_are_atomic`
+- `tests/life/test_acs_system_core.py::test_driving_days_use_local_dates_across_daylight_saving`
 - `tests/life/test_acs_system_core.py::test_fuel_instant_self_purchase_adds_seven_without_body_or_inventory`
 - `tests/life/test_acs_system_core.py::test_invalid_fuel_is_rejected_atomically_before_any_payment`
 - `tests/life/test_acs_system_core.py::test_long_contact_and_wrong_home_address_reject_before_payment`
@@ -2610,6 +2659,7 @@
 - `tests/life/test_action_run.py::test_action_result_has_exact_six_real_content_fields`
 - `tests/life/test_action_run.py::test_action_run_minimal_real_catalog_body_progress_and_silent_continuation`
 - `tests/life/test_action_run.py::test_actual_remaining_under_one_minute_starts_and_resume_never_selects`
+- `tests/life/test_action_run.py::test_alarm_reason_is_real_allowed_sleep_wake_without_content_reason`
 - `tests/life/test_action_run.py::test_assigned_content_is_finite_and_completion_pulse_is_applied_once`
 - `tests/life/test_action_run.py::test_assigned_work_requires_actual_workplace_and_unassigned_study_does_not`
 - `tests/life/test_action_run.py::test_category_effects_and_met_are_fixed_not_content_types`
@@ -2750,6 +2800,7 @@
 - `tests/life/test_money_settlement.py`
 - `tests/life/test_name_resolution.py`
 - `tests/life/test_named_purchase.py`
+- `tests/life/test_named_purchase.py::test_named_purchase_rejects_unknown_goods_and_unbound_apps_atomically`
 - `tests/life/test_narration.py`
 - `tests/life/test_opslog.py`
 - `tests/life/test_parallel_acceptance.py`
@@ -2829,6 +2880,8 @@
 - `tests/life/test_tool_interaction_habits.py`
 - `tests/life/test_tool_interaction_runtime.py`
 - `tests/life/test_tool_layer.py`
+- `tests/life/test_tool_layer.py::test_action_duration_matches_read_only_selector_and_actual_admission`
+- `tests/life/test_tool_layer.py::test_most_recent_unfinished_content_duration_is_remaining_and_observation_does_not_select`
 - `tests/life/test_tool_protocol.py`
 - `tests/life/test_travel_graph.py`
 - `tests/life/test_wait_passive_entertainment.py`
@@ -2847,8 +2900,11 @@
 - `tests/test_acs_acceptance.py`
 - `tests/test_import_graph.py`
 - `tests/test_layering_acceptance.py`
+- `tests/test_rrs_public_interfaces_external.py`
 - `tests/test_single_source.py`
 - `tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones`
+- `tests/test_start_activity_contract.py`
+- `tests/test_start_activity_contract.py::test_illegal_combinations_keep_the_same_host_and_environment_business_code`
 - `tests/test_tool_interaction_acceptance.py`
 - `tests/test_validation.py`
 - `tests/test_validation.py::test_validate_environment_command_accepts_the_actual_artificial_environment`
@@ -2944,4 +3000,4 @@
 
 | 版本 | 说明 |
 | --- | --- |
-| `2026-10-08-acs-stage-3` | 从阶段 3 实际登记全量生成；未拥有节点不登记，不提前声明通过 |
+| `2026-10-08-acs-stage-4` | 从阶段 4 实际登记全量生成；未拥有节点不登记，不提前声明通过 |

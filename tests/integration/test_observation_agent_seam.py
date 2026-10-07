@@ -191,24 +191,25 @@ async def _agent_action(engine, round_id: str, action: str, payload: dict):
 
 
 @pytest.mark.asyncio
-async def test_real_app_observation_starts_visible_app_and_restores_activity(_engine_factory) -> None:
-    """模型用可读应用名启动活动，私有应用身份随检查点恢复。"""
+async def test_real_action_observation_starts_visible_action_and_restores_activity(_engine_factory) -> None:
+    """模型点名可读动作和应用，真实动作与应用身份随检查点恢复。"""
     from worldmock.life.engine import LifeEngine
 
     engine = _engine_factory()
     settle_day_plans(engine)
     shown = engine.observations._observation_data(engine.context.state.agents[1])
     app = next(row for row in shown["interaction_bindings"]
-                if row["kind"] == "app" and any(item["label"] == "打开" and item["note"] is None for item in row["actions"]))
+                if row["kind"] == "action" and row["object"] == "刷推荐")
     observation, result, schemas = await _agent_action(
         engine, "app-start", "start_activity",
-        start_arguments([app["object"]], ["interact"], ["打开"]))
+        start_arguments([app["object"]], ["interact"], ["进行"], app=["抖音"]))
     assert [target["kind"] for target in observation["tool_layer"]["targets"]
-            if target["name"] == app["object"]] == ["app"]
+            if target["name"] == app["object"]] == ["action"]
     assert "enum" not in schemas["start_activity"]["parameters"]["properties"]["items"]["items"]["properties"]["target"]
     assert app["object_id"] not in str(schemas["start_activity"])
     activity = engine.context.state.activities[result.activity_id]
-    assert activity.target_id == app["object_id"]
+    assert activity.data["action_id"] == app["object_id"]
+    assert activity.data["app_id"] == "douyin"
     observation["active_activities"].append({"observer_write": "must stay outside the world"})
     assert all("observer_write" not in item.data for item in engine.context.state.activities.values())
     reference = engine.context.store.assets.put_json({"agent_id": 1}, {"kind": "app_seam_checkpoint"})
@@ -217,7 +218,8 @@ async def test_real_app_observation_starts_visible_app_and_restores_activity(_en
     engine.close()
     restored = LifeEngine.open(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json", run_dir)
     try:
-        assert restored.context.state.activities[activity.activity_id].target_id == app["object_id"]
+        assert restored.context.state.activities[activity.activity_id].data["action_id"] == app["object_id"]
+        assert restored.context.state.activities[activity.activity_id].data["app_id"] == "douyin"
         visible = restored.observations._observation_data(restored.context.state.agents[1])
         names = [target["name"] for target in visible["tool_layer"]["targets"] if target["kind"] == "activity"]
         assert activity.name in names

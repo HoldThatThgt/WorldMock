@@ -1334,8 +1334,6 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 | 曝光凭据由提交写入本秒暂存，推进时钟后写入正式轮转状态，恢复保留 | `tests/life/test_candidate_wiring.py::test_observation_commits_presented_object_stamps`、`tests/life/test_same_moment_decisions.py::test_presentation_staging_survives_reopen` |
 
 
-
-
 <a name="spec-life-realism-版本表"></a>
 ## 版本表
 

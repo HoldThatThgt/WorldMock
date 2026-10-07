@@ -116,20 +116,18 @@ WorldMock 生成随机连通加权图并提供固定规则，Dataset 保存图�
 <a name="resources-只读查询与有时长浏览"></a>
 ### 只读查询
 
-`query_world(name, way, category, from, available_only, offset)` 六键必填、无缺省，`name`、`way`、`category`、`from` 可空但至少一个非 null，
-`available_only` 写 true 或 false，offset为非负整数。`from` 写购买来源（地点显示名，含「家」「住处」，或 App 称呼），只匹配门店供给；
-`available_only` 为 true 时只留已确认此刻可执行的条目，报价或营业未知的也被滤掉，空页不等于都不能买。
-category使用本轮callable_index已经展示的公开品类标签，非法时返回当轮全部合法标签。
-结果为matches/total_count/next_offset，next_offset必填可空；每页沿用现有上限20，按偏移可遍历同一冻结权限下的全集。
-筛选在排序与切页之前施加，`total_count` 是筛选后的总数；每项不再附候选，照抄 `name` 与所选动作的 `way` 即可提交。
-查询不推进时间、不授予内容消费或推送状态，也不恢复耗时浏览活动；商品只从固定菜单查询，app 与内容不进入查询索引。
-人物可通过现行只读工具调用查询；结果只含本轮冻结观察有权知道的对象。
+`query_world(name, way, category, app, available_only, offset)` 六键必填；前四键可空但至少一个非空，`available_only` 为严格布尔，`offset` 为严格非负整数。
+`app` 写登记应用名，筛出通过它可买的商品和可做的动作；`category` 使用本轮公开类别标签。`available_only=true` 只留所选方式与 app 的真实可执行组合。
 
-只看某家店此刻能买的东西，局部示例如下（现成场景没有钉定手机配置，所以 `from` 写门店显示名而不是 App 称呼）：
+结果恰为 `matches`、`total_count`、`next_offset`。先取交集再稳定分页，沿 `next_offset` 可遍历同一冻结观察的完整匹配集合；末页为 null。查询不推进时间，不消费内容，也不改变推送、世界或曝光记录。
+
+查询某购物 app 此刻可买的商品：
 
 ```json
-{"name": null, "way": "购买", "category": null, "from": "<门店显示名>", "available_only": true, "offset": 0}
+{"name": null, "way": "购买", "category": null, "app": "<登记购物应用名>", "available_only": true, "offset": 0}
 ```
+
+实际购买仍逐项声明 `target`、`way`、`app`、`to`、`pay_app`；动作则写动作名和它实际支持的 app。
 
 
 <a name="resources-当前供给字段与发布注意事项"></a>

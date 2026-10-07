@@ -16,8 +16,9 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/bet
 
 from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig
 from agentsociety2.agent.base.react import MemoryUpdateEvidence
-from tests.life.conftest import stage_day_plan, start_activity
-from tests.life.test_location_sessions import _round, _until_ended
+from tests.life.conftest import (
+    advance_until_ready, conclude_request, stage_day_plan, start_activity, submit_round, wake_by_mail,
+)
 from custom.agents.life_agent import _conclusion_memories
 from worldmock.agents.life_memory import WorldMockMemoryRuntime, render_memory_view
 from worldmock.agents.life_reflection import REFLECTION_PROMPT, reflection_tool
@@ -114,29 +115,26 @@ async def test_fact_view_only_uses_current_observation_and_does_not_reset_subjec
 
 
 @pytest.mark.asyncio
-async def test_multi_item_meal_keeps_both_facts_but_references_source_once(tmp_path):
+async def test_multiple_receipts_keep_goods_and_their_source_references(tmp_path):
     footprint = FootprintStore.create(
         tmp_path / "run", {"run_id": "run", "agent_ids": [1]},
         {"version": 0, "current_time": 100},
     )
     try:
-        progress = footprint.commit(footprint.state, [EventDraft(
-            event_type="activity_progress", occurred_at=100, agent_id=1, activity_id="meal",
-            data={"interval_start": 90, "interval_end": 100,
-                  "activity": {"activity_id": "meal", "kind": "consume"},
-                  "consumption": {"use_mode": "eat", "location_id": "restaurant", "items": [
-                      {"food_id": "rice", "category": "meal", "interval_portion": 0.5, "cumulative_portion": 0.5},
-                      {"food_id": "soup", "category": "meal", "interval_portion": 1.0, "cumulative_portion": 1.0},
-                  ]}},
-        )])[0]
-        facts = project_verified_experiences([progress], agent_id=1, cutoff_seq=progress.event_seq)
+        receipts = footprint.commit(footprint.state, [EventDraft(
+            event_type="environment_event", occurred_at=100, agent_id=1,
+            data={"kind": "goods_received", "order_id": f"order-{goods_id}",
+                  "goods_id": goods_id, "category": "meal", "quantity": 1},
+        ) for goods_id in ("rice", "soup")])
+        facts = project_verified_experiences(receipts, agent_id=1, cutoff_seq=receipts[-1].event_seq)
         runtime, owner = _runtime(tmp_path / "memory")
         owner._life_verified_experiences = facts
         outcome = await runtime.after_step(tick=60, t=_TIME, step_count=1,
                                            finish_memories=_concluded("想再来一碗汤"))
-        assert [item["food_id"] for item in facts] == ["rice", "soup"]
-        assert outcome.verified_event_ids == (progress.event_id,)
-        assert runtime.store.memory_md_path.read_text(encoding='utf-8').count(progress.event_id) == 2
+        assert [item["goods_id"] for item in facts] == ["rice", "soup"]
+        assert outcome.verified_event_ids == tuple(receipt.event_id for receipt in receipts)
+        view = runtime.store.memory_md_path.read_text(encoding='utf-8')
+        assert all(view.count(receipt.event_id) == 1 for receipt in receipts)
         episode = outcome.created_episodes[0]
         evidence = MemoryUpdateEvidence(
             context=None, operation="append_episodes", created_episode_ids=(episode["id"],),
@@ -149,7 +147,7 @@ async def test_multi_item_meal_keeps_both_facts_but_references_source_once(tmp_p
             observation_event_id=outcome.observation_event_id,
             verified_event_ids=outcome.verified_event_ids,
         )
-        assert _memory_evidence_data(evidence)["verified_event_ids"] == [progress.event_id]
+        assert _memory_evidence_data(evidence)["verified_event_ids"] == [receipt.event_id for receipt in receipts]
     finally:
         footprint.close()
 
@@ -159,8 +157,16 @@ async def test_actual_app_progress_is_written_to_verified_memory_with_source_and
     """真实 app 足迹进入启用的 AS2 记忆存储；应用、内容与实际区间位置不靠人物自述补齐。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    _, started = _round(engine, "memory-app", "start_activity", start_activity("打开", "应用：抖音"))
-    _until_ended(engine, started.activity_id, "memory-app")
+    wake_by_mail(engine, offset=120)
+    _, results = submit_round(engine, {1: ("start_activity", start_activity("进行", "刷推荐", app=["抖音"]))},
+                              "memory-app")
+    started = results[0]
+    assert started.status == "in_progress"
+    assert advance_until_ready(engine)
+    activity = engine.context.state.activities[started.activity_id]
+    _, results = submit_round(engine, {1: ("conclude_activity", conclude_request(activity.name))},
+                              "memory-app-end")
+    assert results[0].status == "completed"
     events = engine.context.store.read_events(engine.context.store.last_event_seq)
     facts = project_verified_experiences(events, agent_id=1, cutoff_seq=engine.context.store.last_event_seq)[-5:]
     assert facts and all(fact["kind"] == "played" for fact in facts)

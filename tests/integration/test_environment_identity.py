@@ -51,9 +51,9 @@ def _create(path, destination):
 
 
 def _change_environment(directory):
-    path = directory / "foods.json"
+    path = directory / "goods.json"
     document = json.loads(path.read_text(encoding="utf-8"))
-    document["foods"][-1]["name"] += " revised"
+    document["goods"][-1]["name"] += " revised"
     path.write_text(json.dumps(document), encoding="utf-8")
     refresh_manifest_identity(directory)
 
@@ -106,7 +106,7 @@ def test_running_semantics_and_export_keep_original_environment_identity(tmp_pat
             assert reopened.context.store.manifest["environment_identity"] == expected
         finally:
             reopened.close()
-        names = {key: item.name for key, item in engine.context.semantics.catalog.foods.items()}
+        names = {key: item.name for key, item in engine.context.semantics.catalog.goods.items()}
         for agent_id in engine.context.state.agents:
             stage_day_plan(engine, agent_id)
         submit_round(engine, {agent_id: ("start_activity", start_request(
@@ -119,7 +119,7 @@ def test_running_semantics_and_export_keep_original_environment_identity(tmp_pat
         _change_environment(directory)
         load_runtime_scenario(path)
         assert _expected_identity(directory) != expected
-        assert {key: item.name for key, item in engine.context.semantics.catalog.foods.items()} == names
+        assert {key: item.name for key, item in engine.context.semantics.catalog.goods.items()} == names
         second = export_run(engine.context.store, cutoff, tmp_path / "second-export")
         assert first["frozen_run_manifest"] == second["frozen_run_manifest"] == engine.context.store.manifest
         assert _hash_files(tmp_path / "first-export") == frozen_bytes
@@ -133,7 +133,7 @@ def test_open_rejects_same_version_changed_content_without_mutating_run(tmp_path
     path, directory = _fixture(tmp_path)
     run = tmp_path / "run"
     _create(path, run).close()
-    contract = directory / "foods.json"
+    contract = directory / "goods.json"
     contract.write_text(contract.read_text(encoding="utf-8") + "\n", encoding="utf-8")
     if refresh:
         refresh_manifest_identity(directory)

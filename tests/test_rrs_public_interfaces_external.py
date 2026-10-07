@@ -15,8 +15,7 @@ from worldmock.catalog.errors import RegistrationError
 from worldmock.catalog.identity import read_catalog_file, read_manifest_payload
 from worldmock.catalog.loader import load_catalog
 from worldmock.errors import IntegrityError
-from worldmock.exchange.motivation import load_motivation_transforms
-from worldmock.exchange.operators import evaluate_food_energy
+from worldmock.exchange.operators import evaluate_goods_receipt
 from worldmock.footprints import checkpoint
 from worldmock.footprints.assets import AssetStore
 from worldmock.footprints.export import write_jsonl
@@ -55,45 +54,27 @@ def test_scenario_catalog_admission_rechecks_home_after_document_changes(loaded_
     assert document.agents[0].home_location_id == "home"
 
 
-def test_affordance_views_keep_fixed_met_attention_and_target_bindings():
-    """@brief 真实包声明派生固定身体查表键、生活注意力键及目录绑定。"""
-    view = engine_affordances()
-    assert dict(view.attention_params("lifestyle")) == {
-        "sampling": "per_kind_top_n", "per_kind": 1, "pool_cap": 4,
-    }
-    assert view.met_closed_keys == {
-        "wait", "sleep", "work", "use_app", "travel:driving", "travel:walking", "read_mail", "consume",
-    }
-    assert view.met_open_prefixes == ("lifestyle:",)
-    assert view.relief_keys == {"use_app"}
-    assert view.relief_channel("use_app") == "content_rate"
-    assert view.relief_channel("work") == "none"
-    assert view.target_catalog_fields == {
-        "work": ("tasks", "task_id"), "use_app": ("apps", "app_id"),
-        "read_mail": ("messages", "message_id"),
-    }
-    assert view.attention_required_kinds == {
-        "sport", "hobby", "outdoor", "wellness", "household", "learning", "pet", "social", "volunteer",
-    }
+def test_affordance_views_keep_fixed_met_and_action_bindings():
+    view=engine_affordances()
+    assert set(view.kinds)=={"wait","sleep","travel","action"}
+    assert view.met_closed_keys == {"wait","sleep","travel:driving","travel:walking"}
+    assert view.relief_keys == {"action"}
+    assert view.relief_channel("action")=="content_rate"
+    assert view.target_catalog_fields == {"action":("actions","action_id")}
+    assert view.resource_claims("action",category="exercise",manner="offline_assisted")=={"exercise"}
     with pytest.raises(TypeError):
-        view.attention_params("lifestyle")["pool_cap"] = 999
+        view.kinds["action"]=view.kinds["wait"]
 
 
-@pytest.mark.parametrize("family", ["unknown-family", "entertainment"])
-def test_affordance_attention_refuses_families_without_content_sampling(family):
-    """@brief 未声明按品类采样的家族不能借用其他家族参数。"""
-    with pytest.raises(IntegrityError, match="declares no content attention"):
-        engine_affordances().attention_params(family)
 
 
-def test_affordance_met_lookup_requires_declared_lifestyle_identity():
-    """@brief 缺失参数保留明确查表边界，不制造条目或出行方式。"""
-    view = engine_affordances()
-    assert view.met_lookup_key("travel") == "travel"
-    assert view.met_lookup_key("travel", "walking") == "travel:walking"
-    assert view.met_lookup_key("lifestyle", target_id="quiet-rest") == "lifestyle:quiet-rest"
-    with pytest.raises(ValueError, match="requires its catalog item id"):
-        view.met_lookup_key("lifestyle")
+def test_affordance_met_lookup_requires_explicit_mode_and_fixed_category():
+    view=engine_affordances()
+    assert view.met_lookup_key("travel","walking")=="travel:walking"
+    with pytest.raises(IntegrityError,match="registered travel mode"):
+        view.met_lookup_key("travel")
+    with pytest.raises(IntegrityError,match="fixed category table"):
+        view.met_lookup_key("action")
 
 
 @pytest.mark.parametrize("endpoint", ["origin", "destination"])
@@ -110,7 +91,7 @@ def test_catalog_graph_rejects_unknown_query_endpoint(loaded_catalog, endpoint):
 
 def test_catalog_file_read_reports_real_byte_read_failure(catalog_dir, monkeypatch):
     """@brief 安全路径已核对但文件打开失败时，保留故障及稳定登记码。"""
-    path = catalog_dir / "foods.json"
+    path = catalog_dir / "goods.json"
     original = Path.read_bytes
     failure = PermissionError("Catalog file read denied")
 
@@ -121,7 +102,7 @@ def test_catalog_file_read_reports_real_byte_read_failure(catalog_dir, monkeypat
 
     monkeypatch.setattr(Path, "read_bytes", read)
     with pytest.raises(RegistrationError) as caught:
-        read_catalog_file(catalog_dir, "foods.json")
+        read_catalog_file(catalog_dir, "goods.json")
     assert caught.value.code == "ENVIRONMENT_IDENTITY_MISMATCH"
     assert caught.value.__cause__ is failure
     assert original(path)
@@ -141,33 +122,14 @@ def test_catalog_manifest_reader_refuses_malformed_or_nonobject_bytes(catalog_di
     assert (catalog_dir / "manifest.json").read_bytes() == raw
 
 
-@pytest.mark.parametrize("case,message", [
-    ("unknown-group", "unknown groups"),
-    ("missing-value", "values are invalid"),
-    ("invalid-value", "values are invalid"),
-])
-def test_motivation_rule_loader_refuses_unsupported_or_invalid_declarations(catalog_dir, case, message):
-    """@brief 实际规则声明不能添加未知组、缺少值或越过变换参数范围。"""
-    rules = catalog_dir / "rules"
-    path = rules / "motivation.toml"
-    text = path.read_text(encoding="utf-8")
-    if case == "unknown-group":
-        text += "\n[unknown]\nvalue = 1\n"
-    elif case == "missing-value":
-        text = text.replace("loss_exponent = 0.88", "")
-    else:
-        text = text.replace("loss_exponent = 0.88", "loss_exponent = 1.0")
-    path.write_text(text, encoding="utf-8")
-    with pytest.raises(IntegrityError, match=message):
-        load_motivation_transforms(rules)
 
 
-def test_food_energy_refuses_numeric_overflow_instead_of_recording_infinite_energy(caplog):
-    """@brief 有限比例与固定热量相乘溢出时，不把无穷能量写入身体事实。"""
-    assert evaluate_food_energy("meal", 0.5) == 300
-    with pytest.raises(ValueError, match="Food energy result must be finite"):
-        evaluate_food_energy("meal", 1e308)
-    assert "Food energy result must be finite" in caplog.messages
+@pytest.mark.parametrize("quantity",[0,-1,0.5,True,float("inf")])
+def test_goods_receipt_refuses_non_positive_integer_quantity(quantity,caplog):
+    assert evaluate_goods_receipt("meal",1)==600
+    with pytest.raises(ValueError,match="quantity must be a positive integer"):
+        evaluate_goods_receipt("meal",quantity)
+    assert "quantity must be a positive integer" in caplog.text
 
 
 def test_workspace_restore_refuses_a_file_created_after_destination_preflight(tmp_path, monkeypatch):
@@ -229,26 +191,19 @@ def test_environment_validation_returns_all_authentic_scenario_and_corpus_identi
     assert result["valid"] is True
     assert result["environment_id"] == "artificial-test"
     assert result["scenarios"] == expected and expected
-    assert result["corpus_entries"] == 1
+    assert set(result)=={"valid","environment_id","environment_version","scenarios"}
 
 
-def test_environment_validation_reports_independent_catalog_rules_and_corpus_failures(selected_environment):
-    """@brief 坏目录、坏规则与坏语料都必须进入同一报告，不在首个失败处停止。"""
-    (selected_environment / "catalog/apps.json").unlink()
-    (selected_environment / "catalog/rules/motivation.toml").unlink()
-    corpus = selected_environment / "corpora/lifestyle/items.json"
-    corpus.write_bytes(corpus.read_bytes() + b" ")
-    result = validate_environment(selected_environment)
+def test_environment_validation_reports_catalog_failure_for_all_scenarios(selected_environment):
+    (selected_environment/"catalog/apps.json").unlink()
+    result=validate_environment(selected_environment)
     assert result["valid"] is False
-    catalog_errors = [error for error in result["errors"] if error["path"] == "catalog"]
-    assert len(catalog_errors) == 2
-    assert all(error["code"] == "ENVIRONMENT_IDENTITY_MISMATCH" for error in catalog_errors)
-    assert any(error["path"] == "corpora/manifest.json" and "identity mismatch" in error["reason"]
-               for error in result["errors"])
-    expected = {path.relative_to(selected_environment).as_posix()
-                for path in (selected_environment / "scenarios").rglob("*.json")}
+    catalog_errors=[error for error in result["errors"] if error["path"]=="catalog"]
+    assert catalog_errors and all(error["code"]=="ENVIRONMENT_IDENTITY_MISMATCH" for error in catalog_errors)
+    expected={path.relative_to(selected_environment).as_posix()
+              for path in (selected_environment/"scenarios").rglob("*.json")}
     assert expected <= {error["path"] for error in result["errors"]}
-    assert result["scenarios"] == []
+    assert result["scenarios"]==[]
 
 
 def test_environment_validation_keeps_valid_scenarios_after_bad_pin(selected_environment):

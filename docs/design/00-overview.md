@@ -69,7 +69,7 @@ flowchart TB
 <a name="overview-地图中的消费行为"></a>
 ### 地图中的消费行为
 
-数字人比较地点和图上最短距离，自主选择到店或配送。同类食品店铺共享菜单，食品全店同价；不同距离和履约时间仍形成真实的选择条件，系统不替人物选店。
+数字人选择现场购买或明确的购物 app；现场购买只在真实所在门店进行，远程购买由环境在该 app 绑定且供给商品的门店中选择预计送达最早者，同刻按店铺身份排序。同类型店铺共享菜单，同一商品跨店同价；距离、完整运输时长和配送费构成实际比较条件。
 资源引擎统一登记具体环境的对象、绑定与发布图；交换引擎提供固定速度、费用和公式；模拟引擎执行图上出行或配送；记录引擎保存实际看见的信息、完整路径、距离、付款与到达。四个引擎保持原职责。
 地图由 WorldMock 生成、Dataset 发布，是合成连通加权图，不表达真实路网、GPS 或交通拥堵。等长最短路取完整路径元组字典序较小者，场景只选择地点，路径可以经过其他目录节点。
 运行和恢复使用清单 `environment_identity`，只读发布图；旧道路资料和库存报价合同由现行图与菜单合同取代。真实名称不证明真实数值，合成输入与实际数字足迹分别留证。
@@ -77,7 +77,6 @@ flowchart TB
 
 付款与实际收货分别留证：现场购买在同次提交收货，直送在配送到期时收货；完整运输时长严格大于 86400 秒的订单送往实际模拟收货人家庭地址最近且场景选中的驿站，恰为 86400 秒仍直送。到站只进入 `ready_for_pickup` 并通知收货人，没有商品效果。本人在站执行零秒领取，才结算本人全部可取订单。
 每单由唯一收货函数恰好结算一次，写 `received_at`、订单终态、商品效果和本人 `goods_received`；不创建库存或持有物。食品按收货当秒的利用率与能量上限补充能量，其他商品按固定规则施加效果。联系人没有模拟身体，不写本人收货事件。字段、分录、幂等与唤醒边界统一见[请求字段与结算检查](../CONTRACTS.md#contracts-request-settlement)及[供给结算与事件载荷](../CONTRACTS.md#contracts-供给结算与事件载荷)。
-
 
 
 <a name="overview-系统目标"></a>
@@ -178,7 +177,7 @@ flowchart TB
 | 原始需求 | 承载章节 | 状态 |
 | --- | --- | --- |
 | 数字人依据体感与处境自主选择活动，环境校验可行性 | [模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎)「组织观察与决策机会」「收齐并有序受理动作」 | DRAFT |
-| 人物只选对象与方式；查询不改变世界，可按购买来源与只看此刻能做的筛选，报错明确指出参数位置和合法选项 | [工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)、[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)第五章、[模拟引擎](04-simulation-engine.md#simulation-engine-校验与占用安排) | 已实现，验收证据另列 |
+| 人物显式选择目标、方式、app、对方或收货人与付款 app；查询按名称、方式、类别与 app 筛选，不改变世界，报错明确指出参数位置和合法选项 | [工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)、[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)第五章、[模拟引擎](04-simulation-engine.md#simulation-engine-校验与占用安排) | 已实现，验收证据另列 |
 | 人物执行 work_study 类动作，分配工作内容只在工作地点合格，按真实内容秒数累计，完成后不重做 | [模拟引擎](04-simulation-engine.md#simulation-engine-推进实际活动)「推进实际活动」 | 已实现，验收证据另列 |
 | 店铺按固定商品类别供给表与对象绑定提供完整菜单，同一商品跨店使用固定价格 | [资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎)、[配置管理](08-configuration.md#configuration-worldmock-产品设计说明书-配置规格) | 已实现，验收证据另列 |
 | 身体相关资源的变化影响体感和活动效率 | [模拟引擎](04-simulation-engine.md#simulation-engine-实际区间身体变化与效率)「实际区间、身体变化与效率」 | DRAFT |
@@ -199,7 +198,6 @@ flowchart TB
 | 场景可配置：地点、日历、天气、交通 | `08-configuration.md` §场景文件规格 | DRAFT |
 | 明确区分规则产生、模型生成、外部服务 | [来源与可见性](05-recording-engine.md#recording-engine-来源与可见性) | 冻结约束已承接 |
 | 运行过程可追踪、可调试 | [运行查询与诊断](05-recording-engine.md#recording-engine-运行查询与诊断) | 实现与缺口分列 |
-
 
 
 <a name="overview-算法与工程背书总表"></a>
