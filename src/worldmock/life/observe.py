@@ -40,7 +40,6 @@ from worldmock.life import (
     sessions,
 )
 from worldmock.life.models import ActivityStatus, SameMomentPresentation, TravelMode
-from worldmock.life.motivation import MotivationContext, evaluate_motivation
 from worldmock.life.models import active_activities
 from worldmock.life.interaction_menu import resolve_interaction_menu
 from worldmock.life.recipients import person_bindings
@@ -87,7 +86,6 @@ class ObservationBuilder:
             agent=agent,
             task_rows=task_rows,
             meal_windows=meal_windows,
-            motivation_internal=self._motivation_internal(agent),
             extras=self._projection_extras(agent, rows["products"], menu),
         )
         data = projection.build_observation(inputs)
@@ -327,7 +325,7 @@ class ObservationBuilder:
         data["apps"] = [{"app_id": app.app_id, "name": app.name,
                          "content_count": len(catalog.contents_by_app[app.app_id])}
                         for app in catalog.apps.values()]
-        data["contents"] = [{"content_id": item.content_id, "title": item.title, "kind": item.kind.value}
+        data["contents"] = [{"content_id": item.content_id, "title": item.title}
                             for item in catalog.contents.values()]
         session = sessions.current_session(self.context.state, agent.agent_id)
         data["app_pushes"] = ({key: push.model_dump(mode="json") for key, push in session.app_pushes.items()}
@@ -351,17 +349,6 @@ class ObservationBuilder:
         """@brief 工具层从运行开始列出已分配且尚未完成的工作主题。"""
         return [row for row in self._work_topic_rows(agent) if row["worked_seconds"] < row["target_seconds"]]
 
-    def _motivation_evidence(self, agent) -> tuple:
-        """@brief 动机输入只使用已分配主题、真实请求和实际工作秒数。"""
-        rows = self._visible_task_rows(agent)
-        topics = tuple(self.context.rules.work_topics[row["topic_id"]] for row in rows)
-        requested = self.context.store.read_agent_events("action_requested", agent.agent_id)
-        habit = tuple((event.data.get("tool_name"), event.data.get("request")
-                       if isinstance(event.data.get("request"), dict) else {}) for event in requested)
-        worked = sum(item.elapsed_seconds for item in self.context.state.activities.values()
-                     if item.agent_id == agent.agent_id and item.kind == ActivityKind.WORK
-                     and item.status != ActivityStatus.FAILED)
-        return topics, habit, worked
 
     def _work_topic_pool(self, agent) -> tuple[PoolEntry, ...]:
         """@brief 品类摘要由尚未完成主题派生，工作不进入曝光轮转。"""
@@ -427,60 +414,7 @@ class ObservationBuilder:
             agent.inventory.get(agent.location_id, {}).items()) if quantity > 0]
 
 
-    def _motivation_internal(self, agent) -> dict | None:
-        """@brief 计算内部动机仪表（observation.data.motivation_internal，不进提示）。
 
-        docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」：评分器继续计算供评估与研究，但候选、名次与概率
-        不再向模型展示。任何求值异常都吞掉并记日志（fail-open 于仪表）。
-        """
-        profile = next(
-            (
-                item.motivation
-                for item in self.context.scenario.agents
-                if item.agent_id == agent.agent_id and item.motivation is not None
-            ),
-            None,
-        )
-        transforms = self.context.semantics.motivation_transforms
-        if profile is None or transforms is None:
-            return None
-        try:
-            context = self._motivation_context(agent, profile)
-            scored = evaluate_motivation(context, profile, transforms)
-            if not scored:
-                return None
-            return {
-                "schema_version": 1,
-                "generated_at": self.context.state.current_time,
-                "candidates": [item.to_hint() for item in scored],
-            }
-        except Exception:
-            logging.warning("Motivation internal evaluation failed", exc_info=True)
-            return None
-
-    def _motivation_context(self, agent, profile) -> MotivationContext:
-        """@brief 真实食品候选只读 Catalog、当前场景地点与固定规则，不注入口味或报价。"""
-        now = self.context.state.current_time
-        config = agent_config(self.context.scenario, agent.agent_id)
-        topics, habit, worked_total = self._motivation_evidence(agent)
-        catalog = self.context.semantics.catalog
-        return MotivationContext(agent=agent, balance_fen=self.context.state.accounts[agent.balance_account_id],
-            body=self.context.semantics.body, home_location_id=config.home_location_id, catalog=catalog,
-            location_ids=frozenset(place.location_id for place in self.context.scenario.locations),
-            menu=resolve_interaction_menu(self.context.scenario, agent.agent_id, agent.location_id),
-            work_topics=tuple(topics),
-            topic_totals={topic.topic_id: work_totals(self.context.state, agent.agent_id, topic.topic_id)
-                          for topic in topics},
-            workplace_location_id=(config.work_schedule.workplace_location_id
-                                   if config.work_schedule is not None else None),
-            active_activities=active_activities(self.context.state, agent.agent_id),
-            habit_events=habit, consecutive_rejections=agent.consecutive_rejections,
-            max_same_moment_decisions=self.context.scenario.max_same_moment_decisions,
-            total_work_seconds=worked_total, current_time=now, end_time=self.context.state.end_time,
-            timezone=self.context.scenario.timezone, lifestyle_items=self.context.lifestyle_items,
-            activity_location_kinds=self.context.rules.activity_location_kinds,
-            lifestyle_enabled=config.lifestyle_activities,
-            recent_meal_counts=_recent_meal_counts(self.context.state.activities.values(), agent.agent_id, now))
 
 
     def _activity_summary(self, agent) -> dict[str, int]:

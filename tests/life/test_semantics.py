@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import json
-import shutil
 
 import pytest
 from pydantic import ValidationError
 
 from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 from worldmock.catalog import load_catalog
-from worldmock.errors import IntegrityError
 from worldmock.exchange.body import BODY_CONSTANTS
-from worldmock.life.scenario import LifeScenario, parse_scenario_document
+from worldmock.life.scenario import BodyConfig, LifeScenario
 from worldmock.life.semantics import assemble_semantics
 from worldmock.life.world_setup import load_runtime_scenario
 
@@ -32,21 +30,34 @@ def test_energy_thresholds_come_from_worldmock_body_constants(semantics):
     assert body.emergency_threshold_kcal == BODY_CONSTANTS.emergency_threshold_kcal == 400
     assert body.maximum_energy_kcal == BODY_CONSTANTS.maximum_energy_kcal == 2400
     assert body.basal_kcal_per_hour == BODY_CONSTANTS.basal_kcal_per_hour == 65
-    assert body.source_kind == "worldmock:1"
-    assert dict(body.activity_met) == {**BODY_CONSTANTS.activity_met, "lifestyle:quiet-rest": 1.0}
-    assert dict(body.entertainment_relief_per_hour) == {
-        "article": 0.2, "image_text": 0.2, "short_video": 0.3, "long_video": 0.4, "live": 0.3}
+    assert body.source_kind == "worldmock:2"
+    assert dict(body.activity_met) == dict(BODY_CONSTANTS.activity_met)
+    assert body.entertainment_relief_per_hour == 0.3
+
+
+@pytest.mark.parametrize("value", [-0.1, float("nan"), float("inf"), "0.3", True, {"article": 0.3}])
+def test_body_relief_projection_rejects_invalid_or_classified_values(semantics, value):
+    """@brief 身体视图的缓解速率是严格有限非负标量，不接收分类映射或隐式类型转换。"""
+    payload = semantics.body.model_dump(mode="python")
+    with pytest.raises(ValidationError, match="entertainment_relief_per_hour"):
+        BodyConfig.model_validate({**payload, "entertainment_relief_per_hour": value})
+
+
+def test_body_relief_projection_accepts_zero_as_a_nonnegative_scalar(semantics):
+    """@brief 纯身体视图允许非负标量零，真实组装仍只投影系统常量。"""
+    payload = semantics.body.model_dump(mode="python")
+    assert BodyConfig.model_validate({**payload, "entertainment_relief_per_hour": 0.0}).entertainment_relief_per_hour == 0.0
 
 
 def test_registered_objects_and_body_instances_are_preserved(semantics):
-    """@brief 食品、应用、内容和主题来自同一冻结登记，实例初值由场景保留。"""
-    assert semantics.scenario.foods == tuple(semantics.catalog.foods.values())
+    """@brief 商品、应用、内容和动作来自同一冻结登记，实例初值由场景保留。"""
+    assert semantics.scenario.goods == tuple(semantics.catalog.goods.values())
     assert semantics.scenario.apps == tuple(semantics.catalog.apps.values())
     assert semantics.scenario.contents == tuple(semantics.catalog.contents.values())
-    assert semantics.scenario.work_topics == tuple(semantics.catalog.work_topics.values())
+    assert semantics.scenario.actions == tuple(semantics.catalog.actions.values())
     assert semantics.body.initial_entertainment_need == semantics.document.body.initial_entertainment_need == 0.8
     assert semantics.scenario.agents == semantics.document.agents
-    assert semantics.scenario.work_topics[0].target_seconds == 28800
+    assert semantics.catalog.contents["topic-sales"].duration_seconds == 32400
 
 
 def test_ledger_accounts_exclude_the_external_anchor(semantics):
@@ -62,22 +73,7 @@ def test_assembly_rejects_initial_energy_above_fixed_maximum():
     document = json.loads(_SCENARIO.read_text(encoding="utf-8"))
     document["body"]["initial_energy_kcal"] = 2401
     with pytest.raises(ValidationError, match="initial energy exceeds maximum"):
-        assemble_semantics(LifeScenario.model_validate(document), load_catalog(ARTIFICIAL_ENVIRONMENT_ROOT / "catalog"),
-                           ARTIFICIAL_ENVIRONMENT_ROOT / "corpora")
-
-
-@pytest.mark.parametrize("met", [0, -1, float("nan"), float("inf"), "expression"])
-def test_assembly_rejects_invalid_lifestyle_met(tmp_path, met):
-    """@brief 生活活动自身 MET 必须是有限正数，不接受表达式。"""
-    root = tmp_path / "corpora"
-    shutil.copytree(ARTIFICIAL_ENVIRONMENT_ROOT / "corpora", root)
-    path = root / "lifestyle/items.json"
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    payload["items"][0]["met_value"] = met
-    path.write_text(json.dumps(payload), encoding="utf-8")
-    document, _ = parse_scenario_document(_SCENARIO)
-    with pytest.raises(IntegrityError, match="Lifestyle declarations are invalid"):
-        assemble_semantics(document, load_catalog(ARTIFICIAL_ENVIRONMENT_ROOT / "catalog"), root)
+        assemble_semantics(LifeScenario.model_validate(document), load_catalog(ARTIFICIAL_ENVIRONMENT_ROOT / "catalog"))
 
 
 def test_candidate_constants_match_the_scene_declaration(semantics):
@@ -99,4 +95,4 @@ def test_initial_agent_preserves_declared_body_needs(semantics):
     assert agent.body.energy_kcal == scenario.body.initial_energy_kcal
     assert agent.body.sleep_deficit_hours == scenario.body.initial_sleep_debt_hours
     assert agent.body.entertainment_need == scenario.body.initial_entertainment_need
-    assert agent.inventory == config.initial_inventory
+    assert "initial_inventory" not in config.model_dump()

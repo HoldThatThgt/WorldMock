@@ -102,7 +102,7 @@ def _ended_activity(status: str, **overrides) -> dict:
 def test_world_schema_version_is_8():
     """WORLD_SCHEMA_VERSION 当前为 9（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-事件检查点与恢复 ：新增个人事务的人物状态，世界结构由 8 升为 9，
     只升一次）。用例名沿用版本 8 时的登记（时间与能量台账登记了这个节点），断言随结构版本更新。"""
-    assert WORLD_SCHEMA_VERSION == 10
+    assert WORLD_SCHEMA_VERSION == 11
 
 
 def test_session_opened_by_action_id_is_optional_and_nonblank():
@@ -415,14 +415,13 @@ def test_concluded_at_before_ended_at_is_rejected():
 def _minimal_world_state_dict(**overrides) -> dict:
     """构造最小合法 WorldState 字典（无代理、无库存）。"""
     base: dict = {
-        "schema_version": 10,
+        "schema_version": 11,
         "version": 0,
         "current_time": 1000,
         "end_time": 2000,
         "run_id": "test-run",
         "timezone": "Asia/Shanghai",
         "scenario_sha256": "a" * 64,
-        "content_manifest_sha256": "b" * 64,
         "agents": {},
         "accounts": {},
         "random_seed": 42,
@@ -432,10 +431,10 @@ def _minimal_world_state_dict(**overrides) -> dict:
     return base
 
 
-def test_world_state_schema_version_10_is_valid():
+def test_world_state_schema_version_11_is_valid():
     """@brief 结构十的最小世界状态通过验证。"""
     ws = WorldState.model_validate(_minimal_world_state_dict())
-    assert ws.schema_version == 10
+    assert ws.schema_version == 11
 
 
 #: 人物提示七层之前的世界结构版本；其检查点必须以版本不符拒绝。

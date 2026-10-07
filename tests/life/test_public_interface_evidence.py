@@ -22,7 +22,6 @@ from worldmock.life.name_resolution import Target, fill_in, selection_row
 from worldmock.life.order_routing import merged_result, undeliverable
 from worldmock.life.projection import ProjectionInputs, interaction_bindings
 from worldmock.life.purchase_offers import Offer, order_key
-from worldmock.life.retrieval import place_kinds
 from worldmock.life.routing import RoutingNames, combination_issues
 from worldmock.life.settled_text import activity_sentence
 from worldmock.life.tool_layer import tool_layer
@@ -180,14 +179,6 @@ def test_purchase_preference_rejects_undeclared_sort_policy():
         order_key(offer, "arbitrary")
 
 
-def test_location_activity_kinds_are_exact_immutable_facts(tmp_path):
-    document = {"locations": [{"location_id": "home", "location_kinds": ["home"]},
-                              {"location_id": "office", "location_kinds": ["office", "venue"]}]}
-    (tmp_path / "locations.json").write_text(json.dumps(document), encoding="utf-8")
-    places = place_kinds(tmp_path, "locations.json")
-    assert dict(places) == {"home": frozenset({"home"}), "office": frozenset({"office", "venue"})}
-    with pytest.raises(TypeError):
-        places["home"] = frozenset({"office"})
 
 
 def test_same_target_and_recipient_are_rejected_as_a_repeated_activity():

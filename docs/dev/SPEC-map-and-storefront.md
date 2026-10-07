@@ -1,6 +1,8 @@
 <a name="spec-map-and-storefront-地图数据集合与门店供给开发规格"></a>
 # 地图数据集合与门店供给开发规格
 
+> 按[动作与内容简化规格](SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界」（阶段 1）。
+
 > 引用出处：`tests/life/test_map_dataset.py::test_old_map_structure_version_is_rejected` @ `55e6a0f4c6ed6a015e334b01513767eefc227880`
 
 > 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「裁决原文的定义出处」（阶段 1）；该出处只定位原始定义，不证明历史执行；「产品行为与边界」、「冻结输入与身份」、「记录、恢复与交付」（阶段 2）；「按地点类别生成完整供给、冻结价格范围与门店差价、地点发现与候选呈现、整单购买与履约、按名调用与指名购买、统一名称解析、指名购买：`from` 是约束，不是语法、购买渠道：App 名解析为成员门店、名称类拒绝不计同刻轮数、更简单的购买请求（裁决 S10）、地点供给和价格、类别准入与逐店商品集合、范围内定价、验收台账、文件修改范围、版本表、营业、报价与访问条件」（阶段 3）。
@@ -43,27 +45,18 @@ WorldMock 拥有生成器、固定规则和运行行为，Dataset 拥有对象�
 <a name="spec-map-and-storefront-冻结输入与身份"></a>
 ## 冻结输入与身份
 
-| 输入 | 冻结合同 |
-| --- | --- |
-| 环境目录 | `manifest.json` 登记七个 JSON 文件、包资源副本和 `rules_version`，文件字节与摘要一致 |
-| 地点 | 每行恰为 `location_id`、`name`、`branch_label`、`kind`、`app_ids`；八个固定地点类型，不含坐标、营业或资格字段 |
-| 图 | `map.json` 结构 `1`，含整数种子、生成规则版本 `1`、排序节点和规范边；边长为正整数米，图连通 |
-| 食品与菜单 | 食品定义价格与类别，`store_ids` 明确绑定店铺或写 `"all"`；同种店铺类型菜单相同，店铺 app 绑定只允许食品店铺 |
-| 场景 | 结构 `7`，`environment` 钉清单，`locations[]` 只选择地点身份 |
-| 运行与检查点 | 世界结构 `10`、运行清单 `3`，使用同一五字段 `environment_identity` |
+现行身份是目录格式 2、`RULES_VERSION = 2`、场景结构 8、世界结构 11、运行清单 4。
+运行、检查点与恢复使用五字段 `environment_identity`：`environment_id`、`environment_version`、
+`rules_version`、`catalog_content_sha256`、`map_sha256`。
+规则文件只从引擎包读取，环境不发布副本，也不添加规则哈希；`code_sha256` 额外覆盖 `src/worldmock/data/` 下每个文件。
+旧格式与旧结构号直接拒绝，不迁移、不双读。
 
-`environment_identity` 包含 `environment_id`、`environment_version`、`rules_version`、`catalog_content_sha256`、`map_sha256`。目录内容变化发布新环境版本，规则变化升包 `RULES_VERSION`；不能覆盖已发布版本的内容。
-图由 WorldMock 根据全目录地点与种子生成，Dataset 保存规范 JSON 与 LF 字节并发布。运行只读图；生成检查和环境校验另重生成比对。
-加载拒绝少于两个节点、非法边与不连通图，分别报 `MAP_TOO_SMALL`、`MAP_EDGE_INVALID`、`MAP_DISCONNECTED`；重生成失配报 `MAP_NOT_REGENERATED`。没有道路资料未知或不可达状态。
-场景选择不裁切图，最短路可经过其他目录节点；Dijkstra 等长时以完整路径元组字典序决胜，不依赖边插入次序。
+地图结构 1，生成器规则版本 1；地图种子与场景种子独立。环境发布图，WorldMock 重生成比对并只读使用。
 
 <a name="spec-map-and-storefront-按地点类别生成完整供给"></a>
 ## 按地点类别生成完整供给
 
-食品在 `foods.json` 定义 `food_id`、名称、`category`、固定 `price_fen` 与店铺绑定。类别只有 `snack`、`drink`、`meal`，同一食品全店同价，同类型食品店铺菜单完全相同。
-`store_ids="all"` 只展开到食品店铺类型，住宅不出售食品；目录一次派生 `foods_by_store` 与店铺 app 索引。没有报价、价位、抖动、库存、营业或资格。
-
-菜单不是逐店抽样：一种店铺类型的食品绑定必须全有或全无，部分绑定由登记拒绝；没有丰富度阈值或每店价格定位。
+菜单由 `goods.json` 的商品绑定及 `GOODS_CATEGORY_STORE_KINDS` 固定供给表得到。餐馆供正餐、饮品、零食，咖啡馆供饮品、零食，便利店与超市供全部五类。类型不可供给的类别不能绑定，`store_ids="all"` 只展开到可供给该类别的店铺，同类型店铺同菜单。商品全店同价，店铺全天服务。
 
 <a name="spec-map-and-storefront-冻结价格范围与门店差价"></a>
 ## 固定食品价格
@@ -318,3 +311,4 @@ WC 18:15 的第 3 轮一用完，购买就在受限轮被关闭，原因写得�
 | `2026-10-06-rrs-rules` | 2026-10-07 | 仅登记已退役手机配置字段的精确历史定义出处，原始裁决正文逐字保留；其他源码引用仍按当前工作树核验 |
 | `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
+| `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |

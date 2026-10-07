@@ -1,6 +1,8 @@
 <a name="spec-interaction-menu-特性规格交互菜单"></a>
 # 特性规格：交互菜单
 
+> 按[动作与内容简化规格](SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界」（阶段 1）。
+
 > 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题上限准入。
 
 > 引用出处：`src/worldmock/life/observe.py::ObservationBuilder._complete_product_browse` @ `d46b4d89898d687cc5cdf07e68f39df33a328081`
@@ -73,8 +75,7 @@ flowchart LR
 ## 声明与准入
 
 场景文档与运行时场景都必须具有 `interaction_menus_by_location_kind`。
-它是地点类字符串到 `InteractionMenu` 的映射，键集合必须恰好等于解析后地点的 `kind` 的不同值集合。
-这里的单值地点类不是候选资格合同的 `location_kinds` 能力集合，不复用或扩展其词表。
+它是地点类字符串到 `InteractionMenu` 的映射，键集合必须恰好覆盖八个内置 `LocationKind`。
 每个地点类必须显式声明，无通配键，无额外地点类，无 `null` 地点菜单。
 每个 `agents[]` 必须显式具有 `interaction_menu`，取 `InteractionMenu` 或 `null`，字段不能缺失。
 
@@ -98,6 +99,9 @@ flowchart LR
 仍服从原状态、阶段与可见身份校验；状态校验不隐藏动作，不满足时拒绝并说明。`finish` 与记忆查询不属于生活动作菜单。
 目标尚未发现时，声明允许动作不等于本轮开放；当前不可行时照常列出并附说明。
 更新所有在版本控制内的正式场景及相应测试输入；旧缺字段场景拒绝，不写迁移脚本。
+
+
+标准动作闭集只有 `travel_to`、`sleep`、`wait`、`purchase`、`do`；每份菜单继续保护 wait 与 sleep。
 
 <a name="spec-interaction-menu-地图地点与发现工具"></a>
 ## 地图地点与发现工具
@@ -200,6 +204,12 @@ app 作为 `kind="app"` 的工具目标始终列出，人物用方式「打开�
 `tool_schema_sha256/prompt_sha256` 按实际新模板计算，旧工具身份不能恢复。
 不同地点/人物的运行时菜单不改变静态模板哈希，也不改变整次运行不变的原生工具，但必须改变冻结观察中工具层列出的动作。
 不得以两个模板哈希一致宣称场景等价，不做旧运行兼容、补写或迁移。
+
+现行身份是目录格式 2、`RULES_VERSION = 2`、场景结构 8、世界结构 11、运行清单 4。
+运行、检查点与恢复使用五字段 `environment_identity`：`environment_id`、`environment_version`、
+`rules_version`、`catalog_content_sha256`、`map_sha256`。
+规则文件只从引擎包读取，环境不发布副本，也不添加规则哈希；`code_sha256` 额外覆盖 `src/worldmock/data/` 下每个文件。
+旧格式与旧结构号直接拒绝，不迁移、不双读。
 
 <a name="spec-interaction-menu-文件修改清单"></a>
 ## 文件修改清单
@@ -401,6 +411,7 @@ app 作为 `kind="app"` 的工具目标始终列出，人物用方式「打开�
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
 | `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：交互菜单验收改为 `use_app`、所选 app 的内容绑定与空内容拒绝；删除旧游戏动作验收。 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题上限准入 |
+| `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |
 
 <a name="spec-interaction-menu-当日目标保护项"></a>
 ## 当日目标保护项

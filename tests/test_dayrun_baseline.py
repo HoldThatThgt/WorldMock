@@ -24,7 +24,7 @@ def _case(root: Path):
     """@brief 创建带完整哈希和检查点的最小独立运行工件。"""
     for relative in ["scenarios", "run/assets", "export"]:
         (root / relative).mkdir(parents=True)
-    scenario = _bytes({"corpus_root": str(root / "corpora"), "random_seed": 12})
+    scenario = _bytes({"schema_version": 8, "random_seed": 12})
     (root / "scenarios/custom.json").write_bytes(scenario)
     manifest = _bytes({"scenario_sha256": _digest(scenario), "run_id": "day-test"})
     (root / "run/manifest.json").write_bytes(manifest)

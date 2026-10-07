@@ -28,11 +28,8 @@ MODEL_REPLY_MAX_CHARS = 200
 CALL_MIN_MINUTES = 10
 CALL_MAX_MINUTES = 60
 #: experiment_assumption：交谈被接受时双方社交需要缓解速率（约定值，非文献常数）。
-CHAT_RELIEF_ACCEPTED_PER_HOUR = 0.5
 #: experiment_assumption：交谈被拒绝时发起方社交需要缓解速率（约定值，非文献常数）。
-CHAT_RELIEF_DECLINED_PER_HOUR = 0.2
 #: experiment_assumption：通话社交需要缓解速率（约定值，非文献常数）。
-CALL_RELIEF_PER_HOUR = 0.4
 #: 联系人回复来源标记（「社交最小可行版」）。足迹 EventDraft.source_kind 冻结枚举不含
 #: model_npc，落库时的映射由引擎层负责，本模块只产出记录结构。
 REPLY_SOURCE_KIND = "model_npc"
@@ -388,10 +385,8 @@ def template_reply(incoming: IncomingMessage, reply_message_id: str,
     return ContactReply(message=message)
 
 
-CHAT_MET = 1.5
 
 
-CALL_MET = 1.3
 
 
 SOCIAL_RESOURCE_CLAIMS = frozenset({"talk"})

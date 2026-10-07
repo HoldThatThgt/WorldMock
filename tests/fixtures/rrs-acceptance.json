@@ -4,22 +4,22 @@
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-固定规则与常数",
     "tests": [
       "tests/exchange/test_types.py::test_fixed_type_sets_and_labels",
-      "tests/exchange/test_constants.py::test_fixed_constants_and_immutable_food_table",
+      "tests/exchange/test_constants.py::test_goods_receipt_effects_are_immutable_and_bounded",
       "tests/exchange/test_constants.py::test_body_constants_and_resource_metas",
       "tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones",
-      "tests/exchange/test_operators.py::test_food_energy_uses_category_and_fraction",
+      "tests/exchange/test_operators.py::test_goods_receipt_has_quantity_only_for_food",
       "tests/exchange/test_operators.py::test_travel_and_delivery_round_up_with_fare_minimum",
       "tests/exchange/test_operators.py::test_decimal_precision_does_not_change_settlement",
       "tests/exchange/test_operators.py::test_fixed_operators_keep_existing_decimal_settlement_results",
       "tests/catalog/test_loader.py::test_catalog_rejects_retired_object_fields",
       "tests/catalog/test_admission.py::test_registration_rejects_every_retired_file",
-      "tests/catalog/test_admission.py::test_registration_rejects_manifest_values[rules_version-2]"
+      "tests/catalog/test_admission.py::test_registration_rejects_manifest_values[rules_version-1]"
     ],
     "implementation": [
       "src/worldmock/exchange/constants.py::RULES_VERSION",
       "src/worldmock/exchange/body.py::BODY_CONSTANTS",
       "src/worldmock/exchange/types.py::LocationKind",
-      "src/worldmock/exchange/operators.py::evaluate_food_energy",
+      "src/worldmock/exchange/operators.py::evaluate_goods_receipt",
       "src/worldmock/exchange/operators.py::evaluate_travel_fare"
     ]
   },
@@ -34,17 +34,13 @@
       "tests/catalog/test_admission.py::test_registration_rejects_file_identity_drift",
       "tests/catalog/test_admission.py::test_registration_rejects_duplicate_identity",
       "tests/catalog/test_admission.py::test_registration_rejects_too_small_map",
-      "tests/catalog/test_admission.py::test_registration_rejects_nonfinite_work_target",
+      "tests/catalog/test_admission.py::test_registration_rejects_noninteger_content_duration",
       "tests/catalog/test_admission.py::test_registration_rejects_unbound_app",
       "tests/test_cli.py::test_generate_map_command_writes_the_real_library_bytes",
       "tests/test_cli.py::test_generate_map_check_preserves_matching_and_mismatched_output",
       "tests/test_cli.py::test_generate_map_check_uses_the_real_cli_dispatch",
       "tests/test_validation.py::test_validate_environment_command_accepts_the_actual_artificial_environment",
       "tests/test_validation.py::test_validate_environment_rejects_map_bytes_even_when_manifest_is_republished",
-      "tests/test_validation.py::test_validate_environment_rejects_republished_engine_rule_byte_changes[affordances.toml]",
-      "tests/test_validation.py::test_validate_environment_rejects_republished_engine_rule_byte_changes[rules/motivation.toml]",
-      "tests/test_validation.py::test_validate_environment_rejects_republished_engine_rule_byte_changes[rules/persona-mapping.toml]",
-      "tests/test_validation.py::test_validate_environment_reports_corpus_failure_for_every_affected_scenario",
       "tests/test_validation.py::test_validate_environment_checks_every_scenario_after_a_scenario_failure",
       "tests/test_validation.py::test_validate_environment_rejects_no_scenarios",
       "tests/test_validation.py::test_validate_environment_command_rejects_real_registration_counterexamples",
@@ -57,9 +53,11 @@
       "tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[self_edge-MAP_EDGE_INVALID]",
       "tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[disconnected-MAP_DISCONNECTED]",
       "tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references[pin-ENVIRONMENT_PIN_MISMATCH]",
-      "tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references[topic-WORK_TOPIC_UNKNOWN]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references[topic-WORK_CONTENT_UNKNOWN]",
       "tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references[merchant-MERCHANT_ACCOUNT_MISSING]",
-      "tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references[schedule-WORK_SCHEDULE_REQUIRED]"
+      "tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references[schedule-WORK_SCHEDULE_REQUIRED]",
+      "tests/test_validation.py::test_validate_environment_rejects_retired_rule_copies",
+      "tests/test_validation.py::test_validate_environment_ignores_unread_extra_root_directories"
     ],
     "implementation": [
       "src/worldmock/catalog/admission.py::validate_manifest",
@@ -79,7 +77,7 @@
       "tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample"
     ],
     "implementation": [
-      "src/worldmock/catalog/admission.py::_check_foods",
+      "src/worldmock/catalog/admission.py::_check_goods",
       "src/worldmock/catalog/loader.py::_catalog_view"
     ]
   },
@@ -129,12 +127,12 @@
     "stage": "1",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-环境目录文件",
     "tests": [
-      "tests/catalog/test_engine_package_resources.py::test_artificial_rule_snapshots_equal_engine_package",
-      "tests/catalog/test_engine_package_resources.py::test_changed_rule_snapshot_is_rejected_after_identity_refresh",
+      "tests/catalog/test_engine_package_resources.py::test_catalog_has_only_six_object_files_and_no_engine_rule_copies",
+      "tests/life/test_acs_loading.py::test_runtime_code_identity_binds_each_packaged_data_file",
       "tests/catalog/test_identity.py::test_catalog_identity_publication_is_atomic"
     ],
     "implementation": [
-      "src/worldmock/catalog/loader.py::require_engine_rules",
+      "src/worldmock/run_setup.py::runtime_code_sha256",
       "src/worldmock/catalog/identity.py::refresh_manifest_identity"
     ]
   },
@@ -142,14 +140,13 @@
     "stage": "4",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-闭集",
     "tests": [
-      "tests/catalog/test_affordance_shadow.py::test_final_claim_slots_and_activity_kinds_are_closed",
-      "tests/catalog/test_affordance_shadow.py::test_retired_claim_names_are_rejected",
-      "tests/catalog/test_affordance_shadow.py::test_only_same_kind_sleep_and_driving_share_claims",
-      "tests/catalog/test_affordance_shadow.py::test_app_claims_match_activity_admission",
-      "tests/catalog/test_affordance_shadow.py::test_retired_claim_names_are_rejected[list-watch]",
-      "tests/life/test_app_progress.py::test_content_relief_is_fixed_for_each_kind_and_applied_to_real_body",
-      "tests/life/test_app_progress.py::test_real_admission_blocks_driving_and_same_app_kind_accepts_eating_parallel",
-      "tests/catalog/test_affordance_shadow.py::test_driving_blocks_app_and_meals_but_allows_talk"
+      "tests/catalog/test_affordances.py::test_registry_only_declares_final_activity_kinds_and_body_keys",
+      "tests/catalog/test_affordances.py::test_each_category_and_manner_combination_has_fixed_claims",
+      "tests/catalog/test_affordances.py::test_retired_claim_names_are_rejected",
+      "tests/catalog/test_affordances.py::test_driving_allows_only_social_without_continuous_phone_use",
+      "tests/catalog/test_affordances.py::test_categories_share_only_the_phone_claim_when_different",
+      "tests/life/test_app_progress.py::test_content_relief_uses_one_fixed_rate_and_is_applied_to_real_body",
+      "tests/life/test_app_progress.py::test_real_admission_blocks_driving_and_same_app_kind_accepts_eating_parallel"
     ],
     "implementation": [
       "src/worldmock/catalog/affordances.py::RESOURCE_CLAIM_SLOTS",
@@ -161,31 +158,30 @@
     "stage": "1",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-状态事件检查点与导出",
     "tests": [
-      "tests/life/test_scenario.py::test_structure_seven_rejects_each_retired_scenario_field",
-      "tests/life/test_scenario.py::test_structure_seven_rejects_retired_agent_fields",
-      "tests/life/test_scenario.py::test_structure_seven_rejects_body_and_message_retired_fields",
-      "tests/life/test_scenario.py::test_structure_seven_rejects_old_scenario_version",
-      "tests/life/test_scenario.py::test_structure_seven_rejects_retired_menu_actions",
-      "tests/life/test_scenario.py::test_structure_seven_rejects_retired_menu_kinds",
+      "tests/life/test_scenario.py::test_structure_eight_rejects_each_retired_scenario_field",
+      "tests/life/test_scenario.py::test_structure_eight_rejects_retired_agent_fields",
+      "tests/life/test_scenario.py::test_structure_eight_rejects_body_and_message_retired_fields",
+      "tests/life/test_scenario.py::test_structure_eight_rejects_old_scenario_version",
+      "tests/life/test_scenario.py::test_structure_eight_rejects_retired_menu_actions",
+      "tests/life/test_scenario.py::test_structure_eight_rejects_retired_menu_kinds",
       "tests/life/test_scenario.py::test_formal_and_multi_person_scenarios_are_valid",
       "tests/life/test_scenario.py::test_body_instance_and_rejection_ranges_are_enforced",
-      "tests/life/test_scenario.py::test_initial_inventory_shape_rejects_invalid_holdings",
       "tests/life/test_load_checks.py::test_real_loader_rejects_registration_counterexamples",
       "tests/life/test_semantics.py::test_energy_thresholds_come_from_worldmock_body_constants",
       "tests/life/test_semantics.py::test_registered_objects_and_body_instances_are_preserved",
       "tests/life/test_semantics.py::test_initial_agent_preserves_declared_body_needs",
-      "tests/life/test_session_state.py::test_world_state_schema_version_10_is_valid",
-      "tests/life/test_session_state.py::test_world_state_schema_version_9_is_rejected",
+      "tests/life/test_session_state.py::test_world_state_schema_version_11_is_valid",
       "tests/life/test_session_state.py::test_world_state_rejects_retired_supply_fields",
       "tests/life/test_session_state.py::test_agent_state_rejects_retired_supply_and_qualification_fields",
       "tests/life/test_state_serialization.py::test_json_mode_sorts_every_persisted_string_set",
-      "tests/integration/test_environment_identity.py::test_loaded_environment_identity_is_five_exact_file_bound_values",
-      "tests/integration/test_environment_identity.py::test_environment_identity_requires_every_frozen_value",
-      "tests/integration/test_environment_identity.py::test_environment_identity_rejects_retired_run_manifest_versions",
-      "tests/integration/test_run_manifest.py::test_run_manifest_structure_three_freezes_environment_identity",
+      "tests/life/test_acs_loading.py::test_world_eleven_rejects_old_version_and_corpus_identity",
       "tests/integration/test_rrs_engine_wave.py::test_real_open_rejects_world_structure_nine",
       "tests/integration/test_rrs_engine_wave.py::test_real_restore_and_replay_preparation_reject_world_nine_before_publication",
       "tests/integration/test_rrs_engine_wave.py::test_real_replay_entry_rejects_world_nine_before_model_runtime",
+      "tests/integration/test_environment_identity.py::test_loaded_environment_identity_is_five_exact_file_bound_values",
+      "tests/integration/test_environment_identity.py::test_environment_identity_requires_every_frozen_value",
+      "tests/integration/test_environment_identity.py::test_environment_identity_rejects_retired_run_manifest_versions",
+      "tests/life/test_acs_loading.py::test_run_manifest_has_five_environment_fields_without_corpus_pin",
       "tests/integration/test_rrs_engine_wave.py::test_real_create_checkpoint_and_resume_preserve_world_and_parent",
       "tests/integration/test_rrs_engine_wave.py::test_real_resume_rejects_same_version_changed_catalog_before_publication",
       "tests/integration/test_rrs_engine_wave.py::test_real_open_rejects_held_unregistered_food"
@@ -209,6 +205,7 @@
       "tests/life/test_travel_cost.py::test_route_quote_is_paid_once_into_the_declared_transport_account",
       "tests/life/test_travel_cost.py::test_unaffordable_departure_changes_no_account",
       "tests/life/test_travel_cost.py::test_walking_records_zero_fare_without_inventing_a_payment",
+      "tests/integration/test_rrs_engine_wave.py::test_real_published_route_and_store_food_reach_consumption_evidence",
       "tests/life/test_travel_graph.py::test_same_place_travel_is_a_precondition_rejection",
       "tests/life/test_travel_graph.py::test_unselected_place_is_not_a_destination_but_remains_a_path_node",
       "tests/life/test_travel_graph.py::test_tool_targets_list_all_other_selected_places_with_both_graph_quotes",
@@ -216,8 +213,7 @@
       "tests/life/test_wayfinding.py::test_discovery_quotes_the_same_graph_trip_without_old_route_fields",
       "tests/life/test_travel_graph.py::test_travel_progress_snapshot_keeps_origin_and_arrival_is_verified",
       "tests/life/test_travel_graph.py::test_persisted_travel_evidence_drift_is_rejected",
-      "tests/life/test_travel_graph.py::test_graph_departure_and_arrival_switch_real_sessions_without_engine",
-      "tests/integration/test_rrs_engine_wave.py::test_real_published_route_and_store_food_reach_consumption_evidence"
+      "tests/life/test_travel_graph.py::test_graph_departure_and_arrival_switch_real_sessions_without_engine"
     ],
     "implementation": [
       "src/worldmock/life/travel.py::plan_trip",
@@ -272,13 +268,13 @@
       "tests/life/test_menu_discovery.py::test_same_kind_stores_share_foods_with_real_distinct_bindings",
       "tests/life/test_commerce.py::test_no_app_store_pickup_is_immediate_local_holding",
       "tests/life/test_named_purchase.py::test_named_purchase_rejects_food_source_and_way_mismatch",
+      "tests/integration/test_rrs_engine_wave.py::test_real_published_route_and_store_food_reach_consumption_evidence",
       "tests/life/test_purchase_apps.py::test_unbound_app_refuses_with_exact_reason_and_bound_app_next_step",
       "tests/life/test_named_purchase.py::test_null_source_uses_smallest_bound_app_and_records_the_real_note",
       "tests/life/test_named_purchase.py::test_preference_counts_delivery_fee_and_breaks_ties_by_store_id",
       "tests/life/test_commerce.py::test_purchase_rejection_is_atomic_with_the_exact_code",
       "tests/life/test_named_purchase.py::test_onsite_name_purchase_has_no_app_and_remote_guidance_uses_real_places",
-      "tests/life/test_purchase_apps.py::test_native_purchase_routing_derives_way_without_action_field",
-      "tests/integration/test_rrs_engine_wave.py::test_real_published_route_and_store_food_reach_consumption_evidence"
+      "tests/life/test_purchase_apps.py::test_native_purchase_routing_derives_way_without_action_field"
     ],
     "implementation": [
       "src/worldmock/life/basket.py::_order_fulfillment",
@@ -299,12 +295,9 @@
       "tests/life/test_rrs_food_body.py::test_food_fixed_body_efficiency_energy_cap_and_resource_source",
       "tests/life/test_rrs_food_body.py::test_food_actual_portion_duration_bounds_and_multi_item_longest",
       "tests/life/test_rrs_food_body.py::test_food_ending_discards_only_opened_remainder_without_extra_intake",
+      "tests/integration/test_rrs_engine_wave.py::test_real_published_route_and_store_food_reach_consumption_evidence",
       "tests/life/test_menu_discovery.py::test_food_tool_state_category_energy_apps_and_fixed_price",
-      "tests/life/test_food_presentation.py::test_product_targets_use_current_store_or_real_delivery_apps",
-      "tests/life/test_food_motivation.py::test_meal_candidates_use_meal_category_and_actual_fixed_delivery_wait",
-      "tests/life/test_food_motivation.py::test_no_affordable_meal_uses_held_snack_without_inventing_a_meal",
-      "tests/life/test_food_motivation.py::test_current_food_menu_projects_real_families_and_never_enumerates_browse",
-      "tests/integration/test_rrs_engine_wave.py::test_real_published_route_and_store_food_reach_consumption_evidence"
+      "tests/life/test_food_presentation.py::test_product_targets_use_current_store_or_real_delivery_apps"
     ],
     "implementation": [
       "src/worldmock/life/basket.py::apply_meal_progress",
@@ -313,9 +306,7 @@
       "src/worldmock/life/sleep.py::food_utilization_efficiency",
       "src/worldmock/life/tool_layer.py::_product_state",
       "src/worldmock/life/callable_index.py::callable_index",
-      "src/worldmock/life/observe.py::_supply_entries",
-      "src/worldmock/life/motivation.py::_eat_candidates",
-      "src/worldmock/life/motivation.py::_enumerate_candidates"
+      "src/worldmock/life/observe.py::_supply_entries"
     ]
   },
   "购买足迹与画像": {
@@ -325,6 +316,11 @@
       "tests/life/test_rrs_food_body.py::test_food_purchase_changes_holding_and_only_actual_eating_increases_energy",
       "tests/life/test_rrs_food_body.py::test_food_progress_verified_experiences_and_quality_use_food_identity",
       "tests/footprints/test_purchases.py::test_actual_order_facts_preserve_food_store_app_and_fixed_money",
+      "tests/life/test_commerce.py::test_no_app_store_pickup_is_immediate_local_holding",
+      "tests/life/test_food_errand_evidence.py::test_actual_pickup_credits_the_recipient_and_reused_result_cannot_credit_twice",
+      "tests/life/test_food_errand_evidence.py::test_actual_giving_credits_only_the_recipient_and_actual_fraction",
+      "tests/life/test_food_errand_evidence.py::test_actual_pending_delivery_does_not_credit_and_restored_arrival_credits_once",
+      "tests/life/test_food_errand_evidence.py::test_actual_food_progress_counts_interval_portions_and_zero_replay_does_not_credit",
       "tests/profile/test_injection.py::test_the_warning_code_set_is_the_closed_six",
       "tests/profile/test_injection.py::test_empty_content_warns_for_media_and_habits_only",
       "tests/profile/test_injection.py::test_coverage_below_threshold_reuses_the_validate_report",
@@ -367,12 +363,7 @@
       "tests/integration/test_input_warnings.py::test_low_coverage_writes_report_and_warns_before_gate",
       "tests/integration/test_input_warnings.py::test_runtime_warning_caller_logs_and_freezes_all_six_codes",
       "tests/integration/test_input_warnings.py::test_warning_caller_rejects_catalog_identity_tampering",
-      "tests/profile/test_injection.py::test_retired_warning_codes_are_rejected_at_manifest_boundary",
-      "tests/life/test_commerce.py::test_no_app_store_pickup_is_immediate_local_holding",
-      "tests/life/test_food_errand_evidence.py::test_actual_pickup_credits_the_recipient_and_reused_result_cannot_credit_twice",
-      "tests/life/test_food_errand_evidence.py::test_actual_giving_credits_only_the_recipient_and_actual_fraction",
-      "tests/life/test_food_errand_evidence.py::test_actual_pending_delivery_does_not_credit_and_restored_arrival_credits_once",
-      "tests/life/test_food_errand_evidence.py::test_actual_food_progress_counts_interval_portions_and_zero_replay_does_not_credit"
+      "tests/profile/test_injection.py::test_retired_warning_codes_are_rejected_at_manifest_boundary"
     ],
     "implementation": [
       "src/worldmock/life/activity_evidence.py::meal_consumption_data",
@@ -401,6 +392,8 @@
       "tests/life/test_app_ui.py::test_all_apps_always_listed_without_content_candidates_or_index",
       "tests/life/test_app_ui.py::test_opened_app_habit_is_entertainment_without_app_candidates",
       "tests/life/test_app_progress.py::test_real_app_interval_advances_entertainment_goal_and_retired_kinds_do_not",
+      "tests/life/test_app_progress.py::test_app_activity_keeps_app_title_and_records_current_content_title",
+      "tests/integration/test_rrs_engine_wave.py::test_real_app_interleaving_uses_shared_content_cursor_and_reopens_it",
       "tests/life/test_app_progress.py::test_cross_app_pause_resumes_latest_global_position",
       "tests/life/test_app_progress.py::test_short_content_continues_silently_until_plan_and_repeats_allowed",
       "tests/life/test_app_progress.py::test_content_completion_occurs_at_actual_end_only",
@@ -408,11 +401,9 @@
       "tests/life/test_app_progress.py::test_other_app_completed_round_resume_consumes_nothing_then_real_end_adds_once",
       "tests/life/test_app_progress.py::test_plan_end_and_active_conclude_preserve_partial_content_progress",
       "tests/life/test_app_progress.py::test_reopen_after_conclusion_keeps_opened_push_and_latest_global_position",
-      "tests/life/test_app_progress.py::test_content_relief_is_fixed_for_each_kind_and_applied_to_real_body",
+      "tests/life/test_app_progress.py::test_content_relief_uses_one_fixed_rate_and_is_applied_to_real_body",
       "tests/life/test_app_progress.py::test_real_admission_blocks_driving_and_same_app_kind_accepts_eating_parallel",
-      "tests/catalog/test_affordance_shadow.py::test_driving_blocks_app_and_meals_but_allows_talk",
-      "tests/life/test_app_progress.py::test_app_activity_keeps_app_title_and_records_current_content_title",
-      "tests/integration/test_rrs_engine_wave.py::test_real_app_interleaving_uses_shared_content_cursor_and_reopens_it"
+      "tests/catalog/test_affordances.py::test_driving_allows_only_social_without_continuous_phone_use"
     ],
     "implementation": [
       "src/worldmock/life/content.py::choose_app_content",
@@ -477,7 +468,6 @@
       "tests/life/test_rrs_food_body.py::test_food_fixed_body_efficiency_energy_cap_and_resource_source",
       "tests/life/test_rrs_food_body.py::test_food_actual_portion_duration_bounds_and_multi_item_longest",
       "tests/life/test_rrs_food_body.py::test_food_ending_discards_only_opened_remainder_without_extra_intake",
-      "tests/life/test_app_progress.py::test_app_activity_keeps_app_title_and_records_current_content_title",
       "tests/integration/test_rrs_engine_wave.py::test_real_published_route_and_store_food_reach_consumption_evidence"
     ],
     "implementation": [
@@ -490,11 +480,11 @@
     "stage": "5",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-状态事件检查点与导出",
     "tests": [
-      "tests/integration/test_rrs_engine_wave.py::test_real_app_push_is_persisted_without_reissue_after_open",
       "tests/life/test_wake_reasons.py::test_frozen_wake_and_intent_names",
       "tests/life/test_wake_reasons.py::test_sleep_allowed_reasons_add_only_plan_reminder_due",
       "tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_is_the_frozen_spec_set",
-      "tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_matches_the_engine_side_enum"
+      "tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_matches_the_engine_side_enum",
+      "tests/integration/test_rrs_engine_wave.py::test_real_app_push_is_persisted_without_reissue_after_open"
     ],
     "implementation": [
       "src/worldmock/life/schedule.py::WakeReason",
@@ -523,6 +513,7 @@
       "tests/life/test_work_topics.py::test_resume_refusals_follow_location_then_topic_then_slots_then_claims",
       "tests/life/test_work_topics.py::test_resume_checks_slots_before_resource_claims_after_place_and_topic_are_satisfied",
       "tests/life/test_work_topics.py::test_actual_engine_remaining_fifty_nine_seconds_refuses_start_and_resume",
+      "tests/life/test_work_protocol.py::test_unknown_work_name_has_the_same_host_and_environment_code",
       "tests/life/test_work_topics.py::test_paused_thirty_minutes_do_not_increase_actual_topic_hours",
       "tests/life/test_work_topics.py::test_parallel_nonwork_food_elapsed_and_failed_work_do_not_count",
       "tests/life/test_work_topics.py::test_actual_engine_pause_then_parallel_meal_only_counts_running_work",
@@ -531,8 +522,7 @@
       "tests/life/test_work_protocol.py::test_work_report_survives_real_session_change",
       "tests/life/test_work_topics.py::test_real_eight_hours_end_planned_and_emit_completion_once_with_actual_progress",
       "tests/life/test_work_topics.py::test_actual_engine_eight_hours_emit_own_completion_progress_and_remove_start_target",
-      "tests/life/test_work_topics.py::test_actual_engine_old_paused_work_cannot_resume_after_another_activity_finishes_topic",
-      "tests/life/test_work_protocol.py::test_unknown_work_name_has_the_same_host_and_environment_code"
+      "tests/life/test_work_topics.py::test_actual_engine_old_paused_work_cannot_resume_after_another_activity_finishes_topic"
     ],
     "implementation": [
       "src/worldmock/life/work.py::work_totals",
@@ -583,10 +573,10 @@
       "tests/life/test_app_ui.py::test_all_apps_always_listed_without_content_candidates_or_index",
       "tests/life/test_app_ui.py::test_opened_app_habit_is_entertainment_without_app_candidates",
       "tests/life/test_app_progress.py::test_real_app_interval_advances_entertainment_goal_and_retired_kinds_do_not",
-      "tests/life/test_app_ui.py::test_current_push_title_and_kind_are_visible_until_released",
-      "tests/life/test_app_push.py::test_full_push_summary_and_source_discriminator_project_from_committed_event",
       "tests/life/test_app_progress.py::test_app_activity_keeps_app_title_and_records_current_content_title",
-      "tests/integration/test_rrs_engine_wave.py::test_real_app_interleaving_uses_shared_content_cursor_and_reopens_it"
+      "tests/integration/test_rrs_engine_wave.py::test_real_app_interleaving_uses_shared_content_cursor_and_reopens_it",
+      "tests/life/test_app_ui.py::test_current_push_title_and_kind_are_visible_until_released",
+      "tests/life/test_app_push.py::test_full_push_summary_and_source_discriminator_project_from_committed_event"
     ],
     "implementation": [
       "src/worldmock/life/tool_layer.py::_binding_target",
@@ -599,6 +589,7 @@
     "tests": [
       "tests/life/test_work_protocol.py::test_work_tool_and_stage_closed_sets_match_real_host",
       "tests/life/test_restored_model_identity.py::test_environment_lifecycles_reject_invalid_saved_stage_identity",
+      "tests/life/test_work_topics.py::test_actual_scheduled_payroll_transfers_fixed_salary_without_work_or_submission",
       "tests/life/test_work_protocol.py::test_work_prompt_schema_rejects_old_contract_review_and_completion_shapes",
       "tests/life/test_work_protocol.py::test_work_contract_and_reports_use_real_hours_without_submission",
       "tests/life/test_work_protocol.py::test_work_report_survives_real_session_change",
@@ -606,8 +597,7 @@
       "tests/integration/test_life_agent_protocol.py::test_life_tool_schema_fingerprint_is_the_person_tool_surface_without_the_reflection_tool",
       "tests/integration/test_life_agent_protocol.py::test_affordance_registry_fingerprint_reads_packaged_rule_bytes",
       "tests/life/test_prompt_layers.py::test_work_contract_appears_only_in_the_task_target",
-      "tests/life/test_prompt_layers.py::test_paused_work_does_not_repeat_the_contract_in_the_todo_layer",
-      "tests/life/test_work_topics.py::test_actual_scheduled_payroll_transfers_fixed_salary_without_work_or_submission"
+      "tests/life/test_prompt_layers.py::test_paused_work_does_not_repeat_the_contract_in_the_todo_layer"
     ],
     "implementation": [
       "custom/agents/life_agent.py::_TOOL_MODELS",
@@ -639,10 +629,10 @@
       "tests/integration/test_verified_memory.py::test_actual_app_progress_is_written_to_verified_memory_with_source_and_cursor",
       "tests/life/test_experience_sentences.py::test_real_pause_resume_immediate_cancellation_keeps_prior_partial_app_viewing",
       "tests/life/test_experience_sentences.py::test_shared_cursor_advance_from_another_app_is_not_this_activitys_viewing",
+      "tests/footprints/test_validation.py::test_current_export_identity_is_required_before_any_consumer",
       "tests/integration/test_biz_timeline_recording.py::test_business_fixture_is_recorded_from_current_engine",
       "tests/integration/test_biz_timeline_recording.py::test_current_inspection_names_actual_work_and_app_progress",
-      "tests/footprints/test_render_day.py::test_real_biz_run_rows_name_the_calls_and_the_work_task",
-      "tests/footprints/test_validation.py::test_current_export_identity_is_required_before_any_consumer"
+      "tests/footprints/test_render_day.py::test_real_biz_run_rows_name_the_calls_and_the_work_task"
     ],
     "implementation": [
       "src/worldmock/footprints/export.py::export_run",
@@ -789,7 +779,7 @@
       "tests/test_test_tiers.py::test_changed_engine_time_is_separate_from_default_fast_reference",
       "tests/test_test_tiers.py::test_input_identity_changes_when_source_changes_and_skips_are_reported",
       "tests/test_test_tiers.py::test_external_environment_identity_survives_relocation_and_rejects_changed_bytes",
-      "tests/test_test_tiers.py::test_explicit_external_environment_requires_all_three_nonempty_inputs",
+      "tests/test_test_tiers.py::test_explicit_external_environment_requires_both_nonempty_inputs",
       "tests/test_test_tiers.py::test_fixed_dependency_and_patch_bytes_are_part_of_the_frozen_test_input",
       "tests/test_test_tiers.py::test_generated_work_and_bytecode_are_not_test_source_inputs",
       "tests/test_test_tiers.py::test_changed_selection_includes_staged_unstaged_and_untracked",

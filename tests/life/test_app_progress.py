@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from tests.life.purchase_worlds import ENVIRONMENT, registered_world
 from worldmock.catalog.identity import refresh_manifest_identity
 from worldmock.errors import BusinessRuleError
-from worldmock.exchange.constants import APP_USE_DEFAULT_SECONDS, CONTENT_RELIEF_PER_HOUR
+from worldmock.exchange.constants import APP_USE_DEFAULT_SECONDS, ENTERTAINMENT_RELIEF_PER_HOUR
 from worldmock.life import admission, sessions
 from worldmock.life.activities import (
     ActivityOrigin, advance_activity, change_activity, content_entertainment_relief_rate,
@@ -198,7 +198,7 @@ def test_other_app_completed_round_resume_consumes_nothing_then_real_end_adds_on
     state, second = _open(semantics, state, "bilibili", "short-b")
     assert state.activities[second].media_position_seconds == 60
     state, intervals = _advance(semantics, state, second, 60)
-    assert intervals == [{"content_id": "c-short", "app_id": "bilibili", "kind": "short_video",
+    assert intervals == [{"content_id": "c-short", "app_id": "bilibili",
                           "position_before_seconds": 60, "position_after_seconds": 120,
                           "completed": True, "completed_rounds_after": 1}]
     assert state.agents[1].content_progress["c-short"].position_seconds == 0
@@ -216,7 +216,7 @@ def test_other_app_completed_round_resume_consumes_nothing_then_real_end_adds_on
     assert intervals[-1]["completed_rounds_after"] == 2
     assert len(state.activities[first].data["played"]) == 1
     assert state.activities[first].data["played"][0] == {
-        "content_id": "c-short", "kind": "short_video", "from_position": 0, "to_position": 120}
+        "content_id": "c-short", "from_position": 0, "to_position": 120}
 
 
 def test_short_content_continues_silently_until_plan_and_repeats_allowed(tmp_path):
@@ -307,22 +307,21 @@ def test_paused_resume_retains_content_pin_and_random_state():
     assert sessions.current_session(state, 1).app_pushes == pushes_before
     assert state.random_state == "pure-fixed"
     assert app_content_result(resumed, semantics.catalog) == {
-        "app": pushed["app"], "title": pushed["title"], "kind": app_content_result(before, semantics.catalog)["kind"],
+        "app": pushed["app"], "title": pushed["title"],
         "summary": pushed["summary"], "pushed": True}
 
 
-def test_content_relief_is_fixed_for_each_kind_and_applied_to_real_body():
-    """@brief 五种内容直接使用系统常数，实际身体结算按费率缓解且不依赖任何偏好字段。"""
+def test_content_relief_uses_one_fixed_rate_and_is_applied_to_real_body():
+    """@brief 娱乐直接使用同一系统常数，实际身体结算不依赖内容分类或任何偏好字段。"""
     semantics, state = _world()
-    for kind, expected in CONTENT_RELIEF_PER_HOUR.items():
-        assert content_entertainment_relief_rate(kind.value) == expected
+    assert content_entertainment_relief_rate() == ENTERTAINMENT_RELIEF_PER_HOUR == 0.3
     action = _action_for(semantics.catalog, "douyin", state.random_state, "c-long", "relief")
     state.agents[1].body.entertainment_need = 0.8
     state, identity = _open(semantics, state, "douyin", action)
     activity = state.activities[identity]
-    assert entertainment_relief_rate(activity, semantics.body) == 0.4
+    assert entertainment_relief_rate(activity, semantics.body) == 0.3
     state, _ = _advance(semantics, state, identity, 900)
-    assert state.agents[1].body.entertainment_need == pytest.approx(0.7)
+    assert state.agents[1].body.entertainment_need == pytest.approx(0.725)
     assert "taste_weights" not in state.agents[1].model_dump()
     driving = ActivityStartParams(activity_type="travel", planned_duration_seconds=100,
                                   destination_id="office", travel_mode="driving")

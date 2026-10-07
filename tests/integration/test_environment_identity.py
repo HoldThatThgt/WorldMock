@@ -228,7 +228,7 @@ def test_environment_identity_requires_every_frozen_value(field, change):
     from worldmock.life.run_identity import require_environment_identity
 
     semantics, _ = load_runtime_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")
-    manifest = {"schema_version": 3, "environment_identity": _expected_identity(ENVIRONMENT_ROOT / "catalog")}
+    manifest = {"schema_version": 4, "environment_identity": _expected_identity(ENVIRONMENT_ROOT / "catalog")}
     require_environment_identity(manifest, semantics)
     if change == "missing":
         del manifest["environment_identity"][field]
@@ -238,7 +238,7 @@ def test_environment_identity_requires_every_frozen_value(field, change):
         require_environment_identity(manifest, semantics)
 
 
-@pytest.mark.parametrize("version", [1, 2])
+@pytest.mark.parametrize("version", [1, 2, 3])
 def test_environment_identity_rejects_retired_run_manifest_versions(version):
     """旧运行结构即使带当前五环境身份仍被拒绝。"""
     from worldmock.life.run_identity import require_environment_identity

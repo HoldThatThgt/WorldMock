@@ -1,0 +1,69 @@
+{
+  "actions": [
+    {
+      "action_id": "browse-feed",
+      "name": "刷推荐",
+      "description": "进行刷推荐。",
+      "category": "entertainment",
+      "app_ids": [
+        "bilibili",
+        "douyin"
+      ],
+      "manner": "phone_continuous"
+    },
+    {
+      "action_id": "office-work",
+      "name": "办公",
+      "description": "进行办公。",
+      "category": "work_study",
+      "app_ids": [],
+      "manner": null
+    },
+    {
+      "action_id": "quiet-rest",
+      "name": "安静休息",
+      "description": "进行安静休息。",
+      "category": "daily_care",
+      "app_ids": [],
+      "manner": null
+    },
+    {
+      "action_id": "run",
+      "name": "跑步",
+      "description": "进行跑步。",
+      "category": "exercise",
+      "app_ids": [
+        "keep"
+      ],
+      "manner": "offline_assisted"
+    },
+    {
+      "action_id": "small-talk",
+      "name": "聊天",
+      "description": "进行聊天。",
+      "category": "social",
+      "app_ids": [],
+      "manner": null
+    },
+    {
+      "action_id": "study-course",
+      "name": "学课程",
+      "description": "进行学课程。",
+      "category": "work_study",
+      "app_ids": [
+        "bilibili"
+      ],
+      "manner": "other_device"
+    },
+    {
+      "action_id": "voice-call",
+      "name": "语音通话",
+      "description": "进行语音通话。",
+      "category": "social",
+      "app_ids": [
+        "wechat"
+      ],
+      "manner": "phone_continuous"
+    }
+  ]
+}

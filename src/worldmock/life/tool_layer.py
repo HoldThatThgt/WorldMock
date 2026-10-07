@@ -22,7 +22,7 @@ from worldmock.life.basket import (meal_portion,
 from worldmock.life.commerce import held_quantity
 from worldmock.exchange.constants import APP_USE_DEFAULT_SECONDS, FOOD_CONSTANTS
 from worldmock.exchange.operators import delivery_fee_fen, delivery_seconds
-from worldmock.exchange.types import CONTENT_KIND_LABELS, FOOD_CATEGORY_LABELS
+from worldmock.exchange.types import FOOD_CATEGORY_LABELS
 from worldmock.life.control_items import CONTROL_TOOLS
 from worldmock.life.durations import derived_activity_duration
 from worldmock.life.guidance import Refusal, refusal_for_code, rejection_guidance
@@ -492,10 +492,10 @@ def with_bindings(context: LayerContext, bindings: list[dict]) -> LayerContext:
 
 
 def _app_state(context: LayerContext, app_id: str) -> str:
-    """@brief 当前会话未释放的推送显示标题与类型，否则显示真实内容条数。"""
+    """@brief 当前会话未释放的推送显示标题，否则显示真实内容条数。"""
     session = current_session(context.state, context.agent_id)
     push = session.app_pushes.get(app_id) if session is not None else None
     if push is not None and push.status != "released":
         content = context.semantics.catalog.contents[push.content_id]
-        return f"有推送：《{content.title}》（{CONTENT_KIND_LABELS[content.kind]}）"
+        return f"有推送：《{content.title}》"
     return f"{len(context.semantics.catalog.contents_by_app[app_id])} 条内容"

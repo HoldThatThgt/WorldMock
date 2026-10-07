@@ -20,7 +20,6 @@ from typing import Any, Literal, NamedTuple, get_args
 from pydantic import Field, ValidationError
 
 from worldmock.errors import IntegrityError
-from worldmock.exchange.types import CONTENT_KIND_LABELS
 from worldmock.profile.coverage import COVERAGE_THRESHOLD, PersonaCoverageReport
 from worldmock.profile.models import (
     SLEEP_NEED_MAX_H,
@@ -47,7 +46,7 @@ RHYTHM_FIELDS = ("chronotype_midsleep", "sleep_need_hours", "lunch_window", "lea
 #: 场景窗口字段 → 卡片时间锚点的五个槽；插入顺序即落槽顺序（午餐、下班、到家、晚餐、就寝）。
 _WINDOW_SLOTS = {"lunch_window": "lunch", "leave_work_window": "leave_work", "arrive_home_window": "arrive_home",
                  "dinner_window": "dinner", "bedtime_window": "bedtime"}
-#: 「看、刷、听」：卡片口味或习惯里出现即说明人物有观看或收听的习惯。
+#: 「看、刷、听」用于识别习惯中的媒体使用；口味的媒体列表本身就是显式偏好。
 _MEDIA_VERBS = ("看", "刷", "听")
 #: 坐标形态：成对的小数经纬度（如「（31.2, 121.5）」「东经121.50°、北纬31.23°」）或单个带经纬前缀的数值。
 _COORDINATE = r"(?:[东西]经|[南北]纬)?\s*[-+]?\d{1,3}\.\d+\s*°?"
@@ -221,10 +220,9 @@ def content_empty_warnings(agent_id: int, card: PersonaCard | None, catalog: Any
     @param catalog 真实登记目录，内容绑定已通过登记校验。
     @return 警告 details 仅含 media 与 habits。
     """
-    if card is None or any(catalog.contents_by_app.values()):
+    if card is None or any(item.app_ids for item in catalog.contents.values()):
         return []
-    media = [item for item in card.tastes.media
-             if item in CONTENT_KIND_LABELS.values() or _mentions_media_verb(item)]
+    media = list(card.tastes.media)
     habits = [habit.response for habit in card.habits
               if _mentions_media_verb(habit.response) or _mentions_media_verb(habit.trigger)]
     if not (media or habits):

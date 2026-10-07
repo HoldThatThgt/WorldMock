@@ -22,8 +22,7 @@ class BodyConstants:
     emergency_threshold_kcal: int = 400
     #: 活动键对应的固定代谢当量。
     activity_met: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({
-        "wait": 1.3, "sleep": 0.95, "work": 1.5, "use_app": 1.0, "read_mail": 1.3,
-        "consume": 1.5, "chat": 1.5, "call": 1.3, "travel:walking": 3.5, "travel:driving": 1.5,
+        "wait": 1.3, "sleep": 0.95, "travel:walking": 3.5, "travel:driving": 1.5,
     }))
     #: 每清醒小时增加的睡眠债小时。
     awake_sleep_debt_per_hour: int = 1

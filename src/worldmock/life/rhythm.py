@@ -15,6 +15,8 @@ decision_offered=false 与 wake_reasons=[]；提供决策的边界记录实际�
 """
 
 from __future__ import annotations
+
+from worldmock.exchange import constants
 from worldmock.life.work import work_totals
 from worldmock.life.activities import shared_activity_factors
 from worldmock.life import projection as projection_module
@@ -247,7 +249,7 @@ def _settle_discomfort(agent: AgentState, levels: dict[str, str], now: int) -> A
     """@brief 连续饿或困的不适脉冲（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」，
     docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-不适脉冲与睡眠中的消息 ）。
 
-    两小时门槛（felt.MOOD_DISCOMFORT_TRIGGER_HOURS）只在这里按连续不适时长判定一次：超出门槛的小时数减去已计费的，
+    两小时门槛（constants.MOOD_DISCOMFORT_TRIGGER_HOURS）只在这里按连续不适时长判定一次：超出门槛的小时数减去已计费的，
     即本边界新增的计费小时，按 −0.1/小时施加（felt.discomfort_pulse 不再判门槛）；只有实际施加了脉冲（新增计费小时
     为正）才把这些小时记为已计费。不适解除时起点与已计费小时一并清零。
 
@@ -258,7 +260,7 @@ def _settle_discomfort(agent: AgentState, levels: dict[str, str], now: int) -> A
     if levels["appetite"] not in HUNGRY_BANDS and levels["sleepiness"] not in SLEEPY_BANDS:
         return agent.model_copy(update={"discomfort_started_at": None, "discomfort_pulse_hours": 0.0}, deep=True)
     started = agent.discomfort_started_at if agent.discomfort_started_at is not None else now
-    chargeable = max(0.0, (now - started) / 3600 - felt.MOOD_DISCOMFORT_TRIGGER_HOURS)
+    chargeable = max(0.0, (now - started) / 3600 - constants.MOOD_DISCOMFORT_TRIGGER_HOURS)
     new_charge = chargeable - agent.discomfort_pulse_hours
     update: dict[str, Any] = {"discomfort_started_at": started}
     if new_charge > 0:

@@ -22,9 +22,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from worldmock.errors import IntegrityError
-from worldmock.life.content import LifestyleItem, load_lifestyle_items
 from worldmock.exchange.types import LocationKind
-from worldmock.life.object_labels import SELF_LABEL, mail_name, object_label, remote_holding_label
+from worldmock.life.object_labels import SELF_LABEL, object_label
 
 from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.work_schedule import shift_on
@@ -107,15 +106,15 @@ def _window_calendar_dates(scenario: RuntimeScenario) -> list[tuple[date, str]]:
     return [(day, field) for day, _, field in sorted(pairs)]
 
 
-def check_visible_labels(scenario: RuntimeScenario, corpus_root: Path) -> None:
+def check_visible_labels(scenario: RuntimeScenario) -> None:
     """@brief 所选地点的显示名互不相同，且每个人物可能同时看到的对象名称两两不同；否则拒绝加载。
 
     同名地点须以地图字段 branch_label 消歧（显示名「名称（branch_label）」）。
 
-    :param corpus_root: 场景的语料根（与引擎同一解析方式）。
+    @param scenario 已验证的冻结运行场景。
     """
     _check_place_names(scenario)
-    for agent_id, labels in visible_object_labels(scenario, corpus_root).items():
+    for agent_id, labels in visible_object_labels(scenario).items():
         duplicates = sorted((label, sources) for label, sources in labels.items() if len(sources) > 1)
         if duplicates:
             listed = "; ".join(f"{label!r} from {', '.join(sources)}"
@@ -127,14 +126,13 @@ def check_visible_labels(scenario: RuntimeScenario, corpus_root: Path) -> None:
             raise IntegrityError(message)
 
 
-def visible_object_labels(scenario: RuntimeScenario, corpus_root: Path) -> dict[int, dict[str, list[str]]]:
+def visible_object_labels(scenario: RuntimeScenario) -> dict[int, dict[str, list[str]]]:
     """@brief 每个人物可能同时看到的全部对象名称及其来源（人物 → 名称 → 来源列表，来源形如 location:<身份>）。
 
-    地点使用登记的显示名，食品与应用来自登记目录，生活活动名称来自真实语料。
+    地点、商品与动作使用登记的显示名，人物与联系人来自场景。
     """
-    lifestyle = load_lifestyle_items(corpus_root, scenario.body.activity_met)
     shared = _world_labels(scenario)
-    return {agent.agent_id: _group(shared + _agent_labels(scenario, agent, lifestyle)) for agent in scenario.agents}
+    return {agent.agent_id: _group(shared + _agent_labels(scenario, agent)) for agent in scenario.agents}
 
 
 def _check_place_names(scenario: RuntimeScenario) -> None:
@@ -152,32 +150,18 @@ def _check_place_names(scenario: RuntimeScenario) -> None:
 
 
 def _world_labels(scenario: RuntimeScenario) -> list[tuple[str, str]]:
-    """@brief 注册地点、食品和应用的可读对象名称。"""
-    places = {item.location_id: item.display_name for item in scenario.locations}
-    foods = {item.food_id: item.name for item in scenario.foods}
-    labels = [(object_label("location", name), f"location:{identity}") for identity, name in places.items()]
-    labels += [(object_label("holding", name), f"food:{identity}") for identity, name in foods.items()]
-    labels += [(remote_holding_label(name, place), f"food:{identity}@{location}")
-               for identity, name in foods.items() for location, place in places.items()]
-    labels += [(f"应用：{item.name}", f"app:{item.app_id}") for item in scenario.apps]
+    """@brief 地点、商品与动作提供可见目标名称。"""
+    labels = [(item.display_name, f"location:{item.location_id}") for item in scenario.locations]
+    labels += [(item.name, f"goods:{item.goods_id}") for item in scenario.goods]
+    labels += [(item.name, f"action:{item.action_id}") for item in scenario.actions]
     return labels
 
 
-def _agent_labels(scenario: RuntimeScenario, agent, lifestyle: tuple[LifestyleItem, ...]) -> list[tuple[str, str]]:
-    """@brief 一个人物才会看到的对象名称及其来源：本人受理的工作、启用的生活活动、同世界其他人物、本人联系人、
-    本人收件的场景邮件与「自己」。"""
-    enabled = None if agent.lifestyle_activities is None else set(agent.lifestyle_activities)
-    assigned = set(agent.work_topic_ids)
-    labels = [(object_label("work_topic", item.topic), f"topic:{item.topic_id}") for item in scenario.work_topics
-              if item.topic_id in assigned]
-    labels += [(object_label("lifestyle", item.name), f"lifestyle:{item.activity_id}") for item in lifestyle
-               if enabled is None or item.activity_id in enabled]
-    labels += [(object_label("person", other.name), f"agent:{other.agent_id}") for other in scenario.agents
-               if other.agent_id != agent.agent_id]
-    labels += [(object_label("contact", item.salutation), f"contact:{item.contact_id}") for item in agent.contacts]
-    labels += [(object_label("mail", mail_name(item.subject, int(item.sent_at.timestamp()), scenario.timezone)),
-                f"message:{item.message_id}") for item in scenario.messages
-               if item.recipient_agent_id == agent.agent_id]
+def _agent_labels(scenario: RuntimeScenario, agent) -> list[tuple[str, str]]:
+    """@brief 人物、联系人与自己提供人物侧可见目标名称。"""
+    labels = [(other.name, f"agent:{other.agent_id}") for other in scenario.agents
+              if other.agent_id != agent.agent_id]
+    labels += [(item.salutation, f"contact:{item.contact_id}") for item in agent.contacts]
     labels.append((SELF_LABEL, f"agent:{agent.agent_id}"))
     return labels
 

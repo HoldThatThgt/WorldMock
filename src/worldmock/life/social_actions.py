@@ -14,6 +14,10 @@ social.ModelReplyRequest 待宿主执行（本仓库引擎无模型直连通道�
 """
 
 from __future__ import annotations
+
+from worldmock.exchange.constants import (CATEGORY_MET, CHAT_RELIEF_DECLINED_PER_HOUR,
+                                          SOCIAL_NEED_CONVERSATION_RATE, SOCIAL_NEED_CALL_RATE)
+from worldmock.exchange.types import ActionCategory
 from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 
 from dataclasses import dataclass
@@ -183,7 +187,7 @@ def advance_social(activity: ActivityState, agent: AgentState, now: int,
     seconds = stop - activity.last_settled_at
     if seconds < 0:
         raise ValueError("activity settlement time moved backwards")
-    met = social.CHAT_MET if activity.kind == ActivityKind.CHAT else social.CALL_MET
+    met = CATEGORY_MET[ActionCategory.SOCIAL][activity.kind != ActivityKind.CHAT]
     factors = ActivityFactors(met=met)
     settlement = settle_body(agent.body, activity.kind, seconds, config, factors)
     body = _social_body_relief(settlement.after, activity, seconds, shared_seconds)
@@ -225,7 +229,7 @@ def _social_body_relief(body: BodyState, activity: ActivityState, seconds: int,
         return apply_social_ledger(body, exposure)
     shared = min(max(shared_seconds, 0), seconds) / 3600
     after = apply_social_ledger(body, felt.SocialExposure(awake_hours=hours, conversation_hours=shared))
-    declined = social.CHAT_RELIEF_DECLINED_PER_HOUR * (hours - shared)
+    declined = CHAT_RELIEF_DECLINED_PER_HOUR * (hours - shared)
     return after.model_copy(update={"social_need": max(0.0, after.social_need - declined)}, deep=True)
 
 

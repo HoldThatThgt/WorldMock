@@ -53,14 +53,11 @@ def test_money_and_portion_phrases_keep_at_most_two_decimals() -> None:
         "1 份", "0.25 份", "0.2 份", "0.33 份", "2 份", "0 份"]
 
 
-def test_count_phrase_and_content_category_labels_for_the_callable_index() -> None:
-    """工具层可调用索引的品类计数写成「N 个」（数字与量词之间一个空格，docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引 ）；内容品类的中文名
-    取 CONTENT_KIND_LABELS，覆盖当前内容品类闭集。"""
+def test_count_phrase_for_the_callable_index() -> None:
+    """@brief 工具层可调用索引的计数写成「N 个」，数字与量词之间一个空格。"""
     from worldmock.life.readable import count_phrase
-    from worldmock.exchange.types import CONTENT_KIND_LABELS
 
     assert [count_phrase(count) for count in (1, 3, 90, 110)] == ["1 个", "3 个", "90 个", "110 个"]
-    assert CONTENT_KIND_LABELS["short_video"] == "短视频"
 
 
 def test_chinese_kind_tables_have_a_single_source() -> None:

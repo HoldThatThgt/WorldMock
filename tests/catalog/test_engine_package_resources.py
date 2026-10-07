@@ -1,57 +1,44 @@
-"""@brief 阶段4保留包规则冻结字节，环境副本始终逐字节绑定。"""
+"""@brief 规则只从包读取，目录身份与代码身份各自钉住所属真实字节。"""
 
-from importlib.resources import files
+import shutil
 from pathlib import Path
 
 import pytest
 
-from worldmock.catalog.affordances import RESOURCE_CLAIM_SLOTS, engine_affordances
-from worldmock.catalog.errors import RegistrationError
-from worldmock.catalog.identity import refresh_manifest_identity
+from worldmock.catalog.identity import REQUIRED_CATALOG_FILES
 from worldmock.catalog.loader import load_catalog
-from worldmock.corpora.manifest import load_manifest
-from worldmock.exchange.motivation import load_motivation_transforms
-
-RULE_SNAPSHOTS = ("affordances.toml", "rules/motivation.toml", "rules/persona-mapping.toml")
 
 
-def test_artificial_rule_snapshots_equal_engine_package(catalog_dir):
-    """@brief 三份TOML和清单真实加载，阶段4加载最终八种占用声明。"""
-    for relative in RULE_SNAPSHOTS:
-        assert (catalog_dir / relative).read_bytes() == files("worldmock.data").joinpath(Path(relative).name).read_bytes()
+ROOT = Path(__file__).resolve().parents[2]
+PACKAGED_FILES = tuple(path.relative_to(ROOT / "src/worldmock/data") for path in
+                      (ROOT / "src/worldmock/data").rglob("*")
+                      if path.is_file() and "__pycache__" not in path.parts)
+
+
+def test_catalog_has_only_six_object_files_and_no_engine_rule_copies(catalog_dir):
+    """@brief 目录不再提供规则副本或语料，导航与支付应用也不需要虚构内容。"""
     catalog = load_catalog(catalog_dir)
-    assert len(catalog.manifest.files) == 9
-    assert len(RESOURCE_CLAIM_SLOTS) == 8
-    assert engine_affordances().met_lookup_key("wait") == "wait"
-    assert load_motivation_transforms(catalog_dir / "rules").loss_exponent == 0.88
+    assert REQUIRED_CATALOG_FILES == {
+        "apps.json", "locations.json", "goods.json", "actions.json", "contents.json", "map.json"}
+    assert len(catalog.manifest.files) == 6
+    assert {path.name for path in catalog_dir.iterdir()} == REQUIRED_CATALOG_FILES | {"manifest.json"}
+    assert not catalog.actions_by_app["amap"]
+    assert not catalog.actions_by_app["alipay"]
 
 
-@pytest.mark.parametrize("relative", RULE_SNAPSHOTS)
-def test_changed_rule_snapshot_is_rejected_after_identity_refresh(catalog_dir, relative):
-    """@brief 即使环境摘要重新发布，包规则副本字节漂移仍拒绝。"""
-    with (catalog_dir / relative).open("ab") as handle:
-        handle.write(b"\n")
-    refresh_manifest_identity(catalog_dir)
-    with pytest.raises(RegistrationError, match="ENVIRONMENT_IDENTITY_MISMATCH"):
-        load_catalog(catalog_dir)
+@pytest.mark.parametrize("relative", PACKAGED_FILES)
+def test_runtime_code_identity_covers_each_packaged_rule_file(tmp_path, monkeypatch, relative):
+    """@brief 每份包内规则字节变化都会改变生产运行代码摘要，目录不需规则哈希。"""
+    from worldmock import run_setup
 
-
-@pytest.mark.parametrize("relative", RULE_SNAPSHOTS)
-def test_missing_rule_snapshot_is_rejected(catalog_dir, relative):
-    """@brief 必需规则没有缺文件回退或关闭路径。"""
-    (catalog_dir / relative).unlink()
-    with pytest.raises(RegistrationError, match="ENVIRONMENT_IDENTITY_MISMATCH"):
-        load_catalog(catalog_dir)
-
-
-def test_missing_motivation_rules_are_rejected(tmp_path):
-    """@brief 动机纯加载器对缺文件直接报英文完整性错误。"""
-    from worldmock.errors import IntegrityError
-    with pytest.raises(IntegrityError, match="Motivation rule snapshot is missing"):
-        load_motivation_transforms(tmp_path)
-
-
-def test_artificial_corpus_only_registers_lifestyle():
-    """@brief 已删除地图和字幕语料不再留在清单引用里。"""
-    root = Path(__file__).resolve().parents[1] / "fixtures" / "environment" / "corpora"
-    assert [entry.path for entry in load_manifest(root).entries] == ["lifestyle/items.json"]
+    project = tmp_path / "project"
+    data = project / "src/worldmock/data"
+    shutil.copytree(ROOT / "src/worldmock/data", data, ignore=shutil.ignore_patterns("__pycache__"))
+    for name in ("pyproject.toml", "uv.lock"):
+        shutil.copyfile(ROOT / name, project / name)
+    # AS2 的固定身份属于独立门禁，此处只隔离其输入以检查真实代码哈希入口。
+    monkeypatch.setattr(run_setup, "require_locked_as2", lambda: [])
+    before = run_setup.runtime_code_sha256(project)
+    with (data / relative).open("ab") as handle:
+        handle.write(b"\nchanged packaged bytes\n")
+    assert run_setup.runtime_code_sha256(project) != before

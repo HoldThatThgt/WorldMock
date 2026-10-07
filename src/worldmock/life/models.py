@@ -32,7 +32,7 @@ from worldmock.scheduling.events import ScheduledEvent
 #: 版本 8（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「版本」）新增 SessionState.opened_by_action_id 与
 #: ActivityState.paused_at，观察改为七层数据；版本 9（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-事件检查点与恢复 ）新增只存未完成个人事务的
 #: AgentState.errands。
-WORLD_SCHEMA_VERSION = 10
+WORLD_SCHEMA_VERSION = 11
 
 #: 普通活动的派生时长上限。
 DERIVED_DURATION_CAP_SECONDS = 86400
@@ -354,12 +354,9 @@ class AgentState(StrictModel):
     location_id: str = Field(min_length=1)
     balance_account_id: str = Field(min_length=1)
     body: BodyState
-    inventory: dict[str, dict[str, float]] = Field(default_factory=dict)
     active_effects: set[str] = Field(default_factory=set)
     body_settled_at: int = Field(ge=0)
     next_decision_at: int = Field(ge=0)
-    # 连续业务拒绝次数：只作动机层挫败感的输入，不参与唤醒与冷却。
-    consecutive_rejections: int = Field(default=0, ge=0)
     # 同刻决策（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「实现约定」）：本秒已进行的决策轮数与受限轮阶段，时钟推进归零。
     same_moment_rounds: int = Field(default=0, ge=0)
     same_moment_stage: SameMomentStage = SameMomentStage.OPEN
@@ -573,14 +570,11 @@ class WorldState(StrictModel):
     run_id: str = Field(min_length=1)
     timezone: str = Field(min_length=1)
     scenario_sha256: str = Field(min_length=64, max_length=64)
-    content_manifest_sha256: str = Field(min_length=64, max_length=64)
     agents: dict[int, AgentState]
     accounts: dict[str, int]
     activities: dict[str, ActivityState] = Field(default_factory=dict)
     sessions: dict[str, SessionState] = Field(default_factory=dict)
     deliveries: dict[str, DeliveryState] = Field(default_factory=dict)
-    #: 场景联系人实际收到的物品（联系人身份 → 商品 → 份数）：直接配送与当面给予都记在这里。
-    contact_holdings: dict[str, dict[str, float]] = Field(default_factory=dict)
     pending_events: list[ScheduledEvent] = Field(default_factory=list)
     processed_actions: dict[str, StoredAction] = Field(default_factory=dict)
     #: 呈现派生量（docs/CONTRACTS.md#contracts-worldmock-接口合同「派生量字段」）：按（人物, 对象标识）记录上次呈现
@@ -605,8 +599,6 @@ class WorldState(StrictModel):
             if agent.body_settled_at > self.current_time:
                 _LOGGER.error("Agent body settlement is ahead of world time")
                 raise ValueError("agent body settlement is ahead of world time")
-            if any(quantity < 0 for inventory in agent.inventory.values() for quantity in inventory.values()):
-                raise ValueError("agent inventory quantity cannot be negative")
         _validate_activity_collection(self)
         _validate_session_collection(self)
         return self

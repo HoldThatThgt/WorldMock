@@ -49,7 +49,6 @@ _SAME_MOMENT_TESTS = ['tests/life/test_same_moment_decisions.py::test_run_start_
  'tests/life/test_same_moment_decisions.py::test_wake_reasons_replaced_per_round_single_bedtime_reflection',
  'tests/life/test_same_moment_decisions.py::test_sleep_does_not_wake_for_no_active_activity',
  'tests/life/test_same_moment_decisions.py::test_service_refused_pulse_at_most_once_per_second',
- 'tests/life/test_same_moment_decisions.py::test_motivation_internal_survives_parameter_swap',
  'tests/life/test_same_moment_decisions.py::test_scenario_with_max_consecutive_rejections_is_rejected',
  'tests/life/test_same_moment_decisions.py::test_restricted_stage_check_and_ladder_units',
  'tests/life/test_same_moment_decisions.py::test_restricted_observation_marks_closed_actions_unavailable',
@@ -64,7 +63,6 @@ _SAME_MOMENT_TESTS = ['tests/life/test_same_moment_decisions.py::test_run_start_
  'tests/life/test_same_moment_decisions.py::test_same_second_rounds_keep_presentation_window_and_rotation',
  'tests/life/test_same_moment_decisions.py::test_two_agents_same_round_keep_their_presentation_stamps'] + ['tests/life/test_scenario.py::test_body_instance_and_rejection_ranges_are_enforced',
  'tests/life/test_engine_feedback.py::test_business_rejection_is_reported_in_progress_and_run_continues',
- 'tests/life/test_motivation.py::test_score_shape_probabilities_read_only_and_four_components',
  'tests/integration/test_agent_branch_coverage.py::test_corrupt_observation_fails_before_any_model_tool',
  'tests/life/test_tool_layer.py::test_restricted_round_marks_closed_items_with_the_same_moment_reason',
  'tests/life/test_export_integration.py::test_model_npc_reply_loop_delivers_to_inbox_with_evidence',
@@ -165,7 +163,6 @@ _STAGE2_ENERGY_NEVER_BLOCKS_TESTS = [
     "tests/life/test_energy_feasibility.py::test_hunger_band_crossing_wakes_during_activity",
     "tests/life/test_energy_feasibility.py::test_hunger_band_crossing_wakes_during_chat",
     "tests/life/test_energy_feasibility.py::test_energy_gate_symbols_are_gone_from_production_code",
-    "tests/life/test_energy_feasibility.py::test_motivation_internal_still_weighs_energy",
     "tests/life/test_body.py::test_every_activity_truncates_at_zero",
     "tests/life/test_dayrun_restaurants.py::test_food_paths_are_discoverable_as_tool_layer_targets",
     "tests/life/test_affordance_contract.py::test_contract_shape_matches_registry_one_to_one",
@@ -297,7 +294,7 @@ _NO_NEW_FAULT_TESTS += ['tests/life/test_location_sessions.py::test_cross_day_du
 
 _ADMISSION = "tests/life/test_parallel_admission.py::"
 _SOCIAL_ROUNDS = "tests/life/test_social_rounds.py::"
-_SHADOW = "tests/catalog/test_affordance_shadow.py::"
+_AFFORDANCES = "tests/catalog/test_affordances.py::"
 _DOMAIN = "tests/life/test_domain_branch_coverage.py::"
 _MENU_INVARIANTS = "tests/life/test_interaction_menu_invariants.py::"
 _CONTRACT = "tests/test_start_activity_contract.py::"
@@ -376,16 +373,16 @@ _FIVE_VERBS_TESTS = ['tests/life/test_parallel_admission.py::test_driving_with_o
  'tests/life/test_interaction_menu_invariants.py::test_binding_action_projects_verb_and_way_publicly_and_keeps_execution_private',
  'tests/life/test_interaction_menu_invariants.py::test_merged_selection_combines_one_order_or_one_meal_only',
  'tests/life/test_interaction_menu_invariants.py::test_selection_resolves_only_offered_verb_and_way_and_menu_judges_internal_actions',
- 'tests/catalog/test_affordance_shadow.py::test_final_claim_slots_and_activity_kinds_are_closed',
- 'tests/catalog/test_affordance_shadow.py::test_retired_claim_names_are_rejected',
- 'tests/catalog/test_affordance_shadow.py::test_app_claims_match_activity_admission',
+ 'tests/catalog/test_affordances.py::test_registry_only_declares_final_activity_kinds_and_body_keys',
+ 'tests/catalog/test_affordances.py::test_retired_claim_names_are_rejected',
+ 'tests/catalog/test_affordances.py::test_each_category_and_manner_combination_has_fixed_claims',
  'tests/life/test_app_ui.py::test_opened_app_habit_is_entertainment_without_app_candidates',
  'tests/life/test_app_ui.py::test_game_and_watch_ways_are_retired_and_open_synonyms_resolve',
  'tests/evaluation/test_goal_metrics.py::test_guided_rejections_count_as_other_rejections_not_external_constraints',
  'tests/evaluation/test_adapters.py::test_digital_interaction_follows_activity_type_regardless_of_claim_names',
  'tests/evaluation/test_adapters.py::test_start_items_follow_the_started_activity_kind_then_the_order_then_the_way',
  'tests/evaluation/test_behavior_metrics.py::test_wait_is_judged_by_the_started_activity_kind_not_the_request',
- 'tests/catalog/test_affordance_shadow.py::test_driving_blocks_app_and_meals_but_allows_talk',
+ 'tests/catalog/test_affordances.py::test_driving_allows_only_social_without_continuous_phone_use',
  'tests/life/test_activity_location_kinds.py::test_en_route_is_no_place_for_a_lifestyle_activity',
  'tests/life/test_domain_branch_coverage.py::test_social_actions_choosing_chat_with_the_inviter_accepts',
  'tests/life/test_domain_branch_coverage.py::test_social_actions_shared_chat_seconds_counts_the_reciprocal_overlap',
@@ -439,7 +436,7 @@ _FIVE_VERBS_TESTS += ['tests/life/test_parallel_admission.py::test_two_foods_are
 #: 名额未满而有进行中活动时选择出行，以 ACTIVITY_PRECONDITION_UNMET 点名要先处理的活动并给出下一步。
 _SESSIONS_AND_MEMORY_TESTS += [
     'tests/life/test_app_progress.py::test_other_app_completed_round_resume_consumes_nothing_then_real_end_adds_once',
-    'tests/life/test_app_progress.py::test_content_relief_is_fixed_for_each_kind_and_applied_to_real_body',
+    'tests/life/test_app_progress.py::test_content_relief_uses_one_fixed_rate_and_is_applied_to_real_body',
     _ADMISSION + "test_departure_with_a_running_activity_names_it_in_reason_and_next_step",
 ]
 

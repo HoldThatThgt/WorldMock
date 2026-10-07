@@ -1,19 +1,13 @@
-"""@brief 管理 app 内容抽取、全局消费进度与生活活动、邮件内容。"""
+"""@brief 管理 app 内容抽取、全局消费进度与邮件内容。"""
 
 from __future__ import annotations
 
-from worldmock.corpora.manifest import safe_file
-import json
 import logging
 import math
-from dataclasses import dataclass
-from pathlib import Path
 from collections.abc import Mapping
-from types import MappingProxyType
 
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.catalog.models import Catalog, Content
-from worldmock.exchange.types import CONTENT_KIND_LABELS
 from worldmock.life import randomness
 from worldmock.life.app_push import open_app_push, release_app_pushes
 from worldmock.life.models import ActivityState, AgentState, ContentProgress, WorldState
@@ -30,82 +24,6 @@ def validate_lifestyle_effects(effects: Mapping[str, float]) -> None:
            for value in effects.values()):
         logging.error("Lifestyle effects must be finite numbers between zero and one")
         raise IntegrityError("Lifestyle effects are missing or invalid")
-
-
-@dataclass(frozen=True, slots=True)
-class LifestyleItem:
-    """@brief 生活活动目录（corpora/lifestyle/items.json）的一条公开条目。"""
-
-    activity_id: str
-    name: str
-    category: str
-    typical_duration_minutes: int
-    description: str
-    met_value: float
-    #: 当前环境声明的娱乐、社交与健康效果，构造后不可变。
-    effects: Mapping[str, float]
-    #: 目录声明的时间窗（start_hour, end_hour），场景时区的本地小时，半开区间；没有声明时为 None。
-    #: 只作候选排序的相关度（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ），不构成资格。
-    time_window: tuple[int, int] | None = None
-
-
-    def __post_init__(self) -> None:
-        """@brief 校验当前环境的三个效果并冻结独立副本。"""
-        validate_lifestyle_effects(self.effects)
-        object.__setattr__(self, "effects", MappingProxyType(dict(self.effects)))
-
-
-def _time_window(row: dict) -> tuple[int, int] | None:
-    """@brief 目录条目的时间窗：{start_hour, end_hour} 两个整数小时写成 (start, end)；没有声明时为 None。"""
-    window = row.get("time_window")
-    if window is None:
-        return None
-    return (int(window["start_hour"]), int(window["end_hour"]))
-
-
-#: 生活活动目录语料路径（相对 corpus root）。
-LIFESTYLE_ITEMS_PATH = "lifestyle/items.json"
-
-
-def load_lifestyle_items(corpus_root: Path, activity_met: dict[str, float]) -> tuple[LifestyleItem, ...]:
-    """@brief 装载当前环境的生活活动并核对身体 MET 表的身份闭集。"""
-    path = safe_file(corpus_root, LIFESTYLE_ITEMS_PATH, "Content file path is invalid")
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    items = payload.get("items") if isinstance(payload, dict) else None
-    if not isinstance(items, list):
-        logging.error("Lifestyle catalog items are missing")
-        raise IntegrityError("Lifestyle catalog items are missing")
-    result: list[LifestyleItem] = []
-    seen: set[str] = set()
-    for row in items:
-        item = _lifestyle_item(row)
-        if item.activity_id in seen:
-            logging.error("Lifestyle catalog id is duplicated: %s", item.activity_id)
-            raise IntegrityError(f"Lifestyle catalog id {item.activity_id!r} is duplicated")
-        seen.add(item.activity_id)
-        result.append(item)
-    expected = {key.removeprefix("lifestyle:") for key in activity_met if key.startswith("lifestyle:")}
-    if seen != expected:
-        logging.error("Lifestyle catalog ids do not match the declared activity MET keys")
-        raise IntegrityError(
-            f"Lifestyle catalog ids do not match activity_met lifestyle keys: "
-            f"{sorted(expected - seen)} missing, {sorted(seen - expected)} unknown")
-    return tuple(result)
-
-
-def _lifestyle_item(row: object) -> LifestyleItem:
-    """@brief 把当前环境的一条活动记录转换为不可变内容条目。"""
-    if not isinstance(row, dict):
-        logging.error("Lifestyle catalog row must be an object")
-        raise IntegrityError("Lifestyle catalog row must be an object")
-    try:
-        return LifestyleItem(
-            activity_id=str(row["activity_id"]), name=str(row["name_zh"]), category=str(row["category"]),
-            typical_duration_minutes=int(row["typical_duration_minutes"]), description=str(row["description_zh"]),
-            met_value=float(row["met_value"]), effects=row["effects"], time_window=_time_window(row))
-    except (KeyError, TypeError, ValueError) as error:
-        logging.error("Lifestyle catalog row is invalid: %s", error)
-        raise IntegrityError(f"Lifestyle catalog row is invalid: {error}") from error
 
 
 def load_content_titles(items: tuple[Content, ...]) -> dict[str, str]:
@@ -132,7 +50,7 @@ def _content_snapshot(agent: AgentState, activity: ActivityState, item: Content,
     position = progress.position_seconds if progress is not None else 0
     repeat = progress is not None and progress.completed_rounds >= 1
     data = {**activity.data, "app_id": activity.target_id, "content_id": item.content_id,
-            "content_kind": item.kind.value, "summary": item.summary, "start_position_seconds": position,
+            "summary": item.summary, "start_position_seconds": position,
             "pinned_by_push_id": pinned_by_push_id, "repeat": repeat}
     next_at = min(activity.last_settled_at + math.ceil(item.duration_seconds - position), activity.planned_end_at)
     return activity.model_copy(update={"data": data, "media_position_seconds": position,
@@ -156,7 +74,7 @@ def app_content_result(activity: ActivityState, catalog: Catalog) -> dict:
     """@brief 把已经实际选中的内容投影为封闭的公开动作结果。"""
     item = catalog.contents[activity.data["content_id"]]
     return {"app": catalog.apps[activity.target_id].name, "title": item.title,
-            "kind": CONTENT_KIND_LABELS[item.kind], "summary": item.summary,
+            "summary": item.summary,
             "pushed": activity.data["pinned_by_push_id"] is not None}
 
 
@@ -191,11 +109,11 @@ def settle_app_usage(state: WorldState, activity: ActivityState, catalog: Catalo
                                                "completed_rounds": progress.completed_rounds + 1})
         agent.content_progress[item.content_id] = progress
         activity = activity.model_copy(update={"data": {**activity.data, "played": [*activity.data["played"], {
-            "content_id": item.content_id, "kind": item.kind.value,
+            "content_id": item.content_id,
             "from_position": activity.data["start_position_seconds"], "to_position": item.duration_seconds}]}},
             deep=True)
     changed.agents[agent.agent_id] = agent
-    evidence = {"content_id": item.content_id, "app_id": activity.target_id, "kind": item.kind.value,
+    evidence = {"content_id": item.content_id, "app_id": activity.target_id,
                 "position_before_seconds": position_before, "position_after_seconds": activity.media_position_seconds,
                 "completed": completed, "completed_rounds_after": progress.completed_rounds}
     if completed:

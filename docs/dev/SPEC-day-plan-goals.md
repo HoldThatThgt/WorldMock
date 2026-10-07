@@ -1,6 +1,8 @@
 <a name="spec-day-plan-goals-当日目标特性开发规格"></a>
 # 当日目标特性开发规格
 
+> 按[动作与内容简化规格](SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界」（阶段 1）。
+
 > 2026-10-07 按用户确认的[数据加工归属](../ARCHITECTURE.md#architecture-数据加工归属)修订：WorldMock 负责模拟、记录、完整认证足迹导出与真实性评估；LabelKit 加工、模型任务、训练装载与规则测试归 LabelKit-DataSet；环境素材归 WorldMock-Dataset。历史验收数字只证明原源码基线，不代表本次消费链已验收。
 
 > 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题计划输入与决策节律。
@@ -453,8 +455,8 @@ flowchart LR
 <a name="dayrun-fidelity-加载校验与当日目标推进-场景加载时就该拒绝的问题"></a>
 ### 场景加载时就该拒绝的问题
 
-场景加载使用统一 `catalog.admission` 登记检查，按稳定 `RegistrationError` 码拒绝环境钉不符、未知地点和食品、食品绑定非店铺、未知 app、工作主题不存在、有主题却没有工作安排，以及所选食品店铺缺少卖方账户。完整条件和英文原因见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)。
-既有 `check_work_schedules`、八类型地点与可见标签唯一性仍在真实加载时执行。严格场景结构 7 拒绝旧任务、供给、内容和地图字段，不延后到人物决策时才发现缺输入。
+场景加载使用统一 catalog.admission 登记检查。环境钉不符、未知地点/商品/app/动作/内容、店铺绑定不合固定供给表、所选店铺缺 merchant 账户均在启动前拒绝。
+工作分配检查 `WORK_CONTENT_UNKNOWN`、`WORK_SCHEDULE_REQUIRED`、`WORK_CONTENT_REQUIRED`、`WORK_CONTENT_INSUFFICIENT`；完整条件和英文原因见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)。既有班次、地点与可见标签检查保留，严格场景结构 8 拒绝旧字段，不延后到人物决策。
 
 <a name="dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进"></a>
 ### 当日目标带大致时刻，只有在那前后进行的活动才算推进
@@ -535,3 +537,4 @@ flowchart LR
 | `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
 | `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：娱乐度量家族改由 `use_app` 承载，删除观看、游戏与浏览的旧活动映射。 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题计划输入与决策节律 |
+| `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |

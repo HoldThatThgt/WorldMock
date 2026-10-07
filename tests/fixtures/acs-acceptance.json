@@ -1,0 +1,291 @@
+{
+  "分类与规则归系统": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-固定规则与常数",
+    "tests": [
+      "tests/exchange/test_types.py::test_fixed_type_sets_and_labels",
+      "tests/exchange/test_types.py::test_device_and_place_mappings_are_fixed",
+      "tests/exchange/test_types.py::test_goods_store_supply_is_fixed_for_every_category",
+      "tests/exchange/test_constants.py::test_fixed_constants_preserve_travel_delivery_map_and_push",
+      "tests/exchange/test_constants.py::test_category_met_is_fixed_and_deeply_immutable",
+      "tests/exchange/test_constants.py::test_social_mood_and_exercise_rates_keep_their_frozen_values",
+      "tests/exchange/test_constants.py::test_body_constants_and_resource_metas",
+      "tests/catalog/test_affordances.py::test_registry_only_declares_final_activity_kinds_and_body_keys",
+      "tests/catalog/test_affordances.py::test_each_category_and_manner_combination_has_fixed_claims",
+      "tests/catalog/test_affordances.py::test_retired_claim_names_are_rejected",
+      "tests/catalog/test_affordances.py::test_family_layer_and_old_interfaces_are_deleted",
+      "tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones",
+      "tests/exchange/test_operators.py::test_goods_receipt_has_quantity_only_for_food",
+      "tests/exchange/test_operators.py::test_fixed_operators_keep_existing_decimal_settlement_results",
+      "tests/exchange/test_operators.py::test_decimal_precision_does_not_change_settlement",
+      "tests/exchange/test_constants.py::test_goods_receipt_effects_are_immutable_and_bounded",
+      "tests/catalog/test_loader.py::test_catalog_rejects_retired_object_fields",
+      "tests/life/test_acs_loading.py::test_runtime_code_identity_binds_each_packaged_data_file",
+      "tests/life/test_acs_loading.py::test_run_manifest_has_five_environment_fields_without_corpus_pin",
+      "tests/catalog/test_admission.py::test_registration_rejects_every_retired_file",
+      "tests/catalog/test_admission.py::test_registration_rejects_stale_manifest_path",
+      "tests/catalog/test_admission.py::test_registration_rejects_empty_rules_directory",
+      "tests/catalog/test_engine_package_resources.py::test_catalog_has_only_six_object_files_and_no_engine_rule_copies"
+    ],
+    "implementation": [
+      "src/worldmock/exchange/types.py::GoodsCategory",
+      "src/worldmock/exchange/types.py::ActionCategory",
+      "src/worldmock/exchange/types.py::AppUseManner",
+      "src/worldmock/exchange/types.py::AppPurpose",
+      "src/worldmock/exchange/types.py::GOODS_CATEGORY_STORE_KINDS",
+      "src/worldmock/exchange/constants.py::RULES_VERSION",
+      "src/worldmock/exchange/constants.py::CATEGORY_MET",
+      "src/worldmock/exchange/operators.py::evaluate_goods_receipt",
+      "src/worldmock/catalog/affordances.py::RESOURCE_CLAIM_SLOTS",
+      "src/worldmock/catalog/affordances.py::load_affordances",
+      "src/worldmock/catalog/models.py::Action",
+      "src/worldmock/catalog/models.py::Content",
+      "src/worldmock/catalog/models.py::Goods",
+      "src/worldmock/run_setup.py::runtime_code_sha256",
+      "src/worldmock/exchange/constants.py::ENTERTAINMENT_RELIEF_PER_HOUR"
+    ]
+  },
+  "环境登记与错误码": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-固定规则与常数",
+    "tests": [
+      "tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes",
+      "tests/catalog/test_loader.py::test_catalog_indexes_are_frozen",
+      "tests/catalog/test_admission.py::test_registration_uses_episode_number_for_series_index",
+      "tests/test_validation.py::test_validate_environment_command_accepts_the_actual_artificial_environment",
+      "tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample",
+      "tests/catalog/test_admission.py::test_registration_rejects_noninteger_content_duration",
+      "tests/catalog/test_admission.py::test_registration_accepts_content_minimum_without_upper_limit",
+      "tests/catalog/test_admission.py::test_registration_reasons_have_only_the_frozen_error_codes",
+      "tests/catalog/test_admission.py::test_registration_rejects_manifest_values",
+      "tests/catalog/test_admission.py::test_registration_rejects_missing_manifest_file_entry",
+      "tests/catalog/test_admission.py::test_registration_rejects_file_identity_drift",
+      "tests/catalog/test_admission.py::test_registration_rejects_invalid_map",
+      "tests/catalog/test_admission.py::test_registration_rejects_too_small_map",
+      "tests/catalog/test_admission.py::test_registration_rejects_binding_identity_errors",
+      "tests/test_validation.py::test_validate_environment_command_rejects_real_registration_counterexamples",
+      "tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples",
+      "tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references",
+      "tests/test_validation.py::test_validate_environment_command_rejects_missing_action_and_work_content",
+      "tests/test_validation.py::test_validate_environment_rejects_map_bytes_even_when_manifest_is_republished"
+    ],
+    "implementation": [
+      "src/worldmock/catalog/loader.py::load_catalog",
+      "src/worldmock/catalog/admission.py::validate_registration",
+      "src/worldmock/catalog/errors.py::REGISTRATION_REASONS",
+      "src/worldmock/catalog/models.py::Content",
+      "src/worldmock/validation.py::validate_environment"
+    ]
+  },
+  "用途、供给与内容绑定": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-固定规则与常数",
+    "tests": [
+      "tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes",
+      "tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample",
+      "tests/catalog/test_admission.py::test_registration_accepts_self_payment_binding",
+      "tests/catalog/test_admission.py::test_registration_rejects_unbound_app",
+      "tests/catalog/test_admission.py::test_registration_rejects_missing_goods_binding",
+      "tests/catalog/test_admission.py::test_registration_rejects_missing_content_fields",
+      "tests/catalog/test_admission.py::test_registration_rejects_action_without_bound_content",
+      "tests/catalog/test_admission.py::test_registration_uses_episode_number_for_series_index",
+      "tests/catalog/test_admission.py::test_content_accepts_custom_actions_without_a_system_content_kind"
+    ],
+    "implementation": [
+      "src/worldmock/catalog/admission.py::_check_apps",
+      "src/worldmock/catalog/admission.py::_check_goods",
+      "src/worldmock/catalog/admission.py::_check_actions",
+      "src/worldmock/catalog/admission.py::_check_contents",
+      "src/worldmock/catalog/admission.py::_check_series",
+      "src/worldmock/catalog/admission.py::_check_action_contents",
+      "src/worldmock/catalog/loader.py::_goods_indexes",
+      "src/worldmock/catalog/loader.py::_content_indexes"
+    ]
+  },
+  "场景 8、世界 11 与工作内容检查": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-固定规则与常数",
+    "tests": [
+      "tests/life/test_scenario.py::test_structure_eight_rejects_each_retired_scenario_field",
+      "tests/life/test_scenario.py::test_structure_eight_rejects_retired_agent_fields",
+      "tests/life/test_scenario.py::test_structure_eight_rejects_body_and_message_retired_fields",
+      "tests/life/test_scenario.py::test_structure_eight_rejects_old_scenario_version",
+      "tests/life/test_scenario.py::test_structure_eight_rejects_retired_menu_actions",
+      "tests/life/test_scenario.py::test_structure_eight_requires_both_protected_menu_actions",
+      "tests/life/test_scenario.py::test_formal_and_multi_person_scenarios_are_valid",
+      "tests/life/test_load_checks.py::test_real_loader_rejects_registration_counterexamples",
+      "tests/life/test_load_checks.py::test_work_content_requires_a_schedule_for_the_other_person",
+      "tests/life/test_load_checks.py::test_assigned_work_content_covers_the_full_shift_including_breaks",
+      "tests/catalog/test_scenario_admission.py::test_scenario_accepts_work_content_covering_whole_shift",
+      "tests/catalog/test_scenario_admission.py::test_scenario_rejects_invalid_catalog_references",
+      "tests/life/test_acs_loading.py::test_world_eleven_rejects_old_version_and_corpus_identity",
+      "tests/life/test_acs_loading.py::test_run_manifest_has_five_environment_fields_without_corpus_pin",
+      "tests/life/test_acs_loading.py::test_run_identity_rejects_old_manifest_and_different_environment",
+      "tests/catalog/test_admission.py::test_registration_rejects_legacy_catalog_version",
+      "tests/catalog/test_admission.py::test_registration_rejects_manifest_values"
+    ],
+    "implementation": [
+      "src/worldmock/life/scenario.py::LifeScenario",
+      "src/worldmock/life/models.py::WorldState",
+      "src/worldmock/catalog/admission.py::_check_work_content",
+      "src/worldmock/life/run_identity.py::require_environment_identity",
+      "src/worldmock/life/world_setup.py::_run_manifest"
+    ]
+  },
+  "收货恰好一次": {
+    "stage": "2",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-收货结算",
+    "tests": [],
+    "implementation": []
+  },
+  "收货事件归收货人": {
+    "stage": "2",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-收货结算",
+    "tests": [],
+    "implementation": []
+  },
+  "没有库存": {
+    "stage": "2",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-收货结算",
+    "tests": [],
+    "implementation": []
+  },
+  "时长只来自内容": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-其他动作",
+    "tests": [],
+    "implementation": []
+  },
+  "娱乐接续与单条完成": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-其他动作",
+    "tests": [],
+    "implementation": []
+  },
+  "内容选择次序": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-其他动作",
+    "tests": [],
+    "implementation": []
+  },
+  "进度与确定性": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-其他动作",
+    "tests": [],
+    "implementation": []
+  },
+  "推送资格与打开": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-其他动作",
+    "tests": [],
+    "implementation": []
+  },
+  "按类别与方式占用": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-其他动作",
+    "tests": [],
+    "implementation": []
+  },
+  "社交、等待与邮件": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-其他动作",
+    "tests": [],
+    "implementation": []
+  },
+  "订单点名购物与支付 app": {
+    "stage": "4",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-观察与工具面",
+    "tests": [],
+    "implementation": []
+  },
+  "请求形状与工具面": {
+    "stage": "4",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-观察与工具面",
+    "tests": [],
+    "implementation": []
+  },
+  "系统层逐字": {
+    "stage": "4",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-观察与工具面",
+    "tests": [],
+    "implementation": []
+  },
+  "接续成本": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
+    "tests": [],
+    "implementation": []
+  },
+  "足迹事实与导出身份": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
+    "tests": [],
+    "implementation": []
+  },
+  "足迹不变量 1": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
+    "tests": [],
+    "implementation": []
+  },
+  "足迹不变量 2": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
+    "tests": [],
+    "implementation": []
+  },
+  "足迹不变量 3": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
+    "tests": [],
+    "implementation": []
+  },
+  "足迹不变量 4": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
+    "tests": [],
+    "implementation": []
+  },
+  "足迹不变量 5": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
+    "tests": [],
+    "implementation": []
+  },
+  "足迹不变量 6": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
+    "tests": [],
+    "implementation": []
+  },
+  "足迹不变量 7": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
+    "tests": [],
+    "implementation": []
+  },
+  "进食与持有的读者": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
+    "tests": [],
+    "implementation": []
+  },
+  "完整日基线": {
+    "stage": "6",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-门禁与平台",
+    "tests": [],
+    "implementation": []
+  },
+  "工程门禁与文档一致性": {
+    "stage": "6",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-门禁与平台",
+    "tests": [],
+    "implementation": []
+  },
+  "正式环境与平台回执（只报告）": {
+    "stage": "7",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数据仓交接",
+    "tests": [],
+    "implementation": []
+  }
+}

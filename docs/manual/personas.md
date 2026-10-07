@@ -1,6 +1,8 @@
 <a name="personas-人物画像"></a>
 # 人物画像
 
+> 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界」（阶段 1）。
+
 > 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「习惯的行为核验目标、写出一个能够生活的人、正文与实际世界条件要一致、预览与校验、常见错误、在场景中填写人物」（阶段 3）。
 
 本页命令以 WorldMock 为当前工作目录。正式场景位于
@@ -67,7 +69,7 @@ flowchart LR
 
 运行照常进行，校验与新建运行会给出输入警告，见[预览与校验](personas.md#personas-预览与校验)。
 
-画像对照真实登记地点、食品、app 与内容名称，习惯按关键词，媒体按五个类型标签与全部 app 名精确匹配；`tastes` 是散文，不产生数值权重。
+画像对照登记动作、地点、商品与 app 名称，习惯按关键词，媒体对动作名作双向子串匹配、对全部 app 名作精确匹配；`tastes` 是散文，不产生数值权重。
 
 <a name="personas-在场景中填写人物"></a>
 ## 在场景中填写人物
@@ -108,12 +110,11 @@ flowchart LR
       "reply_policy": "model"
     }
   ],
-  "initial_inventory": {}
+  "work_content_ids": []
 }
 ```
 
-上例省略可选的 `motivation`，因此不启用该人物的动机评分档案。若要保留模板中的动机配置，
-在原有人物上修改字段即可；若要调整评分参数，见[规则配置](rules.md#rules-调整世界规则与人物动机参数)。
+上例没有分配工作内容，`work_schedule` 为 null。需要固定班次时同时填写分配内容与工作安排。
 
 | 字段 | 是否必填 | 如何填写 |
 | --- | --- | --- |
@@ -123,6 +124,7 @@ flowchart LR
 | `home_location_id` | 是 | 已被场景选中的地点标识 |
 | `initial_balance_fen` | 是 | 非负整数分；`800000` 表示 8000 元 |
 | `interaction_menu` | 是 | `null` 表示沿用地点菜单；限制写法见[生活场景](scenarios.md#scenarios-限制人物可以做什么) |
+| `work_content_ids` | 否 | 分配的工作与学习内容身份列表，默认 `[]`；与工作安排互相要求，加载检查见[生活场景](scenarios.md#scenarios-声明工作安排) |
 | `work_schedule` | 是 | `null` 表示这个人物没有任何在岗语义；有固定班次时写对象，写法与校验见[生活场景](scenarios.md#scenarios-声明工作安排)；不会从职业描述或故事里的下班时刻推断 |
 | `chronotype_midsleep` | 否 | 自由日睡眠中点，午夜起的小时数，范围 `[0,24)`，默认 `4.0` |
 | `sleep_need_hours` | 否 | 睡眠需要，7–9 小时，默认 `7.5` |
@@ -130,10 +132,7 @@ flowchart LR
 | `bedtime_window` | 否 | 开始小于 24，结束可到 30，跨度不超过 12 小时；声明晚餐时就寝开始不得早于晚餐结束 |
 | `leave_work_window`、`arrive_home_window` | 否 | 下班与到家窗口，`[开始小时,结束小时]`，范围 0–24，开始小于结束（首版不支持跨午夜）；两者都写时下班开始不晚于到家开始；与午餐、晚餐、就寝的先后不在这里校验；省略时取卡片值，卡片也没有（故事没写固定时刻）时为 null |
 | `contacts` | 否 | 联系人列表，默认 `[]`；同一人物内 `contact_id` 唯一 |
-| `initial_inventory` | 否 | 地点到食品及正数份数的映射，默认 `{}`；只允许登记食品 |
-| `lifestyle_activities` | 否 | `null` 或省略启用全部生活活动；非空列表只启用列出的活动标识，不能用空列表禁用全部 |
 | `health_habits`、`social_style` | 否 | 可保存辅助说明；画像编译只读取正文，重要信息仍需写入 `background_story` |
-| `motivation` | 否 | 独立的结构化动机配置，见[规则配置](rules.md#rules-调整世界规则与人物动机参数)；不是画像编译结果的粘贴位置 |
 
 `chronotype_midsleep` 不是起床时间，例如晚上 23:30 至早上 07:00 的中点为 `3.25`。
 作息用小数小时：`7.5` 是 07:30，`25.0` 是次日 01:00。画像编译会将时型和睡眠需要吸附到
@@ -189,10 +188,9 @@ flowchart LR
 
 `profile compile` 输出的 `CompiledPersona` 包含 `card`、`big_five`、`world_dynamics`、溯源和警告。卡片结构版本为 3（抽取提示版本 `card-v3`）：时间锚点在起床、出门、午餐、晚餐、就寝之外另有可为 null 的下班 `leave_work` 与到家 `arrive_home`，故事写明固定时刻才有值；旧的结构化卡片因缺这两个必填键被拒，需重新编译。
 
-也不会自动把 `world_dynamics` 替换到现有身体或动机参数。可用的参数调整入口见[规则配置](rules.md#rules-调整世界规则与人物动机参数)。
-不要把输出 JSON 填入 `agents[].motivation`：两者是不同结构。
+也不会自动把 `world_dynamics` 替换到现有身体参数。可用的参数调整入口见[规则配置](rules.md#rules-调整世界规则与人物动机参数)。
 
-画像对照真实登记地点、食品、app 与内容名称，习惯按关键词，媒体按五个类型标签与全部 app 名精确匹配；`tastes` 是散文，不产生数值权重。
+画像对照登记动作名、地点显示名、食品类别商品名与全部 app 名；`tastes` 是散文，不产生数值权重。
 
 <a name="personas-预览与校验"></a>
 ## 预览与校验
@@ -237,7 +235,7 @@ worldmock profile validate \
 
 这一步也会调用模型。可执行比例必须至少为 80%；失败时根据缺失项修改表达或补充世界素材，
 素材编写见[世界素材](resources.md#resources-定义地点门店供给与世界素材)。默认覆盖率报告会写在场景旁，示例用 `--coverage-out` 显式指定位置。
-覆盖率目标由登记目录与语料确定：习惯反应对生活活动名和地点名按关键词匹配，饮食喜好对食品名称匹配，媒体只精确匹配 `文章`、`图文`、`短视频`、`长视频`、`实况` 五个类型标签及全部 app 名称。
+覆盖率目标由登记目录确定：习惯反应对动作名和地点显示名按关键词匹配，饮食喜好对 meal、snack、drink 商品名匹配，媒体对动作名作双向子串匹配、对全部 app 名作精确匹配。
 不读取内容题材或手机配置，不把 app 名子串当作习惯反应命中；`missing[].kind` 仅 `habit_response`、`food_preference`、`media`。阈值 `0.8` 不变，报告缺项、可执行比例与实际目标集，运行低覆盖只警告。
 
 `profile validate` 与 `worldmock validate` 还按新建运行的同一规则计算运行输入警告，逐条写到标准错误流，
@@ -270,6 +268,6 @@ worldmock profile validate \
 <a name="personas-习惯的行为核验目标"></a>
 ## 习惯的行为核验目标
 
-每条正式人物习惯以明确食品、方式、地点、app 与通知夹具验证实际动作链；关键词覆盖率不证明行为可执行。画像散文描述偏好，不能创建食品、联系人或 app 绑定。
-覆盖率目标由登记目录与语料确定：习惯反应对生活活动名和地点名按关键词匹配，饮食喜好对食品名称匹配，媒体只精确匹配 `文章`、`图文`、`短视频`、`长视频`、`实况` 五个类型标签及全部 app 名称。
-不读取内容题材或手机配置，不把 app 名子串当作习惯反应命中；`missing[].kind` 仅 `habit_response`、`food_preference`、`media`。阈值 `0.8` 不变，报告缺项、可执行比例与实际目标集，运行低覆盖只警告。
+每条习惯以登记的动作、商品、地点、app 与消息夹具核验实际行为链，关键词覆盖率不证明行为可执行。画像散文不能创建环境对象或绑定。
+覆盖率目标由登记目录确定：习惯反应对动作名与地点显示名按关键词匹配，饮食喜好对 `meal`、`snack`、`drink` 商品名匹配，媒体对全部动作名作双向子串匹配、对全部 app 名作精确匹配。内容没有分类标签。
+`missing[].kind` 仍为 `habit_response`、`food_preference`、`media`，阈值 0.8 不变。人物有媒体口味但没有任何内容带非空 `app_ids` 时发出 `CONTENT_EMPTY_WITH_MEDIA_TASTES`。

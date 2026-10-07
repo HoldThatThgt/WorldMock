@@ -1,6 +1,10 @@
 <a name="spec-rrs-资源与规则引擎简化开发规格"></a>
 # 资源与规则引擎简化开发规格
 
+> 按[动作与内容简化规格](SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则与常数、环境格式、人工环境」（阶段 1）。
+
+> 引用出处：`src/worldmock/life/world_setup.py::_require_engine_rules` @ `05a295ab464165e9ce3bd7cd7783e0513fb57e8d`
+
 > 2026-10-07 按用户确认的[数据加工归属](../ARCHITECTURE.md#architecture-数据加工归属)修订：WorldMock 负责模拟、记录、完整认证足迹导出与真实性评估；LabelKit 加工、模型任务、训练装载与规则测试归 LabelKit-DataSet；环境素材归 WorldMock-Dataset。历史验收数字只证明原源码基线，不代表本次消费链已验收。
 
 > 状态：FROZEN。2026-10-07 冲突、覆盖、可实现性三个视角完成复审与实质问题定向复核；第 1 轮 34 项、第 2 轮 25 项、第 3 轮三个阻断均已关闭。本文件是资源与规则简化的实施权威；实现与验收状态按机器台账和真实回执判定。
@@ -1116,7 +1120,7 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | 位置记录与地图一致（位置记录与地图一致） | 2 | T20 |
 | 全地图外卖（全地图外卖） | 3 | T23、T25、T26 |
 | app 与店铺绑定有效（app 与店铺绑定有效） | 3 | T21、T22、T24、T32 |
-| 食品热量固定（食品热量固定） | 3 | T27、T28、T29 |
+| 食品热量固定（食品热量固定） | 3 | T27、T28 |
 | 购买足迹与画像 | 3 | T30、T31 |
 | 娱乐只从所选 app 取内容（娱乐只从所选 app 取内容） | 4 | T33、T34、T35、T40 |
 | 推送与消费关联（推送与消费关联） | 4 | T37、T41 |
@@ -1140,22 +1144,22 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 
 | 编号 | 用例验证什么 |
 | --- | --- |
-| T1 | `exchange.types` 的闭集成员与标签、`RULES_VERSION == 1`、常数表与身体常数只在 `exchange` 定义（`OWNERS` 核对），别处没有第二份 |
-| T2 | 算子：Decimal 舍入与今天的品类算子逐值相同；驾车车费下限 500 与每米 0.2 向上取整、步行 0；按比例能量；送达与出行秒数向上取整 |
-| T3 | 人工环境登记往返：七个目录文件加载后派生索引（按类型菜单、按店食品、按 app 店铺与内容、按店 app）与手工期望相等 |
-| T4 | 每个登记码一个最小反例（参数化，覆盖「注册校验与错误」全表），码与英文原因相符，没有一条被静默通过；`target_hours = 0.01638888888888889` 舍入为 59 秒，以 `ENVIRONMENT_NUMBER_INVALID` 拒绝，`target_hours = 0.016666666666666666` 舍入为 60 秒并受理 |
-| T5 | 旧格式拒绝：目录下残留 `category-contract.json`、`exchange-rules.json`、`objects.jsonl`、`resources.jsonl`、`rules/travel-time.toml` 各以 `ENVIRONMENT_STALE_FILE` 拒绝；食品带 `kcal` 字段、内容带 `genre`、地点带坐标各被严格模型拒绝；`rules_version: 2` 以 `RULES_VERSION_MISMATCH` 拒绝 |
-| T6 | 只给 `noodle-1` 绑定一个正餐而 `noodle-2` 不绑 → `FOOD_BINDING_KIND_INCONSISTENT`；`"all"` 展开后 `home`、`office`、`park` 的菜单为空；两家面馆菜单逐项相同；价格来自食品 |
-| T7 | 没有任何绑定的 app → `APP_UNBOUND`；app 名与地点名归一后相同 → `APP_NAME_COLLIDES_LOCATION`；摘要 201 字符 → `CONTENT_SUMMARY_TOO_LONG`；`real` 摘要无 `url` → `CONTENT_SOURCE_URL_MISSING`；非食品店铺带 `app_ids` → `ENVIRONMENT_KIND_INVALID` |
+| T1 | `exchange.types` 的闭集成员与标签、`RULES_VERSION == 2`、常数表与身体常数只在 `exchange` 定义（`OWNERS` 核对），别处没有第二份 |
+| T2 | 算子：商品收货对三类食品按固定类别热量乘数量，对非食品给固定缓解或情绪效果；Decimal 舍入、驾车车费下限 500 与每米 0.2 向上取整、步行 0、送达与出行秒数与现行算子逐值相同 |
+| T3 | 人工环境登记往返：六个目录文件加载后的商品、动作、内容与 app 反向索引及菜单与手工期望相等 |
+| T4 | 每个登记码有真实最小反例，码与英文原因相符；内容 `duration_seconds = 59` 以 `ENVIRONMENT_NUMBER_INVALID` 拒绝，60 秒受理；布尔、浮点、字符串与非有限值被拒绝 |
+| T5 | 旧格式拒绝：目录下残留 `foods.json`、`work_topics.json`、`affordances.toml`、`rules/` 各以 `ENVIRONMENT_STALE_FILE` 拒绝；商品带 `kcal`、内容带缓解速率、地点带坐标被严格模型拒绝；`rules_version: 1` 以 `RULES_VERSION_MISMATCH` 拒绝 |
+| T6 | 同类店铺只绑定一家 → `GOODS_BINDING_KIND_INCONSISTENT`；`"all"` 按固定类别供给表展开；`home`、`office`、`park` 菜单为空，两家面馆菜单相同，价格来自商品 |
+| T7 | 既无用途也无动作绑定的 app → `APP_UNBOUND`；app 与地点同名 → `APP_NAME_COLLIDES_LOCATION`；摘要超过 200 字符或真实来源无 URL 分别拒绝；非店铺不能绑定购物 app |
 | T8 | 在 CPython 3.12.13、根目录 `.python-version` 与锁定的 NetworkX 上，生成器严格执行 B-13：排序节点、独立同种子树流、排序候选上的 `rng.sample`、排序边上的同一 `rng.randint`；同地点清单与种子两次生成 `canonical_json + LF` 字节相同，不同种子不同；边数 = (n−1) + ⌊(n−1)/2⌋，n=2 恰一条、n=3 恰三条且无重复；长度都在 [200, 2000]；标号 i 对应第 i 个排序标识 |
 | T9 | 校验：单节点 → `MAP_TOO_SMALL`；自环、重复对、未知端点、长度 0、未排序各 → `MAP_EDGE_INVALID`；两个分量 → `MAP_DISCONNECTED`；篡改一条边长后 `generate-map --check` 与 `validate --environment` 都报 `MAP_NOT_REGENERATED`，而运行时加载器只校验结构、不重生成 |
 | T10 | 手工图：最短路长度与路径与手算相等；含“较小下一跳却有较大后缀”的多跳反例，等长时比较完整路径元组并取字典序较小者；颠倒边插入次序结果不变；`distance_meters(a, a) == 0`；路径可经过未被场景选择的节点 |
-| T11 | 阶段 4 最终 `RESOURCE_CLAIM_SLOTS` 恰为八项；十三个退役名解析时拒绝；只有同种、睡眠一行与驾车一行有交集；切换提交没有临时空占用、借用占用或兼容声明 |
-| T12 | 阶段 1 的三份包资源与人工环境副本逐字节相同、清单摘要一致；清单身份发布失败时旧字节保留且不留下半写文件（原子写）。阶段 4 刷新占用声明后对新字节重复同一身份校验 |
+| T11 | 版本 2 可供性只有 `wait`、`sleep`、`travel`、`action`，占用名额恰八项；退役占用名解析时拒绝；每种动作类别和使用方式求固定占用，驾车只允许不持续用手机的社交动作与之并行 |
+| T12 | 目录只有六个对象文件、不带引擎规则副本；包内规则任一文件改变一个字节使 `runtime_code_sha256` 变化；目录清单身份发布失败时旧字节保留且不留下半写文件 |
 | T13 | 命令：`generate-map` 写出与库相同的字节；`validate --environment` 对人工环境退出码 0，对每个反例非零并打印码 |
-| T14 | 结构 7 受理；结构 6 的每个已删字段各被 `extra="forbid"` 拒绝；`environment` 钉与清单不符拒绝；缺 `merchant:cafe` → `MERCHANT_ACCOUNT_MISSING`；未知主题 → `WORK_TOPIC_UNKNOWN`；有主题无安排 → `WORK_SCHEDULE_REQUIRED` |
-| T15 | 世界 10 校验通过；结构 9 的世界状态在阶段 1 由 `WorldState.model_validate` 拒绝，阶段 5 再由真实打开、恢复与重放入口分别拒绝；导出认证不计入本用例，只由阶段 7 的 T54 验证 |
-| T16 | 运行清单 3 带五个身份字段；阶段 5 从 `runtime._prepare_resume` 的真实恢复入口核对身份，篡改目录一字节后以 "Runtime environment identity mismatch" 拒绝，删除该调用的变异必须被杀死；持有不存在的食品标识在同阶段 `EngineContext.validate` 处拒绝 |
+| T14 | 场景结构 8 受理，旧结构与退役字段严格拒绝；环境钉不符或缺商家账户分别拒绝；未知或非工作内容、无排班、缺分配内容、内容不足各按工作内容码拒绝 |
+| T15 | 世界 11 校验通过，带语料钉或结构 10 的世界状态由严格模型拒绝；真实打开、恢复与重放入口仍须证明拒绝旧世界，导出认证另归 T54 |
+| T16 | 运行清单 4 带五个身份字段、不带语料钉；真实恢复入口继续核对环境身份，篡改目录字节以 "Runtime environment identity mismatch" 拒绝 |
 | T17 | 步行与驾车：时长 = ceil(最短路 ÷ 速度)；车费按常数付给 `transport:service`，步行不扣款；活动数据带 `trip_id`、`path`、`distance_meters`；`ROUTE_DURATION_MISMATCH` 按图重算 |
 | T18 | 目标为当前地点 → `ACTIVITY_PRECONDITION_UNMET`（`already_at_destination`）；工具层列出全部其他已选地点各两种方式及价格与时长，不列当前地点 |
 | T19 | 出行进度快照保留起点、到达经核验；路途中检查点恢复后继续走完同一路径 |
@@ -1168,7 +1172,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | T26 | 同店同食品两行 → `ORDER_DUPLICATE_ITEM`；未知收货地 → `DESTINATION_NOT_FOUND`；余额不足整单拒绝且没有部分扣款 |
 | T27 | 薯片与另一种零食等量食用原始摄入相同；一份牛肉面分两次吃与一次吃总摄入相同；暂停、恢复不多算；净能量经利用效率与上限；`portion_duration` 与 60 秒下限、14400 秒上限；断点前后不出现双倍热量 |
 | T28 | 食品目标 `state` 为「正餐，每份约 600 千卡；可用美团下单」，无 app 的店省略后半句；`callable_index.goods` 按类别标签分组；`obtainable_here` 只在在场或店铺有 app 时为真 |
-| T29 | 动机层正餐候选只含 `meal`，零食与饮品是轻食后备；外卖等待 = 备餐 + 图上时间 |
 | T30 | `purchases.jsonl` 的购买行带 `app_id`（到店为 null）、`delivery_fee_fen`、`store_id`、`food_id`；进食证据与已核验经历带类别与份额 |
 | T31 | 输入警告闭集恰为六个；覆盖率目标 = 习惯关键词、食品名、五个类型标签 + app 名；任何状态、卡片与观察里没有 `taste_weights`；坐标状地点名仍发 `LOCATION_NAME_SUSPICIOUS` |
 | T32 | 指名购买 M0–M3：写店名在场即到店；写 app 名走该 app 绑定的最近店铺；写未绑定目标店的 app 或用美团找饭团 → `SOURCE_NOT_FOUND` 或 `SUPPLY_NOT_AT_STORE`；下一步写 `Go to <店>.` 或 `Order through <app>.` |
@@ -1213,8 +1216,8 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 
 | 变异 | 行为所有者阶段 | 被谁杀死 | 绑定契约点（与分句逐项配对） | 最早可运行杀手阶段（与分句逐项配对） |
 | --- | --- | --- | --- | --- |
-| 加载器接受目录食品行里的 `kcal` 字段并用它覆盖类别热量 | 1 | T5 | 分类与规则归系统（分类与规则归系统） | 1 |
-| `evaluate_food_energy` 不看食品类别，始终按 `meal` 计算 | 1 | T2 | 分类与规则归系统（分类与规则归系统） | 1 |
+| 加载器接受目录商品行里的 `kcal` 字段并用它覆盖类别热量 | 1 | T5 | 分类与规则归系统（分类与规则归系统） | 1 |
+| `evaluate_goods_receipt` 不看食品类别，始终按 `meal` 计算 | 1 | T2 | 分类与规则归系统（分类与规则归系统） | 1 |
 | `RULES_VERSION` 不符时只记警告不拒绝 | 1 | T5 | 分类与规则归系统（分类与规则归系统） | 1 |
 | 清单未列出的旧文件被静默忽略 | 1 | T5 | 分类与规则归系统（分类与规则归系统） | 1 |
 | `"all"` 展开到全部地点（含住宅） | 1 | T6 | 同类店铺同商品（同类店铺同商品） | 1 |
@@ -1225,10 +1228,10 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | `--check` 与 `validate --environment` 不比对重生成结果 | 1 | T9 | 地图生成连通且字节稳定（地图连通且长度可计时） | 1 |
 | 出行时长改为向下取整；驾车车费下限去掉 | 1 | T2 | 分类与规则归系统（分类与规则归系统）；分类与规则归系统（分类与规则归系统） | 1；1 |
 | 饮品热量改为 200 千卡 | 1 | T1；T2 | 分类与规则归系统（分类与规则归系统） | 1 |
-| 人工环境规则资源不与包资源逐字节比较；目录原子发布失败时覆盖旧字节或留下半写文件 | 1 | T12；T12 | 包资源身份与原子发布；包资源身份与原子发布 | 1；1 |
+| 目录原子发布失败时覆盖旧字节或留下半写文件 | 1 | T12 | 包资源身份与原子发布 | 1 |
 | 最短路等长时取完整路径元组字典序较大的路径，或依赖边插入次序 | 2 | T10 | 最短路与完整路径决胜 | 2 |
 | 退役占用名 `watch` 被接受 | 4 | T11 | 占用闭集与并行准入 | 4 |
-| 结构 9 的世界状态被接受 | 1 | T15 | 场景 7 与世界 10 的拒绝边界 | 1 |
+| 结构 10 的世界状态被接受 | 1 | T15 | 场景 7 与世界 10 的拒绝边界 | 1 |
 | 恢复时不核对 `environment_identity` | 1 | T16 | 场景 7 与世界 10 的拒绝边界 | 5 |
 | 目标为当前地点的出行被受理 | 2 | T18 | 出行按图计时计费 | 2 |
 | 出行事件与活动行把 `trip_id` 写成 `route_id`；活动数据丢掉 `path` | 2 | T20 | 位置记录与地图一致（位置记录与地图一致）；位置记录与地图一致（位置记录与地图一致） | 2；2 |
@@ -1241,7 +1244,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | 同店同食品两行被合并而不拒绝 | 3 | T26 | 全地图外卖（全地图外卖） | 3 |
 | 分两次吃第二次重复计满一份 | 3 | T27 | 食品热量固定（食品热量固定） | 3 |
 | 商品 `state` 不写类别与热量 | 3 | T28 | 食品热量固定（食品热量固定） | 3 |
-| 零食计入正餐候选 | 3 | T29 | 食品热量固定（食品热量固定） | 3 |
 | 到店购买行写了 app | 3 | T30 | 购买足迹与画像 | 3 |
 | `purchases.jsonl` 丢掉 `app_id` | 3 | T30 | 购买足迹与画像 | 3 |
 | 警告闭集多出 `TASTE_GENRES_UNMATCHED` | 3 | T31 | 购买足迹与画像 | 3 |
@@ -1439,3 +1441,4 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | `2026-10-06-rrs-review-r2-closure` | 2026-10-06 | 修订第 2 轮 25 项阻断发现：登记 123 个精确引用阶段对，统一共享内容进度、随机字节、实际锁身份、阶段 1–5 原子集成波次、协议阶段、守卫退役阶段与 Python 变异根；保持 UNFROZEN，等待下一轮三视角复审 |
 | `2026-10-07-rrs-review-r3-closure` | 2026-10-07 | 集中修订第 3 轮三个实质阻断：工作主题准入至少一分钟、推送事件判别键与内容类型分离、占用闭集在阶段 4 随最后消费者原子切换；保持 UNFROZEN，等待三个原审查视角定向复核 |
 | `2026-10-06-rrs-freeze` | 2026-10-07 | 三个视角复审及实质问题定向复核通过，全部阻断关闭；冻结实施合同、分阶段机器验收与行为变异，保留用户裁决及 macOS 双跑基线授权；阶段 9 由数据仓执行并登记真实平台回执 |
+| `2026-10-07-acs-rules` | 2026-10-07 | 「固定规则与常数」「环境格式」「人工环境」由动作与内容简化规格同名章节取代，RULES_VERSION 为 2。 |

@@ -26,7 +26,7 @@ RULES = {
     ),
     '开工阻断': ('tests/life/test_shared_rules.py::test_work_refusal_matches_listing_and_admission',),
     '出行时长': ('tests/life/test_shared_rules.py::test_travel_plan_matches_tool_layer_admission_and_engine_validation',),
-    '缓解速率': ('tests/life/test_app_progress.py::test_content_relief_is_fixed_for_each_kind_and_applied_to_real_body',),
+    '缓解速率': ('tests/life/test_app_progress.py::test_content_relief_uses_one_fixed_rate_and_is_applied_to_real_body',),
     '候选种类': ('tests/life/test_candidates.py::test_app_usage_does_not_remove_meal_candidate_and_driving_does',),
     '活动家族': ('tests/life/test_shared_rules.py::test_unknown_lifestyle_family_does_not_advance_or_score',),
     '中文活动名称': ('tests/life/test_readable.py::test_chinese_kind_tables_have_a_single_source',),

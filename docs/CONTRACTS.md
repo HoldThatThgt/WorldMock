@@ -1,6 +1,8 @@
 <a name="contracts-worldmock-接口合同"></a>
 # WorldMock 接口合同
 
+> 按[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界」（阶段 1）。
+
 > 2026-10-07：按[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 7 的记录、导出、交付与评估合同。
 
 > 按[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「环境数据归属合同、品类契约与目录字段、类别供给的构建合同、营业与报价声明、环境目录文件、环境目录与绑定、地点类词表、CLI 命令接口、环境与检查命令合同、冻结地图与场景引用、持久化当下事实、LifeEnv 状态字段、资源与需求字段、领域枚举、禁止进入提示的字段、模型身份、共同检查点与恢复、持久化结构、交互菜单声明与有效菜单、状态归属」（阶段 1）；「冻结地图与场景引用」、「地图与门店供给合同」（阶段 2）；「地点发现与购买身份、供给结算与事件载荷、活动受理拒绝码、请求字段与结算检查、请求模型的闭集与字面边界、候选与呈现合同、候选对象与来源、排除原因码、排序键与游标、下推返回体、场景常量、派生量字段、可见期与提示预算、运行输入警告、人物卡片覆盖率产出、体感与动机证据、人格与卡片字段、个人事务」（阶段 3）；app 使用、内容与推送（阶段 4）；工作主题、单一行动阶段与最终人物工具面（阶段 5）；「请求组成」的系统层 app 推送、并行、名称、购买来源与主题工时规则及提示指纹（阶段 6）。
@@ -42,24 +44,17 @@ Linux ARM64/aarch64 的锁定组合安装失败不能按可选部件缺失跳过
 
 环境命令为 `worldmock environment generate-map --locations PATH --seed INT --output PATH [--check]` 与 `worldmock validate --environment ROOT`。文件、身份和全部登记码的英文原因见[环境目录文件](#contracts-环境目录文件)；任一失败非零退出。
 
+环境根只有 `catalog/` 与 `scenarios/`，不读取语料或比对规则副本。
+
 <a name="contracts-环境数据归属合同"></a>
 ## 环境数据归属合同
 
-WorldMock 维护模拟器、严格模型、加载校验、记录和导出。分类、身体常数、出行与配送常数和交换公式的唯一来源是 `worldmock.exchange`，一起由 `RULES_VERSION` 绑定；活动闭集、动机与人物映射仍由包 TOML 提供。
-WorldMock-Dataset 发布具体环境的 app、地点、食品、内容、工作主题、图、绑定和来源。环境根中 `catalog/`、`corpora/`、`scenarios/` 并列；当前正式环境为 `../WorldMock-Dataset/environment/shanghai-simplified/`，调用方显式给出场景或环境根，运行不搜索相邻仓库。
+WorldMock 维护模拟器、严格模型、加载校验、记录与导出。分类、类别与使用方式、状态效果、供给表、身体与交换常数、公式归 `worldmock.exchange`，以规则版本 2 绑定。
+包规则只从引擎读取；可供性与人物映射留在包中，内部动机规则退役，环境没有规则副本。
 
-| 输入 | 当前合同 |
-| --- | --- |
-| 场景与环境 | 显式场景路径，`environment{environment_id, environment_version}` 钉住清单；目录按场景位置解析 |
-| 对象与绑定 | 七个 JSON 目录文件；食品只提供名称、类别、价格与店铺绑定，内容提供标题、摘要与 app 绑定 |
-| 固定规则副本 | 三份包 TOML 副本逐字节一致，环境不得独立修改 |
-| 身体初值 | 场景提供体重、初始能量、睡眠债和娱乐需要；身体演化常数来自 `worldmock.exchange.body` |
-| 人工输入 | 引擎最小端到端使用重写的 `tests/fixtures/environment/`，完整引擎闭环在本规格阶段 5 验证 |
-| 完整回归 | 通过 `--environment-root` 显式选择数据仓重制后的发布环境，核对实际输入字节 |
-| 正式数据验收 | 来源、正式数量与可复现重建由 Dataset 负责；引擎只负责登记、加载与行为合同 |
-| 历史证据 | 已存运行、导出及 frozen-inputs 保持字节，不提供旧格式兼容 |
-
-语料中的生活活动保留自己的 `effects`、`location_kinds`、`time_window` 与 `met_value`；联系人和邮件语料的清单机制不变。
+WorldMock-Dataset 发布 app、地点、商品、动作、内容、图与绑定。环境根只有 `catalog/` 与 `scenarios/`，正式重制路径由数据仓发布决定。
+目录能填的数只有价格、内容时长与集数；名称真实，摘要有出处或声明合成，数值明确为仿真假设。
+调用方显式给出场景或环境根，运行不搜索相邻仓库。历史运行、导出与冻结输入保持原字节，不提供旧格式兼容。
 
 <a name="contracts-lifeenv-状态字段"></a>
 ## LifeEnv 状态字段
@@ -190,7 +185,7 @@ LifeEnv 不为每个模型工具另建同名 RPC 方法。
 
 场景根对象必须显式包含 `interaction_menus_by_location_kind`，键集合恰好等于八个内置 `LocationKind`；每个人物也必须显式包含 `interaction_menu`。人物值可以为
 `null`，表示不在地点菜单之外增加限制；地点菜单不能为 `null`。解析后的地点 `kind` 是交互菜单地点类，
-候选活动环境由 `PLACE_KIND_ENVIRONMENTS` 从地点类型派生；条目仍声明自己的 `location_kinds`。
+候选活动环境由 `PLACE_KIND_ENVIRONMENTS` 从地点类型派生。
 
 ```python
 InteractionMenu = {
@@ -199,14 +194,14 @@ InteractionMenu = {
 ```
 
 数组非空、无重复且只接受非空白字符串，菜单对象不接受未知字段。
-`allowed_actions` 的闭集是 `START_ACTIVITY_ACTIONS`：它是内部标准动作，不是人物词表，场景文件不改；
+`allowed_actions` 的闭集是 `START_ACTIVITY_ACTIONS`：`travel_to`、`sleep`、`wait`、`purchase`、`do` 五项内部标准动作；
 人物所选（对象，动词，方式）经本轮私有绑定映射为内部动作后按菜单判定（[时间与能量规格](dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)
 第五章「请求形状与菜单」）。其中 `wait`、`sleep` 必须存在，保证人物在每个地点都能等待与睡觉；二者分别对应动词
 `interact` 的「自己」对象（方式「等待」）与动词 `sleep`。场景地点类缺项或多项、人物字段缺失、未知名称、
 错误类型、重复、空数组或缺少保护动作均拒绝加载。
 
 七个模型请求名由 `REQUEST_MODELS` 固定，地点菜单不剪裁工具，只收窄 `start_activity`
-的可读动作选择。工作主题经活动工具推进；消息正文和活动控制工具的工具资格由当前领域条件决定。
+的可读动作选择。分配的工作内容经活动工具推进；消息正文和活动控制工具的工具资格由当前领域条件决定。
 
 当前有效菜单按人物权威位置取得地点类菜单，再与人物菜单逐字段求交集并确定性排序；人物菜单为
 `null` 时直接使用地点类菜单。它是现有状态、阶段、可见目标和回合预算门控之前的
@@ -217,7 +212,7 @@ InteractionMenu = {
 
 工具层、本地决策校验和环境受理使用同一轮冻结菜单。环境在产生领域副作用前按权威
 状态重验；违反动作准入的请求返回 `INTERACTION_MENU_DENIED`，
-并沿用 `action_rejected` 与 `action_result` 的公开结果通道。拒绝不得扣款、消费、累计工作主题、启动或恢复活动、
+并沿用 `action_rejected` 与 `action_result` 的公开结果通道。拒绝不得扣款、消费、累计分配的工作内容、启动或恢复活动、
 发送消息。只读人物查询不进入生活观察与菜单，只开放 `memory_recent`、
 `memory_search`、`memory_time_range` 三个记忆工具及只读 `finish`。完整声明、失败关闭和验收要求以[冻结特性规格](dev/SPEC-interaction-menu.md#spec-interaction-menu-特性规格交互菜单)为准。
 
@@ -519,8 +514,8 @@ flowchart LR
 ### 工作安排声明
 
 行为归[个人事务与工作安排规格](dev/SPEC-as2-integration.md#errands-workday-运行修复入库) 4.3–4.7，本节定义字段面。场景人物配置增必填可空字段
-`work_schedule`：键必须显式写出，`null` 表示这个人物没有任何在岗语义；分配了任一 `work_topic_ids` 的人物必须声明非空工作安排，
-且主题的工作地点就是该安排的 `workplace_location_id`。非空安排为 `{workplace_location_id, weekly, exceptions}`，
+`work_schedule`：键必须显式写出，`null` 表示这个人物没有任何在岗语义；分配了任一 `work_content_ids` 的人物必须声明非空工作安排，
+且分配内容的工作地点就是该安排的 `workplace_location_id`。非空安排为 `{workplace_location_id, weekly, exceptions}`，
 三键都必填、没有缺省，班次 `{starts, ends, breaks}` 的三键同样必填（没有休息时段写 `[]`），未知键拒绝。形状示例：
 
 ```json
@@ -565,15 +560,23 @@ flowchart LR
 该字段，首版全部人物为 `null`（只做结构升级，是否给正式十二周场景声明班次是实验条件，另行裁决），它们的 `scenario_sha256`
 随之改变。当前因环境数据归属使用场景结构 6，结构 5 的旧输入同样按版本拒绝；具体环境由数据仓冻结并显式加载。
 
-**效力与边界。** 工作安排是场景声明、环境求值的事实，不是人物的习惯：零点计划、`revise_day_plan` 与工作主题累计都不改变它，
+**效力与边界。** 工作安排是场景声明、环境求值的事实，不是人物的习惯：零点计划、`revise_day_plan` 与分配的工作内容累计都不改变它，
 主题完成后 `duty` 仍是「当班中」；每轮只在环境层 `duty` 呈现（见「七层字段」），零点计划的输入另有计划日期当天的
 `上班安排`（见「请求组成」）。环境不因它新增任何拒绝，出行照常列出、照常受理；班内离岗由行为评估的工作负荷与作息偏离指标
 从事件与场景重算，不另写事件，不新增输入警告码。班次与休息时段的起止是唤醒原因（`shift_start`、`shift_end`、`break_start`、
 `break_end` 四个成员）：只给清醒的人物在该时刻一次决策机会，不结束任何活动，不进入睡眠允许集合，不写事件，也不新增进度层记录；
 通常表现为环境层 `duty.status` 的变化，首尾相接的休息时段没有可见变化；闭集、触发条件与候选口径不在本文件，见
 [生活运行时规格的决策节律](dev/SPEC-life-runtime.md#spec-life-runtime-决策节律结算边界与唤醒条件分离)。声明的例外只有班次内休息时段；
-当日不当班不产生班次，模型写的理由不构成例外。例外只影响指标口径，不影响受理。工作主题自运行开始可见，
+当日不当班不产生班次，模型写的理由不构成例外。例外只影响指标口径，不影响受理。分配的工作内容自运行开始可见，
 人物在工作地点即可开始或恢复；工作安排不改变主题累计的准入或剩余工时上限。
+
+人物以 `work_content_ids` 分配 `work_study` 类别的目录内容，引用必须已登记且不得重复。
+分配内容的动作不得是 `offline_assisted`；同一工作内容只能分配给一个人物。
+有分配内容的人物必须声明 `work_schedule`（`WORK_SCHEDULE_REQUIRED`）；
+声明排班的人物至少分配一条内容（`WORK_CONTENT_REQUIRED`）。
+分配内容的 `duration_seconds` 之和不得少于运行起止区间内的排班秒数（`WORK_CONTENT_INSUFFICIENT`）；
+引用不存在、不是工作与学习类别、重复分配或方式不合要求，以 `WORK_CONTENT_UNKNOWN` 拒绝。
+工作地点取 `work_schedule.workplace_location_id`，分配的工作内容只能在该地点进行；从运行开始可做，班次不改变内容可见性。
 
 <a name="contracts-request-settlement"></a>
 ### 请求字段与结算检查
@@ -880,6 +883,13 @@ ScheduledKind = Literal[
 
 活动类型已切换为十个，活动变更只保留暂停、恢复、取消。预排事件使用上述最终七项闭集；工作主题自运行开始可见，完成也不排入预排事件。
 
+世界结构 10 → 11 的字段变化：
+
+| 字段 | 现行形状 |
+| --- | --- |
+| `content_manifest_sha256` | 删除，运行不再读取或钉住语料 |
+| `consecutive_rejections` | 从人物状态删除，内部动机评分器退役 |
+
 <a name="contracts-地图与门店供给合同"></a>
 ## 地图与门店供给合同
 
@@ -889,7 +899,7 @@ ScheduledKind = Literal[
 <a name="contracts-冻结地图与场景引用"></a>
 ### 冻结地图与场景引用
 
-场景结构为 `7`，使用 `environment{environment_id, environment_version}` 钉住目录清单；钉不符以 `ENVIRONMENT_PIN_MISMATCH` 拒绝。`locations[]` 只包含 `location_id`，不得复制坐标、路线、对象或供给。
+场景结构为 `8`，使用 `environment{environment_id, environment_version}` 钉住目录清单；钉不符以 `ENVIRONMENT_PIN_MISMATCH` 拒绝。`locations[]` 只包含 `location_id`，不得复制坐标、路线、对象或供给。
 
 | `catalog/map.json` 字段 | 合同 |
 | --- | --- |
@@ -901,7 +911,9 @@ ScheduledKind = Literal[
 WorldMock 生成图，Dataset 发布图并刷新清单身份。登记校验节点、边与连通性；`generate-map --check` 与 `validate --environment` 重生成逐字节核对，运行与恢复只读发布图。
 最短路等长时比较完整地点标识路径元组，取字典序较小者，路径可以经过未被场景选中的节点。
 私有观察只保存 `routes[{trip_id, origin_id, destination_id, mode, distance_meters, duration_seconds, fare_fen}]` 与 `locations[{location_id, name, kind}]`，没有路线坐标、几何或道路状态。
-世界结构 `10`、运行清单 `3`；旧场景、世界与清单直接拒绝。恢复核对五字段 `environment_identity`。
+世界结构 `11`、运行清单 `4`；旧场景、世界与清单直接拒绝。恢复核对五字段 `environment_identity`。
+
+目录格式 2、规则版本 2；环境没有语料与包规则副本，规则字节由 `code_sha256` 绑定。
 
 <a name="contracts-类别供给的构建合同"></a>
 ### 类别供给的构建合同
@@ -911,9 +923,17 @@ WorldMock 生成图，Dataset 发布图并刷新清单身份。登记校验节�
 <a name="contracts-环境目录与绑定"></a>
 ## 环境目录与绑定
 
-食品的 `store_ids` 是排序且无重复的显式店铺身份列表，或字符串 `"all"`。`"all"` 只展开到 `FOOD_STORE_KINDS` 中的店铺，不包含住宅、办公室、公园或健身场所。
-同一种店铺类型的菜单必须完全一致：一个食品必须绑定这种类型的全部店铺，或完全不绑定；只给同类的一家绑定以 `FOOD_BINDING_KIND_INCONSISTENT` 拒绝。`price_fen` 在食品上，全店同价，不生成报价或库存。
-店铺 `app_ids` 可为空，空列表只允许到店；只有食品店铺类型能绑定 app。内容至少绑定一个 app；app 至少有店铺或内容绑定。店铺全天服务，没有营业日历、资格、报价与库存。目录加载一次派生只读菜单和 app 索引，运行不得抽样或补齐缺项。
+内容必须绑定恰好一个动作；动作可以不绑定 app。动作的 `app_ids` 非空时，`manner` 必须是一种固定使用方式，
+每条内容的 `app_ids` 是该动作 app 集合的非空子集；动作没有 app 时，`manner` 为 null、内容 app 集合为空。
+每个动作及每个动作与 app 的组合至少有一条内容。空集合从不表示全部 app。
+内容 `duration_seconds` 是正整数且不小于 60 秒；动作不登记时长、时间窗、场所或效果。
+内容不登记分类；环境维护动作名称、说明及其内容。
+系列以 `(action_id, series.title)` 识别，各集具有相同动作与 app 集合，集数为唯一的正整数。
+
+商品绑定店铺，店铺绑定购物 app。`GOODS_CATEGORY_STORE_KINDS` 固定类型可供给的类别，
+`"all"` 展开到全部可供给该类别的店铺；显式绑定列表去重排序，同类型店铺同菜单。
+购物用途存在当且仅当至少一家店铺绑定该 app；支付绑定非空当且仅当有购物用途，
+绑定目标具有支付用途，允许绑定自己。导航与支付 app 可以没有内容；app 必须有用途或动作绑定。
 
 <a name="contracts-营业与报价声明"></a>
 ### 营业与报价声明
@@ -1458,7 +1478,7 @@ WorldState.activities 是唯一活动事实源；人物另外持久保存 body_s
 ### 体感与动机证据
 
 `body` 分两组：`levels` 是进入提示的体感分级短语，恰好五键 `appetite`、`sleepiness`、`entertainment`、`social`、`mood`，
-原样成为环境层 `body`；`values` 是只进事件的数值，含 `appetite`、`sleepiness`、`entertainment_need`、`social_need`、`mood_valence`、`sleep_pressure`、`energy_kcal`、`sleep_deficit_hours`。动机评分器继续计算并写入 `motivation_internal`，只供评估与研究，不进提示。
+原样成为环境层 `body`；`values` 是只进事件的数值，含 `appetite`、`sleepiness`、`entertainment_need`、`social_need`、`mood_valence`、`sleep_pressure`、`energy_kcal`、`sleep_deficit_hours`。内部动机评分器已退役，不计算也不写 `motivation_internal`；人物选择只来自七层请求。
 
 
 食品目标显示类别与固定每份热量，正餐候选以 `category=meal` 判定；画像散文不产生候选数值权重。食品利用效率从 `BODY_CONSTANTS.food_efficiency_curve` 读取，足迹保存实际消费份量、热量与效率。
@@ -1593,7 +1613,7 @@ ExclusionReason = Literal[
 <a name="contracts-地点类词表"></a>
 ### 地点类词表
 
-`LocationKind` 是 `worldmock.exchange.types` 的八个固定地点类型：`home`、`office`、`park`、`fitness`、`restaurant`、`cafe`、`convenience_store`、`supermarket`。只有后四种是 `FOOD_STORE_KINDS`。
+`LocationKind` 是 `worldmock.exchange.types` 的八个固定地点类型：`home`、`office`、`park`、`fitness`、`restaurant`、`cafe`、`convenience_store`、`supermarket`。只有后四种是 `STORE_KINDS`。
 
 | 地点类型 | `PLACE_KIND_ENVIRONMENTS` 派生的活动环境 |
 | --- | --- |
@@ -1603,7 +1623,7 @@ ExclusionReason = Literal[
 | `fitness` | `fitness` |
 | `restaurant`、`cafe`、`convenience_store`、`supermarket` | `venue` |
 
-地点只声明 `kind`，不再自行声明活动环境。生活活动条目保留自己的 `location_kinds`，取活动环境闭集 `home/office/outdoor/fitness/venue/anywhere`；含 `anywhere` 表示恒可行。资格按条目需求与派生环境的交集判定。场景菜单键显式覆盖八个 `LocationKind`。
+地点只声明 `kind`，不再自行声明活动环境。场景菜单键显式覆盖八个 `LocationKind`。
 
 <a name="contracts-private-fields"></a>
 ### 禁止进入提示的字段
@@ -1968,7 +1988,9 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 按闭集形状校验后冻结，恢复与重放随父清单继承、不重算；引擎直驱建立的运行没有计算警告，该键为 `null`。警告只记录，不参与恢复比对，也不使运行失败。
 新建运行的清单另带 `persona_habit_responses`：编译卡片（经场景作息覆盖后）的习惯签名反应文本，人物编号（字符串）→ 文本列表（按卡片顺序；没有卡片的人物不出现），供候选排序的相关度使用（见「排序键与游标」）；冻结时校验形状，恢复与重放随父清单继承，引擎直驱建立的运行为 `null`。
 
-运行清单结构 `3`，唯一环境身份为 `environment_identity{environment_id, environment_version, rules_version, catalog_content_sha256, map_sha256}`，替代旧地图、品类契约和交换规则独立身份键。打开、恢复与重放核对五字段，不符以 `IntegrityError("Runtime environment identity mismatch")` 拒绝。阶段键现行闭集为 `{action}`。
+运行清单结构 `4`，唯一环境身份为 `environment_identity{environment_id, environment_version, rules_version, catalog_content_sha256, map_sha256}`，替代旧地图、品类契约和交换规则独立身份键。打开、恢复与重放核对五字段，不符以 `IntegrityError("Runtime environment identity mismatch")` 拒绝。阶段键现行闭集为 `{action}`。
+
+`code_sha256` 额外覆盖 `src/worldmock/data/` 下每个文件，包规则字节不会由环境清单另存哈希。
 
 <a name="contracts-reasoning-return"></a>
 ### 思考回传
@@ -2039,13 +2061,13 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 <a name="contracts-共同检查点与恢复"></a>
 ### 共同检查点与恢复
 
-共同检查点同时封存世界和人物状态、已付款订单、实际持有、内容进度与会话推送。恢复前核对 `environment_identity` 的环境标识、版本、规则版本、目录内容摘要与地图摘要，任一不同明确失败。世界结构 9 及更早的检查点不能恢复为结构 10；不重写父运行或历史输入。
-具体存储事务与 AS2 人物工作区核对见[保存共同检查点](design/05-recording-engine.md#recording-engine-保存共同检查点)与[恢复与反事实分支](design/05-recording-engine.md#recording-engine-恢复与反事实分支)。推送与内容进度的运行往返在阶段 4 验证；真实宿主恢复闭环在阶段 5 验证。
+共同检查点同时封存世界和人物状态、已付款订单、实际持有、内容进度与会话推送。恢复前核对 `environment_identity` 的环境标识、版本、规则版本、目录内容摘要与地图摘要，任一不同明确失败。世界结构 10 及更早的检查点不能恢复为结构 11；不重写父运行或历史输入。
+具体存储事务与 AS2 人物工作区核对见[保存共同检查点](design/05-recording-engine.md#recording-engine-保存共同检查点)与[恢复与反事实分支](design/05-recording-engine.md#recording-engine-恢复与反事实分支)。恢复与运行证据分别按冻结验收台账和真实回执核验。
 
 <a name="contracts-持久化结构"></a>
 ### 持久化结构
 
-运行清单结构 `3` 带五字段 `environment_identity`。世界结构 `10` 封存订单、食品持有、内容进度与会话推送；只有已提交事实能进入历史导出。保存与恢复的事务归[运行目录与数据表](design/05-recording-engine.md#recording-engine-持久化结构)，环境身份不得另存一套兼容键。推送与内容进度在阶段 4 生效。
+运行清单结构 `4` 带五字段 `environment_identity`。世界结构 `11` 封存订单、食品持有、内容进度与会话推送；只有已提交事实能进入历史导出。保存与恢复的事务归[运行目录与数据表](design/05-recording-engine.md#recording-engine-持久化结构)，环境身份不得另存一套兼容键。
 
 <a name="contracts-品类契约与目录字段"></a>
 ## 品类契约与目录字段
@@ -2057,82 +2079,92 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 
 | 文件 | 内容 |
 | --- | --- |
-| `catalog/manifest.json` | `{format_version: 1, environment_id: str, environment_version: str, rules_version, files: [{path, sha256, size_bytes: 非负整数}], catalog_content_sha256}`；标识与版本是非空字符串；`files` 恰好列出六个目录文件与 `affordances.toml`、`rules/motivation.toml`、`rules/persona-mapping.toml`；`rules_version` 必须等于 `RULES_VERSION`；`catalog_content_sha256` 是对清单文件表的框架化摘要（`src/worldmock/catalog/identity.py`，由 `categories/identity.py` 迁入），发布经 `src/worldmock/footprints/assets.py::atomic_write` |
-| `catalog/apps.json` | `{apps: [{app_id, name}]}`；一个真实名称；`channel_key(name)` 唯一且不等于任何地点显示名 |
-| `catalog/locations.json` | `{locations: [{location_id, name, branch_label（可选）, kind: LocationKind, app_ids: [app_id]}]}`；`app_ids` 是无重复的排序列表，只在 `kind ∈ FOOD_STORE_KINDS` 时允许非空；空列表 = 只能到店 |
-| `catalog/foods.json` | `{foods: [{food_id, name, category: FoodCategory, price_fen: 正整数, store_ids: [location_id] 或 "all"}]}`；列表形态的 `store_ids` 无重复且排序；没有摘要、热量、时长、营养或来源字段 |
-| `catalog/contents.json` | `{contents: [{content_id, title, kind: ContentKind, summary, summary_source: {kind, url: str 或 null, notice: str 或 null}, duration_seconds: 正整数, app_ids: [app_id]（≥ 1）, series（可选）: {title, episode: 正整数}}]}`；`app_ids` 无重复且排序；`summary` 按 `len(summary)` 不超过 `PUSH_SUMMARY_MAX_CHARS` |
-| `catalog/work_topics.json` | `{work_topics: [{topic_id, topic, target_hours: 有限正数且 round(target_hours × 3600) >= 60}]}`；登记时计算并校验，运行时 `target_seconds = round(target_hours × 3600)` |
-| `catalog/map.json` | `{schema_version: 1, seed: 整数, generator_rule_version: 1, nodes: [location_id…]（排序）, edges: [{a, b, length_m: 正整数}]（a < b，按 (a, b) 排序，无重复）}`；由 `src/worldmock/catalog/mapgen.py` 生成、数据仓发布、加载时不重生成 |
-| `catalog/affordances.toml`、`catalog/rules/motivation.toml`、`catalog/rules/persona-mapping.toml` | 与 `worldmock.data` 包资源逐字节相同（`src/worldmock/life/world_setup.py::_require_engine_rules` 机制不变） |
-| `corpora/manifest.json`、`corpora/lifestyle/items.json` | 不变（生活活动条目保留 `effects`、`location_kinds`、`time_window`、`met_value`）；数据仓的 `scenario-contacts/`、`scenario-mail/` 语料照旧 |
+| `manifest.json` | `format_version: 2`、环境标识与版本、`rules_version: 2`、六个文件的路径/哈希/字节数、`catalog_content_sha256` |
+| `apps.json` | `app_id`、真实 `name`、`purposes`、`payment_app_ids`；用途与绑定列表去重并排序 |
+| `locations.json` | `location_id`、`name`、可选 `branch_label`、`kind`、`app_ids`；仅店铺允许绑定购物 app |
+| `goods.json` | `goods_id`、`name`、五个固定类别之一、正整数 `price_fen`、`store_ids` 列表或 `"all"` |
+| `actions.json` | `action_id`、`name`、`description`、五个固定类别之一、`app_ids`、必填可空 `manner` |
+| `contents.json` | `content_id`、`action_id`、`title`、摘要与来源、`duration_seconds`、`app_ids`、可选 `series` |
+| `map.json` | 地图结构 1、种子、生成器规则版本 1、节点与规范无向边 |
 
-阶段 1 登记时冻结在 `Catalog` 上的非图派生索引：`menus_by_kind`、`foods_by_store`、`stores_by_app`、`contents_by_app`、`apps_by_store`、`location_kinds(kind)`。阶段 2 加入图对象与 `shortest_m(a, b)`；阶段 1 不声明占位方法。目录里不再有资源定义、品类树、交换规则、对象增量、墓碑、来源指针、检索分区、营业日历、报价、库存、路线、坐标、字幕、音轨、游戏与工作材料。
+内容必须绑定恰好一个动作；动作可以不绑定 app。动作的 `app_ids` 非空时，`manner` 必须是一种固定使用方式，
+每条内容的 `app_ids` 是该动作 app 集合的非空子集；动作没有 app 时，`manner` 为 null、内容 app 集合为空。
+每个动作及每个动作与 app 的组合至少有一条内容。空集合从不表示全部 app。
+内容 `duration_seconds` 是正整数且不小于 60 秒；动作不登记时长、时间窗、场所或效果。
+内容不登记分类；环境维护动作名称、说明及其内容。
+系列以 `(action_id, series.title)` 识别，各集具有相同动作与 app 集合，集数为唯一的正整数。
 
-### 登记校验与错误
+商品绑定店铺，店铺绑定购物 app。`GOODS_CATEGORY_STORE_KINDS` 固定类型可供给的类别，
+`"all"` 展开到全部可供给该类别的店铺；显式绑定列表去重排序，同类型店铺同菜单。
+购物用途存在当且仅当至少一家店铺绑定该 app；支付绑定非空当且仅当有购物用途，
+绑定目标具有支付用途，允许绑定自己。导航与支付 app 可以没有内容；app 必须有用途或动作绑定。
 
-`src/worldmock/catalog/admission.py` 是唯一的登记校验器，`load_catalog`、`worldmock validate --environment` 与数据仓的 `--check` 都调用它；失败抛 `RegistrationError`（`IntegrityError` 子类，带稳定 `code`），日志与原因一律英文。
+登记只接受这六个文件与清单；环境规则副本、旧目录文件与额外清单路径以 `ENVIRONMENT_STALE_FILE` 拒绝。
+框架化目录摘要算法不变，字节发布使用 `atomic_write`。以下是全部登记码，条件与原因只以固定合同定义一次：
 
 | 码 | 条件 | 英文原因 |
 | --- | --- | --- |
 | `RULES_VERSION_MISMATCH` | 清单 `rules_version` ≠ `RULES_VERSION` | "The environment was published for a different rules version." |
-| `ENVIRONMENT_STALE_FILE` | `catalog/` 下有清单未列出的文件（`category-contract.json`、`exchange-rules.json`、`objects.jsonl`、`resources.jsonl`、`overrides/`、`rules/travel-time.toml`、`rules/off-foods.mapping.toml`、`snapshots/` 等） | "The catalog contains a file that the manifest does not list." |
-| `ENVIRONMENT_FILE_UNLISTED` | 清单缺少某个必需文件 | "The manifest does not list a required catalog file." |
-| `ENVIRONMENT_IDENTITY_MISMATCH` | 文件 sha256 或字节数与清单不符；`catalog_content_sha256` 与重算不符 | "A catalog file does not match the identity recorded in the manifest." |
+| `ENVIRONMENT_STALE_FILE` | 改：`catalog/` 下有六个目录文件与清单之外的文件（`foods.json`、`work_topics.json`、`affordances.toml`、`rules/` 等），或清单列出了六个之外的路径 | "The catalog contains a file that the manifest does not list." |
+| `ENVIRONMENT_FILE_UNLISTED` | 改：清单缺少六个必需文件之一 | "The manifest does not list a required catalog file." |
+| `ENVIRONMENT_IDENTITY_MISMATCH` | 改：文件 sha256 或字节数与清单不符；`catalog_content_sha256` 与重算不符（不再用于规则副本） | "A catalog file does not match the identity recorded in the manifest." |
 | `ENVIRONMENT_PIN_MISMATCH` | 场景 `environment` 钉与正在加载的清单 `environment_id` 或 `environment_version` 不同 | "The scenario pins an environment that is not the one being loaded." |
-| `ENVIRONMENT_ID_DUPLICATE` | 同一文件内标识重复，或要求唯一的同一文件显示名重复 | "An identifier or display name is declared twice in one catalog file." |
-| `ENVIRONMENT_REF_UNKNOWN` | `store_ids`、`app_ids`、`nodes`、边端点或场景引用指向不存在的对象 | "A binding refers to an object that is not registered." |
-| `ENVIRONMENT_KIND_INVALID` | `kind`、`category`、`summary_source.kind` 不在闭集；非食品店铺带 `app_ids` | "A declared kind is outside the fixed set." |
-| `ENVIRONMENT_NUMBER_INVALID` | `price_fen`、`duration_seconds`、`length_m` 不是正整数；`target_hours` 不是有限正数，或 `round(target_hours × 3600) < 60`；`size_bytes` 不是非负整数；`seed` 不是整数；`series.episode` 不是正整数 | "A declared number is outside its allowed domain." |
-| `FOOD_BINDING_MISSING` | 食品没有 `store_ids`，或显式列表为空 | "A food must be bound to stores or to all food stores." |
-| `FOOD_STORE_NOT_FOOD_STORE` | `store_ids` 含非食品店铺类型的地点 | "A food is bound to a place that does not sell food." |
-| `FOOD_BINDING_KIND_INCONSISTENT` | 某类型的店铺里有的绑定了该食品、有的没有 | "A food must be bound to every store of a kind or to none of them." |
-| `CONTENT_APP_MISSING` | 内容 `app_ids` 为空 | "A content must be bound to at least one app." |
+| `ENVIRONMENT_ID_DUPLICATE` | 改：同一文件内标识重复；app 名、地点显示名或商品名在本文件内重复；同一绑定列表或清单路径重复 | "An identifier or display name is declared twice in one catalog file." |
+| `ENVIRONMENT_REF_UNKNOWN` | 改：`store_ids`、`app_ids`、`payment_app_ids` 或场景引用（已选地点、住处）指向未登记的对象 | "A binding refers to an object that is not registered." |
+| `ENVIRONMENT_KIND_INVALID` | 改：`kind`、`category`、`purposes`、`manner`、`summary_source.kind` 不在闭集；任何未知字段，含动作上的时长、时间窗、场所与效果字段；条目或绑定未按标识排序；非 `STORE_KINDS` 地点带 `app_ids`；内容带 `kind` 同样作为未知字段拒绝 | "A declared kind is outside the fixed set." |
+| `ENVIRONMENT_NUMBER_INVALID` | 改：`price_fen`、`length_m`、`series.episode` 不是正整数；`duration_seconds` 不是整数或小于 `CONTENT_MIN_SECONDS`；`size_bytes` 不是非负整数；`seed` 不是整数 | "A declared number is outside its allowed domain." |
+| `GOODS_BINDING_MISSING` | 新：商品没有 `store_ids`，或显式列表为空 | "A goods item must be bound to stores or to all stores that may supply its category." |
+| `GOODS_STORE_KIND_INVALID` | 新：`store_ids` 含不属于 `STORE_KINDS` 的地点，或含类型不能供给该类别的店铺 | "A goods item is bound to a place that cannot supply its category." |
+| `GOODS_BINDING_KIND_INCONSISTENT` | 新：某类型的店铺里有的绑定了该商品、有的没有 | "A goods item must be bound to every store of a kind or to none of them." |
+| `APP_PURPOSE_INVALID` | 新：`shopping ∈ purposes` 而没有店铺绑定该 app，或店铺绑定了没有 `shopping` 的 app；`payment_app_ids` 在非购物 app 上非空，或在购物 app 上为空；其中某项不是带 `payment` 用途的 app（app 可以列出自己） | "An app purpose does not match its store or payment bindings." |
+| `APP_UNBOUND` | 改：app 的 `purposes` 为空，且没有任何动作绑定它 | "An app must declare a purpose or be bound by at least one action." |
+| `APP_NAME_COLLIDES_LOCATION` | app 名与地点显示名相同 | "An app name must differ from every place name." |
+| `ACTION_APP_MANNER_INVALID` | 新：`app_ids` 非空而 `manner` 为 null，或 `app_ids` 为空而 `manner` 非 null | "An action must declare a manner exactly when it is bound to apps." |
+| `ACTION_CONTENT_EMPTY` | 新：某个动作没有内容，或某个（动作，app）对没有 `app_ids` 含该 app 的内容 | "An action and each of its apps must have at least one content." |
+| `ACTION_NAME_COLLIDES` | 新：动作名与另一个动作、任一 app、地点显示名、商品名或 `WAYS` 的方式词相同 | "An action name must differ from every other action, app, place, goods and way name." |
+| `CONTENT_ACTION_MISSING` | 新：内容没有 `action_id`，或它不是已登记的动作 | "A content must be bound to one registered action." |
+| `CONTENT_APP_BINDING_INVALID` | 新：动作无 app 而内容 `app_ids` 非空；动作有 app 而内容 `app_ids` 为空或不是动作 `app_ids` 的子集 | "A content must list a non-empty subset of its action's apps, or none when the action has no app." |
+| `CONTENT_SERIES_INVALID` | 新：同一 `series.title` 的各集不在同一个动作下，或 `app_ids` 不全相同；`(series.title, episode)` 重复 | "Episodes of a series must share one action and one app set and have unique episode numbers." |
 | `CONTENT_SUMMARY_TOO_LONG` | `summary` 超过 `PUSH_SUMMARY_MAX_CHARS` | "A content summary exceeds the registration limit." |
 | `CONTENT_SOURCE_URL_MISSING` | `summary_source.kind = real` 而 `url` 为空 | "A real summary must record its source url." |
-| `APP_UNBOUND` | app 既没有店铺也没有内容绑定 | "An app must be bound to at least one store or content." |
-| `APP_NAME_COLLIDES_LOCATION` | 仅指跨文件冲突：app 名与地点名经 `channel_key` 归一后相同 | "An app name must differ from every place name." |
 | `MAP_TOO_SMALL` | 节点少于 `MAP_MIN_NODES` | "The map needs at least two places." |
 | `MAP_EDGE_INVALID` | 自环、重复无序对、未知端点、非正长度、未按规范排序、`nodes` 与地点清单不等 | "The map has an edge that is not a sorted positive link between two registered places." |
 | `MAP_DISCONNECTED` | BFS 不能到达全部节点 | "The map is not connected." |
 | `MAP_NOT_REGENERATED` | `worldmock validate --environment` 或 `--check` 的重生成结果与发布的 `map.json` 不逐字节相同 | "The published map differs from the generator output for its seed." |
-| `WORK_TOPIC_UNKNOWN` | 场景 `work_topic_ids` 指向目录没有的主题 | "A scenario assigns a work topic that is not registered." |
-| `MERCHANT_ACCOUNT_MISSING` | 已选食品店铺没有 `merchant:<location_id>` 账户 | "A selected food store has no merchant account." |
-| `WORK_SCHEDULE_REQUIRED` | 有主题的人物没有 `work_schedule` | "A person with work topics must declare a work schedule." |
+| `MERCHANT_ACCOUNT_MISSING` | 改：已选的 `STORE_KINDS` 地点没有 `merchant:<location_id>` 账户 | "A selected store has no merchant account." |
+| `WORK_CONTENT_UNKNOWN` | 新：场景 `work_content_ids` 指向未登记的内容，或指向动作类别不是 `work_study` 的内容 | "A scenario assigns a work content that is not a registered work and study content." |
+| `WORK_SCHEDULE_REQUIRED` | 改：`work_content_ids` 非空的人物没有 `work_schedule` | "A person with assigned work content must declare a work schedule." |
+| `WORK_CONTENT_REQUIRED` | 新：声明了 `work_schedule` 的人物 `work_content_ids` 为空 | "A person with a work schedule must be assigned at least one work content." |
+| `WORK_CONTENT_INSUFFICIENT` | 新：人物被分配内容的 `duration_seconds` 之和小于其班次落在 `[start_at, end_at)` 内的秒数（班次按 `shift_on` 取，每个班次计 `starts` 到 `ends` 的全长） | "The assigned work content is shorter than the person's scheduled shifts in the run window." |
 
-场景加载还执行既有的 `src/worldmock/life/load_checks.py::check_work_schedules`、`check_location_kinds`（改对 `LocationKind`）与可见标签唯一性（地点、食品、app「应用：<name>」）；app 名与地点名冲突是登记错误，不再是警告。世界结构 9、场景结构 6、目录 5.x 与地图结构 3 在每个入口直接拒绝（加载器严格模型、`WorldState.schema_version` 字面量、运行清单校验器、导出认证），没有迁移与双读。
+退役的码：`FOOD_BINDING_MISSING`、`FOOD_STORE_NOT_FOOD_STORE`、`FOOD_BINDING_KIND_INCONSISTENT`、`CONTENT_APP_MISSING`、`WORK_TOPIC_UNKNOWN`；场景初始库存的引用检查随字段删除。场景加载还执行既有的 `check_work_schedules`、`check_location_kinds` 与可见标签唯一性（来源随 `TARGET_KINDS` 缩为地点、商品、动作、其他人物、联系人与「自己」，不再读生活活动语料）。目录格式 1 与场景结构 7 在加载器的严格模型处直接拒绝。
 
 <a name="contracts-语料内容目录字段"></a>
 ## 语料内容目录字段
 
-应用和内容由 Dataset 的 `apps.json`、`contents.json` 发布，WorldMock 读取已登记目录。
+内容由 Dataset 的 `contents.json` 发布，WorldMock 只读取登记目录。
 
-| 内容字段 | 当前含义 |
+| 字段 | 当前合同 |
 | --- | --- |
-| `content_id`、`title` | 稳定内容身份与真实作品或明确模拟的非空标题 |
-| `kind` | `article`、`image_text`、`short_video`、`long_video`、`live` 五类 |
-| `summary` | 完整摘要，至多 200 字符；实际内容接触通过使用 app 产生 |
-| `summary_source` | `{kind, url, notice}`；真实摘要声明 `real` 和来源 URL，合成摘要声明 `synthetic` 和说明 |
-| `duration_seconds` | 正整数秒，决定本轮内容完成边界 |
-| `app_ids` | 至少一个已登记 app；内容只能由所打开 app 的绑定集合抽取 |
-| `series` | 可空的 `{title, episode}`，集数是正整数 |
+| `content_id`、`action_id` | 稳定身份与唯一已登记动作绑定 |
+| `title` | 真实作品或明确模拟的非空标题，直接取目录字段 |
+| `kind` | 娱乐类别为文章、图文、短视频、长视频或实况；其他类别必须为 null |
+| `summary` | 完整摘要，至多 200 字符 |
+| `summary_source` | `{kind, url, notice}`；真实摘要带来源 URL，合成摘要带声明 |
+| `duration_seconds` | 整数秒且不小于 60；动作自身没有时长 |
+| `app_ids` | 动作有 app 时为其非空子集，动作无 app 时为空；列表排序且去重 |
+| `series` | 可空 `{title, episode}`；同系列动作与 app 集合一致，集数为唯一正整数 |
 
-没有资产、分段、营养属性或评估引用。人物选择 app，系统按冻结随机规则在该 app 内选内容。
+内容绑定动作，动作再绑定可选的 app；系统不读取资产、分段或来源专属映射。
 
 <a name="contracts-环境标题与活动效果"></a>
 ### 环境标题与活动效果
 
-| 结构或阶段 | 必须提供与实际使用 |
+| 当前内容 | 唯一来源 |
 | --- | --- |
-| `LifeScenario`、`RuntimeScenario.schema_version` | 固定为 `7`；旧结构直接拒绝 |
-| 目录 `Content.title` | 必填非空字符串，去除首尾空白后仍非空；缺失或非法记录英文错误 |
-| 内容标题投影 | 标题直接取已登记 `contents.json` 条目的 `title`；不按来源专属目录、内部身份或旧映射寻找标题 |
-| 环境 `LifestyleItem.effects` | 必填不可变映射；键恰好为 `entertainment`、`social`、`health`，值是有限数值 `[0, 1]`，不接受布尔、缺项或多项 |
-| 候选预演 | 使用实际 `corpus_root` 载入的活动条目效果，相同活动身份可在不同环境有不同效果 |
-| 活动启动 | 将条目效果复制为 `ActivityState.data["effects"]`，与该活动一起序列化 |
-| 结算与恢复 | 只读活动冻结效果；娱乐、社交缓解和健康相关情绪按既有算法结算，不重新读取全局活动文件；缺冻结效果记录英文错误并拒绝 |
+| 标题 | 目录 `Content.title` 必填且非空白，投影直接读取 `contents.json`；真实作品名或明确模拟的标题由数据仓登记 |
 
-`effects.health` 影响既有情绪结算，不创建新的健康资源。内容摘要、来源、时长与 app 绑定由登记目录校验；标题以目录字段为唯一呈现来源，来源准备和标题填充在 Dataset 完成。
+动作效果、代谢当量、场所限制与使用方式由 WorldMock 的固定类别表决定，环境条目不带效果、场所或时间窗字段。
 
 <a name="contracts-lifeagent-人格与记忆字段"></a>
 ## LifeAgent 人格与记忆字段
@@ -2212,7 +2244,7 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 只来自成功的 `conclude_activity` 各项的 `views`（经 `control_items` 读出，`about` 即存储的 `subject`），同一对象按事件顺序取最后一条，存储仍只追加；这两类条目只在人设层出现，
 不进记忆层，也从进度层该调用的参数中略去。购买本身不写偏好。
 
-`tastes` 保留为卡片散文；人物口味不生成数值权重或候选排序参数。覆盖率目标使用习惯关键词、食品名、固定五个类型标签与全部 app 名。
+`tastes` 保留为卡片散文；人物口味不生成数值权重或候选排序参数。覆盖率目标使用习惯关键词、食品名、全部 app 名。
 
 <a name="contracts-记忆字段"></a>
 ### 记忆字段
@@ -2321,7 +2353,7 @@ LabelKit-DataSet 已保存本次移交的来源快照并核对摘要；整合后
 | 触发命令 | `worldmock validate` 与 `worldmock profile validate` 使用同一登记目录目标集，判定前写报告；新建运行低覆盖只警告 |
 | 可执行比例阈值 | 0.8；任一人物低于阈值即校验失败并列出缺失项，文件在判定之前照常写出（该人物 `passed` 为假）；新建运行低于阈值只警告，不失败 |
 | 文件结构版本 | 1 |
-| 匹配规则 | 习惯和食品按关键词匹配；媒体只精确匹配五个类型标签及全部 app 名称，无内容题材或手机配置 |
+| 匹配规则 | 习惯和食品按关键词匹配；媒体对全部动作名作双向子串匹配、对全部 app 名作精确匹配，无内容题材或手机配置 |
 
 下列为全部条目命中时的产出示例（`passed` 为真、`missing` 为空）；未命中的条目列在 `missing`，比例低于阈值的人物 `passed` 为假。
 
@@ -2353,8 +2385,10 @@ LabelKit-DataSet 已保存本次移交的来源快照并核对摘要；整合后
 | `passed` | 比例是否达到阈值 |
 | `missing` | 未命中的条目，每条含 `kind` 与 `value`；失败时随错误消息与返回值列出 |
 
-覆盖率目标由登记目录与语料确定：习惯反应对生活活动名和地点名按关键词匹配，饮食喜好对食品名称匹配，媒体只精确匹配 `文章`、`图文`、`短视频`、`长视频`、`实况` 五个类型标签及全部 app 名称。
+覆盖率目标由登记目录确定：习惯反应对动作名与地点显示名按关键词匹配，饮食喜好对 meal、snack、drink 商品名匹配，媒体对全部动作名作双向子串匹配、对全部 app 名作精确匹配。内容不分类。
 不读取内容题材或手机配置，不把 app 名子串当作习惯反应命中；`missing[].kind` 仅 `habit_response`、`food_preference`、`media`。阈值 `0.8` 不变，报告缺项、可执行比例与实际目标集，运行低覆盖只警告。
+
+覆盖目标只从登记目录取得：习惯反应对应动作名与地点显示名，饮食喜好对应 `meal/snack/drink` 商品名，媒体对应五个内容形式标签与全部 app 名。
 
 <a name="contracts-运行输入警告"></a>
 ### 运行输入警告
@@ -2374,6 +2408,10 @@ LabelKit-DataSet 已保存本次移交的来源快照并核对摘要；整合后
 
 警告形状为 `{code, agent_id, message, details}`，场景级地点警告的 `agent_id=null`。每条写 warn 操作日志，查看器读取实际清单；`null` 表示未计算，空列表表示没有警告。
 
+覆盖目标只从登记目录取得：习惯反应对应动作名与地点显示名，饮食喜好对应 `meal/snack/drink` 商品名，媒体对应五个内容形式标签与全部 app 名。
+
+`CONTENT_EMPTY_WITH_MEDIA_TASTES` 在没有任何内容带非空 `app_ids` 时发出。
+
 <a name="contracts-cli"></a>
 ## CLI 命令接口
 
@@ -2381,7 +2419,7 @@ LabelKit-DataSet 已保存本次移交的来源快照并核对摘要；整合后
 
 | 命令 | 参数 | 行为 |
 | --- | --- | --- |
-| `validate --scenario` | `--scenario PATH` | 校验场景、语料、依赖、规则和目标数据合同，不启动人物；结果的 `input_warnings` 列出与新建运行同一组运行输入警告（见「运行输入警告」），并逐条写到标准错误流，覆盖率低于 0.8 失败时也先写出 |
+| `validate --scenario` | `--scenario PATH` | 校验场景、登记目录、依赖、固定规则和目标数据合同，不启动人物；结果的 `input_warnings` 列出与新建运行同一组运行输入警告（见「运行输入警告」），并逐条写到标准错误流，覆盖率低于 0.8 失败时也先写出 |
 | `run` | `scenario_path`, `output_dir`，可选 `--same-second-continuation on\|off`（缺省 `on`） | 从明确场景新建运行目录，经 AS2 执行到场景终点；已存在的运行目录不能被覆盖；同秒续接开关冻结进清单 `stages.action.same_second_continuation` 与人物配置（见「思考回传」），`resume`、`replay` 不接受该参数，继承父清单的值 |
 | `resume` | `parent_checkpoint`, `output_dir` | 指定父运行和完整检查点，在新的运行目录恢复；不允许隐式新建 |
 | `replay` | `parent_checkpoint`, `intervention`, `output_dir` | 指定父运行、共同检查点及一次余额条件干预，在新反事实分支实际执行 |
@@ -2398,6 +2436,8 @@ LabelKit-DataSet 已保存本次移交的来源快照并核对摘要；整合后
 | `validate --environment` | `--environment ROOT` 校验目录登记、重生成地图、语料清单、三份包 TOML 与全部场景；每个失败输出稳定码与英文原因，任一失败非零退出 |
 
 `validate --scenario` 与 `validate --environment` 二选一。项目校验继续执行 AS2 锁定、依赖、阶段身份和覆盖率 0.8 检查；环境校验不启动完整引擎。
+
+`validate --scenario` 不输出 `corpus_entries`；`validate --environment` 成功结果为 `{valid, environment_id, environment_version, scenarios}`，不读取语料或检查规则副本。
 
 <a name="contracts-运行状态枚举"></a>
 ### 运行状态枚举
@@ -2524,3 +2564,4 @@ RunPhase = Literal[
 | `2026-10-06-rrs-work` | 2026-10-07 | 工作主题、实际工时累计、单一行动阶段与最终人物工具面；删除工作开放、截止、材料、提交与评审合同 |
 | `2026-10-06-rrs-record` | 2026-10-07 | 阶段 7：导出清单 3、质量报告 5、交付清单 3、app 使用五类事实与运行诊断组件闭集 |
 | `2026-10-07-repository-ownership` | 2026-10-07 | 按用户裁决收敛目录与职责：WorldMock 保留模拟、记录、完整认证足迹与评估；下游加工、模型任务、训练和规则数据归 LabelKit-DataSet，源码快照已接收，新消费验收另记实际证据 |
+| `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |

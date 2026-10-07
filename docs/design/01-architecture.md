@@ -1,28 +1,31 @@
 <a name="architecture-worldmock-产品设计说明书-总体架构"></a>
 # WorldMock 产品设计说明书 — 总体架构
 
-> 2026-10-07：按资源与规则引擎简化规格同步剩余系统规则、最终提示身份与查看器（阶段 6）。
-
-> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「地图与门店供给的交接」、「3.1 准备与初始化」、「6.1 配置与运行入口」、「6.2 状态与记录」、「5. 现有代码与职责的对应关系」、「1.1 系统定位」、「3.2 观察、行动与执行」、「4. 已采用的设计决策」、「实际生产依赖与状态归属」（阶段 2）；「2.3 状态归属与写入边界」（阶段 3）。
-
 > **状态**：DRAFT；职责设计，现行接口与行为以所属合同和规格为准；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）\
+> **日期**：2026-10-07
+> **版本**：v1.17
 > **工具交互修订**：按[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结本次设计；本次修订已实现，既有验收不覆盖新行为。
 > **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D1 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。
 > **让「等待」成为例外修订**：按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「3.3 事件驱动的时间推进」（阶段 1）与「6.2 状态与记录」（阶段 1、阶段 2、阶段 3）。
 > **同时做两件事修订**：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「2.3 状态归属与写入边界」与「6.2 状态与记录」（阶段 1）。
-> **日期**：2026-10-07
-> **版本**：v1.16
 > **目标读者**：架构师、开发工程师、系统工程师
+
+> 2026-10-07：按资源与规则引擎简化规格同步剩余系统规则、最终提示身份与查看器（阶段 6）。
+
+> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「地图与门店供给的交接」、「3.1 准备与初始化」、「6.1 配置与运行入口」、「6.2 状态与记录」、「5. 现有代码与职责的对应关系」、「1.1 系统定位」、「3.2 观察、行动与执行」、「4. 已采用的设计决策」、「实际生产依赖与状态归属」（阶段 2）；「2.3 状态归属与写入边界」（阶段 3）。
 
 本文承接[概述](00-overview.md#overview-worldmock-产品设计说明书-概述)，说明数字人、资源引擎、交换引擎、模拟引擎和记录引擎如何协作，
 以及数字足迹如何进入数据交付与行为评估。各引擎的内部规则由所属设计文档维护；
 跨模块字段与调用合同见[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)，文档权威归属见[文档入口](../INDEX.md#index-worldmock-文档入口)。
 职责划分不代表对应实现已经拆成独立服务，也不构成实现完成或真实运行验收。
 
+> 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界」（阶段 1）。
+
 具体环境及制作工具按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)归 WorldMock-Dataset，
-正式环境为 `environment/zhangjiang-baseline/`；WorldMock 提供引擎及包内固定通用规则。
-本章的 `catalog/`、`corpora/`、`scenarios/` 指外部环境目录，命令以 WorldMock 为当前工作目录并显式传路径。
-当前场景结构 7，环境钉与目录登记在启动前校验，发布图只读；完整组合放行另核对实际收据。
+正式重制环境路径由 WorldMock-Dataset 发布决定；WorldMock 提供引擎及包内固定通用规则。
+本章的 `catalog/`、`scenarios/` 指外部环境目录，命令以 WorldMock 为当前工作目录并显式传路径。
+当前场景结构 8、世界结构 11；类别、使用方式、效果与供给表由 WorldMock 固定，
+环境只登记对象、绑定与价格、内容时长、集数三种数；新组合放行另核对实际收据。
 
 <a name="design-01-architecture-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
@@ -129,7 +132,7 @@ LifeEnv 与活动属于模拟引擎的执行职责；数字足迹、检查点和
 
 | 对象 | 负责方 | 修改边界 |
 | --- | --- | --- |
-| 固定资源目录、地图地点、食品与 app 绑定、内容与来源语料 | 资源引擎 | 运行前准备和发布；运行期按绑定版本查询与读取 |
+| 固定目录中的 app、地点、商品、动作、内容、绑定与图 | 资源引擎 | 运行前准备和发布；运行期按绑定版本查询与读取 |
 | 包内固定交换常数与算子 | 交换引擎 | 随引擎发布维护；运行时根据输入事实求值并返回结果 |
 | 共享时钟、余额、订单、食品持有、身体状态、活动进度、地点会话、当日计划与提醒、未完成的个人事务及其提醒 | 模拟引擎中的生活环境 | 收齐动作后有序受理，按实际经过时间和规则结果更新；个人事务由人物在播报、暂停与收尾请求里新增、更新或取消，与该请求的活动状态转换同一事务提交，办成只由确定性环境代码按结算证据写入；事务是人物记下的打算，随人物状态保存但不是世界事实，文字只用于呈现，不参与结算与完成判定，不改变余额、食品持有、身体、订单与验收 |
 | 数字人的记忆与工作区 | 数字人 | 依观察、执行反馈和记忆流程更新；记忆写入点为 `conclude_activity` 与就寝反思两处（就寝反思经唯一的严格工具 `submit_reflection` 提交，引用须取自本次输入的记忆，不合合同的输出不写入任何洞见），阈值巩固不变；由模拟引擎协调共同保存边界。提示中的记忆层是构建提示时由环境从已提交事件与世界状态派生的视图，不新增持久状态（构建结果随观察事件保存，并写进人物工作区的只读问答快照）；关系与偏好在人设层按对象原地呈现；个人事务不是记忆、不属人物工作区，随世界状态里的人物状态保存，宿主不得旁路写入 |
@@ -152,7 +155,7 @@ LifeEnv 与活动属于模拟引擎的执行职责；数字足迹、检查点和
 这条交接沿用现有 AS2 人物循环、记忆存储和检查点，不增加第二套运行或记忆框架。
 完整行为与验收见[一日行为规格](../dev/SPEC-dayrun-behavior.md#spec-dayrun-behavior-一日行为可信性特性开发规格)。
 
-目录食品价格与菜单不可变，没有营业、报价、店铺库存或工作日历状态归属；工作安排仍是声明的班次事实。
+目录商品价格与菜单不可变，没有营业、报价、店铺库存或工作日历状态归属；工作安排仍是声明的班次事实。
 
 <a name="architecture-端到端数据流"></a>
 ## 3. 端到端数据流
@@ -162,19 +165,19 @@ LifeEnv 与活动属于模拟引擎的执行职责；数字足迹、检查点和
 
 ```mermaid
 flowchart LR
-    SRC[环境目录、发布图与语料] --> R[资源引擎<br/>整理、校验并发布固定版本]
-    RULE[活动条件与投入产出声明] --> X[交换引擎<br/>维护并校验规则及引用]
-    R -->|定义与属性| X
-    CONF[场景配置<br/>数字人、时间、地点、交互菜单、工作安排与初值] --> S[模拟引擎<br/>绑定版本并初始化世界]
-    R --> S
+    D[数据仓发布目录与场景] --> R[资源引擎登记六个目录文件与图]
+    P[WorldMock 包固定规则] --> X[交换引擎规则与常数]
+    R --> S[核对场景结构 8 与环境钉]
     X --> S
-    PERSON[数字人画像与工作区] --> S
-    S --> F[记录引擎<br/>保存运行身份与初始状态]
+    A[人物画像与账户身体初值] --> S
+    S --> W[初始化世界结构 11]
+    W --> F[记录运行清单 4 与初始状态]
 ```
 
-场景决定本次运行使用哪些人物、资源、规则、时间范围，以及地点类与人物的交互菜单和每个人物的工作安排（必填，可为 null）。
-资源引擎统一登记对象、绑定、文件身份和发布图；交换引擎提供包内固定规则；模拟引擎加载场景结构 7，核对环境钉并建立世界结构 10 的状态。图不在运行中重生成，菜单不在运行中抽样。
-缺少必要定义、规则或素材时明确失败，不补造可继续运行的世界。
+目录清单恰列 `apps.json`、`locations.json`、`goods.json`、`actions.json`、`contents.json`、`map.json`。
+资源引擎登记与冻结对象及反向索引；模拟引擎负责内容选择、实际进度与历史。
+不读取 `corpora/`，规则只从包读取。场景决定人物、地点、工作安排、菜单、时间与初值。
+缺少必要定义、规则或素材即明确失败，不补造可继续运行的世界。
 
 <a name="architecture-地图与门店供给的交接"></a>
 ### 地图与门店供给的交接
@@ -193,8 +196,10 @@ flowchart LR
 
 场景结构 `7` 钉目录身份，只选择地点。地点恰有身份、名称、分店标签、类型与 app 绑定五个字段；类型派生活动环境。
 图覆盖全目录节点，场景选择不裁切路径。随机连通加权图由 WorldMock 生成、Dataset 发布，最短路等长按完整路径元组字典序决胜。
-同种食品店铺共享菜单，食品全店同价，`"all"` 不包含住宅；外卖覆盖全图，没有营业、资格、库存或道路状态。
+同种商品店铺共享菜单，商品全店同价，`"all"` 不包含住宅；外卖覆盖全图，没有营业、资格、库存或道路状态。
 只读查询与耗时发现保持各自的时间和证据边界，图查询不刷新世界。运行清单与检查点核对 `environment_identity`，出行保存 `trip_id`、`path` 和 `distance_meters`。
+
+店铺类型可供给的商品类别由 `GOODS_CATEGORY_STORE_KINDS` 固定，目录绑定不能覆盖该表。
 
 <a name="architecture-观察行动与执行"></a>
 ### 3.2 观察、行动与执行
@@ -342,7 +347,7 @@ flowchart LR
 | 职责 | 现有承载位置 | 详细设计 |
 | --- | --- | --- |
 | 数字人 | [LifeAgent](../../custom/agents/life_agent.py)、[就寝反思工具](../../src/worldmock/agents/life_reflection.py)、[人物画像](../../src/worldmock/profile)、AgentSociety 2 人物与记忆模块 | [人物规格](../dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像) |
-| 资源引擎 | [目录登记、加载与图查询](../../src/worldmock/catalog)、[通用语料加载](../../src/worldmock/corpora)、[内容读取](../../src/worldmock/life/content.py)及检索、呈现模块 | [资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎) |
+| 资源引擎 | [目录登记、加载与图查询](../../src/worldmock/catalog)及只读反向索引；内容选择与进度由模拟引擎负责 | [资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎) |
 | 交换引擎 | [固定类型、常数与算子](../../src/worldmock/exchange)、[固定活动声明](../../src/worldmock/data/affordances.toml)、[资源分录计算与校验](../../src/worldmock/resources)及生活模型中的条件、费用和报酬规则 | [交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎) |
 | 模拟引擎 | [运行入口](../../src/worldmock/runtime.py)、[LifeEnv](../../custom/envs/life_env.py)、[只读查询转发](../../src/worldmock/life/read_query_runtime.py)、[生活运行逻辑](../../src/worldmock/life/engine.py)及活动、身体和调度模块 | [模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎) |
 | 记录引擎 | [足迹存储](../../src/worldmock/footprints)、[素材存储](../../src/worldmock/footprints/assets.py) | [记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎) |
@@ -361,7 +366,7 @@ LifeEngine 是现有内部代码载体，不作为四个引擎之外的另一项
 | 配置或入口 | 架构职责 | 具体规格 |
 | --- | --- | --- |
 | 场景 | 选择数字人、时间范围、地点、交互菜单、作息覆盖与工作安排、初值，以及资源和规则版本 | [配置设计](08-configuration.md#configuration-worldmock-产品设计说明书-配置规格)、[交互菜单规格](../dev/SPEC-interaction-menu.md#spec-interaction-menu-特性规格交互菜单)、[实验定义](../EXPERIMENT.md#experiment-worldmock-实验设置) |
-| 资源目录与语料 | 提供七份目录、发布图、环境身份及实际可读取语料，统一登记后只读消费 | [资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎) |
+| 资源目录与登记目录 | 提供七份目录、发布图、环境身份及实际可读取登记目录，统一登记后只读消费 | [资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎) |
 | 交换规则 | 声明使用条件、资源占用、转换和履约条件 | [交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎) |
 | 模型凭证 | 在运行环境中读取，不进入仓库或数字足迹 | [配置设计](08-configuration.md#configuration-worldmock-产品设计说明书-配置规格) |
 | 命令行入口 | 发起准备、校验、运行、恢复、查询、导出、交付和评估 | [接口合同](../CONTRACTS.md#contracts-worldmock-接口合同) |
@@ -369,6 +374,12 @@ LifeEngine 是现有内部代码载体，不作为四个引擎之外的另一项
 运行参数与场景选定版本后，由模拟引擎组织目录登记、发布图读取与场景 7 加载，资源和交换引擎分别核验自己的输入。
 具体命令签名和字段只在所属合同维护，不在总体架构中另列一套示例接口。
 Python、AgentSociety 2、SQLite 与模型服务的版本和运行绑定见[实验定义](../EXPERIMENT.md#experiment-worldmock-实验设置)。
+
+现行身份是目录格式 2、`RULES_VERSION = 2`、场景结构 8、世界结构 11、运行清单 4。
+运行、检查点与恢复使用五字段 `environment_identity`：`environment_id`、`environment_version`、
+`rules_version`、`catalog_content_sha256`、`map_sha256`。
+规则文件只从引擎包读取，环境不发布副本，也不添加规则哈希；`code_sha256` 额外覆盖 `src/worldmock/data/` 下每个文件。
+旧格式与旧结构号直接拒绝，不迁移、不双读。
 
 <a name="architecture-状态与记录"></a>
 ### 6.2 状态与记录
@@ -408,15 +419,13 @@ flowchart LR
 状态字段与修改权限见[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)，事件、检查点与导出格式见
 [记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)；输入输出导航见[格式说明](09-io-formats.md#io-formats-worldmock-产品设计说明书-输入输出格式)。
 
-资源与规则引擎简化规格把场景、世界和运行清单分别升为 `7`、`10`、`3`，目录清单与地图结构均为 `1`，旧结构直接拒绝。运行清单使用五字段 `environment_identity`，代码每个代码阶段都改变。
-`tool_schema_sha256` 在固定规则与目录、食品与店铺、app、工作阶段改变；`prompt_sha256` 在食品与店铺、app、工作、Prompt 阶段改变。固定规则与目录及 app 阶段的活动声明字节进入工具身份；食品阶段的请求模型与呈现、工作阶段删除工作提交工具分别进入所属指纹；Prompt 阶段只改系统规则与查看器，不改工具 Schema。
-这些指纹均由实际函数计算，测试和文档不钉任何中间或最终字面值；每阶段按实际清单与收据核验。
+现行身份是目录格式 2、`RULES_VERSION = 2`、场景结构 8、世界结构 11、运行清单 4。
+运行、检查点与恢复使用五字段 `environment_identity`：`environment_id`、`environment_version`、
+`rules_version`、`catalog_content_sha256`、`map_sha256`。
+规则文件只从引擎包读取，环境不发布副本，也不添加规则哈希；`code_sha256` 额外覆盖 `src/worldmock/data/` 下每个文件。
+旧格式与旧结构号直接拒绝，不迁移、不双读。
 
-剩余系统规则已按冻结合同同步：推送时机、并行活动、名称、购买来源与工作主题。
-这次改写只更新最终 `prompt_sha256` 与代码身份，`tool_schema_sha256` 沿用工作阶段已验收的工具面；
-改写前后的运行不能恢复、重放或合并比较。运行中的系统层与工具定义始终保持各自冻结字节。
-
-
+这些指纹由实际函数计算，文档不钉中间或最终字面值；每次验收核对实际清单与回执。
 
 <a name="architecture-验收与实现状态"></a>
 ## 7. 验收与实现状态
@@ -511,3 +520,4 @@ flowchart TD
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
 | `2026-10-06-rrs-prompt` | 2026-10-07 | 剩余系统规则与提示身份、当前 app 和工作主题查看器；工具身份保持已验收形状 |
 | `2026-10-07-repository-ownership` | 2026-10-07 | 按用户裁决收敛目录与职责：WorldMock 保留模拟、记录、完整认证足迹与评估；下游加工、模型任务、训练和规则数据归 LabelKit-DataSet，源码快照已接收，新消费验收另记实际证据 |
+| `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |

@@ -1,4 +1,4 @@
-"""@brief 场景七的严格字段、人物初值、主题和保留工作安排合同。"""
+"""@brief 场景八的严格字段、人物初值、工作内容和保留工作安排合同。"""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 from tests.life.work_schedule_fixtures import STANDARD_SHIFT, weekday_schedule
 from worldmock.catalog import load_catalog
 from worldmock.errors import IntegrityError
-from worldmock.life.scenario import LifeScenario, RuntimeScenario, parse_scenario_document
+from worldmock.life.scenario import LifeScenario, parse_scenario_document
 from worldmock.life.semantics import assemble_semantics
 from worldmock.life.world_setup import load_scenario
 
@@ -22,7 +22,7 @@ _CATALOG = ARTIFICIAL_ENVIRONMENT_ROOT / "catalog"
 _RETIRED_FIELDS = (
     "map_dataset", "products", "supplies", "tasks", "contents", "games", "price_changes", "product_releases",
     "recipe_output_bindings", "phone_simulation_config", "phone_simulation_config_sha256", "catalog_version",
-    "retrieval_index_threshold",
+    "retrieval_index_threshold", "corpus_root", "corpus_manifest_sha256",
 )
 
 
@@ -61,18 +61,19 @@ def _mutated_scenario(source: Path, mutate, target: Path) -> Path:
 
 
 @pytest.mark.parametrize("field", _RETIRED_FIELDS)
-def test_structure_seven_rejects_each_retired_scenario_field(field) -> None:
+def test_structure_eight_rejects_each_retired_scenario_field(field) -> None:
     """@brief 每个退役顶层字段分别按未知字段拒绝。"""
     _assert_invalid({**_payload(), field: {}}, "Extra inputs are not permitted")
 
 
-@pytest.mark.parametrize("field", ["skill_levels", "qualifications"])
-def test_structure_seven_rejects_retired_agent_fields(field) -> None:
+@pytest.mark.parametrize("field", ["skill_levels", "qualifications", "initial_inventory", "lifestyle_activities",
+                                 "work_topic_ids", "motivation"])
+def test_structure_eight_rejects_retired_agent_fields(field) -> None:
     """@brief 画像声明不能继续携带技能或资格字段。"""
     _assert_invalid(_replace(("agents", 0, field), {}), "Extra inputs are not permitted")
 
 
-def test_structure_seven_rejects_body_and_message_retired_fields() -> None:
+def test_structure_eight_rejects_body_and_message_retired_fields() -> None:
     """@brief 身体规则不能由场景覆盖，邮件不能继续引用旧工作合同。"""
     _assert_invalid(_replace(("body", "entertainment_relief_preference_floor"), 0.5), "Extra inputs")
     message = {"message_id": "m", "thread_id": "t", "recipient_agent_id": 1,
@@ -80,24 +81,33 @@ def test_structure_seven_rejects_body_and_message_retired_fields() -> None:
     _assert_invalid(_replace(("messages",), [message]), "Extra inputs")
 
 
-@pytest.mark.parametrize("version", [4, 5, 6])
-def test_structure_seven_rejects_old_scenario_version(version) -> None:
+@pytest.mark.parametrize("version", [4, 5, 6, 7])
+def test_structure_eight_rejects_old_scenario_version(version) -> None:
     """@brief 旧结构号不会触发迁移或字段补齐。"""
-    _assert_invalid(_replace(("schema_version",), version), "Input should be 7")
+    _assert_invalid(_replace(("schema_version",), version), "Input should be 8")
 
 
-@pytest.mark.parametrize("action", ["watch", "play", "browse"])
-def test_structure_seven_rejects_retired_menu_actions(action) -> None:
+@pytest.mark.parametrize("action", ["watch", "play", "browse", "use_app"])
+def test_structure_eight_rejects_retired_menu_actions(action) -> None:
     """@brief 八种地点菜单只能声明新的固定动作。"""
     _assert_invalid(_replace(("interaction_menus_by_location_kind", "home", "allowed_actions"),
                              ["wait", "sleep", action]), "action")
 
 
 @pytest.mark.parametrize("kind", ["merchant", "wet_market"])
-def test_structure_seven_rejects_retired_menu_kinds(kind) -> None:
+def test_structure_eight_rejects_retired_menu_kinds(kind) -> None:
     """@brief 旧地点类别直接被固定枚举拒绝。"""
     _assert_invalid(_replace(("interaction_menus_by_location_kind", kind),
                              {"allowed_actions": ["wait", "sleep"]}), "Input should be")
+
+
+@pytest.mark.parametrize("missing", ["wait", "sleep"])
+def test_structure_eight_requires_both_protected_menu_actions(missing) -> None:
+    """@brief 每个地点的菜单都保留等待与睡眠，删除任意一个在加载前拒绝。"""
+    actions = ["wait", "sleep"]
+    actions.remove(missing)
+    _assert_invalid(_replace(("interaction_menus_by_location_kind", "home", "allowed_actions"), actions),
+                    "missing protected actions")
 
 
 def test_formal_and_multi_person_scenarios_are_valid() -> None:
@@ -106,18 +116,11 @@ def test_formal_and_multi_person_scenarios_are_valid() -> None:
         document, expected_digest = parse_scenario_document(path)
         scenario, digest = load_scenario(path)
         assert digest == expected_digest and len(digest) == 64
-        assert scenario.schema_version == document.schema_version == 7
+        assert scenario.schema_version == document.schema_version == 8
         assert scenario.body.basal_kcal_per_hour == 65
-        assert scenario.body.source_kind == "worldmock:1"
+        assert scenario.body.source_kind == "worldmock:2"
         assert scenario.transport_account_id == "transport:service"
-        assert scenario.agents[0].work_topic_ids == ("topic-sales",)
-
-
-@pytest.mark.parametrize("holding", [{"home": {"chips": 0}}, {"home": {"chips": -1}},
-                                      {"home": {"chips": float("inf")}}, {"unknown": {"chips": 1}}])
-def test_initial_inventory_shape_rejects_invalid_holdings(holding) -> None:
-    """@brief 初始食品持有不能包含非正份数或未知地点。"""
-    _assert_invalid(_replace(("agents", 0, "initial_inventory"), holding), "inventory")
+        assert scenario.agents[0].work_content_ids == ("topic-sales",)
 
 
 @pytest.mark.parametrize(("path", "value"), [(("body", "mass_kg"), 0),
@@ -195,13 +198,13 @@ def test_runtime_agents_keep_the_declared_rhythm_fields() -> None:
         del payload["agents"][0][name]
     document = LifeScenario.model_validate(payload)
 
-    agent = assemble_semantics(document, load_catalog(_CATALOG), ARTIFICIAL_ENVIRONMENT_ROOT / "corpora").scenario.agents[0]
+    agent = assemble_semantics(document, load_catalog(_CATALOG)).scenario.agents[0]
 
     assert agent.model_fields_set & rhythm == {"chronotype_midsleep"}
     assert (agent.sleep_need_hours, agent.lunch_window, agent.bedtime_window) == (7.5, None, None)
     assert agent.model_dump() == document.agents[0].model_dump()
     declared = LifeScenario.model_validate(_payload())
-    assembled = assemble_semantics(declared, load_catalog(_CATALOG), ARTIFICIAL_ENVIRONMENT_ROOT / "corpora").scenario.agents[0]
+    assembled = assemble_semantics(declared, load_catalog(_CATALOG)).scenario.agents[0]
     assert assembled.model_fields_set & rhythm == declared.agents[0].model_fields_set & rhythm
 
 
@@ -251,13 +254,13 @@ def test_work_schedule_shape_errors_are_rejected(edit, message: str) -> None:
 def test_every_agent_declares_work_schedule_and_structure_four_is_rejected(tmp_path: Path) -> None:
     """`work_schedule` 是人物配置的必填可空字段（4.3，裁决 W3）：删掉该键的文档经场景模型与真实入口
     （parse_scenario_document 与 load_scenario）都被拒、原因点名该字段，写 null 照常加载，合法的工作安排照常加载；场景
-    结构版本为 6，键仍在而版本写回 4 的文档经同样两个真实入口按版本拒绝。"""
+    结构版本为 8，键仍在而版本写回 4 的文档经同样两个真实入口按版本拒绝。"""
     missing = _payload()
     del missing["agents"][0]["work_schedule"]
     _assert_invalid(missing, r"agents\.0\.work_schedule\n\s+Field required")
     nullable = _payload()
     nullable["agents"][0]["work_schedule"] = None
-    nullable["agents"][0]["work_topic_ids"] = []
+    nullable["agents"][0]["work_content_ids"] = []
     assert LifeScenario.model_validate(nullable).agents[0].work_schedule is None
     declared = _payload()
     declared["agents"][0]["work_schedule"] = weekday_schedule(declared)
@@ -272,10 +275,10 @@ def test_every_agent_declares_work_schedule_and_structure_four_is_rejected(tmp_p
                 entry(path)
             assert field in str(failure.value.__cause__)
 
-    path = _mutated_scenario(_FORMAL, lambda document: document["agents"][0].update(work_schedule=None, work_topic_ids=[]),
+    path = _mutated_scenario(_FORMAL, lambda document: document["agents"][0].update(work_schedule=None, work_content_ids=[]),
                              tmp_path / "null-work-schedule")
     scenario, _ = load_scenario(path)
-    assert scenario.schema_version == 7
+    assert scenario.schema_version == 8
     assert scenario.agents[0].work_schedule is None
 
 

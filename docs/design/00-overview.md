@@ -1,22 +1,25 @@
 <a name="overview-worldmock-产品设计说明书-概述"></a>
 # WorldMock 产品设计说明书 — 概述
 
+> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）<br>
+> **日期**：2026-10-07
+> **版本**：v1.14
+> **工具交互修订**：按[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结本次设计；本次修订已实现，既有验收不覆盖新行为。
+> **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D0 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。
+> **共享规则与可重建环境修订**：按[冻结规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)同步框架职责、固定依赖与平台验收要求；实际证据见[本特性验收记录](../dev/shared-rules-and-rebuildable-env-verification.md)。
+> **目标读者**：开发工程师、算法工程师、测试工程师、产品经理
+
 > 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题工程依据。
 
 > 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「地图中的消费行为」（阶段 2、阶段 3）与「需求映射表、核心术语、算法与工程背书总表、设计决策、非功能约束、设计假设、开放问题、参考文献」（阶段 4）。
 
-> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）<br>
-> **工具交互修订**：按[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结本次设计；本次修订已实现，既有验收不覆盖新行为。
-> **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D0 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。
-> **共享规则与可重建环境修订**：按[冻结规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)同步框架职责、固定依赖与平台验收要求；实际证据见[本特性验收记录](../dev/shared-rules-and-rebuildable-env-verification.md)。
-> **日期**：2026-10-07
-> **版本**：v1.13
-> **目标读者**：开发工程师、算法工程师、测试工程师、产品经理
+> 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界」（阶段 1）。
 
 具体环境及制作工具按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)归 WorldMock-Dataset，
-正式环境为 `environment/zhangjiang-baseline/`；WorldMock 提供引擎及包内固定通用规则。
-本章的 `catalog/`、`corpora/`、`scenarios/` 指外部环境目录，命令以 WorldMock 为当前工作目录并显式传路径。
-当前场景结构 6，内容标题必填，活动效果随环境加载并在启动时冻结；新组合放行另核对实际收据。
+正式重制环境路径由 WorldMock-Dataset 发布决定；WorldMock 提供引擎及包内固定通用规则。
+本章的 `catalog/`、`scenarios/` 指外部环境目录，命令以 WorldMock 为当前工作目录并显式传路径。
+当前场景结构 8、世界结构 11；类别、使用方式、效果与供给表由 WorldMock 固定，
+环境只登记对象、绑定与价格、内容时长、集数三种数；新组合放行另核对实际收据。
 
 <a name="overview-文档定位"></a>
 ## 文档定位
@@ -101,14 +104,17 @@ flowchart TB
 | 术语 | 定义 |
 | --- | --- |
 | **数字人（人物，`LifeAgent`）** | 被模拟的人，具有人格、需求、记忆与决策能力；`LifeAgent` 是其代码实现，继承 AgentSociety 2 的 `PersonAgent` |
-| **[资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎)** | 管理食品、app、内容、工作对象及其来源与版本；提供固定食品菜单、app 绑定内容和目录查询，不维护第二套内容检索状态 |
+| **[资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎)** | 登记 app、地点、商品、动作、内容及其绑定；严格校验后提供冻结对象、反向索引与只读查询 |
 | **[交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎)** | 维护注册表中的交换规则及其引用关系；运行时查询适用规则、校验交换条件、计算投入产出、校验资源分录并返回规则结果，例如判定购买条件、计算食品数量与付款金额、依合同计算报酬 |
 | **[模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎)** | 组织数字人与生活环境（`LifeEnv`）的交互，提供观察与决策机会，推进共享时钟和实际活动，计算身体变化与效率，调用交换规则并落实状态变化，编排恢复与实际反事实运行 |
 | **[记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)** | 保存并关联模拟引擎提交的观察、决策、执行、状态变化、结果与记忆，核验记录一致性并导出数字足迹；保存共同检查点、构建分支存储并提供恢复材料，保留原分支与来源关系；恢复后的执行由模拟引擎编排 |
 | **LabelKit-DataSet 数据加工** | 消费记录引擎的认证导出，通过 LabelKit 加工训练数据与规则夹具；离线经历回顾、反思与假设推演（Dreaming）在此进行，默认不写回运行中的数字人 |
-| **app** | 人物选择的娱乐入口；所有登记 app 始终显示，环境只从该 app 绑定的内容中抽取并推进全局内容进度 |
+| **app** | 带固定用途、可被动作绑定的渠道；用途可为空，导航、购物与支付候选由目录用途确定 |
 | **app 推送** | 当前地点会话内的一条 app 内容提醒；状态依次为 pending、opened、released，人物可以不打开 |
-| **工作主题** | 场景分配给人物的工作累计单位；目录给出目标工时，人物的非失败工作活动按实际经过秒数累计 |
+| **分配的工作内容** | 场景 `work_content_ids` 指向的工作与学习内容；目标工时来自内容时长 |
+| **动作** | 数据集命名的行为，属于五个固定类别之一；可绑定 app 并取一种使用方式 |
+| **内容** | 绑定恰好一个动作，带标题、摘要与时长；时长决定执行时间 |
+| **商品** | 属于五个固定类别，按固定收货效果结算的目录对象 |
 
 <a name="overview-缩写"></a>
 ### 2.2 缩写
@@ -134,7 +140,7 @@ flowchart TB
 | **唯一写入者** | 只有环境可写入数据库，避免并发冲突与状态不一致 | 事件溯源（Event Sourcing）模式 |
 | **完整足迹** | 记录决策、执行、状态变化、结果的完整过程，不丢弃中间态 | 可审计系统设计原则 |
 | **来源可追溯** | 每一条数据必须可追到原始来源：规则产生、模型生成或外部服务 | 数据血缘（Data Lineage）标准实践 |
-| **离线语料** | 语料前置整理并固化版本，运行期只读，避免世界被动态改写 | 实验可复现性要求 |
+| **离线语料** | 环境只经目录登记进入引擎，引擎不读语料；真实名称、合成或有出处的摘要与合成数值由数据仓目录提供 | 实验可复现性要求 |
 | **检查点恢复** | 支持从任意检查点建立新分支，原运行保持不变 | 版本控制系统范式 |
 | **失败即失败** | 故障不自动补造结果，状态异常立即中止 | Fail-fast 原则 |
 
@@ -165,7 +171,7 @@ flowchart TB
 | 购买食品与实际进食分别结算，进食按热量与食品利用效率补充能量 | [模拟引擎](04-simulation-engine.md#simulation-engine-推进实际活动)「推进实际活动」与[交换投入产出](02-exchange-engine.md#exchange-engine-计算投入产出) | DRAFT |
 | 睡眠改变睡眠压力并恢复睡眠不足，睡眠期间仍消耗能量 | [模拟引擎](04-simulation-engine.md#simulation-engine-实际区间身体变化与效率)「实际区间、身体变化与效率」 | DRAFT |
 | 覆盖 app 使用与 app 内容、邮件、导航、购物 | [资源引擎](03-resource-engine.md#resource-engine-交换对象与内容条目)「交换对象与内容条目」 | DRAFT |
-| 内容来自固化的开源语料 | [资源引擎](03-resource-engine.md#resource-engine-整理与固化语料)「整理与固化语料」 | DRAFT |
+| 真实 app 与作品名、合成或有出处的摘要和合成数值由数据仓目录登记 | [资源引擎](03-resource-engine.md#resource-engine-整理与固化语料)「整理与固化语料」 | DRAFT |
 | 人物画像影响行为偏好 | [人物决策与画像规格](../dev/SPEC-life-realism.md#spec-life-realism-画像编译)「画像编译」 | FROZEN |
 | 决策不耗时，时间只在人人有进行中活动且没有待收尾活动时推进 | [模拟引擎](04-simulation-engine.md#simulation-engine-推进共享时钟)「推进共享时钟」与[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第一章 | DRAFT |
 | 零点计划：场景本地零点由运行时后台任务生成当日计划，不经人物；目标可带提醒 | [模拟引擎](04-simulation-engine.md#simulation-engine-接收当日目标并记录实际推进)「接收当日目标并记录实际推进」与[时间与能量规格](../dev/SPEC-day-plan-goals.md#time-and-energy-零点计划与计划提醒)第四章 | DRAFT |
@@ -208,7 +214,7 @@ flowchart TB
 | 时间推进 | 决策不耗时；没有进行中活动或有待收尾活动者同一秒再决策，人人有事且无待收尾后按下一事件推进 |
 | 世界状态 | 由环境集中维护，环境是唯一写入者 |
 | 内容来源 | 离线整理并固化版本，运行期只读，保证实验可复现 |
-| 内容提供 | app 与内容显式绑定；抽取只读冻结随机状态和固定键，保证恢复与重演得到同一序列 |
+| 内容提供 | 内容→动作→可选的 app 显式绑定；抽取只读冻结随机状态和固定键，保证恢复与重演得到同一序列 |
 | 存储方案 | SQLite 保存结构化数据并提供事务保证，素材以文件引用关联 |
 | 人物并发 | 复用 AgentSociety 2 的 Ray 多进程机制 |
 | 恢复策略 | 在新分支目录恢复，保留父运行 |
@@ -236,7 +242,7 @@ flowchart TB
 | DeepSeek API 可稳定提供服务 | 记录并传播服务故障，保持固定模型身份，不替换模型 |
 | 单人物场景足以验证系统可行性 | 需重新设计多人物协调机制 |
 | 12 周时间跨度足以覆盖日常行为模式 | 需调整实验时长 |
-| app 与内容的显式绑定足以支撑人物选择入口、环境抽取内容和完整来源追溯 | 需重新评估内容目录与 app 绑定合同 |
+| 内容→动作→可选的 app 的显式绑定足以支撑人物选择入口、环境抽取内容和完整来源追溯 | 需重新评估内容目录与 app 绑定合同 |
 | SQLite 事务性能足以支撑实时记录 | 需评估批量提交或其他数据库 |
 
 <a name="overview-开放问题后续版本议题"></a>
@@ -249,7 +255,7 @@ flowchart TB
 | 长期记忆压缩 | 提示中的记忆层按 session 派生、零点分区，限 8000 字符窗口；未完成的个人事务逐条留在待办层（每人至多 8 条），不占该窗口；记录全量保留 | v2.0 考虑记忆重要性评分与压缩 |
 | 实时交互界面 | v1.0 纯批处理 | v3.0 考虑实时观察界面 |
 | 模型微调反馈 | v1.0 固定模型 | v3.0 考虑在线学习 |
-| 更多 app 内容类型 | v1.0 固定文章、图文、短视频、长视频与实况五类 | 后续版本须先扩展冻结类型与缓解速率，再发布新环境 |
+| 更多 app 内容类型 | 文章、图文、短视频、长视频与实况五种形式只属娱乐类；动作固定五个类别 | 后续版本须先扩展冻结类型与缓解速率，再发布新环境 |
 | 更多地理区域 | v1.0 上海张江 | v2.0 支持多城市场景 |
 
 <a name="overview-参考文献"></a>
@@ -262,6 +268,7 @@ flowchart TB
 - Git Internals - Scott Chacon
 - [资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送)：app 绑定、确定性抽取、推送与全局内容进度
 
+- [动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)：固定规则、目录格式与加载边界。
 
 <a name="design-overview-current-responsibility"></a>
 ## 当前实现与验收入口
@@ -286,7 +293,6 @@ flowchart TB
 | v1.9 | 2026-10-03 | 同步个人事务与工作安排规格阶段 3（实施计划 D0-07）：需求映射增作息与工作安排一行；文件头修订行改为已落地阶段 1–4（阶段 3 在自己的分支上开发，在阶段 2、4 之后并入） |
 | v1.10 | 2026-10-04 | 个人事务与工作安排规格实现后文档（实施计划 D0-14）：文件头修订行注明已实现并链接个人事务与工作安排验收记录（证据为离线测试，规格阶段 6 的配对全天复跑未执行）；正文不变 |
 | 环境数据归属 | 2026-10-05 | 按环境数据归属规格同步双仓职责、包内通用规则与显式环境路径；场景结构 6、必填标题和冻结活动效果按正文说明，最终验收另记实际收据 |
-
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 当前职责对象与依赖方向、五项行为正文归属、固定历史来源和稳定引用；业务与持久合同保持不变 |
 | v1.11 | 2026-10-05 | 按共享规则与可重建环境规格同步 AS2 生命周期与 WorldMock 生活业务职责、Python 3.12、固定模型故障传播、相对交付引用、Windows 核心与重建验收要求及 Linux x86_64/TextWorld 与 aarch64 安装边界；验收要求不代表已经通过 |
 | `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
@@ -294,3 +300,4 @@ flowchart TB
 | `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：娱乐入口统一为 app，内容由 app 绑定、确定性抽取、推送优先并使用全局进度；删除 TextWorld、旧游戏与 facet 设计。版本保持 v1.13。 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题累计的工程依据，版本号不变 |
 | `2026-10-07-repository-ownership` | 2026-10-07 | 按用户裁决收敛目录与职责：WorldMock 保留模拟、记录、完整认证足迹与评估；下游加工、模型任务、训练和规则数据归 LabelKit-DataSet，源码快照已接收，新消费验收另记实际证据 |
+| `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |

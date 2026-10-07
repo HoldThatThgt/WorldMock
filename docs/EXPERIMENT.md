@@ -1,6 +1,8 @@
 <a name="experiment-worldmock-实验设置"></a>
 # WorldMock 实验设置
 
+> 按[动作与内容简化规格](dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界」（阶段 1）。
+
 > 2026-10-07：按资源与规则引擎简化规格同步剩余系统规则、最终提示身份与查看器（阶段 6）。
 
 > 2026-10-07：按[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题实验参数。
@@ -35,9 +37,14 @@
 <a name="experiment-环境发布与运行身份"></a>
 ### 环境发布与运行身份
 
-环境由 Dataset 发布，WorldMock 源码仓只保留重写的人工环境。正式来源、数量与重建验收在 Dataset 完成，完整回归显式传重制后的 `--environment-root`。
-运行身份为 `environment_identity{environment_id, environment_version, rules_version, catalog_content_sha256, map_sha256}`；场景结构 7 使用环境标识和版本钉。目录只提供对象与绑定，系统分类、身体、出行与交换常数来自 `worldmock.exchange`。
-生活活动效果仍来自实际条目并在启动时冻结；标题与摘要来自 `contents.json`，真实与合成来源明确标记。包 TOML 副本逐字节一致；历史模型运行、导出和冻结输入不改写，不能作为当前代码的新运行证明。
+现行身份是目录格式 2、`RULES_VERSION = 2`、场景结构 8、世界结构 11、运行清单 4。
+运行、检查点与恢复使用五字段 `environment_identity`：`environment_id`、`environment_version`、
+`rules_version`、`catalog_content_sha256`、`map_sha256`。
+规则文件只从引擎包读取，环境不发布副本，也不添加规则哈希；`code_sha256` 额外覆盖 `src/worldmock/data/` 下每个文件。
+旧格式与旧结构号直接拒绝，不迁移、不双读。
+
+环境由数据仓发布，WorldMock 只保留人工环境；完整回归显式传入重制环境的 `--environment-root`。
+类别、使用方式、效果与供给表由系统固定，内容标题与摘要来自目录。历史模型运行和导出不改写，也不证明当前版本的新运行。
 
 <a name="experiment-时间窗与日历情境"></a>
 ## 时间窗与日历情境
@@ -263,7 +270,7 @@ WorldMock 不声明这些下游依赖，也不安装或调用 LabelKit。来源�
 
 | 标签 | 取值与来源 |
 | --- | --- |
-| 食品热量 | 按 `FoodCategory` 每份固定：零食 200、饮品 100、正餐 600 千卡；`FOOD_CONSTANTS` |
+| 食品热量 | 按 `GoodsCategory` 每份固定：零食 200、饮品 100、正餐 600 千卡；`GOODS_ENERGY_KCAL` |
 | 出行费力 | 按身体常数中的出行 MET 分档，保留既有体感呈现 |
 
 标签仅给可读事实，人物不读取身体准确数值。食品常数与实际摄入、身体利用效率分别留证，不用真实营养数据掩盖固定仿真假设。
@@ -274,26 +281,25 @@ WorldMock 不声明这些下游依赖，也不安装或调用 LabelKit。来源�
 | 量 | 当前仿真假设 |
 | --- | --- |
 | 人物与外部账户初值 | 场景显式声明，人物账户由 `initial_balance_fen` 建立 |
-| 食品价格 | `foods.json.price_fen` 正整数分，同食品全店同价 |
+| 商品价格（含非食品） | `goods.json.price_fen` 正整数分，同商品全店同价 |
 | 驾车车费 | `max(500, ceil(Decimal("0.2") × 图距离米))` 分；步行 0 |
 | 配送费 | 500 分/单，货款与配送费同一笔付给 `merchant:<store_id>` |
 | 配送时间 | 备餐 600 秒加 `ceil(图距离米 / 5.0)` 秒 |
 | 出行时间 | 步行 1.2 米/秒，驾车 7.0 米/秒，向上取整 |
 
-费用与速度常数归 `worldmock.exchange`，由 `RULES_VERSION = 1` 绑定。无工作包、计时或计件交换；工作主题进度与工资账单由所属行为阶段接入。数值是仿真假设，不能当作具体真实门店的报价事实。
+费用与速度常数归 `worldmock.exchange`，由 `RULES_VERSION = 2` 绑定。无工作包、计时或计件交换；工作内容由场景分配，工资仅来自明确登记的薪资事件。数值是仿真假设，不能当作具体真实门店的报价事实。
 
 <a name="experiment-工作参数"></a>
-
 ### 工作参数
 
-| 参数 | 取值 | 单位 | 依据 |
-| --- | --- | --- | --- |
-| 工作主题 | 由 `work_topics.json` 登记，人物只通过 `agents[].work_topic_ids` 分配 | - | 场景与目录冻结身份 |
-| 目标工时 | `target_hours` 为有限正数，`round(target_hours × 3600)` 至少为 60 | 小时 | 目录准入时换算为 `target_seconds` |
-| 累计工时 | 本人物、本主题全部非失败工作活动的实际经过秒数之和 | 秒 | `work_totals`；暂停、休息和并行的非工作活动不计 |
-| 单次时长 | `min(target_seconds − worked_seconds, DERIVED_DURATION_CAP_SECONDS)` | 秒 | 开始与恢复共用；剩余不足 60 秒拒绝 |
+| 参数 | 当前合同 |
+| --- | --- |
+| 工作内容 | `contents.json` 登记工作与学习内容，人物通过 `agents[].work_content_ids` 分配 |
+| 目标工时 | 分配内容的 `duration_seconds`，单位秒，登记下限 60 |
+| 工作安排 | `work_schedule` 指定工作地点、每周班次与日期例外 |
+| 加载供给 | 有排班就至少分配一条内容，全部分配时长不少于运行区间内的排班秒数 |
 
-主题参数只含稳定身份、名称与目标工时。工资只来自场景明确登记的 `payrolls[]`，不从主题累计推导。
+工资只来自场景登记的 `payrolls[]`，不从内容完成或目标时长推导。
 
 <a name="experiment-活动节奏与同刻决策上限"></a>
 ### 活动节奏与同刻决策上限
@@ -327,32 +333,32 @@ WorldMock 不声明这些下游依赖，也不安装或调用 LabelKit。来源�
 
 | 内容类型 | 本次确定方案 |
 | --- | --- |
-| 食品 | 登记目录保留真实食品名称，类别仅 snack、drink、meal；价格显式为合成假设，热量和食用时长来自固定类别常数 |
-| app 内容 | `contents.json` 登记真实作品名、完整摘要、摘要来源、时长与至少一个绑定 app；类型闭集为 article、image_text、short_video、long_video、live，不登记字幕、音轨、分段资产、游戏或评估引用 |
-| 工作 | `work_topics.json` 登记主题与目标工时；人物经 `work_topic_ids` 分配，按实际工作秒数累计；内容目录不承载工作输入或答案 |
+| 食品 | 登记目录保留真实食品名称，类别仅 snack、drink、meal；价格显式为合成假设，热量来自固定类别常数 |
+| app 内容 | `contents.json` 登记真实作品名、完整摘要、摘要来源、时长、动作与合规 app 绑定；内容绑定一个动作，不登记分类、字幕、音轨、分段资产或评估引用 |
+| 工作 | `contents.json` 登记工作内容与 duration_seconds；人物经 work_content_ids 分配，工作安排与分配时长在加载时核对 |
 | 邮件 | 48 个冻结场景线程，明确标为场景创作 |
 | 商品与门店供给 | 同类型食品店铺共享完整菜单，食品全店同价；app 绑定与固定每单配送费分别登记，不声明店铺库存、营业或资格 |
 | 地图与路线 | 真实地点名称与合成连通加权图边长分别说明；完整路径、最短距离和固定方式费用由已发布图与规则计算 |
 | 交通与天气 | 出行方式速度与费用是包内固定规则，天气属于明确场景假设，不表示实时路况 |
 
-本次实验的内容与对象取值以 `../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/manifest.json` 为准，邮件与联系人语料仍以同一环境的 `corpora/manifest.json` 为准。食品、app、内容、发布图边长与每份文件的摘要在发布后冻结；正式运行启动前逐项核验。内容摘要的 `summary_source.kind` 区分事实、来源整理与合成，来源需要链接时写 `url`，合成时写明确说明。来源准入与失败语义见 `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「数据进入环境的过程」。
+本次实验对象取值以 WorldMock-Dataset 发布的 catalog/manifest.json 为准，消息与联系人在场景声明，引擎不读语料。食品、app、内容、发布图边长与每份文件的摘要在发布后冻结；正式运行启动前逐项核验。内容摘要的 `summary_source.kind` 区分事实、来源整理与合成，来源需要链接时写 `url`，合成时写明确说明。来源准入与失败语义见 `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「数据进入环境的过程」。
 
 <a name="experiment-地图与门店供给的实验身份"></a>
 ### 地图与门店供给的实验身份
 
 | 实验输入 | 冻结身份与含义 |
 | --- | --- |
-| 环境 | 场景结构 7 的 `environment` 钉目录清单身份与版本；运行使用五字段 `environment_identity` |
+| 环境 | 场景结构 8 的 `environment` 钉目录清单身份与版本；运行使用五字段 `environment_identity` |
 | 图 | `map.json` 的整数 `seed`、`generator_rule_version=1`、排序节点、规范边与正整数米；同输入跨机器同字节 |
 | 地点 | 名称、分店标签与类型来自目录，场景只选择地点身份；不输入坐标、道路或营业状态 |
-| 菜单 | 按店铺类型共享菜单，食品价格全店相同；`"all"` 只绑定食品店铺，住宅不出售食品 |
+| 菜单 | 按店铺类型共享菜单，商品价格全店相同；`"all"` 只绑定类型能供给该类别的店铺，住宅不出售食品 |
 | 出行与配送 | 最短距离和完整路径决胜，方式速度、车费与配送常数来自 WorldMock 固定规则 |
-| 记录与恢复 | 世界 10、运行清单 3；图与目录内容变化改变环境身份，恢复逐字段核对 |
+| 记录与恢复 | 世界 11、运行清单 4；图与目录内容变化改变环境身份，恢复逐字段核对 |
 
 图由 WorldMock 生成、Dataset 发布，运行不重生成；等长最短路比较完整路径元组，不依赖边插入次序。场景选择不裁切图，路径可以经过未被选择地点。
 图种子决定发布字节，与运行随机状态分别记录；环境发布以实际清单为准，不在文档里假定尚未发布的正式版本或数量。三份人工场景用于纯加载和所属行为验证，正式 Dataset 重制与平台回执按所属阶段验收。
 地点选择可以比较图上距离、到手价与等待时间，但人物仍自主选择，不强制某家店胜出。同类菜单和合成数值是实验条件，不能作为真实门店供给或真实道路证据。
-三份包 TOML 字节副本继续与包资源一致；规则变化升 `RULES_VERSION`，对象或图变化发布新环境版本，旧运行和历史输入字节不重写。
+规则文件只从包读取，环境没有副本；规则变化升 `RULES_VERSION`，对象或图变化发布新环境版本，旧运行和历史输入字节不重写。
 
 <a name="experiment-基线数据参照"></a>
 ## 基线数据参照
@@ -395,15 +401,20 @@ WorldMock 不声明这些下游依赖，也不安装或调用 LabelKit。来源�
 
 | 简化规格新增假设 | 当前值或生效边界 |
 | --- | --- |
-| 食品类别常数 | snack 200 千卡/300 秒，drink 100 千卡/180 秒，meal 600 千卡/1200 秒 |
+| 食品类别常数 | snack 200 千卡，drink 100 千卡，meal 600 千卡每份；没有食用秒数 |
 | 出行速度与车费 | 步行 1.2、驾车 7.0 米/秒；驾车至少 500 分、每米 0.2 分向上取整 |
 | 配送 | 5.0 米/秒、备餐 600 秒、500 分/单 |
 | 地图生成器 | 至少两节点，先树后补 ⌊(n−1)/2⌋ 边，边长 200–2000 米，规则版本 1 |
 | 推送窗口 | 当地时间每日 08:00 至 21:00 的每个整点；重复当地小时取 `fold=0`，不同网格点映射到同一绝对秒时两项都保留 |
-| app 使用时长 | `APP_USE_DEFAULT_SECONDS = 1800` 秒，内容完成后在剩余时长内接续下一条 |
-| 按内容类型缓解 | article 0.2、image_text 0.2、short_video 0.3、long_video 0.4、live 0.3 娱乐需要单位/小时 |
+| 娱乐缓解 | ENTERTAINMENT_RELIEF_PER_HOUR 固定 0.3 娱乐需要单位/小时 |
 
 这些数值以 `RULES_VERSION` 冻结，依据见[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-常数表)。
+
+| 动作与内容简化新增假设 | 固定值 |
+| --- | --- |
+| `GOODS_RECEIPT_EFFECTS` | leisure 每条订单行缓解娱乐需要 0.10，daily 每条订单行情绪 +0.05 |
+| `CATEGORY_MET` | exercise 5.0、daily_care 2.0；其他类别取现有代谢值 |
+| `CONTENT_MIN_SECONDS` | 60 秒，内容登记下限，无上限 |
 
 <a name="experiment-验收范围与外部参照"></a>
 ## 验收范围与外部参照
@@ -460,3 +471,4 @@ WorldMock 不声明这些下游依赖，也不安装或调用 LabelKit。来源�
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题与目标工时实验参数 |
 | `2026-10-06-rrs-prompt` | 2026-10-07 | 剩余系统规则与提示身份、当前 app 和工作主题查看器；工具身份保持已验收形状 |
 | `2026-10-07-repository-ownership` | 2026-10-07 | 按用户裁决收敛目录与职责：WorldMock 保留模拟、记录、完整认证足迹与评估；下游加工、模型任务、训练和规则数据归 LabelKit-DataSet，源码快照已接收，新消费验收另记实际证据 |
+| `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |

@@ -1,6 +1,8 @@
 <a name="shared-rules-特性规格共享规则单一归宿与可重建环境"></a>
 # 特性规格：共享规则单一归宿与可重建环境
 
+> 按[动作与内容简化规格](SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界」（阶段 1）。
+
 > 2026-10-07 按用户确认的[数据加工归属](../ARCHITECTURE.md#architecture-数据加工归属)修订：WorldMock 负责模拟、记录、完整认证足迹导出与真实性评估；LabelKit 加工、模型任务、训练装载与规则测试归 LabelKit-DataSet；环境素材归 WorldMock-Dataset。历史验收数字只证明原源码基线，不代表本次消费链已验收。
 
 > 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题摘要与安全路径。
@@ -73,7 +75,7 @@ flowchart LR
 | 活动时长 | `life.durations` 推导；生活活动上限归 `life.models`，app 使用固定 `APP_USE_DEFAULT_SECONDS=1800`，消费时长范围 60–14400 秒且越界拒绝 | 工具层、会话动作、按名调用清单的同一状态输入得到同一秒数；会话动作仍在逐项状态变化后重新检查 |
 | 开工阻断 | `life.work.work_start_refusal` | 工具层与受理层复用同一原因和下一步 |
 | 出行时长 | `life.travel.planned_travel` | 工具层、受理层与引擎校验复用图最短路与固定速度时长（阶段 2 接入）；动作处理的 `_start_travel_action` 与 `_travel_start_context` 仍检查请求与路线不符，保留 `ROUTE_DURATION_MISMATCH` |
-| 缓解速率 | `life.activities` 的固定内容类型速率：article 0.2、image_text 0.2、short_video 0.3、long_video 0.4、live 0.3；生活活动效果来自环境并在启动时冻结 | 预估与结算按相同类型和实际经过时间；暂停不缓解，内容真实完成才递增轮次 |
+| 缓解速率 | `worldmock.exchange.constants.ENTERTAINMENT_RELIEF_PER_HOUR = 0.3`，效果按固定动作类别计算 | 暂停不缓解，结算按实际有效秒数 |
 | 候选种类 | `life.candidates` 恰为 `product`、`lifestyle`、`task`；app 始终列出，不进入候选 | 生产调用直接使用唯一映射；可调用索引恰含 `lifestyle`、`goods`、`query_categories` |
 | 活动家族 | `life.schedule.activity_family` | 生产受理缺生活活动仍以 `LIFESTYLE_ACTIVITY_NOT_FOUND` 拒绝；离线缺品类返回未知，计划不猜测进度、相关度不给家族加分、评估保留缺证和未归类统计 |
 | 中文活动名称 | `life.readable` | 工具层动词说明、时间线与报告都由唯一中文种类表派生，删除 `_DOING` 的复制表 |
@@ -83,7 +85,7 @@ flowchart LR
 按名调用清单必须描述受理时实际采用的时长；app 目标固定显示 1800 秒，没有观看、游戏或浏览时长分支。
 函数移动时同步修订 monkeypatch 测试，使测试确实替换新的权威调用点。
 可供性声明中声称 `sleep_channel` 已控制身体结算的旧注释改为当前未启用的语义。
-三份包 TOML 副本逐字节绑定新目录清单；目录只登记对象、绑定与图，规则常数归 `worldmock.exchange` 并由 `RULES_VERSION` 绑定。历史运行不重写，app 缓解与工作消费者在所属后续阶段切换。
+目录登记五类对象、绑定与图，规则只从包读取、没有环境副本；固定常数归 `worldmock.exchange`，由 `RULES_VERSION = 2` 绑定。历史运行不重写。
 
 <a name="shared-rules-事件区间日期记忆与评估"></a>
 ### 事件区间、日期、记忆与评估
@@ -135,7 +137,7 @@ flowchart LR
 必须列明这些语义排除，不能为遗漏的业务克隆增加例外。已知业务克隆清单在验收时必须为空。
 守卫用临时样例证明新增克隆、复制常量表和错误归宿确实失败，而非只测试当前仓库能通过。
 
-阶段 1 的 `tests/test_single_source.py::OWNERS` 登记 `FOOD_CONSTANTS`、`CONTENT_RELIEF_PER_HOUR`、`PLACE_KIND_ENVIRONMENTS`、`TARGET_LABELS`、`START_ACTIVITY_ACTIONS`、`BODY_CONSTANTS` 及现行唯一归属，原二十项保持。`QUICK_TESTS` 到阶段 4 才改为新目录、交换规则与 app 纯测试，不在本阶段提前声明该快速集合已经替换。
+`tests/test_single_source.py::OWNERS` 登记固定类别、`MANNER_DEVICE`、`STORE_KINDS`、`GOODS_CATEGORY_STORE_KINDS`、`GOODS_ENERGY_KCAL`、`GOODS_RECEIPT_EFFECTS`、`CONTENT_MIN_SECONDS`、`CATEGORY_MET`、`ENTERTAINMENT_RELIEF_PER_HOUR`，以及迁入 exchange 的社交需要、情绪脉冲与半衰期、运动情绪常数。原有固定定义仍由唯一定义处读取，旧食品与内容分类表直接删除。
 
 <a name="shared-rules-可重建环境"></a>
 ## 可重建环境
@@ -240,15 +242,15 @@ CI 比较两系统代码摘要，不能只分别检查摘要格式。
 | `docs/dev/SPEC-as2-integration.md` | 删除对子模块指针的现行安装依赖，登记记忆规则归属和新唯一摘要、测试位置 |
 | `docs/dev/SPEC-day-plan-goals.md` | 统一活动家族，缺品类不猜进度的既有条款保留 |
 | `docs/dev/SPEC-life-realism.md` | 记忆规则实现归 WorldMock；人物 Prompt 已并入的七层请求与 LifeAgent 续接职责保持，阈值与语义不改变 |
-| `docs/dev/SPEC-life-runtime.md` | 已并入时间与能量、一日运行保真及工具交互的现行正文：app 固定时长、五类缓解率、全局内容进度、session 推送、八项占用、中文名称和纠正预算；固定源码来源与实际字节身份 |
+| `docs/dev/SPEC-life-runtime.md` | 已并入时间与能量、一日运行保真及工具交互的现行正文：内容声明时长、固定娱乐缓解率、全局内容进度、session 推送、八项占用、中文名称和纠正预算；固定源码来源与实际字节身份 |
 | `docs/dev/SPEC-layering-and-test-tiers.md` | 共享规则由实际职责对象直接消费；统一 full runner、实测文件权重调度、节点恰一次和同次收据核验 |
-| `docs/dev/SPEC-map-and-storefront.md` | 当前目录七份 JSON 与 RULES_VERSION 身份，地图消费者随阶段 2 切换；历史发布版本保留在记录 |
+| `docs/dev/SPEC-map-and-storefront.md` | 当前目录清单与六个目录文件 与 RULES_VERSION 身份；历史发布版本保留在记录 |
 | `docs/dev/SPEC-life-runtime.md`、`SPEC-resource-and-rule-simplification.md` | 固定规则、环境登记身份、模型冻结、资源日志与制品安装来源 |
 | `docs/ARCHITECTURE.md`、`docs/EXPERIMENT.md` | 共享规则职责、固定源码补丁、宿主记忆与最终运行身份 |
 | `README.md`、`docs/manual/runtime.md` | 替换安装步骤，记录 Python、Node、profile、离线和新机器检查 |
 | `docs/manual/README.md`、`personas.md`、`scenarios.md` | 入口说明激活后的命令环境，画像命令删除隐式 uv；场景手册区分历史与当前目录身份 |
 | `docs/manual/resources.md`、`rules.md`、`evaluation.md` | app 目录与内容、路径、睡眠通道和评估边界 |
-| `docs/VERIFICATION.md`、`docs/dev/coverage-baseline.md` | 无 uv 门禁、跳过拒绝放行、双平台与语料证据边界 |
+| `docs/VERIFICATION.md`、`docs/dev/coverage-baseline.md` | 无 uv 门禁、跳过拒绝放行、双平台与目录证据边界 |
 | 原提案、`docs/INDEX.md`、`docs/dev/implementation-status.md` | 指向本规格，标记历史提案不再是实施权威 |
 
 每个修改的冻结文档补本次版本记录，描述当前语义，删除被替换的旧约束；不得并列相互矛盾的现行规则。
@@ -277,3 +279,4 @@ CI 比较两系统代码摘要，不能只分别检查摘要格式。
 | `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
 | `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：共享活动规则登记 app 固定时长、五类固定缓解率与三种候选；删除文字游戏门禁，分开记录当前 macOS 证据和未执行的 Windows 回执 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题摘要与安全路径 |
+| `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -12,6 +13,9 @@ import networkx as nx
 from pydantic import BaseModel, ConfigDict
 
 from tests.frozen_inputs import FrozenInputs, assert_deeply_immutable, clone_semantics, input_digest, object_digest
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
+from worldmock.errors import IntegrityError
+from worldmock.life import world_setup
 
 
 class _Frozen(BaseModel):
@@ -56,20 +60,15 @@ def test_only_verified_immutable_branches_are_shared():
 def _input_tree(tmp_path):
     (tmp_path / "scenarios").mkdir()
     (tmp_path / "catalog").mkdir()
-    (tmp_path / "corpora").mkdir()
-    for name in ("manifest.json", "map.json", "foods.json", "contents.json"):
+    for name in ("manifest.json", "apps.json", "locations.json", "goods.json", "actions.json", "contents.json", "map.json"):
         (tmp_path / "catalog" / name).write_text(name, encoding="utf-8")
-    (tmp_path / "corpora/lifestyle").mkdir()
-    (tmp_path / "corpora/lifestyle/items.json").write_text("items", encoding="utf-8")
-    for name in ("manifest.json",):
-        (tmp_path / "corpora" / name).write_text(name, encoding="utf-8")
     path = tmp_path / "scenarios/formal.json"
-    path.write_text(json.dumps({"corpus_root": "../corpora"}), encoding="utf-8")
+    path.write_text(json.dumps({"schema_version": 8}), encoding="utf-8")
     return path
 
 
-@pytest.mark.parametrize("file", ["catalog/manifest.json", "catalog/map.json", "catalog/foods.json",
-                                 "catalog/contents.json", "corpora/manifest.json", "corpora/lifestyle/items.json"])
+@pytest.mark.parametrize("file", ["catalog/manifest.json", "catalog/apps.json", "catalog/locations.json",
+                                 "catalog/goods.json", "catalog/actions.json", "catalog/contents.json", "catalog/map.json"])
 def test_cache_key_changes_for_real_bytes_outside_the_scenario(tmp_path, file):
     path = _input_tree(tmp_path)
     original = input_digest(path)
@@ -85,7 +84,7 @@ def test_cache_key_includes_relative_file_names_and_file_set(tmp_path):
     (tmp_path / "catalog/map.json").rename(tmp_path / "catalog/renamed.json")
     renamed = input_digest(path)
     assert renamed != original
-    (tmp_path / "corpora/extra.json").write_text("extra", encoding="utf-8")
+    (tmp_path / "catalog/extra.json").write_text("extra", encoding="utf-8")
     assert input_digest(path) != renamed
 
 
@@ -95,7 +94,7 @@ def test_cache_hit_reuses_same_bytes_and_changed_input_reloads(tmp_path, monkeyp
     monkeypatch.setattr(cache, "_load", lambda candidate: calls.append(candidate) or {"data": len(calls)})
     first = cache.record(path)
     assert cache.record(path) is first
-    (tmp_path / "catalog/foods.json").write_text("changed", encoding="utf-8")
+    (tmp_path / "catalog/goods.json").write_text("changed", encoding="utf-8")
     assert cache.record(path) is not first
     assert len(calls) == 2
 
@@ -131,3 +130,61 @@ def test_graph_freeze_alone_does_not_satisfy_shared_input_contract():
     original = object_digest(graph)
     graph["a"]["b"]["length_m"] = 1
     assert object_digest(graph) != original
+
+
+def test_cache_identity_ignores_directories_the_runtime_does_not_read(tmp_path):
+    """@brief 场景与目录以外的文件不进入缓存身份，也不制造无关输入漂移。"""
+    path = _input_tree(tmp_path)
+    original = input_digest(path)
+    for name in ("corpora", "author", "phone"):
+        directory = tmp_path / name
+        directory.mkdir()
+        (directory / "unread.json").write_text("invalid JSON", encoding="utf-8")
+    assert input_digest(path) == original
+
+
+def test_cache_key_rejects_a_symbolic_link_inside_the_catalog(tmp_path):
+    """@brief 共享缓存仍拒绝外部文件链接，不因语料退役放宽目录隔离。"""
+    path = _input_tree(tmp_path)
+    (tmp_path / "catalog/link.json").symlink_to(tmp_path / "catalog/map.json")
+    with pytest.raises(AssertionError, match="symbolic links"):
+        input_digest(path)
+
+
+def test_real_cache_shares_only_frozen_catalog_and_restores_the_loader(tmp_path):
+    """@brief 真实六文件目录只加载一次，每次使用独立场景副本，退出后恢复生产加载函数。"""
+    root = tmp_path / "environment"
+    shutil.copytree(ARTIFICIAL_ENVIRONMENT_ROOT, root)
+    path = root / "scenarios/single-person.json"
+    cache = FrozenInputs()
+    record = cache.record(path)
+    assert set(record) == {"semantics", "digest", "object_sha256"}
+    original_loader = world_setup.load_runtime_scenario
+    with cache.use(path):
+        first, first_digest = world_setup.load_runtime_scenario(path)
+    assert world_setup.load_runtime_scenario is original_loader
+    with cache.use(path):
+        second, second_digest = world_setup.load_runtime_scenario(path)
+    assert world_setup.load_runtime_scenario is original_loader
+    assert first_digest == second_digest == record["digest"]
+    assert first.catalog is second.catalog is record["semantics"].catalog
+    assert first.scenario is not second.scenario
+    assert first.document is not second.document
+    assert first.body is not second.body
+    first.accounts["agent:1"] = 1
+    assert second.accounts["agent:1"] == record["semantics"].accounts["agent:1"] == 10000
+    cache.verify()
+
+
+def test_changed_registered_file_revalidates_instead_of_reusing_cached_semantics(tmp_path):
+    """@brief 文件变化越过缓存键后仍走真实登记核验，不能复用旧语义掩盖坏环境。"""
+    root = tmp_path / "environment"
+    shutil.copytree(ARTIFICIAL_ENVIRONMENT_ROOT, root)
+    path = root / "scenarios/single-person.json"
+    cache = FrozenInputs()
+    cache.record(path)
+    target = root / "catalog/actions.json"
+    target.write_bytes(target.read_bytes() + b" ")
+    with pytest.raises(IntegrityError, match="ENVIRONMENT_IDENTITY_MISMATCH"):
+        cache.record(path)
+    assert len(cache.records) == 1

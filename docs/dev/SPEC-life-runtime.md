@@ -1,6 +1,8 @@
 <a name="spec-life-runtime-特性规格lifeenv-运行时行为与结算规则"></a>
 # 特性规格：LifeEnv 运行时行为与结算规则
 
+> 按[动作与内容简化规格](SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界」（阶段 1）。
+
 > 2026-10-07 按用户确认的[数据加工归属](../ARCHITECTURE.md#architecture-数据加工归属)修订：WorldMock 负责模拟、记录、完整认证足迹导出与真实性评估；LabelKit 加工、模型任务、训练装载与规则测试归 LabelKit-DataSet；环境素材归 WorldMock-Dataset。历史验收数字只证明原源码基线，不代表本次消费链已验收。
 
 > 2026-10-07：按资源与规则引擎简化规格同步剩余系统规则、最终提示身份与查看器（阶段 6）。
@@ -547,26 +549,31 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 <a name="spec-life-runtime-数据进入环境的过程"></a>
 ### 数据进入环境的过程
 
-语料从选定来源进入环境的数据流，以及离线整理这一选择本身的理由，见 `docs/ARCHITECTURE.md#architecture-worldmock-架构设计`「离线语料如何进入环境」。本节只保留本规格另定的准入规则：
-
-- 素材不要求全部托管在 Hugging Face；地图使用发布图来源，app 与内容从环境登记目录进入运行
-- `apps.json` 登记 app，`contents.json` 登记五类内容、标题、摘要、摘要来源、时长与 `app_ids`；运行不读取字幕、音轨、游戏轨迹或分段资产
+环境经目录登记进入引擎，见[环境目录如何进入引擎](../ARCHITECTURE.md#architecture-离线语料如何进入环境)。登记对象是 app、地点、商品、动作与内容，另有已发布地图。引擎不读取、校验或钉住语料文件；数据仓维护真实名称、摘要来源与合成数值。
 
 <a name="spec-life-runtime-来源与准入"></a>
 ### 来源与准入
 
-具体世界的 app、作品和工作主题使用真实名称；内容摘要可以是真实或合成，分别记录 `summary_source{kind, url, notice}`。真实摘要必须有来源 URL，合成摘要标明合成；价格、时长、图长度与其他数值是声明的仿真假设，不能冒充外部服务事实。
-七份环境目录由清单绑定并经 `catalog.admission` 唯一登记。`corpora/manifest.json` 的哈希只绑定生活活动以及联系人、邮件语料；内容标题和摘要在 `contents.json`，不再靠字幕、音轨、游戏或工作材料作为登记输入。
-运行只读已校验环境，完整身体、出行、食品、app 与工作行为按资源与规则引擎简化规格各阶段闭合，历史执行证据不改写。
+app 与作品使用真实名称；摘要可以真实或合成，`summary_source` 分别带来源 URL 或合成声明。价格、内容时长、集数与地图长度是声明的仿真假设。清单加六个目录文件经 `catalog.admission` 唯一登记，没有语料清单哈希或规则副本。历史执行证据不改写。
 
 <a name="spec-life-runtime-内容目录契约"></a>
 ### 内容目录契约
 
-引用 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「语料内容目录字段」章。
+内容包含稳定身份、`action_id`、`title`、`summary`、`summary_source`、`duration_seconds`、`app_ids` 与可选 `series`；没有内容分类。每条绑定恰好一个动作，时长不少于 60 秒，剧集按集登记。
 
-内容行只表达 `title`、`kind`、`summary`、`summary_source`、`duration_seconds`、`app_ids` 与稳定身份。
-`kind` 取 `article`、`image_text`、`short_video`、`long_video`、`live`；`app_ids` 至少一个且全部引用已登记 app。
-真实摘要带来源 URL，合成摘要明确标记合成。目录没有分段、资产、字幕、题材 facet、年龄分级或评估引用；时长是声明的仿真假设。
+内容必须绑定恰好一个动作；动作可以不绑定 app。动作的 `app_ids` 非空时，`manner` 必须是一种固定使用方式，
+每条内容的 `app_ids` 是该动作 app 集合的非空子集；动作没有 app 时，`manner` 为 null、内容 app 集合为空。
+每个动作及每个动作与 app 的组合至少有一条内容。空集合从不表示全部 app。
+内容 `duration_seconds` 是正整数且不小于 60 秒；动作不登记时长、时间窗、场所或效果。
+内容不声明分类；环境维护动作名称、说明及其内容。
+系列以 `(action_id, series.title)` 识别，各集具有相同动作与 app 集合，集数为唯一的正整数。
+
+商品绑定店铺，店铺绑定购物 app。`GOODS_CATEGORY_STORE_KINDS` 固定类型可供给的类别，
+`"all"` 展开到全部可供给该类别的店铺；显式绑定列表去重排序，同类型店铺同菜单。
+购物用途存在当且仅当至少一家店铺绑定该 app；支付绑定非空当且仅当有购物用途，
+绑定目标具有支付用途，允许绑定自己。导航与支付 app 可以没有内容；app 必须有用途或动作绑定。
+
+字段权威见[内容目录字段](../CONTRACTS.md#contracts-语料内容目录字段)。
 
 <a name="spec-life-runtime-内容提供行为"></a>
 ### 内容提供行为
@@ -612,7 +619,7 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 <a name="spec-life-runtime-场景与身体规则"></a>
 ## 场景与身体规则
 
-场景结构 7 的身体输入只保留初值；身体演化读取 `worldmock.exchange.body.BODY_CONSTANTS`，结算来源 `worldmock:<RULES_VERSION>`。食品效率和能量上限保留，环境目录不提供资源定义或身体系数。
+场景结构 8 的身体输入只保留初值；身体演化读取 `worldmock.exchange.body.BODY_CONSTANTS`，结算来源 `worldmock:<RULES_VERSION>`。食品效率和能量上限保留，环境目录不提供资源定义或身体系数。
 
 <a name="spec-life-runtime-身体参数与单位"></a>
 ### 身体参数与单位
@@ -645,14 +652,17 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 - 睡眠不足账清醒每小时累积约 0.45、睡眠每小时恢复 1
 
 **娱乐与社交**：
-- 娱乐需要取零到一，清醒每小时增长 0.08，有 app 内容实际推进时不再增长；按内容类型固定速率与实际经过时间减少（见「转换效率算法」），不读画像权重或接触次数
+- 娱乐需要取零到一，清醒每小时增长 0.08，有 app 内容实际推进时不再增长；按固定娱乐缓解率 0.3/小时与实际经过时间减少（见「转换效率算法」），不读画像权重或接触次数
 - 社交需要取零到一，清醒每小时增长 0.04（清醒按本区间共同身体结算所用的活动集合判定），交谈、通话、收到并阅读消息与共同用餐按前述规则减少；
   睡眠中不读消息
 - app 内容位置、完成轮次与每个区间的固定速率效果都落在数字足迹里
 
 **所有系数作为实验假设记录；真实人类生理有效性不是既得结论。**
 
-身体演化常数的唯一来源是 WorldMock 包，环境不能用资源目录覆盖。场景只给体重、初始能量、睡眠债与娱乐需要。食品每份热量和完整时长由 `FoodCategory` 常数求值，800/400 千卡阈值是 WorldMock 常数。
+身体演化常数的唯一来源是 WorldMock 包，环境不能用资源目录覆盖。场景只给体重、初始能量、睡眠债与娱乐需要。食品每份热量由 `GOODS_ENERGY_KCAL` 按 `GoodsCategory` 求值，800/400 千卡阈值是 WorldMock 常数。
+
+
+目录不提供代谢当量；动作取 `CATEGORY_MET`，其余仅保留等待、睡眠、步行、驾车四项身体代谢当量。
 
 <a name="spec-life-runtime-活动组合政策"></a>
 ### 活动组合政策
@@ -1157,11 +1167,7 @@ AS2 调度已支持同刻多轮：`society.step` 在有人就绪时执行决策�
   请求中没有受限轮的说明句，不写次数。
 - 引擎在 `_require_boundary_action` 中用同一判定复核。越界请求（即工具层标为不可用的动作）以业务拒绝
   `SAME_MOMENT_ACTION_RESTRICTED` 返回并计入轮数，拒绝原因与工具层的 `reason` 一字不差。该码登记到接口合同。
-- 连续拒绝计数：`AgentState.consecutive_rejections` 保留，只作动机层挫败感的输入。挫败感分母改为
-  `max_same_moment_decisions`，结果截到 1（`src/worldmock/life/motivation.py::MotivationContext.max_same_moment_decisions`、`src/worldmock/life/observe.py`）。它不再参与唤醒与冷却：
-  删除 `WakeSnapshot.consecutive_rejections` 及其派生（`src/worldmock/life/rhythm.py`）。拒绝结果 `data` 用 `same_moment_round`、
-  `max_same_moment_decisions`、`next_decision_at` 取代 `consecutive_rejections`、`maximum_rejections`
-  （`src/worldmock/life/engine.py`）。
+- 内部动机评分器与 `AgentState.consecutive_rejections` 已删除；拒绝结果里的 `same_moment_round`、`max_same_moment_decisions`、`next_decision_at` 保持不变。
 - `decision_started` 与 `body_settlement` 的写入路径接入 `validate_decision_rhythm`（现在没有生产调用方），让闭集在
   写入时就被校验。
 
@@ -1872,7 +1878,7 @@ app 内容按实际经过时间，以内容类型的固定每小时速率缓解�
 无媒体内容警告指没有任何 app 绑定内容，`details={media, habits}`，没有 `card_content_genres`。作息覆盖、冲突与编译一致性仍报告实际原值；坐标状地点名字是质量警告，不改变登记准入。
 没有口味权重、游戏权重或配送路线警告。警告冻结在 `input_warnings`，恢复继承不重算，运行只警告；`validate` 覆盖率低于 `0.8` 仍失败。
 
-覆盖率目标由登记目录与语料确定：习惯反应对生活活动名和地点名按关键词匹配，饮食喜好对食品名称匹配，媒体只精确匹配 `文章`、`图文`、`短视频`、`长视频`、`实况` 五个类型标签及全部 app 名称。
+覆盖率目标由登记目录确定：习惯反应对动作名与地点显示名按关键词匹配，饮食喜好对 meal、snack、drink 商品名匹配，媒体对登记动作名作双向子串匹配、对全部 app 名作精确匹配。
 不读取内容题材或手机配置，不把 app 名子串当作习惯反应命中；`missing[].kind` 仅 `habit_response`、`food_preference`、`media`。阈值 `0.8` 不变，报告缺项、可执行比例与实际目标集，运行低覆盖只警告。
 
 <a name="dayrun-fidelity-身体与需要-困意档界"></a>
@@ -2425,3 +2431,4 @@ stateDiagram-v2
 | `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：娱乐统一为 app 使用、全局内容进度与 session 推送；当前唤醒闭集 25 项、预排事件 9 项，工作相关成员留到阶段 5；固定 1800 秒与五类缓解率，八项占用闭集 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题运行合同 |
 | `2026-10-06-rrs-prompt` | 2026-10-07 | 剩余系统规则与提示身份、当前 app 和工作主题查看器；工具身份保持已验收形状 |
+| `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |

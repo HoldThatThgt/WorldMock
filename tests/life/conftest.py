@@ -15,7 +15,6 @@ import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 
-from tests.frozen_inputs import relative_corpus  # noqa: E402
 
 if TYPE_CHECKING:
     from agentsociety2.society import DecisionContext
@@ -122,16 +121,14 @@ def errand_cancel(name: str, reason: str) -> dict:
 
 
 def bring_to_window(engine: LifeEngine, object_ids, agent_id: int = 1) -> None:
-    """让给定对象进入下一次观察的呈现窗口：场景里其余可呈现对象（生活活动、食品与工作主题）都记为此刻刚呈现过，
+    """让给定商品进入下一次观察的呈现窗口：其余门店商品都记为此刻刚呈现过，
     给定对象从未呈现——轮转按每个对象的上次呈现时刻把换新名额留给该分区最久未呈现的对象
     （docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ），每个分区至多三个。经存储落盘并保持版本连续。"""
     from worldmock.footprints.models import EventDraft
 
     wanted = set(object_ids)
     catalog = engine.context.semantics.catalog
-    everything = {*(item.activity_id for item in engine.context.lifestyle_items),
-                  *(f"{store_id}:{food_id}" for store_id, foods in catalog.foods_by_store.items() for food_id in foods),
-                  *(item.topic_id for item in catalog.work_topics.values())}
+    everything = {f"{store_id}:{goods_id}" for store_id, goods in catalog.goods_by_store.items() for goods_id in goods}
     staged = engine.context.state.model_copy(deep=True)
     staged.presentation_state = {**staged.presentation_state,
                                  agent_id: {item: staged.current_time for item in sorted(everything - wanted)}}

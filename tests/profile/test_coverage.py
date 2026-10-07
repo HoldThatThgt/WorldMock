@@ -19,7 +19,7 @@ def _targets():
     return CoverageTargets(
         habit_response_keywords=("慢跑", "读几页小说"),
         food_kinds=("川菜", "面食"),
-        media_kinds=("长视频", "短视频"),
+        action_names=("看长视频", "刷短视频"),
     )
 
 
@@ -119,3 +119,29 @@ def test_content_genres_stay_prose_and_do_not_enter_coverage():
     assert report.total_items == 0 and report.passed and report.missing == ()
     with pytest.raises(ValidationError, match="content_genres"):
         CoverageTargets.model_validate({"content_genres": ["旧题材"]})
+
+
+@pytest.mark.parametrize("medium", ["推荐", "下班后刷推荐"])
+def test_media_preferences_match_registered_action_names_in_both_directions(medium):
+    """@brief 媒体偏好按真实动作名称双向子串匹配，不要求属于分类词表。"""
+    card = make_card(habits=(), tastes=Tastes(content_genres=(), food_preferences=(), media=(medium,)))
+    report = validate_coverage(card, CoverageTargets(action_names=("刷推荐",)))
+    assert report.total_items == report.covered_items == 1
+    assert report.passed and report.missing == ()
+
+
+def test_media_app_names_require_the_full_registered_name():
+    """@brief 媒体条目以完整应用名命中，应用名子串不能绕过真实动作覆盖。"""
+    card = make_card(habits=(), tastes=Tastes(content_genres=(), food_preferences=(),
+                                           media=("哔哩哔哩", "哔哩哔哩视频")))
+    report = validate_coverage(card, CoverageTargets(app_names=("哔哩哔哩",)))
+    assert report.covered_items == 1
+    assert [(item.kind, item.value) for item in report.missing] == [("media", "哔哩哔哩视频")]
+
+
+def test_coverage_targets_reject_the_retired_content_classification_field():
+    """@brief 退役的媒体分类目标不能继续作为配置入口。"""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="media_kinds"):
+        CoverageTargets.model_validate({"media_kinds": ["短视频"]})

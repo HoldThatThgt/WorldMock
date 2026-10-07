@@ -6,7 +6,7 @@ from tests.data_paths import ENVIRONMENT_ROOT
 
 import pytest
 
-from worldmock.life.activities import ActivityOrigin, advance_activity, start_activity
+from worldmock.life.activities import ActivityOrigin, advance_activity, content_entertainment_relief_rate, start_activity
 from worldmock.life.body import (ENTERTAINMENT_RESOURCE, last_flows,
                                  minimum_energy_cost, settle_body)
 from worldmock.life.models import ActivityKind, ActivityStartParams, AgentState, BodyState
@@ -43,11 +43,10 @@ def test_wait_has_only_awake_entertainment_accrual(body_config) -> None:
         0.4 + body_config.entertainment_need_per_awake_hour)
 
 
-def test_wait_has_no_relief_catalog_entry(body_config) -> None:
-    """正式目录没有将等待声明为可缓解娱乐需要的活动。"""
-    assert "wait" not in body_config.entertainment_relief_per_hour
-    assert all(body_config.entertainment_relief_per_hour[kind] > 0
-               for kind in ("article", "image_text", "short_video", "long_video", "live"))
+def test_entertainment_relief_is_a_fixed_scalar(body_config) -> None:
+    """@brief 娱乐缓解采用单一系统速率，等待是否缓解仍由实际结算判定。"""
+    assert body_config.entertainment_relief_per_hour == 0.3
+    assert content_entertainment_relief_rate() == 0.3
 
 
 def test_wait_met_cost_remains_declared(body_config) -> None:
@@ -66,10 +65,17 @@ def test_wait_at_full_need_stays_full(body_config) -> None:
 
 
 def test_wait_matches_other_non_entertainment_activity(body_config) -> None:
-    """同一清醒区间，等待和普通工作的娱乐需求相同。"""
+    """@brief 同一清醒区间，等待和真实步行活动的娱乐需求都只按自然速率增长。"""
     waited = settle_body(_body(), ActivityKind.WAIT, 7200, body_config)
-    worked = settle_body(_body(), ActivityKind.WORK, 7200, body_config)
-    assert waited.after.entertainment_need == worked.after.entertainment_need
+    agent = AgentState(agent_id=1, name="Lin", location_id="home", balance_account_id="agent:1",
+                       body_settled_at=0, next_decision_at=0, body=_body())
+    request = ActivityStartParams(activity_type=ActivityKind.TRAVEL, planned_duration_seconds=7200,
+                                  destination_id="office", travel_mode="walking")
+    person, activity = start_activity(agent, request, 0, ActivityOrigin("walk", "decision", "request"), body_config)
+    traveled = advance_activity(activity, person, 7200, body_config)
+    assert traveled.completed
+    assert activity.travel_mode == "walking"
+    assert waited.after.entertainment_need == traveled.agent.body.entertainment_need
 
 
 def test_direct_wait_activity_preserves_plain_accrual(body_config) -> None:

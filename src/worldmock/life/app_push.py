@@ -41,7 +41,7 @@ def issue_app_push(state: WorldState, event: ScheduledEvent, catalog: Catalog) -
     session = session.model_copy(update={"app_pushes": {**session.app_pushes, app_id: push}})
     changed = state.model_copy(update={"sessions": {**state.sessions, session.session_id: session}})
     data = {"kind": "app_push", "push_id": push.push_id, "app_id": app_id, "app": catalog.apps[app_id].name,
-            "content_id": content_id, "title": content.title, "content_kind": content.kind.value,
+            "content_id": content_id, "title": content.title,
             "summary": content.summary, "session_id": session.session_id, "issued_at": push.issued_at}
     return changed, data
 

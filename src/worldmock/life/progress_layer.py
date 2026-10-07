@@ -17,7 +17,6 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from worldmock.errors import IntegrityError
-from worldmock.exchange.types import CONTENT_KIND_LABELS
 from worldmock.footprints.models import Event
 from worldmock.footprints.store import FootprintStore
 from worldmock.life import schedule, sessions
@@ -195,7 +194,7 @@ def _world_records(context: LayerContext, store: FootprintStore, lower: int) -> 
         elif kind == "app_push" and event.visibility == "agent":
             record = {"occurred_at": iso_time(event.occurred_at, context.scenario.timezone), "type": "app_push",
                       "app": event.data["app"], "title": event.data["title"],
-                      "kind": CONTENT_KIND_LABELS[event.data["content_kind"]], "summary": event.data["summary"]}
+                      "summary": event.data["summary"]}
             records.append(_Record(record, (event,), _event_key(event.occurred_at, [event])))
     return records
 

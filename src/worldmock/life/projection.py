@@ -51,7 +51,6 @@ class ProjectionInputs:
     #: 人物档案餐时窗口（felt.MealWindows）。
     meal_windows: felt.MealWindows | None = None
     #: 引擎内部动机仪表结果（写入 motivation_internal，不进提示，docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」）。
-    motivation_internal: dict[str, Any] | None = None
     extras: dict[str, Any] = field(default_factory=dict)
 
 
@@ -154,8 +153,6 @@ def build_observation(inputs: ProjectionInputs) -> dict[str, Any]:
         "active_activities": activity_rows["control"],
         "pending_conclusions": activity_rows["pending"],
     }
-    if inputs.motivation_internal is not None:
-        data["motivation_internal"] = inputs.motivation_internal
     return data
 
 

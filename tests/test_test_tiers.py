@@ -355,7 +355,7 @@ def test_external_environment_identity_survives_relocation_and_rejects_changed_b
         (engine / name).parent.mkdir(parents=True, exist_ok=True)
         (engine / name).write_text("frozen", encoding="utf-8")
     environment = tmp_path / "environment"
-    for name in ("catalog", "corpora", "scenarios"):
+    for name in ("catalog", "scenarios"):
         (environment / name).mkdir(parents=True)
         (environment / name / "input.json").write_text(name, encoding="utf-8")
     monkeypatch.setattr(run_tests, "ROOT", engine)
@@ -364,22 +364,34 @@ def test_external_environment_identity_survives_relocation_and_rejects_changed_b
     moved = tmp_path / "another-machine/environment"
     shutil.copytree(environment, moved)
     run_tests.require_unchanged_input(identity, moved)
-    (moved / "corpora/input.json").write_text("changed", encoding="utf-8")
+    (moved / "catalog/input.json").write_text("changed", encoding="utf-8")
     with pytest.raises(RuntimeError, match="input changed"):
         run_tests.require_unchanged_input(identity, moved)
 
 
 @pytest.mark.parametrize("condition", ["missing", "empty"])
-def test_explicit_external_environment_requires_all_three_nonempty_inputs(tmp_path, condition):
+@pytest.mark.parametrize("directory", ["catalog", "scenarios"])
+def test_explicit_external_environment_requires_both_nonempty_inputs(tmp_path, condition, directory):
     """@brief 显式外部输入不能丢失目录或只提供空目录来满足回归身份检查。"""
-    for name in ("catalog", "corpora", "scenarios"):
+    for name in ("catalog", "scenarios"):
         (tmp_path / name).mkdir()
-        if name != "corpora":
+        if name != directory:
             (tmp_path / name / "input.json").write_text(name, encoding="utf-8")
     if condition == "missing":
-        (tmp_path / "corpora").rmdir()
-    with pytest.raises((FileNotFoundError, ValueError), match=f"is {condition}: corpora"):
+        (tmp_path / directory).rmdir()
+    with pytest.raises((FileNotFoundError, ValueError), match=f"is {condition}: {directory}"):
         run_tests.environment_source_digest(tmp_path)
+
+
+def test_external_environment_digest_does_not_require_or_read_corpora(tmp_path):
+    """@brief 正式回归摘要只认两类发布输入，无语料可受理，无关目录漂移不影响身份。"""
+    for name in ("catalog", "scenarios"):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "input.json").write_text(name, encoding="utf-8")
+    original = run_tests.environment_source_digest(tmp_path)
+    (tmp_path / "corpora").mkdir()
+    (tmp_path / "corpora/unread.json").write_text("invalid JSON", encoding="utf-8")
+    assert run_tests.environment_source_digest(tmp_path) == original
 
 
 @pytest.mark.parametrize("relative", ["requirements/build-lock.txt", "requirements/lock.txt",

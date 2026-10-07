@@ -414,7 +414,6 @@ class DecisionCoordinator:
         changed = agent.model_copy(
             update={
                 "next_decision_at": next_at,
-                "consecutive_rejections": 0,
                 "pending_wake_reasons": reasons,
                 "same_moment_stage": stage,
             },
@@ -473,7 +472,7 @@ class DecisionCoordinator:
         body = agent.body if pulse_key is None else apply_mood_pulse(agent.body, pulse_key)
         changed_agent = agent.model_copy(
             update={
-                "next_decision_at": next_decision_at, "consecutive_rejections": agent.consecutive_rejections + 1,
+                "next_decision_at": next_decision_at,
                 "pending_wake_reasons": reasons, "same_moment_stage": stage, "body": body,
             }, deep=True,
         )

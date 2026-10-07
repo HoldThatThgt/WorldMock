@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
-import shutil
 from collections.abc import Mapping
 from contextlib import contextmanager
 from copy import deepcopy
@@ -21,16 +19,6 @@ import networkx as nx
 from pydantic import BaseModel
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def relative_corpus(corpus, scenario_directory):
-    """@brief 场景保存相对语料引用；Windows 不同盘符时先复制到同一隔离目录。"""
-    source, target = Path(corpus).resolve(), Path(scenario_directory).resolve()
-    if source.drive.casefold() != target.drive.casefold():
-        copied = target.parent / "corpora"
-        shutil.copytree(source, copied)
-        source = copied
-    return Path(os.path.relpath(source, target)).as_posix()
 
 
 def _children(value):
@@ -131,16 +119,13 @@ def tree_digest(root):
 
 
 def input_digest(path):
-    """@brief 缓存身份覆盖场景、目录、语料清单及真实语料，不信任声明摘要或文件时间。"""
+    """@brief 缓存身份覆盖场景、目录清单与六个目录文件，不信任声明摘要或文件时间。"""
     if Path(path).is_symlink():
         raise AssertionError("Cached scenario cannot be a symbolic link")
     content = Path(path).read_bytes()
-    document = json.loads(content)
     catalog = Path(path).resolve().parent.parent / "catalog"
-    corpus = (Path(path).resolve().parent / document["corpus_root"]).resolve()
     digest = hashlib.sha256(content)
     digest.update(tree_digest(catalog).encode("ascii"))
-    digest.update(tree_digest(corpus).encode("ascii"))
     return digest.hexdigest()
 
 
@@ -160,31 +145,24 @@ class FrozenInputs:
         return self.records[key]
 
     def _load(self, path):
-        """@brief 真实目录与生活活动装配只执行一次，并保存完整缓存对象摘要。"""
-        from worldmock.life import engine_context, world_setup
+        """@brief 真实目录装配只执行一次，并保存完整缓存对象摘要。"""
+        from worldmock.life import world_setup
 
         semantics, digest = world_setup.load_runtime_scenario(path)
         clone_semantics(semantics)
-        root = (Path(path).resolve().parent / semantics.scenario.corpus_root).resolve()
-        manifest = world_setup.load_manifest(root, semantics.scenario.corpus_manifest_sha256)
-        assert_deeply_immutable(manifest)
-        value = {"semantics": semantics, "digest": digest, "manifest": manifest,
-                 "lifestyle": engine_context.load_lifestyle_items(root, semantics.scenario.body.activity_met)}
-        assert_deeply_immutable(value["lifestyle"])
+        value = {"semantics": semantics, "digest": digest}
         value["object_sha256"] = object_digest(value)
         return value
 
     @contextmanager
     def use(self, path):
         """@brief 只在工厂创建期间接入缓存，直接生产新建、打开与恢复仍执行真实加载器。"""
-        from worldmock.life import engine_context, world_setup
+        from worldmock.life import world_setup
 
         value = self.record(path)
         semantics = clone_semantics(value["semantics"])
         with pytest.MonkeyPatch.context() as patch:
             patch.setattr(world_setup, "load_runtime_scenario", lambda candidate: (semantics, value["digest"]))
-            patch.setattr(world_setup, "load_manifest", lambda root, expected: value["manifest"])
-            patch.setattr(engine_context, "load_lifestyle_items", lambda root, met: value["lifestyle"])
             yield
 
     def verify(self):

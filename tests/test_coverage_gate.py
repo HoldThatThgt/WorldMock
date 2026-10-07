@@ -343,7 +343,7 @@ def test_coverage_receipts_require_the_same_external_environment_bytes(full_run_
 
     directory, _, summary, _ = full_run_files
     environment = gate.REPO_ROOT / "environment"
-    for name in ("catalog", "corpora", "scenarios"):
+    for name in ("catalog", "scenarios"):
         (environment / name).mkdir(parents=True)
         (environment / name / "input.json").write_text(name, encoding="utf-8")
     summary["source_sha256"] = run_tests.source_digest(environment)
@@ -351,7 +351,7 @@ def test_coverage_receipts_require_the_same_external_environment_bytes(full_run_
     command = ["--from-json", str(directory / "coverage.json"), "--environment-root", str(environment)]
     assert gate.main(command) == 0
     assert gate.main(command[:-2]) == 1
-    (environment / "corpora/input.json").write_text("changed", encoding="utf-8")
+    (environment / "catalog/input.json").write_text("changed", encoding="utf-8")
     assert gate.main(command) == 1
 
 

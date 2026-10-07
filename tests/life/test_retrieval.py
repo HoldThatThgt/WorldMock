@@ -23,8 +23,6 @@ from worldmock.life.retrieval import (
     feasible_kinds,
     genre_values,
     indexed_ids,
-    item_kinds,
-    place_kinds,
     reachability_report,
     reachable,
     search,
@@ -129,28 +127,8 @@ def test_search_filters_each_dimension_independently():
     assert [item.object_id for item in search(entries, query)] == ["keep"]
 
 
-def test_place_kinds_rejects_malformed_entries(tmp_path):
-    """地点语料里的非映射条目与无标识条目必须明确拒绝。"""
-    path = tmp_path / "zhangjiang-map" / "locations.json"
-    path.parent.mkdir(parents=True)
-    path.write_text(json.dumps({"locations": [
-        "not-a-mapping",
-        {"name": "no id"},
-        {"location_id": "home", "location_kinds": ["home"]},
-    ]}), encoding="utf-8")
-    with pytest.raises(ValueError, match="activity kinds declaration"):
-        place_kinds(tmp_path, "zhangjiang-map/locations.json")
 
 
-def test_item_kinds_skips_malformed_entries(tmp_path):
-    """生活活动语料里的非映射条目被跳过，不产生空键。"""
-    path = tmp_path / "lifestyle"
-    path.mkdir(parents=True)
-    (path / "items.json").write_text(json.dumps({"items": [
-        "not-a-mapping",
-        {"activity_id": "jogging", "location_kinds": ["outdoor"]},
-    ]}), encoding="utf-8")
-    assert dict(item_kinds(tmp_path)) == {"jogging": frozenset({"outdoor"})}
 
 
 def test_search_returns_same_result_with_and_without_index():
@@ -273,37 +251,10 @@ def test_reachable_entry_row_is_serialisable():
     assert json.dumps(row, ensure_ascii=False)
 
 
-def test_place_kinds_rejects_undeclared_location_environment(tmp_path):
-    """地点环境缺失或为空必须拒绝，不自动使用 anywhere。"""
-    path = tmp_path / "zhangjiang-map" / "locations.json"
-    path.parent.mkdir(parents=True)
-    path.write_text(json.dumps({"locations": [
-        {"location_id": "home", "location_kinds": ["home"]},
-        {"location_id": "market"},
-        {"location_id": "office", "location_kinds": []},
-    ]}), encoding="utf-8")
-    with pytest.raises(ValueError, match="activity kinds declaration"):
-        place_kinds(tmp_path, "zhangjiang-map/locations.json")
 
 
-def test_place_kinds_missing_file_is_rejected(tmp_path):
-    """地点语料缺失必须拒绝。"""
-    with pytest.raises(ValueError, match="location corpus is missing"):
-        place_kinds(tmp_path, "zhangjiang-map/locations.json")
 
 
-def test_item_kinds_reads_lifestyle_declarations(tmp_path):
-    """生活活动条目侧声明读成活动标识到地点类集合的映射。"""
-    path = tmp_path / "lifestyle"
-    path.mkdir(parents=True)
-    (path / "items.json").write_text(json.dumps({"items": [
-        {"activity_id": "jogging", "location_kinds": ["outdoor", "fitness"]},
-        {"activity_id": "gaming"},
-    ]}), encoding="utf-8")
-    kinds = item_kinds(tmp_path)
-    assert kinds["jogging"] == frozenset({"outdoor", "fitness"})
-    assert "gaming" not in kinds
-    assert dict(item_kinds(tmp_path / "absent")) == {}
 
 
 # ---------------------------------------------------------------------------

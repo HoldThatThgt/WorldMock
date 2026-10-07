@@ -1,24 +1,26 @@
 <a name="exchange-engine-worldmock-产品设计说明书-交换引擎"></a>
 # WorldMock 产品设计说明书 — 交换引擎
 
-> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「维护交换规则、注册表登记什么、新增状态资源、对象或语料、修改与删除、查询适用规则、交换规则的加载与准入、系统固定类型与常数、交换对象与资源变化声明、可供性与活动声明、校验交换条件、门店供给的时态与履约判断、资源变化的计算、不同交换的计算依据、校验资源分录、食品交换的规则调用、实现职责与证据入口、当前差距、分阶段验证与完成条件、纯规则与执行职责、项目框架映射、与其他引擎的职责边界」（阶段 1）；「返回规则结果」（阶段 3）。
-
-
 > **状态**：DRAFT；接口与行为以冻结合同和规格为准；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 EX1），已实现<br>
 > **日期**：2026-10-07
-> **版本**：v1.12\
+> **版本**：v1.13\
 > **工具交互修订**：价格构建范围、方式解析、英文错误明细与真实做饭链已冻结，已实现；本次生产验收单独记录；以[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)为本次合同。
 > **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)阶段 4 同步（查询筛选与返回精简，[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D2 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）；该规格其余阶段不改本文。
 > **同时做两件事修订**：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「可供性与活动声明」（阶段 1）；「可供性与活动声明」的占用名（阶段 2）。
 > **范围**：固定类型与常数、纯条件和投入产出求值、资源分录校验
 
+> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「维护交换规则、注册表登记什么、新增状态资源、对象或语料、修改与删除、查询适用规则、交换规则的加载与准入、系统固定类型与常数、交换对象与资源变化声明、可供性与活动声明、校验交换条件、门店供给的时态与履约判断、资源变化的计算、不同交换的计算依据、校验资源分录、食品交换的规则调用、实现职责与证据入口、当前差距、分阶段验证与完成条件、纯规则与执行职责、项目框架映射、与其他引擎的职责边界」（阶段 1）；「返回规则结果」（阶段 3）。
+
 本文说明交换引擎提供哪些规则能力，以及这些能力的输入和输出。
 接口定义见[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)，具体计算规则见[生活运行时规格](../dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)。
 
+> 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界」（阶段 1）。
+
 具体环境及制作工具按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)归 WorldMock-Dataset，
 正式重制环境路径由 WorldMock-Dataset 发布决定；WorldMock 提供引擎及包内固定通用规则。
-本章的 `catalog/`、`corpora/`、`scenarios/` 指外部环境目录，命令以 WorldMock 为当前工作目录并显式传路径。
-当前场景结构 7，内容标题来自 `contents.json`，活动效果随环境加载并在启动时冻结；新组合放行另核对实际收据。
+本章的 `catalog/`、`scenarios/` 指外部环境目录，命令以 WorldMock 为当前工作目录并显式传路径。
+当前场景结构 8、世界结构 11；类别、使用方式、效果与供给表由 WorldMock 固定，
+环境只登记对象、绑定与价格、内容时长、集数三种数；新组合放行另核对实际收据。
 
 <a name="design-02-exchange-engine-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
@@ -85,19 +87,41 @@ flowchart LR
 <a name="exchange-engine-系统固定类型与常数"></a>
 ## 系统固定类型与常数
 
-`worldmock.exchange` 是系统类型、资源定义、身体常数与交换公式的唯一定义处。`types.py` 声明地点、食品、内容与摘要来源闭集，`constants.py` 声明版本与常数，`operators.py` 用 Decimal 求值，`body.py` 定义身体演化常数；全部由 `RULES_VERSION = 1` 绑定。
+`worldmock.exchange` 唯一拥有闭集、类别表、常数与 Decimal 交换算子，统一由 `RULES_VERSION = 2` 绑定。
+`types.py` 定义地点、商品、动作类别、app 使用方式、设备映射、app 用途与内容形式；
+`constants.py` 定义固定数值，`operators.py` 求值，`body.py` 定义身体动力学与资源元信息。
 
-| 内容 | 规则 |
+| 固定内容 | 规则 |
 | --- | --- |
-| 地点与活动环境 | 八个 `LocationKind`；`PLACE_KIND_ENVIRONMENTS` 派生生活活动环境 |
-| 食品 | 零食 200 千卡/300 秒、饮品 100 千卡/180 秒、正餐 600 千卡/1200 秒，每份固定 |
-| 出行 | 步行 1.2 米/秒、驾车 7 米/秒；时长按图距离向上取整，驾车费用 `max(500, ceil(0.2 × 米))` 分，步行零费 |
-| 配送 | 5 米/秒、备餐 600 秒、配送费 500 分/单 |
-| 图生成 | 至少两个节点，边长 200–2000 米，种子驱动规范生成器；生成规则版本 1 |
-| 身体 | `BODY_CONSTANTS`，800/400 千卡阈值，既有食品利用效率与能量上限保留 |
-| 资源分录 | 购买转账、食品摄入、出行费用与资金守恒仍由纯算子求值，模拟引擎应用实际变化 |
+| 商品类别 | `meal`、`snack`、`drink`、`leisure`、`daily` |
+| 食品热量 | 正餐 600、零食 200、饮品 100 千卡每份；没有食用秒数 |
+| 非食品收货效果 | 休闲用品每订单行缓解娱乐需要 0.10，日常用品每订单行情绪 +0.05；不超过最弱内容半小时的缓解量 |
+| app 用途 | `navigation`、`shopping`、`payment`；可以同时具有多个用途或为空 |
+| 店铺供给 | 餐馆：正餐、饮品、零食；咖啡馆：饮品、零食；便利店与超市：五类商品 |
+| 内容时长 | `CONTENT_MIN_SECONDS = 60`，不设登记上限 |
+| 内容娱乐速率 | 文章与图文 0.2、短视频与实况 0.3、长视频 0.4 每小时，只用于娱乐类别 |
+| 身体活动键 | 等待 1.3、睡眠 0.95、步行 3.5、驾车 1.5；类别 MET 来自 `CATEGORY_MET` |
+| 出行与配送 | 步行 1.2 米/秒、驾车 7 米/秒；驾车费用为 `max(500, ceil(0.2 × 米))` 分；配送 5 米/秒、备餐 600 秒、每单 500 分 |
+| 图生成 | 最少两节点、边长 200–2000 米、树外边数 ⌊(n−1)/2⌋、生成规则版本 1 |
+| 身体资源 | 2400 千卡上限、基础代谢 65 千卡/小时、饥饿阈值 800/400 千卡；睡眠债恢复与食品利用曲线不变 |
 
-环境只登记对象和绑定，不提供品类树、配方、算子、公式或资源定义。三份既有包 TOML 的逐字节副本机制不变。实际图出行、购买、app 与工作消费者分别在后续阶段闭合，不能把本节常数已定义当作完整运行已通过。
+| 动作类别 | 内容完成后的接续 | MET | 按实际秒数的状态效果 | 场所 |
+| --- | --- | --- | --- | --- |
+| `entertainment` | 同一活动内接下一条 | 1.0 | 按固定 `ENTERTAINMENT_RELIEF_PER_HOUR = 0.3` 缓解娱乐需要 | 任意 |
+| `work_study` | 一条结束 | 1.5 | 无按秒效果；分配工作内容完成有一次 +0.05 情绪脉冲 | 分配内容只能在本人工作地点，其余任意 |
+| `social` | 一条结束 | 无 app 1.5，有 app 1.3 | 共同有效社交分别每小时缓解 0.5、0.4，对方不在的秒数每小时 0.2 | 任意；请求必须有对象 |
+| `exercise` | 一条结束 | 5.0 | 每小时情绪 +0.1 | `home`、`outdoor`、`fitness` |
+| `daily_care` | 一条结束 | 2.0 | 能量消耗之外无效果 | 任意 |
+
+| 使用方式 | 设备 | 额外占用 |
+| --- | --- | --- |
+| `phone_continuous` | `phone` | `use_app` |
+| `other_device` | `other` | 无 |
+| `offline_assisted` | `phone` | 无 |
+
+类别、使用方式与效果不接受环境覆盖，也没有类别与使用方式的合法组合表。
+社交、情绪与运动速率只在 `exchange.constants` 定义，完整逐值表见[固定规则与常数](../dev/SPEC-action-and-content-simplification.md#spec-acs-固定规则与常数)。
+规则只从引擎包读取，环境没有规则副本；常数已通过纯测试不代表完整运行已取得验收证据。
 
 <a name="exchange-engine-注册表登记什么"></a>
 #### 注册表登记什么
@@ -122,14 +146,30 @@ flowchart LR
 <a name="exchange-engine-交换对象与资源变化声明"></a>
 #### 交换对象与资源变化声明
 
-交换对象来自已登记 `Catalog`：食品提供类别、价格与店铺绑定，地点提供类型与 app 绑定，内容和工作主题提供具体世界材料。资源定义与公式来自 `worldmock.exchange`；环境不能覆盖食品热量、出行或配送常数。
-输入为当前事实、对象与数量；输出为拒绝原因或本次资源变化。模拟引擎负责原子提交，纯求值不推进时钟、不写状态。
+数据仓只为对象选择固定类别与使用方式，填写名称、说明、摘要、价格、内容时长与集数及绑定；不声明公式或状态效果。
+
+内容必须绑定恰好一个动作；动作可以不绑定 app。动作的 `app_ids` 非空时，`manner` 必须是一种固定使用方式，
+每条内容的 `app_ids` 是该动作 app 集合的非空子集；动作没有 app 时，`manner` 为 null、内容 app 集合为空。
+每个动作及每个动作与 app 的组合至少有一条内容。空集合从不表示全部 app。
+内容 `duration_seconds` 是正整数且不小于 60 秒；动作不登记时长、时间窗、场所或效果。
+内容不登记分类；环境维护动作名称、说明及其内容。
+系列以 `(action_id, series.title)` 识别，各集具有相同动作与 app 集合，集数为唯一的正整数。
+
+商品绑定店铺，店铺绑定购物 app。`GOODS_CATEGORY_STORE_KINDS` 固定类型可供给的类别，
+`"all"` 展开到全部可供给该类别的店铺；显式绑定列表去重排序，同类型店铺同菜单。
+购物用途存在当且仅当至少一家店铺绑定该 app；支付绑定非空当且仅当有购物用途，
+绑定目标具有支付用途，允许绑定自己。导航与支付 app 可以没有内容；app 必须有用途或动作绑定。
 
 <a name="exchange-engine-可供性与活动声明"></a>
 #### 可供性与活动声明
 
-固定活动闭集与占用声明仍读取包内 `affordances.toml`；环境副本必须逐字节一致。地点资格从 `LocationKind` 经 `PLACE_KIND_ENVIRONMENTS` 派生，生活活动条目保留自己的 `location_kinds` 和效果。
-本阶段保持当前十一项占用名；app 活动与八项占用名在阶段 4 同时切换，不由环境新增活动或更改占用。身体常数从 `worldmock.exchange.body` 读取。
+包内 `affordances.toml` 使用版本 2，只声明 `wait`、`sleep`、`travel`、`action` 四种活动。
+占用闭集为 `wait`、`travel`、`talk`、`use_app`、`entertainment`、`work_study`、`exercise`、`daily_care`。
+条件维度只有 `mode`、`category`、`manner`；家族、习惯归并与候选生成器配置已删除。
+
+每个动作占同名类别，社交类别占 `talk`；持续手机使用另占 `use_app`，其他设备与线下辅助不另占。
+等待占 `wait`；出行占 `travel`，驾车另占除 `talk` 外的全部名额；睡眠占全部八个名额。
+这些声明归 WorldMock 固定，环境不能新增名额或修改占用；身体常数从 `worldmock.exchange.body` 读取。
 
 <a name="exchange-engine-交换规则的加载与准入"></a>
 #### 交换规则的加载与准入
@@ -145,8 +185,11 @@ flowchart LR
 <a name="exchange-engine-门店供给的时态与履约判断"></a>
 ### 门店供给的时态与履约判断
 
-店铺全天服务。食品的唯一价格在 `foods.json.price_fen`，菜单从 `store_ids` 或 `"all"` 派生；没有供给时态、营业例外、报价、有效期或库存。
-到店与配送是否受理读取地点、店铺 app 绑定、收货人和当前位置。配送费用与时长常数归 `worldmock.exchange`，实际订单与到货幂等在阶段 3 验证。
+店铺全天服务，唯一商品价格位于 `goods.json.price_fen`。
+菜单由 `store_ids` 或 `"all"` 与固定 `GOODS_CATEGORY_STORE_KINDS` 得出，同类型店铺同菜单。
+没有供给时态、营业例外、报价、有效期或门店库存。
+到店与配送准入读取地点、购物 app 绑定、收货人和当前位置；费用与时长常数归 `worldmock.exchange`。
+实际订单、付款和送达证据由模拟与记录引擎负责。
 
 <a name="exchange-engine-计算投入产出"></a>
 ### 计算投入产出
@@ -216,25 +259,30 @@ flowchart LR
 <a name="exchange-engine-实现职责与证据入口"></a>
 ### 实现职责与证据入口
 
-固定类型和常数在 `src/worldmock/exchange/`，环境登记在 `src/worldmock/catalog/`，命令入口为 `worldmock environment generate-map` 与 `worldmock validate --environment`。冻结规格的验收台账登记实际生产符号、行为节点与变异；环境命令校验通过和完整引擎行为通过分别记录。
-后续阶段按图出行、食品、app、工作、足迹、交付和完整日顺序闭合真实调用，不以常数单测代替运行证据。
+固定规则位于 `src/worldmock/exchange/`，目录登记位于 `src/worldmock/catalog/`。
+纯行为证据在 `tests/exchange/` 与 `tests/catalog/`；发布命令为 `worldmock environment generate-map`、`check` 与 `worldmock validate --environment`。
+验收台账登记实际生产符号、具名行为节点与源码变异。目录有效、完整引擎执行、正式环境与真实平台回执分别判断。
 
 <a name="exchange-engine-当前差距"></a>
 ### 当前差距
 
-阶段 1 提供固定规则、七份环境目录、统一登记、地图发布命令和纯加载边界。完整引擎消费新环境需等待图出行、购买、app 和工作消费者共同完成，最小运行闭环在阶段 5 验证。
-目录中不保留待扩展的规则注册、占位图查询、品类维护或旧格式兼容入口。
+固定规则、六文件目录与纯加载边界已有对应实现和纯测试。
+动作执行、收货结算、人物请求与足迹的集成完成状态以[动作与内容简化验收台账](../dev/SPEC-action-and-content-simplification.md#spec-acs-验收台账)和真实运行回执为准。
+目录有效不证明这些消费链已闭合；目录中没有占位规则接口、旧格式读取或兼容入口。
 
 <a name="exchange-engine-分阶段验证与完成条件"></a>
 ### 分阶段验证与完成条件
 
-先验证固定常数、严格环境登记和真实 `generate-map/check/validate --environment` 命令；随后以实际引擎调用验证图出行、购买、app 接触和工作主题，再核对足迹、恢复、导出与交付。
-每个阶段只登记已经存在的生产符号、具名行为节点和有效 SourceMutation。阶段 5 的最小端到端与阶段 8 的完整自然日分别提供运行闭合证据；文档冻结与目录有效不等于运行完成。
+验证依次覆盖固定规则、严格目录登记、实际地图命令与加载边界，以及真实引擎、恢复、导出和完整自然日。
+常数测试不能替代真实调用；每项证据对应实际生产符号、具名行为节点与有效源码变异。
+正式环境和平台运行须有匹配身份的回执，文档冻结或目录有效都不能单独证明完成。
 
 <a name="design-exchange-engine-current-responsibility"></a>
 ## 纯规则与执行职责
 
-交换引擎拥有固定闭集、常数、Decimal 算子与资源分录规则；环境只登记对象与绑定。系统规则由 `RULES_VERSION` 统一绑定，恢复核对五字段 `environment_identity`。历史品类契约只保留归档原文与执行证据，不再作为现行规则入口。
+交换引擎拥有固定闭集、类别与使用方式表、身体与社交情绪常数、Decimal 算子及资源分录规则。
+收货算子 `evaluate_goods_receipt(category, quantity)` 给出食品提供热量或每行固定非食品效果；实际状态应用归模拟引擎。
+规则由 `RULES_VERSION` 统一绑定，恢复核对五字段 `environment_identity`。环境只登记对象与绑定，不提供规则副本。
 
 <a name="exchange-engine-版本历史"></a>
 ## 版本历史
@@ -255,3 +303,4 @@ flowchart LR
 | `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2 同步：「可供性与活动声明」的占用名改为 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel`，每种动作占自己的名字，只有同一种动作互斥；睡眠占全部名字，驾车另占除 `watch`、`talk` 以外的八个 |
 | `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
+| `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |

@@ -117,7 +117,7 @@ def test_registry_met_key_is_shared_by_preview_and_settlement(monkeypatch):
     activity = ActivityState(activity_id='app', agent_id=1, location_id='home', kind='use_app', status='active',
         started_at=now, planned_end_at=now+1800, last_settled_at=now, elapsed_seconds=0,
         planned_duration_seconds=1800, target_id='bilibili', origin_action_id='app',
-        origin_decision_id='decision', origin_request_event_id='request', data={'content_kind':'long_video'})
+        origin_decision_id='decision', origin_request_event_id='request', data={})
     registry = SimpleNamespace(met_lookup_key=lambda *args, **kwargs: 'declared:app')
     monkeypatch.setattr(activities, '_AFFORDANCES', registry)
     monkeypatch.setattr(motivation, 'engine_affordances', lambda:registry)

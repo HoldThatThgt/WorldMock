@@ -1,6 +1,8 @@
 <a name="evaluation-自定义评估与盲评输入"></a>
 # 自定义评估与盲评输入
 
+> 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界」（阶段 1）。
+
 > 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 7 的记录、导出、交付与评估合同。
 
 本页命令以 WorldMock 为当前工作目录，评估配置使用 `.work/my-evaluation.json`。
@@ -8,7 +10,7 @@
 评估配置决定“比较同一时间段内哪些活动、使用哪些公开参照、请评审判断哪些维度”。
 从现有 `tests/evaluation/fixtures/scenario.json` 复制完整评估输入修改。
 它和[人物运行场景](scenarios.md#scenarios-生活场景)是两种不同输入，不要把评估配置传给 `worldmock run`。
-正式环境 `../WorldMock-Dataset/environment/shanghai-simplified/scenarios/evaluation.json` 是结构 7 的生活场景，
+正式环境 `../WorldMock-Dataset/environment/shanghai-simplified/scenarios/evaluation.json` 是结构 8 的生活场景，
 不能传给 `worldmock.evaluation.scenario.load_scenario`。
 所有命令均在仓库根目录执行。
 

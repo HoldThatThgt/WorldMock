@@ -10,8 +10,10 @@ from pydantic import Field, StrictInt
 
 from worldmock.base_models import DeepFrozenModel
 from worldmock.catalog.graph import Graph
+from worldmock.exchange.constants import CONTENT_MIN_SECONDS
 from worldmock.exchange.types import (
-    ContentKind, FoodCategory, LocationKind, PLACE_KIND_ENVIRONMENTS, SummarySourceKind,
+    ActionCategory, AppPurpose, AppUseManner, GoodsCategory, LocationKind,
+    PLACE_KIND_ENVIRONMENTS, SummarySourceKind,
 )
 
 PositiveInteger = Annotated[StrictInt, Field(gt=0)]
@@ -35,7 +37,7 @@ class CatalogFile(DeepFrozenModel):
 class CatalogManifest(DeepFrozenModel):
     """@brief 目录版本、规则版本和完整文件集合的发布身份。"""
 
-    format_version: Literal[1]
+    format_version: Literal[2]
     environment_id: NonEmptyString
     environment_version: NonEmptyString
     rules_version: StrictInt
@@ -44,14 +46,16 @@ class CatalogManifest(DeepFrozenModel):
 
 
 class App(DeepFrozenModel):
-    """@brief 应用只有内部身份和可读名称。"""
+    """@brief 应用的身份、用途与购物支付绑定。"""
 
     app_id: NonEmptyString
     name: NonEmptyString
+    purposes: tuple[AppPurpose, ...]
+    payment_app_ids: tuple[NonEmptyString, ...]
 
 
 class Location(DeepFrozenModel):
-    """@brief 场所类型及食品店铺的应用绑定。"""
+    """@brief 场所类型及店铺的购物应用绑定。"""
 
     location_id: NonEmptyString
     name: NonEmptyString
@@ -65,22 +69,33 @@ class Location(DeepFrozenModel):
         return self.name if self.branch_label is None else f"{self.name}（{self.branch_label}）"
 
 
-class Food(DeepFrozenModel):
-    """@brief 固定类别、固定单价和按店铺类型完整绑定的食品。"""
+class Goods(DeepFrozenModel):
+    """@brief 固定类别、固定单价和按店铺类型完整绑定的商品。"""
 
-    food_id: NonEmptyString
+    goods_id: NonEmptyString
     name: NonEmptyString
-    category: FoodCategory
+    category: GoodsCategory
     price_fen: PositiveInteger
     store_ids: tuple[NonEmptyString, ...] | Literal["all"]
+
+
+class Action(DeepFrozenModel):
+    """@brief 数据集命名的动作与固定类别、应用使用方式。"""
+
+    action_id: NonEmptyString
+    name: NonEmptyString
+    description: NonEmptyString
+    category: ActionCategory
+    app_ids: tuple[NonEmptyString, ...]
+    manner: AppUseManner | None
 
 
 class SummarySource(DeepFrozenModel):
     """@brief 摘要的真实来源地址或合成说明。"""
 
     kind: SummarySourceKind
-    url: str | None
-    notice: str | None
+    url: Annotated[str, Field(strict=True)] | None
+    notice: Annotated[str, Field(strict=True)] | None
 
 
 class ContentSeries(DeepFrozenModel):
@@ -91,29 +106,16 @@ class ContentSeries(DeepFrozenModel):
 
 
 class Content(DeepFrozenModel):
-    """@brief 应用内容及其完整摘要、时长和绑定。"""
+    """@brief 绑定一个动作的内容及其摘要、时长和应用子集。"""
 
     content_id: NonEmptyString
+    action_id: NonEmptyString
     title: NonEmptyString
-    kind: ContentKind
     summary: str = Field(strict=True)
     summary_source: SummarySource
-    duration_seconds: PositiveInteger
+    duration_seconds: Annotated[StrictInt, Field(ge=CONTENT_MIN_SECONDS)]
     app_ids: tuple[NonEmptyString, ...]
     series: ContentSeries | None = None
-
-
-class WorkTopic(DeepFrozenModel):
-    """@brief 按实际工时推进的工作主题。"""
-
-    topic_id: NonEmptyString
-    topic: NonEmptyString
-    target_hours: float = Field(gt=0, strict=True, allow_inf_nan=False)
-
-    @property
-    def target_seconds(self) -> int:
-        """@brief 按冻结规则把目标小时换算为整秒。"""
-        return round(self.target_hours * 3600)
 
 
 class MapEdge(DeepFrozenModel):
@@ -146,10 +148,10 @@ class LocationsFile(DeepFrozenModel):
     locations: tuple[Location, ...]
 
 
-class FoodsFile(DeepFrozenModel):
-    """@brief 食品文件的唯一根字段。"""
+class GoodsFile(DeepFrozenModel):
+    """@brief 商品文件的唯一根字段。"""
 
-    foods: tuple[Food, ...]
+    goods: tuple[Goods, ...]
 
 
 class ContentsFile(DeepFrozenModel):
@@ -158,10 +160,10 @@ class ContentsFile(DeepFrozenModel):
     contents: tuple[Content, ...]
 
 
-class WorkTopicsFile(DeepFrozenModel):
-    """@brief 工作主题文件的唯一根字段。"""
+class ActionsFile(DeepFrozenModel):
+    """@brief 动作文件的唯一根字段。"""
 
-    work_topics: tuple[WorkTopic, ...]
+    actions: tuple[Action, ...]
 
 
 class CatalogData(DeepFrozenModel):
@@ -169,9 +171,9 @@ class CatalogData(DeepFrozenModel):
 
     apps: tuple[App, ...]
     locations: tuple[Location, ...]
-    foods: tuple[Food, ...]
+    goods: tuple[Goods, ...]
     contents: tuple[Content, ...]
-    work_topics: tuple[WorkTopic, ...]
+    actions: tuple[Action, ...]
     map_data: MapGraph
 
 
@@ -187,26 +189,34 @@ class Catalog:
     apps: Mapping[str, App]
     #: 按内部身份索引的地点。
     locations: Mapping[str, Location]
-    #: 按内部身份索引的食品。
-    foods: Mapping[str, Food]
+    #: 按内部身份索引的商品。
+    goods: Mapping[str, Goods]
     #: 按内部身份索引的内容。
     contents: Mapping[str, Content]
-    #: 按内部身份索引的工作主题。
-    work_topics: Mapping[str, WorkTopic]
+    #: 按内部身份索引的动作。
+    actions: Mapping[str, Action]
     #: 已发布图的严格模型。
     map_data: MapGraph
     #: 发布图原始字节摘要。
     map_sha256: str
     #: 完整环境图的确定性最短路查询。
     graph: Graph
-    #: 每种食品店铺类型拥有的食品身份。
+    #: 每种地点类型拥有的商品身份，非店铺类型为空。
     menus_by_kind: Mapping[LocationKind, tuple[str, ...]]
-    #: 每个地点拥有的食品身份，非食品地点为空。
-    foods_by_store: Mapping[str, tuple[str, ...]]
+    #: 每个地点拥有的商品身份，非店铺地点为空。
+    goods_by_store: Mapping[str, tuple[str, ...]]
     #: 每个应用绑定的店铺身份。
     stores_by_app: Mapping[str, tuple[str, ...]]
-    #: 每个应用绑定的内容身份。
-    contents_by_app: Mapping[str, tuple[str, ...]]
+    #: 每个动作绑定的内容身份。
+    contents_by_action: Mapping[str, tuple[str, ...]]
+    #: 每个动作与应用组合绑定的内容身份。
+    contents_by_action_app: Mapping[tuple[str, str], tuple[str, ...]]
+    #: 每个应用承载的动作身份。
+    actions_by_app: Mapping[str, tuple[str, ...]]
+    #: 每种用途的应用身份。
+    apps_by_purpose: Mapping[AppPurpose, tuple[str, ...]]
+    #: 每个动作与系列标题组合的内容身份，按集数升序。
+    contents_by_series: Mapping[tuple[str, str], tuple[str, ...]]
     #: 每个地点绑定的应用身份。
     apps_by_store: Mapping[str, tuple[str, ...]]
 

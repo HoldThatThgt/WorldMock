@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from worldmock.errors import BusinessRuleError
-from worldmock.exchange.constants import APP_USE_DEFAULT_SECONDS
 from worldmock.life.models import ActivityKind, AgentState, DERIVED_DURATION_CAP_SECONDS
 
 
@@ -18,8 +17,6 @@ def capped_duration_seconds(duration: int) -> int:
 
 def derived_activity_duration(kind: ActivityKind, agent: AgentState, item: Any, feedback_seconds: int) -> int:
     """@brief 从内容进度、生活活动目录、睡眠需要或反馈间隔推导非工作活动计划秒数。"""
-    if kind == ActivityKind.USE_APP:
-        return APP_USE_DEFAULT_SECONDS
     if kind == ActivityKind.LIFESTYLE:
         return capped_duration_seconds(item.typical_duration_minutes * 60)
     if kind == ActivityKind.SLEEP:

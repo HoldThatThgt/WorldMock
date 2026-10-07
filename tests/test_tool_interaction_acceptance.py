@@ -30,7 +30,7 @@ FEATURE_SOURCES = (
     "src/worldmock/life/activity_control.py", "src/worldmock/life/interaction_menu.py",
     "custom/agents/life_agent.py", "src/worldmock/agents/life_feedback.py", "custom/envs/life_env.py",
     "src/worldmock/agents/life_continuation.py", "src/worldmock/life/todo_layer.py",
-    "src/worldmock/life/motivation.py", "src/worldmock/footprints/purchases.py",
+    "src/worldmock/footprints/purchases.py",
     "src/worldmock/footprints/quality.py",
 )
 
@@ -63,13 +63,15 @@ def test_tool_interaction_sources_have_no_deferred_or_empty_implementation():
 def test_tool_interaction_declared_interface_contains_only_new_parameters():
     """新模型字段闭合；旧参数不存在于生产接口。"""
     from worldmock.life.models import StartActivityRequest
-    from worldmock.catalog.models import WorkTopic
+    from worldmock.catalog.models import Content
     from worldmock.life.scenario import LifeScenario
     from worldmock.life.world_query import QueryWorldRequest
 
     assert set(StartActivityRequest.model_fields) == {"items", "answering", "prefer"}
     assert set(QueryWorldRequest.model_fields) == {"name", "way", "category", "from_", "available_only", "offset"}
-    assert set(WorkTopic.model_fields) == {"topic_id", "topic", "target_hours"}
+    assert {"content_id", "action_id", "app_ids", "title", "duration_seconds", "summary",
+            "summary_source", "series"} == set(Content.model_fields)
+    assert {"topic_id", "topic", "target_hours"}.isdisjoint(Content.model_fields)
     assert {"tasks", "map_dataset", "catalog_version"}.isdisjoint(LifeScenario.model_fields)
 
 

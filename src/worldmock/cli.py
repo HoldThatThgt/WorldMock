@@ -22,7 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="worldmock", description="Auditable AS2 life simulation")
     parser.add_argument("--project-root", type=Path, default=Path(__file__).resolve().parents[2])
     commands = parser.add_subparsers(dest="command", required=True)
-    validate = commands.add_parser("validate", help="validate scenario, corpus, dependencies, and runtime contracts")
+    validate = commands.add_parser("validate", help="validate scenario, catalog, dependencies, and runtime contracts")
     validation_source = validate.add_mutually_exclusive_group(required=True)
     validation_source.add_argument("--scenario", type=Path)
     validation_source.add_argument("--environment", type=Path, help="validate a published environment directory")

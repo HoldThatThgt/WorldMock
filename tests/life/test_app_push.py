@@ -11,7 +11,6 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from tests.life.purchase_worlds import at_time, registered_world
-from worldmock.exchange.types import CONTENT_KIND_LABELS
 from worldmock.footprints.store import FootprintStore
 from worldmock.life.app_push import open_app_push, release_app_pushes, validate_app_pushes
 from worldmock.errors import IntegrityError
@@ -123,7 +122,7 @@ def test_push_draw_uses_one_b30_stream_sorted_candidates_and_stable_identity():
     assert first.data["push_id"] == f"{event.scheduled_id}:{selected_app}:{selected_content}"
     assert first.data == replay.data and first.state.model_dump() == replay.state.model_dump()
     assert first.state.random_state == state.random_state == "中文-seed-17"
-    assert first.data["kind"] == "app_push" and first.data["content_kind"] == catalog.contents[selected_content].kind
+    assert first.data["kind"] == "app_push" and "content_kind" not in first.data
     assert current_session(state, 1).app_pushes == {}
 
 
@@ -268,8 +267,8 @@ def test_full_push_summary_and_source_discriminator_project_from_committed_event
         assert len(records) == 1 and records[0].record == {
             "occurred_at": datetime.fromtimestamp(state.current_time, ZoneInfo(state.timezone)).isoformat(),
             "type": "app_push", "app": drafts[0].data["app"], "title": drafts[0].data["title"],
-            "kind": CONTENT_KIND_LABELS[drafts[0].data["content_kind"]], "summary": summary}
-        assert drafts[0].data["kind"] == "app_push" and drafts[0].data["content_kind"] in CONTENT_KIND_LABELS
+            "summary": summary}
+        assert drafts[0].data["kind"] == "app_push" and "content_kind" not in drafts[0].data
         assert drafts[0].source_kind == "environment" and 20 < len(summary) <= 200
         assert records[0].sources[0].event_id == store.read_agent_events("environment_event", 1)[0].event_id
         from worldmock.life.progress_layer import _protected

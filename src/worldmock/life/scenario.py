@@ -13,12 +13,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, field_validator, model_validator
 
-from worldmock.catalog.affordances import REFERENCEABLE_RESOURCES, engine_affordances
 from worldmock.errors import IntegrityError
 from worldmock.life.felt import APPETITE_STARVING_KCAL
 from worldmock.life.interaction_menu import InteractionMenu
 from worldmock.base_models import DeepFrozenModel
-from worldmock.catalog.models import App, Content, Food, Location, WorkTopic
+from worldmock.catalog.models import Action, App, Content, Goods, Location
 from worldmock.exchange.types import LocationKind
 from worldmock.life.social import Contact
 from worldmock.life.sleep import (
@@ -60,7 +59,7 @@ class BodyConfig(DeepFrozenModel):
     hunger_threshold_kcal: float = Field(ge=0, allow_inf_nan=False)
     emergency_threshold_kcal: float = Field(ge=0, allow_inf_nan=False)
     activity_met: dict[str, float]
-    entertainment_relief_per_hour: dict[str, float]
+    entertainment_relief_per_hour: float = Field(ge=0, strict=True, allow_inf_nan=False)
     source_kind: str = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -72,66 +71,6 @@ class BodyConfig(DeepFrozenModel):
             _invalid("body thresholds must be ordered above the starving floor")
         if self.hunger_threshold_kcal > self.maximum_energy_kcal:
             _invalid("body hunger threshold exceeds maximum energy")
-        return self
-
-
-#: 大五特质与权重的固定键集合（与画像编译器输出合同一致）。
-_BIG_FIVE_TRAITS = frozenset({"openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"})
-_MOTIVATION_WEIGHTS = frozenset({"money_fen", "energy_kcal", "sleep_debt_hours", "entertainment_need", "goal_task"})
-
-
-class MotivationProfileSource(DeepFrozenModel):
-    """@brief 档案编译溯源：输入文本哈希、模型、提示版本与共识统计。"""
-
-    persona_text_sha256: str = Field(min_length=8)
-    model: str = Field(min_length=1)
-    prompt_version: str = Field(min_length=1)
-    consensus: dict[str, float | int]
-
-
-class MotivationProfile(DeepFrozenModel):
-    """@brief 人物动机档案：动机评分层求值所需的全部个体参数。
-
-    形状与画像编译器的 agents[].motivation 输出合同钉死一致。
-    """
-
-    schema_version: Literal[1] = 1
-    big_five: dict[str, int]
-    weights: dict[str, float]
-    tau: float = Field(gt=0)
-    beta_present_bias: float = Field(gt=0, le=1)
-    loss_aversion: dict[str, float]
-    comfort: dict[str, float]
-    aspiration: dict[str, int]
-    emotion_sensitivity: float = Field(ge=0, le=1)
-    source: MotivationProfileSource | None = None
-
-    @model_validator(mode="after")
-    def validate_profile(self) -> "MotivationProfile":
-        """@brief 核对封闭键集、取值区间与权重归一。"""
-        if set(self.big_five) != _BIG_FIVE_TRAITS:
-            _invalid("motivation big_five must use exactly the five trait keys")
-        # 钉死合同样例含 conscientiousness=6（超出经典 5 点 Likert），上界放宽到 10。
-        if any(not isinstance(value, int) or not 1 <= value <= 10 for value in self.big_five.values()):
-            _invalid("motivation big_five values must be integers between 1 and 10")
-        if set(self.weights) != _MOTIVATION_WEIGHTS:
-            _invalid("motivation weights must use exactly the five resource keys")
-        if any(not math.isfinite(value) or value < 0 for value in self.weights.values()):
-            _invalid("motivation weights must be non-negative finite numbers")
-        if abs(sum(self.weights.values()) - 1) > 1e-6:
-            _invalid("motivation weights must sum to one")
-        if not self.loss_aversion or not set(self.loss_aversion) <= REFERENCEABLE_RESOURCES:
-            _invalid("motivation loss_aversion keys must be a non-empty level resource subset")
-        if any(not math.isfinite(value) or value < 1 for value in self.loss_aversion.values()):
-            _invalid("motivation loss_aversion values must be at least one")
-        if set(self.comfort) != {"balance_fen", "energy_kcal"}:
-            _invalid("motivation comfort must use exactly balance_fen and energy_kcal")
-        if any(not math.isfinite(value) or value < 0 for value in self.comfort.values()):
-            _invalid("motivation comfort values must be non-negative finite numbers")
-        if set(self.aspiration) != {"daily_work_seconds"}:
-            _invalid("motivation aspiration must use exactly daily_work_seconds")
-        if any(value < 0 for value in self.aspiration.values()):
-            _invalid("motivation aspiration must be non-negative")
         return self
 
 
@@ -198,11 +137,8 @@ class AgentConfig(DeepFrozenModel):
     trait_source_kind: Literal["experiment_assumption"]
     home_location_id: str = Field(min_length=1)
     initial_balance_fen: int = Field(ge=0)
-    work_topic_ids: tuple[str, ...] = ()
-    motivation: MotivationProfile | None = None
-    # 生活活动目录（corpora/lifestyle/items.json）的启用声明：None=全局启用
-    # 全部条目；非空元组=仅启用列出的 activity_id（语义层对照目录准入校验）。
-    lifestyle_activities: tuple[str, ...] | None = None
+    #: 分配给本人、完成后不再重做的工作内容。
+    work_content_ids: tuple[str, ...] = ()
     # 交互菜单人物声明必须显式出现；null 表示不在地点类菜单之上追加限制。
     interaction_menu: InteractionMenu | None
     # 工作安排（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-工作安排声明 ，裁决 W3）：必须显式出现；null 表示这个人物没有任何在岗语义。
@@ -226,37 +162,20 @@ class AgentConfig(DeepFrozenModel):
     # docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「世界素材品类要求」）：按人物声明，
     # schema 复用 life.social.Contact。
     contacts: tuple[Contact, ...] = ()
-    # 初始持有物按地点冻结，由目录独立装配使用属性与品类身份，不要求同时可购买。
-    # 空映射表示人物没有场景预置持有物。
-    initial_inventory: dict[str, dict[str, float]] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_traits(self) -> "AgentConfig":
         """@brief 技能使用非空身份与零到一闭区间；档案窗口与联系人声明合法。"""
         if self.background_story is not None and len(self.background_story.strip()) < 100:
             _invalid("background_story must contain at least 100 characters")
-        if self.lifestyle_activities is not None:
-            if not self.lifestyle_activities:
-                _invalid("lifestyle_activities must list ids or stay null to enable all")
-            if len(set(self.lifestyle_activities)) != len(self.lifestyle_activities):
-                _invalid("lifestyle_activities ids must be unique")
-            if any(not item.strip() for item in self.lifestyle_activities):
-                _invalid("lifestyle_activities ids must not be blank")
         _check_day_windows(self)
-        if len(set(self.work_topic_ids)) != len(self.work_topic_ids) or any(
-            not topic.strip() for topic in self.work_topic_ids
+        if len(set(self.work_content_ids)) != len(self.work_content_ids) or any(
+            not content.strip() for content in self.work_content_ids
         ):
-            _invalid("work topic ids must be unique non-empty names")
+            _invalid("work content ids must be unique non-empty names")
         ids = [item.contact_id for item in self.contacts]
         if len(ids) != len(set(ids)):
             _invalid("agent contact ids must be unique")
-        for location_id, holding in self.initial_inventory.items():
-            if not location_id.strip() or not holding:
-                _invalid("initial inventory locations and holdings must not be empty")
-            if any(not object_id.strip() for object_id in holding):
-                _invalid("initial inventory object ids must not be empty")
-            if any(not math.isfinite(quantity) or quantity <= 0 for quantity in holding.values()):
-                _invalid("initial inventory quantities must be positive finite numbers")
         return self
 
 
@@ -365,9 +284,9 @@ class BodyInstanceConfig(DeepFrozenModel):
 
 
 class LifeScenario(DeepFrozenModel):
-    """@brief 结构七场景：人物实例、环境选择与保留的日历事件。"""
+    """@brief 结构八场景：人物实例、环境选择与保留的日历事件。"""
 
-    schema_version: Literal[7]
+    schema_version: Literal[8]
     scenario_id: str = Field(min_length=1)
     timezone: str = Field(min_length=1)
     start_at: datetime
@@ -382,8 +301,6 @@ class LifeScenario(DeepFrozenModel):
     candidate_pool_limit: int = Field(default=1000, gt=0, le=CANDIDATE_POOL_LIMIT_MAX)
     rotation_quota_ratio: float = Field(default=0.15, gt=0, lt=1, allow_inf_nan=False)
     rotation_stale_seconds: int = Field(gt=0, le=31_536_000)
-    corpus_root: str = Field(min_length=1)
-    corpus_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     environment: EnvironmentPin
     accounts: tuple[AccountInstanceConfig, ...] = Field(min_length=1)
     body: BodyInstanceConfig
@@ -418,14 +335,14 @@ class LifeScenario(DeepFrozenModel):
 
 
 class RuntimeScenario(LifeScenario):
-    """@brief 经注册目录与固定规则组装的结构七运行场景。"""
+    """@brief 经注册目录与固定规则组装的结构八运行场景。"""
 
     body: BodyConfig
     locations: tuple[Location, ...]
     apps: tuple[App, ...]
-    foods: tuple[Food, ...]
+    goods: tuple[Goods, ...]
     contents: tuple[Content, ...]
-    work_topics: tuple[WorkTopic, ...]
+    actions: tuple[Action, ...]
     employer_account_id: str | None
     transport_account_id: str
 
@@ -443,8 +360,6 @@ def _check_document_references(document: LifeScenario) -> None:
     for agent in document.agents:
         if agent.home_location_id not in places:
             _invalid("agent home is not a declared location")
-        if not set(agent.initial_inventory) <= places:
-            _invalid("initial inventory references an unknown location")
         if any(contact.receive_location_id not in {None, *places} for contact in agent.contacts):
             _invalid("contact receive location is not a declared location")
     if any(item.recipient_agent_id not in people for item in document.messages):
@@ -595,9 +510,4 @@ def parse_scenario_document(path: Path) -> tuple[LifeScenario, str]:
     except Exception as error:
         logging.error("Scenario validation failed for %s", source)
         raise IntegrityError("Scenario validation failed") from error
-    root = (source.parent / scenario.corpus_root).resolve()
-    manifest = root / "manifest.json"
-    if not manifest.is_file() or sha256_file(manifest) != scenario.corpus_manifest_sha256:
-        logging.error("Scenario corpus manifest identity is invalid")
-        raise IntegrityError("Scenario corpus manifest identity is invalid")
     return scenario, hashlib.sha256(content).hexdigest()

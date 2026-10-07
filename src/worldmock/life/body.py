@@ -18,6 +18,8 @@ valence）由引擎在结算边界调用本模块的包装函数驱动。
 
 from __future__ import annotations
 
+from worldmock.exchange import constants
+
 import math
 import logging
 from collections.abc import Callable, Sequence
@@ -301,7 +303,7 @@ def apply_social_ledger(body: BodyState, exposure: felt.SocialExposure) -> BodyS
 
 def apply_mood_pulse(body: BodyState, pulse_key: str) -> BodyState:
     """@brief 按事件脉冲表叠加一次情绪脉冲（「身体语义：两过程睡眠、睡眠不足账、体感分级」）。"""
-    amplitude = felt.MOOD_PULSES[pulse_key]
+    amplitude = constants.MOOD_PULSES[pulse_key]
     valence = felt.apply_mood_pulse(body.mood_valence, amplitude, body.neuroticism_norm)
     return body.model_copy(update={"mood_valence": valence}, deep=True)
 
@@ -495,7 +497,7 @@ def _need_band_boundaries(projection: _FeltProjection) -> list[int]:
     candidates: list[int] = []
     rates = ((body.entertainment_need, felt.ENTERTAINMENT_BANDS,
               entertainment_need_rate(projection.entertainment_relief_per_hour, projection.config)),
-             (body.social_need, felt.SOCIAL_BANDS, felt.SOCIAL_NEED_AWAKE_RATE))
+             (body.social_need, felt.SOCIAL_BANDS, constants.SOCIAL_NEED_AWAKE_RATE))
     for value, bands, rate in rates:
         if rate <= 0:
             continue

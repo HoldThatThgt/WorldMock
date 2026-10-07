@@ -42,7 +42,7 @@ def synthetic_body() -> BodyConfig:
         'basal_kcal_per_hour': 65, 'entertainment_need_per_awake_hour': 0.08,
         'hunger_threshold_kcal': 800, 'emergency_threshold_kcal': 400,
         'activity_met': {'wait': 1.0, 'sleep': 1.0, 'lifestyle:jogging': 7.0},
-        'entertainment_relief_per_hour': {}, 'source_kind': 'test'})
+        'entertainment_relief_per_hour': 0.3, 'source_kind': 'test'})
 
 
 def _external_item(root: Path, effects: dict):

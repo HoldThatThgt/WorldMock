@@ -1,16 +1,15 @@
 <a name="resource-engine-worldmock-产品设计说明书-资源引擎"></a>
 # WorldMock 产品设计说明书 — 资源引擎
 
-> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「可计量资源定义、交换对象与内容条目、资源、内容和语料的关系、文件职责、构建与版本、文件身份校验、准入边界、语料清单与文件身份、组织与发布目录、目录发布的实现与验收、职责约定、准入失败的处理、资源校验的实现与验收、基础类型与资源装配」（阶段 1）；「随机地图的冻结」、「随机地图的生成与发布」、「图与地点关系准入」（阶段 2）；「地点、商品与门店供给、地点发现与供给比较、检索呈现的实现与验收、无结果与范围限制」（阶段 3）；「职责约定、准入失败的处理、资源校验的实现与验收、检索与呈现、app 内容」（阶段 4）。
-
-
 > **状态**：DRAFT，整合设计；接口与行为仍以冻结合同和规格为准；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 RS1），已实现\
 > **日期**：2026-10-07
-> **版本**：v1.16\
+> **版本**：v1.17\
 > **工具交互修订**：类别完整供给、冻结价格范围及真实食材配方设计已冻结，已实现；本次生产验收单独记录；以[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)为本次合同。
 > **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D3 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）；该规格阶段 1 不改本文。
 > **同时做两件事修订**：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「构建与版本」的可供性占用声明（阶段 2）。
 > **范围**：目录登记、严格校验、只读对象与派生索引查询
+
+> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「可计量资源定义、交换对象与内容条目、资源、内容和语料的关系、文件职责、构建与版本、文件身份校验、准入边界、语料清单与文件身份、组织与发布目录、目录发布的实现与验收、职责约定、准入失败的处理、资源校验的实现与验收、基础类型与资源装配」（阶段 1）；「随机地图的冻结」、「随机地图的生成与发布」、「图与地点关系准入」（阶段 2）；「地点、商品与门店供给、地点发现与供给比较、检索呈现的实现与验收、无结果与范围限制」（阶段 3）；「职责约定、准入失败的处理、资源校验的实现与验收、检索与呈现、app 内容」（阶段 4）。
 
 资源引擎登记并校验环境对象、绑定与图，回答“这个世界有什么，如何按实际绑定查询”。
 它提供冻结对象与派生索引；资源定义和规则常数归交换引擎。
@@ -21,10 +20,13 @@
 [一日行为规格](../dev/SPEC-dayrun-behavior.md#spec-dayrun-behavior-一日行为可信性特性开发规格)为准。
 本文定义环境目录登记、校验和只读查询职责；具体世界的数据准备归 Dataset。
 
+> 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界」（阶段 1）。
+
 具体环境及制作工具按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)归 WorldMock-Dataset，
 正式重制环境路径由 WorldMock-Dataset 发布决定；WorldMock 提供引擎及包内固定通用规则。
-本章的 `catalog/`、`corpora/`、`scenarios/` 指外部环境目录，命令以 WorldMock 为当前工作目录并显式传路径。
-当前场景结构 7，内容标题来自 `contents.json`，活动效果随环境加载并在启动时冻结；新组合放行另核对实际收据。
+本章的 `catalog/`、`scenarios/` 指外部环境目录，命令以 WorldMock 为当前工作目录并显式传路径。
+当前场景结构 8、世界结构 11；类别、使用方式、效果与供给表由 WorldMock 固定，
+环境只登记对象、绑定与价格、内容时长、集数三种数；新组合放行另核对实际收据。
 
 <a name="design-03-resource-engine-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
@@ -39,44 +41,24 @@
 <a name="resource-engine-项目框架映射"></a>
 ### 项目框架映射
 
-承接 [overview 的解决方案](00-overview.md#overview-解决方案)，只展开资源引擎内部功能，其他引擎作为协作节点：
+资源引擎回答“世界中有哪些对象，它们如何绑定”，只登记与查询冻结目录。
 
 ```mermaid
-flowchart TB
-    SOURCES["数据集与素材来源"] --> PREPARE
-
-    subgraph RESOURCE["资源引擎：世界里有什么，如何找到与接触"]
-        PREPARE["整理与固化语料<br/>记录来源、许可、文件身份与版本"]
-        DEFINE["定义资源与对象<br/>金钱、时间、身体资源、商品与内容<br/>声明身份、单位、边界与属性"]
-        CATALOG["组织与发布目录<br/>关联资源、对象、内容与来源语料"]
-        CHECK["校验资源可用性<br/>核验版本、文件完整性、引用与检索可达性"]
-        QUERY["检索与呈现<br/>商品、生活活动与任务候选<br/>app 始终列出"]
-        PROVIDE["app 内容<br/>摘要、时长与 app 绑定<br/>由所选 app 抽取"]
-
-        PREPARE --> CATALOG
-        DEFINE --> CATALOG
-        CATALOG --> CHECK
-        CHECK --> QUERY
-        QUERY --> PROVIDE
-    end
-
-    EXCHANGE["交换引擎"]
-    SIMULATION["模拟引擎"]
-
-    CHECK -->|资源与对象定义| EXCHANGE
-    SIMULATION -->|查询条件、候选范围与呈现历史| QUERY
-    QUERY -->|候选、app 目标与内容绑定| SIMULATION
-    SIMULATION -->|所选 app 与确定性抽取键| PROVIDE
-    PROVIDE -->|标题、类型、摘要与时长| SIMULATION
+flowchart LR
+    D[数据仓整理名称、摘要与数值] --> C[登记 app、地点、商品、动作、内容与图]
+    C --> V[严格校验文件身份和绑定]
+    V --> I[冻结对象与反向索引]
+    I --> Q[只读目录与图查询]
+    Q --> S[模拟引擎选择内容并维护进度与历史]
+    X[交换引擎固定规则与常数] --> V
 ```
 
 <a name="resource-engine-职责约定"></a>
 ### 职责约定
 
-目录的登记、校验与只读查询归 `worldmock.catalog`，资源定义和公式归 `worldmock.exchange`。
-`Catalog` 提供对象映射与非图索引 `menus_by_kind/foods_by_store/stores_by_app/contents_by_app/apps_by_store`；
-内容只含标题、类型、摘要、摘要来源、时长和 app 绑定，模拟引擎在人物所选 app 的绑定内容中确定性抽取。
-活动环境从固定地点类型派生。图查询在阶段 2 加入，不声明占位方法。
+`worldmock.catalog` 负责登记、严格校验、只读查询与反向索引；`worldmock.exchange` 负责固定分类、规则与常数。
+`Catalog` 冻结 app、地点、商品、动作、内容及图，索引在登记通过后一次生成。
+内容选择、随机抽取、消费进度、推送与观看历史由模拟引擎负责，资源引擎不保存它们。
 
 <a name="resource-engine-整理与固化语料"></a>
 ## 2. 整理与固化语料
@@ -84,61 +66,26 @@ flowchart TB
 <a name="resource-engine-整理与固化流程"></a>
 ### 整理与固化流程
 
-```mermaid
-flowchart LR
-    INPUT[原始数据与许可] --> NORMALIZE[字段映射、单位换算、身份关联]
-    NORMALIZE --> TRACE[记录字段来源与变换依据]
-    TRACE --> FILES[固定内容与元数据文件]
-    FILES --> MANIFEST[生成语料清单与哈希]
-    MANIFEST --> VERIFY[校验准备好的语料]
-    VERIFY --> PUBLISH[发布固定语料文件]
-```
-
-运行消费已固化的本地语料。外部抓取、清洗和转换在准备阶段完成；
-运行中不在线补齐缺失素材，也不让模型编造来源事实。
-采集、清洗、转换和正式语料发布由 Dataset 制作工具负责；WorldMock 不提供来源准备器。
-引擎用实际清单核验文件和引用，不能用摘要正确代替来源与重建验收。
-不同数据集提供不同字段时，先用稳定身份建立关联，再按明确映射组合。
-缺少关联依据不能靠名称相似度推断为同一物品；缺失必需字段应在准入阶段暴露。
+语料整理、固化与来源记录归 WorldMock-Dataset。引擎不读取、校验或钉住任何 `corpora/` 文件，场景没有语料根与语料清单摘要。
+运行内容来自 `contents.json`：真实摘要保留 URL，合成摘要保留声明；来源合同见[环境目录](../CONTRACTS.md#contracts-环境目录文件)。
 
 <a name="resource-engine-来源分类"></a>
 ### 来源分类
 
-目录的来源分类与语料的文件来源是两种记录，分别回答“数值怎么来”和“文件从哪里来”。
-
-| 目录 `provenance.type` | 含义 | 应留下的依据 |
-| --- | --- | --- |
-| `fact` | 可追溯的来源事实 | 来源文件、字段或公开资料定位 |
-| `anchored` | 在来源事实基础上换算或锚定 | 原始锚点、单位换算或变换方法 |
-| `assumption` | 仿真使用的假设 | 假设理由与适用边界，不包装成实测事实 |
-| `scenario` | 场景明确给定的设定 | 场景来源与相应字段 |
-
-来源记录用 `part` 区分组成部分，并可用 `paths` 定位字段、`artifact` 定位材料、
-`method` 记录变换。类型与必填项见[目录模型](../../src/worldmock/catalog/models.py)。
-条目属性可以来自不同依据，必须按字段说明；有引用字符串不等于来源文件已归档。
-
-语料的 `source.kind` 是来源种类说明，当前模型不把它限制为上述四种目录分类。
-文件来源还包含 `license`、`selector` 及按来源适用的 `url`、`retrieved_at`、`fact_cutoff`。
-准入政策要求明确许可和来源，不能把“网上可见”当作许可依据。
+语料整理、固化与来源记录归 WorldMock-Dataset。引擎不读取、校验或钉住任何 `corpora/` 文件，场景没有语料根与语料清单摘要。
+运行内容来自 `contents.json`：真实摘要保留 URL，合成摘要保留声明；来源合同见[环境目录](../CONTRACTS.md#contracts-环境目录文件)。
 
 <a name="resource-engine-语料清单与文件身份"></a>
 ### 语料清单与文件身份
 
-`corpora/manifest.json` 保持既有格式，绑定生活活动以及 Dataset 的联系人、邮件语料原始字节。`contents.json` 已由目录身份绑定，不再将字幕、音轨或游戏纳入内容呈现。
-`worldmock validate --environment ROOT` 同时校验语料清单与目录清单，真实加载所有场景并核对三份包 TOML。
+语料整理、固化与来源记录归 WorldMock-Dataset。引擎不读取、校验或钉住任何 `corpora/` 文件，场景没有语料根与语料清单摘要。
+运行内容来自 `contents.json`：真实摘要保留 URL，合成摘要保留声明；来源合同见[环境目录](../CONTRACTS.md#contracts-环境目录文件)。
 
 <a name="resource-engine-语料整理的实现与验收"></a>
 ### 语料整理的实现与验收
 
-| 事项 | 当前承载与要求 |
-| --- | --- |
-| 准备与发布 | Dataset 制作工具负责来源整理、构建和发布；正式来源、数量与可复现重建在数据仓验收 |
-| 清单与来源 | [corpora/manifest.py](../../src/worldmock/corpora/manifest.py)承载文件身份与来源模型 |
-| 来源归档差距 | 部分目录来源记录仍标有 `evidence snapshot pending`，不能把来源标签当作证据文件已经归档 |
-| 验收 | 核对固定文件、来源、许可与转换依据；用重复身份、路径越界、大小和哈希漂移反例验证清单校验。相关用例见 [tests/corpora](../../tests/corpora) |
-
-清单组织借鉴 [Frictionless Data Package](https://specs.frictionlessdata.io/guides/data-package/)
-集中描述文件、来源、许可和结构的方式，继续使用现有模型与清单。
+语料整理、固化与来源记录归 WorldMock-Dataset。引擎不读取、校验或钉住任何 `corpora/` 文件，场景没有语料根与语料清单摘要。
+运行内容来自 `contents.json`：真实摘要保留 URL，合成摘要保留声明；来源合同见[环境目录](../CONTRACTS.md#contracts-环境目录文件)。
 
 <a name="resource-engine-地图资料的冻结与许可"></a>
 ### 随机地图的冻结
@@ -153,54 +100,56 @@ flowchart LR
 <a name="resource-engine-资源内容和语料的关系"></a>
 ### 资源、内容和语料的关系
 
-`catalog/` 登记对象、绑定、图与清单。`corpora/` 保留生活活动、联系人和邮件语料及既有 manifest；内容摘要直接位于 `contents.json`，真实摘要必须有 URL，合成摘要必须有 notice。
-真实 app、作品与主题名称，真实或合成摘要，以及合成数值分别保留来源语义，不把合成摘要当作真实内容接触。
+语料整理、固化与来源记录归 WorldMock-Dataset。引擎不读取、校验或钉住任何 `corpora/` 文件，场景没有语料根与语料清单摘要。
+运行内容来自 `contents.json`：真实摘要保留 URL，合成摘要保留声明；来源合同见[环境目录](../CONTRACTS.md#contracts-环境目录文件)。
 
 <a name="resource-engine-可计量资源定义"></a>
 ### 可计量资源定义
 
-能量、资金、时间和库存的单位、范围及身体常数由 `worldmock.exchange` 定义。资源引擎不从环境加载资源定义，不维护 `resources.jsonl`。环境只提供食品价格、内容时长、主题目标小时与实际对象绑定；运行状态由模拟引擎和记录引擎维护。
+资源元信息和身体规则由 `worldmock.exchange.body` 固定，环境不提供资源定义或效率系数。
+金钱是封闭账本资源；能量、睡眠债与娱乐需要是开放身体资源。资源引擎只登记对象，不保存人物库存、观看历史或进度。
+环境能填的数只有商品价格、内容时长与系列集数；场景保留人物与账户的初始状态。
 
 <a name="resource-engine-交换对象与内容条目"></a>
 ### 交换对象与内容条目
 
-目录对象是 app、地点、食品、内容和工作主题。食品只有身份、名称、类别、统一价格与店铺绑定；内容有标题、类型、摘要、来源说明、时长与 app 绑定；工作主题有身份、主题与目标小时。
-没有通用对象增量、品类继承、墓碑、配方、字幕、音轨、游戏轨迹或工作材料。生活活动条目仍使用独立语料合同。
+| 文件 | 内容 |
+| --- | --- |
+| `manifest.json` | `format_version: 2`、环境标识与版本、`rules_version: 2`、六个文件的路径/哈希/字节数、`catalog_content_sha256` |
+| `apps.json` | `app_id`、真实 `name`、`purposes`、`payment_app_ids`；用途与绑定列表去重并排序 |
+| `locations.json` | `location_id`、`name`、可选 `branch_label`、`kind`、`app_ids`；仅店铺允许绑定购物 app |
+| `goods.json` | `goods_id`、`name`、五个固定类别之一、正整数 `price_fen`、`store_ids` 列表或 `"all"` |
+| `actions.json` | `action_id`、`name`、`description`、五个固定类别之一、`app_ids`、必填可空 `manner` |
+| `contents.json` | `content_id`、`action_id`、`title`、摘要与来源、`duration_seconds`、`app_ids`、可选 `series` |
+| `map.json` | 地图结构 1、种子、生成器规则版本 1、节点与规范无向边 |
+
+内容必须绑定恰好一个动作；动作可以不绑定 app。动作的 `app_ids` 非空时，`manner` 必须是一种固定使用方式，
+每条内容的 `app_ids` 是该动作 app 集合的非空子集；动作没有 app 时，`manner` 为 null、内容 app 集合为空。
+每个动作及每个动作与 app 的组合至少有一条内容。空集合从不表示全部 app。
+内容 `duration_seconds` 是正整数且不小于 60 秒；动作不登记时长、时间窗、场所或效果。
+内容不登记分类；环境维护动作名称、说明及其内容。
+系列以 `(action_id, series.title)` 识别，各集具有相同动作与 app 集合，集数为唯一的正整数。
+
+商品绑定店铺，店铺绑定购物 app。`GOODS_CATEGORY_STORE_KINDS` 固定类型可供给的类别，
+`"all"` 展开到全部可供给该类别的店铺；显式绑定列表去重排序，同类型店铺同菜单。
+购物用途存在当且仅当至少一家店铺绑定该 app；支付绑定非空当且仅当有购物用途，
+绑定目标具有支付用途，允许绑定自己。导航与支付 app 可以没有内容；app 必须有用途或动作绑定。
 
 <a name="resource-engine-地点商品与门店供给"></a>
 ### 地点、商品与门店供给
 
-```mermaid
-flowchart LR
-    FOODS[食品名称类别固定价格] --> BIND[食品店铺绑定]
-    PLACES[地点身份与类型] --> BIND
-    APPS[app 名称与绑定] --> STORES[店铺 app 索引]
-    BIND --> MENU[同类型共享菜单]
-    MENU & STORES --> CATALOG[只读资源目录]
-    GRAPH[发布连通图] --> CATALOG
-```
-
-食品在 `foods.json` 定义 `food_id`、名称、`category`、固定 `price_fen` 与店铺绑定。类别只有 `snack`、`drink`、`meal`，同一食品全店同价，同类型食品店铺菜单完全相同。
-`store_ids="all"` 只展开到食品店铺类型，住宅不出售食品；目录一次派生 `foods_by_store` 与店铺 app 索引。没有报价、价位、抖动、库存、营业或资格。
-
-地点只声明 `kind`，活动环境由固定类型环境表派生。食品目录和 app 绑定只读；模拟引擎只保存实际订单与食品持有，不保存店铺库存、报价、营业或配方。真实名称、合成价格与边长在输入来源中分别说明。
+商品有正餐、零食、饮品、休闲用品与日常用品五类，每个商品只有一个固定价。
+餐馆供给正餐、零食与饮品，咖啡馆供给零食与饮品，便利店和超市可供给五类。
+绑定只允许可供给该类别的店铺；`"all"` 展开到全部合格店铺，显式列表按身份排序，同类型店铺同菜单。
+店铺的 `app_ids` 指向购物 app；没有 app 绑定的店铺只能到店购买。
 
 <a name="resource-engine-冻结地图的准备与发布"></a>
 ### 随机地图的生成与发布
 
-Dataset 编写地点后调用 WorldMock 地图生成器。同一地点集合与种子在不同机器上产生相同规范 JSON 与 LF 字节，发布图包括全目录地点，场景选择不裁切图。
-
-```mermaid
-flowchart LR
-    L[地点身份与整数种子] --> G[WorldMock 生成连通加权图]
-    G --> V[登记校验与重生成比对]
-    V --> I[刷新目录清单身份]
-    I --> P[Dataset 发布环境版本]
-    P --> R[运行只读发布图]
-```
-
-`worldmock environment generate-map --locations PATH --seed INT --output PATH` 生成规范图；`--check` 不写文件，逐字节比对，失配报 `MAP_NOT_REGENERATED`。`worldmock validate --environment ROOT` 同时校验登记、图、语料清单、三份 TOML 字节和全部场景。
-发布失败不能覆盖已发布身份；内容变化须发布新的环境版本。生成器不持有运行状态，出行费用和配送常数由 WorldMock 固定规则拥有。
+数据仓以已登记地点与种子调用 `worldmock environment generate-map`，发布随机连通加权图。
+`worldmock environment check` 重新生成后逐值核对规范节点与边，并检查目录登记。
+`worldmock validate --environment` 登记完整目录、重生成比对地图并加载全部场景，成功结果为 `{valid, environment_id, environment_version, scenarios}`。
+环境只有 `catalog/` 与 `scenarios/`，不含语料清单或包规则副本。
 
 <a name="resource-engine-资源定义的实现与验收"></a>
 ### 资源定义的实现与验收
@@ -215,19 +164,33 @@ flowchart LR
 <a name="resource-engine-组织与发布目录"></a>
 ## 4. 组织与发布目录
 
-发布环境的 `catalog/`、`corpora/`、`scenarios/` 并列。目录清单精确绑定必需文件，身份刷新通过既有 `footprints.assets.atomic_write` 原子写入，不新增构建器、发布配置或兼容读层。发布后的环境作为不可变输入使用。
+发布环境只有并列的 `catalog/` 与 `scenarios/`。数据仓准备名称、摘要与合成数值，发布登记目录和场景。
+引擎目录中的来源仅为内容 `summary_source`；运行不读取或核验语料。
 
 <a name="resource-engine-文件职责"></a>
 ### 文件职责
 
-七份目录 JSON 为 `manifest.json`、`apps.json`、`locations.json`、`foods.json`、`contents.json`、`work_topics.json`、`map.json`。清单精确绑定其余六份 JSON 和三份包 TOML；完整字段与全部登记码见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)。
-`loader.load_catalog` 只负责安全读取、严格解析和调用 `catalog.admission` 唯一登记器；`Catalog` 冻结对象与派生索引，调用方不能修改。
+| 文件 | 内容 |
+| --- | --- |
+| `manifest.json` | `format_version: 2`、环境标识与版本、`rules_version: 2`、六个文件的路径/哈希/字节数、`catalog_content_sha256` |
+| `apps.json` | `app_id`、真实 `name`、`purposes`、`payment_app_ids`；用途与绑定列表去重并排序 |
+| `locations.json` | `location_id`、`name`、可选 `branch_label`、`kind`、`app_ids`；仅店铺允许绑定购物 app |
+| `goods.json` | `goods_id`、`name`、五个固定类别之一、正整数 `price_fen`、`store_ids` 列表或 `"all"` |
+| `actions.json` | `action_id`、`name`、`description`、五个固定类别之一、`app_ids`、必填可空 `manner` |
+| `contents.json` | `content_id`、`action_id`、`title`、摘要与来源、`duration_seconds`、`app_ids`、可选 `series` |
+| `map.json` | 地图结构 1、种子、生成器规则版本 1、节点与规范无向边 |
 
 <a name="resource-engine-构建与版本"></a>
 ### 构建与版本
 
-Dataset 编写具体世界对象与绑定，调用 WorldMock 地图生成器发布图，最后刷新目录清单。`format_version = 1`、地图结构 1、`RULES_VERSION = 1` 分别明确校验，环境身份和版本为非空字符串。
-目录内容更新发布新的环境版本，并更新场景 `environment` 钉；旧运行与历史输入不重写。规则变化在 WorldMock 唯一定义处实现并升 `RULES_VERSION`。
+现行身份是目录格式 2、`RULES_VERSION = 2`、场景结构 8、世界结构 11、运行清单 4。
+运行、检查点与恢复使用五字段 `environment_identity`：`environment_id`、`environment_version`、
+`rules_version`、`catalog_content_sha256`、`map_sha256`。
+规则文件只从引擎包读取，环境不发布副本，也不添加规则哈希；`code_sha256` 额外覆盖 `src/worldmock/data/` 下每个文件。
+旧格式与旧结构号直接拒绝，不迁移、不双读。
+
+新增 app、动作、内容与商品只需数据仓重新发布；新增类别、效果或规则须修改 WorldMock 并提升 `RULES_VERSION`。
+地图结构和生成器规则版本都为 1；目录清单不列规则副本，也不带规则哈希。
 
 <a name="resource-engine-目录发布的实现与验收"></a>
 ### 目录发布的实现与验收
@@ -241,14 +204,27 @@ Dataset 编写具体世界对象与绑定，调用 WorldMock 地图生成器发�
 <a name="resource-engine-文件身份校验"></a>
 ### 文件身份校验
 
-清单 `files` 精确列出六份目录 JSON 与三份包 TOML 的相对路径、SHA-256 与字节数，`catalog_content_sha256` 对该文件表作框架化摘要。根内读取拒绝绝对路径、父引用、链接和非普通文件。
-多余文件报 `ENVIRONMENT_STALE_FILE`，缺必需项报 `ENVIRONMENT_FILE_UNLISTED`，字节或摘要不符报 `ENVIRONMENT_IDENTITY_MISMATCH`。规则版本与场景环境钉另行核对，不能只靠版本名放行不同字节。
+清单的 `files` 恰好登记六个文件，各自绑定路径、sha256 和字节数，目录内容摘要沿用框架化算法。
+严格模型拒绝清单额外字段；未登记文件、缺失必需文件、字节漂移与环境钉不一致分别以登记码拒绝。
+包规则只从包资源读取，不比对环境副本；五字段环境身份与代码身份共同保证恢复一致性。
 
 <a name="resource-engine-准入边界"></a>
 ### 准入边界
 
-`catalog.admission` 是唯一登记校验器。目录加载、环境 CLI 与数据仓检查都复用它；严格模型拒绝未知字段，跨对象绑定、同类菜单、内容 app、图连通性与场景引用在准入时检查。
-`RegistrationError` 继承 `IntegrityError`，带稳定码与英文原因。目录通过不代表完整引擎已消费；实际图查询在阶段 2 接入。
+内容必须绑定恰好一个动作；动作可以不绑定 app。动作的 `app_ids` 非空时，`manner` 必须是一种固定使用方式，
+每条内容的 `app_ids` 是该动作 app 集合的非空子集；动作没有 app 时，`manner` 为 null、内容 app 集合为空。
+每个动作及每个动作与 app 的组合至少有一条内容。空集合从不表示全部 app。
+内容 `duration_seconds` 是正整数且不小于 60 秒；动作不登记时长、时间窗、场所或效果。
+内容不登记分类；环境维护动作名称、说明及其内容。
+系列以 `(action_id, series.title)` 识别，各集具有相同动作与 app 集合，集数为唯一的正整数。
+
+商品绑定店铺，店铺绑定购物 app。`GOODS_CATEGORY_STORE_KINDS` 固定类型可供给的类别，
+`"all"` 展开到全部可供给该类别的店铺；显式绑定列表去重排序，同类型店铺同菜单。
+购物用途存在当且仅当至少一家店铺绑定该 app；支付绑定非空当且仅当有购物用途，
+绑定目标具有支付用途，允许绑定自己。导航与支付 app 可以没有内容；app 必须有用途或动作绑定。
+
+`catalog.admission` 是唯一目录登记校验器；严格模型拒绝未知字段，图和跨对象引用一并校验。
+场景工作分配另执行四个 `WORK_*` 检查，完整 32 个登记码及原因见[登记错误](../CONTRACTS.md#contracts-环境目录与绑定)。
 
 <a name="resource-engine-地图关系与道路范围准入"></a>
 ### 图与地点关系准入
@@ -267,17 +243,15 @@ Dataset 编写具体世界对象与绑定，调用 WorldMock 地图生成器发�
 <a name="resource-engine-准入失败的处理"></a>
 ### 准入失败的处理
 
-登记失败返回 `RegistrationError.code` 和稳定英文原因，日志记录同一实际错误；调用方不能补齐未知绑定、
-忽略额外文件、沿用旧身份或退回另一世界。每条内容必须绑定至少一个登记 app；无绑定、未知 app、
-非法内容类型、缺摘要来源或摘要超长均在启动前失败。完整错误表见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)。
+`RegistrationError` 继承 `IntegrityError`，保留稳定登记码与英文原因，并记录错误日志。
+不补造对象、不跳过失效绑定、不改读其他环境。错误与修复入口按[注册校验与错误](../dev/SPEC-action-and-content-simplification.md#spec-acs-注册校验与错误)判断。
 
 <a name="resource-engine-资源校验的实现与验收"></a>
 ### 资源校验的实现与验收
 
-真实环境加载与 `validate --environment` 共用唯一登记器。行为反例覆盖未知引用、非法闭集与数值、食品绑定、
-app 内容引用与可达性、摘要来源、app 名冲突、图格式连通性、场景环境钉、卖方账户和工作安排；
-每条失败都给出规范稳定码。内容不再校验分段、时间轴、资产、题材属性或评估引用，也不建立内容检索索引。
-地点活动环境由 `PLACE_KIND_ENVIRONMENTS` 派生，条目保留自己的 `location_kinds`。完整运行行为随所属阶段闭合。
+目录严格模型、登记校验与文件身份分别在 `catalog.models`、`catalog.admission`、`catalog.identity` 实现。
+`tests/catalog/` 使用真实人工环境制造反例，验证绑定、闭集、最小内容时长、供给类别、目录身份与发布命令。
+纯加载测试通过不代表完整引擎执行或正式环境已验收。
 
 <a name="resource-engine-检索与呈现"></a>
 ## 6. 检索与呈现
@@ -333,9 +307,9 @@ app 内容引用与可达性、摘要来源、app 名冲突、图格式连通性
 <a name="design-resource-engine-current-responsibility"></a>
 ## 基础类型与资源装配
 
-资源引擎登记并校验七份环境目录，提供冻结对象、固定食品供给、app 内容绑定与派生索引，不拥有资源定义、
-交换公式、活动运行状态或规则维护流程。正式世界来源和制作归 Dataset；WorldMock 维护固定类型、登记合同和
-通用运行行为。模拟引擎负责 app 选择、全局内容进度和会话推送状态；历史原文与运行证据按原始字节保留。
+`worldmock.base_models` 保留严格模型与深冻结基础；`worldmock.exchange.body` 固定身体常数与资源元信息。
+`Catalog` 只装配 app、地点、商品、动作、内容与发布图，不读取语料或环境规则副本。
+反向索引为 `menus_by_kind`、`goods_by_store`、`stores_by_app`、`apps_by_store`、`actions_by_app`、`contents_by_action`、`contents_by_action_app`、`contents_by_series`。
 
 <a name="resource-engine-版本历史"></a>
 ## 版本历史
@@ -361,3 +335,4 @@ app 内容引用与可达性、摘要来源、app 名冲突、图格式连通性
 | `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
 | `2026-10-06-rrs-app` | 2026-10-07 | app 与 app 内容引用、内容可达性和三键可调用索引；内容退出候选、facet、分段读取与资产揭示管线；版本保持 v1.16 |
+| `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |

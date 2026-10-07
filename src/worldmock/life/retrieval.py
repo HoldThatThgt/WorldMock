@@ -27,12 +27,8 @@ facet；未超过时按品类下推。两条路径的查询入口与分区键完
 
 from __future__ import annotations
 
-import json
-import logging
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from functools import lru_cache
-from types import MappingProxyType
 from typing import Any, Literal
 
 #: 检索分区的三个维度名（闭集，全流程同名同义）。
@@ -57,10 +53,6 @@ DEFAULT_RETRIEVAL_INDEX_THRESHOLD = 1000
 
 #: 检索路径的两种取值：索引命中与线性扫描（同入口、同结果，只用于留痕）。
 RetrievalPath = Literal["INDEXED", "SCANNED"]
-
-#: 生活活动语料的相对路径。
-LIFESTYLE_RELATIVE = "lifestyle/items.json"
-
 
 @dataclass(frozen=True, slots=True)
 class RetrievalEntry:
@@ -199,60 +191,6 @@ def _matches(entry: RetrievalEntry, query: RetrievalQuery) -> bool:
     if query.location_kinds and not feasible_kinds(query.location_kinds, entry.location_kinds):
         return False
     return True
-
-
-@lru_cache(maxsize=8)
-def place_kinds(corpora_root: Any, relative: str
-                ) -> Mapping[str, frozenset[str]]:
-    """@brief 读取显式地点活动环境；缺文件、缺声明和活动侧通配符均拒绝。"""
-    path = corpora_root / relative
-    if not path.is_file():
-        logging.error("Location corpus is missing: %s", relative)
-        raise ValueError("location corpus is missing")
-    document = json.loads(path.read_text(encoding="utf-8"))
-    places: dict[str, frozenset[str]] = {}
-    for location in document["locations"]:
-        if not isinstance(location, dict):
-            logging.error("Location activity kinds declaration is invalid")
-            raise ValueError("location activity kinds declaration is invalid")
-        location_id = location.get("location_id")
-        declared = location.get("location_kinds")
-        if (not isinstance(location_id, str) or not location_id.strip() or location_id in places
-                or not isinstance(declared, list) or not declared
-                or not all(isinstance(kind, str) and kind in LOCATION_KINDS for kind in declared)
-                or ANYWHERE_KIND in declared or len(set(declared)) != len(declared)):
-            logging.error("Location activity kinds declaration is invalid")
-            raise ValueError("location activity kinds declaration is invalid")
-        places[location_id] = frozenset(declared)
-    return MappingProxyType(places)
-
-
-@lru_cache(maxsize=8)
-def item_kinds(corpora_root: Any, relative: str = LIFESTYLE_RELATIVE
-               ) -> Mapping[str, frozenset[str]]:
-    """@brief 生活活动语料的地点类声明表：活动标识 -> 该条目需要的地点类集合。
-
-    条目侧的声明是「我需要哪些地点类」，与地点侧的「我满足哪些地点类」同名同义
-    （docs/CONTRACTS.md#contracts-worldmock-接口合同「地点类词表」）。条目声明含 `anywhere` 表示恒可行。
-
-    :param corpora_root: 语料根目录。
-    :param relative: 生活活动语料的相对路径。
-    :return: 活动标识到所需地点类集合的只读映射；未声明条目不在表内。
-    """
-    path = corpora_root / relative
-    if not path.is_file():
-        return MappingProxyType({})
-    document = json.loads(path.read_text(encoding="utf-8"))
-    kinds: dict[str, frozenset[str]] = {}
-    for item in document.get("items", []):
-        if not isinstance(item, dict):
-            continue
-        declared = item.get("location_kinds")
-        if isinstance(declared, list) and declared:
-            activity_id = str(item.get("activity_id") or "")
-            if activity_id:
-                kinds[activity_id] = frozenset(str(kind) for kind in declared)
-    return MappingProxyType(kinds)
 
 
 def indexed_ids(index: RetrievalIndex, query: RetrievalQuery) -> frozenset[str] | None:

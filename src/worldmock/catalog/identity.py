@@ -16,8 +16,7 @@ from worldmock.footprints.models import canonical_json
 
 
 REQUIRED_CATALOG_FILES = frozenset({
-    "apps.json", "locations.json", "foods.json", "contents.json", "work_topics.json", "map.json",
-    "affordances.toml", "rules/motivation.toml", "rules/persona-mapping.toml",
+    "apps.json", "locations.json", "goods.json", "actions.json", "contents.json", "map.json",
 })
 
 
@@ -48,8 +47,11 @@ def read_catalog_file(directory: Path, relative: str) -> bytes:
 
 def read_manifest_payload(directory: Path) -> dict[str, Any]:
     """@brief 读取原始清单对象用于登记与去自引用摘要。"""
+    content = read_catalog_file(directory, "manifest.json")
+    if b"\r" in content:
+        raise RegistrationError("ENVIRONMENT_KIND_INVALID", "Catalog JSON must use LF line endings.")
     try:
-        payload = json.loads(read_catalog_file(directory, "manifest.json"))
+        payload = json.loads(content)
     except (UnicodeError, json.JSONDecodeError) as error:
         raise RegistrationError("ENVIRONMENT_IDENTITY_MISMATCH", str(error)) from error
     if not isinstance(payload, dict):
@@ -61,7 +63,7 @@ def compute_catalog_identity(
     catalog_dir: Path | str,
     manifest_payload: dict[str, Any] | None = None,
 ) -> CatalogIdentity:
-    """@brief 对九个必需文件和去自引用清单按路径及字节长度分帧求摘要。"""
+    """@brief 对六个必需文件和去自引用清单按路径及字节长度分帧求摘要。"""
     directory = Path(catalog_dir)
     payload = read_manifest_payload(directory) if manifest_payload is None else dict(manifest_payload)
     digest = hashlib.sha256()

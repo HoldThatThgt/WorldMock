@@ -6,10 +6,9 @@ from pathlib import Path
 import logging
 
 from worldmock.errors import BusinessRuleError, PreconditionError
-from worldmock.catalog.models import App, Catalog, WorkTopic
+from worldmock.catalog.models import App, Catalog, Content
 from worldmock.life.content import load_content_titles
 from worldmock.life.activities import require_location_kinds
-from worldmock.life.retrieval import item_kinds
 from worldmock.life.models import ActivityKind, ActivityStartParams, AgentState
 from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.travel import plan_trip, travel_activity_data
@@ -19,19 +18,17 @@ from worldmock.life.work import validate_work_start
 class LifeRuleEngine:
     """@brief 使用有类型 Python 函数组装状态转换，不实现通用表达式语言。"""
 
-    def __init__(self, scenario: RuntimeScenario, catalog: Catalog, corpus_root: Path):
+    def __init__(self, scenario: RuntimeScenario, catalog: Catalog):
         """@brief 绑定已经全量校验的场景和内容目录。"""
         self.scenario = scenario
         self.graph = catalog.graph
-        self.corpus_root = Path(corpus_root).resolve()
         self.locations = {item.location_id: item for item in scenario.locations}
-        self.activity_location_kinds = item_kinds(self.corpus_root)
         self.messages = {item.message_id: item for item in scenario.messages}
-        self.foods = catalog.foods
+        self.goods = catalog.goods
         self.contents = catalog.contents
         self.apps = catalog.apps
-        self.work_topics = catalog.work_topics
-        self.contents_by_app = catalog.contents_by_app
+        self.actions = catalog.actions
+        self.contents_by_action_app = catalog.contents_by_action_app
         self.content_titles = load_content_titles(tuple(catalog.contents.values()))
 
     def validate_start(self, agent: AgentState, request: ActivityStartParams, now: int,
@@ -85,7 +82,7 @@ class LifeRuleEngine:
         require_location_kinds(place_kinds, self.activity_location_kinds[target_id])
 
 
-    def work_topic(self, topic_id: str | None, agent_id: int | None = None) -> WorkTopic:
+    def work_topic(self, topic_id: str | None, agent_id: int | None = None) -> Content:
         """@brief 取得真实登记且在指定人物分配内的主题，未知或未分配明确拒绝。"""
         if topic_id not in self.work_topics:
             logging.error("Work topic is not registered: %s", topic_id)

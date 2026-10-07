@@ -11,7 +11,6 @@ from worldmock.life.tool_groups import expand_tool_layer
 
 from typing import Any
 
-from worldmock.exchange.types import CONTENT_KIND_LABELS
 from worldmock.life import felt
 from worldmock.life.callable_index import MAX_EXAMPLES
 from worldmock.life.control_items import CONTROL_TOOLS
@@ -217,7 +216,6 @@ ENVIRONMENT_LAYER_SCHEMA: dict[str, Any] = {
 _RESULT = _object({"occurred_at": _TIME, "status": {"enum": list(ACTION_STATUSES)},
                    "error_code": _NULLABLE_TEXT, "message": _TEXT, "details": {"type": "object", "properties": {
                        "app_content": _object({"app": _TEXT, "title": _TEXT,
-                                               "kind": {"enum": list(CONTENT_KIND_LABELS.values())},
                                                "summary": {"type": "string", "maxLength": 200},
                                                "pushed": {"type": "boolean"}}),
                        "work": {"type": "array", "items": _object(
@@ -252,7 +250,7 @@ PROGRESS_LAYER_SCHEMA: dict[str, Any] = {
             _MESSAGE_RECORD,
             _record("delivery", {"order": _TEXT, "status": {"enum": ["ready", "delivered", "cancelled"]},
                                  "message": _TEXT}),
-            _record("app_push", {"app": _TEXT, "title": _TEXT, "kind": {"enum": list(CONTENT_KIND_LABELS.values())},
+            _record("app_push", {"app": _TEXT, "title": _TEXT,
                                   "summary": {"type": "string", "maxLength": 200}}),
             _record("work_completed", {"topic": _TEXT}),
             _record("plan_reminder", {"goal": _TEXT}),

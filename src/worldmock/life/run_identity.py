@@ -25,7 +25,7 @@ def environment_identity(semantics: Any) -> dict[str, str | int]:
 def require_environment_identity(manifest: dict[str, Any], semantics: Any) -> None:
     """@brief 在读取已有运行状态前拒绝缺失身份或同版本异内容。"""
     expected = environment_identity(semantics)
-    if manifest.get("schema_version") != 3 or manifest.get("environment_identity") != expected:
+    if manifest.get("schema_version") != 4 or manifest.get("environment_identity") != expected:
         logging.error("Runtime environment identity mismatch")
         raise IntegrityError("Runtime environment identity mismatch")
 

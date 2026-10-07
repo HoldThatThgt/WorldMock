@@ -443,7 +443,7 @@ def candidate_inputs(context: PresentationContext, sources: dict, moment: bool =
         scenario_id=str(context.scenario.scenario_id), agent_id=int(context.agent.agent_id),
         local_date=local_date(now, context.scenario.timezone),
         state_version=int(context.state.version),
-        catalog_digest=str(context.state.content_manifest_sha256),
+        catalog_digest=str(context.semantics.catalog.manifest.catalog_content_sha256),
         profile_digest=str(context.scenario.scenario_id))
 
 

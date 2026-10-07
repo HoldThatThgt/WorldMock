@@ -1,7 +1,6 @@
 """@brief 管理有时长活动的资源占用、进度、边界和中断。"""
 
 from __future__ import annotations
-from worldmock.life.social import CALL_MET, CHAT_MET
 
 import logging
 import math
@@ -16,8 +15,8 @@ from worldmock.life.body import (
     BodySettlement,
     settle_body,
 )
-from worldmock.exchange.constants import CONTENT_RELIEF_PER_HOUR
-from worldmock.exchange.types import ContentKind
+from worldmock.exchange.constants import CATEGORY_MET, ENTERTAINMENT_RELIEF_PER_HOUR, LIFESTYLE_HEALTH_MOOD_PER_HOUR
+from worldmock.exchange.types import ActionCategory
 from worldmock.life.content import store_app_progress, validate_lifestyle_effects
 from worldmock.life.models import (
     ActivityChange,
@@ -70,7 +69,6 @@ LIFESTYLE_SOCIAL_SCALE_PER_HOUR = 0.5
 #: 生活活动 effects 健康效应的每小时情绪脉冲幅度（experiment_assumption：
 #: 锚定 felt.MOOD_PULSES 的 message_received +0.1；健康无独立需要池，落
 #: 情绪通道——docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」情绪不改变动作可行性）。
-LIFESTYLE_HEALTH_MOOD_PER_HOUR = 0.1
 
 
 def lifestyle_relief_rates(effects: Mapping[str, float]) -> tuple[float, float, float]:
@@ -255,32 +253,32 @@ def shared_activity_factors(activity: ActivityState, agent: AgentState,
     """@brief 共同身体结算与边界预测共用的单项系数：交谈、通话取社交常量 MET，其余复用活动声明系数。"""
 
     if activity.kind == ActivityKind.CHAT:
-        return ActivityFactors(CHAT_MET)
+        return ActivityFactors(CATEGORY_MET[ActionCategory.SOCIAL][False])
     if activity.kind == ActivityKind.CALL:
-        return ActivityFactors(CALL_MET)
+        return ActivityFactors(CATEGORY_MET[ActionCategory.SOCIAL][True])
     return activity_factors(activity, agent, config)
 
 
 def activity_factors(activity: ActivityState, agent: AgentState, config: BodyConfig) -> ActivityFactors:
-    """@brief 从活动方式和当前内容类型形成结算系数。"""
-    met = _activity_met(activity.kind, activity.travel_mode, config, activity.target_id)
+    """@brief 从活动方式和系统固定缓解量形成结算系数。"""
+    met = _activity_met(activity.kind, activity.travel_mode, config)
     relief = entertainment_relief_rate(activity, config)
     food = _food_energy_rate(activity)
     return ActivityFactors(met, relief, food_energy_kcal_per_hour=food)
 
 
 def entertainment_relief_rate(activity: ActivityState, config: BodyConfig) -> float:
-    """@brief app 按当前内容类型固定缓解，生活活动按冻结效果缓解。"""
+    """@brief app 使用读取系统固定娱乐缓解量，生活活动按冻结效果缓解。"""
     if activity.kind == ActivityKind.USE_APP:
-        return content_entertainment_relief_rate(activity.data["content_kind"])
+        return content_entertainment_relief_rate()
     if activity.kind == ActivityKind.LIFESTYLE:
         return lifestyle_relief_rates(_frozen_lifestyle_effects(activity))[0]
     return 0.0
 
 
-def content_entertainment_relief_rate(kind: str) -> float:
-    """@brief 内容类型只读系统固定缓解常数，不引入口味或接触次数。"""
-    return CONTENT_RELIEF_PER_HOUR[ContentKind(kind)]
+def content_entertainment_relief_rate() -> float:
+    """@brief 娱乐缓解只读系统固定速率，不引入内容分类、口味或接触次数。"""
+    return ENTERTAINMENT_RELIEF_PER_HOUR
 
 
 
@@ -296,11 +294,9 @@ def _food_energy_rate(activity: ActivityState) -> float:
     return float(value)
 
 
-def _activity_met(kind: ActivityKind, travel_mode, config: BodyConfig,
-                  target_id: str | None = None) -> float:
-    """@brief 按注册表 met_key 模板查冻结代谢当量（travel:{mode} / lifestyle:{item_id}）。"""
-    return config.activity_met[
-        _AFFORDANCES.met_lookup_key(kind.value, travel_mode=travel_mode, target_id=target_id)]
+def _activity_met(kind: ActivityKind, travel_mode, config: BodyConfig) -> float:
+    """@brief 按注册表固定代谢键或出行方式查系统代谢当量。"""
+    return config.activity_met[_AFFORDANCES.met_lookup_key(kind.value, travel_mode=travel_mode)]
 
 
 def _advanced_activity(activity: ActivityState, stop: int, elapsed: int,

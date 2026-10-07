@@ -8,29 +8,31 @@ from worldmock.base_models import require_finite_number
 from worldmock.errors import reject_value
 from worldmock.exchange.constants import (
     DELIVERY_FEE_FEN, DELIVERY_METERS_PER_SECOND, DELIVERY_PREP_SECONDS, DRIVING_FARE_FEN_PER_METER,
-    DRIVING_FARE_MINIMUM_FEN, DRIVING_METERS_PER_SECOND, FOOD_CONSTANTS, WALKING_METERS_PER_SECOND,
+    DRIVING_FARE_MINIMUM_FEN, DRIVING_METERS_PER_SECOND, GOODS_ENERGY_KCAL, GOODS_RECEIPT_EFFECTS,
+    WALKING_METERS_PER_SECOND,
 )
-from worldmock.exchange.types import FoodCategory
+from worldmock.exchange.types import GoodsCategory
 
 
 def evaluate_purchase(unit_price_fen: int, quantity: int) -> int:
-    """@brief 按食品单价和整份数量计算购买分数。"""
+    """@brief 按商品单价和正整数数量计算购买分数。"""
     for label, value in (("unit_price_fen", unit_price_fen), ("quantity", quantity)):
         if type(value) is not int or value <= 0:
             reject_value(f"{label} must be a positive integer")
     return unit_price_fen * quantity
 
 
-def evaluate_food_energy(category: FoodCategory | str, consumed_fraction: int | float) -> float:
-    """@brief 用食品类别热量精确计算本次食用比例的能量。"""
+def evaluate_goods_receipt(category: GoodsCategory | str, quantity: int) -> int | float:
+    """@brief 食品返回整份提供热量，非食品返回每条订单行的固定效果。"""
+    if type(quantity) is not int or quantity <= 0:
+        reject_value("quantity must be a positive integer")
     try:
-        constants = FOOD_CONSTANTS[FoodCategory(category)]
+        category = GoodsCategory(category)
     except ValueError:
-        reject_value("Food category is outside the fixed set")
-    result = float(_multiply_exact((Decimal(constants.energy_kcal), _non_negative(consumed_fraction, "fraction"))))
-    if not math.isfinite(result):
-        reject_value("Food energy result must be finite")
-    return result
+        reject_value("Goods category is outside the fixed set")
+    if category in GOODS_ENERGY_KCAL:
+        return GOODS_ENERGY_KCAL[category] * quantity
+    return GOODS_RECEIPT_EFFECTS[category]
 
 
 def evaluate_travel_fare(mode: str, distance_m: int | float) -> int:

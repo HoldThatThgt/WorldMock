@@ -53,7 +53,6 @@ def _world_state() -> WorldState:
         run_id="run-1",
         timezone="Asia/Shanghai",
         scenario_sha256="a" * 64,
-        content_manifest_sha256="b" * 64,
         agents={1: agent},
         accounts={"agent:1": 0},
         activities={activity.activity_id: activity},
