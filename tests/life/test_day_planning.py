@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from tests.data_paths import ENVIRONMENT_ROOT
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 from worldmock.footprints.checkpoint import restore_branch
 
 import hashlib
@@ -1085,7 +1085,7 @@ def test_resume_and_counterfactual_branches_follow_plan_submitted_dates(engine_f
     initial = engine.checkpoint(snapshots)
     settle_day_plans(engine, StubPlanDayClient(goals=[_goal("休息", "歇一会儿")]))
     planned = engine.checkpoint({"agent:1": snapshot_directory(workspace, engine.context.store.assets)})
-    scenario_path = (ENVIRONMENT_ROOT / "scenarios") / SCENARIO
+    scenario_path = (ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios") / SCENARIO
     restore_branch(engine.context.store, initial.checkpoint_id, tmp_path / 'resume', None).close()
     restore_branch(engine.context.store, planned.checkpoint_id, tmp_path / 'branch', {'branch_kind': 'counterfactual', 'intervention_sha256': 'a' * 64}).close()
     resumed = LifeEngine.open(scenario_path, tmp_path / "resume")

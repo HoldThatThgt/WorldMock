@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tests.data_paths import ENVIRONMENT_ROOT
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 
 import json
 from copy import deepcopy
@@ -114,7 +114,7 @@ def test_memo_survives_persistent_reopen(engine_factory, tmp_path):
     expected = rejected_today(SimpleNamespace(state=engine.context.state, scenario=engine.context.scenario, agent_id=1), engine.context.store)
     run_directory = engine.context.store.run_dir
     engine.close()
-    scenario_path = ENVIRONMENT_ROOT / "scenarios" / "single-person.json"
+    scenario_path = ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios" / "single-person.json"
     reopened = LifeEngine.open(scenario_path, run_directory)
     try:
         observed = reopened.observe(context(reopened, "reopened-memo"))

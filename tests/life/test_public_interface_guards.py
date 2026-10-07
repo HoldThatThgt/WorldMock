@@ -25,7 +25,7 @@ from worldmock.life.scenario import BodyConfig, LifeScenario, MotivationProfile
 @pytest.fixture
 def scenario_document():
     """读取共享人工环境的真实结构七文档，每个用例独立改写。"""
-    return json.loads((data_paths.SCENARIOS_ROOT / "single-person.json").read_text())
+    return json.loads((data_paths.ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios" / "single-person.json").read_text())
 
 
 def _mail(document):

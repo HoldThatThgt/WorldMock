@@ -15,7 +15,7 @@ import json
 import shutil
 
 import pytest
-from tests.data_paths import ENVIRONMENT_ROOT
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 from tests.frozen_inputs import relative_corpus
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -45,7 +45,7 @@ _HABIT = "起床后先晨间洗漱"
 def presentation_engine_factory(engine_factory, tmp_path):
     """@brief 通过真实场景装配认证的独立生活活动语料，声明足够多的对象验证排序与轮转。"""
     corpus = tmp_path / "presentation-corpus"
-    shutil.copytree(ENVIRONMENT_ROOT / "corpora", corpus)
+    shutil.copytree(ARTIFICIAL_ENVIRONMENT_ROOT / "corpora", corpus)
     declarations = [("yoga", "瑜伽", "sport", "home", 6, 21),
                     ("wellness-morning-wash", "晨间洗漱", "self_care", "home", 5, 10),
                     ("tidy-room", "整理房间", "household", "home", 6, 21),
@@ -68,7 +68,7 @@ def presentation_engine_factory(engine_factory, tmp_path):
     (corpus / "manifest.json").write_bytes(raw)
 
     def declare(document):
-        document["corpus_root"] = relative_corpus(corpus, ENVIRONMENT_ROOT / "scenarios")
+        document["corpus_root"] = relative_corpus(corpus, ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios")
         document["corpus_manifest_sha256"] = hashlib.sha256(raw).hexdigest()
         document["agents"][0]["lifestyle_activities"] = None
 
