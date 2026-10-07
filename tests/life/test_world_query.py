@@ -380,7 +380,10 @@ def test_environment_read_query_keeps_world_clock_round_and_store_unchanged(engi
     from custom.envs.life_env import LifeEnv
     from tests.life.conftest import context, stage_day_plan
 
-    engine = engine_factory()
+    from tests.data_paths import ENVIRONMENT_ROOT
+
+    engine = (engine_factory(ENVIRONMENT_ROOT / "scenarios/single-person.json")
+              if build is _name_query else engine_factory())
     stage_day_plan(engine)
     frozen = context(engine, "query-environment")
     engine.begin_decision_round([frozen])

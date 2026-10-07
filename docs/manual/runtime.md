@@ -28,15 +28,30 @@ python scripts/bootstrap.py --profile release
 ```
 
 引导使用 Python 3.12、Git 与哈希依赖锁，不需要 SSH 密钥或预先安装 uv；Windows 可用 `py -3.12`，
-其它系统可用 `python3.12`。默认 `release` 要求 Node 与独立 LabelKit 环境齐全；`dev` 记录缺失并明确跳过相应检查，
-但不能取得完整通过。`--use-uv` 只在显式指定时使用 uv，缺少 uv 即失败。
+其它系统可用 `python3.12`。默认 `release` 要求 Node SQLite、中文图表字体与独立 LabelKit 环境齐全；
+`dev` 记录缺失，只有 Node 与 LabelKit 的对应消费者会明确跳过，字体消费者仍执行实际检查，
+缺失任何组件都不能取得完整通过。`--use-uv` 只在显式指定时使用 uv，缺少 uv 即失败。
 `--wheelhouse` 指定离线依赖及固定源码制品目录，禁止联网补缺；制品或哈希不符即失败。
-环境收据写入 `.work/environment-receipt.json`，记录 Python、锁、源码摘要和缺失部件，路径均相对项目。
+环境收据写入 `.work/environment-receipt.json`，记录 Python、锁、源码摘要、缺失部件与实际能力，路径均相对项目。
 
-查看已有足迹需要 Node 能实际加载 [内置 SQLite](https://nodejs.org/api/sqlite.html)；
-生成中文评估图表还需要代码认可的中文字体。当前引导仅检查 Node 版本存在，没有核验这两项能力，
-因此引导收据通过仍须配合实际查看器与评估执行结果。可先检查 `node -e "require('node:sqlite')"`；
-Debian 的中文字体使用维护中的 [fonts-noto-cjk 包](https://packages.debian.org/trixie/fonts-noto-cjk)。
+查看器回归使用 Node [内置 SQLite](https://nodejs.org/api/sqlite.html)。按
+[Node 官方安装方法](https://nodejs.org/en/download)准备维护中的 Node 24 LTS；CI 使用现有 `actions/setup-node`。
+引导实际执行内存数据库绑定写入、`json_extract` 与 `json_each` 查询，版本只作身份信息；
+同时通过根虚拟环境 Python 子进程调用生产中文字体选择器，不在引导内复制字体路径或安装系统软件。
+收据的 `node_sqlite_available` 和 `chinese_chart_font_available` 记录真实探针结果。
+
+Debian/Ubuntu 先由系统包管理器准备维护中的
+[fonts-noto-cjk](https://packages.debian.org/trixie/fonts-noto-cjk) 与
+[libatomic1](https://packages.debian.org/trixie/libatomic1)，再使用同一引导入口：
+
+```bash
+sudo apt-get update
+sudo apt-get install --yes --no-install-recommends fonts-noto-cjk libatomic1
+python scripts/bootstrap.py --profile release
+```
+
+macOS 与 Windows 也由生产字体选择器核对本机已安装的中文字体；缺失时引导明确记录并拒绝 release 通过。
+完整验收仍要求真实查看器与中文评估图表节点全部执行通过，能力收据不替代平台完整门禁。
 
 依赖安装与仿真环境分开准备。重制发布环境使用七份目录 JSON、生活活动与联系人邮件语料、结构 7 场景；先运行 `worldmock validate --environment experiments/published-environment` 检查实际输入，不从安装位置寻找正式世界。
 

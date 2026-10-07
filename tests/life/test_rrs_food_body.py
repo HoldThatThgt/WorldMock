@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from tests.data_paths import CATALOG_ROOT, ENVIRONMENT_ROOT
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 from tests.life.purchase_worlds import registered_world
 from worldmock.catalog.loader import load_catalog
 from worldmock.catalog.models import Food
@@ -30,13 +30,13 @@ from worldmock.life.world_setup import load_scenario
 @pytest.fixture(scope="module")
 def body_config():
     """@brief 真实人工环境通过生产装配取得固定身体规则。"""
-    return load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0].body
+    return load_scenario(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json")[0].body
 
 
 @pytest.fixture(scope="module")
 def foods():
     """@brief 真实目录通过生产加载器提供食品，另一零食也使用真实 Food 合同。"""
-    values = dict(load_catalog(CATALOG_ROOT).foods)
+    values = dict(load_catalog(ARTIFICIAL_ENVIRONMENT_ROOT / "catalog").foods)
     values["crackers"] = Food(food_id="crackers", name="饼干", category="snack", price_fen=500, store_ids="all")
     return values
 

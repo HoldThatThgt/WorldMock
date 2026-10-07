@@ -14,7 +14,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/bet
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from tests.integration.as2_fixtures import use_fake_as2
-from tests.data_paths import ENVIRONMENT_ROOT
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT, ENVIRONMENT_ROOT
 from tests.profile.conftest import make_card, make_window
 from tests.delivery.prompt_fixtures import layered_user, six_layers
 from worldmock.delivery.windows import prepare_windows
@@ -244,9 +244,9 @@ def test_build_coverage_targets_derives_from_catalog_and_corpora():
     from worldmock.catalog.loader import load_catalog
     from worldmock.life.world_setup import load_scenario
 
-    scenario = load_scenario(SCENARIO)[0]
-    targets = build_coverage_targets(scenario, load_catalog(ENVIRONMENT_ROOT / "catalog"),
-                                     ENVIRONMENT_ROOT / "corpora")
+    scenario = load_scenario(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
+    targets = build_coverage_targets(scenario, load_catalog(ARTIFICIAL_ENVIRONMENT_ROOT / "catalog"),
+                                     ARTIFICIAL_ENVIRONMENT_ROOT / "corpora")
 
     assert "五里公园" in targets.habit_response_keywords
     assert "安静休息" in targets.habit_response_keywords
@@ -254,8 +254,8 @@ def test_build_coverage_targets_derives_from_catalog_and_corpora():
     assert set(targets.media_kinds) == {"文章", "图文", "短视频", "长视频", "实况"}
     assert set(targets.app_names) == {"哔哩哔哩", "抖音", "饿了么", "美团"}
     assert "content_genres" not in type(targets).model_fields
-    again = build_coverage_targets(scenario, load_catalog(ENVIRONMENT_ROOT / "catalog"),
-                                   ENVIRONMENT_ROOT / "corpora")
+    again = build_coverage_targets(scenario, load_catalog(ARTIFICIAL_ENVIRONMENT_ROOT / "catalog"),
+                                   ARTIFICIAL_ENVIRONMENT_ROOT / "corpora")
     assert again == targets
 
 

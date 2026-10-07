@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from tests.data_paths import ENVIRONMENT_ROOT
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT, ENVIRONMENT_ROOT
 
 import asyncio
 import json
@@ -902,7 +902,7 @@ def test_apply_counterfactual_requires_strict_model_and_valid_branch(engine_fact
                      "intervention_sha256": _digest(intervention),
                      "parent_checkpoint_id": "checkpoint-forged"})
     (branch_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    forged = LifeEngine.open(ENVIRONMENT_ROOT / "scenarios/single-person.json", branch_dir)
+    forged = LifeEngine.open(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json", branch_dir)
     try:
         with pytest.raises(ProtocolError, match="creation evidence is invalid"):
             forged.apply_counterfactual(intervention)

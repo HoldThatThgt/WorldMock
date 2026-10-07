@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from tests.catalog.conftest import OBJECT_COUNTEREXAMPLES, edit_row, read_payload, write_payload
-from tests.data_paths import ENVIRONMENT_ROOT
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT, ENVIRONMENT_ROOT
 from tests.test_cli import _command
 
 
@@ -17,7 +17,7 @@ from tests.test_cli import _command
 def published_environment(tmp_path) -> Path:
     """@brief 复制实际人工发布环境，各个反例只改自己的隔离副本。"""
     target = tmp_path / "environment"
-    shutil.copytree(ENVIRONMENT_ROOT, target)
+    shutil.copytree(ARTIFICIAL_ENVIRONMENT_ROOT, target)
     return target
 
 

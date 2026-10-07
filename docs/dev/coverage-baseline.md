@@ -90,7 +90,7 @@ python scripts/run_tests.py --tier full --workers 4
 ## 基线记录
 
 <a name="coverage-baseline-资源与规则引擎简化正式环境"></a>
-### 资源与规则引擎简化：正式回归失败，覆盖率未测量
+### 资源与规则引擎简化：首次正式回归失败与修复收据
 
 WorldMock-Dataset 已发布 `a399cbca835c48cef2163613a80d132f85e07e07`，实际正式路径为
 `../WorldMock-Dataset/environment/shanghai-simplified`。发布后在 macOS 独立重建的 dev 环境执行统一 full 入口，
@@ -107,13 +107,15 @@ WorldMock-Dataset 已发布 `a399cbca835c48cef2163613a80d132f85e07e07`，实际�
 
 独立失败审计已保存全部 466 个失败或错误节点、阶段、异常和原日志位置。
 其中 345 个涉及人工测试来源职责，119 个涉及无效测试输入，另有 2 个尚未定因；没有把审计分类当作测试通过。
-修复测试输入职责超出冻结规格限定的本阶段引擎文档范围，等待用户确认。
+首次失败后用户已授权修复测试输入职责与依赖验证入口；原失败结果按原身份保留。
 Linux full 入口也已实际退出 1；所需 standard 完整执行相同 5454 个不同节点，
 4983 passed、458 failed、13 errors、零跳过。macOS 的全部 466 个失败或错误节点也在 Linux 失败集合中，
 另外五个 Linux 节点已独立定位到中文绘图字体缺失和 Node 内置 SQLite 不可用；
 补齐成熟系统依赖后，精确五个节点真实重验 5 passed。没有重跑 full，原全量失败结果保留，
 局部通过不替代正式完整回归。
-完整命令与两平台原始分片收据见[正式环境验收记录](resource-rule-formal-verification.md)。
+首次命令与两平台原始分片收据见[正式环境验收记录](resource-rule-formal-verification.md)。
+本轮修复与最新源码的正式 standard、full、覆盖率及独立变异实际结果见
+[正式回归修复验收](resource-rule-formal-repair.md#resource-rule-formal-repair-正式回归修复验收)，结果逐平台保留来源身份。
 macOS 正式场景确定性完整日、换目录恢复及 Dataset 手机来源审计已经通过，均不能替代此处完整测试与覆盖率门禁。
 Linux、Windows、跨机器与实际时区来源分别登记；当前进度见
 [实施状态](implementation-status.md#implementation-status-资源与规则引擎简化开发状态)。以下历史命令、数字与报告说明保持当时身份。

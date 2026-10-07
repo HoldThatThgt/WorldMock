@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tests.data_paths import ENVIRONMENT_ROOT
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 
 import math
 
@@ -23,7 +23,7 @@ from worldmock.life.world_setup import load_scenario
 @pytest.fixture(scope="module")
 def body_config():
     """读取正式冻结身体参数。"""
-    return load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0].body
+    return load_scenario(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json")[0].body
 
 
 

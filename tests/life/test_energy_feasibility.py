@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from tests.data_paths import ENVIRONMENT_ROOT
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 
 import json
 import math
@@ -236,7 +236,7 @@ def test_checkpoint_with_overdrawn_activity_restores(engine_factory) -> None:
     assert engine.checkpoint({"agent:1": reference}).checkpoint_id
     run_dir = engine.context.store.run_dir
     engine.close()
-    restored = LifeEngine.open(ENVIRONMENT_ROOT / "scenarios/single-person.json", run_dir)
+    restored = LifeEngine.open(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json", run_dir)
     try:
         assert restored.context.state.activities[watch.activity_id].status == ActivityStatus.ACTIVE
         assert restored.context.state.agents[1].body.energy_kcal == 0

@@ -58,10 +58,10 @@ def _locked_fake_as2(monkeypatch, tmp_path_factory):
 
 
 def _covered(story: str) -> SimpleNamespace:
-    """确定性画像编译桩：任意背景故事都给全部命中真实目录目标的卡片（紫薇公园、悬疑、牛肉炒面、电影）。"""
+    """确定性画像编译桩：任意背景故事都给全部命中真实目录目标的卡片（紫薇公园、悬疑、牛肉炒面、长视频）。"""
     return SimpleNamespace(card=make_card(
         habits=(HabitSignature(trigger="下班到家", response="去紫薇公园散步", time_window=make_window(19.0, 20.0)),),
-        tastes=Tastes(content_genres=("悬疑",), food_preferences=("牛肉炒面",), media=("电影",))))
+        tastes=Tastes(content_genres=("悬疑",), food_preferences=("牛肉炒面",), media=("长视频",))))
 
 
 def _validate_root(tmp_path: Path) -> Path:

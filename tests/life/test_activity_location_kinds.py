@@ -1,6 +1,6 @@
 """活动环境声明在当前地图的启动和恢复入口执行，不从模块全局语料猜测。"""
 
-from tests.data_paths import ENVIRONMENT_ROOT
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 
 from pathlib import Path
 
@@ -12,7 +12,7 @@ from worldmock.life.models import ActivityKind, ActivityStartParams, AgentState,
 from worldmock.life.rules import LifeRuleEngine
 from worldmock.life.world_setup import load_runtime_scenario
 
-SCENARIO = ENVIRONMENT_ROOT / 'scenarios/single-person.json'
+SCENARIO = ARTIFICIAL_ENVIRONMENT_ROOT / 'scenarios/single-person.json'
 HOME_ACTIVITY = 'quiet-rest'
 
 
@@ -31,7 +31,7 @@ def _request(activity_id=HOME_ACTIVITY):
 
 def _rules():
     semantics, _ = load_runtime_scenario(SCENARIO)
-    return LifeRuleEngine(semantics.scenario, semantics.catalog, ENVIRONMENT_ROOT / 'corpora')
+    return LifeRuleEngine(semantics.scenario, semantics.catalog, ARTIFICIAL_ENVIRONMENT_ROOT / 'corpora')
 
 
 def test_lifestyle_requirements_come_from_the_selected_corpus():

@@ -45,6 +45,51 @@ def test_dev_marks_only_tests_that_need_a_missing_component():
     assert session.exitstatus == pytest.ExitCode.TESTS_FAILED
 
 
+def test_chinese_font_missing_never_adds_skip_and_keeps_dev_nonpassing():
+    """@brief 字体缺失保留评估实际执行，不新增 skip，且不能取得开发环境最终通过。"""
+    class Item:
+        def __init__(self, needs):
+            self.needs, self.marks = needs, []
+
+        def get_closest_marker(self, marker):
+            return marker if marker in self.needs else None
+
+        def add_marker(self, marker):
+            self.marks.append(marker)
+
+    items = [Item({"requires_node"}), Item({"requires_labelkit"}), Item(set())]
+    status = {"missing_components": ["Chinese font"]}
+    config = SimpleNamespace(worldmock_component_status=status, getoption=lambda name: "dev")
+    profiles.pytest_collection_modifyitems(config, items)
+    assert [item.marks for item in items] == [[], [], []]
+    session = SimpleNamespace(config=config, exitstatus=0)
+    profiles.pytest_sessionfinish(session, 0)
+    assert session.exitstatus == pytest.ExitCode.TESTS_FAILED
+    with pytest.raises(RuntimeError, match="Required release components are missing: Chinese font"):
+        environment.require_profile(status, "release")
+
+
+def test_dev_known_missing_consumers_keep_exact_skips_when_font_is_also_missing():
+    """@brief 混合缺失仍只标记现有 Node 与 LabelKit 消费者，字体不制造额外跳过。"""
+    class Item:
+        def __init__(self, needs):
+            self.needs, self.marks = needs, []
+
+        def get_closest_marker(self, marker):
+            return marker if marker in self.needs else None
+
+        def add_marker(self, marker):
+            self.marks.append(marker)
+
+    items = [Item({"requires_node"}), Item({"requires_labelkit"}), Item(set())]
+    config = SimpleNamespace(worldmock_component_status={"missing_components": ["Node", "LabelKit", "Chinese font"]},
+                             getoption=lambda name: "dev")
+    profiles.pytest_collection_modifyitems(config, items)
+    assert [len(item.marks) for item in items] == [1, 1, 0]
+    assert items[0].marks[0].kwargs["reason"] == environment.MISSING_NODE
+    assert items[1].marks[0].kwargs["reason"] == environment.MISSING_LABELKIT
+
+
 def test_release_rejects_expected_failure_even_when_it_could_pass():
     item = SimpleNamespace(nodeid="test_unaccepted", get_closest_marker=lambda marker: marker)
     config = SimpleNamespace(getoption=lambda name: "release")

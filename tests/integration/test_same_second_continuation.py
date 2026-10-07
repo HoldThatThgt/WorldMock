@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from tests.data_paths import ENVIRONMENT_ROOT
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT, ENVIRONMENT_ROOT
 from worldmock.footprints.checkpoint import restore_branch
 
 import copy
@@ -384,7 +384,7 @@ def _checkpoint(engine: LifeEngine):
 def _branch(engine: LifeEngine, checkpoint, destination: Path, metadata: dict | None = None) -> LifeEngine:
     """从检查点恢复一个分支并打开。"""
     restore_branch(engine.context.store, checkpoint.checkpoint_id, destination, metadata).close()
-    return LifeEngine.open(SCENARIO, destination)
+    return LifeEngine.open(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json", destination)
 
 
 @pytest.mark.asyncio

@@ -7,18 +7,18 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from tests.data_paths import ENVIRONMENT_ROOT
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 
 
 def read_scenario(name: str) -> dict:
     """@brief 读取人工环境的当前场景声明，不生成退役字段。"""
-    return json.loads((ENVIRONMENT_ROOT / "scenarios" / name).read_text(encoding="utf-8"))
+    return json.loads((ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios" / name).read_text(encoding="utf-8"))
 
 
 def write_scenario(document: dict, root: Path) -> Path:
     """@brief 复制完整目录与语料，场景使用可跨机器解析的相对引用。"""
     for name in ("catalog", "corpora"):
-        shutil.copytree(ENVIRONMENT_ROOT / name, root / name)
+        shutil.copytree(ARTIFICIAL_ENVIRONMENT_ROOT / name, root / name)
     scenarios = root / "scenarios"
     scenarios.mkdir(parents=True)
     path = scenarios / "scenario.json"

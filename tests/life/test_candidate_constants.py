@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from tests.data_paths import ENVIRONMENT_ROOT
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 
 import json
 import math
@@ -22,7 +22,7 @@ from worldmock.life.world_setup import load_scenario
 from worldmock.life.world_setup import load_runtime_scenario
 
 
-_FORMAL = ENVIRONMENT_ROOT / "scenarios/single-person.json"
+_FORMAL = ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json"
 
 #: 契约默认值（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「场景常量」一节）。
 _CONTRACT_DEFAULTS = {
@@ -54,14 +54,14 @@ def _assert_invalid(payload: dict, message: str) -> None:
 @pytest.mark.parametrize("name", _LIFE_SCENARIOS)
 def test_candidate_constants_are_declared_in_every_life_scenario(name: str) -> None:
     """三份生活场景都能加载，且四个候选常量取到契约默认值与声明的阈值。"""
-    scenario, digest = load_scenario((ENVIRONMENT_ROOT / "scenarios") / name)
+    scenario, digest = load_scenario((ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios") / name)
 
     assert len(digest) == 64
     for field, expected in _CONTRACT_DEFAULTS.items():
         assert getattr(scenario, field) == expected
     # 无缺省项：场景必须自己声明，且声明值须与「一个人物的作息周期」口径一致。
     assert scenario.rotation_stale_seconds == json.loads(
-        (ENVIRONMENT_ROOT / "scenarios" / name).read_text())["rotation_stale_seconds"] == 3600
+        (ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios" / name).read_text())["rotation_stale_seconds"] == 3600
 
 
 def test_evaluation_scenario_is_not_a_life_scenario_document() -> None:

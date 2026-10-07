@@ -14,9 +14,21 @@ from pathlib import Path
 from scripts.bootstrap_sources import file_sha256
 
 PROFILE_ENV = "WORLDMOCK_ENVIRONMENT_PROFILE"
-MISSING_NODE = "Node.js is not installed for the dev environment profile"
+MISSING_NODE = "Node.js with working node:sqlite is unavailable for the dev environment profile"
 MISSING_LABELKIT = "The isolated LabelKit CLI is not installed for the dev environment profile"
 ROOT = Path(__file__).resolve().parents[1]
+
+# 与查看器相同，真实执行绑定写入和两种 JSON 查询，不以模块名或版本代替能力。
+_NODE_SQLITE_PROBE = (
+    "const assert = require('node:assert/strict'); "
+    "const {DatabaseSync} = require('node:sqlite'); "
+    "const database = new DatabaseSync(':memory:'); "
+    "database.exec('CREATE TABLE probe(body TEXT NOT NULL)'); "
+    "database.prepare('INSERT INTO probe(body) VALUES (?)').run(JSON.stringify({values: [7]})); "
+    "const rows = database.prepare(\"SELECT json_extract(probe.body, '$.values[0]') AS extracted, "
+    "item.value AS expanded FROM probe, json_each(probe.body, '$.values') AS item\").all(); "
+    "assert.deepEqual(rows.map(row => [row.extracted, row.expanded]), [[7, 7]]); database.close();"
+)
 
 
 def environment_python(directory: Path) -> Path:
@@ -109,26 +121,63 @@ def install_source(python: Path, source: Path, use_uv: bool = False) -> None:
     subprocess.run(command, check=True)
 
 
-def component_status(root: Path) -> dict:
-    """@brief 核对可选部件的实际 CLI，返回固定名称的缺失集合。"""
+def _node_status() -> tuple[str | None, bool]:
+    """@brief 记录实际 Node 版本，并以真实内存数据库读写核对 SQLite 能力。"""
     node = shutil.which("node")
     node_version = None
-    if node is not None:
+    if node is None:
+        logging.error("Node.js with working node:sqlite is unavailable")
+        return node_version, False
+    try:
         result = subprocess.run([node, "--version"], capture_output=True, text=True, check=True)
         node_version = result.stdout.strip()
+        result = subprocess.run([node, "-e", _NODE_SQLITE_PROBE], capture_output=True, text=True,
+                                timeout=30, check=False)
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        logging.error("Node.js SQLite capability check failed: %s", error)
+        return node_version, False
+    if result.returncode != 0:
+        logging.error("Node.js SQLite read/write probe failed: %s", result.stderr.strip())
+    return node_version, result.returncode == 0
+
+
+def _chinese_font_available(root: Path) -> bool:
+    """@brief 在根虚拟环境子进程调用生产字体选择器，保持宿主导入边界。"""
+    python = environment_python(root / ".venv")
+    code = "from worldmock.evaluation.reporting import _chinese_font; _chinese_font()"
+    try:
+        result = subprocess.run([str(python), "-c", code], cwd=root, capture_output=True,
+                                text=True, timeout=30, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        logging.error("Chinese chart font capability check failed: %s", error)
+        return False
+    if result.returncode != 0:
+        logging.error("Chinese chart font capability check failed: %s", result.stderr.strip())
+    return result.returncode == 0
+
+
+def component_status(root: Path) -> dict:
+    """@brief 核对实际 SQLite、生产字体和独立 CLI，返回明确能力与缺失集合。"""
+    node_version, node_sqlite_available = _node_status()
+    chinese_chart_font_available = _chinese_font_available(root)
     missing = []
-    if node_version is None:
+    if not node_sqlite_available:
         missing.append("Node")
     if not labelkit_cli(root).is_file():
         missing.append("LabelKit")
-    return {"node_version": node_version, "missing_components": missing}
+    if not chinese_chart_font_available:
+        missing.append("Chinese font")
+    return {"node_version": node_version, "node_sqlite_available": node_sqlite_available,
+            "chinese_chart_font_available": chinese_chart_font_available, "missing_components": missing}
 
 
 def require_profile(status: dict, profile: str) -> None:
     """@brief release 缺组件立即失败；dev 的缺失只能形成未通过收据。"""
     if profile not in {"release", "dev"}:
+        logging.error("Environment profile must be release or dev")
         raise RuntimeError("Environment profile must be release or dev")
     if profile == "release" and status["missing_components"]:
+        logging.error("Required release components are missing: %s", ", ".join(status["missing_components"]))
         raise RuntimeError("Required release components are missing: " + ", ".join(status["missing_components"]))
 
 

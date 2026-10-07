@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tests.data_paths import ENVIRONMENT_ROOT
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 
 import json
 from pathlib import Path
@@ -29,7 +29,7 @@ from tests.life.conftest import advance_next, context, stage_day_plan, start_req
 from tests.life.test_parallel_activities import _advance_with_decisions
 
 ROOT = Path(__file__).resolve().parents[1] / "fixtures/environment"
-ITEMS_PATH = ENVIRONMENT_ROOT / "corpora/lifestyle/items.json"
+ITEMS_PATH = ARTIFICIAL_ENVIRONMENT_ROOT / "corpora/lifestyle/items.json"
 def _items() -> list[dict]:
     """@brief 只读取人工最小环境的活动声明。"""
     return json.loads(ITEMS_PATH.read_text(encoding="utf-8"))["items"]
@@ -39,8 +39,8 @@ def test_lifestyle_catalog_matches_declared_activity_met() -> None:
     """@brief 人工环境的活动条目由当前语料加载，并与当前身体 MET 身份一致。"""
     from worldmock.life.content import load_lifestyle_items
 
-    scenario, _ = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")
-    items = load_lifestyle_items(ENVIRONMENT_ROOT / "corpora", scenario.body.activity_met)
+    scenario, _ = load_scenario(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json")
+    items = load_lifestyle_items(ARTIFICIAL_ENVIRONMENT_ROOT / "corpora", scenario.body.activity_met)
     expected = {key.removeprefix("lifestyle:") for key in scenario.body.activity_met if key.startswith("lifestyle:")}
     assert items and {item.activity_id for item in items} == expected
     assert all(set(item.effects) == {"entertainment", "social", "health"} for item in items)
@@ -136,7 +136,7 @@ def test_scenario_admission_rejects_unknown_lifestyle_declaration() -> None:
     from worldmock.life.scenario import AgentConfig
     from worldmock.life.semantics import _check_lifestyle_ids
 
-    scenario, _ = load_scenario(ENVIRONMENT_ROOT / "scenarios/multi-person.json")
+    scenario, _ = load_scenario(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/multi-person.json")
     body = scenario.body.model_copy(update={"activity_met": {"lifestyle:quiet-rest": 2.5}})
     agent = scenario.agents[0].model_copy(
         update={"lifestyle_activities": ("quiet-rest", "not-in-catalog")})
@@ -150,7 +150,7 @@ def test_scenario_admission_rejects_unknown_lifestyle_declaration() -> None:
 
 def test_agent_config_lifestyle_validation() -> None:
     """场景文档校验：空列表与重复 id 直接拒绝。"""
-    scenario, _ = load_scenario(ENVIRONMENT_ROOT / "scenarios/multi-person.json")
+    scenario, _ = load_scenario(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/multi-person.json")
     payload = scenario.agents[0].model_dump(mode="python")
 
     def revived(value):
@@ -171,7 +171,7 @@ class TestLifestyleRelief:
     """@brief lifestyle effects 结算：娱乐走分录（事件留痕），社交/健康直接落账。"""
 
     def _relief_fixture(self):
-        scenario, _ = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")
+        scenario, _ = load_scenario(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json")
         agent = AgentState(agent_id=1, name="T", location_id="home",
                            body_settled_at=0,
                            balance_account_id="agent:1", next_decision_at=0,
@@ -218,7 +218,7 @@ class TestLifestyleRelief:
         from worldmock.life.activities import activity_factors
 
         engine = engine_factory()
-        scenario, _ = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")
+        scenario, _ = load_scenario(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json")
         assert engine.context.semantics.body == scenario.body  # 引擎语义体即场景身体配置
         activity = ActivityState(
             activity_id="a-jog", agent_id=1, location_id=engine.context.state.agents[1].location_id,
@@ -236,7 +236,7 @@ class TestLifestyleRelief:
 def test_scenario_files_load_with_lifestyle_wiring() -> None:
     """三份人工环境在新结构与活动目录下完整加载。"""
     for name in ("multi-person.json", "multi-person-half-day.json", "single-person.json"):
-        scenario, _ = load_scenario(ENVIRONMENT_ROOT / "scenarios" / name)
+        scenario, _ = load_scenario(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios" / name)
         lifestyle_keys = {key for key in scenario.body.activity_met if key.startswith("lifestyle:")}
         assert lifestyle_keys
         assert scenario.schema_version == 7

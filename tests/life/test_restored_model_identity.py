@@ -7,7 +7,7 @@ two_stage_model_identity 下的旧运行清单）经同一清单校验函数 val
 
 from __future__ import annotations
 
-from tests.data_paths import ENVIRONMENT_ROOT
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT, ENVIRONMENT_ROOT
 import worldmock.run_setup as worldmock_run_setup_module
 
 import copy
@@ -52,15 +52,15 @@ async def saved_environment(tmp_path):
     await environment.init(scenario.start_at)
     await environment.to_workspace(run_dir)
     await environment.close()
-    return run_dir, scenario.start_at
+    return run_dir, scenario.start_at, _SCENARIO
 
 
 async def _open_environment(lifecycle, saved):
     """调用公开生命周期入口，不直接调用内部身份校验函数。"""
-    run_dir, start_at = saved
+    run_dir, start_at, scenario_path = saved
     if lifecycle == "from_workspace":
-        return await LifeEnv.from_workspace(run_dir, scenario_path=str(_SCENARIO))
-    environment = LifeEnv(scenario_path=str(_SCENARIO), run_dir=str(run_dir),
+        return await LifeEnv.from_workspace(run_dir, scenario_path=str(scenario_path))
+    environment = LifeEnv(scenario_path=str(scenario_path), run_dir=str(run_dir),
                           open_existing=lifecycle == "open_existing")
     if lifecycle == "open_existing":
         await environment.init(start_at)
@@ -141,7 +141,8 @@ async def test_environment_lifecycles_restore_current_stage_identity(saved_envir
 async def test_explicit_direct_engine_identity_remains_openable(engine_factory, lifecycle):
     """明确直驱创建的 null 身份继续可恢复，不生成模型身份。"""
     engine = engine_factory()
-    saved = engine.context.store.run_dir, engine.context.scenario.start_at
+    saved = (engine.context.store.run_dir, engine.context.scenario.start_at,
+             ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json")
     assert engine.context.store.manifest["stage_model_identity"] is None
     engine.close()
 
@@ -165,7 +166,7 @@ def test_direct_engine_open_rejects_retired_stage(engine_factory):
     _tamper_manifest(run_dir, "retired_stage")
 
     with pytest.raises(IntegrityError, match="Model identity stage decision_statement is retired"):
-        LifeEngine.open(_SCENARIO, run_dir)
+        LifeEngine.open(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json", run_dir)
 
 
 def test_new_run_rejects_a_retired_stage_identity(tmp_path):

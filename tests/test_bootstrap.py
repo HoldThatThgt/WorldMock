@@ -286,6 +286,108 @@ def test_dev_offline_missing_labelkit_remains_a_nonpassing_environment(tmp_path,
     assert receipt["missing_components"] == ["LabelKit"]
 
 
+def _capability_receipt_root(tmp_path, monkeypatch, status):
+    """@brief 只隔离收据落盘与解释器身份，能力状态来自真实子进程探针。"""
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements/lock.txt").write_bytes(b"locked\n")
+    version = environment.required_python_version(ROOT)
+    (tmp_path / ".python-version").write_text(version + "\n", encoding="utf-8")
+    monkeypatch.setattr(environment, "component_status", lambda root: status)
+    monkeypatch.setattr(environment, "python_identity",
+                        lambda command: {"implementation": "CPython", "version": version})
+    return tmp_path
+
+
+@pytest.mark.requires_node
+@pytest.mark.parametrize("failure", ["module_missing", "query_wrong"])
+def test_node_printable_version_cannot_pass_without_working_sqlite(tmp_path, monkeypatch, failure, caplog):
+    """@brief 实际 Node 能打印版本但模块或 JSON 查询失效时，release 拒绝且 dev 收据未通过。"""
+    node = shutil.which("node")
+    actual_run = subprocess.run
+    faults = {
+        "module_missing": (
+            "const Module = require('node:module'); const load = Module._load; "
+            "Module._load = function(name, ...args) { "
+            "if (name === 'node:sqlite') throw Error('SQLite unavailable'); "
+            "return load.call(this, name, ...args); }; "
+        ),
+        "query_wrong": (
+            "const sqlite = require('node:sqlite'); const prepare = sqlite.DatabaseSync.prototype.prepare; "
+            "sqlite.DatabaseSync.prototype.prepare = function(sql) { "
+            "const statement = prepare.call(this, sql); "
+            "if (sql.startsWith('SELECT')) return {all: () => [{extracted: 8, expanded: 8}]}; "
+            "return statement; }; "
+        ),
+    }
+
+    def execute(command, **options):
+        """@brief 只在真实 Node 查询进程注入缺陷，版本进程与字体进程照常执行。"""
+        if command[:2] == [node, "-e"]:
+            command = [node, "-e", faults[failure] + command[2]]
+        return actual_run(command, **options)
+
+    monkeypatch.setattr(environment.subprocess, "run", execute)
+    status = environment.component_status(ROOT)
+    assert status["node_version"].startswith("v")
+    assert status["node_sqlite_available"] is False
+    assert "Node" in status["missing_components"]
+    assert "Node.js SQLite read/write probe failed" in caplog.text
+    root = _capability_receipt_root(tmp_path, monkeypatch, status)
+    with pytest.raises(RuntimeError, match="Required release components are missing: Node"):
+        environment.write_receipt(root, "release", {})
+    receipt = environment.write_receipt(root, "dev", {})
+    assert receipt["passed"] is False
+    assert receipt["node_sqlite_available"] is False
+
+
+def test_real_production_font_failure_cannot_pass_environment_receipt(tmp_path, monkeypatch, caplog):
+    """@brief 在字体子进程关闭生产候选集，核对真实拒绝、明确日志和非通过收据。"""
+    actual_run = subprocess.run
+    font_commands = []
+
+    def execute(command, **options):
+        """@brief 仅改变字体子进程内的候选，不修改源码或父进程生产模块。"""
+        if command[1:2] == ["-c"]:
+            font_commands.append(command)
+            fault = "import worldmock.evaluation.reporting as reporting; reporting._FONT_PATHS = (); "
+            command = [*command[:2], fault + command[2]]
+        return actual_run(command, **options)
+
+    monkeypatch.setattr(environment.subprocess, "run", execute)
+    status = environment.component_status(ROOT)
+    assert status["chinese_chart_font_available"] is False
+    assert "Chinese font" in status["missing_components"]
+    assert font_commands[0][0] == str(environment.environment_python(ROOT / ".venv"))
+    assert "Chinese chart font capability check failed" in caplog.text
+    root = _capability_receipt_root(tmp_path, monkeypatch, status)
+    with pytest.raises(RuntimeError, match="Required release components are missing: .*Chinese font"):
+        environment.write_receipt(root, "release", {})
+    receipt = environment.write_receipt(root, "dev", {})
+    assert receipt["passed"] is False
+    assert receipt["chinese_chart_font_available"] is False
+    assert str(ROOT) not in json.dumps(receipt)
+
+
+def test_component_probe_keeps_production_font_import_outside_parent_process():
+    """@brief 在干净宿主子进程调用真实组件探针，生产字体与完整引擎均不进入该父进程。"""
+    code = (
+        "import json, sys; from pathlib import Path; "
+        "from scripts.bootstrap_environment import component_status; "
+        "status = component_status(Path('.').resolve()); "
+        "forbidden = {'worldmock.evaluation.reporting', 'worldmock.life.engine', "
+        "'worldmock.life.game', 'worldmock.life.games', 'worldmock.life.read_query_runtime', "
+        "'custom.envs.life_env'}; "
+        "assert not forbidden.intersection(sys.modules), sorted(forbidden.intersection(sys.modules)); "
+        "assert not any(name.startswith('agentsociety2.society') for name in sys.modules); "
+        "print(json.dumps(status))"
+    )
+    result = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    status = json.loads(result.stdout)
+    assert isinstance(status["node_sqlite_available"], bool)
+    assert isinstance(status["chinese_chart_font_available"], bool)
+
+
 def test_same_committed_source_identity_survives_autocrlf_checkouts(tmp_path):
     from worldmock.run_setup import runtime_code_sha256
 

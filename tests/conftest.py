@@ -46,8 +46,9 @@ def pytest_collection_modifyitems(config, items):
             raise pytest.UsageError("xfail cannot satisfy release acceptance: " + ", ".join(marked))
     missing = config.worldmock_component_status["missing_components"]
     reasons = {"Node": ("requires_node", MISSING_NODE), "LabelKit": ("requires_labelkit", MISSING_LABELKIT)}
-    for name in missing:
-        marker, reason = reasons[name]
+    for name, (marker, reason) in reasons.items():
+        if name not in missing:
+            continue
         for item in items:
             if item.get_closest_marker(marker) is not None:
                 item.add_marker(pytest.mark.skip(reason=reason))

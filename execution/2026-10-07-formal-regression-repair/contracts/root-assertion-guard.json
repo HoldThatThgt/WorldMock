@@ -1,0 +1,50 @@
+{
+  "tests/test_validation.py": {
+    "original_assertion_meaning_preserved": true,
+    "original_test_names_preserved": true
+  },
+  "tests/life/test_load_checks.py": {
+    "original_assertion_meaning_preserved": true,
+    "original_test_names_preserved": true
+  },
+  "tests/life/test_rrs_food_body.py": {
+    "original_assertion_meaning_preserved": true,
+    "original_test_names_preserved": true
+  },
+  "tests/life/test_frozen_inputs_runtime.py": {
+    "original_assertion_meaning_preserved": true,
+    "original_test_names_preserved": true
+  },
+  "tests/life/test_world_query.py": {
+    "original_assertion_meaning_preserved": true,
+    "original_test_names_preserved": true
+  },
+  "tests/life/test_body.py": {
+    "original_assertion_meaning_preserved": true,
+    "original_test_names_preserved": true
+  },
+  "tests/life/test_activity_location_kinds.py": {
+    "original_assertion_meaning_preserved": true,
+    "original_test_names_preserved": true
+  },
+  "tests/life/test_candidate_constants.py": {
+    "original_assertion_meaning_preserved": true,
+    "original_test_names_preserved": true
+  },
+  "tests/life/test_lifestyle.py": {
+    "original_assertion_meaning_preserved": true,
+    "original_test_names_preserved": true
+  },
+  "tests/life/test_scenario.py": {
+    "original_assertion_meaning_preserved": true,
+    "original_test_names_preserved": true
+  },
+  "tests/life/test_semantics.py": {
+    "original_assertion_meaning_preserved": true,
+    "original_test_names_preserved": true
+  },
+  "tests/scheduling/test_branch_coverage.py": {
+    "original_assertion_meaning_preserved": true,
+    "original_test_names_preserved": true
+  }
+}

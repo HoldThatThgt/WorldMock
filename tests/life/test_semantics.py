@@ -8,7 +8,7 @@ import shutil
 import pytest
 from pydantic import ValidationError
 
-from tests.data_paths import ENVIRONMENT_ROOT
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 from worldmock.catalog import load_catalog
 from worldmock.errors import IntegrityError
 from worldmock.exchange.body import BODY_CONSTANTS
@@ -16,7 +16,7 @@ from worldmock.life.scenario import LifeScenario, parse_scenario_document
 from worldmock.life.semantics import assemble_semantics
 from worldmock.life.world_setup import load_runtime_scenario
 
-_SCENARIO = ENVIRONMENT_ROOT / "scenarios/single-person.json"
+_SCENARIO = ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json"
 
 
 @pytest.fixture(scope="module")
@@ -62,22 +62,22 @@ def test_assembly_rejects_initial_energy_above_fixed_maximum():
     document = json.loads(_SCENARIO.read_text(encoding="utf-8"))
     document["body"]["initial_energy_kcal"] = 2401
     with pytest.raises(ValidationError, match="initial energy exceeds maximum"):
-        assemble_semantics(LifeScenario.model_validate(document), load_catalog(ENVIRONMENT_ROOT / "catalog"),
-                           ENVIRONMENT_ROOT / "corpora")
+        assemble_semantics(LifeScenario.model_validate(document), load_catalog(ARTIFICIAL_ENVIRONMENT_ROOT / "catalog"),
+                           ARTIFICIAL_ENVIRONMENT_ROOT / "corpora")
 
 
 @pytest.mark.parametrize("met", [0, -1, float("nan"), float("inf"), "expression"])
 def test_assembly_rejects_invalid_lifestyle_met(tmp_path, met):
     """@brief 生活活动自身 MET 必须是有限正数，不接受表达式。"""
     root = tmp_path / "corpora"
-    shutil.copytree(ENVIRONMENT_ROOT / "corpora", root)
+    shutil.copytree(ARTIFICIAL_ENVIRONMENT_ROOT / "corpora", root)
     path = root / "lifestyle/items.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["items"][0]["met_value"] = met
     path.write_text(json.dumps(payload), encoding="utf-8")
     document, _ = parse_scenario_document(_SCENARIO)
     with pytest.raises(IntegrityError, match="Lifestyle declarations are invalid"):
-        assemble_semantics(document, load_catalog(ENVIRONMENT_ROOT / "catalog"), root)
+        assemble_semantics(document, load_catalog(ARTIFICIAL_ENVIRONMENT_ROOT / "catalog"), root)
 
 
 def test_candidate_constants_match_the_scene_declaration(semantics):

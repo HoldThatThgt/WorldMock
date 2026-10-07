@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tests.data_paths import ENVIRONMENT_ROOT
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT, ENVIRONMENT_ROOT
 
 import json
 import logging
@@ -115,7 +115,7 @@ def test_actual_food_activity_reopens_with_current_catalog_and_rejects_unknown_f
     assert activity.kind == ActivityKind.CONSUME
     assert activity.data["request"]["items"][0]["product_id"] in engine.context.rules.foods
     run_dir = engine.context.store.run_dir
-    reopened = LifeEngine.open(_FORMAL, run_dir)
+    reopened = LifeEngine.open(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json", run_dir)
     try:
         assert reopened.context.state.activities[identity] == activity
     finally:
@@ -129,4 +129,4 @@ def test_actual_food_activity_reopens_with_current_catalog_and_rejects_unknown_f
 
     _stage(engine, forge_food)
     with pytest.raises(IntegrityError, match="^Persisted activity target is invalid$"):
-        LifeEngine.open(_FORMAL, run_dir)
+        LifeEngine.open(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json", run_dir)

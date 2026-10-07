@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from tests.data_paths import ENVIRONMENT_ROOT
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 from tests.life.work_schedule_fixtures import STANDARD_SHIFT, weekday_schedule
 from worldmock.catalog import load_catalog
 from worldmock.errors import IntegrityError
@@ -17,8 +17,8 @@ from worldmock.life.scenario import LifeScenario, RuntimeScenario, parse_scenari
 from worldmock.life.semantics import assemble_semantics
 from worldmock.life.world_setup import load_scenario
 
-_FORMAL = ENVIRONMENT_ROOT / "scenarios/single-person.json"
-_CATALOG = ENVIRONMENT_ROOT / "catalog"
+_FORMAL = ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json"
+_CATALOG = ARTIFICIAL_ENVIRONMENT_ROOT / "catalog"
 _RETIRED_FIELDS = (
     "map_dataset", "products", "supplies", "tasks", "contents", "games", "price_changes", "product_releases",
     "recipe_output_bindings", "phone_simulation_config", "phone_simulation_config_sha256", "catalog_version",
@@ -102,7 +102,7 @@ def test_structure_seven_rejects_retired_menu_kinds(kind) -> None:
 
 def test_formal_and_multi_person_scenarios_are_valid() -> None:
     """@brief 三份人工场景走真实加载，固定规则和身体实例形成唯一运行视图。"""
-    for path in sorted((ENVIRONMENT_ROOT / "scenarios").glob("*.json")):
+    for path in sorted((ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios").glob("*.json")):
         document, expected_digest = parse_scenario_document(path)
         scenario, digest = load_scenario(path)
         assert digest == expected_digest and len(digest) == 64
@@ -195,13 +195,13 @@ def test_runtime_agents_keep_the_declared_rhythm_fields() -> None:
         del payload["agents"][0][name]
     document = LifeScenario.model_validate(payload)
 
-    agent = assemble_semantics(document, load_catalog(_CATALOG), ENVIRONMENT_ROOT / "corpora").scenario.agents[0]
+    agent = assemble_semantics(document, load_catalog(_CATALOG), ARTIFICIAL_ENVIRONMENT_ROOT / "corpora").scenario.agents[0]
 
     assert agent.model_fields_set & rhythm == {"chronotype_midsleep"}
     assert (agent.sleep_need_hours, agent.lunch_window, agent.bedtime_window) == (7.5, None, None)
     assert agent.model_dump() == document.agents[0].model_dump()
     declared = LifeScenario.model_validate(_payload())
-    assembled = assemble_semantics(declared, load_catalog(_CATALOG), ENVIRONMENT_ROOT / "corpora").scenario.agents[0]
+    assembled = assemble_semantics(declared, load_catalog(_CATALOG), ARTIFICIAL_ENVIRONMENT_ROOT / "corpora").scenario.agents[0]
     assert assembled.model_fields_set & rhythm == declared.agents[0].model_fields_set & rhythm
 
 

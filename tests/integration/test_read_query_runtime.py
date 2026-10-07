@@ -7,7 +7,7 @@
 覆盖率门禁只计主进程执行的行，变异执行器也只对主进程生效，所以四类缺一不可。
 """
 
-from tests.data_paths import ENVIRONMENT_ROOT
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT, ENVIRONMENT_ROOT
 
 import inspect
 import os
@@ -33,6 +33,7 @@ from worldmock.life.world_query import QueryWorldRequest, query_world
 
 ROOT = Path(__file__).resolve().parents[2]
 SCENARIO = ENVIRONMENT_ROOT / 'scenarios' / 'single-person.json'
+_RECALL_SCENARIO = ARTIFICIAL_ENVIRONMENT_ROOT / 'scenarios' / 'single-person.json'
 _ERROR_KEYS = {'error_code', 'reason', 'fix', 'items', 'unmet'}
 #: 真实 Ray 用例给 raylet 启动取系统配置的等待秒数（Ray 的 RAY_raylet_start_wait_time_s 配置，经子进程环境传入）。
 _RAYLET_START_WAIT_SECONDS = 180
@@ -63,13 +64,13 @@ async def _staged_recall(engine_factory) -> SimpleNamespace:
 def _actor_spec(run_dir: Path) -> DirectEnvActorSpec:
     """环境 actor 的构造输入：打开已有运行目录上的正式场景，形状同运行装配。"""
     return DirectEnvActorSpec(
-        ('LifeEnv',), {'LifeEnv': {'scenario_path': str(SCENARIO), 'run_dir': str(run_dir), 'open_existing': True}},
+        ('LifeEnv',), {'LifeEnv': {'scenario_path': str(_RECALL_SCENARIO), 'run_dir': str(run_dir), 'open_existing': True}},
         str(run_dir), str(ROOT), {})
 
 
 def _assert_world_untouched(staged: SimpleNamespace) -> None:
     """重新打开运行目录：世界状态逐字节等于查询之前；序号只多出 actor 一侧那一次观察，查询本身不写任何事件。"""
-    reopened = LifeEngine.open(SCENARIO, staged.run_dir)
+    reopened = LifeEngine.open(_RECALL_SCENARIO, staged.run_dir)
     try:
         assert reopened.context.state.model_dump_json().encode('utf-8') == staged.state
         added = [event for event in reopened.context.store.read_events(reopened.context.store.last_event_seq)

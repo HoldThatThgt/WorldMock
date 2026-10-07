@@ -15,9 +15,9 @@ from worldmock.life.engine import LifeEngine
 
 
 def test_formal_factory_worlds_and_storage_are_independent(engine_factory, frozen_inputs):
-    first = engine_factory()
+    first = engine_factory(ENVIRONMENT_ROOT / "scenarios/single-person.json")
     count = len(frozen_inputs.records)
-    second = engine_factory()
+    second = engine_factory(ENVIRONMENT_ROOT / "scenarios/single-person.json")
     original_energy = second.context.state.agents[1].body.energy_kcal
     first.context.state.agents[1].body.energy_kcal = 1
     first.context.state.accounts[next(iter(first.context.state.accounts))] = 99
@@ -31,7 +31,7 @@ def test_formal_factory_worlds_and_storage_are_independent(engine_factory, froze
 
 def test_mutated_factory_does_not_use_formal_input_cache(engine_factory, frozen_inputs):
     before = len(frozen_inputs.records)
-    mutated = engine_factory(mutate=lambda document: document.update(activity_feedback_seconds=1800))
+    mutated = engine_factory(ENVIRONMENT_ROOT / "scenarios/single-person.json", mutate=lambda document: document.update(activity_feedback_seconds=1800))
     assert mutated.context.scenario.activity_feedback_seconds == 1800
     assert len(frozen_inputs.records) == before
     path = mutated.context.store.run_dir.parent / "scenario-0/scenarios/single-person.json"
@@ -40,7 +40,7 @@ def test_mutated_factory_does_not_use_formal_input_cache(engine_factory, frozen_
 
 
 def test_direct_create_and_open_still_run_real_loaders_after_cache_use(engine_factory, monkeypatch, tmp_path):
-    engine_factory()
+    engine_factory(ENVIRONMENT_ROOT / "scenarios/single-person.json")
     path = ENVIRONMENT_ROOT / "scenarios/single-person.json"
     document = json.loads(path.read_text(encoding="utf-8"))
     calls = []
@@ -67,8 +67,8 @@ def test_direct_create_and_open_still_run_real_loaders_after_cache_use(engine_fa
 
 def test_uncached_input_manifest_and_restore_identity_are_actually_validated(engine_factory, tmp_path):
     with pytest.raises(IntegrityError, match="manifest"):
-        engine_factory(mutate=lambda document: document.update(corpus_manifest_sha256="0" * 64))
-    engine = engine_factory()
+        engine_factory(ENVIRONMENT_ROOT / "scenarios/single-person.json", mutate=lambda document: document.update(corpus_manifest_sha256="0" * 64))
+    engine = engine_factory(ENVIRONMENT_ROOT / "scenarios/single-person.json")
     run_dir = engine.context.store.run_dir
     engine.close()
     path = _mutated_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json",

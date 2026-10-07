@@ -23,9 +23,10 @@ def engine_factory(tmp_path: Path, frozen_inputs):
 
     created = []
 
-    def create(scenario_name: str = "single-person.json", mutate=None,
+    def create(scenario_name: str | Path = "single-person.json", mutate=None,
                create_options: dict | None = None) -> LifeEngine:
-        scenario_path = data_paths.SCENARIOS_ROOT / scenario_name
+        scenario_path = (scenario_name if isinstance(scenario_name, Path)
+                         else data_paths.ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios" / scenario_name)
         if mutate is not None:
             scenario_path = _mutated_scenario(scenario_path, mutate, tmp_path / f"scenario-{len(created)}")
         document = json.loads(scenario_path.read_text(encoding="utf-8"))
@@ -49,7 +50,9 @@ def engine_factory(tmp_path: Path, frozen_inputs):
                 tool_schema_sha256="1" * 64,
             ),
         )
-        selected = scenario_path.resolve().parent == data_paths.SCENARIOS_ROOT
+        selected = scenario_path.resolve().parent in (
+            data_paths.ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios", data_paths.SCENARIOS_ROOT,
+        )
         cache = frozen_inputs.use(scenario_path) if mutate is None and selected else nullcontext()
         with cache:
             engine = LifeEngine.create(scenario_path, tmp_path / f"run-{len(created)}", identity, None, create_options)

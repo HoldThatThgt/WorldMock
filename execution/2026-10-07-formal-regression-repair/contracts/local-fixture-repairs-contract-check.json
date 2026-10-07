@@ -1,0 +1,30 @@
+{
+  "tests/integration/test_input_warnings.py": {
+    "assertions": true,
+    "raises": true,
+    "test_names": true,
+    "error_code_literals": true,
+    "test_decorators_and_parameter_cases": true
+  },
+  "tests/integration/test_presentation_habits.py": {
+    "assertions": true,
+    "raises": true,
+    "test_names": true,
+    "error_code_literals": true,
+    "test_decorators_and_parameter_cases": true
+  },
+  "tests/integration/test_strict_endpoint.py": {
+    "assertions": true,
+    "raises": true,
+    "test_names": true,
+    "error_code_literals": true,
+    "test_decorators_and_parameter_cases": true
+  },
+  "tests/footprints/test_validation.py": {
+    "assertions": true,
+    "raises": true,
+    "test_names": true,
+    "error_code_literals": true,
+    "test_decorators_and_parameter_cases": true
+  }
+}

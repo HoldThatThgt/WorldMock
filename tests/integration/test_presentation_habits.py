@@ -7,7 +7,9 @@
 
 from __future__ import annotations
 
-from tests.integration.test_input_warnings import _WC_RHYTHM, _create_run, _extraction, _scenario
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
+from tests.engine_fixture import _mutated_scenario
+from tests.integration.test_input_warnings import _BACKGROUND_STORY, _WC_RHYTHM, _create_run, _extraction
 from tests.life.conftest import context
 from tests.profile.conftest import make_card, make_window
 from worldmock.life.relevance import MANIFEST_KEY, manifest_habit_texts
@@ -19,7 +21,14 @@ async def test_run_creation_freezes_habit_responses_and_ranks_the_hit_entry_firs
     观察里，习惯反应「起床后先安静休息」命中的当前生活活动排在窗口第一位。"""
     habits = (HabitSignature(trigger="起床后", response="起床后先安静休息", time_window=make_window(7.0, 7.5)),
               HabitSignature(trigger="睡前", response="读几页小说", time_window=make_window(22.5, 23.0)))
-    created = await _create_run(tmp_path, monkeypatch, _scenario(tmp_path, **_WC_RHYTHM),
+
+    def mutate(document: dict) -> None:
+        """@brief 在人工场景副本上声明本用例的背景故事与作息。"""
+        document["agents"][0].update(_WC_RHYTHM, background_story=_BACKGROUND_STORY)
+
+    scenario_path = _mutated_scenario(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json",
+                                      mutate, tmp_path / "scenario")
+    created = await _create_run(tmp_path, monkeypatch, scenario_path,
                                 _extraction(make_card(habits=habits)))
     env = created["env"]
     try:

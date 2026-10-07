@@ -8,18 +8,18 @@ from pathlib import Path
 
 import pytest
 
-from tests.data_paths import ENVIRONMENT_ROOT
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 from worldmock.errors import IntegrityError
 from worldmock.life.load_checks import check_visible_labels, check_work_schedules, visible_object_labels
 from worldmock.life.world_setup import load_runtime_scenario
 
-_SCENARIO = ENVIRONMENT_ROOT / "scenarios/single-person.json"
+_SCENARIO = ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json"
 
 
 def _changed(tmp_path: Path, mutate) -> Path:
     """@brief 隔离真实环境后改写一个场景反例。"""
     root = tmp_path / "environment"
-    shutil.copytree(ENVIRONMENT_ROOT, root)
+    shutil.copytree(ARTIFICIAL_ENVIRONMENT_ROOT, root)
     path = root / "scenarios/single-person.json"
     document = json.loads(path.read_text(encoding="utf-8"))
     mutate(document)
@@ -92,7 +92,7 @@ def test_a_null_work_schedule_is_not_cross_checked_and_others_still_are(tmp_path
 def test_visible_labels_include_registered_apps_foods_and_places():
     """@brief 应用、食品持有物和地点都进入加载期名称唯一性检查。"""
     semantics, _ = load_runtime_scenario(_SCENARIO)
-    labels = visible_object_labels(semantics.scenario, ENVIRONMENT_ROOT / "corpora")[1]
+    labels = visible_object_labels(semantics.scenario, ARTIFICIAL_ENVIRONMENT_ROOT / "corpora")[1]
     assert "应用：美团" in labels
     assert "持有物：薯片" in labels
     assert "地点：三杯咖啡" in labels
@@ -106,7 +106,7 @@ def test_duplicate_object_labels_are_rejected_at_load():
     duplicate = second.model_copy(update={"name": first.name})
     scenario = semantics.scenario.model_copy(update={"apps": (first, duplicate, *rest)})
     with pytest.raises(IntegrityError, match="non-unique object labels"):
-        check_visible_labels(scenario, ENVIRONMENT_ROOT / "corpora")
+        check_visible_labels(scenario, ARTIFICIAL_ENVIRONMENT_ROOT / "corpora")
 
 
 def _changed_locations(tmp_path, mutate):

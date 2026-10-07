@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tests.data_paths import ENVIRONMENT_ROOT
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 from worldmock.footprints.checkpoint import restore_branch
 
 import hashlib
@@ -51,7 +51,7 @@ def _branch(engine, destination: Path, intervention: CounterfactualIntervention,
         manifest = json.loads(path.read_text(encoding="utf-8"))
         manifest.update(manifest_updates)
         atomic_write(path, canonical_json(manifest))
-    scenario = (ENVIRONMENT_ROOT / "scenarios") / ("multi-person.json" if len(engine.context.state.agents) > 1
+    scenario = (ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios") / ("multi-person.json" if len(engine.context.state.agents) > 1
                                     else "single-person.json")
     return LifeEngine.open(scenario, destination)
 
@@ -64,7 +64,7 @@ def _plain_branch(engine, destination: Path) -> LifeEngine:
     checkpoint = engine.checkpoint(snapshots)
     store = restore_branch(engine.context.store, checkpoint.checkpoint_id, destination)
     store.close()
-    scenario = ENVIRONMENT_ROOT / "scenarios/single-person.json"
+    scenario = ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json"
     return LifeEngine.open(scenario, destination)
 
 

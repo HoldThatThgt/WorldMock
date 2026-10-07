@@ -26,6 +26,11 @@ jobs:
         with:
           node-version: '24'
           package-manager-cache: false
+      - name: Prepare Linux chart fonts and Node native library
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends fonts-noto-cjk libatomic1
       - name: Rebuild without SSH or uv
         run: python scripts/fresh_check.py --repository . --commit ${{ github.sha }} --output .work/fresh-check.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

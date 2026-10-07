@@ -8,7 +8,7 @@ validate（validate_project 与 CLI）打印同一组警告，覆盖率低于 80
 
 from __future__ import annotations
 
-from tests.data_paths import ENVIRONMENT_ROOT
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT, ENVIRONMENT_ROOT
 import worldmock.run_setup as worldmock_run_setup_module
 
 import copy
@@ -627,7 +627,7 @@ def test_restore_verifies_the_frozen_card_rhythm_against_the_scenario(tmp_path) 
 def profile_environment(tmp_path):
     """@brief 复制当前人工登记环境，只通过真实加载器验证画像输入。"""
     root = tmp_path / "profile-environment"
-    shutil.copytree(ENVIRONMENT_ROOT, root)
+    shutil.copytree(ARTIFICIAL_ENVIRONMENT_ROOT, root)
     path = root / "scenarios/single-person.json"
     payload = json.loads(path.read_bytes())
     payload["agents"][0]["background_story"] = "测试人物每天使用应用并在真实目录内生活。" * 8
