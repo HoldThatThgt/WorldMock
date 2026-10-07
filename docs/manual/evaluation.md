@@ -35,6 +35,7 @@ flowchart LR
 
 报告只将非布尔整数秒且起点小于终点的区间计为有效结算；缺活动品类仍报告未归类或缺证。日期按运行时区切分，反思快照使用主观来源校验，不能当作畸形活动经历。
 
+
 <a name="evaluation-先分清要编辑的文件"></a>
 ## 先分清要编辑的文件
 
@@ -49,6 +50,7 @@ flowchart LR
 
 目前没有通用 `adapter.toml` 或任意字段重命名配置。可配置的适配入口是
 `category_mappings` 与 `official_domain_map`；输入文件结构仍须符合现有交付合同。
+
 
 <a name="evaluation-从完整示例开始"></a>
 ## 从完整示例开始
@@ -110,6 +112,7 @@ PY
 保留示例的完整维度集合最便于比较。加载器只检查字符串结构，不会替你检查新维度的语义实现；
 填写未实现名称会在生成盲评包时失败。评审一致性的 `alpha >= 0.80` 门槛也不是配置字段。
 
+
 <a name="evaluation-修改类别映射和公开参照"></a>
 ## 修改类别映射和公开参照
 
@@ -158,12 +161,13 @@ WorldMock 当前十种活动类型。
 `working_age`；参与分钟为非负数，参与率在零到一之间。`world_activity` 与 `observed_digital_session` 是不同
 时长语义，不能用数字交互时长代替全部现实生活时长。
 
+
 <a name="evaluation-绑定真实候选输入"></a>
 ## 绑定真实候选输入
 
 `--worldmock` 指向 `worldmock export` 生成的**已完成运行的足迹导出目录**，其中包含
 `manifest.json`、认证检查点及 `events.jsonl`、`activities.jsonl`、`verified-experiences.jsonl`、
-`purchases.jsonl`、`app-usage.jsonl` 五类正文。导出清单结构为 3，检查点世界结构为 10，
+`purchases.jsonl`、`app-usage.jsonl` 五类正文。导出清单结构为 4，检查点世界结构为 11，
 冻结清单的 `environment_identity` 必须与实际环境和规则身份一致。
 评估要求 `experiment_completed: true`，检查点位于窗口终点，并验证实际导出内容。
 LabelKit-DataSet 的训练记录不能替代这里的完整足迹导出。
@@ -194,6 +198,7 @@ legacy-root/
 | `repair_report_sha256`、`final_audit_sha256` | 对应报告完整文件的实际 SHA-256 |
 
 只有更换了已经认证的基准交付才更新这些值。改哈希不能替代修复链和完整审计。
+
 
 <a name="evaluation-可选真人参照"></a>
 ## 可选真人参照
@@ -231,6 +236,7 @@ print({"valid": True, "events": len(view.events), "activities": len(view.activit
 PY
 ```
 
+
 <a name="evaluation-离线验证并准备评审"></a>
 ## 离线验证并准备评审
 
@@ -263,6 +269,7 @@ worldmock evaluate \
 
 每位评审只读取分配给自己的包和统一评审指令。不要向评审提供 `unblinding-key.json` 或其他槽的材料。
 包中的 `judgeability` 已声明可判断性：`judgeable: false` 的维度必须填写 `unjudgeable`。
+
 
 <a name="evaluation-怎样填写评审收据"></a>
 ## 怎样填写评审收据
@@ -355,6 +362,7 @@ result = ingest_reviews(paths, Path("evaluations/my-comparison"), scenario)
 print({"valid": True, "records": len(result["records"])})
 PY
 ```
+
 
 <a name="evaluation-评审后发布"></a>
 ## 评审后发布

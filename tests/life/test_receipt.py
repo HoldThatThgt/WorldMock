@@ -177,7 +177,8 @@ def test_pending_and_delivered_order_receipt_timestamps_are_strict():
     with pytest.raises(ValidationError, match="status and receipt timestamp disagree"):
         DeliveryState.model_validate({**order, "status": "delivered"})
     with pytest.raises(ValidationError, match="precedes order creation"):
-        DeliveryState.model_validate({**order, "status": "delivered", "received_at": order["created_at"] - 1})
+        DeliveryState.model_validate({**order, "status": "delivered", "arrived_at": order["created_at"] - 1,
+                                      "received_at": order["created_at"] - 1})
 
 
 def test_travelling_recipient_receives_without_claiming_presence_at_a_location():

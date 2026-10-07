@@ -106,8 +106,7 @@ def named_supply_row(name: str, way: str) -> dict[str, Any]:
 
     :param way: 到店、远程下单或「购买」；「购买」的履约方式在解析时由系统决定，占位行上为 None。
     """
-    fulfillment = next((mode for mode, label in vocabulary.PURCHASE_WAYS.items() if label == way), None)
-    action = binding_action(way, "purchase", fulfillment=fulfillment)
+    action = binding_action("购买", "purchase")
     return {"object": name, "kind": NAMED_SUPPLY_KIND, "object_id": None, "actions": [action],
             "selected_action": action}
 

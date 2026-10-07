@@ -257,8 +257,8 @@ def test_registration_uses_episode_number_for_series_index(catalog_dir):
 
 
 def test_registration_reasons_have_only_the_frozen_error_codes():
-    """@brief 新的三十二个登记码是唯一集合，退役食品与工作主题码不存在。"""
-    assert len(REGISTRATION_REASONS) == 32
+    """@brief 新的三十四个登记码是唯一集合，退役食品与工作主题码不存在。"""
+    assert len(REGISTRATION_REASONS) == 34
     assert not any(code.startswith("FOOD_") or code == "WORK_TOPIC_UNKNOWN" or code == "CONTENT_APP_MISSING"
                    for code in REGISTRATION_REASONS)
 

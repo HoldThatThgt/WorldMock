@@ -82,9 +82,10 @@ def test_chinese_kind_tables_have_a_single_source() -> None:
     assert readable.ENGLISH_KIND_NAMES == {key for table in tables for key in table}
 
 
-def test_app_public_labels_are_the_exact_current_phone_phrases():
-    """@brief 单一中文词表与冻结手机活动名称逐字一致。"""
+def test_action_public_labels_use_catalog_actions_without_phone_inference():
+    """@brief 单一中文词表保留统一动作标签，手机身份由实际应用与使用方式提供。"""
     from worldmock.life.readable import ACTIVITY_KIND_LABELS, ACTIVITY_DOING_LABELS, ACTION_PHRASES
-    assert ACTIVITY_KIND_LABELS['use_app'] == '用手机'
-    assert ACTIVITY_DOING_LABELS['use_app'] == '刷手机'
-    assert ACTION_PHRASES['use_app'] == '用手机 app'
+    assert ACTIVITY_KIND_LABELS['action'] == '动作'
+    assert ACTIVITY_DOING_LABELS['action'] == '做事'
+    assert ACTION_PHRASES['do'] == '做工具层里的动作'
+    assert all('use_app' not in table for table in (ACTIVITY_KIND_LABELS, ACTIVITY_DOING_LABELS, ACTION_PHRASES))

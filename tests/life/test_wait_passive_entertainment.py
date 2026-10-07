@@ -6,7 +6,7 @@ from tests.data_paths import ENVIRONMENT_ROOT
 
 import pytest
 
-from worldmock.life.activities import ActivityOrigin, advance_activity, content_entertainment_relief_rate, start_activity
+from worldmock.life.activities import ActivityOrigin, advance_activity, start_activity
 from worldmock.life.body import (ENTERTAINMENT_RESOURCE, last_flows,
                                  minimum_energy_cost, settle_body)
 from worldmock.life.models import ActivityKind, ActivityStartParams, AgentState, BodyState
@@ -46,7 +46,8 @@ def test_wait_has_only_awake_entertainment_accrual(body_config) -> None:
 def test_entertainment_relief_is_a_fixed_scalar(body_config) -> None:
     """@brief 娱乐缓解采用单一系统速率，等待是否缓解仍由实际结算判定。"""
     assert body_config.entertainment_relief_per_hour == 0.3
-    assert content_entertainment_relief_rate() == 0.3
+    from worldmock.exchange.constants import ENTERTAINMENT_RELIEF_PER_HOUR
+    assert ENTERTAINMENT_RELIEF_PER_HOUR == 0.3
 
 
 def test_wait_met_cost_remains_declared(body_config) -> None:
@@ -68,7 +69,7 @@ def test_wait_matches_other_non_entertainment_activity(body_config) -> None:
     """@brief 同一清醒区间，等待和真实步行活动的娱乐需求都只按自然速率增长。"""
     waited = settle_body(_body(), ActivityKind.WAIT, 7200, body_config)
     agent = AgentState(agent_id=1, name="Lin", location_id="home", balance_account_id="agent:1",
-                       body_settled_at=0, next_decision_at=0, body=_body())
+                       body_settled_at=0, driving_days=0, last_driving_date=None, next_decision_at=0, body=_body())
     request = ActivityStartParams(activity_type=ActivityKind.TRAVEL, planned_duration_seconds=7200,
                                   destination_id="office", travel_mode="walking")
     person, activity = start_activity(agent, request, 0, ActivityOrigin("walk", "decision", "request"), body_config)
@@ -81,7 +82,7 @@ def test_wait_matches_other_non_entertainment_activity(body_config) -> None:
 def test_direct_wait_activity_preserves_plain_accrual(body_config) -> None:
     """领域活动入口同样不添加隐藏的娱乐效果。"""
     agent = AgentState(agent_id=1, name="Lin", location_id="home",
-                       balance_account_id="agent:1", body_settled_at=0,
+                       balance_account_id="agent:1", body_settled_at=0, driving_days=0, last_driving_date=None,
                        next_decision_at=0, body=_body())
     request = ActivityStartParams(activity_type=ActivityKind.WAIT,
                                    planned_duration_seconds=3600)

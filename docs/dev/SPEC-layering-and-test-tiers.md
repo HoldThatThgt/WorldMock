@@ -38,6 +38,7 @@ flowchart TD
     FULL --> PROOF[行为基线、覆盖率、文档门禁与突变审查]
 ```
 
+
 <a name="layering-scope"></a>
 ## 范围与最终裁定
 
@@ -59,6 +60,7 @@ flowchart TD
 
 实现时不得加入兼容层、旧址转发、fallback、空壳实现、延期标记或规范未描述的业务功能。
 所有异常分支输出英文错误日志；注释与接口文档使用中文；生产代码遵守现有风格门禁。
+
 
 <a name="layering-imports"></a>
 ## 生产依赖方向
@@ -90,6 +92,7 @@ flowchart TD
 入口和定义搬移必须同步所有调用方、monkeypatch 位置、突变登记、代码文档引用及现行设计说明。
 
 CLI、validation 与 runtime 的纯分支收集不加载完整 `LifeEngine`、EngineContext、读取查询运行时或 AS2 链；运行分支按具名本地导入隔离。不得用假 schema、假目录或兼容别名掩盖真实依赖，纯加载与实际环境命令必须同时通过。
+
 
 <a name="layering-engine"></a>
 ## 生活引擎的职责对象
@@ -126,6 +129,7 @@ flowchart TB
 
 `EngineContext` 不含语料身份，环境只绑定目录与场景；只读目录不拥有内容选择、进度与历史。
 
+
 <a name="layering-documents"></a>
 ## 现行文档与历史证据
 
@@ -149,6 +153,7 @@ flowchart TB
 普通 Markdown 链接、符号引用与仓库文档路径也必须可解析；历史文件按基线检查其历史来源。
 汇编设计说明书识别同一显式标识，附录选择不再依赖会变化的中文标题，显示正文不泄露锚点标签。
 
+
 <a name="layering-archive"></a>
 ## 已验收增量规格并入正文
 
@@ -169,6 +174,7 @@ flowchart TB
 类型模块路径与 `__file__` 的文字断言改为类型或行为断言；正当风格、错误合同等结构门禁继续保留。
 真实十二周、隔离盲评、LabelKit 交付和原有只报告复跑的状态继续在现行验收文档显示，不因归档变为完成。
 
+
 <a name="layering-mutations"></a>
 ## 突变登记按定义定位
 
@@ -180,11 +186,13 @@ flowchart TB
 全部一百四十七项登记直接写现行定义，不保存旧址映射。
 在定义搬移前证明符号定位生成的每一份变异源码与旧实现逐字节一致，再同步搬移对应登记。
 
+
 <a name="layering-cache"></a>
 ## 测试只读输入缓存
 
 缓存只用于测试工厂的人工环境或 `--environment-root` 明确指定的冻结输入，不增加生产缓存入口。缓存键覆盖结构 8 场景、清单与六个目录文件、包内可供性与人物映射的相对路径及真实字节，不含语料身份。输入字节变化使缓存失效。
 可变场景、身体、账户与世界状态每次复制；目录、可供性等只读分支经递归不可变证明才共享。每个用例新建事件暂存、日志与足迹存储。临时输入不用正式缓存，副本独立复制，不通过硬链接共享；会话末检查源字节与缓存对象摘要。直接生产新建与恢复用例保留，核验实际装配和身份检查。
+
 
 <a name="layering-tiers"></a>
 ## 快速、标准与全量层
@@ -207,6 +215,7 @@ flowchart TB
 当前六进程参考基准的默认快速集合目标为一百八十秒以内、标准层目标三十五分钟以内；
 被改模块额外加入的引擎用例耗时单独列出，这些目标不宣称为所有机器与所有改动的普遍上界。
 报告给出实测环境、各层耗时和超目标提醒，不把跳过或少选用例当作性能改进。
+
 
 <a name="layering-runner"></a>
 ## 唯一运行入口与完整性
@@ -236,6 +245,7 @@ summary、worker 选择清单及完成回执的运行身份与节点多重集；
 `__pycache__` 不纳入输入，自动生成的计时与覆盖报告仍按现有排除范围处理。
 共享规则及可重建环境的其余要求见[所属冻结规格](SPEC-shared-rules-and-rebuildable-env.md#shared-rules-门禁可选部件与操作系统)。
 
+
 <a name="layering-baseline"></a>
 ## 行为不变基线
 
@@ -261,6 +271,7 @@ summary、worker 选择清单及完成回执的运行身份与节点多重集；
 
 结构 7 当前完整日允许冻结第三份 `dayrun-resource-rule-baseline.json`：同一人工场景与种子真实运行两次，候选全部一致后发布；两份历史 JSON 字节保持。当前活动与导出核验不等同于跨版本旧摘要一致，第三份基线的运行与冻结在阶段 8 执行。
 
+
 <a name="layering-files"></a>
 ## 文件修改清单与所属文档
 
@@ -281,6 +292,7 @@ summary、worker 选择清单及完成回执的运行身份与节点多重集；
 | 测试解耦 | `tests/fixtures/acceptance_requirements.json`、`current-feature-owners.json`、`layering-acceptance.json` 与固定行为基线；原文档读取与文本钉守卫、`mutation_runner.py`、两份突变登记及符号作用域行为测试 |
 | 测试分层 | `tests/conftest.py`、`tests/engine_fixture.py`、`tests/life/conftest.py`、其它共享 fixture、分层与缓存守卫、`scripts/run_tests.py`、`scripts/coverage_gate.py`、对应测试、`pyproject.toml` 标记和耗时报告 |
 
+
 <a name="layering-consistency"></a>
 ## 与现有规格一致性
 
@@ -294,6 +306,7 @@ summary、worker 选择清单及完成回执的运行身份与节点多重集；
 
 现行正文不得仍要求文件级文本唯一、增量规格副本文字一致、旧 Mixin 或旧定义导入。
 冲突条款在本次同步改写到所属正文和版本表；不能靠「本规格优先」留下两套同时有效的要求。
+
 
 <a name="layering-acceptance"></a>
 ## 验收台账
@@ -319,6 +332,7 @@ summary、worker 选择清单及完成回执的运行身份与节点多重集；
 | 覆盖与耗时 | 当前解释器全量覆盖合并，原覆盖门禁成立，真实耗时报告与分片权重及超时目标提醒一致 |
 | 文档设计一致 | 正式文档门禁、设计汇编检查、双向规格到代码测试核对和独立 Uncle Bob 审查通过 |
 
+
 <a name="layering-industry"></a>
 ## 成熟方案依据
 
@@ -327,6 +341,7 @@ summary、worker 选择清单及完成回执的运行身份与节点多重集；
 收集与标记使用 [pytest 官方收集钩子](https://docs.pytest.org/en/stable/how-to/writing_hook_functions.html)，
 并行覆盖使用 [Coverage.py 分进程数据与合并](https://coverage.readthedocs.io/en/latest/commands/cmd_combine.html)。
 章节标识采用 [GitHub 自定义锚点](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#custom-anchors)。
+
 
 <a name="spec-layering-and-test-tiers-版本表"></a>
 ## 版本表

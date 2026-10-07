@@ -39,6 +39,7 @@
 
 记忆合同的空数组、阈值巩固、人物卡片与相似同类合并由 WorldMock 人物扩展负责；存储与恢复继续复用 AS2 框架。候选种类、活动家族、中文名称与主观快照只读取各自唯一规则实现；记忆类型、来源、阈值与事实主观分区不变。
 
+
 <a name="spec-life-realism-产品行为"></a>
 ## 产品行为
 
@@ -90,6 +91,7 @@ flowchart TD
     FOOT --> METRIC[行为指标与门禁]
 ```
 
+
 <a name="spec-life-realism-与相邻规格的边界"></a>
 ## 与相邻规格的边界
 
@@ -107,6 +109,7 @@ flowchart TD
 | 地点类与人物显式交互菜单、对象动作准入 | `docs/dev/SPEC-interaction-menu.md#spec-interaction-menu-特性规格交互菜单` |
 | 行为指标与门禁的汇总口径、report-only 边界与交付顺序 | `docs/VERIFICATION.md#verification-worldmock-验收标准` |
 | 个人事务的登记、完成依据、提醒与待办层呈现；下班与到家作息、场景工作安排与环境层 `duty`；`query_world` 的筛选与返回；就寝反思的提交通道与校验 | [个人事务与工作安排规格](SPEC-as2-integration.md#errands-workday-运行修复入库) |
+
 
 <a name="spec-life-realism-设计裁决"></a>
 ## 设计裁决
@@ -130,6 +133,7 @@ flowchart TD
 | 人物卡片只占 0.25%，system prompt 86% 是协议 | ① 人物卡片 JSON 整体注入<br/>② 协议文本替换了身份前言 | ① 本规格「画像编译」<br/>② 本规格「单一行动阶段」；原「恢复身份前言」已被[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)取代：身份前言删除，system 只放系统层交互规则，身份只在人设层 |
 | 两条时间线分不出人格（同代码同人、异人的 JS 距离差 0.02；最近邻 59%，p=0.22） | ① 大五到九参数只作用于无人采纳的 hints，却以 JSON 进提示被当 reward<br/>② 222 个随机偏好浮点与文本反向 | ① 本规格「动机层」<br/>② 本规格「画像编译」 |
 | 李凡的 MEMORY.md 第一条是 “Marketing analyst” | 巩固提示不传人物卡片且带示例身份 | 本规格「记忆合同」 |
+
 
 <a name="spec-life-realism-单一行动阶段"></a>
 ## 单一行动阶段
@@ -181,6 +185,7 @@ flowchart TD
 依据：DeepSeek 思考模式文档规定请求带 `tools` 时此前每个 assistant 回合的 `reasoning_content` 都须原样回传，
 不在消息中的回合不受此约束，这决定了同秒续接与时间推进后丢弃思考的切分；
 Humanoid Agents 与 Sotopia 都把内部状态或私有目标作为显式输入。
+
 
 <a name="spec-life-realism-记忆合同"></a>
 ## 记忆合同
@@ -252,10 +257,13 @@ Humanoid Agents 与 Sotopia 都把内部状态或私有目标作为显式输入�
 dreaming 的任务取值、每份材料必须携带的字段与分支绑定见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「反事实与重演字段」。
 推演改变行动或世界条件时建立新分支；仅由模型想象的结果标明假设，经过环境执行的结果标明重新仿真。
 
+
+
 <a name="spec-life-realism-动机层"></a>
 ## 动机层
 
 内部动机评分器已退役，不计算也不写 `motivation_internal`。人物选择只来自七层请求，体感以环境层分级呈现；环境动作和内容不提供数字权重。
+
 
 <a name="spec-life-realism-当日目标"></a>
 ## 当日目标
@@ -285,6 +293,7 @@ flowchart LR
 零点计划输入以只读键「个人事务」带上还没办完的事务（不创建、不更改、不终结），现有键「待办任务」只指已分配且未完成的工作主题；
 `progressed` 只表示获得过活动推进，不表示事务办成（个人事务与工作安排规格 2.8，阶段 2 落地）。
 
+
 <a name="spec-life-realism-世界素材品类要求"></a>
 ## 世界素材品类要求
 
@@ -313,6 +322,7 @@ flowchart LR
 地点在 `locations.json` 只声明固定 `LocationKind`。`PLACE_KIND_ENVIRONMENTS` 将 home、office、park、fitness 与四类食品店铺分别派生为 home、office、outdoor、fitness、venue。
 生活活动条目保留自己的 `location_kinds`，含 anywhere 表示任何地点；其余条目按派生环境与条目需求的交集判定资格。地点和条目不重复维护两张环境表；目录不维护内容检索分区或品类地点资格。
 
+
 <a name="spec-life-realism-素材可达性"></a>
 ### 素材可达性
 
@@ -321,6 +331,7 @@ flowchart LR
 人物选择 app，环境才在这个 app 绑定的内容中按全局 `content_progress` 抽取；推送优先指向同一 session 的 pending 内容。
 app 即使没有内容也始终列出，但打开动作不可用并返回 `APP_CONTENT_EMPTY`。这一行为把「能选哪个 app」与
 「app 内实际接触哪条内容」分开，同时保证每次内容足迹能追溯到人物选择、app 绑定、推送状态和真实完成位置。
+
 
 <a name="spec-life-realism-素材淘汰与检索机制的禁止项"></a>
 ### 素材淘汰与检索机制的禁止项
@@ -344,6 +355,8 @@ app 即使没有内容也始终列出，但打开动作不可用并返回 `APP_C
 
 本阶段商品、生活活动与任务保留确定性呈现管线，app 名称始终列出；食品不依赖库存、下架、报价或检索分区。娱乐管线的最后消费者在娱乐阶段删除。
 
+
+
 <a name="spec-life-realism-候选与呈现"></a>
 ## 候选与呈现
 
@@ -357,6 +370,7 @@ app 即使没有内容也始终列出，但打开动作不可用并返回 `APP_C
 排序键为整数相关度与 `sha256(场景|人物|日期|对象)` 的稳定决胜键；不读画像口味权重、注意力先验、缓存时间或模型输出，不用内建 `hash()`。
 世界事实排除只依据地点、在场、资源占用、时长与活动环境交集，能量不构成准入门槛。食品没有库存、下架、营业或报价状态。
 实际事件引起的世界变化保留事件身份和证据；固定菜单、价格和 app 绑定不能在运行中悄悄改写。
+
 
 <a name="spec-life-realism-呈现上限与下推游标"></a>
 ### 呈现上限与下推游标
@@ -377,6 +391,7 @@ app 即使没有内容也始终列出，但打开动作不可用并返回 `APP_C
 
 上限与游标适用于商品、生活活动与任务的目标呈现；商品对象为 `<store_id>:<food_id>`，全部 app 名称始终列出。没有检索分区阈值，食品菜单完整性与单次提示容量分别检验。
 
+
 <a name="spec-life-realism-呈现轮转"></a>
 ### 呈现轮转
 
@@ -390,6 +405,8 @@ app 即使没有内容也始终列出，但打开动作不可用并返回 `APP_C
 - 轮转只管实际展示，不改变目录菜单与 app 绑定；未呈现食品可按名购买。商品对象为 `<store_id>:<food_id>`，消费与多样性按食品身份，人物偏好散文不参与数值排序。
 
 依据：《对象模型重分析》「曝光轮转」的三条合同要求与闭式表、`LOCATION-GRANULARITY.md`「轮转算术的口径」。
+
+
 
 <a name="spec-life-realism-画像编译"></a>
 ## 画像编译
@@ -447,6 +464,7 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 
 人物有媒体口味但没有任何内容带非空 app_ids 时发出 `CONTENT_EMPTY_WITH_MEDIA_TASTES`。
 
+
 <a name="spec-life-realism-地图门店供给与活动环境"></a>
 ## 地图、门店供给与活动环境
 
@@ -466,6 +484,7 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 
 店铺类型可供给商品类别由 `GOODS_CATEGORY_STORE_KINDS` 固定，不合供给表的类别不能绑定；同类型店铺同菜单。
 
+
 <a name="spec-life-realism-商务与进食"></a>
 ## 购买与收货
 
@@ -477,6 +496,7 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 食品的 `provided` 为类别热量乘件数，`applied` 为按当秒睡眠不足利用率与能量上限得到的实际能量增加，超出上限的部分丢失。休闲用品每行降低娱乐需要 0.10（下限 0），日常用品每行施加情绪脉冲 0.05。没有持有、食用时长、份额、丢弃或装备能力。
 本次食品 `food:intake` 分录与休闲用品 `goods:receipt` 分录在函数返回前立即取走，主体与时刻都是收货人和收货秒，缓冲为空；日常用品不写资源分录。状态变化与 `goods_received` 同一事务提交，事件的 `caused_by` 指向该提交中的真实购买结果或配送到期事件。
 已交付订单再次到期不写状态、效果或事件；重复动作返回已存结果。联系人没有身体，收货只改变订单状态与 `received_at`，不写 `goods_received`。配送保留付款人的到期事件与唤醒，清醒模拟收货人得到同一个到期原因，睡着的不唤醒；到店不唤醒任何人。
+
 
 <a name="spec-life-realism-呈现与导出"></a>
 ## 呈现与导出
@@ -507,6 +527,7 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 
 
 
+
 <a name="spec-life-realism-默认裁决与备选"></a>
 ## 默认裁决与备选
 
@@ -522,6 +543,7 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 | 回复正文的信息范围 | `self_note` 随实际请求进入动作与意图窗口，并进入 dreaming 输入；原「决策自述仅 dreaming 可读」随决策自述删除 | 无 |
 | 人物卡片覆盖率阈值 | 80%；低于阈值时 `validate` 失败，创建运行只发输入警告 `COVERAGE_BELOW_THRESHOLD`（一日运行保真规格裁决 D4） | 60%（放宽）或 100%（严格） |
 | 提示容量 | 每次实际请求连同预留输出计入模型上下文窗口；达到百分之八十五时先提前结束本秒续接，再只压缩进度层派生投影 | 更换模型窗口须重新验证同一比例与结果保真 |
+
 
 <a name="spec-life-realism-文件修改清单与实施顺序"></a>
 ## 文件修改清单与实施顺序
@@ -562,6 +584,7 @@ flowchart LR
 四个阶段的划分、内容与每阶段的通过条件见 `docs/VERIFICATION.md#verification-worldmock-验收标准`「实施顺序」。本规格只补一条约束：任何阶段结束时，本文件验收矩阵里标「代码层已验证」的观察都必须仍然成立，不得为了推进下一阶段而放宽它们。
 
 
+
 <a name="persona-prompt-七层请求"></a>
 ## 七层请求
 
@@ -576,6 +599,7 @@ flowchart LR
 | 续接消息 | 同一秒后续决策追加的原生 assistant 与 tool 消息（第二章） | 时间推进后不再出现 |
 
 发送前不做逐层 Schema 校验（已定 #2）；测试用 `src/worldmock/life/prompt_schemas.py` 校验各层构建器的输出。
+
 
 <a name="persona-prompt-七层请求-唯一出现原则"></a>
 ### 唯一出现原则
@@ -609,6 +633,7 @@ app 名称列在工具层，本 session 推送在进度层呈现；选择 app �
 
 
 
+
 <a name="persona-prompt-七层请求-通用格式"></a>
 ### 通用格式
 
@@ -622,6 +647,7 @@ app 名称列在工具层，本 session 推送在进度层呈现；选择 app �
   （`src/worldmock/life/activity_control.py`）；他处持有物的名称带地点，保证与手边同名持有物不重名。
 - 人物写下的内容（`self_note`、`self_notes`、人设层的看法与偏好、待办层个人事务的名称与备注）是否经核验，由系统层规则统一说明，各字段不逐条标注。
 
+
 <a name="persona-prompt-七层请求-系统层"></a>
 ### 系统层
 
@@ -630,6 +656,7 @@ app 名称列在工具层，本 session 推送在进度层呈现；选择 app �
 剩余系统规则已按冻结合同同步：推送时机、并行活动、名称、购买来源与工作主题。
 这次改写只更新最终 `prompt_sha256` 与代码身份，`tool_schema_sha256` 沿用工作阶段已验收的工具面；
 改写前后的运行不能恢复、重放或合并比较。运行中的系统层与工具定义始终保持各自冻结字节。
+
 
 
 
@@ -664,6 +691,7 @@ app 名称列在工具层，本 session 推送在进度层呈现；选择 app �
   （整数，不按呈现窗口截断，也不受查询筛选影响）；它不是目标，不带动作与条件，
   不计入单次呈现上限、计入整次请求的容量计数；索引里的名称按名调用，受理时照常做资格与准入判定。
 - **`to` 的候选**是 `null`（本人）或本层的他人人物目标。
+
 
 <a name="persona-prompt-七层请求-工具层的紧凑编码与即时查询"></a>
 ### 工具层的紧凑编码与即时查询
@@ -705,6 +733,7 @@ app 名称列在工具层，本 session 推送在进度层呈现；选择 app �
 商品价格固定，类别标签来自食品类别；`available_only` 只按人在店内或店铺绑定 app 判断，不检查报价、营业、库存、配送区域或可见凭据。查询不揭示新世界事实、不推进时间、不占名额，只保存实际模型与 tool 交换证据。
 查询与世界请求不得混批，先整批校验，再按原执行位置返回；有效交互菜单、同秒预算、名称纠错与只读权限保持原合同。
 
+
 <a name="persona-prompt-七层请求-人设层"></a>
 ### 人设层
 
@@ -740,6 +769,7 @@ app 名称列在工具层，本 session 推送在进度层呈现；选择 app �
 
 
 
+
 <a name="persona-prompt-七层请求-记忆层"></a>
 ### 记忆层
 
@@ -752,6 +782,7 @@ app 名称列在工具层，本 session 推送在进度层呈现；选择 app �
 
 记忆层在构建提示时由环境从已提交事件与世界状态派生（〔#32〕），不新增持久状态；构建结果随观察事件保存，导出的就是模型所见。
 窗口、零点与不写入的内容见第三章。
+
 
 <a name="persona-prompt-七层请求-待办层"></a>
 ### 待办层
@@ -770,6 +801,7 @@ app 名称列在工具层，本 session 推送在进度层呈现；选择 app �
 本层不浓缩，也不重算可用性。新增、更新、取消只经 `report_status`、`pause_activity`、`conclude_activity` 的请求级 `errands`，
 完成依据、提醒与上限见[个人事务与工作安排规格](SPEC-as2-integration.md#errands-workday-运行修复入库)第二章。
 
+
 <a name="persona-prompt-七层请求-环境层"></a>
 ### 环境层
 
@@ -779,6 +811,7 @@ app 名称列在工具层，本 session 推送在进度层呈现；选择 app �
 | `body` | 五项体感分级 `appetite`、`sleepiness`、`entertainment`、`social`、`mood`，取值就是现有分级文字（`src/worldmock/life/felt.py`）；数值不进提示 |
 | `location` | `session_kind`（`stay` 或 `transit`）、`name`（停留时为地点名，路程中为路段标签，现行路程中误写出发地）、`place_type`（停留时为场所类型的中文标签，路程中为出行方式）、`fixed_rules`（场所的固定规则，取菜单排除的动作的可读说法；现有场景菜单全开时为 `[]`） |
 | `duty` | 必填可空，排在 `location` 之后，由环境按场景 `work_schedule` 与世界时钟求值：人物没有工作安排为 `null`；当日不当班为 `{"day": "休息日", "hours": null, "place": null, "breaks": [], "status": null}`；当日当班为 `{"day": "工作日", "hours": "09:00–18:00", "place": "<工作地点名>", "breaks": ["12:00–13:30"], "status": "<状态>"}`，`status` 取「未到上班时间」「当班中」「休息时段」「已下班」，只由时钟与班次决定，不含人物在不在场；键与值不含内部身份。它是呈现的事实：今日计划、`revise_day_plan` 与工作提交都不改变它，环境不因它新增任何拒绝 |
+
 
 <a name="persona-prompt-七层请求-进度层"></a>
 ### 进度层
@@ -837,6 +870,8 @@ JSON 部分写到构造本请求快照的那一刻：续接链的快照在链首
 业务前置条件中所有可独立确定的问题按既定准入顺序列出，
 定位有关请求参数并给合法方式或下一步；需要合法对象才能判定的条件不凭空推断。
 
+
+
 <a name="persona-prompt-决策回复正文与思考"></a>
 ## 决策、回复正文与思考
 
@@ -858,12 +893,14 @@ JSON 部分写到构造本请求快照的那一刻：续接链的快照在链首
 - **登记后不追加任何 tool 消息**；`ActionReceipt` 仍在宿主侧完整保存，用于审计与幂等。记忆查询的结果只序列化一次
   （现行在 observation 与 data 两处重复，`custom/agents/life_agent.py`）。
 
+
 <a name="persona-prompt-决策回复正文与思考-回复正文"></a>
 ### 回复正文
 
 - 提交世界请求那一次回复的非空正文，写入 `action_requested.data.self_note`；只做只读查询的回复，其正文随续接消息保留，折叠后不再出现。
 - 不要求、不重问、不代写；进度层中对应调用带 `self_note`，只到本 session 结束，不进入记忆。
 - 交付时，`self_note` 作为实际请求的一部分进入动作与意图窗口，并进入 dreaming 输入（第七章）。
+
 
 <a name="persona-prompt-决策回复正文与思考-同秒续接"></a>
 ### 同秒续接
@@ -899,12 +936,14 @@ JSON 部分写到构造本请求快照的那一刻：续接链的快照在链首
 **开关**（〔#31〕）：运行参数 `same_second_continuation`（缺省开），冻结进清单 `stages.action` 与人物配置，恢复与重放继承父清单的值，
 不能覆盖。关闭时每次决策都从新快照构造请求，只用于对比运行。
 
+
 <a name="persona-prompt-决策回复正文与思考-只读问答"></a>
 ### 只读问答
 
 system 为只读系统层；user 为人设层与记忆层两个对象组成的 JSON 数组，外部问题作为其后一条 user 消息原样给出。
 两层取自最近一次生活决策保存在人物工作区的快照（〔#38〕），运行开始后尚无决策时记忆层的两个列表都为空。工具只有 `memory_recent`、
 `memory_search`、`memory_time_range` 与只读 `finish`；不写世界与记忆，不产生决策事件。
+
 
 <a name="persona-prompt-决策回复正文与思考-删除与去重"></a>
 ### 删除与去重
@@ -923,6 +962,8 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 | `memory_step_range`、`memory_tick_range` | 生活决策不再开放（〔#37〕）：提示中没有步号与秒数坐标 |
 | 任务的 `new_material_chars`、`required_skill`、`minimum_skill` | 删除这些内部参数；技能不足的已知任务保留合同和准确不可用原因 |
 
+
+
 <a name="persona-prompt-进度与记忆的更新"></a>
 ## 进度与记忆的更新
 
@@ -934,6 +975,7 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 - **归属。** 一个 session 的记录区间是「前一边界提交的末事件序号，到本边界提交的末事件序号」，同一提交按 `state_version_after` 聚合：
   出发请求整体归旧 session；到达那一秒的收尾调用归新 session；路程中收到的消息、送达与发出的消息归路程 session。
 - **不新增工具或模型总结请求，不为 session 建档。** 条目是派生视图；会话本身仍不写总结。
+
 
 <a name="persona-prompt-进度与记忆的更新-settled-的写法"></a>
 ### `settled` 的写法
@@ -953,6 +995,7 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 
 没有「吃了…」「丢弃…」「把…给了…」三种句子；收货事实只来自 goods_received。
 
+
 <a name="persona-prompt-进度与记忆的更新-self_notes"></a>
 ### `self_notes`
 
@@ -961,6 +1004,7 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 条目内不重名时去掉开始时刻后缀。看法与偏好（`views`，存储为带 `subject` 的 relationship、preference 记忆），请求级 `errands` 的文字（名称、备注与取消原因），`report_status` 的 summary，回复正文与被拒请求的内容都不进入。
 被拒的 `conclude_activity` 写下的记忆照旧存入主观记忆（所属现行合同的存储规则不变），只是不呈现。
 个人事务变更不是记忆写入点，不写入主观记忆，也不产生 `memory_updated`；同一请求里的 `memories` 仍按既有规则由宿主写入。
+
 
 <a name="persona-prompt-进度与记忆的更新-零点反思与未了结"></a>
 ### 零点、反思与未了结
@@ -971,6 +1015,7 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 - **反思归属**（〔#34〕）：由含 `wake_from_sleep` 的那一轮找到刚结束的睡眠，归属日期取「睡眠开始时刻前推 6 小时」的本地日期。
   宿主覆写 AS2 的记忆快照记录，为反思条目加来源，引擎据此识别。
 
+
 <a name="persona-prompt-进度与记忆的更新-窗口"></a>
 ### 窗口
 
@@ -978,6 +1023,8 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
   未了结事项与最近一个 session 的条目永不删去。仍超出时写英文日志，交给整次请求的 85% 阈值处理。
 - 记录不删除。更早的 summary 可按活动名用 `recall_task_summary` 回看；结束活动写下的记忆与反思可用记忆查询取得。
 - 阈值巩固保留（〔#36〕），它的摘要不再进提示。
+
+
 
 <a name="persona-prompt-预算"></a>
 ## 预算
@@ -994,6 +1041,7 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 始终完整保留（受保护）：工具层的进行中与刚结束活动、待办层的暂停活动、未了结订单相关的记录、上次请求之后的新记录。
 工具层、人设层、待办层与环境层不浓缩；记忆层只受自身 8000 字符窗口约束。不静默删减。
 
+
 <a name="dayrun-fidelity-人设与系统层"></a>
 ## 人设与系统层
 
@@ -1006,6 +1054,7 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 
 **验收。** 场景只声明睡眠中点时，人设层显示场景中点、其余字段仍为卡片值；覆盖后锚点乱序时保留卡片值并记冲突警告；
 身体结算、零点计划输入与人设层三处读到同一组值；`validate` 与运行路径结果一致。
+
 
 <a name="dayrun-fidelity-人设与系统层-系统层照作息过日子较强一档才改"></a>
 ### 系统层：照作息过日子，较强一档才改
@@ -1030,6 +1079,7 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 验收从真实模型请求核对系统层与合同唯一文本、规则条数、体感档名与指纹变化，并验证零点计划、工作安排与事务提醒的实际行为；不解析本规格的提示副本。
 阶段 5 只对系统层第 2 条与六个世界请求的工具面进行对照；第 7、8、12、13、17 条的最终文本、工作主题决策机会与最终提示指纹收据仍归阶段 6。
 
+
 <a name="dayrun-fidelity-人设与系统层-零点计划只写今天与平常不同的事"></a>
 ### 零点计划只写今天与平常不同的事
 
@@ -1050,12 +1100,15 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 
 验收检查真实计划输入、模板、目标时刻、空计划、提醒为空的例行意图目标照常受理、非例行推进比例及两个提醒渠道。模板由代码身份绑定，不读取本规格的提示副本。
 
+
 <a name="dayrun-fidelity-人设与系统层-语言不作要求"></a>
 ### 语言不作要求
 
 人物写的正文、summary、记忆与人设层看法用中文还是英文不作要求（裁决 D18，用户裁定）。本次运行里 WC 记为 `self_note` 的 10 条中 5 条、BIZ 18 条中 2 条是英文，
 全部进入了 LabelKit 输入；是否需要统一语言由数据集在交付侧决定，系统不加系统层语言句、不在质量报告计数。其他调用点已有的中文要求（联系人回复 `src/worldmock/runtime.py`、
 零点计划 `src/worldmock/life/day_planning.py`、记忆归纳 `src/worldmock/agents/life_memory.py`、画像抽取 `src/worldmock/profile/extractor.py`）不变；思考只保留在私有证据里。
+
+
 
 <a name="tool-interaction-操作备忘与紧凑提示"></a>
 ## 操作备忘与紧凑提示
@@ -1069,6 +1122,7 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 跨模拟时刻与会话保留，下一本地日清空呈现窗口；不写人物记忆、不新增检查点状态。
 备忘只记录实际拒绝，不能把人物自述或查询空结果当失败。
 
+
 <a name="tool-interaction-操作备忘与紧凑提示-无损分组"></a>
 ### 无损分组
 
@@ -1081,6 +1135,8 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 共同不可用原因及 changes 中相同原因的出现、解除可以合并，但每个受影响对象必须仍可恢复。
 名称、可用性、原因、价格、份量、时长、任务合同、资格和控制工具信息逐值守恒。
 同秒续接链首前缀仍逐字节稳定；工具层计入总提示容量，不通过裁掉名称绕过容量门禁。
+
+
 
 <a name="errands-workday-提示信息分工"></a>
 ## 提示信息分工
@@ -1097,6 +1153,7 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 
 验收走真实请求与持久事件：事务入口和规则共同存在，事务变更不旁路写主观记忆，不产生记忆更新，完整事务行只出现在待办层。
 
+
 <a name="errands-workday-提示信息分工-工具用途句与字段说明"></a>
 ### 工具用途句与字段说明
 
@@ -1104,12 +1161,14 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 用途只表达行为目的，不加入规则说法与英文机制词；实际 Schema 与合同逐字校验，并通过已有说明扫描。
 控制请求字段、封闭对象、必填与可空条件由接口合同及个人事务行为章节定义，工具指纹绑定这些实际 Schema。
 
+
 <a name="errands-workday-提示信息分工-就寝反思文案补句"></a>
 ### 就寝反思文案补句
 
 阶段 2 在 1.1 的反思文案末尾追加两句并同步登记块（反思输入只有人物自己的主观记忆，补句不借用「已结算」的说法）：
 
 提示的唯一权威文本见 `docs/CONTRACTS.md#contracts-model-request`。
+
 
 <a name="errands-workday-提示信息分工-可判定口径"></a>
 ### 可判定口径
@@ -1121,6 +1180,8 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 | 唯一提示与工具说明 | 实际请求、模块常量与 CONTRACTS 相同；十八条系统规则与用途说明扫描正确，不读取非权威副本 |
 | 事务和记忆分离 | 经真实请求、引擎与 SQLite，事务变更不写主观记忆、不产生记忆更新、不进入 self_notes 或进度层工具调用参数；完整事务只出现于待办层 |
 | 收尾记忆统计 | 统计自述文字，不能把文字当作发生事实；只报告，既有记忆重复比例门禁口径与阈值不变 |
+
+
 
 <a name="errands-workday-作息补全与工作安排"></a>
 ## 作息补全与工作安排
@@ -1137,6 +1198,7 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 - 编译产物的卡片结构版本为 3，抽取提示版本 `card-v3`；旧结构化卡片因缺这两个必填键被拒。
 - 人设层 `rhythm` 键序为 `wake, leave_home, lunch, leave_work, arrive_home, dinner, bedtime, sleep_midpoint, sleep_need`，两个新键可为 null。画像文本对 `leave_work`、`arrive_home` 各自非空时各追加一个分句，都为 null 时输出与现在逐字节相同；追加分句计入六百汉字预算（裁决 W5）。
 
+
 <a name="errands-workday-作息补全与工作安排-场景作息覆盖"></a>
 ### 场景作息覆盖
 
@@ -1144,6 +1206,7 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 场景作息覆盖的字段由五项扩为七项，窗口槽由三个扩为五个；沿用 `CARD_FIELD_OVERRIDDEN`、`CARD_FIELD_CONFLICT`，只扩 `details.field` 的取值，警告码闭集仍为 10。
 覆盖与冲突规则不变并一体适用于新槽：场景声明的窗口落下后违反顺序约束，或量化后写不成合法窗口时，该槽保留卡片值（新槽的卡片值可以是 null）并记 `CARD_FIELD_CONFLICT`。卡片槽为 null 时覆盖与告警都要能处理，覆盖结果仍是不动点。
 零点计划的人物输入增「下班时段」「到家时段」，取场景字段、未声明省略。只来自卡片的下班与到家时刻同起床、出门一样，不进入零点计划的结构化输入；要让零点计划拿到它，由数据集在场景里声明。
+
 
 <a name="errands-workday-作息补全与工作安排-工作安排声明"></a>
 ### 工作安排声明
@@ -1176,6 +1239,7 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 
 食品店铺固定全天服务，不声明营业日历或营业例外；工作安排仍按本节每周班次、日期例外与休息时段表达，不将营业概念引入工作语义。
 
+
 <a name="errands-workday-作息补全与工作安排-环境层-duty"></a>
 ### 环境层 `duty`
 
@@ -1190,6 +1254,7 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 `status` 闭集：「未到上班时间」「当班中」「休息时段」「已下班」，只由时钟与班次决定，不含人物在不在场。键与值不含内部身份。
 同秒续接内时钟不动，`duty` 与所在地点一样在链内不变，不进 `changes`；时钟推进后的请求从新快照整体给出它。
 
+
 <a name="errands-workday-作息补全与工作安排-效力呈现事实不新增拒绝"></a>
 
 ### 效力：呈现事实，不新增拒绝
@@ -1203,10 +1268,12 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 - 班次与休息时段的起止以 `shift_start`、`shift_end`、`break_start`、`break_end`
   给清醒人物一次决策机会；活动照常继续，不新增拒绝或事件。睡眠中的人物不被叫醒，睡过的边界不补。
 
+
 <a name="errands-workday-作息补全与工作安排-系统层第-114-条与零点计划模板"></a>
 ### 系统层第 1、14 条与零点计划模板
 
 提示与模板的唯一权威文本见 `docs/CONTRACTS.md#contracts-model-request`。
+
 
 <a name="errands-workday-作息补全与工作安排-与工作任务合同的边界"></a>
 
@@ -1217,6 +1284,8 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 
 工作主题从运行开始可见。开始与恢复仍按地点、主题剩余上限、名额与占用判定；班前已经在工作地点可以开始，
 班后仍可继续未完成主题。未完成只表示真实累计工作秒数尚未达到目标工时，没有提交、截止、材料或评审状态。
+
+
 
 <a name="spec-life-realism-验收矩阵"></a>
 ## 验收矩阵
@@ -1247,7 +1316,7 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 | 人物卡片覆盖率 | 习惯关键词、食品类别商品名、登记动作名与全部 app 名称形成实际目标集；低于 0.8 的 validate 失败，运行只警告；六警告闭集 |
 | 购买与收货 | 每单一次付款；到店和配送共用收货函数，效果与证据归收货人；异地、睡眠、联系人和重复到期均按唯一规则结算 | tests/life/test_receipt.py | 按本次实际回执判定 |
 | 素材可达性 | 每条内容至少绑定一个已登记 app；无绑定或引用未知 app 在启动前拒绝；内容不再建立检索分区、facet 或静态可达性脚本 | `tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample`、`tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes` | 阶段 4 纯目录节点已登记；完整引擎组合待阶段 5 |
-| 候选与呈现 | 候选种类恰为 `product`、`lifestyle`、`task`；世界事实排除带原因码，相关度只改变顺序而不改变成员；同一输入与游标身份确定；轮转不改目录或对象状态 | `tests/life/test_candidates.py::test_candidates_have_only_product_lifestyle_and_task_kinds`、`tests/life/test_candidates.py::test_actual_world_constraints_are_reported`、`tests/life/test_candidates.py::test_relevance_changes_order_without_changing_membership`、`tests/life/test_candidates.py::test_candidates_and_cursor_are_deterministic`、`tests/life/test_rotation.py` | 阶段 4 纯候选节点已登记；完整引擎组合待阶段 5 |
+| 候选与呈现 | 候选种类恰为 `product`；世界事实排除带原因码，相关度只改变顺序而不改变成员；同一输入与游标身份确定；轮转不改目录或对象状态 | `tests/life/test_candidates.py::test_candidates_have_only_current_product_kind`、`tests/life/test_candidates.py::test_actual_world_constraints_are_reported`、`tests/life/test_candidates.py::test_relevance_changes_order_without_changing_membership`、`tests/life/test_candidates.py::test_candidates_and_cursor_are_deterministic`、`tests/life/test_rotation.py` | 阶段 4 纯候选节点已登记；完整引擎组合待阶段 5 |
 | 呈现与导出 | 时间线投影与 `render_day.py` 输出一致且合并静默边界与同一活动；盲评记录含地点与同伴列；时间线只出现中文名称：没有 `call`、`work` 等英文种类名，没有 `task-` 形态的标识，质量报告的时间线标签检查为零 | `tests/footprints/test_export.py`；`tests/life/test_timeline_labels.py::test_exported_timeline_names_chats_calls_and_work_in_chinese`、`tests/footprints/test_render_day.py`（工作、通话与交谈的行写任务、联系人与人物名，无法解析的目标只写中文种类名）、`tests/footprints/test_quality.py::test_timeline_labels_count_english_kind_names_and_internal_ids_in_the_rendered_timeline`；见[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「时间线」 | 代码层已验证（`tools/run-viewer.html` 的“一天”视图按手工核对验收） |
 | 人物卡片落地效果 | 两次同代码运行的作息落在场景作息覆盖后的就寝窗口内；进食多样性与人格可区分性按报告口径结算；下班、到家相对参照窗口的偏离与工作负荷按行为评估 `routine_deviation`、`workload` 只报告 | `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态` 的正式运行记录；见[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「复跑指标（只报告）」；见[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「复跑指标（只报告）」 | 待真实运行 |
 
@@ -1259,10 +1328,13 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 | 同一候选输入两次逐字节一致，状态版本进入游标身份，哈希决胜不读取 Python 内建哈希或墙钟 | `tests/life/test_candidates.py::test_candidates_and_cursor_are_deterministic` |
 | 相关度只排序、不改变成员；被排除项使用闭集原因码 | `tests/life/test_candidates.py::test_relevance_changes_order_without_changing_membership`、`tests/life/test_candidates.py::test_actual_world_constraints_are_reported` |
 | 单次呈现受冻结场景上限约束；公开对象与私有绑定逐项对应 | `tests/life/test_candidate_contract_boundaries.py::test_presentation_windows_obey_frozen_limit`、`tests/life/test_candidate_contract_boundaries.py::test_public_window_has_only_currently_bound_objects` |
-| 查询全集分页无损、false 与零保留；不改变世界、时钟、持久存储或呈现凭据 | `tests/life/test_world_query.py::test_world_query_paginates_complete_frozen_set_and_preserves_false_and_zero`、`tests/life/test_world_query.py::test_environment_read_query_keeps_world_clock_round_and_store_unchanged` |
+| 查询全集分页无损、false 与零保留；不改变世界、时钟、持久存储或呈现凭据 | `tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets`、`tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets` |
 | 轮转不改目录或对象状态、不下架；未展示间隔遵循精确上界 | `tests/life/test_rotation.py::test_rotation_is_non_destructive_and_defers_without_delisting`、`tests/life/test_rotation.py::test_worst_case_unpresented_interval_is_bounded_by_exact_form`、`tests/life/test_rotation.py::test_exact_bound_is_not_the_continuous_relaxation` |
 | 内容不再进入检索分区；每条内容通过至少一个 app 绑定可达，绑定缺失或未知在目录登记时拒绝 | `tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample`、`tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes` |
 | 曝光凭据由提交写入本秒暂存，推进时钟后写入正式轮转状态，恢复保留 | `tests/life/test_candidate_wiring.py::test_observation_commits_presented_object_stamps`、`tests/life/test_same_moment_decisions.py::test_presentation_staging_survives_reopen` |
+
+
+
 
 <a name="spec-life-realism-版本表"></a>
 ## 版本表

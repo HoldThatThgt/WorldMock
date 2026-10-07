@@ -196,5 +196,4 @@ class LifeEngine:
             "state_version": self.context.state.version,
             "current_time": self.context.state.current_time,
             "scenario_sha256": self.context.scenario_sha256,
-            "corpus_manifest_sha256": self.context.scenario.corpus_manifest_sha256,
         }

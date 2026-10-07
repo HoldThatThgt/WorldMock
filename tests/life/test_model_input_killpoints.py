@@ -17,7 +17,6 @@ from worldmock.life.models import (
     PlanDayRequest,
     PlanGoalInput,
     SendMessageActionRequest,
-    StartSocialActivityRequest,
     WorldState,
     deepseek_strict_schema,
 )
@@ -46,7 +45,7 @@ class _MessageHarness(ActionHandlers):
         from worldmock.life.world_setup import load_runtime_scenario
 
         self.context.semantics = load_runtime_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
-        self.context.rules = SimpleNamespace(work_topics={})
+        self.context.rules = SimpleNamespace(actions={})
         self.context.state = SimpleNamespace(agents={1: SimpleNamespace(agent_id=1),
                                              2: SimpleNamespace(agent_id=2)}, activities={}, current_time=100)
 
@@ -59,19 +58,25 @@ class _MessageHarness(ActionHandlers):
         return ActionHandlers._send_message(self, state, pending, request)
 
 
-def test_sleeping_chat_partner_is_business_rejection_without_state_change() -> None:
-    """聊天对象正在睡眠时，领域 ValueError 应转成稳定业务拒绝。"""
-    initiator = SimpleNamespace(agent_id=1, name="小李", location_id="home")
-    partner = SimpleNamespace(agent_id=2, name="小王", location_id="home")
-    sleep = SimpleNamespace(activity_id="sleeping", agent_id=2, kind=ActivityKind.SLEEP,
-                            status=ActivityStatus.ACTIVE, started_at=50,
-                            origin_action_id="earlier-action")
-    state = SimpleNamespace(current_time=100, agents={1: initiator, 2: partner},
-                            activities={sleep.activity_id: sleep})
-    request = StartSocialActivityRequest(kind="chat", partner_id="agent:2", duration_minutes=15)
-    with pytest.raises(BusinessRuleError, match="CHAT_PARTNER_NOT_AVAILABLE"):
-        ActionHandlers._start_social_activity(object(), state, _pending(), request)
-    assert state.activities[sleep.activity_id] is sleep
+def test_sleeping_chat_partner_is_business_rejection_without_state_change():
+    from worldmock.life.social_actions import start_chat
+    from worldmock.life.models import ActivityState
+    from tests.life.test_content_select import registered_content_world
+    semantics,state=registered_content_world()
+    now=state.current_time
+    state.agents[2].location_id=state.agents[1].location_id
+    sleep=ActivityState(activity_id="sleeping",agent_id=2,kind="sleep",status="active",location_id="home",started_at=now,
+        last_settled_at=now,elapsed_seconds=0,planned_end_at=now+900,planned_duration_seconds=900,
+        origin_action_id="sleep",origin_decision_id="d",origin_request_event_id="r")
+    state.activities[sleep.activity_id]=sleep
+    chat=ActivityState(activity_id="chatting",agent_id=1,kind="action",status="active",location_id="home",started_at=now,
+        last_settled_at=now,elapsed_seconds=0,planned_end_at=now+600,planned_duration_seconds=600,
+        origin_action_id="chat",origin_decision_id="d2",origin_request_event_id="r2",
+        data={"category":"social","app_id":None,"counterpart":"agent:2"})
+    before=state.model_dump(mode="json")
+    with pytest.raises(BusinessRuleError,match="CHAT_PARTNER_NOT_AVAILABLE"):
+        start_chat(state,chat,"message")
+    assert state.model_dump(mode="json")==before
 
 
 @pytest.mark.parametrize("recipient_name,text,bindings,error_code", [
@@ -119,12 +124,13 @@ def test_business_rejection_emits_result_and_keeps_world_available(monkeypatch) 
     """业务拒绝留下结果并计入同刻轮数；没有进行中活动时在同一秒再给决策机会（时间与能量规格第一章规则 2）。"""
     monkeypatch.setattr("worldmock.life.decision_coordinator.apply_mood_pulse", lambda body, pulse: body)
     agent = AgentState.model_construct(agent_id=1, next_decision_at=100,
-                                       consecutive_rejections=1, body=SimpleNamespace())
+                                       body=SimpleNamespace())
     state = WorldState.model_construct(current_time=100, agents={1: agent}, activities={})
-    pending = _pending(request={"answering": None, "prefer": None,
-                                "items": [{"target": "小王", "way": "交谈", "from": None, "to": None}]})
+    pending = _pending(request={"answering": None,
+                                "items": [{"target": "聊天", "way": "进行", "app":None, "to":"人物：小王", "pay_app":None}]})
 
     class RejectingActions:
+        storefront=SimpleNamespace(drain_receipts=lambda:[])
         """提供决策协调实际需要的领域动作边界。"""
 
         def dispatch(self, state, pending):
@@ -134,11 +140,11 @@ def test_business_rejection_emits_result_and_keeps_world_available(monkeypatch) 
         def _frozen_observation(self, pending):
             """提供本轮实际聊天对象，公开拒绝从原逐项请求定位目标。"""
             return {"tool_layer": {"layer": "工具层", "targets": [
-                {"name": "小王", "kind": "person", "phase": None, "state": "睡着", "actions": [
-                    {"action": "interact", "way": "交谈", "available": False,
+                {"name": "聊天", "kind": "action", "phase": None, "state": "睡着", "actions": [
+                    {"action": "interact", "way": "进行", "app":None, "available": False,
                      "reason": "The other person cannot currently participate in a chat.",
                      "price": None, "duration": None, "quantity": None, "note": None}], "tools": []}],
-                "callable_index": {"lifestyle": [], "contents": [], "goods": [], "query_categories": []}}}
+                "callable_index": {"navigation_apps": [], "payment_apps": [], "goods": [], "query_categories": []}}}
 
         def drain_drafts(self):
             """本用例没有待提交通讯事件。"""
@@ -150,12 +156,11 @@ def test_business_rejection_emits_result_and_keeps_world_available(monkeypatch) 
     changed, result, drafts = coordinator._resolve(state, pending)
     assert result.status == ActionStatus.REJECTED
     assert changed.agents[1].next_decision_at == 100
-    assert changed.agents[1].consecutive_rejections == 2
     assert changed.agents[1].same_moment_rounds == 1
     assert result.data["same_moment_round"] == 1 and result.data["next_decision_at"] == 100
     assert [item.event_type for item in drafts] == ["action_rejected", "action_result"]
     assert drafts[0].data["error_code"] == "CHAT_PARTNER_NOT_AVAILABLE"
     item, = result.data["items"]
     assert item["path"] == ["tool_calls", 0, "function", "arguments", "items", 0, "target"]
-    assert item["written"] == "小王" and item["error_code"] == "CHAT_PARTNER_NOT_AVAILABLE"
+    assert item["written"] == "聊天" and item["error_code"] == "CHAT_PARTNER_NOT_AVAILABLE"
     assert drafts[0].data["items"] == result.data["items"]

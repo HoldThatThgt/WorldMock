@@ -48,11 +48,14 @@ def engine_factory(engine_factory, monkeypatch):
     def with_declared_food(source, mutate, root):
         path = original(source, mutate, root)
         catalog = path.parent.parent / "catalog"
-        payload = read_payload(catalog, "foods.json")
-        payload["foods"].append({"food_id": "lemon-tea-test", "name": "柠檬茶（模拟）", "category": "drink",
+        payload = read_payload(catalog, "goods.json")
+        payload["goods"].append({"goods_id": "lemon-tea-test", "name": "柠檬茶（模拟）", "category": "drink",
                                  "price_fen": 1200, "store_ids": "all"})
-        payload["foods"].sort(key=lambda food: food["food_id"])
-        write_payload(catalog, "foods.json", payload)
+        for index in range(3):
+            payload["goods"].append({"goods_id": f"fixture-daily-{index}", "name": f"模拟日用商品{index}",
+                                     "category": "daily", "price_fen": 800, "store_ids": "all"})
+        payload["goods"].sort(key=lambda food: food["goods_id"])
+        write_payload(catalog, "goods.json", payload)
         return path
 
     monkeypatch.setattr(engine_fixtures, "_mutated_scenario", with_declared_food)
@@ -143,7 +146,7 @@ def test_added_names_must_differ_from_open_errands_and_from_every_earlier_additi
     engine = engine_factory()
     observed = _observe(engine, [_snack_errand(engine.context.state.current_time)])
     expected = "A name that no open errand uses is required."
-    issues = change_issues([errand_add("补一份 薯片", "牛肉面", outcome="吃掉")], observed)
+    issues = change_issues([errand_add("补一份 薯片", "牛肉面")], observed)
     assert _rows(issues) == [(("errands", 0, "name"), "补一份 薯片", "ARGUMENTS_INVALID", (), expected,
                               "An open errand is already named 「补一份薯片」.", ())]
     issues = change_issues([errand_add("买茶", "牛肉"), errand_add("买 茶", "柠檬茶（模拟）")], observed)
@@ -157,14 +160,14 @@ def test_one_open_errand_per_outcome_and_product(engine_factory) -> None:
     ARGUMENTS_INVALID；结果种类不同即可；较早一条商品没解析出来时不参与比较。"""
     engine = engine_factory()
     observed = _observe(engine, [_snack_errand(engine.context.state.current_time)])
-    expected = "A different product or outcome is required."
+    expected = "A different product is required."
     issues = change_issues([errand_add("再买一份零食", "薯片")], observed)
     assert _rows(issues) == [(("errands", 0, "item"), "薯片", "ARGUMENTS_INVALID", (), expected,
-                              "The open errand 「补一份薯片」 already tracks this outcome and product.", ())]
-    assert change_issues([errand_add("晚饭吃掉零食", "薯片", outcome="吃掉")], observed) == []
+                              "The open errand 「补一份薯片」 already tracks this product.", ())]
+    assert change_issues([errand_add("晚饭取得零食", "薯片")], observed)
     issues = change_issues([errand_add("茶一", "柠檬茶"), errand_add("茶二", "柠檬茶", quantity=2)], observed)
     assert _rows(issues) == [(("errands", 1, "item"), "柠檬茶", "ARGUMENTS_INVALID", (), expected,
-                              "Two added errands track the same outcome and product.", ())]
+                              "Two added errands track the same product.", ())]
     issues = change_issues([errand_add("茶一", "柠　檬茶"), errand_add("茶二", "柠檬茶")], observed)
     assert [(item.path, item.error_code) for item, _ in issues] == [(("errands", 0, "item"), "NAME_AMBIGUOUS")]
 
@@ -174,11 +177,10 @@ def test_a_ninth_open_errand_is_rejected_and_a_cancel_in_the_same_request_frees_
     数字）；每条新增都计数，不论较早那一条有没有别的问题；同一请求里的取消先扣除，腾出的位置可以当场新增。"""
     engine = engine_factory()
     now = engine.context.state.current_time
-    pairs = [(food, outcome) for food in sorted(engine.context.rules.foods) for outcome in ("obtain", "eat")
-             if (food, outcome) != (_SNACK, "obtain")][:8]
+    pairs = [food for food in sorted(engine.context.rules.goods) if food != _SNACK][:8]
     assert len(pairs) == MAX_OPEN_ERRANDS
-    staged = [_errand(f"action-s:errand:{index}", f"事务{index}", product, now - 600, outcome=outcome)
-              for index, (product, outcome) in enumerate(pairs)]
+    staged = [_errand(f"action-s:errand:{index}", f"事务{index}", product, now - 600)
+              for index, product in enumerate(pairs)]
     capacity = ("ARGUMENTS_INVALID", "An addition that the open errands can still take is required.",
                 f"This addition would exceed the limit of {MAX_OPEN_ERRANDS} open errands.")
     observed = _observe(engine, staged[:7], "errand-seven")
@@ -211,7 +213,7 @@ def test_cancelling_and_adding_again_with_the_original_name_and_another_quantity
     assert receipt == [{"errand": _SNACK_ERRAND, "change": "新增"}, {"errand": _SNACK_ERRAND, "change": "取消"}]
     (errand,) = agent.errands.values()
     assert errand.model_dump() == {
-        "errand_id": "action-x:errand:0", "name": _SNACK_ERRAND, "outcome": "obtain", "product_id": _SNACK, "quantity": 2,
+        "errand_id": "action-x:errand:0", "name": _SNACK_ERRAND, "product_id": _SNACK, "quantity": 2,
         "progress": 0.0, "memo": "多买一份", "registered_at": now, "remind_at": None, "reminded_at": None,
         "origin_action_id": "action-x", "origin_event_id": "event-action-x"}
     assert change_issues(list(reversed(changes)), observed) == []
@@ -228,7 +230,7 @@ def test_update_replaces_memo_and_reminder_and_arms_the_reminder_again(engine_fa
                                    observed, _origin(engine))
     updated = agent.errands[before.errand_id]
     assert (updated.memo, updated.remind_at, updated.reminded_at) == (None, remind_epoch("17:00", now, _ZONE), None)
-    unchanged = ("name", "outcome", "product_id", "quantity", "progress", "registered_at", "origin_action_id",
+    unchanged = ("name", "product_id", "quantity", "progress", "registered_at", "origin_action_id",
                  "origin_event_id")
     assert {key: getattr(updated, key) for key in unchanged} == {key: getattr(before, key) for key in unchanged}
     assert receipt == [{"errand": _SNACK_ERRAND, "change": "更新"}]
@@ -273,13 +275,13 @@ def test_apply_changes_receipt_follows_the_request_and_names_the_todo_layer_erra
     now = engine.context.state.current_time
     tea = _errand("action-b:errand:0", "囤柠檬茶", _TEA_JOINED, now - 60, quantity=3)
     observed = _observe(engine, [_snack_errand(now), tea])
-    changes = [errand_update("囤 柠檬茶", memo="周末去超市"), errand_add("晚饭吃牛肉面", "牛肉面", outcome="吃掉"),
+    changes = [errand_update("囤 柠檬茶", memo="周末去超市"), errand_add("晚饭吃牛肉面", "牛肉面"),
                errand_cancel(" 补一份薯片", "家里还有")]
     agent, receipt = apply_changes(engine.context.state.agents[1], changes, observed, _origin(engine, "action-r"))
     assert receipt == [{"errand": "囤柠檬茶", "change": "更新"}, {"errand": "晚饭吃牛肉面", "change": "新增"},
                        {"errand": _SNACK_ERRAND, "change": "取消"}]
     assert sorted(agent.errands) == ["action-b:errand:0", "action-r:errand:1"]
-    assert (agent.errands["action-r:errand:1"].outcome, agent.errands["action-r:errand:1"].product_id) == ("eat", _MEAL)
+    assert agent.errands["action-r:errand:1"].product_id == _MEAL
     assert sorted(engine.context.state.agents[1].errands) == ["action-a:errand:0", "action-b:errand:0"]
 
 
@@ -335,7 +337,7 @@ def test_request_drafts_write_one_system_event_per_change_without_decision_or_ac
     noted = _snack_errand(now, memo="下班前买")
     tea = _errand("action-b:errand:0", "囤柠檬茶", _TEA_JOINED, now - 60, quantity=3)
     observed = _observe(engine, [noted, tea])
-    changes = [errand_add("晚饭吃牛肉面", "牛肉面", outcome="吃掉"), errand_update(_SNACK_ERRAND, memo="下班前买"),
+    changes = [errand_add("晚饭吃牛肉面", "牛肉面"), errand_update(_SNACK_ERRAND, memo="下班前买"),
                errand_cancel("囤 柠檬茶", "不想喝了")]
     before = engine.context.state
     agent, _ = apply_changes(before.agents[1], changes, observed, _origin(engine))
@@ -367,7 +369,7 @@ def test_request_drafts_fault_when_an_accepted_change_has_no_errand_in_the_world
     engine = engine_factory()
     observed = _observe(engine, [_snack_errand(engine.context.state.current_time)])
     state = engine.context.state
-    for changes in ([errand_add("晚饭吃牛肉面", "牛肉面", outcome="吃掉")], [errand_update("补一份零食")],
+    for changes in ([errand_add("晚饭吃牛肉面", "牛肉面")], [errand_update("补一份零食")],
                     [errand_cancel("补一份零食", "不买了")]):
         with pytest.raises(IntegrityError):
             request_drafts(state, state, _pending(engine, observed, "pause_activity", changes))

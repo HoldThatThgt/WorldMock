@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING
 
 from worldmock.catalog import load_catalog
 from worldmock.errors import IntegrityError
-from worldmock.life.load_checks import check_location_kinds, check_visible_labels, check_work_schedules
+from worldmock.life.load_checks import (
+    check_location_kinds, check_parcel_stations, check_visible_labels, check_work_schedules,
+)
 from worldmock.life.models import AgentState, RunIdentity, WorldState, WORLD_SCHEMA_VERSION
 from worldmock.life.scenario import RuntimeScenario, parse_scenario_document
 from worldmock.life.semantics import ScenarioSemantics, assemble_semantics, resolve_catalog_dir
@@ -38,6 +40,7 @@ def load_runtime_scenario(
     check_location_kinds(semantics.scenario)
     check_visible_labels(semantics.scenario)
     check_work_schedules(semantics.scenario)
+    check_parcel_stations(semantics)
     return semantics, digest
 
 
@@ -104,6 +107,8 @@ def _initial_agent(config, scenario: RuntimeScenario, account_id: str, start: in
         name=config.name,
         location_id=config.home_location_id,
         balance_account_id=account_id,
+        driving_days=config.initial_driving_days,
+        last_driving_date=None,
         body=body,
         body_settled_at=start,
         visible_message_ids=visible_mail,
@@ -140,6 +145,7 @@ def _run_manifest(
         "environment_identity": environment_identity(semantics),
         "scenario_sha256": scenario_sha256,
         "agent_ids": list(identity.agent_ids),
+        "work_content_ids": {str(agent.agent_id): list(agent.work_content_ids) for agent in scenario.agents},
         "code_sha256": identity.code_sha256,
         "git_commit": identity.git_commit,
         "git_dirty": identity.git_dirty,

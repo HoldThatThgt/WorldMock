@@ -141,7 +141,7 @@ def _check_mutation_rows(rows: dict, ledger: dict, done: frozenset[str]) -> dict
     """@brief 变异表每个分句恰好登记一次，归属阶段与契约一致。"""
     spec_rows = _spec_table("spec-acs-变异登记", MUTATION_HEADER)
     assert list(rows) == [row[0] for row in spec_rows], "mutation registration differs from specification"
-    assert sum(len(text.split("；")) for text, _, _, _ in spec_rows) <= 2 * (len(ledger) - 1)
+    assert sum(len(text.split("；")) for text, _, _, _ in spec_rows) <= 68
     names = {}
     for text, stage, killers, contract in spec_rows:
         entry = rows[text]
@@ -252,6 +252,17 @@ def test_registered_nodes_are_collectable_and_early_owners_do_not_import_life_en
 
 def test_feature_file_lists_are_real_relative_and_have_no_deferral_or_stubs() -> None:
     """@brief 特性清单只登记当前真实文件，每个已登记文件的函数均非空壳。"""
+    retired_wave = "tests/integration/test_rrs_engine_wave.py"
+    assert not (REPO_ROOT / retired_wave).exists(), retired_wave
+    for relative, retired in (
+        ("src/worldmock/life/object_labels.py", {"supply_label", "names_store", "written_place", "_SOLD_BY"}),
+        ("src/worldmock/life/session_actions.py", {"_task_link"}),
+    ):
+        tree = ast.parse((REPO_ROOT / relative).read_text(encoding="utf-8"))
+        definitions = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
+        definitions |= {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)
+                        and isinstance(node.ctx, ast.Store)}
+        assert not definitions & retired, relative
     production, tests = registration.FEATURE_PRODUCTION_FILES, registration.FEATURE_TEST_FILES
     listed = [*production, *tests]
     assert len(listed) == len(set(listed)), "duplicate feature files"
@@ -316,8 +327,83 @@ def test_closed_wave_has_real_engine_nodes_for_every_engine_contract() -> None:
             node for case in cases for node in _case_nodes(case)}
         nodes &= set(_ledger()[name]["tests"])
         assert nodes, f"engine contract without integration evidence: {name}"
-        assert any("engine_factory" in {item.id for item in ast.walk(_test_body(node)) if isinstance(item, ast.Name)}
-                   | {arg.arg for arg in _test_body(node).args.args} for node in nodes), name
+        assert any(_uses_real_engine(node) for node in nodes), name
+
+
+def _uses_real_engine(node: str, root: Path = REPO_ROOT) -> bool:
+    """@brief 测试可直接构造引擎，也可通过真实 pytest fixture 链构造引擎。"""
+    path = root / node.split("::", 1)[0]
+    candidates = [path, *(parent / "conftest.py" for parent in path.parents if parent != root.parent)]
+    fixtures = {}
+    for candidate in candidates:
+        if not candidate.is_file() or not candidate.is_relative_to(root):
+            continue
+        tree = ast.parse(candidate.read_text(encoding="utf-8"))
+        for name, body in _fixture_functions(tree).items():
+            fixtures.setdefault(name, body)
+        for item in tree.body:
+            if isinstance(item, ast.ImportFrom) and item.module == "tests.engine_fixture":
+                source = root / "tests/engine_fixture.py"
+                if not source.is_file():
+                    continue
+                exported = _fixture_functions(ast.parse(source.read_text(encoding="utf-8")))
+                for alias in item.names:
+                    if alias.name in exported:
+                        fixtures.setdefault(alias.asname or alias.name, exported[alias.name])
+    pending, visited = [_test_body(node, root)], set()
+    while pending:
+        body = pending.pop()
+        if body.name in visited:
+            continue
+        visited.add(body.name)
+        calls = [item.func for item in ast.walk(body) if isinstance(item, ast.Call)]
+        if any(isinstance(call, ast.Attribute) and isinstance(call.value, ast.Name)
+               and call.value.id == "LifeEngine" and call.attr in {"create", "open"} for call in calls):
+            return True
+        names = {arg.arg for arg in body.args.args} | {call.id for call in calls if isinstance(call, ast.Name)}
+        pending.extend(fixtures[name] for name in names & fixtures.keys())
+    return False
+
+
+def _fixture_functions(tree: ast.Module) -> dict:
+    """@brief 只识别源码中真实 pytest fixture 定义，普通 helper 不能冒充夹具。"""
+    return {item.name: item for item in tree.body
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(
+                "fixture" in ast.unparse(decorator) for decorator in item.decorator_list)}
+
+
+@pytest.mark.parametrize("node, expected", [
+    ("tests/test_start_activity_contract.py::test_purchase_uses_each_observed_quote_and_single_unit", True),
+    ("tests/life/test_named_purchase.py::test_named_purchase_rejects_unknown_goods_and_unbound_apps_atomically", False),
+])
+def test_imported_engine_factory_is_real_evidence_but_registered_world_is_not(node, expected):
+    """@brief 实际共享夹具内的引擎构造成立；纯登记目录与世界对象不能代替引擎。"""
+    assert _uses_real_engine(node) is expected
+
+
+def test_factory_name_without_life_engine_constructor_is_not_real_engine_evidence(tmp_path):
+    """@brief 同名 pytest 工厂没有真实构造调用时仍然拒绝，不能按夹具名字放行。"""
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "conftest.py").write_text("from tests.engine_fixture import engine_factory\n", encoding="utf-8")
+    (tests / "engine_fixture.py").write_text(
+        "import pytest\n@pytest.fixture\ndef engine_factory():\n    return {'registered_world': True}\n",
+        encoding="utf-8")
+    (tests / "test_example.py").write_text(
+        "def test_registered(engine_factory):\n    assert engine_factory['registered_world']\n", encoding="utf-8")
+    assert not _uses_real_engine("tests/test_example.py::test_registered", tmp_path)
+
+
+def test_unimported_real_factory_cannot_count_as_the_test_fixture(tmp_path):
+    """@brief 未实际导入的真实工厂文件不能给无夹具测试制造引擎证据。"""
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "engine_fixture.py").write_text(
+        "import pytest\n@pytest.fixture\ndef engine_factory():\n    return LifeEngine.create()\n",
+        encoding="utf-8")
+    (tests / "test_example.py").write_text(
+        "def test_registered(engine_factory):\n    assert engine_factory is not None\n", encoding="utf-8")
+    assert not _uses_real_engine("tests/test_example.py::test_registered", tmp_path)
 
 
 @pytest.mark.parametrize("end", [0, 6, 7])

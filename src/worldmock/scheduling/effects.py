@@ -37,10 +37,12 @@ def apply_scheduled_effect(state: WorldState, event: ScheduledEvent,
     if event.kind == ScheduledKind.DELIVERY_ARRIVAL:
         return _deliver_orders(state, event, semantics)
     if event.kind == ScheduledKind.APP_PUSH:
-        changed, data = issue_app_push(state, event, semantics.catalog)
+        changed, data = issue_app_push(state, event, semantics.catalog, semantics.scenario)
         sleeping = any(item.kind == ActivityKind.SLEEP for item in active_activities(state, event.agent_id))
         wake = "app_push" if "push_id" in data and not sleeping else None
         return ScheduledOutcome(changed, data, wake, "environment")
+    if event.kind == ScheduledKind.ALARM_RING:
+        return ScheduledOutcome(state, {}, "alarm_ring", "environment")
     if event.kind == ScheduledKind.CALENDAR_FLAG:
         return ScheduledOutcome(state, dict(event.data), "message_arrival")
     if event.kind == ScheduledKind.BILL_DUE:
@@ -70,6 +72,7 @@ def process_scheduled_events(state: WorldState, target: int, semantics: Scenario
         visibility = "system" if item.kind == ScheduledKind.APP_PUSH and "push_id" not in outcome.data else "agent"
         source = EventDraft(event_type="environment_event", occurred_at=target, agent_id=item.agent_id,
                             source_kind=outcome.source_kind, visibility=visibility,
+                            caused_by=list(item.caused_by),
                             data={"kind": item.kind.value, "scheduled_id": item.scheduled_id, **outcome.data})
         drafts.append(source)
         for receipt in outcome.receipts:
@@ -122,7 +125,9 @@ def _deliver_orders(state: WorldState, event: ScheduledEvent,
             receipts.extend(outcome.receipts)
         changed = outcome.state
     data = {"orders": orders} if orders else {}
-    return ScheduledOutcome(changed, data, "delivery_arrival" if orders else None,
+    sleeping = any(item.kind == ActivityKind.SLEEP for item in active_activities(state, event.agent_id))
+    wake = "delivery_arrival" if orders and not sleeping else None
+    return ScheduledOutcome(changed, data, wake,
                             receipts=tuple(receipts))
 
 

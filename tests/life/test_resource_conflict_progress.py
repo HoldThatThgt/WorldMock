@@ -1,50 +1,41 @@
-"""正在执行的工作占用资源时，提示与决策节律保持一致。"""
+"""当前工作占用冲突在同一时刻反馈，边界结算不伪造拒绝反馈。"""
 
-from __future__ import annotations
-
-from tests.life.conftest import activity_name, advance_until_ready, last_result, start_activity, submit_round, target_actions
-from tests.life.test_work_topics import _engine_work
+from tests.life.conftest import advance_until_ready, context, last_result, target_actions
+from tests.life.work_runtime import start_assigned_work
+from tests.life.test_acs_amended_runtime import perform
+from tests.life.test_acs_runtime import request
 from worldmock.life.models import active_activities
 from worldmock.life.rhythm import apply_decision_rhythm, engine_rhythm_inputs
 
 
 def test_active_work_is_listed_with_note_and_conflict_redecides_in_same_second(engine_factory) -> None:
-    """同一工作仍在进行时照常列出并带说明；选了就以 RESOURCE_CONFLICT 返回原因与下一步，未达同刻上限时同一秒再决策，
-    不按最早结束延后（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「动作照常列出，做错了再说明」）。"""
+    """真实分配内容运行时，目录动作仍列出；重复启动以同刻资源冲突拒绝并保留原活动。"""
     engine = engine_factory()
-    topic, identity = _engine_work(engine, "resource-lock")
-    running = engine.context.state.activities[identity]
-    name = activity_name(engine, running.activity_id)
-    reason = f"工作{topic.topic} cannot run together with {name}."
+    content, identity = start_assigned_work(engine, "resource-lock")
     assert advance_until_ready(engine)
-    ready = engine.scheduling_state().ready_agent_ids
-    assert 1 in ready and running.activity_id in {item.activity_id for item in active_activities(engine.context.state, 1)}
-    observed = engine.observations._observation_data(engine.context.state.agents[1])
-    listed = target_actions(observed, f"工作：{topic.topic}")["工作"]
-    assert (listed["available"], listed["reason"]) == (False, reason)
-    binding = next(row for row in observed["interaction_bindings"] if row["object_id"] == topic.topic_id)
-    assert binding["kind"] == "work_topic"
-    assert [item["note"] for item in binding["actions"]] == [reason]
-    rounds = engine.context.state.agents[1].same_moment_rounds
-    assert rounds < engine.context.scenario.max_same_moment_decisions - 1
+    catalog = engine.context.semantics.catalog
+    action = catalog.actions[content.action_id]
+    observed = engine.observe(context(engine, "resource-preview"))
+    listed = target_actions(observed, action.name)["进行"]
+    assert listed["available"] is False and listed["reason"]
     now = engine.context.state.current_time
-    _, results = submit_round(engine, {agent_id: ("start_activity", start_activity("工作", binding["object"]))
-                                      for agent_id in ready}, "resource-lock-repeat")
-    result = next(item for item in results if item.agent_id == 1)
+    rounds = engine.context.state.agents[1].same_moment_rounds
+    result = perform(engine, "resource-repeat", request(action.name, None))
     assert result.status == "rejected" and result.error_code == "RESOURCE_CONFLICT"
-    assert (result.data["reason"], result.data["next_step"]) == (reason, f"Conclude or pause {name} first.")
+    assert result.data["reason"] == listed["reason"]
+    assert result.data["next_step"] == f"Conclude or pause {engine.context.state.activities[identity].name} first."
     agent = engine.context.state.agents[1]
-    assert engine.context.state.current_time == now
-    assert agent.next_decision_at == now
+    assert engine.context.state.current_time == now and agent.next_decision_at == now
     assert agent.same_moment_rounds == rounds + 1
     assert agent.pending_wake_reasons == ["rejection_feedback"]
-    assert [item.activity_id for item in active_activities(engine.context.state, 1)] == [running.activity_id]
+    assert [item.activity_id for item in active_activities(engine.context.state, 1)] == [identity]
     details = last_result(engine.observations._observation_data(agent))["details"]
-    assert (details["reason"], details["next_step"]) == (reason, f"Conclude or pause {name} first.")
+    assert details["reason"] == result.data["reason"]
+    assert details["next_step"] == result.data["next_step"]
 
 
 def test_boundary_never_yields_rejection_feedback(engine_factory) -> None:
-    """rejection_feedback 只由同刻规则写入：边界判定即使在拒绝后的决策到期时也不产生它（第一章规则 6）。"""
+    """即使上一轮是拒绝，未来边界也只给真实到期原因，不重复同刻反馈。"""
     engine = engine_factory()
     state = engine.context.state.model_copy(deep=True)
     state.current_time += 1
@@ -52,15 +43,11 @@ def test_boundary_never_yields_rejection_feedback(engine_factory) -> None:
     state.agents[1] = agent.model_copy(update={
         "last_decision_time": state.current_time - 1,
         "next_decision_at": state.current_time + 900,
-        "body_settled_at": state.current_time,
-        "consecutive_rejections": 1,
-    }, deep=True)
+        "body_settled_at": state.current_time}, deep=True)
     _, rhythms = apply_decision_rhythm(engine_rhythm_inputs(engine.context, state))
     assert "rejection_feedback" not in rhythms[1].wake_reasons
-
-    due = state.model_copy(deep=True)
-    due.current_time = state.agents[1].next_decision_at
-    due.agents[1].body_settled_at = due.current_time
-    _, rhythms = apply_decision_rhythm(engine_rhythm_inputs(engine.context, due))
+    state.current_time = state.agents[1].next_decision_at
+    state.agents[1].body_settled_at = state.current_time
+    _, rhythms = apply_decision_rhythm(engine_rhythm_inputs(engine.context, state))
     assert "rejection_feedback" not in rhythms[1].wake_reasons
     assert "no_active_activity" in rhythms[1].wake_reasons

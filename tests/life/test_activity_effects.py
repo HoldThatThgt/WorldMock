@@ -44,7 +44,7 @@ def body_config():
 def _agent(*, need: float = 0.5) -> AgentState:
     """@brief 构造具有明确身体初值的人物，不引入已删除的技能或口味字段。"""
     return AgentState(agent_id=1, body_settled_at=0, name='worker', location_id='office',
-                      balance_account_id='agent:1', next_decision_at=0,
+                      balance_account_id='agent:1', next_decision_at=0, driving_days=0, last_driving_date=None,
                       body=BodyState(energy_kcal=1600, sleep_pressure=0.0,
                                      sleep_deficit_hours=0, entertainment_need=need))
 
@@ -54,7 +54,6 @@ def _start(kind: ActivityKind, seconds: int, agent: AgentState, config, target: 
     request = ActivityStartParams(
         activity_type=kind,
         planned_duration_seconds=seconds,
-        target_id=target,
     )
     origin = ActivityOrigin("action", "decision", "request-event")
     return start_activity(agent, request, 0, origin, config)
@@ -137,8 +136,8 @@ def _crossing(config, body: BodyState, activities: tuple, clock: BoundaryClock) 
 
 
 @pytest.mark.parametrize(("energy", "hour", "kind", "met", "expected"), [
-    (760, 14.0, ActivityKind.WORK, 1.5, ("饿", "很饿")),
-    (405, 8.0, ActivityKind.WORK, 1.5, ("很饿", "饿得难受")),
+    (760, 14.0, ActivityKind.ACTION, 1.5, ("饿", "很饿")),
+    (405, 8.0, ActivityKind.ACTION, 1.5, ("很饿", "饿得难受")),
     (104, 8.0, ActivityKind.WAIT, 1.0, ("饿得难受", "饿得发慌")),
 ])
 def test_hunger_upward_crossing_is_not_later_than_actual(body_config, energy, hour, kind, met, expected) -> None:
@@ -188,12 +187,12 @@ def test_chat_and_call_are_predicted_but_sleep_and_game_are_not(body_config) -> 
                      social_need=1.0)
     clock = BoundaryClock(8.0)
     burn = config.basal_kcal_per_hour + 0.5 * config.mass_kg
-    chat = next_shared_body_boundary_seconds(body, ((ActivityKind.CHAT, ActivityFactors(1.5)),), config, clock)
+    chat = next_shared_body_boundary_seconds(body, ((ActivityKind.ACTION, ActivityFactors(1.5)),), config, clock)
     assert chat == int(5 * 3600 / burn) + 1
-    call = next_shared_body_boundary_seconds(body, ((ActivityKind.CALL, ActivityFactors(1.3)),), config, clock)
+    call = next_shared_body_boundary_seconds(body, ((ActivityKind.ACTION, ActivityFactors(1.3)),), config, clock)
     assert call is not None and call > chat
     assert next_shared_body_boundary_seconds(body, ((ActivityKind.SLEEP, ActivityFactors(1.0)),), config, clock) is None
-    app = next_shared_body_boundary_seconds(body, ((ActivityKind.USE_APP, ActivityFactors(1.0)),), config, clock)
+    app = next_shared_body_boundary_seconds(body, ((ActivityKind.ACTION, ActivityFactors(1.0)),), config, clock)
     assert app is not None and app > 0
 
 

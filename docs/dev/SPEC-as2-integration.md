@@ -30,6 +30,7 @@ LifeEnv 经实际扫描注册并供运行装配、环境 actor 与只读查询�
 源码先精确重建历史身份，再缩小并发布唯一新摘要；历史提交和行号只描述当时实施证据。
 
 
+
 <a name="spec-as2-integration-选型理由与分层职责"></a>
 ## 选型理由与分层职责
 
@@ -50,6 +51,7 @@ AgentSociety 2 提供已验证的人物决策、模型调用、记忆检索和�
 **不复用的 AS2 模块**：
 - `EconomySpace`：本场景资金由实际活动与合同结算，不使用按日自动加收入减消费
 - `SimpleSocialSpace`：社交在 LifeEnv 内实现，状态进入本项目足迹事务
+
 
 <a name="spec-as2-integration-分层职责"></a>
 ### 分层职责
@@ -73,6 +75,8 @@ LifeAgent（七层请求与工具约束）
   ├─ 同秒续接：在准备阶段之后注入上一决策的消息
   └─ 证据回调：保留原模型调用与 ReAct 机制
 ```
+
+
 
 <a name="spec-as2-integration-as2-核心改动清单"></a>
 ## 框架改动与 WorldMock 扩展
@@ -125,6 +129,7 @@ while 未到场景终点:
 
 **验证**：睡眠人物不反复调用模型；新活动的较早结束时间不会被跨过。接口见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「生命周期」。
 
+
 <a name="spec-as2-integration-时间约定统一"></a>
 ### 时间约定统一
 
@@ -136,6 +141,7 @@ while 未到场景终点:
 - AS2 路由、Society 与 LifeEnv 的校验共享这一约定
 
 **验证**：时间连续性检查通过，事件时间严格递增。
+
 
 <a name="spec-as2-integration-确定性工具调用与身份绑定"></a>
 ### 确定性工具调用与身份绑定
@@ -155,6 +161,9 @@ context = DecisionContext(
 )
 action_id = generate_action_id()
 result = env.submit_action(call, context=context, action_id=action_id)
+
+
+
 # 结果直接返回，不再次调用模型改写
 ```
 
@@ -178,6 +187,7 @@ result = env.submit_action(call, context=context, action_id=action_id)
 
 **算法**：
 ```python
+
 # 环境保存
 try:
     env.to_workspace(path)
@@ -241,6 +251,7 @@ def restore(workspace_path):
 
 **验证**：缺少快照或校验失败立即终止；不把较新的世界状态与较旧的记忆混合恢复。
 
+
 <a name="spec-as2-integration-同秒续接与推理内容保留"></a>
 ### 同秒续接与推理内容保留
 
@@ -260,6 +271,7 @@ AS2 每次决策从工作区重建人物对象，消息在准备阶段清空，�
 **验证**：没有决策自述请求；续接请求的前缀等于上一决策末次请求的消息，assistant 原样带思考；带 `tools` 的后续请求
 不因缺少 `reasoning_content` 被拒。续接与断链条件见[人物 Prompt 规格「同秒续接」](SPEC-life-realism.md#persona-prompt-决策回复正文与思考-同秒续接)。
 
+
 <a name="spec-as2-integration-记忆运行时改动"></a>
 ### 记忆运行时改动
 
@@ -274,6 +286,7 @@ WorldMock 人物扩展负责空记忆数组、收尾与反思来源、阈值巩�
 只由代码身份绑定。共同的快照校验归 `life.memory_evidence`。
 
 验证覆盖空数组、阈值、人物卡片、相似合并、严格反思、存储恢复与单次观察，测试位置统一为 `tests/as2/` 和 WorldMock 集成测试。
+
 
 <a name="spec-as2-integration-模型客户端生命周期管理"></a>
 ### 模型客户端生命周期管理
@@ -292,6 +305,7 @@ class LLMClient:
         if self.router:
             self.router.discard()  # 移除全局回调
             self.router = None
+
 
 # Worker 任务出口
 def agent_step(...):
@@ -314,6 +328,7 @@ def agent_step(...):
 
 **算法**：
 ```python
+
 # 改前
 observation_record = {
     "data": structured_obs,
@@ -371,6 +386,7 @@ observation_record = {
 
 **新增依赖**：统一进入 WorldMock 锁文件，不改变 AS2 上游锁文件
 
+
 <a name="spec-as2-integration-改动管理原则"></a>
 ### 改动管理原则
 
@@ -386,11 +402,14 @@ observation_record = {
 - 新增接口方法（如 `scheduling_state`、`commit_decision_round`）
 - 删除不适合本场景的自动转换路径
 
+
 <a name="spec-as2-integration-数据加工归属"></a>
 ### 数据加工归属
 
 WorldMock 只安装 AS2 与自身生产包。LabelKit 模型任务、数据加工和其独立环境由 LabelKit-DataSet 管理，
 通过完整认证足迹导出交接。人物运行中的记忆与就寝反思仍按本规格执行；不建立下游 CLI 或加工入口。
+
+
 
 <a name="spec-as2-integration-扩展模块职责"></a>
 ## 扩展模块职责
@@ -412,6 +431,7 @@ WorldMock 只安装 AS2 与自身生产包。LabelKit 模型任务、数据加�
 零点计划 `plan_day` 与联系人回复一样，是运行时的后台模型调用，由 LifeEnv 在推进之后、启动路径的检查点之后与普通恢复的
 `init` 中调用，不经人物、不改人物工作区。
 
+
 <a name="spec-as2-integration-lifeagent-职责"></a>
 ### LifeAgent 职责
 
@@ -426,6 +446,7 @@ WorldMock 只安装 AS2 与自身生产包。LabelKit 模型任务、数据加�
 - 保留 ReAct 执行
 - 保留记忆检索
 - 不重写人物循环
+
 
 <a name="spec-as2-integration-工具交互规格的当前覆写边界"></a>
 ### 工具交互规格的当前覆写边界
@@ -445,6 +466,8 @@ LifeAgent 的全部请求模型按严格 JSON 类型及各字段既有范围、�
 包括控制工具的嵌套记忆、关系参数与 `errands[j]` 各键，不能因 Pydantic 校验落在模型根而丢失参数位置。
 `protocol_feedback` 在事件中持久化，操作备忘由本人当天证据推导；AS2 生成源码目录与记忆运行时不增加兼容状态。
 本轮改动的具体生产文件与行为、变异验收见[工具交互规格](SPEC-life-runtime.md#tool-interaction-工具请求)和[实际验收记录](../archive/tool-interaction/tool-interaction-verification.md)。
+
+
 
 
 <a name="persona-prompt-统一修复的程序错误"></a>
@@ -467,6 +490,7 @@ LifeAgent 的全部请求模型按严格 JSON 类型及各字段既有范围、�
 | 未完成浏览被写成采购完成 | 收尾结果写「提前结束，未取得浏览结果」；购买句只由订单生成 | 各自调用的结果；settled 只有订单购买句 |
 | 联系人回复缺少双方历史 | 第五章「联系人往来」 | 不在人物七层 |
 | 把没有订单当作没有使用应用 | 购买事实区分浏览、尝试下单与成功购买；报告写「没有成功购买凭据」 | 不在七层 |
+
 
 <a name="dayrun-fidelity-错误合同"></a>
 ## 错误合同
@@ -534,10 +558,10 @@ LifeAgent 的全部请求模型按严格 JSON 类型及各字段既有范围、�
 | 缺少工具或组合错误 | 定位 `tool_calls`，列合法工具与调用组合；世界请求混查询或多个世界请求均整批未执行 |
 | 业务前置条件 | 所有可独立确定的问题按原准入顺序列出，定位有关请求参数，返回合法方式或下一步 |
 
-`from=null` 在购买时表示不额外限定卖方或渠道，完整商品标签仍限定标签门店；其他方式的来源由引擎推导，只允许 `null`。
-`to=null` 始终表示本人，购买收货地沿用当前地点规则，不等于本人住处；购买给他人时写真实收货人名称。
+`app=null` 的购买是现场购买，必须本人在店内；非空为明确购物应用的远程购买。完整商品标签仍限定标签门店。
+`to=null` 的购买表示本人收货，超过一天的运输按收货人家庭地址选择最近驿站，其余运输按实际收货地址安排；购买给他人时写真实收货人名称。
 购买之外的方式不承载商品转移，没有食用或给予请求。
-不接受在 `to` 填「自己」或本人姓名的旧写法；出行目的地由 `target` 与方式确定，`from/to` 不承载路线起止地点。
+不接受在 `to` 填「自己」或本人姓名的旧写法；出行目的地由 `target` 与方式确定，`to` 不承载路线起止地点。
 
 所有请求参数按严格 JSON 类型校验，不把数字、布尔值、空串或字符串 `null` 转成另一种类型；
 名称归一只用于既有名称识别。`prefer` 显式必填可空：只要含「购买」「到店」或「远程下单」项，就必须写「最快拿到」或「到手价最低」；没有购买项时必须为 `null`。`null` 不再默认最快，不接受旧英文或短名。不接受嵌套引号、空串或字符串 `null`。
@@ -573,6 +597,7 @@ AS2 锁定提交不变。结构化宿主反馈存于 `model_response.data.protoc
 变异测试须杀死删除完整路径、漏列枚举、只报首个参数错误、部分执行混批或放行旧字段的变异；
 新功能未实现前，既有运行统计不能记为本条验收通过。
 
+
 <a name="dayrun-fidelity-评审模型调用与叙述"></a>
 ## 评审、模型调用与叙述
 
@@ -607,6 +632,7 @@ DeepSeek 的 `max_tokens` 同时覆盖思考与输出（默认 64K，`reasoning_
 
 **验收。** 截断回合不进入后续请求；纠错只出现一次；重试请求关闭思考且 `tool_choice=required`，其余请求不变；重试仍无工具调用时按现行回合预算处理；质量报告计数与运行记录一致。
 
+
 <a name="dayrun-fidelity-评审模型调用与叙述-联系人回复不虚构到场"></a>
 ### 联系人回复不虚构到场
 
@@ -623,6 +649,7 @@ DeepSeek 的 `max_tokens` 同时覆盖思考与输出（默认 64K，`reasoning_
 
 **验收。** 五条越界样本各被守卫命中并重试；无害样本不命中；兜底句只在两次都命中时出现且事件带 `guard_applied`；请求带 `sender_name`、`now`、`presence`；每条来信仍只有一条回复事件。
 
+
 <a name="dayrun-fidelity-评审模型调用与叙述-时间线只出现中文名称"></a>
 ### 时间线只出现中文名称
 
@@ -632,6 +659,7 @@ DeepSeek 的 `max_tokens` 同时覆盖思考与输出（默认 64K，`reasoning_
 地点重名由加载时的分店标签消歧，不借坐标或内部身份充当公开名称。
 
 验收走真实导出和渲染，工作、通话与交谈具有正确标题，无法解析对象仍为中文种类，质量报告的外泄计数正确。
+
 
 <a name="dayrun-fidelity-评审模型调用与叙述-strict-端点"></a>
 ### strict 端点
@@ -647,6 +675,8 @@ DeepSeek 的 `max_tokens` 同时覆盖思考与输出（默认 64K，`reasoning_
 4. **本地校验不变**（`custom/agents/life_agent.py`）：strict 只是第一道防线。
 
 **验收。** 探针在主站与 `/beta` 的结果写入验收记录；切换后 `validate` 核对的模型身份含新端点；本地校验用例不变。
+
+
 
 <a name="errands-workday-运行修复入库"></a>
 ## 运行修复入库
@@ -683,6 +713,7 @@ DeepSeek 的 `max_tokens` 同时覆盖思考与输出（默认 64K，`reasoning_
 行动请求的判定不变（不带 `purpose`、工具中有 `start_activity`、思考开启），反思请求不产生 `decision_started`；凡以「不带 `purpose` 且带工具」筛选行动请求的读者与用例都改为按 `start_activity` 判定。
 WorldMock 原样记录行动请求、截断重试与反思请求，并以 `purpose` 和事件顺序区分各自用途；实际动作、最终请求和响应可以沿事件来源重建。LabelKit 窗口的请求选取和编码由 LabelKit-DataSet 的消费合同负责。
 
+
 <a name="errands-workday-运行修复入库-只读查询转发"></a>
 ### 只读查询转发
 
@@ -691,6 +722,7 @@ WorldMock 原样记录行动请求、截断重试与反思请求，并以 `purpo
 - **执行位置。** `recall_task_summary` 经代理送到环境 actor；`query_world` 由宿主在本次冻结观察上本地求值，`LifeEnv.read_query` 的同名分支是同一组纯函数的第二入口。受理时两入口结果逐值相等，拒绝时两入口给出同一份校验报告；这条等价已有登记用例与变异守着，阶段 1 把它参数化并登记进本特性台账，不另写远端的 `query_world` 断言。
 - `read_query` 的合同：`tool` 取 `query_world`、`recall_task_summary` 之一，`request` 是对应请求模型的实例，按决策身份取本决策唯一一条已提交观察；工具与请求类型不符、找不到唯一观察是协议违约。回看的业务拒绝以错误结构作为返回值。不写事件、不改世界版本与时钟、不计同刻轮数。
 - **证据分工。** 真实 Ray 用例守「跨进程返回真实结果、世界状态与事件序号不变」，驱动侧与 worker 侧各调用一次代理（后者守住代理随任务序列化）；另加一条进程内用例直接构造未经 `ray.remote` 包装的 `LifeEnvActor` 并调用 `read_query`，守住函数体与私有成员依赖；并发度另用一条不启动 Ray 的主进程断言；运行装配得到的代理具有 `read_query` 另有一条断言。覆盖率门禁只计主进程执行的行，变异执行器也只对主进程生效，所以这几类用例缺一不可；不加 `pragma`，不改覆盖率配置。
+
 
 <a name="errands-workday-运行修复入库-计划重复意图"></a>
 ### 计划重复意图
@@ -703,6 +735,7 @@ WorldMock 原样记录行动请求、截断重试与反思请求，并以 `purpo
 - 英文原因：`intent_kind '<kind>' may occur only once; keep one goal for this intent and merge these entries into it`。原文里的 `tasks` 一词删去，避免被读成把个人事务并进当日目标。
 - 至多八条、每意图一条的合同不变（裁决 R3 选择改代码以符合当日目标规格现行条款，而不是改条款迁就实现）。
 
+
 <a name="errands-workday-运行修复入库-异常日志"></a>
 ### 异常日志
 
@@ -711,10 +744,13 @@ WorldMock 原样记录行动请求、截断重试与反思请求，并以 `purpo
 
 四个失败阶段码此前只存在于代码，随阶段 1 照现行实现补登进接口合同的宿主错误码表：模型服务失败记进该次模型证据的失败阶段；证据写入失败与工具服务失败以运行故障上抛；记忆查询失败作为失败的查询结果回给模型，可在剩余回合重试。四码都只标出失败阶段与调用位置，不是对请求参数的协议纠错。
 
+
 <a name="errands-workday-运行修复入库-工作树里不属于本特性的修改"></a>
 ### 工作树里不属于本特性的修改
 
 提示与模板的唯一权威文本见 `docs/CONTRACTS.md#contracts-model-request`。
+
+
 
 
 <a name="spec-as2-integration-验收矩阵"></a>
@@ -739,8 +775,9 @@ WorldMock 原样记录行动请求、截断重试与反思请求，并以 `purpo
 | 模型客户端生命周期 | 连续超过一百轮 worker 任务后不残留 Router 回调；任务异常与取消同样经过清理；跨事件循环重建只丢弃前一个 Router | `tests/as2/test_llm_callback_lifecycle.py`（`test_more_than_one_hundred_task_loops_leave_no_router_callbacks`、`test_worker_task_cleanup_covers_failure_and_cancellation`、`test_cross_loop_rebuild_discards_only_previous_router`） | 代码层已验证 |
 | 观察记录单写 | 一次决策的 user 消息中同一结构化观察只出现一次，不再额外出现 JSON 字符串副本；续接链内复用链首 user，续接消息不写进观察事件 | `tests/integration/test_life_agent_protocol.py::test_react_messages_are_system_layer_and_six_layer_user`、`tests/as2/test_worldmock_life_hooks.py::test_structured_observation_appears_once_in_user_message`、`tests/integration/test_same_second_continuation.py` | 代码层已验证 |
 | 严格反思 | 就寝反思恰一次 `submit_reflection` 调用；洞见一至五条，引用非空、条内不重复且全部取自输入；自由文本、其他工具、多次调用、未知引用不被接受；校验重试首次之外至多三次，耗尽即运行故障，本轮中止、不提交、无 `memory_updated`；请求关闭思考 | `tests/integration/test_strict_reflection.py`（`test_runtime_submits_reflection_through_the_only_strict_tool`、`test_runtime_feeds_each_contract_violation_back_and_stores_only_the_corrected_reflection`、`test_runtime_stops_with_a_run_fault_after_three_validation_retries_and_stores_no_reflection`、`test_runtime_propagates_transport_failures_without_validation_retries`、`test_exhausted_reflection_leaves_evidence_but_no_memory_update_in_the_run_database`、`test_reflection_retry_bound_is_its_own_constant_with_the_plan_day_value`）、`tests/integration/test_life_agent_protocol.py::test_reflection_contract_failure_aborts_society_before_commit`；其余节点见[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「严格反思」行的登记（`tests/errands_workday_acceptance.py`） | 代码层已验证 |
-| 只读查询转发 | 真实 Ray 下 `recall_task_summary` 经代理返回结果字典而非对象引用，世界状态与事件序号不变；worker 侧经代理调用成功；主进程内直接调用未经 `ray.remote` 包装的 `LifeEnvActor.read_query` 等于环境直调；`query_world` 两入口逐值相等；actor 并发度为 1 | `tests/integration/test_read_query_runtime.py`（`test_task_recall_crosses_real_ray_without_world_mutation`、`test_unwrapped_actor_read_query_equals_direct_environment_call`、`test_life_env_actor_class_fixes_single_concurrency_without_parameters`、`test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query`）、`tests/life/test_world_query.py::test_environment_read_query_keeps_world_clock_round_and_store_unchanged`；[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「只读查询转发」行 | 代码层已验证 |
+| 只读查询转发 | 真实 Ray 下 `recall_task_summary` 经代理返回结果字典而非对象引用，世界状态与事件序号不变；worker 侧经代理调用成功；主进程内直接调用未经 `ray.remote` 包装的 `LifeEnvActor.read_query` 等于环境直调；`query_world` 两入口逐值相等；actor 并发度为 1 | `tests/integration/test_read_query_runtime.py`（`test_task_recall_crosses_real_ray_without_world_mutation`、`test_unwrapped_actor_read_query_equals_direct_environment_call`、`test_life_env_actor_class_fixes_single_concurrency_without_parameters`、`test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query`）、`tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets`；[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「只读查询转发」行 | 代码层已验证 |
 | 真实端点集成 | 全部改动通过真实 AS2 与 DeepSeek 端点的集成测试，不用模拟模型或手工 JSON 替代 | `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态` 记录的正式十二周运行与隔离盲评收据 | 待真实运行 |
+
 
 <a name="spec-as2-integration-版本表"></a>
 ## 版本表

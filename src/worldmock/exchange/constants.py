@@ -7,11 +7,14 @@ from worldmock.exchange.types import ActionCategory, GoodsCategory
 
 
 RULES_VERSION = 2
+FUEL_DRIVING_DAYS = 7
 GOODS_ENERGY_KCAL = MappingProxyType({
     GoodsCategory.MEAL: 600, GoodsCategory.SNACK: 200, GoodsCategory.DRINK: 100,
 })
-#: 非食品收货的每条订单行固定效果；值分别为娱乐缓解量与情绪脉冲。
-GOODS_RECEIPT_EFFECTS = MappingProxyType({GoodsCategory.LEISURE: 0.10, GoodsCategory.DAILY: 0.05})
+#: 非食品收货每条订单行固定效果：娱乐缓解量、情绪脉冲或可驾驶天数。
+GOODS_RECEIPT_EFFECTS = MappingProxyType({
+    GoodsCategory.LEISURE: 0.10, GoodsCategory.DAILY: 0.05, GoodsCategory.FUEL: FUEL_DRIVING_DAYS,
+})
 #: 类别的固定代谢当量；布尔键表示是否绑定 app。
 CATEGORY_MET = MappingProxyType({
     ActionCategory.ENTERTAINMENT: MappingProxyType({False: 1.0, True: 1.0}),
@@ -39,7 +42,7 @@ ENTERTAINMENT_RELIEF_PER_HOUR = 0.3
 #: 社交需要按清醒、有效交谈、有效 app 社交与已读消息结算。
 SOCIAL_NEED_AWAKE_RATE = 0.04
 SOCIAL_NEED_CONVERSATION_RATE = 0.5
-SOCIAL_NEED_CALL_RATE = 0.4
+SOCIAL_NEED_REMOTE_RATE = 0.4
 SOCIAL_NEED_MESSAGE_RELIEF = 0.05
 #: 对方不在的社交秒数采用较小缓解量。
 CHAT_RELIEF_DECLINED_PER_HOUR = 0.2

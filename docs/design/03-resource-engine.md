@@ -35,6 +35,7 @@
 
 语料文件只接受根内安全相对路径：拒绝绝对路径（含 Windows 上无盘符的根路径）、任何 .. 组件、反斜杠、任一平台不能原样保存的名字（以点或空格结尾、Windows 设备名、禁用字符与数据流冒号、控制字符、孤立代理码点、一级超过 255 字节），以及符号链接、目录联接与非普通文件。曲线输入和输出必须是有限非负数且拒绝布尔值，效率资源名必须含非空白字符；生活与目录读取同一模型。目录发布与品类身份统一以字节原子写入。
 
+
 <a name="resource-engine-职责与边界"></a>
 ## 1. 职责与边界
 
@@ -53,12 +54,15 @@ flowchart LR
     X[交换引擎固定规则与常数] --> V
 ```
 
+
 <a name="resource-engine-职责约定"></a>
 ### 职责约定
 
 `worldmock.catalog` 负责登记、严格校验、只读查询与反向索引；`worldmock.exchange` 负责固定分类、规则与常数。
 `Catalog` 冻结 app、地点、商品、动作、内容及图，索引在登记通过后一次生成。
 内容选择、随机抽取、消费进度、推送与观看历史由模拟引擎负责，资源引擎不保存它们。
+
+
 
 <a name="resource-engine-整理与固化语料"></a>
 ## 2. 整理与固化语料
@@ -69,11 +73,13 @@ flowchart LR
 语料整理、固化与来源记录归 WorldMock-Dataset。引擎不读取、校验或钉住任何 `corpora/` 文件，场景没有语料根与语料清单摘要。
 运行内容来自 `contents.json`：真实摘要保留 URL，合成摘要保留声明；来源合同见[环境目录](../CONTRACTS.md#contracts-环境目录文件)。
 
+
 <a name="resource-engine-来源分类"></a>
 ### 来源分类
 
 语料整理、固化与来源记录归 WorldMock-Dataset。引擎不读取、校验或钉住任何 `corpora/` 文件，场景没有语料根与语料清单摘要。
 运行内容来自 `contents.json`：真实摘要保留 URL，合成摘要保留声明；来源合同见[环境目录](../CONTRACTS.md#contracts-环境目录文件)。
+
 
 <a name="resource-engine-语料清单与文件身份"></a>
 ### 语料清单与文件身份
@@ -81,11 +87,13 @@ flowchart LR
 语料整理、固化与来源记录归 WorldMock-Dataset。引擎不读取、校验或钉住任何 `corpora/` 文件，场景没有语料根与语料清单摘要。
 运行内容来自 `contents.json`：真实摘要保留 URL，合成摘要保留声明；来源合同见[环境目录](../CONTRACTS.md#contracts-环境目录文件)。
 
+
 <a name="resource-engine-语料整理的实现与验收"></a>
 ### 语料整理的实现与验收
 
 语料整理、固化与来源记录归 WorldMock-Dataset。引擎不读取、校验或钉住任何 `corpora/` 文件，场景没有语料根与语料清单摘要。
 运行内容来自 `contents.json`：真实摘要保留 URL，合成摘要保留声明；来源合同见[环境目录](../CONTRACTS.md#contracts-环境目录文件)。
+
 
 <a name="resource-engine-地图资料的冻结与许可"></a>
 ### 随机地图的冻结
@@ -93,6 +101,8 @@ flowchart LR
 地图是合成的连通加权无向图，使用全目录地点身份，不包含真实道路、坐标、路线响应、许可或道路范围。
 地点名称与分店标签保持具体环境的真实名称语义，数值明确属于模拟假设；正式对象与发布材料由 Dataset 维护。
 图字节纳入目录身份，运行只读固定图，不访问在线路由、库存或报价接口。
+
+
 
 <a name="resource-engine-定义资源与对象"></a>
 ## 3. 定义资源与对象
@@ -103,12 +113,14 @@ flowchart LR
 语料整理、固化与来源记录归 WorldMock-Dataset。引擎不读取、校验或钉住任何 `corpora/` 文件，场景没有语料根与语料清单摘要。
 运行内容来自 `contents.json`：真实摘要保留 URL，合成摘要保留声明；来源合同见[环境目录](../CONTRACTS.md#contracts-环境目录文件)。
 
+
 <a name="resource-engine-可计量资源定义"></a>
 ### 可计量资源定义
 
 资源元信息和身体规则由 `worldmock.exchange.body` 固定，环境不提供资源定义或效率系数。
 金钱是封闭账本资源；能量、睡眠债与娱乐需要是开放身体资源。资源引擎只登记对象，不保存订单、内容接触历史或进度。
-环境能填的数只有商品价格、内容时长与系列集数；场景保留人物与账户的初始状态。
+目录允许声明商品价格、内容时长、系列集数和店铺完整运输时长；各字段遵守唯一目录合同。场景保留人物与账户的初始状态，包括显式汽车归属与初始驾驶可用天数。
+
 
 <a name="resource-engine-交换对象与内容条目"></a>
 ### 交换对象与内容条目
@@ -117,9 +129,9 @@ flowchart LR
 | --- | --- |
 | `manifest.json` | `format_version: 2`、环境标识与版本、`rules_version: 2`、六个文件的路径/哈希/字节数、`catalog_content_sha256` |
 | `apps.json` | `app_id`、真实 `name`、`purposes`、`payment_app_ids`；用途与绑定列表去重并排序 |
-| `locations.json` | `location_id`、`name`、可选 `branch_label`、`kind`、`app_ids`；仅店铺允许绑定购物 app |
-| `goods.json` | `goods_id`、`name`、五个固定类别之一、正整数 `price_fen`、`store_ids` 列表或 `"all"` |
-| `actions.json` | `action_id`、`name`、`description`、五个固定类别之一、`app_ids`、必填可空 `manner` |
+| `locations.json` | `location_id`、`name`、可选 `branch_label`、`kind`、`app_ids`、必填可空 `shipping_seconds`；非店铺与加油站运输时长必须为 null，驿站不绑定 app |
+| `goods.json` | `goods_id`、`name`、六个固定类别之一、正整数 `price_fen`、`store_ids` 列表或 `"all"`；燃油只绑定加油站 |
+| `actions.json` | `action_id`、`name`、`description`、五个固定类别之一、`app_ids`、必填可空 `manner` 与 `communication_mode`；绑定 app 的社交明示 text 或 voice，其他为 null |
 | `contents.json` | `content_id`、`action_id`、`title`、摘要与来源、`duration_seconds`、`app_ids`、可选 `series` |
 | `map.json` | 地图结构 1、种子、生成器规则版本 1、节点与规范无向边 |
 
@@ -135,15 +147,17 @@ flowchart LR
 购物用途存在当且仅当至少一家店铺绑定该 app；支付绑定非空当且仅当有购物用途，
 绑定目标具有支付用途，允许绑定自己。导航与支付 app 可以没有内容；app 必须有用途或动作绑定。
 
+
 <a name="resource-engine-地点商品与门店供给"></a>
 ### 地点、商品与门店供给
 
-商品有正餐、零食、饮品、休闲用品与日常用品五类，每个商品只有一个固定价。
-餐馆供给正餐、零食与饮品，咖啡馆供给零食与饮品，便利店和超市可供给五类。
+商品有正餐、零食、饮品、休闲用品、日常用品与燃油六类，每个商品只有一个固定价。
+餐馆供给正餐、零食与饮品，咖啡馆供给零食与饮品，便利店和超市可供给除燃油外五类；加油站只供给燃油，驿站不供给商品。
 绑定只允许可供给该类别的店铺；`"all"` 展开到全部合格店铺，显式列表按身份排序，同类型店铺同菜单。
-店铺的 `app_ids` 指向购物 app；没有 app 绑定的店铺只能到店购买。
+店铺的 `app_ids` 指向购物 app；没有 app 绑定的店铺只能到店购买。燃油只允许拥有汽车且本人在加油站时为自己现场购买；驿站不能绑定购物 app。
 
 模拟引擎只保存实际订单与收货状态，没有食品持有。
+
 
 <a name="resource-engine-冻结地图的准备与发布"></a>
 ### 随机地图的生成与发布
@@ -152,6 +166,7 @@ flowchart LR
 `worldmock environment check` 重新生成后逐值核对规范节点与边，并检查目录登记。
 `worldmock validate --environment` 登记完整目录、重生成比对地图并加载全部场景，成功结果为 `{valid, environment_id, environment_version, scenarios}`。
 环境只有 `catalog/` 与 `scenarios/`，不含语料清单或包规则副本。
+
 
 <a name="resource-engine-资源定义的实现与验收"></a>
 ### 资源定义的实现与验收
@@ -163,6 +178,8 @@ flowchart LR
 | 内容结构边界 | 各类内容保留各自的字段与读取路径，不宣称已经存在统一资源类或全部内容共用的数据表 |
 | 验收 | 加载真实定义，验证身份、类型、单位、边界与来源；按指定标识和版本查询时返回对应属性。相关用例见 [tests/catalog](../../tests/catalog) |
 
+
+
 <a name="resource-engine-组织与发布目录"></a>
 ## 4. 组织与发布目录
 
@@ -172,15 +189,8 @@ flowchart LR
 <a name="resource-engine-文件职责"></a>
 ### 文件职责
 
-| 文件 | 内容 |
-| --- | --- |
-| `manifest.json` | `format_version: 2`、环境标识与版本、`rules_version: 2`、六个文件的路径/哈希/字节数、`catalog_content_sha256` |
-| `apps.json` | `app_id`、真实 `name`、`purposes`、`payment_app_ids`；用途与绑定列表去重并排序 |
-| `locations.json` | `location_id`、`name`、可选 `branch_label`、`kind`、`app_ids`；仅店铺允许绑定购物 app |
-| `goods.json` | `goods_id`、`name`、五个固定类别之一、正整数 `price_fen`、`store_ids` 列表或 `"all"` |
-| `actions.json` | `action_id`、`name`、`description`、五个固定类别之一、`app_ids`、必填可空 `manner` |
-| `contents.json` | `content_id`、`action_id`、`title`、摘要与来源、`duration_seconds`、`app_ids`、可选 `series` |
-| `map.json` | 地图结构 1、种子、生成器规则版本 1、节点与规范无向边 |
+清单与六个文件的职责统一见上方[交换对象与内容条目](03-resource-engine.md#resource-engine-交换对象与内容条目)及[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)，不另维护缺字段的目录副本。
+
 
 <a name="resource-engine-构建与版本"></a>
 ### 构建与版本
@@ -194,11 +204,14 @@ flowchart LR
 新增 app、动作、内容与商品只需数据仓重新发布；新增类别、效果或规则须修改 WorldMock 并提升 `RULES_VERSION`。
 地图结构和生成器规则版本都为 1；目录清单不列规则副本，也不带规则哈希。
 
+
 <a name="resource-engine-目录发布的实现与验收"></a>
 ### 目录发布的实现与验收
 
 `catalog.identity.refresh_manifest_identity` 安全读取实际文件，重算文件表与框架化目录摘要，经 `atomic_write` 写出规范 LF 清单。地图由 `worldmock environment generate-map` 发布；`--check` 只比较字节。
 验收核对清单身份、原子发布失败保持旧目标，以及 `worldmock validate --environment` 的真实成功和逐类失败，不用声明摘要替代实际文件。
+
+
 
 <a name="resource-engine-校验资源可用性"></a>
 ## 5. 校验资源可用性
@@ -209,6 +222,7 @@ flowchart LR
 清单的 `files` 恰好登记六个文件，各自绑定路径、sha256 和字节数，目录内容摘要沿用框架化算法。
 严格模型拒绝清单额外字段；未登记文件、缺失必需文件、字节漂移与环境钉不一致分别以登记码拒绝。
 包规则只从包资源读取，不比对环境副本；五字段环境身份与代码身份共同保证恢复一致性。
+
 
 <a name="resource-engine-准入边界"></a>
 ### 准入边界
@@ -228,6 +242,7 @@ flowchart LR
 `catalog.admission` 是唯一目录登记校验器；严格模型拒绝未知字段，图和跨对象引用一并校验。
 场景工作分配另执行四个 `WORK_*` 检查，完整 32 个登记码及原因见[登记错误](../CONTRACTS.md#contracts-环境目录与绑定)。
 
+
 <a name="resource-engine-地图关系与道路范围准入"></a>
 ### 图与地点关系准入
 
@@ -242,11 +257,13 @@ flowchart LR
 对象与绑定继续由统一目录登记验证，同类型食品店铺菜单一致，`"all"` 不展开到住宅，店铺 app 绑定只允许食品店铺。错误输出稳定码、英文原因和所属路径。
 项目 `validate` 的覆盖率 0.8 门禁保留，输入覆盖不足不转成运行期默认内容。
 
+
 <a name="resource-engine-准入失败的处理"></a>
 ### 准入失败的处理
 
 `RegistrationError` 继承 `IntegrityError`，保留稳定登记码与英文原因，并记录错误日志。
 不补造对象、不跳过失效绑定、不改读其他环境。错误与修复入口按[注册校验与错误](../dev/SPEC-action-and-content-simplification.md#spec-acs-注册校验与错误)判断。
+
 
 <a name="resource-engine-资源校验的实现与验收"></a>
 ### 资源校验的实现与验收
@@ -255,10 +272,12 @@ flowchart LR
 `tests/catalog/` 使用真实人工环境制造反例，验证绑定、闭集、最小内容时长、供给类别、目录身份与发布命令。
 纯加载测试通过不代表完整引擎执行或正式环境已验收。
 
+
+
 <a name="resource-engine-检索与呈现"></a>
 ## 6. 检索与呈现
 
-候选生成与呈现只处理 `product`、`lifestyle`、`task` 三种对象。资格、稳定排序、呈现上限、分页和轮转继续作用于这三种候选；商品目标来自当前店铺菜单与可经 app 外卖的食品，生活活动继续按地点类型准入。app 不进入候选、不轮转、不进 `callable_index`，而是在工具层始终列出；没有绑定内容的 app 仍列出，以 `APP_CONTENT_EMPTY` 标为不可用。
+候选生成与呈现只处理 `product`；生活活动与任务不再进入候选管线。资格、稳定排序、呈现上限、分页和轮转继续作用于这三种候选；商品目标来自当前店铺菜单与可经 app 外卖的食品，生活活动继续按地点类型准入。app 不进入候选、不轮转、不进 `callable_index`，而是在工具层始终列出；没有绑定内容的 app 仍列出，以 `APP_CONTENT_EMPTY` 标为不可用。
 
 工具层的 `callable_index` 恰为 `lifestyle`、`goods`、`query_categories` 三键。索引只给人物按名称调用的范围，不计入候选呈现上限，也不改变活动受理资格。内容离开候选、检索分区、facet、游标和轮转管线；每条内容只要绑定至少一个 app 即可达。
 
@@ -306,12 +325,16 @@ flowchart LR
 | 验收 | 同输入同结果，分页无重无漏，固定菜单食品按名可调用，app 名称全部列出；娱乐管线的退役由其所属阶段验证 |
 
 
+
+
+
 <a name="design-resource-engine-current-responsibility"></a>
 ## 基础类型与资源装配
 
 `worldmock.base_models` 保留严格模型与深冻结基础；`worldmock.exchange.body` 固定身体常数与资源元信息。
 `Catalog` 只装配 app、地点、商品、动作、内容与发布图，不读取语料或环境规则副本。
 反向索引为 `menus_by_kind`、`goods_by_store`、`stores_by_app`、`apps_by_store`、`actions_by_app`、`contents_by_action`、`contents_by_action_app`、`contents_by_series`。
+
 
 <a name="resource-engine-版本历史"></a>
 ## 版本历史

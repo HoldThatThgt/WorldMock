@@ -155,9 +155,11 @@ def test_first_observation_exposes_every_action_target(engine_factory) -> None:
     engine.begin_decision_round([ctx])
     observed = engine.observe(ctx)
     assert 'content_catalog' not in observed
-    assert set(observed['tool_layer']['callable_index']) == {'goods', 'lifestyle', 'query_categories'}
+    assert set(observed['tool_layer']['callable_index']) == {
+        'goods', 'navigation_apps', 'payment_apps', 'query_categories'}
     from collections import Counter
-    food_counts = Counter(food.category.value for food in engine.context.semantics.catalog.foods.values())
+    food_counts = Counter(goods.category.value for goods in engine.context.semantics.catalog.goods.values()
+                          if goods.category.value in {'meal', 'snack', 'drink'})
     assert set(food_counts) <= set(observed['activity_summary'])
     assert all(observed['activity_summary'][kind] > 0 for kind in food_counts)
     assert 'game_catalog' not in json.dumps(observed['tool_layer'], ensure_ascii=False)
@@ -176,7 +178,7 @@ def test_first_observation_exposes_every_action_target(engine_factory) -> None:
 @pytest.mark.parametrize(
     ("label", "kind", "verb", "way"),
     (
-        ("app", "app", "interact", "打开"),
+        ("app", "action", "interact", "进行"),
         ("travel", "location", "travel", "驾车"),
     ),
     ids=("app", "travel"),
@@ -185,15 +187,19 @@ def test_first_round_accepts_discovered_content_game_and_route(
     engine_factory, label, kind, verb, way,
 ) -> None:
     """首轮目录中的三类身份可以直接进入对应真实领域边界：从未看过的内容列为「接着看」，出行方式为「驾车」。"""
-    engine = engine_factory()
+    def car_owner(document):
+        document["agents"][0].update(owns_car=True, initial_driving_days=7)
+    engine = engine_factory(mutate=car_owner)
     ctx = context(engine, f"first-{label}")
     engine.begin_decision_round([ctx])
     observed = engine.observe(ctx)
     matches = [row for row in observed["interaction_bindings"]
-               if row["kind"] == kind and any((item["verb"], item["label"]) == (verb, way) for item in row["actions"])]
+               if row["kind"] == kind and (label != "app" or row["object_id"] == "browse-feed")
+               and any((item["verb"], item["label"]) == (verb, way) for item in row["actions"])]
     assert matches
     target = matches[0]
-    action_request = start_request(targets=[target["object"]], actions=[verb], ways=[way])
+    app = engine.context.semantics.catalog.apps["douyin"].name if label == "app" else None
+    action_request = start_request(targets=[target["object"]], actions=[verb], ways=[way], app=[app])
     call = DirectToolCall(ctx, f"first-{label}", "start_activity", action_request)
     engine.submit_action(call)
     result = engine.commit_decision_round(f"first-{label}")[0]
@@ -202,7 +208,7 @@ def test_first_round_accepts_discovered_content_game_and_route(
     if label == "travel":
         assert activity.destination_id == target["object_id"]
     else:
-        assert activity.target_id == target["object_id"]
+        assert activity.data["action_id"] == target["object_id"] and activity.data["app_id"] == "douyin"
 
 
 def test_model_calls_require_one_request_and_one_terminal_evidence(engine_factory) -> None:

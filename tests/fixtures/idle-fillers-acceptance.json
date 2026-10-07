@@ -11,10 +11,14 @@
       "tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_is_the_frozen_spec_set",
       "tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_matches_the_engine_side_enum",
       "tests/life/test_wake_reasons.py::test_frozen_wake_and_intent_names",
-      "tests/life/test_wake_reasons.py::test_sleep_allowed_reasons_add_only_plan_reminder_due",
-      "tests/life/test_work_topics.py::test_actual_engine_eight_hours_emit_own_completion_progress_and_remove_start_target",
+      "tests/life/test_wake_reasons.py::test_sleep_allowed_reasons_include_plan_reminder_and_alarm",
+      "tests/life/test_action_run.py::test_assigned_content_is_finite_and_completion_pulse_is_applied_once",
       "tests/tools/test_run_viewer.py::test_run_viewer_recorded_names",
-      "tests/life/test_app_push.py::test_sleep_stores_push_without_wake_and_existing_activity_is_unchanged"
+      "tests/life/test_app_push.py::test_sleep_stores_push_without_wake_and_existing_activity_is_unchanged",
+      "tests/life/test_shift_edges.py::test_each_duty_edge_member_is_filtered_while_asleep[shift_start]",
+      "tests/life/test_shift_edges.py::test_each_duty_edge_member_is_filtered_while_asleep[shift_end]",
+      "tests/life/test_shift_edges.py::test_each_duty_edge_member_is_filtered_while_asleep[break_start]",
+      "tests/life/test_shift_edges.py::test_each_duty_edge_member_is_filtered_while_asleep[break_end]"
     ],
     "implementation": [
       "src/worldmock/life/schedule.py::WakeReason",

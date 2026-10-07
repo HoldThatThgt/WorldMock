@@ -20,7 +20,6 @@ from tests.life.conftest import (activity_name, advance_next, advance_until_read
                                  stage_errands, start_activity, wake_by_mail)
 from tests.life.routing_fixtures import (
     DRINK_NAME,
-    EAT_SNACK_ITEM,
     HOME,
     MEAL_NAME,
     SETTLEMENT_KINDS,
@@ -28,7 +27,7 @@ from tests.life.routing_fixtures import (
     SNACK_NAME,
     WAIT_ITEM,
     act,
-    buy_food,
+    buy_goods,
     errand_events,
     errand_note,
     observe,
@@ -60,6 +59,8 @@ def evening(engine_factory, clock: str):
     """单人白领场景：1 月 5 日 clock 人在家、当日空计划已登记、此刻可以决策（经存储提交，版本连续）。"""
     def extend(document: dict) -> None:
         document["end_at"] = "2026-01-07T00:00:00+08:00"
+        document["agents"][0]["work_content_ids"] = []
+        document["agents"][0]["work_schedule"] = None
 
     engine = engine_factory(mutate=extend)
     stage_day_plan(engine)
@@ -126,7 +127,7 @@ def test_an_awake_person_is_reminded_once_exactly_on_time_and_the_errand_is_unch
     同一提交写一条人物可见、不带决策与动作身份的 errand_reminded；事务只多了提醒时刻，名称、完成依据、累计量与备注不变，
     仍未完成。接下来那次观察的进度层有一条只写名称的 errand_reminder 记录（来源计入观察，浓缩时不留句子），待办层该行的
     提醒钟点变为 null。此后不再提醒：没有第二条提醒事件，这一时刻不再是任何候选。"""
-    engine = single_person_home(engine_factory, {})
+    engine = single_person_home(engine_factory)
     zone = engine.context.scenario.timezone
     errand_note(engine, "note", [errand_add("买牛奶", SNACK_NAME, memo="下班顺路买", remind_time="12:40")])
     before, remind = errand(engine, "买牛奶"), moment(engine, "2026-01-05 12:40")
@@ -165,7 +166,7 @@ def test_an_awake_person_is_reminded_once_exactly_on_time_and_the_errand_is_unch
 def test_a_clock_equal_to_the_acceptance_time_means_the_next_local_day(engine_factory) -> None:
     """12:31:00 受理的收尾里三条事务的提醒钟点：等于受理时刻的 12:31 与早于它的 12:30 都取下一本地日的同一钟点（总在二十
     四小时之内），晚一分钟的 12:32 取今天。待办层照写三个钟点；今天的 12:32 恰是一个边界，只提醒那一条，另两条留到明天。"""
-    engine = single_person_home(engine_factory, {})
+    engine = single_person_home(engine_factory)
     zone = engine.context.scenario.timezone
     noted = errand_note(engine, "note", [errand_add("买牛奶", SNACK_NAME, remind_time="12:31"),
                                   errand_add("补食材包", MEAL_NAME, remind_time="12:32"),
@@ -244,7 +245,7 @@ def test_errands_due_together_are_one_opportunity_with_one_event_each(engine_fac
     """两条事务都提醒 12:40、第三条提醒 12:55：12:40 的边界把两条一并交付——唤醒原因 errand_reminder_due 只列一次、只提供
     一次决策机会（播报之后这一秒没有第二次），两条各写一条提醒事件（待办层顺序，与该边界的结算同一提交）；第三条不在此时
     交付，到 12:55 才单独提醒。"""
-    engine = single_person_home(engine_factory, {})
+    engine = single_person_home(engine_factory)
     errand_note(engine, "note", [errand_add("买牛奶", SNACK_NAME, remind_time="12:40"),
                           errand_add("补食材包", MEAL_NAME, remind_time="12:40"),
                           errand_add("囤冰红茶", DRINK_NAME, remind_time="12:55")])
@@ -271,7 +272,7 @@ def test_errands_due_together_are_one_opportunity_with_one_event_each(engine_fac
 def test_errand_and_goal_reminders_due_together_are_listed_in_enum_order(engine_factory) -> None:
     """当日目标与个人事务都提醒 12:40：同一边界的唤醒原因里 plan_reminder_due 在前、errand_reminder_due 在后，各计一次，与
     其余原因一起按枚举声明顺序排列；目标与事务各自记下提醒时刻，决策开始的唤醒原因相同，进度层两种提醒记录并列。"""
-    engine = single_person_home(engine_factory, {})
+    engine = single_person_home(engine_factory)
     zone = engine.context.scenario.timezone
     remind = moment(engine, "2026-01-05 12:40")
     stage_day_plan(engine, goals=(PlanGoal(intent_kind="外出", goal="去集市买牛奶", registered_at=engine.context.state.current_time,
@@ -295,23 +296,20 @@ def test_errand_and_goal_reminders_due_together_are_listed_in_enum_order(engine_
 def test_completed_or_cancelled_errands_are_not_reminded(engine_factory) -> None:
     """三条事务都提醒 13:00：「吃掉纯牛奶 1 份」在 12:46 喝完时办成，「取得食材包」在 12:33 的播报里取消，二者移出状态后
     不再提醒；13:00 的边界照常为仍未完成的那一条交付提醒，只有它一条提醒事件。"""
-    engine = single_person_home(engine_factory, {SNACK_ID: 1.0})
-    errand_note(engine, "note", [errand_add("喝牛奶", SNACK_NAME, outcome="吃掉", remind_time="13:00"),
-                          errand_add("补食材包", MEAL_NAME, remind_time="13:00"),
-                          errand_add("囤冰红茶", DRINK_NAME, remind_time="13:00")])
+    engine = single_person_home(engine_factory)
+    place(engine, 1, "noodle-1")
+    errand_note(engine, "note", [errand_add("收到零食", SNACK_NAME, remind_time="13:00"),
+        errand_add("补食材包", MEAL_NAME, remind_time="13:00"), errand_add("囤冰红茶", DRINK_NAME, remind_time="13:00")])
     remind = moment(engine, "2026-01-05 13:00")
-    drinking = act(engine, "drink", routed(EAT_SNACK_ITEM))
-    assert drinking.status == "in_progress"
-    wake_by_mail(engine, 1, offset=120)
+    bought = buy_goods(engine, "receive")
+    assert bought.error_code is None and errand(engine, "收到零食") is None
+    waited = act(engine, "wait", routed(WAIT_ITEM))
+    assert waited.error_code is None
+    wake_by_mail(engine, offset=60)
     run_until(engine, lambda current: 1 in current.scheduling_state().ready_agent_ids)
-    name = activity_name(engine, drinking.activity_id)
-    cancelled = act(engine, "cancel", report_request(name, summary="还在喝。", errands=[
+    cancelled = act(engine, "cancel", report_request(activity_name(engine, waited.activity_id), errands=[
         errand_cancel("补食材包", "家里还有一包")]), tool="report_status")
-    assert cancelled.status == "completed" and errand(engine, "补食材包") is None
-    run_until(engine, lambda current: current.context.state.activities[drinking.activity_id].status != ActivityStatus.ACTIVE)
-    assert errand(engine, "喝牛奶") is None
-    assert [event.data["kind"] for event in errand_events(engine, kinds=("errand_cancelled", "errand_completed"))] == [
-        "errand_cancelled", "errand_completed"]
+    assert cancelled.error_code is None and errand(engine, "补食材包") is None
     assert errands.reminder_times(engine.context.state.agents[1], engine.context.state.current_time) == (remind,)
     until(engine, remind)
     [event] = reminded(engine)
@@ -322,7 +320,7 @@ def test_completed_or_cancelled_errands_are_not_reminded(engine_factory) -> None
 def test_updating_the_reminder_clock_arms_it_again(engine_factory) -> None:
     """提醒 12:40 的事务到点提醒一次；同一秒的播报更新它的钟点为 12:50 并改了备注：提醒时刻按受理时刻重新换算、已提醒时刻
     清空（errand_updated 的快照如此），待办层重新显示「12:50」；12:50 再提醒一次，共两条提醒事件。"""
-    engine = single_person_home(engine_factory, {})
+    engine = single_person_home(engine_factory)
     errand_note(engine, "note", [errand_add("买牛奶", SNACK_NAME, remind_time="12:40")])
     first, second = moment(engine, "2026-01-05 12:40"), moment(engine, "2026-01-05 12:50")
     waited = act(engine, "wait", routed(WAIT_ITEM))
@@ -418,7 +416,7 @@ def test_open_errands_do_not_change_the_reconsideration_interval(engine_factory)
             """保留常规工作场景，并声明真正没有工作主题的空闲人物。"""
             _short_intervals(document)
             if not assigned_work:
-                document["agents"][0]["work_topic_ids"] = []
+                document["agents"][0]["work_content_ids"] = []
                 document["agents"][0]["work_schedule"] = None
                 # 白天与低娱乐需要让重估早于体感跨档，隔离事务是否制造在手承诺。
                 document["start_at"] = "2026-01-05T09:00:00+08:00"
@@ -458,10 +456,10 @@ def test_partial_progress_after_the_reminder_does_not_remind_again(engine_factor
     提醒 12:35：远程下单的一份还在途，12:35 提醒一次；之后这一份送达，事务进展到 1 份——结算只改累计量，提醒时刻与已提醒
     时刻原样，送达的那个边界不以 errand_reminder_due 提供决策，此后半小时也没有第二条提醒事件；待办层该行写「已取得
     1 份」，提醒钟点仍为 null。"""
-    engine = single_person_home(engine_factory, {})
+    engine = single_person_home(engine_factory)
     errand_note(engine, "note", [errand_add("囤牛奶", SNACK_NAME, quantity=2, remind_time="12:35")])
     remind = moment(engine, "2026-01-05 12:35")
-    ordered = buy_food(engine, "order", way="远程下单")
+    ordered = buy_goods(engine, "order", app="美团", pay_app="微信")
     [order] = ordered.data["orders"]
     due = next(item.due_at for item in engine.context.state.pending_events
                if item.kind.value == "delivery_arrival" and order["order_id"] in item.data["order_ids"])
@@ -488,7 +486,7 @@ def test_a_reminder_time_equal_to_the_present_is_not_a_candidate(engine_factory)
     时刻总严格晚于受理时刻，每个边界又把清醒人物全部已到点的提醒一并交付），这里以预置状态造出：清醒的人物持有一条未提醒
     的事务，提醒时刻正是此刻这一秒。她以真实请求开始等待之后，引擎报告的下一边界严格在此刻之后，这一时刻不是下一边界
     也不是下一次决策机会的候选，时钟照常推进；已到点的提醒在推进到的那个边界交付。"""
-    engine = single_person_home(engine_factory, {})
+    engine = single_person_home(engine_factory)
     now = engine.context.state.current_time
     stage_errands(engine, 1, [_errand("staged:errand:0", "买牛奶", SNACK_ID, now - 600, remind_at=now)])
     assert act(engine, "wait", routed(WAIT_ITEM)).status == "in_progress"
@@ -508,25 +506,23 @@ def test_a_reminder_time_equal_to_the_present_is_not_a_candidate(engine_factory)
 
 
 def test_an_errand_completed_at_its_reminder_boundary_is_not_reminded(engine_factory) -> None:
-    """时钟推进的结算在构造节律边界之前（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-完成依据与结算 「结算函数」），办成的事务不再提醒（2.5）。
-    12:31 记下「吃掉薯片 1 份」、提醒 12:36 并当秒开始吃：一整份 300 秒，恰在 12:36:00 吃完。这个边界先结算——事务办成、
-    移出状态，然后才判定节律：没有提醒事件，该边界的唤醒原因不含 errand_reminder_due，办成事件的快照没有已提醒时刻，
-    事务事件只有记下、进展与办成。"""
-    engine = single_person_home(engine_factory, {SNACK_ID: 1.0})
-    errand_note(engine, "note", [errand_add("喝牛奶", SNACK_NAME, outcome="吃掉", remind_time="12:36")])
-    remind = moment(engine, "2026-01-05 12:36")
-    assert errand(engine, "喝牛奶").remind_at == remind
-    drinking = act(engine, "drink", routed(EAT_SNACK_ITEM))
-    assert drinking.status == "in_progress", (drinking.error_code, drinking.message)
-    assert engine.context.state.activities[drinking.activity_id].planned_end_at == remind
-    run_until(engine, lambda current: current.context.state.activities[drinking.activity_id].status != ActivityStatus.ACTIVE)
+    """@brief 真实配送收货恰在提醒边界，先完成事务再构造节律，不再推送已办成的提醒。"""
+    engine = single_person_home(engine_factory)
+    place(engine, 1, "noodle-1")
+    errand_note(engine, "note", [errand_add("收到零食", SNACK_NAME, remind_time="12:41")])
+    remind = moment(engine, "2026-01-05 12:41")
+    ordered = buy_goods(engine, "order", app="美团", pay_app="微信")
+    assert ordered.error_code is None
+    [order] = ordered.data["orders"]
+    assert order["expected_at"] == remind and errand(engine, "收到零食").remind_at == remind
+    run_until(engine, lambda current: current.context.state.deliveries[order["order_id"]].status == "delivered")
     assert engine.context.state.current_time == remind and engine.context.state.agents[1].errands == {}
-    kinds = [event.data["kind"] for event in errand_events(engine)]
-    assert (kinds[0], kinds[-1]) == ("errand_registered", "errand_completed")
-    assert set(kinds[1:-1]) <= {"errand_progressed"}
     assert reminded(engine) == []
     boundary = settlement(engine, remind)
     assert "errand_reminder_due" not in boundary.data["wake_reasons"]
     [completed] = errand_events(engine, kinds=("errand_completed",))
     assert completed.state_version_after == boundary.state_version_after
     assert (completed.data["errand"]["remind_at"], completed.data["errand"]["reminded_at"]) == (remind, None)
+    [source] = [event for event in engine.context.store.read_agent_events("environment_event", 1)
+                if event.event_id in completed.caused_by]
+    assert source.data["kind"] == "goods_received" and source.data["order_id"] == order["order_id"]

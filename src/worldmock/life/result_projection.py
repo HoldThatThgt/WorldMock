@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from worldmock.life.object_labels import supply_label
 from worldmock.life.readable import duration_phrase, iso_time, money_phrase, portion_phrase
 from worldmock.life.scenario import RuntimeScenario
 
@@ -20,7 +19,7 @@ from worldmock.life.scenario import RuntimeScenario
 #: 生成（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章「错误合同」），终局、名称归一与附带说明只含可读名称；errands 是控制
 #: 工具受理的事务变更回执 [{errand, change}]（只有名称，docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 「回执」）。
 _PASSTHROUGH_DETAILS = ("recall", "reason", "next_step", "fix", "items", "outcome", "linked_orders", "resolved",
-                        "notes", "errands", "work")
+                        "notes", "errands", "content")
 
 
 def public_result(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str, Any]:
@@ -58,12 +57,6 @@ def _details(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str, Any
     if arrival is not None:
         details["arrival"] = {"place": places[arrival["location_id"]],
                               "access": "进入" if arrival["access_status"] == "allowed" else "没能进去"}
-    mail = _read_mail(payload, scenario)
-    if mail is not None:
-        details["mail"] = mail
-    if "app_content" in payload:
-        details["app_content"] = {key: payload["app_content"][key]
-                                  for key in ("app", "title", "summary", "pushed")}
     details.update({key: payload[key] for key in _PASSTHROUGH_DETAILS if key in payload})
     return details
 
@@ -76,17 +69,6 @@ def _activity_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 
-
-
-def _read_mail(payload: dict[str, Any], scenario: RuntimeScenario) -> dict[str, str] | None:
-    """@brief 读完的邮件 {subject, body}：阅读活动完成时揭示的主题与正文；没有读完的阅读时为 None。"""
-    rows = _activity_rows(payload)
-    revealed = next((row["data"]["revealed"] for row in rows
-                     if row.get("kind") == "read_mail" and "revealed" in (row.get("data") or {})), None)
-    if revealed is None:
-        return None
-    mail = {"subject": revealed["subject"], "body": revealed["body"]}
-    return mail
 
 
 def _purchase(order: dict[str, Any], names: dict[str, str], places: dict[str, str],

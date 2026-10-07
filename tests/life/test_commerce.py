@@ -41,7 +41,12 @@ def test_store_purchase_settles_energy_and_receipt_once_in_the_payment_result():
 def test_delivery_receives_at_due_time_even_after_recipient_moves(destination):
     semantics, state = registered_world(destination)
     before = state.model_dump_json()
-    outcome = purchase_order(state, semantics, 1, order_request(destination=destination))
+    refusals = []
+    try:
+        outcome = purchase_order(state, semantics, 1, order_request(destination=destination))
+    except BusinessRuleError as error:
+        refusals.append(str(error))
+    assert refusals == [], "Delivery must accept every registered destination."
     order, event = outcome.orders[0], outcome.scheduled[0]
     distance = semantics.catalog.shortest_m("noodle-1", destination)
     assert order.expected_at == state.current_time + delivery_seconds(distance)

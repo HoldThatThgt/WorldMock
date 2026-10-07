@@ -187,7 +187,7 @@ def _scenario(products: tuple = (), locations: tuple = ()) -> SimpleNamespace:
     """公开结果投影所需的场景切片：商品名、地点名与时区。"""
     agents = (SimpleNamespace(agent_id=1, name="林悦",
                               contacts=(SimpleNamespace(contact_id="contact-wanglei", salutation="王磊"),)),)
-    return SimpleNamespace(foods=products, locations=locations, timezone=_ZONE, agents=agents)
+    return SimpleNamespace(goods=products, locations=locations, timezone=_ZONE, agents=agents)
 
 
 def _result(data: dict | None = None) -> dict:
@@ -207,16 +207,16 @@ def test_fresh_result_preserves_feedback_without_action_id() -> None:
 def test_purchase_result_replaces_product_and_supply_ids_with_names() -> None:
     """多商品结果各自写商品名、份数、付款、送达地点、预计时刻（带时区 ISO，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「通用格式」）、
     收货人与所回应的消息（没有关联时为 null），不复述请求的方式，删除报价版本、订单、供给、收货人与消息身份。"""
-    products = (SimpleNamespace(food_id="p1", name="牛肉面"),
-                SimpleNamespace(food_id="p2", name="豆浆"))
+    products = (SimpleNamespace(goods_id="p1", name="牛肉面"),
+                SimpleNamespace(goods_id="p2", name="豆浆"))
     places = (SimpleNamespace(location_id="private-office", name="办公室", display_name="办公室"),)
     orders = [
-        {"order_id": "order-1", "food_id": "p1", "store_id": "store-1", "quantity": 1, "fulfillment": "delivery",
+        {"order_id": "order-1", "goods_id": "p1", "store_id": "store-1", "quantity": 1, "fulfillment": "delivery",
          "destination_id": "private-office", "expected_at": _START + 900,
-         "total_price_fen": 2800, "recipient_id": "contact-wanglei", "request_message_id": "reply-private"},
-        {"order_id": "order-2", "food_id": "p2", "store_id": "store-2", "quantity": 1, "fulfillment": "pickup",
+         "total_price_fen": 2800, "recipient_id": "contact-wanglei", "request_message_id": "reply-private", "app_id": None, "payment_app_id": None},
+        {"order_id": "order-2", "goods_id": "p2", "store_id": "store-2", "quantity": 1, "fulfillment": "pickup",
          "destination_id": "private-office", "expected_at": _START + 86_400,
-         "total_price_fen": 550, "recipient_id": "agent:1", "request_message_id": None},
+         "total_price_fen": 550, "recipient_id": "agent:1", "request_message_id": None, "app_id": None, "payment_app_id": None},
     ]
     payload = {"orders": orders, "answering": "王磊 00:00 的消息"}
     public = public_result({**_result(payload), "status": "completed", "error_code": None},
@@ -236,7 +236,7 @@ def test_result_details_keep_only_new_readable_facts() -> None:
     回看、原因、下一步、逐项明细、名称
     归一、说明与终局原样（私有的候选标签不进入）；读完的邮件写主题与正文（正文只在阅读动作的结果中），恢复的活动写恢复
     后的计划时长；不复述参数、不含内部身份；工作结果另带只含公开字段的 work_review。"""
-    products = (SimpleNamespace(food_id="p1", name="牛肉面"),)
+    products = (SimpleNamespace(goods_id="p1", name="牛肉面"),)
     places = (SimpleNamespace(location_id="private-office", name="办公室", display_name="办公室"),)
     activity = {"activity_id": "internal-activity-1", "name": "步行前往办公室（1月5日 00:00 起）",
                 "planned_duration_seconds": 750, "data": {"arrival": {"location_id": "private-office",
@@ -248,7 +248,7 @@ def test_result_details_keep_only_new_readable_facts() -> None:
                 "items": [{"target": "办公室出售的牛肉面", "way": "到店", "from": None, "to": None}],
                 "answering": None, "prefer": "最快拿到"}, "note": None}]}
     resolved = [{"written": "办公室", "as": "地点：办公室"}]
-    started = {**_result({"activity": activity, "browse_result": {"items": [{"food_id": "p1", "store_id": "store-1",
+    started = {**_result({"activity": activity, "browse_result": {"items": [{"goods_id": "p1", "store_id": "store-1",
                                                                               "location_id": "private-office",
                                                                               "price_fen": 1200}]},
                           "recall": {"name": "工作：会议纪要"}, "candidates": ["办公室出售的牛肉面"], "items": [item],
@@ -270,16 +270,6 @@ def test_result_details_keep_only_new_readable_facts() -> None:
     rejected = public_result(_result({"reason": "钱不够", "next_step": "换一件便宜的", "unmet": ["funds"]}),
                              _scenario())["details"]
     assert rejected == {"reason": "钱不够", "next_step": "换一件便宜的"}
-    reading = {"activity_id": "internal-activity-2", "kind": "read_mail", "name": "阅读邮件工作安排（1月5日 00:00 起）",
-               "planned_duration_seconds": 300, "data": {"revealed": {
-                   "message_id": "internal-mail", "thread_id": "internal-thread", "subject": "工作安排",
-                   "body": "周一上午交会议纪要。", "attachment_sha256": None}}}
-    read = public_result({**_result({"activity": reading}), "status": "completed", "error_code": None},
-                         _scenario())["details"]
-    assert read == {"mail": {"subject": "工作安排", "body": "周一上午交会议纪要。"}}
-    unread = {**reading, "data": {}}
-    assert public_result({**_result({"activity": unread}), "status": "in_progress", "error_code": None},
-                         _scenario())["details"] == {"planned": [{"name": reading["name"], "duration": "约 5 分钟"}]}
     resumed = {"activity_ids": ["internal-activity-3"],
                "resumed": [{"name": "工作会议纪要（1月5日 00:00 起）", "planned_duration_seconds": 22_409}]}
     assert public_result({**_result(resumed), "status": "completed", "error_code": None}, _scenario())["details"] == {
@@ -293,9 +283,12 @@ def _begin_pair(engine, label: str) -> tuple[str, str]:
     from tests.life.conftest import start_request
     stage_day_plan(engine)
     _, rows = submit_round(engine, {1: ("start_activity", start_request(
-        targets=["自己", "应用：抖音"], actions=["interact", "interact"], ways=["等待", "打开"]))}, label)
+        targets=["自己", "刷推荐"], actions=["interact", "interact"], ways=["等待", "进行"], app=[None,"抖音"]))}, label)
     assert rows[0].status == "in_progress"
-    from tests.life.test_work_protocol import wake_for_control
+    from tests.life.conftest import wake_by_mail
+    def wake_for_control(current):
+        wake_by_mail(current, offset=60)
+        assert advance_until_ready(current)
     wake_for_control(engine)
     activities = rows[0].data["activities"]
     return tuple(activity_name(engine, row["activity_id"]) for row in activities)
@@ -350,11 +343,14 @@ def test_conclude_marks_named_just_ended_activities_and_keeps_their_status(engin
 
 def test_recall_reads_task_and_activity_without_identities(engine_factory) -> None:
     """真实主题和活动回看含历史叙述，读取不产生状态或事件变化，不泄漏内部身份。"""
-    from tests.life.test_work_protocol import at_workplace, wake_for_control
+    from tests.life.work_runtime import at_workplace
+    def wake_for_control(current):
+        wake_by_mail(current, offset=60)
+        assert advance_until_ready(current)
     engine = engine_factory()
     at_workplace(engine)
-    topic = engine.context.scenario.work_topics[0]
-    started = _act(engine, "recall-work-start", "start_activity", start_activity("工作", f"工作：{topic.topic}"))
+    topic = engine.context.semantics.catalog.contents[engine.context.scenario.agents[0].work_content_ids[0]]
+    started = _act(engine, "recall-work-start", "start_activity", start_activity("进行", engine.context.semantics.catalog.actions[topic.action_id].name))
     name = activity_name(engine, started.activity_id)
     wake_for_control(engine)
     _act(engine, "recall-work-first", "report_status", report_request(name, summary="先核对日期。"))
@@ -362,7 +358,7 @@ def test_recall_reads_task_and_activity_without_identities(engine_factory) -> No
     _act(engine, "recall-work-second", "report_status", report_request(name, summary="正在核对金额。"))
     data = _observe(engine, "recall-work-view")
     before = engine.context.state.model_dump_json(), engine.context.store.last_event_seq
-    for wanted in (name, f"工作：{topic.topic}"):
+    for wanted in (name,):
         result = engine.read_task_summary(1, RecallTaskSummaryRequest(task_name=wanted), data)
         assert result["recall"]["progress_note"] == "正在核对金额。"
         assert result["recall"]["note_history"][0]["note"] == "先核对日期。"
@@ -372,33 +368,39 @@ def test_recall_reads_task_and_activity_without_identities(engine_factory) -> No
 
 def test_activity_targets_carry_only_readable_objective_progress(engine_factory) -> None:
     """真实工作目标显示跨活动实际工时和上一段叙述，不泄漏内部主题身份。"""
-    from tests.life.test_work_protocol import at_workplace, wake_for_control
+    from tests.life.work_runtime import at_workplace
+    def wake_for_control(current):
+        wake_by_mail(current, offset=60)
+        assert advance_until_ready(current)
     engine = engine_factory()
     at_workplace(engine)
-    topic = engine.context.scenario.work_topics[0]
-    started = _act(engine, "target-work-start", "start_activity", start_activity("工作", f"工作：{topic.topic}"))
+    topic = engine.context.semantics.catalog.contents[engine.context.scenario.agents[0].work_content_ids[0]]
+    started = _act(engine, "target-work-start", "start_activity", start_activity("进行", engine.context.semantics.catalog.actions[topic.action_id].name))
     name = activity_name(engine, started.activity_id)
     wake_for_control(engine)
     _act(engine, "target-work-report", "report_status", report_request(name, summary="已核对起始金额。"))
     target = _activity_target(_observe(engine, "target-work-view"), name)
-    assert target["state"] == "已做约 0 小时，还差约 8 小时"
+    assert target["state"] == f"已做约 1 分钟，《{topic.title}》还剩约 9 小时"
     assert target["last_report"] == "已核对起始金额。"
     assert [row["tool"] for row in target["tools"]] == ["report_status", "pause_activity", "conclude_activity"]
-    assert topic.topic_id not in json.dumps(target) and "有效" not in target["state"]
+    assert topic.content_id not in json.dumps(target) and "有效" not in target["state"]
 
 
 def test_work_objective_progress_grows_with_settlement(engine_factory) -> None:
     """真实工作结算六百秒后，工具目标的已做和剩余与主题累计工时一致。"""
-    from tests.life.test_work_protocol import at_workplace, wake_for_control
+    from tests.life.work_runtime import at_workplace
+    def wake_for_control(current):
+        wake_by_mail(current, offset=60)
+        assert advance_until_ready(current)
     engine = engine_factory()
     at_workplace(engine)
-    topic = engine.context.scenario.work_topics[0]
-    started = _act(engine, "progress-work-start", "start_activity", start_activity("工作", f"工作：{topic.topic}"))
+    topic = engine.context.semantics.catalog.contents[engine.context.scenario.agents[0].work_content_ids[0]]
+    started = _act(engine, "progress-work-start", "start_activity", start_activity("进行", engine.context.semantics.catalog.actions[topic.action_id].name))
     name = activity_name(engine, started.activity_id)
     wake_by_mail(engine, offset=600)
     advance_next(engine)
     activity = engine.context.state.activities[started.activity_id]
     assert activity.elapsed_seconds == 600
     target = _activity_target(_observe(engine, "progress-work-view"), name)
-    assert target["state"] == "已做约 0.2 小时，还差约 7.8 小时"
+    assert target["state"] == f"已做约 10 分钟，《{topic.title}》还剩约 9 小时"
     assert "有效" not in target["state"]

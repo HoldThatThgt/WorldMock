@@ -181,10 +181,11 @@ def _response(reasoning: str, reasoning_tokens: int | None) -> dict:
             "usage": usage}
 
 
-def _order(order_id: str, food_id: str, created_at: int) -> dict:
+def _order(order_id: str, goods_id: str, created_at: int) -> dict:
     """@brief 一个订单的状态快照（动作结果 data.orders 的元素）。"""
     return DeliveryState(
-        order_id=order_id, agent_id=1, food_id=food_id, store_id="shop", app_id="meituan",
+        order_id=order_id, agent_id=1, goods_id=goods_id, category="drink", store_id="shop", app_id="meituan",
+        payment_app_id="alipay", delivery_address_id="office", arrived_at=None, received_at=None,
         seller_account_id="seller:shop", quantity=1, unit_price_fen=2300, delivery_fee_fen=500,
         path=("shop", "office"), trip_id=f"trip-{order_id}", distance_meters=1000, prep_seconds=600,
         destination_id="office", fulfillment="delivery",
@@ -197,8 +198,8 @@ def _purchase(at: int, decision: str, action: str, orders: list[dict]) -> list[E
     requested = EventDraft(event_type="action_requested", occurred_at=at, agent_id=1, decision_id=decision,
                            action_id=action, source_kind="model", data={
                                "tool_name": "start_activity", "request_sha256": "0" * 64, "reused": False,
-                               "request": {"items": [{"target": "店", "way": "远程下单", "from": None,
-                                                       "to": None}], "answering": None, "prefer": "最快拿到"}})
+                               "request": {"items": [{"target": "咖啡", "way": "购买", "app": "美团",
+                                                       "to": None, "pay_app": "支付宝"}], "answering": None}})
     result = EventDraft(event_type="action_result", occurred_at=at, agent_id=1, decision_id=decision,
                         action_id=action, caused_by=[requested.event_id], data={
                             "action_id": action, "agent_id": 1, "status": "completed", "occurred_at": at,

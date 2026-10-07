@@ -15,7 +15,6 @@ from typing import Any
 
 from worldmock.footprints.store import FootprintStore
 from worldmock.life.guidance import Refusal
-from worldmock.life.vocabulary import PURCHASE_WAYS
 from worldmock.life.readable import clock_phrase, iso_time, portion_phrase
 from worldmock.life.recipients import person_name
 from worldmock.life.tool_layer import LayerContext
@@ -51,7 +50,7 @@ def order_label(order: dict[str, Any], names: dict[str, str], clock: tuple[str, 
     """
     timezone_name, now = clock
     return (f"{names[order['goods_id']]} {portion_phrase(order['quantity'])}（"
-            f"{clock_phrase(order['created_at'], now, timezone_name)} {PURCHASE_WAYS[order['fulfillment']]}）")
+            f"{clock_phrase(order['created_at'], now, timezone_name)} 购买）")
 
 
 def require_unhandled(state: Any, scenario: Any, bindings: list[dict]) -> None:

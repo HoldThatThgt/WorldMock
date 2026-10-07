@@ -54,9 +54,12 @@ def parse_catalog_model(payload: object, model: type[_Model]) -> _Model:
             code = "GOODS_BINDING_MISSING"
         elif field == "action_id" and first["type"] == "missing":
             code = "CONTENT_ACTION_MISSING"
+        elif field == "communication_mode":
+            code = "ACTION_COMMUNICATION_MODE_INVALID"
         elif model is MapGraph and field == "length_m":
             code = "MAP_EDGE_INVALID"
-        elif field in {"price_fen", "duration_seconds", "length_m", "size_bytes", "seed", "episode"}:
+        elif field in {"price_fen", "duration_seconds", "length_m", "size_bytes", "seed", "episode",
+                      "shipping_seconds"}:
             code = "ENVIRONMENT_NUMBER_INVALID"
         else:
             code = "ENVIRONMENT_KIND_INVALID"

@@ -10,13 +10,14 @@ from worldmock.catalog.affordances import engine_affordances
 from worldmock.catalog.graph import Graph
 from worldmock.errors import BusinessRuleError
 from worldmock.life import activity_control
+from worldmock.life.content_select import ContentRequest, eligible_contents, required_work_location
 from worldmock.life.guidance import Refusal
 from worldmock.life.wayfinding import go_step
 from worldmock.life.readable import TRAVEL_WAYS
 from worldmock.life.interaction_menu import activity_phrase, merged_selection
 from worldmock.life.models import ActivityKind, TravelMode, WorldState, active_activities
 from worldmock.life.social import SOCIAL_RESOURCE_CLAIMS
-from worldmock.life.social_actions import late_acceptance_refusal, pair_chat
+from worldmock.life.social_actions import pair_chat
 
 _UNMET = "ACTIVITY_PRECONDITION_UNMET"
 
@@ -25,16 +26,21 @@ _UNMET = "ACTIVITY_PRECONDITION_UNMET"
 class WorldFacts:
     """@brief 准入判定所需的冻结工作内容与工作地点。"""
 
-    work_topics: Mapping[str, Any]
-    #: 当前人物工作安排中的现场地点，无工作安排时为空。
-    workplace_location_id: str | None = None
+    #: 已登记动作与内容唯一目录。
+    catalog: Any
+    #: 冻结场景声明的内容分配与工作地点。
+    scenario: Any
+    #: 本轮唯一世界状态。
+    state: WorldState
+    #: 本次执行动作的所有人。
+    agent_id: int
 
 
 @dataclass(frozen=True, slots=True)
 class Context:
     """@brief 一次准入判定的世界与可读名称：地点身份→地点名，活动身份→本轮活动名。
 
-    :param work_topics: 冻结工作主题目录；恢复暂停的工作时核对主题剩余工时。
+    :param catalog: 冻结动作与内容目录；恢复暂停活动时核对本人剩余内容。
     :param graph: 已登记的连通图，下一步提示据此查询目标地点。
     """
 
@@ -42,8 +48,10 @@ class Context:
     agent_id: int
     place_names: Mapping[str, str]
     graph: Graph
+    #: 恢复内容资格使用同一目录与人物分配。
+    catalog: Any
+    scenario: Any
     activity_names: Mapping[str, str] = field(default_factory=dict)
-    work_topics: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,9 +62,9 @@ class Item:
     :param way: 人物所选的方式短语。
     :param label: 可读说法（做什么加对象名），只用于原因与说明。
     :param claims: 该项开始后占用的资源。
-    :param place: 目标在场要求的地点身份（办公室工作、到店取得、限地点使用的持有物），None 表示不要求。
+    :param place: 目标在场要求的地点身份（工作地点、到店购买、到站领取），None 表示不要求。
     :param partner: 当面交谈的对方人物身份，None 表示不是交谈。
-    :param manual: 是否是需要手动操作的瞬时动作（远程下单）。
+    :param manual: 是否是需要手动操作的瞬时动作（购物应用下单）。
     :param site: 是否要停在一个地点做（生活活动）：途中与同一请求出发都做不了。
     """
 
@@ -92,16 +100,23 @@ def selection_item(row: Mapping[str, Any], action: Mapping[str, Any], facts: Wor
     item = Item(canonical=canonical, way=action["label"],
                 label=f"{activity_phrase(action)}{activity_control.object_display_name(row)}",
                 claims=_claims(canonical, action))
-    if canonical == "work" and object_id in facts.work_topics:
-        return replace(item, place=facts.workplace_location_id)
     if canonical == "purchase" and action.get("fulfillment") == "pickup":
         return replace(item, place=row["store_id"])
     if canonical == "purchase":
         return replace(item, manual=True)
-    if canonical == "chat" and str(object_id).startswith("agent:"):
-        return replace(item, partner=int(str(object_id).split(":", 1)[1]))
+    if canonical == "collect_parcel":
+        return replace(item, place=object_id)
     if canonical == "do":
-        return replace(item, site=True)
+        request = ContentRequest(facts.agent_id, object_id, action.get("app_id"))
+        place = required_work_location(facts.catalog, facts.scenario, facts.state, request)
+        eligible = eligible_contents(facts.catalog, facts.scenario, facts.state, request)
+        config = next(agent for agent in facts.scenario.agents if agent.agent_id == facts.agent_id)
+        if place is None and eligible and all(content.content_id in config.work_content_ids for content in eligible):
+            place = config.work_schedule.workplace_location_id
+        registered = facts.catalog.actions[object_id]
+        partner = row.get("counterpart")
+        partner_id = int(partner.split(":", 1)[1]) if partner and partner.startswith("agent:") else None
+        return replace(item, place=place, partner=partner_id if not registered.app_ids else None)
     return item
 
 
@@ -131,7 +146,7 @@ def group_refusal(context: Context, items: Sequence[Item]) -> Refusal | None:
 
 
 def require_hands_free(context: Context, what: str) -> None:
-    """@brief 驾车时需要手动操作的瞬时动作（发消息、提交成果）以 ACTIVITY_PRECONDITION_UNMET 拒绝；步行途中照常。"""
+    """@brief 驾车时需要手动操作的瞬时动作（发消息、购物应用下单）以 ACTIVITY_PRECONDITION_UNMET 拒绝；步行途中照常。"""
     refusal = hands_free_refusal(context, what)
     if refusal is not None:
         raise refusal.error()
@@ -149,7 +164,7 @@ def _presence_refusal(context: Context, item: Item, present: str | None, departs
 
 
 def _place_refusal(context: Context, item: Item, present: str | None, departs: bool) -> Refusal | None:
-    """@brief 要在指定地点做的事（办公室工作、到店取得、限地点使用的持有物）：人要在那里，且不和出行一起开始；
+    """@brief 要在指定地点做的事（工作内容、到店购买、到站领取）：人要在那里，且不和出行一起开始；
     下一步直接提示前往指定地点。"""
     if item.place is None:
         return None
@@ -191,7 +206,7 @@ def _partner_refusal(context: Context, item: Item, present: str | None, departs:
         if pair_chat(context.state, context.agent_id, f"agent:{item.partner}") is not None:
             return Refusal("CHAT_ALREADY_ACTIVE", "You are already talking together.",
                            "Continue or conclude the current conversation.")
-        return late_acceptance_refusal(context.state, context.agent_id, f"agent:{item.partner}")
+        return None
     name = partner.name if partner is not None else "the other person"
     step = (go_step(context.graph, context.place_names, _origin(context), where) if where is not None
             else "Wait until the other person arrives.")
@@ -248,12 +263,11 @@ def _claims_refusal(context: Context, items: Sequence[Item]) -> Refusal | None:
 
 def _claims(canonical: str, action: Mapping[str, Any]) -> frozenset[str]:
     """@brief 购买不占资源，交谈与通话用社交占用，其余按注册表的条件占用。"""
-    if canonical == "purchase":
+    if canonical in {"purchase", "collect_parcel"}:
         return frozenset()
-    if canonical in {"chat", "call"}:
-        return SOCIAL_RESOURCE_CLAIMS
     view = engine_affordances()
     kinds = [name for name, spec in view.kinds.items() if spec.action == canonical]
     if len(kinds) != 1:
         raise BusinessRuleError("ACTION_NOT_SUPPORTED")
-    return view.resource_claims(kinds[0], travel_mode=action.get("travel_mode"))
+    return view.resource_claims(kinds[0], travel_mode=action.get("travel_mode"),
+                                category=action.get("category"), manner=action.get("manner"))

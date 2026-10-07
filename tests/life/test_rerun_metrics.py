@@ -18,7 +18,11 @@ from zoneinfo import ZoneInfo
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import StubPlanDayClient, advance_until_ready, context, settle_day_plans, start_activity
-from tests.life.test_dayrun_restaurants import FOOD_ID, STORE_ID, STORE_FOOD_ID, _finish, _start
+from tests.life.test_acs_amended_runtime import perform, pump
+from tests.life.test_acs_runtime import request
+from tests.life.work_runtime import trip_to
+from worldmock.life.activity_control import is_pending_conclusion
+from tests.life.conftest import conclude_request
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.quality import build_quality_report
 from worldmock.footprints.store import FootprintStore
@@ -58,15 +62,19 @@ def _live_day(engine) -> dict:
                                         start_activity("等待", "不存在的对象")))
     rejected = engine.commit_decision_round("unlisted")[0]
     assert (rejected.status, rejected.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
-    _, sleep = _start(engine, "sleep", "self", None, "睡觉")
-    _finish(engine, sleep.activity_id)
-    _, walk = _start(engine, "to-restaurant", "location", STORE_ID, "步行")
-    _finish(engine, walk.activity_id)
-    _start(engine, "buy-meal", "supply", STORE_FOOD_ID, "到店")
-    assert advance_until_ready(engine)
-    _, eating = _start(engine, "eat-meal", "holding", FOOD_ID, "食用")
-    _finish(engine, eating.activity_id)
-    return {"walk": walk.activity_id, "eat": eating.activity_id}
+    sleep = perform(engine, "sleep", request("自己", None, "睡觉"))
+    assert sleep.error_code is None
+    pump(engine, lambda: is_pending_conclusion(engine.context.state.activities[sleep.activity_id]))
+    ended = perform(engine, "sleep-ended", conclude_request(engine.context.state.activities[sleep.activity_id].name),
+                    "conclude_activity")
+    assert ended.error_code is None
+    trip_to(engine, "noodle-2", "to-restaurant")
+    walk = next(item for item in engine.context.state.activities.values() if item.kind.value == "travel")
+    bought = perform(engine, "buy-meal", request("牛肉面", None, "购买"))
+    assert bought.error_code is None, bought.data
+    receipt = next(event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
+                   if event.data.get("kind") == "goods_received")
+    return {"walk": walk.activity_id, "receipt": receipt}
 
 
 def test_rerun_metrics_on_a_real_engine_day(engine_factory) -> None:
@@ -91,11 +99,12 @@ def test_rerun_metrics_on_a_real_engine_day(engine_factory) -> None:
     levels = [event.data["body"]["levels"]["appetite"] for event in events if event.event_type == "observation"]
     assert metrics["hungriest_level"] == max(levels, key=order.index)
 
-    meal = [event for event in events if event.event_type == "activity_progress" and event.activity_id == ids["eat"]]
-    start = meal[0].data["interval_start"]
-    at_meal = next(event for event in events if event.event_type == "environment_event"
-                   and event.data.get("kind") == "body_settlement" and event.data["interval_start"] == start)
-    energy = at_meal.data["body_settlement"]["before"]["energy_kcal"]
+    receipt = ids["receipt"]
+    points = [(event.data["interval_start"], event.data["body_settlement"]["before"]["energy_kcal"])
+              for event in events if event.data.get("kind") == "body_settlement"]
+    points += [(event.data["interval_end"], event.data["body_settlement"]["after"]["energy_kcal"])
+               for event in events if event.data.get("kind") == "body_settlement"]
+    energy = min(value for moment, value in points if moment <= receipt.occurred_at)
     assert metrics["lowest_energy_before_meal"] == [
         {"agent_id": 1, "date": "2026-01-05", "ate": True, "energy_kcal": energy}]
     assert metrics["meal_count"] == 1
@@ -128,9 +137,11 @@ def _progress(agent: int, activity_id: str, span: tuple[int, int], **data) -> Ev
                       data={"activity": snapshot, "interval_start": span[0], "interval_end": span[1], **data})
 
 
-def _eating(quantity: float, use_mode: str = "eat") -> dict:
-    """@brief activity_progress.data.consumption：本区间用量与使用方式。"""
-    return {"consumption": {"use_mode": use_mode, "items": [{"product_id": "meal", "interval_portion": quantity}]}}
+def _receipt(agent: int, order_id: str, moment: int, category="meal") -> EventDraft:
+    """@brief 瞬时真实食品收货按订单去重，不把持续活动或日用品当成用餐。"""
+    return EventDraft(event_type="environment_event", occurred_at=moment, agent_id=agent,
+                      data={"kind": "goods_received", "order_id": order_id, "goods_id": "meal",
+                            "quantity": 1, "category": category})
 
 
 def _event(event_type: str, occurred_at: int, agent: int = 1, **data) -> EventDraft:
@@ -186,12 +197,16 @@ def test_rerun_metrics_on_a_stored_run_with_gaps_driving_only_and_missed_meals(t
         _progress(1, "wait-a", (_at(0, 10), _at(0, 30))),
         _progress(1, "wait-b", (_at(0, 20), _at(0, 40))),
         _progress(1, "drive", (_at(1), _at(1, 30)), kind="travel", mode="driving"),
-        _progress(1, "eat", (_at(3), _at(3, 20)), kind="consume", **_eating(0.75)),
-        _progress(1, "eat", (_at(3, 20), _at(3, 30)), kind="consume", **_eating(0.25)),
-        _progress(1, "empty-plate", (_at(4), _at(4, 10)), kind="consume", **_eating(0)),
-        _progress(1, "lotion", (_at(4, 10), _at(4, 20)), kind="consume", **_eating(1, "use")),
-        _progress(1, "late-snack", (_at(0, 10, day=1), _at(0, 20, day=1)), kind="consume", **_eating(1)),
-        _progress(2, "work", (_at(0), _at(2)), kind="work"),
+        _progress(1, "action", (_at(3), _at(3, 20)), kind="action"),
+        _receipt(1, "first-meal", _at(3, 20)),
+        _progress(1, "action", (_at(3, 20), _at(3, 30)), kind="action"),
+        _receipt(1, "first-meal", _at(3, 30)),
+        _progress(1, "rest", (_at(4), _at(4, 10)), kind="action"),
+        _progress(1, "rest", (_at(4, 10), _at(4, 20)), kind="action"),
+        _receipt(1, "tissue", _at(4, 10), category="daily"),
+        _progress(1, "action", (_at(0, 10, day=1), _at(0, 20, day=1)), kind="action"),
+        _receipt(1, "late-snack", _at(0, 10, day=1), category="snack"),
+        _progress(2, "work", (_at(0), _at(2)), kind="action"),
         *(_started(_at(1), order=order) for order in range(3)),
         _started(_at(1), 2),
         _started(_at(2)),

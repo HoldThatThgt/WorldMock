@@ -366,7 +366,7 @@ class TestSocialLedger:
 
     def test_call_relief(self) -> None:
         # 0.6 − 0.4×0.5 = 0.4。
-        exposure = SocialExposure(call_hours=0.5)
+        exposure = SocialExposure(remote_hours=0.5)
         assert apply_social_need_ledger(0.6, exposure) == pytest.approx(0.4)
 
     def test_shared_meal_is_not_a_social_ledger_input(self) -> None:

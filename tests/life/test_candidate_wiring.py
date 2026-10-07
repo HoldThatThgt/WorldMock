@@ -14,7 +14,7 @@ def test_observation_commits_presented_object_stamps(engine_factory) -> None:
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
     presented = {row["object_id"] for row in observed["interaction_bindings"]
-                 if row["kind"] in {"content", "game", "lifestyle"}}
+                 if row["kind"] == "supply"}
     assert presented
     assert engine.context.state.presentation_state == {}
 

@@ -1,37 +1,22 @@
-"""@brief 工具层可调用索引：可做的生活活动、此地可得到的食品与查询权限内的完整品类计数。
-
-生活活动取资格段保留的全部名称，曝光轮转不会缩减按名调用范围。食品按固定品类给出人读计数与至多三个示例名；
-完整查询品类由 world_query 填入。应用始终作为目标列出，不进入候选、索引或曝光轮转。
-"""
+"""@brief 同一商品集合的品类计数与真实导航、支付应用名称。"""
 
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from worldmock.exchange.types import GOODS_CATEGORY_LABELS
-from worldmock.life.admission import present_location
-from worldmock.life.purchase_offers import menu_goods
+from worldmock.exchange.types import AppPurpose, GOODS_CATEGORY_LABELS
 from worldmock.life.candidates import tiebreak_digest
-from worldmock.life.discovery import DiscoveryContext
-from worldmock.life.presentation import PresentationWindow
+from worldmock.life.discovery import DiscoveryContext, product_rows
 from worldmock.life.readable import count_phrase, local_date
 from worldmock.life.tool_layer import LayerContext
 
 #: 每个品类至多给出的示例名数。
 MAX_EXAMPLES = 3
 #: 索引的三个键，按这个顺序写出（query_categories 由 world_query.attach_world_query 在冻结查询事实时填入）。
-INDEX_KEYS = ("lifestyle", "goods", "query_categories")
-
-
-@dataclass(frozen=True, slots=True)
-class IndexSources:
-    """@brief 可调用索引的来源：生活活动分区在资格段之后保留的对象身份（呈现窗口的 presented 与 deferred，
-    被资格段排除的对象不在其中）。"""
-
-    lifestyle: tuple[str, ...] = ()
+INDEX_KEYS = ("goods", "navigation_apps", "payment_apps", "query_categories")
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,40 +29,23 @@ class _Entry:
     listed: bool
 
 
-def index_sources(windows: Mapping[str, PresentationWindow]) -> IndexSources:
-    """@brief 从本轮呈现窗口取来源：每个分区的 presented 加 deferred 就是资格段保留的全部条目（被推迟只是本次名额已满）。"""
-
-    def retained(kind: str) -> tuple[str, ...]:
-        """@brief 一个分区保留的对象身份；本轮没有该分区的窗口时为空。"""
-        window = windows.get(kind)
-        return (*window.presented, *window.deferred) if window is not None else ()
-
-    return IndexSources(lifestyle=retained("lifestyle"))
 
 
-def callable_index(context: LayerContext, sources: IndexSources) -> dict[str, Any]:
-    """@brief 工具层的 callable_index：{lifestyle: [名称], goods: [{category, count, examples}],
-    query_categories: [{category, count}]}；query_categories 先写空，由 world_query.attach_world_query 填入查询权限内各
-    公开品类的完整条目数（query_category_index），查询筛选不改变这些计数（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-请求 ）。
-
-    :param context: 本次观察的层上下文（bindings 为本轮列出的交互对象，menu 为本轮有效菜单）。
-    :param sources: 生活活动分区资格段保留的对象（index_sources）。
-    """
+def callable_index(context: LayerContext) -> dict[str, Any]:
+    """@brief 商品品类不受呈现窗口裁剪，完整查询品类计数由查询冻结时填写。"""
     order = _order(context)
-    return {"lifestyle": _lifestyle_names(context, sources.lifestyle, order),
-            "goods": _categories(_goods_entries(context), order, frozenset()), "query_categories": []}
+    catalog = context.semantics.catalog
+    navigation = catalog.apps_by_purpose[AppPurpose.NAVIGATION] if "travel_to" in context.menu.allowed_actions else ()
+    payment = catalog.apps_by_purpose[AppPurpose.PAYMENT] if "purchase" in context.menu.allowed_actions else ()
+    return {"goods": _categories(_goods_entries(context), order, frozenset()),
+            "navigation_apps": [catalog.apps[identity].name for identity in navigation],
+            "payment_apps": [catalog.apps[identity].name for identity in payment], "query_categories": []}
 
 
 def query_category_index(entries: Iterable[Mapping[str, Any]]) -> list[dict]:
     """@brief 本轮查询权限内公开品类标签与完整对象计数，不按呈现窗口截断。"""
     counts = Counter(entry["category"] for entry in entries if entry["category"] is not None)
     return [{"category": category, "count": counts[category]} for category in sorted(counts)]
-
-
-def obtainable_here(context: DiscoveryContext, store_id: str) -> bool:
-    """@brief 实际位于门店可到店，站定时绑定 app 的店可配送到当前地点。"""
-    present = present_location(context.state, context.agent.agent_id)
-    return present is not None and (present == store_id or bool(context.semantics.catalog.apps_by_store[store_id]))
 
 
 def _order(context: LayerContext) -> Callable[[str], str]:
@@ -87,29 +55,20 @@ def _order(context: LayerContext) -> Callable[[str], str]:
     return lambda identity: tiebreak_digest(scenario, context.agent_id, day, identity)
 
 
-def _lifestyle_names(context: LayerContext, identities: Sequence[str], order: Callable[[str], str]) -> list[str]:
-    """@brief 此地此刻可做的生活活动名称：资格段保留的条目按决胜键排列；有效菜单不许做生活活动时为空。"""
-    if "do" not in context.menu.allowed_actions:
-        return []
-    names = {item.activity_id: item.name for item in context.lifestyle_items}
-    return [names[identity] for identity in sorted(identities, key=order)]
 
 
 
 
 def _goods_entries(context: LayerContext) -> list[_Entry]:
-    """@brief 从真实固定菜单构建可得到商品的名称索引，按固定商品类别汇总。"""
+    """@brief 从观察和查询共用的真实商品集合构建固定类别索引。"""
     if "purchase" not in context.menu.allowed_actions:
         return []
     found = DiscoveryContext(context.state, context.scenario, context.semantics,
                              context.state.agents[context.agent_id])
     listed = {row["goods_id"] for row in context.bindings if row["kind"] == "supply"}
-    entries = {}
-    for store_id, food in menu_goods(context):
-        if food.goods_id not in entries and obtainable_here(found, store_id):
-            entries[food.goods_id] = _Entry(GOODS_CATEGORY_LABELS[food.category], food.name,
-                                          food.goods_id, food.goods_id in listed)
-    return list(entries.values())
+    catalog = context.semantics.catalog
+    return [_Entry(GOODS_CATEGORY_LABELS[catalog.goods[row["goods_id"]].category], row["name"],
+                   row["goods_id"], row["goods_id"] in listed) for row in product_rows(found)]
 
 
 def _categories(entries: Iterable[_Entry], order: Callable[[str], str], shared: frozenset[str]) -> list[dict]:

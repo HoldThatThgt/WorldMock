@@ -65,12 +65,43 @@ _MIDNIGHT_WEEK = {"0": {"starts": 0, "ends": 310, "breaks": []}, "1": None, "2":
 _REST = {"day": "休息日", "hours": None, "place": None, "breaks": [], "status": None}
 #: 人物状态的键集合（本特性不增不减，docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界机制 ）。
 _AGENT_KEYS = frozenset({
-    "active_effects", "agent_id", "balance_account_id", "body", "body_settled_at", "consecutive_rejections",
+    "active_effects", "agent_id", "balance_account_id", "body", "body_settled_at",
     "content_progress", "day_plan", "discomfort_pulse_hours", "discomfort_started_at",
-    "errands", "felt_bands_at_last_decision", "inbox", "inventory", "last_decision_time",
+    "errands", "felt_bands_at_last_decision", "inbox", "driving_days", "last_driving_date", "last_decision_time",
     "location_id", "mood_updated_at", "name", "next_decision_at", "outbox", "pending_wake_reasons",
-    "people_at_last_decision", "plan_submitted_dates", "read_inbox_ids", "read_message_ids",
+    "people_at_last_decision", "plan_submitted_dates", "read_inbox_ids",
     "same_moment_rounds", "same_moment_stage", "visible_message_ids"})
+
+
+@pytest.fixture
+def engine_factory(engine_factory, monkeypatch):
+    """@brief 班次测试发布充足的本人工作内容和抖音单条长内容，不预置任何消费进度。"""
+    from tests import engine_fixture
+    from worldmock.catalog.identity import refresh_manifest_identity
+    original = engine_fixture._mutated_scenario
+    def declared(source, mutate, root):
+        path = original(source, mutate, root)
+        document = json.loads(path.read_text())
+        catalog = root / "catalog"
+        content_path = catalog / "contents.json"
+        contents = json.loads(content_path.read_text())
+        work = next(row for row in contents["contents"] if row["content_id"] == "topic-sales")
+        for person in document["agents"]:
+            person["work_content_ids"] = []
+            if person["work_schedule"] is not None:
+                content_id = f"shift-work-{person['agent_id']}"
+                contents["contents"].append({**work, "content_id": content_id, "duration_seconds": 8 * 86400})
+                person["work_content_ids"] = [content_id]
+        for row in contents["contents"]:
+            if "douyin" in row["app_ids"] and row["content_id"] != "c-long":
+                row["app_ids"] = ["bilibili"]
+        contents["contents"].sort(key=lambda row: row["content_id"])
+        content_path.write_text(json.dumps(contents, ensure_ascii=False), encoding="utf-8")
+        path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+        refresh_manifest_identity(catalog)
+        return path
+    monkeypatch.setattr(engine_fixture, "_mutated_scenario", declared)
+    return engine_factory
 
 
 def _engine(engine_factory, *declarations, scenario: str = "single-person.json") -> LifeEngine:
@@ -80,7 +111,7 @@ def _engine(engine_factory, *declarations, scenario: str = "single-person.json")
         if scenario == "single-person.json":
             document["end_at"] = "2026-01-13T00:00:00+08:00"
         for agent in document['agents']:
-            agent.update(work_topic_ids=[],work_schedule=None)
+            agent.update(work_content_ids=[], work_schedule=None)
         document['agents'][0]['contacts'] = [{'contact_id':'mother','salutation':'母亲','relation':'母亲',
             'closeness':24,'channels':['phone'],'reply_policy':'none'}]
         for change in declarations:
@@ -243,13 +274,10 @@ def _activity_facts(engine: LifeEngine, activity_id: str) -> tuple:
 
 def _start_app(engine: LifeEngine) -> str:
     """@brief 真实动作抽取指定应用的长内容，不改写活动进度、时长或交互边界。"""
-    from tests.life.test_app_progress import _action_for
-
-    catalog, state = engine.context.semantics.catalog, engine.context.state
-    key = _action_for(catalog, "douyin", state.random_state, "c-long", "action-shift-app")
-    _, used = _decide(engine, key.removeprefix("action-"), "start_activity",
-                      start_activity("打开", f"应用：{catalog.apps['douyin'].name}"))
+    _, used = _decide(engine, "shift-app", "start_activity",
+                      start_activity("进行", "刷推荐", app=["抖音"]))
     assert used.status == "in_progress", (used.error_code, used.message)
+    assert engine.context.state.activities[used.activity_id].data["content_id"] == "c-long"
     return used.activity_id
 
 
@@ -305,7 +333,7 @@ def test_t1_a_waiting_person_is_asked_exactly_at_the_shift_end_and_the_wait_goes
     other = _engine(engine_factory, declare(shift=_EVENING_END))
     other_wait, _ = _wait_from(other, _moment(other, "17:24"))
     advance_next(other)
-    _, refused = _decide(other, "refused", "start_activity", start_activity("打开", "不存在的对象"))
+    _, refused = _decide(other, "refused", "start_activity", start_activity("进行", "不存在的对象"))
     assert refused.status == "rejected"
     assert other.context.state.current_time == end and other.scheduling_state().ready_agent_ids == (1,)
     assert _report(other, "again", other_wait)[1].status == "completed"
@@ -612,7 +640,7 @@ def test_t11_in_a_call_the_call_goes_on_and_pausing_is_still_refused(engine_fact
     engine = _engine(engine_factory, declare(shift=_EVENING_END))
     end = _moment(engine, "17:30")
     _clock(engine, _moment(engine, "17:24"))
-    _, called = _decide(engine, "call", "start_activity", start_activity("通话", "联系人：母亲"))
+    _, called = _decide(engine, "call", "start_activity", start_activity("进行", "语音通话", app=["微信"], to=["联系人：母亲"]))
     assert called.status == "in_progress"
     before = _activity_facts(engine, called.activity_id)
     assert engine.context.state.agents[1].next_decision_at == _next_event(engine) == end
@@ -625,7 +653,7 @@ def test_t11_in_a_call_the_call_goes_on_and_pausing_is_still_refused(engine_fact
     _, reported = _report(engine, "call-on", called.activity_id)
     assert reported.status == "completed"
     _drive(engine, lambda: engine.context.state.activities[called.activity_id].status != ActivityStatus.ACTIVE)
-    assert engine.context.state.activities[called.activity_id].ended_at == before[1] == _moment(engine, "17:39")
+    assert engine.context.state.activities[called.activity_id].ended_at == before[1] == _moment(engine, "17:34")
 
 
 def test_t11_in_a_conversation_both_chats_go_on_and_pausing_is_still_refused(engine_factory) -> None:
@@ -634,9 +662,9 @@ def test_t11_in_a_conversation_both_chats_go_on_and_pausing_is_still_refused(eng
     engine = _engine(engine_factory, declare(0, shift=_EVENING_END), scenario="multi-person.json")
     end = _moment(engine, "17:30")
     _clock(engine, _moment(engine, "17:24"))
-    submit_round(engine, {1: ("start_activity", start_activity("交谈", f"人物：{engine.context.state.agents[2].name}")), 2: ("start_activity", _wait())}, "invite")
-    submit_round(engine, {2: ("start_activity", start_activity("交谈", f"人物：{engine.context.state.agents[1].name}"))}, "accept")
-    chats = {item.agent_id:item for item in engine.context.state.activities.values() if item.kind.value=="chat"}
+    submit_round(engine, {1: ("start_activity", start_activity("进行", "聊天", to=[f"人物：{engine.context.state.agents[2].name}"])), 2: ("start_activity", _wait())}, "invite")
+    submit_round(engine, {2: ("start_activity", start_activity("进行", "聊天", to=[f"人物：{engine.context.state.agents[1].name}"]))}, "accept")
+    chats = {item.agent_id:item for item in engine.context.state.activities.values() if item.kind.value == "action" and item.data["category"] == "social"}
     before = {agent_id: _activity_facts(engine, item.activity_id) for agent_id, item in chats.items()}
     assert all(facts[0] == ActivityStatus.ACTIVE and facts[1] > end for facts in before.values())
     _to_edge(engine, end)
@@ -721,7 +749,7 @@ def test_t14_after_restore_and_a_counterfactual_branch_the_edge_fires_once(engin
     _, observed = _wait_from(engine, _moment(engine, "17:24"))
     advance_next(engine)
     checkpoint = _checkpoint(engine)
-    assert checkpoint.state["schema_version"] == WORLD_SCHEMA_VERSION == 10
+    assert checkpoint.state["schema_version"] == WORLD_SCHEMA_VERSION == 11
     assert set(checkpoint.state["agents"]["1"]) == _AGENT_KEYS
     assert checkpoint.state["agents"]["1"]["pending_wake_reasons"] == ["shift_end"]
     branches = _branches(engine, checkpoint, tmp_path, observed["observation_event_id"])
@@ -772,7 +800,7 @@ def test_t15_an_offline_run_with_a_shift_exports_validates_and_reports(engine_fa
     assert export_run(engine.context.store, checkpoint.last_event_seq, export_dir)["experiment_completed"] is True
     manifest, events, activities = validate_export(export_dir)
     quality = json.loads((export_dir / "quality.json").read_text(encoding="utf-8"))
-    assert quality["schema_version"] == 5
+    assert quality["schema_version"] == 6
     rhythm = quality["decision_rhythm"]
     for bucket in ("wake_reason_counts", "decision_started_wake_reason_counts"):
         assert {name: rhythm[bucket].get(name) for name in _NAMES} == dict.fromkeys(_NAMES, 1)
@@ -832,7 +860,7 @@ def test_t20_an_edge_ends_the_technical_pause_after_the_same_second_budget(engin
     _clock(engine, now)
     for index in range(engine.context.scenario.max_same_moment_decisions + 3):
         assert _decide(engine, f"budget-{index}", "start_activity",
-                       start_activity("打开", "不存在的对象"))[1].status == "rejected"
+                       start_activity("进行", "不存在的对象"))[1].status == "rejected"
     exhausted = [event for event in engine.context.store.read_agent_events("environment_event", 1)
                  if event.data.get("kind") == "decision_budget_exhausted"]
     assert len(exhausted) == 1

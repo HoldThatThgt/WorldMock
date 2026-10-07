@@ -107,6 +107,8 @@ python scripts/coverage_gate.py --shards 4 \
 
 激活后可直接运行 `worldmock environment generate-map --locations experiments/my-world/catalog/locations.json --seed 7 --output experiments/my-world/catalog/map.json [--check]` 与 `worldmock validate --environment experiments/my-world`。这两个纯环境命令不急切加载完整 AS2/LifeEngine 链。
 
+
+
 <a name="runtime-填写模型凭据"></a>
 ## 填写模型凭据
 
@@ -126,6 +128,8 @@ DEEPSEEK_NODE_KEYS=replace-with-your-key
 ```bash
 mkdir -p ~/.config/worldmock
 chmod 700 ~/.config/worldmock
+
+
 # 用编辑器保存 deepseek.env 后执行
 chmod 600 ~/.config/worldmock/deepseek.env
 ```
@@ -166,6 +170,7 @@ AgentSociety2 调度器发送 OpenAI 格式请求，因此必须连接 OpenAI �
 画像编译可用不等于模拟启动凭据已经齐备，两者的读取顺序与完整文件校验不同。
 当前读取与请求身份依据为[运行启动器](../../src/worldmock/runtime.py)、
 [画像抽取器](../../src/worldmock/profile/extractor.py)和[模型凭据合同](../CONTRACTS.md#contracts-model-identity)。
+
 
 <a name="runtime-从校验到新建运行"></a>
 ## 从校验到新建运行
@@ -222,6 +227,7 @@ worldmock export \
 
 环境命令返回每个失败的码和英文原因，任何失败非零退出；项目校验仍执行原有完整检查。新格式最小引擎运行在阶段 5 完成，此处流程不以目录检查通过替代真实运行验收。
 
+
 <a name="runtime-从检查点恢复"></a>
 ## 从检查点恢复
 
@@ -246,7 +252,8 @@ worldmock resume \
 世界结构须为 11、运行清单须为 4；旧结构号直接拒绝，没有迁移。
 没有检查点或标识不属于该父运行时，不能用猜测的名字代替。
 
-恢复还核对 `environment_identity` 五字段：environment_id、environment_version、rules_version、catalog_content_sha256、map_sha256。不符报 `Runtime environment identity mismatch`。订单、食品持有、内容进度与会话推送随检查点保存，推送和内容运行往返在阶段 4 验证，完整宿主恢复在阶段 5 验证。
+恢复还核对 `environment_identity` 五字段：environment_id、environment_version、rules_version、catalog_content_sha256、map_sha256。不符报 `Runtime environment identity mismatch`。订单及其实际收货时刻、全局内容进度、当前活动内容、会话推送、驾驶可用天数与闹钟随检查点保存；没有食品持有状态。长途订单到站只恢复为待领取，不能因恢复而提前收货或重复施加效果。完整持久事实见[持久化当下事实](../CONTRACTS.md#contracts-持久化当下事实)，恢复边界见[共同检查点与恢复](../CONTRACTS.md#contracts-共同检查点与恢复)。
+
 
 <a name="runtime-编写反事实干预文件"></a>
 ## 编写反事实干预文件
@@ -294,6 +301,7 @@ worldmock replay \
 
 程序会在恢复和应用干预时检查来源身份与可见性。不能用生成一段假想文本代替实际分支运行。
 
+
 <a name="runtime-常见错误"></a>
 ## 常见错误
 
@@ -319,6 +327,7 @@ worldmock replay \
 
 全部登记码见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)。
 
+
 <a name="runtime-工具交互的运行检查"></a>
 ## 工具交互的运行检查
 
@@ -326,7 +335,7 @@ worldmock replay \
 
 `start_activity` 使用 `items[]`，每项四键 `{target, way, from, to}`，另有 `answering` 和 `prefer`。购买偏好必须为“最快拿到”或“到手价最低”，非购买必须为 null；`to=null` 表示本人。app 使用显示名和“打开”，工作使用已分配主题显示名；主题的目标、已做及剩余工时由环境计算，自述不能改变实际累计。
 
-`report_status`、`pause_activity`、`conclude_activity` 必填请求级 `errands`（可为空；每条八键全写，不用的写 null，`change` 为“新增”“更新”“取消”）。个人事务没有独立工具；名称错误不提供完整请求候选，其他参数错误保留英文完整校验路径、写入值、允许值、格式和原因。
+`report_status`、`pause_activity`、`conclude_activity` 必填请求级 `errands`（可为空；每条七键全写，不用的写 null，`change` 为“新增”“更新”“取消”）。个人事务没有独立工具，完成只按本人实际商品收货证据确认；付款、配送到站或自述不能替代收货。参数错误保留英文完整校验路径、写入值、允许值、格式和原因，具体字段见[个人事务](../CONTRACTS.md#contracts-个人事务)。
 
 `query_world` 必填 `name/way/category/from/available_only/offset` 六键，`from` 为地点或 app 显示名，与购买共用解析；可执行筛选先于分页，无匹配为合法空页。返回 `matches/total_count/next_offset`。查询及回看即时只读，不推进世界时间或同刻轮数，仍受十六模型回合预算。
 
@@ -337,6 +346,8 @@ worldmock export --run-dir runs/my-persona-day --output runs/my-persona-day/expo
 ```
 
 目录、包内规则、图和运行身份必须一致；地图种子属于 `map.json`，不与场景种子绑定。已发布字节不原版覆盖，旧检查点直接拒绝，不迁移；恢复和假设分支新目录。导出 3 的五类工件、质量 5 按[现行合同](../CONTRACTS.md#contracts-worldmock-接口合同)核对；正式回归阻断与各平台实际回执见[实施状态](../dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态)。
+
+
 
 <a name="runtime-版本表"></a>
 ## 版本表

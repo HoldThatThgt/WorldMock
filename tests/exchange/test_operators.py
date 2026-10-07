@@ -13,7 +13,7 @@ from worldmock.exchange.operators import (
 
 @pytest.mark.parametrize("category,quantity,expected", [
     ("meal", 1, 600), ("meal", 3, 1800), ("snack", 2, 400), ("drink", 4, 400),
-    ("leisure", 1, 0.10), ("daily", 1, 0.05), ("leisure", 5, 0.10), ("daily", 5, 0.05),
+    ("leisure", 1, 0.10), ("daily", 1, 0.05), ("leisure", 5, 0.10), ("daily", 5, 0.05), ("fuel", 1, 7), ("fuel", 5, 7),
 ])
 def test_goods_receipt_has_quantity_only_for_food(category, quantity, expected):
     """@brief 食品热量乘数量，非食品每条订单行只结算一次固定效果。"""

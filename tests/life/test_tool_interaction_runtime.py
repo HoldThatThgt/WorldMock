@@ -13,23 +13,22 @@ import pytest
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.progress_layer import rejected_today
-from worldmock.life.tool_groups import compact_tool_layer, expand_tool_layer
+from worldmock.life.tool_groups import compact as compact_value, compact_tool_layer, expand_tool_layer
 from tests.life.conftest import context, stage_day_plan
 
 
 def _layer():
-    action = {"action": "interact", "way": "工作", "available": False, "reason": "Opens later",
-              "price": 0, "duration": "0 minutes", "quantity": None, "note": None}
+    action = {"action": "interact", "way": "进行", "app": None, "available": False, "reason": "CONTENT_EXHAUSTED",
+              "price": "0元", "duration": "0分钟", "quantity": None, "note": None}
     return {"layer": "工具层", "callable_index": {}, "targets": [
-        {"name": "Task", "kind": "task", "phase": None, "state": None,
-         "contract": {"topic": "Quarter report", "target": "约 8 小时", "done": "约 8 小时", "remaining": "约 0 小时"},
+        {"name": "办公", "kind": "action", "phase": None, "state": None,
          "actions": [action], "tools": []},
         {"name": "Active", "kind": "activity", "phase": "进行中", "state": "Waiting", "actions": [],
          "tools": [{"tool": "report_status", "available": True, "reason": None}]},
     ]}
 
 
-def test_compact_layer_preserves_false_zero_contract_and_control_tools():
+def test_compact_layer_preserves_false_zero_current_action_and_control_tools():
     layer = _layer()
     original = deepcopy(layer)
     compact = compact_tool_layer(layer)
@@ -38,7 +37,8 @@ def test_compact_layer_preserves_false_zero_contract_and_control_tools():
     assert compact["groups"][1]["action"] is None and compact["groups"][1]["way"] is None
     assert "tools" in compact["groups"][1]["shared"]
     assert compact["groups"][0]["shared"]["available"] is False
-    assert compact["groups"][0]["shared"]["price"] == 0
+    assert compact["groups"][0]["shared"]["price"] == "0元"
+    assert compact_value({"offset": 0, "available": False, "app": None}) == {"offset": 0, "available": False}
     conflict = deepcopy(compact)
     conflict["groups"].append(deepcopy(compact["groups"][0]))
     conflict["groups"][-1]["shared"]["state"] = "Conflicting"
@@ -52,8 +52,8 @@ def test_memo_is_derived_across_sessions_with_acceptance_and_clears_next_day(eng
     now = engine.context.state.current_time
     written = "wrong"
     report = {"error_code": "ARGUMENTS_INVALID", "reason": "Invalid value", "items": [
-        {"path": ["tool_calls", 0, "function", "arguments", "prefer"], "written": written,
-         "why": "The preference must match the declared enum."}]}
+        {"path": ["tool_calls", 0, "function", "arguments", "items", 0, "app"], "written": written,
+         "why": "The shopping app must sell these goods."}]}
     response = {"choices": [{"message": {"tool_calls": [{"function": {"name": "start_activity"}}]}}]}
     drafts = [EventDraft(event_type="model_response", occurred_at=now, agent_id=1,
                          data={"protocol_feedback": report, "response": response}) for _ in range(2)]
@@ -68,32 +68,29 @@ def test_memo_is_derived_across_sessions_with_acceptance_and_clears_next_day(eng
     staged.current_time += 60
     assert rejected_today(view, engine.context.store) == memo
     drafts = [EventDraft(event_type="action_requested", occurred_at=staged.current_time, agent_id=1,
-                         action_id="corrected", data={"tool_name": "start_activity", "request": {"prefer": "最快拿到"}}),
+                         action_id="corrected", data={"tool_name": "start_activity", "request": {
+                             "items": [{"target": "牛肉面", "way": "购买", "app": "美团", "to": None,
+                                        "pay_app": "支付宝"}], "answering": None}}),
               EventDraft(event_type="action_accepted", occurred_at=staged.current_time, agent_id=1,
                          action_id="corrected", data={})]
     staged.version += 1
     engine.context.store.commit(staged.model_dump(mode="json"), drafts)
-    assert rejected_today(view, engine.context.store)[0]["accepted_as"] == "最快拿到"
+    assert rejected_today(view, engine.context.store)[0]["accepted_as"] == "美团"
     staged.current_time += 86400
     assert rejected_today(view, engine.context.store) == []
     assert engine.context.store.read_agent_events("model_response", 1)
 
 
-def test_mail_reading_keeps_actual_subject_and_body_only(engine_factory):
-    from worldmock.life.content import reveal_mail
-    from worldmock.life.result_projection import public_result
+def test_visible_arrived_mail_contains_only_actual_subject_and_body(engine_factory):
+    from worldmock.life.content import visible_mail
 
     engine = engine_factory()
     notice = engine.context.scenario.messages[0]
     agent = engine.context.state.agents[1].model_copy(update={"visible_message_ids": {notice.message_id}})
-    activity = SimpleNamespace(target_id=notice.message_id)
-    changed, revealed = reveal_mail(activity, agent, engine.context.rules.messages)
-    result = {"occurred_at": int(notice.sent_at.timestamp()), "status": "completed", "error_code": None,
-              "message": "Mail reading completed", "data": {"activity": {"kind": "read_mail",
-                                                                         "data": {"revealed": revealed}}}}
-    mail = public_result(result, engine.context.scenario)["details"]["mail"]
-    assert mail == {"subject": notice.subject, "body": notice.body}
-    assert changed.read_message_ids == {notice.message_id}
+    assert visible_mail(engine.context.state.agents[1], engine.context.rules.messages) == []
+    [mail] = visible_mail(agent, engine.context.rules.messages)
+    assert mail == {"message_id": notice.message_id, "thread_id": notice.thread_id,
+                    "subject": notice.subject, "body": notice.body}
     assert not {"opens", "deadline", "place", "oracle", "expected"}.intersection(mail)
 
 
@@ -184,12 +181,13 @@ def test_read_queries_keep_actual_model_exchange_without_progress_events(engine_
     requests = {
         "memory_recent": {"limit": 2}, "memory_search": {"query": "咖啡"},
         "memory_time_range": {"start_time": "2026-01-05T00:00:00+08:00", "end_time": "2026-01-05T08:30:00+08:00"},
-        "query_world": {"name": None, "way": None, "category": category, "from": None, "available_only": False,
+        "query_world": {"name": None, "way": None, "category": category, "app": None, "available_only": False,
                         "offset": 0},
         "recall_task_summary": {"task_name": "尚未结束的活动"}}
     results = {name: {"epistemic_status": "subjective", "episodes": []} for name in requests}
     results["query_world"] = asyncio.run(environment.read_query(
         decision, "query_world", QueryWorldRequest(**requests["query_world"])))
+    assert engine.context.state.model_dump(mode="json") == before
     results["recall_task_summary"] = asyncio.run(environment.read_query(
         decision, "recall_task_summary", RecallTaskSummaryRequest(**requests["recall_task_summary"])))
     calls = [{"id": f"call-{name}", "type": "function", "function": {

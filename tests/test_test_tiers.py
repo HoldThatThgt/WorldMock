@@ -578,3 +578,19 @@ def test_real_parallel_coverage_is_combined_for_the_current_normal_source(tmp_pa
     assert {row["nodeid"] for row in duration["nodes"]} == {row["nodeid"] for row in records}
     assert duration["standard_wall_seconds"] > 0
     assert duration["standard_reference"]["source_sha256"] == run_tests.source_digest()
+
+
+def test_acs_environment_digest_without_corpora_has_current_identity(tmp_path):
+    """@brief 当前环境合同只要求目录和场景，拒绝旧corpora要求并核对真实字节身份。"""
+    for name in ("catalog", "scenarios"):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "input.json").write_text(name, encoding="utf-8")
+    result, error = None, None
+    try:
+        result = run_tests.environment_source_digest(tmp_path)
+    except (FileNotFoundError, ValueError) as failure:
+        error = str(failure)
+    assert error is None, error
+    assert isinstance(result, str) and len(result) == 64
+    (tmp_path / "scenarios/input.json").write_text("changed scenario", encoding="utf-8")
+    assert run_tests.environment_source_digest(tmp_path) != result

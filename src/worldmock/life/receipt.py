@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from worldmock.errors import BusinessRuleError
+from worldmock.errors import BusinessRuleError, PreconditionError
 from worldmock.exchange.body import RESOURCE_METAS
 from worldmock.exchange.constants import GOODS_ENERGY_KCAL
 from worldmock.exchange.operators import evaluate_goods_receipt
@@ -12,7 +12,8 @@ from worldmock.exchange.types import GoodsCategory
 from worldmock.footprints.models import EventDraft, RESOURCE_FLOWS_FIELD, validate_resource_flows
 from worldmock.life import felt
 from worldmock.life.body import apply_food
-from worldmock.life.models import ActivityKind, BodyState, DeliveryState, WorldState, active_activities
+from worldmock.life.admission import present_location
+from worldmock.life.models import ActivityKind, BodyState, DeliveryState, FulfillmentKind, WorldState, active_activities
 from worldmock.life.semantics import ScenarioSemantics
 from worldmock.life.world_ops import _resource_flows_data
 from worldmock.resources import FlowEntry, ResourceLedger
@@ -37,18 +38,41 @@ def settle_receipt(state: WorldState, semantics: ScenarioSemantics, order_id: st
         return ReceiptOutcome(state, order, ())
     if state.current_time < order.expected_at:
         raise BusinessRuleError("DELIVERY_NOT_DUE")
-    order = order.model_copy(update={"status": "delivered", "received_at": state.current_time}, deep=True)
+    _require_parcel_receipt(state, order)
+    arrived = order.arrived_at if order.arrived_at is not None else order.expected_at
+    order = order.model_copy(update={"status": "delivered", "arrived_at": arrived,
+                                     "received_at": state.current_time}, deep=True)
     changed = state.model_copy(update={"deliveries": {**state.deliveries, order_id: order}}, deep=True)
     if not order.recipient_id.startswith("agent:"):
         return ReceiptOutcome(changed, order, ())
     identity = int(order.recipient_id.split(":", 1)[1])
     recipient = state.agents[identity]
-    body, evidence = _receipt_effect(recipient.body, order, semantics)
-    changed.agents[identity] = recipient.model_copy(update={"body": body}, deep=True)
+    if order.category == GoodsCategory.FUEL:
+        provided = evaluate_goods_receipt(order.category, order.quantity)
+        changed.agents[identity] = recipient.model_copy(
+            update={"driving_days": recipient.driving_days + provided}, deep=True)
+        evidence = {"provided": provided, "applied": provided, "efficiency": None,
+                    RESOURCE_FLOWS_FIELD: _resource_flows_data(identity, order.received_at)}
+    else:
+        body, evidence = _receipt_effect(recipient.body, order, semantics)
+        changed.agents[identity] = recipient.model_copy(update={"body": body}, deep=True)
     data = _receipt_data(state, order, identity, evidence)
     draft = EventDraft(event_type="environment_event", occurred_at=state.current_time,
                        agent_id=identity, source_kind="environment", visibility="agent", data=data)
     return ReceiptOutcome(changed, order, (draft,))
+
+
+def _require_parcel_receipt(state: WorldState, order: DeliveryState) -> None:
+    """@brief 到站不能自动收货，驿站商品只能在真实收货人物现场领取时结算。"""
+    if order.fulfillment != FulfillmentKind.STATION_PICKUP:
+        return
+    if order.status != "ready_for_pickup":
+        raise PreconditionError("PARCEL_NOT_READY", ["parcel_ready"],
+                                public_reason="No parcels are ready for you at this station.")
+    identity = int(order.recipient_id.split(":", 1)[1])
+    if present_location(state, identity) != order.destination_id:
+        raise PreconditionError("ACTIVITY_PRECONDITION_UNMET", ["required_location_id"],
+                                public_reason="Parcel collection requires presence at the named parcel station.")
 
 
 def _receipt_effect(body: BodyState, order: DeliveryState, semantics: ScenarioSemantics) -> tuple[BodyState, dict]:

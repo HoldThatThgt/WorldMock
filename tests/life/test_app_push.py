@@ -106,15 +106,16 @@ def test_distinct_declared_grid_points_at_same_epoch_are_preserved(monkeypatch):
 def test_push_draw_uses_one_b30_stream_sorted_candidates_and_stable_identity():
     semantics, state = push_world()
     catalog = semantics.catalog
-    contents = {key: tuple(reversed(value)) for key, value in reversed(tuple(catalog.contents_by_app.items()))}
-    semantics = replace(semantics, catalog=replace(catalog, contents_by_app=contents))
     state.random_state = "中文-seed-17"
     event = push_event(state)
     stream = random.Random(int.from_bytes(hashlib.sha256(
         f"{state.random_state}:{event.scheduled_id}".encode("utf-8")).digest()[:8], "big", signed=False))
-    apps = sorted(key for key, values in contents.items() if values)
+    apps = ["bilibili", "douyin"]
     selected_app = apps[stream.randrange(len(apps))]
-    selected_contents = sorted(contents[selected_app])
+    assert ["browse-feed"][stream.randrange(1)] == "browse-feed"
+    selected_contents = sorted(content_id for content_id in catalog.contents_by_action_app[
+        ("browse-feed", selected_app)] if catalog.contents[content_id].series is None
+        or catalog.contents[content_id].series.episode == 1)
     selected_content = selected_contents[stream.randrange(len(selected_contents))]
     first = apply_scheduled_effect(state, event, semantics)
     replay = apply_scheduled_effect(WorldState.model_validate_json(state.model_dump_json()), event, semantics)
@@ -144,17 +145,17 @@ def test_open_reopen_release_and_after_22_follow_current_session_only():
     session = current_session(state, 1)
     shared = AppPush(push_id="shared-push", content_id="c-long", issued_at=state.current_time, status="pending")
     session.app_pushes = {"douyin": shared, "bilibili": shared.model_copy(update={"push_id": "second-push"})}
-    opened, push = open_app_push(state, 1, "douyin")
+    opened, push = open_app_push(state, 1, "douyin", "browse-feed", semantics.catalog)
     assert push is not None
     assert push.status == "opened" and push.content_id == "c-long" and push.push_id == "shared-push"
     later = at_time(opened, state.current_time + 15 * 3600)
-    reopened, again = open_app_push(later, 1, "douyin")
+    reopened, again = open_app_push(later, 1, "douyin", "browse-feed", semantics.catalog)
     assert again == push and reopened is later
     unrelated = release_app_pushes(reopened, 1, "c-short")
     assert current_session(unrelated, 1).app_pushes["douyin"].status == "opened"
     released = release_app_pushes(unrelated, 1, "c-long")
     assert {push.status for push in current_session(released, 1).app_pushes.values()} == {"released"}
-    assert open_app_push(released, 1, "douyin")[1] is None
+    assert open_app_push(released, 1, "douyin", "browse-feed", semantics.catalog)[1] is None
     assert current_session(state, 1).app_pushes["douyin"].status == "pending"
 
 
@@ -162,18 +163,18 @@ def test_departure_and_arrival_invalidate_old_pushes_without_deleting_history():
     semantics, state = push_world()
     first = apply_scheduled_effect(state, push_event(state), semantics)
     state = first.state
-    progress = ContentProgress(content_id=first.data["content_id"], position_seconds=17, completed_rounds=2)
+    progress = ContentProgress(content_id=first.data["content_id"], position_seconds=17, completed_rounds=2, last_consumed_at=state.current_time)
     state.agents[1].content_progress = {progress.content_id: progress}
     old_id = first.data["session_id"]
     names = {key: item.name for key, item in semantics.catalog.locations.items()}
     travelling = begin_transit(state, 1, "cafe", names, opened_by_action_id="depart")
     assert current_session(travelling, 1).app_pushes == {}
-    assert open_app_push(travelling, 1, first.data["app_id"])[1] is None
+    assert open_app_push(travelling, 1, first.data["app_id"], "browse-feed", semantics.catalog)[1] is None
     road = apply_scheduled_effect(travelling, push_event(travelling, 9), semantics)
     transit_id = road.data["session_id"]
     arrived, _ = end_transit(road.state, 1, names)
     assert current_session(arrived, 1).app_pushes == {}
-    assert open_app_push(arrived, 1, road.data["app_id"])[1] is None
+    assert open_app_push(arrived, 1, road.data["app_id"], "browse-feed", semantics.catalog)[1] is None
     fresh = apply_scheduled_effect(arrived, push_event(arrived, 10), semantics)
     assert fresh.data["session_id"] == current_session(arrived, 1).session_id
     assert fresh.state.sessions[old_id].app_pushes == first.state.sessions[old_id].app_pushes
@@ -206,12 +207,12 @@ def test_sleep_stores_push_without_wake_and_existing_activity_is_unchanged():
     assert flags == {} and changed.activities[sleeping.activity_id] == sleeping
     assert current_session(changed, 1).app_pushes[drafts[0].data["app_id"]].status == "pending"
     assert drafts[0].visibility == "agent" and drafts[0].source_kind == "environment"
-    assert WakeReason.APP_PUSH not in SLEEP_ALLOWED_REASONS and len(SLEEP_ALLOWED_REASONS) == 4
+    assert WakeReason.APP_PUSH not in SLEEP_ALLOWED_REASONS and len(SLEEP_ALLOWED_REASONS) == 5
     assert not evaluate_wake_reasons(WakeSnapshot(now=state.current_time, app_push_arrived=True,
                                                 is_asleep=True)).decision_offered
     changed.activities = {}
-    assert open_app_push(changed, 1, drafts[0].data["app_id"])[1].status == "opened"
-    state.activities = {"ongoing": activity(state, "use_app")}
+    assert open_app_push(changed, 1, drafts[0].data["app_id"], "browse-feed", semantics.catalog)[1].status == "opened"
+    state.activities = {"ongoing": activity(state, "wait")}
     awake = apply_scheduled_effect(state, event, semantics)
     assert awake.wake == "app_push" and awake.state.activities == state.activities
     verdict = evaluate_wake_reasons(WakeSnapshot(now=state.current_time, app_push_arrived=True))
@@ -266,7 +267,8 @@ def test_full_push_summary_and_source_discriminator_project_from_committed_event
         records = _world_records(context, store, 0)
         assert len(records) == 1 and records[0].record == {
             "occurred_at": datetime.fromtimestamp(state.current_time, ZoneInfo(state.timezone)).isoformat(),
-            "type": "app_push", "app": drafts[0].data["app"], "title": drafts[0].data["title"],
+            "type": "app_push", "app": drafts[0].data["app"], "action": drafts[0].data["action"],
+            "title": drafts[0].data["title"],
             "summary": summary}
         assert drafts[0].data["kind"] == "app_push" and "content_kind" not in drafts[0].data
         assert drafts[0].source_kind == "environment" and 20 < len(summary) <= 200
@@ -295,7 +297,8 @@ def test_no_eligible_app_is_system_visible_without_person_record_or_wake(tmp_pat
     session = current_session(state, 1)
     session.app_pushes = {key: AppPush(push_id=f"old-{key}", content_id=value[0], issued_at=state.current_time,
                                      status="released")
-                          for key, value in semantics.catalog.contents_by_app.items() if value}
+                          for key, value in ((app, semantics.catalog.contents_by_action_app[("browse-feed", app)])
+                                             for app in ("bilibili", "douyin"))}
     state.pending_events = [push_event(state)]
     store = FootprintStore.create(tmp_path / "run", {"run_id": state.run_id}, state.model_dump(mode="json"))
     try:
@@ -339,9 +342,9 @@ def test_message_and_delivery_keep_their_existing_wake_source():
                     text="测试消息", created_at=state.current_time)
     arrived = ScheduledEvent(scheduled_id="reply", kind="message_arrival", due_at=state.current_time, sequence=1,
                              agent_id=1, data={"message": reply.model_dump()})
-    request = PurchaseOrderRequest(items=(PurchaseItem(store_id="cafe", food_id="sandwich", quantity=1,
+    request = PurchaseOrderRequest(items=(PurchaseItem(store_id="noodle-1", goods_id="beef-noodles", quantity=1,
                                                        recipient_id="agent:1"),), fulfillment="delivery",
-                                   destination_id="home", app_id=None)
+                                   destination_id="home", app_id="meituan", payment_app_id="wechat")
     bought = purchase_order(state, semantics, 1, request)
     delivery = bought.scheduled[0]
     for original, event, wake in ((state, arrived, "message_arrival"),
@@ -361,5 +364,5 @@ def test_push_identity_validation_rejects_unregistered_references_in_historical_
     changed = begin_transit(state, 1, "cafe", names, opened_by_action_id="depart")
     changed.sessions[session.session_id].app_pushes = {app_id: AppPush(push_id="invalid", content_id=content_id,
                                                                    issued_at=state.current_time, status="released")}
-    with pytest.raises(IntegrityError, match="Runtime app push refers to an unregistered app or content"):
+    with pytest.raises(IntegrityError, match="Runtime app push refers to an invalid app, action, or content"):
         validate_app_pushes(changed, semantics.catalog)

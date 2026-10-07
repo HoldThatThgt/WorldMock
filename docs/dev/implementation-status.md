@@ -538,12 +538,13 @@ $ uv run pytest -q
 资源与规则引擎简化之前，口味权重只影响娱乐候选排序、不作为准入条件；本节原记录的定向运行结果为
 `2 passed, 76 deselected`。这项结果只证明当时的实现，不再作为现行候选或 app 工具面的验收结论。
 
-阶段 4 已删除内容、游戏与目录浏览候选，候选种类收敛为 `product`、`lifestyle`、`task`；app 始终作为工具目标列出，
-画像 `tastes` 只进入散文，不生成候选数值权重。当前纯所有者节点是
-`tests/life/test_candidates.py::test_candidates_have_only_product_lifestyle_and_task_kinds`、
-`tests/life/test_candidates.py::test_relevance_changes_order_without_changing_membership` 与
-`tests/life/test_app_ui.py::test_all_apps_always_listed_without_content_candidates_or_index`。
-完整引擎组合属于阶段 1–5 同一集成波次，须由阶段 5 回执闭合；本节不据这些登记宣称已经通过。
+此前资源与规则简化波次的阶段四曾将候选收敛为 `product`、`lifestyle`、`task`，并把 app 列为工具目标；这些旧目标已由现行动作与内容合同取代。当前候选仅有 `product`，动作列出明确 app 选项。当前纯所有者定义为下面三个节点；是否通过取对应阶段的实际定向回执。
+
+- `tests/life/test_candidates.py::test_candidates_have_only_current_product_kind`
+- `tests/life/test_candidates.py::test_relevance_changes_order_without_changing_membership`
+- `tests/life/test_tool_layer.py::test_all_registered_actions_listed_with_explicit_apps_and_no_app_targets`
+
+完整引擎、记录与最终门禁只由对应阶段的实际回执闭合；本节不据登记宣称后续阶段已经通过。
 
 <a name="implementation-status-当前世界格式worldstateschema_version-为-9"></a>
 ### 当前世界格式：`WorldState.schema_version` 为 10

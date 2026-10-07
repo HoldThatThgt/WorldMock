@@ -23,7 +23,7 @@ def store(tmp_path):
 
 
 def _progress(kind, activity_id, agent_id=1, **fields):
-    activity = {"activity_id": activity_id, "kind": kind, **fields.pop("activity", {})}
+    activity = {"activity_id": activity_id, "agent_id": agent_id, "kind": kind, **fields.pop("activity", {})}
     return EventDraft(
         event_type="activity_progress", occurred_at=100, agent_id=agent_id,
         activity_id=activity_id,
@@ -46,7 +46,7 @@ def test_recent_window_only_projects_own_committed_progress_before_observation(s
         _progress("wait", "wait-1"),
         _progress("wait", "other-wait", agent_id=2),
         _receipt("order-1"),
-        _progress("use_app", "app-1", activity={"target_id": "bilibili"}, content={
+        _progress("action", "app-1", activity={"data": {"app_id": "bilibili", "action_id": "recommend", "manner": "phone_continuous", "communication_mode": None}}, content={
             "content_id": "c-article", "app_id": "bilibili",
             "position_before_seconds": 0, "position_after_seconds": 10,
             "completed": False, "completed_rounds_after": 0,
@@ -153,7 +153,7 @@ def test_projection_rejects_uncommitted_origin_conflict_and_invalid_cutoff(store
         project_verified_experiences(events, agent_id=1, cutoff_seq=1)
     with pytest.raises(IntegrityError, match="ordered"):
         project_verified_experiences(list(reversed(events)), agent_id=1, cutoff_seq=2)
-    changed = events[0].model_copy(update={"data": {"activity": {"kind": "use_app"}}})
+    changed = events[0].model_copy(update={"data": {"activity": {"kind": "action"}}})
     with pytest.raises(IntegrityError, match="conflicts"):
         project_verified_experiences([events[0], changed], agent_id=1, cutoff_seq=2)
     untrusted = events[0].model_copy(update={"source_kind": "model"})
@@ -240,7 +240,7 @@ def test_received_recent_window_pages_past_nonprojected_activity_sources(store, 
 
 def test_zero_playback_and_unfinished_travel_do_not_become_completed_facts(store):
     events = store.commit(store.state, [
-        _progress("use_app", "app", activity={"target_id": "bilibili"}, content={
+        _progress("action", "app", activity={"data": {"app_id": "bilibili", "action_id": "recommend", "manner": "phone_continuous", "communication_mode": None}}, content={
             "content_id": "c-article", "app_id": "bilibili",
             "position_before_seconds": 10, "position_after_seconds": 10,
             "completed": False, "completed_rounds_after": 0,
@@ -294,14 +294,16 @@ def test_recent_window_returns_latest_five_before_cutoff_with_more_history(store
 
 def test_actual_engine_app_progress_projects_the_consumed_content_and_app(engine_factory):
     """真实宿主自动接续内容后，经历仍引用该区间消费的内容而不是已抽出的下一项。"""
-    from tests.life.conftest import stage_day_plan, start_activity
-    from tests.life.test_location_sessions import _round, _until_ended
+    from tests.life.conftest import stage_day_plan
+    from tests.life.test_acs_runtime import request
+    from tests.life.test_acs_amended_runtime import perform, pump
 
     engine = engine_factory()
     stage_day_plan(engine)
-    _, started = _round(engine, "verified-app", "start_activity", start_activity("打开", "应用：抖音"))
+    started = perform(engine, "verified-app", request("刷推荐", "抖音", "进行"))
     assert started.status.value == "in_progress"
-    _until_ended(engine, started.activity_id, "verified-app")
+    pump(engine, lambda: any(event.data.get("content", {}).get("completed") for event in
+                            engine.context.store.read_agent_events("activity_progress", 1)))
     events = engine.context.store.read_events(engine.context.store.last_event_seq)
     sources = [event for event in events if event.event_type == "activity_progress"
                and event.activity_id == started.activity_id and event.data["content"]["position_after_seconds"]

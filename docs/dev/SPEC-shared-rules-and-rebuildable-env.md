@@ -47,6 +47,7 @@ flowchart LR
 新机器快速检查仍是固定的重建检查集合，不新增测试层或通用配置框架。
 向上游提交改动属于外部协作，不是本次仓库功能。
 
+
 <a name="shared-rules-共享规则"></a>
 ## 共享规则
 
@@ -58,9 +59,9 @@ flowchart LR
 | 规则名称 | 唯一归宿与冻结行为 | 必须验证的调用边界 |
 | --- | --- | --- |
 | 图上出行响应 | `catalog.graph.Graph` 提供最短距离与完整路径，等长按完整路径元组字典序决胜 | 出行、配送、地点比较与记录读取同一结果，禁止重新解释道路响应、几何或交通状态 |
-| 规范 JSON 摘要 | `footprints.models.canonical_json` 和 `sha256_json`；UTF-8、键排序、紧凑分隔符、拒绝 NaN 与无穷值 | 候选、请求、工作主题累计结构、环境目录身份与交付 trace 使用相同字节 |
+| 规范 JSON 摘要 | `footprints.models.canonical_json` 和 `sha256_json`；UTF-8、键排序、紧凑分隔符、拒绝 NaN 与无穷值 | 候选、请求、共享内容进度、环境目录身份与交付 trace 使用相同字节 |
 | SHA-256 形式 | `footprints.models.is_sha256`；仅小写十六进制 64 字符 | 原先业务函数与直接正则匹配调用相同谓词；字段 Schema 保留既有模式；非字符串不能通过 |
-| 安全文件 | `corpora.manifest`；声明须是只用 `/` 分隔的根内相对路径：拒绝绝对路径（含 Windows 上无盘符的根路径）、`..` 与反斜杠，以及任一平台不能原样保存的名字（以点或空格结尾、Windows 设备名、Windows 禁用字符与数据流冒号、控制字符、孤立代理码点、超过 255 字节）；解析前检查根以内每个组件的符号链接与目录联接，拒绝越界和非普通文件 | app 与内容引用、语料清单、工作主题等七份目录、包资源副本与环境目录身份的实际入口；退役业务消费者随所属阶段删除；工作区快照与恢复的成员名使用同一声明规则；错误文案与构造函数由所属入口传入，只在失败时构造一次，不改变错误分类 |
+| 安全文件 | `corpora.manifest`；声明须是只用 `/` 分隔的根内相对路径：拒绝绝对路径（含 Windows 上无盘符的根路径）、`..` 与反斜杠，以及任一平台不能原样保存的名字（以点或空格结尾、Windows 设备名、Windows 禁用字符与数据流冒号、控制字符、孤立代理码点、超过 255 字节）；解析前检查根以内每个组件的符号链接与目录联接，拒绝越界和非普通文件 | 应用、地点、商品、动作、内容、地图及清单的实际环境入口；退役的语料加载入口已删除；工作区快照与恢复的成员名使用同一声明规则；错误文案与构造函数由所属入口传入，只在失败时构造一次，不改变错误分类 |
 | 原子写 | `footprints.assets.atomic_write`；只写字节，创建父目录、同目录临时文件、文件 fsync、os.replace，POSIX 同步父目录；Windows 按平台能力执行文件同步与替换 | 素材、内容 manifest、环境目录身份等写入；临时文件失败清理，异常转换为所属模块错误；JSON 文件使用 LF |
 | 故障日志 | `WorldMockError` 构造已经记录错误，删除额外先记日志再抛出的包装 | 同一故障只生成一条构造日志；稳定英文错误内容与异常因果链保留；普通声明 ValueError 的日志拒绝共用 `errors.reject_value` |
 
@@ -72,20 +73,20 @@ flowchart LR
 
 | 规则名称 | 唯一归宿与冻结行为 | 必须验证的调用边界 |
 | --- | --- | --- |
-| 活动时长 | `life.durations` 推导；生活活动上限归 `life.models`，app 使用固定 `APP_USE_DEFAULT_SECONDS=1800`，消费时长范围 60–14400 秒且越界拒绝 | 工具层、会话动作、按名调用清单的同一状态输入得到同一秒数；会话动作仍在逐项状态变化后重新检查 |
-| 开工阻断 | `life.work.work_start_refusal` | 工具层与受理层复用同一原因和下一步 |
-| 出行时长 | `life.travel.planned_travel` | 工具层、受理层与引擎校验复用图最短路与固定速度时长（阶段 2 接入）；动作处理的 `_start_travel_action` 与 `_travel_start_context` 仍检查请求与路线不符，保留 `ROUTE_DURATION_MISMATCH` |
-| 缓解速率 | `worldmock.exchange.constants.ENTERTAINMENT_RELIEF_PER_HOUR = 0.3`，效果按固定动作类别计算 | 暂停不缓解，结算按实际有效秒数 |
-| 候选种类 | `life.candidates` 恰为 `product`、`lifestyle`、`task`；app 始终列出，不进入候选 | 生产调用直接使用唯一映射；可调用索引恰含 `lifestyle`、`goods`、`query_categories` |
-| 活动家族 | `life.schedule.activity_family` | 生产受理缺生活活动仍以 `LIFESTYLE_ACTIVITY_NOT_FOUND` 拒绝；离线缺品类返回未知，计划不猜测进度、相关度不给家族加分、评估保留缺证和未归类统计 |
-| 中文活动名称 | `life.readable` | 工具层动词说明、时间线与报告都由唯一中文种类表派生，删除 `_DOING` 的复制表 |
-| 睡眠通道 | 保留可供性注册表声明，身体睡眠仍使用现行睡眠判定 | 不启用 `sleep_channel`，手册准确说明其当前语义 |
-| 模块说明 | 工具层说明明确受理会调用其资格判定 | 不将本次规则抽取描述为取消既有受理检查 |
+| 活动时长 | 动作时长仅来自实际选中内容及共享剩余；等待与睡眠保留系统推导，出行读图最短路和固定速度 | 工具层、选择器与实际受理使用同一当前输入；零秒展示不选择内容或消费随机状态 |
+| 地点资格 | exercise 限 home、outdoor、fitness；人物分配工作内容要求其工作地点 | 工具行与受理同码同文；恢复先地点、再原内容合格、再名额和占用 |
+| 出行时长 | 出行计划只用目录图的最短路径、固定速度与费用 | 地点列表、工具行、受理与活动校验读取同一个计划 |
+| 内容执行 | entertainment 静默接续，其余类别单条完成；共享 ContentProgress 只由正秒实际消费更新 | 暂停、恢复、推送和观察不增加位置或完成轮数；恢复读取原 content_id 不重抽 |
+| 缓解速率 | exchange 固定娱乐每小时 0.3；社交按真实共同、未接受或远程秒数分别计算 | daily_care 每条完成脉冲 0.05，分配 work_study 完成脉冲 0.1，暂停不产生效果 |
+| 候选种类 | 商品是唯一候选，动作及 app 组合始终列出、不轮转 | callable_index 恰为 goods、navigation_apps、payment_apps、query_categories |
+| 活动家族 | 系统活动 sleep、travel、wait；ACTION 只取实际快照 category | 计划推进与评估共用家族来源，叙述不改变进度；用餐只取本人 meal 收货 |
+| 占用 | 注册表固定 wait、travel、use_app、entertainment、work_study、talk、exercise、daily_care | phone_continuous 额外占 use_app；睡眠占八项，驾车仅容纳 talk；暂停让出名额 |
+| 中文活动名称 | 活动名称来自真实动作、可空 app 和开始时刻；系统活动保持自身名称 | 工具层、回看、时间线与报告均不公开内容身份或私有对象身份 |
+| 睡眠通道 | 睡眠的身体结算只由真实睡眠状态和秒数决定，不由声明的其它资源通道控制 | 睡眠不产生娱乐流；工具层的声明不能改变实际身体效果 |
+| 模块说明 | 各模块的说明描述当前动作、内容、地点与执行职责 | 说明与真实出行时长读取同一个目录图计划 |
 
-按名调用清单必须描述受理时实际采用的时长；app 目标固定显示 1800 秒，没有观看、游戏或浏览时长分支。
-函数移动时同步修订 monkeypatch 测试，使测试确实替换新的权威调用点。
-可供性声明中声称 `sleep_channel` 已控制身体结算的旧注释改为当前未启用的语义。
-目录登记五类对象、绑定与图，规则只从包读取、没有环境副本；固定常数归 `worldmock.exchange`，由 `RULES_VERSION = 2` 绑定。历史运行不重写。
+目录冻结 app、地点、商品、动作、内容和图；固定规则与常数归 WorldMock 包，环境没有规则副本。读取不维护选择历史，模拟引擎保存实际活动、内容进度、推送、订单、驾驶天数与闹钟。
+
 
 <a name="shared-rules-事件区间日期记忆与评估"></a>
 ### 事件区间、日期、记忆与评估
@@ -98,8 +99,7 @@ flowchart LR
 | 主观记忆证据 | `life.memory_evidence` | 既有主观记忆类型及两处快照写入复用相同校验；反思缺活动来源属于合法独立反思，不算畸形 episode；读取方原有报告或拒绝语义保持 |
 | 日期区段 | `evaluation.metrics` | 同一输入只用一个日期区段实现 |
 | 世界事件解析 | `evaluation.adapters` | 评估适配每行只解析一次，统计与公开投影直接消费已解析事件；导出身份认证保留独立验证 |
-| 社交活动家族 | `life.schedule.activity_family` | 行为指标的 chat/call 家族与计划、目标、相关度一致 |
-| 邮件头 | `life.content.mail_headers` | 观察与内容呈现共用相同邮件字段提取 |
+| 社交活动家族 | `life.schedule.activity_family` | 行为指标按实际 social 类动作与通信方式读取，不由名称猜测 |
 | 社交资源分录 | 身体与社交动作读取同一个分录应用函数 | 原有资源守恒、双方身体结算和失败分类不变 |
 | 环境登记身份 | `catalog.identity` 的清单文件表与框架化目录摘要 | 加载、环境检查、运行清单和恢复使用同一五字段环境身份 |
 
@@ -109,9 +109,9 @@ flowchart LR
 | 规则名称 | 唯一归宿与冻结行为 | 必须验证的调用边界 |
 | --- | --- | --- |
 | 独立模型客户端 | `model_endpoint` 共用客户端实现，联系人、零点计划与就寝反思保留各自业务类 | 身份校验、零内部协议重试和响应序列化共用；业务名称决定现行英文错误文案 |
-| 纠正消息 | 共用 `correction_message`、Schema 错误格式与工具参数提取实现 | 保留联系人、零点计划与就寝反思各自的回显、指令、请求工具与重试预算；工作主题没有独立模型请求或纠正通道 |
+| 纠正消息 | 共用 `correction_message`、Schema 错误格式与工具参数提取实现 | 保留联系人、零点计划与就寝反思各自的回显、指令、请求工具与重试预算；工作内容没有独立模型请求或纠正通道 |
 | 环境登记错误 | `catalog.errors.RegistrationError` 的稳定码和英文原因 | 统一登记器、目录加载、环境 CLI 与场景准入复用；评估与资源错误保留各自语义和错误日志，不引入兼容类 |
-| 公共枚举 | `worldmock.exchange.types` 的固定地点、食品、内容与摘要来源闭集；资源守恒保留既有所属定义 | 目录与运行消费者直接导入唯一定义，不复制词表 |
+| 公共枚举 | `worldmock.exchange.types` 的固定地点、商品、动作类别、使用方式、应用用途、通信方式与摘要来源闭集；资源守恒保留既有所属定义 | 目录与运行消费者直接导入唯一定义，不复制词表 |
 | 严格模型 | `worldmock.base_models` 的基础模型 | 仅字段冻结与 extra=forbid 的基础模型统一；品类的深度冻结模型明确命名，保留递归冻结语义；不同 LineageEntry 不合并 |
 | 曲线与效率因子 | 唯一公共模型 | 曲线输入和输出均为有限非负数，拒绝布尔；资源名至少含一个非空白字符，曲线非空；life 与 catalog 使用同一模型 |
 
@@ -138,6 +138,9 @@ flowchart LR
 守卫用临时样例证明新增克隆、复制常量表和错误归宿确实失败，而非只测试当前仓库能通过。
 
 `tests/test_single_source.py::OWNERS` 登记固定类别、`MANNER_DEVICE`、`STORE_KINDS`、`GOODS_CATEGORY_STORE_KINDS`、`GOODS_ENERGY_KCAL`、`GOODS_RECEIPT_EFFECTS`、`CONTENT_MIN_SECONDS`、`CATEGORY_MET`、`ENTERTAINMENT_RELIEF_PER_HOUR`，以及迁入 exchange 的社交需要、情绪脉冲与半衰期、运动情绪常数。原有固定定义仍由唯一定义处读取，旧食品与内容分类表直接删除。
+
+
+
 
 <a name="shared-rules-可重建环境"></a>
 ## 可重建环境
@@ -166,6 +169,7 @@ AS2 保留调度、失败传播、恢复、直接环境注册、工具请求与�
 
 LabelKit 的安装、模型任务与数据加工由 LabelKit-DataSet 管理。
 
+
 <a name="shared-rules-环境引导与收据"></a>
 ### 环境引导与收据
 
@@ -182,6 +186,7 @@ wheelhouse 明确使用 `--no-index --find-links` 和固定源制品，不访问
 有效既有源码要核对身份；错误源码不能被引导静默覆盖成正确结果。
 收据包含 Python 版本、各依赖锁摘要、AS2 摘要、Node 版本、profile 和缺失部件，
 只使用相对项目路径，不含机器身份、密钥或私有凭据。
+
 
 <a name="shared-rules-门禁可选部件与操作系统"></a>
 ### 门禁、可选部件与操作系统
@@ -210,6 +215,7 @@ Windows 重建回执尚未执行，必须单独标为未执行；没有真实成
 可变测试工作区使用标准库 `shutil.copytree` 的普通独立 `copy2` 复制，不以硬链接共享仓库输入，
 不增加复制辅助抽象或回退路径；真实夹具构建和修改后必须保持源文件字节不变，副本与源文件不共享 inode。
 
+
 <a name="shared-rules-新机器检查"></a>
 ### 新机器检查
 
@@ -221,6 +227,8 @@ CI 在 Ubuntu x86_64 与 Windows 执行同一路径，checkout 不初始化子�
 CI 比较两系统代码摘要，不能只分别检查摘要格式。
 
 阶段 1 的 `tests/test_single_source.py::OWNERS` 登记 `FOOD_CONSTANTS`、`CONTENT_RELIEF_PER_HOUR`、`PLACE_KIND_ENVIRONMENTS`、`TARGET_LABELS`、`START_ACTIVITY_ACTIONS`、`BODY_CONSTANTS` 及现行唯一归属，原二十项保持。`QUICK_TESTS` 到阶段 4 才改为新目录、交换规则与 app 纯测试，不在本阶段提前声明该快速集合已经替换。
+
+
 
 <a name="shared-rules-文档原子同步清单"></a>
 ## 文档原子同步清单
@@ -257,6 +265,7 @@ CI 比较两系统代码摘要，不能只分别检查摘要格式。
 现行业务协议、同秒进度、重试预算、记忆类型和 sleep_channel 语义没有被本次规格推翻。
 无新增依赖层级配置、测试层级工具、运行兼容格式、热更新或外部发布功能。
 
+
 <a name="shared-rules-验收与闭合台账"></a>
 ## 验收与闭合台账
 
@@ -265,6 +274,7 @@ CI 比较两系统代码摘要，不能只分别检查摘要格式。
 新机器检查、平台身份核对、完整测试、风格、文档链接、设计汇编与覆盖率均是必要门禁。
 新功能按 `uncle-bob-review` 在干净提交的隔离 worktree 中执行语义变异，存活变异补测试后重审。
 真实模型全天运行与十二周实验仍由已有总体规格验收，本特性不凭离线测试声称这些实验完成。
+
 
 <a name="shared-rules-版本表"></a>
 ## 版本表

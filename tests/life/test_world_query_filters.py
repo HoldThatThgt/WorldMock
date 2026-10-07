@@ -1,152 +1,95 @@
-"""@brief 真实固定菜单的冻结查询以实际 app 成员店铺筛选。"""
+"""@brief 真实目录商品与动作共同按应用、类别、方式和当前资格取交集。"""
 
-import json
+import copy
 from dataclasses import replace
 
-import pytest
-from pydantic import ValidationError
-
-from worldmock.life import activity_control
-from worldmock.life.activities import ActivityOrigin, start_activity
-from worldmock.life.models import ActivityStartParams, WorldState
-from worldmock.life.callable_index import IndexSources, callable_index
-from worldmock.life.tool_layer import tool_layer
-from worldmock.life.world_query import QueryWorldRequest, attach_world_query, query_world, validate_world_query
-from tests.life.purchase_worlds import menu_context
+from tests.life.action_contract_world import contract_world
+from tests.life.test_world_query import query_observation, query_payload
+from worldmock.life.discovery import DiscoveryContext, product_bindings, product_rows
+from worldmock.life.world_query import QueryWorldRequest, query_world, validate_world_query
 
 
-def observation(context):
-    # 当前纯呈现输入明确选定各购物 app 的支付 app，人物请求到阶段四统一接线。
-    choices = {"meituan": "wechat", "eleme": "alipay"}
-    bindings = [{**row, "payment_app_id": choices[row["app_id"]]}
-                if row["kind"] == "supply" and row.get("app_id") else row for row in context.bindings]
-    context = replace(context, bindings=bindings)
-    value = {"agent_id": 1, "catalog_bindings": [], "home_location_id": "home",
-             "locations": [{"location_id": place.location_id, "name": place.display_name}
-                           for place in context.scenario.locations],
-             "tool_layer": tool_layer(context, callable_index(context, IndexSources()))}
-    attach_world_query(value, context)
-    return json.loads(json.dumps(value, ensure_ascii=False))
+def names(observation, **values):
+    """@brief 使用公开查询入口得到完整匹配目标名。"""
+    request = QueryWorldRequest.model_validate(query_payload(**values))
+    assert validate_world_query(observation, request) is None
+    result = query_world(observation, request)
+    return {row["name"] for row in result["matches"]}
 
 
-def test_frozen_food_query_app_source_uses_actual_store_binding_and_category():
-    context = menu_context()
-    value = observation(context)
-    request = QueryWorldRequest.model_validate({"name": None, "way": "远程下单", "category": "正餐",
-        "from": "美团", "available_only": True, "offset": 0})
-    assert validate_world_query(value, request) is None
-    result = query_world(value, request)
-    assert {row["name"] for row in result["matches"]} == {"一心面馆出售的牛肉面"}
-    assert result["total_count"] == 1
-    assert value["world_query_apps"]["meituan"]["store_ids"] == ["cafe", "noodle-1"]
-    assert "world_query_channels" not in value
-    assert all("taste_weights" not in row for row in result["matches"])
+def test_shopping_app_filters_the_real_goods_target_without_store_expansion():
+    _, observation = query_observation()
+    assert names(observation, app="美团", way="购买", category="正餐") == {"牛肉面"}
+    assert names(observation, app="饿了么", way="购买", category=None) == {"薯片", "柠檬茶"}
+    assert all("出售的" not in entry["match"]["name"] for entry in observation["world_query_bindings"])
+    assert observation["world_query_apps"]["meituan"] == {"name": "美团"}
+    assert "world_query_channels" not in observation
 
 
-def test_query_is_a_frozen_pure_read_and_no_app_store_still_has_onsite_menu():
-    context = menu_context("noodle-2")
-    value = observation(context)
-    before = context.state.model_dump_json()
-    request = QueryWorldRequest.model_validate({"name": "牛肉面", "way": "到店", "category": None,
-        "from": "二味小炒", "available_only": True, "offset": 0})
-    assert validate_world_query(value, request) is None
-    result = query_world(value, request)
-    assert result["total_count"] == 1 and result["matches"][0]["state"] == "正餐，每份约 600 千卡"
-    assert context.state.model_dump_json() == before
+def test_action_app_and_category_filters_use_real_action_names_and_labels():
+    _, observation = query_observation()
+    assert names(observation, app="哔哩哔哩", category=None) == {"刷推荐", "学课程"}
+    assert names(observation, app="哔哩哔哩", category="娱乐") == {"刷推荐"}
+    assert names(observation, app="Keep", category="运动", way="进行") == {"跑步"}
+    assert names(observation, app="微信", category="社交") == {"语音通话"}
+    assert names(observation, category="日常照护") == {"安静休息"}
+    assert names(observation, way="进行", category="工作与学习") == {"学课程", "办公"}
 
 
-def request(**changes):
-    return QueryWorldRequest.model_validate({"name": None, "way": None, "category": "正餐",
-        "from": None, "available_only": False, "offset": 0, **changes})
+def test_available_only_is_specific_to_the_selected_app_and_way():
+    _, observation = query_observation()
+    entry = next(entry for entry in observation["world_query_bindings"] if entry["match"]["name"] == "刷推荐")
+    for action in entry["match"]["actions"]:
+        action["available"] = action["app"] == "抖音"
+        action["reason"] = None if action["available"] else "Nothing is left to do for this action."
+    assert names(observation, app="哔哩哔哩", category="娱乐", available_only=True) == set()
+    assert names(observation, app="抖音", category="娱乐", available_only=True) == {"刷推荐"}
+    assert names(observation, app="哔哩哔哩", category="娱乐", available_only=False) == {"刷推荐"}
+    tool_only = next(row["match"] for row in observation["world_query_bindings"]
+                     if not row["match"]["actions"] and any(tool["available"] for tool in row["match"]["tools"]))
+    assert names(observation, name=tool_only["name"], way=None, category=None, app=None,
+                 available_only=True) == {tool_only["name"]}
 
 
-def test_source_filter_excludes_real_menus_outside_the_selected_app():
-    value = observation(menu_context())
-    result = query_world(value, request(**{"from": "美团"}))
-    assert result["total_count"] == 1
-    assert {row["name"] for row in result["matches"]} == {"一心面馆出售的牛肉面"}
+def test_full_query_contains_goods_beyond_the_current_presentation_window():
+    context, observation = query_observation()
+    full = names(observation, category=None, way="购买")
+    observation["tool_layer"]["targets"] = [target for target in observation["tool_layer"]["targets"]
+                                            if target["kind"] != "product"]
+    assert full == {"牛肉面", "薯片", "柠檬茶"}
+    assert names(observation, category=None, way="购买") == full
+    assert len(product_bindings(context)) == len(full)
 
 
-def test_source_resolution_uses_the_purchase_resolver_instead_of_plain_place_equality():
-    value = observation(menu_context())
-    submitted = request(**{"from": "  美团  "})
-    assert validate_world_query(value, submitted) is None
-    assert query_world(value, submitted)["total_count"] == 1
+def test_product_set_is_the_single_catalog_union_and_observation_does_not_change_it():
+    context, _ = contract_world("store")
+    discovery = DiscoveryContext(context.state, context.scenario, context.semantics, context.state.agents[1])
+    before = context.state.model_dump(mode="json")
+    rows = product_rows(discovery)
+    assert {row["goods_id"] for row in rows} == set(context.semantics.catalog.goods)
+    assert len(rows) == len({row["goods_id"] for row in rows})
+    chips = next(row for row in rows if row["goods_id"] == "chips")
+    assert chips["app_ids"] == ["eleme", "meituan"]
+    assert context.state.model_dump(mode="json") == before
+    bindings = product_bindings(context)
+    assert {row["object_id"] for row in bindings} == {row["goods_id"] for row in rows}
+    for row in bindings:
+        assert {action["app_id"] for action in row["actions"]} == {None, *row["app_ids"]}
+        assert all(action["label"] == "购买" for action in row["actions"])
 
 
-def test_query_requires_the_source_and_availability_keys_without_defaults():
-    with pytest.raises(ValidationError) as failure:
-        QueryWorldRequest.model_validate({"name": "牛肉面", "way": None, "category": None, "offset": 0})
-    assert {error["loc"] for error in failure.value.errors()} == {("from",), ("available_only",)}
+def test_menu_can_remove_all_goods_without_removing_unrelated_actions():
+    context, _ = contract_world()
+    menu = context.menu.model_copy(update={"allowed_actions": tuple(action for action in context.menu.allowed_actions
+                                                                   if action != "purchase")})
+    assert product_bindings(replace(context, menu=menu)) == []
 
 
-def test_unknown_source_is_an_argument_error_instead_of_an_empty_page():
-    value = observation(menu_context())
-    report = validate_world_query(value, request(**{"from": "未登记的外卖平台"}))
-    assert report is not None and report.error_code == "ARGUMENTS_INVALID"
-    assert [item.path for item in report.items] == [("from",)]
-    assert report.items[0].candidates
-
-
-def test_source_error_candidates_exclude_places_without_actual_food_menus():
-    value = observation(menu_context())
-    report = validate_world_query(value, request(**{"from": "公司食堂"}))
-    assert report is not None
-    names = {candidate.arguments["from"] for candidate in report.items[0].candidates}
-    assert names and names <= {"一心面馆", "二味小炒", "三杯咖啡", "四季便利", "美团", "饿了么"}
-    assert "公司" not in names and "家" not in names and "五里公园" not in names
-
-
-def test_purchase_way_expands_to_both_real_pickup_and_delivery_actions():
-    value = observation(menu_context())
-    submitted = request(way="购买")
-    assert validate_world_query(value, submitted) is None
-    result = query_world(value, submitted)
-    assert result["total_count"] == 3
-    assert {action["way"] for row in result["matches"] for action in row["actions"]} == {"到店", "远程下单"}
-
-
-def test_availability_is_filtered_before_paging_and_total_count():
-    value = observation(menu_context("noodle-2"))
-    value["world_query_page_size"] = 2
-    submitted = request(category=None, way="到店", available_only=True)
-    seen, offset = [], 0
-    while offset is not None:
-        page_request = submitted.model_copy(update={"offset": offset})
-        assert validate_world_query(value, page_request) is None
-        page = query_world(value, page_request)
-        assert page["total_count"] == 3
-        seen.extend(row["name"] for row in page["matches"])
-        offset = page["next_offset"]
-    assert len(seen) == len(set(seen)) == 3
-    assert all(name.startswith("二味小炒出售的") for name in seen)
-
-
-def test_availability_only_uses_actions_matching_the_written_way():
-    value = observation(menu_context())
-    assert query_world(value, request(way="到店", available_only=True))["total_count"] == 0
-    assert query_world(value, request(way="远程下单", available_only=True))["total_count"] == 1
-
-
-def test_without_way_availability_includes_the_actual_activity_control_tools():
-    context = menu_context()
-    _, activity = start_activity(context.state.agents[1],
-        ActivityStartParams(activity_type="wait", planned_duration_seconds=300), context.state.current_time,
-        ActivityOrigin("food-control", "decision", "request"), context.semantics.body)
-    state = WorldState.model_validate(context.state.model_copy(update={"activities": {activity.activity_id: activity}}).model_dump())
-    names = activity_control.visible_names(state, 1, {})
-    value = observation(replace(context, state=state, names=names))
-    submitted = request(name=names["activities"][activity.activity_id], category=None, available_only=True)
-    assert validate_world_query(value, submitted) is None
-    result = query_world(value, submitted)
-    assert result["total_count"] == 1
-    target = result["matches"][0]
-    assert not target.get("actions")
-    assert any(tool["available"] for tool in target["tools"])
-
-
-def test_total_count_is_the_filtered_menu_count():
-    value = observation(menu_context())
-    result = query_world(value, request(name="牛肉面", **{"from": "美团"}))
-    assert result["total_count"] == 1
-    assert len(value["world_query_bindings"]) > result["total_count"]
+def test_query_remains_frozen_after_the_source_world_and_catalog_order_change():
+    context, observation = query_observation()
+    before = copy.deepcopy(observation)
+    expected = names(observation, app="美团", category=None)
+    context.state.agents[1].location_id = "office"
+    context.state.sessions["stay-1"].location_id = "office"
+    assert names(observation, app="美团", category=None) == expected
+    assert observation == before

@@ -23,6 +23,8 @@ from zoneinfo import ZoneInfo
 
 from worldmock.errors import IntegrityError
 from worldmock.exchange.types import LocationKind
+from worldmock.exchange.operators import delivery_seconds
+from worldmock.life.parcel import nearest_parcel_station
 from worldmock.life.object_labels import SELF_LABEL, object_label
 
 from worldmock.life.scenario import RuntimeScenario
@@ -48,6 +50,18 @@ def check_location_kinds(scenario: RuntimeScenario) -> None:
                    f" allowed kinds: {', '.join(sorted(LocationKind))}")
         logging.error(message)
         raise IntegrityError(message)
+
+
+def check_parcel_stations(semantics) -> None:
+    """@brief 声明或图距可产生长途运输时，所有人物家庭最近驿站须实例化。"""
+    places = semantics.scenario.locations
+    long_shipping = any(place.shipping_seconds > 86400 if place.shipping_seconds is not None else
+                        bool(place.app_ids) and any(
+                            delivery_seconds(semantics.catalog.shortest_m(place.location_id, destination.location_id))
+                            > 86400 for destination in places) for place in places)
+    if long_shipping:
+        for agent in semantics.scenario.agents:
+            nearest_parcel_station(semantics, agent.home_location_id)
 
 
 def check_work_schedules(scenario: RuntimeScenario) -> None:

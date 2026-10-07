@@ -10,6 +10,8 @@
 from __future__ import annotations
 
 from worldmock.base_models import FrozenModel
+from worldmock.exchange.constants import SOCIAL_NEED_REMOTE_RATE
+import logging
 from collections.abc import Collection, Container
 from typing import Literal
 
@@ -24,12 +26,6 @@ MessageKind = Literal["direct", "chat_invite"]
 MESSAGE_TEXT_MAX_CHARS = 300
 #: model 策略回复文本上限（「社交最小可行版」：不超过 200 汉字）。
 MODEL_REPLY_MAX_CHARS = 200
-#: 通话时长闭区间端点（分钟，含端点，「社交最小可行版」）。
-CALL_MIN_MINUTES = 10
-CALL_MAX_MINUTES = 60
-#: experiment_assumption：交谈被接受时双方社交需要缓解速率（约定值，非文献常数）。
-#: experiment_assumption：交谈被拒绝时发起方社交需要缓解速率（约定值，非文献常数）。
-#: experiment_assumption：通话社交需要缓解速率（约定值，非文献常数）。
 #: 联系人回复来源标记（「社交最小可行版」）。足迹 EventDraft.source_kind 冻结枚举不含
 #: model_npc，落库时的映射由引擎层负责，本模块只产出记录结构。
 REPLY_SOURCE_KIND = "model_npc"
@@ -144,7 +140,7 @@ class ChatStart(_SocialModel):
 
     activity_kind: Literal["chat"] = "chat"
     partner_id: str
-    duration_minutes: int
+    duration_seconds: int
     invite_message: Message
     arrival: MessageArrivalEvent
 
@@ -154,7 +150,7 @@ class CallStart(_SocialModel):
 
     activity_kind: Literal["call"] = "call"
     contact_id: str
-    duration_minutes: int
+    duration_seconds: int
     attention_occupied: Literal[True] = True
     relief_per_hour: float
 
@@ -280,7 +276,7 @@ def send_message(outgoing: OutgoingMessage, world_agent_ids: Collection[str],
 
 
 def start_chat(initiator_location: str, partner: AgentPresence,
-               duration_minutes: int, invite: OutgoingMessage) -> ChatStart:
+               duration_seconds: int, invite: OutgoingMessage) -> ChatStart:
     """@brief 交谈域校验：共同在场且对方可交谈；产出前台活动与邀请。
 
     邀请以 chat_invite 消息送达对方（「社交最小可行版」）；对方对发起方选择交谈即接受，缓解按双方交谈同时进行的
@@ -292,8 +288,9 @@ def start_chat(initiator_location: str, partner: AgentPresence,
             f"partner {partner.agent_id} at {partner.location}")
     if not can_talk(partner):
         raise ValueError(f"chat partner cannot talk: {partner.agent_id}")
-    if duration_minutes <= 0:
-        raise ValueError(f"chat duration must be positive: {duration_minutes}")
+    if duration_seconds <= 0:
+        logging.error("Chat duration must be positive")
+        raise ValueError(f"chat duration must be positive: {duration_seconds}")
     if invite.recipient_id != partner.agent_id:
         raise ValueError(
             f"chat invite recipient must be the partner: {invite.recipient_id}")
@@ -306,26 +303,19 @@ def start_chat(initiator_location: str, partner: AgentPresence,
     )
     return ChatStart(
         partner_id=partner.agent_id,
-        duration_minutes=duration_minutes,
+        duration_seconds=duration_seconds,
         invite_message=invite_message,
         arrival=arrival,
     )
 
 
-def start_call(contact: Contact, duration_minutes: int) -> CallStart:
-    """@brief 通话域校验：面向场景联系人，10-60 分钟，占用注意力，0.4/小时。
-
-    联系人类型即场景联系人的类型约束；时长闭区间含端点（「社交最小可行版」）。
-    """
-    if not CALL_MIN_MINUTES <= duration_minutes <= CALL_MAX_MINUTES:
-        raise ValueError(
-            f"call duration must be {CALL_MIN_MINUTES}-{CALL_MAX_MINUTES} "
-            f"minutes: got {duration_minutes}")
-    return CallStart(
-        contact_id=contact.contact_id,
-        duration_minutes=duration_minutes,
-        relief_per_hour=CALL_RELIEF_PER_HOUR,
-    )
+def start_call(contact: Contact, duration_seconds: int) -> CallStart:
+    """@brief 语音通话沿用真实联系人路径，时长只取本次内容余量。"""
+    if duration_seconds <= 0:
+        logging.error("Call duration must be positive")
+        raise ValueError("call duration must be positive")
+    return CallStart(contact_id=contact.contact_id, duration_seconds=duration_seconds,
+                     relief_per_hour=SOCIAL_NEED_REMOTE_RATE)
 
 
 def needs_reply(policy: ReplyPolicy, message_id: str,

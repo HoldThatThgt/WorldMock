@@ -25,6 +25,8 @@ class ScheduledKind(StrEnum):
     MESSAGE_ARRIVAL = "message_arrival"
     #: 应用整点推送机会，到期时以人物当前会话判定资格。
     APP_PUSH = "app_push"
+    #: 本人设置的一次性闹钟，到期可唤醒睡眠。
+    ALARM_RING = "alarm_ring"
 
 
 class ScheduledEvent(StrictModel):
@@ -36,3 +38,5 @@ class ScheduledEvent(StrictModel):
     sequence: int = Field(ge=0)
     agent_id: int | None = Field(default=None, gt=0)
     data: dict[str, Any] = Field(default_factory=dict)
+    #: 动作创建的排期引用同次提交的真实结果事件；静态场景排期可为空。
+    caused_by: list[str] = Field(default_factory=list)

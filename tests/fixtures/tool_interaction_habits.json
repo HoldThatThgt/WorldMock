@@ -1,5 +1,5 @@
 {
-  "source": "Read-only compiled habit declarations from the real DeepSeek strict two-person run; native action mappings are explicit human-authored test fixtures. Brand, temperature and platform details remain persona prose and do not create world facts. Current native tests publish explicit synthetic Catalog foods and Scenario declarations; retired capabilities are accounted separately without modifying external compiled artifacts.",
+  "source": "Read-only compiled habit declarations retain their original source hashes. Current native cases explicitly publish Goods, Actions and Content, then verify actual purchase receipts and content settlement. Persona prose never creates undeclared world facts.",
   "scenario": "scenarios/multi-person.json",
   "compiled_personas": [
     {
@@ -95,21 +95,15 @@
       "agent_id": 1,
       "preconditions": {
         "at": "2026-01-05T07:00:00+08:00",
-        "location_id": "store",
-        "notifications": [],
-        "inventory": {}
+        "location_id": "store"
       },
       "chain": [
         {
           "kind": "purchase",
-          "object_id": "water",
-          "way": "到店",
-          "from": "store"
-        },
-        {
-          "kind": "consume",
-          "object_id": "water",
-          "way": "食用"
+          "goods_id": "water",
+          "way": "购买",
+          "app_id": null,
+          "payment_app_id": null
         }
       ],
       "habit": {
@@ -127,21 +121,21 @@
       "agent_id": 1,
       "preconditions": {
         "at": "2026-01-05T12:00:00+08:00",
-        "location_id": "home",
-        "notifications": [],
-        "inventory": {}
+        "location_id": "home"
       },
       "chain": [
         {
-          "kind": "app",
-          "object_id": "bilibili",
-          "way": "打开",
+          "kind": "action",
+          "action_id": "browse-feed",
+          "app_id": "bilibili",
+          "contact_id": null,
           "complete": true
         },
         {
-          "kind": "app",
-          "object_id": "bilibili",
-          "way": "打开",
+          "kind": "action",
+          "action_id": "browse-feed",
+          "app_id": "bilibili",
+          "contact_id": null,
           "complete": false
         }
       ],
@@ -160,9 +154,7 @@
       "agent_id": 1,
       "preconditions": {
         "at": "2026-01-05T10:00:00+08:00",
-        "location_id": "office",
-        "notifications": [],
-        "inventory": {}
+        "location_id": "office"
       },
       "chain": [
         {
@@ -172,25 +164,17 @@
         },
         {
           "kind": "purchase",
-          "object_id": "milk",
-          "way": "到店",
-          "from": "store"
-        },
-        {
-          "kind": "consume",
-          "object_id": "milk",
-          "way": "食用"
+          "goods_id": "milk",
+          "way": "购买",
+          "app_id": null,
+          "payment_app_id": null
         },
         {
           "kind": "purchase",
-          "object_id": "nuts",
-          "way": "到店",
-          "from": "store"
-        },
-        {
-          "kind": "consume",
-          "object_id": "nuts",
-          "way": "食用"
+          "goods_id": "nuts",
+          "way": "购买",
+          "app_id": null,
+          "payment_app_id": null
         },
         {
           "kind": "travel",
@@ -213,15 +197,15 @@
       "agent_id": 1,
       "preconditions": {
         "at": "2026-01-05T15:00:00+08:00",
-        "location_id": "home",
-        "notifications": [],
-        "inventory": {}
+        "location_id": "home"
       },
       "chain": [
         {
-          "kind": "lifestyle",
-          "object_id": "quiet-rest",
-          "way": "进行"
+          "kind": "action",
+          "action_id": "quiet-rest",
+          "app_id": null,
+          "contact_id": null,
+          "complete": true
         }
       ],
       "habit": {
@@ -239,21 +223,15 @@
       "agent_id": 2,
       "preconditions": {
         "at": "2026-01-05T11:00:00+08:00",
-        "location_id": "home",
-        "notifications": [],
-        "inventory": {}
+        "location_id": "home"
       },
       "chain": [
         {
           "kind": "purchase",
-          "object_id": "beef-noodles",
-          "way": "远程下单",
-          "from_app": "meituan"
-        },
-        {
-          "kind": "consume",
-          "object_id": "beef-noodles",
-          "way": "食用"
+          "goods_id": "beef-noodles",
+          "way": "购买",
+          "app_id": "meituan",
+          "payment_app_id": "wechat"
         }
       ],
       "habit": {
@@ -271,21 +249,15 @@
       "agent_id": 2,
       "preconditions": {
         "at": "2026-01-05T17:00:00+08:00",
-        "location_id": "home",
-        "notifications": [],
-        "inventory": {}
+        "location_id": "home"
       },
       "chain": [
         {
           "kind": "purchase",
-          "object_id": "beef-noodles",
-          "way": "远程下单",
-          "from_app": "meituan"
-        },
-        {
-          "kind": "consume",
-          "object_id": "beef-noodles",
-          "way": "食用"
+          "goods_id": "beef-noodles",
+          "way": "购买",
+          "app_id": "meituan",
+          "payment_app_id": "wechat"
         }
       ],
       "habit": {
@@ -303,21 +275,21 @@
       "agent_id": 2,
       "preconditions": {
         "at": "2026-01-05T20:00:00+08:00",
-        "location_id": "home",
-        "notifications": [],
-        "inventory": {}
+        "location_id": "home"
       },
       "chain": [
         {
-          "kind": "app",
-          "object_id": "bilibili",
-          "way": "打开",
+          "kind": "action",
+          "action_id": "browse-feed",
+          "app_id": "bilibili",
+          "contact_id": null,
           "complete": false
         },
         {
-          "kind": "app",
-          "object_id": "douyin",
-          "way": "打开",
+          "kind": "action",
+          "action_id": "browse-feed",
+          "app_id": "douyin",
+          "contact_id": null,
           "complete": false
         }
       ],
@@ -336,9 +308,7 @@
       "agent_id": 1,
       "preconditions": {
         "at": "2026-01-05T12:00:00+08:00",
-        "location_id": "home",
-        "notifications": [],
-        "inventory": {}
+        "location_id": "home"
       },
       "chain": [
         {
@@ -348,14 +318,10 @@
         },
         {
           "kind": "purchase",
-          "object_id": "beef-noodles",
-          "way": "到店",
-          "from": "noodle-1"
-        },
-        {
-          "kind": "consume",
-          "object_id": "beef-noodles",
-          "way": "食用"
+          "goods_id": "beef-noodles",
+          "way": "购买",
+          "app_id": null,
+          "payment_app_id": null
         }
       ],
       "background_declaration": "工作再忙也会按时吃午饭和晚饭",
@@ -366,9 +332,7 @@
       "agent_id": 1,
       "preconditions": {
         "at": "2026-01-05T18:00:00+08:00",
-        "location_id": "home",
-        "notifications": [],
-        "inventory": {}
+        "location_id": "home"
       },
       "chain": [
         {
@@ -378,14 +342,10 @@
         },
         {
           "kind": "purchase",
-          "object_id": "beef-noodles",
-          "way": "到店",
-          "from": "noodle-1"
-        },
-        {
-          "kind": "consume",
-          "object_id": "beef-noodles",
-          "way": "食用"
+          "goods_id": "beef-noodles",
+          "way": "购买",
+          "app_id": null,
+          "payment_app_id": null
         }
       ],
       "background_declaration": "工作再忙也会按时吃午饭和晚饭",
@@ -396,9 +356,7 @@
       "agent_id": 1,
       "preconditions": {
         "at": "2026-01-05T18:00:00+08:00",
-        "location_id": "home",
-        "notifications": [],
-        "inventory": {}
+        "location_id": "home"
       },
       "chain": [
         {
@@ -414,14 +372,10 @@
         },
         {
           "kind": "purchase",
-          "object_id": "beef-noodles",
-          "way": "到店",
-          "from": "noodle-1"
-        },
-        {
-          "kind": "consume",
-          "object_id": "beef-noodles",
-          "way": "食用"
+          "goods_id": "beef-noodles",
+          "way": "购买",
+          "app_id": null,
+          "payment_app_id": null
         }
       ],
       "background_declaration": "下班后偶尔约同事吃饭",
@@ -433,15 +387,14 @@
       "preconditions": {
         "at": "2026-01-10T19:00:00+08:00",
         "location_id": "home",
-        "notifications": [],
-        "inventory": {},
         "end_at": "2026-01-11T12:00:00+08:00"
       },
       "chain": [
         {
-          "kind": "app",
-          "object_id": "bilibili",
-          "way": "打开",
+          "kind": "action",
+          "action_id": "browse-feed",
+          "app_id": "bilibili",
+          "contact_id": null,
           "complete": false
         }
       ],
@@ -453,9 +406,7 @@
       "agent_id": 1,
       "preconditions": {
         "at": "2026-01-05T19:00:00+08:00",
-        "location_id": "home",
-        "notifications": [],
-        "inventory": {}
+        "location_id": "home"
       },
       "chain": [
         {
@@ -473,9 +424,7 @@
       "agent_id": 1,
       "preconditions": {
         "at": "2026-01-05T19:00:00+08:00",
-        "location_id": "home",
-        "notifications": [],
-        "inventory": {}
+        "location_id": "home"
       },
       "chain": [
         {
@@ -493,21 +442,15 @@
       "agent_id": 2,
       "preconditions": {
         "at": "2026-01-05T07:00:00+08:00",
-        "location_id": "home",
-        "notifications": [],
-        "inventory": {}
+        "location_id": "home"
       },
       "chain": [
         {
           "kind": "purchase",
-          "object_id": "beef-noodles",
-          "way": "远程下单",
-          "from_app": "meituan"
-        },
-        {
-          "kind": "consume",
-          "object_id": "beef-noodles",
-          "way": "食用"
+          "goods_id": "beef-noodles",
+          "way": "购买",
+          "app_id": "meituan",
+          "payment_app_id": "wechat"
         }
       ],
       "background_declaration": "习惯点外卖解决三餐，偏爱面食和牛肉类食品，常选方便面或牛肉面",
@@ -518,21 +461,15 @@
       "agent_id": 2,
       "preconditions": {
         "at": "2026-01-05T11:00:00+08:00",
-        "location_id": "home",
-        "notifications": [],
-        "inventory": {}
+        "location_id": "home"
       },
       "chain": [
         {
           "kind": "purchase",
-          "object_id": "iced-tea",
-          "way": "远程下单",
-          "from_app": "meituan"
-        },
-        {
-          "kind": "consume",
-          "object_id": "iced-tea",
-          "way": "食用"
+          "goods_id": "iced-tea",
+          "way": "购买",
+          "app_id": "meituan",
+          "payment_app_id": "wechat"
         }
       ],
       "background_declaration": "喜欢喝冰红茶",
@@ -543,16 +480,15 @@
       "agent_id": 2,
       "preconditions": {
         "at": "2026-01-05T20:00:00+08:00",
-        "location_id": "home",
-        "notifications": [],
-        "inventory": {}
+        "location_id": "home"
       },
       "chain": [
         {
-          "kind": "call",
-          "object_id": "contact-lifan-oldfriend",
-          "way": "通话",
-          "agent_id": 2
+          "kind": "action",
+          "action_id": "voice-call",
+          "app_id": "wechat",
+          "contact_id": "contact-lifan-oldfriend",
+          "complete": true
         }
       ],
       "background_declaration": "压力大时会找老友倾诉而不是憋着",
@@ -563,9 +499,7 @@
       "agent_id": 2,
       "preconditions": {
         "at": "2026-01-05T07:59:00+08:00",
-        "location_id": "office",
-        "notifications": [],
-        "inventory": {}
+        "location_id": "office"
       },
       "chain": [
         {
@@ -574,42 +508,37 @@
           "way": "等待"
         },
         {
-          "kind": "work",
-          "object_id": "topic-sales",
-          "way": "工作",
-          "agent_id": 2,
+          "kind": "action",
+          "action_id": "office-work",
+          "app_id": null,
+          "contact_id": null,
           "complete": false
         },
         {
           "kind": "purchase",
-          "object_id": "beef-noodles",
-          "way": "远程下单",
-          "from_app": "meituan"
-        },
-        {
-          "kind": "consume",
-          "object_id": "beef-noodles",
-          "way": "食用"
+          "goods_id": "beef-noodles",
+          "way": "购买",
+          "app_id": "meituan",
+          "payment_app_id": "wechat"
         }
       ],
       "background_declaration": "写代码时容易进入心流忘记时间，但身体会诚实地发出信号——饿了就一定要吃东西，不会硬扛",
       "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
     },
     {
-      "name": "price-comparison",
+      "name": "onsite-purchase",
       "agent_id": 2,
       "preconditions": {
         "at": "2026-01-05T12:00:00+08:00",
-        "location_id": "cafe",
-        "notifications": [],
-        "inventory": {}
+        "location_id": "cafe"
       },
       "chain": [
         {
           "kind": "purchase",
-          "object_id": "lemon-tea",
+          "goods_id": "lemon-tea",
           "way": "购买",
-          "prefer": "到手价最低"
+          "app_id": null,
+          "payment_app_id": null
         }
       ],
       "background_declaration": "消费偏节俭，比价后才买",
@@ -620,9 +549,7 @@
       "agent_id": 1,
       "preconditions": {
         "at": "2026-01-05T07:59:00+08:00",
-        "location_id": "office",
-        "notifications": [],
-        "inventory": {}
+        "location_id": "office"
       },
       "chain": [
         {
@@ -631,10 +558,10 @@
           "way": "等待"
         },
         {
-          "kind": "work",
-          "object_id": "topic-sales",
-          "way": "工作",
-          "agent_id": 1,
+          "kind": "action",
+          "action_id": "office-work",
+          "app_id": null,
+          "contact_id": null,
           "complete": false
         },
         {
@@ -652,8 +579,6 @@
       "preconditions": {
         "at": "2026-01-06T01:00:00+08:00",
         "location_id": "home",
-        "notifications": [],
-        "inventory": {},
         "end_at": "2026-01-06T12:00:00+08:00"
       },
       "chain": [
@@ -672,8 +597,6 @@
       "preconditions": {
         "at": "2026-01-05T22:00:00+08:00",
         "location_id": "home",
-        "notifications": [],
-        "inventory": {},
         "end_at": "2026-01-06T12:00:00+08:00"
       },
       "chain": [
@@ -685,10 +608,9 @@
       ],
       "background_declaration": "不会为了赶 deadline 连续加班到深夜",
       "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
-    }
-  ],
-  "retired_declarations": [
+    },
     {
+      "name": "commute-podcast",
       "agent_id": 1,
       "habit": {
         "trigger": "通勤时",
@@ -698,12 +620,32 @@
           "end_hour": 9.0
         }
       },
-      "removed_contract": "Frozen ContentKind contains no audio or podcast; direct media targets are removed.",
-      "case_names": [
-        "commute-podcast"
+      "preconditions": {
+        "at": "2026-01-05T07:30:00+08:00",
+        "location_id": "home"
+      },
+      "chain": [
+        {
+          "kind": "parallel",
+          "items": [
+            {
+              "kind": "action",
+              "action_id": "habit-podcast",
+              "app_id": "bilibili",
+              "contact_id": null,
+              "complete": false
+            },
+            {
+              "kind": "travel",
+              "object_id": "office",
+              "way": "步行"
+            }
+          ]
+        }
       ]
     },
     {
+      "name": "late-game",
       "agent_id": 2,
       "habit": {
         "trigger": "深夜",
@@ -713,41 +655,39 @@
           "end_hour": 25.0
         }
       },
-      "removed_contract": "Frozen activity model removes games and TextWorld.",
-      "case_names": [
-        "late-game",
-        "weekend-game"
+      "preconditions": {
+        "at": "2026-01-05T23:00:00+08:00",
+        "location_id": "home",
+        "end_at": "2026-01-06T03:00:00+08:00"
+      },
+      "chain": [
+        {
+          "kind": "action",
+          "action_id": "habit-game",
+          "app_id": "bilibili",
+          "contact_id": null,
+          "complete": false
+        }
       ]
-    }
-  ],
-  "catalog_food_declarations": [
-    {
-      "food_id": "water",
-      "name": "饮用水",
-      "category": "drink",
-      "price_fen": 200,
-      "store_ids": "all"
     },
     {
-      "food_id": "milk",
-      "name": "牛奶",
-      "category": "drink",
-      "price_fen": 600,
-      "store_ids": "all"
-    },
-    {
-      "food_id": "nuts",
-      "name": "坚果",
-      "category": "snack",
-      "price_fen": 1500,
-      "store_ids": "all"
-    },
-    {
-      "food_id": "iced-tea",
-      "name": "冰红茶",
-      "category": "drink",
-      "price_fen": 500,
-      "store_ids": "all"
+      "name": "weekend-game",
+      "agent_id": 2,
+      "habit": null,
+      "preconditions": {
+        "at": "2026-01-10T21:00:00+08:00",
+        "location_id": "home",
+        "end_at": "2026-01-11T03:00:00+08:00"
+      },
+      "chain": [
+        {
+          "kind": "action",
+          "action_id": "habit-game",
+          "app_id": "bilibili",
+          "contact_id": null,
+          "complete": false
+        }
+      ]
     }
   ],
   "scenario_agent_declarations": {
@@ -778,9 +718,6 @@
           "reply_policy": "none"
         }
       ],
-      "work_topic_ids": [
-        "topic-sales"
-      ],
       "work_schedule": {
         "workplace_location_id": "office",
         "weekly": {
@@ -813,7 +750,10 @@
           "6": null
         },
         "exceptions": {}
-      }
+      },
+      "work_content_ids": [
+        "topic-sales"
+      ]
     },
     "2": {
       "background_story": "习惯点外卖解决三餐，偏爱面食和牛肉类食品，常选方便面或牛肉面；喜欢喝冰红茶；压力大时会找老友倾诉而不是憋着；写代码时容易进入心流忘记时间，但身体会诚实地发出信号——饿了就一定要吃东西，不会硬扛；消费偏节俭，比价后才买；睡眠偏晚，经常凌晨一点才睡。这是人工声明的日常习惯测试人物，动作回放只验证当前环境实际提供的食品购买、应用使用、工作、联系与休息。品牌、温度和人物散文不会额外产生物理属性或未发生的行为。",
@@ -831,9 +771,6 @@
           "reply_policy": "none"
         }
       ],
-      "work_topic_ids": [
-        "topic-sales"
-      ],
       "work_schedule": {
         "workplace_location_id": "office",
         "weekly": {
@@ -866,7 +803,98 @@
           "6": null
         },
         "exceptions": {}
-      }
+      },
+      "work_content_ids": [
+        "habit-work-2"
+      ]
     }
-  }
+  },
+  "catalog_goods_declarations": [
+    {
+      "name": "饮用水",
+      "category": "drink",
+      "price_fen": 200,
+      "store_ids": "all",
+      "goods_id": "water"
+    },
+    {
+      "name": "牛奶",
+      "category": "drink",
+      "price_fen": 600,
+      "store_ids": "all",
+      "goods_id": "milk"
+    },
+    {
+      "name": "坚果",
+      "category": "snack",
+      "price_fen": 1500,
+      "store_ids": "all",
+      "goods_id": "nuts"
+    },
+    {
+      "name": "冰红茶",
+      "category": "drink",
+      "price_fen": 500,
+      "store_ids": "all",
+      "goods_id": "iced-tea"
+    }
+  ],
+  "catalog_action_declarations": [
+    {
+      "action_id": "habit-podcast",
+      "name": "听播客",
+      "description": "听测试播客。",
+      "category": "entertainment",
+      "app_ids": [
+        "bilibili"
+      ],
+      "manner": "phone_continuous",
+      "communication_mode": null
+    },
+    {
+      "action_id": "habit-game",
+      "name": "玩游戏",
+      "description": "使用其他设备玩测试游戏。",
+      "category": "entertainment",
+      "app_ids": [
+        "bilibili"
+      ],
+      "manner": "other_device",
+      "communication_mode": null
+    }
+  ],
+  "catalog_content_declarations": [
+    {
+      "content_id": "habit-podcast-content",
+      "action_id": "habit-podcast",
+      "title": "测试通勤播客",
+      "summary": "人工通勤播客的合成摘要。",
+      "summary_source": {
+        "kind": "synthetic",
+        "url": null,
+        "notice": "人工原生习惯链测试合成素材"
+      },
+      "duration_seconds": 600,
+      "app_ids": [
+        "bilibili"
+      ],
+      "series": null
+    },
+    {
+      "content_id": "habit-game-content",
+      "action_id": "habit-game",
+      "title": "测试游戏片段",
+      "summary": "人工游戏内容的合成摘要。",
+      "summary_source": {
+        "kind": "synthetic",
+        "url": null,
+        "notice": "人工原生习惯链测试合成素材"
+      },
+      "duration_seconds": 1800,
+      "app_ids": [
+        "bilibili"
+      ],
+      "series": null
+    }
+  ]
 }

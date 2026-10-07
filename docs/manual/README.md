@@ -42,6 +42,7 @@ flowchart LR
     EXPORT --> EVAL[真实性评估]
 ```
 
+
 <a name="readme-创建自己的第一个场景"></a>
 ## 创建自己的第一个场景
 
@@ -89,6 +90,7 @@ worldmock run --scenario experiments/my-world/scenarios/single-person.json --out
 
 输入警告随标准错误流及 `input_warnings` 返回，覆盖率只报告与警告；不能据此放宽目录、版本或身份校验。具体含义见[人物画像](personas.md#personas-常见错误)。真实模型选择、长期节律、完整交付和真实性评估另行执行；一天人工样例不能满足正式十二周或所有交付门禁。
 
+
 <a name="readme-文件放在哪里"></a>
 ## 文件放在哪里
 
@@ -101,6 +103,7 @@ experiments/my-world/
 ```
 
 正式环境和制作工具由 WorldMock-Dataset 维护，路径由其发布决定。WorldMock 提供固定规则、生成与检查命令；场景上两级解析环境目录，输出相对当前工作目录解析。复制完整环境并保留环境钉。
+
 
 <a name="readme-修改配置前要知道的约定"></a>
 ## 修改配置前要知道的约定
@@ -116,6 +119,7 @@ experiments/my-world/
 | 运行产物由程序生成 | 不手改检查点、运行清单、画像编译溯源、足迹和生成报告来改变人物 |
 
 本手册中的离线示例只证明配置可被当前加载器读取；模型生成质量、长时间运行与正式验收需要实际执行各自流程。
+
 
 <a name="readme-手册版本表"></a>
 ## 版本表

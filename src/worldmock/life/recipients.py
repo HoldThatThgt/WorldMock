@@ -8,6 +8,8 @@ Contact.receive_location_id（为空时不能收实物）。同世界的其他�
 
 from __future__ import annotations
 
+from worldmock.errors import PreconditionError
+from worldmock.life.guidance import guided
 from worldmock.life.admission import present_location
 from worldmock.life.models import WorldState
 from worldmock.life.scenario import RuntimeScenario
@@ -48,3 +50,11 @@ def _contact(scenario: RuntimeScenario, agent_id: int, contact_id: str) -> Conta
     """@brief 人物通讯录中的一位联系人（身份来自本轮观察的私有绑定，必然存在）。"""
     config = next(item for item in scenario.agents if item.agent_id == agent_id)
     return next(item for item in config.contacts if item.contact_id == contact_id)
+
+
+def undeliverable(state: WorldState, scenario: RuntimeScenario, agent_id: int,
+                  recipient_id: str) -> PreconditionError:
+    """@brief 无实际收货地时明确等待或给本人购买，不能建议已删除的给予动作。"""
+    name = person_name(state, scenario, agent_id, recipient_id)
+    return guided("ACTIVITY_PRECONDITION_UNMET", f"{name} currently has no eligible receiving location.",
+                  f"Wait until {name} can receive it, or buy it for yourself.")

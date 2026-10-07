@@ -147,8 +147,8 @@ def test_session_kind_closed_set():
 
 
 def test_session_task_kind_closed_set():
-    """任务关联类型闭集（已移到活动上）恰为三个合法成员。"""
-    assert {k.value for k in SessionTaskKind} == {"goal", "work_topic", "none"}
+    """任务关联类型闭集（已移到活动上）只保留目标与无关联。"""
+    assert {k.value for k in SessionTaskKind} == {"goal", "none"}
 
 
 @pytest.mark.parametrize("bad_status", ["running", "done", "pending", "", "paused", "concluded", "aborted"])
@@ -158,7 +158,7 @@ def test_invalid_status_is_rejected(bad_status):
         SessionState.model_validate(_active_session(status=bad_status))
 
 
-@pytest.mark.parametrize("bad_kind", ["task", "daily", "plan", ""])
+@pytest.mark.parametrize("bad_kind", ["task", "daily", "plan", "work_topic", ""])
 def test_invalid_task_kind_is_rejected(bad_kind):
     """活动上的非法 task_kind 字符串被 Pydantic 拒绝。"""
     with pytest.raises(ValidationError):
@@ -244,20 +244,6 @@ def test_task_kind_goal_with_disagreeing_intent_is_rejected():
     """目标活动的意图必须等于 task_ref。"""
     with pytest.raises(ValidationError):
         ActivityState.model_validate(_activity(task_kind="goal", task_ref="工作", plan_goal_intent_kind="休息"))
-
-
-def test_task_kind_work_topic_requires_task_ref():
-    """task_kind=work_topic 时 task_ref=None 被拒绝。"""
-    with pytest.raises(ValidationError):
-        ActivityState.model_validate(_activity(task_kind="work_topic", task_ref=None))
-
-
-def test_task_kind_work_topic_with_task_ref_is_valid():
-    """task_kind=work_topic 且 task_ref 指向实际主题时通过验证。"""
-    activity = ActivityState.model_validate(
-        _activity(task_kind="work_topic", task_ref="quarterly-sales"))
-    assert activity.task_kind == SessionTaskKind.WORK_TOPIC
-    assert activity.task_ref == "quarterly-sales"
 
 
 # ---------------------------------------------------------------------------

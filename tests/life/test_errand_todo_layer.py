@@ -28,7 +28,7 @@ _LAYER_KEYS = ("tool_layer", "todo_layer", "environment_layer", "memory_layer", 
 
 def _errand(errand_id: str, name: str, product_id: str, registered_at: int, **fields) -> ErrandState:
     """一条未完成事务：缺省取得一份、尚无进展、没有备注与提醒。"""
-    values = {"outcome": "obtain", "quantity": 1, "progress": 0.0, "memo": None, "remind_at": None,
+    values = {"quantity": 1, "progress": 0.0, "memo": None, "remind_at": None,
               "reminded_at": None, "origin_action_id": errand_id.split(":")[0], "origin_event_id": f"event-{errand_id}"}
     return ErrandState(errand_id=errand_id, name=name, product_id=product_id, registered_at=registered_at,
                        **{**values, **fields})
@@ -40,7 +40,7 @@ def _three_errands(now: int) -> list[ErrandState]:
         _errand("action-a:errand:1", "囤三瓶柠檬茶", _TEA, now - 3600, quantity=3, progress=1.0),
         _errand("action-b:errand:0", "补一份薯片", _SNACK, now - 7200, memo="下班前下单送到家",
                 remind_at=now + 17 * 3600),
-        _errand("action-a:errand:0", "晚饭吃掉牛肉面", _MEAL, now - 3600, outcome="eat", quantity=2, progress=0.5),
+        _errand("action-a:errand:0", "晚饭取得牛肉面", _MEAL, now - 3600, quantity=2, progress=0.5),
     ]
 
 
@@ -64,12 +64,12 @@ def test_todo_layer_lists_open_errands_between_paused_activities_and_day_plan(en
     assert list(todo) == ["layer", "paused_activities", "errands", "day_plan"]
     assert todo["day_plan"]["goals"][0]["goal"] == "好好吃晚饭"
     assert [list(row) for row in todo["errands"]] == [_ROW_KEYS] * 3
-    tea = engine.context.rules.foods[_TEA].name
+    tea = engine.context.rules.goods[_TEA].name
     assert todo["errands"] == [
         {"name": "补一份薯片", "done_when": "取得薯片 1 份", "progress": "已取得 0 份",
          "memo": "下班前下单送到家", "remind_time": epoch_clock(now + 17 * 3600, zone),
          "noted_on": local_date(now - 7200, zone)},
-        {"name": "晚饭吃掉牛肉面", "done_when": "吃掉牛肉面 2 份", "progress": "已吃掉 0.5 份", "memo": None,
+        {"name": "晚饭取得牛肉面", "done_when": "取得牛肉面 2 份", "progress": "已取得 0.5 份", "memo": None,
          "remind_time": None, "noted_on": local_date(now - 3600, zone)},
         {"name": "囤三瓶柠檬茶", "done_when": f"取得{tea} 3 份", "progress": "已取得 1 份", "memo": None,
          "remind_time": None, "noted_on": local_date(now - 3600, zone)},
@@ -100,7 +100,7 @@ def test_reminded_or_unset_reminder_shows_null_remind_time(engine_factory) -> No
     now, zone = engine.context.state.current_time, engine.context.scenario.timezone
     stage_errands(engine, 1, [
         _errand("action-r:errand:0", "等提醒的事务", _SNACK, now - 60, remind_at=now + 600),
-        _errand("action-r:errand:1", "已提醒的事务", _MEAL, now - 60, outcome="eat", remind_at=now - 30,
+        _errand("action-r:errand:1", "已提醒的事务", _MEAL, now - 60, remind_at=now - 30,
                 reminded_at=now - 30),
         _errand("action-r:errand:2", "不提醒的事务", _TEA, now - 60),
     ])
@@ -120,11 +120,11 @@ def test_observation_carries_private_errand_bindings_outside_every_layer(engine_
     stage_errands(engine, 1, _three_errands(now))
     observed = engine.observe(context(engine, "errand-bindings"))
     assert observed["errand_bindings"] == [
-        {"name": "补一份薯片", "errand_id": "action-b:errand:0", "outcome": "obtain", "product_id": _SNACK},
-        {"name": "晚饭吃掉牛肉面", "errand_id": "action-a:errand:0", "outcome": "eat", "product_id": _MEAL},
-        {"name": "囤三瓶柠檬茶", "errand_id": "action-a:errand:1", "outcome": "obtain", "product_id": _TEA},
+        {"name": "补一份薯片", "errand_id": "action-b:errand:0", "product_id": _SNACK},
+        {"name": "晚饭取得牛肉面", "errand_id": "action-a:errand:0", "product_id": _MEAL},
+        {"name": "囤三瓶柠檬茶", "errand_id": "action-a:errand:1", "product_id": _TEA},
     ]
-    items = engine.context.rules.foods
+    items = engine.context.rules.goods
     assert observed["errand_item_bindings"] == [{"name": items[product_id].name, "product_id": product_id}
                                                 for product_id in sorted(items)]
     assert {_SNACK, _MEAL, _TEA} <= {row["product_id"] for row in observed["errand_item_bindings"]}
@@ -169,17 +169,22 @@ def test_each_persons_todo_layer_and_bindings_list_only_their_own_errands(engine
     """事务由记下它的人物持有（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-范围与状态 、2.6）。两人场景经真实请求、引擎与 SQLite：陈曦在收尾
     请求里记下「买牛奶」之后，李凡的观察里待办层 errands 与私有 errand_bindings 都还是空的；李凡随后记下自己的「囤柠檬茶」，
     两人的待办层与私有绑定各只列本人那一条，存进 SQLite 的本人观察事件与之逐值相同。"""
-    from tests.life.conftest import errand_add
-    from tests.life.routing_fixtures import observe, open_world
-    from tests.life.routing_fixtures import SNACK_NAME, errand_note
+    from tests.life.conftest import conclude_request, errand_add
+    from tests.life.test_acs_amended_runtime import perform
+    from tests.life.test_acs_runtime import request
 
-    engine = open_world(engine_factory)
-    errand_note(engine, "mine", [errand_add("买薯片", SNACK_NAME)])
-    alone = observe(engine, "alone", 2)
+    engine = engine_factory("multi-person.json")
+    def record(identity, label, change):
+        waited = perform(engine, f"{label}-wait", request("自己", None, "等待"), identity=identity)
+        name = engine.context.state.activities[waited.activity_id].name
+        noted = perform(engine, label, conclude_request(name, errands=[change]), "conclude_activity", identity)
+        assert noted.error_code is None, noted.data
+    record(1, "mine", errand_add("买薯片", "薯片"))
+    alone = engine.observe(context(engine, "alone", 2))
     assert alone["todo_layer"]["errands"] == [] and alone["errand_bindings"] == []
-    errand_note(engine, "theirs", [errand_add("囤柠檬茶", engine.context.rules.foods[_TEA].name)], agent_id=2)
+    record(2, "theirs", errand_add("囤柠檬茶", engine.context.rules.goods[_TEA].name))
     for agent_id, name in ((1, "买薯片"), (2, "囤柠檬茶")):
-        observed = observe(engine, f"both-{agent_id}", agent_id)
+        observed = engine.observe(context(engine, f"both-{agent_id}", agent_id))
         assert [row["name"] for row in observed["todo_layer"]["errands"]] == [name]
         assert [row["name"] for row in observed["errand_bindings"]] == [name]
         [stored] = [event for event in engine.context.store.read_agent_events("observation", agent_id)
@@ -208,7 +213,7 @@ def test_the_host_corrects_a_recall_by_the_name_of_an_open_errand(engine_factory
     assert _stored_observation(engine, observed)["errand_bindings"] == observed["errand_bindings"]
     names = [row["name"] for row in observed["todo_layer"]["errands"]]
     assert names == [row["name"] for row in observed["errand_bindings"]]
-    assert names == ["补一份薯片", "晚饭吃掉牛肉面", "囤三瓶柠檬茶"]
+    assert names == ["补一份薯片", "晚饭取得牛肉面", "囤三瓶柠檬茶"]
     for name in names:
         assert host.validate_react_decisions([
             ReactDecision("", "recall_task_summary", {"task_name": name}, "")], False) == (

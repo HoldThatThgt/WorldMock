@@ -197,7 +197,7 @@ def test_control_errands_reads_every_change_in_order(tool: str) -> None:
 def _readers(engine) -> dict:
     """环境侧读控制请求的全部读者此刻的结果：记忆层、看法与偏好、进度层、零点计划的收尾记录与记忆写入点。"""
     memory_layer._CACHE.clear()
-    context = engine.observations._layer_context(engine.context.state.agents[1], (), [])
+    context = engine.observations._layer_context(engine.context.state.agents[1], [])
     memory = memory_layer.memory_view(context, engine.context.store)
     requests = engine.context.store.read_agent_events("action_requested", 1)
     conclusions = [event for event in requests if event.data["tool_name"] == "conclude_activity"]

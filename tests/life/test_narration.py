@@ -24,7 +24,7 @@ from worldmock.life.narration import (
 )
 
 #: 观察私有证据与私有绑定：只给宿主与读者，绝不渲染进提示。
-_PRIVATE_KEYS = ("interaction_bindings", "task_bindings", "goal_bindings", "activity_bindings", "session_bindings",
+_PRIVATE_KEYS = ("interaction_bindings", "goal_bindings", "activity_bindings", "session_bindings",
                  "message_bindings", "person_bindings", "persona_views", "progress_meta", "progress_event_ids", "presented_message_ids",
                  "continuation", "errand_bindings", "errand_item_bindings", "world_query_bindings",
                  "world_query_page_size", "world_query_channels")
@@ -75,7 +75,8 @@ class TestFieldBlacklist:
             enforce_field_blacklist(payload)
 
     @pytest.mark.parametrize("internal_key", [
-        "session_id", "activity_id", "task_id", "topic_id", "app_id", "food_id", "store_id", "product_id",
+        "session_id", "activity_id", "task_id", "app_id", "goods_id", "store_id", "product_id",
+        "payment_app_id", "navigation_app_id",
         "order_id", "message_id", "contact_id", "push_id", "trip_id", "path",
         "agent_id", "source_event_id", "event_seq", "location_id", "destination_id", "content_id", "errand_id",
     ])
@@ -119,10 +120,11 @@ class TestRenderLayerJson:
     def test_layer_arrays_render_in_the_given_order(self) -> None:
         """user 的层数组按给定层序渲染，同一输入逐字节相同。"""
         layers = [{"layer": "工具层", "targets": [], "callable_index": {
-            "lifestyle": [], "contents": [], "goods": [], "query_categories": []}}, {"layer": "人设层", "habits": []}]
+            "goods": [], "navigation_apps": [], "payment_apps": [], "query_categories": []}},
+                  {"layer": "人设层", "habits": []}]
         assert render_layer_json(layers) == (
             '[{"layer":"工具层","groups":[],"callable_index":'
-            '{"lifestyle":[],"contents":[],"goods":[],"query_categories":[]}},{"layer":"人设层","habits":[]}]')
+            '{"goods":[],"navigation_apps":[],"payment_apps":[],"query_categories":[]}},{"layer":"人设层","habits":[]}]')
         assert render_layer_json(layers) == render_layer_json(json.loads(render_layer_json(layers)))
 
     def test_rejects_blacklist_before_render(self) -> None:
@@ -179,7 +181,8 @@ class TestContractListedKeys:
         查询的渠道索引与供给所属门店的 location_id 都在其列。"""
         keys = _contract_listed_keys()
         assert len(keys) >= 55
-        assert {"home_location_id", "world_query_channels", "location_id", "errand_id", "food_id", "app_id", "topic_id"} <= keys
+        assert {"home_location_id", "world_query_channels", "location_id", "errand_id", "goods_id", "app_id",
+                "payment_app_id", "navigation_app_id"} <= keys
         assert keys <= FORBIDDEN_OBSERVATION_KEYS, sorted(keys - FORBIDDEN_OBSERVATION_KEYS)
         for key in sorted(keys):
             with pytest.raises(ForbiddenObservationFieldError, match=re.escape(key)):

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from worldmock.footprints.models import EventDraft
 from worldmock.life.basket import purchase_order
 from worldmock.life.models import ActionResult, ActionStatus
+from worldmock.life.parcel import collect_parcels
 
 if TYPE_CHECKING:
     from worldmock.life.engine_context import EngineContext
@@ -39,3 +40,12 @@ class StorefrontRuntime:
         receipts = self.pending_receipts
         self.pending_receipts = []
         return receipts
+
+    def _collect_parcels(self, state, pending, station_id):
+        """@brief 零秒领取不付款、不建活动，真实收货草稿同次提交绑定本人结果。"""
+        outcome = collect_parcels(state, self.context.semantics, pending.agent_id, station_id)
+        self.pending_receipts.extend(outcome.receipts)
+        result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
+            status=ActionStatus.COMPLETED, occurred_at=state.current_time, message="Parcels collected",
+            data={"orders": [order.model_dump(mode="json") for order in outcome.orders]})
+        return outcome.state, result

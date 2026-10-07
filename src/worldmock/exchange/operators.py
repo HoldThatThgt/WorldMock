@@ -23,7 +23,7 @@ def evaluate_purchase(unit_price_fen: int, quantity: int) -> int:
 
 
 def evaluate_goods_receipt(category: GoodsCategory | str, quantity: int) -> int | float:
-    """@brief 食品返回整份提供热量，非食品返回每条订单行的固定效果。"""
+    """@brief 食品返回提供热量，非食品返回每条订单行效果，燃油为七个驾驶日。"""
     if type(quantity) is not int or quantity <= 0:
         reject_value("quantity must be a positive integer")
     try:

@@ -17,14 +17,12 @@ FOUNDATION = frozenset({
     "worldmock.model_endpoint", "worldmock.scheduling.events", "worldmock.base_models",
     "worldmock.footprints.intervals",
     "worldmock.exchange.types",
+    "worldmock.exchange.constants",
 })
 # 运行配置尚未初始化前不能导入的重依赖与命令行启动边界。
 DELAYED_IMPORTS: dict[tuple[str, str, str], str] = {('worldmock.catalog.admission', '_check_actions', 'worldmock.life.vocabulary'): '目录登记名称碰撞时读取唯一公开方式词声明',
  ('worldmock.runtime', '_prepare_resume', 'worldmock.life.models'): '恢复发布前按现行世界模型拒绝退役身份，不提前加载完整引擎',
  ('worldmock.life.observe', 'ObservationBuilder._layer_data', 'worldmock.life.environment_layer'): '出行纯观察不提前装载完整环境层',
- ('worldmock.life.relevance', 'entry_family', 'worldmock.life.candidates'): '纯清单加载不导入候选执行模块',
- ('worldmock.life.relevance', 'entry_family', 'worldmock.life.schedule'): '纯清单加载不导入活动执行模块',
- ('worldmock.life.relevance', 'intent_families', 'worldmock.life.schedule'): '纯清单加载不导入活动执行模块',
  ('worldmock.model_endpoint', 'IndependentModelClient.__init__', 'agentsociety2.config'): 'AS2 重依赖在正式运行配置完成后加载',
  ('worldmock.cli', '_compile_once', 'worldmock.profile.compile'): '命令行按所选命令延迟加载执行入口',
  ('worldmock.cli', '_dispatch', 'worldmock.validation'): '命令行按所选命令延迟加载执行入口',
@@ -156,8 +154,6 @@ DELAYED_IMPORTS: dict[tuple[str, str, str], str] = {('worldmock.catalog.admissio
  ('worldmock.runtime', '_commit_contact_reply', 'worldmock.life.models'): '纯世界校验在实际持久化入口执行，不在收集期加载引擎',
  ('worldmock.runtime', '_generate_day_plan', 'worldmock.life.models'): '纯世界校验在实际持久化入口执行，不在收集期加载引擎',
  ('worldmock.validation', 'validate_persona_coverage', 'worldmock.life.semantics'): '纯画像校验读取真实目录与场景语义，不装载完整引擎',
- ('worldmock.life.basket', '_validate_recipients', 'worldmock.life.order_routing'): '购买收货人拒绝共用当前配送引导；延迟导入避免购买与引导相互依赖',
- ('worldmock.life.named_purchase', '_request_candidate', 'worldmock.life.tool_layer'): '指名购买只在实际请求校验时读取工具层可用商品候选',
  ('worldmock.life.world_ops', '_activity_origin', 'worldmock.life.activities'): '世界事件只在构造真实活动来源时读取活动详情'}
 
 

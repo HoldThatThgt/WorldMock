@@ -24,6 +24,7 @@ def test_delivery_to_other_person_uses_their_current_receiving_location():
     semantics, state = registered_world(scenario_path=ENVIRONMENT / "scenarios/multi-person.json")
     state.agents[2] = state.agents[2].model_copy(update={"location_id": "park"})
     binding = {"store_id": "noodle-1", "goods_id": "beef-noodles", "app_id": "meituan",
+               "destination_id": "park",
                "payment_app_id": "alipay", "recipient_id": "agent:2",
                "selected_action": {"fulfillment": "delivery"}}
     requests = order_requests(state, semantics, 1, [binding])
@@ -34,7 +35,8 @@ def test_delivery_to_other_person_uses_their_current_receiving_location():
 
 def test_order_groups_use_store_destination_and_both_explicit_apps():
     semantics, state = registered_world()
-    base = {"goods_id": "chips", "recipient_id": "agent:1", "selected_action": {"fulfillment": "delivery"}}
+    base = {"goods_id": "chips", "recipient_id": "agent:1", "destination_id": "home",
+            "selected_action": {"fulfillment": "delivery"}}
     bindings = [{**base, "store_id": "noodle-1", "app_id": "meituan", "payment_app_id": "alipay"},
                 {**base, "store_id": "noodle-1", "app_id": "meituan", "payment_app_id": "wechat"},
                 {**base, "store_id": "cafe", "app_id": "eleme", "payment_app_id": "alipay"}]

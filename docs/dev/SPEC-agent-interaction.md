@@ -59,6 +59,7 @@ flowchart TB
 引擎从产生该次观察的冻结状态解析对象和动作，并计算执行参数。已结算动作的公开结果属于
 **进度层**：系统写客观结果，人物写主观进展；这不增加上下文层。
 
+
 <a name="spec-agent-interaction-权威来源与范围裁决"></a>
 ## 权威来源与范围裁决
 
@@ -79,6 +80,7 @@ flowchart TB
 
 **跨规格边界**：评估、画像、语料与账本的领域规则分别由其规格负责；数据加工和模型任务由 LabelKit-DataSet 的规格负责。
 WorldMock 保存实际发送给模型的最终请求与响应，并通过完整导出交接，保证下游能够读取原始事实。
+
 
 <a name="spec-agent-interaction-三级结构与概念边界"></a>
 ## 三级结构与概念边界
@@ -108,6 +110,7 @@ WorldMock 保存实际发送给模型的最终请求与响应，并通过完整�
 **目标层的证据规则不变**：`PlanGoal` 仍只由「正时长结算的活动」推进，`progress_activity_id` 仍是单值。
 **会话不参与目标证据的判定**——它只是按地点停留与路段分组的组织单位。
 （推论：服务同一目标的多项活动不会各自改写目标证据，目标证据仍由第一个匹配活动一次性盖章。）
+
 
 <a name="spec-agent-interaction-会话与活动的关系"></a>
 ### 会话与活动的关系
@@ -140,6 +143,7 @@ stateDiagram-v2
 
 **会话状态闭集**：`active` / `ended`；`kind` 取 `stay`（地点停留）或 `transit`（路上）。
 
+
 <a name="spec-agent-interaction-会话的状态位置"></a>
 ### 会话的状态位置
 
@@ -152,6 +156,8 @@ stateDiagram-v2
 | 结构版本 | `WORLD_SCHEMA_VERSION` **5 → 6**（本规格引入会话）；时间与能量规格升为 **7**（地点会话与活动新增字段）；人物 Prompt 规格升为 **8**（观察改为七层数据）；个人事务与工作安排规格阶段 2 升为 **9**（`AgentState.errands`，只升一次，版本 8 的检查点与导出按版本拒绝）。资源与规则引擎简化规格整体升为 **10**，旧结构直接拒绝；定义在 `src/worldmock/life/models.py::AgentState.errands`，`WorldState.schema_version` 是 `Literal[WORLD_SCHEMA_VERSION]` 且**无默认值** |
 | 场景声明 | **不需要**（会话是运行期生成物，同 `activities` / `deliveries`） |
 | 旧检查点 | **拒绝加载**：`schema_version` 是 `Literal[WORLD_SCHEMA_VERSION]` 且**无默认值**；**不提供迁移或降级读取路径**，既有运行目录的检查点一律视为作废，需重跑而非恢复 |
+
+
 
 <a name="spec-agent-interaction-会话字段"></a>
 ## 会话字段
@@ -179,15 +185,15 @@ stateDiagram-v2
 | 会话 `app_pushes` | **系统，不可改** | 按 app 标识保存当前会话的推送，状态为 `pending`、`opened` 或 `released`；会话切换后旧会话推送不再可打开 |
 | 会话 `name` | **系统从冻结场景和开始时刻生成** | 停留「<地点>（<M月D日> HH:MM 起）」，路上「去<目的地>的路上（<M月D日> HH:MM 起）」 |
 | 活动 `name` / `session_ids` / `concluded_at` / `report_anchor_at` | **系统，不可改** | 活动名「<做什么><对象>（<M月D日> HH:MM 起）」；先后所属的会话；收尾时刻；播报锚点 |
-| 活动 `task_kind` / `task_ref` / `plan_goal_intent_kind` | **系统，不可改** | `task_kind` 取 `goal`、`work_topic` 或 `none`；工作活动以 `task_ref` 指向主题，公共目标类别仍是 `task` |
+| 活动 `task_kind` / `task_ref` / `plan_goal_intent_kind` | **系统，不可改** | `task_kind` 取 `goal` 或 `none`；只用于关联当日目标，不承载工作内容身份 |
 | 活动 `progress_note` / `note_updated_at` / `note_history` | **模型撰写** | 从原会话移来；结论固定标**未经核验** |
-| app 活动 `content_id` / `media_position_seconds` / `next_interaction_at` / `played` | **系统，不可改** | 当前内容、活动游标、静默内容完成边界与本活动真实完成的内容轮次；暂停与结算写回人物全局 `ContentProgress` |
+| `action` 活动的 `data` | **系统，不可改** | 保存动作、类别、可空 app、使用方式、交流方式、对方、当前内容、开始位置、推送身份、抽取序号与真实消费记录；内容位置另写入人物全局 `ContentProgress` |
 
 会话上不再有任务、承载对象、内容分段区间、累计秒数、前置条件与自述字段；客观进度取活动随结算累加的秒数、
-全局 app 内容进度与工作主题累计，进度与自述都挂在活动上。
+全局内容进度与场景分配的工作内容完成事实，进度与自述都挂在活动及其内容结算上。
 
 上例是**引擎私有状态**，字段名和身份不得原样序列化给模型。模型所见的进度层的 `events` 只含当前 session 的有序记录：
-调用连同公开结果、收到的消息、送达、工作主题完成、当日目标提醒，以及个人事务的提醒到点与办成（`errand_reminder`、`errand_completed`，只写事务名称）；活动的客观进度在工具层活动目标的 `state`，暂停的活动与未完成的个人事务在待办层，
+调用连同公开结果、收到的消息、送达、工作内容完成、闹钟响铃、当日目标提醒，以及个人事务的提醒到点与办成（`errand_reminder`、`errand_completed`，只写事务名称）；活动的客观进度在工具层活动目标的 `state`，暂停的活动与未完成的个人事务在待办层，
 更早的 session 在记忆层。原始结果、内部身份、活动分段、账户状态和检查点只保存在事件与世界状态；模型只得到可理解且允许公开的业务反馈。
 人物写下的内容（`self_note`、`self_notes`）与环境核验的结果分开呈现，是否经核验由系统层规则统一说明。
 待办层个人事务的名称与备注同样是人物写下的，办没办成由环境按结算结果确认。
@@ -203,6 +209,7 @@ stateDiagram-v2
 阈值浓缩，权威会话和事件保持完整；不得静默截去已结算反馈。
 
 **「进展自述」与「目标单句进展」属于两个独立对象**：前者挂在活动上、随活动收尾而归档；后者挂在当日目标上、跨日随目标归零。控制工具遇到关联当日目标的活动时，将对应原文同时写入两个对象；未关联目标时只更新活动。二者恰好共用 500 字符这一上限，客观目标证据仍仅由正时长活动结算推进。同一段 summary 在本 session 内是进度层中该调用的参数，session 结束后是记忆层的 `self_notes`；目标上的原文不进提示。
+
 
 <a name="spec-agent-interaction-稳定工具面"></a>
 ## 稳定工具面
@@ -365,6 +372,7 @@ DeepSeek strict 模式**禁用六个 Schema 键**
 共同校验（名额、目标在场与实际地点、出行方式、注册表占用、物品状态，能量不参与），任一项不成立则整组拒绝。
 `revise_day_plan` 是独立登记工具，**不是** `actions` 的取值。
 
+
 <a name="spec-agent-interaction-保护项修订"></a>
 ### 保护项修订
 
@@ -399,6 +407,7 @@ DeepSeek strict 模式**禁用六个 Schema 键**
 `SAME_MOMENT_ACTION_RESTRICTED` 业务拒绝并计入同刻轮数，拒绝原因与工具层 `reason` 一字不差。同刻轮数照旧计入成功、拒绝与重放，
 但名称类拒绝不计、也不施加 `service_refused` 情绪脉冲，每人每秒至多 2 次，第 3 次起照常（[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要) 3.4）。阶段取值见[时间与能量规格](SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)
 第一章「规则」第 3 条与「实现约定」。
+
 
 <a name="spec-agent-interaction-即时查询完整纠错与紧凑呈现"></a>
 ### 即时查询、完整纠错与紧凑呈现
@@ -462,6 +471,8 @@ DeepSeek strict 模式**禁用六个 Schema 键**
 商品价格固定，类别标签来自食品类别；`available_only` 只按人在店内或店铺绑定 app 判断，不检查报价、营业、库存、配送区域或可见凭据。查询不揭示新世界事实、不推进时间、不占名额，只保存实际模型与 tool 交换证据。
 查询与世界请求不得混批，先整批校验，再按原执行位置返回；有效交互菜单、同秒预算、名称纠错与只读权限保持原合同。
 
+
+
 <a name="spec-agent-interaction-决策轮循环与播报节律"></a>
 ## 决策轮循环与播报节律
 
@@ -469,7 +480,7 @@ DeepSeek strict 模式**禁用六个 Schema 键**
 sequenceDiagram
     participant P as 人物
     participant W as 世界
-    P->>W: start_activity(items逐项对象, answering, prefer)
+    P->>W: start_activity(items逐项目标、方式、app、对方与付款app, answering)
     alt 前置条件不满足
         W-->>P: 业务拒绝 + 未满足项 + 建议前往的地点
     else 满足
@@ -487,25 +498,24 @@ sequenceDiagram
 | --- | --- | --- |
 | 活动进行超过 `progress_report_interval_seconds`（自开始、恢复或上次播报起计） | **新增** `progress_report_due` | 是（一次决策机会） |
 | 活动返回结果（`planned_end`） | 既有成员 | 是 |
-| 某任务的 DDL 临近 | 既有 `task_due_soon` + `commitment_threatened` | 是 |
 | 没有进行中活动（边界结算后或同一秒再决策） | **新增** `no_active_activity`（时间与能量规格第一章） | 是（同一秒决策；不进睡眠允许集合） |
 | 当日目标的提醒到期 | **新增** `plan_reminder_due`（时间与能量规格第四章） | 是（睡眠中也提供，并结束睡眠） |
 | 个人事务的提醒时刻到点 | **新增** `errand_reminder_due`（个人事务与工作安排规格 2.5；枚举追加在 `plan_reminder_due` 之后） | 是（清醒时提醒时刻进入下一边界与下一次决策机会的候选，精确到点；每个为清醒人物提供决策机会的边界把该人物全部已到点未提醒的事务一并交付，合并为一次决策机会、本原因只计一次，每条事务各写一条 `errand_reminded` 事件，与该边界的其他原因（如同刻到期的 `plan_reminder_due`）按枚举顺序并列；不改变事务状态；不进睡眠允许集合：睡眠中不入候选、不形成静默边界、不交付也不消耗，错过的提醒在人物醒来的那个边界交付，不另起边界） |
 | 班次或休息时段的开始、结束（人物声明了工作安排） | **新增** `shift_start`、`shift_end`、`break_start`、`break_end`（[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)；枚举依次追加在 `errand_reminder_due` 之后） | 是（清醒时起止时刻进入下一边界与下一次决策机会的候选，精确到点，一次决策机会，进行中的活动照常继续；同一秒重合的起止各记一次，与该边界的其他原因按枚举顺序并列；不写事件、不进提示，人物看到的变化只有环境层 `duty.status`；不进睡眠允许集合：睡眠中不入候选、不形成静默边界、不叫醒，睡过的起止醒来后不补） |
-| app 推送写入当前会话 | 阶段 4 新增 `app_push`（枚举追加在 `break_end` 之后） | 是（清醒人物一次机会；正在使用 app 时不打断；睡眠中推送仍保留但不唤醒） |
-| app 内容到达末尾 | 活动的 `next_interaction_at` | 否；写回全局进度并在剩余计划时长内静默接续 |
+| app 推送写入当前会话 | `app_push` | 是（推送同时绑定 app 与动作；清醒人物一次机会，睡眠中保留但不唤醒） |
+| 动作内容到达末尾 | 活动的 `next_interaction_at` | 娱乐类静默接续下一条；其余类别以 `planned_end` 完成并提供决策机会 |
+| 登记闹钟到点 | `alarm_ring` | 是；睡眠中也提供并结束睡眠，同秒多个闹钟合并为一次决策机会 |
 | 活动暂停中 | 不触发 | 否 |
 | 人物睡眠中 | 被 `SLEEP_ALLOWED_REASONS` 过滤 | 否 |
 
-**实现要点**：`SLEEP_ALLOWED_REASONS`（`src/worldmock/life/schedule.py::SLEEP_ALLOWED_REASONS`）存的是 **`WakeReason` 枚举成员**而非字符串，共 4 项（`planned_end`、`run_start`、`wake_from_sleep`、`plan_reminder_due`，末项由时间与能量规格加入）；个人事务与工作安排规格追加的 `errand_reminder_due` 与[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)追加的 `shift_start`、`shift_end`、`break_start`、`break_end` 都不在其中。过滤在 `src/worldmock/life/schedule.py::evaluate_wake_reasons`，写法是**白名单**：
+**实现要点**：`SLEEP_ALLOWED_REASONS`（`src/worldmock/life/schedule.py::SLEEP_ALLOWED_REASONS`）存的是 **`WakeReason` 枚举成员**而非字符串，共 5 项：`planned_end`、`run_start`、`wake_from_sleep`、`plan_reminder_due`、`alarm_ring`。个人事务与工作安排规格追加的 `errand_reminder_due` 与[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)追加的 `shift_start`、`shift_end`、`break_start`、`break_end` 都不在其中。过滤在 `src/worldmock/life/schedule.py::evaluate_wake_reasons`，写法是**白名单**：
 
 ```python
 if snap.is_asleep:
     reasons = [r for r in reasons if r in SLEEP_ALLOWED_REASONS]
 ```
 
-阶段 4 的 `WakeReason` 为 25 个；三个工作原因保留到阶段 5，阶段 5 才删去它们并形成最终 22 个。
-`app_push` 不进入上述四项睡眠允许集合。
+`WakeReason` 最终为 23 个；`app_push` 不进入上述五项睡眠允许集合，`alarm_ring` 进入。
 
 因此新增的 `progress_report_due` **天然被睡眠过滤掉，不需要额外代码**。真正的风险是反向的：若有人把它加进 `SLEEP_ALLOWED_REASONS`，人物就会在睡眠中被播报唤醒。故验收断言是「**该成员不在集合内**」，而不是「加一份过滤逻辑」。`errand_reminder_due` 的验收断言同样是「该成员不在集合内」，想在某个时刻起床仍只用当日目标的提醒。它与 `progress_report_due` 不同的一点在候选：当日目标提醒在睡眠中仍计入下一边界候选，事务提醒时刻在人物睡眠中不计入下一边界与下一次决策机会的候选、不形成静默边界；这一条靠候选侧的显式判定与断言，白名单过滤管不到（个人事务与工作安排规格 2.5）。
 班次与休息时段起止的四个成员与事务提醒同样两头把关：白名单过滤之外，候选侧在睡眠中剔除它们（下一次决策机会由 `src/worldmock/life/schedule.py::next_decision_time` 在睡眠中剔除，下一时钟边界只取 `src/worldmock/life/rhythm.py::awake_duty_edge_times` 给出的清醒人物的起止）；不同的是起止由场景工作安排与世界时钟直接求值、不带交付状态，睡过的起止醒来后不补（[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)「[机制与代码落点](SPEC-idle-fillers.md#spec-idle-fillers-班次边界机制)」「机制与代码落点」）。
@@ -517,11 +527,12 @@ if snap.is_asleep:
 **播报同时是一次决策机会**：人物可在播报时顺手暂停、切换或结束活动，与「一次决策一个动作」不冲突。
 **沉默边界仍不调用人物决策模型**：结算边界照常产生 `activity_progress`，只有唤醒条件命中才提供决策。
 
-**业务拒绝不是运行故障**：地点、资源、余额、库存、提交返工、名称不可解析等拒绝保留
+**业务拒绝不是运行故障**：地点、资源、余额、app 绑定、内容资格、名称不可解析等拒绝保留
 `ActionStatus.REJECTED` 和公开的原因与下一步（`reason`、`next_step`），进入进度层并给人物下一次决策机会：按时间与能量规格第一章
 在同一秒再决策，受场景参数 `max_same_moment_decisions` 约束，不能生成 `run_failed`。
 交互对象的占用检查结果写成动作说明，不剪裁对象。
 模型协议无效、无法计费或世界不变量损坏仍按各自真正的故障路径处理。
+
 
 <a name="spec-agent-interaction-前置条件前置与前往提醒"></a>
 ## 前置条件前置与前往提醒
@@ -558,11 +569,13 @@ if snap.is_asleep:
 - 冻结观察的工具层 `targets` 照常列出运行内可能满足条件的对象与动作，不按人物当前状态剪裁；发布图连通，其他已选地点均列出步行与驾车；不能执行的动作保留所属合同的原因；
   条件未满足的动作 `available=false`，`reason` 是环境受理时的拒绝原文，前置地点在 `reason` 中点名；需要前往时只写 `Go to <place>.`，地点名称来自目录，不能生成多跳或配送区域提示。
 
+
 <a name="spec-agent-interaction-游戏简化"></a>
 ## 游戏简化（已被 app 使用协议取代）
 
 本节锚点为既有引用保留；阶段 4 删除独立游戏对象、命令回路、反馈边界和工具。
 娱乐统一为人物选择 app、方式写「打开」、环境在该 app 内抽取内容；会话推送优先，其他内容按冻结随机链选择。
+
 
 <a name="spec-agent-interaction-上下文分层"></a>
 ## 上下文分层
@@ -611,6 +624,7 @@ if snap.is_asleep:
 私有评审参考、哈希和完整状态均不进入该记录。每条结果仍占一条记录，不能因去除内部字段
 而丢失一个动作的反馈；结果在整个 session 内保留，不再有结果游标或观察水位。
 
+
 <a name="spec-agent-interaction-容量浓缩与遗忘"></a>
 ## 容量、浓缩与遗忘
 
@@ -641,6 +655,7 @@ if snap.is_asleep:
 人物自述 500 字符等领域字段限额继续生效。
 模型返回的实际 token 用量用于校核预估器；下一次请求仍须先完成全量计数。
 
+
 <a name="spec-agent-interaction-午夜浓缩"></a>
 ### 午夜浓缩
 
@@ -650,6 +665,7 @@ if snap.is_asleep:
 个人事务不在当日计划里：零点置空当日计划与 `revise_day_plan` 的整表替换都不改动它，零点计划的输入只读它；未完成的事务跨零点原样留在待办层，
 不进记忆层、不占 8000 字符窗口，记忆层不为它写 `settled` 句，记忆层「未了结事项」的口径不变（个人事务与工作安排规格 2.1、2.6、2.8）。
 午夜处理与上述 **85% 发送前浓缩**是两个不同触发条件，均不得改写客观结算、已核验证据或原始事件。
+
 
 <a name="spec-agent-interaction-遗忘是派生视图不是销毁"></a>
 ### 遗忘是派生视图，不是销毁
@@ -662,6 +678,8 @@ if snap.is_asleep:
 - `episodes_sha256` 证据链不变；
 - 记忆层由环境从已提交事件与世界状态派生，模型写下的内容只进入 `self_notes`，不能改写 `settled`；
 - 更早的 summary 可按活动名（记忆层 `self_notes` 所写的活动名即可）用 `recall_task_summary` 回看，结束活动写下的记忆与反思可用记忆查询取得。
+
+
 
 <a name="spec-agent-interaction-事件与重建约束"></a>
 ## 事件与重建约束
@@ -692,6 +710,7 @@ if snap.is_asleep:
 **这同时确认**：进展自述一旦提交就永久留在 append-only 记录里，提示层的浓缩只改变
 下一次所见，不会删除原始记录。
 
+
 <a name="spec-agent-interaction-冻结条款修订"></a>
 ## 冻结条款修订
 
@@ -708,6 +727,7 @@ if snap.is_asleep:
 **未被修订的既有语义**：只有环境能改世界状态；一次决策一个生活动作；沉默边界不调用人物决策模型；
 体感数值不进提示；已核验经历只由已提交事件确定性投影；SQLite 记录是唯一提交权威。
 
+
 <a name="spec-agent-interaction-实现顺序"></a>
 ## 实现顺序
 
@@ -722,6 +742,7 @@ flowchart LR
     D --> E["工具面收敛<br/>七个世界请求、五个只读查询，选择与创作分开"]
     E --> F["删除<br/>game_action / change_playback_speed / GameProgress"]
 ```
+
 
 <a name="spec-agent-interaction-与既有文档的一致性核对"></a>
 ## 与既有文档的一致性核对
@@ -743,6 +764,7 @@ flowchart LR
 原提案和只读审计是历史证据，不再作为最终行为合同。`docs/dev/implementation-status.md#implementation-status-worldmock-实现状态`
 记录当前代码实况，仅在行为实现并验证后更新，不能提前写成已落地。
 
+
 <a name="spec-agent-interaction-文件修改清单"></a>
 ## 文件修改清单
 
@@ -754,6 +776,7 @@ flowchart LR
 | 完整足迹与公开结果一致性 | `src/worldmock/footprints/export.py` 与 `src/worldmock/evaluation/public_evidence.py`；保存实际请求并认证其来源 |
 | 合同与设计文档 | 上节表中的所有文档，以及 `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态` 的实际实现状态 |
 | 验证 | `tests/life/` 的对象绑定、活动参数、非致命拒绝、进度容量测试；`tests/integration/` 的真实人物工具、原始请求持久化与完整导出测试 |
+
 
 <a name="spec-agent-interaction-验收台账"></a>
 ## 验收台账
@@ -776,6 +799,7 @@ flowchart LR
 | 记忆与检查点 | 午夜目标单句与记忆巩固不改已核验证据与事件，巩固摘要不进提示；记忆层按场景本地日期分区，未了结事项处理后消失；旧世界结构检查点被拒，未做迁移或兼容读取 |
 | 事件与足迹导出 | 人物请求及系统结算可由事件审计；完整导出保留实际模型请求、来源与可见性；数据集样本选择由 LabelKit-DataSet 验收 |
 | 文档一致性 | 上节每份冻结合同同步；相互链接与锚点可解析，旧 7 工具、单会话 4000 字符、只计 user 字符、独立结果层、三段消息载体、`scene`、`facts`、身份前言与「怎样过一天」的表述均不存在或注明被取代 |
+
 
 <a name="spec-agent-interaction-版本表"></a>
 ## 版本表

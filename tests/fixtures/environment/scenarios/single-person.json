@@ -107,7 +107,9 @@
           "reply_policy": "none",
           "receive_location_id": "office"
         }
-      ]
+      ],
+      "initial_driving_days": 0,
+      "owns_car": false
     }
   ],
   "locations": [
@@ -136,6 +138,7 @@
   "interaction_menus_by_location_kind": {
     "home": {
       "allowed_actions": [
+        "collect_parcel",
         "do",
         "purchase",
         "sleep",
@@ -145,6 +148,7 @@
     },
     "office": {
       "allowed_actions": [
+        "collect_parcel",
         "do",
         "purchase",
         "sleep",
@@ -154,6 +158,7 @@
     },
     "park": {
       "allowed_actions": [
+        "collect_parcel",
         "do",
         "purchase",
         "sleep",
@@ -163,6 +168,7 @@
     },
     "fitness": {
       "allowed_actions": [
+        "collect_parcel",
         "do",
         "purchase",
         "sleep",
@@ -172,6 +178,7 @@
     },
     "restaurant": {
       "allowed_actions": [
+        "collect_parcel",
         "do",
         "purchase",
         "sleep",
@@ -181,6 +188,7 @@
     },
     "cafe": {
       "allowed_actions": [
+        "collect_parcel",
         "do",
         "purchase",
         "sleep",
@@ -190,6 +198,7 @@
     },
     "convenience_store": {
       "allowed_actions": [
+        "collect_parcel",
         "do",
         "purchase",
         "sleep",
@@ -199,6 +208,27 @@
     },
     "supermarket": {
       "allowed_actions": [
+        "collect_parcel",
+        "do",
+        "purchase",
+        "sleep",
+        "travel_to",
+        "wait"
+      ]
+    },
+    "gas_station": {
+      "allowed_actions": [
+        "collect_parcel",
+        "do",
+        "purchase",
+        "sleep",
+        "travel_to",
+        "wait"
+      ]
+    },
+    "parcel_station": {
+      "allowed_actions": [
+        "collect_parcel",
         "do",
         "purchase",
         "sleep",

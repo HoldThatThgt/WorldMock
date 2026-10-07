@@ -11,7 +11,6 @@ from typing import Any
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import Event
 from worldmock.life import activity_control
-from worldmock.life.vocabulary import PURCHASE_WAYS
 from worldmock.life.models import ActivityKind, ActivityState, TravelMode
 from worldmock.life.readable import clock_phrase, duration_phrase, iso_time, money_phrase, portion_phrase
 from worldmock.life.recipients import agent_identity, person_name
@@ -59,7 +58,7 @@ def record_lines(context: LayerContext, record: dict, sources: list[Event],
     if kind == "delivery":
         return [f"{_clock(context, record['occurred_at'])} {record['order']}：{record['message']}"]
     if kind == "work_completed":
-        return [f"{_clock(context, record['occurred_at'])} 完成工作主题「{record['topic']}」"]
+        return [f"{_clock(context, record['occurred_at'])} 完成「{record['topic']}」"]
     if kind == "errand_completed":
         return [f"{_clock(context, record['occurred_at'])} 办成「{record['errand']}」"]
     return []
@@ -77,34 +76,29 @@ def activity_sentence(context: LayerContext, activity: ActivityState,
     end = clock_phrase(activity.ended_at or activity.last_settled_at, now, zone)
     paused = "、".join(f"{clock_phrase(begin, now, zone)}–{clock_phrase(until, now, zone)}" for begin, until in pauses)
     sentence = f"{name}：{start}–{end}{f'（暂停 {paused}）' if paused else ''}，{activity_control.ending_phrase(activity)}"
-    if activity.kind == ActivityKind.USE_APP:
+    if activity.kind == ActivityKind.ACTION:
         if app_progress is None:
-            logging.error("App activity sentence has no authenticated progress evidence")
-            raise IntegrityError("App activity sentence has no authenticated progress evidence")
-        content = _app_sentence(context, activity, app_progress.get(activity.activity_id))
+            logging.error("Action activity sentence has no authenticated progress evidence")
+            raise IntegrityError("Action activity sentence has no authenticated progress evidence")
+        content = _content_sentence(context, activity, app_progress.get(activity.activity_id))
         sentence += f"，{content}" if content else ""
     return sentence
 
 
-def _app_sentence(context: LayerContext, activity: ActivityState, advanced_content_id: str | None) -> str:
-    """@brief 按已完成列表与当前真实推进写应用内容；刚抽到但尚未推进的内容不计入经历。"""
+def _content_sentence(context: LayerContext, activity: ActivityState, advanced_content_id: str | None) -> str:
+    """@brief 只写真正完成的内容及确有推进的未完内容，活动名已包含动作和应用。"""
     titles = "".join(f"《{context.rules.contents[row['content_id']].title}》" for row in activity.data["played"])
     current = context.rules.contents[activity.data["content_id"]]
     partial = advanced_content_id == current.content_id
-    if not titles and not partial:
-        return ""
-    app = context.rules.apps[activity.target_id].name
-    if not titles:
-        return f"用{app}看了《{current.title}》的一部分"
-    return f"用{app}看了{titles}" + (f"（《{current.title}》看了一部分）" if partial else "")
+    return titles + (f"（《{current.title}》未完）" if partial else "")
 
 
 def app_progress(events: Iterable[Event], previous: Mapping[str, str]) -> dict[str, str]:
-    """@brief 从认证的本活动消费区间派生当前部分观看；完成时清除，自动抽出的下一项不算消费。"""
+    """@brief 从认证的本活动消费区间派生当前部分消费；完成时清除，自动抽出的下一项不算消费。"""
     progress = dict(previous)
     for event in events:
         if (event.event_type != "activity_progress" or event.source_kind != "environment"
-                or event.visibility != "agent" or event.data["activity"]["kind"] != "use_app"):
+                or event.visibility != "agent" or event.data["activity"]["kind"] != "action"):
             continue
         content = event.data["content"]
         if content["completed"]:
@@ -114,17 +108,19 @@ def app_progress(events: Iterable[Event], previous: Mapping[str, str]) -> dict[s
     return progress
 
 def purchase_sentence(context: LayerContext, order: dict[str, Any], answering: str | None) -> str:
-    """@brief 一个订单的句子：「10:20 远程下单牛肉炒面 1 份，付 32 元，预计 10:35 送到<地点>（回应王磊 10:15 的消息，
+    """@brief 一个订单的句子：「10:20 经购物应用购买牛肉炒面 1 份，付 32 元，预计 10:35 送到<地点>（回应王磊的消息，
     收货人王磊）」；到店不写送达，没有关联消息不写回应，收货人是自己时不写收货人。
 
     :param answering: 下单请求的 answering（关联消息的名称），订单没有关联时不写。
     """
     now, zone = context.state.current_time, context.scenario.timezone
     product = context.semantics.catalog.goods[order["goods_id"]].name
-    sentence = (f"{clock_phrase(order['created_at'], now, zone)} {PURCHASE_WAYS[order['fulfillment']]}"
-                f"{'买' if order['fulfillment'] == 'pickup' else ''}{product} {portion_phrase(order['quantity'])}，"
-                f"付 {money_phrase(order['total_price_fen'])}")
-    if order["fulfillment"] == "delivery":
+    app = "" if order["app_id"] is None else f"经{context.rules.apps[order['app_id']].name}"
+    sentence = (f"{clock_phrase(order['created_at'], now, zone)} {app}购买{product} "
+                f"{portion_phrase(order['quantity'])}，付 {money_phrase(order['total_price_fen'])}")
+    if order["payment_app_id"] is not None:
+        sentence += f"（{context.rules.apps[order['payment_app_id']].name}）"
+    if order["fulfillment"] in {"delivery", "station_pickup"}:
         place = next(item.name for item in context.scenario.locations if item.location_id == order["destination_id"])
         sentence += f"，预计 {clock_phrase(order['expected_at'], now, zone)} 送到{place}"
     notes = [f"回应{answering}"] if answering is not None and order["request_message_id"] is not None else []
@@ -148,13 +144,14 @@ def experience_sentence(context: LayerContext, fact: dict[str, Any]) -> str:
         return f"{clock_phrase(fact['occurred_at'], now, zone)} {mode}到了{place}{denied}"
     if fact["kind"] == "received":
         goods = context.semantics.catalog.goods[fact["goods_id"]]
-        return f"{clock_phrase(fact['occurred_at'], now, zone)} 收到{goods.name}"
+        return f"{clock_phrase(fact['occurred_at'], now, zone)} 收到{goods.name} {portion_phrase(fact['quantity'])}"
     span = f"{clock_phrase(fact['interval_start'], now, zone)}–{clock_phrase(fact['interval_end'], now, zone)}"
     if fact["kind"] == "waited":
         return f"{span} 等待了{duration_phrase(fact['duration_seconds'])}"
-    app = context.rules.apps[fact["app_id"]].name
-    title = context.rules.contents[fact["content_id"]].title
-    return f"{span} 用{app}看了《{title}》"
+    content = context.rules.contents[fact["content_id"]]
+    action = context.rules.actions[content.action_id].name
+    app = "" if fact["app_id"] is None else f"用{context.rules.apps[fact['app_id']].name}"
+    return f"{span} {app}{action}《{content.title}》"
 
 
 def activity_endings(events: Iterable[Event]) -> dict[str, Event]:

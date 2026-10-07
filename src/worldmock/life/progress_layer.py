@@ -32,7 +32,7 @@ from worldmock.life.settled_text import ActivityFacts, record_lines
 from worldmock.life.tool_layer import LayerContext
 
 #: 订单仍在途的状态（相关记录受保护）。
-OPEN_ORDER_STATUSES = frozenset({"pending"})
+OPEN_ORDER_STATUSES = frozenset({"pending", "ready_for_pickup"})
 #: 被进度层消费的两种个人事务事件（人物可见）→ 记录类型；其余四种事务事件只供审计与指标，不进进度层。
 _ERRAND_RECORDS = {REMINDED_KIND: "errand_reminder", COMPLETED_KIND: "errand_completed"}
 
@@ -186,14 +186,14 @@ def _world_records(context: LayerContext, store: FootprintStore, lower: int) -> 
             records.extend(_delivery_records(context, event))
         elif kind in {"message_arrival", "mail_arrival"}:
             records.append(_message_record(context, event))
-        elif kind == "work_topic_completed" and event.visibility == "agent":
-            topic = context.rules.work_topics[event.data["topic_id"]]
+        elif kind == "work_content_completed" and event.visibility == "agent":
+            content = context.rules.contents[event.data["content_id"]]
             record = {"occurred_at": iso_time(event.occurred_at, context.scenario.timezone),
-                      "type": "work_completed", "topic": topic.topic}
+                      "type": "work_completed", "topic": content.title}
             records.append(_Record(record, (event,), _event_key(event.occurred_at, [event])))
         elif kind == "app_push" and event.visibility == "agent":
             record = {"occurred_at": iso_time(event.occurred_at, context.scenario.timezone), "type": "app_push",
-                      "app": event.data["app"], "title": event.data["title"],
+                      "app": event.data["app"], "action": event.data["action"], "title": event.data["title"],
                       "summary": event.data["summary"]}
             records.append(_Record(record, (event,), _event_key(event.occurred_at, [event])))
     return records
@@ -210,13 +210,13 @@ def _errand_record(context: LayerContext, event: Event) -> _Record:
 
 def _message_record(context: LayerContext, event: Event) -> _Record:
     """@brief message_arrival 记录：直接消息与交谈邀请取收件箱全文与发件人，交谈邀请另写回应方式「对<发起人>选择交谈
-    即接受」（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「交谈」）；邮件取场景主题，发件人为 null。"""
+    即接受」（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「交谈」）；邮件到达时取场景主题与正文，发件人为 null。"""
     moment = iso_time(event.occurred_at, context.scenario.timezone)
     message_id = event.data["message_id"]
     if event.data["kind"] == "mail_arrival":
-        subject = context.rules.messages[message_id].subject
+        message = context.rules.messages[message_id]
         record = {"occurred_at": moment, "type": "message_arrival", "sender": None, "kind": "mail",
-                  "subject": subject}
+                  "subject": message.subject, "body": message.body}
         return _Record(record, (event,), _event_key(event.occurred_at, [event]))
     message = context.state.agents[context.agent_id].inbox[message_id]
     sender = _sender(context, message.sender_id)
@@ -238,12 +238,16 @@ def _delivery_records(context: LayerContext, event: Event) -> list[_Record]:
     names = {item_id: item.name for item_id, item in context.semantics.catalog.goods.items()}
     records = []
     for order in event.data.get("orders", []):
-        if order["agent_id"] != context.agent_id:
+        owner = (int(order["recipient_id"].split(":", 1)[1])
+                 if order["fulfillment"] == "station_pickup" else order["agent_id"])
+        if owner != context.agent_id:
             continue
         label = order_label(order, names, (zone, now))
         receiver = ("" if order["recipient_id"] == agent_identity(context.agent_id) else
                     f"，收货人{person_name(context.state, context.scenario, context.agent_id, order['recipient_id'])}")
-        messages = {"pending": "等待送达", "delivered": f"已送到{places[order['destination_id']]}{receiver}"}
+        messages = {"pending": "等待送达",
+                    "ready_for_pickup": f"已到{places[order['destination_id']]}，请本人领取",
+                    "delivered": f"已送到{places[order['destination_id']]}{receiver}"}
         record = {"occurred_at": iso_time(event.occurred_at, zone), "type": "delivery", "order": label,
                   "status": order["status"], "message": messages[order["status"]]}
         records.append(_Record(record, (event,), _event_key(event.occurred_at, [event]), (order["order_id"],)))

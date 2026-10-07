@@ -22,11 +22,13 @@ def _world_state() -> WorldState:
         name="Alice",
         location_id="home",
         balance_account_id="agent:1",
+        driving_days=0,
+        last_driving_date=None,
         body=BodyState(energy_kcal=500, sleep_pressure=0.0, sleep_deficit_hours=1, entertainment_need=0.5),
         active_effects={"work_notes", "coffee"},
         body_settled_at=1,
         next_decision_at=1,
-        read_message_ids={"mail-z", "mail-a"},
+        read_inbox_ids={"mail-z", "mail-a"},
         visible_message_ids={"visible-z", "visible-a"},
     )
     activity = ActivityState(
@@ -68,7 +70,7 @@ def _set_arrays(payload: dict) -> list[list[str]]:
     activity = payload["activities"]["activity-1"]
     return [
         agent["active_effects"],
-        agent["read_message_ids"],
+        agent["read_inbox_ids"],
         agent["visible_message_ids"],
         activity["resource_claims"],
     ]
@@ -132,7 +134,7 @@ def test_json_mode_sorts_every_persisted_string_set() -> None:
 
 def _errand(errand_id: str, registered_at: int, progress: float) -> ErrandState:
     """一条未完成事务（取得两份商品，带部分进展与已交付的提醒）。"""
-    return ErrandState(errand_id=errand_id, name=f"事务 {errand_id}", outcome="obtain", product_id="product-a",
+    return ErrandState(errand_id=errand_id, name=f"事务 {errand_id}", product_id="product-a",
                        quantity=2, progress=progress, memo="下班顺路买", registered_at=registered_at, remind_at=5,
                        reminded_at=6, origin_action_id=errand_id.split(":")[0], origin_event_id="request-1")
 
@@ -146,7 +148,7 @@ def test_open_errands_round_trip_through_json_with_a_byte_stable_encoding(tmp_pa
     backward.agents[1] = backward.agents[1].model_copy(update={"errands": {item.errand_id: item for item in (second, first)}})
     payload = forward.model_dump(mode="json")
     assert payload["agents"]["1"]["errands"]["action-2:errand:0"] == {
-        "errand_id": "action-2:errand:0", "name": "事务 action-2:errand:0", "outcome": "obtain", "product_id": "product-a",
+        "errand_id": "action-2:errand:0", "name": "事务 action-2:errand:0", "product_id": "product-a",
         "quantity": 2, "progress": 0.3, "memo": "下班顺路买", "registered_at": 3, "remind_at": 5, "reminded_at": 6,
         "origin_action_id": "action-2", "origin_event_id": "request-1"}
     assert WorldState.model_validate(payload) == forward

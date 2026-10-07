@@ -13,8 +13,11 @@ from worldmock.life.activities import activity_factors, advance_activity_shared,
 from worldmock.life.body import ActivityFactors, last_flows, settle_shared_body
 from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus, BodyState
 from worldmock.life.world_setup import load_scenario
-from worldmock.life.social import CALL_MET, CHAT_MET, SOCIAL_RESOURCE_CLAIMS
-from worldmock.life.social_actions import advance_social_shared, social_activity_change
+from pydantic import ValidationError
+from worldmock.life.activity_control import control_refusal
+from worldmock.life.admission import Context
+from worldmock.life.models import ChangeActivityRequest
+from worldmock.life.social_actions import advance_social_shared
 
 
 def test_shared_settlement_truncates_overdrawn_activity_sets_at_zero() -> None:
@@ -32,16 +35,21 @@ def test_shared_settlement_truncates_overdrawn_activity_sets_at_zero() -> None:
         (config.basal_kcal_per_hour + (walking - 1) * config.mass_kg) / 2)
 
 
-def _active(kind: ActivityKind, now: int, duration: int = 60) -> ActivityState:
-    """构造直接公共进度接口所需的有效活动；占用取第五章占用表（交谈、通话占说与听，其余按注册表）。"""
-    social = kind in {ActivityKind.CHAT, ActivityKind.CALL}
-    claims = set(SOCIAL_RESOURCE_CLAIMS) if social else set(engine_affordances().resource_claims(kind.value))
-    return ActivityState(activity_id=f"activity-{kind.value}", agent_id=1,
-                         location_id="home", kind=kind,
+def _active(kind: ActivityKind, now: int, duration: int = 60, remote=False) -> ActivityState:
+    """@brief 统一动作含完整社交快照，固定类别和方式决定占用。"""
+    data = {}
+    if kind == ActivityKind.ACTION:
+        data = {"action_id": "voice-call" if remote else "small-talk", "category": "social",
+                "app_id": "wechat" if remote else None, "manner": "phone_continuous" if remote else None,
+                "communication_mode": "voice" if remote else None,
+                "counterpart": "contact:wang" if remote else "agent:2", "content_id": "c-call" if remote else "c-chat",
+                "start_position_seconds": 0, "pinned_by_push_id": None, "draw_index": 0, "played": []}
+    claims = engine_affordances().resource_claims(kind.value, category=data.get("category"), manner=data.get("manner"))
+    return ActivityState(activity_id=f"activity-{kind.value}", agent_id=1, location_id="home", kind=kind,
                          status=ActivityStatus.ACTIVE, started_at=now, planned_end_at=now + duration,
                          last_settled_at=now, elapsed_seconds=0, planned_duration_seconds=duration,
-                         resource_claims=claims, origin_action_id="action", origin_decision_id="decision",
-                         origin_request_event_id="request")
+                         resource_claims=set(claims), origin_action_id="action", origin_decision_id="decision",
+                         origin_request_event_id="request", data=data)
 
 
 def test_shared_activity_factors_use_social_met_and_declared_factors(engine_factory) -> None:
@@ -50,8 +58,8 @@ def test_shared_activity_factors_use_social_met_and_declared_factors(engine_fact
     config = engine.context.scenario.body
     agent = engine.context.state.agents[1]
     now = engine.context.state.current_time
-    for kind, met in ((ActivityKind.CHAT, CHAT_MET), (ActivityKind.CALL, CALL_MET)):
-        assert shared_activity_factors(_active(kind, now), agent, config) == ActivityFactors(met)
+    for remote, met in ((False, 1.5), (True, 1.3)):
+        assert shared_activity_factors(_active(ActivityKind.ACTION, now, remote=remote), agent, config) == ActivityFactors(met)
     wait = _active(ActivityKind.WAIT, now)
     assert shared_activity_factors(wait, agent, config) == activity_factors(wait, agent, config)
 
@@ -74,7 +82,7 @@ def test_shared_settlement_and_activity_progress_reject_invalid_intervals(engine
     with pytest.raises(ValueError, match="negative"):
         settle_shared_body(agent.body, (), -1, config)
     empty = agent.body.model_copy(update={"energy_kcal": 0})
-    watched = settle_shared_body(empty, ((ActivityKind.USE_APP, ActivityFactors(1.3)),), 60, config)
+    watched = settle_shared_body(empty, ((ActivityKind.ACTION, ActivityFactors(1.3)),), 60, config)
     assert watched.after.energy_kcal == 0
 
 
@@ -88,8 +96,8 @@ def test_social_shared_progress_and_control_public_boundaries(engine_factory) ->
     agent = engine.context.state.agents[1]
     agent = agent.model_copy(update={"body": agent.body.model_copy(update={"social_need": 0.5})}, deep=True)
     now = engine.context.state.current_time
-    chat = _active(ActivityKind.CHAT, now)
-    settlement = settle_shared_body(agent.body, ((ActivityKind.CHAT, ActivityFactors(CHAT_MET)),), 60, config)
+    chat = _active(ActivityKind.ACTION, now)
+    settlement = settle_shared_body(agent.body, ((ActivityKind.ACTION, ActivityFactors(1.5)),), 60, config)
     finished = advance_social_shared(chat, agent, now + 60, settlement, 60)
     assert finished.activity.status == ActivityStatus.COMPLETED
     hour = 60 / 3600
@@ -100,10 +108,12 @@ def test_social_shared_progress_and_control_public_boundaries(engine_factory) ->
     assert relief[30] == pytest.approx(0.5 + (0.04 - 0.5 / 2 - 0.2 / 2) * hour)
     with pytest.raises(ValueError, match="interval is invalid"):
         advance_social_shared(chat, agent, now - 1, settlement, 0)
-    with pytest.raises(BusinessRuleError, match="ACTIVITY_ALREADY_TERMINAL"):
-        social_activity_change(agent, finished.activity, "cancel", now + 60)
-    with pytest.raises(BusinessRuleError, match="SOCIAL_ACTIVITY_CANNOT_PAUSE"):
-        social_activity_change(agent, chat, "pause", now)
-    with pytest.raises(BusinessRuleError, match="SOCIAL_ACTIVITY_OPERATION_UNKNOWN"):
-        social_activity_change(agent, chat, "switch", now)
-    assert social_activity_change(agent, chat, "resume", now) == (agent, chat)
+    semantics = engine.context.semantics
+    state = engine.context.state.model_copy(update={"activities": {chat.activity_id: chat}}, deep=True)
+    names = {identity: item.name for identity, item in semantics.catalog.locations.items()}
+    checks = Context(state, 1, names, semantics.catalog.graph, semantics.catalog, semantics.scenario)
+    assert control_refusal(checks, "pause_activity", chat).code == "SOCIAL_ACTIVITY_CANNOT_PAUSE"
+    assert control_refusal(checks, "report_status", chat) is None
+    assert control_refusal(checks, "report_status", finished.activity).code == "ACTION_REQUEST_INVALID"
+    with pytest.raises(ValidationError):
+        ChangeActivityRequest(activity_id=chat.activity_id, operation="switch")

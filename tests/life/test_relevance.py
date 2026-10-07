@@ -1,78 +1,43 @@
-"""候选排序的相关度层（life.relevance，docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ，裁决 S4）：纯函数单元测试。
-
-三项相加：目录时间窗覆盖此刻 +2，属于当日未推进目标的活动家族 +2（与推进判定同一张意图 → 活动家族表），人设层习惯签名
-的反应文本逐字包含条目名或品类 +1；不采用「今天已经做过 −1」「在家时的家务与自理类 +1」与例行名额。习惯签名的反应文本
-冻结在运行清单，形状在冻结时校验。
-"""
-
-from __future__ import annotations
+"""@brief 商品相关度只命中真实商品名称与类别；没有持续商品活动或生活动作时间窗。"""
 
 from types import SimpleNamespace
-
 import pytest
-
 from worldmock.errors import IntegrityError
-from worldmock.life.relevance import (GOAL_FAMILY_POINTS, HABIT_POINTS, MANIFEST_KEY, TIME_WINDOW_POINTS,
-                                      RelevanceFacts, entry_family, entry_relevance, frozen_habit_responses,
-                                      goal_families, intent_families, manifest_habit_texts, pool_relevance)
-from worldmock.life.schedule import INTENT_ACTIVITY_FAMILIES, PlanGoal
+from worldmock.life.relevance import (HABIT_POINTS, MANIFEST_KEY, entry_relevance,
+                                      pool_relevance, frozen_habit_responses, manifest_habit_texts)
 
 
-def _entry(object_id: str, kind: str = "lifestyle", category: str = "household", **row) -> SimpleNamespace:
-    """池条目的最小视图：身份、候选类别、品类与呈现行。"""
-    return SimpleNamespace(object_id=object_id, kind=kind, category=category, row=row)
+def _entry(identity, name, category="meal"):
+    """@brief 当前商品候选的真实呈现行。"""
+    return SimpleNamespace(object_id=identity, kind="product", category=category, row={"name": name})
 
 
-def test_points_are_the_three_adopted_terms() -> None:
-    """三项分值：时间窗 +2、当日未推进目标的家族 +2、习惯签名命中 +1。"""
-    assert (TIME_WINDOW_POINTS, GOAL_FAMILY_POINTS, HABIT_POINTS) == (2, 2, 1)
+def test_product_habit_relevance_uses_name_or_category_without_double_counting():
+    """@brief 名称或类别命中冻结反应文本加一分，双重命中不叠加，不合成活动家族。"""
+    assert HABIT_POINTS == 1
+    dishes = _entry("noodles", "牛肉面")
+    assert entry_relevance(dishes, ("中午点牛肉面",)) == 1
+    assert entry_relevance(dishes, ("MEAL后休息",)) == 1
+    assert entry_relevance(dishes, ("MEAL牛肉面",)) == 1
+    assert entry_relevance(dishes, ("散步",)) == 0
+    assert entry_relevance(dishes, ()) == 0
+    assert entry_relevance(_entry("blank", "", ""), ("所有商品",)) == 0
 
 
-def test_goal_families_come_from_unprogressed_goals_through_the_intent_table() -> None:
-    """只算未推进的目标，家族取推进判定所用的同一张意图 → 活动家族表；没有今日计划时为空。"""
-    goals = (PlanGoal(intent_kind="家务", goal="洗碗", registered_at=10),
-             PlanGoal(intent_kind="娱乐", goal="看电影", registered_at=10, progressed_at=20,
-                      progress_activity_id="activity-1"))
-    assert goal_families(goals) == INTENT_ACTIVITY_FAMILIES["家务"]
-    assert goal_families(None) == frozenset() == goal_families(())
+def test_product_pool_relevance_keeps_every_current_goods_identity():
+    """@brief 商品集合不变，排序分只来自本人的冻结习惯。"""
+    entries = (_entry("noodles", "牛肉面"), _entry("tea", "柠檬茶", "drink"))
+    assert pool_relevance(entries, ("我常喝柠檬茶",)) == {"noodles": 0, "tea": 1}
+    assert pool_relevance(entries, ()) == {"noodles": 0, "tea": 0}
 
 
-def test_intent_families_unite_the_table_rows_and_skip_unknown_intents() -> None:
-    """一组意图（观察侧取该秒开始时待办层写出的未推进目标）对应的家族并集；表外意图没有家族。"""
-    assert intent_families(["运动", "家务"]) == INTENT_ACTIVITY_FAMILIES["运动"] | INTENT_ACTIVITY_FAMILIES["家务"]
-    assert intent_families(["不存在的意图"]) == frozenset() == intent_families(())
-
-
-@pytest.mark.parametrize(("kind", "category", "family"), [
-    ("lifestyle", "sport", "lifestyle:sport"), ("product", "foods", "consume"),
-    ("task", "work_contract", "work")])
-def test_entry_family_matches_the_progress_families(kind, category, family) -> None:
-    """条目的活动家族：生活活动按品类，其余按候选类别对应的活动类型（与推进判定的家族同名）。"""
-    assert entry_family(kind, category) == family
-
-
-def test_entry_relevance_adds_time_window_goal_family_and_habit_hits() -> None:
-    """时间窗是半开区间；家族命中与习惯命中（条目名或品类，不分大小写）各自加分；空名不算命中。"""
-    facts = RelevanceFacts(hour=21.0, goal_families=frozenset({"lifestyle:household"}),
-                           habit_texts=("吃完饭就洗碗", "周末 SPORT 一小时"))
-    dishes = _entry("housework-dishes", name="洗碗")
-    assert entry_relevance(dishes, facts, (6, 22)) == 2 + 2 + 1
-    assert entry_relevance(dishes, facts, (6, 21)) == 2 + 1
-    assert entry_relevance(_entry("yoga", category="sport", name="瑜伽"), facts, (6, 21)) == 1
-    assert entry_relevance(_entry("tea", category="wellness", name="泡茶"), facts, (8, 22)) == 2
-    assert entry_relevance(_entry("movie-0001", kind="task", category="work_contract", title="洗碗工"), facts) == 0
-    assert entry_relevance(_entry("blank", category="", name=""), facts) == 0
-    quiet = RelevanceFacts(hour=3.0)
-    assert entry_relevance(dishes, quiet, (6, 22)) == 0
-
-
-def test_pool_relevance_reads_time_windows_only_for_lifestyle_entries() -> None:
-    """池内逐条给分；目录时间窗只用于生活活动（内容、商品没有时间窗）。"""
-    facts = RelevanceFacts(hour=9.0)
-    entries = (_entry("wash", name="晨间洗漱"), _entry("wash", kind="product", category="foods", title="新闻"))
-    assert pool_relevance(entries[:1], facts, {"wash": (5, 10)}) == {"wash": TIME_WINDOW_POINTS}
-    assert pool_relevance(entries[1:], facts, {"wash": (5, 10)}) == {"wash": 0}
-    assert pool_relevance(entries[:1], facts) == {"wash": 0}
+def test_actual_goods_window_uses_frozen_habit_relevance(engine_factory):
+    """@brief 真实观察商品窗口采用清单冻结的习惯分，保留全部商品真实集合。"""
+    engine = engine_factory(create_options={"persona_habit_responses": {1: ["中午买牛肉面"]}})
+    window = engine.observations._window_rows(engine.context.state.agents[1])["window"]
+    assert window.items[0]["name"] == "牛肉面"
+    assert len(window.items) == len({row["goods_id"] for row in window.items})
+    assert all(row["goods_id"] in engine.context.semantics.catalog.goods for row in window.items)
 
 
 def test_habit_responses_are_frozen_in_a_checked_shape() -> None:

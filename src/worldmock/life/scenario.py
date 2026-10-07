@@ -137,6 +137,10 @@ class AgentConfig(DeepFrozenModel):
     trait_source_kind: Literal["experiment_assumption"]
     home_location_id: str = Field(min_length=1)
     initial_balance_fen: int = Field(ge=0)
+    #: 汽车归属为环境事实，不能由人物故事推断。
+    owns_car: bool = Field(strict=True)
+    #: 初始驾车可用日，无车必须明确声明零。
+    initial_driving_days: int = Field(strict=True, ge=0)
     #: 分配给本人、完成后不再重做的工作内容。
     work_content_ids: tuple[str, ...] = ()
     # 交互菜单人物声明必须显式出现；null 表示不在地点类菜单之上追加限制。
@@ -166,6 +170,8 @@ class AgentConfig(DeepFrozenModel):
     @model_validator(mode="after")
     def validate_traits(self) -> "AgentConfig":
         """@brief 技能使用非空身份与零到一闭区间；档案窗口与联系人声明合法。"""
+        if not self.owns_car and self.initial_driving_days != 0:
+            _invalid("A persona without a car must declare zero initial driving days")
         if self.background_story is not None and len(self.background_story.strip()) < 100:
             _invalid("background_story must contain at least 100 characters")
         _check_day_windows(self)

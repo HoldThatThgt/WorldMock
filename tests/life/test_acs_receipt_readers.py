@@ -22,7 +22,7 @@ def _meal_plan(registered=100, around=None):
 
 def _receipt(category="meal", order="order-a", **changes):
     """@brief 调度调用方已经确认归本人的收货载荷；付款人不决定用餐归属。"""
-    return {"kind": "goods_received", "category": category, "order_id": order, "payer_id": 2, **changes}
+    return {"kind": "goods_received", "category": category, "order_id": order, "payer_id": 2, "quantity": 1, **changes}
 
 
 @pytest.mark.parametrize("moment", [100, 101, 86399])
@@ -80,7 +80,7 @@ def test_unreceived_order_or_retired_evidence_cannot_progress_a_meal_goal(kind):
     plan = _meal_plan()
     assert progress_receipt_day_plan(plan, _receipt(kind=kind), 200) is plan
     activity = {"activity_id": "old-meal", "kind": "consume", "status": "completed", "started_at": 101}
-    assert progress_day_plan(plan, activity, 101, 200) is plan
+    assert progress_day_plan(plan, activity, 101, 200, ()) is plan
 
 
 @pytest.mark.parametrize("evidence", [
@@ -167,7 +167,7 @@ def _chosen_goods_context(location="store"):
 
 
 def test_goods_tool_query_and_observation_have_no_holding_or_consume_path():
-    from worldmock.life.callable_index import IndexSources, callable_index
+    from worldmock.life.callable_index import callable_index
     from worldmock.life.prompt_schemas import TARGET_KINDS, TOOL_LAYER_SCHEMA
     from worldmock.life.projection import ProjectionInputs, build_observation
     from worldmock.life.tool_layer import BINDING_KINDS, tool_layer
@@ -175,7 +175,7 @@ def test_goods_tool_query_and_observation_have_no_holding_or_consume_path():
     from worldmock.life.world_query import QueryWorldRequest, attach_world_query, query_world
     from jsonschema import Draft202012Validator
     context = _chosen_goods_context()
-    layer = tool_layer(context, callable_index(context, IndexSources()))
+    layer = tool_layer(context, callable_index(context))
     Draft202012Validator(TOOL_LAYER_SCHEMA).validate(layer)
     assert "holding" not in BINDING_KINDS and "holding" not in TARGET_KINDS and "consume" not in LIFE_VERBS
     for way in ("食用", "使用", "给予", "吃", "吃饭", "用餐", "进食", "送", "给", "赠送"):
@@ -190,11 +190,13 @@ def test_goods_tool_query_and_observation_have_no_holding_or_consume_path():
                    "locations": [{"location_id": item.location_id, "name": item.name} for item in context.scenario.locations]}
     attach_world_query(observation, context)
     query = QueryWorldRequest.model_validate({"name": None, "way": None, "category": "日常用品",
-        "from": None, "available_only": False, "offset": 0})
+        "app": None, "available_only": False, "offset": 0})
     result = query_world(observation, query)
     assert result["total_count"] == 1 and result["matches"][0]["state"] == "日常用品"
     projected = build_observation(ProjectionInputs(context.state, context.scenario, context.state.agents[1],
-        extras={"activity_rows": {"control": [], "pending": []}, "interaction_menu": context.menu}))
+        extras={"activity_rows": {"control": [], "pending": []}, "interaction_menu": context.menu,
+                "actions": list(context.semantics.catalog.actions.values()),
+                "contents": list(context.semantics.catalog.contents.values())}))
     for retired in ("inventory", "available_inventory", "held_foods"):
         assert retired not in projected
     assert all(row["kind"] != "holding" for row in projected["interaction_bindings"])
@@ -225,7 +227,7 @@ def test_goods_result_receipt_progress_and_contact_received_use_real_goods_witho
     assert public["details"]["purchases"][0]["product"] == "牛肉面"
     assert public["details"]["purchases"][0]["quantity"] == "1 份"
     assert "given" not in public["details"]
-    assert OPEN_ORDER_STATUSES == {"pending"}
+    assert OPEN_ORDER_STATUSES == {"pending", "ready_for_pickup"}
     context = replace(_chosen_goods_context("noodle-2"), state=outcome.state)
     event = Event(event_id="arrived", event_seq=1, run_id=state.run_id, event_type="environment_event",
                   occurred_at=state.current_time, agent_id=1, source_kind="environment", visibility="agent",
@@ -234,7 +236,7 @@ def test_goods_result_receipt_progress_and_contact_received_use_real_goods_witho
     [record] = _delivery_records(context, event)
     assert record.record["status"] == "delivered" and record.record["message"] == "已送到二味小炒"
     assert "牛肉面" in purchase_sentence(context, order, None)
-    fact = {"kind": "received", "occurred_at": state.current_time, "goods_id": "beef-noodles"}
+    fact = {"kind": "received", "occurred_at": state.current_time, "goods_id": "beef-noodles", "quantity": 1}
     assert "收到牛肉面" in experience_sentence(context, fact)
     assert _received(outcome.state, semantics, "contact-colleague") == ()
 

@@ -58,7 +58,6 @@ from worldmock.life.readable import local_date
 #: 活动品类摘要里的食品下钻键：候选类别仍是 product（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选对象与来源」）。
 FOOD_CATEGORY = "foods"
 #: 工作合同的下钻键。
-WORK_TOPIC_CATEGORY = "work_topic"
 
 @dataclass(frozen=True, slots=True)
 class PoolEntry:
@@ -387,21 +386,17 @@ def _diversified(entries: tuple[PoolEntry, ...], sorted_ids: tuple[str, ...],
     return tuple((*preferred, *overflow))
 
 
-def entry_sources(entries: tuple[PoolEntry, ...], on_site: frozenset[str] = frozenset(),
-                  carried: frozenset[str] = frozenset()) -> dict:
-    """@brief 生成段的实际来源：在场、实际持有和目录菜单启用来源。
+def entry_sources(entries: tuple[PoolEntry, ...], on_site: frozenset[str] = frozenset()) -> dict:
+    """@brief 生成段只区分在场与目录菜单启用来源。
 
     @param entries 该分区的池条目。
     @param on_site 当前地点常驻对象的标识集合。
-    @param carried 当前手边持有对象的标识集合。
     @return 键取 `CandidateSource` 的来源映射，值为候选条目序列。
     """
     activated = tuple(entry.as_candidate() for entry in entries
-                    if entry.object_id not in on_site and entry.object_id not in carried)
+                    if entry.object_id not in on_site)
     return {"on_site": tuple(entry.as_candidate() for entry in entries
                              if entry.object_id in on_site),
-            "carried": tuple(entry.as_candidate() for entry in entries
-                             if entry.object_id in carried),
             "activated": activated}
 
 
@@ -426,9 +421,6 @@ def candidate_inputs(context: PresentationContext, sources: dict, moment: bool =
     """
     constants = context.semantics.candidate_constants
     now = int(context.state.current_time)
-    profile = next((item for item in context.scenario.agents
-                    if item.agent_id == context.agent.agent_id), None)
-    motivation = getattr(profile, "motivation", None)
     occupied = frozenset(claim for item in active_activities(context.state, context.agent.agent_id)
                          for claim in item.resource_claims) if moment else frozenset()
     return CandidateInputs(

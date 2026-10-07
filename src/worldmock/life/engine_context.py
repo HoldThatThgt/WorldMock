@@ -76,7 +76,7 @@ class EngineContext:
         self.state = WorldState.model_validate(self.store.state)
         self.rules = LifeRuleEngine(self.scenario, self.semantics.catalog)
         self.affordance_contract = affordance_contract(self.semantics.affordances)
-        self.titles = title_index(self.scenario, {}, self.semantics.catalog)
+        self.titles = title_index(self.scenario, self.semantics.catalog)
         self.ops = OpsLogger(self.store.run_dir, self.scenario.timezone)
         self.validate()
 

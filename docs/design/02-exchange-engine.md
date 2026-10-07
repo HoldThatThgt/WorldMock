@@ -29,6 +29,7 @@
 
 活动缓解速率和 MET 键由结算与预估共用；社交资源分录只保留一个应用入口。资源账本错误保留自身异常类型和英文错误形状，并记录错误日志；品类和目录错误使用同一稳定错误码实现。
 
+
 <a name="exchange-engine-交换引擎与项目框架"></a>
 ## 1. 交换引擎与项目框架
 
@@ -46,6 +47,7 @@
 这些规则需要先登记，并随资源、对象和语料的新增、修改、删除一起维护，供运行时查询。
 交换引擎把判断和计算结果交给模拟引擎，由模拟引擎决定何时调用并落实变化。
 
+
 <a name="exchange-engine-项目框架映射"></a>
 ### 项目框架映射
 
@@ -61,6 +63,7 @@ flowchart LR
 
 规则维护通过 WorldMock 的源码、测试和 `RULES_VERSION` 发布完成。环境发布不能新增公式或覆盖常数；纯计算和目录查询不自行推进时间或制造事实。
 
+
 <a name="exchange-engine-与其他引擎的职责边界"></a>
 ### 与其他引擎的职责边界
 
@@ -73,6 +76,8 @@ flowchart LR
 
 资源定义归交换引擎，具体世界来源和发布归 Dataset。
 
+
+
 <a name="exchange-engine-交换引擎的功能设计"></a>
 ## 2. 交换引擎的功能设计
 
@@ -83,22 +88,24 @@ flowchart LR
 
 
 
+
+
 <a name="exchange-engine-系统固定类型与常数"></a>
 ## 系统固定类型与常数
 
 `worldmock.exchange` 唯一拥有闭集、类别表、常数与 Decimal 交换算子，统一由 `RULES_VERSION = 2` 绑定。
-`types.py` 定义地点、商品、动作类别、app 使用方式、设备映射、app 用途与内容形式；
+`types.py` 定义地点、商品、动作类别、app 使用方式、设备映射与 app 用途；内容没有分类字段。
 `constants.py` 定义固定数值，`operators.py` 求值，`body.py` 定义身体动力学与资源元信息。
 
 | 固定内容 | 规则 |
 | --- | --- |
-| 商品类别 | `meal`、`snack`、`drink`、`leisure`、`daily` |
+| 商品类别 | `meal`、`snack`、`drink`、`leisure`、`daily`、`fuel` |
 | 食品热量 | 正餐 600、零食 200、饮品 100 千卡每份；没有食用秒数 |
-| 非食品收货效果 | 休闲用品每订单行缓解娱乐需要 0.10，日常用品每订单行情绪 +0.05；不超过最弱内容半小时的缓解量 |
+| 非食品收货效果 | 休闲用品每订单行缓解娱乐需要 0.10，日常用品每订单行情绪 +0.05；燃油恰增加七个驾驶可用天数，无库存或身体效果 |
 | app 用途 | `navigation`、`shopping`、`payment`；可以同时具有多个用途或为空 |
-| 店铺供给 | 餐馆：正餐、饮品、零食；咖啡馆：饮品、零食；便利店与超市：五类商品 |
+| 店铺供给 | 餐馆：正餐、饮品、零食；咖啡馆：饮品、零食；便利店与超市：除燃油外五类商品；加油站只卖燃油，驿站不卖商品 |
 | 内容时长 | `CONTENT_MIN_SECONDS = 60`，不设登记上限 |
-| 内容娱乐速率 | 文章与图文 0.2、短视频与实况 0.3、长视频 0.4 每小时，只用于娱乐类别 |
+| 内容娱乐速率 | 娱乐类别每小时缓解娱乐需要 0.3；不按内容形式或名称分速率 |
 | 身体活动键 | 等待 1.3、睡眠 0.95、步行 3.5、驾车 1.5；类别 MET 来自 `CATEGORY_MET` |
 | 出行与配送 | 步行 1.2 米/秒、驾车 7 米/秒；驾车费用为 `max(500, ceil(0.2 × 米))` 分；配送 5 米/秒、备餐 600 秒、每单 500 分 |
 | 图生成 | 最少两节点、边长 200–2000 米、树外边数 ⌊(n−1)/2⌋、生成规则版本 1 |
@@ -127,13 +134,16 @@ flowchart LR
 
 
 
+
 <a name="exchange-engine-新增状态资源对象或语料"></a>
 #### 新增状态资源、对象或语料
 
 
 
+
 <a name="exchange-engine-修改与删除"></a>
 #### 修改与删除
+
 
 
 
@@ -159,19 +169,25 @@ flowchart LR
 购物用途存在当且仅当至少一家店铺绑定该 app；支付绑定非空当且仅当有购物用途，
 绑定目标具有支付用途，允许绑定自己。导航与支付 app 可以没有内容；app 必须有用途或动作绑定。
 
+
 <a name="exchange-engine-可供性与活动声明"></a>
 #### 可供性与活动声明
 
-包内 `affordances.toml` 使用版本 2，只声明 `wait`、`sleep`、`travel`、`action` 四种活动。
-占用闭集为 `wait`、`travel`、`talk`、`use_app`、`entertainment`、`work_study`、`exercise`、`daily_care`。
-条件维度只有 `mode`、`category`、`manner`；家族、习惯归并与候选生成器配置已删除。
+占用闭集是 `wait`、`travel`、`talk`、`use_app`、`entertainment`、`work_study`、`exercise`、`daily_care`。每个动作占自己的类别，社交占 `talk`；`phone_continuous` 另占 `use_app`，`other_device` 与 `offline_assisted` 不另占。睡眠占全部八个；驾车占除 `talk` 外七个。每人两个活动名额，暂停让出名额，待收尾仍占名额。
 
-每个动作占同名类别，社交类别占 `talk`；持续手机使用另占 `use_app`，其他设备与线下辅助不另占。
-等待占 `wait`；出行占 `travel`，驾车另占除 `talk` 外的全部名额；睡眠占全部八个名额。
-这些声明归 WorldMock 固定，环境不能新增名额或修改占用；身体常数从 `worldmock.exchange.body` 读取。
+| 类别 | 代谢当量 | 按实际秒数的效果 |
+| --- | --- | --- |
+| entertainment | 1.0 | 每小时缓解娱乐需要 0.3 |
+| work_study | 1.5 | 分配内容首次完成才施加 `goal_progressed` +0.05 |
+| social | 无 app 1.5，有 app 1.3 | 共处、未接受、远程分别每小时 0.5、0.2、0.4 |
+| exercise | 5.0 | 每小时情绪 +0.1；只限 home、outdoor、fitness 环境 |
+| daily_care | 2.0 | 无额外按秒效果 |
+
 
 <a name="exchange-engine-交换规则的加载与准入"></a>
 #### 交换规则的加载与准入
+
+
 
 
 
@@ -180,14 +196,16 @@ flowchart LR
 
 购买按当前供给、余额与 app 绑定校验，不读取持有。店铺全天服务，没有营业时态、报价、资格或库存条件。整组先完成准入再提交变化，拒绝不制造扣款或收货事实。
 
+
 <a name="exchange-engine-门店供给的时态与履约判断"></a>
 ### 门店供给的时态与履约判断
 
 店铺全天服务，唯一商品价格位于 `goods.json.price_fen`。
 菜单由 `store_ids` 或 `"all"` 与固定 `GOODS_CATEGORY_STORE_KINDS` 得出，同类型店铺同菜单。
 没有供给时态、营业例外、报价、有效期或门店库存。
-到店与配送准入读取地点、购物 app 绑定、收货人和当前位置；费用与时长常数归 `worldmock.exchange`。
-实际订单、付款和送达证据由模拟与记录引擎负责。
+现场购买读取真实所在门店；远程购买读取明确的购物与支付 app 绑定及收货地址。店铺 `shipping_seconds` 非空时表示完整运输时长，为 null 时按发布图与固定配送算子计算，不额外叠加备货时间。长途订单按收货人家庭地址选择驿站，完整运输报价不因末端改址而重算。
+费用与时长规则归 `worldmock.exchange`；实际订单、付款、到站与收货证据由模拟与记录引擎负责，详细边界见[请求字段与结算检查](../CONTRACTS.md#contracts-request-settlement)。
+
 
 <a name="exchange-engine-计算投入产出"></a>
 ### 计算投入产出
@@ -200,23 +218,31 @@ flowchart LR
 
 货款与配送费按商品固定价格、件数和规则求值，每单一次转给 merchant 账户；驾车按图距离与固定费率求值。收货规则量由 `evaluate_goods_receipt(category, quantity)` 给出 provided；食品经 apply_food 得到 applied，使用当秒睡眠不足利用率并受能量上限约束，超出部分丢失。规则不自行写余额、世界状态或足迹。
 
+
 <a name="exchange-engine-不同交换的计算依据"></a>
 #### 不同交换的计算依据
 
-| 交换 | 输入事实 | 唯一规则来源 |
-| --- | --- | --- |
-| 购买与支付 | 商品固定单价、件数、配送方式 | exchange.operators 与配送费常数 |
-| 收货结算 | 商品类别与件数，食品另用收货当秒睡眠不足 | evaluate_goods_receipt、GOODS_ENERGY_KCAL、GOODS_RECEIPT_EFFECTS、BODY_CONSTANTS.food_efficiency_curve |
-| 出行 | 图距离、步行或驾车方式 | 固定速度、车费常数与发布图 |
-| 工作 | 主题与实际工作秒数 | 现行工作进度规则 |
+购买受理当秒付款，每单一次，不产生提前的商品效果。现场购买同次提交收货，直送在配送到期时收货；长途到站只进入 `ready_for_pickup`，本人在站零秒领取才收货。每单由唯一函数写 `received_at`、订单终态与本人 `goods_received`，按收货人的实际状态施加效果，不产生库存、持有或独立进食活动。联系人收货不改变模拟人物身体，也不写 `goods_received`。完整边界统一见[请求字段与结算检查](../CONTRACTS.md#contracts-request-settlement)。
 
-运行状态与实际履约由模拟引擎提供，目录不保存另一份交换规则。
+动作内容消费的效果是固定类别速率乘实际秒数，不由动作名称、内容形式或模型文字推断。
+
+| 类别 | 代谢当量 | 按实际秒数的效果 |
+| --- | --- | --- |
+| entertainment | 1.0 | 每小时缓解娱乐需要 0.3 |
+| work_study | 1.5 | 分配内容首次完成才施加 `goal_progressed` +0.05 |
+| social | 无 app 1.5，有 app 1.3 | 共处、未接受、远程分别每小时 0.5、0.2、0.4 |
+| exercise | 5.0 | 每小时情绪 +0.1；只限 home、outdoor、fitness 环境 |
+| daily_care | 2.0 | 无额外按秒效果 |
+
+
+
 
 <a name="exchange-engine-校验资源分录"></a>
 ### 校验资源分录
 
 资源分录继续校验单位、有限数值、上下界和封闭资金守恒。资源定义从 `worldmock.exchange` 取得，不能从环境 `resources.jsonl` 加载；计算错误保留稳定英文错误和异常日志。
 通过求值的分录只是候选变化，只有模拟引擎实际提交后才成为可追溯的数字足迹。
+
 
 <a name="exchange-engine-返回规则结果"></a>
 ### 返回规则结果
@@ -249,18 +275,23 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    O[订单与收货事实] --> R[唯一收货结算]
-    R --> Q[类别与件数求 provided]
-    Q --> F{食品}
-    F -->|是| B[当秒效率与上限求 applied]
-    F -->|否| N[固定娱乐或情绪效果]
-    B & N --> E[取本次资源分录并同次提交状态与收货事件]
+    P[购买受理并付款] --> F{履约方式}
+    F -->|现场| R[唯一收货结算]
+    F -->|直送| D[配送到期]
+    D --> R
+    F -->|完整运输大于一天| S[到最近驿站并标记可领取]
+    S --> C[收货人本人在站零秒领取]
+    C --> R
+    R --> E[同次提交商品效果、资源分录和收货事件]
 ```
 
-连续身体变化由时钟推进先结算至收货秒；到店购买在当前同刻受理。到店受理与配送到期共用 `worldmock.life.receipt.settle_receipt`，该函数只施加本次瞬时商品效果并取走本次资源分录。函数同时将订单从 `pending` 改为 `delivered`、写 `received_at`、施加效果并取走本次资源分录。到店在付款的同一次提交内收货，配送在 `delivery_arrival` 当秒收货，不看收货人在哪里或是否睡着。
-食品的 `provided` 为类别热量乘件数，`applied` 为按当秒睡眠不足利用率与能量上限得到的实际能量增加，超出上限的部分丢失。休闲用品每行降低娱乐需要 0.10（下限 0），日常用品每行施加情绪脉冲 0.05。没有持有、食用时长、份额、丢弃或装备能力。
-本次食品 `food:intake` 分录与休闲用品 `goods:receipt` 分录在函数返回前立即取走，主体与时刻都是收货人和收货秒，缓冲为空；日常用品不写资源分录。状态变化与 `goods_received` 同一事务提交，事件的 `caused_by` 指向该提交中的真实购买结果或配送到期事件。
-已交付订单再次到期不写状态、效果或事件；重复动作返回已存结果。联系人没有身体，收货只改变订单状态与 `received_at`，不写 `goods_received`。配送保留付款人的到期事件与唤醒，清醒模拟收货人得到同一个到期原因，睡着的不唤醒；到店不唤醒任何人。
+连续身体变化先结算至实际收货秒；唯一收货函数按商品类别与件数求 `provided`，再按收货人当秒状态求 `applied`，取走本次分录并同次提交订单与收货事件。食品使用当秒效率和能量上限，休闲与日常用品施加固定效果，燃油只增加驾驶可用天数。
+直送和现场购买无需等待独立消费动作；长途到站不能提前施加效果。重复到期、重复领取或他人订单不能多结算。完整时长严格大于 86400 秒才进入驿站链，恰为 86400 秒仍直送；驿站由实际模拟收货人家庭地址在完整发布图上的最近站确定，且必须由场景选中。
+字段、分录、归属和幂等细节只在[供给结算与事件载荷](../CONTRACTS.md#contracts-供给结算与事件载荷)及[请求字段与结算检查](../CONTRACTS.md#contracts-request-settlement)定义。
+
+
+
+
 
 <a name="exchange-engine-当前实现与验收"></a>
 ## 3. 当前实现与验收
@@ -272,12 +303,14 @@ flowchart LR
 纯行为证据在 `tests/exchange/` 与 `tests/catalog/`；发布命令为 `worldmock environment generate-map`、`check` 与 `worldmock validate --environment`。
 验收台账登记实际生产符号、具名行为节点与源码变异。目录有效、完整引擎执行、正式环境与真实平台回执分别判断。
 
+
 <a name="exchange-engine-当前差距"></a>
 ### 当前差距
 
 固定规则、六文件目录与纯加载边界已有对应实现和纯测试。
 动作执行、收货结算、人物请求与足迹的集成完成状态以[动作与内容简化验收台账](../dev/SPEC-action-and-content-simplification.md#spec-acs-验收台账)和真实运行回执为准。
 目录有效不证明这些消费链已闭合；目录中没有占位规则接口、旧格式读取或兼容入口。
+
 
 <a name="exchange-engine-分阶段验证与完成条件"></a>
 ### 分阶段验证与完成条件
@@ -286,12 +319,15 @@ flowchart LR
 常数测试不能替代真实调用；每项证据对应实际生产符号、具名行为节点与有效源码变异。
 正式环境和平台运行须有匹配身份的回执，文档冻结或目录有效都不能单独证明完成。
 
+
+
 <a name="design-exchange-engine-current-responsibility"></a>
 ## 纯规则与执行职责
 
 交换引擎拥有固定闭集、类别与使用方式表、身体与社交情绪常数、Decimal 算子及资源分录规则。
-收货算子 `evaluate_goods_receipt(category, quantity)` 给出食品提供热量或每行固定非食品效果；实际状态应用归模拟引擎。
+收货算子 `evaluate_goods_receipt(category, quantity)` 给出食品提供热量或固定非食品效果，包括燃油的驾驶可用天数；实际状态应用归模拟引擎。
 规则由 `RULES_VERSION` 统一绑定，恢复核对五字段 `environment_identity`。环境只登记对象与绑定，不提供规则副本。
+
 
 <a name="exchange-engine-版本历史"></a>
 ## 版本历史

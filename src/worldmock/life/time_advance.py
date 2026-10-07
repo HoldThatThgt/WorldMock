@@ -36,7 +36,10 @@ from worldmock.life.activities import (
     truncate_activity,
 )
 from worldmock.life.body import ActivityFactors, BoundaryClock, next_shared_body_boundary_seconds, settle_shared_body
-from worldmock.life.content import reveal_mail, settle_app_usage
+from worldmock.life.action_run import settle_action
+from worldmock.life.fuel import charge_driving_days
+from worldmock.life.work import work_completion_draft
+from worldmock.scheduling.events import ScheduledKind
 from worldmock.life.models import (
     ActionResult,
     ActivityKind,
@@ -58,7 +61,6 @@ from worldmock.life.schedule import DayPlan, expired_plan_agent_ids
 from worldmock.life.models import validated_payload
 from worldmock.life.presentation import flush_presentation, stage_presentation
 from worldmock.life.travel import persisted_trip, record_arrival, update_travel
-from worldmock.life.work import work_completion_draft, work_progress_data
 from worldmock.scheduling.effects import process_scheduled_events
 
 from worldmock.life.engine_context import EngineContext
@@ -219,9 +221,12 @@ class TimeAdvanceCoordinator:
                     state, activity, target, settlement, body_event.event_id
                 )
                 drafts.append(progress)
-                if activity.kind == ActivityKind.WORK:
-                    completed = work_completion_draft(
-                        state, activity, self.context.rules.work_topic(activity.target_id), progress.event_id)
+                content = progress.data.get("content")
+                config = next(item for item in self.context.scenario.agents if item.agent_id == agent_id)
+                if content is not None and content["completed"]:
+                    completed = work_completion_draft(state, activity,
+                        self.context.semantics.catalog.contents[content["content_id"]],
+                        progress.event_id, config.work_content_ids)
                     if completed is not None:
                         drafts.append(completed)
                 if terminal is not None:
@@ -246,7 +251,7 @@ class TimeAdvanceCoordinator:
         """@brief 推进单项进度并引用已排在前面的唯一共同身体事件。"""
         agent = state.agents[activity.agent_id]
         before_consumed = {"media_position_seconds": activity.media_position_seconds}
-        if activity.kind in {ActivityKind.CHAT, ActivityKind.CALL}:
+        if activity.kind == ActivityKind.ACTION and activity.data["category"] == "social":
             advanced = social_actions.advance_social_shared(
                 activity, agent, target, settlement, social_actions.shared_chat_seconds(state, activity, target)
             )
@@ -254,22 +259,25 @@ class TimeAdvanceCoordinator:
             advanced = advance_activity_shared(activity, agent, target, settlement)
         if reminders.reminder_due(agent, target):
             advanced = end_sleep_by_reminder(advanced, target)
-        if advanced.completed:
-            advanced = ActivityAdvance(
-                advanced.activity,
-                advanced.agent.model_copy(update={"next_decision_at": target}, deep=True),
-                settlement,
-                True,
-            )
+        alarm_due = any(event.kind == ScheduledKind.ALARM_RING and event.agent_id == activity.agent_id
+                        and event.due_at == target for event in state.pending_events)
+        if alarm_due and not advanced.completed and activity.kind == ActivityKind.SLEEP:
+            ended = advanced.activity.model_copy(update={"status": ActivityStatus.COMPLETED,
+                "ended_at": target, "boundary_type": "alarm_ring", "interruption_reason": "alarm_ring",
+                "next_interaction_at": None}, deep=True)
+            advanced = ActivityAdvance(ended, advanced.agent, settlement, True)
         state.agents[activity.agent_id] = advanced.agent
         state.activities[activity.activity_id] = advanced.activity
-        effects = self._apply_activity_effect(state, advanced.activity, advanced.completed, before_consumed)
+        effects = self._apply_activity_effect(state, advanced.activity, before_consumed)
+        if state.activities[activity.activity_id].status == ActivityStatus.COMPLETED:
+            state.agents[activity.agent_id] = state.agents[activity.agent_id].model_copy(
+                update={"next_decision_at": target}, deep=True)
         state.activities[activity.activity_id] = sessions.arrival_route_end(state, activity.activity_id, target)
         data = {
             "interval_start": activity.last_settled_at,
             "interval_end": target,
             "activity": activity_snapshot(
-                state.activities[activity.activity_id], self.context.titles, self.context.lifestyle_items
+                state.activities[activity.activity_id], self.context.titles
             ),
             "body_settlement_event_id": body_event_id,
             **effects,
@@ -309,30 +317,24 @@ class TimeAdvanceCoordinator:
             _origin_terminal_draft(state, activity, target, [], activity_title(activity, self.context.titles)),
         )
 
-    def _apply_activity_effect(
-        self, state: WorldState, activity, completed: bool, before_consumed: dict[str, float]
-    ) -> dict:
-        """@brief 在推进后投影路线、内容和按区间发生的商品效果。"""
-        agent = state.agents[activity.agent_id]
+    def _apply_activity_effect(self, state: WorldState, activity, before_consumed: dict[str, float]) -> dict:
+        """@brief 真实推进后结算路线、驾车日与统一内容证据。"""
         evidence = {}
         if activity.kind == ActivityKind.TRAVEL:
             trip = persisted_trip(self.context.semantics.catalog.graph, activity)
-            (activity, agent) = update_travel(activity, trip, agent)
+            activity, agent = update_travel(activity, trip, state.agents[activity.agent_id])
             record_arrival(activity, agent)
             state.activities[activity.activity_id] = activity
             state.agents[agent.agent_id] = agent
-        if activity.kind == ActivityKind.USE_APP:
-            changed, evidence["content"] = settle_app_usage(
-                state, activity, self.context.semantics.catalog, before_consumed["media_position_seconds"])
+            if activity.travel_mode == "driving":
+                seconds = activity.elapsed_seconds - self.context.state.activities[activity.activity_id].elapsed_seconds
+                changed = charge_driving_days(state, self.context.semantics, activity.agent_id,
+                                               activity.last_settled_at - seconds, activity.last_settled_at)
+                state.agents = changed.agents
+        if activity.kind == ActivityKind.ACTION:
+            changed, evidence["content"] = settle_action(state, activity, self.context.semantics.catalog,
+                self.context.scenario, before_consumed["media_position_seconds"])
             state.agents, state.activities, state.sessions = changed.agents, changed.activities, changed.sessions
-        if activity.kind == ActivityKind.WORK:
-            evidence["work"] = work_progress_data(state, activity, self.context.rules.work_topic(activity.target_id))
-        if not completed:
-            return evidence
-        if activity.kind == ActivityKind.READ_MAIL:
-            (state.agents[agent.agent_id], activity.data["revealed"]) = reveal_mail(
-                activity, agent, self.context.rules.messages
-            )
         return evidence
 
 
@@ -366,7 +368,7 @@ class TimeAdvanceCoordinator:
             state.agents[agent.agent_id] = agent
             drafts.append(
                 activity_control.truncation_record(
-                    activity, activity_snapshot(activity, self.context.titles, self.context.lifestyle_items), now
+                    activity, activity_snapshot(activity, self.context.titles), now
                 )
             )
             result = _origin_terminal_result(state, activity, now, activity_title(activity, self.context.titles))

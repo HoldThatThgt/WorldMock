@@ -53,6 +53,7 @@ def _agent(agent_id: int = 1, **rhythm) -> AgentConfig:
     return AgentConfig.model_validate({
         "agent_id": agent_id, "name": "林悦", "trait_source_kind": "experiment_assumption",
         "home_location_id": "home", "initial_balance_fen": 0,
+        "owns_car": False, "initial_driving_days": 0,
         "interaction_menu": None, "work_schedule": None, **rhythm})
 
 

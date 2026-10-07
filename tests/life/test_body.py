@@ -31,7 +31,7 @@ def body_config():
 def test_awake_and_sleep_settle_independent_resources(body_config) -> None:
     """清醒增加睡眠不足，睡眠恢复不足且两者都消耗基础能量。"""
     initial = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=4, entertainment_need=0.2)
-    awake = settle_body(initial, ActivityKind.WORK, 3600, body_config, ActivityFactors(1.5))
+    awake = settle_body(initial, ActivityKind.ACTION, 3600, body_config, ActivityFactors(1.5))
     assert awake.after.energy_kcal == pytest.approx(1500.0)
     # 两过程：清醒按 need/(24-need) 累积不足账（7.5h 需要量即约 0.4545/h）
     assert awake.after.sleep_deficit_hours == pytest.approx(4 + 7.5 / 16.5)
@@ -43,9 +43,9 @@ def test_awake_and_sleep_settle_independent_resources(body_config) -> None:
 
 
 def test_entertainment_uses_fixed_app_content_relief(body_config) -> None:
-    """应用内容按固定类型缓解速率降低娱乐需要。"""
+    """娱乐动作按固定速率降低娱乐需要。"""
     body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0.8)
-    result = settle_body(body, ActivityKind.USE_APP, 3600, body_config, ActivityFactors(1, 0.3))
+    result = settle_body(body, ActivityKind.ACTION, 3600, body_config, ActivityFactors(1, 0.3))
     assert result.after.entertainment_need == pytest.approx(0.5)
 
 
@@ -61,7 +61,7 @@ def test_overdrawn_work_settles_to_zero_energy_without_error(body_config) -> Non
     """能量不拦人：工作一小时的成本远超余额时照常结算，能量以 0 截断，只扣掉余额。"""
     body = BodyState(energy_kcal=10, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)
     last_flows()
-    result = settle_body(body, ActivityKind.WORK, 3600, body_config, ActivityFactors(1.5))
+    result = settle_body(body, ActivityKind.ACTION, 3600, body_config, ActivityFactors(1.5))
     assert result.after.energy_kcal == 0
     assert result.basal_energy_kcal + result.extra_energy_kcal == pytest.approx(100.0)
     drains = [flow for flow in last_flows() if flow.resource == "energy_kcal"]
@@ -71,11 +71,12 @@ def test_overdrawn_work_settles_to_zero_energy_without_error(body_config) -> Non
     assert result.after.sleep_pressure > body.sleep_pressure
 
 
-@pytest.mark.parametrize("kind", [ActivityKind.WORK, ActivityKind.TRAVEL,
+@pytest.mark.parametrize("kind", [ActivityKind.ACTION, ActivityKind.TRAVEL,
                                   ActivityKind.WAIT, ActivityKind.SLEEP])
 def test_every_activity_truncates_at_zero(body_config, kind) -> None:
     """恢复类与非恢复类活动同样以 0 截断；刚好不够或远远不够都不报错。"""
-    factors = ActivityFactors(3.5) if kind == ActivityKind.TRAVEL else None
+    factors = (ActivityFactors(3.5) if kind == ActivityKind.TRAVEL else
+               ActivityFactors(1.5) if kind == ActivityKind.ACTION else None)
     cost = minimum_energy_cost(ActivityKind.WAIT, 60, body_config)
     for energy in (math.nextafter(cost - 1e-9, math.inf), cost - 1e-8, 0.0):
         body = BodyState(energy_kcal=max(energy, 0.0), sleep_pressure=0.0, sleep_deficit_hours=0,
@@ -100,13 +101,13 @@ def test_exact_total_energy_survives_feedback_partition_rounding(body_config, du
 
 def test_energy_duration_uses_same_cost_at_sixty_second_boundary(body_config) -> None:
     """最大整数时长与领域成本函数在六十和六十一秒的边界完全一致。"""
-    energy = minimum_energy_cost(ActivityKind.WORK, 60, body_config)
+    energy = minimum_energy_cost(ActivityKind.ACTION, 60, body_config, 1.5)
 
-    assert maximum_energy_duration_seconds(ActivityKind.WORK, energy, body_config) == 60
-    assert minimum_energy_cost(ActivityKind.WORK, 61, body_config) > energy
+    assert maximum_energy_duration_seconds(ActivityKind.ACTION, energy, body_config, 1.5) == 60
+    assert minimum_energy_cost(ActivityKind.ACTION, 61, body_config, 1.5) > energy
 
 
-@pytest.mark.parametrize("kind", [ActivityKind.WAIT, ActivityKind.SLEEP, ActivityKind.CONSUME])
+@pytest.mark.parametrize("kind", [ActivityKind.WAIT, ActivityKind.SLEEP])
 def test_recovery_activity_duration_is_not_masked_by_zero_energy(body_config, kind) -> None:
-    """等待、睡眠和进食在零能量时仍保留既有恢复例外。"""
+    """等待和睡眠在零能量时仍保留既有恢复例外。"""
     assert maximum_energy_duration_seconds(kind, 0, body_config) == 86_400

@@ -490,7 +490,7 @@ def test_graph_travel_result_projects_trip_identity_and_full_path():
     from worldmock.life.world_setup import load_runtime_scenario
 
     _, _, state, trip = travel_case("driving")
-    snapshot = activity_snapshot(state.activities["travel-1"], TitleIndex({}, {}, {}, {}, {}, {}), ())
+    snapshot = activity_snapshot(state.activities["travel-1"], TitleIndex({}, {}, {}))
     request = _public_event(1, "action_requested", {"tool_name": "start_activity", "request": {
         "items": [{"target": "地点：公司", "way": "驾车", "from": None, "to": None}],
         "answering": None, "prefer": None}}, "action-1")

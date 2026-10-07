@@ -47,6 +47,7 @@ sequenceDiagram
 一次决策只有一个行动阶段：可以先做只读查询，也可能有协议纠错回合，世界请求登记即结束本次决策。
 每次实际请求都计入同一回合预算。世界时间、批量结算及世界写入权仍由环境独占。
 
+
 <a name="spec-decision-context-权威来源与裁决"></a>
 ## 权威来源与裁决
 
@@ -65,6 +66,7 @@ sequenceDiagram
 | 句柄不进上下文意味着删 tool 消息 | 保留提供商要求的 tool_call_id 配对；清除消息正文中的内部登记回执。登记确认从不发给模型：登记后不追加 tool 消息；同秒续接时，对应该世界请求 `tool_call_id` 的 tool 消息是结算结果 |
 | 所有上限同一种失败方式 | 展示选择、协议重试、提示硬预算分别遵循所属合同 |
 
+
 <a name="spec-decision-context-地点发现与供给比较"></a>
 ## 地点发现与供给比较
 
@@ -75,6 +77,7 @@ sequenceDiagram
 `from=null` 且店铺绑定多个 app 时取最小 `app_id`，写进 `details.notes`。app 来源从目录绑定派生，不读取手机配置。
 
 最快拿到比较外卖 ETA 或到店图距离；并列按到手价再按店铺身份。完整名称错误候选、原生工具配对、菜单、同秒预算与结果回灌机制保持，查询不等于执行购买。
+
 
 <a name="spec-decision-context-同秒续接与只读路径"></a>
 ## 同秒续接与只读路径
@@ -103,6 +106,7 @@ tool 消息是一个 JSON 对象 `{result, changes, events}`，空键省略：`r
 两层取自最近一次生活决策保存在人物工作区的快照，运行开始后尚无决策时记忆层的两个列表都为空。
 仅开放预算允许的 `memory_recent`、`memory_search`、`memory_time_range` 与只读 finish，不写生活世界或人物记忆。
 只读与生活决策的人设层同源，卡片派生字段遵守相同汉字上限。
+
 
 <a name="spec-decision-context-登记确认与结算结果"></a>
 ## 登记确认与结算结果
@@ -172,11 +176,14 @@ session 结束后，结果按 `settled` 写法进入记忆层（[人物 Prompt �
 
 食品价格固定，查询只显示食品类别标签与目录 app 绑定，返回紧凑固定菜单，没有浏览揭示或未知店铺库存。
 
+
+
 <a name="spec-decision-context-七层归属"></a>
 ## 七层归属
 
 原 `scene` 与 `facts` 的各项内容按唯一出现原则分入七层，归属见[人物 Prompt 规格「唯一出现原则」](SPEC-life-realism.md#persona-prompt-七层请求-唯一出现原则)。
 邮件到达不公开正文；正文须经阅读活动结算后才可知，阅读结果保留实际所读正文，仅不重复任务合同时间、地点或验收答案。
+
 
 <a name="spec-decision-context-预算与失败"></a>
 ## 预算与失败
@@ -190,6 +197,7 @@ session 结束后，结果按 `settled` 写法进入记忆层（[人物 Prompt �
 生活与只读各入口均执行相同发送前检查。固定食品菜单、店铺 app 来源和工具层均须完整计入请求容量；
 不存在商品可见期；容量不足仍按原合同失败关闭。
 
+
 <a name="spec-decision-context-文件修改清单"></a>
 ## 文件修改清单
 
@@ -202,6 +210,7 @@ session 结束后，结果按 `settled` 写法进入记忆层（[人物 Prompt �
 
 逐文件的改动见[实施计划「文件修改清单」](../archive/persona-prompt/persona-prompt-implementation-plan.md)。
 新增模块只为拆分独立职责或满足生产文件长度限制，不增加框架或依赖。
+
 
 <a name="spec-decision-context-验收台账"></a>
 ## 验收台账
@@ -225,6 +234,7 @@ session 结束后，结果按 `settled` 写法进入记忆层（[人物 Prompt �
 2026-09-20 版本逐项实现与实际通过的证据见 [验收记录](research/decision-context-verification.md)，
 包含完整 Git 修改清单、固定源码身份和两份独立源码突变报告；按人物 Prompt 规格修订的各行另以
 [该规格「验收台账」](../VERIFICATION.md#verification-incremental-evidence)为准。
+
 
 <a name="spec-decision-context-版本表"></a>
 ## 版本表
@@ -250,6 +260,7 @@ session 结束后，结果按 `settled` 写法进入记忆层（[人物 Prompt �
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 删除独立工作评审结果通道 |
 | `2026-10-07-acs-receipt` | 2026-10-07 | 付款与收货分别留证，收货由唯一函数恰好结算一次，效果与证据归收货人；个人事务七键，用餐目标按本人 meal 收货推进。 |
+
 
 <a name="spec-decision-context-当日目标边界"></a>
 ## 当日目标边界

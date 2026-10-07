@@ -177,15 +177,15 @@ def _validate_root(tmp_path: Path) -> Path:
 
 async def test_run_creation_freezes_input_warnings_into_the_manifest_ops_log_and_quality_report(
         tmp_path, monkeypatch) -> None:
-    """输入警告：新建运行时逐条计算，冻结进结构三清单并逐条写一条 runtime 组件的 warn 级 ops 记录；
-    导出后结构五 quality.json 的 input_warnings 一节按码计数；题材对不上、覆盖率低于 80% 与编译一致性
+    """输入警告：新建运行时逐条计算，冻结进结构四清单并逐条写一条 runtime 组件的 warn 级 ops 记录；
+    导出后结构六 quality.json 的 input_warnings 一节按码计数；题材对不上、覆盖率低于 80% 与编译一致性
     偏低都不使创建失败，运行照常推进。"""
     path = _scenario(tmp_path, chronotype_midsleep=4.75)
     created = await _create_run(tmp_path, monkeypatch, path, _extraction(_platform_card(), ("habits",)))
     env, warnings = created["env"], created["warnings"]
     try:
         manifest = env.engine.context.store.manifest
-        assert manifest["schema_version"] == 3
+        assert manifest["schema_version"] == 4
         assert manifest["input_warnings"] == warnings == created["options"]["input_warnings"]
         codes = [item["code"] for item in warnings]
         assert {"COVERAGE_BELOW_THRESHOLD",
@@ -206,7 +206,7 @@ async def test_run_creation_freezes_input_warnings_into_the_manifest_ops_log_and
     finally:
         await env.close()
     section = quality["input_warnings"]
-    assert quality["schema_version"] == 5 and section["recorded"] is True
+    assert quality["schema_version"] == 6 and section["recorded"] is True
     assert section["warning_count"] == len(warnings)
     assert section["code_counts"] == {code: codes.count(code) for code in INPUT_WARNING_CODES}
     assert section["agent_counts"] == {"1": len(warnings)} and section["scenario_warning_count"] == 0
@@ -222,7 +222,7 @@ async def test_validate_prints_the_same_warnings_the_run_froze(tmp_path, monkeyp
 
     covered = make_card(habits=(HabitSignature(trigger="下班到家", response="去五里公园散步",
                                                time_window=make_window(19.0, 20.0)),),
-                        tastes=Tastes(content_genres=("悬疑",), food_preferences=("牛肉面",), media=("长视频",)))
+                        tastes=Tastes(content_genres=("悬疑",), food_preferences=("牛肉面",), media=("学课程",)))
     extraction = _extraction(covered, ("coping",))
     compiled = _compiled(extraction)
     path = _scenario(tmp_path, **_WC_RHYTHM)
@@ -642,11 +642,16 @@ def _catalog_edit(root: Path, filename: str, transform) -> None:
     refresh_manifest_identity(root / "catalog")
 
 
-def _empty_registered_contents(root: Path) -> None:
-    """@brief 删除内容及仅有内容绑定的应用，保留有真实店铺绑定的应用。"""
-    _catalog_edit(root, "contents.json", lambda value: value.update(contents=[]))
+def _without_app_bound_contents(root: Path) -> None:
+    """@brief 保留全部线下动作和分配工作内容，删除应用内动作及无用途应用，形成合法无应用内容目录。"""
+    actions = json.loads((root / "catalog/actions.json").read_bytes())["actions"]
+    offline = {action["action_id"] for action in actions if not action["app_ids"]}
+    _catalog_edit(root, "actions.json", lambda value: value.update(
+        actions=[row for row in value["actions"] if row["action_id"] in offline]))
+    _catalog_edit(root, "contents.json", lambda value: value.update(
+        contents=[row for row in value["contents"] if row["action_id"] in offline]))
     _catalog_edit(root, "apps.json", lambda value: value.update(
-        apps=[row for row in value["apps"] if row["app_id"] in {"meituan", "eleme"}]))
+        apps=[row for row in value["apps"] if row["purposes"]]))
 
 
 def _directory_card():
@@ -654,7 +659,7 @@ def _directory_card():
     return make_card(habits=(HabitSignature(trigger="下班后", response="去五里公园休息",
                                           time_window=make_window(19, 20)),),
                      tastes=Tastes(content_genres=("完全未知的散文题材",), food_preferences=("牛肉面",),
-                                   media=("美团", "哔哩哔哩", "短视频")))
+                                   media=("美团", "哔哩哔哩", "刷推荐")))
 
 
 def test_catalog_names_drive_coverage_without_phone_configuration(profile_environment):
@@ -665,10 +670,11 @@ def test_catalog_names_drive_coverage_without_phone_configuration(profile_enviro
 
     root, path = profile_environment
     semantics, _ = load_runtime_scenario(path)
-    targets = build_coverage_targets(semantics.scenario, semantics.catalog, root / "corpora")
-    assert targets.app_names == ("哔哩哔哩", "抖音", "美团", "饿了么")
-    assert targets.media_kinds == ("文章", "图文", "短视频", "长视频", "实况")
-    assert set(targets.food_kinds) == {"牛肉面", "薯片", "三明治", "柠檬茶", "饭团"}
+    targets = build_coverage_targets(semantics.scenario, semantics.catalog)
+    assert targets.app_names == tuple(sorted({"Keep", "支付宝", "高德地图", "哔哩哔哩", "抖音", "美团", "饿了么", "微信"}))
+    assert targets.action_names == tuple(sorted({"刷推荐", "办公", "安静休息", "跑步", "聊天", "学课程", "语音通话"}))
+    assert "media_kinds" not in type(targets).model_fields
+    assert set(targets.food_kinds) == {"牛肉面", "薯片", "柠檬茶", "饭团"}
     assert "安静休息" in targets.habit_response_keywords and "五里公园" in targets.habit_response_keywords
     assert "content_genres" not in type(targets).model_fields
     card = _directory_card()
@@ -679,24 +685,28 @@ def test_catalog_names_drive_coverage_without_phone_configuration(profile_enviro
     assert "taste_weights" not in specs[0]["profile"] and "attention_prior" not in json.dumps(specs[0]["profile"])
 
 
-def test_empty_warning_uses_app_bindings_and_keeps_five_media_labels(profile_environment):
-    """@brief 空内容判断来自真实应用绑定；固定类型覆盖不因没有内容而退化。"""
+def test_empty_warning_uses_real_app_content_bindings_and_keeps_offline_action_names(profile_environment):
+    """@brief 无应用内容判断来自真实内容绑定；线下动作与工作内容仍保持登记完整。"""
     from worldmock.life.world_setup import load_runtime_scenario
 
     root, path = profile_environment
-    card = make_card(habits=(), tastes=Tastes(content_genres=("散文题材",), food_preferences=(), media=("短视频",)))
+    card = make_card(habits=(), tastes=Tastes(content_genres=("散文题材",), food_preferences=(), media=("办公",)))
     scenario = load_runtime_scenario(path)[0].scenario
     assert worldmock_run_setup_module.creation_inputs(path, scenario, {1: card})[1] == []
-    _empty_registered_contents(root)
+    _without_app_bound_contents(root)
     semantics, _ = load_runtime_scenario(path)
     scenario = semantics.scenario
+    assert semantics.catalog.contents and not any(content.app_ids for content in semantics.catalog.contents.values())
     warnings = worldmock_run_setup_module.creation_inputs(path, scenario, {1: card})[1]
     assert [item["code"] for item in warnings] == ["CONTENT_EMPTY_WITH_MEDIA_TASTES"]
-    assert warnings[0]["details"] == {"media": ["短视频"], "habits": []}
-    assert worldmock_run_setup_module._coverage_targets(path, scenario, semantics.catalog).media_kinds == (
-        "文章", "图文", "短视频", "长视频", "实况")
+    assert warnings[0]["details"] == {"media": ["办公"], "habits": []}
+    targets = worldmock_run_setup_module._coverage_targets(path, scenario, semantics.catalog)
+    assert targets.action_names == ("办公", "安静休息", "聊天")
     business = make_card(habits=(), tastes=Tastes(content_genres=("散文题材",), food_preferences=(), media=("美团",)))
-    assert worldmock_run_setup_module.creation_inputs(path, scenario, {1: business})[1] == []
+    assert [warning["code"] for warning in worldmock_run_setup_module.creation_inputs(path, scenario, {1: business})[1]] == [
+        "CONTENT_EMPTY_WITH_MEDIA_TASTES"]
+    no_media = make_card(habits=(), tastes=Tastes(content_genres=("散文题材",), food_preferences=(), media=()))
+    assert worldmock_run_setup_module.creation_inputs(path, scenario, {1: no_media})[1] == []
 
 
 def test_validate_persona_coverage_reuses_actual_creation_warnings(profile_environment, tmp_path, caplog):
@@ -747,7 +757,7 @@ def test_runtime_warning_caller_logs_and_freezes_all_six_codes(profile_environme
     from worldmock.life.models import RunIdentity
 
     root, path = profile_environment
-    _empty_registered_contents(root)
+    _without_app_bound_contents(root)
     _catalog_edit(root, "locations.json", lambda payload: next(
         row for row in payload["locations"] if row["location_id"] == "park").update(name="公园（31.2, 121.5）"))
     payload = json.loads(path.read_bytes())
@@ -774,7 +784,7 @@ def test_runtime_warning_caller_logs_and_freezes_all_six_codes(profile_environme
                            timezone=scenario.timezone, code_sha256="0" * 64,
                            model_identity=worldmock_run_setup_module._model_identity())
     manifest = _run_manifest(semantics, digest, identity, worldmock_run_setup_module.stage_model_identity(), options)
-    assert manifest["schema_version"] == 3 and manifest["input_warnings"] == warnings
+    assert manifest["schema_version"] == 4 and manifest["input_warnings"] == warnings
 
 
 def test_warning_caller_rejects_catalog_identity_tampering(profile_environment):

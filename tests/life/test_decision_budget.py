@@ -13,7 +13,7 @@ from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
                                  pause_request, stage_day_plan, start_activity, wake_by_mail)
-from tests.life.test_same_moment_decisions import (_act, _content, _finish, _invalid_start, _other_requests,
+from tests.life.test_same_moment_decisions import (_act, _content, _finish, _other_requests,
                                                    _start)
 from worldmock.footprints.quality import build_quality_report
 from tests.life.test_same_moment_decisions import _contacts
@@ -33,6 +33,11 @@ def _exhausted(engine, agent_id: int = 1) -> list:
 def _events(engine) -> list:
     """@brief 运行库中已提交的全部事件。"""
     return engine.context.store.read_events(engine.context.store.last_event_seq)
+
+
+def _invalid_start(engine, round_id):
+    """@brief 以当前动作方式点名不存在的对象，真实登记与结算名称拒绝。"""
+    return _act(engine, round_id, "start_activity", start_activity("进行", "不存在的对象"))
 
 
 def test_restricted_rounds_used_up_without_an_activity_pause_technically(engine_factory) -> None:
@@ -117,7 +122,7 @@ def test_a_replayed_rejection_in_the_last_restricted_round_exhausts_the_budget(e
     engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     now, limit = engine.context.state.current_time, engine.context.scenario.max_same_moment_decisions
-    request = start_activity("打开", "不存在的对象")
+    request = start_activity("进行", "不存在的对象")
     for round_number in range(1, limit + 3):
         assert _act(engine, f"replay-{round_number}", "start_activity", request).status == "rejected"
     decision = context(engine, "replay-again")

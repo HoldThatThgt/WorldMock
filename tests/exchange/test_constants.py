@@ -20,6 +20,8 @@ def test_fixed_constants_preserve_travel_delivery_map_and_push():
     assert tuple(c.PUSH_HOURS_LOCAL) == tuple(range(8, 22))
     assert c.PUSH_SUMMARY_MAX_CHARS == 200
     assert c.CONTENT_MIN_SECONDS == 60
+    assert c.FUEL_DRIVING_DAYS == 7
+    assert not hasattr(c, "SOCIAL_NEED_CALL_RATE")
     assert c.ENTERTAINMENT_RELIEF_PER_HOUR == 0.3
     assert not hasattr(c, "CONTENT_RELIEF_PER_HOUR")
 
@@ -27,9 +29,9 @@ def test_fixed_constants_preserve_travel_delivery_map_and_push():
 def test_goods_receipt_effects_are_immutable_and_bounded():
     """@brief 收货固定效果不超过最弱娱乐内容半小时的缓解量。"""
     assert dict(c.GOODS_ENERGY_KCAL) == {"meal": 600, "snack": 200, "drink": 100}
-    assert dict(c.GOODS_RECEIPT_EFFECTS) == {"leisure": 0.10, "daily": 0.05}
+    assert dict(c.GOODS_RECEIPT_EFFECTS) == {"leisure": 0.10, "daily": 0.05, "fuel": 7}
     assert c.GOODS_RECEIPT_EFFECTS["daily"] == c.MOOD_PULSES["goal_progressed"]
-    assert max(c.GOODS_RECEIPT_EFFECTS.values()) <= c.ENTERTAINMENT_RELIEF_PER_HOUR * 0.5
+    assert max(c.GOODS_RECEIPT_EFFECTS[kind] for kind in ("leisure", "daily")) <= c.ENTERTAINMENT_RELIEF_PER_HOUR * 0.5
     for table in (c.GOODS_ENERGY_KCAL, c.GOODS_RECEIPT_EFFECTS, c.MOOD_PULSES):
         with pytest.raises(TypeError):
             table[next(iter(table))] = 0
@@ -51,7 +53,7 @@ def test_category_met_is_fixed_and_deeply_immutable():
 
 def test_social_mood_and_exercise_rates_keep_their_frozen_values():
     """@brief 迁入常数维持原名原值，使用者直接从 exchange 读取。"""
-    assert (c.SOCIAL_NEED_AWAKE_RATE, c.SOCIAL_NEED_CONVERSATION_RATE, c.SOCIAL_NEED_CALL_RATE,
+    assert (c.SOCIAL_NEED_AWAKE_RATE, c.SOCIAL_NEED_CONVERSATION_RATE, c.SOCIAL_NEED_REMOTE_RATE,
             c.SOCIAL_NEED_MESSAGE_RELIEF, c.CHAT_RELIEF_DECLINED_PER_HOUR) == (0.04, 0.5, 0.4, 0.05, 0.2)
     assert dict(c.MOOD_PULSES) == {
         "message_received": 0.1, "discomfort_hourly": -0.1, "goal_progressed": 0.05, "service_refused": -0.05}

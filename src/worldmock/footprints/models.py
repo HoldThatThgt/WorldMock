@@ -44,7 +44,7 @@ WAKE_REASON_NAMES = frozenset({
     "activity_infeasible", "rejection_feedback", "discovery_result", "wake_from_sleep", "run_start",
     "progress_report_due", "no_active_activity", "plan_reminder_due", "errand_reminder_due",
     "shift_start", "shift_end", "break_start", "break_end",
-    "app_push",
+    "app_push", "alarm_ring",
 })
 
 #: decision_started.data 的闭集（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第二章「单一行动阶段」、第七章「事件」）。

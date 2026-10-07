@@ -26,6 +26,7 @@ def travel_case(mode="walking"):
     catalog = load_catalog(ARTIFICIAL)
     trip = plan_trip(catalog.graph, "home", "office", mode)
     agent = AgentState(agent_id=1, name="Alice", location_id="home", balance_account_id="agent:1",
+                       driving_days=3, last_driving_date=None,
                        body=BodyState(energy_kcal=500, sleep_pressure=0, sleep_deficit_hours=1,
                                       entertainment_need=0.5), body_settled_at=1000, next_decision_at=1000)
     activity = ActivityState(activity_id="travel-1", agent_id=1, location_id="home", kind="travel",
@@ -35,8 +36,8 @@ def travel_case(mode="walking"):
                              destination_id="office", travel_mode=mode,
                              origin_action_id="action-1", origin_decision_id="decision-1",
                              origin_request_event_id="request-1", data=travel_activity_data(trip))
-    state = WorldState(schema_version=10, version=1, current_time=1000, end_time=10000, run_id="pure-travel",
-                       timezone="Asia/Shanghai", scenario_sha256="a" * 64, content_manifest_sha256="b" * 64,
+    state = WorldState(schema_version=11, version=1, current_time=1000, end_time=10000, run_id="pure-travel",
+                       timezone="Asia/Shanghai", scenario_sha256="a" * 64,
                        agents={1: agent}, activities={activity.activity_id: activity},
                        accounts={"agent:1": 10000, "transport:service": 0}, random_seed=7, random_state="fixed")
     scenario = SimpleNamespace(locations=(catalog.locations["home"], catalog.locations["office"]),
@@ -131,7 +132,7 @@ def test_persisted_travel_evidence_drift_is_rejected(field, value):
 
 @pytest.mark.parametrize("branch_labels", [False, True])
 def test_tool_targets_list_all_other_selected_places_with_both_graph_quotes(tmp_path, branch_labels):
-    from worldmock.life.admission import WorldFacts
+    from worldmock.life.rules import LifeRuleEngine
     from worldmock.life.interaction_menu import resolve_interaction_menu
     from worldmock.life.observe import ObservationBuilder, _route_catalog
     from worldmock.life.projection import ProjectionInputs, _interaction_binding
@@ -152,14 +153,17 @@ def test_tool_targets_list_all_other_selected_places_with_both_graph_quotes(tmp_
     _, _, state, _ = travel_case()
     state = state.model_copy(update={"activities": {}})
     agent = state.agents[1]
-    scenario = semantics.scenario
+    scenario = semantics.scenario.model_copy(update={"agents": tuple(
+        item.model_copy(update={"owns_car": True, "initial_driving_days": 3}) for item in semantics.scenario.agents)})
+    from dataclasses import replace
+    semantics = replace(semantics, scenario=scenario)
     catalog_rows = _route_catalog(scenario, state, 1, semantics)
     context = SimpleNamespace(scenario=scenario, state=state, semantics=semantics)
     builder = ObservationBuilder(context)
     route_rows = builder._route_rows(agent)
     projection = ProjectionInputs(state, scenario, agent, extras={"route_rows": route_rows})
     menu = resolve_interaction_menu(scenario, 1, agent.location_id)
-    facts = WorldFacts(dict(semantics.catalog.work_topics), dict(semantics.catalog.foods))
+    facts = LifeRuleEngine(scenario, semantics.catalog)
     layer = LayerContext(state, scenario, facts, semantics, 1, {"activities": {}}, [], menu)
     destinations = {item.location_id for item in scenario.locations} - {agent.location_id}
     assert len(destinations) == 6 and len(catalog_rows) == len(route_rows) == 12
@@ -171,7 +175,7 @@ def test_tool_targets_list_all_other_selected_places_with_both_graph_quotes(tmp_
     assert {(row["destination_id"], row["mode"]) for row in catalog_rows} == {
         (destination, mode) for destination in destinations for mode in ("walking", "driving")}
     for location in scenario.locations:
-        row = {"kind": "location", "object_id": location.location_id, "name": location.display_name}
+        row = {"kind": "location", "object_id": location.location_id, "name": location.display_name, "actions": []}
         binding = _interaction_binding(projection, row)
         actions = binding["actions"]
         if location.location_id == agent.location_id:
@@ -213,7 +217,9 @@ def test_minimum_length_driving_trip_is_quoted_accepted_and_initialized():
                                         "edges": sorted(edges, key=lambda edge: (edge.a, edge.b))})
     validate_map(published, set(semantics.catalog.locations))
     catalog = replace(semantics.catalog, map_data=published, graph=Graph(published))
-    semantics = replace(semantics, catalog=catalog)
+    scenario = semantics.scenario.model_copy(update={"agents": tuple(
+        item.model_copy(update={"owns_car": True, "initial_driving_days": 3}) for item in semantics.scenario.agents)})
+    semantics = replace(semantics, catalog=catalog, scenario=scenario)
     _, _, state, _ = travel_case()
     state = state.model_copy(update={"activities": {}})
     agent = state.agents[1]

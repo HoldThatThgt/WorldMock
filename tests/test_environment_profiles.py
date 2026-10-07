@@ -110,7 +110,7 @@ def test_dev_environment_receipt_records_missing_without_absolute_paths(tmp_path
 
 
 def test_purchase_world_edits_leave_formal_input_bytes_and_inodes_unchanged(tmp_path):
-    """@brief 新目录构造器实际改食品与地点并登记后，源环境字节和文件身份保持不变。"""
+    """@brief 新目录构造器实际改商品与地点并登记后，源环境字节和文件身份保持不变。"""
     from tests.catalog.conftest import read_payload, write_payload
     from worldmock.life.world_setup import load_runtime_scenario
 
@@ -124,14 +124,14 @@ def test_purchase_world_edits_leave_formal_input_bytes_and_inodes_unchanged(tmp_
     locations = read_payload(catalog, "locations.json")
     locations["locations"][0]["name"] = "隔离地点"
     write_payload(catalog, "locations.json", locations)
-    foods = read_payload(catalog, "foods.json")
-    foods["foods"][0]["price_fen"] += 123
-    write_payload(catalog, "foods.json", foods)
+    goods = read_payload(catalog, "goods.json")
+    goods["goods"][0]["price_fen"] += 123
+    write_payload(catalog, "goods.json", goods)
     isolated, _ = load_runtime_scenario(world / "scenarios/single-person.json")
     original, _ = load_runtime_scenario(source_root / "scenarios/single-person.json")
     assert isolated.catalog.locations[locations["locations"][0]["location_id"]].name == "隔离地点"
-    food_id = foods["foods"][0]["food_id"]
-    assert isolated.catalog.foods[food_id].price_fen == original.catalog.foods[food_id].price_fen + 123
+    goods_id = goods["goods"][0]["goods_id"]
+    assert isolated.catalog.goods[goods_id].price_fen == original.catalog.goods[goods_id].price_fen + 123
     for relative, (content, inode) in before.items():
         source_file, copied = source_root / relative, world / relative
         assert source_file.read_bytes() == content

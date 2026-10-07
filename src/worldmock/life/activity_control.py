@@ -40,7 +40,6 @@ from worldmock.life.name_resolution import near_names
 from worldmock.life.object_labels import resolve_name
 from worldmock.life.readable import duration_phrase
 from worldmock.life.sessions import at_stay, moment_label, on_road
-from worldmock.life.work import work_start_refusal, work_totals
 
 if TYPE_CHECKING:
     from worldmock.life.admission import Context
@@ -98,7 +97,7 @@ def pausable(state: WorldState, activity: ActivityState) -> bool:
     决策边界只关乎暂停的时机，不在此判定；名额超限的下一步据此决定写不写「暂停」。
     """
     return (activity.status == ActivityStatus.ACTIVE and not on_road(state, activity)
-            and activity.kind not in {ActivityKind.CHAT, ActivityKind.CALL})
+            and not (activity.kind == ActivityKind.ACTION and activity.data["category"] == "social"))
 
 
 def free_slots(state: WorldState, agent_id: int) -> int:
@@ -108,7 +107,7 @@ def free_slots(state: WorldState, agent_id: int) -> int:
 
 def new_activity_count(actions: list[str]) -> int:
     """@brief 一个 start_activity 请求将占用的名额：购买是瞬时的，不占名额。"""
-    return sum(action != "purchase" for action in actions)
+    return sum(action not in {"purchase", "collect_parcel"} for action in actions)
 
 
 def resumable_here(state: WorldState, activity: ActivityState) -> bool:
@@ -295,11 +294,12 @@ def _report_refusal(context: Context, activity: ActivityState) -> Refusal | None
         return Refusal("ACTIVITY_PRECONDITION_UNMET",
                        f"Resume {name} at its start location {place}; it can be concluded elsewhere.",
                        unmet=("activity_location",), suggested={"travel_to": place})
-    if activity.kind == ActivityKind.WORK:
-        worked = work_totals(context.state, activity.agent_id, activity.target_id)
-        refusal = work_start_refusal(context.work_topics[activity.target_id], worked)
-        if refusal is not None:
-            return refusal
+    if activity.kind == ActivityKind.ACTION:
+        config = next(item for item in context.scenario.agents if item.agent_id == activity.agent_id)
+        content_id = activity.data["content_id"]
+        progress = context.state.agents[activity.agent_id].content_progress.get(content_id)
+        if content_id in config.work_content_ids and progress is not None and progress.completed_rounds >= 1:
+            return refusal_for_code("CONTENT_EXHAUSTED")
     refusal = slot_refusal(context.state, activity.agent_id, 1, context.activity_names)
     if refusal is not None:
         return refusal
@@ -340,7 +340,8 @@ def _conclude_refusal(context: Context, activity: ActivityState) -> Refusal | No
     waiting = pending_conclusions(context.state, activity.agent_id)
     if waiting and activity.activity_id not in {item.activity_id for item in waiting}:
         return conclusion_refusal(waiting, dict(context.activity_names))
-    if (activity.status == ActivityStatus.ACTIVE and activity.kind not in {ActivityKind.CHAT, ActivityKind.CALL}
+    if (activity.status == ActivityStatus.ACTIVE
+            and not (activity.kind == ActivityKind.ACTION and activity.data["category"] == "social")
             and not at_decision_boundary(activity, context.state.current_time)):
         return refusal_for_code("ACTIVITY_FEEDBACK_NOT_DUE")
     return None

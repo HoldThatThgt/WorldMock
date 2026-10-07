@@ -163,7 +163,7 @@ def _project_event(event: Event) -> list[dict[str, Any]]:
     kind = activity.get("kind")
     if kind == "wait":
         return [_waited(event, activity)]
-    if kind == "use_app":
+    if kind == "action":
         row = _played(event, activity)
         return [row] if row is not None else []
     if kind == "travel":

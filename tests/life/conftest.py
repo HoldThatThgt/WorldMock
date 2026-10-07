@@ -102,21 +102,21 @@ def stage_legacy_control_request(engine: LifeEngine, tool: str, agent_id: int = 
     return action_id
 
 
-def errand_add(name: str, item: str, outcome: str = "取得", quantity: int = 1, memo=None, remind_time=None) -> dict:
-    """一条「新增」事务变更（请求形状的八键字典）：完成依据为结果种类、商品名与份数，原因为 null。"""
-    return {"change": "新增", "name": name, "outcome": outcome, "item": item, "quantity": quantity, "memo": memo,
+def errand_add(name: str, item: str, quantity: int = 1, memo=None, remind_time=None) -> dict:
+    """一条七键「新增」事务变更：按真实收货商品与份数完成，原因为 null。"""
+    return {"change": "新增", "name": name, "item": item, "quantity": quantity, "memo": memo,
             "remind_time": remind_time, "reason": None}
 
 
 def errand_update(name: str, memo=None, remind_time=None) -> dict:
     """一条「更新」事务变更：按待办层名称点名，只替换备注与提醒钟点（null 即清空），完成依据与原因为 null。"""
-    return {"change": "更新", "name": name, "outcome": None, "item": None, "quantity": None, "memo": memo,
+    return {"change": "更新", "name": name, "item": None, "quantity": None, "memo": memo,
             "remind_time": remind_time, "reason": None}
 
 
 def errand_cancel(name: str, reason: str) -> dict:
     """一条「取消」事务变更：按待办层名称点名并写原因，其余键为 null。"""
-    return {"change": "取消", "name": name, "outcome": None, "item": None, "quantity": None, "memo": None,
+    return {"change": "取消", "name": name, "item": None, "quantity": None, "memo": None,
             "remind_time": None, "reason": reason}
 
 
@@ -128,7 +128,7 @@ def bring_to_window(engine: LifeEngine, object_ids, agent_id: int = 1) -> None:
 
     wanted = set(object_ids)
     catalog = engine.context.semantics.catalog
-    everything = {f"{store_id}:{goods_id}" for store_id, goods in catalog.goods_by_store.items() for goods_id in goods}
+    everything = set(catalog.goods)
     staged = engine.context.state.model_copy(deep=True)
     staged.presentation_state = {**staged.presentation_state,
                                  agent_id: {item: staged.current_time for item in sorted(everything - wanted)}}
@@ -267,20 +267,19 @@ def wake_by_mail(engine: LifeEngine, agent_id: int = 1, offset: int = 900) -> in
 
 
 def routing_defaults(actions: list[str]) -> dict:
-    """@brief 测试帮助函数只构造现行本人 null 路由。"""
-    return {"from_": [None for _ in actions], "to": [None for _ in actions], "answering": None,
-            "prefer": "最快拿到" if "obtain" in actions else None}
+    """@brief 测试默认路由明确不用应用、不指定他人、不选择支付应用。"""
+    return {"app": [None for _ in actions], "to": [None for _ in actions],
+            "pay_app": [None for _ in actions], "answering": None}
 
 
 def start_arguments(targets, actions, ways, **fields) -> dict:
-    """@brief 测试输入数组只存在于帮助函数，生产请求严格使用 items。"""
-    sources = fields.pop("from", fields.pop("from_", [None for _ in targets]))
-    destinations = fields.pop("to", [None for _ in targets])
-    from worldmock.life.vocabulary import way_options
-    purchase = any(way_options(way) & {"到店", "远程下单", "购买"} for way in ways)
-    return {"items": [{"target": target, "way": way, "from": source, "to": destination}
-                      for target, way, source, destination in zip(targets, ways, sources, destinations)],
-            "answering": None, "prefer": "最快拿到" if purchase else None, **fields}
+    """@brief 测试数组帮助函数只生成当前五字段项，不解释退役方式或字段。"""
+    apps = fields.pop("app", [None for _ in targets])
+    recipients = fields.pop("to", [None for _ in targets])
+    payments = fields.pop("pay_app", [None for _ in targets])
+    return {"items": [{"target": target, "way": way, "app": app, "to": recipient, "pay_app": payment}
+                      for target, way, app, recipient, payment in zip(targets, ways, apps, recipients, payments, strict=True)],
+            "answering": None, **fields}
 
 
 def start_request(**fields):
@@ -390,7 +389,7 @@ def target_tools(observed: dict, name: str) -> dict[str, dict]:
 def layer_start(observed: dict, name: str, way: str):
     """按工具层目标名与方式构造 start_activity 请求（动词取该动作的 action）。"""
     action = target_actions(observed, name)[way]
-    return start_request(targets=[name], actions=[action["action"]], ways=[way])
+    return start_request(targets=[name], actions=[action["action"]], ways=[way], app=[action["app"]])
 
 
 def progress_calls(observed: dict, tool: str | None = None) -> list[dict]:
@@ -402,18 +401,3 @@ def progress_calls(observed: dict, tool: str | None = None) -> list[dict]:
 def last_result(observed: dict) -> dict:
     """观察进度层最后一次世界请求（tool_call）的公开结果。"""
     return progress_calls(observed)[-1]["result"]
-
-
-def select_start(bindings, arguments):
-    """当前严格请求和统一名称解析的测试入口。"""
-    from worldmock.life.models import StartActivityRequest
-    from worldmock.life.name_resolution import name_book, resolve_start
-
-    if not isinstance(bindings, list):
-        return None
-    try:
-        request = arguments if isinstance(arguments, StartActivityRequest) else StartActivityRequest.model_validate(arguments)
-    except ValueError:
-        return None
-    outcome = resolve_start(name_book({"interaction_bindings": bindings}), request)
-    return None if outcome.failures else list(outcome.rows)

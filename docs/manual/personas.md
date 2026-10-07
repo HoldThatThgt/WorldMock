@@ -71,11 +71,12 @@ flowchart LR
 
 画像对照登记动作、地点、商品与 app 名称，习惯按关键词，媒体对动作名作双向子串匹配、对全部 app 名作精确匹配；`tastes` 是散文，不产生数值权重。
 
+
 <a name="personas-在场景中填写人物"></a>
 ## 在场景中填写人物
 
 下面是一个完整 `agents` 数组元素，替换既有场景中的一个人物即可；它不是完整场景文件。
-例子沿用白领场景中的 `agent_id`、住处，原有任务仍能指向这个人物。
+例子沿用白领场景中的 `agent_id`、住处；目录对象和内容仍须由实际场景选择或分配。
 
 ```json
 {
@@ -110,7 +111,9 @@ flowchart LR
       "reply_policy": "model"
     }
   ],
-  "work_content_ids": []
+  "work_content_ids": [],
+  "owns_car": false,
+  "initial_driving_days": 0
 }
 ```
 
@@ -123,6 +126,7 @@ flowchart LR
 | `trait_source_kind` | 是 | 固定 `experiment_assumption`，表示实验设定 |
 | `home_location_id` | 是 | 已被场景选中的地点标识 |
 | `initial_balance_fen` | 是 | 非负整数分；`800000` 表示 8000 元 |
+| `owns_car`、`initial_driving_days` | 是 | 显式声明是否拥有汽车及初始驾驶可用天数；没有汽车时必须为 `false` 与 `0`，画像文字不能替代 |
 | `interaction_menu` | 是 | `null` 表示沿用地点菜单；限制写法见[生活场景](scenarios.md#scenarios-限制人物可以做什么) |
 | `work_content_ids` | 否 | 分配的工作与学习内容身份列表，默认 `[]`；与工作安排互相要求，加载检查见[生活场景](scenarios.md#scenarios-声明工作安排) |
 | `work_schedule` | 是 | `null` 表示这个人物没有任何在岗语义；有固定班次时写对象，写法与校验见[生活场景](scenarios.md#scenarios-声明工作安排)；不会从职业描述或故事里的下班时刻推断 |
@@ -155,14 +159,14 @@ flowchart LR
 只有卡片中的关系带亲密度与渠道。
 同世界的另一个自主人物应在 `agents` 里声明，联系人条目不会额外启动一个自主人物。
 
-场景人物不声明技能、资格或偏好权重；职业、消费和饮食喜好用 `background_story` 散文描述。食品持有使用真实 `food_id`，画像不会自动生成食品。
+场景人物不声明技能、资格或偏好权重；职业、消费和饮食喜好用 `background_story` 散文描述。商品用实际目录的 `goods_id`，分配工作用实际 `work_content_ids`；画像不会自动生成商品、动作、内容或 app 绑定。商品在实际收货时立即施加效果，不创建持有物或独立消费动作，见[请求字段与结算检查](../CONTRACTS.md#contracts-request-settlement)。
+
 
 <a name="personas-正文与实际世界条件要一致"></a>
 ## 正文与实际世界条件要一致
 
 正文被提取成卡片后供人物理解身份和偏好：运行时卡片的结构化字段与人物姓名、场景联系人一起渲染成人设层 JSON，
-不含当下处境 `situation`；关系的看法与偏好由人物结束活动时写下的记忆原地更新。身体睡眠常量、饭点、余额、资格、食品持有和可联系的人，
-则由场景的结构化字段提供；编译卡片不会自动覆盖这些场景字段。
+不含当下处境 `situation`；关系的看法与偏好由人物结束活动时写下的记忆原地更新。余额、住处、可联系的人、分配工作内容与汽车条件由场景的结构化字段提供，实际收货与内容进度由世界状态记录；固定身体规则由引擎提供。编译卡片不会自动创建或覆盖这些世界事实。
 例如故事写“每天需要九小时睡眠”，就应同时把 `sleep_need_hours` 改成 `9.0`。
 反过来，场景写出的作息字段会覆盖卡片的对应值：人设层的作息与存下的卡片结构取场景值（按上文格点量化），
 身体结算、零点计划与人设层对声明了的字段读到同一个值；没写的字段仍取卡片值，故事也没提时是
@@ -191,6 +195,7 @@ flowchart LR
 也不会自动把 `world_dynamics` 替换到现有身体参数。可用的参数调整入口见[规则配置](rules.md#rules-调整世界规则与人物动机参数)。
 
 画像对照登记动作名、地点显示名、食品类别商品名与全部 app 名；`tastes` 是散文，不产生数值权重。
+
 
 <a name="personas-预览与校验"></a>
 ## 预览与校验
@@ -244,6 +249,7 @@ worldmock profile validate \
 与人物有关的警告码见下方常见错误。警告本身不让校验失败；覆盖率低于 80% 时校验仍然失败（先写出警告），
 新建运行对同样的卡片只记 `COVERAGE_BELOW_THRESHOLD` 警告，照常运行。
 
+
 <a name="personas-常见错误"></a>
 ## 常见错误
 
@@ -264,6 +270,7 @@ worldmock profile validate \
 [画像规格](../dev/SPEC-life-realism.md#spec-life-realism-画像编译)和[人物配置加载器](../../src/worldmock/life/scenario.py)。
 
 运行警告只有六个码；无内容警告的 `details` 为 `media` 与 `habits`，不保留口味或游戏权重字段。覆盖率失败时核对目录食品名、习惯关键词、五个内容标签与全部 app 名。
+
 
 <a name="personas-习惯的行为核验目标"></a>
 ## 习惯的行为核验目标

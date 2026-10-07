@@ -10,7 +10,7 @@ from worldmock.catalog.identity import REQUIRED_CATALOG_FILES, compute_catalog_i
 from worldmock.catalog.models import CatalogData, CatalogManifest, MapGraph, channel_key
 from worldmock.exchange.constants import MAP_MIN_NODES, PUSH_SUMMARY_MAX_CHARS, RULES_VERSION
 from worldmock.exchange.types import (
-    ActionCategory, AppPurpose, GOODS_CATEGORY_STORE_KINDS, STORE_KINDS, SummarySourceKind,
+    ActionCategory, AppPurpose, GOODS_CATEGORY_STORE_KINDS, LocationKind, STORE_KINDS, SummarySourceKind,
 )
 from worldmock.life.work_schedule import shift_on, shift_span
 
@@ -79,6 +79,9 @@ def _check_locations(data: CatalogData, app_ids: set[str]) -> None:
         _check_bindings(place.app_ids, app_ids)
         if place.app_ids and place.kind not in STORE_KINDS:
             raise RegistrationError("ENVIRONMENT_KIND_INVALID")
+        if place.shipping_seconds is not None and (
+                place.kind not in STORE_KINDS or place.kind == LocationKind.GAS_STATION):
+            raise RegistrationError("ENVIRONMENT_KIND_INVALID")
 
 
 def _check_goods(data: CatalogData) -> None:
@@ -115,6 +118,9 @@ def _check_actions(data: CatalogData, app_ids: set[str]) -> None:
         _check_bindings(action.app_ids, app_ids)
         if bool(action.app_ids) != (action.manner is not None):
             raise RegistrationError("ACTION_APP_MANNER_INVALID")
+        remote_social = action.category == ActionCategory.SOCIAL and bool(action.app_ids)
+        if remote_social != (action.communication_mode is not None):
+            raise RegistrationError("ACTION_COMMUNICATION_MODE_INVALID")
 
 
 def _check_contents(data: CatalogData, app_ids: set[str]) -> None:

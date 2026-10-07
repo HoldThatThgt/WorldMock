@@ -24,7 +24,8 @@
 
 人工入口位于 `tests/fixtures/environment/scenarios/`；正式环境路径由 WorldMock-Dataset 发布决定。自定义场景放在完整环境的 `experiments/my-world/scenarios/`，解析器用场景上两级目录定位 `catalog/`。场景不写 `corpus_root`，不要移动到更深目录。
 
-`schema_version` 为 `8`，每个人物显式写 `work_schedule`（对象或 null）；内容标题、摘要及绑定来自目录。多余字段与旧结构严格拒绝。动作效果由 WorldMock 按类别固定，见[编写动作](resources.md#resources-编写生活活动)。
+`schema_version` 为 `8`，每个人物显式写 `work_schedule`（对象或 null）、`owns_car`（布尔）和 `initial_driving_days`（非负严格整数，无车时为零）；内容标题、摘要及绑定来自目录。多余字段与旧结构严格拒绝。动作效果由 WorldMock 按类别固定，见[编写动作](resources.md#resources-编写生活活动)。
+
 
 <a name="scenarios-看懂场景的组成"></a>
 ## 看懂场景的组成
@@ -40,13 +41,14 @@ flowchart LR
 | --- | --- |
 | 身份和时间 | `schema_version: 8`、scenario_id、timezone、start_at、end_at、random_seed |
 | 环境 | `environment{environment_id, environment_version}` |
-| 人物 | 画像、节律、工作安排、联系人、interaction_menu、work_content_ids |
+| 人物 | 画像、节律、工作安排、联系人、interaction_menu、work_content_ids、必填 owns_car 与 initial_driving_days |
 | 身体初值 | mass_kg、initial_energy_kcal、initial_sleep_debt_hours、initial_entertainment_need |
 | 世界选择 | `locations[]{location_id}`；对象与图来自目录 |
 | 账户与事件 | accounts、messages、calendar、bills、payrolls；人物账户由 initial_balance_fen 建立 |
-| 交互菜单 | 显式八个 LocationKind 的菜单，人物菜单必填可为 null |
+| 交互菜单 | 完整十种 LocationKind 的菜单，包含加油站与驿站；人物菜单必填可为 null |
 
 场景没有语料引用、初始食品持有、生活活动筛选、工作主题或动机参数。已选店铺必须有 `merchant:<location_id>` 账户。旧结构与未知字段直接拒绝。
+
 
 <a name="scenarios-修改日期与模拟节奏"></a>
 ## 修改日期与模拟节奏
@@ -77,7 +79,7 @@ flowchart LR
 
 | 参数 | 单位与约束 | 如何理解 |
 | --- | --- | --- |
-| `activity_feedback_seconds` | 秒，60–86400 | 结算间隔，也是等待、浏览、交谈的计划时长；不是保证每隔这些秒都会重新决策 |
+| `activity_feedback_seconds` | 秒，60–86400 | 结算间隔，也是等待的计划时长；动作时长只来自内容；不是保证每隔这些秒都会重新决策 |
 | `reconsideration_interval_seconds` | 秒，默认 5400，范围 1–86400 | 清醒且有在手承诺时的常规重估间隔（进行中的等待不算在手承诺）；其他更早事件仍能触发决策 |
 | `idle_reconsideration_interval_seconds` | 秒，默认 10800，范围 1–86400，不能短于常规间隔 | 人物只在等待、且没有其他在手承诺时的空闲重估间隔；调大常规间隔时也要检查此值 |
 | `max_same_moment_decisions` | 正整数，缺省 3 | 同一秒内的决策轮数上限；达到上限后另有至多三轮受限轮：有刚结束的活动时只开放收尾，否则只开放开始或恢复（等待始终可选；暂停的活动不占名额，只有暂停的活动时也一样），其余动作在工具层标为不可用并写明原因；开始或恢复被拒后留在原阶段；受限轮用完仍没有进行中活动或仍有待收尾活动时，环境不替人物造活动，写一条预算耗尽事件，`activity_feedback_seconds` 之后再给决策；不标失败 |
@@ -87,16 +89,11 @@ flowchart LR
 | `rotation_quota_ratio` | 默认 0.15，严格在 0 与 1 之间 | 为轮换呈现预留的比例；呈现上限乘比例向下取整必须至少为 1 |
 | `rotation_stale_seconds` | 必填，范围 1–31536000 秒 | 多久未出现的对象进入长期未呈现判定 |
 
-呈现窗口只决定人物本轮看到哪些对象，不是资格上限：没有列出的生活活动、内容和商品，人物写出名称也能调用，受理照常核验。
-窗口内先按口味权重乘注意力排序，再按相关度：生活活动的时间窗覆盖此刻 +2，对应当日计划里尚未推进的目标 +2，
-条目名或品类出现在人物卡片的习惯里 +1；仍同分时按含日期的哈希决胜，所以顺序随日期变化，也不是名称的字母序。
-生活活动窗口只列当前地点环境合适的活动；环境不合适的不列出，按名写它时以「这里不适合做这件事」拒绝。
-每轮工具层还附一份只列名称的可调用索引 `callable_index`：此地此刻可做的生活活动全部列名，内容与此刻从这里能得到的商品按品类给个数和
-至多 3 个示例名；它不是候选，不带动作，不受 `candidate_presentation_limit` 限制，有效菜单不允许的部分为空。
+商品呈现窗口只限制本轮展示，不禁止按登记名称购买未展示商品。候选种类只剩 `product`；生活活动与任务不再进入候选管线。商品按现行稳定排序、窗口与轮转规则呈现；人物请求使用四字段活动项，可调用索引保持 lifestyle、goods、query_categories 三键。
 
 不要把反馈间隔当作“人物每十五分钟行动一次”。决策本身不耗时：没有进行中活动的人物在同一秒接着决策，
 只有人人都有事在做时，时间才根据活动完成、消息、任务、身体变化和其他事件推进。
-在手承诺包括尚未推进的当日目标、已分配但未完成的工作主题、暂停的活动与进行中的活动（等待除外）。未完成的个人事务不算在手承诺，不改变两个重估间隔。
+在手承诺包括尚未推进的当日目标、已分配但未完成的工作内容、暂停的活动与进行中的活动（等待除外）。未完成的个人事务不算在手承诺，不改变两个重估间隔。
 当日目标由零点计划生成：运行开始时和每个场景本地零点（运行恰在零点结束时除外），系统为每个人物调用模型生成当天的
 有序目标，同一人物同一天只生成一次；人物醒着时可以修订。目标不填写时间段，每条带模型写的大致时刻 `around_time`
 （场景本地 `HH:MM`，可为空）：写了时，只有进行时段与它前后 90 分钟有交集的同类活动才算推进这条目标。
@@ -108,10 +105,12 @@ flowchart LR
 
 个人事务由人物在运行中自己记下（播报、暂停或收尾时写在请求的 `errands` 里），场景不能预置。
 它只表达能由结算确认的事：取得某件具体商品若干份（1 至 9）；环境按真实结算确认办成，人物只能取消并写原因，没有截止与过期。
-「取得」不看地点：到店买下的东西留在门店，事务照样办成，要在家里用的东西应远程下单送到家。
+事务只按本人 `goods_received` 中真实商品与件数累计：现场收货同秒生效，直送实际收货后生效，长途到站尚未领取时不生效。没有留在门店或家里的库存，也没有额外吃掉条件。
 事务的提醒钟点不晚于写下它的时刻（新增或更新被受理时）时，指下一天的这个钟点。每人未完成事务至多 8 条，一次请求至多 4 条变更，
 名称至多 30 字符，备注与取消原因各至多 120 字符；事务跨零点保留并一直显示在待办层，零点计划与修订计划都不删它。
 这些上限是实验假设，见[实验设置](../EXPERIMENT.md#experiment-实验假设声明)；规则见[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)第二章。
+
+
 
 <a name="scenarios-修改人物身体与账户"></a>
 ## 修改人物、身体与账户
@@ -159,16 +158,18 @@ flowchart LR
 
 食品账户结算使用固定价格与商家账户，人物持有不是账户库存字段；没有娱乐缓解下限可供覆盖。食品利用效率由 BODY_CONSTANTS 唯一维护。
 
+
 <a name="scenarios-限制人物可以做什么"></a>
 ## 限制人物可以做什么
 
-地点菜单在 `interaction_menus_by_location_kind` 填写，键恰好覆盖八个 `LocationKind`，不允许缺项、多项或通配键。每个人物显式写 `interaction_menu`；null 表示不额外限制。有效菜单取地点与人物共同允许的动作。
+地点菜单在 `interaction_menus_by_location_kind` 填写，键恰好覆盖十个 `LocationKind`，不允许缺项、多项或通配键。每个人物显式写 `interaction_menu`；null 表示不额外限制。有效菜单取地点与人物共同允许的动作。
 
 ```json
-{"allowed_actions": ["travel_to", "sleep", "wait", "purchase", "do"]}
+{"allowed_actions": ["travel_to", "sleep", "wait", "purchase", "do", "collect_parcel"]}
 ```
 
-动作只能取 `START_ACTIVITY_ACTIONS` 的五项；数组非空、无重复，每份菜单必须保留 `wait` 和 `sleep`。例如移除 `purchase` 会同时禁止到店购买与远程下单；`do` 是执行目录动作的菜单权限。菜单控制动作权限，画像偏好影响人物选择。
+菜单权限只能取 `START_ACTIVITY_ACTIONS` 的六项；数组非空、无重复，每份菜单必须保留 `wait` 和 `sleep`。例如移除 `purchase` 会同时禁止到店购买与远程下单；`do` 是执行目录动作的菜单权限，`collect_parcel` 是本人在驿站零秒领取的权限，不新增活动种类。菜单控制动作权限，画像偏好影响人物选择。
+
 
 <a name="scenarios-声明工作安排"></a>
 ## 声明工作安排
@@ -230,10 +231,11 @@ flowchart LR
 引用不存在、不是工作与学习类别、重复分配或方式不合要求，以 `WORK_CONTENT_UNKNOWN` 拒绝。
 工作地点取 `work_schedule.workplace_location_id`，分配的工作内容只能在该地点进行；从运行开始可做，班次不改变内容可见性。
 
+
 <a name="scenarios-配置工作任务和消息"></a>
 ## 分配工作内容与消息
 
-工作内容在 `catalog/contents.json` 登记；人物只列出分配关系：
+工作内容在 `catalog/contents.json` 登记；下面仅是人物条目的分配关系局部片段，完整人物还须填写工作安排、汽车与其他必填字段：
 
 ```json
 {"work_content_ids": ["content-sales"]}
@@ -248,6 +250,7 @@ flowchart LR
 工作地点取 `work_schedule.workplace_location_id`，分配的工作内容只能在该地点进行；从运行开始可做，班次不改变内容可见性。
 
 场景消息与工作内容彼此独立。消息按现有邮件与直接消息合同呈现，不带工作内容引用；`sent_at` 必须早于场景结束且偏移匹配时区，可以早于运行开始。
+
 
 <a name="scenarios-配置日历和预排事件"></a>
 ## 配置日历和预排事件
@@ -291,6 +294,7 @@ flowchart LR
 
 场景结构 8 不接受调价或补货字段；食品价格由环境统一发布，店铺全天服务。
 
+
 <a name="scenarios-校验自己的场景"></a>
 ## 校验自己的场景
 
@@ -316,6 +320,7 @@ worldmock validate --scenario experiments/my-world/scenarios/single-person.json
 | `MAP_NOT_REGENERATED` | 按地点清单与种子生成发布图 |
 
 完整码与英文原因见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)。严格场景结构 8 拒绝旧字段。
+
 
 <a name="scenarios-工作通知与目标发布"></a>
 ## 工作内容从运行开始可做

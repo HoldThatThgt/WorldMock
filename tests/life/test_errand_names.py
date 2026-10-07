@@ -152,7 +152,7 @@ def test_unknown_item_reports_nearest_product_names_in_why_without_candidates(en
     changes = [errand_add("买牛肉", "牛肉"), errand_add("囤茶", "柠　檬茶")]
     observed, error, result = _round(engine, "items", "conclude_activity",
                                      _arguments("conclude_activity", name, changes))
-    assert {row["product_id"] for row in observed["errand_item_bindings"]} == set(engine.context.rules.foods)
+    assert {row["product_id"] for row in observed["errand_item_bindings"]} == set(engine.context.rules.goods)
     expected = [
         _row((0, "item"), "牛肉", "NAME_NOT_FOUND",
              "No product is named 「牛肉」. Nearest product names: 「牛肉面」."),
@@ -202,12 +202,12 @@ def test_duplicate_added_names_same_outcome_and_product_and_a_ninth_errand_are_r
     now = engine.context.state.current_time
     stage_errands(engine, 1, [_errand("action-a:errand:0", _SNACK_ERRAND, _SNACK, now - 120)])
     changes = [errand_add("再买一份零食", "薯片"),
-               errand_add("补一份 薯片", "牛肉面", outcome="吃掉"),
+               errand_add("补一份 薯片", "牛肉面"),
                errand_add("囤茶", "柠檬茶"), errand_add("囤 茶", "柠檬茶（模拟）")]
     _, error, result = _round(engine, "conflicts", "report_status", _arguments("report_status", name, changes))
     expected = [
         _row((0, "item"), "薯片", "ARGUMENTS_INVALID",
-             f"The open errand 「{_SNACK_ERRAND}」 already tracks this outcome and product."),
+             f"The open errand 「{_SNACK_ERRAND}」 already tracks this product."),
         _row((1, "name"), "补一份 薯片", "ARGUMENTS_INVALID", f"An open errand is already named 「{_SNACK_ERRAND}」."),
         _row((3, "name"), "囤 茶", "ARGUMENTS_INVALID", "Two added errands share the name 「囤茶」.")]
     assert _host_rows(error) == expected and feedback_report(error).error_code == "ARGUMENTS_INVALID"
@@ -240,7 +240,7 @@ def test_one_errand_named_twice_and_two_additions_with_one_outcome_and_product_a
     expected = [
         _row((1, "name"), "补一份 薯片", "ARGUMENTS_INVALID",
              f"The open errand 「{_SNACK_ERRAND}」 is named by more than one update or cancel in this request."),
-        _row((3, "item"), "柠檬茶", "ARGUMENTS_INVALID", "Two added errands track the same outcome and product.")]
+        _row((3, "item"), "柠檬茶", "ARGUMENTS_INVALID", "Two added errands track the same product.")]
     assert _host_rows(error) == expected and feedback_report(error).error_code == "ARGUMENTS_INVALID"
     assert _refused(result) == expected
     assert engine.context.state.agents[1].errands == {kit.errand_id: kit} and _errand_events(engine) == []
@@ -274,7 +274,7 @@ def test_cancelling_and_adding_again_with_the_original_name_and_a_new_quantity_i
     _, error, result = _round(engine, "reuse", "report_status", _arguments("report_status", name, reused))
     assert error == "" and result.data["errands"] == [{"errand": _SNACK_ERRAND, "change": "新增"}]
     _next_chance(engine)
-    meal = _errand("action-b:errand:0", _MEAL_ERRAND, _MEAL, now, outcome="eat")
+    meal = _errand("action-b:errand:0", _MEAL_ERRAND, _MEAL, now)
     stage_errands(engine, 1, [meal])
     _, error, result = _round(engine, "after-completion", "report_status", _arguments("report_status", name, reused))
     assert error == "" and result.status == "completed"
@@ -320,11 +320,10 @@ _PROPERTY_ROUNDS = 60
 
 def _full_errands(engine, now, origin):
     """@brief 八条完整状态由当前食品与取得/吃掉依据构成，不依赖已移除的大商品库。"""
-    pairs = [(food, outcome) for food in sorted(engine.context.rules.foods) for outcome in ("obtain", "eat")
-             if (food, outcome) != (_SNACK, "obtain")][:MAX_OPEN_ERRANDS]
+    pairs = [food for food in sorted(engine.context.rules.goods) if food != _SNACK][:MAX_OPEN_ERRANDS]
     assert len(pairs) == MAX_OPEN_ERRANDS and len(set(pairs)) == MAX_OPEN_ERRANDS
-    return [_errand(f"{origin}:errand:{index}", f"事务{index}", food, now - 600, outcome=outcome)
-            for index, (food, outcome) in enumerate(pairs)]
+    return [_errand(f"{origin}:errand:{index}", f"事务{index}", food, now - 600)
+            for index, food in enumerate(pairs)]
 
 
 def _states(engine) -> dict[str, list]:
@@ -335,7 +334,7 @@ def _states(engine) -> dict[str, list]:
     tea = _errand("action-p:errand:1", "囤 柠檬茶", _TEA, now - 200)
     return {
         "none": [],
-        "three": [kit, tea, _errand("action-p:errand:2", _MEAL_ERRAND, _MEAL, now - 100, outcome="eat", quantity=2)],
+        "three": [kit, tea, _errand("action-p:errand:2", _MEAL_ERRAND, _MEAL, now - 100, quantity=2)],
         "twins": [kit, tea, _errand("action-p:errand:2", "囤柠檬茶", _TEA_JOINED, now - 100)],
         "full": _full_errands(engine, now, "action-f"),
     }
@@ -347,7 +346,7 @@ def _random_changes(rng: random.Random) -> list[dict]:
     for _ in range(rng.choice((0, 1, 1, 2, 2, 3, 4))):
         kind = rng.choice(("新增", "新增", "更新", "取消"))
         if kind == "新增":
-            changes.append(errand_add(rng.choice(_ADD_NAMES), rng.choice(_ITEMS), outcome=rng.choice(("取得", "吃掉")),
+            changes.append(errand_add(rng.choice(_ADD_NAMES), rng.choice(_ITEMS),
                                       quantity=rng.randint(1, 9), memo=rng.choice((None, "下班前去买")),
                                       remind_time=rng.choice((None, "17:00", "08:30"))))
         elif kind == "更新":
@@ -435,11 +434,11 @@ def test_an_errand_that_a_request_only_updates_still_counts_as_open(engine_facto
     stage_errands(engine, 1, [kit])
     update = errand_update(_SNACK_ERRAND, memo="晚点买")
     cases = {
-        "renamed": (errand_add("补一份 薯片", "牛肉面", outcome="吃掉"), _row(
+        "renamed": (errand_add("补一份 薯片", "牛肉面"), _row(
             (1, "name"), "补一份 薯片", "ARGUMENTS_INVALID", f"An open errand is already named 「{_SNACK_ERRAND}」.")),
         "doubled": (errand_add("再买一份零食", "薯片"), _row(
             (1, "item"), "薯片", "ARGUMENTS_INVALID",
-            f"The open errand 「{_SNACK_ERRAND}」 already tracks this outcome and product.")),
+            f"The open errand 「{_SNACK_ERRAND}」 already tracks this product.")),
     }
     for round_id, (added, expected) in cases.items():
         _, error, result = _round(engine, round_id, "report_status", _arguments("report_status", name, [update, added]))
@@ -462,53 +461,12 @@ def test_an_errand_that_a_request_only_updates_still_counts_as_open(engine_facto
         ["action-freed:errand:1", *(errand.errand_id for errand in full[1:])])
 
 
-def test_obtaining_and_eating_one_product_are_two_additions_of_one_request(engine_factory) -> None:
-    """@brief 同请求的两条新增只有结果种类与商品都相同才冲突（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误  表第 4 行）：先取得、再吃掉
-    同一种商品是两件事。宿主与环境都受理，回执按请求顺序列两条新增，世界里以各自的条目下标记下（取得与吃掉、同一商品），
-    各写一条 errand_registered，下一次观察的待办层两条都在。次序反过来（吃掉在前、取得在后）的另一种商品同样受理。"""
+def test_different_names_cannot_add_the_same_product_twice(engine_factory) -> None:
+    """@brief 同一种商品只允许一条未完成事务，名称不同及请求次序不改变这条合同。"""
     engine, _, name = _waiting(engine_factory)
-    both = [errand_add("买一份牛肉面", "牛肉面"), errand_add("晚饭吃掉牛肉面", "牛肉面", outcome="吃掉")]
-    _, error, result = _round(engine, "both", "report_status", _arguments("report_status", name, both))
-    assert error == "" and result.status == "completed"
-    assert result.data["errands"] == [{"errand": "买一份牛肉面", "change": "新增"},
-                                      {"errand": "晚饭吃掉牛肉面", "change": "新增"}]
-    held = engine.context.state.agents[1].errands
-    assert [(key, item.outcome, item.product_id) for key, item in held.items()] == [
-        ("action-both:errand:0", "obtain", _MEAL), ("action-both:errand:1", "eat", _MEAL)]
-    assert [event.data["kind"] for event in _errand_events(engine)] == ["errand_registered", "errand_registered"]
-    _next_chance(engine)
-    swapped = [errand_add("喝掉柠檬茶", "柠檬茶", outcome="吃掉"), errand_add("囤柠檬茶", "柠檬茶")]
-    observed, error, result = _round(engine, "swapped", "pause_activity", _arguments("pause_activity", name, swapped))
-    assert [row["done_when"] for row in observed["todo_layer"]["errands"]] == ["取得牛肉面 1 份", "吃掉牛肉面 1 份"]
-    assert error == "" and result.status == "completed"
-    held = engine.context.state.agents[1].errands
-    assert [(held[key].outcome, held[key].product_id)
-            for key in ("action-swapped:errand:0", "action-swapped:errand:1")] == [("eat", _TEA), ("obtain", _TEA)]
-    assert len(_errand_events(engine)) == 4
-
-
-#: 控制工具第一项活动名的明细路径（与事务明细同一参数根）。
-_ACTIVITY_PATH = [*_ROOT[:-1], "items", 0, "activity_name"]
-
-
-@pytest.mark.parametrize("tool", _CONTROL_TOOLS)
-def test_an_unknown_activity_name_is_refused_before_the_errand_changes(engine_factory, tool: str) -> None:
-    """@brief 环境先解析活动名、再复核事务变更（docs/CONTRACTS.md#contracts-worldmock-接口合同「原子受理」「活动受理拒绝码」：活动名都解析出来之后，全部
-    事务问题才合并成一次拒绝）。绕过宿主的请求既写了不存在的活动名、又点名一条不存在的事务：宿主一次纠错给出两条明细（活动
-    名在前）；环境的那一次 ACTION_REQUEST_INVALID 只带活动名那一条（items[0].activity_name、NAME_NOT_FOUND），没有事务明细。
-    活动名改对之后同一条事务变更才被报出：唯一明细在 errands[0].name，合法值列本人全部未完成事务名，与宿主逐项相同。两次
-    都没有回执，事务、等待与事务事件原样。"""
-    engine, wait_id, name = _waiting(engine_factory)
-    kit = _errand("action-a:errand:0", _SNACK_ERRAND, _SNACK, engine.context.state.current_time - 120)
-    stage_errands(engine, 1, [kit])
-    before, unknown = engine.context.state.activities[wait_id], "不存在的活动"
-    wrong = [errand_update("不存在的事务", memo="晚点办")]
-    errand_row = _row((0, "name"), "不存在的事务", "NAME_NOT_FOUND", "The errand name 「不存在的事务」 is not known.",
-                      [_SNACK_ERRAND])
-    _, error, result = _round(engine, "both-wrong", tool, _arguments(tool, unknown, wrong))
-    assert [row[:3] for row in _host_rows(error)] == [(_ACTIVITY_PATH, unknown, "NAME_NOT_FOUND"), errand_row[:3]]
-    assert [row[:3] for row in _refused(result)] == [(_ACTIVITY_PATH, unknown, "NAME_NOT_FOUND")]
-    _, error, result = _round(engine, "errand-wrong", tool, _arguments(tool, name, wrong))
-    assert _host_rows(error) == [errand_row] and _refused(result) == [errand_row]
-    assert engine.context.state.agents[1].errands == {kit.errand_id: kit} and _errand_events(engine) == []
-    assert engine.context.state.activities[wait_id] == before
+    for label, names in (("both", ("买一份牛肉面", "晚饭牛肉面")), ("reverse", ("晚饭牛肉面", "买一份牛肉面"))):
+        both = [errand_add(item, "牛肉面") for item in names]
+        _, error, result = _round(engine, label, "report_status", _arguments("report_status", name, both))
+        expected = [_row((1, "item"), "牛肉面", "ARGUMENTS_INVALID", "Two added errands track the same product.")]
+        assert _host_rows(error) == expected and _refused(result) == expected
+        assert engine.context.state.agents[1].errands == {} and _errand_events(engine) == []

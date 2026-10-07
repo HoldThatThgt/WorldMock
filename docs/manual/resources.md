@@ -13,7 +13,7 @@ flowchart LR
     M --> I --> V[校验目录、地图与全部场景]
 ```
 
-地点八个固定类型不变；只有 `restaurant`、`cafe`、`convenience_store`、`supermarket` 允许绑定购物 app。商品类别为 `meal`、`snack`、`drink`、`leisure`、`daily`，店铺类型供给表与收货效果由 WorldMock 固定。
+地点共有十个固定类型，包含 `gas_station` 与 `parcel_station`。只有店铺允许绑定购物 app，驿站不绑定 app、不卖商品；加油站只卖新增 `fuel`，原四种店铺的五类商品供给保持固定。完整类型与供给表见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)。
 
 <a name="resources-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
@@ -22,6 +22,7 @@ flowchart LR
 
 语料和资源引用必须是只用 / 分隔的根内相对路径，不能含 ..、反斜杠或任一平台不能原样保存的名字（以点或空格结尾、Windows 设备名如 NUL、Windows 禁用字符 <>:"|?* 与控制字符、孤立代理码点、一级超过 255 字节），不能使用符号链接或目录联接；文件须为普通文件并符合声明的大小与摘要。修改内容后按现行身份发布流程重新生成声明，不能沿用旧摘要。
 
+
 <a name="resources-先找到应该修改的文件"></a>
 ## 先找到应该修改的文件
 
@@ -29,18 +30,19 @@ flowchart LR
 | --- | --- |
 | `manifest.json` | `format_version: 2`、环境标识与版本、`rules_version: 2`、六个文件的路径/哈希/字节数、`catalog_content_sha256` |
 | `apps.json` | `app_id`、真实 `name`、`purposes`、`payment_app_ids`；用途与绑定列表去重并排序 |
-| `locations.json` | `location_id`、`name`、可选 `branch_label`、`kind`、`app_ids`；仅店铺允许绑定购物 app |
-| `goods.json` | `goods_id`、`name`、五个固定类别之一、正整数 `price_fen`、`store_ids` 列表或 `"all"` |
-| `actions.json` | `action_id`、`name`、`description`、五个固定类别之一、`app_ids`、必填可空 `manner` |
+| `locations.json` | `location_id`、`name`、可选 `branch_label`、`kind`、`app_ids`、必填可空 `shipping_seconds`；非店铺与加油站运输时长必须为 null，驿站不绑定 app |
+| `goods.json` | `goods_id`、`name`、六个固定类别之一、正整数 `price_fen`、`store_ids` 列表或 `"all"`；燃油只绑定加油站 |
+| `actions.json` | `action_id`、`name`、`description`、五个固定类别之一、`app_ids`、必填可空 `manner` 与 `communication_mode`；绑定 app 的社交明示 text 或 voice，其他为 null |
 | `contents.json` | `content_id`、`action_id`、`title`、摘要与来源、`duration_seconds`、`app_ids`、可选 `series` |
 | `map.json` | 地图结构 1、种子、生成器规则版本 1、节点与规范无向边 |
 
-环境不附带语料、工作主题文件、规则副本、库存或营业日历。名称与摘要由数据仓维护，数值只填价格、内容时长与集数。
+环境不附带语料、工作主题文件、规则副本、库存或营业日历。名称与摘要由数据仓维护，数值按唯一合同填写商品价格、内容时长、集数与店铺完整运输时长。
 
 <a name="resources-哪些路径可以换"></a>
 ### 哪些路径可以换
 
 复制完整环境到自己的相对目录，如 `experiments/my-world/`；其中只有并列的 `catalog/`、`scenarios/`。命令显式传这个根或场景路径；引擎不搜索数据仓或在线素材。正式环境路径由 WorldMock-Dataset 发布决定，完整回归通过 `--environment-root experiments/my-world` 明确选择。
+
 
 <a name="resources-输入与生成文件"></a>
 ### 输入与生成文件
@@ -63,9 +65,10 @@ worldmock environment generate-map --locations experiments/my-world/catalog/loca
 购物用途存在当且仅当至少一家店铺绑定该 app；支付绑定非空当且仅当有购物用途，
 绑定目标具有支付用途，允许绑定自己。导航与支付 app 可以没有内容；app 必须有用途或动作绑定。
 
+
+
 <a name="resources-先完成一个最小修改减少一家门店的初始库存"></a>
 ## 先完成一个最小修改：减少一家门店的初始库存
-
 
 
 <a name="resources-编写地点与营业时间"></a>
@@ -91,8 +94,11 @@ worldmock environment generate-map --locations experiments/my-world/catalog/loca
 WorldMock 生成随机连通加权图并提供固定规则，Dataset 保存图种子、生成规则版本和规范字节；目录与规则身份进入运行清单。图不含道路许可、路由响应、坐标或资料有效期。
 内容摘要按目录自己的来源合同维护，语料文件继续经清单验证；不把名称真实性推成数值真实性。
 
+
 <a name="resources-添加地点时还要补路线"></a>
 ### 添加地点时还要补路线
+
+
 
 
 
@@ -103,6 +109,7 @@ WorldMock 生成随机连通加权图并提供固定规则，Dataset 保存图�
 
 <a name="resources-完整类别供给与冻结价格"></a>
 ### 完整类别供给与冻结价格
+
 
 
 
@@ -124,13 +131,16 @@ category使用本轮callable_index已经展示的公开品类标签，非法时�
 {"name": null, "way": "购买", "category": null, "from": "<门店显示名>", "available_only": true, "offset": 0}
 ```
 
+
 <a name="resources-当前供给字段与发布注意事项"></a>
 ### 当前供给字段与发布注意事项
 
 
 
+
 <a name="resources-新增商品对象"></a>
 ### 新增商品对象
+
 
 
 
@@ -151,8 +161,10 @@ category使用本轮callable_index已经展示的公开品类标签，非法时�
 | `category` | `entertainment`、`work_study`、`social`、`exercise`、`daily_care` 之一 |
 | `app_ids` | 排序且无重复的已登记 app 集合，可为空 |
 | `manner` | 必填；无 app 时为 null，有 app 时取 `phone_continuous`、`other_device`、`offline_assisted` |
+| `communication_mode` | 必填；绑定 app 的社交动作写 `text` 或 `voice`，无 app 社交与其他类别写 null；不从名称猜测 |
 
 动作不写时长、效果、代谢当量、场所与时间窗；内容提供时长，WorldMock 按类别固定规则。每个动作以及每个动作与 app 的组合至少有一条内容。
+
 
 <a name="resources-编写内容与工作材料"></a>
 ## 编写 app 目录与内容
@@ -192,7 +204,7 @@ app 写在 `catalog/apps.json`，内容写在 `catalog/contents.json`。
 <a name="resources-正餐家庭储备和联系人"></a>
 ### 商品与收货
 
-商品只有五个固定类别，数值规则由 WorldMock 维护：
+商品有六个固定类别，数值规则由 WorldMock 维护：
 
 | 类别 | 收货效果 |
 | --- | --- |
@@ -201,8 +213,11 @@ app 写在 `catalog/apps.json`，内容写在 `catalog/contents.json`。
 | drink | 每份提供 100 千卡，按相同食品规则结算 |
 | leisure | 每行降低娱乐需要 0.10，下限为 0 |
 | daily | 每行施加 +0.05 情绪脉冲 |
+| fuel | 本人有车且在加油站为自己现场购买，当秒恰增加七个驾驶可用日，无身体效果或库存 |
 
-没有家庭储备或初始持有。到店付款当秒收货，配送到期收货；给别人买时在购买请求里写收货人。联系人只需可用 receive_location_id，订单会记 delivered 和 received_at，不生成身体或 goods_received 事件。
+没有家庭储备或初始持有。现场购买付款当秒收货，直送在配送到期收货；完整运输时长严格大于 86400 秒时送往实际模拟收货人家庭最近且场景选中的驿站，恰为 86400 秒仍直送。到站只进入 `ready_for_pickup`，本人到站执行零秒领取，才由唯一函数每单结算一次效果与 `goods_received`。给别人买时显式写收货人；联系人使用有效的 `receive_location_id` 直送，收货只记订单终态与 `received_at`，不创建身体或本人收货事件。联系人不能替代长途链所需的模拟收货人家庭地址。详见[请求字段与结算检查](../CONTRACTS.md#contracts-request-settlement)。
+
+
 
 <a name="resources-修改后更新文件身份"></a>
 ## 修改后更新文件身份
@@ -214,6 +229,7 @@ python -c 'from pathlib import Path; from worldmock.catalog.identity import refr
 ```
 
 该入口安全读取必需文件，经原子写入更新清单。环境里没有规则副本；规则字节由运行的代码身份绑定。旧运行与历史冻结输入不改写。
+
 
 <a name="resources-验证修改"></a>
 ## 验证修改

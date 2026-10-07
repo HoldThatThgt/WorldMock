@@ -36,6 +36,7 @@
 
 计划、相关度与指标读取同一个活动家族函数；缺品类不猜进度，外部参照保留缺证或未归类。实际推进的有效区间为非布尔整数秒且起点小于终点。本次不改变 around_time、登记后的活动起点和同秒推进合同。
 
+
 <a name="spec-day-plan-goals-心智模型与范围"></a>
 ## 心智模型与范围
 
@@ -74,6 +75,7 @@ flowchart LR
 不改变其他活动的资格与资源结算。旧时段字段、段起点唤醒、段级照做函数和偏离分钟指标直接删除，
 不提供兼容形状、迁移或回退。
 
+
 <a name="spec-day-plan-goals-当日目标与生命周期"></a>
 ## 当日目标与生命周期
 
@@ -103,6 +105,7 @@ flowchart LR
   零点计划 `plan_day` 对未完成事务只读（输入键「个人事务」：名称、要办成什么、已办到哪、备注、提醒时刻），不创建、不更改、不终结事务，
   事务也不经修订请求增删（个人事务与工作安排规格 2.1、2.8）。
 
+
 <a name="spec-day-plan-goals-实际推进与情绪"></a>
 ### 实际推进与情绪
 
@@ -123,6 +126,8 @@ flowchart LR
   零点先结算旧日的有效区间、清除过期计划，再执行零点计划。
 
 用餐目标只由本人作为收货人的 `meal` 类 `goods_received` 推进。收货秒不早于目标登记、在当日内；带 around_time 时落在前后 GOAL_TIME_TOLERANCE_SECONDS 的既有容差内。一次收货推进清单里第一条未推进用餐目标，一张订单当日只推进一个目标；零食、饮品、非食品、别人或联系人收货不推进。PlanGoal 增加 progress_order_id，目标已推进时它与 progress_activity_id 恰有一个非空。系统不合成用餐活动。
+
+
 
 <a name="spec-day-plan-goals-事件驱动的决策节律"></a>
 
@@ -150,6 +155,7 @@ flowchart LR
 截止或同行人承诺。睡眠只接受四个既定原因；`errand_reminder_due`、四个班次原因与 `app_push` 都不叫醒。
 app 内容完成仍是静默边界。零点计划、修订和目标推进本身不推进世界时钟。
 
+
 <a name="spec-day-plan-goals-人物可见内容与工具"></a>
 ## 人物可见内容与工具
 
@@ -168,6 +174,7 @@ app 内容完成仍是静默边界。零点计划、修订和目标推进本身�
   人物工具只有 `revise_day_plan`，有清单即开放，可改提醒，允许空清单后追加目标。
 - 零点计划与 LifeAgent 修订各自到 LifeEngine、SQLite、下一次观察、检查点恢复必须有完整路径测试；
   只检查纯函数或字符串不算贯通。
+
 
 <a name="spec-day-plan-goals-三层度量与质量导出"></a>
 ## 三层度量与质量导出
@@ -202,7 +209,7 @@ app 内容完成仍是静默边界。零点计划、修订和目标推进本身�
 `quality.json.day_plan_metrics` 按代码摘要分组，每组有 `habitual_consistency`、
 `external_constraints`、`deliberate_goals` 和 `gates.external_constraint_block_count`。
 既有行为评估将三层放入 `reports`，将相同约束门禁放入 `gates`；不把既有其他协议门禁强接进质量导出。
-`day_plan_metrics` 的键集与分母不因个人事务改变：质量报告结构 4 新增的 `errand_metrics`、`conclusion_memories` 是与它并列的顶层分组；
+`day_plan_metrics` 的键集与分母不因个人事务改变：当前质量报告结构 6 中的 `errand_metrics`、`conclusion_memories` 是与它并列的顶层分组；
 `errand_metrics` 以有新增事件的不同事务数（`registered_count`）为分母，两个分组都不使用 `goal_count`、`progressed_count`、`family_progress_rate`
 等当日目标指标的键名，不以目标数为分母，也不写进 `day_plan_metrics`；没有样本时整组为 null（个人事务与工作安排规格 6.1）。
 
@@ -212,19 +219,18 @@ app 内容完成仍是静默边界。零点计划、修订和目标推进本身�
   至少覆盖两个不同本地日才计算同情境家族一致率，分子为同家族有序样本对，分母为全部有序样本对。
   总值按可比样本对加权；输出 `consistency_rate`、`comparable_pair_count`、`groups` 与 `missing_samples`。
   习惯统计沿用既有评估的活动家族聚合口径，映射如下；目标推进则按接口合同中的实际活动令牌匹配，
-  不用这一统计聚合去证明目标。未知生活活动品类不进入有效样本。
+  不用这一统计聚合去证明目标。未知活动快照类别不进入有效样本。
 
-  | 原始活动或生活品类 | 评估活动家族 |
+  | 当前活动种类或 ACTION 类别 | 评估活动家族 |
   | --- | --- |
   | sleep | sleep |
-  | travel、lifestyle:outdoor | commute |
-  | work | work |
-  | consume | meal |
-  | wait、lifestyle:wellness | rest |
-  | use_app、read_mail、lifestyle:hobby、lifestyle:learning | entertainment |
-  | chat、call、lifestyle:social、lifestyle:volunteer | social |
-  | lifestyle:household、lifestyle:pet | chore |
-  | lifestyle:sport | exercise |
+  | travel | commute |
+  | wait | rest |
+  | action：work_study | work |
+  | action：entertainment | entertainment |
+  | action：social | social |
+  | action：daily_care | chore |
+  | action：exercise | exercise |
 
 - `deliberate_goals` 回放零点计划的登记事件（`day_plan_generated`）、修订结果与活动推进后的清单；推进判定与环境同一口径
   （含 `around_time` 前后 90 分钟的窗口，见「实际推进与情绪」）。例行意图 `ROUTINE_INTENT_KINDS`（睡眠、晨间例程、通勤、用餐）的目标
@@ -251,19 +257,22 @@ app 内容完成仍是静默边界。零点计划、修订和目标推进本身�
 活动快照需保存生活活动目录 `category`，用于真实家族核验；不是从目标文字推测品类。
 `render_day` 保留实际活动时间线，本次不新建目标可视化界面。
 
+
+
 <a name="spec-day-plan-goals-当前工具交互约束"></a>
 ## 当前工具交互约束
 
 `around_time` 与 `remind_time` 的请求和结构化显示都只使用场景本地 `HH:MM` 或 `null`，不在字段值加「约」字，
 不新增中文时刻、空串或字符串 `null` 的归一。大致时刻的前后九十分钟只用于目标推进判定，
-不能当成工作可开始的时间窗；已分配且未完成的工作主题从运行开始可见，在人物工作地点才能开始，
+不能当成工作可开始的时间窗；已分配且未完成的工作内容从运行开始可见，在人物工作地点才能开始，
 具体规则见[生活运行规格](SPEC-life-runtime.md#tool-interaction-普通工作与预约活动)。
 修订参数错误须返回完整 `path`、合法 `intent_kind` 枚举与具体 `expected`：重复意图同时定位首次出现与其后每次出现的条目
 （`goals[i].intent_kind`，`written` 为该意图，`allowed_values` 为全部意图）；条数超过八条与重复意图在同一次校验里一并报告，
 超限定位在 `goals`，不因超限提前返回；零点计划与 `revise_day_plan` 共用同一校验函数，英文原因见个人事务与工作安排规格 1.3；
 时刻格式与已推进目标约束仍一次报告全部可独立确定的参数问题。
-`goal` 不承担状态转移，工作主题累计、app 推送、计划提醒与大致时刻分别使用各自明确字段；本节已实现：重复意图的逐条定位与超限同批报告以外的各项，
+`goal` 不承担状态转移，工作内容累计、app 推送、计划提醒与大致时刻分别使用各自明确字段；本节已实现：重复意图的逐条定位与超限同批报告以外的各项，
 证据见[工具交互验收记录](../archive/tool-interaction/tool-interaction-verification.md)；这两项已实现并通过离线验收（证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。
+
 
 <a name="spec-day-plan-goals-文件修改清单与模块责任"></a>
 ## 文件修改清单与模块责任
@@ -283,6 +292,7 @@ app 内容完成仍是静默边界。零点计划、修订和目标推进本身�
 
 仅为通过既有门禁而需要迁移的夹具随所属测试修改；新增生产文件只用于上述职责分离。
 最终验收记录必须给出相对开发基线的实际完整文件清单，不能用此预估表替代 diff。
+
 
 
 <a name="time-and-energy-零点计划与计划提醒"></a>
@@ -341,6 +351,7 @@ flowchart LR
     R --> W["提供人物决策机会"]
 ```
 
+
 <a name="time-and-energy-零点计划与计划提醒-输入调用失败与记录"></a>
 ### 输入、调用、失败与记录
 
@@ -349,13 +360,13 @@ flowchart LR
     不读人物工作区里编译后的卡片）；个人事务与工作安排规格 4.2 增「下班时段」「到家时段」，取场景的 `leave_work_window`、
     `arrive_home_window`，未声明省略，只来自卡片的下班与到家时刻不进入输入；
   - 当日已核验经历的句子（第七章口径）；
-  - 本人当日已结算的公开动作结果（消息送达、订单受理与交付、成果评审）；
+  - 本人当日已结算的公开动作结果（消息送达、订单受理与实际收货）；
   - 当日 `conclude_activity` 请求中记录的 `summary` 与 `memories`（标「你自己记下的，未经核验」）。所以睡前收尾时写下
     「明早 7:30 起」，零点计划就能据此生成提醒；
-  - 零点可见的事实子集：人物已分配且未完成的工作主题（输入键「待办任务」，每项给主题、目标工时与已做工时）、
+  - 零点可见的事实子集：人物已分配且未完成的工作内容（输入键「待办任务」，每项给内容标题、内容时长目标与已做秒数）、
     收件箱、在途订单及预计送达、联系人、旧日目标的推进情况。
   - 未完成的个人事务（输入键「个人事务」）：名称、要办成什么、已办到哪、备注、提醒时刻，取自 `AgentState.errands`，不含内部身份；
-    它与「待办任务」中的工作主题保持分离。
+    它与「待办任务」中的工作内容保持分离。
   - 计划日期当天的上班安排（输入键「上班安排」）：与环境层 `duty` 同源，不含 `status`；人物没有工作安排时为 `null`。
     这里的当天是输入键「计划日期」所指的本地日（零点边界上即新开始的一日），不是下文回顾经历所说的「当日」
     （个人事务与工作安排规格 4.6）。
@@ -383,6 +394,7 @@ flowchart LR
 
   计划、提醒、来源与模型证据在同一次提交中写入；幂等键为既有字段 `AgentState.plan_submitted_dates`，
   不新增字段，同一人物同一本地日只生成一次。事件字段登记在记录引擎设计「事件正文与资源证据」。
+
 
 <a name="time-and-energy-零点计划与计划提醒-计划与提醒"></a>
 ### 计划与提醒
@@ -451,6 +463,8 @@ flowchart LR
 `ACTION_REQUEST_INVALID`，不晚于修订时刻或不早于次日零点报 `PLAN_REMIND_TIME_INVALID`；计划结束与提醒同秒时记
 `boundary_type=planned_end`，提醒记为已触发。
 
+
+
 <a name="dayrun-fidelity-加载校验与当日目标推进"></a>
 ## 加载校验与当日目标推进
 
@@ -459,6 +473,7 @@ flowchart LR
 
 场景加载使用统一 catalog.admission 登记检查。环境钉不符、未知地点/商品/app/动作/内容、店铺绑定不合固定供给表、所选店铺缺 merchant 账户均在启动前拒绝。
 工作分配检查 `WORK_CONTENT_UNKNOWN`、`WORK_SCHEDULE_REQUIRED`、`WORK_CONTENT_REQUIRED`、`WORK_CONTENT_INSUFFICIENT`；完整条件和英文原因见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)。既有班次、地点与可见标签检查保留，严格场景结构 8 拒绝旧字段，不延后到人物决策。
+
 
 <a name="dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进"></a>
 ### 当日目标带大致时刻，只有在那前后进行的活动才算推进
@@ -479,6 +494,8 @@ flowchart LR
 **验收。** 零点前开始、零点后结算的睡眠不推进大致时刻为 23:30 的睡眠目标；08:40 的浏览不推进大致时刻为 23:00 的娱乐目标；大致时刻 12:00 的午餐目标被 10:20–10:45 的进食推进
 （进行区间与窗口有交集）、被 09:30–09:55 的不推进；`around_time` 为空的目标沿用现行判定；`revise_day_plan` 与零点计划的条目带 `around_time`，格式错误报 `ACTION_REQUEST_INVALID`；
 只改 `around_time` 的修订保留登记时刻；待办层只显示 `HH:MM` 或 `null`；`goal_metrics` 与推进判定一致；例行意图的目标不计入推进比例。
+
+
 
 
 <a name="spec-day-plan-goals-验收台账"></a>
@@ -511,6 +528,7 @@ flowchart LR
 
 本特性所有行都必须有实现与测试，禁止 skip、xfail、占位或延期。已有十二周正式运行、
 盲评与完整自然日 LabelKit 交付仍属项目总体验收，不能由本特性离线门禁替代。
+
 
 <a name="spec-day-plan-goals-版本表"></a>
 ## 版本表

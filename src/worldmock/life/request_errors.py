@@ -1,8 +1,6 @@
 """@brief 宿主与环境从严格请求校验错误产生同一完整参数合同。"""
 
 from __future__ import annotations
-from worldmock.life.vocabulary import NAMED_PURCHASE_WAYS
-from worldmock.life.vocabulary import way_options
 
 import logging
 from collections.abc import Mapping, Sequence
@@ -54,8 +52,6 @@ def argument_report(tool: str, error: ValidationError, model: type[BaseModel],
         location = tuple(row["loc"])
         field = _schema_at(schema, location)
         allowed = _allowed(field)
-        if tool == "start_activity" and location == ("prefer",):
-            allowed = _purchase_preferences(arguments)
         written = arguments if not location else None if row["type"] == "missing" else row.get("input")
         items.append(ErrorItem(location or ARGUMENT_ROOT, written, code, tuple(allowed),
                                _expected(field, row), _why(row)))
@@ -91,19 +87,6 @@ def _allowed(schema: dict) -> list[Any]:
     if branches and all("enum" in part or "const" in part or part.get("type") == "null" for part in branches):
         return [value for part in branches for value in _allowed(part)]
     return []
-
-
-def _purchase_preferences(arguments: dict) -> list[Any]:
-    """@brief 活动方式合法后精确返回购买或非购买偏好闭集。"""
-
-    rows = arguments.get("items")
-    if not isinstance(rows, list) or not rows:
-        return ["最快拿到", "到手价最低", None]
-    options = [way_options(row["way"]) if isinstance(row, dict) and isinstance(row.get("way"), str)
-               else frozenset() for row in rows]
-    if any(not option for option in options):
-        return ["最快拿到", "到手价最低", None]
-    return ["最快拿到", "到手价最低"] if any(option & NAMED_PURCHASE_WAYS for option in options) else [None]
 
 
 def _expected(schema: dict, row: Mapping[str, Any]) -> str:

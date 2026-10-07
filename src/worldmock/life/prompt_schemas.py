@@ -29,10 +29,9 @@ _NULLABLE_TEXT = {"type": ["string", "null"], "minLength": 1}
 _LINES = {"type": "array", "items": _TEXT}
 
 #: 工具层目标类别闭集（英文值；场景联系人并入 person）。
-TARGET_KINDS = ("location", "product", "person", "contact", "self", "task", "activity",
-                "message", "app", "lifestyle")
-#: 工具层可列出的方式，不含仅在请求中由系统确定方式的「购买」。
-WAY_LABELS = tuple(way for way in WAYS if way != "购买")
+TARGET_KINDS = ("location", "product", "action", "person", "contact", "self", "activity")
+#: 工具层方式全部来自当前方式闭集。
+WAY_LABELS = tuple(WAYS)
 #: 以目标名称为参数的其他工具。
 TARGET_TOOLS = (*CONTROL_TOOLS, "send_message")
 #: 动作状态由生产枚举按声明顺序投影。
@@ -69,8 +68,8 @@ def _tool_action(tools: tuple[str, ...]) -> dict[str, Any]:
 
 _VERB_ACTION = _availability({
     "action": {"enum": list(LIFE_VERBS)}, "way": {"enum": list(WAY_LABELS)},
-    "price": _NULLABLE_TEXT, "duration": _NULLABLE_TEXT, "quantity": _NULLABLE_TEXT, "note": _NULLABLE_TEXT})
-_CONTRACT = _object({"topic": _TEXT, "target": _TEXT, "done": _TEXT, "remaining": _TEXT})
+    "app": _NULLABLE_TEXT, "price": _NULLABLE_TEXT, "duration": _NULLABLE_TEXT,
+    "quantity": _NULLABLE_TEXT, "note": _NULLABLE_TEXT})
 
 
 def _tools_for(kind: str, tools: tuple[str, ...]) -> dict[str, Any]:
@@ -83,21 +82,18 @@ def _tools_for(kind: str, tools: tuple[str, ...]) -> dict[str, Any]:
 
 _TARGET = _object({
     "name": _TEXT, "kind": {"enum": list(TARGET_KINDS)}, "phase": {"enum": ["进行中", "刚结束", None]},
-    "state": _NULLABLE_TEXT, "contract": _CONTRACT, "last_report": _TEXT,
+    "state": _NULLABLE_TEXT, "last_report": _TEXT,
     "actions": {"type": "array", "items": _VERB_ACTION},
     "tools": {"type": "array", "items": _tool_action(TARGET_TOOLS)},
-}, optional=("contract", "last_report"))
+}, optional=("last_report",))
 _TARGET["allOf"] = [
-    {"if": {"properties": {"kind": {"const": "task"}}}, "then": {"required": ["contract"]},
-     "else": {"not": {"required": ["contract"]}}},
     {"if": {"properties": {"kind": {"const": "activity"}}},
      "then": {"properties": {"phase": {"enum": ["进行中", "刚结束"]}, "actions": {"maxItems": 0}}},
      "else": {"properties": {"phase": {"type": "null"}}}},
     _tools_for("activity", CONTROL_TOOLS),
-    _tools_for("task", ()),
     _tools_for("person", ("send_message",)),
     _tools_for("contact", ("send_message",)),
-    {"if": {"properties": {"kind": {"enum": ["activity", "task", "person", "contact"]}}}, "else": {
+    {"if": {"properties": {"kind": {"enum": ["activity", "person", "contact"]}}}, "else": {
         "properties": {"tools": {"maxItems": 0}}}},
 ]
 
@@ -112,7 +108,8 @@ _INDEX_CATEGORY = _object({"category": _TEXT, "count": {"type": "string", "patte
                                         "items": _TEXT}})
 #: 工具层的可调用索引（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引 ）：只有名称、品类与计数，不带动作与条件。
 _CALLABLE_INDEX = _object({
-    "lifestyle": {"type": "array", "uniqueItems": True, "items": _TEXT},
+    "navigation_apps": {"type": "array", "uniqueItems": True, "items": _TEXT},
+    "payment_apps": {"type": "array", "uniqueItems": True, "items": _TEXT},
     "goods": {"type": "array", "items": _INDEX_CATEGORY},
     "query_categories": {"type": "array", "items": _object({"category": _TEXT,
                           "count": {"type": "integer", "minimum": 0}})},
@@ -215,11 +212,9 @@ ENVIRONMENT_LAYER_SCHEMA: dict[str, Any] = {
 
 _RESULT = _object({"occurred_at": _TIME, "status": {"enum": list(ACTION_STATUSES)},
                    "error_code": _NULLABLE_TEXT, "message": _TEXT, "details": {"type": "object", "properties": {
-                       "app_content": _object({"app": _TEXT, "title": _TEXT,
-                                               "summary": {"type": "string", "maxLength": 200},
-                                               "pushed": {"type": "boolean"}}),
-                       "work": {"type": "array", "items": _object(
-                           {"name": _TEXT, "done": _TEXT, "remaining": _TEXT})}}},
+                       "content": _object({"action": _TEXT, "app": _NULLABLE_TEXT, "title": _TEXT,
+                                           "summary": {"type": "string", "maxLength": 200},
+                                           "duration": _TEXT, "pushed": {"type": "boolean"}})}},
                    })
 
 
@@ -230,11 +225,11 @@ def _record(kind: str, fields: dict[str, Any], optional: tuple[str, ...] = ()) -
 
 _MESSAGE_RECORD = _record("message_arrival", {
     "sender": _NULLABLE_TEXT, "kind": {"enum": ["direct", "chat_invite", "mail"]},
-    "text": _TEXT, "subject": _TEXT,
-}, optional=("text", "subject"))
+    "text": _TEXT, "subject": _TEXT, "body": _TEXT,
+}, optional=("text", "subject", "body"))
 _MESSAGE_RECORD["if"] = {"properties": {"kind": {"const": "mail"}}}
-_MESSAGE_RECORD["then"] = {"required": ["subject"], "not": {"required": ["text"]}}
-_MESSAGE_RECORD["else"] = {"required": ["text"], "not": {"required": ["subject"]},
+_MESSAGE_RECORD["then"] = {"required": ["subject", "body"], "not": {"required": ["text"]}}
+_MESSAGE_RECORD["else"] = {"required": ["text"], "not": {"anyOf": [{"required": ["subject"]}, {"required": ["body"]}]},
                            "properties": {"sender": _TEXT}}
 PROGRESS_LAYER_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "进度层",
@@ -248,9 +243,9 @@ PROGRESS_LAYER_SCHEMA: dict[str, Any] = {
                                   "arguments": {"type": "object"}, "result": _RESULT, "self_note": _TEXT},
                     optional=("self_note",)),
             _MESSAGE_RECORD,
-            _record("delivery", {"order": _TEXT, "status": {"enum": ["pending", "delivered"]},
+            _record("delivery", {"order": _TEXT, "status": {"enum": ["pending", "ready_for_pickup", "delivered"]},
                                  "message": _TEXT}),
-            _record("app_push", {"app": _TEXT, "title": _TEXT,
+            _record("app_push", {"app": _TEXT, "action": _TEXT, "title": _TEXT,
                                   "summary": {"type": "string", "maxLength": 200}}),
             _record("work_completed", {"topic": _TEXT}),
             _record("plan_reminder", {"goal": _TEXT}),

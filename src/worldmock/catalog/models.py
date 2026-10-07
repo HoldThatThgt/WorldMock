@@ -12,7 +12,7 @@ from worldmock.base_models import DeepFrozenModel
 from worldmock.catalog.graph import Graph
 from worldmock.exchange.constants import CONTENT_MIN_SECONDS
 from worldmock.exchange.types import (
-    ActionCategory, AppPurpose, AppUseManner, GoodsCategory, LocationKind,
+    ActionCategory, AppPurpose, AppUseManner, CommunicationMode, GoodsCategory, LocationKind,
     PLACE_KIND_ENVIRONMENTS, SummarySourceKind,
 )
 
@@ -62,6 +62,7 @@ class Location(DeepFrozenModel):
     branch_label: NonEmptyString | None = None
     kind: LocationKind
     app_ids: tuple[NonEmptyString, ...]
+    shipping_seconds: PositiveInteger | None
 
     @property
     def display_name(self) -> str:
@@ -88,6 +89,7 @@ class Action(DeepFrozenModel):
     category: ActionCategory
     app_ids: tuple[NonEmptyString, ...]
     manner: AppUseManner | None
+    communication_mode: CommunicationMode | None
 
 
 class SummarySource(DeepFrozenModel):

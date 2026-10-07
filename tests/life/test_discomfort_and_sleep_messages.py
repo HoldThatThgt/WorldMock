@@ -14,12 +14,11 @@ import pytest
 
 from tests.life.conftest import (activity_name, advance_next, conclude_request, report_request, settle_day_plans,
                                  stage_day_plan, start_activity, submit_round)
-from tests.life.test_day_planning import _late_engine
-from tests.life.test_same_moment_decisions import _message_to, _with_inbox
 from tests.life.test_sleep_billing import _settlement, _stage_body
 from worldmock.life import rhythm, same_moment
 from worldmock.life.activity_control import is_pending_conclusion
-from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus, AgentState, BodyState, active_activities
+from worldmock.life.models import (ActivityKind, ActivityState, ActivityStatus, AgentState, BodyState,
+                                   SendMessageActionRequest, active_activities)
 from worldmock.life.rhythm import apply_decision_rhythm, engine_rhythm_inputs
 from worldmock.life.schedule import PlanGoal
 from worldmock.life.social import Message
@@ -42,11 +41,11 @@ def _keep_waiting(engine, agent_id: int) -> None:
         submit_round(engine, {agent_id: call}, f"keep-{agent_id}-{engine.context.state.version}")
 
 
-def test_hunger_pulse_starts_after_two_hours_and_bills_only_what_it_applies(tmp_path: Path) -> None:
+def test_hunger_pulse_starts_after_two_hours_and_bills_only_what_it_applies(engine_factory) -> None:
     """连续饿满两小时以前不计费；跨过门槛后只按实际超出的时长施加情绪脉冲。
 
     当前世界还会出现 app 推送等更短边界，因此用真实边界累计连续时长，不假定每个边界固定十五分钟。"""
-    engine = _late_engine(tmp_path, "2026-01-05T12:00:00+08:00", "hunger")
+    engine = engine_factory(mutate=lambda d: d.update(start_at="2026-01-05T12:00:00+08:00", messages=[], payrolls=[], bills=[]))
     settle_day_plans(engine)
     _stage_body(engine, energy_kcal=790.0, mood_valence=0.0, neuroticism_norm=0.0)
     start = engine.context.state.current_time
@@ -78,7 +77,7 @@ _NOW = 1_767_600_000
 def _uneasy(hours: float) -> AgentState:
     """连续不适已 hours 小时、尚未计费、情绪为 0（神经质 0）的人物。"""
     return AgentState(agent_id=1, name="Lin", location_id="home", balance_account_id="agent:1", body_settled_at=0,
-                      next_decision_at=0, discomfort_started_at=_NOW - round(hours * 3600),
+                      next_decision_at=0, driving_days=0, last_driving_date=None, discomfort_started_at=_NOW - round(hours * 3600),
                       body=BodyState(energy_kcal=1600, entertainment_need=0.0))
 
 
@@ -196,3 +195,18 @@ def test_messages_delivered_during_sleep_are_read_at_the_first_boundary_after_wa
     assert woke.body.mood_valence == pytest.approx(0.1)
     assert {"message_arrival", "wake_from_sleep"} <= set(_settlement(engine, remind, 2)["wake_reasons"])
     assert not active_activities(engine.context.state, 2)
+
+
+def _message_to(engine, identity, text):
+    """当前明确人物名称发送真实消息，不推断社交动作。"""
+    return "send_message", SendMessageActionRequest(
+        recipient_name=f"人物：{engine.context.state.agents[identity].name}", text=text)
+
+
+def _with_inbox(state, identity, *message_ids):
+    """纯边界测试明确声明已到达消息，不充当实际发送的证据。"""
+    agent = state.agents[identity]
+    messages = {item: Message(message_id=item, kind="direct", sender_id="agent:9",
+        recipient_id=f"agent:{identity}", text=f"消息{item}", created_at=state.current_time) for item in message_ids}
+    agents = {**state.agents, identity: agent.model_copy(update={"inbox": {**agent.inbox, **messages}}, deep=True)}
+    return state.model_copy(update={"agents": agents}, deep=True)

@@ -18,6 +18,10 @@ REGISTRATION_REASONS = {
     "GOODS_BINDING_KIND_INCONSISTENT": "A goods item must be bound to every store of a kind or to none of them.",
     "APP_PURPOSE_INVALID": "An app purpose does not match its store or payment bindings.",
     "ACTION_APP_MANNER_INVALID": "An action must declare a manner exactly when it is bound to apps.",
+    "ACTION_COMMUNICATION_MODE_INVALID":
+        "App-based social actions must declare text or voice communication; other actions must declare null.",
+    "PARCEL_STATION_REQUIRED":
+        "The nearest parcel station to a persona home must be registered and selected by the scenario.",
     "ACTION_CONTENT_EMPTY": "An action and each of its apps must have at least one content.",
     "ACTION_NAME_COLLIDES":
         "An action name must differ from every other action, app, place, goods and way name.",

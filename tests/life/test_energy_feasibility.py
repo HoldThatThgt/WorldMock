@@ -15,20 +15,17 @@ from agentsociety2.society import DirectToolCall
 from tests.life.conftest import (activity_name, advance_next, context, settle_day_plans, stage_day_plan, start_activity,
                                  submit_round, target_actions, tool_targets, travel_quote, wake_by_mail, start_request,
                                  pause_request, report_request)
-from tests.life.test_work_protocol import at_workplace
-from tests.life.test_work_topics import _engine_act, _engine_until
-from tests.life.test_motivation import _context, _profile
-from dataclasses import replace
-from worldmock.life.motivation import _enumerate_candidates
+from tests.life.work_runtime import at_workplace, start_assigned_work
+from tests.life.test_acs_amended_runtime import perform, pump
+from tests.life.test_acs_runtime import request
 from worldmock.life.travel import plan_trip
-from worldmock.life.work import work_totals
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life import felt
 from worldmock.life.body import minimum_energy_cost
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import ActivityKind, ActivityStatus, ReviseDayPlanRequest
-from worldmock.life.social import CALL_MET, CHAT_MET
+from worldmock.exchange.constants import CATEGORY_MET
 
 _ROOT = Path(__file__).resolve().parents[2]
 
@@ -54,17 +51,21 @@ def _set_energy(engine, energy_kcal: float) -> None:
 
 
 def _observed_action(engine, round_id: str, action: str, object_id: str | None = None):
-    """@brief 从冻结观察的私有绑定取映射到该内部动作的可读对象、动词与方式并执行。"""
-    decision = context(engine, round_id)
-    engine.begin_decision_round([decision])
-    observed = engine.observe(decision)
-    binding = next(row for row in observed["interaction_bindings"]
-                   if object_id is None or row["object_id"] == object_id
-                   if any(item["canonical_action"] == action for item in row["actions"]))
-    chosen = next(item for item in binding["actions"] if item["canonical_action"] == action)
-    request = start_request(targets=[binding["object"]], actions=[chosen["verb"]], ways=[chosen["label"]])
-    engine.submit_action(DirectToolCall(decision, f"action-{round_id}", "start_activity", request))
-    return observed, engine.commit_decision_round(round_id)[0]
+    """从当前动作目录构造完整五字段请求，经全部就绪人物的真实事务受理。"""
+    observed = engine.observe(context(engine, f"{round_id}-preview"))
+    if action in {"wait", "sleep"}:
+        value = request("自己", None, "等待" if action == "wait" else "睡觉")
+    elif action == "travel_to":
+        place = next(row.display_name for row in engine.context.scenario.locations if row.location_id == object_id)
+        value = request(f"地点：{place}", None, "步行")
+    else:
+        identity = {"browse": "browse-feed", "call": "voice-call", "work": "office-work"}[action]
+        catalog = engine.context.semantics.catalog
+        selected = catalog.actions[identity]
+        app = catalog.apps[selected.app_ids[0]].name if selected.app_ids else None
+        to = "联系人：同事" if action == "call" else None
+        value = request(selected.name, app, to=to)
+    return observed, perform(engine, round_id, value)
 
 
 def test_zero_energy_wait_settles_after_instant_action(engine_factory) -> None:
@@ -98,17 +99,15 @@ def test_zero_energy_wait_settles_after_instant_action(engine_factory) -> None:
 
 
 def test_zero_energy_observation_offers_every_action_without_energy_projection(engine_factory) -> None:
-    """零能量时工具与动作照常列出：观察不带能量可行性，观看、浏览与自身动作都在且可用，合同不带能量投影。"""
+    """零能量不隐藏当前动作，自身等待睡觉与目录动作照常可用，观察不暴露能量可行性。"""
     engine = engine_factory()
     stage_day_plan(engine)
     _set_energy(engine, 0)
-    decision = context(engine, "zero-energy-observation")
-    observed = engine.observe(decision)
-    # 能量不是准入事实：自身动作、浏览与观看都可用，reason 为 null；内容动作只写时长。
+    observed = engine.observe(context(engine, "zero-energy-observation"))
     assert {way: (row["available"], row["reason"]) for way, row in target_actions(observed, "自己").items()} == {
         "等待": (True, None), "睡觉": (True, None)}
-    watch = target_actions(observed, "应用：哔哩哔哩")["打开"]
-    assert watch["available"] is True and watch["duration"].startswith("约")
+    feed = next(row for row in observed["tool_layer"]["targets"] if row["name"] == "刷推荐")
+    assert all(row["available"] and row["duration"] for row in feed["actions"])
     assert "energy" not in json.dumps(observed["tool_layer"], ensure_ascii=False)
     assert "energy_feasibility" not in observed
     assert all("energy_projection" not in entry for entry in observed["affordance_contract"].values())
@@ -117,7 +116,7 @@ def test_zero_energy_observation_offers_every_action_without_energy_projection(e
 
 def test_routes_are_feasible_by_reachability_not_energy(engine_factory) -> None:
     """同一起终点的步行与驾车都按可达判定可行；费力标签区分方式，事件级路线不再带能量成本。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=lambda d: d["agents"][0].update(owns_car=True, initial_driving_days=7))
     trips = {mode: plan_trip(engine.context.semantics.catalog.graph, 'home', 'office', mode)
              for mode in ('walking', 'driving')}
     costs = {mode: minimum_energy_cost(ActivityKind.TRAVEL, trip.duration_seconds,
@@ -136,7 +135,7 @@ def test_routes_are_feasible_by_reachability_not_energy(engine_factory) -> None:
     assert f"地点：{office}" in tool_targets(observed)
 
 
-@pytest.mark.parametrize("action", ["wait", "sleep", "use_app"])
+@pytest.mark.parametrize("action", ["wait", "sleep", "browse"])
 def test_zero_energy_start_is_accepted(engine_factory, action: str) -> None:
     """零能量时恢复类与非恢复类活动都照常受理（能量不参与受理）。"""
     engine = engine_factory()
@@ -147,77 +146,60 @@ def test_zero_energy_start_is_accepted(engine_factory, action: str) -> None:
 
 
 def test_derived_duration_beyond_energy_is_accepted_and_settles_at_zero(engine_factory) -> None:
-    """系统派生的完整时长远超剩余能量时照常受理；结算把能量截到 0，全程无 ValueError。"""
+    """由实际内容派生的完整时长超过能量预算时照常受理并结算至零。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    from worldmock.exchange.constants import APP_USE_DEFAULT_SECONDS
-    duration = APP_USE_DEFAULT_SECONDS
-    budget = minimum_energy_cost(ActivityKind.USE_APP, duration, engine.context.scenario.body)
-    _set_energy(engine, budget / 2)
-    _, result = _observed_action(engine, "browse-low-energy", "use_app")
-    assert result.status == "in_progress"
-    _engine_until(engine, lambda: engine.context.state.activities[result.activity_id].status != ActivityStatus.ACTIVE,
-                  "energy-end")
-    assert engine.context.state.activities[result.activity_id].status == ActivityStatus.COMPLETED
+    _set_energy(engine, 1)
+    started = perform(engine, "course-low-energy", request("学课程", "哔哩哔哩"))
+    assert started.error_code is None, started.data
+    activity = engine.context.state.activities[started.activity_id]
+    content = engine.context.semantics.catalog.contents[activity.data["content_id"]]
+    assert activity.planned_duration_seconds == content.duration_seconds
+    pump(engine, lambda: engine.context.state.activities[started.activity_id].status != "active")
+    assert engine.context.state.activities[started.activity_id].status == "completed"
     assert engine.context.state.agents[1].body.energy_kcal == 0
 
 
 def test_zero_energy_travel_and_work_are_accepted(engine_factory) -> None:
-    """零能量时出行与工作都受理；工作照常累计有效时长（能量只压低效率）。"""
+    """出行与分配工作在零能量下仍实际受理，内容与身体继续结算。"""
     engine = engine_factory()
     stage_day_plan(engine)
     _set_energy(engine, 0)
     _, travel = _observed_action(engine, "zero-travel", "travel_to", "office")
-    assert travel.status == "in_progress", travel.error_code
+    assert travel.status == "in_progress", travel.data
     advance_next(engine)
     assert engine.context.state.agents[1].body.energy_kcal == 0
     worker = engine_factory()
     at_workplace(worker)
-    stage_day_plan(worker)
     _set_energy(worker, 0)
-    topic = worker.context.scenario.work_topics[0]
-    _, work = _observed_action(worker, "zero-work", "work", topic.topic_id)
-    assert work.status == "in_progress", work.error_code
+    content, work_id = start_assigned_work(worker, "zero-work")
     advance_next(worker)
-    activity = worker.context.state.activities[work.activity_id]
-    assert activity.elapsed_seconds > 0 and work_totals(worker.context.state, 1, topic.topic_id) == activity.elapsed_seconds
+    activity = worker.context.state.activities[work_id]
+    progress = worker.context.state.agents[1].content_progress[content.content_id]
+    assert progress.position_seconds == activity.elapsed_seconds > 0
     assert worker.context.state.agents[1].body.energy_kcal == 0
 
 
 def test_zero_energy_resume_is_accepted(engine_factory) -> None:
-    """零能量时暂停的观看照常恢复：恢复只重验地点与占用，不查能量。"""
+    """零能量下暂停的实际内容恢复，地点和占用重验不会增加能量准入门槛。"""
     engine = engine_factory()
     stage_day_plan(engine)
     _set_energy(engine, 0)
-    decision = context(engine, "watch-and-wait")
-    engine.begin_decision_round([decision])
-    engine.observe(decision)
-    request = start_request(targets=["应用：哔哩哔哩", "自己"], actions=["interact", "interact"],
-                                   ways=["打开", "等待"])
-    engine.submit_action(DirectToolCall(decision, "action-watch-and-wait", "start_activity", request))
-    assert engine.commit_decision_round("watch-and-wait")[0].status == "in_progress"
-    watch = next(item.activity_id for item in engine.context.state.activities.values() if item.kind == ActivityKind.USE_APP)
-    wake_by_mail(engine, offset=300)
+    started = perform(engine, "course", request("学课程", "哔哩哔哩"))
+    identity = started.activity_id
+    wake_by_mail(engine, offset=60)
     advance_next(engine)
-    paused = _act(engine, "pause-watch", "pause_activity",
-                  pause_request(activity_name(engine, watch), summary="先停一下。"))
-    assert paused.status == "completed" and engine.context.state.activities[watch].status == ActivityStatus.PAUSED
-    wake_by_mail(engine, offset=300)
-    advance_next(engine)
+    paused = perform(engine, "pause-course", pause_request(activity_name(engine, identity)), "pause_activity")
+    assert paused.error_code is None and engine.context.state.activities[identity].status == "paused"
+    resumed = perform(engine, "resume-course", report_request(activity_name(engine, identity)), "report_status")
+    assert resumed.error_code is None, resumed.data
+    assert engine.context.state.activities[identity].status == "active"
     assert engine.context.state.agents[1].body.energy_kcal == 0
-    resumed = _act(engine, "resume-watch", "report_status",
-                   report_request(activity_name(engine, watch), summary="接着看。"))
-    assert resumed.status == "completed", resumed.error_code
-    assert engine.context.state.activities[watch].status == ActivityStatus.ACTIVE
 
 
-def _act(engine, round_id: str, tool: str, request):
-    """@brief 以真实观察与登记执行一个决策轮并返回结果。"""
-    decision = context(engine, round_id)
-    engine.begin_decision_round([decision])
-    engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, f"action-{round_id}", tool, request))
-    return engine.commit_decision_round(round_id)[0]
+def _act(engine, round_id: str, tool: str, value):
+    """全部就绪人物经真实轮次提交，返回本人回执。"""
+    return perform(engine, round_id, value, tool)
 
 
 def test_checkpoint_with_overdrawn_activity_restores(engine_factory) -> None:
@@ -225,7 +207,7 @@ def test_checkpoint_with_overdrawn_activity_restores(engine_factory) -> None:
     engine = engine_factory()
     stage_day_plan(engine)
     _set_energy(engine, 0)
-    _, watch = _observed_action(engine, "overdrawn-watch", "use_app")
+    _, watch = _observed_action(engine, "overdrawn-watch", "browse")
     assert watch.status == "in_progress"
     planned_end = engine.context.state.activities[watch.activity_id].planned_end_at
     assert engine.scheduling_state().next_event_at.timestamp() < planned_end
@@ -240,7 +222,7 @@ def test_checkpoint_with_overdrawn_activity_restores(engine_factory) -> None:
     try:
         assert restored.context.state.activities[watch.activity_id].status == ActivityStatus.ACTIVE
         assert restored.context.state.agents[1].body.energy_kcal == 0
-        _engine_act(restored, "restore-report", "report_status", report_request(activity_name(restored, watch.activity_id)))
+        perform(restored, "restore-report", report_request(activity_name(restored, watch.activity_id)), "report_status")
         advance_next(restored)
         assert restored.context.state.agents[1].body.energy_kcal == 0
     finally:
@@ -272,7 +254,7 @@ def _stage_morning(engine, energy_kcal: float, seconds_of_day: int = 8 * 3600) -
     (405.0, 400.0, "很饿", "饿得难受"),
     (104.0, 100.0, "饿得难受", "饿得发慌"),
 ])
-@pytest.mark.parametrize("action", ["use_app", "call"])
+@pytest.mark.parametrize("action", ["browse", "call"])
 def test_hunger_band_crossing_wakes_during_activity(engine_factory, energy, floor, before, after, action) -> None:
     """观看或通话进行中，饥饿跨过 400、100 千卡保底档的那一秒提供决策，原因含 felt_band_change。"""
     engine = engine_factory(mutate=_with_contact)
@@ -281,7 +263,7 @@ def test_hunger_band_crossing_wakes_during_activity(engine_factory, energy, floo
     observed, started = _observed_action(engine, f"hungry-{action}", action)
     assert started.status == "in_progress", started.error_code
     assert observed["body"]["levels"]["appetite"] == before
-    met = CALL_MET if action == "call" else engine.context.scenario.body.activity_met["use_app"]
+    met = CATEGORY_MET["social" if action == "call" else "entertainment"][True]
     burn = engine.context.scenario.body.basal_kcal_per_hour + (met - 1) * engine.context.scenario.body.mass_kg
     crossing = now + math.floor((energy - floor) * 3600 / burn) + 1
     assert engine.scheduling_state().next_event_at.timestamp() == crossing
@@ -296,32 +278,26 @@ def test_hunger_band_crossing_wakes_during_activity(engine_factory, energy, floo
 
 
 def test_hunger_band_crossing_wakes_during_chat(engine_factory) -> None:
-    """两人同处时交谈进行中（代谢当量取 CHAT_MET），饥饿跨过 400 千卡保底档的那一秒同样提供决策。"""
-    engine = engine_factory("multi-person.json")
-    stage_day_plan(engine, 1)
-    stage_day_plan(engine, 2)
+    """同处人物的当前线下社交按类别代谢结算，跨饥饿档时仍提供进行中决策。"""
+    def co_present(document):
+        document["agents"][1]["home_location_id"] = document["agents"][0]["home_location_id"]
+    engine = engine_factory("multi-person.json", mutate=co_present)
+    for identity in engine.context.state.agents:
+        stage_day_plan(engine, identity)
     now = _stage_morning(engine, 405.0)
-    wait = ("start_activity", start_activity("等待", "自己"))
-    requests = {1: ("start_activity", start_activity("交谈", f"人物：{engine.context.state.agents[2].name}")), 2: wait}
-    _, results = submit_round(engine, requests, "hungry-chat")
-    chat = next(item for item in results if item.agent_id == 1)
-    assert chat.status == "in_progress", chat.error_code
-    assert engine.context.state.activities[chat.activity_id].kind == ActivityKind.CHAT
+    partner = engine.context.state.agents[2].name
+    chat = perform(engine, "hungry-chat", request("聊天", None, to=f"人物：{partner}"))
+    assert chat.error_code is None, chat.data
+    assert engine.context.state.activities[chat.activity_id].kind == ActivityKind.ACTION
     body = engine.context.scenario.body
-    burn = body.basal_kcal_per_hour + (CHAT_MET - 1) * body.mass_kg
+    burn = body.basal_kcal_per_hour + (CATEGORY_MET["social"][False] - 1) * body.mass_kg
     crossing = now + math.floor(5.0 * 3600 / burn) + 1
-    while 1 not in (ready := engine.scheduling_state().ready_agent_ids):
-        if ready:
-            submit_round(engine, {agent_id: wait for agent_id in ready}, f"filler-{engine.context.state.current_time}")
-        else:
-            advance_next(engine)
+    pump(engine, lambda: engine.context.state.current_time >= crossing)
     assert engine.context.state.current_time == crossing
-    assert engine.context.state.activities[chat.activity_id].status == ActivityStatus.ACTIVE
+    assert engine.context.state.activities[chat.activity_id].status == "active"
     assert "felt_band_change" in engine.context.state.agents[1].pending_wake_reasons
-    assert engine.context.state.agents[1].felt_bands_at_last_decision["appetite"] == "很饿"
-    decision = context(engine, "after-chat", 1)
-    engine.begin_decision_round([decision])
-    assert engine.observe(decision)["body"]["levels"]["appetite"] == "饿得难受"
+    observed = engine.observe(context(engine, "after-chat"))
+    assert observed["body"]["levels"]["appetite"] == "饿得难受"
 
 
 def test_hunger_crossing_just_before_lunch_end_wakes_during_wait(engine_factory) -> None:
@@ -365,17 +341,3 @@ def test_energy_gate_symbols_are_gone_from_production_code() -> None:
             for path in sorted((_ROOT / base).rglob("*.py")) if "__pycache__" not in path.parts
             for name in leaks if name in path.read_text(encoding="utf-8")]
     assert hits == []
-
-
-def test_motivation_internal_still_weighs_energy(engine_factory) -> None:
-    """内部动机评分（只供评估）仍按能量取舍：零能量时不再给按能量限时的生活活动候选，能量充足时给；
-    恢复类的睡眠候选两种情形都在。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    rich_context = _context(location='home')
-    poor_context = replace(rich_context, agent=rich_context.agent.model_copy(update={
-        'body': rich_context.agent.body.model_copy(update={'energy_kcal': 0})}))
-    families = {item.family for item in _enumerate_candidates(rich_context, _profile())}
-    starved = {item.family for item in _enumerate_candidates(poor_context, _profile())}
-    assert 'lifestyle' in families and 'sleep' in families
-    assert 'lifestyle' not in starved and 'sleep' in starved

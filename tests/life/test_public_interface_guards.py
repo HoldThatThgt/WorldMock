@@ -13,13 +13,12 @@ from pydantic import ValidationError
 from tests import data_paths
 from tests.life.conftest import start_activity
 from tests.life.routing_fixtures import act
-from tests.life.test_motivation import CONTRACT_PROFILE
 from worldmock.errors import BusinessRuleError, IntegrityError, PreconditionError
 from worldmock.life.durations import capped_duration_seconds
 from worldmock.life.error_contract import Candidate, ErrorItem, ErrorReport, host_defaults
 from worldmock.life.load_checks import check_location_kinds, check_visible_labels
 from worldmock.life.models import ActivityKind, ActivityStartParams, validated_payload
-from worldmock.life.scenario import BodyConfig, LifeScenario, MotivationProfile
+from worldmock.life.scenario import BodyConfig, LifeScenario
 
 
 @pytest.fixture
@@ -79,11 +78,11 @@ def test_error_report_refuses_missing_code_or_reason(code, reason, caplog):
     assert "Error report has no code or reason" in caplog.text
 
 
-def test_host_error_defaults_are_closed_and_work_topic_guidance_is_exact(caplog):
-    """已分配主题错误使用冻结说明，未知码明确失败。"""
-    assert host_defaults("WORK_TOPIC_NOT_FOUND") == (
-        "The named work topic is not assigned to you.", "Use an exact known work topic name.")
-    with caplog.at_level(logging.ERROR), pytest.raises(ValueError, match="unknown host error code: INVENTED"):
+def test_host_error_defaults_are_closed_and_content_guidance_is_exact(caplog):
+    from worldmock.life.guidance import refusal_for_code
+    assert host_defaults("APP_REQUIRED")== ("This action is done through an app and none was named.",
+                                           "Set app to one of the apps offered for this action.")
+    with caplog.at_level(logging.ERROR),pytest.raises(ValueError,match="unknown host error code: INVENTED"):
         host_defaults("INVENTED")
     assert "Unknown host error code: INVENTED" in caplog.text
 
@@ -106,12 +105,12 @@ def test_runtime_place_names_require_actual_branch_disambiguation(engine_factory
     """两个地点显示名重合必须在呈现之前拒绝，并保留分店标签建议。"""
     engine = engine_factory()
     scenario = engine.context.scenario
-    check_visible_labels(scenario, engine.context.corpus_root)
+    check_visible_labels(scenario)
     first, second, *rest = scenario.locations
     duplicate = second.model_copy(update={"name": first.name, "branch_label": first.branch_label})
     changed = scenario.model_copy(update={"locations": (first, duplicate, *rest)})
     with caplog.at_level(logging.ERROR), pytest.raises(IntegrityError, match="share display names") as caught:
-        check_visible_labels(changed, engine.context.corpus_root)
+        check_visible_labels(changed)
     error = str(caught.value)
     assert first.display_name in error and first.location_id in error and second.location_id in error
     assert "branch_label" in error and "share display names" in caplog.text
@@ -126,14 +125,14 @@ def test_runtime_place_names_require_actual_branch_disambiguation(engine_factory
 def test_actual_activity_state_is_rechecked_before_persisting(engine_factory, drift, reason, caplog):
     """真实打开app形成的活动不能以损坏时序、剩余时间或资源占用重新持久化。"""
     engine = engine_factory()
-    rules = engine.context.rules
-    app = next(item for item in rules.apps.values() if rules.contents_by_app[item.app_id])
-    started = act(engine, "guard-open", start_activity("打开", app.name))
+    from tests.life.test_name_resolution import start_payload
+    from worldmock.life.models import StartActivityRequest
+    started = act(engine,"guard-open",StartActivityRequest.model_validate(start_payload("刷推荐","进行",app="抖音")))
     assert started.status == "in_progress"
     state = engine.context.state.model_copy(deep=True)
     activity = state.activities[started.activity_id]
     assert activity.resource_claims and activity.elapsed_seconds == 0
-    assert validated_payload(state)["activities"][started.activity_id]["target_id"] == app.app_id
+    assert validated_payload(state)["activities"][started.activity_id]["data"]["app_id"] == "douyin"
     committed = deepcopy(engine.context.store.state)
     if drift == "settlement":
         activity.elapsed_seconds = 1
@@ -150,49 +149,41 @@ def test_actual_activity_state_is_rechecked_before_persisting(engine_factory, dr
     assert reason.lower() in caplog.text.lower()
 
 
-def test_rule_admission_accepts_content_app_and_refuses_registered_empty_app(engine_factory, caplog):
-    """app已登记仍须有可用内容，正常受理只返回真实app身份。"""
-    engine = engine_factory()
-    rules, state = engine.context.rules, engine.context.state
-    agent = state.agents[1]
-    content_app = next(item for item in rules.apps.values() if rules.contents_by_app[item.app_id])
-    empty_app = next(item for item in rules.apps.values() if not rules.contents_by_app[item.app_id])
-    request = ActivityStartParams(activity_type=ActivityKind.USE_APP,
-                                  planned_duration_seconds=2400, target_id=content_app.app_id)
-    assert rules.validate_start(agent, request, state.current_time, agent.location_id) == {
-        "app_id": content_app.app_id}
-    request = request.model_copy(update={"target_id": empty_app.app_id})
-    with caplog.at_level(logging.ERROR), pytest.raises(BusinessRuleError, match="^APP_CONTENT_EMPTY$"):
-        rules.validate_start(agent, request, state.current_time, agent.location_id)
-    assert "Selected app has no content" in caplog.text
+def test_rule_admission_accepts_content_action_and_refuses_action_without_eligible_content():
+    from random import Random
+    from tests.life.action_contract_world import contract_world
+    from worldmock.life.content_select import ContentRequest,select_content
+    context,_=contract_world()
+    actual,_=select_content(context.semantics.catalog,context.scenario,context.state,
+                          ContentRequest(1,"browse-feed","douyin"),Random(7))
+    assert actual.action_id == "browse-feed" and "douyin" in actual.app_ids
+    with pytest.raises(BusinessRuleError,match="CONTENT_EXHAUSTED"):
+        select_content(context.semantics.catalog,context.scenario,context.state,
+                       ContentRequest(2,"office-work",None),Random(7))
 
 
 def test_work_rule_refusal_suggests_the_real_workplace_name(engine_factory):
-    """在家拒绝工作应建议真实工作地点，在现场则返回已分配主题。"""
-    engine = engine_factory()
-    rules, state = engine.context.rules, engine.context.state
-    config = rules.scenario.agents[0]
-    topic_id = config.work_topic_ids[0]
-    agent = state.agents[config.agent_id]
-    workplace = config.work_schedule.workplace_location_id
-    request = ActivityStartParams(activity_type=ActivityKind.WORK,
-                                  planned_duration_seconds=3600, target_id=topic_id)
-    with pytest.raises(PreconditionError, match="ACTIVITY_PRECONDITION_UNMET") as caught:
-        rules.validate_start(agent, request, state.current_time, agent.location_id)
-    assert caught.value.unmet == ["required_location_id"]
-    assert caught.value.suggested == {"travel_to": rules.locations[workplace].name}
-    present = agent.model_copy(update={"location_id": workplace})
-    assert rules.validate_start(present, request, state.current_time, workplace) == {"topic_id": topic_id}
+    from tests.life.test_name_resolution import start_payload
+    from worldmock.life.models import StartActivityRequest
+    from tests.life.conftest import submit_round
+    engine=engine_factory()
+    _,results=submit_round(engine,{1:("start_activity",StartActivityRequest.model_validate(
+        start_payload("办公","进行")))},"home-work")
+    assert results[0].error_code == "ACTIVITY_PRECONDITION_UNMET"
+    assert "公司" in results[0].data["reason"]
+    assert not engine.context.state.activities
 
 
-def test_registered_topic_is_private_to_its_assigned_person(engine_factory, caplog):
-    """同一世界中的另一人物不能受理未分配给自己的已登记主题。"""
-    engine = engine_factory("multi-person.json")
-    rules = engine.context.rules
-    assert rules.work_topic("topic-sales", 1).topic_id == "topic-sales"
-    with caplog.at_level(logging.ERROR), pytest.raises(BusinessRuleError, match="^WORK_TOPIC_NOT_FOUND$"):
-        rules.work_topic("topic-sales", 2)
-    assert "Work topic is not assigned to this agent" in caplog.text
+def test_registered_work_content_is_private_to_its_assigned_person(engine_factory):
+    from worldmock.life.content_select import ContentRequest,eligible_contents
+    engine=engine_factory("multi-person.json")
+    catalog,state,scenario=engine.context.semantics.catalog,engine.context.state,engine.context.scenario
+    state.agents[1].location_id=scenario.agents[0].work_schedule.workplace_location_id
+    next(session for session in state.sessions.values() if session.agent_id==1 and session.status=="active").location_id=state.agents[1].location_id
+    own=eligible_contents(catalog,scenario,state,ContentRequest(1,"office-work",None))
+    other=eligible_contents(catalog,scenario,state,ContentRequest(2,"office-work",None))
+    assert {item.content_id for item in own}==set(scenario.agents[0].work_content_ids)
+    assert other == ()
 
 
 def test_resolved_body_view_refuses_hunger_threshold_above_energy_capacity(engine_factory, caplog):
@@ -206,38 +197,22 @@ def test_resolved_body_view_refuses_hunger_threshold_above_energy_capacity(engin
     assert "body hunger threshold exceeds maximum energy" in caplog.text
 
 
-def test_motivation_trait_keys_are_closed_and_preserve_actual_work_aspiration(caplog):
-    """完整动机档案使用五个特质与实际工时，不能用任意同数量的键替换。"""
-    document = deepcopy(CONTRACT_PROFILE)
-    assert MotivationProfile.model_validate(document).aspiration == {"daily_work_seconds": 14400}
-    document["big_five"]["invented"] = document["big_five"].pop("openness")
-    with caplog.at_level(logging.ERROR), pytest.raises(ValidationError, match="exactly the five trait keys"):
-        MotivationProfile.model_validate(document)
-    assert "motivation big_five must use exactly the five trait keys" in caplog.text
 
 
 @pytest.mark.parametrize("topics", [("topic-sales", "topic-sales"), (" ",)])
-def test_scenario_refuses_duplicate_or_blank_assigned_topic_names(scenario_document, topics, caplog):
+def test_scenario_refuses_duplicate_or_blank_assigned_content_names(scenario_document, topics, caplog):
     """工作分配使用唯一非空主题身份。"""
-    assert LifeScenario.model_validate(scenario_document).agents[0].work_topic_ids == ("topic-sales",)
-    scenario_document["agents"][0]["work_topic_ids"] = topics
+    assert LifeScenario.model_validate(scenario_document).agents[0].work_content_ids == ("topic-sales",)
+    scenario_document["agents"][0]["work_content_ids"] = topics
     with caplog.at_level(logging.ERROR), pytest.raises(ValidationError, match="unique non-empty names"):
         LifeScenario.model_validate(scenario_document)
-    assert "work topic ids must be unique non-empty names" in caplog.text
+    assert "work content ids must be unique non-empty names" in caplog.text
 
 
-@pytest.mark.parametrize("inventory, reason", [
-    ({" ": {"chips": 1}}, "initial inventory locations and holdings must not be empty"),
-    ({"home": {}}, "initial inventory locations and holdings must not be empty"),
-    ({"home": {" ": 1}}, "initial inventory object ids must not be empty"),
-])
-def test_scenario_refuses_empty_initial_holding_identity(scenario_document, inventory, reason, caplog):
-    """预置食品必须有真实地点、非空持有集合与对象身份。"""
-    assert LifeScenario.model_validate(scenario_document).agents[0].home_location_id == "home"
-    scenario_document["agents"][0]["initial_inventory"] = inventory
-    with caplog.at_level(logging.ERROR), pytest.raises(ValidationError, match=reason):
+def test_scenario_rejects_retired_initial_inventory_field(scenario_document):
+    scenario_document["agents"][0]["initial_inventory"]={"home":{"chips":1}}
+    with pytest.raises(ValidationError,match="Extra inputs are not permitted"):
         LifeScenario.model_validate(scenario_document)
-    assert reason in caplog.text
 
 
 @pytest.mark.parametrize("section, reason", [
@@ -263,7 +238,7 @@ def test_scenario_rejects_unknown_contact_delivery_place_or_mail_recipient(scena
 
 def test_scenario_requires_menus_for_every_fixed_location_kind(scenario_document):
     """八类地点菜单是场景完整合同，即使该类没有选中地点也不能缺失。"""
-    assert len(LifeScenario.model_validate(scenario_document).interaction_menus_by_location_kind) == 8
+    assert len(LifeScenario.model_validate(scenario_document).interaction_menus_by_location_kind) == 10
     scenario_document["interaction_menus_by_location_kind"].pop("cafe")
     with pytest.raises(ValidationError, match="all fixed location kinds"):
         LifeScenario.model_validate(scenario_document)

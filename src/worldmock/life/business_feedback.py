@@ -26,13 +26,17 @@ def _affected_fields(request: dict, code: str) -> list[tuple[str | int, ...]]:
         paths = []
         for index, item in enumerate(request["items"]):
             if "target" in item:
-                field = ("to" if code in {"RECIPIENT_NOT_FOUND", "RECIPIENT_NOT_KNOWN"} else
-                         "way" if code in {"FULFILLMENT_NOT_SUPPORTED", "INTERACTION_MENU_DENIED"} else "target")
+                field = ("app" if code in {"APP_REQUIRED", "APP_NOT_OFFERED"} else
+                         "pay_app" if code in {"PAYMENT_APP_REQUIRED", "PAYMENT_APP_NOT_BOUND"} else
+                         "to" if code in {"RECIPIENT_NOT_FOUND", "COUNTERPART_REQUIRED"} else
+                         "way" if code == "INTERACTION_MENU_DENIED" else "target")
             else:
                 field = "activity_name"
             paths.append(("items", index, field))
         return paths
-    if "task_name" in request:
+    if "at" in request:
+        field = "at"
+    elif "task_name" in request:
         field = "task_name"
     elif "recipient_name" in request:
         field = "text" if code == "MESSAGE_TEXT_TOO_LONG" else "recipient_name"

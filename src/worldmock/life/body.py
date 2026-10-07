@@ -379,7 +379,7 @@ def next_shared_body_boundary_seconds(body: BodyState,
                               entertainment_relief_per_hour=sum(
                                   item.entertainment_relief_per_hour for _, item in activities))
     kinds = {kind for kind, _ in activities}
-    kind = ActivityKind.WORK if ActivityKind.WORK in kinds else ActivityKind.WAIT
+    kind = ActivityKind.ACTION if ActivityKind.ACTION in kinds else ActivityKind.WAIT
     return next_body_boundary_seconds(body, kind, config, factors, clock)
 
 
