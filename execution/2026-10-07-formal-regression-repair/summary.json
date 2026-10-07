@@ -1,4 +1,155 @@
 {
-  "status": "PENDING_ACTUAL_PLATFORM_GATES",
-  "original_failures_preserved": true
+  "status": "PASS",
+  "tested_source_commit": "43e8d6dd3f2b66f74c19c90776bbef3b5c2f4237",
+  "source_sha256": "73451a7ac6d4cd10057604d483c49ce2979eb7e84828501b835c037eb100a0cc",
+  "formal_environment_source_sha256": "aa5d76a0dd794e82045046fd77be66197a3e725db1247d8b895b5cd2311948f5",
+  "frozen_spec_sha256": "f61367ea90b6bdd188c8b4638f85e91b880f2cc5f482e14a4af5a3d7764a9784",
+  "formal_dataset_release_commit": "a399cbca835c48cef2163613a80d132f85e07e07",
+  "formal_dataset_evidence_head": "84bb923c8626f8b9ac159488e6e6ddeceaf56433",
+  "formal_files_unchanged": 97,
+  "original_nodes_retained": 5701,
+  "added_nodes": 7,
+  "platforms": {
+    "macos": {
+      "standard": {
+        "run_id": "c7c89c46-a6e1-43c8-8f28-446c59de0920",
+        "passed": 5461,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "exit_code": 0,
+        "source_sha256": "73451a7ac6d4cd10057604d483c49ce2979eb7e84828501b835c037eb100a0cc",
+        "wall_seconds": 550.550437417056,
+        "selected_collected_completed_exactly_once": true
+      },
+      "full": {
+        "run_id": "9db7acad-df70-4e7d-a20f-c84de2f507a2",
+        "passed": 5708,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "exit_code": 0,
+        "source_sha256": "73451a7ac6d4cd10057604d483c49ce2979eb7e84828501b835c037eb100a0cc",
+        "wall_seconds": 1305.3443305420224,
+        "selected_collected_completed_exactly_once": true
+      },
+      "coverage": {
+        "passed": true,
+        "exit_code": 0,
+        "branch_percent": 95.82,
+        "uncovered_public_interfaces": 0,
+        "report": "macos/coverage-report.json"
+      },
+      "bootstrap": {
+        "passed": true,
+        "node_sqlite_available": true,
+        "chinese_chart_font_available": true,
+        "node_version": "v26.0.0"
+      }
+    },
+    "linux": {
+      "standard": {
+        "run_id": "69099aa3-4bf9-4bdf-9bf4-7bfe9b2c91e5",
+        "passed": 5461,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "exit_code": 0,
+        "source_sha256": "73451a7ac6d4cd10057604d483c49ce2979eb7e84828501b835c037eb100a0cc",
+        "wall_seconds": 620.0163667959999,
+        "selected_collected_completed_exactly_once": true
+      },
+      "full": {
+        "run_id": "a0d0d050-0af8-4c40-bd3a-a11635fdf223",
+        "passed": 5708,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "exit_code": 0,
+        "source_sha256": "73451a7ac6d4cd10057604d483c49ce2979eb7e84828501b835c037eb100a0cc",
+        "wall_seconds": 1573.9191462510003,
+        "selected_collected_completed_exactly_once": true
+      },
+      "coverage": {
+        "passed": true,
+        "exit_code": 0,
+        "branch_percent": 95.82,
+        "uncovered_public_interfaces": 0,
+        "report": "linux/coverage-report.json"
+      },
+      "bootstrap": {
+        "passed": true,
+        "node_sqlite_available": true,
+        "chinese_chart_font_available": true,
+        "node_version": "v26.0.0"
+      }
+    }
+  },
+  "bob": {
+    "status": "COMPLETE",
+    "counts": {
+      "mapped_requirements": 7,
+      "implementation_missing": 0,
+      "implementation_diverged": 0,
+      "killed": 7,
+      "survived": 0,
+      "invalid": 0,
+      "inconclusive": 0
+    },
+    "report": "bob/Bob.md"
+  },
+  "independent_fixture_review": "APPROVED",
+  "preservation": [
+    {
+      "repository": "WorldMock",
+      "original_head": "6d1130129907def4e7187104cb53745293aa3258",
+      "all_protected_bytes_unchanged": true,
+      "protected_files": 0
+    },
+    {
+      "repository": "WorldMock-Dataset",
+      "original_head": "84bb923c8626f8b9ac159488e6e6ddeceaf56433",
+      "all_protected_bytes_unchanged": true,
+      "protected_files": 6
+    },
+    {
+      "repository": "WorldMock",
+      "original_head": "c0265684bb2015f20353b3f3b55ab70123b9bd1c",
+      "all_protected_bytes_unchanged": true,
+      "protected_files": 0
+    }
+  ],
+  "original_failed_receipts": "WorldMock-Dataset/execution/2026-10-07-resource-rule-acceptance/",
+  "diagnostic_attempt": "repair-evidence/diagnostic-attempt/macos-first-full-termination.json",
+  "scope": {
+    "fixed_behavior": "Explicit artificial source; all original assertions and bounds retained",
+    "selected_formal_witnesses": "Real admission, cache isolation, name-derived query, derived-hour lifecycle restore and certified export",
+    "production_change": "Bootstrap dependency capability verification; life runtime rules unchanged",
+    "excluded": [
+      "third_repository_native_phone_consumer",
+      "five_cross_platform_floating_value_differences"
+    ],
+    "not_executed": [
+      "Windows",
+      "another_physical_machine"
+    ]
+  },
+  "documentation_gates": {
+    "documentation_gate": {
+      "exit_code": 0,
+      "documents": 157,
+      "problems": 0,
+      "log": "gates/documentation-post-merge.log"
+    },
+    "design_build_check": {
+      "exit_code": 0,
+      "log": "gates/design-post-merge.log"
+    },
+    "post_merge_coverage": {
+      "exit_code": 0,
+      "log": "gates/coverage-post-merge.log"
+    },
+    "origin_main_merge": "Already up to date; no tested inputs changed"
+  },
+  "handoff_deleted": true
 }

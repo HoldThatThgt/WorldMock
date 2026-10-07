@@ -1,0 +1,14 @@
+diff --git a/scripts/bootstrap_environment.py b/scripts/bootstrap_environment.py
+index fdf4945..994bf52 100644
+--- a/scripts/bootstrap_environment.py
++++ b/scripts/bootstrap_environment.py
+@@ -143,6 +143,9 @@ def _node_status() -> tuple[str | None, bool]:
+ 
+ def _chinese_font_available(root: Path) -> bool:
+     """@brief 在根虚拟环境子进程调用生产字体选择器，保持宿主导入边界。"""
++    from worldmock.evaluation.reporting import _chinese_font
++
++    _chinese_font()
+     python = environment_python(root / ".venv")
+     code = "from worldmock.evaluation.reporting import _chinese_font; _chinese_font()"
+     try:

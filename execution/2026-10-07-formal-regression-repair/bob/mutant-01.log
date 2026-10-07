@@ -1,0 +1,142 @@
+...........................FF.............                               [100%]
+=================================== FAILURES ===================================
+_ test_node_printable_version_cannot_pass_without_working_sqlite[module_missing] _
+
+tmp_path = PosixPath('/private/var/folders/1y/l2txv0cd12n0x_80v_c_st300000gn/T/pytest-of-atishoo/pytest-1188/test_node_printable_version_ca0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1081f9c70>
+failure = 'module_missing'
+caplog = <_pytest.logging.LogCaptureFixture object at 0x1081fbad0>
+
+    @pytest.mark.requires_node
+    @pytest.mark.parametrize("failure", ["module_missing", "query_wrong"])
+    def test_node_printable_version_cannot_pass_without_working_sqlite(tmp_path, monkeypatch, failure, caplog):
+        """@brief 实际 Node 能打印版本但模块或 JSON 查询失效时，release 拒绝且 dev 收据未通过。"""
+        node = shutil.which("node")
+        actual_run = subprocess.run
+        faults = {
+            "module_missing": (
+                "const Module = require('node:module'); const load = Module._load; "
+                "Module._load = function(name, ...args) { "
+                "if (name === 'node:sqlite') throw Error('SQLite unavailable'); "
+                "return load.call(this, name, ...args); }; "
+            ),
+            "query_wrong": (
+                "const sqlite = require('node:sqlite'); const prepare = sqlite.DatabaseSync.prototype.prepare; "
+                "sqlite.DatabaseSync.prototype.prepare = function(sql) { "
+                "const statement = prepare.call(this, sql); "
+                "if (sql.startsWith('SELECT')) return {all: () => [{extracted: 8, expanded: 8}]}; "
+                "return statement; }; "
+            ),
+        }
+    
+        def execute(command, **options):
+            """@brief 只在真实 Node 查询进程注入缺陷，版本进程与字体进程照常执行。"""
+            if command[:2] == [node, "-e"]:
+                command = [node, "-e", faults[failure] + command[2]]
+            return actual_run(command, **options)
+    
+        monkeypatch.setattr(environment.subprocess, "run", execute)
+        status = environment.component_status(ROOT)
+        assert status["node_version"].startswith("v")
+>       assert status["node_sqlite_available"] is False
+E       assert True is False
+
+tests/test_bootstrap.py:332: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    root:bootstrap_environment.py:140 Node.js SQLite read/write probe failed: [eval]:1
+const Module = require('node:module'); const load = Module._load; Module._load = function(name, ...args) { if (name === 'node:sqlite') throw Error('SQLite unavailable'); return load.call(this, name, ...args); }; const assert = require('node:assert/strict'); const {DatabaseSync} = require('node:sqlite'); const database = new DatabaseSync(':memory:'); database.exec('CREATE TABLE probe(body TEXT NOT NULL)'); database.prepare('INSERT INTO probe(body) VALUES (?)').run(JSON.stringify({values: [7]})); const rows = database.prepare("SELECT json_extract(probe.body, '$.values[0]') AS extracted, item.value AS expanded FROM probe, json_each(probe.body, '$.values') AS item").all(); assert.deepEqual(rows.map(row => [row.extracted, row.expanded]), [[7, 7]]); database.close();
+                                                                                                                                       ^
+
+Error: SQLite unavailable
+    at Module._load ([eval]:1:142)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+    at Module.require (node:internal/modules/cjs/loader:1575:12)
+    at require (node:internal/modules/helpers:191:16)
+    at [eval]:1:282
+    at runScriptInThisContext (node:internal/vm:219:10)
+    at node:internal/process/execution:483:12
+    at [eval]-wrapper:6:24
+    at runScriptInContext (node:internal/process/execution:481:60)
+    at evalFunction (node:internal/process/execution:315:30)
+
+Node.js v26.0.0
+_ test_node_printable_version_cannot_pass_without_working_sqlite[query_wrong] __
+
+tmp_path = PosixPath('/private/var/folders/1y/l2txv0cd12n0x_80v_c_st300000gn/T/pytest-of-atishoo/pytest-1188/test_node_printable_version_ca1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1081faf30>
+failure = 'query_wrong'
+caplog = <_pytest.logging.LogCaptureFixture object at 0x1081fa870>
+
+    @pytest.mark.requires_node
+    @pytest.mark.parametrize("failure", ["module_missing", "query_wrong"])
+    def test_node_printable_version_cannot_pass_without_working_sqlite(tmp_path, monkeypatch, failure, caplog):
+        """@brief 实际 Node 能打印版本但模块或 JSON 查询失效时，release 拒绝且 dev 收据未通过。"""
+        node = shutil.which("node")
+        actual_run = subprocess.run
+        faults = {
+            "module_missing": (
+                "const Module = require('node:module'); const load = Module._load; "
+                "Module._load = function(name, ...args) { "
+                "if (name === 'node:sqlite') throw Error('SQLite unavailable'); "
+                "return load.call(this, name, ...args); }; "
+            ),
+            "query_wrong": (
+                "const sqlite = require('node:sqlite'); const prepare = sqlite.DatabaseSync.prototype.prepare; "
+                "sqlite.DatabaseSync.prototype.prepare = function(sql) { "
+                "const statement = prepare.call(this, sql); "
+                "if (sql.startsWith('SELECT')) return {all: () => [{extracted: 8, expanded: 8}]}; "
+                "return statement; }; "
+            ),
+        }
+    
+        def execute(command, **options):
+            """@brief 只在真实 Node 查询进程注入缺陷，版本进程与字体进程照常执行。"""
+            if command[:2] == [node, "-e"]:
+                command = [node, "-e", faults[failure] + command[2]]
+            return actual_run(command, **options)
+    
+        monkeypatch.setattr(environment.subprocess, "run", execute)
+        status = environment.component_status(ROOT)
+        assert status["node_version"].startswith("v")
+>       assert status["node_sqlite_available"] is False
+E       assert True is False
+
+tests/test_bootstrap.py:332: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    root:bootstrap_environment.py:140 Node.js SQLite read/write probe failed: node:internal/assert/utils:146
+  throw error;
+  ^
+
+AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    [
++     8,
++     8
+-     7,
+-     7
+    ]
+  ]
+
+    at [eval]:1:769
+    at runScriptInThisContext (node:internal/vm:219:10)
+    at node:internal/process/execution:483:12
+    at [eval]-wrapper:6:24
+    at runScriptInContext (node:internal/process/execution:481:60)
+    at evalFunction (node:internal/process/execution:315:30)
+    at evalTypeScript (node:internal/process/execution:327:3)
+    at node:internal/main/eval_string:71:3 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: [ [ 8, 8 ] ],
+  expected: [ [ 7, 7 ] ],
+  operator: 'deepStrictEqual',
+  diff: 'simple'
+}
+
+Node.js v26.0.0
+=========================== short test summary info ============================
+FAILED tests/test_bootstrap.py::test_node_printable_version_cannot_pass_without_working_sqlite[module_missing]
+FAILED tests/test_bootstrap.py::test_node_printable_version_cannot_pass_without_working_sqlite[query_wrong]
+2 failed, 40 passed in 4.89s

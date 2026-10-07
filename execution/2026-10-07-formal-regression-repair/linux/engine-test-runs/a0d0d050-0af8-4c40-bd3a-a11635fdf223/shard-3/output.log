@@ -1,0 +1,39 @@
+........................................................................ [  6%]
+........................................................................ [ 12%]
+........................................................................ [ 18%]
+........................................................................ [ 24%]
+........................................................................ [ 31%]
+........................................................................ [ 37%]
+........................................................................ [ 43%]
+........................................................................ [ 49%]
+........................................................................ [ 56%]
+........................................................................ [ 62%]
+........................................................................ [ 68%]
+........................................................................ [ 74%]
+........................................................................ [ 80%]
+........................................................................ [ 87%]
+........................................................................ [ 93%]
+........................................................................ [ 99%]
+.....                                                                    [100%]
+=============================== warnings summary ===============================
+tests/integration/test_read_query_runtime.py::test_task_recall_crosses_real_ray_without_world_mutation
+  /work/WorldMock-formal-repair/.venv/lib/python3.12/site-packages/ray/_private/worker.py:2051: FutureWarning: Tip: In future versions of Ray, Ray will no longer override accelerator visible devices env var if num_gpus=0 or num_gpus=None (default). To enable this behavior and turn off this error message, set RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0
+    warnings.warn(
+
+tests/life/test_parallel_admission.py::test_malformed_request_gets_the_default_reason_without_the_validation_text[wrong-target-type]
+  /work/WorldMock-formal-repair/.venv/lib/python3.12/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+    PydanticSerializationUnexpectedValue(Expected `ActivityRequestItem` - serialized value may not be as expected [field_name='items', input_value={'target': 7, 'way': '等...from': None, 'to': None}, input_type=dict])
+    return self.__pydantic_serializer__.to_python(
+
+tests/life/test_parallel_admission.py::test_malformed_request_gets_the_default_reason_without_the_validation_text[missing-null-field]
+  /work/WorldMock-formal-repair/.venv/lib/python3.12/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+    PydanticSerializationUnexpectedValue(Expected `ActivityRequestItem` - serialized value may not be as expected [field_name='items', input_value={'target': '自己', 'way... '等待', 'from': None}, input_type=dict])
+    return self.__pydantic_serializer__.to_python(
+
+tests/life/test_tool_protocol.py::test_engine_revalidates_constructed_bad_requests_with_complete_fields[nested_bad_types]
+  /work/WorldMock-formal-repair/.venv/lib/python3.12/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+    PydanticSerializationUnexpectedValue(Expected `ActivityRequestItem` - serialized value may not be as expected [field_name='items', input_value={'target': True, 'way': '... 'from': False, 'to': 1}, input_type=dict])
+    return self.__pydantic_serializer__.to_python(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1157 passed, 4 warnings in 598.83s (0:09:58)

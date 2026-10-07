@@ -1,0 +1,81 @@
+........................................................................ [  4%]
+........................................................................ [  9%]
+........................................................................ [ 13%]
+........................................................................ [ 18%]
+........................................................................ [ 22%]
+........................................................................ [ 27%]
+........................................................................ [ 32%]
+........................................................................ [ 36%]
+........................................................................ [ 41%]
+........................................................................ [ 45%]
+........................................................................ [ 50%]
+........................................................................ [ 54%]
+........................................................................ [ 59%]
+........................................................................ [ 64%]
+........................................................................ [ 68%]
+........................................................................ [ 73%]
+........................................................................ [ 77%]
+........................................................................ [ 82%]
+........................................................................ [ 86%]
+........................................................................ [ 91%]
+........................................................................ [ 96%]
+..............................................................           [100%]
+=============================== warnings summary ===============================
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/src/worldmock/evaluation/reporting.py:242: UserWarning: Glyph 27809 (\N{CJK UNIFIED IDEOGRAPH-6CA1}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/src/worldmock/evaluation/reporting.py:242: UserWarning: Glyph 26377 (\N{CJK UNIFIED IDEOGRAPH-6709}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/src/worldmock/evaluation/reporting.py:242: UserWarning: Glyph 21452 (\N{CJK UNIFIED IDEOGRAPH-53CC}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/src/worldmock/evaluation/reporting.py:242: UserWarning: Glyph 26041 (\N{CJK UNIFIED IDEOGRAPH-65B9}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/src/worldmock/evaluation/reporting.py:242: UserWarning: Glyph 20849 (\N{CJK UNIFIED IDEOGRAPH-5171}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/src/worldmock/evaluation/reporting.py:242: UserWarning: Glyph 21516 (\N{CJK UNIFIED IDEOGRAPH-540C}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/src/worldmock/evaluation/reporting.py:242: UserWarning: Glyph 25903 (\N{CJK UNIFIED IDEOGRAPH-652F}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/src/worldmock/evaluation/reporting.py:242: UserWarning: Glyph 25345 (\N{CJK UNIFIED IDEOGRAPH-6301}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/src/worldmock/evaluation/reporting.py:242: UserWarning: Glyph 30340 (\N{CJK UNIFIED IDEOGRAPH-7684}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/src/worldmock/evaluation/reporting.py:242: UserWarning: Glyph 23448 (\N{CJK UNIFIED IDEOGRAPH-5B98}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/src/worldmock/evaluation/reporting.py:242: UserWarning: Glyph 27963 (\N{CJK UNIFIED IDEOGRAPH-6D3B}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/src/worldmock/evaluation/reporting.py:242: UserWarning: Glyph 21160 (\N{CJK UNIFIED IDEOGRAPH-52A8}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/src/worldmock/evaluation/reporting.py:242: UserWarning: Glyph 39046 (\N{CJK UNIFIED IDEOGRAPH-9886}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/src/worldmock/evaluation/reporting.py:242: UserWarning: Glyph 22495 (\N{CJK UNIFIED IDEOGRAPH-57DF}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1574 passed, 14 warnings in 248.71s (0:04:08)

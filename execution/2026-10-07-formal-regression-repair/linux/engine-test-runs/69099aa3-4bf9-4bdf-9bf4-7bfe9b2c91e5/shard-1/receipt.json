@@ -1,0 +1,170 @@
+{
+  "run_id": "69099aa3-4bf9-4bdf-9bf4-7bfe9b2c91e5",
+  "exit_code": 0,
+  "collected": [
+    "tests/test_errands_workday_acceptance.py::test_ledger_section_has_one_three_column_table_matching_the_registration",
+    "tests/test_errands_workday_acceptance.py::test_rows_of_done_stages_list_tests_and_every_registered_node_resolves",
+    "tests/test_errands_workday_acceptance.py::test_report_only_rows_stay_report_only_in_the_spec",
+    "tests/test_errands_workday_acceptance.py::test_feature_file_lists_name_existing_files_once",
+    "tests/test_errands_workday_acceptance.py::test_feature_and_registered_files_carry_no_deferral_markers",
+    "tests/test_errands_workday_acceptance.py::test_feature_and_registered_python_files_have_no_stub_functions",
+    "tests/test_errands_workday_acceptance.py::test_every_implementation_stage_is_done",
+    "tests/test_errands_workday_acceptance.py::test_spec_mutation_sentences_are_registered_in_order_and_done_stages_are_covered",
+    "tests/test_errands_workday_acceptance.py::test_mutations_are_named_once_and_anchored_in_main_process_production_code"
+  ],
+  "tests": {
+    "tests/test_errands_workday_acceptance.py::test_ledger_section_has_one_three_column_table_matching_the_registration": {
+      "duration": 0.0007477909999806798,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.00030287499998848944
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 0.00039758299999448354
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 4.733299999770679e-05
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_rows_of_done_stages_list_tests_and_every_registered_node_resolves": {
+      "duration": 1.224623417000089,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 5.312500002219167e-05
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 1.2245026670000243
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 6.762500004242611e-05
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_report_only_rows_stay_report_only_in_the_spec": {
+      "duration": 0.0008288750000247092,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 6.591599992589181e-05
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 0.0005776670000159356
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00018529200008288171
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_feature_file_lists_name_existing_files_once": {
+      "duration": 0.0006900429999632252,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 7.224999990285141e-05
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 0.0005783340000107273
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 3.945900004964642e-05
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_feature_and_registered_files_carry_no_deferral_markers": {
+      "duration": 0.11026133300003949,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.000132083000039529
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 0.11006283300002906
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 6.641699997089745e-05
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_feature_and_registered_python_files_have_no_stub_functions": {
+      "duration": 1.1211389180000424,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.000108875000023545
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 1.1209014180000167
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00012862500000210275
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_every_implementation_stage_is_done": {
+      "duration": 0.0002816249999568754,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 7.604099994296121e-05
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 0.00015362500005267066
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 5.1958999961243535e-05
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_spec_mutation_sentences_are_registered_in_order_and_done_stages_are_covered": {
+      "duration": 0.0006713749999107677,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0001823750000085056
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 0.0004478329999528796
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 4.1166999949382443e-05
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_mutations_are_named_once_and_anchored_in_main_process_production_code": {
+      "duration": 1.145787792000192,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.00014375000000654836
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 1.1455648340000835
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 7.920800010197127e-05
+        }
+      }
+    }
+  }
+}

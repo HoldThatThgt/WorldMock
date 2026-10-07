@@ -1,0 +1,1952 @@
+{
+  "run_id": "9db7acad-df70-4e7d-a20f-c84de2f507a2",
+  "exit_code": 0,
+  "collected": [
+    "tests/test_errands_workday_acceptance.py::test_ledger_section_has_one_three_column_table_matching_the_registration",
+    "tests/test_errands_workday_acceptance.py::test_rows_of_done_stages_list_tests_and_every_registered_node_resolves",
+    "tests/test_errands_workday_acceptance.py::test_report_only_rows_stay_report_only_in_the_spec",
+    "tests/test_errands_workday_acceptance.py::test_feature_file_lists_name_existing_files_once",
+    "tests/test_errands_workday_acceptance.py::test_feature_and_registered_files_carry_no_deferral_markers",
+    "tests/test_errands_workday_acceptance.py::test_feature_and_registered_python_files_have_no_stub_functions",
+    "tests/test_errands_workday_acceptance.py::test_every_implementation_stage_is_done",
+    "tests/test_errands_workday_acceptance.py::test_spec_mutation_sentences_are_registered_in_order_and_done_stages_are_covered",
+    "tests/test_errands_workday_acceptance.py::test_mutations_are_named_once_and_anchored_in_main_process_production_code",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[decision_failure_swallowed_after_log]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[tool_dispatch_failure_loses_stage_code]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[plan_duplicates_report_only_a_generic_error]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[plan_duplicates_locate_only_later_entries]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[plan_over_capacity_returns_before_duplicates]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[assembly_proxy_reverts_to_the_as2_class]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[assembly_service_proxy_reverts_to_the_as2_class]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[assembly_actor_reverts_to_the_as2_class]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[proxy_returns_without_awaiting_the_remote_result]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[actor_answers_without_the_environment]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[actor_class_allows_concurrent_calls]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[reflection_accepts_free_text]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[reflection_accepts_another_tool]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[reflection_skips_unknown_reference_check]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[reflection_count_bound_widened]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[reflection_text_validation_skipped]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[reflection_retry_bound_zero]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[reflection_retries_without_a_bound]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[reflection_failure_returns_an_empty_list]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[reflection_correction_accumulates_messages]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[decision_prompt_ignores_action_order]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[version_8_world_state_accepted]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[version_8_export_passes_delivery_gate]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[todo_layer_omits_errands]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[errand_changes_applied_before_rejection]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[request_can_mark_errand_completed]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[items_without_errands_accepted]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[errand_name_takes_first_candidate]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[duplicates_judged_before_cancels]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[errand_named_twice_accepted]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[added_twins_with_one_product_accepted]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[pending_order_counts_as_obtained]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[accepted_event_counts_as_evidence]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[activity_start_counts_as_eaten]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[progressed_goal_counts_as_completion]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[self_report_counts_as_completion]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[holdings_at_noting_count_as_obtained]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[evidence_before_noting_event_counts]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[interval_begun_before_noting_counts]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[gift_is_not_obtained]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[ownership_follows_event_agent]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[nested_results_orders_counted]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[round_commit_settles_twice]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[advance_commit_settles_twice]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[replayed_result_counts]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[condensation_drops_completion_line]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[cancelled_errand_stays_armed]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[reminder_completes_errand]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[errand_reminder_wakes_sleep]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[open_errands_are_commitments]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[errand_wake_reason_missing_from_vocabulary]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[sleeper_reminder_time_is_a_boundary]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[reminder_recorded_without_delivery]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[simultaneous_reminders_write_one_event]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[midnight_clears_errands]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[plan_revision_drops_errands]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[condensation_drops_todo_errands]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[memory_overflow_drops_todo_errands]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[checkpoint_omits_errands]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[progress_arguments_carry_errands]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[self_notes_carry_errand_text]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[system_layer_copy_diverges]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[errand_agent_events_written_as_system]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[settlement_event_inherits_evidence_identity]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[control_projection_carries_errands]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[control_projection_trims_first_item_only]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[projection_mutates_source_event]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[errand_metrics_use_goal_denominator]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[extraction_drops_stated_work_anchor]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[extraction_drops_stated_arrive_home]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[leave_work_takes_a_default]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[work_anchors_join_wraparound]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[out_of_order_work_anchor_fails_the_card]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[persona_layer_drops_work_anchor]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[persona_layer_drops_arrive_home]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[host_renders_work_schedule]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[scenario_work_windows_missing_from_plan_input]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[override_skips_null_card_slot]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[calendar_cross_check_skipped]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[scenario_structure_four_admitted]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[rest_day_inferred_from_weekday]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[exception_dates_ignored]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[break_shown_as_on_duty]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[everyone_gets_a_shift]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[duty_vanishes_after_plan_revision]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[duty_vanishes_after_topic_completion]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[plan_input_carries_duty_status]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[query_compaction_drops_false_and_zero]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[query_source_filter_ignored]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[query_source_resolved_by_plain_name_equality]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[query_environment_branch_writes_world]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[query_new_keys_get_defaults]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[unknown_source_returns_an_empty_page]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[source_candidates_include_unpermitted_places]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[query_purchase_way_not_expanded]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[available_filter_applied_after_paging]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[available_judged_on_unmatched_way_actions]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[available_without_way_ignores_tools]",
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[query_total_count_before_filtering]"
+  ],
+  "tests": {
+    "tests/test_errands_workday_acceptance.py::test_ledger_section_has_one_three_column_table_matching_the_registration": {
+      "duration": 0.0017165829776786268,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.000742000003810972
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 0.0008834999753162265
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 9.108299855142832e-05
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_rows_of_done_stages_list_tests_and_every_registered_node_resolves": {
+      "duration": 0.8754056250909343,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 8.100003469735384e-05
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 0.8752477500238456
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 7.687503239139915e-05
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_report_only_rows_stay_report_only_in_the_spec": {
+      "duration": 0.0008480430115014315,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.00012008403427898884
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 0.0006709589506499469
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 5.70000265724957e-05
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_feature_file_lists_name_existing_files_once": {
+      "duration": 0.0018429590272717178,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.00022862502373754978
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 0.0015062919701449573
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0001080420333892107
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_feature_and_registered_files_carry_no_deferral_markers": {
+      "duration": 0.11318833299446851,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.00011966703459620476
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 0.11299029097426683
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 7.837498560547829e-05
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_feature_and_registered_python_files_have_no_stub_functions": {
+      "duration": 0.7515597909805365,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 9.170803241431713e-05
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 0.7513667499879375
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00010133296018466353
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_every_implementation_stage_is_done": {
+      "duration": 0.00021704105893149972,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 9.066599886864424e-05
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 8.175004040822387e-05
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 4.4625019654631615e-05
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_spec_mutation_sentences_are_registered_in_order_and_done_stages_are_covered": {
+      "duration": 0.0006913740071468055,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 6.212497828528285e-05
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 0.0005619160365313292
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 6.733299233019352e-05
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_mutations_are_named_once_and_anchored_in_main_process_production_code": {
+      "duration": 0.8046632079640403,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 7.941597141325474e-05
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 0.8045065000187606
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 7.729197386652231e-05
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[decision_failure_swallowed_after_log]": {
+      "duration": 25.802034291031305,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 21.114589625038207
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.687174958002288
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0002697079908102751
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[tool_dispatch_failure_loses_stage_code]": {
+      "duration": 4.9169502489385195,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0010220829863101244
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.915756332979072
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0001718329731374979
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[plan_duplicates_report_only_a_generic_error]": {
+      "duration": 4.230441709049046,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0009028330096043646
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.229339959041681
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0001989169977605343
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[plan_duplicates_locate_only_later_entries]": {
+      "duration": 4.207639874948654,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0009129169629886746
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.206537916965317
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0001890410203486681
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[plan_over_capacity_returns_before_duplicates]": {
+      "duration": 4.220771083026193,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0007790419622324407
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.219738500018138
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00025354104582220316
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[assembly_proxy_reverts_to_the_as2_class]": {
+      "duration": 4.637512166984379,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.000992082990705967
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.6363439169945195
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00017616699915379286
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[assembly_service_proxy_reverts_to_the_as2_class]": {
+      "duration": 4.426817832980305,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0010521250078454614
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.4255823330022395
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00018337497022002935
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[assembly_actor_reverts_to_the_as2_class]": {
+      "duration": 4.3774879180127755,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0007942090160213411
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.37651883403305
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00017487496370449662
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[proxy_returns_without_awaiting_the_remote_result]": {
+      "duration": 4.387507167994045,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0007141669630073011
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.386589834000915
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0002031670301221311
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[actor_answers_without_the_environment]": {
+      "duration": 4.463617583038285,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0007999580120667815
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.462646750034764
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00017087499145418406
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[actor_class_allows_concurrent_calls]": {
+      "duration": 3.092766415036749,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008881660178303719
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 3.091730665997602
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00014758302131667733
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[reflection_accepts_free_text]": {
+      "duration": 3.8862094179494306,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0006845839670859277
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 3.885346708993893
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00017812498845160007
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[reflection_accepts_another_tool]": {
+      "duration": 3.9740002080216072,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0007848340319469571
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 3.9730384580325335
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00017691595712676644
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[reflection_skips_unknown_reference_check]": {
+      "duration": 4.071483167062979,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0007766250055283308
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.070534625032451
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00017191702499985695
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[reflection_count_bound_widened]": {
+      "duration": 4.117073333938606,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0010783749748952687
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.115809833980165
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00018512498354539275
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[reflection_text_validation_skipped]": {
+      "duration": 4.201302208006382,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0007484580273739994
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.20029812498251
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0002556249964982271
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[reflection_retry_bound_zero]": {
+      "duration": 5.305433666042518,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0010603329865261912
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 5.304072750033811
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0003005830221809447
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[reflection_retries_without_a_bound]": {
+      "duration": 4.22021225100616,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.006007834046613425
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.214008249982726
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00019616697682067752
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[reflection_failure_returns_an_empty_list]": {
+      "duration": 5.176550416974351,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.001152042008470744
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 5.175169082998764
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0002292919671162963
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[reflection_correction_accumulates_messages]": {
+      "duration": 4.277335666061845,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.001252500049304217
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.275907333008945
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00017583300359547138
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[decision_prompt_ignores_action_order]": {
+      "duration": 1.528938665986061,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.001012041000649333
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 1.5276926669757813
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00023395800963044167
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[version_8_world_state_accepted]": {
+      "duration": 3.568336000025738,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0012280420050956309
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 3.56692816602299
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00017979199765250087
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[version_8_export_passes_delivery_gate]": {
+      "duration": 2.8763789589866064,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.001611374958883971
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 2.874555084039457
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00021249998826533556
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[todo_layer_omits_errands]": {
+      "duration": 4.475023123959545,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0011058749514631927
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.47365770797478
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00025954103330150247
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[errand_changes_applied_before_rejection]": {
+      "duration": 4.57014445803361,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0011937920353375375
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.56874695798615
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00020370801212266088
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[request_can_mark_errand_completed]": {
+      "duration": 4.5373027920140885,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008657079888507724
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.536159584007692
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0002775000175461173
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[items_without_errands_accepted]": {
+      "duration": 3.8238077079877257,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0011768749682232738
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 3.8224511250155047
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00017970800399780273
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[errand_name_takes_first_candidate]": {
+      "duration": 4.54054170800373,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.001199208025354892
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.539170584001113
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0001719159772619605
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[duplicates_judged_before_cancels]": {
+      "duration": 4.53486674989108,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0007778749568387866
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.533887624973431
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00020124996080994606
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[errand_named_twice_accepted]": {
+      "duration": 4.255439375992864,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008769590058363974
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.2543910419917665
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00017137499526143074
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[added_twins_with_one_product_accepted]": {
+      "duration": 4.382174499973189,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.000980874989181757
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.381000499997754
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0001931249862536788
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[pending_order_counts_as_obtained]": {
+      "duration": 4.250979124975856,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0009531249525025487
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.249819834018126
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00020616600522771478
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[accepted_event_counts_as_evidence]": {
+      "duration": 4.23983687494183,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0010552909807302058
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.238604916958138
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00017666700296103954
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[activity_start_counts_as_eaten]": {
+      "duration": 4.297196957981214,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008261660113930702
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.296112667012494
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00025812495732679963
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[progressed_goal_counts_as_completion]": {
+      "duration": 4.334312916966155,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.000999332987703383
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.3331309169880114
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00018266699044033885
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[self_report_counts_as_completion]": {
+      "duration": 4.436263124924153,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008172079687938094
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.435262041981332
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00018387497402727604
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[holdings_at_noting_count_as_obtained]": {
+      "duration": 4.2666542490478605,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008499580435454845
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.265637665987015
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00016662501730024815
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[evidence_before_noting_event_counts]": {
+      "duration": 4.350821541971527,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0007582089747302234
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.3498529579956084
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0002103750011883676
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[interval_begun_before_noting_counts]": {
+      "duration": 4.165168416977394,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0009304159902967513
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.164075292006601
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0001627089804969728
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[gift_is_not_obtained]": {
+      "duration": 4.63466141698882,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008939169929362833
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.633600874978583
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00016662501730024815
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[ownership_follows_event_agent]": {
+      "duration": 4.679456000041682,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0007637920207343996
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.678378208016511
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00031400000443682075
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[nested_results_orders_counted]": {
+      "duration": 4.27325137500884,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008699999889358878
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.272174708021339
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.000206666998565197
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[round_commit_settles_twice]": {
+      "duration": 4.247849374951329,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0009512079996056855
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.246670541993808
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0002276249579153955
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[advance_commit_settles_twice]": {
+      "duration": 4.58124220801983,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008266670047305524
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.580215791007504
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00019975000759586692
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[replayed_result_counts]": {
+      "duration": 4.373644749983214,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0010935419704765081
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.372181249957066
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00036995805567130446
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[condensation_drops_completion_line]": {
+      "duration": 4.528090625011828,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0011567919864319265
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.52673041599337
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00020341703202575445
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[cancelled_errand_stays_armed]": {
+      "duration": 4.7419965420267545,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0009231670410372317
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.740878958022222
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00019441696349531412
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[reminder_completes_errand]": {
+      "duration": 5.107390457938891,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0011710409889928997
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 5.1059971249778755
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00022229197202250361
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[errand_reminder_wakes_sleep]": {
+      "duration": 5.3938083330285735,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0009477090206928551
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 5.392478915979154
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00038170802872627974
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[open_errands_are_commitments]": {
+      "duration": 5.2672937490278855,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0012589580146595836
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 5.265734333021101
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00030045799212530255
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[errand_wake_reason_missing_from_vocabulary]": {
+      "duration": 4.763391665008385,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0011823330423794687
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.762025040981825
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0001842909841798246
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[sleeper_reminder_time_is_a_boundary]": {
+      "duration": 4.655773916980252,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008427919819951057
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.654702792002354
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00022833299590274692
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[reminder_recorded_without_delivery]": {
+      "duration": 4.8444257090450265,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0009069590014405549
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.843297416053247
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00022133399033918977
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[simultaneous_reminders_write_one_event]": {
+      "duration": 5.197789708967321,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0013271669740788639
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 5.196244916995056
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00021762499818578362
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[midnight_clears_errands]": {
+      "duration": 5.20083445799537,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.001137249986641109
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 5.199385208019521
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.000311999989207834
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[plan_revision_drops_errands]": {
+      "duration": 5.634309335029684,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0010983340325765312
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 5.632922291988507
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0002887090086005628
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[condensation_drops_todo_errands]": {
+      "duration": 5.386367540981155,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0012066250201314688
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 5.384977874986362
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00018304097466170788
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[memory_overflow_drops_todo_errands]": {
+      "duration": 5.283493667084258,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.001124250004068017
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 5.282158167043235
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00021125003695487976
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[checkpoint_omits_errands]": {
+      "duration": 4.632902373967227,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0009436249965801835
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.631780333002098
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0001784159685485065
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[progress_arguments_carry_errands]": {
+      "duration": 5.441035043040756,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.000811917008832097
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 5.440047791984398
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00017533404752612114
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[self_notes_carry_errand_text]": {
+      "duration": 5.682984375045635,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0014286250225268304
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 5.68135541601805
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00020033400505781174
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[system_layer_copy_diverges]": {
+      "duration": 4.422557042038534,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008822920499369502
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.4214548749732785
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0002198750153183937
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[errand_agent_events_written_as_system]": {
+      "duration": 5.600908914988395,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.000905958004295826
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 5.599809291015845
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00019366596825420856
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[settlement_event_inherits_evidence_identity]": {
+      "duration": 5.217291916022077,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0012686249683611095
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 5.215826458006632
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00019683304708451033
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[control_projection_carries_errands]": {
+      "duration": 5.231659165991005,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0009727919823490083
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 5.230489708017558
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00019666599109768867
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[control_projection_trims_first_item_only]": {
+      "duration": 1.3833170830039307,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0009902080055326223
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 1.3821467920206487
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0001800829777494073
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[projection_mutates_source_event]": {
+      "duration": 5.270979291992262,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008235829882323742
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 5.269990667002276
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0001650420017540455
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[errand_metrics_use_goal_denominator]": {
+      "duration": 1.210121250944212,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0007659169496037066
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 1.2091918750084005
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00016345898620784283
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[extraction_drops_stated_work_anchor]": {
+      "duration": 0.9609922080417164,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0007934160530567169
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 0.959947541996371
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0002512499922886491
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[extraction_drops_stated_arrive_home]": {
+      "duration": 0.9568896259879693,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008706669905222952
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 0.9558252919814549
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.000193667015992105
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[leave_work_takes_a_default]": {
+      "duration": 0.9136076669674367,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008542499854229391
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 0.912548333988525
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0002050829934887588
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[work_anchors_join_wraparound]": {
+      "duration": 0.9317226259736344,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008576249820180237
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 0.9306547089945525
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.000210291997063905
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[out_of_order_work_anchor_fails_the_card]": {
+      "duration": 0.9513950839755125,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008189170039258897
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 0.9503762499662116
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00019991700537502766
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[persona_layer_drops_work_anchor]": {
+      "duration": 3.6853598749730736,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0009503749897703528
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 3.684226249984931
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00018324999837204814
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[persona_layer_drops_arrive_home]": {
+      "duration": 4.05396400106838,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008485420257784426
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.052687250019517
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0004282090230844915
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[host_renders_work_schedule]": {
+      "duration": 4.206020875019021,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0011175830150023103
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.204674459004309
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0002288329997099936
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[scenario_work_windows_missing_from_plan_input]": {
+      "duration": 6.322944791987538,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0013001670013181865
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 6.321468750014901
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00017587497131899
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[override_skips_null_card_slot]": {
+      "duration": 5.932857751031406,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0007373749976977706
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 5.931851292029023
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0002690840046852827
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[calendar_cross_check_skipped]": {
+      "duration": 1.219355666951742,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008270000107586384
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 1.2183534589712508
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00017520796973258257
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[scenario_structure_four_admitted]": {
+      "duration": 1.0058656250475906,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008337500039488077
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 1.0048502080026083
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0001816670410335064
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[rest_day_inferred_from_weekday]": {
+      "duration": 3.972267375094816,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008291670237667859
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 3.971268000022974
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00017020804807543755
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[exception_dates_ignored]": {
+      "duration": 3.8682544580078684,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008295829757116735
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 3.8672485830029473
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00017629202920943499
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[break_shown_as_on_duty]": {
+      "duration": 3.99186816602014,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008788330014795065
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 3.9907481250120327
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00024120800662785769
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[everyone_gets_a_shift]": {
+      "duration": 4.011815291072708,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0010234999936074018
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.010609875025693
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0001819160534068942
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[duty_vanishes_after_plan_revision]": {
+      "duration": 4.1698680419358425,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008357499609701335
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.168819124985021
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00021316698985174298
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[duty_vanishes_after_topic_completion]": {
+      "duration": 5.096795748977456,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0012684580287896097
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 5.095246790966485
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0002804999821819365
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[plan_input_carries_duty_status]": {
+      "duration": 4.321284500940237,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0009368339669890702
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.320131374988705
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0002162919845432043
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[query_compaction_drops_false_and_zero]": {
+      "duration": 4.0125742930104025,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0010002090130001307
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 4.011410292005166
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00016379199223592877
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[query_source_filter_ignored]": {
+      "duration": 1.611901415977627,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0010722499573603272
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 1.6106105410144664
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.000218625005800277
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[query_source_resolved_by_plain_name_equality]": {
+      "duration": 1.6146713339840062,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008390420116484165
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 1.6134411669918336
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0003911249805241823
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[query_environment_branch_writes_world]": {
+      "duration": 5.278543876018375,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.003646792029030621
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 5.274732541991398
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0001645419979467988
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[query_new_keys_get_defaults]": {
+      "duration": 1.075283500016667,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0012127920053899288
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 1.0738050829968415
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0002656250144354999
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[unknown_source_returns_an_empty_page]": {
+      "duration": 1.5214559999876656,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0010278749978169799
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 1.520263500045985
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0001646249438636005
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[source_candidates_include_unpermitted_places]": {
+      "duration": 1.5502197069581598,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0012366249575279653
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 1.5488196659716778
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0001634160289540887
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[query_purchase_way_not_expanded]": {
+      "duration": 1.612957167031709,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0009736250503920019
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 1.6118042080197483
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0001793339615687728
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[available_filter_applied_after_paging]": {
+      "duration": 1.592518708028365,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008528750040568411
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 1.591493249987252
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00017258303705602884
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[available_judged_on_unmatched_way_actions]": {
+      "duration": 1.481976124981884,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0009232499869540334
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 1.4808457500184886
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00020712497644126415
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[available_without_way_ignores_tools]": {
+      "duration": 1.5012749999877997,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008597919950261712
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 1.5002169579965994
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00019824999617412686
+        }
+      }
+    },
+    "tests/test_errands_workday_acceptance.py::test_errands_workday_source_mutation_is_killed[query_total_count_before_filtering]": {
+      "duration": 1.466895416029729,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008130419882945716
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 1.4656524159945548
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00042995804687961936
+        }
+      }
+    }
+  }
+}

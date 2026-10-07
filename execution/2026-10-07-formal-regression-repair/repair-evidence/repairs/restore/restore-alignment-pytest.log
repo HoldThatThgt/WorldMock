@@ -1,0 +1,18 @@
+........................................................................ [ 19%]
+........................................................................ [ 39%]
+........................................................................ [ 59%]
+........................................................................ [ 78%]
+........................................................................ [ 98%]
+.....                                                                    [100%]
+=============================== warnings summary ===============================
+tests/integration/test_read_query_runtime.py::test_task_recall_crosses_real_ray_without_world_mutation
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/.venv/lib/python3.12/site-packages/ray/_private/worker.py:2051: FutureWarning: Tip: In future versions of Ray, Ray will no longer override accelerator visible devices env var if num_gpus=0 or num_gpus=None (default). To enable this behavior and turn off this error message, set RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0
+    warnings.warn(
+
+tests/life/test_engine_branch_coverage.py::test_plan_day_rejects_duplicate_and_invalid_goals
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/.venv/lib/python3.12/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+    PydanticSerializationUnexpectedValue(Expected `list[PlanGoalInput]` - serialized value may not be as expected [field_name='goals', input_value=(PlanGoalInput(intent_kin...one, around_time=None),), input_type=tuple])
+    return self.__pydantic_serializer__.to_python(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+365 passed, 2 warnings in 27.47s

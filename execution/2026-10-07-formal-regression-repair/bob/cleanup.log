@@ -1,0 +1,18 @@
+TEMP_REQUESTED_PATH=/tmp/worldmock-bootstrap-bob.s2dk2L
+TEMP_REAL_PATH=/private/tmp/worldmock-bootstrap-bob.s2dk2L
+TEMP_HEAD=36603196cb6495d0b0854e249564ccd7f418e457
+TEMP_COMMON_DIR=/Users/atishoo/Project/WorldMock/.git
+TEMP_DIFF_EXIT_BEFORE=0
+TEMP_STATUS_BEFORE=
+8b6d04655b6df0b4e3342ae3a1ddeb96959989fa934fdfaf2f855a2c9ee9761d  /tmp/worldmock-bootstrap-bob.s2dk2L/scripts/bootstrap_environment.py
+ad21c3b2a663dbc9b2b453d59d50692d7cba53c8016d72bf5f8719de5792620a  /tmp/worldmock-bootstrap-bob.s2dk2L/tests/test_bootstrap.py
+67f692f0951da64f9ff95d6d3a1ed905e71d3917087e5f99dd7a4e004c7f17bc  /tmp/worldmock-bootstrap-bob.s2dk2L/tests/test_environment_profiles.py
+WORKTREE_REMOVE_EXIT=0
+TEMP_PATH_EXISTS_AFTER=no
+TEMP_REGISTERED_AFTER=no
+CALLER_HEAD_AFTER=43e8d6dd3f2b66f74c19c90776bbef3b5c2f4237
+CALLER_DIFF_EXIT_AFTER=0
+CALLER_STATUS_AFTER=
+8b6d04655b6df0b4e3342ae3a1ddeb96959989fa934fdfaf2f855a2c9ee9761d  scripts/bootstrap_environment.py
+ad21c3b2a663dbc9b2b453d59d50692d7cba53c8016d72bf5f8719de5792620a  tests/test_bootstrap.py
+67f692f0951da64f9ff95d6d3a1ed905e71d3917087e5f99dd7a4e004c7f17bc  tests/test_environment_profiles.py

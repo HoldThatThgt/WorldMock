@@ -1,0 +1,89 @@
+{
+  "status": "EVIDENCE_STAGED_FULL_GATES_PENDING",
+  "frozen_source_commit": "43e8d6dd3f2b66f74c19c90776bbef3b5c2f4237",
+  "original_dataset_failure_population": {
+    "report_path": "WorldMock-Dataset/execution/2026-10-07-resource-rule-acceptance/reviews/formal-regression-failures.json",
+    "report_sha256": "cc110c62e09a138aa72047026bd6a19a957dcbb9519b07c77fe2203321721da6",
+    "report_bytes": 1002764,
+    "engine_head": "6d1130129907def4e7187104cb53745293aa3258",
+    "run_id": "1bb248cc-3500-484c-972c-ace61dc572ae",
+    "scope": "completed standard shards only",
+    "distinct_failed_or_error_nodes": 466,
+    "call_failures": 453,
+    "setup_errors": 13,
+    "classifications": {
+      "artificial_fixture_selected_formal": 345,
+      "invalid_test_fixture": 119,
+      "unknown": 2
+    },
+    "interpretation": "Original published completed-shard evidence, kept intact."
+  },
+  "terminated_source_seam_diagnostic": {
+    "source_commit": "36603196cb6495d0b0854e249564ccd7f418e457",
+    "outer_run_id": "c316aa64-daa2-4a15-b7dc-c40ca7789160",
+    "standard_run_id": "14018cbf-e38f-4661-b9cc-deda988c1715",
+    "completed_worker_receipts": 5,
+    "completed_nodes": 5451,
+    "passed_calls": 5440,
+    "failed_calls": 11,
+    "failed_nodeids": [
+      "tests/life/test_day_planning.py::test_resume_and_counterfactual_branches_follow_plan_submitted_dates",
+      "tests/life/test_presentation_fidelity.py::test_goal_families_keep_the_plan_at_the_start_of_the_second",
+      "tests/life/test_presentation_fidelity.py::test_lifestyle_window_excludes_location_kind_mismatches_with_the_reason_code",
+      "tests/life/test_presentation_fidelity.py::test_refresh_quota_goes_to_the_longest_unpresented_lifestyle_entries",
+      "tests/life/test_presentation_fidelity.py::test_relevance_puts_time_window_goal_family_and_habit_hits_ahead",
+      "tests/life/test_presentation_fidelity.py::test_rotation_has_no_shared_offset_across_partitions",
+      "tests/life/test_presentation_fidelity.py::test_the_ceiling_n_over_k_bound_holds_per_partition",
+      "tests/life/test_presentation_fidelity.py::test_zero_taste_order_is_not_alphabetical_and_changes_with_the_date",
+      "tests/life/test_public_interface_guards.py::test_scenario_refuses_duplicate_or_blank_assigned_topic_names[topics0]",
+      "tests/life/test_public_interface_guards.py::test_scenario_refuses_duplicate_or_blank_assigned_topic_names[topics1]",
+      "tests/life/test_tool_interaction_runtime.py::test_memo_survives_persistent_reopen"
+    ],
+    "standard_complete": false,
+    "full_body_started": false,
+    "standard_summary_created": false,
+    "standard_or_full_pass_claim": false,
+    "interpretation": "Separate incomplete diagnostic population after the first source repair; not a new complete standard result."
+  },
+  "authorized_fixed_scopes": {
+    "initial_restore_alignment": {
+      "files": 13,
+      "actual_targeted_result": "365 passed, 2 warnings in 27.47s",
+      "baseline_head": "c0265684bb2015f20353b3f3b55ab70123b9bd1c"
+    },
+    "additional_source_alignment": {
+      "files": 4,
+      "actual_targeted_result": "88 passed, 2 warnings in 6.21s",
+      "baseline_head": "36603196cb6495d0b0854e249564ccd7f418e457"
+    },
+    "changes": "Only test input and same-source reopen/corpus responsibilities; original assertions preserved."
+  },
+  "excluded_authorization": [
+    "third_repository_native_phone_consumer",
+    "five_cross_platform_floating_value_differences"
+  ],
+  "evidence_limits": {
+    "production_behavior_changed": false,
+    "frozen_spec_changed": false,
+    "formal_environment_bytes_changed_by_worker": false,
+    "models_called_for_staging": false,
+    "tests_rerun_for_staging": false,
+    "vm_operations_for_staging": false,
+    "tracked_writes_for_staging": false,
+    "massive_assets_or_archives_copied": false
+  },
+  "pending": {
+    "macos_formal_standard_full_source_result": "PENDING",
+    "linux_formal_standard_full_source_result": "PENDING",
+    "current_coverage": "PENDING",
+    "full_gate_integration_and_publication": "PARENT_OWNED"
+  },
+  "independent_receipt_check": {
+    "status": "MATCHED",
+    "completed_nodes": 5451,
+    "passed_calls": 5440,
+    "failed_calls": 11,
+    "selected_collected_test_identity_sets_equal": true,
+    "receipt_hashes_match_termination_record": true
+  }
+}

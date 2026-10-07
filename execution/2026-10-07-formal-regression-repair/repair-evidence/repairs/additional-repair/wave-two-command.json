@@ -1,0 +1,44 @@
+{
+  "command": ".venv/bin/python -m pytest tests/life/test_day_planning.py tests/life/test_tool_interaction_runtime.py tests/life/test_presentation_fidelity.py tests/life/test_public_interface_guards.py -q --environment-profile dev --environment-root /Users/atishoo/Project/WorldMock-Dataset/environment/shanghai-simplified -p no:cacheprovider",
+  "argv": [
+    ".venv/bin/python",
+    "-m",
+    "pytest",
+    "tests/life/test_day_planning.py",
+    "tests/life/test_tool_interaction_runtime.py",
+    "tests/life/test_presentation_fidelity.py",
+    "tests/life/test_public_interface_guards.py",
+    "-q",
+    "--environment-profile",
+    "dev",
+    "--environment-root",
+    "/Users/atishoo/Project/WorldMock-Dataset/environment/shanghai-simplified",
+    "-p",
+    "no:cacheprovider"
+  ],
+  "environment": {
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "WORLDMOCK_ENVIRONMENT_PROFILE": "dev",
+    "PYTEST_ADDOPTS": "-p no:cacheprovider",
+    "AGENTSOCIETY_LLM_API_KEY": "unused-deterministic-verification",
+    "LITELLM_LOCAL_MODEL_COST_MAP": "True"
+  },
+  "head": "36603196cb6495d0b0854e249564ccd7f418e457",
+  "status": "completed",
+  "started_epoch": 1791353749.582981,
+  "owned_files": [
+    "tests/life/test_day_planning.py",
+    "tests/life/test_tool_interaction_runtime.py",
+    "tests/life/test_presentation_fidelity.py",
+    "tests/life/test_public_interface_guards.py"
+  ],
+  "source_sha256": {
+    "tests/life/test_day_planning.py": "c11953c03a2a88d92bafd9a27ab16b45f6ef183bcc3fefe08157bbca918e9c7b",
+    "tests/life/test_tool_interaction_runtime.py": "1b01eb45c15d38e59f6f01ea018b46cae5925a223cf5b72ede642750a07265e4",
+    "tests/life/test_presentation_fidelity.py": "0c95df40f9ca1101e19b3bf155f1737d1c23ac1030249faac10561c4ac7111fc",
+    "tests/life/test_public_interface_guards.py": "a5c4fe9924df650015008707ec4fe1398f5e05550aa81448c241747625e6a055"
+  },
+  "exit_code": 0,
+  "elapsed_seconds": 7.864,
+  "log_sha256": "065c409a2362fde766ba309ff30930f733ad94837836de3407a724c591ba629b"
+}

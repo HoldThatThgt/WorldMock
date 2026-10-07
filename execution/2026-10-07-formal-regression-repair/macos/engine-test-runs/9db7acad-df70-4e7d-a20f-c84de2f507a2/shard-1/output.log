@@ -1,0 +1,5 @@
+........................................................................ [ 66%]
+....................................                                     [100%]
+108 passed in 410.87s (0:06:50)
+/Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/.venv/lib/python3.12/site-packages/coverage/control.py:963: CoverageWarning: No data was collected. (no-data-collected); see https://coverage.readthedocs.io/en/7.15.4/messages.html#warning-no-data-collected
+  self._warn("No data was collected.", slug="no-data-collected")

@@ -1,0 +1,20 @@
+diff --git a/scripts/bootstrap_environment.py b/scripts/bootstrap_environment.py
+index fdf4945..be6e27a 100644
+--- a/scripts/bootstrap_environment.py
++++ b/scripts/bootstrap_environment.py
+@@ -20,14 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
+ 
+ # 与查看器相同，真实执行绑定写入和两种 JSON 查询，不以模块名或版本代替能力。
+ _NODE_SQLITE_PROBE = (
+-    "const assert = require('node:assert/strict'); "
+-    "const {DatabaseSync} = require('node:sqlite'); "
+-    "const database = new DatabaseSync(':memory:'); "
+-    "database.exec('CREATE TABLE probe(body TEXT NOT NULL)'); "
+-    "database.prepare('INSERT INTO probe(body) VALUES (?)').run(JSON.stringify({values: [7]})); "
+-    "const rows = database.prepare(\"SELECT json_extract(probe.body, '$.values[0]') AS extracted, "
+-    "item.value AS expanded FROM probe, json_each(probe.body, '$.values') AS item\").all(); "
+-    "assert.deepEqual(rows.map(row => [row.extracted, row.expanded]), [[7, 7]]); database.close();"
++    "require('node:sqlite');"
+ )
+ 
+ 

@@ -1,0 +1,451 @@
+........................................................................ [  6%]
+........................................................................ [ 12%]
+........................................................................ [ 19%]
+........................................................................ [ 25%]
+........................................................................ [ 31%]
+........................................................................ [ 38%]
+........................................................................ [ 44%]
+........................................................................ [ 50%]
+........................................................................ [ 57%]
+........................................................................ [ 63%]
+....................................................................FFFF [ 69%]
+FFF..................................................................... [ 76%]
+........................................................................ [ 82%]
+........................................................................ [ 88%]
+........................................................................ [ 95%]
+........................................................                 [100%]
+=================================== FAILURES ===================================
+_ test_lifestyle_window_excludes_location_kind_mismatches_with_the_reason_code _
+
+presentation_engine_factory = <function presentation_engine_factory.<locals>.create at 0x130638fe0>
+
+    def test_lifestyle_window_excludes_location_kind_mismatches_with_the_reason_code(presentation_engine_factory) -> None:
+        """生活活动窗口按当前地点取候选：地点类不符的条目不进窗口，以 ELIGIBILITY_LOCATION_KIND_MISMATCH 记为排除项（每个
+        这样的条目一条，计数一致）；窗口里的条目都能在这里做，工具层不再给它们标「这里不适合做这件事」；换到办公室，
+        窗口随地点换成办公室允许的条目。"""
+>       engine = presentation_engine_factory()
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/life/test_presentation_fidelity.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/life/test_presentation_fidelity.py:76: in create
+    return engine_factory(mutate=declare, create_options=create_options)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/engine_fixture.py:58: in create
+    engine = LifeEngine.create(scenario_path, tmp_path / f"run-{len(created)}", identity, None, create_options)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/engine.py:67: in create
+    return cls(*create_world(scenario_path, run_dir, run_identity, stage_identity, create_options or {}))
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/world_setup.py:193: in create_world
+    semantics, digest = load_runtime_scenario(scenario_path)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/world_setup.py:36: in load_runtime_scenario
+    document, digest = parse_scenario_document(scenario_path)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/private/var/folders/1y/l2txv0cd12n0x_80v_c_st300000gn/T/worldmock-test-shard-n8a2f32y/pytest/test_lifestyle_window_excludes0/scenario-0/scenarios/single-person.json')
+
+    def parse_scenario_document(path: Path) -> tuple[LifeScenario, str]:
+        """@brief 读取唯一 JSON 场景文档并返回其内容身份。"""
+        candidate = Path(path)
+        if candidate.is_symlink():
+            logging.error("Scenario file is missing or is a symbolic link")
+            raise IntegrityError("Scenario file is missing or is a symbolic link")
+        source = candidate.resolve()
+        if not source.is_file():
+            logging.error("Scenario file is missing or is a symbolic link")
+            raise IntegrityError("Scenario file is missing or is a symbolic link")
+        content = source.read_bytes()
+        try:
+            scenario = LifeScenario.model_validate(json.loads(content))
+        except Exception as error:
+            logging.error("Scenario validation failed for %s", source)
+            raise IntegrityError("Scenario validation failed") from error
+        root = (source.parent / scenario.corpus_root).resolve()
+        manifest = root / "manifest.json"
+        if not manifest.is_file() or sha256_file(manifest) != scenario.corpus_manifest_sha256:
+            logging.error("Scenario corpus manifest identity is invalid")
+>           raise IntegrityError("Scenario corpus manifest identity is invalid")
+E           worldmock.errors.IntegrityError: Scenario corpus manifest identity is invalid
+
+src/worldmock/life/scenario.py:602: IntegrityError
+------------------------------ Captured log call -------------------------------
+2026-10-07 14:11:16,766	ERROR scenario.py:601 -- Scenario corpus manifest identity is invalid
+2026-10-07 14:11:16,766	ERROR errors.py:12 -- WorldMock failure: Scenario corpus manifest identity is invalid
+_____ test_zero_taste_order_is_not_alphabetical_and_changes_with_the_date ______
+
+presentation_engine_factory = <function presentation_engine_factory.<locals>.create at 0x142ca2200>
+
+    def test_zero_taste_order_is_not_alphabetical_and_changes_with_the_date(presentation_engine_factory) -> None:
+        """零口味（引擎直驱没有口味权重）、零相关度（零点：目录时间窗都不覆盖、没有目标与习惯）时，生活活动窗口按
+        sha256(场景|人物|日期|对象) 排序，不是对象标识的字母序；同一时刻换到第二天，顺序随之改变。"""
+>       engine = presentation_engine_factory()
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/life/test_presentation_fidelity.py:171: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/life/test_presentation_fidelity.py:76: in create
+    return engine_factory(mutate=declare, create_options=create_options)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/engine_fixture.py:58: in create
+    engine = LifeEngine.create(scenario_path, tmp_path / f"run-{len(created)}", identity, None, create_options)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/engine.py:67: in create
+    return cls(*create_world(scenario_path, run_dir, run_identity, stage_identity, create_options or {}))
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/world_setup.py:193: in create_world
+    semantics, digest = load_runtime_scenario(scenario_path)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/world_setup.py:36: in load_runtime_scenario
+    document, digest = parse_scenario_document(scenario_path)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/private/var/folders/1y/l2txv0cd12n0x_80v_c_st300000gn/T/worldmock-test-shard-n8a2f32y/pytest/test_zero_taste_order_is_not_a0/scenario-0/scenarios/single-person.json')
+
+    def parse_scenario_document(path: Path) -> tuple[LifeScenario, str]:
+        """@brief 读取唯一 JSON 场景文档并返回其内容身份。"""
+        candidate = Path(path)
+        if candidate.is_symlink():
+            logging.error("Scenario file is missing or is a symbolic link")
+            raise IntegrityError("Scenario file is missing or is a symbolic link")
+        source = candidate.resolve()
+        if not source.is_file():
+            logging.error("Scenario file is missing or is a symbolic link")
+            raise IntegrityError("Scenario file is missing or is a symbolic link")
+        content = source.read_bytes()
+        try:
+            scenario = LifeScenario.model_validate(json.loads(content))
+        except Exception as error:
+            logging.error("Scenario validation failed for %s", source)
+            raise IntegrityError("Scenario validation failed") from error
+        root = (source.parent / scenario.corpus_root).resolve()
+        manifest = root / "manifest.json"
+        if not manifest.is_file() or sha256_file(manifest) != scenario.corpus_manifest_sha256:
+            logging.error("Scenario corpus manifest identity is invalid")
+>           raise IntegrityError("Scenario corpus manifest identity is invalid")
+E           worldmock.errors.IntegrityError: Scenario corpus manifest identity is invalid
+
+src/worldmock/life/scenario.py:602: IntegrityError
+------------------------------ Captured log call -------------------------------
+2026-10-07 14:11:16,916	ERROR scenario.py:601 -- Scenario corpus manifest identity is invalid
+2026-10-07 14:11:16,916	ERROR errors.py:12 -- WorldMock failure: Scenario corpus manifest identity is invalid
+_______ test_relevance_puts_time_window_goal_family_and_habit_hits_ahead _______
+
+presentation_engine_factory = <function presentation_engine_factory.<locals>.create at 0x142ca2660>
+
+    def test_relevance_puts_time_window_goal_family_and_habit_hits_ahead(presentation_engine_factory) -> None:
+        """相关度只取人物自己的事实与目录事实：07:00 在家，当日未推进的「运动」目标给瑜伽 +2（它的时间窗 6–21 点再 +2），
+        冻结在运行清单的习惯签名「起床后先晨间洗漱」给晨间洗漱 +1（时间窗 5–10 点 +2）；其余按目录时间窗覆盖此刻 +2，
+        同分的按哈希决胜。窗口依次是 4 分、3 分、2 分的条目，此刻不在时间窗里的条目排在它们之后。"""
+>       engine = presentation_engine_factory(create_options={MANIFEST_KEY: {1: [_HABIT]}})
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/life/test_presentation_fidelity.py:188: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/life/test_presentation_fidelity.py:76: in create
+    return engine_factory(mutate=declare, create_options=create_options)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/engine_fixture.py:58: in create
+    engine = LifeEngine.create(scenario_path, tmp_path / f"run-{len(created)}", identity, None, create_options)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/engine.py:67: in create
+    return cls(*create_world(scenario_path, run_dir, run_identity, stage_identity, create_options or {}))
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/world_setup.py:193: in create_world
+    semantics, digest = load_runtime_scenario(scenario_path)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/world_setup.py:36: in load_runtime_scenario
+    document, digest = parse_scenario_document(scenario_path)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/private/var/folders/1y/l2txv0cd12n0x_80v_c_st300000gn/T/worldmock-test-shard-n8a2f32y/pytest/test_relevance_puts_time_windo0/scenario-0/scenarios/single-person.json')
+
+    def parse_scenario_document(path: Path) -> tuple[LifeScenario, str]:
+        """@brief 读取唯一 JSON 场景文档并返回其内容身份。"""
+        candidate = Path(path)
+        if candidate.is_symlink():
+            logging.error("Scenario file is missing or is a symbolic link")
+            raise IntegrityError("Scenario file is missing or is a symbolic link")
+        source = candidate.resolve()
+        if not source.is_file():
+            logging.error("Scenario file is missing or is a symbolic link")
+            raise IntegrityError("Scenario file is missing or is a symbolic link")
+        content = source.read_bytes()
+        try:
+            scenario = LifeScenario.model_validate(json.loads(content))
+        except Exception as error:
+            logging.error("Scenario validation failed for %s", source)
+            raise IntegrityError("Scenario validation failed") from error
+        root = (source.parent / scenario.corpus_root).resolve()
+        manifest = root / "manifest.json"
+        if not manifest.is_file() or sha256_file(manifest) != scenario.corpus_manifest_sha256:
+            logging.error("Scenario corpus manifest identity is invalid")
+>           raise IntegrityError("Scenario corpus manifest identity is invalid")
+E           worldmock.errors.IntegrityError: Scenario corpus manifest identity is invalid
+
+src/worldmock/life/scenario.py:602: IntegrityError
+------------------------------ Captured log call -------------------------------
+2026-10-07 14:11:16,941	ERROR scenario.py:601 -- Scenario corpus manifest identity is invalid
+2026-10-07 14:11:16,941	ERROR errors.py:12 -- WorldMock failure: Scenario corpus manifest identity is invalid
+_________ test_goal_families_keep_the_plan_at_the_start_of_the_second __________
+
+presentation_engine_factory = <function presentation_engine_factory.<locals>.create at 0x142ca36a0>
+
+    def test_goal_families_keep_the_plan_at_the_start_of_the_second(presentation_engine_factory) -> None:
+        """相关度的当日未推进目标取该秒开始时的计划（同一秒各轮沿用该秒首轮的呈现窗口）：07:00 的「运动」目标让瑜伽排第一；
+        本秒首轮用 revise_day_plan 把它换成「家务」，同一秒下一轮的生活活动窗口逐项不变；到下一秒，瑜伽不再因目标加分，
+        此刻在时间窗内的家务与宠物类条目（家务意图的两个家族）排到最前。"""
+>       engine = presentation_engine_factory()
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/life/test_presentation_fidelity.py:209: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/life/test_presentation_fidelity.py:76: in create
+    return engine_factory(mutate=declare, create_options=create_options)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/engine_fixture.py:58: in create
+    engine = LifeEngine.create(scenario_path, tmp_path / f"run-{len(created)}", identity, None, create_options)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/engine.py:67: in create
+    return cls(*create_world(scenario_path, run_dir, run_identity, stage_identity, create_options or {}))
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/world_setup.py:193: in create_world
+    semantics, digest = load_runtime_scenario(scenario_path)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/world_setup.py:36: in load_runtime_scenario
+    document, digest = parse_scenario_document(scenario_path)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/private/var/folders/1y/l2txv0cd12n0x_80v_c_st300000gn/T/worldmock-test-shard-n8a2f32y/pytest/test_goal_families_keep_the_pl0/scenario-0/scenarios/single-person.json')
+
+    def parse_scenario_document(path: Path) -> tuple[LifeScenario, str]:
+        """@brief 读取唯一 JSON 场景文档并返回其内容身份。"""
+        candidate = Path(path)
+        if candidate.is_symlink():
+            logging.error("Scenario file is missing or is a symbolic link")
+            raise IntegrityError("Scenario file is missing or is a symbolic link")
+        source = candidate.resolve()
+        if not source.is_file():
+            logging.error("Scenario file is missing or is a symbolic link")
+            raise IntegrityError("Scenario file is missing or is a symbolic link")
+        content = source.read_bytes()
+        try:
+            scenario = LifeScenario.model_validate(json.loads(content))
+        except Exception as error:
+            logging.error("Scenario validation failed for %s", source)
+            raise IntegrityError("Scenario validation failed") from error
+        root = (source.parent / scenario.corpus_root).resolve()
+        manifest = root / "manifest.json"
+        if not manifest.is_file() or sha256_file(manifest) != scenario.corpus_manifest_sha256:
+            logging.error("Scenario corpus manifest identity is invalid")
+>           raise IntegrityError("Scenario corpus manifest identity is invalid")
+E           worldmock.errors.IntegrityError: Scenario corpus manifest identity is invalid
+
+src/worldmock/life/scenario.py:602: IntegrityError
+------------------------------ Captured log call -------------------------------
+2026-10-07 14:11:16,966	ERROR scenario.py:601 -- Scenario corpus manifest identity is invalid
+2026-10-07 14:11:16,966	ERROR errors.py:12 -- WorldMock failure: Scenario corpus manifest identity is invalid
+_____ test_refresh_quota_goes_to_the_longest_unpresented_lifestyle_entries _____
+
+presentation_engine_factory = <function presentation_engine_factory.<locals>.create at 0x142ca0b80>
+
+    def test_refresh_quota_goes_to_the_longest_unpresented_lifestyle_entries(presentation_engine_factory) -> None:
+        """轮转以每个对象的 last_presented_at 判定：别的条目刚呈现过时，换新名额依次给从未呈现的、上次呈现最早的两个（哪怕
+        它们的排序键在最后）；只改上次呈现时刻，名额就跟着换人。"""
+>       engine = presentation_engine_factory()
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/life/test_presentation_fidelity.py:233: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/life/test_presentation_fidelity.py:76: in create
+    return engine_factory(mutate=declare, create_options=create_options)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/engine_fixture.py:58: in create
+    engine = LifeEngine.create(scenario_path, tmp_path / f"run-{len(created)}", identity, None, create_options)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/engine.py:67: in create
+    return cls(*create_world(scenario_path, run_dir, run_identity, stage_identity, create_options or {}))
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/world_setup.py:193: in create_world
+    semantics, digest = load_runtime_scenario(scenario_path)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/world_setup.py:36: in load_runtime_scenario
+    document, digest = parse_scenario_document(scenario_path)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/private/var/folders/1y/l2txv0cd12n0x_80v_c_st300000gn/T/worldmock-test-shard-n8a2f32y/pytest/test_refresh_quota_goes_to_the0/scenario-0/scenarios/single-person.json')
+
+    def parse_scenario_document(path: Path) -> tuple[LifeScenario, str]:
+        """@brief 读取唯一 JSON 场景文档并返回其内容身份。"""
+        candidate = Path(path)
+        if candidate.is_symlink():
+            logging.error("Scenario file is missing or is a symbolic link")
+            raise IntegrityError("Scenario file is missing or is a symbolic link")
+        source = candidate.resolve()
+        if not source.is_file():
+            logging.error("Scenario file is missing or is a symbolic link")
+            raise IntegrityError("Scenario file is missing or is a symbolic link")
+        content = source.read_bytes()
+        try:
+            scenario = LifeScenario.model_validate(json.loads(content))
+        except Exception as error:
+            logging.error("Scenario validation failed for %s", source)
+            raise IntegrityError("Scenario validation failed") from error
+        root = (source.parent / scenario.corpus_root).resolve()
+        manifest = root / "manifest.json"
+        if not manifest.is_file() or sha256_file(manifest) != scenario.corpus_manifest_sha256:
+            logging.error("Scenario corpus manifest identity is invalid")
+>           raise IntegrityError("Scenario corpus manifest identity is invalid")
+E           worldmock.errors.IntegrityError: Scenario corpus manifest identity is invalid
+
+src/worldmock/life/scenario.py:602: IntegrityError
+------------------------------ Captured log call -------------------------------
+2026-10-07 14:11:16,991	ERROR scenario.py:601 -- Scenario corpus manifest identity is invalid
+2026-10-07 14:11:16,991	ERROR errors.py:12 -- WorldMock failure: Scenario corpus manifest identity is invalid
+_____________ test_rotation_has_no_shared_offset_across_partitions _____________
+
+presentation_engine_factory = <function presentation_engine_factory.<locals>.create at 0x142ca3ba0>
+
+    def test_rotation_has_no_shared_offset_across_partitions(presentation_engine_factory) -> None:
+        """不共享偏移量：食品分区的对象全部刚呈现过，生活活动分区的窗口与没有任何留痕时逐项相同（旧实现按人物已留痕的
+        对象数定游标，别的分区一呈现，本分区的换新名额就换人）。"""
+>       engine = presentation_engine_factory()
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/life/test_presentation_fidelity.py:253: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/life/test_presentation_fidelity.py:76: in create
+    return engine_factory(mutate=declare, create_options=create_options)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/engine_fixture.py:58: in create
+    engine = LifeEngine.create(scenario_path, tmp_path / f"run-{len(created)}", identity, None, create_options)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/engine.py:67: in create
+    return cls(*create_world(scenario_path, run_dir, run_identity, stage_identity, create_options or {}))
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/world_setup.py:193: in create_world
+    semantics, digest = load_runtime_scenario(scenario_path)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/world_setup.py:36: in load_runtime_scenario
+    document, digest = parse_scenario_document(scenario_path)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/private/var/folders/1y/l2txv0cd12n0x_80v_c_st300000gn/T/worldmock-test-shard-n8a2f32y/pytest/test_rotation_has_no_shared_of0/scenario-0/scenarios/single-person.json')
+
+    def parse_scenario_document(path: Path) -> tuple[LifeScenario, str]:
+        """@brief 读取唯一 JSON 场景文档并返回其内容身份。"""
+        candidate = Path(path)
+        if candidate.is_symlink():
+            logging.error("Scenario file is missing or is a symbolic link")
+            raise IntegrityError("Scenario file is missing or is a symbolic link")
+        source = candidate.resolve()
+        if not source.is_file():
+            logging.error("Scenario file is missing or is a symbolic link")
+            raise IntegrityError("Scenario file is missing or is a symbolic link")
+        content = source.read_bytes()
+        try:
+            scenario = LifeScenario.model_validate(json.loads(content))
+        except Exception as error:
+            logging.error("Scenario validation failed for %s", source)
+            raise IntegrityError("Scenario validation failed") from error
+        root = (source.parent / scenario.corpus_root).resolve()
+        manifest = root / "manifest.json"
+        if not manifest.is_file() or sha256_file(manifest) != scenario.corpus_manifest_sha256:
+            logging.error("Scenario corpus manifest identity is invalid")
+>           raise IntegrityError("Scenario corpus manifest identity is invalid")
+E           worldmock.errors.IntegrityError: Scenario corpus manifest identity is invalid
+
+src/worldmock/life/scenario.py:602: IntegrityError
+------------------------------ Captured log call -------------------------------
+2026-10-07 14:11:17,016	ERROR scenario.py:601 -- Scenario corpus manifest identity is invalid
+2026-10-07 14:11:17,017	ERROR errors.py:12 -- WorldMock failure: Scenario corpus manifest identity is invalid
+_____________ test_the_ceiling_n_over_k_bound_holds_per_partition ______________
+
+presentation_engine_factory = <function presentation_engine_factory.<locals>.create at 0x142ca3600>
+
+    def test_the_ceiling_n_over_k_bound_holds_per_partition(presentation_engine_factory) -> None:
+        """连续 ⌈N ÷ k⌉ 次呈现之后，生活活动分区的每个可呈现对象至少出现一次（N 取该分区资格段保留的
+        对象数，k 由场景常量导出），呈现经真实观察，留痕按提交路径并入。"""
+>       engine = presentation_engine_factory()
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/life/test_presentation_fidelity.py:265: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/life/test_presentation_fidelity.py:76: in create
+    return engine_factory(mutate=declare, create_options=create_options)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/engine_fixture.py:58: in create
+    engine = LifeEngine.create(scenario_path, tmp_path / f"run-{len(created)}", identity, None, create_options)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/engine.py:67: in create
+    return cls(*create_world(scenario_path, run_dir, run_identity, stage_identity, create_options or {}))
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/world_setup.py:193: in create_world
+    semantics, digest = load_runtime_scenario(scenario_path)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/world_setup.py:36: in load_runtime_scenario
+    document, digest = parse_scenario_document(scenario_path)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/private/var/folders/1y/l2txv0cd12n0x_80v_c_st300000gn/T/worldmock-test-shard-n8a2f32y/pytest/test_the_ceiling_n_over_k_boun0/scenario-0/scenarios/single-person.json')
+
+    def parse_scenario_document(path: Path) -> tuple[LifeScenario, str]:
+        """@brief 读取唯一 JSON 场景文档并返回其内容身份。"""
+        candidate = Path(path)
+        if candidate.is_symlink():
+            logging.error("Scenario file is missing or is a symbolic link")
+            raise IntegrityError("Scenario file is missing or is a symbolic link")
+        source = candidate.resolve()
+        if not source.is_file():
+            logging.error("Scenario file is missing or is a symbolic link")
+            raise IntegrityError("Scenario file is missing or is a symbolic link")
+        content = source.read_bytes()
+        try:
+            scenario = LifeScenario.model_validate(json.loads(content))
+        except Exception as error:
+            logging.error("Scenario validation failed for %s", source)
+            raise IntegrityError("Scenario validation failed") from error
+        root = (source.parent / scenario.corpus_root).resolve()
+        manifest = root / "manifest.json"
+        if not manifest.is_file() or sha256_file(manifest) != scenario.corpus_manifest_sha256:
+            logging.error("Scenario corpus manifest identity is invalid")
+>           raise IntegrityError("Scenario corpus manifest identity is invalid")
+E           worldmock.errors.IntegrityError: Scenario corpus manifest identity is invalid
+
+src/worldmock/life/scenario.py:602: IntegrityError
+------------------------------ Captured log call -------------------------------
+2026-10-07 14:11:17,042	ERROR scenario.py:601 -- Scenario corpus manifest identity is invalid
+2026-10-07 14:11:17,042	ERROR errors.py:12 -- WorldMock failure: Scenario corpus manifest identity is invalid
+=============================== warnings summary ===============================
+tests/integration/test_read_query_runtime.py::test_task_recall_crosses_real_ray_without_world_mutation
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/.venv/lib/python3.12/site-packages/ray/_private/worker.py:2051: FutureWarning: Tip: In future versions of Ray, Ray will no longer override accelerator visible devices env var if num_gpus=0 or num_gpus=None (default). To enable this behavior and turn off this error message, set RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0
+    warnings.warn(
+
+tests/life/test_errand_names.py::test_cancel_requires_a_reason
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/.venv/lib/python3.12/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+    PydanticSerializationUnexpectedValue(Expected `ErrandChange` - serialized value may not be as expected [field_name='errands', input_value={'change': '取消', 'nam...': None, 'reason': None}, input_type=dict])
+    return self.__pydantic_serializer__.to_python(
+
+tests/life/test_errand_names.py::test_cancel_requires_a_reason
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/.venv/lib/python3.12/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+    PydanticSerializationUnexpectedValue(Expected `ErrandChange` - serialized value may not be as expected [field_name='errands', input_value={'change': '取消', 'nam...': None, 'reason': '  '}, input_type=dict])
+    return self.__pydantic_serializer__.to_python(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/life/test_presentation_fidelity.py::test_lifestyle_window_excludes_location_kind_mismatches_with_the_reason_code
+FAILED tests/life/test_presentation_fidelity.py::test_zero_taste_order_is_not_alphabetical_and_changes_with_the_date
+FAILED tests/life/test_presentation_fidelity.py::test_relevance_puts_time_window_goal_family_and_habit_hits_ahead
+FAILED tests/life/test_presentation_fidelity.py::test_goal_families_keep_the_plan_at_the_start_of_the_second
+FAILED tests/life/test_presentation_fidelity.py::test_refresh_quota_goes_to_the_longest_unpresented_lifestyle_entries
+FAILED tests/life/test_presentation_fidelity.py::test_rotation_has_no_shared_offset_across_partitions
+FAILED tests/life/test_presentation_fidelity.py::test_the_ceiling_n_over_k_bound_holds_per_partition
+7 failed, 1129 passed, 24 deselected, 3 warnings in 88.27s (0:01:28)

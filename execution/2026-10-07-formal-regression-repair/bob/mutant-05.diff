@@ -1,0 +1,13 @@
+diff --git a/scripts/bootstrap_environment.py b/scripts/bootstrap_environment.py
+index fdf4945..6cd9e74 100644
+--- a/scripts/bootstrap_environment.py
++++ b/scripts/bootstrap_environment.py
+@@ -176,7 +176,7 @@ def require_profile(status: dict, profile: str) -> None:
+     if profile not in {"release", "dev"}:
+         logging.error("Environment profile must be release or dev")
+         raise RuntimeError("Environment profile must be release or dev")
+-    if profile == "release" and status["missing_components"]:
++    if profile == "release" and any(name in {"Node", "LabelKit"} for name in status["missing_components"]):
+         logging.error("Required release components are missing: %s", ", ".join(status["missing_components"]))
+         raise RuntimeError("Required release components are missing: " + ", ".join(status["missing_components"]))
+ 

@@ -1,0 +1,72 @@
+.............................F......F.....                               [100%]
+=================================== FAILURES ===================================
+______ test_real_production_font_failure_cannot_pass_environment_receipt _______
+
+tmp_path = PosixPath('/private/var/folders/1y/l2txv0cd12n0x_80v_c_st300000gn/T/pytest-of-atishoo/pytest-1192/test_real_production_font_fail0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109fe62a0>
+caplog = <_pytest.logging.LogCaptureFixture object at 0x109fe7b60>
+
+    def test_real_production_font_failure_cannot_pass_environment_receipt(tmp_path, monkeypatch, caplog):
+        """@brief 在字体子进程关闭生产候选集，核对真实拒绝、明确日志和非通过收据。"""
+        actual_run = subprocess.run
+        font_commands = []
+    
+        def execute(command, **options):
+            """@brief 仅改变字体子进程内的候选，不修改源码或父进程生产模块。"""
+            if command[1:2] == ["-c"]:
+                font_commands.append(command)
+                fault = "import worldmock.evaluation.reporting as reporting; reporting._FONT_PATHS = (); "
+                command = [*command[:2], fault + command[2]]
+            return actual_run(command, **options)
+    
+        monkeypatch.setattr(environment.subprocess, "run", execute)
+        status = environment.component_status(ROOT)
+        assert status["chinese_chart_font_available"] is False
+        assert "Chinese font" in status["missing_components"]
+        assert font_commands[0][0] == str(environment.environment_python(ROOT / ".venv"))
+        assert "Chinese chart font capability check failed" in caplog.text
+        root = _capability_receipt_root(tmp_path, monkeypatch, status)
+>       with pytest.raises(RuntimeError, match="Required release components are missing: .*Chinese font"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE RuntimeError
+
+tests/test_bootstrap.py:363: Failed
+------------------------------ Captured log call -------------------------------
+ERROR    root:bootstrap_environment.py:155 Chinese chart font capability check failed: Chinese chart font is unavailable
+chart_failed: Chinese chart font is unavailable
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/private/tmp/worldmock-bootstrap-bob.s2dk2L/src/worldmock/evaluation/reporting.py", line 151, in _chinese_font
+    raise EvaluationError("chart_failed", "Chinese chart font is unavailable")
+worldmock.evaluation.errors.EvaluationError: Chinese chart font is unavailable
+______ test_chinese_font_missing_never_adds_skip_and_keeps_dev_nonpassing ______
+
+    def test_chinese_font_missing_never_adds_skip_and_keeps_dev_nonpassing():
+        """@brief 字体缺失保留评估实际执行，不新增 skip，且不能取得开发环境最终通过。"""
+        class Item:
+            def __init__(self, needs):
+                self.needs, self.marks = needs, []
+    
+            def get_closest_marker(self, marker):
+                return marker if marker in self.needs else None
+    
+            def add_marker(self, marker):
+                self.marks.append(marker)
+    
+        items = [Item({"requires_node"}), Item({"requires_labelkit"}), Item(set())]
+        status = {"missing_components": ["Chinese font"]}
+        config = SimpleNamespace(worldmock_component_status=status, getoption=lambda name: "dev")
+        profiles.pytest_collection_modifyitems(config, items)
+        assert [item.marks for item in items] == [[], [], []]
+        session = SimpleNamespace(config=config, exitstatus=0)
+        profiles.pytest_sessionfinish(session, 0)
+        assert session.exitstatus == pytest.ExitCode.TESTS_FAILED
+>       with pytest.raises(RuntimeError, match="Required release components are missing: Chinese font"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE RuntimeError
+
+tests/test_environment_profiles.py:68: Failed
+=========================== short test summary info ============================
+FAILED tests/test_bootstrap.py::test_real_production_font_failure_cannot_pass_environment_receipt
+FAILED tests/test_environment_profiles.py::test_chinese_font_missing_never_adds_skip_and_keeps_dev_nonpassing
+2 failed, 40 passed in 6.17s

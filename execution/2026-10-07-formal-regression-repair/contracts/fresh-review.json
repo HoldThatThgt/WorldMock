@@ -1,0 +1,209 @@
+{
+  "schema_version": 1,
+  "verdict": "approved_no_substantive_blocker",
+  "blocking_findings": [],
+  "reviewed_range": {
+    "base": "c0265684bb2015f20353b3f3b55ab70123b9bd1c",
+    "head": "36603196cb6495d0b0854e249564ccd7f418e457",
+    "patch_sha256": "bafeeba2522a855b0d859f4794b71bc088d3387efa924aac81bbfc1bffb12df6"
+  },
+  "scope": {
+    "shared_foundation": [
+      "tests/engine_fixture.py",
+      "tests/life/scenario_fixtures.py"
+    ],
+    "fixed_artificial_inputs": [
+      "tests/life/test_activity_location_kinds.py",
+      "tests/life/test_body.py",
+      "tests/life/test_candidate_constants.py",
+      "tests/life/test_lifestyle.py",
+      "tests/life/test_load_checks.py",
+      "tests/life/test_rrs_food_body.py",
+      "tests/life/test_scenario.py",
+      "tests/life/test_semantics.py",
+      "tests/scheduling/test_branch_coverage.py",
+      "tests/test_validation.py"
+    ],
+    "selected_formal_witnesses": [
+      "tests/life/test_frozen_inputs_runtime.py",
+      "tests/life/test_world_query.py"
+    ],
+    "local_repairs": [
+      "tests/footprints/test_validation.py",
+      "tests/integration/test_input_warnings.py",
+      "tests/integration/test_presentation_habits.py",
+      "tests/integration/test_strict_endpoint.py"
+    ],
+    "selected_environment_lifecycle": [
+      "tests/integration/test_selected_environment_lifecycle.py"
+    ],
+    "excluded": [
+      "restore worker thirteen-file source sweep",
+      "two already diagnosed formal-versus-artificial behavior differences",
+      "bootstrap implementation",
+      "production implementation"
+    ]
+  },
+  "invariants": {
+    "global_selection": {
+      "status": "preserved",
+      "evidence": [
+        "root conftest.py and tests/data_paths.py have no diff in the reviewed range",
+        "--environment-root still calls select_environment during pytest_configure",
+        "no new skip, xfail, deselection, fallback, migration, or global root override in scope"
+      ]
+    },
+    "engine_factory": {
+      "status": "preserved_with_explicit_responsibility",
+      "string_input": "resolves under ARTIFICIAL_ENVIRONMENT_ROOT/scenarios",
+      "path_input": "used verbatim",
+      "cache": "used only for an unmutated canonical artificial or selected scenario path",
+      "noncanonical_or_mutated_path": "uses the real loader without the cache"
+    },
+    "cache_identity": {
+      "status": "preserved",
+      "evidence": "FrozenInputs keys cover scenario bytes, the complete catalog tree, and the complete corpus tree; teardown rechecks source and object digests"
+    },
+    "original_tests": {
+      "files": 18,
+      "tests_before": 160,
+      "tests_after": 160,
+      "identities_equal": true,
+      "decorators_and_parameter_cases_equal": true,
+      "raises_equal": true,
+      "assertions_equal_after_input_root_normalization": true,
+      "raw_assertion_difference": {
+        "file": "tests/life/test_candidate_constants.py",
+        "meaning": "only the data source symbol inside the existing 3600 equality changed from ENVIRONMENT_ROOT to ARTIFICIAL_ENVIRONMENT_ROOT"
+      },
+      "thresholds_weakened": false,
+      "error_codes_changed": false
+    },
+    "selected_formal_paths": {
+      "status": "real",
+      "evidence": [
+        "all frozen-input runtime nodes pass ENVIRONMENT_ROOT/scenarios/single-person.json as an explicit Path",
+        "the world-query name case passes the same explicit Path and derives the queried name from the real observation",
+        "the existing validate-environment admission node still consumes dynamic ENVIRONMENT_ROOT",
+        "the new lifecycle imports dynamic ENVIRONMENT_ROOT and never imports ARTIFICIAL_ENVIRONMENT_ROOT"
+      ]
+    },
+    "local_repairs": {
+      "status": "bounded",
+      "file_sha256": {
+        "tests/footprints/test_validation.py": "8a528eed3b41eeed7c245ff689597d7d4566c86872f2e9783296d99c1e95bd8c",
+        "tests/integration/test_input_warnings.py": "f68857e5850a664398f43af35176a0599d062571be532a01c27feff41975a1e8",
+        "tests/integration/test_presentation_habits.py": "abd7fa4c264463e91c8ff6055a80acddfb5a12e56192355f6bc3754c593cc205",
+        "tests/integration/test_strict_endpoint.py": "220b3d732edac9f28131964098afe214b2cb8dc07415b32d828742d27e43c82d"
+      },
+      "assertions_error_codes_parameters_and_thresholds_preserved": true
+    },
+    "lifecycle": {
+      "status": "real_derived_selected_environment_lifecycle",
+      "copies_complete_selected_environment": true,
+      "preserves_original_agents_catalog_corpus": true,
+      "production_timed_input_fields": [
+        "messages",
+        "bills",
+        "payrolls"
+      ],
+      "source_counts": {
+        "messages": 190,
+        "bills": 3,
+        "payrolls": 3
+      },
+      "retained_counts_in_derived_hour": {
+        "messages": 0,
+        "bills": 0,
+        "payrolls": 0
+      },
+      "stages": [
+        "create",
+        "start activity",
+        "advance",
+        "checkpoint",
+        "close",
+        "move directory",
+        "open",
+        "complete",
+        "export",
+        "validate_export"
+      ],
+      "provenance_fields": [
+        "source",
+        "source_sha256",
+        "original_window",
+        "derived_window",
+        "retained_timed_inputs"
+      ],
+      "evidence_class": "one-hour derived copy of the explicitly selected environment",
+      "not_evidence_for": [
+        "original formal dayrun",
+        "native 24-hour formal run",
+        "online model run"
+      ]
+    },
+    "immutable_inputs": {
+      "spec_sha256": "f61367ea90b6bdd188c8b4638f85e91b880f2cc5f482e14a4af5a3d7764a9784",
+      "formal_files_checked": 97,
+      "formal_files_changed": []
+    },
+    "collection": {
+      "original_nodes": 5701,
+      "current_nodes": 5708,
+      "missing_original_nodes": [],
+      "scoped_added_node": "tests/integration/test_selected_environment_lifecycle.py::test_selected_environment_runs_relocates_and_exports_its_actual_input"
+    }
+  },
+  "verification": [
+    {
+      "check": "git diff --check for the nineteen reviewed files",
+      "result": "exit 0"
+    },
+    {
+      "check": "AST comparison of existing tests across the explicit base and head",
+      "result": "160 before, 160 after; identities, decorators, raises, and normalized assertions equal"
+    },
+    {
+      "command": ".venv/bin/python -m pytest tests/integration/test_selected_environment_lifecycle.py::test_selected_environment_runs_relocates_and_exports_its_actual_input -q --environment-profile dev --environment-root $FORMAL_ENVIRONMENT_ROOT -p no:cacheprovider",
+      "result": "1 passed in 3.94s",
+      "exit_code": 0
+    },
+    {
+      "command": ".venv/bin/python -m pytest tests/life/test_frozen_inputs_runtime.py tests/life/test_world_query.py::test_environment_read_query_keeps_world_clock_round_and_store_unchanged -q --environment-profile dev --environment-root $FORMAL_ENVIRONMENT_ROOT -p no:cacheprovider",
+      "result": "12 passed in 3.46s",
+      "exit_code": 0
+    },
+    {
+      "receipt": ".work/formal-regression-repair/local-fixture-repairs-after.log",
+      "result": "62 passed in 12.40s",
+      "sha256": "5a1dddecf72ed82c4c7dccec1b0eb501103284b891f71acaac4cc2b8b6053ca6"
+    },
+    {
+      "receipt": ".work/formal-regression-repair/root-targeted.log",
+      "result": "271 passed in 16.66s",
+      "sha256": "df31021ac182b269577fe3c27c6362e1fba0c44fcbcea2c314fa6b69e293438d",
+      "limitation": "the log does not embed the command, commit, or selected environment identity"
+    }
+  ],
+  "cosmetic_findings": [
+    {
+      "kind": "new lines over 120 characters",
+      "locations": [
+        "tests/life/test_frozen_inputs_runtime.py:34",
+        "tests/life/test_frozen_inputs_runtime.py:70",
+        "tests/life/test_scenario.py:198",
+        "tests/life/test_scenario.py:204"
+      ]
+    },
+    {
+      "kind": "stale source wording",
+      "detail": "some artificial-root helpers retain _FORMAL or formal wording; an existing validation node name says artificial while intentionally consuming the dynamic selected environment"
+    }
+  ],
+  "residual_evidence_responsibility": [
+    "the integration owner must bind the complete formal gate receipt to the command, commit, and selected environment identity",
+    "the integration owner retains full regression, platform, and release conclusions"
+  ],
+  "tracked_files_written_by_reviewer": []
+}

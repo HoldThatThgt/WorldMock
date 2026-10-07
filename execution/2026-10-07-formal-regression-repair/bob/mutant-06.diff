@@ -1,0 +1,13 @@
+diff --git a/scripts/bootstrap_environment.py b/scripts/bootstrap_environment.py
+index fdf4945..eef10f5 100644
+--- a/scripts/bootstrap_environment.py
++++ b/scripts/bootstrap_environment.py
+@@ -194,7 +194,7 @@ def write_receipt(root: Path, profile: str, sources: dict) -> dict:
+     receipt = {"schema_version": "environment-1", "profile": profile,
+                "python_version": identity["version"], "python_implementation": identity["implementation"],
+                "python_version_file_sha256": file_sha256(root / ".python-version"),
+-               "dependency_locks": locks, **sources, **status, "passed": not status["missing_components"]}
++               "dependency_locks": locks, **sources, **status, "passed": True}
+     destination = root / ".work/environment-receipt.json"
+     destination.parent.mkdir(parents=True, exist_ok=True)
+     destination.write_bytes((json.dumps(receipt, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))

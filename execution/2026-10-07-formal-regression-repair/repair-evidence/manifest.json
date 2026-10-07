@@ -1,0 +1,337 @@
+{
+  "status": "STAGED_NOT_FULL_GATE_PASS",
+  "frozen_source_commit": "43e8d6dd3f2b66f74c19c90776bbef3b5c2f4237",
+  "source_gate_status": "PENDING",
+  "coverage_status": "PENDING",
+  "files": [
+    {
+      "path": "context/collection-preservation.json",
+      "size_bytes": 18410,
+      "sha256": "849ee996821ce8765edfb7cda313babb89310466bfc46fa422a9cb6a5278985a",
+      "source_path": ".work/formal-regression-repair/collection-preservation.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "context/fixture-responsibilities.json",
+      "size_bytes": 24072,
+      "sha256": "f6a645a7112ce1e2742db10f9258e5dfd88d5796fb2e95bff525f467794cc5cf",
+      "source_path": ".work/formal-regression-repair/fixture-responsibilities.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "context/fixture-responsibilities.md",
+      "size_bytes": 18877,
+      "sha256": "7d178d51cc9eb25b1bca8c9355ef0dbc76fe177c663516acad8b9db604886760",
+      "source_path": ".work/formal-regression-repair/fixture-responsibilities.md",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "context/immutable-final-input.json",
+      "size_bytes": 245,
+      "sha256": "ef4d5522060dea989c042ef0685bfedcaccf239e2bee8b3aa07e89e0220e95d7",
+      "source_path": ".work/formal-regression-repair/immutable-final-input.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "context/immutable-run-input.json",
+      "size_bytes": 245,
+      "sha256": "43a6123154e3bfa30a932e7fb4f1117293bd4f378eb2c3a8b856362c976c1620",
+      "source_path": ".work/formal-regression-repair/immutable-run-input.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "context/ledger.json",
+      "size_bytes": 1353,
+      "sha256": "abd3f2b9db38a2624c46ef6e5eb9b24bbf8ad155defc29adf936892a0a29d844",
+      "source_path": ".work/formal-regression-repair/ledger.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "diagnostic-attempt/macos-first-full-termination.json",
+      "size_bytes": 2922,
+      "sha256": "13a75acb8a5a0a637905d795bc7eeecde6f7538f16b2fdfccde1c67044ab91f0",
+      "source_path": ".work/formal-regression-repair/macos-first-full-termination.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "diagnostic-attempt/outer-full/collection.json",
+      "size_bytes": 11531502,
+      "sha256": "b55c060a610041b87f674c3b0427c29d2e0c43b0d5de77826ac91df85002def1",
+      "source_path": ".work/test-runs/c316aa64-daa2-4a15-b7dc-c40ca7789160/collection.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "diagnostic-attempt/standard/collection.json",
+      "size_bytes": 11531502,
+      "sha256": "2b6f44a3d05fc1c68f8200787652a72d4d9ff3f0dd81ae6d5200bc84b9748575",
+      "source_path": ".work/test-runs/14018cbf-e38f-4661-b9cc-deda988c1715/collection.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "diagnostic-attempt/standard/shard-0/output.log",
+      "size_bytes": 9,
+      "sha256": "a350e9f897688140366f5f21456c728387e13fa74fa673a445a759bfb6a16747",
+      "source_path": ".work/test-runs/14018cbf-e38f-4661-b9cc-deda988c1715/shard-0/output.log",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "diagnostic-attempt/standard/shard-0/selected.json",
+      "size_bytes": 1450,
+      "sha256": "9d834f57a83e2449c590fa2d297e1bd06604413a40350715f975c10f43760c72",
+      "source_path": ".work/test-runs/14018cbf-e38f-4661-b9cc-deda988c1715/shard-0/selected.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "diagnostic-attempt/standard/shard-1/output.log",
+      "size_bytes": 113,
+      "sha256": "f1b5fe5e17a43801cbb536266bf49f01845da22578bd7d29d999ff9d55dec046",
+      "source_path": ".work/test-runs/14018cbf-e38f-4661-b9cc-deda988c1715/shard-1/output.log",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "diagnostic-attempt/standard/shard-1/receipt.json",
+      "size_bytes": 5630,
+      "sha256": "dfb78e04a7a83f2a744983c4b2be191da174b44934e36ba036c5a947fa146b30",
+      "source_path": ".work/test-runs/14018cbf-e38f-4661-b9cc-deda988c1715/shard-1/receipt.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "diagnostic-attempt/standard/shard-1/selected.json",
+      "size_bytes": 1030,
+      "sha256": "afba3644ce70fe493dee129af1eb5514892a658f642736b2af9031a8fd6e9e4f",
+      "source_path": ".work/test-runs/14018cbf-e38f-4661-b9cc-deda988c1715/shard-1/selected.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "diagnostic-attempt/standard/shard-2/output.log",
+      "size_bytes": 11657,
+      "sha256": "e1379d8f3acc76de487493fe7922b69b56d2133340435df0c86db9ee19f79deb",
+      "source_path": ".work/test-runs/14018cbf-e38f-4661-b9cc-deda988c1715/shard-2/output.log",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "diagnostic-attempt/standard/shard-2/receipt.json",
+      "size_bytes": 780481,
+      "sha256": "7d6c9194f840eff3adfac093a68d530e63b6d6ee1d8f7638f709847ec22ef435",
+      "source_path": ".work/test-runs/14018cbf-e38f-4661-b9cc-deda988c1715/shard-2/receipt.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "diagnostic-attempt/standard/shard-2/selected.json",
+      "size_bytes": 138340,
+      "sha256": "c9a498dba08f5a15f06c0a05f5f8feb0ed9a0ac6f38a8b225f15dadd21f0c9b3",
+      "source_path": ".work/test-runs/14018cbf-e38f-4661-b9cc-deda988c1715/shard-2/selected.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "diagnostic-attempt/standard/shard-3/output.log",
+      "size_bytes": 11813,
+      "sha256": "0306b25edcc0513807a0f48c787cd2fcd963080ed4facc58c2bb9e31af2fec1d",
+      "source_path": ".work/test-runs/14018cbf-e38f-4661-b9cc-deda988c1715/shard-3/output.log",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "diagnostic-attempt/standard/shard-3/receipt.json",
+      "size_bytes": 908984,
+      "sha256": "f36d6095808b2d3676e6958293b5201c399f665753444e2db07a419a035e323d",
+      "source_path": ".work/test-runs/14018cbf-e38f-4661-b9cc-deda988c1715/shard-3/receipt.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "diagnostic-attempt/standard/shard-3/selected.json",
+      "size_bytes": 160631,
+      "sha256": "59da23052bdaaa02ac32e6bd66af9f5393f410f077d31e9693aadbb176030da8",
+      "source_path": ".work/test-runs/14018cbf-e38f-4661-b9cc-deda988c1715/shard-3/selected.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "diagnostic-attempt/standard/shard-4/output.log",
+      "size_bytes": 31367,
+      "sha256": "e109507f8f5294dbb1eaf10478e4c2f4f71062f9437685428a605c5704bfbbd3",
+      "source_path": ".work/test-runs/14018cbf-e38f-4661-b9cc-deda988c1715/shard-4/output.log",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "diagnostic-attempt/standard/shard-4/receipt.json",
+      "size_bytes": 700907,
+      "sha256": "412578a86e536290124a4d78cf66cd640eefd7535aa91c031696cae1bccfba26",
+      "source_path": ".work/test-runs/14018cbf-e38f-4661-b9cc-deda988c1715/shard-4/receipt.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "diagnostic-attempt/standard/shard-4/selected.json",
+      "size_bytes": 123594,
+      "sha256": "5b4b3ed569ac1f18619df184c168b897297826ab2c83cce17fc8f4413f0da0b9",
+      "source_path": ".work/test-runs/14018cbf-e38f-4661-b9cc-deda988c1715/shard-4/selected.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "diagnostic-attempt/standard/shard-5/output.log",
+      "size_bytes": 9813,
+      "sha256": "56e3022fb8ea7e94991ed558f5f939d5c8a5562a9c6053f12e8a8b1c45a211d9",
+      "source_path": ".work/test-runs/14018cbf-e38f-4661-b9cc-deda988c1715/shard-5/output.log",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "diagnostic-attempt/standard/shard-5/receipt.json",
+      "size_bytes": 1001411,
+      "sha256": "f8952e4c2c4bc57f9ce946bb8584100bcc04dffa27e32b5407aeb2cc56a09147",
+      "source_path": ".work/test-runs/14018cbf-e38f-4661-b9cc-deda988c1715/shard-5/receipt.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "diagnostic-attempt/standard/shard-5/selected.json",
+      "size_bytes": 186619,
+      "sha256": "9e9ec9b6e4ba19992949f681507606320e30d27e3aca94fa7ffc790aa0cccd79",
+      "source_path": ".work/test-runs/14018cbf-e38f-4661-b9cc-deda988c1715/shard-5/selected.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "evidence-ledger.json",
+      "size_bytes": 4318,
+      "sha256": "31736e9ca6847534f1f8505cf62cb887f7cf17ed78d323a4e44aa634e825a5b6",
+      "kind": "derived_evidence_record"
+    },
+    {
+      "path": "repairs/additional-repair/wave-two-before.json",
+      "size_bytes": 166431,
+      "sha256": "0d2411282a6d5b8daaa05a28815b3cef8ec775f06258bde786879307b1ad978e",
+      "source_path": ".work/formal-regression-repair/wave-two-before.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "repairs/additional-repair/wave-two-collection-after.json",
+      "size_bytes": 12052,
+      "sha256": "d0c83ab0c120e13940b3a73c12fc76f657f2de9bb8a8abbfa3fda2c5f6ec0f80",
+      "source_path": ".work/formal-regression-repair/wave-two-collection-after.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "repairs/additional-repair/wave-two-collection-after.log",
+      "size_bytes": 10228,
+      "sha256": "f43a7f84f2f45481c6826fa843b3ba7cd60e3d344401cf63062bdd3d8705c13b",
+      "source_path": ".work/formal-regression-repair/wave-two-collection-after.log",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "repairs/additional-repair/wave-two-collection-before.json",
+      "size_bytes": 12023,
+      "sha256": "aa69d5c75f520b6151f50567598c001adf14f427cffe2b8de5d9e9da37a9fe0a",
+      "source_path": ".work/formal-regression-repair/wave-two-collection-before.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "repairs/additional-repair/wave-two-collection-before.log",
+      "size_bytes": 10228,
+      "sha256": "4412928de7e8d2754cef8f8e9ae0499bb70c219bcfcb614c4d22f85ddc26eb66",
+      "source_path": ".work/formal-regression-repair/wave-two-collection-before.log",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "repairs/additional-repair/wave-two-command.json",
+      "size_bytes": 1993,
+      "sha256": "0b2b7ae47d0550fcf4a6783b7ab3fa35505371a7fc2276a59a015fd94a9f72f8",
+      "source_path": ".work/formal-regression-repair/wave-two-command.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "repairs/additional-repair/wave-two-guard.json",
+      "size_bytes": 1823,
+      "sha256": "01aed4773dab1230a044d8ef1caba55d8ce597727080f0d0f304d59b42507c94",
+      "source_path": ".work/formal-regression-repair/wave-two-guard.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "repairs/additional-repair/wave-two-pytest.log",
+      "size_bytes": 1425,
+      "sha256": "065c409a2362fde766ba309ff30930f733ad94837836de3407a724c591ba629b",
+      "source_path": ".work/formal-regression-repair/wave-two-pytest.log",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "repairs/additional-repair/wave-two.diff",
+      "size_bytes": 4612,
+      "sha256": "66403aa27fef6a4f6a232eb84e3dff74bdba6a8d8e7564c833b9d1bf925dbd4c",
+      "source_path": ".work/formal-regression-repair/wave-two.diff",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "repairs/additional-repair/wave-two.json",
+      "size_bytes": 10175,
+      "sha256": "3e428311680b8001798b4fea4d06e09f7ff3e5593bc570fe69e9288fa156f547",
+      "source_path": ".work/formal-regression-repair/wave-two.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "repairs/additional-repair/wave-two.md",
+      "size_bytes": 2364,
+      "sha256": "59b964b3a9aec7758c6faf4ee9e7775e34c61e2d1999bb08a543d264d81bd187",
+      "source_path": ".work/formal-regression-repair/wave-two.md",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "repairs/restore/restore-alignment-before.json",
+      "size_bytes": 357248,
+      "sha256": "f97821febc35aa7cfadc9d58643047e3a6e631c8c9b8ca1145e807e761bf24d2",
+      "source_path": ".work/formal-regression-repair/restore-alignment-before.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "repairs/restore/restore-alignment-command.json",
+      "size_bytes": 2721,
+      "sha256": "6e8b7e06f257d227019af633339c3c1ddca5ed370db0b866c9edb7cb1d7e50a6",
+      "source_path": ".work/formal-regression-repair/restore-alignment-command.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "repairs/restore/restore-alignment-guard.json",
+      "size_bytes": 4891,
+      "sha256": "9e9bbbc6940a42a5c9a0390e9db2568736a3656c45826ac4f9abf8ecadb575b2",
+      "source_path": ".work/formal-regression-repair/restore-alignment-guard.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "repairs/restore/restore-alignment-pytest.log",
+      "size_bytes": 1715,
+      "sha256": "4b544363ea34df43731096b07d1383427cd106c7c9188da83f4a5b314f656b9a",
+      "source_path": ".work/formal-regression-repair/restore-alignment-pytest.log",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "repairs/restore/restore-alignment.diff",
+      "size_bytes": 18173,
+      "sha256": "c9e8150b1154235f799d72b52ec49354f6d6875d0aeacd2464fb626222bdb982",
+      "source_path": ".work/formal-regression-repair/restore-alignment.diff",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "repairs/restore/restore-alignment.json",
+      "size_bytes": 11666,
+      "sha256": "02ddfa2fc7f213de12009b46409e94094df6e56b243381aaab5569cbae128220",
+      "source_path": ".work/formal-regression-repair/restore-alignment.json",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "repairs/restore/restore-alignment.md",
+      "size_bytes": 2196,
+      "sha256": "6bac57db73f64d37f761c08cafed41655514a08a22ed2d01539beb8a23bd8ddf",
+      "source_path": ".work/formal-regression-repair/restore-alignment.md",
+      "raw_bytes_preserved": true
+    },
+    {
+      "path": "source-and-guard-verification.json",
+      "size_bytes": 13918,
+      "sha256": "b8848ec2d9b2dfee4c3744c5f3bb426eaa35c082f174c535812c13c6b19953eb",
+      "kind": "derived_evidence_record"
+    },
+    {
+      "path": "summary.md",
+      "size_bytes": 1682,
+      "sha256": "977067d46b124b87b0badeabccace97b80ccaad2837e0554c2a0fd160d0f0d70",
+      "kind": "derived_evidence_record"
+    }
+  ],
+  "file_count": 47,
+  "raw_copy_count": 44,
+  "total_size_bytes": 27854859
+}

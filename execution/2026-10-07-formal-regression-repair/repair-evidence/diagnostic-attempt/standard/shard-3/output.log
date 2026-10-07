@@ -1,0 +1,150 @@
+........................................................................ [  4%]
+........................................................................ [  9%]
+........................................................................ [ 14%]
+........................................................................ [ 19%]
+........................................................................ [ 24%]
+........................................................................ [ 29%]
+........................................................................ [ 34%]
+........................................................................ [ 39%]
+........................................................................ [ 44%]
+........................................................................ [ 48%]
+..................................F..................................... [ 53%]
+........................................................................ [ 58%]
+........................................................................ [ 63%]
+........................................................................ [ 68%]
+........................................................................ [ 73%]
+........................................................................ [ 78%]
+........................................................................ [ 83%]
+........................................................................ [ 88%]
+........................................................................ [ 93%]
+.............F.......................................................... [ 97%]
+..............................                                           [100%]
+=================================== FAILURES ===================================
+_____ test_resume_and_counterfactual_branches_follow_plan_submitted_dates ______
+
+engine_factory = <function engine_factory.<locals>.create at 0x1406f3ec0>
+tmp_path = PosixPath('/private/var/folders/1y/l2txv0cd12n0x_80v_c_st300000gn/T/worldmock-test-shard-yl801yo5/pytest/test_resume_and_counterfactual0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x13adb0080>
+
+    def test_resume_and_counterfactual_branches_follow_plan_submitted_dates(engine_factory, tmp_path, monkeypatch):
+        """恢复与反事实分支按既有 plan_submitted_dates 判定：已生成的不重复；从尚未生成的检查点恢复时生成一次。"""
+        engine = engine_factory()
+        workspace = tmp_path / "agent"
+        workspace.mkdir()
+        (workspace / "AGENT.json").write_text("{}", encoding="utf-8")
+        snapshots = {"agent:1": snapshot_directory(workspace, engine.context.store.assets)}
+        initial = engine.checkpoint(snapshots)
+        settle_day_plans(engine, StubPlanDayClient(goals=[_goal("休息", "歇一会儿")]))
+        planned = engine.checkpoint({"agent:1": snapshot_directory(workspace, engine.context.store.assets)})
+        scenario_path = (ENVIRONMENT_ROOT / "scenarios") / SCENARIO
+        restore_branch(engine.context.store, initial.checkpoint_id, tmp_path / 'resume', None).close()
+        restore_branch(engine.context.store, planned.checkpoint_id, tmp_path / 'branch', {'branch_kind': 'counterfactual', 'intervention_sha256': 'a' * 64}).close()
+>       resumed = LifeEngine.open(scenario_path, tmp_path / "resume")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/life/test_day_planning.py:1091: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/worldmock/life/engine.py:72: in open
+    return cls(*open_world(scenario_path, run_dir))
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/world_setup.py:219: in open_world
+    return semantics, digest, corpus_root, open_environment_validated_store(Path(run_dir), semantics)
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/run_identity.py:38: in open_environment_validated_store
+    require_environment_identity(store.manifest, semantics)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+manifest = {'agent_ids': [1], 'branch_kind': 'resume', 'code_sha256': '2222222222222222222222222222222222222222222222222222222222222222', 'corpus_manifest_sha256': '3fad5c73aff84d1b2b4c1647bf6f77a0bb289e3bf34e6bd5ef16cf18680f03c2', ...}
+semantics = ScenarioSemantics(document=LifeScenario(schema_version=7, scenario_id='zhangjiang-white-collar-12-weeks', timezone='As...continue', 'wait': 'continue', 'work': 'work', 'travel_to': 'travel', 'use_app': 'entertainment', 'do': 'lifestyle'})))
+
+    def require_environment_identity(manifest: dict[str, Any], semantics: Any) -> None:
+        """@brief 在读取已有运行状态前拒绝缺失身份或同版本异内容。"""
+        expected = environment_identity(semantics)
+        if manifest.get("schema_version") != 3 or manifest.get("environment_identity") != expected:
+            logging.error("Runtime environment identity mismatch")
+>           raise IntegrityError("Runtime environment identity mismatch")
+E           worldmock.errors.IntegrityError: Runtime environment identity mismatch
+
+src/worldmock/life/run_identity.py:30: IntegrityError
+------------------------------ Captured log call -------------------------------
+ERROR    root:run_identity.py:29 Runtime environment identity mismatch
+ERROR    root:errors.py:12 WorldMock failure: Runtime environment identity mismatch
+_____________________ test_memo_survives_persistent_reopen _____________________
+
+engine_factory = <function engine_factory.<locals>.create at 0x145ea3d80>
+tmp_path = PosixPath('/private/var/folders/1y/l2txv0cd12n0x_80v_c_st300000gn/T/worldmock-test-shard-yl801yo5/pytest/test_memo_survives_persistent_0')
+
+    def test_memo_survives_persistent_reopen(engine_factory, tmp_path):
+        from worldmock.life.engine import LifeEngine
+    
+        engine = engine_factory()
+        stage_day_plan(engine)
+        now = engine.context.state.current_time
+        report = {"error_code": "NAME_NOT_FOUND", "reason": "Unknown object", "items": [
+            {"path": ["tool_calls", 0, "function", "arguments", "items", 0, "target"],
+             "written": "Missing object", "why": "This object does not exist."}]}
+        staged = engine.context.state.model_copy(deep=True)
+        staged.version += 1
+        engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
+            event_type="model_response", occurred_at=now, agent_id=1, data={"protocol_feedback": report})])
+        engine.context.state = staged
+        expected = rejected_today(SimpleNamespace(state=engine.context.state, scenario=engine.context.scenario, agent_id=1), engine.context.store)
+        run_directory = engine.context.store.run_dir
+        engine.close()
+        scenario_path = ENVIRONMENT_ROOT / "scenarios" / "single-person.json"
+>       reopened = LifeEngine.open(scenario_path, run_directory)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/life/test_tool_interaction_runtime.py:118: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/worldmock/life/engine.py:72: in open
+    return cls(*open_world(scenario_path, run_dir))
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/world_setup.py:219: in open_world
+    return semantics, digest, corpus_root, open_environment_validated_store(Path(run_dir), semantics)
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/worldmock/life/run_identity.py:38: in open_environment_validated_store
+    require_environment_identity(store.manifest, semantics)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+manifest = {'agent_ids': [1], 'code_sha256': '2222222222222222222222222222222222222222222222222222222222222222', 'corpus_manifest...environment_version': '1', 'map_sha256': '13e26513c5fca4f667c010412671493bd340f90017d8db724c73cbfdefaa985f', ...}, ...}
+semantics = ScenarioSemantics(document=LifeScenario(schema_version=7, scenario_id='zhangjiang-white-collar-12-weeks', timezone='As...continue', 'wait': 'continue', 'work': 'work', 'travel_to': 'travel', 'use_app': 'entertainment', 'do': 'lifestyle'})))
+
+    def require_environment_identity(manifest: dict[str, Any], semantics: Any) -> None:
+        """@brief 在读取已有运行状态前拒绝缺失身份或同版本异内容。"""
+        expected = environment_identity(semantics)
+        if manifest.get("schema_version") != 3 or manifest.get("environment_identity") != expected:
+            logging.error("Runtime environment identity mismatch")
+>           raise IntegrityError("Runtime environment identity mismatch")
+E           worldmock.errors.IntegrityError: Runtime environment identity mismatch
+
+src/worldmock/life/run_identity.py:30: IntegrityError
+------------------------------ Captured log call -------------------------------
+ERROR    root:run_identity.py:29 Runtime environment identity mismatch
+ERROR    root:errors.py:12 WorldMock failure: Runtime environment identity mismatch
+=============================== warnings summary ===============================
+tests/life/test_day_planning.py::test_revision_keeps_replaces_and_cancels_reminders
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/.venv/lib/python3.12/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+    PydanticSerializationUnexpectedValue(Expected `list[PlanGoalInput]` - serialized value may not be as expected [field_name='goals', input_value=(PlanGoalInput(intent_kin...15', around_time=None),), input_type=tuple])
+    return self.__pydantic_serializer__.to_python(
+
+tests/life/test_day_planning.py::test_revision_carries_around_time_and_changing_only_it_keeps_registration
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/.venv/lib/python3.12/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+    PydanticSerializationUnexpectedValue(Expected `list[PlanGoalInput]` - serialized value may not be as expected [field_name='goals', input_value=(PlanGoalInput(intent_kin...20', around_time='13'),), input_type=tuple])
+    return self.__pydantic_serializer__.to_python(
+
+tests/life/test_revision_contract.py::test_plan_day_registration_and_retry_after_rejection
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/.venv/lib/python3.12/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+    PydanticSerializationUnexpectedValue(Expected `list[PlanGoalInput]` - serialized value may not be as expected [field_name='goals', input_value=(PlanGoalInput(intent_kin...one, around_time=None),), input_type=tuple])
+    return self.__pydantic_serializer__.to_python(
+
+tests/life/test_tool_protocol.py::test_engine_revalidates_constructed_bad_requests_with_complete_fields[nested_bad_types]
+  /Users/atishoo/.codex/worktrees/resource-rule-simplification/WorldMock/.venv/lib/python3.12/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+    PydanticSerializationUnexpectedValue(Expected `ActivityRequestItem` - serialized value may not be as expected [field_name='items', input_value={'target': True, 'way': '... 'from': False, 'to': 1}, input_type=dict])
+    return self.__pydantic_serializer__.to_python(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/life/test_day_planning.py::test_resume_and_counterfactual_branches_follow_plan_submitted_dates
+FAILED tests/life/test_tool_interaction_runtime.py::test_memo_survives_persistent_reopen
+2 failed, 1468 passed, 90 deselected, 4 warnings in 87.17s (0:01:27)

@@ -1,21 +1,21 @@
 {
-  "generated_at": "2026-10-06T23:50:03+00:00",
-  "command": "python scripts/run_tests.py --tier full --workers 6",
+  "generated_at": "2026-10-07T06:48:00+00:00",
+  "command": "python scripts/run_tests.py --tier full --workers 6 --environment-root /Users/atishoo/Project/WorldMock-Dataset/environment/shanghai-simplified",
   "evidence_manifest": {
-    "snapshot_id": "dcb242ad-70e7-4882-93c7-1bbdf5dfbafc",
-    "manifest_hash": "da690a9d95d331eca53e17bbebfa73e9efeda5974c0ccd43805b8e33757de131",
-    "source_identity": "5711e079a67f2cca8a5b7bf0e7493fa5a6b9f531",
-    "source_sha256": "5555a4ef5c63b0970472dddde0322e0f368c08a60305ef798db108a8ec899f58",
-    "collection_sha256": "7d8d2ab0b8ef3065d5b711a02f0a7d76c34ecf015a6c932eccd7cf39577c6268"
+    "snapshot_id": "9db7acad-df70-4e7d-a20f-c84de2f507a2",
+    "manifest_hash": "743b3793997023f674b0cc09ca39bc64ba90d2336fa78ef5e618c9d9c5639ac8",
+    "source_identity": "43e8d6dd3f2b66f74c19c90776bbef3b5c2f4237",
+    "source_sha256": "73451a7ac6d4cd10057604d483c49ce2979eb7e84828501b835c037eb100a0cc",
+    "collection_sha256": "e9fc77b43b399c71dcf4543370dae926e198cd7cd72cd03d84e00f13d1160b75"
   },
   "thresholds": {
     "branch_coverage_percent_min": 85.0
   },
   "branch_coverage": {
-    "covered_branches": 6713,
-    "missing_branches": 297,
+    "covered_branches": 6717,
+    "missing_branches": 293,
     "total_branches": 7010,
-    "percent": 95.76,
+    "percent": 95.82,
     "passed": true
   },
   "per_file_branch": [
@@ -747,9 +747,9 @@
     },
     {
       "file": "src/worldmock/life/motivation.py",
-      "covered_branches": 73,
-      "missing_branches": 13,
-      "percent": 84.88
+      "covered_branches": 77,
+      "missing_branches": 9,
+      "percent": 89.53
     },
     {
       "file": "src/worldmock/life/name_resolution.py",
@@ -945,9 +945,9 @@
     },
     {
       "file": "src/worldmock/life/semantics.py",
-      "covered_branches": 8,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 7,
+      "missing_branches": 1,
+      "percent": 87.5
     },
     {
       "file": "src/worldmock/life/session_actions.py",
@@ -1191,9 +1191,9 @@
     },
     {
       "file": "src/worldmock/scheduling/compile.py",
-      "covered_branches": 19,
-      "missing_branches": 1,
-      "percent": 95.0
+      "covered_branches": 20,
+      "missing_branches": 0,
+      "percent": 100.0
     },
     {
       "file": "src/worldmock/scheduling/effects.py",
@@ -1223,7 +1223,7 @@
   "uncovered_public_interfaces": [],
   "passed": true,
   "test_results": {
-    "tests": 5701,
+    "tests": 5708,
     "failures": 0,
     "errors": 0,
     "skipped": 0

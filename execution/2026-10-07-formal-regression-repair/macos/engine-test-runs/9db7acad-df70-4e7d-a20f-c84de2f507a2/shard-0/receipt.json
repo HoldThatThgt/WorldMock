@@ -1,0 +1,188 @@
+{
+  "run_id": "9db7acad-df70-4e7d-a20f-c84de2f507a2",
+  "exit_code": 0,
+  "collected": [
+    "tests/integration/test_external_environment_lifecycle.py::test_external_environment_survives_actions_and_reopen[single-person.json]",
+    "tests/integration/test_external_environment_lifecycle.py::test_external_environment_survives_actions_and_reopen[multi-person.json]",
+    "tests/integration/test_external_environment_lifecycle.py::test_external_environment_survives_actions_and_reopen[multi-person-half-day.json]",
+    "tests/integration/test_external_environment_lifecycle.py::test_same_lifestyle_identity_freezes_each_external_environment_through_real_lifecycle",
+    "tests/integration/test_external_environment_lifecycle.py::test_engine_factory_uses_artificial_inputs_and_isolates_scenario_changes",
+    "tests/integration/test_external_environment_lifecycle.py::test_external_environment_exports_authenticated_completed_run[single-person.json]",
+    "tests/integration/test_external_environment_lifecycle.py::test_external_environment_exports_authenticated_completed_run[multi-person.json]",
+    "tests/integration/test_external_environment_lifecycle.py::test_external_environment_exports_authenticated_completed_run[multi-person-half-day.json]",
+    "tests/integration/test_external_environment_lifecycle.py::test_external_environment_exports_frozen_lifestyle_effects[effects0]",
+    "tests/integration/test_external_environment_lifecycle.py::test_external_environment_exports_frozen_lifestyle_effects[effects1]"
+  ],
+  "tests": {
+    "tests/integration/test_external_environment_lifecycle.py::test_external_environment_survives_actions_and_reopen[single-person.json]": {
+      "duration": 1.304871957981959,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0017586670001037419
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 1.3028297079727054
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0002835830091498792
+        }
+      }
+    },
+    "tests/integration/test_external_environment_lifecycle.py::test_external_environment_survives_actions_and_reopen[multi-person.json]": {
+      "duration": 0.32948670897167176,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0007885000086389482
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 0.32839620899176225
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0003019999712705612
+        }
+      }
+    },
+    "tests/integration/test_external_environment_lifecycle.py::test_external_environment_survives_actions_and_reopen[multi-person-half-day.json]": {
+      "duration": 0.31636495800921693,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008016250212676823
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 0.31528749997960404
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.0002758330083452165
+        }
+      }
+    },
+    "tests/integration/test_external_environment_lifecycle.py::test_same_lifestyle_identity_freezes_each_external_environment_through_real_lifecycle": {
+      "duration": 1.321614957996644,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0007247499888762832
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 1.3206969170132652
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.000193290994502604
+        }
+      }
+    },
+    "tests/integration/test_external_environment_lifecycle.py::test_engine_factory_uses_artificial_inputs_and_isolates_scenario_changes": {
+      "duration": 0.08492833294440061,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0009917079587467015
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 0.08350199996493757
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00043462502071633935
+        }
+      }
+    },
+    "tests/integration/test_external_environment_lifecycle.py::test_external_environment_exports_authenticated_completed_run[single-person.json]": {
+      "duration": 35.71081912604859,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0010147499851882458
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 35.70956995902816
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00023441703524440527
+        }
+      }
+    },
+    "tests/integration/test_external_environment_lifecycle.py::test_external_environment_exports_authenticated_completed_run[multi-person.json]": {
+      "duration": 87.97632516699377,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008224169723689556
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 87.97529504197882
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00020770804258063436
+        }
+      }
+    },
+    "tests/integration/test_external_environment_lifecycle.py::test_external_environment_exports_authenticated_completed_run[multi-person-half-day.json]": {
+      "duration": 3.959319791989401,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.000912874995265156
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 3.9582058750092983
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00020104198483750224
+        }
+      }
+    },
+    "tests/integration/test_external_environment_lifecycle.py::test_external_environment_exports_frozen_lifestyle_effects[effects0]": {
+      "duration": 298.07360979297664,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008442089892923832
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 298.07258591701975
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.00017966696759685874
+        }
+      }
+    },
+    "tests/integration/test_external_environment_lifecycle.py::test_external_environment_exports_frozen_lifestyle_effects[effects1]": {
+      "duration": 270.53083720902214,
+      "phases": {
+        "setup": {
+          "outcome": "passed",
+          "duration": 0.0008660840103402734
+        },
+        "call": {
+          "outcome": "passed",
+          "duration": 270.5219053750043
+        },
+        "teardown": {
+          "outcome": "passed",
+          "duration": 0.008065750007517636
+        }
+      }
+    }
+  }
+}
