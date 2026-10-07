@@ -9,7 +9,7 @@ STAGE_IDS: frozenset[str] = frozenset(str(stage) for stage in range(8))
 IMPLEMENTATION_STAGES: frozenset[str] = frozenset(str(stage) for stage in range(1, 7))
 REPORT_ONLY_STAGES: frozenset[str] = frozenset({"7"})
 #: 全部实施门禁通过后一次关闭，正式环境回执随后登记。
-STAGES_DONE: frozenset[str] = frozenset()
+STAGES_DONE: frozenset[str] = frozenset(str(stage) for stage in range(1, 7))
 #: 只登记当前真实存在且本特性已改动的文件。
 FEATURE_PRODUCTION_FILES: tuple[str, ...] = ('custom/agents/life_agent.py',
  'custom/envs/life_env.py',
