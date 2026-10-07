@@ -12,9 +12,7 @@ import pytest
 from pydantic import ValidationError
 
 from worldmock.catalog import load_catalog
-from worldmock.categories import Action, PairingState
 from worldmock.errors import IntegrityError
-from worldmock.life.category_contract import PERSON_CATEGORY_ID, optional_defined_rule
 from worldmock.life.interaction_menu import InteractionMenu, resolve_interaction_menu
 from worldmock.life.models import ActivityKind, ActivityStartParams, ModelIdentity
 from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
@@ -32,13 +30,11 @@ _IDENTITY = {
 }
 _ENDPOINT_MISMATCH = "Model identity endpoint does not match the configured DeepSeek model"
 
-#: 字段说明登记的六种必须携带业务目标的活动类型。
+#: 字段说明登记的四种必须携带业务目标的活动类型。
 _TARGETED_KINDS = (
     ActivityKind.WORK,
-    ActivityKind.WATCH,
-    ActivityKind.PLAY_GAME,
+    ActivityKind.USE_APP,
     ActivityKind.READ_MAIL,
-    ActivityKind.BROWSE,
     ActivityKind.LIFESTYLE,
 )
 
@@ -119,16 +115,3 @@ def test_menu_resolution_fails_closed_on_a_damaged_runtime_view(
     with caplog.at_level(logging.ERROR), pytest.raises(IntegrityError, match=f"^{message}$"):
         resolve_interaction_menu(_menu_view(**overrides), 1, "home")
     assert caplog.messages == [f"WorldMock failure: {message}"]
-
-
-def test_assembly_pairing_lookup_leaves_non_defined_pairings_to_admission() -> None:
-    """组装期只解析 defined 配对：真实目录的未定义配对与无作用配对都返回空，且不查规则表。"""
-    catalog = load_catalog((ENVIRONMENT_ROOT / "catalog"))
-    defined = optional_defined_rule(catalog, "contract-hourly", Action.WORK_SETTLE)
-    assert defined is not None and defined.match()["category_id"] == "contract-hourly"
-    pairing = catalog.pairing(PERSON_CATEGORY_ID, "travel-service", Action.CONSUME_EAT)
-    assert pairing.state == PairingState.UNDEFINED
-    assert optional_defined_rule(catalog, "travel-service", Action.CONSUME_EAT) is None
-    no_effect = SimpleNamespace(pairing=lambda *_: SimpleNamespace(
-        state=PairingState.NO_EFFECT, rule_id="rule-no-effect", coefficient=1))
-    assert optional_defined_rule(no_effect, "durable", Action.CONSUME_USE) is None

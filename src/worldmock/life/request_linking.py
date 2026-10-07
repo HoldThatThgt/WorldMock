@@ -50,11 +50,11 @@ def order_label(order: dict[str, Any], names: dict[str, str], clock: tuple[str, 
     :param clock: （时区，观察时刻）。
     """
     timezone_name, now = clock
-    return (f"{names[order['product_id']]} {portion_phrase(order['quantity'])}（"
+    return (f"{names[order['food_id']]} {portion_phrase(order['quantity'])}（"
             f"{clock_phrase(order['created_at'], now, timezone_name)} {PURCHASE_WAYS[order['fulfillment']]}）")
 
 
-def require_unhandled(state: Any, scenario: Any, supplies: dict, bindings: list[dict]) -> None:
+def require_unhandled(state: Any, scenario: Any, bindings: list[dict]) -> None:
     """@brief 被 answering 关联的取得项已有同一（消息，收货人，商品）的未取消订单时以 REQUEST_ALREADY_HANDLED 拒绝。
 
     :param supplies: 供给身份 → 供给（取商品身份）。
@@ -64,13 +64,13 @@ def require_unhandled(state: Any, scenario: Any, supplies: dict, bindings: list[
         message_id = binding.get("request_message_id")
         if message_id is None:
             continue
-        product = supplies[binding["object_id"]].product_id
+        product = binding["food_id"]
         linked = sorted((order for order in state.deliveries.values() if order.request_message_id == message_id
-                         and order.recipient_id == binding["recipient_id"] and order.product_id == product
+                         and order.recipient_id == binding["recipient_id"] and order.food_id == product
                          and order.status in _HANDLED_STATUSES), key=lambda item: (item.created_at, item.order_id))
         if linked:
             logging.error("Linked request was already handled by an uncancelled order")
-            names = {item.product_id: item.name for item in (*scenario.products, *scenario.inventory_items)}
+            names = {item.food_id: item.name for item in scenario.foods}
             clock = (scenario.timezone, state.current_time)
             rows = [{"order": order_label(order.model_dump(mode="json"), names, clock),
                      "expected_at": iso_time(order.expected_at, scenario.timezone)}

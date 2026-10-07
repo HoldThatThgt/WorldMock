@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from tests.data_paths import ENVIRONMENT_ROOT
+from tests.engine_fixture import engine_factory  # noqa: F401
 
 import pytest
 
@@ -73,7 +74,7 @@ def test_shared_settlement_and_activity_progress_reject_invalid_intervals(engine
     with pytest.raises(ValueError, match="negative"):
         settle_shared_body(agent.body, (), -1, config)
     empty = agent.body.model_copy(update={"energy_kcal": 0})
-    watched = settle_shared_body(empty, ((ActivityKind.WATCH, ActivityFactors(1.3)),), 60, config)
+    watched = settle_shared_body(empty, ((ActivityKind.USE_APP, ActivityFactors(1.3)),), 60, config)
     assert watched.after.energy_kcal == 0
 
 

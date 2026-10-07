@@ -23,16 +23,14 @@ _LEGACY_ACTIONS = {
     "navigation": ("travel", "travel", "route"),
 }
 _TARGETED_ACTIONS = {
-    "work": ("work", "work", "task"),
-    "watch": ("entertainment", "view", "content"),
-    "play": ("entertainment", "play", "game"),
+    "work": ("work", "work", "work_topic"),
+    "use_app": ("entertainment", "view", "app"),
     "read": ("work", "read", "message"),
-    "browse": ("browsing", "browse", "content"),
 }
 #: 结果活动快照的 kind → 内部标准动作（start_activity 逐项证据按实际开始的活动分类）。
 _ACTION_OF_KIND = {
-    "travel": "travel_to", "work": "work", "watch": "watch", "play_game": "play", "read_mail": "read",
-    "browse": "browse", "consume": "consume", "chat": "chat", "call": "call", "lifestyle": "do",
+    "travel": "travel_to", "work": "work", "use_app": "use_app", "read_mail": "read",
+    "consume": "consume", "chat": "chat", "call": "call", "lifestyle": "do",
     "wait": "wait", "sleep": "sleep",
 }
 #: 活动控制工具 -> 公开交互动词（docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面「稳定工具面」），按请求
@@ -44,7 +42,7 @@ _SESSION_CONTROL_TOOLS = {
 }
 #: 公开终态取自活动快照的启动动作；其余动作以动作自身终态为准。
 _ACTIVITY_BACKED_ACTIONS = frozenset({
-    "travel_to", "work", "watch", "play", "read", "browse", "consume"})
+    "travel_to", "work", "use_app", "read", "consume"})
 _RESULT_STATES = {
     "accepted": "started",
     "in_progress": "started",
@@ -265,8 +263,6 @@ def _world_request_shape(
     request: Mapping[str, Any],
 ) -> _Shape | None:
     """@brief 映射一个稳定工具请求并用结果中的对象字段回链。"""
-    if tool_name == "submit_work":
-        return _Shape("work", "submit", "task", _string(request.get("task_name")), {})
     if tool_name == "send_message":
         return _Shape("social", "message", "person", _string(request.get("recipient_name")), {})
     return None
@@ -308,8 +304,8 @@ def _start_shape(action: str | None, label: str, target: Any,
     activity = _related_activity(related, index)
     key = _string(activity.get("target_id")) or _string(target)
     if action == "travel_to":
-        route = _string(_mapping(activity.get("data")).get("route_id"))
-        return _Shape("travel", "travel", "route", route,
+        trip = _string(_mapping(activity.get("data")).get("trip_id"))
+        return _Shape("travel", "travel", "route", trip,
                       _travel_mode(activity.get("travel_mode")))
     if action in _TARGETED_ACTIONS:
         category, interaction, object_type = _TARGETED_ACTIONS[action]
@@ -319,7 +315,7 @@ def _start_shape(action: str | None, label: str, target: Any,
     if action == "consume":
         mode = _mapping(_mapping(activity.get("data")).get("request")).get("use_mode")
         category = "product_use" if mode == "use" or not mode and label in {"使用", "制作"} else "eat"
-        return _Shape(category, "consume", "product", key, {})
+        return _Shape(category, "consume", "food", key, {})
     if action in {"chat", "call"}:
         return _Shape("social", action, "person", key, {})
     return None
@@ -332,7 +328,7 @@ def _control_actions(
     activities: Mapping[str, JsonObject],
     activity_map: Mapping[str, str],
 ) -> tuple[_Action, ...]:
-    """@brief 按请求 items[] 逐活动投影（旧形状为 task[]）：结果逐项回报的活动身份绑定到导出的真实活动快照。"""
+    """@brief 按请求 items[] 逐活动投影，结果身份绑定到导出的真实活动快照。"""
     selected: list[_Action] = []
     for event in related:
         if event.event_type != "action_result":
@@ -360,10 +356,9 @@ def _activity_shape(row: Mapping[str, Any], activity_map: Mapping[str, str]) -> 
     data = _mapping(row.get("data"))
     category = worldmock_activity_category(kind or "", data, activity_map)
     types = {
-        "work": ("work", "task"), "watch": ("view", "content"),
-        "play_game": ("play", "game"), "read_mail": ("read", "message"),
-        "browse": ("browse", "content"), "travel": ("travel", "route"),
-        "consume": ("consume", "product"),
+        "work": ("work", "work_topic"), "use_app": ("view", "app"), "read_mail": ("read", "message"),
+        "travel": ("travel", "route"),
+        "consume": ("consume", "food"),
     }
     mapped = types.get(kind or "")
     if mapped is None or category == "unknown":
@@ -377,7 +372,7 @@ def _activity_shape(row: Mapping[str, Any], activity_map: Mapping[str, str]) -> 
 def _activity_object_key(kind: str, row: Mapping[str, Any], data: Mapping[str, Any]) -> str | None:
     """@brief 选择活动确实保存的对象身份。"""
     if kind == "travel":
-        return _string(data.get("route_id"))
+        return _string(data.get("trip_id"))
     return _string(row.get("target_id"))
 
 
@@ -386,8 +381,6 @@ def _world_result(event: Event, action: _Action) -> list[PublicEvidence]:
     started = _start_action(action)
     if started == "purchase":
         return _purchase_result(event, action)
-    if action.tool_name == "submit_work":
-        return _work_result(event, action)
     state = _result_state(event, action)
     rows = [_from_event(event, action.shape, state)]
     if started == "travel_to" and _account_changes(event, action):
@@ -425,23 +418,6 @@ def _purchase_result(event: Event, action: _Action) -> list[PublicEvidence]:
     return rows
 
 
-def _work_result(event: Event, action: _Action) -> list[PublicEvidence]:
-    """@brief 依据独立验收布尔值和实际付款投影工作结果。"""
-    payload = _result_payload(event.data)
-    review = _mapping(payload.get("work_review"))
-    accepted = review.get("accepted")
-    if accepted is True:
-        state = "accepted"
-    elif accepted is False:
-        state = "rejected"
-    else:
-        state = _result_state(event, action)
-    rows = [_from_event(event, action.shape, state)]
-    payment = payload.get("payment_fen")
-    if accepted is True and _positive_integer(payment) and _account_changes(event, action):
-        paid = _Shape("work", "pay", "task", action.shape.object_key, {})
-        rows.append(_from_event(event, paid, "paid"))
-    return rows
 
 
 def _result_state(event: Event, action: _Action) -> str | None:
@@ -462,7 +438,7 @@ def _result_state(event: Event, action: _Action) -> str | None:
     if status == "completed":
         if started == "read" and _mapping(_mapping(activity.get("data")).get("revealed")):
             return "read"
-        if started == "watch":
+        if started == "use_app":
             return "viewed"
     return status
 
@@ -480,11 +456,9 @@ def _world_environment(event: Event) -> PublicEvidence | None:
         state = order.get("status") if order.get("status") in {"ready", "delivered"} else kind.removeprefix("delivery_")
         shape = _Shape("purchase", interaction, "order", key, _fulfillment(order.get("fulfillment")))
         return _from_event(event, shape, str(state))
-    if kind in {"work_available", "task_expired"}:
-        interaction = "notify" if kind == "work_available" else "deadline"
-        state = "available" if kind == "work_available" else "reached"
-        shape = _Shape("work", interaction, "task", _string(event.data.get("task_id")), {})
-        return _from_event(event, shape, state)
+    if kind == "work_topic_completed":
+        shape = _Shape("work", "work", "work_topic", _string(event.data.get("topic_id")), {})
+        return _from_event(event, shape, "completed")
     return None
 
 

@@ -122,18 +122,24 @@ function contextEvent(id, request, agent = 1) {
     {event_id:id, agent_id:agent, decision_id:'decision-' + id});
 }
 
-test('context reads seven-layer action stages, sliced layers and recorded tools while legacy calls stay other', () => {
+/** @brief 构造不属于人物行动的当前调用，验证原文保持未解析。 */
+function otherRequest() {
+  const request = contextRequest();
+  request.messages[0].content = JSON.stringify({layer:'系统层', role:'依据人物记忆回答问题。', rules:[]});
+  delete request.tools;
+  return request;
+}
+
+test('context reads current seven-layer actions and complete other requests', () => {
   const app = viewer([
-    contextEvent('legacy', contextRequest('legacy_prelude')),
+    contextEvent('other', otherRequest()),
     contextEvent('action', contextRequest()),
     contextEvent('continuation', contextRequest('continuation')),
-    contextEvent('legacy-action', contextRequest('legacy_action')),
   ]);
   try {
     const items = app.run('ContextView.index()');
-    assert.deepEqual(Array.from(items, item => item.stage), ['other', 'action', 'action', 'legacy']);
+    assert.deepEqual(Array.from(items, item => item.stage), ['other', 'action', 'action']);
     assert.equal(items[0].label, '其他调用·未解析');
-    assert.equal(items[3].label, '选择动作·旧模板');
     assert.equal(app.state.bodyCache.size, 0, 'Index must not load complete requests');
     const model = app.run('ContextView.read(2)');
     assert.deepEqual(Array.from(model.current.blocks.filter(block => block.role === 'user'), block => block.key),
@@ -155,15 +161,10 @@ test('context reads seven-layer action stages, sliced layers and recorded tools 
       block => `${block.role}:${block.key}`), ['assistant:message', 'assistant:reasoning', 'tool:message']);
     app.run('ContextView.select(1)');
     assert.ok(app.get('#ctx-body').innerHTML.includes('未解析'));
-    const legacy = app.run('ContextView.read(4)');
-    assert.equal(legacy.current.blocks.filter(block => block.role === 'user').map(block => block.text).join(''),
-      contextRequest('legacy_action').messages[1].content);
-    app.run('ContextView.select(4)');
-    const legacyHtml = app.get('#ctx-body').innerHTML;
-    assert.ok(legacyHtml.includes('模板拆分') && legacyHtml.includes('来源未核验'));
-    assert.ok(legacyHtml.includes('人物卡片 · 来源未核验'));
-    assert.ok(legacyHtml.includes('历史运行的旧模板行动请求'));
-    assert.equal(app.errors.length, 1, app.errors.join('\n'));
+    assert.equal(app.run('ContextView.read(1)').current.blocks.find(block => block.role === 'user').text,
+      otherRequest().messages[1].content);
+    assert.deepEqual(app.errors, Array(2).fill(
+      'Context message 1 was not segmented: the seven-layer contract was not matched.'));
   } finally { app.close(); }
 });
 
@@ -224,10 +225,12 @@ test('context response matching follows caused_by across interleaved agents and 
 test('context comparison uses same agent and stage, detects same-length edits and never crosses runs', () => {
   const original = contextRequest();
   const changed = contextRequest();
-  changed.messages[1].content = changed.messages[1].content.replace('牛肉', '羊肉');
+  assert.ok(changed.messages[1].content.includes('先把事务记下来。'));
+  changed.messages[1].content = changed.messages[1].content.replace('先把事务记下来。', '先将事务记下来。');
+  assert.equal(changed.messages[1].content.length, original.messages[1].content.length);
   const app = viewer([
     contextEvent('first', original), contextEvent('other-agent', changed, 2),
-    contextEvent('legacy', contextRequest('legacy_prelude')), contextEvent('later', changed),
+    contextEvent('other', otherRequest()), contextEvent('later', changed),
   ]);
   try {
     const model = app.run('ContextView.read(4)');
@@ -239,7 +242,7 @@ test('context comparison uses same agent and stage, detects same-length edits an
     const filtered = app.context();
     assert.ok(filtered.includes('事件 2'));
     assert.ok(!filtered.includes('事件 4'));
-    app.reload([contextEvent('new-run', contextRequest('legacy_prelude'), 2)]);
+    app.reload([contextEvent('new-run', otherRequest(), 2)]);
     assert.equal(app.run('ContextView.index().length'), 1);
     assert.equal(app.run('ContextView.read(1).before'), null);
     assert.ok(!app.context().includes('事件 4'));
@@ -300,8 +303,10 @@ test('context drills into tool layer targets and progress records and marks self
     app.get('button:message:1:tool').onclick();
     const toolOptions = app.get('#ctx-item').innerHTML;
     assert.ok(toolOptions.includes('整层原文'));
-    assert.ok(toolOptions.includes('工作：季度报告 · submit_work · 不可用：先结束正在做的工作'));
-    assert.ok(toolOptions.includes('星巴克出售的拿铁 · obtain：远程下单 · 可用'));
+    assert.ok(toolOptions.includes('工作：季度销售数据整理（task）'));
+    assert.ok(toolOptions.includes('柠檬茶'));
+    assert.ok(toolOptions.includes('obtain：远程下单'));
+    assert.ok(!toolOptions.includes('submit_work'));
     const layers = JSON.parse(contextRequest().messages[1].content);
     app.get('#ctx-item').value = '0';
     app.get('#ctx-item').onchange();
@@ -312,13 +317,13 @@ test('context drills into tool layer targets and progress records and marks self
 
     app.get('button:message:1:progress').onclick();
     const progressOptions = app.get('#ctx-item').innerHTML;
-    assert.ok(progressOptions.includes('tool_call · start_activity · self_note（未经核验）'));
-    assert.ok(progressOptions.includes('message_arrival · 王磊'));
-    assert.ok(progressOptions.includes('errand_completed · 囤咖啡豆'));
-    assert.ok(progressOptions.includes('errand_reminder · 买牛奶'));
+    assert.ok(progressOptions.includes('tool_call · conclude_activity · self_note（未经核验）'));
+    assert.ok(progressOptions.includes('message_arrival · 人工测试通知'));
+    assert.ok(progressOptions.includes('errand_completed · 吃掉薯片'));
+    assert.ok(progressOptions.includes('errand_reminder · 买柠檬茶'));
     app.get('#ctx-item').value = '2';
     app.get('#ctx-item').onchange();
-    assert.ok(app.get('#ctx-raw').textContent.startsWith('self_note（未经核验）：先给王磊点上'));
+    assert.ok(app.get('#ctx-raw').textContent.startsWith('self_note（未经核验）：先把事务记下来'));
 
     app.get('button:message:1:persona').onclick();
     assert.ok(!app.get('#ctx-body').innerHTML.includes('ctx-item'));
@@ -372,8 +377,8 @@ function activity(type, id, fields, extra = {}) {
 }
 
 /** @brief 用目录浏览受理的实际嵌套位置提供条目。 */
-function browse(items) {
-  return event('action_accepted', {status: 'completed', data: {tool: 'browse_activities', items}});
+function contentNames(contents) {
+  return event('observation', {contents});
 }
 
 /** @brief 按表格类名提取表体各行的单元格文字，防止页面其他文字造成假阳性。 */
@@ -423,21 +428,42 @@ test('locations accumulate across people and replace fixed home office market la
   assert.deepEqual(view.errors, []);
 });
 
-test('products mail and tasks remain named after later sparse observations', t => {
+test('graph travel shows recorded origin destination and every path place', t => {
+  const names = ['张江公寓', '社区便利店', '人工智能研发中心'];
+  const ids = ['home', 'shop', 'office'];
+  const data = {trip_id:'home->office:walking', origin_id:'home', destination_id:'office',
+    path:ids, distance_meters:3274};
+  const view = viewer([
+    event('observation', {locations:ids.map((location_id, index) => ({location_id, name:names[index]}))}),
+    activity('action_accepted', 'commute', {kind:'travel', location_id:'home', destination_id:'office',
+      travel_mode:'walking', data}),
+    activity('activity_progress', 'commute', {kind:'travel', location_id:'home', destination_id:'office',
+      travel_mode:'walking', data}),
+  ]);
+  t.after(() => view.close());
+  const path = '张江公寓 → 人工智能研发中心 · 路径：张江公寓 → 社区便利店 → 人工智能研发中心';
+  assert.deepEqual(targets(view.activities()), [path]);
+  for (const sequence of [2, 3]) {
+    assert.ok(view.summary(sequence).includes(path));
+    assert.doesNotMatch(view.summary(sequence), /home|shop|office|3274/);
+  }
+  assert.deepEqual(view.errors, []);
+});
+
+test('foods mail and work topics remain named after later sparse observations', t => {
   const view = viewer([
     event('observation', {
-      products: [{product_id: 'breakfast-custom', name: '红烧牛肉面'}],
+      foods: [{food_id: 'breakfast-custom', name: '红烧牛肉面'}],
       messages: [{message_id: 'mail-team', subject: '项目周会通知'}],
-      tasks: [{task_id: 'hourly-2026-01-05', title: '梳理客户访谈记录',
-        remaining_contract_seconds: 3600}],
+      work_topics: [{topic_id: 'customer-notes', topic: '梳理客户访谈记录',
+        target_seconds: 3600, worked_seconds: 0}],
     }),
-    event('observation', {products: [], messages: [], tasks: []}, {agent_id: 2}),
+    event('observation', {foods: [], messages: [], work_topics: []}, {agent_id: 2}),
     ...[
-      ['consume', 'breakfast-custom'], ['read_mail', 'mail-team'], ['work', 'hourly-2026-01-05'],
+      ['consume', 'breakfast-custom'], ['read_mail', 'mail-team'], ['work', 'customer-notes'],
     ].map(([kind, target_id]) => activity('action_accepted', kind, {kind, target_id})),
-    event('action_result', {status: 'completed', order: {
-      product_id: 'breakfast-custom', total_price_fen: 1800,
-    }}),
+    event('action_result', {status: 'completed', data: {
+      orders: [{food_id: 'breakfast-custom', total_price_fen: 1800}]}}),
   ]);
   t.after(() => view.close());
   const rendered = targets(view.activities());
@@ -450,40 +476,52 @@ test('products mail and tasks remain named after later sparse observations', t =
   assert.deepEqual(view.errors, []);
 });
 
-test('browse results name movies dramas novels games and lifestyle activities without external catalogs', t => {
-  const rows = [
-    {item_id: 'movie-0001', title: '海边的清晨', kind: 'feature_film', way: '观看'},
-    {item_id: 'drama-0007', title: '华语短剧台词选段（源编号 16013）', kind: 'short_drama', way: '接着看'},
-    {item_id: 'novel-0003', title: '老城故事', kind: 'online_novel', way: '阅读'},
-    {item_id: 'textworld-0004', title: '森林迷宫', kind: 'text_game', way: '游玩'},
-    {activity_id: 'stretch-evening', name: '晚间舒展', kind: 'exercise', way: '进行'},
-  ];
-  const events = [browse(rows)];
-  for (const row of rows) {
-    const target_id = row.item_id || row.activity_id;
-    events.push(startRequest([row.title || row.name, 'interact', row.way]));
-    events.push(activity('action_accepted', `do-${target_id}`, {kind: row.kind, target_id}));
-  }
-  const view = viewer(events);
+test('current observations name apps contents work topics and lifestyle without external catalogs', t => {
+  const view = viewer([
+    event('observation', {apps: [{app_id:'a-bili', name:'哔哩哔哩'}],
+      contents:[{content_id:'c-article', title:'城市生活随笔'}],
+      work_topics:[{topic_id:'sales', topic:'季度销售数据整理', target_seconds:28800, worked_seconds:0}],
+      interaction_bindings:[{object_id:'quiet-rest', object:'活动：安静休息'}]}),
+    activity('action_accepted', 'phone', {kind:'use_app', target_id:'a-bili'}),
+    activity('action_accepted', 'work', {kind:'work', target_id:'sales'}),
+    activity('action_accepted', 'rest', {kind:'lifestyle', target_id:'quiet-rest'}),
+    startRequest(['应用：哔哩哔哩', 'interact', '打开']),
+  ]);
   t.after(() => view.close());
-  assert.deepEqual(targets(view.activities()), rows.map(row => row.title || row.name));
-  rows.forEach((row, index) => assert.ok(view.summary(index * 2 + 2).endsWith(
-    `${row.title || row.name} · ${row.way}`)));
-  assert.doesNotMatch(view.activities(), /剧集 #|电影 #|小说 #|游戏 #|第\d+段/);
+  assert.deepEqual(targets(view.activities()), ['哔哩哔哩', '季度销售数据整理', '活动：安静休息']);
+  assert.equal(view.run('targetLabel("c-article")'), '城市生活随笔');
+  assert.ok(view.summary(5).endsWith('应用：哔哩哔哩 · 打开'));
+  assert.deepEqual(view.errors, []);
+});
+
+test('app push and completed work topics use current names and content kinds', t => {
+  const view = viewer([
+    event('observation', {work_topics:[{topic_id:'sales', topic:'季度销售数据整理',
+      target_seconds:28800, worked_seconds:0}]}),
+    event('environment_event', {kind:'app_push', push_id:'push-one', app_id:'app-douyin', app:'抖音',
+      content_id:'video-one', title:'城市生活短视频', content_kind:'short_video', summary:'下班路上的城市见闻。',
+      session_id:'home-session', issued_at:epoch}, {visibility:'agent'}),
+    event('environment_event', {kind:'work_topic_completed', topic_id:'sales', worked_seconds:28800}),
+  ]);
+  t.after(() => view.close());
+  assert.equal(view.summary(2), '世界事件 · app 推送 · 抖音 · 《城市生活短视频》（短视频） · 下班路上的城市见闻。');
+  assert.equal(view.summary(3), '世界事件 · 工作主题完成 · 季度销售数据整理');
+  assert.doesNotMatch(view.summary(2), /app-douyin|video-one|push-one/);
+  assert.doesNotMatch(view.summary(3), /sales|work_topic_completed/);
   assert.deepEqual(view.errors, []);
 });
 
 test('each activity keeps its last nonempty title instead of another activity or catalog title', t => {
   const view = viewer([
-    browse([{item_id: 'drama-0007', title: '目录描述'}]),
-    activity('action_accepted', 'watch-first', {kind: 'watch', target_id: 'drama-0007', title: '初始描述'}),
-    activity('activity_progress', 'watch-first', {kind: 'watch', target_id: 'drama-0007', title: '本次选段描述'}),
-    activity('activity_progress', 'watch-first', {kind: 'watch', target_id: 'drama-0007', title: ''}),
+    event('observation', {apps: [{app_id: 'app-bili', name: '哔哩哔哩'}]}),
+    activity('action_accepted', 'watch-first', {kind: 'use_app', target_id: 'app-bili', title: '初始描述'}),
+    activity('activity_progress', 'watch-first', {kind: 'use_app', target_id: 'app-bili', title: '本次选段描述'}),
+    activity('activity_progress', 'watch-first', {kind: 'use_app', target_id: 'app-bili', title: ''}),
     activity('action_accepted', 'watch-second', {
-      kind: 'watch', target_id: 'drama-0007', title: '另一次选段描述',
+      kind: 'use_app', target_id: 'app-bili', title: '另一次选段描述',
     }, {agent_id: 2}),
     activity('activity_progress', 'watch-first', {
-      kind: 'watch', target_id: 'drama-0007', title: ' drama-0007 ',
+      kind: 'use_app', target_id: 'app-bili', title: ' app-bili ',
     }),
   ]);
   t.after(() => view.close());
@@ -494,14 +532,14 @@ test('each activity keeps its last nonempty title instead of another activity or
 });
 
 test('progress-only activity titles name both activity rows and request summaries', t => {
-  const title = '华语短剧台词选段（源编号 16013）';
+  const title = '打开哔哩哔哩';
   const view = viewer([
-    startRequest([title, 'interact', '观看']),
-    activity('activity_progress', 'only-progress', {kind: 'watch', target_id: 'drama-0007', title}),
+    startRequest(['应用：哔哩哔哩', 'interact', '打开']),
+    activity('activity_progress', 'only-progress', {kind: 'use_app', target_id: 'app-bili', title}),
   ]);
   t.after(() => view.close());
   assert.deepEqual(targets(view.activities()), [title]);
-  assert.ok(view.summary(1).includes(title));
+  assert.ok(view.summary(1).includes('应用：哔哩哔哩'));
   assert.ok(view.summary(2).includes(title));
   assert.deepEqual(view.errors, []);
 });
@@ -509,7 +547,7 @@ test('progress-only activity titles name both activity rows and request summarie
 test('start activity request displays each object with its verb and way', t => {
   const view = viewer([
     event('observation', {locations: [{location_id: 'home', name: '张江公寓'}],
-      products: [{product_id: 'food-rice', name: '菜饭'}]}),
+      foods: [{food_id: 'food-rice', name: '菜饭'}]}),
     startRequest(['菜饭', 'obtain', '远程下单'], ['自己', 'interact', '等待']),
     startRequest(['张江公寓', 'travel', '驾车']),
     startRequest(['家里的菜饭', 'consume', '食用']),
@@ -540,14 +578,14 @@ test('plan_day is no longer a person tool while day plan revisions keep their la
 test('interaction bindings name catalog activity without overriding a recorded title', t => {
   const view = viewer([
     event('observation', {interaction_bindings: [
-      {object_id: 'product_catalog', object: '商品目录'},
-      {object_id: 'drama-0001', object: '内容：目录说明'},
+      {object_id: 'quiet-rest', object: '活动：安静休息'},
+      {object_id: 'a-bili', object: '应用：哔哩哔哩'},
     ]}),
-    activity('action_accepted', 'browse', {kind: 'browse', target_id: 'product_catalog'}),
-    activity('action_accepted', 'watch', {kind: 'watch', target_id: 'drama-0001', title: '本次选段'}),
+    activity('action_accepted', 'rest', {kind: 'lifestyle', target_id: 'quiet-rest'}),
+    activity('action_accepted', 'phone', {kind: 'use_app', target_id: 'a-bili', title: '打开哔哩哔哩'}),
   ]);
   t.after(() => view.close());
-  assert.deepEqual(targets(view.activities()), ['商品目录', '本次选段']);
+  assert.deepEqual(targets(view.activities()), ['活动：安静休息', '打开哔哩哔哩']);
   assert.deepEqual(view.errors, []);
 });
 
@@ -659,12 +697,11 @@ test('rejections show the same-moment round instead of consecutive rejections', 
   const view = viewer([
     event('action_rejected', {error_code: 'ACTION_REQUEST_INVALID', same_moment_round: 2,
       max_same_moment_decisions: 3, next_decision_at: epoch, reason: '所选的对象不在本轮列出的范围内'}),
-    event('action_rejected', {error_code: 'WORK_REQUIRES_REWORK', consecutive_rejections: 4,
-      maximum_rejections: 10}),
+    event('action_rejected', {error_code: 'ACTIVITY_DURATION_INVALID', same_moment_round: 1}),
   ]);
   t.after(() => view.close());
   assert.equal(view.summary(1), '被拒绝 · ACTION_REQUEST_INVALID · 同刻第 2 轮（上限 3）');
-  assert.equal(view.summary(2), '被拒绝 · 工作需返工 · 同刻第 ? 轮');
+  assert.equal(view.summary(2), '被拒绝 · ACTIVITY_DURATION_INVALID · 同刻第 1 轮');
   for (const sequence of [1, 2]) assert.doesNotMatch(view.summary(sequence), /连续拒绝/);
 });
 
@@ -672,7 +709,7 @@ test('decision starts show their wake reasons from the frozen vocabulary', t => 
   const models = readFileSync(path.join(__dirname, '../../src/worldmock/footprints/models.py'), 'utf8');
   const vocabulary = models.match(/WAKE_REASON_NAMES = frozenset\(\{([\s\S]*?)\}\)/)[1];
   const names = [...vocabulary.matchAll(/"([a-z_]+)"/g)].map(match => match[1]);
-  assert.equal(names.length, 25);
+  assert.equal(names.length, 22);
   const due = epoch + 3600;
   const view = viewer([
     event('decision_started', {round_order: 0, wake_reasons: ['run_start']}),
@@ -681,11 +718,14 @@ test('decision starts show their wake reasons from the frozen vocabulary', t => 
     event('decision_started', {round_order: 1, wake_reasons: []}),
     event('decision_started', {round_order: 0}),
     // 词表含 errand_reminder_due：同一人物同一时刻先交付一条事务提醒，该原因才有事务名称可写。
-    event('observation', {products: [{product_id: 'food-milk', name: '纯牛奶'}]}),
+    event('observation', {foods: [{food_id: 'food-milk', name: '纯牛奶'}]}),
     errandEvent('errand_reminded', errandSnapshot({reminded_at: due}), {}, {occurred_at: due}),
     event('decision_started', {round_order: 0, wake_reasons: names}, {occurred_at: due}),
   ]);
   t.after(() => view.close());
+  const labelsByName = JSON.parse(view.run('JSON.stringify(WAKE_LABELS)'));
+  assert.deepEqual(Object.keys(labelsByName).sort(), [...names].sort());
+  assert.equal(labelsByName.app_push, 'app 推送');
   assert.equal(view.summary(1), '决策开始 · 第 0 轮 · 唤醒：运行开始');
   assert.equal(view.summary(2), '决策开始 · 第 0 轮 · 唤醒：没有进行中的活动、计划提醒到点、该播报进展');
   assert.equal(view.summary(3), '决策开始 · 第 1 轮');
@@ -693,7 +733,8 @@ test('decision starts show their wake reasons from the frozen vocabulary', t => 
   const labels = view.summary(7).split(' · 唤醒：')[1].split('、');
   assert.equal(labels.length, names.length);
   labels.forEach((label, index) => assert.match(label,
-    names[index] === 'errand_reminder_due' ? /^[一-鿿]+「买牛奶」$/ : /^[一-鿿]+$/, names[index]));
+    names[index] === 'errand_reminder_due' ? /^[一-鿿]+「买牛奶」$/ :
+      names[index] === 'app_push' ? /^app 推送$/ : /^[一-鿿]+$/, names[index]));
   assert.deepEqual(view.errors, []);
 });
 
@@ -816,7 +857,7 @@ test('errand events show their Chinese wording, the errand name and the recorded
     ['errand_cancelled', '事务取消', {}, {reason: '聚会改期了'}],
   ];
   const view = viewer([
-    event('observation', {products: [{product_id: 'food-milk', name: '纯牛奶'}]}),
+    event('observation', {foods: [{food_id: 'food-milk', name: '纯牛奶'}]}),
     activity('action_accepted', 'act-wait', {kind: 'wait'}),
     ...kinds.map(([kind, , fields, extra]) => errandEvent(kind, errandSnapshot(fields), extra)),
   ]);
@@ -836,12 +877,12 @@ test('errand events show their Chinese wording, the errand name and the recorded
 });
 
 test('errand products are named from the errand item bindings when the run lists them nowhere else', t => {
-  // 引擎的观察只在 data.products 里列看得到或持有的商品，事务却可以指目录里的任一商品；全部商品名记在每次观察的
+  // 引擎的观察只在 data.foods 里列看得到或持有的商品，事务却可以指目录里的任一商品；全部商品名记在每次观察的
   // errand_item_bindings（src/worldmock/life/errands.py 的 bindings：按商品身份排序的 {name, product_id}）。
   const bindings = [{name: '康师傅 冰红茶', product_id: 'food-tea'}, {name: '纯牛奶', product_id: 'food-milk'},
     {name: '素炒什锦食材包', product_id: 'ingredient-kit'}];
   const observed = (fields = {}, envelope = {}) => event('observation',
-    {products: [], errand_bindings: [], errand_item_bindings: bindings, ...fields}, envelope);
+    {foods: [], errand_bindings: [], errand_item_bindings: bindings, ...fields}, envelope);
   const view = viewer([
     observed(),
     errandEvent('errand_registered', errandSnapshot()),
@@ -850,7 +891,7 @@ test('errand products are named from the errand item bindings when the run lists
     errandEvent('errand_reminded', errandSnapshot({name: '囤冰红茶', errand_id: 'action-0007:errand:2',
       product_id: 'food-tea'})),
     observed({}, {agent_id: 2}),
-    event('action_result', {status: 'completed', order: {product_id: 'food-tea', total_price_fen: 450}}),
+    event('action_result', {status: 'completed', data: {orders: [{food_id: 'food-tea', total_price_fen: 450}]}}),
   ]);
   t.after(() => view.close());
   assert.equal(view.summary(2), '世界事件 · 事务记下 · 「买牛奶」 · 商品 纯牛奶');
@@ -869,13 +910,13 @@ test('errand products are named from the errand item bindings when the run lists
 
 test('errand item bindings only fill names the run records nowhere else and never an empty or identity name', t => {
   const view = viewer([
-    event('observation', {products: [{product_id: 'food-milk', name: '纯牛奶'}],
+    event('observation', {foods: [{food_id: 'food-milk', name: '纯牛奶'}],
       interaction_bindings: [{object_id: 'food-held', object: '持有物：全麦面包'}],
       errand_item_bindings: [{name: '臻浓牛奶', product_id: 'food-milk'}, {name: '全麦面包', product_id: 'food-held'},
         {name: '', product_id: 'food-empty'}, {name: ' food-raw ', product_id: 'food-raw'},
         {name: '咖啡豆', product_id: 'food-coffee'}]}),
-    // 同一商品在后来的观察里另有写法时，取最先记录的有效名称；后来才出现在 data.products 的名称仍然优先。
-    event('observation', {products: [{product_id: 'food-late', name: '店里的叫法'}],
+    // 同一商品在后来的观察里另有写法时，取最先记录的有效名称；后来才出现在 data.foods 的名称仍然优先。
+    event('observation', {foods: [{food_id: 'food-late', name: '店里的叫法'}],
       errand_item_bindings: [{name: '咖啡豆（新包装）', product_id: 'food-coffee'},
         {name: '目录里的叫法', product_id: 'food-late'}]}),
     ...['food-milk', 'food-held', 'food-empty', 'food-raw', 'food-coffee', 'food-late'].map((product_id, index) =>
@@ -891,7 +932,7 @@ test('errand item bindings only fill names the run records nowhere else and neve
 test('an errand product without a recorded name is reported as missing and an errand is never named by its identity', t => {
   const name = '<img src=x onerror=alert(1)>';
   const view = viewer([
-    event('observation', {products: [{product_id: 'food-milk', name: '纯牛奶'}]}),
+    event('observation', {foods: [{food_id: 'food-milk', name: '纯牛奶'}]}),
     errandEvent('errand_registered', errandSnapshot({name: '买早餐', product_id: 'food-unlisted'})),
     errandEvent('errand_completed', errandSnapshot({progress: 2}), {quantity_added: 2}),
     errandEvent('errand_registered', errandSnapshot({name: ' \t ', errand_id: 'action-0009:errand:1'})),
@@ -935,8 +976,8 @@ test('the errand reminder wake reason names the errands reminded for that person
   const started = (wake_reasons, envelope = {}) => event('decision_started',
     {round_id: 'round-0003', round_order: 0, world_state_version: 12, wake_reasons}, {occurred_at: due, ...envelope});
   const view = viewer([
-    event('observation', {products: [{product_id: 'food-milk', name: '纯牛奶'},
-      {product_id: 'food-bread', name: '全麦面包'}, {product_id: 'food-coffee', name: '咖啡豆'}]}, {occurred_at: epoch}),
+    event('observation', {foods: [{food_id: 'food-milk', name: '纯牛奶'},
+      {food_id: 'food-bread', name: '全麦面包'}, {food_id: 'food-coffee', name: '咖啡豆'}]}, {occurred_at: epoch}),
     reminded({}),
     reminded({name: '买面包', errand_id: 'action-0011:errand:1', product_id: 'food-bread'}),
     reminded({name: '买咖啡豆', errand_id: 'action-0020:errand:0', product_id: 'food-coffee'}, {agent_id: 2}),
@@ -1003,8 +1044,6 @@ test('activities page lists location sessions from the final world state', t => 
         name: '菜饭骨头汤（1月5日 07:40 起）', started_at: epoch + 6000, ended_at: null, activity_ids: ['act-gone']}),
       'session-2-0001': session('session-2-0001', {agent_id: 2, kind: 'stay', location_id: 'home',
         name: '李明的家（1月5日 00:00 起）', started_at: epoch, ended_at: null, status: 'active'}),
-      'legacy-task-session': {session_id: 'legacy-task-session', agent_id: 1, session_name: '旧的任务会话',
-        status: 'active', started_at: epoch},
     },
   };
   const view = viewer([activity('action_accepted', 'act-sleep', {kind: 'sleep'}),
@@ -1018,7 +1057,6 @@ test('activities page lists location sessions from the final world state', t => 
       '步行前往菜饭骨头汤（1月5日 07:30 起）、听播客&lt;节目&gt;（1月5日 07:30 起）'],
     ['菜饭骨头汤（1月5日 07:40 起）', '停留', '进行中', '1 项活动'],
   ]);
-  assert.ok(!view.activities().includes('旧的任务会话'));
   view.get('#agent-filter').value = '2';
   assert.deepEqual(tableRows(view.activities(), 'session-table').map(cells => cells[2]),
     ['李明的家（1月5日 00:00 起）']);
@@ -1032,11 +1070,10 @@ test('runs without location sessions render no session table', t => {
 
 test('unknown names are explicit and logged in English while basic activities have no invented target', t => {
   const ids = [
-    'movie-0099', 'drama-0099', 'game-0099', 'food-0099', 'poi-missing',
-    'novel-0099', 'task-2026-01-05', 'jokes-feed', 'sintel-en-subtitles',
+    'app-missing', 'content-missing', 'food-missing', 'poi-missing', 'topic-missing',
   ];
   const events = ids.map((id, index) => activity('action_accepted', `unknown-${index}`, {
-    kind: id.startsWith('poi-') ? 'travel' : 'watch',
+    kind: id.startsWith('poi-') ? 'travel' : 'use_app',
     ...(id.startsWith('poi-') ? {destination_id: id} : {target_id: id}),
   }));
   events.push(activity('action_accepted', 'sleep-basic', {kind: 'sleep'}));
@@ -1057,33 +1094,33 @@ test('empty names are reported and cannot erase earlier recorded names', t => {
     event('observation', {
       locations: [{location_id: 'poi-keep', name: '菜饭骨头汤'},
         {location_id: 'poi-empty', name: ''}, {location_id: 'poi-space', name: ' \t '}],
-      products: [{product_id: 'food-empty', name: ''}],
+      foods: [{food_id: 'food-empty', name: ''}],
       messages: [{message_id: 'mail-space', subject: '   '}],
-      tasks: [{task_id: 'task-space', title: ' \t '}],
+      work_topics: [{topic_id: 'topic-space', topic: ' \t '}],
     }),
-    browse([{item_id: 'movie-keep', title: '海边的清晨'},
-      {item_id: 'movie-empty', title: ''}, {item_id: 'movie-space', title: '   '}]),
+    contentNames([{content_id: 'movie-keep', title: '海边的清晨'},
+      {content_id: 'movie-empty', title: ''}, {content_id: 'movie-space', title: '   '}]),
     event('observation', {locations: [{location_id: 'poi-keep', name: ''}]}),
-    browse([{item_id: 'movie-keep', title: '   '}]),
+    contentNames([{content_id: 'movie-keep', title: '   '}]),
     ...['poi-keep', 'poi-empty', 'poi-space'].map(destination_id =>
       activity('action_accepted', destination_id, {kind: 'travel', destination_id})),
-    ...['movie-keep', 'food-empty', 'mail-space', 'task-space', 'movie-empty', 'movie-space'].map(target_id =>
-      activity('action_accepted', target_id, {kind: 'watch', target_id})),
+    ...['movie-keep', 'food-empty', 'mail-space', 'topic-space', 'movie-empty', 'movie-space'].map(target_id =>
+      activity('action_accepted', target_id, {kind: 'use_app', target_id})),
   ]);
   t.after(() => view.close());
   assert.deepEqual(targets(view.activities()), [
     '→ 菜饭骨头汤', '→ 名称缺失（poi-empty）', '→ 名称缺失（poi-space）', '海边的清晨',
-    '名称缺失（food-empty）', '名称缺失（mail-space）', '名称缺失（task-space）',
+    '名称缺失（food-empty）', '名称缺失（mail-space）', '名称缺失（topic-space）',
     '名称缺失（movie-empty）', '名称缺失（movie-space）',
   ]);
-  for (const id of ['poi-empty', 'poi-space', 'food-empty', 'mail-space', 'task-space', 'movie-empty', 'movie-space']) {
+  for (const id of ['poi-empty', 'poi-space', 'food-empty', 'mail-space', 'topic-space', 'movie-empty', 'movie-space']) {
     assert.ok(view.errors.some(error => error.includes(id) && /[A-Za-z]/.test(error)));
   }
   assert.ok(view.errors.every(error => !/[\u4e00-\u9fff]/.test(error)));
 });
 
 test('reload clears both recorded names and missing-name diagnostics', t => {
-  const missing = activity('action_accepted', 'missing', {kind: 'watch', target_id: 'drama-0099'});
+  const missing = activity('action_accepted', 'missing', {kind: 'use_app', target_id: 'drama-0099'});
   const view = viewer([
     event('observation', {locations: [{location_id: 'poi-known', name: '前次地点'}]}), missing,
   ]);
@@ -1103,18 +1140,18 @@ test('identifiers repeated as names or titles remain explicit missing names', t 
   const view = viewer([
     event('observation', {
       locations: [{location_id: 'poi-raw', name: 'poi-raw'}],
-      products: [{product_id: 'food-raw', name: 'food-raw'}],
+      foods: [{food_id: 'food-raw', name: 'food-raw'}],
       messages: [{message_id: 'mail-raw', subject: 'mail-raw'}],
-      tasks: [{task_id: 'task-raw', title: 'task-raw'}],
+      work_topics: [{topic_id: 'topic-raw', topic: 'topic-raw'}],
     }),
-    browse([{item_id: 'movie-raw', title: 'movie-raw'}]),
-    ...['food-raw', 'mail-raw', 'task-raw', 'movie-raw'].map(target_id =>
-      activity('action_accepted', target_id, {kind: 'watch', target_id, title: target_id})),
+    contentNames([{content_id: 'movie-raw', title: 'movie-raw'}]),
+    ...['food-raw', 'mail-raw', 'topic-raw', 'movie-raw'].map(target_id =>
+      activity('action_accepted', target_id, {kind: 'use_app', target_id, title: target_id})),
     activity('action_accepted', 'travel-raw', {kind: 'travel', destination_id: 'poi-raw'}),
   ]);
   t.after(() => view.close());
   assert.deepEqual(targets(view.activities()), [
-    '名称缺失（food-raw）', '名称缺失（mail-raw）', '名称缺失（task-raw）',
+    '名称缺失（food-raw）', '名称缺失（mail-raw）', '名称缺失（topic-raw）',
     '名称缺失（movie-raw）', '→ 名称缺失（poi-raw）',
   ]);
 });
@@ -1123,11 +1160,11 @@ test('names are escaped in activities timeline and economy without changing stor
   const name = '<img src=x onerror=alert(1)>&"\'';
   const escaped = '&lt;img src=x onerror=alert(1)&gt;&amp;&quot;&#39;';
   const view = viewer([
-    event('observation', {products: [{product_id: 'food-html', name}],
+    event('observation', {foods: [{food_id: 'food-html', name}],
       locations: [{location_id: 'poi-html', name}]}),
-    activity('action_accepted', 'unsafe-title', {kind: 'watch', target_id: 'drama-html', title: name}),
+    activity('action_accepted', 'unsafe-title', {kind: 'use_app', target_id: 'drama-html', title: name}),
     activity('action_accepted', 'unsafe-location', {kind: 'travel', destination_id: 'poi-html'}),
-    event('action_result', {status: 'completed', order: {product_id: 'food-html', total_price_fen: 100}}),
+    event('action_result', {status: 'completed', data: {orders: [{food_id: 'food-html', total_price_fen: 100}]}}),
   ]);
   t.after(() => view.close());
   const timeline = view.run('tlRow(S.events[1]).innerHTML');
@@ -1143,12 +1180,12 @@ test('obsolete content catalogs neither supply names nor invent drama segment nu
   const title = '华语短剧台词选段（源编号 16013）';
   const view = viewer([
     event('observation', {content_catalog: [
-      {item_id: 'drama-0007', title: '过时目录', typical_segment_seconds: 30},
-      {item_id: 'drama-unknown', title: '历史外部名称'},
+      {content_id: 'drama-0007', title: '过时目录', typical_segment_seconds: 30},
+      {content_id: 'drama-unknown', title: '历史外部名称'},
     ]}),
-    activity('activity_progress', 'known', {kind: 'watch', target_id: 'drama-0007', title,
+    activity('activity_progress', 'known', {kind: 'use_app', target_id: 'drama-0007', title,
       media_position_seconds: 120}),
-    activity('activity_progress', 'unknown', {kind: 'watch', target_id: 'drama-unknown'}),
+    activity('activity_progress', 'unknown', {kind: 'use_app', target_id: 'drama-unknown'}),
   ]);
   t.after(() => view.close());
   assert.deepEqual(targets(view.activities()), [title, '名称缺失（drama-unknown）']);
@@ -1156,12 +1193,12 @@ test('obsolete content catalogs neither supply names nor invent drama segment nu
 });
 
 test('directory loading ignores external items.json names', async t => {
-  const view = viewer([activity('action_accepted', 'watch', {kind: 'watch', target_id: 'movie-0001'})]);
+  const view = viewer([activity('action_accepted', 'watch', {kind: 'use_app', target_id: 'movie-0001'})]);
   t.after(() => view.close());
   let reads = 0;
   const entry = {isFile: true, name: 'items.json', file(callback) {
     reads++;
-    callback({text: async () => JSON.stringify([{item_id: 'movie-0001', title: '外部片名'}])});
+    callback({text: async () => JSON.stringify([{content_id: 'movie-0001', title: '外部片名'}])});
   }};
   await view.run('loadRunFiles')([], [entry]);
   assert.equal(reads, 0);
@@ -1172,7 +1209,7 @@ test('body curves read current observation values rather than obsolete body fiel
   const view = viewer([
     event('observation', {balance_fen: 1000, body: {values: {
       energy_kcal: 1356.25, sleep_deficit_hours: 1.875, entertainment_need: 0.3,
-    }}, active_activities: [{kind: 'watch'}, {kind: 'wait'}]}),
+    }}, active_activities: [{kind: 'use_app'}, {kind: 'wait'}]}),
     event('observation', {balance_fen: 900, body: {values: {
       energy_kcal: 1230, sleep_deficit_hours: 2.5, entertainment_need: 0.5,
     }}}, {occurred_at: epoch + 60}),
@@ -1183,7 +1220,7 @@ test('body curves read current observation values rather than obsolete body fiel
   ]);
   assert.ok(view.body().includes('睡眠缺口 sleep_deficit_hours'));
   assert.ok(view.summary(1).includes('1356kcal'));
-  assert.ok(view.summary(1).includes('进行中：观看、等待'));
+  assert.ok(view.summary(1).includes('进行中：用手机、等待'));
 });
 
 test('memory page shows stored episode text without requiring a directory upload', t => {
@@ -1269,7 +1306,7 @@ function lanes(markup) {
 function sixDayRun() {
   return [
     ...settled('act-work', 'work', 9, 12, {target_id: 'task-1', title: '会议纪要'}),
-    ...settled('act-podcast', 'watch', 10, 10.5, {target_id: 'podcast-1', title: '播客·工位闲谈'}),
+    ...settled('act-podcast', 'use_app', 10, 10.5, {target_id: 'content-1', title: '播客·工位闲谈'}),
     ...settled('act-sleep', 'sleep', 23, 31),
     ...settled('act-wash', 'lifestyle', 5 * 24 + 8, 5 * 24 + 8.25, {target_id: 'wash-1', title: '晨间洗漱'}),
   ];
@@ -1477,8 +1514,11 @@ test('chart ticks stay apart at every run length and weekly labels fall on Monda
 
 test('accepted requests without an activity and the remaining event kinds read in Chinese', t => {
   const view = viewer([
+    activity('action_accepted', 'act-sleep', {kind: 'sleep'}),
+    activity('action_accepted', 'act-app', {kind: 'use_app', target_id: 'content-1', title: '听播客<节目>'}),
+    // 控制工具的结果只记所涉活动的身份：摘要换成各活动的种类与名称，查不到的活动不写，身份不进摘要。
     event('action_accepted', {status: 'completed', message: 'Activities concluded', data: {
-      task: ['睡觉（1月5日 00:00 起）', '听播客<节目>（1月5日 07:30 起）'], activity_ids: ['act-1', 'act-2']}}),
+      activity_ids: ['act-sleep', 'act-app', 'act-never-recorded']}}),
     event('action_accepted', {status: 'completed', message: 'Purchase accepted', data: {total_price_fen: 1200}}),
     activity('action_accepted', 'act-call', {kind: 'call', title: '和妈妈通话'}),
     activity('action_accepted', 'act-chat', {kind: 'chat'}),
@@ -1489,15 +1529,18 @@ test('accepted requests without an activity and the remaining event kinds read i
     event('memory_updated', {operation: 'refresh_summary', created_episode_ids: [], merged_episode_ids: []}),
   ]);
   t.after(() => view.close());
-  assert.equal(view.summary(1), '已受理 · 睡觉（1月5日 00:00 起）、听播客<节目>（1月5日 07:30 起）');
-  assert.equal(view.summary(2), '已受理');
-  assert.ok(view.run('tlRow(S.events[0]).innerHTML').includes('听播客&lt;节目&gt;'));
-  assert.equal(view.summary(3), '已受理 · 通话 · 计划 10分');
-  assert.equal(view.summary(4), '已受理 · 交谈 · 计划 10分');
-  assert.deepEqual([5, 6, 7, 8].map(sequence => view.summary(sequence)), ['世界事件 · 消息到达',
+  assert.equal(view.summary(3), '已受理 · 睡眠、用手机 听播客<节目>');
+  assert.equal(view.summary(4), '已受理');
+  assert.ok(view.run('tlRow(S.events[2]).innerHTML').includes('用手机 听播客&lt;节目&gt;'));
+  assert.equal(view.summary(5), '已受理 · 通话 · 计划 10分');
+  assert.equal(view.summary(6), '已受理 · 交谈 · 计划 10分');
+  assert.deepEqual([7, 8, 9, 10].map(sequence => view.summary(sequence)), ['世界事件 · 消息到达',
     '世界事件 · 联系人回复待生成', '世界事件 · 联系人回复', '世界事件 · 分支创建']);
-  assert.equal(view.summary(9), '记忆更新 · 刷新主观总结 · 0 段记忆');
-  for (const entry of view.state.events) assert.doesNotMatch(entry.sum, /undefined|null|·  ·/);
+  assert.equal(view.summary(11), '记忆更新 · 刷新主观总结 · 0 段记忆');
+  for (const entry of view.state.events) assert.doesNotMatch(entry.sum, /undefined|null|·  ·|act-/);
+  // 换一个文件后，上一份库的活动不再给受理摘要起名。
+  view.reload([event('action_accepted', {status: 'completed', data: {activity_ids: ['act-sleep']}})]);
+  assert.equal(view.summary(1), '已受理');
 });
 
 /** @brief 拖入或选择的顶层文件：只提供页面读取的名称与文本；content 不是字符串时按 JSON 写出。 */
@@ -1520,7 +1563,7 @@ function directoryEntry(name, children) {
 
 /** @brief 运行清单：与测试世界状态同一 run_id、带 agent_ids；fields 覆盖 input_warnings 等键（缺省不带该键）。 */
 function runManifest(fields = {}, runId = 'viewer-test-run') {
-  return {schema_version: 2, run_id: runId, source_group_id: runId, agent_ids: [1, 2], ...fields};
+  return {schema_version: 3, run_id: runId, source_group_id: runId, agent_ids: [1, 2], ...fields};
 }
 
 /** @brief 一条运行输入警告，按清单条目形状 {code, agent_id, message, details}。 */
@@ -1551,31 +1594,29 @@ test('overview lists every frozen input warning under its person or at scenario 
     .replace(/\r\n/g, '\n');
   const codes = [.../InputWarningCode = Literal\[\n([\s\S]*?)\n\]/.exec(injection)[1].matchAll(/"([A-Z_]+)"/g)]
     .map(match => match[1]);
-  assert.equal(codes.length, 10);
-  const scenarioCodes = ['DELIVERY_ROUTE_UNAVAILABLE', 'LOCATION_NAME_SUSPICIOUS'];
+  assert.equal(codes.length, 6);
+  const scenarioCodes = ['LOCATION_NAME_SUSPICIOUS'];
   const personal = codes.filter(code => !scenarioCodes.includes(code));
   const second = personal.filter((_, index) => index % 2), first = personal.filter((_, index) => !(index % 2));
-  const route = '门店 dinner（鹅庄台湾美食）到目的地 home（家）没有可达的驾车路线（unknown），3 项配送供给送不到。';
   // 清单顺序故意打乱：人物 2 的警告在前，一条场景级夹在两人之间；页面按人物编号、再场景级排列。
   const warnings = [
-    ...second.map(code => inputWarning(code, 2, `李明：${code}`)), inputWarning(scenarioCodes[0], null, route),
+    ...second.map(code => inputWarning(code, 2, `李明：${code}`)),
     ...first.map(code => inputWarning(code, 1, `陈曦：${code}`)),
-    inputWarning(scenarioCodes[1], null, '地点 poi-1 的显示名「肯德基<东经121.50°>」带坐标。'),
+    inputWarning(scenarioCodes[0], null, '地点 poi-1 的显示名「肯德基<东经121.50°>」带坐标。'),
   ];
   const view = await loadedViewer(t, [droppedFile('manifest.json', runManifest({input_warnings: warnings}))]);
   const card = warningCard(view.overview());
   assert.deepEqual(warningRows(card), [
     ...first.map(code => ['陈曦', code, `陈曦：${code}`]), ...second.map(code => ['李明', code, `李明：${code}`]),
-    ['场景级', scenarioCodes[0], route],
-    ['场景级', scenarioCodes[1], '地点 poi-1 的显示名「肯德基&lt;东经121.50°&gt;」带坐标。'],
+    ['场景级', scenarioCodes[0], '地点 poi-1 的显示名「肯德基&lt;东经121.50°&gt;」带坐标。'],
   ]);
   assert.deepEqual(new Set(warningRows(card).map(row => row[1])), new Set(codes));
-  assert.ok(card.includes('共 10 条：人物 8 条、场景级 2 条') && card.includes('manifest.json'));
+  assert.ok(card.includes('共 6 条：人物 5 条、场景级 1 条') && card.includes('manifest.json'));
   assert.ok(!card.includes('<东经'));
   view.get('#agent-filter').value = '2';
   const filtered = warningCard(view.overview());
-  assert.deepEqual(warningRows(filtered).map(row => row[0]), [...second.map(() => '李明'), '场景级', '场景级']);
-  assert.ok(filtered.includes('当前筛选 6 条'));
+  assert.deepEqual(warningRows(filtered).map(row => row[0]), [...second.map(() => '李明'), '场景级']);
+  assert.ok(filtered.includes('当前筛选 3 条'));
   assert.deepEqual(view.errors, []);
   const firstOnly = await loadedViewer(t, [droppedFile('manifest.json',
     runManifest({input_warnings: warnings.filter(item => item.agent_id === 1)}))]);
@@ -1606,9 +1647,9 @@ test('warnings that were not computed or are empty are stated and a missing mani
 
 test('the manifest is bound to the world state run, preferred over the export copy and never another run', async t => {
   const child = runManifest({branch_kind: 'resume', parent_run_id: 'parent-run',
-    input_warnings: [inputWarning('TASTE_GENRES_UNMATCHED', 1, '子运行清单冻结的警告')]});
+    input_warnings: [inputWarning('COVERAGE_BELOW_THRESHOLD', 1, '子运行清单冻结的警告')]});
   const exported = {run_id: 'viewer-test-run', frozen_run_manifest: {...child,
-    input_warnings: [inputWarning('TASTE_GENRES_UNMATCHED', 1, '导出清单中的副本')]}};
+    input_warnings: [inputWarning('COVERAGE_BELOW_THRESHOLD', 1, '导出清单中的副本')]}};
   // 恢复分支的库以父运行的事件开头，世界状态与清单才是本运行；同目录的 LabelKit 输入清单也写着本运行的 run_id。
   const run = directoryEntry('resumed', [
     directoryEntry('labelkit-input', [fileEntry('manifest.json',
@@ -1623,7 +1664,7 @@ test('the manifest is bound to the world state run, preferred over the export co
     [event('observation', {}, {run_id: 'parent-run'}), event('observation', {})]);
   assert.equal(view.state.runId, 'parent-run', 'the first event belongs to the parent run');
   const card = warningCard(view.overview());
-  assert.deepEqual(warningRows(card), [['陈曦', 'TASTE_GENRES_UNMATCHED', '子运行清单冻结的警告']]);
+  assert.deepEqual(warningRows(card), [['陈曦', 'COVERAGE_BELOW_THRESHOLD', '子运行清单冻结的警告']]);
   assert.ok(card.includes('resumed/manifest.json') && !card.includes('frozen_run_manifest'));
   assert.equal(view.state.ignoredManifests, 2);
   assert.equal(view.state.memFiles['1'].memoryMd, '今天把纪要交了。');
@@ -1631,11 +1672,11 @@ test('the manifest is bound to the world state run, preferred over the export co
   // 运行清单在前、导出副本在后时同样取运行清单本身。
   const directFirst = await loadedViewer(t, [droppedFile('manifest.json', child)], [exportDirectory()]);
   assert.deepEqual(warningRows(warningCard(directFirst.overview())),
-    [['陈曦', 'TASTE_GENRES_UNMATCHED', '子运行清单冻结的警告']]);
+    [['陈曦', 'COVERAGE_BELOW_THRESHOLD', '子运行清单冻结的警告']]);
 
   const exportOnly = await loadedViewer(t, [], [exportDirectory()]);
   const copy = warningCard(exportOnly.overview());
-  assert.deepEqual(warningRows(copy), [['陈曦', 'TASTE_GENRES_UNMATCHED', '导出清单中的副本']]);
+  assert.deepEqual(warningRows(copy), [['陈曦', 'COVERAGE_BELOW_THRESHOLD', '导出清单中的副本']]);
   assert.ok(copy.includes('worldmock-export/manifest.json · frozen_run_manifest'));
 
   const strangers = await loadedViewer(t, [parent, droppedFile('manifest.json', '{"run_id": "viewer-test-run"')]);
@@ -1725,26 +1766,29 @@ test('model usage on the overview is summed per person from the index with typel
 test('names read with the typed rows keep the override, fill-in and earliest-name rules across observations', t => {
   const observed = fields => event('observation', fields);
   const view = viewer([
-    // 同一次观察里一个商品有两种写法：取码点序最小的；数组里的非对象项与空数组不影响其余条目。
-    observed({products: [{product_id: 'food-a', name: '第一种叫法'}, 'stray', null],
+    // 同一次观察里一个商品有两种写法：取码点序最小的；数组里的非对象项不影响其余条目。
+    observed({foods: [{food_id: 'food-a', name: '第一种叫法'}, 'stray', null],
+      apps: [{app_id: 'app-1', name: '短视频 app'}],
+      contents: [{content_id: 'content-1', title: '一条内容', kind: 'article'}],
+      work_topics: [{topic_id: 'topic-1', topic: '季度复盘'}],
       locations: {home: {location_id: 'poi-home', name: '家'}},
       messages: [{message_id: 'mail-1', subject: '周报'}, {message_id: 'mail-2', subject: ' '}],
+      interaction_bindings: [{object_id: 'content-1', object: '绑定里的叫法'}, {object_id: 'held-1', object: '持有物：面包'}],
       errand_item_bindings: [{name: '乙名', product_id: 'food-x'}, {name: '甲名', product_id: 'food-x'},
-        {name: '😀表情名', product_id: 'food-y'}, {name: '￮全角名', product_id: 'food-y'}]}),
+        {name: '😀表情名', product_id: 'food-y'}, {name: '￮全角名', product_id: 'food-y'},
+        {name: '目录里的叫法', product_id: 'held-1'}]}),
     // 名称改了：覆盖来源取后来的写法；补缺来源仍取最早的。
-    observed({products: [{product_id: 'food-a', name: '第二种叫法'}],
+    observed({foods: [{food_id: 'food-a', name: '第二种叫法'}],
       errand_item_bindings: [{name: '啊更小的名', product_id: 'food-x'}, {name: '后来才有', product_id: 'food-z'}]}),
     // 与第一次观察逐字相同的数组再次出现：覆盖来源照样改回去。
-    observed({products: [{product_id: 'food-a', name: '第一种叫法'}, 'stray', null]}),
-    event('action_accepted', {status: 'completed', data: {tool: 'browse_activities', items: [
-      {item_id: null, product_id: 'food-b', title: null, name: '按名称'}, {task_id: 'task-9', title: '按标题', name: '不用'},
-      {activity_id: '', title: '空身份不记'}]}}),
+    observed({foods: [{food_id: 'food-a', name: '第一种叫法'}, 'stray', null]}),
   ]);
   t.after(() => view.close());
   const entries = map => JSON.parse(JSON.stringify([...map]));
   assert.deepEqual(entries(view.state.nameIdx.locations), [['poi-home', '家']]);
-  assert.deepEqual(entries(view.state.nameIdx.targets), [['food-a', '第一种叫法'], ['mail-1', '邮件「周报」'],
-    ['food-b', '按名称'], ['task-9', '按标题'], ['food-x', '乙名'], ['food-y', '￮全角名'], ['food-z', '后来才有']]);
+  assert.deepEqual(entries(view.state.nameIdx.targets), [['food-a', '第一种叫法'], ['app-1', '短视频 app'],
+    ['content-1', '一条内容'], ['topic-1', '季度复盘'], ['mail-1', '邮件「周报」'], ['held-1', '持有物：面包'],
+    ['food-x', '乙名'], ['food-y', '￮全角名'], ['food-z', '后来才有']]);
   assert.deepEqual(view.errors, []);
 });
 

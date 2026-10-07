@@ -11,6 +11,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from worldmock.errors import IntegrityError
+from worldmock.exchange.types import CONTENT_KIND_LABELS
 from worldmock.footprints.models import canonical_json, sha256_json
 from worldmock.footprints.validation import validate_export
 from worldmock.life.control_items import CONTROL_TOOLS, control_request
@@ -217,10 +218,13 @@ def _public_event_data(event: dict) -> dict:
     缺 errands 的旧形状记录经 control_items 以完整性故障拒绝。投影写进新字典，不原地修改原事件，动作窗口的目标仍是
     同一事件、保留完整请求（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第九章，
     docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第六章，
-    docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-交付边界 ）。其余事件（含个人事务的六种 environment_event）的公开投影为空对象。
+    docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-交付边界 ）。人物可见 app 推送只保留事件种类、app 名、内容类型标签与摘要；系统推送结算与其他环境事件的投影为空对象。
     """
     data = event["data"]
     kind = event["event_type"]
+    if kind == "environment_event" and data.get("kind") == "app_push" and event["visibility"] == "agent":
+        return {"kind": "app_push", "app": data["app"],
+                "kind_label": CONTENT_KIND_LABELS[data["content_kind"]], "summary": data["summary"]}
     if kind == "observation":
         return {key: data[key] for key in OBSERVATION_LAYER_KEYS if key in data}
     if kind == "action_requested":

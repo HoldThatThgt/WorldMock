@@ -81,11 +81,11 @@ def test_travel_uses_exact_frozen_route_seconds(engine_factory):
     assert result.status == "in_progress", result.error_code
     activity = engine.context.state.activities[result.activity_id]
     assert activity.name.startswith(f"步行前往{location['object'].removeprefix('地点：')}")
-    route = next(route for route in engine.context.scenario.routes
-                 if route.origin_id == "home" and route.destination_id == location["object_id"]
-                 and route.mode.value == choice["travel_mode"])
-    expected = engine.context.semantics.travel_planned_seconds(
-        choice["travel_mode"], route.duration_seconds, activity.started_at)
+    from worldmock.exchange.operators import travel_seconds
+    graph = engine.context.semantics.catalog.graph
+    meters = graph.distance_meters('home', location['object_id'])
+    expected = travel_seconds(choice['travel_mode'], meters)
+    assert activity.data['path'] == list(graph.path('home', location['object_id']))
     assert activity.planned_duration_seconds == expected
 
 

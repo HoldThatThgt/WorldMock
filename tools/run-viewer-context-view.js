@@ -4,7 +4,7 @@
 const ContextView = {};
 {
   const state = {items:null, seq:null, stage:'all', view:'structure', block:null, rule:null};
-  const stages = {all:'全部调用', action:'选择动作', legacy:'选择动作·旧模板', other:'其他调用'};
+  const stages = {all:'全部调用', action:'选择动作', other:'其他调用'};
   const views = {structure:'结构与填充', growth:'增长与退出', comparison:'前后输入对照'};
   const statusNames = {added:'新增', changed:'内容变化', unchanged:'未变', removed:'退出当前输入'};
 
@@ -88,10 +88,9 @@ const ContextView = {};
       <label>查看内容<select id="ctx-view">${options(Object.entries(views), state.view)}</select></label></div>`;
   }
 
-  /** @brief 显示单一行动阶段的决策顺序；其他调用不套用人物决策阶段，旧模板行动请求只说明推断分段。 */
+  /** @brief 显示单一行动阶段的决策顺序；其他调用不套用人物决策阶段。 */
   function flow(stage) {
     if (stage === 'other') return '<div class="cx-meta">其他模型调用按原始消息结构展示。</div>';
-    if (stage === 'legacy') return '<div class="cx-meta">历史运行的旧模板行动请求：首个 user 按旧模板推断分段，来源未核验。</div>';
     return `<div class="cx-flow" aria-label="人物决策流程"><span>冻结观察</span><span>→</span>
       <span class="active">系统层与六层输入 → 选择世界请求</span><span>→</span>
       <span>世界执行 → 下一轮重建</span></div>`;
@@ -103,7 +102,7 @@ const ContextView = {};
     return '<div class="cx-blocks">' + blocks.map(block =>
       `<button type="button" class="cx-block" data-context-block="${esc(block.id)}"
         aria-pressed="${block.id === state.block}"><span>${esc(block.label)}</span><span>${nf(block.chars)}</span>
-        <small>${esc(block.role)}${{layer:' · 层切片', template:' · 模板拆分'}[block.interpretation] ?? ''}</small>
+        <small>${esc(block.role)}${block.interpretation === 'layer' ? ' · 层切片' : ''}</small>
         <small>字符</small><span class="cx-track" aria-hidden="true">
         <span class="cx-bar" style="display:block;width:${block.chars / maximum * 100}%"></span></span></button>`
     ).join('') + '</div>';
@@ -115,8 +114,8 @@ const ContextView = {};
     const rule = ViewerContext.rules[block.rule];
     const metadata = rule ? `<dl><dt>构建来源</dt><dd>${esc(rule.source)}</dd>
       <dt>填入</dt><dd>${esc(rule.fill)}</dd></dl>` : '';
-    const provenance = {layer:'<p class="cx-meta">按顶层数组无损切片；层内原文未改动，分隔符计入本层。</p>',
-      template:'<p class="cx-meta">按旧模板拆分；归档未保存填充来源，本次来源未核验。</p>'}[block.interpretation] ?? '';
+    const provenance = block.interpretation === 'layer' ?
+      '<p class="cx-meta">按顶层数组无损切片；层内原文未改动，分隔符计入本层。</p>' : '';
     const drillable = ViewerContext.drillItems(block).length > 0;
     return `<div class="cx-detail card"><h3>${esc(block.label)}</h3>${provenance}${metadata}
       ${drillable ? '<label>层内条目<select id="ctx-item"></select></label>' : ''}
@@ -189,9 +188,7 @@ const ContextView = {};
     const provenance = (displayed.some(block => block.interpretation === 'layer') ?
       '<p class="cx-meta">首个 user 按顶层数组无损切片，每片可解析且层序符合七层合同；self_note 未经核验。</p>' : '') +
       (model.current.continuation ? '<p class="cx-meta">同秒续接：本决策首个请求多于两条消息；前序 assistant 按 ' +
-        'tool_call 身份匹配来源决策，回复正文未经核验，回传思考单列，不另计字符。</p>' : '') +
-      (displayed.some(block => block.interpretation === 'template') ?
-        '<p class="cx-meta">按旧模板拆分；正文内同名标题可能影响划分，填充来源未核验。</p>' : '');
+        'tool_call 身份匹配来源决策，回复正文未经核验，回传思考单列，不另计字符。</p>' : '');
     const detail = state.view === 'growth' ? growth(block) : blockDetail(block);
     const body = state.view === 'comparison' ? comparison(model) :
       `<div class="cx-layout">${blockList(blocks)}${detail}</div>`;

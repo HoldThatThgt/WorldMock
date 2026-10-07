@@ -121,7 +121,7 @@ def test_engine_honors_agent_lifestyle_declaration(engine_factory) -> None:
     engine = engine_factory("multi-person.json")
     declarations = {item.agent_id: item.lifestyle_activities
                     for item in engine.context.scenario.agents}
-    assert declarations[1] is not None and "yoga" in declarations[1]
+    assert declarations[1] is not None and "quiet-rest" in declarations[1]
     assert "sport-badminton" not in declarations[1]
     observed = engine.observe(context(engine, "lifestyle-undeclared"))
     visible = {row["object_id"] for row in observed["interaction_bindings"]
@@ -132,20 +132,20 @@ def test_engine_honors_agent_lifestyle_declaration(engine_factory) -> None:
 
 def test_scenario_admission_rejects_unknown_lifestyle_declaration() -> None:
     """语义层准入：声明了目录外的 activity_id 直接 fail-closed。"""
-    from worldmock.errors import IntegrityError
+    from worldmock.catalog.errors import RegistrationError
     from worldmock.life.scenario import AgentConfig
-    from worldmock.life.semantics import _check_lifestyle_declarations
+    from worldmock.life.semantics import _check_lifestyle_ids
 
     scenario, _ = load_scenario(ENVIRONMENT_ROOT / "scenarios/multi-person.json")
-    body = scenario.body.model_copy(update={"activity_met": {"lifestyle:yoga": 2.5}})
+    body = scenario.body.model_copy(update={"activity_met": {"lifestyle:quiet-rest": 2.5}})
     agent = scenario.agents[0].model_copy(
-        update={"lifestyle_activities": ("yoga", "not-in-catalog")})
+        update={"lifestyle_activities": ("quiet-rest", "not-in-catalog")})
     document = scenario.model_copy(update={"agents": (agent,)})
-    with pytest.raises(IntegrityError, match="unknown lifestyle activities"):
-        _check_lifestyle_declarations(document, body)
-    good = scenario.agents[0].model_copy(update={"lifestyle_activities": ("yoga",)})
+    with pytest.raises(RegistrationError, match="ENVIRONMENT_REF_UNKNOWN"):
+        _check_lifestyle_ids(document, body)
+    good = scenario.agents[0].model_copy(update={"lifestyle_activities": ("quiet-rest",)})
     document = scenario.model_copy(update={"agents": (good,)})
-    _check_lifestyle_declarations(document, body)
+    _check_lifestyle_ids(document, body)
 
 
 def test_agent_config_lifestyle_validation() -> None:
@@ -156,11 +156,11 @@ def test_agent_config_lifestyle_validation() -> None:
     def revived(value):
         return AgentConfig.model_validate({**payload, "lifestyle_activities": value})
 
-    assert revived(("yoga",)).lifestyle_activities == ("yoga",)
+    assert revived(("quiet-rest",)).lifestyle_activities == ("quiet-rest",)
     with pytest.raises(ValidationError):
         revived(())
     with pytest.raises(ValidationError):
-        revived(("yoga", "yoga"))
+        revived(("quiet-rest", "quiet-rest"))
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +183,7 @@ class TestLifestyleRelief:
             kind=ActivityKind.LIFESTYLE,
             status=ActivityStatus.ACTIVE, started_at=0, planned_end_at=1800,
             last_settled_at=0, elapsed_seconds=0, planned_duration_seconds=1800,
-            target_id="jogging", origin_action_id="a", origin_decision_id="d",
+            target_id="quiet-rest", origin_action_id="a", origin_decision_id="d",
             origin_request_event_id="e",
             data={"effects": {"entertainment": 0.2, "social": 0.1, "health": 0.6}})
         return scenario.body, agent, activity
@@ -225,7 +225,7 @@ class TestLifestyleRelief:
             kind=ActivityKind.LIFESTYLE,
             status=ActivityStatus.ACTIVE, started_at=0, planned_end_at=1800,
             last_settled_at=0, elapsed_seconds=0, planned_duration_seconds=1800,
-            target_id="jogging", origin_action_id="a", origin_decision_id="d",
+            target_id="quiet-rest", origin_action_id="a", origin_decision_id="d",
             origin_request_event_id="e",
             data={"effects": {"entertainment": 0.2, "social": 0.1, "health": 0.6}})
         factors = activity_factors(activity, engine.context.state.agents[1], engine.context.semantics.body)
@@ -239,4 +239,4 @@ def test_scenario_files_load_with_lifestyle_wiring() -> None:
         scenario, _ = load_scenario(ENVIRONMENT_ROOT / "scenarios" / name)
         lifestyle_keys = {key for key in scenario.body.activity_met if key.startswith("lifestyle:")}
         assert lifestyle_keys
-        assert scenario.schema_version == 6
+        assert scenario.schema_version == 7

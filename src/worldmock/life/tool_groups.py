@@ -57,8 +57,6 @@ def expand_tool_layer(layer: dict) -> dict:
             metadata.setdefault("tools", [])
             for tool in metadata["tools"]:
                 tool.setdefault("reason", None)
-            if "contract" in metadata:
-                metadata["contract"].setdefault("outlook", None)
             name = metadata["name"]
             if name in targets and {key: value for key, value in targets[name].items() if key != "actions"} != metadata:
                 logging.error("Compact tool groups contain conflicting target metadata")

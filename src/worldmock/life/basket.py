@@ -1,293 +1,220 @@
-"""@brief 按门店供给执行整单购买，并按持有商品执行多件进食结算。"""
+"""@brief 从登记菜单原子购买固定价食品，并按实际份量结算进食。"""
 
 from __future__ import annotations
-from worldmock.life.commerce import held_quantity as commerce_held
 
 from dataclasses import dataclass
+from typing import Mapping
 
-from worldmock.categories import Action
-from worldmock.errors import BusinessRuleError
+from worldmock.catalog.models import Food
+from worldmock.errors import BusinessRuleError, PreconditionError
+from worldmock.exchange.constants import DELIVERY_FEE_FEN, DELIVERY_PREP_SECONDS, FOOD_CONSTANTS
+from worldmock.exchange.operators import delivery_seconds, evaluate_food_energy, evaluate_purchase
+from worldmock.life.admission import en_route, present_location
 from worldmock.life.body import apply_food
-from worldmock.life.category_contract import RuntimeCategoryRule, match_rows, require_runtime_rule
-from worldmock.life.commerce import add_holding
-from worldmock.life.map_models import RouteConfig, SupplyConfig
+from worldmock.life.commerce import add_holding, held_quantity
+from worldmock.life.guidance import guided, default_reason
 from worldmock.life.models import (
-    ActivityState,
-    ActivityStatus,
-    AgentState,
-    ConsumeRequest,
-    DeliveryState,
-    FulfillmentKind,
-    PurchaseOrderRequest,
-    ScheduledEvent,
-    SupplyQuoteState,
-    WorldState,
+    ActivityState, AgentState, ConsumeRequest, DeliveryState, FulfillmentKind, PurchaseOrderRequest,
+    ScheduledEvent, TravelMode, WorldState,
 )
-from worldmock.life.opening_hours import opening_status
-from worldmock.life.scenario import BodyConfig, InventoryItemConfig, RuntimeScenario
+from worldmock.life.scenario import BodyConfig
 from worldmock.life.semantics import ScenarioSemantics
 from worldmock.life.settlement import settle_money_transfer
-from worldmock.life.storefront_state import current_quote
-from worldmock.life.wayfinding import delivery_route_code
+from worldmock.life.travel import Trip, plan_trip
 from worldmock.scheduling.events import ScheduledKind
 
 
 @dataclass(frozen=True, slots=True)
 class OrderOutcome:
-    """@brief 一笔整单购买结算后的权威状态、订单与配送事件。"""
+    """@brief 一次整单付款后的状态、食品订单、配送事件和持有变化。"""
 
     state: WorldState
     orders: tuple[DeliveryState, ...]
     scheduled: tuple[ScheduledEvent, ...]
     total_price_fen: int
     inventory_changes: tuple[dict, ...]
-    category_matches: tuple[dict[str, str], ...]
 
 
 @dataclass(frozen=True, slots=True)
 class _OrderRow:
-    """@brief 一项已经通过报价、库存和资格检查的门店供给。"""
+    """@brief 已经核对同店菜单的食品、份数与收货人。"""
 
-    supply: SupplyConfig
-    quote: SupplyQuoteState
+    store_id: str
+    food: Food
     quantity: int
-    total_price_fen: int
-    category_match: RuntimeCategoryRule
     recipient_id: str
     request_message_id: str | None
 
 
 @dataclass(frozen=True, slots=True)
 class _Fulfillment:
-    """@brief 整单共用的创建时刻、交付时刻和运输路线。"""
+    """@brief 整单创建时间、固定配送时间、图路径与实际来源应用。"""
 
     created_at: int
     expected_at: int
-    route: RouteConfig | None
+    trip: Trip | None
+    app_id: str | None
 
 
 def purchase_order(state: WorldState, semantics: ScenarioSemantics, agent_id: int,
                    request: PurchaseOrderRequest) -> OrderOutcome:
-    """@brief 逐供给校验后一次付款；任意失败不改变任何世界状态。付款人是 agent_id，送达只入各项收货人的持有。"""
-    agent = state.agents[agent_id]
+    """@brief 校验整单后一次转账给店铺；任意失败不改变输入世界。"""
     rows, fulfillment, total = validate_purchase_order(state, semantics, agent_id, request)
     orders = _build_orders(state, rows, request, fulfillment, agent_id)
-    settled = settle_money_transfer(state, agent.balance_account_id,
-                                    rows[0].supply.seller_account_id, total, "purchase:order")
-    stock = dict(settled.supply_stock)
-    received = settled
-    inventory_changes = []
+    agent = state.agents[agent_id]
+    changed = settle_money_transfer(state, agent.balance_account_id, f"merchant:{rows[0].store_id}",
+                                    total, "purchase:order")
+    changes = []
     for order in orders:
-        stock[order.supply_id] -= order.quantity
         if order.status == "delivered":
-            received = add_holding(received, order.recipient_id, order.destination_id,
-                                   (order.product_id, order.quantity))
-            inventory_changes.append({"order_id": order.order_id, "supply_id": order.supply_id,
-                                      "location_id": order.destination_id, "product_id": order.product_id,
-                                      "quantity": order.quantity})
+            changed = add_holding(changed, order.recipient_id, order.destination_id,
+                                  (order.food_id, order.quantity))
+            changes.append(inventory_change(order))
     events = _delivery_events(state, orders)
-    deliveries = dict(settled.deliveries)
-    deliveries.update({order.order_id: order for order in orders})
-    pending = sorted([*settled.pending_events, *events],
+    deliveries = {**changed.deliveries, **{order.order_id: order for order in orders}}
+    pending = sorted([*changed.pending_events, *events],
                      key=lambda item: (item.due_at, item.sequence, item.scheduled_id))
-    changed = received.model_copy(update={"supply_stock": stock, "deliveries": deliveries,
-                                          "pending_events": pending}, deep=True)
-    return OrderOutcome(changed, orders, events, total, tuple(inventory_changes),
-                        tuple(match_rows(row.category_match for row in rows)))
+    changed = changed.model_copy(update={"deliveries": deliveries, "pending_events": pending}, deep=True)
+    return OrderOutcome(changed, orders, events, total, tuple(changes))
 
 
 def validate_purchase_order(state: WorldState, semantics: ScenarioSemantics, agent_id: int,
                             request: PurchaseOrderRequest) -> tuple[tuple[_OrderRow, ...], _Fulfillment, int]:
-    """@brief 共用购买的全部准入检查；公开能力查询只校验，不复制并结算整个世界。"""
-    agent = state.agents[agent_id]
-    rows = _order_rows(state, semantics, agent, request)
-    fulfillment = _order_fulfillment(state, semantics, request, rows)
-    total = sum(row.total_price_fen for row in rows)
-    if state.accounts[agent.balance_account_id] < total:
+    """@brief 从唯一菜单核对食品、店铺、来源应用、收货地点与整单余额。"""
+    rows = _order_rows(semantics, request)
+    fulfillment = _order_fulfillment(state, semantics, agent_id, request)
+    total = sum(evaluate_purchase(row.food.price_fen, row.quantity) for row in rows)
+    total += DELIVERY_FEE_FEN if request.fulfillment == "delivery" else 0
+    if state.accounts[state.agents[agent_id].balance_account_id] < total:
         raise BusinessRuleError("INSUFFICIENT_FUNDS")
     return rows, fulfillment, total
 
 
-def _order_rows(state: WorldState, semantics: ScenarioSemantics, agent: AgentState,
-                request: PurchaseOrderRequest) -> tuple[_OrderRow, ...]:
-    """@brief 拒绝重复项（去重键为供给与收货人）与跨店整单，使用世界中的当前报价检查每项供给。"""
+def _order_rows(semantics: ScenarioSemantics, request: PurchaseOrderRequest) -> tuple[_OrderRow, ...]:
+    """@brief 拒绝重复店铺食品与跨店订单，不合并重复食品。"""
     if not 1 <= len(request.items) <= 5:
         raise BusinessRuleError("ORDER_ITEM_COUNT_OUT_OF_RANGE")
-    if len({(item.supply_id, item.recipient_id) for item in request.items}) != len(request.items):
-        raise BusinessRuleError("ORDER_DUPLICATE_SUPPLY")
-    scenario = semantics.scenario
-    supplies = {item.supply_id: item for item in scenario.supplies}
+    if len({(item.store_id, item.food_id) for item in request.items}) != len(request.items):
+        raise BusinessRuleError("ORDER_DUPLICATE_ITEM")
+    if len({item.store_id for item in request.items}) != 1:
+        raise BusinessRuleError("ORDER_LOCATION_MISMATCH")
+    catalog = semantics.catalog
     rows = []
     for item in request.items:
-        if item.supply_id not in supplies:
+        if item.food_id not in catalog.foods_by_store.get(item.store_id, ()):
             raise BusinessRuleError("SUPPLY_NOT_FOUND")
-        supply = supplies[item.supply_id]
-        quote = current_quote(state, supply.supply_id)
-        if quote is None:
-            raise BusinessRuleError("SUPPLY_QUOTE_UNKNOWN")
-        if item.price_version != quote.price_version:
-            raise BusinessRuleError("PRICE_VERSION_MISMATCH")
-        if state.supply_stock[supply.supply_id] < item.quantity:
-            raise BusinessRuleError("OUT_OF_STOCK")
-        if not set(supply.required_qualifications) <= set(agent.qualifications):
-            raise BusinessRuleError("SUPPLY_QUALIFICATION_REQUIRED")
-        if request.fulfillment not in supply.fulfillment_modes:
-            raise BusinessRuleError("FULFILLMENT_NOT_SUPPORTED")
-        match = require_runtime_rule(semantics.catalog,
-                                     semantics.catalog.objects[supply.product_id].category_id, Action.PURCHASE)
-        amount = semantics.purchase_amount(supply.product_id, quote.price_fen, item.quantity)
-        rows.append(_OrderRow(supply, quote, item.quantity, amount, match, item.recipient_id,
-                              item.request_message_id))
-    if len({row.supply.seller_account_id for row in rows}) != 1:
-        raise BusinessRuleError("ORDER_SELLER_MISMATCH")
-    if len({row.supply.location_id for row in rows}) != 1:
-        raise BusinessRuleError("ORDER_LOCATION_MISMATCH")
-    _validate_storefront(state, scenario, agent, rows[0].supply.location_id)
+        rows.append(_OrderRow(item.store_id, catalog.foods[item.food_id], item.quantity,
+                              item.recipient_id, item.request_message_id))
     return tuple(rows)
 
 
-def _validate_storefront(state: WorldState, scenario: RuntimeScenario,
-                         agent: AgentState, location_id: str) -> None:
-    """@brief 购买时重新检查地点资格与分钟级营业事实，未知不等同闭店。"""
-    location = next(item for item in scenario.locations if item.location_id == location_id)
-    if not set(location.required_qualifications) <= set(agent.qualifications):
-        raise BusinessRuleError("LOCATION_ACCESS_DENIED")
-    status = opening_status(location, state.current_time, scenario.timezone,
-                            state.opening_exceptions[location_id])
-    if status == "unknown":
-        raise BusinessRuleError("MERCHANT_OPENING_UNKNOWN")
-    if status == "closed":
-        raise BusinessRuleError("MERCHANT_CLOSED")
-
-
-def _order_fulfillment(state: WorldState, semantics: ScenarioSemantics,
-                       request: PurchaseOrderRequest, rows: tuple[_OrderRow, ...]) -> _Fulfillment:
-    """@brief 自提即时交付；配送按最慢备货和真实出发时刻的道路时长安排一次到达。"""
-    scenario = semantics.scenario
-    if request.destination_id not in {item.location_id for item in scenario.locations}:
+def _order_fulfillment(state: WorldState, semantics: ScenarioSemantics, agent_id: int,
+                       request: PurchaseOrderRequest) -> _Fulfillment:
+    """@brief 到店即时交付；外卖只受真实应用绑定与收货地点约束。"""
+    store_id = request.items[0].store_id
+    if request.destination_id not in {item.location_id for item in semantics.scenario.locations}:
         raise BusinessRuleError("DESTINATION_NOT_FOUND")
     if request.fulfillment == FulfillmentKind.PICKUP:
-        return _Fulfillment(state.current_time, state.current_time, None)
-    plan = plan_delivery(semantics, tuple(row.supply for row in rows), request.destination_id,
-                         state.current_time)
-    return _Fulfillment(state.current_time, plan.expected_at, plan.route)
+        if request.app_id is not None:
+            raise BusinessRuleError("SUPPLY_SOURCE_MISMATCH")
+        if present_location(state, agent_id) != store_id or request.destination_id != store_id:
+            raise BusinessRuleError("PICKUP_LOCATION_REQUIRED")
+        return _Fulfillment(state.current_time, state.current_time, None, None)
+    if en_route(state, agent_id) and any(item.recipient_id == f"agent:{agent_id}" for item in request.items):
+        raise PreconditionError("ACTIVITY_PRECONDITION_UNMET", ["delivery_destination"],
+                                suggested={"next_step": "Wait until you arrive, then place the order."},
+                                public_reason="Place the order before departing or after arriving.")
+    apps = semantics.catalog.apps_by_store[store_id]
+    if not apps:
+        raise guided("FULFILLMENT_NOT_SUPPORTED", default_reason("FULFILLMENT_NOT_SUPPORTED"),
+                      f"Go to {semantics.catalog.locations[store_id].display_name}.")
+    app_id = request.app_id if request.app_id is not None else min(apps)
+    if app_id not in apps:
+        raise guided("APP_NOT_BOUND", default_reason("APP_NOT_BOUND"),
+                      f"Order through {semantics.catalog.apps[min(apps)].name}.")
+    plan = plan_delivery(semantics, store_id, request.destination_id, state.current_time)
+    return _Fulfillment(plan.created_at, plan.expected_at, plan.trip, app_id)
 
 
-def plan_delivery(semantics: ScenarioSemantics, supplies: tuple[SupplyConfig, ...],
+def plan_delivery(semantics: ScenarioSemantics, store_id: str,
                   destination_id: str, now: int) -> _Fulfillment:
-    """@brief 纯函数：整单最慢备货后出发，加出发时刻的驾车规划时长即预计送达时刻。
-
-    购买结算、观察投影与吃饭途径句共用这一算法（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第八章「呈现」）。
-    送达地不在任一供给的可配送目的地时以 DELIVERY_DESTINATION_NOT_SUPPORTED 拒绝；道路缺失、
-    不可达或未知时按 `_delivery_route` 的业务拒绝码拒绝。
-    """
-    if any(destination_id not in supply.delivery_destination_ids for supply in supplies):
-        raise BusinessRuleError("DELIVERY_DESTINATION_NOT_SUPPORTED")
-    departure = now + max(supply.delivery_delay_seconds for supply in supplies)
-    route = _delivery_route(semantics.scenario, supplies[0].location_id, destination_id)
-    duration = (semantics.travel_planned_seconds("driving", route.duration_seconds, departure)
-                if route is not None else 0)
-    return _Fulfillment(now, departure + duration, route)
+    """@brief 全图配送按固定备餐秒数与五米每秒计算，路径来自唯一登记图。"""
+    trip = plan_trip(semantics.catalog.graph, store_id, destination_id, TravelMode.DRIVING)
+    return _Fulfillment(now, now + delivery_seconds(trip.distance_meters), trip, None)
 
 
-def delivery_expected_at(semantics: ScenarioSemantics, supply: SupplyConfig,
-                         destination_id: str, now: int) -> int | None:
-    """@brief 单项供给现在下单送到指定地点的预计送达时刻；送不到这里（目的地不支持、道路未知或不可达）时为 None。"""
-    try:
-        return plan_delivery(semantics, (supply,), destination_id, now).expected_at
-    except BusinessRuleError:
-        return None
-
-
-def _delivery_route(scenario: RuntimeScenario, origin: str, destination: str) -> RouteConfig | None:
-    """@brief 同地点无道路行程，其余配送只允许明确可达的冻结驾车路线（判定与准入共用 wayfinding.delivery_route_code，
-    拒绝码即其结果）。"""
-    code = delivery_route_code(scenario.routes, origin, destination)
-    if code is not None:
-        raise BusinessRuleError(code)
-    if origin == destination:
-        return None
-    return next(route for route in scenario.routes if route.origin_id == origin
-                and route.destination_id == destination and route.mode.value == "driving")
+def delivery_expected_at(semantics: ScenarioSemantics, store_id: str,
+                         destination_id: str, now: int) -> int:
+    """@brief 工具报价与订单使用同一固定配送时间。"""
+    return plan_delivery(semantics, store_id, destination_id, now).expected_at
 
 
 def _build_orders(state: WorldState, rows: tuple[_OrderRow, ...], request: PurchaseOrderRequest,
                   fulfillment: _Fulfillment, agent_id: int) -> tuple[DeliveryState, ...]:
-    """@brief 每个订单保存实际供给、报价、来源、收货人与所回应的消息，整单共享交付时刻与路线。"""
-    if request.fulfillment == FulfillmentKind.PICKUP:
-        origin = rows[0].supply.location_id
-        if request.destination_id != origin or state.agents[agent_id].location_id != origin:
-            raise BusinessRuleError("PICKUP_LOCATION_REQUIRED")
+    """@brief 每个食品行保存权威价格与履约事实，整单配送费只记一次。"""
     orders = []
     for index, row in enumerate(rows, start=1):
-        supply = row.supply
-        identity = f"{agent_id}-{state.current_time}-{len(state.deliveries) + index}"
-        route = fulfillment.route
+        trip = fulfillment.trip
+        fee = DELIVERY_FEE_FEN if trip is not None and index == 1 else 0
         orders.append(DeliveryState(
-            order_id=f"order-{identity}", agent_id=agent_id, product_id=supply.product_id,
-            supply_id=supply.supply_id, location_id=supply.location_id,
-            seller_account_id=supply.seller_account_id, price_version=row.quote.price_version,
-            route_id=route.route_id if route is not None else None,
-            source={"supply": supply.source.model_dump(mode="json"), "quote": row.quote.source,
-                    "route": route.source.model_dump(mode="json") if route is not None else None},
-            quantity=row.quantity, destination_id=request.destination_id, fulfillment=request.fulfillment,
-            created_at=fulfillment.created_at, expected_at=fulfillment.expected_at,
-            status="delivered" if fulfillment.expected_at == fulfillment.created_at else "pending",
-            total_price_fen=row.total_price_fen, recipient_id=row.recipient_id,
-            request_message_id=row.request_message_id))
+            order_id=f"order-{agent_id}-{state.current_time}-{len(state.deliveries) + index}",
+            agent_id=agent_id, food_id=row.food.food_id, store_id=row.store_id, app_id=fulfillment.app_id,
+            seller_account_id=f"merchant:{row.store_id}", quantity=row.quantity, unit_price_fen=row.food.price_fen,
+            delivery_fee_fen=fee, total_price_fen=evaluate_purchase(row.food.price_fen, row.quantity) + fee,
+            destination_id=request.destination_id, fulfillment=request.fulfillment, recipient_id=row.recipient_id,
+            request_message_id=row.request_message_id, created_at=fulfillment.created_at,
+            expected_at=fulfillment.expected_at, status="delivered" if trip is None else "pending",
+            path=trip.path if trip is not None else (row.store_id,), trip_id=trip.trip_id if trip is not None else None,
+            distance_meters=trip.distance_meters if trip is not None else 0,
+            prep_seconds=DELIVERY_PREP_SECONDS if trip is not None else 0))
     return tuple(orders)
 
 
 def _delivery_events(state: WorldState, orders: tuple[DeliveryState, ...]) -> tuple[ScheduledEvent, ...]:
-    """@brief 整单只登记一个携带全部订单身份的配送事件。"""
+    """@brief 一笔整单只有一个到期事件，包含全部食品订单行。"""
     if orders[0].status == "delivered":
         return ()
     sequence = max((item.sequence for item in state.pending_events), default=0) + 1
-    return (ScheduledEvent(
-        scheduled_id=f"delivery-{orders[0].order_id}", kind=ScheduledKind.DELIVERY_ARRIVAL,
+    return (ScheduledEvent(scheduled_id=f"delivery-{orders[0].order_id}", kind=ScheduledKind.DELIVERY_ARRIVAL,
         due_at=orders[0].expected_at, sequence=sequence, agent_id=orders[0].agent_id,
         data={"order_ids": [order.order_id for order in orders]}),)
 
 
-def change_inventory(agent: AgentState, product_id: str, delta: float) -> dict:
-    """@brief 在人物当前位置改变商品份量并保持其他地点独立（负值超持即拒绝）。"""
+def inventory_change(order: DeliveryState) -> dict:
+    """@brief 即时交付与到期交付使用同一食品持有变化形状。"""
+    return {"order_id": order.order_id, "store_id": order.store_id, "food_id": order.food_id,
+            "location_id": order.destination_id, "quantity": order.quantity}
+
+
+def change_inventory(agent: AgentState, food_id: str, delta: float) -> dict:
+    """@brief 只改变当前地点食品份数，保持九位库存精度并拒绝负持有。"""
     inventory = {key: dict(value) for key, value in agent.inventory.items()}
     local = inventory.setdefault(agent.location_id, {})
-    local[product_id] = round(local.get(product_id, 0) + delta, 9)
-    if local[product_id] < -1e-9:
+    local[food_id] = round(local.get(food_id, 0) + delta, 9)
+    if local[food_id] < -1e-9:
         raise BusinessRuleError("PRODUCT_NOT_HELD")
     return inventory
 
 
-def held_quantity(agent: AgentState, product_id: str) -> float:
-    """@brief 返回人物当前位置可以实际取得的商品份量（委托 commerce 口径）。"""
-
-    return commerce_held(agent, product_id)
-
-
 def portion_duration(full_seconds: int, portion: float) -> int:
-    """@brief 按份量折算的进食时长：max(60, round(整份时长 × 份量)) 秒（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「进食」）。"""
+    """@brief 按份量计算时长，保持一分钟下限。"""
     return max(60, round(full_seconds * portion))
 
 
-def meal_portion(product: InventoryItemConfig, use_mode: str, held: float) -> tuple[float, int]:
-    """@brief 一件持有物本次的份量与时长：食用取 min(1, 持有) 并按份量折算时长，使用为一份与目录时长。
-
-    受理、工具层的数量与时长共用这一口径；持有为零时食用份量为 0（由调用方以 PRODUCT_NOT_HELD 拒绝）。
-
-    :param held: 该物品在所用地点的持有份量。
-    """
+def meal_portion(food: Food, use_mode: str, held: float) -> tuple[float, int]:
+    """@brief 持有食品本次食用份数与类别固定时长，不再有耐用品使用。"""
     if use_mode != "eat":
-        return 1.0, product.use_duration_seconds
+        raise BusinessRuleError("PRODUCT_USE_MODE_NOT_ALLOWED")
     portion = round(min(1.0, max(0.0, held)), 9)
-    return portion, portion_duration(product.use_duration_seconds, portion)
+    return portion, portion_duration(FOOD_CONSTANTS[food.category].duration_seconds, portion)
 
 
 def open_meal(agent: AgentState, request: ConsumeRequest) -> tuple[AgentState, dict[str, float]]:
-    """@brief 开吃：食用的每件把本次份量从手边库存移入活动的 opened（其他份数不动）；使用不开封，返回空。"""
+    """@brief 把本餐份量从当地持有移入 opened，后续进度不再重复扣库存。"""
     if request.use_mode != "eat":
-        return agent, {}
-    opened: dict[str, float] = {}
+        raise BusinessRuleError("PRODUCT_USE_MODE_NOT_ALLOWED")
+    validate_meal_inventory(agent, request)
+    opened = {}
     for item in request.items:
         agent = agent.model_copy(update={"inventory": change_inventory(agent, item.product_id, -item.quantity)},
                                  deep=True)
@@ -295,102 +222,56 @@ def open_meal(agent: AgentState, request: ConsumeRequest) -> tuple[AgentState, d
     return agent, opened
 
 
-def meal_duration(products: dict[str, InventoryItemConfig], request: ConsumeRequest) -> int:
-    """@brief 多件进食时长取各件按份量折算后的最长者；非食品单件必须等于目录时长（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「商务与进食」）。"""
+def meal_duration(foods: Mapping[str, Food], request: ConsumeRequest) -> int:
+    """@brief 同餐多项按类别时长折算后取最长时长。"""
+    if request.use_mode != "eat":
+        raise BusinessRuleError("PRODUCT_USE_MODE_NOT_ALLOWED")
     durations = []
     for item in request.items:
-        product = products.get(item.product_id)
-        if product is None:
+        if item.product_id not in foods:
             raise BusinessRuleError("PRODUCT_NOT_FOUND")
-        durations.append(portion_duration(product.use_duration_seconds, item.quantity)
-                         if request.use_mode == "eat" else product.use_duration_seconds)
-        if request.use_mode == "use" and request.duration_seconds != product.use_duration_seconds:
-            raise BusinessRuleError("PRODUCT_USE_DURATION_MISMATCH")
-    if request.use_mode == "eat" and request.duration_seconds != max(durations):
+        seconds = FOOD_CONSTANTS[foods[item.product_id].category].duration_seconds
+        durations.append(portion_duration(seconds, item.quantity))
+    if request.duration_seconds != max(durations):
         raise BusinessRuleError("MEAL_DURATION_MUST_BE_LONGEST")
     return max(durations)
 
 
-def validate_meal_use(agent: AgentState, products: dict[str, InventoryItemConfig],
-                      request: ConsumeRequest) -> None:
-    """@brief 校验配方与普通使用共享的件数、使用方式和地点条件。"""
+def validate_meal_use(agent: AgentState, foods: Mapping[str, Food], request: ConsumeRequest) -> None:
+    """@brief 只准入一至三项实际食品和 eat 方式。"""
     if not 1 <= len(request.items) <= 3:
-        # docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「商务与进食」：1-3 件
         raise BusinessRuleError("MEAL_ITEM_COUNT_OUT_OF_RANGE")
-    if request.use_mode == "use" and len(request.items) != 1:
-        raise BusinessRuleError("NON_FOOD_USE_SINGLE_ITEM")
-    for item in request.items:
-        product = products.get(item.product_id)
-        if product is None:
-            raise BusinessRuleError("PRODUCT_NOT_FOUND")
-        if request.use_mode not in product.use_modes:
-            raise BusinessRuleError("PRODUCT_USE_MODE_NOT_ALLOWED")
-        if product.required_location_id and agent.location_id != product.required_location_id:
-            raise BusinessRuleError("PRODUCT_USE_LOCATION_REQUIRED")
+    if request.use_mode != "eat":
+        raise BusinessRuleError("PRODUCT_USE_MODE_NOT_ALLOWED")
+    if any(item.product_id not in foods for item in request.items):
+        raise BusinessRuleError("PRODUCT_NOT_FOUND")
 
 
 def validate_meal_inventory(agent: AgentState, request: ConsumeRequest) -> None:
-    """@brief 普通使用按请求份数核对库存，配方数量由配方计划核对。"""
+    """@brief 开餐前整组核对当地食品持有，失败不会部分开封。"""
     for item in request.items:
         if held_quantity(agent, item.product_id) + 1e-9 < item.quantity:
             raise BusinessRuleError("PRODUCT_NOT_HELD")
 
 
-def meal_food_rate(products: dict[str, InventoryItemConfig], request: ConsumeRequest) -> float:
-    """@brief 进食活动按目录热量合计形成的每小时净可用热量（进度结算输入）。"""
-    if request.use_mode != "eat":
-        return 0.0
-    total = sum(products[item.product_id].energy_kcal_per_unit * item.quantity
-                for item in request.items)
+def meal_food_rate(foods: Mapping[str, Food], request: ConsumeRequest) -> float:
+    """@brief 按类别和本餐份数计算原始摄入的每小时速率。"""
+    total = sum(evaluate_food_energy(foods[item.product_id].category, item.quantity) for item in request.items)
     return total * 3600 / request.duration_seconds
 
 
-def apply_meal_progress(agent: AgentState, products: dict[str, InventoryItemConfig],
+def apply_meal_progress(agent: AgentState, foods: Mapping[str, Food],
                         activity: ActivityState, config: BodyConfig) -> AgentState:
-    """@brief 按实际进度逐件累加已用份量、热量与效果。
-
-    食用只按开吃时移入的 opened 与实际进度结算，不再扣库存（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「进食」），所以暂停
-    期间别处吃掉同一商品不影响恢复；使用在完成时按持有扣一件（镜像 commerce 口径）。
-    """
+    """@brief 仅结算 opened 实际累计份数的差额，分段和恢复不重复获得能量。"""
     request = ConsumeRequest.model_validate(activity.data["request"])
     previous = dict(activity.data.get("consumed", {}))
-    eating = request.use_mode == "eat"
+    consumed = dict(previous)
     for item in request.items:
-        product = products[item.product_id]
-        # 库存既有九位份量精度必须同时用于累计目标和差额，避免分段舍入累积成缺货。
-        target = round(_meal_target(activity, item.product_id, item.quantity, previous), 9)
+        target = round(activity.data["opened"][item.product_id] * activity.elapsed_seconds /
+                       activity.planned_duration_seconds, 9)
         delta = round(max(0.0, target - previous.get(item.product_id, 0.0)), 9)
-        if not eating:
-            held = held_quantity(agent, product.product_id)
-            if held + 1e-9 < delta:
-                raise BusinessRuleError("PRODUCT_NOT_HELD")
-            delta = min(delta, held)
-        agent = _apply_item_delta(agent, product, delta, config, from_stock=not eating)
-        activity.data.setdefault("consumed", {})[item.product_id] = round(
-            previous.get(item.product_id, 0.0) + delta, 9)
+        settlement = apply_food(agent.body, evaluate_food_energy(foods[item.product_id].category, delta), config)
+        agent = agent.model_copy(update={"body": settlement.after}, deep=True)
+        consumed[item.product_id] = round(previous.get(item.product_id, 0.0) + delta, 9)
+    activity.data["consumed"] = consumed
     return agent
-
-
-def _meal_target(activity: ActivityState, product_id: str, quantity: float, previous: dict[str, float]) -> float:
-    """@brief 一件物品此刻应累计的已用份量：食用为 opened × 实际进度，使用在完成时为一件，否则不变。"""
-    if activity.data["request"]["use_mode"] == "eat":
-        return activity.data["opened"][product_id] * activity.elapsed_seconds / activity.planned_duration_seconds
-    if activity.status == ActivityStatus.COMPLETED:
-        return quantity
-    return previous.get(product_id, 0.0)
-
-
-def _apply_item_delta(agent: AgentState, product: InventoryItemConfig, quantity: float,
-                      config: BodyConfig, from_stock: bool = True) -> AgentState:
-    """@brief 原子投影单件商品份量、效果和食品热量（效果与热量累加）；食用的份量已在开吃时移出库存（from_stock 为假）。"""
-    inventory = (change_inventory(agent, product.product_id, -quantity)
-                 if product.consumable and from_stock else agent.inventory)
-    body = agent.body
-    if product.energy_kcal_per_unit and quantity > 0:
-        settlement = apply_food(body, product.energy_kcal_per_unit * quantity, config)
-        body = settlement.after
-    effects = set(agent.active_effects)
-    if quantity > 0:
-        effects.add(product.effect)
-    return agent.model_copy(update={"inventory": inventory, "body": body,
-                                    "active_effects": effects}, deep=True)

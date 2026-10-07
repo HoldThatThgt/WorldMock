@@ -1,292 +1,144 @@
-"""@brief 正式餐馆到店呈现、自提与实际消费路径验证。"""
+"""@brief 真实到店、固定菜单、配送与进食的连续食品足迹。"""
 
 from __future__ import annotations
-
-import dataclasses
-from pathlib import Path
-
+import json
 import pytest
-from agentsociety2.society import DirectToolCall
-
-from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
-                                 progress_calls, stage_day_plan, start_activity, target_actions, tool_targets,
-                                 report_request)
-from tests.life.test_scheduling import _custom_engine
+from tests.integration.test_rrs_engine_wave import _progress_until
+from tests.life.conftest import (conclude_request, context, progress_calls, stage_day_plan, start_request,
+                                 target_actions, submit_round)
+from tests.life.test_work_protocol import trip_to
+from worldmock.catalog.errors import RegistrationError
+from worldmock.catalog.identity import refresh_manifest_identity
 from worldmock.footprints.models import EventDraft
-from worldmock.errors import IntegrityError
-from worldmock.life.activity_control import pending_conclusions
-from worldmock.life.basket import delivery_expected_at
-from worldmock.life.guidance import DELIVERY_ROUTE_REASON
-from worldmock.life.models import active_activities
-from worldmock.life.opening_hours import next_opening_change, opening_status
-from worldmock.life.projection import visible_supplies
+from worldmock.life import sessions
+from worldmock.life.models import SessionStatus, WorldState
 from worldmock.life.readable import clock_phrase, iso_time
 
-SCENARIO = "single-person.json"
-RESTAURANT = "poi-3538682404"
-MEAL = "meal-0018"
-SUPPLY = "supply-poi-3538682404-meal-0018"
-
-
-def _action(engine, name: str, tool: str, request):
-    """@brief 以真实观察、动作登记和结算运行一个决策。"""
-    decision = context(engine, name)
-    engine.begin_decision_round([decision])
-    observed = engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, f"action-{name}", tool, request))
-    result = engine.commit_decision_round(name)[0]
-    assert result.status in {"completed", "in_progress"}, result.error_code
-    return observed, result
-
-
-def _start(engine, name: str, kind: str, object_id: str | None, way: str):
-    """@brief 从冻结观察选取列出该方式的可读对象，按「动词＋对象＋方式」启动，让引擎推导领域参数。"""
-    decision = context(engine, name)
-    engine.begin_decision_round([decision])
-    observed = engine.observe(decision)
-    binding = next(row for row in observed["interaction_bindings"]
-                   if row["kind"] == kind and (object_id is None or row["object_id"] == object_id)
-                   and any(item["label"] == way for item in row["actions"]))
-    request = start_activity(way, binding["object"])
-    engine.submit_action(DirectToolCall(decision, f"action-{name}", "start_activity", request))
-    result = engine.commit_decision_round(name)[0]
-    assert result.status in {"completed", "in_progress"}, result.error_code
-    return observed, result
-
-
-def _run_to_end(engine, activity_id: str) -> None:
-    """@brief 只通过真实时间边界推进持续活动到完成，途中按活动名播报。"""
-    for step in range(64):
-        if engine.context.state.activities[activity_id].status == "completed":
-            return
-        if engine.scheduling_state().ready_agent_ids:
-            _action(engine, f"continue-{activity_id}-{step}", "report_status",
-                    report_request(activity_name(engine, activity_id), summary="继续进行。"))
-        else:
-            advance_next(engine)
-    raise AssertionError("Activity did not complete within its event boundaries")
-
-
-def _conclude(engine, activity_id: str) -> None:
-    """@brief 活动结束的那一秒当即收尾（规格第七章「活动一结束就要结束它」）。"""
-    _action(engine, f"conclude-{activity_id}", "conclude_activity",
-            conclude_request(activity_name(engine, activity_id)))
-    assert engine.context.state.activities[activity_id].concluded_at == engine.context.state.current_time
-
-
-def _finish(engine, activity_id: str) -> None:
-    """@brief 推进持续活动到完成并当秒收尾。"""
-    _run_to_end(engine, activity_id)
-    _conclude(engine, activity_id)
-
-
-def _supply_target(observed: dict, supply_id: str) -> str:
-    """@brief 本轮某条供给在工具层的目标名（取自私有绑定的同名对象）。"""
-    return next(row["object"] for row in observed["interaction_bindings"] if row["object_id"] == supply_id)
-
-
-def test_restaurant_arrival_immediately_exposes_pickup_and_consumption(tmp_path: Path) -> None:
-    """@brief 真实出行后首轮就列出到店取得：未营业时标不可用写「店没开门」，营业后可用；付款取得与实际进食各有独立证据，
-    卖完的供给不进呈现窗口（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」列出即可提交）。"""
-    def set_lunch(document: dict) -> None:
-        """@brief 选择三家餐馆均营业的正式实验时刻。"""
-        document["start_at"] = "2026-01-05T08:00:00+08:00"
-
-    engine = _custom_engine(SCENARIO, set_lunch, tmp_path, run_id="dayrun-restaurant")
-    try:
-        stage_day_plan(engine)
-        _, started = _start(engine, "to-restaurant", "location", RESTAURANT, "步行")
-        _run_to_end(engine, started.activity_id)
-        agent = engine.context.state.agents[1]
-        assert agent.location_id == RESTAURANT
-        assert visible_supplies(engine.context.state, agent, engine.context.scenario) == []
-        # 到达当秒先给出行收尾；这一轮就是到店后的首次观察（第七章「活动一结束就要结束它」）。
-        _conclude(engine, started.activity_id)
-        location = next(item for item in engine.context.scenario.locations if item.location_id == RESTAURANT)
-        overrides = engine.context.state.opening_exceptions[RESTAURANT]
-        opening = next_opening_change(location, engine.context.state.current_time, engine.context.scenario.timezone, overrides)
-        assert opening is not None
-        assert opening_status(location, opening, engine.context.scenario.timezone, overrides) == "open"
-        if engine.context.state.current_time < opening:
-            closed = engine.observations._observation_data(engine.context.state.agents[1])
-            pickup = target_actions(closed, _supply_target(closed, SUPPLY))["到店"]
-            assert (pickup["available"], pickup["reason"]) == (False, "The store is closed at the current time.")
-        for step in range(16):
-            if engine.context.state.current_time >= opening:
-                break
-            _, waiting = _start(engine, f"wait-for-opening-{step}", "self", None, "等待")
-            _finish(engine, waiting.activity_id)
-        assert engine.context.state.current_time >= opening
-        agent = engine.context.state.agents[1]
-        before_balance = engine.context.state.accounts[agent.balance_account_id]
-        before_stock = engine.context.state.supply_stock[SUPPLY]
-        before_holding = agent.inventory.get(RESTAURANT, {}).get(MEAL, 0)
-        observed, bought = _start(engine, "buy-meal", "supply", SUPPLY, "到店")
-        listed = target_actions(observed, _supply_target(observed, SUPPLY))["到店"]
-        assert listed["available"] is True and listed["price"].endswith(" 元") and listed["quantity"] == "1 份"
-        assert SUPPLY in engine.context.state.agents[1].visible_supply_ids
-        order = bought.data["orders"][0]
-        assert order["status"] == "delivered"
-        assert order["destination_id"] == RESTAURANT
-        assert engine.context.state.accounts[agent.balance_account_id] == before_balance - order["total_price_fen"]
-        assert engine.context.state.supply_stock[SUPPLY] == before_stock - 1
-        assert engine.context.state.agents[1].inventory[RESTAURANT][MEAL] == before_holding + 1
-        assert not any(event.data.get("activity", {}).get("data", {}).get("consumed")
-                       for event in engine.context.store.read_agent_events("activity_progress", 1))
-        assert advance_until_ready(engine)
-        _, eating = _start(engine, "eat-meal", "holding", MEAL, "食用")
-        _finish(engine, eating.activity_id)
-        assert engine.context.state.activities[eating.activity_id].data["consumed"][MEAL] == 1
-        assert engine.context.state.agents[1].inventory[RESTAURANT].get(MEAL, 0) == before_holding
-        _commit(engine, lambda staged: staged.supply_stock.update({SUPPLY: 0}))
-        sold_out = engine.observations._observation_data(engine.context.state.agents[1])
-        assert not any(row["object_id"] == SUPPLY for row in sold_out["interaction_bindings"])
-    finally:
-        engine.close()
-
-
-def test_restaurant_requires_its_complete_declared_menu(tmp_path: Path) -> None:
-    """@brief 已选餐馆缺少声明菜单供给时，在生成运行状态前拒绝。"""
-    def incomplete_menu(document: dict) -> None:
-        """@brief 从实验选择中移去餐馆的一条正式供给。"""
-        document["supplies"] = [item for item in document["supplies"] if item["supply_id"] != SUPPLY]
-
-    with pytest.raises(IntegrityError, match="complete declared supply sets"):
-        _custom_engine(SCENARIO, incomplete_menu, tmp_path, run_id="incomplete-restaurant")
-
-
-def _commit(engine, mutate) -> None:
-    """@brief 改造一份世界副本并经存储落盘（版本连续）。"""
-    staged = engine.context.state.model_copy(deep=True)
-    mutate(staged)
-    staged.version += 1
-    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
-        event_type="environment_event", occurred_at=staged.current_time, visibility="system",
-        data={"kind": "test_restaurant_staged"})])
-    engine.context.state = staged
-
-
-# ---------------------------------------------------------------------------
-# 吃饭途径由工具层目标表达（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」，取代「让人物趁早吃」的途径句）
-# ---------------------------------------------------------------------------
-
+STORE_ID, FOOD_ID, STORE_FOOD_ID = "noodle-2", "beef-noodles", "noodle-2:beef-noodles"
 ZONE = "Asia/Shanghai"
 
 
-def _stage(engine, location: str, energy: float, inventory: dict | None = None) -> None:
-    """@brief 把人物放到指定地点、能量与持有物并持久提交（营业时段内的首日 10:30）。"""
+def _action(engine, name, tool, request):
+    """@brief 真实人物请求经宿主结算，返回后续观察与实际结果。"""
+    _, results = submit_round(engine, {1: (tool, request)}, name)
+    assert results[0].status in {"completed", "in_progress"}, results[0].error_code
+    return engine.observe(context(engine, f"{name}-after")), results[0]
+
+
+def _start(engine, name, kind, object_id, way):
+    """@brief 当前目录对象和其方式直接生成真实人物请求。"""
+    observed = engine.observe(context(engine, f"{name}-preview"))
+    binding, verb = next((row, action["verb"]) for row in observed["interaction_bindings"]
+                        if row["kind"] == kind and (object_id is None or row["object_id"] == object_id)
+                        for action in row["actions"] if action["label"] == way)
+    request = start_request(targets=[binding["object"]], actions=[verb], ways=[way])
+    _, results = submit_round(engine, {1: ("start_activity", request)}, name)
+    assert results[0].status in {"completed", "in_progress"}, results[0].error_code
+    return observed, results[0]
+
+
+def _finish(engine, activity_id):
+    """@brief 实际活动走完真实边界后当秒收尾。"""
+    _progress_until(engine, engine.context.state.activities[activity_id].planned_end_at)
+    activity = engine.context.state.activities[activity_id]
+    assert activity.status == "completed"
+    _action(engine, f"finish-{activity_id}", "conclude_activity", conclude_request(activity.name))
+
+
+def _stage(engine, location, energy, inventory=None):
+    """@brief 无进行中活动的测试起点同时冻结人物位置、时钟和地点会话。"""
     staged = engine.context.state.model_copy(deep=True)
     now = int(engine.context.scenario.start_at.timestamp()) + 10 * 3600 + 1800
     staged.current_time = now
-    staged.pending_events = [item for item in staged.pending_events if item.due_at > now]
+    staged.pending_events = [event for event in staged.pending_events if event.due_at > now]
+    for agent in staged.agents.values():
+        agent.body_settled_at = agent.next_decision_at = now
     agent = staged.agents[1]
-    body = agent.body.model_copy(update={"energy_kcal": energy}, deep=True)
-    staged.agents[1] = agent.model_copy(update={
-        "location_id": location, "body": body, "body_settled_at": now, "next_decision_at": now,
-        "inventory": inventory or {}}, deep=True)
+    agent.location_id, agent.body.energy_kcal = location, energy
+    if inventory is not None:
+        agent.inventory = inventory
+    for session in staged.sessions.values():
+        if session.status == SessionStatus.ACTIVE:
+            session.status, session.ended_at = SessionStatus.ENDED, now
+    names = {identity: place.display_name for identity, place in engine.context.semantics.catalog.locations.items()}
+    for agent_id in staged.agents:
+        staged = sessions.open_stay(staged, agent_id, names)
     staged.version += 1
+    staged = WorldState.model_validate(staged.model_dump())
     engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=now, visibility="system",
         data={"kind": "test_food_path_position"})])
     engine.context.state = staged
 
 
-def test_food_paths_are_discoverable_as_tool_layer_targets(engine_factory) -> None:
-    """@brief 吃饭途径都在工具层：这里能买的是商品目标（到店可用，状态写每份热量）；手边的食品是持有物目标（食用可用）；
-    留在别处的食品名称带地点，食用标不可用并写明只能在当地用；没有任何途径时商品目录的浏览照常可用。"""
+def test_store_arrival_exposes_fixed_menu_and_real_consumption(engine_factory):
+    """到店可购买全部固定菜单，进食严格结算真实份数。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    meal = next(item for item in engine.context.scenario.products if item.product_id == MEAL)
-    restaurant = next(item.name for item in engine.context.scenario.locations if item.location_id == RESTAURANT)
-    home = next(item.name for item in engine.context.scenario.locations if item.location_id == "home")
-    _stage(engine, RESTAURANT, 700)
-    observed = engine.observations._observation_data(engine.context.state.agents[1])
-    target = tool_targets(observed)[f"{restaurant}出售的{meal.name}"]
-    assert target["kind"] == "product" and target["state"].startswith("每份约")
-    assert target_actions(observed, target["name"])["到店"]["available"] is True
-    _stage(engine, "home", 700, {"home": {MEAL: 1}})
-    observed = engine.observations._observation_data(engine.context.state.agents[1])
-    held = tool_targets(observed)[f"持有物：{meal.name}"]
-    assert held["state"].startswith("持有 1 份")
-    assert target_actions(observed, held["name"])["食用"]["available"] is True
-    _stage(engine, "home", 700, {RESTAURANT: {MEAL: 1}})
-    observed = engine.observations._observation_data(engine.context.state.agents[1])
-    away = target_actions(observed, f"持有物：{meal.name}（{restaurant}）")["食用"]
-    assert (away["available"], away["reason"]) == (False, f"This item is at {restaurant} and must be used there.")
-    assert f"持有物：{meal.name}" not in tool_targets(observed)
-    assert target_actions(observed, "商品目录")["浏览"]["available"] is True
-    assert home == observed["environment_layer"]["location"]["name"]
+    trip_to(engine, STORE_ID, "visit-store")
+    observed = engine.observe(context(engine, "arrived-menu"))
+    local = {row["object_id"] for row in observed["interaction_bindings"] if row["kind"] == "supply"
+             and row["object_id"].startswith(f"{STORE_ID}:")}
+    assert local == {f"{STORE_ID}:{food}" for food in engine.context.semantics.catalog.foods_by_store[STORE_ID]}
+    _, bought = _start(engine, "buy-meal", "supply", STORE_FOOD_ID, "到店")
+    assert bought.status == "completed"
+    _, meal = _start(engine, "eat-meal", "holding", FOOD_ID, "食用")
+    assert engine.context.state.activities[meal.activity_id].planned_duration_seconds == 1200
+    _finish(engine, meal.activity_id)
+    assert engine.context.state.activities[meal.activity_id].data["consumed"] == {FOOD_ID: 1}
+    assert engine.context.state.agents[1].inventory[STORE_ID][FOOD_ID] == 0
 
 
-def _keep_waiting(engine) -> tuple[str, object]:
-    """@brief 就绪时的下一请求：先给刚结束的等待收尾（规格第七章「活动一结束就要结束它」），在等就播报，否则开始等待。"""
-    waiting = pending_conclusions(engine.context.state, 1)
-    if waiting:
-        return "conclude_activity", conclude_request(*(activity_name(engine, item.activity_id) for item in waiting))
-    running = active_activities(engine.context.state, 1)
-    if running:
-        return "report_status", report_request(activity_name(engine, running[0].activity_id), summary="接着等。")
-    return "start_activity", start_activity("等待", "自己")
+def test_same_kind_stores_reject_different_food_menus(tmp_path):
+    """重发身份也不能让同类店铺出售不同食品。"""
+    from tests.life.scenario_fixtures import read_scenario, write_scenario
+    from worldmock.life.world_setup import load_runtime_scenario
+
+    path = write_scenario(read_scenario("single-person.json"), tmp_path / "environment")
+    foods = path.parent.parent / "catalog" / "foods.json"
+    payload = json.loads(foods.read_text())
+    next(row for row in payload["foods"] if row["food_id"] == FOOD_ID)["store_ids"] = ["noodle-1"]
+    foods.write_text(json.dumps(payload), encoding="utf-8")
+    refresh_manifest_identity(foods.parent)
+    with pytest.raises(RegistrationError, match="FOOD_BINDING_KIND_INCONSISTENT"):
+        load_runtime_scenario(path)
 
 
-def test_delivery_eta_is_readable_and_matches_actual_delivery(engine_factory) -> None:
-    """@brief 远程下单动作的 note 写送到这里的预计时刻「预计 HH:MM 送到」，与下单后的实际送达时刻一致；在途订单进入进度层
-    该调用的结果，送达时进度层出现一次 delivery 记录。"""
+def test_food_paths_are_discoverable_as_tool_layer_targets(engine_factory):
+    """此处商品与手边食品可调用，留在家里的食品只能在当地食用。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    _stage(engine, "market", 700)
-    observed, bought = _start(engine, "deliver-home", "supply", None, "远程下单")
-    order = bought.data["orders"][0]
-    listed = target_actions(observed, _supply_target(observed, order["supply_id"]))["远程下单"]
-    now = observed["current_time"]
-    assert listed["note"] == f"预计 {clock_phrase(order['expected_at'], now, ZONE)} 送到"
-    assert engine.context.state.deliveries[order["order_id"]].expected_at == order["expected_at"]
-    after = engine.observations._observation_data(engine.context.state.agents[1])
-    (purchase,) = progress_calls(after, "start_activity")[-1]["result"]["details"]["purchases"]
-    assert purchase["expected_at"] == iso_time(order["expected_at"], ZONE)
-    # 实际送达：沿真实边界推进（人物其间只等待），订单在预计送达的那一秒转为已送达。
-    assert order["expected_at"] > now and engine.context.state.deliveries[order["order_id"]].status == "pending"
-    for step in range(64):
-        if engine.context.state.deliveries[order["order_id"]].status != "pending":
-            break
-        if engine.scheduling_state().ready_agent_ids:
-            _action(engine, f"wait-delivery-{step}", *_keep_waiting(engine))
-        else:
-            advance_next(engine)
-    assert engine.context.state.deliveries[order["order_id"]].status == "delivered"
-    assert engine.context.state.current_time == order["expected_at"]
+    _stage(engine, STORE_ID, 700, {STORE_ID: {FOOD_ID: 1}, "home": {"chips": 1}})
+    observed = engine.observe(context(engine, "food-targets"))
+    assert target_actions(observed, "二味小炒出售的牛肉面")["到店"]["available"]
+    assert target_actions(observed, "持有物：牛肉面")["食用"]["available"]
+    away = next(row["object"] for row in observed["interaction_bindings"]
+                if row["kind"] == "holding" and row["object_id"] == "chips")
+    assert not target_actions(observed, away)["食用"]["available"]
 
 
-def test_delivery_is_unavailable_here_without_destination_or_route(engine_factory) -> None:
-    """@brief 送达地不在可配送目的地、或配送道路未知时没有预计送达时刻；工具层的远程下单标不可用并写原因，不写送达时刻。"""
+def test_delivery_eta_is_readable_and_matches_actual_delivery(engine_factory):
+    """图距离产生的预计送达时刻与订单、公开回执和实际送达一致。"""
     engine = engine_factory()
-    supply = next(item for item in engine.context.scenario.supplies
-                  if item.location_id == "market" and "delivery" in item.fulfillment_modes)
-    now = engine.context.state.current_time
-    assert delivery_expected_at(engine.context.semantics, supply, "home", now) is not None
-    narrowed = supply.model_copy(update={"delivery_destination_ids": ("office",)})
-    assert delivery_expected_at(engine.context.semantics, narrowed, "home", now) is None
-    route = next(item for item in engine.context.scenario.routes if item.origin_id == "market"
-                 and item.destination_id == "home" and item.mode.value == "driving")
-    blocked = route.model_copy(update={"status": "unknown", "distance_meters": None, "duration_seconds": None,
-                                       "fare_fen": None, "reason": "no_route_record"})
-    scenario = engine.context.scenario.model_copy(update={"routes": tuple(
-        blocked if item.route_id == route.route_id else item for item in engine.context.scenario.routes)})
-    engine.context.semantics = dataclasses.replace(engine.context.semantics, scenario=scenario)
-    engine.context.rules.scenario = scenario
-    assert delivery_expected_at(engine.context.semantics, supply, "home", now) is None
     stage_day_plan(engine)
-    _stage(engine, "home", 1500)
+    observed, bought = _start(engine, "deliver-home", "supply", "noodle-1:beef-noodles", "远程下单")
+    order = engine.context.state.deliveries[bought.data["orders"][0]["order_id"]]
+    listed = target_actions(observed, "一心面馆出售的牛肉面")["远程下单"]
+    assert listed["note"] == f"预计 {clock_phrase(order.expected_at, observed['current_time'], ZONE)} 送到"
+    after = engine.observe(context(engine, "delivery-receipt"))
+    purchase = progress_calls(after, "start_activity")[-1]["result"]["details"]["purchases"][0]
+    assert purchase["expected_at"] == iso_time(order.expected_at, ZONE)
+    _progress_until(engine, order.expected_at)
+    assert engine.context.state.deliveries[order.order_id].status == "delivered"
+    assert engine.context.state.agents[1].inventory["home"][FOOD_ID] == 1
 
-    def browsed(staged) -> None:
-        """@brief 这条供给刚在家里浏览过，本轮呈现。"""
-        agent = staged.agents[1]
-        agent.visible_supply_ids = {supply.supply_id}
-        agent.supply_browsed_at = {supply.supply_id: staged.current_time}
-        agent.supply_browsed_location = {supply.supply_id: "home"}
 
-    _commit(engine, browsed)
-    observed = engine.observations._observation_data(engine.context.state.agents[1])
-    remote = target_actions(observed, _supply_target(observed, supply.supply_id))["远程下单"]
-    # 家在配送范围内、门店到家的配送路线未知：原因写配送路线缺失（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性 ）。
-    assert (remote["available"], remote["reason"], remote["note"]) == (False, DELIVERY_ROUTE_REASON, None)
+def test_no_app_store_rejects_remote_delivery_without_changing_accounts(engine_factory):
+    """无 app 店铺的远程拒绝不扣款、不生成订单。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    before = engine.context.state.accounts.copy()
+    request = start_request(targets=["二味小炒出售的牛肉面"], actions=["obtain"], ways=["远程下单"])
+    _, results = submit_round(engine, {1: ("start_activity", request)}, "no-app-order")
+    assert results[0].status == "rejected"
+    assert engine.context.state.accounts == before and engine.context.state.deliveries == {}

@@ -1,8 +1,8 @@
 """场景层候选与呈现常量的声明、默认值与拒绝规则测试。
 
 覆盖 docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「场景常量」一节：
-五个常量在场景层声明（不落 catalog/manifest.json），其中 `rotation_stale_seconds`
-无缺省、必须声明，其余四项取契约默认值。
+四个常量在场景层声明（不落 catalog/manifest.json），其中 `rotation_stale_seconds`
+无缺省、必须声明，其余三项取契约默认值。
 """
 
 from __future__ import annotations
@@ -29,7 +29,6 @@ _CONTRACT_DEFAULTS = {
     "candidate_presentation_limit": 20,
     "candidate_pool_limit": 1000,
     "rotation_quota_ratio": 0.15,
-    "retrieval_index_threshold": 1000,
 }
 
 #: 三个生活场景文档；evaluation.json 不是瘦身场景文档（由 worldmock.evaluation
@@ -54,14 +53,15 @@ def _assert_invalid(payload: dict, message: str) -> None:
 
 @pytest.mark.parametrize("name", _LIFE_SCENARIOS)
 def test_candidate_constants_are_declared_in_every_life_scenario(name: str) -> None:
-    """三份生活场景都能加载，且五个候选常量取到契约默认值与声明的阈值。"""
+    """三份生活场景都能加载，且四个候选常量取到契约默认值与声明的阈值。"""
     scenario, digest = load_scenario((ENVIRONMENT_ROOT / "scenarios") / name)
 
     assert len(digest) == 64
     for field, expected in _CONTRACT_DEFAULTS.items():
         assert getattr(scenario, field) == expected
     # 无缺省项：场景必须自己声明，且声明值须与「一个人物的作息周期」口径一致。
-    assert scenario.rotation_stale_seconds == 604_800
+    assert scenario.rotation_stale_seconds == json.loads(
+        (ENVIRONMENT_ROOT / "scenarios" / name).read_text())["rotation_stale_seconds"] == 3600
 
 
 def test_evaluation_scenario_is_not_a_life_scenario_document() -> None:
@@ -71,24 +71,25 @@ def test_evaluation_scenario_is_not_a_life_scenario_document() -> None:
     窗口与抽样），既不经过 `load_scenario`，也不是 `LifeScenario`；把候选常量塞进
     去会同时破坏那个加载器与评估层的职责边界。
     """
-    evaluation = json.loads((ENVIRONMENT_ROOT / "scenarios/evaluation.json").read_text(encoding="utf-8"))
+    evaluation = json.loads((Path(__file__).resolve().parents[1] / "evaluation/fixtures/scenario.json").read_text(encoding="utf-8"))
 
     assert "candidate_presentation_limit" not in evaluation
     assert "rotation_stale_seconds" not in evaluation
     with pytest.raises(IntegrityError, match="Scenario validation failed"):
-        load_scenario(ENVIRONMENT_ROOT / "scenarios/evaluation.json")
+        load_scenario(Path(__file__).resolve().parents[1] / "evaluation/fixtures/scenario.json")
 
 
 def test_candidate_constants_are_reachable_from_assembled_semantics() -> None:
-    """组装结果透出五个常量，下游不必各自解析场景文档。"""
+    """组装结果透出四个常量，下游不必各自解析场景文档。"""
     semantics, _ = load_runtime_scenario(_FORMAL)
     constants = semantics.candidate_constants
 
     assert constants.presentation_limit == semantics.scenario.candidate_presentation_limit == 20
     assert constants.pool_limit == semantics.scenario.candidate_pool_limit == 1000
     assert constants.rotation_quota_ratio == semantics.scenario.rotation_quota_ratio == 0.15
-    assert constants.rotation_stale_seconds == semantics.scenario.rotation_stale_seconds == 604_800
-    assert constants.retrieval_index_threshold == semantics.scenario.retrieval_index_threshold == 1000
+    assert constants.rotation_stale_seconds == semantics.scenario.rotation_stale_seconds == _payload()[
+        "rotation_stale_seconds"] == 3600
+    assert not hasattr(constants, "retrieval_index_threshold")
 
 
 def test_missing_rotation_stale_seconds_is_rejected() -> None:
@@ -136,11 +137,11 @@ def test_rotation_quota_ratio_rejects_non_finite_values(value: float) -> None:
 
 @pytest.mark.parametrize(
     "field",
-    ["candidate_presentation_limit", "candidate_pool_limit", "retrieval_index_threshold"],
+    ["candidate_presentation_limit", "candidate_pool_limit"],
 )
 @pytest.mark.parametrize("value", [0, -1, -1000])
 def test_count_constants_must_be_positive(field: str, value: int) -> None:
-    """三个数量类常量必须为正整数，零与负数一律拒绝。"""
+    """两个数量类常量必须为正整数，零与负数一律拒绝。"""
     _assert_invalid(_replace_field(field, value), "greater than 0")
 
 
@@ -149,7 +150,6 @@ def test_count_constants_must_be_positive(field: str, value: int) -> None:
     [
         ("candidate_presentation_limit", 1001),
         ("candidate_pool_limit", 100_001),
-        ("retrieval_index_threshold", 100_001),
     ],
 )
 def test_count_constants_have_an_upper_bound(field: str, value: int) -> None:

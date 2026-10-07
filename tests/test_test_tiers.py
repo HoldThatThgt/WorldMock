@@ -15,6 +15,12 @@ from scripts import run_tests
 from tests.tier_support import classify, module_for_path, selected
 
 
+@pytest.fixture(autouse=True)
+def pinned_interpreter_input(tmp_path):
+    """@brief 独立调度仓库携带与真实仓库相同的解释器输入，不能省掉收据身份。"""
+    shutil.copy2(run_tests.ROOT / ".python-version", tmp_path / ".python-version")
+
+
 def _record(name="test_plain", markers=(), imports=(), file="tests/test_sample.py"):
     return {"nodeid": f"{file}::{name}", "file": file, "markers": list(markers), "imports": list(imports)}
 
@@ -25,15 +31,12 @@ def _record(name="test_plain", markers=(), imports=(), file="tests/test_sample.p
     ("from custom.envs.life_env import LifeEnv\ndef test_any(): pass", [], set()),
     ("from tests.mutation_runner import SourceMutation", [], set()),
     ("from tests.mutation_runner import SourceMutation", ["errands_mutation_baseline"], set()),
-    ("from textworld import start\ndef test_any(): pass", [], set()),
-    ("from worldmock.life.game import validate_game\ndef test_any(): pass", [], set()),
     ("from tests.integration.test_dayrun_complete_days import DayModel\ndef test_any(): pass", [], set()),
     ("from worldmock.life.engine import LifeEngine as Driver\n"
      "def test_any(): Driver.create(None, None, None)", [], {"engine"}),
     ("from worldmock.life.engine import LifeEngine as Driver\n"
      "def unused(): Driver.create(None, None, None)\n"
      "def test_any(): pass", [], set()),
-    ("from textworld import start as load\ndef test_any(): load('game')", [], {"external"}),
     ("import subprocess as process\ndef test_any(): process.run(['node', 'test.cjs'])", [], {"external"}),
     ("import subprocess\nfrom pathlib import Path\n"
      "def test_any(): subprocess.run([str(Path('vendor/labelkit/.venv/bin/labelkit'))])", [], {"external"}),
@@ -335,6 +338,7 @@ def test_external_environment_identity_survives_relocation_and_rejects_changed_b
     """@brief 完整回归绑定外部环境内容；换机器路径不改变身份，换文件字节直接拒绝旧结果。"""
     engine = tmp_path / "engine"
     engine.mkdir()
+    shutil.copy2(run_tests.ROOT / ".python-version", engine / ".python-version")
     for name in ("conftest.py", "pyproject.toml", "uv.lock", ".gitattributes"):
         (engine / name).write_text("frozen", encoding="utf-8")
     environment = tmp_path / "environment"
@@ -369,6 +373,7 @@ def test_explicit_external_environment_requires_all_three_nonempty_inputs(tmp_pa
                                       "requirements/labelkit-lock.txt", "patches/agentsociety2/SERIES.json",
                                       "patches/agentsociety2/base.tar.gz", "patches/agentsociety2/source.json",
                                       "patches/agentsociety2/lifecycle.patch", ".gitattributes",
+                                      ".python-version",
                                       "labelkit-projects/hooks.py", "labelkit-projects/rule-hooks.py",
                                       "labelkit-projects/action.toml", "labelkit-projects/schemas/semantic-target.json"])
 def test_fixed_dependency_and_patch_bytes_are_part_of_the_frozen_test_input(tmp_path, monkeypatch, relative):
@@ -408,7 +413,7 @@ def test_changed_selection_includes_staged_unstaged_and_untracked(tmp_path, monk
     for arguments in commands:
         subprocess.run(["git", *arguments], cwd=tmp_path, check=True)
     (tmp_path / "tracked.py").write_text("first", encoding="utf-8")
-    subprocess.run(["git", "add", "tracked.py"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "tracked.py", ".python-version"], cwd=tmp_path, check=True)
     subprocess.run(["git", "commit", "-qm", "baseline"], cwd=tmp_path, check=True)
     (tmp_path / "tracked.py").write_text("staged", encoding="utf-8")
     subprocess.run(["git", "add", "tracked.py"], cwd=tmp_path, check=True)
@@ -505,7 +510,7 @@ def test_real_parallel_coverage_is_combined_for_the_current_normal_source(tmp_pa
     for name in ("__init__.py", "tier_support.py", "frozen_inputs.py", "engine_fixture.py", "data_paths.py"):
         shutil.copy2(source_root / "tests" / name, tmp_path / "tests" / name)
     shutil.copy2(source_root / "conftest.py", tmp_path / "conftest.py")
-    for name in ("coverage_gate.py", "run_tests.py", "bootstrap_sources.py"):
+    for name in ("coverage_gate.py", "run_tests.py", "bootstrap_sources.py", "bootstrap_environment.py"):
         shutil.copy2(source_root / "scripts" / name, tmp_path / "scripts" / name)
     (tmp_path / "src/worldmock/__init__.py").write_text("", encoding="utf-8")
     (tmp_path / "src/worldmock/sample.py").write_text(

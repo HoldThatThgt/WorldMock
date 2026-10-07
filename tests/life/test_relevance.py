@@ -44,8 +44,8 @@ def test_intent_families_unite_the_table_rows_and_skip_unknown_intents() -> None
 
 
 @pytest.mark.parametrize(("kind", "category", "family"), [
-    ("lifestyle", "sport", "lifestyle:sport"), ("product", "foods", "consume"), ("content", "feature_film", "watch"),
-    ("game", "game_session", "play_game"), ("task", "work_contract", "work")])
+    ("lifestyle", "sport", "lifestyle:sport"), ("product", "foods", "consume"),
+    ("task", "work_contract", "work")])
 def test_entry_family_matches_the_progress_families(kind, category, family) -> None:
     """条目的活动家族：生活活动按品类，其余按候选类别对应的活动类型（与推进判定的家族同名）。"""
     assert entry_family(kind, category) == family
@@ -60,7 +60,7 @@ def test_entry_relevance_adds_time_window_goal_family_and_habit_hits() -> None:
     assert entry_relevance(dishes, facts, (6, 21)) == 2 + 1
     assert entry_relevance(_entry("yoga", category="sport", name="瑜伽"), facts, (6, 21)) == 1
     assert entry_relevance(_entry("tea", category="wellness", name="泡茶"), facts, (8, 22)) == 2
-    assert entry_relevance(_entry("movie-0001", kind="content", category="feature_film", title="洗碗工"), facts) == 0
+    assert entry_relevance(_entry("movie-0001", kind="task", category="work_contract", title="洗碗工"), facts) == 0
     assert entry_relevance(_entry("blank", category="", name=""), facts) == 0
     quiet = RelevanceFacts(hour=3.0)
     assert entry_relevance(dishes, quiet, (6, 22)) == 0
@@ -69,7 +69,7 @@ def test_entry_relevance_adds_time_window_goal_family_and_habit_hits() -> None:
 def test_pool_relevance_reads_time_windows_only_for_lifestyle_entries() -> None:
     """池内逐条给分；目录时间窗只用于生活活动（内容、商品没有时间窗）。"""
     facts = RelevanceFacts(hour=9.0)
-    entries = (_entry("wash", name="晨间洗漱"), _entry("wash", kind="content", category="news_feed", title="新闻"))
+    entries = (_entry("wash", name="晨间洗漱"), _entry("wash", kind="product", category="foods", title="新闻"))
     assert pool_relevance(entries[:1], facts, {"wash": (5, 10)}) == {"wash": TIME_WINDOW_POINTS}
     assert pool_relevance(entries[1:], facts, {"wash": (5, 10)}) == {"wash": 0}
     assert pool_relevance(entries[:1], facts) == {"wash": 0}

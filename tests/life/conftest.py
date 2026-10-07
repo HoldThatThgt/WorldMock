@@ -8,17 +8,19 @@ import shutil
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 
-from agentsociety2.society import DecisionContext, DirectToolCall  # noqa: E402
 from tests.frozen_inputs import relative_corpus  # noqa: E402
 
-from worldmock.life.engine import LifeEngine  # noqa: E402
-from worldmock.life.models import ModelIdentity, RunIdentity  # noqa: E402
+if TYPE_CHECKING:
+    from agentsociety2.society import DecisionContext
+    from worldmock.life.engine import LifeEngine
+
 
 
 
@@ -27,6 +29,8 @@ from worldmock.life.models import ModelIdentity, RunIdentity  # noqa: E402
 
 def context(engine: LifeEngine, round_id: str, agent_id: int = 1) -> DecisionContext:
     """形成指向当前已提交世界的宿主上下文。"""
+    from agentsociety2.society import DecisionContext
+
     observed = datetime.fromtimestamp(engine.context.state.current_time, ZoneInfo(engine.context.scenario.timezone))
     return DecisionContext(engine.context.state.run_id, round_id, f"decision-{round_id}-{agent_id}",
                            agent_id, observed, engine.context.state.version)
@@ -118,15 +122,16 @@ def errand_cancel(name: str, reason: str) -> dict:
 
 
 def bring_to_window(engine: LifeEngine, object_ids, agent_id: int = 1) -> None:
-    """让给定对象进入下一次观察的呈现窗口：场景里其余可呈现对象（内容、游戏、生活活动与门店供给）都记为此刻刚呈现过，
+    """让给定对象进入下一次观察的呈现窗口：场景里其余可呈现对象（生活活动、食品与工作主题）都记为此刻刚呈现过，
     给定对象从未呈现——轮转按每个对象的上次呈现时刻把换新名额留给该分区最久未呈现的对象
     （docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ），每个分区至多三个。经存储落盘并保持版本连续。"""
     from worldmock.footprints.models import EventDraft
 
     wanted = set(object_ids)
-    everything = {*(item.item_id for item in engine.context.scenario.contents), *(item.game_id for item in engine.context.scenario.games),
-                  *(item.activity_id for item in engine.context.lifestyle_items),
-                  *(item.supply_id for item in engine.context.scenario.supplies)}
+    catalog = engine.context.semantics.catalog
+    everything = {*(item.activity_id for item in engine.context.lifestyle_items),
+                  *(f"{store_id}:{food_id}" for store_id, foods in catalog.foods_by_store.items() for food_id in foods),
+                  *(item.topic_id for item in catalog.work_topics.values())}
     staged = engine.context.state.model_copy(deep=True)
     staged.presentation_state = {**staged.presentation_state,
                                  agent_id: {item: staged.current_time for item in sorted(everything - wanted)}}
@@ -199,6 +204,8 @@ def travel_quote(engine: LifeEngine, mode: str, base_seconds: int) -> int:
 
 def submit_round(engine: LifeEngine, requests: dict[int, tuple[str, object]], round_id: str):
     """按全部就绪人物创建并提交一个真实决策轮。"""
+    from agentsociety2.society import DirectToolCall
+
     ready = engine.scheduling_state().ready_agent_ids
     contexts = [context(engine, round_id, agent_id) for agent_id in ready]
     engine.begin_decision_round(contexts)
@@ -354,6 +361,8 @@ def pending_names(observed: dict) -> list[str]:
 
 def conclude_pending(engine: LifeEngine, round_id: str, agent_id: int = 1):
     """单个就绪人物当秒给全部待收尾活动收尾（第七章「活动一结束就要结束它」），返回本轮动作结果。"""
+    from agentsociety2.society import DirectToolCall
+
     decision = context(engine, round_id, agent_id)
     engine.begin_decision_round([decision])
     names = pending_names(engine.observe(decision))

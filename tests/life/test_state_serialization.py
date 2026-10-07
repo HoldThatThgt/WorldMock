@@ -28,10 +28,6 @@ def _world_state() -> WorldState:
         next_decision_at=1,
         read_message_ids={"mail-z", "mail-a"},
         visible_message_ids={"visible-z", "visible-a"},
-        visible_task_ids={"task-z", "task-a"},
-        visible_supply_ids={"product-z", "product-a"},
-        supply_browsed_at={"product-z": 1, "product-a": 1},
-        supply_browsed_location={"product-z": "home", "product-a": "home"},
     )
     activity = ActivityState(
         activity_id="activity-1",
@@ -44,7 +40,7 @@ def _world_state() -> WorldState:
         last_settled_at=1,
         elapsed_seconds=0,
         planned_duration_seconds=9,
-        resource_claims={"idle"},
+        resource_claims={"wait"},
         origin_action_id="action-1",
         origin_decision_id="decision-1",
         origin_request_event_id="request-1",
@@ -60,10 +56,7 @@ def _world_state() -> WorldState:
         content_manifest_sha256="b" * 64,
         agents={1: agent},
         accounts={"agent:1": 0},
-        supply_stock={"product-z": 0, "product-a": 0},
-        supply_quotes={"product-z": None, "product-a": None}, opening_exceptions={"home": {}},
         activities={activity.activity_id: activity},
-        paid_task_ids={"paid-z", "paid-a"},
         presentation_state={1: {"product-z": 1_700_000_000, "product-a": 1_700_000_600}},
         random_seed=1,
         random_state="random-state",
@@ -78,10 +71,7 @@ def _set_arrays(payload: dict) -> list[list[str]]:
         agent["active_effects"],
         agent["read_message_ids"],
         agent["visible_message_ids"],
-        agent["visible_task_ids"],
-        agent["visible_supply_ids"],
         activity["resource_claims"],
-        payload["paid_task_ids"],
     ]
 
 
@@ -127,7 +117,7 @@ store.close()
 
 
 def test_json_mode_sorts_every_persisted_string_set() -> None:
-    """全部七个持久集合保留数组形状并按元素排序。"""
+    """全部当前持久集合保留数组形状并按元素排序。"""
     state = _world_state()
     payload = state.model_dump(mode="json")
 
@@ -136,7 +126,6 @@ def test_json_mode_sorts_every_persisted_string_set() -> None:
         assert values == sorted(values)
     assert isinstance(state.model_dump()["agents"][1]["active_effects"], set)
     assert isinstance(state.model_dump()["activities"]["activity-1"]["resource_claims"], set)
-    assert isinstance(state.model_dump()["paid_task_ids"], set)
     # 轮转派生量按（人物, 对象标识）逐个记录时刻，JSON 模式取值确定
     assert payload["presentation_state"] == {
         "1": {"product-a": 1_700_000_600, "product-z": 1_700_000_000}}

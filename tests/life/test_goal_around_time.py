@@ -9,8 +9,13 @@ from __future__ import annotations
 import pytest
 
 from tests.life.conftest import StubPlanDayClient, advance_until_ready, settle_day_plans, start_activity
+from tests.life.routing_fixtures import (
+    run_activity_out,
+    selected_food,
+    stage_food_holding,
+    start_eating,
+)
 from tests.life.test_day_planning import _at, _goal, _late_engine, _start
-from tests.life.test_meal_outcome import _food, _run_out, _stage_holding, _start_eating
 from tests.life.test_same_moment_decisions import _act
 from worldmock.evaluation.goal_metrics import day_plan_metrics
 from worldmock.life.engine import LifeEngine
@@ -65,19 +70,18 @@ def test_sleep_begun_before_midnight_does_not_progress_a_sleep_goal_around_2330(
 
 
 @pytest.mark.parametrize(("around", "progressed"), [("23:00", False), (None, True), ("09:00", True)])
-def test_a_morning_browse_does_not_progress_an_evening_entertainment_goal(tmp_path, around, progressed):
-    """08:40 的浏览不推进大致时刻为 23:00 的娱乐目标（进行区间与 [21:30, 24:00) 没有交集）；不带大致时刻的目标照现行判定
-    被它推进，大致时刻 09:00 的也被它推进。"""
-    engine = _late_engine(tmp_path, "2026-01-05T08:40:00+08:00", "around-browse")
+def test_morning_app_use_does_not_progress_an_evening_entertainment_goal(tmp_path, around, progressed):
+    """08:40 使用应用不推进大致时刻为 23:00 的娱乐目标；不带大致时刻或大致时刻为 09:00 时则推进。"""
+    engine = _late_engine(tmp_path, "2026-01-05T08:40:00+08:00", "around-app")
     try:
         settle_day_plans(engine, StubPlanDayClient(goals=[_goal("娱乐", "睡前刷会儿", None, around)]))
-        browse = _act(engine, "browse", "start_activity", start_activity("浏览", "商品目录"))
-        assert browse.status == "in_progress", browse.error_code
-        _run_out(engine, browse.activity_id, "browse")
-        activity = engine.context.state.activities[browse.activity_id]
+        app = _act(engine, "app", "start_activity", start_activity("打开", "应用：抖音"))
+        assert app.status == "in_progress", app.error_code
+        run_activity_out(engine, app.activity_id, "app")
+        activity = engine.context.state.activities[app.activity_id]
         assert activity.started_at == _at(5, 8, 40) and activity.ended_at < _at(5, 21, 30)
         [goal] = engine.context.state.agents[1].day_plan.goals
-        assert (goal.progress_activity_id == browse.activity_id) is progressed
+        assert (goal.progress_activity_id == app.activity_id) is progressed
         _assert_metrics_agree(engine)
     finally:
         engine.close()
@@ -85,18 +89,18 @@ def test_a_morning_browse_does_not_progress_an_evening_entertainment_goal(tmp_pa
 
 @pytest.mark.parametrize(("start", "progressed_at"), [("10:20", _at(5, 10, 35)), ("09:30", None)])
 def test_a_lunch_goal_around_noon_is_progressed_by_eating_from_1020_not_from_0930(tmp_path, start, progressed_at):
-    """大致时刻 12:00 的午餐目标被 10:20–10:45 的进食推进（进行区间与 [10:30, 13:30] 有交集，推进落在第一段越过 10:30 的
+    """大致时刻 12:00 的午餐目标被 10:20–10:40 的进食推进（进行区间与 [10:30, 13:30] 有交集，推进落在第一段越过 10:30 的
     结算止点），被 09:30–09:55 的进食不推进。"""
     engine = _late_engine(tmp_path, f"2026-01-05T{start}:00+08:00", "around-lunch")
     try:
         settle_day_plans(engine, StubPlanDayClient(goals=[_goal("用餐", "午饭在十二点前后吃", None, "12:00")]))
-        food = _food(engine)
-        _stage_holding(engine, food.product_id, 1.0)
-        _, eating = _start_eating(engine, food, "lunch")
-        _run_out(engine, eating.activity_id, "lunch")
+        food = selected_food(engine)
+        stage_food_holding(engine, food.food_id, 1.0)
+        _, eating = start_eating(engine, food, "lunch")
+        run_activity_out(engine, eating.activity_id, "lunch")
         meal = engine.context.state.activities[eating.activity_id]
         hour, minute = map(int, start.split(":"))
-        assert (meal.started_at, meal.ended_at) == (_at(5, hour, minute), _at(5, hour, minute + 25))
+        assert (meal.started_at, meal.ended_at) == (_at(5, hour, minute), _at(5, hour, minute + 20))
         [goal] = engine.context.state.agents[1].day_plan.goals
         assert (goal.around_at, goal.progressed_at) == (_at(5, 12), progressed_at)
         _assert_metrics_agree(engine)

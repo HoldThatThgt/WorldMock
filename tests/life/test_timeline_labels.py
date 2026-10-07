@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 from tests.life.conftest import start_activity, submit_round
-from tests.life.routing_fixtures import COLLEAGUE_TARGET, OFFICE, PERSON_TARGET, act, open_world, run_until, stage
+from tests.life.routing_fixtures import COLLEAGUE_TARGET, OFFICE, PERSON_TARGET, act, open_world, run_until, stage, place, with_colleague
 from worldmock.footprints.export import export_run
 from worldmock.footprints.quality import build_quality_report
 from worldmock.footprints.timeline_labels import label_findings
@@ -25,14 +25,9 @@ def _idle(engine) -> bool:
             and not pending_conclusions(engine.context.state, 1))
 
 
-def _at_office_with_task(engine, task_id: str) -> None:
-    """@brief 人物 1 到办公室，今天的会议纪要任务对他可见（任务 09:00 开放、20:00 截止）。"""
-    def change(state):
-        """@brief 改位置并登记可见任务。"""
-        agent = state.agents[1]
-        agent.location_id = OFFICE
-        agent.visible_task_ids = {*agent.visible_task_ids, task_id}
-    stage(engine, change)
+def _at_office(engine) -> None:
+    """@brief 人物在办公室工作；主题一直存在，不再需要任务开放事件。"""
+    place(engine, 1, OFFICE)
 
 
 def _labels(markdown: str) -> list[str]:
@@ -43,17 +38,21 @@ def _labels(markdown: str) -> list[str]:
 def test_exported_timeline_names_chats_calls_and_work_in_chinese(engine_factory, tmp_path: Path) -> None:
     """交谈、通话与工作在导出的时间线里写「和李凡交谈」「和王磊通话」「工作「<任务标题>」」；两人的时间线都没有英文种类名
     与内部标识，quality.json 的 timeline_labels 两项为零且与同批事件重算一致。"""
-    engine = open_world(engine_factory)
+    def named_people(document):
+        with_colleague(document)
+        document["agents"][0]["name"] = "陈曦"
+        document["agents"][1]["name"] = "李凡"
+    engine = open_world(engine_factory, mutate=named_people)
     first, second = engine.context.state.agents[1].name, engine.context.state.agents[2].name
-    submit_round(engine, {1: ("start_activity", start_activity("交谈", PERSON_TARGET)),
+    submit_round(engine, {1: ("start_activity", start_activity("交谈", f"人物：{second}")),
                           2: ("start_activity", start_activity("等待", "自己"))}, "timeline-invite")
     submit_round(engine, {2: ("start_activity", start_activity("交谈", f"人物：{first}"))}, "timeline-accept")
     called = act(engine, "timeline-call", start_activity("通话", COLLEAGUE_TARGET))
     assert called.status == "in_progress", (called.error_code, called.message)
     run_until(engine, _idle)
-    task = engine.context.scenario.tasks[0]
-    _at_office_with_task(engine, task.task_id)
-    worked = act(engine, "timeline-work", start_activity("工作", f"工作：{task.title}"))
+    topic = engine.context.scenario.work_topics[0]
+    _at_office(engine)
+    worked = act(engine, "timeline-work", start_activity("工作", f"工作：{topic.topic}"))
     assert worked.status == "in_progress", (worked.error_code, worked.message)
     run_until(engine, lambda current: current.context.state.activities[worked.activity_id].elapsed_seconds > 0)
 
@@ -64,7 +63,7 @@ def test_exported_timeline_names_chats_calls_and_work_in_chinese(engine_factory,
     manifest = export_run(engine.context.store, checkpoint.last_event_seq, export_dir)
     timelines = {record["agent_id"]: (export_dir / record["path"]).read_text(encoding="utf-8")
                  for record in manifest["timeline"] if record["date"] == "2026-01-05"}
-    assert {"和李凡交谈", "和王磊通话", f"工作「{task.title}」"} <= set(_labels(timelines[1]))
+    assert {"和李凡交谈", "和王磊通话", f"工作「{topic.topic}」"} <= set(_labels(timelines[1]))
     assert f"和{first}交谈" in _labels(timelines[2]) and second == "李凡"
     for markdown in timelines.values():
         assert not [(label, found) for label in _labels(markdown) for found in label_findings(label)]

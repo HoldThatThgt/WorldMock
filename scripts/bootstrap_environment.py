@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import platform
 import shutil
 import subprocess
 import sys
-import venv
 from pathlib import Path
 
 from scripts.bootstrap_sources import file_sha256
@@ -15,6 +16,7 @@ from scripts.bootstrap_sources import file_sha256
 PROFILE_ENV = "WORLDMOCK_ENVIRONMENT_PROFILE"
 MISSING_NODE = "Node.js is not installed for the dev environment profile"
 MISSING_LABELKIT = "The isolated LabelKit CLI is not installed for the dev environment profile"
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def environment_python(directory: Path) -> Path:
@@ -27,32 +29,55 @@ def labelkit_cli(root: Path) -> Path:
     return root / "vendor/labelkit/.venv" / ("Scripts/labelkit.exe" if os.name == "nt" else "bin/labelkit")
 
 
-def python312() -> list[str]:
-    """@brief 明确使用 Python 3.12，缺失时失败，不接受其它 Python 版本。"""
-    if sys.version_info[:2] == (3, 12):
-        return [sys.executable]
-    command = ["py", "-3.12"] if os.name == "nt" else ["python3.12"]
+def required_python_version(root: Path) -> str:
+    """@brief 从唯一解释器版本文件读取地图与基线所需的完整版本。"""
+    return (root / ".python-version").read_text(encoding="utf-8").strip()
+
+
+def require_python_identity(identity: dict, version: str) -> None:
+    """@brief 拒绝实现或补丁版本不同的解释器。"""
+    if identity != {"implementation": "CPython", "version": version}:
+        logging.error("CPython %s is required; actual interpreter: %s", version, identity)
+        raise RuntimeError(f"CPython {version} is required to run WorldMock")
+
+
+def python_identity(command: list[str]) -> dict:
+    """@brief 用实际解释器报告实现名称和完整版本，避免从命令名推测身份。"""
+    code = ("import json, platform; print(json.dumps({'implementation': platform.python_implementation(), "
+            "'version': platform.python_version()}))")
     try:
-        result = subprocess.run([*command, "-c", "import sys; print(sys.version_info[:2])"],
-                                check=True, capture_output=True, text=True)
-    except (OSError, subprocess.CalledProcessError) as error:
-        raise RuntimeError("Python 3.12 is required to bootstrap WorldMock") from error
-    if result.stdout.strip() != "(3, 12)":
-        raise RuntimeError("Python 3.12 is required to bootstrap WorldMock")
+        return json.loads(subprocess.check_output([*command, "-c", code], text=True))
+    except (OSError, subprocess.CalledProcessError, ValueError) as error:
+        logging.error("Could not read Python interpreter identity: %s", error)
+        raise RuntimeError("Could not read Python interpreter identity") from error
+
+
+def python_command() -> list[str]:
+    """@brief 只选版本文件声明的 CPython，不接受同一小版本的其它补丁版本。"""
+    version = required_python_version(ROOT)
+    if tuple(sys.version_info[:3]) == tuple(int(part) for part in version.split(".")):
+        require_python_identity({"implementation": platform.python_implementation(), "version": version}, version)
+        return [sys.executable]
+    minor = ".".join(version.split(".")[:2])
+    command = ["py", f"-{minor}"] if os.name == "nt" else [f"python{minor}"]
+    require_python_identity(python_identity(command), version)
     return command
 
 
 def create_environment(directory: Path, use_uv: bool = False) -> Path:
     """@brief 用选定安装器创建环境，显式 uv 缺失即失败。"""
-    interpreter = python312()
+    interpreter = python_command()
     if use_uv:
         binary = shutil.which("uv")
         if binary is None:
+            logging.error("uv was explicitly requested but is not installed")
             raise RuntimeError("uv was explicitly requested but is not installed")
-        subprocess.run([binary, "venv", "--python", "3.12", str(directory)], check=True)
+        subprocess.run([binary, "venv", "--python", required_python_version(ROOT), str(directory)], check=True)
     else:
         subprocess.run([*interpreter, "-m", "venv", str(directory)], check=True)
-    return environment_python(directory)
+    python = environment_python(directory)
+    require_python_identity(python_identity([str(python)]), required_python_version(ROOT))
+    return python
 
 
 def install_requirements(python: Path, requirements: Path, wheelhouse: Path | None = None,
@@ -112,11 +137,14 @@ def write_receipt(root: Path, profile: str, sources: dict) -> dict:
     status = component_status(root)
     require_profile(status, profile)
     python = environment_python(root / ".venv")
-    version = subprocess.check_output([str(python), "--version"], text=True).strip()
+    identity = python_identity([str(python)])
+    require_python_identity(identity, required_python_version(root))
     locks = {path.relative_to(root).as_posix(): file_sha256(path)
              for path in sorted((root / "requirements").glob("*-lock.txt"))}
     locks["requirements/lock.txt"] = file_sha256(root / "requirements/lock.txt")
-    receipt = {"schema_version": "environment-1", "profile": profile, "python_version": version,
+    receipt = {"schema_version": "environment-1", "profile": profile,
+               "python_version": identity["version"], "python_implementation": identity["implementation"],
+               "python_version_file_sha256": file_sha256(root / ".python-version"),
                "dependency_locks": locks, **sources, **status, "passed": not status["missing_components"]}
     destination = root / ".work/environment-receipt.json"
     destination.parent.mkdir(parents=True, exist_ok=True)

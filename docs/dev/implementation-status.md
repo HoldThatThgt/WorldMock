@@ -1,13 +1,68 @@
 <a name="implementation-status-worldmock-实现状态"></a>
 # WorldMock 实现状态
 
-> 状态：个人事务与工作安排特性已在特性分支 `feat/errands-workday` 实现并通过离线验收，并已合入 main（自 `3b4afe5` 起，合并提交 `e54c37b`；阶段 6 配对全天复跑与 strict 端点探针未执行）；工具交互特性已在 main 实现（`3b4afe5`），验收见其验收记录；一日运行保真特性已实现并通过离线验收，经 `938e289` 合入 main（阶段 7 真实复验未执行）；人物 Prompt 七层特性已实现并通过离线验收，经 `4a5b0e6` 合入 main（阶段 7 真实复验未执行）；时间与能量特性已在 main 实现并通过离线验收（阶段 8 真实复验未执行）；一日行为、当日目标独立分支与既有地图/品类主线组合各自通过离线验收；历史证据保留，三项项目级真实验收仍未完成
-> 日期：2026-10-05（增量修订；既有验收记录保留各自基线）
+> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「实施状态、现行世界格式、历史证据归属与平台边界」（阶段 8）；此前阶段的修订并入同一现行合同。
+
+> 状态：资源与规则引擎简化阶段 1–8 已实现；macOS 人工环境同场景同种子双跑完整日一致，第三基线已由生产命令原子冻结。工程门禁及独立审查按各自实际源码、环境与平台身份判定，实现完成不等于全部验收通过。阶段 9 正式环境重制发布、平台及真实模型未执行项分别登记，三项项目级真实验收仍为 NOT-COMPLETE。
+> 历史特性身份：个人事务与工作安排特性已在特性分支 `feat/errands-workday` 实现并通过离线验收，并已合入 main（自 `3b4afe5` 起，合并提交 `e54c37b`；阶段 6 配对全天复跑与 strict 端点探针未执行）；工具交互特性已在 main 实现（`3b4afe5`），验收见其验收记录；一日运行保真特性已实现并通过离线验收，经 `938e289` 合入 main（阶段 7 真实复验未执行）；人物 Prompt 七层特性已实现并通过离线验收，经 `4a5b0e6` 合入 main（阶段 7 真实复验未执行）；时间与能量特性已在 main 实现并通过离线验收（阶段 8 真实复验未执行）；一日行为、当日目标独立分支与既有地图/品类主线组合各自通过离线验收；历史证据保留，三项项目级真实验收仍未完成
+> 日期：2026-10-07（增量修订；既有验收记录保留各自基线）
 > 历史基线：工作树 HEAD `9b7fbc84d4429c2f05ec4b526df53539f0ed5d78`（另含当时未提交的文档重构与候选呈现代码）；除新增特性验收记录外，下文旧测试数字和真实运行描述均为该次实测快照，不代表新版本已重新完成真实运行
 > 口径：接口与字段以 `docs/CONTRACTS.md#contracts-worldmock-接口合同` 为准，验收门禁与证据规则以 `docs/VERIFICATION.md#verification-worldmock-验收标准` 为准，覆盖率口径见 `docs/dev/coverage-baseline.md#coverage-baseline-覆盖率门禁口径与基线`；当前特性结论与带身份的历史验收分开记录，变更过程由 Git 承载
 
+<a name="implementation-status-资源与规则引擎简化开发状态"></a>
+## 资源与规则引擎简化开发状态
+
+人物通过食品交易与进食、图上出行、生活活动、app 使用和主题工作形成连续足迹。目录描述具体世界，固定类型与常数由引擎维护；内容进度跨 app 延续，推送随真实地点会话保留、打开与释放；主题完成只取实际工作时间，人物自述不能增加工时，也不触发工作评审或奖励付款。
+
+[冻结规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)是本次改造权威。逐行生产归属、行为节点与源码变异以 `tests/fixtures/rrs-acceptance.json`、`tests/rrs_acceptance.py` 和[现行追溯矩阵](ANALYSIS-spec-coverage.md#analysis-spec-coverage-资源与规则简化映射)核对。提交证明实施顺序，实际执行必须另有匹配源码、环境身份和平台的回执。
+
+| 阶段 | 已实施范围 | 提交或核验依据 |
+| --- | --- | --- |
+| 1 | 固定规则、环境格式与加载边界 | `55e6a0f` |
+| 2 | 地图生成、最短路与图上出行 | `c0f7037`、`d46b4d8` |
+| 3 | 食品菜单、交易、外卖、身体与画像 | `e21f625` |
+| 4 | app、五类内容、全局进度、推送与旧娱乐链删除 | `d9b9965` |
+| 5 | 主题实际工时、工作协议与首个引擎持久化闭环 | `9381615` |
+| 6 | 剩余系统层规则、提示身份与查看器 | `653d196` |
+| 7 | 认证导出、独立重算、质量、交付与评估 | `2eae205` |
+| 8 | 完整日原子冻结、最终登记与文档收口 | [人工完整日基线](../../tests/fixtures/dayrun-resource-rule-baseline.json)、当前机器台账与本次文档变更 |
+
+阶段 7 的标准层已在当前 macOS 执行通过（运行身份 `f5281123-2fe8-4916-99a3-9b29a056ac9e`），对应所有者行为变异已执行。阶段 8 在两个独立进程中以同一人工场景、同一种子各跑满 86400 秒，完整候选逐项一致，唯一生产冻结入口已写入第三基线；其 `generation` 记录实际 Darwin、arm64、CPython 3.12.13、固定 Python 文件和两份依赖锁身份。历史两份 JSON 与原基线实现字节均未改变。
+
+本页不复制门禁的节点数、耗时或变异总数。标准、全量、覆盖率及独立审查分别取实际生成报告或隔离执行回执，只有源码、测试集合、环境与平台身份匹配的证据才有效；标准层和实现完成均不能替代全量、覆盖率或独立审查通过。
+
+| 验收范围 | 当前执行边界 |
+| --- | --- |
+| 人工环境完整日与第三基线 | 已双跑一致并原子冻结，见[当前基线](../../tests/fixtures/dayrun-resource-rule-baseline.json)及其生成身份；只证明该 macOS 人工环境，旧两份基线和原实现字节保留 |
+| 人工环境标准层、全量与覆盖率 | [测试耗时报告](test-durations.json)和[覆盖率报告](coverage-report.json)按自身源码、输入及平台身份解释；全量集合完整、分支至少 85%且未覆盖公共接口为零才通过，历史或正式环境身份不能代替人工环境身份 |
+| 机器台账与独立审查 | 完成集合为 1–8；九个现行特性守卫和归属守卫核对实际登记；语义变异先取得未变异源码通过基线再隔离执行，独立审查按其原始记录判定，不以完成集合冒充通过 |
+| 文档与设计汇编 | 当前修订不代替文档门禁与设计汇编检查的真实执行 |
+| 正式环境、完整回归与平台 | 未执行；数据仓新环境发布后登记正式 full、覆盖率、Windows、POSIX 与正式环境 macOS 的完整日和换目录恢复，逐平台记录时区数据库身份 |
+
+[覆盖率报告](coverage-report.json)与[测试耗时报告](test-durations.json)必须按其中源码、输入环境和平台身份解读；人工环境的结果不证明新正式环境通过，阶段 9 发布后另录正式环境证据。真实发布路径由数据仓回执确定；人工场景、确定性宿主与模型响应夹具不能称为真实 DeepSeek 十二周、三次隔离盲评或 LabelKit 完整自然日交付。
+
+<a name="implementation-status-同时做两件事开发状态"></a>
+## 同时做两件事开发状态
+
+本节保留该特性当时的提交、平台、原命令和测试结果；被取代的工作、娱乐、规则、地图、工具与版本结论属于历史。现行行为以[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)和本页「资源与规则引擎简化开发状态」为准，旧通过记录不证明新合同。
+
+[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)（GitHub issue #4）的阶段 1–3 已在分支 `issue4-parallel-slots` 实现，尚未合入 `main`：
+
+| 阶段 | 提交 | 现行实现 |
+| --- | --- | --- |
+| 1 甲 | `2cb621b`（合同与规格）、`c72d97d`（代码与测试） | 名额只算进行中与待收尾的活动，暂停的不占、个数不设上限；开始、出行与恢复暂停的活动共用一个名额拒绝，恢复依次检查开始地点、工作截止、空名额与占用冲突；名额超限的下一步按被点名活动能否暂停写；同刻上限后没有进行中与待收尾时进入开始或恢复，`resume_or_conclude` 与 `conclude_only` 留在闭集中不再被进入，世界结构仍为 9 |
+| 2 乙 | `038de06`（合同与规格）、`9edf606`（占用声明、代码与测试） | 每种动作占自己的名字，只有同一种动作互斥，睡眠与一切互斥，驾车只能再听播客或和人说话；占用闭集十一个，九个退役名字在解析时拒绝；改的是引擎包资源 `src/worldmock/data/affordances.toml`，`tool_schema_sha256` 与代码身份变化，此前的检查点不能再恢复；测试环境 `tests/fixtures/environment/catalog/` 下的副本逐字节重新同步，已发布环境须按新占用名重新发布 |
+| 3 丙 | `99f00bd` | 系统层第 8 条原位改写（仍为十八条），`prompt_sha256` 变化，工具面不变 |
+
+证据层级：本机（Windows）以针对文件的 pytest 运行各阶段改动与相关的测试文件、既有特性的登记守卫（不含源码变异执行）、风格门禁、导入图、单一来源与设计汇编核对，全部通过；
+阶段 3 另对锚定在系统层上的五个既有源码变异逐个执行，全部被杀死。标准层、全量层、覆盖率门禁与其余源码变异执行没有运行，
+全量层与完整日用例要以 `--environment-root` 指向发布环境运行，仍带旧占用名的发布环境加载时被拒，要等数据集一侧按新占用名重新发布（规格阶段 5）；本机的回归以仓库人工测试环境与合流前的 `origin/main` 逐用例对照。
+仍声明旧占用名的已发布环境（WorldMock-Dataset 的正式环境与数据集各请求自带的目录）与包资源字节不同，在加载时拒绝，要按新占用名重新发布才能加载；配对复跑未执行。
+
 <a name="implementation-status-layering-and-test-tiers"></a>
 ## 分层与测试层次开发状态
+
+本节保留该特性当时的提交、平台、原命令和测试结果；被取代的工作、娱乐、规则、地图、工具与版本结论属于历史。现行行为以[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)和本页「资源与规则引擎简化开发状态」为准，旧通过记录不证明新合同。
 
 [冻结规格](SPEC-layering-and-test-tiers.md#layering-outcome)的生产职责、完整导入图、测试缓存隔离、统一测试入口、
 符号作用域变异与文档归属已落盘；当前全量门禁、完整日行为基线对比及独立源码变异验收仍在执行。
@@ -27,6 +82,8 @@
 <a name="implementation-status-idle-fillers"></a>
 ## 让「等待」成为例外开发状态
 
+本节保留该特性当时的提交、平台、原命令和测试结果；被取代的工作、娱乐、规则、地图、工具与版本结论属于历史。现行行为以[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)和本页「资源与规则引擎简化开发状态」为准，旧通过记录不证明新合同。
+
 [冻结规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)的班次与休息时段起止唤醒、
 系统层第 7、14、15、16 条与零点计划模板第三、五、六条已分别随远端提交 `1e4af0a`、`725a741`、`4a9c049` 实施。
 本次整合保留这些行为与逐字合同，当前场景结构因环境归属为 6，正式环境从显式数据仓路径加载。
@@ -38,6 +95,8 @@
 
 <a name="implementation-status-共享规则与可重建环境开发状态"></a>
 ## 共享规则与可重建环境开发状态
+
+本节保留该特性当时的提交、平台、原命令和测试结果；被取代的工作、娱乐、规则、地图、工具与版本结论属于历史。现行行为以[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)和本页「资源与规则引擎简化开发状态」为准，旧通过记录不证明新合同。
 
 共享特性在主分支分层整合前按[最终规格](SPEC-shared-rules-and-rebuildable-env.md#shared-rules-特性规格共享规则单一归宿与可重建环境)完整实现，没有留待实现功能。
 本次与主分支整合保留这些行为及其已归档正文的新归属；合并后的完整测试、覆盖率和文档门禁尚待新测，
@@ -54,6 +113,8 @@ Windows 尚未取得成功证据，完整平台放行未完成。
 
 <a name="implementation-status-个人事务与工作安排开发状态"></a>
 ## 个人事务与工作安排开发状态
+
+本节保留该特性当时的提交、平台、原命令和测试结果；被取代的工作、娱乐、规则、地图、工具与版本结论属于历史。现行行为以[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)和本页「资源与规则引擎简化开发状态」为准，旧通过记录不证明新合同。
 
 [个人事务与工作安排规格](SPEC-as2-integration.md#errands-workday-运行修复入库)（FROZEN，版本表 1.0）已在特性分支 `feat/errands-workday` 实现并合入 main（自 `3b4afe5` 起，合并提交 `e54c37b`，合并结果与分支头逐文件相同）：实施阶段 1–5 与阶段 7 完成，阶段 6 配对全天复跑未执行（只报告，见下）；
 「裁决记录」二十二项全部按推荐定稿（含标 † 的 R1、E1、E4、W1、Q2）。实施基线为冻结提交 `e9c3ce5a88af2eff9572f18b2e92ea14523d2ec1`（`e9c3ce5`，变更集只含文档；其上全量测试 5177 passed、7 skipped、0 failed）；
@@ -115,6 +176,8 @@ Windows 尚未取得成功证据，完整平台放行未完成。
 <a name="implementation-status-工具交互开发状态"></a>
 ## 工具交互开发状态
 
+本节保留该特性当时的提交、平台、原命令和测试结果；被取代的工作、娱乐、规则、地图、工具与版本结论属于历史。现行行为以[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)和本页「资源与规则引擎简化开发状态」为准，旧通过记录不证明新合同。
+
 [最终规格](SPEC-life-runtime.md#tool-interaction-工具请求)的生产合同已实现；新验收单独记在[工具交互验收记录](../archive/tool-interaction/tool-interaction-verification.md)。
 并发工作合并后，以真实生产入口联合复验，不沿用历史接口的通过数字。
 
@@ -135,6 +198,8 @@ Windows 尚未取得成功证据，完整平台放行未完成。
 
 <a name="implementation-status-一日运行保真开发状态"></a>
 ## 一日运行保真开发状态
+
+本节保留该特性当时的提交、平台、原命令和测试结果；被取代的工作、娱乐、规则、地图、工具与版本结论属于历史。现行行为以[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)和本页「资源与规则引擎简化开发状态」为准，旧通过记录不证明新合同。
 
 [一日运行保真特性规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要)（FROZEN，版本表 0.7）已在集成分支 `dayrun-fidelity-impl` 实现：实施阶段 1–6 与阶段 8 完成，阶段 7 未执行（见下）；
 「裁决记录」除 D13（登记，范围外）与 S2（撤回）外全部已定，S10 采纳并按 3.5「收敛」执行。实施基线为 `26d626b59902bccf7b3cdc5ba74037e5feee5f72`（规格与台账的行号取 `4a5b0e6`）；
@@ -174,6 +239,8 @@ Windows 尚未取得成功证据，完整平台放行未完成。
 <a name="implementation-status-人物-prompt-七层开发状态"></a>
 ## 人物 Prompt 七层开发状态
 
+本节保留该特性当时的提交、平台、原命令和测试结果；被取代的工作、娱乐、规则、地图、工具与版本结论属于历史。现行行为以[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)和本页「资源与规则引擎简化开发状态」为准，旧通过记录不证明新合同。
+
 [人物 Prompt 七层特性规格](SPEC-life-realism.md#persona-prompt-七层请求)（v1.0，FROZEN）已在特性分支 `persona-prompt-seven-layers` 实现：实施阶段 1–6 与阶段 8 完成，阶段 7 未执行（见下）；裁决 #21–#38 按推荐定稿。
 实施基线为 `c3b24da3dfeda289c0b9fd7636dd908cd8dae2d2`（规格与台账的行号取 `3ea5b06`）；阶段 1–5 合入后经两路独立只读评审，缺陷由四个修复分支修复并补测，此后两路测试加固与一次规格符合性修复合入。
 最终代码提交 `e80404099946187a9def070c9e9ae05c45c14621`（`e804040`）：一次调用 `pytest tests` 为 4,295 passed、8 skipped（均为既有的平台或产物条件跳过，本特性新增用例无跳过）、0 failed、25 warnings（警告数与实施前基线相同）；
@@ -209,6 +276,8 @@ Windows 尚未取得成功证据，完整平台放行未完成。
 
 <a name="implementation-status-时间与能量开发状态"></a>
 ## 时间与能量开发状态
+
+本节保留该特性当时的提交、平台、原命令和测试结果；被取代的工作、娱乐、规则、地图、工具与版本结论属于历史。现行行为以[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)和本页「资源与规则引擎简化开发状态」为准，旧通过记录不证明新合同。
 
 [时间与能量特性规格](SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)（v1.0，FROZEN，冻结于 `e560cfc`）已在 main 实现：阶段 0–7 与阶段 9 完成，阶段 8 未执行（见下）。
 实施基线为 `778becae4271fb29d167dbdd51a811a15ec3ec60`；每个阶段合入后由 2–3 名互相独立的只读评审核对，发现的缺陷在后续提交中修复并补测。
@@ -248,6 +317,8 @@ VF4 在干净提交的隔离工作树上覆盖同刻上限、能量截断、唤�
 <a name="implementation-status-地图与门店供给开发状态"></a>
 ## 地图与门店供给开发状态
 
+本节保留该特性当时的提交、平台、原命令和测试结果；被取代的工作、娱乐、规则、地图、工具与版本结论属于历史。现行行为以[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)和本页「资源与规则引擎简化开发状态」为准，旧通过记录不证明新合同。
+
 地图独立分支的完整范围由 [开发规格](SPEC-map-and-storefront.md#spec-map-and-storefront-地图数据集合与门店供给开发规格) 冻结，已实现并通过该分支离线验收，无特性延期项。
 该分支最终被测提交 `017d49c4a246c0c524e541571220e1a07b16ce87`：3240 passed、4 个缺历史运行产物的旧用例跳过，
 分支覆盖率 98.49%，未覆盖公共接口为零；本特性新增用例无跳过。
@@ -267,6 +338,8 @@ VF4 在干净提交的隔离工作树上覆盖同刻上限、能量截断、唤�
 
 <a name="implementation-status-地图与品类组合的历史结论"></a>
 ## 地图与品类组合的历史结论
+
+本节保留该特性当时的提交、平台、原命令和测试结果；被取代的工作、娱乐、规则、地图、工具与版本结论属于历史。现行行为以[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)和本页「资源与规则引擎简化开发状态」为准，旧通过记录不证明新合同。
 
 当前合并保留品类契约、库存转换和交互菜单，并接入独立地图与门店供给。
 购买保留品类配对及闭集算子，但改以当前供给报价、数量与系数计算整行 `total_price_fen`；卖方来自供给。
@@ -301,7 +374,7 @@ VF4 在干净提交的隔离工作树上覆盖同刻上限、能量截断、唤�
 品类契约与决策上下文已整合，合并复核发现的模型库存使用缺口也已补修。
 该次被测源码 `35c1dfa9789010ff2845435900871cda616ded52` 的完整门禁为 **3166 passed、零跳过**，
 分支覆盖率 **96.67%**，未覆盖公共接口 **0**；补修的六项独立语义突变全部 killed。
-来源、文件范围和原始证据见[合并验证记录](category-contract-main-verification.md)。
+来源、文件范围和原始证据见[合并验证记录](../archive/category-contract/category-contract-main-verification.md)。
 下面各特性段落保留各自独立开发时的验收快照，也不能替代当前地图与品类组合门禁。
 
 决策上下文特性以 [冻结规格](SPEC-decision-context.md#spec-decision-context-特性规格决策上下文与工具结果) 为本次完整开发范围；
@@ -313,9 +386,9 @@ AS2 `e4155095` 的全量测试 **448 passed**。六十种源码反例最终均�
 人物 Prompt 七层规格修订了该规格的心智模型、唯一命名、上下文与阶段相互独立、登记确认、场景信息、预算与失败及只读路径（人物 Prompt 规格「冻结条款修订」#2–#7、#27）：决策自述阶段删除，`scene`、`facts` 分入七层，同秒相邻决策改为续接；上面的数字属于 `f8a55e2` 的旧实现，现行行为见「人物 Prompt 七层开发状态」。
 
 品类契约独立特性从 `426af3bfe3d7e507b749f286e08857e697c2ac2f` 在隔离分支
-`codex/category-contract` 开发。冻结规格为 [SPEC-category-contract.md](SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格)，
+`codex/category-contract` 开发。冻结规格为 [SPEC-category-contract.md](../archive/category-contract/SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格)，
 实施、测试、独立 Bob 审查与实际文件清单统一记入
-[品类契约验证台账](category-contract-verification.md)。正式目录采用原生增量对象与闭集交换规则，
+[品类契约验证台账](../archive/category-contract/category-contract-verification.md)。正式目录采用原生增量对象与闭集交换规则，
 该次三份生活场景绑定目录 `3.0`，当时 163 个对象的业务含义保持原样；本次组合目录使用新身份 `4.0`。
 本次离线确定性验证不等于下面三项项目级真实验收已经完成。
 
@@ -350,6 +423,8 @@ flowchart LR
 <a name="implementation-status-候选与呈现本轮新增章的落地状态"></a>
 ## 候选与呈现：本轮新增章的落地状态
 
+本节保留该特性当时的提交、平台、原命令和测试结果；被取代的工作、娱乐、规则、地图、工具与版本结论属于历史。现行行为以[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)和本页「资源与规则引擎简化开发状态」为准，旧通过记录不证明新合同。
+
 本轮规格新增 `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「候选契约与呈现规则」章与 `docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像`
 的「`location_kinds` 的运行期强制语义」「素材可达性」「素材淘汰与检索机制的禁止项」「候选与呈现」四节
 （对应规格的版本表保留原修订记录）。地图特性已把正式地点能力输入接入生产模型，独立分支与主线组合均已验收；下表保留各实现层证据，旧用例计数不作为当前全量统计。
@@ -366,6 +441,8 @@ flowchart LR
 
 <a name="implementation-status-候选特性历史门禁输出原命令与关键行"></a>
 ### 候选特性历史门禁输出（原命令与关键行）
+
+本节保留该特性当时的提交、平台、原命令和测试结果；被取代的工作、娱乐、规则、地图、工具与版本结论属于历史。现行行为以[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)和本页「资源与规则引擎简化开发状态」为准，旧通过记录不证明新合同。
 
 ```
 $ uv run python scripts/coverage_gate.py
@@ -406,6 +483,8 @@ $ uv run pytest -q
 <a name="implementation-status-历史静态可达性缺陷记录"></a>
 ### 历史静态可达性缺陷记录
 
+本节保留该特性当时的提交、平台、原命令和测试结果；被取代的工作、娱乐、规则、地图、工具与版本结论属于历史。现行行为以[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)和本页「资源与规则引擎简化开发状态」为准，旧通过记录不证明新合同。
+
 `scripts/check_reachability.py` 不带 `--scenario` 时通过（实测 `all 7106 entries reachable across 101 partition(s)`、退出码 0），
 但带 `--scenario scenarios/white-collar-12-weeks.json` 时**退出码 1**，报 `86 unreachable object(s)`，
 全部来自 `scenario:contents`，`missing=['genre','language']`：80 条为 `game_session` 品类
@@ -426,57 +505,34 @@ $ uv run pytest -q
 `docs/dev/ANALYSIS-spec-coverage.md#analysis-spec-coverage-规格测试用例覆盖率追溯矩阵` 的旧覆盖计数只保留历史审计身份，不能作为当前工具面的覆盖证明。
 
 <a name="implementation-status-已落地的条款口味权重降级为排序信号"></a>
-### 已落地的条款：口味权重降级为排序信号
+### 已取代的历史条款：口味权重曾作为排序信号
 
-一条已落地并可指向真实测试：口味权重是排序信号而不是准入条件，零权重不出局。
+本节保留该特性当时的提交、平台、原命令和测试结果；被取代的工作、娱乐、规则、地图、工具与版本结论属于历史。现行行为以[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)和本页「资源与规则引擎简化开发状态」为准，旧通过记录不证明新合同。
 
-- 实现：娱乐候选的入选条件改为 `attention_prior[kind] > 0`（`src/worldmock/life/motivation.py`），
-  `preference` 只出现在排序键里；`src/worldmock/profile/taste.py` 的权重取值域包含零且语义不是「不可选」。
-- 测试：`tests/life/test_motivation.py::TestScorerContract.test_zero_taste_weights_keep_entertainment_ranked_last`
-  与 `test_unstated_genre_items_stay_in_candidate_pool`（本文件修订时实测 `2 passed, 76 deselected`）。
-- 纯函数层同口径的测试：`tests/life/test_candidates.py::TestSoftPreferenceOnlyReorders` 四测。
-- 该行在 `docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像` 验收矩阵中的状态已由「待落地」改记「代码层已验证」（两处观察均有断言）。
+资源与规则引擎简化之前，口味权重只影响娱乐候选排序、不作为准入条件；本节原记录的定向运行结果为
+`2 passed, 76 deselected`。这项结果只证明当时的实现，不再作为现行候选或 app 工具面的验收结论。
+
+阶段 4 已删除内容、游戏与目录浏览候选，候选种类收敛为 `product`、`lifestyle`、`task`；app 始终作为工具目标列出，
+画像 `tastes` 只进入散文，不生成候选数值权重。当前纯所有者节点是
+`tests/life/test_candidates.py::test_candidates_have_only_product_lifestyle_and_task_kinds`、
+`tests/life/test_candidates.py::test_relevance_changes_order_without_changing_membership` 与
+`tests/life/test_app_ui.py::test_all_apps_always_listed_without_content_candidates_or_index`。
+完整引擎组合属于阶段 1–5 同一集成波次，须由阶段 5 回执闭合；本节不据这些登记宣称已经通过。
 
 <a name="implementation-status-当前世界格式worldstateschema_version-为-9"></a>
-### 当前世界格式：`WorldState.schema_version` 为 9
+### 当前世界格式：`WorldState.schema_version` 为 10
 
-候选呈现阶段曾以版本 3 引入 `presentation_state`；地图与门店供给以版本 4 加入供给库存、报价、营业例外、人物资格和逐供给可见凭据；活动集合、共同身体时刻和威胁交付状态将版本提升至 5；数字人交互规格以版本 6 引入任务、会话与活动三级结构及 `WorldState.sessions`。时间与能量特性在阶段 0 把版本由 6 升为 7，且只升这一次：其后各阶段新增的世界结构字段与阶段 4 重列的占用名都并入版本 7。人物 Prompt 七层特性在阶段 1 把版本由 7 升为 8，同样只升一次：阶段 3–5 的新字段在发布前并入版本 8。个人事务与工作安排特性在阶段 2 把版本由 8 升为 9，只升一次。生产模型使用严格版本常量，旧格式（含版本 8）由当前代码直接拒绝（`tests/life/test_session_state.py::test_world_state_schema_version_8_is_rejected`、`::test_run_with_version_8_world_state_is_rejected_on_open`），不转换旧检查点，也不保留迁移脚本；交付核对导出最终检查点的 `state.schema_version`，不等于当前版本即拒绝（`tests/delivery/test_publication.py::test_delivery_gate_rejects_version_eight_exports`）。
+[资源与规则引擎简化](SPEC-resource-and-rule-simplification.md#spec-rrs-状态事件检查点与导出)一次升级当前结构：世界 10、场景 7、运行清单 3、导出清单 3、质量报告 5、交付清单 3。旧状态、场景和清单直接按版本或必填字段拒绝，不迁移、不双读；历史文件原始字节仍保留。
 
-8→9 的结构变化如下，字段名以 `src/worldmock/life/errand_state.py` 与 `src/worldmock/life/models.py` 为准，合同见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「领域枚举」节的版本 9 表，逐字段说明见 `docs/design/09-io-formats.md#io-formats-worldmock-产品设计说明书-输入输出格式`「3.2 AgentState（人物状态）」：
-
-| 模型 | 8→9 变化 |
+| 当前状态 | 恢复与来源要求 |
 | --- | --- |
-| `AgentState` | 新增 `errands`：事务身份到 `ErrandState` 的映射，只存未完成事务 |
-| `ErrandState` | `errand_id`、`name`、`outcome`、`product_id`、`quantity`、`progress`、`memo`、`registered_at`、`remind_at`、`reminded_at`、`origin_action_id`、`origin_event_id` |
-| 观察事件（不属世界状态） | 待办层增 `errands`，私有绑定增 `errand_bindings`（未完成事务）与 `errand_item_bindings`（全部商品名到商品身份），均列入提示禁键 |
+| 全局 app 内容进度 | 本人的内容位置与完成轮数跨 app 保存；换 app、暂停或恢复不能重置真实进度 |
+| 会话 app 推送 | 真实 session 的推送身份、打开与钉住状态随检查点保存；结束会话和内容完成按真实事件解除 |
+| 主题工时 | 由非失败工作活动实际区间推导累计；暂停、闲置和自述不累加；已完成主题不能重开，恢复依次核地点、剩余工时、名额与占用 |
+| 事务、活动与地点会话 | 保留未完成事务、同刻决策、活动和待收尾；恢复不得重复结算、记下或提醒 |
+| 环境身份 | 同一环境标识、版本、规则、目录和地图字节绑定运行及冻结清单；新分支新目录，父目录不改 |
 
-生活场景在个人事务与工作安排特性发布时升为结构 5：人物配置增必填可空的 `work_schedule` 与可选的 `leave_work_window`、`arrive_home_window`，结构 4 的场景按版本拒绝；`catalog_version` 不变。
-当前因[环境数据归属规格](SPEC-environment-data-ownership.md)使用场景结构 6；结构 5 的旧输入同样拒绝，具体环境从显式的数据仓路径加载。
-
-7→8 的结构变化如下，字段名以 `src/worldmock/life/models.py` 为准，合同见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「领域枚举」节的版本 8 表，逐字段说明见 `docs/design/09-io-formats.md#io-formats-worldmock-产品设计说明书-输入输出格式`「3.1 WorldState（世界状态）」「3.2 AgentState（人物状态）」「3.4 ActivityState（活动状态）」：
-
-| 模型 | 7→8 变化 |
-| --- | --- |
-| `SessionState`（地点会话） | 新增 `opened_by_action_id`：由决策引起的会话切换（出发、途中结束出行）记引起切换的动作，运行开始与到达为空；进度层据此取 session 下界 |
-| `ActivityState` | 新增 `paused_at`：暂停时写入、恢复时清空，待办层的暂停活动按它排序；进食活动的 `data` 带开吃份量 `opened`，结束时写 `discarded` |
-| `DeliveryState` | 新增唯一收货人 `recipient_id`（`agent:<id>` 或联系人身份，送达只入其持有，付款人仍是下单人物）与 `answering` 关联的直接消息 `request_message_id` |
-| `WorldState` | 新增 `contact_holdings`：联系人到商品到持有数量，配送或给予给联系人时记入 |
-| `AgentState` | 新增 `outbox`：发给场景联系人的消息，与 `inbox` 同形；`same_moment_stage` 的闭集去掉 `wait_only` |
-| 观察事件（不属世界状态） | `data` 改为七层数据：环境构建的各层、看法偏好原文与私有绑定和证据，进度层只存来源事件引用 |
-
-生活场景的 `Contact` 另增可空的 `receive_location_id`，`catalog_version` 不变。
-
-6→7 的结构变化如下，字段名以 `src/worldmock/life/models.py` 与 `src/worldmock/life/schedule.py` 为准，逐字段说明见 `docs/design/09-io-formats.md#io-formats-worldmock-产品设计说明书-输入输出格式`「3.1 WorldState（世界状态）」「3.2 AgentState（人物状态）」「3.4 ActivityState（活动状态）」：
-
-| 模型 | 6→7 变化 |
-| --- | --- |
-| `AgentState` | 新增 `same_moment_rounds`（本秒已进行的决策轮数）与 `same_moment_stage`（受限轮阶段：`open`、`conclude_pending`、`start_or_resume`、`resume_or_conclude`、`conclude_only`、`wait_only`，其中 `wait_only` 已随版本 8 删去），时钟推进时两者归零 |
-| `WorldState` | 新增 `same_moment_presentation`：按人物暂存的本秒呈现留痕（`stamps`、`pinned_supply_ids`），时钟推进时并入 `presentation_state` 并清空；`sessions` 改存地点会话 |
-| `SessionState`（地点会话） | 改为一段停留或一段路，由系统随出发与到达开始和结束：`kind`（`stay`、`transit`）、`location_id`（停留时）或 `origin_id` 与 `destination_id`（路上时）、`status`（`active`、`ended`）、`started_at`、`ended_at`、`activity_ids`、`name`；删去原任务会话的 `task_name`、`session_name`、`targets`、`segments`、`invested_seconds`、`effective_seconds`、`remaining_contract_seconds`、`preconditions_unmet` 与会话状态 `paused`、`concluded`、`aborted` |
-| `ActivityState` | 新增 `concluded_at`（收尾时刻，终态且为空即待收尾）、`report_anchor_at`（播报锚点）、`session_ids`（先后所属的地点会话）、`name`；从原会话移来任务关联 `task_kind`、`task_ref`、`plan_goal_intent_kind` 与人物自述 `progress_note`、`note_updated_at`、`note_history`；`location_id` 固定为开始地点，结算不再以人物当前地点覆盖 |
-| `PlanGoal`（`AgentState.day_plan` 的当日目标） | 新增 `remind_at`（提醒时刻）与 `reminded_at`（提醒实际触发时刻） |
-
-打开、共同检查点恢复与分支必须使用版本 9 的状态以及一致的场景、地图、语料和代码身份；版本 8 及更早的检查点一律拒绝。历史文件仍保留原始字节，旧状态不可被当前代码当作新格式读取；新验收从当前格式建立运行和父检查点。同刻计数与呈现暂存、地点会话与待收尾随检查点恢复由时间与能量特性的完整门禁验证（`tests/life/test_same_moment_decisions.py::test_same_moment_state_survives_reopen`、`::test_presentation_staging_survives_reopen`，`tests/life/test_location_sessions.py::test_sessions_and_pending_conclusion_survive_reopen`）；记忆层与同秒续接随检查点恢复由人物 Prompt 特性的完整门禁验证（`tests/life/test_memory_layer.py::test_memory_layer_is_byte_identical_after_restore_and_the_cache_only_accelerates`、`tests/integration/test_same_second_continuation.py::test_a_plain_resume_from_a_mid_second_checkpoint_sends_the_same_request`）；未完成的个人事务随检查点恢复（待办层逐字节相同，不重复记下、完成与提醒）由个人事务与工作安排特性的完整门禁验证（`tests/integration/test_errand_checkpoint.py::test_a_restored_branch_shows_the_same_todo_layer_and_repeats_nothing`）。独立地图分支已通过实际新建、打开、恢复、分支及父目录保护的门禁与独立审查；组合后的目录与品类身份已在该次完整门禁和独立漏验突变中重验通过，见 [主线组合验收](research/map-and-storefront-main-verification.md)。
+逐字段合同见[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)，当前行为节点由[机器追溯](ANALYSIS-spec-coverage.md#analysis-spec-coverage-资源与规则简化映射)登记。此前版本 6–9 的发布和验收身份见历史特性与归档记录，不充当当前格式证明；正式环境完整日与跨平台换目录恢复仍由阶段 9 留证。
 
 <a name="implementation-status-已完成的确定性范围"></a>
 ## 已完成的确定性范围
@@ -521,6 +577,8 @@ $ uv run pytest -q
 <a name="implementation-status-规格追溯与突变守卫"></a>
 ### 规格追溯与突变守卫
 
+当前条款、生产符号、行为节点与语义变异由[机器追溯](ANALYSIS-spec-coverage.md#analysis-spec-coverage-资源与规则简化映射)核对；下列计数与「没有已知存活」仅属于所列历史源码，不能替代本次独立审查。
+
 - 规格追溯矩阵（`docs/dev/ANALYSIS-spec-coverage.md#analysis-spec-coverage-规格测试用例覆盖率追溯矩阵`）的 2026-09-19 历史条款映射终态为
   435 = covered 421 + exempt 14，gap 为 0；候选章早期的 8/9 项缺口计数已经被后续复核取代。
   豁免条款的实际验证入口仍是真实模型调用、真实外部服务或长墙钟真实运行验收，各自附有确定性锚测试。
@@ -535,10 +593,12 @@ $ uv run pytest -q
 <a name="implementation-status-已冻结条款与确定性证据"></a>
 ### 已冻结条款与确定性证据
 
+本节保留该特性当时的提交、平台、原命令和测试结果；被取代的工作、娱乐、规则、地图、工具与版本结论属于历史。现行行为以[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)和本页「资源与规则引擎简化开发状态」为准，旧通过记录不证明新合同。
+
 | 条款 | 当前实现与边界 | 收据 |
 | --- | --- | --- |
 | 能量不阻断 | 能量不拒绝、不停止任何活动：任何能量下活动都能开始、继续与恢复，结算对所有活动集合以 0 为下限截断；原受理闸门、恢复前的能量核验、拒绝码 `INSUFFICIENT_ENERGY` 与可供性及观察中的 `energy_projection` 已从代码删除。进食由饥饿每跨一档唤醒、工具层列出的吃饭途径（手边的食物、在途订单、这里能买的与能送到这里的）与系统层第 15 条引导（按档位与饭点吃：只是「有点想吃」时正餐留到平常的饭点前后，到了「饿」离饭点一小时以内可以提前准备或下单，「很饿」或更饿马上弄吃的；原「饿了趁早弄吃的」已由[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要) 2.2 改写，「有点想吃」一档的写法已由[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 2 改写）；饿时场景的吃饭途径句与常驻生活提示已被[人物 Prompt 七层特性规格](SPEC-life-realism.md#persona-prompt-七层请求)取代 | [时间与能量验收记录](../archive/time-and-energy/time-and-energy-verification.md)「验收台账逐行登记」的「能量不拦人」行（登记用例以 `tests/time_and_energy_acceptance.py` 为准）；原「能量可行性」闸门的 `.work/verification/energy-feasibility-implementation/implementation-receipt.json` 是能量闸门时期的收据，不证明本条 |
-| 工作评审协议 | 最多初次加两次输出纠正，原响应先持久化，语义拒绝与基础设施异常不重评 | `.work/verification/work-review-protocol/receipt.json` |
+| 已退役的历史工作评审协议 | 最多初次加两次输出纠正，原响应先持久化，语义拒绝与基础设施异常不重评 | `.work/verification/work-review-protocol/receipt.json` |
 | 无损模型输入 | 同窗口重复完整字段使用 RFC 6901 单跳字典，最终训练恢复完整输入；逻辑窗口、编码行与实际 trace 分别绑定 | `.work/verification/evidence-encoding/capacity-receipt.json` |
 | 语义合同 | 三任务共享证据、分类及聚合要求，保留不同因果主题，32 条是上限；完整真实语义交付另行验收 | `labelkit-projects/` 三份项目配置与实际请求合同测试 |
 | trace 关联 | 核对当前配置、完整输入输出、逐轮生成与独立评审、逐记录最终通过及成功结束 | `.work/verification/delivery-integration-cross-review/narrow-recheck.log` |
@@ -549,6 +609,8 @@ $ uv run pytest -q
 
 <a name="implementation-status-数据日志与模型接入"></a>
 ### 数据、日志与模型接入
+
+本节保留该特性当时的提交、平台、原命令和测试结果；被取代的工作、娱乐、规则、地图、工具与版本结论属于历史。现行行为以[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)和本页「资源与规则引擎简化开发状态」为准，旧通过记录不证明新合同。
 
 - 语料扩容：正餐 30 条（能量逐条标注 USDA FNDDS 来源与换算）、POI 路由 220 条（OSRM 冻结响应）、
   工作材料输入 65 份、drama 语料与场景联系人语料；全部进入 `corpora/manifest.json` 哈希冻结清单
@@ -594,6 +656,8 @@ $ uv run pytest -q
 <a name="implementation-status-项目级真实验收边界"></a>
 ## 项目级真实验收边界
 
+本次人工环境的认证 app 足迹和主题工时证明实现行为，不证明长期相似度或正式发布。旧素材、品类与路线的可达性结论保留当时身份，现行内容按 app 绑定和目录准入求可达性。
+
 - 正式 DeepSeek 十二周运行：本次未执行，不以确定性工具驱动流程替代八十四天的真实模型产物。
 - LabelKit 完整自然日交付：本次未重跑；历史基线在 action 阶段中止，未完成 intent、dreaming、规则和训练加载，原证据仍按其当时身份解释。
 - 隔离盲评与真实人群对照：本次未执行三次隔离盲评，也未取得新的匹配人群个体数据，不能声称验证了人类相似度。
@@ -613,3 +677,10 @@ $ uv run pytest -q
 - 历史失败原件与收据保留在 `.work/verification/` 与 `runs/`（两者都不在版本控制内），不改写失败输出。
 - `docs/dev/research/` 下的审计与根因文档是当时的历史快照，不描述当前实现。
 - 运行产物、测试探针与环境目录不进入版本控制。
+
+<a name="implementation-status-版本表"></a>
+## 版本表
+
+| 版本 | 日期 | 变更 |
+| --- | --- | --- |
+| `2026-10-06-rrs-docs` | 2026-10-07 | 当前主题、app 足迹和结构；阶段提交、历史证据、人工/正式环境与平台边界分别登记 |

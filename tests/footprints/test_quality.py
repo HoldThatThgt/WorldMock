@@ -15,6 +15,8 @@ from worldmock.life.error_contract import ErrorItem, ErrorReport
 
 def _event(sequence, event_type, *, occurred_at=None, run_id="run", wall_ms=None, **fields):
     data = fields.pop("data", {})
+    if event_type == "run_ended":
+        fields.setdefault("visibility", "system")
     return Event(
         event_id=f"event-{sequence}", event_type=event_type,
         occurred_at=100 + sequence if occurred_at is None else occurred_at,
@@ -95,6 +97,18 @@ def _activity(identity, kind, elapsed, status="completed", **fields):
             "elapsed_seconds": elapsed, "status": status, **fields}
 
 
+def _content_event(sequence, *, before=0, after=300, completed=False, rounds=0, app_id="bilibili"):
+    """@brief 内容接触来自真实 content 区间，不再从活动类型或 repeat 会话标记推测。"""
+    activity = {"activity_id": f"phone-{sequence}", "agent_id": 1, "kind": "use_app", "target_id": app_id,
+                "started_at": 100, "ended_at": None, "status": "active",
+                "data": {"content_id": "long", "pinned_by_push_id": None}}
+    return _event(sequence, "activity_progress", agent_id=1, activity_id=activity["activity_id"],
+                  data={"activity": activity, "interval_start": 100, "interval_end": 100 + sequence,
+                        "content": {"content_id": "long", "app_id": app_id, "kind": "long_video",
+                                    "position_before_seconds": before, "position_after_seconds": after,
+                                    "completed": completed, "completed_rounds_after": rounds}})
+
+
 def test_quality_report_covers_run_behavior_usage_cost_and_speedup():
     """整份质量报告；两次收尾各在同一决策写出收尾记忆，第二次登记后结算被拒，记忆照写，不报问题。"""
     events = [
@@ -118,21 +132,23 @@ def test_quality_report_covers_run_behavior_usage_cost_and_speedup():
         _event(13, "action_result", agent_id=1, action_id="action-2", data={"status": "rejected"}),
         _event(14, "activity_progress", data={
             "activity": {"kind": "work"},
-            "interval_start": 104, "interval_end": 114, "activity_efficiency": 0.8,
+            "interval_start": 104, "interval_end": 114,
+            "work": {"topic_id": "topic-sales", "worked_seconds": 10, "remaining_seconds": 28790},
         }),
         _event(15, "activity_progress", data={
             "activity": {"kind": "consume"},
             "interval_start": 114, "interval_end": 115,
             "consumption": {"use_mode": "eat", "food_efficiency": 0.9,
-                            "items": [{"interval_quantity": 0.5}]},
+                            "items": [{"interval_portion": 0.5}]},
         }),
-        _event(16, "run_ended", occurred_at=1100, wall_ms=100_000),
+        _content_event(16, after=600, completed=True, rounds=1),
+        _content_event(17, after=300, rounds=1),
+        _event(18, "run_ended", occurred_at=1100, wall_ms=100_000),
     ]
     activities = [
-        _activity("watch-1", "watch", 600, target_id="show", data={"repeat": False}),
-        _activity("watch-2", "watch", 300, "cancelled", target_id="show", interruption_reason="bored",
-                  data={"repeat": True}),
-        _activity("game-1", "play_game", 200),
+        _activity("app-1", "use_app", 600, target_id="bilibili"),
+        _activity("app-2", "use_app", 300, "cancelled", target_id="bilibili", interruption_reason="bored"),
+        _activity("rest-1", "lifestyle", 200),
         _activity("work-1", "work", 100),
         _activity("meal-1", "consume", 50, "truncated", interruption_reason="cutoff"),
     ]
@@ -144,9 +160,9 @@ def test_quality_report_covers_run_behavior_usage_cost_and_speedup():
     assert report["actions"]["business_rejection_codes"] == {"ACTIVITY_CONCLUSION_REQUIRED": 1}
     assert report["activities"]["completed_activities"] == 3
     assert report["activities"]["terminal_interruptions"] == 2
-    assert report["content_contact"]["contact_seconds"] == 1100
-    assert report["content_contact"]["repeat_watch"]["repeated_sessions"] == 1
-    assert report["conversion_efficiency"]["work"]["weighted_mean"] == 0.8
+    assert report["content_contact"] == {"by_app": {"bilibili": 2}, "by_kind": {"long_video": 2},
+                                         "repeat_watch": 1}
+    assert "work" not in report["conversion_efficiency"]
     assert report["conversion_efficiency"]["food"]["weighted_mean"] == 0.9
     assert report["memory_references"] == {
         "memory_update_events": 2, "persisted_episode_ids": 2,
@@ -159,26 +175,19 @@ def test_quality_report_covers_run_behavior_usage_cost_and_speedup():
     assert report["acceleration"]["speedup"] == 10.0
 
 
-def test_repeat_watch_counts_only_sessions_restarted_from_the_beginning():
-    """同一内容的两段观看：第二段是接着看（data.repeat=false）时不算重复观看，从头再看（repeat=true）时算一次。
-
-    时间与能量规格第七章「三层结构」：从上次的位置接着放不算新的一次接触，只有第一次和从头重看才增加接触次数。
-    """
-    events = [_event(1, "run_ended", occurred_at=1100)]
-    first = _activity("watch-1", "watch", 600, target_id="sintel", data={"repeat": False})
-    resumed = _activity("watch-2", "watch", 300, target_id="sintel", data={"repeat": False})
-    restarted = _activity("watch-2", "watch", 300, target_id="sintel", data={"repeat": True})
-
-    resumed_report = build_quality_report(events, [first, resumed], _manifest())["content_contact"]
-    restarted_report = build_quality_report(events, [first, restarted], _manifest())["content_contact"]
-
-    assert resumed_report["session_count"] == restarted_report["session_count"] == 2
-    assert resumed_report["repeat_watch"]["repeated_sessions"] == 0
-    assert resumed_report["repeat_watch"]["groups"] == []
-    assert restarted_report["repeat_watch"]["repeated_sessions"] == 1
-    assert restarted_report["repeat_watch"]["groups"] == [{
-        "agent_id": 1, "target_id": "sintel", "sessions": 2, "repeated_sessions": 1,
-        "activity_ids": ["watch-2"]}]
+def test_repeat_watch_counts_completed_rounds():
+    """@brief 首轮未完接着看不计重复；完成过内容后，本轮的每条真实消费事实均计重复。"""
+    first = _content_event(1, after=600)
+    resumed = _content_event(2, before=600, after=900)
+    restarted = _content_event(2, before=0, after=300, rounds=1)
+    finished = _content_event(1, after=600, completed=True, rounds=1)
+    activities = [_activity("app-1", "use_app", 600, target_id="bilibili"),
+                  _activity("app-2", "use_app", 300, target_id="bilibili")]
+    resumed_report = build_quality_report([first, resumed], activities, _manifest())["content_contact"]
+    restarted_report = build_quality_report([finished, restarted], activities, _manifest())["content_contact"]
+    assert resumed_report["by_app"] == restarted_report["by_app"] == {"bilibili": 2}
+    assert resumed_report["repeat_watch"] == 0
+    assert restarted_report["repeat_watch"] == 1
 
 
 def test_missing_measurements_remain_unknown_instead_of_becoming_zero():
@@ -187,22 +196,20 @@ def test_missing_measurements_remain_unknown_instead_of_becoming_zero():
         _event(2, "model_response", data=_tool_response("call")),
         _event(3, "run_ended", occurred_at=200),
     ]
-    activities = [_activity("watch-known", "watch", 20, target_id="show"),
-                  _activity("watch-missing", "watch", None, target_id="show")]
+    activities = [_activity("app-known", "use_app", 20, target_id="bilibili"),
+                  _activity("app-missing", "use_app", None, target_id="bilibili")]
 
     report = build_quality_report(events, activities, _manifest(end=200))
 
     contact = report["content_contact"]
-    assert contact["contact_seconds"] is None
-    assert contact["known_contact_seconds"] == 20
-    assert contact["sessions_missing_duration"] == 1
+    assert contact == {"by_app": {}, "by_kind": {}, "repeat_watch": 0}
     assert report["activities"]["known_elapsed_seconds"] == 20
     assert report["activities"]["elapsed_seconds_complete"] is False
     assert report["model_usage"]["token_usage"]["known_tokens"] is None
     assert report["model_usage"]["token_usage"]["complete_tokens"] is None
     assert report["model_usage"]["token_usage"]["provider_responses_missing_usage"] == 1
     assert report["model_usage"]["estimated_cost"]["known_estimate_usd"] is None
-    assert report["conversion_efficiency"]["work"]["weighted_mean"] is None
+    assert "work" not in report["conversion_efficiency"]
     assert report["conversion_efficiency"]["food"]["weighted_mean"] is None
 
 
@@ -541,7 +548,7 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
     report = build_quality_report(events, [], _manifest())
     rhythm = report["decision_rhythm"]
 
-    assert report["schema_version"] == 4
+    assert report["schema_version"] == 5
     assert rhythm["decision_budget_exhausted_events"] == 1
     assert rhythm["body_settlement_events"] == 4
     assert rhythm["boundaries_with_decision_field"] == 3
@@ -564,15 +571,15 @@ def test_report_sections_are_the_documented_grouping_without_a_language_count():
     计数（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-语言不作要求），一日运行保真新增的五节是输入警告、时间线标签、联系人回复守卫、名称类
     拒绝与截断。"""
     report = build_quality_report([_event(1, "run_ended", occurred_at=200)], [], _manifest(end=200))
-    documented = ['event_range', 'run_outcome', 'actions', 'activities', 'content_contact', 'conversion_efficiency', 'decision_rhythm', 'memory_references', 'model_usage', 'acceleration', 'day_plan_metrics', 'errand_metrics', 'conclusion_memories', 'input_warnings', 'timeline_labels', 'contact_reply_guard', 'name_rejections', 'truncations']
-    assert len(documented) == len(set(documented)) == 18
+    documented = ['event_range', 'run_outcome', 'actions', 'activities', 'content_contact', 'app_pushes', 'work_topics', 'conversion_efficiency', 'decision_rhythm', 'memory_references', 'model_usage', 'acceleration', 'day_plan_metrics', 'errand_metrics', 'conclusion_memories', 'input_warnings', 'timeline_labels', 'contact_reply_guard', 'name_rejections', 'truncations']
+    assert len(documented) == len(set(documented)) == 20
     assert documented[-5:] == ["input_warnings", "timeline_labels", "contact_reply_guard", "name_rejections",
                                "truncations"]
     plan = documented.index("day_plan_metrics")
     assert documented[plan:plan + 3] == ["day_plan_metrics", "errand_metrics", "conclusion_memories"]
     assert list(report)[3:] == documented
     assert set(report) == {"schema_version", "run_id", "source_group_id", *documented}
-    assert report["schema_version"] == 4
+    assert report["schema_version"] == 5
     assert (report["errand_metrics"], report["conclusion_memories"]) == (None, None)
     assert [key for key in report if any(word in key for word in ("language", "english", "chinese"))] == []
 
@@ -680,17 +687,17 @@ def test_invalid_quality_inputs_are_rejected(events):
 def test_input_warnings_section_counts_the_frozen_manifest_warnings():
     """input_warnings 一节（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-运行输入警告、九）：按警告码闭集与人物统计清单冻结的警告，场景级警告
     另计；清单没有记录（引擎直驱为 null，或旧清单没有这个键）时计数为 null 而不是 0；只报告，不放行。"""
-    from worldmock.profile.injection import INPUT_WARNING_CODES, agreement_warnings, game_weight_warnings
+    from worldmock.profile.injection import INPUT_WARNING_CODES, agreement_warnings
 
     scenario_level = {"code": "LOCATION_NAME_SUSPICIOUS", "agent_id": None, "message": "显示名带坐标",
                       "details": {"location_id": "poi", "name": "全家（31.2, 121.5）", "patterns": ["coordinates"]}}
-    warnings = [*game_weight_warnings(1, ("g1",), None), *agreement_warnings(2, ("a", "b")), scenario_level]
+    warnings = [*agreement_warnings(1, ("c",)), *agreement_warnings(2, ("a", "b")), scenario_level]
     events = [_event(1, "run_ended", occurred_at=200)]
 
     section = build_quality_report(events, [], {**_manifest(end=200), "input_warnings": warnings})["input_warnings"]
 
     expected_codes = dict.fromkeys(INPUT_WARNING_CODES, 0)
-    expected_codes.update(GAMES_WITHOUT_TASTE_WEIGHTS=1, PERSONA_AGREEMENT_LOW=2, LOCATION_NAME_SUSPICIOUS=1)
+    expected_codes.update(PERSONA_AGREEMENT_LOW=3, LOCATION_NAME_SUSPICIOUS=1)
     assert section["recorded"] is True and section["warning_count"] == 4
     assert section["code_counts"] == expected_codes and list(section["code_counts"]) == list(INPUT_WARNING_CODES)
     assert section["agent_counts"] == {"1": 1, "2": 2} and section["scenario_warning_count"] == 1
@@ -832,7 +839,7 @@ def _timeline_events(place, lifestyle, subject):
              "messages": [{"message_id": "mail-1", "subject": subject}]}
     return [
         _event(1, "observation", occurred_at=100, agent_id=1, data=names),
-        _progress(2, {"activity_id": "a-go", "kind": "travel", "travel_mode": "walking", "destination_id": "loc-x"},
+        _progress(2, {"activity_id": "a-go", "kind": "travel", "status": "completed", "travel_mode": "walking", "destination_id": "loc-x"},
                   100, 200),
         _progress(3, {"activity_id": "a-life", "kind": "lifestyle", "target_id": "x", "title": lifestyle}, 200, 300),
         _progress(4, {"activity_id": "a-mail", "kind": "read_mail", "target_id": "mail-1"}, 300, 400),
@@ -911,7 +918,7 @@ def test_name_rejections_are_counted_apart_from_other_protocol_errors():
         _protocol_error(4, "c4", "ARGUMENTS_NOT_JSON"),
         _protocol_error(5, "c5", "TOOL_CALL_REQUIRED"),
         _protocol_error(6, "c6", "ARGUMENTS_INVALID"),
-        _protocol_error(7, "c7", "NAME_NOT_FOUND", purpose="work_review"),
+        _protocol_error(7, "c7", "NAME_NOT_FOUND", purpose="plan_day"),
         _rejected(8, "SUPPLY_NOT_FOUND", 500), _rejected(9, "SUPPLY_SOURCE_MISMATCH", 500),
         _rejected(10, "ACTION_REQUEST_INVALID", 500), _rejected(11, "TASK_NOT_FOUND", 500),
         _rejected(12, "SUPPLY_NOT_FOUND", 600), _rejected(13, "SUPPLY_NOT_FOUND", 600, reused=True),
@@ -919,7 +926,7 @@ def test_name_rejections_are_counted_apart_from_other_protocol_errors():
     report = build_quality_report(events, [], _manifest(end=1100))["name_rejections"]
     assert (report["host_protocol_errors"], report["other_protocol_errors"]) == (3, 3)
     assert report["host_codes"] == {"NAME_AMBIGUOUS": 0, "NAME_NOT_FOUND": 1, "SUBJECT_NOT_KNOWN": 1,
-                                    "SUPPLY_SOURCE_MISMATCH": 0, "WAY_NOT_OFFERED": 1}
+                                    "SUPPLY_SOURCE_MISMATCH": 0, "WAY_NOT_OFFERED": 1, "WORK_TOPIC_NOT_FOUND": 0}
     assert report["other_protocol_codes"] == {"ARGUMENTS_INVALID": 1, "ARGUMENTS_NOT_JSON": 1, "TOOL_CALL_REQUIRED": 1}
     assert report["environment_rejections"] == 4
     assert report["environment_codes"] == {"FULFILLMENT_NOT_SUPPORTED": 0, "SOURCE_NOT_FOUND": 0,
@@ -941,3 +948,39 @@ def test_protocol_quality_uses_structured_evidence_without_log_inference():
     assert report["name_rejections"]["host_protocol_errors"] == 0
     assert report["name_rejections"]["other_protocol_codes"] == {"ARGUMENTS_NOT_JSON": 1}
     assert report["memory_references"]["problem_count"] == 0
+
+
+def test_work_progress_does_not_create_conversion_efficiency():
+    """@brief 工作进度只留下真实秒数，质量报告转换效率只记录食物热量利用。"""
+    events = [_event(1, "activity_progress", occurred_at=110, agent_id=1, activity_id="work-real",
+        data={"activity": {"kind": "work", "activity_id": "work-real"}, "interval_start": 100,
+              "interval_end": 110, "work": {"topic_id": "topic-sales", "worked_seconds": 10,
+                                              "remaining_seconds": 28790}})]
+    activity = _activity("work-real", "work", 10, "active", target_id="topic-sales")
+    report = build_quality_report(events, [activity], _manifest())
+    assert set(report["conversion_efficiency"]) == {"food", "method"}
+    assert report["conversion_efficiency"]["food"]["weighted_mean"] is None
+
+
+def test_work_topic_quality_uses_actual_activity_seconds_and_real_completions_and_reports():
+    """@brief 累计进度与重放回执不能制造工时、完成数或播报数。"""
+    events = [
+        _event(1, "observation", agent_id=1, data={"work_topics":[
+            {"topic_id":"sales"}, {"topic_id":"other"}]}),
+        _event(2, "observation", agent_id=2, data={"work_topics":[{"topic_id":"research"}]}),
+        _event(3, "activity_progress", agent_id=1, data={"work":{"topic_id":"sales", "worked_seconds":120}}),
+        _event(4, "activity_progress", agent_id=1, data={"work":{"topic_id":"sales", "worked_seconds":180}}),
+        _event(5, "environment_event", agent_id=1, data={"kind":"work_topic_completed", "topic_id":"sales"}),
+        _event(6, "action_result", agent_id=1, action_id="report", data={
+            "status":"completed", "data":{"work":[{"topic_id":"sales"}, {"topic_id":"other"}]}}),
+        _event(7, "action_result", agent_id=1, action_id="report", data={
+            "status":"completed", "reused":True, "data":{"work":[{"topic_id":"sales"}]}}),
+    ]
+    activities = [_activity("first", "work", 120, target_id="sales"),
+                  _activity("paused", "work", 60, "paused", target_id="sales"),
+                  _activity("failed", "work", 90, "failed", target_id="sales"),
+                  _activity("research", "work", 30, "cancelled", agent_id=2, target_id="research")]
+    report = build_quality_report(events, activities, _manifest())
+    assert report["work_topics"] == {"topics":3, "completed":1,
+                                       "worked_seconds_by_topic":{"research":30, "sales":180}, "reports":2}
+    assert "work" not in report["conversion_efficiency"]

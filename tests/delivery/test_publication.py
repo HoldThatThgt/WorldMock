@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from worldmock.delivery.pipeline import _file_inventory, deliver
+from worldmock.delivery.pipeline import _file_inventory, _require_current_world_schema, deliver
 from worldmock.errors import IntegrityError
 from worldmock.life.models import WORLD_SCHEMA_VERSION
 
@@ -49,11 +49,10 @@ def test_delivery_rejects_export_whose_final_checkpoint_has_another_world_schema
     assert not (tmp_path / 'out').exists()
 
 
-def test_delivery_gate_is_world_schema_eight_and_rejects_version_seven_exports(tmp_path, monkeypatch):
-    """交付入口按当前世界结构版本（9，docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-事件检查点与恢复 ）设门禁：版本 7 的导出在构造窗口前被拒绝
-    （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章）。用例名沿用版本 8 时的登记（人物 Prompt 台账登记了这个节点）。"""
+def test_delivery_gate_is_world_schema_ten_and_rejects_version_seven_exports(tmp_path, monkeypatch):
+    """世界结构 10 的交付门禁拒绝版本 7，窗口构造和模型执行均不能开始。"""
     def unexpected(*args): pytest.fail('A version 7 export reached window construction')
-    assert WORLD_SCHEMA_VERSION == 9
+    assert WORLD_SCHEMA_VERSION == 10
     source = tmp_path / 'source'
     _write_final_checkpoint(source, 7)
     monkeypatch.setattr('worldmock.delivery.pipeline.prepare_windows', unexpected)
@@ -63,12 +62,12 @@ def test_delivery_gate_is_world_schema_eight_and_rejects_version_seven_exports(t
 
 
 def test_delivery_gate_rejects_version_eight_exports(tmp_path, monkeypatch):
-    """世界结构版本 8（个人事务之前）的导出在构造窗口与运行 LabelKit 之前按版本拒绝，不迁移（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-事件检查点与恢复 ，裁决 E7）；同形的版本 9 导出通过门禁、到达窗口构造。"""
+    """世界结构版本 8（个人事务之前）的导出在构造窗口与运行 LabelKit 之前按版本拒绝，不迁移（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-事件检查点与恢复 ，裁决 E7）；同形的版本 10 导出通过门禁、到达窗口构造。"""
     def unexpected(*args): pytest.fail('A version 8 export reached window construction')
     def reached(_directory): raise IntegrityError('windows reached')
     old, current = tmp_path / 'old', tmp_path / 'current'
     _write_final_checkpoint(old, 8)
-    _write_final_checkpoint(current, 9)
+    _write_final_checkpoint(current, 10)
     monkeypatch.setattr('worldmock.delivery.pipeline.prepare_windows', unexpected)
     monkeypatch.setattr('worldmock.delivery.pipeline.run_labelkit', unexpected)
     with pytest.raises(IntegrityError, match='world schema version does not match'):
@@ -86,5 +85,21 @@ def test_delivery_checks_world_schema_before_preparing_windows(tmp_path, monkeyp
     _write_final_checkpoint(source, WORLD_SCHEMA_VERSION)
     monkeypatch.setattr('worldmock.delivery.pipeline.prepare_windows', reached)
     with pytest.raises(IntegrityError, match='windows reached'):
+        deliver(source, tmp_path / 'out', tmp_path)
+    assert not (tmp_path / 'out').exists()
+
+
+def test_delivery_world_schema_ten_rejects_nine_before_consumers(tmp_path, monkeypatch):
+    """版本九检查点不能进入交付消费者；放行旧结构的生产变异会明确触发 DID NOT RAISE。"""
+    def unexpected(*args):
+        pytest.fail('A version 9 export reached a delivery consumer')
+
+    source = tmp_path / 'source'
+    _write_final_checkpoint(source, 9)
+    with pytest.raises(IntegrityError, match='world schema version'):
+        _require_current_world_schema(source)
+    monkeypatch.setattr('worldmock.delivery.pipeline.prepare_windows', unexpected)
+    monkeypatch.setattr('worldmock.delivery.pipeline.run_labelkit', unexpected)
+    with pytest.raises(IntegrityError, match='world schema version'):
         deliver(source, tmp_path / 'out', tmp_path)
     assert not (tmp_path / 'out').exists()

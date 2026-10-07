@@ -23,13 +23,15 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from tests.engine_fixture import (_mutated_scenario, engine_factory)  # noqa: F401
-from tests.life.conftest import (conclude_request, layer_start)  # noqa: F401
-from tests.life.test_day_planning import _late_start
-from tests.life.test_work_contracts import _clock, _decide, _decide_at, _drive, _start_work
+from tests.life.conftest import (activity_name, advance_next, conclude_request, context, layer_start,
+                                 report_request, stage_day_plan, start_activity, wake_by_mail)
+from agentsociety2.society import DirectToolCall
+from worldmock.life.models import ActivityStatus, active_activities
+from worldmock.life.activity_control import pending_conclusions
 from tests.life.work_schedule_fixtures import STANDARD_SHIFT, declare
 from worldmock.evaluation.behavior_metrics import behavior_metrics_report
 from worldmock.evaluation.workload_metrics import (MISSING_AGENT_NOTE, NO_INPUT_NOTE, WORKLOAD_KEYS, AgentWorkday,
-                                                   TaskSite, WorkdayInputs, workday_inputs, workday_reports)
+                                                   WorkdayInputs, workday_inputs, workday_reports)
 from worldmock.footprints.models import canonical_json
 from worldmock.life.scenario import WorkSchedule, parse_scenario_document
 
@@ -55,9 +57,9 @@ def _schedule(**exceptions) -> WorkSchedule:
                                         "exceptions": exceptions})
 
 
-def _agent(schedule: WorkSchedule | None, tasks: tuple = (), leave=None, arrive=None) -> AgentWorkday:
+def _agent(schedule: WorkSchedule | None, leave=None, arrive=None) -> AgentWorkday:
     """住处为 home 的人物评估输入。"""
-    return AgentWorkday(schedule, "home", leave, arrive, tuple(tasks))
+    return AgentWorkday(schedule, "home", leave, arrive)
 
 
 class _Events:
@@ -97,23 +99,18 @@ class _Events:
         last_snapshot = dict(snapshot, data={"arrival": {"location_id": destination}} if arrived else {})
         return first, self.progress(agent_id, (middle, end), last_snapshot)
 
-    def work(self, agent_id: int, start: int, end: int, efficiency: float) -> None:
-        """一段工作进度（带结算效率）。"""
+    def work(self, agent_id, start, end):
+        """一段真实工作进度；没有效率折扣或任务验收。"""
         snapshot = {"activity_id": f"work-{agent_id}-{len(self.rows)}", "kind": "work", "started_at": start,
-                    "location_id": "office", "data": {}}
-        self.progress(agent_id, (start, end), snapshot, activity_efficiency=efficiency)
+                    "location_id": "office", "status": "active", "data": {"topic_id": "topic-sales"}}
+        self.progress(agent_id, (start, end), snapshot,
+                      work={"topic_id": "topic-sales", "worked_seconds": end-start, "remaining_seconds": 28800-end+start})
 
     def sleep(self, agent_id: int, start: int, end: int) -> None:
         """一段睡眠进度。"""
         snapshot = {"activity_id": f"sleep-{agent_id}-{len(self.rows)}", "kind": "sleep", "started_at": start,
                     "location_id": "home", "data": {}}
         self.progress(agent_id, (start, end), snapshot)
-
-    def paid(self, agent_id: int, at: int, task_id: str) -> None:
-        """工作验收通过并付款的动作结果（任务在这一刻结清）。"""
-        self.add("action_result", at, agent_id, {"status": "completed", "data": {"task_id": task_id,
-                                                                                  "payment_fen": 5000}})
-
 
 def _reports(events: _Events, agents: dict[int, AgentWorkday], interval: int = 1800) -> dict:
     """经 behavior_metrics_report 的真实入口取本代码组的 reports。"""
@@ -125,10 +122,10 @@ def _identities(row: dict, break_away: int) -> None:
     """规格 6.2 的恒等关系：在工作地点、缺勤、任务外出与不在工作地点的休息时段四份之和等于班次；在岗空闲不超过在工作
     地点；声明例外是休息时段与任务外出之和；早退不超过班次。"""
     assert list(row) == list(WORKLOAD_KEYS)
-    assert (row["at_workplace_seconds"] + row["absence_seconds"] + row["task_outing_seconds"] + break_away
+    assert (row["at_workplace_seconds"] + row["absence_seconds"] + break_away
             == row["shift_seconds"])
     assert row["idle_at_workplace_seconds"] <= row["at_workplace_seconds"]
-    assert row["declared_exception_seconds"] == row["break_seconds"] + row["task_outing_seconds"]
+    assert row["declared_exception_seconds"] == row["break_seconds"]
     assert row["early_leave_seconds"] <= row["shift_seconds"]
 
 
@@ -146,28 +143,27 @@ def test_workload_fields_follow_their_definitions_on_a_hand_built_day() -> None:
     events = _Events()
     events.body(1, _at(0, "07:00"), _at(0, "20:00"))
     events.trip(1, _at(0, "08:20"), _at(0, "08:50"), ("home", "office"))
-    events.work(1, _at(0, "09:30"), _at(0, "11:00"), 0.8)
-    events.work(1, _at(0, "11:00"), _at(0, "12:00"), 0.8)
+    events.work(1, _at(0, '09:30'), _at(0, '11:00'))
+    events.work(1, _at(0, '11:00'), _at(0, '12:00'))
     events.trip(1, _at(0, "12:10"), _at(0, "12:20"), ("office", "canteen"))
     events.trip(1, _at(0, "13:00"), _at(0, "13:20"), ("canteen", "office"))
-    events.work(1, _at(0, "13:30"), _at(0, "16:30"), 0.6)
+    events.work(1, _at(0, '13:30'), _at(0, '16:30'))
     events.trip(1, _at(0, "17:00"), _at(0, "17:30"), ("office", "home"))
     events.body(2, _at(0, "07:00"), _at(0, "15:00"))
     events.trip(2, _at(0, "08:30"), _at(0, "08:50"), ("home", "office"))
     events.body(3, _at(0, "19:00"), _at(0, "23:00"))
-    desk = TaskSite("task-desk", "office", _at(0, "08:00"), None)
-    reports = _reports(events, {1: _agent(_schedule(), [desk]), 2: _agent(_schedule()), 3: _agent(_schedule())})
+    reports = _reports(events, {1: _agent(_schedule()), 2: _agent(_schedule()), 3: _agent(_schedule())})
     first, cut = reports["workload"]["agents"]["1"], reports["workload"]["agents"]["2"]
     assert reports["workload"]["agents"]["3"] == dict.fromkeys(WORKLOAD_KEYS, 0)
-    assert first == _workload_values(32400, 24600, 19800, 13680.0, 4800, 5400, 0, 5400, 3600, 3600)
+    assert first == _workload_values(32400, 24600, 19800, 4800, 5400, 5400, 3600, 3600)
     _identities(first, 5400 - 1200)
-    assert cut == _workload_values(21600, 21600, 0, 0.0, 21600, 5400, 0, 5400, 0, 0)
+    assert cut == _workload_values(21600, 21600, 0, 21600, 5400, 5400, 0, 0)
     _identities(cut, 0)
     [day] = reports["routine_deviation"]["agents"]["2"]["days"]
     assert (day["asleep_at_shift_start"], day["asleep_at_shift_end"]) == (False, None)
 
 
-def test_breaks_and_task_outings_are_not_absence_and_rest_days_are_left_out() -> None:
+def test_declared_breaks_are_not_absence_and_rest_days_are_left_out() -> None:
     """周一当班、周二按日期例外不当班。人物 1：09:40 从办公室去客户处（任务 10:00 开放、11:30 付款结清），11:45 直接回
     办公室，午休出去吃饭 13:40 才回来。路上 10:00 之后、在客户处到付款为止、回办公室的一程（午休之前的部分）是任务外出；
     任务开放之前的路上与付款之后的停留是缺勤；午休里不在办公室的时间不是缺勤，午休结束后还在路上的 10 分钟是缺勤；
@@ -179,48 +175,25 @@ def test_breaks_and_task_outings_are_not_absence_and_rest_days_are_left_out() ->
         events.body(agent_id, _at(0, "07:00"), _at(1, "20:00"))
     events.trip(1, _at(0, "08:30"), _at(0, "08:50"), ("home", "office"))
     events.trip(1, _at(0, "09:40"), _at(0, "10:10"), ("office", "client"))
-    events.work(1, _at(0, "10:10"), _at(0, "11:10"), 0.5)
-    events.paid(1, _at(0, "11:30"), "task-client")
     events.trip(1, _at(0, "11:45"), _at(0, "12:15"), ("client", "office"))
     events.trip(1, _at(0, "12:30"), _at(0, "12:40"), ("office", "canteen"))
     events.trip(1, _at(0, "13:20"), _at(0, "13:40"), ("canteen", "office"))
-    events.work(1, _at(0, "13:40"), _at(0, "17:40"), 1.0)
+    events.work(1, _at(0, '13:40'), _at(0, '17:40'))
     events.trip(1, _at(0, "18:10"), _at(0, "18:40"), ("office", "home"))
     events.trip(2, _at(0, "08:30"), _at(0, "08:50"), ("home", "office"))
     events.trip(2, _at(0, "12:30"), _at(0, "13:00"), ("office", "home"))
     events.trip(3, _at(0, "08:30"), _at(0, "08:50"), ("home", "office"))
     events.trip(3, _at(0, "16:00"), _at(0, "16:20"), ("office", "client"))
-    client = TaskSite("task-client", "client", _at(0, "10:00"), None)
-    appointment = TaskSite("task-visit", "client", _at(0, "15:00"), _at(0, "15:00"))
-    workload = _reports(events, {1: _agent(_schedule(**rest), [client]), 2: _agent(_schedule(**rest)),
-                                 3: _agent(_schedule(**rest), [appointment])})["workload"]["agents"]
-    assert workload["1"] == _workload_values(32400, 18900, 18000, 16200.0, 4500, 5400, 6300, 11700, 2700, 0)
+    workload = _reports(events, {1: _agent(_schedule(**rest)), 2: _agent(_schedule(**rest)),
+                                 3: _agent(_schedule(**rest))})["workload"]["agents"]
+    assert workload["1"] == _workload_values(32400, 18900, 14400, 4500, 5400, 5400, 9000, 0)
     _identities(workload["1"], 5400 - 900)
-    assert workload["2"] == _workload_values(32400, 12600, 0, 0.0, 12600, 5400, 0, 5400, 16200, 0)
+    assert workload["2"] == _workload_values(32400, 12600, 0, 12600, 5400, 5400, 16200, 0)
     _identities(workload["2"], 3600)
-    assert workload["3"] == _workload_values(32400, 25200, 0, 0.0, 25200, 5400, 7200, 12600, 0, 0)
+    assert workload["3"] == _workload_values(32400, 25200, 0, 25200, 5400, 5400, 7200, 7200)
     _identities(workload["3"], 0)
 
 
-def test_travel_to_an_appointment_before_it_starts_is_a_task_outing_not_absence_or_early_leave() -> None:
-    """规格 4.5「含预约任务」：周一 09:00–18:00、午休 12:00–13:30，人物 1 本人的预约任务约在周一 16:00 的客户处（开放
-    时刻即约定开始）。15:30 从办公室出发、15:55 到客户处，17:30 直接回家：约定开始之前去客户处的路上、提前到达的等候与
-    在客户处的时间都是任务外出，最后一次离开办公室是赴约，不是早退；从客户处回家的一程不是回工作地点，17:30 之后是
-    缺勤。人物 2 同样的行程，而预约在周二：约定当天之外去那里不算外出，15:30 之后都是缺勤，也是 2.5 小时早退。"""
-    events = _Events()
-    for agent_id in (1, 2):
-        events.body(agent_id, _at(0, "07:00"), _at(0, "20:00"))
-        events.trip(agent_id, _at(0, "08:30"), _at(0, "08:50"), ("home", "office"))
-        events.trip(agent_id, _at(0, "15:30"), _at(0, "15:55"), ("office", "client"))
-        events.trip(agent_id, _at(0, "17:30"), _at(0, "18:10"), ("client", "home"))
-    today = TaskSite("task-visit", "client", _at(0, "16:00"), _at(0, "16:00"))
-    tomorrow = TaskSite("task-visit-next", "client", _at(1, "16:00"), _at(1, "16:00"))
-    workload = _reports(events, {1: _agent(_schedule(), [today]),
-                                 2: _agent(_schedule(), [tomorrow])})["workload"]["agents"]
-    assert workload["1"] == _workload_values(32400, 23400, 0, 0.0, 23400, 5400, 7200, 12600, 1800, 0)
-    _identities(workload["1"], 0)
-    assert workload["2"] == _workload_values(32400, 23400, 0, 0.0, 23400, 5400, 0, 5400, 9000, 9000)
-    _identities(workload["2"], 0)
 
 
 def test_missing_inputs_are_null_with_a_note() -> None:
@@ -331,52 +304,84 @@ def test_routine_deviation_uses_none_of_the_removed_plan_deviation_names() -> No
     assert "plan_actual_deviation" not in reports
 
 
-def test_workday_inputs_take_shifts_tasks_home_windows_and_interval_from_the_scenario_and_cards(tmp_path) -> None:
-    """打包输入取自经真实解析的场景文档与结构化卡片：双人场景给人物 1 声明工作安排、人物 2 写 null，播报间隔改为 1200，
-    人物 2 的一项任务改成裸编号指派并带 15:00 的预约。工作安排、住处与播报间隔照场景；任务按指派人物分开（两种写法都
-    认），开放时刻是最早的本人通知或预约开始，预约任务带约定开始；下班与到家窗口只取卡片（覆盖已写进卡片），卡片里
-    为 null、没有卡片或卡片缺席时为 None。"""
-    def mutate(document: dict) -> None:
-        """声明工作安排、改播报间隔、把一项任务改成裸编号指派的预约任务。"""
-        declare(0)(document)
+def test_workday_inputs_take_shifts_home_windows_and_interval_from_the_scenario_and_cards(tmp_path):
+    """真实解析场景后评估只读取班次、住处、时间窗口与播报间隔。"""
+    def mutate(document):
         document["progress_report_interval_seconds"] = 1200
-        task = next(item for item in document["tasks"] if item["task_id"] == "backend-piece-2026-01-05")
-        task.update(assignee_agent_id="2", appointment={"starts_at": "2026-01-05T15:00:00+08:00", "reason": "现场"})
-
+        document["agents"][1]["work_schedule"] = None
     path = _mutated_scenario(ENVIRONMENT_ROOT / "scenarios/multi-person.json", mutate, tmp_path / "scenario")
     document, _ = parse_scenario_document(path)
     card = {"time_anchors": {"leave_work": {"start_hour": 18.0, "end_hour": 18.5}, "arrive_home": None}}
     inputs = workday_inputs(document, {1: card})
     assert inputs.report_interval_seconds == 1200 and sorted(inputs.agents) == [1, 2]
     first, second = inputs.agents[1], inputs.agents[2]
-    assert first.work_schedule == document.agents[0].work_schedule and first.work_schedule is not None
+    assert first.work_schedule == document.agents[0].work_schedule
     assert second.work_schedule is None
     assert (first.home_location_id, second.home_location_id) == ("home", "home")
     assert (first.leave_work_window, first.arrive_home_window) == ((18.0, 18.5), None)
     assert (second.leave_work_window, second.arrive_home_window) == (None, None)
-    notices = {}
-    for message in document.messages:
-        if message.related_task_id is not None:
-            stamp = int(message.sent_at.timestamp())
-            notices[message.related_task_id] = min(stamp, notices.get(message.related_task_id, stamp))
-    expected = {agent_id: [] for agent_id in (1, 2)}
-    for task in document.tasks:
-        owner = 2 if task.task_id.startswith("backend") else 1
-        appointment = None if task.appointment is None else int(task.appointment.starts_at.timestamp())
-        expected[owner].append(TaskSite(task.task_id, task.required_location_id,
-                                        appointment if appointment is not None else notices[task.task_id],
-                                        appointment))
-    assert list(first.tasks) == expected[1] and list(second.tasks) == expected[2]
-    assert [site.appointment_at for site in second.tasks] == [None, None, _at(0, "15:00")]
+    assert not hasattr(first, "tasks")
     assert workday_inputs(document, {}).agents[1].leave_work_window is None
 
 
-def _workday_run(document: dict) -> None:
-    """真实运行用的场景副本：人物 1 周一 09:00–18:00 当班、午休 12:00–13:30；运行从周一 07:30 在家开始（同零点计划
-    用例的晚启动改写），等待与播报间隔放长到两小时、重估间隔放长到三小时，少一些途中的决策机会。"""
-    declare()(document)
-    _late_start("2026-01-05T07:30:00+08:00", activity_feedback_seconds=7200, progress_report_interval_seconds=7200,
-                reconsideration_interval_seconds=10800)(document)
+def _workday_run(document):
+    """班前从家启动，并由实际出行与工作活动建立出勤证据。"""
+    document.update(start_at="2026-01-05T07:30:00+08:00", end_at="2026-01-06T00:00:00+08:00",
+        activity_feedback_seconds=7200, progress_report_interval_seconds=7200,
+        reconsideration_interval_seconds=10800, idle_reconsideration_interval_seconds=10800)
+    for key in ("bills", "payrolls"):
+        document[key] = []
+    document["agents"][0]["work_schedule"] = _schedule().model_dump(mode="json")
+
+
+def _clock(clock):
+    return int(datetime.fromisoformat(f"2026-01-05T{clock}+08:00").timestamp())
+
+
+def _decide(engine, name, tool, request):
+    decision = context(engine, name)
+    engine.begin_decision_round([decision])
+    observed = engine.observe(decision)
+    engine.submit_action(DirectToolCall(decision, f"action-{name}", tool,
+                                       request(observed) if callable(request) else request))
+    return engine.commit_decision_round(name)[0]
+
+
+def _drive(engine, name, done):
+    for index in range(256):
+        if done():
+            return
+        if engine.scheduling_state().ready_agent_ids:
+            pending = pending_conclusions(engine.context.state, 1)
+            running = active_activities(engine.context.state, 1)
+            if pending:
+                tool, request = "conclude_activity", conclude_request(
+                    *(activity_name(engine, item.activity_id) for item in pending))
+            elif running:
+                tool, request = "report_status", report_request(
+                    *(activity_name(engine, item.activity_id) for item in running), summary="继续。")
+            else:
+                tool, request = "start_activity", start_activity("等待", "自己")
+            result = _decide(engine, f"{name}-{index}", tool, request)
+            assert result.status in {"completed", "in_progress"}, result.error_code
+        else:
+            advance_next(engine)
+    raise AssertionError("The real engine did not reach the requested boundary")
+
+
+def _decide_at(engine, moment):
+    assert engine.context.state.current_time <= moment
+    if engine.context.state.current_time < moment:
+        wake_by_mail(engine, offset=moment-engine.context.state.current_time)
+        _drive(engine, f"clock-{moment}", lambda: engine.context.state.current_time >= moment)
+    assert engine.context.state.current_time == moment
+
+
+def _start_work(engine, name):
+    topic = engine.context.semantics.catalog.work_topics[engine.context.scenario.agents[0].work_topic_ids[0]]
+    result = _decide(engine, name, "start_activity", start_activity("工作", f"工作：{topic.topic}"))
+    assert result.status == "in_progress", result.error_code
+    return result
 
 
 def test_a_real_run_leaving_on_duty_is_recomputed_as_early_leave(engine_factory) -> None:
@@ -393,7 +398,7 @@ def test_a_real_run_leaving_on_duty_is_recomputed_as_early_leave(engine_factory)
     reports = group["reports"]
     row = reports["workload"]["agents"]["1"]
     assert (row["shift_seconds"], row["early_leave_seconds"], row["absence_seconds"]) == (32400, 10800, 10800), row
-    assert (row["at_workplace_seconds"], row["task_outing_seconds"], row["break_seconds"]) == (21600, 0, 5400), row
+    assert (row["at_workplace_seconds"], row["break_seconds"]) == (21600, 5400), row
     assert (row["work_activity_seconds"], row["idle_at_workplace_seconds"]) == (21600, 0), row
     _identities(row, 0)
     assert reports["routine_deviation"]["tolerance_seconds"] == 7200
@@ -409,8 +414,8 @@ def test_a_real_run_leaving_on_duty_is_recomputed_as_early_leave(engine_factory)
 def _leave_on_duty_at_three(engine) -> None:
     """只发真实请求驱动 _workday_run 改写的运行：08:00 首个任务的通知到后从家步行去办公室、09:00 前到达并开工；
     15:00:00 收工、同一秒步行回家，一直运行到 18:30（班次整个落在观察窗内）。"""
-    office = f"地点：{next(item.name for item in engine.context.scenario.locations if item.location_id == 'office')}"
-    home = f"地点：{next(item.name for item in engine.context.scenario.locations if item.location_id == 'home')}"
+    office = _place(engine, "office")
+    home = _place(engine, "home")
     _decide_at(engine, _clock("08:00:00"))
     _empty_handed(engine, "stop-waiting")
     assert _decide(engine, "commute", "start_activity",
@@ -442,29 +447,9 @@ def _empty_handed(engine, name: str) -> None:
     assert _decide(engine, name, "conclude_activity", request).status == "completed"
 
 
-#: 任务外出用例：周一首个任务改成约在集市（场景所选地点，不是工作地点）11:00 开始的客户预约；08:00 的本人通知照旧，
-#: 预约任务在约定开始时开放，当晚截止。
-_OUTING_TASK, _OUTING_SITE, _APPOINTMENT = "task-2026-01-05", "market", "11:00:00"
-
-
-def _outing_run(exceptions: dict):
-    """返回 mutate(document)：同 _workday_run 的工作安排与晚启动，exceptions 按日期覆盖工作安排；再把周一首个任务改成
-    约在集市 11:00 开始的预约任务。"""
-    def mutate(document: dict) -> None:
-        """写工作安排与晚启动，把任务改成集市的预约任务。"""
-        declare(exceptions=exceptions)(document)
-        _late_start("2026-01-05T07:30:00+08:00", activity_feedback_seconds=7200,
-                    progress_report_interval_seconds=7200, reconsideration_interval_seconds=10800)(document)
-        task = next(item for item in document["tasks"] if item["task_id"] == _OUTING_TASK)
-        task.update(required_location_id=_OUTING_SITE,
-                    appointment={"starts_at": f"2026-01-05T{_APPOINTMENT}+08:00", "reason": "客户现场会"})
-
-    return mutate
-
-
 def _place(engine, location_id: str) -> str:
     """工具层出行目标名「地点：<显示名>」。"""
-    return f"地点：{next(item.name for item in engine.context.scenario.locations if item.location_id == location_id)}"
+    return f"地点：{engine.context.semantics.catalog.locations[location_id].name}"
 
 
 def _walk_to(engine, name: str, location_id: str) -> None:
@@ -475,27 +460,6 @@ def _walk_to(engine, name: str, location_id: str) -> None:
     _empty_handed(engine, f"arrived-{name}")
 
 
-def _task_outing_day(engine) -> int:
-    """只发真实请求驱动 _outing_run 改写的运行，返回回到办公室的时刻：08:00 通知到后步行去办公室、09:00 前到达；
-    10:00:00 从办公室步行去集市赴 11:00 的预约（约定开始之前出发、提前到达后等着），11:00:00 在那里开工；14:00:00
-    收工、同一秒直接走回办公室，一直待到 18:30。"""
-    _decide_at(engine, _clock("08:00:00"))
-    _empty_handed(engine, "stop-waiting")
-    _walk_to(engine, "office", "office")
-    assert engine.context.state.current_time < _clock("09:00:00")
-    _decide_at(engine, _clock("10:00:00"))
-    _empty_handed(engine, "stop-waiting-at-office")
-    _walk_to(engine, "market", _OUTING_SITE)
-    assert engine.context.state.current_time < _clock(_APPOINTMENT)
-    _decide_at(engine, _clock(_APPOINTMENT))
-    _empty_handed(engine, "stop-waiting-at-market")
-    _start_work(engine, "work-at-market")
-    _decide_at(engine, _clock("14:00:00"))
-    _empty_handed(engine, "stop-work")
-    _walk_to(engine, "back", "office")
-    back = engine.context.state.current_time
-    _decide_at(engine, _clock("18:30:00"))
-    return back
 
 
 def _recomputed(engine) -> dict:
@@ -505,31 +469,6 @@ def _recomputed(engine) -> dict:
     return group["reports"]
 
 
-def test_a_real_task_outing_is_not_absence_and_a_declared_rest_day_counts_nothing(engine_factory) -> None:
-    """真实运行（engine_factory 加 declare，只发真实请求、不预置地点）：周一 09:00–18:00 当班、午休 12:00–13:30，首个
-    任务改成约在集市 11:00 开始的预约任务。人物 09:00 前步行到办公室，10:00 去集市赴约、提前到达后等到 11:00 开工（午休
-    也在那里），14:00 直接走回办公室并待到 18:30。从 SQLite 读回的事件与运行自己的场景文档经 behavior_metrics_report
-    重算：10:00 到回到办公室都是任务外出（扣掉午休；约定开始之前的路上与等候也算），没有缺勤、没有早退，在工作地点与
-    任务外出加上不在办公室的午休恰好是班次。同一行程在场景按日期例外把周一写成不当班的另一次真实运行里，周一不产生
-    班次，十个量都是 0，作息偏离对班次的两项为 null。"""
-    engine = engine_factory(mutate=_outing_run({}))
-    back = _task_outing_day(engine)
-    row = _recomputed(engine)["workload"]["agents"]["1"]
-    away = back - _clock("10:00:00")
-    assert (row["shift_seconds"], row["absence_seconds"], row["early_leave_seconds"]) == (32400, 0, 0), row
-    assert (row["break_seconds"], row["task_outing_seconds"]) == (5400, away - 5400), row
-    assert row["at_workplace_seconds"] == 32400 - away == row["idle_at_workplace_seconds"], row
-    assert row["work_activity_seconds"] > 0, row
-    _identities(row, 5400)
-
-    rest = engine_factory(mutate=_outing_run({"2026-01-05": None}))
-    assert _task_outing_day(rest) == back
-    reports = _recomputed(rest)
-    assert reports["workload"]["agents"]["1"] == dict.fromkeys(WORKLOAD_KEYS, 0)
-    [today] = reports["routine_deviation"]["agents"]["1"]["days"]
-    assert today["left_workplace_at"] == "2026-01-05T10:00:00+08:00"
-    assert (today["leave_vs_shift_end_minutes"], today["asleep_at_shift_start"],
-            today["asleep_at_shift_end"]) == (None, None, None)
 
 
 def test_reports_are_byte_reproducible() -> None:
@@ -565,13 +504,13 @@ def test_workload_is_the_sum_over_every_duty_day() -> None:
     events = _Events()
     events.body(1, _at(0, "07:00"), _at(1, "20:00"))
     events.trip(1, _at(0, "08:30"), _at(0, "08:50"), ("home", "office"))
-    events.work(1, _at(0, "09:00"), _at(0, "12:00"), 1.0)
+    events.work(1, _at(0, '09:00'), _at(0, '12:00'))
     events.trip(1, _at(0, "18:10"), _at(0, "18:40"), ("office", "home"))
     events.trip(1, _at(1, "08:30"), _at(1, "08:50"), ("home", "office"))
-    events.work(1, _at(1, "13:30"), _at(1, "16:30"), 0.5)
+    events.work(1, _at(1, '13:30'), _at(1, '16:30'))
     events.trip(1, _at(1, "17:00"), _at(1, "17:30"), ("office", "home"))
     row = _reports(events, {1: _agent(_schedule())})["workload"]["agents"]["1"]
-    assert row == _workload_values(64800, 61200, 21600, 16200.0, 39600, 10800, 0, 10800, 3600, 3600)
+    assert row == _workload_values(64800, 61200, 21600, 39600, 10800, 10800, 3600, 3600)
     _identities(row, 0)
 
 
@@ -587,9 +526,9 @@ def test_leaving_and_coming_back_before_shift_end_is_not_early_leave() -> None:
     events.trip(2, _at(0, "16:00"), _at(0, "16:20"), ("office", "cafe"))
     events.trip(2, _at(0, "17:40"), _at(0, "18:00"), ("cafe", "office"))
     rows = _reports(events, {1: _agent(_schedule()), 2: _agent(_schedule())})["workload"]["agents"]
-    assert rows["1"] == _workload_values(32400, 30000, 0, 0.0, 30000, 5400, 0, 5400, 2400, 0)
+    assert rows["1"] == _workload_values(32400, 30000, 0, 30000, 5400, 5400, 2400, 0)
     _identities(rows["1"], 0)
-    assert rows["2"] == _workload_values(32400, 25200, 0, 0.0, 25200, 5400, 0, 5400, 7200, 7200)
+    assert rows["2"] == _workload_values(32400, 25200, 0, 25200, 5400, 5400, 7200, 7200)
     _identities(rows["2"], 0)
 
 
@@ -604,41 +543,39 @@ def test_a_departure_before_the_shift_starts_is_absence_not_early_leave() -> Non
     events.trip(2, _at(0, "08:30"), _at(0, "08:50"), ("home", "office"))
     events.trip(2, _at(0, "18:10"), _at(0, "18:40"), ("office", "home"))
     rows = _reports(events, {1: _agent(_schedule()), 2: _agent(_schedule())})["workload"]["agents"]
-    assert rows["1"] == _workload_values(32400, 0, 0, 0.0, 0, 5400, 0, 5400, 27000, 0)
+    assert rows["1"] == _workload_values(32400, 0, 0, 0, 5400, 5400, 27000, 0)
     _identities(rows["1"], 5400)
-    assert rows["2"] == _workload_values(64800, 32400, 0, 0.0, 32400, 10800, 0, 10800, 27000, 0)
+    assert rows["2"] == _workload_values(64800, 32400, 0, 32400, 10800, 10800, 27000, 0)
     _identities(rows["2"], 5400)
 
 
-def test_effective_work_counts_only_the_part_of_an_interval_inside_the_shift() -> None:
+def test_actual_work_counts_only_the_part_of_an_interval_inside_the_shift() -> None:
     """@brief 有效工作秒数是工作进度区间落在班次内的时长乘该区间的效率（规格 4.7 允许班前班后工作）：08:30–10:00 以
     效率 1.0、17:30–18:30 以效率 0.5 工作，班次内的部分是 3600 与 1800 秒，有效工时 3600 + 900。"""
     events = _Events()
     events.body(1, _at(0, "07:00"), _at(0, "20:00"))
     events.trip(1, _at(0, "08:00"), _at(0, "08:20"), ("home", "office"))
-    events.work(1, _at(0, "08:30"), _at(0, "10:00"), 1.0)
-    events.work(1, _at(0, "17:30"), _at(0, "18:30"), 0.5)
+    events.work(1, _at(0, '08:30'), _at(0, '10:00'))
+    events.work(1, _at(0, '17:30'), _at(0, '18:30'))
     row = _reports(events, {1: _agent(_schedule())})["workload"]["agents"]["1"]
-    assert row == _workload_values(32400, 32400, 5400, 4500.0, 27000, 5400, 0, 5400, 0, 0)
+    assert row == _workload_values(32400, 32400, 5400, 27000, 5400, 5400, 0, 0)
     _identities(row, 0)
 
 
-def test_a_real_run_counts_effective_work_only_inside_the_shift(engine_factory) -> None:
-    """@brief 真实运行（同「班内 15:00 离开」的驱动，只发真实请求）：人物 09:00 前到办公室就开工，班前的那段工作进度
-    不计入有效工时——从 SQLite 读回的工作进度区间各自截到 09:00–18:00、乘该区间的效率再求和，等于重算的有效工作秒数，
-    并且小于不截取的总和。"""
+def test_a_real_run_counts_actual_work_only_inside_the_shift(engine_factory):
+    """真实 SQLite 进度按班次裁切，工作没有效率折扣。"""
     engine = engine_factory(mutate=_workday_run)
     _leave_on_duty_at_three(engine)
     events = [event.model_dump(mode="json") for event in engine.context.store.read_events(engine.context.store.last_event_seq)]
-    work = [(event["data"]["interval_start"], event["data"]["interval_end"], event["data"]["activity_efficiency"])
-            for event in events
-            if event["event_type"] == "activity_progress" and event["data"]["activity"]["kind"] == "work"]
-    assert min(start for start, _, _ in work) < _clock("09:00:00")
-    inside = round(sum(max(0, min(end, _clock("18:00:00")) - max(start, _clock("09:00:00"))) * efficiency
-                       for start, end, efficiency in work), 6)
-    assert 0 < inside < round(sum((end - start) * efficiency for start, end, efficiency in work), 6)
+    work = [(event["data"]["interval_start"], event["data"]["interval_end"])
+            for event in events if event["event_type"] == "activity_progress"
+            and event["data"]["activity"]["kind"] == "work"]
+    assert min(start for start, _ in work) < _clock("09:00:00")
+    inside = sum(max(0, min(end, _clock("18:00:00"))-max(start, _clock("09:00:00"))) for start, end in work)
+    assert 0 < inside < sum(end-start for start, end in work)
     row = _recomputed(engine)["workload"]["agents"]["1"]
-    assert row["effective_work_seconds"] == inside, row
+    assert row["work_activity_seconds"] == inside
+    assert "effective_work_seconds" not in row and "task_outing_seconds" not in row
 
 
 def test_a_trip_given_up_on_the_way_leaves_the_person_at_its_origin() -> None:
@@ -649,7 +586,7 @@ def test_a_trip_given_up_on_the_way_leaves_the_person_at_its_origin() -> None:
     events.trip(1, _at(0, "10:00"), _at(0, "10:20"), ("office", "canteen"), arrived=False)
     events.trip(1, _at(0, "18:10"), _at(0, "18:40"), ("office", "home"))
     row = _reports(events, {1: _agent(_schedule())})["workload"]["agents"]["1"]
-    assert row == _workload_values(32400, 31200, 0, 0.0, 31200, 5400, 0, 5400, 1200, 0)
+    assert row == _workload_values(32400, 31200, 0, 31200, 5400, 5400, 1200, 0)
     _identities(row, 0)
 
 
@@ -681,44 +618,20 @@ def test_a_real_trip_given_up_on_the_way_keeps_the_person_at_the_workplace(engin
     _identities(row, 0)
 
 
-def test_visiting_a_settled_task_site_and_walking_back_is_absence() -> None:
-    """@brief 任务外出只算本人已开放且未结清的任务：任务 10:00 开放、11:30 付款结清，人物 14:00 仍去客户处、15:00 走回
-    办公室。去的路上、在那里的时间与回办公室的一程都是缺勤，没有任务外出（回程只在离开前那段停留里任务仍未结清时
-    才算）。"""
-    events = _Events()
-    _office_day(events)
-    events.paid(1, _at(0, "11:30"), "task-client")
-    events.trip(1, _at(0, "14:00"), _at(0, "14:20"), ("office", "client"))
-    events.trip(1, _at(0, "15:00"), _at(0, "15:20"), ("client", "office"))
-    client = TaskSite("task-client", "client", _at(0, "10:00"), None)
-    row = _reports(events, {1: _agent(_schedule(), [client])})["workload"]["agents"]["1"]
-    assert row == _workload_values(32400, 27600, 0, 0.0, 27600, 5400, 0, 5400, 4800, 0)
-    _identities(row, 0)
 
 
-def test_a_late_return_from_lunch_is_absence_even_with_an_open_task_elsewhere() -> None:
+def test_a_late_return_from_lunch_is_absence() -> None:
     """@brief 回程的例外只是「从任务要求地点直接回工作地点的一程」：当天有开放的预约任务（约在客户处 16:00），人物午休
     出去吃饭、13:45 才从食堂回到办公室。这一程不是从任务地点出发，午休结束后还在路上的 15 分钟是缺勤，不是任务外出。"""
     events = _Events()
     _office_day(events)
     events.trip(1, _at(0, "12:10"), _at(0, "12:20"), ("office", "canteen"))
     events.trip(1, _at(0, "13:25"), _at(0, "13:45"), ("canteen", "office"))
-    visit = TaskSite("task-visit", "client", _at(0, "16:00"), _at(0, "16:00"))
-    row = _reports(events, {1: _agent(_schedule(), [visit])})["workload"]["agents"]["1"]
-    assert row == _workload_values(32400, 26700, 0, 0.0, 26700, 5400, 0, 5400, 900, 0)
+    row = _reports(events, {1: _agent(_schedule())})["workload"]["agents"]["1"]
+    assert row == _workload_values(32400, 26700, 0, 26700, 5400, 5400, 900, 0)
     _identities(row, 4800)
 
 
-def test_leaving_for_the_task_site_in_the_second_the_task_opens_is_not_early_leave() -> None:
-    """@brief 任务从开放的那一秒起就是已开放（区间半开，含起点）：任务 10:00 开放，人物同一秒从办公室出发去客户处并
-    待到下班。10:00 之后扣掉休息时段都是任务外出，不是早退，也没有缺勤。"""
-    events = _Events()
-    _office_day(events)
-    events.trip(1, _at(0, "10:00"), _at(0, "10:30"), ("office", "client"))
-    client = TaskSite("task-client", "client", _at(0, "10:00"), None)
-    row = _reports(events, {1: _agent(_schedule(), [client])})["workload"]["agents"]["1"]
-    assert row == _workload_values(32400, 3600, 0, 0.0, 3600, 5400, 23400, 28800, 0, 0)
-    _identities(row, 5400)
 
 
 def test_left_workplace_is_the_last_departure_and_arrival_home_the_first_one_after_it() -> None:
@@ -823,9 +736,9 @@ def test_break_seconds_are_clipped_to_the_observed_part_of_the_shift() -> None:
     events.body(2, _at(0, "07:00"), _at(0, "12:30"))
     events.trip(2, _at(0, "08:30"), _at(0, "08:50"), ("home", "office"))
     rows = _reports(events, {1: _agent(_schedule()), 2: _agent(_schedule())})["workload"]["agents"]
-    assert rows["1"] == _workload_values(19800, 18000, 0, 0.0, 18000, 3600, 0, 3600, 0, 0)
+    assert rows["1"] == _workload_values(19800, 18000, 0, 18000, 3600, 3600, 0, 0)
     _identities(rows["1"], 1800)
-    assert rows["2"] == _workload_values(12600, 12600, 0, 0.0, 12600, 1800, 0, 1800, 0, 0)
+    assert rows["2"] == _workload_values(12600, 12600, 0, 12600, 1800, 1800, 0, 0)
     _identities(rows["2"], 0)
 
 
@@ -836,7 +749,7 @@ def test_leaving_at_the_instant_the_break_ends_is_early_leave() -> None:
     _office_day(events)
     events.trip(1, _at(0, "13:30"), _at(0, "14:00"), ("office", "home"))
     row = _reports(events, {1: _agent(_schedule())})["workload"]["agents"]["1"]
-    assert row == _workload_values(32400, 16200, 0, 0.0, 16200, 5400, 0, 5400, 16200, 16200)
+    assert row == _workload_values(32400, 16200, 0, 16200, 5400, 5400, 16200, 16200)
     _identities(row, 0)
 
 

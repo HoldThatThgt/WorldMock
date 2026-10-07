@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -9,12 +10,25 @@ import pytest
 from scripts import fresh_check as fresh
 
 
+def test_quick_collection_resolves_catalog_fixtures_across_mixed_selectors():
+    command = [sys.executable, "-m", "pytest", *fresh.QUICK_TESTS, "--collect-only", "--fixtures-per-test",
+               "-q", "--environment-profile", "dev", "-p", "no:cacheprovider"]
+    result = subprocess.run(command, cwd=Path(__file__).resolve().parents[1], capture_output=True,
+                            text=True, timeout=60)
+    assert result.returncode == 0, result.stdout + result.stderr
+    header = "fixtures used by test_catalog_registers_artificial_objects_and_indexes"
+    assert header in result.stdout
+    block = result.stdout.partition(header)[2].split("fixtures used by ", 1)[0]
+    names = {line.partition(" -- ")[0].strip() for line in block.splitlines() if " -- " in line}
+    assert {"catalog_dir", "loaded_catalog"} <= names
+
+
 def test_fresh_checkout_disables_submodules_ssh_and_pip_cache(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(fresh.subprocess, "run", lambda command, **kwargs: calls.append((command, kwargs)))
     monkeypatch.setattr(fresh.subprocess, "check_output", lambda *args, **kwargs: "locked-commit\n")
     monkeypatch.setattr(fresh, "quick_check", lambda *args: {"passed": True, "code_sha256": "a" * 64})
-    monkeypatch.setattr(fresh, "python312", lambda: ["python3.12"])
+    monkeypatch.setattr(fresh, "python_command", lambda: ["python3.12"])
     result = fresh.fresh_check("https://example.invalid/repo", "locked-commit", wheelhouse=tmp_path)
     assert "--no-recurse-submodules" in calls[0][0]
     assert calls[1][0] == ["git", "checkout", "--detach", "locked-commit"]

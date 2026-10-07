@@ -8,7 +8,6 @@ session 结束（出发、到达、途中结束出行、实验截止）后，它
 from __future__ import annotations
 
 from tests.data_paths import ENVIRONMENT_ROOT
-from dataclasses import replace
 from worldmock.footprints.checkpoint import restore_branch
 
 import json
@@ -25,10 +24,11 @@ from agentsociety2.society import DirectToolCall
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
                                  progress_calls, stage_day_plan, start_activity, start_request, wake_by_mail,
                                  pause_request, report_request)
+from tests.life.routing_fixtures import FOOD_STORE, keep_waiting, selected_food, stage_person
 from tests.life.test_day_planning import _late_engine
-from tests.life.test_dayrun_restaurants import _keep_waiting, _stage
 from tests.life.test_progress_events import _model_pair
-from tests.life.test_scheduling import _custom_engine
+from tests.life.scenario_fixtures import create_engine, read_scenario, run_identity, write_scenario
+from tests.life.test_same_moment_decisions import _contacts
 from worldmock.footprints.models import EventDraft
 from worldmock.life import activity_control, memory_layer
 from worldmock.life.memory_layer import MEMORY_WINDOW_CHARS, _Entry, _fit, _Line, memory_view, reflection_date
@@ -47,6 +47,27 @@ _FIVE_LAYERS = ("tool_layer", "memory_layer", "todo_layer", "environment_layer",
 _ACTION_REQUEST = {"model": "deepseek-flash", "messages": [], "extra_body": {"thinking": {"type": "enabled"}},
                    "tools": [{"type": "function", "function": {"name": "start_activity"}}]}
 
+
+
+def _memory_scenario(document: dict) -> None:
+    """@brief 跨日记忆明确声明两天运行窗口和通讯录。"""
+    _contacts(document)
+    begin = datetime.fromisoformat(document["start_at"])
+    document["end_at"] = (begin + timedelta(days=2)).isoformat()
+
+
+def _late_memory_engine(tmp_path, start: str, run_id: str):
+    """@brief 晚间记忆场景保留真实计划、睡眠和零点调度。"""
+    def mutate(document: dict) -> None:
+        _memory_scenario(document)
+        begin = datetime.fromisoformat(start)
+        document["start_at"] = start
+        document["end_at"] = (begin + timedelta(days=2)).isoformat()
+        for message in document["messages"]:
+            message["sent_at"] = (begin + timedelta(days=2) - timedelta(minutes=1)).isoformat()
+        document["payrolls"] = [row for row in document["payrolls"]
+                                if datetime.fromisoformat(row["due_at"]) >= begin]
+    return create_engine("single-person.json", mutate, tmp_path, run_id)
 
 def _act(engine, round_id: str, tool: str, request, agent_id: int = 1):
     """单个就绪人物按真实顺序观察、登记并结算一轮，返回（本轮观察，结果）。"""
@@ -145,7 +166,7 @@ def test_departure_and_arrival_attribute_same_second_calls_to_the_right_session(
     与记忆写进 self_notes（relationship 记忆不进记忆层，标注去掉开始时刻后缀）。到达：路上收到的邮件与在到达提交里结束的
     出行（「到达」句）归路程 session；到达那一秒的收尾调用归新停留 session（它结束前不在记忆层），结束后只以 summary 出现在
     它的条目里（活动句按结束提交归属，不随收尾）。recorded_at 与 WorldState.sessions 的结束时刻逐一对应。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_memory_scenario)
     stage_day_plan(engine)
     friend = engine.context.scenario.agents[0].contacts[0].salutation
     start = engine.context.state.current_time
@@ -166,7 +187,7 @@ def test_departure_and_arrival_attribute_same_second_calls_to_the_right_session(
     advance_next(engine)
     walk_name = activity_name(engine, walk.activity_id)
     _act(engine, "a-report", "report_status", report_request(walk_name, summary="快到了"))
-    assert advance_until_ready(engine)
+    _reach_arrival(engine, "a-reaching", walk.activity_id)
     arrived = engine.context.state.current_time
     _act(engine, "a-arrive", "conclude_activity", conclude_request(walk_name, summary="到了"))
     after = _memory(engine, "a-arrived")["earlier_today"]
@@ -185,9 +206,9 @@ def test_departure_and_arrival_attribute_same_second_calls_to_the_right_session(
 
 def test_departure_request_belongs_wholly_to_the_old_session(engine_factory) -> None:
     """出发请求整体归旧 session：同一请求里远程下单与步行出发，下单句进旧停留的条目，路程 session 的进度层没有这次调用。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_memory_scenario)
     stage_day_plan(engine)
-    _stage(engine, "market", 1500)
+    stage_person(engine, FOOD_STORE, 1500)
     observed = _observe(engine, "f-preview")
     supply, label = next((row["object"], action["label"]) for row in observed["interaction_bindings"]
                          if row["kind"] == "supply" for action in row["actions"]
@@ -208,7 +229,7 @@ def test_departure_request_belongs_wholly_to_the_old_session(engine_factory) -> 
 def test_en_route_conclusion_keeps_the_conclusion_in_the_transit_session(engine_factory) -> None:
     """途中结束出行：回到出发地的停留 session 以这次收尾的结果为下界，所以收尾调用归路程 session；路程条目写路上的邮件与
     出行「提前结束」句，summary 进 self_notes；新停留 session 此刻没有记忆条目。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_memory_scenario)
     stage_day_plan(engine)
     walk = _walk(engine, "b-walk")
     mail_at = wake_by_mail(engine, offset=120)
@@ -224,48 +245,25 @@ def test_en_route_conclusion_keeps_the_conclusion_in_the_transit_session(engine_
     assert _ended_sessions(engine)[-1].ended_at == mail_at
 
 
-def test_denied_arrival_ends_the_trip_and_the_failed_trip_is_concluded_in_the_new_stay(engine_factory,
-                                                                                    monkeypatch) -> None:
-    """到达被拒也结束路程 session：出行在到达提交里失败，「失败」句归路程 session（到达后即出现在记忆层）；人已在目的地
-    开始停留，失败的出行在新停留里收尾，那段停留结束后只写它的 summary。"""
-    engine = engine_factory()
+def test_unfinished_app_self_report_writes_no_purchase_sentence(engine_factory) -> None:
+    """购买句只由订单生成：提前结束 app 使用只留活动句，summary 声称买了东西也不推断出购买。"""
+    engine = engine_factory(mutate=_memory_scenario)
     stage_day_plan(engine)
-    walk = _walk(engine, "g-walk")
-    guarded = tuple(item.model_copy(update={"required_qualifications": ("门禁卡",)})
-                    if item.location_id == "office" else item for item in engine.context.scenario.locations)
-    monkeypatch.setattr(engine.context, "semantics", replace(engine.context.semantics, scenario=engine.context.scenario.model_copy(update={'locations': guarded})))
-    assert advance_until_ready(engine)
-    name = activity_name(engine, walk.activity_id)
-    trip = engine.context.state.activities[walk.activity_id]
-    assert trip.status == ActivityStatus.FAILED
-    _act(engine, "g-conclude", "conclude_activity", conclude_request(name, summary="进不去"))
-    road = {"recorded_at": iso_time(trip.ended_at, _ZONE), "self_notes": [],
-            "settled": [f"{name}：{_clock(engine, trip.started_at)}–{_clock(engine, trip.ended_at)}，失败"]}
-    assert _memory(engine, "g-denied")["earlier_today"] == [road]
-    _walk(engine, "g-home", "home")
-    (_, entry) = _memory(engine, "g-left")["earlier_today"]
-    assert entry["settled"] == [] and entry["self_notes"] == [{"activity": _short(name), "text": "进不去"}]
-
-
-def test_unfinished_browse_writes_no_purchase_sentence(engine_factory) -> None:
-    """购买句只由订单生成：提前结束的浏览只留活动句（「提前结束」），summary 写了「挑好了、买了」也不推断出购买；
-    settled 恰好是路上唤醒的邮件与这一句，没有任何下单、付款或买到的句子。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    observed = _observe(engine, "h-preview")
-    catalog = next(row["object"] for row in observed["interaction_bindings"] if row["kind"] == "catalog")
-    _, browsed = _act(engine, "h-browse", "start_activity", start_activity("浏览", catalog))
-    assert browsed.status == "in_progress"
+    _, app = _act(engine, "h-app", "start_activity", start_activity("打开", "应用：抖音"))
+    assert app.status == "in_progress"
     mail_at = wake_by_mail(engine, offset=60)
     advance_next(engine)
-    name = activity_name(engine, browsed.activity_id)
-    _act(engine, "h-stop", "conclude_activity", conclude_request(name, summary="番茄和上海青挑好了，买了。"))
+    name = activity_name(engine, app.activity_id)
+    _act(engine, "h-stop", "conclude_activity", conclude_request(name, summary="看完了，还买了薯片。"))
     _walk(engine, "h-walk")
     (entry,) = _memory(engine, "h-road")["earlier_today"]
-    ended = engine.context.state.activities[browsed.activity_id]
+    ended = engine.context.state.activities[app.activity_id]
+    content = engine.context.rules.contents[ended.data["content_id"]]
     assert entry["settled"] == [_mail_line(engine, mail_at),
-                                f"{name}：{_clock(engine, ended.started_at)}–{_clock(engine, ended.ended_at)}，提前结束"]
-    assert entry["self_notes"] == [{"activity": _short(name), "text": "番茄和上海青挑好了，买了。"}]
+                                f"{name}：{_clock(engine, ended.started_at)}–{_clock(engine, ended.ended_at)}，提前结束，"
+                                f"用抖音看了《{content.title}》的一部分"]
+    assert entry["self_notes"] == [{"activity": _short(name), "text": "看完了，还买了薯片。"}]
+    assert not [line for line in entry["settled"] if "下单" in line or "付 " in line or "买到" in line]
 
 
 def test_experiment_end_closes_the_last_session_into_the_memory_layer(tmp_path) -> None:
@@ -274,10 +272,15 @@ def test_experiment_end_closes_the_last_session_into_the_memory_layer(tmp_path) 
 
     窗口取 22:10–22:40：人物在这段时间里困意一直是「困」（22:06:41 刚越过 0.93 档界，docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-困意档界 ），等待不会被体感跨档打断。"""
     def window(document: dict) -> None:
-        document.update(start_at="2026-01-05T22:10:00+08:00", end_at="2026-01-05T22:40:00+08:00", tasks=[],
-                        messages=[], bills=[], payrolls=[])
+        _contacts(document)
+        document.update(
+            start_at="2026-01-05T22:10:00+08:00",
+            end_at="2026-01-05T22:40:00+08:00",
+            messages=[],
+            payrolls=[],
+        )
 
-    engine = _custom_engine("single-person.json", window, tmp_path, run_id="memory-end")
+    engine = create_engine("single-person.json", window, tmp_path, "memory-end")
     try:
         stage_day_plan(engine, submitted=True)
         friend = engine.context.scenario.agents[0].contacts[0].salutation
@@ -285,7 +288,7 @@ def test_experiment_end_closes_the_last_session_into_the_memory_layer(tmp_path) 
                                                                        text="我先睡了"))
         _act(engine, "c-wait", "start_activity", start_activity("等待", "自己"))
         assert advance_until_ready(engine)
-        _act(engine, "c-conclude", *_keep_waiting(engine))
+        _act(engine, "c-conclude", *keep_waiting(engine))
         _, slept = _act(engine, "c-sleep", "start_activity", start_activity("睡觉", "自己"))
         assert not advance_until_ready(engine)
         assert engine.context.state.current_time == engine.context.state.end_time
@@ -304,10 +307,10 @@ def test_experiment_end_closes_the_last_session_into_the_memory_layer(tmp_path) 
 def test_failures_replays_recalls_queries_and_empty_sessions_leave_no_entry(engine_factory) -> None:
     """不写：被拒的请求（开始活动、发给不存在的人的消息、点错活动的收尾所写的 summary 与记忆）、重放的同一请求、回看、
     修订计划与记忆查询；只走了一段路的路程 session 只有到达那一句（出行在到达提交里结束）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_memory_scenario)
     stage_day_plan(engine)
     friend = engine.context.scenario.agents[0].contacts[0].salutation
-    rejected = _act(engine, "d-reject", "start_activity", start_activity("观看", "不存在的对象"))[1]
+    rejected = _act(engine, "d-reject", "start_activity", start_activity("打开", "不存在的对象"))[1]
     assert rejected.status == "rejected"
     refused = _act(engine, "d-refused", "send_message",
                    SendMessageActionRequest(recipient_name="联系人：不认识的人", text="这条发不出去"))[1]
@@ -342,7 +345,7 @@ def test_failures_replays_recalls_queries_and_empty_sessions_leave_no_entry(engi
                  f"{activity_control.ending_phrase(ended)}")
     assert entry["settled"] == [f"{_clock(engine, sent_at)} 给{friend}发消息：只说一次", wait_line]
     assert entry["self_notes"] == [{"activity": "等待", "text": "等完了"}]
-    assert advance_until_ready(engine)
+    _reach_arrival(engine, "d-reaching", walk.activity_id)
     walk_name = activity_name(engine, walk.activity_id)
     _act(engine, "d-arrive", "conclude_activity", conclude_request(walk_name))
     today = _memory(engine, "d-arrived")["earlier_today"]
@@ -373,7 +376,7 @@ def test_reply_bodies_stay_in_their_session_and_never_reach_the_memory_layer(eng
     """回复正文只到本 session 结束：发消息与收尾两次决策的回复正文写成各自调用的 self_note，出现在本段停留的进度层；
     出发结束这段停留后，记忆层条目的 settled 只有消息、邮件与结束活动的句子，self_notes 只有收尾写下的 summary，
     两段回复正文都不出现。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_memory_scenario)
     stage_day_plan(engine)
     friend = engine.context.scenario.agents[0].contacts[0].salutation
     sent_at = engine.context.state.current_time
@@ -442,15 +445,15 @@ def _remote_order(engine, round_id: str):
 def test_unresolved_order_crosses_midnight_into_earlier_days_and_disappears_when_delivered(engine_factory) -> None:
     """零点按本地日期分区：昨天结束的 session 只留仍未了结的订单，按下单日期归入 earlier_days，句子带「M月D日」；订单
     送达（在当前 session）后它从记忆层消失。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_memory_scenario)
     stage_day_plan(engine)
-    _stage(engine, "market", 1500)
+    stage_person(engine, FOOD_STORE, 1500)
     order = _remote_order(engine, "e-order")
     delivery = next(item for item in engine.context.state.pending_events if item.kind == ScheduledKind.DELIVERY_ARRIVAL)
     _schedule(engine, delivery, None)
     walk = _walk(engine, "e-walk")
     placed = engine.context.state.current_time
-    assert advance_until_ready(engine)
+    _reach_arrival(engine, "e-reaching", walk.activity_id)
     _act(engine, "e-arrive", "conclude_activity", conclude_request(activity_name(engine, walk.activity_id)))
     context_ = engine.observations._layer_context(engine.context.state.agents[1], (), [])
     line = purchase_sentence(context_, order, None)
@@ -490,29 +493,6 @@ def _contact_message(engine, contact_id: str, text: str) -> str:
     return message.message_id
 
 
-def test_new_work_is_a_world_event_sentence(engine_factory) -> None:
-    """世界事件各一句：新工作到来写「HH:MM 收到新工作「<任务>」」，session 结束后进入记忆层。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    task = next(item for item in engine.context.scenario.tasks
-                if item.task_id not in engine.context.state.agents[1].visible_task_ids)
-    _act(engine, "w-wait", "start_activity", start_activity("等待", "自己"))
-    staged = engine.context.state.model_copy(deep=True)
-    due = staged.current_time + 240
-    sequence = max((item.sequence for item in staged.pending_events), default=0) + 1
-    staged.pending_events = sorted([*staged.pending_events, ScheduledEvent(
-        scheduled_id="test-work-arrival", kind=ScheduledKind.WORK_AVAILABLE, due_at=due, sequence=sequence,
-        agent_id=1, data={"task_id": task.task_id})], key=lambda item: (item.due_at, item.sequence, item.scheduled_id))
-    _commit(engine, staged, "test_work_scheduled")
-    advance_next(engine)
-    assert engine.context.state.current_time == due and task.task_id in engine.context.state.agents[1].visible_task_ids
-    waiting = [item for item in engine.context.state.activities.values() if item.agent_id == 1 and item.concluded_at is None]
-    _act(engine, "w-conclude", "conclude_activity", conclude_request(*(activity_name(engine, item.activity_id)
-                                                                      for item in waiting)))
-    _walk(engine, "w-walk")
-    (entry,) = _memory(engine, "w-road")["earlier_today"]
-    assert entry["settled"][0] == f"{_clock(engine, due)} 收到新工作「{task.title}」"
-
 
 def test_chat_invitation_is_not_carried_into_the_memory_layer(engine_factory) -> None:
     """交谈邀请只在收到它的那段停留的进度层出现；那段停留结束后不写成 settled 句（它不是直接消息，也没有全文可读）。"""
@@ -537,43 +517,43 @@ def test_chat_invitation_is_not_carried_into_the_memory_layer(engine_factory) ->
 def test_unanswered_message_crosses_midnight_counts_as_presented_and_a_reply_resolves_it(engine_factory) -> None:
     """昨天结束的 session 里没有回复的直接消息按收到日期留在 earlier_days（全文、带「M月D日」），全文在记忆层即算呈现；
     同一 session 里已了结的发消息句跨零点后消失；通话不算回复，给发件人 send_message 成功后它从记忆层消失。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_memory_scenario)
     stage_day_plan(engine)
-    mother = next(item for item in engine.context.scenario.agents[0].contacts if item.salutation == "陈母")
-    friend = next(item for item in engine.context.scenario.agents[0].contacts if item.salutation == "沈昊")
+    mother = next(item for item in engine.context.scenario.agents[0].contacts if item.salutation == "母亲")
+    friend = next(item for item in engine.context.scenario.agents[0].contacts if item.salutation == "好友")
     received_at = engine.context.state.current_time
     message_id = _contact_message(engine, mother.contact_id, "周末回家吃饭吗")
-    _act(engine, "m-send", "send_message", SendMessageActionRequest(recipient_name="联系人：沈昊", text="明早见"))
+    _act(engine, "m-send", "send_message", SendMessageActionRequest(recipient_name="联系人：好友", text="明早见"))
     walk = _walk(engine, "m-walk")
-    assert advance_until_ready(engine)
+    _reach_arrival(engine, "m-reaching", walk.activity_id)
     _act(engine, "m-arrive", "conclude_activity", conclude_request(activity_name(engine, walk.activity_id)))
     moment = engine.context.state.current_time
     _jump(engine, _next_morning(moment))
     stage_day_plan(engine, submitted=True)
     day = local_date(received_at, _ZONE)
-    line = f"{int(day[5:7])}月{int(day[8:])}日 {_clock(engine, received_at)} 收到陈母的消息：周末回家吃饭吗"
+    line = f"{int(day[5:7])}月{int(day[8:])}日 {_clock(engine, received_at)} 收到母亲的消息：周末回家吃饭吗"
     unresolved = {"layer": "记忆层", "earlier_days": [{"date": day, "settled": [line], "self_notes": []}],
                   "earlier_today": []}
     observed = _observe(engine, "m-next-day")
     assert observed["memory_layer"] == unresolved and friend.salutation not in json.dumps(unresolved)
     assert observed["presented_message_ids"] == [message_id]
-    observed, called = _act(engine, "m-call", "start_activity", start_activity("通话", "联系人：陈母"))
+    observed, called = _act(engine, "m-call", "start_activity", start_activity("通话", "联系人：母亲"))
     assert called.status == "in_progress" and _memory(engine, "m-calling") == unresolved
     wake_by_mail(engine, offset=60)
     advance_next(engine)
     _act(engine, "m-hang-up", "conclude_activity", conclude_request(activity_name(engine, called.activity_id)))
-    _act(engine, "m-reply", "send_message", SendMessageActionRequest(recipient_name="联系人：陈母", text="好的"))
+    _act(engine, "m-reply", "send_message", SendMessageActionRequest(recipient_name="联系人：母亲", text="好的"))
     assert _memory(engine, "m-replied") == {"layer": "记忆层", "earlier_days": [], "earlier_today": []}
 
 
 def test_sentences_write_portions_money_and_cross_day_clocks(engine_factory) -> None:
     """句式：份数至多两位小数、金额按元（至多两位小数）、跨日加「M月D日」；结束活动的起止写暂停区间，吃掉的份数写小数。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_memory_scenario)
     context_ = engine.observations._layer_context(engine.context.state.agents[1], (), [])
     now = engine.context.state.current_time
-    product = engine.context.scenario.products[0]
+    product = selected_food(engine)
     place = next(item for item in engine.context.scenario.locations if item.location_id == "office")
-    order = {"created_at": now - 86400 + 600, "fulfillment": "delivery", "product_id": product.product_id,
+    order = {"created_at": now - 86400 + 600, "fulfillment": "delivery", "food_id": product.food_id,
              "quantity": 1, "total_price_fen": 3250, "destination_id": "office", "expected_at": now - 86400 + 1500,
              "recipient_id": "agent:1", "request_message_id": None}
     day = local_date(now - 86400, _ZONE)
@@ -586,8 +566,8 @@ def test_sentences_write_portions_money_and_cross_day_clocks(engine_factory) -> 
                          planned_end_at=now + 3600, last_settled_at=now + 1800, elapsed_seconds=1500,
                          planned_duration_seconds=3600, origin_action_id="a", origin_decision_id="d",
                          origin_request_event_id="e", boundary_type="cancelled", name="吃饭（1月5日 00:00 起）",
-                         data={"request": {"use_mode": "eat"}, "consumed": {product.product_id: 1 / 3},
-                               "opened": {product.product_id: 1.0}, "discarded": {product.product_id: 2 / 3}})
+                         data={"request": {"use_mode": "eat"}, "consumed": {product.food_id: 1 / 3},
+                               "opened": {product.food_id: 1.0}, "discarded": {product.food_id: 2 / 3}})
     assert activity_sentence(context_, meal, [(now + 600, now + 900)]) == (
         f"吃饭（1月5日 00:00 起）：{_clock(engine, now)}–{_clock(engine, now + 1800)}"
         f"（暂停 {_clock(engine, now + 600)}–{_clock(engine, now + 900)}），提前结束，吃了 0.33 份，丢弃 0.67 份")
@@ -596,7 +576,7 @@ def test_sentences_write_portions_money_and_cross_day_clocks(engine_factory) -> 
 def test_paused_interval_appears_in_the_concluded_activity_sentence(engine_factory) -> None:
     """暂停与恢复不写句子；结束的活动句在起止里写已恢复的暂停区间，进度层浓缩用的 lines 与记忆层同一写法；条目内两项活动
     去掉开始时刻后缀会重名时，self_notes 保留原名。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_memory_scenario)
     stage_day_plan(engine)
     _, first = _act(engine, "p-wait", "start_activity", start_activity("等待", "自己"))
     name = activity_name(engine, first.activity_id)
@@ -737,13 +717,13 @@ def test_memory_layer_is_byte_identical_after_restore_and_the_cache_only_acceler
 
     from worldmock.life.engine import LifeEngine
 
-    engine = engine_factory()
+    engine = engine_factory(mutate=_memory_scenario)
     stage_day_plan(engine)
     friend = engine.context.scenario.agents[0].contacts[0].salutation
     _act(engine, "r-send", "send_message", SendMessageActionRequest(recipient_name=f"联系人：{friend}", text="出门了"))
     _concluding_wait(engine, "r", "歇好了", [], views=(_view("preference", "喜欢安静", "环境"),))
     walk = _walk(engine, "r-walk")
-    assert advance_until_ready(engine)
+    _reach_arrival(engine, "r-reaching", walk.activity_id)
     _act(engine, "r-arrive", "conclude_activity", conclude_request(activity_name(engine, walk.activity_id)))
     before = _observe(engine, "r-before")
     rendered = json.dumps([before["memory_layer"], before["persona_views"]], ensure_ascii=False)
@@ -751,7 +731,7 @@ def test_memory_layer_is_byte_identical_after_restore_and_the_cache_only_acceler
                  for agent_id in engine.context.store.manifest["agent_ids"]}
     checkpoint = engine.checkpoint(snapshots)
     restore_branch(engine.context.store, checkpoint.checkpoint_id, tmp_path / 'branch').close()
-    restored = LifeEngine.open(ENVIRONMENT_ROOT / "scenarios/single-person.json", tmp_path / "branch")
+    restored = LifeEngine.open(tmp_path / "scenario-0/scenarios/single-person.json", tmp_path / "branch")
     try:
         assert restored.context.store not in memory_layer._CACHE
         after = restored.observe(context(restored, "r-after"))
@@ -772,7 +752,7 @@ def test_reply_body_stays_in_its_session_progress_and_never_enters_the_memory_la
     """回复正文只是本 session 进度层中该调用的 self_note（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第二章「回复正文」）：发消息那次
     回复的正文（去首尾空白）随调用出现在本段停留的进度层；出发结束这段停留后，记忆层写这次发消息的 settled 句，回复正文
     却不在记忆层，也不在路上的任何一层。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_memory_scenario)
     stage_day_plan(engine)
     friend = engine.context.scenario.agents[0].contacts[0].salutation
     body = "先跟朋友说一声再出门。"
@@ -795,7 +775,7 @@ def test_recalled_summary_still_in_the_memory_layer_is_not_repeated(engine_facto
     同一段停留里回看刚结束的等待，summary 还不在记忆层，结果照常写地点、阶段、进度与正文（正文不逐条标注未经核验，
     「通用格式」）；出发后这段停留进入记忆层，在路上再回看，details.recall 只有它在记忆层中的活动名与「已在记忆层」，不写
     其他回看事实，summary 在五层中只出现一次。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_memory_scenario)
     stage_day_plan(engine)
     summary = "歇好了，精神回来了。"
     name = _concluding_wait(engine, "s", summary, [])
@@ -812,7 +792,7 @@ def test_recalled_summary_still_in_the_memory_layer_is_not_repeated(engine_facto
     before = engine.context.state.model_dump()
     recall = engine.read_task_summary(1, RecallTaskSummaryRequest(task_name=name), road)["recall"]
     assert engine.context.state.model_dump() == before and not progress_calls(road, "recall_task_summary")
-    assert recall == {"kind": "activity", "activity": _short(name), "progress_note": "已在记忆层"}
+    assert recall == {"kind": "activity", "activity": _short(name), "progress_note": "已在记忆层", "note_history": []}
     assert {"activity": _short(name), "text": summary} in road["memory_layer"]["earlier_today"][0]["self_notes"]
     assert json.dumps([road[key] for key in _FIVE_LAYERS], ensure_ascii=False).count(summary) == 1
 
@@ -822,8 +802,8 @@ def _chars(layer: dict) -> int:
     return len(json.dumps(layer, ensure_ascii=False, separators=(",", ":")))
 
 
-def _arrive(engine, round_id: str, travel_id: str) -> None:
-    """推进到出行结束（途中的决策机会播报出行），到达那一秒给出行收尾。"""
+def _reach_arrival(engine, round_id: str, travel_id: str) -> None:
+    """@brief 真正推进到出行终态，途中就绪只播报进行中的行程。"""
     for step in range(64):
         if engine.context.state.activities[travel_id].status != ActivityStatus.ACTIVE:
             break
@@ -832,22 +812,30 @@ def _arrive(engine, round_id: str, travel_id: str) -> None:
                 activity_name(engine, travel_id), summary="还在路上。"))
         else:
             advance_next(engine)
+    trip = engine.context.state.activities[travel_id]
+    assert trip.status == ActivityStatus.COMPLETED
+    assert engine.context.state.agents[trip.agent_id].location_id == trip.data["destination_id"]
+
+
+def _arrive(engine, round_id: str, travel_id: str) -> None:
+    """@brief 到达真实目的地后在新停留中收尾。"""
+    _reach_arrival(engine, f"{round_id}-travel", travel_id)
     _act(engine, round_id, "conclude_activity", conclude_request(activity_name(engine, travel_id), summary="到了"))
 
 
 def test_a_real_memory_layer_over_the_window_drops_reflections_then_shrinks_the_oldest_entry(tmp_path,
                                                                                             monkeypatch) -> None:
-    """真实派生的记忆层超过 8000 字符：1月5日 23:00 入睡、1月6日醒来登记的反思归 1月5日；当天在家收到陈母的消息没有回复，
+    """真实派生的记忆层超过 8000 字符：1月5日 23:00 入睡、1月6日醒来登记的反思归 1月5日；当天在家收到母亲的消息没有回复，
     收尾时写下八条长记忆，出门、到公司再写八条后回家。窗口先只删最旧日期的反思（窗口恰为去掉反思后的大小时其余不动），
     8000 字符时再把最旧的今日条目缩成只剩未了结的消息句；路程条目与最近一个 session 的条目（最大的一条）原样保留，
     结果不超过窗口，观察中的记忆层就是这份截取结果，未回复的消息仍记为已呈现（第三章「窗口」）。"""
-    engine = _late_engine(tmp_path, "2026-01-05T23:00:00+08:00", "memory-window-real")
+    engine = _late_memory_engine(tmp_path, "2026-01-05T23:00:00+08:00", "memory-window-real")
     try:
         stage_day_plan(engine, submitted=True)
         _sleep_until_awake(engine, "v-sleep")
         reflection = "昨晚" + "想" * 998
         _reflect(engine, "v-wake", reflection)
-        mother = next(item for item in engine.context.scenario.agents[0].contacts if item.salutation == "陈母")
+        mother = next(item for item in engine.context.scenario.agents[0].contacts if item.salutation == "母亲")
         received_at = engine.context.state.current_time
         message_id = _contact_message(engine, mother.contact_id, "周末回家吃饭吗")
         _concluding_wait(engine, "v-home", "歇好了", [_memo("routine", f"{index}" + "家" * 599) for index in range(8)])
@@ -860,7 +848,7 @@ def test_a_real_memory_layer_over_the_window_drops_reflections_then_shrinks_the_
         assert full["earlier_days"] == [{"date": "2026-01-05", "settled": [],
                                          "self_notes": [{"activity": None, "text": reflection}]}]
         home, trip, office = full["earlier_today"]
-        line = f"{_clock(engine, received_at)} 收到陈母的消息：周末回家吃饭吗"
+        line = f"{_clock(engine, received_at)} 收到母亲的消息：周末回家吃饭吗"
         assert line in home["settled"] and len(home["self_notes"]) == len(office["self_notes"]) == 10
         unreflected = {**full, "earlier_days": []}
         assert _chars(full) > _chars(unreflected) > MEMORY_WINDOW_CHARS
@@ -894,7 +882,7 @@ def _finish_waiting(engine, round_id: str, activity_id: str) -> None:
 def test_a_stay_spanning_midnight_is_one_entry_of_the_day_it_ended_with_dated_clocks(tmp_path) -> None:
     """零点不切断 session：1月5日 23:50 发消息并开始等待，等待跨过零点在 00:05 结束，收尾后出门；这段停留是一条记忆，
     记在它结束的 1月6日的 earlier_today（不进 earlier_days），1月5日发生的事句中带「1月5日」（第三章「零点、反思与未了结」）。"""
-    engine = _late_engine(tmp_path, "2026-01-05T23:50:00+08:00", "memory-midnight")
+    engine = _late_memory_engine(tmp_path, "2026-01-05T23:50:00+08:00", "memory-midnight")
     try:
         stage_day_plan(engine, submitted=True)
         friend = engine.context.scenario.agents[0].contacts[0].salutation
@@ -917,77 +905,69 @@ def test_a_stay_spanning_midnight_is_one_entry_of_the_day_it_ended_with_dated_cl
         engine.close()
 
 
+
 def _decimal_order(engine, round_id: str) -> dict:
-    """在菜市场远程下单一份标价不是整元的商品（送到这里），返回订单。"""
-    from worldmock.life.storefront_state import current_quote
-
+    """@brief 从当前商店真实下单标价含角分的食物。"""
     observed = _observe(engine, f"{round_id}-preview")
+    foods = engine.context.semantics.catalog.foods
     for row in observed["interaction_bindings"]:
-        label = next((action["label"] for action in row["actions"] if action["label"] == "远程下单"
-                      and action["note"] is None), None) if row["kind"] == "supply" else None
-        supply = next((item for item in engine.context.scenario.supplies if item.supply_id == row["object_id"]), None)
-        if label is None or supply is None:
+        if row["kind"] != "supply":
             continue
-        price = engine.context.semantics.purchase_amount(supply.product_id,
-                                                 current_quote(engine.context.state, supply.supply_id).price_fen, 1)
-        if price % 100:
-            return _act(engine, round_id, "start_activity", start_activity(label, row["object"]))[1].data["orders"][0]
-    pytest.fail("No listed supply has a price with fractional yuan")
+        food_id = row["object_id"].split(":", 1)[1]
+        if foods[food_id].price_fen % 100 == 0:
+            continue
+        if any(action["label"] == "远程下单" and action["note"] is None for action in row["actions"]):
+            return _act(engine, round_id, "start_activity", start_activity("远程下单", row["object"]))[1].data["orders"][0]
+    pytest.fail("No listed food has a price with fractional yuan")
 
 
-def test_meal_and_decimal_price_order_sentences_come_from_real_settlements(engine_factory) -> None:
+def _decimal_engine(tmp_path):
+    """@brief 隔离目录发布带角分标价，随后通过严格准入建立真实引擎。"""
+    from worldmock.catalog.identity import refresh_manifest_identity
+    from worldmock.life.engine import LifeEngine
+
+    document = read_scenario("single-person.json")
+    _memory_scenario(document)
+    path = write_scenario(document, tmp_path / "decimal-environment")
+    foods_path = path.parent.parent / "catalog/foods.json"
+    payload = json.loads(foods_path.read_text(encoding="utf-8"))
+    for food in payload["foods"]:
+        if food["food_id"] == "beef-noodles":
+            food["price_fen"] = 2857
+    foods_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    refresh_manifest_identity(foods_path.parent)
+    return LifeEngine.create(path, tmp_path / "decimal-run", run_identity(document, "decimal-run"))
+
+def test_meal_and_decimal_price_order_sentences_come_from_real_settlements(tmp_path) -> None:
     """真实结算写成的句子：在菜市场远程下单一份标价带角分的商品，settled 写「付 X.YZ 元」（至多两位小数）；4 份里开吃
-    1 份，吃到 300/1500 秒时结束，句子写「提前结束，吃了 0.2 份，丢弃 0.8 份」；出门后这段停留的条目带这两句。"""
-    from tests.life.test_meal_outcome import _food
+    1 份，吃到 240/1200 秒时结束，句子写「提前结束，吃了 0.2 份，丢弃 0.8 份」；出门后这段停留的条目带这两句。"""
 
-    engine = engine_factory()
-    stage_day_plan(engine)
-    food = _food(engine)
-    _stage(engine, "market", 1500, inventory={"market": {food.product_id: 4.0}})
-    ordered_at = engine.context.state.current_time
-    order = _decimal_order(engine, "k-order")
-    _, started = _act(engine, "k-eat", "start_activity", start_activity("食用", f"持有物：{food.name}"))
-    assert started.status == "in_progress"
-    wake_by_mail(engine, offset=300)
-    advance_next(engine)
-    name = activity_name(engine, started.activity_id)
-    _act(engine, "k-end", "conclude_activity", conclude_request(name, summary="吃完了"))
-    _walk(engine, "k-walk")
-    (entry,) = _memory(engine, "k-road")["earlier_today"]
-    meal = engine.context.state.activities[started.activity_id]
-    price = order["total_price_fen"]
-    yuan = f"{price // 100}.{price % 100:02d}".rstrip("0")
-    product = engine.context.rules.items[order["product_id"]].name
-    market = next(item.name for item in engine.context.scenario.locations if item.location_id == "market")
-    assert f"{_clock(engine, ordered_at)} 远程下单{product} 1 份，付 {yuan} 元，预计 " \
-           f"{_clock(engine, order['expected_at'])} 送到{market}" in entry["settled"]
-    assert (f"{name}：{_clock(engine, meal.started_at)}–{_clock(engine, meal.ended_at)}，提前结束，吃了 0.2 份，"
-            f"丢弃 0.8 份") in entry["settled"]
-
-
-@pytest.mark.asyncio
-async def test_work_hours_and_submission_verdicts_are_settled_sentences(engine_factory) -> None:
-    """真实工作与提交：做完首个任务要求的工时并收尾，句子写终局与有效工时；第一次提交被评审退回写「未通过」，改后再交
-    通过写「通过」（评审桩只替换模型传输，提交与结算走真实路径）；出门后这段停留的条目按时间先后带这三句。"""
-    from tests.life.test_work_review import StaticReviewer, _at_task_start, _complete_required_work, _submit_with_review
-
-    engine = engine_factory()
-    _at_task_start(engine)
-    _complete_required_work(engine)
-    work = next(item for item in engine.context.state.activities.values() if item.kind == ActivityKind.WORK)
-    returned_at = engine.context.state.current_time
-    returned = await _submit_with_review(engine, StaticReviewer(accepted=False), "u-return")
-    assert (returned.status, returned.error_code) == ("rejected", "WORK_REQUIRES_REWORK")
-    passed = await _submit_with_review(engine, StaticReviewer(accepted=True), "u-pass")
-    assert passed.status == "completed"
-    _walk(engine, "u-walk", "home")
-    settled = _memory(engine, "u-road")["earlier_today"][-1]["settled"]
-    title = engine.context.scenario.tasks[0].title
-    work_line = (f"{activity_name(engine, work.activity_id)}：{_clock(engine, work.started_at)}–"
-                 f"{_clock(engine, work.ended_at)}，{activity_control.ending_phrase(work)}，"
-                 f"有效工时{duration_phrase(work.effective_work_seconds)}")
-    verdicts = [f"{_clock(engine, returned_at)} 提交「{title}」，未通过", f"{_clock(engine, returned_at)} 提交「{title}」，通过"]
-    assert [line for line in settled if line == work_line or line in verdicts] == [work_line, *verdicts]
+    engine = _decimal_engine(tmp_path)
+    try:
+        stage_day_plan(engine)
+        food = selected_food(engine)
+        stage_person(engine, FOOD_STORE, 1500, inventory={food.food_id: 4.0})
+        ordered_at = engine.context.state.current_time
+        order = _decimal_order(engine, "k-order")
+        _, started = _act(engine, "k-eat", "start_activity", start_activity("食用", f"持有物：{food.name}"))
+        assert started.status == "in_progress"
+        wake_by_mail(engine, offset=240)
+        advance_next(engine)
+        name = activity_name(engine, started.activity_id)
+        _act(engine, "k-end", "conclude_activity", conclude_request(name, summary="吃完了"))
+        _walk(engine, "k-walk")
+        (entry,) = _memory(engine, "k-road")["earlier_today"]
+        meal = engine.context.state.activities[started.activity_id]
+        price = order["total_price_fen"]
+        yuan = f"{price // 100}.{price % 100:02d}".rstrip("0")
+        product = engine.context.semantics.catalog.foods[order["food_id"]].name
+        market = next(item.name for item in engine.context.scenario.locations if item.location_id == FOOD_STORE)
+        assert f"{_clock(engine, ordered_at)} 远程下单{product} 1 份，付 {yuan} 元，预计 " \
+               f"{_clock(engine, order['expected_at'])} 送到{market}" in entry["settled"]
+        assert (f"{name}：{_clock(engine, meal.started_at)}–{_clock(engine, meal.ended_at)}，提前结束，吃了 0.2 份，"
+                f"丢弃 0.8 份") in entry["settled"]
+    finally:
+        engine.close()
 
 
 def test_a_chat_ended_by_the_partner_is_settled_as_partner_ended(engine_factory) -> None:
@@ -1016,16 +996,18 @@ def test_a_chat_ended_by_the_partner_is_settled_as_partner_ended(engine_factory)
 
 
 def test_messages_sent_and_deliveries_received_on_the_road_land_in_the_transit_entry(engine_factory) -> None:
-    """路程中收到的邮件、发出的消息与送达都归路程 session：在菜市场远程下单、等一刻钟后步行去公司，路上发一条消息，订单
+    """路程中收到的邮件、发出的消息与送达都归路程 session：在菜市场远程下单、短暂等待后步行去公司，路上发一条消息，订单
     按预计时刻在路上送到菜市场；到达后路程条目依次写邮件、发出的消息、送达与「到达」句，下单句与等待句留在菜市场那段
     停留的条目里（第三章「归属」）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_memory_scenario)
     stage_day_plan(engine)
-    _stage(engine, "market", 1500)
+    stage_person(engine, FOOD_STORE, 1500)
     friend = engine.context.scenario.agents[0].contacts[0].salutation
     order = _remote_order(engine, "t-order")
     _, waited = _act(engine, "t-wait", "start_activity", start_activity("等待", "自己"))
-    _finish_waiting(engine, "t-wait-end", waited.activity_id)
+    wake_by_mail(engine, offset=60)
+    advance_next(engine)
+    _act(engine, "t-wait-end", "conclude_activity", conclude_request(activity_name(engine, waited.activity_id)))
     walk = _walk(engine, "t-walk")
     trip = engine.context.state.activities[walk.activity_id]
     mail_at = wake_by_mail(engine, offset=60)
@@ -1038,9 +1020,10 @@ def test_messages_sent_and_deliveries_received_on_the_road_land_in_the_transit_e
     assert engine.context.state.deliveries[order["order_id"]].status == "delivered"
     home, road = _memory(engine, "t-arrived")["earlier_today"]
     trip = engine.context.state.activities[walk.activity_id]
-    market = next(item.name for item in engine.context.scenario.locations if item.location_id == "market")
+    market = next(item.name for item in engine.context.scenario.locations if item.location_id == FOOD_STORE)
     context_ = engine.observations._layer_context(engine.context.state.agents[1], (), [])
-    assert home["settled"][0] == purchase_sentence(context_, order, None) and len(home["settled"]) == 2
+    assert home["settled"][0] == purchase_sentence(context_, order, None) and len(home["settled"]) == 3
+    assert home["settled"][1] == _mail_line(engine, trip.started_at)
     assert road["settled"][:2] == [_mail_line(engine, mail_at), f"{_clock(engine, sent_at)} 给{friend}发消息：在路上了"]
     assert road["settled"][2].startswith(f"{_clock(engine, arrives)} ") and road["settled"][2].endswith(
         f"：已送到{market}")

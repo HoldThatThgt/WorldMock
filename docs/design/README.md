@@ -6,10 +6,11 @@
 > 范围：产品设计说明书的组织结构与阅读指引
 
 
-具体环境及制作工具按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)归 WorldMock-Dataset，
-正式环境为 `environment/zhangjiang-baseline/`；WorldMock 提供引擎及包内固定通用规则。
-本章的 `catalog/`、`corpora/`、`scenarios/` 指外部环境目录，命令以 WorldMock 为当前工作目录并显式传路径。
-当前场景结构 6，内容标题必填，活动效果随环境加载并在启动时冻结；新组合放行另核对实际收据。
+具体环境及制作工具按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)归 WorldMock-Dataset；
+WorldMock 提供引擎、包内固定规则和用于行为验收的人工环境。正式环境的结构 7 发布与平台回执属于
+[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)阶段 9，
+在数据仓完成发布前不把正式环境写成已验证输入。运行以世界状态结构 10 保存状态，并把环境标识、环境版本、规则版本、目录内容摘要和地图摘要
+五个字段绑定到运行清单；恢复、重放、导出和交付都核对同一身份。
 
 <a name="readme-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
@@ -21,10 +22,28 @@
 <a name="readme-工具交互设计同步"></a>
 ## 工具交互设计同步
 
-[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)是本次最终特性合同；逐项活动、品类分页查询、完整错误、
-类别供给、冻结范围价、通知到达与工作开放已经同步各设计职责。
-本次设计冻结不表示生产功能已实现。各章节具体修改和行为/变异验收责任见该规格文件清单。
-发布身份目标为场景4、地图3、目录5.0、品类与规则绑定3；世界状态沿用8。
+[生活运行时规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)保留稳定工具请求、错误和同秒续接合同；其中旧的品类分页、
+目录浏览、供给时态、工作开放与任务评审语义，已由
+[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)取代。
+人物现在从固定交互菜单选择生活动作、食品、app 与工作主题；app 始终列出，内容由所选 app 抽取，购买按名称与固定菜单执行，
+`query_world` 只读。当前身份是场景结构 7、世界状态结构 10、导出清单 3、质量报告 5 与交付清单 3。
+这些是现行合同与实现位置；阶段 8 的完整日双跑、第三基线冻结、最终工程门禁和独立源码变异审查仍以实际回执为准。
+
+<a name="readme-资源与规则引擎简化修订"></a>
+## 资源与规则引擎简化修订
+
+各阶段按[冻结规格的文档作业](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-现行文档原位改写)原位改写设计章节：
+
+| 阶段 | 受影响章节 | 当前语义 |
+| --- | --- | --- |
+| 阶段 1：固定规则与目录 | [交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎)、[资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎)、[数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付)、[配置规格](08-configuration.md#configuration-worldmock-产品设计说明书-配置规格)、[输入输出格式](09-io-formats.md#io-formats-worldmock-产品设计说明书-输入输出格式) | 固定类型、常数与算子归交换引擎；环境目录只登记对象、关系与冻结身份 |
+| 阶段 2：随机地图 | [概述](00-overview.md#overview-worldmock-产品设计说明书-概述)、[总体架构](01-architecture.md#architecture-worldmock-产品设计说明书-总体架构)、[资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎)、[模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎)、[记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎) | 目录登记连通加权图，出行按图路径结算并以环境身份恢复 |
+| 阶段 3：食品与店铺 | [概述](00-overview.md#overview-worldmock-产品设计说明书-概述)、[总体架构](01-architecture.md#architecture-worldmock-产品设计说明书-总体架构)、[交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎)、[资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎)、[模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎)、[行为评估](07-evaluation.md#evaluation-worldmock-产品设计说明书-行为评估)、[配置规格](08-configuration.md#configuration-worldmock-产品设计说明书-配置规格)、[输入输出格式](09-io-formats.md#io-formats-worldmock-产品设计说明书-输入输出格式) | 同类食品共享固定菜单；店铺声明 app 来源，到店购买或单订单配送形成真实持有与资金证据 |
+| 阶段 4：app 与内容 | [概述](00-overview.md#overview-worldmock-产品设计说明书-概述)、[资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎)、[模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎)、[记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎) | `use_app`、全局内容进度与会话推送替代旧观看、游戏和浏览合同 |
+| 阶段 5：工作主题 | [概述](00-overview.md#overview-worldmock-产品设计说明书-概述)、[模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎)、[记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)、[行为评估](07-evaluation.md#evaluation-worldmock-产品设计说明书-行为评估)、[配置规格](08-configuration.md#configuration-worldmock-产品设计说明书-配置规格)、[输入输出格式](09-io-formats.md#io-formats-worldmock-产品设计说明书-输入输出格式) | 工作按主题和实际经过秒数累计，没有开放、截止、材料、提交或评审 |
+| 阶段 6：提示与查看器 | [总体架构](01-architecture.md#architecture-worldmock-产品设计说明书-总体架构)、[模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎)、[数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付) | 系统规则、提示身份、十一项原生工具和当前中文显示使用同一合同 |
+| 阶段 7：记录、交付与评估 | [记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)、[数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付)、[行为评估](07-evaluation.md#evaluation-worldmock-产品设计说明书-行为评估)、[输入输出格式](09-io-formats.md#io-formats-worldmock-产品设计说明书-输入输出格式) | 五个导出工件、app 使用事实、质量报告 5 与交付清单 3 只从已认证事件和状态派生 |
+| 阶段 8：文档与验收收口 | 本入口、[创建总结](SUMMARY.md#summary-worldmock-设计文档集-创建总结)与生成的 `worldmock-design.html` | 生产入口与定向测试已登记；完整日双跑、第三基线、最终门禁和平台结论只按阶段 8、9 的实际回执更新 |
 
 
 <a name="readme-个人事务与工作安排设计同步"></a>
@@ -69,6 +88,28 @@
 [数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付)（分阶段身份）。
 
 
+<a name="readme-同时做两件事修订"></a>
+## 同时做两件事修订
+
+[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)是本次修复合同，设计章节随各阶段原位改写；
+各章文件头注明按该规格修订的节与阶段，每章改了什么见该章版本表。
+阶段 1 暂停的活动不占名额：两个名额只由进行中与待收尾的活动各占一个，`pause_activity` 让出名额，开始、出行与恢复暂停的活动都要有空名额，
+只有暂停的活动时可以出发；同刻上限后的受限轮不再按名额分流，`resume_or_conclude` 与 `conclude_only` 留在阶段闭集中、不再被进入；
+只变代码身份，世界结构 9、质量报告结构 4、场景结构 6 与目录不变。受影响章节：
+[总体架构](01-architecture.md#architecture-worldmock-产品设计说明书-总体架构)（状态归属与写入边界、分阶段身份）、
+[交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎)（可供性与活动声明）、
+[模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎)（发现与比较门店供给、校验与占用安排、活动生命周期、验收重点）与
+[输入输出格式](09-io-formats.md#io-formats-worldmock-产品设计说明书-输入输出格式)（人物状态的受限轮阶段与名额）。
+阶段 2 只有同一种动作互斥：可供性占用声明重列为 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel` 十一个，
+每种动作占自己的名字，睡眠与一切互斥，驾车只能再听播客或和人说话，准入机制不变；旧的身体部位占用名在解析时拒绝。
+占用声明是引擎包资源 `src/worldmock/data/affordances.toml`，`tool_schema_sha256`（绑定其字节）与代码身份随之变化，`prompt_sha256`、世界结构 9、质量报告结构 4、场景结构 6 不变；仓库测试环境的副本逐字节同步，仍带旧占用名副本的外部发布环境（WorldMock-Dataset）在装配时被拒绝，要按新占用名重新发布；
+此前的检查点因活动占用与注册表不符不能再恢复。受影响章节：
+[交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎)（可供性与活动声明）、
+[资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎)（构建与版本）、
+[配置规格](08-configuration.md#configuration-worldmock-产品设计说明书-配置规格)（规则来源与配置边界）与
+[输入输出格式](09-io-formats.md#io-formats-worldmock-产品设计说明书-输入输出格式)（人物状态与活动状态的占用名）。
+
+
 <a name="readme-这是什么"></a>
 ## 这是什么
 
@@ -108,8 +149,8 @@ python scripts/build_design_doc.py
 | --- | --- | --- |
 | `00-overview.md` | 概述：背景、目标、术语、设计原则、需求映射 | DRAFT |
 | `01-architecture.md` | 总体架构：系统定位、数字人与四引擎职责、协作数据流、配置与接口导航 | DRAFT |
-| `02-exchange-engine.md` | 交换引擎：维护交换规则、查询适用规则、校验交换条件、计算投入产出、校验资源分录与返回规则结果 | DRAFT |
-| `03-resource-engine.md` | 资源引擎：资源定义、内容、语料、目录发布与检索提供 | DRAFT |
+| `02-exchange-engine.md` | 交换引擎：维护固定类型、常数、身体与动机规则和纯算子，以 `RULES_VERSION` 绑定结算语义 | DRAFT |
+| `03-resource-engine.md` | 资源引擎：登记并校验地点、地图、食品、店铺、app、内容、工作主题和可供性，提供冻结目录身份与只读关系查询 | DRAFT |
 | `04-simulation-engine.md` | 模拟引擎：初始化、冻结观察与交互菜单、七层人物提示与同秒续接、动作受理与同刻再决策、共享时间、活动名额与地点会话、共同身体结算、零点计划与计划提醒、个人事务的受理、结算确认与事务提醒、环境层上班安排的呈现、班次与休息时段起止的唤醒、威胁唤醒和恢复编排 | DRAFT |
 | `05-recording-engine.md` | 记录引擎：事件、素材、事务、检查点、分支、导出与诊断 | 已整合，承接冻结约束 |
 | `06-delivery.md` | 数据交付：LabelKit 接口、证据窗口、发布协议 | DRAFT |
@@ -265,3 +306,6 @@ flowchart TB
 | `2026-10-05-idle-fillers-a` | 2026-10-05 | 按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 2 同步：「让「等待」成为例外修订」一节补阶段 2：系统层第 7、14、15、16 条原位改写（仍为十八条），告诉人物何时会再请他决策、哪些事到点会请他决策而手上的活动照常进行，作息与今日计划里的钟点只是大概，空下来照自己的习惯做点别的，等待只留给几分钟内就有事请他决策的时候，环境不设等待上限、不替人物选择内容；`prompt_sha256` 与代码身份随之变化，`tool_schema_sha256`、世界结构 9、质量报告结构 4、场景结构 5 不变；列出阶段 2 受影响的章节（总体架构与数据交付的分阶段身份、模拟引擎的当前实现边界） |
 | `2026-10-05-idle-fillers-b` | 2026-10-05 | 按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 3 同步：「让「等待」成为例外修订」一节补阶段 3：零点计划模板第三、五、六条改写，零点计划只写今天与平常不同的安排、要办的事和要按时起床、出门的提醒（要按时起床的填起床的时刻，出门去上班、上课、接人、赴约这类要按时到的事填该出门的时刻，几点去睡不设提醒），天天如此的作息与消遣不写成目标，目标文字只给和人约好的事写钟点，大致时刻只表示大概在那前后；校验器与目标字段不变，只变代码身份；列出阶段 3 受影响的章节（总体架构与数据交付的分阶段身份、模拟引擎的接收当日目标并记录实际推进与当前实现边界） |
 | 环境归属与等待行为整合 | 2026-10-06 | 保留已实施的班次唤醒、系统层与零点计划文本；现行场景结构 6 与显式数据仓输入，完整日核验实际工件，历史两份证明不改；跨平台方案仍未实施 |
+| `2026-10-06-parallel-activities-slots` | 2026-10-06 | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1 同步：新增「同时做两件事修订」一节，链接该规格，写明暂停的活动不占名额、开始、出行与恢复暂停的活动都要有空名额、受限轮不再按名额分流且只变代码身份，并列出阶段 1 受影响的章节（总体架构、交换引擎、模拟引擎、输入输出格式）；日期改为 2026-10-06 |
+| `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2 同步：「同时做两件事修订」一节补阶段 2 并列出受影响的章节（交换引擎、资源引擎、配置规格、输入输出格式）：占用声明重列为每种动作占自己的名字，只有同一种动作互斥；占用声明是引擎包资源，`tool_schema_sha256` 与代码身份变化，`prompt_sha256` 与各结构版本不变，仍带旧占用名副本的外部发布环境要由 WorldMock-Dataset 重新发布 |
+| `2026-10-06-rrs-docs` | 2026-10-07 | 按资源与规则引擎简化规格收口设计入口：列出各阶段受影响章节，改写交换与资源引擎职责，并区分现行生产与定向证据、待登记的阶段 8 完整日和最终门禁、阶段 9 正式环境与平台回执 |

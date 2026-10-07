@@ -22,6 +22,7 @@ from worldmock.evaluation.errors import EvaluationError
 from worldmock.evaluation.io import atomic_write_json, read_json, sha256_file, stable_json_bytes
 from worldmock.evaluation.models import (
     ActivitySession,
+    activity_intervals,
     DatasetView,
     EvaluationScenario,
     JsonObject,
@@ -37,12 +38,11 @@ _PUBLIC_FIELDS = {
 _PUBLIC_VALUES = {
     "interaction": {
         "order", "travel", "check_in", "check_out", "open", "close", "view", "copy",
-        "notify", "arrive", "leave", "visit", "read", "work", "submit", "pay", "deliver",
-        "play", "browse", "consume", "report", "pause", "conclude",
-        "deadline", "chat", "call",
+        "notify", "arrive", "leave", "visit", "read", "work", "pay", "deliver",
+        "consume", "report", "pause", "conclude", "chat", "call",
     },
-    "object_type": {"order", "route", "workplace", "application", "content", "message", "task", "game",
-                    "product", "activity", "person"},
+    "object_type": {"order", "route", "workplace", "application", "app", "content", "message", "work_topic",
+                    "food", "activity", "person"},
     "state": {
         "declared", "requested", "started", "completed", "received", "read", "pending", "ready",
         "paid", "delivered", "available", "expired", "rejected", "cancelled", "failed", "unknown",
@@ -52,18 +52,15 @@ _PUBLIC_VALUES = {
     "travel_mode": {"walking", "driving", "transit"},
     "place_type": {"workplace"},
 }
-_LONG_TERM_OBJECT_TYPES = {"order", "task", "message", "game"}
+_LONG_TERM_OBJECT_TYPES = {"order", "work_topic", "message", "app"}
 _CAUSAL_STATES = {
     "order": {"requested", "pending", "ready", "paid", "delivered", "cancelled", "failed"},
-    "task": {
-        "available", "requested", "started", "completed", "accepted", "rejected", "paid",
-        "reached", "cancelled", "failed",
-    },
+    "work_topic": {"requested", "started", "completed", "rejected", "cancelled", "failed"},
     "message": {"received", "requested", "started", "read", "completed", "failed"},
-    "game": {"requested", "started", "in_progress", "completed", "cancelled", "failed"},
+    "app": {"requested", "started", "viewed", "in_progress", "completed", "cancelled", "failed"},
     "activity": {"requested", "started", "paused", "completed", "cancelled", "failed"},
     "route": {"requested", "started", "completed", "cancelled", "failed"},
-    "product": {"requested", "started", "completed", "cancelled", "failed"},
+    "food": {"requested", "started", "completed", "cancelled", "failed"},
     "content": {"requested", "started", "viewed", "completed", "cancelled", "failed"},
 }
 _JUDGEABILITY_REASONS = {
@@ -341,11 +338,7 @@ def _timeline_segments(
 ) -> list[JsonObject]:
     """@brief 将一个会话的真实运行区间裁到评审日期。"""
     zone = ZoneInfo(view.window.timezone)
-    segments = (
-        activity.segments
-        if activity.segments is not None
-        else ((activity.started_at, activity.ended_at),)
-    )
+    segments = activity_intervals(activity, view.events)
     rows: list[JsonObject] = []
     for value in sorted(selected):
         day_start = datetime.combine(value, time.min, zone)
@@ -574,9 +567,9 @@ def _verify_packets(
 
 
 def _packet_path(root: Path, descriptor: Mapping[str, Any]) -> Path:
-    """@brief 将公开索引中的隔离包路径约束在准备目录。"""
+    """@brief 将公开索引中的隔离包路径约束在准备目录：评审槽只能是生成时的 reviewer- 加两位以上数字。"""
     slot = descriptor.get("reviewer_slot")
-    if not isinstance(slot, str) or not slot.startswith("reviewer-"):
+    if not isinstance(slot, str) or not re.fullmatch(r"reviewer-[0-9]{2,}", slot):
         raise EvaluationError("invalid_review", "blind review packet slot is invalid")
     return (root / "review-packets" / f"{slot}.json").resolve()
 
@@ -621,7 +614,8 @@ def _reject_identity_keys(value: Any) -> None:
     forbidden = {
         "model", "provider", "path", "run_id", "dataset_id", "source", "source_pointer", "key",
         "object_key", "event_id", "activity_id", "message_id", "thread_id", "task_id", "product_id",
-        "order_id", "route_id", "person_id", "agent_id", "decision_id", "action_id", "memory", "body",
+        "order_id", "trip_id", "person_id", "agent_id", "decision_id", "action_id", "memory", "body",
+        "app_id", "content_id", "push_id", "food_id", "store_id", "topic_id",
         "caption", "content", "subject", "raw_text",
     }
     if isinstance(value, dict):

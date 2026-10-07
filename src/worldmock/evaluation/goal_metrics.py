@@ -12,15 +12,8 @@ from zoneinfo import ZoneInfo
 from worldmock.life.schedule import INTENT_ACTIVITY_FAMILIES, ROUTINE_INTENT_KINDS, ran_in_goal_window
 
 UNREPORTED_CODE_KEY = "code_sha256_unreported"
-#: 外部约束闭集只保留营业、到达准入、路线与工作可用性；引导性拒绝（ACTIVITY_PRECONDITION_UNMET、
-#: ACTIVITY_CONCLUSION_REQUIRED、SESSION_LIMIT_EXCEEDED）是人物选了带说明的动作，计入 other_rejections
-#: （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「动作照常列出，做错了再说明」）。
-EXTERNAL_CONSTRAINT_ERROR_CODES = frozenset({
-    "MERCHANT_CLOSED", "MERCHANT_OPENING_UNKNOWN", "LOCATION_ACCESS_DENIED",
-    "WORK_TASK_NOT_AVAILABLE", "WORK_SUBMISSION_LATE",
-    "FROZEN_ROUTE_NOT_FOUND", "ROUTE_UNREACHABLE", "ROUTE_INFORMATION_UNKNOWN",
-    "DELIVERY_ROUTE_NOT_FOUND", "DELIVERY_ROUTE_UNREACHABLE", "DELIVERY_ROUTE_INFORMATION_UNKNOWN",
-})
+#: 本规格删除营业、准入、路线与工作可用性拒绝码；当前没有外部约束拒绝码。
+EXTERNAL_CONSTRAINT_ERROR_CODES = frozenset()
 _TERMINAL_STATUSES = {"completed", "rejected", "cancelled", "failed"}
 
 

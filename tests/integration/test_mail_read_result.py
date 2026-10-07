@@ -20,7 +20,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/bet
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from custom.envs.life_env import LifeEnv  # noqa: E402
-from tests.integration.test_minimum_complete_path import _decide  # noqa: E402
+from tests.integration.life_host_fixtures import decide, reply  # noqa: E402
 from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_pending, conclude_request, context, pending_names, progress_calls, stage_day_plan, start_activity, submit_round, tool_targets, wake_by_mail, report_request)  # noqa: F401
 from worldmock.life.activity_control import pending_conclusions  # noqa: E402
@@ -62,8 +62,8 @@ async def test_the_mail_body_appears_once_in_the_request_as_the_read_result(_eng
 
     environment = LifeEnv()
     environment.engine = engine
-    observation, [request], concluded = await _decide(environment, "mail-conclude", lambda seen: (
-        "conclude_activity", conclude_request(*pending_names(seen)).model_dump(mode="json")))
+    observation, [request], concluded = await decide(environment, "mail-conclude", lambda seen: [reply(
+        "mail-conclude", "conclude_activity", conclude_request(*pending_names(seen)).model_dump(mode="json"), "读完了。")])
     assert concluded.status == "completed", (concluded.error_code, concluded.message)
 
     [call] = [row for row in progress_calls(observation, "start_activity") if row["arguments"]["items"][0]["way"] == "阅读"]

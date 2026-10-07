@@ -1,5 +1,5 @@
 {
-  "source": "Read-only compiled habit declarations from the real DeepSeek strict two-person run; native action mappings are explicit human-authored test fixtures. Brand, temperature and platform details remain persona prose and do not create world facts.",
+  "source": "Read-only compiled habit declarations from the real DeepSeek strict two-person run; native action mappings are explicit human-authored test fixtures. Brand, temperature and platform details remain persona prose and do not create world facts. Current native tests publish explicit synthetic Catalog foods and Scenario declarations; retired capabilities are accounted separately without modifying external compiled artifacts.",
   "scenario": "scenarios/multi-person.json",
   "compiled_personas": [
     {
@@ -95,20 +95,20 @@
       "agent_id": 1,
       "preconditions": {
         "at": "2026-01-05T07:00:00+08:00",
-        "location_id": "poi-3538682402",
+        "location_id": "store",
         "notifications": [],
         "inventory": {}
       },
       "chain": [
         {
           "kind": "purchase",
-          "object_id": "food-6901939621738",
+          "object_id": "water",
           "way": "到店",
-          "from": "poi-3538682402"
+          "from": "store"
         },
         {
           "kind": "consume",
-          "object_id": "food-6901939621738",
+          "object_id": "water",
           "way": "食用"
         }
       ],
@@ -119,42 +119,8 @@
           "start_hour": 7.0,
           "end_hour": 7.5
         }
-      }
-    },
-    {
-      "name": "commute-podcast",
-      "agent_id": 1,
-      "preconditions": {
-        "at": "2026-01-05T07:30:00+08:00",
-        "location_id": "home",
-        "notifications": [],
-        "inventory": {}
       },
-      "chain": [
-        {
-          "kind": "parallel",
-          "items": [
-            {
-              "kind": "travel",
-              "object_id": "office",
-              "way": "步行"
-            },
-            {
-              "kind": "media",
-              "object_id": "podcast-nasa-space-habitat-excerpt",
-              "way": "接着听"
-            }
-          ]
-        }
-      ],
-      "habit": {
-        "trigger": "通勤时",
-        "response": "听播客",
-        "time_window": {
-          "start_hour": 7.5,
-          "end_hour": 9.0
-        }
-      }
+      "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
     },
     {
       "name": "lunch-break-media",
@@ -167,15 +133,15 @@
       },
       "chain": [
         {
-          "kind": "media",
-          "object_id": "drama-0001",
-          "way": "接着看",
+          "kind": "app",
+          "object_id": "bilibili",
+          "way": "打开",
           "complete": true
         },
         {
-          "kind": "media",
-          "object_id": "news-feed",
-          "way": "接着看",
+          "kind": "app",
+          "object_id": "bilibili",
+          "way": "打开",
           "complete": false
         }
       ],
@@ -186,7 +152,8 @@
           "start_hour": 12.0,
           "end_hour": 13.0
         }
-      }
+      },
+      "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
     },
     {
       "name": "convenience-milk-and-nuts",
@@ -200,29 +167,29 @@
       "chain": [
         {
           "kind": "travel",
-          "object_id": "poi-3538682402",
+          "object_id": "store",
           "way": "步行"
         },
         {
           "kind": "purchase",
-          "object_id": "food-6923644266066",
+          "object_id": "milk",
           "way": "到店",
-          "from": "poi-3538682402"
+          "from": "store"
         },
         {
           "kind": "consume",
-          "object_id": "food-6923644266066",
+          "object_id": "milk",
           "way": "食用"
         },
         {
           "kind": "purchase",
-          "object_id": "food-8935090914864",
+          "object_id": "nuts",
           "way": "到店",
-          "from": "poi-3538682402"
+          "from": "store"
         },
         {
           "kind": "consume",
-          "object_id": "food-8935090914864",
+          "object_id": "nuts",
           "way": "食用"
         },
         {
@@ -238,7 +205,8 @@
           "start_hour": 10.0,
           "end_hour": 16.0
         }
-      }
+      },
+      "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
     },
     {
       "name": "stress-breathing",
@@ -252,7 +220,7 @@
       "chain": [
         {
           "kind": "lifestyle",
-          "object_id": "yoga",
+          "object_id": "quiet-rest",
           "way": "进行"
         }
       ],
@@ -263,7 +231,8 @@
           "start_hour": 9.0,
           "end_hour": 18.0
         }
-      }
+      },
+      "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
     },
     {
       "name": "lunch-delivery",
@@ -277,13 +246,13 @@
       "chain": [
         {
           "kind": "purchase",
-          "object_id": "food-6920152460061",
+          "object_id": "beef-noodles",
           "way": "远程下单",
-          "from": "poi-3538682402"
+          "from_app": "meituan"
         },
         {
           "kind": "consume",
-          "object_id": "food-6920152460061",
+          "object_id": "beef-noodles",
           "way": "食用"
         }
       ],
@@ -294,7 +263,8 @@
           "start_hour": 11.0,
           "end_hour": 13.0
         }
-      }
+      },
+      "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
     },
     {
       "name": "dinner-delivery",
@@ -308,13 +278,13 @@
       "chain": [
         {
           "kind": "purchase",
-          "object_id": "food-6920152460061",
+          "object_id": "beef-noodles",
           "way": "远程下单",
-          "from": "poi-3538682402"
+          "from_app": "meituan"
         },
         {
           "kind": "consume",
-          "object_id": "food-6920152460061",
+          "object_id": "beef-noodles",
           "way": "食用"
         }
       ],
@@ -325,7 +295,8 @@
           "start_hour": 17.0,
           "end_hour": 19.0
         }
-      }
+      },
+      "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
     },
     {
       "name": "stress-news-and-jokes",
@@ -338,15 +309,15 @@
       },
       "chain": [
         {
-          "kind": "media",
-          "object_id": "news-feed",
-          "way": "接着看",
+          "kind": "app",
+          "object_id": "bilibili",
+          "way": "打开",
           "complete": false
         },
         {
-          "kind": "media",
-          "object_id": "jokes-feed",
-          "way": "接着看",
+          "kind": "app",
+          "object_id": "douyin",
+          "way": "打开",
           "complete": false
         }
       ],
@@ -357,32 +328,8 @@
           "start_hour": 20.0,
           "end_hour": 23.0
         }
-      }
-    },
-    {
-      "name": "late-game",
-      "agent_id": 2,
-      "preconditions": {
-        "at": "2026-01-05T23:00:00+08:00",
-        "location_id": "home",
-        "notifications": [],
-        "inventory": {}
       },
-      "chain": [
-        {
-          "kind": "game",
-          "object_id": "textworld-1201",
-          "way": "游玩"
-        }
-      ],
-      "habit": {
-        "trigger": "深夜",
-        "response": "打游戏",
-        "time_window": {
-          "start_hour": 23.0,
-          "end_hour": 25.0
-        }
-      }
+      "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
     },
     {
       "name": "chen-lunch",
@@ -396,22 +343,23 @@
       "chain": [
         {
           "kind": "travel",
-          "object_id": "poi-3538660453",
+          "object_id": "noodle-1",
           "way": "步行"
         },
         {
           "kind": "purchase",
-          "object_id": "meal-0001",
+          "object_id": "beef-noodles",
           "way": "到店",
-          "from": "poi-3538660453"
+          "from": "noodle-1"
         },
         {
           "kind": "consume",
-          "object_id": "meal-0001",
+          "object_id": "beef-noodles",
           "way": "食用"
         }
       ],
-      "background_declaration": "工作再忙也会按时吃午饭和晚饭"
+      "background_declaration": "工作再忙也会按时吃午饭和晚饭",
+      "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
     },
     {
       "name": "chen-dinner",
@@ -425,22 +373,23 @@
       "chain": [
         {
           "kind": "travel",
-          "object_id": "poi-3538660453",
+          "object_id": "noodle-1",
           "way": "步行"
         },
         {
           "kind": "purchase",
-          "object_id": "meal-0010",
+          "object_id": "beef-noodles",
           "way": "到店",
-          "from": "poi-3538660453"
+          "from": "noodle-1"
         },
         {
           "kind": "consume",
-          "object_id": "meal-0010",
+          "object_id": "beef-noodles",
           "way": "食用"
         }
       ],
-      "background_declaration": "工作再忙也会按时吃午饭和晚饭"
+      "background_declaration": "工作再忙也会按时吃午饭和晚饭",
+      "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
     },
     {
       "name": "colleague-dinner-invitation",
@@ -460,41 +409,23 @@
         },
         {
           "kind": "travel",
-          "object_id": "poi-3538660453",
+          "object_id": "noodle-1",
           "way": "步行"
         },
         {
           "kind": "purchase",
-          "object_id": "meal-0001",
+          "object_id": "beef-noodles",
           "way": "到店",
-          "from": "poi-3538660453"
+          "from": "noodle-1"
         },
         {
           "kind": "consume",
-          "object_id": "meal-0001",
+          "object_id": "beef-noodles",
           "way": "食用"
         }
       ],
-      "background_declaration": "下班后偶尔约同事吃饭"
-    },
-    {
-      "name": "weekend-game",
-      "agent_id": 1,
-      "preconditions": {
-        "at": "2026-01-10T19:00:00+08:00",
-        "location_id": "home",
-        "notifications": [],
-        "inventory": {},
-        "end_at": "2026-01-11T12:00:00+08:00"
-      },
-      "chain": [
-        {
-          "kind": "game",
-          "object_id": "textworld-1201",
-          "way": "游玩"
-        }
-      ],
-      "background_declaration": "周末打 Switch 或看 Netflix"
+      "background_declaration": "下班后偶尔约同事吃饭",
+      "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
     },
     {
       "name": "weekend-film",
@@ -508,13 +439,14 @@
       },
       "chain": [
         {
-          "kind": "media",
-          "object_id": "movie-0001",
-          "way": "接着看",
+          "kind": "app",
+          "object_id": "bilibili",
+          "way": "打开",
           "complete": false
         }
       ],
-      "background_declaration": "周末打 Switch 或看 Netflix"
+      "background_declaration": "周末打 Switch 或看 Netflix",
+      "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
     },
     {
       "name": "friend-message",
@@ -533,7 +465,8 @@
           "text": "下班了，最近怎么样？"
         }
       ],
-      "background_declaration": "社交活跃，微信好友多，喜欢在知乎分享产品心得"
+      "background_declaration": "社交活跃，微信好友多，喜欢在知乎分享产品心得",
+      "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
     },
     {
       "name": "product-insight-sharing",
@@ -552,7 +485,8 @@
           "text": "分享今天的产品心得：先观察用户实际需求。"
         }
       ],
-      "background_declaration": "社交活跃，微信好友多，喜欢在知乎分享产品心得"
+      "background_declaration": "社交活跃，微信好友多，喜欢在知乎分享产品心得",
+      "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
     },
     {
       "name": "lifan-breakfast-delivery",
@@ -566,17 +500,18 @@
       "chain": [
         {
           "kind": "purchase",
-          "object_id": "food-6920152460061",
+          "object_id": "beef-noodles",
           "way": "远程下单",
-          "from": "poi-3538682402"
+          "from_app": "meituan"
         },
         {
           "kind": "consume",
-          "object_id": "food-6920152460061",
+          "object_id": "beef-noodles",
           "way": "食用"
         }
       ],
-      "background_declaration": "习惯点外卖解决三餐，偏爱面食和牛肉类食品，常选方便面或牛肉面"
+      "background_declaration": "习惯点外卖解决三餐，偏爱面食和牛肉类食品，常选方便面或牛肉面",
+      "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
     },
     {
       "name": "iced-tea",
@@ -590,17 +525,18 @@
       "chain": [
         {
           "kind": "purchase",
-          "object_id": "food-6920459902387",
+          "object_id": "iced-tea",
           "way": "远程下单",
-          "from": "poi-3538682402"
+          "from_app": "meituan"
         },
         {
           "kind": "consume",
-          "object_id": "food-6920459902387",
+          "object_id": "iced-tea",
           "way": "食用"
         }
       ],
-      "background_declaration": "喜欢喝冰红茶"
+      "background_declaration": "喜欢喝冰红茶",
+      "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
     },
     {
       "name": "stress-friend-call",
@@ -619,7 +555,8 @@
           "agent_id": 2
         }
       ],
-      "background_declaration": "压力大时会找老友倾诉而不是憋着"
+      "background_declaration": "压力大时会找老友倾诉而不是憋着",
+      "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
     },
     {
       "name": "hungry-work-break",
@@ -638,43 +575,45 @@
         },
         {
           "kind": "work",
-          "object_id": "backend-task-2026-01-05",
+          "object_id": "topic-sales",
           "way": "工作",
           "agent_id": 2,
           "complete": false
         },
         {
           "kind": "purchase",
-          "object_id": "food-6920152460061",
+          "object_id": "beef-noodles",
           "way": "远程下单",
-          "from": "poi-3538682402"
+          "from_app": "meituan"
         },
         {
           "kind": "consume",
-          "object_id": "food-6920152460061",
+          "object_id": "beef-noodles",
           "way": "食用"
         }
       ],
-      "background_declaration": "写代码时容易进入心流忘记时间，但身体会诚实地发出信号——饿了就一定要吃东西，不会硬扛"
+      "background_declaration": "写代码时容易进入心流忘记时间，但身体会诚实地发出信号——饿了就一定要吃东西，不会硬扛",
+      "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
     },
     {
       "name": "price-comparison",
       "agent_id": 2,
       "preconditions": {
         "at": "2026-01-05T12:00:00+08:00",
-        "location_id": "home",
+        "location_id": "cafe",
         "notifications": [],
         "inventory": {}
       },
       "chain": [
         {
           "kind": "purchase",
-          "object_id": "item-notebook",
-          "way": "远程下单",
+          "object_id": "lemon-tea",
+          "way": "购买",
           "prefer": "到手价最低"
         }
       ],
-      "background_declaration": "消费偏节俭，比价后才买"
+      "background_declaration": "消费偏节俭，比价后才买",
+      "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
     },
     {
       "name": "chen-stop-working",
@@ -693,7 +632,7 @@
         },
         {
           "kind": "work",
-          "object_id": "task-2026-01-05",
+          "object_id": "topic-sales",
           "way": "工作",
           "agent_id": 1,
           "complete": false
@@ -704,7 +643,8 @@
           "way": "步行"
         }
       ],
-      "background_declaration": "不会为了赶 deadline 连续加班到深夜"
+      "background_declaration": "不会为了赶 deadline 连续加班到深夜",
+      "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
     },
     {
       "name": "lifan-late-bedtime",
@@ -723,7 +663,8 @@
           "way": "睡觉"
         }
       ],
-      "background_declaration": "睡眠偏晚，经常凌晨一点才睡"
+      "background_declaration": "睡眠偏晚，经常凌晨一点才睡",
+      "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
     },
     {
       "name": "chen-night-rest",
@@ -742,7 +683,190 @@
           "way": "睡觉"
         }
       ],
-      "background_declaration": "不会为了赶 deadline 连续加班到深夜"
+      "background_declaration": "不会为了赶 deadline 连续加班到深夜",
+      "native_scope": "Only native action, payment, food, place, contact, topic and app interval facts are asserted."
     }
-  ]
+  ],
+  "retired_declarations": [
+    {
+      "agent_id": 1,
+      "habit": {
+        "trigger": "通勤时",
+        "response": "听播客",
+        "time_window": {
+          "start_hour": 7.5,
+          "end_hour": 9.0
+        }
+      },
+      "removed_contract": "Frozen ContentKind contains no audio or podcast; direct media targets are removed.",
+      "case_names": [
+        "commute-podcast"
+      ]
+    },
+    {
+      "agent_id": 2,
+      "habit": {
+        "trigger": "深夜",
+        "response": "打游戏",
+        "time_window": {
+          "start_hour": 23.0,
+          "end_hour": 25.0
+        }
+      },
+      "removed_contract": "Frozen activity model removes games and TextWorld.",
+      "case_names": [
+        "late-game",
+        "weekend-game"
+      ]
+    }
+  ],
+  "catalog_food_declarations": [
+    {
+      "food_id": "water",
+      "name": "饮用水",
+      "category": "drink",
+      "price_fen": 200,
+      "store_ids": "all"
+    },
+    {
+      "food_id": "milk",
+      "name": "牛奶",
+      "category": "drink",
+      "price_fen": 600,
+      "store_ids": "all"
+    },
+    {
+      "food_id": "nuts",
+      "name": "坚果",
+      "category": "snack",
+      "price_fen": 1500,
+      "store_ids": "all"
+    },
+    {
+      "food_id": "iced-tea",
+      "name": "冰红茶",
+      "category": "drink",
+      "price_fen": 500,
+      "store_ids": "all"
+    }
+  ],
+  "scenario_agent_declarations": {
+    "1": {
+      "background_story": "工作再忙也会按时吃午饭和晚饭；下班后偶尔约同事吃饭；周末打 Switch 或看 Netflix；社交活跃，微信好友多，喜欢在知乎分享产品心得；不会为了赶 deadline 连续加班到深夜。这是人工声明的日常习惯测试人物，动作回放只验证当前环境实际提供的食品购买、应用使用、工作、联系与休息。品牌、温度和人物散文不会额外产生物理属性或未发生的行为。",
+      "health_habits": "习惯文字只提供人物动机，实际足迹来自原生动作结算。",
+      "contacts": [
+        {
+          "contact_id": "contact-chenxi-colleague",
+          "salutation": "同事",
+          "relation": "同事",
+          "closeness": 16,
+          "channels": [
+            "phone",
+            "message"
+          ],
+          "reply_policy": "none"
+        },
+        {
+          "contact_id": "contact-chenxi-oldfriend",
+          "salutation": "老友",
+          "relation": "朋友",
+          "closeness": 16,
+          "channels": [
+            "phone",
+            "message"
+          ],
+          "reply_policy": "none"
+        }
+      ],
+      "work_topic_ids": [
+        "topic-sales"
+      ],
+      "work_schedule": {
+        "workplace_location_id": "office",
+        "weekly": {
+          "0": {
+            "breaks": [],
+            "starts": 540,
+            "ends": 1080
+          },
+          "1": {
+            "breaks": [],
+            "starts": 540,
+            "ends": 1080
+          },
+          "2": {
+            "breaks": [],
+            "starts": 540,
+            "ends": 1080
+          },
+          "3": {
+            "breaks": [],
+            "starts": 540,
+            "ends": 1080
+          },
+          "4": {
+            "breaks": [],
+            "starts": 540,
+            "ends": 1080
+          },
+          "5": null,
+          "6": null
+        },
+        "exceptions": {}
+      }
+    },
+    "2": {
+      "background_story": "习惯点外卖解决三餐，偏爱面食和牛肉类食品，常选方便面或牛肉面；喜欢喝冰红茶；压力大时会找老友倾诉而不是憋着；写代码时容易进入心流忘记时间，但身体会诚实地发出信号——饿了就一定要吃东西，不会硬扛；消费偏节俭，比价后才买；睡眠偏晚，经常凌晨一点才睡。这是人工声明的日常习惯测试人物，动作回放只验证当前环境实际提供的食品购买、应用使用、工作、联系与休息。品牌、温度和人物散文不会额外产生物理属性或未发生的行为。",
+      "health_habits": "习惯文字只提供人物动机，实际足迹来自原生动作结算。",
+      "contacts": [
+        {
+          "contact_id": "contact-lifan-oldfriend",
+          "salutation": "老友",
+          "relation": "朋友",
+          "closeness": 16,
+          "channels": [
+            "phone",
+            "message"
+          ],
+          "reply_policy": "none"
+        }
+      ],
+      "work_topic_ids": [
+        "topic-sales"
+      ],
+      "work_schedule": {
+        "workplace_location_id": "office",
+        "weekly": {
+          "0": {
+            "breaks": [],
+            "starts": 540,
+            "ends": 1080
+          },
+          "1": {
+            "breaks": [],
+            "starts": 540,
+            "ends": 1080
+          },
+          "2": {
+            "breaks": [],
+            "starts": 540,
+            "ends": 1080
+          },
+          "3": {
+            "breaks": [],
+            "starts": 540,
+            "ends": 1080
+          },
+          "4": {
+            "breaks": [],
+            "starts": 540,
+            "ends": 1080
+          },
+          "5": null,
+          "6": null
+        },
+        "exceptions": {}
+      }
+    }
+  }
 }

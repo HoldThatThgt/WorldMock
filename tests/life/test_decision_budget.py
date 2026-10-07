@@ -11,11 +11,12 @@ import json
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import (activity_name, advance_next, conclude_request, context, stage_day_plan,
-                                 start_activity)
-from tests.life.test_same_moment_decisions import (_act, _blocked_until_limit, _content, _finish, _invalid_start,
-                                                   _other_requests, _start, _two_paused, _wait)
+from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
+                                 pause_request, stage_day_plan, start_activity, wake_by_mail)
+from tests.life.test_same_moment_decisions import (_act, _content, _finish, _invalid_start, _other_requests,
+                                                   _start)
 from worldmock.footprints.quality import build_quality_report
+from tests.life.test_same_moment_decisions import _contacts
 from worldmock.life import same_moment
 from worldmock.life.models import ActivityStatus, AgentState, SameMomentStage, active_activities
 
@@ -38,7 +39,7 @@ def test_restricted_rounds_used_up_without_an_activity_pause_technically(engine_
     """同一秒上限加三轮都被拒且没有进行中活动：最后一轮之后写 decision_budget_exhausted（system，带最近的拒绝码与下一次
     决策时刻），不造等待或任何活动，下一次决策排在一个结算间隔之后；时钟推进，身体按静息结算（没有活动的共同身体结算），
     推进后同刻轮数与阶段复位、边界兜底给出 no_active_activity；没有 run_failed，质量报告计一次，进度层不出现这次停顿。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     now, limit = engine.context.state.current_time, engine.context.scenario.max_same_moment_decisions
     feedback = engine.context.scenario.activity_feedback_seconds
@@ -81,34 +82,42 @@ def test_restricted_rounds_used_up_without_an_activity_pause_technically(engine_
 
 
 def test_a_successful_last_restricted_round_carries_the_latest_rejection_code(engine_factory) -> None:
-    """两个名额都被暂停活动占着：受限轮里越界两次，最后一个受限轮结束其中一项（受理）后仍没有进行中活动，预算耗尽；
-    事件带本秒最近一次的拒绝码（SAME_MOMENT_ACTION_RESTRICTED），另一项仍暂停，环境不替人物恢复或开始任何活动。"""
-    engine = engine_factory()
+    """等待到点待收尾、观看已暂停：同一秒做别的被拒到上限（ACTIVITY_CONCLUSION_REQUIRED），收尾阶段里越界两次，最后一个
+    受限轮收尾（受理）后仍没有进行中活动，预算耗尽；事件带本秒最近一次的拒绝码（SAME_MOMENT_ACTION_RESTRICTED），暂停的
+    观看仍暂停，环境不替人物恢复或开始任何活动。"""
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
-    first, second, now = _two_paused(engine, "latest")
+    wait_id, watch_id = _start(engine, "latest-start", ("自己", "等待"), _content(engine, "latest"))
+    wake_by_mail(engine, offset=60)
+    assert advance_until_ready(engine)
+    assert _act(engine, "latest-pause", "pause_activity", pause_request(
+        activity_name(engine, watch_id), summary="先停一下。")).status == "completed"
+    _finish(engine, wait_id, "latest")
+    now, limit = engine.context.state.current_time, engine.context.scenario.max_same_moment_decisions
     feedback = engine.context.scenario.activity_feedback_seconds
-    _blocked_until_limit(engine, "latest")
-    for index in range(2):
-        assert _wait(engine, f"latest-outside-{index}").error_code == _RESTRICTED
+    codes = [_act(engine, f"latest-other-{index}", *_other_requests()[index % 2]).error_code
+             for index in range(limit + 2)]
+    assert codes == ["ACTIVITY_CONCLUSION_REQUIRED"] * limit + [_RESTRICTED] * 2
     assert not _exhausted(engine)
-    ended = _act(engine, "latest-conclude", "conclude_activity", conclude_request(activity_name(engine, first)))
-    assert ended.status == "completed"
+    ended = _act(engine, "latest-conclude", "conclude_activity", conclude_request(activity_name(engine, wait_id)))
+    assert ended.status == "completed" and engine.context.state.agents[1].same_moment_rounds == limit + 3
     (event,) = _exhausted(engine)
     assert event.data == {"kind": _KIND, "error_code": _RESTRICTED, "next_decision_at": now + feedback}
     assert engine.context.state.agents[1].next_decision_at == now + feedback
-    assert engine.context.state.activities[second].status == ActivityStatus.PAUSED and not active_activities(engine.context.state, 1)
+    assert engine.context.state.activities[watch_id].status == ActivityStatus.PAUSED
+    assert not active_activities(engine.context.state, 1)
     advance_next(engine)
     assert engine.context.state.current_time > now
-    assert engine.context.state.activities[second].status == ActivityStatus.PAUSED
+    assert engine.context.state.activities[watch_id].status == ActivityStatus.PAUSED
 
 
 def test_a_replayed_rejection_in_the_last_restricted_round_exhausts_the_budget(engine_factory) -> None:
     """重放计入同刻轮数：最后一个受限轮是一次被拒动作的幂等重放（同一动作身份、新的决策），按存档结果排期，预算耗尽，
     事件随重放的证据一起提交，带存档的拒绝码。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     now, limit = engine.context.state.current_time, engine.context.scenario.max_same_moment_decisions
-    request = start_activity("观看", "不存在的对象")
+    request = start_activity("打开", "不存在的对象")
     for round_number in range(1, limit + 3):
         assert _act(engine, f"replay-{round_number}", "start_activity", request).status == "rejected"
     decision = context(engine, "replay-again")
@@ -128,7 +137,7 @@ def test_a_replayed_rejection_in_the_last_restricted_round_exhausts_the_budget(e
 def test_budget_exhausted_with_a_pending_conclusion_beside_a_running_activity(engine_factory) -> None:
     """等待到点待收尾、观看仍在进行：人物一直做别的，上限加三轮之后仍有待收尾活动，预算同样耗尽（同一秒的轮数不超过上限
     加三）；观看继续进行，待收尾活动保留到下一次决策，时钟推进，没有 run_failed。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     wait_id, watch_id = _start(engine, "beside-start", ("自己", "等待"), _content(engine, "beside"))
     _finish(engine, wait_id, "beside")

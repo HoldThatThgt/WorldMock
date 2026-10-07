@@ -19,7 +19,6 @@ from worldmock.life.retrieval import (
     RetrievalQuery,
     build_index,
     duration_bucket,
-    entry_from_content,
     facet_counts,
     feasible_kinds,
     genre_values,
@@ -60,15 +59,6 @@ def test_genre_values_normalises_order_and_duplicates():
     assert genre_values(None) == ()
 
 
-def test_entry_from_content_reads_duration_and_falls_back_to_read_seconds():
-    """时长优先 duration_seconds；阅读类条目退到 estimated_read_seconds。"""
-    movie = entry_from_content("movie-1", "movies/items.json",
-                               {"genre": ["剧情"], "language": "zh", "duration_seconds": 6780})
-    joke = entry_from_content("joke-1", "jokes/items.json",
-                              {"genre": ["幽默"], "language": "zh", "estimated_read_seconds": 29})
-    assert movie.duration_seconds == 6780
-    assert movie.partition == ("剧情", "zh", "1-2h")
-    assert joke.partition == ("幽默", "zh", "under-1h")
 
 
 def test_entry_partition_reports_missing_dimensions():

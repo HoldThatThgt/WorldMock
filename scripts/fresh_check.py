@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.bootstrap_environment import environment_python, python312
+from scripts.bootstrap_environment import environment_python, python_command
 
 QUICK_TESTS = (
     "tests/test_single_source.py", "tests/test_bootstrap.py", "tests/test_fresh_check.py",
@@ -23,7 +23,8 @@ QUICK_TESTS = (
     "tests/test_shared_primitives.py", "tests/test_shared_model_clients.py",
     "tests/evaluation/test_shared_event_parsing.py", "tests/test_shared_rules_spec.py",
     "tests/test_environment_profiles.py", "tests/as2", "tests/integration/test_external_environment_lifecycle.py",
-    "tests/life/test_environment_effects.py", "tests/life/test_content_catalog_titles.py",
+    "tests/life/test_environment_effects.py", "tests/catalog/test_loader.py",
+    "tests/life/test_app_progress.py", "tests/life/test_app_push.py",
 )
 
 
@@ -39,7 +40,8 @@ def check_environment() -> dict[str, str]:
 def quick_check(root: Path, profile: str, environment: dict) -> dict:
     """@brief 真实执行固定快速检查并读取实际导入源码的运行身份。"""
     python = environment_python(root / ".venv")
-    command = [str(python), "-m", "pytest", "-q", f"--environment-profile={profile}", *QUICK_TESTS]
+    command = [str(python), "-m", "pytest", "-q", f"--environment-profile={profile}",
+               "-p", "no:cacheprovider", *QUICK_TESTS]
     subprocess.run(command, cwd=root, env=environment, check=True)
     source = "from pathlib import Path; from worldmock.run_setup import runtime_code_sha256; "
     source += "print(runtime_code_sha256(Path('.')))"
@@ -57,7 +59,7 @@ def fresh_check(repository: str, commit: str, profile: str = "release", wheelhou
         subprocess.run(["git", "clone", "--no-recurse-submodules", "--no-local", "--no-checkout",
                         repository, str(checkout)], env=environment, check=True)
         subprocess.run(["git", "checkout", "--detach", commit], cwd=checkout, env=environment, check=True)
-        command = [*python312(), "scripts/bootstrap.py", "--profile", profile]
+        command = [*python_command(), "scripts/bootstrap.py", "--profile", profile]
         if wheelhouse is not None:
             command.extend(["--wheelhouse", str(wheelhouse.resolve())])
         subprocess.run(command, cwd=checkout, env=environment, check=True)

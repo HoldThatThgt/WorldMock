@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.life.test_scheduling import _identity
+from tests.integration.test_external_environment_lifecycle import _identity
 from tests.engine_fixture import (_mutated_scenario)  # noqa: F401
 from worldmock.errors import IntegrityError
 from worldmock.life import world_setup
@@ -18,12 +18,14 @@ def test_formal_factory_worlds_and_storage_are_independent(engine_factory, froze
     first = engine_factory()
     count = len(frozen_inputs.records)
     second = engine_factory()
-    first.context.scenario.agents[0].skill_levels["office"] = 99
+    original_energy = second.context.state.agents[1].body.energy_kcal
+    first.context.state.agents[1].body.energy_kcal = 1
     first.context.state.accounts[next(iter(first.context.state.accounts))] = 99
     assert first.context.scenario is not second.context.scenario
     assert first.context.store.run_dir != second.context.store.run_dir
     assert first.context.state is not second.context.state
-    assert second.context.scenario.agents[0].skill_levels.get("office") != 99
+    assert first.context.scenario.body is not second.context.scenario.body
+    assert second.context.state.agents[1].body.energy_kcal == original_energy
     assert len(frozen_inputs.records) == count
 
 
@@ -50,17 +52,17 @@ def test_direct_create_and_open_still_run_real_loaders_after_cache_use(engine_fa
             return _original(*arguments, **keywords)
 
         monkeypatch.setattr(world_setup, name, checked)
-    engine = LifeEngine.create(path, tmp_path / "direct", _identity(document, "direct"))
+    engine = LifeEngine.create(path, tmp_path / "direct", _identity(path))
     engine.close()
     reopened = LifeEngine.open(path, tmp_path / "direct")
     reopened.close()
     assert calls.count("load_runtime_scenario") == 2
-    assert calls.count("load_manifest") == 2
-    invalid = _identity(document, "invalid").model_copy(update={"agent_ids": (999,)})
+    assert calls.count("load_manifest") == 4
+    invalid = _identity(path).model_copy(update={"agent_ids": (999,)})
     with pytest.raises(IntegrityError, match="agent ids disagree"):
         LifeEngine.create(path, tmp_path / "invalid", invalid)
     assert calls.count("load_runtime_scenario") == 3
-    assert calls.count("load_manifest") == 3
+    assert calls.count("load_manifest") == 6
 
 
 def test_uncached_input_manifest_and_restore_identity_are_actually_validated(engine_factory, tmp_path):

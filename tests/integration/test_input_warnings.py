@@ -12,7 +12,6 @@ from tests.data_paths import ENVIRONMENT_ROOT
 import worldmock.run_setup as worldmock_run_setup_module
 
 import copy
-import hashlib
 import json
 import logging
 import os
@@ -52,14 +51,16 @@ _RHYTHM_KEYS = ["wake", "leave_home", "lunch", "leave_work", "arrive_home", "din
                 "sleep_need"]
 #: 写明下班与到家时刻的背景故事（真实抽取的输入；响应由脚本化会话给出）。
 _WORK_STORY = "陈曦在张江做产品经理，每天六点下班，七点到家。"
+_BACKGROUND_STORY = "陈曦在上海工作和生活，会按自己的作息安排工作、用餐、休息与应用使用。" * 5
 
 
 def _scenario(tmp_path: Path, **declared) -> Path:
-    """正式场景的副本：人物 1 只显式声明给出的作息字段（其余作息字段从文档删去）。"""
+    """正式场景的副本：人物带可编译故事，只显式声明给出的作息字段。"""
     def mutate(document: dict) -> None:
         agent = document["agents"][0]
         for name in _RHYTHM:
             agent.pop(name, None)
+        agent["background_story"] = _BACKGROUND_STORY
         agent.update(declared)
     return _mutated_scenario(SCENARIO, mutate, tmp_path / "scenario")
 
@@ -113,11 +114,6 @@ def _platform_card():
                      tastes=Tastes(content_genres=("B站视频",), food_preferences=("冰美式咖啡",), media=("B站",)))
 
 
-def _app_card():
-    """媒介只写应用名「B站」、习惯与其余口味在世界里都有的卡片：应用别名计入时四项全覆盖，不计时 3/4 低于 80%。"""
-    return make_card(habits=(HabitSignature(trigger="下班到家", response="去紫薇公园散步",
-                                            time_window=make_window(19.0, 20.0)),),
-                     tastes=Tastes(content_genres=("悬疑",), food_preferences=("牛肉炒面",), media=("B站",)))
 
 
 async def _create_run(tmp_path: Path, monkeypatch, scenario_path: Path, extraction: PersonaExtraction) -> dict:
@@ -140,7 +136,7 @@ async def _create_run(tmp_path: Path, monkeypatch, scenario_path: Path, extracti
     monkeypatch.setattr(worldmock_run_setup_module, 'creation_inputs', recording)
     monkeypatch.setenv("WORKSPACE_PATH", str(ROOT))
     monkeypatch.setattr(llm_dispatcher, "build_client_for_role", lambda role: role)
-    monkeypatch.setattr(runtime, "life_env_actor_class",
+    monkeypatch.setattr(read_query_runtime, "life_env_actor_class",
                         lambda: SimpleNamespace(remote=lambda spec: (captured.__setitem__("actor", spec), "actor")[1]))
     prepared = runtime._prepare_new_run(runtime.RunRequest(ROOT, scenario_path, tmp_path / "run", "warned", "warned"))
     runtime._build_society(prepared)
@@ -150,80 +146,12 @@ async def _create_run(tmp_path: Path, monkeypatch, scenario_path: Path, extracti
     return {"prepared": prepared, "env": env, "options": options["create_options"], **captured}
 
 
-def _map_variant(tmp_path: Path, rename: tuple[str, str], unknown_route: tuple[str, str]) -> Path:
-    """正式场景的副本，改用一份隔离语料：地点改显示名、一条驾车路线改成 unknown，按真实准入重新钉扎地图与语料清单。"""
-    document = json.loads(SCENARIO.read_text(encoding="utf-8"))
-    dataset_path = document["map_dataset"]["path"]
-    corpus = tmp_path / "corpora"
-    shutil.copytree(ENVIRONMENT_ROOT / "corpora", corpus)
-    places = json.loads((corpus / "zhangjiang-map/locations.json").read_text(encoding="utf-8"))
-    next(item for item in places["locations"] if item["location_id"] == rename[0])["name"] = rename[1]
-    routes = json.loads((corpus / "zhangjiang-map/routes.json").read_text(encoding="utf-8"))
-    route = next(item for item in routes["routes"]
-                 if (item["origin_id"], item["destination_id"], item["mode"]) == (*unknown_route, "driving"))
-    route.update(status="unknown", reason="route not prepared for this test", distance_meters=None,
-                 duration_seconds=None, fare_fen=None, response_path=None, response_sha256=None)
-    dataset = json.loads((corpus / dataset_path).read_text(encoding="utf-8"))
-    dataset["locations_file"]["sha256"] = _rewrite(corpus / "zhangjiang-map/locations.json", places)
-    dataset["routes_file"]["sha256"] = _rewrite(corpus / "zhangjiang-map/routes.json", routes)
-    dataset_sha = _rewrite(corpus / dataset_path, dataset)
-    manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
-    for entry in manifest["entries"]:
-        if entry["path"] in {dataset_path, "zhangjiang-map/locations.json", "zhangjiang-map/routes.json"}:
-            path = corpus / entry["path"]
-            entry.update(sha256=hashlib.sha256(path.read_bytes()).hexdigest(), size_bytes=path.stat().st_size)
-    document.update(corpus_root="../corpora", corpus_manifest_sha256=_rewrite(corpus / "manifest.json", manifest))
-    document["map_dataset"]["sha256"] = dataset_sha
-    shutil.copytree(ENVIRONMENT_ROOT / "catalog", tmp_path / "catalog")
-    (tmp_path / "scenarios").mkdir()
-    path = tmp_path / "scenarios" / "map-variant.json"
-    _rewrite(path, document)
-    return path
 
 
-#: 登记进隔离语料的手机配置（语料根内的相对路径）。
-_PHONE = "scenario-phone/phone-simulation.json"
 
 
-def _phone_variant(tmp_path: Path, failure: str) -> Path:
-    """正式场景的副本，改用一份隔离语料并钉定一份手机配置（观看应用的别名是「B站」），按真实准入重新钉扎语料清单。
-
-    failure 是数据集改了一边、没同步另一边的两种核验失败：stale-pin 为场景钉的是配置重生成之前的哈希（身份核验失败），
-    seller-without-supply 为配置把购买应用映射到本场景没有供给的卖方（执行证据核验失败）。
-    """
-    document = json.loads(SCENARIO.read_text(encoding="utf-8"))
-    dataset_path = document["map_dataset"]["path"]
-    corpus = tmp_path / "corpora"
-    shutil.copytree(ENVIRONMENT_ROOT / "corpora", corpus)
-    document = json.loads(SCENARIO.read_text(encoding="utf-8"))
-    sellers = {"merchant:grocery": "hema"}
-    if failure == "seller-without-supply":
-        sellers["merchant:closed-last-month"] = "meituan-takeaway"
-    config = {"schema_version": 1, "scenario_id": document["scenario_id"], "agent_id": 1,
-              "timezone": document["timezone"], "activity_apps": {"watch": "bilibili"},
-              "purchase_apps_by_seller": sellers,
-              "app_display_names": {"bilibili": ["B站", "哔哩哔哩"], "hema": ["盒马App"], "meituan-takeaway": ["美团外卖"]}}
-    (corpus / _PHONE).parent.mkdir()
-    digest = _rewrite(corpus / _PHONE, config)
-    manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
-    manifest["entries"].append({
-        "entry_id": "scenario-phone:phone-simulation.json", "path": _PHONE, "sha256": digest,
-        "size_bytes": (corpus / _PHONE).stat().st_size, "media_type": "application/json", "purpose": "phone simulation",
-        "source": {"kind": "scenario", "license": "WorldMock-project", "selector": "complete frozen file"}})
-    pin = hashlib.sha256(b"phone config before regeneration").hexdigest() if failure == "stale-pin" else digest
-    document.update(corpus_root="../corpora", corpus_manifest_sha256=_rewrite(corpus / "manifest.json", manifest),
-                    phone_simulation_config=_PHONE, phone_simulation_config_sha256=pin)
-    shutil.copytree(ENVIRONMENT_ROOT / "catalog", tmp_path / "catalog")
-    (tmp_path / "scenarios").mkdir()
-    path = tmp_path / "scenarios" / "phone-variant.json"
-    _rewrite(path, document)
-    return path
 
 
-def _rewrite(path: Path, value: dict) -> str:
-    """写入隔离目录中的 JSON，返回新字节的 SHA-256。"""
-    path.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _persona_layer(profile: dict) -> dict:
@@ -253,18 +181,18 @@ def _validate_root(tmp_path: Path) -> Path:
 
 async def test_run_creation_freezes_input_warnings_into_the_manifest_ops_log_and_quality_report(
         tmp_path, monkeypatch) -> None:
-    """输入警告：新建运行时逐条计算，冻结进清单 input_warnings（清单版本 2）、逐条写一条 runtime 组件的 warn 级 ops 记录，
-    导出后 quality.json（结构版本 3）的 input_warnings 一节按码计数；题材对不上、权重全零、覆盖率低于 80% 与编译一致性
+    """输入警告：新建运行时逐条计算，冻结进结构三清单并逐条写一条 runtime 组件的 warn 级 ops 记录；
+    导出后结构五 quality.json 的 input_warnings 一节按码计数；题材对不上、覆盖率低于 80% 与编译一致性
     偏低都不使创建失败，运行照常推进。"""
     path = _scenario(tmp_path, chronotype_midsleep=4.75)
     created = await _create_run(tmp_path, monkeypatch, path, _extraction(_platform_card(), ("habits",)))
     env, warnings = created["env"], created["warnings"]
     try:
         manifest = env.engine.context.store.manifest
-        assert manifest["schema_version"] == 2
+        assert manifest["schema_version"] == 3
         assert manifest["input_warnings"] == warnings == created["options"]["input_warnings"]
         codes = [item["code"] for item in warnings]
-        assert {"TASTE_GENRES_UNMATCHED", "CONTENT_WEIGHTS_ALL_ZERO", "COVERAGE_BELOW_THRESHOLD",
+        assert {"COVERAGE_BELOW_THRESHOLD",
                 "CARD_FIELD_OVERRIDDEN", "PERSONA_AGREEMENT_LOW"} <= set(codes)
         assert [item["details"]["field"] for item in warnings if item["code"] == "CARD_FIELD_OVERRIDDEN"] == [
             "chronotype_midsleep"]
@@ -282,33 +210,12 @@ async def test_run_creation_freezes_input_warnings_into_the_manifest_ops_log_and
     finally:
         await env.close()
     section = quality["input_warnings"]
-    assert quality["schema_version"] == 4 and section["recorded"] is True
+    assert quality["schema_version"] == 5 and section["recorded"] is True
     assert section["warning_count"] == len(warnings)
     assert section["code_counts"] == {code: codes.count(code) for code in INPUT_WARNING_CODES}
     assert section["agent_counts"] == {"1": len(warnings)} and section["scenario_warning_count"] == 0
 
 
-async def test_map_problems_are_frozen_as_scenario_warnings_and_creation_still_succeeds(tmp_path, monkeypatch) -> None:
-    """裁决 D19（规格 8.1）：地点显示名带坐标、配送门店到声明目的地的驾车路线是 unknown 都只发场景级输入警告——
-    真实新建路径照常建立运行，清单冻结 LOCATION_NAME_SUSPICIOUS 与 DELIVERY_ROUTE_UNAVAILABLE（列出受影响的供给）。"""
-    path = _map_variant(tmp_path, ("poi-1868478037", "篮球场（31.2, 121.5）"), ("market", "poi-1868478037"))
-    created = await _create_run(tmp_path, monkeypatch, path, _extraction(make_card()))
-    env = created["env"]
-    try:
-        manifest = env.engine.context.store.manifest
-        loaded = {(item.origin_id, item.destination_id, item.mode): item.status for item in env.engine.context.scenario.routes}
-        names = {item.location_id: item.name for item in env.engine.context.scenario.locations}
-    finally:
-        await env.close()
-    assert loaded[("market", "poi-1868478037", "driving")] == "unknown"
-    assert names["poi-1868478037"] == "篮球场（31.2, 121.5）"
-    scenario_level = [item for item in manifest["input_warnings"] if item["agent_id"] is None]
-    assert [item["code"] for item in scenario_level] == ["DELIVERY_ROUTE_UNAVAILABLE", "LOCATION_NAME_SUSPICIOUS"]
-    route, name = (item["details"] for item in scenario_level)
-    assert (route["location_id"], route["destination_id"], route["route_status"]) == ("market", "poi-1868478037",
-                                                                                         "unknown")
-    assert len(route["supply_ids"]) == 138 and route["supply_ids"] == sorted(route["supply_ids"])
-    assert name == {"location_id": "poi-1868478037", "name": "篮球场（31.2, 121.5）", "patterns": ["coordinates"]}
 
 
 async def test_validate_prints_the_same_warnings_the_run_froze(tmp_path, monkeypatch, capsys, caplog) -> None:
@@ -317,9 +224,9 @@ async def test_validate_prints_the_same_warnings_the_run_froze(tmp_path, monkeyp
     import worldmock.validation as validation
     from worldmock.cli import main
 
-    covered = make_card(habits=(HabitSignature(trigger="下班到家", response="去紫薇公园散步",
+    covered = make_card(habits=(HabitSignature(trigger="下班到家", response="去五里公园散步",
                                                time_window=make_window(19.0, 20.0)),),
-                        tastes=Tastes(content_genres=("悬疑",), food_preferences=("牛肉炒面",), media=("电影",)))
+                        tastes=Tastes(content_genres=("悬疑",), food_preferences=("牛肉面",), media=("长视频",)))
     extraction = _extraction(covered, ("coping",))
     compiled = _compiled(extraction)
     path = _scenario(tmp_path, **_WC_RHYTHM)
@@ -369,50 +276,6 @@ def test_validate_still_fails_below_the_coverage_threshold_after_printing_the_wa
     assert failures and isinstance(failures[-1].exc_info[1], PersonaCoverageError)
 
 
-@pytest.mark.parametrize(("failure", "reason"), [
-    ("stale-pin", "Phone simulation config identity is invalid"),
-    ("seller-without-supply", "Phone purchase app is not executable"),
-], ids=["stale-pin", "seller-without-supply"])
-async def test_a_phone_config_that_fails_verification_never_fails_run_creation(
-        tmp_path, monkeypatch, capsys, caplog, failure: str, reason: str) -> None:
-    """运行路径永不因输入警告失败（规格 1.3，实施计划「不新增故障路径」）：场景钉定的手机配置核验失败时，真实新建照常
-    建立运行——覆盖率按没有应用别名计算，只写应用名「B站」的媒介不算覆盖，清单冻结 COVERAGE_BELOW_THRESHOLD（ops 记录
-    逐条相同），并写一条英文 warning 日志；同一场景的 worldmock validate 照旧因手机配置核验失败而失败（非零退出、
-    不输出结果）。"""
-    import worldmock.validation as validation
-    from worldmock.cli import main
-
-    extraction = _extraction(_app_card())
-    path = _phone_variant(tmp_path, failure)
-    with caplog.at_level(logging.WARNING):
-        created = await _create_run(tmp_path, monkeypatch, path, extraction)
-    try:
-        frozen = created['env'].engine.context.store.manifest["input_warnings"]
-    finally:
-        await created["env"].close()
-    degraded = [record for record in caplog.records if record.name == "worldmock.run_setup"]
-    assert [(record.levelname, record.getMessage()) for record in degraded] == [
-        ("WARNING", f"Phone simulation config failed verification; run coverage counts no app names: {reason}")]
-    assert frozen == created["warnings"]
-    coverage = [item["details"] for item in frozen if item["code"] == "COVERAGE_BELOW_THRESHOLD"]
-    assert [(item["executable_ratio"], item["missing"]) for item in coverage] == [
-        (0.75, [{"kind": "media", "value": "B站"}])]
-    logged = [json.loads(line) for day in sorted((tmp_path / "run" / "logs").glob("ops-*.jsonl"))
-              for line in day.read_text(encoding="utf-8").splitlines()]
-    assert [row["code"] for row in logged if row["component"] == "runtime" and row["level"] == "warn"] == [
-        item["code"] for item in frozen]
-
-    monkeypatch.setattr(worldmock_run_setup_module, "_configure_process", lambda _root: None)
-    monkeypatch.setattr(validation, "_compile_persona", lambda story: _compiled(extraction))
-    caplog.clear()
-    with caplog.at_level(logging.WARNING):
-        code = main(["--project-root", str(_validate_root(tmp_path)), "validate", "--scenario", str(path),
-                     "--coverage-out", str(tmp_path / "coverage.json")])
-
-    assert code == 1 and capsys.readouterr().out == ""
-    failures = [record.exc_info[1] for record in caplog.records if record.exc_info]
-    assert failures and type(failures[-1]) is IntegrityError and str(failures[-1]) == reason
-    assert not (tmp_path / "coverage.json").exists()
 
 
 async def test_a_scenario_declaring_only_the_midpoint_changes_only_the_midpoint_in_the_request(
@@ -553,7 +416,7 @@ async def test_a_conflicting_scenario_work_window_keeps_the_null_card_slot_and_i
     conflicts = [item for item in frozen if item["code"] == "CARD_FIELD_CONFLICT"]
     assert [item["details"] for item in conflicts] == [{"field": "leave_work_window", "card_value": None,
                                                         "scenario_value": [6.0, 6.5], "reason": "anchor_order"}]
-    assert conflicts[0]["agent_id"] == 1 and conflicts[0]["message"].endswith("保留卡片值 null。")
+    assert conflicts[0]["agent_id"] == 1 and conflicts[0]["message"].endswith("keeping card value null.")
     assert [item for item in frozen if item["code"] == "CARD_FIELD_OVERRIDDEN"] == []
     assert profile["persona_card_struct"]["time_anchors"]["leave_work"] is None
     assert _persona_layer(profile)["rhythm"]["leave_work"] is None
@@ -596,8 +459,16 @@ async def test_a_demotion_note_is_frozen_as_a_compiler_warning_that_does_not_bla
 
     compiler = [item for item in frozen if item["code"] == "PERSONA_AGREEMENT_LOW"]
     assert [(item["agent_id"], item["details"]) for item in compiler] == [(1, {"compiler_warning": note})]
-    assert compiler[0]["message"] == f"画像编译留下警告：{note}。" and "一致性" not in compiler[0]["message"]
-    assert {item["code"] for item in frozen} <= set(INPUT_WARNING_CODES) and len(INPUT_WARNING_CODES) == 10
+    assert compiler[0]["message"] == f"Persona compilation warning: {note}." and "一致性" not in compiler[0]["message"]
+    assert set(INPUT_WARNING_CODES) == {
+        "CONTENT_EMPTY_WITH_MEDIA_TASTES",
+        "COVERAGE_BELOW_THRESHOLD",
+        "CARD_FIELD_OVERRIDDEN",
+        "CARD_FIELD_CONFLICT",
+        "PERSONA_AGREEMENT_LOW",
+        "LOCATION_NAME_SUSPICIOUS",
+    }
+    assert {item["code"] for item in frozen} <= set(INPUT_WARNING_CODES)
     assert profile["persona_card_struct"]["time_anchors"]["leave_work"] is None
     assert _persona_layer(profile)["rhythm"]["leave_work"] is None
 
@@ -624,7 +495,7 @@ async def test_every_compiler_warning_reaches_the_manifest_and_the_ops_log_in_co
     compiler = [item for item in frozen if item["code"] == "PERSONA_AGREEMENT_LOW"]
     assert [(item["agent_id"], item["details"]) for item in compiler] == [
         (1, {"compiler_warning": text}) for text in expected]
-    assert [item["message"] for item in compiler] == [f"画像编译留下警告：{text}。" for text in expected]
+    assert [item["message"] for item in compiler] == [f"Persona compilation warning: {text}." for text in expected]
     logged = [json.loads(line) for day in sorted((tmp_path / "run" / "logs").glob("ops-*.jsonl"))
               for line in day.read_text(encoding="utf-8").splitlines()]
     assert [row["details"] for row in logged if row["component"] == "runtime" and row["level"] == "warn"
@@ -693,25 +564,55 @@ async def test_scenario_windows_that_each_fit_alone_but_not_together_land_in_slo
     assert (rhythm["leave_work"], rhythm["bedtime"]) == ("22点到22点半", "23点到0点")
 
 
+def _parent_with_card(root: Path, scenario_path: Path, struct: dict, run_id: str):
+    """建立带当前身份、真实场景和指定结构化卡片的可恢复父运行。"""
+    from tests.integration.runtime_fixtures import current_run_identity, write_agent_workspace
+    from worldmock.footprints.checkpoint import snapshot_directory
+    from worldmock.life.engine import LifeEngine
+    from worldmock.life.world_setup import load_runtime_scenario
+    from worldmock.run_setup import stage_model_identity
+
+    semantics, _ = load_runtime_scenario(scenario_path)
+    engine = LifeEngine.create(
+        scenario_path,
+        root / "parent",
+        current_run_identity(semantics.scenario, run_id),
+        stage_model_identity(),
+    )
+    parent = engine.context.store
+    state = engine.context.state.model_dump(mode="json")
+    agent = {"schema_version": 1, "agent_class": "LifeAgent", "agent_id": 1, "initialized_at": None,
+             "profile": {"id": 1, "same_second_continuation": True, "persona_card_struct": struct}}
+    workspace = write_agent_workspace(root / "agent", agent_document=agent)
+    snapshots = {
+        "agent:1": snapshot_directory(workspace, parent.assets),
+        "life": parent.assets.put_json({"state_version": state["version"]}, {"kind": "life_checkpoint"}),
+    }
+    return parent, parent.checkpoint(state, snapshots)
+
+
 def test_restore_verifies_the_frozen_card_rhythm_against_the_scenario(tmp_path) -> None:
     """恢复时校验一致：新建运行冻结的（经场景作息覆盖的）结构化卡片照常恢复；作息与场景显式声明不一致的卡片
     （例如直接存了抽取值）阻止分支发布。"""
-    from tests.integration.test_host_branch_coverage import (ResumeRequest, _agent_workspace, _parent_store,
-                                                             _prepare_resume)
+    from worldmock.runtime import ResumeRequest, _prepare_resume
 
-    scenario, _ = load_scenario(SCENARIO)
+    scenario_path = _scenario(tmp_path, chronotype_midsleep=4.75)
+    scenario, _ = load_scenario(scenario_path)
     card = make_card()
     overridden = apply_scenario_rhythm(card, scenario.agents[0]).card
     assert overridden != card
     for name, struct in (("frozen", persona_card_struct(overridden)), ("extracted", persona_card_struct(card))):
-        agent = {"schema_version": 1, "agent_class": "LifeAgent", "agent_id": 1, "initialized_at": None,
-                 "profile": {"id": 1, "same_second_continuation": True, "persona_card_struct": struct}}
         root = tmp_path / name
         root.mkdir()
-        parent, checkpoint = _parent_store(root, workspace_builder=lambda path, document=agent: _agent_workspace(
-            path, agent_document=document))
+        parent, checkpoint = _parent_with_card(root, scenario_path, struct, f"parent-{name}")
         try:
-            request = ResumeRequest(ROOT, SCENARIO, root / "parent", checkpoint.checkpoint_id, root / "child")
+            request = ResumeRequest(
+                ROOT,
+                scenario_path,
+                root / "parent",
+                checkpoint.checkpoint_id,
+                root / "child",
+            )
             if name == "frozen":
                 assert _prepare_resume(request).workspace_mode == "restored"
             else:
@@ -720,3 +621,173 @@ def test_restore_verifies_the_frozen_card_rhythm_against_the_scenario(tmp_path) 
                 assert not (root / "child").exists()
         finally:
             parent.close()
+
+
+@pytest.fixture
+def profile_environment(tmp_path):
+    """@brief 复制当前人工登记环境，只通过真实加载器验证画像输入。"""
+    root = tmp_path / "profile-environment"
+    shutil.copytree(ENVIRONMENT_ROOT, root)
+    path = root / "scenarios/single-person.json"
+    payload = json.loads(path.read_bytes())
+    payload["agents"][0]["background_story"] = "测试人物每天使用应用并在真实目录内生活。" * 8
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    return root, path
+
+
+def _catalog_edit(root: Path, filename: str, transform) -> None:
+    """@brief 真实文件反例通过生产目录发布函数重新钉定身份。"""
+    from worldmock.catalog.identity import refresh_manifest_identity
+
+    path = root / "catalog" / filename
+    payload = json.loads(path.read_bytes())
+    transform(payload)
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    refresh_manifest_identity(root / "catalog")
+
+
+def _empty_registered_contents(root: Path) -> None:
+    """@brief 删除内容及仅有内容绑定的应用，保留有真实店铺绑定的应用。"""
+    _catalog_edit(root, "contents.json", lambda value: value.update(contents=[]))
+    _catalog_edit(root, "apps.json", lambda value: value.update(
+        apps=[row for row in value["apps"] if row["app_id"] in {"meituan", "eleme"}]))
+
+
+def _directory_card():
+    """@brief 画像只使用人工环境真实地点、食品和应用名，题材刻意写成未知散文。"""
+    return make_card(habits=(HabitSignature(trigger="下班后", response="去五里公园休息",
+                                          time_window=make_window(19, 20)),),
+                     tastes=Tastes(content_genres=("完全未知的散文题材",), food_preferences=("牛肉面",),
+                                   media=("美团", "哔哩哔哩", "短视频")))
+
+
+def test_catalog_names_drive_coverage_without_phone_configuration(profile_environment):
+    """@brief 真实加载、覆盖目标和人物输入不依赖退役手机配置或题材文件。"""
+    from worldmock.life.world_setup import load_runtime_scenario
+    from worldmock.profile.coverage import validate_coverage
+    from worldmock.profile.coverage_targets import build_coverage_targets
+
+    root, path = profile_environment
+    semantics, _ = load_runtime_scenario(path)
+    targets = build_coverage_targets(semantics.scenario, semantics.catalog, root / "corpora")
+    assert targets.app_names == ("哔哩哔哩", "抖音", "美团", "饿了么")
+    assert targets.media_kinds == ("文章", "图文", "短视频", "长视频", "实况")
+    assert set(targets.food_kinds) == {"牛肉面", "薯片", "三明治", "柠檬茶", "饭团"}
+    assert "安静休息" in targets.habit_response_keywords and "五里公园" in targets.habit_response_keywords
+    assert "content_genres" not in type(targets).model_fields
+    card = _directory_card()
+    report = validate_coverage(card, targets)
+    assert report.total_items == 5 and report.covered_items == 5 and report.passed
+    specs, warnings = worldmock_run_setup_module.creation_inputs(path, semantics.scenario, {1: card})
+    assert warnings == [] and specs[0]["profile"]["persona_card_struct"]["tastes"] == card.tastes.model_dump(mode="json")
+    assert "taste_weights" not in specs[0]["profile"] and "attention_prior" not in json.dumps(specs[0]["profile"])
+
+
+def test_empty_warning_uses_app_bindings_and_keeps_five_media_labels(profile_environment):
+    """@brief 空内容判断来自真实应用绑定；固定类型覆盖不因没有内容而退化。"""
+    from worldmock.life.world_setup import load_runtime_scenario
+
+    root, path = profile_environment
+    card = make_card(habits=(), tastes=Tastes(content_genres=("散文题材",), food_preferences=(), media=("短视频",)))
+    scenario = load_runtime_scenario(path)[0].scenario
+    assert worldmock_run_setup_module.creation_inputs(path, scenario, {1: card})[1] == []
+    _empty_registered_contents(root)
+    semantics, _ = load_runtime_scenario(path)
+    scenario = semantics.scenario
+    warnings = worldmock_run_setup_module.creation_inputs(path, scenario, {1: card})[1]
+    assert [item["code"] for item in warnings] == ["CONTENT_EMPTY_WITH_MEDIA_TASTES"]
+    assert warnings[0]["details"] == {"media": ["短视频"], "habits": []}
+    assert worldmock_run_setup_module._coverage_targets(path, scenario, semantics.catalog).media_kinds == (
+        "文章", "图文", "短视频", "长视频", "实况")
+    business = make_card(habits=(), tastes=Tastes(content_genres=("散文题材",), food_preferences=(), media=("美团",)))
+    assert worldmock_run_setup_module.creation_inputs(path, scenario, {1: business})[1] == []
+
+
+def test_validate_persona_coverage_reuses_actual_creation_warnings(profile_environment, tmp_path, caplog):
+    """@brief validate 与运行输入使用同一编译卡片、真实目录目标和六码警告。"""
+    from worldmock.life.world_setup import load_runtime_scenario
+    from worldmock.validation import validate_persona_coverage
+
+    _, path = profile_environment
+    document = json.loads(path.read_bytes())
+    document["agents"][0]["chronotype_midsleep"] = 4.75
+    path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+    scenario = load_runtime_scenario(path)[0].scenario
+    compiled = _compiled(_extraction(_directory_card(), ("coping",)))
+    expected = worldmock_run_setup_module.creation_inputs(path, scenario, {1: compiled})[1]
+    output = tmp_path / "persona_coverage.json"
+    with caplog.at_level(logging.WARNING):
+        result = validate_persona_coverage(path, persona_compiler=lambda story: compiled, coverage_out=output)
+    assert result["input_warnings"] == expected
+    assert [item["code"] for item in expected] == ["CARD_FIELD_OVERRIDDEN", "PERSONA_AGREEMENT_LOW"]
+    assert json.loads(output.read_bytes())["agents"][0]["executable_ratio"] == 1.0
+    printed = [record.getMessage() for record in caplog.records if record.getMessage().startswith("Input warning")]
+    assert printed == [f"Input warning {item['code']} (agent {item['agent_id']}): {item['message']}" for item in expected]
+
+
+def test_low_coverage_writes_report_and_warns_before_gate(profile_environment, tmp_path, caplog):
+    """@brief 运行输入只警告，validate 保存同一真实缺失项后仍按八成门禁拒绝。"""
+    from worldmock.life.world_setup import load_runtime_scenario
+    from worldmock.validation import validate_persona_coverage
+
+    _, path = profile_environment
+    card = make_card(habits=(), tastes=Tastes(content_genres=("无关散文",), food_preferences=(), media=("B站",)))
+    scenario = load_runtime_scenario(path)[0].scenario
+    warnings = worldmock_run_setup_module.creation_inputs(path, scenario, {1: card})[1]
+    assert [item["code"] for item in warnings] == ["COVERAGE_BELOW_THRESHOLD"]
+    assert warnings[0]["details"]["missing"] == [{"kind": "media", "value": "B站"}]
+    output = tmp_path / "persona_coverage.json"
+    with caplog.at_level(logging.WARNING), pytest.raises(PersonaCoverageError, match="PERSONA_COVERAGE_FAILED"):
+        validate_persona_coverage(path, persona_compiler=lambda story: _compiled(_extraction(card)), coverage_out=output)
+    report = json.loads(output.read_bytes())["agents"][0]
+    assert report["executable_ratio"] == 0 and not report["passed"]
+    assert report["missing"] == warnings[0]["details"]["missing"]
+    assert any("Input warning COVERAGE_BELOW_THRESHOLD" in record.getMessage() for record in caplog.records)
+
+
+def test_runtime_warning_caller_logs_and_freezes_all_six_codes(profile_environment, tmp_path, monkeypatch):
+    """@brief 真实画像创建调用写入六码 ops 警告并经清单冻结；此处不创建 Engine。"""
+    from worldmock.life.world_setup import load_runtime_scenario, _run_manifest
+    from worldmock.life.models import RunIdentity
+
+    root, path = profile_environment
+    _empty_registered_contents(root)
+    _catalog_edit(root, "locations.json", lambda payload: next(
+        row for row in payload["locations"] if row["location_id"] == "park").update(name="公园（31.2, 121.5）"))
+    payload = json.loads(path.read_bytes())
+    payload["agents"][0].update(chronotype_midsleep=4.75, lunch_window=[4.0, 5.0])
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    semantics, digest = load_runtime_scenario(path)
+    compiled = _compiled(_extraction(make_card(), ("habits",)))
+    monkeypatch.setattr(worldmock_run_setup_module, "_compile_persona", lambda agent: compiled)
+    run_dir = tmp_path / "run"
+    options = {}
+    prepared = SimpleNamespace(workspace_mode="create", scenario=semantics.scenario, scenario_path=path,
+                               same_second_continuation=True, env_kwargs={"create_options": options},
+                               run_dir=run_dir, start_time=semantics.scenario.start_at)
+    specs = runtime._society_specs(prepared)
+    warnings = options["input_warnings"]
+    assert set(item["code"] for item in warnings) == set(INPUT_WARNING_CODES)
+    assert "agent_taste_weights" not in options and "taste_weights" not in specs[0]["profile"]
+    records = [json.loads(line) for log in run_dir.glob("logs/ops-*.jsonl") for line in log.read_text().splitlines()]
+    warned = [row for row in records if row["component"] == "runtime" and row["level"] == "warn"]
+    assert [(row["code"], row["details"]) for row in warned] == [(item["code"], item["details"]) for item in warnings]
+    scenario = semantics.scenario
+    identity = RunIdentity(run_id="profile-test", source_group_id="profile-test", agent_ids=(1,),
+                           start_at=scenario.start_at.isoformat(), end_at=scenario.end_at.isoformat(),
+                           timezone=scenario.timezone, code_sha256="0" * 64,
+                           model_identity=worldmock_run_setup_module._model_identity())
+    manifest = _run_manifest(semantics, digest, identity, worldmock_run_setup_module.stage_model_identity(), options)
+    assert manifest["schema_version"] == 3 and manifest["input_warnings"] == warnings
+
+
+def test_warning_caller_rejects_catalog_identity_tampering(profile_environment):
+    """@brief 画像入口直接读取当前目录身份，不从旧内容配置补出绿色结果。"""
+    from worldmock.life.world_setup import load_runtime_scenario
+
+    root, path = profile_environment
+    scenario = load_runtime_scenario(path)[0].scenario
+    app_path = root / "catalog/apps.json"
+    app_path.write_bytes(app_path.read_bytes() + b" ")
+    with pytest.raises(IntegrityError):
+        worldmock_run_setup_module.creation_inputs(path, scenario, {1: _directory_card()})

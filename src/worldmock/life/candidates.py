@@ -1,38 +1,4 @@
-"""@brief 统一候选契约：五类可选对象走同一套生成、资格、排序三段式。
-
-商品、生活活动、内容、游戏与任务共用本模块，任何一类都不得另起一条独立链路
-（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「候选契约与呈现规则」的「统一候选契约」）。三段
-的形状固定：
-
-- **生成**：按四个获取来源合并候选——当前地点常驻对象（`on_site`）、浏览或激活
-  过且仍在时效内的对象（`browsed`）、在当前位置手边持有的对象（`carried`）、由画像
-  激活集在本次场景中激活的对象（`activated`）。输出未收窄的候选全集，并逐来源给
-  出命中计数。
-- **资格**：逐条排除理由对应闭集里的一个稳定原因码；保留项加被排除项的计数等于
-  候选全集的规模（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「两条排除纪律」）。生活活动窗口按人物
-  当前地点施加地点类资格（`apply_location_kinds`，docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ，裁决 S8）。
-- **排序**：排序键为（非零口味，−口味×注意力，−相关度，哈希决胜键）（定点整数与
-  `sha256(场景|人物|日期|对象)`，裁决 S4）；相关度由调用方按人物自己的事实与目录事实给出，
-  决胜键使零口味时的顺序不退化为对象标识的字母序，且随日期变化。
-
-**两条纪律在本模块内被硬编码为形状**：
-
-1. 只有世界事实可以排除——软偏好（口味权重、注意力先验）只出现在排序键里，零权
-   重的对象仍然留在候选内并排在非零权重之后，绝不因偏好出局。
-2. 「没显示」与「不存在」可区分——被排除的每一条都带闭集内的原因码。`ROTATION_
-   DEFERRED` 只表示本次呈现名额已满，它不是排除：被推迟的对象仍是保留项。
-
-**候选是派生量不是状态**：本模块是纯函数，不写世界状态、不做 IO、不调模型。候选
-身份只由（冻结目录摘要、画像摘要、世界状态版本、选择器版本）决定，不含墙钟时间、
-缓存或模型输出；分桶与摘要哈希统一用 `hashlib`，不用受 `PYTHONHASHSEED` 影响的
-内建 `hash()`（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「统一候选契约」）。
-
-闭集词表（`CandidateKind`、`CandidateSource`、`ExclusionReason`）、排序键字段名与
-游标口径的权威定义在 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「候选与呈现合同」，本模块只照抄，不另起词。
-
-字段面与行为规则不一致时以合同为准；本模块的 docstring 用中文，代码、日志与抛错
-用英文。
-"""
+"""@brief 实际候选依世界事实准入，按相关度与稳定哈希排序。"""
 
 from __future__ import annotations
 
@@ -45,22 +11,19 @@ from typing import Any, Literal
 from worldmock.catalog.affordances import engine_affordances
 from worldmock.footprints.models import sha256_json
 from worldmock.life.models import ActivityKind, DERIVED_DURATION_CAP_SECONDS
-from worldmock.life.scenario import LocationConfig
+from worldmock.catalog.models import Location
+from worldmock.exchange.types import PLACE_KIND_ENVIRONMENTS
 
 #: 候选类别闭集（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「候选对象与来源」）。
-CandidateKind = Literal["product", "lifestyle", "content", "game", "task"]
+CandidateKind = Literal["product", "lifestyle", "task"]
 
 #: 候选来源闭集（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「候选对象与来源」）。
-CandidateSource = Literal["on_site", "browsed", "carried", "activated"]
+CandidateSource = Literal["on_site", "carried", "activated"]
 
 #: 排除原因码闭集（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「排除原因码」）。
 ExclusionReason = Literal[
     "ELIGIBILITY_LOCATION_ABSENT",
     "ELIGIBILITY_LOCATION_KIND_MISMATCH",
-    "ELIGIBILITY_CLOSED_HOURS",
-    "ELIGIBILITY_OPENING_UNKNOWN",
-    "ELIGIBILITY_OUT_OF_STOCK",
-    "ELIGIBILITY_DELISTED",
     "ELIGIBILITY_RESOURCE_CONFLICT",
     "ELIGIBILITY_DURATION_OUT_OF_RANGE",
     "ELIGIBILITY_DISABLED",
@@ -68,17 +31,13 @@ ExclusionReason = Literal[
 ]
 
 #: 候选类别闭集的可枚举形式（成员与顺序与 `CandidateKind` 逐字一致）。
-CANDIDATE_KINDS: tuple[CandidateKind, ...] = ("product", "lifestyle", "content", "game", "task")
+CANDIDATE_KINDS: tuple[CandidateKind, ...] = ("product", "lifestyle", "task")
 #: 候选来源闭集及生成合并顺序（成员与顺序与 `CandidateSource` 逐字一致）。
-CANDIDATE_SOURCES: tuple[CandidateSource, ...] = ("on_site", "browsed", "carried", "activated")
+CANDIDATE_SOURCES: tuple[CandidateSource, ...] = ("on_site", "carried", "activated")
 #: 排除原因码闭集的可枚举形式（成员与顺序与 `ExclusionReason` 逐字一致）。
 EXCLUSION_REASONS: tuple[ExclusionReason, ...] = (
     "ELIGIBILITY_LOCATION_ABSENT",
     "ELIGIBILITY_LOCATION_KIND_MISMATCH",
-    "ELIGIBILITY_CLOSED_HOURS",
-    "ELIGIBILITY_OPENING_UNKNOWN",
-    "ELIGIBILITY_OUT_OF_STOCK",
-    "ELIGIBILITY_DELISTED",
     "ELIGIBILITY_RESOURCE_CONFLICT",
     "ELIGIBILITY_DURATION_OUT_OF_RANGE",
     "ELIGIBILITY_DISABLED",
@@ -87,24 +46,17 @@ EXCLUSION_REASONS: tuple[ExclusionReason, ...] = (
 
 #: 排序键版本（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「排序键与游标」）：只参与游标身份，升版使在途游标失效。
 #: 2 起排序键为（非零口味，−口味×注意力，−相关度，哈希决胜键）（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ）。
-ORDER_KEY_VERSION = 2
-#: 定点份额度：四位小数，与 `taste_weights` 的口径一致。
-FIXED_POINT_SCALE = 10_000
+ORDER_KEY_VERSION = 3
 #: 本轮可取候选的时间窗（秒），截至世界当前时刻加该值；候选只在此窗内自足。
 CANDIDATE_WINDOW_SECONDS = 86_400
 #: 候选类别 → 活动类型（资源占用判据按注册表取该类型的显式占用）。
 CANDIDATE_ACTIVITY_KINDS: dict[str, ActivityKind | None] = {
     "product": ActivityKind.CONSUME,
     "lifestyle": ActivityKind.LIFESTYLE,
-    "content": ActivityKind.WATCH,
-    "game": ActivityKind.PLAY_GAME,
     "task": ActivityKind.WORK,
 }
 
 
-def fixed_point(value: float) -> int:
-    """@brief 把软偏好数值折算为四位小数的定点整数（与 `taste_weights` 同口径）。"""
-    return int(round(float(value) * FIXED_POINT_SCALE))
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,17 +65,15 @@ class LocationView:
 
     location_id: str
     location_kinds: frozenset[str]
-    opening_status: str = "unknown"
     #: 启动活动所需的最短时长（秒）：短于该值的候选无法受理。
     minimum_seconds: int = 0
     #: 启动活动允许的最长时长（秒）：长于该值的候选无法受理。
     maximum_seconds: int = DERIVED_DURATION_CAP_SECONDS
 
     @classmethod
-    def from_config(cls, config: LocationConfig, status: str) -> "LocationView":
-        """@brief 地点活动环境取显式声明，营业状态取统一日历解释结果。"""
-        return cls(location_id=config.location_id,
-                   location_kinds=frozenset(config.location_kinds), opening_status=status)
+    def from_config(cls, config: Location) -> "LocationView":
+        """@brief 活动环境从唯一登记地点类型映射派生。"""
+        return cls(location_id=config.location_id, location_kinds=frozenset({PLACE_KIND_ENVIRONMENTS[config.kind]}))
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,17 +90,12 @@ class CandidateEntry:
     minimum_seconds: int = 0
     maximum_seconds: int = DERIVED_DURATION_CAP_SECONDS
     #: 目录级库存：0 表示缺货（世界事实）。
-    stock: int = 1
     #: 目录级下架（墓碑语义：保留可读、拒绝新场景引用）。
-    retired: bool = False
     #: 在本人启用集内；False 即不在启用集（世界事实）。
     enabled: bool = True
     #: 口味权重的查找键（缺省取 object_id）。
-    bucket: str | None = None
     #: 条目声明的代谢当量：生活活动等按条目查表的活动在此给出；None 表示按活动类型查表。
     met: float | None = None
-    #: 内容条目的内容品类（占用按它判定：播客只占 ears）；非内容条目为 None。
-    content_kind: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,20 +107,15 @@ class CandidateInputs:
     #: 全部地点的可行性门视图（键为地点标识）：判定营业时段与时长上限时按条目要求的
     #: 地点取用，缺席时回退到人物当前地点。
     locations: Mapping[str, LocationView]
-    #: 四个来源各自的候选条目，键取 `CandidateSource`。
+    #: 各实际来源的候选条目，键取 `CandidateSource`。
     sources: Mapping[CandidateSource, Sequence[CandidateEntry]]
     #: 当前所有 ACTIVE 活动的显式个人资源并集。
     occupied_resources: frozenset[str] = field(default_factory=frozenset)
     #: 当前地点本地时刻（自午夜起的小时数，含小数）；None 表示不判定营业时段。
-    local_hour: float | None = 0.0
     #: 判定时长越界用的当前时刻（UTC 纪元秒）。
     current_time: int = 0
     #: 候选自足的窗口末端（UTC 纪元秒）。
     window_end_time: int = 0
-    #: 口味权重（画像编译 v2 的 `taste_weights`，键为对象标识）；缺项与 0 同义。
-    taste_weights: Mapping[str, Any] = field(default_factory=dict)
-    #: 注意力先验（检索分区键 → 数值）；缺项与 0 同义。
-    attention_priors: Mapping[str, Any] = field(default_factory=dict)
     #: 单次呈现上限（场景常量 `candidate_presentation_limit`）。
     presentation_limit: int = 20
     #: 轮转常量视图（`semantics.CandidateConstants`：换新名额比例与「长期未呈现」阈值）；
@@ -207,8 +147,6 @@ class GeneratedCandidate:
 
     entry: CandidateEntry
     sources: tuple[CandidateSource, ...]
-    taste_weight: int
-    attention_prior: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,7 +158,7 @@ class Exclusion:
     reason: ExclusionReason
 
     def as_row(self) -> dict[str, str]:
-        """@brief 被排除项的返回体行（合同形状：object_id、kind、reason）。"""
+        """@brief 返回真实世界事实排除原因。"""
         return {"object_id": self.object_id, "kind": self.kind, "reason": self.reason}
 
 
@@ -230,29 +168,18 @@ class OrderedCandidate:
 
     object_id: str
     kind: CandidateKind
-    taste_weight: int
-    attention_prior: int
     #: 相关度（整数分，docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ）：只在口味 × 注意力相同时区分先后。
     relevance: int = 0
     #: 决胜键 `sha256(场景|人物|日期|对象)` 的十六进制摘要。
     tiebreak: str = ""
 
-    def order_key(self) -> tuple[int, int, int, str]:
-        """@brief 完整稳定排序键：非零口味在前，其后口味 × 注意力降序、相关度降序，决胜键为哈希。
-
-        首项是「口味权重非零」的存在标记（0 在前），它保证零权重对象排在全部非零
-        权重对象之后——这是「软偏好只改序、不出局」在排序键上的落点，不是第二把
-        主键。主键本身按口味 × 注意力降序取负值，相关度同样取负值，比较结果全为整数；
-        决胜键不是对象标识，零口味时的顺序因此不退化为字母序，且随本地日期变化。
-        """
-        return (0 if self.taste_weight else 1,
-                -(self.taste_weight * self.attention_prior), -self.relevance, self.tiebreak)
+    def order_key(self) -> tuple[int, str]:
+        """@brief 候选排序只比较真实相关度和稳定哈希。"""
+        return -self.relevance, self.tiebreak
 
     def as_row(self) -> dict[str, Any]:
-        """@brief 保留项的返回体行（含完整稳定排序键的原料：定点口味与注意力、相关度与决胜键）。"""
+        """@brief 返回候选实际身份、类别及稳定排序原料。"""
         return {"object_id": self.object_id, "kind": self.kind,
-                "taste_weight": self.taste_weight,
-                "attention_prior": self.attention_prior,
                 "relevance": self.relevance, "tiebreak": self.tiebreak}
 
 
@@ -316,9 +243,7 @@ def generate_candidates(inputs: CandidateInputs) -> tuple[GeneratedCandidate, ..
     rows = []
     for (_, _), (entry, sources) in merged.items():
         rows.append(GeneratedCandidate(
-            entry=entry, sources=tuple(sources),
-            taste_weight=_taste_weight(entry, inputs),
-            attention_prior=_attention_prior(entry, inputs)))
+            entry=entry, sources=tuple(sources)))
     rows.sort(key=lambda item: (item.entry.kind, item.entry.object_id))
     return tuple(rows)
 
@@ -382,8 +307,6 @@ def tiebreak_digest(scenario_id: str, agent_id: int, local_date: str, object_id:
 def ordered_candidate(entry: CandidateEntry, inputs: CandidateInputs) -> OrderedCandidate:
     """@brief 一个候选条目的排序段一行：定点口味与注意力、相关度（缺项为 0）与哈希决胜键；排序段与呈现窗口共用。"""
     return OrderedCandidate(object_id=entry.object_id, kind=entry.kind,
-                            taste_weight=_taste_weight(entry, inputs),
-                            attention_prior=_attention_prior(entry, inputs),
                             relevance=int(inputs.relevance.get(entry.object_id, 0)),
                             tiebreak=tiebreak_digest(inputs.scenario_id, inputs.agent_id, inputs.local_date,
                                                      entry.object_id))
@@ -394,22 +317,10 @@ def _ordered(item: GeneratedCandidate, inputs: CandidateInputs) -> OrderedCandid
     return ordered_candidate(item.entry, inputs)
 
 
-def _bucket(entry: CandidateEntry) -> str:
-    """@brief 检索分区键：条目属性（口味查找键），不取地点。"""
-    return entry.bucket if entry.bucket is not None else entry.object_id
 
 
-def _taste_weight(entry: CandidateEntry, inputs: CandidateInputs) -> int:
-    """@brief 口味权重（定点整数）：缺项一律 0，不做缺省抬升。"""
-    key = _bucket(entry) if entry.kind == "product" else entry.object_id
-    raw = inputs.taste_weights.get(key, inputs.taste_weights.get(_bucket(entry), 0))
-    return fixed_point(raw)
 
 
-def _attention_prior(entry: CandidateEntry, inputs: CandidateInputs) -> int:
-    """@brief 注意力先验（定点整数）：缺项一律 0，不做缺省抬升。"""
-    raw = inputs.attention_priors.get(_bucket(entry), 0)
-    return fixed_point(raw)
 
 
 def _exclusion_reason(item: GeneratedCandidate,
@@ -419,8 +330,7 @@ def _exclusion_reason(item: GeneratedCandidate,
     只有世界事实可以排除——口味权重与注意力先验在本函数里完全不被读到。
     """
     entry = item.entry
-    for check in (_location_reason, _hours_reason, _stock_reason, _retired_reason,
-                  _enabled_reason, _resource_reason, _duration_reason):
+    for check in (_location_reason, _enabled_reason, _resource_reason, _duration_reason):
         reason = check(entry, inputs)
         if reason is not None:
             return reason
@@ -432,7 +342,7 @@ def _location_reason(entry: CandidateEntry, inputs: CandidateInputs) -> Exclusio
 
     目录浏览面（不判定营业时段、不要求地点实例）只在 apply_location_kinds 时判定地点类（生活活动窗口）。
     """
-    if inputs.local_hour is None and not inputs.require_location_instance and not inputs.apply_location_kinds:
+    if not inputs.require_location_instance and not inputs.apply_location_kinds:
         return None
     place = inputs.location
     if place is None:
@@ -457,26 +367,10 @@ def _entry_location(entry: CandidateEntry, inputs: CandidateInputs) -> LocationV
     return inputs.location
 
 
-def _hours_reason(entry: CandidateEntry, inputs: CandidateInputs) -> ExclusionReason | None:
-    """@brief 统一营业三态判定，未知资料不能解释为全天开放。"""
-    if inputs.local_hour is None:
-        return None
-    place = _entry_location(entry, inputs)
-    if place is None:
-        return "ELIGIBILITY_LOCATION_ABSENT"
-    if place.opening_status == "unknown":
-        return "ELIGIBILITY_OPENING_UNKNOWN"
-    return None if place.opening_status == "open" else "ELIGIBILITY_CLOSED_HOURS"
 
 
-def _stock_reason(entry: CandidateEntry, inputs: CandidateInputs) -> ExclusionReason | None:
-    """@brief 库存为零：目录级库存耗尽。"""
-    return "ELIGIBILITY_OUT_OF_STOCK" if entry.stock <= 0 else None
 
 
-def _retired_reason(entry: CandidateEntry, inputs: CandidateInputs) -> ExclusionReason | None:
-    """@brief 目录级下架：墓碑条目保留可读但拒绝新场景引用。"""
-    return "ELIGIBILITY_DELISTED" if entry.retired else None
 
 
 def _enabled_reason(entry: CandidateEntry, inputs: CandidateInputs) -> ExclusionReason | None:
@@ -487,7 +381,7 @@ def _enabled_reason(entry: CandidateEntry, inputs: CandidateInputs) -> Exclusion
 def _resource_reason(entry: CandidateEntry, inputs: CandidateInputs) -> ExclusionReason | None:
     """@brief 候选与全部 ACTIVE 活动按同一注册表的显式占用交集判定（内容条目按内容品类的条件占用）。"""
     kind = CANDIDATE_ACTIVITY_KINDS[entry.kind]
-    claims = engine_affordances().resource_claims(kind.value, content_kind=entry.content_kind)
+    claims = engine_affordances().resource_claims(kind.value)
     return "ELIGIBILITY_RESOURCE_CONFLICT" if claims & inputs.occupied_resources else None
 
 
@@ -522,7 +416,6 @@ __all__ = [
     "CANDIDATE_SOURCES",
     "CANDIDATE_WINDOW_SECONDS",
     "EXCLUSION_REASONS",
-    "FIXED_POINT_SCALE",
     "ORDER_KEY_VERSION",
     "CandidateEntry",
     "CandidateInputs",
@@ -538,7 +431,6 @@ __all__ = [
     "cursor_identity",
     "exclusion_counts",
     "filter_candidates",
-    "fixed_point",
     "generate_candidates",
     "ordered_candidate",
     "source_counts",

@@ -3,7 +3,7 @@
 
 同一 activity_id 的连续 activity_progress 合并为一行（起止与总时长），
 静默边界产生的分段折叠不单列；活动目标先取快照标题，再按名称索引解析为品名、地名、
-邮件主题、内容标题、生活活动名、任务标题与人名；种类名取 worldmock.life.readable 的中文种类表
+邮件主题、内容标题、app 名称、工作主题与人名；种类名取 worldmock.life.readable 的中文种类表
 （单一来源），解析不到名称时只写中文种类名：时间线里不出现英文种类名与内部标识
 （docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-时间线只出现中文名称）。按 agent_id 与冻结清单的场景时区
 的模拟日期过滤。同库同参数输出逐字节相同；name_index 与 day_rows 也接受已排序的事件正文，
@@ -30,10 +30,10 @@ if str(_SOURCE_ROOT) not in sys.path:
 
 from worldmock.footprints.timeline_labels import local_day_bounds  # noqa: E402
 from worldmock.footprints.intervals import valid_interval  # noqa: E402
-from worldmock.life.readable import ACTIVITY_KIND_LABELS, BROWSE_LABELS, TRAVEL_WAYS  # noqa: E402
+from worldmock.life.readable import ACTIVITY_KIND_LABELS, TRAVEL_WAYS  # noqa: E402
 
-#: 名称索引的类别：品名（带使用方式）、地名、邮件主题、内容标题、生活活动名、任务标题、人名（联系人与同世界人物）。
-NAME_KINDS = ("products", "locations", "messages", "contents", "lifestyles", "tasks", "people")
+#: 名称索引的类别：品名（带使用方式）、地名、邮件主题、内容标题、app 名称、工作主题、人名（联系人与同世界人物）。
+NAME_KINDS = ("foods", "locations", "messages", "apps", "contents", "work_topics", "people")
 #: 种类表之外的活动种类的中文名。
 _UNKNOWN_KIND_LABEL = "活动"
 
@@ -131,23 +131,12 @@ def _object_name(label: object) -> object:
 
 def _absorb_observation(names: dict, data: dict) -> None:
     """@brief 吸收一条 observation/action_result 里的公开名称索引。"""
-    for product in _dict_rows(data.get("products")):
-        pid = product.get("product_id")
-        if pid and pid not in names["products"] and product.get("name"):
-            names["products"][pid] = {"name": product["name"],
-                                      "use_modes": product.get("use_modes") or []}
-    for location in _dict_rows(data.get("locations")):
-        _remember(names["locations"], location.get("location_id"), location.get("name"))
-    for message in _dict_rows(data.get("messages")):
-        _remember(names["messages"], message.get("message_id"), message.get("subject"))
-    progress = data.get("content_progress") if isinstance(data.get("content_progress"), dict) else {}
-    for item_id, row in progress.items():
-        _remember(names["contents"], item_id, row.get("title") if isinstance(row, dict) else None)
-    for item in _dict_rows(data.get("items")):
-        _remember(names["contents"], item.get("item_id"), item.get("title"))
-        _remember(names["lifestyles"], item.get("activity_id"), item.get("name"))
-    for task in _dict_rows(data.get("tasks")):
-        _remember(names["tasks"], task.get("task_id"), task.get("title"))
+    fields = {"foods": ("food_id", "name"), "locations": ("location_id", "name"),
+              "messages": ("message_id", "subject"), "apps": ("app_id", "name"),
+              "contents": ("content_id", "title"), "work_topics": ("topic_id", "topic")}
+    for category, (identity, label) in fields.items():
+        for row in _dict_rows(data.get(category)):
+            _remember(names[category], row.get(identity), row.get(label))
     for binding in _dict_rows(data.get("interaction_bindings")):
         if binding.get("kind") in ("contact", "person"):
             _remember(names["people"], binding.get("object_id"), _object_name(binding.get("object")))
@@ -186,12 +175,13 @@ def _travel_label(snapshot: dict, names: dict) -> str:
     return f"{mode}去{destination}" if destination else mode
 
 
-def _media_label(snapshot: dict, names: dict) -> str:
-    """@brief 观看与游戏标签：快照标题优先，其次观察目录标题；都没有时只写种类名。"""
-    kind = str(snapshot.get("kind"))
-    name = _title(snapshot) or names["contents"].get(snapshot.get("target_id"))
-    verb = "看" if kind == "watch" else "玩游戏"
-    return f"{verb}《{name}》" if name else ACTIVITY_KIND_LABELS[kind]
+def _app_label(snapshot: dict, names: dict) -> str:
+    """@brief 应用与当前作品取真实快照及名称索引，不把作品身份当作应用目标。"""
+    app = _title(snapshot) or names["apps"].get(snapshot.get("target_id"))
+    content = snapshot.get("content_title") or names["contents"].get(_snapshot_data(snapshot).get("content_id"))
+    if app and content:
+        return f"用{app}看《{content}》"
+    return f"用{app}" if app else ACTIVITY_KIND_LABELS["use_app"]
 
 
 def _mail_label(snapshot: dict, names: dict) -> str:
@@ -201,29 +191,19 @@ def _mail_label(snapshot: dict, names: dict) -> str:
 
 
 def _consume_label(snapshot: dict, names: dict) -> str:
-    """@brief 进食/使用标签：按商品 use_modes 区分动词。"""
-    product = names["products"].get(snapshot.get("target_id")) or {}
-    if not product.get("name"):
-        return ACTIVITY_KIND_LABELS["consume"]
-    verb = "吃" if "eat" in (product.get("use_modes") or []) else "用"
-    return f"{verb} {product['name']}"
-
-
-def _browse_label(snapshot: dict, names: dict) -> str:
-    """@brief 浏览标签：带目录的中文名。"""
-    catalog = BROWSE_LABELS.get(str(snapshot.get("target_id")))
-    return f"浏览{catalog}" if catalog else ACTIVITY_KIND_LABELS["browse"]
+    """@brief 进食标签只读取实际食品名称。"""
+    food = names["foods"].get(snapshot.get("target_id"))
+    return f"吃 {food}" if food else ACTIVITY_KIND_LABELS["consume"]
 
 
 def _lifestyle_label(snapshot: dict, names: dict) -> str:
     """@brief 生活活动标签：活动名称本身。"""
-    return (_title(snapshot) or names["lifestyles"].get(snapshot.get("target_id"))
-            or ACTIVITY_KIND_LABELS["lifestyle"])
+    return _title(snapshot) or ACTIVITY_KIND_LABELS["lifestyle"]
 
 
 def _work_label(snapshot: dict, names: dict) -> str:
-    """@brief 工作标签：带任务标题。"""
-    title = _title(snapshot) or names["tasks"].get(snapshot.get("target_id"))
+    """@brief 工作标签带实际工作主题。"""
+    title = _title(snapshot) or names["work_topics"].get(snapshot.get("target_id"))
     return f"工作「{title}」" if title else ACTIVITY_KIND_LABELS["work"]
 
 
@@ -241,8 +221,8 @@ def _chat_label(snapshot: dict, names: dict) -> str:
 
 #: 带对象的活动种类 → 标签函数；等待与睡眠只写种类名。
 _LABELERS: dict[str, Callable[[dict, dict], str]] = {
-    "travel": _travel_label, "watch": _media_label, "play_game": _media_label, "read_mail": _mail_label,
-    "consume": _consume_label, "browse": _browse_label, "lifestyle": _lifestyle_label, "work": _work_label,
+    "travel": _travel_label, "use_app": _app_label, "read_mail": _mail_label,
+    "consume": _consume_label, "lifestyle": _lifestyle_label, "work": _work_label,
     "call": _call_label, "chat": _chat_label,
 }
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from tests.data_paths import ENVIRONMENT_ROOT
 
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -21,7 +20,7 @@ from worldmock.evaluation.models import PublicEvidence
 from worldmock.evaluation.scenario import load_scenario
 
 
-FORMAL_SCENARIO = ENVIRONMENT_ROOT / "scenarios/evaluation.json"
+FORMAL_SCENARIO = Path(__file__).parent / "fixtures/scenario.json"
 
 
 def test_required_metrics_run_on_arbitrary_one_day_window(evaluation_fixture) -> None:
@@ -98,9 +97,9 @@ def test_official_reference_quantizes_actual_segments_without_pause_gap(
     assert result["domains"]["personal_essential"]["left"]["status"] == "unsupported"
 
 
-def test_explicit_empty_segments_never_count_wall_clock_as_activity(evaluation_fixture) -> None:
+def test_zero_elapsed_without_progress_never_counts_wall_clock_as_activity(evaluation_fixture) -> None:
     scenario, _, right = _views(evaluation_fixture)
-    activity = replace(right.activities[0], segments=())
+    activity = replace(right.activities[0], elapsed_seconds=0)
 
     days = build_days((), (activity,), scenario)
 

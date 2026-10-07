@@ -48,77 +48,19 @@ _ZONE = "Asia/Shanghai"
 _START = 1767542400
 
 
-def _activity(key: str, label: str, *, kind: ActivityKind = ActivityKind.WAIT,
-              status: ActivityStatus = ActivityStatus.ACTIVE, agent_id: int = 1, started_at: int = _START,
-              elapsed: int = 0, planned: int = 3600, sessions: tuple[str, ...] = ("morning",),
-              **fields) -> ActivityState:
-    """用不透明内部身份构造真实活动模型，名称为「做什么＋对象（M月D日 HH:MM 起）」；终态在已结算处结束。"""
-    ended = None if status in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED} else started_at + elapsed
-    return ActivityState(
-        activity_id=f"internal-activity-{key}", agent_id=agent_id, location_id="private-office", kind=kind,
-        status=status, started_at=started_at, ended_at=ended, planned_end_at=started_at + planned,
-        last_settled_at=started_at + elapsed, elapsed_seconds=elapsed, planned_duration_seconds=planned,
-        origin_action_id=f"internal-action-{key}", origin_decision_id="internal-decision",
-        origin_request_event_id="internal-request", session_ids=[f"internal-session-{item}" for item in sessions],
-        name=f"{label}（{moment_label(started_at, _ZONE)} 起）", **fields)
 
 
-def _session(key: str, activities: tuple[ActivityState, ...] = (), *, agent_id: int = 1,
-             started_at: int = _START, ended_at: int | None = None) -> SessionState:
-    """办公室的一段停留：内部身份不透明，名称为地点加开始时刻。"""
-    return SessionState(
-        session_id=f"internal-session-{key}", agent_id=agent_id, kind=SessionKind.STAY,
-        location_id="private-office", status=SessionStatus.ENDED if ended_at else SessionStatus.ACTIVE,
-        started_at=started_at, ended_at=ended_at, activity_ids=[item.activity_id for item in activities],
-        name=f"办公室（{moment_label(started_at, _ZONE)} 起）")
 
 
-def _world(activities, sessions=(), *, now: int = _START + 600, plan: DayPlan | None = None) -> WorldState:
-    """只含投影与控制所需字段的权威状态（内部身份保持不透明）。"""
-    agent = AgentState.model_construct(agent_id=1, day_plan=plan, next_decision_at=now,
-                                       same_moment_stage=SameMomentStage.OPEN, location_id="private-office")
-    return WorldState.model_construct(
-        current_time=now, timezone=_ZONE, agents={1: agent},
-        activities={item.activity_id: item for item in activities},
-        sessions={item.session_id: item for item in sessions})
 
 
-def _layer_context(state: WorldState) -> LayerContext:
-    """只有活动目标的工具层上下文：没有绑定对象，名称由 activity_control.visible_names 分配。"""
-    return LayerContext(state=state, scenario=_PLACES, rules=SimpleNamespace(tasks={}), semantics=SimpleNamespace(),
-                        agent_id=1, names=visible_names(state, 1, []), bindings=[],
-                        menu=SimpleNamespace(allowed_actions=()))
 
 
 #: 控制动作与工具层只需要的场景切片：地点名与冻结路线（没有路线：下一步提示按可达性写，这里用不到）。
-_PLACES = SimpleNamespace(timezone=_ZONE, locations=(SimpleNamespace(location_id="private-office", name="办公室"),),
+_PLACES = SimpleNamespace(timezone=_ZONE, locations=(SimpleNamespace(location_id="private-office", name="办公室", display_name="办公室"),),
                           routes=())
 
 
-def _goal_plan() -> DayPlan:
-    """当日只有一个未推进的「工作」目标。"""
-    return DayPlan(day_end=_START + 86400,
-                   goals=(PlanGoal(intent_kind="工作", goal="完成纪要", registered_at=_START),))
-
-
-class _Controller(ActionHandlers):
-    """用本轮冻结观察的活动名绑定测试控制动作，不加载场景或语料（地点名取固定切片，没有工作任务）。"""
-
-    context = SimpleNamespace(scenario=_PLACES, rules=SimpleNamespace(tasks={}, items={}))
-
-    def __init__(self, state: WorldState, rows: list[dict] | None = None) -> None:
-        names = visible_names(state, 1, [])["activities"]
-        self.rows = rows if rows is not None else [
-            {"name": name, "activity_id": key, "phase": activity_phase(state.activities[key])}
-            for key, name in names.items()]
-
-    def _frozen_observation(self, pending: PendingAction) -> dict:
-        return {"activity_bindings": self.rows, "verified_experiences": []}
-
-
-def _pending() -> PendingAction:
-    """控制动作只需人物与动作身份；冻结观察由专属夹具提供。"""
-    return PendingAction.model_construct(action_id="private-action", agent_id=1)
 
 
 @pytest.mark.parametrize("request_type", [ReportStatusRequest, PauseActivityRequest, ConcludeActivityRequest])
@@ -144,182 +86,14 @@ def test_activity_control_takes_one_object_per_activity(request_type) -> None:
             request_type(items=[{"activity_name": names[0], "summary": "看到一半"}], errands=[])
 
 
-def test_report_status_maps_each_activity_to_its_own_note_and_goal_note() -> None:
-    """自述数组按顺序写到各活动并把播报锚点移到当前时刻；关联目标只吸收对应活动的原文，不算推进。"""
-    work = _activity("work", "工作周会纪要", kind=ActivityKind.WORK, task_kind=SessionTaskKind.GOAL,
-                     task_ref="工作", plan_goal_intent_kind="工作", report_anchor_at=_START)
-    leisure = _activity("leisure", "观看Space Habitat", kind=ActivityKind.WATCH, report_anchor_at=_START)
-    state = _world([work, leisure], plan=_goal_plan())
-    changed, result = _Controller(state)._report_status(state, _pending(), report_request(
-        work.name, leisure.name, summary=["已完成提纲", "刚看到开头"]))
-    assert changed.activities[work.activity_id].progress_note == "已完成提纲"
-    assert changed.activities[leisure.activity_id].progress_note == "刚看到开头"
-    assert {changed.activities[item.activity_id].report_anchor_at for item in (work, leisure)} == {
-        state.current_time}
-    assert changed.agents[1].day_plan.goals[0].progress_note == "已完成提纲"
-    assert changed.agents[1].day_plan.goals[0].progressed_at is None
-    assert state.agents[1].day_plan.goals[0].progress_note == ""
-    assert state.activities[work.activity_id].progress_note == ""
-    assert result.data == {"task": [work.name, leisure.name],
-                           "activity_ids": [work.activity_id, leisure.activity_id], "errands": []}
 
 
-def test_control_names_resolve_to_one_own_activity_of_this_round() -> None:
-    """名称按本轮可见绑定唯一解析到本人的活动：同名的后一项带「（第二次）」；已收尾的活动不能播报；
-    未知名称或指向他人的活动以 ACTION_REQUEST_INVALID 拒绝，状态不变。"""
-    earlier = _activity("earlier", "等待", status=ActivityStatus.COMPLETED, elapsed=20, planned=20,
-                        concluded_at=_START + 20)
-    later = _activity("later", "等待", started_at=_START + 30, planned=900)
-    outsider = _activity("outsider", "观看Sintel", agent_id=2)
-    state = _world([earlier, later, outsider])
-    controller = _Controller(state)
-    names = {row["activity_id"]: row["name"] for row in controller.rows}
-    assert earlier.name == later.name
-    assert names == {earlier.activity_id: earlier.name, later.activity_id: f"{later.name}（第二次）"}
-    changed, _ = controller._report_status(state, _pending(), report_request(
-        names[later.activity_id], summary="第二段也在等"))
-    assert changed.activities[later.activity_id].progress_note == "第二段也在等"
-    assert changed.activities[earlier.activity_id] == earlier
-    forged = controller.rows + [{"name": outsider.name, "activity_id": outsider.activity_id, "phase": "进行中"}]
-    for task, rows in (([earlier.name], controller.rows), (["等待"], controller.rows), ([outsider.name], forged)):
-        with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID"):
-            _Controller(state, rows)._report_status(state, _pending(), report_request(*task, summary="继续"))
-    assert state.activities[later.activity_id].progress_note == ""
 
 
-def test_conclude_marks_named_just_ended_activities_and_keeps_their_status() -> None:
-    """收尾刚结束的活动只写总结与 concluded_at、不改终态；只触及点名的活动；有待收尾时只结束别的活动以
-    ACTIVITY_CONCLUSION_REQUIRED 拒绝并点名待收尾项；已收尾的活动不能再结束（第七章「conclude_activity 的效果」）。"""
-    work = _activity("work", "工作周会纪要", kind=ActivityKind.WORK, status=ActivityStatus.COMPLETED,
-                     elapsed=600, planned=600, task_kind=SessionTaskKind.GOAL, task_ref="工作",
-                     plan_goal_intent_kind="工作")
-    road = _activity("road", "观看Space Habitat", kind=ActivityKind.WATCH, status=ActivityStatus.CANCELLED,
-                     elapsed=600, boundary_type="route_ended", interruption_reason="route_ended")
-    paused = _activity("paused", "阅读邮件", kind=ActivityKind.READ_MAIL, status=ActivityStatus.PAUSED,
-                       started_at=_START - 600, elapsed=300, planned=900)
-    state = _world([work, road, paused], plan=_goal_plan())
-    controller = _Controller(state)
-    changed, result = controller._conclude_activity(state, _pending(), conclude_request(work.name,
-                                                                                     summary="纪要已收尾"))
-    concluded = changed.activities[work.activity_id]
-    assert (concluded.status, concluded.concluded_at) == (ActivityStatus.COMPLETED, state.current_time)
-    assert concluded.progress_note == "纪要已收尾"
-    assert changed.activities[road.activity_id] == road and changed.activities[paused.activity_id] == paused
-    assert changed.agents[1].day_plan.goals[0].progress_note == "纪要已收尾"
-    assert result.data == {"task": [work.name], "activity_ids": [work.activity_id], "errands": [], "memory_sources": [
-        {"task": work.name, "activity_id": work.activity_id, "session_id": work.session_ids[-1],
-         "verified_event_ids": []}], "outcome": [
-             {"activity": work.name, "outcome": "完成", "items": [], "note": "No item changes."}]}
-    both, _ = controller._conclude_activity(state, _pending(), conclude_request(
-        work.name, road.name, summary=["纪要已收尾", "路上没看完"], memories=[[], []]))
-    assert all(both.activities[item.activity_id].concluded_at == state.current_time for item in (work, road))
-    assert both.activities[road.activity_id].status == ActivityStatus.CANCELLED
-    assert both.activities[road.activity_id].interruption_reason == "route_ended"
-    with pytest.raises(BusinessRuleError, match="ACTIVITY_CONCLUSION_REQUIRED") as caught:
-        controller._conclude_activity(state, _pending(), conclude_request(paused.name))
-    assert work.name in str(caught.value.__cause__) and road.name in str(caught.value.__cause__)
-    with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID"):
-        _Controller(both)._conclude_activity(both, _pending(), conclude_request(work.name))
 
 
-def test_recall_reads_task_and_activity_without_identities() -> None:
-    """回看工作任务取最近一条相关活动自述；回看活动给地点（最近所属会话的地点，未归入会话的取开始地点）、阶段、
-    人读进度（工作不写「还差」）与自述；截止是带时区的 ISO 时刻，自述照原文、不逐条标注未经核验；会话名不在七层中出现，
-    回看会话名以 TASK_NOT_FOUND 拒绝。结果不带内部身份并原样进入进度层该调用结果的 details.recall（第七章，
-    docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「通用格式」「进度层」）。自述仍在本轮记忆层 self_notes 中时（按活动的全名或去掉开始
-    时刻的短名标注），任务与活动的回看都只写那项活动在记忆层中的名称与「已在记忆层」（「唯一出现原则」）。"""
-    task = SimpleNamespace(task_id="internal-task", required_effective_seconds=14400.0,
-                           due_at=datetime.fromtimestamp(_START + 64800, timezone.utc))
-    work = {"kind": ActivityKind.WORK, "target_id": task.task_id, "task_kind": SessionTaskKind.WORK_TASK,
-            "task_ref": task.task_id}
-    first = _activity("first", "工作1月5日项目会议纪要", status=ActivityStatus.COMPLETED, elapsed=3600,
-                      planned=3600, effective_work_seconds=2700.0, progress_note="先整理提纲",
-                      note_updated_at=_START + 3600, concluded_at=_START + 3600, **work)
-    second = _activity("second", "工作1月5日项目会议纪要", started_at=_START + 7200, elapsed=3000, planned=7200,
-                       effective_work_seconds=2400.0, progress_note="已经核对正文", note_updated_at=_START + 10200,
-                       sessions=("afternoon",), **work)
-    morning = _session("morning", (first,), ended_at=_START + 3600)
-    afternoon = _session("afternoon", (second,), started_at=_START + 7200)
-    unassigned = _activity("unassigned", "等待", started_at=_START + 60, sessions=())
-    state = _world([first, second, unassigned], [morning, afternoon], now=_START + 10200)
-    memory = {"layer": "记忆层", "earlier_days": [], "earlier_today": []}
-
-    class RecallController(ActionHandlers):
-        """只提供回看需要的冻结绑定、记忆层、任务目录与地点名。"""
-
-        context = SimpleNamespace()
-        context.rules = SimpleNamespace(task=lambda _identity: task, tasks={task.task_id: task})
-        context.scenario = SimpleNamespace(timezone=_ZONE, locations=(
-            SimpleNamespace(location_id="private-office", name="办公室"),), routes=())
-
-        def _frozen_observation(self, _pending: PendingAction) -> dict:
-            names = visible_names(state, 1, ["工作：1月5日项目会议纪要"])
-            return {"task_bindings": [{"task_name": "工作：1月5日项目会议纪要", "task_id": task.task_id}],
-                    "goal_bindings": [], "memory_layer": memory,
-                    "activity_bindings": [{"name": name, "activity_id": key,
-                                           "phase": activity_phase(state.activities[key]), "note_labels": []}
-                                          for key, name in names["activities"].items()]}
-
-    controller = RecallController(RecallController.context, None)
-    controller.context.state = state
-
-    def recall(name: str) -> dict:
-        before = state.model_dump()
-        result = controller.read_task_summary(1, RecallTaskSummaryRequest(task_name=name),
-                                              controller._frozen_observation(_pending()))
-        assert state.model_dump() == before
-        return result
-
-    by_task, by_activity = recall("工作：1月5日项目会议纪要"), recall(first.name)
-    assert by_task["recall"] == {"kind": "task", "name": "工作：1月5日项目会议纪要",
-                                 "due_at": "2026-01-05T18:00:00+08:00", "progress_note": "已经核对正文"}
-    assert by_activity["recall"] == {
-        "kind": "activity", "name": first.name, "place": "办公室", "phase": "已收尾",
-        "objective_progress": "已做约 1 小时，有效约 45 分钟", "progress_note": "先整理提纲"}
-    assert recall(unassigned.name)["recall"]["place"] == "办公室"
-    for missing in ("不存在的名称", afternoon.name):
-        with pytest.raises(BusinessRuleError, match="TASK_NOT_FOUND"):
-            recall(missing)
-    assert "internal-" not in str([by_task, by_activity])
-    event = {"action_id": "internal-action-9", "occurred_at": _START + 10200, "status": "completed",
-             "error_code": None, "message": "Task summary retrieved", "data": by_activity}
-    public = public_result(event, _scenario())
-    assert public["details"] == {"recall": by_activity["recall"]}
-    memory["earlier_today"] = [{"recorded_at": "2026-01-05T01:00:00+08:00", "settled": [], "self_notes": [
-        {"activity": "工作1月5日项目会议纪要", "text": "先整理提纲"}]}]
-    assert recall(first.name)["recall"] == {"kind": "activity", "activity": "工作1月5日项目会议纪要",
-                                            "progress_note": "已在记忆层"}
-    assert recall("工作：1月5日项目会议纪要")["recall"]["progress_note"] == "已经核对正文"
-    memory["earlier_today"][0]["self_notes"].append({"activity": second.name, "text": "已经核对正文"})
-    assert recall("工作：1月5日项目会议纪要")["recall"] == {
-        "kind": "task", "activity": second.name, "progress_note": "已在记忆层"}
 
 
-def test_activity_targets_carry_only_readable_objective_progress() -> None:
-    """工具层的活动目标只有名称、阶段、人读客观进度与三个控制工具：工作写已做、有效与还剩，不写「还差」（剩余只在任务
-    目标的 contract）；刚结束的活动先写终局再写已做；暂停的活动不在工具层；自述与内部身份不进入
-    （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」「唯一出现原则」）。"""
-    work = _activity("work", "工作1月5日项目会议纪要", kind=ActivityKind.WORK, elapsed=7200, planned=10800,
-                     target_id="internal-task", effective_work_seconds=5400.0, progress_note="锁粒度那块卡住了")
-    assert objective_progress(work) == "已做约 2 小时，有效约 1.5 小时，还剩约 1 小时"
-    waiting = _activity("waiting", "等待", planned=900, started_at=_START + 1)
-    ended = _activity("ended", "等人", status=ActivityStatus.COMPLETED, elapsed=900, planned=900,
-                      started_at=_START + 2, boundary_type="planned_end")
-    paused = _activity("paused", "阅读邮件", kind=ActivityKind.READ_MAIL, status=ActivityStatus.PAUSED,
-                       started_at=_START + 3, elapsed=300, planned=900, paused_at=_START + 300)
-    state = _world([work, waiting, ended, paused], now=_START + 7200)
-    index = {"lifestyle": [], "contents": [], "goods": []}
-    targets = {row["name"]: row for row in tool_layer(_layer_context(state), index)["targets"]}
-    assert set(targets) == {work.name, waiting.name, ended.name}
-    assert targets[work.name] == {"name": work.name, "kind": "activity", "phase": "进行中",
-                                  "state": "已做约 2 小时，有效约 1.5 小时，还剩约 1 小时", "actions": [],
-                                  "tools": targets[work.name]["tools"]}
-    assert [row["tool"] for row in targets[work.name]["tools"]] == [
-        "report_status", "pause_activity", "conclude_activity"]
-    assert targets[waiting.name]["state"] == "已做不到 1 分钟，还剩约 15 分钟"
-    assert (targets[ended.name]["phase"], targets[ended.name]["state"]) == ("刚结束", "按计划结束，已做约 15 分钟")
-    rendered = json.dumps(targets, ensure_ascii=False)
-    assert "internal-" not in rendered and "锁粒度那块卡住了" not in rendered
 
 
 def _act(engine, round_id: str, tool: str, request):
@@ -367,7 +141,8 @@ def test_progress_rows_follow_pause_resume_end_and_conclusion(engine_factory) ->
     assert _activity_target(opened, name)["state"] == "已做不到 1 分钟，还剩约 15 分钟"
     wake_by_mail(engine, offset=60)
     assert advance_until_ready(engine)
-    assert _act(engine, "phase-pause", "pause_activity", pause_request(name, summary="先处理邮件")).status == "completed"
+    paused_result = _act(engine, "phase-pause", "pause_activity", pause_request(name, summary="先处理邮件"))
+    assert paused_result.status == "completed"
     paused = _observe(engine, "phase-paused")
     assert _activity_target(paused, name) is None
     (item,) = paused["todo_layer"]["paused_activities"]
@@ -375,7 +150,8 @@ def test_progress_rows_follow_pause_resume_end_and_conclusion(engine_factory) ->
     assert "先处理邮件" not in json.dumps([paused["tool_layer"], paused["todo_layer"]], ensure_ascii=False)
     assert progress_calls(paused, "pause_activity")[0]["arguments"] == {
         "items": [{"activity_name": name, "summary": "先处理邮件"}]}
-    assert _act(engine, "phase-resume", "report_status", report_request(name, summary="回到等待")).status == "completed"
+    resumed_result = _act(engine, "phase-resume", "report_status", report_request(name, summary="回到等待"))
+    assert resumed_result.status == "completed"
     assert engine.context.state.activities[activity_id].note_history[-1]["note"] == "先处理邮件"
     resumed = _observe(engine, "phase-resumed")
     assert _activity_target(resumed, name)["phase"] == "进行中" and not resumed["todo_layer"]["paused_activities"]
@@ -384,77 +160,62 @@ def test_progress_rows_follow_pause_resume_end_and_conclusion(engine_factory) ->
     ended = _observe(engine, "phase-ended")
     assert _activity_target(ended, name)["phase"] == "刚结束"
     assert _activity_target(ended, name)["state"] == "按计划结束，已做约 15 分钟"
-    assert _act(engine, "phase-conclude", "conclude_activity", conclude_request(
-        name, summary="等完了")).status == "completed"
+    concluded_result = _act(engine, "phase-conclude", "conclude_activity", conclude_request(name, summary="等完了"))
+    assert concluded_result.status == "completed"
     concluded = _observe(engine, "phase-concluded")
     assert _activity_target(concluded, name) is None and not concluded["todo_layer"]["paused_activities"]
+    for tool, result, observed in (("pause_activity", paused_result, paused),
+                                  ("report_status", resumed_result, resumed),
+                                  ("conclude_activity", concluded_result, concluded)):
+        assert result.data["activity_ids"] == [activity_id]
+        assert "task" not in result.data and "items" not in result.data
+        [stored] = [event for event in engine.context.store.read_agent_events("action_result", 1)
+                    if event.action_id == result.action_id]
+        assert stored.data["data"] == result.data
+        details = progress_calls(observed, tool)[-1]["result"]["details"]
+        assert "task" not in details and "items" not in details and "activity_ids" not in details
+        assert details["errands"] == []
+    assert progress_calls(resumed, "report_status")[-1]["result"]["details"]["planned"] == [
+        {"name": name, "duration": "约 14 分钟"}]
+    assert progress_calls(concluded, "conclude_activity")[-1]["result"]["details"]["outcome"] == concluded_result.data[
+        "outcome"]
 
 
-def test_work_objective_progress_grows_with_settlement(engine_factory) -> None:
-    """工作活动目标的客观进度读活动已结算的时长与有效工时，写成人读时长，随结算增长；不写「还差」，达标情况只在任务目标的
-    contract（第八章「活动客观进度」，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第六章）。"""
-    from tests.life.test_work_review import _at_task_start
-
-    engine = engine_factory()
-    _at_task_start(engine)
-    stage_day_plan(engine)
-    task = engine.context.scenario.tasks[0]
-    preview = _observe(engine, "work-preview")
-    target, label = next((row["object"], action["label"]) for row in preview["interaction_bindings"]
-                         if row["object_id"] == task.task_id for action in row["actions"]
-                         if action["canonical_action"] == "work")
-    started = _act(engine, "work-start", "start_activity", start_activity(label, target))
-    assert started.status == "in_progress"
-    name = activity_name(engine, started.activity_id)
-    observed = _observe(engine, "work-first")
-    first = _activity_target(observed, name)["state"]
-    assert first == "已做不到 1 分钟，有效不到 1 分钟，还剩约 8 小时"
-    contract = next(row for row in observed["tool_layer"]["targets"] if row["name"] == target)["contract"]
-    assert contract["remaining"] == "有效工时还差约 4 小时（约 0/4 小时）"
-    moment = engine.context.state.current_time + 1800
-    wake_by_mail(engine, offset=1800)
-    _advance_until(engine, lambda: engine.context.state.current_time >= moment, "work")
-    activity = engine.context.state.activities[started.activity_id]
-    assert activity.elapsed_seconds == 1800 and 0 < activity.effective_work_seconds <= 1800
-    later = _activity_target(_observe(engine, "work-later"), name)["state"]
-    assert later.startswith(f"已做约 30 分钟，有效约 {round(activity.effective_work_seconds / 60)} 分钟")
-    assert later.endswith("还剩约 7.5 小时") and "还差" not in later and later != first
 
 
 def _scenario(products: tuple = (), locations: tuple = ()) -> SimpleNamespace:
     """公开结果投影所需的场景切片：商品名、地点名与时区。"""
     agents = (SimpleNamespace(agent_id=1, name="林悦",
                               contacts=(SimpleNamespace(contact_id="contact-wanglei", salutation="王磊"),)),)
-    return SimpleNamespace(products=products, inventory_items=(), locations=locations, timezone=_ZONE, agents=agents,
-                           tasks=(SimpleNamespace(task_id="internal-task", title="会议纪要"),))
+    return SimpleNamespace(foods=products, locations=locations, timezone=_ZONE, agents=agents)
 
 
 def _result(data: dict | None = None) -> dict:
     """构造 action_result 事件正文，公开投影应主动删掉内部身份。"""
     return {"action_id": "internal-action-42", "agent_id": 1, "occurred_at": _START + 120, "status": "rejected",
-            "error_code": "WORK_REQUIRES_REWORK", "message": "这份工作需要补充结论。", "data": data or {}}
+            "error_code": "ACTIVITY_DURATION_INVALID", "message": "The activity duration is invalid.", "data": data or {}}
 
 
 def test_fresh_result_preserves_feedback_without_action_id() -> None:
     """公开结果写带时区的时刻、状态、错误码、原文说明与 details（没有新事实时为 {}），不暴露事件或动作定位字段。"""
     public = public_result(_result(), _scenario())
     assert public == {"occurred_at": "2026-01-05T00:02:00+08:00", "status": "rejected",
-                      "error_code": "WORK_REQUIRES_REWORK", "message": "这份工作需要补充结论。", "details": {}}
+                      "error_code": "ACTIVITY_DURATION_INVALID", "message": "The activity duration is invalid.", "details": {}}
     assert "internal-action-42" not in str(public)
 
 
 def test_purchase_result_replaces_product_and_supply_ids_with_names() -> None:
     """多商品结果各自写商品名、份数、付款、送达地点、预计时刻（带时区 ISO，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「通用格式」）、
     收货人与所回应的消息（没有关联时为 null），不复述请求的方式，删除报价版本、订单、供给、收货人与消息身份。"""
-    products = (SimpleNamespace(product_id="p1", name="牛肉面"),
-                SimpleNamespace(product_id="p2", name="豆浆"))
-    places = (SimpleNamespace(location_id="private-office", name="办公室"),)
+    products = (SimpleNamespace(food_id="p1", name="牛肉面"),
+                SimpleNamespace(food_id="p2", name="豆浆"))
+    places = (SimpleNamespace(location_id="private-office", name="办公室", display_name="办公室"),)
     orders = [
-        {"order_id": "order-1", "product_id": "p1", "supply_id": "s1", "quantity": 1, "fulfillment": "delivery",
-         "destination_id": "private-office", "expected_at": _START + 900, "price_version": "private-v1",
+        {"order_id": "order-1", "food_id": "p1", "store_id": "store-1", "quantity": 1, "fulfillment": "delivery",
+         "destination_id": "private-office", "expected_at": _START + 900,
          "total_price_fen": 2800, "recipient_id": "contact-wanglei", "request_message_id": "reply-private"},
-        {"order_id": "order-2", "product_id": "p2", "supply_id": "s2", "quantity": 1, "fulfillment": "pickup",
-         "destination_id": "private-office", "expected_at": _START + 86_400, "price_version": "private-v2",
+        {"order_id": "order-2", "food_id": "p2", "store_id": "store-2", "quantity": 1, "fulfillment": "pickup",
+         "destination_id": "private-office", "expected_at": _START + 86_400,
          "total_price_fen": 550, "recipient_id": "agent:1", "request_message_id": None},
     ]
     payload = {"orders": orders, "answering": "王磊 00:00 的消息"}
@@ -475,8 +236,8 @@ def test_result_details_keep_only_new_readable_facts() -> None:
     回看、原因、下一步、逐项明细、名称
     归一、说明与终局原样（私有的候选标签不进入）；读完的邮件写主题与正文（正文只在阅读动作的结果中），恢复的活动写恢复
     后的计划时长；不复述参数、不含内部身份；工作结果另带只含公开字段的 work_review。"""
-    products = (SimpleNamespace(product_id="p1", name="牛肉面"),)
-    places = (SimpleNamespace(location_id="private-office", name="办公室"),)
+    products = (SimpleNamespace(food_id="p1", name="牛肉面"),)
+    places = (SimpleNamespace(location_id="private-office", name="办公室", display_name="办公室"),)
     activity = {"activity_id": "internal-activity-1", "name": "步行前往办公室（1月5日 00:00 起）",
                 "planned_duration_seconds": 750, "data": {"arrival": {"location_id": "private-office",
                                                                      "access_status": "denied"}}}
@@ -487,7 +248,7 @@ def test_result_details_keep_only_new_readable_facts() -> None:
                 "items": [{"target": "办公室出售的牛肉面", "way": "到店", "from": None, "to": None}],
                 "answering": None, "prefer": "最快拿到"}, "note": None}]}
     resolved = [{"written": "办公室", "as": "地点：办公室"}]
-    started = {**_result({"activity": activity, "browse_result": {"items": [{"product_id": "p1", "supply_id": "s1",
+    started = {**_result({"activity": activity, "browse_result": {"items": [{"food_id": "p1", "store_id": "store-1",
                                                                               "location_id": "private-office",
                                                                               "price_fen": 1200}]},
                           "recall": {"name": "工作：会议纪要"}, "candidates": ["办公室出售的牛肉面"], "items": [item],
@@ -498,7 +259,7 @@ def test_result_details_keep_only_new_readable_facts() -> None:
                "status": "in_progress", "error_code": None}
     details = public_result(started, _scenario(products, places))["details"]
     assert details == {"planned": [{"name": activity["name"], "duration": "约 12 分钟"}],
-                       "arrival": {"place": "办公室", "access": "没能进去"}, "browse_items": ["办公室出售的牛肉面"],
+                       "arrival": {"place": "办公室", "access": "没能进去"},
                        "recall": {"name": "工作：会议纪要"}, "items": [item], "resolved": resolved,
                        "notes": ["from 可以写 null"],
                        "outcome": [{"activity": "吃牛肉面", "outcome": "完成", "items": [], "note": None}]}
@@ -512,32 +273,132 @@ def test_result_details_keep_only_new_readable_facts() -> None:
     reading = {"activity_id": "internal-activity-2", "kind": "read_mail", "name": "阅读邮件工作安排（1月5日 00:00 起）",
                "planned_duration_seconds": 300, "data": {"revealed": {
                    "message_id": "internal-mail", "thread_id": "internal-thread", "subject": "工作安排",
-                   "body": "周一上午交会议纪要。", "related_task_id": "internal-task", "attachment_sha256": None}}}
+                   "body": "周一上午交会议纪要。", "attachment_sha256": None}}}
     read = public_result({**_result({"activity": reading}), "status": "completed", "error_code": None},
                          _scenario())["details"]
-    assert read == {"mail": {"subject": "工作安排", "body": "周一上午交会议纪要。", "task": "工作：会议纪要"}}
+    assert read == {"mail": {"subject": "工作安排", "body": "周一上午交会议纪要。"}}
     unread = {**reading, "data": {}}
     assert public_result({**_result({"activity": unread}), "status": "in_progress", "error_code": None},
                          _scenario())["details"] == {"planned": [{"name": reading["name"], "duration": "约 5 分钟"}]}
-    resumed = {"task": ["工作会议纪要（1月5日 00:00 起）"], "activity_ids": ["internal-activity-3"],
+    resumed = {"activity_ids": ["internal-activity-3"],
                "resumed": [{"name": "工作会议纪要（1月5日 00:00 起）", "planned_duration_seconds": 22_409}]}
     assert public_result({**_result(resumed), "status": "completed", "error_code": None}, _scenario())["details"] == {
         "planned": [{"name": "工作会议纪要（1月5日 00:00 起）", "duration": "约 6 小时"}]}
 
 
-def test_work_review_keeps_only_public_fields() -> None:
-    """工作结果的 work_review 只保留公开汇总与两种逐项判断的公开字段，隐藏参考身份与额外字段都去掉。"""
-    item = {"content_category": "decision", "covered": True, "source_supported": True, "contradiction": False,
-            "source_excerpt": "25 euros", "rationale": "stated", "passed": True, "reference_id": "hidden-ref"}
-    delivery = {"delivery_path": "decisions[0]", "source_supported": True, "contradiction": False,
-                "source_excerpt": "25 euros", "rationale": "matches", "passed": True, "oracle": "hidden"}
-    review = {"accepted": True, "required_fact_total": 1, "required_fact_passed": 1, "required_fact_missing": 0,
-              "missing_content_categories": [], "required_fact_assessments": [item],
-              "delivery_assessments": [delivery], "oracle_path": "hidden/path"}
-    public = public_result({**_result({"work_review": review}), "status": "completed", "error_code": None},
-                           _scenario())
-    assert "hidden" not in json.dumps(public) and public["details"] == {}
-    assert public["work_review"]["required_fact_assessments"] == [
-        {key: value for key, value in item.items() if key != "reference_id"}]
-    assert public["work_review"]["delivery_assessments"] == [
-        {key: value for key, value in delivery.items() if key != "oracle"}]
+
+
+def _begin_pair(engine, label: str) -> tuple[str, str]:
+    """真实等待与应用活动共享一个请求，各自产生独立活动身份。"""
+    from tests.life.conftest import start_request
+    stage_day_plan(engine)
+    _, rows = submit_round(engine, {1: ("start_activity", start_request(
+        targets=["自己", "应用：抖音"], actions=["interact", "interact"], ways=["等待", "打开"]))}, label)
+    assert rows[0].status == "in_progress"
+    from tests.life.test_work_protocol import wake_for_control
+    wake_for_control(engine)
+    activities = rows[0].data["activities"]
+    return tuple(activity_name(engine, row["activity_id"]) for row in activities)
+
+
+def test_report_status_maps_each_activity_to_its_own_note_and_goal_note(engine_factory) -> None:
+    """真实播报逐项写入各自活动历史，不改另一个活动的叙述。"""
+    engine = engine_factory()
+    first, second = _begin_pair(engine, "pair-report-start")
+    request = report_request(first, second, summary=["还在等。", "刚看了一段视频。"])
+    _act(engine, "pair-report", "report_status", request)
+    data = _observe(engine, "pair-report-view")
+    by_name = {item.name: item for item in engine.context.state.activities.values()}
+    assert by_name[first].progress_note == "还在等。"
+    assert by_name[second].progress_note == "刚看了一段视频。"
+    assert all(not item.note_history for item in by_name.values())
+    assert len(data["tool_layer"]["targets"]) >= 2
+
+
+def test_control_names_resolve_to_one_own_activity_of_this_round(engine_factory) -> None:
+    """真实轮只接受本人的已绑定活动名，找不到时整个控制请求拒绝且活动不变。"""
+    engine = engine_factory()
+    first, second = _begin_pair(engine, "pair-control-start")
+    before = {key: value.model_dump(mode="json") for key, value in engine.context.state.activities.items()}
+    result = _act(engine, "pair-control-unknown", "report_status", report_request(first, "未知活动"))
+    assert result.status == "rejected"
+    assert result.data["items"][0]["error_code"] == "NAME_NOT_FOUND"
+    assert {key: value.model_dump(mode="json") for key, value in engine.context.state.activities.items()} == before
+
+
+def test_conclude_marks_named_just_ended_activities_and_keeps_their_status(engine_factory) -> None:
+    """真实活动按计划结束后收尾只补叙述，保留完成状态和结束时刻。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    started = _act(engine, "ending-wait-start", "start_activity", start_activity("等待", "自己"))
+    key = started.activity_id
+    name = activity_name(engine, key)
+    for step in range(64):
+        if engine.context.state.activities[key].status != "active":
+            break
+        if engine.scheduling_state().ready_agent_ids:
+            _act(engine, f"ending-wait-report-{step}", "report_status", report_request(name))
+        advance_next(engine)
+    ended = engine.context.state.activities[key]
+    assert ended.status == "completed"
+    result = _act(engine, "ending-wait-conclude", "conclude_activity", conclude_request(name))
+    assert result.status == "completed"
+    after = engine.context.state.activities[key]
+    assert (after.status, after.ended_at) == (ended.status, ended.ended_at)
+    assert after.concluded_at is not None
+
+
+def test_recall_reads_task_and_activity_without_identities(engine_factory) -> None:
+    """真实主题和活动回看含历史叙述，读取不产生状态或事件变化，不泄漏内部身份。"""
+    from tests.life.test_work_protocol import at_workplace, wake_for_control
+    engine = engine_factory()
+    at_workplace(engine)
+    topic = engine.context.scenario.work_topics[0]
+    started = _act(engine, "recall-work-start", "start_activity", start_activity("工作", f"工作：{topic.topic}"))
+    name = activity_name(engine, started.activity_id)
+    wake_for_control(engine)
+    _act(engine, "recall-work-first", "report_status", report_request(name, summary="先核对日期。"))
+    wake_for_control(engine)
+    _act(engine, "recall-work-second", "report_status", report_request(name, summary="正在核对金额。"))
+    data = _observe(engine, "recall-work-view")
+    before = engine.context.state.model_dump_json(), engine.context.store.last_event_seq
+    for wanted in (name, f"工作：{topic.topic}"):
+        result = engine.read_task_summary(1, RecallTaskSummaryRequest(task_name=wanted), data)
+        assert result["recall"]["progress_note"] == "正在核对金额。"
+        assert result["recall"]["note_history"][0]["note"] == "先核对日期。"
+        assert "topic_id" not in json.dumps(result) and started.activity_id not in json.dumps(result)
+    assert (engine.context.state.model_dump_json(), engine.context.store.last_event_seq) == before
+
+
+def test_activity_targets_carry_only_readable_objective_progress(engine_factory) -> None:
+    """真实工作目标显示跨活动实际工时和上一段叙述，不泄漏内部主题身份。"""
+    from tests.life.test_work_protocol import at_workplace, wake_for_control
+    engine = engine_factory()
+    at_workplace(engine)
+    topic = engine.context.scenario.work_topics[0]
+    started = _act(engine, "target-work-start", "start_activity", start_activity("工作", f"工作：{topic.topic}"))
+    name = activity_name(engine, started.activity_id)
+    wake_for_control(engine)
+    _act(engine, "target-work-report", "report_status", report_request(name, summary="已核对起始金额。"))
+    target = _activity_target(_observe(engine, "target-work-view"), name)
+    assert target["state"] == "已做约 0 小时，还差约 8 小时"
+    assert target["last_report"] == "已核对起始金额。"
+    assert [row["tool"] for row in target["tools"]] == ["report_status", "pause_activity", "conclude_activity"]
+    assert topic.topic_id not in json.dumps(target) and "有效" not in target["state"]
+
+
+def test_work_objective_progress_grows_with_settlement(engine_factory) -> None:
+    """真实工作结算六百秒后，工具目标的已做和剩余与主题累计工时一致。"""
+    from tests.life.test_work_protocol import at_workplace, wake_for_control
+    engine = engine_factory()
+    at_workplace(engine)
+    topic = engine.context.scenario.work_topics[0]
+    started = _act(engine, "progress-work-start", "start_activity", start_activity("工作", f"工作：{topic.topic}"))
+    name = activity_name(engine, started.activity_id)
+    wake_by_mail(engine, offset=600)
+    advance_next(engine)
+    activity = engine.context.state.activities[started.activity_id]
+    assert activity.elapsed_seconds == 600
+    target = _activity_target(_observe(engine, "progress-work-view"), name)
+    assert target["state"] == "已做约 0.2 小时，还差约 7.8 小时"
+    assert "有效" not in target["state"]

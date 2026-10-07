@@ -7,7 +7,6 @@ if TYPE_CHECKING:
     from agentsociety2.society import DecisionContext, DirectToolCall
 from worldmock.life.world_ops import _failure_draft
 from worldmock.life.world_ops import _put_agent
-from worldmock.life.world_ops import _put_agent_and_defer_game_turn
 from worldmock.life.world_ops import _request_sha
 
 import logging
@@ -43,12 +42,13 @@ from worldmock.life.models import (
 from worldmock.life.observe import ObservationBuilder
 from worldmock.life.rhythm import engine_rhythm_inputs, next_decision_candidates
 from worldmock.life.session_actions import ActionHandlers
-from worldmock.life.state_commit import commit_state, flush_supply_visibility, stage_presentation
+from worldmock.life.models import validated_payload
+from worldmock.life.presentation import stage_presentation
 
 from worldmock.life.engine_context import EngineContext
 from worldmock.life.activity_titles import activity_title, activity_snapshot
 
-_OPS_COMPONENTS = {"purchase": "commerce", "travel_to": "travel", "submit_work": "review"}
+_OPS_COMPONENTS = {"purchase": "commerce", "travel_to": "travel"}
 
 
 class DecisionCoordinator:
@@ -127,9 +127,8 @@ class DecisionCoordinator:
                 "self_note": self._decision_self_note(call.context),
             },
         )
-        event = commit_state(
-            self.context.store, self.context.state, [item for item in (start, draft) if item is not None]
-        )[-1]
+        event = self.context.store.commit(
+            validated_payload(self.context.state), [item for item in (start, draft) if item is not None])[-1]
         pending = PendingAction(
             run_id=call.context.run_id,
             round_id=call.context.round_id,
@@ -160,7 +159,7 @@ class DecisionCoordinator:
         if submitted != set(current.expected_agent_ids):
             raise ProtocolError("Decision round does not contain every expected agent")
         staged = stage_presentation(self.context.state, self.observations.pending_presentation).model_copy(deep=True)
-        staged = flush_supply_visibility(staged, self.observations.pending_visible_supplies)
+        staged = staged
         drafts: list[EventDraft] = flush_decision_starts(self.pending_decision_starts, self.context.state.current_time)
         results = []
         for pending in sorted(current.pending_actions, key=lambda item: item.order):
@@ -191,10 +190,9 @@ class DecisionCoordinator:
         )
         staged = self.observations._snapshot_decision_references(staged, list(current.expected_agent_ids))
         staged.version = self.context.state.version + 1
-        events = commit_state(self.context.store, staged, drafts)
+        events = self.context.store.commit(validated_payload(staged), drafts)
         self.context.state = staged
         self.observations.pending_presentation = {}
-        self.observations.pending_visible_supplies = {}
         self.round = None
         self._ops_committed(round_id, results, events)
         return results
@@ -204,11 +202,8 @@ class DecisionCoordinator:
 
         没有观察的引擎直驱提交什么也没呈现，返回空集；同一决策同一秒有多条观察是协议错误。
         """
-        matches = [
-            event
-            for event in self.context.store.read_agent_events("observation", pending.agent_id)
-            if event.decision_id == pending.decision_id and event.occurred_at == pending.observed_at
-        ]
+        matches = self.context.store.read_decision_observations(
+            pending.agent_id, pending.decision_id, pending.observed_at)
         if len(matches) > 1:
             raise ProtocolError("Decision observation is ambiguous")
         return frozenset(matches[0].data["presented_message_ids"]) if matches else frozenset()
@@ -294,7 +289,7 @@ class DecisionCoordinator:
             )
         )
         drafts.append(_failure_draft(self.context.state.current_time, error, round_id))
-        commit_state(self.context.store, staged, drafts)
+        self.context.store.commit(validated_payload(staged), drafts)
         self.context.state = staged
         self.round = None
         self.context.ops.log(
@@ -415,16 +410,7 @@ class DecisionCoordinator:
     def _after_success(self, state: WorldState, agent_id: int, tool_name: str) -> WorldState:
         """@brief 受理计入同刻轮数并清零连续拒绝，按同刻规则或决策节律安排下一次决策（第一章规则 2、4、7）。"""
         agent = same_moment.count_round(state.agents[agent_id])
-        game = next(
-            (
-                item
-                for item in active_activities(state, agent_id)
-                if item.kind == ActivityKind.PLAY_GAME and item.next_interaction_at is not None
-            ),
-            None,
-        )
-        game_turn = (lambda: game.next_interaction_at) if game is not None else None
-        (next_at, reasons, stage) = self._round_schedule(state, agent, None, game_turn)
+        (next_at, reasons, stage) = self._round_schedule(state, agent, None)
         changed = agent.model_copy(
             update={
                 "next_decision_at": next_at,
@@ -463,7 +449,6 @@ class DecisionCoordinator:
             rejected=rejection is not None,
             limit=self.context.scenario.max_same_moment_decisions,
             pending=bool(activity_control.pending_conclusions(state, agent.agent_id)),
-            slots_full=activity_control.free_slots(state, agent.agent_id) == 0,
         )
         if same_moment.budget_exhausted(outcome):
             code = (None if free else rejection) or same_moment.latest_rejection_code(state, agent.agent_id)
@@ -492,7 +477,7 @@ class DecisionCoordinator:
                 "pending_wake_reasons": reasons, "same_moment_stage": stage, "body": body,
             }, deep=True,
         )
-        changed = _put_agent_and_defer_game_turn(state, changed_agent)
+        changed = _put_agent(state, changed_agent)
         logging.info("Action rejected: %s", rejection_reason_text(error))
         guidance = rejection_guidance(error)
         guidance.update(
@@ -508,8 +493,6 @@ class DecisionCoordinator:
             "next_decision_at": next_decision_at,
             **guidance,
         }
-        if str(error) == "WORK_REQUIRES_REWORK":
-            data["work_review"] = self.actions.public_work_review(pending)
         if isinstance(error, PreconditionError):
             data["unmet"] = error.unmet
             if error.suggested is not None:
@@ -557,7 +540,7 @@ class DecisionCoordinator:
         agent = agent.model_copy(
             update={"next_decision_at": next_at, "pending_wake_reasons": reasons, "same_moment_stage": stage}, deep=True
         )
-        changed = _put_agent_and_defer_game_turn(state, agent)
+        changed = _put_agent(state, agent)
         return (changed, result, [first, second, *self.actions.drain_drafts()])
 
     def _decision_self_note(self, context: "DecisionContext") -> str | None:

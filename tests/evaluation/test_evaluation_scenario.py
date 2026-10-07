@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from tests.data_paths import ENVIRONMENT_ROOT
 
 import json
 from pathlib import Path
@@ -11,7 +10,7 @@ from worldmock.evaluation.errors import EvaluationError
 from worldmock.evaluation.scenario import load_scenario
 
 
-FORMAL_SCENARIO = ENVIRONMENT_ROOT / "scenarios/evaluation.json"
+FORMAL_SCENARIO = Path(__file__).parent / "fixtures/scenario.json"
 
 
 def test_formal_scenario_freezes_only_the_verified_shared_profile() -> None:

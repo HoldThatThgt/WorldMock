@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 from worldmock.errors import IntegrityError
 from worldmock.footprints.assets import atomic_write
+from worldmock.footprints.app_usage import activity_snapshots, project_app_usage
 from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.footprints.models import Event, canonical_json
 from worldmock.footprints.purchases import project_purchase_facts
@@ -61,6 +62,8 @@ def _write_export(store: FootprintStore, events: list[Event], stage: Path) -> di
             stage / "verified-experiences.jsonl", _verified_experience_rows(store.manifest["agent_ids"], events)),
         "purchases": write_jsonl(
             stage / "purchases.jsonl", project_purchase_facts([event.model_dump() for event in events])),
+        "app_usage": write_jsonl(stage / "app-usage.jsonl",
+                                 project_app_usage([event.model_dump() for event in events])),
     }
     references = {}
     if manifest["experiment_completed"]:
@@ -91,7 +94,7 @@ def _verified_experience_rows(agent_ids: list[int], events: list[Event]) -> list
     rows = [fact for agent_id in sorted(int(item) for item in agent_ids)
             for fact in project_verified_experiences(events, agent_id=agent_id, cutoff_seq=cutoff)]
     return sorted(rows, key=lambda item: (item["event_seq"], item["agent_id"], item["kind"],
-                                          item.get("product_id", "")))
+                                          item.get("food_id", "")))
 
 
 def _write_timeline_projections(store: FootprintStore, stage: Path,
@@ -131,7 +134,7 @@ def _export_identity(run: dict, events: list[Event]) -> dict:
              and events[-1].event_type == "checkpoint_created" and events[-1].event_seq > ended[0].event_seq)
     failed = any(event.event_type == "run_failed" for event in events)
     complete = end.timestamp() == run["window"]["end"] and saved and not failed
-    return {"schema_version": 2, "committed": True, "run_id": run["run_id"],
+    return {"schema_version": 3, "committed": True, "run_id": run["run_id"],
             "source_group_id": run.get("source_group_id", run["run_id"]),
             "source_run_ids": sorted({event.run_id for event in events}),
             "cutoff_event_seq": events[-1].event_seq, "experiment_completed": complete,
@@ -145,19 +148,17 @@ def reconstruct_activities(events: list[Event]) -> list[dict]:
     segments = {}
     sources = {}
     for event in events:
-        snapshot = event.data.get("activity")
-        if snapshot is None:
-            continue
-        identity = snapshot["activity_id"]
-        if event.activity_id != identity:
-            raise IntegrityError("Event activity reference disagrees with its snapshot")
-        previous = activities.get(identity)
-        if previous and snapshot["elapsed_seconds"] < previous["elapsed_seconds"]:
-            raise IntegrityError("Activity progress cannot move backwards")
-        activities[identity] = dict(snapshot)
-        sources.setdefault(identity, []).append(event.event_id)
-        if event.event_type == "activity_progress":
-            _append_segment(segments.setdefault(identity, []), event)
+        for snapshot in activity_snapshots(event.data):
+            identity = snapshot["activity_id"]
+            if snapshot is event.data.get("activity") and event.activity_id != identity:
+                raise IntegrityError("Event activity reference disagrees with its snapshot")
+            previous = activities.get(identity)
+            if previous and snapshot["elapsed_seconds"] < previous["elapsed_seconds"]:
+                raise IntegrityError("Activity progress cannot move backwards")
+            activities[identity] = dict(snapshot)
+            sources.setdefault(identity, []).append(event.event_id)
+            if event.event_type == "activity_progress":
+                _append_segment(segments.setdefault(identity, []), event)
     return [_activity_record(value, segments.get(key, []), sources[key]) for key, value in activities.items()]
 
 

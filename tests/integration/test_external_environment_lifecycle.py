@@ -12,10 +12,8 @@ import pytest
 from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 from tests.life.conftest import advance_next, conclude_request, report_request, start_activity, submit_round
 from worldmock.footprints.checkpoint import snapshot_directory
-from worldmock.footprints.export import export_run
-from worldmock.footprints.validation import validate_export
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import ActivityStatus, ModelIdentity, RunIdentity
+from worldmock.life.models import ActivityStatus, RunIdentity
 from worldmock.life.activity_control import pending_conclusions
 from worldmock.life.models import active_activities
 from worldmock.life.scenario import sha256_file
@@ -23,23 +21,22 @@ from worldmock.life.scenario import sha256_file
 
 def _identity(path: Path) -> RunIdentity:
     """@brief 冻结离线引擎直驱运行的输入身份，不创建任何模型客户端。"""
+    from worldmock.run_setup import _model_identity, runtime_code_sha256
+
     document = json.loads(path.read_text(encoding="utf-8"))
     return RunIdentity(
         run_id="external-environment-test", source_group_id="external-environment-group",
         agent_ids=tuple(item["agent_id"] for item in document["agents"]),
         start_at=datetime.fromisoformat(document["start_at"]).isoformat(),
         end_at=datetime.fromisoformat(document["end_at"]).isoformat(), timezone=document["timezone"],
-        code_sha256="2" * 64,
-        model_identity=ModelIdentity(
-            provider="openai_compatible", base_url="https://api.deepseek.com/beta", requested_model="deepseek-flash",
-            thinking="enabled", tool_choice="auto", max_retries=0,
-            prompt_sha256="0" * 64, tool_schema_sha256="1" * 64),
+        code_sha256=runtime_code_sha256(Path(__file__).resolve().parents[2]),
+        model_identity=_model_identity(),
     )
 
 
 def _complete_run(engine: LifeEngine, root: Path):
     """@brief 用真实请求走过剩余边界，再冻结真实人工人物目录和生活参与者检查点。"""
-    for step in range(128):
+    for step in range(2000):
         state = engine.scheduling_state()
         if state.next_event_at is None:
             break
@@ -59,6 +56,11 @@ def _complete_run(engine: LifeEngine, root: Path):
         else:
             advance_next(engine)
     assert engine.context.state.current_time == engine.context.state.end_time
+    return _snapshot_current(engine, root)
+
+
+def _snapshot_current(engine: LifeEngine, root: Path):
+    """@brief 保存当前真实世界和人物素材，阶段五不要求运行至完整日末尾。"""
     snapshots = {}
     for agent_id, agent in engine.context.state.agents.items():
         workspace = root / f"agent-{agent_id}"
@@ -68,8 +70,30 @@ def _complete_run(engine: LifeEngine, root: Path):
     return engine.checkpoint(snapshots)
 
 
+def _advance_after_restore(engine: LifeEngine) -> None:
+    """@brief 经真实收尾、等待和播报消化恢复时就绪决策，再继续一个实际时间边界。"""
+    for step in range(8):
+        ready = engine.scheduling_state().ready_agent_ids
+        if not ready:
+            advance_next(engine)
+            return
+        requests = {}
+        for agent_id in ready:
+            pending = pending_conclusions(engine.context.state, agent_id)
+            active = active_activities(engine.context.state, agent_id)
+            if pending:
+                requests[agent_id] = ("conclude_activity", conclude_request(*(item.name for item in pending)))
+            elif active:
+                requests[agent_id] = ("report_status", report_request(*(item.name for item in active)))
+            else:
+                requests[agent_id] = ("start_activity", start_activity("等待", "自己"))
+        _, results = submit_round(engine, requests, f"resume-{step}")
+        assert all(result.status in {"completed", "in_progress"} for result in results)
+    raise AssertionError("Restored engine did not leave its decision boundary")
+
+
 @pytest.mark.parametrize("scenario_name", ["single-person.json", "multi-person.json", "multi-person-half-day.json"])
-def test_external_environment_survives_actions_reopen_and_export(tmp_path: Path, scenario_name: str):
+def test_external_environment_survives_actions_and_reopen(tmp_path: Path, scenario_name: str):
     """@brief 显式外部场景路径足以完成真实生命周期，标题和效果取人工环境。"""
     root = tmp_path / "external-environment"
     shutil.copytree(ARTIFICIAL_ENVIRONMENT_ROOT, root)
@@ -77,7 +101,10 @@ def test_external_environment_survives_actions_reopen_and_export(tmp_path: Path,
     engine = LifeEngine.create(path, run, _identity(path))
     try:
         assert engine.context.corpus_root == root / "corpora"
-        assert engine.context.rules.content_titles == {"test-content": "人工测试内容"}
+        assert engine.context.rules.content_titles == {
+            "c-article": "测试文章", "c-image": "测试图文", "c-live": "测试实况",
+            "c-long": "测试长视频", "c-short": "测试短视频", "c-short-2": "测试短视频二",
+        }
         requests = {agent: ("start_activity", start_activity("进行", "安静休息"))
                     for agent in engine.scheduling_state().ready_agent_ids}
         _, results = submit_round(engine, requests, "start-rest")
@@ -89,12 +116,9 @@ def test_external_environment_survives_actions_reopen_and_export(tmp_path: Path,
         assert engine.context.state.model_dump(mode="json") == saved
         assert all(activity.data["effects"] == {"entertainment": 0.8, "social": 0.1, "health": 0.2}
                    for activity in engine.context.state.activities.values())
-        checkpoint = _complete_run(engine, tmp_path)
-        destination = tmp_path / "export"
-        manifest = export_run(engine.context.store, checkpoint.last_event_seq, destination)
-        checked, events, activities = validate_export(destination)
-        assert checked["run_id"] == manifest["run_id"]
-        assert activities and any(event["event_type"] == "action_result" for event in events)
+        _advance_after_restore(engine)
+        checkpoint = _snapshot_current(engine, tmp_path)
+        assert engine.context.store.get_checkpoint(checkpoint.checkpoint_id).state == checkpoint.state
     finally:
         engine.close()
 
@@ -148,7 +172,7 @@ def _accumulate_awake_needs(engine: LifeEngine) -> None:
             if engine.scheduling_state().ready_agent_ids:
                 _, reports = submit_round(engine, {1: ("report_status", report_request(activity.name))},
                                            f"wait-report-{step}-{activity.elapsed_seconds}")
-                assert all(report.status == "in_progress" for report in reports)
+                assert all(report.status == "completed" for report in reports)
             advance_next(engine)
         activity = engine.context.state.activities[result.activity_id]
         assert activity.status == ActivityStatus.COMPLETED and activity.elapsed_seconds == 300
@@ -166,7 +190,7 @@ def _advance_effect_rest(engine: LifeEngine, activity_id: str, effects: dict[str
     if engine.scheduling_state().ready_agent_ids:
         _, results = submit_round(engine, {1: ("report_status", report_request(activity.name))},
                                   f"report-rest-{activity.elapsed_seconds}")
-        assert all(result.status == "in_progress" for result in results)
+        assert all(result.status == "completed" for result in results)
     before = engine.context.state.agents[1].model_copy(deep=True)
     start = engine.context.state.current_time
     advance_next(engine)
@@ -187,6 +211,9 @@ def _advance_effect_rest(engine: LifeEngine, activity_id: str, effects: dict[str
 
 def _export_effect_run(engine: LifeEngine, root: Path, activity_id: str, effects: dict[str, float]) -> None:
     """@brief 完成真实运行并验证导出中的同一活动仍保存启动效果。"""
+    from worldmock.footprints.export import export_run
+    from worldmock.footprints.validation import validate_export
+
     checkpoint = _complete_run(engine, root)
     activity = engine.context.state.activities[activity_id]
     assert activity.status == ActivityStatus.COMPLETED and activity.data["effects"] == effects
@@ -201,7 +228,7 @@ def _export_effect_run(engine: LifeEngine, root: Path, activity_id: str, effects
 
 
 def test_same_lifestyle_identity_freezes_each_external_environment_through_real_lifecycle(tmp_path: Path):
-    """@brief 两个同时加载的外部世界经真实启动、继续、恢复和导出各自使用条目效果。"""
+    """@brief 两个同时加载的外部世界经真实启动、继续和恢复各自使用条目效果。"""
     variants = {"mild": {"entertainment": .2, "social": .3, "health": .4},
                 "strong": {"entertainment": .6, "social": .7, "health": .9}}
     paths = {name: _environment_with_effects(tmp_path / name, effects) for name, effects in variants.items()}
@@ -237,8 +264,9 @@ def test_same_lifestyle_identity_freezes_each_external_environment_through_real_
             outcomes[name] = engine.context.state.agents[1].body.model_copy(deep=True)
         assert outcomes["mild"].entertainment_need > outcomes["strong"].entertainment_need
         assert 0 < outcomes["mild"].mood_valence < outcomes["strong"].mood_valence
-        for name, effects in variants.items():
-            _export_effect_run(engines[name], tmp_path / name, identities[name], effects)
+        for name in variants:
+            checkpoint = _snapshot_current(engines[name], tmp_path / name)
+            assert engines[name].context.store.get_checkpoint(checkpoint.checkpoint_id).state == checkpoint.state
     finally:
         for engine in engines.values():
             engine.close()
@@ -260,4 +288,35 @@ def test_engine_factory_uses_artificial_inputs_and_isolates_scenario_changes(eng
     assert first.context.scenario.body.mass_kg == second.context.scenario.body.mass_kg == 70.0
     assert changed.context.scenario.body.mass_kg == 68.0
     assert first.context.state.run_id != second.context.state.run_id
-    assert first.context.rules.content_titles == {"test-content": "人工测试内容"}
+    assert first.context.rules.content_titles["c-short"] == "测试短视频"
+
+
+@pytest.mark.parametrize("scenario_name", ["single-person.json", "multi-person.json", "multi-person-half-day.json"])
+def test_external_environment_exports_authenticated_completed_run(tmp_path: Path, scenario_name: str):
+    """@brief 导出阶段以实际完成的运行验证工件及原始动作事实。"""
+    from worldmock.footprints.export import export_run
+    from worldmock.footprints.validation import validate_export
+
+    path = ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios" / scenario_name
+    engine = LifeEngine.create(path, tmp_path / "run", _identity(path))
+    try:
+        checkpoint = _complete_run(engine, tmp_path)
+        manifest = export_run(engine.context.store, checkpoint.last_event_seq, tmp_path / "export")
+        checked, events, _ = validate_export(tmp_path / "export")
+        assert checked["run_id"] == manifest["run_id"]
+        assert any(event["event_type"] == "action_result" for event in events)
+    finally:
+        engine.close()
+
+
+@pytest.mark.parametrize("effects", [{"entertainment": .2, "social": .3, "health": .4},
+                                    {"entertainment": .6, "social": .7, "health": .9}])
+def test_external_environment_exports_frozen_lifestyle_effects(tmp_path: Path, effects: dict[str, float]):
+    """@brief 导出阶段以真实启动的生活活动证明环境效果随足迹保存。"""
+    path = _environment_with_effects(tmp_path / "environment", effects)
+    engine = LifeEngine.create(path, tmp_path / "run", _identity(path))
+    try:
+        activity_id = _start_effect_rest(engine, effects)
+        _export_effect_run(engine, tmp_path, activity_id, effects)
+    finally:
+        engine.close()

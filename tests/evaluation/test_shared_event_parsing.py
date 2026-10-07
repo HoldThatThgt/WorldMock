@@ -25,7 +25,7 @@ def _canonical_world(tmp_path):
         "shared_profile": {"person_count": 1, "occupation_class": "white_collar", "timezone": "Asia/Shanghai"},
         "special_dates": {},
         "category_mappings": {"labelkit_sequence_class": {}, "labelkit_pattern": {},
-                              "worldmock_activity": {"browse": "internet_use"}},
+                              "worldmock_activity": {"use_app": "internet_use"}},
         "official_domain_map": {"internet_use": ["internet_use"]},
         "official_reference": {"source": "Artificial unit-test reference; no empirical claim", "domains": {
             "internet_use": {"label_zh": "人工浏览参照", "supported_duration_kinds": ["world_internet_session"],

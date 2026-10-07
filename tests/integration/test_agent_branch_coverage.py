@@ -159,12 +159,10 @@ def _empty_layer_observations() -> list[dict]:
 
 @pytest.mark.asyncio
 async def test_empty_interactive_layer_decision_continues_without_failure() -> None:
-    """工具层没有目标时决策照常完成：不可见名称在本轮纠正，改提交其他动作，登记即结束本轮且不终止运行。"""
+    """工具层没有目标时决策照常完成：不可见名称在本轮纠正，改为修订空计划后结束本轮。"""
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("call-unseen", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False)),
-        _ModelResponse("call-submit", "submit_work",
-                       json.dumps({"task_name": _TASK, "deliverable": {"summary": "要点。", "decisions": [],
-                                                                   "action_items": []}}, ensure_ascii=False)),
+        _ModelResponse("call-revise", "revise_day_plan", '{"goals":[]}'),
     ])
     environment = _Environment()
     agent = LifeAgent()
@@ -173,9 +171,9 @@ async def test_empty_interactive_layer_decision_continues_without_failure() -> N
     result = await agent.run_react_loop(ReactLoopRequest(
         0, _context().observed_at, _empty_layer_observations()))
 
-    assert result == "submit_work registered"
+    assert result == "revise_day_plan registered"
     assert len(environment.calls) == 1
-    assert environment.calls[0].request.task_name == _TASK
+    assert environment.calls[0].request.goals == []
     action_responses = [item for item in environment.evidence if item.phase == "response"]
     assert len(action_responses) == 2
     assert "No known object" in action_responses[0].error
@@ -186,21 +184,22 @@ async def test_empty_interactive_layer_decision_continues_without_failure() -> N
         assert "enum" not in properties["items"]["items"]["properties"][field]
 
 
-_SUPPLY = "便利店出售的饭团"
+_APP = "应用：哔哩哔哩"
 #: 受限轮与名额已满时环境给出的原因（工具层 reason 与私有绑定 note 同一文本）。
 _RESTRICTED = "同一时刻只能先开始或恢复一件事"
 _SLOTS_FULL = "两件事都在做，先结束一件"
 
 
 def _restricted_data(stage: str) -> dict:
-    """标上同刻受限轮阶段的观察：一项进行中、一项暂停的活动占满名额；门店的到店与远程下单标不可用并写原因。"""
+    """标上同刻受限轮阶段：一项进行中、一项暂停，应用启动标不可用并写原因。"""
     data = copy.deepcopy(_observations()[0]["data"])
     data["same_moment_stage"] = stage
-    _add_objects(data, _visible_object(_SUPPLY, "supply", "supply-visible",
-                                       _offer("obtain", "到店", "purchase", _RESTRICTED, fulfillment="pickup"),
-                                       _offer("obtain", "远程下单", "purchase", _RESTRICTED, fulfillment="delivery")),
-                 _visible_object("商品目录", "catalog", "catalog",
-                                 _offer("interact", "浏览", "browse", _SLOTS_FULL)))
+    _add_objects(data, _visible_object(
+        _APP,
+        "app",
+        "bilibili",
+        _offer("interact", "打开", "use_app", _RESTRICTED),
+    ))
     return _with_activities(data, (_WORK, PHASE_ACTIVE), (_NEWS, PHASE_PAUSED))
 
 
@@ -217,20 +216,25 @@ def _conclusion(*names: str) -> dict:
 
 def test_visible_objects_freeze_verb_way_and_bound_internal_action() -> None:
     """私有绑定冻结为「名称 → （动词，方式，内部标准动作）」；标为不可用的动作照常可选（由环境以同一原因拒绝），
-    没有动作的对象照常冻结，选它按协议错误纠正。"""
+    未提供的方式按协议错误纠正。"""
     data = copy.deepcopy(_observations()[0]["data"])
-    _add_objects(data, _visible_object(_SUPPLY, "supply", "supply-closed"))
+    _add_objects(data, _visible_object(
+        _APP,
+        "app",
+        "bilibili",
+        _offer("interact", "打开", "use_app", _SLOTS_FULL),
+    ))
     person = _prepared(data)
     assert person._life_names["objects"] == {
         "自己": (("interact", "等待", "wait"), ("sleep", "睡觉", "sleep")),
         _TASK: (("interact", "工作", "work"),),
-        _SUPPLY: (),
+        _APP: (("interact", "打开", "use_app"),),
     }
     assert data["tool_layer"]["targets"][1]["actions"][0]["available"] is False
     assert person.validate_react_decisions([
         _decision("start_activity", _choice(_TASK, "interact", "工作"))], False) == ""
-    assert "does not support" in person.validate_react_decisions([
-        _decision("start_activity", _choice(_SUPPLY, "obtain", "到店"))], False)
+    assert "WAY_NOT_OFFERED" in person.validate_react_decisions([
+        _decision("start_activity", _choice(_APP, "interact", "等待"))], False)
     start = copy.deepcopy(_functions(person)["start_activity"])
     assert start["parameters"]["properties"].pop("prefer")["enum"] == ["最快拿到", "到手价最低", None]  # 固定的请求级偏好
     assert '"enum"' not in json.dumps(start)
@@ -243,8 +247,7 @@ def test_restricted_rounds_do_not_narrow_the_host_tool_surface(stage: str) -> No
     本地校验，交给环境以同一原因业务拒绝。"""
     person = _prepared(_restricted_data(stage))
     assert json.dumps(_functions(person)) == json.dumps(_functions(_prepared()))
-    for decision in (_decision("start_activity", _choice(_SUPPLY, "obtain", "远程下单")),
-                     _decision("start_activity", _choice("商品目录", "interact", "浏览")),
+    for decision in (_decision("start_activity", _choice(_APP, "interact", "打开")),
                      _decision("pause_activity", {"items": [{"activity_name": _WORK, "summary": "先停。"}],
                                                   "errands": []}),
                      _decision("report_status", {"items": [{"activity_name": _NEWS, "summary": "接着看。"}],

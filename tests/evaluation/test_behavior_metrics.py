@@ -11,7 +11,6 @@ from worldmock.evaluation.behavior_metrics import (
     behavior_metrics_report,
 )
 from worldmock.footprints.models import canonical_json
-from worldmock.life.vocabulary import WAYS
 
 ZONE = ZoneInfo("Asia/Shanghai")
 CODE_A = "a" * 64
@@ -119,8 +118,9 @@ def _action(event_seq: int, decision_id: str, tool_name: str,
 
 
 def _start(event_seq: int, decision_id: str, action_id: str, way: str, target: str) -> dict[str, Any]:
-    """@brief 构造一项 start_activity 请求：对象、动词与方式三数组（动词由方式唯一确定）。"""
-    request = {"targets": [target], "actions": [WAYS[way][0]], "ways": [way]}
+    """@brief 构造一项当前 start_activity 请求，以明确目标和方式提供真实请求形状。"""
+    request = {"items": [{"target": target, "way": way, "from": None, "to": None}],
+               "answering": None, "prefer": None}
     return _action(event_seq, decision_id, "start_activity", request, action_id)
 
 
@@ -271,7 +271,7 @@ def test_decision_token_median_from_paired_response() -> None:
         _model_request(3, "d2", ["观察 2"]),
         _model_response(4, "d2", 300),
         _model_request(5, "d3", ["观察 3"], usage={"prompt_tokens": 200}),
-        _model_request(6, "d4", ["验收"], purpose="work_review"),
+        _model_request(6, "d4", ["验收"], purpose="plan_day"),
         _model_response(7, "d4", 99999),
     ]
     report = _report(events)["reports"]["decision_prompt_token_median"]
@@ -372,8 +372,8 @@ def test_autonomous_decision_rate_counts_continue_and_wait_as_passive() -> None:
         _start(4, "d2", "a2", "等待", "自己"),
         _accepted(5, "d2", "a2", "wait"),
         _event("decision_started", _clock(0, 8, 6), decision_id="d3"),
-        _start(7, "d3", "a3", "接着看", "内容：节目"),
-        _accepted(8, "d3", "a3", "watch"),
+        _start(7, "d3", "a3", "打开", "哔哩哔哩"),
+        _accepted(8, "d3", "a3", "use_app"),
         _event("decision_started", _clock(0, 8, 9), decision_id="d4"),
     ]
     report = _report(events)["reports"]["effective_autonomous_decision_rate"]
@@ -390,8 +390,9 @@ def test_wait_is_judged_by_the_started_activity_kind_not_the_request() -> None:
         _event("action_rejected", _clock(0, 8, 3), decision_id="d1", event_seq=3,
                data={"error_code": "ACTIVITY_CONCLUSION_REQUIRED"}) | {"action_id": "a1"},
         _event("decision_started", _clock(0, 8, 4), decision_id="d2"),
-        _action(5, "d2", "start_activity", {"targets": ["城西办公室", "自己"], "actions": ["travel", "interact"],
-                                            "ways": ["步行", "等待"]}, "a2"),
+        _action(5, "d2", "start_activity", {"items": [
+            {"target":"城西办公室", "way":"步行", "from":None, "to":None},
+            {"target":"自己", "way":"等待", "from":None, "to":None}], "answering":None, "prefer":None}, "a2"),
         _accepted(6, "d2", "a2", "travel", "wait"),
         _event("decision_started", _clock(0, 8, 7), decision_id="d3"),
         _start(8, "d3", "a3", "等待", "自己"),
@@ -420,8 +421,8 @@ def test_autonomous_decision_rate_lists_control_rounds_separately() -> None:
     ]
     events = control + [
         _event("decision_started", _clock(0, 8, 7), decision_id="d4"),
-        _start(8, "d4", "a4", "接着看", "内容：节目"),
-        _accepted(9, "d4", "a4", "watch"),
+        _start(8, "d4", "a4", "打开", "哔哩哔哩"),
+        _accepted(9, "d4", "a4", "use_app"),
         _event("decision_started", _clock(0, 8, 10), decision_id="d5"),
         _start(11, "d5", "a5", "等待", "自己"),
         _accepted(12, "d5", "a5", "wait"),
@@ -501,11 +502,13 @@ def test_parallel_activity_time_does_not_double_person_elapsed_or_fake_content()
     """@brief 共同时间取并集，等待自身不产生媒体接触。"""
     start = _clock(0, 8)
     events = [
-        _body(1, start, start + 1800, ["walk", "watch"]),
+        _body(1, start, start + 1800, ["walk", "use_app"]),
         _progress(2, start, start + 1800, "travel", activity_id="walk"),
-        _progress(3, start, start + 1800, "watch", activity_id="watch",
-                  snapshot_extra={"data": {"revealed": {
-                      "position_before_seconds": 0, "position_after_seconds": 900}}}),
+        _progress(3, start, start + 1800, "use_app", activity_id="use_app",
+                  snapshot_extra={"target_id":"bilibili"}, data_extra={"content": {
+                      "content_id":"long-video", "app_id":"bilibili", "kind":"long_video",
+                      "position_before_seconds":0, "position_after_seconds":900,
+                      "completed":False, "completed_rounds_after":0}}),
         _body(4, start + 1800, start + 3600, ["wait"]),
         _progress(5, start + 1800, start + 3600, "wait", activity_id="wait"),
     ]
@@ -536,7 +539,7 @@ def test_meal_diversity_simpson_and_repetition_anchors() -> None:
         return _progress(seq, _clock(0, 8, seq), _clock(0, 8, seq + 1), "consume",
                          activity_id=f"meal-{seq}", data_extra={"consumption": {
                              "use_mode": use_mode,
-                             "items": [{"product_id": product, "interval_quantity": 0.5}]}})
+                             "items": [{"food_id": product, "interval_portion": 0.5}]}})
     events = [_action(10, "d1", "consume", {"product_id": "phantom", "use_mode": "eat"}),
               eaten(1, "a"), eaten(2, "a"), eaten(3, "b"), eaten(4, "c"), eaten(5, "d", "use")]
     diversity = _report(events)["reports"]["meal_diversity"]
@@ -583,14 +586,14 @@ def test_activity_distribution_matches_reference_exactly() -> None:
                   snapshot_extra={"family": "morning_routine"}),
         _progress(3, _clock(0, 12), _clock(0, 13, 44), "consume", activity_id="meal-1",
                   data_extra={"consumption": {"use_mode": "eat", "items": [
-                      {"product_id": "meal", "interval_quantity": 1.0}]}}),
+                      {"food_id": "meal", "interval_portion": 1.0}]}}),
         _progress(4, _clock(0, 14), _clock(0, 21, 40), "work", activity_id="work-1"),
         _progress(5, _clock(0, 22), _clock(0, 22, 34), "travel", activity_id="go-1"),
         _progress(6, _clock(0, 23), _clock(0, 23, 21), "lifestyle", activity_id="chat-1",
                   snapshot_extra={"family": "social"}),
         _progress(7, _clock(1, 0), _clock(1, 0, 41), "lifestyle", activity_id="run-1",
                   snapshot_extra={"category": "sport"}),
-        _progress(8, _clock(1, 2), _clock(1, 4, 45), "watch", activity_id="watch-1"),
+        _progress(8, _clock(1, 2), _clock(1, 4, 45), "use_app", activity_id="watch-1"),
         _progress(9, _clock(1, 5), _clock(1, 5, 10), "lifestyle", activity_id="trip-1",
                   snapshot_extra={"family": "outing"}),
         _progress(10, _clock(1, 6), _clock(1, 6, 30), "lifestyle", activity_id="misc-1"),
@@ -620,7 +623,7 @@ def test_persona_distinguishability_leave_one_out() -> None:
         events.append(_progress(seq, _clock(0, 11), _clock(0, 13), "work", agent_id=1,
                                 run_id=run_id, activity_id=f"{run_id}-w1"))
         seq += 1
-        events.append(_progress(seq, _clock(0, 0), _clock(0, 10), "watch", agent_id=2,
+        events.append(_progress(seq, _clock(0, 0), _clock(0, 10), "use_app", agent_id=2,
                                 run_id=run_id, activity_id=f"{run_id}-v1"))
         seq += 1
         events.append(_progress(seq, _clock(0, 11), _clock(0, 12), "consume", agent_id=2,
@@ -704,7 +707,7 @@ def test_missing_metric_evidence_is_reported_unknown_and_gates_fail_closed() -> 
     events = [
         _event("decision_started", _clock(0, 8), decision_id="d1"),
         _model_request(2, "d1", ["当前观察：在家，精神不错"]),
-        _progress(3, _clock(0, 9), _clock(0, 10), "watch", activity_id="w1"),
+        _progress(3, _clock(0, 9), _clock(0, 10), "use_app", activity_id="w1"),
         _event("memory_updated", _clock(0, 20),
                data={"operation": "append_episodes", "episode_ids": ["f" * 64]}),
         _event("run_ended", _clock(0, 23), data={"reason": "window_end"}),
@@ -742,7 +745,7 @@ def test_same_input_produces_byte_identical_report() -> None:
     events = [
         _model_request(1, "d1", ["观察 A"]),
         _model_response(2, "d1", 1234),
-        _progress(3, _clock(0, 9), _clock(0, 10), "watch", activity_id="w1",
+        _progress(3, _clock(0, 9), _clock(0, 10), "use_app", activity_id="w1",
                   data_extra={"decision_offered": False, "wake_reasons": ["commitment_threatened"]}),
         _progress(4, _clock(0, 23), _clock(1, 7), "sleep", activity_id="s1",
                   snapshot_extra={"started_at": _clock(0, 23), "ended_at": _clock(1, 7)}),

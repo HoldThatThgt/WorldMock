@@ -791,9 +791,6 @@ def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, 
     if action == "recall_task_summary":
         return _unknown_names(("task_name", "任务、目标或活动"), [request.task_name], names["recall_names"],
                               "task_name is not visible")
-    if action == "submit_work":
-        return _unknown_names(("task_name", "任务"), [request.task_name], names["task_names"],
-                              "task_name is not visible")
     if action == "send_message":
         return _unknown_names(("recipient_name", "收件人"), [request.recipient_name], names["recipient_names"],
                               "recipient_name is not visible")

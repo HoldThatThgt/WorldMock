@@ -1,19 +1,25 @@
 <a name="configuration-worldmock-产品设计说明书-配置规格"></a>
 # WorldMock 产品设计说明书 — 配置规格
 
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作安排与主题地点。
+
+> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「规则来源与配置边界、资源目录引用、规则配置入口、校验清单、校验报告、错误分类与提示、配置版本与运行绑定、规则维护、配置层级、加载与校验、参数归属、文件位置与合同、地图引用与门店供给初值、语料引用、交互菜单声明、身体资源初值」（阶段 1）；「3.4 人物差异与衍生体感」（阶段 3）。
+
+
 > **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 CF1），已实现；按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D8 作业），已随代码落地到阶段 1–4<br>
-> **日期**：2026-10-06
-> **版本**：v1.20\
+> **日期**：2026-10-07
+> **版本**：v1.22\
 > **工具交互修订**：地点完整供给、构建价格范围、任务可用类型与请求形状设计已冻结，已实现；本次生产验收单独记录；以[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)为本次合同。
 > **让「等待」成为例外修订**：按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「工作安排声明」（阶段 1）。
+> **同时做两件事修订**：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「规则来源与配置边界」的可供性占用声明（阶段 2）。
 > **目标读者**：算法工程师、开发工程师、实验设计者
 
 配置文件的编写步骤和可复制示例见[用户配置手册](../manual/README.md#readme-用户配置手册)。本文维护配置职责与设计边界。
 
 具体环境及制作工具按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)归 WorldMock-Dataset，
-正式环境为 `environment/zhangjiang-baseline/`；WorldMock 提供引擎及包内固定通用规则。
+正式重制环境路径由 WorldMock-Dataset 发布决定；WorldMock 提供引擎及包内固定通用规则。
 本章的 `catalog/`、`corpora/`、`scenarios/` 指外部环境目录，命令以 WorldMock 为当前工作目录并显式传路径。
-当前场景结构 6，内容标题必填，活动效果随环境加载并在启动时冻结；新组合放行另核对实际收据。
+当前场景结构 7，内容标题来自 `contents.json`，活动效果随环境加载并在启动时冻结；新组合放行另核对实际收据。
 
 <a name="design-08-configuration-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
@@ -64,6 +70,10 @@
 | 环境数据归属 | 2026-10-05 | Codex | 按环境数据归属规格同步双仓职责、包内通用规则与显式环境路径；场景结构 6、必填标题和冻结活动效果按正文说明，最终验收另记实际收据 |
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | Claude | 按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1 同步：「工作安排声明」补班次与休息时段的起止另给清醒的人物各一次决策机会（四个唤醒原因），不结束任何活动、不叫醒睡着的人，唤醒原因不进提示；声明班次因此增加该人物的决策机会，每个当班日由起止直接新增的提供决策的边界至多 2 + 2 × 休息时段数 个，与既有机会同秒的不另计；文件头增该规格修订行，版本改为 v1.20 |
 | 环境归属与等待行为整合 | 2026-10-06 | Codex | 保留已实施的班次唤醒、系统层与零点计划文本；现行场景结构 6 与显式数据仓输入，完整日核验实际工件，历史两份证明不改；跨平台方案仍未实施 |
+| `2026-10-06-parallel-activities-claims` | 2026-10-06 | Claude | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2 同步：「规则来源与配置边界」补可供性占用声明重列为每种动作占自己的名字（只有同一种动作互斥）后，包资源 `src/worldmock/data/affordances.toml` 的字节与 `tool_schema_sha256` 随之改变，仍带旧占用名副本的外部环境在装配时被拒绝、要由 WorldMock-Dataset 按新占用名重新发布；不新增配置字段，场景结构 6、地图结构 3、品类契约与规则绑定 3、世界结构 9 不变；文件头增该规格修订行，版本改为 v1.21 |
+| `2026-10-06-rrs-rules` | 2026-10-07 | HoldThatThgt | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
+| `2026-10-06-rrs-store` | 2026-10-07 | HoldThatThgt | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
+| `2026-10-06-rrs-work` | 2026-10-07 | HoldThatThgt | 工作主题从运行开始可见；人物工作安排声明绑定主题地点，旧开放、材料与评审配置退役 |
 
 <a name="configuration-模块概述"></a>
 ## 1. 模块概述
@@ -119,50 +129,34 @@ flowchart TB
 <a name="configuration-配置层级"></a>
 ### 2.1 配置层级
 
-WorldMock 采用四层配置结构：
+| 层 | 内容 |
+| --- | --- |
+| WorldMock 包 | 固定类型、常数、算子和三份通用 TOML |
+| 环境目录 | app、地点、食品、内容、工作主题、发布图与清单 |
+| 场景结构 7 | 环境钉、时间与种子、所选地点、人物、身体初值、账户、主题、持有与菜单 |
+| 运行参数 | 明确场景和新输出目录；已冻结运行身份不可覆盖 |
 
-```mermaid
-flowchart TB
-    A[场景文件<br/>scenarios/*.json] -->|引用| B[目录配置<br/>catalog/]
-    A -->|引用| C[语料配置<br/>corpora/]
-    B -->|规则表| D[规则文件<br/>catalog/rules/*.toml]
-    E[模型凭证<br/>~/.config/worldmock/] -.->|不进版本控制| F[运行时]
-    A -->|validate| F
-    B -->|catalog admission| F
-    C -->|corpus manifest| F
-    D -->|规则加载| F
-    E -->|凭证解析| F
-```
+每层只表达自己的事实，没有规则注册或隐式数据仓搜索。
 
 <a name="configuration-加载与校验"></a>
 ### 2.2 加载与校验
 
-场景先通过自身模型与交互菜单闭集校验，再解析固定目录和语料引用；在启动前完成引用、文件身份和品类准入。
-场景的 `catalog_version` 选择当前原生目录版本；`recipe_output_bindings` 明确将库存配方的输出品类
-绑定到输出对象，没有配方时为空对象。全部商品与供给关联商品、初始库存、未来供给发布、任务、出行方式和配方输出闭包
-共同决定需要通过的配对，不由调用方提供缩小后的触达清单。
-品类配置及三态的精确定义见[接口合同](../CONTRACTS.md#contracts-品类契约与目录字段)与
-[品类契约规格](../dev/SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格)。
-实际入口见[场景加载](../../src/worldmock/life/scenario.py)与
-[项目校验](../../src/worldmock/validation.py)。目录和语料的加载细节统一见
-[资源引擎的准入边界](03-resource-engine.md#resource-engine-准入边界)，本节不另设通用配置装配类。
+真实 `load_runtime_scenario` 解析严格场景结构 7，加载目录并调用统一登记，核对环境钉、语料和包资源字节，再编译人物、时间与身体初值。加载失败立即终止；纯 CLI、validation 和 runtime 收集不急切导入完整 LifeEngine 链。
+新运行、恢复与重放的完整宿主路径在阶段 5 验证；环境校验已经逐份加载所有场景。
 
 <a name="configuration-参数归属"></a>
 ### 2.3 参数归属
 
-身体资源的配置分为环境场景实例初值、人物档案常量、环境目录参数和包内通用规则；各自职责见
-[场景与身体规则](../dev/SPEC-life-runtime.md#spec-life-runtime-场景与身体规则)。场景不通过一个通用
-`constants` 对象覆盖所有身体算法。
-
-```mermaid
-flowchart LR
-    SCENE[场景 body：体重与资源初值] --> ASSEMBLE[组装身体运行参数]
-    CATALOG[环境目录：单位、边界、代谢与交通参数] --> ASSEMBLE
-    RULES[引擎包：活动闭集与通用动机规则] --> ASSEMBLE
-    PERSON[人物档案：时型、睡眠需要、餐时窗口] --> BODY[模拟引擎计算身体变化与体感]
-    ASSEMBLE --> BODY
-    SPEC[冻结规格：睡眠与体感算法] --> BODY
-```
+| 参数 | 所属输入 |
+| --- | --- |
+| 环境标识和版本 | 场景 `environment` 与目录 `manifest.json` 一致 |
+| 时间、时区、反馈与决策节奏、随机种子 | 场景根 |
+| 初始身体与余额、节律和工作安排 | 场景人物与身体字段 |
+| 初始食品持有 | `agents[].initial_inventory{location_id: {food_id: 份数}}` |
+| 工作主题 | 目录 `work_topics.json`；人物 `work_topic_ids` 引用 |
+| 地点与菜单 | 场景 `locations[]{location_id}` 和八类型菜单 |
+| 价格、摘要和 app 绑定 | 相应目录文件 |
+| 身体、食品、出行和配送常数 | WorldMock 包，不能场景覆盖 |
 
 <a name="configuration-场景配置文件"></a>
 ## 3. 场景配置文件
@@ -170,192 +164,26 @@ flowchart LR
 <a name="configuration-文件位置与合同"></a>
 ### 3.1 文件位置与合同
 
-正式场景位于数据仓，单人物示例为
-`../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/single-person.json`。当前输入结构由
-[LifeScenario、BodyInstanceConfig 与 AgentConfig](../../src/worldmock/life/scenario.py)
-校验；资源语义引用 [资源与需求字段](../CONTRACTS.md#contracts-资源与需求字段)。
-
-当日目标重估沿用生活场景配置：`reconsideration_interval_seconds` 默认 5400，
-`idle_reconsideration_interval_seconds` 默认 10800，均为正整数且不超过 86400，空闲间隔不能短于常规间隔。
-进行中的等待不算在手承诺，人物只在等待且没有其他在手承诺时用空闲间隔。
-未完成的个人事务也不算在手承诺，不改变常规与空闲重估间隔及闭店预警。
-其选择与环境威胁边界见 [当日目标规格](../dev/SPEC-day-plan-goals.md#spec-day-plan-goals-事件驱动的决策节律)。
-同刻决策上限 `max_same_moment_decisions` 为正整数，缺省 3；`activity_feedback_seconds` 取 60–86400 秒，下限 60
-保证等待（计划时长取它）能被受理。含旧键 `max_consecutive_rejections` 的场景按未知字段拒绝。
-场景联系人可填 `receive_location_id`（可空）：联系人在该地点收实物，送给联系人的直接配送送到这里，当面给予要求本人位于这里；
-为空时联系人不能收实物；填写的地点须是场景声明的地点，否则场景校验拒绝。`Contact` 拒绝未知字段，补填会改变场景摘要。
-与同世界人物重复的场景联系人显式为 `null`，同世界人物按其所在地点收货。
-同秒续接开关不是场景字段，是运行参数：新建运行由 `worldmock run --same-second-continuation on|off`（缺省 `on`）给出，
-冻结进运行清单 `stage_model_identity.stages.action` 与人物配置，恢复与重放继承父清单的值（见[接口合同「思考回传」](../CONTRACTS.md#contracts-reasoning-return)）。
-目标条目只接收提醒时刻 `remind_time` 与大致时刻 `around_time`（都必填、可为 null，场景本地 `HH:MM`；大致时刻只用于
-推进判定，不触发决策），不接收时长或其他调度参数；
-当日目标由零点计划生成，人物以 `revise_day_plan` 修订，规则见[当日目标请求](../CONTRACTS.md#contracts-day-goal-request)。
-
-场景使用整数 `schema_version`，人物清单为 `agents`，时间字段为 `start_at`、`end_at`；
-身体资源初值放在顶层 `body`，人物档案常量放在各自的 `agents` 条目。
-场景可选钉定手机配置 `phone_simulation_config` 与其 `phone_simulation_config_sha256`（两者同时出现或同时缺省）；购买渠道由它派生，
-手机配置自身不新增场景结构；本次任务字段按工具交互规格随生活场景结构升为 4。
-人物配置的必填可空字段 `work_schedule` 与可选的 `leave_work_window`、`arrive_home_window` 随个人事务与工作安排规格使生活场景结构升为 5；
-原三份场景在该次发布中同批显式写出 `work_schedule`，它们的 `scenario_sha256` 随之改变。
-当前场景结构为 6，`contents[]` 的 `title` 为必填非空字段，直接作为运行标题，不读取来源专属标题映射。
-生活活动的 `effects` 在所选环境语料中必填，键恰为 `entertainment`、`social`、`health`，值为有限数值 0–1；
-条目加载后不可变，候选预演读条目，启动后只读 `ActivityState.data["effects"]` 的冻结副本。
-本文不重新定义完整场景 Schema。下表列各格式首次受影响的发布目标，目录、地图与场景在各自结构发生实际变更的阶段独立发布，
-不因某个阶段完成而预先提升无关格式；后续内容变更另发新版本，不同内容不得覆盖同版，最终认证记录实际版本及摘要。
-恢复仍核验该阶段真实产物与代码身份。
-
-| 格式 | 首次受影响的发布目标 | 拒绝边界 |
-| --- | --- | --- |
-| 地图文件 `schema_version` | 3 | 当前实现 3；必填 `random_seed/category_assignment_sha256`，分类声明由地图和语料清单共同钉定，旧地图直接拒绝 |
-| 商品目录 `version_major` | 5（首次 5.0，具体版本由环境 manifest 钉定） | 构建价格范围、真实原料对象与单输入单输出配方；内容改变另发版本，旧身份不兼容读取 |
-| 品类与交换规则 `contract_version` | 3 | 当前实现 3；价格范围槽与原料品类，购买仍读取独立供给当前报价 |
-| 生活场景 `schema_version` | 6 | 当前实现 6；内容显式声明非空 `title`；每个人物显式声明 `work_schedule`（对象或 null），`appointment` 仍为 null 或约定对象，开放时刻只在运行时派生；旧结构直接拒绝 |
-| 世界状态 `schema_version` | 9 | 旧检查点（含版本 8）以版本不符拒绝；活动集合、地点会话（一段停留或一段路）与活动的收尾、播报锚点和会话归属、共同身体时刻、威胁交付签名、同刻计数、按人物暂存的呈现留痕、当日计划与提醒（目标的 `remind_at`、`reminded_at`、大致时刻 `around_at` 与已生成计划的日期 `plan_submitted_dates`）与供给事实完整保存；活动快照地点为开始地点；另存引起会话切换的动作 `opened_by_action_id`、活动的暂停时刻 `paused_at` 与进食的开吃份量 `opened`、订单的 `recipient_id` 与 `request_message_id`、联系人持有 `contact_holdings` 与人物发给场景联系人的 `outbox`；另存每个人物的未完成个人事务 `errands`（按事务身份存放：名称、结果种类、商品、数量、已累计量、备注 `memo`、记下时刻、提醒时刻与已提醒时刻、来源动作与请求事件），办成或取消即移出 |
-
-正式目录与地图的制作工具由 WorldMock-Dataset 维护，从显式来源准备并发布环境。
-地图准备的发布流程见[资源引擎](03-resource-engine.md#resource-engine-冻结地图的准备与发布)。不保留旧场景迁移脚本或兼容输入层。
+环境根下 `catalog/`、`corpora/`、`scenarios/` 并列。场景字段遵循严格结构 7：保留人物画像、节律、工作安排、联系人、日历、消息、账单与工资；新增环境钉、工作主题和按地点食品初值。
+删除 `catalog_version`、`map_dataset`、`products/supplies/tasks/contents/games`、`price_changes/product_releases/recipe_output_bindings`、手机配置、检索阈值、技能资格、`attention_prior` 与消息任务引用；`daily_effective_work_seconds` 改为 `daily_work_seconds`。未知旧字段拒绝加载。
 
 <a name="configuration-交互菜单声明"></a>
 ### 3.2 交互菜单声明
 
-场景根对象必须具有 `interaction_menus_by_location_kind`，键集合恰好等于所选地点经地图解析后的 `kind` 不同值
-集合。每个地点类都有一个非空菜单，不接受 `null`、通配键、缺项或额外键。每个 `agents[]` 条目必须
-显式具有 `interaction_menu`，取同形菜单或 `null`；`null` 表示人物不在地点菜单之外追加限制，字段缺失
-仍是配置错误。
-
-菜单只有 `allowed_actions` 一个必填数组。数组非空、元素无重复且为非空白字符串，
-不接受其他字段；动作取内部标准动作 `START_ACTIVITY_ACTIONS` 闭集，不是人物动词。
-人物所选的（对象，动词，方式）经私有绑定映射为内部动作后按菜单判定，场景文件不改。
-地点菜单只剪裁对象动作，不剪裁模型工具；`wait`、`sleep` 是必须保留的自身动作。完整闭集、
-保护集合和 `null` 语义见[交互菜单合同](../CONTRACTS.md#contracts-交互菜单声明与有效菜单)。
-
-运行时按人物权威 `location_id` 找到地点的单值 `kind`，再将该地点菜单与人物菜单逐字段求交集。
-途中按出发地菜单解析，再由出行方式的准入收窄。
-解析后地点的 `kind` 只用于选择交互菜单，和候选资格的多值 `location_kinds` 不是同一字段；不能以其中一个
-代替另一个。菜单是显式准入声明，不从人物画像、偏好、动机或目录 `surface` 推导。
-
-所有版本控制内的正式场景和相应测试输入都使用当前字段。旧文件缺字段时拒绝，不生成缺省全量菜单，
-不添加迁移或兼容读取。实现与验收以[冻结特性规格](../dev/SPEC-interaction-menu.md#spec-interaction-menu-特性规格交互菜单)为准。
+场景必须声明八个 `LocationKind` 的 `interaction_menus_by_location_kind`；每个人物的 `interaction_menu` 必填可为 null。菜单取当前 `START_ACTIVITY_ACTIONS`，非空、无重复，必须包含 wait 和 sleep；app 动作切换在阶段 4 发生。
+地点活动环境由 `PLACE_KIND_ENVIRONMENTS` 派生，不要求地点独立声明 `location_kinds`。人物菜单只收窄地点菜单，不新增工具或放宽准入。
 
 <a name="configuration-地图引用与门店供给初值"></a>
 ### 地图引用与门店供给初值
 
-场景 `map_dataset` 使用 `dataset_id/version/path/sha256` 绑定唯一冻结地图。
-`locations` 只写 `location_id`，`products` 只写 `product_id`，`supplies` 写 `supply_id` 及可选 `initial_stock`。
-正式场景的 `products/supplies` 必须显式包含选中售卖地点全部声明商品及生成供给；
-加载与正式验收核对选择后的实际集合，旧稀疏列表不能裁掉新供给，缺项拒绝，不自动选择或补齐。
-地点名称、坐标、营业、路线和供给定义从固定资料装配，不在场景手抄副本，也不添加额外配置层。
-人物 `qualifications` 显式声明；访问与供给资格不能从人物画像推断。
-
-地图地点可选 `branch_label`（非空字符串）区分同名地点：显示名为「名称（branch_label）」，例如「全家（东昌路店）」，
-不要把坐标或内部标识写进名称来避开重名。运行时场景的地点以显示名为名称，工具层、环境层、拒绝原因、会话名、事件与导出
-都用它；没有 `branch_label` 的地点名称不变。场景加载在目录准入之后另做三项世界准入：所选地点的 `kind` 属于环境层的场所
-类型闭集（[地点类词表](../CONTRACTS.md#contracts-地点类词表)）；所选地点显示名唯一，同名而没有不同的 `branch_label` 即拒绝；
-每个人物可能同时看到的对象名称唯一（地点、门店商品、持有物、商品目录、内容、游戏、生活活动、工作、人物、联系人、邮件与
-「自己」，写法与观察投影同一来源）。任一不满足都以 `IntegrityError` 拒绝加载并写明原因，不再等到运行中途才由环境层或
-观察投影报错。
-
-购买渠道由场景钉定的手机配置派生，不新增场景字段（[一日运行保真规格](../dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-购买渠道app-名解析为成员门店)
-3.3，裁决 S7）：场景可选填 `phone_simulation_config`（语料根内、登记进语料清单的冻结文件）与它的 `phone_simulation_config_sha256`，
-两者同时出现或同时缺省。加载时按身份（语料清单与场景钉定的摘要）、结构、场景身份与执行证据核验这份配置，再从它的卖家账户→App
-与 App→称呼派生渠道：`channel_id` 取 App 标识，称呼取该 App 的显示名（可以有几个），成员门店取映射到它的卖家有供给的所选地点；渠道只是
-门店集合的称呼，不带交付语义。渠道准入与世界准入同一时机：称呼非空，在渠道之间不重复（去掉空白、不分大小写比较），也不等于任何所选地点
-的显示名（按同一比较或无损归一比较）；每个渠道至少一家成员门店，成员门店是所选地点并至少有一条供给；不满足即以 `IntegrityError` 拒绝
-加载并写明渠道、称呼与地点。
-手机配置核验失败时不派生渠道（与覆盖率同一口径：新建运行不因此失败，加载写一条英文 warning 日志，`validate` 照旧失败）；
-没有钉定手机配置的场景没有渠道，人物把 App 名写在 `from` 时以 `SOURCE_NOT_FOUND` 拒绝。配置已由摘要钉进场景与运行清单，运行身份不变。
-
-完整运行时场景包含解析后的地图、地点、路线、商品和供给。地图和场景选区共同校验账户、产品、
-供给组合和有向路线覆盖。每个端点/方式组合必须有可达、不可达或带来源的未知记录；漏项拒绝。
-营业与报价的有效期、核对日期、可信截止日及来源在发布前验证。旧整点营业和旧商品单店字段直接拒绝。
-商品目录浏览由 `start_activity` 的可读对象与动作表达；允许浏览的正式地点菜单必须显式纳入
-`browse` 标准动作，人物菜单仍可进一步限制。
-三个正式场景选中的三家餐馆各自选中明确关联的 `prepared-meal` 供给和商品，
-kind仅定义完整准入池，逐店category_ids及全部后代对象与object_ids并集确定实际供给，仍须全部属于准入池。
-供给初值为正、餐馆支持本店自提，且地点与人物的实际菜单允许购买和消费；
-无售卖类别地点可无供给，不能通过逐条手抄只给售卖地点留下零星几件商品。
-分类声明冻结在 `corpora/zhangjiang-map/category-assignment.json`，同一文件逐店包含
-`location_id/category_ids/object_ids/price_position_percent/source`，五键必填，缺项拒绝，不随机抽取或全量复制准入池。
-文件恰含必填 `kinds/locations/source`，`kinds` 为现有地点 kind 到品类数组的准入表，全部地图 kind 包括空集合均显式声明；
-顶层与逐店 `source` 均沿用完整 `DataSource` 的 `kind/url/retrieved_at/license/notice/fact_cutoff/applicability`。
-显式卖方、库存与履约保存在供给假设材料；目录有效属性中的
-`purchase_price_fen_min/purchase_price_fen_max` 给出同币种正整数分范围。构建对 `[random_seed, location_id, object_id]` 使用
-`json.dumps(..., ensure_ascii=False, separators=(',', ':'))` 后编码为 UTF-8，取 SHA-256 摘要的无符号大端整数 `h`，
-逐店 `price_position_percent` 为有来源的整数5至95，固定 `jitter = h % 11 - 5`，
-以 `min + ((max - min) * (price_position_percent + jitter) + 50) // 100` 生成一次初始报价，不为每商品独立抽整个范围。
-本正式地图中的门店按同一地区比较，所有便利店定位至少高于地图内普通超市10个百分点，
-同商品报价不得更低，整数舍入同价合法；不新增地区字段。
-这是有来源场景假设，其他门店定位按事实或明确假设声明，不新增可配置扰动。
-地图结构 3 必填 `random_seed/category_assignment_sha256`，分类文件由地图和语料清单共同钉定，
-加载核对地图种子与场景种子相等、分类哈希与全部逐店实际供给；范围来源保留于对象和报价来源。
-Dataset 中单人物与多人场景的种子分别发布并钉定对应的地图供给集合；地点和路线来源可共享，
-不跨种子复用报价，也不为共用一份地图擅改实验种子。
-观察、查询、交易和恢复不抽价，不加重复摘要配置或运行策略开关。
-
-正式场景丰富度门禁为每餐馆8正餐且每对菜单各有至少3项差异、便利店40对象/6最终品类、超市80/8、
-商户40/6且含日用品、菜市场8真实原料/2已发布原料子类。阈值是本次正式场景验收，不是行业事实；
-素材未知或不足拒绝发布，不随机补齐，还须行为验证到店营业、有货、真实购买及餐食制作食用。
-
-任务必填 `appointment`：普通独立工作写null，真实需要提前约定的活动写 `{starts_at, reason}`，
-starts_at带时区、reason为非空约定依据，不能根据标题猜测。删除场景输入的available_at、availability_kind、appointment_reason。
-内部 `RuntimeWorkTask.available_at` 由最早关联通知sent_at或预约starts_at派生；普通邮件工作在收到通知时已开放。
-每封非空 `related_task_id` 邮件必须引用实际任务，收件人必须匹配任务受派人物；每项任务必须有发给受派人物的关联通知。
-预约只要求最早通知不晚于starts_at，之后的提醒可以晚于预约开始，不能改写已派生的开放时刻；due_at必须晚于派生开放时刻。
-邮件到达即已知，正文仍须真实阅读，不用无通知任务作为缺数据回退。
-地点、资格与截止仍真实校验；到公司即可开始已收到的普通工作，不再靠 09:00 之类惯例强制等待。
-习惯写明自己做饭时，场景必须声明真实原料库存、原料对象、转换规则和 `recipe_output_bindings`；
-输入和输出的 `inventory_unit=item`，库存资源仍为 `inventory/item`；输出为能吃的已发布对象，
-不开发多材料引擎，不加无产出过渡活动。
-正式数据集发布须有明确习惯动作夹具验证完整链；运行覆盖警告与 `validate` 的 80% 门禁保持原合同。
-人物如需同时启动两个持续活动，两个名额都须空闲，名额不足报 `SESSION_LIMIT_EXCEEDED`；
-正式地点和人物菜单分别允许这两项映射后的标准动作，本轮items对象逐项通过冻结菜单与可见性校验，
-并按注册表占用与准入事实判定，能量不参与，整组原子受理。
-`start_activity` 必填items/answering/prefer，items一至两项，每项恰为全键必填的{target,way,from,to}；
-方式统一解析出动作，旧actions和targets/ways/from/to平行数组直接拒绝。
-含到店、远程下单或购买项时prefer只能为“最快拿到”或“到手价最低”，否则必须为null；null不默认最快，旧英文值拒绝。
-to=null统一为本人、他人写实名，旧“自己”值拒绝；食用、使用、制作及非转移动作两端null，给予from=null且to为其他人物。
-固定 `query_world(name, way, category, from, available_only, offset)` 六键必填、无缺省，`name`、`way`、`category`、`from` 可空但至少一个
-非 null，`available_only` 为布尔，offset为非负整数，旧四键请求按缺字段拒绝；`from` 写地点显示名或渠道称呼，与购买项的 `from` 同一解析，
-写错时返回查询参数错误（`ARGUMENTS_INVALID`）与至多三条换了 `from` 的完整请求候选；
-category只取callable_index已展示的公开品类标签，错误给当轮全部合法标签。
-结果matches/total_count/next_offset中的next_offset必填可空，每页沿用现有上限20，可按偏移遍历同一冻结全集，筛选在排序与切页之前施加，每项不再附候选。
-查询只读冻结观察权限，不推进时间或授予凭据，不新增游标编码或配置，不恢复商品需求路线发现接口。
-全部接口错误均返回英文说明，`items[]` 每项包含 `path/written/error_code/allowed_values/expected/why/candidates`；
-`path` 为从模型工具调用根开始的完整位置数组，`why` 写参数、名称或世界前置条件的英文原因，
-闭集列全部合法值，未知字段与旧形状不回退受理。
-
+场景只列所选地点的 `location_id`；发布图由环境 `catalog/map.json` 提供并纳入五字段身份，没有 `map_dataset` 引用或门店供给初值。每个已选食品店铺须有 `merchant:<location_id>` 账户，食品持有从人物的 `initial_inventory` 读取。
+图查询和出行消费者在阶段 2 接入；食品购买与交付消费者在阶段 3 接入。
 
 <a name="configuration-身体资源初值"></a>
 ### 3.3 身体资源初值
 
-以下是 `body` 字段的人工示例，仅展示这一字段，不是可独立运行的完整场景：
-
-```json
-{
-  "body": {
-    "mass_kg": 65,
-    "initial_energy_kcal": 1600,
-    "initial_sleep_debt_hours": 0,
-    "initial_entertainment_need": 0
-  }
-}
-```
-
-| 配置内容 | 含义与运行时去向 |
-| --- | --- |
-| `mass_kg` | 体重，单位 kg；用于活动额外能量消耗 |
-| `initial_energy_kcal` | 可用能量初值，单位 kcal；成为 `BodyState.energy_kcal`，受目录能量上界约束 |
-| `initial_sleep_debt_hours` | 当前场景输入使用的键名；其值初始化唯一的睡眠不足账 `BodyState.sleep_deficit_hours`，不新增另一份睡眠状态 |
-| `initial_entertainment_need` | 当前场景声明的娱乐需要初值，范围为零到一；见下文实现差异 |
-| `entertainment_relief_preference_floor` | 可选，娱乐缓解的下限偏好 `f`，缺省 0.5，取开区间 (0, 1)，0、1、负数与非有限值在场景加载时拒绝；经场景语义组装并入 `BodyConfig`，观看与游戏的实际缓解按有效偏好 `f + (1 − f)·w` 调幅度。实验假设（敏感区间 0.3–0.7），说明写在字段 `description`，见[一日运行保真规格 1.2](../dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径) |
-
-上面的片段没有声明 `entertainment_relief_preference_floor`，取缺省 0.5：该字段带缺省值。
-引入它时没有提升场景结构版本；当前版本见 3.1 的发布目标表。
-
-**当前实现差异**：场景准入读取 `initial_entertainment_need`，但运行时初始化仍把娱乐需要设为零，
-非零声明尚未接通。上面的摘录使用零值，不将非零初值描述为已生效能力。
-依据为 [场景语义组装](../../src/worldmock/life/semantics.py) 与
-[身体初始化](../../src/worldmock/life/body.py)。
+场景 `body` 只含 `mass_kg`、`initial_energy_kcal`、`initial_sleep_debt_hours`、`initial_entertainment_need`。身体模型读取 WorldMock `BODY_CONSTANTS`，来源为 `worldmock:<RULES_VERSION>`；`entertainment_relief_preference_floor` 作为旧字段拒绝。
+初始食品按地点和食品身份声明，未知地点、食品或非正份数在真实加载时拒绝。
 
 <a name="configuration-人物差异与衍生体感"></a>
 ### 3.4 人物差异与衍生体感
@@ -384,6 +212,8 @@ null，不读映射表缺省），AgentConfig 的缺省值不进卡片。
 场景不另存可自由改写的饥饿条或疲劳条；身体变化与体感的执行边界见
 [模拟引擎](04-simulation-engine.md#simulation-engine-实际区间身体变化与效率)。人物余额使用 `initial_balance_fen`，单位为整数分。
 
+食品利用效率由 `BODY_CONSTANTS.food_efficiency_curve` 唯一维护。画像口味保留散文，不构成人物参数；作息和身体初值仍按冻结字段与场景覆盖规则读取，不增加缓解下限。
+
 <a name="configuration-工作安排声明"></a>
 ### 工作安排声明
 
@@ -398,9 +228,10 @@ null，不读映射表缺省），AgentConfig 的缺省值不进卡片。
 事假日必须不当班，加班机会日不要求班次。交叉核对只对落在场景时间窗内的日历日期执行，时间窗外的例外日期不拒绝；
 场景日历是场景级的，病假、事假日对所有声明了班次的人物同时生效。
 
-工作安排不参与任务开放时刻的编译，不改变开工、恢复、提交与迟交判定，不延长或缩短任何截止；环境不因它新增任何拒绝，
-它只经环境层 `duty` 每轮呈现（字段见[接口合同「七层字段」](../CONTRACTS.md#contracts-seven-layers)），零点计划输入的「上班安排」与它同源、
-不含 `status`。
+工作安排只决定上班事实与工作主题地点，不编译任务开放、截止、预约或提交判定。人物只要分配了工作主题，
+`work_schedule` 就必须非空，主题只能在 `workplace_location_id` 开始；这项主题准入与班次 `duty.status` 无关。
+安排仍经环境层 `duty` 每轮呈现（字段见[接口合同「七层字段」](../CONTRACTS.md#contracts-seven-layers)），
+零点计划输入的「上班安排」与它同源、不含 `status`。
 班次与休息时段的起止另给清醒的人物各一次决策机会（唤醒原因 `shift_start`、`shift_end`、`break_start`、`break_end`），
 不结束任何活动、不叫醒睡着的人，唤醒原因不进提示；声明班次因此增加该人物的决策机会，每个当班日由起止直接新增的提供决策的边界
 至多 2 + 2 × 休息时段数 个，与既有机会同秒的不另计（口径见[生活运行时的决策节律](../dev/SPEC-life-runtime.md#spec-life-runtime-决策节律结算边界与唤醒条件分离)与
@@ -431,44 +262,23 @@ null，不读映射表缺省），AgentConfig 的缺省值不进卡片。
 <a name="configuration-规则来源与配置边界"></a>
 ### 3.5 规则来源与配置边界
 
-能量上界、基础代谢与具体环境交通系数从冻结目录装配到 `BodyConfig`；
-通用活动、动机与人物映射从引擎包资源加载，环境冻结副本只绑定身份且必须等于包资源字节。
-生活活动的 MET 与三个效果来自所选环境的活动条目；启动时把条目效果冻结到活动，推进与恢复不回查环境文件。
-娱乐缓解的下限偏好例外，由场景 `body.entertainment_relief_preference_floor` 提供，不进目录，改它不触发目录版本变更。
-睡眠压力、睡眠不足累积与恢复及食品利用效率由
-[睡眠模型实现](../../src/worldmock/life/sleep.py)按冻结规格计算。
-工作效率因子从合同对象目录装配到 `work_efficiency_factors`，由身体结算按输入资源曲线计算区间平均；
-正式场景的睡眠因子读取 `sleep_deficit_hours`。装配与计算见
-[场景语义](../../src/worldmock/life/semantics.py)和[身体结算](../../src/worldmock/life/body.py)。
-目录中仍有 `sleep_debt_hours` 标识及旧变化率，不能据此宣称它们能覆盖现行睡眠算法；
-目录中的资源标识与属性见[资源引擎的可计量资源定义](03-resource-engine.md#resource-engine-可计量资源定义)。
+系统闭集、身体与交换常数来自 `worldmock.exchange`，随 `RULES_VERSION` 发布；三份包 TOML 是活动、动机和人物映射的唯一运行规则来源。环境只登记对象与绑定，场景只选择地点、人物、食品初值、主题和菜单。
+不支持环境公式、表达式、迁移、fallback 或旧目录兼容。
 
 <a name="configuration-资源目录引用"></a>
 ## 4. 资源目录引用
 
-场景以 `catalog_version.major/minor` 绑定目录版本；场景保存账户、对象、地点等实例与引用，
-资源定义、单位、边界、目录结构和发布规则统一见
-[资源引擎设计](03-resource-engine.md#resource-engine-组织与发布目录)。
-交换条件、投入产出与资源约束统一见[交换引擎设计](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎)。
+场景结构 `7` 带 `environment{environment_id, environment_version}`，必须等于所加载清单；目录从显式场景位置解析或由调用方明确传入。七份目录 JSON 与三份包 TOML 逐字节核验，文件字段见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)。
 
 <a name="configuration-语料引用"></a>
 ## 5. 语料引用
 
-场景通过 `corpus_root` 指定本地语料根目录，通过 `corpus_manifest_sha256` 绑定清单。
-清单结构、来源、文件身份、内容品类和准入规则统一见
-[资源引擎设计](03-resource-engine.md#resource-engine-整理与固化语料)，此处不维护第二份语料 Schema 或示例。
-正式场景选中 NASA `podcast_episode` 选段，并绑定原始转写页、官方音频身份、
-从官方锚点派生的时间轴及其哈希。播客使用现有播放活动，不配置独立播放器。
+`corpus_root` 与 `corpus_manifest_sha256` 继续绑定生活活动、联系人和邮件语料。内容标题与摘要直接来自 `catalog/contents.json`，无需字幕、音轨、节目标题映射或游戏语料。生活活动效果、活动环境、时间窗与 MET 留在条目自身。
 
 <a name="configuration-规则配置入口"></a>
 ## 6. 规则配置入口
 
-资源目录文件与环境内容见[资源引擎](03-resource-engine.md#resource-engine-文件职责)，
-交换条件与投入产出规则见[交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎)，
-活动与身体过程见[模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎)。
-人物差异的提取与参数编译见[人物画像规格](../dev/SPEC-life-realism.md#spec-life-realism-画像编译)；
-配置加载不另定义一套对象效果、动机规则或画像映射格式。画像编译默认使用包内映射，显式路径仍可用于研究编译；
-生产运行的冻结映射必须逐字节等于包内资源，不能借显式路径切换运行规则。
+动机、显式画像编译映射与场景参数是可调整入口。身体常数、食品常数、速度、配送、车费和图生成规则只在 WorldMock 源码修改并升 `RULES_VERSION`；环境中的三份 TOML 仅为包字节副本。规则维护不新增目录配置层。
 
 <a name="configuration-模型凭证"></a>
 ## 7. 模型凭证
@@ -512,74 +322,39 @@ worldmock validate --scenario ../WorldMock-Dataset/environment/zhangjiang-baseli
 <a name="configuration-校验清单"></a>
 ### 8.2 校验清单
 
-运行凭据项在模拟启动器中检查，不由 `worldmock validate` 执行。
-画像抽取和 LabelKit 的凭据读取边界见[运行配置手册](../manual/runtime.md#runtime-运行配置)，不能视为执行同一套文件校验。
+| 检查 | 实际入口 |
+| --- | --- |
+| 目录对象、绑定、图连通性与身份 | `catalog.admission`，由 `load_catalog` 调用 |
+| 发布图与种子生成结果逐字节相同 | `worldmock validate --environment` 和 generate-map 的 `--check` |
+| 语料清单与三个 TOML 副本 | 环境校验与真实场景加载 |
+| 全部场景环境钉、食品持有、卖方账户与工作安排 | 对 `scenarios/` 每份 JSON 执行真实 `load_runtime_scenario` |
+| AS2 锁、LabelKit、依赖、阶段身份与 0.8 覆盖率 | 原有 `validate --scenario` 项目检查 |
 
-| 校验项 | 检查内容 | 失败行为 |
-| --- | --- | --- |
-| Schema 版本 | 满足当前场景模型的整数版本约束 | 拒绝启动，说明不受支持的版本 |
-| 必填字段 | 所有必填字段存在且类型正确 | 拒绝启动，列出缺失字段 |
-| 时间窗口 | `end_at > start_at` | 拒绝启动 |
-| 初始状态 | 按资源单位与目录边界校验能量、睡眠不足、娱乐需要；娱乐缓解的下限偏好须在开区间 (0, 1) 内；运行时继续满足各状态约束 | 拒绝启动 |
-| 地点引用 | `agents[].home_location_id` 指向已声明地点 | 拒绝启动 |
-| 地点类别 | 所选地点的 `kind` 属于环境层场所类型闭集（与 `PLACE_TYPES` 同源） | 场景加载以 `IntegrityError` 拒绝，逐一写明越界的地点与类别 |
-| 可见名称 | 所选地点显示名唯一（同名以地图 `branch_label` 消歧）；每个人物可能同时看到的对象名称唯一 | 场景加载以 `IntegrityError` 拒绝，逐一写明重复的显示名与地点，或写明重复的对象名称与来源 |
-| 购买渠道 | 由钉定的手机配置派生的渠道：称呼非空，在渠道之间不重复（去掉空白、不分大小写）、不等于任何所选地点的显示名；每个渠道至少一家成员门店，成员门店是所选地点并至少有一条供给 | 场景加载以 `IntegrityError` 拒绝，逐一写明渠道、称呼与地点；手机配置核验失败时不派生渠道，加载照常并写一条英文 warning 日志（App 名写在 `from` 时因此报 `SOURCE_NOT_FOUND`），`validate` 照旧因同一核验失败（见「人物卡片覆盖率」行） |
-| 交互菜单 | 地点类映射完整且无额外键；人物字段显式存在；数组非空无重复；名称来自权威闭集并包含保护项 | 以 `IntegrityError` 拒绝启动，保留英文校验原因 |
-| 工作安排 | 每个人物显式写 `work_schedule`（对象或 null）；工作地点是所选地点；`weekly` 七天全写，班次同日且 `starts < ends`，休息时段落在班次内、升序、互不重叠；落在场景时间窗内的日历日期与场景日历一致（补班日有班次，春节、病假、事假日不当班；时间窗外的日期不核对） | 班次形状错误由场景模型校验器拒绝（`IntegrityError`「Scenario validation failed」，明细在异常链）；跨引用与日历核对由加载检查以 `IntegrityError` 拒绝，顶层英文明细写明人物、日期与字段；场景结构 4 的旧文件按版本拒绝 |
-| 目录准入 | 满足 `category_requirements`，内容摘要一致，全部可能触达配对已定义或已审核不作用 | 未定义、歧义或文件篡改拒绝启动，给出具体来源 |
-| 语料哈希 | 文件 SHA-256 与清单一致 | 拒绝启动，列出不匹配文件 |
-| 规则完整性 | 所有规则文件存在且可解析 | 拒绝启动 |
-| 人物卡片覆盖率 | 卡片习惯与口味映射到世界可执行目标的比例不低于 0.8；App 名只在媒介条目上精确命中，不以子串算习惯或题材命中 | `validate` 失败并列出缺失项；新建运行只记输入警告 `COVERAGE_BELOW_THRESHOLD`，不失败；场景钉定的手机配置核验失败时 `validate` 失败，新建运行按没有应用别名计算覆盖率并写一条英文 warning 日志 |
-| 运行输入警告 | 口味与内容题材、权重全零、没有内容却有看刷听、游戏权重条目、覆盖率、场景作息覆盖与冲突、画像编译留下的警告（一致性偏低、下班或到家锚点降级为 null）、配送路线可达、地点显示名（警告码闭集见[接口合同「运行输入警告」](../CONTRACTS.md#contracts-运行输入警告)） | 只警告：`validate` 在结果 `input_warnings` 中列出并逐条写到标准错误流；新建运行冻结进清单与质量报告并逐条写 ops 警告，永不因此失败 |
-| 运行凭据 | 固定文件存在且非符号链接；仅含 `DEEPSEEK_NODE_KEYS`，值及密钥段非空 | 文件缺失或不安全时报 `FileNotFoundError`，内容无效时报 `IntegrityError`；`0600` 仅为推荐权限 |
+环境检查不启动完整引擎，完整最小运行在阶段 5 验证。
 
 <a name="configuration-校验报告"></a>
 ### 8.3 校验报告
 
-交互菜单准入由场景加载完成：`load_scenario` 成功即已通过菜单字段与覆盖检查，失败由
-`IntegrityError` 和英文日志给出原因；现有报告不另加独立菜单结果字段。
-报告只记录实际结果，不能用固定数量或示例 `passed` 值冒充一次真实校验。可复现的命令、源码身份和精确输出进入
-[交互菜单验收记录](../dev/research/interaction-menu-verification.md)。
+`worldmock validate --environment ROOT` 输出 `valid`、环境标识和版本、语料条目数、成功场景，以及每个失败的 `{path, code, reason}`。登记失败码来自 `RegistrationError`，其余真实加载错误保留自身异常分类；原因与错误日志为英文。任何失败返回非零，不能生成通过回执。
 
 <a name="configuration-错误分类与提示"></a>
 ### 8.4 错误分类与提示
 
-下表提示只示意英文原因，完整接口错误 `items[]` 每项必须包含
-`path/written/error_code/allowed_values/expected/why/candidates`。`path` 为从模型工具调用根开始、保留所有下标的
-完整位置数组；`why` 为具体参数、名称或世界前置条件的英文原因；`expected` 写类型、长度、范围或前置条件，
-`allowed_values` 列全部合法枚举，无枚举约束时为 []，不省略字段或只返回错误码。
-地点类别错误列出 `PLACE_TYPES` 全部合法值，预约形状错误在expected写明null或starts_at/reason对象约束，价格越界写明冻结两端，
-旧 `actions` 或旧场景版本直接拒绝并指向当前请求或版本约束。
+| 错误来源 | 输出与处理 |
+| --- | --- |
+| 目录或场景登记 | `RegistrationError` 稳定码和英文原因，完整表见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件) |
+| 发布图不同 | `MAP_NOT_REGENERATED`，检查模式不改目标 |
+| 语料或包资源身份 | 实际 `IntegrityError` 原因，不绕过字节检查 |
+| 严格模型 | 拒绝旧字段、未知字段与非法形状 |
+| 项目依赖与覆盖率 | 保留既有 AS2、LabelKit、依赖与覆盖率检查失败 |
 
-| 错误类型 | 示例 | 用户提示 |
-| --- | --- | --- |
-| Schema 版本错误 | 不受支持的 `schema_version` | "Unsupported scenario schema version" |
-| 字段缺失 | 缺少 `agents` | "Required field 'agents' is missing" |
-| 类型错误 | `initial_balance_fen: "invalid"` | "Field 'initial_balance_fen' must be an integer" |
-| 引用错误 | `home_location_id: "unknown"` | "Location 'unknown' is not declared" |
-| 地点类别越界 | 地图把所选地点的 `kind` 写成 `fuel` | "Selected locations use kinds that are not place types: <地点> kind 'fuel'; …; allowed kinds: …"（逐一列出全部越界地点） |
-| 地点重名 | 两处所选地点同名且没有不同的 `branch_label` | "Selected locations share display names: '<显示名>' (<地点>, <地点>); …; declare distinct branch_label values in the map"（逐一列出全部重名） |
-| 对象名称重复 | 同一人物名下两项工作同名、两位联系人同称谓等 | "Agent <人物> would see non-unique object labels: '<名称>' from <来源>, <来源>" |
-| 渠道准入不成立 | 两个 App 的称呼只差空白或大小写；App 称呼与所选地点同名；渠道没有成员门店，或成员门店没有供给 | "Purchase channels are not admissible: name '<称呼>' is shared by channels <渠道> and <渠道>; channel <渠道> name '<称呼>' equals location <地点>; channel <渠道> has no member store; channel <渠道> member store <地点> has no supply; …"（逐一列出全部不成立之处，另有 "channel <渠道> has an empty name" 与 "channel <渠道> member store <地点> is not a selected location"） |
-| 手机配置核验失败（不使加载失败） | 场景钉定的手机配置路径越出语料根、与语料清单或场景摘要对不上、结构不符、指向别的场景或人物，或映射的应用没有执行证据、称呼缺失或重复 | 加载照常、不派生购买渠道，英文 warning 日志 "Phone simulation config failed verification; no purchase channels are derived: <原因>"（原因如 "Phone simulation config identity is invalid"）；新建运行按没有应用别名计算覆盖率；`validate` 以同一原因的 `IntegrityError` 失败 |
-| 菜单声明错误 | 地点类缺项、人物字段缺失、未知或重复值、空数组、缺保护项 | `IntegrityError` 与具体英文 Pydantic 原因；不宣称存在统一注册表错误码 |
-| 哈希不匹配 | 语料文件被修改 | "Corpus entry identity mismatch"；核对已绑定版本与来源文件后重新发布 |
-| 凭据内容错误 | 未知键、空值或空密钥段 | "DeepSeek credential file has an invalid schema" |
-| 运行输入警告（不是错误） | 卡片口味「B站视频」与内容题材对不上；配送路线 `unknown`；显示名带坐标 | 标准错误流 "Input warning TASTE_GENRES_UNMATCHED (agent 1): …"；`validate` 结果与运行清单的 `input_warnings` 带 `details`，由数据集决定改卡片、补题材或补路线 |
+未知或缺失的数据不得由 warning 降格为可运行输入。
 
 <a name="configuration-配置版本与运行绑定"></a>
 ## 9. 配置版本与运行绑定
 
-场景使用当前定义并在运行前校验，资源与可供性的发布边界见
-[资源引擎设计](03-resource-engine.md#resource-engine-构建与版本)。
-旧字段和失效配置直接删除，不提供格式迁移或兼容层；实验身份与历史证据的保存遵循
-[实验定义](../EXPERIMENT.md#experiment-worldmock-实验设置)。
-菜单声明属于场景原始 JSON 字节并进入 `scenario_sha256`。修改地点或人物菜单会产生新的实验身份；
-打开已有运行、恢复与反事实分支不得接受不同场景身份，也不新增与场景哈希重复的菜单版本字段。
-工作安排同样属于场景原始字节：改班次、休息时段或例外日期都会产生新的实验身份；是否给正式十二周场景声明班次是实验条件，
-另行裁决并登记实验假设。
-地图集合身份、版本与文件摘要同时进入运行绑定；变更供给、路线或营业资料须得到新的身份，不能重用旧运行。
+运行清单结构 `3` 使用五字段 `environment_identity{environment_id, environment_version, rules_version, catalog_content_sha256, map_sha256}`。规则版本须等于包 `RULES_VERSION`；恢复继承实际父输入并逐字段核对，差异报 `Runtime environment identity mismatch`。
+结构 7 场景、结构 10 世界和结构 3 运行清单拒绝旧版本；不迁移、不双读。阶段模型键收窄在阶段 5 完成。
 
 <a name="configuration-配置最佳实践"></a>
 ## 10. 配置最佳实践
@@ -608,12 +383,7 @@ worldmock validate --scenario ../WorldMock-Dataset/environment/zhangjiang-baseli
 <a name="configuration-规则维护"></a>
 ### 10.3 规则维护
 
-| 原则 | 说明 |
-| --- | --- |
-| **溯源分类** | 参数注明 fact/assumption/scenario |
-| **版本号管理** | 规则文件携带版本号 |
-| **代码引用** | 规则文件在代码中显式引用，避免隐式依赖 |
-| **单元测试** | 规则变更后运行 `pytest tests/catalog/` |
+在 WorldMock 唯一定义处修改固定类型、常数或算子，补行为节点与有效变异并升级 `RULES_VERSION`；Dataset 用同一版本重新发布对象目录和包 TOML 副本。旧运行输入保留字节，新实验使用新环境版本。不能在环境目录改另一份身体、交通或交换公式。
 
 <a name="configuration-参考文献"></a>
 ## 11. 参考文献

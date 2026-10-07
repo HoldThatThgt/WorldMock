@@ -17,11 +17,29 @@ from worldmock.life.world_setup import load_scenario
 
 _FORMAL = ENVIRONMENT_ROOT / "scenarios/single-person.json"
 _NEW_PERSONA_FIELDS = ("background_story", "health_habits", "social_style")
+#: 人工人格夹具明确声明叙事字段，不把最小环境未声明的字段当成正式人物证据。
+_PERSONA = {
+    "background_story": ("陈曦今年三十二岁，是一家小公司的产品经理，与伴侣合租两居室。"
+                         "他每天整理项目进展，喜欢把会议重点记在手机里，晚上偶尔看视频放松。"
+                         "他与母亲保持联系，也会和老朋友交流近况。周末他习惯在附近公园散步，"
+                         "最近希望让工作与休息更规律，避免因为临时消息打乱吃饭和睡眠。"),
+    "health_habits": "每天散步，按时吃饭，尽量在十一点前睡觉。",
+    "social_style": "与熟悉的人直接交流，收到消息后先看清对方的意思。",
+}
 
 
 def _payload() -> dict:
-    """读取正式场景为每个用例提供独立对象。"""
-    return json.loads(_FORMAL.read_text(encoding="utf-8"))
+    """读取当前人工场景并声明本模块需要的人格字段，每个用例取得独立对象。"""
+    payload = json.loads(_FORMAL.read_text(encoding="utf-8"))
+    payload["agents"][0].update(_PERSONA)
+    return payload
+
+
+def _persona_scenario():
+    """@brief 当前运行场景使用经过人物模型校验的独立叙事档案，不改变共享环境。"""
+    scenario, _ = load_scenario(_FORMAL)
+    person = type(scenario.agents[0]).model_validate({**scenario.agents[0].model_dump(mode="python"), **_PERSONA})
+    return scenario.model_copy(update={"agents": (person, *scenario.agents[1:])})
 
 
 def test_short_background_story_is_rejected() -> None:
@@ -68,7 +86,7 @@ def test_persona_layer_from_the_scenario_profile_reaches_the_native_llm_prompt()
     from tests.integration.test_life_agent_protocol import _observations
     from worldmock.run_setup import _agent_specs
 
-    scenario, _ = load_scenario(_FORMAL)
+    scenario = _persona_scenario()
 
     def persona(profile: dict) -> tuple[dict, str]:
         agent = LifeAgent()
@@ -116,7 +134,7 @@ async def test_memory_view_identity_uses_the_card_text_or_the_scenario_persona_f
     from worldmock.profile.textgen import render_card
     from worldmock.run_setup import _agent_specs
 
-    scenario, _ = load_scenario(_FORMAL)
+    scenario = _persona_scenario()
 
     async def identity(profile: dict, workspace: Path) -> str:
         """按一份人物档案走一次观察准备与记忆步，读回 MEMORY.md「身份」区段。"""

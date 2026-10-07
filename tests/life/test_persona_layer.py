@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -26,11 +27,12 @@ from custom.agents.life_persona import (PROMPT_SNAPSHOT_FILE, card_struct, known
                                         readonly_layers, write_prompt_snapshot)
 from custom.agents.life_prompt import empty_memory_layer, readonly_messages  # noqa: E402
 from tests.integration.test_life_agent_protocol import _context, _observations  # noqa: E402
+from tests.integration.runtime_fixtures import write_agent_workspace  # noqa: E402
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, stage_day_plan, start_activity,
                                  conclude_request)
 from tests.life.test_memory_layer import (_act, _jump, _memo, _next_morning, _observe,  # noqa: E402
                                           _remote_order, _view, _walk)
-from tests.life.test_dayrun_restaurants import _keep_waiting, _stage  # noqa: E402
+from tests.life.routing_fixtures import FOOD_STORE, keep_waiting, stage_person  # noqa: E402
 from tests.profile.conftest import make_card, make_window  # noqa: E402
 from worldmock.errors import IntegrityError  # noqa: E402
 from worldmock.life.activity_control import slot_activities  # noqa: E402
@@ -196,7 +198,7 @@ def test_persona_card_struct_is_saved_on_new_runs_and_validated_on_restore(tmp_p
     """新建运行：卡片渲染文本与结构化字段（去掉当下处境）都存进 profile，两者取经场景作息覆盖后的卡片
     （docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-场景作息覆盖卡片抽取值 ）；恢复时结构化字段按 PersonaCardStruct 校验，带当下处境或格点不对的字段
     阻止分支发布；没有卡片的人物不带该键。"""
-    from tests.integration.test_host_branch_coverage import (ROOT, SCENARIO, ResumeRequest, _agent_workspace,
+    from tests.integration.test_host_branch_coverage import (ROOT, SCENARIO, ResumeRequest,
                                                              _parent_store, _prepare_resume)
     from worldmock.life.world_setup import load_scenario
     from worldmock.profile.injection import apply_scenario_rhythm
@@ -213,8 +215,8 @@ def test_persona_card_struct_is_saved_on_new_runs_and_validated_on_restore(tmp_p
     broken = {**persona_card_struct(card), "situation": {"busy_this_week": "赶工", "cares_about": "体检"}}
     agent = {"schema_version": 1, "agent_class": "LifeAgent", "agent_id": 1, "initialized_at": None,
              "profile": {"id": 1, "same_second_continuation": True, "persona_card_struct": broken}}
-    parent, checkpoint = _parent_store(tmp_path, workspace_builder=lambda path: _agent_workspace(
-        path, agent_document=agent))
+    parent, checkpoint = _parent_store(tmp_path, workspace_builder=lambda path: write_agent_workspace(
+        path / "agent", agent_document=agent))
     try:
         with pytest.raises(IntegrityError, match="persona card structure is invalid"):
             _prepare_resume(ResumeRequest(ROOT, SCENARIO, tmp_path / "parent", checkpoint.checkpoint_id,
@@ -227,7 +229,7 @@ def test_structured_card_without_work_anchor_keys_is_rejected_on_restore(tmp_pat
     """卡片结构 3（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-下班与到家锚点 ）：新建运行冻结的结构化卡片带下班、到家两个必填键（这里写明了窗口），
     在恢复路径照常恢复；同一张卡片去掉这两个键（旧结构的卡片）被 PersonaCardStruct 校验拒绝，阻止分支发布、不建子运行
     目录（没有带版本的卡片读者，也不补 null）。"""
-    from tests.integration.test_host_branch_coverage import (ROOT, SCENARIO, ResumeRequest, _agent_workspace,
+    from tests.integration.test_host_branch_coverage import (ROOT, SCENARIO, ResumeRequest,
                                                              _parent_store, _prepare_resume)
     from worldmock.life.world_setup import load_scenario
     from worldmock.profile.injection import apply_scenario_rhythm
@@ -242,8 +244,8 @@ def test_structured_card_without_work_anchor_keys_is_rejected_on_restore(tmp_pat
                  "profile": {"id": 1, "same_second_continuation": True, "persona_card_struct": struct}}
         root = tmp_path / name
         root.mkdir()
-        parent, checkpoint = _parent_store(root, workspace_builder=lambda path, document=agent: _agent_workspace(
-            path, agent_document=document))
+        parent, checkpoint = _parent_store(root, workspace_builder=lambda path, document=agent: write_agent_workspace(
+            path / "agent", agent_document=document))
         try:
             request = ResumeRequest(ROOT, SCENARIO, root / "parent", checkpoint.checkpoint_id, root / "child")
             if name == "frozen":
@@ -287,7 +289,7 @@ def test_subject_is_required_for_relationship_and_preference_and_stripped_before
 def test_later_view_replaces_earlier_while_events_keep_both(engine_factory) -> None:
     """同一对象后写的看法替换先写的，事件里两条都保留；preference 按写下的本地日期记 noted_on；被拒请求写下的看法不算；
     这两类记忆不在进度层参数与记忆层中。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=lambda document: document["agents"][0].update(contacts=copy.deepcopy(_CONTACTS)))
     stage_day_plan(engine)
     friend = engine.context.scenario.agents[0].contacts[0].salutation
     for index, (view, taste) in enumerate((("靠谱", "爱吃面"), ("最近很忙", None))):
@@ -345,7 +347,7 @@ def test_a_recorded_view_typed_memory_without_a_subject_is_not_a_persona_view(en
     """看法与偏好只来自带对象的记忆：请求模型不接受类型为 relationship、preference 的普通记忆（它们没有 about），引擎写不出
     带这种记忆的成功收尾；经存储补登的成功收尾记录里出现这两类不带对象的记忆时，人设层的看法与偏好跳过它们，只取同一条
     记录里带对象的偏好与此前真实写下的看法，不把 null 当作对象，观察照常完成。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=lambda document: document["agents"][0].update(contacts=copy.deepcopy(_CONTACTS)))
     stage_day_plan(engine)
     friend = engine.context.scenario.agents[0].contacts[0].salutation
     _, waited = _act(engine, "s-wait", "start_activity", start_activity("等待", "自己"))
@@ -369,16 +371,18 @@ def test_a_recorded_view_typed_memory_without_a_subject_is_not_a_persona_view(en
 
 def test_first_purchase_writes_no_preference_and_leaves_no_trace_after_delivery_and_midnight(engine_factory) -> None:
     """反例：首次购买后人物只写了「明天还想吃」这类非偏好记忆时 preferences 为空；送达并跨零点后记忆层没有这次购买。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=lambda document: document.update(
+        end_at=(datetime.fromisoformat(document["start_at"]) + timedelta(days=2)).isoformat()))
     stage_day_plan(engine)
-    _stage(engine, "market", 1500)
+    stage_person(engine, FOOD_STORE, 1500)
     order = _remote_order(engine, "p-order")
-    product = engine.context.rules.items[order["product_id"]].name
+    delivered = engine.context.state.deliveries[order["order_id"]]
+    product = engine.context.semantics.catalog.foods[delivered.food_id].name
     for step in range(64):
         if engine.context.state.deliveries[order["order_id"]].status != "pending":
             break
         if engine.scheduling_state().ready_agent_ids:
-            _act(engine, f"p-wait-{step}", *_keep_waiting(engine))
+            _act(engine, f"p-wait-{step}", *keep_waiting(engine))
         else:
             advance_next(engine)
     names = [activity_name(engine, item.activity_id) for item in slot_activities(engine.context.state, 1)]

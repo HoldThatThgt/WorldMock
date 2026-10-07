@@ -25,7 +25,7 @@ from worldmock.life.world_setup import load_runtime_scenario
 
 def test_stay_writes_the_place_name_type_felt_levels_and_no_fixed_rules(engine_factory) -> None:
     """运行开始在家：observed_at 为观察时刻，body 五项按固定顺序取观察的体感分级文字（没有数值），location 为停留、
-    地点名、场所类型「家」，菜单全开时 fixed_rules 为 []；仓库场景的人物没有工作安排，duty 为 null。"""
+    地点名、场所类型「家」，菜单全开时 fixed_rules 为 []；人工场景的人物工作日 09:00–18:00 上班，零点状态为未到上班时间。"""
     engine = engine_factory()
     stage_day_plan(engine)
     observed = engine.observe(context(engine, "stay"))
@@ -37,7 +37,8 @@ def test_stay_writes_the_place_name_type_felt_levels_and_no_fixed_rules(engine_f
                      "body": {key: levels[key] for key in ("appetite", "sleepiness", "entertainment", "social",
                                                            "mood")},
                      "location": {"session_kind": "stay", "name": home, "place_type": "家", "fixed_rules": []},
-                     "duty": None}
+                     "duty": {"day": "工作日", "hours": "09:00–18:00", "place": "公司",
+                              "breaks": [], "status": "未到上班时间"}}
     assert list(layer["body"]) == ["appetite", "sleepiness", "entertainment", "social", "mood"]
     assert all(isinstance(value, str) for value in layer["body"].values())
 
@@ -69,7 +70,7 @@ def test_fixed_rules_name_every_action_the_menu_excludes(engine_factory) -> None
     validate_layer(layer)
     excluded = [action for action in ACTION_PHRASES if action not in {"sleep", "travel_to", "wait"}]
     assert layer["location"]["fixed_rules"] == [f"这里不能{ACTION_PHRASES[action]}" for action in excluded]
-    assert layer["location"]["fixed_rules"][:2] == ["这里不能工作", "这里不能看内容或听播客"]
+    assert layer["location"]["fixed_rules"][:2] == ["这里不能工作", "这里不能用手机 app"]
 
 
 def test_place_types_cover_every_scenario_location_kind_and_unknown_kinds_are_defects(engine_factory) -> None:

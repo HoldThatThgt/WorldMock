@@ -32,7 +32,7 @@ from custom.agents.life_reflection import (REFLECTION_PROMPT, ReflectionOutputEr
 from tests.integration.test_life_agent_protocol import _ModelResponse, _TextResponse  # noqa: E402
 from tests.life.conftest import context, stage_day_plan  # noqa: E402
 from tests.acceptance_guard import acceptance_section  # noqa: E402
-from tests.life.purchase_worlds import at_clock  # noqa: E402
+from tests.life.test_tool_layer import _host  # noqa: E402
 from worldmock.footprints.models import EventDraft  # noqa: E402
 from worldmock.footprints.store import FootprintStore  # noqa: E402
 from worldmock.life.models import REQUEST_MODELS, DeliveryState  # noqa: E402
@@ -46,7 +46,7 @@ _HEAD = [{"role": "system", "content": "系统层"}, {"role": "user", "content":
 _DECISION_TOOLS = [{"type": "function", "function": {"name": name}} for name in ("start_activity", "query_world")]
 #: 两种取得方式；真实用例从返回项抄一个可用的取得方式。
 _ACQUIRE = frozenset({"到店", "远程下单"})
-_MILK = "纯牛奶"
+_MILK = "柠檬茶"
 _EMPTY_PAGE = {"matches": [], "total_count": 0, "next_offset": None}
 
 
@@ -110,13 +110,10 @@ def test_query_cost_on_a_real_engine_exchange(engine_factory) -> None:
     查询到购买结算两次模型调用、没有反思重试，运行身份取运行清单。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    at_clock(engine, 10, 0)
     decision = context(engine, "query-cost")
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
-    host = LifeAgent()
-    host.prepare_react_loop(ReactLoopRequest(0, decision.observed_at, [{"turn": 0, "action": "observe", "ok": True,
-                                                                       "data": observed}]))
+    host = _host(engine, decision, observed)
     tools = host.build_react_tool_schemas(readonly=False)
     assert {"start_activity", "query_world"} <= {tool["function"]["name"] for tool in tools}
     queries = [_call("call-milk", "query_world", _query(name=_MILK)),
@@ -181,14 +178,15 @@ def _turn(request: EventDraft, calls: list[dict], error: str | None = None) -> l
 def _purchase(at: int, agent: int, decision: str, order_id: str) -> list[EventDraft]:
     """一次远程下单请求与结果；结果顶层带一笔该人物的订单。"""
     order = DeliveryState(
-        order_id=order_id, agent_id=agent, product_id="milk", supply_id="supply-milk", location_id="shop",
-        seller_account_id="seller:shop", price_version="v1", route_id=None, source={"kind": "fixture"}, quantity=1,
+        order_id=order_id, agent_id=agent, food_id="lemon-tea", store_id="noodle-1", app_id="food-app",
+        seller_account_id="merchant:noodle-1", quantity=1, unit_price_fen=1200, delivery_fee_fen=500,
         destination_id="home", fulfillment="delivery", created_at=at, expected_at=at + 900, status="pending",
-        total_price_fen=1200, recipient_id=f"agent:{agent}").model_dump(mode="json")
+        total_price_fen=1700, recipient_id=f"agent:{agent}", path=("noodle-1", "home"), trip_id="fixture-trip",
+        distance_meters=1500, prep_seconds=600).model_dump(mode="json")
     action = f"{decision}:action:0001"
     requested = _event("action_requested", at, agent, decision, action_id=action, source_kind="model", data={
         "tool_name": "start_activity", "request_sha256": "0" * 64, "reused": False,
-        "request": {"items": [{"target": "店·纯牛奶", "way": "远程下单", "from": None, "to": None}],
+        "request": {"items": [{"target": "一心面馆出售的柠檬茶", "way": "远程下单", "from": None, "to": None}],
                     "answering": None, "prefer": "最快拿到"}})
     result = _event("action_result", at, agent, decision, action_id=action, caused_by=[requested.event_id], data={
         "action_id": action, "agent_id": agent, "status": "completed", "occurred_at": at,

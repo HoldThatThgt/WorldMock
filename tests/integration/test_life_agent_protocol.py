@@ -21,7 +21,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.integration.storefront_fixtures import supply_row, discovery_catalog
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
 os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
@@ -51,7 +50,7 @@ from worldmock.catalog.affordances import engine_affordances
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PAUSED, PHASE_PENDING
 from worldmock.life.engine_context import affordance_contract
 from worldmock.life.models import ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, ReportStatusRequest, StartActivityRequest, deepseek_strict_schema
-from worldmock.catalog.affordances import START_ACTIVITY_ACTIONS
+from worldmock.exchange.types import START_ACTIVITY_ACTIONS
 from worldmock.life.narration import ForbiddenObservationFieldError, render_layer_json
 from tests.life.conftest import errand_add, errand_update, start_arguments
 
@@ -82,11 +81,11 @@ _NEWS = "接着看晚间新闻（1月4日 20:00 起）"
 _TASK = "工作：整理会议纪要"
 
 #: 私有绑定种类 → 工具层目标种类（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「工具层」）。
-_TARGET_KINDS = {"work_task": "task", "location": "location", "supply": "product", "holding": "product",
-                 "catalog": "catalog", "content": "content", "game": "game", "lifestyle": "lifestyle",
+_TARGET_KINDS = {"work_topic": "task", "location": "location", "supply": "product", "holding": "holding",
+                 "app": "app", "lifestyle": "lifestyle",
                  "person": "person", "contact": "person", "mail": "message", "self": "self"}
 #: 以目标名称为参数的其他工具。
-_TARGET_TOOLS = {"task": ("submit_work",), "person": ("send_message",),
+_TARGET_TOOLS = {"person": ("send_message",),
                  "activity": ("report_status", "pause_activity", "conclude_activity")}
 
 
@@ -116,8 +115,8 @@ def _visible_object(name: str, kind: str, object_id: str, *offers: dict, **bindi
     target = {"name": name, "kind": target_kind, "phase": None, "state": None, "actions": actions,
               "tools": _tool_entries(target_kind)}
     if target_kind == "task":
-        target = {**target, "contract": {"deadline": "2026-01-06T00:00:00+00:00",
-                                         "remaining": "有效工时还差约 1 小时（约 0/1 小时）", "outlook": None}}
+        target = {**target, "contract": {"topic": "整理会议纪要", "target": "约 8 小时",
+                                         "done": "约 0 小时", "remaining": "约 8 小时"}}
         target = {key: target[key] for key in ("name", "kind", "phase", "state", "contract", "actions", "tools")}
     return target, {"object": name, "kind": kind, "object_id": object_id, "actions": list(offers), **binding}
 
@@ -133,7 +132,7 @@ def _add_objects(data: dict, *objects: tuple[dict, dict]) -> dict:
 #: 「自己」恒在工具层（等待、睡觉）；在家时办公室工作照常列出，标不可用并写原因。
 _SELF_OBJECT = _visible_object("自己", "self", "self",
                                _offer("interact", "等待", "wait"), _offer("sleep", "睡觉", "sleep"))
-_TASK_OBJECT = _visible_object(_TASK, "work_task", "task-visible",
+_TASK_OBJECT = _visible_object(_TASK, "work_topic", "topic-visible",
                                _offer("interact", "工作", "work", "工作整理会议纪要需要在办公室"))
 #: 对「自己」选择等待：对象、动词与方式三数组逐项对应。
 _WAIT_CHOICE = start_arguments(["自己"], ["interact"], ["等待"])
@@ -194,7 +193,7 @@ def _layers() -> dict:
     """环境构建的五层与看法偏好：在家停留，暂无活动与计划，本段停留尚无记录。"""
     return {
         "tool_layer": {"layer": "工具层", "targets": copy.deepcopy([_SELF_OBJECT[0], _TASK_OBJECT[0]]),
-                       "callable_index": {"lifestyle": [], "contents": [], "goods": [], "query_categories": []}},
+                       "callable_index": {"lifestyle": [], "goods": [], "query_categories": []}},
         "todo_layer": {"layer": "待办层", "paused_activities": [], "errands": [], "day_plan": None},
         "environment_layer": {"layer": "环境层", "observed_at": _NOW_ISO, "body": dict(_BODY),
                               "location": {"session_kind": "stay", "name": "自己家", "place_type": "住宅",
@@ -218,7 +217,7 @@ def _observations(*progress_event_ids: str) -> list[dict]:
         "progress_event_ids": list(progress_event_ids),
         "presented_message_ids": [],
         "interaction_bindings": copy.deepcopy([_SELF_OBJECT[1], _TASK_OBJECT[1]]),
-        "task_bindings": [{"task_name": _TASK, "task_id": "task-visible"}],
+        "task_bindings": [{"task_name": _TASK, "topic_id": "topic-visible"}],
         "activity_bindings": [],
         "goal_bindings": [],
         "person_bindings": [],
@@ -230,20 +229,13 @@ def _observations(*progress_event_ids: str) -> list[dict]:
         "pending_conclusions": [],
         "affordance_contract": _AFFORDANCE_CONTRACT,
         "interaction_menu": {"allowed_actions": sorted(START_ACTIVITY_ACTIONS)},
-        "tasks": [{"task_id": "task-visible", "remaining_contract_seconds": 3600,
-                   "material": {"end_char": 10, "total_chars": 10}}],
-        "activity_summary": {"feature_film": 1, "sport": 44, "foods": 1},
-        "content_progress": {"content-visible": {
-            "item_id": "content-visible", "position_seconds": 0.0,
-            "remaining_media_seconds": 630.0, "exposure_count": 0,
-        }},
-        "game_catalog": [{"game_id": "game-visible"}],
+        "work_topics": [{"topic_id": "topic-visible", "topic": "整理会议纪要", "target_seconds": 28800,
+                         "worked_seconds": 0}],
+        "apps": [], "contents": [], "app_pushes": {},
+        "activity_summary": {"sport": 44, "foods": 1},
         "messages": [{"message_id": "message-visible"}],
-        "browse_targets": ["product_catalog"],
-        "products": [{"product_id": "product-visible", "use_modes": ["eat"],
-                      "use_duration_seconds": 300, "required_location_id": None}],
-        "supplies": [supply_row(supply_id="supply-visible", product_id="product-visible")],
-        "discovery_catalog": discovery_catalog("product-visible"),
+        "foods": [{"food_id": "product-visible", "name": "现有食品", "category": "snack",
+                   "price_fen": 500, "store_ids": ["store"]}],
         "locations": [{"location_id": "home", "name": "自己家"}, {"location_id": "office", "name": "办公室"}],
         "location_id": "home",
         "available_inventory": {"product-visible": 1.0},
@@ -251,7 +243,6 @@ def _observations(*progress_event_ids: str) -> list[dict]:
                              "use_duration_seconds": 300, "required_location_id": None}],
         "routes": [{"destination_id": "office", "status": "reachable", "mode": "driving",
                     "duration_seconds": 216}],
-        "games": {},
     }
     return [{"turn": 0, "action": "observe", "ok": True, "data": data}]
 
@@ -317,14 +308,14 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
     functions = _functions(_prepared())
 
     assert set(functions) == _BASE_ACTION_NAMES | _READ_QUERY_NAMES
-    assert list(functions)[:7] == [name for name in REQUEST_MODELS if name != "recall_task_summary"]
+    assert list(functions)[:6] == [name for name in REQUEST_MODELS if name != "recall_task_summary"]
     assert "finish" not in functions and not {"memory_step_range", "memory_tick_range"} & set(functions)
     start_fields = functions["start_activity"]["parameters"]["properties"]
     assert {"agent_id", "decision_id", "action_id"}.isdisjoint(start_fields)
     assert set(start_fields) == {"items", "answering", "prefer"}
     assert functions["start_activity"]["parameters"]["additionalProperties"] is False
     assert all(function["strict"] is True for function in functions.values())
-    closed = copy.deepcopy({name: functions[name] for name in ("start_activity", "submit_work", "send_message",
+    closed = copy.deepcopy({name: functions[name] for name in ("start_activity", "send_message",
                                                                 "report_status")})
     assert closed["start_activity"]["parameters"]["properties"].pop("prefer")["enum"] == ["最快拿到", "到手价最低", None]
     change = closed["report_status"]["parameters"]["properties"]["errands"]["items"]["properties"]
@@ -335,22 +326,6 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
     assert life_tool_schema_sha256() == life_tool_schema_sha256()
 
 
-def test_incomplete_work_stays_submittable_for_business_rejection() -> None:
-    """工具层标为不可用的提交照样可以提交：宿主只核对任务名（没写「工作：」前缀的也按统一名称解析唯一受理，
-    docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析 ），环境以同一原因业务拒绝；不是任何任务的名称按协议错误纠正。"""
-    observations = _observations()
-    task = observations[0]["data"]["tool_layer"]["targets"][1]
-    task["tools"] = [{"tool": "submit_work", "available": False, "reason": "有效工时还没达到要求"}]
-    agent = _prepared(observations)
-    functions = _functions(agent)
-    assert "enum" not in functions["submit_work"]["parameters"]["properties"]["task_name"]
-    deliverable = {"summary": "整理了会议要点。", "decisions": ["按计划推进。"], "action_items": ["下周复盘。"]}
-    submit = ReactDecision("", "submit_work", {"task_name": _TASK, "deliverable": deliverable}, "")
-    assert agent.validate_react_decisions([submit], False) == ""
-    bare = ReactDecision("", "submit_work", {"task_name": "整理会议纪要", "deliverable": deliverable}, "")
-    assert agent.validate_react_decisions([bare], False) == ""
-    unknown = ReactDecision("", "submit_work", {"task_name": "写周报", "deliverable": deliverable}, "")
-    assert agent.validate_react_decisions([unknown], False) == f"NAME_NOT_FOUND: The name {unknown.args['task_name']} is not known."
 
 
 def test_session_names_are_not_recall_names() -> None:
@@ -393,7 +368,7 @@ def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:
 
 def test_life_tool_schema_fingerprint_is_the_person_tool_surface_without_the_reflection_tool(monkeypatch) -> None:
     """工具指纹只绑定人物工具面（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-就寝反思经严格工具提交 「身份与判定」与 6.4：submit_reflection 不属于人物
-    工具面，不进 tool_schema_sha256）：指纹恰为生活决策实际开放的十二个原生工具（请求模型的登记顺序，其后是三个记忆查询与
+    工具面，不进 tool_schema_sha256）：指纹恰为生活决策实际开放的十一个原生工具（请求模型的登记顺序，其后是三个记忆查询与
     query_world）与注册表摘要组成的规范 JSON 的 SHA-256，其中没有 submit_reflection；就寝反思工具的说明与 Schema 改动
     之后指纹不变。"""
     import hashlib
@@ -403,7 +378,7 @@ def test_life_tool_schema_fingerprint_is_the_person_tool_surface_without_the_ref
 
     original = life_tool_schema_sha256()
     offered = _functions(_prepared())
-    assert len(offered) == 12 and set(offered) == _BASE_ACTION_NAMES | _READ_QUERY_NAMES
+    assert len(offered) == 11 and set(offered) == _BASE_ACTION_NAMES | _READ_QUERY_NAMES
     assert "submit_reflection" not in offered
     order = [*REQUEST_MODELS, "memory_recent", "memory_search", "memory_time_range", "query_world"]
     assert sorted(order) == sorted(offered)
@@ -425,7 +400,7 @@ def test_plan_day_is_no_person_tool_and_revision_carries_remind_time() -> None:
     与 around_time（docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进 ）。"""
     from custom.envs.life_env import _STABLE_TOOL_SURFACE
 
-    assert len(_STABLE_TOOL_SURFACE) == 9 and "plan_day" not in _STABLE_TOOL_SURFACE
+    assert len(_STABLE_TOOL_SURFACE) == 8 and "plan_day" not in _STABLE_TOOL_SURFACE
     assert life_action_tool_names() == frozenset(REQUEST_MODELS) | {"query_world"} == _STABLE_TOOL_SURFACE
     waking = _observations()
     waking[0]["data"]["wake_reasons"] = ["run_start", "wake_from_sleep"]
@@ -448,7 +423,8 @@ def test_plan_day_is_no_person_tool_and_revision_carries_remind_time() -> None:
 
 
 def test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages() -> None:
-    """起居规则只在系统层 rules 写一次：生活决策的每个请求都带同一份系统层；只读问答用自己的系统层；「怎样过一天」已删。"""
+    """起居规则只在系统层 rules 写一次：生活决策的每个请求都带同一份系统层；只读问答用自己的系统层；「怎样过一天」已删。
+    同时进行的名额只在第 8 条说一次（docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-丙第8条）。"""
     agent = _prepared()
     request = ReactLoopRequest(0, _context().observed_at, _observations())
     agent.prepare_react_loop(request)
@@ -461,7 +437,7 @@ def test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages() -> 
     assert readonly_system == render_layer_json(READONLY_SYSTEM_LAYER)
     rules = json.loads(action_system)["rules"]
     assert len(rules) == 18
-    for sentence in ("你最多同时有两项活动", "睡着时只有提醒或睡够了才会醒，早睡也就早醒。", "能送到这里的都算",
+    for sentence in ("同时进行的最多两项", "睡着时只有提醒或睡够了才会醒，早睡也就早醒。", "能送到这里的都算",
                      "说打算做或说已经做过，都不等于做了。", "今日计划写明今天与平常不同的安排时，按计划"):
         assert sum(sentence in rule for rule in rules) == 1
     for system in (action_system, readonly_system):
@@ -1738,3 +1714,13 @@ def test_home_identity_never_enters_messages_and_a_layer_carrying_it_is_rejected
         agent = _prepared(leaking)
         with pytest.raises(ForbiddenObservationFieldError, match="home_location_id"):
             agent.build_react_messages(ReactLoopRequest(0, _context().observed_at, leaking))
+
+
+def test_retired_submit_tool_is_absent_while_work_names_and_recall_remain() -> None:
+    """工作仍以主题名称开始与回看，退役提交工具从原生工具闭集退出。"""
+    agent = _prepared(_observations())
+    assert "submit_work" not in _functions(agent)
+    assert agent.validate_react_decisions([ReactDecision("", "start_activity",
+        start_arguments([_TASK], ["interact"], ["工作"]), "")], False) == ""
+    assert agent.validate_react_decisions([ReactDecision("", "recall_task_summary",
+        {"task_name": _TASK}, "")], False) == ""

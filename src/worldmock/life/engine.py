@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from worldmock.errors import IntegrityError
-from worldmock.life.state_commit import validated_payload
+from worldmock.life.models import validated_payload
 from worldmock.life import world_ops
 
 from datetime import datetime
@@ -31,11 +31,9 @@ from worldmock.life.semantics import ScenarioSemantics
 from worldmock.life.session_actions import ActionHandlers
 from worldmock.life.storefront_runtime import StorefrontRuntime
 from worldmock.life.time_advance import TimeAdvanceCoordinator
-from worldmock.life.work_review_runtime import WorkReviewCoordinator
 from worldmock.life.world_setup import create_world, open_world
 from worldmock.life.world_ops import meal_windows_by_agent
 from worldmock.life.continuation import CONTINUATION_KEY, same_second_chain
-from worldmock.life.state_commit import commit_state
 
 if TYPE_CHECKING:
     from agentsociety2.society import DecisionContext, DirectToolCall, SchedulingState
@@ -53,7 +51,6 @@ class LifeEngine:
         self.actions = ActionHandlers(self.context, StorefrontRuntime(self.context))
         self.decisions = DecisionCoordinator(self.context, self.actions, self.observations)
         self.clock = TimeAdvanceCoordinator(self.context, self.observations)
-        self.reviews = WorkReviewCoordinator(self.context, self.actions)
         self.evidence = ModelEvidenceRecorder(self.context, self.decisions)
         self.counterfactual = CounterfactualRuntime(self.context)
 
@@ -87,7 +84,8 @@ class LifeEngine:
             observed_at=self.context.state.current_time,
             data=stored,
         )
-        data["observation_event_id"] = commit_state(self.context.store, self.context.state, [draft])[0].event_id
+        data["observation_event_id"] = self.context.store.commit(
+            validated_payload(self.context.state), [draft])[0].event_id
         data[CONTINUATION_KEY] = same_second_chain(
             self.context.store, self.context.state, self.observations, context.agent_id, data["observation_event_id"]
         )
@@ -101,12 +99,6 @@ class LifeEngine:
         """@brief 将真实宿主请求交给决策协调登记。"""
         return self.decisions.submit_action(call)
 
-    async def prepare_pending_work_review(self, action_id: str) -> None:
-        """@brief 为已登记的工作动作执行独立验收。"""
-        pending = next((item for item in self.decisions.round.pending_actions if item.action_id == action_id), None)
-        if pending is None:
-            raise ProtocolError("Pending work review action does not exist")
-        await self.reviews.prepare(pending)
 
     def commit_decision_round(self, round_id: str) -> list[ActionResult]:
         """@brief 按冻结顺序原子结算一轮。"""
@@ -166,10 +158,8 @@ class LifeEngine:
         events = self.context.store.read_events(self.context.store.last_event_seq)
         if any((event.event_type == "run_failed" for event in events)):
             return
-        commit_state(
-            self.context.store, self.context.state,
-            [world_ops._failure_draft(self.context.state.current_time, error, None)],
-        )
+        self.context.store.commit(validated_payload(self.context.state),
+                                  [world_ops._failure_draft(self.context.state.current_time, error, None)])
         self.context.ops.log(self.context.state.current_time, "engine", "error", "RUN_FAILED", f"Run failed: {error}")
 
     def checkpoint(self, agent_snapshots: dict[str, AssetRef]) -> "Checkpoint":

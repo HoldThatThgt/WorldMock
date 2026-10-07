@@ -32,29 +32,28 @@ from tests.life.conftest import (StubPlanDayClient, activity_name, advance_next,
                                  context, drive, settle_day_plans, stage_day_plan, submit_round, wake_by_mail,
                                  start_request, pause_request, report_request)
 from tests.life.test_scenario import _assert_invalid, _payload, _replace
-from tests.life.test_work_review import _at_task_start, _complete_required_work, _paraphrased_submission
 from worldmock.errors import BusinessRuleError, IntegrityError, ProtocolError
 from worldmock.life import felt, projection, rhythm
 from worldmock.life.body import (
     ActivityFactors,
     BoundaryClock,
     apply_food,
-    interpolate,
     maximum_energy_duration_seconds,
     next_body_boundary_seconds,
     settle_body,
 )
 from worldmock.life.decision_start import is_action_request, maybe_action_request_start, response_self_note
 from worldmock.life.engine import LifeEngine
-from worldmock.life.activity_evidence import dedupe_revealed_cues, record_material_reveal
+from worldmock.life.activity_evidence import dedupe_revealed_cues
 from worldmock.life.action_evidence import _terminal_action_records
 from worldmock.life.world_ops import _activity_progress_phrase, _paused_activity_control
 from worldmock.life.models import (ActionStatus, ActivityKind, ActivityStartParams, ActivityState, ActivityStatus,
                                    ActionResult, ChangeActivityRequest, ConsumeRequest, CounterfactualIntervention,
-                                   CurvePoint, deepseek_strict_schema, MeetingMinutes, ModelIdentity, PendingAction,
+                                   deepseek_strict_schema, ModelIdentity, PendingAction,
                                    PlanDayRequest, PlanGoalInput, PurchaseItem, PurchaseOrderRequest,
                                    ReviseDayPlanRequest, RunIdentity, SameMomentStage, SendMessageActionRequest,
-                                   SubmitWorkActionRequest, WorldState, active_activities)
+                                   WorldState, active_activities)
+from worldmock.base_models import CurvePoint
 from worldmock.life.observe import _recent_meal_counts
 from worldmock.life.scenario import BodyConfig, LifeScenario, MotivationProfile, parse_scenario_document
 from worldmock.life.world_setup import load_scenario
@@ -158,59 +157,10 @@ def _run_identity(scn, **updates) -> RunIdentity:
     return RunIdentity(**fields)
 
 
-class _AcceptingReviewer:
-    """按声明返回接受/语义拒绝的最小评审客户端桩。"""
-
-    def __init__(self, rejected: bool = False):
-        self.rejected = rejected
-        self.calls = 0
-
-    async def call(self, prepared):
-        self.calls += 1
-        references = [{
-            "reference_id": identity,
-            "required_fact_covered": not self.rejected,
-            "source_supported": not self.rejected,
-            "contradiction": self.rejected,
-            "source_excerpt": "Hi , I'm David",
-            "rationale": "Supported by the transcript.",
-        } for identity in prepared.expected_reference_ids]
-        deliveries = [{
-            "delivery_path": path,
-            "source_supported": not self.rejected,
-            "contradiction": self.rejected,
-            "source_excerpt": "Hi , I'm David",
-            "rationale": "Supported by the transcript.",
-        } for path in prepared.expected_delivery_paths]
-        arguments = {"reference_assessments": references,
-                     "delivery_assessments": deliveries, "accepted": not self.rejected}
-        return {"choices": [{"message": {"tool_calls": [{
-            "id": f"review-{self.calls}", "type": "function",
-            "function": {"name": "submit_work_review",
-                         "arguments": json.dumps(arguments)}}]}}]}
 
 
-def _stage_submission(engine, rejected: bool = False):
-    """完成公开工作并登记尚未结算的提交（返回动作标识）。"""
-    _at_task_start(engine)
-    _complete_required_work(engine)
-    engine.reviews.reviewer = _AcceptingReviewer(rejected)
-    round_id = "cover-submit"
-    ctx = context(engine, round_id)
-    engine.begin_decision_round([ctx])
-    engine.observe(ctx)
-    call = DirectToolCall(ctx, f"action-{round_id}", "submit_work", _submission_action(engine))
-    engine.submit_action(call)
-    return call
 
 
-def _submission_action(engine) -> SubmitWorkActionRequest:
-    """@brief 用人物可读任务名称提交测试会议纪要。"""
-    original = _paraphrased_submission()
-    observed = engine.context.store.read_agent_events("observation", 1)[-1].data
-    task = next(row for row in observed["task_bindings"] if row["task_id"] == original.task_id)
-    return SubmitWorkActionRequest(
-        task_name=task["task_name"], deliverable=original.deliverable)
 
 
 # ---------------------------------------------------------------------------
@@ -218,13 +168,6 @@ def _submission_action(engine) -> SubmitWorkActionRequest:
 # ---------------------------------------------------------------------------
 
 
-def test_interpolate_fails_closed_on_non_finite_input() -> None:
-    """非有限输入不落入任何区间，插值失败关闭（有限值场景见交付报告的不可达说明）。"""
-    from worldmock.life import sleep
-    curve = tuple(CurvePoint(input_value=point.input_hours, output_value=point.output_factor)
-                  for point in sleep.WORK_EFFICIENCY_CURVE)
-    with pytest.raises(ValueError, match="interval is missing"):
-        interpolate(curve, float("nan"))
 
 
 def test_settle_body_rejects_negative_duration(body_config) -> None:
@@ -236,7 +179,7 @@ def test_settle_body_rejects_negative_duration(body_config) -> None:
 
 def test_apply_food_rejects_negative_calories(body_config) -> None:
     """负热量进食被拒绝。"""
-    with pytest.raises(ValueError, match="cannot be negative"):
+    with pytest.raises(ValueError, match="nonnegative"):
         apply_food(felt_body(1600), -5, body_config)
 
 
@@ -325,11 +268,6 @@ def test_zero_second_interval_settles_no_entertainment_entries(body_config) -> N
     assert result.after.sleep_pressure == pytest.approx(0.3)
 
 
-def test_negative_work_factors_are_rejected(body_config) -> None:
-    """负技能/工具因子拒绝结算。"""
-    with pytest.raises(ValueError, match="cannot be negative"):
-        settle_body(felt_body(1600), ActivityKind.WORK, 3600, body_config,
-                    ActivityFactors(1, 0, work_skill_factor=-0.5))
 
 
 def test_next_body_boundary_skips_zero_rates_when_nothing_due(body_config) -> None:
@@ -411,7 +349,7 @@ def test_travel_target_requires_destination_and_mode() -> None:
 
 def test_playback_speed_only_for_change_speed_operation() -> None:
     """非变速操作携带速度被拒绝。"""
-    with pytest.raises(ValidationError, match="only for change_speed"):
+    with pytest.raises(ValidationError, match="extra_forbidden"):
         ChangeActivityRequest(activity_id="a", operation="pause", playback_speed=2)
 
 
@@ -424,25 +362,8 @@ def test_plan_goal_rejects_blank_text_and_old_time_fields() -> None:
                                       "around_time": None, "start": 100})
 
 
-def test_meeting_minutes_fields_reject_whitespace_only_text() -> None:
-    """会议纪要字段模式先行拒绝纯空白文本（校验器空白分支由下方直调用例覆盖）。"""
-    with pytest.raises(ValidationError, match="pattern"):
-        MeetingMinutes(summary=" ", decisions=("d",), action_items=("a",))
 
 
-def test_meeting_minutes_validate_text_direct_call_blank_and_non_blank() -> None:
-    """直调校验器取空白与非空白两态。
-
-    直调原因：字段层 pattern=r"\\S" 先行拒绝一切纯空白文本（上一用例），
-    经正常模型构造永远到不了校验器的空白分支；编排者裁决 pattern 守卫与
-    校验器双防线为合理分层，故以 model_construct 绕过字段校验直调校验器，
-    覆盖 validate_text 的 raise 分支与通过分支。
-    """
-    blank = MeetingMinutes.model_construct(summary="ok", decisions=(" ",), action_items=())
-    with pytest.raises(ValueError, match="meeting minutes text must not be blank"):
-        blank.validate_text()
-    healthy = MeetingMinutes(summary="ok", decisions=("d",), action_items=("a",))
-    assert healthy.validate_text() is healthy
 
 
 def test_deepseek_strict_schema_rejects_optional_fields() -> None:
@@ -492,26 +413,23 @@ def _invalid_body(body_config, message, **updates) -> None:
 def test_body_config_rejects_energy_and_threshold_disagreements(body_config) -> None:
     """初始能量超上限、阈值失序与无穷系数均拒绝。"""
     _invalid_body(body_config, "exceeds maximum energy", initial_energy_kcal=9999)
-    _invalid_body(body_config, "ordered within maximum energy", hunger_threshold_kcal=300)
-    _invalid_body(body_config, "must be finite", work_notes_multiplier=float("inf"))
+    _invalid_body(body_config, "ordered above the starving floor", hunger_threshold_kcal=300)
+    _invalid_body(body_config, "finite_number", mass_kg=float("inf"))
 
 
-def test_body_config_rejects_bad_curves(body_config) -> None:
-    """效率曲线输入必须严格递增、输出保持在零到一。"""
-    reversed_curve = (CurvePoint(input_value=8, output_value=1),
-                      CurvePoint(input_value=0, output_value=0))
-    _invalid_body(body_config, "strictly increasing",
-                  food_efficiency_curve=reversed_curve)
-    too_big = (CurvePoint(input_value=0, output_value=1.5),
-               CurvePoint(input_value=8, output_value=1))
-    _invalid_body(body_config, "between zero and one",
-                  food_efficiency_curve=too_big)
+def test_food_efficiency_curve_rejects_bad_point_order():
+    """@brief 固定食品利用曲线的独立校验拒绝逆序节点。"""
+    from worldmock.life.sleep import EfficiencyCurvePoint, validate_efficiency_curve
+    points = (EfficiencyCurvePoint(input_hours=8, output_factor=1),
+              EfficiencyCurvePoint(input_hours=0, output_factor=0))
+    with pytest.raises(ValueError, match='strictly increase'):
+        validate_efficiency_curve(points)
 
 
 def _invalid_profile(formal, message, **updates) -> None:
     """重校验改造后的动机档案并断言拒绝原因。"""
-    profile = formal.agents[0].motivation
-    assert profile is not None
+    from tests.life.test_motivation import _profile
+    profile = _profile()
     payload = profile.model_copy(update=updates).model_dump()
     with pytest.raises(ValidationError, match=message):
         MotivationProfile.model_validate(payload)
@@ -522,11 +440,12 @@ def test_motivation_profile_validators_reject_each_shape(formal) -> None:
     _invalid_profile(formal, "between 1 and 10", big_five={"openness": 11, "conscientiousness": 5,
                                                            "extraversion": 5, "agreeableness": 5,
                                                            "neuroticism": 5})
-    weights = dict(formal.agents[0].motivation.weights)
+    from tests.life.test_motivation import _profile
+    weights = dict(_profile().weights)
     _invalid_profile(formal, "non-negative finite", weights=weights | {"goal_task": -0.1})
-    comfort = dict(formal.agents[0].motivation.comfort)
+    comfort = dict(_profile().comfort)
     _invalid_profile(formal, "non-negative finite", comfort=comfort | {"energy_kcal": -1})
-    _invalid_profile(formal, "exactly daily_effective_work_seconds",
+    _invalid_profile(formal, "exactly daily_work_seconds",
                      aspiration={"wrong_key": 1})
 
 
@@ -538,7 +457,8 @@ def test_agent_config_rejects_bad_windows_and_identities() -> None:
                     "must not overlap lunch window")
     _assert_invalid(_replace(("agents", 0, "lifestyle_activities"), [" "]),
                     "must not be blank")
-    contacts = _payload()["agents"][0]["contacts"]
+    contacts = [{"contact_id":"colleague","salutation":"同事","relation":"同事",
+                 "closeness":16,"channels":["phone"],"reply_policy":"none"}]
     _assert_invalid(_replace(("agents", 0, "contacts"), contacts + [dict(contacts[0])]),
                     "contact ids must be unique")
 
@@ -551,37 +471,8 @@ def test_agent_with_single_meal_window_is_valid() -> None:
     assert agent.lunch_window is not None and agent.dinner_window is None
 
 
-def test_product_config_rejects_use_mode_and_serving_disagreements() -> None:
-    """商品用餐方式唯一合法、食品份量字段一致且非空白。"""
-    runtime = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
-    template = next(item for item in runtime.products if "eat" in item.use_modes)
-    payload = template.model_dump()
-
-    def invalid(message, **updates):
-        with pytest.raises(ValidationError, match=message):
-            from worldmock.life.scenario import ProductConfig
-            ProductConfig.model_validate(payload | updates)
-
-    invalid("unique supported values", use_modes=["eat", "eat"])
-    invalid("serving fields are inconsistent", use_modes=["eat"],
-            serving_quantity=None, serving_unit=None)
-    invalid("serving unit must not be blank",
-            use_modes=["eat"], serving_quantity=100, serving_unit=" ")
-    invalid("non-food product cannot provide food energy",
-            use_modes=["use"], serving_quantity=None, serving_unit=None,
-            energy_kcal_per_unit=50)
-    invalid("food product must be consumable",
-            use_modes=["eat"], consumable=False)
 
 
-def test_work_task_due_must_follow_availability(formal) -> None:
-    """任务截止不得早于开放。"""
-    task = formal.tasks[0].model_dump()
-    task.pop("available_at")
-    task["appointment"] = {"starts_at": task["due_at"], "reason": "Scheduled review"}
-    with pytest.raises(ValidationError, match="follow appointment"):
-        from worldmock.life.scenario import WorkTaskConfig
-        WorkTaskConfig.model_validate(task)
 
 
 def test_calendar_rejects_duplicate_dates_and_noncanonical_iso() -> None:
@@ -597,7 +488,7 @@ def test_scenario_interval_and_timezone_must_be_consistent() -> None:
     _assert_invalid(_replace(("end_at",), "2026-01-05T00:00:00+08:00"),
                     "time interval or timezone is invalid")
     _assert_invalid(_replace(("start_at",), "2026-01-05T00:00:00+09:00"),
-                    "do not match the declared timezone")
+                    "time interval or timezone is invalid")
     _assert_invalid(_replace(("start_at",), "2026-01-05T00:00:00"),
                     "must be timezone-aware")
 
@@ -608,44 +499,29 @@ def test_scenario_rejects_unknown_references() -> None:
                     "agent home is not a declared location")
     _assert_invalid(_replace(("routes",), [{"origin_id": "nowhere"}]),
                     "Extra inputs are not permitted")
-    _assert_invalid(_replace(("tasks", 0, "assignee_agent_id"), "agent:99"),
-                    "unknown assignee agent")
-    _assert_invalid(_replace(("tasks", 0, "due_at"), "2026-01-05T08:00:00+08:00"),
-                    "work task is outside the scenario interval")
+    _assert_invalid(_replace(("payrolls",), [{"payroll_id":"bad", "employer_account_id":"employer:test",
+        "agent_id":99, "amount_fen":100, "due_at":"2026-01-05T10:00:00+08:00"}]), "undeclared employer or person")
 
 
 def test_schedule_sections_reject_each_invalid_shape(engine_factory) -> None:
-    """预排段时区、窗口、账户引用与对象引用的拒绝形态。"""
-    _assert_invalid(_replace(("bills", 0, "due_at"), "2026-01-05T09:00:00+09:00"),
-                    "do not match the declared timezone")
-    _assert_invalid(_replace(("bills", 0, "due_at"), "2026-12-31T09:00:00+08:00"),
-                    "outside the scenario interval")
-    _assert_invalid(_replace(("bills", 0, "payee_account_id"), "agent:1"),
-                    "payer and payee accounts must differ")
-    _assert_invalid(_replace(("payrolls", 0, "employer_account_id"), "employer:ghost"),
-                    "undeclared employer account")
-    _assert_invalid(_replace(("payrolls", 0, "agent_id"), 99),
-                    "unknown agent")
-    source = engine_factory().context.scenario.supplies[0].source.model_dump(mode="json")
-    payload = _payload()
-    payload["price_changes"] = [{"change_id": "change-x", "supply_id": "supply-ghost",
-                                 "price_version": "new-version", "source": source, "amount_fen": 100,
-                                 "due_at": "2026-01-06T09:00:00+08:00"}]
-    _assert_invalid(payload, "price change references an unknown supply")
-    payload = _payload()
-    payload["product_releases"] = [{"release_id": "release-x", "supply_id": "supply-ghost",
-                                    "source": source, "stock": 5,
-                                    "due_at": "2026-01-06T09:00:00+08:00"}]
-    _assert_invalid(payload, "product release references an unknown supply")
-    payload = _payload()
-    payload["product_releases"] = [{"release_id": "release-x",
-                                    "supply_id": payload["supplies"][0]["supply_id"], "source": source,
-                                    "merchant": "merchant:wrong", "stock": 5,
-                                    "due_at": "2026-01-06T09:00:00+08:00"}]
-    _assert_invalid(payload, "Extra inputs are not permitted")
-    payload = _payload()
-    payload["accounts"].append({"account_id": "agent:1", "money_fen": 1, "role": "personal:dup"})
-    _assert_invalid(payload, "must not reuse agent account ids")
+    """@brief 预排账单和工资保留严格时区、窗口、账户与人物引用。"""
+    import copy
+    document = _payload()
+    document['bills'] = [{'bill_id':'test-bill', 'account_id':'agent:1','payee_account_id':'external:scenario',
+                          'amount_fen':100,'due_at':'2026-01-05T09:00:00+08:00'}]
+    document['payrolls'] = [{'payroll_id':'test-pay', 'employer_account_id':'employer:test','agent_id':1,
+                             'amount_fen':100,'due_at':'2026-01-05T10:00:00+08:00'}]
+    for collection,key,value,message in (
+        ('bills','due_at','2026-01-05T09:00:00+09:00','outside the scenario interval or timezone'),
+        ('bills','due_at','2026-12-31T09:00:00+08:00','outside the scenario interval or timezone'),
+        ('bills','payee_account_id','agent:1','invalid payer or payee accounts'),
+        ('payrolls','employer_account_id','employer:ghost','undeclared employer or person'),
+        ('payrolls','agent_id',99,'undeclared employer or person')):
+        invalid = copy.deepcopy(document)
+        invalid[collection][0][key] = value
+        _assert_invalid(invalid,message)
+    document['accounts'].append({'account_id':'agent:1','money_fen':1,'role':'personal:dup'})
+    _assert_invalid(document, 'must not reuse agent account ids')
 
 
 def test_runtime_scenario_rejects_interval_route_and_account_shapes(engine_factory) -> None:
@@ -658,12 +534,6 @@ def test_runtime_scenario_rejects_interval_route_and_account_shapes(engine_facto
             type(scenario).model_validate(staged.model_dump())
 
     revalidate("time interval or timezone is invalid", end_at=scenario.start_at)
-    twin = scenario.routes[0].model_copy(update={"route_id": "route-twin"})
-    revalidate("route lookup keys must be unique",
-               routes=(scenario.routes[0], twin))
-    revalidate("account ids must not be blank", transport_account_id=" ")
-    revalidate("account roles must use distinct account ids",
-               transport_account_id=scenario.employer_account_id)
 
 
 def test_parse_scenario_document_rejects_missing_invalid_and_mismatched(tmp_path) -> None:
@@ -730,32 +600,8 @@ def test_shared_meal_covers_social_accrual_only_for_eat_mode(engine_factory) -> 
     assert settled.agents[1].body.social_need == pytest.approx(0.2 + 0.04)
 
 
-def test_task_deadline_missed_pulses_negative_mood(engine_factory) -> None:
-    """任务到期未交叠加 −0.4 脉冲（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」）。"""
-    engine = engine_factory()
-    task = engine.context.scenario.tasks[0]
-    due = int(task.due_at.timestamp())
-    staged = engine.context.state.model_copy(deep=True)
-    staged.current_time = due
-    staged.pending_events = [item for item in staged.pending_events if item.due_at > due]
-    staged.agents[1] = staged.agents[1].model_copy(
-        update={"visible_task_ids": {task.task_id}, "next_decision_at": due,
-                "last_decision_time": due - 5400}, deep=True)
-    staged.agents[1].body = staged.agents[1].body.model_copy(
-        update={"mood_valence": 0.0, "mood_updated_at": due}, deep=True)
-    settled = rhythm.apply_decision_rhythm(_rhythm_inputs(engine, staged, interval=900))[0]
-    assert settled.agents[1].body.mood_valence == pytest.approx(-0.4)
 
 
-def test_unknown_location_yields_no_opening_or_closing_candidates(engine_factory) -> None:
-    """未知地点不产生营业变化唤醒候选。"""
-    engine = engine_factory()
-    staged = engine.context.state.model_copy(deep=True)
-    staged.agents[1] = staged.agents[1].model_copy(update={"location_id": "nowhere"}, deep=True)
-    inputs = _rhythm_inputs(engine, staged)
-    assert rhythm._current_location(staged.agents[1], inputs) is None
-    assert rhythm._closing_at(staged.agents[1], inputs) is None
-    assert rhythm._just_opened(staged.agents[1], inputs) is False
 
 
 # ---------------------------------------------------------------------------
@@ -773,24 +619,6 @@ def test_inbox_rows_skip_visible_ids_without_scenario_config(engine_factory) -> 
     assert projection._inbox_rows(inputs) == []
 
 
-def test_visible_task_rows_keep_overdue_tasks_until_the_end_of_their_day(engine_factory) -> None:
-    """未付款的逾期任务保留在可见任务行与工作池中，直到截止当日的本地日结束；次日零点起不再列出
-    （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第六章「逾期工作从观察和工具中消失」）。"""
-    engine = engine_factory()
-    task = engine.context.scenario.tasks[0]
-    due = int(task.due_at.timestamp())
-    next_day = int((task.due_at.replace(hour=0, minute=0, second=0) + timedelta(days=1)).timestamp())
-    _stage_agent(engine, visible_task_ids={task.task_id})
-    rows = engine.observations._visible_task_rows(engine.context.state.agents[1])
-    assert [row["task_id"] for row in rows] == [task.task_id]
-    for moment, listed in ((due + 60, [task.task_id]), (next_day - 1, [task.task_id]), (next_day, [])):
-        staged = engine.context.state.model_copy(deep=True)
-        staged.current_time = moment
-        staged.pending_events = [item for item in staged.pending_events if item.due_at > moment]
-        _commit_staged(engine, staged)
-        agent = engine.context.state.agents[1]
-        assert [row["task_id"] for row in engine.observations._visible_task_rows(agent)] == listed
-        assert [entry.object_id for entry in engine.observations._task_pool(agent)] == listed
 
 
 def test_motivation_internal_returns_none_when_no_candidates(engine_factory, monkeypatch) -> None:
@@ -800,16 +628,13 @@ def test_motivation_internal_returns_none_when_no_candidates(engine_factory, mon
     assert engine.observations._motivation_internal(engine.context.state.agents[1]) is None
 
 
-def test_activity_summary_foods_row_requires_products(engine_factory) -> None:
-    """活动品类计数只在场景声明商品时含 foods 行。"""
+def test_activity_summary_categories_come_from_actual_food_menu(engine_factory) -> None:
+    """@brief 可下钻类别计数来自真实菜单食品，无旧综合 foods 名称。"""
     engine = engine_factory()
     summary = engine.observations._activity_summary(engine.context.state.agents[1])
-    assert "foods" in summary
-    scenario = engine.context.scenario.model_copy(update={"products": (), "supplies": ()})
-    engine.context.semantics = replace(engine.context.semantics, scenario=scenario)
-    engine.context.rules.scenario = scenario
-    engine.context.rules.supplies = {}
-    assert "foods" not in engine.observations._activity_summary(engine.context.state.agents[1])
+    assert {'meal','snack','drink'} <= set(summary)
+    assert all(summary[category] > 0 for category in ('meal','snack','drink'))
+    assert 'foods' not in summary
 
 
 def test_recent_meal_counts_use_actual_settled_consumption() -> None:
@@ -939,101 +764,10 @@ def test_same_round_resubmit_is_idempotent_and_parameter_conflict_fails(engine_f
         engine.submit_action(DirectToolCall(ctx, "same-action", "start_activity", changed))
 
 
-async def test_prepare_pending_work_review_rejects_missing_action(engine_factory) -> None:
-    """未知动作标识的评审准备协议拒绝。"""
-    engine = engine_factory()
-    ctx = context(engine, "review-missing")
-    engine.begin_decision_round([ctx])
-    engine.submit_action(DirectToolCall(
-        ctx, "action-review-missing", "start_activity",
-        start_request(targets=["自己"], actions=["interact"], ways=["等待"])))
-    with pytest.raises(ProtocolError, match="does not exist"):
-        await engine.prepare_pending_work_review("ghost-action")
-    # 非工作提交的挂起动作不进入评审（静默返回，不记录评审）。
-    await engine.prepare_pending_work_review("action-review-missing")
-    assert all(item.work_review is None for item in engine.decisions.round.pending_actions)
 
 
-@pytest.mark.parametrize("kind", ["wait", "work"])
-async def test_prepare_pending_work_review_during_independent_wait(engine_factory, kind) -> None:
-    """等待占用位置时仍可执行瞬时工作提交，不打断已有活动。"""
-    engine = engine_factory()
-    if kind == "wait":
-        _stage_submission(engine)
-        engine.abort_decision_round("cover-submit", "busy-agent teardown")
-        advance_until_ready(engine)
-    else:
-        from tests.life.conftest import stage_day_plan
-        _at_task_start(engine)
-        stage_day_plan(engine)
-    if kind == "wait":
-        request = start_request(targets=["自己"], actions=["interact"], ways=["等待"])
-        tool = "start_activity"
-    else:
-        task_id = engine.context.scenario.tasks[0].task_id
-        row = next(item for item in engine.observations._visible_task_rows(engine.context.state.agents[1])
-                   if item["task_id"] == task_id)
-        request = start_request(
-            targets=[f"工作：{row['title']}"], actions=["interact"], ways=["工作"])
-        tool = "start_activity"
-    started = _act(engine, "busy-work-or-wait", tool, request)
-    assert started.status == "in_progress"
-    # 在等待（或工作）仍进行时给一次决策机会：播报只针对进行中活动的锚点，等待结束那一秒它已是待收尾。
-    wake_by_mail(engine, offset=60)
-    advance_until_ready(engine)
-    assert engine.context.state.activities[started.activity_id].status == ActivityStatus.ACTIVE
-    round_id = "busy-submit"
-    ctx = context(engine, round_id)
-    engine.begin_decision_round([ctx])
-    engine.observe(ctx)
-    call = DirectToolCall(ctx, f"action-{round_id}", "submit_work", _submission_action(engine))
-    engine.submit_action(call)
-    await engine.prepare_pending_work_review(call.action_id)
-    pending = next(item for item in engine.decisions.round.pending_actions
-                   if item.action_id == call.action_id)
-    assert (pending.work_review is not None) == (kind == "wait")
-    if kind == "work":
-        assert not [event for event in engine.context.store.read_agent_events("model_request", 1)
-                    if event.action_id == call.action_id]
-    assert active_activities(engine.context.state, 1)
-    engine.abort_decision_round(round_id, "test teardown")
 
 
-async def test_prepare_pending_work_review_while_the_wait_awaits_conclusion(engine_factory) -> None:
-    """同一场景晚到 900 秒：等待在决策机会前已结束、待收尾，这时提交工作不调用验收模型（与 _dispatch 同一判定），
-    结算以 ACTIVITY_CONCLUSION_REQUIRED 拒绝（第七章「活动一结束就要结束它」）。"""
-    engine = engine_factory()
-    _stage_submission(engine)
-    engine.abort_decision_round("cover-submit", "busy-agent teardown")
-    advance_until_ready(engine)
-    started = _act(engine, "wait-before-submit", "start_activity",
-                   start_request(targets=["自己"], actions=["interact"], ways=["等待"]))
-    assert started.status == "in_progress"
-    wake_by_mail(engine, offset=900)
-    for step in range(16):
-        if engine.context.state.activities[started.activity_id].status != ActivityStatus.ACTIVE:
-            break
-        if engine.scheduling_state().ready_agent_ids:
-            _act(engine, f"keep-waiting-{step}", "report_status", report_request(
-                activity_name(engine, started.activity_id), summary="继续等。"))
-        else:
-            advance_next(engine)
-    waited = engine.context.state.activities[started.activity_id]
-    assert waited.status == ActivityStatus.COMPLETED and waited.concluded_at is None
-    assert engine.scheduling_state().ready_agent_ids == (1,)
-    round_id = "submit-while-pending"
-    ctx = context(engine, round_id)
-    engine.begin_decision_round([ctx])
-    engine.observe(ctx)
-    call = DirectToolCall(ctx, f"action-{round_id}", "submit_work", _submission_action(engine))
-    engine.submit_action(call)
-    await engine.prepare_pending_work_review(call.action_id)
-    pending = next(item for item in engine.decisions.round.pending_actions if item.action_id == call.action_id)
-    assert pending.work_review is None and engine.reviews.reviewer.calls == 0
-    result = engine.commit_decision_round(round_id)[0]
-    assert (result.status, result.error_code) == ("rejected", "ACTIVITY_CONCLUSION_REQUIRED")
-    assert not [event for event in engine.context.store.read_agent_events("model_request", 1)
-                if event.data.get("purpose") == "work_review"]
 
 
 def test_commit_decision_round_requires_every_expected_agent(engine_factory) -> None:
@@ -1262,10 +996,10 @@ def test_context_and_call_guards_reject_each_invalid_shape(engine_factory) -> No
     with pytest.raises(ProtocolError, match="does not match its tool"):
         engine.submit_action(DirectToolCall(ctx, "a-3", "start_activity",
                                             PurchaseOrderRequest(
-                                                items=(PurchaseItem(supply_id="food-6923644266066",
-                                                                   quantity=1, price_version="v1",
+                                                items=(PurchaseItem(store_id="noodle-1", food_id="beef-noodles",
+                                                                   quantity=1,
                                                                    recipient_id="agent:1"),),
-                                                fulfillment="delivery", destination_id="home")))
+                                                fulfillment="delivery", destination_id="home", app_id="meituan")))
     engine.submit_action(DirectToolCall(ctx, "a-4", "start_activity", request))
     with pytest.raises(ProtocolError, match="already submitted"):
         engine.submit_action(DirectToolCall(ctx, "a-5", "start_activity", request))
@@ -1274,61 +1008,8 @@ def test_context_and_call_guards_reject_each_invalid_shape(engine_factory) -> No
     engine.commit_decision_round("call-guards")
 
 
-def test_submit_work_guards_review_presence_and_identity(engine_factory) -> None:
-    """未留证与身份不符的提交分别协议拒绝。"""
-    engine = engine_factory()
-    call = _stage_submission(engine)
-    pending = next(item for item in engine.decisions.round.pending_actions
-                   if item.action_id == call.action_id)
-    with pytest.raises(ProtocolError, match="no recorded semantic review"):
-        engine.actions.public_work_review(pending)
-    with pytest.raises(ProtocolError, match="no recorded semantic review"):
-        engine.commit_decision_round("cover-submit")
-    engine.abort_decision_round("cover-submit", "teardown")
-
-    engine = engine_factory()
-    call = _stage_submission(engine)
-    asyncio.get_event_loop_policy()
-    asyncio.run(engine.prepare_pending_work_review(call.action_id))
-    swapped = _submission_action(engine).model_copy(
-        update={"deliverable": MeetingMinutes(
-            summary="A different summary entirely.",
-            decisions=("Different decision.",),
-            action_items=("Different action.",))})
-    engine.decisions.round.pending_actions[0] = engine.decisions.round.pending_actions[0].model_copy(
-        update={"request": swapped.model_dump(mode="json")})
-    with pytest.raises(ProtocolError, match="identity disagrees"):
-        engine.commit_decision_round("cover-submit")
 
 
-def test_rework_rejection_at_limit_keeps_review_feedback(engine_factory) -> None:
-    """达到同刻上限的返工仍是业务结果并公开评审反馈；没有进行中活动时同一秒再决策并进入受限轮。"""
-    engine = engine_factory()
-    _at_task_start(engine)
-    _complete_required_work(engine)
-    limit = engine.context.scenario.max_same_moment_decisions
-    assert not active_activities(engine.context.state, 1)
-    _stage_agent(engine, same_moment_rounds=limit - 1)
-    engine.reviews.reviewer = _AcceptingReviewer(rejected=True)
-    round_id = "rework-limit"
-    ctx = context(engine, round_id)
-    engine.begin_decision_round([ctx])
-    engine.observe(ctx)
-    engine.submit_action(DirectToolCall(ctx, f"action-{round_id}", "submit_work",
-                                        _submission_action(engine)))
-    asyncio.run(engine.prepare_pending_work_review(f"action-{round_id}"))
-    result = engine.commit_decision_round(round_id)[0]
-    assert result.status.value == "rejected"
-    assert result.error_code == "WORK_REQUIRES_REWORK"
-    assert "work_review" in result.data
-    assert result.message == result.data["reason"] == "The submitted work needs revision before acceptance."
-    assert result.data["same_moment_round"] == limit
-    assert result.data["max_same_moment_decisions"] == limit
-    assert result.data["next_decision_at"] == engine.context.state.current_time
-    agent = engine.context.state.agents[1]
-    assert agent.next_decision_at == engine.context.state.current_time
-    assert agent.same_moment_stage == SameMomentStage.START_OR_RESUME
-    assert agent.pending_wake_reasons == ["rejection_feedback", "no_active_activity"]
 
 
 # ---------------------------------------------------------------------------
@@ -1373,61 +1054,31 @@ def test_unknown_activity_controls_reject_when_idle(engine_factory) -> None:
         assert engine.context.state.current_time == start and engine.scheduling_state().ready_agent_ids == (1,)
 
 
-@pytest.mark.parametrize("existing", [False, True])
-def test_purchase_by_unlisted_name_resolves_only_existing_supplies(engine_factory, existing) -> None:
-    """指名购买（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「指名购买」，裁决 #19）：不存在的名称以 SUPPLY_NOT_FOUND 拒绝，
-    世界不变；真实存在但未呈现、没有可见凭据的供给按标签到店购买，按当前报价结算，库存与持有各变一份。"""
-    from tests.life.conftest import stage_day_plan
-    from tests.life.test_commerce import _stage_open
-    from worldmock.life.discovery import supply_row
-
+@pytest.mark.parametrize('existing',[False,True])
+def test_purchase_by_unlisted_name_resolves_only_existing_supplies(engine_factory, existing):
+    """@brief 指名现有菜单购买结算真实食品，不存在的名称保持世界不变。"""
+    from tests.life.test_work_protocol import trip_to
     engine = engine_factory()
+    stage_day_plan(engine)
     if existing:
-        _stage_open(engine)
-        staged = engine.context.state.model_copy(deep=True)
-        for agent in staged.agents.values():
-            agent.body_settled_at = staged.current_time
-        staged.agents[1].location_id = "market"
-        _commit_staged(engine, staged)
-        stage_day_plan(engine)
-    ctx = context(engine, "buy-invisible")
-    engine.begin_decision_round([ctx])
-    engine.observe(ctx)
-    object_name, way = "不存在的供给", "远程下单"
-    if existing:
-        shown = set(engine.observations.pending_visible_supplies[1])
-        discovery = engine.observations._discovery_context(engine.context.state.agents[1])
-        hidden = [row for supply in engine.context.scenario.supplies if supply.location_id == "market"
-                  for row in [supply_row(discovery, supply)]
-                  if row["supply_id"] not in shown and row["purchase_allowed"] and row["pickup_allowed"]
-                  and row["purchase_price_fen"] <= engine.context.state.accounts["agent:1"]]
-        assert shown and hidden
-        supply = next(item for item in engine.context.scenario.supplies
-                      if item.supply_id == hidden[0]["supply_id"])
-        product = next(item for item in engine.context.scenario.products
-                       if item.product_id == supply.product_id)
-        place = next(item for item in engine.context.scenario.locations
-                     if item.location_id == supply.location_id)
-        object_name, way = f"{place.name}出售的{product.name}", "到店"
+        trip_to(engine,'noodle-2','exact-food-arrive')
+    request = start_request(targets=['二味小炒出售的牛肉面' if existing else '不存在的供给'],
+                            actions=['obtain'],ways=['到店' if existing else '远程下单'])
     before = engine.context.state.model_copy(deep=True)
-    request = start_request(targets=[object_name], actions=["obtain"], ways=[way])
-    engine.submit_action(DirectToolCall(ctx, "action-buy-invisible", "start_activity", request))
-    result = engine.commit_decision_round("buy-invisible")[0]
+    result = _act(engine,'buy-exact','start_activity',request)
     if existing:
-        assert (result.status.value, result.error_code) == ("completed", None)
-        [order] = result.data["orders"]
-        assert (order["supply_id"], order["total_price_fen"]) == (supply.supply_id, hidden[0]["purchase_price_fen"])
-        assert engine.context.state.supply_stock[supply.supply_id] == before.supply_stock[supply.supply_id] - 1
-        assert engine.context.state.agents[1].inventory["market"][supply.product_id] == (
-            before.agents[1].inventory.get("market", {}).get(supply.product_id, 0) + 1)
-        assert engine.context.state.accounts["agent:1"] == before.accounts["agent:1"] - hidden[0]["purchase_price_fen"]
-        return
-    assert (result.status.value, result.error_code) == ("rejected", "SUPPLY_NOT_FOUND")
-    assert engine.context.state.accounts == before.accounts
-    assert engine.context.state.supply_stock == before.supply_stock
-    assert engine.context.state.agents[1].inventory == before.agents[1].inventory
-    assert engine.context.state.deliveries == before.deliveries
-    assert engine.context.state.pending_events == before.pending_events
+        assert result.status == 'completed', result.error_code
+        [order] = result.data['orders']
+        assert order['food_id'] == 'beef-noodles' and order['store_id'] == 'noodle-2'
+        assert order['total_price_fen'] == 2800
+        assert engine.context.state.agents[1].inventory['noodle-2']['beef-noodles'] == 1
+        assert engine.context.state.accounts['agent:1'] == before.accounts['agent:1']-2800
+    else:
+        assert result.status == 'rejected' and result.error_code == 'SUPPLY_NOT_FOUND'
+        assert engine.context.state.accounts == before.accounts
+        assert engine.context.state.agents[1].inventory == before.agents[1].inventory
+        assert engine.context.state.deliveries == before.deliveries
+        assert engine.context.state.pending_events == before.pending_events
 
 
 def _goals_with_wake_events(engine, offsets: tuple[int, ...]) -> PlanDayRequest:
@@ -1484,7 +1135,10 @@ def test_send_message_rejects_unknown_recipient_and_delivers_to_none_policy_cont
     assert rejected.status.value == "rejected"
     assert rejected.error_code == "RECIPIENT_NOT_FOUND"
 
-    multi = engine_factory("multi-person.json")
+    def contact_fixture(document):
+        document['agents'][0]['contacts'] = [{'contact_id':'contact-chenxi-colleague','salutation':'同事',
+            'relation':'同事','closeness':16,'channels':['phone'],'reply_policy':'none'}]
+    multi = engine_factory('multi-person.json', mutate=contact_fixture)
     contact = next(item for item in multi.context.scenario.agents[0].contacts if item.contact_id == "contact-chenxi-colleague")
     assert contact.reply_policy == "none"
     observed = multi.observe(context(multi, "colleague-preview"))
@@ -1527,13 +1181,11 @@ def test_ready_is_false_after_run_end_and_terminal_action_missing(engine_factory
 def test_dedupe_and_material_and_visibility_helpers_guard_shapes(engine_factory) -> None:
     """字幕去重/材料登记/浏览可见对缺失与畸形数据失败关闭。"""
     engine = engine_factory()
-    activity = _activity_state(kind=ActivityKind.WATCH)
+    activity = _activity_state(kind=ActivityKind.USE_APP)
     dedupe_revealed_cues(activity)  # 无 revealed 数据：直接返回
     activity.data["revealed"] = {"position_before_seconds": "not-a-number", "cues": []}
     dedupe_revealed_cues(activity)  # 形畸形：直接返回
     agent = engine.context.state.agents[1]
-    unchanged = record_material_reveal(agent, "", {"start_char": 0, "end_char": 10}, 0)
-    assert unchanged is agent
     phrase = _activity_progress_phrase(_activity_state(elapsed_seconds=60,
                                                        planned_duration_seconds=120))
     assert phrase == "还剩约1分钟"
@@ -1550,7 +1202,7 @@ def test_change_on_social_activity_uses_social_domain(engine_factory) -> None:
     engine = engine_factory("multi-person.json")
     stage_day_plan(engine, 1)
     stage_day_plan(engine, 2)
-    requests = {1: ("start_activity", start_request(targets=["人物：李凡"], actions=["interact"],
+    requests = {1: ("start_activity", start_request(targets=[f"人物：{engine.context.state.agents[2].name}"], actions=["interact"],
                                                            ways=["交谈"])),
         2: ("start_activity", start_request(targets=["自己"], actions=["interact"], ways=["等待"]))}
     _, results = submit_round(engine, requests, "chat-start")

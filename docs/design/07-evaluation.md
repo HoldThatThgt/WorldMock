@@ -1,11 +1,17 @@
 <a name="evaluation-worldmock-产品设计说明书-行为评估"></a>
 # WorldMock 产品设计说明书 — 行为评估
 
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 7 的记录、导出、交付与评估合同。
+
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的按实际工作秒数计算的报告项。
+
+> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「门店选择与供给假设的比较边界」（阶段 3）。
+
 > **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 EV1），已实现；按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D7 作业），已随代码落地到阶段 1–4<br>
 > **工具交互修订**：按[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结本次设计；本次修订已实现，既有验收不覆盖新行为。
 > **让「等待」成为例外修订**：按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「2.1 协议门禁（Gates）」「2.2 报告项（Reports）」（阶段 1）。
-> **日期**：2026-10-06
-> **版本**：v1.16
+> **日期**：2026-10-07
+> **版本**：v1.17
 > **目标读者**：算法工程师、开发工程师
 
 <a name="design-07-evaluation-共享规则与可重建环境修订"></a>
@@ -100,13 +106,23 @@ flowchart TB
 
 | 门禁键 | 判定对象 | 比较 | 阈值 | 失败含义 |
 | --- | --- | --- | --- | --- |
-| `observation_repetition` | 同一 user 文本（人物决策请求中的每条 user 消息）出现于不同续接链请求中的最大数目：续接链按（人物，模拟秒）划分，链内复用链首 user（含同一决策内重发）只计一次，跨秒重复仍计为重复；排除带 `purpose` 的系统请求，即 `purpose="work_review"` 与 `purpose="plan_day"`；带工具的请求只在工具中有 `start_activity` 时计入，只带 `submit_reflection` 的就寝反思及其校验重试不计（附回消息不带时刻与人物内容，不是观察），不带工具的记忆巩固照计 | `==` | 1 | 观察被重复序列化 |
+| `observation_repetition` | 同一 user 文本（人物决策请求中的每条 user 消息）出现于不同续接链请求中的最大数目：续接链按（人物，模拟秒）划分，链内复用链首 user（含同一决策内重发）只计一次，跨秒重复仍计为重复；排除带 `purpose="plan_day"` 的系统请求；带工具的请求只在工具中有 `start_activity` 时计入，只带 `submit_reflection` 的就寝反思及其校验重试不计（附回消息不带时刻与人物内容，不是观察），不带工具的记忆巩固照计 | `==` | 1 | 观察被重复序列化 |
 | `silent_boundary_ratio` | 每人唯一共同身体结算的清醒边界中 `decision_offered=false` 的占比；同刻轮次不写共同身体结算，不进分母 | `>=` | 0.5 | 静默续行边界占比过低：提供决策的边界过密 |
 | `memory_repetition_ratio` | 同类型记忆两两 bigram Jaccard ≥ 0.6 的对数占比 | `<=` | 0.2 | 记忆内容重复 |
 | `memory_md_identity_residue` | 调用方传入的各人物工作区 `MEMORY.md` 文本命中示例身份的人物数（`MEMORY.md` 不再进人物提示，门禁仍检查它） | `==` | 0 | 示例身份残留 |
 
 **背书**：门禁阈值来自 `docs/VERIFICATION.md#verification-worldmock-验收标准` §协议门禁，源码为唯一依据。
 
+阶段 7 的认证导出还必须通过质量报告结构 5 的结构与重算检查：
+
+| 质量键 | 必须由真实事实重算的内容 |
+| --- | --- |
+| `content_contact` | `by_app`、`by_kind`、`repeat_watch`；重看只在本轮开始前已完成至少一轮时计数 |
+| `app_pushes` | `pushed`、`opened_in_session`、`consumed_pinned`、`released_by_completion`、`expired_with_session`、`outside_window_violations`；按唯一 `push_id` 和真实 session 转换计数 |
+| `work_topics` | `topics`、`completed`、`worked_seconds_by_topic`、`reports`；工时取每个人物、主题的累计终值，不重复求和各进度快照 |
+
+`model_usage.by_purpose` 不含 `work_review`，`conversion_efficiency` 不含 `work`。这些键属于认证质量报告，
+不能用缺失值、模型文字或当前状态猜测；执行结果以阶段 7 的实际门禁回执登记。
 <a name="evaluation-报告项reports"></a>
 ### 2.2 报告项（Reports）
 
@@ -116,7 +132,7 @@ flowchart TB
 
 | 报告项键 | 说明 | 目标参照 |
 | --- | --- | --- |
-| `decision_prompt_token_median` | 决策 prompt token 中位数：每个 `phase=request`、不带 `purpose` 的人物决策 `model_request` 计一个值（行动请求含同秒续接与截断重试的请求；不带工具的记忆巩固请求一并计入；带工具的请求只在工具中有 `start_activity` 时计入，就寝反思及其校验重试不计），排除 `purpose="work_review"` 与 `purpose="plan_day"` 的请求 | 15000（对照值） |
+| `decision_prompt_token_median` | 决策 prompt token 中位数：每个 `phase=request`、不带 `purpose` 的人物决策 `model_request` 计一个值；行动请求含同秒续接与截断重试，不带工具的记忆巩固计入，只带 `submit_reflection` 的就寝反思及校验重试不计；排除 `purpose="plan_day"` | 15000（对照值） |
 | `effective_autonomous_decision_rate` | 最终动作非 continue/等待的占比；continue 与等待算被动，等待按结果活动 `kind=wait` 判定；只做结束、暂停或修订的控制轮单列 | 无固定阈值 |
 | `wake_reason_distribution` | 各唤醒原因计数，分两份：边界取共同身体结算，决策轮取 `decision_started` | 覆盖所有唤醒类型 |
 | `wait_minutes` | 本人真实等待活动的实际区间累计分钟 | 只报告，不设占比上限 |
@@ -131,11 +147,11 @@ flowchart TB
 | `habitual_consistency` | 同人物地点与本地小时的活动家族一致率 | 只报告情境重复性，不识别心理习惯 |
 | `deliberate_goals` | 曾登记的非例行意图目标中的家族实际推进率，保留丢弃条目；推进口径与模拟引擎相同（同家族、登记后的正时长结算，带大致时刻的目标还须在其前后 90 分钟内进行）；例行意图（睡眠、晨间例程、通勤、用餐）的目标照常判定，另计 `routine_goals`，不入推进比例；登记来源为零点计划的 `day_plan_generated` 与修订结果 | 只报告，外部参照未接入时为 null |
 | `external_constraints` | 去重后的外部约束受阻与动作接受率；引导性拒绝码 `ACTIVITY_PRECONDITION_UNMET`、`ACTIVITY_CONCLUSION_REQUIRED`、`SESSION_LIMIT_EXCEEDED` 计入 `other_rejections`；外部约束闭集不含 `PICKUP_LOCATION_REQUIRED` 与工作地点、技能不符 | 受阻次数为零是运行质量门禁，正确拒绝不等于引擎缺陷 |
-| `workload` | 只统计有工作安排的人物与当班日：不当班的日子不产生班次，不计入任何一项；班次按人物的观察窗（共同身体结算区间的最早起点到最晚终点）截取。`agents` 按人物编号给十个量在各当班日上的合计：`shift_seconds`（班次秒数）、`at_workplace_seconds`（班次内在工作地点、不在路上的秒数）、`work_activity_seconds`（班次内进行工作活动的秒数）、`effective_work_seconds`（工作进度区间落在班次内的时长乘该区间的工作效率，沿用工作结算的有效工时口径，六位小数）、`idle_at_workplace_seconds`（在工作地点而没有工作活动）、`declared_exception_seconds`（声明例外，等于班次内声明的休息时段 `break_seconds`（人在哪里都算）与任务外出 `task_outing_seconds` 之和）、`absence_seconds`（班次内不在工作地点且不属声明例外）、`early_leave_seconds`（班次内最后一次从工作地点出发，此后班次结束前没有回到工作地点，且出发不在休息时段内、目的地不是本人已开放且未结清的任务要求地点时，为出发到班次结束的秒数，否则为 0）。任务外出只算休息时段之外、本人已开放且未结清的工作任务的要求地点（不是工作地点，含预约任务）：去那里的路上、在那里的时间，以及从那里直接回工作地点的一程；普通任务从开放时刻（最早的本人通知）算起，预约任务从约定开始那一天的当地零点算起（赴约前去往约定地点的路上与提前到达的等候也算，不等约定开始），都到首次付款结清为止；当日不当班不是例外，没有班次。在休息时段内离开工作地点不算早退，休息结束后仍不在工作地点的时间计缺勤。所在地点只由出行事件重建，没有工作安排的人物不进 `agents`；从事件与场景工作安排重算，班内离岗不另写事件 | 只报告，不设阈值，不与下表「就业工作 460 分钟」比较 |
+| `workload` | 只统计有工作安排的人物与当班日；给出 `shift_seconds`、`at_workplace_seconds`、`work_activity_seconds`、`idle_at_workplace_seconds`、`break_seconds`、`declared_exception_seconds`、`absence_seconds`、`early_leave_seconds`。工作活动秒数取班次内非失败工作活动的实际区间，没有有效工时、效率折扣或任务外出；声明例外只含休息时段 | 只报告，不设阈值，不与下表「就业工作 460 分钟」比较 |
 | `routine_deviation` | `agents` 按人物编号给 `days`，观察窗覆盖的每个本地日一行（含不当班日）：`left_workplace_at`（当天最后一次从工作地点出发的本地时刻）与它对场景班次结束的 `leave_vs_shift_end_minutes`、对下班窗口的 `leave_vs_window_minutes`；`arrived_home_at`（其后当天首次到家，当天没有离开工作地点时取当天最后一次到家）与它对到家窗口的 `arrive_home_vs_window_minutes`（偏离分钟，早于窗口为负、晚于为正、窗口内为零；参照或时刻为 null 时该项为 null）；`asleep_at_shift_start`、`asleep_at_shift_end` 单独标注班次两端人物是否在睡（不当班日、没有工作安排或该时刻不在观察窗内时为 null）；`evidence_event_ids` 给离开与到家的证据事件身份。参照是场景班次与覆盖后的作息窗口（结构化卡片的下班、到家锚点），不是当日计划，不读 `day_plan_generated` 或计划字段；容差 `tolerance_seconds` 等于播报间隔，是没有班次边界唤醒的运行里清醒且有进行中活动的人物在班次结束后首个决策机会的滞后上界；同一份评估代码读修订前后两臂的导出，这个定义对两臂都成立；它只写进报告，不作用于偏离值。没有工作安排的人物其离开工作地点一项为 null | 只报告，不设阈值 |
 
 `workload` 与 `routine_deviation` 需要事件之外的输入，经 `behavior_metrics_report` 唯一新增的可选打包参数 `workday`（`WorkdayInputs`：
-各人物的工作安排、本人任务的预约与要求地点、住处、覆盖后的下班与到家窗口，以及播报间隔；由 `workload_metrics.workday_inputs` 从场景文档与
+各人物的工作安排、住处、覆盖后的下班与到家窗口，以及播报间隔；由 `workload_metrics.workday_inputs` 从场景文档与
 结构化卡片打包，不解析提示文本）传入，所以只在行为评估的 `reports`，不进 `quality.json`，运行清单不升版，报告自带的结构标识
 `behavior-metrics-1` 不变。没有打包输入时两项为 null 并写一条说明，事件里出现而输入里没有的人物两项都为 null 并写说明，说明沿用本模块的中文惯例；
 产出入口是 `scripts/inspect_run.py workday --scenario <场景文件>`（见[记录引擎设计「调试工具」](05-recording-engine.md#recording-engine-调试工具)），
@@ -154,7 +170,7 @@ flowchart TB
 `deliberate_goals` 的名称、分母与分组键不变，`memory_repetition_ratio` 门禁的口径与阈值不变。只报告，不参与放行。
 
 工具交互特性的行为报告由已提交请求、纠错、拒绝与结算事实生成：记录世界查询与任务回看的次数、
-名称与参数拒绝跨不同模拟时刻的重复次数，以及普通工作收件至开工的经过时间。
+名称与参数拒绝跨不同模拟时刻的重复次数，以及工作主题的累计、播报与完成情况。
 只读查询不作为世界请求、活动或同刻决策轮统计，但含查询的模型回复本身计入模型请求、token 与十六回合预算。
 查询结果只存在于模型与 tool 交换证据，不生成进度层 `events`，不能按动作结算或完成计算。
 查询成本另由 `scripts/inspect_run.py queries` 按运行只读报告（口径见[记录引擎设计「调试工具」](05-recording-engine.md#recording-engine-调试工具)），打印
@@ -164,7 +180,7 @@ flowchart TB
 （取 `continuation` 报告，本子命令不另设键），降低返回量不能以购买失败为代价。
 错误接口、任务、供给价格、料理、查询、操作备忘与紧凑呈现按独立端到端阶段留下行为与变异收据，
 见[工具交互特性门禁](../VERIFICATION.md#verification-工具交互特性门禁)；不同阶段身份分别报告，不能混成同一源码的已实现评估结论。
-普通工作因地点、技能或真实截止被拒，与无理由延迟开放分别报告；预约活动的通知至约定开始时间不算错误等待。
+工作主题因不在工作地点、未分配或剩余不足一分钟被拒分别报告；主题没有技能、截止、预约或通知等待。
 报价只按构建后冻结的实际供给报告，不能把同商品不同门店重复计成商品多样性，也不能把查询命中计成已获得对象。
 上述行为指标只报告，不追加没有依据的运行质量阈值；请求、错误位置与合法值、任务时序及紧凑呈现等价性
 以工具交互规格的行为测试与变异测试确定性验收。
@@ -265,72 +281,67 @@ $$
 ```python
 @dataclass(frozen=True)
 class PublicEvidence:
-    """公开结构证据，剥离原文和私有身份"""
     occurred_at: datetime
-    category: str  # 活动类别（闭集）
-    interaction: str  # 交互类型（闭集）
-    object_type: str  # 对象类型（闭集）
-    state: str | None  # 状态（闭集或 None）
-    object_key: str | None  # 匿名对象引用
-    attributes: Mapping[str, str]  # 额外闭集属性
-    source_event_ids: tuple[str, ...]  # 原始事件指针
-    session_key: str | None  # 会话标识（用于折叠重复）
+    category: str
+    interaction: str
+    object_type: str
+    state: str | None
+    object_key: str | None
+    attributes: Mapping[str, str]
+    source_event_ids: tuple[str, ...]
 ```
 
-**闭集公开值**：
-
-- `interaction`: order, travel, check_in, view, play, consume, notify, arrive, ...
-- `object_type`: order, route, workplace, content, game, product, task, message, ...
-- `state`: requested, started, completed, received, paid, delivered, cancelled, failed, ...
+公开证据只取认证源事件能证明的闭集值。当前 WorldMock 的 app 活动使用 `interaction="use_app"`；
+内容完成和推送状态来自 `app-usage.jsonl` 与对应来源事件，不使用 `view`、`play` 或游戏终局。
+出行证据的 `object_type="route"`，`object_key` 取活动的 `trip_id`，路径、方式与到达状态必须由真实活动和
+结算事件证明。工作证据按 `topic_id` 与 `work_topic_completed` 表示主题累计及完成，不构造任务评审或截止事实。
+无法映射的类别使用 `unknown`，缺失字段保留为缺失，不按名称或相邻时刻补值。
 
 <a name="evaluation-活动activitysession"></a>
 #### 活动（ActivitySession）
 
-代码名 `ActivitySession` 沿用，与地点会话无关。
+代码名 `ActivitySession` 沿用，与地点会话无关。WorldMock 适配器只接受认证导出的当前活动行，
+LabelKit 适配器只接受其真实上游会话格式；两条来源分支不是旧 WorldMock 格式的兼容读取。
 
 ```python
 @dataclass(frozen=True)
 class ActivitySession:
-    """一项活动，可能跨多个时间段"""
     activity_id: str
+    person_id: str
+    category: str
     started_at: datetime
     ended_at: datetime
-    category: str  # 活动类别（十类闭集）
-    status: str  # 终态：completed, interrupted, ongoing
-    segments: tuple[tuple[datetime, datetime], ...] | None  # 分段区间
+    elapsed_seconds: float
+    status: str
+    channels: tuple[str, ...]
+    application_category: str | None
+    duration_kind: str
+    official_domains: tuple[str, ...]
+    caused_by: tuple[str, ...]
+    source_pointer: str
+    source_channels: tuple[str, ...]
 ```
 
-**十类活动家族**：
-`sleep`, `morning_routine`, `commute`, `work`, `meal`, `rest`, `entertainment`, `social`, `chore`, `exercise`
+`elapsed_seconds` 逐字取冻结活动行并与认证事件核对，不用 `ended_at - started_at` 把暂停空档算进活动。
+占用格和盲评区间由规范 `EvidenceEvent` 中 `activity_progress.data.interval_start`、`interval_end` 的实际推进区间
+构造；相同 `activity_id` 的多段推进保持同一活动身份。`ActivitySession` 不保存或重建 `segments` 字段。
 
 <a name="evaluation-适配器职责"></a>
 ### 3.2 适配器职责
 
-适配器负责将来源数据（Legacy 或 WorldMock）转换为共同模型：
+适配器把两个真实上游格式转换为共同模型，来源分支显式分开：
 
-**Legacy 适配器**（`labelkit_public_evidence`）：
-- 读取 `actionInfo`（声明）和 `stream` 事件（结构事实）
-- 使用 `owner_sequence_id` 建立事件到序列的连接
-- 投影 `appUsageEvent`、`screenMemoryEvent`、`notificationEvent` 等
-- **不推断业务终态**：`actionInfo` 只证明声明，不证明完成
+- LabelKit 适配器读取 `actionInfo` 与 `stream`，用 `owner_sequence_id` 建立序列关系；声明只证明声明，
+  不能证明订单、到达、内容完成或其他业务终态。
+- WorldMock 适配器只读取导出清单 3 的 `events`、`activities`、`purchases` 与 `app_usage`，并核对来源事件指针。
+  `start_activity.items[]` 逐项绑定结果中的当前活动快照；`report_status`、`pause_activity` 与
+  `conclude_activity` 按 `items[].activity_name` 绑定当前活动身份。
+- `use_app` 由真实 app 活动与内容进度投影；推送的交付、打开、内容消费和完成释放分别取五种 app 使用事实。
+  出行对象键只取 `trip_id`，订单、付款和履约保持三种独立状态，工作累计取真实主题进度与完成事件。
+- `recall_task_summary` 与 `query_world` 是查询证据，不投影成活动或世界状态变化。
 
-**WorldMock 适配器**（`worldmock_public_evidence`）：
-- 读取 `action_requested`、`action_result`、`environment_event`
-- 使用 `action_id` 回链请求与结果
-- `start_activity.items[]` 的每项含可读 `target`、`way`、`from`、`to`；请求不再含 `actions[]` 或旧平行数组。
-  内部动作从冻结绑定和结果事实解析，不能仅从方式的文字猜测；细分交互取结果中
-  活动快照的 `kind`；同一请求启动两项活动时，按结果中对应顺序的 `data.activities[]` 快照投影两项证据，
-  不把另一项动作的结果或付款记到本项
-- `report_status`、`pause_activity`、`conclude_activity` 按请求的 `items[].activity_name` 逐活动投影，
-  活动身份取结果逐项回报的 `activity_ids`；从真实活动快照读取对象身份、状态和交通方式；结束状态取活动的实际终态（完成、失败或已取消）
-- 区分订单、付款、履约三个独立状态
-- `recall_task_summary` 与 `query_world` 只作为查询证据，不投影活动或世界请求；查询失败按英文 `items[].path`、
-  `allowed_values` 和 `expected` 留证，查询结果不得代替真实受理或完成。
-
-**不变量**：
-- 一个原始事件可产生多条共同证据：双活动分别成条，实际付款另成条；每条保留来源事件指针
-- 无法映射的类别使用 `unknown`，不猜测
-- 一方不支持的字段标为 `null`，不填造
+一个原始事件可以产生多条共同证据，但每条都保留来源事件指针。无法映射的类别写 `unknown`，一方不支持的
+字段保持缺失；适配器拒绝已退役的 WorldMock 请求形状和游戏、目录浏览、任务评审字段，不设置兼容读取。
 
 <a name="evaluation-两个数据集对比"></a>
 ### 3.3 两个数据集对比
@@ -705,15 +716,9 @@ $$
 <a name="evaluation-门店选择与供给假设的比较边界"></a>
 ### 门店选择与供给假设的比较边界
 
-地图集合、供给假设、营业声明、路线方式来源和运行身份不同，须作为不同实验条件记录。
-品类契约、购买配对系数和计价口径也属于比较条件；原始报价与实际付款分别统计，
-单份比较金额不能代替按真实数量计算的订单行金额。各特性旧目录身份和验收数字不能拼接成新组合的通过证据。
-商品多样性按 `product_id`，门店供给选择按 `supply_id`，不能把同一商品的两家门店当作两种商品。
-近店较贵、远店较便宜的验收检查人物实际获得比较事实与选择记录，不预设必须选择哪家。
-到达后闭店或售罄产生的旅行与失败都是真实模拟事实，不能从时间和费用统计删除。
-张江真实地点加显式供给假设，只支持该假设场景下的行为结论，不能宣称复现当地真实零售需求。
-二百二十份按方式命名的路线材料不等于步行/驾车均通过来源核验；最终报告引用实际准入和修复证据。
-
+环境身份、发布图、食品菜单、app 绑定与规则版本不同，必须记录为不同实验条件。同类型菜单完全相同，食品全店同价；比较条件是距离、取得等待和是否需要固定每单 500 分配送费。
+食品多样性按 `food_id`，店铺选择按 `(store_id, food_id)`；实际订单金额按真实份数计算，单份价格不能替代账本总额。付款、到达、食品持有和进食是分别核验的事实，不合并成一次成功。
+真实地点与食品名称不证明真实价格或路网，价格与边长是明示合成输入。报告人物实际看到的比较信息、选择、付款和取得，不预设近店或外卖必胜，也不继承旧目录的验收数字。
 
 <a name="evaluation-外部参照限制"></a>
 ### 7.3 外部参照限制
@@ -895,3 +900,6 @@ flowchart LR
 | 共享门禁独立复核 | 2026-10-05 | 同次运行与覆盖摘要绑定、节点多重集和三阶段完成条件，既有覆盖阈值不变 |
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1 同步：「2.1 协议门禁」`silent_boundary_ratio` 的失败含义更正为静默续行边界占比过低、提供决策的边界过密，口径与阈值不变；「2.2 报告项」`routine_deviation` 的容差定义改为等于播报间隔、是没有班次边界唤醒的运行里清醒且有进行中活动的人物在班次结束后首个决策机会的滞后上界，同一份评估代码读修订前后两臂的导出时对两臂都成立，只写进报告、不作用于偏离值，键与取值不变；版本表去掉隔开末三行的空行；文件头增该规格修订行，版本改为 v1.16 |
 | 环境归属与等待行为整合 | 2026-10-06 | 保留已实施的班次唤醒、系统层与零点计划文本；现行场景结构 6 与显式数据仓输入，完整日核验实际工件，历史两份证明不改；跨平台方案仍未实施 |
+| `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
+| `2026-10-06-rrs-work` | 2026-10-07 | 同步按实际工作秒数计算的报告项，版本号不变 |
+| `2026-10-06-rrs-record` | 2026-10-07 | 阶段 7：当前 app、出行和工作主题证据，冻结活动行与真实推进区间；版本保持 v1.17 |

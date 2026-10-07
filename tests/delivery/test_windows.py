@@ -12,11 +12,18 @@ from worldmock.delivery.windows import (
     prepare_windows,
 )
 from tests.delivery.prompt_fixtures import layered_user, six_layers
+from tests.life.purchase_worlds import at_time
+from tests.life.test_app_push import push_event, push_world
 from worldmock.errors import IntegrityError
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
 from worldmock.life.models import StartActivityRequest
+from worldmock.life.world_setup import load_runtime_scenario
+from worldmock.life.run_identity import environment_identity
+from tests.data_paths import ENVIRONMENT_ROOT
+from worldmock.exchange.types import CONTENT_KIND_LABELS
+from worldmock.scheduling.effects import process_scheduled_events
 
 
 def event(identity, sequence, kind, data, visibility='agent'):
@@ -42,6 +49,34 @@ def decision_prompt(requested, rows):
     prompt['decision_id'] = requested['decision_id']
     prompt['agent_id'] = requested['agent_id']
     return prompt
+
+
+def test_actual_committed_app_push_has_only_four_public_fields_and_false_push_stays_private(tmp_path):
+    """真实预排效果与持久事件形成公开推送；候选耗尽的系统结算不变成人物事实。"""
+    semantics, state = push_world()
+    store = FootprintStore.create(tmp_path / 'push-run', {'run_id': state.run_id, 'agent_ids': [1]},
+                                  state.model_dump(mode='json'))
+    try:
+        rows = []
+        for hour in (8, 9, 10):
+            state = at_time(state, state.current_time + (3600 if rows else 0))
+            state.pending_events = [push_event(state, hour, hour)]
+            state, drafts, _ = process_scheduled_events(state, state.current_time, semantics)
+            state.version += 1
+            [committed] = store.commit(state.model_dump(mode='json'), drafts)
+            rows.append(committed.model_dump(mode='json'))
+        assert [row['visibility'] for row in rows] == ['agent', 'agent', 'system']
+        for row in rows[:2]:
+            assert _public_event_data(row) == {
+                'kind': 'app_push', 'app': row['data']['app'],
+                'kind_label': CONTENT_KIND_LABELS[row['data']['content_kind']],
+                'summary': row['data']['summary'],
+            }
+            assert row['data']['content_kind'] in {'article', 'image_text', 'long_video', 'short_video', 'live'}
+        assert rows[2]['data']['pushed'] is False and _public_event_data(rows[2]) == {}
+        assert not any(key in _public_event_data(rows[0]) for key in ('app_id', 'content_id', 'push_id', 'session_id'))
+    finally:
+        store.close()
 
 
 def test_action_history_never_sees_future_answer_and_intent_cutoff_is_explicit(tmp_path):
@@ -91,10 +126,10 @@ def test_latest_action_prompt_must_match_tool_instead_of_using_older_request(tmp
 
 def test_visible_prior_result_is_hydrated_as_direct_evidence_without_moving_cutoff(tmp_path):
     """观察 progress_event_ids 引用的先前结果并入输入；同一记录的动作请求来源不展开，也不移动知识截止。"""
-    prior_request = event('prior-request', 0, 'action_requested', {'tool_name': 'submit_work'})
+    prior_request = event('prior-request', 0, 'action_requested', {'tool_name': 'start_activity'})
     prior_request.update(action_id='prior-action', decision_id='prior-decision')
     prior = event('prior-result', 1, 'action_result',
-                  {'status': 'rejected', 'error_code': 'WORK_TASK_NOT_FOUND', 'message': 'Missing task'})
+                  {'status': 'rejected', 'error_code': 'WORK_TOPIC_NOT_FOUND', 'message': 'Missing topic'})
     prior.update(action_id='prior-action', decision_id='prior-decision')
     observed = event('visible', 2, 'observation', {'progress_event_ids': ['prior-request', 'prior-result']})
     requested = event('target', 3, 'action_requested', {
@@ -179,14 +214,16 @@ def test_authenticated_export_accepts_distinct_agent_groups_and_system_facts(tmp
 
 def _completed_multi_agent_export(tmp_path, collision, include_system=False):
     """创建可通过正式导出认证的两人物动作证据。"""
-    manifest = {'run_id': 'run', 'source_group_id': 'run', 'agent_ids': [1, 2],
+    manifest = {'schema_version': 3, 'environment_identity': environment_identity(
+                    load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0]),
+                'run_id': 'run', 'source_group_id': 'run', 'agent_ids': [1, 2],
                 'model_identity': {'name': 'fixture'},
                 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}}
-    state = {'version': 0, 'current_time': 100}
+    state = {'schema_version': 10, 'version': 0, 'current_time': 100}
     store = FootprintStore.create(tmp_path / 'run', manifest, state)
     drafts = _multi_agent_drafts(collision, include_system)
     store.commit(state, drafts)
-    store.commit({'version': 1, 'current_time': 200},
+    store.commit({'schema_version': 10, 'version': 1, 'current_time': 200},
                  [EventDraft(event_type='run_ended', occurred_at=200, visibility='system')])
     snapshot = store.assets.put_json({'saved': True}, {'kind': 'fixture'})
     checkpoint = store.checkpoint(store.state, {'agent:1': snapshot, 'agent:2': snapshot, 'life': snapshot})

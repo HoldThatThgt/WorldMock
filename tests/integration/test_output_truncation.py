@@ -27,6 +27,7 @@ from custom.agents.life_feedback import FEEDBACK_INSTRUCTION  # noqa: E402
 from custom.agents.life_truncation import TRUNCATION_DETAIL, TRUNCATION_CONTENT  # noqa: E402
 from tests.integration.test_life_agent_protocol import (_Environment, _GroundedCorrectionDispatcher,  # noqa: E402
                                                         _ModelResponse, _context, _wire_agent)
+from tests.integration.life_host_fixtures import TruncatedResponse  # noqa: E402
 from tests.integration.test_same_second_continuation import (_PLAN, _decide, _environment,  # noqa: E402
                                                              _plan_reply, _reply, _single, _wait_reply)
 from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
@@ -47,25 +48,6 @@ _TRUNCATION_FEEDBACK = json.loads(TRUNCATION_CONTENT)
 def _fixed_context_window(monkeypatch) -> None:
     """测试使用固定供应商窗口，只验证请求与纠错合同。"""
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_048_576)
-
-
-class _Truncated:
-    """思考用尽输出上限的回复（形状取自 4a5b0e6 运行记录）：finish_reason=length，正文为空，没有工具调用，思考写满。"""
-
-    def __init__(self, reasoning: str, tokens: int = 8000) -> None:
-        self._reasoning, self._tokens = reasoning, tokens
-        message = SimpleNamespace(content="", tool_calls=None, reasoning_content=reasoning)
-        self.choices = [SimpleNamespace(finish_reason="length", index=0, message=message)]
-
-    def model_dump(self, *, mode: str) -> dict:
-        """提供商形状的回复：usage 带输出 token 与其中的思考 token。"""
-        assert mode == "json"
-        message = {"role": "assistant", "content": "", "tool_calls": None, "reasoning_content": self._reasoning}
-        return {"model": "deepseek-flash", "choices": [{"finish_reason": "length", "index": 0, "message": message}],
-                "usage": {"prompt_tokens": 12000, "completion_tokens": self._tokens,
-                          "total_tokens": 12000 + self._tokens, "prompt_cache_hit_tokens": 2000,
-                          "prompt_cache_miss_tokens": 10000,
-                          "completion_tokens_details": {"reasoning_tokens": self._tokens}}}
 
 
 class _TextOnly:
@@ -155,7 +137,7 @@ async def test_a_truncated_turn_is_dropped_and_retried_once_without_thinking(_en
     stage_day_plan(engine)
     environment = _environment(engine)
     _, requests, _ = await _single(environment, "spiral", [
-        _Truncated(_SPIRALS[0]), _reply("call-wait", "start_activity", _WAIT, None, "先歇一会儿。")])
+        TruncatedResponse(_SPIRALS[0]), _reply("call-wait", "start_activity", _WAIT, None, "先歇一会儿。")])
     first, retry = requests
     assert [_is_retry(item) for item in requests] == [False, True]
     assert _tools(first) == set(REQUEST_MODELS) | {"query_world"} | _MEMORY_TOOLS and _tools(retry) == set(REQUEST_MODELS) - {"recall_task_summary"}
@@ -203,7 +185,7 @@ async def test_identical_corrections_replace_each_other_across_consecutive_trunc
     截断纠错至多一条；重试没有工具调用的那一回合同样丢弃，只留它的纠错；两次截断的思考都不进入任何后续请求。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    responses = [_Truncated(_SPIRALS[0]), _TextOnly(), _Truncated(_SPIRALS[1]),
+    responses = [TruncatedResponse(_SPIRALS[0]), _TextOnly(), TruncatedResponse(_SPIRALS[1]),
                  _reply("call-wait", "start_activity", _WAIT, None)]
     _, requests, _ = await _single(_environment(engine), "twice", responses)
     assert [_is_retry(item) for item in requests] == [False, True, False, True]
@@ -224,7 +206,7 @@ async def test_a_retry_that_is_truncated_again_is_not_retried_again(_engine_fact
     tool_choice=auto、记忆查询照常开放），不再重试。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    responses = [_Truncated(_SPIRALS[0]), _Truncated(_SPIRALS[1]), *_wait_reply()]
+    responses = [TruncatedResponse(_SPIRALS[0]), TruncatedResponse(_SPIRALS[1]), *_wait_reply()]
     _, requests, _ = await _single(_environment(engine), "again", responses)
     assert [_is_retry(item) for item in requests] == [False, True, False]
     assert [_corrections(item) for item in requests] == [[], ["OUTPUT_TRUNCATED"], ["OUTPUT_TRUNCATED"]]
@@ -240,7 +222,7 @@ async def test_a_retry_still_without_a_tool_call_follows_the_turn_budget(_engine
     stage_day_plan(engine)
     ctx = context(engine, "exhausted")
     engine.begin_decision_round([ctx])
-    responses = [_Truncated(_SPIRALS[0]), _TextOnly(), _TextOnly("还是再想想。"), _TextOnly("再等等。")]
+    responses = [TruncatedResponse(_SPIRALS[0]), _TextOnly(), _TextOnly("还是再想想。"), _TextOnly("再等等。")]
     with pytest.raises(RuntimeError, match="ReAct decision budget exhausted"):
         await _decide(_environment(engine), ctx, responses)
     requests = [event.data["request"] for event in engine.context.store.read_agent_events("model_request", 1)
@@ -265,7 +247,7 @@ async def test_a_world_request_from_the_retry_ends_the_decision_and_breaks_the_s
     engine = _engine_factory()
     stage_day_plan(engine)
     environment = _environment(engine)
-    _, planned, _ = await _single(environment, "plan", [_Truncated(_SPIRALS[0]),
+    _, planned, _ = await _single(environment, "plan", [TruncatedResponse(_SPIRALS[0]),
                                                         _reply("call-plan", "revise_day_plan", _PLAN, None)])
     assert [_is_retry(item) for item in planned] == [False, True]
     assert engine.context.store.read_agent_events("action_result", 1)[-1].data["error_code"] is None
@@ -297,7 +279,7 @@ async def test_a_rejected_retry_turn_is_dropped_so_a_continued_decision_keeps_ev
     await _single(environment, "plan", _plan_reply())
     call_id, tool, arguments = retried
     observation, requests, _ = await _single(environment, "wait", [
-        _Truncated(_SPIRALS[0]), _reply(call_id, tool, arguments, None), *_wait_reply()])
+        TruncatedResponse(_SPIRALS[0]), _reply(call_id, tool, arguments, None), *_wait_reply()])
     assert observation["continuation"] is not None
     first, retry, last = requests
     assert [_is_retry(item) for item in requests] == [False, True, False]
@@ -323,9 +305,9 @@ async def test_a_truncation_in_a_continued_decision_leaves_the_chain_prefix_unto
     engine = _engine_factory()
     stage_day_plan(engine)
     environment = _environment(engine)
-    _, planned, _ = await _single(environment, "plan", [_Truncated(_SPIRALS[0]), _TextOnly(), *_plan_reply()])
+    _, planned, _ = await _single(environment, "plan", [TruncatedResponse(_SPIRALS[0]), _TextOnly(), *_plan_reply()])
     assert [_is_retry(item) for item in planned] == [False, True, False]
-    observation, requests, _ = await _single(environment, "wait", [_Truncated(_SPIRALS[1]), *_wait_reply()])
+    observation, requests, _ = await _single(environment, "wait", [TruncatedResponse(_SPIRALS[1]), *_wait_reply()])
     assert observation["continuation"] is not None
     first, retry = requests
     assert first["messages"][:len(planned[-1]["messages"])] == planned[-1]["messages"]
@@ -340,7 +322,7 @@ async def test_readonly_questions_keep_their_parameters_and_a_truncated_answer_i
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("call-memory", "memory_recent", '{"limit":1}'),
         _ModelResponse("call-finish-1", "finish", '{"answer":"first"}'),
-        _Truncated(_SPIRALS[0]),
+        TruncatedResponse(_SPIRALS[0]),
         _ModelResponse("call-finish-2", "finish", '{"answer":"second"}'),
     ])
     agent = LifeAgent()
@@ -364,9 +346,9 @@ async def test_the_exported_quality_report_counts_the_truncations_the_run_record
     engine = _engine_factory()
     stage_day_plan(engine)
     environment = _environment(engine)
-    await _single(environment, "plan", [_Truncated(_SPIRALS[0], 8001),
+    await _single(environment, "plan", [TruncatedResponse(_SPIRALS[0], 8001),
                                         _reply("call-plan", "revise_day_plan", _PLAN, None)])
-    await _single(environment, "wait", [_Truncated(_SPIRALS[1]), _TextOnly(), _Truncated(_SPIRALS[0]),
+    await _single(environment, "wait", [TruncatedResponse(_SPIRALS[1]), _TextOnly(), TruncatedResponse(_SPIRALS[0]),
                                         _reply("call-wait", "start_activity", _WAIT, None)])
     advance_next(engine)
     export = tmp_path / "export"
@@ -383,4 +365,4 @@ async def test_the_exported_quality_report_counts_the_truncations_the_run_record
         "responses_missing_output_tokens": 0, "responses_missing_reasoning_tokens": 0,
         "method": quality["truncations"]["method"]}
     assert quality["truncations"]["wasted_output_tokens"] == 24001 == quality["truncations"]["reasoning_tokens"]
-    assert quality["schema_version"] == 4
+    assert quality["schema_version"] == 5

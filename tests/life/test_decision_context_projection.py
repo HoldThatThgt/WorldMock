@@ -52,7 +52,7 @@ def _records() -> tuple[list[dict], list[dict]]:
 def _budget(records: list[dict], meta: list[dict]) -> tuple[dict, ProgressBudget]:
     """已组装好的请求（system、六层 user 中的工具层与进度层、工具）与对应的可浓缩部分。"""
     tool_layer = copy.deepcopy(_observations()[0]["data"]["tool_layer"])
-    tool_layer["callable_index"] = {"lifestyle": [], "contents": [], "goods": [], "query_categories": []}
+    tool_layer["callable_index"] = {"lifestyle": [], "goods": [], "query_categories": []}
     layers = (tool_layer,
               {"layer": "进度层", "session_started_at": "2026-01-05T07:50:00+08:00", "events": records})
     request = {

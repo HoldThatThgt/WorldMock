@@ -11,8 +11,6 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
 os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
-from agentsociety2.agent.base import ReactLoopRequest
-from custom.agents.life_agent import LifeAgent
 from worldmock.life.scenario import LifeScenario
 from worldmock.life.world_setup import load_scenario
 from worldmock.run_setup import _agent_specs
@@ -23,36 +21,35 @@ TRAITS = ('trait_source_kind',)
 
 
 def test_frozen_persona_identity_reaches_the_native_agent_prompt_as_the_persona_layer():
-    """冻结人物以人设层进入 user（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「人设层」）：身份取自结构化卡片，卡片关系在前、
-    对不上的场景联系人随后（亲密度 null、渠道为空）；卡片渲染文本、当下处境与画像元字段都不进提示；系统层没有身份前言。"""
-    from tests.integration.test_life_agent_protocol import _observations
+    """@brief 真实画像输入经宿主人设层与提示组装保留散文，不依赖其他用例的旧世界观察。"""
+    from custom.agents.life_persona import persona_layer
+    from custom.agents.life_prompt import life_user_layers, system_message
     from tests.profile.conftest import make_card
     from worldmock.profile.textgen import render_card
 
     scenario, _ = load_scenario(SCENARIO)
     card = make_card()
     specification = _agent_specs(scenario, persona_compiler=lambda agent: card)[0]
-    agent = LifeAgent()
-    agent._id = specification['id']
-    agent._name = specification['profile']['name']
-    agent._profile = specification['profile']
-    agent._enable_memory = False
-    request = ReactLoopRequest(0, scenario.start_at, _observations())
-    agent.prepare_react_loop(request)
-    system, user = (item['content'] for item in agent.build_react_messages(request))
+    profile = specification["profile"]
     person = scenario.agents[0]
-    persona = json.loads(user)[1]
-    assert persona['identity'] == {'name': person.name, 'age': 32, 'occupation': '产品经理',
-                                   'living_arrangement': '与伴侣合租两居室'}
-    assert [(row['person'], row['role']) for row in persona['relationships']] == [
-        ('母亲', '家人'), ('老周', '老友'), *((contact.salutation, contact.relation) for contact in person.contacts)]
-    assert all(row['closeness'] is None and row['channels'] == [] for row in persona['relationships'][2:])
-    assert '你不是AI助手' not in system and person.name not in system
+    persona = persona_layer(profile, person.name, {"relationships": [], "preferences": []})
+    layer_names = (("tool_layer", "工具层"), ("memory_layer", "记忆层"), ("todo_layer", "待办层"),
+                   ("environment_layer", "环境层"), ("progress_layer", "进度层"))
+    observation = {key: {"layer": name} for key, name in layer_names}
+    user = json.dumps(life_user_layers(observation, persona), ensure_ascii=False)
+    system = system_message(False)["content"]
+    assert persona["identity"] == {"name": person.name, "age": 32, "occupation": "产品经理",
+                                   "living_arrangement": "与伴侣合租两居室"}
+    assert [(row["person"], row["role"]) for row in persona["relationships"]] == [
+        ("母亲", "家人"), ("老周", "老友"), *((contact.salutation, contact.relation) for contact in person.contacts)]
+    assert all(row["closeness"] is None and row["channels"] == [] for row in persona["relationships"][2:])
+    assert "你不是AI助手" not in system and person.name not in system
     assert render_card(card) not in user and card.situation.busy_this_week not in user
-    for stale in ('"profile"', '"trait_source_kind"', '"persona_card"', '"persona_card_struct"', '"situation"'):
+    assert persona["tastes"] == card.tastes.model_dump(mode="json")
+    for stale in ('"profile"', '"trait_source_kind"', '"persona_card"', '"persona_card_struct"', '"situation"',
+                  '"taste_weights"', '"attention_prior"'):
         assert stale not in user
-    # 冻结画像特征仍在文档层闭合（提示层不泄元字段）。
-    assert person.trait_source_kind == 'experiment_assumption'
+    assert person.trait_source_kind == "experiment_assumption"
 
 
 @pytest.mark.parametrize('field', TRAITS)
@@ -71,3 +68,30 @@ def test_deleted_template_fields_stay_out_of_documents(field):
     value['agents'][0][field] = 'legacy'
     with pytest.raises(ValidationError):
         LifeScenario.model_validate(value)
+
+
+def test_initial_agent_state_and_profile_do_not_keep_numeric_tastes():
+    """@brief 真实初态与画像输入均无口味权重；严格模型也拒绝重新注入旧字段。"""
+    from tests.profile.conftest import make_card
+    from worldmock.life.models import AgentState
+    from worldmock.life.world_setup import _initial_agent
+
+    scenario, _ = load_scenario(SCENARIO)
+    config = scenario.agents[0]
+    state = _initial_agent(config, scenario, "agent:1", int(scenario.start_at.timestamp()))
+    profile = _agent_specs(scenario, persona_compiler=lambda agent: make_card())[0]["profile"]
+    assert "taste_weights" not in state.model_dump(mode="json") and "taste_weights" not in profile
+    assert "attention_prior" not in json.dumps(profile)
+    with pytest.raises(ValidationError, match="taste_weights"):
+        AgentState.model_validate({**state.model_dump(mode="python"), "taste_weights": {"content": 1.0}})
+
+
+@pytest.mark.parametrize("profile", [{"taste_weights": {}}, {"taste_weights": {"content": 1.0},
+                                                              "persona_card_struct": None}])
+def test_restored_persona_profile_rejects_retired_taste_weights(profile):
+    """@brief 恢复画像校验直接拒绝旧数值口味，即使没有结构化卡片也不保留。"""
+    from worldmock.errors import IntegrityError
+    from worldmock.runtime import _validate_persona_card_struct
+
+    with pytest.raises(IntegrityError, match="retired taste weights"):
+        _validate_persona_card_struct(profile)

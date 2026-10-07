@@ -1,6 +1,11 @@
 """共享规则与可重建环境的逐条规格验收登记，节点必须指向真实行为测试。"""
 
 RULES = {
+    '图上出行响应': (
+        'tests/catalog/test_graph.py::test_full_path_lexicographic_tie_ignores_discovery_and_edge_order',
+        'tests/life/test_travel_graph.py::test_plan_uses_full_graph_fixed_speed_and_fare',
+        'tests/life/test_wayfinding.py::test_discovery_quotes_the_same_graph_trip_without_old_route_fields',
+    ),
     '规范 JSON 摘要': ('tests/test_shared_primitives.py::test_structured_digest_and_raw_string_contracts_use_same_bytes',),
     'SHA-256 形式': ('tests/test_shared_primitives.py::test_sha256_format_is_strict',),
     '安全文件': (
@@ -10,21 +15,19 @@ RULES = {
     ),
     '原子写': (
         'tests/test_shared_primitives.py::test_atomic_publication_order_and_failed_replace_cleanup',
-        'tests/catalog/test_loader.py::test_manifest_identity_publication_failure_keeps_previous_bytes',
+        'tests/catalog/test_identity.py::test_catalog_identity_publication_is_atomic',
     ),
     '故障日志': ('tests/test_shared_primitives.py::test_value_error_rejection_logs_once_and_preserves_message',),
     '活动时长': (
-        'tests/life/test_shared_rules.py::test_content_duration_matches_tool_layer_named_catalog_and_admission',
-        'tests/life/test_shared_rules.py::test_consume_duration_limit_matches_listing_and_real_admission',
-        'tests/life/test_duration_boundaries.py::test_short_content_is_rejected_by_listing_and_real_admission',
-        'tests/life/test_duration_boundaries.py::test_game_content_watch_duration_matches_plans_and_real_admission',
+        'tests/life/test_app_ui.py::test_app_duration_matches_tool_layer_and_admission',
+        'tests/life/test_rrs_food_body.py::test_food_actual_portion_duration_bounds_and_multi_item_longest',
         'tests/life/test_duration_boundaries.py::test_sleep_duration_uses_personal_need_in_listing_and_real_admission',
         'tests/life/test_duration_boundaries.py::test_feedback_duration_matches_listing_and_real_admission',
     ),
     '开工阻断': ('tests/life/test_shared_rules.py::test_work_refusal_matches_listing_and_admission',),
     '出行时长': ('tests/life/test_shared_rules.py::test_travel_plan_matches_tool_layer_admission_and_engine_validation',),
-    '缓解速率': ('tests/life/test_shared_rules.py::test_invalid_exposure_evidence_fails_both_preview_and_settlement',),
-    '候选种类': ('tests/life/test_shared_rules.py::test_candidate_kind_mapping_drives_real_generation_and_resource_filter',),
+    '缓解速率': ('tests/life/test_app_progress.py::test_content_relief_is_fixed_for_each_kind_and_applied_to_real_body',),
+    '候选种类': ('tests/life/test_candidates.py::test_app_usage_does_not_remove_meal_candidate_and_driving_does',),
     '活动家族': ('tests/life/test_shared_rules.py::test_unknown_lifestyle_family_does_not_advance_or_score',),
     '中文活动名称': ('tests/life/test_readable.py::test_chinese_kind_tables_have_a_single_source',),
     '睡眠通道': (
@@ -41,13 +44,14 @@ RULES = {
     '社交活动家族': ('tests/life/test_shared_rules.py::test_social_family_advances_the_social_goal',),
     '邮件头': ('tests/life/test_shared_rules.py::test_mail_headers_match_content_revelation_and_observation',),
     '社交资源分录': ('tests/life/test_shared_body.py::test_shared_activity_factors_use_social_met_and_declared_factors',),
-    '合同对象集合': ('tests/life/test_shared_rules.py::test_contract_templates_match_scenario_loading_and_resource_mapping',),
+    '环境登记身份': ('tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes',),
     '独立模型客户端': ('tests/test_shared_model_clients.py::test_original_clients_share_single_call_serialization_and_request_isolation',),
-    '纠正消息': ('tests/test_shared_model_clients.py::test_three_corrections_keep_original_tools_budgets_and_channel_echo',),
-    '品类与目录错误': ('tests/test_shared_primitives.py::test_original_safe_file_consumers_reject_symlink_before_hash_or_schema',),
+    '纠正消息': ('tests/test_shared_model_clients.py::test_plan_and_reflection_corrections_keep_tools_budgets_and_channel_echo',),
+    '环境登记错误': ('tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample',),
     '公共枚举': ('tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones',),
-    '严格模型': ('tests/test_shared_primitives.py::test_efficiency_factor_blank_and_empty_constraints_and_freeze_distinction',),
-    '曲线与效率因子': ('tests/test_shared_primitives.py::test_curve_models_shared_by_life_and_catalog_reject_invalid_numbers',),
+    '严格模型': ('tests/test_shared_primitives.py::test_efficiency_factor_blank_and_empty_constraints_and_freeze_distinction',
+              'tests/exchange/test_models.py::test_deep_model_freezes_nested_containers_and_serializes',),
+    '曲线与效率因子': ('tests/test_shared_primitives.py::test_curve_models_shared_by_body_and_life_reject_invalid_numbers',),
 }
 
 ENVIRONMENT = {

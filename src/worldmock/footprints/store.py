@@ -238,6 +238,15 @@ class FootprintStore:
         """, (agent_id, event_type, after))
         return [Event.model_validate_json(row[0]) for row in rows]
 
+    def read_decision_observations(self, agent_id: int, decision_id: str, observed_at: int) -> list[Event]:
+        """@brief 只解码人物、决策和发生时刻精确匹配的观察，保留全部匹配记录供唯一性复核。"""
+        rows = self.connection.execute("""
+            SELECT body FROM events WHERE json_extract(body,'$.agent_id')=?
+            AND json_extract(body,'$.event_type')='observation'
+            AND json_extract(body,'$.decision_id')=? AND json_extract(body,'$.occurred_at')=? ORDER BY event_seq
+        """, (agent_id, decision_id, observed_at))
+        return [Event.model_validate_json(row[0]) for row in rows]
+
     def read_recent_experience_sources(self, agent_id: int, before_seq: int, limit: int) -> list[Event]:
         """@brief 按倒序有限读取本人活动进度候选事件。"""
         if (type(agent_id) is not int or agent_id <= 0 or type(before_seq) is not int

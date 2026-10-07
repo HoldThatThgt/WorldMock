@@ -160,23 +160,6 @@ def genre_values(raw: Any) -> tuple[str, ...]:
     return tuple(sorted(seen))
 
 
-def entry_from_content(object_id: str, source: str, document: Mapping[str, Any],
-                       location_kinds: Iterable[str] = ()) -> RetrievalEntry:
-    """@brief 从一条内容语料条目构造检索条目。
-
-    时长读 `duration_seconds`；阅读类条目（`feed`/`jokes`）只声明
-    `estimated_read_seconds`，同为一个整数秒量，按其落格，不新造缺省值。
-    地点类来自条目自身的声明，未声明即空集（不默认任何地点类）。
-    """
-    duration = document.get("duration_seconds")
-    if not isinstance(duration, int) or isinstance(duration, bool):
-        duration = document.get("estimated_read_seconds")
-    kinds = {str(item) for item in location_kinds if str(item) in LOCATION_KINDS}
-    return RetrievalEntry(object_id=object_id, source=source,
-                          genre=genre_values(document.get("genre")),
-                          language=str(document.get("language") or "").strip(),
-                          duration_seconds=duration if isinstance(duration, int) else None,
-                          location_kinds=frozenset(kinds))
 
 
 def build_index(entries: Sequence[RetrievalEntry],

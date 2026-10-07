@@ -20,16 +20,16 @@ from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PAUSED, PHASE_PE
 from worldmock.life.models import REQUEST_MODELS, StartActivityRequest
 from tests.life.conftest import start_arguments
 
-_FILM = "内容：纪录片"
+_APP = "应用：哔哩哔哩"
 _PARK = "地点：公园"
 
 
 def _data() -> dict:
-    """以真实生活协议观察为基础，提供五类语义对象：自己、工作任务、内容、地点与同场人物。"""
+    """以真实生活协议观察为基础，提供五类语义对象：自己、工作主题、应用、地点与同场人物。"""
     data = deepcopy(_observations()[0]["data"])
     return _add_objects(
         data,
-        _visible_object(_FILM, "content", "content-hidden", _offer("interact", "接着看", "watch")),
+        _visible_object(_APP, "app", "app-hidden", _offer("interact", "打开", "use_app")),
         _visible_object(_PARK, "location", "park-hidden", _offer("travel", "步行", "travel_to", travel_mode="walking")),
         _visible_object("人物：小李", "person", "agent-hidden", _offer("interact", "交谈", "chat")))
 
@@ -56,7 +56,7 @@ def _decision(name: str, **arguments) -> ReactDecision:
 
 
 def test_start_schema_binds_readable_objects_and_actions_without_internal_id() -> None:
-    """模型只填对象、动词和方式；可选的名称只在工具层，报价与内部身份留在私有绑定，Schema 不带逐轮枚举。"""
+    """模型只填对象、动词和方式；可选的名称只在工具层，固定价与内部身份留在私有绑定，Schema 不带逐轮枚举。"""
     data = _data()
     agent = _prepare(data)
     start = _functions(agent)["start_activity"]
@@ -68,19 +68,19 @@ def test_start_schema_binds_readable_objects_and_actions_without_internal_id() -
     user = agent.build_react_messages(ReactLoopRequest(0, _context().observed_at, [
         {"turn": 0, "action": "observe", "ok": True, "data": data}]))[1]["content"]
     assert all(f'"name":"{row["object"]}"' in user for row in data["interaction_bindings"])
-    for private in ("task-visible", "park-hidden", "content-hidden", "travel_to", "walking"):
+    for private in ("topic-visible", "park-hidden", "app-hidden", "travel_to", "walking"):
         assert private not in str(start) and private not in user
 
 
 @pytest.mark.parametrize("arguments,error", [
-    (start_arguments([_FILM], ["travel"], ["步行"]), "does not support"),
-    (start_arguments([_FILM], ["interact"], ["从头再看"]), "does not support"),
-    (start_arguments([_FILM], ["interact"], ["未知方式"]), "WAY_NOT_OFFERED"),
-    (start_arguments(["content-hidden"], ["interact"], ["接着看"]), "No known object"),
-    ({"items": [{"target": _FILM, "from": None, "to": None}], "answering": None, "prefer": None}, "required"),
-    ({"items": [{"target": _FILM, "way": "接着看", "to": None}], "answering": None, "prefer": None}, "required"),
-    (start_arguments([_FILM, _FILM], ["interact", "interact"], ["接着看", "接着看"]), "different recipient"),
-    (start_arguments(["自己", _FILM, _PARK], ["interact", "interact", "travel"], ["等待", "接着看", "步行"]),
+    (start_arguments([_APP], ["travel"], ["步行"]), "does not support"),
+    (start_arguments([_APP], ["interact"], ["食用"]), "does not support"),
+    (start_arguments([_APP], ["interact"], ["未知方式"]), "WAY_NOT_OFFERED"),
+    (start_arguments(["app-hidden"], ["interact"], ["打开"]), "No known object"),
+    ({"items": [{"target": _APP, "from": None, "to": None}], "answering": None, "prefer": None}, "required"),
+    ({"items": [{"target": _APP, "way": "打开", "to": None}], "answering": None, "prefer": None}, "required"),
+    (start_arguments([_APP, _APP], ["interact", "interact"], ["打开", "打开"]), "different recipient"),
+    (start_arguments(["自己", _APP, _PARK], ["interact", "interact", "travel"], ["等待", "打开", "步行"]),
      "one or two"),
 ])
 def test_start_rejects_invalid_pairs_before_dispatch(arguments, error) -> None:
@@ -90,10 +90,10 @@ def test_start_rejects_invalid_pairs_before_dispatch(arguments, error) -> None:
 
 
 def test_parallel_start_accepts_two_independent_human_readable_pairs() -> None:
-    """步行和接着看分别配对，不再以一个 action 覆盖双活动。"""
+    """步行和打开应用分别配对，不再以一个 action 覆盖双活动。"""
     agent = _prepare()
-    choice = _decision("start_activity", targets=[_PARK, _FILM], actions=["travel", "interact"],
-                       ways=["步行", "接着看"])
+    choice = _decision("start_activity", targets=[_PARK, _APP], actions=["travel", "interact"],
+                       ways=["步行", "打开"])
     assert agent.validate_react_decisions([choice], False) == ""
     assert agent.validate_react_decisions([choice, choice], False) == (
         "TOOL_CALL_REQUIRED: Submit exactly one world request, or a batch containing only read queries.")
@@ -103,9 +103,9 @@ def test_frozen_observation_does_not_change_until_next_round() -> None:
     """提示冻结后修改原字典不能补充对象；下一轮明确观察才能刷新。"""
     data = _data()
     agent = _prepare(data)
-    _add_objects(data, _visible_object("内容：新电影", "content", "content-new",
-                                       _offer("interact", "接着看", "watch")))
-    invalid = _decision("start_activity", targets=["内容：新电影"], actions=["interact"], ways=["接着看"])
+    _add_objects(data, _visible_object("应用：抖音", "app", "app-new",
+                                       _offer("interact", "打开", "use_app")))
+    invalid = _decision("start_activity", targets=["应用：抖音"], actions=["interact"], ways=["打开"])
     assert "No known object" in agent.validate_react_decisions([invalid], False)
     refreshed = _prepare(data)
     assert refreshed.validate_react_decisions([invalid], False) == ""
@@ -133,19 +133,21 @@ def test_menu_closes_actions_without_removing_stable_tools() -> None:
 
 
 def test_visible_task_and_person_names_bind_independent_tools() -> None:
-    """工作成果和消息正文经独立工具提交，只接收私有绑定里的可读任务或人物名。"""
+    """工作主题通过 start_activity 启动，消息工具只接收可读人物名；退役验收工具不再公开。"""
     agent = _prepare()
     functions = _functions(agent)
-    assert "enum" not in functions["submit_work"]["parameters"]["properties"]["task_name"]
+    assert "submit_work" not in functions
     assert "enum" not in functions["send_message"]["parameters"]["properties"]["recipient_name"]
-    assert "task-visible" not in str(functions["submit_work"])
+    assert "topic-visible" not in str(functions["start_activity"])
     assert "agent-hidden" not in str(functions["send_message"])
+    assert agent.validate_react_decisions([_decision(
+        "start_activity", targets=[_TASK], actions=["interact"], ways=["工作"])], False) == ""
     assert agent.validate_react_decisions([_decision(
         "send_message", recipient_name="人物：小李", text="你好")], False) == ""
     assert "not known" in agent.validate_react_decisions([_decision(
         "send_message", recipient_name="agent-hidden", text="你好")], False)
     assert "not known" in agent.validate_react_decisions([_decision(
-        "send_message", recipient_name=_FILM, text="你好")], False)
+        "send_message", recipient_name=_APP, text="你好")], False)
 
 
 @pytest.mark.parametrize("phase", [PHASE_ACTIVE, PHASE_PAUSED, PHASE_PENDING])
@@ -171,7 +173,7 @@ async def test_valid_start_dispatches_the_same_typed_request() -> None:
     environment = _Environment()
     agent._env = environment
     agent._decision_context = _context()
-    payload = start_arguments([_PARK, _FILM], ["travel", "interact"], ["步行", "接着看"])
+    payload = start_arguments([_PARK, _APP], ["travel", "interact"], ["步行", "打开"])
     assert agent.validate_react_decisions([_decision("start_activity", **payload)], False) == ""
     result = await agent.dispatch_react_tool("start_activity", payload)
     assert result.ok is True

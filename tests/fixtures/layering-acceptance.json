@@ -38,7 +38,6 @@
       "src/worldmock/life/decision_coordinator.py::DecisionCoordinator",
       "src/worldmock/life/time_advance.py::TimeAdvanceCoordinator",
       "src/worldmock/life/model_evidence.py::ModelEvidenceRecorder",
-      "src/worldmock/life/work_review_runtime.py::WorkReviewCoordinator",
       "src/worldmock/life/counterfactual_runtime.py::CounterfactualRuntime",
       "src/worldmock/life/observe.py::ObservationBuilder",
       "src/worldmock/life/session_actions.py::ActionHandlers",

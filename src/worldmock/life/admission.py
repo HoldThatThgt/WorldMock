@@ -11,23 +11,21 @@
 所以 reason 与拒绝原因一字不差；他处持有物（持有但不在此刻所在地点）在物品状态这一步以 PRODUCT_NOT_HELD 写明
 只能在当地用（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。
 
-下一步提示只指向从此地可达的地点（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性 ）：要去的地点此地直达写「去<地点>」，只能经别处
-到达写「可经<第一站>前往<地点>」，哪里都到不了写「这里去不了<地点>」（门店写「这里去不了那家店」），见 life.wayfinding；
-远程下单的「送达地不在配送范围」与「配送路线缺失」分成两个未满足条件 delivery_destination、delivery_route，各一句原因。
+下一步提示从已登记连通图查询目标地点，直接写「去<地点>」，见 life.wayfinding。
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import datetime
 from typing import Any
 
 from worldmock.catalog.affordances import engine_affordances
+from worldmock.catalog.graph import Graph
 from worldmock.errors import BusinessRuleError
 from worldmock.life import activity_control
-from worldmock.life.guidance import DELIVERY_DESTINATION_REASON, DELIVERY_ROUTE_REASON, Refusal
-from worldmock.life.wayfinding import UNREACHABLE_STORE_STEP, delivery_route_code, delivery_step, go_step
+from worldmock.life.guidance import Refusal
+from worldmock.life.wayfinding import go_step
 from worldmock.life.vocabulary import GIVE_WAY
 from worldmock.life.readable import TRAVEL_WAYS
 from worldmock.life.interaction_menu import activity_phrase, merged_selection
@@ -42,26 +40,26 @@ _UNMET = "ACTIVITY_PRECONDITION_UNMET"
 class WorldFacts:
     """@brief 准入判定所需的冻结目录：任务、供给、可持有物与内容（引擎取自规则，投影取自场景）。"""
 
-    tasks: Mapping[str, Any]
-    supplies: Mapping[str, Any]
+    work_topics: Mapping[str, Any]
     items: Mapping[str, Any]
-    contents: Mapping[str, Any]
+    #: 当前人物工作安排中的现场地点，无工作安排时为空。
+    workplace_location_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class Context:
     """@brief 一次准入判定的世界与可读名称：地点身份→地点名，活动身份→本轮活动名。
 
-    :param tasks: 冻结工作任务目录（任务身份→配置）；恢复暂停的工作时核对截止与合同余量。
-    :param routes: 场景的冻结路线：下一步提示据此只指向从此地可达的地点，远程下单据此核对配送路线。
+    :param work_topics: 冻结工作主题目录；恢复暂停的工作时核对主题剩余工时。
+    :param graph: 已登记的连通图，下一步提示据此查询目标地点。
     """
 
     state: WorldState
     agent_id: int
     place_names: Mapping[str, str]
+    graph: Graph
     activity_names: Mapping[str, str] = field(default_factory=dict)
-    tasks: Mapping[str, Any] = field(default_factory=dict)
-    routes: Sequence[Any] = ()
+    work_topics: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,9 +75,7 @@ class Item:
     :param manual: 是否是需要手动操作的瞬时动作（远程下单）。
     :param holding: 是否使用手边持有物（食用、使用、制作）。
     :param site: 是否要停在一个地点做（生活活动）：途中与同一请求出发都做不了。
-    :param destinations: 远程下单时该供给的可配送目的地（地点身份，保持声明顺序），None 表示不是远程下单。
     :param held_at: 他处持有物所在的地点身份（持有物不在此刻所在地点），None 表示手边的持有物或不是持有物。
-    :param store: 远程下单时该供给所在的门店（配送路线的起点），None 表示不是远程下单。
     """
 
     canonical: str
@@ -91,11 +87,7 @@ class Item:
     manual: bool = False
     holding: bool = False
     site: bool = False
-    destinations: tuple[str, ...] | None = None
     held_at: str | None = None
-    store: str | None = None
-    #: 工作真实开放时刻，普通工作从邮件到达派生，预约使用约定时刻。
-    work_opens: datetime | None = None
 
 
 def en_route(state: WorldState, agent_id: int) -> bool:
@@ -124,24 +116,18 @@ def selection_item(row: Mapping[str, Any], action: Mapping[str, Any], facts: Wor
     item = Item(canonical=canonical, way=action["label"],
                 label=f"{activity_phrase(action)}{activity_control.object_display_name(row)}",
                 claims=_claims(canonical, action, object_id, facts))
-    if canonical == "work" and object_id in facts.tasks:
-        task = facts.tasks[object_id]
-        return replace(item, place=task.required_location_id, work_opens=task.available_at)
-    if canonical == "purchase" and action.get("fulfillment") == "pickup" and object_id in facts.supplies:
-        return replace(item, place=facts.supplies[object_id].location_id)
+    if canonical == "work" and object_id in facts.work_topics:
+        return replace(item, place=facts.workplace_location_id)
+    if canonical == "purchase" and action.get("fulfillment") == "pickup":
+        return replace(item, place=row["store_id"])
     if canonical == "purchase":
-        supply = facts.supplies.get(object_id)
-        served = supply is not None and row.get("to_self", True)
-        return replace(item, manual=True, destinations=tuple(supply.delivery_destination_ids) if served else None,
-                       store=supply.location_id if served else None)
+        return replace(item, manual=True)
     if canonical == "chat" and str(object_id).startswith("agent:"):
         return replace(item, partner=int(str(object_id).split(":", 1)[1]))
     if canonical == "consume" and action["label"] == GIVE_WAY:
         return replace(item, holding=True, held_at=row.get("location_id"))
     if canonical == "consume":
-        product = facts.items.get(object_id)
-        return replace(item, holding=True, place=getattr(product, "required_location_id", None) or None,
-                       held_at=row.get("location_id"))
+        return replace(item, holding=True, held_at=row.get("location_id"))
     if canonical == "do":
         return replace(item, site=True)
     return item
@@ -194,16 +180,13 @@ def hands_free_refusal(context: Context, what: str) -> Refusal | None:
 
 def _presence_refusal(context: Context, item: Item, present: str | None, departs: bool) -> Refusal | None:
     """@brief 目标在场与实际地点：要在某地做的事需要人在那里，途中与同一请求出发都不算在场；远程下单要能送到这里。"""
-    if item.work_opens is not None and context.state.current_time < int(item.work_opens.timestamp()):
-        return Refusal("WORK_TASK_NOT_AVAILABLE", f"Work opens at {item.work_opens.isoformat()}.",
-                       "Wait until the appointment start.", ("available_at",))
     return (_place_refusal(context, item, present, departs) or _site_refusal(item, present, departs)
-            or _delivery_refusal(context, item) or _partner_refusal(context, item, present, departs))
+            or _partner_refusal(context, item, present, departs))
 
 
 def _place_refusal(context: Context, item: Item, present: str | None, departs: bool) -> Refusal | None:
     """@brief 要在指定地点做的事（办公室工作、到店取得、限地点使用的持有物）：人要在那里，且不和出行一起开始；
-    下一步只指向从此地可达的地点（直达「去」、经别处「可经」、到不了的门店「这里去不了那家店」）。"""
+    下一步直接提示前往指定地点。"""
     if item.place is None:
         return None
     place = context.place_names[item.place]
@@ -212,8 +195,7 @@ def _place_refusal(context: Context, item: Item, present: str | None, departs: b
                        f"Complete the activity at {place} before departure.",
                        ("required_location_id",))
     if present != item.place:
-        unreachable = UNREACHABLE_STORE_STEP if item.canonical == "purchase" else None
-        step = go_step(context.routes, context.place_names, _origin(context), item.place, unreachable)
+        step = go_step(context.graph, context.place_names, _origin(context), item.place)
         return Refusal(_UNMET, f"{item.label} requires presence at {place}.", step, ("required_location_id",))
     return None
 
@@ -235,23 +217,6 @@ def _site_refusal(item: Item, present: str | None, departs: bool) -> Refusal | N
                    "Wait until arrival before starting.", ("location_kinds",))
 
 
-def _delivery_refusal(context: Context, item: Item) -> Refusal | None:
-    """@brief 远程下单的送达地取 agent.location_id（途中为出发地）：不在该供给的可配送目的地时为 delivery_destination，
-    在配送范围内而门店到这里的配送路线缺失（没有、不可达或未知）时为 delivery_route，两种各一句原因；下一步只指向
-    能送达、且从此地可达的地点（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性 ）。"""
-    if item.destinations is None:
-        return None
-    here = _origin(context)
-    if here not in item.destinations:
-        unmet, reason = "delivery_destination", DELIVERY_DESTINATION_REASON
-    elif delivery_route_code(context.routes, item.store, here) is not None:
-        unmet, reason = "delivery_route", DELIVERY_ROUTE_REASON
-    else:
-        return None
-    step = delivery_step(context.routes, context.place_names, here, item.store, item.destinations)
-    return Refusal(_UNMET, reason, step, (unmet,))
-
-
 def _partner_refusal(context: Context, item: Item, present: str | None, departs: bool) -> Refusal | None:
     """@brief 当面交谈：对方要和本人同在一处；已在交谈为 CHAT_ALREADY_ACTIVE，接受时对方的交谈快结束为 ACTIVITY_TOO_SHORT。"""
     if item.partner is None:
@@ -264,7 +229,7 @@ def _partner_refusal(context: Context, item: Item, present: str | None, departs:
                            "Continue or conclude the current conversation.")
         return late_acceptance_refusal(context.state, context.agent_id, f"agent:{item.partner}")
     name = partner.name if partner is not None else "the other person"
-    step = (go_step(context.routes, context.place_names, _origin(context), where) if where is not None
+    step = (go_step(context.graph, context.place_names, _origin(context), where) if where is not None
             else "Wait until the other person arrives.")
     return Refusal(_UNMET, f"Talking with {name} requires both people at the same location.",
                    "Talk before departure." if departs else step,
@@ -328,7 +293,7 @@ def _holding_refusal(context: Context, items: Sequence[Item], present: str | Non
     if elsewhere is not None:
         place = context.place_names[elsewhere]
         return Refusal("PRODUCT_NOT_HELD", f"This item is at {place} and must be used there.",
-                       go_step(context.routes, context.place_names, _origin(context), elsewhere))
+                       go_step(context.graph, context.place_names, _origin(context), elsewhere))
     return None
 
 
@@ -342,6 +307,4 @@ def _claims(canonical: str, action: Mapping[str, Any], object_id: str, facts: Wo
     kinds = [name for name, spec in view.kinds.items() if spec.action == canonical]
     if len(kinds) != 1:
         raise BusinessRuleError("ACTION_NOT_SUPPORTED")
-    content = facts.contents.get(object_id) if canonical == "watch" else None
-    return view.resource_claims(kinds[0], travel_mode=action.get("travel_mode"),
-                                content_kind=getattr(content, "kind", None))
+    return view.resource_claims(kinds[0], travel_mode=action.get("travel_mode"))

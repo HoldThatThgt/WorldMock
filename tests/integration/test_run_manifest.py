@@ -1,4 +1,4 @@
-"""运行 manifest 阶段 model_identity（stage_model_identity：action 与 work_review）冻结与防篡改测试。"""
+"""运行 manifest 的 action 阶段 model_identity 冻结与防篡改测试。"""
 
 from __future__ import annotations
 
@@ -18,8 +18,6 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/bet
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from worldmock.errors import IntegrityError
-from worldmock.footprints.quality import build_quality_report
-from worldmock.life.engine import LifeEngine
 from worldmock.life.models import ModelIdentity, RunIdentity
 from worldmock.life.world_setup import load_scenario
 from worldmock.run_setup import _model_identity, runtime_code_sha256, stage_model_identity
@@ -70,7 +68,7 @@ def _run_identity(scenario) -> RunIdentity:
 
 
 async def test_life_env_init_freezes_stage_identity_into_manifest(tmp_path) -> None:
-    """生产接线：LifeEnv 新建运行把 action 与 work_review 两个阶段的身份冻结进运行 manifest。"""
+    """生产接线：LifeEnv 新建运行把 action 阶段身份冻结进运行 manifest。"""
     from custom.envs.life_env import LifeEnv
 
     scenario, _ = load_scenario(_SCENARIO)
@@ -85,9 +83,12 @@ async def test_life_env_init_freezes_stage_identity_into_manifest(tmp_path) -> N
 
     identity = manifest["stage_model_identity"]
     assert "two_stage_model_identity" not in manifest
-    assert identity["stages"] == {"action": {"thinking": "enabled", "tool_choice": "auto", "max_tokens": 8000,
-                                             "same_second_continuation": True},
-                                  "work_review": {"thinking": "disabled", "tool_choice": "required"}}
+    assert identity["stages"] == {"action": {
+        "thinking": "enabled",
+        "tool_choice": "auto",
+        "max_tokens": 8000,
+        "same_second_continuation": True,
+    }}
     # 与 runtime 单一事实源逐字节一致。
     assert identity == stage_model_identity()
     validate_stage_model_identity(identity)
@@ -99,6 +100,7 @@ async def test_life_env_init_freezes_stage_identity_into_manifest(tmp_path) -> N
 
 def test_manifest_stage_identity_tampering_is_rejected(tmp_path) -> None:
     """篡改拒绝：manifest 冻结值的任何阶段篡改被一致性校验拒绝。"""
+    from worldmock.life.engine import LifeEngine
     scenario, _ = load_scenario(_SCENARIO)
     engine = LifeEngine.create(_SCENARIO, tmp_path / "run", _run_identity(scenario),
                                stage_model_identity())
@@ -130,12 +132,13 @@ def test_retired_stage_is_rejected_even_beside_the_current_stage(keep_current, c
         validate_stage_model_identity(identity)
     unknown = stage_model_identity()
     unknown["stages"]["monologue"] = unknown["stages"].pop("action")
-    with pytest.raises(IntegrityError, match="stages must be exactly action, work_review"):
+    with pytest.raises(IntegrityError, match="stages must be exactly action"):
         validate_stage_model_identity(unknown)
 
 
 def test_engine_create_rejects_retired_stage_before_writing_run_artifacts(tmp_path) -> None:
     """真实新建入口拒绝退役阶段；独立校验通过不能替代持久化前校验。"""
+    from worldmock.life.engine import LifeEngine
     scenario, _ = load_scenario(_SCENARIO)
     identity = stage_model_identity()
     identity["stages"]["decision_statement"] = {"thinking": "disabled"}
@@ -180,6 +183,7 @@ def test_run_identity_records_git_state_as_a_pair() -> None:
 
 def test_engine_created_without_stage_identity_keeps_null_slot(tmp_path) -> None:
     """反例：未传阶段身份时 manifest 槽位为 null（既有测试工厂口径不变）。"""
+    from worldmock.life.engine import LifeEngine
     scenario, _ = load_scenario(_SCENARIO)
     engine = LifeEngine.create(_SCENARIO, tmp_path / "run", _run_identity(scenario))
     try:
@@ -191,6 +195,8 @@ def test_engine_created_without_stage_identity_keeps_null_slot(tmp_path) -> None
 def test_engine_direct_runs_keep_input_warnings_null_and_unrecorded(tmp_path) -> None:
     """运行输入警告只在新建运行时计算（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-运行输入警告 ）：引擎直驱没有计算，清单的 input_warnings
     是 null 而不是空列表，质量报告据此把这一节记为未记录、计数为 null（不记为零）；新建运行算出的空列表照样冻结为 []。"""
+    from worldmock.life.engine import LifeEngine
+    from worldmock.footprints.quality import build_quality_report
     scenario, _ = load_scenario(_SCENARIO)
     direct = LifeEngine.create(_SCENARIO, tmp_path / "direct", _run_identity(scenario))
     created = LifeEngine.create(_SCENARIO, tmp_path / "created", _run_identity(scenario),
@@ -204,3 +210,18 @@ def test_engine_direct_runs_keep_input_warnings_null_and_unrecorded(tmp_path) ->
         created.close()
     assert frozen == (None, [])
     assert (section["recorded"], section["warning_count"], section["code_counts"]) == (False, None, None)
+
+
+def test_run_manifest_structure_three_freezes_environment_identity():
+    """真实清单装配冻结五环境身份，删除旧顶层品类和地图来源字段。"""
+    from worldmock.life.run_identity import environment_identity
+    from worldmock.life.world_setup import _run_manifest, load_runtime_scenario
+
+    semantics, digest = load_runtime_scenario(_SCENARIO)
+    manifest = _run_manifest(semantics, digest, _run_identity(semantics.scenario))
+    assert manifest["schema_version"] == 3
+    assert manifest["environment_identity"] == environment_identity(semantics)
+    assert set(manifest["environment_identity"]) == {
+        "environment_id", "environment_version", "rules_version", "catalog_content_sha256", "map_sha256"}
+    assert not {"category_contract_version", "category_contract_sha256", "exchange_rules_sha256",
+                "catalog_content_sha256", "map_sha256", "map_provenance"} & manifest.keys()

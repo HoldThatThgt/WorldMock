@@ -1,318 +1,128 @@
-"""目录浏览、购买、配送、库存位置与按进度消费测试。"""
+"""@brief 真实目录食品、账本、订单、到期送达与恢复的纯购买行为。"""
 
-from __future__ import annotations
-
-from datetime import datetime
-from zoneinfo import ZoneInfo
+import json
 
 import pytest
 
-from agentsociety2.society import DirectToolCall
-
-from tests.life.conftest import (advance_next, advance_until_ready, bring_to_window, conclude_pending, context,
-                                 stage_day_plan, start_activity, start_request)
-from tests.life.test_money_settlement import _conclude_round
-from worldmock.footprints.models import EventDraft
+from tests.life.purchase_worlds import at_time, registered_world
+from worldmock.errors import BusinessRuleError, PreconditionError
+from worldmock.exchange.constants import DELIVERY_FEE_FEN
+from worldmock.exchange.operators import delivery_seconds
+from worldmock.life.activities import ActivityOrigin, start_activity
+from worldmock.life.basket import purchase_order
 from worldmock.life.commerce import deliver_order
-from worldmock.life.models import (
-    ActivityState,
-    ActivityStatus,
-    ConsumeItem,
-    ConsumeRequest,
-    FulfillmentKind,
-    PurchaseItem,
-    PurchaseOrderRequest,
-    StartActivityRequest,
-)
+from worldmock.life.models import ActivityStartParams, PurchaseItem, PurchaseOrderRequest, WorldState
+from worldmock.life.travel import plan_trip
+from worldmock.scheduling.effects import apply_scheduled_effect
 
 
-def _stage_open(engine) -> None:
-    """把隔离夹具移到商家营业时段并保留之后的真实后台事件。"""
-    zone = ZoneInfo(engine.context.scenario.timezone)
-    epoch = int(datetime(2026, 1, 5, 10, 0, tzinfo=zone).timestamp())
-    staged = engine.context.state.model_copy(deep=True)
-    staged.current_time = epoch
-    staged.pending_events = [event for event in staged.pending_events if event.due_at > epoch]
-    for agent_id, agent in staged.agents.items():
-        staged.agents[agent_id] = agent.model_copy(
-            update={"next_decision_at": epoch, "body_settled_at": epoch}, deep=True)
-    staged.version += 1
-    event = EventDraft(event_type="environment_event", occurred_at=epoch, visibility="system",
-                       source_kind="scenario", data={"kind": "test_merchant_open"})
-    engine.context.store.commit(staged.model_dump(mode="json"), [event])
-    engine.context.state = staged
+def order_request(store="noodle-1", destination="home", app="meituan", fulfillment="delivery", foods=("beef-noodles",)):
+    return PurchaseOrderRequest(items=tuple(PurchaseItem(store_id=store, food_id=food, quantity=1,
+                                recipient_id="agent:1") for food in foods), fulfillment=fulfillment,
+                                destination_id=destination, app_id=app)
 
 
-def _observed_action(engine, round_id: str, tool_name: str, request, action_id: str | None = None):
-    """按人物真实观察顺序提交并结算一个动作。"""
-    ctx = context(engine, round_id)
-    engine.begin_decision_round([ctx])
-    observation = engine.observe(ctx)
-    identity = action_id or f"action-{round_id}"
-    if callable(request):
-        request = request(observation)
-    engine.submit_action(DirectToolCall(ctx, identity, tool_name, request))
-    return observation, engine.commit_decision_round(round_id)[0]
+def test_no_app_store_pickup_is_immediate_local_holding():
+    semantics, state = registered_world("noodle-2")
+    before_energy = state.agents[1].body.energy_kcal
+    outcome = purchase_order(state, semantics, 1, order_request("noodle-2", "noodle-2", None, "pickup"))
+    order = outcome.orders[0]
+    assert order.app_id is None and order.status == "delivered" and order.path == ("noodle-2",)
+    assert order.distance_meters == order.prep_seconds == order.delivery_fee_fen == 0
+    assert order.expected_at == order.created_at and outcome.scheduled == ()
+    assert outcome.state.agents[1].inventory["noodle-2"]["beef-noodles"] == 1
+    assert outcome.state.agents[1].body.energy_kcal == before_energy
 
 
-def _choice(observation: dict, action: str, object_id: str | None = None,
-            mode: str | None = None) -> StartActivityRequest:
-    """@brief 只从本轮冻结观察取可读对象、动词与方式（按私有绑定的内部动作与履约方式挑选）。"""
-    return next(start_request(targets=[row["object"]], actions=[offered["verb"]], ways=[offered["label"]])
-                for row in observation["interaction_bindings"]
-                if object_id is None or row["object_id"] == object_id
-                for offered in row["actions"]
-                if offered["canonical_action"] == action
-                and (mode is None or (offered.get("travel_mode") or offered.get("fulfillment")) == mode))
+@pytest.mark.parametrize("destination", ["cafe", "home", "noodle-1", "noodle-2", "office", "park", "store"])
+def test_delivery_reaches_every_selected_place_and_survives_restore_once(destination):
+    semantics, state = registered_world(destination)
+    before = state.model_dump(mode="json")
+    merchant_before = state.accounts["merchant:noodle-1"]
+    failure = None
+    try:
+        outcome = purchase_order(state, semantics, 1, order_request(destination=destination))
+    except BusinessRuleError as error:
+        failure = error
+    assert failure is None, f"Every selected destination must accept delivery: {failure}"
+    order, event = outcome.orders[0], outcome.scheduled[0]
+    distance = semantics.catalog.shortest_m("noodle-1", destination)
+    assert order.expected_at == state.current_time + delivery_seconds(distance)
+    assert order.total_price_fen == semantics.catalog.foods["beef-noodles"].price_fen + DELIVERY_FEE_FEN
+    assert order.path == semantics.catalog.graph.path("noodle-1", destination)
+    assert outcome.state.accounts["merchant:noodle-1"] == merchant_before + 3300
+    assert outcome.state.accounts["transport:service"] == state.accounts["transport:service"]
+    restored = WorldState.model_validate_json(outcome.state.model_dump_json())
+    agents = {1: restored.agents[1].model_copy(update={"location_id": "office"})}
+    ready = at_time(restored.model_copy(update={"agents": agents}), order.expected_at)
+    first = apply_scheduled_effect(ready, event, semantics)
+    second = apply_scheduled_effect(WorldState.model_validate_json(first.state.model_dump_json()), event, semantics)
+    assert first.state.agents[1].inventory[destination]["beef-noodles"] == 1
+    assert second.state.agents[1].inventory == first.state.agents[1].inventory
+    assert second.data["inventory_changes"] == [] and second.state.accounts == outcome.state.accounts
+    assert state.model_dump(mode="json") == before
 
 
-def _delivery_supply_ids(observation: dict) -> set[str]:
-    """从当前商品窗口获取可配送的供给。"""
-    return {row["object_id"] for row in observation["interaction_bindings"]
-            if row["kind"] == "supply"
-            and any(action.get("fulfillment") == "delivery" for action in row["actions"])}
+def test_multiple_food_rows_pay_one_fee_one_transfer_and_one_delivery(monkeypatch):
+    import worldmock.life.basket as basket
+
+    semantics, state = registered_world()
+    calls = []
+    original = basket.settle_money_transfer
+
+    def record(*args):
+        calls.append(args[1:])
+        return original(*args)
+
+    monkeypatch.setattr(basket, "settle_money_transfer", record)
+    request = order_request(foods=("beef-noodles", "chips", "lemon-tea"))
+    outcome = purchase_order(state, semantics, 1, request)
+    goods = sum(semantics.catalog.foods[item.food_id].price_fen for item in request.items)
+    assert outcome.total_price_fen == goods + 500
+    assert [row.delivery_fee_fen for row in outcome.orders] == [500, 0, 0]
+    assert sum(row.total_price_fen for row in outcome.orders) == outcome.total_price_fen
+    assert len(calls) == len(outcome.scheduled) == 1
+    assert calls[0][:3] == ("agent:1", "merchant:noodle-1", goods + 500)
+    first = apply_scheduled_effect(at_time(outcome.state, outcome.orders[0].expected_at), outcome.scheduled[0], semantics)
+    second = apply_scheduled_effect(WorldState.model_validate_json(first.state.model_dump_json()), outcome.scheduled[0], semantics)
+    assert second.data["inventory_changes"] == []
+    assert second.state.agents[1].inventory["home"] == {item.food_id: state.agents[1].inventory["home"].get(item.food_id, 0) + 1 for item in request.items}
 
 
-def _browse(engine) -> None:
-    """通过可读商品目录浏览活动取得具体门店供给；浏览按计划结束即成待收尾，当秒收尾（规格第七章）。"""
-    _, result = _observed_action(engine, "browse", "start_activity",
-                                 lambda observed: _choice(observed, "browse"))
-    assert result.status == "in_progress", result.error_code
-    advance_next(engine)
-    assert engine.context.state.activities[result.activity_id].status == "completed"
-    assert conclude_pending(engine, "browse-end").status == "completed"
+@pytest.mark.parametrize("purchase_request,code", [
+    (order_request(app="eleme"), "APP_NOT_BOUND"),
+    (order_request(store="noodle-2", app="meituan"), "FULFILLMENT_NOT_SUPPORTED"),
+    (order_request(store="noodle-2", destination="noodle-2", app="meituan", fulfillment="pickup"), "SUPPLY_SOURCE_MISMATCH"),
+    (order_request(destination="unknown"), "DESTINATION_NOT_FOUND"),
+    (order_request(foods=("beef-noodles", "beef-noodles")), "ORDER_DUPLICATE_ITEM"),
+    (order_request(foods=("rice-ball",)), "SUPPLY_NOT_FOUND"),
+])
+def test_purchase_rejection_is_atomic_with_the_exact_code(purchase_request, code):
+    semantics, state = registered_world("noodle-2")
+    before = state.model_dump_json()
+    with pytest.raises(BusinessRuleError, match=code):
+        purchase_order(state, semantics, 1, purchase_request)
+    assert state.model_dump_json() == before
 
 
-def _selected_supply(engine, product_id: str):
-    """明确选择测试使用的集市供给；商品本身不携带商家或报价。"""
-    return next(item for item in engine.context.scenario.supplies
-                if item.product_id == product_id and item.location_id == "market")
+def test_insufficient_funds_rejects_the_entire_multi_food_order():
+    semantics, state = registered_world(balance=3300)
+    before = state.model_dump_json()
+    with pytest.raises(BusinessRuleError, match="INSUFFICIENT_FUNDS"):
+        purchase_order(state, semantics, 1, order_request(foods=("beef-noodles", "chips")))
+    assert state.model_dump_json() == before
 
 
-def _delivery_request(engine, product_id: str) -> PurchaseOrderRequest:
-    """按所选供给的当前世界报价形成送货到家的整单请求。"""
-    supply = _selected_supply(engine, product_id)
-    quote = engine.context.state.supply_quotes[supply.supply_id]
-    return PurchaseOrderRequest(
-        items=(PurchaseItem(supply_id=supply.supply_id, quantity=1, price_version=quote.price_version,
-                            recipient_id="agent:1"),),
-        fulfillment=FulfillmentKind.DELIVERY, destination_id="home")
-
-
-def test_browse_purchase_replay_uses_one_canonical_payment(engine_factory) -> None:
-    """可读目录浏览后购买只扣款一次，重放不重复付款。"""
-    engine = engine_factory()
-    _stage_open(engine)
-    stage_day_plan(engine)
-    before = engine.observe(context(engine, "before-browse"))
-    assert before["supplies"] == []
-    product = engine.context.scenario.products[0]
-    supply = _selected_supply(engine, product.product_id)
-    bring_to_window(engine, (supply.supply_id,))  # 浏览窗口的换新名额留给这条最久未呈现的供给
-    _browse(engine)
-    request = _choice(engine.observe(context(engine, "purchase-preview")),
-                      "purchase", supply.supply_id, "delivery")
-    balances = dict(engine.context.state.accounts)
-    price = engine.context.state.supply_quotes[supply.supply_id].price_fen
-    stock = engine.context.state.supply_stock[supply.supply_id]
-    observation, result = _observed_action(engine, "buy", "start_activity", request)
-    assert supply.supply_id in {row["supply_id"] for row in observation["supplies"]}
-    assert {row["supply_id"] for row in observation["supplies"]} <= engine.context.state.agents[1].visible_supply_ids
-    assert result.status == "completed"
-    assert engine.context.state.accounts["agent:1"] == balances["agent:1"] - price
-    assert engine.context.state.accounts[supply.seller_account_id] == (
-        balances[supply.seller_account_id] + price)
-    assert engine.context.state.supply_stock[supply.supply_id] == stock - 1
-    assert len(engine.context.state.deliveries) == 1
-    money_events = [event for event in engine.context.store.read_agent_events("action_result", 1)
-                    if event.action_id == "action-buy" and event.data.get("resource_changes")]
-    assert len(money_events) == 1
-    assert sum(money_events[0].data["resource_changes"].values()) == 0
-    assert all("resource_changes" not in event.data
-               for event in engine.context.store.read_agent_events("action_accepted", 1))
-
-    # 下单是瞬时动作：没有进行中活动，同一秒再决策；浏览收尾轮、下单轮与重放轮各计一轮同刻轮数，
-    # 重放按存档结果仍在同一秒再决策（第一章规则 2、9；第七章「这一轮计入同刻轮数」）。
-    assert engine.context.state.agents[1].next_decision_at == engine.context.state.current_time
-    assert engine.context.state.agents[1].same_moment_rounds == 2
-    snapshot = (dict(engine.context.state.accounts), dict(engine.context.state.supply_stock), dict(engine.context.state.deliveries))
-    _observed_action(engine, "buy-replay", "start_activity", request, action_id="action-buy")
-    assert (engine.context.state.accounts, engine.context.state.supply_stock, engine.context.state.deliveries) == snapshot
-    assert engine.context.state.agents[1].next_decision_at == engine.context.state.current_time
-    assert engine.context.state.agents[1].same_moment_rounds == 3
-    assert engine.context.state.agents[1].pending_wake_reasons == ["no_active_activity"]
-    all_money = [event for event in engine.context.store.read_agent_events("action_result", 1)
-                 if event.action_id == "action-buy" and event.data.get("resource_changes")]
-    assert len(all_money) == 1
-
-
-
-def test_food_progress_persists_partial_quantity_across_pause_and_completion(engine_factory) -> None:
-    """持有 2 份开吃 1 份（库存 1，opened 1）：进食按实际进度累加已吃份量和热量，不再扣库存；暂停重复结算不抹去或重复
-    已吃部分（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「进食」）。"""
-    engine = engine_factory()
-    product = engine.context.scenario.products[0]
-    request = ConsumeRequest(items=(ConsumeItem(product_id=product.product_id, quantity=1),), use_mode="eat",
-                             duration_seconds=product.use_duration_seconds)
-    from worldmock.life.basket import apply_meal_progress, open_meal
-
-    agent, opened = open_meal(engine.context.state.agents[1].model_copy(
-        update={"inventory": {"home": {product.product_id: 2.0}}}, deep=True), request)
-    assert agent.inventory["home"][product.product_id] == pytest.approx(1)
-    activity = ActivityState(
-        activity_id="food-progress", agent_id=1, location_id=agent.location_id,
-        kind="consume", status=ActivityStatus.ACTIVE,
-        started_at=0, planned_end_at=900, last_settled_at=450, elapsed_seconds=450,
-        planned_duration_seconds=900, target_id=product.product_id,
-        origin_action_id="eat", origin_decision_id="eat-decision",
-        origin_request_event_id="eat-request", data={"request": request.model_dump(mode="json"), "opened": opened})
-
-    first = apply_meal_progress(agent, engine.context.rules.products, activity, engine.context.scenario.body)
-    assert activity.data["consumed"][product.product_id] == pytest.approx(0.5)
-    assert first.inventory["home"][product.product_id] == pytest.approx(1)
-    paused = activity.model_copy(update={"status": ActivityStatus.PAUSED}, deep=True)
-    repeated = apply_meal_progress(first, engine.context.rules.products, paused, engine.context.scenario.body)
-    assert repeated == first
-    assert paused.data["consumed"][product.product_id] == pytest.approx(0.5)
-    completed = paused.model_copy(update={"status": ActivityStatus.COMPLETED, "ended_at": 900,
-                                          "last_settled_at": 900, "elapsed_seconds": 900}, deep=True)
-    final = apply_meal_progress(repeated, engine.context.rules.products, completed, engine.context.scenario.body)
-    assert completed.data["consumed"][product.product_id] == pytest.approx(1)
-    assert final.inventory["home"][product.product_id] == pytest.approx(1)
-
-
-def test_remote_inventory_is_not_a_current_interactive_object(engine_factory) -> None:
-    """人在办公室时，家里的商品以「持有物：<商品>（<地点>）」列出，使用标不可用并写明只能在当地用；提交以
-    PRODUCT_NOT_HELD 拒绝、原因一字不差；不存在的名称仍以 ACTION_REQUEST_INVALID 拒绝，库存不变。"""
-    engine = engine_factory()
-    product = engine.context.scenario.products[0]
-    staged = engine.context.state.model_copy(deep=True)
-    agent = staged.agents[1].model_copy(
-        update={"location_id": "office", "inventory": {"home": {product.product_id: 1.0}}}, deep=True)
-    staged.agents[1] = agent
-    staged.version += 1
-    event = EventDraft(event_type="environment_event", occurred_at=staged.current_time,
-                       visibility="system", data={"kind": "test_remote_inventory"})
-    engine.context.store.commit(staged.model_dump(mode="json"), [event])
-    engine.context.state = staged
-    stage_day_plan(engine)
-    observed = engine.observe(context(engine, "remote-preview"))
-    (away,) = [row for row in observed["interaction_bindings"]
-               if row["kind"] == "holding" and row["object_id"] == product.product_id]
-    home = next(item.name for item in engine.context.scenario.locations if item.location_id == "home")
-    assert away["location_id"] == "home" and away["object"] == f"持有物：{product.name}（{home}）"
-    way = away["actions"][0]["label"]
-    reason = f"This item is at {home} and must be used there."
-    assert [item["note"] for item in away["actions"]] == [reason] * len(away["actions"])
-    _, refused = _observed_action(engine, "remote-use", "start_activity", start_activity(way, away["object"]))
-    assert (refused.status, refused.error_code, refused.data["reason"]) == ("rejected", "PRODUCT_NOT_HELD", reason)
-    request = start_activity("食用", "家里的食物")
-    _, result = _observed_action(engine, "remote-eat", "start_activity", request)
-    assert result.status == "rejected" and result.error_code == "ACTION_REQUEST_INVALID"
-    assert engine.context.state.agents[1].inventory["home"][product.product_id] == 1
-
-
-def test_delivery_replay_does_not_duplicate_inventory(engine_factory) -> None:
-    """同一配送到期事件重复处理只返回已交付订单，不再次增加库存。"""
-    engine = engine_factory()
-    _stage_open(engine)
-    product = engine.context.scenario.products[0]
-    from worldmock.life.basket import purchase_order
-
-    outcome = purchase_order(engine.context.state, engine.context.semantics, 1,
-                             _delivery_request(engine, product.product_id))
-    order_id = outcome.orders[0].order_id
-    outcome.state.current_time = outcome.orders[0].expected_at
-    first, order = deliver_order(outcome.state, order_id)
-    second, replayed = deliver_order(first, order_id)
-    assert order.status == replayed.status == "delivered"
-    assert first.agents[1].inventory == second.agents[1].inventory
-    assert second.agents[1].inventory["home"][product.product_id] == 1
-
-
-def _multi_browse(engine) -> None:
-    """让同轮人物经可读商品目录真实发现供给。"""
-    for agent_id in engine.scheduling_state().ready_agent_ids:
-        stage_day_plan(engine, agent_id)
-    ready = engine.scheduling_state().ready_agent_ids
-    contexts = {agent_id: context(engine, "multi-browse", agent_id) for agent_id in ready}
-    engine.begin_decision_round([contexts[agent_id] for agent_id in ready])
-    observations = {agent_id: engine.observe(ctx) for agent_id, ctx in contexts.items()}
-    for agent_id in reversed(ready):
-        request = _choice(observations[agent_id], "browse")
-        engine.submit_action(DirectToolCall(contexts[agent_id], f"browse-{agent_id}",
-                                            "start_activity", request))
-    results = engine.commit_decision_round("multi-browse")
-    assert all(result.status == "in_progress" for result in results)
-    advance_next(engine)
-    _conclude_round(engine, "multi-browse-end")
-
-
-def _compete_for_last_item(engine, arrival_order: tuple[int, int]) -> tuple[int, int, dict[int, str]]:
-    """通过真实多人轮结算最后一件库存并返回胜者和逐人物结果。"""
-    previews = {agent_id: engine.observe(context(engine, "stock-preview", agent_id))
-                for agent_id in engine.scheduling_state().ready_agent_ids}
-    common = _delivery_supply_ids(previews[1]) & _delivery_supply_ids(previews[2])
-    assert common, "both agents must see a shared deliverable supply"
-    supply_id = sorted(common)[0]
-    staged = engine.context.state.model_copy(deep=True)
-    staged.supply_stock[supply_id] = 1
-    staged.version += 1
-    event = EventDraft(event_type="environment_event", occurred_at=staged.current_time,
-                       visibility="system", data={"kind": "test_last_stock"})
-    engine.context.store.commit(staged.model_dump(mode="json"), [event])
-    engine.context.state = staged
-    ready = engine.scheduling_state().ready_agent_ids
-    contexts = {agent_id: context(engine, "stock-race", agent_id) for agent_id in ready}
-    engine.begin_decision_round([contexts[agent_id] for agent_id in ready])
-    observations = {agent_id: engine.observe(ctx) for agent_id, ctx in contexts.items()}
-    for agent_id in arrival_order:
-        request = _choice(observations[agent_id], "purchase", supply_id, "delivery")
-        engine.submit_action(DirectToolCall(contexts[agent_id], f"buy-{agent_id}",
-                                            "start_activity", request))
-    results = engine.commit_decision_round("stock-race")
-    statuses = {item.agent_id: item.status.value for item in results}
-    winner = next(agent_id for agent_id, status in statuses.items() if status == "completed")
-    return ready[0], winner, statuses
-
-
-def test_multi_person_stock_competition_uses_seeded_order_not_arrival(engine_factory) -> None:
-    """最后一件共享库存归预先公布顺序首人，颠倒请求到达不改变结果。"""
-    first = engine_factory("multi-person.json")
-    second = engine_factory("multi-person.json")
-    for engine in (first, second):
-        _stage_open(engine)
-        supply = _selected_supply(engine, engine.context.scenario.products[0].product_id)
-        for agent_id in engine.context.state.agents:
-            bring_to_window(engine, (supply.supply_id,), agent_id)
-        _multi_browse(engine)
-    expected_one, winner_one, statuses_one = _compete_for_last_item(first, (1, 2))
-    expected_two, winner_two, statuses_two = _compete_for_last_item(second, (2, 1))
-    assert expected_one == expected_two
-    assert winner_one == winner_two == expected_one
-    assert statuses_one == statuses_two
-    assert sorted(statuses_one.values()) == ["completed", "rejected"]
-
-
-def test_pending_delivery_is_private_to_its_owner(engine_factory) -> None:
-    """共享世界中的待配送订单只出现在下单人物自己的观察。"""
-    engine = engine_factory("multi-person.json")
-    _stage_open(engine)
-    _multi_browse(engine)
-    ready = engine.scheduling_state().ready_agent_ids
-    contexts = {agent_id: context(engine, "private-order", agent_id) for agent_id in ready}
-    engine.begin_decision_round([contexts[agent_id] for agent_id in ready])
-    observations = {agent_id: engine.observe(contexts[agent_id]) for agent_id in ready}
-    supply_id = sorted(_delivery_supply_ids(observations[1]))[0]
-    requests = {1: ("start_activity", _choice(
-                    observations[1], "purchase", supply_id, "delivery")),
-                2: ("start_activity", start_activity("等待", "自己"))}
-    for agent_id in reversed(ready):
-        tool, request = requests[agent_id]
-        engine.submit_action(DirectToolCall(contexts[agent_id], f"private-{agent_id}", tool, request))
-    engine.commit_decision_round("private-order")
-    assert observations[1]["pending_deliveries"] == observations[2]["pending_deliveries"] == []
-    owner = engine.observe(context(engine, "owner-after", 1))
-    other = engine.observe(context(engine, "other-after", 2))
-    assert len(owner["pending_deliveries"]) == 1
-    assert other["pending_deliveries"] == []
+def test_self_delivery_during_travel_is_refused_before_any_payment():
+    semantics, state = registered_world()
+    trip = plan_trip(semantics.catalog.graph, "home", "office", "walking")
+    _, activity = start_activity(state.agents[1], ActivityStartParams(activity_type="travel", destination_id="office",
+        travel_mode="walking", planned_duration_seconds=trip.duration_seconds), state.current_time,
+        ActivityOrigin("a", "d", "r"), semantics.body)
+    state.activities[activity.activity_id] = activity
+    before = state.model_dump_json()
+    with pytest.raises(PreconditionError, match="ACTIVITY_PRECONDITION_UNMET") as failure:
+        purchase_order(state, semantics, 1, order_request())
+    assert failure.value.unmet == ["delivery_destination"]
+    assert failure.value.public_reason == "Place the order before departing or after arriving."
+    assert state.model_dump_json() == before

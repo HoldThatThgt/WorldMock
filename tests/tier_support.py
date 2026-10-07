@@ -305,9 +305,6 @@ class _Calls:
             if mutation is not None:
                 self.markers.add("mutation")
             return _UNKNOWN
-        if name.startswith("textworld."):
-            self.markers.add("external")
-            return _UNKNOWN
         if name in {"subprocess.run", "subprocess.call", "subprocess.Popen", "subprocess.check_call",
                     "subprocess.check_output", "asyncio.create_subprocess_exec", "asyncio.create_subprocess_shell"}:
             command = args[0] if args else keywords.get("args", _UNKNOWN)

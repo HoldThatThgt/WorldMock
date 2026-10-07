@@ -6,11 +6,10 @@ from worldmock.catalog.affordances import engine_affordances
 from worldmock.life.vocabulary import way_options
 from worldmock.life.vocabulary import NAMED_PURCHASE_WAYS
 
-from worldmock.base_models import StrictModel, FrozenModel, CurvePoint, EfficiencyFactor
-from worldmock.errors import reject_value
+from worldmock.base_models import StrictModel, FrozenModel
+from worldmock.errors import IntegrityError
 import logging
 import re
-from datetime import date, datetime
 from enum import StrEnum
 from collections.abc import Callable, Sequence
 from typing import Annotated, Any, Literal
@@ -33,7 +32,7 @@ from worldmock.scheduling.events import ScheduledEvent
 #: 版本 8（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「版本」）新增 SessionState.opened_by_action_id 与
 #: ActivityState.paused_at，观察改为七层数据；版本 9（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-事件检查点与恢复 ）新增只存未完成个人事务的
 #: AgentState.errands。
-WORLD_SCHEMA_VERSION = 9
+WORLD_SCHEMA_VERSION = 10
 
 #: 普通活动的派生时长上限。
 DERIVED_DURATION_CAP_SECONDS = 86400
@@ -48,46 +47,6 @@ _LOGGER = logging.getLogger(__name__)
 
 
 
-
-
-def _require_source_aware(value: datetime) -> None:
-    """@brief 来源与时态声明的时刻必须明确时区。"""
-    if value.tzinfo is None or value.utcoffset() is None:
-        reject_value("Map timestamps must be timezone-aware")
-
-
-class DataSource(FrozenModel):
-    """@brief 一份事实或场景假设的来源、许可与适用边界。"""
-
-    kind: Literal["fact", "scenario"]
-    url: str = Field(pattern=r"\S")
-    retrieved_at: datetime
-    license: str = Field(pattern=r"\S")
-    notice: str = Field(pattern=r"\S")
-    fact_cutoff: date
-    applicability: str = Field(pattern=r"\S")
-
-    @model_validator(mode="after")
-    def validate_source(self) -> "DataSource":
-        """@brief 来源取得时间必须明确时区。"""
-        _require_source_aware(self.retrieved_at)
-        if self.fact_cutoff > self.retrieved_at.date():
-            reject_value("Source fact cutoff cannot follow retrieval date")
-        return self
-
-
-class OpeningInterval(FrozenModel):
-    """@brief 当地自然日起算的营业分钟区间；结束超过午夜表示跨日。"""
-
-    opens: int = Field(ge=0, lt=1440)
-    closes: int = Field(gt=0, le=2880)
-
-    @model_validator(mode="after")
-    def validate_interval(self) -> "OpeningInterval":
-        """@brief 营业区间必须正向且最多延续二十四小时。"""
-        if not self.opens < self.closes <= self.opens + 1440:
-            reject_value("Opening interval must be positive and at most one day")
-        return self
 
 
 def purpose_only_schema(purpose: str | None = None) -> Callable[[dict[str, Any]], None]:
@@ -196,11 +155,9 @@ class ActivityKind(StrEnum):
     WAIT = "wait"
     SLEEP = "sleep"
     WORK = "work"
-    WATCH = "watch"
-    PLAY_GAME = "play_game"
+    USE_APP = "use_app"
     TRAVEL = "travel"
     READ_MAIL = "read_mail"
-    BROWSE = "browse"
     CONSUME = "consume"
     # 生活活动（corpora/lifestyle/）经 lifestyle:<activity_id> 子类型机制提交：
     # kind 统一为 LIFESTYLE，具体条目放在 target_id，MET 按 lifestyle 键查表。
@@ -246,7 +203,6 @@ class ActivityChange(StrEnum):
     PAUSE = "pause"
     RESUME = "resume"
     CANCEL = "cancel"
-    CHANGE_SPEED = "change_speed"
 
 
 class FulfillmentKind(StrEnum):
@@ -263,12 +219,6 @@ class TravelMode(StrEnum):
     WALKING = "walking"
 
 
-class ContractKind(StrEnum):
-    """@brief 工作合同的计酬方式。"""
-
-    PACKAGE = "package"
-    HOURLY = "hourly"
-    PIECE = "piece"
 
 
 
@@ -303,9 +253,9 @@ class BodyState(StrictModel):
 class ContentProgress(StrictModel):
     """@brief 人物对一个内容项目的实际接触进度。"""
 
-    item_id: str = Field(min_length=1)
+    content_id: str = Field(min_length=1)
     position_seconds: float = Field(ge=0)
-    exposure_count: int = Field(ge=0)
+    completed_rounds: int = Field(ge=0)
 
 
 class SessionStatus(StrEnum):
@@ -326,8 +276,17 @@ class SessionTaskKind(StrEnum):
     """@brief 活动关联的任务类型闭集（从原会话移到活动）。"""
 
     GOAL = "goal"
-    WORK_TASK = "work_task"
+    WORK_TOPIC = "work_topic"
     NONE = "none"
+
+
+class AppPush(StrictModel):
+    """@brief 当前地点或路途会话内的一条应用推送及其消费状态。"""
+
+    push_id: str = Field(min_length=1)
+    content_id: str = Field(min_length=1)
+    issued_at: int = Field(ge=0)
+    status: Literal["pending", "opened", "released"]
 
 
 class SessionState(StrictModel):
@@ -353,6 +312,8 @@ class SessionState(StrictModel):
     activity_ids: list[str] = Field(default_factory=list)
     name: str = Field(pattern=r"\S")
     opened_by_action_id: str | None = Field(default=None, min_length=1)
+    #: 本会话已发出的应用推送；已释放条目仍保留，阻止同应用再次推送。
+    app_pushes: dict[str, AppPush] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_session(self) -> "SessionState":
@@ -373,6 +334,8 @@ class SameMomentStage(StrEnum):
     """@brief 同刻受限轮阶段闭集（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「规则」3 与「实现约定」）。
 
     未达同刻上限时为 open；达到上限后每个受限轮只开放一类动作，阶段依赖上一受限轮的结果，时钟推进复位为 open。
+    暂停的活动不占名额以后，阶梯不再按名额分流：resume_or_conclude 与 conclude_only 留在闭集中（世界结构版本仍为 9），
+    现行阶梯不再进入它们（docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-裁决记录 R2）。
     只开放等待的阶段随世界结构版本 8 删除（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「失败后强制等待与跨决策预算」）。
     """
 
@@ -390,16 +353,10 @@ class AgentState(StrictModel):
     name: str = Field(min_length=1)
     location_id: str = Field(min_length=1)
     balance_account_id: str = Field(min_length=1)
-    skill_levels: dict[str, float] = Field(default_factory=dict)
-    qualifications: tuple[str, ...] = ()
-    # 内容口味权重（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」）：卡片口味 x 条目 genre[] 的确定性匹配，
-    # 取代已删除的随机偏好浮点；引擎路径在卡片持久化入库前为空映射（缺项 0）。
-    taste_weights: dict[str, float] = Field(default_factory=dict)
     body: BodyState
     inventory: dict[str, dict[str, float]] = Field(default_factory=dict)
     active_effects: set[str] = Field(default_factory=set)
     body_settled_at: int = Field(ge=0)
-    delivered_warning_signatures: set[str] = Field(default_factory=set)
     next_decision_at: int = Field(ge=0)
     # 连续业务拒绝次数：只作动机层挫败感的输入，不参与唤醒与冷却。
     consecutive_rejections: int = Field(default=0, ge=0)
@@ -409,14 +366,11 @@ class AgentState(StrictModel):
     content_progress: dict[str, ContentProgress] = Field(default_factory=dict)
     read_message_ids: set[str] = Field(default_factory=set)
     visible_message_ids: set[str] = Field(default_factory=set)
-    visible_task_ids: set[str] = Field(default_factory=set)
-    visible_supply_ids: set[str] = Field(default_factory=set)
     # 决策节律簿记（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「决策节律：结算边界与唤醒条件分离」）
     # ：滞回参照=上次实际提供决策时的分级。
     last_decision_time: int | None = Field(default=None, ge=0)
     felt_bands_at_last_decision: dict[str, str] = Field(default_factory=dict)
     people_at_last_decision: frozenset[str] = frozenset()
-    known_task_ids: set[str] = Field(default_factory=set)
     pending_wake_reasons: list[str] = Field(default_factory=list)
     # 当日目标只记录人物自我承诺和实际推进证据，不驱动活动执行。
     day_plan: DayPlan | None = None
@@ -433,21 +387,11 @@ class AgentState(StrictModel):
     mood_updated_at: int | None = Field(default=None, ge=0)
     discomfort_started_at: int | None = Field(default=None, ge=0)
     discomfort_pulse_hours: float = Field(default=0.0, ge=0)
-    # 供给可见期按实际呈现记账；商品身份不能授权另一门店的供给。
-    supply_browsed_at: dict[str, int] = Field(default_factory=dict)
-    supply_browsed_location: dict[str, str] = Field(default_factory=dict)
-    # 工作材料增量揭示账（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「观察投影行为规则」）：
-    # 自上次决策以来新读到的区间，单次 ≤2000 字符。
-    material_reveals: list[dict[str, Any]] = Field(default_factory=list)
 
     @field_serializer(
         "active_effects",
         "read_message_ids",
         "visible_message_ids",
-        "visible_task_ids",
-        "visible_supply_ids",
-        "known_task_ids",
-        "delivered_warning_signatures",
         "plan_submitted_dates",
         "read_inbox_ids",
         "people_at_last_decision",
@@ -473,14 +417,12 @@ class ActivityState(StrictModel):
     last_settled_at: int = Field(ge=0)
     elapsed_seconds: int = Field(ge=0)
     planned_duration_seconds: int = Field(gt=0)
-    effective_work_seconds: float = Field(default=0, ge=0)
     media_position_seconds: float = Field(default=0, ge=0)
     route_progress_meters: float = Field(default=0, ge=0)
     next_interaction_at: int | None = Field(default=None, ge=0)
     target_id: str | None = None
     destination_id: str | None = None
     travel_mode: TravelMode | None = None
-    playback_speed: float = Field(default=1, ge=0.5, le=2)
     resource_claims: set[str] = Field(default_factory=set)
     origin_action_id: str = Field(min_length=1)
     origin_decision_id: str = Field(min_length=1)
@@ -536,39 +478,41 @@ CONCLUDABLE_TERMINAL_STATUSES = frozenset({ActivityStatus.COMPLETED, ActivitySta
 
 
 def _validate_task_reference(kind: SessionTaskKind, reference: str | None, intent: str | None) -> None:
-    """@brief 活动的任务类型与引用配对：none 时无引用，goal/work_task 必带引用，goal 的意图等于引用。"""
+    """@brief 活动的任务类型与引用配对：none 时无引用，goal/work_topic 必带引用，goal 的意图等于引用。"""
     if kind == SessionTaskKind.NONE and reference is not None:
         raise ValueError("task_ref must be null when task_kind is none")
     if kind != SessionTaskKind.NONE and reference is None:
-        raise ValueError("task_ref required for goal and work_task")
+        raise ValueError("task_ref required for goal and work_topic")
     if kind == SessionTaskKind.GOAL and intent != reference:
         _LOGGER.error("Goal activity intent disagrees with its task reference")
         raise ValueError("goal activity intent must match task_ref")
 
 
 class DeliveryState(StrictModel):
-    """@brief 购买后等待履约的订单状态。"""
+    """@brief 注册食品购买后的固定价订单和图上履约证据。"""
 
     order_id: str = Field(min_length=1)
     agent_id: int = Field(gt=0)
-    product_id: str = Field(min_length=1)
-    supply_id: str = Field(min_length=1)
-    location_id: str = Field(min_length=1)
+    food_id: str = Field(min_length=1)
+    store_id: str = Field(min_length=1)
+    app_id: str | None
     seller_account_id: str = Field(min_length=1)
-    price_version: str = Field(min_length=1)
-    route_id: str | None
-    source: dict[str, Any]
     quantity: int = Field(gt=0)
+    unit_price_fen: int = Field(gt=0)
+    delivery_fee_fen: int = Field(ge=0)
+    total_price_fen: int = Field(ge=0)
     destination_id: str = Field(min_length=1)
     fulfillment: FulfillmentKind
-    created_at: int = Field(ge=0)
-    expected_at: int = Field(gt=0)
-    status: Literal["pending", "ready", "delivered", "cancelled"]
-    total_price_fen: int = Field(ge=0)
-    # 收货人（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「来源与去向」）：同世界人物为 agent:<id>，联系人为联系人身份；
-    # 付款人仍是 agent_id。request_message_id 为 answering 关联的直接消息。
     recipient_id: str = Field(min_length=1)
     request_message_id: str | None = None
+    created_at: int = Field(ge=0)
+    expected_at: int = Field(ge=0)
+    status: Literal["pending", "ready", "delivered", "cancelled"]
+    path: tuple[str, ...]
+    #: 到店无行程；配送使用图上现有出行方式的稳定行程身份。
+    trip_id: str | None
+    distance_meters: int = Field(ge=0)
+    prep_seconds: int = Field(ge=0)
 
 
 class StoredAction(StrictModel):
@@ -597,8 +541,6 @@ class PendingAction(StrictModel):
     request_sha256: str = Field(min_length=64, max_length=64)
     requested_event_id: str = Field(min_length=1)
     reused: bool = False
-    work_review: dict[str, Any] | None = None
-    work_review_event_id: str | None = None
 
 
 class DecisionRoundState(StrictModel):
@@ -611,40 +553,13 @@ class DecisionRoundState(StrictModel):
     pending_actions: list[PendingAction] = Field(default_factory=list)
 
 
-class SupplyQuoteState(StrictModel):
-    """@brief 保存本次实际生效的门店报价和来源，恢复时不重新推断初值。"""
-
-    price_fen: int = Field(gt=0)
-    price_version: str = Field(pattern=r"\S")
-    effective_from: int = Field(ge=0)
-    effective_to: int | None = Field(ge=0)
-    source: dict[str, Any]
-
-    @model_validator(mode="after")
-    def validate_interval(self) -> "SupplyQuoteState":
-        """@brief 拒绝空或倒置的报价生效区间。"""
-        if self.effective_to is not None and self.effective_to <= self.effective_from:
-            _LOGGER.error("Supply quote effective interval is invalid")
-            raise ValueError("supply quote effective interval is invalid")
-
-
-        try:
-            DataSource.model_validate(self.source)
-        except ValueError as error:
-            _LOGGER.error("Supply quote source is invalid: %s", error)
-            raise ValueError("supply quote source is invalid") from error
-        return self
-
-
 class SameMomentPresentation(StrictModel):
     """@brief 一个人物本秒的呈现暂存（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「同一秒内的呈现与「刚才」」）。
 
-    stamps 为本秒各轮实际呈现的对象→时刻，时钟推进时才并入 presentation_state；pinned_supply_ids 为本秒首轮
-    置顶的浏览结果，同一秒后续各轮继续置顶。
+    stamps 为本秒各轮实际呈现的对象到时刻映射，时钟推进时才并入 presentation_state。
     """
 
     stamps: dict[str, int]
-    pinned_supply_ids: tuple[str, ...] = ()
 
 
 class WorldState(StrictModel):
@@ -661,9 +576,6 @@ class WorldState(StrictModel):
     content_manifest_sha256: str = Field(min_length=64, max_length=64)
     agents: dict[int, AgentState]
     accounts: dict[str, int]
-    supply_stock: dict[str, int]
-    supply_quotes: dict[str, SupplyQuoteState | None]
-    opening_exceptions: dict[str, dict[str, list[tuple[int, int]]]]
     activities: dict[str, ActivityState] = Field(default_factory=dict)
     sessions: dict[str, SessionState] = Field(default_factory=dict)
     deliveries: dict[str, DeliveryState] = Field(default_factory=dict)
@@ -671,7 +583,6 @@ class WorldState(StrictModel):
     contact_holdings: dict[str, dict[str, float]] = Field(default_factory=dict)
     pending_events: list[ScheduledEvent] = Field(default_factory=list)
     processed_actions: dict[str, StoredAction] = Field(default_factory=dict)
-    paid_task_ids: set[str] = Field(default_factory=set)
     #: 呈现派生量（docs/CONTRACTS.md#contracts-worldmock-接口合同「派生量字段」）：按（人物, 对象标识）记录上次呈现
     #: 时刻（UTC 纪元秒），是曝光轮转的判据，不含任何偏好推断。
     presentation_state: dict[int, dict[str, int]] = Field(default_factory=dict)
@@ -680,10 +591,6 @@ class WorldState(StrictModel):
     random_seed: int
     random_state: str = Field(min_length=1)
 
-    @field_serializer("paid_task_ids", when_used="json")
-    def serialize_world_sets(self, value: set[str]) -> list[str]:
-        """@brief 按稳定顺序编码世界结算集合。"""
-        return sorted(value)
 
     @model_validator(mode="after")
     def validate_world(self) -> "WorldState":
@@ -692,12 +599,6 @@ class WorldState(StrictModel):
             raise ValueError("world current time exceeds experiment end")
         if any(value < 0 for value in self.accounts.values()):
             raise ValueError("world account balance cannot be negative")
-        if any(value < 0 for value in self.supply_stock.values()):
-            _LOGGER.error("World supply stock cannot be negative")
-            raise ValueError("world supply stock cannot be negative")
-        if self.supply_stock.keys() != self.supply_quotes.keys():
-            _LOGGER.error("World supply stock and quote identities differ")
-            raise ValueError("world supply stock and quote identities differ")
         for agent_id, agent in self.agents.items():
             if agent_id != agent.agent_id:
                 raise ValueError("world agent mapping identity mismatch")
@@ -706,10 +607,8 @@ class WorldState(StrictModel):
                 raise ValueError("agent body settlement is ahead of world time")
             if any(quantity < 0 for inventory in agent.inventory.values() for quantity in inventory.values()):
                 raise ValueError("agent inventory quantity cannot be negative")
-            _validate_supply_visibility(agent, self)
         _validate_activity_collection(self)
         _validate_session_collection(self)
-        _validate_opening_exceptions(self.opening_exceptions)
         return self
 
 
@@ -782,55 +681,15 @@ def _validate_session_collection(state: WorldState) -> None:
 def _expected_activity_claims(activity: ActivityState) -> set[str]:
     """@brief 从唯一注册表和社交活动声明恢复每项权威资源占用。"""
     if activity.kind in {ActivityKind.CHAT, ActivityKind.CALL}:
-
         return set(SOCIAL_RESOURCE_CLAIMS)
-
     mode = activity.travel_mode.value if activity.travel_mode is not None else None
-    content_kind = activity.data.get("content_kind") if activity.kind == ActivityKind.WATCH else None
-    try:
-        return set(engine_affordances().resource_claims(activity.kind.value, travel_mode=mode,
-                                                         content_kind=content_kind))
-    except (KeyError, ValueError) as error:
-        _LOGGER.error("World activity kind or travel mode has no resource declaration")
-        raise ValueError("world activity resource declaration is invalid") from error
-
-
-def _validate_supply_visibility(agent: AgentState, state: WorldState) -> None:
-    """@brief 每条可见供给必须有自己的呈现时刻与地点，不得借另一条供给延长有效期。"""
-    identities = set(agent.visible_supply_ids)
-    if (identities != set(agent.supply_browsed_at) or identities != set(agent.supply_browsed_location)
-            or not identities <= state.supply_stock.keys()
-            or any(not 0 <= value <= state.current_time for value in agent.supply_browsed_at.values())
-            or not set(agent.supply_browsed_location.values()) <= state.opening_exceptions.keys()):
-        _LOGGER.error("Supply visibility records have inconsistent identities or timestamps")
-        raise ValueError("supply visibility records are inconsistent")
-
-
-def _validate_opening_exceptions(exceptions: dict) -> None:
-    """@brief 恢复时核验日期和营业分钟区间，不接受损坏或互相矛盾的世界事实。"""
-
-
-    try:
-        for dates in exceptions.values():
-            for key, intervals in dates.items():
-                if date.fromisoformat(key).isoformat() != key:
-                    raise ValueError("opening exception date must use canonical ISO format")
-                values = [
-                    OpeningInterval(opens=start, closes=end) for start, end in intervals]
-                ordered = sorted(values, key=lambda item: item.opens)
-                if any(left.closes > right.opens for left, right in zip(ordered, ordered[1:])):
-                    raise ValueError("opening exception intervals overlap")
-    except ValueError as error:
-        _LOGGER.error("World opening exceptions are invalid: %s", error)
-        raise ValueError("world opening exceptions are invalid") from error
+    return set(engine_affordances().resource_claims(activity.kind.value, travel_mode=mode))
 
 
 _TARGETED_ACTIVITY_KINDS = frozenset({
     ActivityKind.WORK,
-    ActivityKind.WATCH,
-    ActivityKind.PLAY_GAME,
+    ActivityKind.USE_APP,
     ActivityKind.READ_MAIL,
-    ActivityKind.BROWSE,
     ActivityKind.LIFESTYLE,
 })
 
@@ -842,7 +701,7 @@ class ActivityStartParams(FrozenModel):
     planned_duration_seconds: int = Field(gt=0, le=DERIVED_DURATION_CAP_SECONDS)
     target_id: str | None = Field(
         default=None,
-        description="Required for work, watch, play_game, read_mail, browse, and lifestyle.",
+        description="Required for work, use_app, read_mail, and lifestyle.",
     )
     destination_id: str | None = Field(
         default=None,
@@ -852,7 +711,6 @@ class ActivityStartParams(FrozenModel):
         default=None,
         description="Required for travel.",
     )
-    playback_speed: float = Field(default=1, ge=0.5, le=2)
 
     @model_validator(mode="after")
     def validate_target(self) -> "ActivityStartParams":
@@ -866,37 +724,24 @@ class ActivityStartParams(FrozenModel):
 
 
 class ChangeActivityRequest(FrozenModel):
-    """@brief 领域内部统一暂停、恢复、退出或变更播放速度。"""
+    """@brief 领域内部统一暂停、恢复或退出。"""
 
     activity_id: str = Field(min_length=1)
     operation: ActivityChange
-    playback_speed: float | None = Field(
-        default=None,
-        ge=0.5,
-        le=2,
-        description="Required only when operation is change_speed.",
-    )
     resume_cap_seconds: int | None = Field(
         default=None,
         ge=60,
         description="Resume only: the longest remaining run from now (work deadline and contract limit).",
     )
 
-    @model_validator(mode="after")
-    def validate_speed(self) -> "ChangeActivityRequest":
-        """@brief 只允许变速操作携带速度。"""
-        needs_speed = self.operation == ActivityChange.CHANGE_SPEED
-        if needs_speed != (self.playback_speed is not None):
-            raise ValueError("playback_speed is required only for change_speed")
-        return self
 
 
 class PurchaseItem(FrozenModel):
-    """@brief 一笔订单中明确选定的门店供给、数量、收货人与所回应的消息（没有时为 None）。"""
+    """@brief 同一订单明确选择的店铺、食品、数量和收货人。"""
 
-    supply_id: str = Field(pattern=r"\S")
+    store_id: str = Field(pattern=r"\S")
+    food_id: str = Field(pattern=r"\S")
     quantity: int = Field(gt=0, le=100)
-    price_version: str = Field(pattern=r"\S")
     recipient_id: str = Field(pattern=r"\S")
     request_message_id: str | None = None
 
@@ -919,6 +764,7 @@ class PurchaseOrderRequest(FrozenModel):
     ]
     fulfillment: Literal["delivery", "pickup"]
     destination_id: str = Field(pattern=r"\S")
+    app_id: str | None
 
 
 class ConsumeItem(FrozenModel):
@@ -1048,31 +894,8 @@ class StartSocialActivityRequest(FrozenModel):
     duration_minutes: int = Field(gt=0, le=120)
 
 
-class MeetingMinutes(FrozenModel):
-    """@brief AMI 会议整理任务公开要求的结构化成果。"""
-
-    model_config = ConfigDict(json_schema_extra=purpose_only_schema("会议纪要的摘要、决定与行动项。"))
-    summary: str = Field(pattern=r"\S")
-    decisions: tuple[Annotated[str, Field(pattern=r"\S")], ...]
-    action_items: tuple[Annotated[str, Field(pattern=r"\S")], ...]
-
-    @model_validator(mode="after")
-    def validate_text(self) -> "MeetingMinutes":
-        """@brief 拒绝空白摘要、决定或行动项。"""
-        values = (self.summary, *self.decisions, *self.action_items)
-        if any(not value.strip() for value in values):
-            raise ValueError("meeting minutes text must not be blank")
-        return self
 
 
-class SubmitWorkRequest(FrozenModel):
-    """@brief 提交符合当前 AMI 合同公开 Schema 的会议纪要。"""
-
-    task_id: str = Field(pattern=r"\S")
-    deliverable: Annotated[
-        MeetingMinutes,
-        WithJsonSchema(MeetingMinutes.model_json_schema(mode="validation")),
-    ]
 
 
 #: 会话进展自述的字符上限（DeepSeek strict 禁 maxLength；由 model_validator 执行）。
@@ -1134,12 +957,6 @@ class StartActivityRequest(ToolRequestModel):
         return prefer
 
 
-class SubmitWorkActionRequest(ToolRequestModel):
-    """@brief 按人物可读任务名称提交工作成果。"""
-
-    model_config = ConfigDict(json_schema_extra=purpose_only_schema())
-    task_name: str = Field(pattern=r"\S")
-    deliverable: Annotated[MeetingMinutes, WithJsonSchema(MeetingMinutes.model_json_schema(mode="validation"))]
 
 
 class SendMessageActionRequest(ToolRequestModel):
@@ -1331,7 +1148,7 @@ class ReportStatusRequest(ToolRequestModel):
 
 
 class PauseActivityRequest(ToolRequestModel):
-    """@brief 逐项写下人物自述并暂停所选进行中活动；暂停仍占名额，路上的活动不能暂停（一项一个对象）。
+    """@brief 逐项写下人物自述并暂停所选进行中活动；暂停让出名额，恢复要有空名额，路上的活动不能暂停（一项一个对象）。
 
     :param items: 本次暂停的一至两项，每项写活动名与进展自述。
     :param errands: 请求级的个人事务变更，零至四条（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 ）。
@@ -1463,7 +1280,7 @@ class ActivityConclusionItem(ToolRequestModel):
 
 
 class ConcludeActivityRequest(ToolRequestModel):
-    """@brief 逐项写下总结、记忆与看法并结束所选活动（进行中、暂停中或刚结束待收尾），结束后释放名额；一项一个对象
+    """@brief 逐项写下总结、记忆与看法并结束所选活动（进行中、暂停中或刚结束待收尾），进行中与待收尾的结束后释放名额；一项一个对象
     （docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第六章）。
 
     :param items: 本次结束的一至两项；全部项的 memories 与 views 合计不超过八条。
@@ -1541,7 +1358,6 @@ def rejection_reason_text(error: Exception) -> str:
 
 REQUEST_MODELS: dict[str, type[FrozenModel]] = {
     "start_activity": StartActivityRequest,
-    "submit_work": SubmitWorkActionRequest,
     "send_message": SendMessageActionRequest,
     "recall_task_summary": RecallTaskSummaryRequest,
     "report_status": ReportStatusRequest,
@@ -1597,3 +1413,19 @@ def _validate_deepseek_object(value: dict[str, Any], path: str) -> None:
         raise ValueError(f"DeepSeek strict object properties are not all required at {path}")
     if value.get("additionalProperties") is not False:
         raise ValueError(f"DeepSeek strict object is not closed at {path}")
+
+
+def validated_payload(state: WorldState) -> dict:
+    """@brief 序列化并按加载口径复校世界状态，域不变量违规即拒绝。
+
+    @param state 待写入的世界状态实例
+    @return 已通过 WorldState.model_validate 复校的 JSON 载荷
+    @exception IntegrityError 五条域不变量任一不成立
+    """
+    payload = state.model_dump(mode="json")
+    try:
+        WorldState.model_validate(payload)
+    except ValueError as error:
+        raise IntegrityError(
+            f"World state invariant violated before persisting: {error}") from error
+    return payload

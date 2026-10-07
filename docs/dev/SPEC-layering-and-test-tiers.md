@@ -1,8 +1,12 @@
 <a name="spec-layering-and-test-tiers-代码分层文档引用与测试分层开发规格"></a>
 # 代码分层、文档引用与测试分层开发规格
 
+> 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题依赖边界。
+
+> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「测试只读输入缓存、生活引擎的职责对象、行为不变基线、生产依赖方向」（阶段 1）与「快速、标准与全量层」（阶段 4）。
+
 > 状态：FROZEN；本次完整实现的开发合同，验收证据另行登记。
-> 日期：2026-10-05。
+> 日期：2026-10-07。
 > 代码基线：2cf230115f4084aef2376e9d77bc976efbed43ea。
 > 来源：`docs/dev/PROPOSAL_2026-10-04_LAYERING_AND_TEST_TIERS.md`；本文完成实现细节裁定。
 > 范围：消除生产依赖环、拆分生活引擎、解除文档与源码位置耦合、冻结输入测试缓存、测试分层和统一运行入口。
@@ -70,16 +74,18 @@ flowchart TD
 | --- | --- |
 | 交互方式、动作词表 | `life/vocabulary.py`；模型校验、名称解析、菜单、拒绝和路由统一导入 |
 | 地点名称写法 | 已有 `life/object_labels.py`；名称解析与路由统一导入 |
-| 来源与营业区间基础类型 | 基础类型模块；`models` 与 `map_models` 从同一处导入 |
+| 环境基础模型与地点闭集 | `catalog.models` 与 `exchange.types`；目录与场景统一导入，不维持独立地图/供给模型合同 |
 | 社交占用及效率常量 | 已有纯函数模块 `life/social.py` |
 | 时间文字与状态替换 | `life/readable.py` 与 `life/world_ops.py` |
-| 场景读取、语义组装、准入和工作材料校验 | 顶层 `life/world_setup.py` 编排；底层解析和语义模块不回调装配层 |
+| 场景读取、语义组装、准入和工作主题分配校验 | 顶层 `life/world_setup.py` 编排；底层解析和语义模块不回调装配层 |
 | 足迹分支恢复 | `footprints/checkpoint.py` 编排，`store.py` 只承担存取 |
 | 时间线渲染加载 | 由时间线渲染所属底层模块承担，不回调导出编排 |
 | 进程配置、运行与阶段身份、人物输入准备 | `worldmock/run_setup.py`；提取实际依赖闭包，不能与 `validation` 重新成环 |
 | 画像覆盖目标纯构造 | 独立画像基础模块；输入准备与校验共用，不借用上层运行入口 |
 
 入口和定义搬移必须同步所有调用方、monkeypatch 位置、突变登记、代码文档引用及现行设计说明。
+
+CLI、validation 与 runtime 的纯分支收集不加载完整 `LifeEngine`、EngineContext、读取查询运行时或 AS2 链；运行分支按具名本地导入隔离。不得用假 schema、假目录或兼容别名掩盖真实依赖，纯加载与实际环境命令必须同时通过。
 
 <a name="layering-engine"></a>
 ## 生活引擎的职责对象
@@ -96,7 +102,6 @@ flowchart TB
     FACADE --> DEC[DecisionCoordinator<br/>决策轮次与请求受理]
     FACADE --> ACTION[ActionHandlers<br/>活动、消费、工作与社交动作]
     FACADE --> CLOCK[TimeAdvanceCoordinator<br/>时钟、活动推进与零点边界]
-    FACADE --> WORK[WorkReviewCoordinator<br/>准备、调用与工作验收]
     FACADE --> EVIDENCE[ModelEvidenceRecorder<br/>模型往来与记忆证据]
     ACTION --> STORE[StorefrontRuntime<br/>门店访问、报价与购买]
     CONTEXT --> RECORD[FootprintStore<br/>唯一持久提交]
@@ -107,10 +112,12 @@ flowchart TB
 职责对象持有上下文和明确需要的具名协作者，不允许 `__getattr__`、字段转发、整门面注入或旧私有方法代理。
 
 决策轮次与延迟决策开始归决策协调；呈现及可见供给暂存归观察构造；待提交动作事件归动作处理；
-工作验收器归工作验收协调；请求事件索引归证据登记；零点边界归时间推进。
+工作主题准入与播报回执归动作处理，实际工时累计与完成事件归时间推进；请求事件索引归证据登记；零点边界归时间推进。
 初始化、重新打开、检查点、反事实干预与关闭按实际职责由门面编排，不另立状态权威。
 活动快照、名称和用餐窗口等纯投影下沉所属模块。
 `continuation`、`rhythm` 和环境的只读查询必须接收所需状态或具名协作者，不回调引擎私有方法。
+
+资源与规则引擎简化不扩大 `EngineContext` 字段集；既有语义持有新 `Catalog`，地点活动环境由固定类型派生。目录对象、绑定与规则身份改写不建立第二份世界状态；工作主题累计由活动事实派生，不恢复已删除的评审协调对象。
 
 <a name="layering-documents"></a>
 ## 现行文档与历史证据
@@ -148,6 +155,8 @@ flowchart TB
 合同提示与工具说明只在 `CONTRACTS.md` 保留权威文本，测试与模型常量比对这一份。
 行为验收、阶段裁定和突变语义台账变成 `tests/` 下机器数据；测试不从增量散文解析验收表、
 不逐字拼回突变句、不比对非权威提示副本。已有要求与行为证据不能因移除散文解析而消失。
+现行特性集合由 `tests/fixtures/acceptance_requirements.json` 与 `current-feature-owners.json` 一致性核对，接纳资源与规则简化；归档原文断言仅覆盖已经归档的五份历史增量。原始变异字节证明仅核对当前登记与固定历史基线的非空交集，已退役的历史变异不要求继续在当前生产实现中存在；历史基线文件字节不变。
+
 原来「必须存在」的生产文本钉改为接口导入或 AST 结构检查；已有行为证据足够的文本钉直接删除。
 「必须不存在」检查覆盖相关生产包，不能挪到另一文件就通过。
 类型模块路径与 `__file__` 的文字断言改为类型或行为断言；正当风格、错误合同等结构门禁继续保留。
@@ -170,13 +179,13 @@ flowchart TB
 运行身份从场景 JSON 读取人物身份、起止时刻和时区，不为生成身份完整组装世界。
 缓存只用于测试工厂的人工最小环境或显式 `--environment-root` 指定的冻结输入，不增加生产缓存入口；
 正式来源、数量与重建验收归 Dataset，引擎保留通用行为验证。
-缓存键覆盖场景、目录、地图、手机配置、语料清单及其所有实际文件的相对路径和真实字节，
+缓存键覆盖结构 7 场景、七份目录 JSON、三份包 TOML、生活活动语料清单及其所有实际文件的相对路径和真实字节，
 不能仅检查声明摘要、mtime 或场景文件；输入字节变化必须使缓存失效。
 只在工厂调用期间替换加载引用，不影响直接生产新建与恢复入口。
 
 可变的 document、scenario、body、accounts 每次交给用例前复制；
-catalog、travel_time_profile、motivation_transforms、affordances 等分支先递归证实不可变才共享。
-字幕条目不可变才可共享。每个用例仍新建世界状态、事件暂存、日志与足迹存储。
+catalog、motivation_transforms、affordances 等分支先递归证实不可变才共享。
+生活活动条目递归不可变才可共享。每个用例仍新建世界状态、事件暂存、日志与足迹存储。
 mutate 场景和临时输入不走正式输入缓存，场景副本使用相对资源路径；可变工作区以普通独立 `copy2`
 复制资源，不通过硬链接共享仓库输入，修改副本不得改变源文件字节。
 会话末守卫重新核对输入字节摘要与缓存对象摘要；共享对象被污染必须失败。
@@ -188,7 +197,7 @@ mutate 场景和临时输入不走正式输入缓存，场景副本使用相对�
 根 `conftest.py` 在收集后按实际 fixture 依赖及静态调用边界自动生成 `engine`、`mutation`、`day_run`、`external` 标记。
 引擎夹具使用者及直接驱动 LifeEngine/LifeEnv 的用例标为 engine；实际源码变异执行标为 mutation，
 登记格式与定位检查不带 mutation；完整自然日和多日运行标为 day_run；
-需要 Node、LabelKit 独立环境或 TextWorld 执行的用例标为 external。
+需要 Node 或 LabelKit 独立环境的用例标为 external。app 使用与 app 内容用例按是否直接驱动生活引擎归入普通或 engine 集合，不设专属外部测试层。
 新增相关用例须自动归类，不要求作者手写标记；不得把整个测试文件的格式守卫误归为变异执行。
 
 | 层 | 用例集合 | 使用时机 |
@@ -249,11 +258,13 @@ summary、worker 选择清单及完成回执的运行身份与节点多重集；
 保留原有 61 个业务断言并使用相同的测试身份固定与摘要规范化；不能从合并后输出重录基线。
 共享特性授权的目录身份和记忆归属变化由这两份来源分别表达；两份历史证明及其签名实现保持原始字节。
 
-[环境数据归属规格](SPEC-environment-data-ownership.md)将场景发布为结构 6，并把标题、活动效果及正式世界
+[环境数据归属规格](SPEC-environment-data-ownership.md)的后续资源与规则引擎简化修订将场景发布为结构 7，并把标题、活动效果及正式世界
 归入数据仓。输入格式和冻结身份因此改变，当前输出不能与旧格式摘要宣称逐字节相同。
 当前完整日仍执行原有 61 条业务断言、真实人物循环、检查点与重新打开；完整导出使用实际存储逐字段核对
 事件、活动、运行清单与检查点，用原始哈希核验场景、资产和检查点内容，并重建逐人逐日时间线比较全部正文。
 数据仓负责当前正式输入的冻结、来源质量及逐字节重建；当前完整性验收不作为跨版本输出摘要相同的证明。
+
+结构 7 当前完整日允许冻结第三份 `dayrun-resource-rule-baseline.json`：同一人工场景与种子真实运行两次，候选全部一致后发布；两份历史 JSON 字节保持。当前活动与导出核验不等同于跨版本旧摘要一致，第三份基线的运行与冻结在阶段 8 执行。
 
 <a name="layering-files"></a>
 ## 文件修改清单与所属文档
@@ -266,7 +277,7 @@ summary、worker 选择清单及完成回执的运行身份与节点多重集；
 | 当前权威 | `docs/INDEX.md`、`ARCHITECTURE.md`、`CONTRACTS.md`、`VERIFICATION.md`、`EXPERIMENT.md`、`docs/dev/implementation-status.md`、`coverage-baseline.md`、`ANALYSIS-spec-coverage.md`；当前基础 SPEC 与手册同步所属正文和引用 |
 | 总体设计 | `docs/design/00-overview.md`、`01-architecture.md`：唯一状态权威、门面与职责对象和单向依赖 |
 | 交换与资源设计 | `docs/design/02-exchange-engine.md`、`03-resource-engine.md`：纯规则和基础词表、类型与资源装配边界 |
-| 模拟设计 | `docs/design/04-simulation-engine.md`：上下文、职责对象、观察、受理、推进、工作验收和证据登记实际调用关系 |
+| 模拟设计 | `docs/design/04-simulation-engine.md`：上下文、职责对象、观察、受理、活动与工作主题推进和证据登记的实际调用关系 |
 | 记录设计 | `docs/design/05-recording-engine.md`：恢复由检查点编排、存储只存取、时间线加载归属和行为摘要证据 |
 | 交付与评估设计 | `docs/design/06-delivery.md`、`07-evaluation.md`：现行正文引用、身份边界与完整验收证据；不改业务规则 |
 | 配置与格式设计 | `docs/design/08-configuration.md`、`09-io-formats.md`：相对路径、冻结输入和身份不变；不增加运行配置或持久字段 |
@@ -331,3 +342,7 @@ summary、worker 选择清单及完成回执的运行身份与节点多重集；
 
 | 共享规则整合 | 2026-10-05 | 保留唯一测试入口和原文件权重调度，覆盖率入口核验同次全量回执，零跳过、非空集合与失效证据失败关闭 |
 | 整合门禁与完整日来源 | 2026-10-05 | 明确同次运行及覆盖摘要绑定、真实输入与完整阶段；保留主线历史基线并以隔离共享特性双跑冻结现行完整日回归来源 |
+| `2026-10-06-rrs-0` | 2026-10-07 | 随资源与规则简化冻结扩展现行特性集合；归档原文与固定历史变异保留身份，当前变异守卫按有效登记交集核对 |
+| `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
+| `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：删除 TextWorld 外部测试分类，app 使用与 app 内容按真实引擎依赖归入现有测试层。 |
+| `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题依赖边界 |

@@ -7,14 +7,10 @@ docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章）、私有�
 
 from __future__ import annotations
 from worldmock.life.world_query import attach_world_query
-from worldmock.life.models import MeetingMinutes
-from worldmock.life.work import visible_work_material
 import logging
-from worldmock.life.work import work_totals as totals
 from worldmock.life.models import ActivityKind, ActivityStatus
 from worldmock.life.models import LIFESTYLE_TYPE_PREFIX
 from worldmock.life.readable import _datetime
-from worldmock.life.content import SubtitleCue
 from math import ceil
 from worldmock.life.models import ActivityKind
 
@@ -27,6 +23,7 @@ from worldmock.life.engine_context import EngineContext
 from worldmock.life.activity_titles import activity_title
 from worldmock.life.world_ops import agent_config
 from worldmock.footprints.experiences import recent_verified_experiences
+from worldmock.life.admission import present_location
 from worldmock.life import (
     activity_control,
     callable_index,
@@ -40,19 +37,17 @@ from worldmock.life import (
     projection,
     relevance,
     request_linking,
+    sessions,
 )
-from worldmock.life.models import ActivityStatus, ContentProgress, SameMomentPresentation
+from worldmock.life.models import ActivityStatus, SameMomentPresentation, TravelMode
 from worldmock.life.motivation import MotivationContext, evaluate_motivation
 from worldmock.life.models import active_activities
 from worldmock.life.interaction_menu import resolve_interaction_menu
-from worldmock.life.inventory_recipe import is_inventory_recipe
 from worldmock.life.recipients import person_bindings
 from worldmock.life.presentation import PoolEntry, PresentationContext, PresentationWindow
 from worldmock.life.candidates import Exclusion
-from worldmock.life.work import task_listed, work_totals
-from worldmock.life.result_projection import browse_results, public_supply_row
+from worldmock.life.work import work_totals
 from worldmock.life.content import mail_headers
-from worldmock.life.environment_layer import environment_layer
 from worldmock.life.todo_layer import todo_layer, visible_goals
 from worldmock.life.tool_layer import LayerContext, annotated_bindings, tool_layer, with_bindings
 
@@ -64,7 +59,6 @@ class ObservationBuilder:
         """@brief 绑定唯一状态并独立创建观察暂存。"""
         self.context = context
         self.pending_presentation: dict[int, SameMomentPresentation] = {}
-        self.pending_visible_supplies: dict[int, set[str]] = {}
 
     def _observation_data(self, agent) -> dict:
         """@brief 一次观察：七层数据（工具层、待办层、环境层、进度层、记忆层）、私有绑定（含可见直接消息的 message_bindings，
@@ -72,21 +66,19 @@ class ObservationBuilder:
 
         商品呈现经统一候选契约产出，呈现后由 `_presentation_stamps` 留痕轮转判据；留痕按人物暂存，同一秒各轮沿用该秒首轮的
         呈现窗口与置顶的浏览结果。进度层、progress_meta 只供宿主当次使用（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「进度层」）。
-        工具层另附只列名称的可调用索引（callable_index：内容、游戏与生活活动窗口资格段保留的全部条目，此刻从这里能得到的
+        工具层另附只列名称的可调用索引（callable_index：生活活动窗口资格段保留的全部条目，此刻从这里能得到的
         商品，docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引 ）：它不是候选条目，不计入单次呈现上限，也不写呈现留痕。
         """
         config = agent_config(self.context.scenario, agent.agent_id)
         meal_windows = felt.MealWindows(lunch=config.lunch_window, dinner=config.dinner_window)
-        pinned = self._pinned_supply_ids(agent.agent_id)
-        rows = self._window_rows(agent, pinned)
+        rows = self._window_rows(agent)
         menu = self._menu_windows(agent)
         presented = rows["window"].presented + tuple(
             (identity for window in menu.values() for identity in window.presented)
         )
         self.pending_presentation[agent.agent_id] = SameMomentPresentation(
-            stamps=_presentation_stamps(self.context.state, presented), pinned_supply_ids=pinned
+            stamps=_presentation_stamps(self.context.state, presented, self.context.semantics.catalog)
         )
-        self.pending_visible_supplies[agent.agent_id] = set(rows["window"].presented)
         task_rows = tuple(self._visible_task_rows(agent))
         experiences = recent_verified_experiences(self.context.store, agent.agent_id, self.context.store.last_event_seq)
         inputs = projection.ProjectionInputs(
@@ -115,7 +107,7 @@ class ObservationBuilder:
         """@brief 本次观察各层共用的只读上下文：活动名避开任务名、目标名（待办层的目标文字）与对象名，绑定动作的 note 取
         可用性原因。"""
         goals = [goal.goal for goal in visible_goals(self.context.state, agent.agent_id) or ()]
-        taken = [f"工作：{row['title']}" for row in task_rows] + goals + [row["object"] for row in bindings]
+        taken = [f"工作：{row['topic']}" for row in task_rows] + goals + [row["object"] for row in bindings]
         context = LayerContext(
             state=self.context.state,
             scenario=self.context.scenario,
@@ -135,6 +127,8 @@ class ObservationBuilder:
         """@brief 环境侧构建的层数据与私有配套：工具层（附只列名称的可调用索引 index）、记忆层（memory，由已提交事件派生）
         与看法偏好，全文已呈现的消息含进度层与记忆层两处；answering 可关联的直接消息（message_bindings）只含进度层
         message_arrival 与记忆层中未回复的，按收到先后。"""
+        from worldmock.life.environment_layer import environment_layer
+
         view = progress_layer.progress_view(context, self.context.store, memory.facts)
         presented = list(dict.fromkeys([*view.presented_message_ids, *memory.presented_message_ids]))
         answerable = [*memory.open_message_ids, *view.presented_message_ids]
@@ -176,7 +170,7 @@ class ObservationBuilder:
             for full in names["activities"].values()
         }
         return {
-            "task_bindings": [{"task_name": f"工作：{row['title']}", "task_id": row["task_id"]} for row in task_rows],
+            "task_bindings": [{"task_name": f"工作：{row['topic']}", "topic_id": row["topic_id"]} for row in task_rows],
             "goal_bindings": goals,
             "activity_bindings": [
                 {
@@ -189,42 +183,22 @@ class ObservationBuilder:
                 for (activity_id, name) in names["activities"].items()
             ],
             "person_bindings": person_bindings(self.context.state, agent.agent_id),
-            **errands.bindings(agent, self.context.rules.items),
+            **errands.bindings(agent, self.context.semantics.catalog.foods),
         }
 
     def _projection_extras(self, agent, product_rows: list[dict], menu: dict[str, PresentationWindow]) -> dict:
-        """@brief 装配私有绑定的只读辅助输入：有效菜单（菜单外的能力不列出）、手边持有物中的库存转换配方（列「制作」）、
-        路线、可达地点、本轮呈现的商品、内容、游戏与生活活动，以及活动控制行。"""
+        """@brief 装配私有绑定的只读辅助输入：有效菜单（菜单外的能力不列出）、路线、可达地点、本轮呈现的食品与生活活动，以及活动控制行。"""
         return {
             "interaction_menu": resolve_interaction_menu(self.context.scenario, agent.agent_id, agent.location_id),
-            "recipe_product_ids": self._recipe_product_ids(agent),
             "content_titles": self.context.rules.content_titles,
             "scenario_messages": self.context.rules.messages,
             "route_rows": self._route_rows(agent),
             "reachable_places": self._reachable_places(agent),
             "product_rows": product_rows,
             "activity_rows": self._activity_rows(agent),
-            "content_rows": list(menu["content"].items),
-            "game_rows": list(menu["game"].items),
             "lifestyle_rows": list(menu["lifestyle"].items),
-            "browse_targets": BROWSE_TARGETS,
         }
 
-    def _recipe_product_ids(self, agent) -> frozenset[str]:
-        """@brief 人物各地持有物中 consume:use 规则是库存转换配方的物品（交互对象层据此列 obtain 的「制作」）。"""
-        held = {
-            product_id
-            for holding in agent.inventory.values()
-            for (product_id, quantity) in holding.items()
-            if quantity > 0 and product_id in self.context.rules.items
-        }
-        return frozenset(
-            (
-                product_id
-                for product_id in held
-                if is_inventory_recipe(self.context.semantics.catalog, self.context.rules.items[product_id])
-            )
-        )
 
     def _observation_evidence(self, agent, experiences: list[dict]) -> dict:
         """@brief 观察的数值与身份证据段（不进提示，供事件、唤醒与宿主使用）。
@@ -252,39 +226,17 @@ class ObservationBuilder:
             "hour_of_day": projection.hour_of_day(self.context.state.current_time, self.context.scenario.timezone),
         }
 
-    def _pinned_supply_ids(self, agent_id: int) -> tuple[str, ...]:
-        """@brief 置顶的浏览结果：同一秒后续各轮取该秒首轮的暂存；首轮取本 session 最近一次浏览结果中的供给身份（单项浏览
-        的终态，或同一请求多项活动全部结束后聚合终态中的浏览活动，result_projection.browse_results）。"""
-        staged = self.context.state.same_moment_presentation.get(agent_id)
-        if staged is not None:
-            return staged.pinned_supply_ids
-        (_, lower) = progress_layer.session_bound(self.context.store, self.context.state, agent_id)
-        browsed = [
-            revealed
-            for event in self.context.store.read_agent_events("action_result", agent_id, after=lower)
-            if event.visibility == "agent"
-            for revealed in browse_results(event.data.get("data") or {})
-        ]
-        if not browsed:
-            return ()
-        return tuple(dict.fromkeys((item["supply_id"] for item in browsed[-1]["items"] if "supply_id" in item)))
 
-    def _window_rows(self, agent, pinned: tuple[str, ...]) -> dict:
-        """@brief 观察侧的商品呈现窗口与 facts 行（同一窗口，只算一次）；pinned 为本秒置顶的浏览结果。"""
+    def _window_rows(self, agent) -> dict:
+        """@brief 固定菜单一次形成真实食品呈现窗口，候选排序不读取口味或报价。"""
         context = self._presentation_context(agent)
         entries = self._product_pool(agent)
-        sources = presentation.entry_sources(entries, on_site=_on_site_supplies(self.context, agent))
         inputs = presentation.candidate_inputs(
-            context,
-            sources,
-            moment=False,
-            last_presented_at=self._last_presented(agent.agent_id),
-            relevance=self._relevance(entries, self._relevance_facts(self.context.state, agent)),
-        )
+            context, presentation.entry_sources(entries), moment=False,
+            last_presented_at={entry.object_id: self._last_presented(agent.agent_id).get(
+                entry.row["food_id"], 0) for entry in entries})
         window = presentation.present(entries, inputs, "product", None)
-        window = _shared_supply_window(self._discovery_context(agent), window, pinned)
-        products = [public_supply_row(row) for row in window.items]
-        return {"products": products, "window": window}
+        return {"products": list(window.items), "window": window}
 
     def _menu_windows(self, agent) -> dict[str, PresentationWindow]:
         """@brief 内容、游戏与生活活动三类对象的本轮呈现窗口（交互对象层来源）。
@@ -303,8 +255,6 @@ class ObservationBuilder:
         facts = self._relevance_facts(self.context.state, agent)
         windows: dict[str, PresentationWindow] = {}
         for kind, entries in (
-            ("content", self._content_pool(agent)),
-            ("game", self._game_pool(agent)),
             ("lifestyle", self._lifestyle_pool(agent)),
         ):
             inputs = presentation.candidate_inputs(
@@ -355,29 +305,11 @@ class ObservationBuilder:
         data: dict[str, Any] = {}
         menu = resolve_interaction_menu(self.context.scenario, agent.agent_id, agent.location_id)
         data["interaction_menu"] = menu.model_dump(mode="json")
-        data["content_progress"] = self._content_progress(agent)
-        data["work_progress"] = self._work_progress_rows(agent)
         data["messages"] = mail_headers(agent, self.context.rules.messages)
         data["affordance_contract"] = self.context.affordance_contract
-        visible = set(projection.visible_supplies(self.context.state, agent, self.context.scenario)) | set(presented)
         context = self._discovery_context(agent)
-        data["supplies"] = [
-            discovery.supply_row(context, supply)
-            for supply in sorted(self.context.scenario.supplies, key=lambda item: item.supply_id)
-            if supply.supply_id in visible
-        ]
-        product_ids = {row["product_id"] for row in data["supplies"]}
-        product_ids.update(
-            (product_id for holding in agent.inventory.values() for (product_id, count) in holding.items() if count > 0)
-        )
-        data["products"] = [self._visible_product(item) for item in sorted(product_ids)]
-        data["discovery_catalog"] = {
-            "product_ids": sorted((item.product_id for item in self.context.scenario.products)),
-            "business_kinds": sorted({item.business_kind for item in self.context.scenario.locations}),
-        }
-        market_summary = self._market_summary()
-        if market_summary is not None:
-            data["market_summary"] = market_summary
+        data["foods"] = [food.model_dump(mode="json") for food in self.context.semantics.catalog.foods.values()]
+        data["menus"] = [entry.row for entry in _supply_entries(context)]
         data["activity_summary"] = self._activity_summary(agent)
         data["pending_deliveries"] = [
             item.model_dump(mode="json")
@@ -386,94 +318,74 @@ class ObservationBuilder:
         ]
         data["inventory"] = agent.inventory
         data["available_inventory"] = agent.inventory.get(agent.location_id, {})
-        data["inventory_items"] = self._inventory_item_contracts(agent)
-        data["tasks"] = [
-            self._visible_task(item, agent.agent_id)
-            for item in sorted(agent.visible_task_ids)
-            if item not in self.context.state.paid_task_ids and self._task_listed(item)
-        ]
+        data["held_foods"] = self._inventory_item_contracts(agent)
+        data["work_topics"] = self._work_topic_rows(agent)
         data["routes"] = _route_catalog(
-            self.context.scenario.routes, self.context.state, agent.agent_id, self.context.semantics
+            self.context.scenario, self.context.state, agent.agent_id, self.context.semantics
         )
-        data["game_catalog"] = _game_catalog(self.context.scenario)
-        data["browse_targets"] = list(BROWSE_TARGETS)
+        catalog = self.context.semantics.catalog
+        data["apps"] = [{"app_id": app.app_id, "name": app.name,
+                         "content_count": len(catalog.contents_by_app[app.app_id])}
+                        for app in catalog.apps.values()]
+        data["contents"] = [{"content_id": item.content_id, "title": item.title, "kind": item.kind.value}
+                            for item in catalog.contents.values()]
+        session = sessions.current_session(self.context.state, agent.agent_id)
+        data["app_pushes"] = ({key: push.model_dump(mode="json") for key, push in session.app_pushes.items()}
+                              if session is not None else {})
         data["calendar_context"] = _calendar_context(self.context.scenario, self.context.state.current_time)
         data["locations"] = _location_catalog(self.context.scenario)
         return data
 
-    def _work_progress_rows(self, agent) -> list[dict]:
-        """@brief 工作目录：已投入/有效/合同剩余工时（私有证据；呈现只在工具层任务目标的 contract，docs/CONTRACTS.md#contracts-worldmock-接口合同「七层字段」）。"""
-        rows = []
-        for task_id in sorted(agent.visible_task_ids):
-            if task_id in self.context.state.paid_task_ids:
-                continue
-            task = self.context.rules.tasks[task_id]
-            (worked, effective) = work_totals(self.context.state, agent.agent_id, task_id)
-            rows.append(
-                {
-                    "task_id": task_id,
-                    "worked_seconds": worked,
-                    "effective_seconds": effective,
-                    "remaining_contract_seconds": max(0, task.maximum_duration_seconds - worked),
-                }
-            )
-        return rows
 
-    def _task_listed(self, task_id: str) -> bool:
-        """@brief 未付款任务是否仍列出：截止前，或截止当日的本地日结束前（work.task_listed）。"""
-        return task_listed(
-            self.context.rules.tasks[task_id], self.context.state.current_time, self.context.scenario.timezone
-        )
+
+
+    def _work_topic_rows(self, agent) -> list[dict]:
+        """@brief 私有证据列出本人所有已分配主题与实际累计工时，不复制任务状态。"""
+        config = agent_config(self.context.scenario, agent.agent_id)
+        return [{"topic_id": topic_id, "topic": self.context.rules.work_topics[topic_id].topic,
+                 "target_seconds": self.context.rules.work_topics[topic_id].target_seconds,
+                 "worked_seconds": work_totals(self.context.state, agent.agent_id, topic_id)}
+                for topic_id in sorted(config.work_topic_ids)]
 
     def _visible_task_rows(self, agent) -> list[dict]:
-        """@brief 可见、未结清且仍列出（截止前或截止当日内）的任务行：task_id、标题、截止、剩余合同工时与前置条件字段。
+        """@brief 工具层从运行开始列出已分配且尚未完成的工作主题。"""
+        return [row for row in self._work_topic_rows(agent) if row["worked_seconds"] < row["target_seconds"]]
 
-        未付款的逾期任务保留到截止当日的本地日结束（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第六章「逾期工作从观察和工具中消失」）。
-        """
-        rows = []
-        for task_id in sorted(agent.visible_task_ids):
-            if task_id in self.context.state.paid_task_ids or not self._task_listed(task_id):
-                continue
-            task = self.context.rules.tasks[task_id]
-            due = int(task.due_at.timestamp())
-            (worked, _) = work_totals(self.context.state, agent.agent_id, task_id)
-            rows.append(
-                {
-                    "task_id": task_id,
-                    "title": task.title,
-                    "due_at": due,
-                    "remaining_contract_seconds": max(0, task.maximum_duration_seconds - worked),
-                    "required_location_id": task.required_location_id,
-                    "required_skill": task.required_skill,
-                    "minimum_skill": task.minimum_skill,
-                    "maximum_duration_seconds": task.maximum_duration_seconds,
-                    "required_effective_seconds": task.required_effective_seconds,
-                }
-            )
-        return rows
+    def _motivation_evidence(self, agent) -> tuple:
+        """@brief 动机输入只使用已分配主题、真实请求和实际工作秒数。"""
+        rows = self._visible_task_rows(agent)
+        topics = tuple(self.context.rules.work_topics[row["topic_id"]] for row in rows)
+        requested = self.context.store.read_agent_events("action_requested", agent.agent_id)
+        habit = tuple((event.data.get("tool_name"), event.data.get("request")
+                       if isinstance(event.data.get("request"), dict) else {}) for event in requested)
+        worked = sum(item.elapsed_seconds for item in self.context.state.activities.values()
+                     if item.agent_id == agent.agent_id and item.kind == ActivityKind.WORK
+                     and item.status != ActivityStatus.FAILED)
+        return topics, habit, worked
+
+    def _work_topic_pool(self, agent) -> tuple[PoolEntry, ...]:
+        """@brief 品类摘要由尚未完成主题派生，工作不进入曝光轮转。"""
+        config = agent_config(self.context.scenario, agent.agent_id)
+        workplace = config.work_schedule.workplace_location_id if config.work_schedule is not None else None
+        return tuple(PoolEntry(object_id=row["topic_id"], kind="task", minimum_seconds=60,
+                               maximum_seconds=row["target_seconds"], required_location_id=workplace,
+                               row=row, category=presentation.WORK_TOPIC_CATEGORY)
+                     for row in self._visible_task_rows(agent))
 
     def _route_rows(self, agent) -> list[dict]:
-        """@brief 地点目标的出行方式来源：当前地点出发的每条冻结路线的目的地、方式与状态（只有可达路线列出行动作；
-        路费、时长与费力由工具层按同一路线写进动作）。"""
-        rows = _route_catalog(self.context.scenario.routes, self.context.state, agent.agent_id, self.context.semantics)
-        return [{"destination": row["destination_id"], "mode": row["mode"], "status": row["status"]} for row in rows]
+        """@brief 地点目标的出行方式来自登记图，工具层使用相同行程计算路费、时长与费力。"""
+        rows = _route_catalog(self.context.scenario, self.context.state, agent.agent_id, self.context.semantics)
+        return [{"destination": row["destination_id"], "mode": row["mode"]} for row in rows]
 
     def _reachable_places(self, agent) -> list[dict]:
-        """@brief 场景句只列实际可达地点，营业未知保持为未知；含 location_id 供交互对象层使用。"""
-        destination_ids = {
-            route.destination_id
-            for route in self.context.scenario.routes
-            if route.origin_id == agent.location_id and route.status == "reachable"
-        }
+        """@brief 场景句列出登记连通图中场景所选的其他地点，只包含身份、名称和类型。"""
+        destination_ids = set(self.context.semantics.catalog.graph.shortest_paths(agent.location_id))
+        destination_ids.remove(agent.location_id)
         context = self._discovery_context(agent)
-        rows = [
+        return [
             discovery.place_row(context, location)
             for location in self.context.scenario.locations
             if location.location_id in destination_ids
-        ]
-        return [
-            {"location_id": row["location_id"], "name": row["name"], "opening_status": row["opening_status"]}
-            for row in rows
         ]
 
     def _activity_rows(self, agent) -> dict:
@@ -499,52 +411,21 @@ class ObservationBuilder:
             "data": deepcopy(item.data),
         }
 
-    def _market_summary(self) -> dict | None:
-        """@brief 仅报告市场存在性，不从未呈现供给泄露报价或购买凭据。"""
-        return {"supply_count": len(self.context.scenario.supplies)} if self.context.scenario.supplies else None
 
-    def _visible_task(self, task_id: str, agent_id: int) -> dict:
-        """@brief 返回公开合同、交付 Schema 和仅按实际工作揭示的正文。"""
-        task = self.context.rules.tasks[task_id]
-        data = task.model_dump(mode="json", exclude={"oracle_path", "oracle_sha256", "input_path"})
-        (worked, effective) = work_totals(self.context.state, agent_id, task_id)
-        data["deliverable_schema"] = MeetingMinutes.model_json_schema()
-        data["material"] = visible_work_material(self.context.state, self.context.corpus_root, task, agent_id)
-        data["worked_seconds"] = worked
-        data["effective_seconds"] = effective
-        data["remaining_contract_seconds"] = max(0, task.maximum_duration_seconds - worked)
-        return data
 
-    def _visible_product(self, product_id: str) -> dict:
-        """@brief 商品只保留使用合同，报价和卖方只能从供给行取得。"""
-        return self.context.rules.product(product_id).model_dump(mode="json")
+    def _visible_product(self, food_id: str) -> dict:
+        """@brief 食品事实原样读取唯一目录 Food。"""
+        return self.context.semantics.catalog.foods[food_id].model_dump(mode="json")
 
     def _discovery_context(self, agent) -> discovery.DiscoveryContext:
         """@brief 装配当前观察的地图事实与分时解释入口。"""
         return discovery.DiscoveryContext(self.context.state, self.context.scenario, self.context.semantics, agent)
 
     def _inventory_item_contracts(self, agent) -> list[dict]:
-        """@brief 投影当前地点正库存的使用合同，数量仍由现有库存字段唯一提供。"""
-        fields = {"product_id", "name", "use_modes", "use_duration_seconds", "required_location_id"}
-        holding = agent.inventory.get(agent.location_id, {})
-        return [
-            self.context.rules.product(product_id).model_dump(mode="json", include=fields)
-            for (product_id, quantity) in sorted(holding.items())
-            if quantity > 0
-        ]
+        """@brief 当前地点实际持有的目录食品，不制造耐用品使用合同。"""
+        return [self._visible_product(food_id) for food_id, quantity in sorted(
+            agent.inventory.get(agent.location_id, {}).items()) if quantity > 0]
 
-    def _content_progress(self, agent) -> dict[str, dict]:
-        """@brief 返回人物已观看位置、接触次数、展示标题和当前媒体剩余时长。"""
-        result = {}
-        for item_id, progress in sorted(agent.content_progress.items()):
-            item = self.context.rules.content(item_id)
-            data = progress.model_dump(mode="json")
-            data["remaining_media_seconds"] = max(0.0, item.duration_seconds - progress.position_seconds)
-            title = self.context.rules.content_titles.get(item_id)
-            if title is not None:
-                data["title"] = title
-            result[item_id] = data
-        return result
 
     def _motivation_internal(self, agent) -> dict | None:
         """@brief 计算内部动机仪表（observation.data.motivation_internal，不进提示）。
@@ -578,84 +459,29 @@ class ObservationBuilder:
             return None
 
     def _motivation_context(self, agent, profile) -> MotivationContext:
-        """@brief 从当前世界装配只读动机事实，商品口味与供给报价分别传入。"""
+        """@brief 真实食品候选只读 Catalog、当前场景地点与固定规则，不注入口味或报价。"""
         now = self.context.state.current_time
         config = agent_config(self.context.scenario, agent.agent_id)
-        (tasks, habit, effective_total, requested) = self._motivation_evidence(agent, now)
-        weights = dict(agent.taste_weights)
-        return MotivationContext(
-            agent=agent, balance_fen=self.context.state.accounts[agent.balance_account_id],
-            body=self.context.semantics.body, home_location_id=config.home_location_id,
-            products=tuple(self.context.rules.items.values()),
-            supplies=tuple(
-                (
-                    item
-                    for item in self.context.scenario.supplies
-                    if item.supply_id in projection.visible_supplies(self.context.state, agent, self.context.scenario)
-                )
-            ), supply_stock=self.context.state.supply_stock, supply_quotes=self.context.state.supply_quotes,
-            opening_exceptions=self.context.state.opening_exceptions,
-            locations={item.location_id: item for item in self.context.scenario.locations},
-            routes=self.context.scenario.routes, tasks=tuple(tasks),
-            task_totals={task.task_id: totals(self.context.state, agent.agent_id, task.task_id) for task in tasks},
-            contents=_sample_contents(self.context.scenario.contents, profile, weights),
-            content_category_counts={
-                kind: sum((1 for item in self.context.scenario.contents if item.kind == kind))
-                for kind in {item.kind for item in self.context.scenario.contents}
-            }, content_progress=agent.content_progress,
-            active_activities=active_activities(self.context.state, agent.agent_id), habit_events=habit,
-            consecutive_rejections=agent.consecutive_rejections,
+        topics, habit, worked_total = self._motivation_evidence(agent)
+        catalog = self.context.semantics.catalog
+        return MotivationContext(agent=agent, balance_fen=self.context.state.accounts[agent.balance_account_id],
+            body=self.context.semantics.body, home_location_id=config.home_location_id, catalog=catalog,
+            location_ids=frozenset(place.location_id for place in self.context.scenario.locations),
+            menu=resolve_interaction_menu(self.context.scenario, agent.agent_id, agent.location_id),
+            work_topics=tuple(topics),
+            topic_totals={topic.topic_id: work_totals(self.context.state, agent.agent_id, topic.topic_id)
+                          for topic in topics},
+            workplace_location_id=(config.work_schedule.workplace_location_id
+                                   if config.work_schedule is not None else None),
+            active_activities=active_activities(self.context.state, agent.agent_id),
+            habit_events=habit, consecutive_rejections=agent.consecutive_rejections,
             max_same_moment_decisions=self.context.scenario.max_same_moment_decisions,
-            total_effective_seconds=effective_total,
-            current_time=now,
-            end_time=self.context.state.end_time,
-            timezone=self.context.scenario.timezone,
-            planned_travel_seconds=self.context.semantics.travel_planned_seconds,
-            purchase_amount=self.context.semantics.purchase_amount,
-            purchase_pairing_states={
-                item.product_id: self.context.semantics.purchase_pairing(item.product_id).state.value
-                for item in self.context.scenario.products
-            },
-            catalog_supplies=self.context.scenario.supplies,
-            lifestyle_items=self.context.lifestyle_items,
+            total_work_seconds=worked_total, current_time=now, end_time=self.context.state.end_time,
+            timezone=self.context.scenario.timezone, lifestyle_items=self.context.lifestyle_items,
             activity_location_kinds=self.context.rules.activity_location_kinds,
-            content_segments={
-                item_id: tuple((cue.end_seconds for cue in cues))
-                for (item_id, cues) in self.context.rules.subtitles.items()
-            },
-            taste_weights=weights,
             lifestyle_enabled=config.lifestyle_activities,
-            recent_meal_counts=_recent_meal_counts(self.context.state.activities.values(), agent.agent_id, now),
-        )
+            recent_meal_counts=_recent_meal_counts(self.context.state.activities.values(), agent.agent_id, now))
 
-    def _motivation_evidence(self, agent, now: int) -> tuple:
-        """@brief 汇聚可见任务、习惯事件、请求足迹与有效工时总量（动机输入）。"""
-        tasks = [
-            self.context.rules.tasks[item]
-            for item in sorted(agent.visible_task_ids)
-            if item not in self.context.state.paid_task_ids
-            and now <= int(self.context.rules.tasks[item].due_at.timestamp())
-        ]
-        requested = self.context.store.read_agent_events("action_requested", agent.agent_id)
-        habit = tuple(
-            (
-                (
-                    event.data.get("tool_name"),
-                    event.data.get("request") if isinstance(event.data.get("request"), dict) else {},
-                )
-                for event in requested
-            )
-        )
-        effective_total = sum(
-            (
-                item.effective_work_seconds
-                for item in self.context.state.activities.values()
-                if item.agent_id == agent.agent_id
-                and item.kind == ActivityKind.WORK
-                and (item.status != ActivityStatus.FAILED)
-            )
-        )
-        return (tasks, habit, effective_total, requested)
 
     def _activity_summary(self, agent) -> dict[str, int]:
         """@brief 一行品类计数：五类可选对象各按生成段的池规模报数，明细由下钻读取。
@@ -664,11 +490,9 @@ class ObservationBuilder:
         `foods`、游戏与工作各占一键），因此模型看到的键一定可下钻。
         """
         pools = (
-            self._content_pool(agent),
             self._lifestyle_pool(agent),
-            self._product_pool(agent, menu=True),
-            self._game_pool(agent),
-            self._task_pool(agent),
+            self._product_pool(agent),
+            self._work_topic_pool(agent),
         )
         summary: dict[str, int] = {}
         for pool in pools:
@@ -685,33 +509,6 @@ class ObservationBuilder:
         allowed = set(enabled)
         return tuple((item for item in self.context.lifestyle_items if item.activity_id in allowed))
 
-    def _complete_product_browse(self, state, agent) -> tuple:
-        """@brief 有时长目录浏览完成后仍只呈现一个窗口，并为该窗口保存真实凭据。"""
-        context = PresentationContext(state, self.context.scenario, self.context.semantics, agent)
-        discovery_context = discovery.DiscoveryContext(state, self.context.scenario, self.context.semantics, agent)
-        entries = _supply_entries(discovery_context, {item.supply_id for item in self.context.scenario.supplies})
-        previous = state.presentation_state.get(agent.agent_id, {})
-        inputs = presentation.candidate_inputs(
-            context,
-            presentation.entry_sources(entries),
-            moment=False,
-            last_presented_at=dict(previous),
-            relevance=self._relevance(entries, self._relevance_facts(state, agent)),
-        )
-        window = presentation.present(entries, inputs, "product", None)
-        staged = _stage_presentation(state, agent.agent_id, window)
-        staged = discovery.stage_visible_supplies(staged, agent.agent_id, set(window.presented), self.context.scenario)
-        data = {
-            "action": "browse",
-            "category": presentation.FOOD_CATEGORY,
-            "returned": len(window.items),
-            "total": window.total,
-            "next_cursor": window.next_cursor,
-            "note": _BROWSE_NOTE,
-            "items": list(window.items),
-            "excluded": [item.as_row() for item in window.excluded],
-        }
-        return (staged, data)
 
     def _presentation_context(self, agent) -> PresentationContext:
         """@brief 装配一次呈现所需的只读世界切片。"""
@@ -724,45 +521,10 @@ class ObservationBuilder:
         游标，docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「曝光轮转」）。"""
         return dict(self.context.state.presentation_state.get(agent_id, {}))
 
-    def _product_pool(self, agent, menu: bool = False) -> tuple[PoolEntry, ...]:
-        """@brief 购买候选以供给为身份，口味按商品读取，窗口外供给不授予购买资格。"""
-        visible = (
-            set((item.supply_id for item in self.context.scenario.supplies))
-            if menu
-            else set(projection.visible_supplies(self.context.state, agent, self.context.scenario))
-            | set(_on_site_supplies(self.context, agent))
-        )
-        return _supply_entries(self._discovery_context(agent), visible)
+    def _product_pool(self, agent) -> tuple[PoolEntry, ...]:
+        """@brief 已选门店的固定食品菜单，没有浏览凭据或旧库存状态。"""
+        return _supply_entries(self._discovery_context(agent))
 
-    def _content_pool(self, agent) -> tuple[PoolEntry, ...]:
-        """@brief 内容池：目录全量条目自带题材标签（排序键原料，不参与资格判定）。
-
-        行的其余字段由 `_content_catalog` 同源补齐（分段、标题、进度），因此下钻行形状
-        与既有一致；`category` 取内容品类，是它的下钻键。
-        """
-        rows = {
-            row["item_id"]: row
-            for row in _content_catalog(
-                self.context.scenario,
-                self.context.rules.subtitles,
-                self.context.rules.content_titles,
-                agent.content_progress,
-            )
-        }
-        return tuple(
-            (
-                PoolEntry(
-                    object_id=item.item_id,
-                    kind="content",
-                    bucket=item.item_id,
-                    tags=tuple(getattr(item, "genre", ()) or ()),
-                    row=rows[item.item_id],
-                    category=item.kind,
-                )
-                for item in sorted(self.context.scenario.contents, key=lambda value: value.item_id)
-                if item.kind != presentation.GAME_CATEGORY
-            )
-        )
 
     def _lifestyle_pool(self, agent) -> tuple[PoolEntry, ...]:
         """@brief 生活活动池：只含本人启用集内的目录条目（启用集是世界事实）。"""
@@ -771,7 +533,6 @@ class ObservationBuilder:
                 PoolEntry(
                     object_id=entry.activity_id,
                     kind="lifestyle",
-                    bucket=entry.activity_id,
                     minimum_seconds=60,
                     maximum_seconds=entry.typical_duration_minutes * 60,
                     location_kinds=self.context.rules.activity_location_kinds[entry.activity_id],
@@ -791,72 +552,7 @@ class ObservationBuilder:
             )
         )
 
-    def _game_pool(self, agent) -> tuple[PoolEntry, ...]:
-        """@brief 游戏池：`game_session` 下钻键下的全部条目（内容侧会话 + 场景声明身份）。
 
-        `game_session` 同时是内容品类与游戏身份的下钻键：两者共用同一池与同一键，否则该
-        键下的一半条目没有链路可走（「某一品类走了不经过生成段的枚举路径」即违规）。
-        """
-        rows = {
-            row["item_id"]: row
-            for row in _content_catalog(
-                self.context.scenario,
-                self.context.rules.subtitles,
-                self.context.rules.content_titles,
-                agent.content_progress,
-            )
-        }
-        games = tuple(
-            (
-                PoolEntry(
-                    object_id=item.game_id,
-                    kind="game",
-                    bucket=item.game_id,
-                    row={
-                        "game_id": item.game_id,
-                        "seed": item.seed,
-                        "title": item.title,
-                        "category": presentation.GAME_CATEGORY,
-                    },
-                    category=presentation.GAME_CATEGORY,
-                )
-                for item in self.context.scenario.games
-            )
-        )
-        sessions = tuple(
-            (
-                PoolEntry(
-                    object_id=item.item_id,
-                    kind="game",
-                    bucket=item.item_id,
-                    row=rows[item.item_id],
-                    category=presentation.GAME_CATEGORY,
-                )
-                for item in sorted(self.context.scenario.contents, key=lambda value: value.item_id)
-                if item.kind == presentation.GAME_CATEGORY
-            )
-        )
-        return (*games, *sessions)
-
-    def _task_pool(self, agent) -> tuple[PoolEntry, ...]:
-        """@brief 工作池：本人可见、未结清且仍列出（截止前或截止当日内）的合同。"""
-        rows = []
-        for task_id in sorted(agent.visible_task_ids):
-            if task_id in self.context.state.paid_task_ids or not self._task_listed(task_id):
-                continue
-            rows.append(
-                PoolEntry(
-                    object_id=task_id,
-                    kind="task",
-                    bucket=task_id,
-                    minimum_seconds=60,
-                    maximum_seconds=self.context.rules.tasks[task_id].maximum_duration_seconds,
-                    required_location_id=self.context.rules.tasks[task_id].required_location_id,
-                    row={"task_id": task_id, "category": presentation.TASK_CATEGORY},
-                    category=presentation.TASK_CATEGORY,
-                )
-            )
-        return tuple(rows)
 
     def _snapshot_decision_references(self, staged, agent_ids: list[int]):
         """@brief 决策落定后更新滞回参照：分级/在场人物/已知任务（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「滞回规则」）
@@ -874,39 +570,19 @@ class ObservationBuilder:
                     "last_decision_time": staged.current_time,
                     "felt_bands_at_last_decision": levels,
                     "people_at_last_decision": people,
-                    "known_task_ids": set(agent.visible_task_ids),
                 },
                 deep=True,
             )
         return staged.model_copy(update={"agents": agents}, deep=True)
 
 
-def _route_catalog(routes: tuple, state, agent_id: int, semantics) -> list[dict]:
-    """@brief 返回人物当前位置出发的冻结路线身份和出发时刻报价（事件级；路线与恢复都不查能量）。"""
-    agent, now = state.agents[agent_id], state.current_time
-    fields = {
-        "route_id",
-        "origin_id",
-        "destination_id",
-        "mode",
-        "status",
-        "reason",
-        "distance_meters",
-        "duration_seconds",
-        "fare_fen",
-        "fare_source_kind",
-    }
-    result = []
-    for item in routes:
-        if item.origin_id != agent.location_id:
-            continue
-        data = item.model_dump(mode="json", include=fields)
-        data.update(free_flow_duration_seconds=item.duration_seconds)
-        if item.status == "reachable":
-            planned = semantics.travel_planned_seconds(item.mode.value, item.duration_seconds, now)
-            data.update(duration_seconds=planned, travel_time_factor=semantics.travel_time_factor(item.mode.value, now))
-        result.append(data)
-    return result
+def _route_catalog(scenario, state, agent_id: int, semantics) -> list[dict]:
+    """@brief 返回当前地点到场景所选地点的完整图行程，各方式均使用固定计时计费。"""
+    agent = state.agents[agent_id]
+    context = discovery.DiscoveryContext(state, scenario, semantics, agent)
+    destinations = sorted(item.location_id for item in scenario.locations if item.location_id != agent.location_id)
+    return [discovery.route_row(context, destination, mode.value)
+            for destination in destinations for mode in TravelMode]
 
 
 def _paused_activity_observation(activity) -> dict:
@@ -933,44 +609,13 @@ def _calendar_context(scenario, epoch: int) -> dict:
 
 
 def _location_catalog(scenario) -> list[dict]:
-    """@brief 返回人物能够规划到达和营业条件的地点目录（事件级）。"""
-    fields = {"location_id", "name", "kind", "business_kind", "location_kinds", "longitude", "latitude"}
-    return [item.model_dump(mode="json", include=fields) for item in scenario.locations]
+    """@brief 事件级地点目录只保存登记地点的身份、名称与类型。"""
+    return [{"location_id": item.location_id, "name": item.display_name, "kind": item.kind.value}
+            for item in scenario.locations]
 
 
-def _game_catalog(scenario) -> list[dict]:
-    """@brief 返回可新建 TextWorld 会话的稳定游戏身份（事件级）。"""
-    return [{"game_id": item.game_id, "seed": item.seed} for item in scenario.games]
 
 
-def _content_catalog(scenario, subtitles: dict, titles: dict, progress: dict[str, ContentProgress]) -> list[dict]:
-    """@brief 返回人物可选择内容及其分段结构，不暴露本地路径和哈希。"""
-
-    fields = {"item_id", "kind", "duration_seconds", "entertainment_relief_per_hour", "experience_label"}
-    result = []
-    for item in scenario.contents:
-        data = item.model_dump(mode="json", include=fields)
-        cues = subtitles.get(item.item_id, ())
-        total = len(cues)
-        data["segments_total"] = total
-        data["typical_segment_seconds"] = (
-            round(item.duration_seconds / total, 1) if total else float(item.duration_seconds)
-        )
-        if item.item_id in titles:
-            data["title"] = titles[item.item_id]
-        record = progress.get(item.item_id)
-        if record is not None:
-            completed = sum(1 for cue in cues if cue.end_seconds <= record.position_seconds)
-            data["progress"] = {
-                "position_seconds": record.position_seconds,
-                "remaining_seconds": max(0.0, item.duration_seconds - record.position_seconds),
-                "segments_total": total,
-                "segments_completed": completed,
-                "segments_remaining": max(0, total - completed),
-                "current_segment": min(completed + 1, total),
-            }
-        result.append(data)
-    return result
 
 
 def _recent_meal_counts(activities, agent_id: int, now: int) -> dict[str, int]:
@@ -990,93 +635,33 @@ def _recent_meal_counts(activities, agent_id: int, now: int) -> dict[str, int]:
     return counts
 
 
-def _sample_contents(contents, profile, taste_weights) -> tuple:
-    """@brief 每内容品类按 attention_prior x 口味权重采 top-2，全局按权排序。
-
-    权重唯一源是 taste_weights（确定性，docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」）；空映射时
-    退化为按品类注意力排序（稳定 item_id 决胜），与评分器的零抬升口径一致。
-    """
-
-    def weight(item) -> float:
-        """@brief 品类注意力与确定性口味权重的乘积排序键。"""
-        return profile.attention_prior.get(item.kind, 0) * taste_weights.get(item.item_id, 0.0)
-
-    ranked = sorted(contents, key=lambda item: (-weight(item), item.item_id))
-    per_kind: dict[str, int] = {}
-    sample = []
-    for item in ranked:
-        taken = per_kind.get(item.kind, 0)
-        if taken >= 2:
-            continue
-        per_kind[item.kind] = taken + 1
-        sample.append(item)
-    return tuple(sample)
 
 
 #: 浏览动作的目录对象身份闭集（交互对象层的 catalog 行与事件级支持行同源）。
-BROWSE_TARGETS = ("product_catalog",)
+
 
 #: 目录浏览完成后的提示句（说明窗口里的身份还要经购买时复核）。
-_BROWSE_NOTE = "compare supply_id and current price_version; purchase rechecks stock, access, opening and fulfillment"
 
 
-def _shared_supply_window(
-    context: discovery.DiscoveryContext, window: PresentationWindow, identities: tuple[str, ...]
-) -> PresentationWindow:
-    """@brief 回灌与当前事实共用供给窗口，只有实际呈现身份更新凭据及轮转时间；identities 为置顶的浏览结果。"""
-    if not identities:
-        return window
-    current = {entry.object_id: entry.row for entry in _supply_entries(context, set(identities))}
-    items = [current[identity] for identity in identities]
-    remaining = max(0, context.semantics.candidate_constants.presentation_limit - len(items))
-    items.extend([row for row in window.items if row["supply_id"] not in current][:remaining])
-    shown = tuple(row["supply_id"] for row in items)
-    excluded = [item for item in window.excluded if item.object_id not in shown]
-    excluded.extend(
-        Exclusion(row["supply_id"], "product", "ROTATION_DEFERRED")
-        for row in window.items
-        if row["supply_id"] not in shown
-    )
-    excluded.sort(key=lambda item: (item.kind, item.object_id))
-    return replace(
-        window,
-        items=tuple(items),
-        presented=shown,
-        excluded=tuple(excluded),
-        deferred=tuple(item.object_id for item in excluded if item.reason == "ROTATION_DEFERRED"),
-    )
 
 
-def _supply_entries(context: discovery.DiscoveryContext, visible: set[str]) -> tuple[PoolEntry, ...]:
-    """@brief 把供给比较事实装成统一候选，供观察、下钻和有时长浏览复用。"""
-    entries = []
-    for supply in sorted(context.scenario.supplies, key=lambda item: item.supply_id):
-        if supply.supply_id not in visible:
-            continue
-        row = discovery.supply_row(context, supply)
-        row["category"] = presentation.FOOD_CATEGORY
-        entries.append(
-            PoolEntry(
-                object_id=supply.supply_id,
-                kind="product",
-                bucket=supply.product_id,
-                stock=context.state.supply_stock[supply.supply_id],
-                required_location_id=supply.location_id,
-                minimum_seconds=0,
-                maximum_seconds=row["use_duration_seconds"],
-                row=row,
-                category=presentation.FOOD_CATEGORY,
-            )
-        )
-    return tuple(entries)
+
+def _supply_entries(context: discovery.DiscoveryContext) -> tuple[PoolEntry, ...]:
+    """@brief 把真实固定菜单装成实际食品候选，食品价格只来自 Catalog。"""
+    catalog = context.semantics.catalog
+    selected = {location.location_id for location in context.scenario.locations}
+    present = present_location(context.state, context.agent.agent_id)
+    return tuple(PoolEntry(object_id=f"{store_id}:{food_id}", kind="product",
+                           row=discovery.supply_row(context, store_id, catalog.foods[food_id]),
+                           category=catalog.foods[food_id].category.value)
+                 for store_id, foods in catalog.foods_by_store.items()
+                 if store_id in selected and present is not None
+                 and (store_id == present or catalog.apps_by_store[store_id]) for food_id in foods)
 
 
-def _on_site_supplies(context, agent) -> frozenset[str]:
-    """@brief 当前地点供给只作为生成候选；实际窗口决定购买凭据。"""
-    return frozenset(item.supply_id for item in context.scenario.supplies if item.location_id == agent.location_id)
 
 
-def _presentation_stamps(state, presented: tuple[str, ...]) -> dict[str, int]:
+def _presentation_stamps(state, presented: tuple[str, ...], catalog) -> dict[str, int]:
     """@brief 计算本次呈现的留痕：本人实际进入窗口的对象标识 → 当前时刻。
 
     轮转的判据是「上次呈现时刻」，所以每次呈现都要留痕；留痕是新的派生量取值，但**不
@@ -1089,19 +674,7 @@ def _presentation_stamps(state, presented: tuple[str, ...]) -> dict[str, int]:
     @param presented 本轮实际进入窗口的对象身份（可跨多个分区窗口拼接）。
     @return 对象标识 → 当前时刻；本次没有呈现任何对象时为空字典。
     """
-    return {object_id: int(state.current_time) for object_id in presented}
-
-
-def _stage_presentation(state, agent_id: int, window: PresentationWindow):
-    """@brief 把本次呈现的留痕并入该人物的 `presentation_state`（浏览完成在时钟推进路径上，故可当场落盘）。
-
-    @param state 本次提交的世界状态。
-    @param agent_id 被呈现的对象所属人物。
-    @param window 本次呈现窗口。
-    @return 写入留痕后的世界状态副本。
-    """
-    stamps = _presentation_stamps(state, window.presented)
-    if not stamps:
-        return state
-    presented = {**state.presentation_state, agent_id: {**state.presentation_state.get(agent_id, {}), **stamps}}
-    return state.model_copy(update={"presentation_state": presented}, deep=True)
+    food_ids = {f"{store_id}:{food_id}": food_id for store_id, foods in catalog.foods_by_store.items()
+                for food_id in foods}
+    return {food_ids[object_id] if object_id in food_ids else object_id: int(state.current_time)
+            for object_id in presented}

@@ -23,13 +23,10 @@ from agentsociety2.society import DirectToolCall
 from custom.agents.life_prompt import life_user_layers, user_message
 from tests.footprints.test_quality import _event, _manifest, _started as _started_data
 from tests.life.conftest import (StubPlanDayClient, activity_name, advance_next, conclude_request, context,
-                                 pause_request, report_request, settle_day_plans, stage_day_plan, stage_errands,
+                                 layer_start, pause_request, report_request, settle_day_plans, stage_day_plan, stage_errands,
                                  start_activity, submit_round)
 from tests.life.routing_fixtures import HOME, _keep_busy, stage
-from tests.life.test_errand_completion import MILK_ID
 from tests.life.test_errand_todo_layer import _errand
-from tests.life.test_same_moment_decisions import _invalid_start, _pick
-from tests.life.test_social_rounds import _chat, _chats
 from tests.life.work_schedule_fixtures import declare
 from worldmock.footprints.checkpoint import restore_branch
 from worldmock.footprints.export import export_run
@@ -49,7 +46,7 @@ _NAMES = tuple(member.value for member in DUTY_EDGE_REASONS)
 _EVENING_END = {"starts": 490, "ends": 1050, "breaks": []}
 #: 08:10–17:20、休息 14:10–14:40：四个起止都不在饭点窗口、整点或半点上（T2、T7、T13）。
 _DAY = {"starts": 490, "ends": 1040, "breaks": [[850, 880]]}
-#: 08:10–17:20、休息 14:10–14:47：14:10 播报之后的播报到期 14:40 与观看的反馈边界都不落在休息结束上（T3）。
+#: 08:10–17:20、休息 14:10–14:47：14:10 播报之后的播报到期 14:40 与应用的内容反馈边界都不落在休息结束上（T3）。
 _LONG_BREAK = {"starts": 490, "ends": 1040, "breaks": [[850, 887]]}
 #: 两段首尾相接的休息 14:30–15:00 与 15:00–15:30（T8）。
 _ADJACENT = {"starts": 490, "ends": 1040, "breaks": [[870, 900], [900, 930]]}
@@ -69,22 +66,27 @@ _REST = {"day": "休息日", "hours": None, "place": None, "breaks": [], "status
 #: 人物状态的键集合（本特性不增不减，docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界机制 ）。
 _AGENT_KEYS = frozenset({
     "active_effects", "agent_id", "balance_account_id", "body", "body_settled_at", "consecutive_rejections",
-    "content_progress", "day_plan", "delivered_warning_signatures", "discomfort_pulse_hours", "discomfort_started_at",
-    "errands", "felt_bands_at_last_decision", "inbox", "inventory", "known_task_ids", "last_decision_time",
-    "location_id", "material_reveals", "mood_updated_at", "name", "next_decision_at", "outbox", "pending_wake_reasons",
-    "people_at_last_decision", "plan_submitted_dates", "qualifications", "read_inbox_ids", "read_message_ids",
-    "same_moment_rounds", "same_moment_stage", "skill_levels", "supply_browsed_at", "supply_browsed_location",
-    "taste_weights", "visible_message_ids", "visible_supply_ids", "visible_task_ids"})
+    "content_progress", "day_plan", "discomfort_pulse_hours", "discomfort_started_at",
+    "errands", "felt_bands_at_last_decision", "inbox", "inventory", "last_decision_time",
+    "location_id", "mood_updated_at", "name", "next_decision_at", "outbox", "pending_wake_reasons",
+    "people_at_last_decision", "plan_submitted_dates", "read_inbox_ids", "read_message_ids",
+    "same_moment_rounds", "same_moment_stage", "visible_message_ids"})
 
 
 def _engine(engine_factory, *declarations, scenario: str = "single-person.json") -> LifeEngine:
     """@brief 依次用 declare(...) 返回的改写函数改写场景副本建立引擎（没有声明时用正式场景），每个人物登记空计划。"""
     def mutate(document: dict) -> None:
         """@brief 把全部声明写进场景副本。"""
+        if scenario == "single-person.json":
+            document["end_at"] = "2026-01-13T00:00:00+08:00"
+        for agent in document['agents']:
+            agent.update(work_topic_ids=[],work_schedule=None)
+        document['agents'][0]['contacts'] = [{'contact_id':'mother','salutation':'母亲','relation':'母亲',
+            'closeness':24,'channels':['phone'],'reply_policy':'none'}]
         for change in declarations:
             change(document)
 
-    engine = engine_factory(scenario, mutate=mutate if declarations else None)
+    engine = engine_factory(scenario, mutate=mutate)
     for agent_id in engine.context.state.agents:
         stage_day_plan(engine, agent_id)
     return engine
@@ -117,13 +119,24 @@ def _wait() -> object:
 
 def _decide(engine: LifeEngine, name: str, tool: str, request, agent_id: int = 1) -> tuple[dict, object]:
     """@brief 一个人物按真实顺序观察、登记并结算一轮；request 可以是按本轮观察构造请求的函数。返回（观察，结果）。"""
-    decision = context(engine, name, agent_id)
-    engine.begin_decision_round([decision])
-    observed = engine.observe(decision)
+    ready = engine.scheduling_state().ready_agent_ids
+    decisions = [context(engine, name, identity) for identity in ready]
+    engine.begin_decision_round(decisions)
+    views = {item.agent_id: engine.observe(item) for item in decisions}
+    observed = views[agent_id]
     if callable(request):
         request = request(observed)
-    engine.submit_action(DirectToolCall(decision, f"action-{name}", tool, request))
-    return observed, engine.commit_decision_round(name)[0]
+    for decision in decisions:
+        if decision.agent_id == agent_id:
+            call = tool, request
+        else:
+            view = views[decision.agent_id]
+            pending = [row["name"] for row in view["activity_bindings"] if row["phase"] == "pending_conclusion"]
+            running = [row["name"] for row in view["activity_bindings"] if row["phase"] == "active"]
+            call = ("conclude_activity", conclude_request(*pending)) if pending else (
+                ("report_status", report_request(*running)) if running else ("start_activity", _wait()))
+        engine.submit_action(DirectToolCall(decision, f"action-{name}" if decision.agent_id == agent_id else f"action-{name}-{decision.agent_id}", *call))
+    return observed, next(item for item in engine.commit_decision_round(name) if item.agent_id == agent_id)
 
 
 def _wait_from(engine: LifeEngine, now: int) -> tuple[str, dict]:
@@ -226,23 +239,18 @@ def _activity_facts(engine: LifeEngine, activity_id: str) -> tuple:
     return item.status, item.planned_end_at, item.next_interaction_at, item.report_anchor_at
 
 
-def _stage_game_turn(engine: LifeEngine, game_id: str, turn: int) -> None:
-    """@brief 把进行中的游戏改成回合制写进存储：计划一小时后结束，下一次交互在 turn（经存储提交，版本连续）。"""
-    def change(state) -> None:
-        """@brief 游戏的下一次交互与计划结束。"""
-        game = state.activities[game_id]
-        state.activities[game_id] = game.model_copy(update={
-            "next_interaction_at": turn, "planned_end_at": game.started_at + 3600,
-            "planned_duration_seconds": 3600}, deep=True)
-    stage(engine, change)
 
 
-def _start_game(engine: LifeEngine) -> str:
-    """@brief 以真实请求开始本轮列出的一项可玩游戏，返回活动身份。"""
-    _, played = _decide(engine, "play", "start_activity",
-                        lambda observed: start_activity(*reversed(_pick(observed, "play", kind="game"))))
-    assert played.status == "in_progress", (played.error_code, played.message)
-    return played.activity_id
+def _start_app(engine: LifeEngine) -> str:
+    """@brief 真实动作抽取指定应用的长内容，不改写活动进度、时长或交互边界。"""
+    from tests.life.test_app_progress import _action_for
+
+    catalog, state = engine.context.semantics.catalog, engine.context.state
+    key = _action_for(catalog, "douyin", state.random_state, "c-long", "action-shift-app")
+    _, used = _decide(engine, key.removeprefix("action-"), "start_activity",
+                      start_activity("打开", f"应用：{catalog.apps['douyin'].name}"))
+    assert used.status == "in_progress", (used.error_code, used.message)
+    return used.activity_id
 
 
 def _checkpoint(engine: LifeEngine):
@@ -297,7 +305,7 @@ def test_t1_a_waiting_person_is_asked_exactly_at_the_shift_end_and_the_wait_goes
     other = _engine(engine_factory, declare(shift=_EVENING_END))
     other_wait, _ = _wait_from(other, _moment(other, "17:24"))
     advance_next(other)
-    _, refused = _decide(other, "refused", "start_activity", start_activity("观看", "不存在的对象"))
+    _, refused = _decide(other, "refused", "start_activity", start_activity("打开", "不存在的对象"))
     assert refused.status == "rejected"
     assert other.context.state.current_time == end and other.scheduling_state().ready_agent_ids == (1,)
     assert _report(other, "again", other_wait)[1].status == "completed"
@@ -336,58 +344,42 @@ def test_t2_each_edge_offers_one_decision_with_its_name_and_moves_the_duty_statu
 # --- T3：不结束活动、不写事件、不进提示 ---
 
 
-def _watch_long(engine: LifeEngine) -> str:
-    """@brief 以真实请求开始观看本轮列出的一项长于两小时的内容，返回活动身份。"""
-    contents = engine.context.rules.contents
-
-    def request(observed: dict):
-        """@brief 本轮工具层里的长内容与观看方式。"""
-        target, way = next((row["object"], action["label"]) for row in observed["interaction_bindings"]
-                           if row["kind"] == "content" and contents[row["object_id"]].duration_seconds > 7200
-                           for action in row["actions"] if action["canonical_action"] == "watch")
-        return start_activity(way, target)
-
-    _, watched = _decide(engine, "watch", "start_activity", request)
-    assert watched.status == "in_progress", (watched.error_code, watched.message)
-    return watched.activity_id
 
 
-def test_t3_edges_end_no_activity_write_no_new_kind_and_keep_the_shift_in_the_environment_layer(engine_factory) -> None:
-    """班次 08:10–17:20、休息 14:10–14:47 的人物 14:04 开始看一部长片，没有工作安排的同一场景照样做：14:10 与 14:47 各给一次
-    机会，推进前后观看的状态、计划结束、下一次交互与播报锚点都不变；那一秒的观察里班次钟点与「上班安排」只在环境层，实际
-    发给模型的六层里没有四个名字。照常过到 14:50，有班次的一次运行写下的事件种类与进度层记录类型都不超出没有班次的那一次。"""
+@pytest.mark.parametrize(("clock", "member", "started_at"), [
+    ("14:10", "break_start", "14:04"), ("14:47", "break_end", "14:41")])
+def test_t3_edges_end_no_activity_write_no_new_kind_and_keep_the_shift_in_the_environment_layer(
+        engine_factory, clock, member, started_at) -> None:
+    """@brief 每个休息起止前六分钟真实打开应用，起止不结束活动、不移动边界，也不制造新记录种类。"""
     scheduled, plain = _engine(engine_factory, declare(shift=_LONG_BREAK)), _engine(engine_factory)
     marks, started = {}, {}
     for engine in (plain, scheduled):
-        _clock(engine, _moment(engine, "14:04"))
+        _clock(engine, _moment(engine, started_at))
         marks[id(engine)] = engine.context.store.last_event_seq
-        started[id(engine)] = _watch_long(engine)
-    watched = started[id(scheduled)]
+        started[id(engine)] = _start_app(engine)
+    identity = started[id(scheduled)]
+    edge = _moment(scheduled, clock)
+    before = _activity_facts(scheduled, identity)
+    _to_edge(scheduled, edge)
+    assert _verdict(scheduled, edge) == (True, [member])
+    assert _activity_facts(scheduled, identity) == before
+    observed, reported = _report(scheduled, f"edge-{member}", identity)
+    assert reported.status == "completed"
+    others = json.dumps([observed[key] for key in ("tool_layer", "todo_layer", "memory_layer", "progress_layer")],
+                        ensure_ascii=False)
+    assert "08:10–17:20" in json.dumps(observed["environment_layer"], ensure_ascii=False)
+    assert all(text not in others for text in ("08:10–17:20", "14:10–14:47", "上班安排"))
     persona = {"layer": "人设层", "name": scheduled.context.state.agents[1].name}
-    types: set[str] = set()
-    for clock, member in (("14:10", "break_start"), ("14:47", "break_end")):
-        edge = _moment(scheduled, clock)
-        _drive(scheduled, lambda: not scheduled.scheduling_state().ready_agent_ids and _next_event(scheduled) == edge)
-        before = _activity_facts(scheduled, watched)
-        advance_next(scheduled)
-        assert scheduled.context.state.current_time == edge
-        assert _verdict(scheduled, edge) == (True, [member])
-        assert _activity_facts(scheduled, watched) == before
-        observed, reported = _report(scheduled, f"edge-{member}", watched)
-        assert reported.status == "completed"
-        others = json.dumps([observed[key] for key in ("tool_layer", "todo_layer", "memory_layer", "progress_layer")],
-                            ensure_ascii=False)
-        assert "08:10–17:20" in json.dumps(observed["environment_layer"], ensure_ascii=False)
-        assert all(text not in others for text in ("08:10–17:20", "14:10–14:47", "上班安排"))
-        prompt = user_message(life_user_layers(observed, persona))["content"]
-        assert not [name for name in _NAMES if name in prompt]
-        types |= _progress_types(observed)
+    prompt = user_message(life_user_layers(observed, persona))["content"]
+    assert not [name for name in _NAMES if name in prompt]
+    from tests.life.conftest import wake_by_mail
     for engine in (scheduled, plain):
-        _drive(engine, lambda: engine.context.state.current_time >= _moment(engine, "14:50"))
+        wake_by_mail(engine, offset=edge + 60 - engine.context.state.current_time)
+        _drive(engine, lambda: engine.context.state.current_time >= edge + 60)
     assert _event_kinds(scheduled, marks[id(scheduled)]) <= _event_kinds(plain, marks[id(plain)])
-    types |= _progress_types(_observe(scheduled, "after"))
+    types = _progress_types(observed) | _progress_types(_observe(scheduled, "after"))
     assert types and types <= _progress_types(_observe(plain, "after"))
-    assert scheduled.context.state.activities[watched].status == ActivityStatus.ACTIVE
+    assert scheduled.context.state.activities[identity].status == ActivityStatus.ACTIVE
 
 
 # --- T4、T5：睡眠 ---
@@ -508,13 +500,13 @@ def test_t8_coinciding_edges_reminders_and_a_planned_end_are_one_opportunity_in_
     edge, now = _moment(engine, "15:00"), _moment(engine, "14:45")
     _clock(engine, now)
     stage_day_plan(engine, goals=(PlanGoal(intent_kind="外出", goal="三点出门取快递", registered_at=now, remind_at=edge),))
-    stage_errands(engine, 1, [_errand("staged:errand:0", "买牛奶", MILK_ID, now, remind_at=edge)])
+    stage_errands(engine, 1, [_errand("staged:errand:0", "买柠檬茶", "lemon-tea", now, remind_at=edge)])
     _, waited = _decide(engine, "wait", "start_activity", _wait())
     assert engine.context.state.activities[waited.activity_id].planned_end_at == edge
     assert engine.context.state.agents[1].next_decision_at == _next_event(engine) == edge
     advance_next(engine)
     expected = ["planned_end", "no_active_activity", "plan_reminder_due", "errand_reminder_due", "break_start",
-                "break_end"]
+                "break_end", "app_push"]
     assert _verdict(engine, edge) == (True, expected)
     observed, concluded = _decide(engine, "edge", "conclude_activity",
                                   conclude_request(activity_name(engine, waited.activity_id)))
@@ -560,36 +552,33 @@ def test_t9_midnight_edges_are_judged_by_the_midnight_rhythm(engine_factory) -> 
     assert end == _moment(final, "00:00", "2026-01-06")
     _clock(final, end - 600)
     submit_round(final, {1: ("start_activity", _wait()), 2: ("start_activity", _wait())}, "last")
-    assert final.context.state.agents[1].next_decision_at == _next_event(final) == end
-    final.advance(600, final.scheduling_state().next_event_at)
+    assert final.context.state.agents[1].next_decision_at <= end
+    _drive(final, lambda: final.context.state.current_time == end)
     assert not final.midnight_rhythm_pending and final.context.state.current_time == end
     assert _verdict(final, end, 1) == (True, ["shift_end"])
     assert final.scheduling_state().ready_agent_ids == ()
 
 
-# --- T10–T12：回合制游戏、路上、通话与交谈 ---
+# --- T10–T12：应用内容、路上、通话与交谈 ---
 
 
-def test_t10_a_game_turn_after_the_edge_does_not_hide_the_edge_from_the_clock(engine_factory) -> None:
-    """17:24 开始一项游戏，存储里把它改成回合制（下一次交互 17:35）；同一秒播报之后游戏回合把下一次决策时刻设在 17:35，越过
-    17:30 的班次结束，调度状态报告的下一边界仍是 17:30；时钟落在 17:30，人物就绪并带 shift_end，游戏的下一次交互仍是
-    17:35。"""
+def test_t10_an_app_boundary_after_the_edge_does_not_hide_the_edge_from_the_clock(engine_factory) -> None:
+    """@brief 真实应用的内容和反馈边界晚于下班时，调度器仍在班次结束结算且应用照常进行。"""
     engine = _engine(engine_factory, declare(shift=_EVENING_END))
-    end, turn = _moment(engine, "17:30"), _moment(engine, "17:35")
+    end = _moment(engine, "17:30")
     _clock(engine, _moment(engine, "17:24"))
-    game = _start_game(engine)
-    _stage_game_turn(engine, game, turn)
-    stage(engine, lambda state: setattr(state.agents[1], "next_decision_at", state.current_time))
-    _, reported = _report(engine, "game-turn", game)
-    assert reported.status == "completed"
-    assert engine.context.state.agents[1].next_decision_at == turn
+    identity = _start_app(engine)
+    before = _activity_facts(engine, identity)
+    assert before[2] > end
+    stage(engine, lambda state: setattr(state.agents[1], "next_decision_at", before[2]))
     assert _next_event(engine) == end
     advance_next(engine)
     assert engine.context.state.current_time == end
     assert engine.scheduling_state().ready_agent_ids == (1,)
     assert engine.context.state.agents[1].pending_wake_reasons == ["shift_end"]
     assert _verdict(engine, end) == (True, ["shift_end"])
-    assert _activity_facts(engine, game)[:3] == (ActivityStatus.ACTIVE, _moment(engine, "17:24") + 3600, turn)
+    assert _activity_facts(engine, identity) == before
+    assert engine.context.state.activities[identity].media_position_seconds == 360
 
 
 def test_t11_on_the_road_the_walk_goes_on_and_pausing_is_still_refused(engine_factory) -> None:
@@ -599,7 +588,7 @@ def test_t11_on_the_road_the_walk_goes_on_and_pausing_is_still_refused(engine_fa
     end = _moment(engine, "17:30")
     _clock(engine, _moment(engine, "17:24"))
     _, walked = _decide(engine, "walk", "start_activity",
-                        lambda observed: start_activity(*reversed(_pick(observed, "travel_to", place="office"))))
+                        lambda observed: layer_start(observed, "地点：公司", "步行"))
     assert walked.status == "in_progress"
     before = _activity_facts(engine, walked.activity_id)
     assert engine.context.state.agents[1].next_decision_at == _next_event(engine) == end
@@ -623,7 +612,7 @@ def test_t11_in_a_call_the_call_goes_on_and_pausing_is_still_refused(engine_fact
     engine = _engine(engine_factory, declare(shift=_EVENING_END))
     end = _moment(engine, "17:30")
     _clock(engine, _moment(engine, "17:24"))
-    _, called = _decide(engine, "call", "start_activity", start_activity("通话", "联系人：陈母"))
+    _, called = _decide(engine, "call", "start_activity", start_activity("通话", "联系人：母亲"))
     assert called.status == "in_progress"
     before = _activity_facts(engine, called.activity_id)
     assert engine.context.state.agents[1].next_decision_at == _next_event(engine) == end
@@ -645,9 +634,9 @@ def test_t11_in_a_conversation_both_chats_go_on_and_pausing_is_still_refused(eng
     engine = _engine(engine_factory, declare(0, shift=_EVENING_END), scenario="multi-person.json")
     end = _moment(engine, "17:30")
     _clock(engine, _moment(engine, "17:24"))
-    submit_round(engine, {1: _chat(engine, 1, 2), 2: ("start_activity", _wait())}, "invite")
-    submit_round(engine, {2: _chat(engine, 2, 1)}, "accept")
-    chats = _chats(engine)
+    submit_round(engine, {1: ("start_activity", start_activity("交谈", f"人物：{engine.context.state.agents[2].name}")), 2: ("start_activity", _wait())}, "invite")
+    submit_round(engine, {2: ("start_activity", start_activity("交谈", f"人物：{engine.context.state.agents[1].name}"))}, "accept")
+    chats = {item.agent_id:item for item in engine.context.state.activities.values() if item.kind.value=="chat"}
     before = {agent_id: _activity_facts(engine, item.activity_id) for agent_id, item in chats.items()}
     assert all(facts[0] == ActivityStatus.ACTIVE and facts[1] > end for facts in before.values())
     _to_edge(engine, end)
@@ -660,33 +649,23 @@ def test_t11_in_a_conversation_both_chats_go_on_and_pausing_is_still_refused(eng
     assert _started(engine, end) == [["shift_end"]]
 
 
-def test_t12_in_a_game_the_turn_stays_and_the_game_only_stops_at_its_own_turn(engine_factory) -> None:
-    """存储里一项进行中的回合制游戏（下一次交互 17:35，人物的下一次决策是这个回合），引擎推进到 17:30 的班次结束：人物得到
-    机会并带 shift_end；暂停与结束都以 ACTIVITY_FEEDBACK_NOT_DUE 被拒，游戏照常进行，下一次交互不被移动；播报之后下一次
-    决策回到 17:35 的回合，那时暂停才被受理。"""
+def test_t12_an_app_keeps_its_boundary_and_can_pause_at_the_shift_end(engine_factory) -> None:
+    """@brief 班次结束不移动应用边界；本次机会可以暂停应用，不受已退役游戏回合限制。"""
     engine = _engine(engine_factory, declare(shift=_EVENING_END))
-    end, turn = _moment(engine, "17:30"), _moment(engine, "17:35")
+    end = _moment(engine, "17:30")
     _clock(engine, _moment(engine, "17:24"))
-    game = _start_game(engine)
-    _stage_game_turn(engine, game, turn)
-    stage(engine, lambda state: setattr(state.agents[1], "next_decision_at", turn))
-    assert engine.scheduling_state().ready_agent_ids == () and _next_event(engine) == end
+    identity = _start_app(engine)
+    before = _activity_facts(engine, identity)
+    stage(engine, lambda state: setattr(state.agents[1], "next_decision_at", before[2]))
+    assert _next_event(engine) == end
     advance_next(engine)
     assert _verdict(engine, end) == (True, ["shift_end"])
-    before = _activity_facts(engine, game)
-    name = activity_name(engine, game)
-    _, paused = _decide(engine, "pause-game", "pause_activity", pause_request(name))
-    _, ended = _decide(engine, "end-game", "conclude_activity", conclude_request(name))
-    assert [(item.status, item.error_code) for item in (paused, ended)] == [
-        ("rejected", "ACTIVITY_FEEDBACK_NOT_DUE")] * 2
-    assert _activity_facts(engine, game) == before and before[2] == turn
-    _, reported = _report(engine, "game-on", game)
-    assert reported.status == "completed"
-    assert engine.context.state.agents[1].next_decision_at == turn
-    _drive(engine, lambda: engine.context.state.current_time == turn
-           and bool(engine.scheduling_state().ready_agent_ids))
-    _, paused_at_turn = _decide(engine, "pause-at-turn", "pause_activity", pause_request(name))
-    assert paused_at_turn.status == "completed"
+    assert _activity_facts(engine, identity) == before
+    _, paused = _decide(engine, "pause-app-at-shift-end", "pause_activity",
+                         pause_request(activity_name(engine, identity)))
+    assert paused.status == "completed"
+    assert engine.context.state.activities[identity].status == ActivityStatus.PAUSED
+    assert engine.context.state.activities[identity].media_position_seconds == 360
     assert [moment for moment, _ in _named(engine)] == [end]
 
 
@@ -742,7 +721,7 @@ def test_t14_after_restore_and_a_counterfactual_branch_the_edge_fires_once(engin
     _, observed = _wait_from(engine, _moment(engine, "17:24"))
     advance_next(engine)
     checkpoint = _checkpoint(engine)
-    assert checkpoint.state["schema_version"] == WORLD_SCHEMA_VERSION == 9
+    assert checkpoint.state["schema_version"] == WORLD_SCHEMA_VERSION == 10
     assert set(checkpoint.state["agents"]["1"]) == _AGENT_KEYS
     assert checkpoint.state["agents"]["1"]["pending_wake_reasons"] == ["shift_end"]
     branches = _branches(engine, checkpoint, tmp_path, observed["observation_event_id"])
@@ -783,7 +762,7 @@ def test_t15_the_four_names_are_known_wake_reasons_in_the_quality_report() -> No
 
 def test_t15_an_offline_run_with_a_shift_exports_validates_and_reports(engine_factory, tmp_path) -> None:
     """两人场景只给人物 1 声明 22:10–23:50、休息 22:40–23:10，22:04 起两人照常过日子（脚本化的决策经真实请求、引擎与
-    SQLite）直到运行终点，提交共同检查点并认证导出：校验通过，quality.json 结构为 4，四个名字在结算与 decision_started
+    SQLite）直到运行终点，提交共同检查点并认证导出：校验通过，quality.json 结构为 5，四个名字在结算与 decision_started
     两处各计一次，两个未识别分桶为空，从导出的事件逐值重算出相同的报告。"""
     engine = _engine(engine_factory, declare(0, shift=_NIGHT), scenario="multi-person.json")
     _clock(engine, _moment(engine, "22:04"))
@@ -793,7 +772,7 @@ def test_t15_an_offline_run_with_a_shift_exports_validates_and_reports(engine_fa
     assert export_run(engine.context.store, checkpoint.last_event_seq, export_dir)["experiment_completed"] is True
     manifest, events, activities = validate_export(export_dir)
     quality = json.loads((export_dir / "quality.json").read_text(encoding="utf-8"))
-    assert quality["schema_version"] == 4
+    assert quality["schema_version"] == 5
     rhythm = quality["decision_rhythm"]
     for bucket in ("wake_reason_counts", "decision_started_wake_reason_counts"):
         assert {name: rhythm[bucket].get(name) for name in _NAMES} == dict.fromkeys(_NAMES, 1)
@@ -852,7 +831,8 @@ def test_t20_an_edge_ends_the_technical_pause_after_the_same_second_budget(engin
     now, end = _moment(engine, "17:24"), _moment(engine, "17:30")
     _clock(engine, now)
     for index in range(engine.context.scenario.max_same_moment_decisions + 3):
-        assert _invalid_start(engine, f"budget-{index}").status == "rejected"
+        assert _decide(engine, f"budget-{index}", "start_activity",
+                       start_activity("打开", "不存在的对象"))[1].status == "rejected"
     exhausted = [event for event in engine.context.store.read_agent_events("environment_event", 1)
                  if event.data.get("kind") == "decision_budget_exhausted"]
     assert len(exhausted) == 1

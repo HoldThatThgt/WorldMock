@@ -1,169 +1,102 @@
-"""场景语义组装器的闭集算子、告警映射与目录准入测试。"""
+"""@brief 身体常数、环境对象和人物实例的真实组装合同。"""
 
 from __future__ import annotations
 
-from tests.data_paths import ENVIRONMENT_ROOT
-
-import math
-from dataclasses import replace
-from types import MappingProxyType
+import json
+import shutil
 
 import pytest
+from pydantic import ValidationError
 
-from worldmock.catalog import Catalog, ResourceDefinition, load_catalog
+from tests.data_paths import ENVIRONMENT_ROOT
+from worldmock.catalog import load_catalog
 from worldmock.errors import IntegrityError
-from worldmock.life.models import ContractKind, TravelMode
-from worldmock.life.map_data import load_map_dataset
-from worldmock.life.scenario import parse_scenario_document
-from worldmock.life import semantics as semantics_module
-from worldmock.life.semantics import ScenarioSemantics, assemble_semantics
-from worldmock.life.travel_time import parse_travel_time_profile
+from worldmock.exchange.body import BODY_CONSTANTS
+from worldmock.life.scenario import LifeScenario, parse_scenario_document
+from worldmock.life.semantics import assemble_semantics
+from worldmock.life.world_setup import load_runtime_scenario
 
-_CATALOG = (ENVIRONMENT_ROOT / "catalog")
 _SCENARIO = ENVIRONMENT_ROOT / "scenarios/single-person.json"
 
 
 @pytest.fixture(scope="module")
-def semantics() -> ScenarioSemantics:
-    """组装正式十二周场景作为共享夹具。"""
-    document, _ = parse_scenario_document(_SCENARIO)
-    return assemble_semantics(document, load_catalog(_CATALOG), load_map_dataset((ENVIRONMENT_ROOT / "corpora"), document.map_dataset))
+def semantics():
+    """@brief 只加载当前人工环境，不创建引擎。"""
+    return load_runtime_scenario(_SCENARIO)[0]
 
 
-@pytest.mark.parametrize("distance", [0, 1250, 2500, 2501, 5000])
-@pytest.mark.parametrize("mode", [TravelMode.WALKING, TravelMode.DRIVING])
-def test_travel_fare_rule_applies_distance_rounding_and_minimum(semantics, distance, mode) -> None:
-    """步行固定免费，驾车闭集算子按距离舍入并执行最低费用边界。"""
-    expected = 0 if mode == TravelMode.WALKING else max(500, math.ceil(distance * 0.2))
-    assert semantics.travel_fare(mode.value, distance) == expected
+def test_energy_thresholds_come_from_worldmock_body_constants(semantics):
+    """@brief 身体能量上限、基础代谢和告警阈值只取系统常数。"""
+    body = semantics.body
+    assert body.hunger_threshold_kcal == BODY_CONSTANTS.hunger_threshold_kcal == 800
+    assert body.emergency_threshold_kcal == BODY_CONSTANTS.emergency_threshold_kcal == 400
+    assert body.maximum_energy_kcal == BODY_CONSTANTS.maximum_energy_kcal == 2400
+    assert body.basal_kcal_per_hour == BODY_CONSTANTS.basal_kcal_per_hour == 65
+    assert body.source_kind == "worldmock:1"
+    assert dict(body.activity_met) == {**BODY_CONSTANTS.activity_met, "lifestyle:quiet-rest": 1.0}
+    assert dict(body.entertainment_relief_per_hour) == {
+        "article": 0.2, "image_text": 0.2, "short_video": 0.3, "long_video": 0.4, "live": 0.3}
 
 
-def test_contract_math_matches_the_engine_settlement(semantics) -> None:
-    """三种 typed 合同算子与 work 结算的数学完全一致。"""
-    task = semantics.scenario.tasks[0]
-    shell = type(task).model_construct
-    hourly = shell(contract_kind=ContractKind.HOURLY, pay_fen=60000,
-                   maximum_duration_seconds=28800)
-    piece = shell(contract_kind=ContractKind.PIECE, pay_fen=60000,
-                  maximum_duration_seconds=28800)
-    assert semantics.contract_payment(hourly, 7200, None) == min(
-        60000 * 7200 // 3600, 60000 * 28800 // 3600)
-    assert semantics.contract_payment(hourly, 3600 * 24, None) == 60000 * 28800 // 3600
-    assert semantics.contract_payment(piece, 0, 7) == 60000 * 7
-    with pytest.raises(IntegrityError, match="EXCHANGE_PIECE_COUNT_MISSING"):
-        semantics.contract_payment(piece, 0, None)
-    assert semantics.contract_payment(task, 0, None) == task.pay_fen
+def test_registered_objects_and_body_instances_are_preserved(semantics):
+    """@brief 食品、应用、内容和主题来自同一冻结登记，实例初值由场景保留。"""
+    assert semantics.scenario.foods == tuple(semantics.catalog.foods.values())
+    assert semantics.scenario.apps == tuple(semantics.catalog.apps.values())
+    assert semantics.scenario.contents == tuple(semantics.catalog.contents.values())
+    assert semantics.scenario.work_topics == tuple(semantics.catalog.work_topics.values())
+    assert semantics.body.initial_entertainment_need == semantics.document.body.initial_entertainment_need == 0.8
+    assert semantics.scenario.agents == semantics.document.agents
+    assert semantics.scenario.work_topics[0].target_seconds == 28800
 
 
-def test_energy_thresholds_come_from_catalog_alert_rules(semantics) -> None:
-    """目录 alert_rules 的 HUNGRY/EMERGENCY_ENERGY 仍是 800、400 kcal 阈值的来源；语义不另存告警码。"""
-    assert not hasattr(semantics, "alert_codes")
-    assert semantics.body.hunger_threshold_kcal == 800
-    assert semantics.body.emergency_threshold_kcal == 400
-    assert semantics.body.maximum_energy_kcal == 2400
-
-
-def test_products_and_supplies_resolve_their_separate_responsibilities(semantics) -> None:
-    """商品的使用语义来自目录，独立供给的卖方、报价和库存来自所选地图。"""
-    for product in semantics.scenario.products:
-        original = semantics.catalog.objects[product.product_id]
-        sources = [edge for edge in original.edges if edge.on == "consume" and edge.resource == "energy_kcal"]
-        assert product.energy_kcal_per_unit == (sources[0].amount if sources else 0)
-        assert (product.effect, product.consumable, product.use_modes) == (
-            original.effect, original.consumable, original.use_modes)
-        assert not {"price_fen", "merchant_account_id", "initial_stock"} & type(product).model_fields.keys()
-    selected = {item.supply_id: item.initial_stock for item in semantics.document.supplies}
-    original_supplies = {item.supply_id: item for item in semantics.scenario.map_dataset.supplies}
-    for supply in semantics.scenario.supplies:
-        original = original_supplies[supply.supply_id]
-        assert (supply.product_id, supply.seller_account_id, supply.quotes) == (
-            original.product_id, original.seller_account_id, original.quotes)
-        stock = selected[supply.supply_id]
-        assert supply.initial_stock == (original.initial_stock if stock is None else stock)
-
-
-def test_ledger_accounts_exclude_the_external_anchor(semantics) -> None:
-    """运行账本包含服务与人物账户，外部锚点只做守恒吸收。"""
-    anchors = {item.account_id for item in semantics.document.accounts if item.role == "external:scenario"}
-    assert anchors and anchors.isdisjoint(semantics.accounts)
-    expected = {item.account_id: item.money_fen for item in semantics.document.accounts
-                if item.account_id not in anchors}
-    expected.update({f"agent:{item.agent_id}": item.initial_balance_fen for item in semantics.document.agents})
+def test_ledger_accounts_exclude_the_external_anchor(semantics):
+    """@brief 外部锚点不变成人物或服务账户余额。"""
+    expected = {row.account_id: row.money_fen for row in semantics.document.accounts if row.role != "external:scenario"}
+    expected.update({f"agent:{row.agent_id}": row.initial_balance_fen for row in semantics.document.agents})
     assert dict(semantics.accounts) == expected
+    assert "external:scenario" not in semantics.accounts
 
 
-def _drifted_catalog(semantics: ScenarioSemantics, mutate) -> Catalog:
-    """复制目录资源表、应用一次变异并重建只读视图。"""
-    resources = {key: value.model_dump() for key, value in semantics.catalog.resources.items()}
-    mutate(resources)
-    rebuilt = {key: ResourceDefinition.model_validate(value) for key, value in resources.items()}
-    return replace(semantics.catalog, resources=MappingProxyType(rebuilt))
+def test_assembly_rejects_initial_energy_above_fixed_maximum():
+    """@brief 人物初态超过固定身体上限时真实组装拒绝。"""
+    document = json.loads(_SCENARIO.read_text(encoding="utf-8"))
+    document["body"]["initial_energy_kcal"] = 2401
+    with pytest.raises(ValidationError, match="initial energy exceeds maximum"):
+        assemble_semantics(LifeScenario.model_validate(document), load_catalog(ENVIRONMENT_ROOT / "catalog"),
+                           ENVIRONMENT_ROOT / "corpora")
 
 
-def test_assembly_rejects_catalog_met_drift(semantics) -> None:
-    """目录 MET 表缺少引擎活动键时组装 fail-closed。"""
-
-    def drop_work_met(resources):
-        resources["energy_kcal"]["drain_rules"]["activity_met"].pop("work")
-
-    with pytest.raises(IntegrityError, match="activity MET"):
-        assemble_semantics(semantics.document, _drifted_catalog(semantics, drop_work_met), semantics.scenario.map_dataset)
-
-
-def test_assembly_rejects_malformed_lifestyle_met_key(semantics) -> None:
-    """lifestyle MET 键形状非法（空 id/非 slug 字符）时组装 fail-closed。"""
-
-    def inject_bad_lifestyle_key(resources):
-        resources["energy_kcal"]["drain_rules"]["activity_met"]["lifestyle:Bad_Id"] = 2.0
-
-    with pytest.raises(IntegrityError, match="malformed"):
-        assemble_semantics(semantics.document, _drifted_catalog(semantics, inject_bad_lifestyle_key),
-                           semantics.scenario.map_dataset)
+@pytest.mark.parametrize("met", [0, -1, float("nan"), float("inf"), "expression"])
+def test_assembly_rejects_invalid_lifestyle_met(tmp_path, met):
+    """@brief 生活活动自身 MET 必须是有限正数，不接受表达式。"""
+    root = tmp_path / "corpora"
+    shutil.copytree(ENVIRONMENT_ROOT / "corpora", root)
+    path = root / "lifestyle/items.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["items"][0]["met_value"] = met
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    document, _ = parse_scenario_document(_SCENARIO)
+    with pytest.raises(IntegrityError, match="Lifestyle declarations are invalid"):
+        assemble_semantics(document, load_catalog(ENVIRONMENT_ROOT / "catalog"), root)
 
 
-def test_assembly_rejects_unbounded_initial_below_minimum(semantics) -> None:
-    """无上界资源的初值低于目录下界时由完整准入第四条拒绝。"""
-
-    def raise_sleep_floor(resources):
-        resources["sleep_debt_hours"]["bounds"]["min"] = 5
-
-    with pytest.raises(IntegrityError, match="INITIAL_VALUE_OUT_OF_BOUNDS"):
-        assemble_semantics(semantics.document, _drifted_catalog(semantics, raise_sleep_floor),
-                           semantics.scenario.map_dataset)
+def test_candidate_constants_match_the_scene_declaration(semantics):
+    """@brief 候选节律原样传入运行语义，不从环境增加配置。"""
+    constants = semantics.candidate_constants
+    assert constants.presentation_limit == semantics.document.candidate_presentation_limit
+    assert constants.pool_limit == semantics.document.candidate_pool_limit
+    assert constants.rotation_quota_ratio == semantics.document.rotation_quota_ratio
+    assert constants.rotation_stale_seconds == semantics.document.rotation_stale_seconds
 
 
-def test_assembly_rejects_missing_alert_rules(semantics) -> None:
-    """能量资源缺少告警规则时阈值参数无法组装。"""
+def test_initial_agent_preserves_declared_body_needs(semantics):
+    """@brief 实际人物初态 helper 使用场景声明的三种需要，不重置娱乐需要。"""
+    from worldmock.life.world_setup import _initial_agent
 
-    def drop_alerts(resources):
-        resources["energy_kcal"]["alert_rules"] = []
-
-    with pytest.raises(IntegrityError, match="HUNGRY"):
-        assemble_semantics(semantics.document, _drifted_catalog(semantics, drop_alerts), semantics.scenario.map_dataset)
-
-
-def test_arbitrary_expression_evaluator_is_removed(semantics) -> None:
-    """生产语义不再导出表达式解释器，数值表也拒绝字符串表达式。"""
-    assert not hasattr(semantics_module, "evaluate_int_expression")
-    malformed = semantics.catalog.travel_time_rules_bytes.replace(
-        b"walking = 1.0", b'walking = "1 + 0"')
-    with pytest.raises(IntegrityError, match="not numeric"):
-        parse_travel_time_profile(malformed)
-
-
-def test_admission_refs_cover_accounts_and_objects(semantics) -> None:
-    """准入引用包含对象闭集与角色账户绑定。"""
-    refs = semantics.refs
-    assert (refs.catalog_major, refs.catalog_minor) == (
-        semantics.catalog.version_major, semantics.catalog.version_minor)
-    roles = {account.role for account in refs.accounts}
-    assert {"buyer", "traveler", "worker", "merchant:grocery", "merchant:general",
-            "employer:zhangjiang", "transport:service", "external:scenario"} <= roles
-    objects = {item.object_id for item in refs.objects}
-    assert "travel-service" in objects
-    expected_contracts = {f"contract-{task.contract_kind.value}"
-                          for task in semantics.scenario.tasks}
-    assert expected_contracts <= objects
-    assert objects - expected_contracts == {
-        "travel-service",
-        *{item.product_id for item in semantics.document.products}}
+    scenario = semantics.scenario
+    config = scenario.agents[0]
+    agent = _initial_agent(config, scenario, f"agent:{config.agent_id}", int(scenario.start_at.timestamp()))
+    assert agent.body.energy_kcal == scenario.body.initial_energy_kcal
+    assert agent.body.sleep_deficit_hours == scenario.body.initial_sleep_debt_hours
+    assert agent.body.entertainment_need == scenario.body.initial_entertainment_need
+    assert agent.inventory == config.initial_inventory

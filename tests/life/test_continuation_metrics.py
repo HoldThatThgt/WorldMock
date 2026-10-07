@@ -181,12 +181,13 @@ def _response(reasoning: str, reasoning_tokens: int | None) -> dict:
             "usage": usage}
 
 
-def _order(order_id: str, product_id: str, created_at: int) -> dict:
+def _order(order_id: str, food_id: str, created_at: int) -> dict:
     """@brief 一个订单的状态快照（动作结果 data.orders 的元素）。"""
     return DeliveryState(
-        order_id=order_id, agent_id=1, product_id=product_id, supply_id=f"supply-{product_id}",
-        location_id="shop", seller_account_id="seller:shop", price_version="v1", route_id=None,
-        source={"kind": "fixture"}, quantity=1, destination_id="office", fulfillment="delivery",
+        order_id=order_id, agent_id=1, food_id=food_id, store_id="shop", app_id="meituan",
+        seller_account_id="seller:shop", quantity=1, unit_price_fen=2300, delivery_fee_fen=500,
+        path=("shop", "office"), trip_id=f"trip-{order_id}", distance_meters=1000, prep_seconds=600,
+        destination_id="office", fulfillment="delivery",
         created_at=created_at, expected_at=created_at + 900, status="pending",
         total_price_fen=2800, recipient_id="agent:1").model_dump(mode="json")
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import advance_next, context, stage_day_plan, start_activity, start_request, submit_round
-from tests.life.test_work_review import _at_task_start
+from tests.life.test_work_protocol import at_workplace
 from worldmock.life.models import ActivityKind
 
 
@@ -27,15 +27,17 @@ def _start_visible(engine, round_id: str, kind: str):
     return binding, engine.commit_decision_round(round_id)[0]
 
 
-def test_content_title_is_carried_into_activity_events(engine_factory) -> None:
+def test_app_and_content_titles_are_carried_into_activity_events(engine_factory) -> None:
     """@brief 观看活动的结算与进度使用冻结语料标题。"""
     engine = engine_factory()
-    binding, started = _start_visible(engine, "watch-title", "content")
+    binding, started = _start_visible(engine, "app-title", "app")
     assert started.status == "in_progress", started.error_code
-    expected = engine.context.rules.content_titles[binding["object_id"]]
+    expected = engine.context.semantics.catalog.apps[binding["object_id"]].name
     event = next(event for event in engine.context.store.read_agent_events("action_result", 1)
-                 if event.action_id == "action-watch-title")
+                 if event.action_id == "action-app-title")
     assert event.data["data"]["activity"]["title"] == expected
+    content = event.data["data"]["activity"]["data"]["content_id"]
+    assert event.data["data"]["activity"]["content_title"] == engine.context.rules.content_titles[content]
     advance_next(engine)
     progress = [event for event in engine.context.store.read_agent_events("activity_progress", 1)
                 if event.data["activity"]["target_id"] == binding["object_id"]]
@@ -65,20 +67,25 @@ def _titles(engine, agent_id: int, activity_id: str, action_id: str) -> tuple:
     return accepted.data["data"]["activity"]["title"], progress[-1].data["activity"]["title"], rows[0]["title"]
 
 
-def test_work_title_is_the_task_title(engine_factory) -> None:
+def test_work_title_is_the_topic(engine_factory) -> None:
     """@brief 工作的标题是任务标题：进受理结果、进度快照与观察控制行。"""
     engine = engine_factory()
-    _at_task_start(engine)
+    at_workplace(engine)
     stage_day_plan(engine)
-    binding, started = _start_visible(engine, "work-title", "work_task")
+    binding, started = _start_visible(engine, "work-title", "work_topic")
     assert started.status == "in_progress", started.error_code
-    title = engine.context.rules.tasks[binding["object_id"]].title
+    title = engine.context.rules.work_topics[binding["object_id"]].topic
     assert _titles(engine, 1, started.activity_id, "action-work-title") == (title, title, title)
 
 
 def test_call_title_is_the_contact_salutation(engine_factory) -> None:
     """@brief 通话的标题是联系人在本人通讯录里的称谓（通话对象记在活动数据的 contact_id）。"""
-    engine = engine_factory()
+    def with_contact(document):
+        document['agents'][0]['contacts'] = [{
+            'contact_id': 'colleague', 'salutation': '同事', 'relation': '同事', 'closeness': 16,
+            'channels': ['phone'], 'reply_policy': 'none',
+        }]
+    engine = engine_factory(mutate=with_contact)
     binding, started = _start_visible(engine, "call-title", "contact")
     assert started.status == "in_progress", started.error_code
     contact = next(item for item in engine.context.scenario.agents[0].contacts if item.contact_id == binding["object_id"])

@@ -7,41 +7,50 @@ from zoneinfo import ZoneInfo
 
 from tests.engine_fixture import (engine_factory)  # noqa: F401
 from tests.life.conftest import (StubPlanDayClient, advance_next, context, settle_day_plans, start_request)  # noqa: F401
+from tests.life.routing_fixtures import run_activity_out, selected_food, stage_food_holding, start_eating
 from tests.life.test_day_planning import _goal, _late_engine
-from tests.life.test_meal_outcome import _food, _run_out, _stage_holding, _start_eating
 
 from agentsociety2.society import DirectToolCall
+from tests.data_paths import ENVIRONMENT_ROOT
 from worldmock.cli import main
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
+from worldmock.life.models import WORLD_SCHEMA_VERSION
+from worldmock.life.run_identity import environment_identity
+from worldmock.life.world_setup import load_runtime_scenario
 
 CODE = "a" * 64
+SCENARIO = ENVIRONMENT_ROOT / "scenarios" / "single-person.json"
 
 
 def test_export_command_uses_authenticated_cutoff_and_manifest_code(tmp_path):
     run_dir = tmp_path / "run"
-    manifest = {"run_id": "run", "agent_ids": [1], "code_sha256": CODE,
+    semantics, _ = load_runtime_scenario(SCENARIO)
+    manifest = {"schema_version": 3, "run_id": "run", "source_group_id": "run",
+                "environment_identity": environment_identity(semantics),
+                "agent_ids": [1], "code_sha256": CODE,
                 "window": {"start": 100, "end": 300, "timezone": "UTC"}}
-    store = FootprintStore.create(run_dir, manifest, {"version": 0, "current_time": 100})
+    initial = {"schema_version": WORLD_SCHEMA_VERSION, "version": 0, "current_time": 100}
+    store = FootprintStore.create(run_dir, manifest, initial)
     goal = {"intent_kind": "工作", "goal": "推进报告", "registered_at": 110,
             "progressed_at": None, "progress_activity_id": None}
     plan = {"day_end": 86400, "goals": [goal]}
-    store.commit({"version": 1, "current_time": 110}, [EventDraft(
+    store.commit({**initial, "version": 1, "current_time": 110}, [EventDraft(
         event_type="action_result", occurred_at=110, agent_id=1, action_id="plan",
         data={"status": "completed", "data": {"day_plan": plan}})])
     activity = {"activity_id": "work", "agent_id": 1, "kind": "work", "started_at": 110,
                 "elapsed_seconds": 90, "ended_at": 200, "status": "completed", "location_id": "office"}
     settled = {"day_end": 86400, "goals": [dict(goal, progressed_at=200, progress_activity_id="work")]}
-    store.commit({"version": 2, "current_time": 200}, [EventDraft(
+    store.commit({**initial, "version": 2, "current_time": 200}, [EventDraft(
         event_type="activity_progress", occurred_at=200, agent_id=1, activity_id="work",
         data={"activity": activity, "interval_start": 110, "interval_end": 200, "day_plan": settled})])
-    store.commit({"version": 3, "current_time": 210}, [EventDraft(
+    store.commit({**initial, "version": 3, "current_time": 210}, [EventDraft(
         event_type="action_rejected", occurred_at=210, agent_id=1, action_id="closed",
-        data={"error_code": "MERCHANT_CLOSED"})])
+        data={"error_code": "APP_NOT_BOUND"})])
     store.close()
 
-    for cutoff, progressed, blocked in ((1, 0, 0), (2, 1, 0), (3, 1, 1)):
+    for cutoff, progressed, other_rejections in ((1, 0, 0), (2, 1, 0), (3, 1, 1)):
         destination = tmp_path / f"export-{cutoff}"
         assert main(["export", "--run-dir", str(run_dir), "--cutoff", str(cutoff),
                      "--output", str(destination)]) == 0
@@ -56,8 +65,12 @@ def test_export_command_uses_authenticated_cutoff_and_manifest_code(tmp_path):
         assert list(quality["day_plan_metrics"]) == [CODE] and "errand" not in json.dumps(quality["day_plan_metrics"])
         assert (quality["errand_metrics"], quality["conclusion_memories"]) == (None, None)
         assert metrics["deliberate_goals"]["summary"]["progressed_count"] == progressed
-        assert metrics["external_constraints"]["block_count"] == blocked
-        assert metrics["gates"]["external_constraint_block_count"]["pass"] is (blocked == 0)
+        constraints = metrics["external_constraints"]
+        assert constraints["block_count"] == 0
+        assert constraints["other_rejections"]["count"] == other_rejections
+        expected_codes = {"APP_NOT_BOUND": 1} if other_rejections else {}
+        assert constraints["other_rejections"]["by_error_code"] == expected_codes
+        assert metrics["gates"]["external_constraint_block_count"]["pass"] is True
         assert quality["event_range"]["last_event_seq"] == cutoff
 
 
@@ -126,10 +139,10 @@ def test_exported_quality_counts_only_non_routine_goals_and_agrees_with_engine_p
     try:
         settle_day_plans(engine, StubPlanDayClient(goals=[_goal("用餐", "午饭提前到十点多吃", None, "12:00"),
                                                           _goal("娱乐", "睡前看会儿剧", None, "23:00")]))
-        food = _food(engine)
-        _stage_holding(engine, food.product_id, 1.0)
-        _, eating = _start_eating(engine, food, "early-lunch")
-        _run_out(engine, eating.activity_id, "early-lunch")
+        food = selected_food(engine)
+        stage_food_holding(engine, food.food_id, 1.0)
+        _, eating = start_eating(engine, food, "early-lunch")
+        run_activity_out(engine, eating.activity_id, "early-lunch")
         lunch, evening = engine.context.state.agents[1].day_plan.goals
         assert (lunch.progress_activity_id, evening.progressed_at) == (eating.activity_id, None)
         destination = tmp_path / "export"

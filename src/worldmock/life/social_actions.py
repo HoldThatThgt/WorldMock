@@ -70,8 +70,7 @@ def partner_presence(state: WorldState, partner_id: str) -> social.AgentPresence
         agent_id=partner_id, name=other.name,
         location=other.location_id if ActivityKind.TRAVEL not in kinds else f"途中:{other.agent_id}",
         activity_family=active[0].kind.value if active else "idle",
-        awake=ActivityKind.SLEEP not in kinds,
-        actively_gaming=ActivityKind.PLAY_GAME in kinds)
+        awake=ActivityKind.SLEEP not in kinds)
 
 
 def pair_chat(state: WorldState, agent_id: int, partner_id: str) -> ActivityState | None:

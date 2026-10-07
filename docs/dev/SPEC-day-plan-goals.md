@@ -1,6 +1,10 @@
 <a name="spec-day-plan-goals-当日目标特性开发规格"></a>
 # 当日目标特性开发规格
 
+> 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题计划输入与决策节律。
+
+> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「场景加载时就该拒绝的问题」（阶段 1）与「度量输出合同」（阶段 4）。
+
 > 状态：已实现并通过本特性确定性验收；行为合同已冻结，证据见文末台账。日期：2026-09-21。
 > 生成方式、提醒与部分节律由[时间与能量规格](SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)修订；修订条款已实现并通过离线验收，台账中被修订两行的证据见[时间与能量验收记录](../archive/time-and-energy/time-and-energy-verification.md)。
 > 「人物可见内容与工具」按[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；修订记录见「版本表」。
@@ -38,10 +42,10 @@
 除非今天与平常不同或照模板第三条需要提醒；作息是默认，今日计划的具体安排优先于作息，身体的感觉只在较强一档才改；
 作息里的钟点、目标文字里的钟点与大致时刻都只是大概，系统层写明临近即可去做、略早略晚都算照常
 （[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)）；
-计划优先只对作息习惯成立：场景声明的工作安排（环境层 `duty`）是环境核验的事实，不是习惯，零点计划、`revise_day_plan` 与工作提交都改不了它，
-手上的工作交了 `duty` 仍是当班中；班次与休息时段的起止只给清醒的人物各一次决策机会（唤醒原因 `shift_start`、`shift_end`、`break_start`、`break_end`，
-[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)），不结束任何活动、不叫醒睡着的人，也不是提醒；环境不因此新增任何拒绝，出行照常列出、照常受理，声明的例外（班次内声明的休息时段、
-前往本人已开放且未结清的工作任务的要求地点）只影响行为评估的指标口径，当日不当班不产生班次
+计划优先只对作息习惯成立：场景声明的工作安排（环境层 `duty`）是环境核验的事实，不是习惯，零点计划、`revise_day_plan` 与工作主题完成都改不了它，
+主题做满后 `duty` 仍可为当班中；班次与休息时段的起止只给清醒的人物各一次决策机会（唤醒原因 `shift_start`、`shift_end`、`break_start`、`break_end`，
+[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)），不结束任何活动、不叫醒睡着的人，也不是提醒；环境不因此新增一般动作拒绝，出行照常列出、照常受理，声明的休息时段
+只影响行为评估的指标口径，当日不当班不产生班次；工作主题本身只在工作地点开始
 （个人事务与工作安排规格 4.5、4.6，其裁决 W1，收窄一日运行保真裁决 S11）；清单可以很短，零条仍然合法
 （[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要) 2.2、2.3，裁决 S11）。每条目标的大致时刻 `around_time` 只用于推进判定，不产生提醒，也不驱动活动。
 列表顺序就是优先级，不增加另一套优先级字段。环境只证明相关活动实际推进，不能证明自然语言目标完成。
@@ -56,7 +60,7 @@ flowchart LR
     O --> A[人物选择具体活动]
     A --> S[环境结算实际活动]
     S --> G[首次匹配目标记为已推进]
-    E[环境任务截止与营业变化] --> W[提供决策机会]
+    E[工作主题与 app 推送等环境事实] --> W[提供决策机会]
     R -->|remind_time 到期| W
     W --> A
     S --> Q[三层报告与外部约束门禁]
@@ -115,37 +119,30 @@ flowchart LR
   零点先结算旧日的有效区间、清除过期计划，再执行零点计划。
 
 <a name="spec-day-plan-goals-事件驱动的决策节律"></a>
+
 ## 事件驱动的决策节律
 
-`plan_block_boundary` 与所有段起点候选删除。保留既有具体唤醒原因，新增
-`commitment_threatened` 表达在手承诺受到已有环境约束威胁，不取代具体原因。
+`plan_block_boundary` 与所有段起点候选删除。`commitment_threatened` 保留在唤醒原因闭集中，
+但现行工作主题没有截止或关门威胁，当前没有触发来源。
 
-在手承诺包括未推进当日目标、未完成且可见的工作任务、暂停活动与进行中活动（进行中的等待除外）；
-单纯消息、历史目标、已完成活动与未完成的个人事务不构成在手承诺（个人事务与工作安排规格 2.5，其裁决 E6：
-事务不改变常规与空闲重估间隔，也不作为闭店预警的受威胁承诺）。人物只在等待且没有上述承诺时用空闲间隔。常规重估沿用场景参数
-`reconsideration_interval_seconds`（默认五千四百秒）；新增
-`idle_reconsideration_interval_seconds`（默认一万零八百秒），必须大于等于常规间隔。
-均为环境场景参数，不进入人物工具请求。
+在手承诺包括未推进当日目标、已分配且未完成的工作主题、暂停活动与进行中活动（进行中的等待除外）。
+单纯消息、历史目标、已完成活动与未完成的个人事务不构成在手承诺。人物只在等待且没有上述承诺时用空闲间隔。
+常规重估沿用场景 `reconsideration_interval_seconds`（默认五千四百秒）；
+`idle_reconsideration_interval_seconds` 默认一万零八百秒且不得短于常规间隔。两者都不进入人物工具请求。
 
 | 情形 | 决策机会 |
 | --- | --- |
-| 已有工作任务进入截止前三十分钟 | 精确在预警边界唤醒，保留 task_due_soon，追加 commitment_threatened |
-| 当前地点进入闭店前十五分钟，且有绑定本地点的未完成任务或闭店会使其失去准入的活动 | 精确在预警边界唤醒，保留 location_hours_change，追加 commitment_threatened |
-| 当前活动失去可行性 | `activity_infeasible` 保留名称，当前无来源 |
+| 当前活动失去可行性 | `activity_infeasible` 保留名称，当前无触发来源 |
 | `remind_time` 到期 | 精确在提醒时刻唤醒，记 `plan_reminder_due`，同时到期的合并；睡眠中结束睡眠 |
-| 个人事务的 `remind_time` 到期 | 人物清醒时精确在提醒时刻提供一次决策机会，记 `errand_reminder_due`；同一边界到期的多条事务合并为一次机会、该原因只计一次，每条事务各写一条 `errand_reminded` 事件，不改变事务状态；与 `plan_reminder_due` 同刻到期时按枚举顺序并列；睡眠中不入候选、不形成静默边界、不交付也不消耗，在人物醒来的那个边界交付 |
-| 声明了工作安排的人物，班次或休息时段开始、结束 | 人物清醒时精确在起止时刻提供一次决策机会，记 `shift_start`、`shift_end`、`break_start` 或 `break_end`（[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)）；同一秒重合的起止各记一次，与同秒的其他原因按枚举顺序并列；不结束任何活动、不写事件，也不是提醒；睡眠中不入候选、不形成静默边界、不叫醒，睡过的起止醒来后不补 |
-| 有在手承诺而无威胁 | 使用常规间隔，其他更早事件仍先发生 |
-| 无在手承诺 | 使用较长间隔，身体、消息、配送、营业、到达等现有事件仍先发生 |
+| 个人事务的 `remind_time` 到期 | 人物清醒时精确到点获得一次机会，记 `errand_reminder_due`；多条合并为一次机会，每条各写 `errand_reminded`；睡眠中不交付、不消耗，醒来的边界再交付 |
+| 班次或休息时段开始、结束 | 清醒人物精确在起止时刻获得一次机会，记 `shift_start`、`shift_end`、`break_start` 或 `break_end`；活动照常继续，不写额外事件；睡眠中不入候选，睡过不补 |
+| 当前 session 到达 app 推送整点且生成推送 | 写 `app_push`，清醒人物获得一次机会；睡眠中保留推送但不唤醒 |
+| 有在手承诺 | 使用常规间隔，其他更早事件仍先发生 |
+| 无在手承诺 | 使用较长间隔，身体、消息、配送、到达与推送等更早事件仍先发生 |
 
-临近截止与临近闭店只在新事实首次实际提供给人物时提醒。签名分别包含任务及
-截止、地点及本次闭店和受威胁承诺。自由文字目标和其他地点任务不证明本地点闭店威胁。持续成立不重复；消失后再次成立
-重新提醒。所有可见未完成任务均参加判定，睡眠过滤未交付理由不消耗签名。完整规则见
-[一日行为可信性规格](SPEC-dayrun-behavior.md#spec-dayrun-behavior-持续活动与必要唤醒)。
-
-下一决策候选和实际唤醒判定必须使用同一间隔与威胁边界。不得把重估定时当成轮询唯一来源，
-也不得虚构通用预约或同行人承诺。睡眠只接受睡眠允许原因（含 `plan_reminder_due`，不含 `errand_reminder_due` 与班次边界的四个成员），不被重估唤醒。
-游戏保留逐回合反馈。零点计划、修订和目标推进本身不推进世界时钟。
+下一决策候选和实际唤醒判定使用同一间隔与同一事件来源。不得把重估定时当成唯一来源，也不得虚构预约、
+截止或同行人承诺。睡眠只接受四个既定原因；`errand_reminder_due`、四个班次原因与 `app_push` 都不叫醒。
+app 内容完成仍是静默边界。零点计划、修订和目标推进本身不推进世界时钟。
 
 <a name="spec-day-plan-goals-人物可见内容与工具"></a>
 ## 人物可见内容与工具
@@ -218,7 +215,7 @@ flowchart LR
   | work | work |
   | consume | meal |
   | wait、lifestyle:wellness | rest |
-  | watch、play_game、browse、read_mail、lifestyle:hobby、lifestyle:learning | entertainment |
+  | use_app、read_mail、lifestyle:hobby、lifestyle:learning | entertainment |
   | chat、call、lifestyle:social、lifestyle:volunteer | social |
   | lifestyle:household、lifestyle:pet | chore |
   | lifestyle:sport | exercise |
@@ -234,8 +231,8 @@ flowchart LR
   `goal_count`、`progressed_count`、`discarded_count`、`family_progress_rate`、`by_priority`。
   空目标分母为零且比率为 null。
 - `external_constraints` 从 `action_rejected` 及动作终态按 `(run_id, action_id)` 去重；
-  外部约束错误码闭集只保留营业、到达准入、路线与工作可用性：`MERCHANT_CLOSED`、`MERCHANT_OPENING_UNKNOWN`、
-  `LOCATION_ACCESS_DENIED`、`WORK_TASK_NOT_AVAILABLE`、`WORK_SUBMISSION_LATE`、
+  外部约束错误码闭集只保留营业、到达准入与路线：`MERCHANT_CLOSED`、`MERCHANT_OPENING_UNKNOWN`、
+  `LOCATION_ACCESS_DENIED`、
   `FROZEN_ROUTE_NOT_FOUND`、`ROUTE_UNREACHABLE`、`ROUTE_INFORMATION_UNKNOWN`、
   `DELIVERY_ROUTE_NOT_FOUND`、`DELIVERY_ROUTE_UNREACHABLE`、`DELIVERY_ROUTE_INFORMATION_UNKNOWN`。
   引导性拒绝码 `ACTIVITY_PRECONDITION_UNMET`、`ACTIVITY_CONCLUSION_REQUIRED`、`SESSION_LIMIT_EXCEEDED`
@@ -253,12 +250,13 @@ flowchart LR
 
 `around_time` 与 `remind_time` 的请求和结构化显示都只使用场景本地 `HH:MM` 或 `null`，不在字段值加「约」字，
 不新增中文时刻、空串或字符串 `null` 的归一。大致时刻的前后九十分钟只用于目标推进判定，
-不能当成工作可开始的时间窗；普通工作从通知送达即开放，预约活动才有约定开始时刻，具体规则见[工具交互规格](SPEC-life-runtime.md#tool-interaction-工具请求)。
+不能当成工作可开始的时间窗；已分配且未完成的工作主题从运行开始可见，在人物工作地点才能开始，
+具体规则见[生活运行规格](SPEC-life-runtime.md#tool-interaction-普通工作与预约活动)。
 修订参数错误须返回完整 `path`、合法 `intent_kind` 枚举与具体 `expected`：重复意图同时定位首次出现与其后每次出现的条目
 （`goals[i].intent_kind`，`written` 为该意图，`allowed_values` 为全部意图）；条数超过八条与重复意图在同一次校验里一并报告，
 超限定位在 `goals`，不因超限提前返回；零点计划与 `revise_day_plan` 共用同一校验函数，英文原因见个人事务与工作安排规格 1.3；
 时刻格式与已推进目标约束仍一次报告全部可独立确定的参数问题。
-`goal` 不承担状态转移，通知、任务开放、计划提醒与大致时刻分别使用各自明确字段；本节已实现：重复意图的逐条定位与超限同批报告以外的各项，
+`goal` 不承担状态转移，工作主题累计、app 推送、计划提醒与大致时刻分别使用各自明确字段；本节已实现：重复意图的逐条定位与超限同批报告以外的各项，
 证据见[工具交互验收记录](../archive/tool-interaction/tool-interaction-verification.md)；这两项已实现并通过离线验收（证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。
 
 <a name="spec-day-plan-goals-文件修改清单与模块责任"></a>
@@ -348,9 +346,10 @@ flowchart LR
   - 本人当日已结算的公开动作结果（消息送达、订单受理与交付、成果评审）；
   - 当日 `conclude_activity` 请求中记录的 `summary` 与 `memories`（标「你自己记下的，未经核验」）。所以睡前收尾时写下
     「明早 7:30 起」，零点计划就能据此生成提醒；
-  - 零点可见的事实子集：可见的工作任务（输入键「待办任务」）、收件箱、在途订单及预计送达、联系人、旧日目标的推进情况。
+  - 零点可见的事实子集：人物已分配且未完成的工作主题（输入键「待办任务」，每项给主题、目标工时与已做工时）、
+    收件箱、在途订单及预计送达、联系人、旧日目标的推进情况。
   - 未完成的个人事务（输入键「个人事务」）：名称、要办成什么、已办到哪、备注、提醒时刻，取自 `AgentState.errands`，不含内部身份；
-    输入键「待办任务」含义不变，仍指工作任务（个人事务与工作安排规格 2.8）。
+    它与「待办任务」中的工作主题保持分离。
   - 计划日期当天的上班安排（输入键「上班安排」）：与环境层 `duty` 同源，不含 `status`；人物没有工作安排时为 `null`。
     这里的当天是输入键「计划日期」所指的本地日（零点边界上即新开始的一日），不是下文回顾经历所说的「当日」
     （个人事务与工作安排规格 4.6）。
@@ -359,7 +358,7 @@ flowchart LR
   不填身份。「当日」在零点边界指刚结束的本地日（前一日 00:00 至本次零点），在启动路径指生成时刻所在本地日中生成
   时刻之前的部分。
 - **调用与输出。** 与联系人回复一样，由独立客户端使用运行清单中的模型身份。不新增模型阶段键：阶段运行身份
-  `stage_model_identity` 的 `stages` 恰为 `action`、`work_review`（人物 Prompt 规格第七章），`plan_day` 不在其中。生成参数必须给出 `max_tokens`（第八章 `-rerun` 就是因为缺它而失败）；
+  `stage_model_identity` 的 `stages` 恰为 `action`，`plan_day` 不在其中。生成参数必须给出 `max_tokens`（第八章 `-rerun` 就是因为缺它而失败）；
   参数、中文模板与输出 Schema 写入接口合同「请求组成」「生成参数」。输出为唯一严格工具 `submit_day_plan`（`tool_choice=required`）的参数 `{goals: [{intent_kind, goal, remind_time, around_time}]}`
   （`around_time` 按[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要) 8.2 增加），没有记忆。请求照常按整次 token 计数；达到窗口 85% 时先裁掉较早的当日经历句子，仍超限则按容量故障处理。
 - **失败。** 输出不是合法计划时（JSON、条数、意图唯一性、文字长度、`remind_time` 的格式或时刻、`around_time` 的格式有误），
@@ -383,14 +382,14 @@ flowchart LR
 ### 计划与提醒
 
 - 零至八条有序目标，沿用 `intent_kind`、`goal` 与意图唯一性。`goal` 可写粗略时段与准备动作，零点计划模板要求只给和人约好的事写钟点（环境不校验）；文字不驱动活动。
-  计划只写今天与平常不同的事（提前、推迟、取消、和谁一起）、要办的事（截止的任务、要回的消息、要买的东西、要去的地方）与需要的提醒；
+  计划只写今天与平常不同的事（提前、推迟、取消、和谁一起）、要办的事（未完成工作主题、要回的消息、要买的东西、要去的地方）与需要的提醒；
   已经记成个人事务的事不必照抄成目标，今天打算去办的可以写一条目标说明什么时候办（零点计划模板第七条，个人事务与工作安排规格 2.8）；
   人物档案与背景里天天如此的事（睡觉、起床、上下班、吃饭、休息、每天的消遣）不写成目标，除非今天与平常不同或照模板第三条需要提醒，写时写清楚哪里不同；清单可以很短，零条仍然合法
   （[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要) 2.3，裁决 S11）。零点计划不为就寝写提醒：要按时起床的写起床时刻的提醒，
   出门去上班、上课、接人、赴约这类要按时到的事写该出门时刻的提醒（一条目标含多件时填最早的），只打算在某个时段做的事填 null；
   在家进行的约定（例如约好的通话）模板不单列，由零点计划按第三条「到点提醒他」自行判断，环境不校验
   （模板第三、五、六条按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)改写）。
-  输入里有上班安排的日子，目标不安排在上班时间离开上班地点，写明的休息时段和工作要求去别处的外出除外：今日计划改不了场景声明的工作安排
+  输入里有上班安排的日子，目标不安排在上班时间离开上班地点，写明的休息时段除外；工作主题只在工作地点处理：今日计划改不了场景声明的工作安排
   （零点计划模板第八条与系统层第 14 条，个人事务与工作安排规格 4.6，收窄一日运行保真规格裁决 S11）。
 - 每条目标带 `remind_time: str | null`：必填、可为空，取场景本地 `HH:MM`（小时 00–23，分钟 00–59）。格式错误报
   `ACTION_REQUEST_INVALID`。换算为该日绝对时刻后，若不晚于生成或修订时刻、或不早于次日零点，报新错误码
@@ -440,7 +439,7 @@ flowchart LR
 起床时刻，由零点的 `plan_day` 生成对应提醒；运行记录以 `purpose` 区分 `plan_day` 与人物决策，交付窗口与决策 token 统计不含
 `plan_day` 请求，`model_usage` 含它；`plan_day` 请求带 `max_tokens`，达到窗口 85% 时先裁掉较早的当日经历句子；`plan_day`
 输出不合法时附回错误重试，至多 3 次，重试耗尽或传输失败为运行故障并保留证据；`plan_day` 不调用 LifeAgent，人物工作区与
-记忆的字节不变，不产生 `observation`、`decision_started`、`memory_updated`；运行清单的阶段键为 `action`、`work_review` 两个，
+记忆的字节不变，不产生 `observation`、`decision_started`、`memory_updated`；运行清单的阶段键恰为 `action`，
 `plan_day` 不新增阶段键；
 `revise_day_plan` 的 `remind_time` 格式错误报
 `ACTION_REQUEST_INVALID`，不晚于修订时刻或不早于次日零点报 `PLAN_REMIND_TIME_INVALID`；计划结束与提醒同秒时记
@@ -452,16 +451,8 @@ flowchart LR
 <a name="dayrun-fidelity-加载校验与当日目标推进-场景加载时就该拒绝的问题"></a>
 ### 场景加载时就该拒绝的问题
 
-**规则。** `load_runtime_scenario` 在加载时一并检查：
-
-- 所选地点的 `kind` 属于 `PLACE_TYPES`（以环境层的表为唯一来源，不另建闭集）；越界即拒绝，写明地点与类别；
-- 可见标签唯一；同名地点由地图可选字段 `LocationConfig.branch_label` 消歧（显示名为「名称（branch_label）」），重名且无法消歧即拒绝；地图文件结构版本随新字段升级
-  （接口合同「冻结地图与场景引用」:432、所属现行合同的发布校验表）；
-- 配送供给到每个声明目的地没有 `reachable` 驾车路线的，发输入警告 `DELIVERY_ROUTE_UNAVAILABLE` 列出（供给，目的地），不拒绝：`unreachable`、`unknown` 是地图的合法状态
-  （所属现行合同、所属现行合同），人物看到的是 5.3 分开的原因（裁决 D19）；
-- 显示名带坐标或标识形态（如「（31.2, 121.5）」「-sim-01」）时发输入警告 `LOCATION_NAME_SUSPICIOUS`，不拒绝（裁决 D19）。
-
-**验收。** 越界类别、重名标签各一例在加载时被拒并写明原因；`branch_label` 消歧后同名地点可加载并在提示中可区分；配送路线 unknown 与可疑显示名只警告。
+场景加载使用统一 `catalog.admission` 登记检查，按稳定 `RegistrationError` 码拒绝环境钉不符、未知地点和食品、食品绑定非店铺、未知 app、工作主题不存在、有主题却没有工作安排，以及所选食品店铺缺少卖方账户。完整条件和英文原因见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)。
+既有 `check_work_schedules`、八类型地点与可见标签唯一性仍在真实加载时执行。严格场景结构 7 拒绝旧任务、供给、内容和地图字段，不延后到人物决策时才发现缺输入。
 
 <a name="dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进"></a>
 ### 当日目标带大致时刻，只有在那前后进行的活动才算推进
@@ -539,3 +530,6 @@ flowchart LR
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1 修订：「心智模型与范围」写明班次与休息时段的起止只给清醒的人物各一次决策机会，不结束任何活动、不叫醒睡着的人，也不是提醒；「事件驱动的决策节律」的决策机会表在事务提醒一行之后增班次与休息时段起止一行（`shift_start`、`shift_end`、`break_start`、`break_end`，清醒时精确到点、同秒重合的各记一次并按枚举顺序并列、不写事件，睡眠中不入候选、不形成静默边界、不叫醒，睡过的不补），睡眠允许原因的括注写明不含 `errand_reminder_due` 与班次边界的四个成员；验收台账表后说明补一句：按该规格修订的条款不在上表的验证范围内，证据登记在该规格的验收台账，上表各行状态不变；文件头补修订说明；版本表并回表外的末两行 |
 | `2026-10-05-idle-fillers-a` | 2026-10-05 | 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 2 修订「心智模型与范围」：作息是默认、较强一档才改之后补一句，作息里的钟点、目标文字里的钟点与大致时刻都只是大概，系统层写明临近即可去做、略早略晚都算照常；验收台账表后说明沿用阶段 1 的那一句；文件头修订说明补本阶段 |
 | `2026-10-05-idle-fillers-b` | 2026-10-05 | 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 3 修订：「心智模型与范围」天天如此的事改为人物档案与背景里的六项（睡觉、起床、上下班、吃饭、休息、每天的消遣），除非今天与平常不同或照模板第三条需要提醒才写成目标，清单可以很短、零条仍然合法；「提交与修订」写明 `goal` 可写粗略时段，零点计划模板要求只给和人约好的事写钟点（环境不校验），环境不解读文字；「零点计划与计划提醒」的「计划与提醒」同样改写天天如此的事与清单长度，零点计划不为就寝写提醒，要按时起床的写起床时刻的提醒，要按时到的事写该出门时刻的提醒（一条目标含多件时填最早的），只打算在某个时段做的事填 null，在家进行的约定由零点计划按模板第三条自行判断、环境不校验，提醒为空的例行意图目标照常受理；「当日目标带大致时刻，只有在那前后进行的活动才算推进」写明大致时刻主要落在今天特有的目标和带提醒的目标上，大致时刻在就寝前后的睡眠目标不被跨零点的睡眠推进，带起床提醒、大致时刻在起床前后的睡眠目标会被当夜睡眠推进，都按同一判定、计入 `routine_goals`、不入推进比例；验收台账表后说明沿用阶段 1 的那一句；文件头修订说明补本阶段 |
+| `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
+| `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：娱乐度量家族改由 `use_app` 承载，删除观看、游戏与浏览的旧活动映射。 |
+| `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题计划输入与决策节律 |

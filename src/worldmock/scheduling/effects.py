@@ -7,14 +7,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from worldmock.errors import IntegrityError
+from worldmock.footprints.models import EventDraft
+from worldmock.life.app_push import issue_app_push
+from worldmock.life.basket import inventory_change
 from worldmock.life.commerce import deliver_order
-from worldmock.life.models import DataSource
-from worldmock.life.models import WorldState
-from worldmock.life.opening_hours import quote_at
+from worldmock.life.models import ActivityKind, WorldState, active_activities
 from worldmock.life.semantics import ScenarioSemantics
 from worldmock.life.settlement import settle_money_transfer
 from worldmock.life.social import Message
-from worldmock.life.storefront_state import changed_quote, effective_quote, quote_state
 from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 
 
@@ -24,6 +24,10 @@ class ScheduledOutcome:
 
     state: WorldState
     data: dict[str, Any]
+    #: 到期事件的唯一唤醒来源；没有实际推送时为空。
+    wake: str | None = None
+    #: 人物可见推送来自环境，其余既有预排事件保持场景来源。
+    source_kind: str = "scenario"
 
 
 def apply_scheduled_effect(state: WorldState, event: ScheduledEvent,
@@ -31,42 +35,53 @@ def apply_scheduled_effect(state: WorldState, event: ScheduledEvent,
     """@brief 将后台事件投影到世界；供给变更不得另建运行语义中的状态。"""
     if event.kind == ScheduledKind.DELIVERY_ARRIVAL:
         return _deliver_orders(state, event)
-    if event.kind in {ScheduledKind.TASK_EXPIRED, ScheduledKind.CALENDAR_FLAG}:
-        return ScheduledOutcome(state, dict(event.data))
+    if event.kind == ScheduledKind.APP_PUSH:
+        changed, data = issue_app_push(state, event, semantics.catalog)
+        sleeping = any(item.kind == ActivityKind.SLEEP for item in active_activities(state, event.agent_id))
+        wake = "app_push" if "push_id" in data and not sleeping else None
+        return ScheduledOutcome(changed, data, wake, "environment")
+    if event.kind == ScheduledKind.CALENDAR_FLAG:
+        return ScheduledOutcome(state, dict(event.data), "message_arrival")
     if event.kind == ScheduledKind.BILL_DUE:
         return _bill_due(state, event)
     if event.kind == ScheduledKind.PAYROLL:
         return _payroll(state, event)
-    if event.kind == ScheduledKind.PRICE_CHANGE:
-        return _price_change(state, event, semantics)
-    if event.kind == ScheduledKind.SUPPLY_QUOTE_CHANGE:
-        return _quote_change(state, event, semantics)
-    if event.kind == ScheduledKind.PRODUCT_RELEASE:
-        return _product_release(state, event)
     if event.kind == ScheduledKind.MESSAGE_ARRIVAL:
         return _deliver_message(state, event)
     return _reveal_event(state, event, semantics)
 
 
+def process_scheduled_events(state: WorldState, target: int, semantics: ScenarioSemantics
+                             ) -> tuple[WorldState, list[EventDraft], dict[int, set[str]]]:
+    """@brief 效果与提交前先弹出到期事件，再依稳定顺序生成实际环境记录和人物唤醒。"""
+    due = [item for item in state.pending_events if item.due_at == target]
+    state = state.model_copy(update={"pending_events": [item for item in state.pending_events
+                                                      if item.due_at != target]})
+    drafts = []
+    arrivals: dict[int, set[str]] = {}
+    for item in sorted(due, key=lambda value: (value.sequence, value.scheduled_id)):
+        outcome = apply_scheduled_effect(state, item, semantics)
+        state = outcome.state
+        if item.agent_id is not None and outcome.wake is not None:
+            arrivals.setdefault(item.agent_id, set()).add(outcome.wake)
+        visibility = "system" if item.kind == ScheduledKind.APP_PUSH and "push_id" not in outcome.data else "agent"
+        drafts.append(EventDraft(event_type="environment_event", occurred_at=target, agent_id=item.agent_id,
+                                 source_kind=outcome.source_kind, visibility=visibility,
+                                 data={"kind": item.kind.value, "scheduled_id": item.scheduled_id, **outcome.data}))
+    return state, drafts, arrivals
+
+
 def _reveal_event(state: WorldState, event: ScheduledEvent, semantics: ScenarioSemantics) -> ScheduledOutcome:
-    """@brief 到达邮件和可用任务只增加对应人物的实际可见身份。"""
-    if event.kind not in {ScheduledKind.MAIL_ARRIVAL, ScheduledKind.WORK_AVAILABLE}:
+    """@brief 普通邮件到达只增加对应人物的可见邮件，不创建工作资格或任务状态。"""
+    if event.kind != ScheduledKind.MAIL_ARRIVAL:
+        logging.error("Unsupported scheduled event kind: %s", event.kind)
         raise IntegrityError(f"Unsupported scheduled event kind: {event.kind}")
     agent = state.agents[event.agent_id]
-    if event.kind == ScheduledKind.MAIL_ARRIVAL:
-        visible = set(agent.visible_message_ids) | {event.data["message_id"]}
-        message = next(item for item in semantics.scenario.messages if item.message_id == event.data["message_id"])
-        tasks = set(agent.visible_task_ids)
-        if message.related_task_id is not None:
-            tasks.add(message.related_task_id)
-        agent = agent.model_copy(update={"visible_message_ids": visible, "visible_task_ids": tasks}, deep=True)
-    else:
-        visible = set(agent.visible_task_ids) | {event.data["task_id"]}
-        agent = agent.model_copy(update={"visible_task_ids": visible}, deep=True)
-    agents = dict(state.agents)
-    agents[agent.agent_id] = agent
+    visible = set(agent.visible_message_ids) | {event.data["message_id"]}
+    agent = agent.model_copy(update={"visible_message_ids": visible}, deep=True)
+    agents = {**state.agents, agent.agent_id: agent}
     changed = state.model_copy(update={"agents": agents}, deep=True)
-    return ScheduledOutcome(changed, dict(event.data))
+    return ScheduledOutcome(changed, dict(event.data), "message_arrival")
 
 
 def _deliver_message(state: WorldState, event: ScheduledEvent) -> ScheduledOutcome:
@@ -78,7 +93,7 @@ def _deliver_message(state: WorldState, event: ScheduledEvent) -> ScheduledOutco
     agents[agent.agent_id] = agent
     changed = state.model_copy(update={"agents": agents}, deep=True)
     return ScheduledOutcome(changed, {"message_id": message.message_id, "recipient_id": message.recipient_id,
-                                      "occurred_at": event.due_at})
+                                      "occurred_at": event.due_at}, "message_arrival")
 
 
 def _deliver_orders(state: WorldState, event: ScheduledEvent) -> ScheduledOutcome:
@@ -94,10 +109,8 @@ def _deliver_orders(state: WorldState, event: ScheduledEvent) -> ScheduledOutcom
         changed, order = deliver_order(changed, identity)
         orders.append(order.model_dump(mode="json"))
         if before.status == "pending" and order.status == "delivered":
-            changes.append({"order_id": order.order_id, "supply_id": order.supply_id,
-                            "location_id": order.destination_id, "product_id": order.product_id,
-                            "quantity": order.quantity})
-    return ScheduledOutcome(changed, {"orders": orders, "inventory_changes": changes})
+            changes.append(inventory_change(order))
+    return ScheduledOutcome(changed, {"orders": orders, "inventory_changes": changes}, "delivery_arrival")
 
 
 def _bill_due(state: WorldState, event: ScheduledEvent) -> ScheduledOutcome:
@@ -108,12 +121,12 @@ def _bill_due(state: WorldState, event: ScheduledEvent) -> ScheduledOutcome:
     data = {**event.data, "bill_paid": False, "resource_changes": {}}
     if state.accounts.get(payer, 0) < amount:
         logging.error("Bill payment rejected: insufficient account funds")
-        return ScheduledOutcome(state, data)
+        return ScheduledOutcome(state, data, "message_arrival")
     settled = settle_money_transfer(state, payer, payee, amount,
                                     f"bill:settle:{event.data['bill_id']}")
     data.update(bill_paid=True,
                 resource_changes={f"account:{payer}": -amount, f"account:{payee}": amount})
-    return ScheduledOutcome(settled, data)
+    return ScheduledOutcome(settled, data, "message_arrival")
 
 
 def _payroll(state: WorldState, event: ScheduledEvent) -> ScheduledOutcome:
@@ -124,65 +137,9 @@ def _payroll(state: WorldState, event: ScheduledEvent) -> ScheduledOutcome:
     data = {**event.data, "payroll_paid": False, "resource_changes": {}}
     if state.accounts.get(employer, 0) < amount:
         logging.error("Payroll payment rejected: insufficient employer funds")
-        return ScheduledOutcome(state, data)
+        return ScheduledOutcome(state, data, "message_arrival")
     settled = settle_money_transfer(state, employer, recipient, amount,
                                     f"payroll:settle:{event.data['payroll_id']}")
     data.update(payroll_paid=True,
                 resource_changes={f"account:{employer}": -amount, f"account:{recipient}": amount})
-    return ScheduledOutcome(settled, data)
-
-
-def _scheduled_source(event: ScheduledEvent) -> dict:
-    """@brief 显式调价和补货只接受各自的场景假设来源，不继承真实报价标签。"""
-    source = DataSource.model_validate(event.data["source"])
-    if source.kind != "scenario":
-        raise IntegrityError("Scheduled supply changes require a scenario source")
-    return source.model_dump(mode="json")
-
-
-def _price_change(state: WorldState, event: ScheduledEvent,
-                  semantics: ScenarioSemantics) -> ScheduledOutcome:
-    """@brief 按有效声明的时段约束持久化调价，并保留实际前后报价与新来源。"""
-    supply_id = event.data["supply_id"]
-    if supply_id not in state.supply_quotes:
-        raise IntegrityError("Scheduled price change references an unknown supply")
-    previous = effective_quote(state.supply_quotes[supply_id], event.due_at)
-    supply = next(item for item in semantics.scenario.supplies if item.supply_id == supply_id)
-    product = next(item for item in semantics.scenario.products if item.product_id == supply.product_id)
-    quote = changed_quote(previous, supply, event, product)
-    quotes = dict(state.supply_quotes)
-    quotes[supply_id] = quote
-    changed = state.model_copy(update={"supply_quotes": quotes}, deep=True)
-    return ScheduledOutcome(changed, {**event.data, "quote_before": previous.model_dump(mode="json"),
-                                      "quote_after": quote.model_dump(mode="json")})
-
-
-def _quote_change(state: WorldState, event: ScheduledEvent,
-                  semantics: ScenarioSemantics) -> ScheduledOutcome:
-    """@brief 声明边界完整替换当前供给报价，声明间隙明确写入未知。"""
-    supply_id = event.data["supply_id"]
-    if supply_id not in state.supply_quotes:
-        raise IntegrityError("Quote boundary references an unknown supply")
-    supply = next(item for item in semantics.scenario.supplies if item.supply_id == supply_id)
-    before = state.supply_quotes[supply_id]
-    quote = quote_state(quote_at(supply, event.due_at))
-    quotes = dict(state.supply_quotes)
-    quotes[supply_id] = quote
-    changed = state.model_copy(update={"supply_quotes": quotes}, deep=True)
-    return ScheduledOutcome(changed, {
-        **event.data, "quote_before": before.model_dump(mode="json") if before is not None else None,
-        "quote_after": quote.model_dump(mode="json") if quote is not None else None})
-
-
-def _product_release(state: WorldState, event: ScheduledEvent) -> ScheduledOutcome:
-    """@brief 补货仅替换目标供给库存，保存前后数量及明确的场景来源。"""
-    supply_id = event.data["supply_id"]
-    if supply_id not in state.supply_stock:
-        raise IntegrityError("Scheduled release references an unknown supply")
-    source = _scheduled_source(event)
-    stock = dict(state.supply_stock)
-    before = stock[supply_id]
-    stock[supply_id] = event.data["stock"]
-    changed = state.model_copy(update={"supply_stock": stock}, deep=True)
-    return ScheduledOutcome(changed, {**event.data, "source": source, "stock_before": before,
-                                      "stock_after": stock[supply_id]})
+    return ScheduledOutcome(settled, data, "message_arrival")

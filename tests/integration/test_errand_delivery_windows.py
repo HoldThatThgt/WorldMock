@@ -26,10 +26,26 @@ from agentsociety2.agent.base import ModelCallEvidence  # noqa: E402
 from custom.agents.life_prompt import life_user_layers, system_message, user_message  # noqa: E402
 from tests.engine_fixture import (engine_factory)  # noqa: F401
 from tests.life.conftest import (activity_name, errand_add, errand_cancel, errand_update, report_request)  # noqa: F401
-from tests.life.routing_fixtures import (HOME, _keep_busy, act, open_world, place, routed, run_until,  # noqa: E402
-                                         stage)
-from tests.life.test_errand_completion import CHEN, KIT_NAME, MILK, MILK_ID, WAIT, give, note, ready  # noqa: E402
-from tests.life.test_errand_reminder import TEA, moment, until  # noqa: E402
+from tests.life.routing_fixtures import (  # noqa: E402
+    DRINK_NAME,
+    FIRST_PERSON_TARGET,
+    HOME,
+    MEAL_NAME,
+    SNACK_ID,
+    SNACK_NAME,
+    WAIT_ITEM,
+    _keep_busy,
+    act,
+    errand_note,
+    give_food,
+    mark_ready,
+    open_world,
+    place,
+    routed,
+    run_until,
+    stage,
+)
+from tests.life.test_errand_reminder import moment, until  # noqa: E402
 from worldmock.delivery.windows import OBSERVATION_LAYER_KEYS, prepare_windows  # noqa: E402
 from worldmock.errors import IntegrityError  # noqa: E402
 from worldmock.footprints.export import export_run  # noqa: E402
@@ -79,7 +95,7 @@ def _late_world(engine_factory):
         for agent in state.agents.values():
             agent.body_settled_at = agent.next_decision_at = now
     stage(engine, change)
-    place(engine, 2, HOME, {MILK_ID: 2.0})
+    place(engine, 2, HOME, {SNACK_ID: 2.0})
     return engine
 
 
@@ -103,9 +119,9 @@ def _errand_life(engine_factory, monkeypatch):
     """两人在家的最后半小时真实生活（模块说明里的那一段），过到运行终点：返回引擎。"""
     engine = _late_world(engine_factory)
     _record_prompts(engine, monkeypatch)
-    note(engine, "note", [errand_add("囤两份牛奶", MILK, quantity=2, remind_time="23:35"),
-                          errand_add("补食材包", KIT_NAME), errand_add("买冰红茶", TEA)])
-    waited = act(engine, "wait", routed(WAIT))
+    errand_note(engine, "note", [errand_add("囤两份牛奶", SNACK_NAME, quantity=2, remind_time="23:35"),
+                          errand_add("补食材包", MEAL_NAME), errand_add("买冰红茶", DRINK_NAME)])
+    waited = act(engine, "wait", routed(WAIT_ITEM))
     assert waited.status == "in_progress", (waited.error_code, waited.message)
     until(engine, moment(engine, "2026-01-05 23:35"))
     changes = [errand_update("补食材包", memo="周末去超市买"), errand_cancel("买冰红茶", "家里还有冰红茶")]
@@ -113,12 +129,12 @@ def _errand_life(engine_factory, monkeypatch):
                                                     errands=changes), tool="report_status")
     assert reported.status == "completed", (reported.error_code, reported.message)
     for label in ("hand-1", "hand-2"):
-        ready(engine, 2)
-        handed = act(engine, label, give(engine, CHEN), agent_id=2)
+        mark_ready(engine, 2)
+        handed = act(engine, label, give_food(engine, FIRST_PERSON_TARGET), agent_id=2)
         assert handed.status == "completed", (handed.error_code, handed.message)
     assert engine.context.state.agents[1].errands and "囤两份牛奶" not in {
         errand.name for errand in engine.context.state.agents[1].errands.values()}
-    ready(engine, 1)
+    mark_ready(engine, 1)
     tool, request = _keep_busy(engine, 1, "after")
     assert act(engine, "after", request, tool=tool).status in {"completed", "in_progress"}
     run_until(engine, lambda current: current.context.state.current_time == current.context.state.end_time)

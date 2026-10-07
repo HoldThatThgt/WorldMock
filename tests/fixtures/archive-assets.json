@@ -53,5 +53,35 @@
     "original_path": "docs/dev/evidence/errands-workday/mutation-review.json",
     "commit": "2cf230115f4084aef2376e9d77bc976efbed43ea",
     "sha256": "af6a8c1f827c76ca6495a0d96992b113eb7c5908924776b8d79e24ae99de6976"
+  },
+  "docs/archive/category-contract/SPEC-category-contract.md": {
+    "original_path": "docs/dev/SPEC-category-contract.md",
+    "commit": "bc42d02496fb13d4889363cfd10c3d223176454c",
+    "sha256": "c36b4ab1dcd415ade78b00a2b974679012a176a5ab8898b87318b82227ec0caf"
+  },
+  "docs/archive/category-contract/PROPOSAL-category-contract.md": {
+    "original_path": "docs/dev/PROPOSAL-category-contract.md",
+    "commit": "bc42d02496fb13d4889363cfd10c3d223176454c",
+    "sha256": "89e9235f448654644b2d431149eb0ae465ea823d236e2cb2dff0fa101e3f0a20"
+  },
+  "docs/archive/category-contract/category-contract-verification.md": {
+    "original_path": "docs/dev/category-contract-verification.md",
+    "commit": "bc42d02496fb13d4889363cfd10c3d223176454c",
+    "sha256": "c6c267a3bf61ccff0391c24429a98eeb9992f8125bbd08a01b4d990d3042b958"
+  },
+  "docs/archive/category-contract/category-contract-main-verification.md": {
+    "original_path": "docs/dev/category-contract-main-verification.md",
+    "commit": "bc42d02496fb13d4889363cfd10c3d223176454c",
+    "sha256": "69f0f212fa7140d52ac03676f72a8119704abc666a8f02af7c05d1d49d75c41b"
+  },
+  "docs/archive/category-contract/category-contract-files.md": {
+    "original_path": "docs/dev/category-contract-files.md",
+    "commit": "bc42d02496fb13d4889363cfd10c3d223176454c",
+    "sha256": "2526e985dcb4a15a79e046460a1101f6689f1308b4aa0e177f6e0dacff10b33a"
+  },
+  "docs/archive/category-contract/category-contract-bob-review.md": {
+    "original_path": "docs/dev/category-contract-bob-review.md",
+    "commit": "bc42d02496fb13d4889363cfd10c3d223176454c",
+    "sha256": "37b99c0e59110c6b814f39fcc4f031d3c4a82cc99d58c14f00e3c3bf3398ebe7"
   }
 }

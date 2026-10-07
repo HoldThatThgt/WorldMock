@@ -18,11 +18,10 @@ from zoneinfo import ZoneInfo
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import StubPlanDayClient, advance_until_ready, context, settle_day_plans, start_activity
-from tests.life.test_dayrun_restaurants import MEAL, RESTAURANT, SUPPLY, _finish, _start
+from tests.life.test_dayrun_restaurants import FOOD_ID, STORE_ID, STORE_FOOD_ID, _finish, _start
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.quality import build_quality_report
 from worldmock.footprints.store import FootprintStore
-from worldmock.life.opening_hours import next_opening_change, opening_status
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TZ = ZoneInfo("Asia/Shanghai")
@@ -61,24 +60,11 @@ def _live_day(engine) -> dict:
     assert (rejected.status, rejected.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
     _, sleep = _start(engine, "sleep", "self", None, "睡觉")
     _finish(engine, sleep.activity_id)
-    _, walk = _start(engine, "to-restaurant", "location", RESTAURANT, "步行")
+    _, walk = _start(engine, "to-restaurant", "location", STORE_ID, "步行")
     _finish(engine, walk.activity_id)
-    location = next(item for item in engine.context.scenario.locations if item.location_id == RESTAURANT)
-    overrides = engine.context.state.opening_exceptions[RESTAURANT]
-    opening = engine.context.state.current_time
-    if opening_status(location, opening, engine.context.scenario.timezone, overrides) != "open":
-        opening = next_opening_change(location, opening, engine.context.scenario.timezone, overrides)
-        assert opening is not None
-        assert opening_status(location, opening, engine.context.scenario.timezone, overrides) == "open"
-    for step in range(16):
-        if engine.context.state.current_time >= opening:
-            break
-        _, waiting = _start(engine, f"wait-{step}", "self", None, "等待")
-        _finish(engine, waiting.activity_id)
-    assert engine.context.state.current_time >= opening
-    _start(engine, "buy-meal", "supply", SUPPLY, "到店")
+    _start(engine, "buy-meal", "supply", STORE_FOOD_ID, "到店")
     assert advance_until_ready(engine)
-    _, eating = _start(engine, "eat-meal", "holding", MEAL, "食用")
+    _, eating = _start(engine, "eat-meal", "holding", FOOD_ID, "食用")
     _finish(engine, eating.activity_id)
     return {"walk": walk.activity_id, "eat": eating.activity_id}
 
@@ -144,7 +130,7 @@ def _progress(agent: int, activity_id: str, span: tuple[int, int], **data) -> Ev
 
 def _eating(quantity: float, use_mode: str = "eat") -> dict:
     """@brief activity_progress.data.consumption：本区间用量与使用方式。"""
-    return {"consumption": {"use_mode": use_mode, "items": [{"product_id": "meal", "interval_quantity": quantity}]}}
+    return {"consumption": {"use_mode": use_mode, "items": [{"product_id": "meal", "interval_portion": quantity}]}}
 
 
 def _event(event_type: str, occurred_at: int, agent: int = 1, **data) -> EventDraft:

@@ -1,9 +1,6 @@
 """@brief 在启动人物前验证完整场景、语料和实际数据消费者。"""
 
 from __future__ import annotations
-from worldmock.profile.compile import compile_persona
-from worldmock.profile import coverage_targets
-from worldmock import run_setup
 
 import importlib.metadata
 import json
@@ -16,33 +13,23 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
-from worldmock.catalog.admission import validate_task_assignees, validate_world_categories
-from worldmock.catalog.loader import load_catalog
 from worldmock.corpora.manifest import load_manifest
-from worldmock.delivery.generation import EXPRESSIONS
-from worldmock.delivery.rules import execute_fixture
 from worldmock.errors import IntegrityError
 from worldmock.footprints.assets import atomic_write
-from worldmock.life.world_setup import load_scenario
-from worldmock.profile.coverage import validate_coverage, require_coverage
 
-#: 改名为 stage_model_identity 之前的清单键（带决策自述阶段的旧运行）。
-#: 媒介品类闭集映射：世界内容目录 kind -> 中文媒介词（与 render_day 标签同口径）。
 
 
 def validate_project(project_root: Path, scenario_path: Path, *,
                      persona_compiler=None, coverage_out: Path | None = None) -> dict:
-    """@brief 全量来源校验、实际规则执行与 Schema 检查失败时阻止新运行。
-
-    新增（修订合同）：世界素材品类准入、任务受理人校验、清单阶段身份
-    一致性（validate_manifest_stage_identity）与 persona_coverage.json 覆盖率门禁（<80% 拒绝）。
-    先核对实际导入的 AS2：包目录为空、导入失败或与锁定源码摘要不符即以 IntegrityError 拒绝
-    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「运行身份」）。结果另带 input_warnings：与新建运行同一组运行输入警告
-    （docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-运行输入警告 ），覆盖率门禁判定之前已逐条写到标准错误流。
-    """
+    """@brief 真实场景加载后保留 AS2 锁、依赖、LabelKit、阶段身份和八成画像覆盖门禁。"""
+    from worldmock import run_setup
+    from worldmock.delivery.generation import EXPRESSIONS
+    from worldmock.delivery.rules import execute_fixture
+    from worldmock.life.world_setup import load_runtime_scenario
 
     run_setup.require_locked_as2()
-    scenario, scenario_sha256 = load_scenario(scenario_path.resolve())
+    semantics, scenario_sha256 = load_runtime_scenario(scenario_path.resolve())
+    scenario = semantics.scenario
     corpus_root = Path(scenario.corpus_root)
     if not corpus_root.is_absolute():
         corpus_root = scenario_path.resolve().parent / corpus_root
@@ -62,10 +49,6 @@ def validate_project(project_root: Path, scenario_path: Path, *,
                           (("request", 0), ("accept", 1), ("complete", 2))],
                "expected": {"allowed": True}, "provenance": {"kind": "validation_fixture"}}
     execute_fixture(fixture, EXPRESSIONS)
-    catalog_dir = scenario_path.resolve().parent.parent / "catalog"
-    catalog = load_catalog(catalog_dir)
-    _require_world_categories(catalog, corpus_root, scenario.map_dataset.locations_file.path)
-    _require_task_assignees(scenario)
     run_setup._configure_process(project_root)
     identity = run_setup.validate_manifest_stage_identity()
     coverage = validate_persona_coverage(
@@ -113,15 +96,25 @@ def validate_persona_coverage(scenario_path: Path, *,
     persona_coverage.json 的结构不变。
     """
 
-    scenario = _scenario if _scenario is not None else load_scenario(
-        Path(scenario_path).resolve())[0]
+    from worldmock import run_setup
+    from worldmock.life.semantics import resolve_catalog_dir
+    from worldmock.life.world_setup import load_runtime_scenario
+    from worldmock.catalog.loader import load_catalog
+    from worldmock.profile import coverage_targets
+    from worldmock.profile.coverage import require_coverage, validate_coverage
+
+    if _scenario is None:
+        semantics, _ = load_runtime_scenario(Path(scenario_path).resolve())
+        scenario, catalog = semantics.scenario, semantics.catalog
+    else:
+        scenario = _scenario
+        catalog = load_catalog(resolve_catalog_dir(scenario_path))
     corpus_root = _corpus_root
     if corpus_root is None:
         corpus_root = Path(scenario.corpus_root)
         if not corpus_root.is_absolute():
             corpus_root = Path(scenario_path).resolve().parent / corpus_root
-    catalog_dir = Path(scenario_path).resolve().parent.parent / "catalog"
-    targets = coverage_targets.build_coverage_targets(scenario, load_catalog(catalog_dir), corpus_root)
+    targets = coverage_targets.build_coverage_targets(scenario, catalog, corpus_root)
     compile_story = persona_compiler or _compile_persona
     compiled = {agent.agent_id: compile_story(agent.background_story)
                 for agent in scenario.agents if agent.background_story is not None}
@@ -144,32 +137,64 @@ def validate_persona_coverage(scenario_path: Path, *,
 def _compile_persona(story: str) -> Any:
     """@brief 默认编译：A9 compile_persona（真实三次一致性抽取）。"""
 
+    from worldmock.profile.compile import compile_persona
+
     return compile_persona(story)
 
 
+def validate_environment(environment_root: Path) -> dict:
+    """@brief 校验真实环境目录、地图重生成、语料清单与全部场景，并汇总每处失败。"""
+    from worldmock.catalog.loader import load_catalog, require_engine_rules
+    from worldmock.catalog.mapgen import require_regenerated_map
+
+    root, errors = Path(environment_root).resolve(), []
+    catalog = None
+    corpus = None
+    try:
+        catalog = load_catalog(root / "catalog")
+        require_regenerated_map(catalog.map_data, (root / "catalog/map.json").read_bytes())
+    except (IntegrityError, OSError, ValueError) as error:
+        _environment_failure("catalog", error, errors)
+    try:
+        require_engine_rules(root / "catalog")
+    except (IntegrityError, OSError, ValueError) as error:
+        _environment_failure("catalog", error, errors)
+    try:
+        corpus = load_manifest(root / "corpora")
+    except (IntegrityError, OSError, ValueError) as error:
+        _environment_failure("corpora/manifest.json", error, errors)
+    scenarios = _validate_environment_scenarios(root, errors)
+    if errors:
+        return {"valid": False, "errors": errors, "scenarios": scenarios}
+    return {"valid": True, "environment_id": catalog.manifest.environment_id,
+            "environment_version": catalog.manifest.environment_version,
+            "corpus_entries": len(corpus.entries), "scenarios": scenarios}
 
 
+def _validate_environment_scenarios(root: Path, errors: list[dict]) -> list[str]:
+    """@brief 所有场景各自走真实加载器，单个失败不隐藏其他场景的失败。"""
+    from worldmock.life.world_setup import load_runtime_scenario
+
+    paths = sorted((root / "scenarios").rglob("*.json"))
+    if not paths:
+        _environment_failure("scenarios", IntegrityError("The environment contains no scenarios"), errors)
+    valid = []
+    for path in paths:
+        relative = path.relative_to(root).as_posix()
+        try:
+            load_runtime_scenario(path, root / "catalog")
+        except (IntegrityError, OSError, ValueError) as error:
+            _environment_failure(relative, error, errors)
+        else:
+            valid.append(relative)
+    return valid
 
 
+def _environment_failure(relative: str, error: Exception, errors: list[dict]) -> None:
+    """@brief 保留唯一登记码或完整性异常名，并以英文日志报告实际原因。"""
+    from worldmock.catalog.errors import RegistrationError
 
-
-def _require_world_categories(catalog: Any, corpora_root: Path, locations_path: str) -> None:
-    """@brief 世界素材品类准入：任一品类违例即拒绝（fail-closed，英文错误）。"""
-    result = validate_world_categories(catalog, corpora_root, locations_path)
-    if not result.ok:
-        detail = "; ".join(f"{item.code}: {item.detail}" for item in result.violations)
-        raise IntegrityError(f"World category admission rejected: {detail}")
-
-
-def _require_task_assignees(scenario: Any) -> None:
-    """@brief 场景任务受理人校验：tasks[].assignee_agent_id 必填。
-
-    ScenarioTaskRef 是最小闭集 Schema（extra=forbid），只投影受理人
-    校验三字段，不把完整合同字段灌进准入模型。
-    """
-    projection = ({"task_id": item.task_id, "assignee_agent_id": item.assignee_agent_id,
-                   "input_path": item.input_path} for item in scenario.tasks)
-    result = validate_task_assignees(projection)
-    if not result.ok:
-        detail = "; ".join(f"{item.code}: {item.detail}" for item in result.violations)
-        raise IntegrityError(f"Task assignee admission rejected: {detail}")
+    code = error.code if isinstance(error, RegistrationError) else type(error).__name__
+    reason = str(error)
+    logging.error("Environment validation failed for %s: %s", relative, reason)
+    errors.append({"path": relative, "code": code, "reason": reason})

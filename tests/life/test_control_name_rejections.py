@@ -14,7 +14,10 @@ from __future__ import annotations
 import pytest
 
 from tests.life.conftest import advance_until_ready, context, last_result, wake_by_mail
-from tests.life.test_name_resolution import _decide, _morning, _pending, _start
+from agentsociety2.agent.base import ReactDecision
+from agentsociety2.society import DirectToolCall
+from tests.life.conftest import stage_day_plan, start_arguments
+from tests.life.test_tool_layer import _host
 from worldmock.errors import BusinessRuleError
 from worldmock.life.guidance import refusal_for_code, rejection_guidance
 from worldmock.life.models import REQUEST_MODELS, SameMomentStage
@@ -23,6 +26,32 @@ from worldmock.life.models import REQUEST_MODELS, SameMomentStage
 _CONTROL_TOOLS = ("report_status", "pause_activity", "conclude_activity")
 #: 找不到的活动名的准确修正说明。
 _NOT_FOUND_FIX = "Use an exact known activity name."
+
+
+def _daytime_engine(factory):
+    """@brief 使用实际人工场景和真实提交的日计划建立当前决策机会。"""
+    engine = factory()
+    stage_day_plan(engine)
+    return engine
+
+
+def _host_and_environment(engine, label: str, tool: str, arguments: dict):
+    """@brief 同一真实观察经人物校验后原样交给环境，保留绕过宿主的拒绝证明。"""
+    decision = context(engine, label)
+    engine.begin_decision_round([decision])
+    observation = engine.observe(decision)
+    person = _host(engine, decision, observation)
+    error = person.validate_react_decisions([ReactDecision("", tool, arguments, "")], False)
+    request = REQUEST_MODELS[tool].model_validate(arguments)
+    engine.submit_action(DirectToolCall(decision, f"action-{label}", tool, request))
+    [result] = engine.commit_decision_round(label)
+    return error, result
+
+
+def _registered_request(engine, decision, tool: str, request):
+    """@brief 从实际登记后的决策轮读取完整待结算请求。"""
+    receipt = engine.submit_action(DirectToolCall(decision, "foreign-action", tool, request))
+    return next(item for item in engine.decisions.round.pending_actions if item.action_id == receipt.action_id)
 
 
 def _control(tool: str, *names: str) -> dict:
@@ -51,8 +80,8 @@ def _assert_shared_items(error, records: list[dict]) -> None:
 
 def _waiting(engine_factory):
     """首日 09:30 开始一段等待，以一封邮件把下一次决策机会钉在一分钟后（等待仍在进行）：（引擎，活动身份，活动名）。"""
-    engine = _morning(engine_factory)
-    error, started = _decide(engine, "wait-start", "start_activity", _start(["自己"], ["interact"], ["等待"]))
+    engine = _daytime_engine(engine_factory)
+    error, started = _host_and_environment(engine, "wait-start", "start_activity", start_arguments(["自己"], ["interact"], ["等待"]))
     assert (error, started.status) == ("", "in_progress")
     wake_by_mail(engine, offset=60)
     assert advance_until_ready(engine)
@@ -65,9 +94,9 @@ def test_two_unknown_activity_names_are_both_reported_in_one_rejection(engine_fa
     顶层码 ACTION_REQUEST_INVALID
     照常计入同刻轮数、照常施加情绪脉冲；action_rejected 与下一次观察的公开结果带同样的原因、改法与 items，下一步取该码的
     默认做法。"""
-    engine = _morning(engine_factory)
+    engine = _daytime_engine(engine_factory)
     mood = engine.context.state.agents[1].body.mood_valence
-    error, result = _decide(engine, f"two-{tool}", tool, _control(tool, "散步", "跑步"))
+    error, result = _host_and_environment(engine, f"two-{tool}", tool, _control(tool, "散步", "跑步"))
     assert (result.status, result.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
     assert [(row["path"][5], row["path"][-1], row["written"], row["error_code"], row["candidates"])
             for row in result.data["items"]] == [(0, "activity_name", "散步", "NAME_NOT_FOUND", []),
@@ -94,7 +123,7 @@ def test_a_known_and_an_unknown_name_report_only_the_unknown_second_item(engine_
     与宿主的实质判断相同；整组原子，等待没有被播报、暂停或结束；同一秒只写等待再提交就受理。"""
     engine, activity_id, name = _waiting(engine_factory)
     before = engine.context.state.activities[activity_id]
-    error, result = _decide(engine, f"mixed-{tool}", tool, _control(tool, name, "等待一会儿"))
+    error, result = _host_and_environment(engine, f"mixed-{tool}", tool, _control(tool, name, "等待一会儿"))
     assert (result.status, result.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
     assert [(row["path"][5], row["path"][-1], row["written"], row["error_code"]) for row in result.data["items"]] == [
         (1, "activity_name", "等待一会儿", "NAME_NOT_FOUND")]
@@ -102,7 +131,7 @@ def test_a_known_and_an_unknown_name_report_only_the_unknown_second_item(engine_
     assert result.data["reason"] == f"The activity name is not known. Nearby known names: 「{name}」."
     assert result.data["fix"] == _NOT_FOUND_FIX
     assert engine.context.state.activities[activity_id] == before
-    error, accepted = _decide(engine, f"known-{tool}", tool, _control(tool, name))
+    error, accepted = _host_and_environment(engine, f"known-{tool}", tool, _control(tool, name))
     assert (error, accepted.status) == ("", "completed")
     assert engine.context.state.activities[activity_id].progress_note == "先这样。"
 
@@ -112,14 +141,14 @@ def test_an_ambiguous_and_an_unknown_name_are_reported_with_their_own_codes(engi
     两个完整活动名；同一请求里另一项找不到的名称写 NAME_NOT_FOUND；合并成一次拒绝，码各自写、改法每码一句。
     宿主与环境的实质判断相同，各自解释准确。"""
     engine, _, first = _waiting(engine_factory)
-    assert _decide(engine, "wait-end", "conclude_activity",
+    assert _host_and_environment(engine, "wait-end", "conclude_activity",
                    _control("conclude_activity", first))[1].status == "completed"
-    error, again = _decide(engine, "wait-again", "start_activity", _start(["自己"], ["interact"], ["等待"]))
+    error, again = _host_and_environment(engine, "wait-again", "start_activity", start_arguments(["自己"], ["interact"], ["等待"]))
     assert (error, again.status) == ("", "in_progress")
     second = engine.context.state.activities[again.activity_id].name
     wake_by_mail(engine, offset=60)
     assert advance_until_ready(engine)
-    error, result = _decide(engine, "ambiguous", "report_status", _control("report_status", "等待", "散步"))
+    error, result = _host_and_environment(engine, "ambiguous", "report_status", _control("report_status", "等待", "散步"))
     assert result.error_code == "ACTION_REQUEST_INVALID"
     assert [(row["path"][5], row["written"], row["error_code"]) for row in result.data["items"]] == [
         (0, "等待", "NAME_AMBIGUOUS"), (1, "散步", "NAME_NOT_FOUND")]
@@ -132,13 +161,13 @@ def test_an_ambiguous_and_an_unknown_name_are_reported_with_their_own_codes(engi
 def test_the_restricted_round_recheck_reports_every_unknown_name_too(engine_factory) -> None:
     """同刻上限内单项的未知活动名各计一轮，随后进入受限轮；受限轮
     复核按点名的活动判定请求类时同样逐项报全部名称类失败。"""
-    engine = _morning(engine_factory)
+    engine = _daytime_engine(engine_factory)
     for index in range(engine.context.scenario.max_same_moment_decisions):
-        _, single = _decide(engine, f"single-{index}", "pause_activity", _control("pause_activity", "散步"))
+        _, single = _host_and_environment(engine, f"single-{index}", "pause_activity", _control("pause_activity", "散步"))
         assert (single.error_code, single.data["same_moment_round"]) == ("ACTION_REQUEST_INVALID", index + 1)
     assert (single.data["reason"], single.data["fix"]) == ("The activity name is not known.", _NOT_FOUND_FIX)
     assert engine.context.state.agents[1].same_moment_stage == SameMomentStage.START_OR_RESUME
-    _, result = _decide(engine, "restricted", "conclude_activity", _control("conclude_activity", "散步", "跑步"))
+    _, result = _host_and_environment(engine, "restricted", "conclude_activity", _control("conclude_activity", "散步", "跑步"))
     assert result.error_code == "ACTION_REQUEST_INVALID"
     assert [(row["path"][5], row["error_code"]) for row in result.data["items"]] == [(0, "NAME_NOT_FOUND"),
                                                                                   (1, "NAME_NOT_FOUND")]
@@ -152,7 +181,7 @@ def test_a_resolved_name_that_is_not_the_persons_activity_is_refused_without_ite
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
     request = REQUEST_MODELS["report_status"].model_validate(_control("report_status", name))
-    pending = _pending(engine, ctx, "report_status", request)
+    pending = _registered_request(engine, ctx, "report_status", request)
     foreign = engine.context.state.model_copy(deep=True)
     foreign.activities[activity_id] = foreign.activities[activity_id].model_copy(update={"agent_id": 2})
     with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID") as bare:

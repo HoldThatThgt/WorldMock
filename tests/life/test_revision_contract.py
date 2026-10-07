@@ -108,8 +108,8 @@ def test_sleep_is_not_interrupted_by_reconsideration(engine_factory) -> None:
     assert "planned_end" in engine.context.state.agents[1].pending_wake_reasons
 
 
-def test_public_observation_excludes_private_fields_and_supply_expires(engine_factory) -> None:
-    """七层不含禁用字段；出行动作只含可读的价格、时长与费力程度，商品在浏览可见期结束后消失。"""
+def test_public_observation_excludes_private_fields_and_fixed_menu_remains_visible(engine_factory) -> None:
+    """七层不含禁用字段；出行动作只含可读的价格、时长与费力程度，固定菜单与 app 可见性不依赖已删除的浏览凭据。"""
     engine = engine_factory()
     data = _observe_current(engine, "observe-clean")
     layers = [data[key] for key in ("tool_layer", "todo_layer", "environment_layer", "memory_layer", "progress_layer")]
@@ -123,15 +123,17 @@ def test_public_observation_excludes_private_fields_and_supply_expires(engine_fa
     for action in trips:
         assert action["action"] == "travel" and action["quantity"] is None
         assert action["note"] in {"费力程度：轻松", "费力程度：一般", "费力程度：费力"}
-    browse = _act(engine, "browse", "start_activity", start_activity("浏览", "商品目录"))
-    assert browse.status.value == "in_progress"
-    assert advance_until_ready(engine)
-    agent = engine.context.state.agents[1]
+    products = {row["object_id"] for row in data["interaction_bindings"] if row["kind"] == "supply"}
+    assert products
     staged = engine.context.state.model_copy(deep=True)
-    staged.current_time = max(agent.supply_browsed_at.values()) + 1801
+    staged.current_time += 1801
     staged.agents[1] = staged.agents[1].model_copy(update={"body_settled_at": staged.current_time}, deep=True)
     _commit_staged(engine, staged)
-    assert projection.visible_supplies(engine.context.state, engine.context.state.agents[1], engine.context.scenario) == []
+    later = _observe_current(engine, "fixed-menu-later")
+    assert {row["object_id"] for row in later["interaction_bindings"] if row["kind"] == "supply"} == products
+    assert {row["object_id"] for row in later["interaction_bindings"] if row["kind"] == "app"} == set(
+        engine.context.semantics.catalog.apps)
+    assert "supply_browsed_at" not in engine.context.state.agents[1].model_dump()
 
 
 def test_plan_day_registration_and_retry_after_rejection(engine_factory) -> None:

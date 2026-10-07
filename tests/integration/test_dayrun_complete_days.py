@@ -25,7 +25,7 @@ from custom.envs.life_env import LifeEnv
 from tests.integration.test_life_agent_protocol import _ModelResponse, _TextResponse
 from tests.integration.test_unique_presence_run import _assert_once_each, _assert_readable, _identities
 from tests.life.conftest import StubPlanDayClient, context, start_arguments
-from tests.life.test_scheduling import _document, _write_scenario, _identity
+from tests.life.scenario_fixtures import read_scenario, run_identity, write_scenario
 from worldmock.delivery.windows import prepare_windows
 from worldmock.evaluation.behavior_metrics import behavior_metrics_report
 from worldmock.footprints import timeline_labels
@@ -42,10 +42,9 @@ from worldmock.life.scenario import sha256_file
 from worldmock.life.world_query import QueryWorldRequest
 from worldmock.run_setup import stage_model_identity
 
-_RESTAURANTS = ("菜饭骨头汤", "三十六道金牌煲仔饭")
 #: 零点计划桩生成的当日目标（时间与能量规格第四章：计划由运行时后台任务生成，不是人物工具）。
 _DAY_GOALS = [{"intent_kind": "用餐", "goal": "找一份餐食", "remind_time": None, "around_time": None},
-              {"intent_kind": "娱乐", "goal": "听一会访谈", "remind_time": None, "around_time": None}]
+              {"intent_kind": "娱乐", "goal": "用应用看一会内容", "remind_time": None, "around_time": None}]
 #: 这些种子的就寝反思首次不合合同（自由文本、没有工具调用），经一次校验重试改正（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-就寝反思经严格工具提交 ）：
 #: 两人的附回消息逐字相同、分处两条（人物，秒）续接链，观察重复门禁仍须为 1。
 _REFLECTION_RETRY_SEEDS = frozenset({20260106})
@@ -80,15 +79,16 @@ class DayModel:
 
     生活决策没有 finish（时间与能量规格第七章「finish 并入 conclude_activity」）：一轮决策恰好登记一个世界请求，
     登记即结束本轮。刚结束的活动当秒用 conclude_activity 收尾（第七章「活动一结束就要结束它」），唯一一条主观记忆
-    随第一次收尾的 memories 写入。出发前先处理手上的事：午饭前暂停等待（暂停的活动留在家里占一个名额，回家后在
-    开始地点接着等），晚饭前直接结束它，两个名额都空着时边走边看。
+    随第一次收尾的 memories 写入。出发前先处理手上的事：午饭前暂停等待（暂停的活动留在家里，不占名额，回家后在
+    开始地点接着等），晚饭前直接结束它。路上用真实 app，看过的内容与位置只认引擎结算。
     """
 
     model_name = "deepseek-flash"
 
-    def __init__(self, seed: int, agent_id: int):
+    def __init__(self, seed: int, agent_id: int, delivery_place: str):
         self.seed, self.agent_id = seed, agent_id
-        self.phase = "trip"
+        self.phase = "morning"
+        self.delivery_place = delivery_place
         self.meals = 0
         self.morning_sleep_started = False
         self.agent = None
@@ -111,11 +111,10 @@ class DayModel:
         if not self.invalid_action_sent:
             self.invalid_action_sent = True
             return self._response("invented_wait_tool", {})
-        if self.phase == "trip" and "start_activity" in functions and not self.invalid_parallel_sent:
+        if self.phase in {"commute", "trip"} and "start_activity" in functions and not self.invalid_parallel_sent:
             self.invalid_parallel_sent = True
-            watch = self._watch()
-            way = self._watch_way(watch)
-            return self._response(*self._start((watch, "interact", way), (watch, "interact", way)))
+            app = self._app()
+            return self._response(*self._start((app, "interact", "打开"), (app, "interact", "打开")))
         action, payload = self._choose(functions)
         self.actions.append((action, payload))
         return self._response(action, payload)
@@ -148,8 +147,6 @@ class DayModel:
         pending = self._activities("刚结束")
         if pending:
             return self._conclude(pending)
-        if hour < 11:
-            return self._before_lunch(hour)
         return getattr(self, "_" + self.phase)(functions, hour)
 
     def _activities(self, phase):
@@ -171,22 +168,16 @@ class DayModel:
         return {target["name"]: tuple((item["action"], item["way"], item["available"]) for item in target["actions"])
                 for target in self.layers[0]["targets"] if target["kind"] != "activity"}
 
-    def _watch_way(self, name):
-        """内容目标列出的观看方式（按进度是「接着看」「从头再看」等）。"""
-        return next(way for verb, way, _ in self._objects()[name] if verb == "interact")
-
     @staticmethod
     def _start(*items):
         """由（对象，动词，方式）逐项构造 start_activity 参数。"""
         return "start_activity", start_arguments([item[0] for item in items], [item[1] for item in items],
                                                  [item[2] for item in items])
 
-    def _watch(self):
-        return next(name for name in self._objects() if "Space Habitat" in name)
-
-    def _content(self):
+    def _app(self):
+        """只选择本轮真实可打开的应用，不请求已退役的单条内容目标。"""
         return next(name for name, actions in self._objects().items()
-                    if name.startswith("内容：") and any(verb == "interact" for verb, _, _ in actions))
+                    if name.startswith("应用：") and any(way == "打开" and available for _, way, available in actions))
 
     def _place(self, label):
         return next(name for name in self._objects() if name.startswith("地点：") and label in name)
@@ -204,8 +195,14 @@ class DayModel:
             self.subjective_written = True
         return "conclude_activity", {"items": items, "errands": []}
 
-    def _before_lunch(self, hour):
+    def _morning(self, functions, hour):
         running = self._running()
+        departure = 8 if self.agent_id == 1 else 11
+        if hour >= departure:
+            self.phase = "commute" if self.agent_id == 1 else "trip"
+            if running:
+                return self._control("pause_activity", running)
+            return getattr(self, "_" + self.phase)(functions, hour)
         if running:
             return self._control("report_status", running)
         sleep = hour < 8 and not self.morning_sleep_started
@@ -213,33 +210,66 @@ class DayModel:
             self.morning_sleep_started = True
         return self._start(("自己", "sleep", "睡觉") if sleep else ("自己", "interact", "等待"))
 
+    def _commute(self, functions, hour):
+        self.phase = "office_arrival"
+        return self._start((self._place("公司"), "travel", "步行"), (self._app(), "interact", "打开"))
+
+    def _office_arrival(self, functions, hour):
+        if self._running():
+            return self._control("report_status", self._running())
+        self.phase = "work"
+        topic = next(name for name, actions in self._objects().items()
+                     if any(way == "工作" and available for _, way, available in actions))
+        return self._start((topic, "interact", "工作"))
+
+    def _work(self, functions, hour):
+        running = self._running()
+        if hour >= 11:
+            self.phase = "trip"
+            return self._conclude(running)
+        return self._control("report_status", running)
+
     def _trip(self, functions, hour):
         running = self._running()
         if running:
             # 消息、饥饿跨档与餐时窗口起止都会在进行中的等待里提供决策（时间与能量规格第一、三章）：出发前要先结束或
             # 暂停手上的事：午饭前暂停等待（留在家里，回来接着等），晚饭前直接结束；二者都是瞬时动作，同一秒再决策出发。
             return self._conclude(running) if self.meals else self._control("pause_activity", running)
-        target = self._place(_RESTAURANTS[(self.agent_id + self.seed + self.meals) % len(_RESTAURANTS)])
+        target = self._place("一心面馆" if not self.meals else self.delivery_place)
         self.phase = "walk"
-        if self._paused():
-            # 暂停的等待仍占一个名额，只步行前往。
-            return self._start((target, "travel", "步行"))
-        content = self._content()
-        return self._start((target, "travel", "步行"), (content, "interact", self._watch_way(content)))
+        return self._start((target, "travel", "步行"), (self._app(), "interact", "打开"))
 
     def _walk(self, functions, hour):
         running = self._running()
         if running:
             return self._control("report_status", running)
-        self.phase = "consume"
+        way = "到店" if not self.meals else "远程下单"
+        self.phase = "consume" if not self.meals else "delivery_wait"
         supply = next(name for name, actions in self._objects().items()
-                      if any(way == "到店" and available for _, way, available in actions))
-        return self._start((supply, "obtain", "到店"))
+                      if "一心面馆" in name and "牛肉面" in name
+                      and any(label == way and available for _, label, available in actions))
+        payload = start_arguments([supply], ["obtain"], [way], from_=["美团" if self.meals else None])
+        return "start_activity", payload
+
+    def _delivery_wait(self, functions, hour):
+        held = any(name.startswith("持有物：") and "牛肉面" in name
+                   and any(way == "食用" and available for _, way, available in actions)
+                   for name, actions in self._objects().items())
+        running = self._running()
+        if held:
+            if running:
+                return self._conclude(running)
+            self.phase = "consume"
+            return self._consume(functions, hour)
+        if running:
+            return self._control("report_status", running)
+        return self._start(("自己", "interact", "等待"))
 
     def _consume(self, functions, hour):
         self.phase = "eat"
         item = next(name for name, actions in self._objects().items()
-                    if name.startswith("持有物：") and any(way == "食用" and available for _, way, available in actions))
+                    if name.startswith("持有物：") and "牛肉面" in name
+                    and any(way == "食用" and available for _, way, available in actions))
         return self._start((item, "consume", "食用"))
 
     def _eat(self, functions, hour):
@@ -248,7 +278,7 @@ class DayModel:
             return self._control("report_status", running)
         self.meals += 1
         self.phase = "rest"
-        return self._start((self._place("张江居所"), "travel", "步行"))
+        return self._start((self._place("家"), "travel", "步行"))
 
     def _rest(self, functions, hour):
         if self.meals < 2 and hour >= 18:
@@ -282,12 +312,11 @@ async def _people(environment, root: Path, models: dict, restored: bool = False)
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("seed", [20260105, 20260106])
-async def test_complete_two_person_day_uses_real_tools_memory_and_restoration(tmp_path, seed, monkeypatch):
+async def test_complete_two_person_day_uses_real_tools_memory_and_restoration(
+        tmp_path, tmp_path_factory, seed, monkeypatch):
     monkeypatch.setattr(runtime_module, "PlanDayClient", _PlanDayClient)
-    document = _document("multi-person.json")
+    document = read_scenario("multi-person.json")
     document["random_seed"] = seed
-    if seed == 20260105:
-        document["map_dataset"] = _document("single-person.json")["map_dataset"]
     # 决策不耗时（时间与能量规格第一章）：人物总有进行中活动，等待结束即同秒收尾再开始下一段等待，进行中的活动按播报节律汇报。
     # 结算间隔（也是等待时长）与播报间隔放长到两小时只是运行时长的取舍：按场景原有节奏，两颗种子各要跑约 330–430 秒，
     # 又同在一个分片。它们不给同刻轮数设界：同一秒的轮数上限与无空闲区间由 _assert_day 的不变式断言。
@@ -298,12 +327,24 @@ async def test_complete_two_person_day_uses_real_tools_memory_and_restoration(tm
             **document["messages"][0], "message_id": f"walking-check-{identity}",
             "thread_id": f"walking-check-{identity}", "recipient_agent_id": identity,
             "sent_at": "2026-01-05T11:02:00+08:00", "subject": "Arrival reminder",
-            "body": "Please send a note when you arrive.", "related_task_id": None})
-    scenario_path = _write_scenario(document, tmp_path)
+            "body": "Please send a note when you arrive."})
+    for moment in ("09:15", "10:15"):
+        document["messages"].append({
+            **document["messages"][0], "message_id": f"work-note-{moment}", "thread_id": f"work-note-{moment}",
+            "sent_at": f"2026-01-05T{moment}:00+08:00", "subject": "Progress reminder",
+            "body": "Please report the actual progress of the work."})
+    scenario_path = write_scenario(document, tmp_path)
+    scenario_path = scenario_path.rename(scenario_path.with_name("custom.json"))
     environment = LifeEnv()
-    environment.engine = engine = LifeEngine.create(scenario_path, tmp_path / "run",
-                                                    _identity(document, f"day-{seed}"), stage_model_identity())
-    models = {agent_id: DayModel(seed, agent_id) for agent_id in (1, 2)}
+    environment.engine = engine = LifeEngine.create(
+        scenario_path,
+        tmp_path / "run",
+        run_identity(document, f"day-{seed}"),
+        stage_model_identity(),
+    )
+    catalog = engine.context.semantics.catalog
+    farthest = max(catalog.locations, key=lambda name: (catalog.shortest_m("noodle-1", name), name))
+    models = {agent_id: DayModel(seed, agent_id, catalog.locations[farthest].name) for agent_id in (1, 2)}
     people_root = tmp_path / "people"
     people = await _people(environment, people_root, models)
     start = engine.context.state.current_time
@@ -347,7 +388,13 @@ async def test_complete_two_person_day_uses_real_tools_memory_and_restoration(tm
         exported = export_run(engine.context.store, engine.context.store.last_event_seq, tmp_path / "export")
         _assert_day(engine, models, start, exported, tmp_path)
         assert restored
-        _assert_current_day_artifacts(tmp_path, engine)
+        summary = _assert_current_day_artifacts(tmp_path, engine)
+        scenario_sha256 = engine.context.store.manifest["scenario_sha256"]
+        assert scenario_sha256 == sha256_file(scenario_path)
+        candidate = {"scenario_sha256": scenario_sha256, "random_seed": engine.context.scenario.random_seed,
+                     "summary": summary}
+        destination = tmp_path_factory.getbasetemp() / "dayrun-resource-rule-candidate.json"
+        destination.write_text(json.dumps(candidate, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
     finally:
         engine.close()
 
@@ -357,7 +404,7 @@ def _assert_current_day_artifacts(case, engine):
     from tests.dayrun_baseline import day_baseline_signature
 
     project = Path(__file__).resolve().parents[2]
-    day_baseline_signature(case, project)
+    summary = day_baseline_signature(case, project)
     manifest, events, activities = validate_export(case / "export")
     store = engine.context.store
     assert manifest["frozen_run_manifest"] == store.manifest
@@ -373,6 +420,7 @@ def _assert_current_day_artifacts(case, engine):
         projected = {key: activity["activity_type"] if key == "kind" else activity[key] for key in state}
         assert projected == state
     _assert_current_day_timelines(case / "export", store, manifest)
+    return summary
 
 
 def _assert_current_day_timelines(export, store, manifest):
@@ -415,7 +463,7 @@ def _assert_day(engine, models, start, exported, tmp_path):
         assert all(event.data["activity_ids"] for event in body)
         facts = project_verified_experiences(events, agent_id=agent_id, cutoff_seq=events[-1].event_seq)
         assert {fact["kind"] for fact in facts} >= {"consumed", "arrived", "played"}
-        assert sum(fact["interval_quantity"] for fact in facts if fact["kind"] == "consumed") == pytest.approx(2)
+        assert sum(fact["interval_portion"] for fact in facts if fact["kind"] == "consumed") == pytest.approx(2)
         observations = [event for event in events if event.event_type == "observation" and event.agent_id == agent_id]
         for observation in observations:
             assert len(observation.data["verified_experiences"]) <= 5
@@ -431,15 +479,104 @@ def _assert_day(engine, models, start, exported, tmp_path):
     assert any(event.event_type == "model_response" and event.data.get("error") for event in events)
     assert exported["experiment_completed"]
     quality = json.loads((tmp_path / "export" / "quality.json").read_text(encoding="utf-8"))
-    assert quality["schema_version"] == 4
+    assert quality["schema_version"] == 5
     # 这一天两人都没有记下个人事务：事务指标没有样本，按质量报告的空值约定为 null（docs/VERIFICATION.md#errands-workday-度量与下游-质量报告 ）。
     assert quality["errand_metrics"] is None
+    _assert_food_and_delivery(engine, events)
+    _assert_app_and_push(engine, events, tmp_path / "export")
+    _assert_work_day(engine, events, quality)
     assert [item for item in quality["memory_references"]["problems"]
             if item["code"] == "invalid_observed_result_reference"] == []
     _assert_decision_events(events, _identities(engine))
     retried = {model.seed in _REFLECTION_RETRY_SEEDS for model in models.values()}
     assert len(retried) == 1
     _assert_reflection_requests(events, tmp_path / "export", retried.pop())
+
+
+def _assert_food_and_delivery(engine, events):
+    """@brief 两餐分别来自面馆到店订单和最远图节点的美团配送，食用不能早于真实履约。"""
+    catalog = engine.context.semantics.catalog
+    farthest = max(catalog.locations, key=lambda name: (catalog.shortest_m("noodle-1", name), name))
+    assert len(engine.context.state.deliveries) == 4
+    for agent_id in (1, 2):
+        orders = [row for row in engine.context.state.deliveries.values() if row.agent_id == agent_id]
+        assert len(orders) == 2 and {row.fulfillment.value for row in orders} == {"pickup", "delivery"}
+        assert all(row.food_id == "beef-noodles" and row.store_id == "noodle-1" and row.quantity == 1
+                   and row.unit_price_fen == catalog.foods[row.food_id].price_fen and row.status == "delivered"
+                   for row in orders)
+        pickup = next(row for row in orders if row.fulfillment.value == "pickup")
+        delivery = next(row for row in orders if row.fulfillment.value == "delivery")
+        assert pickup.app_id is None and pickup.destination_id == "noodle-1" and pickup.total_price_fen == 2800
+        assert pickup.delivery_fee_fen == 0 and pickup.distance_meters == 0 and pickup.expected_at == pickup.created_at
+        assert delivery.app_id == "meituan" and delivery.destination_id == farthest
+        assert delivery.delivery_fee_fen == 500 and delivery.total_price_fen == 3300
+        distance, path = catalog.graph.shortest_paths("noodle-1")[farthest]
+        assert delivery.distance_meters == distance and delivery.path == path
+        assert delivery.prep_seconds == 600 and delivery.expected_at > delivery.created_at + delivery.prep_seconds
+        arrivals = [event for event in events if event.agent_id == agent_id and event.event_type == "environment_event"
+                    and event.data.get("kind") == "delivery_arrival"
+                    and any(row["order_id"] == delivery.order_id for row in event.data["orders"])]
+        assert len(arrivals) == 1 and arrivals[0].occurred_at == delivery.expected_at
+        assert arrivals[0].data["inventory_changes"] == [{"food_id": "beef-noodles", "location_id": farthest,
+            "order_id": delivery.order_id, "quantity": 1, "store_id": "noodle-1"}]
+        meals = [row for row in engine.context.state.activities.values()
+                 if row.agent_id == agent_id and row.kind.value == "consume"]
+        assert len(meals) == 2 and {row.location_id for row in meals} == {"noodle-1", farthest}
+        evening = next(row for row in meals if row.location_id == farthest)
+        assert evening.started_at >= arrivals[0].occurred_at
+        facts = project_verified_experiences(events, agent_id=agent_id, cutoff_seq=events[-1].event_seq)
+        consumed = [row for row in facts if row["kind"] == "consumed"]
+        assert consumed and all(row["food_id"] == "beef-noodles" and row["category"] == "meal" for row in consumed)
+        assert sum(row["interval_portion"] for row in consumed if row["activity_id"] == evening.activity_id) == 1
+
+
+def _assert_app_and_push(engine, events, export):
+    """@brief 应用足迹引用真实目录、真实观看前进与真实会话推送，睡眠和并行仍来自已提交活动。"""
+    catalog, state = engine.context.semantics.catalog, engine.context.state
+    rows = [json.loads(line) for line in (export / "app-usage.jsonl").read_text(encoding="utf-8").splitlines()]
+    for agent_id in (1, 2):
+        facts = project_verified_experiences(events, agent_id=agent_id, cutoff_seq=events[-1].event_seq)
+        played = [row for row in facts if row["kind"] == "played"]
+        assert played and all(row["position_after_seconds"] > row["position_before_seconds"] for row in played)
+        for row in played:
+            assert row["app_id"] in catalog.contents[row["content_id"]].app_ids
+            activity = state.activities[row["activity_id"]]
+            assert activity.kind.value == "use_app" and activity.target_id == row["app_id"]
+        uses = [row for row in rows if row["agent_id"] == agent_id and row["fact_kind"] == "app_use"]
+        assert uses and all(row["app_id"] in catalog.apps for row in uses)
+        pushes = [event for event in events if event.agent_id == agent_id and event.event_type == "environment_event"
+                  and event.data.get("kind") == "app_push" and event.data.get("pushed") is not False]
+        assert pushes and len({event.data["push_id"] for event in pushes}) == len(pushes)
+        for event in pushes:
+            assert event.data["app"] == catalog.apps[event.data["app_id"]].name
+            assert event.data["content_id"] in catalog.contents_by_app[event.data["app_id"]]
+            assert event.data["session_id"] in state.sessions and event.data["issued_at"] == event.occurred_at
+        sleeps = [row for row in state.activities.values() if row.agent_id == agent_id and row.kind.value == "sleep"]
+        assert len(sleeps) == 2 and all(row.elapsed_seconds > 0 for row in sleeps)
+
+
+def _assert_work_day(engine, events, quality):
+    """@brief 保留一人有工作、一人无工作的声明，播报不能代替实际主题工时或宣称已完成。"""
+    from worldmock.life.work import work_totals
+
+    configs = {row.agent_id: row for row in engine.context.scenario.agents}
+    assert configs[1].work_topic_ids == ("topic-sales",) and configs[1].work_schedule.workplace_location_id == "office"
+    assert configs[2].work_topic_ids == () and configs[2].work_schedule is None
+    activities = [row for row in engine.context.state.activities.values() if row.kind.value == "work"]
+    assert len(activities) == 1
+    work = activities[0]
+    assert work.agent_id == 1 and work.target_id == "topic-sales" and work.location_id == "office"
+    assert work.elapsed_seconds == work_totals(engine.context.state, 1, "topic-sales") > 0
+    assert work.elapsed_seconds < engine.context.semantics.catalog.work_topics["topic-sales"].target_seconds
+    reports = [event for event in events if event.event_type == "action_result" and event.data["status"] == "completed"
+               and event.data.get("data", {}).get("work")]
+    assert len({event.occurred_at for event in reports}) >= 2
+    assert all(event.agent_id == 1 and event.data["data"]["activity_ids"] == [work.activity_id] for event in reports)
+    assert len(work.note_history) >= 2 and all(row["note"] == "按当前进展继续。" for row in work.note_history)
+    assert not [event for event in events if event.event_type == "environment_event"
+                and event.data.get("kind") == "work_topic_completed"]
+    assert quality["work_topics"] == {"topics": 1, "completed": 0,
+        "worked_seconds_by_topic": {"topic-sales": work.elapsed_seconds}, "reports": len(reports)}
 
 
 def _tool_names(event) -> list[str]:

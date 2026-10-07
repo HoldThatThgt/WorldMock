@@ -16,31 +16,26 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 #: 活动种类（ActivityKind 的值）→ 时间线的中文种类名；带对象的活动由渲染器在种类名之外写上对象名称。
-ACTIVITY_KIND_LABELS = {"wait": "空档", "sleep": "睡觉", "work": "工作", "watch": "看内容", "play_game": "玩游戏",
-                        "travel": "出行", "read_mail": "读邮件", "browse": "浏览", "consume": "吃东西或用东西",
+ACTIVITY_KIND_LABELS = {"wait": "空档", "sleep": "睡觉", "work": "工作", "use_app": "用手机",
+                        "travel": "出行", "read_mail": "读邮件", "consume": "吃东西",
                         "lifestyle": "生活活动", "chat": "交谈", "call": "通话"}
 #: 在场人物正在做的事的短语；工具层直接读取，不在消费者复制中文活动表。
 ACTIVITY_DOING_LABELS = {**ACTIVITY_KIND_LABELS, "wait": "等待", "travel": "赶路", "read_mail": "看邮件",
-                         "browse": "浏览商品", "lifestyle": "做生活活动", "call": "打电话"}
+                         "lifestyle": "做生活活动", "call": "打电话", "use_app": "刷手机"}
 #: 场所类型（地点 kind）→ 中文标签；覆盖仓库场景的全部地点类型，未知类型是场景缺陷。
-PLACE_TYPES = {"home": "家", "office": "办公室", "merchant": "商户", "restaurant": "餐馆",
-               "convenience_store": "便利店", "supermarket": "超市", "wet_market": "菜市场", "fitness": "健身房",
-               "park": "公园"}
+PLACE_TYPES = {"home": "家", "office": "办公室", "park": "公园", "fitness": "健身房",
+               "restaurant": "餐馆", "cafe": "咖啡馆", "convenience_store": "便利店", "supermarket": "超市"}
 #: 内部标准动作的说法（环境层 fixed_rules 句子「这里不能<说法>」），按此顺序列出。
-ACTION_PHRASES = {"travel_to": "出发去别处", "work": "工作", "watch": "看内容或听播客", "play": "玩游戏",
-                  "chat": "当面交谈", "call": "打电话", "read": "看邮件", "browse": "浏览商品",
-                  "do": "做生活活动", "purchase": "买东西", "consume": "吃东西或用东西", "wait": "等待",
+ACTION_PHRASES = {"travel_to": "出发去别处", "work": "工作", "use_app": "用手机 app",
+                  "chat": "当面交谈", "call": "打电话", "read": "看邮件",
+                  "do": "做生活活动", "purchase": "买东西", "consume": "吃东西", "wait": "等待",
                   "sleep": "睡觉"}
 #: 出行方式 → 方式短语（交互菜单的出行方式、环境层路程中的出行方式、时间线出行行的动词）。
 TRAVEL_WAYS = {"walking": "步行", "driving": "驾车"}
 #: 商品目录与内容品类的公开名称，用于可调用索引、查询和时间线。
-BROWSE_LABELS = {"product_catalog": "商品目录", "foods": "食品目录", "feature_film": "电影",
-                 "drama_series": "剧集", "webnovel_excerpt": "网文", "news_feed": "新闻",
-                 "joke_feed": "段子", "subtitle_experience": "字幕体验", "game_session": "游戏",
-                 "podcast_episode": "播客"}
 #: 上面各表的英文键：面向人读的时间线里不得出现的英文种类名（质量报告 timeline_labels 按它计数）。
 ENGLISH_KIND_NAMES = frozenset({*ACTIVITY_KIND_LABELS, *ACTIVITY_DOING_LABELS, *PLACE_TYPES,
-                              *ACTION_PHRASES, *TRAVEL_WAYS, *BROWSE_LABELS})
+                              *ACTION_PHRASES, *TRAVEL_WAYS})
 
 
 def _local(epoch: int, timezone_name: str) -> datetime:

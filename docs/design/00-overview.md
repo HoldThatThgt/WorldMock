@@ -1,12 +1,16 @@
 <a name="overview-worldmock-产品设计说明书-概述"></a>
 # WorldMock 产品设计说明书 — 概述
 
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题工程依据。
+
+> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「地图中的消费行为」（阶段 2、阶段 3）与「需求映射表、核心术语、算法与工程背书总表、设计决策、非功能约束、设计假设、开放问题、参考文献」（阶段 4）。
+
 > **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）<br>
 > **工具交互修订**：按[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结本次设计；本次修订已实现，既有验收不覆盖新行为。
 > **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D0 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。
 > **共享规则与可重建环境修订**：按[冻结规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)同步框架职责、固定依赖与平台验收要求；实际证据见[本特性验收记录](../dev/shared-rules-and-rebuildable-env-verification.md)。
-> **日期**：2026-10-05
-> **版本**：v1.12
+> **日期**：2026-10-07
+> **版本**：v1.13
 > **目标读者**：开发工程师、算法工程师、测试工程师、产品经理
 
 具体环境及制作工具按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)归 WorldMock-Dataset，
@@ -59,14 +63,13 @@ flowchart TB
 <a name="overview-地图中的消费行为"></a>
 ### 地图中的消费行为
 
-数字人可以发现地点、比较同一商品在不同门店的报价和道路路程，自行选择到店或配送。
-地图数据集合属于资源引擎；营业、资格和交易判断属于交换引擎；当前报价、库存及营业例外由模拟引擎维护；
-记录引擎保存实际看见的信息和发生的结果。四个引擎保持原职责，不增加地图服务层。
-工具交互按错误接口、任务、供给价格、料理、查询、操作备忘与紧凑呈现形成独立端到端阶段，
-先跑通当前节点再扩展，每阶段按实际改变发布身份并完成行为与独立变异门禁；不把四种数据版本捆绑一次发布。
-各阶段通过条件见[工具交互特性门禁](../VERIFICATION.md#verification-工具交互特性门禁)，当前生产闭环已实现，不保留双格式兼容。
-真实地点不证明真实门店供给，价格、库存与营业假设必须在比较事实和来源中可见。
-开发范围和完整验收以 [地图与门店供给规格](../dev/SPEC-map-and-storefront.md#spec-map-and-storefront-地图数据集合与门店供给开发规格) 为准。
+数字人比较地点和图上最短距离，自主选择到店或配送。同类食品店铺共享菜单，食品全店同价；不同距离和履约时间仍形成真实的选择条件，系统不替人物选店。
+资源引擎统一登记具体环境的对象、绑定与发布图；交换引擎提供固定速度、费用和公式；模拟引擎执行图上出行或配送；记录引擎保存实际看见的信息、完整路径、距离、付款与到达。四个引擎保持原职责。
+地图由 WorldMock 生成、Dataset 发布，是合成连通加权图，不表达真实路网、GPS 或交通拥堵。等长最短路取完整路径元组字典序较小者，场景只选择地点，路径可以经过其他目录节点。
+运行和恢复使用清单 `environment_identity`，只读发布图；旧道路资料和库存报价合同由现行图与菜单合同取代。真实名称不证明真实数值，合成输入与实际数字足迹分别留证。
+开发范围见[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)，完整运行与平台结论按真实验收记录判定。
+
+外卖来自店铺 app 绑定，每单只一次付款和一次送达；食品热量与完整食用时长按类别固定，数字足迹保留实际消费份额与身体效率。路途中自送须在出发前或到达后下单。
 
 <a name="overview-系统目标"></a>
 ### 1.3 系统目标
@@ -98,11 +101,14 @@ flowchart TB
 | 术语 | 定义 |
 | --- | --- |
 | **数字人（人物，`LifeAgent`）** | 被模拟的人，具有人格、需求、记忆与决策能力；`LifeAgent` 是其代码实现，继承 AgentSociety 2 的 `PersonAgent` |
-| **[资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎)** | 管理可计量资源、对象、内容及其固化语料的定义、属性、单位、版本与来源；按调用方给定的条件和范围提供目录查询、内容片段及素材引用 |
+| **[资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎)** | 管理食品、app、内容、工作对象及其来源与版本；提供固定食品菜单、app 绑定内容和目录查询，不维护第二套内容检索状态 |
 | **[交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎)** | 维护注册表中的交换规则及其引用关系；运行时查询适用规则、校验交换条件、计算投入产出、校验资源分录并返回规则结果，例如判定购买条件、计算食品数量与付款金额、依合同计算报酬 |
 | **[模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎)** | 组织数字人与生活环境（`LifeEnv`）的交互，提供观察与决策机会，推进共享时钟和实际活动，计算身体变化与效率，调用交换规则并落实状态变化，编排恢复与实际反事实运行 |
 | **[记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)** | 保存并关联模拟引擎提交的观察、决策、执行、状态变化、结果与记忆，核验记录一致性并导出数字足迹；保存共同检查点、构建分支存储并提供恢复材料，保留原分支与来源关系；恢复后的执行由模拟引擎编排 |
 | **[数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付)** | 消费记录引擎的认证导出，通过 LabelKit 加工训练数据与规则夹具；离线经历回顾、反思与假设推演（Dreaming）在此进行，默认不写回运行中的数字人 |
+| **app** | 人物选择的娱乐入口；所有登记 app 始终显示，环境只从该 app 绑定的内容中抽取并推进全局内容进度 |
+| **app 推送** | 当前地点会话内的一条 app 内容提醒；状态依次为 pending、opened、released，人物可以不打开 |
+| **工作主题** | 场景分配给人物的工作累计单位；目录给出目标工时，人物的非失败工作活动按实际经过秒数累计 |
 
 <a name="overview-缩写"></a>
 ### 2.2 缩写
@@ -152,13 +158,13 @@ flowchart TB
 | --- | --- | --- |
 | 数字人依据体感与处境自主选择活动，环境校验可行性 | [模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎)「组织观察与决策机会」「收齐并有序受理动作」 | DRAFT |
 | 人物只选对象与方式；查询不改变世界，可按购买来源与只看此刻能做的筛选，报错明确指出参数位置和合法选项 | [工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)、[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)第五章、[模拟引擎](04-simulation-engine.md#simulation-engine-校验与占用安排) | 已实现，验收证据另列 |
-| 普通工作收件即开放，到公司即可开始；现实预约活动按约定开放 | [模拟引擎](04-simulation-engine.md#simulation-engine-工作通知与开放时刻) | 已实现，验收证据另列 |
+| 人物自运行开始看到已分配且未完成的工作主题，只在工作地点开始或恢复，按实际经过秒数累计 | [模拟引擎](04-simulation-engine.md#simulation-engine-推进实际活动)「推进实际活动」 | 已实现，验收证据另列 |
 | 地点按 kind 池与逐店类别、对象声明提供不同完整供给，门店价格位置加确定性偏移后一次构建报价 | [资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎)、[配置管理](08-configuration.md#configuration-worldmock-产品设计说明书-配置规格) | 已实现，验收证据另列 |
 | 身体相关资源的变化影响体感和活动效率 | [模拟引擎](04-simulation-engine.md#simulation-engine-实际区间身体变化与效率)「实际区间、身体变化与效率」 | DRAFT |
-| 工作消耗时间和能量，按有效工作量推进并依合同取得报酬 | [模拟引擎](04-simulation-engine.md#simulation-engine-推进实际活动)「推进实际活动」与[交换投入产出](02-exchange-engine.md#exchange-engine-计算投入产出) | DRAFT |
+| 工作消耗时间和能量，按实际经过秒数推进主题；工资由场景独立登记 | [模拟引擎](04-simulation-engine.md#simulation-engine-推进实际活动)「推进实际活动」 | 已实现，验收证据另列 |
 | 购买食品与实际进食分别结算，进食按热量与食品利用效率补充能量 | [模拟引擎](04-simulation-engine.md#simulation-engine-推进实际活动)「推进实际活动」与[交换投入产出](02-exchange-engine.md#exchange-engine-计算投入产出) | DRAFT |
 | 睡眠改变睡眠压力并恢复睡眠不足，睡眠期间仍消耗能量 | [模拟引擎](04-simulation-engine.md#simulation-engine-实际区间身体变化与效率)「实际区间、身体变化与效率」 | DRAFT |
-| 覆盖节目、游戏、邮件、导航、购物 | [资源引擎](03-resource-engine.md#resource-engine-交换对象与内容条目)「交换对象与内容条目」 | DRAFT |
+| 覆盖 app 使用与 app 内容、邮件、导航、购物 | [资源引擎](03-resource-engine.md#resource-engine-交换对象与内容条目)「交换对象与内容条目」 | DRAFT |
 | 内容来自固化的开源语料 | [资源引擎](03-resource-engine.md#resource-engine-整理与固化语料)「整理与固化语料」 | DRAFT |
 | 人物画像影响行为偏好 | [人物决策与画像规格](../dev/SPEC-life-realism.md#spec-life-realism-画像编译)「画像编译」 | FROZEN |
 | 决策不耗时，时间只在人人有进行中活动且没有待收尾活动时推进 | [模拟引擎](04-simulation-engine.md#simulation-engine-推进共享时钟)「推进共享时钟」与[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第一章 | DRAFT |
@@ -185,8 +191,8 @@ flowchart TB
 | Agent 框架 | AgentSociety 2 | 开源项目，已验证的多 Agent 调度与模型服务 |
 | 能量与体感 | 进食热量、基础代谢与活动消耗决定可用能量；结合昼夜节律和餐时生成饥饿体感，低能量时饥饿分级不被昼夜项与餐时项压低，另设「饿得发慌」档；能量不阻断任何活动，最低为 0 | [运行时规格](../dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)「其他体感分级」「转换效率算法」及其来源、假设标注；能量不阻断的依据见[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-能量不拦人)第三章；低能量分界是实验假设，见[实验定义](../EXPERIMENT.md#experiment-实验假设声明)「实验假设声明」 |
 | 睡眠模型 | 两过程模型计算睡眠压力和困意；独立记录睡眠不足并计算效率 | [运行时规格](../dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)「两过程睡眠模型」「睡眠不足账与效率曲线」；食品利用效率关系为仿真假设 |
-| 工作验收 | 基于提交内容的 LLM 判定 | LLM-as-a-Judge 范式 |
-| 内容呈现 | 确定性倒排索引与 facet | 信息检索标准实践（Lucene/Elasticsearch） |
+| 工作主题 | 工作活动的真实经过秒数跨活动累计，达到目录目标工时即完成；播报文字不改变工时 | [资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-工作主题与叙述) |
+| 内容呈现 | 人物选择 app，环境从该 app 的绑定内容中确定性抽取；推送内容优先，完成后在剩余活动时长内接续 | [资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送) |
 | 数字足迹存储 | SQLite 事务 + 文件引用 | 事件溯源（Event Sourcing）模式 |
 | 检查点恢复 | 完整状态快照 + 增量事件 | Git 的 snapshot + delta 模型 |
 | 资源结算 | 货币双边转账；能量与娱乐需要单边流水；睡眠和时间按各自规则核验 | [交换引擎](02-exchange-engine.md#exchange-engine-校验资源分录)「校验资源分录」与[记录引擎](05-recording-engine.md#recording-engine-资金守恒验证)「资金守恒验证」 |
@@ -204,7 +210,7 @@ flowchart TB
 | 时间推进 | 决策不耗时；没有进行中活动或有待收尾活动者同一秒再决策，人人有事且无待收尾后按下一事件推进 |
 | 世界状态 | 由环境集中维护，环境是唯一写入者 |
 | 内容来源 | 离线整理并固化版本，运行期只读，保证实验可复现 |
-| 语料检索 | 确定性索引：facet + 倒排，保证可复现与可追溯 |
+| 内容提供 | app 与内容显式绑定；抽取只读冻结随机状态和固定键，保证恢复与重演得到同一序列 |
 | 存储方案 | SQLite 保存结构化数据并提供事务保证，素材以文件引用关联 |
 | 人物并发 | 复用 AgentSociety 2 的 Ray 多进程机制 |
 | 恢复策略 | 在新分支目录恢复，保留父运行 |
@@ -221,7 +227,7 @@ flowchart TB
 | **可靠性** | 检查点恢复成功率 100%，状态版本连续性 100% |
 | **可维护性** | 代码覆盖率 ≥ 85%，公共接口覆盖率 100% |
 | **依赖** | Python 3.12，AgentSociety 2，LabelKit，SQLite 3.35+ |
-| **平台** | Linux x86_64 / macOS；Windows 必须完成跨平台核心与重建验收，完整放行还须合并 Linux x86_64 TextWorld 语料成功证据。Linux ARM64/aarch64 不支持锁定的完整环境；平台边界以[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-门禁可选部件与操作系统)为准 |
+| **平台** | Linux x86_64 / macOS；Windows 必须完成跨平台核心与重建验收。当前 macOS 收据与尚未执行的 Windows 收据分别登记，不能由单平台结果推定跨平台放行；平台边界以[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-门禁可选部件与操作系统)为准 |
 
 <a name="overview-设计假设若不成立需回到设计层"></a>
 ## 8. 设计假设（若不成立需回到设计层）
@@ -233,7 +239,7 @@ flowchart TB
 | 单人物场景足以验证系统可行性 | 需重新设计多人物协调机制 |
 | 12 周时间跨度足以覆盖日常行为模式 | 需调整实验时长 |
 | LabelKit 可消费 JSONL 格式的数字足迹 | 需重新设计交付格式 |
-| 确定性索引足以支撑内容呈现需求 | 需评估向量检索的引入 |
+| app 与内容的显式绑定足以支撑人物选择入口、环境抽取内容和完整来源追溯 | 需重新评估内容目录与 app 绑定合同 |
 | SQLite 事务性能足以支撑实时记录 | 需评估批量提交或其他数据库 |
 
 <a name="overview-开放问题后续版本议题"></a>
@@ -246,7 +252,7 @@ flowchart TB
 | 长期记忆压缩 | 提示中的记忆层按 session 派生、零点分区，限 8000 字符窗口；未完成的个人事务逐条留在待办层（每人至多 8 条），不占该窗口；记录全量保留 | v2.0 考虑记忆重要性评分与压缩 |
 | 实时交互界面 | v1.0 纯批处理 | v3.0 考虑实时观察界面 |
 | 模型微调反馈 | v1.0 固定模型 | v3.0 考虑在线学习 |
-| 更多内容品类 | v1.0 覆盖基础品类 | v2.0 增加健身、医疗、教育等 |
+| 更多 app 内容类型 | v1.0 固定文章、图文、短视频、长视频与实况五类 | 后续版本须先扩展冻结类型与缓解速率，再发布新环境 |
 | 更多地理区域 | v1.0 上海张江 | v2.0 支持多城市场景 |
 
 <a name="overview-参考文献"></a>
@@ -258,7 +264,7 @@ flowchart TB
 4. Daan、Beersma 与 Borbély (1984)：两过程睡眠模型，采用方式见运行时规格
 5. Event Sourcing Pattern - Martin Fowler
 6. Git Internals - Scott Chacon
-7. LLM-as-a-Judge: Zheng et al., NeurIPS 2023
+7. [资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送)：app 绑定、确定性抽取、推送与全局内容进度
 
 
 <a name="design-overview-current-responsibility"></a>
@@ -287,3 +293,7 @@ flowchart TB
 
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 当前职责对象与依赖方向、五项行为正文归属、固定历史来源和稳定引用；业务与持久合同保持不变 |
 | v1.11 | 2026-10-05 | 按共享规则与可重建环境规格同步 AS2 生命周期与 WorldMock 生活业务职责、Python 3.12、固定模型故障传播、相对交付引用、Windows 核心与重建验收要求及 Linux x86_64/TextWorld 与 aarch64 安装边界；验收要求不代表已经通过 |
+| `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
+| `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
+| `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：娱乐入口统一为 app，内容由 app 绑定、确定性抽取、推送优先并使用全局进度；删除 TextWorld、旧游戏与 facet 设计。版本保持 v1.13。 |
+| `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题累计的工程依据，版本号不变 |

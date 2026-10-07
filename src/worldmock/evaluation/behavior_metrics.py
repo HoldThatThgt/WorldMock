@@ -437,13 +437,12 @@ def _content_contact_minutes(events: list[dict[str, Any]]) -> dict[str, Any]:
     """@brief 只计真实前进的媒体位置，不把等待或浏览目录算内容接触。"""
     per_agent: dict[str, float] = {}
     for event in _activity_progress_events(events):
-        if _snapshot(event).get("kind") != "watch":
+        if _snapshot(event).get("kind") != "use_app":
             continue
-        detail = _snapshot(event).get("data")
-        revealed = detail.get("revealed") if isinstance(detail, dict) else None
-        if not isinstance(revealed, dict):
+        content = event.get("data", {}).get("content")
+        if not isinstance(content, dict):
             continue
-        before, after = revealed.get("position_before_seconds"), revealed.get("position_after_seconds")
+        before, after = content.get("position_before_seconds"), content.get("position_after_seconds")
         if isinstance(before, (int, float)) and isinstance(after, (int, float)) and after > before:
             agent = str(event.get("agent_id"))
             per_agent[agent] = per_agent.get(agent, 0.0) + _interval_minutes(event)
@@ -572,10 +571,10 @@ def _meal_sessions(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         items = consumption.get("items")
         if not isinstance(items, list):
             continue
-        products = {str(item["product_id"]) for item in items if isinstance(item, dict)
-                    and isinstance(item.get("product_id"), str)
-                    and isinstance(item.get("interval_quantity"), (int, float))
-                    and item["interval_quantity"] > 0}
+        products = {str(item["food_id"]) for item in items if isinstance(item, dict)
+                    and isinstance(item.get("food_id"), str)
+                    and isinstance(item.get("interval_portion"), (int, float))
+                    and item["interval_portion"] > 0}
         if not products:
             continue
         identity = str(event.get("activity_id"))
@@ -587,7 +586,7 @@ def _meal_sessions(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _meal_diversity(events: list[dict[str, Any]]) -> dict[str, Any]:
-    """@brief 只以实际食用活动计算 Simpson 集中度与 24 小时重复率。"""
+    """@brief 只以真实食用活动的食品标识计算 Simpson 集中度与 24 小时重复率。"""
     consumed = _meal_sessions(events)
     product_counts: Counter[str] = Counter()
     for event in consumed:

@@ -13,6 +13,7 @@ WorkSchedule 校验的工作安排：人物 1 声明班次，人物 2 没有工�
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -60,11 +61,12 @@ def _local(text: str, timezone: str = _SHANGHAI) -> int:
 
 
 def test_duty_edge_members_follow_errand_reminder_due_and_stay_out_of_sleep() -> None:
-    """四个成员按 shift_start、shift_end、break_start、break_end 追加在 errand_reminder_due 之后，闭集由 21 个增到 25 个；
+    """四个成员按 shift_start、shift_end、break_start、break_end 追加在 errand_reminder_due 之后，加入应用推送后闭集为 22 个；
     DUTY_EDGE_REASONS 就是这四个、按声明次序；四个都不在睡眠允许集合里，睡眠允许集合仍恰为四项。"""
     names = [member.value for member in WakeReason]
-    assert len(names) == 25
-    assert names[names.index("errand_reminder_due") + 1:] == ["shift_start", "shift_end", "break_start", "break_end"]
+    assert len(names) == 22
+    assert names[names.index("errand_reminder_due") + 1:] == [
+        "shift_start", "shift_end", "break_start", "break_end", "app_push"]
     assert DUTY_EDGE_REASONS == (_START, _END, _BREAK_START, _BREAK_END)
     assert not set(DUTY_EDGE_REASONS) & SLEEP_ALLOWED_REASONS
     assert len(SLEEP_ALLOWED_REASONS) == 4
@@ -87,18 +89,17 @@ def test_awake_snapshot_with_every_condition_lists_the_declaration_order() -> No
     产出的 activity_infeasible 与 rejection_feedback：两种提醒之后是 shift_start、shift_end、break_start、break_end。"""
     snapshot = WakeSnapshot(
         now=NOW, planned_end=NOW, felt_bands_now={"appetite": 1}, message_arrived=True, delivery_arrived=True,
-        task_newly_visible=True, next_task_due_at=NOW + 1800, work_review_returned=True,
-        last_decision_time=NOW - 5400, has_commitments=True, location_closing_at=NOW + 900,
-        location_just_opened=True, people_present_now={"甲"}, people_present_before={"乙"},
+        last_decision_time=NOW - 5400, has_commitments=True,
+        people_present_now={"甲"}, people_present_before={"乙"},
         discovery_result_ready=True, wake_from_sleep=True, run_start=True, progress_report_due=True,
         no_active_activity=True, plan_reminder_due=True, errand_reminder_due=True,
-        duty_edges_now=frozenset(DUTY_EDGE_REASONS), is_asleep=False)
+        duty_edges_now=frozenset(DUTY_EDGE_REASONS), app_push_arrived=True, is_asleep=False)
     verdict = evaluate_wake_reasons(snapshot)
-    never = {WakeReason.ACTIVITY_INFEASIBLE, WakeReason.REJECTION_FEEDBACK}
+    never = {WakeReason.ACTIVITY_INFEASIBLE, WakeReason.REJECTION_FEEDBACK, WakeReason.COMMITMENT_THREATENED}
     assert verdict.decision_offered
     assert verdict.wake_reasons == [member for member in WakeReason if member not in never]
-    assert [member.value for member in verdict.wake_reasons[-5:]] == [
-        "errand_reminder_due", "shift_start", "shift_end", "break_start", "break_end"]
+    assert [member.value for member in verdict.wake_reasons[-6:]] == [
+        "errand_reminder_due", "shift_start", "shift_end", "break_start", "break_end", "app_push"]
 
 
 def test_next_decision_time_takes_duty_edges_only_while_awake() -> None:
@@ -111,6 +112,67 @@ def test_next_decision_time_takes_duty_edges_only_while_awake() -> None:
     assert next_decision_time(asleep) is None
     assert next_decision_time(asleep.model_copy(update={"planned_end": NOW + 20000})) == NOW + 20000
     assert next_decision_time(NextDecisionQuery(now=NOW, duty_edge_times=(NOW,))) is None
+
+
+def _app_shift_world(semantics, state, clock):
+    """@brief 登记世界与应用内容保持真实，仅通过当前模型声明测试班次和当前时刻。"""
+    from tests.life.purchase_worlds import at_time
+
+    schedule = _schedule(_week({"starts": 490, "ends": 1050, "breaks": []}))
+    people = tuple(person.model_copy(update={"work_schedule": schedule}) if person.agent_id == 1 else person
+                   for person in semantics.scenario.agents)
+    scenario = semantics.scenario.model_copy(update={"agents": people})
+    return replace(semantics, scenario=scenario), at_time(state, _local(f"2026-01-05T{clock}"))
+
+
+def test_t10_app_content_boundary_after_shift_end_does_not_hide_the_edge():
+    """@brief 真实应用的内容和反馈边界晚于下班时刻时，班次候选仍先命中且不会改动应用。"""
+    from tests.life.test_app_progress import _action_for, _advance, _open, _world as app_world
+    from worldmock.life.models import ActivityStatus
+
+    semantics, state = _app_shift_world(*app_world(), "17:24")
+    key = _action_for(semantics.catalog, "douyin", state.random_state, "c-long", "shift-app")
+    state, identity = _open(semantics, state, "douyin", key)
+    activity = state.activities[identity]
+    edge = _local("2026-01-05T17:30")
+    assert activity.next_interaction_at > edge
+    query = NextDecisionQuery(now=state.current_time, planned_end=activity.planned_end_at,
+                              next_progress_report_at=activity.next_interaction_at,
+                              duty_edge_times=edge_times_after(semantics.scenario, 1, state.current_time))
+    assert next_decision_time(query) == edge
+    state, intervals = _advance(semantics, state, identity, edge - state.current_time)
+    verdict = evaluate_wake_reasons(WakeSnapshot(now=edge, duty_edges_now=edges_at(semantics.scenario, 1, edge)))
+    assert verdict.wake_reasons == [_END] and verdict.decision_offered
+    changed = state.activities[identity]
+    assert changed.status == ActivityStatus.ACTIVE and changed.boundary_type is None
+    assert (changed.planned_end_at, changed.next_interaction_at) == (
+        activity.planned_end_at, activity.next_interaction_at)
+    assert intervals[-1]["completed"] is False and changed.media_position_seconds == 360
+
+
+def test_t12_app_can_pause_at_shift_edge_and_content_completion_stays_quiet(tmp_path):
+    """@brief 下班机会允许暂停应用；恢复后的真实内容末尾静默接续，不产生回合权限或额外决策。"""
+    from tests.life.test_app_progress import _advance, _change, _open, _shared_short_world
+    from worldmock.life.models import ActivityChange, ActivityStatus
+
+    semantics, state = _app_shift_world(*_shared_short_world(tmp_path), "17:29")
+    state, identity = _open(semantics, state, "douyin", "short-shift-app")
+    planned_end = state.activities[identity].planned_end_at
+    state, _ = _advance(semantics, state, identity, 60)
+    verdict = evaluate_wake_reasons(WakeSnapshot(now=state.current_time,
+                                                duty_edges_now=edges_at(semantics.scenario, 1, state.current_time)))
+    assert verdict.wake_reasons == [_END]
+    state = _change(semantics, state, identity, ActivityChange.PAUSE)
+    assert state.activities[identity].status == ActivityStatus.PAUSED
+    state = _change(semantics, state, identity, ActivityChange.RESUME)
+    state, intervals = _advance(semantics, state, identity, 60)
+    activity = state.activities[identity]
+    assert intervals[-1]["completed"] is True
+    assert activity.status == ActivityStatus.ACTIVE and activity.boundary_type is None
+    assert activity.data["draw_index"] == 1 and activity.media_position_seconds == 0
+    assert activity.planned_end_at == planned_end
+    quiet = evaluate_wake_reasons(WakeSnapshot(now=state.current_time))
+    assert quiet.wake_reasons == [] and not quiet.decision_offered
 
 
 # --- T17：起止生成器 ---

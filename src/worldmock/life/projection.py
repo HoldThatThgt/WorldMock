@@ -19,18 +19,16 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from worldmock.life import admission, felt, social
-from worldmock.life.content import restarts_from_beginning
-from worldmock.life.vocabulary import ACTION_WAYS, CONTENT_WAYS, GIVE_WAY, PURCHASE_WAYS, USE_WAYS
+from worldmock.life.vocabulary import ACTION_WAYS, GIVE_WAY, PURCHASE_WAYS, USE_WAYS
 from worldmock.life.readable import TRAVEL_WAYS
 from worldmock.life.interaction_menu import binding_action
 from worldmock.life.models import ActivityKind, AgentState, WorldState, active_activities
-from worldmock.life.object_labels import (CATALOG_LABEL, SELF_LABEL, mail_name, object_label, remote_holding_label,
+from worldmock.life.object_labels import (SELF_LABEL, mail_name, object_label, remote_holding_label,
                                           supply_label)
 from worldmock.life.scenario import BodyConfig, RuntimeScenario
 from worldmock.life.sleep import SLEEPINESS_CLIP_MAX, sleepiness
 
 #: 供给浏览可见期（秒）：距浏览超过该值清空（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「观察投影行为规则」）。
-SUPPLY_VISIBILITY_TTL_SECONDS = 1800
 #: 路线费力分档的代谢当量分界：MET < 2 为「轻松」，2 ≤ MET < 3 为「一般」，≥ 3 为「费力」。
 #: experiment_assumption：登记在 docs/EXPERIMENT.md#experiment-worldmock-实验设置「能量感知标签」。
 ROUTE_EFFORT_MODERATE_MET = 2.0
@@ -48,7 +46,7 @@ class ProjectionInputs:
     state: WorldState
     scenario: RuntimeScenario
     agent: AgentState
-    #: 可见未结清、技能够得上且仍列出的任务行；ObservationBuilder 按截止日期及技能条件投影。
+    #: 当前人物已分配、尚未完成的工作主题行。
     task_rows: tuple[dict[str, Any], ...] = ()
     #: 人物档案餐时窗口（felt.MealWindows）。
     meal_windows: felt.MealWindows | None = None
@@ -68,13 +66,6 @@ def local_datetime(epoch: int, timezone_name: str) -> datetime:
     return datetime.fromtimestamp(epoch, ZoneInfo(timezone_name))
 
 
-def visible_supplies(state: WorldState, agent: AgentState, scenario) -> list[str]:
-    """@brief 仅返回实际呈现、位置未变且未超过可见期的供给凭据。"""
-    declared = {supply.supply_id for supply in scenario.supplies}
-    return sorted(supply_id for supply_id in agent.visible_supply_ids & declared
-                  if agent.supply_browsed_location[supply_id] == agent.location_id
-                  and 0 <= state.current_time - agent.supply_browsed_at[supply_id]
-                  <= SUPPLY_VISIBILITY_TTL_SECONDS)
 
 
 def other_presences(state: WorldState, agent: AgentState) -> list[social.AgentPresence]:
@@ -87,8 +78,7 @@ def other_presences(state: WorldState, agent: AgentState) -> list[social.AgentPr
         presences.append(social.AgentPresence(
             agent_id=f"agent:{other.agent_id}", name=other.name, location=other.location_id,
             activity_family=" + ".join(sorted(kind.value for kind in kinds)) if kinds else "idle",
-            awake=ActivityKind.SLEEP not in kinds,
-            actively_gaming=ActivityKind.PLAY_GAME in kinds))
+            awake=ActivityKind.SLEEP not in kinds))
     return presences
 
 
@@ -220,9 +210,8 @@ def _chat_invite_head(state: WorldState, sender_id: str) -> str:
 
 
 def _product_names(scenario: RuntimeScenario) -> dict[str, str]:
-    """@brief 商品身份到目录展示名的索引（库存条目与商品目录合并）。"""
-    return {item.product_id: item.name
-            for item in (*scenario.products, *scenario.inventory_items)}
+    """@brief 实际食品身份与登记显示名称。"""
+    return {food.food_id: food.name for food in scenario.foods}
 
 
 def holding_ids(state: WorldState, agent: AgentState) -> set[str]:
@@ -248,83 +237,50 @@ def interaction_bindings(inputs: ProjectionInputs) -> list[dict[str, Any]]:
 
 
 def _interaction_binding(inputs: ProjectionInputs, row: dict[str, Any]) -> dict[str, Any]:
-    """@brief 将一个内部对象身份和本轮动作绑定到可读名称；供给另带冻结报价，他处持有物另带所在地点。"""
+    """@brief 从真实菜单和食物持有对象形成可读动作绑定。"""
     identity, kind = row["object_id"], row["kind"]
     menu = inputs.extras.get("interaction_menu")
     actions = [action for action in _interaction_actions(inputs, row)
-               if menu is None or action["canonical_action"] in menu.allowed_actions]
+               if kind == "app" or menu is None or action["canonical_action"] in menu.allowed_actions]
     result = {"object": _interaction_object_label(inputs, row), "kind": kind, "object_id": identity,
               "actions": actions}
     if kind == "supply":
-        supply = next(item for item in inputs.extras["product_rows"] if item["supply_id"] == identity)
-        result["quote"] = {"price_version": supply.get("price_version"),
-                           "price_fen": supply.get("price_fen"),
-                           "purchase_price_fen": supply.get("purchase_price_fen")}
+        result.update(store_id=row["store_id"], food_id=row["food_id"], app_id=row["app_id"])
     if row.get("location_id") is not None:
         result["location_id"] = row["location_id"]
     return result
 
 
 def _interaction_object_label(inputs: ProjectionInputs, row: dict[str, Any]) -> str:
-    """@brief 用人能区分的类别、名称和场所表达对象，不输出内部编号；他处持有物的名称带地点。
-
-    写法取 object_labels 的唯一来源，场景加载按同一写法预先核对名称唯一（load_checks）。
-    """
+    """@brief 食品店铺与他处持有名称带实际登记地点，名称与指名购买一致。"""
     kind, name = row["kind"], row["name"]
     if kind == "supply":
-        supply = next(item for item in inputs.extras["product_rows"]
-                      if item["supply_id"] == row["object_id"])
-        return supply_label(supply["location_name"], name)
-    if kind == "catalog":
-        return CATALOG_LABEL
+        return supply_label(row["location_name"], name)
     if kind == "self":
         return SELF_LABEL
     if kind == "holding" and row.get("location_id") is not None:
-        return remote_holding_label(name, _location_index(inputs.scenario)[row["location_id"]].name)
+        return remote_holding_label(name, _location_index(inputs.scenario)[row["location_id"]].display_name)
     return object_label(kind, name)
 
 
 def _interaction_actions(inputs: ProjectionInputs, row: dict[str, Any]) -> list[dict[str, Any]]:
-    """@brief 将内部动作映射为动词与方式：路线按目的地冻结可用方式，供给按履约方式，持有物按使用方式与配方，另列给予。
-
-    按世界事实过滤（不可达或未核实的路线、没有购买规则或资格的供给）的动作不列出；其余照常列出。
-    """
+    """@brief 地点列图上方式，食品只列真实购买、食用与给予。"""
     if row["kind"] == "location":
         return [binding_action(TRAVEL_WAYS[route["mode"]], "travel_to", travel_mode=route["mode"])
-                for route in inputs.extras.get("route_rows", [])
-                if route["destination"] == row["object_id"] and route["status"] == "reachable"]
+                for route in inputs.extras.get("route_rows", []) if route["destination"] == row["object_id"]]
     if row["kind"] == "holding":
-        product = next(item for item in (*inputs.scenario.products, *inputs.scenario.inventory_items)
-                       if item.product_id == row["object_id"])
-        recipes = inputs.extras.get("recipe_product_ids", frozenset())
-        return [*(binding_action(_use_way(mode, product.product_id in recipes), "consume", use_mode=mode)
-                  for mode in product.use_modes), binding_action(GIVE_WAY, "consume")]
+        return [binding_action(USE_WAYS["eat"], "consume", use_mode="eat"), binding_action(GIVE_WAY, "consume")]
     if row["kind"] == "supply":
         return _supply_actions(inputs, row)
-    if row.get("way") is not None:
-        return [binding_action(row["way"], "watch")]
     return [binding_action(ACTION_WAYS[action], action) for action in row["actions"]]
 
 
-def _use_way(mode: str, recipe: bool) -> str:
-    """@brief 持有物的方式：食用；consume:use 是库存转换配方时为 obtain 的「制作」，否则为「使用」。"""
-    if mode == "eat":
-        return USE_WAYS["eat"]
-    return "制作" if recipe else USE_WAYS["use"]
 
 
 def _supply_actions(inputs: ProjectionInputs, row: dict[str, Any]) -> list[dict[str, Any]]:
-    """@brief 供给的取得方式：支持到店就列「到店」，支持配送就列「远程下单」。
-
-    没有购买规则（品类配对未定义）、人物缺少供给或地点资格时永久不能买，不列；营业、报价、库存、在不在店里与能否
-    送到这里都可能在运行中改变，照常列出，由工具层写明不可用的原因（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。
-    """
-    supply = next(item for item in inputs.extras["product_rows"] if item["supply_id"] == row["object_id"])
-    if (supply["purchase_pairing_state"] != "defined" or not supply["service_allowed"]
-            or not supply["access_allowed"]):
-        return []
-    return [binding_action(PURCHASE_WAYS[mode], "purchase", fulfillment=mode)
-            for mode in ("pickup", "delivery") if mode in supply["fulfillment_modes"]]
+    """@brief 每个真实店铺都可到店，绑定 app 才列远程下单。"""
+    modes = ("pickup", "delivery") if row["app_id"] is not None else ("pickup",)
+    return [binding_action(PURCHASE_WAYS[mode], "purchase", fulfillment=mode) for mode in modes]
 
 
 def _interactive_objects_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
@@ -338,9 +294,7 @@ def _interactive_objects_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
     rows.extend(_place_object_rows(inputs))
     rows.extend(_supply_object_rows(inputs))
     rows.extend(_holding_object_rows(inputs))
-    rows.extend(_catalog_object_rows(inputs))
-    rows.extend(_content_object_rows(inputs))
-    rows.extend(_game_object_rows(inputs))
+    rows.extend(_app_object_rows(inputs))
     rows.extend(_lifestyle_object_rows(inputs))
     rows.extend(_person_object_rows(inputs))
     rows.extend(_mail_object_rows(inputs))
@@ -351,9 +305,8 @@ def _interactive_objects_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
 def _task_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
     """@brief 工作任务对象：开工动作照常列出；过了截止仍列出的任务不列开工动作（永久不能满足）。技能不够的任务
     不在 task_rows 中（观察侧已去掉，不列目标）。"""
-    return [{"object_id": row["task_id"], "kind": "work_task", "name": row["title"],
-             "actions": ["work"] if inputs.state.current_time <= row["due_at"] else []}
-            for row in inputs.task_rows]
+    return [{"object_id": row["topic_id"], "kind": "work_topic", "name": row["topic"],
+             "actions": ["work"]} for row in inputs.task_rows]
 
 
 def _place_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
@@ -363,10 +316,11 @@ def _place_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
 
 
 def _supply_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief 本轮呈现的供给对象：只接受取得动作。"""
-    names = _product_names(inputs.scenario)
-    return [{"object_id": row["supply_id"], "kind": "supply", "name": names[row.get("product_id", "")],
-             "actions": ["purchase"]} for row in inputs.extras.get("product_rows", [])]
+    """@brief 本轮实际固定菜单食品，各店食品身份独立绑定。"""
+    return [{"object_id": f"{row['store_id']}:{row['food_id']}", "kind": "supply", "name": row["name"],
+             "store_id": row["store_id"], "food_id": row["food_id"], "location_name": row["location_name"],
+             "app_id": min(row["app_ids"]) if row["app_ids"] else None, "actions": ["purchase"]}
+            for row in inputs.extras.get("product_rows", [])]
 
 
 def _holding_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
@@ -384,38 +338,12 @@ def _holding_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
     return rows
 
 
-def _catalog_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief 目录对象：只接受浏览动作，身份沿用既有 browse_targets 闭集。"""
-    return [{"object_id": target, "kind": "catalog", "name": target, "actions": ["browse"]}
-            for target in inputs.extras.get("browse_targets", [])]
 
 
-def _content_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief 本轮呈现的内容对象：方式为「接着看」或「从头再看」（播客为「接着听」或「从头再听」），都映射为观看。"""
-    contents = {item.item_id: item for item in inputs.scenario.contents}
-    return [{**_watch_row(inputs, contents[row["item_id"]]), "kind": "content", "name": row["title"]}
-            for row in inputs.extras.get("content_rows", [])]
 
 
-def _watch_row(inputs: ProjectionInputs, item: Any) -> dict[str, Any]:
-    """@brief 一条可观看内容的动作：已看完或剩余不足 60 秒的从头派生（「从头再看」），否则「接着看」（第八章「呈现」）。"""
-    progress = inputs.agent.content_progress.get(item.item_id)
-    position = progress.position_seconds if progress else 0
-    restart = restarts_from_beginning(position, item.duration_seconds)
-    return {"object_id": item.item_id, "actions": ["watch"],
-            "way": CONTENT_WAYS[(item.kind == "podcast_episode", restart)]}
 
 
-def _game_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief 本轮呈现的游戏对象：可玩的游戏只接受游玩；内容侧的游戏会话只能观看，方式同内容对象。"""
-    contents = {item.item_id: item for item in inputs.scenario.contents}
-    rows = []
-    for row in inputs.extras.get("game_rows", []):
-        if "game_id" in row:
-            rows.append({"object_id": row["game_id"], "kind": "game", "name": row["title"], "actions": ["play"]})
-        else:
-            rows.append({**_watch_row(inputs, contents[row["item_id"]]), "kind": "game", "name": row["title"]})
-    return rows
 
 
 def _lifestyle_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
@@ -453,3 +381,9 @@ def _self_object_row(inputs: ProjectionInputs) -> dict[str, Any]:
     """@brief 「自身」对象：等待与睡眠两个受保护动作恒可见。"""
     return {"object_id": f"agent:{inputs.agent.agent_id}", "kind": "self", "name": inputs.agent.name,
             "actions": ["wait", "sleep"]}
+
+
+def _app_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
+    """@brief 已登记应用始终列出，只提供打开动作，内容由应用使用规则选择。"""
+    return [{"object_id": app.app_id, "kind": "app", "name": app.name, "actions": ["use_app"]}
+            for app in sorted(inputs.scenario.apps, key=lambda item: item.app_id)]

@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from tests.life.conftest import (advance_next, conclude_request, settle_day_plans, stage_day_plan, start_activity,
-                                 submit_round)
+from tests.life.conftest import (activity_name, advance_next, conclude_request, report_request, settle_day_plans,
+                                 stage_day_plan, start_activity, submit_round)
 from tests.life.test_day_planning import _late_engine
 from tests.life.test_same_moment_decisions import _message_to, _with_inbox
 from tests.life.test_sleep_billing import _settlement, _stage_body
@@ -31,34 +31,44 @@ def _keep_waiting(engine, agent_id: int) -> None:
         assert engine.scheduling_state().ready_agent_ids == (agent_id,)
         pending = [item.name for item in engine.context.state.activities.values()
                    if item.agent_id == agent_id and is_pending_conclusion(item)]
-        call = (("conclude_activity", conclude_request(*pending)) if pending
-                else ("start_activity", start_activity("等待", "自己")))
+        running = active_activities(engine.context.state, agent_id)
+        if pending:
+            call = ("conclude_activity", conclude_request(*pending))
+        elif running:
+            names = [activity_name(engine, item.activity_id) for item in running]
+            call = ("report_status", report_request(*names, summary="还在等。"))
+        else:
+            call = ("start_activity", start_activity("等待", "自己"))
         submit_round(engine, {agent_id: call}, f"keep-{agent_id}-{engine.context.state.version}")
 
 
 def test_hunger_pulse_starts_after_two_hours_and_bills_only_what_it_applies(tmp_path: Path) -> None:
-    """连续饿 1.75 小时不施加、不消耗计费小时；到 2.25 小时（边界间隔 0.25 小时）施加 −0.025，计费 0.25 小时。
+    """连续饿满两小时以前不计费；跨过门槛后只按实际超出的时长施加情绪脉冲。
 
-    12:00 起能量 790 kcal、情绪 0、神经质 0：此后到 14:30 一直「很饿」、始终清醒，边界每 15 分钟一个；节律在 12:15 的
-    第一个边界记下不适起点，所以 14:00 连续 1.75 小时、14:15 恰满 2 小时、14:30 连续 2.25 小时。"""
+    当前世界还会出现 app 推送等更短边界，因此用真实边界累计连续时长，不假定每个边界固定十五分钟。"""
     engine = _late_engine(tmp_path, "2026-01-05T12:00:00+08:00", "hunger")
     settle_day_plans(engine)
     _stage_body(engine, energy_kcal=790.0, mood_valence=0.0, neuroticism_norm=0.0)
     start = engine.context.state.current_time
-    rows = {}
-    while engine.context.state.current_time < start + 10 * 900:
+    rows = []
+    for _ in range(64):
         _keep_waiting(engine, 1)
         advance_next(engine)
         settlement = _settlement(engine, engine.context.state.current_time)
-        assert settlement["interval_end"] - settlement["interval_start"] == 900
+        assert settlement["interval_end"] > settlement["interval_start"]
         agent = engine.context.state.agents[1]
-        rows[(engine.context.state.current_time - start) // 900] = (agent.discomfort_started_at, agent.body.mood_valence,
-                                                            agent.discomfort_pulse_hours)
+        rows.append((engine.context.state.current_time, agent.discomfort_started_at,
+                     agent.body.mood_valence, agent.discomfort_pulse_hours))
+        if agent.discomfort_pulse_hours >= 0.25:
+            break
 
-    assert {started for started, _, _ in rows.values()} == {start + 900}
-    assert rows[8][1:] == (0.0, 0.0) and rows[9][1:] == (0.0, 0.0)
-    assert all(rows[step][1:] == (0.0, 0.0) for step in range(1, 10))
-    assert rows[10][1] == pytest.approx(-0.025) and rows[10][2] == pytest.approx(0.25)
+    started = rows[0][1]
+    assert started is not None and all(row[1] == started for row in rows)
+    for at, _, mood, billed in rows:
+        expected = max(0.0, (at - started) / 3600 - 2.0)
+        assert billed == pytest.approx(expected)
+        assert mood == pytest.approx(-0.1 * expected)
+    assert rows[-1][3] >= 0.25
 
 
 #: 直接调用节律结算段的不适计费用的边界时刻（任意纪元秒）。

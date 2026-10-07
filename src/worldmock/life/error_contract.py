@@ -23,6 +23,8 @@ _HOST_DEFAULTS = {
     "TOOL_CALL_REQUIRED": ("The tool call batch is invalid.", "Submit one world request or only read queries."),
     "TOO_MANY_TARGETS": ("The activity request exceeds its item limit.", "Submit one or two activity items."),
     "NAME_NOT_FOUND": ("The name does not identify a known object.", "Use an exact known name or a candidate."),
+    "WORK_TOPIC_NOT_FOUND": ("The named work topic is not assigned to you.",
+                             "Use an exact known work topic name."),
     "NAME_AMBIGUOUS": ("The name identifies several known objects.", "Use a complete candidate name."),
     "WAY_NOT_OFFERED": ("The object does not support this way.", "Use one of the object's offered ways."),
     "ROUTE_FIELDS_INVALID": ("The route fields do not match the way.", "Correct from, to and answering."),
@@ -39,7 +41,7 @@ _HOST_DEFAULTS = {
                            "Restore the tool service before retrying this decision."),
 }
 HOST_ERROR_CODES = tuple(_HOST_DEFAULTS)
-HOST_NAME_CODES = frozenset({"NAME_NOT_FOUND", "NAME_AMBIGUOUS", "WAY_NOT_OFFERED",
+HOST_NAME_CODES = frozenset({"NAME_NOT_FOUND", "NAME_AMBIGUOUS", "WAY_NOT_OFFERED", "WORK_TOPIC_NOT_FOUND",
                              "SUPPLY_SOURCE_MISMATCH", "SUBJECT_NOT_KNOWN"})
 ENVIRONMENT_NAME_CODES = frozenset({"SUPPLY_NOT_FOUND", "SUPPLY_NOT_AT_STORE", "FULFILLMENT_NOT_SUPPORTED",
                                     "SOURCE_NOT_FOUND", "SUPPLY_SOURCE_MISMATCH", "TASK_NOT_FOUND"})

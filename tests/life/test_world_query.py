@@ -20,7 +20,7 @@ def _observation(count=47, page_size=20):
                                        "reason": None if index % 2 == 0 else "Out of stock", "price": 0}],
                           "tools": []}}
                for index in range(count)]
-    return {"world_query_bindings": list(reversed(entries)), "world_query_channels": [],
+    return {"world_query_bindings": list(reversed(entries)), "world_query_apps": {},
             "world_query_page_size": page_size, "locations": [{"location_id": "store", "name": "商店"}],
             "home_location_id": "home",
             "tool_layer": {"callable_index": {"query_categories": [{"category": "食品", "count": count}]}}}
@@ -205,7 +205,8 @@ def test_world_query_real_engine_reads_all_goods_without_browse_or_world_changes
     """真实冻结供给能够完整翻页；查询不改变世界、证据或呈现凭据。"""
     from tests.life.conftest import context, stage_day_plan
 
-    engine = engine_factory()
+    engine = engine_factory(mutate=lambda document: document.update(
+        candidate_presentation_limit=2, rotation_quota_ratio=0.5))
     stage_day_plan(engine)
     observed = engine.observe(context(engine, "query-frozen"))
     before = engine.context.state.model_dump(mode="json")
@@ -264,18 +265,16 @@ def _compact_pages(observed, frozen, environment, category):
 
 
 def test_world_query_matches_are_compact_targets_without_candidates(engine_factory):
-    """真实引擎 10:00 在家：返回项是冻结目标的无损紧凑投影——顶层恒为三键，项、动作与工具的键取自闭集，任何位置都没有
-    null 与空集合；门店商品到店动作 available 为 false 且带原因、远程下单 available 为 true 且不带 reason 键，首个动作的
-    来源标记仍在；返回里没有逐项候选与内部身份，冻结条目照存完整目标（null 保留、无候选），构造候选的函数已删除；宿主
+    """真实引擎从登记场景起点在家：返回项是冻结目标的无损紧凑投影——顶层恒为三键，项、动作与工具的键取自闭集，任何位置都没有
+    null 与空集合；门店商品到店动作 available 为 false 且带原因、远程下单 available 为 true 且不带 reason 键，对象名称
+    保留实际门店来源；返回里没有逐项候选与内部身份，冻结条目照存完整目标（null 保留、无候选），构造候选的函数已删除；宿主
     本地求值与环境 read_query 的页逐值相等（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-返回 ）。"""
     import worldmock.life.world_query as world_query
     from custom.envs.life_env import LifeEnv
     from tests.life.conftest import context, stage_day_plan
-    from tests.life.purchase_worlds import at_clock
 
     engine = engine_factory()
     stage_day_plan(engine)
-    at_clock(engine, 10, 0)
     frozen = context(engine, "query-compact")
     engine.begin_decision_round([frozen])
     observed = engine.observe(frozen)
@@ -302,7 +301,9 @@ def test_world_query_matches_are_compact_targets_without_candidates(engine_facto
         assert match["kind"] == "product" and {"name", "kind", "actions"} <= set(match)
         assert not {"phase", "tools"} & set(match)
         assert goods[match["name"]]["match"]["phase"] is None and goods[match["name"]]["match"]["tools"] == []
-        assert "来源：" in match["actions"][0]["note"]
+        place = engine.context.semantics.catalog.locations[goods[match["name"]]["location_id"]]
+        assert match["name"].startswith(f"{place.display_name}出售的")
+        assert match["name"].count(place.display_name) == 1
         ways = {action["way"]: action for action in match["actions"]}
         assert ways["到店"]["available"] is False and ways["到店"]["reason"]
         if "远程下单" in ways:
@@ -373,16 +374,14 @@ def _unknown_source_query(observed):
 def test_environment_read_query_keeps_world_clock_round_and_store_unchanged(engine_factory, build, accepted):
     """通过真实环境即时查询，禁止写状态、消费生活轮数或追加世界事件。`query_world` 的两个入口——宿主在本次冻结观察上
     本地求值的纯函数与环境的 `read_query`——对同一观察、同一请求：受理时结果逐值相等，拒绝时给出同一份校验报告。
-    来源筛选、只看此刻能做的与二者同写、未知来源各一例（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-执行位置与保留约束 ），世界在 10:00（门店营业）。"""
+    来源筛选、只看此刻能做的与二者同写、未知来源各一例（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-执行位置与保留约束 ），查询使用场景起点的真实世界状态。"""
     import asyncio
 
     from custom.envs.life_env import LifeEnv
     from tests.life.conftest import context, stage_day_plan
-    from tests.life.purchase_worlds import at_clock
 
     engine = engine_factory()
     stage_day_plan(engine)
-    at_clock(engine, 10, 0)
     frozen = context(engine, "query-environment")
     engine.begin_decision_round([frozen])
     observed = engine.observe(frozen)

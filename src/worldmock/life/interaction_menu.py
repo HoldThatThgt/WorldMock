@@ -8,14 +8,14 @@ from __future__ import annotations
 from worldmock.life import vocabulary
 
 from worldmock.errors import reject_value
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from pydantic import Field, model_validator
 
 from worldmock.errors import IntegrityError
 from worldmock.base_models import FrozenModel
-from worldmock.catalog.affordances import START_ACTIVITY_ACTIONS
+from worldmock.exchange.types import START_ACTIVITY_ACTIONS
 
 #: 「自身」对象的动作（docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面「保护项修订」）：每份菜单必须保留，
 #: 否则人物在该地点既不能等待也不能睡眠。人物所见分别是动词 interact 的「自己」对象（方式「等待」）与动词 sleep。
@@ -53,7 +53,7 @@ def resolve_interaction_menu(scenario: Any, agent_id: int, location_id: str) -> 
     agent = _unique_item(scenario.agents, "agent_id", agent_id, "agent")
     location = _unique_item(scenario.locations, "location_id", location_id, "location")
     menus = getattr(scenario, "interaction_menus_by_location_kind", None)
-    if not isinstance(menus, dict):
+    if not isinstance(menus, Mapping):
         raise IntegrityError("Interaction menu location mapping is unavailable")
     location_menu = menus.get(location.kind)
     if not isinstance(location_menu, InteractionMenu):
@@ -124,7 +124,7 @@ def merged_selection(canonical: Sequence[str], ways: Sequence[str]) -> bool:
     if len(canonical) == 1:
         return True
     same = canonical[0] == canonical[1] and ways[0] == ways[1]
-    return same and canonical[0] in {"purchase", "consume"} and ways[0] not in {"制作", vocabulary.GIVE_WAY}
+    return same and canonical[0] in {"purchase", "consume"} and ways[0] != vocabulary.GIVE_WAY
 
 
 def _validate_names(values: tuple[str, ...], allowed: frozenset[str], label: str) -> None:

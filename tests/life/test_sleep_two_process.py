@@ -15,9 +15,10 @@ from pathlib import Path
 
 import pytest
 
+from tests.engine_fixture import engine_factory  # noqa: F401
 from tests.life.conftest import context
-from tests.life.test_scheduling import _custom_engine
 from worldmock.life import felt, projection
+from worldmock.exchange.body import BODY_CONSTANTS
 from worldmock.life.body import (ActivityFactors, BoundaryClock, initial_body,
                                  next_shared_body_boundary_seconds, settle_shared_body)
 from worldmock.life.world_setup import _initial_agent
@@ -30,8 +31,6 @@ from worldmock.life.sleep import (
     GRADE_TIRED_MIN,
     GRADE_VERY_SLEEPY_MIN,
     EfficiencyCurvePoint,
-    FOOD_UTILIZATION_CURVE,
-    WORK_EFFICIENCY_CURVE,
     SleepinessGrade,
     deficit_after_awake,
     deficit_after_sleep,
@@ -46,7 +45,6 @@ from worldmock.life.sleep import (
     validate_efficiency_curve,
     validate_sleep_need_hours,
     wake_threshold,
-    work_efficiency,
 )
 
 
@@ -473,17 +471,7 @@ class TestSleepDeficitAccount:
 class TestEfficiencyCurves:
     """效率曲线节点、插值与两端外推。"""
 
-    @pytest.mark.parametrize("deficit,expected", [
-        (0.0, 1.0), (8.0, 1.0), (12.0, 0.925), (16.0, 0.85), (20.0, 0.75), (24.0, 0.65),
-    ])
-    def test_work_efficiency_nodes_and_midpoints(self, deficit, expected):
-        assert work_efficiency(deficit) == pytest.approx(expected, rel=1e-9)
 
-    @pytest.mark.parametrize("deficit,expected", [
-        (-3.0, 1.0), (100.0, 0.65),
-    ])
-    def test_work_efficiency_boundary_extrapolation(self, deficit, expected):
-        assert work_efficiency(deficit) == pytest.approx(expected, rel=1e-9)
 
     @pytest.mark.parametrize("deficit,expected", [
         (0.0, 0.90), (8.0, 0.90), (12.0, 0.875), (16.0, 0.85), (20.0, 0.825), (24.0, 0.80),
@@ -498,10 +486,8 @@ class TestEfficiencyCurves:
         assert food_utilization_efficiency(deficit) == pytest.approx(expected, rel=1e-9)
 
     def test_frozen_curve_constants(self):
-        assert [p.input_hours for p in WORK_EFFICIENCY_CURVE] == [0.0, 8.0, 16.0, 24.0]
-        assert [p.output_factor for p in WORK_EFFICIENCY_CURVE] == [1.0, 1.0, 0.85, 0.65]
-        assert [p.input_hours for p in FOOD_UTILIZATION_CURVE] == [0.0, 8.0, 16.0, 24.0]
-        assert [p.output_factor for p in FOOD_UTILIZATION_CURVE] == [0.90, 0.90, 0.85, 0.80]
+        assert [p.input_value for p in BODY_CONSTANTS.food_efficiency_curve] == [0.0, 8.0, 16.0, 24.0]
+        assert [p.output_value for p in BODY_CONSTANTS.food_efficiency_curve] == [0.90, 0.90, 0.85, 0.80]
 
     def test_interpolate_two_point_curve(self):
         curve = (point(0.0, 1.0), point(10.0, 0.5))
@@ -554,8 +540,8 @@ class TestCurveValidation:
             EfficiencyCurvePoint(input_hours=1.0, output_factor=1.0, extra="x")
 
     def test_valid_curve_passes_validation(self):
-        validate_efficiency_curve(WORK_EFFICIENCY_CURVE)
-        validate_efficiency_curve(FOOD_UTILIZATION_CURVE)
+        validate_efficiency_curve(tuple(point(p.input_value, p.output_value)
+                                        for p in BODY_CONSTANTS.food_efficiency_curve))
 
 
 # ---------------------------------------------------------------------------
@@ -603,13 +589,14 @@ class TestInitialBodyFromUsualWake:
         assert felt.sleepiness_level(sleepiness(midnight.sleep_pressure, 0.0)) in {"困", "很困", "撑不住"}
         assert felt.sleepiness_level(sleepiness(morning.sleep_pressure, 8.0)) == "清醒"
 
-    def test_lianqiu_midnight_start_first_observation_is_at_least_sleepy(self, tmp_path: Path):
+    def test_lianqiu_midnight_start_first_observation_is_at_least_sleepy(self, engine_factory):
         """练秋湖作息（中点 04:45、睡 8 小时）的 00:00 起点：首个观察的困意为「困」或以上；不读就寝窗口。"""
+
         def lianqiu(document: dict) -> None:
             document["agents"][0].update(chronotype_midsleep=4.75, sleep_need_hours=8.0,
                                          bedtime_window=[23.5, 24.5])
 
-        engine = _custom_engine("single-person.json", lianqiu, tmp_path, run_id="lianqiu-start")
+        engine = engine_factory(mutate=lianqiu)
         try:
             assert engine.context.scenario.start_at.hour == 0 and engine.context.scenario.start_at.minute == 0
             decision = context(engine, "first-look")
@@ -620,8 +607,8 @@ class TestInitialBodyFromUsualWake:
             config = engine.context.scenario.agents[0]
             start = int(engine.context.scenario.start_at.timestamp())
             other = config.model_copy(update={"bedtime_window": (21.0, 22.0)})
-            assert _initial_agent(other, engine.context.scenario, "agent:1", start, {}).body == (
-                _initial_agent(config, engine.context.scenario, "agent:1", start, {}).body)
+            assert _initial_agent(other, engine.context.scenario, "agent:1", start).body == (
+                _initial_agent(config, engine.context.scenario, "agent:1", start).body)
         finally:
             engine.close()
 
@@ -660,4 +647,3 @@ class TestSleepinessCrossingPrediction:
         if hour == 0.0:
             # 本机运行的症状：旧近似在 00:00 按惯常作息外推到早上才「有点乏」，从当前压力扫描得到凌晨的实际时刻。
             assert predicted < 5 * 3600
-

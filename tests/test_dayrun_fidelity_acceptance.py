@@ -191,8 +191,8 @@ def test_report_only_rows_stay_report_only_in_the_spec() -> None:
 
 
 def test_every_input_warning_code_has_one_registered_example() -> None:
-    """「输入警告」行逐码各一例：登记的码恰是警告码闭集（十个），每例都在该行登记的测试里，且测试体本身断言这个码。"""
-    assert tuple(WARNING_CODE_TESTS) == INPUT_WARNING_CODES and len(INPUT_WARNING_CODES) == 10
+    """「输入警告」行逐码各一例：登记的码恰是警告码闭集（六个），每例都在该行登记的测试里，且测试体本身断言这个码。"""
+    assert tuple(WARNING_CODE_TESTS) == INPUT_WARNING_CODES and len(INPUT_WARNING_CODES) == 6
     assert set(WARNING_CODE_TESTS.values()) <= set(LEDGER["输入警告"])
     missing = {code: node for code, node in WARNING_CODE_TESTS.items() if code not in _test_body_constants(node)}
     assert not missing, missing

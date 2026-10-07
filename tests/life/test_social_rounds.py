@@ -11,7 +11,7 @@ import pytest
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
                                  stage_day_plan, start_activity, submit_round, wake_by_mail, report_request)
-from tests.life.test_scheduling import _custom_engine
+from tests.life.scenario_fixtures import create_engine
 from worldmock.life import social_actions
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import ActivityKind, ActivityStatus, SendMessageActionRequest, active_activities
@@ -205,10 +205,12 @@ def test_awake_partner_gets_the_invite_in_the_same_second_and_a_sleeper_is_not_w
 
 
 def _template_contact(document: dict) -> None:
-    """@brief 把人物 1 的最后一位 model 策略联系人改为 template 策略（none 策略联系人保留）。"""
-    agent = next(item for item in document["agents"] if item["agent_id"] == 1)
-    contact = [item for item in agent["contacts"] if item["reply_policy"] == "model"][-1]
-    contact["reply_policy"] = "template"
+    """@brief 为实际回复链明确声明不回复与占位回复的联系人。"""
+    document["agents"][0]["contacts"] = [
+        {"contact_id": "silent", "salutation": "不回复的朋友", "relation": "朋友", "closeness": 16,
+         "channels": ["phone"], "reply_policy": "none"},
+        {"contact_id": "template", "salutation": "占位回复的朋友", "relation": "朋友", "closeness": 16,
+         "channels": ["phone"], "reply_policy": "template"}]
 
 
 def _contact_name(engine: LifeEngine, policy: str) -> str:
@@ -222,7 +224,7 @@ def _contact_name(engine: LifeEngine, policy: str) -> str:
 def test_none_policy_delivers_without_reply_and_template_policy_posts_a_placeholder(tmp_path) -> None:
     """给 none 策略联系人发消息照常送达、不回复；template 策略落一条占位回复，在 CONTACT_REPLY_DELAY_SECONDS 后送达
     收件箱（不再以 CONTACT_REPLY_NOT_MODEL 拒绝，第五章「动作照常列出，做错了再说明」）。"""
-    engine = _custom_engine("multi-person.json", _template_contact, tmp_path, "template-reply")
+    engine = create_engine("multi-person.json", _template_contact, tmp_path, "template-reply")
     for agent_id in engine.context.state.agents:
         stage_day_plan(engine, agent_id)
     none_name, template_name = _contact_name(engine, "none"), _contact_name(engine, "template")
@@ -249,6 +251,9 @@ def _feedback(seconds: int):
     """@brief 场景结算间隔改为给定秒数的改写函数。"""
     def mutate(document: dict) -> None:
         document["activity_feedback_seconds"] = seconds
+        for agent in document["agents"]:
+            agent["contacts"] = [{"contact_id": "friend", "salutation": "好友", "relation": "朋友",
+                                  "closeness": 16, "channels": ["phone"], "reply_policy": "none"}]
     return mutate
 
 
@@ -257,7 +262,7 @@ def test_chat_call_and_wait_run_without_failure_at_any_feedback_interval(tmp_pat
     """反馈间隔为 60、7200、86400 秒时交谈、通话与等待都照常受理：交谈时长截取到 60–7200 秒、通话到 600–3600 秒、
     等待取间隔，不再触发 CALL_DURATION_OUT_OF_RANGE 或请求模型的校验异常，推进到下一个决策机会也没有 run_failed
     （第五章「交谈」）。"""
-    engine = _custom_engine("multi-person.json", _feedback(seconds), tmp_path, f"feedback-{seconds}")
+    engine = create_engine("multi-person.json", _feedback(seconds), tmp_path, f"feedback-{seconds}")
     _people(engine)
     _, invited = submit_round(engine, {1: _chat(engine, 1, 2), 2: _wait()}, "feedback-invite")
     assert all(result.status == "in_progress" for result in invited), [result.error_code for result in invited]

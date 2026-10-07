@@ -31,7 +31,6 @@ _STABLE_TOOL_SURFACE = frozenset(
         "pause_activity",
         "conclude_activity",
         "revise_day_plan",
-        "submit_work",
         "send_message",
         "query_world",
     }
@@ -51,7 +50,7 @@ class LifeEnv(EnvBase):
     ):
         """@brief 注册扫描可无参数构造；实际 init 必须具有完整路径。
 
-        create_options 是新建运行的附加输入：agent_taste_weights（人物口味权重）、input_warnings（运行输入警告，
+        create_options 是新建运行的附加输入：input_warnings（运行输入警告，
         冻结进清单；docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-运行输入警告 ）、persona_habit_responses（人设层习惯签名的反应文本，
         冻结进清单，候选排序的相关度；5.1）与 same_second_continuation
         （同秒续接开关，缺省开，冻结进清单 stages.action；docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第二章「同秒续接」）。
@@ -144,9 +143,7 @@ class LifeEnv(EnvBase):
     async def submit_action(self, call: Any):
         """@brief 登记宿主绑定的有类型生活动作。"""
         engine = self._require_engine()
-        receipt = engine.submit_action(call)
-        await engine.prepare_pending_work_review(call.action_id)
-        return receipt
+        return engine.submit_action(call)
 
     async def read_query(self, context: Any, tool: str, request: Any) -> dict:
         """@brief 对已冻结观察即时只读派发，不产生世界动作、进度事件或人物记忆。"""

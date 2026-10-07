@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from tests.data_paths import ENVIRONMENT_ROOT
 
 import json
 import re
@@ -45,7 +44,7 @@ def test_blind_packets_are_deterministic_and_hide_source_identity(evaluation_fix
 
 
 def test_formal_item_selection_covers_twelve_weeks_and_every_special_date() -> None:
-    scenario = load_scenario(ENVIRONMENT_ROOT / "scenarios/evaluation.json")
+    scenario = load_scenario(Path(__file__).parent / "fixtures/scenario.json")
     empty = DatasetView("test", "test", "test", scenario.window, (), (), (), {}, {})
     support = {"shared_categories": [], "shared_channels": []}
 
@@ -282,7 +281,7 @@ def _located_partner_session(view: DatasetView):
         activity_id="session-with-partner", person_id=existing.person_id,
         category=existing.category, started_at=view.window.start,
         ended_at=view.window.start + timedelta(minutes=30), status="completed",
-        channels=existing.channels, segments=None,
+        channels=existing.channels, elapsed_seconds=1800, duration_kind="observed_digital_session",
         location_id="office-west", partner_id="agent:2")
 
 
@@ -313,9 +312,8 @@ def test_companion_reference_is_slot_isolated_and_day_stable(evaluation_fixture)
     # 两个相隔一日的分段：同一会话跨日出现，同伴引用必须一致。
     from datetime import datetime as _dt
 
-    session.segments = ((left.window.start, left.window.start + timedelta(minutes=30)),
-                        (left.window.start + timedelta(days=1),
-                         left.window.start + timedelta(days=1, minutes=30)))
+    session.ended_at = left.window.start + timedelta(days=1, minutes=30)
+    session.elapsed_seconds = (session.ended_at - session.started_at).total_seconds()
     left = replace(left, activities=(*left.activities, session))
 
     material = create_review_material(left, right, support, scenario)

@@ -22,9 +22,17 @@ function parser() {
   return {api: vm.runInContext('ViewerContext', context), errors};
 }
 
-/** @brief 取夹具中的一种请求的深拷贝：action、continuation、legacy_prelude、legacy_action。 */
+/** @brief 取夹具中的一种请求的深拷贝：action、continuation。 */
 function request(kind = 'action') {
   return JSON.parse(JSON.stringify(fixture[kind]));
+}
+
+/** @brief 构造当前只读调用，保留完整原文并验证不会误判为行动请求。 */
+function otherRequest() {
+  const value = request();
+  value.messages[0].content = JSON.stringify({layer: '系统层', role: '依据人物记忆回答问题。', rules: []});
+  delete value.tools;
+  return value;
 }
 
 /** @brief 把请求包成归档 model_request 事件。 */
@@ -55,8 +63,8 @@ function layers(kind = 'action') {
   return JSON.parse(fixture[kind].messages[1].content);
 }
 
-test('the fixture holds a seven-layer action, a continuation-shaped request and legacy two-stage requests', () => {
-  assert.deepEqual(Object.keys(fixture), ['action', 'continuation', 'legacy_prelude', 'legacy_action']);
+test('the fixture holds the current genuine action and continuation requests', () => {
+  assert.deepEqual(Object.keys(fixture), ['action', 'continuation']);
   const system = JSON.parse(fixture.action.messages[0].content);
   assert.equal(system.layer, '系统层');
   assert.ok(system.rules.length > 0);
@@ -64,8 +72,6 @@ test('the fixture holds a seven-layer action, a continuation-shaped request and 
   assert.equal(fixture.action.messages.length, 2);
   assert.ok(fixture.continuation.messages.length > 2);
   assert.deepEqual(fixture.continuation.messages.slice(0, 2), fixture.action.messages);
-  assert.ok(fixture.legacy_prelude.messages[0].content.includes('你不是AI助手'));
-  assert.equal(Object.hasOwn(fixture.legacy_prelude, 'tools'), false);
 });
 
 test('the viewer life role and the fixture system layer match the host life system layer', () => {
@@ -102,11 +108,11 @@ test('action requests are recognised only by the life system layer JSON and an a
   assert.equal(errors.length, 0);
 });
 
-test('legacy decision statement requests stay other calls shown as unparsed', () => {
+test('non-action requests stay other calls shown as complete unparsed records', () => {
   const {api, errors} = parser();
-  assert.deepEqual(plain(api.classify(request('legacy_prelude'))), {stage: 'other', label: '其他调用·未解析'});
-  assert.match(api.classify(request('legacy_prelude'), 'memory_consolidation').label, /其他调用·memory_consolidation/);
-  const input = event(request('legacy_prelude'));
+  assert.deepEqual(plain(api.classify(otherRequest())), {stage: 'other', label: '其他调用·未解析'});
+  assert.match(api.classify(otherRequest(), 'memory_consolidation').label, /其他调用·memory_consolidation/);
+  const input = event(otherRequest());
   const parsed = api.parseRequest(input);
   assert.equal(parsed.stage, 'other');
   assert.equal(parsed.stageLabel, '其他调用·未解析');
@@ -119,51 +125,9 @@ test('legacy decision statement requests stay other calls shown as unparsed', ()
   assert.equal(errors.length, 1);
 });
 
-test('legacy action requests are recognised by the old template and segmented as unverified inferences', () => {
-  const {api, errors} = parser();
-  assert.deepEqual(plain(api.classify(request('legacy_action'))), {stage: 'legacy', label: '选择动作·旧模板'});
-  const input = event(request('legacy_action'));
-  const parsed = api.parseRequest(input);
-  assert.equal(parsed.stage, 'legacy');
-  assert.equal(parsed.continuation, false);
-  const user = messageBlocks(parsed);
-  assert.deepEqual(plain(user.map(block => block.key)),
-    ['persona', 'scene', 'subjective_summary', 'recent_subjective_episodes', 'facts', 'decision_statement']);
-  assert.equal(user.map(block => block.text).join(''), input.data.request.messages[1].content);
-  assert.ok(user.every(block => block.interpretation === 'template' && block.label.endsWith(' · 来源未核验')));
-  assert.equal(user[0].label, '人物卡片 · 来源未核验');
-  const system = parsed.blocks.find(block => block.messageIndex === 0);
-  assert.equal(system.label, '身份规则');
-  assert.equal(system.text, input.data.request.messages[0].content);
-  assert.ok(parsed.blocks.every(block => block.rule === null), 'current source rules do not describe old templates');
-  assert.equal(parsed.blocks.find(block => block.key === 'tools').text, JSON.stringify(input.data.request.tools));
-  assert.equal(errors.length, 0);
-});
 
-test('a legacy action body that happens to contain a template heading stays an inference or falls back to unparsed', () => {
-  const {api, errors} = parser();
-  const once = request('legacy_action');
-  const [persona, ...rest] = once.messages[1].content.split('\n\n');
-  const scene = rest.shift();
-  once.messages[1].content = [persona, scene, '主观归纳：\n正文里恰好写了这个标题。', ...rest.slice(2)].join('\n\n');
-  const inferred = messageBlocks(api.parseRequest(event(once)));
-  const summary = inferred.find(block => block.key === 'subjective_summary');
-  assert.equal(summary.label, '主观归纳 · 来源未核验');
-  assert.equal(summary.interpretation, 'template');
-  assert.equal(inferred.map(block => block.text).join(''), once.messages[1].content);
-  const twice = request('legacy_action');
-  twice.messages[1].content = twice.messages[1].content.replace('\n\n最近的人物自述：\n', '\n\n主观归纳：\n再次出现。\n\n最近的人物自述：\n');
-  const parsed = api.parseRequest(event(twice));
-  assert.equal(parsed.stage, 'legacy');
-  assert.equal(messageBlocks(parsed).length, 1);
-  assert.equal(messageBlocks(parsed)[0].text, twice.messages[1].content);
-  assert.match(messageBlocks(parsed)[0].label, /未解析/);
-  assert.equal(parsed.warnings.length, 1);
-  const budgetless = request('legacy_action');
-  budgetless.messages[0].content = budgetless.messages[0].content.split('\n\nAuthoritative ReAct')[0];
-  assert.equal(api.classify(budgetless).stage, 'other');
-  assert.equal(errors.length, 1);
-});
+
+
 
 test('the first user message is sliced losslessly into the six top-level layers in contract order', () => {
   const {api, errors} = parser();
@@ -243,13 +207,14 @@ test('tool layer drill-down lists every target with its actions and tools and th
   const expected = groups.reduce((sum, group) => sum + group.targets.reduce((count, row) =>
     count + 1 + (group.action === null ? 0 : 1) + (row.tools || group.shared.tools || []).length, 0), 0);
   assert.equal(items.length, expected);
-  assert.equal(items[0].label, `${targets[0].name}（activity）`);
+  assert.equal(items[0].label, `${targets[0].name}（${targets[0].kind}）`);
   assert.deepEqual(JSON.parse(items[0].text), targets[0]);
-  assert.ok(items.some(item => item.label === '工作：季度报告 · submit_work · 不可用：先结束正在做的工作'));
-  assert.ok(items.some(item => item.label === '星巴克出售的拿铁 · obtain：远程下单 · 可用'));
-  assert.ok(items.some(item => item.label === '星巴克出售的拿铁 · obtain：到店 · 不可用：不在这家店'));
-  const contract = items.find(item => item.label === '工作：季度报告（task）');
-  assert.deepEqual(JSON.parse(contract.text).contract, targets[1].contract);
+  const contract = items.find(item => item.label === '工作：季度销售数据整理（task）');
+  assert.deepEqual(Object.keys(JSON.parse(contract.text).contract), ['topic', 'target', 'done', 'remaining']);
+  assert.ok(items.some(item => item.label.includes('柠檬茶') && item.label.includes('obtain：远程下单')));
+  assert.ok(items.some(item => item.label.includes('柠檬茶') && item.label.includes('obtain：到店')));
+  assert.ok(items.some(item => item.label.includes('不可用：')));
+  assert.equal(items.some(item => item.label.includes('submit_work')), false);
 });
 
 test('progress drill-down follows real record fields and labels self_note as unverified', () => {
@@ -259,10 +224,10 @@ test('progress drill-down follows real record fields and labels self_note as unv
   const items = plain(api.drillItems(progress));
   const records = layers()[5].events;
   assert.equal(items.length, records.length);
-  assert.equal(items[0].label, '2026-09-28T09:05:00+08:00 · tool_call · start_activity');
-  assert.equal(items[1].label, '2026-09-28T10:20:00+08:00 · message_arrival · 王磊');
-  assert.equal(items[2].label, '2026-09-28T10:31:00+08:00 · tool_call · start_activity · self_note（未经核验）');
-  assert.ok(items[2].text.startsWith('self_note（未经核验）：先给王磊点上，他说想吃牛肉面。\n\n'));
+  assert.equal(items[0].label, `${records[0].occurred_at} · tool_call · start_activity`);
+  assert.equal(items[1].label, `${records[1].occurred_at} · message_arrival · ${records[1].subject}`);
+  assert.equal(items[2].label, `${records[2].occurred_at} · tool_call · conclude_activity · self_note（未经核验）`);
+  assert.ok(items[2].text.startsWith('self_note（未经核验）：先把事务记下来。\n\n'));
   assert.deepEqual(JSON.parse(items[2].text.split('\n\n').slice(1).join('\n\n')), records[2]);
   assert.equal(items[0].text.includes('未经核验'), false);
   assert.deepEqual(plain(api.drillItems(parsed.blocks.find(block => block.key === 'persona'))), []);
@@ -291,11 +256,11 @@ test('a decision first request with sources is a continuation: source decisions 
   const {api, errors} = parser();
   const input = event(request('continuation'));
   const [assistantMessage] = input.data.request.messages.slice(2);
-  const parsed = api.parseRequest(input, {sources: {call_7f2c: '10:43:00 · decision-k'}});
+  const parsed = api.parseRequest(input, {sources: {'call-action': '10:43:00 · decision-k'}});
   assert.equal(parsed.continuation, true);
   assert.deepEqual(plain(messageBlocks(parsed).map(block => block.key)), LAYER_KEYS);
   const assistant = parsed.blocks.find(block => block.messageIndex === 2 && block.key === 'message');
-  assert.equal(assistant.label, '续接 · assistant · 来源决策 10:43:00 · decision-k');
+  assert.equal(assistant.label, '续接 · assistant · 来源决策 10:43:00 · decision-k · 回复正文（未经核验）');
   assert.equal(assistant.rule, 'continuation');
   assert.equal(assistant.text, JSON.stringify(assistantMessage));
   const reasoning = parsed.blocks.find(block => block.key === 'reasoning');
@@ -310,7 +275,7 @@ test('a decision first request with sources is a continuation: source decisions 
   assert.equal(unmatched.blocks.find(block => block.key === 'reasoning').label, '回传思考 · 来源决策 未匹配');
   assert.equal(api.parseRequest(event(), {sources: {}}).continuation, false);
   assert.equal(api.parseRequest(input).continuation, false);
-  assert.deepEqual(plain(api.prefixCallIds(input.data.request)), ['call_7f2c']);
+  assert.deepEqual(plain(api.prefixCallIds(input.data.request)), ['call-action']);
   assert.deepEqual(plain(api.prefixCallIds(request())), []);
   assert.equal(errors.length, 0);
 });
@@ -318,7 +283,8 @@ test('a decision first request with sources is a continuation: source decisions 
 test('a continuation prefix reply body written by an earlier decision is labelled unverified', () => {
   const {api} = parser();
   const input = event(request('continuation'));
-  const sources = {sources: {call_7f2c: '10:43:00 · decision-k'}};
+  const sources = {sources: {'call-action': '10:43:00 · decision-k'}};
+  input.data.request.messages[2].content = '';
   const silent = api.parseRequest(input, sources).blocks.find(block => block.messageIndex === 2 && block.key === 'message');
   assert.equal(silent.label.includes('未经核验'), false, 'no reply body, no label');
   input.data.request.messages[2].content = '先把王磊的面点上，报告回头再核对。';
@@ -378,7 +344,7 @@ test('malformed request envelope preserves the archived payload and does not fab
 test('comparison detects same-length layer edits and preserves both complete versions', () => {
   const {api} = parser();
   const edited = layers();
-  edited[4].body.appetite = '有点撑';
+  edited[4].body.appetite = '很饿';
   const before = api.parseRequest(event());
   const after = api.parseRequest(event(withLayers(edited)));
   const changes = api.compare(after.blocks, before.blocks);
@@ -386,7 +352,7 @@ test('comparison detects same-length layer edits and preserves both complete ver
   assert.equal(changed.status, 'changed');
   assert.equal(changed.delta, 0);
   assert.equal(changed.before.text, before.blocks.find(block => block.key === 'environment').text);
-  assert.ok(changed.after.text.includes('有点撑'));
+  assert.ok(changed.after.text.includes('很饿'));
   assert.equal(changes.find(block => block.key === 'tool').status, 'unchanged');
   assert.equal(changes.find(block => block.key === 'system').status, 'unchanged');
 });
@@ -483,8 +449,8 @@ test('the tool definition rule counts the tool surface the host offers and when 
   const {api} = parser();
   const {worldRequests, worldQueries, memory} = hostToolSurface();
   assert.deepEqual(worldQueries, ['recall_task_summary', 'query_world']);
-  assert.deepEqual([worldRequests.length, worldQueries.length, memory.length], [7, 2, 3]);
-  const numerals = {2: '两', 3: '三', 7: '七'};
+  assert.deepEqual([worldRequests.length, worldQueries.length, memory.length], [6, 2, 3]);
+  const numerals = {2: '两', 3: '三', 6: '六'};
   const fill = api.rules.tools.fill;
   assert.ok(fill.includes(`${numerals[worldRequests.length]}个世界请求工具`), fill);
   assert.ok(fill.includes(`${numerals[worldQueries.length]}个世界查询工具`), fill);
@@ -500,13 +466,14 @@ test('the tool definition rule counts the tool surface the host offers and when 
 test('progress drill-down labels the two errand records with the errand name they carry', () => {
   const {api} = parser();
   const records = layers()[5].events.filter(record => record.type.startsWith('errand_'));
-  assert.deepEqual(records, [{occurred_at: '2026-09-28T10:35:00+08:00', type: 'errand_completed', errand: '囤咖啡豆'},
-    {occurred_at: '2026-09-28T10:40:00+08:00', type: 'errand_reminder', errand: '买牛奶'}]);
+  assert.deepEqual(records.map(record => [record.type, record.errand]),
+    [['errand_reminder', '买柠檬茶'], ['errand_completed', '吃掉薯片']]);
   const parsed = api.parseRequest(event());
-  const items = plain(api.drillItems(parsed.blocks.find(block => block.key === 'progress')));
-  assert.deepEqual(items.slice(-2).map(item => item.label), [
-    '2026-09-28T10:35:00+08:00 · errand_completed · 囤咖啡豆', '2026-09-28T10:40:00+08:00 · errand_reminder · 买牛奶']);
-  assert.deepEqual(items.slice(-2).map(item => JSON.parse(item.text)), records);
+  const items = plain(api.drillItems(parsed.blocks.find(block => block.key === 'progress')))
+    .filter(item => item.label.includes(' · errand_'));
+  assert.deepEqual(items.map(item => item.label), records.map(record =>
+    `${record.occurred_at} · ${record.type} · ${record.errand}`));
+  assert.deepEqual(items.map(item => JSON.parse(item.text)), records);
 });
 
 test('the fixture action request is in the layer shape of the errands and workday feature and parses unchanged', () => {
@@ -530,8 +497,9 @@ test('the fixture action request is in the layer shape of the errands and workda
     [...literalKeys(/return \{"day": DAY_WORK[\s\S]*?\}\n/.exec(schedule)[0]), 'status']);
   assert.ok(/return \{\*\*arrangement, "status": /.test(schedule), 'duty adds status to the day arrangement');
   assert.deepEqual(progress.events.map(record => record.type),
-    ['tool_call', 'message_arrival', 'tool_call', 'errand_completed', 'errand_reminder']);
-  // 原生工具是宿主此刻发给模型的十二个：七个世界请求、两个世界查询（含 query_world）、三个记忆查询，顺序相同。
+    ['tool_call', 'message_arrival', 'tool_call', 'tool_call', 'app_push', 'errand_reminder',
+      'tool_call', 'errand_completed', 'tool_call', 'tool_call', 'message_arrival', 'tool_call', 'tool_call']);
+  // 原生工具是宿主此刻发给模型的十一个：六个世界请求、两个世界查询（含 query_world）、三个记忆查询，顺序相同。
   const {worldRequests, worldQueries, memory} = hostToolSurface();
   const names = fixture.action.tools.map(tool => tool.function.name);
   assert.deepEqual(names, [...worldRequests, ...worldQueries, ...memory]);
@@ -552,14 +520,43 @@ test('the fixture action request is in the layer shape of the errands and workda
   assert.deepEqual(plain(user[4].value.duty), environment.duty);
   assert.deepEqual(JSON.parse(parsed.blocks.at(-1).text).map(tool => tool.function.name), names);
   assert.equal(parsed.warnings.length, 0);
-  // 没有 errands 与 duty 的既有七层请求照旧识别与切片，与现行请求对照时只有这两层算内容变化。
-  const earlier = layers();
-  delete earlier[3].errands;
-  delete earlier[4].duty;
-  const before = api.parseRequest(event(withLayers(earlier)));
-  assert.equal(before.stage, 'action');
-  assert.deepEqual(plain(messageBlocks(before).map(block => block.key)), LAYER_KEYS);
-  const changed = plain(api.compare(parsed.blocks, before.blocks)).filter(row => row.status !== 'unchanged');
-  assert.deepEqual(changed.map(row => [row.key, row.status]), [['todo', 'changed'], ['environment', 'changed']]);
   assert.equal(errors.length, 0);
+});
+
+/** @brief 真实宿主录制保留登记应用、闭合推送字段与原始摘要。 */
+test('the current fixture preserves app targets and the complete closed push record', () => {
+  const {api} = parser();
+  const [tool, , , todo, , progress] = layers();
+  assert.deepEqual(Object.keys(tool.callable_index), ['lifestyle', 'goods', 'query_categories']);
+  const groups = tool.groups.filter(group => group.kind === 'app');
+  assert.ok(groups.every(group => group.action === 'interact' && group.way === '打开'));
+  const apps = groups.flatMap(group => group.targets.map(target => target.name));
+  const catalogApps = JSON.parse(read('tests/fixtures/environment/catalog/apps.json')).apps;
+  assert.deepEqual(apps.sort(), catalogApps.map(app => `应用：${app.name}`).sort());
+  assert.equal(todo.paused_activities[0].name, '打开哔哩哔哩（1月5日 10:03 起）');
+  const push = progress.events.find(record => record.type === 'app_push');
+  assert.deepEqual(Object.keys(push), ['occurred_at', 'type', 'app', 'title', 'kind', 'summary']);
+  const catalog = JSON.parse(read('tests/fixtures/environment/catalog/contents.json'));
+  const content = catalog.contents.find(row => row.content_id === 'c-short');
+  assert.equal(push.app, '抖音');
+  assert.equal(push.title, content.title);
+  assert.equal(push.kind, '短视频');
+  assert.equal(push.summary, content.summary);
+  const block = api.parseRequest(event()).blocks.find(row => row.key === 'progress');
+  const item = plain(api.drillItems(block)).find(row => row.label.includes(' · app_push'));
+  assert.equal(item.label, `${push.occurred_at} · app_push · 抖音`);
+  assert.deepEqual(JSON.parse(item.text), push);
+});
+
+
+/** @brief 工作完成沿真实进度记录的 topic 字段展示，不误认退役 task 字段。 */
+test('work completion drill-down uses the current topic record and keeps it verbatim', () => {
+  const {api} = parser();
+  const current = layers();
+  const record = {occurred_at: '2026-01-05T18:00:00+08:00', type: 'work_completed', topic: '季度销售数据整理'};
+  current[5].events = [record];
+  const parsed = api.parseRequest(event(withLayers(current)));
+  const items = plain(api.drillItems(parsed.blocks.find(block => block.key === 'progress')));
+  assert.deepEqual(items, [{label: '2026-01-05T18:00:00+08:00 · work_completed · 季度销售数据整理',
+    text: JSON.stringify(record, null, 2)}]);
 });

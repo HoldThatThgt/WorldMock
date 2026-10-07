@@ -1,116 +1,170 @@
-"""联系人往来与收货（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「联系人往来」，裁决 #24）。
-
-发给场景联系人的消息记入 AgentState.outbox；model 策略联系人的回复请求带双方往来 history（按时间排序，至多 20 条，
-不含本次来信）与联系人实际收到的物品 received（收货人是它的已送达订单与当面给予）；回复策略与延迟送达不变。
-"""
+"""@brief 联系人往来和实际收到的登记食品，经真实消息、订单与给予链验证。"""
 
 from __future__ import annotations
 
-from tests.life.routing_fixtures import (COLLEAGUE, COLLEAGUE_TARGET, OFFICE, act, contact_message, holding_name,
-                                         observe, open_world, place, routed, run_until, stage, supply_target)
-from worldmock.life.activity_control import pending_conclusions
+from tests.life.conftest import (advance_next, conclude_request, context, pending_names, report_request,
+                                 stage_day_plan, start_activity, start_arguments, submit_round, wake_by_mail, advance_until_ready, pause_request)
+from tests.life.test_work_protocol import trip_to
+from worldmock.footprints.models import EventDraft
 from worldmock.life.contact_exchange import reply_request
-from worldmock.life.vocabulary import GIVE_WAY
-from worldmock.life.models import SendMessageActionRequest, active_activities
+from worldmock.life.models import REQUEST_MODELS, SendMessageActionRequest, active_activities
 from worldmock.life.readable import clock_phrase, iso_time
 from worldmock.life.social import HISTORY_LIMIT, Message
 
-_FRIEND = "contact-chenxi-oldfriend"
+_FRIEND, _COLLEAGUE = "reply-friend", "reply-colleague"
 
 
-def _idle(engine) -> bool:
-    """@brief 人物 1 此刻可以决策，且没有进行中或待收尾的活动。"""
-    return (1 in engine.scheduling_state().ready_agent_ids and not active_activities(engine.context.state, 1)
-            and not pending_conclusions(engine.context.state, 1))
+def _world(factory, scenario="single-person.json"):
+    """@brief 人工场景明确声明两位联系人和办公室持有食品，真实加载器验证它们。"""
+    def mutate(document):
+        config = document["agents"][0]
+        config["contacts"] = [
+            {"contact_id": _FRIEND, "salutation": "沈昊", "relation": "friend", "closeness": 20,
+             "channels": ["message"], "reply_policy": "model", "receive_location_id": None},
+            {"contact_id": _COLLEAGUE, "salutation": "王磊", "relation": "colleague", "closeness": 15,
+             "channels": ["message"], "reply_policy": "model", "receive_location_id": "office"}]
+        config["initial_inventory"] = {"office": {"chips": 0.5}}
+    engine = factory(scenario, mutate=mutate)
+    for identity in engine.context.state.agents:
+        stage_day_plan(engine, identity)
+    return engine
 
 
-def _send(engine, name: str, recipient: str, text: str):
-    """@brief 人物 1 按收件人名称发一条消息，返回结果。"""
-    return act(engine, name, SendMessageActionRequest(recipient_name=recipient, text=text), tool="send_message")
+def _act(engine, label: str, tool: str, request):
+    """@brief 真正结算全部就绪人物的请求，其他人物只开始或播报自己的等待。"""
+    asks = {1: (tool, request)}
+    for identity in engine.scheduling_state().ready_agent_ids:
+        if identity == 1:
+            continue
+        running = active_activities(engine.context.state, identity)
+        asks[identity] = ("report_status", report_request(*[item.name for item in running])) if running else (
+            "start_activity", start_activity("等待", "自己"))
+    _, results = submit_round(engine, asks, label)
+    return next(item for item in results if item.agent_id == 1)
 
 
-def _pending_request(engine) -> dict:
-    """@brief 最近一条待执行的 model 联系人回复请求。"""
-    events = [event for event in engine.context.store.read_agent_events("environment_event", 1)
-              if event.data.get("kind") == "model_npc_reply_pending"]
-    return events[-1].data["request"]
+def _send(engine, label: str, name: str, text: str):
+    """@brief 人物实际发送消息，经联系人或同世界收件人路由结算。"""
+    return _act(engine, label, "send_message", SendMessageActionRequest(recipient_name=name, text=text))
 
 
-def test_messages_to_contacts_go_to_the_outbox_and_the_reply_request_carries_both_sides(engine_factory) -> None:
-    """发给联系人的消息进 outbox，发给同世界人物的不进；model 联系人的回复请求带此前双方的消息（本人与联系人各自的
-    说话人、可读时刻与全文，按时间排序，不含本次来信）和联系人实际收到的物品（此时为空）。"""
-    engine = open_world(engine_factory)
-    first = _send(engine, "to-friend", "联系人：沈昊", "周末有空吗？")
-    assert first.status == "completed", (first.error_code, first.message)
-    outbox = engine.context.state.agents[1].outbox
-    assert [(item.recipient_id, item.text) for item in outbox.values()] == [(_FRIEND, "周末有空吗？")]
+def _pending_request(engine):
+    """@brief 读取实际发送链写入的最新联系人模型请求。"""
+    events = engine.context.store.read_agent_events("environment_event", 1)
+    return [item.data["request"] for item in events if item.data.get("kind") == "model_npc_reply_pending"][-1]
+
+
+def _save(engine, staged):
+    """@brief 显式预置消息历史，世界与足迹通过真实存储提交保持同一版本。"""
+    staged.version += 1
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=staged.current_time, visibility="system",
+        data={"kind": "test_contact_history_staged"})])
+    engine.context.state = staged
+
+
+def test_messages_to_contacts_go_to_the_outbox_and_the_reply_request_carries_both_sides(engine_factory):
+    """@brief 联系人收到真实消息，回复只携带此前双方往来，远程联系人没有虚构收货地。"""
+    engine = _world(engine_factory, "multi-person.json")
+    assert _send(engine, "friend-first", "联系人：沈昊", "周末有空吗？").status == "completed"
+    previous = dict(engine.context.state.agents[1].outbox)
+    assert [(item.recipient_id, item.text) for item in previous.values()] == [(_FRIEND, "周末有空吗？")]
     assert _pending_request(engine)["history"] == [] and _pending_request(engine)["received"] == []
-    reply_id = contact_message(engine, "周六可以，去哪？", contact_id=_FRIEND)
-    replied_at = engine.context.state.agents[1].inbox[reply_id].created_at
-    person = _send(engine, "to-person", "人物：李凡", "我先下楼了")
-    assert person.status == "completed" and len(engine.context.state.agents[1].outbox) == 1
-    second = _send(engine, "to-friend-again", "联系人：沈昊", "去公园走走吧")
-    assert second.status == "completed"
-    zone, now = engine.context.scenario.timezone, engine.context.state.current_time
+    other = next(agent.name for agent in engine.context.scenario.agents if agent.agent_id == 2)
+    assert _send(engine, "same-world", f"人物：{other}", "我先下楼了").status == "completed"
+    assert len(engine.context.state.agents[1].outbox) == 1
+    wake_by_mail(engine, offset=60)
+    assert _act(engine, "friend-await", "start_activity", start_activity("等待", "自己")).status == "in_progress"
+    assert advance_until_ready(engine)
+    now = engine.context.state.current_time
+    staged = engine.context.state.model_copy(deep=True)
+    received = Message(message_id="friend-answer", kind="direct", sender_id=_FRIEND,
+                       recipient_id="agent:1", text="周六可以，去哪？", created_at=now)
+    staged.agents[1].inbox[received.message_id] = received
+    _save(engine, staged)
+    assert _send(engine, "friend-second", "联系人：沈昊", "去公园走走吧").status == "completed"
     request = _pending_request(engine)
-    assert request["incoming_text"] == "去公园走走吧"
-    # 来信事实（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-联系人回复不虚构到场 ）：写信人物的姓名、此刻、对方在远程，沈昊没有收货地点。
+    zone = engine.context.scenario.timezone
+    name = engine.context.state.agents[1].name
     assert (request["sender_name"], request["now"], request["presence"], request["receive_location"]) == (
-        engine.context.state.agents[1].name, iso_time(now, zone), "remote", None)
+        name, iso_time(now, zone), "remote", None)
     assert request["history"] == [
-        {"speaker": "陈曦", "time": clock_phrase(next(iter(outbox.values())).created_at, now, zone),
+        {"speaker": name, "time": clock_phrase(next(iter(previous.values())).created_at, now, zone),
          "text": "周末有空吗？"},
-        {"speaker": "沈昊", "time": clock_phrase(replied_at, now, zone), "text": "周六可以，去哪？"}]
+        {"speaker": "沈昊", "time": clock_phrase(now, now, zone), "text": "周六可以，去哪？"}]
     assert len(engine.context.state.agents[1].outbox) == 2
 
 
-def test_reply_history_keeps_the_latest_twenty_messages_in_time_order(engine_factory) -> None:
-    """往来超过 20 条时只留最近的 20 条，按时刻（同一时刻按消息身份）排序。"""
-    engine = open_world(engine_factory)
+def test_reply_history_keeps_the_latest_twenty_messages_in_time_order(engine_factory):
+    """@brief 实际回复请求按时间与消息身份确定性取双方最近二十条，不含本次来信。"""
+    engine = _world(engine_factory)
     now = engine.context.state.current_time
-
-    def change(state):
-        """@brief 预置 13 条发出与 12 条收到的消息，时刻交错。"""
-        agent = state.agents[1]
-        for index in range(25):
-            sent = index % 2 == 0
-            message = Message(message_id=f"m-{index:02d}", kind="direct", text=f"第 {index} 条",
-                              sender_id="agent:1" if sent else _FRIEND, recipient_id=_FRIEND if sent else "agent:1",
-                              created_at=now - 3000 + index * 60)
-            (agent.outbox if sent else agent.inbox)[message.message_id] = message
-    stage(engine, change)
-    assert _send(engine, "many", "联系人：沈昊", "最新一条").status == "completed"
+    staged = engine.context.state.model_copy(deep=True)
+    for index in range(25):
+        sent = index % 2 == 0
+        message = Message(message_id=f"m-{index:02d}", kind="direct", text=f"第 {index} 条",
+                          sender_id="agent:1" if sent else _FRIEND, recipient_id=_FRIEND if sent else "agent:1",
+                          created_at=now - 3000 + index * 60)
+        target = staged.agents[1].outbox if sent else staged.agents[1].inbox
+        target[message.message_id] = message
+    _save(engine, staged)
+    assert _send(engine, "friend-history", "联系人：沈昊", "最新一条").status == "completed"
     history = _pending_request(engine)["history"]
     assert len(history) == HISTORY_LIMIT == 20
     assert [item["text"] for item in history] == [f"第 {index} 条" for index in range(5, 25)]
-    assert history[0]["speaker"] == "沈昊" and history[1]["speaker"] == "陈曦"
+    assert history[0]["speaker"] == "沈昊" and history[1]["speaker"] == engine.context.state.agents[1].name
 
 
-def test_received_lists_delivered_orders_and_gifts_to_the_contact(engine_factory) -> None:
-    """联系人实际收到的物品：收货人是它的已送达订单（送达时刻）与当面给予（给予时刻），在途的订单不算。"""
-    engine = open_world(engine_factory)
-    target, food = supply_target(observe(engine, "supply"))
-    ordered = act(engine, "order-for-colleague", routed((target, "obtain", "远程下单", None, COLLEAGUE_TARGET),
-                                                         ("自己", "interact", "等待", None, None)))
+def _until_delivered(engine, order_id: str):
+    """@brief 通过真实决策与时间推进等到配送完成，在途食品始终不计为收到。"""
+    for index in range(32):
+        if engine.context.state.deliveries[order_id].status == "delivered":
+            return
+        if engine.scheduling_state().ready_agent_ids:
+            view = engine.observe(context(engine, f"delivery-view-{index}"))
+            names = pending_names(view)
+            if names:
+                _act(engine, f"delivery-end-{index}", "conclude_activity", conclude_request(*names))
+            else:
+                running = active_activities(engine.context.state, 1)
+                if running:
+                    _act(engine, f"delivery-report-{index}", "report_status", report_request(*[a.name for a in running]))
+                else:
+                    _act(engine, f"delivery-wait-{index}", "start_activity", start_activity("等待", "自己"))
+        else:
+            advance_next(engine)
+    raise AssertionError("the actual food delivery did not complete")
+
+
+def test_received_lists_delivered_orders_and_gifts_to_the_contact(engine_factory):
+    """@brief 实际回复只列已送达食品与当面交出的食品，食品名直接取登记目录。"""
+    engine = _world(engine_factory)
+    food = engine.context.semantics.catalog.foods["beef-noodles"]
+    arguments = start_arguments([food.name, "自己"], ["obtain", "interact"], ["远程下单", "等待"],
+                                **{"to": ["联系人：王磊", None]})
+    ordered = _act(engine, "contact-order", "start_activity", REQUEST_MODELS["start_activity"](**arguments))
+    assert ordered.status == "in_progress", (ordered.error_code, ordered.message)
     [order] = ordered.data["orders"]
-    colleague = next(item for item in engine.context.scenario.agents[0].contacts if item.contact_id == COLLEAGUE)
-    message = Message(message_id="probe", kind="direct", sender_id="agent:1", recipient_id=COLLEAGUE, text="到了吗",
-                      created_at=engine.context.state.current_time)
-    assert reply_request(engine.context.state, engine.context.store, engine.context.scenario, message, colleague).received == ()
-    run_until(engine, lambda current: current.context.state.deliveries[order["order_id"]].status == "delivered")
-    snack = next(item.product_id for item in engine.context.scenario.supplies if item.product_id != food
-                 and "eat" in engine.context.rules.items[item.product_id].use_modes)
-    run_until(engine, _idle)
-    place(engine, 1, OFFICE, {snack: 0.5})
-    given = act(engine, "give-colleague", routed((holding_name(engine, snack), "consume", GIVE_WAY, None,
-                                                  COLLEAGUE_TARGET)))
+    contact = next(item for item in engine.context.scenario.agents[0].contacts if item.contact_id == _COLLEAGUE)
+    message = Message(message_id="received-probe", kind="direct", sender_id="agent:1", recipient_id=_COLLEAGUE,
+                      text="到了吗", created_at=engine.context.state.current_time)
+    assert reply_request(engine.context.state, engine.context.store, engine.context.semantics, message, contact).received == ()
+    _until_delivered(engine, order["order_id"])
+    ended = pending_names(engine.observe(context(engine, "delivery-ended")))
+    if ended:
+        assert _act(engine, "contact-wait-end", "conclude_activity", conclude_request(*ended)).status == "completed"
+    running = active_activities(engine.context.state, 1)
+    if running:
+        assert _act(engine, "contact-pause", "pause_activity", pause_request(*[a.name for a in running])).status == "completed"
+    trip_to(engine, "office", "contact-arrive")
+    gift = engine.context.semantics.catalog.foods["chips"]
+    given = _act(engine, "contact-gift", "start_activity", start_activity("给予", f"持有物：{gift.name}",
+                                                                               **{"to": ["联系人：王磊"]}))
     assert given.status == "completed", (given.error_code, given.message)
-    zone, now = engine.context.scenario.timezone, engine.context.state.current_time
-    request = reply_request(engine.context.state, engine.context.store, engine.context.scenario, message, colleague)
-    assert request.receive_location == next(item.name for item in engine.context.scenario.locations
-                                            if item.location_id == OFFICE)
+    now, zone = engine.context.state.current_time, engine.context.scenario.timezone
+    request = reply_request(engine.context.state, engine.context.store, engine.context.semantics, message, contact)
+    assert request.receive_location == engine.context.semantics.catalog.locations["office"].display_name
     assert [item.model_dump() for item in request.received] == [
-        {"item": engine.context.rules.items[food].name, "quantity": "1 份",
-         "time": clock_phrase(order["expected_at"], now, zone)},
-        {"item": engine.context.rules.items[snack].name, "quantity": "0.5 份", "time": clock_phrase(now, now, zone)}]
-    assert engine.context.state.contact_holdings[COLLEAGUE] == {food: 1.0, snack: 0.5}
+        {"item": food.name, "quantity": "1 份", "time": clock_phrase(order["expected_at"], now, zone)},
+        {"item": gift.name, "quantity": "0.5 份", "time": clock_phrase(now, now, zone)}]
+    assert engine.context.state.contact_holdings[_COLLEAGUE] == {food.food_id: 1, gift.food_id: 0.5}

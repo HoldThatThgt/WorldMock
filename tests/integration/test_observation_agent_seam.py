@@ -23,7 +23,7 @@ from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F4
 from tests.life.conftest import (StubPlanDayClient, activity_name, advance_until_ready, conclude_pending, settle_day_plans, stage_day_plan, wake_by_mail, context, start_request, start_arguments)  # noqa: F401
 from tests.life import test_memory_layer as memory_tests  # noqa: E402
 from tests.life.routing_fixtures import (  # noqa: E402
-    DUPLICATE_CONTACT, OFFICE, PERSON_TARGET, act, observe, open_world, place,
+    OFFICE, PERSON_TARGET, act, observe, open_world, place,
 )
 from worldmock.life.models import RecallTaskSummaryRequest  # noqa: E402
 
@@ -124,23 +124,24 @@ def test_life_agent_checks_activity_names_against_private_bindings(_engine_facto
 
 
 def _without_same_name_colleague(document: dict) -> None:
-    """场景副本里去掉陈曦通讯录中与同世界人物李凡同名的同事联系人（李凡只作为同世界人物为陈曦所知）。"""
+    """场景副本里保持本人通讯录为空，让另一位人物只通过同世界人物绑定为本人所知。"""
     agent = next(item for item in document["agents"] if item["agent_id"] == 1)
-    agent["contacts"] = [item for item in agent["contacts"] if item["contact_id"] != DUPLICATE_CONTACT]
+    agent["contacts"] = []
 
 
 def test_relationship_memory_may_name_a_same_world_person_who_is_elsewhere(_engine_factory) -> None:
     """relationship 记忆的对象可以是不在身边的同世界人物（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「人设层」：已知人物含同世界
-    人物名）：李凡在办公室、陈曦在家，陈曦的通讯录里没有李凡，本轮工具层也没有他，只有私有绑定 person_bindings 认得他；
-    宿主接受写李凡的 relationship 记忆，不认识的名字照常按协议错误纠正。"""
+    人物名）：另一位人物在办公室、本人在家，本人的通讯录里没有他，本轮工具层也没有他，只有私有绑定 person_bindings
+    认得他；宿主接受写他的 relationship 记忆，不认识的名字照常按协议错误纠正。"""
     engine = open_world(_engine_factory, mutate=_without_same_name_colleague)
     place(engine, 2, OFFICE)
     act(engine, "relationship-wait", start_request(targets=["自己"], actions=["interact"], ways=["等待"]))
     observation = observe(engine, "relationship")
     assert PERSON_TARGET not in {row["name"] for row in observation["tool_layer"]["targets"]}
     assert [row["name"] for row in observation["person_bindings"]] == [PERSON_TARGET]
+    other_name = PERSON_TARGET.split("：", 1)[1]
     config = next(item for item in engine.context.scenario.agents if item.agent_id == 1)
-    assert "李凡" not in {contact.salutation for contact in config.contacts}
+    assert other_name not in {contact.salutation for contact in config.contacts}
     agent = LifeAgent()
     agent._name, agent._profile = config.name, {**config.model_dump(mode="json"), "id": 1}
     agent.prepare_react_loop(ReactLoopRequest(0, context(engine, "relationship").observed_at,
@@ -154,35 +155,13 @@ def test_relationship_memory_may_name_a_same_world_person_who_is_elsewhere(_engi
         return ReactDecision("", "conclude_activity", {"items": [
             {"activity_name": waiting, "summary": "先收个尾。", "memories": [], "views": [view]}], "errands": []}, "")
 
-    assert agent.validate_react_decisions([conclude("李凡")], False) == ""
+    assert agent.validate_react_decisions([conclude(other_name)], False) == ""
     unknown = agent.validate_react_decisions([conclude("陌生人")], False)
     assert unknown == "SUBJECT_NOT_KNOWN: The relationship subject 陌生人 is not a known person."
     assert [(item.path, item.written) for item in unknown.report.items] == [(
         ("tool_calls", 0, "function", "arguments", "items", 0, "views", 0, "about"), "陌生人")]
 
 
-def test_observation_nested_content_data_cannot_change_world_progress(_engine_factory) -> None:
-    """观察中已播放字幕的嵌套列表必须隔离，调用者修改它不能篡改世界进度。"""
-    engine = _engine_factory()
-    settle_day_plans(engine)
-    wake_by_mail(engine, offset=600)
-    shown = engine.observations._observation_data(engine.context.state.agents[1])
-    subtitle = next(row for row in shown["interaction_bindings"]
-                    if row["kind"] == "content" and row["object_id"] == "sintel-en-subtitles")
-    [way] = [item["label"] for item in subtitle["actions"] if item["canonical_action"] == "watch"]
-    assert way == "接着看"
-    _submit(engine, "copy-watch", "start_activity", start_request(
-        targets=[subtitle["object"]], actions=["interact"], ways=[way]))
-    assert advance_until_ready(engine)
-    ctx = context(engine, "copy-observe")
-    engine.begin_decision_round([ctx])
-    observation = engine.observe(ctx)
-    control = observation["active_activities"][0]
-    actual = engine.context.state.activities[control["activity_id"]].data["revealed"]["cues"]
-    assert len(actual) > 0
-    count = len(actual)
-    control["data"]["revealed"]["cues"].clear()
-    assert len(actual) == count
 
 
 async def _agent_action(engine, round_id: str, action: str, payload: dict):
@@ -212,33 +191,33 @@ async def _agent_action(engine, round_id: str, action: str, payload: dict):
 
 
 @pytest.mark.asyncio
-async def test_real_game_observation_starts_visible_game_and_restores_activity(_engine_factory) -> None:
-    """模型用可读游戏名启动活动，私有游戏身份随检查点恢复。"""
+async def test_real_app_observation_starts_visible_app_and_restores_activity(_engine_factory) -> None:
+    """模型用可读应用名启动活动，私有应用身份随检查点恢复。"""
     from worldmock.life.engine import LifeEngine
 
     engine = _engine_factory()
     settle_day_plans(engine)
     shown = engine.observations._observation_data(engine.context.state.agents[1])
-    game = next(row for row in shown["interaction_bindings"]
-                if row["kind"] == "game" and any(item["label"] == "游玩" for item in row["actions"]))
+    app = next(row for row in shown["interaction_bindings"]
+                if row["kind"] == "app" and any(item["label"] == "打开" and item["note"] is None for item in row["actions"]))
     observation, result, schemas = await _agent_action(
-        engine, "game-start", "start_activity",
-        start_arguments([game["object"]], ["interact"], ["游玩"]))
+        engine, "app-start", "start_activity",
+        start_arguments([app["object"]], ["interact"], ["打开"]))
     assert [target["kind"] for target in observation["tool_layer"]["targets"]
-            if target["name"] == game["object"]] == ["game"]
+            if target["name"] == app["object"]] == ["app"]
     assert "enum" not in schemas["start_activity"]["parameters"]["properties"]["items"]["items"]["properties"]["target"]
-    assert game["object_id"] not in str(schemas["start_activity"])
+    assert app["object_id"] not in str(schemas["start_activity"])
     activity = engine.context.state.activities[result.activity_id]
-    assert activity.target_id == game["object_id"]
+    assert activity.target_id == app["object_id"]
     observation["active_activities"].append({"observer_write": "must stay outside the world"})
     assert all("observer_write" not in item.data for item in engine.context.state.activities.values())
-    reference = engine.context.store.assets.put_json({"agent_id": 1}, {"kind": "game_seam_checkpoint"})
+    reference = engine.context.store.assets.put_json({"agent_id": 1}, {"kind": "app_seam_checkpoint"})
     engine.checkpoint({"agent:1": reference})
     run_dir = engine.context.store.run_dir
     engine.close()
     restored = LifeEngine.open(ENVIRONMENT_ROOT / "scenarios/single-person.json", run_dir)
     try:
-        assert restored.context.state.activities[activity.activity_id].target_id == game["object_id"]
+        assert restored.context.state.activities[activity.activity_id].target_id == app["object_id"]
         visible = restored.observations._observation_data(restored.context.state.agents[1])
         names = [target["name"] for target in visible["tool_layer"]["targets"] if target["kind"] == "activity"]
         assert activity.name in names
@@ -369,7 +348,8 @@ def test_recall_accepts_the_activity_name_as_written_in_self_notes(_engine_facto
     assert label != home and {"activity": label, "text": "在家歇好了。"} in notes
     checked, recalled = _recall_round(engine, "label-recall", label)
     assert checked == "" and "error_code" not in recalled, recalled
-    assert recalled["recall"] == {"kind": "activity", "activity": label, "progress_note": "已在记忆层"}
+    assert recalled["recall"] == {
+        "kind": "activity", "activity": label, "progress_note": "已在记忆层", "note_history": []}
     office = memory_tests._concluding_wait(engine, "label-again", "在公司也歇了。", [])
     memory_tests._arrive(engine, "label-back", memory_tests._walk(engine, "label-return", "home").activity_id)
     assert memory_tests._short(office) == label and office != home

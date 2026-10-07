@@ -74,7 +74,7 @@ class _Log:
         """一次购买的结果事件：顶层订单一个（status 缺省 delivered，收货人缺省本人）；event_type 缺省 action_result，
         reused 为真时是重放。"""
         agent_id, status = fields.get("agent_id", 1), fields.get("status", "delivered")
-        order = {"order_id": f"order-{len(self.events) + 1}", "agent_id": agent_id, "product_id": product_id,
+        order = {"order_id": f"order-{len(self.events) + 1}", "agent_id": agent_id, "food_id": product_id,
                  "quantity": 1, "status": status, "recipient_id": fields.get("recipient", f"agent:{agent_id}")}
         data = {"status": "completed", "data": {"orders": [order]}}
         if fields.get("reused"):
@@ -100,18 +100,15 @@ def _done(snapshot: dict) -> dict:
     return {**snapshot, "progress": float(snapshot["quantity"])}
 
 
-def _consume(use_mode: str, items: tuple[str, ...] = (), output: str | None = None) -> dict:
-    """消费活动的快照（ActivityState 的 JSON 形状里指标读到的部分）：请求的使用方式与各件商品，制作时的库存转换配方。"""
+def _consume(use_mode: str, items: tuple[str, ...] = ()) -> dict:
+    """消费活动快照保存实际 ConsumeRequest 的使用方式与各件商品。"""
     details = {"request": {"use_mode": use_mode, "items": [{"product_id": item, "quantity": 1.0} for item in items]}}
-    if output is not None:
-        details["inventory_recipe"] = {"input_object_id": KIT, "input_quantity": "1", "output_object_id": output,
-                                       "output_quantity": "1"}
     return {"activity_id": f"activity-{use_mode}", "kind": "consume", "status": "active", "data": details}
 
 
 def _eaten(product_id: str) -> dict:
     """进食活动一次进度结算的 consumption：该商品本区间吃掉一份。"""
-    return {"use_mode": "eat", "items": [{"product_id": product_id, "interval_quantity": 1.0}]}
+    return {"use_mode": "eat", "items": [{"food_id": product_id, "category": "meal", "interval_portion": 1.0, "cumulative_portion": 1.0}]}
 
 
 def _report(log: _Log) -> dict:
@@ -221,7 +218,7 @@ def test_visible_and_expected_observations_agree() -> None:
 
 def test_acted_after_reminder_needs_an_accepted_request_for_the_same_product() -> None:
     """八条被提醒过的事务里只有三条算提醒后行动：提醒后同一本地日、终态之前，本人被受理的请求指向同一商品——购买的顶层
-    订单（在途的也算）、进食请求的商品（受理事件的活动快照）、制作配方的产出（并行开始的活动快照）。不算的：之后才写的
+    订单（在途的也算）、进食请求的食品（单项或并行开始的活动快照）。不算的：之后才写的
     动作结果与拒绝事件、重放的受理事件、指向别的商品的受理、跨过本地零点的受理、终态之后的受理、提醒之前的受理与他人的
     受理。没被提醒的事务不进这两项。"""
     log = _Log()
@@ -232,7 +229,7 @@ def test_acted_after_reminder_needs_an_accepted_request_for_the_same_product() -
     for snapshot in snapshots.values():
         log.errand(REGISTERED_KIND, "2026-01-05 10:00", snapshot)
     log.accepted("2026-01-05 11:00", {"status": "completed", "data": {"orders": [
-        {"product_id": JUICE, "status": "delivered"}]}})
+        {"food_id": JUICE, "status": "delivered"}]}})
     for key in ("e1", "e2", "e3", "e4", "e6", "e7", "e8"):
         log.errand(REMINDED_KIND, "2026-01-05 12:00", snapshots[key])
     log.errand(CANCELLED_KIND, "2026-01-05 12:05", snapshots["e6"], reason="不用了")
@@ -242,10 +239,10 @@ def test_acted_after_reminder_needs_an_accepted_request_for_the_same_product() -
     log.accepted("2026-01-05 12:20", {"status": "in_progress", "activity": _consume("eat", (TEA,)),
                                       "data": {"activity": _consume("eat", (TEA,))}})
     log.accepted("2026-01-05 12:20", {"status": "in_progress", "data": {"activities": [
-        _consume("use", (KIT,), output=MEAL), _consume("eat", (MILK,))]}})
+        _consume("eat", (MEAL,)), _consume("eat", (MILK,))]}})
     log.bought("2026-01-05 12:30", KIT)
     log.add("action_rejected", "2026-01-05 12:30", {"error_code": "OUT_OF_STOCK", "data": {"orders": [
-        {"product_id": KIT, "status": "pending"}]}}, action_id="rejected")
+        {"food_id": KIT, "status": "pending"}]}}, action_id="rejected")
     log.bought("2026-01-05 12:40", KIT, event_type="action_accepted", reused=True)
     log.errand(REMINDED_KIND, "2026-01-05 23:50", snapshots["e5"])
     log.bought("2026-01-06 00:10", ICED, event_type="action_accepted")
@@ -281,7 +278,7 @@ def test_a_completion_without_checkable_evidence_is_counted() -> None:
     done("c6", eaten["event_id"])
     arrival = log.add("environment_event", "2026-01-05 11:00", {
         "kind": "delivery_arrival", "orders": [{"order_id": "order-meal", "agent_id": 2, "recipient_id": "agent:1"}],
-        "inventory_changes": [{"order_id": "order-meal", "product_id": MEAL, "quantity": 1}]}, agent_id=2)
+        "inventory_changes": [{"order_id": "order-meal", "food_id": MEAL, "quantity": 1}]}, agent_id=2)
     done("c7", arrival["event_id"])
 
     metrics = errand_metrics(log.events, _ZONE)
@@ -402,16 +399,14 @@ def test_acting_after_a_later_reminder_counts_although_nothing_followed_the_firs
         assert (metrics["reminded_errand_count"], metrics["acted_after_reminder_count"]) == (1, 0 if early else 1)
 
 
-def test_a_making_request_points_at_the_recipe_output_not_at_the_kit_it_uses_up() -> None:
-    """被受理的制作请求指向配方的产出（docs/VERIFICATION.md#errands-workday-度量与下游-质量报告 ；记录引擎设计「质量报告」）：同一条用食材包
-    做素炒什锦的受理事件，对被提醒过的「取得素炒什锦」算提醒后行动，对被提醒过的「取得食材包」不算——做菜用掉食材包，
-    不是去取得它。两条事务分在两份事件里各自断言，合在一起的总数分不出产出与原料。"""
+def test_parallel_consumption_matches_the_actual_food_request_without_inventing_a_product() -> None:
+    """@brief 同一次并行受理只指向实际进食请求中的食品，不把另一件未请求物品当成行动。"""
     for product, acted in ((MEAL, 1), (KIT, 0)):
         log = _Log()
         errand = _snapshot("a", "厨房里的事", product, "2026-01-05 10:00")
         log.errand(REGISTERED_KIND, "2026-01-05 10:00", errand)
         log.errand(REMINDED_KIND, "2026-01-05 12:00", errand)
-        log.accepted("2026-01-05 12:10", {"status": "in_progress",
-                                          "data": {"activity": _consume("use", (KIT,), output=MEAL)}})
+        log.accepted("2026-01-05 12:10", {"status": "in_progress", "data": {"activities":[
+            _consume("eat", (MEAL,)), {"activity_id":"wait", "kind":"wait", "status":"active", "data":{}}]}})
         metrics = errand_metrics(log.events, _ZONE)
         assert (metrics["reminded_errand_count"], metrics["acted_after_reminder_count"]) == (1, acted)

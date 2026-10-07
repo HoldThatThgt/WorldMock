@@ -97,7 +97,10 @@ _T5 = _RUNS + "test_t5_of_two_people_on_one_shift_only_the_awake_one_is_asked_an
 _T6 = _RUNS + "test_t6_people_without_a_schedule_get_no_edges_and_never_take_anothers"
 _T8 = _RUNS + "test_t8_coinciding_edges_reminders_and_a_planned_end_are_one_opportunity_in_enum_order"
 _T9 = _RUNS + "test_t9_midnight_edges_are_judged_by_the_midnight_rhythm"
-_T10 = _RUNS + "test_t10_a_game_turn_after_the_edge_does_not_hide_the_edge_from_the_clock"
+_T10 = _RUNS + "test_t10_an_app_boundary_after_the_edge_does_not_hide_the_edge_from_the_clock"
+_T10_APP = _PURE + "test_t10_app_content_boundary_after_shift_end_does_not_hide_the_edge"
+_T12 = _RUNS + "test_t12_an_app_keeps_its_boundary_and_can_pause_at_the_shift_end"
+_T12_APP = _PURE + "test_t12_app_can_pause_at_shift_edge_and_content_completion_stays_quiet"
 #: T16 的「睡着时逐个成员都被过滤」与 next_decision_time 只在清醒时取起止；T17 的严格晚于与恰在断言。
 _T16_ASLEEP = _PURE + "test_each_duty_edge_member_is_filtered_while_asleep"
 _T16_NEXT = _PURE + "test_next_decision_time_takes_duty_edges_only_while_awake"
@@ -114,11 +117,11 @@ BEHAVIOUR_CASES: dict[str, tuple[str, ...]] = {
     'T7': (_RUNS + "test_t7_rest_days_have_no_edges_and_a_date_exception_sets_the_clock",),
     'T8': (_T8,),
     'T9': (_T9,),
-    'T10': (_T10,),
+    'T10': (_T10, _T10_APP),
     'T11': (_RUNS + "test_t11_on_the_road_the_walk_goes_on_and_pausing_is_still_refused",
             _RUNS + "test_t11_in_a_call_the_call_goes_on_and_pausing_is_still_refused",
             _RUNS + "test_t11_in_a_conversation_both_chats_go_on_and_pausing_is_still_refused"),
-    'T12': (_RUNS + "test_t12_in_a_game_the_turn_stays_and_the_game_only_stops_at_its_own_turn",),
+    'T12': (_T12, _T12_APP),
     'T13': (_RUNS + "test_t13_an_around_time_is_still_not_a_boundary",),
     'T14': (_RUNS + "test_t14_after_restore_and_a_counterfactual_branch_the_edge_fires_once",),
     'T15': (_RUNS + "test_t15_the_four_names_are_known_wake_reasons_in_the_quality_report",
@@ -134,13 +137,14 @@ BEHAVIOUR_CASES: dict[str, tuple[str, ...]] = {
             _PURE + "test_date_exceptions_override_the_weekly_shift",
             _T17_STRICT,
             _PURE + "test_dst_day_edges_match_shift_and_break_spans"),
-    # T18：同步点 3–5 的有序成员表与词表互锁、睡眠允许集合守卫，以及经 pytest 收集运行查看器 Node 用例（同步点 6、7）。
+    # T18：九处同步点的最终唤醒词表、睡眠过滤、真实主题完成和查看器 Node 行为互锁。
     'T18': ("tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_is_the_frozen_spec_set",
             "tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_matches_the_engine_side_enum",
             "tests/life/test_wake_reasons.py::test_frozen_wake_and_intent_names",
             "tests/life/test_wake_reasons.py::test_sleep_allowed_reasons_add_only_plan_reminder_due",
-            "tests/life/test_work_contracts.py::test_target_met_while_still_working_states_the_three_facts_separately",
-            "tests/tools/test_run_viewer.py::test_run_viewer_recorded_names"),
+            "tests/life/test_work_topics.py::test_actual_engine_eight_hours_emit_own_completion_progress_and_remove_start_target",
+            "tests/tools/test_run_viewer.py::test_run_viewer_recorded_names",
+            "tests/life/test_app_push.py::test_sleep_stores_push_without_wake_and_existing_activity_is_unchanged"),
     'T19': (_RUNS + "test_t19_an_alarm_at_the_shift_start_keeps_the_edge_after_the_reminder",
             _RUNS + "test_t19_a_run_starting_on_a_shift_start_records_only_run_start"),
     'T20': (_RUNS + "test_t20_an_edge_ends_the_technical_pause_after_the_same_second_budget",),

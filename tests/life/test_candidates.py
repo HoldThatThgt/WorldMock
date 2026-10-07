@@ -1,688 +1,94 @@
-"""统一候选契约三段式：生成、资格、排序与两条排除纪律（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「候选契约与呈现规则」）。
+"""@brief 当前候选三类使用世界事实准入，相关度只排序，哈希决定稳定次序。"""
 
-覆盖四类断言：三段形状与返回体一致、同一输入逐字节确定、软偏好只改序不出局、
-被排除项必带闭集内原因码且计数守恒。
-"""
-
-from __future__ import annotations
-
-import ast
-import dataclasses
+from dataclasses import asdict, replace
 import json
-import os
-import subprocess
-import sys
-from collections.abc import Mapping
-from pathlib import Path
 
 import pytest
 
 from worldmock.life.candidates import (
-    CANDIDATE_KINDS,
-    CANDIDATE_SOURCES,
-    CANDIDATE_WINDOW_SECONDS,
-    EXCLUSION_REASONS,
-    FIXED_POINT_SCALE,
-    ORDER_KEY_VERSION,
-    CandidateEntry,
-    CandidateInputs,
-    ExclusionReason,
-    LocationView,
-    recall,
-    cursor_identity,
-    exclusion_counts,
-    filter_candidates,
-    fixed_point,
-    generate_candidates,
-    source_counts,
-    tiebreak_digest,
+    CANDIDATE_KINDS, CANDIDATE_SOURCES, EXCLUSION_REASONS, CandidateEntry, CandidateInputs, LocationView,
+    cursor_identity, generate_candidates, recall, tiebreak_digest,
 )
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-MODULE_PATH = PROJECT_ROOT / "src" / "worldmock" / "life" / "candidates.py"
 
-#: 与合同逐字核对过的闭集（本测试自己写死，改动 token 即失败）。
-CONTRACT_KINDS = ("product", "lifestyle", "content", "game", "task")
-CONTRACT_SOURCES = ("on_site", "browsed", "carried", "activated")
-CONTRACT_REASONS = (
-    "ELIGIBILITY_LOCATION_ABSENT",
-    "ELIGIBILITY_LOCATION_KIND_MISMATCH",
-    "ELIGIBILITY_CLOSED_HOURS",
-    "ELIGIBILITY_OPENING_UNKNOWN",
-    "ELIGIBILITY_OUT_OF_STOCK",
-    "ELIGIBILITY_DELISTED",
-    "ELIGIBILITY_RESOURCE_CONFLICT",
-    "ELIGIBILITY_DURATION_OUT_OF_RANGE",
-    "ELIGIBILITY_DISABLED",
-    "ROTATION_DEFERRED",
-)
-#: 占用表（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」）中睡眠与驾车两行：睡眠占全部七个槽位。
-SLEEP_CLAIMS = frozenset({"idle", "travel", "eyes", "ears", "hands", "voice", "work"})
-DRIVING_CLAIMS = frozenset({"travel", "idle", "eyes", "hands"})
-
-
-def _dump(value):
-    """把返回体折成可 JSON 编码、可逐字节比较的形态（slots 数据类逐字段取）。"""
-    if dataclasses.is_dataclass(value):
-        return {item.name: _dump(getattr(value, item.name)) for item in dataclasses.fields(value)}
-    if isinstance(value, Mapping):
-        return {str(key): _dump(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_dump(item) for item in value]
-    if isinstance(value, (frozenset, set)):
-        return sorted(str(item) for item in value)
-    if value is None or isinstance(value, (int, float, str, bool)):
-        return value
-    return str(value)
-
-
-def _frame(page) -> str:
-    """返回体的规范 JSON 文本：同输入两次取候选必须逐字节相同。"""
-    return json.dumps(_dump(page), sort_keys=True)
-
-
-def _inputs(**overrides) -> CandidateInputs:
-    """一份五类齐全的基准输入：四个来源各带条目，全部默认可行。"""
-    defaults = dict(
-        location=LocationView(location_id="market",
-                              location_kinds=frozenset({"outdoor", "venue"}),
-                              opening_status="open",
-                              minimum_seconds=60, maximum_seconds=14_400),
-        locations={},
-        sources={
-            "on_site": (CandidateEntry(object_id="food-1", kind="product",
-                                       minimum_seconds=600, maximum_seconds=3600),),
-            "browsed": (CandidateEntry(object_id="movie-0001", kind="content", bucket="feature_film",
-                                       minimum_seconds=600, maximum_seconds=3600),),
-            "carried": (CandidateEntry(object_id="trip-1", kind="lifestyle",
-                                       minimum_seconds=600, maximum_seconds=3600),),
-            "activated": (CandidateEntry(object_id="task-1", kind="task",
-                                         minimum_seconds=600, maximum_seconds=3600),
-                          CandidateEntry(object_id="game-1", kind="game",
-                                         minimum_seconds=600, maximum_seconds=3600)),
-        },
-        occupied_resources=frozenset(), local_hour=12.0, current_time=1_700_000_000,
-        window_end_time=1_700_000_000 + CANDIDATE_WINDOW_SECONDS,
-        taste_weights={"food-1": 0.5, "movie-0001": 0.25, "trip-1": 0.75,
-                       "game-1": 0.1, "task-1": 0.9},
-        attention_priors={"food-1": 0.4, "feature_film": 0.8, "trip-1": 0.3,
-                          "game-1": 0.6, "task-1": 0.2},
-        presentation_limit=20, state_version=7,
-        catalog_digest="a" * 64, profile_digest="b" * 64)
-    defaults.update(overrides)
-    return CandidateInputs(**defaults)
-
-
-# ---------------------------------------------------------------------------
-# 闭集：与合同逐字一致
-# ---------------------------------------------------------------------------
-
-class TestClosedSets:
-    """候选类别、来源与排除原因码必须与合同逐字一致。"""
-
-    def test_literal_members_match_contract(self) -> None:
-        assert tuple(CANDIDATE_KINDS) == CONTRACT_KINDS
-        assert tuple(CANDIDATE_SOURCES) == CONTRACT_SOURCES
-        assert tuple(EXCLUSION_REASONS) == CONTRACT_REASONS
-
-    def test_exclusion_reason_literal_equals_enumerated_tuple(self) -> None:
-        from typing import get_args as literal_args
-
-        assert literal_args(ExclusionReason) == CONTRACT_REASONS
-        assert tuple(EXCLUSION_REASONS) == literal_args(ExclusionReason)
-
-    def test_order_key_version_is_int(self) -> None:
-        assert isinstance(ORDER_KEY_VERSION, int)
-        assert FIXED_POINT_SCALE == 10_000
-
-    def test_order_key_version_is_two_and_enters_the_cursor_identity(self) -> None:
-        """排序键加相关度、决胜键改哈希后 `ORDER_KEY_VERSION` 为 2；它只参与游标身份（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ），升版使在途游标失效：同一游标在版本 1 下的身份与现行身份不同。"""
-        import hashlib as _hashlib
-
-        assert ORDER_KEY_VERSION == 2
-        inputs = _inputs()
-        page = recall(inputs)
-        assert page.order_key_version == 2
-        legacy = json.dumps({"catalog_digest": inputs.catalog_digest, "cursor": "k", "order_key_version": 1,
-                             "world_state_version": inputs.state_version},
-                            ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        assert cursor_identity(inputs, "k") != _hashlib.sha256(legacy.encode("utf-8")).hexdigest()
-
-
-# ---------------------------------------------------------------------------
-# 三段形状与返回体一致
-# ---------------------------------------------------------------------------
-
-class TestThreeStageShape:
-    """五类对象共用一套三段式，返回体形状一致且分段证据齐备。"""
-
-    def test_return_body_exposes_all_three_stages(self) -> None:
-        page = recall(_inputs())
-        assert page.source_counts
-        assert set(page.source_counts) == set(CONTRACT_SOURCES)
-        assert sum(page.source_counts.values()) >= len(page.generated)
-        assert page.retained and page.excluded == ()
-        assert page.total == len(page.retained)
-        assert page.returned == len(page.retained)
-        assert page.order_key_version == ORDER_KEY_VERSION
-
-    def test_every_kind_reaches_ordered_candidates(self) -> None:
-        page = recall(_inputs())
-        kinds = {item.kind for item in page.retained}
-        assert kinds == set(CONTRACT_KINDS)
-
-    @pytest.mark.parametrize("kind", CONTRACT_KINDS)
-    def test_single_kind_input_yields_same_top_level_keys(self, kind: str) -> None:
-        inputs = _inputs(sources={source: tuple(item for item in entries if item.kind == kind)
-                                  for source, entries in _inputs().sources.items()})
-        page = recall(inputs)
-        keys = {item.name for item in dataclasses.fields(page)}
-        assert keys == {item.name for item in dataclasses.fields(recall(_inputs()))}
-        assert [item.kind for item in page.retained] == [kind]
-        assert sum(page.source_counts.values()) == 1
-
-    def test_generated_counts_candidates_without_eligible_restriction(self) -> None:
-        inputs = _inputs(sources={"on_site": (
-            CandidateEntry(object_id="food-1", kind="product", stock=0,
-                           minimum_seconds=600, maximum_seconds=3600),)})
-        generated = generate_candidates(inputs)
-        assert [item.entry.object_id for item in generated] == ["food-1"]
-        assert source_counts(generated) == {"on_site": 1, "browsed": 0, "carried": 0,
-                                           "activated": 0}
-
-    def test_object_hit_by_two_sources_is_one_candidate_with_two_sources(self) -> None:
-        entry = CandidateEntry(object_id="food-1", kind="product",
-                               minimum_seconds=600, maximum_seconds=3600)
-        inputs = _inputs(sources={"on_site": (entry,), "carried": (entry,)})
-        generated = generate_candidates(inputs)
-        assert len(generated) == 1
-        assert generated[0].sources == ("on_site", "carried")
-
-    def test_filter_returns_retained_and_excluded_separately(self) -> None:
-        inputs = _inputs(sources={"on_site": (
-            CandidateEntry(object_id="food-1", kind="product",
-                           minimum_seconds=600, maximum_seconds=3600),
-            CandidateEntry(object_id="food-2", kind="product", stock=0,
-                           minimum_seconds=600, maximum_seconds=3600))})
-        retained, excluded = filter_candidates(generate_candidates(inputs), inputs)
-        assert [item.entry.object_id for item in retained] == ["food-1"]
-        assert [(item.object_id, item.reason) for item in excluded] == [
-            ("food-2", "ELIGIBILITY_OUT_OF_STOCK")]
-        assert excluded[0].as_row() == {"object_id": "food-2", "kind": "product",
-                                        "reason": "ELIGIBILITY_OUT_OF_STOCK"}
-
-
-# ---------------------------------------------------------------------------
-# 确定性
-# ---------------------------------------------------------------------------
-
-class TestDeterminism:
-    """候选是派生量：同输入逐字节相同，且不依赖墙钟、缓存或哈希种子。"""
-
-    def test_same_input_twice_is_byte_identical(self) -> None:
-        assert _frame(recall(_inputs())) == _frame(recall(_inputs()))
-
-    def test_wall_clock_does_not_enter_the_result(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        before = _frame(recall(_inputs()))
-        monkeypatch.setattr("time.time", lambda: 999_999_999.0)
-        assert _frame(recall(_inputs())) == before
-
-    def test_hash_seed_does_not_change_the_result(self) -> None:
-        # 子进程必须导入本检出的 src（PYTHONPATH 用平台分隔符）；否则会回落到已安装的另一份 worldmock。
-        script = (
-            "import worldmock.life.candidates as module;"
-            "from tests.life.test_candidates import _frame, _inputs;"
-            "print(module.__file__);"
-            "print(_frame(module.recall(_inputs())))")
-        digests = []
-        for seed in ("0", "31337"):
-            completed = subprocess.run([sys.executable, "-c", script],
-                                       cwd=PROJECT_ROOT, capture_output=True, text=True,
-                                       env={"PYTHONHASHSEED": seed, "PATH": "/usr/bin:/bin",
-                                            "PYTHONPATH": os.pathsep.join(("src", "."))})
-            assert completed.returncode == 0, completed.stderr
-            module_file, digest = completed.stdout.strip().splitlines()
-            assert Path(module_file).resolve() == MODULE_PATH.resolve()
-            digests.append(digest)
-        assert digests[0] == digests[1] != ""
-
-    def test_module_uses_hashlib_and_never_the_builtin_hash(self) -> None:
-        tree = ast.parse(MODULE_PATH.read_text(encoding="utf-8"))
-        builtins = {node.func.id for node in ast.walk(tree)
-                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
-        assert "hash" not in builtins
-        modules = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import)
-                   for alias in node.names}
-        assert "hashlib" in modules
-
-    def test_module_does_not_read_the_clock_or_randomness(self) -> None:
-        tree = ast.parse(MODULE_PATH.read_text(encoding="utf-8"))
-        modules = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
-        assert not modules & {"time", "datetime", "random", "os"}
-        assert not any(isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-                       and node.func.id in {"open", "random", "input"}
-                       for node in ast.walk(tree))
-
-    def test_cursor_identity_covers_the_four_declared_terms(self) -> None:
-        base = _inputs()
-        baseline = cursor_identity(base, "k")
-        assert cursor_identity(base, "k") == baseline
-        assert cursor_identity(_inputs(state_version=8), "k") != baseline
-        assert cursor_identity(_inputs(catalog_digest="c" * 64), "k") != baseline
-        assert cursor_identity(base, "other") != baseline
-
-    def test_order_key_is_a_total_order_and_a_cursor_source(self) -> None:
-        inputs = _inputs(presentation_limit=2)
-        page = recall(inputs)
-        assert page.returned == 2
-        assert page.next_cursor is not None
-        small = recall(_inputs(presentation_limit=20))
-        assert small.next_cursor is None
-
-    def test_cursor_is_the_full_ordering_key_of_the_last_row(self) -> None:
-        inputs = _inputs(presentation_limit=1)
-        page = recall(inputs)
-        expected = cursor_identity(inputs, json.dumps(list(page.retained[0].order_key()),
-                                                      separators=(",", ":")))
-        assert page.next_cursor == expected
-
-
-# ---------------------------------------------------------------------------
-# 软偏好只改序，不出局
-# ---------------------------------------------------------------------------
-
-class TestSoftPreferenceOnlyReorders:
-    """口味权重与注意力先验只参与排序键，绝不作为入选条件。"""
-
-    def test_zero_taste_weight_entries_survive_and_rank_last(self) -> None:
-        entries = tuple(CandidateEntry(object_id=f"food-{index}", kind="product",
-                                       minimum_seconds=600, maximum_seconds=3600)
-                        for index in range(4))
-        inputs = _inputs(sources={"on_site": entries},
-                         taste_weights={"food-0": 0.5, "food-1": 0.25},
-                         attention_priors={"food-0": 0.1, "food-1": 0.1})
-        page = recall(inputs)
-        ids = [item.object_id for item in page.retained]
-        assert sorted(ids) == [f"food-{index}" for index in range(4)]
-        assert set(ids[:2]) == {"food-0", "food-1"}
-        assert set(ids[2:]) == {"food-2", "food-3"}
-        assert page.excluded == ()
-
-    def test_zero_weight_sorts_after_every_non_zero_weight(self) -> None:
-        entries = (
-            CandidateEntry(object_id="food-high-attention", kind="product",
-                           minimum_seconds=600, maximum_seconds=3600),
-            CandidateEntry(object_id="food-zero-taste-huge-attention", kind="product",
-                           minimum_seconds=600, maximum_seconds=3600),)
-        inputs = _inputs(
-            sources={"on_site": entries},
-            taste_weights={"food-high-attention": 0.0001},
-            attention_priors={"food-high-attention": 0.0001,
-                              "food-zero-taste-huge-attention": 1.0})
-        page = recall(inputs)
-        assert [item.object_id for item in page.retained] == [
-            "food-high-attention", "food-zero-taste-huge-attention"]
-        assert page.retained[1].taste_weight == 0
-
-    def test_flat_attention_keeps_every_entry_of_the_pool(self) -> None:
-        entries = tuple(CandidateEntry(object_id=f"movie-{index:04d}", kind="content",
-                                       bucket=f"kind-{index}", minimum_seconds=600,
-                                       maximum_seconds=3600)
-                        for index in range(6))
-        inputs = _inputs(sources={"browsed": entries}, taste_weights={},
-                         attention_priors={f"kind-{index}": 0.0 for index in range(6)})
-        page = recall(inputs)
-        assert len(page.retained) == 6
-        assert all(item.taste_weight == 0 and item.attention_prior == 0
-                   for item in page.retained)
-
-    def test_missing_taste_entries_are_not_dropped(self) -> None:
-        inputs = _inputs(taste_weights={}, attention_priors={})
-        page = recall(inputs)
-        assert len(page.retained) == 5
-        assert sorted(item.kind for item in page.retained) == sorted(CONTRACT_KINDS)
-
-
-# ---------------------------------------------------------------------------
-# 每条排除都带原因码，且计数守恒
-# ---------------------------------------------------------------------------
-
-class TestExclusionDiscipline:
-    """每个被排除项携带闭集内原因码；保留项计数加排除项计数等于候选全集规模。"""
-
-    @pytest.mark.parametrize(("entry", "reason"), [
-        (CandidateEntry(object_id="a", kind="product", required_location_id="office",
-                        minimum_seconds=600, maximum_seconds=3600),
-         "ELIGIBILITY_LOCATION_ABSENT"),
-        (CandidateEntry(object_id="b", kind="content",
-                        location_kinds=frozenset({"fitness"}),
-                        minimum_seconds=600, maximum_seconds=3600),
-         "ELIGIBILITY_LOCATION_KIND_MISMATCH"),
-        (CandidateEntry(object_id="c", kind="product", stock=0,
-                        minimum_seconds=600, maximum_seconds=3600),
-         "ELIGIBILITY_OUT_OF_STOCK"),
-        (CandidateEntry(object_id="d", kind="product", retired=True,
-                        minimum_seconds=600, maximum_seconds=3600),
-         "ELIGIBILITY_DELISTED"),
-        (CandidateEntry(object_id="e", kind="lifestyle", enabled=False,
-                        minimum_seconds=600, maximum_seconds=3600),
-         "ELIGIBILITY_DISABLED"),
-        (CandidateEntry(object_id="f", kind="task", minimum_seconds=600,
-                        maximum_seconds=60),
-         "ELIGIBILITY_DURATION_OUT_OF_RANGE"),
-    ])
-    def test_world_fact_exclusions_carry_their_code(self, entry: CandidateEntry,
-                                                    reason: str) -> None:
-        inputs = _inputs(sources={"on_site": (entry,)},
-                         window_end_time=1_700_000_000 + CANDIDATE_WINDOW_SECONDS)
-        page = recall(inputs)
-        assert [item.reason for item in page.excluded] == [reason]
-        assert page.retained == ()
-
-    def test_closed_hours_excludes_product_at_a_shut_merchant(self) -> None:
-        page = recall(_inputs(local_hour=3.0, location=dataclasses.replace(
-            _inputs().location, opening_status="closed")))
-        assert page.retained == ()
-        assert {item.reason for item in page.excluded} == {"ELIGIBILITY_CLOSED_HOURS"}
-
-    def test_resource_conflict_is_reachable(self) -> None:
-        busy = recall(_inputs(occupied_resources=SLEEP_CLAIMS))
-        assert busy.retained == ()
-        assert {item.reason for item in busy.excluded} == {"ELIGIBILITY_RESOURCE_CONFLICT"}
-
-    def test_driving_keeps_only_the_podcast_candidate(self) -> None:
-        """驾车占用下只有播客留下：播客只占 ears；视频另占 eyes，食品、生活活动占 hands，游戏占 eyes、hands，
-        工作占 idle，都与驾车占用相交（第五章组合表「驾车与播客受理，与视频、游戏、食用拒绝」）。"""
-        sources = dict(_inputs().sources)
-        film = dataclasses.replace(sources["browsed"][0], content_kind="feature_film")
-        podcast = CandidateEntry(object_id="podcast-1", kind="content", bucket="podcast_episode",
-                                 content_kind="podcast_episode", minimum_seconds=600, maximum_seconds=3600)
-        sources["browsed"] = (film, podcast)
-        page = recall(_inputs(sources=sources, occupied_resources=DRIVING_CLAIMS))
-        assert [item.object_id for item in page.retained] == ["podcast-1"]
-        assert {item.object_id: item.reason for item in page.excluded} == dict.fromkeys(
-            ("food-1", "movie-0001", "trip-1", "task-1", "game-1"), "ELIGIBILITY_RESOURCE_CONFLICT")
-        listening = recall(_inputs(sources=sources, occupied_resources=frozenset({"ears"})))
-        assert {item.object_id for item in listening.excluded} == {"movie-0001", "podcast-1"}
-
-    def test_energy_is_not_an_exclusion_fact(self) -> None:
-        # 能量不构成候选排除（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「删除的机制」）：闭集与输入都没有能量项，
-        # 长时内容、高 MET 生活活动与食品照常保留。
-        assert not any("ENERGY" in reason for reason in EXCLUSION_REASONS)
-        fields = {item.name for item in dataclasses.fields(CandidateInputs)}
-        assert not {"energy_kcal", "body"} & fields
-        entries = {"browsed": (CandidateEntry(object_id="movie-long", kind="content",
-                                              minimum_seconds=3600, maximum_seconds=14_400),),
-                   "carried": (CandidateEntry(object_id="trip-1", kind="lifestyle", met=3.0,
-                                              minimum_seconds=3600, maximum_seconds=14_400),),
-                   "on_site": (CandidateEntry(object_id="food-1", kind="product",
-                                              minimum_seconds=3600, maximum_seconds=14_400),)}
-        page = recall(_inputs(sources=entries))
-        assert sorted(item.object_id for item in page.retained) == ["food-1", "movie-long", "trip-1"]
-        assert page.excluded == ()
-
-    def test_business_hours_are_judged_at_the_entry_own_place(self) -> None:
-        entry = CandidateEntry(object_id="food-1", kind="product",
-                               required_location_id="night-shop",
-                               minimum_seconds=600, maximum_seconds=3600)
-        inputs = _inputs(sources={"on_site": (entry,)}, local_hour=23.5,
-                         location=LocationView(location_id="night-shop",
-                                               location_kinds=frozenset({"venue"}),
-                                               opening_status="open"),
-                         locations={"night-shop": LocationView(
-                             location_id="night-shop", location_kinds=frozenset({"venue"}),
-                             opening_status="open")})
-        assert [item.object_id for item in recall(inputs).retained] == ["food-1"]
-        shut = _inputs(sources={"on_site": (entry,)}, local_hour=3.0,
-                       location=LocationView(location_id="night-shop",
-                                             location_kinds=frozenset({"venue"}),
-                                             opening_status="closed"),
-                       locations={"night-shop": LocationView(
-                           location_id="night-shop", location_kinds=frozenset({"venue"}),
-                           opening_status="closed")})
-        assert {item.reason for item in recall(shut).excluded} == {
-            "ELIGIBILITY_CLOSED_HOURS"}
-
-    def test_entry_place_declared_duration_caps_the_candidate(self) -> None:
-        entry = CandidateEntry(object_id="movie-long", kind="content",
-                               required_location_id="home",
-                               minimum_seconds=600, maximum_seconds=3600)
-        place = LocationView(location_id="home", location_kinds=frozenset({"home"}),
-                             opening_status="open",
-                             minimum_seconds=60, maximum_seconds=300)
-        inputs = _inputs(sources={"browsed": (entry,)}, location=place,
-                         locations={"home": place})
-        assert {item.reason for item in recall(inputs).excluded} == {
-            "ELIGIBILITY_DURATION_OUT_OF_RANGE"}
-        roomy = _inputs(sources={"browsed": (entry,)}, location=place,
-                        locations={"home": LocationView(
-                            location_id="home", location_kinds=frozenset({"home"}),
-                            opening_status="open",
-                            minimum_seconds=60, maximum_seconds=7200)})
-        assert [item.object_id for item in recall(roomy).retained] == ["movie-long"]
-
-    def test_missing_location_excludes_everything_with_a_stable_code(self) -> None:
-        page = recall(_inputs(location=None))
-        assert page.retained == ()
-        assert {item.reason for item in page.excluded} == {"ELIGIBILITY_LOCATION_ABSENT"}
-
-    def test_anywhere_only_waives_activity_location_requirement(self) -> None:
-        """活动侧 anywhere 可用；地点缺失环境或滥用通配符不能解除限制。"""
-        entry = CandidateEntry(object_id="task-any", kind="task", location_kinds=frozenset({"anywhere"}),
-                               minimum_seconds=600, maximum_seconds=3600)
-        kept = recall(_inputs(sources={"on_site": (entry,)}))
-        assert [item.object_id for item in kept.retained] == ["task-any"]
-        assert kept.excluded == ()
-        for kinds in (frozenset(), frozenset({"anywhere"})):
-            invalid = LocationView("invalid", kinds, opening_status="open")
-            rejected = recall(_inputs(sources={"on_site": (entry,)}, location=invalid))
-            assert rejected.retained == ()
-            assert {item.reason for item in rejected.excluded} == {"ELIGIBILITY_LOCATION_KIND_MISMATCH"}
-        fitness = CandidateEntry(object_id="task-gym", kind="task", location_kinds=frozenset({"fitness"}),
-                                 minimum_seconds=600, maximum_seconds=3600)
-        rejected = recall(_inputs(sources={"on_site": (fitness,)}))
-        assert {item.reason for item in rejected.excluded} == {"ELIGIBILITY_LOCATION_KIND_MISMATCH"}
-
-    def test_catalog_view_applies_location_kinds_only_when_asked(self) -> None:
-        """目录浏览面（不判定营业时段与地点实例）只在 apply_location_kinds 时按当前地点判定地点类：生活活动窗口里
-        地点类不符的条目以 ELIGIBILITY_LOCATION_KIND_MISMATCH 排除，其余照常保留（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ）。"""
-        home = LocationView("home", frozenset({"home"}), opening_status="unknown")
-        entries = (CandidateEntry(object_id="dishes", kind="lifestyle", location_kinds=frozenset({"home"}),
-                                  minimum_seconds=60, maximum_seconds=1200),
-                   CandidateEntry(object_id="gym", kind="lifestyle", location_kinds=frozenset({"fitness"}),
-                                  minimum_seconds=60, maximum_seconds=1200),
-                   CandidateEntry(object_id="call", kind="lifestyle", location_kinds=frozenset({"anywhere"}),
-                                  minimum_seconds=60, maximum_seconds=1200))
-        catalog = _inputs(location=home, locations={"home": home}, sources={"carried": entries}, local_hour=None,
-                          require_location_instance=False)
-        assert sorted(item.object_id for item in recall(catalog).retained) == ["call", "dishes", "gym"]
-        located = recall(dataclasses.replace(catalog, apply_location_kinds=True))
-        assert sorted(item.object_id for item in located.retained) == ["call", "dishes"]
-        assert [item.as_row() for item in located.excluded] == [
-            {"object_id": "gym", "kind": "lifestyle", "reason": "ELIGIBILITY_LOCATION_KIND_MISMATCH"}]
-        assert located.exclusion_counts["ELIGIBILITY_LOCATION_KIND_MISMATCH"] == 1
-
-    def test_every_exclusion_reason_is_inside_the_closed_set(self) -> None:
-        inputs = _inputs(location=None, occupied_resources=SLEEP_CLAIMS)
-        page = recall(inputs)
-        assert page.excluded
-        for item in page.excluded:
-            assert item.reason in CONTRACT_REASONS
-        assert set(page.exclusion_counts) == set(CONTRACT_REASONS)
-
-    def test_retained_plus_excluded_equals_the_generated_pool(self) -> None:
-        inputs = _inputs(sources={
-            "on_site": (CandidateEntry(object_id="food-1", kind="product",
-                                       minimum_seconds=600, maximum_seconds=3600),
-                        CandidateEntry(object_id="food-2", kind="product", stock=0,
-                                       minimum_seconds=600, maximum_seconds=3600)),
-            "browsed": (CandidateEntry(object_id="movie-0001", kind="content",
-                                       retired=True, minimum_seconds=600,
-                                       maximum_seconds=3600),),
-            "carried": (CandidateEntry(object_id="trip-1", kind="lifestyle",
-                                       enabled=False, minimum_seconds=600,
-                                       maximum_seconds=3600),)})
-        page = recall(inputs)
-        assert len(page.generated) == 4
-        assert len(page.retained) + len(page.excluded) == len(page.generated)
-        assert sum(page.exclusion_counts.values()) == len(page.excluded)
-        assert page.exclusion_counts["ELIGIBILITY_OUT_OF_STOCK"] == 1
-        assert page.exclusion_counts["ELIGIBILITY_DELISTED"] == 1
-        assert page.exclusion_counts["ELIGIBILITY_DISABLED"] == 1
-
-    def test_exclusion_counts_key_every_closed_reason_even_at_zero(self) -> None:
-        counts = exclusion_counts(())
-        assert set(counts) == set(CONTRACT_REASONS)
-        assert all(value == 0 for value in counts.values())
-
-
-# ---------------------------------------------------------------------------
-# 退役只走墓碑语义
-# ---------------------------------------------------------------------------
-
-class TestTombstoneSemantics:
-    """目录条目退役保留可读、拒绝新场景引用：不删除条目、不改既有足迹的解释。"""
-
-    def test_delisted_entry_is_excluded_from_candidates_and_still_readable(
-            self, tmp_path: Path) -> None:
-        """同一份墓碑目录：下架条目在候选里带 `ELIGIBILITY_DELISTED` 出局，在目录里仍可读。"""
-        from tests.categories.conftest import raw_object, write_catalog
-        from worldmock.catalog import CatalogEntryKind, ObjectDeclaration, add_object, deprecate
-        from worldmock.catalog.loader import load_catalog
-
-        directory = write_catalog(tmp_path / "catalog")
-        add_object(directory, ObjectDeclaration.model_validate(raw_object("food-soda")))
-        deprecate(directory, CatalogEntryKind.OBJECT, "food-soda", "retired")
-        catalog = load_catalog(directory)
-        assert catalog.tombstoned_ids() == frozenset({"food-soda"})
-
-        # 「保留可读」一侧：墓碑不动条目本身，原始行与解析后的条目都还在
-        raw = [json.loads(line) for line in
-               (tmp_path / "catalog" / "objects.jsonl").read_text(encoding="utf-8").splitlines()]
-        assert "food-soda" in {row["object_id"] for row in raw}
-        assert catalog.objects["food-soda"].object_id == "food-soda"
-        assert catalog.objects["food-soda"].version == 1
-
-        # 「拒绝新场景引用」一侧在候选契约里的落点：退役是一个排除理由，不是删除
-        retired = CandidateEntry(object_id="food-soda", kind="product", retired=True,
-                                 minimum_seconds=600, maximum_seconds=3600)
-        live = CandidateEntry(object_id="food-milk", kind="product",
-                              minimum_seconds=600, maximum_seconds=3600)
-        page = recall(_inputs(sources={"on_site": (live, retired)}))
-        assert [item.object_id for item in page.retained] == ["food-milk"]
-        assert [(item.object_id, item.reason) for item in page.excluded] == [
-            ("food-soda", "ELIGIBILITY_DELISTED")]
-        assert page.exclusion_counts["ELIGIBILITY_DELISTED"] == 1
-        assert len(page.retained) + len(page.excluded) == len(page.generated) == 2
-        # 出局的条目仍在目录里可读：排除是候选侧的事，不是目录侧的删除
-        assert "food-soda" in catalog.objects
-
-    def test_runtime_has_no_path_that_deletes_a_catalog_entry(self) -> None:
-        """契约层与生活层都不含删除条目的通路：退役只追加墓碑。"""
-        catalog_modules = (
-            "admission.py", "affordances.py", "compiler.py", "inspect.py", "loader.py", "models.py",
-        )
-        runtime_paths = list((PROJECT_ROOT / "src/worldmock/life").rglob("*.py"))
-        runtime_paths.extend(PROJECT_ROOT / "src/worldmock/catalog" / name for name in catalog_modules)
-        sources = {path: path.read_text(encoding="utf-8") for path in sorted(runtime_paths)
-                   if "__pycache__" not in path.parts}
-        assert sources
-        for path, source in sources.items():
-            tree = ast.parse(source)
-            called = {node.func.attr for node in ast.walk(tree)
-                      if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)}
-            assert not {"unlink", "rmtree", "remove"} & called, path
-            # 也不存在「下架事件」这类事件类型：退役不等于产生一条删除事件
-            assert "entry_deleted" not in source and "object_delisted" not in source, path
-
-
-# ---------------------------------------------------------------------------
-# 轮转推迟不是排除
-# ---------------------------------------------------------------------------
-
-class TestRotationDeferralIsNotExclusion:
-    """`ROTATION_DEFERRED` 只表示本次名额已满：不改变对象、不写目录、不算排除。"""
-
-    def test_withheld_objects_stay_retained_and_uncounted_as_excluded(self) -> None:
-        inputs = _inputs(withheld_object_ids=frozenset({"game-1"}))
-        page = recall(inputs)
-        assert "game-1" in page.deferred
-        assert "game-1" in {item.object_id for item in page.retained}
-        assert "game-1" not in {item.object_id for item in page.excluded}
-        assert page.exclusion_counts["ROTATION_DEFERRED"] == 0
-        assert page.total == len(page.retained)
-
-    def test_deferral_only_leaves_the_presented_head(self) -> None:
-        baseline = recall(_inputs())
-        withheld = recall(_inputs(withheld_object_ids=frozenset({"task-1"})))
-        assert withheld.returned == baseline.returned - 1
-        assert withheld.excluded == baseline.excluded
-        assert withheld.generated == baseline.generated
-
-
-# ---------------------------------------------------------------------------
-# 排序键
-# ---------------------------------------------------------------------------
-
-class TestOrdering:
-    """排序键为（非零口味，−口味×注意力，−相关度，哈希决胜键），保证全序（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ）。"""
-
-    def test_primary_key_is_taste_times_attention(self) -> None:
-        entries = (CandidateEntry(object_id="a", kind="product", minimum_seconds=600,
-                                  maximum_seconds=3600),
-                   CandidateEntry(object_id="b", kind="product", minimum_seconds=600,
-                                  maximum_seconds=3600))
-        inputs = _inputs(sources={"on_site": entries},
-                         taste_weights={"a": 0.2, "b": 0.9},
-                         attention_priors={"a": 0.9, "b": 0.2})
-        page = recall(inputs)
-        assert page.retained[0].taste_weight * page.retained[0].attention_prior == 2000 * 9000
-        # 两者的口味 × 注意力相同（0.2 × 0.9 = 0.9 × 0.2），先后交给哈希决胜键，不是对象标识。
-        assert [item.object_id for item in page.retained] == sorted(
-            ("a", "b"), key=lambda name: tiebreak_digest("", 0, "", name))
-        heavier = recall(_inputs(sources={"on_site": entries}, taste_weights={"a": 0.2, "b": 0.9},
-                                 attention_priors={"a": 0.9, "b": 0.3}))
-        assert [item.object_id for item in heavier.retained] == ["b", "a"]
-
-    def test_hash_of_scenario_person_date_and_object_breaks_ties(self) -> None:
-        """同分时按 `sha256(场景|人物|日期|对象)` 决胜：顺序不是对象标识的字母序，换一个本地日期（或人物）就变。"""
-        names = ("zeta", "alpha", "mid", "kappa", "beta")
-        entries = tuple(CandidateEntry(object_id=name, kind="content", bucket="feature_film",
-                                       minimum_seconds=600, maximum_seconds=3600) for name in names)
-        orders = {}
-        for day in ("2026-09-28", "2026-09-29"):
-            inputs = _inputs(sources={"browsed": entries}, taste_weights={name: 0.5 for name in names},
-                             attention_priors={"feature_film": 0.5}, scenario_id="scene", agent_id=1, local_date=day)
-            page = recall(inputs)
-            orders[day] = [item.object_id for item in page.retained]
-            assert orders[day] == sorted(names, key=lambda name: tiebreak_digest("scene", 1, day, name))
-            assert all(item.tiebreak == tiebreak_digest("scene", 1, day, item.object_id) for item in page.retained)
-        assert orders["2026-09-28"] != sorted(names)
-        assert orders["2026-09-28"] != orders["2026-09-29"]
-        assert tiebreak_digest("scene", 1, "2026-09-28", "mid") != tiebreak_digest("scene", 2, "2026-09-28", "mid")
-
-    def test_relevance_orders_after_taste_and_before_the_hash(self) -> None:
-        """相关度是第三段：口味 × 注意力相同时相关度高的在前，但不越过口味 × 注意力，也不把零口味抬到非零口味之前。"""
-        entries = tuple(CandidateEntry(object_id=name, kind="lifestyle", minimum_seconds=600, maximum_seconds=3600)
-                        for name in ("low", "high", "liked", "zero-relevant"))
-        inputs = _inputs(sources={"carried": entries},
-                         taste_weights={"low": 0.5, "high": 0.5, "liked": 0.9},
-                         attention_priors={"low": 0.5, "high": 0.5, "liked": 0.5},
-                         relevance={"high": 3, "zero-relevant": 5})
-        page = recall(inputs)
-        assert [item.object_id for item in page.retained] == ["liked", "high", "low", "zero-relevant"]
-        assert [item.relevance for item in page.retained] == [0, 3, 0, 5]
-        assert page.retained[1].order_key()[:3] == (0, -(5000 * 5000), -3)
-
-    def test_order_key_is_json_serialisable_integers_only(self) -> None:
-        page = recall(_inputs())
-        for item in page.retained:
-            key = item.order_key()
-            assert all(isinstance(part, (int, str)) for part in key)
-            assert json.loads(json.dumps(list(key))) == list(key)
-
-    def test_fixed_point_matches_taste_weight_precision(self) -> None:
-        assert fixed_point(0.3333) == 3333
-        assert fixed_point(0.1667) == 1667
-        assert fixed_point(0.75) == 7500
-        assert fixed_point(0.0) == 0
+def candidate_inputs(entries=(), **changes):
+    """@brief 构造不依赖完整引擎的真实候选输入。"""
+    home = LocationView("home", frozenset({"home"}))
+    inputs = CandidateInputs(location=home, locations={"home": home}, sources={"on_site": entries},
+                             current_time=100, window_end_time=2000, scenario_id="fixture", agent_id=1,
+                             local_date="2026-10-07", state_version=3, catalog_digest="catalog-current")
+    return replace(inputs, **changes)
+
+
+def test_candidates_have_only_product_lifestyle_and_task_kinds():
+    assert CANDIDATE_KINDS == ("product", "lifestyle", "task")
+    assert CANDIDATE_SOURCES == ("on_site", "carried", "activated")
+    assert EXCLUSION_REASONS == ("ELIGIBILITY_LOCATION_ABSENT", "ELIGIBILITY_LOCATION_KIND_MISMATCH",
+                                "ELIGIBILITY_RESOURCE_CONFLICT", "ELIGIBILITY_DURATION_OUT_OF_RANGE",
+                                "ELIGIBILITY_DISABLED", "ROTATION_DEFERRED")
+
+
+def test_all_actual_kinds_are_retained_without_occupancy():
+    entries = tuple(CandidateEntry(kind, kind) for kind in CANDIDATE_KINDS)
+    page = recall(candidate_inputs(entries))
+    assert len(page.generated) == len(page.retained) == page.total == 3
+    assert page.excluded == ()
+    assert {row.kind for row in page.retained} == set(CANDIDATE_KINDS)
+
+
+@pytest.mark.parametrize("entry,changes,reason", (
+    (CandidateEntry("work", "task", required_location_id="office"), {}, "ELIGIBILITY_LOCATION_ABSENT"),
+    (CandidateEntry("sport", "lifestyle", location_kinds=frozenset({"fitness"})), {},
+     "ELIGIBILITY_LOCATION_KIND_MISMATCH"),
+    (CandidateEntry("meal", "product"), {"occupied_resources": frozenset({"consume"})},
+     "ELIGIBILITY_RESOURCE_CONFLICT"),
+    (CandidateEntry("meal", "product", enabled=False), {}, "ELIGIBILITY_DISABLED"),
+    (CandidateEntry("sport", "lifestyle", minimum_seconds=1500), {"window_end_time": 1000},
+     "ELIGIBILITY_DURATION_OUT_OF_RANGE"),
+))
+def test_actual_world_constraints_are_reported(entry, changes, reason):
+    page = recall(candidate_inputs((entry,), **changes))
+    assert page.retained == () and len(page.excluded) == 1
+    assert page.excluded[0].reason == reason
+    assert sum(page.exclusion_counts.values()) == len(page.generated)
+
+
+def test_app_usage_does_not_remove_meal_candidate_and_driving_does():
+    entry = CandidateEntry("meal", "product")
+    assert recall(candidate_inputs((entry,), occupied_resources=frozenset({"use_app"}))).total == 1
+    assert recall(candidate_inputs((entry,), occupied_resources=frozenset({"consume", "use_app", "travel"}))).total == 0
+
+
+def test_generation_merges_actual_sources_without_duplicates():
+    entry = CandidateEntry("meal", "product")
+    inputs = candidate_inputs(sources={"on_site": (entry,), "carried": (entry,), "activated": ()})
+    generated = generate_candidates(inputs)
+    assert len(generated) == 1 and generated[0].sources == ("on_site", "carried")
+
+
+def test_relevance_changes_order_without_changing_membership():
+    entries = tuple(CandidateEntry(identity, "lifestyle") for identity in ("first", "last"))
+    neutral = recall(candidate_inputs(entries))
+    changed = recall(candidate_inputs(entries, relevance={"last": 2}))
+    assert changed.retained[0].object_id == "last"
+    assert {row.object_id for row in neutral.retained} == {row.object_id for row in changed.retained}
+    assert changed.excluded == neutral.excluded == ()
+
+
+def test_rotation_deferred_objects_remain_eligible():
+    entries = tuple(CandidateEntry(identity, "lifestyle") for identity in ("first", "last"))
+    page = recall(candidate_inputs(entries, withheld_object_ids=frozenset({"last"})))
+    assert page.total == 2 and page.returned == 1 and page.deferred == ("last",)
+    assert page.excluded == ()
+
+
+def test_candidates_and_cursor_are_deterministic():
+    entries = tuple(CandidateEntry(identity, "lifestyle") for identity in ("first", "last", "middle"))
+    inputs = candidate_inputs(entries, presentation_limit=1)
+    first, second = recall(inputs), recall(inputs)
+    assert json.dumps(asdict(first), sort_keys=True, default=sorted) == json.dumps(
+        asdict(second), sort_keys=True, default=sorted)
+    assert first.next_cursor is not None
+    assert cursor_identity(inputs, "first") != cursor_identity(replace(inputs, state_version=4), "first")
+    assert tiebreak_digest("fixture", 1, "2026-10-07", "first") == first.retained[
+        next(i for i, row in enumerate(first.retained) if row.object_id == "first")].tiebreak

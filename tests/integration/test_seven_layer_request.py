@@ -33,7 +33,6 @@ from custom.agents.life_prompt import (LIFE_SYSTEM_LAYER, TOOL_DESCRIPTIONS, lif
 from tests.integration.test_life_agent_protocol import (
     _Environment,
     _GroundedCorrectionDispatcher,
-    _MEMORY_TOOL_NAMES,
     _ModelResponse,
     _TASK,
     _WAIT,
@@ -307,13 +306,62 @@ async def test_retired_meal_delivery_and_bedtime_readings_are_gone_from_the_syst
     assert "还没到就寝时间就照常过晚上" in rules[15]
 
 
+#: 同时做两件事规格第 8 条的新说法（docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-丙第8条）：只在第 8 条出现。
+_PARALLEL_RULE_8_PHRASES = ("暂停的不算", "恢复暂停的活动要有空位", "环境只拦同一种的两件", "原来那件照常进行")
+#: 被第 8 条改写取代的旧名额读法：任何一条规则里都不再出现。
+_RETIRED_SLOT_READING = "进行中、暂停与刚结束的都算"
+
+
+@pytest.mark.asyncio
+async def test_rule_8_says_paused_activities_do_not_count_and_only_same_kinds_collide() -> None:
+    """系统层第 8 条的新说法（docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-丙第8条）：真实生活决策请求里，
+    第 8 条说同时进行的最多两项而暂停的不算、恢复暂停的活动要有空位，环境只拦同一种的两件，手上有一件在进行时再开始一件、
+    原来那件照常进行；每个说法只出现在第 8 条。旧读法「进行中、暂停与刚结束的都算」不再出现在请求、模块常量与接口合同
+    「请求组成」登记的任何一条规则里。"""
+    rules = await _request_rules()
+    life, _ = _contract_system_layers()
+    assert len(rules) == 18 and rules == LIFE_SYSTEM_LAYER["rules"] == life["rules"]
+    for phrase in _PARALLEL_RULE_8_PHRASES:
+        assert [number for number, rule in enumerate(rules) if phrase in rule] == [7], phrase
+    for place in (rules, LIFE_SYSTEM_LAYER["rules"], life["rules"]):
+        assert [rule for rule in place if _RETIRED_SLOT_READING in rule] == []
+
+
+@pytest.mark.asyncio
+async def test_resource_rule_system_text_is_the_frozen_app_and_work_contract() -> None:
+    """资源与规则简化的系统层（docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-系统层）：
+    实际请求、宿主常量与合同逐字使用冻结的推送、并行、名称、购买来源与实际工时规则；娱乐句只在名称规则末尾。
+    旧工作开放、主动选择内容、做饭或播客例外、渠道与截止提交读法均不再进入人物请求。"""
+    spec = section_text((_REPO_ROOT / "docs/dev/SPEC-resource-and-rule-simplification.md").read_text(encoding="utf-8"),
+                        "spec-rrs-系统层")
+    positions = {6, 7, 11, 12, 16}
+    expected = {int(number) - 1: text for number, text in re.findall(r"第 (\d+) 条\n([^\n]+)", spec)
+                if int(number) - 1 in positions}
+    assert set(expected) == positions
+    rules = await _request_rules()
+    life, _ = _contract_system_layers()
+    for place in (rules, LIFE_SYSTEM_LAYER["rules"], life["rules"]):
+        assert len(place) == 18
+        assert {index: place[index] for index in positions} == expected
+        for phrase, index in (("有 app 推送", 6), ("娱乐只选 app", 11), ("按主题计工时", 16)):
+            assert [i for i, text in enumerate(place) if phrase in text] == [index]
+            assert sum(text.count(phrase) for text in place) == 1
+        entertainment = ("娱乐只选 app、方式写打开，看什么由 app 决定；这段停留或路程里收到推送后打开那个 app，"
+                         "先看的是推送的内容，不打开也可以。")
+        assert place[11].endswith(entertainment)
+        retired = ("有工作可以开始做了", "吃、做饭、用东西", "看和听内容算一种", "读信、浏览、玩游戏", "只适合再配听的",
+                   "开车时只能再听播客", "商品、生活活动、内容、地点", "门店或渠道", "留意截止时间与已完成的有效工时",
+                   "工时达标不等于已经提交", "过了截止再提交会被拒绝")
+        assert [phrase for phrase in retired for text in place if phrase in text] == []
+
+
 def test_viewer_fixture_system_layers_are_the_host_system_message() -> None:
     """查看器夹具 tests/fixtures/viewer-context.json 里行动请求与续接请求两处系统层就是宿主 system_message(False) 的输出，
-    逐字相等（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-测试与夹具）；legacy_ 开头的两处记录的是历史请求，不在比较之列。"""
+    逐字相等（docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-测试与夹具）；夹具只记录这两种当前请求。"""
     fixture = json.loads((_REPO_ROOT / "tests" / "fixtures" / "viewer-context.json").read_text(encoding="utf-8"))
     expected = system_message(False)
     assert [fixture[kind]["messages"][0] for kind in ("action", "continuation")] == [expected, expected]
-    assert sorted(kind for kind in fixture if kind.startswith("legacy_")) == ["legacy_action", "legacy_prelude"]
+    assert set(fixture) == {"action", "continuation"}
 
 
 
@@ -449,8 +497,8 @@ def test_no_card_persona_layer_keeps_the_name_and_scene_contacts() -> None:
 
 @pytest.mark.asyncio
 async def test_native_tools_are_stable_purpose_only_and_drop_memory_only_on_the_last_turn() -> None:
-    """原生工具：八个人物工具（REQUEST_MODELS 顺序）加三个记忆查询，description 只写用途，没有逐轮枚举；
-    只剩最后一个回合时去掉记忆查询，其余字节不变。"""
+    """原生工具：六个世界请求、两个世界查询与三个记忆查询，description 只写用途，没有逐轮枚举；
+    只剩最后一个回合时去掉全部查询，六个世界请求的字节不变。"""
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("memory", "memory_recent", '{"limit":1}'),
         _ModelResponse("action", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False))])
@@ -458,33 +506,38 @@ async def test_native_tools_are_stable_purpose_only_and_drop_memory_only_on_the_
     await _run(agent, _second_observation())
 
     first, last = (item["tools"] for item in dispatcher.requests)
-    assert [item["function"]["name"] for item in first] == [*(name for name in REQUEST_MODELS if name != "recall_task_summary"),
-        "recall_task_summary", "query_world", "memory_recent", "memory_search", "memory_time_range"]
-    assert last == first[:7]
+    world_tools = ["start_activity", "send_message", "report_status", "pause_activity", "conclude_activity",
+                   "revise_day_plan"]
+    queries = ["recall_task_summary", "query_world", "memory_recent", "memory_search", "memory_time_range"]
+    assert [item["function"]["name"] for item in first] == [*world_tools, *queries]
+    assert [item["function"]["name"] for item in last] == world_tools
+    assert last == first[:len(world_tools)]
     assert all(item["function"]["description"] == TOOL_DESCRIPTIONS[item["function"]["name"]] for item in first)
     models = {**REQUEST_MODELS, **_MEMORY_TOOL_MODELS, "query_world": QueryWorldRequest}
     assert all(item["function"]["parameters"] == deepseek_strict_schema(models[item["function"]["name"]])
                for item in first)
     for name in ("target", "way"):
         assert "enum" not in first[0]["function"]["parameters"]["properties"]["items"]["items"]["properties"][name]
-    assert _MEMORY_TOOL_NAMES.isdisjoint(item["function"]["name"] for item in last)
+    assert set(queries).isdisjoint(item["function"]["name"] for item in last)
 
 
 @pytest.mark.asyncio
 async def test_a_decision_without_memory_queries_sends_exactly_one_request_and_no_prelude() -> None:
     """没有记忆查询的决策恰好一次模型请求，参数符合行动行（思考开启、auto、8000）；登记后不追加 tool 消息。"""
+    work = {"items": [{"target": _TASK, "way": "工作", "from": None, "to": None}],
+            "answering": None, "prefer": None}
     dispatcher = _GroundedCorrectionDispatcher(responses=[
-        _ModelResponse("action", "submit_work", json.dumps(
-            {"task_name": _TASK, "deliverable": {"summary": "要点。", "decisions": ["推进。"],
-                                                 "action_items": ["复盘。"]}}, ensure_ascii=False))])
+        _ModelResponse("action", "start_activity", json.dumps(work, ensure_ascii=False))])
     agent, environment = _agent(dispatcher)
-    assert await _run(agent, _observations()) == "submit_work registered"
+    assert await _run(agent, _observations()) == "start_activity registered"
 
     [request] = dispatcher.requests
     assert [item.phase for item in environment.evidence] == ["request", "response"]
     assert (request["tool_choice"], request["max_tokens"], request["extra_body"]) == (
         "auto", 8000, {"thinking": {"type": "enabled"}})
     assert "temperature" not in request and len(environment.calls) == 1
+    assert environment.calls[0].tool_name == "start_activity"
+    assert environment.calls[0].request.model_dump(mode="json", by_alias=True) == work
     assert [item["role"] for item in agent._react_messages] == ["system", "user", "assistant"]
 
 
@@ -699,9 +752,35 @@ def test_prompt_fingerprint_binds_the_layer_schemas(monkeypatch) -> None:
     assert life_prompt.life_prompt_sha256() != original
 
 
+@pytest.mark.parametrize("index,current,retired", [
+    (6, "有 app 推送", "有工作可以开始做了"),
+    (7, "用手机 app 算一种", "看和听内容算一种"),
+    (11, "商品、生活活动、app、地点", "商品、生活活动、内容、地点"),
+    (12, "门店或 app", "门店或渠道"),
+    (16, "按主题计工时", "留意截止时间与已完成的有效工时"),
+])
+def test_each_resource_rule_change_moves_only_the_prompt_fingerprint(monkeypatch, index, current, retired) -> None:
+    """五条规则的语义都绑定新运行提示指纹（docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-系统层）：
+    任一条换回旧读法时实际模型身份的提示指纹变化，工具指纹不变；所有指纹实时计算，不钉字面摘要。"""
+    from custom.agents import life_prompt
+    from custom.agents.life_agent import life_tool_schema_sha256
+    from worldmock.run_setup import _model_identity
+
+    prompt, tools = life_prompt.life_prompt_sha256(), life_tool_schema_sha256()
+    identity = _model_identity()
+    assert (identity.prompt_sha256, identity.tool_schema_sha256) == (prompt, tools)
+    changed = copy.deepcopy(LIFE_SYSTEM_LAYER)
+    assert changed["rules"][index].count(current) == 1
+    changed["rules"][index] = changed["rules"][index].replace(current, retired)
+    monkeypatch.setattr(life_prompt, "LIFE_SYSTEM_LAYER", changed)
+    identity = _model_identity()
+    assert identity.prompt_sha256 == life_prompt.life_prompt_sha256() != prompt
+    assert identity.tool_schema_sha256 == life_tool_schema_sha256() == tools
+
+
 def test_prompt_fingerprint_binds_the_callable_index_schema(monkeypatch) -> None:
     """工具层 Schema 登记可调用索引 callable_index（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引）：它是工具层的必填键，形状为
-    lifestyle、contents、goods 三个键；新运行的模型身份记录的提示指纹按带索引的 Schema 算出，去掉索引指纹就不同。"""
+    lifestyle、goods、query_categories 三个键；新运行的模型身份记录的提示指纹按带索引的 Schema 算出，去掉索引指纹就不同。"""
     from custom.agents import life_prompt
     from worldmock.life import prompt_schemas
     from worldmock.run_setup import _model_identity
@@ -709,7 +788,7 @@ def test_prompt_fingerprint_binds_the_callable_index_schema(monkeypatch) -> None
     schema = prompt_schemas.TOOL_LAYER_SCHEMA
     assert "callable_index" in schema["required"]
     assert set(schema["properties"]["callable_index"]["properties"]) == {
-        "lifestyle", "contents", "goods", "query_categories"}
+        "lifestyle", "goods", "query_categories"}
     current = life_prompt.life_prompt_sha256()
     assert _model_identity().prompt_sha256 == current
     tools = copy.deepcopy(schema)
@@ -745,7 +824,8 @@ async def test_callable_index_rides_in_the_tool_layer_and_counts_toward_capacity
     layers = json.loads(request["messages"][1]["content"])
     assert compact_render(expand_tool_layer(layers[0])) == compact_render(observed["tool_layer"])
     assert list(layers[0]) == ["layer", "groups", "callable_index"]
-    assert len(layers[0]["callable_index"]["lifestyle"]) == 104 and layers[5]["events"] == []
+    assert layers[0]["callable_index"]["lifestyle"] == [item.name for item in engine.context.lifestyle_items]
+    assert layers[0]["callable_index"]["lifestyle"] == ["安静休息"] and layers[5]["events"] == []
     bare = [{key: value for key, value in layers[0].items() if key != "callable_index"}, *layers[1:]]
     without = prompt_capacity.request_token_count({**request, "messages": [request["messages"][0],
                                                                            user_message(bare)]})

@@ -29,18 +29,17 @@ from tests.integration.test_life_agent_protocol import (_TASK, _WAIT, _WAIT_CHOI
                                                         _add_objects, _conclude_args, _context, _memory, _observations,
                                                         _offer, _prepared, _step_observation, _view,
                                                         _visible_object, _wire_agent, _with_activities)
-from tests.integration.test_output_truncation import _Truncated  # noqa: E402
-from tests.integration.test_same_second_continuation import _environment, _reply, _single  # noqa: E402
-from tests.integration.test_storefront_tools import _OFFER, _observed_offer  # noqa: E402
+from tests.integration.life_host_fixtures import TruncatedResponse  # noqa: E402
+from tests.integration.life_host_fixtures import environment_for, reply, decide  # noqa: E402
 from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
 from tests.life.conftest import (last_result, start_arguments)  # noqa: F401
-from tests.life.test_named_purchase import _browsed, _hidden, _layer_context  # noqa: E402
 from worldmock.life import prompt_capacity  # noqa: E402
 from worldmock.life.activity_control import PHASE_ACTIVE  # noqa: E402
 from worldmock.life.error_contract import ERROR_KEYS, HOST_ERROR_CODES, host_defaults, host_report  # noqa: E402
-from worldmock.life.named_purchase import supply_label  # noqa: E402
 
 #: 纠错正文里不得出现的校验库原文、输入回显与网址片段。
+_FOOD_LABEL = "便利店出售的牛奶"
+
 _DUMP_MARKERS = ("input_value", "input_type", "http://", "https://", "errors.pydantic", "validation error",
                  "Value error", "For further information")
 
@@ -118,14 +117,19 @@ def _twin_news() -> LifeAgent:
     """本轮列出同名的内容「内容：晚间新闻」与只能观看的游戏「游戏：晚间新闻」：只写「晚间新闻」归一后对应两个对象。"""
     observed = _observations()
     _add_objects(observed[0]["data"],
-                 _visible_object("内容：晚间新闻", "content", "content-news", _offer("interact", "接着看", "watch")),
-                 _visible_object("游戏：晚间新闻", "game", "game-news", _offer("interact", "接着看", "watch")))
+        _visible_object("邮件：晚间新闻（2026年1月5日09:00:00）", "mail", "news-0900",
+                        _offer("interact", "阅读", "read_mail")),
+        _visible_object("邮件：晚间新闻（2026年1月5日10:00:00）", "mail", "news-1000",
+                        _offer("interact", "阅读", "read_mail")))
     return _prepared(observed)
 
 
 def _offer_beside_another_store() -> LifeAgent:
     """本轮列出一件标签写明门店的供给，冻结地点表里另有一家「街角超市」（from 写它是另一个已知地点）。"""
-    observed = _observed_offer()
+    observed = _observations()
+    _add_objects(observed[0]["data"], _visible_object(_FOOD_LABEL, "supply", "milk",
+        _offer("obtain", "远程下单", "purchase", fulfillment="delivery"), store_id="store-1"))
+    observed[0]["data"]["locations"].append({"location_id": "store-1", "name": "便利店"})
     data = observed[0]["data"]
     data["locations"] = [*data["locations"], {"location_id": "corner-shop", "name": "街角超市"}]
     offer = LifeAgent()
@@ -151,15 +155,17 @@ def _host_cases() -> dict[str, tuple[str, str]]:
         "NAME_NOT_FOUND": agent.validate_react_decisions([_decision("start_activity", start_arguments(
             ["不存在的对象"], ["interact"], ["等待"]))], False),
         "NAME_AMBIGUOUS": _twin_news().validate_react_decisions([_decision("start_activity", start_arguments(
-            ["晚间新闻"], ["interact"], ["接着看"]))], False),
+            ["晚间新闻"], ["interact"], ["阅读"]))], False),
+        "WORK_TOPIC_NOT_FOUND": agent.validate_react_decisions([_decision("start_activity", start_arguments(
+            ["工作：不存在的主题"], ["interact"], ["工作"]))], False),
         "WAY_NOT_OFFERED": agent.validate_react_decisions([_decision("start_activity", start_arguments(
-            ["自己"], ["interact"], ["观看"]))], False),
+            ["自己"], ["interact"], ["打开"]))], False),
         "ROUTE_FIELDS_INVALID": agent.validate_react_decisions([_decision("start_activity", start_arguments(
             ["自己"], ["interact"], ["等待"], **{"from": ["自己"]}))], False),
         "SUPPLY_SOURCE_MISMATCH": offer.validate_react_decisions([_decision("start_activity", start_arguments(
-            [_OFFER], ["obtain"], ["远程下单"], **{"from": ["街角超市"]}))], False),
+            [_FOOD_LABEL], ["obtain"], ["远程下单"], **{"from": ["街角超市"]}))], False),
         "SUBJECT_NOT_KNOWN": concluding.validate_react_decisions([_decision("conclude_activity", unknown)], False),
-        "OUTPUT_TRUNCATED": agent._parse_react_responses(_Truncated("思考写满了输出上限。"))[1],
+        "OUTPUT_TRUNCATED": agent._parse_react_responses(TruncatedResponse("思考写满了输出上限。"))[1],
     }
     return {code: _as_report(value) for code, value in produced.items()}
 
@@ -194,12 +200,12 @@ def test_a_second_item_failing_is_reported_at_index_one_with_fill_in_candidates(
     """第二项方式错误仍精确定位，候选均为完整可直接提交的新请求。"""
     agent = _prepared()
     error = agent.validate_react_decisions([_decision("start_activity", start_arguments(
-        [_TASK, "自己"], ["interact", "interact"], ["工作", "观看"]))], False)
+        [_TASK, "自己"], ["interact", "interact"], ["工作", "打开"]))], False)
     payload = _feedback(error)
     assert payload["error_code"] == "WAY_NOT_OFFERED"
     [item] = payload["items"]
     assert item["path"] == ["tool_calls", 0, "function", "arguments", "items", 1, "way"]
-    assert item["written"] == "观看" and item["allowed_values"] == ["等待", "睡觉"]
+    assert item["written"] == "打开" and item["allowed_values"] == ["等待", "睡觉"]
     assert [row["arguments"]["items"][0] for row in item["candidates"]] == [
         {"target": "自己", "way": "等待", "from": None, "to": None},
         {"target": "自己", "way": "睡觉", "from": None, "to": None}]
@@ -316,12 +322,12 @@ async def test_a_candidate_submitted_verbatim_is_accepted_through_the_host_and_t
     环境以 SUPPLY_NOT_FOUND 拒绝，items[0] 的候选是可照填的请求；同一秒下一次决策把其中这件商品的候选逐字段原样提交，
     宿主不纠错、环境受理并下单（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章验收：候选原样提交可受理）。"""
     engine = _engine_factory()
-    listed = _browsed(engine)
-    supply = _hidden(engine, listed, unique_name=True)
-    label = supply_label(_layer_context(engine), supply)
-    written = f"{engine.context.rules.items[supply.product_id].name}加冰"
-    environment = _environment(engine)
-    await _single(environment, "misspelled", [_reply("call-misspelled", "start_activity",
+    food = engine.context.semantics.catalog.foods["beef-noodles"]
+    store = engine.context.semantics.catalog.locations["noodle-1"]
+    label = f"{store.display_name}出售的{food.name}"
+    written = f"{food.name}加冰"
+    environment = environment_for(engine)
+    await decide(environment, "misspelled", [reply("call-misspelled", "start_activity",
                                                      _obtain_arguments(written), "买一份。")])
     rejected = engine.context.store.read_agent_events("action_result", 1)[-1].data
     assert (rejected["status"], rejected["error_code"]) == ("rejected", "SUPPLY_NOT_FOUND")
@@ -332,15 +338,15 @@ async def test_a_candidate_submitted_verbatim_is_accepted_through_the_host_and_t
         details = last_result(observation)["details"]
         [item] = details["items"]
         seen.update(details=details, candidate=next(row for row in item["candidates"] if row["arguments"]["items"][0]["target"] == label))
-        return [_reply("call-candidate", "start_activity", _obtain_arguments(label, seen["candidate"]), "照候选买。")]
+        return [reply("call-candidate", "start_activity", _obtain_arguments(label, seen["candidate"]), "照候选买。")]
 
-    _, requests, _ = await _single(environment, "candidate", resubmit)
+    _, requests, _ = await decide(environment, "candidate", resubmit)
     assert seen["candidate"]["arguments"]["items"] == [{"target": label, "way": "远程下单", "from": None, "to": None}]
     assert seen["details"]["reason"] and seen["details"]["items"][0]["written"] == written
     assert len(requests) == 1
     accepted = engine.context.store.read_agent_events("action_result", 1)[-1].data
     assert (accepted["status"], accepted["error_code"]) == ("completed", None)
-    assert [order["supply_id"] for order in accepted["data"]["orders"]] == [supply.supply_id]
+    assert [(order["store_id"], order["food_id"]) for order in accepted["data"]["orders"]] == [(store.location_id, food.food_id)]
 
 
 def test_feedback_rejects_bare_strings_instead_of_reconstructing_positions() -> None:

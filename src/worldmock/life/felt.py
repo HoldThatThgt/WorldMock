@@ -114,9 +114,6 @@ SOCIAL_NEED_MESSAGE_RELIEF = 0.05
 #: experiment_assumption：docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」明示"脉冲与半衰期是实验假设"；
 #: OCC 评价理论与 PAD 心境模型为结构依据。
 MOOD_PULSES: dict[str, float] = {
-    "work_review_passed": 0.3,
-    "work_review_returned": -0.3,
-    "task_deadline_missed": -0.4,
     "message_received": 0.1,
     "discomfort_hourly": -0.1,
     "goal_progressed": 0.05,

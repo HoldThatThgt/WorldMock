@@ -1,6 +1,8 @@
 <a name="delivery-自定义训练数据交付"></a>
 # 自定义训练数据交付
 
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 7 的记录、导出、交付与评估合同。
+
 把人物的真实经历加工成经历归纳、意图识别、动作预测和规则验证数据时，修改仓库中的
 `labelkit-projects/`。人物如何生活由[场景](scenarios.md#scenarios-生活场景)决定；本页配置的是经历发生后如何加工数据。
 所有命令均在 WorldMock 仓库根目录执行。
@@ -136,6 +138,8 @@ timeout_s = 240
 
 <a name="delivery-修改规则数据"></a>
 ## 修改规则数据
+
+规则夹具的数据来源只能是交付入口已认证的导出目录。入口先从导出清单 3 解析 `artifacts.events`、`artifacts.activities`、`artifacts.verified_experiences`、`artifacts.purchases` 与 `artifacts.app_usage` 的相对路径，逐项核对摘要后才由 `prepare_windows` 和 `create_catalog` 生成 `labelkit-projects/data/rules-catalog.jsonl`。不要手写已发生事实，也不要从当前环境目录补造历史记录。
 
 这里的规则验证的是“生活请求登记是否在受理后六十秒内确认”，不是睡眠、出行、工作是否在六十秒内完成。
 `rules.toml` 使用 LabelKit 的 `sequence` 生成模式，以真实动作作为来源，生成独立的登记交互分支。

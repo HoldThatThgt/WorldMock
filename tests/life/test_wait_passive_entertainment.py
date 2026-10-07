@@ -46,7 +46,8 @@ def test_wait_has_only_awake_entertainment_accrual(body_config) -> None:
 def test_wait_has_no_relief_catalog_entry(body_config) -> None:
     """正式目录没有将等待声明为可缓解娱乐需要的活动。"""
     assert "wait" not in body_config.entertainment_relief_per_hour
-    assert body_config.entertainment_relief_per_hour["watch"] > 0
+    assert all(body_config.entertainment_relief_per_hour[kind] > 0
+               for kind in ("article", "image_text", "short_video", "long_video", "live"))
 
 
 def test_wait_met_cost_remains_declared(body_config) -> None:
@@ -65,10 +66,10 @@ def test_wait_at_full_need_stays_full(body_config) -> None:
 
 
 def test_wait_matches_other_non_entertainment_activity(body_config) -> None:
-    """同一清醒区间，等待和浏览的娱乐需求相同。"""
+    """同一清醒区间，等待和普通工作的娱乐需求相同。"""
     waited = settle_body(_body(), ActivityKind.WAIT, 7200, body_config)
-    browsed = settle_body(_body(), ActivityKind.BROWSE, 7200, body_config)
-    assert waited.after.entertainment_need == browsed.after.entertainment_need
+    worked = settle_body(_body(), ActivityKind.WORK, 7200, body_config)
+    assert waited.after.entertainment_need == worked.after.entertainment_need
 
 
 def test_direct_wait_activity_preserves_plain_accrual(body_config) -> None:

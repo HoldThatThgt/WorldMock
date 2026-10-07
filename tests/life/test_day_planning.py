@@ -13,7 +13,7 @@ import hashlib
 import json
 import re
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -28,10 +28,24 @@ import worldmock.runtime as runtime_module
 from tests.life.conftest import (StubPlanDayClient, advance_next, advance_until_ready, conclude_request, context, drive,
                                  errand_add, pending_names, plan_day_response, settle_day_plans, stage_day_plan,
                                  start_activity, submit_round, report_request, stage_legacy_control_request)
-from tests.life.routing_fixtures import HOME, act, place, routed, run_until
-from tests.life.test_errand_completion import DRINK, KIT_NAME, MILK, MILK_ID, errand_events, note
+from tests.life.routing_fixtures import (
+    COLLEAGUE_TARGET,
+    EAT_SNACK_ITEM,
+    HOME,
+    MEAL_ID,
+    MEAL_NAME,
+    SNACK_ID,
+    SNACK_NAME,
+    act,
+    errand_events,
+    errand_note,
+    place,
+    routed,
+    run_until,
+    with_colleague,
+)
+from tests.life.scenario_fixtures import create_engine, read_scenario, run_identity, write_scenario
 from tests.life.test_errand_reminder import evening
-from tests.life.test_scheduling import _custom_engine, _document, _identity, _write_scenario
 from tests.life.work_schedule_fixtures import OFFICE, declare
 from worldmock.errors import IntegrityError, ProtocolError
 from worldmock.footprints.checkpoint import snapshot_directory
@@ -63,53 +77,39 @@ def _goal(intent: str, goal: str, remind: str | None = None, around: str | None 
 
 
 def _late_engine(tmp_path, start: str, run_id: str, base: str = SCENARIO, **params) -> LifeEngine:
-    """场景在本地日中途（start）启动：丢弃起点之前的任务、邮件、账单与工资，其余场景参数按 params 覆盖。"""
-    return _custom_engine(base, _late_start(start, **params), tmp_path, run_id=run_id)
+    """场景在本地日中途启动，保留起点后的邮件与工资。"""
+    return create_engine(base, _late_start(start, **params), tmp_path, run_id)
 
 
 def _late_start(start: str, **params):
-    """返回 mutate(document)：起点改为 start，丢弃起点之前的任务、邮件、账单与工资，其余顶层参数按 params 覆盖。"""
+    """返回 mutate(document)：起点改为 start，丢弃起点之前的邮件与工资。"""
     def mutate(document: dict) -> None:
         begin = datetime.fromisoformat(start)
         document["start_at"] = start
-        document["tasks"] = [item for item in document["tasks"]
-                             if datetime.fromisoformat(item["due_at"]) > begin]
-        kept = {item["task_id"] for item in document["tasks"]} | {None}
-        document["messages"] = [item for item in document["messages"]
-                                if item.get("related_task_id") in kept]
-        for key in ("bills", "payrolls"):
-            document[key] = [item for item in document.get(key, ())
-                             if datetime.fromisoformat(item["due_at"]) >= begin]
+        if len(document["agents"]) == 1:
+            document["end_at"] = (
+                datetime.fromisoformat(document["end_at"]) + timedelta(days=1)
+            ).isoformat()
+        document["messages"] = []
+        document["payrolls"] = [item for item in document["payrolls"]
+                                if datetime.fromisoformat(item["due_at"]) >= begin]
         document.update(params)
 
     return mutate
 
 
 def _beirut_engine(tmp_path: Path) -> LifeEngine:
-    """场景时区换成 Asia/Beirut、在 2026-03-28 23:45 启动的隔离运行（次日零点夏令时拨快，那天没有 00:00）。
+    """场景时区换成 Asia/Beirut，在夏令时切换前启动。"""
+    def mutate(document: dict) -> None:
+        document.update(
+            timezone="Asia/Beirut",
+            start_at="2026-03-28T23:45:00+02:00",
+            end_at="2026-03-29T19:00:00+03:00",
+            messages=[],
+            payrolls=[],
+        )
 
-    地图数据集的时区须与场景一致：复制语料、改写数据集时区并刷新内容身份。场景时刻须带声明时区的偏移：终点换成
-    同一时刻的贝鲁特写法，带东八区偏移的任务、邮件、账单与工资不保留。
-    """
-    corpus = tmp_path / "corpora"
-    shutil.copytree(ENVIRONMENT_ROOT / "corpora", corpus)
-    document = _document(SCENARIO)
-    dataset = corpus / document["map_dataset"]["path"]
-    dataset.write_text(json.dumps({**json.loads(dataset.read_text(encoding="utf-8")), "timezone": "Asia/Beirut"},
-                                  ensure_ascii=False), encoding="utf-8")
-    manifest = corpus / "manifest.json"
-    entries = json.loads(manifest.read_text(encoding="utf-8"))
-    for entry in entries["entries"]:
-        if entry["path"] == document["map_dataset"]["path"]:
-            entry.update(sha256=_sha256(dataset), size_bytes=dataset.stat().st_size)
-    manifest.write_text(json.dumps(entries, ensure_ascii=False), encoding="utf-8")
-    document.update(timezone="Asia/Beirut", start_at="2026-03-28T23:45:00+02:00", end_at="2026-03-29T19:00:00+03:00",
-                    tasks=[], messages=[], bills=[], payrolls=[])
-    document["map_dataset"]["sha256"] = _sha256(dataset)
-    path = _write_scenario(document, tmp_path)
-    document.update(corpus_root=str(corpus), corpus_manifest_sha256=_sha256(manifest))
-    path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
-    return LifeEngine.create(path, tmp_path / "run-beirut", _identity(document, "beirut"))
+    return create_engine(SCENARIO, mutate, tmp_path, "beirut")
 
 
 def _sha256(path: Path) -> str:
@@ -180,7 +180,7 @@ def test_start_path_generates_the_day_plan_once_and_leaves_the_person_untouched(
     """起点恰为零点：只按启动路径生成一次；不改重估、体感与在场参照，不产生人物事件，首个决策仍带 run_start。"""
     engine = engine_factory()
     start = engine.context.state.current_time
-    fields = ("last_decision_time", "felt_bands_at_last_decision", "people_at_last_decision", "known_task_ids",
+    fields = ("last_decision_time", "felt_bands_at_last_decision", "people_at_last_decision",
               "pending_wake_reasons", "next_decision_at")
     before = {name: getattr(engine.context.state.agents[1], name) for name in fields}
     seq = engine.context.store.last_event_seq
@@ -301,7 +301,7 @@ def test_transport_failure_is_a_run_fault_after_the_evidence_is_kept(engine_fact
 
 @pytest.mark.parametrize(("goals", "reasons"), [
     ([_goal("工作", "上午把周报写完", "09:30")], ["reconsideration_interval"]),
-    ([], []),
+    ([], ["reconsideration_interval"]),
 ])
 def test_midnight_settles_the_old_day_then_plans_then_judges_the_second(tmp_path, goals, reasons):
     """零点边界：先结算旧日（末段推进计入旧计划）并使旧计划失效，再生成新计划，然后才判定该秒的唤醒与候选。
@@ -615,7 +615,7 @@ def test_plan_template_is_the_contract_text_and_asks_only_for_differences_with_a
     assert "不需要提醒就填 null" not in system
     assert "就寝" not in system and "睡前" not in system
     payload = json.loads(request["messages"][1]["content"])
-    assert {"午饭时段", "晚饭时段", "就寝时段"} <= set(payload["人物"])
+    assert payload["人物"] == {"名字": engine.context.state.agents[1].name}
     goal_schema = request["tools"][0]["function"]["parameters"]["properties"]["goals"]["items"]
     assert set(goal_schema["required"]) == {"intent_kind", "goal", "remind_time", "around_time"}
     assert engine.context.state.agents[1].day_plan.goals == ()
@@ -732,8 +732,7 @@ def test_plan_input_carries_the_plan_dates_duty_arrangement_without_status(engin
     计划。周一当班的人物得到 {day, hours, place, breaks} 四键（班次与休息时段写 HH:MM–HH:MM，地点写显示名，不写内部
     身份，没有 status）；每周声明里周一为 null 的人物得到休息日四键；没有工作安排的人物为 null。plan_inputs 的载荷与
     客户端实际收到的请求逐值相同。"""
-    cases = ((declare(), _plan_workday), (declare(weekly={"0": None}), lambda engine: _PLAN_REST_DAY),
-             (None, lambda engine: None))
+    cases = ((declare(), _plan_workday), (declare(weekly={"0": None}), lambda engine: _PLAN_REST_DAY))
     for mutate, expected in cases:
         engine = engine_factory(mutate=mutate)
         inputs = plan_inputs(engine.context, engine.observations, engine.midnight_rhythm_pending, 1).payload
@@ -763,7 +762,7 @@ def test_plan_input_duty_is_for_the_new_day_at_the_midnight_boundary(tmp_path):
         late(document)
         schedule(document)
 
-    engine = _custom_engine(SCENARIO, mutate, tmp_path, run_id="duty-midnight")
+    engine = create_engine(SCENARIO, mutate, tmp_path, "duty-midnight")
     try:
         started = StubPlanDayClient()
         settle_day_plans(engine, started)
@@ -789,7 +788,15 @@ def test_plan_input_carries_each_persons_own_duty_arrangement(engine_factory, sc
     声明工作安排时，这个人的输入是自己的工作日安排，另一人没有工作安排、输入为 null；只给人物 1 声明与只给人物 2 声明
     各跑一次。plan_inputs 的载荷与客户端实际收到的两份零点计划请求（按「人物」的名字对上）逐值相同。取别人的班次时，
     没有工作安排的人会被套上同伴的上班安排。"""
-    engine = engine_factory("multi-person.json", mutate=declare(scheduled))
+    scheduled_only = declare(scheduled)
+
+    def mutate(document: dict) -> None:
+        for index, person in enumerate(document["agents"]):
+            person["work_schedule"] = None
+            person["work_topic_ids"] = ["topic-sales"] if index == scheduled else []
+        scheduled_only(document)
+
+    engine = engine_factory("multi-person.json", mutate=mutate)
     people = [(item.agent_id, item.name) for item in engine.context.scenario.agents]
     assert [agent_id for agent_id, _ in people] == [1, 2]
     expected = {name: (_plan_workday(engine) if index == scheduled else None)
@@ -810,10 +817,10 @@ def test_plan_day_input_lists_open_errands_read_only(engine_factory):
     也不登记事务事件为来源；「待办任务」仍是此刻可见的工作任务，没有事务。计划登记前后事务逐字段相同，零点计划没有写任何
     事务事件：它只读事务，不创建、不更改、不终结。"""
     engine = evening(engine_factory, "23:40")
-    place(engine, 1, HOME, {MILK_ID: 1.0})
-    note(engine, "note", [errand_add("早饭前喝两份奶", MILK, outcome="吃掉", quantity=2, memo="睡前喝一份，明早再喝一份",
-                                     remind_time="08:00"), errand_add("周末补食材包", KIT_NAME)])
-    drinking = act(engine, "drink", routed(DRINK))
+    place(engine, 1, HOME, {SNACK_ID: 1.0})
+    errand_note(engine, "note", [errand_add("早饭前喝两份奶", SNACK_NAME, outcome="吃掉", quantity=2, memo="睡前喝一份，明早再喝一份",
+                                     remind_time="08:00"), errand_add("周末补食材包", MEAL_NAME)])
+    drinking = act(engine, "drink", routed(EAT_SNACK_ITEM))
     run_until(engine, lambda current: current.context.state.activities[drinking.activity_id].status != ActivityStatus.ACTIVE)
     midnight = _at(6, 0)
 
@@ -831,16 +838,15 @@ def test_plan_day_input_lists_open_errands_read_only(engine_factory):
     payload = json.loads(client.calls[0]["messages"][1]["content"])
     rows = engine.observe(context(engine, "planned"))["todo_layer"]["errands"]
     assert payload["个人事务"] == [
-        {"名称": "早饭前喝两份奶", "要办成什么": "吃掉纯牛奶 2 份", "已办到哪": "已吃掉 1 份", "备注": "睡前喝一份，明早再喝一份",
+        {"名称": "早饭前喝两份奶", "要办成什么": "吃掉薯片 2 份", "已办到哪": "已吃掉 1 份", "备注": "睡前喝一份，明早再喝一份",
          "提醒时刻": "08:00"},
-        {"名称": "周末补食材包", "要办成什么": "取得素炒什锦食材包 1 份", "已办到哪": "已取得 0 份", "备注": None,
+        {"名称": "周末补食材包", "要办成什么": "取得牛肉面 1 份", "已办到哪": "已取得 0 份", "备注": None,
          "提醒时刻": None}]
     assert payload["个人事务"] == [{"名称": row["name"], "要办成什么": row["done_when"], "已办到哪": row["progress"],
                                 "备注": row["memo"], "提醒时刻": row["remind_time"]} for row in rows]
-    tasks = engine.observations._visible_task_rows(engine.context.state.agents[1])
-    assert [row["任务"] for row in payload["待办任务"]] == [row["title"] for row in tasks]
+    assert payload["待办任务"] == [{"主题": "季度销售数据整理", "目标": "约 8 小时", "已做": "约 0 小时"}]
     listed = json.dumps(payload["个人事务"], ensure_ascii=False)
-    assert all(identity not in listed for identity in (*held, MILK_ID, "ingredient-vegetable-kit"))
+    assert all(identity not in listed for identity in (*held, SNACK_ID, MEAL_ID))
     assert "早饭前喝两份奶" not in json.dumps(payload["待办任务"], ensure_ascii=False)
     assert engine.context.state.agents[1].errands == held and len(errand_events(engine)) == noted
     [registered] = [event for event in _plan_events(engine) if event.data.get("kind") == "day_plan_generated"
@@ -853,9 +859,9 @@ def test_plan_day_input_writes_no_line_for_an_errand_completed_before_midnight(e
     纯牛奶 1 份」，随即喝掉手边那一份，零点前办成（errand_completed 落库，事务移出状态）。零点计划的输入没有「办成」句，
     事务名不出现在任何键里，「个人事务」为空列表；喝奶本身仍作为已核验经历写进输入。"""
     engine = evening(engine_factory, "23:40")
-    place(engine, 1, HOME, {MILK_ID: 1.0})
-    note(engine, "note", [errand_add("睡前喝掉那盒奶", MILK, outcome="吃掉")])
-    drinking = act(engine, "drink", routed(DRINK))
+    place(engine, 1, HOME, {SNACK_ID: 1.0})
+    errand_note(engine, "note", [errand_add("睡前喝掉那盒奶", SNACK_NAME, outcome="吃掉")])
+    drinking = act(engine, "drink", routed(EAT_SNACK_ITEM))
     run_until(engine, lambda current: current.context.state.activities[drinking.activity_id].status != ActivityStatus.ACTIVE)
     midnight = _at(6, 0)
     [completed] = [event for event in errand_events(engine) if event.data["kind"] == "errand_completed"]
@@ -874,7 +880,7 @@ def test_plan_day_input_writes_no_line_for_an_errand_completed_before_midnight(e
     payload = json.loads(client.calls[0]["messages"][1]["content"])
     listed = json.dumps(payload, ensure_ascii=False)
     assert payload["个人事务"] == [] and "办成" not in listed and "睡前喝掉那盒奶" not in listed
-    assert any(MILK in sentence for sentence in payload["已核验经历"])
+    assert any(SNACK_NAME in sentence for sentence in payload["已核验经历"])
 
 
 def test_midnight_plan_inputs_list_only_the_planned_persons_errands(engine_factory):
@@ -885,7 +891,7 @@ def test_midnight_plan_inputs_list_only_the_planned_persons_errands(engine_facto
     from tests.footprints.test_errand_export import _late_evening
 
     engine = _late_evening(engine_factory)
-    note(engine, "note", [errand_add("补食材包", KIT_NAME, memo="周末去超市")])
+    errand_note(engine, "note", [errand_add("补食材包", MEAL_NAME, memo="周末去超市")])
     assert [row["名称"] for row in plan_inputs(engine.context, engine.observations, engine.midnight_rhythm_pending, 1).payload["个人事务"]] == ["补食材包"]
     assert plan_inputs(engine.context, engine.observations, engine.midnight_rhythm_pending, 2).payload["个人事务"] == []
     midnight = _at(6, 0)
@@ -895,8 +901,8 @@ def test_midnight_plan_inputs_list_only_the_planned_persons_errands(engine_facto
         [request] = [event for event in engine.context.store.read_agent_events("model_request", agent_id)
                      if event.data.get("purpose") == "plan_day" and event.occurred_at == midnight]
         sent[agent_id] = json.loads(request.data["request"]["messages"][1]["content"])
-    assert (sent[1]["人物"]["名字"], sent[2]["人物"]["名字"]) == ("陈曦", "李凡")
-    assert sent[1]["个人事务"] == [{"名称": "补食材包", "要办成什么": "取得素炒什锦食材包 1 份", "已办到哪": "已取得 0 份",
+    assert (sent[1]["人物"]["名字"], sent[2]["人物"]["名字"]) == ("Test Person", "Second Test Person")
+    assert sent[1]["个人事务"] == [{"名称": "补食材包", "要办成什么": "取得牛肉面 1 份", "已办到哪": "已取得 0 份",
                                 "备注": "周末去超市", "提醒时刻": None}]
     assert sent[2]["个人事务"] == []
 
@@ -938,9 +944,9 @@ def test_plan_inputs_read_world_facts_and_self_reports_but_not_the_persons_mind(
     保留的经历与其余输入的来源：被裁掉的首段等待经历，其来源事件同时是那段等待的结束事件，只作为「动作结果」里结束句的
     来源留下。
     """
-    engine = engine_factory()
+    engine = engine_factory(mutate=with_colleague)
     stage_day_plan(engine)
-    _decide(engine, "message", ("send_message", SendMessageActionRequest(recipient_name="联系人：沈昊",
+    _decide(engine, "message", ("send_message", SendMessageActionRequest(recipient_name=COLLEAGUE_TARGET,
                                                                           text="周五一起吃饭？")))
     first = _start(engine, "等待", "first-wait")
     assert advance_until_ready(engine)
@@ -955,12 +961,12 @@ def test_plan_inputs_read_world_facts_and_self_reports_but_not_the_persons_mind(
     inputs = plan_inputs(engine.context, engine.observations, engine.midnight_rhythm_pending, 1)
 
     payload = inputs.payload
-    assert (payload["人物"]["名字"], payload["人物"]["背景"]) == (config.name, config.background_story)
+    assert payload["人物"] == {"名字": config.name}
     assert [sentence for sentence, _ in inputs.experiences] == ["00:00–00:15 等待了约 15 分钟",
-                                                               "00:15–00:30 等待了约 15 分钟"]
-    assert payload["动作结果"][0] == "00:00 给沈昊发消息：周五一起吃饭？"
+                                                               "00:15–00:16 等待了约 2 分钟"]
+    assert payload["动作结果"][0] == "00:00 给王磊发消息：周五一起吃饭？"
     assert payload["动作结果"][1:] == [line for line in payload["动作结果"][1:] if "等待（" in line]
-    assert payload["收尾记录"][-1] == {"时间": "00:30", "活动": name, "收尾说明": "歇好了，明早七点半起床。",
+    assert payload["收尾记录"][-1] == {"时间": "00:16", "活动": name, "收尾说明": "歇好了，明早七点半起床。",
                                     "想记住的": ["明早七点半起床"], "说明": "你自己记下的，未经核验"}
     assert payload["联系人"] == [{"称呼": item.salutation, "关系": item.relation} for item in config.contacts]
     text = json.dumps(payload, ensure_ascii=False)

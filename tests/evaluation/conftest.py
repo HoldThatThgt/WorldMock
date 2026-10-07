@@ -14,6 +14,9 @@ import pytest
 
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import Event, EventDraft, canonical_json
+from worldmock.life.world_setup import load_runtime_scenario
+from worldmock.life.run_identity import environment_identity
+from tests.data_paths import ENVIRONMENT_ROOT
 from worldmock.footprints.store import FootprintStore
 
 
@@ -32,7 +35,7 @@ def evaluation_fixture(tmp_path: Path) -> EvaluationFixture:
 
 
 def make_evaluation_fixture(tmp_path: Path, days: int = 1) -> EvaluationFixture:
-    base_path = data_paths.ENVIRONMENT_ROOT / "scenarios/evaluation.json"
+    base_path = Path(__file__).parent / "fixtures/scenario.json"
     scenario = json.loads(base_path.read_text(encoding="utf-8"))
     start = datetime(2026, 1, 5, tzinfo=ZoneInfo("Asia/Shanghai"))
     end = start + timedelta(days=days)
@@ -231,18 +234,20 @@ def _legacy_audit(run_id: str, digest: str, main_rows: int, stream_rows: int) ->
 
 
 #: 夹具活动类型的占用（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」的占用表）；数字交互只按活动类型判定。
-ACTIVITY_CLAIMS = {"browse": ["eyes", "hands"], "wait": ["idle"]}
+ACTIVITY_CLAIMS = {"use_app": ["eyes", "hands", "use_app"], "wait": ["idle"]}
 
 
 def _write_canonical(root: Path, scenario: dict[str, Any], run_id: str, hour: int,
-                     activity_type: str = "browse") -> None:
+                     activity_type: str = "use_app") -> None:
     start = datetime.fromisoformat(scenario["window"]["start"])
     end = datetime.fromisoformat(scenario["window"]["end"])
-    frozen = {"run_id": run_id, "source_group_id": run_id, "agent_ids": [1],
+    frozen = {"schema_version": 3, "environment_identity": environment_identity(
+                  load_runtime_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]),
+              "run_id": run_id, "source_group_id": run_id, "agent_ids": [1],
               "window": {"start": int(start.timestamp()), "end": int(end.timestamp()),
                          "timezone": scenario["window"]["timezone"]}}
     store = FootprintStore.create(root.with_name(root.name + "-source"), frozen,
-                                  {"version": 0, "current_time": int(start.timestamp())})
+                                  {"schema_version": 10, "version": 0, "current_time": int(start.timestamp())})
     for day_offset in range((end.date() - start.date()).days):
         activity_start = start + timedelta(days=day_offset, hours=hour)
         activity, rows = _world_activity(run_id, store.last_event_seq + 1, activity_start, activity_type)
@@ -256,9 +261,13 @@ def _write_canonical(root: Path, scenario: dict[str, Any], run_id: str, hour: in
             draft = EventDraft.model_validate({key: value for key, value in row.items()
                                                if key in EventDraft.model_fields})
             draft.data["activity"] = snapshot
-            state = {"version": store.state["version"] + 1, "current_time": row["occurred_at"]}
+            if activity_type == "use_app":
+                draft.data["content"] = {"app_id": "app-bili", "content_id": "video-1", "kind": "long_video",
+                    "position_before_seconds": index * 3600, "position_after_seconds": (index + 1) * 3600,
+                    "completed": index == 1, "completed_rounds_after": 1 if index == 1 else 0}
+            state = {"schema_version": 10, "version": store.state["version"] + 1, "current_time": row["occurred_at"]}
             store.commit(state, [draft])
-    state = {"version": store.state["version"] + 1, "current_time": int(end.timestamp())}
+    state = {"schema_version": 10, "version": store.state["version"] + 1, "current_time": int(end.timestamp())}
     store.commit(state, [EventDraft(event_type="run_ended", occurred_at=state["current_time"],
                                    visibility="system")])
     reference = store.assets.put_json(state, {"kind": "test"})
@@ -268,7 +277,8 @@ def _write_canonical(root: Path, scenario: dict[str, Any], run_id: str, hour: in
         manifest_path = root / "manifest.json"
         manifest = json.loads(manifest_path.read_text())
         manifest["schema_version"] = 1
-        for name, path in (("verified_experiences", "verified-experiences.jsonl"), ("purchases", "purchases.jsonl")):
+        for name, path in (("verified_experiences", "verified-experiences.jsonl"), ("purchases", "purchases.jsonl"),
+                           ("app_usage", "app-usage.jsonl")):
             manifest["artifacts"].pop(name)
             (root / path).unlink()
         manifest_path.write_text(json.dumps(manifest))
@@ -276,7 +286,7 @@ def _write_canonical(root: Path, scenario: dict[str, Any], run_id: str, hour: in
 
 
 def _world_activity(run_id: str, sequence: int, start: datetime,
-                    activity_type: str = "browse") -> tuple[dict[str, Any], list[dict[str, Any]]]:
+                    activity_type: str = "use_app") -> tuple[dict[str, Any], list[dict[str, Any]]]:
     first_start = int(start.timestamp())
     first_end = first_start + 3_600
     second_start = first_end + 3_600
@@ -294,18 +304,18 @@ def _world_activity(run_id: str, sequence: int, start: datetime,
         "last_settled_at": second_end,
         "elapsed_seconds": 7_200,
         "planned_duration_seconds": 7_200,
-        "effective_work_seconds": 0,
         "media_position_seconds": 0,
         "route_progress_meters": 0,
         "next_interaction_at": None,
-        "target_id": None,
+        "target_id": "app-bili" if activity_type == "use_app" else None,
         "destination_id": None,
         "travel_mode": None,
-        "playback_speed": 1,
         "resource_claims": list(ACTIVITY_CLAIMS[activity_type]),
         "boundary_type": "planned_end",
         "interruption_reason": None,
-        "data": {},
+        "data": {"app_id": "app-bili", "content_id": "video-1", "content_kind": "视频",
+                 "start_position_seconds": 0, "pinned_by_push_id": None, "draw_index": 0, "played": []}
+                if activity_type == "use_app" else {},
         "segments": [
             {"started_at": first_start, "ended_at": first_end},
             {"started_at": second_start, "ended_at": second_end},

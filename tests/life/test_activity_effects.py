@@ -37,24 +37,16 @@ from worldmock.life.world_setup import load_scenario
 @pytest.fixture(scope="module")
 def body_config():
     """读取正式场景中已经冻结的身体与工作工具参数。"""
-    return load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0].body
+    return load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0].body.model_copy(
+        update={"mass_kg": 65})
 
 
-def _agent(skill: float = 0.8, *, notes: bool = False, need: float = 0.5) -> AgentState:
-    """构造具有明确工作技能、工具效果和娱乐需要的人物。"""
-    effects = {"work_notes"} if notes else set()
-    return AgentState(
-        agent_id=1,
-        body_settled_at=0,
-        name="worker",
-        location_id="office",
-        balance_account_id="agent:1",
-        skill_levels={"meeting_analysis": skill},
-        taste_weights={"content": 0.7},
-        active_effects=effects,
-        next_decision_at=0,
-        body=BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=need),
-    )
+def _agent(*, need: float = 0.5) -> AgentState:
+    """@brief 构造具有明确身体初值的人物，不引入已删除的技能或口味字段。"""
+    return AgentState(agent_id=1, body_settled_at=0, name='worker', location_id='office',
+                      balance_account_id='agent:1', next_decision_at=0,
+                      body=BodyState(energy_kcal=1600, sleep_pressure=0.0,
+                                     sleep_deficit_hours=0, entertainment_need=need))
 
 
 def _start(kind: ActivityKind, seconds: int, agent: AgentState, config, target: str):
@@ -68,52 +60,14 @@ def _start(kind: ActivityKind, seconds: int, agent: AgentState, config, target: 
     return start_activity(agent, request, 0, origin, config)
 
 
-@pytest.mark.parametrize(
-    ("skill", "notes", "expected"),
-    [(0.6, False, 2160), (0.8, False, 2880), (0.8, True, 3168)],
-)
-def test_work_progress_uses_skill_and_actual_notes_effect(
-    body_config,
-    skill: float,
-    notes: bool,
-    expected: float,
-) -> None:
-    """同一小时工作按实际技能和已生效工作笔记产生不同有效秒数。"""
-    person, activity = _start(ActivityKind.WORK, 3600, _agent(skill, notes=notes), body_config, "task")
-    activity.data.update(
-        required_skill="meeting_analysis",
-        skill_level=skill,
-        work_notes_multiplier=body_config.work_notes_multiplier,
-    )
-
+def test_work_progress_counts_actual_elapsed_seconds(body_config):
+    """@brief 工作只按实际投入秒数累计，结算没有技能、笔记或有效工时折算。"""
+    person, activity = _start(ActivityKind.WORK, 3600, _agent(), body_config, 'topic')
     result = advance_activity(activity, person, 3600, body_config)
-
-    assert result.activity.effective_work_seconds == pytest.approx(expected)
+    assert result.activity.elapsed_seconds == 3600
+    assert 'effective_work_seconds' not in result.activity.model_dump()
     assert result.settlement is not None
-    assert result.settlement.work_efficiency == pytest.approx(expected / 3600)
-
-
-def test_repeat_watch_uses_content_rate_and_exposure_count(body_config) -> None:
-    """内容自身效果参与结算，第二次接触按次数降低相同时长的缓解。"""
-    person, first = _start(ActivityKind.WATCH, 60, _agent(need=0.8), body_config, "content")
-    first.data.update(entertainment_relief_per_hour=0.5, exposure_count=1)
-    first_result = advance_activity(first, person, 60, body_config)
-    repeated_person, second = _start(
-        ActivityKind.WATCH,
-        60,
-        _agent(need=0.8),
-        body_config,
-        "content",
-    )
-    second.data.update(entertainment_relief_per_hour=0.5, exposure_count=2)
-
-    second_result = advance_activity(second, repeated_person, 60, body_config)
-
-    # 口味权重 0.7 按有效偏好 f + (1 − f)·w 折算（场景缺省 f = 0.5）：0.5 + 0.5 × 0.7 = 0.85
-    # （docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ）；有缓解时不再累积。
-    assert body_config.entertainment_relief_preference_floor == 0.5
-    assert first_result.agent.body.entertainment_need == pytest.approx(0.8 - 0.5 * 0.85 / 60)
-    assert second_result.agent.body.entertainment_need == pytest.approx(0.8 - 0.5 * 0.85 / 2 / 60)
+    assert not hasattr(result.settlement, 'work_efficiency')
 
 
 def test_paused_activity_is_truncated_at_experiment_end(body_config) -> None:
@@ -150,23 +104,14 @@ def test_body_boundary_predicts_first_energy_threshold_second(body_config) -> No
 
 
 def test_body_boundary_uses_curve_node_and_food_net_energy(body_config) -> None:
-    """工作效率节点精确分段；进食净增能量时，食欲降档是最早候选，整秒等于饥饿跨档扫描给出的时刻。"""
-    near_curve = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=7.9, entertainment_need=0)
+    """@brief 进食净增能量时，食欲降档是最早候选，整秒等于饥饿跨档扫描给出的时刻。"""
     near_emergency = BodyState(energy_kcal=401, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)
     eating = ActivityFactors(met=1.5, food_energy_kcal_per_hour=500)
 
-    curve_seconds = next_body_boundary_seconds(
-        near_curve,
-        ActivityKind.WORK,
-        body_config,
-        ActivityFactors(met=1.5),
-    )
     consume_seconds = next_body_boundary_seconds(
         near_emergency, ActivityKind.CONSUME, body_config, eating, BoundaryClock(12.0))
 
-    # 修订合同：不足账累积率 = need/(24-need)（7.5h 需要量即 7.5/16.5/h）。
-    deficit_rate = 7.5 / 16.5
-    assert curve_seconds == round((8 - 7.9) / deficit_rate * 3600)
+
     # 401 kcal、12:00：食欲约 0.91（饿得难受）；进食每小时净增约 402.5 kcal，约 500 秒后降到「很饿」。
     net_gain = 500 - (body_config.basal_kcal_per_hour + 0.5 * body_config.mass_kg)
 
@@ -263,8 +208,9 @@ def test_chat_and_call_are_predicted_but_sleep_and_game_are_not(body_config) -> 
     assert chat == int(5 * 3600 / burn) + 1
     call = next_shared_body_boundary_seconds(body, ((ActivityKind.CALL, ActivityFactors(1.3)),), config, clock)
     assert call is not None and call > chat
-    for kind in (ActivityKind.SLEEP, ActivityKind.PLAY_GAME):
-        assert next_shared_body_boundary_seconds(body, ((kind, ActivityFactors(1.0)),), config, clock) is None
+    assert next_shared_body_boundary_seconds(body, ((ActivityKind.SLEEP, ActivityFactors(1.0)),), config, clock) is None
+    app = next_shared_body_boundary_seconds(body, ((ActivityKind.USE_APP, ActivityFactors(1.0)),), config, clock)
+    assert app is not None and app > 0
 
 
 def test_meal_window_edges_are_boundary_candidates(body_config) -> None:

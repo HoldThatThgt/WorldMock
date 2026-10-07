@@ -1,12 +1,8 @@
-"""@brief 从已提交事件投影购买事实：成功购买、尝试下单与应用浏览（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「导出」）。
+"""@brief 从真实动作结果投影食品购买与尝试下单，重放订单不重复计数。
 
-成功购买取动作结果顶层 data.orders 与逐项结果 activity_results[*].orders 中的订单，按订单去重，与动作的整体状态
-无关（并行的「吃＋买」整体为 in_progress 时订单同样计入），重放回执带着同一订单，不重复计；每行另记订单载荷的
-channel_id（from 解析为渠道时的 App 标识，否则为 null，docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-购买渠道app-名解析为成员门店 ）
-。
-尝试下单是方式为到店、远程下单或「购买」的请求：所写方式按宿主与环境同一张
-方式同义表归一（vocabulary.way_options），「外卖」「自取」「买」这类同义写法与原词一样计入，way 记归一后的下单方式，
-不指向下单方式的写法不计；带首个结算结果的状态与错误码。应用浏览是方式为浏览的活动，带最后一次快照的状态。
+成功购买读取 ActionResult.data.orders 和逐项 activity_results 的订单；并行活动还在进行时已经成单的购买照样计入。
+食品、店铺、app、金额和配送方式直接来自已提交订单，不从人物叙述推测。到店购买的 app_id 为 null。
+尝试下单按当前方式同义表归一为到店、远程下单或购买，保留原动作首个结果，不产生活动浏览事实。
 """
 
 from __future__ import annotations
@@ -15,13 +11,11 @@ from worldmock.life.vocabulary import way_options
 
 #: 下单的取得方式短语（与 life.interaction_menu.NAMED_PURCHASE_WAYS 的取值相同：到店、远程下单与由系统定方式的「购买」）。
 ORDER_WAYS = ("到店", "远程下单", "购买")
-#: 方式「浏览」开始的活动类型。
-BROWSE_ACTIVITY_KIND = "browse"
 
 
 def project_purchase_facts(events: list[dict]) -> list[dict]:
-    """@brief 按事件顺序投影 purchase、order_attempt、app_browse 三类事实行（依次排列）。"""
-    return _purchases(events) + _order_attempts(events) + _app_browses(events)
+    """@brief 按事件顺序投影 purchase 与 order_attempt 两类事实行（依次排列）。"""
+    return _purchases(events) + _order_attempts(events)
 
 
 def _purchases(events: list[dict]) -> list[dict]:
@@ -36,10 +30,12 @@ def _purchases(events: list[dict]) -> list[dict]:
                 continue
             seen.add(order["order_id"])
             rows.append({"fact_kind": "purchase", "agent_id": order["agent_id"], "order_id": order["order_id"],
-                         "product_id": order["product_id"], "supply_id": order["supply_id"],
+                         "food_id": order["food_id"], "store_id": order["store_id"],
+                         "app_id": order["app_id"], "unit_price_fen": order["unit_price_fen"],
+                         "delivery_fee_fen": order["delivery_fee_fen"],
                          "quantity": order["quantity"], "total_price_fen": order["total_price_fen"],
                          "fulfillment": order["fulfillment"], "recipient_id": order["recipient_id"],
-                         "request_message_id": order["request_message_id"], "channel_id": order.get("channel_id"),
+                         "request_message_id": order["request_message_id"],
                          "created_at": order["created_at"], "action_id": event["action_id"],
                          "source_event_id": event["event_id"]})
     return rows
@@ -90,15 +86,3 @@ def _ordered(written: str) -> str | None:
     为它（如「外卖」为远程下单、「自取」为到店、「买」为「购买」），否则为 None。"""
     hits = way_options(written) & frozenset(ORDER_WAYS)
     return next(iter(hits)) if len(hits) == 1 else None
-
-
-def _app_browses(events: list[dict]) -> list[dict]:
-    """@brief 浏览活动：按首次出现排序，状态与来源取截止前最后一次权威快照。"""
-    latest: dict[str, tuple[dict, str]] = {}
-    for event in events:
-        snapshot = event["data"].get("activity")
-        if snapshot is not None and snapshot["kind"] == BROWSE_ACTIVITY_KIND:
-            latest[snapshot["activity_id"]] = (snapshot, event["event_id"])
-    return [{"fact_kind": "app_browse", "agent_id": snapshot["agent_id"], "activity_id": activity_id,
-             "started_at": snapshot["started_at"], "status": snapshot["status"], "source_event_id": source}
-            for activity_id, (snapshot, source) in latest.items()]

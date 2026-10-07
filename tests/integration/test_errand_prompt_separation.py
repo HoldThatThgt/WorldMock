@@ -27,8 +27,16 @@ from tests.integration.test_life_agent_protocol import _memory, _ModelResponse  
 from tests.integration.test_unique_presence_run import _holders  # noqa: E402
 from tests.engine_fixture import (engine_factory)  # noqa: F401
 from tests.life.conftest import (advance_next, context, errand_add, errand_cancel, errand_update, start_arguments, wake_by_mail)  # noqa: F401
-from tests.life.routing_fixtures import act, observe, routed  # noqa: E402
-from tests.life.test_errand_completion import KIT_NAME, MILK, WAIT, home  # noqa: E402
+from tests.life.routing_fixtures import (  # noqa: E402
+    MEAL_NAME,
+    SNACK_NAME,
+    WAIT_ITEM,
+    act,
+    observe,
+    routed,
+    run_until,
+    single_person_home,
+)
 from tests.life.test_errand_reminder import evening, moment  # noqa: E402
 from tests.life.test_memory_layer import _arrive, _walk  # noqa: E402
 from worldmock.life import prompt_capacity  # noqa: E402
@@ -125,12 +133,12 @@ async def test_errand_changes_write_no_memory_and_stay_out_of_self_notes_and_pro
     请求的记忆层里，在家这段停留的条目 self_notes 写着收尾与暂停的自述和收尾记忆，却没有事务的名称、备注与原因；新
     session 的进度层只有到达时收尾的调用（回执是空列表），也没有事务的文字；事务只在待办层（更新后的那条）。整个过程只有
     那次收尾是记忆写入点，AS2 记忆库里只有那条收尾记忆。"""
-    engine = home(engine_factory, {})
+    engine = single_person_home(engine_factory, {})
     environment = _environment(engine)
-    assert act(engine, "wait", routed(WAIT)).status == "in_progress"
+    assert act(engine, "wait", routed(WAIT_ITEM)).status == "in_progress"
     wake_by_mail(engine, offset=60)
     advance_next(engine)
-    noted = [errand_add(_KIT_ERRAND, KIT_NAME, memo=_KIT_MEMO), errand_add(_MILK_ERRAND, MILK, memo=_MILK_MEMO)]
+    noted = [errand_add(_KIT_ERRAND, MEAL_NAME, memo=_KIT_MEMO), errand_add(_MILK_ERRAND, SNACK_NAME, memo=_MILK_MEMO)]
     changed = [errand_update(_KIT_ERRAND, memo=_KIT_MEMO_LATER), errand_cancel(_MILK_ERRAND, _MILK_REASON)]
     model = _ScriptedModel([
         _call("call-note", "conclude_activity", lambda request: {"items": [{
@@ -148,7 +156,7 @@ async def test_errand_changes_write_no_memory_and_stay_out_of_self_notes_and_pro
     assert [item["text"] for item in stored] == [_FEELING["text"]]
     assert _memory_updates(engine) == [(decision.decision_id, ["activity_conclusion"], [stored[0]["id"]], [],
                                         [_FEELING["text"]])]
-    assert act(engine, "rest", routed(WAIT)).status == "in_progress"
+    assert act(engine, "rest", routed(WAIT_ITEM)).status == "in_progress"
     wake_by_mail(engine, offset=60)
     advance_next(engine)
     paused, registered, result = await _decide(environment, person, "pause")
@@ -205,29 +213,29 @@ def _after_midnight(request: dict) -> _ModelResponse:
 @pytest.mark.asyncio
 async def test_the_next_action_request_shows_the_errand_in_the_todo_layer_without_any_memory_query(
         engine_factory, tmp_path) -> None:  # noqa: F811
-    """1 月 5 日 23:50 人物开始等待，23:51 真实 LifeAgent 播报这段等待时记下「吃掉纯牛奶 1 份」（备注、次日 07:30 提醒）；
+    """1 月 5 日 23:50 人物开始等待，23:51 真实 LifeAgent 播报这段等待时记下「吃掉薯片 1 份」（备注、次日 07:30 提醒）；
     播报之后时间推进，零点边界照常（零点计划由确定性桩登记）。过了零点后人物的下一次决策：库里记下的这一次实际行动请求
     （model_request）只有 system 与六层 user 两条消息（不是续接），环境层是 1 月 6 日，待办层原样列着这条事务（记下日期
     仍是 1 月 5 日、提醒钟点 07:30、已吃掉 0 份）；本决策只有这一个模型请求，响应只调用了世界请求，没有任何记忆查询
     （记忆工具照常开放）。"""
     engine = evening(engine_factory, "23:50")
     environment = _environment(engine)
-    assert act(engine, "wait", routed(WAIT)).status == "in_progress"
+    assert act(engine, "wait", routed(WAIT_ITEM)).status == "in_progress"
     wake_by_mail(engine, offset=60)
     advance_next(engine)
-    milk = errand_add("明早先喝的那盒奶", MILK, outcome="吃掉", memo="起床后别空腹喝太凉的", remind_time="07:30")
+    snack = errand_add("明早先吃的那份薯片", SNACK_NAME, outcome="吃掉", memo="起床后记得吃", remind_time="07:30")
     model = _ScriptedModel([
         _call("call-note", "report_status", lambda request: {"items": [{
-            "activity_name": _activity(request, "进行中"), "summary": "再等一会儿就去睡。"}], "errands": [milk]}),
+            "activity_name": _activity(request, "进行中"), "summary": "再等一会儿就去睡。"}], "errands": [snack]}),
         _after_midnight])
     person = await _person(environment, tmp_path / "agent_0001", model)
     _, registered, result = await _decide(environment, person, "note")
     assert (registered, result.status.value, result.data["errands"]) == (
-        "report_status registered", "completed", _receipt([milk]))
+        "report_status registered", "completed", _receipt([snack]))
     assert 1 not in engine.scheduling_state().ready_agent_ids
-    while not engine.scheduling_state().ready_agent_ids:
-        advance_next(engine)
-    assert engine.context.state.current_time >= moment(engine, "2026-01-06 00:00")
+    midnight = moment(engine, "2026-01-06 00:00")
+    run_until(engine, lambda current: current.context.state.current_time >= midnight
+              and bool(current.scheduling_state().ready_agent_ids))
 
     decision, registered, _ = await _decide(environment, person, "after-midnight")
 
@@ -239,8 +247,9 @@ async def test_the_next_action_request_shows_the_errand_in_the_todo_layer_withou
     assert [message["role"] for message in messages] == ["system", "user"]
     layers = json.loads(messages[1]["content"])
     assert layers[4]["observed_at"].startswith("2026-01-06")
-    assert layers[3]["errands"] == [{"name": "明早先喝的那盒奶", "done_when": "吃掉纯牛奶 1 份", "progress": "已吃掉 0 份",
-                                     "memo": "起床后别空腹喝太凉的", "remind_time": "07:30", "noted_on": "2026-01-05"}]
+    assert layers[3]["errands"] == [{"name": "明早先吃的那份薯片", "done_when": f"吃掉{SNACK_NAME} 1 份",
+                                     "progress": "已吃掉 0 份", "memo": "起床后记得吃", "remind_time": "07:30",
+                                     "noted_on": "2026-01-05"}]
     offered = [tool["function"]["name"] for tool in requested.data["request"]["tools"]]
     assert {"memory_recent", "memory_search", "memory_time_range"} <= set(offered)
     called = [call["function"]["name"] for event in responses

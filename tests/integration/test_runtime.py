@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from tests.data_paths import ENVIRONMENT_ROOT
-import worldmock.run_setup as worldmock_run_setup_module
 from worldmock.footprints.checkpoint import restore_branch
 
 import copy
@@ -26,6 +25,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/bet
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 import worldmock.runtime as runtime_module
+from tests.integration.runtime_fixtures import write_agent_workspace
 from tests.integration.as2_fixtures import (
     FAKE_AS2_FILES,
     expected_as2_sha256,
@@ -38,10 +38,8 @@ from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.models import canonical_json
 from worldmock.footprints.store import FootprintStore
 from worldmock.life.models import CounterfactualIntervention
-from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
 from worldmock.runtime import CounterfactualRequest, ResumeRequest, RunRequest, _build_society, _execute, _intervention_sha256, _no_persona_compilation, _prepare_new_run, _require_run_shell, _restore_branch, replay_world, resume_world, run_world
 from worldmock.validation import validate_project
-from worldmock.run_setup import validate_stage_model_identity
 
 ROOT = Path(__file__).resolve().parents[2]
 SCENARIO = ENVIRONMENT_ROOT / "scenarios" / "single-person.json"
@@ -51,6 +49,8 @@ _AS2_REFUSAL = "AS2 runtime identity differs from the locked source"
 
 def test_model_identity_freezes_complete_strict_endpoint_and_request() -> None:
     """运行身份记录完整节点 URL 和唯一 strict 请求参数。"""
+    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
+
     identity = _model_identity().model_dump(mode="json")
 
     assert identity["base_url"] == "https://api.deepseek.com/beta"
@@ -64,6 +64,8 @@ def test_model_identity_freezes_complete_strict_endpoint_and_request() -> None:
 
 def test_model_identity_top_level_tracks_life_agent_action_constants() -> None:
     """顶层 thinking/tool_choice 与 B2 导出的行动阶段常量同源。"""
+    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
+
     from custom.agents.life_agent import ACTION_THINKING, ACTION_TOOL_CHOICE
 
     identity = _model_identity()
@@ -74,6 +76,8 @@ def test_model_identity_top_level_tracks_life_agent_action_constants() -> None:
 
 def test_stage_model_identity_shape_matches_life_agent_constants() -> None:
     """阶段身份只有行动与工作验收两个阶段，行动参数与 LifeAgent 常量单一事实源一致。"""
+    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
+
     from custom.agents.life_agent import (
         ACTION_THINKING,
         ACTION_TOOL_CHOICE,
@@ -83,12 +87,11 @@ def test_stage_model_identity_shape_matches_life_agent_constants() -> None:
     identity = stage_model_identity()
     stages = identity["stages"]
 
-    assert set(stages) == {"action", "work_review"}
+    assert set(stages) == {"action"}
     assert stages["action"] == {"thinking": ACTION_THINKING["thinking"]["type"],
                                 "tool_choice": ACTION_TOOL_CHOICE, "max_tokens": ACTION_MAX_TOKENS,
                                 "same_second_continuation": True}
     assert stage_model_identity(False)["stages"]["action"]["same_second_continuation"] is False
-    assert stages["work_review"] == {"thinking": "disabled", "tool_choice": "required"}
     assert identity["base_url"] == "https://api.deepseek.com/beta"
     assert identity["max_retries"] == 0 and identity["strict"] is True
     assert identity["reasoning_effort"] is None
@@ -96,6 +99,9 @@ def test_stage_model_identity_shape_matches_life_agent_constants() -> None:
 
 def test_stage_model_identity_is_frozen_and_tamper_rejected() -> None:
     """阶段身份运行中不变更；任何篡改被一致性校验拒绝。"""
+    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
+    from worldmock.run_setup import validate_stage_model_identity
+
     identity = stage_model_identity()
 
     assert stage_model_identity() == identity
@@ -120,6 +126,8 @@ def test_stage_model_identity_is_frozen_and_tamper_rejected() -> None:
 def test_agent_specs_inject_compiled_persona_card_text() -> None:
     """新建运行注入 PersonaCard 渲染文本与结构化字段（去掉当下处境），两者都取经场景作息覆盖后的卡片
     （docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-场景作息覆盖卡片抽取值 ）；恢复模式不重新编译。"""
+    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
+
     from tests.profile.conftest import make_card
     from worldmock.life.world_setup import load_scenario
     from worldmock.profile.injection import apply_scenario_rhythm
@@ -127,6 +135,9 @@ def test_agent_specs_inject_compiled_persona_card_text() -> None:
     from worldmock.profile.textgen import render_card
 
     scenario = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
+    configured = scenario.agents[0].model_copy(update={"background_story": "测试人物的真实画像背景。",
+                                                      "bedtime_window": (22.0, 23.0)})
+    scenario = scenario.model_copy(update={"agents": (configured,)})
     compiled: list[int] = []
     card = make_card()
 
@@ -147,22 +158,12 @@ def test_agent_specs_inject_compiled_persona_card_text() -> None:
     assert restored[0]["config"]["max_react_turns"] == 16
 
 
-def _write_agent_workspace(workspace: Path, *, initialized: bool = False) -> None:
-    """写入 runtime 恢复验证使用的最小严格 LifeAgent 工作区。"""
-    workspace.mkdir()
-    agent = {
-        "schema_version": 1,
-        "agent_class": "LifeAgent",
-        "agent_id": 1,
-        "initialized_at": "2026-01-01T00:00:00+00:00" if initialized else None,
-        "profile": {"id": 1, "same_second_continuation": True},
-    }
-    (workspace / "AGENT.json").write_text(json.dumps(agent))
-    (workspace / "config.json").write_text(json.dumps({"enable_memory": True, "max_react_turns": 16}))
 
 
 def test_imported_as2_matches_rebuildable_locked_source() -> None:
     """实际导入的 AS2 与固定基线加补丁重建的唯一源码身份一致。"""
+    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
+
     files = require_locked_as2()
 
     assert files and all(label.startswith("agentsociety2/") for label, _ in files)
@@ -171,6 +172,8 @@ def test_imported_as2_matches_rebuildable_locked_source() -> None:
 
 def test_runtime_code_identity_is_deterministic(monkeypatch, tmp_path, tmp_path_factory) -> None:
     """同一工程与同一 AS2 包重复计算得到相同代码身份（AS2 取临时包，不依赖本机安装）。"""
+    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
+
     project = write_project(tmp_path / "project")
     use_fake_as2(monkeypatch, tmp_path_factory.mktemp("as2-site"))
 
@@ -185,6 +188,9 @@ def test_code_identity_covers_every_imported_as2_file_except_pycache(
         monkeypatch, tmp_path, tmp_path_factory) -> None:
     """AS2 包内任一文件（含非 Python 文件与新增文件）字节变化都改变 code_sha256，__pycache__ 不计入；
     未改锁定摘要时字节变化即按摘要不符拒绝。"""
+    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
+    import worldmock.run_setup as worldmock_run_setup_module
+
     project = write_project(tmp_path / "project")
     package = use_fake_as2(monkeypatch, tmp_path_factory.mktemp("as2-site"))
     seen = {runtime_code_sha256(project)}
@@ -207,6 +213,9 @@ def test_code_identity_covers_every_imported_as2_file_except_pycache(
 
 def test_as2_identity_is_independent_of_install_location(monkeypatch, tmp_path, tmp_path_factory) -> None:
     """同一份 AS2 源码装在不同位置：find_spec 解析到哪个目录都得到相同标签、通过同一锁定摘要、code_sha256 相同。"""
+    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
+    import worldmock.run_setup as worldmock_run_setup_module
+
     project = write_project(tmp_path / "project")
     name = f"worldmock_fake_as2_{uuid4().hex}"
     first = write_fake_as2(tmp_path_factory.mktemp("site-a"), name)
@@ -228,6 +237,8 @@ def test_as2_identity_is_independent_of_install_location(monkeypatch, tmp_path, 
 
 def _break_as2(condition: str, monkeypatch, site: Path) -> None:
     """把运行身份解析到的 AS2 置为缺失（导入失败）、为空或与锁定摘要不符。"""
+    import worldmock.run_setup as worldmock_run_setup_module
+
     if condition == "missing":
         monkeypatch.setattr(worldmock_run_setup_module, '_AS2_PACKAGE', f'worldmock_absent_as2_{uuid4().hex}')
     elif condition == "empty":
@@ -263,6 +274,9 @@ async def test_unlocked_as2_refuses_run_resume_replay_and_validate(
 @pytest.mark.parametrize("variant", ["blocked", "no_spec", "not_a_package"])
 def test_as2_lookup_failures_are_identity_refusals(variant, monkeypatch, tmp_path, tmp_path_factory) -> None:
     """导入被阻断、已导入对象没有 spec、同名对象不是包：都按 AS2 身份不符拒绝，也不给出代码身份。"""
+    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
+    import worldmock.run_setup as worldmock_run_setup_module
+
     project = write_project(tmp_path / "project")
     name = f"worldmock_fake_as2_{uuid4().hex}"
     monkeypatch.setattr(worldmock_run_setup_module, '_AS2_PACKAGE', name)
@@ -284,6 +298,9 @@ def test_as2_lookup_failures_are_identity_refusals(variant, monkeypatch, tmp_pat
 @pytest.mark.parametrize("failure", ["vanished", "unreadable"])
 def test_as2_file_read_failure_is_an_identity_refusal(failure, monkeypatch, tmp_path) -> None:
     """核对时 AS2 文件已消失或不可读：按 AS2 身份不符拒绝，只用规格的唯一拒绝文案。"""
+    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
+    import worldmock.run_setup as worldmock_run_setup_module
+
     path = tmp_path / "agentsociety2" / "society.py"
     if failure == "unreadable":
         path.parent.mkdir()
@@ -306,6 +323,8 @@ def test_as2_file_read_failure_is_an_identity_refusal(failure, monkeypatch, tmp_
 
 def test_experiment_registers_the_locked_as2_source_digest_verbatim() -> None:
     """EXPERIMENT「AS2 基线与框架依赖」登记的 AS2 源码摘要与代码常量逐字相同（EX3）。"""
+    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
+
     text = (ROOT / "docs" / "EXPERIMENT.md").read_text(encoding="utf-8")
     section = text.split("### AS2 基线与框架依赖", 1)[1].split("\n### ", 1)[0]
     rows = [[cell.strip() for cell in line.strip().strip("|").split("|")]
@@ -347,6 +366,8 @@ def _committed_project(root: Path) -> tuple[Path, str]:
 def test_git_state_records_head_and_dirty_flag_of_the_checkout(monkeypatch, tmp_path_factory) -> None:
     """git_commit 取 HEAD；git_dirty 取 git status --porcelain 是否非空（含未跟踪文件、不含忽略文件）；
     项目根在检出的子目录中时同样记录该检出，非 Git 目录时二者为 null。"""
+    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
+
     _hermetic_git(monkeypatch, tmp_path_factory)
     repository, head = _committed_project(tmp_path_factory.mktemp("checkout"))
     assert _git_state(repository) == (head, False)
@@ -367,6 +388,9 @@ def test_git_state_records_head_and_dirty_flag_of_the_checkout(monkeypatch, tmp_
 
 def test_git_state_is_null_when_git_is_unavailable_or_status_fails(monkeypatch, tmp_path) -> None:
     """git 不可执行，或 HEAD 可读而 status 失败时，二者为 null，不阻断启动。"""
+    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
+    import worldmock.run_setup as worldmock_run_setup_module
+
     commands = []
 
     def missing_git(command, **kwargs):
@@ -432,7 +456,7 @@ def test_restore_publishes_database_agents_and_status_together(tmp_path) -> None
     state = {"version": 0, "current_time": 1, "run_id": "parent"}
     parent = FootprintStore.create(parent_dir, manifest, state)
     workspace = tmp_path / "agent"
-    _write_agent_workspace(workspace)
+    write_agent_workspace(workspace)
     snapshots = {
         "agent:1": snapshot_directory(workspace, parent.assets),
         "life": parent.assets.put_json({"state_version": 0}, {"kind": "life_checkpoint"}),
@@ -465,7 +489,7 @@ def test_counterfactual_branch_freezes_intervention_before_publish(tmp_path) -> 
     state = {"version": 0, "current_time": 1, "run_id": "parent"}
     parent = FootprintStore.create(parent_dir, manifest, state)
     workspace = tmp_path / "agent"
-    _write_agent_workspace(workspace)
+    write_agent_workspace(workspace)
     snapshots = {
         "agent:1": snapshot_directory(workspace, parent.assets),
         "life": parent.assets.put_json({"state_version": 0}, {"kind": "life_checkpoint"}),
@@ -505,7 +529,7 @@ def test_restore_rejects_corrupt_used_memory_before_branch_publish(tmp_path) -> 
     state = {"version": 0, "current_time": 1, "run_id": "parent"}
     parent = FootprintStore.create(parent_dir, manifest, state)
     workspace = tmp_path / "agent"
-    _write_agent_workspace(workspace, initialized=True)
+    write_agent_workspace(workspace, initialized=True)
     (workspace / "memory").mkdir()
     (workspace / "MEMORY.md").write_text("# Memory\n")
     (workspace / "memory" / "episodes.jsonl").write_text("{damaged}\n")
@@ -663,8 +687,10 @@ def test_society_build_failure_terminates_created_actor(monkeypatch, tmp_path) -
 
     monkeypatch.setattr(runtime, "_require_custom_modules", lambda root: None)
     monkeypatch.setattr(llm_dispatcher, "build_client_for_role", lambda role: role)
-    monkeypatch.setattr(runtime, "life_env_actor_class", lambda: ActorClass)
-    monkeypatch.setattr(runtime, "LifeEnvProxy", reject_router)
+    from worldmock.life import read_query_runtime
+
+    monkeypatch.setattr(read_query_runtime, "life_env_actor_class", lambda: ActorClass)
+    monkeypatch.setattr(read_query_runtime, "LifeEnvProxy", reject_router)
     monkeypatch.setattr(ray, "kill", lambda target, no_restart: calls.append(("kill", target, no_restart)))
     from worldmock.life.world_setup import load_scenario
 
@@ -699,13 +725,21 @@ class _StubContactReplyClient:
 
 def _npc_delivery_engine(tmp_path: Path):
     """建立隔离运行的 LifeEngine 与裸 LifeEnv 包装（采纳点=commit 后结算）。"""
+    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
+
     from agentsociety2.society import DecisionContext, DirectToolCall
     from tests.life.conftest import context, start_request
     from worldmock.life.engine import LifeEngine
 
-    scenario_path = ENVIRONMENT_ROOT / "scenarios/single-person.json"
+    from tests.engine_fixture import _mutated_scenario
     from worldmock.life.world_setup import load_scenario
 
+    source = ENVIRONMENT_ROOT / "scenarios/single-person.json"
+    contact = {"contact_id": "contact-chenxi-oldfriend", "salutation": "沈昊", "relation": "friend",
+               "closeness": 20, "channels": ["message", "phone"], "reply_policy": "model",
+               "receive_location_id": "office"}
+    scenario_path = _mutated_scenario(source, lambda document: document["agents"][0].update(contacts=[contact]),
+                                     tmp_path / "scenario")
     scenario, _ = load_scenario(scenario_path)
     run_id = "npc-delivery-test"
     from worldmock.life.models import RunIdentity
@@ -845,6 +879,8 @@ def _checkpoint_request(engine, tmp_path: Path, round_id: str):
 @pytest.mark.asyncio
 async def test_life_env_checkpoint_plans_the_start_day_after_the_initial_checkpoint(tmp_path, monkeypatch) -> None:
     """启动路径：新建运行的初始检查点之后、首次决策之前生成当日计划；工作区字节不变，不产生人物事件。"""
+    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
+
     from custom.envs.life_env import LifeEnv
 
     engine, context, _DecisionContext, _DirectToolCall = _npc_delivery_engine(tmp_path)
@@ -867,7 +903,7 @@ async def test_life_env_checkpoint_plans_the_start_day_after_the_initial_checkpo
         assert order.index("checkpoint_created") < order.index("day_plan_generated")
         assert not {"observation", "decision_started", "memory_updated"} & set(order)
         assert {path: (Path(path) / "AGENT.json").read_bytes() for _, path in request.agent_workspaces} == before
-        assert set(stage_model_identity()["stages"]) == {"action", "work_review"}
+        assert set(stage_model_identity()["stages"]) == {"action"}
         _forbid_plan_day_client(monkeypatch)
         await env.checkpoint(_checkpoint_request(engine, tmp_path, "again"))
     finally:
@@ -903,8 +939,8 @@ async def test_life_env_step_plans_midnight_before_the_step_checkpoint(tmp_path,
         engine.close()
 
 
-def _resume_branch(tmp_path: Path, planned: bool, metadata: dict | None = None) -> Path:
-    """从新建运行的检查点恢复子分支（planned 为假时取计划尚未生成的初始检查点），返回子运行目录。"""
+def _resume_branch(tmp_path: Path, planned: bool, metadata: dict | None = None) -> tuple[Path, Path]:
+    """从真实检查点恢复子分支，返回子运行目录与经哈希核验的原始场景路径。"""
     from tests.life.conftest import settle_day_plans
 
     engine, _context, _DecisionContext, _DirectToolCall = _npc_delivery_engine(tmp_path)
@@ -917,7 +953,9 @@ def _resume_branch(tmp_path: Path, planned: bool, metadata: dict | None = None) 
         checkpoint = engine.checkpoint({"agent:1": snapshot_directory(workspace, engine.context.store.assets)})
         child = tmp_path / ("planned-child" if planned else "child")
         restore_branch(engine.context.store, checkpoint.checkpoint_id, child, metadata).close()
-        return child
+        scenario_path = tmp_path / "scenario" / "scenarios" / SCENARIO.name
+        assert hashlib.sha256(scenario_path.read_bytes()).hexdigest() == engine.context.state.scenario_sha256
+        return child, scenario_path
     finally:
         engine.close()
 
@@ -928,7 +966,7 @@ async def test_plain_resume_plans_the_missing_day_in_init_once(tmp_path, monkeyp
     from custom.envs.life_env import LifeEnv
 
     scenario = ENVIRONMENT_ROOT / "scenarios/single-person.json"
-    child = _resume_branch(tmp_path, planned=False)
+    child, scenario = _resume_branch(tmp_path, planned=False)
     client = _plan_day_client(monkeypatch)
     env = LifeEnv(scenario_path=str(scenario), run_dir=str(child), open_existing=True)
     await env.init(datetime.fromisoformat("2026-01-05T00:00:00+08:00"))
@@ -940,9 +978,9 @@ async def test_plain_resume_plans_the_missing_day_in_init_once(tmp_path, monkeyp
     finally:
         await env.close()
     (tmp_path / "second").mkdir()
-    planned_child = _resume_branch(tmp_path / "second", planned=True)
+    planned_child, planned_scenario = _resume_branch(tmp_path / "second", planned=True)
     _forbid_plan_day_client(monkeypatch)
-    again = LifeEnv(scenario_path=str(scenario), run_dir=str(planned_child), open_existing=True)
+    again = LifeEnv(scenario_path=str(planned_scenario), run_dir=str(planned_child), open_existing=True)
     await again.init(datetime.fromisoformat("2026-01-05T00:00:00+08:00"))
     await again.close()
 
@@ -952,10 +990,10 @@ async def test_counterfactual_init_waits_for_the_intervention_checkpoint(tmp_pat
     """反事实分支的 init 不执行零点计划（在干预检查点之后执行），不构造客户端。"""
     from custom.envs.life_env import LifeEnv
 
-    child = _resume_branch(tmp_path, planned=False,
+    child, scenario = _resume_branch(tmp_path, planned=False,
                            metadata={"branch_kind": "counterfactual", "intervention_sha256": "a" * 64})
     _forbid_plan_day_client(monkeypatch)
-    env = LifeEnv(scenario_path=str(ENVIRONMENT_ROOT / "scenarios/single-person.json"), run_dir=str(child), open_existing=True)
+    env = LifeEnv(scenario_path=str(scenario), run_dir=str(child), open_existing=True)
     await env.init(datetime.fromisoformat("2026-01-05T00:00:00+08:00"))
     try:
         assert env.engine.context.state.agents[1].day_plan is None
@@ -968,14 +1006,14 @@ async def test_plan_day_failure_during_resume_init_is_registered_before_raising(
     """普通恢复中零点计划失败：init 先经 engine.fail_run 登记运行故障再抛出（AS2 的故障登记范围之外）。"""
     from custom.envs.life_env import LifeEnv
 
-    child = _resume_branch(tmp_path, planned=False)
+    child, scenario = _resume_branch(tmp_path, planned=False)
 
     class FailingClient(_RecordingPlanDayClient):
         async def call(self, request):
             raise ConnectionError("plan day transport down")
 
     monkeypatch.setattr(runtime_module, "PlanDayClient", FailingClient)
-    env = LifeEnv(scenario_path=str(ENVIRONMENT_ROOT / "scenarios/single-person.json"), run_dir=str(child), open_existing=True)
+    env = LifeEnv(scenario_path=str(scenario), run_dir=str(child), open_existing=True)
     with pytest.raises(ConnectionError, match="transport down"):
         await env.init(datetime.fromisoformat("2026-01-05T00:00:00+08:00"))
     try:
@@ -1063,6 +1101,8 @@ async def test_plan_day_failure_at_the_initial_checkpoint_is_one_run_failure_thr
         tmp_path, monkeypatch) -> None:
     """新建运行的启动路径：初始检查点之后零点计划失败，在 Society.init 登记故障的范围内登记唯一 run_failed 后原样抛出；
     检查点、零点计划的请求与失败证据依次保留。"""
+    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
+
     import agentsociety2.society.society as society_module
     from agentsociety2.config import llm_dispatcher
     from agentsociety2.society import AgentSociety
@@ -1110,98 +1150,26 @@ async def test_plan_day_failure_at_the_initial_checkpoint_is_one_run_failure_thr
         await env.close()
 
 
-def test_agent_specs_computes_taste_weights_from_the_compiled_card(monkeypatch) -> None:
-    """装配侧由同一次编译的卡片口味计算确定性权重（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」）。"""
-    import worldmock.runtime as runtime_module
-    from worldmock.life.world_setup import load_scenario
-    from worldmock.profile.injection import apply_scenario_rhythm
-    from worldmock.profile.taste import compute_taste_weights
-
-    from tests.profile.conftest import make_card
-    from worldmock.profile.models import Tastes
-    from worldmock.profile.textgen import render_card
-
-    scenario = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
-    card = make_card(tastes=Tastes(content_genres=("剧情", "科幻"), food_preferences=(), media=()))
-    compiled: list[int] = []
-
-    def fake_compile(agent):
-        compiled.append(agent.agent_id)
-        return card
-
-    monkeypatch.setattr(worldmock_run_setup_module, '_compile_persona', fake_compile)
-    genres = {item.item_id: ("剧情",) for item in scenario.contents}
-    full, half, empty = (item.item_id for item in scenario.contents[:3])
-    genres[full], genres[half], genres[empty] = ("剧情", "科幻"), ("剧情", "历史"), ()
-
-    specs = _agent_specs(scenario, content_genres=genres)
-
-    weights = specs[0]["profile"]["taste_weights"]
-    # 游戏与内容同一算法（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ，裁决 S1）：游戏按 game_id 查同一张题材表，没有声明的为空。
-    expected = compute_taste_weights(
-        ("剧情", "科幻"),
-        [{"item_id": item.item_id, "genre": genres[item.item_id]}
-         for item in scenario.contents]
-        + [{"item_id": item.game_id, "genre": ()} for item in scenario.games])
-    assert compiled == [1]
-    assert specs[0]["profile"]["persona_card"] == render_card(apply_scenario_rhythm(card, scenario.agents[0]).card)
-    assert weights == expected
-    assert weights[full] == 1.0 and weights[half] == 0.5 and weights[empty] == 0.0
-    assert scenario.games and all(weights[item.game_id] == 0.0 for item in scenario.games)
 
 
-def test_agent_specs_card_without_tastes_yields_all_zero_weights(monkeypatch) -> None:
-    """无口味卡片：全内容与游戏目录权重为 0（无缺省抬升），键集覆盖全部条目。"""
-    import worldmock.runtime as runtime_module
-    from worldmock.life.world_setup import load_scenario
-
-    from tests.profile.conftest import make_card
-    from worldmock.profile.models import Tastes
-
-    scenario = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
-    card = make_card(tastes=Tastes(content_genres=(), food_preferences=(), media=()))
-    monkeypatch.setattr(worldmock_run_setup_module, '_compile_persona', lambda agent: card)
-
-    specs = _agent_specs(scenario, content_genres={item.item_id: ("剧情",)
-                                                   for item in scenario.contents})
-
-    weights = specs[0]["profile"]["taste_weights"]
-    assert set(weights) == ({item.item_id for item in scenario.contents}
-                            | {item.game_id for item in scenario.games})
-    assert weights and all(value == 0.0 for value in weights.values())
 
 
-def test_agent_specs_restore_mode_never_recompiles_tastes(monkeypatch) -> None:
-    """恢复模式不重算口味权重：人物档案随检查点工作区原样恢复。"""
+def test_agent_specs_restore_mode_never_recompiles_personas(monkeypatch) -> None:
+    """恢复装配不重新编译画像；人物档案由检查点工作区原样恢复。"""
+    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
+    import worldmock.run_setup as worldmock_run_setup_module
+
     import worldmock.runtime as runtime_module
     from worldmock.life.world_setup import load_scenario
 
     def forbidden(agent):
-        raise AssertionError("restore path must not compile personas or tastes")
+        raise AssertionError("restore path must not compile personas")
 
     monkeypatch.setattr(worldmock_run_setup_module, '_compile_persona', forbidden)
-    scenario = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
+    scenario = load_scenario(ROOT / "tests/fixtures/environment/scenarios/single-person.json")[0]
 
     specs = _agent_specs(scenario, persona_compiler=_no_persona_compilation)
 
     assert "persona_card" not in specs[0]["profile"]
     assert "persona_card_struct" not in specs[0]["profile"]
     assert "taste_weights" not in specs[0]["profile"]
-
-
-def test_content_genre_catalog_joins_contents_to_corpus_genres() -> None:
-    """装配侧 genre 表：场景内容经 item_id 连接语料条目 genre（无 id 条目缺省空）。"""
-    from worldmock.run_setup import _content_genre_catalog
-    from worldmock.life.world_setup import load_scenario
-
-    scenario_path = ENVIRONMENT_ROOT / "scenarios/single-person.json"
-    scenario, _ = load_scenario(scenario_path)
-
-    genres = _content_genre_catalog(scenario_path, scenario)
-
-    assert genres["movie-0001"] == ("剧情", "历史")
-    # sintel 的身份文件（single 装载）在补入 item_id 与 genre 后成为一条真实条目：
-    # 可观看内容本就该带题材，故它进表而非缺席（旧断言以"无 item_id 即缺席"为前提，已失效）。
-    assert genres["sintel-en-subtitles"] == ("动画", "奇幻")
-    joined = {item.item_id for item in scenario.contents} & set(genres)
-    assert joined

@@ -1,0 +1,884 @@
+{
+  "分类与规则归系统（分类与规则归系统）": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-固定规则与常数",
+    "tests": [
+      "tests/exchange/test_types.py::test_fixed_type_sets_and_labels",
+      "tests/exchange/test_constants.py::test_fixed_constants_and_immutable_food_table",
+      "tests/exchange/test_constants.py::test_body_constants_and_resource_metas",
+      "tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones",
+      "tests/exchange/test_operators.py::test_food_energy_uses_category_and_fraction",
+      "tests/exchange/test_operators.py::test_travel_and_delivery_round_up_with_fare_minimum",
+      "tests/exchange/test_operators.py::test_decimal_precision_does_not_change_settlement",
+      "tests/exchange/test_operators.py::test_fixed_operators_keep_existing_decimal_settlement_results",
+      "tests/catalog/test_loader.py::test_catalog_rejects_retired_object_fields",
+      "tests/catalog/test_admission.py::test_registration_rejects_every_retired_file",
+      "tests/catalog/test_admission.py::test_registration_rejects_manifest_values[rules_version-2]"
+    ],
+    "implementation": [
+      "src/worldmock/exchange/constants.py::RULES_VERSION",
+      "src/worldmock/exchange/body.py::BODY_CONSTANTS",
+      "src/worldmock/exchange/types.py::LocationKind",
+      "src/worldmock/exchange/operators.py::evaluate_food_energy",
+      "src/worldmock/exchange/operators.py::evaluate_travel_fare"
+    ]
+  },
+  "环境登记与错误码": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-注册校验与错误",
+    "tests": [
+      "tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes",
+      "tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample",
+      "tests/catalog/test_admission.py::test_registration_rejects_manifest_values",
+      "tests/catalog/test_admission.py::test_registration_rejects_missing_manifest_file_entry",
+      "tests/catalog/test_admission.py::test_registration_rejects_file_identity_drift",
+      "tests/catalog/test_admission.py::test_registration_rejects_duplicate_identity",
+      "tests/catalog/test_admission.py::test_registration_rejects_too_small_map",
+      "tests/catalog/test_admission.py::test_registration_rejects_nonfinite_work_target",
+      "tests/catalog/test_admission.py::test_registration_rejects_unbound_app",
+      "tests/test_cli.py::test_generate_map_command_writes_the_real_library_bytes",
+      "tests/test_cli.py::test_generate_map_check_preserves_matching_and_mismatched_output",
+      "tests/test_cli.py::test_generate_map_check_uses_the_real_cli_dispatch",
+      "tests/test_validation.py::test_validate_environment_command_accepts_the_actual_artificial_environment",
+      "tests/test_validation.py::test_validate_environment_rejects_map_bytes_even_when_manifest_is_republished",
+      "tests/test_validation.py::test_validate_environment_rejects_republished_engine_rule_byte_changes[affordances.toml]",
+      "tests/test_validation.py::test_validate_environment_rejects_republished_engine_rule_byte_changes[rules/motivation.toml]",
+      "tests/test_validation.py::test_validate_environment_rejects_republished_engine_rule_byte_changes[rules/persona-mapping.toml]",
+      "tests/test_validation.py::test_validate_environment_reports_corpus_failure_for_every_affected_scenario",
+      "tests/test_validation.py::test_validate_environment_checks_every_scenario_after_a_scenario_failure",
+      "tests/test_validation.py::test_validate_environment_rejects_no_scenarios",
+      "tests/test_validation.py::test_validate_environment_command_rejects_real_registration_counterexamples",
+      "tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[rules_version-RULES_VERSION_MISMATCH]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[retired-ENVIRONMENT_STALE_FILE]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[unlisted-ENVIRONMENT_FILE_UNLISTED]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[identity-ENVIRONMENT_IDENTITY_MISMATCH]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[unbound-APP_UNBOUND]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[small_map-MAP_TOO_SMALL]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[self_edge-MAP_EDGE_INVALID]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[disconnected-MAP_DISCONNECTED]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references[pin-ENVIRONMENT_PIN_MISMATCH]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references[topic-WORK_TOPIC_UNKNOWN]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references[merchant-MERCHANT_ACCOUNT_MISSING]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references[schedule-WORK_SCHEDULE_REQUIRED]"
+    ],
+    "implementation": [
+      "src/worldmock/catalog/admission.py::validate_manifest",
+      "src/worldmock/catalog/admission.py::validate_registration",
+      "src/worldmock/catalog/errors.py::RegistrationError",
+      "src/worldmock/cli.py::_environment_command",
+      "src/worldmock/cli.py::_environment_arguments",
+      "src/worldmock/validation.py::validate_environment",
+      "src/worldmock/validation.py::_validate_environment_scenarios"
+    ]
+  },
+  "同类店铺同商品（同类店铺同商品）": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-店铺食品与外卖",
+    "tests": [
+      "tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes",
+      "tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample"
+    ],
+    "implementation": [
+      "src/worldmock/catalog/admission.py::_check_foods",
+      "src/worldmock/catalog/loader.py::_catalog_view"
+    ]
+  },
+  "地图生成连通且字节稳定（地图连通且长度可计时）": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-环境格式",
+    "tests": [
+      "tests/catalog/test_mapgen.py::test_map_generation_is_deterministic_and_seeded",
+      "tests/catalog/test_mapgen.py::test_map_edge_counts_length_bounds_and_connectivity",
+      "tests/catalog/test_mapgen.py::test_map_matches_frozen_artificial_seed",
+      "tests/catalog/test_mapgen.py::test_sorted_nodes_independent_tree_stream_and_length_assignment",
+      "tests/catalog/test_mapgen.py::test_map_edge_counts_length_bounds_and_connectivity[7]",
+      "tests/catalog/test_admission.py::test_registration_rejects_invalid_map",
+      "tests/catalog/test_admission.py::test_registration_rejects_too_small_map",
+      "tests/catalog/test_mapgen.py::test_map_check_rejects_changed_bytes_without_rewriting",
+      "tests/catalog/test_mapgen.py::test_runtime_catalog_does_not_regenerate_map",
+      "tests/test_cli.py::test_generate_map_check_uses_the_real_cli_dispatch",
+      "tests/test_validation.py::test_validate_environment_rejects_map_bytes_even_when_manifest_is_republished",
+      "tests/catalog/test_admission.py::test_registration_rejects_invalid_map[disconnected]",
+      "tests/catalog/test_admission.py::test_registration_rejects_invalid_map[self]"
+    ],
+    "implementation": [
+      "src/worldmock/catalog/mapgen.py::generate_map",
+      "src/worldmock/catalog/mapgen.py::require_regenerated_map",
+      "src/worldmock/catalog/admission.py::validate_map",
+      "src/worldmock/cli.py::_environment_command",
+      "src/worldmock/cli.py::_environment_arguments",
+      "src/worldmock/validation.py::validate_environment",
+      "src/worldmock/validation.py::_validate_environment_scenarios"
+    ]
+  },
+  "最短路与完整路径决胜": {
+    "stage": "2",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-地图与出行",
+    "tests": [
+      "tests/catalog/test_graph.py::test_full_path_lexicographic_tie_ignores_discovery_and_edge_order",
+      "tests/catalog/test_graph.py::test_hand_calculated_paths_and_same_place_zero",
+      "tests/catalog/test_graph.py::test_catalog_routes_through_an_unselected_intermediate_location",
+      "tests/catalog/test_graph.py::test_catalog_graph_does_not_recreate_published_edges"
+    ],
+    "implementation": [
+      "src/worldmock/catalog/graph.py::Graph.shortest_paths",
+      "src/worldmock/catalog/models.py::Catalog.shortest_m"
+    ]
+  },
+  "包资源身份与原子发布": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-环境目录文件",
+    "tests": [
+      "tests/catalog/test_engine_package_resources.py::test_artificial_rule_snapshots_equal_engine_package",
+      "tests/catalog/test_engine_package_resources.py::test_changed_rule_snapshot_is_rejected_after_identity_refresh",
+      "tests/catalog/test_identity.py::test_catalog_identity_publication_is_atomic"
+    ],
+    "implementation": [
+      "src/worldmock/catalog/loader.py::require_engine_rules",
+      "src/worldmock/catalog/identity.py::refresh_manifest_identity"
+    ]
+  },
+  "占用闭集与并行准入": {
+    "stage": "4",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-闭集",
+    "tests": [
+      "tests/catalog/test_affordance_shadow.py::test_final_claim_slots_and_activity_kinds_are_closed",
+      "tests/catalog/test_affordance_shadow.py::test_retired_claim_names_are_rejected",
+      "tests/catalog/test_affordance_shadow.py::test_only_same_kind_sleep_and_driving_share_claims",
+      "tests/catalog/test_affordance_shadow.py::test_app_claims_match_activity_admission",
+      "tests/catalog/test_affordance_shadow.py::test_retired_claim_names_are_rejected[list-watch]",
+      "tests/life/test_app_progress.py::test_content_relief_is_fixed_for_each_kind_and_applied_to_real_body",
+      "tests/life/test_app_progress.py::test_real_admission_blocks_driving_and_same_app_kind_accepts_eating_parallel",
+      "tests/catalog/test_affordance_shadow.py::test_driving_blocks_app_and_meals_but_allows_talk"
+    ],
+    "implementation": [
+      "src/worldmock/catalog/affordances.py::RESOURCE_CLAIM_SLOTS",
+      "src/worldmock/catalog/affordances.py::_parse_resource_claims",
+      "src/worldmock/life/admission.py::require_group"
+    ]
+  },
+  "场景 7 与世界 10 的拒绝边界": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-状态事件检查点与导出",
+    "tests": [
+      "tests/life/test_scenario.py::test_structure_seven_rejects_each_retired_scenario_field",
+      "tests/life/test_scenario.py::test_structure_seven_rejects_retired_agent_fields",
+      "tests/life/test_scenario.py::test_structure_seven_rejects_body_and_message_retired_fields",
+      "tests/life/test_scenario.py::test_structure_seven_rejects_old_scenario_version",
+      "tests/life/test_scenario.py::test_structure_seven_rejects_retired_menu_actions",
+      "tests/life/test_scenario.py::test_structure_seven_rejects_retired_menu_kinds",
+      "tests/life/test_scenario.py::test_formal_and_multi_person_scenarios_are_valid",
+      "tests/life/test_scenario.py::test_body_instance_and_rejection_ranges_are_enforced",
+      "tests/life/test_scenario.py::test_initial_inventory_shape_rejects_invalid_holdings",
+      "tests/life/test_load_checks.py::test_real_loader_rejects_registration_counterexamples",
+      "tests/life/test_semantics.py::test_energy_thresholds_come_from_worldmock_body_constants",
+      "tests/life/test_semantics.py::test_registered_objects_and_body_instances_are_preserved",
+      "tests/life/test_semantics.py::test_initial_agent_preserves_declared_body_needs",
+      "tests/life/test_session_state.py::test_world_state_schema_version_10_is_valid",
+      "tests/life/test_session_state.py::test_world_state_schema_version_9_is_rejected",
+      "tests/life/test_session_state.py::test_world_state_rejects_retired_supply_fields",
+      "tests/life/test_session_state.py::test_agent_state_rejects_retired_supply_and_qualification_fields",
+      "tests/life/test_state_serialization.py::test_json_mode_sorts_every_persisted_string_set",
+      "tests/integration/test_environment_identity.py::test_loaded_environment_identity_is_five_exact_file_bound_values",
+      "tests/integration/test_environment_identity.py::test_environment_identity_requires_every_frozen_value",
+      "tests/integration/test_environment_identity.py::test_environment_identity_rejects_retired_run_manifest_versions",
+      "tests/integration/test_run_manifest.py::test_run_manifest_structure_three_freezes_environment_identity",
+      "tests/integration/test_rrs_engine_wave.py::test_real_open_rejects_world_structure_nine",
+      "tests/integration/test_rrs_engine_wave.py::test_real_restore_and_replay_preparation_reject_world_nine_before_publication",
+      "tests/integration/test_rrs_engine_wave.py::test_real_replay_entry_rejects_world_nine_before_model_runtime",
+      "tests/integration/test_rrs_engine_wave.py::test_real_create_checkpoint_and_resume_preserve_world_and_parent",
+      "tests/integration/test_rrs_engine_wave.py::test_real_resume_rejects_same_version_changed_catalog_before_publication",
+      "tests/integration/test_rrs_engine_wave.py::test_real_open_rejects_held_unregistered_food"
+    ],
+    "implementation": [
+      "src/worldmock/life/scenario.py::LifeScenario",
+      "src/worldmock/life/scenario.py::BodyInstanceConfig",
+      "src/worldmock/life/models.py::WorldState",
+      "src/worldmock/life/world_setup.py::load_runtime_scenario",
+      "src/worldmock/life/world_setup.py::_run_manifest",
+      "src/worldmock/life/run_identity.py::environment_identity",
+      "src/worldmock/life/run_identity.py::require_environment_identity"
+    ]
+  },
+  "出行按图计时计费": {
+    "stage": "2",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-地图与出行",
+    "tests": [
+      "tests/life/test_travel_graph.py::test_plan_uses_full_graph_fixed_speed_and_fare",
+      "tests/life/test_travel_graph.py::test_request_duration_is_recomputed_from_the_published_graph",
+      "tests/life/test_travel_cost.py::test_route_quote_is_paid_once_into_the_declared_transport_account",
+      "tests/life/test_travel_cost.py::test_unaffordable_departure_changes_no_account",
+      "tests/life/test_travel_cost.py::test_walking_records_zero_fare_without_inventing_a_payment",
+      "tests/life/test_travel_graph.py::test_same_place_travel_is_a_precondition_rejection",
+      "tests/life/test_travel_graph.py::test_unselected_place_is_not_a_destination_but_remains_a_path_node",
+      "tests/life/test_travel_graph.py::test_tool_targets_list_all_other_selected_places_with_both_graph_quotes",
+      "tests/life/test_travel_graph.py::test_minimum_length_driving_trip_is_quoted_accepted_and_initialized",
+      "tests/life/test_wayfinding.py::test_discovery_quotes_the_same_graph_trip_without_old_route_fields",
+      "tests/life/test_travel_graph.py::test_travel_progress_snapshot_keeps_origin_and_arrival_is_verified",
+      "tests/life/test_travel_graph.py::test_persisted_travel_evidence_drift_is_rejected",
+      "tests/life/test_travel_graph.py::test_graph_departure_and_arrival_switch_real_sessions_without_engine",
+      "tests/integration/test_rrs_engine_wave.py::test_real_published_route_and_store_food_reach_consumption_evidence"
+    ],
+    "implementation": [
+      "src/worldmock/life/travel.py::plan_trip",
+      "src/worldmock/life/travel.py::planned_travel",
+      "src/worldmock/life/travel.py::pay_travel_fare",
+      "src/worldmock/life/travel.py::persisted_trip",
+      "src/worldmock/life/travel.py::update_travel",
+      "src/worldmock/life/tool_layer.py::_travel_check",
+      "src/worldmock/life/activities.py::start_activity",
+      "src/worldmock/life/sessions.py::begin_transit"
+    ]
+  },
+  "位置记录与地图一致（位置记录与地图一致）": {
+    "stage": "2",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-地图与出行",
+    "tests": [
+      "tests/life/test_travel_graph.py::test_travel_activity_evidence_uses_trip_and_full_path",
+      "tests/evaluation/test_adapters.py::test_graph_travel_result_projects_trip_identity_and_full_path"
+    ],
+    "implementation": [
+      "src/worldmock/life/travel.py::travel_activity_data",
+      "src/worldmock/life/observe.py::_location_catalog",
+      "src/worldmock/evaluation/public_evidence.py::worldmock_public_evidence"
+    ]
+  },
+  "全地图外卖（全地图外卖）": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-店铺食品与外卖",
+    "tests": [
+      "tests/life/test_commerce.py::test_delivery_reaches_every_selected_place_and_survives_restore_once",
+      "tests/life/test_commerce.py::test_multiple_food_rows_pay_one_fee_one_transfer_and_one_delivery",
+      "tests/life/test_commerce.py::test_self_delivery_during_travel_is_refused_before_any_payment",
+      "tests/life/test_purchase_apps.py::test_delivery_to_other_person_uses_their_receiving_location",
+      "tests/life/test_commerce.py::test_purchase_rejection_is_atomic_with_the_exact_code",
+      "tests/life/test_commerce.py::test_insufficient_funds_rejects_the_entire_multi_food_order"
+    ],
+    "implementation": [
+      "src/worldmock/life/basket.py::purchase_order",
+      "src/worldmock/life/basket.py::_order_rows",
+      "src/worldmock/life/basket.py::_order_fulfillment",
+      "src/worldmock/life/basket.py::plan_delivery",
+      "src/worldmock/life/basket.py::_delivery_events",
+      "src/worldmock/life/commerce.py::deliver_order",
+      "src/worldmock/life/order_routing.py::order_requests",
+      "src/worldmock/scheduling/effects.py::apply_scheduled_effect"
+    ]
+  },
+  "app 与店铺绑定有效（app 与店铺绑定有效）": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-店铺食品与外卖",
+    "tests": [
+      "tests/life/test_menu_discovery.py::test_same_kind_stores_share_foods_with_real_distinct_bindings",
+      "tests/life/test_commerce.py::test_no_app_store_pickup_is_immediate_local_holding",
+      "tests/life/test_named_purchase.py::test_named_purchase_rejects_food_source_and_way_mismatch",
+      "tests/life/test_purchase_apps.py::test_unbound_app_refuses_with_exact_reason_and_bound_app_next_step",
+      "tests/life/test_named_purchase.py::test_null_source_uses_smallest_bound_app_and_records_the_real_note",
+      "tests/life/test_named_purchase.py::test_preference_counts_delivery_fee_and_breaks_ties_by_store_id",
+      "tests/life/test_commerce.py::test_purchase_rejection_is_atomic_with_the_exact_code",
+      "tests/life/test_named_purchase.py::test_onsite_name_purchase_has_no_app_and_remote_guidance_uses_real_places",
+      "tests/life/test_purchase_apps.py::test_native_purchase_routing_derives_way_without_action_field",
+      "tests/integration/test_rrs_engine_wave.py::test_real_published_route_and_store_food_reach_consumption_evidence"
+    ],
+    "implementation": [
+      "src/worldmock/life/basket.py::_order_fulfillment",
+      "src/worldmock/life/purchase_offers.py::source_scope",
+      "src/worldmock/life/purchase_offers.py::_deliveries",
+      "src/worldmock/life/purchase_offers.py::order_key",
+      "src/worldmock/life/named_purchase.py::resolve_named_supply",
+      "src/worldmock/life/named_purchase.py::_staged",
+      "src/worldmock/life/routing.py::_item_errors"
+    ]
+  },
+  "食品热量固定（食品热量固定）": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-三类食品与进食",
+    "tests": [
+      "tests/life/test_rrs_food_body.py::test_food_category_defines_equal_snack_intake_and_three_fixed_rates",
+      "tests/life/test_rrs_food_body.py::test_food_split_pause_resume_and_repeated_progress_conserve_raw_intake",
+      "tests/life/test_rrs_food_body.py::test_food_fixed_body_efficiency_energy_cap_and_resource_source",
+      "tests/life/test_rrs_food_body.py::test_food_actual_portion_duration_bounds_and_multi_item_longest",
+      "tests/life/test_rrs_food_body.py::test_food_ending_discards_only_opened_remainder_without_extra_intake",
+      "tests/life/test_menu_discovery.py::test_food_tool_state_category_energy_apps_and_fixed_price",
+      "tests/life/test_food_presentation.py::test_product_targets_use_current_store_or_real_delivery_apps",
+      "tests/life/test_food_motivation.py::test_meal_candidates_use_meal_category_and_actual_fixed_delivery_wait",
+      "tests/life/test_food_motivation.py::test_no_affordable_meal_uses_held_snack_without_inventing_a_meal",
+      "tests/life/test_food_motivation.py::test_current_food_menu_projects_real_families_and_never_enumerates_browse",
+      "tests/integration/test_rrs_engine_wave.py::test_real_published_route_and_store_food_reach_consumption_evidence"
+    ],
+    "implementation": [
+      "src/worldmock/life/basket.py::apply_meal_progress",
+      "src/worldmock/life/basket.py::meal_duration",
+      "src/worldmock/life/body.py::apply_food",
+      "src/worldmock/life/sleep.py::food_utilization_efficiency",
+      "src/worldmock/life/tool_layer.py::_product_state",
+      "src/worldmock/life/callable_index.py::callable_index",
+      "src/worldmock/life/observe.py::_supply_entries",
+      "src/worldmock/life/motivation.py::_eat_candidates",
+      "src/worldmock/life/motivation.py::_enumerate_candidates"
+    ]
+  },
+  "购买足迹与画像": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-观察与工具面",
+    "tests": [
+      "tests/life/test_rrs_food_body.py::test_food_purchase_changes_holding_and_only_actual_eating_increases_energy",
+      "tests/life/test_rrs_food_body.py::test_food_progress_verified_experiences_and_quality_use_food_identity",
+      "tests/footprints/test_purchases.py::test_actual_order_facts_preserve_food_store_app_and_fixed_money",
+      "tests/profile/test_injection.py::test_the_warning_code_set_is_the_closed_six",
+      "tests/profile/test_injection.py::test_empty_content_warns_for_media_and_habits_only",
+      "tests/profile/test_injection.py::test_coverage_below_threshold_reuses_the_validate_report",
+      "tests/profile/test_injection.py::test_persona_compiler_agreement_warnings_are_passed_through",
+      "tests/profile/test_injection.py::test_wc_scenario_rhythm_overrides_the_extracted_card_values",
+      "tests/profile/test_injection.py::test_only_explicitly_declared_fields_are_overridden",
+      "tests/profile/test_injection.py::test_values_are_quantised_to_the_card_grid",
+      "tests/profile/test_injection.py::test_out_of_order_window_keeps_the_card_value_and_records_a_conflict",
+      "tests/profile/test_injection.py::test_windows_that_only_fit_together_are_both_applied_and_the_result_is_a_fixed_point",
+      "tests/profile/test_injection.py::test_unrepresentable_and_after_midnight_windows",
+      "tests/profile/test_injection.py::test_a_null_card_slot_takes_the_scenario_work_window_and_is_reported_as_overridden",
+      "tests/profile/test_injection.py::test_a_scenario_window_violating_the_work_anchor_order_keeps_the_card_value_as_a_conflict",
+      "tests/profile/test_injection.py::test_work_windows_declared_together_land_together_and_the_result_is_a_fixed_point",
+      "tests/profile/test_injection.py::test_an_unrepresentable_work_window_is_a_conflict_on_a_null_slot",
+      "tests/profile/test_injection.py::test_windows_that_each_fit_alone_but_not_together_land_in_slot_order",
+      "tests/profile/test_injection.py::test_a_conflicting_scenario_leave_work_keeps_the_non_null_card_slot_and_the_card_arrive_home",
+      "tests/profile/test_injection.py::test_a_scenario_bedtime_before_the_card_leave_work_keeps_the_card_leave_work",
+      "tests/profile/test_injection.py::test_suspicious_display_names_are_reported_only_for_coordinates_and_identifiers",
+      "tests/profile/test_injection.py::test_frozen_warnings_keep_the_closed_shape_and_null_means_not_computed",
+      "tests/profile/test_coverage.py::test_full_coverage_passes",
+      "tests/profile/test_coverage.py::test_below_threshold_rejected_with_missing_items",
+      "tests/profile/test_coverage.py::test_threshold_boundary_passes_at_exactly_80_percent",
+      "tests/profile/test_coverage.py::test_habit_response_keyword_substring_matching",
+      "tests/profile/test_coverage.py::test_app_name_substrings_no_longer_count_as_coverage_hits",
+      "tests/profile/test_coverage.py::test_empty_card_is_vacuously_covered",
+      "tests/profile/test_coverage.py::test_report_serializes_to_coverage_json_shape",
+      "tests/profile/test_coverage.py::test_content_genres_stay_prose_and_do_not_enter_coverage",
+      "tests/integration/test_persona_profile.py::test_frozen_persona_identity_reaches_the_native_agent_prompt_as_the_persona_layer",
+      "tests/integration/test_persona_profile.py::test_persona_traits_cannot_be_silently_omitted[trait_source_kind]",
+      "tests/integration/test_persona_profile.py::test_deleted_template_fields_stay_out_of_documents[occupation]",
+      "tests/integration/test_persona_profile.py::test_deleted_template_fields_stay_out_of_documents[routine_preference]",
+      "tests/integration/test_persona_profile.py::test_deleted_template_fields_stay_out_of_documents[consumption_preference]",
+      "tests/integration/test_persona_profile.py::test_deleted_template_fields_stay_out_of_documents[risk_preference]",
+      "tests/integration/test_persona_profile.py::test_initial_agent_state_and_profile_do_not_keep_numeric_tastes",
+      "tests/integration/test_persona_profile.py::test_restored_persona_profile_rejects_retired_taste_weights[profile0]",
+      "tests/integration/test_persona_profile.py::test_restored_persona_profile_rejects_retired_taste_weights[profile1]",
+      "tests/integration/test_input_warnings.py::test_catalog_names_drive_coverage_without_phone_configuration",
+      "tests/integration/test_input_warnings.py::test_empty_warning_uses_app_bindings_and_keeps_five_media_labels",
+      "tests/integration/test_input_warnings.py::test_validate_persona_coverage_reuses_actual_creation_warnings",
+      "tests/integration/test_input_warnings.py::test_low_coverage_writes_report_and_warns_before_gate",
+      "tests/integration/test_input_warnings.py::test_runtime_warning_caller_logs_and_freezes_all_six_codes",
+      "tests/integration/test_input_warnings.py::test_warning_caller_rejects_catalog_identity_tampering",
+      "tests/profile/test_injection.py::test_retired_warning_codes_are_rejected_at_manifest_boundary",
+      "tests/life/test_commerce.py::test_no_app_store_pickup_is_immediate_local_holding",
+      "tests/life/test_food_errand_evidence.py::test_actual_pickup_credits_the_recipient_and_reused_result_cannot_credit_twice",
+      "tests/life/test_food_errand_evidence.py::test_actual_giving_credits_only_the_recipient_and_actual_fraction",
+      "tests/life/test_food_errand_evidence.py::test_actual_pending_delivery_does_not_credit_and_restored_arrival_credits_once",
+      "tests/life/test_food_errand_evidence.py::test_actual_food_progress_counts_interval_portions_and_zero_replay_does_not_credit"
+    ],
+    "implementation": [
+      "src/worldmock/life/activity_evidence.py::meal_consumption_data",
+      "src/worldmock/footprints/experiences.py::_consumed",
+      "src/worldmock/profile/injection.py::frozen_input_warnings",
+      "src/worldmock/profile/coverage_targets.py::build_coverage_targets",
+      "src/worldmock/run_setup.py::creation_inputs",
+      "src/worldmock/runtime.py::_society_specs",
+      "src/worldmock/footprints/purchases.py::project_purchase_facts",
+      "src/worldmock/footprints/purchases.py::_purchases",
+      "src/worldmock/life/errands.py::evidence_rows",
+      "src/worldmock/life/errands.py::settle",
+      "src/worldmock/life/errands.py::_handed",
+      "src/worldmock/life/errands.py::_arrived",
+      "src/worldmock/life/errands.py::_consumed"
+    ]
+  },
+  "娱乐只从所选 app 取内容（娱乐只从所选 app 取内容）": {
+    "stage": "4",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送",
+    "tests": [
+      "tests/life/test_app_progress.py::test_open_only_selects_selected_app_and_denies_empty_app",
+      "tests/life/test_app_progress.py::test_initialize_app_usage_does_not_mutate_previous_strict_world",
+      "tests/life/test_app_ui.py::test_empty_app_tool_reason_matches_actual_start_refusal",
+      "tests/life/test_app_ui.py::test_app_target_and_app_content_schemas_are_closed",
+      "tests/life/test_app_ui.py::test_all_apps_always_listed_without_content_candidates_or_index",
+      "tests/life/test_app_ui.py::test_opened_app_habit_is_entertainment_without_app_candidates",
+      "tests/life/test_app_progress.py::test_real_app_interval_advances_entertainment_goal_and_retired_kinds_do_not",
+      "tests/life/test_app_progress.py::test_cross_app_pause_resumes_latest_global_position",
+      "tests/life/test_app_progress.py::test_short_content_continues_silently_until_plan_and_repeats_allowed",
+      "tests/life/test_app_progress.py::test_content_completion_occurs_at_actual_end_only",
+      "tests/life/test_app_progress.py::test_paused_resume_retains_content_pin_and_random_state",
+      "tests/life/test_app_progress.py::test_other_app_completed_round_resume_consumes_nothing_then_real_end_adds_once",
+      "tests/life/test_app_progress.py::test_plan_end_and_active_conclude_preserve_partial_content_progress",
+      "tests/life/test_app_progress.py::test_reopen_after_conclusion_keeps_opened_push_and_latest_global_position",
+      "tests/life/test_app_progress.py::test_content_relief_is_fixed_for_each_kind_and_applied_to_real_body",
+      "tests/life/test_app_progress.py::test_real_admission_blocks_driving_and_same_app_kind_accepts_eating_parallel",
+      "tests/catalog/test_affordance_shadow.py::test_driving_blocks_app_and_meals_but_allows_talk",
+      "tests/life/test_app_progress.py::test_app_activity_keeps_app_title_and_records_current_content_title",
+      "tests/integration/test_rrs_engine_wave.py::test_real_app_interleaving_uses_shared_content_cursor_and_reopens_it"
+    ],
+    "implementation": [
+      "src/worldmock/life/content.py::choose_app_content",
+      "src/worldmock/life/content.py::initialize_app_usage",
+      "src/worldmock/life/content.py::settle_app_usage",
+      "src/worldmock/life/content.py::resume_app_usage",
+      "src/worldmock/life/schedule.py::activity_family",
+      "src/worldmock/life/schedule.py::progress_day_plan"
+    ]
+  },
+  "推送与消费关联（推送与消费关联）": {
+    "stage": "4",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送",
+    "tests": [
+      "tests/life/test_app_push.py::test_open_reopen_release_and_after_22_follow_current_session_only",
+      "tests/life/test_app_push.py::test_departure_and_arrival_invalidate_old_pushes_without_deleting_history",
+      "tests/life/test_app_push.py::test_release_only_changes_current_session_and_keeps_historical_matching_push",
+      "tests/life/test_app_push.py::test_sleep_stores_push_without_wake_and_existing_activity_is_unchanged",
+      "tests/life/test_app_push.py::test_full_push_summary_and_source_discriminator_project_from_committed_event",
+      "tests/life/test_app_progress.py::test_paused_resume_retains_content_pin_and_random_state",
+      "tests/life/test_app_progress.py::test_other_app_completed_round_resume_consumes_nothing_then_real_end_adds_once",
+      "tests/life/test_app_ui.py::test_app_target_and_app_content_schemas_are_closed",
+      "tests/life/test_app_ui.py::test_current_push_title_and_kind_are_visible_until_released"
+    ],
+    "implementation": [
+      "src/worldmock/life/app_push.py::open_app_push",
+      "src/worldmock/life/app_push.py::release_app_pushes",
+      "src/worldmock/scheduling/effects.py::process_scheduled_events"
+    ]
+  },
+  "时间窗口精确（时间窗口精确）": {
+    "stage": "4",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送",
+    "tests": [
+      "tests/life/test_app_push.py::test_push_grid_uses_local_hours_and_strict_window",
+      "tests/life/test_app_push.py::test_push_grid_preserves_fold_zero_and_gap_pretransition_offset",
+      "tests/life/test_app_push.py::test_distinct_declared_grid_points_at_same_epoch_are_preserved",
+      "tests/life/test_app_push.py::test_each_app_is_issued_once_per_session_even_after_release",
+      "tests/life/test_app_push.py::test_no_eligible_app_is_system_visible_without_person_record_or_wake",
+      "tests/life/test_app_push.py::test_push_grid_uses_local_hours_and_strict_window[Asia/Shanghai]",
+      "tests/integration/test_rrs_engine_wave.py::test_real_app_push_is_persisted_without_reissue_after_open"
+    ],
+    "implementation": [
+      "src/worldmock/scheduling/compile.py::_push_rows",
+      "src/worldmock/life/app_push.py::issue_app_push"
+    ]
+  },
+  "随机和状态可恢复（随机和状态可恢复）": {
+    "stage": "4",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送",
+    "tests": [
+      "tests/life/test_app_progress.py::test_b30_exact_seed_bytes_open_and_continuation_keys_survive_roundtrip",
+      "tests/life/test_app_progress.py::test_open_only_selects_selected_app_and_denies_empty_app",
+      "tests/life/test_app_progress.py::test_paused_resume_retains_content_pin_and_random_state",
+      "tests/life/test_app_push.py::test_push_draw_uses_one_b30_stream_sorted_candidates_and_stable_identity",
+      "tests/life/test_app_push.py::test_queue_is_popped_before_effect_checkpoint_and_restore_never_reissues",
+      "tests/life/test_app_push.py::test_push_identity_validation_rejects_unregistered_references_in_historical_session",
+      "tests/life/test_commerce.py::test_delivery_reaches_every_selected_place_and_survives_restore_once",
+      "tests/life/test_commerce.py::test_multiple_food_rows_pay_one_fee_one_transfer_and_one_delivery",
+      "tests/life/test_rrs_food_body.py::test_food_category_defines_equal_snack_intake_and_three_fixed_rates",
+      "tests/life/test_rrs_food_body.py::test_food_split_pause_resume_and_repeated_progress_conserve_raw_intake",
+      "tests/life/test_rrs_food_body.py::test_food_fixed_body_efficiency_energy_cap_and_resource_source",
+      "tests/life/test_rrs_food_body.py::test_food_actual_portion_duration_bounds_and_multi_item_longest",
+      "tests/life/test_rrs_food_body.py::test_food_ending_discards_only_opened_remainder_without_extra_intake",
+      "tests/life/test_app_progress.py::test_app_activity_keeps_app_title_and_records_current_content_title",
+      "tests/integration/test_rrs_engine_wave.py::test_real_published_route_and_store_food_reach_consumption_evidence"
+    ],
+    "implementation": [
+      "src/worldmock/life/randomness.py::random_stream",
+      "src/worldmock/life/content.py::resume_app_usage",
+      "src/worldmock/scheduling/effects.py::process_scheduled_events"
+    ]
+  },
+  "最终唤醒词表": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-状态事件检查点与导出",
+    "tests": [
+      "tests/integration/test_rrs_engine_wave.py::test_real_app_push_is_persisted_without_reissue_after_open",
+      "tests/life/test_wake_reasons.py::test_frozen_wake_and_intent_names",
+      "tests/life/test_wake_reasons.py::test_sleep_allowed_reasons_add_only_plan_reminder_due",
+      "tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_is_the_frozen_spec_set",
+      "tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_matches_the_engine_side_enum"
+    ],
+    "implementation": [
+      "src/worldmock/life/schedule.py::WakeReason",
+      "src/worldmock/footprints/models.py::WAKE_REASON_NAMES"
+    ]
+  },
+  "游戏链退出": {
+    "stage": "4",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-删除清单",
+    "tests": [
+      "tests/life/test_app_vocabulary.py::test_game_way_cannot_be_restored_in_the_public_way_table",
+      "tests/life/test_app_vocabulary.py::test_game_runtime_and_textworld_dependencies_are_removed",
+      "tests/tools/test_run_viewer.py::test_run_viewer_recorded_names"
+    ],
+    "implementation": [
+      "src/worldmock/life/vocabulary.py::WAYS",
+      "src/worldmock/life/models.py::ActivityKind"
+    ]
+  },
+  "工作由时间决定（工作由时间决定）": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-工作主题与叙述",
+    "tests": [
+      "tests/life/test_work_topics.py::test_assigned_topic_starts_at_workplace_without_clock_or_skill_gate",
+      "tests/life/test_work_topics.py::test_topic_duration_is_actual_remaining_capped_at_one_day_and_minute_refusal",
+      "tests/life/test_work_topics.py::test_resume_refusals_follow_location_then_topic_then_slots_then_claims",
+      "tests/life/test_work_topics.py::test_resume_checks_slots_before_resource_claims_after_place_and_topic_are_satisfied",
+      "tests/life/test_work_topics.py::test_actual_engine_remaining_fifty_nine_seconds_refuses_start_and_resume",
+      "tests/life/test_work_topics.py::test_paused_thirty_minutes_do_not_increase_actual_topic_hours",
+      "tests/life/test_work_topics.py::test_parallel_nonwork_food_elapsed_and_failed_work_do_not_count",
+      "tests/life/test_work_topics.py::test_actual_engine_pause_then_parallel_meal_only_counts_running_work",
+      "tests/life/test_work_topics.py::test_contract_four_keys_and_reports_do_not_change_actual_hours_or_completion",
+      "tests/life/test_work_protocol.py::test_work_contract_and_reports_use_real_hours_without_submission",
+      "tests/life/test_work_protocol.py::test_work_report_survives_real_session_change",
+      "tests/life/test_work_topics.py::test_real_eight_hours_end_planned_and_emit_completion_once_with_actual_progress",
+      "tests/life/test_work_topics.py::test_actual_engine_eight_hours_emit_own_completion_progress_and_remove_start_target",
+      "tests/life/test_work_topics.py::test_actual_engine_old_paused_work_cannot_resume_after_another_activity_finishes_topic",
+      "tests/life/test_work_protocol.py::test_unknown_work_name_has_the_same_host_and_environment_code"
+    ],
+    "implementation": [
+      "src/worldmock/life/work.py::work_totals",
+      "src/worldmock/life/work.py::contract_view",
+      "src/worldmock/life/activities.py::_advanced_activity",
+      "src/worldmock/life/time_advance.py::TimeAdvanceCoordinator._advance_activities",
+      "src/worldmock/life/observe.py::ObservationBuilder._visible_task_rows"
+    ]
+  },
+  "工作面与阶段身份": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-工作主题与叙述",
+    "tests": [
+      "tests/life/test_work_protocol.py::test_work_tool_and_stage_closed_sets_match_real_host",
+      "tests/life/test_restored_model_identity.py::test_environment_lifecycles_reject_invalid_saved_stage_identity",
+      "tests/life/test_work_topics.py::test_actual_scheduled_payroll_transfers_fixed_salary_without_work_or_submission",
+      "tests/life/test_work_topics.py::test_actual_day_plan_inputs_use_topic_target_and_worked_hours_without_acceptance"
+    ],
+    "implementation": [
+      "custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER",
+      "src/worldmock/run_setup.py::validate_stage_model_identity",
+      "src/worldmock/run_setup.py::validate_manifest_stage_identity",
+      "src/worldmock/life/day_plan_inputs.py::_task_rows",
+      "src/worldmock/life/day_plan_inputs.py::plan_inputs",
+      "src/worldmock/scheduling/compile.py::_payroll_rows",
+      "src/worldmock/scheduling/effects.py::_payroll"
+    ]
+  },
+  "系统层逐字": {
+    "stage": "6",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-系统层",
+    "tests": [
+      "tests/integration/test_seven_layer_request.py::test_resource_rule_system_text_is_the_frozen_app_and_work_contract",
+      "tests/integration/test_seven_layer_request.py::test_each_resource_rule_change_moves_only_the_prompt_fingerprint"
+    ],
+    "implementation": [
+      "custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER"
+    ]
+  },
+  "app 目标与 Schema": {
+    "stage": "4",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-观察与工具面",
+    "tests": [
+      "tests/life/test_app_progress.py::test_open_only_selects_selected_app_and_denies_empty_app",
+      "tests/life/test_app_progress.py::test_initialize_app_usage_does_not_mutate_previous_strict_world",
+      "tests/life/test_app_ui.py::test_empty_app_tool_reason_matches_actual_start_refusal",
+      "tests/life/test_app_ui.py::test_app_target_and_app_content_schemas_are_closed",
+      "tests/life/test_app_ui.py::test_all_apps_always_listed_without_content_candidates_or_index",
+      "tests/life/test_app_ui.py::test_opened_app_habit_is_entertainment_without_app_candidates",
+      "tests/life/test_app_progress.py::test_real_app_interval_advances_entertainment_goal_and_retired_kinds_do_not",
+      "tests/life/test_app_ui.py::test_current_push_title_and_kind_are_visible_until_released",
+      "tests/life/test_app_push.py::test_full_push_summary_and_source_discriminator_project_from_committed_event",
+      "tests/life/test_app_progress.py::test_app_activity_keeps_app_title_and_records_current_content_title",
+      "tests/integration/test_rrs_engine_wave.py::test_real_app_interleaving_uses_shared_content_cursor_and_reopens_it"
+    ],
+    "implementation": [
+      "src/worldmock/life/tool_layer.py::_binding_target",
+      "src/worldmock/life/prompt_schemas.py::_RESULT"
+    ]
+  },
+  "工具面与工作 Schema": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-观察与工具面",
+    "tests": [
+      "tests/life/test_work_protocol.py::test_work_tool_and_stage_closed_sets_match_real_host",
+      "tests/life/test_restored_model_identity.py::test_environment_lifecycles_reject_invalid_saved_stage_identity",
+      "tests/life/test_work_protocol.py::test_work_prompt_schema_rejects_old_contract_review_and_completion_shapes",
+      "tests/life/test_work_protocol.py::test_work_contract_and_reports_use_real_hours_without_submission",
+      "tests/life/test_work_protocol.py::test_work_report_survives_real_session_change",
+      "tests/integration/test_life_agent_protocol.py::test_life_tool_schema_fingerprint_pins_registry_digest",
+      "tests/integration/test_life_agent_protocol.py::test_life_tool_schema_fingerprint_is_the_person_tool_surface_without_the_reflection_tool",
+      "tests/integration/test_life_agent_protocol.py::test_affordance_registry_fingerprint_reads_packaged_rule_bytes",
+      "tests/life/test_prompt_layers.py::test_work_contract_appears_only_in_the_task_target",
+      "tests/life/test_prompt_layers.py::test_paused_work_does_not_repeat_the_contract_in_the_todo_layer",
+      "tests/life/test_work_topics.py::test_actual_scheduled_payroll_transfers_fixed_salary_without_work_or_submission"
+    ],
+    "implementation": [
+      "custom/agents/life_agent.py::_TOOL_MODELS",
+      "custom/envs/life_env.py::_STABLE_TOOL_SURFACE",
+      "src/worldmock/life/models.py::REQUEST_MODELS",
+      "src/worldmock/life/prompt_schemas.py::_CONTRACT"
+    ]
+  },
+  "查看器协议": {
+    "stage": "6",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-现行文档原位改写",
+    "tests": [
+      "tests/integration/test_seven_layer_request.py::test_viewer_fixture_system_layers_are_the_host_system_message",
+      "tests/integration/test_run_viewer_recording.py::test_viewer_fixture_is_recorded_from_the_current_host",
+      "tests/tools/test_run_viewer.py::test_run_viewer_recorded_names"
+    ],
+    "implementation": [
+      "custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER",
+      "src/worldmock/footprints/models.py::WAKE_REASON_NAMES"
+    ]
+  },
+  "app 足迹来自真实动作（app 足迹来自真实动作）": {
+    "stage": "7",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-状态事件检查点与导出",
+    "tests": [
+      "tests/life/test_export_integration.py::test_real_app_export_has_five_source_bound_fact_types_and_exact_quality_sections",
+      "tests/life/test_export_integration.py::test_real_app_export_rejects_tampered_or_rehashed_content_facts",
+      "tests/footprints/test_quality.py::test_work_topic_quality_uses_actual_activity_seconds_and_real_completions_and_reports",
+      "tests/delivery/test_windows.py::test_actual_committed_app_push_has_only_four_public_fields_and_false_push_stays_private",
+      "tests/delivery/test_host_delivery_coverage.py::test_deliver_success_path_publishes_full_manifest",
+      "tests/integration/test_verified_memory.py::test_actual_app_progress_is_written_to_verified_memory_with_source_and_cursor",
+      "tests/life/test_experience_sentences.py::test_real_pause_resume_immediate_cancellation_keeps_prior_partial_app_viewing",
+      "tests/life/test_experience_sentences.py::test_shared_cursor_advance_from_another_app_is_not_this_activitys_viewing",
+      "tests/integration/test_biz_timeline_recording.py::test_business_fixture_is_recorded_from_current_engine",
+      "tests/integration/test_biz_timeline_recording.py::test_current_inspection_names_actual_work_and_app_progress",
+      "tests/footprints/test_render_day.py::test_real_biz_run_rows_name_the_calls_and_the_work_task",
+      "tests/delivery/test_publication.py::test_delivery_world_schema_ten_rejects_nine_before_consumers",
+      "tests/footprints/test_validation.py::test_current_export_identity_is_required_before_any_consumer"
+    ],
+    "implementation": [
+      "src/worldmock/footprints/export.py::export_run",
+      "src/worldmock/footprints/app_usage.py::project_app_usage",
+      "src/worldmock/footprints/validation.py::validate_export",
+      "src/worldmock/footprints/quality.py::build_quality_report",
+      "src/worldmock/delivery/pipeline.py::_require_current_world_schema",
+      "src/worldmock/delivery/windows.py::prepare_windows",
+      "scripts/render_day.py::render_day_markdown",
+      "scripts/inspect_run.py::_brief"
+    ]
+  },
+  "完整日基线": {
+    "stage": "8",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-门禁与平台",
+    "tests": [
+      "tests/scripts/test_freeze_rrs_baseline.py::test_matching_full_candidates_publish_complete_summary_and_actual_generation",
+      "tests/scripts/test_freeze_rrs_baseline.py::test_mismatched_complete_day_candidates_preserve_existing_target",
+      "tests/scripts/test_freeze_rrs_baseline.py::test_invalid_current_candidate_is_rejected_before_publication",
+      "tests/scripts/test_freeze_rrs_baseline.py::test_generation_rejects_nonmatching_bootstrap_identity",
+      "tests/scripts/test_freeze_rrs_baseline.py::test_historical_complete_day_evidence_keeps_original_bytes",
+      "tests/integration/test_dayrun_complete_days.py::test_complete_two_person_day_uses_real_tools_memory_and_restoration"
+    ],
+    "implementation": [
+      "scripts/freeze_rrs_baseline.py::freeze_matching_baseline"
+    ]
+  },
+  "工程门禁与文档一致性": {
+    "stage": "8",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-门禁与平台",
+    "tests": [
+      "tests/test_style_gate.py::test_style_gate_admits_no_new_violations",
+      "tests/test_import_graph.py::test_production_import_graph_obeys_all_boundaries",
+      "tests/test_import_graph.py::test_cycle_guard_covers_every_import_form",
+      "tests/test_import_graph.py::test_type_checking_edges_do_not_create_runtime_cycles",
+      "tests/test_import_graph.py::test_local_registry_rejects_missing_and_stale_entries",
+      "tests/test_import_graph.py::test_foundation_cannot_depend_on_execution",
+      "tests/test_import_graph.py::test_only_environment_can_import_facade",
+      "tests/test_import_graph.py::test_dynamic_relative_imports_resolve_the_real_package",
+      "tests/test_import_graph.py::test_unknown_dynamic_import_targets_or_object_proxies_fail_closed",
+      "tests/test_import_graph.py::test_moved_declarations_have_no_same_name_binding_at_old_modules",
+      "tests/test_import_graph.py::test_footprint_store_has_no_branch_restoration_compatibility_method",
+      "tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones",
+      "tests/test_single_source.py::test_current_registry_and_observation_contract_retire_energy_and_game_keys",
+      "tests/test_single_source.py::test_new_function_clone_fails_even_with_different_name_and_docstring",
+      "tests/test_single_source.py::test_copied_rule_table_fails_even_after_renaming",
+      "tests/test_single_source.py::test_wrong_shared_rule_owner_fails",
+      "tests/test_single_source.py::test_import_logger_type_and_thin_protocol_hooks_are_not_business_clones",
+      "tests/test_single_source.py::test_protocol_hook_with_business_branch_is_scanned",
+      "tests/test_layering_acceptance.py::test_every_layering_clause_has_executable_nonempty_evidence",
+      "tests/test_layering_acceptance.py::test_new_production_responsibilities_have_no_deferred_or_empty_implementation",
+      "tests/test_layering_acceptance.py::test_facade_keeps_public_signatures_and_has_no_business_mixin",
+      "tests/test_layering_acceptance.py::test_context_has_one_state_owner_and_no_facade_back_reference",
+      "tests/test_layering_acceptance.py::test_accepted_increment_specs_have_one_current_owner",
+      "tests/test_layering_acceptance.py::test_original_mutation_generation_has_complete_byte_equivalence_evidence",
+      "tests/test_layering_acceptance.py::test_layering_implementation_ledger_is_bidirectional",
+      "tests/test_layering_acceptance.py::test_real_day_baseline_was_frozen_only_after_two_matching_runs",
+      "tests/test_persona_prompt_acceptance.py::test_every_ledger_row_is_registered_and_every_registered_row_exists",
+      "tests/test_persona_prompt_acceptance.py::test_every_chapter_six_row_is_registered_and_every_registered_row_exists",
+      "tests/test_persona_prompt_acceptance.py::test_rulings_21_to_38_are_adopted_and_each_is_registered",
+      "tests/test_persona_prompt_acceptance.py::test_report_only_rows_stay_report_only_in_the_spec",
+      "tests/test_persona_prompt_acceptance.py::test_program_error_ledger_row_carries_every_chapter_six_regression",
+      "tests/test_persona_prompt_acceptance.py::test_every_registered_node_resolves_to_a_collected_unskipped_test",
+      "tests/test_persona_prompt_acceptance.py::test_resolver_rejects_missing_uncollected_and_skipped_tests",
+      "tests/test_persona_prompt_acceptance.py::test_frozen_feature_file_lists_name_existing_files_once",
+      "tests/test_persona_prompt_acceptance.py::test_deferral_pattern_catches_every_marker",
+      "tests/test_persona_prompt_acceptance.py::test_deferral_pattern_leaves_ordinary_code_alone",
+      "tests/test_persona_prompt_acceptance.py::test_stub_detection_catches_pass_ellipsis_and_docstring_only_bodies",
+      "tests/test_persona_prompt_acceptance.py::test_feature_files_carry_no_deferral_markers",
+      "tests/test_persona_prompt_acceptance.py::test_feature_python_files_have_no_stub_functions",
+      "tests/test_tool_interaction_acceptance.py::test_tool_interaction_every_spec_behavior_has_executable_tests",
+      "tests/test_tool_interaction_acceptance.py::test_tool_interaction_sources_have_no_deferred_or_empty_implementation",
+      "tests/test_tool_interaction_acceptance.py::test_tool_interaction_declared_interface_contains_only_new_parameters",
+      "tests/test_time_and_energy_completeness.py::test_registry_covers_exactly_the_acceptance_ledger_rows",
+      "tests/test_time_and_energy_completeness.py::test_registry_entries_name_known_stages",
+      "tests/test_time_and_energy_completeness.py::test_every_implementation_stage_is_done",
+      "tests/test_time_and_energy_completeness.py::test_done_rows_list_resolvable_unskipped_tests",
+      "tests/test_time_and_energy_completeness.py::test_deferral_pattern_catches_every_skip_form",
+      "tests/test_time_and_energy_completeness.py::test_no_deferral_markers",
+      "tests/test_time_and_energy_completeness.py::test_removed_symbols_of_done_stages_are_absent",
+      "tests/test_time_and_energy_completeness.py::test_activity_duration_limits_use_the_shared_model_constants",
+      "tests/test_time_and_energy_completeness.py::test_removed_symbol_scan_detects_a_definition_moved_to_another_file",
+      "tests/test_idle_fillers_acceptance.py::test_ledger_rows_match_the_spec_table_in_order_and_stage",
+      "tests/test_idle_fillers_acceptance.py::test_every_row_points_to_an_existing_spec_anchor",
+      "tests/test_idle_fillers_acceptance.py::test_rows_of_done_stages_list_evidence_and_every_registered_node_and_symbol_resolves",
+      "tests/test_idle_fillers_acceptance.py::test_feature_file_lists_name_existing_files_once",
+      "tests/test_idle_fillers_acceptance.py::test_feature_and_registered_files_carry_no_deferral_markers",
+      "tests/test_idle_fillers_acceptance.py::test_feature_and_registered_python_files_have_no_stub_functions",
+      "tests/test_idle_fillers_acceptance.py::test_mutations_are_named_once_and_anchored_in_main_process_production_code",
+      "tests/test_idle_fillers_acceptance.py::test_behaviour_cases_match_the_spec_and_done_rows_list_their_nodes",
+      "tests/test_idle_fillers_acceptance.py::test_mutation_rows_match_the_spec_table_and_cover_done_stages",
+      "tests/test_errands_workday_acceptance.py::test_ledger_section_has_one_three_column_table_matching_the_registration",
+      "tests/test_errands_workday_acceptance.py::test_rows_of_done_stages_list_tests_and_every_registered_node_resolves",
+      "tests/test_errands_workday_acceptance.py::test_report_only_rows_stay_report_only_in_the_spec",
+      "tests/test_errands_workday_acceptance.py::test_feature_file_lists_name_existing_files_once",
+      "tests/test_errands_workday_acceptance.py::test_feature_and_registered_files_carry_no_deferral_markers",
+      "tests/test_errands_workday_acceptance.py::test_feature_and_registered_python_files_have_no_stub_functions",
+      "tests/test_errands_workday_acceptance.py::test_every_implementation_stage_is_done",
+      "tests/test_errands_workday_acceptance.py::test_spec_mutation_sentences_are_registered_in_order_and_done_stages_are_covered",
+      "tests/test_errands_workday_acceptance.py::test_mutations_are_named_once_and_anchored_in_main_process_production_code",
+      "tests/test_dayrun_fidelity_acceptance.py::test_every_ledger_row_is_registered_and_every_registered_row_exists",
+      "tests/test_dayrun_fidelity_acceptance.py::test_rulings_are_decided_except_the_registered_and_the_withdrawn_and_each_decided_one_is_registered",
+      "tests/test_dayrun_fidelity_acceptance.py::test_report_only_rows_stay_report_only_in_the_spec",
+      "tests/test_dayrun_fidelity_acceptance.py::test_every_input_warning_code_has_one_registered_example",
+      "tests/test_dayrun_fidelity_acceptance.py::test_every_registered_node_resolves_to_a_collected_unskipped_test",
+      "tests/test_dayrun_fidelity_acceptance.py::test_frozen_feature_file_lists_name_existing_files_once",
+      "tests/test_dayrun_fidelity_acceptance.py::test_feature_files_carry_no_deferral_markers",
+      "tests/test_dayrun_fidelity_acceptance.py::test_feature_python_files_have_no_stub_functions",
+      "tests/test_dayrun_fidelity_acceptance.py::test_docs_carry_no_pending_markers_of_this_feature",
+      "tests/test_dayrun_fidelity_acceptance.py::test_anchored_links_in_docs_point_to_existing_headings",
+      "tests/test_dayrun_fidelity_acceptance.py::test_resolver_rejects_missing_uncollected_and_skipped_tests",
+      "tests/test_dayrun_fidelity_acceptance.py::test_deferral_pattern_catches_every_marker",
+      "tests/test_dayrun_fidelity_acceptance.py::test_deferral_pattern_leaves_ordinary_code_alone",
+      "tests/test_dayrun_fidelity_acceptance.py::test_stub_detection_catches_pass_ellipsis_and_docstring_only_bodies",
+      "tests/test_dayrun_fidelity_acceptance.py::test_pending_marker_scan_catches_every_form_and_leaves_history_alone",
+      "tests/test_shared_rules_spec.py::test_all_frozen_shared_rule_rows_have_real_behavior_evidence",
+      "tests/test_shared_rules_spec.py::test_every_environment_clause_has_real_behavior_evidence",
+      "tests/test_shared_rules_spec.py::test_frozen_current_as2_identity_agrees_with_installation_and_runtime",
+      "tests/test_shared_rules_spec.py::test_design_chapters_and_contracts_reference_the_frozen_feature",
+      "tests/test_current_feature_owners.py::test_all_accepted_features_have_complete_current_normative_owners",
+      "tests/test_current_feature_owners.py::test_titles_anchors_and_navigation_cannot_replace_normative_body",
+      "tests/test_current_feature_owners.py::test_removing_each_archived_feature_current_body_fails",
+      "tests/test_current_feature_owners.py::test_removing_normative_owner_and_body_cannot_remove_the_requirement",
+      "tests/test_current_feature_owners.py::test_new_acceptance_topic_requires_an_owner_and_missing_fixture_fails",
+      "tests/test_current_feature_owners.py::test_title_and_prose_can_change_without_changing_the_requirement_owner",
+      "tests/test_current_feature_owners.py::test_archived_non_markdown_assets_preserve_exact_original_bytes",
+      "tests/test_environment_profiles.py::test_release_rejects_each_missing_component",
+      "tests/test_environment_profiles.py::test_dev_marks_only_tests_that_need_a_missing_component",
+      "tests/test_environment_profiles.py::test_release_rejects_expected_failure_even_when_it_could_pass",
+      "tests/test_environment_profiles.py::test_dev_environment_receipt_records_missing_without_absolute_paths",
+      "tests/test_environment_profiles.py::test_purchase_world_edits_leave_formal_input_bytes_and_inodes_unchanged",
+      "tests/test_environment_profiles.py::test_mutable_test_tree_copies_do_not_use_hard_links",
+      "tests/test_test_tiers.py::test_new_driver_and_fixture_dependencies_are_classified",
+      "tests/test_test_tiers.py::test_fast_selection_adds_only_direct_changed_engine_dependencies",
+      "tests/test_test_tiers.py::test_actual_fixture_objects_helpers_and_returned_factories_are_followed_per_test",
+      "tests/test_test_tiers.py::test_real_pytest_collection_classifies_each_test_and_actual_fixture_closure",
+      "tests/test_test_tiers.py::test_standard_and_full_sets_preserve_external_and_long_reviews",
+      "tests/test_test_tiers.py::test_duration_balancing_keeps_new_files_and_file_nodes_together",
+      "tests/test_test_tiers.py::test_incomplete_worker_evidence_is_rejected",
+      "tests/test_test_tiers.py::test_equal_node_count_cannot_hide_a_wrong_test_or_failed_phase",
+      "tests/test_test_tiers.py::test_worker_receipts_require_real_pytest_phase_outcomes",
+      "tests/test_test_tiers.py::test_duplicate_selected_and_collected_nodes_cannot_be_hidden_by_the_test_dictionary",
+      "tests/test_test_tiers.py::test_worker_receipts_cannot_belong_to_another_run",
+      "tests/test_test_tiers.py::test_duration_report_covers_phases_slow_fast_tests_and_file_totals",
+      "tests/test_test_tiers.py::test_standard_wall_time_reuses_only_the_same_verified_run",
+      "tests/test_test_tiers.py::test_changed_engine_time_is_separate_from_default_fast_reference",
+      "tests/test_test_tiers.py::test_input_identity_changes_when_source_changes_and_skips_are_reported",
+      "tests/test_test_tiers.py::test_external_environment_identity_survives_relocation_and_rejects_changed_bytes",
+      "tests/test_test_tiers.py::test_explicit_external_environment_requires_all_three_nonempty_inputs",
+      "tests/test_test_tiers.py::test_fixed_dependency_and_patch_bytes_are_part_of_the_frozen_test_input",
+      "tests/test_test_tiers.py::test_delivery_generated_directories_are_not_test_source_inputs",
+      "tests/test_test_tiers.py::test_changed_selection_includes_staged_unstaged_and_untracked",
+      "tests/test_test_tiers.py::test_real_serial_and_parallel_workers_return_identical_complete_nodes",
+      "tests/test_test_tiers.py::test_real_pytest_rejects_other_run_old_format_or_duplicate_selection",
+      "tests/test_test_tiers.py::test_missing_coverage_report_cannot_pass",
+      "tests/test_test_tiers.py::test_real_parallel_coverage_is_combined_for_the_current_normal_source",
+      "tests/test_design_doc_build.py::test_table_cells_keep_escaped_and_code_span_pipes",
+      "tests/test_design_doc_build.py::test_list_continuation_and_one_level_nesting",
+      "tests/test_design_doc_build.py::test_blockquote_and_paragraph_hard_breaks",
+      "tests/test_design_doc_build.py::test_mermaid_fence_and_fenced_pseudo_headings",
+      "tests/test_design_doc_build.py::test_sibling_links_map_to_in_document_anchors_and_others_stay",
+      "tests/test_design_doc_build.py::test_same_chapter_anchor_links_get_the_chapter_prefix",
+      "tests/test_design_doc_build.py::test_missing_sibling_identifier_aborts_instead_of_opening_the_chapter",
+      "tests/test_design_doc_build.py::test_heading_ids_are_unique_and_the_build_is_deterministic",
+      "tests/test_design_doc_build.py::test_cover_and_toc_take_chapter_metadata",
+      "tests/test_design_doc_build.py::test_contract_sections_are_excerpted_verbatim_with_promoted_headings",
+      "tests/test_design_doc_build.py::test_contract_appendix_rewrites_links_relative_to_the_assembled_page",
+      "tests/test_design_doc_build.py::test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current",
+      "tests/test_design_doc_build.py::test_check_command_detects_source_changes_and_missing_output",
+      "tests/test_design_doc_build.py::test_explicit_section_survives_heading_rename_without_visible_markup",
+      "tests/test_design_doc_build.py::test_appendix_identifier_survives_title_rename_and_duplicate_identifier_aborts",
+      "tests/test_documentation_gate.py::test_scan_covers_unregistered_design_manual_and_actual_root_entries",
+      "tests/test_documentation_gate.py::test_title_change_preserves_explicit_identity_and_body",
+      "tests/test_documentation_gate.py::test_current_document_violations_fail",
+      "tests/test_documentation_gate.py::test_definitions_resolve_classes_nested_functions_and_assignments",
+      "tests/test_documentation_gate.py::test_retained_ruling_resolves_only_its_declared_historical_definition",
+      "tests/test_documentation_gate.py::test_historical_ruling_definition_requires_exact_real_provenance",
+      "tests/test_documentation_gate.py::test_assignment_reexports_are_not_actual_definitions",
+      "tests/test_documentation_gate.py::test_constructed_assignment_and_local_parameter_are_actual_definitions",
+      "tests/test_documentation_gate.py::test_transparent_calls_preserve_real_constructions_and_custom_factories",
+      "tests/test_documentation_gate.py::test_wildcard_import_preserves_local_constants_constructions_and_parameters",
+      "tests/test_documentation_gate.py::test_literal_container_and_mixed_destructuring_keep_actual_local_definitions",
+      "tests/test_documentation_gate.py::test_duplicate_identifier_across_documents_has_one_owner",
+      "tests/test_documentation_gate.py::test_source_and_test_references_require_current_explicit_sections",
+      "tests/test_documentation_gate.py::test_attribute_documentation_and_field_description_use_current_sections",
+      "tests/test_documentation_gate.py::test_document_file_reading_argument_is_not_a_contract_reference",
+      "tests/test_documentation_gate.py::test_retired_paths_require_real_declared_history",
+      "tests/test_documentation_gate.py::test_history_refuses_short_missing_dirty_or_undisclaimed_commit",
+      "tests/test_documentation_gate.py::test_archive_snapshot_disclaims_unreconstructible_execution",
+      "tests/test_documentation_gate.py::test_archive_header_without_original_body_cannot_claim_complete_snapshot",
+      "tests/test_documentation_gate.py::test_archive_cannot_replace_original_snapshot_with_unrelated_substantive_body",
+      "tests/test_documentation_gate.py::test_archive_relative_links_resolve_from_original_path_without_rewriting_body",
+      "tests/test_documentation_gate.py::test_exact_reference_source_is_explicit_and_does_not_search_other_baselines",
+      "tests/test_documentation_gate.py::test_main_fails_closed_and_reports_english_problem",
+      "tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve",
+      "tests/test_mutation_runner.py::test_mutation_changes_only_the_named_definition_with_duplicate_text_elsewhere",
+      "tests/test_mutation_runner.py::test_mutation_resolves_nested_function_and_module_assignment",
+      "tests/test_mutation_runner.py::test_missing_imported_or_ambiguous_symbol_is_rejected",
+      "tests/test_mutation_runner.py::test_invalid_original_equal_replacement_and_invalid_program_are_rejected",
+      "tests/test_mutation_runner.py::test_original_must_be_unique_inside_the_definition",
+      "tests/test_mutation_runner.py::test_symbol_rejects_nonproduction_or_malformed_location",
+      "tests/test_rrs_acceptance.py::test_stage_sets_allow_only_the_integrated_wave_and_later_prefixes",
+      "tests/test_rrs_acceptance.py::test_every_spec_anchor_has_a_registered_current_normative_body_owner",
+      "tests/test_rrs_acceptance.py::test_ledger_rows_match_the_spec_table_in_order_and_stage",
+      "tests/test_rrs_acceptance.py::test_behaviour_cases_match_spec_and_earliest_contract_ownership",
+      "tests/test_rrs_acceptance.py::test_every_registered_node_and_implementation_resolves_immediately",
+      "tests/test_rrs_acceptance.py::test_registered_owner_and_due_integration_nodes_are_collectable",
+      "tests/test_rrs_acceptance.py::test_stage_one_pure_collection_does_not_import_the_complete_engine",
+      "tests/test_rrs_acceptance.py::test_map_owners_execute_without_the_complete_engine",
+      "tests/test_rrs_acceptance.py::test_app_owners_execute_without_the_complete_engine",
+      "tests/test_rrs_acceptance.py::test_feature_file_lists_are_real_relative_and_have_no_deferral_or_stubs",
+      "tests/test_rrs_acceptance.py::test_mutation_rows_have_exact_contracts_stages_and_due_coverage",
+      "tests/test_rrs_acceptance.py::test_registered_mutations_have_real_production_anchors_and_behavior_killers",
+      "tests/test_rrs_acceptance.py::test_partial_waves_and_report_only_completion_are_rejected",
+      "tests/test_rrs_acceptance.py::test_missing_contract_wrong_stage_and_empty_finished_evidence_are_rejected",
+      "tests/test_rrs_acceptance.py::test_resource_claim_and_package_identity_owner_stages_cannot_be_swapped",
+      "tests/test_rrs_acceptance.py::test_missing_mutation_wrong_contract_and_delayed_killer_are_rejected",
+      "tests/test_rrs_acceptance.py::test_future_nodes_and_empty_test_bodies_are_rejected",
+      "tests/test_rrs_acceptance.py::test_skipped_nodes_and_nonproduction_implementation_are_rejected",
+      "tests/test_rrs_acceptance.py::test_complete_wave_prefixes_are_allowed",
+      "tests/test_rrs_acceptance.py::test_all_implementation_stages_are_complete_and_dataset_is_report_only"
+    ],
+    "implementation": [
+      "scripts/documentation_gate.py::find_problems",
+      "scripts/build_design_doc.py::assemble",
+      "scripts/run_tests.py::run",
+      "scripts/bootstrap_environment.py::require_python_identity"
+    ]
+  },
+  "完整回归与数据仓回执（只报告）": {
+    "stage": "9",
+    "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-数据仓交接",
+    "tests": [],
+    "implementation": []
+  }
+}

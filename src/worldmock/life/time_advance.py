@@ -28,9 +28,7 @@ from worldmock.life import (
 )
 from worldmock.life.action_evidence import _origin_terminal_draft, _origin_terminal_result, _terminal_action_records
 from worldmock.life.activity_evidence import (
-    dedupe_revealed_cues as _dedupe_revealed_cues,
     meal_consumption_data as _meal_consumption_data,
-    record_material_reveal as _record_material_reveal,
 )
 from worldmock.life.activity_titles import activity_title
 from worldmock.life.activities import (
@@ -42,7 +40,7 @@ from worldmock.life.activities import (
 )
 from worldmock.life.basket import apply_meal_progress
 from worldmock.life.body import ActivityFactors, BoundaryClock, next_shared_body_boundary_seconds, settle_shared_body
-from worldmock.life.content import reveal_mail, reveal_watch
+from worldmock.life.content import reveal_mail, settle_app_usage
 from worldmock.life.models import (
     ActionResult,
     ActivityKind,
@@ -51,7 +49,6 @@ from worldmock.life.models import (
     WorldState,
     active_activities,
 )
-from worldmock.life.inventory_recipe import apply_inventory_recipe
 from worldmock.life.observe import ObservationBuilder
 from worldmock.life.rhythm import (
     RhythmBoundary,
@@ -62,24 +59,15 @@ from worldmock.life.rhythm import (
     settle_engine_rhythm,
 )
 from worldmock.life.schedule import DayPlan, expired_plan_agent_ids
-from worldmock.life.state_commit import commit_state, flush_presentation, flush_supply_visibility, stage_presentation
-from worldmock.life.storefront_runtime import record_arrival_access
-from worldmock.life.travel import update_travel
-from worldmock.life.work import reveal_work_progress
-from worldmock.scheduling.effects import apply_scheduled_effect
+from worldmock.life.models import validated_payload
+from worldmock.life.presentation import flush_presentation, stage_presentation
+from worldmock.life.travel import persisted_trip, record_arrival, update_travel
+from worldmock.life.work import work_completion_draft, work_progress_data
+from worldmock.scheduling.effects import process_scheduled_events
 
 from worldmock.life.engine_context import EngineContext
 from worldmock.life.activity_titles import activity_title, activity_snapshot
 from worldmock.life.world_ops import place_names, meal_windows_by_agent
-
-_SCHEDULED_WAKE_FLAGS = {
-    "delivery_arrival": "delivery_arrival",
-    "delivery_ready": "delivery_arrival",
-    "mail_arrival": "message_arrival",
-    "message_arrival": "message_arrival",
-    "work_available": "task_available",
-}
-
 
 class TimeAdvanceCoordinator:
     """@brief 显式依赖上下文的TimeAdvanceCoordinator。"""
@@ -123,7 +111,7 @@ class TimeAdvanceCoordinator:
             raise ProtocolError("World advance must match the next scheduling boundary")
         interval = target_epoch - self.context.state.current_time
         staged = flush_presentation(stage_presentation(self.context.state, self.observations.pending_presentation))
-        staged = flush_supply_visibility(staged, self.observations.pending_visible_supplies)
+        staged = staged
         staged = staged.model_copy(update={"current_time": target_epoch}, deep=True)
         staged = same_moment.reset_same_moment(staged)
         (drafts, results) = self._advance_activities(staged, target_epoch)
@@ -151,10 +139,9 @@ class TimeAdvanceCoordinator:
                 )
             )
         staged.version = self.context.state.version + 1
-        commit_state(self.context.store, staged, drafts)
+        self.context.store.commit(validated_payload(staged), drafts)
         self.context.state = staged
         self.observations.pending_presentation = {}
-        self.observations.pending_visible_supplies = {}
         return results
 
     @property
@@ -173,7 +160,7 @@ class TimeAdvanceCoordinator:
             raise ProtocolError("No midnight rhythm is pending")
         staged = decide_engine_rhythm(self.context, self.context.state.model_copy(deep=True), boundary)
         staged.version = self.context.state.version + 1
-        commit_state(self.context.store, staged, list(boundary.drafts))
+        self.context.store.commit(validated_payload(staged), list(boundary.drafts))
         self.context.state = staged
         self.midnight = None
 
@@ -190,7 +177,7 @@ class TimeAdvanceCoordinator:
             self.context.state, agent_id, request, (sources, causes), self.context.scenario.timezone
         )
         staged.version = self.context.state.version + 1
-        commit_state(self.context.store, staged, [*evidence, draft])
+        self.context.store.commit(validated_payload(staged), [*evidence, draft])
         self.context.state = staged
         return plan
 
@@ -235,6 +222,11 @@ class TimeAdvanceCoordinator:
                     state, activity, target, settlement, body_event.event_id
                 )
                 drafts.append(progress)
+                if activity.kind == ActivityKind.WORK:
+                    completed = work_completion_draft(
+                        state, activity, self.context.rules.work_topic(activity.target_id), progress.event_id)
+                    if completed is not None:
+                        drafts.append(completed)
                 if terminal is not None:
                     (result, event) = terminal
                     results.append(result)
@@ -256,7 +248,8 @@ class TimeAdvanceCoordinator:
     def _advance_one_activity(self, state: WorldState, activity, target: int, settlement, body_event_id: str):
         """@brief 推进单项进度并引用已排在前面的唯一共同身体事件。"""
         agent = state.agents[activity.agent_id]
-        before_consumed = dict(activity.data.get("consumed", {}))
+        before_consumed = {"consumed": dict(activity.data.get("consumed", {})),
+                           "media_position_seconds": activity.media_position_seconds}
         if activity.kind in {ActivityKind.CHAT, ActivityKind.CALL}:
             advanced = social_actions.advance_social_shared(
                 activity, agent, target, settlement, social_actions.shared_chat_seconds(state, activity, target)
@@ -285,8 +278,6 @@ class TimeAdvanceCoordinator:
             "body_settlement_event_id": body_event_id,
             **effects,
         }
-        if activity.kind == ActivityKind.WORK:
-            data["activity_efficiency"] = settlement.work_efficiency
         flows = _resource_flows_data(activity.agent_id, target)
         if flows:
             data[RESOURCE_FLOWS_FIELD] = flows
@@ -329,101 +320,53 @@ class TimeAdvanceCoordinator:
         agent = state.agents[activity.agent_id]
         evidence = {}
         if activity.kind == ActivityKind.TRAVEL:
-            route = next((item for item in self.context.scenario.routes if item.route_id == activity.data["route_id"]))
-            (activity, agent) = update_travel(activity, route, agent)
-            record_arrival_access(activity, agent, self.context.scenario)
+            trip = persisted_trip(self.context.semantics.catalog.graph, activity)
+            (activity, agent) = update_travel(activity, trip, agent)
+            record_arrival(activity, agent)
             state.activities[activity.activity_id] = activity
             state.agents[agent.agent_id] = agent
-        if activity.kind == ActivityKind.WATCH:
-            item = self.context.rules.content(activity.target_id)
-            (state.agents[agent.agent_id], activity.data["revealed"]) = reveal_watch(
-                activity, agent, item, self.context.rules.cues(item.item_id)
-            )
-            if item.kind != "podcast_episode":
-                _dedupe_revealed_cues(activity)
+        if activity.kind == ActivityKind.USE_APP:
+            changed, evidence["content"] = settle_app_usage(
+                state, activity, self.context.semantics.catalog, before_consumed["media_position_seconds"])
+            state.agents, state.activities, state.sessions = changed.agents, changed.activities, changed.sessions
         if activity.kind == ActivityKind.WORK:
-            material = reveal_work_progress(
-                state,
-                self.context.corpus_root,
-                self.context.rules.task(activity.target_id),
-                activity.agent_id,
-                activity.activity_id,
-            )
-            evidence["work_material"] = material
-            state.agents[agent.agent_id] = _record_material_reveal(
-                state.agents[agent.agent_id], activity.target_id, material, state.current_time
-            )
+            evidence["work"] = work_progress_data(state, activity, self.context.rules.work_topic(activity.target_id))
         if activity.kind == ActivityKind.CONSUME:
-            evidence["consumption"] = self._apply_consume_effect(state, activity, completed, before_consumed)
+            evidence["consumption"] = self._apply_consume_effect(
+                state, activity, completed, before_consumed["consumed"])
         if not completed:
             return evidence
         if activity.kind == ActivityKind.READ_MAIL:
             (state.agents[agent.agent_id], activity.data["revealed"]) = reveal_mail(
                 activity, agent, self.context.rules.messages
             )
-        elif activity.kind == ActivityKind.BROWSE:
-            (staged, revealed) = self.observations._complete_product_browse(state, agent)
-            (state.agents, state.presentation_state) = (staged.agents, staged.presentation_state)
-            activity.data["revealed"] = revealed
-            evidence["browse_result"] = revealed
         return evidence
 
-    def _apply_consume_effect(
-        self, state: WorldState, activity, completed: bool, before_consumed: dict[str, float]
-    ) -> dict:
-        """@brief 记录本区间实际食用增量和当时的营养利用效率。"""
+    def _apply_consume_effect(self, state: WorldState, activity, completed: bool,
+                              before_consumed: dict[str, float]) -> dict:
+        """@brief 真实 Food 份量进度结算及当前区间消费证据使用同一目录。"""
         agent = state.agents[activity.agent_id]
-        food_efficiency = (
-            sleep_module.food_utilization_efficiency(agent.body.sleep_deficit_hours)
-            if activity.data["request"]["use_mode"] == "eat"
-            else None
-        )
-        if completed and "inventory_recipe" in activity.data:
-            state.agents[activity.agent_id] = apply_inventory_recipe(
-                agent, self.context.rules.items, self.context.semantics.catalog, activity
-            )
-        elif "inventory_recipe" not in activity.data:
-            state.agents[activity.agent_id] = apply_meal_progress(
-                agent, self.context.rules.items, activity, self.context.semantics.body
-            )
+        foods = self.context.semantics.catalog.foods
+        state.agents[activity.agent_id] = apply_meal_progress(agent, foods, activity, self.context.semantics.body)
         state.activities[activity.activity_id] = activity
-        data = _meal_consumption_data(activity, state.agents[activity.agent_id], before_consumed)
-        data["food_efficiency"] = food_efficiency
-        return data
+        return _meal_consumption_data(activity, state.agents[activity.agent_id], before_consumed, foods)
 
     def _process_scheduled(
         self, state: WorldState, target: int
     ) -> tuple[WorldState, list[EventDraft], dict[int, set[str]]]:
-        """@brief 处理同秒稳定排序的邮件、工作机会、配送与预排段事件并标唤醒旗标。"""
+        """@brief 委托唯一预排算法弹出并结算事件，保留运行日志与实际唤醒。"""
         due = [item for item in state.pending_events if item.due_at == target]
-        state.pending_events = [item for item in state.pending_events if item.due_at != target]
-        drafts = []
-        arrivals: dict[int, set[str]] = {}
+        state, drafts, arrivals = process_scheduled_events(state, target, self.context.semantics)
         for item in sorted(due, key=lambda value: (value.sequence, value.scheduled_id)):
-            outcome = apply_scheduled_effect(state, item, self.context.semantics)
-            state = outcome.state
-            if item.agent_id is not None:
-                arrivals.setdefault(item.agent_id, set()).add(
-                    _SCHEDULED_WAKE_FLAGS.get(item.kind.value, "message_arrival")
-                )
             self.context.ops.log(
                 target,
-                "engine",
+                "push" if item.kind.value == "app_push" else "engine",
                 "info",
                 "SCHEDULED_EVENT_DISPATCHED",
                 f"Scheduled event {item.kind.value} dispatched",
                 agent_id=item.agent_id,
                 event_kind=item.kind.value,
                 scheduled_id=item.scheduled_id,
-            )
-            drafts.append(
-                EventDraft(
-                    event_type="environment_event",
-                    occurred_at=target,
-                    agent_id=item.agent_id,
-                    source_kind="scenario",
-                    data={"kind": item.kind.value, "scheduled_id": item.scheduled_id, **outcome.data},
-                )
             )
         return (state, drafts, arrivals)
 

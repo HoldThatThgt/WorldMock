@@ -4,13 +4,14 @@ sleep_pressure 按 Daan、Beersma 与 Borbély（1984）两过程模型演化：
 以 18.2h 时间常数趋近 1，睡眠时以 4.2h 时间常数衰减；入睡阈值 H 与醒来
 阈值 L 以 0.12 振幅绕昼夜相位摆动，困意为 (S−L)/(H−L) 截断到 [0, 1.2]。
 sleep_deficit_hours 为独立账本：清醒按 sleep_need_hours/(24−sleep_need_hours)
-每小时累积、睡眠每小时恢复 1h，钳制在 [0, 24]，并驱动工作效率与食品
-利用效率曲线。本模块仅依赖标准库与 pydantic，不 import 本项目其他模块。
+每小时累积、睡眠每小时恢复 1h，钳制在 [0, 24]，并驱动食品
+利用效率曲线。食品利用率只读取 WorldMock 固定身体常数。
 """
 
 from __future__ import annotations
 
 from worldmock.base_models import FrozenModel
+from worldmock.exchange.body import BODY_CONSTANTS
 import bisect
 import math
 from enum import StrEnum
@@ -213,32 +214,8 @@ def interpolate_efficiency(points: tuple[EfficiencyCurvePoint, ...], value: floa
     return left.output_factor + ratio * (right.output_factor - left.output_factor)
 
 
-#: 工作效率曲线节点（experiment_assumption：输入 sleep_deficit_hours 的乘数曲线）。
-WORK_EFFICIENCY_CURVE: tuple[EfficiencyCurvePoint, ...] = (
-    EfficiencyCurvePoint(input_hours=0.0, output_factor=1.0),
-    EfficiencyCurvePoint(input_hours=8.0, output_factor=1.0),
-    EfficiencyCurvePoint(input_hours=16.0, output_factor=0.85),
-    EfficiencyCurvePoint(input_hours=24.0, output_factor=0.65),
-)
-
-#: 食品利用效率曲线节点（experiment_assumption：输入 sleep_deficit_hours 的乘数曲线）。
-FOOD_UTILIZATION_CURVE: tuple[EfficiencyCurvePoint, ...] = (
-    EfficiencyCurvePoint(input_hours=0.0, output_factor=0.90),
-    EfficiencyCurvePoint(input_hours=8.0, output_factor=0.90),
-    EfficiencyCurvePoint(input_hours=16.0, output_factor=0.85),
-    EfficiencyCurvePoint(input_hours=24.0, output_factor=0.80),
-)
-
-# 冻结曲线在导入期自检：节点非法即失败（fail-fast）。
-validate_efficiency_curve(WORK_EFFICIENCY_CURVE)
-validate_efficiency_curve(FOOD_UTILIZATION_CURVE)
-
-
-def work_efficiency(deficit_hours: float) -> float:
-    """@brief 工作效率乘数：按 sleep_deficit_hours 在冻结节点间插值。"""
-    return interpolate_efficiency(WORK_EFFICIENCY_CURVE, deficit_hours)
-
-
 def food_utilization_efficiency(deficit_hours: float) -> float:
     """@brief 食品利用效率乘数：按 sleep_deficit_hours 在冻结节点间插值。"""
-    return interpolate_efficiency(FOOD_UTILIZATION_CURVE, deficit_hours)
+    points = tuple(EfficiencyCurvePoint(input_hours=point.input_value, output_factor=point.output_value)
+                   for point in BODY_CONSTANTS.food_efficiency_curve)
+    return interpolate_efficiency(points, deficit_hours)

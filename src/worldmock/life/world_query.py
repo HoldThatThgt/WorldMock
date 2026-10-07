@@ -18,11 +18,12 @@ from worldmock.life.guidance import default_reason
 from worldmock.life.vocabulary import PURCHASE_WAYS, SYSTEM_PURCHASE_WAY, WAYS
 from worldmock.life.interaction_menu import binding_action
 from worldmock.life.models import purpose_only_schema
-from worldmock.life.name_resolution import channel_key, near_source_names, resolve_source
+from worldmock.life.name_resolution import channel_key, delivery_sources, near_source_names, resolve_source
+from worldmock.exchange.types import FOOD_CATEGORY_LABELS
+from worldmock.life.purchase_offers import menu_foods
 from worldmock.life.object_labels import resolve_name
 from worldmock.life.vocabulary import way_options
 from worldmock.life.object_labels import supply_label
-from worldmock.life.readable import BROWSE_LABELS
 from worldmock.life.request_errors import argument_report
 from worldmock.life.tool_groups import compact
 
@@ -88,9 +89,8 @@ def attach_world_query(observation: dict, context: Any) -> None:
     private = {row["object"]: row for row in bindings}
     entries = [_frozen_entry(context, target, private.get(target["name"])) for target in complete]
     observation["world_query_bindings"] = entries
-    observation["world_query_channels"] = [
-        {"channel_id": channel.channel_id, "names": list(channel.names),
-         "store_location_ids": list(channel.store_location_ids)} for channel in context.semantics.purchase_channels]
+    observation["world_query_apps"] = {identity: {"name": name, "store_ids": list(stores)}
+        for identity, (name, stores) in delivery_sources(context.semantics.catalog).items()}
     observation["world_query_page_size"] = context.scenario.candidate_presentation_limit
     observation["tool_layer"]["callable_index"]["query_categories"] = query_category_index(entries)
 
@@ -108,51 +108,39 @@ def _complete_bindings(observation: dict, context: Any) -> list[dict]:
 
 
 def _supply_bindings(context: Any) -> list[dict]:
-    """@brief 指名购买已经授权的逐店商品公开事实；冻结读取不要求真实浏览准入。"""
-
-    agent = context.state.agents[context.agent_id]
-    discovery = DiscoveryContext(context.state, context.scenario, context.semantics, agent)
+    """@brief 查询使用实际完整固定菜单，食品身份与 app 绑定从目录一次冻结。"""
     rows = []
-    for supply in context.scenario.supplies:
-        fact = supply_row(discovery, supply)
-        if fact["purchase_pairing_state"] != "defined" or not fact["access_allowed"] or not fact["service_allowed"]:
-            continue
-        rows.append({"object": supply_label(fact["location_name"], fact["name"]), "kind": "supply",
-                     "object_id": supply.supply_id,
-                     "quote": {key: fact[key] for key in ("price_version", "price_fen", "purchase_price_fen")},
-                     "actions": [binding_action(PURCHASE_WAYS[mode], "purchase", fulfillment=mode)
-                                 for mode in supply.fulfillment_modes]})
+    for store_id, food in menu_foods(context):
+        location = context.semantics.catalog.locations[store_id]
+        apps = context.semantics.catalog.apps_by_store[store_id]
+        modes = ("pickup", "delivery") if apps else ("pickup",)
+        rows.append({"object": supply_label(location.display_name, food.name), "kind": "supply",
+                     "object_id": f"{store_id}:{food.food_id}", "store_id": store_id, "food_id": food.food_id,
+                     "app_id": min(apps) if apps else None,
+                     "actions": [binding_action(PURCHASE_WAYS[mode], "purchase", fulfillment=mode) for mode in modes]})
     return rows
 
 
 def _frozen_entry(context: Any, target: dict, binding: dict | None) -> dict:
-    """@brief 内部身份只用于排序，查询结果保留公开目标（完整副本，null 照存，返回时才紧凑投影）；不附逐项请求候选
-    （docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-返回 ）。供给条目另记所属门店（location_id，来源筛选用，不进查询结果），其余条目
-    为 None。"""
-    identity = (f"{binding['kind']}:{binding['object_id']}" if binding is not None else target["name"])
-    public = copy.deepcopy(target)
+    """@brief 冻结真实公开工具目标与来源门店，查询不改变购买或持有状态。"""
+    identity = f"{binding['kind']}:{binding['object_id']}" if binding is not None else target["name"]
     aliases, location = [target["name"]], None
     if binding is not None and binding["kind"] == "supply":
-        supply = context.rules.supplies[binding["object_id"]]
-        aliases.append(context.rules.items[supply.product_id].name)
-        location = supply.location_id
+        aliases.append(context.semantics.catalog.foods[binding["food_id"]].name)
+        location = binding["store_id"]
     return {"identity": identity, "category": _category(context, binding), "aliases": aliases,
-            "location_id": location, "match": public}
+            "location_id": location, "match": copy.deepcopy(target)}
 
 
 def _category(context: Any, binding: dict | None) -> str | None:
-    """@brief 使用已有公开品类树与内容类别，不创建查询专用分类词表。"""
+    """@brief 食品使用系统固定类别，仍保留后续内容消费者的真实类别读点。"""
     if binding is None:
         return None
     kind, identity = binding["kind"], binding["object_id"]
-    if kind == "content" or (kind == "game" and identity in context.rules.contents):
-        return BROWSE_LABELS[context.rules.contents[identity].kind]
-    if kind == "game":
-        return BROWSE_LABELS["game_session"]
-    if kind == "supply":
-        identity = context.rules.supplies[identity].product_id
-    obj = context.semantics.catalog.objects.get(identity)
-    return context.semantics.catalog.category_contract.require_category(obj.category_id).name if obj else None
+    if kind in {"supply", "holding"}:
+        food_id = binding["food_id"] if kind == "supply" else identity
+        return FOOD_CATEGORY_LABELS[context.semantics.catalog.foods[food_id].category]
+    return None
 
 
 def validate_world_query(observation: dict, request: QueryWorldRequest) -> ErrorReport | None:
@@ -219,8 +207,8 @@ def _source_issue(observation: dict, values: dict) -> ErrorItem:
     无权限的门店。"""
     places = _places(observation)
     stores = _permitted_stores(observation)
-    channels = tuple(row for row in _channel_rows(observation) if stores.intersection(row[2]))
-    names = near_source_names(values["from"], places, stores, channels, lambda scope: True)
+    apps = {identity: row for identity, row in _app_sources(observation).items() if stores.intersection(row[1])}
+    names = near_source_names(values["from"], places, stores, apps, lambda scope: True)
     candidates = tuple(Candidate("query_world", copy.deepcopy({**values, "from": name})) for name in names)
     return ErrorItem(path=("from",), written=values["from"], error_code="ARGUMENTS_INVALID", allowed_values=(),
                      expected=_SOURCE_EXPECTED, why=default_reason("SOURCE_NOT_FOUND"), candidates=candidates)
@@ -233,7 +221,7 @@ def _misplaced_channel_issue(observation: dict, values: dict) -> ErrorItem | Non
     if name is None or "from" not in values or values["from"] is not None:
         return None
     key = channel_key(name)
-    if not any(key == channel_key(written) for row in _channel_rows(observation) for written in row[1]):
+    if not any(key == channel_key(written) for written, stores in _app_sources(observation).values()):
         return None
     aliases = (alias for entry in observation["world_query_bindings"] for alias in entry["aliases"])
     if resolve_name(name, aliases).matches:
@@ -248,10 +236,6 @@ def _places(observation: dict) -> dict[str, str]:
     return {row["location_id"]: row["name"] for row in observation["locations"]}
 
 
-def _channel_rows(observation: dict) -> tuple:
-    """@brief 冻结渠道索引的各行，写成购买侧同一形状（name_resolution.ChannelRow：渠道身份，称呼，成员门店）。"""
-    return tuple((row["channel_id"], tuple(row["names"]), tuple(row["store_location_ids"]))
-                 for row in observation["world_query_channels"])
 
 
 def _permitted_stores(observation: dict) -> frozenset[str]:
@@ -264,7 +248,7 @@ def _source_stores(observation: dict, written: str) -> frozenset[str] | None:
     """@brief 所写来源解析出的门店身份集合：与购买侧同一个纯函数（name_resolution.resolve_source），入参取自冻结观察的
     地点表、住处与渠道索引；不是地点显示名也不是渠道称呼时为 None。"""
     places = _places(observation)
-    match = resolve_source(written, places, observation["home_location_id"], _channel_rows(observation))
+    match = resolve_source(written, places, observation["home_location_id"], _app_sources(observation))
     return None if match is None else match.store_ids
 
 
@@ -309,3 +293,9 @@ def query_world(observation: dict, request: QueryWorldRequest) -> dict:
     end = min(request.offset + observation["world_query_page_size"], len(entries))
     return {"matches": [compact(entry["match"]) for entry in entries[request.offset:end]],
             "total_count": len(entries), "next_offset": end if end < len(entries) else None}
+
+
+def _app_sources(observation: dict) -> dict[str, tuple[str, tuple[str, ...]]]:
+    """@brief 读取已从实际目录冻结的 app 来源事实，不建立替身 Catalog。"""
+    return {identity: (row["name"], tuple(row["store_ids"]))
+            for identity, row in observation["world_query_apps"].items()}

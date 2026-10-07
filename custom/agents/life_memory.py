@@ -274,11 +274,11 @@ def _fact_line(fact: dict[str, Any]) -> str:
     if kind == "waited":
         detail = f"等待 {fact['duration_seconds']} 秒"
     elif kind == "consumed":
-        detail = f"在 {fact['location_id']} 食用 {fact['product_id']} {_amount(fact['interval_quantity'])} 份"
+        detail = f"在 {fact['location_id']} 食用 {fact['food_id']} {_amount(fact['interval_portion'])} 份"
     elif kind == "arrived":
         detail = f"到达 {fact['location_id']}，进入状态 {fact['access_status']}"
     elif kind == "played":
-        detail = (f"播放 {fact['content_id']} 的媒体位置 "
+        detail = (f"使用应用 {fact['app_id']}，内容 {fact['content_id']} 进度 "
                   f"{_amount(fact['position_before_seconds'])} 至 {_amount(fact['position_after_seconds'])} 秒")
     else:
         logging.error("Verified experience kind is invalid")

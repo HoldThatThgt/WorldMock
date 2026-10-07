@@ -245,6 +245,7 @@ const S = {
   world: null,
   obs: [],               // {seq,t,agent,bal,en,sl,et}
   acts: [],              // 合并后的活动段
+  actById: new Map(),    // 活动身份 -> 活动段，供受理摘要按身份写活动名
   memFiles: {},          // agentId -> {memoryMd, episodes:[]}
   runManifest: null,     // {path, frozen, manifest}：随库提供的本运行冻结清单（frozen 表示取自导出清单）
   ignoredManifests: 0,   // 随库提供、却不是本库所属运行清单的 manifest.json 个数
@@ -333,8 +334,8 @@ const TYPE_COLORS = {
   run_ended:'#ffa657',
 };
 const KIND_COLORS = {
-  work:'#4f83cc', sleep:'#8a7fd8', travel:'#d0a03f', watch:'#3fae8c',
-  play_game:'#c46a9a', consume:'#b0703c', browse:'#6a9ab0', wait:'#6e7681',
+  work:'#4f83cc', sleep:'#8a7fd8', travel:'#d0a03f', use_app:'#3fae8c',
+  consume:'#b0703c', wait:'#6e7681',
   read_mail:'#9a8f5a', lifestyle:'#8fa35e', call:'#d17a6a', chat:'#b58ad6',
 };
 const typeColor = t => TYPE_COLORS[t]||'#768390';
@@ -349,42 +350,42 @@ const TYPE_LABELS = {
   run_ended:'结束', run_failed:'运行失败',
 };
 const KIND_LABELS = {
-  wait:'等待', sleep:'睡眠', work:'工作', watch:'观看', consume:'进食',
-  purchase:'购买', travel:'出行', read_mail:'读邮件', browse:'浏览', play_game:'玩游戏',
-  lifestyle:'生活活动', chat:'交谈', call:'通话',
+  wait:'等待', sleep:'睡眠', work:'工作', use_app:'用手机', consume:'进食',
+  travel:'出行', read_mail:'读邮件', lifestyle:'生活活动', chat:'交谈', call:'通话',
 };
 const TOOL_LABELS = {
-  start_activity:'开始活动', submit_work:'提交工作', send_message:'发送消息',
+  start_activity:'开始活动', send_message:'发送消息',
   recall_task_summary:'回看任务', report_status:'播报进展', pause_activity:'暂停活动',
   conclude_activity:'结束活动', revise_day_plan:'调整当日目标',
 };
-/* start_activity 的五个动词（方式短语本身就是中文，原样显示） */
-const VERB_LABELS = { travel:'出行', interact:'交互', obtain:'取得', consume:'使用', sleep:'睡眠' };
 const STATUS_LABELS = { active:'进行中', completed:'已完成', in_progress:'进行中', rejected:'被拒绝', cancelled:'已取消' };
-const BND_LABELS = { planned_end:'按计划结束', feedback:'反馈中断', game_feedback:'游戏反馈',
+const BND_LABELS = { planned_end:'按计划结束', feedback:'反馈中断',
   plan_reminder:'计划提醒结束', route_ended:'随出行结束', partner_ended:'对方结束交谈',
   paused:'已暂停', cancelled:'主动结束' };
 const ENVK_LABELS = { initial_funds_injected:'初始资金注入', mail_arrival:'邮件到达',
-  delivery_arrival:'外卖送达', work_available:'工作可做', task_expired:'任务过期',
+  delivery_arrival:'外卖送达', app_push:'app 推送', work_topic_completed:'工作主题完成',
   day_plan_generated:'零点计划生成', activity_concluded:'活动收尾', activity_paused:'活动暂停',
   activity_resumed:'活动恢复', activity_truncated:'活动截断',
   errand_registered:'事务记下', errand_updated:'事务更新', errand_cancelled:'事务取消',
   errand_progressed:'事务进展', errand_completed:'事务办成', errand_reminded:'事务提醒',
   body_settlement:'身体结算', message_arrival:'消息到达', model_npc_reply:'联系人回复',
   model_npc_reply_pending:'联系人回复待生成', branch_created:'分支创建' };
+const CONTENT_KIND_LABELS = {
+  article:'文章', image_text:'图文', short_video:'短视频', long_video:'长视频', live:'实况',
+};
 /* 六种个人事务事件（environment_event 的 kind）：载荷 data.errand 是事务快照，摘要写其中的事务名称与商品 */
 const ERRAND_KINDS = new Set(['errand_registered', 'errand_updated', 'errand_cancelled', 'errand_progressed',
   'errand_completed', 'errand_reminded']);
 /* decision_started.data.wake_reasons 的唤醒原因闭集 */
 const WAKE_LABELS = {
   planned_end:'计划结束', felt_band_change:'体感变化', message_arrival:'消息到达', delivery_arrival:'配送送达',
-  task_available:'任务可做', task_due_soon:'任务临近截止', work_review_result:'工作审阅结果',
-  commitment_threatened:'承诺受威胁', reconsideration_interval:'重估间隔', location_hours_change:'营业时间变化',
+  commitment_threatened:'承诺受威胁', reconsideration_interval:'重估间隔',
   person_arrived:'有人到来', person_left:'有人离开', activity_infeasible:'活动不可行',
   rejection_feedback:'拒绝反馈', discovery_result:'发现结果', wake_from_sleep:'睡醒', run_start:'运行开始',
   progress_report_due:'该播报进展', no_active_activity:'没有进行中的活动', plan_reminder_due:'计划提醒到点',
   errand_reminder_due:'事务提醒到点',
   shift_start:'班次开始', shift_end:'班次结束', break_start:'休息时段开始', break_end:'休息时段结束',
+  app_push:'app 推送',
 };
 const SESSION_KIND_LABELS = { stay:'停留', transit:'路上' };
 const SESSION_STATUS_LABELS = { active:'进行中', ended:'已结束' };
@@ -393,7 +394,6 @@ const MEMORY_TYPE_LABELS = {
   reflection:'反思', routine:'日常', goal:'目标', relationship:'关系',
   commitment:'承诺', preference:'偏好', resolution:'决定',
 };
-const ERR_LABELS = { WORK_REQUIRES_REWORK:'工作需返工' };
 const ACCT_LABELS = { 'employer:zhangjiang':'雇主张江', 'merchant:general':'商家·通用',
   'merchant:grocery':'商家·杂货', 'transport:service':'交通服务' };
 const typeLabel = t => TYPE_LABELS[t]||t;
@@ -413,24 +413,9 @@ const acctLabel = a => {
   if (m) return agentName(+m[1]);
   return ACCT_LABELS[a]||a;
 };
-/* 活动类型的情景化标签（活动表格用）：看电影/看剧/刷段子/看小说… */
+/** @brief 按当前活动种类显示中文标签，不从内部身份推断内容类别。 */
 function actTypeLabel(kind, target){
-  const t = String(target||'');
-  if (kind==='watch'){
-    if (/^movie-/.test(t)) return '看电影';
-    if (/^drama-/.test(t)) return '看剧';
-    if (/^sintel/.test(t)) return '看字幕影片';
-  }
-  if (kind==='browse'){
-    if (/^novel-/.test(t)) return '看小说';
-    if (t==='jokes-feed') return '刷段子';
-    if (t==='weibo-feed') return '刷微博';
-    if (t==='zhihu-feed') return '刷知乎';
-    if (t==='movie-reviews-feed') return '刷影评';
-    if (t==='news-feed') return '刷新闻';
-  }
   if (kind==='consume') return '吃';
-  if (kind==='purchase') return '买';
   return kindLabel(kind);
 }
 /** @brief 显示记录中的名称，缺失时显式报告数据问题。 */
@@ -538,8 +523,8 @@ const EVENTS_OF_TYPE = 'viewer_event v CROSS JOIN events e ON e.event_seq=v.even
 const parseJArr = text => { try{ return JSON.parse(text); }catch(e){ return []; } };
 
 /* ---------- 名称索引 ----------
- * 名称随建索引时各类字段的那一次查询取出（观察里的六个数组、受理里的条目、活动自身的标题），不另开查询、不再解析
- * 一遍事件正文。各来源先各自累积，最后按固定的先后合并：前五个来源后写的覆盖先写的，后两个只给还没有名称的对象补缺。 */
+ * 名称随建索引时各类字段的那一次查询取出（观察里的八个数组、活动自身的标题），不另开查询、不再解析一遍事件正文。
+ * 各来源先各自累积，最后按固定的先后合并：前六个来源后写的覆盖先写的，后两个只给还没有名称的对象补缺。 */
 /** @brief 一条名称记录是否有效：对象身份非空，名称是非空字符串且不同于对象身份。 */
 const validName = (id, label) => Boolean(id) && typeof label==='string' && label.trim()!=='' && label.trim()!==id;
 /** @brief 覆盖式累积：同一对象留最后一次记录的有效名称，稀疏观察不会清除此前的记录。 */
@@ -575,11 +560,13 @@ function jsonItems(text){
   if (Array.isArray(value)) return value;
   return value!==null && typeof value==='object'? Object.values(value) : [];
 }
-/* 观察事件里带名称的六个数组：[路径, 身份键, 名称键, 来源, 累积方式]。邮件主题另加「邮件「…」」的写法。 */
+/* 观察事件里带名称的八个数组：[路径, 身份键, 名称键, 来源, 累积方式]。邮件主题另加「邮件「…」」的写法。 */
 const OBSERVED_NAMES = [
   ['$.data.locations', 'location_id', 'name', 'locations', keepLastName],
-  ['$.data.products', 'product_id', 'name', 'products', keepLastName],
-  ['$.data.tasks', 'task_id', 'title', 'tasks', keepLastName],
+  ['$.data.foods', 'food_id', 'name', 'foods', keepLastName],
+  ['$.data.apps', 'app_id', 'name', 'apps', keepLastName],
+  ['$.data.contents', 'content_id', 'title', 'contents', keepLastName],
+  ['$.data.work_topics', 'topic_id', 'topic', 'workTopics', keepLastName],
   ['$.data.messages', 'message_id', 'subject', 'messages', keepLastName],
   ['$.data.interaction_bindings', 'object_id', 'object', 'bindings', keepFirstName],
   ['$.data.errand_item_bindings', 'product_id', 'name', 'errandItems', keepEarliestName],
@@ -587,11 +574,11 @@ const OBSERVED_NAMES = [
 /** @brief 新建一组空的名称来源；seen 记各来源上一次读到的数组原文。 */
 function nameSources(){
   const sources = {seen:{}};
-  for (const name of ['locations','products','tasks','messages','items','titles','bindings','errandItems'])
+  for (const name of ['locations','foods','apps','contents','workTopics','messages','titles','bindings','errandItems'])
     sources[name] = new Map();
   return sources;
 }
-/** @brief 读一次观察（查询行 row）里的六个名称数组。数组原文与同一来源上一次读到的相同时跳过：个人事务的商品目录
+/** @brief 读一次观察（查询行 row）里的八个名称数组。数组原文与同一来源上一次读到的相同时跳过：个人事务的商品目录
  *  每次观察都整份列出，三种累积方式对重复的记录都不变。 */
 function observeNames(sources, row){
   for (const [path, idKey, labelKey, source, keep] of OBSERVED_NAMES){
@@ -606,17 +593,8 @@ function observeNames(sources, row){
     }
   }
 }
-/** @brief 读一次受理（查询行 row）里目录浏览等结果的条目：身份依次取 item_id、product_id、activity_id、task_id 中
- *  第一个有值的，名称取 title，没有再取 name。 */
-function acceptedNames(sources, row){
-  for (const item of jsonItems(row['$.data.data.items'])){
-    if (item===null || typeof item!=='object') continue;
-    keepLastName(sources.items, item.item_id ?? item.product_id ?? item.activity_id ?? item.task_id,
-      item.title ?? item.name);
-  }
-}
-/** @brief 合并各名称来源为名称索引。地点只有一个来源；其余对象依次写商品、任务、邮件、受理条目与活动自身的标题
- *  （取自已读出的受理与进展摘要），再由交互绑定与事务商品目录补缺，后者按最早出现、商品身份的先后补。 */
+/** @brief 合并各名称来源为名称索引。地点只有一个来源；其余对象依次写食品、app、内容、工作主题、邮件与活动自身的
+ *  标题（取自已读出的受理与进展摘要），再由交互绑定与事务商品目录补缺，后者按最早出现、商品身份的先后补。 */
 function buildNameIndex(sources){
   for (const e of S.events){
     if (e.type!=='action_accepted' && e.type!=='activity_progress') continue;
@@ -624,7 +602,7 @@ function buildNameIndex(sources){
     if (s) keepLastName(sources.titles, s.tg, s.title);
   }
   const targets = new Map();
-  for (const source of ['products','tasks','messages','items','titles'])
+  for (const source of ['foods','apps','contents','workTopics','messages','titles'])
     for (const [id, label] of sources[source]) targets.set(id, label);
   for (const [id, label] of sources.bindings) keepFirstName(targets, id, label);
   const errandItems = [...sources.errandItems].sort((x, y)=>
@@ -674,30 +652,34 @@ function buildIndex(){
   });
   typeQuery('action_accepted', ['$.activity_id','$.data.activity.kind','$.data.activity.planned_duration_seconds',
                                 '$.data.activity.target_id','$.data.activity.destination_id',
-                                '$.data.activity.title','$.data.data.task','$.data.data.items'], r=>{
-    acceptedNames(names, r);
+                                '$.data.activity.title','$.data.activity.data.origin_id',
+                                '$.data.activity.data.path','$.data.data.activity_ids'], r=>{
     S.summaries.set(r.seq,{aid:r['$.activity_id'],kind:r['$.data.activity.kind'],dur:r['$.data.activity.planned_duration_seconds'],
       tg:r['$.data.activity.target_id'],dest:r['$.data.activity.destination_id'],title:r['$.data.activity.title'],
-      tasks:parseJArr(r['$.data.data.task']||'[]')});
+      origin:r['$.data.activity.data.origin_id'],path:parseJArr(r['$.data.activity.data.path']||'[]'),
+      aids:parseJArr(r['$.data.data.activity_ids']||'[]')});
   });
   typeQuery('action_rejected', ['$.data.error_code','$.data.same_moment_round',
                                 '$.data.max_same_moment_decisions'], r=>{
     S.summaries.set(r.seq,{err:r['$.data.error_code'],smr:r['$.data.same_moment_round'],
       smmax:r['$.data.max_same_moment_decisions']});
   });
-  typeQuery('action_result', ['$.data.status','$.data.message','$.data.error_code','$.data.order'], r=>{
-    S.summaries.set(r.seq,{status:r['$.data.status'],msg:r['$.data.message'],err:r['$.data.error_code'],order:r['$.data.order']});
+  typeQuery('action_result', ['$.data.status','$.data.message','$.data.error_code','$.data.data.orders'], r=>{
+    S.summaries.set(r.seq,{status:r['$.data.status'],msg:r['$.data.message'],err:r['$.data.error_code'],
+      orders:parseJArr(r['$.data.data.orders']||'[]')});
   });
   typeQuery('activity_progress', ['$.activity_id','$.data.activity.kind','$.data.activity.status','$.data.activity.started_at',
                                   '$.data.activity.ended_at','$.data.activity.planned_end_at','$.data.activity.elapsed_seconds',
                                   '$.data.activity.boundary_type','$.data.activity.target_id','$.data.activity.destination_id',
-                                  '$.data.activity.title','$.data.interval_start','$.data.interval_end'],
+                                  '$.data.activity.title','$.data.activity.data.origin_id','$.data.activity.data.path',
+                                  '$.data.interval_start','$.data.interval_end'],
   r=>{
     S.summaries.set(r.seq,{aid:r['$.activity_id'],kind:r['$.data.activity.kind'],status:r['$.data.activity.status'],
       start:r['$.data.activity.started_at'],end:r['$.data.activity.ended_at'],
       pend:r['$.data.activity.planned_end_at'],elapsed:r['$.data.activity.elapsed_seconds'],
       bnd:r['$.data.activity.boundary_type'],tg:r['$.data.activity.target_id'],
       dest:r['$.data.activity.destination_id'],title:r['$.data.activity.title'],
+      origin:r['$.data.activity.data.origin_id'],path:parseJArr(r['$.data.activity.data.path']||'[]'),
       from:r['$.data.interval_start'],to:r['$.data.interval_end']});
   });
   typeQuery('model_request', ['$.data.request.model','$.data.attempt','$.data.purpose'], r=>{
@@ -725,11 +707,13 @@ function buildIndex(){
   });
   typeQuery('environment_event', ['$.data.kind','$.data.resource_changes','$.data.activity.name',
                                   '$.data.day_plan.goals','$.data.errand.name','$.data.errand.product_id',
-                                  '$.data.errand.errand_id'], r=>{
+                                  '$.data.errand.errand_id','$.data.app','$.data.title','$.data.content_kind',
+                                  '$.data.summary','$.data.topic_id'], r=>{
     S.summaries.set(r.seq,{ekind:r['$.data.kind'],rc:r['$.data.resource_changes'],
       aname:r['$.data.activity.name'],goals:r['$.data.day_plan.goals'],
       errand:errandName(r['$.data.errand.name'], r['$.data.errand.errand_id']),
-      product:r['$.data.errand.product_id']});
+      product:r['$.data.errand.product_id'],app:r['$.data.app'],content:r['$.data.title'],
+      contentKind:r['$.data.content_kind'],summary:r['$.data.summary'],topic:r['$.data.topic_id']});
   });
   typeQuery('run_ended', ['$.data.end_time','$.wall_elapsed_ms'], r=>{
     S.summaries.set(r.seq,{end:r['$.data.end_time'],wall:r['$.wall_elapsed_ms']});
@@ -753,6 +737,7 @@ function buildIndex(){
 
   buildNameIndex(names);
   buildReminders();
+  buildActivities();   /* 先合并活动段：受理摘要要按活动身份写出活动名 */
 
   for (const e of S.events) e.sum = makeSummary(e);
 
@@ -773,14 +758,11 @@ function buildIndex(){
   S.fmt = makeFmt(S.tz);
   try{ S.tzOff = tzOffsetSec(S.tz, S.t0||Math.floor(Date.now()/1000)); }catch(e){ S.tzOff = 28800; }
 
-  buildActivities();
   log(`· 索引完成：${S.events.length} 事件 / ${S.agentIds.length} agent / ${S.obs.length} 观测 / ${S.acts.length} 活动段`);
 }
 
-/** @brief 控制工具请求的逐项内容，与 worldmock.life.control_items 同一规则：现行一项一个对象
- *  items[{activity_name, summary, memories, views}]，旧形状为 task[]、summary[] 与逐项的 memories[][]；
- *  返回 [{name, summary, memories}]：结束工具的 memories 含看法与偏好（先普通记忆、后 views），最早不带记忆字段的
- *  结束请求为 null，播报与暂停为空。请求级 errands（个人事务变更）必须是数组，缺键即报错（旧形状记录不留读取分支）。 */
+/** @brief 控制工具请求逐项读取活动名与自述；结束工具合并普通记忆与看法，播报和暂停没有记忆。
+ * 请求级 errands 必须是数组，缺键即报错。 */
 function controlItems(tool, req){
   if (!req || !Array.isArray(req.items)) throw new Error('Activity control request requires items');
   if (!Array.isArray(req.errands)) throw new Error('Activity control request requires errands');
@@ -818,16 +800,9 @@ function errandChanges(req){
   const changes = controlErrands(req).map(entry=>`${entry.change}「${entry.name}」`);
   return changes.length? ` · 事务：${changes.join('、')}` : '';
 }
-/** @brief start_activity 逐项显示「对象 · 动词：方式」；缺方式的旧请求只显示动作短语。 */
-function verbWay(verb, way){
-  const label = VERB_LABELS[verb]||verb||'';
-  return way? `${label}：${way}` : label;
-}
-/** @brief conclude_activity 随收尾写下的记忆条数（经 controlItems 读出的逐项记忆与看法合计）；没有记忆字段的最早形状
- *  不显示。 */
+/** @brief conclude_activity 收尾写下的普通记忆与看法条数。 */
 function memoryCount(req){
   const items = controlItems('conclude_activity', req);
-  if (items.some(item=>item.memories===null)) return '';
   return ` · 记忆 ${items.reduce((total,item)=>total+item.memories.length,0)} 条`;
 }
 /** @brief 零点计划的目标数与提醒时刻（场景时区）。 */
@@ -859,15 +834,6 @@ function readableReq(tool, reqRaw){
       return `${req.recipient_name||''} · ${req.text||''}`;
     case 'revise_day_plan':
       return `${(req.goals||[]).length} 项目标`;
-    case 'submit_work': {
-      const d = req.deliverable;
-      if (d && typeof d==='object'){
-        const nA = Array.isArray(d.action_items)? d.action_items.length : 0;
-        const nD = Array.isArray(d.decisions)? d.decisions.length : 0;
-        return `${req.task_name||''} · 交付物：${nD} 项决议 · ${nA} 项行动`;
-      }
-      return req.task_name||'';
-    }
     default: return '';
   }
 }
@@ -891,18 +857,20 @@ function makeSummary(e){
     case 'action_requested': return `请求 ${toolLabel(s.tool)} · ${readableReq(s.tool, s.req)}` +
       (s.note ? ` · self_note（未经核验）：${s.note}` : '');
     case 'action_accepted':
-      /* 不开启活动的受理（播报、暂停、结束、购买、发消息）没有活动种类与计划时长：控制工具写所涉活动的可读名称 */
-      if (!s.kind) return `已受理${Array.isArray(s.tasks) && s.tasks.length? ' · '+s.tasks.join('、') : ''}`;
+      /* 不开启活动的受理（播报、暂停、结束、购买、发消息）没有活动种类与计划时长：控制工具的结果只记所涉活动的
+         身份，这里换成各活动的种类与名称；查不到的活动不写，身份不进摘要 */
+      if (!s.kind){
+        const named = (s.aids||[]).map(aid=>S.actById.get(aid)).filter(Boolean).map(actFullLabel);
+        return `已受理${named.length? ' · '+named.join('、') : ''}`;
+      }
       return `已受理 · ${actTypeLabel(s.kind, s.tg)}${s.tg||s.dest? ' · '+actTargetText(s):''}` +
         ` · 计划 ${fmtDur(s.dur)}`;
     case 'action_rejected':
-      return `被拒绝 · ${ERR_LABELS[s.err]||s.err||'—'} · 同刻第 ${s.smr??'?'} 轮` +
+      return `被拒绝 · ${s.err||'—'} · 同刻第 ${s.smr??'?'} 轮` +
         (s.smmax!=null?`（上限 ${s.smmax}）`:'');
     case 'action_result': {
-      let ord='';
-      if (s.order && typeof s.order==='string'){ try{ const o=JSON.parse(s.order);
-        if (o && o.total_price_fen!=null) ord=` · 订单 ${targetLabel(o.product_id)} ¥${fmtFen(o.total_price_fen)}`; }catch(_){}}
-      return `结果 ${statusLabel(s.status)}${s.msg?' · '+s.msg:''}${s.err?' · '+(ERR_LABELS[s.err]||s.err):''}${ord}`;
+      const ord=(s.orders||[]).map(o=>` · 订单 ${targetLabel(o.food_id)} ¥${fmtFen(o.total_price_fen)}`).join('');
+      return `结果 ${statusLabel(s.status)}${s.msg?' · '+s.msg:''}${s.err?' · '+s.err:''}${ord}`;
     }
     case 'activity_progress':
       return `活动段 · ${actTypeLabel(s.kind, s.tg)}${s.tg||s.dest? ' '+actTargetText(s):''}` +
@@ -914,7 +882,10 @@ function makeSummary(e){
     case 'checkpoint_created': return '存档';
     case 'environment_event':
       return `世界事件 · ${envkLabel(s.ekind)||'—'}${s.aname?' · '+s.aname:''}` +
-        (s.ekind==='day_plan_generated'?dayPlanText(s.goals):'') + errandText(e.seq, s);
+        (s.ekind==='day_plan_generated'?dayPlanText(s.goals):'') + errandText(e.seq, s) +
+        (s.ekind==='app_push' && s.app ? ` · ${s.app} · 《${s.content}》` +
+          `（${CONTENT_KIND_LABELS[s.contentKind]}） · ${s.summary}` : '') +
+        (s.ekind==='work_topic_completed' ? ` · ${targetLabel(s.topic)}` : '');
     case 'run_ended': return `运行结束 · 模拟时间 ${fmtT(s.end)} · 墙钟 ${fmtDur(Math.round((s.wall||0)/1000))}`;
     default: return '';
   }
@@ -950,6 +921,8 @@ function buildActivities(){
     if (s.elapsed!=null) a.elapsed = Math.max(a.elapsed, s.elapsed);
     if (a.tg==null && s.tg!=null && s.tg!=='') a.tg = s.tg;
     if (a.dest==null && s.dest!=null && s.dest!=='') a.dest = s.dest;
+    if (s.origin!=null) a.origin = s.origin;
+    if (s.path?.length) a.path = s.path;
     if (typeof s.title==='string' && s.title.trim() && s.title.trim()!==s.tg) a.title = s.title;
     if (e.type==='activity_progress' && s.from!=null && s.to>s.from) a.intervals.push([s.from,s.to]);
   }
@@ -959,6 +932,7 @@ function buildActivities(){
     if (a.end==null) a.end = a.intervals.at(-1)?.[1] ?? a.start;
     if (a.end < a.start) a.end = a.start;
   }
+  S.actById = map;
   S.acts = [...map.values()].sort((x,y)=> x.agent-y.agent || x.start-y.start);
 }
 
@@ -1315,6 +1289,9 @@ function toggleDetail(row, seq){
 const AT = { sortKey:'start', sortDir:1, page:0, pageSize:50, filtered:[] };
 /** @brief 以活动自身标题或目的地名称展示活动对象。 */
 function actTargetText(a){
+  if (a.kind==='travel' && a.origin && a.path?.length){
+    return `${locLabel(a.origin)} → ${locLabel(a.dest)} · 路径：${a.path.map(locLabel).join(' → ')}`;
+  }
   if (a.tg) return targetLabel(a.tg, a.title);
   if (a.dest) return `→ ${locLabel(a.dest)}`;
   return '—';
@@ -1342,6 +1319,10 @@ function packRows(segments){
   }
   return ends.length;
 }
+/** @brief 活动的完整说法：活动类型加对象（标题、目的地），没有对象的只写类型。 */
+function actFullLabel(a){
+  return `${actTypeLabel(a.kind,a.tg)} ${a.tg||a.dest? actTargetText(a):''}`.trim();
+}
 /** @brief 条块上的短名：活动对象（标题、目的地）优先，没有对象的活动写活动类型。 */
 function actShortLabel(a){
   return a.tg||a.dest? actTargetText(a) : actTypeLabel(a.kind,a.tg);
@@ -1352,8 +1333,7 @@ function renderDayLane(day, segments){
   const bars = segments.map(segment=>{
     const a = segment.act;
     const left = (segment.start-dayStart(day))/864, width = (segment.end-segment.start)/864;
-    const full = `${actTypeLabel(a.kind,a.tg)} ${a.tg||a.dest? actTargetText(a):''}`.trim();
-    const tip = `${fmtHM(segment.from)}–${fmtHM(segment.to)}（${fmtDur(segment.to-segment.from)}） · ${full}`;
+    const tip = `${fmtHM(segment.from)}–${fmtHM(segment.to)}（${fmtDur(segment.to-segment.from)}） · ${actFullLabel(a)}`;
     return `<span class="act-lane-bar" style="left:${left}%;width:${width}%;top:${4+segment.row*17}px;` +
       `background:${kindColor(a.kind)}" title="${esc(tip)}"><span class="act-lane-text">${esc(actShortLabel(a))}</span></span>`;
   }).join('');
@@ -1639,13 +1619,9 @@ function renderEconomy(){
     }
     if (e.type==='action_result'){
       const s = S.summaries.get(e.seq)||{};
-      if (s.order && typeof s.order==='string'){
-        try{ const o=JSON.parse(s.order);
-          if (o && o.total_price_fen!=null)
-            flowsAll.push({t:e.t, who:`agent:${e.agent}`, delta:-o.total_price_fen, after:null,
-                        note:`购买 ${targetLabel(o.product_id)}${s.msg?' · '+s.msg:''}`});
-        }catch(_){}
-      }
+      for (const o of s.orders||[])
+        flowsAll.push({t:e.t, who:`agent:${e.agent}`, delta:-o.total_price_fen, after:null,
+          note:`购买 ${targetLabel(o.food_id)}${s.msg?' · '+s.msg:''}`});
     }
   }
   const byAgent = new Map();
@@ -2091,7 +2067,7 @@ function bindDnd(){
     S.db=null; S.events=[]; S.summaries=new Map(); S.typeCounts={}; S.obs=[]; S.acts=[];
     S.memFiles={}; S.bodyCache=new Map(); S.world=null; S.runId='';
     S.runManifest=null; S.ignoredManifests=0;
-    S.nameIdx=null; S.missingNames=new Set(); S.reminded=new Map(); S.responses=new Map(); S.day=null;
+    S.nameIdx=null; S.missingNames=new Set(); S.reminded=new Map(); S.responses=new Map(); S.actById=new Map(); S.day=null;
     AT.page=0; AT.sortKey='start'; AT.sortDir=1;
     TL.inited=false; TL.types=new Set(); TL.kw=''; TL.rendered=0; TL.lo=null; TL.hi=null;
     $('#day-filter').value='';

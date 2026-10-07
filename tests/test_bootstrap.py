@@ -104,6 +104,19 @@ def test_source_archive_rejects_unsafe_entries(tmp_path, name, kind):
     assert not (tmp_path / "outside").exists()
 
 
+def test_source_archive_rechecks_the_path_left_after_stripping_the_prefix(tmp_path):
+    """成员名 pkg//<路径> 整体是相对路径，去掉前缀 pkg/ 后却是绝对路径；这里指向临时目录内，越界也只落在测试目录里。"""
+    escaped = tmp_path / "escaped.txt"
+    archive = tmp_path / "prefixed.tar"
+    with tarfile.open(archive, "w") as stream:
+        member = tarfile.TarInfo("pkg//" + "/".join(escaped.parts[1:]))
+        member.size = 1
+        stream.addfile(member, io.BytesIO(b"x"))
+    with pytest.raises(RuntimeError, match="unsafe path"):
+        sources.extract_archive(archive, tmp_path / "output", "pkg")
+    assert not escaped.exists()
+
+
 def test_wheelhouse_missing_labelkit_artifact_never_accesses_network(tmp_path, monkeypatch):
     root = _source_repository(tmp_path)
     monkeypatch.setattr(sources.urllib.request, "urlopen",
@@ -142,8 +155,7 @@ def test_exported_dependency_versions_and_all_hashes_match_original_lock(lock, e
         artifacts = [*package.get("wheels", []), *([package["sdist"]] if "sdist" in package else [])]
         assert hashes == {artifact["hash"] for artifact in artifacts}
     if export == "lock.txt":
-        textworld = [marker for name, version, marker in rows if name == "textworld"]
-        assert textworld == [" ; sys_platform != 'win32'"]
+        assert "textworld" not in {name for name, version, marker in rows}
         assert ("hatchling", "1.32.4") in originals
 
 
@@ -221,9 +233,20 @@ def test_explicit_uv_missing_and_wrong_python_are_errors(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError, match="explicitly requested"):
         environment.create_environment(tmp_path / ".venv", True)
     monkeypatch.setattr(environment.sys, "version_info", (3, 13))
-    monkeypatch.setattr(environment.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(stdout="(3, 13)"))
-    with pytest.raises(RuntimeError, match="Python 3.12 is required"):
-        environment.python312()
+    monkeypatch.setattr(environment.subprocess, "check_output",
+                        lambda *args, **kwargs: json.dumps({"implementation": "CPython", "version": "3.13.0"}))
+    with pytest.raises(RuntimeError, match="CPython 3.12.13 is required"):
+        environment.python_command()
+
+
+@pytest.mark.parametrize("identity", [{"implementation": "CPython", "version": "3.12.12"},
+                                      {"implementation": "PyPy", "version": "3.12.13"}])
+def test_bootstrap_rejects_wrong_patch_or_implementation(monkeypatch, identity):
+    """@brief 地图生成与双跑基线要求精确补丁版本以及 CPython 实现。"""
+    monkeypatch.setattr(environment.sys, "version_info", (3, 13, 0))
+    monkeypatch.setattr(environment.subprocess, "check_output", lambda *args, **kwargs: json.dumps(identity))
+    with pytest.raises(RuntimeError, match="CPython 3.12.13 is required"):
+        environment.python_command()
 
 
 def test_bootstrap_checks_source_before_installs_and_uses_two_environments(tmp_path, monkeypatch):
@@ -253,7 +276,9 @@ def test_dev_offline_missing_labelkit_remains_a_nonpassing_environment(tmp_path,
     monkeypatch.setattr(entry, "install_requirements", lambda *args: None)
     monkeypatch.setattr(entry, "install_source", lambda *args: None)
     (tmp_path / "requirements/lock.txt").write_text("")
-    monkeypatch.setattr(environment.subprocess, "check_output", lambda *args, **kwargs: "Python 3.12.13")
+    (tmp_path / ".python-version").write_text("3.12.13\n")
+    monkeypatch.setattr(environment.subprocess, "check_output",
+                        lambda *args, **kwargs: json.dumps({"implementation": "CPython", "version": "3.12.13"}))
     monkeypatch.setattr(environment, "component_status",
                         lambda root: {"node_version": "v24", "missing_components": ["LabelKit"]})
     receipt = entry.bootstrap(tmp_path, "dev", wheelhouse=tmp_path / "wheelhouse")

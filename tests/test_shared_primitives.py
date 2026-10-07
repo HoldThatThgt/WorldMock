@@ -6,6 +6,7 @@ import asyncio
 import copy
 import hashlib
 import json
+import os
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,9 +14,9 @@ from types import SimpleNamespace
 import pytest
 from pydantic import Field, ValidationError
 
-from worldmock.base_models import CurvePoint, EfficiencyFactor, FrozenModel
-from worldmock.categories.common import CategoryError, DeepFrozenModel
-from worldmock.categories.identity import _read_content_file
+from worldmock.base_models import CurvePoint, DeepFrozenModel, EfficiencyFactor, FrozenModel
+from worldmock.catalog.errors import RegistrationError
+from worldmock.catalog.identity import read_catalog_file
 from worldmock.corpora.manifest import _validate_entry, safe_file
 from worldmock.errors import IntegrityError, ProtocolError, reject_value
 from worldmock.evaluation import behavior_metrics, goal_metrics, workload_metrics
@@ -24,9 +25,8 @@ from worldmock.footprints.timeline_labels import _load_render_day
 from worldmock.footprints.intervals import body_settlements, valid_interval
 from worldmock.footprints.models import Event, canonical_json, is_sha256, sha256_json
 from worldmock.footprints.timeline_labels import local_day_bounds, split_local_days, timeline_label_report, window_days
-from worldmock.life import content, day_planning, map_data, memory_evidence, work_review
+from worldmock.life import content, day_planning, memory_evidence
 from worldmock.model_feedback import schema_error_details
-from worldmock.profile.coverage_apps import verified_phone_config
 
 
 def _body(start, end, agent=1):
@@ -39,17 +39,15 @@ def test_structured_digest_and_raw_string_contracts_use_same_bytes():
     value = {'中文': ['é', 1], 'nested': {'b': 2, 'a': 1}}
     expected = '{"nested":{"a":1,"b":2},"中文":["é",1]}'.encode('utf-8')
     assert canonical_json(value) == expected
-    assert sha256_json(value) == work_review._digest(value) == hashlib.sha256(expected).hexdigest()
-    assert work_review._digest('汉字\r\n') == hashlib.sha256('汉字\r\n'.encode()).hexdigest()
-    assert work_review._digest('text') != sha256_json('text')
+    assert sha256_json(value) == hashlib.sha256(expected).hexdigest()
 
 
 @pytest.mark.parametrize('value', [float('nan'), float('inf'), float('-inf')])
 def test_digest_consumers_reject_nonfinite_values_with_log(value, caplog):
-    for operation in (canonical_json, sha256_json, work_review._digest):
+    for operation in (canonical_json, sha256_json):
         with pytest.raises(ValueError):
             operation({'nested': value})
-    assert sum('Canonical JSON encoding failed' in record.message for record in caplog.records) == 3
+    assert sum('Canonical JSON encoding failed' in record.message for record in caplog.records) == 2
 
 
 @pytest.mark.parametrize('value,valid', [('a'*64, True), ('0'*64, True), ('A'*64, False), ('g'*64, False),
@@ -58,8 +56,22 @@ def test_sha256_format_is_strict(value, valid):
     assert is_sha256(value) is valid
 
 
-@pytest.mark.parametrize('relative', ['../outside', '/outside', 'C:\\outside', 'C:outside', 'a/../outside', '.'])
-def test_safe_file_rejects_declared_path_before_access(tmp_path, relative):
+@pytest.mark.parametrize('relative', ['../outside', '/outside', '\\outside', 'C:\\outside', 'C:outside',
+                                      '\\\\server\\share\\outside', 'a/../outside', '', 'a\\b.json',
+                                      'top.json:stream', 'a/b\x00c.json', 'a/x.', 'a/. /f.json', 'a/..../f.json',
+                                      'NUL', 'a/con.json', 'COM1', 'a?b.json', 'a/"q".json', 'a/b\tc.json',
+                                      'a\udcff.json', 'x' * 256, '.', 'a/C:/b.txt', 'a/C:b.txt',
+                                      'zz/Q:/C:../top.txt', 'zz/Q:/C:b.txt'])
+def test_safe_file_rejects_declared_path_before_access(tmp_path, monkeypatch, relative):
+    """带盘符或根（含 Windows 上无盘符的根路径）、含父引用、为空或只指向根本身，或在任一平台不能原样保存（反斜杠、
+    数据流冒号与其他 Windows 禁用字符、控制字符、孤立代理码点、设备名、以点或空格结尾或超过 255 字节的组件；中间组件
+    形似盘符时逐级拼接会变成盘符相对路径）的声明，在检查链接与文件之前就被拒绝。"""
+    def accessed(path):
+        raise AssertionError(f'declared path was accessed before rejection: {path}')
+
+    monkeypatch.setattr(Path, 'is_symlink', accessed)
+    monkeypatch.setattr(Path, 'is_junction', accessed)
+    monkeypatch.setattr(Path, 'is_file', accessed)
     with pytest.raises(IntegrityError, match='consumer path rejected'):
         safe_file(tmp_path, relative, 'consumer path rejected')
 
@@ -69,13 +81,13 @@ def _reject_root_contained_reference(root, relative, payload, consumer):
     entry = SimpleNamespace(path=relative, sha256=hashlib.sha256(payload).hexdigest(), size_bytes=len(payload))
     operations = {'safe_file': (lambda: safe_file(root, relative, 'consumer path rejected'), 'consumer path rejected'),
                   'corpus': (lambda: _validate_entry(root, entry), 'Corpus entry path is invalid'),
-                  'map': (lambda: map_data._read_file(root, entry), 'Map file path is invalid')}
+                  'catalog': (lambda: read_catalog_file(root, relative), 'ENVIRONMENT_IDENTITY_MISMATCH:.* Catalog file path is invalid')}
     operation, message = operations[consumer]
     with pytest.raises(IntegrityError, match=f'^{message}$'):
         operation()
 
 
-@pytest.mark.parametrize('consumer', ['safe_file', 'corpus', 'map'])
+@pytest.mark.parametrize('consumer', ['safe_file', 'corpus', 'catalog'])
 def test_safe_file_consumers_reject_parent_reference_that_resolves_inside_root(tmp_path, consumer):
     root = tmp_path / 'corpus'
     root.mkdir()
@@ -86,12 +98,12 @@ def test_safe_file_consumers_reject_parent_reference_that_resolves_inside_root(t
     assert (root / relative).resolve() == root / 'normal.json'
     normal = SimpleNamespace(path='normal.json', sha256=hashlib.sha256(payload).hexdigest(), size_bytes=len(payload))
     _validate_entry(root, normal)
-    assert map_data._read_file(root, normal) == {'normal': True}
+    assert read_catalog_file(root, normal.path) == payload
     _reject_root_contained_reference(root, relative, payload, consumer)
 
 
 @pytest.mark.parametrize('link_kind', ['file', 'directory'])
-@pytest.mark.parametrize('consumer', ['safe_file', 'corpus', 'map'])
+@pytest.mark.parametrize('consumer', ['safe_file', 'corpus', 'catalog'])
 def test_safe_file_consumers_reject_symlink_that_resolves_inside_root(tmp_path, monkeypatch, link_kind, consumer):
     root = tmp_path / 'corpus'
     root.mkdir()
@@ -120,8 +132,36 @@ def test_safe_file_consumers_reject_symlink_that_resolves_inside_root(tmp_path, 
     normal = SimpleNamespace(path='normal/file.json', sha256=hashlib.sha256(payload).hexdigest(),
                              size_bytes=len(payload))
     _validate_entry(root, normal)
-    assert map_data._read_file(root, normal) == {'normal': True}
+    assert read_catalog_file(root, normal.path) == payload
     _reject_root_contained_reference(root, relative, payload, consumer)
+
+
+@pytest.mark.parametrize('consumer', ['safe_file', 'corpus', 'catalog'])
+def test_safe_file_consumers_reject_directory_junction_that_resolves_inside_root(tmp_path, monkeypatch, consumer):
+    """Windows 目录联接不是符号链接（is_symlink 为假），但同样是链接组件，即使解析后仍在根内也拒绝。"""
+    root = tmp_path / 'corpus'
+    target = root / 'normal'
+    target.mkdir(parents=True)
+    payload = b'{"normal":true}\n'
+    (target / 'file.json').write_bytes(payload)
+    link = root.resolve() / 'alias'
+    if os.name == 'nt':
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+        assert link.is_junction() and not link.is_symlink()
+    else:
+        # POSIX 没有目录联接：以真实目录模拟唯一的联接标志，文件访问与消费者仍走真实路径。
+        link.mkdir()
+        (link / 'file.json').write_bytes(payload)
+        original = Path.is_junction
+        monkeypatch.setattr(Path, 'is_junction', lambda path: path == link or original(path))
+    assert (root / 'alias/file.json').read_bytes() == payload
+    normal = SimpleNamespace(path='normal/file.json', sha256=hashlib.sha256(payload).hexdigest(), size_bytes=len(payload))
+    assert safe_file(root, 'normal/file.json', 'consumer path rejected').read_bytes() == payload
+    _validate_entry(root, normal)
+    assert read_catalog_file(root, normal.path) == payload
+    _reject_root_contained_reference(root, 'alias/file.json', payload, consumer)
 
 
 def test_original_safe_file_consumers_reject_symlink_before_hash_or_schema(tmp_path, caplog, monkeypatch):
@@ -145,16 +185,14 @@ def test_original_safe_file_consumers_reject_symlink_before_hash_or_schema(tmp_p
         original = Path.is_symlink
         monkeypatch.setattr(Path, 'is_symlink', lambda path: path in unavailable or original(path))
     entry = SimpleNamespace(path='content.json', sha256='0'*64, size_bytes=2)
-    scenario = SimpleNamespace(phone_simulation_config='content.json', phone_simulation_config_sha256='0'*64)
-    for operation in (lambda: _validate_entry(root, entry), lambda: map_data._read_file(root, entry),
-                      lambda: verified_phone_config(scenario, root), lambda: content.load_lifestyle_items(root, {})):
+    for operation in (lambda: _validate_entry(root, entry), lambda: content.load_lifestyle_items(root, {})):
         with pytest.raises(IntegrityError, match='path is invalid'):
             operation()
     caplog.clear()
-    with pytest.raises(CategoryError, match='CATALOG_IDENTITY_READ_FAILED'):
-        _read_content_file(root, 'content.json')
+    with pytest.raises(RegistrationError, match='ENVIRONMENT_IDENTITY_MISMATCH'):
+        read_catalog_file(root, 'content.json')
     assert len(caplog.records) == 1
-    assert 'CATALOG_IDENTITY_READ_FAILED' in caplog.records[0].message
+    assert 'ENVIRONMENT_IDENTITY_MISMATCH' in caplog.records[0].message
 
 
 def test_safe_file_rejects_parent_symlink_and_accepts_normal_file(tmp_path, monkeypatch):
@@ -196,14 +234,12 @@ def test_atomic_publication_order_and_failed_replace_cleanup(tmp_path, monkeypat
 
 
 @pytest.mark.parametrize('invalid', [True, False, float('nan'), float('inf'), -1])
-def test_curve_models_shared_by_life_and_catalog_reject_invalid_numbers(invalid):
-    from worldmock.catalog.models import CurvePoint as CatalogCurve
-    from worldmock.life.models import CurvePoint as LifeCurve
-    assert CatalogCurve is LifeCurve is CurvePoint
-    for model in (CatalogCurve, LifeCurve):
-        for key in ('input_value', 'output_value'):
-            with pytest.raises(ValidationError):
-                model(**{'input_value': 1, 'output_value': 1, key: invalid})
+def test_curve_models_shared_by_body_and_life_reject_invalid_numbers(invalid):
+    from worldmock.exchange.body import BODY_CONSTANTS
+    assert all(isinstance(point, CurvePoint) for point in BODY_CONSTANTS.food_efficiency_curve)
+    for key in ('input_value', 'output_value'):
+        with pytest.raises(ValidationError):
+            CurvePoint(**{'input_value': 1, 'output_value': 1, key: invalid})
 
 
 def test_efficiency_factor_blank_and_empty_constraints_and_freeze_distinction():
@@ -233,7 +269,7 @@ def test_interval_consumers_do_not_count_invalid_settlements(start, end):
     assert not valid_interval(start, end)
     assert quality._activity_quality([], [event])['body_settlements_missing_interval'] == 1
     assert behavior_metrics._person_elapsed_minutes([row], [])['missing_interval_events'] == 1
-    agent = workload_metrics.AgentWorkday(None, 'home', None, None, ())
+    agent = workload_metrics.AgentWorkday(None, 'home', None, None)
     timeline = workload_metrics._timeline([row], agent, __import__('zoneinfo').ZoneInfo('UTC'))
     assert (timeline.start, timeline.end) == (0, 0)
     progress = {**row, 'event_type': 'activity_progress', 'activity_id': 'activity',
@@ -273,7 +309,7 @@ def test_renderer_and_label_report_use_manifest_timezone_and_real_local_day(zone
     assert behavior_metrics._agent_days([{'agent_id': 1, 'occurred_at': start},
                                         {'agent_id': 1, 'occurred_at': end-1}], '1', zone_info) == 1
     body = _body(start, end).model_dump()
-    agent = workload_metrics.AgentWorkday(None, 'home', None, None, ())
+    agent = workload_metrics.AgentWorkday(None, 'home', None, None)
     timeline = workload_metrics._timeline([body], agent, zone_info)
     assert workload_metrics._days(timeline, zone_info) == [day]
 

@@ -183,8 +183,9 @@ def test_repository_chapters_assemble_deterministically_and_the_committed_html_i
                 assert builder.esc(line[3:].strip()) in document
     appendix = document[document.index('id="chapter-10"'):]
     for tool in ("start_activity", "recall_task_summary", "report_status", "pause_activity", "conclude_activity",
-                 "revise_day_plan", "submit_work", "send_message", "memory_recent"):
+                 "revise_day_plan", "send_message", "memory_recent"):
         assert f"<code>{tool}</code>" in appendix
+    assert "<code>submit_work</code>" not in appendix
     assert builder.check_current(document) == []
 
 
