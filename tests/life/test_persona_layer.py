@@ -31,7 +31,7 @@ from tests.integration.runtime_fixtures import write_agent_workspace  # noqa: E4
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, stage_day_plan, start_activity,
                                  conclude_request)
 from tests.life.test_memory_layer import (_act, _jump, _memo, _next_morning, _observe,  # noqa: E402
-                                          _remote_order, _view, _walk)
+                                          _remote_order, _view, _walk, _memory_scenario)
 from tests.life.routing_fixtures import FOOD_STORE, keep_waiting, stage_person  # noqa: E402
 from tests.profile.conftest import make_card, make_window  # noqa: E402
 from worldmock.errors import IntegrityError  # noqa: E402
@@ -371,13 +371,12 @@ def test_a_recorded_view_typed_memory_without_a_subject_is_not_a_persona_view(en
 
 def test_first_purchase_writes_no_preference_and_leaves_no_trace_after_delivery_and_midnight(engine_factory) -> None:
     """反例：首次购买后人物只写了「明天还想吃」这类非偏好记忆时 preferences 为空；送达并跨零点后记忆层没有这次购买。"""
-    engine = engine_factory(mutate=lambda document: document.update(
-        end_at=(datetime.fromisoformat(document["start_at"]) + timedelta(days=2)).isoformat()))
+    engine = engine_factory(mutate=_memory_scenario)
     stage_day_plan(engine)
     stage_person(engine, FOOD_STORE, 1500)
     order = _remote_order(engine, "p-order")
     delivered = engine.context.state.deliveries[order["order_id"]]
-    product = engine.context.semantics.catalog.foods[delivered.food_id].name
+    product = engine.context.semantics.catalog.goods[delivered.goods_id].name
     for step in range(64):
         if engine.context.state.deliveries[order["order_id"]].status != "pending":
             break

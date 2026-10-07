@@ -1,7 +1,7 @@
 """暂停的活动不占并行名额（docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-甲名额）。
 
 每人两个并行名额，占名额的是进行中与待收尾的活动，暂停的不占：一项暂停时可以同时开始两项；只有暂停的活动时可以出发，
-它们留在原地，在别处也能直接结束；恢复暂停的活动要有空名额，依次检查开始地点、主题剩余时长、空名额、占用冲突，没有
+它们留在原地，在别处也能直接结束；恢复暂停的活动要有空名额，依次检查开始地点、原分配内容是否已完成、空名额、占用冲突，没有
 空名额以 SESSION_LIMIT_EXCEEDED 拒绝并点名进行中的活动，待办层的可用性与受理同文；名额超限的下一步按被点名活动能否
 暂停写（裁决 R3、R4）；两项都暂停到同刻上限后进入开始或恢复。全部经真实请求、引擎与 SQLite 存储。
 """
@@ -26,11 +26,11 @@ def _occupying(engine: LifeEngine) -> str:
     return "、".join(item.name for item in activity_control.slot_activities(engine.context.state, 1))
 
 
-def _contents(engine: LifeEngine, name: str) -> list[tuple[str, str, str]]:
-    """@brief 本轮可以观看的全部内容（对象名、动词与方式），按观察顺序。"""
+def _contents(engine: LifeEngine, name: str) -> list[dict]:
+    """@brief 明确选择两个不同目录动作及实际应用，不按 app 对象推断动作。"""
     observed = _preview(engine, name)
-    return [(row["object"], action["verb"], action["label"]) for row in observed["interaction_bindings"]
-            if row["kind"] == "app" for action in row["actions"] if action["canonical_action"] == "use_app"]
+    return [_pick(observed, "do", kind="action", place=identity)
+            for identity in ("browse-feed", "study-course")]
 
 
 def _paused_wait(engine: LifeEngine, name: str) -> str:
@@ -57,7 +57,7 @@ def test_two_item_start_beside_a_paused_activity_is_accepted(engine_factory) -> 
     paused = _paused_wait(engine, "lunch")
     assert activity_control.free_slots(engine.context.state, 1) == 2
     content = _contents(engine, "lunch-contents")[0]
-    both = _start(engine, "lunch-two", ("自己", "interact", "等待"), content)
+    both = _start(engine, "lunch-two", {"target": "自己", "way": "等待", "app": None, "to": None, "pay_app": None}, content)
     assert both.status == "in_progress" and len(_started_ids(both)) == 2
     occupying = {item.activity_id for item in activity_control.slot_activities(engine.context.state, 1)}
     assert occupying == set(_started_ids(both)) and activity_control.free_slots(engine.context.state, 1) == 0
@@ -150,7 +150,7 @@ def test_full_slots_with_a_call_say_pause_only_the_pausable_one(engine_factory) 
     拒（与 pause_activity 的判定同源）。"""
     engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
-    started = _start(engine, "call-pair", ("自己", "interact", "等待"), ("联系人：母亲", "interact", "通话"))
+    started = _start(engine, "call-pair", {"target": "自己", "way": "等待", "app": None, "to": None, "pay_app": None}, {"target": "语音通话", "way": "进行", "app": "微信", "to": "联系人：母亲", "pay_app": None})
     assert started.status == "in_progress", (started.error_code, started.message)
     waited, called = _started_ids(started)
     _wake(engine)
@@ -167,7 +167,7 @@ def test_full_slots_on_the_road_say_conclude_only(engine_factory) -> None:
     """名额被出行与路上开始的观看占满：路上的活动都不能暂停，下一步只写「结束其中一项」；工具层列出的等待带同一原因。"""
     engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
-    content = _pick(_preview(engine, "road-content"), "use_app", kind="app")
+    content = _pick(_preview(engine, "road-content"), "do", kind="action")
     travel_id, watch_id = _started_ids(_depart(engine, "road", content))
     _wake(engine)
     listed = _occupying(engine)
@@ -195,8 +195,8 @@ def test_both_paused_at_the_limit_accept_a_two_item_start(engine_factory) -> Non
     agent = engine.context.state.agents[1]
     assert (agent.same_moment_rounds, agent.same_moment_stage) == (limit, SameMomentStage.START_OR_RESUME)
     first, other = _contents(engine, "limit-contents")[:2]
-    assert first[0] != other[0] and other[0].split("：", 1)[-1] not in _name(engine, watched)
-    both = _start(engine, "limit-two", ("自己", "interact", "等待"), other)
+    assert first["target"] != other["target"] and other["target"] not in _name(engine, watched)
+    both = _start(engine, "limit-two", {"target": "自己", "way": "等待", "app": None, "to": None, "pay_app": None}, other)
     assert both.status == "in_progress", (both.error_code, both.message)
     assert len(_started_ids(both)) == 2
     assert {engine.context.state.activities[key].status for key in (waited, watched)} == {ActivityStatus.PAUSED}

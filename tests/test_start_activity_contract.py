@@ -1,278 +1,237 @@
-"""人物动作只提交可读选择；引擎使用冻结观察和领域合同生成执行参数。"""
+"""@brief 五字段可读动作与真实环境执行、原子控制的合同。"""
 
 from __future__ import annotations
 
 import math
+from datetime import datetime
 
 import pytest
 from pydantic import ValidationError
 
+from tests.life.action_contract_world import contract_world
+from tests.life.conftest import (advance_next, advance_until_ready, context, conclude_request, pause_request,
+                                 report_request, stage_day_plan, wake_by_mail)
 from worldmock.errors import BusinessRuleError
+from worldmock.footprints.models import EventDraft
+from worldmock.life import sessions
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_CONCLUDED, PHASE_PAUSED, PHASE_PENDING, activity_phase
-from worldmock.life.vocabulary import LIFE_VERBS, PURCHASE_WAYS, USE_WAYS, WAYS
+from worldmock.life.vocabulary import LIFE_VERBS, WAYS
 from worldmock.life.readable import TRAVEL_WAYS
-from worldmock.life.interaction_menu import binding_action
 from worldmock.life.models import (ActivityKind, ActivityStatus, ConcludeActivityRequest, PauseActivityRequest,
-                                   ReportStatusRequest, SessionTaskKind, StartActivityRequest)
+                                   ReportStatusRequest, SessionTaskKind, StartActivityRequest, active_activities)
 from worldmock.life.name_resolution import name_book, resolve_start
 from worldmock.life.routing import combination_error, require_recipients, routed_selection, routing_names
 from worldmock.life.schedule import PlanGoal
-from tests.life.conftest import (advance_until_ready, conclude_request, pause_request, report_request,
-                                 stage_day_plan, wake_by_mail)
-from tests.life.test_location_sessions import _round, _stage, _two_parallel, _until_ended
-from tests.life.test_parallel_admission import _engine, _observe
-from tests.life.test_progress_layer_projection import _begin_pair
+
+
+def _request(*items, **fields):
+    """@brief 逐项明确目标、方式、应用、去向和支付应用。"""
+    keys = ("target", "way", "app", "to", "pay_app")
+    return StartActivityRequest.model_validate({"items": [dict(zip(keys, item, strict=True)) for item in items],
+                                               "answering": None, **fields})
 
 
 def _selection(observation, request):
-    """@brief 按生产纯函数逐项解析冻结绑定与路由，不模拟引擎或目录。"""
     outcome = resolve_start(name_book(observation), request)
     if outcome.failures:
         return None
     names = routing_names(observation)
-    error = combination_error(outcome.request, names)
-    if error is not None and error[0] not in {"RECIPIENT_NOT_FOUND", "SUPPLY_SOURCE_MISMATCH"}:
+    if combination_error(outcome.request, names) is not None:
         return None
     return routed_selection(list(outcome.rows), outcome.request, names)
 
 
-#: 第五章「请求形状与菜单」的方式短语闭集，按动词分组（只有一种方式的对象也要照填）。
-SPEC_WAYS_BY_VERB = {
-    "travel": {"步行", "驾车"},
-    "interact": {"工作", "打开", "交谈", "通话", "阅读", "进行", "等待"},
-    "obtain": {"到店", "远程下单", "购买"},
-    "consume": {"食用", "使用", "给予"},
-    "sleep": {"睡觉"},
-}
+def _stage(engine, mutate):
+    staged = engine.context.state.model_copy(deep=True)
+    mutate(staged)
+    staged.version += 1
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=staged.current_time,
+        visibility="system", data={"kind": "test_start_contract_staged"})])
+    engine.context.state = staged
 
 
-def _office_and_self_bindings() -> list[dict]:
-    """@brief 本轮私有绑定：可步行前往的城西办公室与「自己」（等待）。"""
-    return [{"object": "城西办公室", "object_id": "office", "kind": "location",
-             "actions": [binding_action("步行", "travel_to", travel_mode="walking")]},
-            {"object": "自己", "object_id": "agent:1", "kind": "self",
-             "actions": [binding_action("等待", "wait")]}]
+def _engine(engine_factory, location="home"):
+    engine = engine_factory()
+    stage_day_plan(engine)
+    def move(state):
+        now = max(state.current_time, int(datetime.fromisoformat("2026-01-05T10:00:00+08:00").timestamp()))
+        state.current_time = now
+        state.pending_events = [event for event in state.pending_events if event.due_at > now]
+        for agent in state.agents.values():
+            agent.body_settled_at = agent.next_decision_at = now
+        state.agents[1].location_id = location
+    _stage(engine, move)
+    _stage(engine, lambda state: None)
+    engine.context.state = sessions.end_all(engine.context.state)
+    engine.context.state = sessions.open_stay(engine.context.state, 1,
+        {place.location_id: place.name for place in engine.context.scenario.locations})
+    _stage(engine, lambda state: None)
+    return engine
 
 
-def _request(*items, **fields):
-    """@brief 对象、方式、来源、去向在同一项，购买声明中文偏好，其余明确空值。"""
-    purchase = any(item[1] in {"到店", "远程下单", "购买"} for item in items)
-    payload = {"items": [{"target": item[0], "way": item[1], "from": item[2], "to": item[3]} for item in items],
-               "answering": None, "prefer": "最快拿到" if purchase else None}
-    return StartActivityRequest.model_validate({**payload, **fields})
+def _observe(engine, name):
+    return engine.observe(context(engine, name))
+
+
+def _round(engine, name, tool, request):
+    from agentsociety2.society import DirectToolCall
+    decision = context(engine, name)
+    engine.begin_decision_round([decision])
+    observation = engine.observe(decision)
+    engine.submit_action(DirectToolCall(decision, f"action-{name}", tool, request))
+    return observation, engine.commit_decision_round(name)[0]
+
+
+def _two_parallel(engine, label):
+    _, result = _round(engine, label, "start_activity", _request(
+        ("自己", "等待", None, None, None), ("刷推荐", "进行", "抖音", None, None)))
+    assert result.status == "in_progress", result.error_code
+    return [row["activity_id"] for row in result.data["activities"]]
+
+
+def _begin_pair(engine, label):
+    stage_day_plan(engine)
+    identities = _two_parallel(engine, label)
+    wake_by_mail(engine, offset=60)
+    assert advance_until_ready(engine)
+    return tuple(engine.context.state.activities[identity].name for identity in identities)
+
+
+def _until_ended(engine, identity, label):
+    for step in range(96):
+        if engine.context.state.activities[identity].status != ActivityStatus.ACTIVE:
+            return
+        if engine.scheduling_state().ready_agent_ids:
+            running = active_activities(engine.context.state, 1)
+            _round(engine, f"{label}-report-{step}", "report_status",
+                   report_request(*(item.name for item in running), summary="继续。"))
+        else:
+            advance_next(engine)
+    pytest.fail("Activity did not end at its declared boundaries")
+
+
+SPEC_WAYS_BY_VERB = {"travel": {"步行", "驾车"}, "interact": {"进行", "等待"},
+                     "obtain": {"购买", "领取"}, "sleep": {"睡觉"}}
 
 
 def test_start_activity_schema_rejects_model_supplied_calculation():
-    """@brief 只接受逐项可读选择和中文购买偏好，必填可空字段必须出现，拒绝任何模型回填的计算字段和旧数组。"""
-    request = _request(("城西办公室", "步行", None, None))
-    assert request.model_dump() == {"items": [{"target": "城西办公室", "way": "步行", "from": None, "to": None}],
-                                    "answering": None, "prefer": None}
-    assert request.items[0].from_ is None and request.items[0].to is None
-    purchased = _request(("x", "到店", None, None), prefer="到手价最低")
-    assert purchased.model_dump()["items"][0]["from"] is None
-    for prefer in ("fastest", "cheapest", "slowest"):
+    """@brief 五键和回答关联都必填，拒绝来源、偏好、数组及模型计算字段。"""
+    request = _request(("地点：公司", "步行", None, None, None))
+    expected = {"items": [{"target": "地点：公司", "way": "步行", "app": None, "to": None, "pay_app": None}],
+                "answering": None}
+    assert request.model_dump() == expected
+    for missing in ("items", "answering"):
         with pytest.raises(ValidationError):
-            _request(("x", "购买", None, None), prefer=prefer)
-    for missing in ("items", "answering", "prefer"):
-        payload = request.model_dump()
-        del payload[missing]
+            StartActivityRequest.model_validate({key: value for key, value in expected.items() if key != missing})
+    for missing in ("target", "way", "app", "to", "pay_app"):
+        payload = {**expected, "items": [{key: value for key, value in expected["items"][0].items() if key != missing}]}
         with pytest.raises(ValidationError):
             StartActivityRequest.model_validate(payload)
-    for missing in ("target", "way", "from", "to"):
-        payload = request.model_dump()
-        del payload["items"][0][missing]
+    for field, value in {"price_version": "v1", "planned_duration_seconds": 600, "destination_id": "office",
+                         "quantity": 2, "prefer": None, "from": None, "targets": [], "actions": []}.items():
         with pytest.raises(ValidationError):
-            StartActivityRequest.model_validate(payload)
-    with pytest.raises(ValidationError):
-        StartActivityRequest.model_validate({"targets": ["城西办公室"], "actions": ["travel"], "ways": ["步行"],
-                                             "from": [None], "to": [None], "answering": None, "prefer": None})
-    for field, value in {"price_version": "v1", "planned_duration_seconds": 600,
-                         "destination_id": "office", "quantity": 2}.items():
+            StartActivityRequest.model_validate({**expected, field: value})
+    for field in ("from", "source", "prefer", "action", "quantity", "duration"):
         with pytest.raises(ValidationError):
-            _request(("城西办公室", "步行", None, None), **{field: value})
+            StartActivityRequest.model_validate({**expected, "items": [{**expected["items"][0], field: None}]})
 
 
 def test_ways_vocabulary_maps_each_way_to_exactly_one_life_verb():
-    """五个生活动词与方式短语闭集逐项对应第五章；旧的整句短语（步行前往、到店购买、配送到当前位置）不再是方式。"""
-    assert LIFE_VERBS == ("travel", "interact", "obtain", "consume", "sleep")
-    assert {verb: {way for way, (owner, _) in WAYS.items() if owner == verb} for verb in LIFE_VERBS} == (
-        SPEC_WAYS_BY_VERB)
-    assert not {"步行前往", "驾车前往", "到店购买", "配送到当前位置"} & set(WAYS)
+    assert LIFE_VERBS == ("travel", "interact", "obtain", "sleep")
+    assert {verb: {way for way, (owner, _) in WAYS.items() if owner == verb} for verb in LIFE_VERBS} == SPEC_WAYS_BY_VERB
     assert {WAYS[way] for way in TRAVEL_WAYS.values()} == {("travel", "travel_to")}
-    assert {WAYS[way] for way in PURCHASE_WAYS.values()} == {("obtain", "purchase")}
-    assert {WAYS[way] for way in USE_WAYS.values()} == {("consume", "consume")}
-    assert not {"制作", "观看", "游玩", "浏览", "接着看", "从头再看", "接着听", "从头再听"} & set(WAYS)
-    assert WAYS["给予"] == ("consume", "consume")
+    assert WAYS["购买"] == ("obtain", "purchase") and WAYS["领取"] == ("obtain", "collect_parcel")
+    assert not {"食用", "使用", "给予", "到店", "远程下单", "打开", "工作", "阅读", "交谈", "通话"} & set(WAYS)
 
 
-@pytest.mark.parametrize("items", [
-    (),
-    (("城西办公室", "步行", None, None), ("城西办公室", "步行", None, None)),
-    (("城西办公室", "步行", None, None), ("自己", "等待", None, None), ("城东公园", "步行", None, None)),
+@pytest.mark.parametrize("items", [(),
+    (("地点：公司", "步行", None, None, None), ("地点：公司", "步行", None, None, None)),
+    (("地点：公司", "步行", None, None, None), ("自己", "等待", None, None, None),
+     ("地点：五里公园", "步行", None, None, None)),
 ])
 def test_invalid_item_count_and_duplicate_targets_are_schema_errors(items):
-    """@brief 空批次、超额和相同收货人的重复目标先由严格模型拒绝，不进入名称解析。"""
     with pytest.raises(ValidationError):
         _request(*items)
 
 
-@pytest.mark.parametrize("target,way", [
-    ("城东公园", "步行"),
-    ("城西办公室", "驾车"),
-    ("城西办公室", "沿着河边慢慢走"),
-    ("自己", "阅读"),
-], ids=["unlisted-object", "way-not-offered", "free-text-way", "self-way-not-offered"])
-def test_unresolvable_selection_is_rejected_as_invalid_request(engine_factory, target, way):
-    """@brief 结构合法的逐项请求仍按冻结观察拒绝未知对象或未列方式，每次保留精确名称错误。"""
-    observation = {"interaction_bindings": _office_and_self_bindings()}
-    request = _request((target, way, None, None))
+@pytest.mark.parametrize("target,way", [("不存在地点", "步行"), ("地点：公司", "沿着河边慢慢走"),
+                                        ("自己", "阅读"), ("自己", "进行")])
+def test_unresolvable_selection_keeps_exact_name_or_way_error(target, way):
+    _, observation = contract_world()
+    request = _request((target, way, None, None, None))
     assert _selection(observation, request) is None
     (failure,) = resolve_start(name_book(observation), request).failures
     assert failure.item.error_code in {"NAME_NOT_FOUND", "WAY_NOT_OFFERED"}
-    engine = _engine(engine_factory)
-    _, rejected = _round(engine, "invalid-selection", "start_activity", request)
-    assert rejected.status == "rejected" and rejected.error_code == "ACTION_REQUEST_INVALID"
-    assert len(rejected.data["items"]) == 1
-    assert rejected.data["items"][0]["error_code"] in {"NAME_NOT_FOUND", "WAY_NOT_OFFERED"}
 
 
 def test_two_offered_selections_resolve_item_by_item_to_internal_actions():
-    """两项逐项映射到各自的绑定行与内部标准动作，顺序与请求一致。"""
-    selected = _selection({"interaction_bindings": _office_and_self_bindings()},
-                          _request(("自己", "等待", None, None), ("城西办公室", "步行", None, None)))
-    assert [(row["object_id"], row["selected_action"]["verb"], row["selected_action"]["label"],
-             row["selected_action"]["canonical_action"]) for row in selected] == [
-        ("agent:1", "interact", "等待", "wait"), ("office", "travel", "步行", "travel_to")]
+    _, observation = contract_world()
+    selected = _selection(observation, _request(("自己", "等待", None, None, None),
+                                                ("地点：公司", "步行", "高德地图", None, None)))
+    assert [(row["object_id"], row["selected_action"]["canonical_action"]) for row in selected] == [
+        ("agent:1", "wait"), ("office", "travel_to")]
+    assert selected[1]["selected_action"]["navigation_app_id"] == "amap"
 
 
-_SUPPLY, _NOODLES = "一心面馆出售的牛肉面", "持有物：牛肉面"
-_PERSON, _COLLEAGUE = "人物：李凡", "联系人：王磊"
-#: 不在身边的同世界人物：只在私有绑定 person_bindings 里，不是本轮的交互对象。
-_ELSEWHERE = "人物：赵敏"
-_MESSAGE = "王磊 10:35 的消息"
-
-
-def _routing_observation() -> dict:
-    """@brief 本轮私有绑定：一件当前食品供给、一件可食用的手边食品、办公室、同处的人、同事联系人、「自己」，
-    同世界全部其他人物（同处的李凡与不在身边的赵敏），王磊的一条可见直接消息，以及冻结地点表里的两家门店（一心面馆、四季便利）。"""
-    rows = [
-        {"object": _SUPPLY, "object_id": "beef-noodles", "kind": "supply",
-         "actions": [binding_action("远程下单", "purchase", fulfillment="delivery")]},
-        {"object": _NOODLES, "object_id": "beef-noodles", "kind": "holding",
-         "actions": [binding_action("食用", "consume", use_mode="eat"), binding_action("给予", "consume")]},
-        *_office_and_self_bindings(),
-        {"object": _PERSON, "object_id": "agent:2", "kind": "person", "actions": [binding_action("交谈", "chat")]},
-        {"object": _COLLEAGUE, "object_id": "contact-wanglei", "kind": "contact",
-         "actions": [binding_action("通话", "call")]}]
-    return {"interaction_bindings": rows,
-            "person_bindings": [{"name": _PERSON, "person_id": "agent:2"}, {"name": _ELSEWHERE, "person_id": "agent:3"}],
-            "message_bindings": [{"name": _MESSAGE, "message_id": "reply-1", "sender_id": "contact-wanglei"}],
-            "locations": [{"location_id": "noodle-1", "name": "一心面馆"}, {"location_id": "store", "name": "四季便利"}]}
-
-
-@pytest.mark.parametrize("request_items,answering,routed", [
-    ([(_SUPPLY, "远程下单", None, None)], None, [("agent:1", True, None, None)]),
-    ([(_SUPPLY, "远程下单", None, _COLLEAGUE)], _MESSAGE, [("contact-wanglei", False, "reply-1", _MESSAGE)]),
-    ([(_SUPPLY, "远程下单", None, None), (_SUPPLY, "远程下单", None, _COLLEAGUE)], _MESSAGE,
-     [("agent:1", True, None, None), ("contact-wanglei", False, "reply-1", _MESSAGE)]),
-    ([(_SUPPLY, "远程下单", None, _PERSON)], None, [("agent:2", False, None, None)]),
-    ([(_NOODLES, "食用", None, None)], None, [("agent:1", True, None, None)]),
-    ([(_NOODLES, "给予", None, _PERSON)], None, [("agent:2", False, None, None)]),
-    ([(_NOODLES, "食用", None, None), (_NOODLES, "给予", None, _COLLEAGUE)], None,
-     [("agent:1", True, None, None), ("contact-wanglei", False, None, None)]),
-    ([("城西办公室", "步行", None, None)], None, [("agent:1", True, None, None)]),
-    ([(_SUPPLY, "远程下单", None, _ELSEWHERE)], None, [("agent:3", False, None, None)]),
-    ([(_NOODLES, "给予", None, _ELSEWHERE)], None, [("agent:3", False, None, None)]),
-], ids=["obtain-self", "obtain-contact-answering", "same-supply-two-recipients", "obtain-person", "eat-self",
-        "give-person", "eat-and-give", "travel-null", "obtain-person-elsewhere",
-        "give-person-elsewhere"])
-def test_legal_from_to_answering_combinations_route_each_item(request_items, answering, routed):
-    """合法组合（第五章「来源与去向」表）：宿主不报错，环境逐项写上收货人、是否自己、关联的消息与 answering；
-    answering 只关联 to 等于发件人的项。不在身边的同世界人物也是人物（同处与否由给予、配送各自判定）。"""
-    request = _request(*request_items, answering=answering)
-    observation = _routing_observation()
-    assert combination_error(request, routing_names(observation)) is None
-    selection = _selection(observation, request)
-    assert [(row["recipient_id"], row["to_self"], row["request_message_id"], row["answering"])
-            for row in selection] == routed
-    require_recipients(selection)
-
-
-@pytest.mark.parametrize("request_items,answering,message", [
-    ([("城西办公室", "步行", None, "自己")], None, "This way acts on the caller and requires to=null."),
-    ([("城西办公室", "步行", "自己", None)], None, "This way requires from=null."),
-    ([(_NOODLES, "食用", "自己", None)], None, "This way requires from=null."),
-    ([(_NOODLES, "食用", None, _PERSON)], None, "This way acts on the caller and requires to=null."),
-    ([(_NOODLES, "给予", None, None)], None, "Giving requires a known other person."),
-    ([(_SUPPLY, "远程下单", None, _COLLEAGUE)], "王磊 9:00 的消息",
-     "answering requires a known unanswered message."),
-    ([(_SUPPLY, "远程下单", None, None)], _MESSAGE,
-     "An item must address the message sender."),
-    ([("城西办公室", "步行", None, None)], _MESSAGE,
-     "An item must address the message sender."),
-], ids=["to-on-travel", "from-on-travel", "consume-from-self", "eat-to-person",
-        "give-to-null",
-        "answering-unknown", "answering-no-sender-item", "answering-on-travel"])
-def test_illegal_combinations_are_protocol_errors_and_invalid_requests(request_items, answering, message):
-    """非法组合：宿主得到英文协议错误原文；绕过宿主时环境解析不出选择，以 ACTION_REQUEST_INVALID 业务拒绝。"""
-    _assert_invalid(_request(*request_items, answering=answering), message)
-
-
-def test_listed_label_with_another_known_place_in_from_is_a_source_mismatch():
-    """列出的标签「<门店>出售的<商品>」写了另一个已知地点（冻结地点表里的门店名）作 from：共用判定给 SUPPLY_SOURCE_MISMATCH
-    （宿主据此在本轮纠正，tests/integration/test_storefront_tools.py）；绕过宿主时环境照常解析出选择，由指名购买带候选拒绝。
-    App 称呼与不认识的写法不在此列，交给环境按渠道与来源解析；写的正是标签里的门店（含带「地点：」前缀的写法）在名称解析中按
-    保留原始来源并说明可填 null（docs/dev/SPEC-life-runtime.md#tool-interaction-工具请求「名称归一与错误合同」）。"""
-    observation = _routing_observation()
+@pytest.mark.parametrize("recipients,answering,expected", [
+    ([None], None, [("agent:1", True, None)]),
+    (["王磊"], "王磊 10:35 的消息", [("contact-colleague", False, "reply-1")]),
+    ([None, "王磊"], "王磊 10:35 的消息", [("agent:1", True, None), ("contact-colleague", False, "reply-1")]),
+    (["Second Test Person"], None, [("agent:2", False, None)]),
+])
+def test_legal_app_payment_recipient_and_answering_combinations_route_each_item(recipients, answering, expected):
+    _, observation = contract_world()
+    observation["message_bindings"] = [{"name": "王磊 10:35 的消息", "message_id": "reply-1",
+                                         "sender_id": "contact-colleague"}]
+    request = _request(*(("牛肉面", "购买", "美团", person, "微信") for person in recipients), answering=answering)
+    outcome = resolve_start(name_book(observation), request)
+    assert not outcome.failures
     names = routing_names(observation)
-    other = _request((_SUPPLY, "远程下单", "四季便利", None))
-    assert combination_error(other, names) == (
-        "SUPPLY_SOURCE_MISMATCH", "The target names store 一心面馆, but from names the different place 四季便利.")
-    [row] = _selection(observation, other)
-    assert (row["object"], row["from"], row["recipient_id"]) == (_SUPPLY, "四季便利", "agent:1")
-    for source in ("盒马App", "饿了么"):
-        assert combination_error(_request((_SUPPLY, "远程下单", source, None)), names) is None
-    own = _request((_SUPPLY, "远程下单", "地点：一心面馆", None))
-    assert combination_error(own, names) is None
-    assert [row["from"] for row in _selection(observation, own)] == ["地点：一心面馆"]
-    assert resolve_start(name_book(observation), own).notes == (
-        "The target already names 一心面馆; from may be null.",)
+    assert combination_error(outcome.request, names) is None
+    selected = routed_selection(list(outcome.rows), outcome.request, names)
+    assert [(row["recipient_id"], row["to_self"], row["request_message_id"]) for row in selected] == expected
+    assert all(row["app_id"] == "meituan" and row["payment_app_id"] == "wechat" for row in selected)
+    require_recipients(selected)
 
 
-def test_from_and_to_need_one_item_per_target():
-    """@brief 来源与去向是逐项可空字符串，旧平行数组不能填入任何一项。"""
-    request = _request((_SUPPLY, "远程下单", None, None), (_NOODLES, "给予", None, _PERSON))
-    assert [(item.from_, item.to) for item in request.items] == [(None, None), (None, _PERSON)]
-    for field in ("from", "to"):
-        for value in ([], [None], [None, _PERSON]):
-            payload = request.model_dump()
-            payload["items"][0][field] = value
-            with pytest.raises(ValidationError):
-                StartActivityRequest.model_validate(payload)
+@pytest.mark.parametrize("item,answering,code", [
+    (("地点：公司", "步行", None, "Second Test Person", None), None, "ROUTE_FIELDS_INVALID"),
+    (("地点：公司", "步行", "微信", None, None), None, "APP_NOT_OFFERED"),
+    (("刷推荐", "进行", None, None, None), None, "APP_REQUIRED"),
+    (("牛肉面", "购买", "美团", None, None), None, "PAYMENT_APP_REQUIRED"),
+    (("牛肉面", "购买", "美团", None, "微信"), "unknown", "ROUTE_FIELDS_INVALID"),
+])
+def test_illegal_combinations_keep_the_same_host_and_environment_business_code(item, answering, code):
+    _, observation = contract_world()
+    outcome = resolve_start(name_book(observation), _request(item, answering=answering))
+    assert not outcome.failures
+    error = combination_error(outcome.request, routing_names(observation))
+    assert error is not None
+    assert error[0] == code
+    assert _selection(observation, _request(item, answering=answering)) is None
 
 
-def _assert_invalid(request, message: str) -> None:
-    """@brief 宿主与环境共用的判定给出这条英文原文；环境解析不出选择，以 ACTION_REQUEST_INVALID 拒绝。"""
-    observation = _routing_observation()
-    assert combination_error(request, routing_names(observation)) == ("ACTION_REQUEST_INVALID", message)
-    assert _selection(observation, request) is None
+@pytest.mark.parametrize("field", ["app", "to", "pay_app"])
+@pytest.mark.parametrize("value", [[], [None], [None, "人物：同事"]])
+def test_route_fields_are_individual_nullable_strings(field, value):
+    request = _request(("牛肉面", "购买", "美团", None, "微信")).model_dump()
+    request["items"][0][field] = value
+    with pytest.raises(ValidationError):
+        StartActivityRequest.model_validate(request)
 
 
-@pytest.mark.parametrize("recipient", ["人物：陌生人", "自己"], ids=["unknown-person", "legacy-self-string"])
+@pytest.mark.parametrize("recipient", ["人物：陌生人", "自己"])
 def test_unknown_recipient_is_recipient_not_found_before_admission(recipient):
-    """去向不是任何人物（不是本轮的人物、联系人，也不是同世界人物）：共用判定给 RECIPIENT_NOT_FOUND，这是拒绝码，宿主
-    放行（tests/integration/test_storefront_tools.py）；环境照常解析出选择（收货人为空），在整组准入之前以
-    RECIPIENT_NOT_FOUND 业务拒绝；同一请求另有不合法组合时先报 ACTION_REQUEST_INVALID。"""
-    observation = _routing_observation()
-    unknown = _request((_NOODLES, "给予", None, recipient))
-    assert combination_error(unknown, routing_names(observation)) == (
-        "RECIPIENT_NOT_FOUND", "The recipient is not a known other person; use null for the caller.")
-    selection = _selection(observation, unknown)
-    assert [(row["to"], row["recipient_id"]) for row in selection] == [(recipient, None)]
+    _, observation = contract_world()
+    outcome = resolve_start(name_book(observation), _request(("牛肉面", "购买", "美团", recipient, "微信")))
+    assert not outcome.failures
+    names = routing_names(observation)
+    assert combination_error(outcome.request, names)[0] == "RECIPIENT_NOT_FOUND"
+    selection = routed_selection(list(outcome.rows), outcome.request, names)
+    assert selection[0]["recipient_id"] is None
     with pytest.raises(BusinessRuleError, match="RECIPIENT_NOT_FOUND"):
         require_recipients(selection)
-    both = _request((_NOODLES, "给予", None, "人物：陌生人"), ("城西办公室", "步行", None, "自己"))
-    assert combination_error(both, routing_names(observation))[0] == "ACTION_REQUEST_INVALID"
 
 
 def test_route_choice_preserves_mode_but_engine_derives_exact_seconds(engine_factory):
@@ -281,7 +240,7 @@ def test_route_choice_preserves_mode_but_engine_derives_exact_seconds(engine_fac
     observed = _observe(engine, "travel-choice")
     row = next(row for row in observed["interaction_bindings"]
                if row["kind"] == "location" and row["object_id"] == "office")
-    _, result = _round(engine, "travel-start", "start_activity", _request((row["object"], "步行", None, None)))
+    _, result = _round(engine, "travel-start", "start_activity", _request((row["object"], "步行", None, None, None)))
     assert result.status == "in_progress", result.error_code
     activity = engine.context.state.activities[result.activity_id]
     assert (activity.kind, activity.destination_id, activity.travel_mode) == (ActivityKind.TRAVEL, "office", "walking")
@@ -292,37 +251,41 @@ def test_route_choice_preserves_mode_but_engine_derives_exact_seconds(engine_fac
 
 
 def test_purchase_uses_each_observed_quote_and_single_unit(engine_factory):
-    """当前菜单食品使用目录固定价，各买一份；同批配送只收一次真实配送费。"""
+    """@brief 同店两件目录商品采用固定价格，购物和支付点名后只付一次配送费。"""
     engine = _engine(engine_factory, location="home")
     observed = _observe(engine, "fixed-price-choice")
     rows = [row for row in observed["interaction_bindings"] if row["kind"] == "supply"
-            and row["store_id"] == "noodle-1" and row["food_id"] in {"beef-noodles", "chips"}]
+            and row["goods_id"] in {"chips", "lemon-tea"}]
     assert len(rows) == 2
-    request = _request(*((row["object"], "远程下单", "美团", None) for row in rows))
+    request = _request(*((row["object"], "购买", "美团", None, "微信") for row in rows))
     _, result = _round(engine, "fixed-price-purchase", "start_activity", request)
-    assert result.status == "completed", result.error_code
+    assert result.status == "completed", (result.error_code, result.message, result.data)
     orders = [engine.context.state.deliveries[row["order_id"]] for row in result.data["orders"]]
-    assert [(order.food_id, order.quantity, order.unit_price_fen, order.recipient_id) for order in orders] == [
-        (row["food_id"], 1, engine.context.semantics.catalog.foods[row["food_id"]].price_fen, "agent:1") for row in rows]
+    catalog = engine.context.semantics.catalog
+    assert [(order.goods_id, order.quantity, order.unit_price_fen, order.recipient_id) for order in orders] == [
+        (row["goods_id"], 1, catalog.goods[row["goods_id"]].price_fen, "agent:1") for row in rows]
     assert all(order.fulfillment == "delivery" and order.destination_id == "home" for order in orders)
+    assert all(order.app_id == "meituan" and order.payment_app_id == "wechat" for order in orders)
     assert [order.delivery_fee_fen for order in orders] == [500, 0]
     assert all(order.total_price_fen == order.unit_price_fen + order.delivery_fee_fen for order in orders)
     assert "activity_results" not in result.data
 
 
 def test_purchase_preserves_chosen_pickup_when_delivery_is_also_available(engine_factory):
-    """门店同时提供到店与远程下单，执行保留人物选择的到店方式、当前固定价和一份数量。"""
+    """@brief 同一购买方式以 app 空值声明到店，不会代选线上应用。"""
     engine = _engine(engine_factory, location="noodle-1")
     observed = _observe(engine, "pickup-choice")
     row = next(row for row in observed["interaction_bindings"] if row["kind"] == "supply"
-               and row["store_id"] == "noodle-1" and row["food_id"] == "beef-noodles")
-    assert {action["label"] for action in row["actions"]} >= {"到店", "远程下单"}
-    _, result = _round(engine, "pickup-start", "start_activity", _request((row["object"], "到店", None, None)))
-    assert result.status == "completed", result.error_code
+               and row["goods_id"] == "beef-noodles")
+    assert {action["label"] for action in row["actions"]} == {"购买"}
+    assert {action["app_id"] for action in row["actions"]} == {None, "meituan"}
+    _, result = _round(engine, "pickup-start", "start_activity", _request((row["object"], "购买", None, None, None)))
+    assert result.status == "completed", (result.error_code, result.message, result.data)
     (receipt,) = result.data["orders"]
     order = engine.context.state.deliveries[receipt["order_id"]]
-    assert (order.fulfillment, order.app_id, order.quantity, order.unit_price_fen) == ("pickup", None, 1, 2800)
-    assert order.created_at == order.expected_at == engine.context.state.current_time
+    assert (order.fulfillment, order.app_id, order.payment_app_id, order.quantity) == ("pickup", None, None, 1)
+    assert order.unit_price_fen == engine.context.semantics.catalog.goods["beef-noodles"].price_fen
+    assert order.created_at == order.expected_at == order.received_at == engine.context.state.current_time
     assert order.delivery_fee_fen == 0
 
 
@@ -394,7 +357,7 @@ def test_report_writes_original_summary_to_independent_day_goal_note(engine_fact
     goal = PlanGoal(intent_kind="休息", goal="午后稍作休息", registered_at=now - 100,
                     progressed_at=now - 50, progress_activity_id="earlier-rest")
     stage_day_plan(engine, goals=(goal,))
-    _, started = _round(engine, "goal-rest-start", "start_activity", _request(("自己", "等待", None, None)))
+    _, started = _round(engine, "goal-rest-start", "start_activity", _request(("自己", "等待", None, None, None)))
     assert started.status == "in_progress"
     identity = started.activity_id
     def attach_goal(state):
@@ -424,9 +387,10 @@ def _pending_and_paused(engine):
     wake_by_mail(engine, offset=60)
     assert advance_until_ready(engine)
     observed = _observe(engine, "selective-other-choice")
-    app = next(row for row in observed["interaction_bindings"] if row["kind"] == "app"
-               and row["object_id"] != paused.target_id)
-    _, running = _round(engine, "selective-other", "start_activity", _request((app["object"], "打开", None, None)))
+    assert any(row["kind"] == "action" and row["object_id"] == "browse-feed"
+               for row in observed["interaction_bindings"])
+    _, running = _round(engine, "selective-other", "start_activity",
+                        _request(("刷推荐", "进行", "哔哩哔哩", None, None)))
     assert running.status == "in_progress", running.error_code
     _until_ended(engine, ended_id, "selective-end")
     return ended_id, paused_id, running.activity_id
@@ -443,7 +407,7 @@ def test_conclude_ends_only_selected_activities_with_own_summaries(engine_factor
     now = engine.context.state.current_time
     observed, result = _round(engine, "selective-conclude", "conclude_activity",
                                conclude_request(ended.name, paused.name, summary=["等完了", "先不看了"], memories=[[], []]))
-    assert result.status == "completed", result.error_code
+    assert result.status == "completed", (result.error_code, result.message, result.data)
     done, stopped = (engine.context.state.activities[identity] for identity in (ended_id, paused_id))
     assert (done.status, done.ended_at, done.concluded_at, done.progress_note) == (
         ActivityStatus.COMPLETED, ended.ended_at, now, "等完了")

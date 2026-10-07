@@ -92,13 +92,11 @@ _WORLD_QUERY = "tests/life/test_world_query.py::"
 #: 是返回值，类型不符与找不到唯一观察是协议违约；
 #: 第四个是 query_world 两入口（宿主本地求值的纯函数与环境的 read_query）受理时逐值相等、拒绝时同一份校验报告，它同时
 #: 登记在工具交互台账并由那边的变异守着；末一个不启动 Ray，守并发度为 1 且不提供参数。
-_READ_QUERY_TESTS = [
-    _READ_QUERY + "test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query",
-    _READ_QUERY + "test_task_recall_crosses_real_ray_without_world_mutation",
-    _READ_QUERY + "test_unwrapped_actor_read_query_equals_direct_environment_call",
-    _WORLD_QUERY + "test_environment_read_query_keeps_world_clock_round_and_store_unchanged",
-    _READ_QUERY + "test_life_env_actor_class_fixes_single_concurrency_without_parameters",
-]
+_READ_QUERY_TESTS = ['tests/integration/test_read_query_runtime.py::test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query',
+ 'tests/integration/test_read_query_runtime.py::test_task_recall_crosses_real_ray_without_world_mutation',
+ 'tests/integration/test_read_query_runtime.py::test_unwrapped_actor_read_query_equals_direct_environment_call',
+ 'tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets',
+ 'tests/integration/test_read_query_runtime.py::test_life_env_actor_class_fixes_single_concurrency_without_parameters']
 
 _REFLECTION = "tests/integration/test_strict_reflection.py::"
 
@@ -231,40 +229,35 @@ _COMPLETION = "tests/life/test_errand_completion.py::"
 
 _FOOD_ERRAND = "tests/life/test_food_errand_evidence.py::"
 
-#: 「完成依据」：当前四个纯节点使用生产目录和场景加载、购买、给予、配送到期与进食的真实输出，接入 evidence_rows 与 settle，
-#: 验证取得归真实收货人、受理配送不累计、恢复后到期只累计一次、进食按实际区间份量累计、重放不重复累计。
-#: 下列原引擎与 SQLite 节点保留实际请求、提交顺序、记下前已持有或已开始、联系人、余额不足与结算事件合同；本轮未执行。
-_COMPLETION_TESTS = [
-    _FOOD_ERRAND + "test_actual_pickup_credits_the_recipient_and_reused_result_cannot_credit_twice",
-    _FOOD_ERRAND + "test_actual_giving_credits_only_the_recipient_and_actual_fraction",
-    _FOOD_ERRAND + "test_actual_pending_delivery_does_not_credit_and_restored_arrival_credits_once",
-    _FOOD_ERRAND + "test_actual_food_progress_counts_interval_portions_and_zero_replay_does_not_credit",
-    _COMPLETION + "test_a_remote_order_completes_only_in_the_commit_that_delivers_it",
-    _COMPLETION + "test_noting_then_buying_at_the_store_in_the_same_second_completes_while_the_item_stays_there",
-    _COMPLETION + "test_quantity_two_with_one_obtained_stays_open_and_shows_the_progress",
-    _COMPLETION + "test_what_was_held_before_noting_does_not_count",
-    _COMPLETION + "test_a_progress_interval_begun_before_noting_does_not_count",
-    _COMPLETION + "test_bought_for_me_and_handed_to_me_count_but_bought_by_me_for_another_does_not",
-    _COMPLETION + "test_an_order_and_a_gift_for_a_contact_outside_the_world_count_for_nobody",
-    _COMPLETION + "test_eating_counts_the_actual_interval_quantity",
-    _COMPLETION + "test_a_progressed_goal_and_a_claimed_completion_leave_the_errand_open",
-    _COMPLETION + "test_an_unaffordable_purchase_leaves_the_errand_open",
-    _COMPLETION + "test_a_gift_followed_by_a_cancel_in_one_round_credits_nothing",
-    _COMPLETION + "test_completion_and_progress_events_cite_their_evidence_and_carry_no_decision_identity",
-]
+#: 「完成依据」读取真实收货、本人归属、登记顺序与异常人物来源；付款、自述与旧给予进食不构成证据。
+_COMPLETION_TESTS = ['tests/life/test_food_errand_evidence.py::test_actual_pickup_credits_only_receipt_recipient_and_repeat_settlement_emits_no_evidence',
+ 'tests/life/test_food_errand_evidence.py::test_retired_giving_consumption_and_self_reports_cannot_progress_errands',
+ 'tests/life/test_food_errand_evidence.py::test_actual_pending_delivery_does_not_credit_and_restored_receipt_credits_once',
+ 'tests/life/test_food_errand_evidence.py::test_two_actual_receipts_accumulate_quantity_and_remove_only_the_completed_recipient_errand',
+ 'tests/life/test_errand_completion.py::test_a_remote_order_completes_only_in_the_commit_that_receives_it',
+ 'tests/life/test_errand_completion.py::test_noting_then_buying_at_the_store_completes_with_no_inventory',
+ 'tests/life/test_errand_completion.py::test_quantity_two_with_one_received_stays_open_and_a_second_receipt_completes',
+ 'tests/life/test_errand_completion.py::test_goals_and_claimed_completion_leave_the_errand_open',
+ 'tests/life/test_errand_completion.py::test_an_unaffordable_purchase_leaves_the_errand_and_world_unchanged',
+ 'tests/life/test_errand_completion.py::test_receipt_completion_tolerance_has_both_sides',
+ 'tests/life/test_food_errand_evidence.py::test_actual_payment_orders_are_not_errand_evidence_even_when_delivered',
+ 'tests/life/test_food_errand_evidence.py::test_receipt_before_registration_in_same_commit_does_not_count_but_after_it_does',
+ 'tests/life/test_food_errand_evidence.py::test_goods_receipt_rejects_an_invalid_simulated_recipient',
+ 'tests/life/test_food_errand_evidence.py::test_unaffordable_actual_purchase_preserves_open_errand_quantity_and_all_world_bytes',
+ 'tests/life/test_acs_receipt_readers.py::test_actual_contact_delivery_never_completes_buyers_errand_or_meal_goal']
 
 _IDEMPOTENCE = "tests/life/test_errand_settlement_idempotence.py::"
 
 #: 「结算幂等」：全部经真实请求、引擎与 SQLite——重放的动作结果不再累计；同一订单的配送再到期一次没有新入库行、不再累计；
 #: 并行开始的合并结果只读顶层订单；决策轮提交与时钟推进提交各结算一次（数量 3 的事务两次各加 1 份）；两人同一轮里排在
 #: 新增事件之前的给予不算、排在之后的算。
-_IDEMPOTENCE_TESTS = [
-    _IDEMPOTENCE + "test_a_replayed_action_adds_nothing",
-    _IDEMPOTENCE + "test_a_repeated_due_delivery_adds_nothing",
-    _IDEMPOTENCE + "test_a_parallel_start_counts_each_order_once",
-    _IDEMPOTENCE + "test_each_commit_settles_once",
-    _IDEMPOTENCE + "test_evidence_ordered_before_the_noting_event_in_the_same_commit_does_not_count",
-]
+_IDEMPOTENCE_TESTS = ['tests/life/test_errand_settlement_idempotence.py::test_a_replayed_action_adds_neither_payment_receipt_nor_errand_progress',
+ 'tests/life/test_errand_settlement_idempotence.py::test_repeated_due_delivery_has_no_second_receipt_or_errand_evidence',
+ 'tests/life/test_errand_settlement_idempotence.py::test_parallel_order_result_is_not_an_extra_copy_of_receipt_evidence',
+ 'tests/life/test_errand_settlement_idempotence.py::test_purchase_commit_and_delivery_commit_each_credit_their_own_receipt_once',
+ 'tests/life/test_errand_settlement_idempotence.py::test_same_commit_registration_uses_event_order_instead_of_equal_clock',
+ 'tests/life/test_food_errand_evidence.py::test_actual_pending_delivery_does_not_credit_and_restored_receipt_credits_once',
+ 'tests/life/test_food_errand_evidence.py::test_receipt_before_registration_in_same_commit_does_not_count_but_after_it_does']
 
 _REMINDER = "tests/life/test_errand_reminder.py::"
 _ERRAND_EXPORT = ("tests/footprints/test_errand_export.py::"
@@ -290,6 +283,7 @@ _REMINDER_TESTS = [
     _REMINDER + "test_updating_the_reminder_clock_arms_it_again",
     _REMINDER + "test_a_reminder_due_at_local_midnight_is_delivered_by_the_midnight_rhythm",
     _REMINDER + "test_open_errands_do_not_change_the_reconsideration_interval",
+    _REMINDER + "test_partial_progress_after_the_reminder_does_not_remind_again",
     _ERRAND_EXPORT,
     "tests/footprints/test_quality.py::test_errand_reminder_due_is_a_known_wake_reason",
 ]
@@ -326,19 +320,17 @@ _ERRAND_NAMES = "tests/life/test_errand_names.py::"
 #: LifeAgent 把活动名、事务名与结构错误并入同一次纠错，路径绑定到真实调用下标，改正之前不登记世界请求。末一个是「终结后
 #: 名称可以再用」的办成一半（前面的节点以取消与办成留下的状态示范）：经真实请求、引擎与 SQLite 在集市记下并当场买下办成
 #: 之后，同一名称、同一结果与商品再新增一条事务被受理，事件依次是记下、办成、记下。
-_ERRAND_NAME_TESTS = [
-    _ERRAND_NAMES + "test_update_and_cancel_use_the_todo_layer_name",
-    _ERRAND_NAMES + "test_unknown_or_ambiguous_errand_name_lists_every_open_name_and_substitutes_nothing",
-    _ERRAND_NAMES + "test_unknown_item_reports_nearest_product_names_in_why_without_candidates",
-    _ERRAND_NAMES + "test_cancel_requires_a_reason",
-    _ERRAND_NAMES + "test_duplicate_added_names_same_outcome_and_product_and_a_ninth_errand_are_rejected",
-    _ERRAND_NAMES + "test_one_errand_named_twice_and_two_additions_with_one_outcome_and_product_are_rejected",
-    _ERRAND_NAMES + "test_cancelling_and_adding_again_with_the_original_name_and_a_new_quantity_is_accepted",
-    _ERRAND_NAMES + "test_a_request_bypassing_the_host_is_refused_once_and_the_world_is_unchanged",
-    _ERRAND_NAMES + "test_whatever_the_host_accepts_the_environment_accepts",
-    _PROTOCOL + "test_errand_errors_join_the_single_host_correction",
-    _COMPLETION + "test_a_completed_errand_frees_its_name_and_its_item_for_a_new_errand",
-]
+_ERRAND_NAME_TESTS = ['tests/life/test_errand_names.py::test_update_and_cancel_use_the_todo_layer_name',
+ 'tests/life/test_errand_names.py::test_unknown_or_ambiguous_errand_name_lists_every_open_name_and_substitutes_nothing',
+ 'tests/life/test_errand_names.py::test_unknown_item_reports_nearest_product_names_in_why_without_candidates',
+ 'tests/life/test_errand_names.py::test_cancel_requires_a_reason',
+ 'tests/life/test_errand_names.py::test_duplicate_added_names_same_outcome_and_product_and_a_ninth_errand_are_rejected',
+ 'tests/life/test_errand_names.py::test_one_errand_named_twice_and_two_additions_with_one_outcome_and_product_are_rejected',
+ 'tests/life/test_errand_names.py::test_cancelling_and_adding_again_with_the_original_name_and_a_new_quantity_is_accepted',
+ 'tests/life/test_errand_names.py::test_a_request_bypassing_the_host_is_refused_once_and_the_world_is_unchanged',
+ 'tests/life/test_errand_names.py::test_whatever_the_host_accepts_the_environment_accepts',
+ 'tests/integration/test_life_agent_protocol.py::test_errand_errors_join_the_single_host_correction',
+ 'tests/life/test_errand_completion.py::test_a_completed_errand_frees_its_name_and_product_for_a_new_errand']
 
 _CONTROL_ITEMS = "tests/life/test_control_items.py::"
 
@@ -382,36 +374,26 @@ _TOOL_PROTOCOL = "tests/life/test_tool_protocol.py::"
 _QUERY_COST = "tests/life/test_query_cost_report.py::"
 
 #: 六键必填、严格布尔、独立字段错误与用途句保留；食品查询请求使用当前真实模型的两个必填键反例。
-_QUERY_REQUEST_TESTS = [
-    'tests/life/test_world_query.py::test_world_query_requires_every_declared_field',
-    'tests/life/test_world_query.py::test_world_query_rejects_the_retired_four_key_request',
-    'tests/life/test_world_query.py::test_world_query_available_only_requires_a_json_boolean',
-    'tests/life/test_world_query.py::test_world_query_null_filter_errors_keep_affected_field_locations',
-    'tests/life/test_world_query.py::test_world_query_reports_all_dynamic_errors_and_full_legal_values',
-    'tests/integration/test_tool_description_references.py::test_query_world_purpose_is_the_contract_text_and_moves_only_the_tool_fingerprint',
-    'tests/life/test_world_query_filters.py::test_frozen_food_query_app_source_uses_actual_store_binding_and_category',
-    'tests/life/test_world_query_filters.py::test_query_is_a_frozen_pure_read_and_no_app_store_still_has_onsite_menu',
-    'tests/life/test_world_query.py::test_world_query_rejects_blank_and_coerced_filters',
-    'tests/life/test_world_query_filters.py::test_query_requires_the_source_and_availability_keys_without_defaults',
-]
+_QUERY_REQUEST_TESTS = ['tests/life/test_world_query.py::test_every_query_field_is_required',
+ 'tests/life/test_world_query.py::test_empty_filter_reports_each_position_and_keeps_other_type_errors',
+ 'tests/life/test_world_query.py::test_filter_errors_are_aggregated_and_never_hidden_by_offset_or_type_errors',
+ 'tests/integration/test_tool_description_references.py::test_query_world_purpose_is_the_contract_text_and_moves_only_the_tool_fingerprint',
+ 'tests/life/test_world_query_filters.py::test_shopping_app_filters_the_real_goods_target_without_store_expansion',
+ 'tests/life/test_world_query_filters.py::test_query_remains_frozen_after_the_source_world_and_catalog_order_change']
 
 #: 来源取实际 app 成员门店和同一个购买名称解析器；未知来源拒绝，候选排除没有食品菜单的地点。
-_SOURCE_FILTER_TESTS = [
-    'tests/life/test_world_query_filters.py::test_frozen_food_query_app_source_uses_actual_store_binding_and_category',
-    'tests/life/test_world_query_filters.py::test_query_is_a_frozen_pure_read_and_no_app_store_still_has_onsite_menu',
-    'tests/life/test_name_resolution.py::test_actual_app_name_resolves_to_its_real_registered_stores',
-    'tests/life/test_name_resolution.py::test_source_resolution_recognizes_actual_store_home_and_rejects_unknown_source',
-    'tests/life/test_named_purchase.py::test_named_purchase_rejects_food_source_and_way_mismatch',
-    'tests/life/test_world_query_filters.py::test_source_filter_excludes_real_menus_outside_the_selected_app',
-    'tests/life/test_world_query_filters.py::test_source_resolution_uses_the_purchase_resolver_instead_of_plain_place_equality',
-    'tests/life/test_world_query_filters.py::test_unknown_source_is_an_argument_error_instead_of_an_empty_page',
-    'tests/life/test_world_query_filters.py::test_source_error_candidates_exclude_places_without_actual_food_menus',
-]
+_SOURCE_FILTER_TESTS = ['tests/life/test_world_query_filters.py::test_shopping_app_filters_the_real_goods_target_without_store_expansion',
+ 'tests/life/test_world_query_filters.py::test_query_remains_frozen_after_the_source_world_and_catalog_order_change',
+ 'tests/life/test_name_resolution.py::test_registered_action_name_is_exact_and_app_is_not_an_activity_target',
+ 'tests/life/test_name_resolution.py::test_location_home_and_current_ways_are_normalized_without_app_guess',
+ 'tests/life/test_named_purchase.py::test_named_purchase_rejects_unknown_goods_and_unbound_apps_atomically',
+ 'tests/life/test_world_query.py::test_unknown_app_and_store_names_have_the_exact_new_error_contract',
+ 'tests/life/test_world_query_filters.py::test_action_app_and_category_filters_use_real_action_names_and_labels']
 
 #: 保留仍存在的宿主、环境与只读报告节点；固定食品当前经真实目录与冻结查询断言状态不变。
 #: 当前新增纯节点没有运行完整 LifeAgent、LifeEnv、SQLite 链路。
 _QUERY_READONLY_TESTS = [
-    'tests/life/test_world_query.py::test_environment_read_query_keeps_world_clock_round_and_store_unchanged',
+    'tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets',
     'tests/life/test_tool_protocol.py::test_world_query_mixed_batches_are_atomic',
     'tests/life/test_tool_protocol.py::test_final_turn_and_truncation_retry_disable_every_query',
     'tests/life/test_tool_protocol.py::test_query_dispatch_has_no_world_side_effect',
@@ -420,30 +402,23 @@ _QUERY_READONLY_TESTS = [
     'tests/life/test_query_cost_report.py::test_query_cost_counts_failures_empty_filtered_pages_and_reflection_retries',
     'tests/life/test_query_cost_report.py::test_query_cost_of_a_run_without_queries_and_the_printed_keys',
     'tests/integration/test_output_truncation.py::test_a_truncated_turn_is_dropped_and_retried_once_without_thinking',
-    'tests/life/test_world_query_filters.py::test_query_is_a_frozen_pure_read_and_no_app_store_still_has_onsite_menu',
+    'tests/life/test_world_query_filters.py::test_query_remains_frozen_after_the_source_world_and_catalog_order_change',
 ]
 
 #: 购买方式展开为到店和远程下单；只看所写方式的动作，未写方式时同时看实际活动控制工具。
-_EXECUTABLE_FILTER_TESTS = [
-    'tests/life/test_world_query_filters.py::test_frozen_food_query_app_source_uses_actual_store_binding_and_category',
-    'tests/life/test_world_query_filters.py::test_query_is_a_frozen_pure_read_and_no_app_store_still_has_onsite_menu',
-    'tests/life/test_world_query.py::test_world_query_intersection_uses_existing_deterministic_name_and_way_rules',
-    'tests/life/test_world_query_filters.py::test_purchase_way_expands_to_both_real_pickup_and_delivery_actions',
-    'tests/life/test_world_query_filters.py::test_availability_only_uses_actions_matching_the_written_way',
-    'tests/life/test_world_query_filters.py::test_without_way_availability_includes_the_actual_activity_control_tools',
-]
+_EXECUTABLE_FILTER_TESTS = ['tests/life/test_world_query_filters.py::test_shopping_app_filters_the_real_goods_target_without_store_expansion',
+ 'tests/life/test_world_query_filters.py::test_query_remains_frozen_after_the_source_world_and_catalog_order_change',
+ 'tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets',
+ 'tests/life/test_world_query_filters.py::test_available_only_is_specific_to_the_selected_app_and_way']
 
 #: 筛选先于分页与总数计算，实际食品页面没有缺项；现存紧凑返回和权限字段断言保留。
-_PAGING_TESTS = [
-    'tests/life/test_world_query.py::test_world_query_paginates_complete_frozen_set_and_preserves_false_and_zero',
-    'tests/life/test_world_query.py::test_world_query_does_not_return_internal_identity_or_private_evidence',
-    'tests/life/test_world_query.py::test_world_query_matches_are_compact_targets_without_candidates',
-    'tests/life/test_food_presentation.py::test_real_food_candidates_page_without_gaps_using_the_actual_order_key',
-    'tests/life/test_world_query_filters.py::test_frozen_food_query_app_source_uses_actual_store_binding_and_category',
-    'tests/life/test_world_query_filters.py::test_query_is_a_frozen_pure_read_and_no_app_store_still_has_onsite_menu',
-    'tests/life/test_world_query_filters.py::test_availability_is_filtered_before_paging_and_total_count',
-    'tests/life/test_world_query_filters.py::test_total_count_is_the_filtered_menu_count',
-]
+_PAGING_TESTS = ['tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets',
+ 'tests/life/test_food_presentation.py::test_real_food_candidates_page_without_gaps_using_the_actual_order_key',
+ 'tests/life/test_world_query_filters.py::test_shopping_app_filters_the_real_goods_target_without_store_expansion',
+ 'tests/life/test_world_query_filters.py::test_query_remains_frozen_after_the_source_world_and_catalog_order_change',
+ 'tests/life/test_world_query_filters.py::test_available_only_is_specific_to_the_selected_app_and_way',
+ 'tests/life/test_tool_interaction_runtime.py::test_compact_layer_preserves_false_zero_current_action_and_control_tools',
+ 'tests/life/test_world_query_filters.py::test_full_query_contains_goods_beyond_the_current_presentation_window']
 
 _CARD_EXTRACTION = "tests/profile/test_extractor.py::"
 _CARD_MODELS = "tests/profile/test_models.py::"
@@ -501,7 +476,7 @@ _WORK_ANCHOR_TESTS = [
 ]
 
 _WORK_SCHEDULE_LOADS = "tests/life/test_load_checks.py::"
-_SCENARIO_STRUCTURE = "tests/life/test_scenario.py::test_structure_seven_rejects_old_scenario_version[4]"
+_SCENARIO_STRUCTURE = "tests/life/test_scenario.py::test_structure_eight_rejects_old_scenario_version[4]"
 #: 「工作安排加载」：每个人物显式声明 work_schedule 或 null、缺键与场景结构 4 经真实入口被拒；工作地点不是所选地点、时段
 #: 与休息时段非法、时间窗内与场景日历不一致都经真实的 load_runtime_scenario 被拒（顶层明细写明人物、日期与字段，形状
 #: 错误的原因在异常链里），时间窗外的日期、加班机会日与 null 的人物不核对。场景模型校验器逐条拒绝的用例是补充证据。
@@ -599,36 +574,277 @@ _DOCUMENT_CONSISTENCY_TESTS = [
     "tests/test_dayrun_fidelity_acceptance.py::test_docs_carry_no_pending_markers_of_this_feature",
 ]
 
-LEDGER: dict[str, dict[str, object]] = {
-    "严格反思": {"stage": "1", "tests": _REFLECTION_TESTS},
-    "只读查询转发": {"stage": "1", "tests": _READ_QUERY_TESTS},
-    "计划重复意图": {"stage": "1", "tests": _PLAN_DUPLICATE_TESTS},
-    "故障传播": {"stage": "1", "tests": _FAULT_PROPAGATION_TESTS},
-    "事务变更与原子受理": {"stage": "2", "tests": _ERRAND_CHANGE_TESTS},
-    "事务名称与错误": {"stage": "2", "tests": _ERRAND_NAME_TESTS},
-    "跨夜可见": {"stage": "2", "tests": _OVERNIGHT_TESTS},
-    "完成依据": {"stage": "2", "tests": _COMPLETION_TESTS},
-    "结算幂等": {"stage": "2", "tests": _IDEMPOTENCE_TESTS},
-    "事务提醒": {"stage": "2", "tests": _REMINDER_TESTS},
-    "检查点": {"stage": "2", "tests": _CHECKPOINT_TESTS},
-    "提示与唯一出现": {"stage": "2", "tests": _PROMPT_PRESENCE_TESTS},
-    "控制请求记录": {"stage": "2", "tests": _CONTROL_RECORD_TESTS},
-    "事务与收尾记忆指标": {"stage": "2", "tests": _METRIC_TESTS},
-    "作息锚点": {"stage": "3", "tests": _WORK_ANCHOR_TESTS},
-    "工作安排加载": {"stage": "3", "tests": _WORK_SCHEDULE_LOAD_TESTS},
-    "上班安排呈现": {"stage": "3", "tests": _DUTY_TESTS},
-    "计划与义务": {"stage": "3", "tests": _PLAN_DUTY_TESTS},
-    "工作合同边界": {"stage": "3", "tests": _WORK_CONTRACT_BOUNDARY_TESTS},
-    "工作负荷与作息偏离": {"stage": "3", "tests": _WORKLOAD_TESTS},
-    "查询请求": {"stage": "4", "tests": _QUERY_REQUEST_TESTS},
-    "来源筛选": {"stage": "4", "tests": _SOURCE_FILTER_TESTS},
-    "可执行筛选": {"stage": "4", "tests": _EXECUTABLE_FILTER_TESTS},
-    "分页与返回": {"stage": "4", "tests": _PAGING_TESTS},
-    "查询只读": {"stage": "4", "tests": _QUERY_READONLY_TESTS},
-    "工程门禁": {"stage": "5", "tests": _ENGINEERING_GATE_TESTS},
-    "复跑指标（只报告）": {"stage": "6", "tests": []},
-    "文档一致性": {"stage": "7", "tests": _DOCUMENT_CONSISTENCY_TESTS},
-}
+LEDGER: dict[str, dict[str, object]] = {'严格反思': {'stage': '1',
+          'tests': ['tests/integration/test_strict_reflection.py::test_runtime_submits_reflection_through_the_only_strict_tool',
+                    'tests/integration/test_strict_reflection.py::test_runtime_feeds_each_contract_violation_back_and_stores_only_the_corrected_reflection',
+                    'tests/integration/test_strict_reflection.py::test_runtime_stops_with_a_run_fault_after_three_validation_retries_and_stores_no_reflection',
+                    'tests/integration/test_strict_reflection.py::test_runtime_propagates_transport_failures_without_validation_retries',
+                    'tests/integration/test_strict_reflection.py::test_runtime_makes_no_model_call_when_there_is_nothing_to_reflect_on',
+                    'tests/integration/test_strict_reflection.py::test_reflection_prompt_is_the_contract_text',
+                    'tests/integration/test_strict_reflection.py::test_exhausted_reflection_leaves_evidence_but_no_memory_update_in_the_run_database',
+                    'tests/integration/test_strict_reflection.py::test_corrected_reflection_is_recorded_once_by_the_real_engine',
+                    'tests/integration/test_life_agent_protocol.py::test_reflection_contract_failure_aborts_society_before_commit',
+                    'tests/integration/test_verified_memory.py::test_sleep_reflection_is_subjective_and_its_id_is_reported',
+                    'tests/integration/test_conclude_memories.py::test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime_reflection',
+                    'tests/integration/test_dayrun_complete_days.py::test_complete_two_person_day_uses_real_tools_memory_and_restoration',
+                    'tests/life/test_engine_branch_coverage.py::test_only_action_requests_satisfy_the_predicate',
+                    'tests/integration/test_strict_reflection.py::test_reflection_tool_schema_is_inline_strict_and_bound_to_the_host_limit',
+                    'tests/integration/test_strict_reflection.py::test_reflection_records_only_valid_subjective_insights',
+                    'tests/integration/test_strict_reflection.py::test_invalid_reflection_cannot_enter_memory',
+                    'tests/integration/test_strict_reflection.py::test_reflection_requires_exactly_one_tool_call',
+                    'tests/integration/test_strict_reflection.py::test_reflection_tool_arguments_must_be_a_json_string',
+                    'tests/integration/test_strict_reflection.py::test_reflection_correction_appends_one_compact_message_without_touching_the_original',
+                    'tests/integration/test_strict_reflection.py::test_reflection_retry_bound_is_its_own_constant_with_the_plan_day_value',
+                    'tests/evaluation/test_behavior_metrics.py::test_reflection_requests_and_their_retries_are_not_decision_requests']},
+ '只读查询转发': {'stage': '1',
+            'tests': ['tests/integration/test_read_query_runtime.py::test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query',
+                      'tests/integration/test_read_query_runtime.py::test_task_recall_crosses_real_ray_without_world_mutation',
+                      'tests/integration/test_read_query_runtime.py::test_unwrapped_actor_read_query_equals_direct_environment_call',
+                      'tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets',
+                      'tests/integration/test_read_query_runtime.py::test_life_env_actor_class_fixes_single_concurrency_without_parameters']},
+ '计划重复意图': {'stage': '1',
+            'tests': ['tests/life/test_revise_day_plan_json.py::test_engine_rejects_a_duplicate_revision_locating_first_and_later_entries',
+                      'tests/life/test_revise_day_plan_json.py::test_engine_reports_over_capacity_and_duplicates_in_the_same_rejection',
+                      'tests/life/test_revise_day_plan_json.py::test_engine_keeps_at_most_eight_goals_with_one_goal_per_intent',
+                      'tests/life/test_plan_day_duplicate_feedback.py::test_plan_day_duplicate_intents_are_fed_back_with_every_position_then_registered',
+                      'tests/life/test_plan_day_duplicate_feedback.py::test_plan_day_reports_over_capacity_together_with_duplicates',
+                      'tests/life/test_revise_day_plan_json.py::test_host_corrects_duplicate_intents_from_real_json_arguments',
+                      'tests/life/test_revise_day_plan_json.py::test_duplicate_intent_in_provider_json_returns_nested_validation_error',
+                      'tests/life/test_revise_day_plan_json.py::test_nine_goals_with_a_duplicate_report_capacity_and_positions_in_one_validation',
+                      'tests/life/test_plan_day_duplicate_feedback.py::test_repeated_work_goals_are_located_and_correction_requires_merging']},
+ '故障传播': {'stage': '1',
+          'tests': ['tests/integration/test_host_failure_stages.py::test_tool_service_failure_on_the_real_engine_is_logged_and_raised_with_its_stage',
+                    'tests/integration/test_host_failure_stages.py::test_model_service_failure_on_the_real_engine_is_logged_once_and_reraised_unchanged',
+                    'tests/integration/test_life_agent_protocol.py::test_decision_failure_is_logged_once_and_reraised_unchanged',
+                    'tests/integration/test_host_failure_stages.py::test_tool_service_failure_points_to_real_call_without_claiming_execution',
+                    'tests/integration/test_life_agent_protocol.py::test_memory_persistence_failure_aborts_society_before_commit',
+                    'tests/integration/test_host_failure_stages.py::test_model_service_failure_persists_stage_without_parsing_exception_text',
+                    'tests/integration/test_host_failure_stages.py::test_evidence_write_failure_stops_with_structured_stage',
+                    'tests/integration/test_agent_branch_coverage.py::test_tool_messages_follow_memory_queries_only']},
+ '事务变更与原子受理': {'stage': '2',
+               'tests': ['tests/life/test_errand_requests.py::test_each_control_tool_records_errand_changes_with_one_event_per_change_and_an_ordered_receipt',
+                         'tests/life/test_errand_requests.py::test_empty_errands_is_valid_and_the_receipt_is_an_empty_list',
+                         'tests/life/test_errand_requests.py::test_every_structural_error_reports_the_full_errand_path',
+                         'tests/life/test_errand_requests.py::test_a_rejected_request_registers_no_errand_and_writes_no_errand_event',
+                         'tests/life/test_errand_requests.py::test_a_request_cannot_mark_an_errand_completed',
+                         'tests/life/test_errand_requests.py::test_a_replayed_request_does_not_register_twice',
+                         'tests/integration/test_activity_schema.py::test_control_tool_schemas_inline_the_errand_change_object',
+                         'tests/integration/test_conclude_memories.py::test_rejected_conclusion_keeps_its_memories_but_registers_no_errand']},
+ '事务名称与错误': {'stage': '2',
+             'tests': ['tests/life/test_errand_names.py::test_update_and_cancel_use_the_todo_layer_name',
+                       'tests/life/test_errand_names.py::test_unknown_or_ambiguous_errand_name_lists_every_open_name_and_substitutes_nothing',
+                       'tests/life/test_errand_names.py::test_unknown_item_reports_nearest_product_names_in_why_without_candidates',
+                       'tests/life/test_errand_names.py::test_cancel_requires_a_reason',
+                       'tests/life/test_errand_names.py::test_duplicate_added_names_same_outcome_and_product_and_a_ninth_errand_are_rejected',
+                       'tests/life/test_errand_names.py::test_one_errand_named_twice_and_two_additions_with_one_outcome_and_product_are_rejected',
+                       'tests/life/test_errand_names.py::test_cancelling_and_adding_again_with_the_original_name_and_a_new_quantity_is_accepted',
+                       'tests/life/test_errand_names.py::test_a_request_bypassing_the_host_is_refused_once_and_the_world_is_unchanged',
+                       'tests/life/test_errand_names.py::test_whatever_the_host_accepts_the_environment_accepts',
+                       'tests/integration/test_life_agent_protocol.py::test_errand_errors_join_the_single_host_correction',
+                       'tests/life/test_errand_completion.py::test_a_completed_errand_frees_its_name_and_product_for_a_new_errand']},
+ '跨夜可见': {'stage': '2',
+          'tests': ['tests/life/test_errand_overnight.py::test_an_errand_stays_in_the_todo_layer_after_midnight_plan_generation_and_plan_revision',
+                    'tests/life/test_errand_overnight.py::test_an_errand_stays_when_the_memory_layer_overflows_its_window',
+                    'tests/life/test_errand_overnight.py::test_a_condensed_request_still_carries_the_todo_layer_errands',
+                    'tests/life/test_errand_overnight.py::test_the_memory_layer_writes_no_line_for_errands',
+                    'tests/integration/test_errand_prompt_separation.py::test_the_next_action_request_shows_the_errand_in_the_todo_layer_without_any_memory_query',
+                    'tests/life/test_day_planning.py::test_plan_day_input_lists_open_errands_read_only',
+                    'tests/life/test_day_planning.py::test_plan_day_input_writes_no_line_for_an_errand_completed_before_midnight',
+                    'tests/life/test_day_planning.py::test_plan_template_is_the_contract_text_and_asks_only_for_differences_with_around_times']},
+ '完成依据': {'stage': '2',
+          'tests': ['tests/life/test_food_errand_evidence.py::test_actual_pickup_credits_only_receipt_recipient_and_repeat_settlement_emits_no_evidence',
+                    'tests/life/test_food_errand_evidence.py::test_retired_giving_consumption_and_self_reports_cannot_progress_errands',
+                    'tests/life/test_food_errand_evidence.py::test_actual_pending_delivery_does_not_credit_and_restored_receipt_credits_once',
+                    'tests/life/test_food_errand_evidence.py::test_two_actual_receipts_accumulate_quantity_and_remove_only_the_completed_recipient_errand',
+                    'tests/life/test_errand_completion.py::test_a_remote_order_completes_only_in_the_commit_that_receives_it',
+                    'tests/life/test_errand_completion.py::test_noting_then_buying_at_the_store_completes_with_no_inventory',
+                    'tests/life/test_errand_completion.py::test_quantity_two_with_one_received_stays_open_and_a_second_receipt_completes',
+                    'tests/life/test_errand_completion.py::test_goals_and_claimed_completion_leave_the_errand_open',
+                    'tests/life/test_errand_completion.py::test_an_unaffordable_purchase_leaves_the_errand_and_world_unchanged',
+                    'tests/life/test_errand_completion.py::test_receipt_completion_tolerance_has_both_sides',
+                    'tests/life/test_food_errand_evidence.py::test_actual_payment_orders_are_not_errand_evidence_even_when_delivered',
+                    'tests/life/test_food_errand_evidence.py::test_receipt_before_registration_in_same_commit_does_not_count_but_after_it_does',
+                    'tests/life/test_food_errand_evidence.py::test_goods_receipt_rejects_an_invalid_simulated_recipient',
+                    'tests/life/test_food_errand_evidence.py::test_unaffordable_actual_purchase_preserves_open_errand_quantity_and_all_world_bytes',
+                    'tests/life/test_acs_receipt_readers.py::test_actual_contact_delivery_never_completes_buyers_errand_or_meal_goal']},
+ '结算幂等': {'stage': '2',
+          'tests': ['tests/life/test_errand_settlement_idempotence.py::test_a_replayed_action_adds_neither_payment_receipt_nor_errand_progress',
+                    'tests/life/test_errand_settlement_idempotence.py::test_repeated_due_delivery_has_no_second_receipt_or_errand_evidence',
+                    'tests/life/test_errand_settlement_idempotence.py::test_parallel_order_result_is_not_an_extra_copy_of_receipt_evidence',
+                    'tests/life/test_errand_settlement_idempotence.py::test_purchase_commit_and_delivery_commit_each_credit_their_own_receipt_once',
+                    'tests/life/test_errand_settlement_idempotence.py::test_same_commit_registration_uses_event_order_instead_of_equal_clock',
+                    'tests/life/test_food_errand_evidence.py::test_actual_pending_delivery_does_not_credit_and_restored_receipt_credits_once',
+                    'tests/life/test_food_errand_evidence.py::test_receipt_before_registration_in_same_commit_does_not_count_but_after_it_does']},
+ '事务提醒': {'stage': '2',
+          'tests': ['tests/life/test_errand_reminder.py::test_an_awake_person_is_reminded_once_exactly_on_time_and_the_errand_is_unchanged',
+                    'tests/life/test_errand_reminder.py::test_a_clock_equal_to_the_acceptance_time_means_the_next_local_day',
+                    'tests/life/test_errand_reminder.py::test_a_sleeper_gets_no_boundary_no_delivery_and_no_consumption_and_is_reminded_at_the_wake_boundary',
+                    'tests/life/test_errand_reminder.py::test_errands_due_together_are_one_opportunity_with_one_event_each',
+                    'tests/life/test_errand_reminder.py::test_errand_and_goal_reminders_due_together_are_listed_in_enum_order',
+                    'tests/life/test_errand_reminder.py::test_completed_or_cancelled_errands_are_not_reminded',
+                    'tests/life/test_errand_reminder.py::test_updating_the_reminder_clock_arms_it_again',
+                    'tests/life/test_errand_reminder.py::test_a_reminder_due_at_local_midnight_is_delivered_by_the_midnight_rhythm',
+                    'tests/life/test_errand_reminder.py::test_open_errands_do_not_change_the_reconsideration_interval',
+                    'tests/life/test_errand_reminder.py::test_partial_progress_after_the_reminder_does_not_remind_again',
+                    'tests/footprints/test_errand_export.py::test_an_exported_run_reports_errands_and_recertifies_value_for_value',
+                    'tests/footprints/test_quality.py::test_errand_reminder_due_is_a_known_wake_reason']},
+ '检查点': {'stage': '2',
+         'tests': ['tests/life/test_session_state.py::test_run_with_version_8_world_state_is_rejected_on_open',
+                   'tests/life/test_session_state.py::test_world_state_schema_version_8_is_rejected',
+                   'tests/integration/test_errand_checkpoint.py::test_a_restored_branch_shows_the_same_todo_layer_and_repeats_nothing']},
+ '提示与唯一出现': {'stage': '2',
+             'tests': ['tests/integration/test_seven_layer_request.py::test_system_layers_are_the_contract_registration_verbatim',
+                       'tests/integration/test_seven_layer_request.py::test_rules_1_4_6_divide_errands_summaries_and_memories',
+                       'tests/integration/test_seven_layer_request.py::test_the_retired_continuation_sentence_is_gone_everywhere',
+                       'tests/integration/test_tool_description_references.py::test_control_tool_purposes_and_errand_descriptions_are_the_contract_text',
+                       'tests/integration/test_tool_description_references.py::test_every_native_tool_has_a_purpose_only_description',
+                       'tests/integration/test_tool_description_references.py::test_parameter_descriptions_are_purpose_only',
+                       'tests/integration/test_strict_reflection.py::test_reflection_prompt_is_the_contract_text',
+                       'tests/integration/test_strict_reflection.py::test_reflection_prompt_ends_with_the_errand_sentences',
+                       'tests/integration/test_unique_presence_run.py::test_an_errand_full_row_appears_only_in_the_todo_layer',
+                       'tests/life/test_errand_todo_layer.py::test_observation_carries_private_errand_bindings_outside_every_layer',
+                       'tests/integration/test_same_second_continuation.py::test_errand_changes_reach_the_next_tool_message_as_added_and_removed',
+                       'tests/integration/test_same_second_continuation.py::test_an_errand_completed_in_the_same_second_appears_once_in_the_continuation_events',
+                       'tests/life/test_progress_events.py::test_an_errand_completed_in_the_session_is_one_record_and_folds_to_one_line',
+                       'tests/life/test_errand_reminder.py::test_a_reminder_delivered_with_the_arrival_stays_out_of_the_new_stay_session',
+                       'tests/integration/test_errand_prompt_separation.py::test_errand_changes_write_no_memory_and_stay_out_of_self_notes_and_progress_arguments']},
+ '控制请求记录': {'stage': '2',
+            'tests': ['tests/life/test_control_items.py::test_current_shape_items_carry_views_as_subject_memories',
+                      'tests/life/test_control_items.py::test_a_current_request_without_errands_is_rejected',
+                      'tests/life/test_control_items.py::test_control_errands_reads_every_change_in_order',
+                      'tests/life/test_export_integration.py::test_completed_activity_exports_terminal_outcome_and_recorded_prompt']},
+ '事务与收尾记忆指标': {'stage': '2',
+               'tests': ['tests/evaluation/test_errand_metrics.py::test_counts_follow_their_definitions_and_the_identity_holds',
+                         'tests/evaluation/test_errand_metrics.py::test_the_denominator_is_registered_errands_not_goals',
+                         'tests/evaluation/test_errand_metrics.py::test_visible_and_expected_observations_agree',
+                         'tests/evaluation/test_errand_metrics.py::test_acted_after_reminder_needs_an_accepted_request_for_the_same_product',
+                         'tests/evaluation/test_errand_metrics.py::test_a_completion_without_checkable_evidence_is_counted',
+                         'tests/evaluation/test_errand_metrics.py::test_conclusion_memories_count_routine_and_errand_overlap',
+                         'tests/evaluation/test_errand_metrics.py::test_no_errand_or_no_conclusion_memory_gives_null',
+                         'tests/integration/test_dayrun_complete_days.py::test_complete_two_person_day_uses_real_tools_memory_and_restoration',
+                         'tests/footprints/test_goal_export.py::test_export_command_uses_authenticated_cutoff_and_manifest_code',
+                         'tests/footprints/test_quality.py::test_report_sections_are_the_documented_grouping_without_a_language_count',
+                         'tests/footprints/test_errand_export.py::test_an_exported_run_reports_errands_and_recertifies_value_for_value']},
+ '作息锚点': {'stage': '3',
+          'tests': ['tests/profile/test_extractor.py::test_stated_work_anchors_are_extracted_into_the_card',
+                    'tests/profile/test_extractor.py::test_unmentioned_work_anchors_stay_null_without_toml_defaults',
+                    'tests/profile/test_extractor.py::test_wavering_leave_work_does_not_change_the_five_anchors',
+                    'tests/profile/test_extractor.py::test_out_of_order_sample_is_admitted_without_a_parse_retry',
+                    'tests/profile/test_extractor.py::test_out_of_order_consensus_demotes_leave_work_then_arrive_home_and_still_compiles',
+                    'tests/profile/test_extractor.py::test_samples_out_of_order_on_their_own_but_legal_in_consensus_are_not_demoted',
+                    'tests/profile/test_extractor.py::test_malformed_or_missing_work_anchors_take_the_parse_retry',
+                    'tests/profile/test_extractor.py::test_null_work_anchors_keep_the_after_midnight_bedtime_normalised',
+                    'tests/profile/test_extractor.py::test_a_work_anchor_past_midnight_is_demoted_even_before_a_later_bedtime',
+                    'tests/profile/test_compile.py::test_demotion_notes_follow_the_agreement_warning_and_stand_alone_without_it',
+                    'tests/profile/test_models.py::test_work_anchors_are_required_nullable_and_outside_the_five_anchor_order',
+                    'tests/profile/test_models.py::test_work_anchor_order_constraints_are_enforced',
+                    'tests/profile/test_models.py::test_settle_work_anchors_demotes_in_the_fixed_order_with_one_text_each',
+                    'tests/integration/test_input_warnings.py::test_a_demotion_note_is_frozen_as_a_compiler_warning_that_does_not_blame_agreement',
+                    'tests/integration/test_input_warnings.py::test_extracted_work_anchors_reach_the_real_request_persona_layer',
+                    'tests/profile/test_textgen.py::test_non_null_work_anchors_each_append_a_clause_and_count_towards_the_budget',
+                    'tests/profile/test_textgen.py::test_render_card_is_byte_identical_to_the_pre_persona_layer_renderer',
+                    'tests/life/test_persona_layer.py::test_rhythm_lists_the_work_anchors_in_contract_order_and_null_when_absent',
+                    'tests/life/test_persona_layer.py::test_structured_card_without_work_anchor_keys_is_rejected_on_restore',
+                    'tests/life/test_persona_layer.py::test_a_declared_work_schedule_is_not_rendered_in_the_persona_layer',
+                    'tests/integration/test_input_warnings.py::test_scenario_declared_work_windows_reach_the_card_the_persona_layer_and_the_plan_input',
+                    'tests/integration/test_input_warnings.py::test_card_only_work_anchors_never_enter_the_plan_input',
+                    'tests/integration/test_input_warnings.py::test_a_conflicting_scenario_work_window_keeps_the_null_card_slot_and_is_frozen_as_a_conflict',
+                    'tests/profile/test_injection.py::test_a_null_card_slot_takes_the_scenario_work_window_and_is_reported_as_overridden',
+                    'tests/profile/test_injection.py::test_a_scenario_window_violating_the_work_anchor_order_keeps_the_card_value_as_a_conflict',
+                    'tests/profile/test_injection.py::test_work_windows_declared_together_land_together_and_the_result_is_a_fixed_point',
+                    'tests/profile/test_injection.py::test_an_unrepresentable_work_window_is_a_conflict_on_a_null_slot',
+                    'tests/life/test_scenario.py::test_work_window_bounds_and_order_are_rejected']},
+ '工作安排加载': {'stage': '3',
+            'tests': ['tests/life/test_scenario.py::test_structure_eight_rejects_old_scenario_version[4]',
+                      'tests/life/test_load_checks.py::test_work_schedule_workplace_must_be_a_selected_location',
+                      'tests/life/test_load_checks.py::test_real_loader_rejects_malformed_work_shift_and_break',
+                      'tests/life/test_scenario.py::test_work_schedule_shape_errors_are_rejected',
+                      'tests/life/test_load_checks.py::test_work_schedule_must_agree_with_the_calendar_inside_the_window',
+                      'tests/life/test_load_checks.py::test_overtime_dates_and_dates_outside_the_window_are_not_checked',
+                      'tests/life/test_load_checks.py::test_a_null_work_schedule_is_not_cross_checked_and_others_still_are',
+                      'tests/life/test_scenario.py::test_structure_eight_rejects_old_scenario_version']},
+ '上班安排呈现': {'stage': '3',
+            'tests': ['tests/life/test_work_schedule.py::test_duty_follows_the_clock_through_a_working_day',
+                      'tests/life/test_work_schedule.py::test_duty_stays_on_duty_after_topic_completion',
+                      'tests/life/test_work_schedule.py::test_revising_the_day_plan_does_not_change_duty',
+                      'tests/life/test_work_schedule.py::test_rest_days_come_from_weekly_null_and_exception_null_and_an_exception_shift_overrides_weekly',
+                      'tests/life/test_work_schedule.py::test_people_without_a_schedule_have_no_duty_while_others_keep_theirs',
+                      'tests/life/test_work_schedule.py::test_environment_layer_is_byte_identical_after_checkpoint_restore',
+                      'tests/life/test_work_schedule.py::test_leaving_the_workplace_on_duty_is_listed_and_accepted_without_new_event_kinds',
+                      'tests/integration/test_same_second_continuation.py::test_duty_is_constant_within_a_same_second_chain_and_never_enters_changes',
+                      'tests/life/test_prompt_layers.py::test_duty_enumerations_are_the_work_schedule_constants']},
+ '计划与义务': {'stage': '3',
+           'tests': ['tests/integration/test_seven_layer_request.py::test_rules_1_and_14_state_the_duty_arrangement_verbatim',
+                     'tests/life/test_day_planning.py::test_plan_template_first_line_and_rule_eight_are_the_contract_text',
+                     'tests/life/test_day_planning.py::test_plan_input_duty_is_for_the_new_day_at_the_midnight_boundary',
+                     'tests/life/test_day_planning.py::test_plan_input_carries_the_plan_dates_duty_arrangement_without_status']},
+ '工作合同边界': {'stage': '3',
+            'tests': ['tests/life/test_work_schedule.py::test_work_can_start_before_the_shift_and_continue_after_it']},
+ '工作负荷与作息偏离': {'stage': '3',
+               'tests': ['tests/evaluation/test_workload_metrics.py::test_a_real_run_leaving_on_duty_is_recomputed_as_early_leave',
+                         'tests/evaluation/test_workload_metrics.py::test_workload_fields_follow_their_definitions_on_a_hand_built_day',
+                         'tests/evaluation/test_workload_metrics.py::test_declared_breaks_are_not_absence_and_rest_days_are_left_out',
+                         'tests/evaluation/test_workload_metrics.py::test_routine_deviation_reports_three_items_with_evidence_tolerance_and_sleep_flags',
+                         'tests/evaluation/test_workload_metrics.py::test_people_without_a_schedule_have_null_leave_items_and_still_report_arrival_home',
+                         'tests/evaluation/test_workload_metrics.py::test_missing_inputs_are_null_with_a_note',
+                         'tests/evaluation/test_workload_metrics.py::test_routine_deviation_uses_none_of_the_removed_plan_deviation_names',
+                         'tests/evaluation/test_workload_metrics.py::test_workday_inputs_take_shifts_home_windows_and_interval_from_the_scenario_and_cards',
+                         'tests/evaluation/test_workload_metrics.py::test_reports_are_byte_reproducible',
+                         'tests/life/test_workload_report.py::test_workday_command_prints_the_four_keys_for_a_real_run',
+                         'tests/life/test_workload_report.py::test_workday_command_rejects_a_scenario_that_is_not_the_runs_scenario',
+                         'tests/life/test_workload_report.py::test_workday_command_reports_null_windows_without_a_workspace_card']},
+ '查询请求': {'stage': '4',
+          'tests': ['tests/life/test_world_query.py::test_every_query_field_is_required',
+                    'tests/life/test_world_query.py::test_empty_filter_reports_each_position_and_keeps_other_type_errors',
+                    'tests/life/test_world_query.py::test_filter_errors_are_aggregated_and_never_hidden_by_offset_or_type_errors',
+                    'tests/integration/test_tool_description_references.py::test_query_world_purpose_is_the_contract_text_and_moves_only_the_tool_fingerprint',
+                    'tests/life/test_world_query_filters.py::test_shopping_app_filters_the_real_goods_target_without_store_expansion',
+                    'tests/life/test_world_query_filters.py::test_query_remains_frozen_after_the_source_world_and_catalog_order_change']},
+ '应用筛选': {'stage': '4',
+          'tests': ('tests/life/test_world_query_filters.py::test_shopping_app_filters_the_real_goods_target_without_store_expansion',
+                    'tests/life/test_world_query_filters.py::test_query_remains_frozen_after_the_source_world_and_catalog_order_change',
+                    'tests/life/test_name_resolution.py::test_registered_action_name_is_exact_and_app_is_not_an_activity_target',
+                    'tests/life/test_name_resolution.py::test_location_home_and_current_ways_are_normalized_without_app_guess',
+                    'tests/life/test_named_purchase.py::test_named_purchase_rejects_unknown_goods_and_unbound_apps_atomically',
+                    'tests/life/test_world_query.py::test_unknown_app_and_store_names_have_the_exact_new_error_contract',
+                    'tests/life/test_world_query_filters.py::test_action_app_and_category_filters_use_real_action_names_and_labels',
+                    'tests/life/test_world_query.py::test_every_query_field_is_required',
+                    'tests/life/test_world_query_filters.py::test_available_only_is_specific_to_the_selected_app_and_way')},
+ '可执行筛选': {'stage': '4',
+           'tests': ['tests/life/test_world_query_filters.py::test_shopping_app_filters_the_real_goods_target_without_store_expansion',
+                     'tests/life/test_world_query_filters.py::test_query_remains_frozen_after_the_source_world_and_catalog_order_change',
+                     'tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets',
+                     'tests/life/test_world_query_filters.py::test_available_only_is_specific_to_the_selected_app_and_way']},
+ '分页与返回': {'stage': '4',
+           'tests': ['tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets',
+                     'tests/life/test_food_presentation.py::test_real_food_candidates_page_without_gaps_using_the_actual_order_key',
+                     'tests/life/test_world_query_filters.py::test_shopping_app_filters_the_real_goods_target_without_store_expansion',
+                     'tests/life/test_world_query_filters.py::test_query_remains_frozen_after_the_source_world_and_catalog_order_change',
+                     'tests/life/test_world_query_filters.py::test_available_only_is_specific_to_the_selected_app_and_way',
+                     'tests/life/test_tool_interaction_runtime.py::test_compact_layer_preserves_false_zero_current_action_and_control_tools',
+                     'tests/life/test_world_query_filters.py::test_full_query_contains_goods_beyond_the_current_presentation_window']},
+ '查询只读': {'stage': '4',
+          'tests': ['tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets',
+                    'tests/life/test_tool_protocol.py::test_world_query_mixed_batches_are_atomic',
+                    'tests/life/test_tool_protocol.py::test_final_turn_and_truncation_retry_disable_every_query',
+                    'tests/life/test_tool_protocol.py::test_query_dispatch_has_no_world_side_effect',
+                    'tests/life/test_tool_interaction_runtime.py::test_read_queries_keep_actual_model_exchange_without_progress_events',
+                    'tests/life/test_query_cost_report.py::test_query_cost_on_a_real_engine_exchange',
+                    'tests/life/test_query_cost_report.py::test_query_cost_counts_failures_empty_filtered_pages_and_reflection_retries',
+                    'tests/life/test_query_cost_report.py::test_query_cost_of_a_run_without_queries_and_the_printed_keys',
+                    'tests/integration/test_output_truncation.py::test_a_truncated_turn_is_dropped_and_retried_once_without_thinking',
+                    'tests/life/test_world_query_filters.py::test_query_remains_frozen_after_the_source_world_and_catalog_order_change']},
+ '工程门禁': {'stage': '5',
+          'tests': ['tests/test_style_gate.py::test_style_gate_admits_no_new_violations',
+                    'tests/test_coverage_gate.py::test_branch_threshold_boundary',
+                    'tests/test_coverage_gate.py::test_uncovered_public_interface_detection',
+                    'tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve']},
+ '复跑指标（只报告）': {'stage': '6', 'tests': []},
+ '文档一致性': {'stage': '7',
+           'tests': ['tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve',
+                     'tests/test_design_doc_build.py::test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current',
+                     'tests/test_dayrun_fidelity_acceptance.py::test_anchored_links_in_docs_point_to_existing_headings',
+                     'tests/test_dayrun_fidelity_acceptance.py::test_docs_carry_no_pending_markers_of_this_feature']}}
 
 #: 只报告的台账行：规格写明不作门禁；行本身的真实运行不在测试中执行。
 REPORT_ONLY: dict[str, str] = {
@@ -725,19 +941,17 @@ _SETTLED_TEXT_SOURCE = "src/worldmock/life/settled_text.py"
 #: 事件人物字段归属时给予与送她的那单算到付款的李凡、她买给李凡的那单算到她自己；也读逐项结果时并行开始的同一订单算两次；
 #: 同一提交结算两次时决策轮那次累计 2 份、时钟推进那次累计到 3 份办成；不看 reused 时重放的到店购买再累计一份；浓缩句
 #: 为空时办成记录没有 settled 句。
-_REMOTE_ORDER_KILLERS = (_COMPLETION + "test_a_remote_order_completes_only_in_the_commit_that_delivers_it",)
-_RESULT_ONLY_KILLERS = (_COMPLETION + "test_quantity_two_with_one_obtained_stays_open_and_shows_the_progress",)
-_START_KILLERS = (_COMPLETION + "test_eating_counts_the_actual_interval_quantity",)
-_CLAIM_KILLERS = (_COMPLETION + "test_a_progressed_goal_and_a_claimed_completion_leave_the_errand_open",)
-_HELD_KILLERS = (_COMPLETION + "test_what_was_held_before_noting_does_not_count",)
-_NOTING_ORDER_KILLERS = (
-    _IDEMPOTENCE + "test_evidence_ordered_before_the_noting_event_in_the_same_commit_does_not_count",)
-_INTERVAL_KILLERS = (_COMPLETION + "test_a_progress_interval_begun_before_noting_does_not_count",)
-_RECIPIENT_KILLERS = (
-    _COMPLETION + "test_bought_for_me_and_handed_to_me_count_but_bought_by_me_for_another_does_not",)
-_TOP_LEVEL_KILLERS = (_IDEMPOTENCE + "test_a_parallel_start_counts_each_order_once",)
-_ONCE_PER_COMMIT_KILLERS = (_IDEMPOTENCE + "test_each_commit_settles_once",)
-_REPLAY_KILLERS = (_IDEMPOTENCE + "test_a_replayed_action_adds_nothing",)
+_REMOTE_ORDER_KILLERS = ('tests/life/test_errand_completion.py::test_a_remote_order_completes_only_in_the_commit_that_receives_it',)
+_RESULT_ONLY_KILLERS = ('tests/life/test_errand_completion.py::test_quantity_two_with_one_received_stays_open_and_a_second_receipt_completes',)
+_START_KILLERS = ('tests/life/test_errand_completion.py::test_quantity_two_with_one_received_stays_open_and_a_second_receipt_completes',)
+_CLAIM_KILLERS = ('tests/life/test_errand_completion.py::test_goals_and_claimed_completion_leave_the_errand_open',)
+_HELD_KILLERS = ('tests/life/test_errand_completion.py::test_a_receipt_before_noting_does_not_count_for_a_new_errand',)
+_NOTING_ORDER_KILLERS = ('tests/life/test_errand_settlement_idempotence.py::test_same_commit_registration_uses_event_order_instead_of_equal_clock',)
+_INTERVAL_KILLERS = ('tests/life/test_food_errand_evidence.py::test_receipt_before_registration_in_same_commit_does_not_count_but_after_it_does',)
+_RECIPIENT_KILLERS = ('tests/life/test_errand_completion.py::test_another_payer_receipt_credits_only_the_actual_recipient',)
+_TOP_LEVEL_KILLERS = ('tests/life/test_errand_settlement_idempotence.py::test_parallel_order_result_is_not_an_extra_copy_of_receipt_evidence',)
+_ONCE_PER_COMMIT_KILLERS = ('tests/life/test_errand_settlement_idempotence.py::test_purchase_commit_and_delivery_commit_each_credit_their_own_receipt_once',)
+_REPLAY_KILLERS = ('tests/life/test_errand_settlement_idempotence.py::test_a_replayed_action_adds_neither_payment_receipt_nor_errand_progress',)
 _FOLDED_LINE_KILLERS = (
     "tests/life/test_progress_events.py::test_an_errand_completed_in_the_session_is_one_record_and_folds_to_one_line",)
 _SCHEDULE_MODULE = "worldmock.life.schedule"
@@ -794,10 +1008,7 @@ _VISIBLE_KILLERS = (
     "tests/life/test_errand_reminder.py::"
     "test_an_awake_person_is_reminded_once_exactly_on_time_and_the_errand_is_unchanged",
 )
-_IDENTITY_KILLERS = (
-    "tests/life/test_errand_completion.py::"
-    "test_completion_and_progress_events_cite_their_evidence_and_carry_no_decision_identity",
-)
+_IDENTITY_KILLERS = ('tests/life/test_errand_completion.py::test_receipt_completion_tolerance_has_both_sides',)
 _PROJECTION_KILLERS = (_CONTROL_ITEMS + "test_current_shape_items_carry_views_as_subject_memories",)
 _ERRANDS_PROJECTION_KILLERS = (_CONTROL_ITEMS + "test_current_shape_items_carry_views_as_subject_memories",)
 _DENOMINATOR_KILLERS = (_ERRAND_METRICS + "test_the_denominator_is_registered_errands_not_goals",)
@@ -866,986 +1077,682 @@ _TOOL_GROUPS_MODULE = "worldmock.life.tool_groups"
 _TOOL_GROUPS_SOURCE = "src/worldmock/life/tool_groups.py"
 #: 紧凑投影按真假值丢值的杀手：冻结页夹具上读出 false 与零价的一例，真实引擎上读出门店商品到店 false 的一例。原文与
 #: 工具交互台账的 compact_drops_false 相同，两份台账各登记一次，回执目录分开。
-_COMPACT_KILLERS = (
-    _WORLD_QUERY + "test_world_query_paginates_complete_frozen_set_and_preserves_false_and_zero",
-    _WORLD_QUERY + "test_world_query_matches_are_compact_targets_without_candidates",
-)
+_COMPACT_KILLERS = ('tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets',)
 _WORLD_QUERY_MODULE = "worldmock.life.world_query"
 _WORLD_QUERY_SOURCE = "src/worldmock/life/world_query.py"
 #: 环境分支写世界的杀手保留真实 LifeEnv 节点，完整引擎路径当前没有在食品纯验证中执行。
-_ENV_QUERY_KILLERS = (_WORLD_QUERY + "test_environment_read_query_keeps_world_clock_round_and_store_unchanged",)
+_ENV_QUERY_KILLERS = ('tests/life/test_world_query.py::test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets',)
 #: 食品查询的纯杀手逐个写在对应变异条目，分别验证实际 app 来源、必填键、方式、可执行性和分页。
 
 #: 源码变异清单；每个阶段的提交在这里追加自己的条目（未实现阶段的原文还不存在，无法预先登记）。
-MUTATIONS: tuple[SourceMutation, ...] = (
-    SourceMutation(
-        "decision_failure_swallowed_after_log",
-        'custom.agents.life_agent::LifeAgent.step',
-        (
-            '            logging.exception("LifeAgent decision failed for agent %s", self.id)\n'
-            '            raise\n'
-        ),
-        (
-            '            logging.exception("LifeAgent decision failed for agent %s", self.id)\n'
-            '            return ""\n'
-        ),
-        (_PROTOCOL + "test_decision_failure_is_logged_once_and_reraised_unchanged",
-         _FAILURE_STAGES + "test_model_service_failure_on_the_real_engine_is_logged_once_and_reraised_unchanged"),
-    ),
-    SourceMutation(
-        "tool_dispatch_failure_loses_stage_code",
-        'custom.agents.life_agent::LifeAgent._execute_react_tool',
-        (
-            '            feedback = _stage_feedback("TOOL_SERVICE_FAILED", ("tool_calls", index))\n'
-            '            raise RuntimeError(feedback) from error\n'
-        ),
-        (
-            '            feedback = _stage_feedback("TOOL_SERVICE_FAILED", ("tool_calls", index))\n'
-            '            raise\n'
-        ),
-        (_FAILURE_STAGES + "test_tool_service_failure_points_to_real_call_without_claiming_execution",
-         _FAILURE_STAGES + "test_tool_service_failure_on_the_real_engine_is_logged_and_raised_with_its_stage"),
-    ),
-    SourceMutation(
-        "plan_duplicates_report_only_a_generic_error",
-        'worldmock.life.models::_validate_plan_goals',
-        "        raise ValidationError.from_exception_data(model_name, errors)\n",
-        '        raise ValueError("day goals must contain at most eight unique intents")\n',
-        _PLAN_DUPLICATE_KILLERS,
-    ),
-    SourceMutation(
-        "plan_duplicates_locate_only_later_entries",
-        'worldmock.life.models::_validate_plan_goals.repeated',
-        "if len(indexes) > 1 for index in indexes)\n",
-        "if len(indexes) > 1 for index in indexes[1:])\n",
-        _PLAN_DUPLICATE_KILLERS,
-    ),
-    SourceMutation(
-        "plan_over_capacity_returns_before_duplicates",
-        'worldmock.life.models::_validate_plan_goals',
-        (
-            '        errors.append({"type": "value_error", "loc": (), "input": '
-            '[goal.model_dump(mode="json") for goal in goals],\n'
-            '                       "ctx": {"error": ValueError("day goals require at most eight entries")}})\n'
-        ),
-        '        raise ValueError("day goals require at most eight entries")\n',
-        _PLAN_CAPACITY_KILLERS,
-    ),
-    SourceMutation(
-        "assembly_proxy_reverts_to_the_as2_class",
-        'worldmock.runtime::_build_society.env',
-        '        env = LifeEnvProxy(actor, run_dir=prepared.run_dir, env_module_types=["LifeEnv"])\n',
-        (
-            '        from agentsociety2.env.env_router_proxy import EnvRouterProxy\n\n'
-            '        env = EnvRouterProxy(actor, run_dir=prepared.run_dir, env_module_types=["LifeEnv"])\n'
-        ),
-        _ASSEMBLY_KILLERS,
-    ),
-    SourceMutation(
-        "assembly_service_proxy_reverts_to_the_as2_class",
-        'worldmock.runtime::_build_society.service',
-        "        service = build_service_proxy(env, run_dir=prepared.run_dir, trace=False, replay=False)\n",
-        (
-            "        from agentsociety2.env.env_router_proxy import EnvRouterProxy\n\n"
-            "        service = build_service_proxy(\n"
-            '            EnvRouterProxy(actor, run_dir=prepared.run_dir, env_module_types=["LifeEnv"]),\n'
-            "            run_dir=prepared.run_dir, trace=False, replay=False)\n"
-        ),
-        _ASSEMBLY_KILLERS,
-    ),
-    SourceMutation(
-        "assembly_actor_reverts_to_the_as2_class",
-        'worldmock.runtime::_build_society.actor',
-        "    actor = life_env_actor_class().remote(spec)\n",
-        (
-            "    from agentsociety2.env.direct_env_actor import get_direct_env_actor_class\n\n"
-            "    actor = get_direct_env_actor_class().remote(spec)\n"
-        ),
-        _ASSEMBLY_KILLERS,
-    ),
-    SourceMutation(
-        "proxy_returns_without_awaiting_the_remote_result",
-        'worldmock.life.read_query_runtime::LifeEnvProxy.read_query',
-        "        return await self._actor.read_query.remote(context, tool, request)\n",
-        "        return self._actor.read_query.remote(context, tool, request)\n",
-        _PROXY_KILLERS,
-    ),
-    SourceMutation(
-        "actor_answers_without_the_environment",
-        'worldmock.life.read_query_runtime::LifeEnvActor.read_query',
-        "        return await self._router._environment().read_query(context, tool, request)\n",
-        "        return {}\n",
-        _ACTOR_KILLERS,
-    ),
-    SourceMutation(
-        "actor_class_allows_concurrent_calls",
-        'worldmock.life.read_query_runtime::life_env_actor_class',
-        "    return ray.remote(max_concurrency=1)(LifeEnvActor)\n",
-        "    return ray.remote(max_concurrency=2)(LifeEnvActor)\n",
-        _CONCURRENCY_KILLERS,
-    ),
-    SourceMutation(
-        "reflection_accepts_free_text",
-        'worldmock.agents.life_reflection::reflection_insights.arguments',
-        "    arguments = _tool_arguments(response)\n",
-        (
-            "    try:\n"
-            "        arguments = _tool_arguments(response)\n"
-            "    except ReflectionOutputError:\n"
-            '        arguments = json.dumps({"insights": json.loads(response.choices[0].message.content)})\n'
-        ),
-        _REFLECTION_CONTRACT_KILLERS,
-    ),
-    SourceMutation(
-        "reflection_accepts_another_tool",
-        'worldmock.model_feedback::tool_arguments',
-        '        if _field(function, "name") != tool:\n',
-        "        if False:\n",
-        _REFLECTION_CONTRACT_KILLERS,
-    ),
-    SourceMutation(
-        "reflection_skips_unknown_reference_check",
-        'worldmock.agents.life_reflection::reflection_insights',
-        "    if problems:\n",
-        "    if False:\n",
-        _REFLECTION_CONTRACT_KILLERS,
-    ),
-    SourceMutation(
-        "reflection_count_bound_widened",
-        'worldmock.agents.life_reflection::ReflectionRequest.require_insights',
-        "        if not 1 <= len(insights) <= MEMORY_REFLECTION_MAX_INSIGHTS:\n",
-        "        if not 1 <= len(insights) <= MEMORY_REFLECTION_MAX_INSIGHTS + 1:\n",
-        _REFLECTION_CONTRACT_KILLERS,
-    ),
-    SourceMutation(
-        "reflection_text_validation_skipped",
-        'worldmock.agents.life_reflection::ReflectionInsight.validate_insight',
-        "        return validate_memory_text(insight)\n",
-        "        return insight\n",
-        _REFLECTION_CONTRACT_KILLERS,
-    ),
-    SourceMutation(
-        "reflection_retry_bound_zero",
-        'worldmock.agents.life_reflection::REFLECTION_VALIDATION_RETRIES',
-        "REFLECTION_VALIDATION_RETRIES = 3\n",
-        "REFLECTION_VALIDATION_RETRIES = 0\n",
-        _REFLECTION_CONTRACT_KILLERS,
-    ),
-    SourceMutation(
-        "reflection_retries_without_a_bound",
-        'worldmock.agents.life_memory::WorldMockMemoryRuntime._validated_reflection',
-        "                if attempt > REFLECTION_VALIDATION_RETRIES:\n",
-        "                if False:\n",
-        _REFLECTION_RETRY_KILLERS,
-    ),
-    SourceMutation(
-        "reflection_failure_returns_an_empty_list",
-        'worldmock.agents.life_memory::WorldMockMemoryRuntime._validated_reflection',
-        (
-            "                    raise ProtocolError(\n"
-            '                        f"memory reflection output remained invalid after three retries: {error}") '
-            "from error\n"
-        ),
-        "                    return []\n",
-        _REFLECTION_FAULT_KILLERS,
-    ),
-    SourceMutation(
-        "reflection_correction_accumulates_messages",
-        'worldmock.agents.life_memory::WorldMockMemoryRuntime._validated_reflection',
-        "                messages, attempt = reflection_correction(original, response, error), attempt + 1\n",
-        "                messages, attempt = reflection_correction(messages, response, error), attempt + 1\n",
-        _REFLECTION_RETRY_KILLERS,
-    ),
-    SourceMutation(
-        "version_8_world_state_accepted",
-        'worldmock.life.models::WorldState.schema_version',
-        "    schema_version: Literal[WORLD_SCHEMA_VERSION]\n",
-        "    schema_version: Literal[WORLD_SCHEMA_VERSION, 8]\n",
-        _VERSION_8_STATE_KILLERS,
-    ),
-    SourceMutation(
-        "todo_layer_omits_errands",
-        'worldmock.life.todo_layer::todo_layer',
-        '            "errands": errands.todo_rows(agent, names, context.scenario.timezone),\n',
-        '            "errands": [],\n',
-        _TODO_ERRANDS_KILLERS,
-    ),
-    SourceMutation(
-        "errand_changes_applied_before_rejection",
-        'worldmock.life.session_actions::ActionHandlers._conclude_activity.changes',
-        '        changes = self._errand_changes(pending, "conclude_activity", request)\n',
-        (
-            '        changes = self._errand_changes(pending, "conclude_activity", request)\n'
-            '        state.agents[pending.agent_id] = self._apply_errands(state, pending, changes)[0].agents[\n'
-            '            pending.agent_id]\n'
-        ),
-        _REJECTED_ERRANDS_KILLERS,
-    ),
-    SourceMutation(
-        "request_can_mark_errand_completed",
-        'worldmock.life.models::ErrandChange.change',
-        '    change: Literal["新增", "更新", "取消"] = Field(description="这条变更做什么，从列出的三种里选一种。")\n',
-        '    change: Literal["新增", "更新", "取消", "完成"] = Field(description="这条变更做什么，从列出的三种里选一种。")\n',
-        _COMPLETED_CHANGE_KILLERS,
-    ),
-    SourceMutation(
-        "items_without_errands_accepted",
-        'worldmock.life.control_items::control_items',
-        '        _list(_field(body, "errands", tool), tool)\n',
-        "",
-        _ERRANDS_KEY_KILLERS,
-    ),
-    SourceMutation(
-        "errand_name_takes_first_candidate",
-        'worldmock.life.errands::_open_name',
-        "    return _named_rows(written, rows)\n",
-        (
-            "    found, matches = _named_rows(written, rows)\n"
-            '    fallback = [*matches, *near_names(written, [row["name"] for row in rows])]\n'
-            "    if len(found) != 1 and fallback:\n"
-            '        found = [row for row in rows if row["name"] == fallback[0]][:1]\n'
-            "    return found, matches\n"
-        ),
-        _FIRST_CANDIDATE_KILLERS,
-    ),
-    SourceMutation(
-        "duplicates_judged_before_cancels",
-        'worldmock.life.errands::_plan.remaining',
-        '    remaining = [row for row in rows if row["errand_id"] not in cancelled]\n',
-        "    remaining = list(rows)\n",
-        _CANCELS_FIRST_KILLERS,
-    ),
-    SourceMutation(
-        "errand_named_twice_accepted",
-        'worldmock.life.errands::_plan_targets',
-        '        elif found[0]["errand_id"] in named:\n',
-        "        elif False:\n",
-        _DOUBLED_KILLERS,
-    ),
-    SourceMutation(
-        "added_twins_with_one_product_accepted",
-        'worldmock.life.errands::_added_conflicts.doubled',
-        "    doubled = [other for other in earlier if other in plan.products\n",
-        "    doubled = [other for other in () if other in plan.products\n",
-        _DOUBLED_KILLERS,
-    ),
-    SourceMutation(
-        "pending_order_counts_as_obtained",
-        'worldmock.life.errands::_handed.handed',
-        '    handed = [order for order in orders if order["status"] == "delivered"]\n',
-        '    handed = [order for order in orders if order["status"] in {"delivered", "pending"}]\n',
-        _REMOTE_ORDER_KILLERS,
-    ),
-    SourceMutation(
-        "accepted_event_counts_as_evidence",
-        'worldmock.life.errands::evidence_rows',
-        '    if event_type == "action_result":\n',
-        '    if event_type in {"action_result", "action_accepted"}:\n',
-        _RESULT_ONLY_KILLERS,
-    ),
-    SourceMutation(
-        "activity_start_counts_as_eaten",
-        'worldmock.life.errands::evidence_rows',
-        '        return [] if data.get("reused") else _handed(data.get("data") or {})\n',
-        (
-            '        payload = data.get("data") or {}\n'
-            '        started = [payload["activity"]] if "activity" in payload else payload.get("activities", [])\n'
-            '        return [] if data.get("reused") else [*_handed(payload), *(\n'
-            '            Evidence(agent_id, _EAT, item["product_id"], float(item["quantity"]), None)\n'
-            "            for activity in started\n"
-            '            if activity.get("data", {}).get("request", {}).get("use_mode") == "eat"\n'
-            '            for item in activity["data"]["request"]["items"])]\n'
-        ),
-        _START_KILLERS,
-    ),
-    SourceMutation(
-        "progressed_goal_counts_as_completion",
-        'worldmock.life.errands::settle',
-        (
-            "    for index, draft in enumerate(drafts):\n"
-            "        for row in evidence_rows(draft.event_type, draft.agent_id, draft.data):\n"
-        ),
-        (
-            "    for index, draft in enumerate(drafts):\n"
-            "        plan = state.agents[draft.agent_id].day_plan if draft.agent_id in state.agents else None\n"
-            "        claimed = [Evidence(draft.agent_id, errand.outcome, errand.product_id, float(errand.quantity),\n"
-            "                            None)\n"
-            "                   for errand in open_sets.get(draft.agent_id, {}).values()\n"
-            '                   if draft.event_type == "activity_progress" and plan is not None\n'
-            "                   and any(goal.progress_activity_id == draft.activity_id for goal in plan.goals)]\n"
-            "        for row in [*evidence_rows(draft.event_type, draft.agent_id, draft.data), *claimed]:\n"
-        ),
-        _CLAIM_KILLERS,
-    ),
-    SourceMutation(
-        "self_report_counts_as_completion",
-        'worldmock.life.errands::settle',
-        "    if not settled:\n        return state, []\n",
-        (
-            "    for draft in drafts:\n"
-            '        named = (draft.data.get("data") or {}).get("activity_ids", []) '
-            'if draft.event_type == "action_result" else []\n'
-            "        notes = [state.activities[key].progress_note for key in named if key in state.activities]\n"
-            "        for errand in [item for item in open_sets.get(draft.agent_id, {}).values()\n"
-            "                       if any(item.name in note for note in notes)]:\n"
-            "            head = _Head(draft.agent_id, state.current_time, (draft.event_id,))\n"
-            "            settled.append(_credit(open_sets[draft.agent_id], errand, Evidence(\n"
-            "                draft.agent_id, errand.outcome, errand.product_id, float(errand.quantity), None), head))\n"
-            "    if not settled:\n        return state, []\n"
-        ),
-        _CLAIM_KILLERS,
-    ),
-    SourceMutation(
-        "holdings_at_noting_count_as_obtained",
-        'worldmock.life.errands::apply_changes',
-        '    return agent.model_copy(update={"errands": errands}), receipt\n',
-        (
-            "    held = {product: sum(place.get(product, 0.0) for place in agent.inventory.values())\n"
-            "            for product in plan.products.values()}\n"
-            '    errands = {key: errand.model_copy(update={"progress": held[errand.product_id]})\n'
-            "               if key not in agent.errands and held.get(errand.product_id) else errand\n"
-            "               for key, errand in errands.items()}\n"
-            '    return agent.model_copy(update={"errands": errands}), receipt\n'
-        ),
-        _HELD_KILLERS,
-    ),
-    SourceMutation(
-        "evidence_before_noting_event_counts",
-        'worldmock.life.errands::settle',
-        "            if errand is None or noted.get(errand.errand_id, -1) > index:\n",
-        "            if errand is None:\n",
-        _NOTING_ORDER_KILLERS,
-    ),
-    SourceMutation(
-        "interval_begun_before_noting_counts",
-        'worldmock.life.errands::settle',
-        "            if row.interval_start is not None and row.interval_start < errand.registered_at:\n",
-        "            if False:\n",
-        _INTERVAL_KILLERS,
-    ),
-    SourceMutation(
-        "gift_is_not_obtained",
-        'worldmock.life.errands::_handed',
-        '    handed += payload.get("given", [])\n',
-        "",
-        _RECIPIENT_KILLERS,
-    ),
-    SourceMutation(
-        "ownership_follows_event_agent",
-        'worldmock.life.errands::evidence_rows',
-        (
-            '    if event_type == "action_result":\n'
-            '        return [] if data.get("reused") else _handed(data.get("data") or {})\n'
-            '    if event_type == "environment_event" and data.get("kind") == "delivery_arrival":\n'
-            "        return _arrived(data)\n"
-        ),
-        (
-            '    if event_type == "action_result":\n'
-            '        return [] if data.get("reused") else [\n'
-            '            row._replace(owner_id=agent_id) for row in _handed(data.get("data") or {})]\n'
-            '    if event_type == "environment_event" and data.get("kind") == "delivery_arrival":\n'
-            "        return [row._replace(owner_id=agent_id) for row in _arrived(data)]\n"
-        ),
-        _RECIPIENT_KILLERS,
-    ),
-    SourceMutation(
-        "nested_results_orders_counted",
-        'worldmock.life.errands::_handed.orders',
-        '    orders = payload.get("orders", [])\n',
-        (
-            '    orders = [*payload.get("orders", []),\n'
-            '              *(order for row in payload.get("activity_results", []) for order in row.get("orders", []))]\n'
-        ),
-        _TOP_LEVEL_KILLERS,
-    ),
-    SourceMutation(
-        "round_commit_settles_twice",
-        'worldmock.life.decision_coordinator::DecisionCoordinator.commit_decision_round',
-        '        (staged, settled) = errands.settle(staged, drafts)\n',
-        (
-            '        (staged, settled) = errands.settle(staged, drafts)\n        staged, again = errands.settle(staged, drafts)\n        settled = settled + again\n'
-        ),
-        _ONCE_PER_COMMIT_KILLERS,
-    ),
-    SourceMutation(
-        "advance_commit_settles_twice",
-        'worldmock.life.time_advance::TimeAdvanceCoordinator.advance',
-        '        (staged, credited) = errands.settle(staged, drafts)\n',
-        (
-            '        (staged, credited) = errands.settle(staged, drafts)\n        staged, again = errands.settle(staged, drafts)\n        credited = credited + again\n'
-        ),
-        _ONCE_PER_COMMIT_KILLERS,
-    ),
-    SourceMutation(
-        "replayed_result_counts",
-        'worldmock.life.errands::evidence_rows',
-        '        return [] if data.get("reused") else _handed(data.get("data") or {})\n',
-        '        return _handed(data.get("data") or {})\n',
-        _REPLAY_KILLERS,
-    ),
-    SourceMutation(
-        "condensation_drops_completion_line",
-        'worldmock.life.settled_text::record_lines',
-        "        return [f\"{_clock(context, record['occurred_at'])} 办成「{record['errand']}」\"]\n",
-        "        return []\n",
-        _FOLDED_LINE_KILLERS,
-    ),
-    SourceMutation(
-        "cancelled_errand_stays_armed",
-        'worldmock.life.errands::_apply_one',
-        '        errands.pop(plan.targets[index]["errand_id"])\n',
-        '        errands.get(plan.targets[index]["errand_id"])\n',
-        _CANCELLED_REMINDER_KILLERS,
-    ),
-    SourceMutation(
-        "reminder_completes_errand",
-        'worldmock.life.errands::deliver_reminders',
-        "        errands[errand.errand_id] = reminded\n",
-        "        errands.pop(errand.errand_id)\n",
-        _AWAKE_REMINDER_KILLERS,
-    ),
-    SourceMutation(
-        "errand_reminder_wakes_sleep",
-        'worldmock.life.schedule::SLEEP_ALLOWED_REASONS',
-        "     WakeReason.PLAN_REMINDER_DUE}\n",
-        "     WakeReason.PLAN_REMINDER_DUE, WakeReason.ERRAND_REMINDER_DUE}\n",
-        _SLEEPER_REMINDER_KILLERS,
-    ),
-    SourceMutation(
-        "open_errands_are_commitments",
-        'worldmock.life.rhythm::_has_commitments',
-        '    if (\n        plan is not None\n',
-        '    if agent.errands or (\n        plan is not None\n',
-        _COMMITMENT_KILLERS,
-    ),
-    SourceMutation(
-        "errand_wake_reason_missing_from_vocabulary",
-        'worldmock.footprints.models::WAKE_REASON_NAMES',
-        '    "progress_report_due", "no_active_activity", "plan_reminder_due", "errand_reminder_due",\n',
-        '    "progress_report_due", "no_active_activity", "plan_reminder_due",\n',
-        _AWAKE_REMINDER_KILLERS,
-    ),
-    SourceMutation(
-        "sleeper_reminder_time_is_a_boundary",
-        'worldmock.life.errands::boundary_times',
-        "    return [moment for agent_id, agent in state.agents.items() if not _asleep(state, agent_id)\n",
-        "    return [moment for agent_id, agent in state.agents.items()\n",
-        _SLEEPER_REMINDER_KILLERS,
-    ),
-    SourceMutation(
-        "reminder_recorded_without_delivery",
-        'worldmock.life.rhythm::_deliver_errand_reminders',
-        "        if rhythm_schedule.WakeReason.ERRAND_REMINDER_DUE.value in verdict.wake_reasons:\n",
-        "        if True:\n",
-        _SLEEPER_REMINDER_KILLERS,
-    ),
-    SourceMutation(
-        "simultaneous_reminders_write_one_event",
-        'worldmock.life.errands::deliver_reminders',
-        '    return state.model_copy(update={"agents": agents}), drafts\n',
-        '    return state.model_copy(update={"agents": agents}), drafts[:1]\n',
-        _TOGETHER_KILLERS,
-    ),
-    SourceMutation(
-        "midnight_clears_errands",
-        'worldmock.life.time_advance::TimeAdvanceCoordinator.advance',
-        (
-            "            staged = _put_agent(staged, staged.agents[agent_id].model_copy("
-            'update={"day_plan": None}, deep=True))\n'
-        ),
-        (
-            "            staged = _put_agent(staged, staged.agents[agent_id].model_copy(\n"
-            '                update={"day_plan": None, "errands": {}}, deep=True))\n'
-        ),
-        _OVERNIGHT_KILLERS,
-    ),
-    SourceMutation(
-        "plan_revision_drops_errands",
-        'worldmock.life.session_actions::ActionHandlers._revise_day_plan.changed_agent',
-        '        changed_agent = agent.model_copy(update={"day_plan": plan}, deep=True)\n',
-        '        changed_agent = agent.model_copy(update={"day_plan": plan, "errands": {}}, deep=True)\n',
-        _OVERNIGHT_KILLERS,
-    ),
-    SourceMutation(
-        "condensation_drops_todo_errands",
-        'worldmock.life.prompt_capacity::fit_request',
-        '            layers[index] = {**layers[index], "events": records}\n',
-        (
-            '            layers[index] = {**layers[index], "events": records}\n'
-            '            layers = [{**layer, "errands": []} if layer.get("layer") == "待办层" else layer\n'
-            "                      for layer in layers]\n"
-        ),
-        _CONDENSED_KILLERS,
-    ),
-    SourceMutation(
-        "memory_overflow_drops_todo_errands",
-        'worldmock.life.observe::ObservationBuilder._layer_data',
-        '            "todo_layer": todo_layer(context, self.context.store),\n',
-        (
-            '            "todo_layer": {**todo_layer(context, self.context.store), **(\n                {"errands": []} if len(str(memory.layer)) > memory_layer.MEMORY_WINDOW_CHARS // 2\n                else {})},\n'
-        ),
-        _OVERFLOW_KILLERS,
-    ),
-    SourceMutation(
-        "checkpoint_omits_errands",
-        'worldmock.life.models::AgentState.errands',
-        "    errands: dict[str, ErrandState] = Field(default_factory=dict)\n",
-        "    errands: dict[str, ErrandState] = Field(default_factory=dict, exclude=True)\n",
-        _CHECKPOINT_KILLERS,
-    ),
-    SourceMutation(
-        "progress_arguments_carry_errands",
-        'worldmock.life.progress_layer::_arguments',
-        "    return control_request(tool, request)\n",
-        '    return {**control_request(tool, request), "errands": request["errands"]}\n',
-        _SEPARATION_KILLERS,
-    ),
-    SourceMutation(
-        "self_notes_carry_errand_text",
-        'worldmock.life.memory_layer::_self_notes',
-        "            notes.extend((item.activity_name, text) for text in texts if text.strip())\n",
-        (
-            "            notes.extend((item.activity_name, text) for text in texts if text.strip())\n"
-            "            from worldmock.life.control_items import control_errands\n"
-            "            notes.extend((item.activity_name, change[key]) for change in control_errands(\n"
-            '                request.data["tool_name"], request.data["request"]) for key in ("name", "memo") if change[key])\n'
-        ),
-        _SEPARATION_KILLERS,
-    ),
-    SourceMutation(
-        "system_layer_copy_diverges",
-        'worldmock.agents.life_prompt::LIFE_SYSTEM_LAYER',
-        '        "到提醒时刻只提醒一次，不会叫醒睡着的你；其他需要延续的打算写进 pause_activity 或 conclude_activity 的 "\n',
-        '        "到提醒时刻只提醒一次，会叫醒睡着的你；其他需要延续的打算写进 pause_activity 或 conclude_activity 的 "\n',
-        _VERBATIM_KILLERS,
-    ),
-    SourceMutation(
-        "errand_agent_events_written_as_system",
-        'worldmock.life.errands::_draft',
-        '                      visibility="agent" if kind in AGENT_VISIBLE_KINDS else "system",\n',
-        '                      visibility="system",\n',
-        _VISIBLE_KILLERS,
-    ),
-    SourceMutation(
-        "settlement_event_inherits_evidence_identity",
-        'worldmock.life.errands::settle',
-        "            settled.append(_credit(open_sets[row.owner_id], errand, row, head))\n",
-        (
-            "            settled.append(_credit(open_sets[row.owner_id], errand, row, head).model_copy(\n"
-            '                update={"decision_id": draft.decision_id, "action_id": draft.action_id}))\n'
-        ),
-        _IDENTITY_KILLERS,
-    ),
-    SourceMutation(
-        "control_projection_carries_errands",
-        'worldmock.life.control_items::control_request',
-        '    return {"items": rows}\n',
-        '    return {"items": rows, "errands": list(control_errands(tool, request))}\n',
-        _ERRANDS_PROJECTION_KILLERS,
-    ),
-    SourceMutation(
-        "control_projection_trims_first_item_only",
-        'worldmock.life.control_items::control_request',
-        (
-            "    for item in control_items(tool, request):\n"
-            '        row: dict[str, Any] = {"activity_name": item.activity_name, "summary": item.summary}\n'
-        ),
-        (
-            "    for index, item in enumerate(control_items(tool, request)):\n"
-            '        row: dict[str, Any] = {"activity_name": item.activity_name, "summary": item.summary}\n'
-            "        if index:\n"
-            "            row[\"views\"] = list(item.views)\n"
-        ),
-        _PROJECTION_KILLERS,
-    ),
-    SourceMutation(
-        "errand_metrics_use_goal_denominator",
-        'worldmock.evaluation.errand_metrics::errand_metrics.registered',
-        "    registered = len(lives)\n",
-        (
-            '    registered = sum(len(event["data"]["day_plan"]["goals"]) for event in events\n'
-            '                     if event["data"].get("kind") == "day_plan_generated")\n'
-        ),
-        _DENOMINATOR_KILLERS,
-    ),
-    SourceMutation(
-        "extraction_drops_stated_work_anchor",
-        'worldmock.profile.extractor::_work_anchors',
-        '        anchors.leave_home, anchors.bedtime, parsed["leave_work"], parsed["arrive_home"])\n',
-        '        anchors.leave_home, anchors.bedtime, None, parsed["arrive_home"])\n',
-        _STATED_ANCHOR_KILLERS,
-    ),
-    SourceMutation(
-        "extraction_drops_stated_arrive_home",
-        'worldmock.profile.extractor::_work_anchors',
-        '        anchors.leave_home, anchors.bedtime, parsed["leave_work"], parsed["arrive_home"])\n',
-        '        anchors.leave_home, anchors.bedtime, parsed["leave_work"], None)\n',
-        _STATED_ANCHOR_KILLERS,
-    ),
-    SourceMutation(
-        "leave_work_takes_a_default",
-        'worldmock.profile.extractor::_work_anchors.parsed',
-        "None if raw[name] is None else TimeWindow.from_clock_range(raw[name])",
-        'TimeWindow.from_clock_range(raw[name] or "18:00-18:30")',
-        _NO_DEFAULT_KILLERS,
-    ),
-    SourceMutation(
-        "work_anchors_join_wraparound",
-        'worldmock.profile.models::TimeAnchors.normalize_wraparound.names',
-        '        names = ("wake", "leave_home", "lunch", "dinner", "bedtime")\n',
-        '        names = ("wake", "leave_home", "lunch", "dinner", "bedtime", "leave_work", "arrive_home")\n',
-        _WRAPAROUND_KILLERS,
-    ),
-    SourceMutation(
-        "out_of_order_work_anchor_fails_the_card",
-        'worldmock.profile.extractor::_work_anchors',
-        (
-            "    leave_work, arrive_home, problems = settle_work_anchors(\n"
-            '        anchors.leave_home, anchors.bedtime, parsed["leave_work"], parsed["arrive_home"])\n'
-        ),
-        '    leave_work, arrive_home, problems = parsed["leave_work"], parsed["arrive_home"], ()\n',
-        _DEMOTION_KILLERS,
-    ),
-    SourceMutation(
-        "persona_layer_drops_work_anchor",
-        'worldmock.agents.life_persona::_card_fields',
-        '"leave_work": _optional_window(anchors.leave_work)',
-        '"leave_work": None',
-        _PERSONA_ANCHOR_KILLERS,
-    ),
-    SourceMutation(
-        "persona_layer_drops_arrive_home",
-        'worldmock.agents.life_persona::_card_fields',
-        '"arrive_home": _optional_window(anchors.arrive_home)',
-        '"arrive_home": None',
-        _PERSONA_ANCHOR_KILLERS,
-    ),
-    SourceMutation(
-        "host_renders_work_schedule",
-        'worldmock.agents.life_persona::persona_layer.layer',
-        '        "preferences": [dict(item) for item in views["preferences"]],\n',
-        (
-            '        "preferences": [dict(item) for item in views["preferences"]],\n'
-            '        "work_schedule": profile.get("work_schedule"),\n'
-        ),
-        _PERSONA_SCHEDULE_KILLERS,
-    ),
-    SourceMutation(
-        "scenario_work_windows_missing_from_plan_input",
-        'worldmock.life.day_plan_inputs::_persona.fields',
-        '"下班时段": _hours(config.leave_work_window),\n        "到家时段": _hours(config.arrive_home_window),',
-        '"下班时段": None,\n        "到家时段": None,',
-        _SCENARIO_WORK_WINDOW_KILLERS,
-    ),
-    SourceMutation(
-        "override_skips_null_card_slot",
-        'worldmock.profile.injection::_window_overrides',
-        "        if field not in declared:\n            continue\n",
-        "        if field not in declared or getattr(anchors, slot) is None:\n            continue\n",
-        _SCENARIO_WORK_WINDOW_KILLERS,
-    ),
-    SourceMutation(
-        "calendar_cross_check_skipped",
-        'worldmock.life.load_checks::check_work_schedules.problems',
-        "problems = [*_workplace_problems(scenario), *_calendar_problems(scenario)]",
-        "problems = [*_workplace_problems(scenario)]",
-        _CALENDAR_CHECK_KILLERS,
-    ),
-    SourceMutation(
-        "scenario_structure_four_admitted",
-        'worldmock.life.scenario::LifeScenario',
-        "    schema_version: Literal[7]\n",
-        "    schema_version: Literal[4, 7]\n",
-        _STRUCTURE_FOUR_KILLERS,
-    ),
-    SourceMutation(
-        "rest_day_inferred_from_weekday",
-        'worldmock.life.work_schedule::shift_on',
-        "return schedule.weekly[str(day.weekday())]",
-        "return None if day.weekday() >= 5 else next(item for item in schedule.weekly.values() if item is not None)",
-        _REST_DAY_KILLERS,
-    ),
-    SourceMutation(
-        "exception_dates_ignored",
-        'worldmock.life.work_schedule::shift_on',
-        "if key in schedule.exceptions:",
-        "if False:",
-        _REST_DAY_KILLERS,
-    ),
-    SourceMutation(
-        "break_shown_as_on_duty",
-        'worldmock.life.work_schedule::duty_status',
-        "if any(begin <= now < finish for begin, finish in break_spans(shift, day, zone)):",
-        "if False:",
-        _BREAK_KILLERS,
-    ),
-    SourceMutation(
-        "everyone_gets_a_shift",
-        'worldmock.life.environment_layer::_duty.config',
-        "if item.agent_id == context.agent_id)",
-        "if item.work_schedule is not None)",
-        _UNSCHEDULED_KILLERS,
-    ),
-    SourceMutation(
-        "duty_vanishes_after_plan_revision",
-        'worldmock.life.environment_layer::environment_layer',
-        '"duty": _duty(context)',
-        (
-            '"duty": None if (context.state.agents[context.agent_id].day_plan\n'
-            "                              and context.state.agents[context.agent_id].day_plan.goals) "
-            "else _duty(context)"
-        ),
-        _PLAN_REVISION_DUTY_KILLERS,
-    ),
-    SourceMutation(
-        "duty_vanishes_after_topic_completion",
-        'worldmock.life.environment_layer::environment_layer',
-        '"duty": _duty(context)',
-        '"duty": None if any(item.kind.value == "work" and item.status.value == "completed" '
-        'for item in context.state.activities.values()) else _duty(context)',
-        _TOPIC_COMPLETION_DUTY_KILLERS,
-    ),
-    SourceMutation(
-        "plan_input_carries_duty_status",
-        'worldmock.life.work_schedule::day_arrangement',
-        '"breaks": [_span_text(begin, finish) for begin, finish in shift.breaks]}',
-        '"breaks": [_span_text(begin, finish) for begin, finish in shift.breaks], "status": STATUS_ON_DUTY}',
-        _PLAN_INPUT_STATUS_KILLERS,
-    ),
-    SourceMutation(
-        "query_compaction_drops_false_and_zero",
-        'worldmock.life.tool_groups::compact',
-        "if item is not None and item != [] and item != {}",
-        "if item and item != [] and item != {}",
-        _COMPACT_KILLERS,
-    ),
-    SourceMutation(
-        "query_source_filter_ignored",
-        'worldmock.life.world_query::_matching_entries',
-        '                and (stores is None or entry["location_id"] in stores)\n',
-        "                and True\n",
-        ('tests/life/test_world_query_filters.py::test_source_filter_excludes_real_menus_outside_the_selected_app',),
-    ),
-    SourceMutation(
-        "query_source_resolved_by_plain_name_equality",
-        'worldmock.life.world_query::_source_stores',
-        (
-            '    match = resolve_source(written, places, observation["home_location_id"], _app_sources(observation))\n'
-            "    return None if match is None else match.store_ids\n"
-        ),
-        (
-            "    stores = frozenset(identity for identity, name in places.items() if name == written)\n"
-            "    return stores or None\n"
-        ),
-        ('tests/life/test_world_query_filters.py::test_source_resolution_uses_the_purchase_resolver_instead_of_plain_place_equality',),
-    ),
-    SourceMutation(
-        "query_environment_branch_writes_world",
-        'custom.envs.life_env::LifeEnv.read_query',
-        "            return error.payload() if error else query_world(observed, request)\n",
-        (
-            "            engine.state.version += 1\n"
-            "            return error.payload() if error else query_world(observed, request)\n"
-        ),
-        _ENV_QUERY_KILLERS,
-    ),
-    SourceMutation(
-        "query_new_keys_get_defaults",
-        'worldmock.life.world_query::QueryWorldRequest',
-        '    from_: str | None = Field(alias="from")\n    available_only: bool\n',
-        '    from_: str | None = Field(default=None, alias="from")\n    available_only: bool = False\n',
-        ('tests/life/test_world_query_filters.py::test_query_requires_the_source_and_availability_keys_without_defaults',),
-    ),
-    SourceMutation(
-        "unknown_source_returns_an_empty_page",
-        'worldmock.life.world_query::_filter_issues',
-        "    if source is not None and _source_stores(observation, source) is None:\n",
-        "    if False:\n",
-        ('tests/life/test_world_query_filters.py::test_unknown_source_is_an_argument_error_instead_of_an_empty_page',),
-    ),
-    SourceMutation(
-        "source_candidates_include_unpermitted_places",
-        'worldmock.life.world_query::_source_issue.stores',
-        "    stores = _permitted_stores(observation)\n",
-        "    stores = frozenset(places)\n",
-        ('tests/life/test_world_query_filters.py::test_source_error_candidates_exclude_places_without_actual_food_menus',),
-    ),
-    SourceMutation(
-        "query_purchase_way_not_expanded",
-        'worldmock.life.world_query::_query_ways',
-        "    return options | frozenset(PURCHASE_WAYS.values()) if SYSTEM_PURCHASE_WAY in options else options\n",
-        "    return options\n",
-        ('tests/life/test_world_query_filters.py::test_purchase_way_expands_to_both_real_pickup_and_delivery_actions',),
-    ),
-    SourceMutation(
-        "available_filter_applied_after_paging",
-        'worldmock.life.world_query::query_world',
-        (
-            "    entries = _matching_entries(observation, request)\n"
-            '    end = min(request.offset + observation["world_query_page_size"], len(entries))\n'
-            '    return {"matches": [compact(entry["match"]) for entry in entries[request.offset:end]],'
-        ),
-        (
-            '    entries = _matching_entries(observation, request.model_copy(update={"available_only": False}))\n'
-            '    end = min(request.offset + observation["world_query_page_size"], len(entries))\n'
-            "    page = [entry for entry in entries[request.offset:end]\n"
-            '            if not request.available_only or _executable(entry["match"], _query_ways(request.way))]\n'
-            '    return {"matches": [compact(entry["match"]) for entry in page],'
-        ),
-        ('tests/life/test_world_query_filters.py::test_availability_is_filtered_before_paging_and_total_count',),
-    ),
-    SourceMutation(
-        "available_judged_on_unmatched_way_actions",
-        'worldmock.life.world_query::_executable',
-        '        return any(action["available"] for action in match["actions"] if action["way"] in ways)\n',
-        '        return any(action["available"] for action in match["actions"])\n',
-        ('tests/life/test_world_query_filters.py::test_availability_only_uses_actions_matching_the_written_way',),
-    ),
-    SourceMutation(
-        "available_without_way_ignores_tools",
-        'worldmock.life.world_query::_executable',
-        '    return any(row["available"] for row in (*match["actions"], *match["tools"]))\n',
-        '    return any(row["available"] for row in match["actions"])\n',
-        ('tests/life/test_world_query_filters.py::test_without_way_availability_includes_the_actual_activity_control_tools',),
-    ),
-    SourceMutation(
-        "query_total_count_before_filtering",
-        'worldmock.life.world_query::query_world',
-        '"total_count": len(entries),',
-        '"total_count": len(observation["world_query_bindings"]),',
-        ('tests/life/test_world_query_filters.py::test_total_count_is_the_filtered_menu_count',),
-    ),
-)
+MUTATIONS = (SourceMutation(name='decision_failure_swallowed_after_log',
+                symbol='custom.agents.life_agent::LifeAgent.step',
+                original='            logging.exception("LifeAgent decision failed for agent %s", self.id)\n'
+                         '            raise\n',
+                replacement='            logging.exception("LifeAgent decision failed for agent %s", self.id)\n'
+                            '            return ""\n',
+                tests=('tests/integration/test_life_agent_protocol.py::test_decision_failure_is_logged_once_and_reraised_unchanged',
+                       'tests/integration/test_host_failure_stages.py::test_model_service_failure_on_the_real_engine_is_logged_once_and_reraised_unchanged')),
+ SourceMutation(name='tool_dispatch_failure_loses_stage_code',
+                symbol='custom.agents.life_agent::LifeAgent._execute_react_tool',
+                original='            feedback = _stage_feedback("TOOL_SERVICE_FAILED", ("tool_calls", index))\n'
+                         '            raise RuntimeError(feedback) from error\n',
+                replacement='            feedback = _stage_feedback("TOOL_SERVICE_FAILED", ("tool_calls", '
+                            'index))\n'
+                            '            raise\n',
+                tests=('tests/integration/test_host_failure_stages.py::test_tool_service_failure_points_to_real_call_without_claiming_execution',
+                       'tests/integration/test_host_failure_stages.py::test_tool_service_failure_on_the_real_engine_is_logged_and_raised_with_its_stage')),
+ SourceMutation(name='plan_duplicates_report_only_a_generic_error',
+                symbol='worldmock.life.models::_validate_plan_goals',
+                original='        raise ValidationError.from_exception_data(model_name, errors)\n',
+                replacement='        raise ValueError("day goals must contain at most eight unique intents")\n',
+                tests=('tests/life/test_revise_day_plan_json.py::test_engine_rejects_a_duplicate_revision_locating_first_and_later_entries',
+                       'tests/life/test_plan_day_duplicate_feedback.py::test_plan_day_duplicate_intents_are_fed_back_with_every_position_then_registered')),
+ SourceMutation(name='plan_duplicates_locate_only_later_entries',
+                symbol='worldmock.life.models::_validate_plan_goals.repeated',
+                original='if len(indexes) > 1 for index in indexes)\n',
+                replacement='if len(indexes) > 1 for index in indexes[1:])\n',
+                tests=('tests/life/test_revise_day_plan_json.py::test_engine_rejects_a_duplicate_revision_locating_first_and_later_entries',
+                       'tests/life/test_plan_day_duplicate_feedback.py::test_plan_day_duplicate_intents_are_fed_back_with_every_position_then_registered')),
+ SourceMutation(name='plan_over_capacity_returns_before_duplicates',
+                symbol='worldmock.life.models::_validate_plan_goals',
+                original='        errors.append({"type": "value_error", "loc": (), "input": '
+                         '[goal.model_dump(mode="json") for goal in goals],\n'
+                         '                       "ctx": {"error": ValueError("day goals require at most eight '
+                         'entries")}})\n',
+                replacement='        raise ValueError("day goals require at most eight entries")\n',
+                tests=('tests/life/test_revise_day_plan_json.py::test_engine_reports_over_capacity_and_duplicates_in_the_same_rejection',
+                       'tests/life/test_plan_day_duplicate_feedback.py::test_plan_day_reports_over_capacity_together_with_duplicates')),
+ SourceMutation(name='assembly_proxy_reverts_to_the_as2_class',
+                symbol='worldmock.runtime::_build_society.env',
+                original='        env = LifeEnvProxy(actor, run_dir=prepared.run_dir, '
+                         'env_module_types=["LifeEnv"])\n',
+                replacement='        from agentsociety2.env.env_router_proxy import EnvRouterProxy\n'
+                            '\n'
+                            '        env = EnvRouterProxy(actor, run_dir=prepared.run_dir, '
+                            'env_module_types=["LifeEnv"])\n',
+                tests=('tests/integration/test_read_query_runtime.py::test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query',)),
+ SourceMutation(name='assembly_service_proxy_reverts_to_the_as2_class',
+                symbol='worldmock.runtime::_build_society.service',
+                original='        service = build_service_proxy(env, run_dir=prepared.run_dir, trace=False, '
+                         'replay=False)\n',
+                replacement='        from agentsociety2.env.env_router_proxy import EnvRouterProxy\n'
+                            '\n'
+                            '        service = build_service_proxy(\n'
+                            '            EnvRouterProxy(actor, run_dir=prepared.run_dir, '
+                            'env_module_types=["LifeEnv"]),\n'
+                            '            run_dir=prepared.run_dir, trace=False, replay=False)\n',
+                tests=('tests/integration/test_read_query_runtime.py::test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query',)),
+ SourceMutation(name='assembly_actor_reverts_to_the_as2_class',
+                symbol='worldmock.runtime::_build_society.actor',
+                original='    actor = life_env_actor_class().remote(spec)\n',
+                replacement='    from agentsociety2.env.direct_env_actor import get_direct_env_actor_class\n'
+                            '\n'
+                            '    actor = get_direct_env_actor_class().remote(spec)\n',
+                tests=('tests/integration/test_read_query_runtime.py::test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query',)),
+ SourceMutation(name='proxy_returns_without_awaiting_the_remote_result',
+                symbol='worldmock.life.read_query_runtime::LifeEnvProxy.read_query',
+                original='        return await self._actor.read_query.remote(context, tool, request)\n',
+                replacement='        return self._actor.read_query.remote(context, tool, request)\n',
+                tests=('tests/integration/test_read_query_runtime.py::test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query',)),
+ SourceMutation(name='actor_answers_without_the_environment',
+                symbol='worldmock.life.read_query_runtime::LifeEnvActor.read_query',
+                original='        return await self._router._environment().read_query(context, tool, request)\n',
+                replacement='        return {}\n',
+                tests=('tests/integration/test_read_query_runtime.py::test_unwrapped_actor_read_query_equals_direct_environment_call',)),
+ SourceMutation(name='actor_class_allows_concurrent_calls',
+                symbol='worldmock.life.read_query_runtime::life_env_actor_class',
+                original='    return ray.remote(max_concurrency=1)(LifeEnvActor)\n',
+                replacement='    return ray.remote(max_concurrency=2)(LifeEnvActor)\n',
+                tests=('tests/integration/test_read_query_runtime.py::test_life_env_actor_class_fixes_single_concurrency_without_parameters',)),
+ SourceMutation(name='reflection_accepts_free_text',
+                symbol='worldmock.agents.life_reflection::reflection_insights.arguments',
+                original='    arguments = _tool_arguments(response)\n',
+                replacement='    try:\n'
+                            '        arguments = _tool_arguments(response)\n'
+                            '    except ReflectionOutputError:\n'
+                            '        arguments = json.dumps({"insights": '
+                            'json.loads(response.choices[0].message.content)})\n',
+                tests=('tests/integration/test_strict_reflection.py::test_runtime_feeds_each_contract_violation_back_and_stores_only_the_corrected_reflection',)),
+ SourceMutation(name='reflection_accepts_another_tool',
+                symbol='worldmock.model_feedback::tool_arguments',
+                original='        if _field(function, "name") != tool:\n',
+                replacement='        if False:\n',
+                tests=('tests/integration/test_strict_reflection.py::test_runtime_feeds_each_contract_violation_back_and_stores_only_the_corrected_reflection',)),
+ SourceMutation(name='reflection_skips_unknown_reference_check',
+                symbol='worldmock.agents.life_reflection::reflection_insights',
+                original='    if problems:\n',
+                replacement='    if False:\n',
+                tests=('tests/integration/test_strict_reflection.py::test_runtime_feeds_each_contract_violation_back_and_stores_only_the_corrected_reflection',)),
+ SourceMutation(name='reflection_count_bound_widened',
+                symbol='worldmock.agents.life_reflection::ReflectionRequest.require_insights',
+                original='        if not 1 <= len(insights) <= MEMORY_REFLECTION_MAX_INSIGHTS:\n',
+                replacement='        if not 1 <= len(insights) <= MEMORY_REFLECTION_MAX_INSIGHTS + 1:\n',
+                tests=('tests/integration/test_strict_reflection.py::test_runtime_feeds_each_contract_violation_back_and_stores_only_the_corrected_reflection',)),
+ SourceMutation(name='reflection_text_validation_skipped',
+                symbol='worldmock.agents.life_reflection::ReflectionInsight.validate_insight',
+                original='        return validate_memory_text(insight)\n',
+                replacement='        return insight\n',
+                tests=('tests/integration/test_strict_reflection.py::test_runtime_feeds_each_contract_violation_back_and_stores_only_the_corrected_reflection',)),
+ SourceMutation(name='reflection_retry_bound_zero',
+                symbol='worldmock.agents.life_reflection::REFLECTION_VALIDATION_RETRIES',
+                original='REFLECTION_VALIDATION_RETRIES = 3\n',
+                replacement='REFLECTION_VALIDATION_RETRIES = 0\n',
+                tests=('tests/integration/test_strict_reflection.py::test_runtime_feeds_each_contract_violation_back_and_stores_only_the_corrected_reflection',)),
+ SourceMutation(name='reflection_retries_without_a_bound',
+                symbol='worldmock.agents.life_memory::WorldMockMemoryRuntime._validated_reflection',
+                original='                if attempt > REFLECTION_VALIDATION_RETRIES:\n',
+                replacement='                if False:\n',
+                tests=('tests/integration/test_strict_reflection.py::test_runtime_stops_with_a_run_fault_after_three_validation_retries_and_stores_no_reflection',)),
+ SourceMutation(name='reflection_failure_returns_an_empty_list',
+                symbol='worldmock.agents.life_memory::WorldMockMemoryRuntime._validated_reflection',
+                original='                    raise ProtocolError(\n'
+                         '                        f"memory reflection output remained invalid after three '
+                         'retries: {error}") from error\n',
+                replacement='                    return []\n',
+                tests=('tests/integration/test_strict_reflection.py::test_runtime_stops_with_a_run_fault_after_three_validation_retries_and_stores_no_reflection',
+                       'tests/integration/test_strict_reflection.py::test_exhausted_reflection_leaves_evidence_but_no_memory_update_in_the_run_database')),
+ SourceMutation(name='reflection_correction_accumulates_messages',
+                symbol='worldmock.agents.life_memory::WorldMockMemoryRuntime._validated_reflection',
+                original='                messages, attempt = reflection_correction(original, response, error), '
+                         'attempt + 1\n',
+                replacement='                messages, attempt = reflection_correction(messages, response, '
+                            'error), attempt + 1\n',
+                tests=('tests/integration/test_strict_reflection.py::test_runtime_stops_with_a_run_fault_after_three_validation_retries_and_stores_no_reflection',)),
+ SourceMutation(name='version_8_world_state_accepted',
+                symbol='worldmock.life.models::WorldState.schema_version',
+                original='    schema_version: Literal[WORLD_SCHEMA_VERSION]\n',
+                replacement='    schema_version: Literal[WORLD_SCHEMA_VERSION, 8]\n',
+                tests=('tests/life/test_session_state.py::test_world_state_schema_version_8_is_rejected',
+                       'tests/life/test_session_state.py::test_run_with_version_8_world_state_is_rejected_on_open')),
+ SourceMutation(name='todo_layer_omits_errands',
+                symbol='worldmock.life.todo_layer::todo_layer',
+                original='            "errands": errands.todo_rows(agent, names, context.scenario.timezone),\n',
+                replacement='            "errands": [],\n',
+                tests=('tests/life/test_errand_requests.py::test_each_control_tool_records_errand_changes_with_one_event_per_change_and_an_ordered_receipt',)),
+ SourceMutation(name='errand_changes_applied_before_rejection',
+                symbol='worldmock.life.session_actions::ActionHandlers._conclude_activity.changes',
+                original='        changes = self._errand_changes(pending, "conclude_activity", request)\n',
+                replacement='        changes = self._errand_changes(pending, "conclude_activity", request)\n'
+                            '        state.agents[pending.agent_id] = self._apply_errands(state, pending, '
+                            'changes)[0].agents[\n'
+                            '            pending.agent_id]\n',
+                tests=('tests/life/test_errand_requests.py::test_a_rejected_request_registers_no_errand_and_writes_no_errand_event',)),
+ SourceMutation(name='request_can_mark_errand_completed',
+                symbol='worldmock.life.models::ErrandChange.change',
+                original='    change: Literal["新增", "更新", "取消"] = Field(description="这条变更做什么，从列出的三种里选一种。")\n',
+                replacement='    change: Literal["新增", "更新", "取消", "完成"] = '
+                            'Field(description="这条变更做什么，从列出的三种里选一种。")\n',
+                tests=('tests/life/test_errand_requests.py::test_a_request_cannot_mark_an_errand_completed',)),
+ SourceMutation(name='items_without_errands_accepted',
+                symbol='worldmock.life.control_items::control_items',
+                original='        _list(_field(body, "errands", tool), tool)\n',
+                replacement='',
+                tests=('tests/life/test_control_items.py::test_a_current_request_without_errands_is_rejected',)),
+ SourceMutation(name='errand_name_takes_first_candidate',
+                symbol='worldmock.life.errands::_open_name',
+                original='    return _named_rows(written, rows)\n',
+                replacement='    found, matches = _named_rows(written, rows)\n'
+                            '    fallback = [*matches, *near_names(written, [row["name"] for row in rows])]\n'
+                            '    if len(found) != 1 and fallback:\n'
+                            '        found = [row for row in rows if row["name"] == fallback[0]][:1]\n'
+                            '    return found, matches\n',
+                tests=('tests/life/test_errand_names.py::test_unknown_or_ambiguous_errand_name_lists_every_open_name_and_substitutes_nothing',)),
+ SourceMutation(name='duplicates_judged_before_cancels',
+                symbol='worldmock.life.errands::_plan.remaining',
+                original='    remaining = [row for row in rows if row["errand_id"] not in cancelled]\n',
+                replacement='    remaining = list(rows)\n',
+                tests=('tests/life/test_errand_names.py::test_cancelling_and_adding_again_with_the_original_name_and_a_new_quantity_is_accepted',)),
+ SourceMutation(name='errand_named_twice_accepted',
+                symbol='worldmock.life.errands::_plan_targets',
+                original='        elif found[0]["errand_id"] in named:\n',
+                replacement='        elif False:\n',
+                tests=('tests/life/test_errand_names.py::test_one_errand_named_twice_and_two_additions_with_one_outcome_and_product_are_rejected',)),
+ SourceMutation(name='added_twins_with_one_product_accepted',
+                symbol='worldmock.life.errands::_added_conflicts.doubled',
+                original='    doubled = [other for other in earlier if other in plan.products\n',
+                replacement='    doubled = [other for other in () if other in plan.products\n',
+                tests=('tests/life/test_errand_names.py::test_one_errand_named_twice_and_two_additions_with_one_outcome_and_product_are_rejected',)),
+ SourceMutation(name='pending_order_counts_as_obtained',
+                symbol='worldmock.life.errands::evidence_rows',
+                original='    if event_type != "environment_event" or data.get("kind") != "goods_received":\n'
+                         '        return []',
+                replacement='    if event_type == "action_result":\n'
+                            '        orders = (data.get("data") or {}).get("orders", [])\n'
+                            '        return [Evidence(int(order["recipient_id"].split(":", 1)[1]), '
+                            'order["goods_id"], float(order["quantity"]))\n'
+                            '                for order in orders if order["recipient_id"].startswith("agent:") '
+                            'and order["status"] == "pending"]\n'
+                            '    if event_type != "environment_event" or data.get("kind") != "goods_received":\n'
+                            '        return []',
+                tests=('tests/life/test_food_errand_evidence.py::test_actual_payment_orders_are_not_errand_evidence_even_when_delivered',)),
+ SourceMutation(name='accepted_event_counts_as_evidence',
+                symbol='worldmock.life.errands::evidence_rows',
+                original='    if event_type != "environment_event" or data.get("kind") != "goods_received":\n'
+                         '        return []',
+                replacement='    if event_type in {"action_result", "action_accepted"}:\n'
+                            '        orders = (data.get("data") or {}).get("orders", [])\n'
+                            '        return [Evidence(int(order["recipient_id"].split(":", 1)[1]), '
+                            'order["goods_id"], float(order["quantity"]))\n'
+                            '                for order in orders if order["recipient_id"].startswith("agent:")]\n'
+                            '    if event_type != "environment_event" or data.get("kind") != "goods_received":\n'
+                            '        return []',
+                tests=('tests/life/test_food_errand_evidence.py::test_actual_payment_orders_are_not_errand_evidence_even_when_delivered',)),
+ SourceMutation(name='progressed_goal_counts_as_completion',
+                symbol='worldmock.life.errands::evidence_rows',
+                original='data.get("kind") != "goods_received"',
+                replacement='data.get("kind") not in {"goods_received", "goal_progressed"}',
+                tests=('tests/life/test_food_errand_evidence.py::test_retired_giving_consumption_and_self_reports_cannot_progress_errands',)),
+ SourceMutation(name='self_report_counts_as_completion',
+                symbol='worldmock.life.errands::evidence_rows',
+                original='data.get("kind") != "goods_received"',
+                replacement='data.get("kind") not in {"goods_received", "errand_claimed"}',
+                tests=('tests/life/test_food_errand_evidence.py::test_retired_giving_consumption_and_self_reports_cannot_progress_errands',)),
+ SourceMutation(name='evidence_before_noting_event_counts',
+                symbol='worldmock.life.errands::settle',
+                original='            if errand is None or noted.get(errand.errand_id, -1) > index:\n',
+                replacement='            if errand is None:\n',
+                tests=('tests/life/test_food_errand_evidence.py::test_receipt_before_registration_in_same_commit_does_not_count_but_after_it_does',)),
+ SourceMutation(name='ownership_follows_event_agent',
+                symbol='worldmock.life.errands::evidence_rows',
+                original='return [Evidence(agent_id, data["goods_id"], float(data["quantity"]))]',
+                replacement='return [Evidence(data["payer_id"], data["goods_id"], float(data["quantity"]))]',
+                tests=('tests/life/test_food_errand_evidence.py::test_actual_pickup_credits_only_receipt_recipient_and_repeat_settlement_emits_no_evidence',)),
+ SourceMutation(name='round_commit_settles_twice',
+                symbol='worldmock.life.decision_coordinator::DecisionCoordinator.commit_decision_round',
+                original='        (staged, settled) = errands.settle(staged, drafts)\n',
+                replacement='        (staged, settled) = errands.settle(staged, drafts)\n'
+                            '        staged, again = errands.settle(staged, drafts)\n'
+                            '        settled = settled + again\n',
+                tests=('tests/life/test_errand_completion.py::'
+                       'test_quantity_two_with_one_received_stays_open_and_a_second_receipt_completes',)),
+ SourceMutation(name='advance_commit_settles_twice',
+                symbol='worldmock.life.time_advance::TimeAdvanceCoordinator.advance',
+                original='        (staged, credited) = errands.settle(staged, drafts)\n',
+                replacement='        (staged, credited) = errands.settle(staged, drafts)\n'
+                            '        staged, again = errands.settle(staged, drafts)\n'
+                            '        credited = credited + again\n',
+                tests=('tests/life/test_errand_reminder.py::'
+                       'test_partial_progress_after_the_reminder_does_not_remind_again',)),
+ SourceMutation(name='condensation_drops_completion_line',
+                symbol='worldmock.life.settled_text::record_lines',
+                original='        return [f"{_clock(context, record[\'occurred_at\'])} '
+                         '办成「{record[\'errand\']}」"]\n',
+                replacement='        return []\n',
+                tests=('tests/life/test_progress_events.py::test_an_errand_completed_in_the_session_is_one_record_and_folds_to_one_line',)),
+ SourceMutation(name='cancelled_errand_stays_armed',
+                symbol='worldmock.life.errands::_apply_one',
+                original='        errands.pop(plan.targets[index]["errand_id"])\n',
+                replacement='        errands.get(plan.targets[index]["errand_id"])\n',
+                tests=('tests/life/test_errand_reminder.py::test_completed_or_cancelled_errands_are_not_reminded',)),
+ SourceMutation(name='reminder_completes_errand',
+                symbol='worldmock.life.errands::deliver_reminders',
+                original='        errands[errand.errand_id] = reminded\n',
+                replacement='        errands.pop(errand.errand_id)\n',
+                tests=('tests/life/test_errand_reminder.py::test_an_awake_person_is_reminded_once_exactly_on_time_and_the_errand_is_unchanged',)),
+ SourceMutation(name='errand_reminder_wakes_sleep',
+                symbol='worldmock.life.schedule::SLEEP_ALLOWED_REASONS',
+                original='WakeReason.PLAN_REMINDER_DUE, WakeReason.ALARM_RING}',
+                replacement='WakeReason.PLAN_REMINDER_DUE, WakeReason.ALARM_RING, WakeReason.ERRAND_REMINDER_DUE}',
+                tests=('tests/life/test_errand_reminder.py::test_a_sleeper_gets_no_boundary_no_delivery_and_no_consumption_and_is_reminded_at_the_wake_boundary',)),
+ SourceMutation(name='open_errands_are_commitments',
+                symbol='worldmock.life.rhythm::_has_commitments',
+                original='    if (\n        plan is not None\n',
+                replacement='    if agent.errands or (\n        plan is not None\n',
+                tests=('tests/life/test_errand_reminder.py::test_open_errands_do_not_change_the_reconsideration_interval',)),
+ SourceMutation(name='errand_wake_reason_missing_from_vocabulary',
+                symbol='worldmock.footprints.models::WAKE_REASON_NAMES',
+                original='    "progress_report_due", "no_active_activity", "plan_reminder_due", '
+                         '"errand_reminder_due",\n',
+                replacement='    "progress_report_due", "no_active_activity", "plan_reminder_due",\n',
+                tests=('tests/life/test_errand_reminder.py::test_an_awake_person_is_reminded_once_exactly_on_time_and_the_errand_is_unchanged',)),
+ SourceMutation(name='sleeper_reminder_time_is_a_boundary',
+                symbol='worldmock.life.errands::boundary_times',
+                original='    return [moment for agent_id, agent in state.agents.items() if not _asleep(state, '
+                         'agent_id)\n',
+                replacement='    return [moment for agent_id, agent in state.agents.items()\n',
+                tests=('tests/life/test_errand_reminder.py::test_a_sleeper_gets_no_boundary_no_delivery_and_no_consumption_and_is_reminded_at_the_wake_boundary',)),
+ SourceMutation(name='reminder_recorded_without_delivery',
+                symbol='worldmock.life.rhythm::_deliver_errand_reminders',
+                original='        if rhythm_schedule.WakeReason.ERRAND_REMINDER_DUE.value in '
+                         'verdict.wake_reasons:\n',
+                replacement='        if True:\n',
+                tests=('tests/life/test_errand_reminder.py::test_a_sleeper_gets_no_boundary_no_delivery_and_no_consumption_and_is_reminded_at_the_wake_boundary',)),
+ SourceMutation(name='simultaneous_reminders_write_one_event',
+                symbol='worldmock.life.errands::deliver_reminders',
+                original='    return state.model_copy(update={"agents": agents}), drafts\n',
+                replacement='    return state.model_copy(update={"agents": agents}), drafts[:1]\n',
+                tests=('tests/life/test_errand_reminder.py::test_errands_due_together_are_one_opportunity_with_one_event_each',)),
+ SourceMutation(name='midnight_clears_errands',
+                symbol='worldmock.life.time_advance::TimeAdvanceCoordinator.advance',
+                original='            staged = _put_agent(staged, '
+                         'staged.agents[agent_id].model_copy(update={"day_plan": None}, deep=True))\n',
+                replacement='            staged = _put_agent(staged, staged.agents[agent_id].model_copy(\n'
+                            '                update={"day_plan": None, "errands": {}}, deep=True))\n',
+                tests=('tests/life/test_errand_overnight.py::test_an_errand_stays_in_the_todo_layer_after_midnight_plan_generation_and_plan_revision',)),
+ SourceMutation(name='plan_revision_drops_errands',
+                symbol='worldmock.life.session_actions::ActionHandlers._revise_day_plan.changed_agent',
+                original='        changed_agent = agent.model_copy(update={"day_plan": plan}, deep=True)\n',
+                replacement='        changed_agent = agent.model_copy(update={"day_plan": plan, "errands": {}}, '
+                            'deep=True)\n',
+                tests=('tests/life/test_errand_overnight.py::test_an_errand_stays_in_the_todo_layer_after_midnight_plan_generation_and_plan_revision',)),
+ SourceMutation(name='condensation_drops_todo_errands',
+                symbol='worldmock.life.prompt_capacity::fit_request',
+                original='            layers[index] = {**layers[index], "events": records}\n',
+                replacement='            layers[index] = {**layers[index], "events": records}\n'
+                            '            layers = [{**layer, "errands": []} if layer.get("layer") == "待办层" else '
+                            'layer\n'
+                            '                      for layer in layers]\n',
+                tests=('tests/life/test_errand_overnight.py::test_a_condensed_request_still_carries_the_todo_layer_errands',)),
+ SourceMutation(name='memory_overflow_drops_todo_errands',
+                symbol='worldmock.life.observe::ObservationBuilder._layer_data',
+                original='            "todo_layer": todo_layer(context, self.context.store),\n',
+                replacement='            "todo_layer": {**todo_layer(context, self.context.store), **(\n'
+                            '                {"errands": []} if len(str(memory.layer)) > '
+                            'memory_layer.MEMORY_WINDOW_CHARS // 2\n'
+                            '                else {})},\n',
+                tests=('tests/life/test_errand_overnight.py::test_an_errand_stays_when_the_memory_layer_overflows_its_window',)),
+ SourceMutation(name='checkpoint_omits_errands',
+                symbol='worldmock.life.models::AgentState.errands',
+                original='    errands: dict[str, ErrandState] = Field(default_factory=dict)\n',
+                replacement='    errands: dict[str, ErrandState] = Field(default_factory=dict, exclude=True)\n',
+                tests=('tests/integration/test_errand_checkpoint.py::test_a_restored_branch_shows_the_same_todo_layer_and_repeats_nothing',)),
+ SourceMutation(name='progress_arguments_carry_errands',
+                symbol='worldmock.life.progress_layer::_arguments',
+                original='    return control_request(tool, request)\n',
+                replacement='    return {**control_request(tool, request), "errands": request["errands"]}\n',
+                tests=('tests/integration/test_errand_prompt_separation.py::test_errand_changes_write_no_memory_and_stay_out_of_self_notes_and_progress_arguments',)),
+ SourceMutation(name='self_notes_carry_errand_text',
+                symbol='worldmock.life.memory_layer::_self_notes',
+                original='            notes.extend((item.activity_name, text) for text in texts if '
+                         'text.strip())\n',
+                replacement='            notes.extend((item.activity_name, text) for text in texts if '
+                            'text.strip())\n'
+                            '            from worldmock.life.control_items import control_errands\n'
+                            '            notes.extend((item.activity_name, change[key]) for change in '
+                            'control_errands(\n'
+                            '                request.data["tool_name"], request.data["request"]) for key in '
+                            '("name", "memo") if change[key])\n',
+                tests=('tests/integration/test_errand_prompt_separation.py::test_errand_changes_write_no_memory_and_stay_out_of_self_notes_and_progress_arguments',)),
+ SourceMutation(name='system_layer_copy_diverges',
+                symbol='worldmock.agents.life_prompt::LIFE_SYSTEM_LAYER',
+                original='到提醒时刻只提醒一次，不会叫醒睡着的你',
+                replacement='到提醒时刻只提醒一次，会叫醒睡着的你',
+                tests=('tests/integration/test_seven_layer_request.py::test_system_layers_are_the_contract_registration_verbatim',)),
+ SourceMutation(name='errand_agent_events_written_as_system',
+                symbol='worldmock.life.errands::_draft',
+                original='                      visibility="agent" if kind in AGENT_VISIBLE_KINDS else '
+                         '"system",\n',
+                replacement='                      visibility="system",\n',
+                tests=('tests/life/test_errand_reminder.py::test_an_awake_person_is_reminded_once_exactly_on_time_and_the_errand_is_unchanged',)),
+ SourceMutation(name='settlement_event_inherits_evidence_identity',
+                symbol='worldmock.life.errands::settle',
+                original='            settled.append(_credit(open_sets[row.owner_id], errand, row, head))\n',
+                replacement='            settled.append(_credit(open_sets[row.owner_id], errand, row, '
+                            'head).model_copy(\n'
+                            '                update={"decision_id": draft.decision_id, "action_id": '
+                            'draft.action_id}))\n',
+                tests=('tests/life/test_errand_completion.py::test_receipt_completion_tolerance_has_both_sides',)),
+ SourceMutation(name='control_projection_carries_errands',
+                symbol='worldmock.life.control_items::control_request',
+                original='    return {"items": rows}\n',
+                replacement='    return {"items": rows, "errands": list(control_errands(tool, request))}\n',
+                tests=('tests/life/test_control_items.py::test_current_shape_items_carry_views_as_subject_memories',)),
+ SourceMutation(name='control_projection_trims_first_item_only',
+                symbol='worldmock.life.control_items::control_request',
+                original='    for item in control_items(tool, request):\n'
+                         '        row: dict[str, Any] = {"activity_name": item.activity_name, "summary": '
+                         'item.summary}\n',
+                replacement='    for index, item in enumerate(control_items(tool, request)):\n'
+                            '        row: dict[str, Any] = {"activity_name": item.activity_name, "summary": '
+                            'item.summary}\n'
+                            '        if index:\n'
+                            '            row["views"] = list(item.views)\n',
+                tests=('tests/life/test_control_items.py::test_current_shape_items_carry_views_as_subject_memories',)),
+ SourceMutation(name='errand_metrics_use_goal_denominator',
+                symbol='worldmock.evaluation.errand_metrics::errand_metrics.registered',
+                original='    registered = len(lives)\n',
+                replacement='    registered = sum(len(event["data"]["day_plan"]["goals"]) for event in events\n'
+                            '                     if event["data"].get("kind") == "day_plan_generated")\n',
+                tests=('tests/evaluation/test_errand_metrics.py::test_the_denominator_is_registered_errands_not_goals',)),
+ SourceMutation(name='extraction_drops_stated_work_anchor',
+                symbol='worldmock.profile.extractor::_work_anchors',
+                original='        anchors.leave_home, anchors.bedtime, parsed["leave_work"], '
+                         'parsed["arrive_home"])\n',
+                replacement='        anchors.leave_home, anchors.bedtime, None, parsed["arrive_home"])\n',
+                tests=('tests/profile/test_extractor.py::test_stated_work_anchors_are_extracted_into_the_card',)),
+ SourceMutation(name='extraction_drops_stated_arrive_home',
+                symbol='worldmock.profile.extractor::_work_anchors',
+                original='        anchors.leave_home, anchors.bedtime, parsed["leave_work"], '
+                         'parsed["arrive_home"])\n',
+                replacement='        anchors.leave_home, anchors.bedtime, parsed["leave_work"], None)\n',
+                tests=('tests/profile/test_extractor.py::test_stated_work_anchors_are_extracted_into_the_card',)),
+ SourceMutation(name='leave_work_takes_a_default',
+                symbol='worldmock.profile.extractor::_work_anchors.parsed',
+                original='None if raw[name] is None else TimeWindow.from_clock_range(raw[name])',
+                replacement='TimeWindow.from_clock_range(raw[name] or "18:00-18:30")',
+                tests=('tests/profile/test_extractor.py::test_unmentioned_work_anchors_stay_null_without_toml_defaults',)),
+ SourceMutation(name='work_anchors_join_wraparound',
+                symbol='worldmock.profile.models::TimeAnchors.normalize_wraparound.names',
+                original='        names = ("wake", "leave_home", "lunch", "dinner", "bedtime")\n',
+                replacement='        names = ("wake", "leave_home", "lunch", "dinner", "bedtime", "leave_work", '
+                            '"arrive_home")\n',
+                tests=('tests/profile/test_extractor.py::test_null_work_anchors_keep_the_after_midnight_bedtime_normalised',)),
+ SourceMutation(name='out_of_order_work_anchor_fails_the_card',
+                symbol='worldmock.profile.extractor::_work_anchors',
+                original='    leave_work, arrive_home, problems = settle_work_anchors(\n'
+                         '        anchors.leave_home, anchors.bedtime, parsed["leave_work"], '
+                         'parsed["arrive_home"])\n',
+                replacement='    leave_work, arrive_home, problems = parsed["leave_work"], parsed["arrive_home"], '
+                            '()\n',
+                tests=('tests/profile/test_extractor.py::test_out_of_order_consensus_demotes_leave_work_then_arrive_home_and_still_compiles',)),
+ SourceMutation(name='persona_layer_drops_work_anchor',
+                symbol='worldmock.agents.life_persona::_card_fields',
+                original='"leave_work": _optional_window(anchors.leave_work)',
+                replacement='"leave_work": None',
+                tests=('tests/life/test_persona_layer.py::test_rhythm_lists_the_work_anchors_in_contract_order_and_null_when_absent',)),
+ SourceMutation(name='persona_layer_drops_arrive_home',
+                symbol='worldmock.agents.life_persona::_card_fields',
+                original='"arrive_home": _optional_window(anchors.arrive_home)',
+                replacement='"arrive_home": None',
+                tests=('tests/life/test_persona_layer.py::test_rhythm_lists_the_work_anchors_in_contract_order_and_null_when_absent',)),
+ SourceMutation(name='host_renders_work_schedule',
+                symbol='worldmock.agents.life_persona::persona_layer.layer',
+                original='        "preferences": [dict(item) for item in views["preferences"]],\n',
+                replacement='        "preferences": [dict(item) for item in views["preferences"]],\n'
+                            '        "work_schedule": profile.get("work_schedule"),\n',
+                tests=('tests/life/test_persona_layer.py::test_a_declared_work_schedule_is_not_rendered_in_the_persona_layer',)),
+ SourceMutation(name='scenario_work_windows_missing_from_plan_input',
+                symbol='worldmock.life.day_plan_inputs::_persona.fields',
+                original='"下班时段": _hours(config.leave_work_window),\n'
+                         '        "到家时段": _hours(config.arrive_home_window),',
+                replacement='"下班时段": None,\n        "到家时段": None,',
+                tests=('tests/integration/test_input_warnings.py::test_scenario_declared_work_windows_reach_the_card_the_persona_layer_and_the_plan_input',)),
+ SourceMutation(name='override_skips_null_card_slot',
+                symbol='worldmock.profile.injection::_window_overrides',
+                original='        if field not in declared:\n            continue\n',
+                replacement='        if field not in declared or getattr(anchors, slot) is None:\n'
+                            '            continue\n',
+                tests=('tests/integration/test_input_warnings.py::test_scenario_declared_work_windows_reach_the_card_the_persona_layer_and_the_plan_input',)),
+ SourceMutation(name='calendar_cross_check_skipped',
+                symbol='worldmock.life.load_checks::check_work_schedules.problems',
+                original='problems = [*_workplace_problems(scenario), *_calendar_problems(scenario)]',
+                replacement='problems = [*_workplace_problems(scenario)]',
+                tests=('tests/life/test_load_checks.py::test_work_schedule_must_agree_with_the_calendar_inside_the_window',)),
+ SourceMutation(name='scenario_structure_four_admitted',
+                symbol='worldmock.life.scenario::LifeScenario',
+                original='    schema_version: Literal[8]\n',
+                replacement='    schema_version: Literal[4, 8]\n',
+                tests=('tests/life/test_scenario.py::test_structure_eight_rejects_old_scenario_version',)),
+ SourceMutation(name='rest_day_inferred_from_weekday',
+                symbol='worldmock.life.work_schedule::shift_on',
+                original='return schedule.weekly[str(day.weekday())]',
+                replacement='return None if day.weekday() >= 5 else next(item for item in '
+                            'schedule.weekly.values() if item is not None)',
+                tests=('tests/life/test_work_schedule.py::test_rest_days_come_from_weekly_null_and_exception_null_and_an_exception_shift_overrides_weekly',)),
+ SourceMutation(name='exception_dates_ignored',
+                symbol='worldmock.life.work_schedule::shift_on',
+                original='if key in schedule.exceptions:',
+                replacement='if False:',
+                tests=('tests/life/test_work_schedule.py::test_rest_days_come_from_weekly_null_and_exception_null_and_an_exception_shift_overrides_weekly',)),
+ SourceMutation(name='break_shown_as_on_duty',
+                symbol='worldmock.life.work_schedule::duty_status',
+                original='if any(begin <= now < finish for begin, finish in break_spans(shift, day, zone)):',
+                replacement='if False:',
+                tests=('tests/life/test_work_schedule.py::test_duty_follows_the_clock_through_a_working_day',)),
+ SourceMutation(name='everyone_gets_a_shift',
+                symbol='worldmock.life.environment_layer::_duty.config',
+                original='if item.agent_id == context.agent_id)',
+                replacement='if item.work_schedule is not None)',
+                tests=('tests/life/test_work_schedule.py::test_people_without_a_schedule_have_no_duty_while_others_keep_theirs',)),
+ SourceMutation(name='duty_vanishes_after_plan_revision',
+                symbol='worldmock.life.environment_layer::environment_layer',
+                original='"duty": _duty(context)',
+                replacement='"duty": None if (context.state.agents[context.agent_id].day_plan\n'
+                            '                              and '
+                            'context.state.agents[context.agent_id].day_plan.goals) else _duty(context)',
+                tests=('tests/life/test_work_schedule.py::test_revising_the_day_plan_does_not_change_duty',)),
+ SourceMutation(name='duty_vanishes_after_topic_completion',
+                symbol='worldmock.life.environment_layer::environment_layer',
+                original='"duty": _duty(context)',
+                replacement='"duty": None if any(item.kind.value == "action" and item.status.value == "completed"\n'
+                            '                              and item.data.get("category") == "work_study"\n'
+                            '                              for item in context.state.activities.values()) '
+                            'else _duty(context)',
+                tests=('tests/life/test_work_schedule.py::test_duty_stays_on_duty_after_topic_completion',)),
+ SourceMutation(name='plan_input_carries_duty_status',
+                symbol='worldmock.life.work_schedule::day_arrangement',
+                original='"breaks": [_span_text(begin, finish) for begin, finish in shift.breaks]}',
+                replacement='"breaks": [_span_text(begin, finish) for begin, finish in shift.breaks], "status": '
+                            'STATUS_ON_DUTY}',
+                tests=('tests/life/test_day_planning.py::test_plan_input_carries_the_plan_dates_duty_arrangement_without_status',)),
+ SourceMutation(name='query_compaction_drops_false_and_zero',
+                symbol='worldmock.life.tool_groups::compact',
+                original='if item is not None and item != [] and item != {}',
+                replacement='if item and item != [] and item != {}',
+                tests=('tests/life/test_tool_interaction_runtime.py::'
+                       'test_compact_layer_preserves_false_zero_current_action_and_control_tools',)),
+ SourceMutation(name='query_app_filter_ignored',
+                symbol='worldmock.life.world_query::_matching_entries',
+                original='and (request.app is None or any(action["app"] == request.app for action in '
+                         'entry["match"]["actions"]))',
+                replacement='and True',
+                tests=('tests/life/test_world_query_filters.py::test_shopping_app_filters_the_real_goods_target_without_store_expansion',)),
+ SourceMutation(name='query_environment_branch_writes_world',
+                symbol='custom.envs.life_env::LifeEnv.read_query',
+                original='            return error.payload() if error else query_world(observed, request)\n',
+                replacement='            account = engine.context.state.agents[context.agent_id].balance_account_id\n'
+                            '            engine.context.state.accounts[account] += 1\n'
+                            '            return error.payload() if error else query_world(observed, request)\n',
+                tests=('tests/life/test_tool_interaction_runtime.py::'
+                       'test_read_queries_keep_actual_model_exchange_without_progress_events',)),
+ SourceMutation(name='query_new_keys_get_defaults',
+                symbol='worldmock.life.world_query::QueryWorldRequest',
+                original='    app: str | None\n    available_only: bool\n',
+                replacement='    app: str | None = None\n    available_only: bool = False\n',
+                tests=('tests/life/test_world_query.py::test_every_query_field_is_required',)),
+ SourceMutation(name='query_unknown_app_returns_empty_page',
+                symbol='worldmock.life.world_query::_filter_issues',
+                original='if app is not None and app not in _app_names(observation):',
+                replacement='if False:',
+                tests=('tests/life/test_world_query.py::test_unknown_app_and_store_names_have_the_exact_new_error_contract',)),
+ SourceMutation(name='available_filter_applied_after_paging',
+                symbol='worldmock.life.world_query::query_world',
+                original='    entries = _matching_entries(observation, request)\n'
+                         '    end = min(request.offset + observation["world_query_page_size"], len(entries))\n'
+                         '    return {"matches": [compact(entry["match"]) for entry in '
+                         'entries[request.offset:end]],',
+                replacement='    entries = _matching_entries(observation, '
+                            'request.model_copy(update={"available_only": False}))\n'
+                            '    end = min(request.offset + observation["world_query_page_size"], len(entries))\n'
+                            '    page = [entry for entry in entries[request.offset:end]\n'
+                            '            if not request.available_only or _executable(entry["match"], '
+                            '_query_ways(request.way))]\n'
+                            '    return {"matches": [compact(entry["match"]) for entry in page],',
+                tests=('tests/life/test_world_query_filters.py::test_available_only_is_specific_to_the_selected_app_and_way',)),
+ SourceMutation(name='available_judged_on_unmatched_way_actions',
+                symbol='worldmock.life.world_query::_executable',
+                original='if (ways is None or action["way"] in ways) and (app is None or action["app"] == app)',
+                replacement='if True',
+                tests=('tests/life/test_world_query_filters.py::test_available_only_is_specific_to_the_selected_app_and_way',)),
+ SourceMutation(name='available_without_way_ignores_tools',
+                symbol='worldmock.life.world_query::_executable',
+                original='    return any(row["available"] for row in (*match["actions"], *match["tools"]))\n',
+                replacement='    return any(row["available"] for row in match["actions"])\n',
+                tests=('tests/life/test_world_query_filters.py::test_available_only_is_specific_to_the_selected_app_and_way',)),
+ SourceMutation(name='query_total_count_before_filtering',
+                symbol='worldmock.life.world_query::query_world',
+                original='"total_count": len(entries),',
+                replacement='"total_count": len(observation["world_query_bindings"]),',
+                tests=('tests/life/test_world_query.py::'
+                       'test_complete_pages_are_sorted_disjoint_and_defensive_copies_of_real_frozen_targets',)),
+ SourceMutation(name='query_app_candidates_include_places',
+                symbol='worldmock.life.world_query::_app_issue',
+                original='chosen = close if close else names[:MAX_CANDIDATES]',
+                replacement='chosen = [entry["match"]["name"] for entry in observation["world_query_bindings"]\n'
+                            '              if entry["match"]["kind"] == "location"][:MAX_CANDIDATES]',
+                tests=('tests/life/test_world_query.py::test_unknown_app_and_store_names_have_the_exact_new_error_contract',)))
 
 #: 规格「源码变异必须覆盖」一段逐句（按原文顺序照抄）→ 所属阶段与杀死它的登记变异名；已完成阶段的每一句至少一个变异。
-SPEC_MUTATIONS: dict[str, dict[str, object]] = {
-    "反思接受自由文本": {"stage": "1", "mutations": ("reflection_accepts_free_text",
-                                                "reflection_accepts_another_tool")},
-    "跳过未知引用校验": {"stage": "1", "mutations": ("reflection_skips_unknown_reference_check",)},
-    "失败返回空列表": {"stage": "1", "mutations": ("reflection_failure_returns_an_empty_list",)},
-    "重试不设上限": {"stage": "1", "mutations": ("reflection_retries_without_a_bound",)},
-    "运行装配改回 AS2 原类": {"stage": "1", "mutations": ("assembly_proxy_reverts_to_the_as2_class",
-                                                    "assembly_service_proxy_reverts_to_the_as2_class",
-                                                    "assembly_actor_reverts_to_the_as2_class")},
-    "代理不等待远端结果": {"stage": "1", "mutations": ("proxy_returns_without_awaiting_the_remote_result",)},
-    "重复意图只报笼统错误": {"stage": "1", "mutations": ("plan_duplicates_report_only_a_generic_error",)},
-    "日志后吞掉异常": {"stage": "1", "mutations": ("decision_failure_swallowed_after_log",)},
-    "零点清空事务": {"stage": "2", "mutations": ("midnight_clears_errands",)},
-    "修订计划丢事务": {"stage": "2", "mutations": ("plan_revision_drops_errands",)},
-    "待办层不投影事务": {"stage": "2", "mutations": ("todo_layer_omits_errands",)},
-    "记忆层超窗或上下文浓缩时丢掉待办层事务": {"stage": "2", "mutations": ("condensation_drops_todo_errands",
-                                                                "memory_overflow_drops_todo_errands")},
-    "业务拒绝时事务变更照落": {"stage": "2", "mutations": ("errand_changes_applied_before_rejection",)},
-    "事务名近似时取第一个候选": {"stage": "2", "mutations": ("errand_name_takes_first_candidate",)},
-    "请求可把状态置为完成": {"stage": "2", "mutations": ("request_can_mark_errand_completed",)},
-    "把受理、未送达订单、活动开始、`progressed` 或自述当完成": {"stage": "2", "mutations": (
-        "accepted_event_counts_as_evidence", "pending_order_counts_as_obtained", "activity_start_counts_as_eaten",
-        "progressed_goal_counts_as_completion", "self_report_counts_as_completion")},
-    "把记下之前的证据（含同一提交内排在新增事件之前的）或记下前开始的进度区间计入": {"stage": "2", "mutations": (
-        "holdings_at_noting_count_as_obtained", "evidence_before_noting_event_counts",
-        "interval_begun_before_noting_counts")},
-    "当面给予不计入取得": {"stage": "2", "mutations": ("gift_is_not_obtained",)},
-    "按事件人物字段而非收货人判归属": {"stage": "2", "mutations": ("ownership_follows_event_agent",)},
-    "读取逐项结果里的重复订单": {"stage": "2", "mutations": ("nested_results_orders_counted",)},
-    "一次提交结算两次": {"stage": "2", "mutations": ("round_commit_settles_twice", "advance_commit_settles_twice")},
-    "检查点漏存事务": {"stage": "2", "mutations": ("checkpoint_omits_errands",)},
-    "取消后仍提醒": {"stage": "2", "mutations": ("cancelled_errand_stays_armed",)},
-    "提醒即置完成": {"stage": "2", "mutations": ("reminder_completes_errand",)},
-    "提醒叫醒睡眠": {"stage": "2", "mutations": ("errand_reminder_wakes_sleep",)},
-    "事务计入在手承诺": {"stage": "2", "mutations": ("open_errands_are_commitments",)},
-    "新唤醒原因漏登足迹词表": {"stage": "2", "mutations": ("errand_wake_reason_missing_from_vocabulary",)},
-    "提醒与办成事件写成系统可见": {"stage": "2", "mutations": ("errand_agent_events_written_as_system",)},
-    "结算事件沿用证据事件的决策身份": {"stage": "2", "mutations": ("settlement_event_inherits_evidence_identity",)},
-    "事务文字写进进度层参数或 `self_notes`": {"stage": "2", "mutations": ("progress_arguments_carry_errands",
-                                                                     "self_notes_carry_errand_text")},
-    "进度层请求参数带出个人事务": {"stage": "2", "mutations": ("control_projection_carries_errands",)},
-    "事务指标以目标数为分母": {"stage": "2", "mutations": ("errand_metrics_use_goal_denominator",)},
-    "版本 8 检查点被放行": {"stage": "2", "mutations": ("version_8_world_state_accepted",
-                                                  )},
-    "抽取或人设层投影丢掉故事写明的下班、到家锚点": {"stage": "3", "mutations": (
-        "extraction_drops_stated_work_anchor", "extraction_drops_stated_arrive_home",
-        "persona_layer_drops_work_anchor", "persona_layer_drops_arrive_home")},
-    "抽取对下班锚点取缺省": {"stage": "3", "mutations": ("leave_work_takes_a_default",)},
-    "新锚点并入回绕归一": {"stage": "3", "mutations": ("work_anchors_join_wraparound",)},
-    "乱序时整卡失败": {"stage": "3", "mutations": ("out_of_order_work_anchor_fails_the_card",)},
-    "场景声明的下班、到家窗口不进零点计划输入": {"stage": "3", "mutations": (
-        "scenario_work_windows_missing_from_plan_input",)},
-    "按星期推断休息日": {"stage": "3", "mutations": ("rest_day_inferred_from_weekday",)},
-    "所有人物套班次": {"stage": "3", "mutations": ("everyone_gets_a_shift",)},
-    "计划修订后 `duty` 消失": {"stage": "3", "mutations": ("duty_vanishes_after_plan_revision",)},
-    "休息时段显示为当班中": {"stage": "3", "mutations": ("break_shown_as_on_duty",)},
-    "忽略例外日期": {"stage": "3", "mutations": ("exception_dates_ignored",)},
-    "宿主在人设层重复渲染工作安排": {"stage": "3", "mutations": ("host_renders_work_schedule",)},
-    "忽略来源": {"stage": "4", "mutations": ("query_source_filter_ignored",)},
-    "来源解析另写一套": {"stage": "4", "mutations": ("query_source_resolved_by_plain_name_equality",)},
-    "「购买」不展开": {"stage": "4", "mutations": ("query_purchase_way_not_expanded",)},
-    "可执行筛选放到切页之后或在未命中方式的动作上判定": {"stage": "4", "mutations": (
-        "available_filter_applied_after_paging", "available_judged_on_unmatched_way_actions")},
-    "精简时按真假值丢掉 false 或零": {"stage": "4", "mutations": ("query_compaction_drops_false_and_zero",)},
-    "查询写世界": {"stage": "4", "mutations": ("query_environment_branch_writes_world",)},
-    "四键旧请求被受理": {"stage": "4", "mutations": ("query_new_keys_get_defaults",)},
-}
+SPEC_MUTATIONS: dict[str, dict[str, object]] = {'反思接受自由文本': {'stage': '1', 'mutations': ('reflection_accepts_free_text', 'reflection_accepts_another_tool')},
+ '跳过未知引用校验': {'stage': '1', 'mutations': ('reflection_skips_unknown_reference_check',)},
+ '失败返回空列表': {'stage': '1', 'mutations': ('reflection_failure_returns_an_empty_list',)},
+ '重试不设上限': {'stage': '1', 'mutations': ('reflection_retries_without_a_bound',)},
+ '运行装配改回 AS2 原类': {'stage': '1',
+                   'mutations': ('assembly_proxy_reverts_to_the_as2_class',
+                                 'assembly_service_proxy_reverts_to_the_as2_class',
+                                 'assembly_actor_reverts_to_the_as2_class')},
+ '代理不等待远端结果': {'stage': '1', 'mutations': ('proxy_returns_without_awaiting_the_remote_result',)},
+ '重复意图只报笼统错误': {'stage': '1', 'mutations': ('plan_duplicates_report_only_a_generic_error',)},
+ '日志后吞掉异常': {'stage': '1', 'mutations': ('decision_failure_swallowed_after_log',)},
+ '零点清空事务': {'stage': '2', 'mutations': ('midnight_clears_errands',)},
+ '修订计划丢事务': {'stage': '2', 'mutations': ('plan_revision_drops_errands',)},
+ '待办层不投影事务': {'stage': '2', 'mutations': ('todo_layer_omits_errands',)},
+ '记忆层超窗或上下文浓缩时丢掉待办层事务': {'stage': '2',
+                         'mutations': ('condensation_drops_todo_errands', 'memory_overflow_drops_todo_errands')},
+ '业务拒绝时事务变更照落': {'stage': '2', 'mutations': ('errand_changes_applied_before_rejection',)},
+ '事务名近似时取第一个候选': {'stage': '2', 'mutations': ('errand_name_takes_first_candidate',)},
+ '请求可把状态置为完成': {'stage': '2', 'mutations': ('request_can_mark_errand_completed',)},
+ '把受理、未送达订单、活动开始、`progressed` 或自述当完成': {'stage': '2',
+                                        'mutations': ('accepted_event_counts_as_evidence',
+                                                      'pending_order_counts_as_obtained',
+                                                      'progressed_goal_counts_as_completion',
+                                                      'self_report_counts_as_completion')},
+ '把同一提交内排在新增事件之前的收货证据计入': {'stage': '2', 'mutations': ('evidence_before_noting_event_counts',)},
+ '按付款人字段而非收货人判归属': {'stage': '2', 'mutations': ('ownership_follows_event_agent',)},
+ '一次提交结算两次': {'stage': '2', 'mutations': ('round_commit_settles_twice', 'advance_commit_settles_twice')},
+ '检查点漏存事务': {'stage': '2', 'mutations': ('checkpoint_omits_errands',)},
+ '取消后仍提醒': {'stage': '2', 'mutations': ('cancelled_errand_stays_armed',)},
+ '提醒即置完成': {'stage': '2', 'mutations': ('reminder_completes_errand',)},
+ '提醒叫醒睡眠': {'stage': '2', 'mutations': ('errand_reminder_wakes_sleep',)},
+ '事务计入在手承诺': {'stage': '2', 'mutations': ('open_errands_are_commitments',)},
+ '新唤醒原因漏登足迹词表': {'stage': '2', 'mutations': ('errand_wake_reason_missing_from_vocabulary',)},
+ '提醒与办成事件写成系统可见': {'stage': '2', 'mutations': ('errand_agent_events_written_as_system',)},
+ '结算事件沿用证据事件的决策身份': {'stage': '2', 'mutations': ('settlement_event_inherits_evidence_identity',)},
+ '事务文字写进进度层参数或 `self_notes`': {'stage': '2',
+                               'mutations': ('progress_arguments_carry_errands', 'self_notes_carry_errand_text')},
+ '进度层请求参数带出个人事务': {'stage': '2', 'mutations': ('control_projection_carries_errands',)},
+ '事务指标以目标数为分母': {'stage': '2', 'mutations': ('errand_metrics_use_goal_denominator',)},
+ '版本 8 检查点被放行': {'stage': '2', 'mutations': ('version_8_world_state_accepted',)},
+ '抽取或人设层投影丢掉故事写明的下班、到家锚点': {'stage': '3',
+                            'mutations': ('extraction_drops_stated_work_anchor',
+                                          'extraction_drops_stated_arrive_home',
+                                          'persona_layer_drops_work_anchor',
+                                          'persona_layer_drops_arrive_home')},
+ '抽取对下班锚点取缺省': {'stage': '3', 'mutations': ('leave_work_takes_a_default',)},
+ '新锚点并入回绕归一': {'stage': '3', 'mutations': ('work_anchors_join_wraparound',)},
+ '乱序时整卡失败': {'stage': '3', 'mutations': ('out_of_order_work_anchor_fails_the_card',)},
+ '场景声明的下班、到家窗口不进零点计划输入': {'stage': '3', 'mutations': ('scenario_work_windows_missing_from_plan_input',)},
+ '按星期推断休息日': {'stage': '3', 'mutations': ('rest_day_inferred_from_weekday',)},
+ '所有人物套班次': {'stage': '3', 'mutations': ('everyone_gets_a_shift',)},
+ '计划修订后 `duty` 消失': {'stage': '3', 'mutations': ('duty_vanishes_after_plan_revision',)},
+ '休息时段显示为当班中': {'stage': '3', 'mutations': ('break_shown_as_on_duty',)},
+ '忽略例外日期': {'stage': '3', 'mutations': ('exception_dates_ignored',)},
+ '宿主在人设层重复渲染工作安排': {'stage': '3', 'mutations': ('host_renders_work_schedule',)},
+ '忽略应用筛选': {'stage': '4', 'mutations': ('query_app_filter_ignored',)},
+ '可执行筛选放到切页之后或在未命中方式的动作上判定': {'stage': '4',
+                              'mutations': ('available_filter_applied_after_paging',
+                                            'available_judged_on_unmatched_way_actions')},
+ '精简时按真假值丢掉 false 或零': {'stage': '4', 'mutations': ('query_compaction_drops_false_and_zero',)},
+ '查询写世界': {'stage': '4', 'mutations': ('query_environment_branch_writes_world',)},
+ '四键旧请求被受理': {'stage': '4', 'mutations': ('query_new_keys_get_defaults',)}}
 
 #: 不对应规格「源码变异必须覆盖」一段任何一句的登记变异：变异名 → 出处（实施计划各阶段的「突变审查的目标」，或阶段复审
 #: 按规格正文条款补登的变异）。
-EXTRA_MUTATIONS: dict[str, str] = {
-    "tool_dispatch_failure_loses_stage_code": "实施计划阶段 1「突变审查的目标」故障传播：工具分发失败不再按失败阶段码 "
-                                              "TOOL_SERVICE_FAILED 抛出（改为把原异常直接上抛）。",
-    "plan_duplicates_locate_only_later_entries": "实施计划阶段 1「突变审查的目标」计划重复意图：只定位后一条（重复意图的首次"
-                                                 "出现不再报告）。",
-    "plan_over_capacity_returns_before_duplicates": "实施计划阶段 1「突变审查的目标」计划重复意图：超限提前返回而不与重复意图"
-                                                    "同批报告。",
-    "actor_answers_without_the_environment": "实施计划阶段 1「突变审查的目标」只读转发：actor 不把查询交给环境（只能由主进程内"
-                                             "直接调用 actor 的用例杀死）。",
-    "actor_class_allows_concurrent_calls": "实施计划阶段 1「突变审查的目标」只读转发：max_concurrency=1 改为 2（杀手为捕获 "
-                                           "ray.remote 参数的用例）。",
-    "reflection_count_bound_widened": "实施计划阶段 1「突变审查的目标」严格反思：条数上限放宽（六条洞见被接受）。",
-    "reflection_text_validation_skipped": "实施计划阶段 1「突变审查的目标」严格反思：正文文字校验不执行（超过一千字符或含"
-                                          "条目身份的洞见被接受）。",
-    "reflection_retry_bound_zero": "实施计划阶段 1「突变审查的目标」严格反思：重试上限改为 0（第一次不合合同即运行故障）。",
-    "reflection_correction_accumulates_messages": "实施计划阶段 1「突变审查的目标」严格反思：附回消息逐次累积而不基于原始"
-                                                  "消息。",
-    "items_without_errands_accepted": "实施计划阶段 2「突变审查的目标」：带 items 缺 `errands` 的请求被放行（control_items "
-                                      "去掉请求级 errands 的必有检查）。",
-    "duplicates_judged_before_cancels": "实施计划阶段 2「突变审查的目标」：同一请求不先扣除取消就判重名与上限（新增与"
-                                        "扣除本请求取消之前的全部未完成事务比较）。",
-    "replayed_result_counts": "实施计划阶段 2「突变审查的目标」：把重放结果计数（读动作结果的证据时不看 reused）。",
-    "condensation_drops_completion_line": "实施计划阶段 2「突变审查的目标」：浓缩后丢掉 `errand_completed` 的句子"
-                                          "（record_lines 对办成记录返回空）。",
-    "sleeper_reminder_time_is_a_boundary": "实施计划阶段 2「突变审查的目标」：睡眠人物的提醒时刻进入边界候选"
-                                           "（boundary_times 去掉睡眠过滤）。",
-    "reminder_recorded_without_delivery": "实施计划阶段 2「突变审查的目标」：提醒在睡眠中记账（不看唤醒判定，给每个人物"
-                                          "交付到点的事务提醒）。",
-    "simultaneous_reminders_write_one_event": "实施计划阶段 2「突变审查的目标」：同刻多条只写一条提醒事件"
-                                              "（deliver_reminders 只留第一条草稿）。",
-    "system_layer_copy_diverges": "实施计划阶段 2「突变审查的目标」：系统层两份手写副本不一致（life_prompt.py 第 6 条改掉"
-                                  "一个分句，接口合同「请求组成」的登记不跟随）。",
-    "control_projection_trims_first_item_only": "实施计划阶段 2「突变审查的目标」：进度层只过滤首项（control_request 让"
-                                                "第二项起带出 views）。",
-    "errand_named_twice_accepted": "规格 2.2「同一条未完成事务在一次请求里至多被一条更新或取消点名」与 2.3 表第 1 行（阶段 2 "
-                                   "复审补登）：同一事务被第二条更新或取消点名时不再判出。",
-    "added_twins_with_one_product_accepted": "规格 2.3 表第 4 行「结果种类与商品都与…同请求另一条新增相同」（阶段 2 复审"
-                                             "补登）：同一请求两条新增的结果种类与商品相同时不再判出。",
-    "override_skips_null_card_slot": "实施计划阶段 3「突变审查的目标」：覆盖函数对 null 槽跳过场景值（卡片下班、到家槽为 "
-                                     "null 时场景声明的窗口不再落下）。",
-    "calendar_cross_check_skipped": "实施计划阶段 3「突变审查的目标」：加载时不做日历交叉核对（check_work_schedules 只查"
-                                    "工作地点）。",
-    "scenario_structure_four_admitted": "实施计划阶段 3「突变审查的目标」：场景结构 4 被放行（瘦身场景文档的 schema_version "
-                                        "接受 4）。",
-    "plan_input_carries_duty_status": "实施计划阶段 3「突变审查的目标」：零点计划输入带上 `status`（day_arrangement 的"
-                                      "当班日形状多出 status 键）。",
-    "duty_vanishes_after_topic_completion": "实施计划阶段 3「突变审查的目标」：主题完成之后 `duty` 变 null（环境层"
-                                           "在有任务付款结清后把 duty 投影成 null；同句的计划修订一半对应规格「计划"
-                                           "修订后 `duty` 消失」）。",
-    "unknown_source_returns_an_empty_page": "实施计划阶段 4「突变审查的目标」「未知来源不报错而返回空页」：来源写法既不是"
-                                            "地点显示名也不是渠道称呼时不报 from 的参数错误，按空来源集合返回合法空页。",
-    "source_candidates_include_unpermitted_places": "实施计划阶段 4「突变审查的目标」「候选来源含无权限门店」：未知来源的"
-                                                    "候选取自全部地点，而不只取权限内有供给条目的门店。",
-    "available_without_way_ignores_tools": "实施计划阶段 4「突变审查的目标」「`way` 为 null 时不看工具的 `available`」："
-                                           "未写方式时只看动作，以该目标为参数的工具不再计入可执行。",
-    "query_total_count_before_filtering": "实施计划阶段 4「突变审查的目标」「`total_count` 取筛选前总数」：total_count 改取"
-                                          "全部冻结条目数，而不是全部筛选交集后的完整匹配数。",
-}
+EXTRA_MUTATIONS: dict[str, str] = {'tool_dispatch_failure_loses_stage_code': '实施计划阶段 1「突变审查的目标」故障传播：工具分发失败不再按失败阶段码 TOOL_SERVICE_FAILED '
+                                           '抛出（改为把原异常直接上抛）。',
+ 'plan_duplicates_locate_only_later_entries': '实施计划阶段 1「突变审查的目标」计划重复意图：只定位后一条（重复意图的首次出现不再报告）。',
+ 'plan_over_capacity_returns_before_duplicates': '实施计划阶段 1「突变审查的目标」计划重复意图：超限提前返回而不与重复意图同批报告。',
+ 'actor_answers_without_the_environment': '实施计划阶段 1「突变审查的目标」只读转发：actor 不把查询交给环境（只能由主进程内直接调用 actor 的用例杀死）。',
+ 'actor_class_allows_concurrent_calls': '实施计划阶段 1「突变审查的目标」只读转发：max_concurrency=1 改为 2（杀手为捕获 ray.remote 参数的用例）。',
+ 'reflection_count_bound_widened': '实施计划阶段 1「突变审查的目标」严格反思：条数上限放宽（六条洞见被接受）。',
+ 'reflection_text_validation_skipped': '实施计划阶段 1「突变审查的目标」严格反思：正文文字校验不执行（超过一千字符或含条目身份的洞见被接受）。',
+ 'reflection_retry_bound_zero': '实施计划阶段 1「突变审查的目标」严格反思：重试上限改为 0（第一次不合合同即运行故障）。',
+ 'reflection_correction_accumulates_messages': '实施计划阶段 1「突变审查的目标」严格反思：附回消息逐次累积而不基于原始消息。',
+ 'items_without_errands_accepted': '实施计划阶段 2「突变审查的目标」：带 items 缺 `errands` 的请求被放行（control_items 去掉请求级 errands '
+                                   '的必有检查）。',
+ 'duplicates_judged_before_cancels': '实施计划阶段 2「突变审查的目标」：同一请求不先扣除取消就判重名与上限（新增与扣除本请求取消之前的全部未完成事务比较）。',
+ 'condensation_drops_completion_line': '实施计划阶段 2「突变审查的目标」：浓缩后丢掉 `errand_completed` 的句子（record_lines 对办成记录返回空）。',
+ 'sleeper_reminder_time_is_a_boundary': '实施计划阶段 2「突变审查的目标」：睡眠人物的提醒时刻进入边界候选（boundary_times 去掉睡眠过滤）。',
+ 'reminder_recorded_without_delivery': '实施计划阶段 2「突变审查的目标」：提醒在睡眠中记账（不看唤醒判定，给每个人物交付到点的事务提醒）。',
+ 'simultaneous_reminders_write_one_event': '实施计划阶段 2「突变审查的目标」：同刻多条只写一条提醒事件（deliver_reminders 只留第一条草稿）。',
+ 'system_layer_copy_diverges': '实施计划阶段 2「突变审查的目标」：系统层两份手写副本不一致（life_prompt.py 第 6 条改掉一个分句，接口合同「请求组成」的登记不跟随）。',
+ 'control_projection_trims_first_item_only': '实施计划阶段 2「突变审查的目标」：进度层只过滤首项（control_request 让第二项起带出 views）。',
+ 'errand_named_twice_accepted': '规格 2.2「同一条未完成事务在一次请求里至多被一条更新或取消点名」与 2.3 表第 1 行（阶段 2 复审补登）：同一事务被第二条更新或取消点名时不再判出。',
+ 'added_twins_with_one_product_accepted': '规格 2.3 表第 4 行「结果种类与商品都与…同请求另一条新增相同」（阶段 2 '
+                                          '复审补登）：同一请求两条新增的结果种类与商品相同时不再判出。',
+ 'override_skips_null_card_slot': '实施计划阶段 3「突变审查的目标」：覆盖函数对 null 槽跳过场景值（卡片下班、到家槽为 null 时场景声明的窗口不再落下）。',
+ 'calendar_cross_check_skipped': '实施计划阶段 3「突变审查的目标」：加载时不做日历交叉核对（check_work_schedules 只查工作地点）。',
+ 'scenario_structure_four_admitted': '实施计划阶段 3「突变审查的目标」：场景结构 4 被放行（瘦身场景文档的 schema_version 接受 4）。',
+ 'plan_input_carries_duty_status': '实施计划阶段 3「突变审查的目标」：零点计划输入带上 `status`（day_arrangement 的当班日形状多出 status 键）。',
+ 'duty_vanishes_after_topic_completion': '实施计划阶段 3「突变审查的目标」：主题完成之后 `duty` 变 null（环境层在有任务付款结清后把 duty 投影成 '
+                                         'null；同句的计划修订一半对应规格「计划修订后 `duty` 消失」）。',
+ 'query_unknown_app_returns_empty_page': '当前查询的未知应用必须报告 app 参数错误，不能返回合法空页。',
+ 'available_without_way_ignores_tools': '实施计划阶段 4「突变审查的目标」「`way` 为 null 时不看工具的 '
+                                        '`available`」：未写方式时只看动作，以该目标为参数的工具不再计入可执行。',
+ 'query_total_count_before_filtering': '实施计划阶段 4「突变审查的目标」「`total_count` 取筛选前总数」：total_count '
+                                       '改取全部冻结条目数，而不是全部筛选交集后的完整匹配数。',
+ 'query_app_candidates_include_places': '当前查询的 app 纠错候选只能来自登记应用，不能出现地点。'}
 
 #: 本特性新增或改动的生产文件（延期标记与空壳函数的扫描范围），随各提交增长；阶段 1 的清单取自实施计划「台账形态」行。
 FEATURE_PRODUCTION_FILES: tuple[str, ...] = (

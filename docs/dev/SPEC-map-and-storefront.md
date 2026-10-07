@@ -1,6 +1,8 @@
 <a name="spec-map-and-storefront-地图数据集合与门店供给开发规格"></a>
 # 地图数据集合与门店供给开发规格
 
+> 按[动作与内容简化规格](SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界、收货结算」（阶段 1、2）。
+
 > 引用出处：`tests/life/test_map_dataset.py::test_old_map_structure_version_is_rejected` @ `55e6a0f4c6ed6a015e334b01513767eefc227880`
 
 > 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「裁决原文的定义出处」（阶段 1）；该出处只定位原始定义，不证明历史执行；「产品行为与边界」、「冻结输入与身份」、「记录、恢复与交付」（阶段 2）；「按地点类别生成完整供给、冻结价格范围与门店差价、地点发现与候选呈现、整单购买与履约、按名调用与指名购买、统一名称解析、指名购买：`from` 是约束，不是语法、购买渠道：App 名解析为成员门店、名称类拒绝不计同刻轮数、更简单的购买请求（裁决 S10）、地点供给和价格、类别准入与逐店商品集合、范围内定价、验收台账、文件修改范围、版本表、营业、报价与访问条件」（阶段 3）。
@@ -43,27 +45,18 @@ WorldMock 拥有生成器、固定规则和运行行为，Dataset 拥有对象�
 <a name="spec-map-and-storefront-冻结输入与身份"></a>
 ## 冻结输入与身份
 
-| 输入 | 冻结合同 |
-| --- | --- |
-| 环境目录 | `manifest.json` 登记七个 JSON 文件、包资源副本和 `rules_version`，文件字节与摘要一致 |
-| 地点 | 每行恰为 `location_id`、`name`、`branch_label`、`kind`、`app_ids`；八个固定地点类型，不含坐标、营业或资格字段 |
-| 图 | `map.json` 结构 `1`，含整数种子、生成规则版本 `1`、排序节点和规范边；边长为正整数米，图连通 |
-| 食品与菜单 | 食品定义价格与类别，`store_ids` 明确绑定店铺或写 `"all"`；同种店铺类型菜单相同，店铺 app 绑定只允许食品店铺 |
-| 场景 | 结构 `7`，`environment` 钉清单，`locations[]` 只选择地点身份 |
-| 运行与检查点 | 世界结构 `10`、运行清单 `3`，使用同一五字段 `environment_identity` |
+现行身份是目录格式 2、`RULES_VERSION = 2`、场景结构 8、世界结构 11、运行清单 4。
+运行、检查点与恢复使用五字段 `environment_identity`：`environment_id`、`environment_version`、
+`rules_version`、`catalog_content_sha256`、`map_sha256`。
+规则文件只从引擎包读取，环境不发布副本，也不添加规则哈希；`code_sha256` 额外覆盖 `src/worldmock/data/` 下每个文件。
+旧格式与旧结构号直接拒绝，不迁移、不双读。
 
-`environment_identity` 包含 `environment_id`、`environment_version`、`rules_version`、`catalog_content_sha256`、`map_sha256`。目录内容变化发布新环境版本，规则变化升包 `RULES_VERSION`；不能覆盖已发布版本的内容。
-图由 WorldMock 根据全目录地点与种子生成，Dataset 保存规范 JSON 与 LF 字节并发布。运行只读图；生成检查和环境校验另重生成比对。
-加载拒绝少于两个节点、非法边与不连通图，分别报 `MAP_TOO_SMALL`、`MAP_EDGE_INVALID`、`MAP_DISCONNECTED`；重生成失配报 `MAP_NOT_REGENERATED`。没有道路资料未知或不可达状态。
-场景选择不裁切图，最短路可经过其他目录节点；Dijkstra 等长时以完整路径元组字典序决胜，不依赖边插入次序。
+地图结构 1，生成器规则版本 1；地图种子与场景种子独立。环境发布图，WorldMock 重生成比对并只读使用。
 
 <a name="spec-map-and-storefront-按地点类别生成完整供给"></a>
 ## 按地点类别生成完整供给
 
-食品在 `foods.json` 定义 `food_id`、名称、`category`、固定 `price_fen` 与店铺绑定。类别只有 `snack`、`drink`、`meal`，同一食品全店同价，同类型食品店铺菜单完全相同。
-`store_ids="all"` 只展开到食品店铺类型，住宅不出售食品；目录一次派生 `foods_by_store` 与店铺 app 索引。没有报价、价位、抖动、库存、营业或资格。
-
-菜单不是逐店抽样：一种店铺类型的食品绑定必须全有或全无，部分绑定由登记拒绝；没有丰富度阈值或每店价格定位。
+菜单由 `goods.json` 的商品绑定及 `GOODS_CATEGORY_STORE_KINDS` 固定供给表得到。餐馆供正餐、饮品、零食，咖啡馆供饮品、零食，便利店与超市供全部五类。类型不可供给的类别不能绑定，`store_ids="all"` 只展开到可供给该类别的店铺，同类型店铺同菜单。商品全店同价，店铺全天服务。
 
 <a name="spec-map-and-storefront-冻结价格范围与门店差价"></a>
 ## 固定食品价格
@@ -92,15 +85,14 @@ WorldMock 拥有生成器、固定规则和运行行为，Dataset 拥有对象�
 <a name="spec-map-and-storefront-整单购买与履约"></a>
 ## 整单购买与履约
 
-`from` 只接受 `null`、登记店铺显示名或 `apps.json` 的 app 名，来源与购买共用同一名称解析；`null` 不额外限制，食品完整标签仍约束标签店铺。
-到店必须人在店内，`app_id=null`；app 配到店以 `SUPPLY_SOURCE_MISMATCH` 拒绝。远程下单要求店铺绑定 app；没有任何 app 是 `FULFILLMENT_NOT_SUPPORTED`，所点 app 未绑定该店是 `APP_NOT_BOUND`，app 的店不卖该食品是 `SUPPLY_NOT_AT_STORE`。
-`from=null` 且店铺绑定多个 app 时取最小 `app_id`，写进 `details.notes`。app 来源从目录绑定派生，不读取手机配置。
+供给、余额与 app 绑定完成整组校验之后才扣款并写订单；任何一项拒绝不产生购买副作用。每单一笔转账，订单记录实际支付 app 和收货时刻。
 
-订单行以 `(store_id, food_id)` 标识，重复项以 `ORDER_DUPLICATE_ITEM` 拒绝；同单同店、同卖方、同履约与同收货地点。每单仅一笔人物到 `merchant:<store_id>` 的转账，金额为固定食品单价乘份数再加一次配送费。
-到店即时交付；外卖每单配送费固定 `500` 分，预计时刻为 `now + 600 + ceil(最短距离 / 5.0)`。每单仅一个 `delivery_arrival`，重复结算不重复交付。
-本人收货地点是当前停留地点，路途中自送或与出发同请求自送以 `ACTIVITY_PRECONDITION_UNMET` 拒绝，`unmet=delivery_destination`；给他人按真实收货地点。人物离开后仍送到订单地点，食品归收货人在当地持有。
+订单 `DeliveryState` 保留订单身份、付款人 `agent_id`、店铺、购物 app、卖方账户、件数、单价、配送费、总价、收货地、履约方式、收货人、关联消息、创建与预计时刻、路径和配送行程；商品用 `goods_id` 与 `category`，另有可空 `payment_app_id`、可空 `received_at`。状态只有 `pending`、`delivered`；pending 的 received_at 为 null，到店收货时等于 created_at。订单数量恒为 1。没有食品持有或联系人持有。
 
-校验先于整单扣款和订单写入，任一项拒绝不产生购买副作用；付款与取得分开留证，给予只转移食品持有，不增加摄入。
+连续身体变化由时钟推进先结算至收货秒；到店购买在当前同刻受理。到店受理与配送到期共用 `worldmock.life.receipt.settle_receipt`，该函数只施加本次瞬时商品效果并取走本次资源分录。函数同时将订单从 `pending` 改为 `delivered`、写 `received_at`、施加效果并取走本次资源分录。到店在付款的同一次提交内收货，配送在 `delivery_arrival` 当秒收货，不看收货人在哪里或是否睡着。
+食品的 `provided` 为类别热量乘件数，`applied` 为按当秒睡眠不足利用率与能量上限得到的实际能量增加，超出上限的部分丢失。休闲用品每行降低娱乐需要 0.10（下限 0），日常用品每行施加情绪脉冲 0.05。没有持有、食用时长、份额、丢弃或装备能力。
+本次食品 `food:intake` 分录与休闲用品 `goods:receipt` 分录在函数返回前立即取走，主体与时刻都是收货人和收货秒，缓冲为空；日常用品不写资源分录。状态变化与 `goods_received` 同一事务提交，事件的 `caused_by` 指向该提交中的真实购买结果或配送到期事件。
+已交付订单再次到期不写状态、效果或事件；重复动作返回已存结果。联系人没有身体，收货只改变订单状态与 `received_at`，不写 `goods_received`。配送保留付款人的到期事件与唤醒，清醒模拟收货人得到同一个到期原因，睡着的不唤醒；到店不唤醒任何人。
 
 <a name="spec-map-and-storefront-记录恢复与交付"></a>
 ## 记录、恢复与交付
@@ -109,9 +101,11 @@ WorldMock 拥有生成器、固定规则和运行行为，Dataset 拥有对象�
 出行活动保存 `trip_id`、`path`、`distance_meters`，付款保存 `travel_payment{trip_id, fare_fen, …}`，到达保存 `arrival{location_id, access_status}`；事件与公开路线证据使用同一 `trip_id`。
 图只给地点、路径与距离，记录不生成坐标或轨迹。查看器按运行内名称索引显示起点、终点与路径地点。
 
-运行清单和检查点绑定五字段 `environment_identity`；共同检查点封存订单、待配送、持有、呈现状态、内容进度和会话推送。恢复、打开与反事实分支在副作用前核对身份，差异拒绝，分支不改父运行。
-世界结构 `10` 不保存供给库存、报价、营业例外、资格或旧可见供给字段，旧世界与旧清单直接拒绝。记录结构和后续食品、app、导出消费者的交付按资源与规则引擎简化规格的所属阶段验收，不能以文档修订代替运行结果。
+运行清单和检查点绑定五字段 `environment_identity`；共同检查点封存订单、待收货订单、呈现状态、内容进度和会话推送。恢复、打开与反事实分支在副作用前核对身份，差异拒绝，分支不改父运行。
+世界结构 `11` 不保存供给库存、报价、营业例外、资格或旧可见供给字段，旧世界与旧清单直接拒绝。记录结构和后续食品、app、导出消费者的交付按资源与规则引擎简化规格的所属阶段验收，不能以文档修订代替运行结果。
 认证导出的冻结运行清单保留实际环境身份，交付链沿用固定截止、来源索引与原始证据认证。
+
+检查点的订单携带 goods_id、category、payment_app_id、received_at，不保存人物与联系人持有。
 
 <a name="dayrun-fidelity-按名调用与指名购买"></a>
 ## 按名调用与指名购买
@@ -148,7 +142,7 @@ WorldMock 拥有生成器、固定规则和运行行为，Dataset 拥有对象�
 3. **相似度永不自动替换**：先按方式确定对象类别，在同类中计算单字加二字的 Dice 相似度，由 `src/worldmock/life/name_resolution.py::near_candidates` 生成带可行性过滤的候选；
    多字名称须至少共用一个二字词，单字名称只接受同类相同单字；可行的在前，至多 3 个候选；每个候选写成完整的 `{tool, arguments, note}`（`note` 为英文说明或 `null`，例如 `Estimated duration: 20 minutes`）。
 4. **分工**：私有绑定和已冻结的地点表由宿主判定，重试不花钱（宿主协议错误不进引擎）；存在但没列出的对象（未呈现的供给、生活活动、内容，以及没有路线的地点）由环境判定。
-   按方式唯一推导的动词与对象类别由 `src/worldmock/life/name_resolution.py::named_kind` 判定。宿主
+   按方式唯一推导的动词与对象类别由 `src/worldmock/life/name_resolution.py::name_book` 判定。宿主
    `custom/agents/life_agent.py::LifeAgent._prepared_action_error` 与环境
    `src/worldmock/life/session_actions.py::ActionHandlers._start_outcome` 共用
    `src/worldmock/life/name_resolution.py::resolve_start` 校验名称；未呈现对象由
@@ -318,3 +312,5 @@ WC 18:15 的第 3 轮一用完，购买就在受限轮被关闭，原因写得�
 | `2026-10-06-rrs-rules` | 2026-10-07 | 仅登记已退役手机配置字段的精确历史定义出处，原始裁决正文逐字保留；其他源码引用仍按当前工作树核验 |
 | `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
+| `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |
+| `2026-10-07-acs-receipt` | 2026-10-07 | 付款与收货分别留证，收货由唯一函数恰好结算一次，效果与证据归收货人；个人事务七键，用餐目标按本人 meal 收货推进。 |

@@ -1004,8 +1004,8 @@ def copy_dict(value):
 
 
 
-def test_validate_persona_coverage_accepts_absolute_corpus_and_skips_plain_agents(tmp_path):
-    """绝对语料根可用；未声明背景故事的人物跳过（没有卡片，也没有内容与游戏，不产生输入警告）。"""
+def test_validate_persona_coverage_uses_registered_catalog_and_skips_plain_agents(tmp_path):
+    """真实登记目录可用；未声明背景故事的人物没有卡片，不产生画像报告与输入警告。"""
     from worldmock.life.world_setup import load_scenario
     from worldmock.validation import validate_persona_coverage
 
@@ -1013,23 +1013,25 @@ def test_validate_persona_coverage_accepts_absolute_corpus_and_skips_plain_agent
     scenario = source.model_copy(update={"agents": tuple(agent.model_copy(update={"background_story": None})
                                                           for agent in source.agents)})
     document = validate_persona_coverage(
-        SCENARIO, _scenario=scenario, _corpus_root=ENVIRONMENT_ROOT / "corpora",
+        SCENARIO, _scenario=scenario,
         coverage_out=tmp_path / "persona_coverage.json")
     assert document["agents"] == [] and document["input_warnings"] == []
     assert json.loads((tmp_path / "persona_coverage.json").read_text())["threshold"] == 0.8
 
 
-def test_persona_coverage_targets_read_real_registered_food_apps_and_content_kinds():
-    """@brief 画像覆盖直接取真实登记目录，食品、应用和媒介标签与运行一致。"""
-    from worldmock.exchange.types import CONTENT_KIND_LABELS
+def test_persona_coverage_targets_read_real_registered_goods_apps_and_action_names():
+    """@brief 画像覆盖直接取真实登记目录，食品、应用和动作名称与运行一致。"""
+    from worldmock.exchange.types import GoodsCategory
     from worldmock.profile.coverage_targets import build_coverage_targets
 
     semantics, _ = load_runtime_scenario(SCENARIO)
-    root = (SCENARIO.parent / semantics.scenario.corpus_root).resolve()
-    targets = build_coverage_targets(semantics.scenario, semantics.catalog, root)
-    assert targets.food_kinds == tuple(sorted(food.name for food in semantics.catalog.foods.values()))
+    targets = build_coverage_targets(semantics.scenario, semantics.catalog)
+    assert targets.food_kinds == tuple(sorted(goods.name for goods in semantics.catalog.goods.values()
+                                              if goods.category in {GoodsCategory.MEAL, GoodsCategory.SNACK, GoodsCategory.DRINK}))
     assert targets.app_names == tuple(sorted(app.name for app in semantics.catalog.apps.values()))
-    assert targets.media_kinds == tuple(CONTENT_KIND_LABELS.values())
+    assert targets.action_names == tuple(sorted(action.name for action in semantics.catalog.actions.values()))
+    assert "media_kinds" not in type(targets).model_fields
+    assert set(targets.action_names) <= set(targets.habit_response_keywords)
     assert set(place.display_name for place in semantics.catalog.locations.values()) <= set(targets.habit_response_keywords)
 
 

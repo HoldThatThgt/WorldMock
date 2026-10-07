@@ -53,6 +53,7 @@ def _agent(agent_id: int = 1, **rhythm) -> AgentConfig:
     return AgentConfig.model_validate({
         "agent_id": agent_id, "name": "林悦", "trait_source_kind": "experiment_assumption",
         "home_location_id": "home", "initial_balance_fen": 0,
+        "owns_car": False, "initial_driving_days": 0,
         "interaction_menu": None, "work_schedule": None, **rhythm})
 
 
@@ -70,16 +71,16 @@ def test_the_warning_code_set_is_the_closed_six() -> None:
 
 def test_empty_content_warns_for_media_and_habits_only() -> None:
     """@brief 无应用绑定内容时，媒体与习惯发警告，散文题材不参与。"""
-    empty = SimpleNamespace(contents_by_app={"美团": ()})
+    empty = SimpleNamespace(contents={})
     habit = HabitSignature(trigger="听完以后", response="提醒自己早点睡", time_window=make_window(22.0, 24.0))
     card = make_card(habits=(habit,), tastes=Tastes(content_genres=("悬疑",), food_preferences=(),
                                                  media=("短视频", "钉钉")))
     warnings = content_empty_warnings(5, card, empty)
     assert _codes(warnings) == ["CONTENT_EMPTY_WITH_MEDIA_TASTES"]
-    assert warnings[0]["details"] == {"media": ["短视频"], "habits": ["提醒自己早点睡"]}
-    assert content_empty_warnings(5, card, SimpleNamespace(contents_by_app={"抖音": ("content",)})) == []
+    assert warnings[0]["details"] == {"media": ["短视频", "钉钉"], "habits": ["提醒自己早点睡"]}
+    assert content_empty_warnings(5, card, SimpleNamespace(contents={"content": SimpleNamespace(app_ids=("douyin",))})) == []
     quiet = make_card(habits=(), tastes=Tastes(content_genres=("悬疑",), food_preferences=(), media=("钉钉",)))
-    assert content_empty_warnings(5, quiet, empty) == []
+    assert content_empty_warnings(5, quiet, empty)[0]["details"] == {"media": ["钉钉"], "habits": []}
     assert content_empty_warnings(5, None, empty) == []
 
 
@@ -99,7 +100,23 @@ def test_coverage_below_threshold_reuses_the_validate_report() -> None:
         "missing": [{"kind": "habit_response", "value": "听播客两集"},
                     {"kind": "media", "value": "播客"}]}
     assert coverage_warnings(3, validate_coverage(make_card(habits=()), CoverageTargets(
-        food_kinds=("川菜", "面食"), media_kinds=("长视频", "短视频")))) == []
+        food_kinds=("川菜", "面食"), action_names=("看长视频", "刷短视频")))) == []
+
+
+@pytest.mark.parametrize("medium", ["音乐", "播客", "游戏", "任意媒体偏好"])
+def test_every_declared_media_preference_warns_when_no_content_is_bound(medium):
+    """@brief 口味声明本身就是媒体偏好，不由标签或动词词表筛掉。"""
+    card = make_card(habits=(), tastes=Tastes(content_genres=(), food_preferences=(), media=(medium,)))
+    warnings = content_empty_warnings(1, card, SimpleNamespace(contents={}))
+    assert _codes(warnings) == ["CONTENT_EMPTY_WITH_MEDIA_TASTES"]
+    assert warnings[0]["details"] == {"media": [medium], "habits": []}
+
+
+def test_content_empty_warning_does_not_infer_media_from_other_prose():
+    """@brief 没有媒体偏好或媒体动词的习惯时，散文题材与日常习惯不触发缺内容警告。"""
+    habit = HabitSignature(trigger="睡前", response="安静休息", time_window=make_window(22.0, 24.0))
+    card = make_card(habits=(habit,), tastes=Tastes(content_genres=("任意题材",), food_preferences=(), media=()))
+    assert content_empty_warnings(1, card, SimpleNamespace(contents={})) == []
 
 
 def test_persona_compiler_agreement_warnings_are_passed_through() -> None:

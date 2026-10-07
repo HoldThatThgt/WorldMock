@@ -617,6 +617,7 @@ def _levels_after(body: BodyState, config, clock: BoundaryClock, seconds: int) -
     """清醒等待 seconds 秒后按真实共同结算得到的体感分级（与观察同一投影）。"""
     after = settle_shared_body(body, ((ActivityKind.WAIT, ActivityFactors(1.0)),), seconds, config).after
     person = AgentState(agent_id=1, name="作息", location_id="home", balance_account_id="agent:1",
+                        driving_days=0, last_driving_date=None,
                         body=after, body_settled_at=0, next_decision_at=0)
     return projection.body_projection(person, (clock.hour_of_day + seconds / 3600) % 24, config)["levels"]
 

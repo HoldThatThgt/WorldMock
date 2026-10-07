@@ -133,7 +133,7 @@ async def test_errand_changes_write_no_memory_and_stay_out_of_self_notes_and_pro
     请求的记忆层里，在家这段停留的条目 self_notes 写着收尾与暂停的自述和收尾记忆，却没有事务的名称、备注与原因；新
     session 的进度层只有到达时收尾的调用（回执是空列表），也没有事务的文字；事务只在待办层（更新后的那条）。整个过程只有
     那次收尾是记忆写入点，AS2 记忆库里只有那条收尾记忆。"""
-    engine = single_person_home(engine_factory, {})
+    engine = single_person_home(engine_factory)
     environment = _environment(engine)
     assert act(engine, "wait", routed(WAIT_ITEM)).status == "in_progress"
     wake_by_mail(engine, offset=60)
@@ -223,7 +223,7 @@ async def test_the_next_action_request_shows_the_errand_in_the_todo_layer_withou
     assert act(engine, "wait", routed(WAIT_ITEM)).status == "in_progress"
     wake_by_mail(engine, offset=60)
     advance_next(engine)
-    snack = errand_add("明早先吃的那份薯片", SNACK_NAME, outcome="吃掉", memo="起床后记得吃", remind_time="07:30")
+    snack = errand_add("明早先吃的那份薯片", SNACK_NAME, memo="起床后记得吃", remind_time="07:30")
     model = _ScriptedModel([
         _call("call-note", "report_status", lambda request: {"items": [{
             "activity_name": _activity(request, "进行中"), "summary": "再等一会儿就去睡。"}], "errands": [snack]}),
@@ -247,8 +247,8 @@ async def test_the_next_action_request_shows_the_errand_in_the_todo_layer_withou
     assert [message["role"] for message in messages] == ["system", "user"]
     layers = json.loads(messages[1]["content"])
     assert layers[4]["observed_at"].startswith("2026-01-06")
-    assert layers[3]["errands"] == [{"name": "明早先吃的那份薯片", "done_when": f"吃掉{SNACK_NAME} 1 份",
-                                     "progress": "已吃掉 0 份", "memo": "起床后记得吃", "remind_time": "07:30",
+    assert layers[3]["errands"] == [{"name": "明早先吃的那份薯片", "done_when": f"取得{SNACK_NAME} 1 份",
+                                     "progress": "已取得 0 份", "memo": "起床后记得吃", "remind_time": "07:30",
                                      "noted_on": "2026-01-05"}]
     offered = [tool["function"]["name"] for tool in requested.data["request"]["tools"]]
     assert {"memory_recent", "memory_search", "memory_time_range"} <= set(offered)

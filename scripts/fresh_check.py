@@ -23,7 +23,7 @@ QUICK_TESTS = (
     "tests/test_shared_primitives.py", "tests/test_shared_model_clients.py",
     "tests/evaluation/test_shared_event_parsing.py", "tests/test_shared_rules_spec.py",
     "tests/test_environment_profiles.py", "tests/as2", "tests/integration/test_external_environment_lifecycle.py",
-    "tests/life/test_environment_effects.py", "tests/catalog/test_loader.py",
+    "tests/life/test_action_run.py", "tests/catalog/test_loader.py",
     "tests/life/test_app_progress.py", "tests/life/test_app_push.py",
 )
 

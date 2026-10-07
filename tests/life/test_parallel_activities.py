@@ -6,39 +6,25 @@ from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (advance_next, conclude_request, context, pending_names, stage_day_plan, start_activity,
                                  start_request, report_request)
+from tests.life.test_location_sessions import _pick
 from worldmock.life.activity_control import PHASE_ACTIVE
 
-def _met(note: str | None) -> bool:
-    """@brief 动作说明里没有未满足的条件：说明为空，或内容对象只写了时长（「全长…」「还剩…」，第五章）。"""
-    return note is None or note.startswith(("全长", "还剩"))
-
-
-def _choice(observation: dict, action: str, taken: frozenset[str] = frozenset()) -> tuple[dict, dict]:
-    """@brief 从真实观察中取一个条件已满足的对象行与所选动作（内部标准动作为 action，出行只取步行）；
-    taken 中的对象不再取（同一动作选两次时取两个不同对象）。"""
-    return next((row, choice)
-                for row in observation["interaction_bindings"] if row["object_id"] not in taken
-                for choice in row["actions"] if choice["canonical_action"] == action and _met(choice["note"])
-                and (action != "travel_to" or choice["travel_mode"] == "walking"))
-
-
-def _start_pair_with_choices(engine, first: str, second: str, round_id: str):
-    """@brief 在同一冻结观察中逐对象选择（对象，动词，方式）并结算一次决策；返回结果与所选的对象行和动作。"""
+def _start_pair_with_choices(engine, first: str, second: str, round_id: str, action_id="browse-feed"):
+    """@brief 同一冻结观察选择完整当前项，原子提交后返回回执与实际选择。"""
     decision = context(engine, round_id)
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
-    head = _choice(observed, first)
-    choices = [head, _choice(observed, second, frozenset({head[0]["object_id"]}) if second == first else frozenset())]
-    request = start_request(targets=[row["object"] for row, _ in choices],
-                                   actions=[choice["verb"] for _, choice in choices],
-                                   ways=[choice["label"] for _, choice in choices])
+    choices = [_pick(observed, action, mode="walking" if action == "travel_to" else None,
+                     kind="action" if action == "do" else None, place=action_id if action == "do" else None)
+               for action in (first, second)]
+    request = start_request(items=choices, answering=None)
     engine.submit_action(DirectToolCall(decision, f"action-{round_id}", "start_activity", request))
     return engine.commit_decision_round(round_id)[0], choices
 
 
-def _start_pair(engine, first: str, second: str, round_id: str):
-    """@brief 在同一冻结观察中逐对象选择动作并结算一次决策。"""
-    return _start_pair_with_choices(engine, first, second, round_id)[0]
+def _start_pair(engine, first: str, second: str, round_id: str, action_id="browse-feed"):
+    """@brief 逐项明确选择动作与应用并结算一次真实决策。"""
+    return _start_pair_with_choices(engine, first, second, round_id, action_id)[0]
 
 
 def _control_request(observed: dict) -> tuple[str, object]:
@@ -73,14 +59,14 @@ def test_walk_and_app_start_atomically_with_distinct_activity_ids(engine_factory
     engine = engine_factory()
     stage_day_plan(engine)
     stay = next(iter(engine.context.state.sessions.values()))
-    result = _start_pair(engine, "travel_to", "use_app", "walk-app")
+    result = _start_pair(engine, "travel_to", "do", "walk-app")
     assert result.status == "in_progress", result.error_code
     assert result.activity_id is None
     activities = [item for item in engine.context.state.activities.values()
                   if item.origin_action_id == result.action_id]
     assert len(activities) == 2
     assert len({item.activity_id for item in activities}) == 2
-    assert {item.kind.value for item in activities} == {"travel", "use_app"}
+    assert {item.kind.value for item in activities} == {"travel", "action"}
     ids = {item.activity_id for item in activities}
     ended = engine.context.state.sessions[stay.session_id]
     assert ended.kind == "stay" and ended.status == "ended" and ended.activity_ids == []
@@ -98,7 +84,7 @@ def test_pair_failure_rejects_all_without_partial_activity(engine_factory) -> No
     engine = engine_factory()
     stage_day_plan(engine)
     before = engine.context.state.model_dump(mode="json")
-    result = _start_pair(engine, "use_app", "sleep", "app-sleep-conflict")
+    result = _start_pair(engine, "do", "sleep", "app-sleep-conflict")
     assert result.status == "rejected", result.error_code
     assert result.error_code == "RESOURCE_CONFLICT"
     assert engine.context.state.activities == {}
@@ -112,7 +98,7 @@ def test_parallel_origin_stays_in_progress_until_both_finish(engine_factory) -> 
     """先结束的子项当秒收尾而不把原动作提前标记为完成，另一项照常继续；全部结束才写唯一终态（第七章）。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    result = _start_pair(engine, "use_app", "wait", "parallel-terminal")
+    result = _start_pair(engine, "do", "wait", "parallel-terminal", "study-course")
     assert result.status == "in_progress", result.error_code
     action_id = result.action_id
     ids = sorted(item.activity_id for item in engine.context.state.activities.values()

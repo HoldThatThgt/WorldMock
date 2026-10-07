@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from worldmock.footprints.intervals import valid_interval
-from worldmock.life.schedule import ACTIVITY_KIND_FAMILIES, LIFESTYLE_CATEGORY_FAMILIES, activity_family
+from worldmock.life.schedule import ACTIVITY_KIND_FAMILIES, ACTION_CATEGORY_FAMILIES, activity_family
 from collections import Counter, defaultdict
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from worldmock.life.schedule import INTENT_ACTIVITY_FAMILIES, ROUTINE_INTENT_KINDS, ran_in_goal_window
+from worldmock.life.schedule import (
+    GOAL_TIME_TOLERANCE_SECONDS, INTENT_ACTIVITY_FAMILIES, ROUTINE_INTENT_KINDS, ran_in_goal_window,
+)
 
 UNREPORTED_CODE_KEY = "code_sha256_unreported"
 #: 本规格删除营业、准入、路线与工作可用性拒绝码；当前没有外部约束拒绝码。
@@ -100,8 +102,7 @@ def _habitual_consistency(events: list[dict], zone: ZoneInfo) -> dict:
             missing["missing_activity_family_or_location"] += 1
             continue
         local = datetime.fromtimestamp(evidence["start"], zone)
-        family = (LIFESTYLE_CATEGORY_FAMILIES[activity["category"]] if activity["kind"] == "lifestyle"
-                  else ACTIVITY_KIND_FAMILIES[activity["kind"]])
+        family = {**ACTIVITY_KIND_FAMILIES, **ACTION_CATEGORY_FAMILIES}[evidence["token"]]
         family = "commute" if family == "outing" else family
         key = (*identity[:2], activity["location_id"], local.hour)
         contexts[key].append({"day": local.date().isoformat(), "family": family,
@@ -205,7 +206,7 @@ def _new_goal(event: dict, goal: dict, priority: int) -> dict:
             "intent_kind": goal["intent_kind"], "goal": goal["goal"], "initial_priority": priority,
             "routine": goal["intent_kind"] in ROUTINE_INTENT_KINDS, "around_at": _around_at(goal),
             "registered_at": event["occurred_at"], "registration_event_id": event.get("event_id"),
-            "progressed_at": None, "progress_activity_id": None, "progress_event_id": None,
+            "progressed_at": None, "progress_activity_id": None, "progress_order_id": None, "progress_event_id": None,
             "status": "pending"}
 
 
@@ -274,6 +275,26 @@ def _goal_counts(goals: list[dict]) -> dict:
             "family_progress_rate": progressed / count if count else None}
 
 
+def _record_receipt_progress(day: dict, event: dict, used: set) -> None:
+    """@brief 本人正餐收货以订单证据推进当天首个匹配用餐目标，不依赖人物自述。"""
+    receipt = event["data"]
+    if receipt["category"] != "meal":
+        return
+    order_id, now = receipt["order_id"], event["occurred_at"]
+    identity = (day["run_id"], day["agent_id"], day["date"], "order", order_id)
+    if identity in used:
+        return
+    for goal in day["goals"]:
+        if goal["status"] != "pending" or goal["intent_kind"] != "用餐" or now < goal["registered_at"]:
+            continue
+        if goal["around_at"] is not None and abs(now - goal["around_at"]) > GOAL_TIME_TOLERANCE_SECONDS:
+            continue
+        goal.update(status="progressed", progressed_at=now, progress_order_id=order_id,
+                    progress_event_id=event["event_id"])
+        used.add(identity)
+        return
+
+
 def _goal_summary(goals: list[dict]) -> dict:
     """@brief 推进比例只计非例行意图的目标，按首次登记的清单优先级输出，不从修订后的名次重排历史；例行意图
     （schedule.ROUTINE_INTENT_KINDS）的目标照常判定与记录，另计一行 routine_goals（
@@ -290,6 +311,12 @@ def _deliberate_goals(events: list[dict], zone: ZoneInfo) -> dict:
     days: dict[tuple, dict] = {}
     used = set()
     for event in events:
+        if event.get("event_type") == "environment_event" and event.get("data", {}).get("kind") == "goods_received":
+            local_day = datetime.fromtimestamp(event["occurred_at"], zone).date().isoformat()
+            key = (str(event.get("run_id")), event["agent_id"], local_day)
+            if key in days:
+                _record_receipt_progress(days[key], event, used)
+            continue
         plan, registration = _plan_snapshot(event)
         if plan is None or event.get("agent_id") is None:
             continue

@@ -17,12 +17,12 @@ def read_scenario(name: str) -> dict:
 
 def write_scenario(document: dict, root: Path) -> Path:
     """@brief 复制完整目录与语料，场景使用可跨机器解析的相对引用。"""
-    for name in ("catalog", "corpora"):
+    for name in ("catalog",):
         shutil.copytree(ARTIFICIAL_ENVIRONMENT_ROOT / name, root / name)
     scenarios = root / "scenarios"
     scenarios.mkdir(parents=True)
     path = scenarios / "scenario.json"
-    payload = {**document, "corpus_root": "../corpora"}
+    payload = document
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     return path
 

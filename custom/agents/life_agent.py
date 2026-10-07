@@ -703,22 +703,20 @@ def _visible_names(data: dict[str, Any], todo: dict[str, Any]) -> dict[str, Any]
     商品名到商品身份），与环境复核读同一份冻结观察（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误 ）。
     """
     objects = _binding_objects(data.get("interaction_bindings"))
-    tasks = _binding_names(data, "task_bindings", "task_name")
     goals = _binding_names(data, "goal_bindings", "task_name")
     activities = _binding_names(data, "activity_bindings", "name")
     labels = _note_labels(data["activity_bindings"])
     kinds = {row["object"]: row["kind"] for row in data["interaction_bindings"]}
     return {
         "objects": objects,
-        "task_names": tasks,
         "recipient_names": tuple(name for name in objects if kinds[name] in {"person", "contact"}),
         "people": tuple(name.split("：", 1)[-1] for name in _binding_names(data, "person_bindings", "name")),
         "activity_names": activities,
-        "recall_names": (*tasks, *goals, *activities, *labels),
+        "recall_names": (*goals, *activities, *labels),
         "progressed_intents": _progressed_intents(todo),
         "routing": routing_names(data),
         "book": name_book(data),
-        "errand_bindings": _binding_rows(data, "errand_bindings", ("name", "errand_id", "outcome", "product_id")),
+        "errand_bindings": _binding_rows(data, "errand_bindings", ("name", "errand_id", "product_id")),
         "errand_item_bindings": _binding_rows(data, "errand_item_bindings", ("name", "product_id")),
     }
 
@@ -794,6 +792,8 @@ def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, 
     if action == "send_message":
         return _unknown_names(("recipient_name", "收件人"), [request.recipient_name], names["recipient_names"],
                               "recipient_name is not visible")
+    if action == "set_alarm":
+        return ""
     return _validate_plan_goals(request.goals, names["progressed_intents"])
 
 
@@ -883,7 +883,7 @@ def _validate_start_activity(request: BaseModel, names: dict[str, Any]) -> str:
             continue
         path = ("items", issue.index, issue.field) if issue.index is not None else (issue.field,)
         item = ErrorItem(path, issue.written, issue.host_code or "ROUTE_FIELDS_INVALID", issue.allowed_values,
-                         issue.reason, issue.detail)
+                         issue.reason, issue.detail, issue.candidates)
         issues.append(HostIssue(item, issue.reason, issue.detail))
     return merged_feedback(issues, len(request.items)) if issues else ""
 

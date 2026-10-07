@@ -20,7 +20,11 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from tests.life.action_worlds import action_world, advance, begin, pin
+from worldmock.life.action_run import resume_action
+from worldmock.life.activities import change_activity
 from worldmock.life.duty_edges import duty_edges, edge_times_after, edges_at
+from worldmock.life.models import ActivityStatus, ChangeActivityRequest, WorldState
 from worldmock.life.scenario import WorkSchedule
 from worldmock.life.schedule import (DUTY_EDGE_REASONS, SLEEP_ALLOWED_REASONS, NextDecisionQuery, WakeReason,
                                      WakeSnapshot, evaluate_wake_reasons, next_decision_time)
@@ -61,15 +65,15 @@ def _local(text: str, timezone: str = _SHANGHAI) -> int:
 
 
 def test_duty_edge_members_follow_errand_reminder_due_and_stay_out_of_sleep() -> None:
-    """四个成员按 shift_start、shift_end、break_start、break_end 追加在 errand_reminder_due 之后，加入应用推送后闭集为 22 个；
-    DUTY_EDGE_REASONS 就是这四个、按声明次序；四个都不在睡眠允许集合里，睡眠允许集合仍恰为四项。"""
+    """四个班次成员按声明次序位于事务提醒之后，应用推送和闹钟紧随其后；班次边界不会唤醒睡眠，
+    一次性闹钟则属于睡眠允许原因。"""
     names = [member.value for member in WakeReason]
-    assert len(names) == 22
+    assert len(names) == 23
     assert names[names.index("errand_reminder_due") + 1:] == [
-        "shift_start", "shift_end", "break_start", "break_end", "app_push"]
+        "shift_start", "shift_end", "break_start", "break_end", "app_push", "alarm_ring"]
     assert DUTY_EDGE_REASONS == (_START, _END, _BREAK_START, _BREAK_END)
     assert not set(DUTY_EDGE_REASONS) & SLEEP_ALLOWED_REASONS
-    assert len(SLEEP_ALLOWED_REASONS) == 4
+    assert len(SLEEP_ALLOWED_REASONS) == 5
 
 
 @pytest.mark.parametrize("member", DUTY_EDGE_REASONS, ids=lambda member: member.value)
@@ -86,20 +90,20 @@ def test_each_duty_edge_member_is_filtered_while_asleep(member: WakeReason) -> N
 
 def test_awake_snapshot_with_every_condition_lists_the_declaration_order() -> None:
     """清醒（is_asleep 为假）而其余标志与命中条件同时成立、四个起止同一秒重合时，输出是 WakeReason 的声明次序去掉判定从不
-    产出的 activity_infeasible 与 rejection_feedback：两种提醒之后是 shift_start、shift_end、break_start、break_end。"""
+    产出的 activity_infeasible 与 rejection_feedback：事务提醒后依次是四个班次边界、应用推送与闹钟。"""
     snapshot = WakeSnapshot(
         now=NOW, planned_end=NOW, felt_bands_now={"appetite": 1}, message_arrived=True, delivery_arrived=True,
         last_decision_time=NOW - 5400, has_commitments=True,
         people_present_now={"甲"}, people_present_before={"乙"},
         discovery_result_ready=True, wake_from_sleep=True, run_start=True, progress_report_due=True,
         no_active_activity=True, plan_reminder_due=True, errand_reminder_due=True,
-        duty_edges_now=frozenset(DUTY_EDGE_REASONS), app_push_arrived=True, is_asleep=False)
+        duty_edges_now=frozenset(DUTY_EDGE_REASONS), app_push_arrived=True, alarm_rang=True, is_asleep=False)
     verdict = evaluate_wake_reasons(snapshot)
     never = {WakeReason.ACTIVITY_INFEASIBLE, WakeReason.REJECTION_FEEDBACK, WakeReason.COMMITMENT_THREATENED}
     assert verdict.decision_offered
     assert verdict.wake_reasons == [member for member in WakeReason if member not in never]
-    assert [member.value for member in verdict.wake_reasons[-6:]] == [
-        "errand_reminder_due", "shift_start", "shift_end", "break_start", "break_end", "app_push"]
+    assert [member.value for member in verdict.wake_reasons[-7:]] == [
+        "errand_reminder_due", "shift_start", "shift_end", "break_start", "break_end", "app_push", "alarm_ring"]
 
 
 def test_next_decision_time_takes_duty_edges_only_while_awake() -> None:
@@ -125,52 +129,59 @@ def _app_shift_world(semantics, state, clock):
     return replace(semantics, scenario=scenario), at_time(state, _local(f"2026-01-05T{clock}"))
 
 
-def test_t10_app_content_boundary_after_shift_end_does_not_hide_the_edge():
-    """@brief 真实应用的内容和反馈边界晚于下班时刻时，班次候选仍先命中且不会改动应用。"""
-    from tests.life.test_app_progress import _action_for, _advance, _open, _world as app_world
-    from worldmock.life.models import ActivityStatus
+def _change_action(semantics, state: WorldState, activity, operation: str) -> WorldState:
+    """@brief 经生产控制函数暂停或恢复动作，恢复时重建当前内容截止点。"""
+    _, updated = change_activity(state.agents[activity.agent_id], activity,
+        ChangeActivityRequest(activity_id=activity.activity_id, operation=operation), state.current_time, 900)
+    changed = state.model_copy(deep=True)
+    changed.activities[activity.activity_id] = updated
+    if operation == "resume":
+        return resume_action(changed, updated, semantics.catalog, semantics.scenario)
+    return changed
 
-    semantics, state = _app_shift_world(*app_world(), "17:24")
-    key = _action_for(semantics.catalog, "douyin", state.random_state, "c-long", "shift-app")
-    state, identity = _open(semantics, state, "douyin", key)
-    activity = state.activities[identity]
+
+def test_t10_app_content_boundary_after_shift_end_does_not_hide_the_edge():
+    """@brief 真实应用动作的内容截止晚于下班时刻时，班次候选仍先命中且不会改动正在进行的内容。"""
+    semantics, state = _app_shift_world(*action_world(), "17:24")
+    pin(state, "c-long")
+    state, activity = begin(semantics, state, suffix="shift-app")
     edge = _local("2026-01-05T17:30")
-    assert activity.next_interaction_at > edge
+    assert activity.planned_end_at > edge and activity.next_interaction_at is None
     query = NextDecisionQuery(now=state.current_time, planned_end=activity.planned_end_at,
                               next_progress_report_at=activity.next_interaction_at,
                               duty_edge_times=edge_times_after(semantics.scenario, 1, state.current_time))
     assert next_decision_time(query) == edge
-    state, intervals = _advance(semantics, state, identity, edge - state.current_time)
+    state, evidence = advance(semantics, state, activity, edge - state.current_time)
     verdict = evaluate_wake_reasons(WakeSnapshot(now=edge, duty_edges_now=edges_at(semantics.scenario, 1, edge)))
     assert verdict.wake_reasons == [_END] and verdict.decision_offered
-    changed = state.activities[identity]
+    changed = state.activities[activity.activity_id]
     assert changed.status == ActivityStatus.ACTIVE and changed.boundary_type is None
     assert (changed.planned_end_at, changed.next_interaction_at) == (
         activity.planned_end_at, activity.next_interaction_at)
-    assert intervals[-1]["completed"] is False and changed.media_position_seconds == 360
+    assert evidence["completed"] is False and changed.media_position_seconds == 360
 
 
-def test_t12_app_can_pause_at_shift_edge_and_content_completion_stays_quiet(tmp_path):
-    """@brief 下班机会允许暂停应用；恢复后的真实内容末尾静默接续，不产生回合权限或额外决策。"""
-    from tests.life.test_app_progress import _advance, _change, _open, _shared_short_world
-    from worldmock.life.models import ActivityChange, ActivityStatus
-
-    semantics, state = _app_shift_world(*_shared_short_world(tmp_path), "17:29")
-    state, identity = _open(semantics, state, "douyin", "short-shift-app")
-    planned_end = state.activities[identity].planned_end_at
-    state, _ = _advance(semantics, state, identity, 60)
+def test_t12_app_can_pause_at_shift_edge_and_content_completion_stays_quiet():
+    """@brief 下班机会允许暂停应用动作；恢复后的真实内容末尾静默接续，不产生回合权限或额外决策。"""
+    semantics, state = _app_shift_world(*action_world(), "17:29")
+    pin(state, "c-short")
+    state, activity = begin(semantics, state, suffix="short-shift-app")
+    planned_end = activity.planned_end_at
+    state, _ = advance(semantics, state, activity, 60)
     verdict = evaluate_wake_reasons(WakeSnapshot(now=state.current_time,
                                                 duty_edges_now=edges_at(semantics.scenario, 1, state.current_time)))
     assert verdict.wake_reasons == [_END]
-    state = _change(semantics, state, identity, ActivityChange.PAUSE)
-    assert state.activities[identity].status == ActivityStatus.PAUSED
-    state = _change(semantics, state, identity, ActivityChange.RESUME)
-    state, intervals = _advance(semantics, state, identity, 60)
-    activity = state.activities[identity]
-    assert intervals[-1]["completed"] is True
-    assert activity.status == ActivityStatus.ACTIVE and activity.boundary_type is None
-    assert activity.data["draw_index"] == 1 and activity.media_position_seconds == 0
-    assert activity.planned_end_at == planned_end
+    state = _change_action(semantics, state, state.activities[activity.activity_id], "pause")
+    assert state.activities[activity.activity_id].status == ActivityStatus.PAUSED
+    state = _change_action(semantics, state, state.activities[activity.activity_id], "resume")
+    state, evidence = advance(semantics, state, state.activities[activity.activity_id], 60)
+    changed = state.activities[activity.activity_id]
+    assert evidence["completed"] is True
+    assert changed.status == ActivityStatus.ACTIVE and changed.boundary_type is None
+    assert changed.data["draw_index"] == 1 and changed.media_position_seconds == 0
+    assert changed.data["content_id"] != "c-short" and changed.planned_end_at > planned_end
+    next_content = semantics.catalog.contents[changed.data["content_id"]]
+    assert changed.planned_end_at == state.current_time + next_content.duration_seconds
     quiet = evaluate_wake_reasons(WakeSnapshot(now=state.current_time))
     assert quiet.wake_reasons == [] and not quiet.decision_offered
 

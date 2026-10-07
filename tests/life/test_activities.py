@@ -31,7 +31,7 @@ from worldmock.life.world_setup import load_scenario
 def agent() -> AgentState:
     """建立足够能量的测试人物。"""
     return AgentState(agent_id=1, name="worker", location_id="home", balance_account_id="agent:1",
-                      body_settled_at=0,
+                      body_settled_at=0, driving_days=0, last_driving_date=None,
                       body=BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0),
                       next_decision_at=0)
 
@@ -99,9 +99,9 @@ def test_direct_start_rejects_short_request_and_defers_shared_gates_to_engine() 
     assert sleep.kind == ActivityKind.SLEEP
     weak = agent().model_copy(update={"body": BodyState(
         energy_kcal=1, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)})
-    _, work = start_activity(weak, ActivityStartParams(activity_type="work", planned_duration_seconds=3600,
-                                                        target_id="task"), 0, origin("z"), config)
-    assert work.kind == ActivityKind.WORK
+    _, waiting = start_activity(weak, ActivityStartParams(activity_type="wait", planned_duration_seconds=3600),
+                               0, origin("z"), config)
+    assert waiting.kind == ActivityKind.WAIT
 
 
 def test_completion_and_experiment_truncation_set_ended_at() -> None:

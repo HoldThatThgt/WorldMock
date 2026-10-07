@@ -23,7 +23,7 @@ from worldmock.life.rhythm import _goal_progress_pulses, engine_rhythm_inputs
 from worldmock.life.schedule import (
     GOAL_TIME_TOLERANCE_SECONDS, INTENT_KINDS, ROUTINE_INTENT_KINDS, DayPlan, PlanGoal, RemindTimeInvalid,
     day_end_seconds, day_plan_expired, expired_plan_agent_ids, initial_day_plan, progress_day_plan,
-    ran_in_goal_window, registered_goals, revise_day_plan,
+    ran_in_goal_window, registered_goals, revise_day_plan, progress_receipt_day_plan,
 )
 from worldmock.runtime import settle_pending_day_plans
 
@@ -46,8 +46,12 @@ def planned(kind, text):
     return StubPlanDayClient(goals=[{"intent_kind": kind, "goal": text, "remind_time": None, "around_time": None}])
 
 
-def activity(kind="work", **changes):
-    return {"activity_id": "activity-a", "agent_id": 1, "kind": kind, "status": "active", **changes}
+def activity(kind="work_study", **changes):
+    payload = {"activity_id": "activity-a", "agent_id": 1, "kind": kind, "status": "active", "data": {}}
+    if kind in {"work_study", "entertainment", "exercise", "social", "daily_care"}:
+        payload.update(kind="action", data={"category": kind, "content_id": "topic-sales"})
+    payload.update(changes)
+    return payload
 
 
 def act(engine, name, tool, request):
@@ -152,26 +156,26 @@ def test_revision_merged_capacity_is_checked():
 ])
 def test_progress_requires_positive_registered_day_matching_activity(payload, start, end):
     plan = DayPlan(day_end=1000, goals=[goal()])
-    assert progress_day_plan(plan, payload, start, end) == plan
+    assert progress_day_plan(plan, payload, start, end, work_content_ids=("topic-sales",)) == plan
 
 
 def test_progress_consumes_one_activity_once_in_priority_order_and_survives_serialization():
     plan = DayPlan(day_end=1000, goals=[goal("通勤"), goal("外出")])
-    first = progress_day_plan(plan, activity("travel"), 100, 200)
+    first = progress_day_plan(plan, activity("travel"), 100, 200, work_content_ids=("topic-sales",))
     assert first.goals[0].progressed_at == 200
     assert first.goals[1].progressed_at is None
     loaded = DayPlan.model_validate_json(first.model_dump_json())
     revised = revise_day_plan(loaded, 250, [goal("外出", registered=250)])
-    assert progress_day_plan(revised, activity("travel"), 250, 300) == revised
-    other = progress_day_plan(revised, activity("travel", activity_id="activity-b"), 300, 400)
+    assert progress_day_plan(revised, activity("travel"), 250, 300, work_content_ids=("topic-sales",)) == revised
+    other = progress_day_plan(revised, activity("travel", activity_id="activity-b"), 300, 400, work_content_ids=("topic-sales",))
     assert other.goals[1].progress_activity_id == "activity-b"
 
 
 def test_lifestyle_family_uses_actual_category_and_midnight_interval_counts():
     plan = DayPlan(day_end=1000, goals=[goal("运动", registered=950)])
-    assert progress_day_plan(plan, activity("lifestyle"), 950, 1000) == plan
-    assert progress_day_plan(plan, activity("lifestyle", category="hobby"), 950, 1000) == plan
-    result = progress_day_plan(plan, activity("lifestyle", category="sport"), 950, 1050)
+    assert progress_day_plan(plan, activity("action"), 950, 1000, work_content_ids=("topic-sales",)) == plan
+    assert progress_day_plan(plan, activity("entertainment"), 950, 1000, work_content_ids=("topic-sales",)) == plan
+    result = progress_day_plan(plan, activity("exercise"), 950, 1050, work_content_ids=("topic-sales",))
     assert result.goals[0].progressed_at == 1000
     assert result.goals[0].progress_activity_id == "activity-a"
 
@@ -188,26 +192,24 @@ def _ran(kind: str, started: int, **changes) -> dict:
 
 @pytest.mark.parametrize(("kind", "intent", "around", "started", "interval", "progressed"), [
     # 大致时刻 12:00 的午餐：10:20–10:45 的进食与 [10:30, 13:30] 有交集，推进；09:30–09:55 的不推进。
-    ("consume", "用餐", at(12), at(10, 20), (at(10, 20), at(10, 45)), at(10, 45)),
-    ("consume", "用餐", at(12), at(9, 30), (at(9, 30), at(9, 55)), None),
     # 08:40 的浏览不推进大致时刻为 23:00 的娱乐目标；同一浏览推进不带大致时刻的目标（沿用现行判定）。
-    ("use_app", "娱乐", at(23), at(8, 40), (at(8, 40), at(8, 55)), None),
-    ("use_app", "娱乐", None, at(8, 40), (at(8, 40), at(8, 55)), at(8, 55)),
+    ("entertainment", "娱乐", at(23), at(8, 40), (at(8, 40), at(8, 55)), None),
+    ("entertainment", "娱乐", None, at(8, 40), (at(8, 40), at(8, 55)), at(8, 55)),
     # 零点前开始、零点后结算的睡眠不推进大致时刻为 23:30 的睡眠目标；不带大致时刻的照旧推进。
     ("sleep", "睡眠", at(23, 30), -10 * 60, (0, at(0, 30)), None),
     ("sleep", "睡眠", None, -10 * 60, (0, at(0, 30)), at(0, 30)),
     # 零点前开始的睡眠在大致时刻 00:30 的窗口内进行，推进。
     ("sleep", "睡眠", at(0, 30), -10 * 60, (0, at(0, 15)), at(0, 15)),
     # 活动开始得早、这次结算落在窗口内：按活动的进行区间判定，推进。
-    ("use_app", "娱乐", at(23), at(20), (at(21, 15), at(21, 45)), at(21, 45)),
+    ("entertainment", "娱乐", at(23), at(20), (at(21, 15), at(21, 45)), at(21, 45)),
     # 窗口两端：进行区间与窗口只相接不算交集，多一秒才算。
-    ("use_app", "娱乐", at(12), at(10), (at(10), at(10, 30)), None),
-    ("use_app", "娱乐", at(12), at(10), (at(10), at(10, 30) + 1), at(10, 30) + 1),
-    ("use_app", "娱乐", at(12), at(13, 30), (at(13, 30), at(13, 45)), None),
-    ("use_app", "娱乐", at(12), at(13, 30) - 1, (at(13, 30) - 1, at(13, 45)), at(13, 45)),
+    ("entertainment", "娱乐", at(12), at(10), (at(10), at(10, 30)), None),
+    ("entertainment", "娱乐", at(12), at(10), (at(10), at(10, 30) + 1), at(10, 30) + 1),
+    ("entertainment", "娱乐", at(12), at(13, 30), (at(13, 30), at(13, 45)), None),
+    ("entertainment", "娱乐", at(12), at(13, 30) - 1, (at(13, 30) - 1, at(13, 45)), at(13, 45)),
     # 窗口越过次日零点的部分不算：结算止点按次日零点裁剪，次日零点之后才开始的不推进。
-    ("use_app", "娱乐", at(23, 30), at(23, 50), (at(23, 50), DAY_END + HOUR), DAY_END),
-    ("use_app", "娱乐", at(23, 30), DAY_END + 600, (DAY_END + 600, DAY_END + 1200), None),
+    ("entertainment", "娱乐", at(23, 30), at(23, 50), (at(23, 50), DAY_END + HOUR), DAY_END),
+    ("entertainment", "娱乐", at(23, 30), DAY_END + 600, (DAY_END + 600, DAY_END + 1200), None),
 ])
 def test_progress_with_an_around_time_requires_the_activity_to_run_near_it(kind, intent, around, started, interval,
                                                                             progressed):
@@ -216,7 +218,7 @@ def test_progress_with_an_around_time_requires_the_activity_to_run_near_it(kind,
     的目标沿用现行判定。"""
     assert GOAL_TIME_TOLERANCE_SECONDS == 5400
     plan = _around_plan(intent, around)
-    result = progress_day_plan(plan, _ran(kind, started), *interval)
+    result = progress_day_plan(plan, _ran(kind, started), *interval, work_content_ids=("topic-sales",))
     assert result.goals[0].progressed_at == progressed
     assert ran_in_goal_window(around, started, min(interval[1], DAY_END)) is (progressed is not None)
 
@@ -225,20 +227,20 @@ def test_around_time_skips_a_goal_outside_its_window_and_needs_the_actual_start(
     """同家族的前一个目标不在窗口内时照清单顺序匹配下一个；有大致时刻的目标需要活动的实际开始时刻，快照残缺时不推进。"""
     plan = DayPlan(day_end=DAY_END, goals=[goal("娱乐", "睡前刷会儿", 0, around_at=at(23)),
                                            goal("休息", "歇一歇", 0), goal("外出", "散步", 0, around_at=at(9))])
-    browsed = progress_day_plan(plan, _ran("use_app", at(8, 40)), at(8, 40), at(8, 55))
+    browsed = progress_day_plan(plan, _ran("entertainment", at(8, 40)), at(8, 40), at(8, 55), work_content_ids=("topic-sales",))
     assert [item.progressed_at for item in browsed.goals] == [None, None, None]
-    waited = progress_day_plan(plan, _ran("wait", at(8, 40)), at(8, 40), at(8, 55))
+    waited = progress_day_plan(plan, _ran("wait", at(8, 40)), at(8, 40), at(8, 55), work_content_ids=("topic-sales",))
     assert [item.progressed_at for item in waited.goals] == [None, at(8, 55), None]
-    assert progress_day_plan(plan, activity("travel"), at(8, 40), at(8, 55)) == plan
-    walked = progress_day_plan(plan, _ran("travel", at(8, 40)), at(8, 40), at(8, 55))
+    assert progress_day_plan(plan, activity("travel"), at(8, 40), at(8, 55), work_content_ids=("topic-sales",)) == plan
+    walked = progress_day_plan(plan, _ran("travel", at(8, 40)), at(8, 40), at(8, 55), work_content_ids=("topic-sales",))
     assert walked.goals[2].progress_activity_id == "activity-a"
     assert not ran_in_goal_window(at(9), None, at(8, 55)) and ran_in_goal_window(None, None, at(8, 55))
-    # 13:40 修订登记的午饭目标（大致时刻 12:00）：13:00 开始的进食在窗口内进行，登记后 13:30–13:45 的结算推进它；
-    # 若按结算区间起点 13:30 判定就落在窗口之外。
+    # 收货是零秒事件；登记在窗口结束之后不能由先前持续进食补造目标进度。
     revised = DayPlan(day_end=DAY_END, goals=[goal("用餐", "午饭", at(13, 40), around_at=at(12))])
-    eaten = progress_day_plan(revised, _ran("consume", at(13)), at(13, 30), at(13, 45))
-    assert eaten.goals[0].progressed_at == at(13, 45)
-    assert not ran_in_goal_window(at(12), at(13, 30), at(13, 45))
+    received = progress_receipt_day_plan(revised, {
+        "kind": "goods_received", "category": "meal", "order_id": "late-lunch"}, at(13, 45))
+    assert received == revised
+
 
 
 def test_around_time_is_required_nullable_hh_mm_and_needs_no_later_than_now():
@@ -467,3 +469,17 @@ def test_revision_merged_limit_returns_domain_error_and_preserves_plan(engine_fa
         goals=[{"intent_kind": INTENT_KINDS[8], "goal": "多一条", "remind_time": None, "around_time": None}]))
     assert result.error_code == "PLAN_GOALS_INVALID"
     assert engine.context.state.agents[1].day_plan == original
+
+
+@pytest.mark.parametrize('received_at,counted', [(at(10, 29), False), (at(10, 30), True),
+                                              (at(13, 30), True), (at(13, 30) + 1, False)])
+def test_meal_receipt_uses_a_point_in_the_declared_goal_window(received_at, counted):
+    """@brief 零秒正餐收货以真实收货时刻判定窗口，不补造持续进食，订单证据只使用一次。"""
+    plan = _around_plan('用餐', at(12))
+    receipt = {'kind': 'goods_received', 'category': 'meal', 'order_id': 'order-lunch'}
+    result = progress_receipt_day_plan(plan, receipt, received_at)
+    assert (result.goals[0].progressed_at is not None) is counted
+    if counted:
+        assert result.goals[0].progress_order_id == 'order-lunch'
+        assert result.goals[0].progress_activity_id is None
+        assert progress_receipt_day_plan(result, receipt, received_at + 1) == result

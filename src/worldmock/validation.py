@@ -1,4 +1,4 @@
-"""@brief 在启动人物前验证完整场景、语料和模拟运行条件。"""
+"""@brief 在启动人物前验证完整场景、目录和模拟运行条件。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from worldmock.corpora.manifest import load_manifest
 from worldmock.errors import IntegrityError
 from worldmock.footprints.assets import atomic_write
 
@@ -25,10 +24,6 @@ def validate_project(project_root: Path, scenario_path: Path, *,
     run_setup.require_locked_as2()
     semantics, scenario_sha256 = load_runtime_scenario(scenario_path.resolve())
     scenario = semantics.scenario
-    corpus_root = Path(scenario.corpus_root)
-    if not corpus_root.is_absolute():
-        corpus_root = scenario_path.resolve().parent / corpus_root
-    corpus = load_manifest(corpus_root, scenario.corpus_manifest_sha256)
     versions = {name: importlib.metadata.version(name) for name in
                 ("agentsociety2", "ray", "litellm", "mcp")}
     _require_ray_worker_import()
@@ -36,9 +31,8 @@ def validate_project(project_root: Path, scenario_path: Path, *,
     identity = run_setup.validate_manifest_stage_identity()
     coverage = validate_persona_coverage(
         scenario_path, persona_compiler=persona_compiler, coverage_out=coverage_out,
-        _scenario=scenario, _corpus_root=corpus_root)
+        _scenario=scenario)
     return {"valid": True, "scenario_id": scenario.scenario_id, "scenario_sha256": scenario_sha256,
-            "corpus_entries": len(corpus.entries),
             "dependencies": versions, "model_identity": {"stages": sorted(identity["stages"]),
                                                           "consistent": True},
             "persona_coverage": coverage["agents"], "input_warnings": coverage["input_warnings"]}
@@ -68,7 +62,7 @@ def _require_ray_worker_import() -> None:
 def validate_persona_coverage(scenario_path: Path, *,
                               persona_compiler=None,
                               coverage_out: Path | None = None,
-                              _scenario: Any = None, _corpus_root: Path | None = None) -> dict:
+                              _scenario: Any = None) -> dict:
     """@brief 校验场景人物卡片口味/习惯的世界可执行覆盖并写 persona_coverage.json，并给出运行输入警告。
 
     每个声明 background_story 的人物经画像编译（默认真实三次一致性抽取，
@@ -92,12 +86,7 @@ def validate_persona_coverage(scenario_path: Path, *,
     else:
         scenario = _scenario
         catalog = load_catalog(resolve_catalog_dir(scenario_path))
-    corpus_root = _corpus_root
-    if corpus_root is None:
-        corpus_root = Path(scenario.corpus_root)
-        if not corpus_root.is_absolute():
-            corpus_root = Path(scenario_path).resolve().parent / corpus_root
-    targets = coverage_targets.build_coverage_targets(scenario, catalog, corpus_root)
+    targets = coverage_targets.build_coverage_targets(scenario, catalog)
     compile_story = persona_compiler or _compile_persona
     compiled = {agent.agent_id: compile_story(agent.background_story)
                 for agent in scenario.agents if agent.background_story is not None}
@@ -126,32 +115,23 @@ def _compile_persona(story: str) -> Any:
 
 
 def validate_environment(environment_root: Path) -> dict:
-    """@brief 校验真实环境目录、地图重生成、语料清单与全部场景，并汇总每处失败。"""
-    from worldmock.catalog.loader import load_catalog, require_engine_rules
+    """@brief 校验真实环境目录、地图重生成与全部场景，并汇总每处失败。"""
+    from worldmock.catalog.loader import load_catalog
     from worldmock.catalog.mapgen import require_regenerated_map
 
     root, errors = Path(environment_root).resolve(), []
     catalog = None
-    corpus = None
     try:
         catalog = load_catalog(root / "catalog")
         require_regenerated_map(catalog.map_data, (root / "catalog/map.json").read_bytes())
     except (IntegrityError, OSError, ValueError) as error:
         _environment_failure("catalog", error, errors)
-    try:
-        require_engine_rules(root / "catalog")
-    except (IntegrityError, OSError, ValueError) as error:
-        _environment_failure("catalog", error, errors)
-    try:
-        corpus = load_manifest(root / "corpora")
-    except (IntegrityError, OSError, ValueError) as error:
-        _environment_failure("corpora/manifest.json", error, errors)
     scenarios = _validate_environment_scenarios(root, errors)
     if errors:
         return {"valid": False, "errors": errors, "scenarios": scenarios}
     return {"valid": True, "environment_id": catalog.manifest.environment_id,
             "environment_version": catalog.manifest.environment_version,
-            "corpus_entries": len(corpus.entries), "scenarios": scenarios}
+            "scenarios": scenarios}
 
 
 def _validate_environment_scenarios(root: Path, errors: list[dict]) -> list[str]:

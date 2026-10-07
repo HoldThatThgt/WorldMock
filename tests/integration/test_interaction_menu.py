@@ -23,13 +23,16 @@ from tests.integration.test_life_agent_protocol import (
 )
 from worldmock.life.vocabulary import WAYS
 from worldmock.life.interaction_menu import InteractionMenu, menu_allows_action, resolve_interaction_menu
-from tests.life.conftest import select_start, start_arguments
+from worldmock.life.name_resolution import name_book, resolve_start
+from worldmock.life.models import StartActivityRequest
 from worldmock.life.models import REQUEST_MODELS
 from tests.life.conftest import start_arguments
 
 #: 条件已满足（没有说明）的工作对象：菜单剪裁与条件说明无关。
-_TASK = _visible_object("整理会议纪要", "work_topic", "topic-visible", _offer("interact", "工作", "work"))
-_WORK_CHOICE = start_arguments(["整理会议纪要"], ["interact"], ["工作"])
+_WORK_ACTION = _visible_object("整理会议纪要", "action", "work-visible",
+    _offer("interact", "进行", "do", app_id=None, category="work_study", manner=None),
+    category="work_study", app_ids=[], manner=None, communication_mode=None)
+_WORK_CHOICE = start_arguments(["整理会议纪要"], ["interact"], ["进行"])
 
 
 def _observed_menu(allowed_actions: tuple[str, ...]) -> list[dict]:
@@ -39,7 +42,7 @@ def _observed_menu(allowed_actions: tuple[str, ...]) -> list[dict]:
     data["interaction_menu"] = {"allowed_actions": sorted(allowed_actions)}
     data["tool_layer"]["targets"] = []
     data["interaction_bindings"] = []
-    _add_objects(data, _SELF_OBJECT, _TASK)
+    _add_objects(data, _SELF_OBJECT, _WORK_ACTION)
     return observations
 
 
@@ -76,7 +79,7 @@ def test_effective_menu_intersects_location_and_person_actions() -> None:
     """人物与地点声明求交集并确定性排序，仍保留自身动作。"""
     scenario = SimpleNamespace(
         agents=(SimpleNamespace(agent_id=1, interaction_menu=InteractionMenu(
-            allowed_actions=("work", "sleep", "wait"))),),
+            allowed_actions=("do", "sleep", "wait"))),),
         locations=(SimpleNamespace(location_id="home", kind="home"),),
         interaction_menus_by_location_kind={"home": InteractionMenu(
             allowed_actions=("travel_to", "wait", "sleep"))},
@@ -88,12 +91,12 @@ def test_effective_menu_intersects_location_and_person_actions() -> None:
 def test_actual_tool_schema_is_stable_whatever_the_menu() -> None:
     """地点菜单不剪裁原生工具：不同菜单下的工具逐字节相同、没有逐轮枚举，plan_day 不在人物工具面（第四章）；
     菜单外的动作由本地校验按协议错误纠正，菜单内的通过。"""
-    closed, opened = _prepared_agent(("sleep", "wait")), _prepared_agent(("sleep", "wait", "work"))
+    closed, opened = _prepared_agent(("sleep", "wait")), _prepared_agent(("sleep", "wait", "do"))
     functions = _functions(closed)
     assert functions == _functions(opened)
     assert set(REQUEST_MODELS) <= set(functions) and "plan_day" not in functions
     properties = functions["start_activity"]["parameters"]["properties"]
-    assert set(properties) == {"items", "answering", "prefer"}
+    assert set(properties) == {"items", "answering"}
     assert all("enum" not in properties["items"]["items"]["properties"][name] for name in ("target", "way"))
     decision = ReactDecision("", "start_activity", _WORK_CHOICE, "")
     assert "not admitted" in closed.validate_react_decisions([decision], False)
@@ -110,7 +113,7 @@ async def test_denied_readable_action_fails_local_and_direct_dispatch() -> None:
     agent._decision_context = _context()
     decision = ReactDecision("", "start_activity", _WORK_CHOICE, "")
     assert "not admitted" in agent.validate_react_decisions([decision], False)
-    two = start_arguments(["自己", "整理会议纪要"], ["interact", "interact"], ["等待", "工作"])
+    two = start_arguments(["自己", "整理会议纪要"], ["interact", "interact"], ["等待", "进行"])
     assert "not admitted" in agent.validate_react_decisions([ReactDecision("", "start_activity", two, "")],
                                                                 False)
     with pytest.raises(RuntimeError, match="interaction menu"):
@@ -121,18 +124,21 @@ async def test_denied_readable_action_fails_local_and_direct_dispatch() -> None:
 def test_menu_checks_only_start_activity_and_requires_human_action() -> None:
     """菜单按私有绑定映射后的内部动作逐项判定启动（整组都要在菜单内），不按短语反解；正文工具由自身业务条件校验。"""
     menu = InteractionMenu(allowed_actions=("sleep", "wait"))
-    bindings = _observed_menu(("sleep", "wait"))[0]["data"]["interaction_bindings"]
-    [waiting] = select_start(bindings, start_arguments(["自己"], ["interact"], ["等待"]))
-    [working] = select_start(bindings, start_arguments(["整理会议纪要"], ["interact"], ["工作"]))
+    observation = _observed_menu(("sleep", "wait"))[0]["data"]
+    def select_start(arguments):
+        outcome = resolve_start(name_book(observation), StartActivityRequest.model_validate(arguments))
+        return None if outcome.failures else list(outcome.rows)
+    [waiting] = select_start(start_arguments(["自己"], ["interact"], ["等待"]))
+    [working] = select_start(start_arguments(["整理会议纪要"], ["interact"], ["进行"]))
     assert waiting["selected_action"]["canonical_action"] == "wait"
-    assert working["selected_action"]["canonical_action"] == "work"
-    assert select_start(bindings, start_arguments(["整理会议纪要"], ["interact"], ["等待"])) is None
+    assert working["selected_action"]["canonical_action"] == "do"
+    assert select_start(start_arguments(["整理会议纪要"], ["interact"], ["等待"])) is None
     assert menu_allows_action(menu, "start_activity", ["wait"])
     assert menu_allows_action(menu, "start_activity", ["wait", "sleep"])
-    assert not menu_allows_action(menu, "start_activity", ["work"])
-    assert not menu_allows_action(menu, "start_activity", ["wait", "work"])
+    assert not menu_allows_action(menu, "start_activity", ["do"])
+    assert not menu_allows_action(menu, "start_activity", ["wait", "do"])
     assert not menu_allows_action(menu, "start_activity", [])
-    assert menu_action_error(menu, "start_activity", ["work"]) == "interaction menu denies start_activity"
+    assert menu_action_error(menu, "start_activity", ["do"]) == "interaction menu denies start_activity"
     assert menu_action_error(menu, "start_activity", ["sleep"]) == ""
     assert menu_allows_action(menu, "send_message", [])
     assert menu_action_error(menu, "send_message", []) == ""

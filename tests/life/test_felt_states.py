@@ -366,13 +366,13 @@ class TestSocialLedger:
 
     def test_call_relief(self) -> None:
         # 0.6 − 0.4×0.5 = 0.4。
-        exposure = SocialExposure(call_hours=0.5)
+        exposure = SocialExposure(remote_hours=0.5)
         assert apply_social_need_ledger(0.6, exposure) == pytest.approx(0.4)
 
-    def test_shared_meal_relief(self) -> None:
-        # 0.5 − 0.3×1 = 0.2。
-        exposure = SocialExposure(shared_meal_hours=1.0)
-        assert apply_social_need_ledger(0.5, exposure) == pytest.approx(0.2)
+    def test_shared_meal_is_not_a_social_ledger_input(self) -> None:
+        # 收货没有区间，不能以共同用餐虚构社交缓解。
+        with pytest.raises(ValidationError, match="shared_meal_hours"):
+            SocialExposure(shared_meal_hours=1.0)
 
     def test_message_relief(self) -> None:
         # 0.5 − 0.05×4 = 0.3。

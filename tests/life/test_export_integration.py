@@ -307,13 +307,13 @@ def _control(activity_id: str, model, summary: str):
 
 
 def _lifecycle_run(engine) -> tuple[dict[str, str], dict[str, dict]]:
-    """@brief 真实控制链：观看→暂停→等待→恢复→带记忆结束等待→播报→再暂停→步行出发→到达当秒收尾。
+    """@brief 真实控制链：刷推荐→暂停→等待→恢复→带记忆结束等待→播报→再暂停→步行出发→到达当秒收尾。
 
-    :returns: (活动身份, 各轮冻结观察)；观看在导出时仍暂停在家，等待由人物结束，出行到达后收尾。
+    :returns: (活动身份, 各轮冻结观察)；动作在导出时仍暂停在家，等待由人物结束，出行到达后收尾。
     """
     stage_day_plan(engine)
     observed = {}
-    _, watch = _round(engine, "watch", "start_activity", lambda seen: _offered(seen, "use_app"))
+    _, watch = _round(engine, "watch", "start_activity", start_activity("进行", "刷推荐", app=["抖音"]))
     ids = {"watch": watch.activity_id}
     _next_opportunity(engine)
     _round(engine, "pause", "pause_activity", _control(ids["watch"], PauseActivityRequest, "先停一下。"))
@@ -425,6 +425,10 @@ def test_lifecycle_records_and_export_match_the_final_checkpoint(engine_factory,
             key: value for key, value in snapshot.items() if key != "kind"}
     assert {key: exported[ids[key]]["status"] for key in ids} == {
         "watch": "paused", "wait": "cancelled", "travel": "completed"}
+    assert exported[ids["watch"]]["activity_type"] == "action"
+    assert {key: exported[ids["watch"]]["data"][key] for key in ("action_id", "category", "app_id", "manner")} == {
+        "action_id": "browse-feed", "category": "entertainment", "app_id": "douyin",
+        "manner": "phone_continuous"}
 
 
 @pytest.mark.asyncio
@@ -525,27 +529,67 @@ def _app_export_window(document):
     document["payrolls"][0]["due_at"] = "2026-01-05T08:45:00+08:00"
 
 
-def _drive_app_export(engine, target, app_name=None):
-    """@brief 只提交可见当前动作并推进实际排程边界，不改写时钟、内容或推送状态。"""
+def _pushed_content_completed(engine, push: dict) -> bool:
+    """@brief 只从真实人物内容进度判断本次推送内容是否已经完成。"""
+    progress = engine.context.state.agents[1].content_progress.get(push["content_id"])
+    return progress is not None and progress.completed_rounds >= 1
+
+
+def _matching_app_activity(engine, push: dict):
+    """@brief 返回本次推送所属动作与应用的进行中活动。"""
+    return next((item for item in active_activities(engine.context.state, 1)
+                 if item.kind == "action" and item.data.get("action_id") == push["action_id"]
+                 and item.data.get("app_id") == push["app_id"]), None)
+
+
+def _app_wake_request(engine, push: dict) -> tuple[str, object]:
+    """@brief 在真实唤醒点开始推送动作，内容完成后结束一次，随后只等待。"""
+    pending = pending_conclusions(engine.context.state, 1)
+    active = active_activities(engine.context.state, 1)
+    if pending:
+        return "conclude_activity", conclude_request(*(item.name for item in pending))
+    running = _matching_app_activity(engine, push)
+    if running is not None:
+        if _pushed_content_completed(engine, push):
+            return "conclude_activity", conclude_request(running.name)
+        return "report_status", ReportStatusRequest(
+            items=[{"activity_name": running.name, "summary": "继续看当前内容。"}], errands=[])
+    seen = any(item.kind == "action" and item.data.get("action_id") == push["action_id"]
+               and item.data.get("app_id") == push["app_id"] for item in engine.context.state.activities.values())
+    if active:
+        if not seen:
+            return "conclude_activity", conclude_request(*(item.name for item in active))
+        return "report_status", ReportStatusRequest(
+            items=[{"activity_name": item.name, "summary": "继续等待。"} for item in active], errands=[])
+    if seen:
+        return "start_activity", start_activity("等待", "自己")
+    return "start_activity", start_activity("进行", push["action"], app=[push["app"]])
+
+
+def _idle_wake_request(engine) -> tuple[str, object]:
+    """@brief 在真实唤醒点收尾已结束活动、播报进行中活动，否则开始等待。"""
+    pending = pending_conclusions(engine.context.state, 1)
+    if pending:
+        return "conclude_activity", conclude_request(*(item.name for item in pending))
+    active = active_activities(engine.context.state, 1)
+    if active:
+        return "report_status", ReportStatusRequest(
+            items=[{"activity_name": item.name, "summary": "继续等待。"} for item in active], errands=[])
+    return "start_activity", start_activity("等待", "自己")
+
+
+def _drive_app_export(engine, target: int, push: dict | None = None) -> None:
+    """@brief 只在真实决策机会提交当前请求并推进排程，不改写时钟、内容或推送状态。"""
     for step in range(300):
         if engine.context.state.current_time >= target:
             return
         if not engine.scheduling_state().ready_agent_ids:
             advance_next(engine)
             continue
-        pending = pending_conclusions(engine.context.state, 1)
-        active = active_activities(engine.context.state, 1)
-        if pending:
-            request = ("conclude_activity", conclude_request(*(item.name for item in pending)))
-        elif active:
-            request = ("report_status", ReportStatusRequest(items=[
-                {"activity_name":item.name, "summary":"继续看当前内容。"} for item in active], errands=[]))
-        else:
-            request = ("start_activity", start_activity("等待", "自己") if app_name is None else
-                       start_activity("打开", f"应用：{app_name}"))
+        request = _app_wake_request(engine, push) if push is not None else _idle_wake_request(engine)
         _, results = submit_round(engine, {1:request}, f"app-export-{target}-{step}")
         assert results[0].status in {"completed", "in_progress"}
-    raise AssertionError("App export did not reach its actual boundary")
+    raise AssertionError("Action export did not reach its actual boundary")
 
 
 @pytest.fixture
@@ -558,7 +602,7 @@ def completed_app_export(engine_factory, tmp_path):
     push = next(event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
                 if event.event_type == "environment_event" and event.data.get("kind") == "app_push"
                 and "push_id" in event.data)
-    _drive_app_export(engine, engine.context.state.end_time, push.data["app"])
+    _drive_app_export(engine, engine.context.state.end_time, push.data)
     reference = engine.context.store.assets.put_json({"agent_id":1}, {"kind":"app_export_test"})
     checkpoint = engine.checkpoint({"agent:1":reference})
     directory = tmp_path / "app-export"
@@ -570,7 +614,7 @@ def test_real_app_export_has_five_source_bound_fact_types_and_exact_quality_sect
     """@brief 五类 app 事实与实际活动、内容、推送逐项相符；同一前缀能认证重算。"""
     directory, engine, manifest, push = completed_app_export
     validated, events, activities = validate_export(directory)
-    assert validated == manifest and manifest["schema_version"] == 3
+    assert validated == manifest and manifest["schema_version"] == 4
     assert set(manifest["artifacts"]) == {"events", "activities", "verified_experiences", "purchases", "app_usage"}
     facts = [json.loads(line) for line in (directory / "app-usage.jsonl").read_text().splitlines()]
     assert {row["fact_kind"] for row in facts} == {
@@ -578,23 +622,43 @@ def test_real_app_export_has_five_source_bound_fact_types_and_exact_quality_sect
     sources = {event["event_id"]:event for event in events}
     assert all(row["source_event_id"] in sources for row in facts)
     for row in (row for row in facts if row["fact_kind"] == "content_consumed"):
-        evidence = sources[row["source_event_id"]]["data"]["content"]
-        assert (row["content_id"], row["app_id"], row["kind"], row["completed"]) == (
-            evidence["content_id"], evidence["app_id"], evidence["kind"], evidence["completed"])
+        source = sources[row["source_event_id"]]
+        evidence = source["data"]["content"]
+        action = source["data"]["activity"]["data"]
+        assert (row["content_id"], row["app_id"], row["action_id"], row["manner"], row["completed"]) == (
+            evidence["content_id"], evidence["app_id"], action["action_id"], action["manner"],
+            evidence["completed"])
         assert (row["position_before"], row["position_after"]) == (
             evidence["position_before_seconds"], evidence["position_after_seconds"])
+        assert "kind" not in row and "kind" not in evidence
     consumed_pin = [row for row in facts if row["fact_kind"] == "content_consumed" and row["push_id"]]
     assert consumed_pin and {row["push_id"] for row in consumed_pin} == {push.data["push_id"]}
     assert any(row["completed"] and row["content_id"] == push.data["content_id"] for row in consumed_pin)
     app_uses = [row for row in facts if row["fact_kind"] == "app_use"]
     assert len(app_uses) == len({row["activity_id"] for row in app_uses})
     assert {row["activity_id"] for row in app_uses} == {
-        activity["activity_id"] for activity in activities if activity["activity_type"] == "use_app"}
+        activity["activity_id"] for activity in activities if activity["activity_type"] == "action"
+        and activity["data"].get("app_id") is not None}
+    assert {(row["action_id"], row["manner"], row["device"]) for row in app_uses} == {
+        ("browse-feed", "phone_continuous", "phone")}
+    assert all(row["status"] == "cancelled" and row["segments"][-1]["ended_at"] < engine.context.state.end_time
+               for row in app_uses)
     quality = json.loads((directory / "quality.json").read_text())
-    assert quality["schema_version"] == 5
-    assert set(quality["content_contact"]) == {"by_app", "by_kind", "repeat_watch"}
+    assert quality["schema_version"] == 6
+    assert set(quality["content_contact"]) == {"by_app", "by_action", "repeat_watch", "repeat_seconds_share"}
     assert quality["content_contact"]["by_app"] == {push.data["app_id"]:sum(
         row["fact_kind"] == "content_consumed" for row in facts)}
+    progress_events = [event for event in events if event["event_type"] == "activity_progress"
+                       and "content" in event["data"]]
+    repeated = [event for event in progress_events if event["data"]["content"]["completed_rounds_after"]
+                - int(event["data"]["content"]["completed"]) >= 1]
+    total_seconds = sum(event["data"]["interval_end"] - event["data"]["interval_start"]
+                        for event in progress_events)
+    repeated_seconds = sum(event["data"]["interval_end"] - event["data"]["interval_start"]
+                           for event in repeated)
+    assert quality["content_contact"]["by_action"] == {push.data["action_id"]: len(progress_events)}
+    assert quality["content_contact"]["repeat_watch"] == len(repeated)
+    assert quality["content_contact"]["repeat_seconds_share"] == pytest.approx(repeated_seconds / total_seconds)
     assert quality["app_pushes"] == {"pushed":1, "opened_in_session":1, "consumed_pinned":1,
         "released_by_completion":1, "expired_with_session":0, "outside_window_violations":0}
     assert set(quality["work_topics"]) == {"topics", "completed", "worked_seconds_by_topic", "reports"}
@@ -670,7 +734,7 @@ def test_real_export_rejects_rehashed_app_or_travel_snapshot_provenance(request,
     directory, _, manifest, *_ = request.getfixturevalue(fixture)
     rows = [json.loads(line) for line in (directory / "events.jsonl").read_text().splitlines()]
     forged = next(row for row in rows if row["event_type"] == "action_accepted"
-                  and row["data"].get("activity", {}).get("kind") in {"use_app", "travel"})
+                  and row["data"].get("activity", {}).get("kind") in {"action", "travel"})
     forged[field] = value
     Event.model_validate(forged)
     manifest["artifacts"]["events"] = write_jsonl(directory / "events.jsonl", rows)
@@ -691,7 +755,7 @@ def test_real_export_rejects_rehashed_content_injected_into_a_wait_activity(comp
     Event.model_validate(waiting)
     manifest["artifacts"]["events"] = write_jsonl(directory / "events.jsonl", rows)
     (directory / "manifest.json").write_text(json.dumps(manifest))
-    with pytest.raises(IntegrityError, match="Content consumption must belong to a use_app activity"):
+    with pytest.raises(IntegrityError, match="Content consumption must use the current action content contract"):
         validate_export(directory)
 
 

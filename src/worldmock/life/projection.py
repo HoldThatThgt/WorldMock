@@ -19,12 +19,11 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from worldmock.life import admission, felt, social
-from worldmock.life.vocabulary import ACTION_WAYS, GIVE_WAY, PURCHASE_WAYS, USE_WAYS
+from worldmock.life.vocabulary import ACTION_WAYS
 from worldmock.life.readable import TRAVEL_WAYS
 from worldmock.life.interaction_menu import binding_action
 from worldmock.life.models import ActivityKind, AgentState, WorldState, active_activities
-from worldmock.life.object_labels import (SELF_LABEL, mail_name, object_label, remote_holding_label,
-                                          supply_label)
+from worldmock.life.object_labels import SELF_LABEL, object_label
 from worldmock.life.scenario import BodyConfig, RuntimeScenario
 from worldmock.life.sleep import SLEEPINESS_CLIP_MAX, sleepiness
 
@@ -46,12 +45,9 @@ class ProjectionInputs:
     state: WorldState
     scenario: RuntimeScenario
     agent: AgentState
-    #: 当前人物已分配、尚未完成的工作主题行。
-    task_rows: tuple[dict[str, Any], ...] = ()
     #: 人物档案餐时窗口（felt.MealWindows）。
     meal_windows: felt.MealWindows | None = None
-    #: 引擎内部动机仪表结果（写入 motivation_internal，不进提示，docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」）。
-    motivation_internal: dict[str, Any] | None = None
+    #: 当前观察所需的只读附加事实。
     extras: dict[str, Any] = field(default_factory=dict)
 
 
@@ -154,8 +150,6 @@ def build_observation(inputs: ProjectionInputs) -> dict[str, Any]:
         "active_activities": activity_rows["control"],
         "pending_conclusions": activity_rows["pending"],
     }
-    if inputs.motivation_internal is not None:
-        data["motivation_internal"] = inputs.motivation_internal
     return data
 
 
@@ -190,7 +184,7 @@ def _inbox_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
         if config is None:
             continue
         rows.append({"id": message_id, "kind": "mail", "sender_id": None,
-                     "head": config.subject, "read": message_id in agent.read_message_ids,
+                     "head": config.subject, "read": True,
                      "created_at": int(config.sent_at.timestamp())})
     for message_id in sorted(inputs.agent.inbox):
         message = agent.inbox[message_id]
@@ -210,15 +204,10 @@ def _chat_invite_head(state: WorldState, sender_id: str) -> str:
 
 
 def _product_names(scenario: RuntimeScenario) -> dict[str, str]:
-    """@brief 实际食品身份与登记显示名称。"""
-    return {food.food_id: food.name for food in scenario.foods}
+    """@brief 实际商品身份与登记显示名称。"""
+    return {goods.goods_id: goods.name for goods in scenario.goods}
 
 
-def holding_ids(state: WorldState, agent: AgentState) -> set[str]:
-    """@brief 手边持有量为正的商品身份集合：只取现场地点，途中（有进行中出行）为空。"""
-    present = admission.present_location(state, agent.agent_id)
-    holding = agent.inventory.get(present, {}) if present is not None else {}
-    return {product_id for product_id, quantity in holding.items() if quantity > 0}
 
 
 def interaction_bindings(inputs: ProjectionInputs) -> list[dict[str, Any]]:
@@ -237,41 +226,44 @@ def interaction_bindings(inputs: ProjectionInputs) -> list[dict[str, Any]]:
 
 
 def _interaction_binding(inputs: ProjectionInputs, row: dict[str, Any]) -> dict[str, Any]:
-    """@brief 从真实菜单和食物持有对象形成可读动作绑定。"""
+    """@brief 从真实菜单形成可读动作绑定。"""
     identity, kind = row["object_id"], row["kind"]
     menu = inputs.extras.get("interaction_menu")
     actions = [action for action in _interaction_actions(inputs, row)
-               if kind == "app" or menu is None or action["canonical_action"] in menu.allowed_actions]
+               if menu is None or action["canonical_action"] in menu.allowed_actions]
     result = {"object": _interaction_object_label(inputs, row), "kind": kind, "object_id": identity,
               "actions": actions}
     if kind == "supply":
-        result.update(store_id=row["store_id"], food_id=row["food_id"], app_id=row["app_id"])
+        result.update(goods_id=row["goods_id"], store_id=row["store_id"], app_ids=row["app_ids"])
+    if kind == "action":
+        result.update(category=row["category"], app_ids=row["app_ids"], manner=row["manner"])
     if row.get("location_id") is not None:
         result["location_id"] = row["location_id"]
     return result
 
 
 def _interaction_object_label(inputs: ProjectionInputs, row: dict[str, Any]) -> str:
-    """@brief 食品店铺与他处持有名称带实际登记地点，名称与指名购买一致。"""
+    """@brief 商品店铺名称带实际登记地点，名称与指名购买一致。"""
     kind, name = row["kind"], row["name"]
     if kind == "supply":
-        return supply_label(row["location_name"], name)
+        return name
     if kind == "self":
         return SELF_LABEL
-    if kind == "holding" and row.get("location_id") is not None:
-        return remote_holding_label(name, _location_index(inputs.scenario)[row["location_id"]].display_name)
-    return object_label(kind, name)
+    return name if kind in {"supply", "action"} else object_label(kind, name)
 
 
 def _interaction_actions(inputs: ProjectionInputs, row: dict[str, Any]) -> list[dict[str, Any]]:
-    """@brief 地点列图上方式，食品只列真实购买、食用与给予。"""
+    """@brief 地点列图上方式，商品只列真实购买。"""
     if row["kind"] == "location":
-        return [binding_action(TRAVEL_WAYS[route["mode"]], "travel_to", travel_mode=route["mode"])
-                for route in inputs.extras.get("route_rows", []) if route["destination"] == row["object_id"]]
-    if row["kind"] == "holding":
-        return [binding_action(USE_WAYS["eat"], "consume", use_mode="eat"), binding_action(GIVE_WAY, "consume")]
+        travel = [binding_action(TRAVEL_WAYS[route["mode"]], "travel_to", travel_mode=route["mode"])
+                  for route in inputs.extras.get("route_rows", []) if route["destination"] == row["object_id"]]
+        collect = [binding_action("领取", "collect_parcel")] if "collect_parcel" in row["actions"] else []
+        return [*travel, *collect]
     if row["kind"] == "supply":
         return _supply_actions(inputs, row)
+    if row["kind"] == "action":
+        return [binding_action("进行", "do", app_id=app_id, category=row["category"], manner=row["manner"])
+                for app_id in row["app_ids"] or (None,)]
     return [binding_action(ACTION_WAYS[action], action) for action in row["actions"]]
 
 
@@ -279,8 +271,9 @@ def _interaction_actions(inputs: ProjectionInputs, row: dict[str, Any]) -> list[
 
 def _supply_actions(inputs: ProjectionInputs, row: dict[str, Any]) -> list[dict[str, Any]]:
     """@brief 每个真实店铺都可到店，绑定 app 才列远程下单。"""
-    modes = ("pickup", "delivery") if row["app_id"] is not None else ("pickup",)
-    return [binding_action(PURCHASE_WAYS[mode], "purchase", fulfillment=mode) for mode in modes]
+    return [binding_action("购买", "purchase", fulfillment="pickup", app_id=None),
+            *(binding_action("购买", "purchase", fulfillment="delivery", app_id=app_id)
+              for app_id in row["app_ids"])]
 
 
 def _interactive_objects_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
@@ -290,52 +283,35 @@ def _interactive_objects_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
     ：每个对象只列出对它自己合法的动作。
     「自己」（等待、睡觉）恒在列表中。
     """
-    rows = _task_object_rows(inputs)
+    rows = []
     rows.extend(_place_object_rows(inputs))
     rows.extend(_supply_object_rows(inputs))
-    rows.extend(_holding_object_rows(inputs))
-    rows.extend(_app_object_rows(inputs))
-    rows.extend(_lifestyle_object_rows(inputs))
+    rows.extend(_action_object_rows(inputs))
     rows.extend(_person_object_rows(inputs))
-    rows.extend(_mail_object_rows(inputs))
     rows.append(_self_object_row(inputs))
     return rows
 
 
-def _task_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief 工作任务对象：开工动作照常列出；过了截止仍列出的任务不列开工动作（永久不能满足）。技能不够的任务
-    不在 task_rows 中（观察侧已去掉，不列目标）。"""
-    return [{"object_id": row["topic_id"], "kind": "work_topic", "name": row["topic"],
-             "actions": ["work"]} for row in inputs.task_rows]
 
 
 def _place_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief 可达地点对象：只接受前往动作。"""
-    return [{"object_id": place["location_id"], "kind": "location", "name": place["name"],
-             "actions": ["travel_to"]} for place in inputs.extras.get("reachable_places", [])]
+    """@brief 可达地点列出出行，所有所选驿站另列领取，包含当前地点。"""
+    rows = {place["location_id"]: {"object_id": place["location_id"], "kind": "location", "name": place["name"],
+                                  "actions": ["travel_to"]}
+            for place in inputs.extras.get("reachable_places", [])}
+    for place in inputs.scenario.locations:
+        if place.kind == "parcel_station":
+            row = rows.setdefault(place.location_id, {"object_id": place.location_id, "kind": "location",
+                                                      "name": place.display_name, "actions": []})
+            row["actions"].append("collect_parcel")
+    return list(rows.values())
 
 
 def _supply_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief 本轮实际固定菜单食品，各店食品身份独立绑定。"""
-    return [{"object_id": f"{row['store_id']}:{row['food_id']}", "kind": "supply", "name": row["name"],
-             "store_id": row["store_id"], "food_id": row["food_id"], "location_name": row["location_name"],
-             "app_id": min(row["app_ids"]) if row["app_ids"] else None, "actions": ["purchase"]}
-            for row in inputs.extras.get("product_rows", [])]
-
-
-def _holding_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief 持有的商品对象：手边的按目录支持食用、使用或制作；他处（含途中的全部）持有物名称带地点，另记所在地点。"""
-    names = _product_names(inputs.scenario)
-    present = admission.present_location(inputs.state, inputs.agent.agent_id)
-    rows = [{"object_id": product_id, "kind": "holding", "name": names[product_id], "actions": ["consume"]}
-            for product_id in sorted(holding_ids(inputs.state, inputs.agent))]
-    for place_id, holding in sorted(inputs.agent.inventory.items()):
-        if place_id == present:
-            continue
-        rows.extend({"object_id": product_id, "kind": "holding", "name": names[product_id], "actions": ["consume"],
-                     "location_id": place_id}
-                    for product_id, quantity in sorted(holding.items()) if quantity > 0)
-    return rows
+    """@brief 本轮实际固定菜单商品，各店商品身份独立绑定。"""
+    return [{"object_id": row["goods_id"], "kind": "supply", "name": row["name"],
+             "store_id": row["store_id"], "goods_id": row["goods_id"], "app_ids": row["app_ids"],
+             "actions": ["purchase"]} for row in inputs.extras.get("product_rows", [])]
 
 
 
@@ -346,35 +322,20 @@ def _holding_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
 
 
 
-def _lifestyle_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief 本轮呈现的生活活动目录条目：只接受进行动作（地点环境是否合适由工具层写明）。"""
-    return [{"object_id": row["activity_id"], "kind": "lifestyle", "name": row["name"], "actions": ["do"]}
-            for row in inputs.extras.get("lifestyle_rows", [])]
+
+
 
 
 def _person_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
     """@brief 同场人物只列交谈；通话只对通讯录联系人开放。"""
-    rows = [{"object_id": view["person_id"], "kind": "person", "name": view["name"], "actions": ["chat"]}
+    rows = [{"object_id": view["person_id"], "kind": "person", "name": view["name"], "actions": []}
             for view in people_here_views(inputs.state, inputs.agent)]
     config = next(item for item in inputs.scenario.agents if item.agent_id == inputs.agent.agent_id)
-    rows.extend({"object_id": item.contact_id, "kind": "contact", "name": item.salutation, "actions": ["call"]}
+    rows.extend({"object_id": item.contact_id, "kind": "contact", "name": item.salutation, "actions": []}
                 for item in config.contacts)
     return rows
 
 
-def _mail_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief 场景邮件对象：用标题和到达时间区分同主题邮件；人物消息与交谈邀请不是阅读对象（全文在进度层）。"""
-    messages = inputs.extras.get("scenario_messages", {})
-    rows = []
-    for message_id in sorted(inputs.agent.visible_message_ids):
-        config = messages.get(message_id)
-        if config is None:
-            continue
-        sent = int(config.sent_at.timestamp())
-        rows.append((sent, message_id, {
-            "object_id": message_id, "kind": "mail", "actions": ["read"],
-            "name": mail_name(config.subject, sent, inputs.scenario.timezone)}))
-    return [row for _, _, row in sorted(rows, key=lambda item: (item[0], item[1]))]
 
 
 def _self_object_row(inputs: ProjectionInputs) -> dict[str, Any]:
@@ -383,7 +344,16 @@ def _self_object_row(inputs: ProjectionInputs) -> dict[str, Any]:
             "actions": ["wait", "sleep"]}
 
 
-def _app_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief 已登记应用始终列出，只提供打开动作，内容由应用使用规则选择。"""
-    return [{"object_id": app.app_id, "kind": "app", "name": app.name, "actions": ["use_app"]}
-            for app in sorted(inputs.scenario.apps, key=lambda item: item.app_id)]
+
+
+def _action_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
+    """@brief 所有本人有权使用内容的动作始终列出，不进入商品轮转。"""
+    assignments = {content_id: person.agent_id for person in inputs.scenario.agents
+                   for content_id in person.work_content_ids}
+    actions = inputs.extras["actions"]
+    return [{"object_id": action.action_id, "kind": "action", "name": action.name,
+             "category": action.category.value, "manner": action.manner, "app_ids": action.app_ids,
+             "actions": ["do"]} for action in actions
+            if any(content.action_id == action.action_id
+                   and assignments.get(content.content_id, inputs.agent.agent_id) == inputs.agent.agent_id
+                   for content in inputs.scenario.contents)]

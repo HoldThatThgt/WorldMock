@@ -116,7 +116,9 @@ def test_opslog_records_decision_round_and_model_exchange(engine_factory) -> Non
 
 def test_opslog_component_follows_the_internal_action_of_the_chosen_way(engine_factory) -> None:
     """start_activity 的操作日志组件按方式闭集（WAYS）映射的内部动作取：「驾车」即出行，受理与车费都记在 travel。"""
-    engine = engine_factory()
+    def car_owner(document):
+        document["agents"][0].update(owns_car=True, initial_driving_days=7)
+    engine = engine_factory(mutate=car_owner)
     stage_day_plan(engine)
     ctx = context(engine, "ops-drive")
     engine.begin_decision_round([ctx])

@@ -25,12 +25,12 @@ from worldmock.life.models import (REQUEST_MODELS, ActivityConclusionItem, Activ
                                    deepseek_strict_schema)
 from worldmock.life.request_errors import argument_report
 
-#: 当前人工目录的真实食品：零食（取得）、牛肉面（吃掉）与一种饮料。
+#: 当前人工目录的真实商品：零食、牛肉面与一种饮料，事务只累计收货事实。
 _SNACK, _MEAL, _TEA = "chips", "beef-noodles", "lemon-tea"
 _SNACK_NAME, _MEAL_NAME, _TEA_NAME = "薯片", "牛肉面", "柠檬茶"
 _SNACK_ERRAND, _MEAL_ERRAND, _TEA_ERRAND = "补一份零食", "晚饭吃牛肉面", "囤柠檬茶"
-#: 每条变更的三种做什么（没有「完成」）与可空的两种结果。
-_CHANGES, _OUTCOMES = ["新增", "更新", "取消"], ["取得", "吃掉", None]
+#: 每条变更只声明新增、更新或取消，完成由真实收货事件结算。
+_CHANGES = ["新增", "更新", "取消"]
 
 
 def _act(engine, round_id: str, tool: str, request):
@@ -89,9 +89,9 @@ def _assert_request_events(engine, result, events: list, kinds: list[str]) -> No
 
 
 def _resources(engine) -> tuple:
-    """人物 1 的余额账户、库存与订单相关的世界事实（事务变更不改变它们）。"""
+    """@brief 事务变更不改变余额、身体、驾车可用日与订单的世界事实。"""
     agent = engine.context.state.agents[1]
-    return engine.context.state.accounts, agent.inventory, engine.context.state.deliveries, engine.context.state.contact_holdings
+    return engine.context.state.accounts, agent.body, agent.driving_days, engine.context.state.deliveries
 
 
 def test_each_control_tool_records_errand_changes_with_one_event_per_change_and_an_ordered_receipt(
@@ -99,12 +99,12 @@ def test_each_control_tool_records_errand_changes_with_one_event_per_change_and_
     """三个控制工具都带请求级 errands 并在受理时记下变更：播报新增两条、暂停写一条内容没有变化的更新（照样写
     errand_updated）、点名暂停的活动播报即恢复它并同时取消一条、更新一条（回执按请求里的顺序：先取消后更新）、收尾再新增
     一条。每条被受理的变更恰好一条事务事件，与动作结果同一提交；新增的事务以「<动作身份>:errand:<条目下标>」为身份、
-    零累计量、按受理时刻换算提醒钟点；更新只替换备注与提醒；取消移出状态、事件带移出前的快照与原因；余额、库存与订单不变。
+    零累计量、按受理时刻换算提醒钟点；更新只替换备注与提醒；取消移出状态、事件带移出前的快照与原因；余额、身体与订单不变。
     下一次观察的待办层列出这些事务，进度层里该次调用的公开结果带同样的回执 details.errands。"""
     engine, wait_id, name = _waiting(engine_factory)
     zone, noted_at, facts = engine.context.scenario.timezone, engine.context.state.current_time, _resources(engine)
     kit = errand_add(_SNACK_ERRAND, _SNACK_NAME, memo="下班前下单送到家", remind_time="17:00")
-    meal = errand_add(_MEAL_ERRAND, _MEAL_NAME, outcome="吃掉", quantity=2)
+    meal = errand_add(_MEAL_ERRAND, _MEAL_NAME, quantity=2)
     _, reported = _act(engine, "report", "report_status", report_request(name, summary="还在等。", errands=[kit, meal]))
     assert reported.status == "completed"
     assert reported.data["errands"] == [{"errand": _SNACK_ERRAND, "change": "新增"},
@@ -114,28 +114,29 @@ def test_each_control_tool_records_errand_changes_with_one_event_per_change_and_
     requested = _one(engine, "action_requested", "action-report")
     first, second = held.values()
     assert first.model_dump() == {
-        "errand_id": "action-report:errand:0", "name": _SNACK_ERRAND, "outcome": "obtain", "product_id": _SNACK,
+        "errand_id": "action-report:errand:0", "name": _SNACK_ERRAND, "product_id": _SNACK,
         "quantity": 1, "progress": 0.0, "memo": "下班前下单送到家", "registered_at": noted_at,
         "remind_at": remind_epoch("17:00", noted_at, zone), "reminded_at": None,
         "origin_action_id": "action-report", "origin_event_id": requested.event_id}
-    assert (second.outcome, second.product_id, second.quantity, second.memo, second.remind_at) == (
-        "eat", _MEAL, 2, None, None)
+    assert (second.product_id, second.quantity, second.memo, second.remind_at) == (_MEAL, 2, None, None)
     registered = _errand_events(engine)
     _assert_request_events(engine, reported, registered, ["errand_registered", "errand_registered"])
     assert [event.data["errand"] for event in registered] == [item.model_dump(mode="json") for item in held.values()]
     assert _resources(engine) == facts
 
     _next_chance(engine)
+    facts = _resources(engine)
     unchanged = errand_update(_SNACK_ERRAND, memo="下班前下单送到家", remind_time="17:00")
     observed, paused = _act(engine, "pause", "pause_activity", pause_request(name, errands=[unchanged]))
     rows = observed["todo_layer"]["errands"]
     assert [(row["name"], row["done_when"], row["progress"]) for row in rows] == [
-        (_SNACK_ERRAND, "取得薯片 1 份", "已取得 0 份"), (_MEAL_ERRAND, "吃掉牛肉面 2 份", "已吃掉 0 份")]
+        (_SNACK_ERRAND, "取得薯片 1 份", "已取得 0 份"), (_MEAL_ERRAND, "取得牛肉面 2 份", "已取得 0 份")]
     assert (paused.status, paused.data["errands"]) == ("completed", [{"errand": _SNACK_ERRAND, "change": "更新"}])
     assert engine.context.state.activities[wait_id].status == ActivityStatus.PAUSED
     updated = _errand_events(engine)[2:]
     _assert_request_events(engine, paused, updated, ["errand_updated"])
     assert updated[0].data["errand"] == registered[0].data["errand"]
+    assert _resources(engine) == facts
 
     changes = [errand_cancel(_MEAL_ERRAND, "改在公司吃了"), errand_update(_SNACK_ERRAND, memo="周末去超市买")]
     _, resumed = _act(engine, "resume", "report_status", report_request(name, summary="接着等。", errands=changes))
@@ -150,8 +151,10 @@ def test_each_control_tool_records_errand_changes_with_one_event_per_change_and_
     assert renewed.data["errand"] == kept.model_dump(mode="json")
     assert (kept.memo, kept.remind_at, kept.registered_at, kept.quantity) == ("周末去超市买", None, noted_at, 1)
     assert list(engine.context.state.agents[1].errands) == ["action-report:errand:0"]
+    assert _resources(engine) == facts
 
     _next_chance(engine)
+    facts = _resources(engine)
     tea = errand_add(_TEA_ERRAND, _TEA_NAME, quantity=3)
     _, concluded = _act(engine, "conclude", "conclude_activity", conclude_request(name, errands=[tea]))
     assert concluded.status == "completed" and concluded.data["errands"] == [{"errand": _TEA_ERRAND, "change": "新增"}]
@@ -202,7 +205,7 @@ _TYPE = "A value satisfying one of the declared JSON types is required."
 _OUTSIDE = "The value is outside the declared allowed values."
 _BLANK = "A non-blank string matching the declared format is required."
 #: 互不冲突的五条新增（五个名称、五种不同的（结果种类，商品），都解析得到）：这样的请求只有条数超限这一处不合法。
-_FIVE = [errand_add("事务一", _SNACK_NAME), errand_add("事务二", _MEAL_NAME), errand_add("事务三", _MEAL_NAME, outcome="吃掉"),
+_FIVE = [errand_add("事务一", _SNACK_NAME), errand_add("事务二", _MEAL_NAME), errand_add("事务三", "扑克牌"),
          errand_add("事务四", _TEA_NAME), errand_add("事务五", "饭团")]
 #: 结构错误一例一行：（工具，请求级 errands，逐项（条目下标或 None，键，原值，合法值，why））；条目下标为 None 指 errands
 #: 本身。上限只写在 why，expected 只有类型与格式。
@@ -211,22 +214,20 @@ _STRUCTURAL = {
                     [(0, "memo", None, [], "This required field was omitted.")]),
     "wrong_type": ("pause_activity", [_add(quantity="1")], [(0, "quantity", "1", [], "A JSON integer is required.")]),
     "change_outside_the_enum": ("conclude_activity", [_add(change="登记")], [(0, "change", "登记", _CHANGES, _OUTSIDE)]),
-    "outcome_outside_the_enum": ("report_status", [_add(outcome="买到")], [(0, "outcome", "买到", _OUTCOMES, _OUTSIDE)]),
-    "add_without_its_basis_and_with_a_reason": ("pause_activity", [_add(outcome=None, item=None, quantity=None,
+    "retired_outcome_is_forbidden": ("report_status", [_add(outcome="取得")],
+                                     [(0, "outcome", "取得", [], "This field is not declared and must be removed.")]),
+    "add_without_its_basis_and_with_a_reason": ("pause_activity", [_add(item=None, quantity=None,
                                                                         reason="不买了")], [
-        (0, "outcome", None, _OUTCOMES, "outcome is required when change is 新增"),
         (0, "item", None, [], "item is required when change is 新增"),
         (0, "quantity", None, [], "quantity is required when change is 新增"),
         (0, "reason", "不买了", [], "reason must be null when change is 新增")]),
-    "update_touching_the_basis": ("conclude_activity", [_update(outcome="取得", item=_SNACK_NAME, quantity=2,
+    "update_touching_the_basis": ("conclude_activity", [_update(item=_SNACK_NAME, quantity=2,
                                                                 reason="换一种")], [
-        (0, "outcome", "取得", _OUTCOMES, "outcome must be null when change is 更新"),
         (0, "item", _SNACK_NAME, [], "item must be null when change is 更新"),
         (0, "quantity", 2, [], "quantity must be null when change is 更新"),
         (0, "reason", "换一种", [], "reason must be null when change is 更新")]),
     "cancel_without_a_reason_and_with_other_keys": ("report_status", [_cancel(
-        outcome="吃掉", item=_MEAL_NAME, quantity=1, memo="算了", remind_time="18:00", reason=None)], [
-        (0, "outcome", "吃掉", _OUTCOMES, "outcome must be null when change is 取消"),
+        item=_MEAL_NAME, quantity=1, memo="算了", remind_time="18:00", reason=None)], [
         (0, "item", _MEAL_NAME, [], "item must be null when change is 取消"),
         (0, "quantity", 1, [], "quantity must be null when change is 取消"),
         (0, "memo", "算了", [], "memo must be null when change is 取消"),
@@ -272,7 +273,7 @@ def _constructed(tool: str, name: str, errands: list[dict]):
 def test_every_structural_error_reports_the_full_errand_path(engine_factory, case: str) -> None:
     """每种结构错误（缺键、类型、枚举外的值、各变更种类的交叉约束、空白与超长文字、钟点格式、份数 0 与 10、五条变更）：
     经环境的 _dispatch 以 ACTION_REQUEST_INVALID 拒绝，逐项路径完整到 errands[j].<键>（条数超限在 errands 本身），原值照写，
-    枚举给全部合法值（三种变更、两种结果加 null），上限写在 why、expected 只有类型与格式；与宿主对同一参数的 argument_report
+    枚举给全部合法变更，退役结果字段明确拒绝，上限写在 why；与宿主对同一参数的 argument_report
     逐项相同（只差明细码）。被拒结果没有回执键，人物没有记下事务、没有事务事件，等待没有被播报、暂停或结束。"""
     tool, errands, expected = _STRUCTURAL[case]
     engine, wait_id, name = _waiting(engine_factory)
@@ -287,7 +288,8 @@ def test_every_structural_error_reports_the_full_errand_path(engine_factory, cas
         for index, key, written, allowed, why in expected]
     for row in rows:
         assert row["candidates"] == [] and not any(digit in row["expected"] for digit in "0123456789")
-        assert row["expected"].startswith(("JSON type", _TYPE, "This field is required"))
+        assert row["expected"].startswith(("JSON type", _TYPE, "This field is required",
+                                           "This field is not declared and must be removed."))
     arguments = request.model_dump(mode="json", warnings=False)
     with pytest.raises(ValidationError) as caught:
         REQUEST_MODELS[tool].model_validate(arguments)
@@ -302,9 +304,8 @@ def _paused_app_and_pending_wait(engine_factory):
     engine = engine_factory()
     stage_day_plan(engine)
     shown = engine.observations._observation_data(engine.context.state.agents[1])
-    app, way = next((row["object"], item["label"]) for row in shown["interaction_bindings"]
-                    if row["kind"] == "app" for item in row["actions"] if item["canonical_action"] == "use_app")
-    _, opened = _act(engine, "app", "start_activity", start_activity(way, app))
+    _, opened = _act(engine, "app", "start_activity", start_activity("进行", "刷推荐", app=["抖音"]))
+    assert opened.status == "in_progress"
     wake_by_mail(engine, offset=300)
     assert advance_until_ready(engine)
     app_name = activity_name(engine, opened.activity_id)

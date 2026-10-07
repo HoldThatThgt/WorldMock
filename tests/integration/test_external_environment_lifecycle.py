@@ -11,12 +11,12 @@ import pytest
 
 from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 from tests.life.conftest import advance_next, conclude_request, report_request, start_activity, submit_round
+from worldmock.catalog.identity import refresh_manifest_identity
 from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import ActivityStatus, RunIdentity
 from worldmock.life.activity_control import pending_conclusions
 from worldmock.life.models import active_activities
-from worldmock.life.scenario import sha256_file
 
 
 def _identity(path: Path) -> RunIdentity:
@@ -94,17 +94,15 @@ def _advance_after_restore(engine: LifeEngine) -> None:
 
 @pytest.mark.parametrize("scenario_name", ["single-person.json", "multi-person.json", "multi-person-half-day.json"])
 def test_external_environment_survives_actions_and_reopen(tmp_path: Path, scenario_name: str):
-    """@brief 显式外部场景路径足以完成真实生命周期，标题和效果取人工环境。"""
+    """@brief 显式外部场景路径足以完成真实动作生命周期，动作和内容取人工环境。"""
     root = tmp_path / "external-environment"
     shutil.copytree(ARTIFICIAL_ENVIRONMENT_ROOT, root)
     path, run = root / "scenarios" / scenario_name, tmp_path / "run"
     engine = LifeEngine.create(path, run, _identity(path))
     try:
-        assert engine.context.corpus_root == root / "corpora"
-        assert engine.context.rules.content_titles == {
-            "c-article": "测试文章", "c-image": "测试图文", "c-live": "测试实况",
-            "c-long": "测试长视频", "c-short": "测试短视频", "c-short-2": "测试短视频二",
-        }
+        catalog = engine.context.semantics.catalog
+        assert catalog.actions["quiet-rest"].name == "安静休息"
+        assert catalog.contents["c-rest"].title == "测试休息"
         requests = {agent: ("start_activity", start_activity("进行", "安静休息"))
                     for agent in engine.scheduling_state().ready_agent_ids}
         _, results = submit_round(engine, requests, "start-rest")
@@ -114,7 +112,7 @@ def test_external_environment_survives_actions_and_reopen(tmp_path: Path, scenar
         engine.close()
         engine = LifeEngine.open(path, run)
         assert engine.context.state.model_dump(mode="json") == saved
-        assert all(activity.data["effects"] == {"entertainment": 0.8, "social": 0.1, "health": 0.2}
+        assert all(activity.data["action_id"] == "quiet-rest" and activity.data["content_id"] == "c-rest"
                    for activity in engine.context.state.activities.values())
         _advance_after_restore(engine)
         checkpoint = _snapshot_current(engine, tmp_path)
@@ -123,147 +121,107 @@ def test_external_environment_survives_actions_and_reopen(tmp_path: Path, scenar
         engine.close()
 
 
-def _environment_with_effects(root: Path, effects: dict[str, float]) -> Path:
-    """@brief 复制人工环境，只改条目效果和反馈间隔，再绑定实际语料与场景字节。"""
+def _environment_with_content(root: Path, title: str, duration_seconds: int) -> Path:
+    """@brief 复制人工环境，只改动作绑定内容并刷新目录身份。"""
     shutil.copytree(ARTIFICIAL_ENVIRONMENT_ROOT, root)
-    items_path = root / "corpora/lifestyle/items.json"
-    items = json.loads(items_path.read_text(encoding="utf-8"))
-    assert [item["activity_id"] for item in items["items"]] == ["quiet-rest"]
-    items["items"][0]["effects"] = effects
-    items_path.write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
-    manifest_path = root / "corpora/manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    entry = next(entry for entry in manifest["entries"] if entry["path"] == "lifestyle/items.json")
-    entry.update(sha256=sha256_file(items_path), size_bytes=items_path.stat().st_size)
-    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+    contents_path = root / "catalog/contents.json"
+    document = json.loads(contents_path.read_text(encoding="utf-8"))
+    content = next(item for item in document["contents"] if item["content_id"] == "c-rest")
+    content.update(title=title, summary=f"{title}的测试用合成摘要。", duration_seconds=duration_seconds)
+    contents_path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+    refresh_manifest_identity(root / "catalog")
     path = root / "scenarios/single-person.json"
     scenario = json.loads(path.read_text(encoding="utf-8"))
-    scenario["corpus_manifest_sha256"] = sha256_file(manifest_path)
     scenario["activity_feedback_seconds"] = 300
     path.write_text(json.dumps(scenario, ensure_ascii=False), encoding="utf-8")
     return path
 
 
-def _start_effect_rest(engine: LifeEngine, effects: dict[str, float]) -> str:
-    """@brief 经真实请求启动条目，并验证实际启动路径冻结完整环境效果。"""
-    item, = engine.context.lifestyle_items
-    assert item.activity_id == "quiet-rest" and dict(item.effects) == effects
+def _start_content_rest(engine: LifeEngine, title: str, duration_seconds: int) -> str:
+    """@brief 经真实请求启动动作，并验证实际启动路径冻结环境内容。"""
+    content = engine.context.semantics.catalog.contents["c-rest"]
+    assert content.title == title and content.duration_seconds == duration_seconds
     _, results = submit_round(engine, {1: ("start_activity", start_activity("进行", "安静休息"))}, "start-rest")
     result, = results
     assert result.status == "in_progress"
     activity = engine.context.state.activities[result.activity_id]
-    assert activity.target_id == "quiet-rest"
-    assert activity.data["effects"] == effects
-    assert result.data["activity"]["data"]["effects"] == effects
+    assert activity.kind == "action"
+    assert activity.data["action_id"] == "quiet-rest"
+    assert activity.data["content_id"] == "c-rest"
+    assert activity.planned_duration_seconds == duration_seconds
+    assert result.data["activity"]["data"]["content_id"] == "c-rest"
     return activity.activity_id
 
 
-def _accumulate_awake_needs(engine: LifeEngine) -> None:
-    """@brief 真实等待半小时积累需要，避免零初值把两种娱乐缓解都钳制为零。"""
-    started_at = engine.context.state.current_time
-    for step in range(6):
-        _, results = submit_round(engine, {1: ("start_activity", start_activity("等待", "自己"))}, f"wait-{step}")
-        result, = results
-        assert result.status == "in_progress"
-        for _ in range(8):
-            activity = engine.context.state.activities[result.activity_id]
-            if activity.status == ActivityStatus.COMPLETED:
-                break
-            if engine.scheduling_state().ready_agent_ids:
-                _, reports = submit_round(engine, {1: ("report_status", report_request(activity.name))},
-                                           f"wait-report-{step}-{activity.elapsed_seconds}")
-                assert all(report.status == "completed" for report in reports)
-            advance_next(engine)
-        activity = engine.context.state.activities[result.activity_id]
-        assert activity.status == ActivityStatus.COMPLETED and activity.elapsed_seconds == 300
-        _, conclusions = submit_round(engine, {1: ("conclude_activity", conclude_request(activity.name))},
-                                      f"wait-conclude-{step}")
-        assert all(conclusion.status == "completed" for conclusion in conclusions)
-    assert engine.context.state.current_time - started_at == 1800
-    assert engine.context.state.agents[1].body.entertainment_need > .03
-
-
-def _advance_effect_rest(engine: LifeEngine, activity_id: str, effects: dict[str, float]) -> None:
-    """@brief 真实播报和推进后核对三个身体通道，数值按输入效果及实际区间计算。"""
+def _advance_content_rest(engine: LifeEngine, activity_id: str) -> None:
+    """@brief 经真实播报和推进更新内容位置及活动快照。"""
     activity = engine.context.state.activities[activity_id]
-    assert activity.status == ActivityStatus.ACTIVE and activity.data["effects"] == effects
+    assert activity.status == ActivityStatus.ACTIVE
     if engine.scheduling_state().ready_agent_ids:
         _, results = submit_round(engine, {1: ("report_status", report_request(activity.name))},
                                   f"report-rest-{activity.elapsed_seconds}")
         assert all(result.status == "completed" for result in results)
-    before = engine.context.state.agents[1].model_copy(deep=True)
-    start = engine.context.state.current_time
+    before = activity.media_position_seconds
     advance_next(engine)
-    hours = (engine.context.state.current_time - start) / 3600
-    assert hours > 0
-    body = engine.context.state.agents[1].body
-    entertainment = max(0, before.body.entertainment_need - effects["entertainment"] * .5 * hours)
-    assert body.entertainment_need == pytest.approx(entertainment)
-    social = max(0, before.body.social_need - effects["social"] * .5 * hours) + .04 * hours
-    assert body.social_need == pytest.approx(social)
-    mood = before.body.mood_valence + effects["health"] * .1 * hours * (1 + .5 * before.body.neuroticism_norm)
-    if before.mood_updated_at is not None:
-        minutes = (engine.context.state.current_time - before.mood_updated_at) / 60
-        mood *= .5 ** (minutes / (45 * (1 + .3 * before.body.neuroticism_norm)))
-    assert body.mood_valence == pytest.approx(mood)
-    assert engine.context.state.activities[activity_id].data["effects"] == effects
+    current = engine.context.state.activities[activity_id]
+    assert current.media_position_seconds > before
+    assert current.data["action_id"] == "quiet-rest" and current.data["content_id"] == "c-rest"
 
 
-def _export_effect_run(engine: LifeEngine, root: Path, activity_id: str, effects: dict[str, float]) -> None:
-    """@brief 完成真实运行并验证导出中的同一活动仍保存启动效果。"""
+def _export_content_run(engine: LifeEngine, root: Path, activity_id: str, duration_seconds: int) -> None:
+    """@brief 完成真实运行并验证导出中的同一动作仍保存内容身份和时长。"""
     from worldmock.footprints.export import export_run
     from worldmock.footprints.validation import validate_export
 
     checkpoint = _complete_run(engine, root)
     activity = engine.context.state.activities[activity_id]
-    assert activity.status == ActivityStatus.COMPLETED and activity.data["effects"] == effects
+    assert activity.status == ActivityStatus.COMPLETED
+    assert activity.data["content_id"] == "c-rest"
+    assert activity.planned_duration_seconds == duration_seconds
     destination = root / "export"
     manifest = export_run(engine.context.store, checkpoint.last_event_seq, destination)
     checked, events, activities = validate_export(destination)
     assert checked["run_id"] == manifest["run_id"]
     exported = next(item for item in activities if item["activity_id"] == activity_id)
-    assert exported["target_id"] == "quiet-rest" and exported["status"] == "completed"
-    assert exported["data"]["effects"] == effects
-    assert any(event["event_type"] == "activity_progress" and event["activity_id"] == activity_id for event in events)
+    assert exported["status"] == "completed"
+    assert exported["data"]["action_id"] == "quiet-rest"
+    assert exported["data"]["content_id"] == "c-rest"
+    progress = [event for event in events
+                if event["event_type"] == "activity_progress" and event["activity_id"] == activity_id]
+    assert progress and progress[-1]["data"]["content"]["completed"] is True
 
 
-def test_same_lifestyle_identity_freezes_each_external_environment_through_real_lifecycle(tmp_path: Path):
-    """@brief 两个同时加载的外部世界经真实启动、继续和恢复各自使用条目效果。"""
-    variants = {"mild": {"entertainment": .2, "social": .3, "health": .4},
-                "strong": {"entertainment": .6, "social": .7, "health": .9}}
-    paths = {name: _environment_with_effects(tmp_path / name, effects) for name, effects in variants.items()}
-    engines, identities, outcomes = {}, {}, {}
+def test_same_action_content_identity_freezes_each_environment_through_real_lifecycle(tmp_path: Path):
+    """@brief 两个同时加载的外部世界经真实启动、继续和恢复各自使用动作内容。"""
+    variants = {"short": ("短暂休息", 600), "long": ("长时间休息", 1200)}
+    paths = {name: _environment_with_content(tmp_path / name, *content) for name, content in variants.items()}
+    engines, identities = {}, {}
     try:
         for name, path in paths.items():
             engines[name] = LifeEngine.create(path, tmp_path / name / "run", _identity(path))
-        for engine in engines.values():
-            _accumulate_awake_needs(engine)
-        for name, effects in variants.items():
-            identities[name] = _start_effect_rest(engines[name], effects)
-        for name, effects in variants.items():
+        for name, (title, duration) in variants.items():
+            identities[name] = _start_content_rest(engines[name], title, duration)
+        for name, (_, duration) in variants.items():
             engine, activity_id = engines[name], identities[name]
-            _advance_effect_rest(engine, activity_id, effects)
+            _advance_content_rest(engine, activity_id)
             activity = engine.context.state.activities[activity_id]
-            assert activity.status == ActivityStatus.ACTIVE
-            assert 0 < activity.elapsed_seconds < activity.planned_duration_seconds
+            assert 0 < activity.elapsed_seconds <= activity.planned_duration_seconds == duration
             saved = engine.context.state.model_dump(mode="json")
             engine.close()
             engines[name] = LifeEngine.open(paths[name], tmp_path / name / "run")
             assert engines[name].context.state.model_dump(mode="json") == saved
-            assert engines[name].context.state.activities[activity_id].data["effects"] == effects
-        for name, effects in variants.items():
+            assert engines[name].context.state.activities[activity_id].data["content_id"] == "c-rest"
+        for name, (_, duration) in variants.items():
             engine, activity_id = engines[name], identities[name]
             for _ in range(8):
                 if engine.context.state.activities[activity_id].status != ActivityStatus.ACTIVE:
                     break
-                _advance_effect_rest(engine, activity_id, effects)
+                _advance_content_rest(engine, activity_id)
             activity = engine.context.state.activities[activity_id]
             assert activity.status == ActivityStatus.COMPLETED
-            assert activity.elapsed_seconds == activity.planned_duration_seconds == 900
-            assert activity.data["effects"] == effects
-            outcomes[name] = engine.context.state.agents[1].body.model_copy(deep=True)
-        assert outcomes["mild"].entertainment_need > outcomes["strong"].entertainment_need
-        assert 0 < outcomes["mild"].mood_valence < outcomes["strong"].mood_valence
+            assert activity.elapsed_seconds == activity.planned_duration_seconds == duration
+            progress = engine.context.state.agents[1].content_progress["c-rest"]
+            assert progress.position_seconds == 0 and progress.completed_rounds == 1
         for name in variants:
             checkpoint = _snapshot_current(engines[name], tmp_path / name)
             assert engines[name].context.store.get_checkpoint(checkpoint.checkpoint_id).state == checkpoint.state
@@ -282,13 +240,12 @@ def test_engine_factory_uses_artificial_inputs_and_isolates_scenario_changes(eng
         document["body"]["mass_kg"] = 68.0
 
     changed = engine_factory(path, mutate=change)
-    assert first.context.corpus_root == second.context.corpus_root == changed.context.corpus_root == (
-        ARTIFICIAL_ENVIRONMENT_ROOT / "corpora")
     assert first.context.scenario.scenario_id == second.context.scenario.scenario_id == "single-person-test"
     assert first.context.scenario.body.mass_kg == second.context.scenario.body.mass_kg == 70.0
     assert changed.context.scenario.body.mass_kg == 68.0
     assert first.context.state.run_id != second.context.state.run_id
-    assert first.context.rules.content_titles["c-short"] == "测试短视频"
+    assert first.context.semantics.catalog.contents["c-short"].title == "测试短视频"
+    assert second.context.semantics.catalog.actions["browse-feed"].name == "刷推荐"
 
 
 @pytest.mark.parametrize("scenario_name", ["single-person.json", "multi-person.json", "multi-person-half-day.json"])
@@ -309,14 +266,13 @@ def test_external_environment_exports_authenticated_completed_run(tmp_path: Path
         engine.close()
 
 
-@pytest.mark.parametrize("effects", [{"entertainment": .2, "social": .3, "health": .4},
-                                    {"entertainment": .6, "social": .7, "health": .9}])
-def test_external_environment_exports_frozen_lifestyle_effects(tmp_path: Path, effects: dict[str, float]):
-    """@brief 导出阶段以真实启动的生活活动证明环境效果随足迹保存。"""
-    path = _environment_with_effects(tmp_path / "environment", effects)
+@pytest.mark.parametrize(("title", "duration"), [("短暂休息", 600), ("长时间休息", 1200)])
+def test_external_environment_exports_frozen_action_content(tmp_path: Path, title: str, duration: int):
+    """@brief 导出阶段以真实启动的动作证明环境内容随足迹保存。"""
+    path = _environment_with_content(tmp_path / "environment", title, duration)
     engine = LifeEngine.create(path, tmp_path / "run", _identity(path))
     try:
-        activity_id = _start_effect_rest(engine, effects)
-        _export_effect_run(engine, tmp_path, activity_id, effects)
+        activity_id = _start_content_rest(engine, title, duration)
+        _export_content_run(engine, tmp_path, activity_id, duration)
     finally:
         engine.close()

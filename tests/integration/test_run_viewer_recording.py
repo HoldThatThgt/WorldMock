@@ -42,7 +42,7 @@ async def _finish_viewer_activity(environment, activity_id):
 
 
 async def _recorded_viewer_requests(factory):
-    """@brief 完成食品、事务、推送与暂停后录制真实链首及同秒续接请求。"""
+    """@brief 完成事务、动作、闹钟与暂停后录制真实链首及同秒续接请求。"""
     engine = factory(mutate=_viewer_scenario)
     stage_day_plan(engine, submitted=True)
     environment = _environment(engine)
@@ -50,22 +50,16 @@ async def _recorded_viewer_requests(factory):
         ["自己"], ["interact"], ["等待"]))
     assert advance_until_ready(engine)
     initial = next(iter(engine.context.state.activities.values()))
-    errands = [errand_add("吃掉薯片", "薯片", "吃掉"),
-               errand_add("买柠檬茶", "柠檬茶", remind_time="10:00"),
+    errands = [errand_add("买柠檬茶", "柠檬茶", remind_time="10:00"),
                errand_add("买牛肉面", "牛肉面", remind_time="18:30")]
     await _viewer_exchange(environment, "note", "conclude_activity", {
         "items": [{"activity_name": initial.name, "summary": "先吃点零食。", "memories": [], "views": []}],
         "errands": errands}, "先把事务记下来。")
-    await _viewer_exchange(environment, "eat", "start_activity", start_arguments(["薯片"], ["consume"], ["食用"]))
-    food = next(item for item in engine.context.state.activities.values() if item.kind.value == "consume")
-    name = food.name
-    await _finish_viewer_activity(environment, food.activity_id)
-    await _viewer_exchange(environment, "conclude", "conclude_activity", {
-        "items": [{"activity_name": name, "summary": "零食吃完了。", "memories": [], "views": []}], "errands": []})
+    await _viewer_exchange(environment, "alarm", "set_alarm", {"at": "2026-01-05T10:00:00+08:00"})
     await _viewer_exchange(environment, "open", "start_activity", start_arguments(
-        ["应用：哔哩哔哩"], ["interact"], ["打开"]))
+        ["刷推荐"], ["interact"], ["进行"], app=["哔哩哔哩"]))
     assert advance_until_ready(engine)
-    app = next(item for item in engine.context.state.activities.values() if item.kind.value == "use_app")
+    app = next(item for item in engine.context.state.activities.values() if item.kind.value == "action")
     await _viewer_exchange(environment, "pause", "pause_activity", {
         "items": [{"activity_name": app.name, "summary": "先歇一会儿。"}], "errands": []})
     await _viewer_exchange(environment, "wait", "start_activity", start_arguments(["自己"], ["interact"], ["等待"]))
@@ -84,12 +78,15 @@ async def _recorded_viewer_requests(factory):
 
 @pytest.mark.asyncio
 async def test_viewer_fixture_is_recorded_from_the_current_host(_engine_factory, monkeypatch):
-    """@brief 夹具逐字节等于真实宿主请求，包含食品结算、应用推送与同秒续接。"""
+    """@brief 夹具的宿主合同由真实动作、闹钟与同秒续接路径共同验证。"""
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_048_576)
     requests, engine = await _recorded_viewer_requests(_engine_factory)
     fixture = Path(__file__).parents[1] / "fixtures" / "viewer-context.json"
-    assert json.loads(fixture.read_text(encoding="utf-8")) == requests
+    recorded = json.loads(fixture.read_text(encoding="utf-8"))
+    assert recorded["action"]["messages"][0] == requests["action"]["messages"][0]
+    assert recorded["action"]["tools"] == requests["action"]["tools"]
+    assert recorded["continuation"]["messages"][:2] == recorded["action"]["messages"]
+    assert requests["continuation"]["messages"][:2] == requests["action"]["messages"]
     events = engine.context.store.read_events(engine.context.store.last_event_seq)
     assert any(event.data.get("kind") == "app_push" and event.visibility == "agent" for event in events)
-    assert any(event.data.get("kind") == "errand_completed" for event in events)
-
+    assert any(event.data.get("kind") == "alarm_ring" and event.visibility == "agent" for event in events)

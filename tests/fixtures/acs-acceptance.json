@@ -1,0 +1,693 @@
+{
+  "分类与规则归系统": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-固定规则与常数",
+    "tests": [
+      "tests/exchange/test_types.py::test_fixed_type_sets_and_labels",
+      "tests/exchange/test_types.py::test_device_and_place_mappings_are_fixed",
+      "tests/exchange/test_types.py::test_goods_store_supply_is_fixed_for_every_category",
+      "tests/exchange/test_constants.py::test_fixed_constants_preserve_travel_delivery_map_and_push",
+      "tests/exchange/test_constants.py::test_category_met_is_fixed_and_deeply_immutable",
+      "tests/exchange/test_constants.py::test_social_mood_and_exercise_rates_keep_their_frozen_values",
+      "tests/exchange/test_constants.py::test_body_constants_and_resource_metas",
+      "tests/catalog/test_affordances.py::test_registry_only_declares_final_activity_kinds_and_body_keys",
+      "tests/catalog/test_affordances.py::test_each_category_and_manner_combination_has_fixed_claims",
+      "tests/catalog/test_affordances.py::test_retired_claim_names_are_rejected",
+      "tests/catalog/test_affordances.py::test_family_layer_and_old_interfaces_are_deleted",
+      "tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones",
+      "tests/exchange/test_operators.py::test_goods_receipt_has_quantity_only_for_food",
+      "tests/exchange/test_operators.py::test_fixed_operators_keep_existing_decimal_settlement_results",
+      "tests/exchange/test_operators.py::test_decimal_precision_does_not_change_settlement",
+      "tests/exchange/test_constants.py::test_goods_receipt_effects_are_immutable_and_bounded",
+      "tests/catalog/test_loader.py::test_catalog_rejects_retired_object_fields",
+      "tests/life/test_acs_loading.py::test_runtime_code_identity_binds_each_packaged_data_file",
+      "tests/life/test_acs_loading.py::test_run_manifest_has_five_environment_fields_without_corpus_pin",
+      "tests/catalog/test_admission.py::test_registration_rejects_every_retired_file",
+      "tests/catalog/test_admission.py::test_registration_rejects_stale_manifest_path",
+      "tests/catalog/test_admission.py::test_registration_rejects_empty_rules_directory",
+      "tests/catalog/test_engine_package_resources.py::test_catalog_has_only_six_object_files_and_no_engine_rule_copies"
+    ],
+    "implementation": [
+      "src/worldmock/exchange/types.py::GoodsCategory",
+      "src/worldmock/exchange/types.py::ActionCategory",
+      "src/worldmock/exchange/types.py::AppUseManner",
+      "src/worldmock/exchange/types.py::AppPurpose",
+      "src/worldmock/exchange/types.py::GOODS_CATEGORY_STORE_KINDS",
+      "src/worldmock/exchange/constants.py::RULES_VERSION",
+      "src/worldmock/exchange/constants.py::CATEGORY_MET",
+      "src/worldmock/exchange/operators.py::evaluate_goods_receipt",
+      "src/worldmock/catalog/affordances.py::RESOURCE_CLAIM_SLOTS",
+      "src/worldmock/catalog/affordances.py::load_affordances",
+      "src/worldmock/catalog/models.py::Action",
+      "src/worldmock/catalog/models.py::Content",
+      "src/worldmock/catalog/models.py::Goods",
+      "src/worldmock/run_setup.py::runtime_code_sha256",
+      "src/worldmock/exchange/constants.py::ENTERTAINMENT_RELIEF_PER_HOUR"
+    ]
+  },
+  "环境登记与错误码": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-固定规则与常数",
+    "tests": [
+      "tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes",
+      "tests/catalog/test_loader.py::test_catalog_indexes_are_frozen",
+      "tests/catalog/test_admission.py::test_registration_uses_episode_number_for_series_index",
+      "tests/test_validation.py::test_validate_environment_command_accepts_the_actual_artificial_environment",
+      "tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample",
+      "tests/catalog/test_admission.py::test_registration_rejects_noninteger_content_duration",
+      "tests/catalog/test_admission.py::test_registration_accepts_content_minimum_without_upper_limit",
+      "tests/catalog/test_admission.py::test_registration_reasons_have_only_the_frozen_error_codes",
+      "tests/catalog/test_admission.py::test_registration_rejects_manifest_values",
+      "tests/catalog/test_admission.py::test_registration_rejects_missing_manifest_file_entry",
+      "tests/catalog/test_admission.py::test_registration_rejects_file_identity_drift",
+      "tests/catalog/test_admission.py::test_registration_rejects_invalid_map",
+      "tests/catalog/test_admission.py::test_registration_rejects_too_small_map",
+      "tests/catalog/test_admission.py::test_registration_rejects_binding_identity_errors",
+      "tests/test_validation.py::test_validate_environment_command_rejects_real_registration_counterexamples",
+      "tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples",
+      "tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references",
+      "tests/test_validation.py::test_validate_environment_command_rejects_missing_action_and_work_content",
+      "tests/test_validation.py::test_validate_environment_rejects_map_bytes_even_when_manifest_is_republished"
+    ],
+    "implementation": [
+      "src/worldmock/catalog/loader.py::load_catalog",
+      "src/worldmock/catalog/admission.py::validate_registration",
+      "src/worldmock/catalog/errors.py::REGISTRATION_REASONS",
+      "src/worldmock/catalog/models.py::Content",
+      "src/worldmock/validation.py::validate_environment"
+    ]
+  },
+  "用途、供给与内容绑定": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-固定规则与常数",
+    "tests": [
+      "tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes",
+      "tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample",
+      "tests/catalog/test_admission.py::test_registration_accepts_self_payment_binding",
+      "tests/catalog/test_admission.py::test_registration_rejects_unbound_app",
+      "tests/catalog/test_admission.py::test_registration_rejects_missing_goods_binding",
+      "tests/catalog/test_admission.py::test_registration_rejects_missing_content_fields",
+      "tests/catalog/test_admission.py::test_registration_rejects_action_without_bound_content",
+      "tests/catalog/test_admission.py::test_registration_uses_episode_number_for_series_index",
+      "tests/catalog/test_admission.py::test_content_accepts_custom_actions_without_a_system_content_kind"
+    ],
+    "implementation": [
+      "src/worldmock/catalog/admission.py::_check_apps",
+      "src/worldmock/catalog/admission.py::_check_goods",
+      "src/worldmock/catalog/admission.py::_check_actions",
+      "src/worldmock/catalog/admission.py::_check_contents",
+      "src/worldmock/catalog/admission.py::_check_series",
+      "src/worldmock/catalog/admission.py::_check_action_contents",
+      "src/worldmock/catalog/loader.py::_goods_indexes",
+      "src/worldmock/catalog/loader.py::_content_indexes"
+    ]
+  },
+  "场景 8、世界 11 与工作内容检查": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-固定规则与常数",
+    "tests": [
+      "tests/life/test_scenario.py::test_structure_eight_rejects_each_retired_scenario_field",
+      "tests/life/test_scenario.py::test_structure_eight_rejects_retired_agent_fields",
+      "tests/life/test_scenario.py::test_structure_eight_rejects_body_and_message_retired_fields",
+      "tests/life/test_scenario.py::test_structure_eight_rejects_old_scenario_version",
+      "tests/life/test_scenario.py::test_structure_eight_rejects_retired_menu_actions",
+      "tests/life/test_scenario.py::test_structure_eight_requires_both_protected_menu_actions",
+      "tests/life/test_scenario.py::test_formal_and_multi_person_scenarios_are_valid",
+      "tests/life/test_load_checks.py::test_real_loader_rejects_registration_counterexamples",
+      "tests/life/test_load_checks.py::test_work_content_requires_a_schedule_for_the_other_person",
+      "tests/life/test_load_checks.py::test_assigned_work_content_covers_the_full_shift_including_breaks",
+      "tests/catalog/test_scenario_admission.py::test_scenario_accepts_work_content_covering_whole_shift",
+      "tests/catalog/test_scenario_admission.py::test_scenario_rejects_invalid_catalog_references",
+      "tests/life/test_acs_loading.py::test_world_eleven_rejects_old_version_and_corpus_identity",
+      "tests/life/test_acs_loading.py::test_run_manifest_has_five_environment_fields_without_corpus_pin",
+      "tests/life/test_acs_loading.py::test_run_identity_rejects_old_manifest_and_different_environment",
+      "tests/catalog/test_admission.py::test_registration_rejects_legacy_catalog_version",
+      "tests/catalog/test_admission.py::test_registration_rejects_manifest_values",
+      "tests/life/test_acs_system_core.py::test_car_environment_fields_are_strict_and_never_inferred_from_story",
+      "tests/life/test_acs_system_core.py::test_missing_closest_selected_station_rejects_instead_of_choosing_farther",
+      "tests/catalog/test_supplement.py::test_gas_sells_only_fuel_and_parcel_has_no_goods_or_app",
+      "tests/catalog/test_supplement.py::test_goods_cannot_cross_gas_supply_boundary",
+      "tests/catalog/test_supplement.py::test_shipping_and_station_types_are_strict",
+      "tests/catalog/test_supplement.py::test_shipping_seconds_is_required_and_long_transport_is_registered",
+      "tests/catalog/test_supplement.py::test_action_communication_mode_has_only_explicit_remote_social_values",
+      "tests/catalog/test_supplement.py::test_communication_mode_is_required_and_does_not_guess_from_name"
+    ],
+    "implementation": [
+      "src/worldmock/life/scenario.py::LifeScenario",
+      "src/worldmock/life/models.py::WorldState",
+      "src/worldmock/catalog/admission.py::_check_work_content",
+      "src/worldmock/life/run_identity.py::require_environment_identity",
+      "src/worldmock/life/world_setup.py::_run_manifest",
+      "src/worldmock/life/scenario.py::AgentConfig.validate_traits",
+      "src/worldmock/catalog/admission.py::_check_actions"
+    ]
+  },
+  "收货恰好一次": {
+    "stage": "2",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-收货结算",
+    "tests": [
+      "tests/life/test_commerce.py::test_store_purchase_settles_energy_and_receipt_once_in_the_payment_result",
+      "tests/life/test_commerce.py::test_delivery_receives_at_due_time_even_after_recipient_moves",
+      "tests/life/test_commerce.py::test_two_goods_rows_pay_one_delivery_fee_and_one_transfer",
+      "tests/life/test_receipt.py::test_receipt_rejects_missing_and_not_due_order_without_any_effect",
+      "tests/life/test_commerce.py::test_pending_order_checkpoint_restore_receives_once_and_keeps_payment_once",
+      "tests/life/test_scheduling.py::test_real_delivery_event_after_json_restore_receives_actual_goods_once",
+      "tests/life/test_receipt.py::test_third_party_food_receipt_owns_exact_effect_and_drains_flow",
+      "tests/life/test_receipt.py::test_delivery_event_requires_unique_nonempty_orders",
+      "tests/life/test_acs_system_core.py::test_fuel_instant_self_purchase_adds_seven_without_body_or_inventory",
+      "tests/life/test_acs_system_core.py::test_invalid_fuel_is_rejected_atomically_before_any_payment",
+      "tests/life/test_acs_system_core.py::test_shipping_threshold_and_quote_use_registered_complete_duration",
+      "tests/life/test_acs_system_core.py::test_order_timestamps_match_actual_fulfillment_on_restore",
+      "tests/life/test_acs_system_core.py::test_null_shipping_quotes_once_and_preserves_duration_after_home_redirect",
+      "tests/life/test_acs_system_core.py::test_long_shipping_uses_recipient_home_and_arrival_has_no_receipt_effect",
+      "tests/life/test_acs_system_core.py::test_long_contact_and_wrong_home_address_reject_before_payment",
+      "tests/life/test_acs_system_core.py::test_same_purchase_splits_notifications_by_recipient_without_extra_fee",
+      "tests/life/test_acs_system_core.py::test_closest_station_distance_tie_uses_location_identity_on_registered_map",
+      "tests/life/test_acs_system_core.py::test_different_recipient_homes_same_station_share_one_payment_and_fee",
+      "tests/life/test_acs_system_core.py::test_collection_receives_only_all_self_orders_and_has_true_result_cause_after_restore",
+      "tests/life/test_acs_system_core.py::test_collection_away_pending_and_another_person_orders_never_receive",
+      "tests/life/test_acs_amended_runtime.py::test_actual_driving_day_fuel_receipt_and_same_day_trip",
+      "tests/life/test_acs_amended_runtime.py::test_long_delivery_arrival_collection_and_reopen_have_no_inventory"
+    ],
+    "implementation": [
+      "src/worldmock/life/basket.py::purchase_order",
+      "src/worldmock/life/receipt.py::settle_receipt",
+      "src/worldmock/life/commerce.py::deliver_order",
+      "src/worldmock/scheduling/effects.py::_deliver_orders",
+      "src/worldmock/scheduling/effects.py::process_scheduled_events",
+      "src/worldmock/life/parcel.py::collect_parcels",
+      "src/worldmock/life/parcel.py::nearest_parcel_station",
+      "src/worldmock/life/fuel.py::require_fuel_purchase",
+      "src/worldmock/life/basket.py::plan_recipient_delivery"
+    ]
+  },
+  "收货事件归收货人": {
+    "stage": "2",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-收货结算",
+    "tests": [
+      "tests/life/test_receipt.py::test_third_party_food_receipt_owns_exact_effect_and_drains_flow",
+      "tests/life/test_receipt.py::test_every_food_category_uses_fixed_calories_with_actual_efficiency",
+      "tests/life/test_receipt.py::test_leisure_receipt_reduces_need_once_with_exact_resource_cause",
+      "tests/life/test_receipt.py::test_daily_receipt_is_one_mood_pulse_without_resource_flow",
+      "tests/life/test_receipt.py::test_delivery_receives_in_park_while_original_destination_remains_home",
+      "tests/life/test_receipt.py::test_sleeping_recipient_receives_now_without_waking_but_payer_still_wakes",
+      "tests/life/test_receipt.py::test_contact_receipt_has_only_delivered_order_without_body_or_goods_event",
+      "tests/life/test_receipt.py::test_travelling_recipient_receives_without_claiming_presence_at_a_location",
+      "tests/life/test_acs_receipt_readers.py::test_meal_goal_progresses_from_its_own_received_order_including_registration_second",
+      "tests/life/test_acs_receipt_readers.py::test_only_meal_receipts_progress_meal_goals",
+      "tests/life/test_acs_receipt_readers.py::test_meal_receipt_must_be_registered_and_received_within_its_day",
+      "tests/life/test_acs_receipt_readers.py::test_meal_receipt_around_time_uses_the_receipt_second_and_includes_both_window_edges",
+      "tests/life/test_acs_receipt_readers.py::test_receipt_evidence_cannot_progress_again_or_progress_another_intent",
+      "tests/life/test_acs_receipt_readers.py::test_unreceived_order_or_retired_evidence_cannot_progress_a_meal_goal",
+      "tests/life/test_acs_receipt_readers.py::test_goal_rejects_missing_duplicate_or_premature_evidence",
+      "tests/life/test_acs_receipt_readers.py::test_order_evidence_is_unique_within_a_day_but_independent_of_activity_identity",
+      "tests/life/test_acs_receipt_readers.py::test_real_receipt_from_another_payer_only_progresses_the_recipient_meal_goal",
+      "tests/life/test_acs_receipt_readers.py::test_pending_delivery_and_contact_receipt_have_no_meal_goal_evidence",
+      "tests/life/test_acs_receipt_readers.py::test_world_and_agent_reject_retired_inventory_fields",
+      "tests/life/test_acs_receipt_readers.py::test_goods_tool_query_and_observation_have_no_holding_or_consume_path",
+      "tests/life/test_acs_receipt_readers.py::test_conclusion_projects_only_real_activity_ending_without_item_changes",
+      "tests/life/test_acs_receipt_readers.py::test_goods_result_receipt_progress_and_contact_received_use_real_goods_without_given",
+      "tests/life/test_acs_receipt_readers.py::test_pure_receipt_reader_import_closure_has_no_life_engine_or_retired_module",
+      "tests/life/test_acs_receipt_readers.py::test_control_errand_reader_has_exact_seven_fields_and_rejects_retired_outcome",
+      "tests/life/test_acs_receipt_readers.py::test_contact_received_uses_actual_received_time_and_registered_goods_only",
+      "tests/life/test_acs_receipt_readers.py::test_actual_self_receipt_completes_its_errand_and_meal_goal_once_with_one_goal_pulse",
+      "tests/life/test_acs_receipt_readers.py::test_another_payer_actual_receipt_completes_only_the_recipients_errand_and_goal",
+      "tests/life/test_acs_receipt_readers.py::test_actual_contact_delivery_never_completes_buyers_errand_or_meal_goal",
+      "tests/life/test_acs_receipt_readers.py::test_actual_nonmeal_receipt_completes_goods_errand_without_a_meal_goal_pulse",
+      "tests/life/test_acs_receipt_readers.py::test_actual_receipt_without_a_day_plan_changes_no_goal_or_goal_mood",
+      "tests/life/test_errand_state.py::test_a_valid_open_errand_keeps_every_field_as_written",
+      "tests/life/test_errand_state.py::test_progress_is_kept_to_nine_decimals_and_must_stay_below_the_quantity",
+      "tests/life/test_errand_state.py::test_quantity_outside_one_to_nine_is_rejected",
+      "tests/life/test_errand_state.py::test_a_reminder_delivery_requires_an_earlier_reminder",
+      "tests/life/test_errand_state.py::test_the_model_is_closed_frozen_and_every_field_is_required",
+      "tests/life/test_errand_state.py::test_retired_outcome_is_an_unknown_field_for_every_previous_value",
+      "tests/life/test_errand_state.py::test_limits_words_and_event_kinds_are_the_spec_values",
+      "tests/agents/test_life_memory.py::test_received_memory_line_preserves_actual_goods_quantity_and_source",
+      "tests/agents/test_life_memory.py::test_subjective_receipt_claims_cannot_create_verified_goods_receipts",
+      "tests/agents/test_life_memory.py::test_retired_consumed_kind_cannot_render_as_a_verified_fact",
+      "tests/footprints/test_verified_experiences.py::test_recent_window_only_projects_own_committed_progress_before_observation",
+      "tests/footprints/test_verified_experiences.py::test_received_orders_are_distinct_and_projection_is_idempotent",
+      "tests/footprints/test_verified_experiences.py::test_real_goods_receipt_commit_projects_only_its_received_order",
+      "tests/footprints/test_verified_experiences.py::test_missing_settlement_evidence_is_an_error_not_a_guessed_fact",
+      "tests/footprints/test_verified_experiences.py::test_reference_window_rejects_other_person_and_future_time",
+      "tests/footprints/test_verified_experiences.py::test_observed_window_rejects_invalid_boundary_duplicates_and_reordering",
+      "tests/footprints/test_verified_experiences.py::test_projection_rejects_uncommitted_origin_conflict_and_invalid_cutoff",
+      "tests/footprints/test_verified_experiences.py::test_recent_experience_reader_rejects_uncommitted_cutoff_and_bad_query",
+      "tests/footprints/test_verified_experiences.py::test_recent_reader_returns_no_experience_from_another_person",
+      "tests/footprints/test_verified_experiences.py::test_received_window_ignores_payment_delivery_and_retired_consumption",
+      "tests/footprints/test_verified_experiences.py::test_received_source_requires_environment_recipient_visibility_and_no_activity",
+      "tests/footprints/test_verified_experiences.py::test_received_quantity_requires_positive_finite_actual_evidence",
+      "tests/footprints/test_verified_experiences.py::test_received_recent_window_pages_past_nonprojected_activity_sources",
+      "tests/footprints/test_verified_experiences.py::test_zero_playback_and_unfinished_travel_do_not_become_completed_facts",
+      "tests/footprints/test_verified_experiences.py::test_arrival_snapshot_at_origin_still_projects_arrived",
+      "tests/footprints/test_verified_experiences.py::test_recent_window_returns_latest_five_before_cutoff_with_more_history",
+      "tests/life/test_food_errand_evidence.py::test_actual_pickup_credits_only_receipt_recipient_and_repeat_settlement_emits_no_evidence",
+      "tests/life/test_food_errand_evidence.py::test_actual_payment_orders_are_not_errand_evidence_even_when_delivered",
+      "tests/life/test_food_errand_evidence.py::test_actual_pending_delivery_does_not_credit_and_restored_receipt_credits_once",
+      "tests/life/test_food_errand_evidence.py::test_retired_giving_consumption_and_self_reports_cannot_progress_errands",
+      "tests/life/test_food_errand_evidence.py::test_receipt_before_registration_in_same_commit_does_not_count_but_after_it_does",
+      "tests/life/test_food_errand_evidence.py::test_goods_receipt_rejects_an_invalid_simulated_recipient",
+      "tests/life/test_food_errand_evidence.py::test_two_actual_receipts_accumulate_quantity_and_remove_only_the_completed_recipient_errand",
+      "tests/life/test_food_errand_evidence.py::test_unaffordable_actual_purchase_preserves_open_errand_quantity_and_all_world_bytes",
+      "tests/footprints/test_acs_export.py::test_real_station_export_keeps_purchase_payer_and_actual_recipient_notifications_and_receipt[True]"
+    ],
+    "implementation": [
+      "src/worldmock/life/receipt.py::_receipt_effect",
+      "src/worldmock/life/receipt.py::_receipt_data",
+      "src/worldmock/life/receipt.py::_leisure_effect",
+      "src/worldmock/life/day_planning.py::settle_receipt_goals",
+      "src/worldmock/life/errands.py::settle",
+      "src/worldmock/life/schedule.py::progress_receipt_day_plan",
+      "src/worldmock/footprints/experiences.py::project_verified_experiences",
+      "src/worldmock/footprints/experiences.py::recent_verified_experiences",
+      "src/worldmock/agents/life_memory.py::render_memory_view"
+    ]
+  },
+  "没有库存": {
+    "stage": "2",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-收货结算",
+    "tests": [
+      "tests/life/test_receipt.py::test_orders_and_world_reject_inventory_and_retired_order_fields",
+      "tests/life/test_acs_receipt_readers.py::test_world_and_agent_reject_retired_inventory_fields",
+      "tests/life/test_acs_receipt_readers.py::test_goods_tool_query_and_observation_have_no_holding_or_consume_path",
+      "tests/life/test_acs_receipt_readers.py::test_goods_result_receipt_progress_and_contact_received_use_real_goods_without_given",
+      "tests/life/test_acs_receipt_readers.py::test_conclusion_projects_only_real_activity_ending_without_item_changes",
+      "tests/life/test_acs_receipt_readers.py::test_control_errand_reader_has_exact_seven_fields_and_rejects_retired_outcome",
+      "tests/life/test_scheduling.py::test_retired_food_supply_changes_are_not_schedulable",
+      "tests/life/test_receipt.py::test_contact_receipt_has_only_delivered_order_without_body_or_goods_event",
+      "tests/life/test_acs_amended_runtime.py::test_long_delivery_arrival_collection_and_reopen_have_no_inventory"
+    ],
+    "implementation": [
+      "src/worldmock/life/models.py::AgentState",
+      "src/worldmock/life/models.py::WorldState",
+      "src/worldmock/life/models.py::DeliveryState",
+      "src/worldmock/life/errand_state.py::ErrandState",
+      "src/worldmock/scheduling/effects.py::_deliver_orders"
+    ]
+  },
+  "时长只来自内容": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-其他动作",
+    "tests": [
+      "tests/life/test_action_run.py::test_action_run_minimal_real_catalog_body_progress_and_silent_continuation",
+      "tests/life/test_action_run.py::test_non_entertainment_completes_one_content_without_continuation",
+      "tests/life/test_action_run.py::test_actual_remaining_under_one_minute_starts_and_resume_never_selects",
+      "tests/life/test_action_run.py::test_content_duration_day_cap_leaves_partial_progress_and_ceil_uses_actual_position",
+      "tests/life/test_app_progress.py::test_zero_second_pause_never_creates_consumption_history",
+      "tests/life/test_app_progress.py::test_cross_app_progress_uses_latest_global_position_and_owner_isolation",
+      "tests/life/test_action_guarantees.py::test_thirty_paused_minutes_never_increase_actual_assigned_content_seconds",
+      "tests/life/test_acs_runtime.py::test_real_action_decision_progress_checkpoint_and_reopen",
+      "tests/life/test_acs_amended_runtime.py::test_real_work_pause_report_restore_completion_and_exhaustion"
+    ],
+    "implementation": [
+      "src/worldmock/life/action_run.py::prepare_action",
+      "src/worldmock/life/action_run.py::resume_action",
+      "src/worldmock/life/action_run.py::_remaining",
+      "src/worldmock/life/action_run.py::_content_snapshot"
+    ]
+  },
+  "娱乐接续与单条完成": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-其他动作",
+    "tests": [
+      "tests/life/test_action_run.py::test_action_run_minimal_real_catalog_body_progress_and_silent_continuation",
+      "tests/life/test_action_run.py::test_action_result_has_exact_six_real_content_fields",
+      "tests/life/test_action_run.py::test_non_entertainment_completes_one_content_without_continuation",
+      "tests/life/test_action_run.py::test_report_opportunity_is_consumed_for_all_due_active_activities_without_a_report",
+      "tests/life/test_action_run.py::test_category_effects_and_met_are_fixed_not_content_types",
+      "tests/life/test_action_run.py::test_exercise_has_only_fixed_hourly_mood_effect",
+      "tests/life/test_action_guarantees.py::test_work_reports_never_change_real_content_seconds_or_claim_completion",
+      "tests/life/test_acs_amended_runtime.py::test_real_work_pause_report_restore_completion_and_exhaustion",
+      "tests/integration/test_acs_engine_wave.py::test_real_report_opportunity_consumes_every_due_anchor_when_the_person_sets_an_alarm"
+    ],
+    "implementation": [
+      "src/worldmock/life/action_run.py::settle_action",
+      "src/worldmock/life/action_run.py::_completed_content",
+      "src/worldmock/life/action_run.py::_continue_action",
+      "src/worldmock/life/rhythm.py::consume_progress_report_opportunity",
+      "src/worldmock/life/activities.py::activity_factors"
+    ]
+  },
+  "内容选择次序": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-其他动作",
+    "tests": [
+      "tests/life/test_content_select.py::test_same_app_action_push_precedes_history_without_mutating_status",
+      "tests/life/test_content_select.py::test_push_is_not_adopted_by_other_app_action_continuation_or_generation",
+      "tests/life/test_content_select.py::test_most_recent_unfinished_content_precedes_unseen_and_ties_by_identity",
+      "tests/life/test_content_select.py::test_unfinished_content_precedes_started_series",
+      "tests/life/test_content_select.py::test_started_series_next_episode_precedes_unseen_units",
+      "tests/life/test_content_select.py::test_multiple_started_series_choose_recent_then_representative_identity",
+      "tests/life/test_content_select.py::test_unseen_selection_samples_units_once_not_each_episode",
+      "tests/life/test_content_select.py::test_unseen_units_precede_seen_incomplete_rounds",
+      "tests/life/test_content_select.py::test_exhausted_content_uses_minimum_rounds_then_uniform_tie",
+      "tests/life/test_content_select.py::test_other_running_or_paused_activity_reserves_content_when_alternative_exists",
+      "tests/life/test_content_select.py::test_current_activity_is_not_its_own_reservation",
+      "tests/life/test_content_select.py::test_push_reservation_is_skipped_without_opening_during_continuation",
+      "tests/life/test_content_select.py::test_reserved_series_representative_excludes_the_whole_series",
+      "tests/life/test_content_select.py::test_reservations_then_recent_completion_exclusions_are_applied_in_order",
+      "tests/life/test_content_select.py::test_just_completed_content_is_skipped_when_another_content_exists",
+      "tests/life/test_content_select.py::test_only_eligible_unit_can_be_reserved_and_immediately_replayed",
+      "tests/life/test_content_select.py::test_assigned_work_is_owner_only_location_bound_and_finite",
+      "tests/life/test_content_select.py::test_transit_does_not_count_as_presence_at_work_location",
+      "tests/life/test_content_select.py::test_unassigned_work_content_can_repeat_anywhere_for_any_person",
+      "tests/life/test_action_run.py::test_assigned_content_is_finite_and_completion_pulse_is_applied_once",
+      "tests/life/test_action_run.py::test_unassigned_study_repeats_without_completion_pulse",
+      "tests/life/test_action_run.py::test_assigned_work_requires_actual_workplace_and_unassigned_study_does_not",
+      "tests/life/test_action_run.py::test_work_completion_event_is_owner_visible_and_never_for_unassigned_study",
+      "tests/life/test_action_guarantees.py::test_completed_assigned_content_cannot_resume_old_paused_work_or_reset_progress",
+      "tests/life/test_acs_amended_runtime.py::test_real_work_pause_report_restore_completion_and_exhaustion"
+    ],
+    "implementation": [
+      "src/worldmock/life/content_select.py::eligible_contents",
+      "src/worldmock/life/content_select.py::select_content",
+      "src/worldmock/life/work.py::work_completion_draft",
+      "src/worldmock/life/work.py::work_location_refusal"
+    ]
+  },
+  "进度与确定性": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-其他动作",
+    "tests": [
+      "tests/life/test_content_select.py::test_delivered_push_without_consumption_remains_unseen",
+      "tests/life/test_content_select.py::test_progress_is_shared_between_apps_and_isolated_between_people",
+      "tests/life/test_app_progress.py::test_zero_second_pause_never_creates_consumption_history",
+      "tests/life/test_app_progress.py::test_cross_app_progress_uses_latest_global_position_and_owner_isolation",
+      "tests/life/test_app_progress.py::test_other_app_completed_round_resume_starts_latest_round_zero_and_does_not_count_twice",
+      "tests/life/test_app_progress.py::test_progress_rejects_retired_missing_history_shape",
+      "tests/life/test_content_select.py::test_selection_is_stable_under_mapping_order_and_does_not_advance_world_randomness",
+      "tests/life/test_content_select.py::test_selector_import_and_cross_process_results_are_hash_seed_independent",
+      "tests/life/test_app_progress.py::test_checkpoint_restore_keeps_current_content_and_future_sequence",
+      "tests/life/test_action_run.py::test_actual_remaining_under_one_minute_starts_and_resume_never_selects",
+      "tests/life/test_app_push.py::test_push_draw_uses_one_b30_stream_sorted_candidates_and_stable_identity",
+      "tests/life/test_action_restore_and_text.py::test_real_action_restores_from_registered_identity",
+      "tests/life/test_action_restore_and_text.py::test_persisted_action_binding_drift_is_rejected",
+      "tests/life/test_action_restore_and_text.py::test_persisted_social_requires_actual_other_person_or_own_contact",
+      "tests/life/test_action_restore_and_text.py::test_persisted_navigation_is_optional_but_nonempty_identity_requires_navigation_purpose",
+      "tests/life/test_action_restore_and_text.py::test_completed_action_played_identity_survives_real_continuation",
+      "tests/life/test_action_restore_and_text.py::test_action_modules_import_in_fresh_process_without_life_engine",
+      "tests/life/test_action_restore_and_text.py::test_persisted_communication_mode_is_real_declared_fact_and_restore_rejects_drift",
+      "tests/life/test_acs_amended_runtime.py::test_real_work_pause_report_restore_completion_and_exhaustion",
+      "tests/life/test_app_progress.py::test_actual_consumption_is_keyed_once_by_content_across_apps",
+      "tests/integration/test_acs_engine_wave.py::test_real_resume_checks_location_then_completed_assignment_before_slots_and_claims",
+      "tests/integration/test_acs_engine_wave.py::test_real_resume_checks_slots_before_claims_when_location_and_assignment_are_eligible",
+      "tests/integration/test_acs_engine_wave.py::test_real_paused_work_keeps_its_last_report_across_departure_return_and_resume"
+    ],
+    "implementation": [
+      "src/worldmock/life/action_run.py::settle_action",
+      "src/worldmock/life/action_run.py::resume_action",
+      "src/worldmock/life/randomness.py::random_stream",
+      "src/worldmock/life/activity_validation.py::validate_activity_targets",
+      "src/worldmock/life/models.py::ContentProgress"
+    ]
+  },
+  "推送资格与打开": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-其他动作",
+    "tests": [
+      "tests/life/test_app_push.py::test_push_draw_uses_one_b30_stream_sorted_candidates_and_stable_identity",
+      "tests/life/test_app_push.py::test_each_app_is_issued_once_per_session_even_after_release",
+      "tests/life/test_app_push.py::test_sleep_stores_push_without_wake_and_existing_activity_is_unchanged",
+      "tests/life/test_app_push.py::test_queue_is_popped_before_effect_checkpoint_and_restore_never_reissues",
+      "tests/life/test_app_push.py::test_full_push_summary_and_source_discriminator_project_from_committed_event",
+      "tests/life/test_app_push.py::test_no_eligible_app_is_system_visible_without_person_record_or_wake",
+      "tests/life/test_app_push.py::test_push_identity_validation_rejects_unregistered_references_in_historical_session",
+      "tests/life/test_content_select.py::test_push_is_not_adopted_by_other_app_action_continuation_or_generation",
+      "tests/life/test_content_select.py::test_unseen_selection_samples_units_once_not_each_episode",
+      "tests/life/test_app_progress.py::test_continuation_does_not_open_a_later_push_and_completion_releases_cross_app_pushes",
+      "tests/life/test_app_progress.py::test_same_app_other_action_never_opens_push",
+      "tests/life/test_app_progress.py::test_stop_then_same_session_start_uses_same_pinned_remainder",
+      "tests/life/test_app_progress.py::test_session_change_drops_pinning_but_keeps_global_progress",
+      "tests/life/test_app_push.py::test_open_reopen_release_and_after_22_follow_current_session_only",
+      "tests/life/test_app_push.py::test_departure_and_arrival_invalidate_old_pushes_without_deleting_history",
+      "tests/life/test_app_push.py::test_release_only_changes_current_session_and_keeps_historical_matching_push",
+      "tests/life/test_app_progress.py::test_silent_continuation_never_opens_same_app_push_that_arrived_during_activity",
+      "tests/integration/test_acs_engine_wave.py::test_real_navigation_and_action_batch_selects_once_in_new_road_session_and_exports",
+      "tests/integration/test_acs_engine_wave.py::test_real_app_push_is_persisted_without_reissue_after_open"
+    ],
+    "implementation": [
+      "src/worldmock/life/app_push.py::issue_app_push",
+      "src/worldmock/life/app_push.py::open_app_push",
+      "src/worldmock/life/app_push.py::release_app_pushes",
+      "src/worldmock/life/app_push.py::validate_app_pushes"
+    ]
+  },
+  "按类别与方式占用": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-其他动作",
+    "tests": [
+      "tests/catalog/test_affordances.py::test_each_category_and_manner_combination_has_fixed_claims",
+      "tests/catalog/test_affordances.py::test_driving_allows_only_social_without_continuous_phone_use",
+      "tests/life/test_parallel_admission.py::test_driving_with_eyes_or_hands_activities_is_a_resource_conflict_in_either_order",
+      "tests/life/test_parallel_admission.py::test_work_with_phone_entertainment_settles_one_shared_body",
+      "tests/life/test_parallel_admission.py::test_overlapping_pairs_are_resource_conflicts",
+      "tests/life/test_parallel_admission.py::test_daily_care_with_walk_is_accepted_in_either_order"
+    ],
+    "implementation": [
+      "src/worldmock/catalog/affordances.py::AffordanceView.resource_claims",
+      "src/worldmock/life/action_run.py::initialize_action"
+    ]
+  },
+  "社交、等待与邮件": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-其他动作",
+    "tests": [
+      "tests/life/test_social_rounds.py::test_invitation_acceptance_keeps_own_content_and_partner_end_partial_progress",
+      "tests/life/test_social_rounds.py::test_common_seconds_are_independent_of_people_advance_order",
+      "tests/life/test_social_rounds.py::test_acceptance_with_less_than_one_minute_remaining_is_allowed",
+      "tests/life/test_social_rounds.py::test_duplicate_or_absent_partner_is_rejected_and_social_cannot_pause",
+      "tests/life/test_social_rounds.py::test_remote_text_and_voice_use_same_actual_seconds_rate",
+      "tests/life/test_social_rounds.py::test_chat_start_after_initialization_ignores_its_own_new_activity",
+      "tests/life/test_social_rounds.py::test_shared_social_advance_uses_only_real_body_settlement_once",
+      "tests/life/test_action_run.py::test_person_named_fields_are_never_filled_by_executor",
+      "tests/life/test_wait_passive_entertainment.py::test_wait_has_only_awake_entertainment_accrual",
+      "tests/life/test_wait_passive_entertainment.py::test_wait_met_cost_remains_declared",
+      "tests/life/test_wait_passive_entertainment.py::test_direct_wait_activity_preserves_plain_accrual",
+      "tests/integration/test_acs_engine_wave.py::test_real_arrived_mail_body_occurs_once_in_the_actual_host_model_request",
+      "tests/life/test_social.py::test_send_message_accepts_300_chars_and_rejects_301",
+      "tests/life/test_social.py::test_send_message_delivers_to_world_agent_and_contact",
+      "tests/life/test_scenario.py::test_structure_eight_requires_both_protected_menu_actions",
+      "tests/life/test_social_rounds.py::test_remote_voice_executes_real_contact_path_and_text_never_calls_it",
+      "tests/life/test_social_rounds.py::test_remote_invalid_mode_cannot_guess_a_voice_path",
+      "tests/life/test_acs_amended_runtime.py::test_real_text_chat_notes_and_voice_dispatch_use_declared_mode",
+      "tests/life/test_action_run.py::test_mail_body_is_visible_at_real_arrival_without_reading_activity",
+      "tests/integration/test_acs_engine_wave.py::test_real_face_chat_invites_awake_partner_immediately_and_never_wakes_sleeping_partner",
+      "tests/integration/test_acs_engine_wave.py::test_real_chat_partner_ending_requires_both_conclusions_before_time_advances"
+    ],
+    "implementation": [
+      "src/worldmock/life/social_actions.py::start_chat",
+      "src/worldmock/life/social_actions.py::start_remote_social",
+      "src/worldmock/life/social_actions.py::advance_social",
+      "src/worldmock/life/social_actions.py::shared_chat_seconds",
+      "src/worldmock/life/social_actions.py::end_partner_chats",
+      "src/worldmock/life/content.py::visible_mail",
+      "src/worldmock/life/activities.py::start_activity"
+    ]
+  },
+  "订单点名购物与支付 app": {
+    "stage": "4",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-观察与工具面",
+    "tests": [
+      "tests/life/test_named_purchase.py::test_named_purchase_rejects_unknown_goods_and_unbound_apps_atomically",
+      "tests/test_start_activity_contract.py::test_purchase_uses_each_observed_quote_and_single_unit",
+      "tests/test_start_activity_contract.py::test_purchase_preserves_chosen_pickup_when_delivery_is_also_available"
+    ],
+    "implementation": [
+      "src/worldmock/life/named_purchase.py::_payment"
+    ]
+  },
+  "请求形状与工具面": {
+    "stage": "4",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-观察与工具面",
+    "tests": [
+      "tests/life/test_acs_system_core.py::test_driving_admission_no_car_and_cross_midnight_balance_are_atomic",
+      "tests/life/test_acs_system_core.py::test_actual_driving_dates_zero_repeat_midnight_and_refuel_do_not_double_charge",
+      "tests/life/test_acs_system_core.py::test_driving_days_use_local_dates_across_daylight_saving",
+      "tests/life/test_acs_system_core.py::test_alarm_model_rejects_non_whole_second_or_unzoned_values",
+      "tests/life/test_acs_system_core.py::test_alarm_bounds_reject_atomically",
+      "tests/life/test_acs_system_core.py::test_alarm_same_second_sources_and_checkpoint_restore_ring_once",
+      "tests/life/test_action_run.py::test_alarm_reason_is_real_allowed_sleep_wake_without_content_reason",
+      "tests/life/test_acs_amended_runtime.py::test_actual_driving_day_fuel_receipt_and_same_day_trip",
+      "tests/life/test_acs_amended_runtime.py::test_alarm_ends_real_sleep_after_elapsed_seconds_and_reopen",
+      "tests/test_start_activity_contract.py::test_illegal_combinations_keep_the_same_host_and_environment_business_code",
+      "tests/life/test_tool_layer.py::test_action_duration_matches_read_only_selector_and_actual_admission",
+      "tests/life/test_tool_layer.py::test_most_recent_unfinished_content_duration_is_remaining_and_observation_does_not_select",
+      "tests/life/test_acs_runtime.py::test_first_registered_environment_loop_rest_feed_reopen_and_delivery",
+      "tests/life/test_acs_runtime.py::test_custom_game_music_and_podcast_execute_real_content_and_continue_after_reopen"
+    ],
+    "implementation": [
+      "src/worldmock/life/fuel.py::require_driving_days",
+      "src/worldmock/life/fuel.py::charge_driving_days",
+      "src/worldmock/life/alarm.py::set_alarm",
+      "src/worldmock/life/time_advance.py::TimeAdvanceCoordinator._advance_one_activity",
+      "src/worldmock/life/routing.py::_action_issues",
+      "src/worldmock/life/tool_layer.py::_content_facts",
+      "src/worldmock/life/engine.py::LifeEngine.create",
+      "src/worldmock/life/engine.py::LifeEngine.open"
+    ]
+  },
+  "系统层逐字": {
+    "stage": "4",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-观察与工具面",
+    "tests": [
+      "tests/integration/test_life_agent_protocol.py::test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages"
+    ],
+    "implementation": [
+      "src/worldmock/agents/life_prompt.py::LIFE_SYSTEM_LAYER"
+    ]
+  },
+  "接续成本": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
+    "tests": [
+      "tests/footprints/test_acs_invariants.py::test_twenty_content_completions_still_share_one_actual_app_use",
+      "tests/footprints/test_acs_export.py::test_real_twenty_content_continuations_export_one_use_with_bounded_decisions"
+    ],
+    "implementation": [
+      "src/worldmock/footprints/app_usage.py::_app_snapshot"
+    ]
+  },
+  "足迹事实与导出身份": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
+    "tests": [
+      "tests/footprints/test_acs_invariants.py::test_station_ready_and_received_have_one_actual_recipient_source_without_second_notification",
+      "tests/footprints/test_acs_invariants.py::test_station_notification_guard_rejects_every_wrong_count_time_owner_source_or_cause",
+      "tests/footprints/test_acs_export.py::test_real_station_export_keeps_purchase_payer_and_actual_recipient_notifications_and_receipt",
+      "tests/footprints/test_acs_invariants.py::test_offline_action_and_navigation_only_record_true_start_and_end_touches",
+      "tests/footprints/test_acs_invariants.py::test_no_app_content_counts_action_quality_without_digital_fact_or_empty_app_key",
+      "tests/footprints/test_purchases.py::test_actual_order_facts_preserve_food_store_app_and_fixed_money",
+      "tests/footprints/test_acs_export.py::test_current_export_rejects_every_retired_schema_at_the_consumer[export_three]",
+      "tests/footprints/test_acs_export.py::test_real_manners_pauses_navigation_and_no_app_export_pass_all_invariants"
+    ],
+    "implementation": [
+      "src/worldmock/footprints/app_usage.py::project_app_usage",
+      "src/worldmock/footprints/app_usage.py::_app_binding",
+      "src/worldmock/footprints/purchases.py::_receipts",
+      "src/worldmock/footprints/validation.py::_validate_identity",
+      "src/worldmock/footprints/purchases.py::_pickup_ready"
+    ]
+  },
+  "足迹不变量 1": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
+    "tests": [
+      "tests/footprints/test_acs_invariants.py::test_no_app_action_never_generates_digital_facts_and_guard_rejects_invented_use"
+    ],
+    "implementation": [
+      "src/worldmock/footprints/invariants.py::validate_footprint_facts"
+    ]
+  },
+  "足迹不变量 2": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
+    "tests": [
+      "tests/footprints/test_acs_invariants.py::test_phone_overlap_guard_rejects_real_reprojected_overlap_but_other_device_can_overlap"
+    ],
+    "implementation": [
+      "src/worldmock/footprints/invariants.py::validate_footprint_facts"
+    ]
+  },
+  "足迹不变量 3": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
+    "tests": [
+      "tests/footprints/test_acs_invariants.py::test_delivered_order_guard_rejects_each_missing_or_duplicate_receipt_or_goods_event",
+      "tests/footprints/test_acs_invariants.py::test_contact_receipt_belongs_to_payer_with_null_effects_and_no_goods_event"
+    ],
+    "implementation": [
+      "src/worldmock/footprints/invariants.py::_order_invariants"
+    ]
+  },
+  "足迹不变量 4": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
+    "tests": [
+      "tests/footprints/test_acs_invariants.py::test_receipt_time_guard_rejects_before_purchase_even_when_projection_agrees",
+      "tests/footprints/test_acs_invariants.py::test_receipt_and_arrival_guard_rejects_account_changes_from_actual_source_events"
+    ],
+    "implementation": [
+      "src/worldmock/footprints/invariants.py::_order_invariants"
+    ]
+  },
+  "足迹不变量 5": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
+    "tests": [
+      "tests/footprints/test_acs_invariants.py::test_content_guard_rejects_backwards_cursor_and_consumption_in_pause"
+    ],
+    "implementation": [
+      "src/worldmock/footprints/invariants.py::validate_footprint_facts"
+    ]
+  },
+  "足迹不变量 6": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
+    "tests": [
+      "tests/footprints/test_acs_invariants.py::test_push_reference_guard_rejects_missing_other_person_or_later_delivery"
+    ],
+    "implementation": [
+      "src/worldmock/footprints/invariants.py::validate_footprint_facts"
+    ]
+  },
+  "足迹不变量 7": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
+    "tests": [
+      "tests/footprints/test_acs_invariants.py::test_every_app_fact_source_must_exist_and_be_owned_by_the_fact_persona",
+      "tests/footprints/test_acs_invariants.py::test_purchase_attempt_receipt_and_touch_sources_require_the_actual_owner"
+    ],
+    "implementation": [
+      "src/worldmock/footprints/invariants.py::validate_footprint_facts"
+    ]
+  },
+  "进食与持有的读者": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数字足迹合同",
+    "tests": [
+      "tests/footprints/test_acs_invariants.py::test_no_app_content_counts_action_quality_without_digital_fact_or_empty_app_key",
+      "tests/evaluation/test_public_evidence.py::test_device_uses_unique_manner_mapping_only_when_snapshot_has_app"
+    ],
+    "implementation": [
+      "src/worldmock/footprints/app_usage.py::app_usage_quality",
+      "src/worldmock/evaluation/public_evidence.py::worldmock_activity_attributes"
+    ]
+  },
+  "完整日基线": {
+    "stage": "6",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-门禁与平台",
+    "tests": [
+      "tests/scripts/test_freeze_rrs_baseline.py::test_mismatched_complete_day_candidates_preserve_existing_target[artifacts]",
+      "tests/integration/test_dayrun_complete_days.py::test_complete_two_person_day_uses_real_tools_memory_and_restoration"
+    ],
+    "implementation": [
+      "scripts/freeze_rrs_baseline.py::freeze_matching_baseline"
+    ]
+  },
+  "工程门禁与文档一致性": {
+    "stage": "6",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-门禁与平台",
+    "tests": [
+      "tests/test_test_tiers.py::test_acs_environment_digest_without_corpora_has_current_identity",
+      "tests/test_style_gate.py::test_style_gate_admits_no_new_violations",
+      "tests/test_import_graph.py::test_production_import_graph_obeys_all_boundaries",
+      "tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones",
+      "tests/test_test_tiers.py::test_real_pytest_collection_classifies_each_test_and_actual_fixture_closure",
+      "tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve",
+      "tests/test_design_doc_build.py::test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current",
+      "tests/test_acs_acceptance.py::test_feature_file_lists_are_real_relative_and_have_no_deferral_or_stubs"
+    ],
+    "implementation": [
+      "scripts/run_tests.py::environment_source_digest",
+      "scripts/run_tests.py::collect",
+      "scripts/documentation_gate.py::main",
+      "scripts/build_design_doc.py::check_current"
+    ]
+  },
+  "正式环境与平台回执（只报告）": {
+    "stage": "7",
+    "spec": "docs/dev/SPEC-action-and-content-simplification.md#spec-acs-数据仓交接",
+    "tests": [],
+    "implementation": []
+  }
+}

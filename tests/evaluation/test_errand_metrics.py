@@ -74,7 +74,7 @@ class _Log:
         """一次购买的结果事件：顶层订单一个（status 缺省 delivered，收货人缺省本人）；event_type 缺省 action_result，
         reused 为真时是重放。"""
         agent_id, status = fields.get("agent_id", 1), fields.get("status", "delivered")
-        order = {"order_id": f"order-{len(self.events) + 1}", "agent_id": agent_id, "food_id": product_id,
+        order = {"order_id": f"order-{len(self.events) + 1}", "agent_id": agent_id, "goods_id": product_id,
                  "quantity": 1, "status": status, "recipient_id": fields.get("recipient", f"agent:{agent_id}")}
         data = {"status": "completed", "data": {"orders": [order]}}
         if fields.get("reused"):
@@ -87,9 +87,9 @@ class _Log:
         return self.add("action_accepted", when, data, agent_id=agent_id, action_id=f"action-{len(self.events) + 1}")
 
 
-def _snapshot(errand_id: str, name: str, product_id: str, registered: str, outcome: str = "obtain") -> dict:
+def _snapshot(errand_id: str, name: str, product_id: str, registered: str) -> dict:
     """记下时的事务快照（ErrandState 的 JSON 形状，数量 1、累计 0、没有备注与提醒）。"""
-    return ErrandState(errand_id=errand_id, name=name, outcome=outcome, product_id=product_id, quantity=1,
+    return ErrandState(errand_id=errand_id, name=name, product_id=product_id, quantity=1,
                        progress=0.0, memo=None, registered_at=_at(registered), remind_at=None, reminded_at=None,
                        origin_action_id=f"action-{errand_id}", origin_event_id=f"request-{errand_id}").model_dump(
         mode="json")
@@ -100,22 +100,23 @@ def _done(snapshot: dict) -> dict:
     return {**snapshot, "progress": float(snapshot["quantity"])}
 
 
-def _consume(use_mode: str, items: tuple[str, ...] = ()) -> dict:
-    """消费活动快照保存实际 ConsumeRequest 的使用方式与各件商品。"""
-    details = {"request": {"use_mode": use_mode, "items": [{"product_id": item, "quantity": 1.0} for item in items]}}
-    return {"activity_id": f"activity-{use_mode}", "kind": "consume", "status": "active", "data": details}
+def _receipt(log: _Log, when: str, product_id: str, agent_id: int = 1) -> dict:
+    """本人实际收货的一条证据，订单与付款不替代该事实。"""
+    return log.add("environment_event", when, {"kind": "goods_received", "goods_id": product_id,
+        "order_id": f"order-{len(log.events)+1}", "category": "daily", "quantity": 1,
+        "provided": {}, "applied": {}}, agent_id=agent_id)
 
 
-def _eaten(product_id: str) -> dict:
-    """进食活动一次进度结算的 consumption：该商品本区间吃掉一份。"""
-    return {"use_mode": "eat", "items": [{"food_id": product_id, "category": "meal", "interval_portion": 1.0, "cumulative_portion": 1.0}]}
+def _accepted_order(product_id: str) -> dict:
+    """受理购买时已生成的真实订单所指向的商品。"""
+    return {"goods_id": product_id, "status": "pending"}
 
 
 def _report(log: _Log) -> dict:
     """同一批事件经 build_quality_report 得到的报告（运行窗口覆盖全部事件）。"""
     events = [Event.model_validate(row) for row in log.events]
     window = {"start": events[0].occurred_at - 60, "end": events[-1].occurred_at + 60, "timezone": _ZONE}
-    return build_quality_report(events, [], {"run_id": "run", "source_group_id": "run", "window": window})
+    return build_quality_report(events, [], {"run_id": "run", "source_group_id": "run", "work_content_ids": {}, "window": window})
 
 
 def test_counts_follow_their_definitions_and_the_identity_holds() -> None:
@@ -126,21 +127,20 @@ def test_counts_follow_their_definitions_and_the_identity_holds() -> None:
     分组与直接计算逐值相同。"""
     log = _Log()
     a, b = _snapshot("a", "买牛奶", MILK, "2026-01-05 10:00"), _snapshot("b", "补食材包", KIT, "2026-01-05 22:00")
-    c = _snapshot("c", "喝冰红茶", TEA, "2026-01-05 23:00", outcome="eat")
+    c = _snapshot("c", "喝冰红茶", TEA, "2026-01-05 23:00")
     d, e = _snapshot("d", "囤面包", BREAD, "2026-01-05 23:30"), _snapshot("e", "买果汁", JUICE, "2026-01-06 08:30")
     log.errand(REGISTERED_KIND, "2026-01-05 10:00", a)
     log.observation("2026-01-05 10:10", ("买牛奶",))
     log.errand(UPDATED_KIND, "2026-01-05 10:15", {**a, "memo": "下班路上买"})
-    bought = log.bought("2026-01-05 10:30", MILK)
+    bought = _receipt(log, "2026-01-05 10:30", MILK)
     log.errand(COMPLETED_KIND, "2026-01-05 10:30", _done(a), caused_by=[bought["event_id"]], quantity_added=1.0)
     log.errand(REGISTERED_KIND, "2026-01-05 22:00", b)
     log.errand(REGISTERED_KIND, "2026-01-05 23:00", c)
     log.errand(REGISTERED_KIND, "2026-01-05 23:30", d)
-    eaten = log.add("activity_progress", "2026-01-06 00:00", {"interval_start": _at("2026-01-05 23:45"),
-                                                              "consumption": _eaten(TEA)})
+    eaten = _receipt(log, "2026-01-06 00:00", TEA)
     log.errand(COMPLETED_KIND, "2026-01-06 00:00", _done(c), caused_by=[eaten["event_id"]], quantity_added=1.0)
     stray = _snapshot("x", "早不在了", ICED, "2026-01-04 10:00")
-    gift = log.bought("2026-01-06 07:00", ICED)
+    gift = _receipt(log, "2026-01-06 07:00", ICED)
     log.errand(PROGRESSED_KIND, "2026-01-06 07:00", stray, caused_by=[gift["event_id"]], quantity_added=0.5)
     log.errand(COMPLETED_KIND, "2026-01-06 07:00", _done(stray), caused_by=[gift["event_id"]], quantity_added=0.5)
     log.errand(CANCELLED_KIND, "2026-01-06 08:00", b, reason="不想买了")
@@ -180,7 +180,7 @@ def test_the_denominator_is_registered_errands_not_goals() -> None:
     milk = _snapshot("a", "买牛奶", MILK, "2026-01-05 10:00")
     log.errand(REGISTERED_KIND, "2026-01-05 10:00", milk)
     log.errand(REGISTERED_KIND, "2026-01-05 10:00", _snapshot("b", "补食材包", KIT, "2026-01-05 10:00"))
-    bought = log.bought("2026-01-05 11:00", MILK)
+    bought = _receipt(log, "2026-01-05 11:00", MILK)
     log.errand(COMPLETED_KIND, "2026-01-05 11:00", _done(milk), caused_by=[bought["event_id"]], quantity_added=1.0)
 
     report = _report(log)
@@ -206,7 +206,7 @@ def test_visible_and_expected_observations_agree() -> None:
         if missing:
             log.observation("2026-01-05 10:30", ())
         log.observation("2026-01-05 10:40", ("买牛奶",), agent_id=2)
-        bought = log.bought("2026-01-05 11:00", MILK)
+        bought = _receipt(log, "2026-01-05 11:00", MILK)
         log.errand(COMPLETED_KIND, "2026-01-05 11:00", _done(milk), caused_by=[bought["event_id"]], quantity_added=1.0)
         log.observation("2026-01-05 11:30", ("买牛奶",))
         return errand_metrics(log.events, _ZONE)
@@ -217,72 +217,55 @@ def test_visible_and_expected_observations_agree() -> None:
 
 
 def test_acted_after_reminder_needs_an_accepted_request_for_the_same_product() -> None:
-    """八条被提醒过的事务里只有三条算提醒后行动：提醒后同一本地日、终态之前，本人被受理的请求指向同一商品——购买的顶层
-    订单（在途的也算）、进食请求的食品（单项或并行开始的活动快照）。不算的：之后才写的
-    动作结果与拒绝事件、重放的受理事件、指向别的商品的受理、跨过本地零点的受理、终态之后的受理、提醒之前的受理与他人的
-    受理。没被提醒的事务不进这两项。"""
+    """提醒后只计本人同一本地日、终态前受理的同商品购买，在途也计；结果、拒绝、重放与他人购买不计。"""
     log = _Log()
-    names = {"e1": MILK, "e2": TEA, "e3": MEAL, "e4": KIT, "e5": ICED, "e6": BREAD, "e7": JUICE, "e8": "food-8",
-             "e9": "food-9"}
-    snapshots = {key: _snapshot(key, f"事务{key}", product, "2026-01-05 10:00",
-                                outcome="eat" if key == "e2" else "obtain") for key, product in names.items()}
+    names = {"e1": MILK, "e2": TEA, "e3": MEAL, "e4": KIT, "e5": ICED,
+             "e6": BREAD, "e7": JUICE, "e8": "goods-8", "e9": "goods-9"}
+    snapshots = {key: _snapshot(key, f"事务{key}", product, "2026-01-05 10:00")
+                 for key, product in names.items()}
     for snapshot in snapshots.values():
         log.errand(REGISTERED_KIND, "2026-01-05 10:00", snapshot)
-    log.accepted("2026-01-05 11:00", {"status": "completed", "data": {"orders": [
-        {"food_id": JUICE, "status": "delivered"}]}})
+    log.accepted("2026-01-05 11:00", {"data": {"orders": [_accepted_order(JUICE)]}})
     for key in ("e1", "e2", "e3", "e4", "e6", "e7", "e8"):
         log.errand(REMINDED_KIND, "2026-01-05 12:00", snapshots[key])
     log.errand(CANCELLED_KIND, "2026-01-05 12:05", snapshots["e6"], reason="不用了")
     log.bought("2026-01-05 12:10", MILK, status="pending", event_type="action_accepted")
     log.bought("2026-01-05 12:10", BREAD, event_type="action_accepted")
-    log.bought("2026-01-05 12:10", "food-8", agent_id=2, event_type="action_accepted")
-    log.accepted("2026-01-05 12:20", {"status": "in_progress", "activity": _consume("eat", (TEA,)),
-                                      "data": {"activity": _consume("eat", (TEA,))}})
-    log.accepted("2026-01-05 12:20", {"status": "in_progress", "data": {"activities": [
-        _consume("eat", (MEAL,)), _consume("eat", (MILK,))]}})
+    log.bought("2026-01-05 12:10", "goods-8", agent_id=2, event_type="action_accepted")
+    log.accepted("2026-01-05 12:20", {"data": {"orders": [_accepted_order(TEA)]}})
+    log.accepted("2026-01-05 12:20", {"data": {"orders": [_accepted_order(MEAL), _accepted_order(MILK)]}})
     log.bought("2026-01-05 12:30", KIT)
-    log.add("action_rejected", "2026-01-05 12:30", {"error_code": "OUT_OF_STOCK", "data": {"orders": [
-        {"food_id": KIT, "status": "pending"}]}}, action_id="rejected")
+    log.add("action_rejected", "2026-01-05 12:30", {"error_code": "SUPPLY_NOT_FOUND",
+        "data": {"orders": [_accepted_order(KIT)]}}, action_id="rejected")
     log.bought("2026-01-05 12:40", KIT, event_type="action_accepted", reused=True)
     log.errand(REMINDED_KIND, "2026-01-05 23:50", snapshots["e5"])
     log.bought("2026-01-06 00:10", ICED, event_type="action_accepted")
-    log.bought("2026-01-06 00:20", "food-9", event_type="action_accepted")
-
+    log.bought("2026-01-06 00:20", "goods-9", event_type="action_accepted")
     metrics = errand_metrics(log.events, _ZONE)
     assert (metrics["reminded_errand_count"], metrics["acted_after_reminder_count"]) == (8, 3)
 
 
 def test_a_completion_without_checkable_evidence_is_counted() -> None:
-    """办成事件须引用本导出里更早的一条事件，且该事件经结算同一读取（errands.evidence_rows）给出同一所有人、结果种类与
-    商品的证据行：送达本人的订单结果与配送送达的入库行可复核；没有原因、原因不在导出里、原因的证据归别人（收货人是李凡）、
-    原因排在办成之后、原因的进食是别的商品，这五条都计入 completed_without_evidence_count。"""
+    """完成引用只认更早的本人同商品收货；缺引用、外部引用、他人、晚到、错商品与送达订单都不可核验。"""
     log = _Log()
-    cases = {key: _snapshot(key, f"事务{key}", product, "2026-01-05 10:00", outcome="eat" if key == "c6" else "obtain")
-             for key, product in (("c1", MILK), ("c2", KIT), ("c3", TEA), ("c4", ICED), ("c5", BREAD), ("c6", JUICE),
-                                  ("c7", MEAL))}
+    cases = {key: _snapshot(key, f"事务{key}", product, "2026-01-05 10:00")
+             for key, product in (("c1", MILK), ("c2", KIT), ("c3", TEA), ("c4", ICED),
+                                  ("c5", BREAD), ("c6", JUICE), ("c7", MEAL))}
     for snapshot in cases.values():
         log.errand(REGISTERED_KIND, "2026-01-05 10:00", snapshot)
-
     def done(key: str, *causes: str) -> None:
-        """写下 key 的办成事件，以 causes 为原因。"""
-        log.errand(COMPLETED_KIND, "2026-01-05 11:00", _done(cases[key]), caused_by=list(causes), quantity_added=1.0)
-
-    done("c1", log.bought("2026-01-05 11:00", MILK)["event_id"])
+        log.errand(COMPLETED_KIND, "2026-01-05 11:00", _done(cases[key]),
+                   caused_by=list(causes), quantity_added=1.0)
+    done("c1", _receipt(log, "2026-01-05 11:00", MILK)["event_id"])
     done("c2")
     done("c3", "event-not-exported")
-    done("c4", log.bought("2026-01-05 11:00", ICED, recipient="agent:2")["event_id"])
+    done("c4", _receipt(log, "2026-01-05 11:00", ICED, agent_id=2)["event_id"])
     done("c5", f"event-{len(log.events) + 2}")
-    log.bought("2026-01-05 11:00", BREAD)
-    eaten = log.add("activity_progress", "2026-01-05 11:00", {"interval_start": _at("2026-01-05 10:30"),
-                                                              "consumption": _eaten(TEA)})
-    done("c6", eaten["event_id"])
-    arrival = log.add("environment_event", "2026-01-05 11:00", {
-        "kind": "delivery_arrival", "orders": [{"order_id": "order-meal", "agent_id": 2, "recipient_id": "agent:1"}],
-        "inventory_changes": [{"order_id": "order-meal", "food_id": MEAL, "quantity": 1}]}, agent_id=2)
-    done("c7", arrival["event_id"])
-
+    _receipt(log, "2026-01-05 11:00", BREAD)
+    done("c6", _receipt(log, "2026-01-05 11:00", TEA)["event_id"])
+    done("c7", log.bought("2026-01-05 11:00", MEAL)["event_id"])
     metrics = errand_metrics(log.events, _ZONE)
-    assert (metrics["completed_count"], metrics["completed_without_evidence_count"]) == (7, 5)
+    assert (metrics["completed_count"], metrics["completed_without_evidence_count"]) == (7, 6)
 
 
 def test_no_errand_or_no_conclusion_memory_gives_null() -> None:
@@ -315,8 +298,8 @@ def test_conclusion_memories_count_routine_and_errand_overlap() -> None:
     两条；文字包含同一决策观察里未完成事务的名称（待办层）或其商品名称（私有绑定）的两条——商品名只认未完成事务的商品，
     同一观察里别的商品名不算，另一决策的观察里没有事务、没有观察的决策也都不算重合。"""
     log = _Log()
-    bindings = [{"name": "补一份食材包", "errand_id": "a", "outcome": "obtain", "product_id": KIT},
-                {"name": "买冰红茶", "errand_id": "b", "outcome": "obtain", "product_id": TEA}]
+    bindings = [{"name": "补一份食材包", "errand_id": "a", "product_id": KIT},
+                {"name": "买冰红茶", "errand_id": "b", "product_id": TEA}]
     items = [{"name": "素炒什锦食材包", "product_id": KIT}, {"name": "康师傅 冰红茶", "product_id": TEA},
              {"name": "纯牛奶", "product_id": MILK}]
     first = log.observation("2026-01-05 21:00", ("补一份食材包", "买冰红茶"), decision_id="decision-1")
@@ -349,31 +332,25 @@ def test_conclusion_memories_count_routine_and_errand_overlap() -> None:
     assert _report(log)["conclusion_memories"] == expected
 
 
-def _two_completions(crossed: bool) -> _Log:
-    """两条办成的事务，各引用一条本导出里更早、同一所有人、同一商品的证据事件：纯牛奶引用送达本人的订单（取得的证据），
-    冰红茶引用进食区间里吃掉的一份（吃掉的证据）。crossed 为假时事务的结果种类与证据的相同（取得纯牛奶、吃掉冰红茶），
-    为真时恰好相反（吃掉纯牛奶、取得冰红茶）。"""
+def _two_completions(orders: bool) -> _Log:
+    """相同本人商品的两条引用，比较订单状态与独立收货事件。"""
     log = _Log()
-    kinds = ("eat", "obtain") if crossed else ("obtain", "eat")
-    milk = _snapshot("a", "纯牛奶的事", MILK, "2026-01-05 10:00", outcome=kinds[0])
-    tea = _snapshot("b", "冰红茶的事", TEA, "2026-01-05 10:00", outcome=kinds[1])
+    milk = _snapshot("a", "纯牛奶的事", MILK, "2026-01-05 10:00")
+    tea = _snapshot("b", "冰红茶的事", TEA, "2026-01-05 10:00")
     for snapshot in (milk, tea):
         log.errand(REGISTERED_KIND, "2026-01-05 10:00", snapshot)
-    bought = log.bought("2026-01-05 11:00", MILK)
-    log.errand(COMPLETED_KIND, "2026-01-05 11:00", _done(milk), caused_by=[bought["event_id"]], quantity_added=1.0)
-    eaten = log.add("activity_progress", "2026-01-05 11:30", {"interval_start": _at("2026-01-05 11:10"),
-                                                              "consumption": _eaten(TEA)})
-    log.errand(COMPLETED_KIND, "2026-01-05 11:30", _done(tea), caused_by=[eaten["event_id"]], quantity_added=1.0)
+    for snapshot in (milk, tea):
+        source = (log.bought("2026-01-05 11:00", snapshot["product_id"]) if orders
+                  else _receipt(log, "2026-01-05 11:00", snapshot["product_id"]))
+        log.errand(COMPLETED_KIND, "2026-01-05 11:00", _done(snapshot),
+                   caused_by=[source["event_id"]], quantity_added=1.0)
     return log
 
 
-def test_evidence_of_the_other_outcome_kind_does_not_verify_a_completion() -> None:
-    """完成依据是结果种类 × 商品 × 数量（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-完成依据与结算 ），办成的证据行须与事务同一所有人、同一结果
-    种类、同一商品：结果种类与证据相同的两条办成都可复核；同样的两条证据，换成「吃掉纯牛奶」引用买到的那份、「取得冰红茶」
-    引用吃掉的那份，所有人与商品都对得上而结果种类不同，两条都计入 completed_without_evidence_count。引擎结算只给同种类的
-    证据记账，写不出这样的办成事件，所以这里以认证导出的事件形状构造；报告里的同名分组与直接计算逐值相同。"""
-    for crossed, unverified in ((False, 0), (True, 2)):
-        log = _two_completions(crossed)
+def test_order_status_does_not_replace_goods_received_evidence() -> None:
+    """所有人与商品相同的已送达订单仍不能代替收货证据；报告与直接计算逐值相同。"""
+    for orders, unverified in ((False, 0), (True, 2)):
+        log = _two_completions(orders)
         metrics = errand_metrics(log.events, _ZONE)
         assert (metrics["completed_count"], metrics["completed_without_evidence_count"]) == (2, unverified)
         assert _report(log)["errand_metrics"] == metrics
@@ -399,14 +376,14 @@ def test_acting_after_a_later_reminder_counts_although_nothing_followed_the_firs
         assert (metrics["reminded_errand_count"], metrics["acted_after_reminder_count"]) == (1, 0 if early else 1)
 
 
-def test_parallel_consumption_matches_the_actual_food_request_without_inventing_a_product() -> None:
-    """@brief 同一次并行受理只指向实际进食请求中的食品，不把另一件未请求物品当成行动。"""
+def test_multiple_orders_match_only_the_actual_purchased_products() -> None:
+    """同一次购买受理只计真实订单指向的商品；活动快照不伪造商品购买。"""
     for product, acted in ((MEAL, 1), (KIT, 0)):
         log = _Log()
         errand = _snapshot("a", "厨房里的事", product, "2026-01-05 10:00")
         log.errand(REGISTERED_KIND, "2026-01-05 10:00", errand)
         log.errand(REMINDED_KIND, "2026-01-05 12:00", errand)
-        log.accepted("2026-01-05 12:10", {"status": "in_progress", "data": {"activities":[
-            _consume("eat", (MEAL,)), {"activity_id":"wait", "kind":"wait", "status":"active", "data":{}}]}})
+        log.accepted("2026-01-05 12:10", {"data": {"orders": [_accepted_order(MEAL), _accepted_order(TEA)],
+            "activities": [{"activity_id": "wait", "kind": "wait", "data": {}}]}})
         metrics = errand_metrics(log.events, _ZONE)
         assert (metrics["reminded_errand_count"], metrics["acted_after_reminder_count"]) == (1, acted)

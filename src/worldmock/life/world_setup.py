@@ -8,10 +8,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from worldmock.catalog import load_catalog
-from worldmock.catalog.loader import require_engine_rules
-from worldmock.corpora import load_manifest
 from worldmock.errors import IntegrityError
-from worldmock.life.load_checks import check_location_kinds, check_visible_labels, check_work_schedules
+from worldmock.life.load_checks import (
+    check_location_kinds, check_parcel_stations, check_visible_labels, check_work_schedules,
+)
 from worldmock.life.models import AgentState, RunIdentity, WorldState, WORLD_SCHEMA_VERSION
 from worldmock.life.scenario import RuntimeScenario, parse_scenario_document
 from worldmock.life.semantics import ScenarioSemantics, assemble_semantics, resolve_catalog_dir
@@ -25,30 +25,23 @@ def load_runtime_scenario(
     scenario_path: Path,
     catalog_dir: Path | None = None,
 ) -> tuple[ScenarioSemantics, str]:
-    """@brief 读取结构七场景、登记环境与固定规则，再执行可见名称和工作安排准入。
+    """@brief 读取结构八场景、登记环境与固定规则，再执行可见名称和工作安排准入。
 
-    @param scenario_path 场景 JSON 路径，语料使用场景目录内的相对引用。
+    @param scenario_path 场景 JSON 路径，目录使用场景兄弟目录 catalog。
     @param catalog_dir 环境登记根；缺省为场景兄弟目录 catalog。
     @return 已验证的冻结语义及场景原文字节的 SHA-256。
-    @exception IntegrityError 文档、环境身份、语料或场景准入不满足合同。
+    @exception IntegrityError 文档、环境身份或场景准入不满足合同。
     """
 
     document, digest = parse_scenario_document(scenario_path)
     directory = Path(catalog_dir) if catalog_dir is not None else resolve_catalog_dir(scenario_path)
     catalog = load_catalog(directory)
-    _require_engine_rules(directory)
-    root = (Path(scenario_path).resolve().parent / document.corpus_root).resolve()
-    load_manifest(root, document.corpus_manifest_sha256)
-    semantics = assemble_semantics(document, catalog, root)
+    semantics = assemble_semantics(document, catalog)
     check_location_kinds(semantics.scenario)
-    check_visible_labels(semantics.scenario, root)
+    check_visible_labels(semantics.scenario)
     check_work_schedules(semantics.scenario)
+    check_parcel_stations(semantics)
     return semantics, digest
-
-
-def _require_engine_rules(directory: Path) -> None:
-    """@brief 目录中的三份通用规则必须逐字节匹配引擎包资源。"""
-    require_engine_rules(directory)
 
 
 def load_scenario(path: Path) -> tuple[RuntimeScenario, str]:
@@ -82,7 +75,6 @@ def _initial_state(semantics: ScenarioSemantics, scenario_sha256: str, run_id: s
         run_id=run_id,
         timezone=scenario.timezone,
         scenario_sha256=scenario_sha256,
-        content_manifest_sha256=scenario.corpus_manifest_sha256,
         agents=agents,
         accounts=accounts,
         pending_events=pending,
@@ -96,7 +88,7 @@ def _initial_state(semantics: ScenarioSemantics, scenario_sha256: str, run_id: s
 
 
 def _initial_agent(config, scenario: RuntimeScenario, account_id: str, start: int):
-    """@brief 构造人物身体初值、已送达邮件与声明的食品库存。"""
+    """@brief 构造人物身体初值与已送达的可见邮件。"""
 
     from worldmock.life.body import initial_body
     from worldmock.life.readable import _datetime
@@ -115,12 +107,13 @@ def _initial_agent(config, scenario: RuntimeScenario, account_id: str, start: in
         name=config.name,
         location_id=config.home_location_id,
         balance_account_id=account_id,
+        driving_days=config.initial_driving_days,
+        last_driving_date=None,
         body=body,
         body_settled_at=start,
         visible_message_ids=visible_mail,
         next_decision_at=start,
         pending_wake_reasons=["run_start"],
-        inventory=config.initial_inventory,
     )
 
 
@@ -145,14 +138,14 @@ def _run_manifest(
     validate_manifest_stage_identity({"stage_model_identity": stage_identity})
     scenario, options = semantics.scenario, options or {}
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "run_id": identity.run_id,
         "source_group_id": identity.source_group_id,
         "scenario_id": scenario.scenario_id,
         "environment_identity": environment_identity(semantics),
         "scenario_sha256": scenario_sha256,
-        "corpus_manifest_sha256": scenario.corpus_manifest_sha256,
         "agent_ids": list(identity.agent_ids),
+        "work_content_ids": {str(agent.agent_id): list(agent.work_content_ids) for agent in scenario.agents},
         "code_sha256": identity.code_sha256,
         "git_commit": identity.git_commit,
         "git_dirty": identity.git_dirty,
@@ -192,8 +185,6 @@ def create_world(
 
     semantics, digest = load_runtime_scenario(scenario_path)
     scenario = semantics.scenario
-    corpus_root = (Path(scenario_path).resolve().parent / scenario.corpus_root).resolve()
-    load_manifest(corpus_root, scenario.corpus_manifest_sha256)
     _validate_run_identity(scenario, run_identity)
     state = _initial_state(semantics, digest, run_identity.run_id)
     manifest = _run_manifest(semantics, digest, run_identity, stage_identity, options)
@@ -208,12 +199,10 @@ def create_world(
         data={"kind": "initial_funds_injected", "resource_changes": changes},
     )
     store.commit(validated_payload(state), [injection])
-    return semantics, digest, corpus_root, store
+    return semantics, digest, store
 
 
 def open_world(scenario_path: Path, run_dir: Path):
-    """@brief 真实加载场景、核对语料并只打开现有合法运行。"""
+    """@brief 真实加载场景、核对环境身份并只打开现有合法运行。"""
     semantics, digest = load_runtime_scenario(scenario_path)
-    corpus_root = (Path(scenario_path).resolve().parent / semantics.scenario.corpus_root).resolve()
-    load_manifest(corpus_root, semantics.scenario.corpus_manifest_sha256)
-    return semantics, digest, corpus_root, open_environment_validated_store(Path(run_dir), semantics)
+    return semantics, digest, open_environment_validated_store(Path(run_dir), semantics)

@@ -131,8 +131,9 @@ def test_public_observation_excludes_private_fields_and_fixed_menu_remains_visib
     _commit_staged(engine, staged)
     later = _observe_current(engine, "fixed-menu-later")
     assert {row["object_id"] for row in later["interaction_bindings"] if row["kind"] == "supply"} == products
-    assert {row["object_id"] for row in later["interaction_bindings"] if row["kind"] == "app"} == set(
-        engine.context.semantics.catalog.apps)
+    assert {row["object_id"] for row in later["interaction_bindings"] if row["kind"] == "action"} == set(
+        engine.context.semantics.catalog.actions)
+    assert not [row for row in later["interaction_bindings"] if row["kind"] == "app"]
     assert "supply_browsed_at" not in engine.context.state.agents[1].model_dump()
 
 

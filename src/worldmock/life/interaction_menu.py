@@ -106,8 +106,7 @@ def named_supply_row(name: str, way: str) -> dict[str, Any]:
 
     :param way: 到店、远程下单或「购买」；「购买」的履约方式在解析时由系统决定，占位行上为 None。
     """
-    fulfillment = next((mode for mode, label in vocabulary.PURCHASE_WAYS.items() if label == way), None)
-    action = binding_action(way, "purchase", fulfillment=fulfillment)
+    action = binding_action("购买", "purchase")
     return {"object": name, "kind": NAMED_SUPPLY_KIND, "object_id": None, "actions": [action],
             "selected_action": action}
 
@@ -118,13 +117,11 @@ def activity_phrase(action: dict[str, Any]) -> str:
 
 
 def merged_selection(canonical: Sequence[str], ways: Sequence[str]) -> bool:
-    """@brief 两项是否合成一次动作（沿用同短语合并，「购买」已在受理前定为到店或远程下单）：同为方式相同的取得（都到店或
-    都远程下单）合成一单（再按收货地拆单），同为方式相同的食用或使用合成一餐（各项去向都是自己）；「制作」按一份库存
-    转换配方执行，一次只做一件，「给予」逐项瞬时转移，都不合并；其余两项各自受理。"""
+    """@brief 同方式的购买项组成整单，随后由购买路由按实际履约与收货地拆单；其余分别受理。"""
     if len(canonical) == 1:
         return True
     same = canonical[0] == canonical[1] and ways[0] == ways[1]
-    return same and canonical[0] in {"purchase", "consume"} and ways[0] != vocabulary.GIVE_WAY
+    return same and canonical[0] == "purchase"
 
 
 def _validate_names(values: tuple[str, ...], allowed: frozenset[str], label: str) -> None:

@@ -102,7 +102,7 @@ def _ended_activity(status: str, **overrides) -> dict:
 def test_world_schema_version_is_8():
     """WORLD_SCHEMA_VERSION 当前为 9（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-事件检查点与恢复 ：新增个人事务的人物状态，世界结构由 8 升为 9，
     只升一次）。用例名沿用版本 8 时的登记（时间与能量台账登记了这个节点），断言随结构版本更新。"""
-    assert WORLD_SCHEMA_VERSION == 10
+    assert WORLD_SCHEMA_VERSION == 11
 
 
 def test_session_opened_by_action_id_is_optional_and_nonblank():
@@ -147,8 +147,8 @@ def test_session_kind_closed_set():
 
 
 def test_session_task_kind_closed_set():
-    """任务关联类型闭集（已移到活动上）恰为三个合法成员。"""
-    assert {k.value for k in SessionTaskKind} == {"goal", "work_topic", "none"}
+    """任务关联类型闭集（已移到活动上）只保留目标与无关联。"""
+    assert {k.value for k in SessionTaskKind} == {"goal", "none"}
 
 
 @pytest.mark.parametrize("bad_status", ["running", "done", "pending", "", "paused", "concluded", "aborted"])
@@ -158,7 +158,7 @@ def test_invalid_status_is_rejected(bad_status):
         SessionState.model_validate(_active_session(status=bad_status))
 
 
-@pytest.mark.parametrize("bad_kind", ["task", "daily", "plan", ""])
+@pytest.mark.parametrize("bad_kind", ["task", "daily", "plan", "work_topic", ""])
 def test_invalid_task_kind_is_rejected(bad_kind):
     """活动上的非法 task_kind 字符串被 Pydantic 拒绝。"""
     with pytest.raises(ValidationError):
@@ -244,20 +244,6 @@ def test_task_kind_goal_with_disagreeing_intent_is_rejected():
     """目标活动的意图必须等于 task_ref。"""
     with pytest.raises(ValidationError):
         ActivityState.model_validate(_activity(task_kind="goal", task_ref="工作", plan_goal_intent_kind="休息"))
-
-
-def test_task_kind_work_topic_requires_task_ref():
-    """task_kind=work_topic 时 task_ref=None 被拒绝。"""
-    with pytest.raises(ValidationError):
-        ActivityState.model_validate(_activity(task_kind="work_topic", task_ref=None))
-
-
-def test_task_kind_work_topic_with_task_ref_is_valid():
-    """task_kind=work_topic 且 task_ref 指向实际主题时通过验证。"""
-    activity = ActivityState.model_validate(
-        _activity(task_kind="work_topic", task_ref="quarterly-sales"))
-    assert activity.task_kind == SessionTaskKind.WORK_TOPIC
-    assert activity.task_ref == "quarterly-sales"
 
 
 # ---------------------------------------------------------------------------
@@ -415,14 +401,13 @@ def test_concluded_at_before_ended_at_is_rejected():
 def _minimal_world_state_dict(**overrides) -> dict:
     """构造最小合法 WorldState 字典（无代理、无库存）。"""
     base: dict = {
-        "schema_version": 10,
+        "schema_version": 11,
         "version": 0,
         "current_time": 1000,
         "end_time": 2000,
         "run_id": "test-run",
         "timezone": "Asia/Shanghai",
         "scenario_sha256": "a" * 64,
-        "content_manifest_sha256": "b" * 64,
         "agents": {},
         "accounts": {},
         "random_seed": 42,
@@ -432,10 +417,10 @@ def _minimal_world_state_dict(**overrides) -> dict:
     return base
 
 
-def test_world_state_schema_version_10_is_valid():
+def test_world_state_schema_version_11_is_valid():
     """@brief 结构十的最小世界状态通过验证。"""
     ws = WorldState.model_validate(_minimal_world_state_dict())
-    assert ws.schema_version == 10
+    assert ws.schema_version == 11
 
 
 #: 人物提示七层之前的世界结构版本；其检查点必须以版本不符拒绝。

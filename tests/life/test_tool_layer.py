@@ -1,87 +1,143 @@
-"""工具层与可用性单一来源（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」、验收台账「可用性」）。
+"""@brief 动作目标、应用选择、推送与纯资格的真实登记环境合同。"""
 
-性质测试：在真实引擎状态上，工具层（与待办层）列出的每一项动作与工具（逐项，不按等价类抽样）各在同一份已提交状态的独立
-副本上单独提交一次，互不影响：宿主（绑定真实 LifeEnv 的 LifeAgent，按该副本本轮观察冻结六层与私有绑定）对每一项的本地校验
-validate_react_decisions 都返回空串（列出即可提交），并经宿主的真实派发路径交给环境；available 为 false 的由环境以同一原因
-业务拒绝（action_result.data.reason 与 reason 一字不差），available 为 true 的被环境受理。副本的本轮观察与列出时的可用性
-逐项相同。覆盖运行开始、待收尾、同刻受限轮的三种阶段（开始或恢复、恢复或结束、只收尾，只收尾另有两项待收尾各自可收尾的一例）、
-路上、他处持有物与别处暂停的活动、工作进行中、距截止不足一分钟暂停的工作、驾车途中、门店没开门/卖完了/余额不够、
-身边有人（对方睡着）、逾期任务、给予有无对象等状态；另验证永久不能满足的动作（没有路线、技能不够）不列出且宿主按协议纠错，名称唯一、他处持有物的名称带
-地点、路上的活动不能暂停、正在做的工作提交写「先结束正在做的工作」、截止前一分钟内不能恢复工作、驾车时发消息与提交成果写
-「开车时不能…」。
-"""
-
-from __future__ import annotations
-
-
-import shutil
+import copy
 from dataclasses import replace
 
 import pytest
-from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
+from jsonschema import Draft202012Validator
 
+from tests.life.action_contract_world import contract_world
+from tests.life.test_name_resolution import start_payload
+from worldmock.errors import BusinessRuleError
+from worldmock.life import admission, sessions
+from worldmock.life.callable_index import INDEX_KEYS, callable_index
+from worldmock.life.content_select import ContentRequest, content_duration_range, select_content
+from worldmock.life.models import AppPush, ContentProgress, StartActivityRequest
+from worldmock.life.name_resolution import name_book, resolve_start
+from worldmock.life.prompt_schemas import PROGRESS_LAYER_SCHEMA, TARGET_KINDS, validate_layer
+from worldmock.life.readable import duration_phrase, iso_time
+from worldmock.life.tool_layer import Candidate, refusal_for, tool_layer
+from worldmock.life.vocabulary import WAYS, way_options
+
+
+def action_row(layer, name, app=None):
+    target = next(row for row in layer["targets"] if row["name"] == name)
+    return next(row for row in target["actions"] if row["app"] == app)
+
+
+def test_all_registered_actions_listed_with_explicit_apps_and_no_app_targets():
+    context, _ = contract_world()
+    index = callable_index(context)
+    layer = tool_layer(context, index)
+    actions = [row for row in layer["targets"] if row["kind"] == "action"]
+    assert {row["name"] for row in actions} == {"刷推荐", "办公", "学课程", "语音通话", "聊天", "跑步", "安静休息"}
+    assert not {"content", "game", "catalog", "app", "task", "lifestyle"} & {row["kind"] for row in layer["targets"]}
+    assert set(index) == set(INDEX_KEYS) == {"goods", "navigation_apps", "payment_apps", "query_categories"}
+    assert index["navigation_apps"] == ["高德地图"] and index["payment_apps"] == ["支付宝", "微信"]
+    assert {row["app"] for row in next(row for row in actions if row["name"] == "刷推荐")["actions"]} == {
+        "哔哩哔哩", "抖音"}
+    validate_layer(layer)
+
+
+def test_empty_action_tool_reason_matches_actual_content_exhaustion():
+    from random import Random
+
+    context, _ = contract_world()
+    context = replace(context, agent_id=2)
+    row = action_row(tool_layer(context, callable_index(context)), "办公")
+    assert row["available"] is False and row["reason"] == "Nothing is left to do for this action."
+    assert row["duration"] is None
+    with pytest.raises(BusinessRuleError, match="CONTENT_EXHAUSTED"):
+        select_content(context.semantics.catalog, context.scenario, context.state,
+                       ContentRequest(2, "office-work", None), Random(7))
+
+
+@pytest.mark.parametrize("status", ["pending", "opened", "released"])
+def test_current_push_title_is_visible_only_for_its_bound_action_and_app_until_released(status):
+    context, _ = contract_world()
+    sessions.current_session(context.state, 1).app_pushes["douyin"] = AppPush(
+        push_id="push-real", content_id="c-short", issued_at=context.state.current_time, status=status)
+    before = context.state.model_dump(mode="json")
+    layer = tool_layer(context, callable_index(context))
+    douyin = action_row(layer, "刷推荐", "抖音")
+    bilibili = action_row(layer, "刷推荐", "哔哩哔哩")
+    assert ("有推送：《测试短视频》" in douyin["note"]) == (status != "released")
+    assert "有推送" not in bilibili["note"] and "短视频）" not in douyin["note"]
+    assert context.state.model_dump(mode="json") == before
+
+
+def test_retired_open_watch_game_and_food_ways_have_no_compatibility_synonyms():
+    assert set(WAYS) == {"步行", "驾车", "睡觉", "等待", "购买", "进行", "领取"}
+    for written in ("游玩", "玩游戏", "观看", "听", "继续看", "重看", "打开", "刷", "用一下", "食用", "给予"):
+        assert way_options(written) == frozenset()
+    for written in ("进行", "做", "参加"):
+        assert way_options(written) == {"进行"}
+
+
+def test_action_targets_and_push_schema_are_closed_without_content_kind_or_private_identity():
+    context, _ = contract_world()
+    assert set(TARGET_KINDS) == {"location", "product", "action", "person", "contact", "self", "activity"}
+    schema = PROGRESS_LAYER_SCHEMA["properties"]["events"]["items"]
+    record = {"occurred_at": iso_time(context.state.current_time, context.scenario.timezone), "type": "app_push",
+              "app": "抖音", "action": "刷推荐", "title": "测试短视频", "summary": "字" * 200}
+    validator = Draft202012Validator(schema)
+    validator.validate(record)
+    for changed in ({**record, "content_id": "hidden"}, {**record, "kind": "短视频"},
+                    {**record, "summary": "字" * 201}, {key: value for key, value in record.items() if key != "action"}):
+        assert list(validator.iter_errors(changed))
+    validate_layer(tool_layer(context, callable_index(context)))
+
+
+def test_action_duration_matches_read_only_selector_and_actual_admission():
+    context, _ = contract_world()
+    row = next(row for row in context.bindings if row["kind"] == "action" and row["object_id"] == "run")
+    facts = admission.WorldFacts(context.semantics.catalog, context.scenario, context.state, 1)
+    item = admission.selection_item(row, row["actions"][0], facts)
+    assert item.claims == {"exercise"}
+    assert refusal_for(context, Candidate("start_activity", row, row["actions"][0])) is None
+    expected = content_duration_range(context.semantics.catalog, context.scenario, context.state,
+                                     ContentRequest(1, "run", "keep"))
+    assert expected == (1200, 1200)
+    layer = tool_layer(context, callable_index(context))
+    assert action_row(layer, "跑步", "Keep")["duration"] == duration_phrase(1200)
+    assert action_row(layer, "跑步", "Keep")["note"] == "借助 app 安排或记录线下行为"
+
+
+def test_most_recent_unfinished_content_duration_is_remaining_and_observation_does_not_select():
+    context, _ = contract_world()
+    context.state.agents[1].content_progress["c-long"] = ContentProgress(
+        content_id="c-long", position_seconds=2350, completed_rounds=0, last_consumed_at=context.state.current_time)
+    before = context.state.model_dump(mode="json")
+    layer = tool_layer(context, callable_index(context))
+    assert action_row(layer, "刷推荐", "哔哩哔哩")["duration"] == duration_phrase(50)
+    assert action_row(layer, "刷推荐", "抖音")["duration"] == duration_phrase(50)
+    assert context.state.model_dump(mode="json") == before
+
+
+def test_action_name_and_perform_synonym_use_exact_registered_object_and_leave_app_explicit():
+    _, observation = contract_world()
+    before = copy.deepcopy(observation)
+    request = StartActivityRequest.model_validate(start_payload("刷推荐", "做", app="抖音"))
+    outcome = resolve_start(name_book(observation), request)
+    assert not outcome.failures and outcome.request.items[0].way == "进行"
+    assert outcome.request.items[0].target == "刷推荐" and outcome.request.items[0].app == "抖音"
+    assert outcome.rows[0]["object_id"] == "browse-feed" and outcome.rows[0]["selected_action"]["canonical_action"] == "do"
+    app_target = StartActivityRequest.model_validate(start_payload("抖音", "进行"))
+    assert resolve_start(name_book(observation), app_target).failures[0].item.error_code == "NAME_NOT_FOUND"
+    assert observation == before
+
+
+import shutil
+from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
+from agentsociety2.society import DirectToolCall
 from custom.agents.life_agent import LifeAgent
 from custom.envs.life_env import LifeEnv
-from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context, drive,
-                                 stage_day_plan, start_activity, start_arguments, submit_round, target_actions,
-                                 target_tools, tool_targets, wake_by_mail, pause_request, start_request)
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
-HOME, OFFICE, PERSON_TARGET = "home", "office", "人物：李凡"
-from worldmock.errors import IntegrityError
-from worldmock.footprints.models import EventDraft
+from tests.life.conftest import context, stage_day_plan, drive, submit_round, activity_name, advance_until_ready
 from worldmock.footprints.store import FootprintStore
+from worldmock.footprints.models import EventDraft
 from worldmock.life.engine import LifeEngine
-from worldmock.life.guidance import refusal_for_code
 from worldmock.life.models import SameMomentStage
-from worldmock.life.tool_layer import tool_layer
-
-
-
-def _branch(engine: LifeEngine, tmp_path, monkeypatch, label: str) -> LifeEngine:
-    """@brief 复制已提交运行目录，再由真实规则与存储构造独立引擎。"""
-    target = tmp_path / "branches" / label
-    shutil.copytree(engine.context.store.run_dir, target)
-    return LifeEngine(engine.context.semantics, engine.context.scenario_sha256,
-                      engine.context.corpus_root, FootprintStore(target))
-
-
-def _give_recipient(engine: LifeEngine, observed: dict) -> str | None:
-    """给予的去向：工具层里此刻能给的人物目标（同处的同世界人物，或收货地点就是人物所在地点的联系人），没有时取第一个
-    人物目标（身边没有能给的人，给予标不可用）。"""
-    config = next(item for item in engine.context.scenario.agents if item.agent_id == 1)
-    places = {item.contact_id: item.receive_location_id for item in config.contacts}
-    rows = [row for row in observed["interaction_bindings"] if row["kind"] in {"person", "contact"}]
-    here = [row["object"] for row in rows
-            if row["kind"] == "person" or places[row["object_id"]] == engine.context.state.agents[1].location_id]
-    people = [row["name"] for row in observed["person_bindings"]]
-    return next(iter([*here, *(row["object"] for row in rows), *people]), None)
-
-
-def _arguments(tool: str, name: str, item: dict, recipient: str | None) -> dict:
-    """单独提交一项候选时模型写出的工具参数（原生 JSON 形状）：start_activity 按目标、动词与方式（给予交给 recipient，
-    其余来源与去向取缺省），名称工具按目标名。"""
-    if tool == "start_activity":
-        routing = {"to": [recipient]} if item["way"] == "给予" else {}
-        return start_arguments([name], [item["action"]], [item["way"]], **routing)
-    if tool in {"report_status", "pause_activity"}:
-        return {"items": [{"activity_name": name, "summary": "继续。" if tool == "report_status" else "先停一下。"}],
-                "errands": []}
-    if tool == "conclude_activity":
-        return {"items": [{"activity_name": name, "summary": "收尾。", "memories": [], "views": []}], "errands": []}
-    return {"recipient_name": name, "text": "你好"}
-
-
-def _candidates(observed: dict) -> list[tuple[str, str, dict]]:
-    """工具层每个目标的每个动作与工具、待办层每项暂停活动的工具：（工具名，目标名，可用性行）。"""
-    rows = []
-    for target in observed["tool_layer"]["targets"]:
-        rows.extend(("start_activity", target["name"], item) for item in target["actions"])
-        rows.extend((item["tool"], target["name"], item) for item in target["tools"])
-    for item in observed["todo_layer"]["paused_activities"]:
-        rows.extend((tool["tool"], item["name"], tool) for tool in item["tools"])
-    return rows
+from worldmock.life.guidance import refusal_for_code
 
 
 def _host(engine: LifeEngine, decision, observed: dict) -> LifeAgent:
@@ -97,423 +153,197 @@ def _host(engine: LifeEngine, decision, observed: dict) -> LifeAgent:
         {"turn": 0, "action": "observe", "ok": True, "data": observed}]))
     return person
 
-
-def _submitted(branch: LifeEngine, label: str, listing: list, candidate: tuple, recipient: str | None):
-    """在副本上开一轮：本轮观察的可用性与列出时逐项相同；宿主本地校验放行这一项，经宿主派发交给环境，结算后返回结果。"""
-    tool, name, item = candidate
-    decision = context(branch, label)
-    branch.begin_decision_round([decision])
-    observed = branch.observe(decision)
-    assert _candidates(observed) == listing
-    person = _host(branch, decision, observed)
-    arguments = _arguments(tool, name, item, recipient)
-    assert person.validate_react_decisions([ReactDecision("", tool, arguments, "")], False) == "", candidate
-    drive(person.dispatch_react_tool(tool, arguments))
-    return branch.commit_decision_round(decision.round_id)[0]
+def _candidates(observed: dict) -> list[tuple[str, str, dict]]:
+    """工具层每个目标的每个动作与工具、待办层每项暂停活动的工具：（工具名，目标名，可用性行）。"""
+    rows = []
+    for target in observed["tool_layer"]["targets"]:
+        rows.extend(("start_activity", target["name"], item) for item in target["actions"])
+        rows.extend((item["tool"], target["name"], item) for item in target["tools"])
+    for item in observed["todo_layer"]["paused_activities"]:
+        rows.extend((tool["tool"], item["name"], tool) for tool in item["tools"])
+    return rows
 
 
-def _assert_admission_matches(engine: LifeEngine, tmp_path, monkeypatch, label: str) -> list[dict]:
-    """逐项单独提交当前观察列出的每一个候选（各在一份独立副本上），断言宿主对每一项都放行、环境对不可用的以同一原因拒绝、
-    对可用的受理；返回全部候选可用性行。"""
-    observed = engine.observe(context(engine, f"{label}-listing"))
-    names = [row["name"] for row in observed["tool_layer"]["targets"]]
-    assert len(names) == len(set(names))
-    listing = _candidates(observed)
-    recipient = _give_recipient(engine, observed)
-    for index, candidate in enumerate(listing):
-        if candidate[2].get("way") == "给予" and recipient is None:
-            person = _host(engine, context(engine, f"{label}-missing-recipient"), observed)
-            arguments = _arguments(*candidate, recipient)
-            error = person.validate_react_decisions([ReactDecision("", candidate[0], arguments, "")], False)
-            assert candidate[2]["available"] is False
-            assert error == "ROUTE_FIELDS_INVALID: Giving requires a known other person."
-            continue
-        branch = _branch(engine, tmp_path, monkeypatch, f"{label}-{index}")
+def _stage(engine,change):
+    """@brief 世界事实通过真实存储连续提交，不替环境派发动作。"""
+    staged=engine.context.state.model_copy(deep=True)
+    change(staged)
+    staged.version += 1
+    engine.context.store.commit(staged.model_dump(mode="json"),[EventDraft(event_type="environment_event",
+        occurred_at=staged.current_time,visibility="system",data={"kind":"tool_layer_test_setup"})])
+    engine.context.state=staged
+
+
+def _arguments(engine,observed,candidate):
+    """@brief 每次真实提交明确填写五字段；人物与支付来自真实已登记选择。"""
+    tool,name,item=candidate
+    if tool=="start_activity":
+        app=item["app"]
+        pay=recipient=None
+        catalog=engine.context.semantics.catalog
+        if item["way"]=="购买" and app is not None:
+            selected=next(value for value in catalog.apps.values() if value.name==app)
+            pay=catalog.apps[selected.payment_app_ids[0]].name
+        binding=next(row for row in observed["interaction_bindings"] if row["object"]==name)
+        if binding["kind"]=="action" and catalog.actions[binding["object_id"]].category=="social":
+            kinds={"person"} if app is None else {"contact"}
+            recipient=next(row["object"] for row in observed["interaction_bindings"] if row["kind"] in kinds)
+        return {"items":[{"way":item["way"],"target":name,"app":app,"to":recipient,"pay_app":pay}],"answering":None}
+    if tool in {"report_status","pause_activity"}:
+        return {"items":[{"activity_name":name,"summary":"继续。"}],"errands":[]}
+    if tool=="conclude_activity":
+        return {"items":[{"activity_name":name,"summary":"收尾。","memories":[],"views":[]}],"errands":[]}
+    return {"recipient_name":name,"text":"你好"}
+
+
+def _assert_admission_matches(engine,tmp_path,label,tools=None):
+    """@brief 每个菜单项从同一真实已提交世界独立派发，宿主接受且环境原因与菜单一致。"""
+    observed=engine.observe(context(engine,f"{label}-preview"))
+    listing=_candidates(observed)
+    checked=[]
+    selected=[candidate for candidate in listing if tools is None or candidate[0] in tools]
+    for index,candidate in enumerate(selected):
+        directory=tmp_path/f"{label}-branch-{index}"
+        shutil.copytree(engine.context.store.run_dir,directory)
+        branch=LifeEngine(engine.context.semantics,engine.context.scenario_sha256,FootprintStore(directory))
         try:
-            result = _submitted(branch, f"{label}-{index}", listing, candidate, recipient)
+            decision=context(branch,f"{label}-{index}")
+            contexts=[context(branch,decision.round_id,identity)
+                      for identity in branch.scheduling_state().ready_agent_ids]
+            branch.begin_decision_round(contexts)
+            frozen=None
+            for other in contexts:
+                value=branch.observe(other)
+                if other.agent_id == 1:
+                    frozen=value
+            assert _candidates(frozen)==listing
+            host=_host(branch,decision,frozen)
+            arguments=_arguments(branch,frozen,candidate)
+            tool,name,item=candidate
+            assert host.validate_react_decisions([ReactDecision("",tool,arguments,"")],False)=="",candidate
+            drive(host.dispatch_react_tool(tool,arguments))
+            for other in contexts:
+                if other.agent_id != 1:
+                    branch.submit_action(DirectToolCall(other,f"peer-{index}","start_activity",
+                        StartActivityRequest.model_validate(start_payload("自己","等待"))))
+            result=branch.commit_decision_round(decision.round_id)[0]
+            if item["available"]:
+                assert result.status!="rejected",(candidate,result.error_code,result.data)
+            else:
+                assert result.status=="rejected" and result.data["reason"]==item["reason"],(candidate,result.data)
+            checked.append(item)
         finally:
             branch.close()
-            shutil.rmtree(branch.context.store.run_dir)
-        tool, name, item = candidate
-        described = (tool, name, item.get("way"), result.error_code, result.data.get("reason"))
-        if item["available"]:
-            assert result.status != "rejected", described
-        else:
-            assert result.status == "rejected" and result.data["reason"] == item["reason"], (described, item)
-    return [item for _, _, item in listing]
+            shutil.rmtree(directory)
+    return checked
 
 
-def _commit(engine: LifeEngine, staged, data: dict) -> None:
-    """把改写后的世界副本连同一条系统事件经存储提交（版本加一）。"""
-    staged.version += 1
-    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
-        event_type="environment_event", occurred_at=staged.current_time, visibility="system", data=data)])
-    engine.context.state = staged
-
-
-def _stage(engine: LifeEngine, change) -> None:
-    """@brief 在实际世界副本应用测试所需事实，通过真实存储连续提交。"""
-    staged = engine.context.state.model_copy(deep=True)
-    change(staged)
-    _commit(engine, staged, {"kind": "test_tool_layer_position"})
-
-
-def _place(engine: LifeEngine, agent_id: int, location: str, holdings: dict | None = None) -> None:
-    """@brief 设置真实人物位置与按登记食品身份记录的持有物。"""
-    def change(state):
-        state.agents[agent_id].location_id = location
-        if holdings is not None:
-            state.agents[agent_id].inventory = {location: dict(holdings)}
-    _stage(engine, change)
-
-
-def _food_id(engine: LifeEngine) -> str:
-    """@brief 从实际登记食品菜单选一个可消费食品身份。"""
-    return next(iter(engine.context.semantics.catalog.foods))
-
-
-def _open_world(engine_factory) -> LifeEngine:
-    """@brief 打开实际多人环境，设置日间时刻、空计划与当前身体结算时间。"""
-    engine = engine_factory("multi-person.json")
-    for agent_id in engine.context.state.agents:
-        stage_day_plan(engine, agent_id)
-    moment = int(datetime(2026, 1, 5, 10, tzinfo=ZoneInfo(engine.context.scenario.timezone)).timestamp())
-    def change(state):
-        state.current_time = moment
-        state.pending_events = [event for event in state.pending_events if event.due_at > moment]
-        for agent in state.agents.values():
-            agent.body_settled_at = moment
-            agent.next_decision_at = moment
-    _stage(engine, change)
+def _engine(engine_factory,car=False):
+    """@brief 两位真实人物共同在家，给离线社交明确合法对方；远程社交使用真实通讯录。"""
+    def transport(document):
+        document["agents"][0].update(owns_car=car,initial_driving_days=7 if car else 0)
+    engine=engine_factory("multi-person.json",mutate=transport)
+    for identity in engine.context.state.agents:
+        stage_day_plan(engine,identity)
+    def together(state):
+        state.agents[2].location_id=state.agents[1].location_id
+        state.agents[2].next_decision_at=state.end_time
+    _stage(engine,together)
     return engine
 
 
-def _reach_limit(engine: LifeEngine) -> None:
-    """@brief 通过真实无效名称请求到达同刻决策上限。"""
-    while engine.context.state.agents[1].same_moment_rounds < engine.context.scenario.max_same_moment_decisions:
-        label = f"reach-limit-{engine.context.state.agents[1].same_moment_rounds}"
-        _, [result] = submit_round(engine, {1: ("start_activity", start_activity("打开", "不存在的应用"))}, label)
-        assert result.status == "rejected"
+def test_every_listed_item_matches_admission_at_run_start(engine_factory,tmp_path):
+    engine=_engine(engine_factory)
+    rows=_assert_admission_matches(engine,tmp_path,"start")
+    assert any(row["available"] for row in rows) and any(not row["available"] for row in rows)
 
 
-def _finish(engine: LifeEngine, activity_id: str, label: str) -> None:
-    """@brief 经真实时间边界完成活动，就绪的继续请求使用实际播报入口。"""
-    from tests.life.conftest import report_request
-    for step in range(64):
-        if engine.context.state.activities[activity_id].status != "active":
-            return
-        if engine.scheduling_state().ready_agent_ids:
-            submit_round(engine, {1: ("report_status", report_request(
-                activity_name(engine, activity_id), summary="继续。"))}, f"{label}-{step}")
-        else:
-            advance_next(engine)
-    pytest.fail("Activity did not end at its declared boundaries")
+def test_pending_conclusion_marks_everything_but_conclusion_unavailable(engine_factory,tmp_path):
+    engine=_engine(engine_factory)
+    _,started=submit_round(engine,{1:("start_activity",StartActivityRequest.model_validate(
+        start_payload("自己","等待")))},"wait")
+    assert started[0].error_code is None and advance_until_ready(engine)
+    rows=_assert_admission_matches(engine,tmp_path,"pending")
+    assert [row["tool"] for row in rows if row["available"]]==["conclude_activity"]
 
 
-def test_every_listed_item_matches_admission_at_run_start(engine_factory, tmp_path, monkeypatch) -> None:
-    """运行开始（深夜、在家）：每个列出的动作与工具单独提交，可用性与受理一致，不可用的原因与拒绝一字不差。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "start")
-    assert any(item["available"] for item in checked) and any(not item["available"] for item in checked)
-
-
-def test_give_availability_follows_whether_someone_can_be_handed_to(engine_factory, tmp_path, monkeypatch) -> None:
-    """多人场景白天、人物 1 在家手边有吃的：李凡在办公室时身边没有能给的人，给予动作标不可用并以同一原因被拒；李凡回家
-    后给予动作标可用、交给身边的人被受理；两种状态下全部候选与受理一致。"""
-    engine = _open_world(engine_factory)
-    _place(engine, 1, HOME, {_food_id(engine): 1.0})
-    _place(engine, 2, OFFICE)
-    _stage(engine, lambda state: setattr(state.agents[2], "next_decision_at", state.current_time + 3600))
-    alone = [item for item in _assert_admission_matches(engine, tmp_path, monkeypatch, "alone")
-             if item.get("way") == "给予"]
-    assert alone and not any(item["available"] for item in alone)
-    _place(engine, 2, HOME)
-    together = [item for item in _assert_admission_matches(engine, tmp_path, monkeypatch, "together")
-                if item.get("way") == "给予"]
-    assert together and all(item["available"] for item in together)
-
-
-def test_pending_conclusion_marks_everything_but_conclusion_unavailable(engine_factory, tmp_path,
-                                                                         monkeypatch) -> None:
-    """活动刚结束待收尾时，除了结束它以外的动作与工具都标不可用，原因是「先给刚结束的<活动>收尾」，与受理一致。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    _, results = submit_round(engine, {1: ("start_activity", start_activity("等待", "自己"))}, "pending-wait")
-    assert advance_until_ready(engine)
-    name = activity_name(engine, results[0].activity_id)
-    observed = engine.observe(context(engine, "pending-preview"))
-    assert target_tools(observed, name)["conclude_activity"]["available"] is True
-    assert target_actions(observed, "自己")["等待"]["reason"] == f"Conclude the finished activities {name} first."
-    checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "pending")
-    assert [item["tool"] for item in checked if item["available"]] == ["conclude_activity"]
-
-
-def test_restricted_round_marks_closed_items_with_the_same_moment_reason(engine_factory, tmp_path,
-                                                                          monkeypatch) -> None:
-    """达到同刻上限后的受限轮（只开放开始或恢复）：购买、发消息等不开放的动作标同刻限制原因，与受理一致。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    staged = engine.context.state.model_copy(deep=True)
-    staged.agents[1] = staged.agents[1].model_copy(update={
-        "same_moment_rounds": engine.context.scenario.max_same_moment_decisions,
-        "same_moment_stage": SameMomentStage.START_OR_RESUME}, deep=True)
-    staged.version += 1
-    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
-        event_type="environment_event", occurred_at=staged.current_time, visibility="system",
-        data={"kind": "test_restricted_staged"})])
-    engine.context.state = staged
-    checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "restricted")
-    assert "This same-moment stage only accepts its offered action types." in {item["reason"] for item in checked}
-
-
-def test_road_activity_cannot_be_paused_and_matches_admission(engine_factory, tmp_path, monkeypatch) -> None:
-    """路上的出行不能暂停：暂停标不可用「路上的<活动>不能暂停」，结束照常可用；在路上的全部候选与受理一致。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    preview = engine.observe(context(engine, "road-preview"))
-    office = next(row["object"] for row in preview["interaction_bindings"] if row["object_id"] == "office")
-    _, results = submit_round(engine, {1: ("start_activity", start_activity("步行", office))}, "road-walk")
-    wake_by_mail(engine, offset=120)
-    advance_next(engine)
-    name = activity_name(engine, results[0].activity_id)
-    observed = engine.observe(context(engine, "road-seen"))
-    assert target_tools(observed, name)["pause_activity"] == {
-        "tool": "pause_activity", "available": False, "reason": f"The activity {name} cannot be paused while travelling."}
-    assert target_tools(observed, name)["conclude_activity"]["available"] is True
-    assert observed["environment_layer"]["location"]["session_kind"] == "transit"
-    _assert_admission_matches(engine, tmp_path, monkeypatch, "road")
-
-
-def _stage_holding(engine, place: str, product_id: str) -> None:
-    """在指定地点放一份持有物并持久提交。"""
-    staged = engine.context.state.model_copy(deep=True)
-    agent = staged.agents[1]
-    inventory = {key: dict(value) for key, value in agent.inventory.items()}
-    inventory.setdefault(place, {})[product_id] = 1.0
-    staged.agents[1] = agent.model_copy(update={"inventory": inventory}, deep=True)
-    staged.version += 1
-    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
-        event_type="environment_event", occurred_at=staged.current_time, visibility="system",
-        data={"kind": "test_holding_staged"})])
-    engine.context.state = staged
-
-
-def test_held_elsewhere_and_paused_elsewhere_are_listed_with_reasons(engine_factory, tmp_path, monkeypatch) -> None:
-    """到办公室后：家里的持有物作为「持有物：<商品>（<地点>）」列出，食用标不可用并写明只能在当地用；在家暂停的活动在待办层，
-    恢复标不可用并点名家，结束可用；全部候选与受理一致。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    food = next(iter(engine.context.semantics.catalog.foods.values()))
-    _stage_holding(engine, "home", food.food_id)
-    _, results = submit_round(engine, {1: ("start_activity", start_activity("等待", "自己"))}, "away-wait")
-    waiting = results[0].activity_id
-    wake_by_mail(engine, offset=300)
-    advance_next(engine)
-    submit_round(engine, {1: ("pause_activity", pause_request(
-        activity_name(engine, waiting), summary="先出门。"))}, "away-pause")
-    preview = engine.observe(context(engine, "away-preview"))
-    office = next(row["object"] for row in preview["interaction_bindings"] if row["object_id"] == "office")
-    _, walking = submit_round(engine, {1: ("start_activity", start_activity("步行", office))}, "away-walk")
-    _finish(engine, walking[0].activity_id, "away-walk")
-    submit_round(engine, {1: ("conclude_activity", conclude_request(activity_name(engine, walking[0].activity_id)))},
-                 "away-arrive")
-    home = next(item.display_name for item in engine.context.scenario.locations if item.location_id == "home")
-    observed = engine.observe(context(engine, "away-seen"))
-    eat = target_actions(observed, f"持有物：{food.name}（{home}）")["食用"]
-    assert (eat["available"], eat["reason"]) == (False, f"This item is at {home} and must be used there.")
-    name = activity_name(engine, waiting)
-    assert name not in tool_targets(observed)
-    resume = target_tools(observed, name)["report_status"]
-    assert (resume["available"], resume["reason"]) == (False, f"Resume {name} at its start location {home}; it can be concluded elsewhere.")
-    assert target_tools(observed, name)["conclude_activity"]["available"] is True
-    _assert_admission_matches(engine, tmp_path, monkeypatch, "away")
-
-
-
-
-def test_tool_layer_fails_closed_when_an_activity_takes_a_target_name(engine_factory) -> None:
-    """名称全局唯一：活动名由 visible_names 避开绑定目标名；名称表若把进行中的活动叫成某个绑定目标的名称，工具层以
-    IntegrityError 失败关闭，不输出无法唯一解析的目标。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    _, results = submit_round(engine, {1: ("start_activity", start_activity("等待", "自己"))}, "clash-wait")
-    waiting = results[0].activity_id
-    observed = engine.observe(context(engine, "clash-seen"))
-    layer_context = engine.observations._layer_context(engine.context.state.agents[1], (), observed["interaction_bindings"])
-    assert activity_name(engine, waiting) in tool_targets(observed)
-    clashing = {**layer_context.names, "activities": {**layer_context.names["activities"], waiting: "自己"}}
-    with pytest.raises(IntegrityError, match="Tool layer target names must be unique"):
-        tool_layer(replace(layer_context, names=clashing), observed["tool_layer"]["callable_index"])
-
-
-def test_tool_layer_carries_the_callable_index_beside_the_targets(engine_factory) -> None:
-    """工具层 JSON 依次是 layer、targets 与只列名称的可调用索引 callable_index（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引 ）：
-    观察里的索引就是工具层附上的那一份，目标照旧；索引不是目标，不参与目标名称的唯一性判定——索引里写上与目标同名的
-    名称，工具层也不失败关闭。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    observed = engine.observe(context(engine, "index-beside"))
-    assert list(observed["tool_layer"]) == ["layer", "targets", "callable_index"]
-    layer_context = engine.observations._layer_context(engine.context.state.agents[1], (), observed["interaction_bindings"])
-    clashing = {"lifestyle": list(tool_targets(observed)), "goods": [], "query_categories": []}
-    layer = tool_layer(layer_context, clashing)
-    assert layer["callable_index"] is clashing and layer["targets"] == observed["tool_layer"]["targets"]
-
-
-
-
-
-
-
-
-def _start_then_pause(engine: LifeEngine, label: str, request) -> str:
-    """开始一项活动，两分钟后（邮件叫醒）暂停它，返回活动名；暂停后没有进行中的活动，人物同一秒再决策。"""
-    _, [started] = submit_round(engine, {1: ("start_activity", request)}, f"{label}-start")
-    assert started.status == "in_progress", (started.error_code, started.message)
-    wake_by_mail(engine, offset=120)
-    advance_next(engine)
-    name = activity_name(engine, started.activity_id)
-    _, [paused] = submit_round(engine, {1: ("pause_activity", pause_request(name, summary="先停一下。"))}, f"{label}-pause")
-    assert paused.status == "completed", (paused.error_code, paused.message)
-    return name
-
-
-def _refuse(engine: LifeEngine, label: str, times: int) -> list:
-    """同一秒连续提交 times 次开始等待（此刻都会被业务拒绝），返回各次结果。"""
-    results = []
-    for index in range(times):
-        _, [result] = submit_round(engine, {1: ("start_activity", start_activity("等待", "自己"))},
-                                   f"{label}-{index}")
-        assert result.status == "rejected", (result.error_code, result.message)
-        results.append(result)
-    return results
-
-
-def test_both_paused_at_the_limit_open_starting_and_resuming_not_ending(engine_factory, tmp_path, monkeypatch) -> None:
-    """两项都暂停到同刻上限（真实到达，不改计数）：等待与使用应用先后在家暂停，暂停的活动不占名额；同一秒再被拒到上限后阶段
-    为开始或恢复（START_OR_RESUME），不再进入恢复或结束。此时待办层两项暂停活动的恢复可用、结束标同刻限制原因，开始等待
-    可用；逐项提交与受理一致。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    _start_then_pause(engine, "full-wait", start_activity("等待", "自己"))
-    preview = engine.observe(context(engine, "full-preview"))
-    app, way = next((row["object"], action["label"]) for row in preview["interaction_bindings"]
-                        if row["kind"] == "app" for action in row["actions"]
-                        if action["canonical_action"] == "use_app")
-    _start_then_pause(engine, "full-app", start_activity(way, app))
-    _reach_limit(engine)
-    assert engine.context.state.agents[1].same_moment_stage == SameMomentStage.START_OR_RESUME
-    observed = engine.observe(context(engine, "full-stage"))
-    paused = [tool for item in observed["todo_layer"]["paused_activities"] for tool in item["tools"]]
-    restricted = refusal_for_code("SAME_MOMENT_ACTION_RESTRICTED").reason
-    assert sorted((tool["tool"], tool["available"], tool.get("reason")) for tool in paused) == [
-        ("conclude_activity", False, restricted), ("conclude_activity", False, restricted),
-        ("report_status", True, None), ("report_status", True, None)]
-    checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "full")
-    assert [item["available"] for item in checked if item.get("way") == "等待"] == [True]
-
-
-def test_conclude_pending_stage_opens_only_the_conclusion(engine_factory, tmp_path, monkeypatch) -> None:
-    """同刻受限轮「只收尾」（真实到达）：等待到点、待收尾，同一秒三次提交开始等待都以「先给刚结束的<活动>收尾」被拒，
-    本秒轮数达到上限且仍有待收尾活动，阶段为 CONCLUDE_PENDING。此时只有收尾刚结束的等待可用，其余每一项都标同刻限制原因
-    （阶段判定先于待收尾判定）；逐项提交与受理一致。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    _, [waited] = submit_round(engine, {1: ("start_activity", start_activity("等待", "自己"))}, "only-wait")
-    assert advance_until_ready(engine)
-    name = activity_name(engine, waited.activity_id)
-    refused = _refuse(engine, "only-refused", engine.context.scenario.max_same_moment_decisions)
-    assert {item.data["reason"] for item in refused} == {f"Conclude the finished activities {name} first."}
-    assert engine.context.state.agents[1].same_moment_stage == SameMomentStage.CONCLUDE_PENDING
-    checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "only")
-    assert [item["tool"] for item in checked if item["available"]] == ["conclude_activity"]
-    assert {item["reason"] for item in checked if not item["available"]} == {
-        refusal_for_code("SAME_MOMENT_ACTION_RESTRICTED").reason}
-
-
-def test_conclude_pending_stage_with_two_pending_opens_each_conclusion(engine_factory, tmp_path, monkeypatch) -> None:
-    """同刻受限轮「只收尾」有两项待收尾（真实到达：出行与路上的使用应用一起结束）：两项活动的 conclude_activity 都标可用，
-    单独收尾其中一项也被受理（收尾阶段持续到没有待收尾活动），其余每一项都标同刻限制原因；逐项提交与受理一致（「列出即可
-    提交」，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    preview = engine.observe(context(engine, "two-preview"))
-    destination = next(row["object"] for row in preview["interaction_bindings"] if row["object_id"] == "office")
-    app = next(row["object"] for row in preview["interaction_bindings"] if row["kind"] == "app"
-               and any(action["note"] is None for action in row["actions"]))
-    _, [started] = submit_round(engine, {1: ("start_activity", start_request(
-        targets=[destination, app], actions=["travel", "interact"], ways=["步行", "打开"]))}, "two-depart")
-    assert started.status == "in_progress"
-    travel_id, app_id = (item["activity_id"] for item in started.data["activities"])
-    _finish(engine, travel_id, "two-walk")
-    names = [activity_name(engine, travel_id), activity_name(engine, app_id)]
-    refused = _refuse(engine, "two-refused", engine.context.scenario.max_same_moment_decisions)
-    assert {item.error_code for item in refused} == {"ACTIVITY_CONCLUSION_REQUIRED"}
-    assert engine.context.state.agents[1].same_moment_stage == SameMomentStage.CONCLUDE_PENDING
-    observed = engine.observe(context(engine, "two-preview"))
-    assert [target_tools(observed, name)["conclude_activity"]["available"] for name in names] == [True, True]
-    checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "two")
-    assert [item["tool"] for item in checked if item["available"]] == ["conclude_activity", "conclude_activity"]
-    assert {item["reason"] for item in checked if not item["available"]} == {
-        refusal_for_code("SAME_MOMENT_ACTION_RESTRICTED").reason}
-
-
-
-
-
-
-
-
-def test_a_co_present_person_asleep_can_be_messaged_but_not_talked_to(engine_factory, tmp_path, monkeypatch) -> None:
-    """身边有人：10:00 两人都在家，李凡睡着、人物 1 在等待且手边有吃的。工具层的人物目标写「正在睡觉」，交谈标「对方现在
-    不方便交谈」，发消息可用；逐项提交（含把手边的食物给李凡）与受理一致。"""
-    engine = _open_world(engine_factory)
-    _place(engine, 1, HOME, {_food_id(engine): 1.0})
-    submit_round(engine, {1: ("start_activity", start_activity("等待", "自己")),
-                          2: ("start_activity", start_activity("睡觉", "自己"))}, "company")
-    wake_by_mail(engine, offset=120)
-    advance_next(engine)
-    assert engine.scheduling_state().ready_agent_ids == (1,)
-    observed = engine.observe(context(engine, "company-seen"))
-    person = f"人物：{engine.context.state.agents[2].name}"
-    assert tool_targets(observed)[person]["state"] == "正在睡觉"
-    assert target_actions(observed, person)["交谈"]["reason"] == refusal_for_code(
-        "CHAT_PARTNER_NOT_AVAILABLE").reason
-    assert target_tools(observed, person)["send_message"]["available"] is True
-    _assert_admission_matches(engine, tmp_path, monkeypatch, "company")
-
-
-def test_driving_marks_messages_unavailable_with_the_admission_reason(engine_factory, tmp_path, monkeypatch) -> None:
-    """@brief 真实驾车途中，联系人消息工具列出的拒绝原因与宿主派发后实际受理一致。"""
-    def contact(document):
-        document["agents"][0]["contacts"] = [{"contact_id": "colleague", "salutation": "同事", "relation": "colleague",
-            "closeness": 10, "channels": ["message"], "reply_policy": "none", "receive_location_id": "office"}]
-    engine = engine_factory(mutate=contact)
-    stage_day_plan(engine)
-    office = next(item.display_name for item in engine.context.scenario.locations if item.location_id == "office")
-    _, started = submit_round(engine, {1: ("start_activity", start_activity("驾车", f"地点：{office}"))}, "drive-message")
-    assert started[0].status == "in_progress"
-    wake_by_mail(engine, offset=60)
-    advance_next(engine)
-    observed = engine.observe(context(engine, "drive-message-preview"))
-    message = target_tools(observed, "联系人：同事")["send_message"]
-    assert message["available"] is False
-    checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "drive-message")
-    assert message in checked
+def test_restricted_round_marks_closed_items_with_the_same_moment_reason(engine_factory,tmp_path):
+    engine=_engine(engine_factory)
+    def restricted(state):
+        person=state.agents[1]
+        person.same_moment_rounds=engine.context.scenario.max_same_moment_decisions
+        person.same_moment_stage=SameMomentStage.START_OR_RESUME
+    _stage(engine,restricted)
+    rows=_assert_admission_matches(engine,tmp_path,"restricted")
+    reason=refusal_for_code("SAME_MOMENT_ACTION_RESTRICTED").reason
+    assert reason in {row["reason"] for row in rows}
 
 
 def test_app_bound_store_pickup_is_available_and_matches_real_acceptance(engine_factory):
-    """真实应用绑定餐馆的到店取餐不携带应用来源，菜单和受理必须一致。"""
-    engine = engine_factory()
+    engine=engine_factory()
     stage_day_plan(engine)
-    _place(engine, 1, "noodle-1")
-    data = engine.observe(context(engine, "pickup-availability"))
-    [target] = [item for item in data["tool_layer"]["targets"] if item["name"] == "一心面馆出售的牛肉面"]
-    [pickup] = [action for action in target["actions"] if action["way"] == "到店"]
-    assert pickup["available"] is True and pickup["reason"] is None
-    _, [result] = submit_round(engine, {1: ("start_activity", start_activity("到店", target["name"]))}, "pickup-order")
-    assert result.status == "completed", (result.error_code, result.message)
-    [order] = result.data["orders"]
-    assert order["fulfillment"] == "pickup" and order["app_id"] is None and order["status"] == "delivered"
-    assert engine.context.state.agents[1].inventory["noodle-1"]["beef-noodles"] == 1
+    _stage(engine,lambda state:setattr(state.agents[1],"location_id","noodle-1"))
+    observed=engine.observe(context(engine,"pickup-preview"))
+    row=action_row(observed["tool_layer"],"牛肉面")
+    assert row["available"] and row["reason"] is None
+    _,results=submit_round(engine,{1:("start_activity",StartActivityRequest.model_validate(
+        start_payload("牛肉面","购买")))},"pickup")
+    assert results[0].error_code is None
+    order=results[0].data["orders"][0]
+    assert order["fulfillment"]=="pickup" and order["app_id"] is None and order["status"]=="delivered"
+    assert not hasattr(engine.context.state.agents[1],"inventory")
+    receipts=[event for event in engine.context.store.read_agent_events("environment_event",1)
+              if event.data.get("kind")=="goods_received"]
+    assert len(receipts)==1 and receipts[0].data["order_id"]==order["order_id"]
+
+
+def _tool_round(engine,label,tool,request):
+    """@brief 所有就绪人物按真实顺序提交，只有人物一使用当前待验证请求。"""
+    peer=StartActivityRequest.model_validate(start_payload("自己","等待"))
+    requests={identity:("start_activity",peer) for identity in engine.scheduling_state().ready_agent_ids}
+    requests[1]=(tool,request)
+    return submit_round(engine,requests,label)[1][0]
+
+
+@pytest.mark.parametrize("way",["步行","驾车"])
+def test_road_activity_cannot_be_paused_and_matches_admission(engine_factory,tmp_path,way):
+    from tests.life.conftest import wake_by_mail,advance_next
+    engine=_engine(engine_factory,car=way=="驾车")
+    result=_tool_round(engine,"depart","start_activity",StartActivityRequest.model_validate(
+        start_payload("公司",way)))
+    assert result.error_code is None
+    wake_by_mail(engine,offset=60)
+    advance_next(engine)
+    observed=engine.observe(context(engine,"road-preview"))
+    name=activity_name(engine,result.activity_id)
+    target=next(row for row in observed["tool_layer"]["targets"] if row["name"]==name)
+    pause=next(row for row in target["tools"] if row["tool"]=="pause_activity")
+    assert not pause["available"] and "cannot be paused while travelling" in pause["reason"]
+    rows=_assert_admission_matches(engine,tmp_path,"road",{"report_status","pause_activity","conclude_activity"})
+    assert pause in rows
+
+
+def test_driving_marks_messages_unavailable_with_the_admission_reason(engine_factory,tmp_path):
+    from tests.life.conftest import wake_by_mail,advance_next
+    engine=_engine(engine_factory,car=True)
+    result=_tool_round(engine,"drive","start_activity",StartActivityRequest.model_validate(start_payload("公司","驾车")))
+    assert result.error_code is None
+    wake_by_mail(engine,offset=60)
+    advance_next(engine)
+    rows=_assert_admission_matches(engine,tmp_path,"drive-message",{"send_message"})
+    assert rows and all(not row["available"] and "driving" in row["reason"] for row in rows)
+
+
+def test_paused_activity_controls_match_real_resume_and_conclusion(engine_factory,tmp_path):
+    from tests.life.conftest import wake_by_mail,advance_next,pause_request
+    engine=_engine(engine_factory)
+    result=_tool_round(engine,"start-content","start_activity",StartActivityRequest.model_validate(
+        start_payload("刷推荐","进行",app="哔哩哔哩")))
+    assert result.error_code is None
+    wake_by_mail(engine,offset=60)
+    advance_next(engine)
+    name=activity_name(engine,result.activity_id)
+    paused=_tool_round(engine,"pause-content","pause_activity",pause_request(name,summary="先停一下。"))
+    assert paused.error_code is None and engine.context.state.activities[result.activity_id].status=="paused"
+    rows=_assert_admission_matches(engine,tmp_path,"paused",{"report_status","conclude_activity"})
+    assert {row["tool"] for row in rows if row["available"]}=={"report_status","conclude_activity"}

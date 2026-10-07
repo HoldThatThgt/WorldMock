@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from worldmock.life.object_labels import supply_label
 from worldmock.life.readable import duration_phrase, iso_time, money_phrase, portion_phrase
 from worldmock.life.scenario import RuntimeScenario
 
@@ -20,7 +19,7 @@ from worldmock.life.scenario import RuntimeScenario
 #: 生成（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章「错误合同」），终局、名称归一与附带说明只含可读名称；errands 是控制
 #: 工具受理的事务变更回执 [{errand, change}]（只有名称，docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 「回执」）。
 _PASSTHROUGH_DETAILS = ("recall", "reason", "next_step", "fix", "items", "outcome", "linked_orders", "resolved",
-                        "notes", "errands", "work")
+                        "notes", "errands", "content")
 
 
 def public_result(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str, Any]:
@@ -39,7 +38,7 @@ def public_result(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str
 def _details(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str, Any]:
     """@brief details：本次新产生的可读事实，按闭集键逐项给出，没有的键不写。"""
     payload = result.get("data") or {}
-    names = {item.food_id: item.name for item in scenario.foods}
+    names = {item.goods_id: item.name for item in scenario.goods}
     places = {item.location_id: item.display_name for item in scenario.locations}
     details: dict[str, Any] = {}
     if payload.get("orders"):
@@ -48,10 +47,6 @@ def _details(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str, Any
                                  "recipient": people[order["recipient_id"]],
                                  "request": payload.get("answering") if order["request_message_id"] else None}
                                 for order in payload["orders"]]
-    if payload.get("given"):
-        people = _people(scenario)
-        details["given"] = [{"product": names[item["food_id"]], "quantity": portion_phrase(item["quantity"]),
-                             "recipient": people[item["recipient_id"]]} for item in payload["given"]]
     if result["status"] == "in_progress":
         details["planned"] = [{"name": item.get("name"), "duration": duration_phrase(item["planned_duration_seconds"])}
                               for item in _activity_rows(payload)]
@@ -62,12 +57,6 @@ def _details(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str, Any
     if arrival is not None:
         details["arrival"] = {"place": places[arrival["location_id"]],
                               "access": "进入" if arrival["access_status"] == "allowed" else "没能进去"}
-    mail = _read_mail(payload, scenario)
-    if mail is not None:
-        details["mail"] = mail
-    if "app_content" in payload:
-        details["app_content"] = {key: payload["app_content"][key]
-                                  for key in ("app", "title", "kind", "summary", "pushed")}
     details.update({key: payload[key] for key in _PASSTHROUGH_DETAILS if key in payload})
     return details
 
@@ -82,21 +71,10 @@ def _activity_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 
-def _read_mail(payload: dict[str, Any], scenario: RuntimeScenario) -> dict[str, str] | None:
-    """@brief 读完的邮件 {subject, body}：阅读活动完成时揭示的主题与正文；没有读完的阅读时为 None。"""
-    rows = _activity_rows(payload)
-    revealed = next((row["data"]["revealed"] for row in rows
-                     if row.get("kind") == "read_mail" and "revealed" in (row.get("data") or {})), None)
-    if revealed is None:
-        return None
-    mail = {"subject": revealed["subject"], "body": revealed["body"]}
-    return mail
-
-
 def _purchase(order: dict[str, Any], names: dict[str, str], places: dict[str, str],
               timezone_name: str) -> dict[str, Any]:
     """@brief 一个订单的公开事实：商品、份数、付款、送达地点与预计时刻（带时区 ISO）；方式是请求参数，不复述。"""
-    return {"product": names[order["food_id"]], "quantity": portion_phrase(order["quantity"]),
+    return {"product": names[order["goods_id"]], "quantity": portion_phrase(order["quantity"]),
             "paid": money_phrase(order["total_price_fen"]), "destination": places[order["destination_id"]],
             "expected_at": iso_time(order["expected_at"], timezone_name)}
 

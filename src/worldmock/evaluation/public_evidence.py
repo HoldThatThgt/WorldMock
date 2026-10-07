@@ -14,6 +14,7 @@ from worldmock.evaluation.errors import EvaluationError
 from worldmock.evaluation.models import JsonObject, PublicEvidence
 from worldmock.footprints.models import Event
 from worldmock.life.vocabulary import WAYS
+from worldmock.exchange.types import ActionCategory, MANNER_DEVICE
 
 
 _LEGACY_ACTIONS = {
@@ -22,17 +23,9 @@ _LEGACY_ACTIONS = {
     "grocery_purchase": ("purchase", "order", "order"),
     "navigation": ("travel", "travel", "route"),
 }
-_TARGETED_ACTIONS = {
-    "work": ("work", "work", "work_topic"),
-    "use_app": ("entertainment", "view", "app"),
-    "read": ("work", "read", "message"),
-}
-#: 结果活动快照的 kind → 内部标准动作（start_activity 逐项证据按实际开始的活动分类）。
-_ACTION_OF_KIND = {
-    "travel": "travel_to", "work": "work", "use_app": "use_app", "read_mail": "read",
-    "consume": "consume", "chat": "chat", "call": "call", "lifestyle": "do",
-    "wait": "wait", "sleep": "sleep",
-}
+#: 结果活动种类只取现行四类，环境动作类别由快照保存。
+_ACTION_OF_KIND = {"travel": "travel_to", "action": "do", "wait": "wait", "sleep": "sleep"}
+_ACTION_INTERACTIONS = {"entertainment": "view", "work_study": "work", "exercise": "do", "daily_care": "do"}
 #: 活动控制工具 -> 公开交互动词（docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面「稳定工具面」），按请求
 #: items[] 逐活动投影。
 _SESSION_CONTROL_TOOLS = {
@@ -42,7 +35,7 @@ _SESSION_CONTROL_TOOLS = {
 }
 #: 公开终态取自活动快照的启动动作；其余动作以动作自身终态为准。
 _ACTIVITY_BACKED_ACTIONS = frozenset({
-    "travel_to", "work", "use_app", "read", "consume"})
+    "travel_to", "do", "wait", "sleep"})
 _RESULT_STATES = {
     "accepted": "started",
     "in_progress": "started",
@@ -142,7 +135,7 @@ def _legacy_action_attributes(sequence_class: str, action: Mapping[str, Any]) ->
     """@brief 仅保留实际存在的履约和交通闭集值。"""
     if sequence_class in {"food_order", "coffee_order", "grocery_purchase"}:
         value = action.get("fulfillmentMode")
-        return {"fulfillment_mode": value} if value in {"delivery", "pickup"} else {}
+        return {"fulfillment_mode": value} if value in {"delivery", "pickup", "station_pickup"} else {}
     value = action.get("travelMode")
     return {"travel_mode": value} if value in {"walking", "transit"} else {}
 
@@ -223,9 +216,7 @@ def worldmock_public_evidence(
             for action in actions[event.action_id]:
                 evidence.extend(_world_result(event, action))
         elif event.event_type == "environment_event":
-            item = _world_environment(event)
-            if item is not None:
-                evidence.append(item)
+            evidence.extend(_world_environment(event))
     return tuple(sorted(evidence, key=_evidence_order))
 
 
@@ -300,24 +291,15 @@ def _started_action(related: Sequence[Event], index: int, way: Any) -> str | Non
 
 def _start_shape(action: str | None, label: str, target: Any,
                  related: Sequence[Event], index: int) -> _Shape | None:
-    """@brief 从真实结果活动取对象身份，未结算时仅保留人物可读名称。"""
+    """@brief 类别只读实际动作快照；没有快照不能从目标名字猜环境动作。"""
     activity = _related_activity(related, index)
-    key = _string(activity.get("target_id")) or _string(target)
     if action == "travel_to":
         trip = _string(_mapping(activity.get("data")).get("trip_id"))
-        return _Shape("travel", "travel", "route", trip,
-                      _travel_mode(activity.get("travel_mode")))
-    if action in _TARGETED_ACTIONS:
-        category, interaction, object_type = _TARGETED_ACTIONS[action]
-        return _Shape(category, interaction, object_type, key, {})
+        return _Shape("travel", "travel", "route", trip, _travel_mode(activity.get("travel_mode")))
+    if action == "do" and activity:
+        return _activity_shape(activity, {})
     if action == "purchase":
         return _Shape("purchase", "order", "order", _order_key(related, index), {})
-    if action == "consume":
-        mode = _mapping(_mapping(activity.get("data")).get("request")).get("use_mode")
-        category = "product_use" if mode == "use" or not mode and label in {"使用", "制作"} else "eat"
-        return _Shape(category, "consume", "food", key, {})
-    if action in {"chat", "call"}:
-        return _Shape("social", action, "person", key, {})
     return None
 
 
@@ -351,29 +333,29 @@ def _control_actions(
 
 
 def _activity_shape(row: Mapping[str, Any], activity_map: Mapping[str, str]) -> _Shape | None:
-    """@brief 从导出活动的真实目标字段生成对象投影。"""
+    """@brief 动作对象取实际内容或社交对方，不公开标题、摘要及应用身份。"""
     kind = _string(row.get("activity_type")) or _string(row.get("kind"))
     data = _mapping(row.get("data"))
     category = worldmock_activity_category(kind or "", data, activity_map)
-    types = {
-        "work": ("work", "work_topic"), "use_app": ("view", "app"), "read_mail": ("read", "message"),
-        "travel": ("travel", "route"),
-        "consume": ("consume", "food"),
-    }
-    mapped = types.get(kind or "")
-    if mapped is None or category == "unknown":
-        return None
-    interaction, object_type = mapped
-    key = _activity_object_key(kind or "", row, data)
-    attributes = _travel_mode(row.get("travel_mode")) if kind == "travel" else {}
-    return _Shape(category, interaction, object_type, key, attributes)
-
-
-def _activity_object_key(kind: str, row: Mapping[str, Any], data: Mapping[str, Any]) -> str | None:
-    """@brief 选择活动确实保存的对象身份。"""
     if kind == "travel":
-        return _string(data.get("trip_id"))
-    return _string(row.get("target_id"))
+        return _Shape(category, "travel", "route", _string(data.get("trip_id")), _travel_mode(row.get("travel_mode")))
+    if kind != "action":
+        return None
+    attributes = worldmock_activity_attributes(data)
+    if category == "social":
+        interaction = "call" if data.get("communication_mode") == "voice" else "chat"
+        return _Shape(category, interaction, "person", _string(data.get("counterpart")), attributes)
+    return _Shape(category, _ACTION_INTERACTIONS[category], "content", _string(data.get("content_id")), attributes)
+
+
+def worldmock_activity_attributes(data: Mapping[str, Any]) -> Mapping[str, str]:
+    """@brief 只有快照真实带应用时按唯一使用方式表公开手机或其他设备。"""
+    if data.get("app_id") is None:
+        return {}
+    manner = data.get("manner")
+    if manner not in MANNER_DEVICE:
+        raise EvaluationError("invalid_input", "Action with an app requires a declared use manner")
+    return {"device": MANNER_DEVICE[manner]}
 
 
 def _world_result(event: Event, action: _Action) -> list[PublicEvidence]:
@@ -408,7 +390,7 @@ def _purchase_result(event: Event, action: _Action) -> list[PublicEvidence]:
     key = _string(order.get("order_id")) or action.shape.object_key
     attributes = _fulfillment(order.get("fulfillment")) or dict(action.shape.attributes)
     state = order.get("status")
-    if state not in {"pending", "ready", "delivered", "cancelled"}:
+    if state not in {"pending", "ready_for_pickup", "delivered"}:
         state = _result_state(event, action)
     order_shape = _Shape("purchase", "order", "order", key, attributes)
     rows = [_from_event(event, order_shape, str(state) if state is not None else None)]
@@ -435,31 +417,31 @@ def _result_state(event: Event, action: _Action) -> str | None:
                 else _result_activity_at(event.data, action.index))
     if started in _ACTIVITY_BACKED_ACTIONS:
         status = _ACTIVITY_RESULT_STATES.get(activity.get("status"))
-    if status == "completed":
-        if started == "read" and _mapping(_mapping(activity.get("data")).get("revealed")):
-            return "read"
-        if started == "use_app":
-            return "viewed"
     return status
 
 
-def _world_environment(event: Event) -> PublicEvidence | None:
-    """@brief 投影邮件、订单配送和工作到期等外部公开事件。"""
+def _world_environment(event: Event) -> tuple[PublicEvidence, ...]:
+    """@brief 收货与到站按每张真实订单分别取证，付款仍来自原始下单结果。"""
     kind = event.data.get("kind")
     if kind == "mail_arrival":
-        shape = _Shape("work", "notify", "message", _string(event.data.get("message_id")), {})
-        return _from_event(event, shape, "received")
-    if kind in {"delivery_ready", "delivery_arrival"}:
-        order = _mapping(event.data.get("order"))
-        key = _string(order.get("order_id")) or _string(event.data.get("order_id"))
-        interaction = "deliver" if kind == "delivery_arrival" else "notify"
-        state = order.get("status") if order.get("status") in {"ready", "delivered"} else kind.removeprefix("delivery_")
-        shape = _Shape("purchase", interaction, "order", key, _fulfillment(order.get("fulfillment")))
-        return _from_event(event, shape, str(state))
-    if kind == "work_topic_completed":
-        shape = _Shape("work", "work", "work_topic", _string(event.data.get("topic_id")), {})
-        return _from_event(event, shape, "completed")
-    return None
+        shape = _Shape("work_study", "notify", "message", _string(event.data.get("message_id")), {})
+        return (_from_event(event, shape, "received"),)
+    if kind == "delivery_arrival":
+        rows = []
+        for order in event.data["orders"]:
+            state = order["status"]
+            interaction = "notify" if state == "ready_for_pickup" else "deliver"
+            shape = _Shape("purchase", interaction, "order", order["order_id"], _fulfillment(order["fulfillment"]))
+            rows.append(_from_event(event, shape, state))
+        return tuple(rows)
+    if kind == "goods_received":
+        shape = _Shape("purchase", "receive", "order", event.data["order_id"],
+                       {"goods_category": event.data["category"]})
+        return (_from_event(event, shape, "received"),)
+    if kind == "work_content_completed":
+        shape = _Shape("work_study", "work", "content", event.data["content_id"], {})
+        return (_from_event(event, shape, "completed"),)
+    return ()
 
 
 def _order_key(events: Sequence[Event], index: int = 0) -> str | None:
@@ -490,17 +472,7 @@ def _item_order(payload: Mapping[str, Any], index: int) -> Mapping[str, Any]:
         orders = item.get("orders")
         return _mapping(orders[0]) if isinstance(orders, list) and orders else {}
     orders = payload.get("orders")
-    return _mapping(orders[index] if isinstance(orders, list) and index < len(orders) else payload.get("order"))
-
-
-def _activity_data_key(events: Sequence[Event], field: str) -> str | None:
-    """@brief 从动作结果活动快照读取指定真实身份。"""
-    for event in events:
-        activity = _result_activity(event.data)
-        key = _string(_mapping(activity.get("data")).get(field))
-        if key is not None:
-            return key
-    return None
+    return _mapping(orders[index]) if isinstance(orders, list) and index < len(orders) else {}
 
 
 def _result_payload(data: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -510,8 +482,7 @@ def _result_payload(data: Mapping[str, Any]) -> Mapping[str, Any]:
 
 def _result_activity(data: Mapping[str, Any]) -> Mapping[str, Any]:
     """@brief 返回动作结果中的权威活动快照。"""
-    direct = _mapping(data.get("activity"))
-    return direct or _mapping(_result_payload(data).get("activity"))
+    return _mapping(_result_payload(data).get("activity"))
 
 
 def _result_activity_at(data: Mapping[str, Any], index: int) -> Mapping[str, Any]:
@@ -542,8 +513,8 @@ def _account_changes(event: Event, action: _Action) -> bool:
         changes = _mapping(row.get("resource_changes"))
     else:
         changes = _mapping(payload.get("resource_changes")) or _mapping(event.data.get("resource_changes"))
-    return any(key.startswith("account:") and isinstance(value, (int, float)) and value != 0
-               for key, value in changes.items())
+    return any(key.startswith("account:") and isinstance(value, (int, float))
+               and not isinstance(value, bool) and value != 0 for key, value in changes.items())
 
 
 def _related_activity(events: Sequence[Event], index: int) -> Mapping[str, Any]:
@@ -576,7 +547,7 @@ def _from_event(event: Event, shape: _Shape, state: str | None) -> PublicEvidenc
 
 def _fulfillment(value: Any) -> JsonObject:
     """@brief 保留受支持的履约方式。"""
-    return {"fulfillment_mode": value} if value in {"delivery", "pickup"} else {}
+    return {"fulfillment_mode": value} if value in {"delivery", "pickup", "station_pickup"} else {}
 
 
 def _travel_mode(value: Any) -> JsonObject:
@@ -584,35 +555,15 @@ def _travel_mode(value: Any) -> JsonObject:
     return {"travel_mode": value} if value in {"walking", "driving", "transit"} else {}
 
 
-def worldmock_activity_category(
-    activity_type: str, data: Any, activity_map: Mapping[str, str]
-) -> str:
-    """@brief 按活动真实 use_mode 区分进食与非食品使用。"""
-    if activity_type != "consume":
+def worldmock_activity_category(activity_type: str, data: Any, activity_map: Mapping[str, str]) -> str:
+    """@brief 系统活动读既有映射，环境动作只读五种固定动作类别。"""
+    if activity_type != "action":
+        if activity_type not in {"wait", "sleep", "travel"}:
+            raise EvaluationError("invalid_input", "Activity type is outside the current closed set")
         return activity_map.get(activity_type, "unknown")
-    if not isinstance(data, dict):
-        raise EvaluationError("invalid_input", "consume activity data must be an object")
-    request = data.get("request")
-    if not isinstance(request, dict):
-        raise EvaluationError("invalid_input", "consume activity must preserve its request")
-    return _consume_category(request.get("use_mode"))
-
-
-def _consume_category(value: Any) -> str:
-    """@brief 把商品使用方式收敛到冻结的两个活动类别。"""
-    if value == "eat":
-        return "eat"
-    if value == "use":
-        return "product_use"
-    raise EvaluationError("invalid_input", "consume use_mode must be eat or use")
-
-
-def _positive_integer(value: Any) -> bool:
-    """@brief 判断值是否为非布尔正整数。"""
-    return isinstance(value, int) and not isinstance(value, bool) and value > 0
-
-
-
+    if not isinstance(data, dict) or data.get("category") not in ActionCategory:
+        raise EvaluationError("invalid_input", "Action requires a fixed category in its snapshot")
+    return data["category"]
 
 
 def _mapping(value: Any) -> dict[str, Any]:

@@ -13,21 +13,37 @@ REGISTRATION_REASONS = {
     "ENVIRONMENT_REF_UNKNOWN": "A binding refers to an object that is not registered.",
     "ENVIRONMENT_KIND_INVALID": "A declared kind is outside the fixed set.",
     "ENVIRONMENT_NUMBER_INVALID": "A declared number is outside its allowed domain.",
-    "FOOD_BINDING_MISSING": "A food must be bound to stores or to all food stores.",
-    "FOOD_STORE_NOT_FOOD_STORE": "A food is bound to a place that does not sell food.",
-    "FOOD_BINDING_KIND_INCONSISTENT": "A food must be bound to every store of a kind or to none of them.",
-    "CONTENT_APP_MISSING": "A content must be bound to at least one app.",
+    "GOODS_BINDING_MISSING": "A goods item must be bound to stores or to all stores that may supply its category.",
+    "GOODS_STORE_KIND_INVALID": "A goods item is bound to a place that cannot supply its category.",
+    "GOODS_BINDING_KIND_INCONSISTENT": "A goods item must be bound to every store of a kind or to none of them.",
+    "APP_PURPOSE_INVALID": "An app purpose does not match its store or payment bindings.",
+    "ACTION_APP_MANNER_INVALID": "An action must declare a manner exactly when it is bound to apps.",
+    "ACTION_COMMUNICATION_MODE_INVALID":
+        "App-based social actions must declare text or voice communication; other actions must declare null.",
+    "PARCEL_STATION_REQUIRED":
+        "The nearest parcel station to a persona home must be registered and selected by the scenario.",
+    "ACTION_CONTENT_EMPTY": "An action and each of its apps must have at least one content.",
+    "ACTION_NAME_COLLIDES":
+        "An action name must differ from every other action, app, place, goods and way name.",
+    "CONTENT_ACTION_MISSING": "A content must be bound to one registered action.",
+    "CONTENT_APP_BINDING_INVALID":
+        "A content must list a non-empty subset of its action's apps, or none when the action has no app.",
+    "CONTENT_SERIES_INVALID":
+        "Episodes of a series must share one action and one app set and have unique episode numbers.",
     "CONTENT_SUMMARY_TOO_LONG": "A content summary exceeds the registration limit.",
     "CONTENT_SOURCE_URL_MISSING": "A real summary must record its source url.",
-    "APP_UNBOUND": "An app must be bound to at least one store or content.",
+    "APP_UNBOUND": "An app must declare a purpose or be bound by at least one action.",
     "APP_NAME_COLLIDES_LOCATION": "An app name must differ from every place name.",
     "MAP_TOO_SMALL": "The map needs at least two places.",
     "MAP_EDGE_INVALID": "The map has an edge that is not a sorted positive link between two registered places.",
     "MAP_DISCONNECTED": "The map is not connected.",
     "MAP_NOT_REGENERATED": "The published map differs from the generator output for its seed.",
-    "WORK_TOPIC_UNKNOWN": "A scenario assigns a work topic that is not registered.",
-    "MERCHANT_ACCOUNT_MISSING": "A selected food store has no merchant account.",
-    "WORK_SCHEDULE_REQUIRED": "A person with work topics must declare a work schedule.",
+    "WORK_CONTENT_UNKNOWN": "A scenario assigns a work content that is not a registered work and study content.",
+    "MERCHANT_ACCOUNT_MISSING": "A selected store has no merchant account.",
+    "WORK_SCHEDULE_REQUIRED": "A person with assigned work content must declare a work schedule.",
+    "WORK_CONTENT_REQUIRED": "A person with a work schedule must be assigned at least one work content.",
+    "WORK_CONTENT_INSUFFICIENT":
+        "The assigned work content is shorter than the person's scheduled shifts in the run window.",
 }
 
 

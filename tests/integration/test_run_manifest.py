@@ -219,7 +219,7 @@ def test_run_manifest_structure_three_freezes_environment_identity():
 
     semantics, digest = load_runtime_scenario(_SCENARIO)
     manifest = _run_manifest(semantics, digest, _run_identity(semantics.scenario))
-    assert manifest["schema_version"] == 3
+    assert manifest["schema_version"] == 4
     assert manifest["environment_identity"] == environment_identity(semantics)
     assert set(manifest["environment_identity"]) == {
         "environment_id", "environment_version", "rules_version", "catalog_content_sha256", "map_sha256"}

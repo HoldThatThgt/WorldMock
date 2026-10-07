@@ -1,20 +1,23 @@
-"""@brief 固定算子的真实金额、能量与时长边界证明。"""
+"""@brief 固定交换算子的收货、金额与时长边界证明。"""
 
 from decimal import localcontext
 
 import pytest
 
+from worldmock.exchange import operators
 from worldmock.exchange.operators import (
-    delivery_fee_fen, delivery_seconds, evaluate_food_energy, evaluate_purchase, evaluate_travel_fare, travel_seconds,
+    delivery_fee_fen, delivery_seconds, evaluate_goods_receipt, evaluate_purchase, evaluate_travel_fare,
+    travel_seconds,
 )
 
 
-@pytest.mark.parametrize("category,fraction,expected", [
-    ("snack", 0.5, 100), ("drink", 0.75, 75), ("meal", 0.25, 150), ("meal", 0, 0), ("meal", 1, 600),
+@pytest.mark.parametrize("category,quantity,expected", [
+    ("meal", 1, 600), ("meal", 3, 1800), ("snack", 2, 400), ("drink", 4, 400),
+    ("leisure", 1, 0.10), ("daily", 1, 0.05), ("leisure", 5, 0.10), ("daily", 5, 0.05), ("fuel", 1, 7), ("fuel", 5, 7),
 ])
-def test_food_energy_uses_category_and_fraction(category, fraction, expected):
-    """@brief 三类食品和食用比例分别决定能量，不读环境热量字段。"""
-    assert evaluate_food_energy(category, fraction) == expected
+def test_goods_receipt_has_quantity_only_for_food(category, quantity, expected):
+    """@brief 食品热量乘数量，非食品每条订单行只结算一次固定效果。"""
+    assert evaluate_goods_receipt(category, quantity) == expected
 
 
 def test_travel_and_delivery_round_up_with_fare_minimum():
@@ -32,40 +35,48 @@ def test_travel_and_delivery_round_up_with_fare_minimum():
 
 
 def test_decimal_precision_does_not_change_settlement():
-    """@brief 调用方低精度 Decimal 上下文不能改变分数或比例能量。"""
+    """@brief 调用方低精度 Decimal 上下文不能改变金额、收货与时长。"""
     with localcontext(prec=2):
         assert evaluate_travel_fare("driving", 12345.67) == 2470
-        assert evaluate_food_energy("drink", 0.1234567) == 12.34567
+        assert evaluate_goods_receipt("meal", 1234567) == 740740200
+        assert evaluate_goods_receipt("daily", 1234567) == 0.05
         assert travel_seconds("walking", 12000.01) == 10001
         assert delivery_seconds(5000.01) == 1601
 
 
 @pytest.mark.parametrize("value", [True, -1, float("nan"), float("inf"), "1"])
-def test_invalid_numeric_inputs_are_rejected(value):
-    """@brief 数字边界拒绝布尔、负数、非有限值和字符串。"""
+def test_invalid_distance_inputs_are_rejected_with_logs(value, caplog):
+    """@brief 距离拒绝布尔、负数、非有限值和字符串并记录英文日志。"""
     with pytest.raises(ValueError):
         delivery_seconds(value)
-    with pytest.raises(ValueError):
-        evaluate_food_energy("meal", value)
+    assert caplog.messages and all(message.isascii() for message in caplog.messages)
 
 
-def test_invalid_modes_categories_and_purchase_inputs_are_rejected():
-    """@brief 算子拒绝未登记的类别、方式和非正整份购买。"""
-    with pytest.raises(ValueError):
-        evaluate_food_energy("dessert", 1)
+@pytest.mark.parametrize("quantity", [True, False, 0, -1, 1.5, float("nan"), float("inf"), "1", None])
+def test_receipt_requires_positive_integer_quantity(quantity, caplog):
+    """@brief 收货只接受正整数数量，没有份额或隐式换算。"""
+    with pytest.raises(ValueError, match="quantity must be a positive integer"):
+        evaluate_goods_receipt("meal", quantity)
+    assert caplog.messages and all(message.isascii() for message in caplog.messages)
+
+
+def test_invalid_modes_categories_and_purchase_inputs_are_rejected(caplog):
+    """@brief 未登记类别和方式以及非正整数购买被明确拒绝。"""
+    with pytest.raises(ValueError, match="Goods category is outside the fixed set"):
+        evaluate_goods_receipt("dessert", 1)
     with pytest.raises(ValueError):
         travel_seconds("flying", 10)
     for price, quantity in [(True, 1), (0, 1), (10, 0), (10, 1.5)]:
         with pytest.raises(ValueError):
             evaluate_purchase(price, quantity)
+    assert caplog.messages and all(message.isascii() for message in caplog.messages)
 
 
 def test_fixed_operators_keep_existing_decimal_settlement_results():
-    """@brief 品类模块退役后用已核对的固定结果守住金额舍入与部分食品摄入。"""
+    """@brief 购买与驾车金额逐值保持原有精确舍入结果。"""
     for price, count, expected in ((1, 1, 1), (800, 3, 2400), (123456789, 98765, 12193209765585)):
         assert evaluate_purchase(price, count) == expected
     for distance, expected in ((0, 500), (1, 500), (2499.9, 500), (2500, 500),
                                (2500.01, 501), (12345.67, 2470)):
         assert evaluate_travel_fare("driving", distance) == expected
-    for fraction, expected in ((0, 0), (0.1, 60), (0.333333, 199.9998), (1, 600)):
-        assert evaluate_food_energy("meal", fraction) == expected
+    assert not hasattr(operators, "evaluate_food_energy")

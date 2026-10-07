@@ -45,7 +45,7 @@ _UTF8 = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 _HEAD = [{"role": "system", "content": "系统层"}, {"role": "user", "content": "六层"}]
 _DECISION_TOOLS = [{"type": "function", "function": {"name": name}} for name in ("start_activity", "query_world")]
 #: 两种取得方式；真实用例从返回项抄一个可用的取得方式。
-_ACQUIRE = frozenset({"到店", "远程下单"})
+_ACQUIRE = frozenset({"购买"})
 _MILK = "柠檬茶"
 _EMPTY_PAGE = {"matches": [], "total_count": 0, "next_offset": None}
 
@@ -69,9 +69,8 @@ def _report(run_dir: Path) -> dict:
 
 
 def _query(**filters) -> dict:
-    """六键查询参数：未写的筛选为 null，available_only 缺省 false，offset 缺省 0；键 from 用 source= 写。"""
-    source = filters.pop("source", None)
-    return {"name": None, "way": None, "category": None, "from": source, "available_only": False, "offset": 0,
+    """六键查询参数：未写的筛选为 null，available_only 缺省 false，offset 缺省 0。"""
+    return {"name": None, "way": None, "category": None, "app": None, "available_only": False, "offset": 0,
             **filters}
 
 
@@ -124,9 +123,10 @@ def test_query_cost_on_a_real_engine_exchange(engine_factory) -> None:
     pages = [asyncio.run(host.dispatch_react_tool("query_world", item.args)).data for item in asked]
     contents = [_compact(page) for page in pages]
     match = pages[1]["matches"][0]
-    way = next(action["way"] for action in match["actions"] if action["available"] and action["way"] in _ACQUIRE)
-    purchase = {"items": [{"target": match["name"], "way": way, "from": None, "to": None}], "answering": None,
-                "prefer": "最快拿到"}
+    offered = next(action for action in match["actions"] if action["available"] and action["way"] in _ACQUIRE)
+    purchase = {"items": [{"target": match["name"], "way": offered["way"], "app": offered.get("app"),
+                           "to": None, "pay_app": "支付宝" if offered.get("app") is not None else None}],
+                "answering": None}
     first = {"model": "deepseek-flash", "messages": _HEAD, "tools": tools, "extra_body": ACTION_THINKING}
     second = {**first, "messages": [*_HEAD, _assistant(queries),
                                     *(_tool(call["id"], text) for call, text in zip(queries, contents))]}
@@ -178,7 +178,8 @@ def _turn(request: EventDraft, calls: list[dict], error: str | None = None) -> l
 def _purchase(at: int, agent: int, decision: str, order_id: str) -> list[EventDraft]:
     """一次远程下单请求与结果；结果顶层带一笔该人物的订单。"""
     order = DeliveryState(
-        order_id=order_id, agent_id=agent, food_id="lemon-tea", store_id="noodle-1", app_id="food-app",
+        order_id=order_id, agent_id=agent, goods_id="lemon-tea", category="drink", store_id="noodle-1", app_id="food-app",
+        payment_app_id="alipay", delivery_address_id="home", arrived_at=None, received_at=None,
         seller_account_id="merchant:noodle-1", quantity=1, unit_price_fen=1200, delivery_fee_fen=500,
         destination_id="home", fulfillment="delivery", created_at=at, expected_at=at + 900, status="pending",
         total_price_fen=1700, recipient_id=f"agent:{agent}", path=("noodle-1", "home"), trip_id="fixture-trip",
@@ -186,8 +187,8 @@ def _purchase(at: int, agent: int, decision: str, order_id: str) -> list[EventDr
     action = f"{decision}:action:0001"
     requested = _event("action_requested", at, agent, decision, action_id=action, source_kind="model", data={
         "tool_name": "start_activity", "request_sha256": "0" * 64, "reused": False,
-        "request": {"items": [{"target": "一心面馆出售的柠檬茶", "way": "远程下单", "from": None, "to": None}],
-                    "answering": None, "prefer": "最快拿到"}})
+        "request": {"items": [{"target": "柠檬茶", "way": "购买", "app": "美团", "to": None,
+                               "pay_app": "支付宝"}], "answering": None}})
     result = _event("action_result", at, agent, decision, action_id=action, caused_by=[requested.event_id], data={
         "action_id": action, "agent_id": agent, "status": "completed", "occurred_at": at,
         "message": "Purchase accepted", "error_code": None, "data": {"orders": [order]}})
@@ -241,17 +242,17 @@ def _rejected_batch_correction(arguments: dict) -> str:
 
 
 def test_query_cost_counts_failures_empty_filtered_pages_and_reflection_retries(tmp_path) -> None:
-    """手工运行：人物 1 先买过一次（在首次查询之前，不计）；首次查询所在的响应带旧四键调用与只写 from 的调用，整批被拒，
-    下一请求里两条都是协议纠错（两次失败，后者算带筛选）；再一次响应带 way=到店加 available_only 的调用（筛选后为空页）
+    """手工运行：人物 1 先买过一次（在首次查询之前，不计）；首次查询所在的响应带旧四键调用与明确应用的调用，整批被拒，
+    下一请求里两条都是协议纠错（两次失败，后者算带筛选）；再一次响应带 way=购买加 available_only 的调用（筛选后为空页）
     与只写 name 的调用（有一条结果），都被回答；人物 2 的购买与请求不计；就寝反思三次调用中两次是带附回消息的校验重试；
     人物 1 下一次决策下单结算之后的请求不计；人物 2 最后一次响应里的查询从未被回答（运行停在这里）。"""
     old = {"name": "牛奶", "way": None, "category": None, "offset": 0}
     correction = _rejected_batch_correction(old)
     milk = _compact({"matches": [{"name": "好德·纯牛奶", "kind": "product", "actions": [
-        {"way": "远程下单", "available": True}]}], "total_count": 1, "next_offset": None})
+        {"way": "购买", "app": "美团", "available": True}]}], "total_count": 1, "next_offset": None})
     empty = _compact(_EMPTY_PAGE)
-    rejected = [_call("call-old", "query_world", old), _call("call-haode", "query_world", _query(source="好德"))]
-    answered = [_call("call-shop-now", "query_world", _query(way="到店", available_only=True)),
+    rejected = [_call("call-old", "query_world", old), _call("call-haode", "query_world", _query(app="好德"))]
+    answered = [_call("call-shop-now", "query_world", _query(way="购买", available_only=True)),
                 _call("call-milk", "query_world", _query(name=_MILK))]
     second = [*_HEAD, _assistant(rejected), *(_tool(call["id"], correction) for call in rejected)]
     third = [*second, _assistant(answered), _tool("call-shop-now", empty), _tool("call-milk", milk)]
@@ -306,7 +307,7 @@ def test_query_cost_of_a_run_without_queries_and_the_printed_keys(tmp_path) -> N
 
 
 #: 手工运行里一条有结果的查询页正文，与一次不带查询的等待调用。
-_ONE_MATCH = _compact({"matches": [{"name": "好德出售的纯牛奶", "kind": "product"}], "total_count": 1,
+_ONE_MATCH = _compact({"matches": [{"name": "纯牛奶", "kind": "product"}], "total_count": 1,
                        "next_offset": None})
 _WAIT = _call("call-wait", "start_activity", {})
 
@@ -317,8 +318,8 @@ def test_a_tail_page_of_a_filtered_query_is_not_empty_after_filter(tmp_path) -> 
     total_count 为 0 的带筛选调用才计一次。两页正文都计入返回字符数，没有失败。"""
     tail = _compact({"matches": [], "total_count": 5, "next_offset": None})
     empty = _compact(_EMPTY_PAGE)
-    asked = [_call("call-tail", "query_world", _query(source="好德", offset=5)),
-             _call("call-none", "query_world", _query(source="好德", name="并不存在的东西"))]
+    asked = [_call("call-tail", "query_world", _query(app="美团", offset=5)),
+             _call("call-none", "query_world", _query(app="美团", name="并不存在的东西"))]
     answered = [*_HEAD, _assistant(asked), _tool("call-tail", tail), _tool("call-none", empty)]
     run = _store(tmp_path / "tail", "tail", [*_turn(_request(100, 1, "d1", _HEAD), asked),
                                              *_turn(_request(100, 1, "d1", answered), [_WAIT])])

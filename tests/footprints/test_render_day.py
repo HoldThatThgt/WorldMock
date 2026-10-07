@@ -91,7 +91,7 @@ def test_merges_consecutive_progress_of_same_activity(tmp_path):
 def test_interleaved_activities_keep_separate_rows(tmp_path):
     """跨活动穿插时同一活动的非连续段不跨断点合并。"""
     wait = _snapshot("act-wait", "wait")
-    browse = _snapshot("act-app", "use_app", target_id="app-bili", title="哔哩哔哩")
+    browse = _snapshot("act-app", "action", title="刷推荐", data={"action_id": "browse", "app_id": None, "manner": "offline", "content_id": "topic"})
     events = [
         _progress("act-wait", wait, _at(7, 5), _at(7, 20)),
         _progress("act-app", browse, _at(7, 20), _at(7, 35)),
@@ -99,7 +99,7 @@ def test_interleaved_activities_keep_separate_rows(tmp_path):
     ]
     markdown = _render(_build_store(tmp_path, events), 1)
     assert "| 07:05–07:20 | 空档 | 15 分钟 | 1 |" in markdown
-    assert "| 07:20–07:35 | 用哔哩哔哩 | 15 分钟 | 1 |" in markdown
+    assert "| 07:20–07:35 | 刷推荐 | 15 分钟 | 1 |" in markdown
     assert "| 07:35–08:00 | 空档 | 25 分钟 | 1 |" in markdown
     assert markdown.index("07:05–07:20") < markdown.index("07:20–07:35") < markdown.index("07:35–08:00")
 
@@ -107,7 +107,7 @@ def test_interleaved_activities_keep_separate_rows(tmp_path):
 def test_parallel_interleaved_progress_merges_each_activity_independently(tmp_path):
     """并行结算按同秒 A/B/A/B 交错时，时间线各显示一条完整持续活动。"""
     travel = _snapshot("walk", "travel", travel_mode="walking", destination_id="office")
-    watch = _snapshot("watch", "use_app", target_id="app-bili", title="哔哩哔哩", content_title="播客节目")
+    watch = _snapshot("watch", "action", title="听播客", content_title="播客节目", data={"action_id": "podcast", "app_id": None, "manner": "offline", "content_id": "podcast-topic"})
     events = [
         _progress("walk", travel, _at(7, 0), _at(7, 15)),
         _progress("watch", watch, _at(7, 0), _at(7, 15)),
@@ -117,117 +117,83 @@ def test_parallel_interleaved_progress_merges_each_activity_independently(tmp_pa
     markdown = _render(_build_store(tmp_path, events), 1)
     assert markdown.count("07:00–07:30") == 2
     assert "| 07:00–07:30 | 步行 | 30 分钟 | 2 |" in markdown
-    assert "| 07:00–07:30 | 用哔哩哔哩看《播客节目》 | 30 分钟 | 2 |" in markdown
+    assert "| 07:00–07:30 | 听播客《播客节目》 | 30 分钟 | 2 |" in markdown
 
 
 def test_resolves_names_instead_of_identifiers(tmp_path):
-    """目标解析为标题/品名/地名/邮件主题：观察事件建名称索引。"""
+    """地名、动作、app和内容均由当前观察索引解析，不渲染退役进食或读邮件活动。"""
     observation = _observation({
-        "foods": [{"food_id": "noodle-01", "name": "红烧牛肉面"}],
-        "locations": [{"location_id": "office", "name": "公司"}, {"location_id": "home", "name": "家"}],
-        "messages": [{"message_id": "mail-1", "subject": "Work planning"}],
-    })
-    travel = _snapshot("act-go", "travel", destination_id="office", travel_mode="driving")
-    consume = _snapshot("act-eat", "consume", target_id="noodle-01")
-    read = _snapshot("act-mail", "read_mail", target_id="mail-1")
-    watch = _snapshot("act-watch", "use_app", target_id="app-bili", title="哔哩哔哩", content_title="测试剧集")
-    events = [
-        observation,
-        _progress("act-go", travel, _at(7, 0), _at(7, 5)),
-        _progress("act-mail", read, _at(8, 0), _at(8, 5)),
-        _progress("act-eat", consume, _at(12, 13), _at(12, 28)),
-        _progress("act-watch", watch, _at(19, 13), _at(19, 53)),
-    ]
+        "locations": [{"location_id": "office", "name": "公司"}],
+        "actions": [{"action_id": "browse", "name": "刷推荐"}],
+        "apps": [{"app_id": "bili", "name": "哔哩哔哩"}],
+        "contents": [{"content_id": "drama", "title": "测试剧集"}]})
+    travel = _snapshot("go", "travel", destination_id="office", travel_mode="driving")
+    watch = _snapshot("watch", "action", data={"action_id": "browse", "app_id": "bili",
+                      "manner": "phone_continuous", "content_id": "drama"})
+    events = [observation, _progress("go", travel, _at(7, 0), _at(7, 5)),
+              _progress("watch", watch, _at(19, 13), _at(19, 53))]
     markdown = _render(_build_store(tmp_path, events), 1)
     assert "驾车去公司" in markdown
-    assert "吃 红烧牛肉面" in markdown
-    assert "读邮件「Work planning」" in markdown
-    assert "用哔哩哔哩看《测试剧集》" in markdown
+    assert "用手机哔哩哔哩，刷推荐《测试剧集》" in markdown
+    assert "browse" not in markdown and "drama" not in markdown
 
 
 def test_resolves_names_from_seven_layer_observation_evidence_keys(tmp_path):
-    """第八版观察（无 scene/facts/recent_action_results，带七层原文与私有绑定）仍由保留的证据键建名称索引。"""
+    """七层观察保留的证据索引读取当前动作，不依赖旧场景投影。"""
     observation = _observation({
-        "tool_layer": {"layer": "工具层", "targets": [{"name": "地点：公司", "kind": "location", "phase": None,
-                                                    "state": None, "actions": [], "tools": []}]},
+        "tool_layer": {"layer": "工具层", "targets": []},
         "todo_layer": {"layer": "待办层", "paused_activities": [], "errands": [], "day_plan": None},
-        "environment_layer": {"layer": "环境层", "observed_at": "2026-01-05T07:00:00+08:00",
-                              "body": {"appetite": "不饿", "sleepiness": "清醒", "entertainment": "平常",
-                                       "social": "平常", "mood": "平静"},
-                              "location": {"session_kind": "stay", "name": "家", "place_type": "住宅",
-                                           "fixed_rules": []}},
-        "memory_layer": {"layer": "记忆层", "earlier_days": [], "earlier_today": []},
-        "persona_views": {"relationships": [], "preferences": []},
-        "progress_event_ids": [], "presented_message_ids": [],
-        "interaction_bindings": [{"object": "地点：公司", "kind": "location", "object_id": "office", "actions": []}],
-        "foods": [{"food_id": "noodle-01", "name": "红烧牛肉面"}],
+        "actions": [{"action_id": "yoga", "name": "瑜伽"}, {"action_id": "study", "name": "学课程"}],
         "locations": [{"location_id": "office", "name": "公司"}],
-        "messages": [{"message_id": "mail-1", "subject": "Work planning"}],
-        "apps": [{"app_id": "app-bili", "name": "哔哩哔哩"}],
-        "contents": [{"content_id": "drama-0002", "title": "测试剧集"}],
-    })
-    browsed = EventDraft(event_type="action_result", occurred_at=_at(6, 0), agent_id=1,
-                         data={"status": "completed", "items": [{"activity_id": "yoga", "name": "瑜伽"}]})
-    events = [
-        observation, browsed,
-        _progress("act-go", _snapshot("act-go", "travel", destination_id="office", travel_mode="walking"),
+        "apps": [{"app_id": "bili", "name": "哔哩哔哩"}],
+        "contents": [{"content_id": "course", "title": "测试课程"}]})
+    events = [observation,
+        _progress("go", _snapshot("go", "travel", destination_id="office", travel_mode="walking"),
                   _at(7, 0), _at(7, 5)),
-        _progress("act-mail", _snapshot("act-mail", "read_mail", target_id="mail-1"), _at(8, 0), _at(8, 5)),
-        _progress("act-eat", _snapshot("act-eat", "consume", target_id="noodle-01"), _at(12, 13), _at(12, 28)),
-        _progress("act-watch", _snapshot("act-watch", "use_app", target_id="app-bili", data={"content_id": "drama-0002"}), _at(19, 13), _at(19, 53)),
-        _progress("act-yoga", _snapshot("act-yoga", "lifestyle", target_id="yoga", title="瑜伽"), _at(20, 0), _at(20, 30)),
-    ]
+        _progress("course", _snapshot("course", "action", data={"action_id": "study", "app_id": "bili",
+            "manner": "other_device", "content_id": "course"}), _at(19, 13), _at(19, 53)),
+        _progress("yoga", _snapshot("yoga", "action", data={"action_id": "yoga", "app_id": None,
+            "manner": "offline", "content_id": "routine"}), _at(20, 0), _at(20, 30))]
     markdown = _render(_build_store(tmp_path, events), 1)
-    assert "去公司" in markdown
-    assert "读邮件「Work planning」" in markdown
-    assert "吃 红烧牛肉面" in markdown
-    assert "用哔哩哔哩看《测试剧集》" in markdown
-    assert "瑜伽" in markdown
-    assert "office" not in markdown and "noodle-01" not in markdown
+    assert "步行去公司" in markdown
+    assert "用哔哩哔哩，学课程《测试课程》" in markdown
+    assert "用手机" not in markdown
+    assert "瑜伽" in markdown and "office" not in markdown and "routine" not in markdown
 
 
 def test_unresolvable_targets_show_only_the_chinese_kind_name(tmp_path):
-    """名称解析不到时只写中文种类名：每个活动种类都不输出英文种类名、内部标识或其片段（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-时间线只出现中文名称 ）。"""
-    hex_id = "a1b2c3d4" * 4
-    targets = {"use_app": hex_id, "read_mail": "mail-9", "consume": "noodle-01",
-               "lifestyle": "lifestyle:yoga", "work": "topic-client-a"}
-    data = {"call": {"contact_id": "contact-zhaoming-colleague"}, "chat": {"partner_id": "agent:2"}}
+    """无法解析的身份仅显示中文活动种类，内部身份不能泄露到时间线。"""
     kinds = [kind.value for kind in ActivityKind]
     events = [_observation({})]
     for index, kind in enumerate(kinds):
-        snapshot = _snapshot(f"act-{kind}", kind, target_id=targets.get(kind), data=data.get(kind, {}),
-                             travel_mode="teleport" if kind == "travel" else None, destination_id="loc-x")
+        snapshot = _snapshot(f"act-{kind}", kind, travel_mode="teleport", destination_id="loc-x",
+                             data={"action_id": "a1b2c3d4", "app_id": None,
+                                   "content_id": "unresolved-content", "manner": "offline"})
         events.append(_progress(f"act-{kind}", snapshot, _at(8, index * 2), _at(8, index * 2 + 1)))
-    events.append(_progress("act-odd", _snapshot("act-odd", "levitate"), _at(9, 0), _at(9, 5)))
+    events.append(_progress("odd", _snapshot("odd", "levitate"), _at(9, 0), _at(9, 5)))
     markdown = _render(_build_store(tmp_path, events), 1)
     labels = [line.split(" | ")[1] for line in markdown.splitlines()[4:]]
     assert labels == [ACTIVITY_KIND_LABELS[kind] for kind in kinds] + ["活动"]
-    for text in (*targets.values(), *data["call"].values(), *data["chat"].values(), "#b2c3d4", "loc-x", "teleport"):
-        assert text not in markdown
+    assert all(value not in markdown for value in ("a1b2c3d4", "unresolved-content", "loc-x", "teleport"))
     assert not [(label, found) for label in labels for found in label_findings(label)]
 
 
 def test_work_call_and_chat_rows_name_the_task_contact_and_person(tmp_path):
-    """工作、通话、交谈写任务标题、联系人称谓与人物姓名：先取引擎写在快照上的标题；快照没有标题时，由名称索引
-    （观察的 work_topics、联系人与人物的私有绑定）解析。"""
+    """工作与社交共用动作标签，快照标题与公开目录都能提供名称。"""
     observation = _observation({
-        "work_topics": [{"topic_id": "topic-2026-01-05", "topic": "1月5日项目会议纪要"}],
-        "interaction_bindings": [{"object": "联系人：王磊", "kind": "contact", "object_id": "contact-wanglei",
-                                  "actions": []}],
-        "person_bindings": [{"name": "人物：李凡", "person_id": "agent:2"}],
-    })
-    titled = [_snapshot("act-work", "work", target_id="topic-2026-01-05", title="1月5日项目会议纪要"),
-              _snapshot("act-call", "call", data={"contact_id": "contact-mother"}, title="陈母"),
-              _snapshot("act-chat", "chat", data={"partner_id": "agent:2"}, title="李凡")]
-    indexed = [_snapshot("old-work", "work", target_id="topic-2026-01-05"),
-               _snapshot("old-call", "call", data={"contact_id": "contact-wanglei"}),
-               _snapshot("old-chat", "chat", data={"partner_id": "agent:2"})]
-    events = [observation] + [_progress(item["activity_id"], item, _at(9, index * 10), _at(9, index * 10 + 5))
-                              for index, item in enumerate(titled + indexed)]
-    markdown = _render(_build_store(tmp_path, events), 1)
-    labels = [line.split(" | ")[1] for line in markdown.splitlines()[4:]]
-    assert labels == ["工作「1月5日项目会议纪要」", "和陈母通话", "和李凡交谈",
-                      "工作「1月5日项目会议纪要」", "和王磊通话", "和李凡交谈"]
+        "actions": [{"action_id": "work", "name": "办公"}, {"action_id": "chat", "name": "聊天"}],
+        "contents": [{"content_id": "work-day", "title": "项目会议纪要"},
+                     {"content_id": "chat-topic", "title": "周末计划"}]})
+    titled = _snapshot("titled", "action", title="办公", content_title="项目会议纪要",
+                       data={"action_id": "unindexed", "app_id": None, "manner": "offline",
+                             "content_id": "unindexed-topic"})
+    indexed = _snapshot("indexed", "action", data={"action_id": "chat", "app_id": None,
+                         "manner": "offline", "content_id": "chat-topic", "counterpart": "agent:2"})
+    events = [observation, _progress("titled", titled, _at(9, 0), _at(9, 5)),
+              _progress("indexed", indexed, _at(9, 10), _at(9, 15))]
+    labels = [line.split(" | ")[1] for line in _render(_build_store(tmp_path, events), 1).splitlines()[4:]]
+    assert labels == ["办公《项目会议纪要》", "聊天《周末计划》"]
+    assert all("agent:2" not in label for label in labels)
 
 
 def test_real_biz_run_rows_name_the_calls_and_the_work_task(tmp_path):
@@ -242,7 +208,10 @@ def test_real_biz_run_rows_name_the_calls_and_the_work_task(tmp_path):
     rows = _render(sqlite_path, agent, date.fromisoformat(BIZ_TIMELINE["day"])).splitlines()[4:]
     assert rows == BIZ_TIMELINE["exported_rows"]
     labels = [line.split(" | ")[1] for line in rows]
-    assert labels == ["和刘洋通话", "和张总通话", "工作「季度销售数据整理」"]
+    assert labels == ["用手机微信，语音通话《测试通话》", "用手机微信，语音通话《测试通话》",
+                      "办公《季度销售数据整理》"]
+    assert {item["data"]["activity"]["data"]["counterpart"] for item in BIZ_TIMELINE["progress"]
+            if item["data"]["activity"]["data"]["category"] == "social"} == {"colleague", "client"}
     assert not [found for label in labels for found in label_findings(label)]
 
 
@@ -304,8 +273,8 @@ def test_inspect_run_brief_reads_start_activity_request_and_result():
     module = _load_script("inspect_run")
     requested = module._brief({"event_type": "action_requested",
                                "data": {"tool_name": "start_activity",
-                                        "request": {"items": [{"target": "自己", "way": "等待", "from": None, "to": None}],
-                                                    "answering": None, "prefer": None}}})
+                                        "request": {"items": [{"target": "自己", "way": "等待", "app": None, "to": None, "pay_app": None}],
+                                                    "answering": None}}})
     assert requested.startswith('start_activity {"items": [{"target": "自己", "way": "等待"')
     accepted = module._brief({"event_type": "action_result",
                               "data": {"status": "in_progress", "error_code": None,

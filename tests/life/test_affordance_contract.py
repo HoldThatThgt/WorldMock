@@ -10,7 +10,7 @@ from worldmock.life.engine_context import AFFORDANCE_CONTRACT_KEYS, affordance_c
 
 
 def test_contract_shape_matches_registry_one_to_one() -> None:
-    """@brief 内部冻结合同只保留动作、发现、目标字段、反馈和游戏边界五键；能量不参与受理，不带能量投影。"""
+    """@brief 内部冻结合同只保留动作、发现、目标字段和反馈四键；能量不参与受理，不带能量投影。"""
     view = engine_affordances()
     contract = affordance_contract(view)
     assert list(contract) == list(view.kinds)
@@ -27,9 +27,13 @@ def test_contract_shape_matches_registry_one_to_one() -> None:
 def test_contract_pins_current_registry_behavior() -> None:
     """@brief 关键活动从注册表派生的动作与目标字段保持确定。"""
     contract = affordance_contract(engine_affordances())
-    assert contract["work"]["target_field"] == ["tasks", "task_id"]
-    assert contract["read_mail"]["target_field"] == ["messages", "message_id"]
-    assert contract["use_app"]["target_field"] == ["apps", "app_id"]
+    assert set(contract) == {"wait", "sleep", "travel", "action"}
+    assert contract["action"] == {"action": "do", "target_discovery": "catalog_field",
+                                  "target_field": ["actions", "action_id"], "feedback_eligible": True}
+    assert contract["travel"]["target_field"] is None
+    assert contract["wait"]["action"] == "wait"
+    assert contract["sleep"]["action"] == "sleep"
+
 
 
 def test_engine_contract_remains_frozen_across_decisions(engine_factory) -> None:

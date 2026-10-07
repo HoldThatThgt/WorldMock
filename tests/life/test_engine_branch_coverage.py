@@ -44,18 +44,16 @@ from worldmock.life.body import (
 )
 from worldmock.life.decision_start import is_action_request, maybe_action_request_start, response_self_note
 from worldmock.life.engine import LifeEngine
-from worldmock.life.activity_evidence import dedupe_revealed_cues
 from worldmock.life.action_evidence import _terminal_action_records
 from worldmock.life.world_ops import _activity_progress_phrase, _paused_activity_control
 from worldmock.life.models import (ActionStatus, ActivityKind, ActivityStartParams, ActivityState, ActivityStatus,
-                                   ActionResult, ChangeActivityRequest, ConsumeRequest, CounterfactualIntervention,
+                                   ActionResult, ChangeActivityRequest, CounterfactualIntervention,
                                    deepseek_strict_schema, ModelIdentity, PendingAction,
                                    PlanDayRequest, PlanGoalInput, PurchaseItem, PurchaseOrderRequest,
                                    ReviseDayPlanRequest, RunIdentity, SameMomentStage, SendMessageActionRequest,
                                    WorldState, active_activities)
 from worldmock.base_models import CurvePoint
-from worldmock.life.observe import _recent_meal_counts
-from worldmock.life.scenario import BodyConfig, LifeScenario, MotivationProfile, parse_scenario_document
+from worldmock.life.scenario import BodyConfig, LifeScenario, parse_scenario_document
 from worldmock.life.world_setup import load_scenario
 from worldmock.footprints.models import EventDraft
 from worldmock.runtime import settle_pending_day_plans
@@ -189,7 +187,7 @@ def test_apply_food_rejects_negative_calories(body_config) -> None:
 ])
 def test_maximum_energy_duration_rejects_negative_inputs(body_config, kwargs, message) -> None:
     """负能量或负上限秒数均拒绝。"""
-    arguments = dict(kind=ActivityKind.WORK, energy_kcal=100, config=body_config)
+    arguments = dict(kind=ActivityKind.ACTION, energy_kcal=100, config=body_config)
     arguments.update(kwargs)
     with pytest.raises(ValueError, match=message):
         maximum_energy_duration_seconds(**arguments)
@@ -208,7 +206,7 @@ def felt_agent(body):
     """把身体状态装进最小人物状态，供观察投影的体感函数使用。"""
     from worldmock.life.models import AgentState
     return AgentState(agent_id=1, name="体感", location_id="home", balance_account_id="agent:1",
-                      body=body, body_settled_at=0, next_decision_at=0)
+                      body=body, body_settled_at=0, next_decision_at=0, driving_days=0, last_driving_date=None)
 
 
 def test_felt_values_expose_five_numeric_signals(body_config) -> None:
@@ -249,7 +247,7 @@ def test_body_projection_renders_five_band_texts_and_numeric_values(body_config)
 def test_entertainment_need_capped_at_one_when_already_full(body_config) -> None:
     """娱乐需要已到 1 时清醒累积不再入账，期末钳制为 1。"""
     result = settle_body(felt_body(1600, entertainment_need=1.0),
-                         ActivityKind.WORK, 3600, body_config)
+                         ActivityKind.ACTION, 3600, body_config, ActivityFactors(1.5))
     assert result.after.entertainment_need == 1.0
 
 
@@ -426,27 +424,8 @@ def test_food_efficiency_curve_rejects_bad_point_order():
         validate_efficiency_curve(points)
 
 
-def _invalid_profile(formal, message, **updates) -> None:
-    """重校验改造后的动机档案并断言拒绝原因。"""
-    from tests.life.test_motivation import _profile
-    profile = _profile()
-    payload = profile.model_copy(update=updates).model_dump()
-    with pytest.raises(ValidationError, match=message):
-        MotivationProfile.model_validate(payload)
 
 
-def test_motivation_profile_validators_reject_each_shape(formal) -> None:
-    """大五取值区间、权重非负、舒适非负与志向键闭集。"""
-    _invalid_profile(formal, "between 1 and 10", big_five={"openness": 11, "conscientiousness": 5,
-                                                           "extraversion": 5, "agreeableness": 5,
-                                                           "neuroticism": 5})
-    from tests.life.test_motivation import _profile
-    weights = dict(_profile().weights)
-    _invalid_profile(formal, "non-negative finite", weights=weights | {"goal_task": -0.1})
-    comfort = dict(_profile().comfort)
-    _invalid_profile(formal, "non-negative finite", comfort=comfort | {"energy_kcal": -1})
-    _invalid_profile(formal, "exactly daily_work_seconds",
-                     aspiration={"wrong_key": 1})
 
 
 def test_agent_config_rejects_bad_windows_and_identities() -> None:
@@ -456,7 +435,7 @@ def test_agent_config_rejects_bad_windows_and_identities() -> None:
     _assert_invalid(_replace(("agents", 0, "lunch_window"), [12, 19]),
                     "must not overlap lunch window")
     _assert_invalid(_replace(("agents", 0, "lifestyle_activities"), [" "]),
-                    "must not be blank")
+                    "Extra inputs are not permitted")
     contacts = [{"contact_id":"colleague","salutation":"同事","relation":"同事",
                  "closeness":16,"channels":["phone"],"reply_policy":"none"}]
     _assert_invalid(_replace(("agents", 0, "contacts"), contacts + [dict(contacts[0])]),
@@ -549,7 +528,7 @@ def test_parse_scenario_document_rejects_missing_invalid_and_mismatched(tmp_path
     payload["corpus_manifest_sha256"] = "0" * 64
     mismatched = tmp_path / "mismatched.json"
     mismatched.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(IntegrityError, match="corpus manifest identity is invalid"):
+    with pytest.raises(IntegrityError, match="validation failed"):
         parse_scenario_document(mismatched)
 
 
@@ -558,46 +537,10 @@ def test_parse_scenario_document_rejects_missing_invalid_and_mismatched(tmp_path
 # ---------------------------------------------------------------------------
 
 
-def _rhythm_inputs(engine, staged, interval: int = 3600):
-    """以引擎事实装配节律输入。"""
-    return rhythm.engine_rhythm_inputs(engine.context, staged, interval)
 
 
-def _consume_activity(engine, use_mode: str, activity_id: str = "activity-meal"):
-    """构造进行中的进食活动（请求形态与引擎落库一致）。"""
-    from worldmock.life.models import ConsumeItem
-    request = ConsumeRequest(items=(ConsumeItem(product_id="food-6923644266066",
-                                               quantity=1),),
-                             use_mode=use_mode, duration_seconds=600)
-    return ActivityState.model_validate(_activity_state(
-        activity_id=activity_id, kind=ActivityKind.CONSUME,
-        status=ActivityStatus.ACTIVE, started_at=engine.context.state.current_time,
-        planned_end_at=engine.context.state.current_time + 600,
-        last_settled_at=engine.context.state.current_time,
-        planned_duration_seconds=600,
-        data={"request": request.model_dump(mode="json")}).model_dump())
 
 
-def test_shared_meal_covers_social_accrual_only_for_eat_mode(engine_factory) -> None:
-    """共同在场堂食停止社交需要累积；外带取餐不覆盖（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」）。"""
-    engine = engine_factory("multi-person.json")
-    now = engine.context.state.current_time
-    staged = engine.context.state.model_copy(deep=True)
-    staged.activities["activity-meal"] = _consume_activity(engine, "eat")
-    staged.agents[1] = staged.agents[1].model_copy(
-        update={"current_activity_id": "activity-meal",
-                "location_id": staged.agents[2].location_id,
-                "body": staged.agents[1].body.model_copy(
-                    update={"social_need": 0.2, "mood_updated_at": now}, deep=True)},
-        deep=True)
-    settled = rhythm.apply_decision_rhythm(_rhythm_inputs(engine, staged))[0]
-    # 堂食覆盖：0.2 + 0.04 清醒增长 − 0.3/h 共同用餐 → 钳到 0
-    assert settled.agents[1].body.social_need == 0.0
-
-    takeaway = staged.model_copy(deep=True)
-    takeaway.activities["activity-meal"] = _consume_activity(engine, "use")
-    settled = rhythm.apply_decision_rhythm(_rhythm_inputs(engine, takeaway))[0]
-    assert settled.agents[1].body.social_need == pytest.approx(0.2 + 0.04)
 
 
 
@@ -614,18 +557,12 @@ def test_inbox_rows_skip_visible_ids_without_scenario_config(engine_factory) -> 
     engine = engine_factory()
     agent = engine.context.state.agents[1].model_copy(
         update={"visible_message_ids": {"ghost-mail"}}, deep=True)
-    inputs = projection.ProjectionInputs(state=engine.context.state, scenario=engine.context.scenario,
-                                         agent=agent, task_rows=())
+    inputs = projection.ProjectionInputs(state=engine.context.state, scenario=engine.context.scenario, agent=agent)
     assert projection._inbox_rows(inputs) == []
 
 
 
 
-def test_motivation_internal_returns_none_when_no_candidates(engine_factory, monkeypatch) -> None:
-    """动机枚举为空时观察不携带内部动机仪表。"""
-    engine = engine_factory()
-    monkeypatch.setattr("worldmock.life.observe.evaluate_motivation", lambda *args: [])
-    assert engine.observations._motivation_internal(engine.context.state.agents[1]) is None
 
 
 def test_activity_summary_categories_come_from_actual_food_menu(engine_factory) -> None:
@@ -637,18 +574,6 @@ def test_activity_summary_categories_come_from_actual_food_menu(engine_factory) 
     assert 'foods' not in summary
 
 
-def test_recent_meal_counts_use_actual_settled_consumption() -> None:
-    """近期进食只统计本人物过去一天的已结算食用量。"""
-    now = 10_000
-    activities = [
-        SimpleNamespace(agent_id=1, kind=ActivityKind.CONSUME, started_at=now - 60,
-                        data={"request": {"use_mode": "eat"}, "consumed": {"food-x": 1.5}}),
-        SimpleNamespace(agent_id=1, kind=ActivityKind.CONSUME, started_at=now - 120,
-                        data={"request": {"use_mode": "use"}, "consumed": {"food-x": 3}}),
-        SimpleNamespace(agent_id=2, kind=ActivityKind.CONSUME, started_at=now - 120,
-                        data={"request": {"use_mode": "eat"}, "consumed": {"food-x": 4}}),
-    ]
-    assert _recent_meal_counts(activities, 1, now) == {"food-x": 2}
 
 
 # ---------------------------------------------------------------------------
@@ -933,9 +858,6 @@ def test_runtime_identity_validation_rejects_each_mismatch(engine_factory) -> No
     engine.context.state = pristine.model_copy(update={"scenario_sha256": "0" * 64})
     with pytest.raises(IntegrityError, match="scenario identity mismatch"):
         engine.context.validate()
-    engine.context.state = pristine.model_copy(update={"content_manifest_sha256": "0" * 64})
-    with pytest.raises(IntegrityError, match="corpus identity mismatch"):
-        engine.context.validate()
     engine.context.state = pristine.model_copy(update={"run_id": "other-run"})
     with pytest.raises(IntegrityError, match="run identity mismatch"):
         engine.context.validate()
@@ -996,10 +918,10 @@ def test_context_and_call_guards_reject_each_invalid_shape(engine_factory) -> No
     with pytest.raises(ProtocolError, match="does not match its tool"):
         engine.submit_action(DirectToolCall(ctx, "a-3", "start_activity",
                                             PurchaseOrderRequest(
-                                                items=(PurchaseItem(store_id="noodle-1", food_id="beef-noodles",
+                                                items=(PurchaseItem(store_id="noodle-1", goods_id="beef-noodles",
                                                                    quantity=1,
                                                                    recipient_id="agent:1"),),
-                                                fulfillment="delivery", destination_id="home", app_id="meituan")))
+                                                fulfillment="delivery", destination_id="home", app_id="meituan", payment_app_id="wechat")))
     engine.submit_action(DirectToolCall(ctx, "a-4", "start_activity", request))
     with pytest.raises(ProtocolError, match="already submitted"):
         engine.submit_action(DirectToolCall(ctx, "a-5", "start_activity", request))
@@ -1057,26 +979,25 @@ def test_unknown_activity_controls_reject_when_idle(engine_factory) -> None:
 @pytest.mark.parametrize('existing',[False,True])
 def test_purchase_by_unlisted_name_resolves_only_existing_supplies(engine_factory, existing):
     """@brief 指名现有菜单购买结算真实食品，不存在的名称保持世界不变。"""
-    from tests.life.test_work_protocol import trip_to
+    from tests.life.work_runtime import trip_to
     engine = engine_factory()
     stage_day_plan(engine)
     if existing:
         trip_to(engine,'noodle-2','exact-food-arrive')
-    request = start_request(targets=['二味小炒出售的牛肉面' if existing else '不存在的供给'],
-                            actions=['obtain'],ways=['到店' if existing else '远程下单'])
+    request = start_request(targets=['牛肉面' if existing else '不存在的供给'], actions=['obtain'], ways=['购买'])
     before = engine.context.state.model_copy(deep=True)
     result = _act(engine,'buy-exact','start_activity',request)
     if existing:
         assert result.status == 'completed', result.error_code
         [order] = result.data['orders']
-        assert order['food_id'] == 'beef-noodles' and order['store_id'] == 'noodle-2'
-        assert order['total_price_fen'] == 2800
-        assert engine.context.state.agents[1].inventory['noodle-2']['beef-noodles'] == 1
-        assert engine.context.state.accounts['agent:1'] == before.accounts['agent:1']-2800
+        assert order['goods_id'] == 'beef-noodles' and order['store_id'] == 'noodle-2'
+        assert order['total_price_fen'] == engine.context.semantics.catalog.goods['beef-noodles'].price_fen
+        assert order['status'] == 'delivered' and 'inventory' not in engine.context.state.agents[1].model_dump()
+        assert engine.context.state.accounts['agent:1'] == before.accounts['agent:1']-order['total_price_fen']
     else:
         assert result.status == 'rejected' and result.error_code == 'SUPPLY_NOT_FOUND'
         assert engine.context.state.accounts == before.accounts
-        assert engine.context.state.agents[1].inventory == before.agents[1].inventory
+        assert engine.context.state.agents[1].body == before.agents[1].body
         assert engine.context.state.deliveries == before.deliveries
         assert engine.context.state.pending_events == before.pending_events
 
@@ -1181,10 +1102,6 @@ def test_ready_is_false_after_run_end_and_terminal_action_missing(engine_factory
 def test_dedupe_and_material_and_visibility_helpers_guard_shapes(engine_factory) -> None:
     """字幕去重/材料登记/浏览可见对缺失与畸形数据失败关闭。"""
     engine = engine_factory()
-    activity = _activity_state(kind=ActivityKind.USE_APP)
-    dedupe_revealed_cues(activity)  # 无 revealed 数据：直接返回
-    activity.data["revealed"] = {"position_before_seconds": "not-a-number", "cues": []}
-    dedupe_revealed_cues(activity)  # 形畸形：直接返回
     agent = engine.context.state.agents[1]
     phrase = _activity_progress_phrase(_activity_state(elapsed_seconds=60,
                                                        planned_duration_seconds=120))
@@ -1202,8 +1119,8 @@ def test_change_on_social_activity_uses_social_domain(engine_factory) -> None:
     engine = engine_factory("multi-person.json")
     stage_day_plan(engine, 1)
     stage_day_plan(engine, 2)
-    requests = {1: ("start_activity", start_request(targets=[f"人物：{engine.context.state.agents[2].name}"], actions=["interact"],
-                                                           ways=["交谈"])),
+    requests = {1: ("start_activity", start_request(targets=["聊天"], actions=["interact"],
+                                                           ways=["进行"], to=[f"人物：{engine.context.state.agents[2].name}"])),
         2: ("start_activity", start_request(targets=["自己"], actions=["interact"], ways=["等待"]))}
     _, results = submit_round(engine, requests, "chat-start")
     chat = next(item for item in results if item.agent_id == 1)

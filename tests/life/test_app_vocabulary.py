@@ -9,7 +9,8 @@ def test_game_way_cannot_be_restored_in_the_public_way_table():
     assert "游玩" not in WAYS
     assert way_options("游玩") == frozenset()
     assert way_verb("游玩") == ""
-    assert WAYS["打开"] == ("interact", "use_app")
+    assert "打开" not in WAYS and way_options("打开") == frozenset()
+    assert WAYS["进行"] == ("interact", "do")
 
 
 def test_game_runtime_and_textworld_dependencies_are_removed():

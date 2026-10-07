@@ -19,7 +19,9 @@ from worldmock.life.models import ActivityKind, ActivityStartParams
 from worldmock.life.scenario import RuntimeScenario, parse_scenario_document
 from worldmock.life.world_setup import load_scenario
 from tests.life.conftest import stage_day_plan, start_activity as named_start, submit_round
-from tests.life.test_location_sessions import _stage
+from tests.life.test_acs_amended_runtime import perform
+from tests.life.test_acs_runtime import request
+from worldmock.footprints.models import EventDraft
 
 _FORMAL = ENVIRONMENT_ROOT / "scenarios/single-person.json"
 _REMOVED_FIELDS = "Extra inputs are not permitted"
@@ -70,63 +72,63 @@ def test_scenario_loader_refuses_a_symbolic_link(tmp_path: Path, monkeypatch: py
         parse_scenario_document(link)
 
 
-def test_restore_check_rejects_a_persisted_activity_outside_the_frozen_scenario(
-    engine_factory, caplog: pytest.LogCaptureFixture,
-) -> None:
-    """恢复复核：目标合法的持久活动通过；指向冻结场景外工作任务的持久活动以完整性错误拒绝并记下活动身份。"""
+def test_restore_check_rejects_a_persisted_action_outside_the_frozen_catalog(engine_factory, caplog):
+    """@brief 真实动作快照通过，未知动作身份失败并写实际活动身份到错误日志。"""
     engine = engine_factory()
-    person, now, body = engine.context.state.agents[1], engine.context.state.current_time, engine.context.scenario.body
-    _, waiting = start_activity(person, ActivityStartParams(
-        activity_type=ActivityKind.WAIT, planned_duration_seconds=600), now, _origin("wait"), body)
-    engine.context.state.activities[waiting.activity_id] = waiting
+    started = perform(engine, "action", request())
+    assert started.error_code is None
     assert validate_activity_targets(engine.context.state, engine.context.rules, engine.context.scenario) is None
-    _, stray = start_activity(person, ActivityStartParams(
-        activity_type=ActivityKind.WORK, planned_duration_seconds=600, target_id="task-outside-scenario"),
-        now, _origin("work"), body)
-    engine.context.state.activities[stray.activity_id] = stray
+    actual = engine.context.state.activities[started.activity_id]
+    stray = actual.model_copy(update={"data": {**actual.data, "action_id": "outside-action"}}, deep=True)
+    changed = engine.context.state.model_copy(deep=True)
+    changed.activities[actual.activity_id] = stray
     with caplog.at_level(logging.ERROR), pytest.raises(IntegrityError, match="^Persisted activity target is invalid$"):
-        validate_activity_targets(engine.context.state, engine.context.rules, engine.context.scenario)
+        validate_activity_targets(changed, engine.context.rules, engine.context.scenario)
     assert f"Persisted activity target is invalid: {stray.activity_id}" in caplog.messages
 
 
-def test_app_admission_rejects_target_outside_the_frozen_catalog(engine_factory) -> None:
-    """应用受理只认冻结目录：未知应用拒绝，目录内有真实内容的应用正常受理。"""
+@pytest.mark.parametrize("target,app,payment,code", [
+    ("刷推荐", "不存在应用", None, "APP_NOT_OFFERED"),
+    ("牛肉面", "美团", "不存在付款应用", "PAYMENT_APP_NOT_BOUND"),
+])
+def test_app_admission_rejects_target_outside_the_frozen_catalog(engine_factory, target, app, payment, code):
+    """@brief 明确选择未知应用拒绝；登记应用不从其他动作借内容。"""
     engine = engine_factory()
-    person = engine.context.state.agents[1]
-    request = ActivityStartParams(
-        activity_type=ActivityKind.USE_APP, planned_duration_seconds=600, target_id="app-outside-catalog")
     with pytest.raises(BusinessRuleError, match="^TARGET_NOT_FOUND$"):
-        engine.context.rules.validate_start(person, request, engine.context.state.current_time, person.location_id)
+        engine.context.rules.app("app-outside-catalog")
     known = engine.context.semantics.catalog.apps["douyin"]
     assert engine.context.rules.app(known.app_id) == known
-    request = request.model_copy(update={"target_id": known.app_id})
-    assert engine.context.rules.validate_start(person, request, engine.context.state.current_time,
-                                               person.location_id) == {"app_id": known.app_id}
+    accounts = dict(engine.context.state.accounts)
+    result = perform(engine, "unknown-app", request(target, app, "购买" if payment else "进行", payment=payment))
+    assert result.error_code == code
+    assert result.data["items"][0]["allowed_values"]
+    assert result.data["items"][0]["candidates"]
+    assert engine.context.state.activities == {} and engine.context.state.agents[1].content_progress == {}
+    assert engine.context.state.accounts == accounts and engine.context.state.deliveries == {}
 
 
-def test_actual_food_activity_reopens_with_current_catalog_and_rejects_unknown_food(engine_factory) -> None:
-    """真实食用活动经冻结目录恢复；篡改为目录外食品的持久请求在开放引擎时拒绝。"""
+@pytest.mark.parametrize("field,value", [("action_id", "outside-action"), ("content_id", "outside-content"),
+    ("app_id", "outside-app"), ("app_id", "wechat")])
+def test_actual_action_reopens_and_frozen_identity_corruption_is_rejected(engine_factory, field, value):
+    """@brief 真正运行快照可重开；损坏动作、内容或应用绑定均被同一冻结目录拒绝。"""
     engine = engine_factory()
-    stage_day_plan(engine)
-    _, rows = submit_round(engine, {1: ("start_activity", named_start("食用", "持有物：薯片"))}, "food-restore")
-    assert rows[0].status == "in_progress", rows[0].error_code
-    identity = rows[0].activity_id
-    activity = engine.context.state.activities[identity]
-    assert activity.kind == ActivityKind.CONSUME
-    assert activity.data["request"]["items"][0]["product_id"] in engine.context.rules.foods
+    started = perform(engine, "action-restore", request())
+    assert started.error_code is None
+    actual = engine.context.state.activities[started.activity_id]
+    assert actual.kind == ActivityKind.ACTION and len(actual.data) == 11
+    directory = engine.context.semantics.catalog.source_dir
+    path = directory.parent / "scenarios/single-person.json"
     run_dir = engine.context.store.run_dir
-    reopened = LifeEngine.open(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json", run_dir)
+    reopened = LifeEngine.open(path, run_dir)
     try:
-        assert reopened.context.state.activities[identity] == activity
+        assert reopened.context.state.activities[actual.activity_id] == actual
     finally:
         reopened.close()
-
-    def forge_food(state):
-        payload = state.activities[identity].model_dump(mode="json")
-        payload["target_id"] = "food-outside-catalog"
-        payload["data"]["request"]["items"][0]["product_id"] = "food-outside-catalog"
-        state.activities[identity] = type(activity).model_validate(payload)
-
-    _stage(engine, forge_food)
+    changed = engine.context.state.model_copy(deep=True)
+    changed.activities[actual.activity_id] = actual.model_copy(update={"data": {**actual.data, field: value}}, deep=True)
+    changed.version += 1
+    engine.context.store.commit(changed.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=changed.current_time, visibility="system",
+        data={"kind": "test_frozen_action_corrupted"})])
     with pytest.raises(IntegrityError, match="^Persisted activity target is invalid$"):
-        LifeEngine.open(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json", run_dir)
+        LifeEngine.open(path, run_dir)

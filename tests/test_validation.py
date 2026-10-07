@@ -1,16 +1,18 @@
-"""@brief 环境验证真实场景、发布地图、包资源和语料身份的命令验收。"""
+"""@brief 环境验证真实场景、发布地图、包资源和目录身份的命令验收。"""
 
 from __future__ import annotations
 
 import json
 import shutil
 from pathlib import Path
+from datetime import datetime, timedelta
 
 import pytest
 
 from tests.catalog.conftest import OBJECT_COUNTEREXAMPLES, edit_row, read_payload, write_payload
 from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT, ENVIRONMENT_ROOT
 from tests.test_cli import _command
+from worldmock.catalog.errors import REGISTRATION_REASONS
 
 
 @pytest.fixture
@@ -35,15 +37,28 @@ def _refresh_catalog(root: Path) -> None:
     refresh_manifest_identity(root / "catalog")
 
 
+
+def _assert_registration_error(result, code: str, path: str = "catalog") -> None:
+    """@brief 命令必须非零退出并公开真实路径、稳定码和对应英文原因。"""
+    assert result.returncode == 1, result.stdout + result.stderr
+    report = json.loads(result.stdout)
+    assert report["valid"] is False
+    matching = [error for error in report["errors"] if error["path"] == path and error["code"] == code]
+    assert len(matching) == 1, report
+    error = matching[0]
+    assert set(error) == {"path", "code", "reason"}
+    assert error["reason"].startswith(f"{code}: {REGISTRATION_REASONS[code]}")
+
+
 def test_validate_environment_command_accepts_the_actual_artificial_environment() -> None:
-    """@brief 人工环境的真实目录、地图、语料和全部场景完整加载后命令成功。"""
+    """@brief 人工环境的真实目录、地图和全部场景完整加载后命令成功。"""
     result = _command("validate", "--environment", ENVIRONMENT_ROOT)
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(result.stdout)
     expected = sorted(path.relative_to(ENVIRONMENT_ROOT).as_posix()
                       for path in (ENVIRONMENT_ROOT / "scenarios").rglob("*.json"))
     assert report["valid"] is True and report["scenarios"] == expected and expected
-    assert report["corpus_entries"] > 0
+    assert set(report) == {"valid", "environment_id", "environment_version", "scenarios"}
 
 
 def test_validate_environment_rejects_map_bytes_even_when_manifest_is_republished(
@@ -62,32 +77,31 @@ def test_validate_environment_rejects_map_bytes_even_when_manifest_is_republishe
     from worldmock.cli import main
 
     assert main(["validate", "--environment", str(root)]) == 1
-    assert "MAP_NOT_REGENERATED" in capsys.readouterr().out
+    report = json.loads(capsys.readouterr().out)
+    error = next(error for error in report["errors"] if error["path"] == "catalog")
+    assert set(error) == {"path", "code", "reason"}
+    assert error["code"] == "MAP_NOT_REGENERATED"
+    assert error["reason"] == f"MAP_NOT_REGENERATED: {REGISTRATION_REASONS['MAP_NOT_REGENERATED']}"
 
 
 @pytest.mark.parametrize("relative", ["affordances.toml", "rules/motivation.toml", "rules/persona-mapping.toml"])
-def test_validate_environment_rejects_republished_engine_rule_byte_changes(published_environment, relative) -> None:
-    """@brief 重新发布清单也不能改变环境副本与引擎包资源的逐字节身份合同。"""
-    root = published_environment
-    path = root / "catalog" / relative
-    path.write_bytes(path.read_bytes() + b"\n")
-    _refresh_catalog(root)
-    result = _command("validate", "--environment", root)
-    assert result.returncode == 1 and "ENVIRONMENT_IDENTITY_MISMATCH" in result.stdout + result.stderr
+def test_validate_environment_rejects_retired_rule_copies(published_environment, relative) -> None:
+    """@brief 发布目录不接受已经退役的规则副本。"""
+    path = published_environment / "catalog" / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("retired = true\n", encoding="utf-8")
+    result = _command("validate", "--environment", published_environment)
+    assert result.returncode == 1 and "ENVIRONMENT_STALE_FILE" in result.stdout + result.stderr
 
 
-def test_validate_environment_reports_corpus_failure_for_every_affected_scenario(published_environment) -> None:
-    """@brief 语料漂移与受影响的全部场景都进入失败输出，不在第一处失败后停止。"""
-    root = published_environment
-    corpus = root / "corpora/lifestyle/items.json"
-    corpus.write_bytes(corpus.read_bytes() + b" ")
-    result = _command("validate", "--environment", root)
-    assert result.returncode == 1, result.stdout + result.stderr
-    report = json.loads(result.stdout)
-    assert "Corpus entry identity mismatch" in result.stdout + result.stderr
-    for path in sorted((root / "scenarios").glob("*.json")):
-        relative = path.relative_to(root).as_posix()
-        assert any(error["path"] == relative for error in report["errors"])
+def test_validate_environment_ignores_unread_extra_root_directories(published_environment) -> None:
+    """@brief 环境根的其他目录不被读取或校验。"""
+    path = published_environment / "corpora"
+    path.mkdir()
+    (path / "manifest.json").write_bytes(b"invalid catalog-independent bytes")
+    result = _command("validate", "--environment", published_environment)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "corpus_entries" not in json.loads(result.stdout)
 
 
 def test_validate_environment_checks_every_scenario_after_a_scenario_failure(published_environment) -> None:
@@ -124,7 +138,7 @@ def test_validate_environment_command_rejects_real_registration_counterexamples(
     """@brief 对象登记的共享真实反例在完整命令边界同样非零退出并打印稳定码。"""
     edit_row(published_environment / "catalog", filename, identity, updates)
     result = _command("validate", "--environment", published_environment)
-    assert result.returncode == 1 and code in result.stdout + result.stderr
+    _assert_registration_error(result, code)
 
 
 @pytest.mark.parametrize("case,code", [
@@ -141,18 +155,18 @@ def test_validate_environment_command_rejects_manifest_and_graph_counterexamples
     if case in {"rules_version", "unlisted"}:
         manifest = read_payload(directory, "manifest.json")
         if case == "rules_version":
-            manifest["rules_version"] = 2
+            manifest["rules_version"] = 1
         else:
             manifest["files"].pop()
         write_payload(directory, "manifest.json", manifest, refresh=False)
     elif case == "retired":
         (directory / "category-contract.json").write_text("{}\n")
     elif case == "identity":
-        path = directory / "foods.json"
+        path = directory / "goods.json"
         path.write_bytes(path.read_bytes() + b" ")
     elif case == "unbound":
         apps = read_payload(directory, "apps.json")
-        apps["apps"].append({"app_id": "z-unbound", "name": "空应用"})
+        apps["apps"].append({"app_id": "z-unbound", "name": "空应用", "purposes": [], "payment_app_ids": []})
         write_payload(directory, "apps.json", apps)
     else:
         graph = read_payload(directory, "map.json")
@@ -164,25 +178,51 @@ def test_validate_environment_command_rejects_manifest_and_graph_counterexamples
             graph["edges"] = graph["edges"][:1]
         write_payload(directory, "map.json", graph)
     result = _command("validate", "--environment", published_environment)
-    assert result.returncode == 1 and code in result.stdout + result.stderr
+    _assert_registration_error(result, code)
 
 
 @pytest.mark.parametrize("case,code", [
-    ("pin", "ENVIRONMENT_PIN_MISMATCH"), ("topic", "WORK_TOPIC_UNKNOWN"),
+    ("pin", "ENVIRONMENT_PIN_MISMATCH"), ("topic", "WORK_CONTENT_UNKNOWN"),
     ("merchant", "MERCHANT_ACCOUNT_MISSING"), ("schedule", "WORK_SCHEDULE_REQUIRED"),
 ])
 def test_validate_environment_command_rejects_real_scenario_references(published_environment, case, code) -> None:
-    """@brief 场景钉、主题、商家和工作安排由真实场景加载器拒绝。"""
+    """@brief 场景钉、工作内容、商家和工作安排由真实场景加载器拒绝。"""
     path = published_environment / "scenarios/single-person.json"
     document = json.loads(path.read_bytes())
     if case == "pin":
         document["environment"]["environment_id"] = "changed"
     elif case == "topic":
-        document["agents"][0]["work_topic_ids"] = ["unknown"]
+        document["agents"][0]["work_content_ids"] = ["unknown"]
     elif case == "merchant":
         document["accounts"] = [row for row in document["accounts"] if row["role"] != "merchant:cafe"]
     else:
         document["agents"][0]["work_schedule"] = None
     _write_document(path, document)
     result = _command("validate", "--environment", published_environment)
-    assert result.returncode == 1 and code in result.stdout + result.stderr
+    _assert_registration_error(result, code, "scenarios/single-person.json")
+
+
+@pytest.mark.parametrize("case,code", [
+    ("no_action_content", "ACTION_CONTENT_EMPTY"),
+    ("no_work_content", "WORK_CONTENT_REQUIRED"),
+    ("short_work_content", "WORK_CONTENT_INSUFFICIENT"),
+])
+def test_validate_environment_command_rejects_missing_action_and_work_content(published_environment, case, code):
+    """@brief 内容供给与完整班次不足的剩余登记码也必须通过真实命令边界拒绝。"""
+    if case == "no_action_content":
+        directory = published_environment / "catalog"
+        document = read_payload(directory, "contents.json")
+        document["contents"] = [row for row in document["contents"] if row["content_id"] != "c-run"]
+        write_payload(directory, "contents.json", document)
+        path = "catalog"
+    else:
+        path = "scenarios/single-person.json"
+        destination = published_environment / path
+        document = json.loads(destination.read_bytes())
+        if case == "no_work_content":
+            document["agents"][0]["work_content_ids"] = []
+        else:
+            document["end_at"] = (datetime.fromisoformat(document["end_at"]) + timedelta(days=1)).isoformat()
+        _write_document(destination, document)
+    result = _command("validate", "--environment", published_environment)
+    _assert_registration_error(result, code, path)

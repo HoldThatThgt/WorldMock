@@ -125,23 +125,23 @@ def test_start_chat_registers_foreground_activity_with_invite() -> None:
     chat = start_chat("办公室", _presence(), 45, _outgoing())
     assert chat.activity_kind == "chat"
     assert chat.partner_id == "a2"
-    assert chat.duration_minutes == 45
+    assert chat.duration_seconds == 45
     assert chat.invite_message.kind == "chat_invite"
     assert chat.invite_message.recipient_id == "a2"
     assert chat.arrival.kind == "message_arrival"
 
 
-def test_call_duration_boundaries_10_and_60_minutes() -> None:
-    """通话时长闭区间：10 与 60 分钟受理，9 与 61 拒绝。"""
-    for minutes in (10, 60):
-        call = start_call(_contact(), minutes)
+def test_call_duration_is_actual_content_seconds_without_old_minute_window() -> None:
+    """@brief 通话时长采用内容余量，一秒与长内容均受理，不再有十至六十分钟窗口。"""
+    for seconds in (1, 59, 600, 3600, 10800):
+        call = start_call(_contact(), seconds)
         assert call.activity_kind == "call"
-        assert call.duration_minutes == minutes
+        assert call.duration_seconds == seconds
         assert call.attention_occupied is True
         assert call.relief_per_hour == pytest.approx(0.4)
-    for minutes in (9, 61):
+    for seconds in (0, -1):
         with pytest.raises(ValueError, match="duration"):
-            start_call(_contact(), minutes)
+            start_call(_contact(), seconds)
 
 
 def test_contact_closeness_bounds_and_policy_closed_set() -> None:
@@ -205,58 +205,34 @@ def test_model_reply_request_and_finalize_validate_200_chars() -> None:
         finalize_model_reply(request, "好" * 201, "r-3", 1600)
 
 
-def _people_seen(engine_factory):
-    """双人场景运行开始时人物 1 的真实观察：同处同伴与通讯录联系人保持各自身份。"""
-    from tests.life.conftest import context, stage_day_plan
-
-    def contacts(document):
-        document["agents"][0]["contacts"] = [{"contact_id": "test-colleague", "salutation": "同事",
-            "relation": "同事", "closeness": 16, "channels": ["phone", "message"], "reply_policy": "none"}]
-    engine = engine_factory("multi-person.json", mutate=contacts)
-    for agent_id in engine.context.state.agents:
-        stage_day_plan(engine, agent_id)
-    observed = engine.observe(context(engine, "people-seen"))
-    people = [row for row in observed["tool_layer"]["targets"] if row["kind"] in {"person", "contact"}]
-    return engine, observed, people
-
-
-def test_message_recipients_come_from_current_observation_identities(engine_factory) -> None:
-    """send_message 的对象是本轮工具层的人物目标：同处的同伴（「人物：」）与通讯录联系人（「联系人：」）各带可用的
-    send_message；环境按本轮私有绑定解析名称，列出的名称送达，未列出的以 RECIPIENT_NOT_FOUND 业务拒绝。同伴在第一轮
-    开始睡觉，此后只有人物 1 在同一秒继续决策。"""
-    from tests.life.conftest import start_activity, submit_round
-    from worldmock.life.models import SendMessageActionRequest
-
-    engine, observed, people = _people_seen(engine_factory)
-    friend = next(item.name for item in engine.context.state.agents.values() if item.agent_id != 1)
-    salutations = [item.salutation for item in engine.context.scenario.agents[0].contacts]
-    assert [row["name"] for row in people] == [f"人物：{friend}", *(f"联系人：{name}" for name in salutations)]
-    assert all(row["tools"] == [{"tool": "send_message", "available": True, "reason": None}] for row in people)
-    kinds = {row["object"]: row["kind"] for row in observed["interaction_bindings"]}
-    assert [kinds[row["name"]] for row in people] == ["person", *("contact" for _ in salutations)]
-    for index, name in enumerate([people[0]["name"], people[-1]["name"], "人物：陌生人"]):
-        requests = {1: ("send_message", SendMessageActionRequest(recipient_name=name, text="周末见面吗"))}
-        if index == 0:
-            requests[2] = ("start_activity", start_activity("睡觉", "自己"))
-        _, results = submit_round(engine, requests, f"recipient-{index}")
-        result = next(item for item in results if item.agent_id == 1)
-        expected = ("rejected", "RECIPIENT_NOT_FOUND") if name == "人物：陌生人" else ("completed", None)
-        assert (result.status, result.error_code) == expected, name
+def test_message_recipients_come_from_current_observation_identities() -> None:
+    """@brief 世界人物与本人的登记联系人提供独立真实身份，未知收件人被拒绝。"""
+    from tests.life.action_worlds import action_world
+    semantics, state = action_world(multiple=True)
+    people = [f"agent:{identity}" for identity in state.agents if identity != 1]
+    contacts = semantics.scenario.agents[0].contacts
+    person = send_message(_outgoing(people[0]), people, contacts)
+    contact = send_message(_outgoing(contacts[0].contact_id), people, contacts)
+    assert person.message.recipient_id == "agent:2"
+    assert contact.message.recipient_id == "contact-colleague"
+    with pytest.raises(ValueError):
+        send_message(_outgoing("unknown"), people, contacts)
 
 
-def test_social_partners_pair_kind_with_identity_source(engine_factory) -> None:
-    """交谈与通话由对象本轮动作闭集配对：同伴只列 interact:交谈，联系人只列 interact:通话；环境按私有绑定解析选择，
-    交换方式与未列出的对象解析不出，内部动词由合法方式决定。"""
-    from tests.life.conftest import select_start, start_arguments
-
-    _, observed, people = _people_seen(engine_factory)
-    person, contact = people[0]["name"], people[-1]["name"]
-    offered = {row["name"]: [(item["action"], item["way"]) for item in row["actions"]] for row in people}
-    assert offered[person] == [("interact", "交谈")] and offered[contact] == [("interact", "通话")]
-    bindings = observed["interaction_bindings"]
-    for target, way, canonical in ((person, "交谈", "chat"), (contact, "通话", "call")):
-        (row,) = select_start(bindings, start_arguments([target], ["interact"], [way]))
-        assert row["selected_action"]["canonical_action"] == canonical
-    for target, verb, way in ((contact, "interact", "交谈"), (person, "interact", "通话"),
-                              ("人物：陌生人", "interact", "交谈")):
-        assert select_start(bindings, start_arguments([target], [verb], [way])) is None
+def test_social_partners_pair_kind_with_identity_source() -> None:
+    """@brief 共同在场社交只能引用真实人物；远程社交只能引用本人的登记联系人。"""
+    from tests.life.action_worlds import action_world, begin
+    from worldmock.life import social_actions
+    from worldmock.errors import BusinessRuleError
+    semantics, state = action_world(multiple=True)
+    state.agents[2].location_id = "home"
+    _, local = begin(semantics, state, "small-talk", None, "agent:2")
+    assert social_actions.start_chat(state, local, "invite").invite.message.recipient_id == "agent:2"
+    contact = semantics.scenario.agents[0].contacts[0]
+    _, remote = begin(semantics, state, "voice-call", "wechat", contact.contact_id)
+    assert social_actions.start_remote_social(remote, contact, "voice").contact_id == contact.contact_id
+    with pytest.raises(BusinessRuleError, match="SOCIAL_PARTNER_NOT_FOUND"):
+        social_actions.partner_presence(state, contact.contact_id)
+    remote.data["counterpart"] = "agent:2"
+    with pytest.raises(BusinessRuleError, match="CONTACT_NOT_FOUND"):
+        social_actions.start_remote_social(remote, contact, "voice")

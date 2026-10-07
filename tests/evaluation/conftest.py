@@ -233,21 +233,21 @@ def _legacy_audit(run_id: str, digest: str, main_rows: int, stream_rows: int) ->
     }
 
 
-#: 夹具活动类型的占用（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」的占用表）；数字交互只按活动类型判定。
-ACTIVITY_CLAIMS = {"use_app": ["eyes", "hands", "use_app"], "wait": ["idle"]}
+#: 真实动作快照按 app 与 manner 判定数字交互；占用只作为独立证据。
+ACTIVITY_CLAIMS = {"action": ["entertainment", "use_app"], "wait": ["wait"]}
 
 
 def _write_canonical(root: Path, scenario: dict[str, Any], run_id: str, hour: int,
-                     activity_type: str = "use_app") -> None:
+                     activity_type: str = "action") -> None:
     start = datetime.fromisoformat(scenario["window"]["start"])
     end = datetime.fromisoformat(scenario["window"]["end"])
-    frozen = {"schema_version": 3, "environment_identity": environment_identity(
+    frozen = {"schema_version": 4, "environment_identity": environment_identity(
                   load_runtime_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]),
-              "run_id": run_id, "source_group_id": run_id, "agent_ids": [1],
+              "run_id": run_id, "source_group_id": run_id, "agent_ids": [1], "work_content_ids": {"1": []},
               "window": {"start": int(start.timestamp()), "end": int(end.timestamp()),
                          "timezone": scenario["window"]["timezone"]}}
     store = FootprintStore.create(root.with_name(root.name + "-source"), frozen,
-                                  {"schema_version": 10, "version": 0, "current_time": int(start.timestamp())})
+                                  {"schema_version": 11, "version": 0, "current_time": int(start.timestamp())})
     for day_offset in range((end.date() - start.date()).days):
         activity_start = start + timedelta(days=day_offset, hours=hour)
         activity, rows = _world_activity(run_id, store.last_event_seq + 1, activity_start, activity_type)
@@ -261,13 +261,13 @@ def _write_canonical(root: Path, scenario: dict[str, Any], run_id: str, hour: in
             draft = EventDraft.model_validate({key: value for key, value in row.items()
                                                if key in EventDraft.model_fields})
             draft.data["activity"] = snapshot
-            if activity_type == "use_app":
-                draft.data["content"] = {"app_id": "app-bili", "content_id": "video-1", "kind": "long_video",
+            if activity_type == "action":
+                draft.data["content"] = {"app_id": "douyin", "content_id": "c-long",
                     "position_before_seconds": index * 3600, "position_after_seconds": (index + 1) * 3600,
                     "completed": index == 1, "completed_rounds_after": 1 if index == 1 else 0}
-            state = {"schema_version": 10, "version": store.state["version"] + 1, "current_time": row["occurred_at"]}
+            state = {"schema_version": 11, "version": store.state["version"] + 1, "current_time": row["occurred_at"]}
             store.commit(state, [draft])
-    state = {"schema_version": 10, "version": store.state["version"] + 1, "current_time": int(end.timestamp())}
+    state = {"schema_version": 11, "version": store.state["version"] + 1, "current_time": int(end.timestamp())}
     store.commit(state, [EventDraft(event_type="run_ended", occurred_at=state["current_time"],
                                    visibility="system")])
     reference = store.assets.put_json(state, {"kind": "test"})
@@ -286,7 +286,7 @@ def _write_canonical(root: Path, scenario: dict[str, Any], run_id: str, hour: in
 
 
 def _world_activity(run_id: str, sequence: int, start: datetime,
-                    activity_type: str = "use_app") -> tuple[dict[str, Any], list[dict[str, Any]]]:
+                    activity_type: str = "action") -> tuple[dict[str, Any], list[dict[str, Any]]]:
     first_start = int(start.timestamp())
     first_end = first_start + 3_600
     second_start = first_end + 3_600
@@ -307,15 +307,16 @@ def _world_activity(run_id: str, sequence: int, start: datetime,
         "media_position_seconds": 0,
         "route_progress_meters": 0,
         "next_interaction_at": None,
-        "target_id": "app-bili" if activity_type == "use_app" else None,
         "destination_id": None,
         "travel_mode": None,
         "resource_claims": list(ACTIVITY_CLAIMS[activity_type]),
         "boundary_type": "planned_end",
         "interruption_reason": None,
-        "data": {"app_id": "app-bili", "content_id": "video-1", "content_kind": "视频",
+        "data": {"action_id": "browse-feed", "category": "entertainment", "app_id": "douyin",
+                 "manner": "phone_continuous", "communication_mode": None, "counterpart": None,
+                 "content_id": "c-long",
                  "start_position_seconds": 0, "pinned_by_push_id": None, "draw_index": 0, "played": []}
-                if activity_type == "use_app" else {},
+                if activity_type == "action" else {},
         "segments": [
             {"started_at": first_start, "ended_at": first_end},
             {"started_at": second_start, "ended_at": second_end},

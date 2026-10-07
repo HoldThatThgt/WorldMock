@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 from worldmock.life.social import SOCIAL_RESOURCE_CLAIMS
+from worldmock.exchange.types import GoodsCategory
 from worldmock.catalog.affordances import engine_affordances
-from worldmock.life.vocabulary import way_options
-from worldmock.life.vocabulary import NAMED_PURCHASE_WAYS
 
 from worldmock.base_models import StrictModel, FrozenModel
 from worldmock.errors import IntegrityError
 import logging
 import re
+from datetime import date
 from enum import StrEnum
 from collections.abc import Callable, Sequence
 from typing import Annotated, Any, Literal
@@ -19,7 +19,7 @@ from pydantic import (ValidationError, BaseModel, ConfigDict, Field, StrictBool,
 
 from worldmock.life.errand_state import (ERRAND_NAME_MAX_CHARS, ERRAND_QUANTITY_MAX, ERRAND_QUANTITY_MIN,
                                          ERRAND_TEXT_MAX_CHARS, MAX_ERRAND_CHANGES, ErrandState)
-from worldmock.life.schedule import MAX_PLAN_GOALS, PLAN_GOAL_MAX_CHARS, DayPlan, IntentKind
+from worldmock.life.schedule import MAX_PLAN_GOALS, PLAN_GOAL_MAX_CHARS, DayPlan, IntentKind, alarm_time
 from worldmock.life.social import Message
 from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 
@@ -32,12 +32,10 @@ from worldmock.scheduling.events import ScheduledEvent
 #: 版本 8（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「版本」）新增 SessionState.opened_by_action_id 与
 #: ActivityState.paused_at，观察改为七层数据；版本 9（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-事件检查点与恢复 ）新增只存未完成个人事务的
 #: AgentState.errands。
-WORLD_SCHEMA_VERSION = 10
+WORLD_SCHEMA_VERSION = 11
 
 #: 普通活动的派生时长上限。
 DERIVED_DURATION_CAP_SECONDS = 86400
-#: 消费活动的合法时长上界；越界拒绝，不截取。
-CONSUME_DURATION_CAP_SECONDS = 14400
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -154,23 +152,8 @@ class ActivityKind(StrEnum):
 
     WAIT = "wait"
     SLEEP = "sleep"
-    WORK = "work"
-    USE_APP = "use_app"
     TRAVEL = "travel"
-    READ_MAIL = "read_mail"
-    CONSUME = "consume"
-    # 生活活动（corpora/lifestyle/）经 lifestyle:<activity_id> 子类型机制提交：
-    # kind 统一为 LIFESTYLE，具体条目放在 target_id，MET 按 lifestyle 键查表。
-    LIFESTYLE = "lifestyle"
-    # 社交前台活动（修订合同社交最小可行版）：交谈（共同在场）与通话（联系人）。
-    # 这两种 kind 不在可供性注册表内，受理/推进走 life.social_actions 专属通道，
-    # 不经 activities.start_activity 的注册表 MET 查表。
-    CHAT = "chat"
-    CALL = "call"
-
-
-#: 生活活动的 activity_type 文本合同：LIFESTYLE 活动的 target_id 前缀。
-LIFESTYLE_TYPE_PREFIX = "lifestyle:"
+    ACTION = "action"
 
 
 class ActivityStatus(StrEnum):
@@ -210,6 +193,7 @@ class FulfillmentKind(StrEnum):
 
     DELIVERY = "delivery"
     PICKUP = "pickup"
+    STATION_PICKUP = "station_pickup"
 
 
 class TravelMode(StrEnum):
@@ -256,6 +240,7 @@ class ContentProgress(StrictModel):
     content_id: str = Field(min_length=1)
     position_seconds: float = Field(ge=0)
     completed_rounds: int = Field(ge=0)
+    last_consumed_at: int = Field(ge=0)
 
 
 class SessionStatus(StrEnum):
@@ -276,7 +261,6 @@ class SessionTaskKind(StrEnum):
     """@brief 活动关联的任务类型闭集（从原会话移到活动）。"""
 
     GOAL = "goal"
-    WORK_TOPIC = "work_topic"
     NONE = "none"
 
 
@@ -353,18 +337,18 @@ class AgentState(StrictModel):
     name: str = Field(min_length=1)
     location_id: str = Field(min_length=1)
     balance_account_id: str = Field(min_length=1)
+    #: 本人的驾车可用日余额，不是物品库存。
+    driving_days: int = Field(strict=True, ge=0)
+    #: 最近一次实际驾车已扣日的场景本地日期。
+    last_driving_date: str | None
     body: BodyState
-    inventory: dict[str, dict[str, float]] = Field(default_factory=dict)
     active_effects: set[str] = Field(default_factory=set)
     body_settled_at: int = Field(ge=0)
     next_decision_at: int = Field(ge=0)
-    # 连续业务拒绝次数：只作动机层挫败感的输入，不参与唤醒与冷却。
-    consecutive_rejections: int = Field(default=0, ge=0)
     # 同刻决策（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「实现约定」）：本秒已进行的决策轮数与受限轮阶段，时钟推进归零。
     same_moment_rounds: int = Field(default=0, ge=0)
     same_moment_stage: SameMomentStage = SameMomentStage.OPEN
     content_progress: dict[str, ContentProgress] = Field(default_factory=dict)
-    read_message_ids: set[str] = Field(default_factory=set)
     visible_message_ids: set[str] = Field(default_factory=set)
     # 决策节律簿记（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「决策节律：结算边界与唤醒条件分离」）
     # ：滞回参照=上次实际提供决策时的分级。
@@ -388,9 +372,22 @@ class AgentState(StrictModel):
     discomfort_started_at: int | None = Field(default=None, ge=0)
     discomfort_pulse_hours: float = Field(default=0.0, ge=0)
 
+    @field_validator("last_driving_date")
+    @classmethod
+    def validate_driving_date(cls, value: str | None) -> str | None:
+        """@brief 已扣日必须使用完整本地 ISO 日期。"""
+        if value is not None:
+            try:
+                valid = date.fromisoformat(value).isoformat() == value
+            except ValueError:
+                valid = False
+            if not valid:
+                _LOGGER.error("Last driving date must use a canonical ISO date")
+                raise ValueError("Last driving date must use a canonical ISO date")
+        return value
+
     @field_serializer(
         "active_effects",
-        "read_message_ids",
         "visible_message_ids",
         "plan_submitted_dates",
         "read_inbox_ids",
@@ -420,7 +417,6 @@ class ActivityState(StrictModel):
     media_position_seconds: float = Field(default=0, ge=0)
     route_progress_meters: float = Field(default=0, ge=0)
     next_interaction_at: int | None = Field(default=None, ge=0)
-    target_id: str | None = None
     destination_id: str | None = None
     travel_mode: TravelMode | None = None
     resource_claims: set[str] = Field(default_factory=set)
@@ -478,41 +474,74 @@ CONCLUDABLE_TERMINAL_STATUSES = frozenset({ActivityStatus.COMPLETED, ActivitySta
 
 
 def _validate_task_reference(kind: SessionTaskKind, reference: str | None, intent: str | None) -> None:
-    """@brief 活动的任务类型与引用配对：none 时无引用，goal/work_topic 必带引用，goal 的意图等于引用。"""
+    """@brief 活动的任务类型与引用配对：none 时无引用，goal 必带引用且意图等于引用。"""
     if kind == SessionTaskKind.NONE and reference is not None:
         raise ValueError("task_ref must be null when task_kind is none")
     if kind != SessionTaskKind.NONE and reference is None:
-        raise ValueError("task_ref required for goal and work_topic")
+        raise ValueError("task_ref required for goal")
     if kind == SessionTaskKind.GOAL and intent != reference:
         _LOGGER.error("Goal activity intent disagrees with its task reference")
         raise ValueError("goal activity intent must match task_ref")
 
 
 class DeliveryState(StrictModel):
-    """@brief 注册食品购买后的固定价订单和图上履约证据。"""
+    """@brief 已付款商品订单、配送路径与恰好一次收货时刻。"""
 
     order_id: str = Field(min_length=1)
     agent_id: int = Field(gt=0)
-    food_id: str = Field(min_length=1)
+    goods_id: str = Field(min_length=1)
+    category: GoodsCategory
     store_id: str = Field(min_length=1)
     app_id: str | None
+    payment_app_id: str | None
     seller_account_id: str = Field(min_length=1)
-    quantity: int = Field(gt=0)
+    quantity: int = Field(strict=True, ge=1, le=1)
     unit_price_fen: int = Field(gt=0)
     delivery_fee_fen: int = Field(ge=0)
     total_price_fen: int = Field(ge=0)
     destination_id: str = Field(min_length=1)
+    #: 改送驿站前的真实收货地址，长途取收货人物家庭地址。
+    delivery_address_id: str = Field(min_length=1)
     fulfillment: FulfillmentKind
     recipient_id: str = Field(min_length=1)
     request_message_id: str | None = None
     created_at: int = Field(ge=0)
     expected_at: int = Field(ge=0)
-    status: Literal["pending", "ready", "delivered", "cancelled"]
+    arrived_at: int | None = Field(ge=0)
+    received_at: int | None = Field(ge=0)
+    status: Literal["pending", "ready_for_pickup", "delivered"]
     path: tuple[str, ...]
     #: 到店无行程；配送使用图上现有出行方式的稳定行程身份。
     trip_id: str | None
     distance_meters: int = Field(ge=0)
     prep_seconds: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_receipt_time(self) -> "DeliveryState":
+        """@brief 运输、到站和收货时刻与物流状态严格配对。"""
+        shape = (self.arrived_at is not None, self.received_at is not None)
+        required = {"pending": (False, False), "ready_for_pickup": (True, False), "delivered": (True, True)}
+        if shape != required[self.status]:
+            _LOGGER.error("Order status and receipt timestamp disagree")
+            raise ValueError("Order status and receipt timestamp disagree")
+        if self.arrived_at is not None and self.arrived_at < self.created_at:
+            _LOGGER.error("Receipt timestamp precedes order creation")
+            raise ValueError("Receipt timestamp precedes order creation")
+        if self.received_at is not None and self.received_at < self.arrived_at:
+            _LOGGER.error("Receipt timestamp precedes order arrival")
+            raise ValueError("Receipt timestamp precedes order arrival")
+        if self.status == "ready_for_pickup" and self.fulfillment != FulfillmentKind.STATION_PICKUP:
+            _LOGGER.error("Only station pickup orders may be ready for pickup")
+            raise ValueError("Only station pickup orders may be ready for pickup")
+        arrival = self.created_at if self.fulfillment == FulfillmentKind.PICKUP else self.expected_at
+        if self.arrived_at is not None and self.arrived_at != arrival:
+            _LOGGER.error("Order arrival timestamp disagrees with fulfillment")
+            raise ValueError("Order arrival timestamp disagrees with fulfillment")
+        if self.fulfillment != FulfillmentKind.STATION_PICKUP and self.received_at is not None:
+            if self.received_at != arrival:
+                _LOGGER.error("Immediate receipt timestamp disagrees with fulfillment")
+                raise ValueError("Immediate receipt timestamp disagrees with fulfillment")
+        return self
 
 
 class StoredAction(StrictModel):
@@ -573,14 +602,11 @@ class WorldState(StrictModel):
     run_id: str = Field(min_length=1)
     timezone: str = Field(min_length=1)
     scenario_sha256: str = Field(min_length=64, max_length=64)
-    content_manifest_sha256: str = Field(min_length=64, max_length=64)
     agents: dict[int, AgentState]
     accounts: dict[str, int]
     activities: dict[str, ActivityState] = Field(default_factory=dict)
     sessions: dict[str, SessionState] = Field(default_factory=dict)
     deliveries: dict[str, DeliveryState] = Field(default_factory=dict)
-    #: 场景联系人实际收到的物品（联系人身份 → 商品 → 份数）：直接配送与当面给予都记在这里。
-    contact_holdings: dict[str, dict[str, float]] = Field(default_factory=dict)
     pending_events: list[ScheduledEvent] = Field(default_factory=list)
     processed_actions: dict[str, StoredAction] = Field(default_factory=dict)
     #: 呈现派生量（docs/CONTRACTS.md#contracts-worldmock-接口合同「派生量字段」）：按（人物, 对象标识）记录上次呈现
@@ -605,8 +631,6 @@ class WorldState(StrictModel):
             if agent.body_settled_at > self.current_time:
                 _LOGGER.error("Agent body settlement is ahead of world time")
                 raise ValueError("agent body settlement is ahead of world time")
-            if any(quantity < 0 for inventory in agent.inventory.values() for quantity in inventory.values()):
-                raise ValueError("agent inventory quantity cannot be negative")
         _validate_activity_collection(self)
         _validate_session_collection(self)
         return self
@@ -616,13 +640,6 @@ def active_activities(state: WorldState, agent_id: int) -> tuple[ActivityState, 
     """@brief 按开始时刻与身份稳定返回人物全部正在执行的活动。"""
     return tuple(sorted((activity for activity in state.activities.values()
                          if activity.agent_id == agent_id and activity.status == ActivityStatus.ACTIVE),
-                        key=lambda activity: (activity.started_at, activity.activity_id)))
-
-
-def paused_activities(state: WorldState, agent_id: int) -> tuple[ActivityState, ...]:
-    """@brief 按开始时刻与身份稳定返回人物全部暂停活动。"""
-    return tuple(sorted((activity for activity in state.activities.values()
-                         if activity.agent_id == agent_id and activity.status == ActivityStatus.PAUSED),
                         key=lambda activity: (activity.started_at, activity.activity_id)))
 
 
@@ -679,30 +696,22 @@ def _validate_session_collection(state: WorldState) -> None:
 
 
 def _expected_activity_claims(activity: ActivityState) -> set[str]:
-    """@brief 从唯一注册表和社交活动声明恢复每项权威资源占用。"""
-    if activity.kind in {ActivityKind.CHAT, ActivityKind.CALL}:
-        return set(SOCIAL_RESOURCE_CLAIMS)
+    """@brief 从唯一注册表及动作的固定类别与使用方式恢复权威资源占用。"""
     mode = activity.travel_mode.value if activity.travel_mode is not None else None
-    return set(engine_affordances().resource_claims(activity.kind.value, travel_mode=mode))
-
-
-_TARGETED_ACTIVITY_KINDS = frozenset({
-    ActivityKind.WORK,
-    ActivityKind.USE_APP,
-    ActivityKind.READ_MAIL,
-    ActivityKind.LIFESTYLE,
-})
+    return set(engine_affordances().resource_claims(
+        activity.kind.value, travel_mode=mode, category=activity.data.get("category"),
+        manner=activity.data.get("manner")))
 
 
 class ActivityStartParams(FrozenModel):
     """@brief 领域内部统一启动一个有时长生活活动。"""
 
     activity_type: ActivityKind
-    planned_duration_seconds: int = Field(gt=0, le=DERIVED_DURATION_CAP_SECONDS)
-    target_id: str | None = Field(
-        default=None,
-        description="Required for work, use_app, read_mail, and lifestyle.",
-    )
+    planned_duration_seconds: int | None = Field(gt=0, le=DERIVED_DURATION_CAP_SECONDS)
+    action_id: str | None = None
+    app_id: str | None = None
+    counterpart: str | None = None
+    navigation_app_id: str | None = None
     destination_id: str | None = Field(
         default=None,
         description="Required for travel.",
@@ -714,9 +723,14 @@ class ActivityStartParams(FrozenModel):
 
     @model_validator(mode="after")
     def validate_target(self) -> "ActivityStartParams":
-        """@brief 校验不同活动需要的业务目标。"""
-        if self.activity_type in _TARGETED_ACTIVITY_KINDS and not self.target_id:
-            raise ValueError("target_id is required for the selected activity")
+        """@brief 动作不带时长，系统活动必须带规则已派生的时长。"""
+        if self.activity_type == ActivityKind.ACTION:
+            if not self.action_id or self.planned_duration_seconds is not None:
+                _LOGGER.error("Action parameters require an action and no duration")
+                raise ValueError("action parameters require action_id and null planned_duration_seconds")
+        elif self.planned_duration_seconds is None:
+            _LOGGER.error("System activity requires a derived duration")
+            raise ValueError("system activity requires planned_duration_seconds")
         if self.activity_type == ActivityKind.TRAVEL:
             if not self.destination_id or self.travel_mode is None:
                 raise ValueError("destination_id and travel_mode are required for travel")
@@ -728,32 +742,21 @@ class ChangeActivityRequest(FrozenModel):
 
     activity_id: str = Field(min_length=1)
     operation: ActivityChange
-    resume_cap_seconds: int | None = Field(
-        default=None,
-        ge=60,
-        description="Resume only: the longest remaining run from now (work deadline and contract limit).",
-    )
 
 
 
 class PurchaseItem(FrozenModel):
-    """@brief 同一订单明确选择的店铺、食品、数量和收货人。"""
+    """@brief 一个商品行是一件，明确店铺、商品与收货人。"""
 
     store_id: str = Field(pattern=r"\S")
-    food_id: str = Field(pattern=r"\S")
-    quantity: int = Field(gt=0, le=100)
+    goods_id: str = Field(pattern=r"\S")
+    quantity: int = Field(strict=True, ge=1, le=1)
     recipient_id: str = Field(pattern=r"\S")
     request_message_id: str | None = None
 
 
 class PurchaseOrderRequest(FrozenModel):
-    """@brief 购买 1-5 件同一商家、同一履约方式的商品，一次付款一次配送。
-
-    结算时任一件不可购则整单拒绝，不自动删件（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「商务与进食」）。
-    items 以 WithJsonSchema 内联子模型 Schema（strict 合同禁止嵌套引用
-    键，docs/CONTRACTS.md#contracts-worldmock-接口合同「人物工具与管理接口」认可的唯一内联机制）；1-5 件由结算域校验
-    （DeepSeek strict 禁 minItems）。
-    """
+    """@brief 一至两件同店商品一次付款，购物与支付应用由人物明确选择。"""
 
     items: Annotated[
         tuple[PurchaseItem, ...],
@@ -762,37 +765,24 @@ class PurchaseOrderRequest(FrozenModel):
             "items": PurchaseItem.model_json_schema(mode="validation"),
         }),
     ]
-    fulfillment: Literal["delivery", "pickup"]
+    fulfillment: Literal["delivery", "pickup", "station_pickup"]
     destination_id: str = Field(pattern=r"\S")
     app_id: str | None
+    payment_app_id: str | None
 
 
-class ConsumeItem(FrozenModel):
-    """@brief 一次进食中的一件已持有食品与数量（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「商务与进食」：1-3 件）。"""
+class SetAlarmRequest(FrozenModel):
+    """@brief 一次性闹钟只有带时区偏移、精确到整秒的时刻。"""
 
-    product_id: str = Field(pattern=r"\S")
-    quantity: float = Field(gt=0, le=100)
+    model_config = ConfigDict(json_schema_extra=purpose_only_schema())
+    at: str = Field(strict=True)
 
-
-class ConsumeRequest(FrozenModel):
-    """@brief 使用已经交付并持有的商品。
-
-    多件（1-3）仅限食品同地点一次进食：用餐时长取最长者、热量与效果累加；
-    非食品使用仍为单件（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「商务与进食」）。单件路径沿用域内时长合同
-    （duration_seconds 必须等于商品目录时长）。items 以 WithJsonSchema
-    内联子模型 Schema（strict 合同禁止嵌套引用键）；1-3 件由结算域校验
-    （DeepSeek strict 禁 minItems）。
-    """
-
-    items: Annotated[
-        tuple[ConsumeItem, ...],
-        WithJsonSchema({
-            "type": "array",
-            "items": ConsumeItem.model_json_schema(mode="validation"),
-        }),
-    ]
-    use_mode: Literal["eat", "use"]
-    duration_seconds: int = Field(ge=60, le=CONSUME_DURATION_CAP_SECONDS)
+    @field_validator("at")
+    @classmethod
+    def validate_alarm_time(cls, value: str) -> str:
+        """@brief 宿主与环境共享闹钟的严格 ISO 整秒校验。"""
+        alarm_time(value)
+        return value
 
 
 class PlanGoalInput(FrozenModel):
@@ -885,13 +875,6 @@ class SendMessageRequest(FrozenModel):
     text: str
 
 
-class StartSocialActivityRequest(FrozenModel):
-    """@brief 发起交谈（共同在场）或通话（联系人）；时长由场景反馈间隔派生后截取：交谈 1–120 分钟，通话 10–60 分钟
-    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「交谈」）。"""
-
-    kind: Literal["chat", "call"]
-    partner_id: str = Field(pattern=r"\S")
-    duration_minutes: int = Field(gt=0, le=120)
 
 
 
@@ -901,32 +884,24 @@ class StartSocialActivityRequest(FrozenModel):
 #: 会话进展自述的字符上限（DeepSeek strict 禁 maxLength；由 model_validator 执行）。
 SESSION_SUMMARY_MAX_CHARS = 500
 
-#: 购买偏好的唯一中文闭集。
-PURCHASE_PREFERENCES = ("最快拿到", "到手价最低")
-#: prefer 的字段级「格式与来源」说明（参数 Schema 的一部分，不是工具 description），并说明由系统定方式的「购买」；
-#: 与其他参数说明一样只写用途（一句中文，不带拉丁字母单词与规则说法，tests/integration/test_tool_description_references.py）。
-_PREFER_FORMAT = "购买时选择最快拿到或到手价最低，不购买时写空值。"
-
-
 class ActivityRequestItem(ToolRequestModel):
-    """@brief 一次活动的目标、方式、来源和收货人。"""
+    """@brief 一项活动严格声明对象、方式、应用、对方和支付应用。"""
 
-    model_config = ConfigDict(strict=True, extra="forbid", frozen=True, validate_by_alias=True,
-                              serialize_by_alias=True, json_schema_extra=purpose_only_schema())
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True,
+                              json_schema_extra=purpose_only_schema())
     target: str = Field(pattern=r"\S")
     way: str = Field(pattern=r"\S")
-    from_: str | None = Field(alias="from")
+    app: str | None
     to: str | None
+    pay_app: str | None
 
 
 class StartActivityRequest(ToolRequestModel):
-    """@brief 一至两项活动原子受理，方式唯一推导内部动作，购买偏好必填可空。"""
+    """@brief 一至两项活动原子受理，不补应用、对方或购买偏好。"""
 
     items: Annotated[list[ActivityRequestItem], WithJsonSchema(
         {"type": "array", "items": ActivityRequestItem.model_json_schema(mode="validation")})]
     answering: str | None
-    prefer: Annotated[Literal["最快拿到", "到手价最低"] | None, WithJsonSchema(
-        {"type": ["string", "null"], "enum": [*PURCHASE_PREFERENCES, None], "description": _PREFER_FORMAT})]
 
     @field_validator("items")
     @classmethod
@@ -940,23 +915,6 @@ class StartActivityRequest(ToolRequestModel):
             _LOGGER.error("Start activity repeats a target and recipient")
             raise ValueError("a target may repeat only with a different recipient")
         return items
-
-    @field_validator("prefer")
-    @classmethod
-    def validate_prefer(cls, prefer: str | None, info) -> str | None:
-        """@brief 方式合法时要求购买偏好，非购买必须空值。"""
-
-        items = info.data.get("items")
-        options = [way_options(item.way) for item in items] if items is not None else []
-        if items is None or any(not option for option in options):
-            return prefer
-        purchase = any(option & NAMED_PURCHASE_WAYS for option in options)
-        if (purchase and prefer is None) or (not purchase and prefer is not None):
-            _LOGGER.error("Purchase preference does not match the activity ways")
-            raise ValueError("purchases require a declared preference; non-purchases require null")
-        return prefer
-
-
 
 
 class SendMessageActionRequest(ToolRequestModel):
@@ -1007,9 +965,9 @@ def _validate_summary(summary: str) -> str:
 _CLOCK_PATTERN = r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
 #: 个人事务变更的交叉约束（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 「每条变更」）：按变更种类必须非空的键与必须为 null 的键；
 #: 其余键（新增的 memo、remind_time，更新的 memo、remind_time）可空。
-_ERRAND_REQUIRED = {"新增": ("outcome", "item", "quantity"), "更新": (), "取消": ("reason",)}
-_ERRAND_NULL = {"新增": ("reason",), "更新": ("outcome", "item", "quantity", "reason"),
-                "取消": ("outcome", "item", "quantity", "memo", "remind_time")}
+_ERRAND_REQUIRED = {"新增": ("item", "quantity"), "更新": (), "取消": ("reason",)}
+_ERRAND_NULL = {"新增": ("reason",), "更新": ("item", "quantity", "reason"),
+                "取消": ("item", "quantity", "memo", "remind_time")}
 
 
 def _errand_text(value: str | None, limit: int, what: str) -> str | None:
@@ -1024,17 +982,14 @@ def _errand_text(value: str | None, limit: int, what: str) -> str | None:
 
 
 class ErrandChange(ToolRequestModel):
-    """@brief 控制工具请求级 errands 的一条个人事务变更（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 ）：封闭对象，八个键全部必填，
+    """@brief 控制工具请求级 errands 的一条个人事务变更：封闭对象，七个键全部必填，
     按变更种类的交叉约束与字符、份数上限由本地校验执行（上限写在原因里，Schema 只给类型与格式）；没有「完成」。"""
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema(
         "一条个人事务的变更：做什么、名称、要办成的事、备注、提醒钟点与取消原因。"))
     change: Literal["新增", "更新", "取消"] = Field(description="这条变更做什么，从列出的三种里选一种。")
     name: str = Field(pattern=r"\S", description="事务的名称，新增时自己起，之后照待办层里的写法写。")
-    outcome: Annotated[Literal["取得", "吃掉"] | None, WithJsonSchema(
-        {"type": ["string", "null"], "enum": ["取得", "吃掉", None],
-         "description": "要办成的结果，从列出的两种里选一种。"})]
-    item: Annotated[str, Field(pattern=r"\S")] | None = Field(description="要取得或吃掉的商品名称。")
+    item: Annotated[str, Field(pattern=r"\S")] | None = Field(description="要取得的商品名称。")
     quantity: int | None = Field(description="要办成的份数。")
     memo: Annotated[str, Field(pattern=r"\S")] | None = Field(description="用自己的话写打算怎么办、去哪办。")
     remind_time: Annotated[str, Field(pattern=_CLOCK_PATTERN)] | None = Field(description="想被提醒去办这件事的钟点。")
@@ -1364,6 +1319,7 @@ REQUEST_MODELS: dict[str, type[FrozenModel]] = {
     "pause_activity": PauseActivityRequest,
     "conclude_activity": ConcludeActivityRequest,
     "revise_day_plan": ReviseDayPlanRequest,
+    "set_alarm": SetAlarmRequest,
 }
 
 

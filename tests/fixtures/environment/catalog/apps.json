@@ -1,1 +1,67 @@
-{"apps":[{"app_id":"bilibili","name":"哔哩哔哩"},{"app_id":"douyin","name":"抖音"},{"app_id":"eleme","name":"饿了么"},{"app_id":"meituan","name":"美团"}]}
+{
+  "apps": [
+    {
+      "app_id": "alipay",
+      "name": "支付宝",
+      "purposes": [
+        "payment"
+      ],
+      "payment_app_ids": []
+    },
+    {
+      "app_id": "amap",
+      "name": "高德地图",
+      "purposes": [
+        "navigation"
+      ],
+      "payment_app_ids": []
+    },
+    {
+      "app_id": "bilibili",
+      "name": "哔哩哔哩",
+      "purposes": [],
+      "payment_app_ids": []
+    },
+    {
+      "app_id": "douyin",
+      "name": "抖音",
+      "purposes": [],
+      "payment_app_ids": []
+    },
+    {
+      "app_id": "eleme",
+      "name": "饿了么",
+      "purposes": [
+        "shopping"
+      ],
+      "payment_app_ids": [
+        "alipay"
+      ]
+    },
+    {
+      "app_id": "keep",
+      "name": "Keep",
+      "purposes": [],
+      "payment_app_ids": []
+    },
+    {
+      "app_id": "meituan",
+      "name": "美团",
+      "purposes": [
+        "shopping"
+      ],
+      "payment_app_ids": [
+        "alipay",
+        "wechat"
+      ]
+    },
+    {
+      "app_id": "wechat",
+      "name": "微信",
+      "purposes": [
+        "payment"
+      ],
+      "payment_app_ids": []
+    }
+  ]
+}

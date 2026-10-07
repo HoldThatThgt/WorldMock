@@ -1,9 +1,4 @@
-"""@brief 活动的展示标题：活动关联对象的名称（docs/CONTRACTS.md#contracts-worldmock-接口合同 活动控制行的 title）。
-
-生活活动取目录名称，app 使用取应用名，内容标题单独写入快照，工作取主题，通话取联系人称谓，交谈取对方姓名；
-等待、睡眠、出行、阅读邮件没有标题（None）。标题写进活动快照与控制行，时间线据此显示中文名称
-（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-时间线只出现中文名称 ）。名称都是场景与目录里的静态事实，索引在引擎建立时算一次。
-"""
+"""@brief 由唯一动作与内容目录生成活动名称和权威事件快照。"""
 
 from __future__ import annotations
 
@@ -17,67 +12,37 @@ from worldmock.life.scenario import RuntimeScenario
 
 @dataclass(frozen=True, slots=True)
 class TitleIndex:
-    """@brief 各类活动对象的名称索引。
+    """@brief 冻结的动作、应用与内容名称索引。"""
 
-    :param lifestyles: 生活活动条目身份 → 名称。
-    :param apps: 应用身份 → 名称。
-    :param contents: 内容身份 → 标题。
-    :param work_topics: 工作主题身份 → 主题名称。
-    :param contacts: （人物身份，联系人身份）→ 该人物通讯录里的称谓。
-    :param people: 同世界人物的不透明身份 agent:<id> → 姓名。
-    """
-
-    lifestyles: Mapping[str, str]
+    #: 动作身份对应环境登记名称。
+    actions: Mapping[str, str]
+    #: 应用身份对应真实应用名称。
     apps: Mapping[str, str]
+    #: 内容身份对应标题。
     contents: Mapping[str, str]
-    work_topics: Mapping[str, str]
-    contacts: Mapping[tuple[int, str], str]
-    people: Mapping[str, str]
 
 
-def title_index(scenario: RuntimeScenario, lifestyle_names: Mapping[str, str],
-                catalog: Catalog) -> TitleIndex:
-    """@brief 由场景实例和唯一目录建立应用、内容及活动对象名称索引。"""
-    return TitleIndex(
-        lifestyles=lifestyle_names, apps={key: app.name for key, app in catalog.apps.items()},
-        contents={key: item.title for key, item in catalog.contents.items()},
-        work_topics={key: item.topic for key, item in catalog.work_topics.items()},
-        contacts={(agent.agent_id, contact.contact_id): contact.salutation
-                  for agent in scenario.agents for contact in agent.contacts},
-        people={f"agent:{agent.agent_id}": agent.name for agent in scenario.agents})
+def title_index(scenario: RuntimeScenario, catalog: Catalog) -> TitleIndex:
+    """@brief 从唯一登记目录建立名称索引。"""
+    return TitleIndex(actions={key: action.name for key, action in catalog.actions.items()},
+                      apps={key: app.name for key, app in catalog.apps.items()},
+                      contents={key: content.title for key, content in catalog.contents.items()})
 
 
 def activity_title(activity: ActivityState, index: TitleIndex) -> str | None:
-    """@brief 活动关联对象的展示标题；没有关联对象或名称不在索引里时返回 None。
-
-    通话与交谈的对象记在活动数据里（contact_id、partner_id），其余活动的对象是 target_id。
-    """
-    if activity.kind == ActivityKind.CALL:
-        return index.contacts.get((activity.agent_id, str(activity.data.get("contact_id"))))
-    if activity.kind == ActivityKind.CHAT:
-        return index.people.get(str(activity.data.get("partner_id")))
-    if activity.target_id is None:
+    """@brief 环境动作显示动作名，绑定应用时附应用名。"""
+    if activity.kind != ActivityKind.ACTION:
         return None
-    if activity.kind == ActivityKind.LIFESTYLE:
-        return index.lifestyles.get(activity.target_id)
-    if activity.kind == ActivityKind.USE_APP:
-        return index.apps.get(activity.target_id)
-    if activity.kind == ActivityKind.WORK:
-        return index.work_topics.get(activity.target_id)
-    return None
+    name = index.actions[activity.data["action_id"]]
+    app_id = activity.data["app_id"]
+    return f"{name}（{index.apps[app_id]}）" if app_id is not None else name
 
 
-def activity_snapshot(activity, index: TitleIndex, lifestyles) -> dict:
-    """@brief 导出活动权威快照并为内容型活动附查看器直显标题。"""
+def activity_snapshot(activity: ActivityState, index: TitleIndex) -> dict:
+    """@brief 权威活动快照只附与真实内容及应用身份一致的显示名称。"""
     payload = activity.model_dump(mode="json")
-    if activity.kind == ActivityKind.LIFESTYLE:
-        item_id = (activity.target_id or "").removeprefix("lifestyle:")
-        item = next((item for item in lifestyles if item.activity_id == item_id), None)
-        if item is not None:
-            payload["category"] = item.category
     title = activity_title(activity, index)
     if title is not None:
         payload["title"] = title
-    if activity.kind == ActivityKind.USE_APP:
         payload["content_title"] = index.contents[activity.data["content_id"]]
     return payload

@@ -58,7 +58,7 @@ def environment_source_digest(environment_root):
     """@brief 绑定显式环境目录的真实文件字节，缺少输入立即失败。"""
     root = ROOT / Path(environment_root)
     paths = []
-    for name in ("catalog", "corpora", "scenarios"):
+    for name in ("catalog", "scenarios"):
         directory = root / name
         if not directory.is_dir():
             logging.error("Test environment input directory is missing: %s", name)

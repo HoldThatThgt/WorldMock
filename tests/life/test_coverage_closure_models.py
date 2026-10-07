@@ -30,14 +30,6 @@ _IDENTITY = {
 }
 _ENDPOINT_MISMATCH = "Model identity endpoint does not match the configured DeepSeek model"
 
-#: 字段说明登记的四种必须携带业务目标的活动类型。
-_TARGETED_KINDS = (
-    ActivityKind.WORK,
-    ActivityKind.USE_APP,
-    ActivityKind.READ_MAIL,
-    ActivityKind.LIFESTYLE,
-)
-
 #: 运行视图缺少某一字段的占位；构造视图时直接省略该属性。
 _ABSENT = object()
 _LOCATION_MENU = InteractionMenu(allowed_actions=("sleep", "travel_to", "wait"))
@@ -61,14 +53,15 @@ def test_model_identity_accepts_only_the_configured_deepseek_endpoint(
     assert _ENDPOINT_MISMATCH in caplog.messages
 
 
-@pytest.mark.parametrize("kind", _TARGETED_KINDS, ids=lambda kind: kind.value)
-@pytest.mark.parametrize("target_id", [None, ""], ids=["missing", "empty"])
-def test_targeted_activity_requires_a_business_target(kind: ActivityKind, target_id: str | None) -> None:
-    """有业务目标的活动缺目标或给空目标都在受理前拒绝；补上目标即可受理。"""
-    with pytest.raises(ValidationError, match="target_id is required for the selected activity"):
-        ActivityStartParams(activity_type=kind, planned_duration_seconds=600, target_id=target_id)
-    accepted = ActivityStartParams(activity_type=kind, planned_duration_seconds=600, target_id="target")
-    assert accepted.target_id == "target"
+@pytest.mark.parametrize("action_id", [None, ""], ids=["missing", "empty"])
+def test_targeted_activity_requires_a_business_target(action_id: str | None) -> None:
+    """@brief 数据集动作必须有明确动作身份，且时长由内容决定。"""
+    with pytest.raises(ValidationError, match="action parameters require action_id"):
+        ActivityStartParams(activity_type="action", planned_duration_seconds=None, action_id=action_id)
+    accepted = ActivityStartParams(activity_type="action", planned_duration_seconds=None, action_id="office-work")
+    assert accepted.action_id == "office-work"
+    with pytest.raises(ValidationError, match="action parameters require action_id"):
+        ActivityStartParams(activity_type="action", planned_duration_seconds=600, action_id="office-work")
 
 
 def _menu_view(**overrides: object) -> SimpleNamespace:

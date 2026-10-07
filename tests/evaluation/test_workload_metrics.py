@@ -59,7 +59,7 @@ def _schedule(**exceptions) -> WorkSchedule:
 
 def _agent(schedule: WorkSchedule | None, leave=None, arrive=None) -> AgentWorkday:
     """住处为 home 的人物评估输入。"""
-    return AgentWorkday(schedule, "home", leave, arrive)
+    return AgentWorkday(schedule, "home", ("topic-sales",), leave, arrive)
 
 
 class _Events:
@@ -73,7 +73,7 @@ class _Events:
         seq = len(self.rows) + 1
         event = {"event_id": f"evt-{seq:04d}", "event_type": event_type, "event_seq": seq,
                  "occurred_at": occurred_at, "agent_id": agent_id, "activity_id": activity_id, "data": data,
-                 "run_id": "run-workday", "code_sha256": CODE}
+                 "run_id": "run-workday", "code_sha256": CODE, "action_id": None}
         self.rows.append(event)
         return event
 
@@ -101,10 +101,13 @@ class _Events:
 
     def work(self, agent_id, start, end):
         """一段真实工作进度；没有效率折扣或任务验收。"""
-        snapshot = {"activity_id": f"work-{agent_id}-{len(self.rows)}", "kind": "work", "started_at": start,
-                    "location_id": "office", "status": "active", "data": {"topic_id": "topic-sales"}}
+        snapshot = {"activity_id": f"work-{agent_id}-{len(self.rows)}", "kind": "action", "started_at": start,
+                    "location_id": "office", "status": "active",
+                    "data": {"action_id": "office-work", "category": "work_study",
+                             "manner": "offline", "app_id": None, "content_id": "topic-sales"}}
         self.progress(agent_id, (start, end), snapshot,
-                      work={"topic_id": "topic-sales", "worked_seconds": end-start, "remaining_seconds": 28800-end+start})
+                      content={"content_id": "topic-sales", "consumed_seconds": end-start,
+                               "position_before_seconds": 0, "position_after_seconds": end-start})
 
     def sleep(self, agent_id: int, start: int, end: int) -> None:
         """一段睡眠进度。"""
@@ -378,8 +381,10 @@ def _decide_at(engine, moment):
 
 
 def _start_work(engine, name):
-    topic = engine.context.semantics.catalog.work_topics[engine.context.scenario.agents[0].work_topic_ids[0]]
-    result = _decide(engine, name, "start_activity", start_activity("工作", f"工作：{topic.topic}"))
+    catalog = engine.context.semantics.catalog
+    content = catalog.contents[engine.context.scenario.agents[0].work_content_ids[0]]
+    action = catalog.actions[content.action_id]
+    result = _decide(engine, name, "start_activity", start_activity("进行", action.name))
     assert result.status == "in_progress", result.error_code
     return result
 
@@ -569,7 +574,8 @@ def test_a_real_run_counts_actual_work_only_inside_the_shift(engine_factory):
     events = [event.model_dump(mode="json") for event in engine.context.store.read_events(engine.context.store.last_event_seq)]
     work = [(event["data"]["interval_start"], event["data"]["interval_end"])
             for event in events if event["event_type"] == "activity_progress"
-            and event["data"]["activity"]["kind"] == "work"]
+            and event["data"]["activity"]["kind"] == "action"
+            and event["data"]["activity"]["data"]["category"] == "work_study"]
     assert min(start for start, _ in work) < _clock("09:00:00")
     inside = sum(max(0, min(end, _clock("18:00:00"))-max(start, _clock("09:00:00"))) for start, end in work)
     assert 0 < inside < sum(end-start for start, end in work)

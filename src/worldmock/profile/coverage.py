@@ -1,7 +1,7 @@
 """@brief 人物卡片覆盖率校验：persona_coverage.json 结构（docs/CONTRACTS.md#contracts-worldmock-接口合同「人物卡片覆盖率产出」）。
 
 习惯签名、食品偏好与媒介必须映射到登记目录中的可执行目标。内容题材仍保留为画像散文，不参与覆盖率。
-可执行比例低于 80% 时校验失败并列出缺失项。习惯与食品名按双向子串匹配，媒介按内容类型标签或应用名精确匹配。
+可执行比例低于 80% 时校验失败并列出缺失项。习惯、食品名与动作名按双向子串匹配，应用名精确匹配。
 """
 
 from __future__ import annotations
@@ -18,12 +18,13 @@ COVERAGE_SCHEMA_VERSION = 1
 
 
 class CoverageTargets(FrozenModel):
-    """@brief 调用方给出的映射目标清单（世界目录/品类集，profile 不自行加载）。"""
+    """@brief 调用方给出的登记目录映射目标清单，profile 不自行加载。"""
 
 
     habit_response_keywords: tuple[str, ...] = ()
     food_kinds: tuple[str, ...] = ()
-    media_kinds: tuple[str, ...] = ()
+    #: 全部登记动作的名称，按双向子串匹配媒介偏好。
+    action_names: tuple[str, ...] = ()
     # 全部登记应用的名称，只作媒介条目的精确命中。
     app_names: tuple[str, ...] = ()
 
@@ -66,7 +67,7 @@ def validate_coverage(card: PersonaCard,
     for food in card.tastes.food_preferences:
         checks.append(("food_preference", food, _keyword_hit(food, targets.food_kinds)))
     for medium in card.tastes.media:
-        checks.append(("media", medium, medium in set(targets.media_kinds + targets.app_names)))
+        checks.append(("media", medium, _keyword_hit(medium, targets.action_names) or medium in targets.app_names))
     total = len(checks)
     covered = sum(1 for _, _, hit in checks if hit)
     ratio = (covered / total) if total else 1.0

@@ -14,7 +14,7 @@ from tests.life.conftest import report_request, start_activity
 from tests.life.routing_fixtures import (
     WAIT_ITEM,
     act,
-    buy_food,
+    buy_goods,
     routed,
     run_until,
     single_person_home,
@@ -32,35 +32,17 @@ _AWAKE_OFFSET = 420
 _ASLEEP_OFFSET = 300
 
 
-def _move(engine, event: ScheduledEvent, due: int) -> None:
-    """把一条预排事件改到 due 到期（身份、序号与载荷不变，按到期时刻重排），经存储提交。"""
-    def change(state) -> None:
-        """改到期时刻并重排。"""
-        state.pending_events = sorted(
-            [item.model_copy(update={"due_at": due}) if item.scheduled_id == event.scheduled_id else item
-             for item in state.pending_events], key=lambda item: (item.due_at, item.sequence, item.scheduled_id))
-    stage(engine, change)
-
-
-def _idle(engine) -> bool:
-    """人物 1 此刻可以决策，手上既没有进行中的活动，也没有待收尾的活动。"""
-    state = engine.context.state
-    return (1 in engine.scheduling_state().ready_agent_ids and not pending_conclusions(state, 1)
-            and not active_activities(state, 1))
-
-
 def _own_delivery(engine) -> tuple[str, ScheduledEvent]:
     """人物 1 在集市远程下单一份纯牛奶（送到这里，本人付款），返回（订单身份，它的配送事件）。配送不能早于订单的预计送达
     时刻：先把配送暂时移到三小时后，人物照常过日子（一段段等待做满），直到预计送达时刻之后、手上没有活动的那一秒。"""
-    ordered = buy_food(engine, "order", way="远程下单")
+    ordered = buy_goods(engine, "order", app="美团", pay_app="支付宝")
     assert ordered.status == "completed", (ordered.error_code, ordered.message)
     order_id = ordered.data["orders"][0]["order_id"]
     delivery = next(item for item in engine.context.state.pending_events
                     if item.kind == ScheduledKind.DELIVERY_ARRIVAL and order_id in item.data["order_ids"])
     assert delivery.agent_id == 1
     expected = engine.context.state.deliveries[order_id].expected_at
-    _move(engine, delivery, expected + 3 * 3600)
-    run_until(engine, lambda current: current.context.state.current_time >= expected and _idle(current))
+    assert delivery.due_at == expected > engine.context.state.current_time
     assert engine.context.state.deliveries[order_id].status == "pending"
     return order_id, delivery
 
@@ -71,9 +53,8 @@ def _offered_while_waiting(engine, event: ScheduledEvent, reason: str) -> int:
     waited = act(engine, "wait", routed(WAIT_ITEM))
     assert waited.status == "in_progress", (waited.error_code, waited.message)
     wait = engine.context.state.activities[waited.activity_id]
-    due = engine.context.state.current_time + _AWAKE_OFFSET
+    due = event.due_at
     assert due < wait.planned_end_at
-    _move(engine, event, due)
     until(engine, due)
     boundary = body_settlement(engine, due)
     assert (boundary.data["decision_offered"], boundary.data["wake_reasons"]) == (True, [reason])
@@ -95,9 +76,8 @@ def _silent_while_asleep(engine, event: ScheduledEvent) -> int:
     slept = act(engine, "sleep", start_activity("睡觉", "自己"))
     assert slept.status == "in_progress", (slept.error_code, slept.message)
     sleep = engine.context.state.activities[slept.activity_id]
-    due = engine.context.state.current_time + _ASLEEP_OFFSET
+    due = event.due_at
     assert due < sleep.planned_end_at
-    _move(engine, event, due)
     until(engine, due)
     boundary = body_settlement(engine, due)
     assert (boundary.data["decision_offered"], boundary.data["wake_reasons"]) == (False, [])
@@ -109,9 +89,9 @@ def _silent_while_asleep(engine, event: ScheduledEvent) -> int:
 
 
 def test_an_own_delivery_during_a_wait_offers_a_decision_and_the_wait_goes_on(engine_factory) -> None:
-    """本人远程下单的配送在等待进行中送达：送达那一秒订单已送达、牛奶入库，共同身体结算只以 delivery_arrival 提供决策，
+    """本人远程下单的配送在等待进行中送达：送达那一秒订单已送达、收货结算且无库存变化，共同身体结算只以 delivery_arrival 提供决策，
     这一秒的 decision_started 带 delivery_arrival，等待不因此结束。"""
-    engine = single_person_home(engine_factory, {})
+    engine = single_person_home(engine_factory)
     order_id, delivery = _own_delivery(engine)
     due = _offered_while_waiting(engine, delivery, "delivery_arrival")
     assert engine.context.state.deliveries[order_id].status == "delivered"
@@ -122,7 +102,7 @@ def test_an_own_delivery_during_a_wait_offers_a_decision_and_the_wait_goes_on(en
 
 def test_a_sleeper_gets_no_decision_when_an_own_delivery_arrives(engine_factory) -> None:
     """同一笔本人订单在人物睡着时送达：订单照常送达，那一秒的结算静默，没有决策机会，睡眠继续。"""
-    engine = single_person_home(engine_factory, {})
+    engine = single_person_home(engine_factory)
     order_id, delivery = _own_delivery(engine)
     _silent_while_asleep(engine, delivery)
     assert engine.context.state.deliveries[order_id].status == "delivered"

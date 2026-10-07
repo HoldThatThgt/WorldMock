@@ -17,10 +17,10 @@ from pydantic import Field, ValidationError
 from worldmock.base_models import CurvePoint, DeepFrozenModel, EfficiencyFactor, FrozenModel
 from worldmock.catalog.errors import RegistrationError
 from worldmock.catalog.identity import read_catalog_file
-from worldmock.corpora.manifest import _validate_entry, safe_file
+from worldmock.corpora.manifest import safe_file
 from worldmock.errors import IntegrityError, ProtocolError, reject_value
 from worldmock.evaluation import behavior_metrics, goal_metrics, workload_metrics
-from worldmock.footprints import assets, quality
+from worldmock.footprints import assets
 from worldmock.footprints.timeline_labels import _load_render_day
 from worldmock.footprints.intervals import body_settlements, valid_interval
 from worldmock.footprints.models import Event, canonical_json, is_sha256, sha256_json
@@ -80,14 +80,13 @@ def _reject_root_contained_reference(root, relative, payload, consumer):
     """验证内容身份正确时，原消费者仍按声明或链接规则拒绝根内文件。"""
     entry = SimpleNamespace(path=relative, sha256=hashlib.sha256(payload).hexdigest(), size_bytes=len(payload))
     operations = {'safe_file': (lambda: safe_file(root, relative, 'consumer path rejected'), 'consumer path rejected'),
-                  'corpus': (lambda: _validate_entry(root, entry), 'Corpus entry path is invalid'),
                   'catalog': (lambda: read_catalog_file(root, relative), 'ENVIRONMENT_IDENTITY_MISMATCH:.* Catalog file path is invalid')}
     operation, message = operations[consumer]
     with pytest.raises(IntegrityError, match=f'^{message}$'):
         operation()
 
 
-@pytest.mark.parametrize('consumer', ['safe_file', 'corpus', 'catalog'])
+@pytest.mark.parametrize('consumer', ['safe_file', 'catalog'])
 def test_safe_file_consumers_reject_parent_reference_that_resolves_inside_root(tmp_path, consumer):
     root = tmp_path / 'corpus'
     root.mkdir()
@@ -97,13 +96,12 @@ def test_safe_file_consumers_reject_parent_reference_that_resolves_inside_root(t
     relative = 'child/../normal.json'
     assert (root / relative).resolve() == root / 'normal.json'
     normal = SimpleNamespace(path='normal.json', sha256=hashlib.sha256(payload).hexdigest(), size_bytes=len(payload))
-    _validate_entry(root, normal)
     assert read_catalog_file(root, normal.path) == payload
     _reject_root_contained_reference(root, relative, payload, consumer)
 
 
 @pytest.mark.parametrize('link_kind', ['file', 'directory'])
-@pytest.mark.parametrize('consumer', ['safe_file', 'corpus', 'catalog'])
+@pytest.mark.parametrize('consumer', ['safe_file', 'catalog'])
 def test_safe_file_consumers_reject_symlink_that_resolves_inside_root(tmp_path, monkeypatch, link_kind, consumer):
     root = tmp_path / 'corpus'
     root.mkdir()
@@ -131,12 +129,11 @@ def test_safe_file_consumers_reject_symlink_that_resolves_inside_root(tmp_path, 
     assert (root / relative).read_bytes() == payload
     normal = SimpleNamespace(path='normal/file.json', sha256=hashlib.sha256(payload).hexdigest(),
                              size_bytes=len(payload))
-    _validate_entry(root, normal)
     assert read_catalog_file(root, normal.path) == payload
     _reject_root_contained_reference(root, relative, payload, consumer)
 
 
-@pytest.mark.parametrize('consumer', ['safe_file', 'corpus', 'catalog'])
+@pytest.mark.parametrize('consumer', ['safe_file', 'catalog'])
 def test_safe_file_consumers_reject_directory_junction_that_resolves_inside_root(tmp_path, monkeypatch, consumer):
     """Windows 目录联接不是符号链接（is_symlink 为假），但同样是链接组件，即使解析后仍在根内也拒绝。"""
     root = tmp_path / 'corpus'
@@ -159,7 +156,6 @@ def test_safe_file_consumers_reject_directory_junction_that_resolves_inside_root
     assert (root / 'alias/file.json').read_bytes() == payload
     normal = SimpleNamespace(path='normal/file.json', sha256=hashlib.sha256(payload).hexdigest(), size_bytes=len(payload))
     assert safe_file(root, 'normal/file.json', 'consumer path rejected').read_bytes() == payload
-    _validate_entry(root, normal)
     assert read_catalog_file(root, normal.path) == payload
     _reject_root_contained_reference(root, 'alias/file.json', payload, consumer)
 
@@ -184,10 +180,8 @@ def test_original_safe_file_consumers_reject_symlink_before_hash_or_schema(tmp_p
         # Windows 无创建链接权限时只模拟文件系统链接标志，生产消费者仍真实拒绝此路径。
         original = Path.is_symlink
         monkeypatch.setattr(Path, 'is_symlink', lambda path: path in unavailable or original(path))
-    entry = SimpleNamespace(path='content.json', sha256='0'*64, size_bytes=2)
-    for operation in (lambda: _validate_entry(root, entry), lambda: content.load_lifestyle_items(root, {})):
-        with pytest.raises(IntegrityError, match='path is invalid'):
-            operation()
+    with pytest.raises(IntegrityError, match='path is invalid'):
+        safe_file(root, 'content.json', 'Content file path is invalid')
     caplog.clear()
     with pytest.raises(RegistrationError, match='ENVIRONMENT_IDENTITY_MISMATCH'):
         read_catalog_file(root, 'content.json')
@@ -264,12 +258,14 @@ def test_efficiency_factor_blank_and_empty_constraints_and_freeze_distinction():
 @pytest.mark.parametrize('start,end', [(0.0, 10), (0, 10.0), (True, 10), (0, False),
                                        (float('nan'), 10), (0, float('inf')), (10, 10), (20, 10)])
 def test_interval_consumers_do_not_count_invalid_settlements(start, end):
+    from worldmock.footprints import quality
+
     event = _body(start, end)
     row = event.model_dump(mode='python')
     assert not valid_interval(start, end)
     assert quality._activity_quality([], [event])['body_settlements_missing_interval'] == 1
     assert behavior_metrics._person_elapsed_minutes([row], [])['missing_interval_events'] == 1
-    agent = workload_metrics.AgentWorkday(None, 'home', None, None)
+    agent = workload_metrics.AgentWorkday(None, 'home', (), None, None)
     timeline = workload_metrics._timeline([row], agent, __import__('zoneinfo').ZoneInfo('UTC'))
     assert (timeline.start, timeline.end) == (0, 0)
     progress = {**row, 'event_type': 'activity_progress', 'activity_id': 'activity',
@@ -279,6 +275,8 @@ def test_interval_consumers_do_not_count_invalid_settlements(start, end):
 
 
 def test_body_settlement_subject_filter_is_shared_and_strict():
+    from worldmock.footprints import quality
+
     events = [_body(0, 10, 1), _body(0, 20, 2), _body(0, 30, None)]
     assert body_settlements(events, 1) == events[:1]
     assert body_settlements([event.model_dump() for event in events], 2) == [events[1].model_dump()]
@@ -309,12 +307,14 @@ def test_renderer_and_label_report_use_manifest_timezone_and_real_local_day(zone
     assert behavior_metrics._agent_days([{'agent_id': 1, 'occurred_at': start},
                                         {'agent_id': 1, 'occurred_at': end-1}], '1', zone_info) == 1
     body = _body(start, end).model_dump()
-    agent = workload_metrics.AgentWorkday(None, 'home', None, None)
+    agent = workload_metrics.AgentWorkday(None, 'home', (), None, None)
     timeline = workload_metrics._timeline([body], agent, zone_info)
     assert workload_metrics._days(timeline, zone_info) == [day]
 
 
 def test_independent_reflection_snapshot_is_valid_across_memory_quality_and_behavior():
+    from worldmock.footprints import quality
+
     episode = {'id': 'reflection', 'type': 'reflection', 'text': '睡前想了想',
                'epistemic_status': 'subjective', 'source': 'reflection'}
     assert memory_evidence.valid_subjective_snapshot(episode)

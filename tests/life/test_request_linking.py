@@ -10,16 +10,16 @@ from tests.life.purchase_worlds import registered_world
 
 def test_real_food_order_keeps_message_link_and_rejects_duplicate_after_restore():
     semantics, state = registered_world()
-    request = PurchaseOrderRequest(items=(PurchaseItem(store_id="noodle-1", food_id="beef-noodles", quantity=1,
+    request = PurchaseOrderRequest(items=(PurchaseItem(store_id="noodle-1", goods_id="beef-noodles", quantity=1,
         recipient_id="agent:1", request_message_id="meal-request"),), fulfillment="delivery",
-        destination_id="home", app_id="meituan")
+        destination_id="home", app_id="meituan", payment_app_id="wechat")
     outcome = purchase_order(state, semantics, 1, request)
     restored = WorldState.model_validate_json(outcome.state.model_dump_json())
-    binding = {"food_id": "beef-noodles", "recipient_id": "agent:1", "request_message_id": "meal-request",
+    binding = {"goods_id": "beef-noodles", "recipient_id": "agent:1", "request_message_id": "meal-request",
                "answering": "同事 12:00 的消息"}
     before = restored.model_dump_json()
     with pytest.raises(PreconditionError, match="REQUEST_ALREADY_HANDLED") as failure:
         require_unhandled(restored, semantics.scenario, [binding])
     assert "牛肉面" in failure.value.public_reason and failure.value.suggested["linked_orders"]
     assert restored.model_dump_json() == before
-    require_unhandled(restored, semantics.scenario, [{**binding, "food_id": "chips"}])
+    require_unhandled(restored, semantics.scenario, [{**binding, "goods_id": "chips"}])

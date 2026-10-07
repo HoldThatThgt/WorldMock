@@ -50,7 +50,7 @@ def test_observation_exposes_semantic_choices_and_keeps_bindings_private(engine_
     assert all(row["name"] for row in rows)
     for row in rows:
         for action in row["actions"]:
-            assert set(action) == {"action", "way", "available", "reason", "price", "duration", "quantity", "note"}
+            assert set(action) == {"action", "way", "app", "available", "reason", "price", "duration", "quantity", "note"}
             assert action["action"] in LIFE_VERBS and WAYS[action["way"]][0] == action["action"]
             assert action["reason"] is None or isinstance(action["reason"], str) and action["reason"]
     assert "preconditions_met" not in str(observed["tool_layer"])
@@ -131,7 +131,7 @@ def test_availability_judges_the_menu_first_with_the_admission_reason(engine_fac
     offered = engine.observe(decision)
     location = _binding(offered, "location", "travel_to")
     _deny_travel_at_home(engine)
-    recomputed = engine.observations._layer_context(engine.context.state.agents[1], (), offered["interaction_bindings"])
+    recomputed = engine.observations._layer_context(engine.context.state.agents[1], offered["interaction_bindings"])
     note = next(action["note"] for row in recomputed.bindings if row["object"] == location["object"]
                 for action in row["actions"] if action["label"] == "步行")
     request = start_request(targets=[location["object"]], actions=["travel"], ways=["步行"])

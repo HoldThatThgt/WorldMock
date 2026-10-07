@@ -1,18 +1,4 @@
-"""@brief settled 写法的确定性句子（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第三章「settled 的写法」）。
-
-只写人物可见、成功（completed 或 in_progress）且不是重放的世界请求与世界事件：下单（带所回应的消息与收货人）、给予、
-发消息各一句，在本段结束的活动每项一句（起止含暂停区间、终局、实际份量，阅读完成另写实际读到的
-完整标签），收到的直接消息（全文）、
-邮件（主题）、送达与新工作各一句。不写失败的请求、记忆查询、回看、report_status、暂停与恢复、revise_day_plan、提醒、
-截止预警、身体结算与交谈邀请。金额按元，份数至多两位小数，时长用人读短语，跨日加「M月D日」。记忆层、进度层按预算浓缩的
-lines 与零点计划输入都取这里的句子（同时是零点计划输入里已核验经历句子的唯一写法）。进度层的个人事务办成记录
-errand_completed 折成一句「HH:MM 办成「<事务名>」」，只用于进度层浓缩（记忆层与零点计划输入不派生这种记录）；事务提醒
-errand_reminder 与当日目标提醒同等对待，不写句子（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-待办层与进度层呈现 ）。
-
-活动的句子按它结束的提交归属（第三章「归属」）：结束提交是带该活动终态快照的最早事件（activity_progress、生命周期与截断
-environment_event、终态 action_result）所在的提交，到达时结束的出行归路程，实验截止截断的活动归最后一段；之后的
-conclude_activity 本身不写句子，只在进度层浓缩时带出它所结束的、在本 session 内结束的活动（更早结束的已在记忆层）。
-"""
+"""@brief 本人可见成功事实的确定性句子：订单、发送与收到的消息、活动实际终局以及收货记录。"""
 
 from __future__ import annotations
 
@@ -25,8 +11,6 @@ from typing import Any
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import Event
 from worldmock.life import activity_control
-from worldmock.life.activity_evidence import is_eating
-from worldmock.life.vocabulary import PURCHASE_WAYS
 from worldmock.life.models import ActivityKind, ActivityState, TravelMode
 from worldmock.life.readable import clock_phrase, duration_phrase, iso_time, money_phrase, portion_phrase
 from worldmock.life.recipients import agent_identity, person_name
@@ -74,7 +58,7 @@ def record_lines(context: LayerContext, record: dict, sources: list[Event],
     if kind == "delivery":
         return [f"{_clock(context, record['occurred_at'])} {record['order']}：{record['message']}"]
     if kind == "work_completed":
-        return [f"{_clock(context, record['occurred_at'])} 完成工作主题「{record['topic']}」"]
+        return [f"{_clock(context, record['occurred_at'])} 完成「{record['topic']}」"]
     if kind == "errand_completed":
         return [f"{_clock(context, record['occurred_at'])} 办成「{record['errand']}」"]
     return []
@@ -82,8 +66,7 @@ def record_lines(context: LayerContext, record: dict, sources: list[Event],
 
 def activity_sentence(context: LayerContext, activity: ActivityState,
                       pauses: Sequence[tuple[int, int]] = (), app_progress: Mapping[str, str] | None = None) -> str:
-    """@brief 一项已结束活动的句子：名称、起止（含暂停区间）、终局，进食另写吃掉与丢弃的份数
-    （与收尾结果 details.outcome 同一结算事实）。
+    """@brief 一项已结束活动的句子：名称、起止（含暂停区间）、终局，终局与收尾结果 details.outcome 同一结算事实。
 
     例：「工作：会议纪要（1月5日 09:10 起）：09:10–11:50（暂停 10:43–11:16），提前结束」。
     """
@@ -93,38 +76,29 @@ def activity_sentence(context: LayerContext, activity: ActivityState,
     end = clock_phrase(activity.ended_at or activity.last_settled_at, now, zone)
     paused = "、".join(f"{clock_phrase(begin, now, zone)}–{clock_phrase(until, now, zone)}" for begin, until in pauses)
     sentence = f"{name}：{start}–{end}{f'（暂停 {paused}）' if paused else ''}，{activity_control.ending_phrase(activity)}"
-    if is_eating(activity):
-        sentence += f"，吃了 {portion_phrase(sum(activity.data.get('consumed', {}).values()))}"
-        discarded = sum(activity.data.get("discarded", {}).values())
-        sentence += f"，丢弃 {portion_phrase(discarded)}" if discarded > 0 else ""
-    if activity.kind == ActivityKind.USE_APP:
+    if activity.kind == ActivityKind.ACTION:
         if app_progress is None:
-            logging.error("App activity sentence has no authenticated progress evidence")
-            raise IntegrityError("App activity sentence has no authenticated progress evidence")
-        content = _app_sentence(context, activity, app_progress.get(activity.activity_id))
+            logging.error("Action activity sentence has no authenticated progress evidence")
+            raise IntegrityError("Action activity sentence has no authenticated progress evidence")
+        content = _content_sentence(context, activity, app_progress.get(activity.activity_id))
         sentence += f"，{content}" if content else ""
     return sentence
 
 
-def _app_sentence(context: LayerContext, activity: ActivityState, advanced_content_id: str | None) -> str:
-    """@brief 按已完成列表与当前真实推进写应用内容；刚抽到但尚未推进的内容不计入经历。"""
+def _content_sentence(context: LayerContext, activity: ActivityState, advanced_content_id: str | None) -> str:
+    """@brief 只写真正完成的内容及确有推进的未完内容，活动名已包含动作和应用。"""
     titles = "".join(f"《{context.rules.contents[row['content_id']].title}》" for row in activity.data["played"])
     current = context.rules.contents[activity.data["content_id"]]
     partial = advanced_content_id == current.content_id
-    if not titles and not partial:
-        return ""
-    app = context.rules.apps[activity.target_id].name
-    if not titles:
-        return f"用{app}看了《{current.title}》的一部分"
-    return f"用{app}看了{titles}" + (f"（《{current.title}》看了一部分）" if partial else "")
+    return titles + (f"（《{current.title}》未完）" if partial else "")
 
 
 def app_progress(events: Iterable[Event], previous: Mapping[str, str]) -> dict[str, str]:
-    """@brief 从认证的本活动消费区间派生当前部分观看；完成时清除，自动抽出的下一项不算消费。"""
+    """@brief 从认证的本活动消费区间派生当前部分消费；完成时清除，自动抽出的下一项不算消费。"""
     progress = dict(previous)
     for event in events:
         if (event.event_type != "activity_progress" or event.source_kind != "environment"
-                or event.visibility != "agent" or event.data["activity"]["kind"] != "use_app"):
+                or event.visibility != "agent" or event.data["activity"]["kind"] != "action"):
             continue
         content = event.data["content"]
         if content["completed"]:
@@ -134,17 +108,19 @@ def app_progress(events: Iterable[Event], previous: Mapping[str, str]) -> dict[s
     return progress
 
 def purchase_sentence(context: LayerContext, order: dict[str, Any], answering: str | None) -> str:
-    """@brief 一个订单的句子：「10:20 远程下单牛肉炒面 1 份，付 32 元，预计 10:35 送到<地点>（回应王磊 10:15 的消息，
+    """@brief 一个订单的句子：「10:20 经购物应用购买牛肉炒面 1 份，付 32 元，预计 10:35 送到<地点>（回应王磊的消息，
     收货人王磊）」；到店不写送达，没有关联消息不写回应，收货人是自己时不写收货人。
 
     :param answering: 下单请求的 answering（关联消息的名称），订单没有关联时不写。
     """
     now, zone = context.state.current_time, context.scenario.timezone
-    product = context.semantics.catalog.foods[order["food_id"]].name
-    sentence = (f"{clock_phrase(order['created_at'], now, zone)} {PURCHASE_WAYS[order['fulfillment']]}"
-                f"{'买' if order['fulfillment'] == 'pickup' else ''}{product} {portion_phrase(order['quantity'])}，"
-                f"付 {money_phrase(order['total_price_fen'])}")
-    if order["fulfillment"] == "delivery":
+    product = context.semantics.catalog.goods[order["goods_id"]].name
+    app = "" if order["app_id"] is None else f"经{context.rules.apps[order['app_id']].name}"
+    sentence = (f"{clock_phrase(order['created_at'], now, zone)} {app}购买{product} "
+                f"{portion_phrase(order['quantity'])}，付 {money_phrase(order['total_price_fen'])}")
+    if order["payment_app_id"] is not None:
+        sentence += f"（{context.rules.apps[order['payment_app_id']].name}）"
+    if order["fulfillment"] in {"delivery", "station_pickup"}:
         place = next(item.name for item in context.scenario.locations if item.location_id == order["destination_id"])
         sentence += f"，预计 {clock_phrase(order['expected_at'], now, zone)} 送到{place}"
     notes = [f"回应{answering}"] if answering is not None and order["request_message_id"] is not None else []
@@ -153,20 +129,12 @@ def purchase_sentence(context: LayerContext, order: dict[str, Any], answering: s
     return sentence + (f"（{'，'.join(notes)}）" if notes else "")
 
 
-def give_sentence(context: LayerContext, moment: str, item: dict[str, Any]) -> str:
-    """@brief 一次给予的句子：「10:40 把牛肉炒面 1 份给了王磊」（moment 为请求时刻的带时区 ISO）。"""
-    product = context.semantics.catalog.foods[item["food_id"]].name
-    person = person_name(context.state, context.scenario, context.agent_id, item["recipient_id"])
-    return f"{_clock(context, moment)} 把{product} {portion_phrase(item['quantity'])}给了{person}"
 
 
 
 
 def experience_sentence(context: LayerContext, fact: dict[str, Any]) -> str:
-    """@brief 一条已核验经历的句子（零点计划输入）：等待、食用、播放带起止时刻，到达带到达时刻与方式。
-
-    例：「14:17 开车到了张江办公室」「13:57–14:17 吃了番茄炒蛋」；地点、商品与内容取场景名称，出行方式取自所属出行活动。
-    """
+    """@brief 已核验经历写实际时刻或区间，商品与内容取冻结目录，出行方式取所属活动。"""
     now, zone, scenario = context.state.current_time, context.scenario.timezone, context.scenario
     if fact["kind"] == "arrived":
         travel = context.state.activities[fact["activity_id"]]
@@ -174,15 +142,16 @@ def experience_sentence(context: LayerContext, fact: dict[str, Any]) -> str:
         place = next(item.name for item in scenario.locations if item.location_id == fact["location_id"])
         denied = "，但没能进去" if fact["access_status"] == "denied" else ""
         return f"{clock_phrase(fact['occurred_at'], now, zone)} {mode}到了{place}{denied}"
+    if fact["kind"] == "received":
+        goods = context.semantics.catalog.goods[fact["goods_id"]]
+        return f"{clock_phrase(fact['occurred_at'], now, zone)} 收到{goods.name} {portion_phrase(fact['quantity'])}"
     span = f"{clock_phrase(fact['interval_start'], now, zone)}–{clock_phrase(fact['interval_end'], now, zone)}"
     if fact["kind"] == "waited":
         return f"{span} 等待了{duration_phrase(fact['duration_seconds'])}"
-    if fact["kind"] == "consumed":
-        names = {item.food_id: item.name for item in scenario.foods}
-        return f"{span} 吃了{names[fact['food_id']]}"
-    app = context.rules.apps[fact["app_id"]].name
-    title = context.rules.contents[fact["content_id"]].title
-    return f"{span} 用{app}看了《{title}》"
+    content = context.rules.contents[fact["content_id"]]
+    action = context.rules.actions[content.action_id].name
+    app = "" if fact["app_id"] is None else f"用{context.rules.apps[fact['app_id']].name}"
+    return f"{span} {app}{action}《{content.title}》"
 
 
 def activity_endings(events: Iterable[Event]) -> dict[str, Event]:
@@ -252,7 +221,7 @@ def _tool_lines(context: LayerContext, record: dict, sources: list[Event], facts
                               facts.app_progress)
             for activity_id in payload.get("activity_ids", []) if activity_id in facts.endings]
     lines = [purchase_sentence(context, order, payload.get("answering")) for order in payload.get("orders", [])]
-    return lines + [give_sentence(context, record["occurred_at"], item) for item in payload.get("given", [])]
+    return lines
 
 
 def _clock(context: LayerContext, moment: str) -> str:

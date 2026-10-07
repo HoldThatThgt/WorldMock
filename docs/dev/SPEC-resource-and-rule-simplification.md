@@ -1,6 +1,11 @@
 <a name="spec-rrs-资源与规则引擎简化开发规格"></a>
 # 资源与规则引擎简化开发规格
 
+> 按[动作与内容简化规格](SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则与常数、环境格式、人工环境、三类食品与进食、店铺食品与外卖的交付持有条款」（阶段 1、2）。
+> 本规格不归档；其「用户得到什么」已由动作与内容简化规格取代，未被取代的历史裁决与现行机器登记继续按各自身份解释。
+
+> 引用出处：`src/worldmock/life/world_setup.py::_require_engine_rules` @ `05a295ab464165e9ce3bd7cd7783e0513fb57e8d`
+
 > 2026-10-07 按用户确认的[数据加工归属](../ARCHITECTURE.md#architecture-数据加工归属)修订：WorldMock 负责模拟、记录、完整认证足迹导出与真实性评估；LabelKit 加工、模型任务、训练装载与规则测试归 LabelKit-DataSet；环境素材归 WorldMock-Dataset。历史验收数字只证明原源码基线，不代表本次消费链已验收。
 
 > 状态：FROZEN。2026-10-07 冲突、覆盖、可实现性三个视角完成复审与实质问题定向复核；第 1 轮 34 项、第 2 轮 25 项、第 3 轮三个阻断均已关闭。本文件是资源与规则简化的实施权威；实现与验收状态按机器台账和真实回执判定。
@@ -475,7 +480,7 @@ WorldMock 拥有全部分类、常数与交换公式，定义在新包 `src/worl
 
 - 同类同菜单：某类型店铺的菜单 = 绑定到该类型任一店铺的食品集合；显式绑定对每种类型要么全部、要么全无；`"all"` 展开到全部 `FOOD_STORE_KINDS` 地点；价格定义在食品上，无店铺覆盖价、无价格位置、无抖动、无种子。
 - app 绑定：店铺 `app_ids` 决定能否外卖；一个 app 绑定多家店；内容绑定 app 与店铺绑定 app 互不影响；无 app 的店只能到店。
-- 指名购买（M0–M3）不变地跑在食品、店铺与 app 上：`from` 为 null、店铺显示名或 app 名（app 行由 `src/worldmock/life/name_resolution.py::resolve_source` 从 `catalog.apps` 构造 `(app_id, (name,), stores_by_app[app_id])`，`channel_key` 不变）；M3「能服务」= 到店：人在该店；远程下单：店铺绑定了 app，`from` 为 app 时必须是该 app；下一步写 `Go to <最近的在售店铺>.` 或 `Order through <app>.`；绑定行 `channel_id` 改 `app_id`，`purchase_note` 写「经<app>远程下单」。
+- 指名购买（M0–M3）不变地跑在食品、店铺与 app 上：`from` 为 null、店铺显示名或 app 名（app 行由 `src/worldmock/life/name_resolution.py::resolve_start` 从 `catalog.apps` 构造 `(app_id, (name,), stores_by_app[app_id])`，`channel_key` 不变）；M3「能服务」= 到店：人在该店；远程下单：店铺绑定了 app，`from` 为 app 时必须是该 app；下一步写 `Go to <最近的在售店铺>.` 或 `Order through <app>.`；绑定行 `channel_id` 改 `app_id`，`purchase_note` 写「经<app>远程下单」。
 - `prefer`：最快拿到 = 外卖按最早 `expected_at`、到店按图上最短距离；到手价最低 = `price_fen`（外卖加 `DELIVERY_FEE_FEN`）；并列按到手价再按 `store_id`；`from` 为 null 且店铺绑定多个 app 时取最小 `app_id` 并写 `details.notes`（D-34）。
 - 到店购买：人在店里，`fulfillment = pickup`，即时交付到当地持有，不记 app（`app_id = null`）；`from=<app>` 配到店以 `SUPPLY_SOURCE_MISMATCH` 拒绝；到店购买与进食用现有逐地点持有，不设合并动作。
 - 外卖：`fulfillment = delivery`，要求 `app_id ∈ apps_by_store[store_id]`（否则 `APP_NOT_BOUND`），店铺没有 app 时显式远程下单是 `FULFILLMENT_NOT_SUPPORTED`（"This store has no delivery app."）；通过 app 下单而该 app 的店不卖该食品是 `SUPPLY_NOT_AT_STORE`；收货地点：给自己 = 当前停留地点，路途中按 D-11 拒绝，给他人 = 收货人的收货地点；`DESTINATION_NOT_FOUND` 不变；`expected_at = now + delivery_seconds(shortest_m(store, destination))`；人物离开后仍送到订单地点，食品归收货人在该地点持有。
@@ -626,7 +631,7 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | 3 | `worldmock.life.motivation::_delivery_route_seconds`、`_food_supply_row` 的报价/库存/目的地读取、`MotivationContext.routes/purchase_amount/purchase_pairing_states/taste_weights`、`_preference`；`candidates` 的口味桶（`_taste_weight`、`_bucket`）、`ELIGIBILITY_OUT_OF_STOCK`、`ELIGIBILITY_DELISTED`；`presentation::PoolEntry.stock`、`_stock_reason` | [DF] `_INDEX`、`_PRESENT` 行 |
 | 4 | `worldmock.life.activities::relief_preference`、`entertainment_relief_rate` 与 `content_entertainment_relief_rate` 的 `w` 参数、`playback_speed` 处理；`BodyInstanceConfig.entertainment_relief_preference_floor` | 与 app 按内容类型固定缓解同一提交；[OWN] `life/activities.py: relief_preference` 行；[DF] `_RELIEF`、`_PREVIEW` 行 |
 | 5 | `worldmock.life.activities::_work_factors`、`_advanced_activity` 的工作分支；`sleep::work_efficiency` 曲线；`body::_work_efficiency`、`BodySettlement.work_efficiency` | 与实际工作秒数模型同一提交 |
-| 3 | `worldmock.life.basket::_Fulfillment.route`、`_delivery_route`、`_validate_storefront`（营业、库存、报价、资格）、`require_runtime_rule` 调用、`energy_kcal_per_unit` 读取、`effect/consumable` 食品处理、`validate_meal_inventory` 的配方分支 | [DF] 变异范围 `basket.py`；[PP] `_MEAL` 行（`tests/life/test_meal_outcome.py` 节点保留） |
+| 3 | `worldmock.life.basket::_Fulfillment.route`、`_delivery_route`、`_validate_storefront`（营业、库存、报价、资格）、`require_runtime_rule` 调用、`energy_kcal_per_unit` 读取、`effect/consumable` 食品处理、`validate_meal_inventory` 的配方分支 | [DF] 变异范围 `basket.py`；动作与内容简化收货纯所有者使用 `tests/life/test_receipt.py` |
 | 3 | `worldmock.life.admission::_delivery_refusal`、`Item.destinations/store`、`Context.routes` 的配送用途；`order_routing::undeliverable` 路线原因、`_destination` 范围检查；`named_purchase::_unreached`、`_undelivered`、`_undeliverable`、`_delivery_gap`、`_delivery_next_step` 的路线分支；`purchase_offers::_channel_rows` 的手机配置来源与 `supply_id` 决胜 | [PP] `_NAMED`、`_GIVING` 行；[DF] `_STAGES`、`_NAMED`、`_GIVING` 行 |
 | 3 | `worldmock.life.action_evidence` 的 `category_matches` 副本；`session_actions` 的 `category_matches` 写入（购买、食用、出行）、`_consume` 配方分支、`WAYS["制作"]` 分派；`interaction_menu::merged_selection` 的制作分句；`vocabulary` 方式 `制作` 与同义词 `做饭`；`activity_evidence::_item_change_outcome` 配方分支、`meal_consumption_data.inventory_transform`；`time_advance::_apply_consume_effect` 配方分支；`observe` 的配方持有检测、`_recipe_product_ids`；`tool_layer::_consume_check` 的配方与 `require_item_rules` 路径、`_source_note`、`_SOURCE_KINDS`、`_purchase_check` 的目的地/营业/库存分支；`callable_index::_goods_entries` 的品类树查找；`world_query::_category` 的对象查找、`world_query_channels` 键（→ `world_query_apps`）；`result_projection::public_supply_row._source_reference` | [TI] 变异 `routing::_item_errors.purchase` 保留；[MB] `tool:native_purchase_route_loses_way` 不变 |
 | 4 | `src/worldmock/data/affordances.toml` 条目 `[kinds.watch]`、`[kinds.play_game]`、`[kinds.browse]`、`game_boundary`、`families.entertainment.content_kinds.*`、生成器 `catalog_visibility`、家族 `browse`、`kinds.work.target_discovery`（任务）；`worldmock.catalog.affordances` 的 `content_kind:` 条件维度（`_check_claim_content_kinds`、`_CLAIM_CONDITION_DIMENSIONS`）、`game_boundary`、`GENERATOR_PARAM_KEYS["catalog_visibility"]`、`attention_required_kinds` | [TE] `_SHADOW` 行；`tests/catalog/test_engine_package_resources.py` |
@@ -673,7 +678,7 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | 阶段 | 节点 | 钉住处 |
 | --- | --- | --- |
 | 1 | `tests/life/test_semantics.py` 的身体常数与告警节点改写为 `worldmock.exchange.body`；`tests/life/test_scenario.py` 的结构、规则身份与严格旧字段节点改为场景 7；`tests/life/test_load_checks.py` 的目录身份节点在人工环境上重写 | 只验证纯目录、场景和加载边界，不宣称 `LifeEngine` 已可创建 |
-| 2 | `tests/life/test_domain_branch_coverage.py` 的 `route_for`、`validate_routes`、`location_track`、`travel_time_profile` 与装配出行时长节点；`tests/life/test_wayfinding.py`、`test_giving.py`、`test_purchase_stages.py`、`test_named_purchase.py` 的路线与配送路径节点改为图距离或删除 | 图查询与出行纯函数已经可测，购买运行链仍等待阶段 3 |
+| 2 | `tests/life/test_domain_branch_coverage.py` 的 `route_for`、`validate_routes`、`location_track`、`travel_time_profile` 与装配出行时长节点；`tests/life/test_wayfinding.py`、`test_purchase_stages.py`、`test_named_purchase.py` 的路线与配送路径节点改为图距离或删除 | 图查询与出行纯函数已经可测，购买运行链仍等待阶段 3 |
 | 3 | `tests/life/test_domain_branch_coverage.py` 的配方节点；`tests/life/test_scenario.py` 的报价、库存、配方节点；`tests/integration/test_input_warnings.py` 的地图与手机节点；`tests/profile/test_injection.py` 的口味、游戏、路线节点；`tests/life/test_motivation.py`、`test_candidates.py`、`test_presentation_fidelity.py`、`tests/integration/test_runtime.py`、`test_host_branch_coverage.py`、`tests/life/test_storefront_commerce.py`、`test_dayrun_restaurants.py` 的口味、库存、营业、范围与旧目录节点 | 最后品类、店铺、食品消费者切换时同步删除或改写；[DF]、[PP]、[TE] 登记同提交更新 |
 | 4 | `tests/integration/test_observation_agent_seam.py` 的真实游戏节点；`tests/life/test_activity_effects.py` 的重看曝光节点；`tests/life/test_parallel_admission.py` 的播客、驾车、游戏、制作节点（改写为 app 使用的同种与跨种行）；`tests/life/test_duration_boundaries.py` 的游戏节点；`tests/life/test_shared_rules.py` 的内容时长节点；`tests/life/test_candidates.py` 的驾车只留播客节点；`tests/life/test_paused_slots.py` 的通话与观看占满节点（改用 `use_app`）；`tests/integration/test_life_agent_protocol.py` 的未知游戏工具节点；`tests/integration/test_host_branch_coverage.py` 的游戏类型节点；`tests/integration/test_runtime.py` 的 genre 目录节点；`tests/life/test_tool_interaction_habits.py` 做饭与点名数据集内容的用例 | [SR] 活动时长；[TE] `_ADMISSION`、`_LOCATION`；[PP] |
 | 5 | `tests/test_shared_model_clients.py` 的 `WorkReviewer` 参数化；`tests/integration/test_activity_schema.py` 的 `submit_work` 节点；`tests/integration/test_strict_endpoint.py` 的工作部分；`tests/life/test_engine_branch_coverage.py` 的评审与任务节点；`tests/life/test_domain_branch_coverage.py` 的评审、材料、游戏、倍速节点；`tests/life/test_wake_reasons.py` 的任务预警节点；`tests/life/test_activity_wake_facts.py` 的任务开放节点；`tests/life/test_scheduling.py` 的工作、价格、发布节点；`tests/scheduling/test_branch_coverage.py` 的工作与价格节点；`tests/life/test_progress_events.py` 的截止与提交节点；`tests/life/test_session_attribution.py` 的到期提醒节点；`tests/life/test_tool_layer.py` 的提交与逾期节点；`tests/life/test_activity_effects.py` 的技能与笔记节点；`tests/life/test_paused_slots.py` 的工作截止节点（改为主题上限）；`tests/integration/test_life_agent_protocol.py` 的未完成提交节点；`tests/integration/test_host_branch_coverage.py` 的未分配任务节点；`tests/evaluation/test_errand_metrics.py` 的配方产出节点 | [IF] 第 7 条引擎证据 行里的任务开放节点（改指推送节点）；[PP]；[EW] `_ERRAND_METRICS`、`_WORKLOAD` |
@@ -1050,8 +1055,8 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | 1 | `tests/tool_interaction_acceptance.py`、`tests/test_tool_interaction_acceptance.py`、`tests/dayrun_fidelity_acceptance.py`、`tests/errands_workday_acceptance.py`、`tests/shared_rules_acceptance.py`、`tests/test_single_source.py`、`tests/test_import_graph.py`、`tests/fixtures/current-feature-owners.json`、`tests/fixtures/acceptance_requirements.json` | 同阶段解除阶段 1 删除项的钉住处：删旧目录编译/检查、旧场景结构、旧目录身份与类别 CLI 入口，改指 `exchange`、注册目录、场景 7 和环境身份；`OWNERS`、`FEATURE_SOURCES`、场景/世界版本变异、[SR] 目录与原子写行、[DOC] 精确要求同步更新。阶段 2–5 的旧行继续保留，不能提前删 |
 | 2 | `tests/catalog/test_graph.py`、`tests/life/test_travel_graph.py`、`test_travel_cost.py`（新增）、`test_wayfinding.py`、`test_location_sessions.py`、`tests/life/test_domain_branch_coverage.py`、`tests/evaluation/test_branch_coverage.py`、`tests/evaluation/test_adapters.py` | `Catalog.shortest_m` 与图对象首次存在；时长 = ceil(长度 ÷ 速度)、车费、同地点拒绝、`ROUTE_DURATION_MISMATCH`、进度快照保留起点（[TE] 节点改指同名新节点）、图查询、完整路径决胜与出行证据键 |
 | 2 | `tests/tool_interaction_acceptance.py`、`tests/dayrun_fidelity_acceptance.py`、`tests/time_and_energy_acceptance.py`、`tests/fixtures/mutation-symbol-baseline.json`、`tests/test_import_graph.py`、`tests/fixtures/current-feature-owners.json`、`tests/fixtures/acceptance_requirements.json` | 与 `map_models.py`、`map_data.py`、`travel_time.py` 的物理删除同提交：删 [TI] `map_data::select_map` 与旧 `FEATURE_SOURCES`，删 [DF] `FEATURE_PRODUCTION_FILES`/`_MAP`，把 [TE] 出行节点改指 `test_travel_graph.py`，放宽 [MB] 对退役符号的存在性要求，删除 [IG] 迁移声明；保留新图、路径和出行契约的登记 |
-| 3 | `tests/life/test_menu_discovery.py`（由 `test_storefront_discovery.py` 改）、`test_storefront_commerce.py`、`test_purchase_stages.py`、`test_named_purchase.py`、`test_giving.py`、`test_purchase_apps.py`（新增）、`test_commerce.py`、`test_request_linking.py`、`test_name_resolution.py`、`test_world_query*.py`、`test_callable_index.py`、`test_error_contract.py`、`tests/life/purchase_worlds.py`（改为编辑 `foods.json` 绑定与 `locations.json` 的 app 并重钉清单）、`tests/integration/test_storefront_tools.py`、`tests/footprints/test_purchases.py`、`tests/life/test_scheduling.py` | 同类同菜单；逐地点送达（含最远点与离开后的家）、费用、原子拒绝、送达幂等；app 绑定外卖、`APP_NOT_BOUND`、只到店的店、`from=<app>` 解析、多 app 取最小标识；路途中自送拒绝；`ORDER_DUPLICATE_ITEM`；来源解析接受 app；错误合同的码与原因配对 |
-| 3 | `tests/life/test_meal_outcome.py`、`test_dayrun_inventory_regressions.py`、`test_body.py`、`test_body_flows.py`、`test_felt_states.py`、`test_energy_feasibility.py`、`test_activity_effects.py`、`tests/integration/test_meal_checkpoint.py`、`tests/life/test_dayrun_restaurants.py`、`tests/footprints/test_verified_experiences.py`、`tests/life/test_motivation.py`、`test_tool_layer.py` | 断言改为 `FOOD_CONSTANTS` 与身体常数；节点名保留（[PP] `_MEAL`、[TE] 能量感知、能量不拦人、绿色基线 行）；类别候选；商品 `state` 文案 |
+| 3 | `tests/life/test_menu_discovery.py`（由 `test_storefront_discovery.py` 改）、`test_storefront_commerce.py`、`test_purchase_stages.py`、`test_named_purchase.py`、`test_purchase_apps.py`（新增）、`test_commerce.py`、`test_request_linking.py`、`test_name_resolution.py`、`test_world_query*.py`、`test_callable_index.py`、`test_error_contract.py`、`tests/life/purchase_worlds.py`（改为编辑 `foods.json` 绑定与 `locations.json` 的 app 并重钉清单）、`tests/integration/test_storefront_tools.py`、`tests/footprints/test_purchases.py`、`tests/life/test_scheduling.py` | 同类同菜单；逐地点送达（含最远点与离开后的家）、费用、原子拒绝、送达幂等；app 绑定外卖、`APP_NOT_BOUND`、只到店的店、`from=<app>` 解析、多 app 取最小标识；路途中自送拒绝；`ORDER_DUPLICATE_ITEM`；来源解析接受 app；错误合同的码与原因配对 |
+| 3 | `tests/life/test_receipt.py`、`tests/life/test_acs_receipt_readers.py`、`test_body.py`、`test_body_flows.py`、`test_felt_states.py`、`test_energy_feasibility.py`、`test_activity_effects.py`、`tests/footprints/test_verified_experiences.py`、`test_tool_layer.py` | 收货按类别固定效果、利用效率与上限结算；自身资源分录立即取走；收到经历只来自本人已提交 goods_received；旧连续进食与库存夹具退役 |
 | 3 | `tests/profile/test_injection.py`、`test_coverage.py`、`tests/integration/test_input_warnings.py`、`tests/footprints/test_validation.py`、`tests/integration/test_persona_profile.py`、`tests/footprints/test_quality.py` | 闭集六个码；覆盖率目标由目录派生；没有口味、游戏、路线节点（[DF] 输入警告、场景作息 行改写） |
 | 3 | `tests/life/test_wake_reasons.py`、`tests/life/test_scheduling.py`、`tests/scheduling/test_branch_coverage.py`、`tests/footprints/test_event_fields.py` | 删除打烊唤醒与营业预排来源，阶段 3 词表为 24；九个同步点只登记本阶段的删除 |
 | 3 | `tests/integration/test_tool_description_references.py`、`test_life_agent_protocol.py`、`tests/life/test_prompt_layers.py` | 食品、购买来源、`query_world` 与 `start_activity` 的工具描述和请求模型同步改为固定菜单与 app 来源；实际 `tool_schema_sha256` 和七层 Schema 对应的 `prompt_sha256` 在本阶段改变，未改输入保持稳定 |
@@ -1061,7 +1066,7 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | 4 | `tests/catalog/test_affordance_shadow.py`、`tests/catalog/test_engine_package_resources.py`、`tests/life/test_parallel_admission.py`、`test_parallel_acceptance.py`、`test_parallel_activities.py`、`test_paused_slots.py`、`test_candidates.py`、`test_presentation_fidelity.py`、`test_relevance.py`、`test_retrieval.py`、`test_readable.py`、`test_lifestyle.py`、`test_mail_reading.py`、`test_duration_boundaries.py`、`test_shared_rules.py`、`test_activity_title_embedding.py`、`test_activities.py`、`test_activity_effects.py`、`tests/test_test_tiers.py`、`tests/life/test_tool_interaction_habits.py` 与 `tests/fixtures/tool_interaction_habits.json` | 与旧娱乐声明同提交刷新包资源及人工环境副本并重跑身份校验；最终八个占用名、十三个退役名拒绝、同种配对；app 使用的同种与跨种行；候选三种；可读名；app 使用时长单一来源（[SR] 活动时长 行改为 `test_app_use_duration_matches_tool_layer_and_admission`）；习惯链改为 打开、到店、远程下单、食用 |
 | 4 | `tests/life/test_wake_reasons.py`、`tests/life/test_scheduling.py`、`tests/scheduling/test_branch_coverage.py`、`test_same_moment_decisions.py`、`test_discomfort_and_sleep_messages.py` | 只加入 `app_push` 预排与唤醒：阶段 4 的唤醒词表为 25 个；推送网格、同秒排序与不打断规则；不提前删除三个工作原因 |
 | 4 | `tests/tool_interaction_acceptance.py`、`tests/dayrun_fidelity_acceptance.py`、`tests/time_and_energy_acceptance.py`、`tests/idle_fillers_acceptance.py`、`tests/shared_rules_acceptance.py`、`tests/test_single_source.py`、`tests/test_test_tiers.py`、`tests/fixtures/idle-fillers-acceptance.json`、`tests/fixtures/mutation-symbol-baseline.json`、`tests/fixtures/current-feature-owners.json`、`tests/fixtures/acceptance_requirements.json`、`scripts/fresh_check.py` | 与旧内容、游戏、TextWorld、口味缓解及 app 推送切换同提交：删除 [TI]/[DF]/[TE]/[SR]/[OWN]/[MB] 中旧观看、游戏、字幕、内容检索和 relief 行，执行 [IF] `app_push` 同步点，删除 TextWorld 层级节点；`QUICK_TESTS` 以 `tests/catalog/test_loader.py` 取代 `tests/life/test_content_catalog_titles.py`；[DOC] 改指 app 内容合同。工作行继续保留到阶段 5 |
-| 5 | `tests/life/test_work_topics.py`（新增） | 行为用例 T43–T46 |
+| 5 | `tests/life/test_action_run.py`（新增） | 行为用例 T43–T46 |
 | 5 | `tests/life/test_wake_reasons.py`、`tests/footprints/test_event_fields.py`、`tests/tools/run_viewer*.test.cjs`、`tests/life/test_scheduling.py`、`tests/scheduling/test_branch_coverage.py`、`tests/life/test_progress_events.py`、`test_session_attribution.py`、`test_activity_wake_facts.py`、`test_day_planning.py` | 删除三个工作唤醒与两个预排名后，最终 22 个名字与次序；有序表从删除的 `test_work_contracts.py` 迁入；足迹事件与查看器计数同步；任务开放节点改为推送节点（[IF] 第 7 条引擎证据） |
 | 5 | `tests/integration/test_external_environment_lifecycle.py`、`tests/life/test_grounded_observation.py`、`tests/life/test_paused_slots.py` | 首个真实引擎持久化节点：创建、实际观察后等待或生活活动、推进、人物状态与检查点有效、关闭、重开身份和状态相等、继续调度；该节点不调用 `export_run` 或 `validate_export`，导出与重算拆成阶段 7 的独立节点；不足一分钟工作原因与下一步改为主题句 |
 | 5 | `tests/integration/test_rrs_engine_wave.py`（新增） | 用真实人工环境与 `LifeEngine` 覆盖阶段 1–4 的真实集成边界：T15 在打开、恢复与重放拒绝结构 9，T16 从 `runtime._prepare_resume` 真实入口拒绝环境身份不匹配并在构造期拒绝不存在的食品标识；再覆盖图上出行与位置证据、购买/配送/进食及检查点幂等、app 抽取/共享进度/推送与跨 app 交错。引用 T15–T41 作为晚期集成节点，不改变其最早归属或变异阶段；导出认证不在本节点，归阶段 7 的 T54 |
@@ -1116,16 +1121,16 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | 位置记录与地图一致（位置记录与地图一致） | 2 | T20 |
 | 全地图外卖（全地图外卖） | 3 | T23、T25、T26 |
 | app 与店铺绑定有效（app 与店铺绑定有效） | 3 | T21、T22、T24、T32 |
-| 食品热量固定（食品热量固定） | 3 | T27、T28、T29 |
+| 食品热量固定（食品热量固定） | 3 | T28 |
 | 购买足迹与画像 | 3 | T30、T31 |
 | 娱乐只从所选 app 取内容（娱乐只从所选 app 取内容） | 4 | T33、T34、T35、T40 |
 | 推送与消费关联（推送与消费关联） | 4 | T37、T41 |
 | 时间窗口精确（时间窗口精确） | 4 | T36 |
-| 随机和状态可恢复（随机和状态可恢复） | 4 | T38；T23 的断点前后无重扣款，T27 的断点前后无双倍热量 |
+| 随机和状态可恢复（随机和状态可恢复） | 4 | T38；T23 的断点前后无重扣款 |
 | 最终唤醒词表 | 5 | T39 |
 | 游戏链退出 | 4 | T42 |
 | 工作由时间决定（工作由时间决定） | 5 | T43、T44、T45、T46 |
-| 工作面与阶段身份 | 5 | T47、T48 |
+| 工作面与阶段身份 | 5 | T47 |
 | 系统层逐字 | 6 | T49 |
 | app 目标与 Schema | 4 | T33、T41 |
 | 工具面与工作 Schema | 5 | T47、T50 |
@@ -1140,36 +1145,34 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 
 | 编号 | 用例验证什么 |
 | --- | --- |
-| T1 | `exchange.types` 的闭集成员与标签、`RULES_VERSION == 1`、常数表与身体常数只在 `exchange` 定义（`OWNERS` 核对），别处没有第二份 |
-| T2 | 算子：Decimal 舍入与今天的品类算子逐值相同；驾车车费下限 500 与每米 0.2 向上取整、步行 0；按比例能量；送达与出行秒数向上取整 |
-| T3 | 人工环境登记往返：七个目录文件加载后派生索引（按类型菜单、按店食品、按 app 店铺与内容、按店 app）与手工期望相等 |
-| T4 | 每个登记码一个最小反例（参数化，覆盖「注册校验与错误」全表），码与英文原因相符，没有一条被静默通过；`target_hours = 0.01638888888888889` 舍入为 59 秒，以 `ENVIRONMENT_NUMBER_INVALID` 拒绝，`target_hours = 0.016666666666666666` 舍入为 60 秒并受理 |
-| T5 | 旧格式拒绝：目录下残留 `category-contract.json`、`exchange-rules.json`、`objects.jsonl`、`resources.jsonl`、`rules/travel-time.toml` 各以 `ENVIRONMENT_STALE_FILE` 拒绝；食品带 `kcal` 字段、内容带 `genre`、地点带坐标各被严格模型拒绝；`rules_version: 2` 以 `RULES_VERSION_MISMATCH` 拒绝 |
-| T6 | 只给 `noodle-1` 绑定一个正餐而 `noodle-2` 不绑 → `FOOD_BINDING_KIND_INCONSISTENT`；`"all"` 展开后 `home`、`office`、`park` 的菜单为空；两家面馆菜单逐项相同；价格来自食品 |
-| T7 | 没有任何绑定的 app → `APP_UNBOUND`；app 名与地点名归一后相同 → `APP_NAME_COLLIDES_LOCATION`；摘要 201 字符 → `CONTENT_SUMMARY_TOO_LONG`；`real` 摘要无 `url` → `CONTENT_SOURCE_URL_MISSING`；非食品店铺带 `app_ids` → `ENVIRONMENT_KIND_INVALID` |
+| T1 | `exchange.types` 的闭集成员与标签、`RULES_VERSION == 2`、常数表与身体常数只在 `exchange` 定义（`OWNERS` 核对），别处没有第二份 |
+| T2 | 算子：商品收货对三类食品按固定类别热量乘数量，对非食品给固定缓解或情绪效果；Decimal 舍入、驾车车费下限 500 与每米 0.2 向上取整、步行 0、送达与出行秒数与现行算子逐值相同 |
+| T3 | 人工环境登记往返：六个目录文件加载后的商品、动作、内容与 app 反向索引及菜单与手工期望相等 |
+| T4 | 每个登记码有真实最小反例，码与英文原因相符；内容 `duration_seconds = 59` 以 `ENVIRONMENT_NUMBER_INVALID` 拒绝，60 秒受理；布尔、浮点、字符串与非有限值被拒绝 |
+| T5 | 旧格式拒绝：目录下残留 `foods.json`、`work_topics.json`、`affordances.toml`、`rules/` 各以 `ENVIRONMENT_STALE_FILE` 拒绝；商品带 `kcal`、内容带缓解速率、地点带坐标被严格模型拒绝；`rules_version: 1` 以 `RULES_VERSION_MISMATCH` 拒绝 |
+| T6 | 同类店铺只绑定一家 → `GOODS_BINDING_KIND_INCONSISTENT`；`"all"` 按固定类别供给表展开；`home`、`office`、`park` 菜单为空，两家面馆菜单相同，价格来自商品 |
+| T7 | 既无用途也无动作绑定的 app → `APP_UNBOUND`；app 与地点同名 → `APP_NAME_COLLIDES_LOCATION`；摘要超过 200 字符或真实来源无 URL 分别拒绝；非店铺不能绑定购物 app |
 | T8 | 在 CPython 3.12.13、根目录 `.python-version` 与锁定的 NetworkX 上，生成器严格执行 B-13：排序节点、独立同种子树流、排序候选上的 `rng.sample`、排序边上的同一 `rng.randint`；同地点清单与种子两次生成 `canonical_json + LF` 字节相同，不同种子不同；边数 = (n−1) + ⌊(n−1)/2⌋，n=2 恰一条、n=3 恰三条且无重复；长度都在 [200, 2000]；标号 i 对应第 i 个排序标识 |
 | T9 | 校验：单节点 → `MAP_TOO_SMALL`；自环、重复对、未知端点、长度 0、未排序各 → `MAP_EDGE_INVALID`；两个分量 → `MAP_DISCONNECTED`；篡改一条边长后 `generate-map --check` 与 `validate --environment` 都报 `MAP_NOT_REGENERATED`，而运行时加载器只校验结构、不重生成 |
 | T10 | 手工图：最短路长度与路径与手算相等；含“较小下一跳却有较大后缀”的多跳反例，等长时比较完整路径元组并取字典序较小者；颠倒边插入次序结果不变；`distance_meters(a, a) == 0`；路径可经过未被场景选择的节点 |
-| T11 | 阶段 4 最终 `RESOURCE_CLAIM_SLOTS` 恰为八项；十三个退役名解析时拒绝；只有同种、睡眠一行与驾车一行有交集；切换提交没有临时空占用、借用占用或兼容声明 |
-| T12 | 阶段 1 的三份包资源与人工环境副本逐字节相同、清单摘要一致；清单身份发布失败时旧字节保留且不留下半写文件（原子写）。阶段 4 刷新占用声明后对新字节重复同一身份校验 |
+| T11 | 版本 2 可供性只有 `wait`、`sleep`、`travel`、`action`，占用名额恰八项；退役占用名解析时拒绝；每种动作类别和使用方式求固定占用，驾车只允许不持续用手机的社交动作与之并行 |
+| T12 | 目录只有六个对象文件、不带引擎规则副本；包内规则任一文件改变一个字节使 `runtime_code_sha256` 变化；目录清单身份发布失败时旧字节保留且不留下半写文件 |
 | T13 | 命令：`generate-map` 写出与库相同的字节；`validate --environment` 对人工环境退出码 0，对每个反例非零并打印码 |
-| T14 | 结构 7 受理；结构 6 的每个已删字段各被 `extra="forbid"` 拒绝；`environment` 钉与清单不符拒绝；缺 `merchant:cafe` → `MERCHANT_ACCOUNT_MISSING`；未知主题 → `WORK_TOPIC_UNKNOWN`；有主题无安排 → `WORK_SCHEDULE_REQUIRED` |
-| T15 | 世界 10 校验通过；结构 9 的世界状态在阶段 1 由 `WorldState.model_validate` 拒绝，阶段 5 再由真实打开、恢复与重放入口分别拒绝；导出认证不计入本用例，只由阶段 7 的 T54 验证 |
-| T16 | 运行清单 3 带五个身份字段；阶段 5 从 `runtime._prepare_resume` 的真实恢复入口核对身份，篡改目录一字节后以 "Runtime environment identity mismatch" 拒绝，删除该调用的变异必须被杀死；持有不存在的食品标识在同阶段 `EngineContext.validate` 处拒绝 |
+| T14 | 场景结构 8 受理，旧结构与退役字段严格拒绝；环境钉不符或缺商家账户分别拒绝；未知或非工作内容、无排班、缺分配内容、内容不足各按工作内容码拒绝 |
+| T15 | 世界 11 校验通过，带语料钉或结构 10 的世界状态由严格模型拒绝；真实打开、恢复与重放入口仍须证明拒绝旧世界，导出认证另归 T54 |
+| T16 | 运行清单 4 带五个身份字段、不带语料钉；真实恢复入口继续核对环境身份，篡改目录字节以 "Runtime environment identity mismatch" 拒绝 |
 | T17 | 步行与驾车：时长 = ceil(最短路 ÷ 速度)；车费按常数付给 `transport:service`，步行不扣款；活动数据带 `trip_id`、`path`、`distance_meters`；`ROUTE_DURATION_MISMATCH` 按图重算 |
 | T18 | 目标为当前地点 → `ACTIVITY_PRECONDITION_UNMET`（`already_at_destination`）；工具层列出全部其他已选地点各两种方式及价格与时长，不列当前地点 |
 | T19 | 出行进度快照保留起点、到达经核验；路途中检查点恢复后继续走完同一路径 |
 | T20 | 事件、活动行、公开证据与查看器名称索引只有 `trip_id`、`path`、`distance_meters`、`origin_id`、`destination_id`；任何工件里没有 `route_id`、坐标或轨迹 |
 | T21 | 观察里两家面馆的商品目标集合逐项相同；没有库存、营业、报价字段；`price` 来自食品 |
-| T22 | 在 `noodle-2`（无 app）到店买牛肉面成功、即时进入当地持有、`app_id` 为 null；`from=美团` 配方式到店 → `SUPPLY_SOURCE_MISMATCH` |
+| T22 | 在 `noodle-2`（无购物 app）到店买牛肉面成功，受理同秒收货、`app_id` 为 null；真实绑定不匹配拒绝 |
 | T23 | 从 `noodle-1` 经美团向每个已选地点逐一下单（含最远点、`park` 与下单后离开的家）都受理并送达；`expected_at = now + 600 + ceil(d ÷ 5)`；每单费用 = 货款 + 500；一笔转账给 `merchant:noodle-1`；送达前检查点恢复后只送一次、不重扣款 |
-| T24 | 经饿了么向 `noodle-1` 下单 → `APP_NOT_BOUND`；对 `noodle-2` 显式远程下单 → `FULFILLMENT_NOT_SUPPORTED`（"This store has no delivery app."）；经美团买只在四季便利出售的饭团 → `SUPPLY_NOT_AT_STORE`；`from` 为 null 向三杯咖啡下单取 `eleme`（最小标识）并写进 `details.notes`；`prefer` 最快拿到按 ETA 或距离、到手价最低含配送费，并列按 `store_id` |
+| T24 | 未绑定该店的购物 app 被拒绝；店铺没有购物 app 时不能配送；购物 app 与支付 app 都明确点名并校验绑定；`prefer` 最快拿到按 ETA 或距离、到手价最低含配送费，并列按 `store_id` |
 | T25 | 路途中给自己下外卖 → `ACTIVITY_PRECONDITION_UNMET`（`delivery_destination`，"Place the order before departing or after arriving."）；给他人下单送到收货人的收货地点 |
 | T26 | 同店同食品两行 → `ORDER_DUPLICATE_ITEM`；未知收货地 → `DESTINATION_NOT_FOUND`；余额不足整单拒绝且没有部分扣款 |
-| T27 | 薯片与另一种零食等量食用原始摄入相同；一份牛肉面分两次吃与一次吃总摄入相同；暂停、恢复不多算；净能量经利用效率与上限；`portion_duration` 与 60 秒下限、14400 秒上限；断点前后不出现双倍热量 |
 | T28 | 食品目标 `state` 为「正餐，每份约 600 千卡；可用美团下单」，无 app 的店省略后半句；`callable_index.goods` 按类别标签分组；`obtainable_here` 只在在场或店铺有 app 时为真 |
-| T29 | 动机层正餐候选只含 `meal`，零食与饮品是轻食后备；外卖等待 = 备餐 + 图上时间 |
-| T30 | `purchases.jsonl` 的购买行带 `app_id`（到店为 null）、`delivery_fee_fen`、`store_id`、`food_id`；进食证据与已核验经历带类别与份额 |
+| T30 | 订单付款、商品收货和已核验经历保留实际商品、订单与收货人来源；`received` 带 `order_id`、`goods_id`、`category`、`quantity`，不从付款、送达通知或旧 consume 进度推断收到；自身收货完成事务与正餐目标，第三方代付不归付款人，联系人无模拟收货事件 |
 | T31 | 输入警告闭集恰为六个；覆盖率目标 = 习惯关键词、食品名、五个类型标签 + app 名；任何状态、卡片与观察里没有 `taste_weights`；坐标状地点名仍发 `LOCATION_NAME_SUSPICIOUS` |
 | T32 | 指名购买 M0–M3：写店名在场即到店；写 app 名走该 app 绑定的最近店铺；写未绑定目标店的 app 或用美团找饭团 → `SOURCE_NOT_FOUND` 或 `SUPPLY_NOT_AT_STORE`；下一步写 `Go to <店>.` 或 `Order through <app>.` |
 | T33 | 打开抖音只抽到抖音绑定的内容（种子穷举 200 次没有哔哩哔哩独有的内容）；打开美团 → `APP_CONTENT_EMPTY`，工具层同码同原因且 `available=false`；`start_activity` 的 `use_app` 没有内容参数 |
@@ -1182,12 +1185,11 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | T40 | 缓解速率按内容类型固定、与口味无关；驾车时打开 app → `RESOURCE_CONFLICT`；吃饭 ∥ 打开 app 受理；两个 app 使用同种拒绝 |
 | T41 | app 目标、`TARGET_KINDS`、`callable_index` 三键、`app_push` 记录与 `details.app_content` 的 Schema 闭集；真实人物可见推送事件固定 `data.kind == "app_push"` 且另带闭集内 `content_kind`，内容类型不能覆盖判别键；进度记录带 app、标题、类型标签与完整摘要并随容量折叠；质量报告的计数只在阶段 7 的 T52 验证 |
 | T42 | `pyproject.toml`、`requirements/lock.txt` 与 `uv.lock` 没有 `textworld`；游戏码、游戏方式与游戏模块不再存在；当前 macOS 运行阶段 4 的具名节点收集与相关 Node 用例，Windows 同命令结果登记为未执行并留给阶段 9 平台回执 |
-| T43 | 已登记的主题自运行开始列在工具层；在 `office` 开始受理、在家 → `ACTIVITY_PRECONDITION_UNMET`（`required_location_id`）；开始时长 = min(目标 − 已做, 上限)；一个准入时至少 60 秒、经先前真实工作后只剩 59 秒的主题 → `ACTIVITY_DURATION_INVALID` 与 D-50 的句子；恢复次序 地点 → 主题上限 → 名额 → 占用 |
-| T44 | 暂停 30 分钟与并行进食不增加工时；`worked_seconds` 等于工作活动经过秒数之和 |
-| T45 | `report_status` 写「已完成」不改变工时与完成；`last_report` 在换 session 后仍是上一次播报；`contract` 四键文案 |
-| T46 | 累计满 8 小时时活动以 `planned_end` 结束，写 `work_topic_completed` 与 `work_completed`；主题离开工具层；按名再开始 → `ACTIVITY_DURATION_INVALID` |
+| T43 | 已分配的工作内容从运行开始列在工具层；只在人物声明的工作地点受理，其他地点 → `ACTIVITY_PRECONDITION_UNMET`；开始时长不超过内容剩余秒数，实际只剩 1 秒也可开始；恢复次序为地点 → 原内容是否仍合格 → 名额 → 占用 |
+| T44 | 暂停 30 分钟不增加工作内容进度；实际内容进度只取工作动作经过秒数 |
+| T45 | 工作播报写「已完成」不改变实际内容进度或完成状态；`last_report` 跨 session 保留上一次播报；`contract` 四键文案 |
+| T46 | 累计满已分配内容时长时活动以 `planned_end` 结束，内容进度只结算一次；完成内容离开工具层；按名再开始 → `CONTENT_EXHAUSTED` |
 | T47 | 工资事件照常入账；没有 `submit_work` 工具与模型；系统层第 2 条不宣传该工具；阶段身份恰为 `{action}`，带 `work_review` 的清单被拒；阶段 1–5 具名节点通过后，快速、标准、全量三个选择器的完整 `--collect-only` 均无收集错误 |
-| T48 | 零点计划输入的待办任务 = 主题、目标与已做；动作结果输入没有工作验收 |
 | T49 | 实际请求、接口合同与模块常量三者相等，十八条；「系统层」一节的全部既有约束通过；「有 app 推送」只在第 7 条，「娱乐只选 app」只在第 12 条，「按主题计工时」只在第 17 条；旧读法反向断言；提示指纹随阶段 6 的五条剩余改写变化，工具指纹不变 |
 | T50 | 原生工具 11 个、稳定面 8 个、没有 `submit_work`；工具指纹绑定注册表字节和最终工具模型；任务 `contract` 四键、活动 `last_report`、`work_completed` 与无 `work_review` 的工作 Schema 闭集 |
 | T51 | 查看器夹具两处系统层与宿主系统消息逐字相等；查看器 Node 用例（唤醒 22、工具 11、新标签）通过 |
@@ -1213,8 +1215,8 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 
 | 变异 | 行为所有者阶段 | 被谁杀死 | 绑定契约点（与分句逐项配对） | 最早可运行杀手阶段（与分句逐项配对） |
 | --- | --- | --- | --- | --- |
-| 加载器接受目录食品行里的 `kcal` 字段并用它覆盖类别热量 | 1 | T5 | 分类与规则归系统（分类与规则归系统） | 1 |
-| `evaluate_food_energy` 不看食品类别，始终按 `meal` 计算 | 1 | T2 | 分类与规则归系统（分类与规则归系统） | 1 |
+| 加载器接受目录商品行里的 `kcal` 字段并用它覆盖类别热量 | 1 | T5 | 分类与规则归系统（分类与规则归系统） | 1 |
+| `evaluate_goods_receipt` 不看食品类别，始终按 `meal` 计算 | 1 | T2 | 分类与规则归系统（分类与规则归系统） | 1 |
 | `RULES_VERSION` 不符时只记警告不拒绝 | 1 | T5 | 分类与规则归系统（分类与规则归系统） | 1 |
 | 清单未列出的旧文件被静默忽略 | 1 | T5 | 分类与规则归系统（分类与规则归系统） | 1 |
 | `"all"` 展开到全部地点（含住宅） | 1 | T6 | 同类店铺同商品（同类店铺同商品） | 1 |
@@ -1225,10 +1227,10 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | `--check` 与 `validate --environment` 不比对重生成结果 | 1 | T9 | 地图生成连通且字节稳定（地图连通且长度可计时） | 1 |
 | 出行时长改为向下取整；驾车车费下限去掉 | 1 | T2 | 分类与规则归系统（分类与规则归系统）；分类与规则归系统（分类与规则归系统） | 1；1 |
 | 饮品热量改为 200 千卡 | 1 | T1；T2 | 分类与规则归系统（分类与规则归系统） | 1 |
-| 人工环境规则资源不与包资源逐字节比较；目录原子发布失败时覆盖旧字节或留下半写文件 | 1 | T12；T12 | 包资源身份与原子发布；包资源身份与原子发布 | 1；1 |
+| 目录原子发布失败时覆盖旧字节或留下半写文件 | 1 | T12 | 包资源身份与原子发布 | 1 |
 | 最短路等长时取完整路径元组字典序较大的路径，或依赖边插入次序 | 2 | T10 | 最短路与完整路径决胜 | 2 |
 | 退役占用名 `watch` 被接受 | 4 | T11 | 占用闭集与并行准入 | 4 |
-| 结构 9 的世界状态被接受 | 1 | T15 | 场景 7 与世界 10 的拒绝边界 | 1 |
+| 结构 10 的世界状态被接受 | 1 | T15 | 场景 7 与世界 10 的拒绝边界 | 1 |
 | 恢复时不核对 `environment_identity` | 1 | T16 | 场景 7 与世界 10 的拒绝边界 | 5 |
 | 目标为当前地点的出行被受理 | 2 | T18 | 出行按图计时计费 | 2 |
 | 出行事件与活动行把 `trip_id` 写成 `route_id`；活动数据丢掉 `path` | 2 | T20 | 位置记录与地图一致（位置记录与地图一致）；位置记录与地图一致（位置记录与地图一致） | 2；2 |
@@ -1239,9 +1241,7 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | 未绑定该店的 app 下单被受理 | 3 | T24 | app 与店铺绑定有效（app 与店铺绑定有效） | 3 |
 | 路途中给自己下外卖被受理并送到出发地 | 3 | T25 | 全地图外卖（全地图外卖） | 3 |
 | 同店同食品两行被合并而不拒绝 | 3 | T26 | 全地图外卖（全地图外卖） | 3 |
-| 分两次吃第二次重复计满一份 | 3 | T27 | 食品热量固定（食品热量固定） | 3 |
 | 商品 `state` 不写类别与热量 | 3 | T28 | 食品热量固定（食品热量固定） | 3 |
-| 零食计入正餐候选 | 3 | T29 | 食品热量固定（食品热量固定） | 3 |
 | 到店购买行写了 app | 3 | T30 | 购买足迹与画像 | 3 |
 | `purchases.jsonl` 丢掉 `app_id` | 3 | T30 | 购买足迹与画像 | 3 |
 | 警告闭集多出 `TASTE_GENRES_UNMATCHED` | 3 | T31 | 购买足迹与画像 | 3 |
@@ -1267,7 +1267,7 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | 缓解速率乘以口味因子；驾车一行不占 `use_app` | 4 | T40 | 娱乐只从所选 app 取内容（娱乐只从所选 app 取内容）；娱乐只从所选 app 取内容（娱乐只从所选 app 取内容） | 4；4 |
 | `app_push` 记录只写摘要前 20 字；环境事件把 `data.kind` 覆写为 `content_kind` | 4 | T41；T41、T52 | app 目标与 Schema；推送与消费关联（推送与消费关联） | 4；4 |
 | 方式表加回「游玩」→（`interact`, `play`） | 4 | T42；T11 | 游戏链退出 | 4 |
-| 暂停的工作活动继续累计工时；并行进食计入工时 | 5 | T44 | 工作由时间决定（工作由时间决定）；工作由时间决定（工作由时间决定） | 5；5 |
+| 暂停的工作活动继续累计工时 | 5 | T44 | 工作由时间决定（工作由时间决定） | 5 |
 | `report_status` 写「已完成」即把主题标记完成 | 5 | T45 | 工作由时间决定（工作由时间决定） | 5 |
 | 累计满目标后活动不结束、不写完成事件 | 5 | T46 | 工作由时间决定（工作由时间决定） | 5 |
 | 已完成的主题仍列在工具层并可再开始 | 5 | T46 | 工作由时间决定（工作由时间决定） | 5 |
@@ -1275,8 +1275,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | 系统层第 2 条仍宣传 `submit_work` | 5 | T47；T49 | 工作面与阶段身份 | 5 |
 | 工具面保留 `submit_work` | 5 | T50 | 工具面与工作 Schema | 5 |
 | 第 7 条「有 app 推送」改回「有工作可以开始做了」 | 6 | T49 | 系统层逐字 | 6 |
-| 第 12 条的娱乐句移到第 13 条 | 6 | T49 | 系统层逐字 | 6 |
-| 第 17 条改回「留意截止时间与已完成的有效工时」 | 6 | T49 | 系统层逐字 | 6 |
 | `app-usage.jsonl` 不写 `content_consumed` 事实 | 7 | T52 | app 足迹来自真实动作（app 足迹来自真实动作） | 7 |
 | `scripts.freeze_rrs_baseline::freeze_matching_baseline` 跳过两个候选的相等检查，直接写第一份 | 8 | T55 | 完整日基线 | 8 |
 
@@ -1439,3 +1437,6 @@ start_activity 一项一个对象，写 target、way、from、to；方式决定�
 | `2026-10-06-rrs-review-r2-closure` | 2026-10-06 | 修订第 2 轮 25 项阻断发现：登记 123 个精确引用阶段对，统一共享内容进度、随机字节、实际锁身份、阶段 1–5 原子集成波次、协议阶段、守卫退役阶段与 Python 变异根；保持 UNFROZEN，等待下一轮三视角复审 |
 | `2026-10-07-rrs-review-r3-closure` | 2026-10-07 | 集中修订第 3 轮三个实质阻断：工作主题准入至少一分钟、推送事件判别键与内容类型分离、占用闭集在阶段 4 随最后消费者原子切换；保持 UNFROZEN，等待三个原审查视角定向复核 |
 | `2026-10-06-rrs-freeze` | 2026-10-07 | 三个视角复审及实质问题定向复核通过，全部阻断关闭；冻结实施合同、分阶段机器验收与行为变异，保留用户裁决及 macOS 双跑基线授权；阶段 9 由数据仓执行并登记真实平台回执 |
+| `2026-10-07-acs-rules` | 2026-10-07 | 「固定规则与常数」「环境格式」「人工环境」由动作与内容简化规格同名章节取代，RULES_VERSION 为 2。 |
+| `2026-10-07-acs-receipt` | 2026-10-07 | 「三类食品与进食」整节与「店铺、食品与外卖」即时交付到当地持有及持有条款，由动作与内容简化规格「购买与支付」「收货结算」取代。 |
+| `2026-10-07-acs-close` | 2026-10-08 | 「用户得到什么」由动作与内容简化规格取代；本规格不归档，随测试退役的台账按现行机器登记收口。 |

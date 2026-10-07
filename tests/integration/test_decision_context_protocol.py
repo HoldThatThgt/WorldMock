@@ -244,13 +244,13 @@ async def test_start_activity_description_says_notes_give_length_or_unmet_condit
     request = dispatcher.requests[0]
     description = next(tool["function"]["description"] for tool in request["tools"]
                        if tool["function"]["name"] == "start_activity")
-    assert description == life_prompt.TOOL_DESCRIPTIONS["start_activity"] == "开始一项或两项活动：逐项写目标、方式、来源与收货人。"
+    assert description == life_prompt.TOOL_DESCRIPTIONS["start_activity"] == "开始一项或两项活动：逐项写目标、方式、所用应用、对方或收货人与付款应用。"
     rules = json.loads(request["messages"][0]["content"])["rules"]
     assert [rule for rule in rules if "reason" in rule] == [
         "工具层列出的动作都可以提交；available 为 false 的会被拒绝，原因就是 reason 所写，照着调整即可。"]
     task = next(target for target in expand_tool_layer(json.loads(request["messages"][1]["content"])[0])["targets"]
-                if target["kind"] == "task")
+                if target["kind"] == "action")
     [work] = task["actions"]
-    assert (work["available"], work["reason"]) == (False, "工作整理会议纪要需要在办公室")
-    assert set(work) == {"action", "way", "available", "reason", "price", "duration", "quantity", "note"}
+    assert (work["available"], work["reason"]) == (False, "整理会议纪要需要在办公室")
+    assert set(work) == {"action", "way", "app", "available", "reason", "price", "duration", "quantity", "note"}
     assert environment.calls[0].request.model_dump(by_alias=True) == _WAIT_CHOICE

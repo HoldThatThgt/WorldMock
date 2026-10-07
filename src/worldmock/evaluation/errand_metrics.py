@@ -45,7 +45,7 @@ class _Errand:
 
     @property
     def snapshot(self) -> Mapping[str, Any]:
-        """@brief 记下时的事务快照（身份、名称、结果种类、商品与记下时刻）。"""
+        """@brief 记下时的事务快照（身份、名称、商品与记下时刻）。"""
         return self.registered["data"]["errand"]
 
     @property
@@ -68,7 +68,7 @@ def errand_metrics(events: Sequence[Mapping[str, Any]], timezone: str) -> dict[s
     - visible_observation_count、expected_observation_count：未完成期间（记下事件之后、终态事件之前，没有终态到截止）
       本人各次观察中待办层含该事务的次数与同期观察数，二者应相等；
     - reminded_errand_count、acted_after_reminder_count：至少被提醒过一次的事务数；其中提醒后到下一个本地零点或终态
-      之前，本人有被受理（action_accepted，重放的不算）且指向同一商品的购买、制作或进食请求的事务数；
+      之前，本人有被受理（action_accepted，重放的不算）且指向同一商品的购买请求的事务数；
     - completed_without_evidence_count：办成事件缺证据引用或证据不可复核的条数（完整性计数，应恒为 0）。
 
     :param events: 已认证、按事件序号排列的事件字典。
@@ -197,21 +197,9 @@ def _accepted_products(events: Sequence[Mapping[str, Any]]) -> dict[int, list[tu
 
 
 def _referred(data: Mapping[str, Any]) -> frozenset[str]:
-    """@brief 一次被受理的请求指向的商品：结果顶层订单的商品（在途的也算，购买已受理），以及受理时活动快照（data.activity、
-    结果的 activity 与并行开始的 activities）里进食请求的食品。"""
+    """@brief 一次受理的购买所指向的商品，直接读取其订单；在途订单也表示购买已受理。"""
     payload = data.get("data") or {}
-    products = {order["food_id"] for order in payload.get("orders", [])}
-    for snapshot in (data.get("activity"), payload.get("activity"), *payload.get("activities", [])):
-        if isinstance(snapshot, Mapping) and snapshot.get("kind") == "consume":
-            products |= _consumed(snapshot.get("data") or {})
-    return frozenset(products)
-
-
-def _consumed(details: Mapping[str, Any]) -> set[str]:
-    """@brief 消费活动数据指向的食品：使用方式为食用时请求里的各件食品。"""
-    request = details.get("request") or {}
-    eaten = {item["product_id"] for item in request.get("items", [])} if request.get("use_mode") == "eat" else set()
-    return eaten
+    return frozenset(order["goods_id"] for order in payload.get("orders", []))
 
 
 def _acted(life: _Errand, accepted: Sequence[tuple[int, int, frozenset[str]]], timezone: str) -> bool:
@@ -228,21 +216,21 @@ def _acted(life: _Errand, accepted: Sequence[tuple[int, int, frozenset[str]]], t
 
 def _unverified_completions(events: Sequence[Mapping[str, Any]]) -> int:
     """@brief 办成事件缺证据引用、或引用的都不是本导出里更早的、能（经 errands.evidence_rows，与结算同一读取）给出同一
-    所有人、结果种类与商品证据行的事件的条数。"""
+    所有人与商品的收货证据行的事件的条数。"""
     indexed = {event["event_id"]: event for event in events}
     return sum(not _evidenced(event, indexed) for event in events if _errand_kind(event) == COMPLETED_KIND)
 
 
 def _evidenced(completed: Mapping[str, Any], indexed: Mapping[str, Mapping[str, Any]]) -> bool:
-    """@brief 办成事件的某个原因是本导出里更早的事件，且它的证据行里有同一所有人、结果种类与商品的一行。"""
+    """@brief 办成事件的某个原因是本导出里更早的事件，且它的收货证据行有同一所有人与商品。"""
     errand = completed["data"]["errand"]
-    wanted = (completed["agent_id"], errand["outcome"], errand["product_id"])
+    wanted = (completed["agent_id"], errand["product_id"])
     for cause in completed["caused_by"]:
         source = indexed.get(cause)
         if source is None or source["event_seq"] >= completed["event_seq"]:
             continue
         rows = evidence_rows(source["event_type"], source["agent_id"], source["data"])
-        if any((row.owner_id, row.outcome, row.product_id) == wanted for row in rows):
+        if any((row.owner_id, row.product_id) == wanted for row in rows):
             return True
     return False
 

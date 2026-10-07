@@ -105,9 +105,9 @@ def test_parameter_descriptions_are_purpose_only() -> None:
 #: 接口合同「人物工具与管理接口」里三个控制工具用途句与字段说明的定稿表（docs/dev/SPEC-life-realism.md#errands-workday-提示信息分工-工具用途句与字段说明）。
 _CONTRACTS = Path(__file__).resolve().parents[2] / "docs" / "CONTRACTS.md"
 _CONTROL_TEXT_LEAD = "三个控制工具的用途句与字段说明定稿（与代码逐字相同）："
-#: 定稿表的位置列，按规格 3.2 的行序：三个用途句、收尾记忆、请求级 errands、每条变更的对象用途与它的八个键。
+#: 定稿表的位置列，按规格 3.2 的行序：三个用途句、收尾记忆、请求级 errands、每条变更的对象用途与它的七个键。
 _CONTROL_TEXT_POSITIONS = ["report_status", "pause_activity", "conclude_activity", "items[].memories", "errands",
-                           "每条变更", "change", "name", "outcome", "item", "quantity", "memo", "remind_time", "reason"]
+                           "每条变更", "change", "name", "item", "quantity", "memo", "remind_time", "reason"]
 
 
 def _control_contract_texts() -> list[tuple[str, str]]:
@@ -125,9 +125,9 @@ def _control_contract_texts() -> list[tuple[str, str]]:
 
 
 def test_control_tool_purposes_and_errand_descriptions_are_the_contract_text() -> None:
-    """三个控制工具的用途句与十一处参数说明（收尾记忆、请求级 errands、每条变更的对象用途与它的八个键）与接口合同的
-    定稿表逐字相同（docs/dev/SPEC-life-realism.md#errands-workday-提示信息分工-工具用途句与字段说明）：定稿表恰好十四行、按规格的行序；每个工具的实际 Schema 都带
-    同样的 errands 说明；十四句都通过只写用途的扫描（一句中文、不含规则说法与拉丁单词）。"""
+    """三个控制工具的用途句与十处参数说明（收尾记忆、请求级 errands、每条变更的对象用途与它的七个键）与接口合同的
+    定稿表逐字相同（docs/dev/SPEC-life-realism.md#errands-workday-提示信息分工-工具用途句与字段说明）：定稿表恰好十三行、按规格的行序；每个工具的实际 Schema 都带
+    同样的 errands 说明；十三句都通过只写用途的扫描（一句中文、不含规则说法与拉丁单词）。"""
     rows = _control_contract_texts()
     assert [position for position, _ in rows] == _CONTROL_TEXT_POSITIONS
     texts = dict(rows)
@@ -152,8 +152,8 @@ _PURPOSE_LEAD = "`query_world` 的用途句定稿（与代码逐字相同）：�
 
 def test_query_world_purpose_is_the_contract_text_and_moves_only_the_tool_fingerprint(monkeypatch) -> None:
     """query_world 的用途句逐字等于 docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-执行位置与保留约束 定稿的那一句（从唯一接口合同读出）；换回旧句时只有
-    工具指纹变、提示指纹不变（本阶段不改系统层与层 Schema）；严格 Schema 的六个键全部必填、按 name, way, category, from,
-    available_only, offset 的顺序，from 是字符串或 null、available_only 是布尔，任何位置都没有字段说明。"""
+    工具指纹变、提示指纹不变（本阶段不改系统层与层 Schema）；严格 Schema 的六个键全部必填、按 name, way, category, app,
+    available_only, offset 的顺序，app 是字符串或 null、available_only 是布尔，任何位置都没有字段说明。"""
     from custom.agents.life_agent import life_tool_schema_sha256
     from worldmock.agents.life_prompt import life_prompt_sha256
 
@@ -165,8 +165,8 @@ def test_query_world_purpose_is_the_contract_text_and_moves_only_the_tool_finger
     monkeypatch.setitem(TOOL_DESCRIPTIONS, "query_world", "按已知名称、方式或公开品类查询世界，按返回的偏移量翻页。")
     assert life_tool_schema_sha256() != tools and life_prompt_sha256() == prompt
     schema = deepseek_strict_schema(QueryWorldRequest)
-    assert schema["required"] == ["name", "way", "category", "from", "available_only", "offset"]
+    assert schema["required"] == ["name", "way", "category", "app", "available_only", "offset"]
     assert list(schema["properties"]) == schema["required"]
-    assert schema["properties"]["from"]["anyOf"] == [{"type": "string"}, {"type": "null"}]
+    assert schema["properties"]["app"]["anyOf"] == [{"type": "string"}, {"type": "null"}]
     assert schema["properties"]["available_only"]["type"] == "boolean"
     assert _descriptions(schema, "query_world") == []

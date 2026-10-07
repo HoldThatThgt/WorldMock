@@ -38,7 +38,7 @@ def _event(
     return {"event_id": f"e{event_seq}-{event_type}-{agent_id}", "event_type": event_type,
             "occurred_at": occurred_at, "agent_id": agent_id, "decision_id": decision_id,
             "activity_id": activity_id, "data": data or {}, "run_id": run_id,
-            "event_seq": event_seq, "code_sha256": code_sha256}
+            "event_seq": event_seq, "code_sha256": code_sha256, "action_id": None}
 
 
 def _progress(
@@ -57,12 +57,32 @@ def _progress(
     """@brief 构造带活动快照与结算区间的 activity_progress 事件。"""
     activity_id = activity_id or f"act-{kind}-{agent_id}-{event_seq}"
     snapshot = {"activity_id": activity_id, "agent_id": agent_id, "kind": kind,
-                "status": "active", "started_at": start}
+                "status": "active", "started_at": start, "data": {}}
+    if kind in {"entertainment", "work_study", "social", "exercise", "daily_care"}:
+        snapshot.update(kind="action", data={"action_id": f"action-{kind}", "category": kind,
+            "manner": "phone_continuous" if kind == "entertainment" else "offline",
+            "app_id": "bilibili" if kind == "entertainment" else None, "content_id": "test-topic"})
     snapshot.update(snapshot_extra or {})
     data = {"interval_start": start, "interval_end": end, "activity": snapshot}
     data.update(data_extra or {})
     return _event("activity_progress", end, agent_id=agent_id, data=data, run_id=run_id,
                   activity_id=activity_id, code_sha256=code_sha256, event_seq=event_seq)
+
+
+def _receipt_events(seq: int, product: str, at: int, category: str = "meal") -> list[dict]:
+    """@brief 当前完整订单与本人实际收货是纯度量用例的独立输入事实。"""
+    order = {"order_id": f"order-{seq}", "agent_id": 1, "recipient_id": "agent:1", "goods_id": product,
+        "category": category, "store_id": "store", "app_id": None, "payment_app_id": "alipay",
+        "unit_price_fen": 1000, "delivery_fee_fen": 0, "quantity": 1, "total_price_fen": 1000,
+        "fulfillment": "pickup", "request_message_id": None, "created_at": at, "received_at": at,
+        "status": "delivered"}
+    result = _event("action_result", at, event_seq=seq * 2,
+                    data={"status": "completed", "data": {"orders": [order]}})
+    result["action_id"] = f"purchase-{seq}"
+    receipt = _event("environment_event", at, event_seq=seq * 2 + 1,
+        data={"kind": "goods_received", "order_id": order["order_id"], "provided": {}, "applied": {}})
+    receipt["caused_by"] = [result["event_id"]]
+    return [result, receipt]
 
 
 def _body(seq: int, start: int, end: int, activity_ids: list[str], **fields: Any) -> dict[str, Any]:
@@ -119,8 +139,8 @@ def _action(event_seq: int, decision_id: str, tool_name: str,
 
 def _start(event_seq: int, decision_id: str, action_id: str, way: str, target: str) -> dict[str, Any]:
     """@brief 构造一项当前 start_activity 请求，以明确目标和方式提供真实请求形状。"""
-    request = {"items": [{"target": target, "way": way, "from": None, "to": None}],
-               "answering": None, "prefer": None}
+    request = {"items": [{"target": target, "way": way, "app": None, "to": None, "pay_app": None}],
+               "answering": None}
     return _action(event_seq, decision_id, "start_activity", request, action_id)
 
 
@@ -372,8 +392,8 @@ def test_autonomous_decision_rate_counts_continue_and_wait_as_passive() -> None:
         _start(4, "d2", "a2", "等待", "自己"),
         _accepted(5, "d2", "a2", "wait"),
         _event("decision_started", _clock(0, 8, 6), decision_id="d3"),
-        _start(7, "d3", "a3", "打开", "哔哩哔哩"),
-        _accepted(8, "d3", "a3", "use_app"),
+        _start(7, "d3", "a3", "进行", "刷推荐"),
+        _accepted(8, "d3", "a3", 'action'),
         _event("decision_started", _clock(0, 8, 9), decision_id="d4"),
     ]
     report = _report(events)["reports"]["effective_autonomous_decision_rate"]
@@ -421,8 +441,8 @@ def test_autonomous_decision_rate_lists_control_rounds_separately() -> None:
     ]
     events = control + [
         _event("decision_started", _clock(0, 8, 7), decision_id="d4"),
-        _start(8, "d4", "a4", "打开", "哔哩哔哩"),
-        _accepted(9, "d4", "a4", "use_app"),
+        _start(8, "d4", "a4", "进行", "刷推荐"),
+        _accepted(9, "d4", "a4", 'action'),
         _event("decision_started", _clock(0, 8, 10), decision_id="d5"),
         _start(11, "d5", "a5", "等待", "自己"),
         _accepted(12, "d5", "a5", "wait"),
@@ -504,7 +524,7 @@ def test_parallel_activity_time_does_not_double_person_elapsed_or_fake_content()
     events = [
         _body(1, start, start + 1800, ["walk", "use_app"]),
         _progress(2, start, start + 1800, "travel", activity_id="walk"),
-        _progress(3, start, start + 1800, "use_app", activity_id="use_app",
+        _progress(3, start, start + 1800, 'entertainment', activity_id="use_app",
                   snapshot_extra={"target_id":"bilibili"}, data_extra={"content": {
                       "content_id":"long-video", "app_id":"bilibili", "kind":"long_video",
                       "position_before_seconds":0, "position_after_seconds":900,
@@ -534,27 +554,22 @@ def test_sleep_schedule_from_sleep_intervals() -> None:
 
 
 def test_meal_diversity_simpson_and_repetition_anchors() -> None:
-    """@brief Simpson 浓度 {a:2,b:1,c:1}=0.375；只算实际 eat 正增量。"""
-    def eaten(seq: int, product: str, use_mode: str = "eat") -> dict[str, Any]:
-        return _progress(seq, _clock(0, 8, seq), _clock(0, 8, seq + 1), "consume",
-                         activity_id=f"meal-{seq}", data_extra={"consumption": {
-                             "use_mode": use_mode,
-                             "items": [{"food_id": product, "interval_portion": 0.5}]}})
-    events = [_action(10, "d1", "consume", {"product_id": "phantom", "use_mode": "eat"}),
-              eaten(1, "a"), eaten(2, "a"), eaten(3, "b"), eaten(4, "c"), eaten(5, "d", "use")]
+    """@brief Simpson {a:2,b:1,c:1}=0.375；只算真实食品收货，购买请求和非食品均排除。"""
+    events = [_action(50, "d1", "start_activity", {"items": [
+        {"target": "幻影商品", "way": "购买", "app": None, "to": "自己", "pay_app": "支付宝"}],
+        "answering": None})]
+    for seq, product, category in ((1, "a", "meal"), (2, "a", "meal"), (3, "b", "drink"),
+                                   (4, "c", "snack"), (5, "d", "daily")):
+        events.extend(_receipt_events(seq, product, _clock(0, 8, seq), category))
     diversity = _report(events)["reports"]["meal_diversity"]
     assert diversity["simpson_concentration"] == 0.375
-    assert diversity["consume_event_count"] == 4
-    assert diversity["distinct_products"] == 3
+    assert diversity["receipt_count"] == 4 and diversity["distinct_products"] == 3
     assert diversity["product_counts"] == {"a": 2, "b": 1, "c": 1}
-
-    hours = 3600
-    window_events = [eaten(11, "a"), eaten(12, "a"), eaten(13, "b"), eaten(14, "a")]
-    window_events[1]["occurred_at"] = _clock(0, 0) + 10 * hours
-    window_events[2]["occurred_at"] = _clock(0, 0) + 20 * hours
-    window_events[3]["occurred_at"] = _clock(0, 0) + 25 * hours
-    rate = _report(window_events)["reports"]["meal_diversity"]["repetition_24h_rate"]
-    assert rate == 0.5
+    window_events = []
+    for seq, product, at in ((11, "a", _clock(0, 8)), (12, "a", _clock(0, 10)),
+                              (13, "b", _clock(0, 20)), (14, "a", _clock(1, 1))):
+        window_events.extend(_receipt_events(seq, product, at))
+    assert _report(window_events)["reports"]["meal_diversity"]["repetition_24h_rate"] == 0.5
 
 
 def test_js_distance_hand_anchor() -> None:
@@ -579,36 +594,28 @@ def test_reference_minutes_match_spec_constants() -> None:
 
 
 def test_activity_distribution_matches_reference_exactly() -> None:
-    """@brief 家族分钟与参照同比例时 JS 距离为 0；外出并入通勤、缺字段记未归类。"""
+    """@brief 当前类别聚合按真实分钟比较参照；用餐与卫生没有活动，不能伪造零JS距离。"""
     events = [
-        _progress(1, _clock(0, 0), _clock(0, 9, 13), "sleep", activity_id="sleep-1"),
-        _progress(2, _clock(0, 10), _clock(0, 10, 50), "lifestyle", activity_id="wash-1",
-                  snapshot_extra={"family": "morning_routine"}),
-        _progress(3, _clock(0, 12), _clock(0, 13, 44), "consume", activity_id="meal-1",
-                  data_extra={"consumption": {"use_mode": "eat", "items": [
-                      {"food_id": "meal", "interval_portion": 1.0}]}}),
-        _progress(4, _clock(0, 14), _clock(0, 21, 40), "work", activity_id="work-1"),
-        _progress(5, _clock(0, 22), _clock(0, 22, 34), "travel", activity_id="go-1"),
-        _progress(6, _clock(0, 23), _clock(0, 23, 21), "lifestyle", activity_id="chat-1",
-                  snapshot_extra={"family": "social"}),
-        _progress(7, _clock(1, 0), _clock(1, 0, 41), "lifestyle", activity_id="run-1",
-                  snapshot_extra={"category": "sport"}),
-        _progress(8, _clock(1, 2), _clock(1, 4, 45), "use_app", activity_id="watch-1"),
-        _progress(9, _clock(1, 5), _clock(1, 5, 10), "lifestyle", activity_id="trip-1",
-                  snapshot_extra={"family": "outing"}),
-        _progress(10, _clock(1, 6), _clock(1, 6, 30), "lifestyle", activity_id="misc-1"),
-    ]
+        _progress(1, _clock(0, 0), _clock(0, 9, 13), "sleep"),
+        _progress(2, _clock(0, 14), _clock(0, 21, 40), "work_study"),
+        _progress(3, _clock(0, 22), _clock(0, 22, 44), "travel"),
+        _progress(4, _clock(0, 23), _clock(0, 23, 21), "social"),
+        _progress(5, _clock(1, 0), _clock(1, 0, 41), "exercise"),
+        _progress(6, _clock(1, 2), _clock(1, 4, 45), "entertainment"),
+        _progress(7, _clock(1, 6), _clock(1, 6, 30), "daily_care")]
     distribution = _report(events)["reports"]["activity_distribution"]
     entry = distribution["per_agent"]["run-1:1"]
     assert entry["observed_days"] == 2
-    assert entry["family_minutes"]["commute"] == 34.0
-    assert entry["outing_minutes_merged_into_commute"] == 10.0
-    assert entry["unclassified_minutes"] == 30.0
-    commute_bucket = entry["family_minutes"]["commute"] + entry["outing_minutes_merged_into_commute"]
-    assert commute_bucket == 44.0
-    assert entry["js_distance"] == 0.0
-    assert distribution["js_distance_mean"] == 0.0
-    assert any("外出" in item for item in distribution["conventions"])
+    assert entry["family_minutes"]["commute"] == 44.0
+    assert entry["family_minutes"]["chore"] == 30.0
+    assert entry["family_minutes"]["morning_routine"] == 0.0
+    assert entry["unclassified_minutes"] == 0.0
+    expected = _js_distance([553, 0, 0, 460, 44, 21, 41, 165, 30],
+                            [553, 50, 104, 460, 44, 21, 41, 165, 0])
+    assert entry["js_divergence_bits"] == round(expected[0], 9)
+    assert entry["js_distance"] == distribution["js_distance_mean"] == round(expected[1], 9)
+    assert entry["js_distance"] > 0
+    assert any("用餐与个人卫生" in item for item in distribution["conventions"])
 
 
 def test_persona_distinguishability_leave_one_out() -> None:
@@ -620,13 +627,13 @@ def test_persona_distinguishability_leave_one_out() -> None:
         events.append(_progress(seq, _clock(0, 0), _clock(0, 10), "sleep", agent_id=1,
                                 run_id=run_id, activity_id=f"{run_id}-s1"))
         seq += 1
-        events.append(_progress(seq, _clock(0, 11), _clock(0, 13), "work", agent_id=1,
+        events.append(_progress(seq, _clock(0, 11), _clock(0, 13), 'work_study', agent_id=1,
                                 run_id=run_id, activity_id=f"{run_id}-w1"))
         seq += 1
-        events.append(_progress(seq, _clock(0, 0), _clock(0, 10), "use_app", agent_id=2,
+        events.append(_progress(seq, _clock(0, 0), _clock(0, 10), 'entertainment', agent_id=2,
                                 run_id=run_id, activity_id=f"{run_id}-v1"))
         seq += 1
-        events.append(_progress(seq, _clock(0, 11), _clock(0, 12), "consume", agent_id=2,
+        events.append(_progress(seq, _clock(0, 11), _clock(0, 12), 'daily_care', agent_id=2,
                                 run_id=run_id, activity_id=f"{run_id}-m1"))
     report = _report(events)["reports"]["persona_distinguishability"]
     assert report["accuracy"] == 1.0 and report["run_count"] == 3
@@ -637,21 +644,22 @@ def test_persona_distinguishability_leave_one_out() -> None:
 
 
 def test_social_minutes_and_message_counts() -> None:
-    """@brief 交谈/通话按真实结算区间累计；消息按独立工具与到达事件计数。"""
-    events = [
-        _start(1, "d1", "a1", "交谈", "人物：同事"),
-        _start(2, "d2", "a2", "通话", "联系人：朋友"),
-        _progress(3, _clock(0, 9), _clock(0, 9, 30), "chat"),
-        _progress(4, _clock(0, 10), _clock(0, 10, 15), "call"),
+    """@brief 文本与线下聊天计chat、语音计call，消息仅由实际消息入口累计。"""
+    text = _progress(1, _clock(0, 9), _clock(0, 9, 30), "social")
+    text["data"]["activity"]["data"].update(communication_mode="text", app_id="wechat")
+    voice = _progress(2, _clock(0, 10), _clock(0, 10, 15), "social")
+    voice["data"]["activity"]["data"].update(communication_mode="voice", app_id="wechat")
+    events = [text, voice,
         _action(5, "d3", "send_message", {"recipient_name": "同事", "text": "在忙吗"}),
         _action(6, "d4", "send_message", {"recipient_name": "朋友", "text": "周末聚？"}),
         _event("environment_event", _clock(0, 15),
-               data={"kind": "message_arrival", "sender_id": 2, "text": "在"}, event_seq=7),
-    ]
-    report = _report(events)["reports"]["social"]
-    assert report["chat_call_minutes"] == {"call": 15.0, "chat": 30.0}
-    assert report["sent_message_count"] == 2 and report["received_message_count"] == 1
-    assert not any("planned_duration_seconds" in note for note in _report(events)["notes"])
+               data={"kind": "message_arrival", "sender_id": 2, "text": "在"}, event_seq=7)]
+    result = _report(events)["reports"]["social"]
+    assert result["chat_call_minutes"] == {"call": 15.0, "chat": 30.0}
+    assert result["sent_message_count"] == 2 and result["received_message_count"] == 1
+    text_only = _report([text])["reports"]["social"]
+    assert text_only["chat_call_minutes"] == {"chat": 30.0}
+    assert text_only["sent_message_count"] == text_only["received_message_count"] == 0
 
 
 def test_memory_repetition_gate_values() -> None:
@@ -707,13 +715,13 @@ def test_missing_metric_evidence_is_reported_unknown_and_gates_fail_closed() -> 
     events = [
         _event("decision_started", _clock(0, 8), decision_id="d1"),
         _model_request(2, "d1", ["当前观察：在家，精神不错"]),
-        _progress(3, _clock(0, 9), _clock(0, 10), "use_app", activity_id="w1"),
+        _progress(3, _clock(0, 9), _clock(0, 10), 'entertainment', activity_id="w1"),
         _event("memory_updated", _clock(0, 20),
                data={"operation": "append_episodes", "episode_ids": ["f" * 64]}),
         _event("run_ended", _clock(0, 23), data={"reason": "window_end"}),
     ]
     report = _report(events)
-    assert report["schema_version"] == "behavior-metrics-1"
+    assert report["schema_version"] == "behavior-metrics-2"
     assert report["gates"]["observation_repetition"]["pass"] is True
     for key in ("silent_boundary_ratio", "memory_repetition_ratio", "memory_md_identity_residue"):
         assert report["gates"][key]["value"] is None
@@ -745,11 +753,11 @@ def test_same_input_produces_byte_identical_report() -> None:
     events = [
         _model_request(1, "d1", ["观察 A"]),
         _model_response(2, "d1", 1234),
-        _progress(3, _clock(0, 9), _clock(0, 10), "use_app", activity_id="w1",
+        _progress(3, _clock(0, 9), _clock(0, 10), 'entertainment', activity_id="w1",
                   data_extra={"decision_offered": False, "wake_reasons": ["commitment_threatened"]}),
         _progress(4, _clock(0, 23), _clock(1, 7), "sleep", activity_id="s1",
                   snapshot_extra={"started_at": _clock(0, 23), "ended_at": _clock(1, 7)}),
-        _action(5, "d2", "consume", {"product_id": "noodle", "use_mode": "eat"}),
+        *_receipt_events(5, "noodle", _clock(0, 9)),
         _memory([{"text": "今天上班写了很多代码", "kind": "episode"}]),
     ]
     first = behavior_metrics_report(events, location_open_hours={"office": 8},

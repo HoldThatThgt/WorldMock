@@ -20,11 +20,11 @@ import pytest
 from tests.life.conftest import (activity_name, advance_next, conclude_request, context, progress_calls, stage_day_plan,
                                  start_activity, start_request, submit_round, tool_targets, wake_by_mail, pause_request,
                                  report_request)
-from tests.life.test_presentation_fidelity import _stage as _stage_moment
+from tests.life.current_world import stage_moment as _stage_moment
 from worldmock.footprints.models import EventDraft
 from worldmock.life import felt, schedule
 from worldmock.life.callable_index import INDEX_KEYS, MAX_EXAMPLES
-from worldmock.life.vocabulary import LIFE_VERBS, SYSTEM_PURCHASE_WAY, WAYS
+from worldmock.life.vocabulary import LIFE_VERBS, WAYS
 from worldmock.life.models import ActionStatus, ActivityStatus, PlanGoalInput, ReviseDayPlanRequest, SendMessageActionRequest
 from worldmock.life.prompt_schemas import (ACTION_STATUSES, BODY_LEVELS, INTENT_KINDS,
                                            LAYER_SCHEMAS, TARGET_KINDS, TOOL_LAYER_SCHEMA, USER_LAYER_NAMES,
@@ -102,14 +102,70 @@ def test_schema_enums_are_literal_copies_of_the_source_closed_sets() -> None:
         "social": levels(felt.SOCIAL_BASE_LEVEL, felt.SOCIAL_BANDS),
         "mood": levels(felt.MOOD_BASE_LEVEL, felt.MOOD_BANDS),
     }
-    assert WAY_LABELS == tuple(way for way in WAYS if way != SYSTEM_PURCHASE_WAY)
+    assert WAY_LABELS == tuple(WAYS)
     assert ACTION_STATUSES == tuple(item.value for item in ActionStatus)
     assert INTENT_KINDS == schedule.INTENT_KINDS
     assert set(TARGET_KINDS) == set(BINDING_KINDS.values()) | {"activity"}
     assert set(LAYER_SCHEMAS) == {"系统层", *USER_LAYER_NAMES} and len(USER_LAYER_NAMES) == 6
     index = TOOL_LAYER_SCHEMA["properties"]["callable_index"]
     assert TOOL_LAYER_SCHEMA["properties"]["callable_index"]["properties"]["goods"]["items"]["properties"]["examples"]["maxItems"] == MAX_EXAMPLES
-    assert tuple(index["properties"]) == INDEX_KEYS == tuple(index["required"])
+    assert set(index["properties"]) == set(INDEX_KEYS) == set(index["required"])
+
+
+def test_current_tool_surface_and_action_only_stage_identity_match_the_actual_host():
+    """@brief 默认闹钟在世界面，原生面含查询；退役成果提交与工作评审身份不能恢复。"""
+    from custom.envs.life_env import _STABLE_TOOL_SURFACE
+    from tests.integration.test_life_agent_protocol import _prepared
+    from worldmock.agents.life_prompt import LIFE_SYSTEM_LAYER
+    from worldmock.errors import IntegrityError
+    from worldmock.life.models import REQUEST_MODELS
+    from worldmock.run_setup import stage_model_identity, validate_stage_model_identity
+
+    offered = _prepared().build_react_tool_schemas(readonly=False)
+    assert len(offered) == 12 and len(_STABLE_TOOL_SURFACE) == 9
+    assert "set_alarm" in _STABLE_TOOL_SURFACE
+    assert "submit_work" not in REQUEST_MODELS and "submit_work" not in _STABLE_TOOL_SURFACE
+    assert "submit_work" not in "".join(LIFE_SYSTEM_LAYER["rules"])
+    identity = stage_model_identity()
+    assert set(identity["stages"]) == {"action"}
+    identity["stages"]["work_review"] = {"thinking": "disabled", "tool_choice": "required"}
+    with pytest.raises(IntegrityError, match="Model identity stage work_review is retired"):
+        validate_stage_model_identity(identity)
+
+
+def test_current_goods_presentation_order_version_is_three():
+    """@brief 商品呈现继续冻结当前排序版本，不恢复已经删除的生活活动窗口。"""
+    from worldmock.life.candidates import ORDER_KEY_VERSION
+    assert ORDER_KEY_VERSION == 3
+
+
+def test_action_prompt_schema_rejects_retired_contract_review_and_completion_shapes():
+    """@brief 当前动作目标与六字段内容结果有效，旧主题合同和评审结果不属于人物提示。"""
+    from jsonschema import Draft202012Validator
+    from worldmock.life.prompt_schemas import PROGRESS_LAYER_SCHEMA
+
+    target = {"name": "办公", "kind": "action", "phase": None, "state": None, "actions": [], "tools": []}
+    layer = {"layer": "工具层", "targets": [target], "callable_index": {
+        "goods": [], "navigation_apps": [], "payment_apps": [], "query_categories": []}}
+    validator = Draft202012Validator(TOOL_LAYER_SCHEMA)
+    assert not list(validator.iter_errors(layer))
+    for change in ({"kind": "task"}, {"contract": {"topic": "季度销售", "remaining": "约 8 小时"}}):
+        invalid = copy.deepcopy(layer)
+        invalid["targets"][0].update(change)
+        assert list(validator.iter_errors(invalid))
+    now = "2026-01-05T00:00:00+08:00"
+    event = {"occurred_at": now, "type": "tool_call", "tool": "start_activity", "arguments": {},
+        "result": {"occurred_at": now, "status": "in_progress", "error_code": None, "message": "Activity started",
+            "details": {"content": {"action": "办公", "app": None, "title": "季度销售", "summary": "核对销售记录",
+                                     "duration": "约 8 小时", "pushed": False}}}}
+    validator = Draft202012Validator(PROGRESS_LAYER_SCHEMA["properties"]["events"]["items"])
+    assert not list(validator.iter_errors(event))
+    for change in ({"work_review": {}}, {"details": {"content": {"title": "季度销售"}}}):
+        invalid = copy.deepcopy(event)
+        invalid["result"].update(change)
+        assert list(validator.iter_errors(invalid))
+    assert list(validator.iter_errors({"occurred_at": now, "type": "work_completed", "topic": "季度销售",
+                                      "worked_seconds": 28800, "work_review": {}}))
 
 
 def test_duty_enumerations_are_the_work_schedule_constants() -> None:
@@ -200,10 +256,10 @@ def test_env_layers_validate_through_purchase_rejection_pause_travel_and_arrival
     shop = _checked(engine, "layers-shop")
     target, way = next((row["object"], action["label"]) for row in shop["interaction_bindings"]
                        if row["kind"] == "supply" for action in row["actions"]
-                       if action["label"] == "远程下单" and action["note"] is None)
-    assert _act(engine, "layers-buy", "start_activity", start_activity(way, target)).status == "completed"
+                       if action["label"] == "购买" and action["app_id"] is not None and action["note"] is None)
+    assert _act(engine, "layers-buy", "start_activity", start_activity(way, target, app=["美团"], pay_app=["支付宝"])).status == "completed"
     assert "purchases" in progress_calls(_checked(engine, "layers-bought"))[-1]["result"]["details"]
-    assert _act(engine, "layers-reject", "start_activity", start_activity("打开", "不存在的对象")).status == "rejected"
+    assert _act(engine, "layers-reject", "start_activity", start_activity("进行", "不存在的对象")).status == "rejected"
     assert "next_step" in progress_calls(_checked(engine, "layers-rejected"))[-1]["result"]["details"]
     waited = _act(engine, "layers-wait", "start_activity", start_activity("等待", "自己"))
     wake_by_mail(engine, offset=60)
@@ -244,9 +300,9 @@ def test_schema_validation_rejects_unknown_layers_extra_keys_and_unexplained_ref
 
 #: 可调用索引的反例：（改法，Schema 报出的位置）。
 _BROKEN_INDEXES = (
-    (lambda index: index.clear(), r"\['callable_index'\]: 'lifestyle' is a required property"),
-    (lambda index: index["lifestyle"].append({"name": "洗碗", "actions": []}), r"\['callable_index', 'lifestyle', \d+\]"),
-    (lambda index: index["lifestyle"].append(index["lifestyle"][0]), r"\['callable_index', 'lifestyle'\]"),
+    (lambda index: index.clear(), r"\['callable_index'\]: 'navigation_apps' is a required property"),
+    (lambda index: index["navigation_apps"].append({"name": "洗碗", "actions": []}), r"\['callable_index', 'navigation_apps', \d+\]"),
+    (lambda index: index["navigation_apps"].append(index["navigation_apps"][0]), r"\['callable_index', 'navigation_apps'\]"),
     (lambda index: index["goods"][0]["examples"].extend(["甲", "乙", "丙"]), r"\['callable_index', 'goods', 0, 'examples'\]"),
     (lambda index: index["goods"][0].update(available=True), r"\['callable_index', 'goods', 0\]"),
     (lambda index: index["goods"][0].update(count=22), r"\['callable_index', 'goods', 0, 'count'\]"),
@@ -293,7 +349,7 @@ def test_direct_message_and_invite_text_appear_only_in_the_progress_layer(engine
                                        2: ("send_message", message)}, "unique-message")
     waiting = next(item.activity_id for item in results if item.agent_id == 1)
     report = report_request(activity_name(engine, waiting), summary="看到消息了。")
-    submit_round(engine, {1: ("report_status", report), 2: ("start_activity", start_activity("交谈", f"人物：{me}"))},
+    submit_round(engine, {1: ("report_status", report), 2: ("start_activity", start_activity("进行", "聊天", to=[f"人物：{me}"]))},
                  "unique-invite")
     observed = _checked(engine, "unique-seen")
     arrivals = [row for row in observed["progress_layer"]["events"] if row["type"] == "message_arrival"]
@@ -325,67 +381,38 @@ def test_paused_activity_progress_appears_only_in_the_todo_layer(engine_factory)
     assert item["progress"] not in json.dumps(pause, ensure_ascii=False)
 
 
-def test_work_contract_appears_only_in_the_task_target(engine_factory) -> None:
-    """正在工作时：截止时刻与有效工时的剩余要求只在任务目标的 contract 出现一次；工作活动目标的状态不写「还差」，
-    待办层与进度层不重复合同。"""
+def test_work_content_appears_only_in_the_action_result(engine_factory):
+    """@brief 目录工作内容全文只在真实结果出现，工具目标没有已退休的contract。"""
     engine = engine_factory()
-    topic = engine.context.scenario.work_topics[0]
-    staged = engine.context.state.model_copy(deep=True)
-    moment = staged.current_time
-    staged.current_time = moment
-    staged.pending_events = [event for event in staged.pending_events if event.due_at > moment]
-    agent = staged.agents[1]
-    staged.agents[1] = agent.model_copy(update={"location_id": "office", "body_settled_at": moment}, deep=True)
-    staged.version += 1
-    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
-        event_type="environment_event", occurred_at=moment, visibility="system", data={"kind": "test_work_position"})])
-    engine.context.state = staged
+    _stage_moment(engine, location="office")
     stage_day_plan(engine)
-    task = f"工作：{topic.topic}"
-    submit_round(engine, {1: ("start_activity", start_activity("工作", task))}, "contract-work")
-    wake_by_mail(engine, offset=600)
-    advance_next(engine)
-    observed = _checked(engine, "contract-seen")
-    contract = tool_targets(observed)[task]["contract"]
-    rendered = _rendered(observed)
-    assert set(contract) == {"topic", "target", "done", "remaining"}
-    (working,) = [row for row in observed["tool_layer"]["targets"] if row["kind"] == "activity"]
-    assert "还差" in working["state"] and "有效" not in working["state"]
-    for key in ("todo_layer", "progress_layer", "environment_layer"):
-        text = json.dumps(observed[key], ensure_ascii=False)
-        assert "contract" not in text and "deadline" not in text
+    result = _act(engine, "content-work", "start_activity", start_activity("进行", "办公"))
+    assert result.error_code is None, result.data
+    observed = _checked(engine, "work-content-seen")
+    details = progress_calls(observed)[-1]["result"]["details"]
+    assert set(details["content"]) == {"action", "app", "title", "summary", "duration", "pushed"}
+    assert details["content"]["action"] == "办公" and details["content"]["app"] is None
+    assert _rendered(observed).count(details["content"]["summary"]) == 1
+    assert all("contract" not in row for row in observed["tool_layer"]["targets"])
 
 
-def test_paused_work_does_not_repeat_the_contract_in_the_todo_layer(engine_factory) -> None:
-    """工作暂停后：暂停的工作在待办层只有名称、暂停时刻、地点、客观进度与两个工具（通过 Schema），不写截止与工时要求；
-    截止时刻与有效工时的剩余要求仍只在任务目标的 contract 出现一次。"""
+def test_paused_work_has_only_actual_progress_and_control_tools(engine_factory):
+    """@brief 暂停工作真实进度只在待办层，目录内容不重写成旧工作合同。"""
     engine = engine_factory()
-    topic = engine.context.scenario.work_topics[0]
-    staged = engine.context.state.model_copy(deep=True)
-    moment = staged.current_time
-    staged.current_time = moment
-    staged.pending_events = [event for event in staged.pending_events if event.due_at > moment]
-    agent = staged.agents[1]
-    staged.agents[1] = agent.model_copy(update={"location_id": "office", "body_settled_at": moment}, deep=True)
-    staged.version += 1
-    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
-        event_type="environment_event", occurred_at=moment, visibility="system", data={"kind": "test_work_position"})])
-    engine.context.state = staged
+    _stage_moment(engine, location="office")
     stage_day_plan(engine)
-    task = f"工作：{topic.topic}"
-    _, results = submit_round(engine, {1: ("start_activity", start_activity("工作", task))}, "paused-contract-work")
-    wake_by_mail(engine, offset=600)
+    result = _act(engine, "work-pause-start", "start_activity", start_activity("进行", "办公"))
+    assert result.error_code is None, result.data
+    wake_by_mail(engine, offset=60)
     advance_next(engine)
-    name = activity_name(engine, results[0].activity_id)
-    _act(engine, "paused-contract-pause", "pause_activity", pause_request(name, summary="先停一下。"))
-    observed = _checked(engine, "paused-contract-seen")
+    name = activity_name(engine, result.activity_id)
+    assert _act(engine, "work-pause", "pause_activity", pause_request(name)).error_code is None
+    observed = _checked(engine, "work-paused-view")
     (item,) = observed["todo_layer"]["paused_activities"]
     assert item["name"] == name and name not in tool_targets(observed)
-    contract = tool_targets(observed)[task]["contract"]
-    rendered = _rendered(observed)
-    assert set(contract) == {"topic", "target", "done", "remaining"}
-    todo = json.dumps(observed["todo_layer"], ensure_ascii=False)
-    assert not any(text in todo for text in ("contract", "deadline", "截止"))
+    assert _rendered(observed).count(item["progress"]) == 1
+    assert {tool["tool"] for tool in item["tools"]} == {"report_status", "conclude_activity"}
+    assert not any(word in json.dumps(item, ensure_ascii=False) for word in ("contract", "deadline", "截止"))
 
 
 
@@ -402,20 +429,11 @@ def test_a_trip_ending_with_its_companion_leaves_the_arrival_to_the_memory_layer
     picks = [next((row["object"], action["verb"], action["label"]) for row in preview["interaction_bindings"]
                   for action in row["actions"] if wanted(row, action)) for wanted in (
         lambda row, action: row["object_id"] == "office" and action["label"] == "步行",
-        lambda row, action: row["kind"] == "app" and action["label"] == "打开" and action["note"] is None)]
+        lambda row, action: row["kind"] == "action" and row["object_id"] == "browse-feed" and action["note"] is None)]
     started = _act(engine, "pair-trip-start", "start_activity", start_request(
-        targets=[pick[0] for pick in picks], actions=[pick[1] for pick in picks], ways=[pick[2] for pick in picks]))
+        targets=[pick[0] for pick in picks], actions=[pick[1] for pick in picks], ways=[pick[2] for pick in picks], app=[None, "抖音"]))
     assert started.status == "in_progress", (started.error_code, started.message)
     travel_id, app_id = (row["activity_id"] for row in started.data["activities"])
-    staged = engine.context.state.model_copy(deep=True)
-    app, longer = staged.activities[app_id], staged.activities[travel_id].planned_end_at + 600
-    staged.activities[app_id] = app.model_copy(
-        update={"planned_end_at": longer, "planned_duration_seconds": longer - app.started_at}, deep=True)
-    staged.version += 1
-    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
-        event_type="environment_event", occurred_at=staged.current_time, visibility="system",
-        data={"kind": "test_app_outlasts_the_trip"})])
-    engine.context.state = staged
     _finish(engine, travel_id, "pair-trip")
     assert engine.context.state.activities[app_id].ended_at == engine.context.state.activities[travel_id].ended_at
     assert [event.data["message"] for event in engine.context.store.read_agent_events("action_result", 1)

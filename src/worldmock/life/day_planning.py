@@ -21,9 +21,10 @@ from pydantic import ValidationError
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import PlanDayRequest, WorldState, deepseek_strict_schema
+from worldmock.life.body import apply_mood_pulse
 from worldmock.life.prompt_capacity import CONTEXT_THRESHOLD, model_context_length, request_token_count
 from worldmock.life.schedule import (DayPlan, RemindTimeInvalid, day_end_seconds, initial_day_plan,
-                                     registered_goals)
+                                     registered_goals, progress_receipt_day_plan)
 
 #: 零点计划请求与响应的用途标记；交付窗口、决策 token 统计与行为指标的决策请求按它排除。
 PLAN_DAY_PURPOSE = "plan_day"
@@ -212,3 +213,19 @@ def _tool_arguments(raw: dict[str, Any]) -> str:
 def _schema_feedback(error: ValidationError) -> str:
     """@brief 保留零点计划的根字段名称并共用 Schema 错误格式。"""
     return schema_feedback(error, "goals")
+
+
+def settle_receipt_goals(state: WorldState, drafts: Sequence[EventDraft]) -> WorldState:
+    """@brief 正餐收货只推进收货人当日用餐目标，并在首次推进时施加一次情绪脉冲。"""
+    changed = state.model_copy(deep=True)
+    for draft in drafts:
+        if draft.event_type != "environment_event" or draft.data.get("kind") != "goods_received":
+            continue
+        agent = changed.agents[draft.agent_id]
+        if agent.day_plan is None:
+            continue
+        plan = progress_receipt_day_plan(agent.day_plan, draft.data, draft.occurred_at)
+        if plan != agent.day_plan:
+            body = apply_mood_pulse(agent.body, "goal_progressed")
+            changed.agents[agent.agent_id] = agent.model_copy(update={"day_plan": plan, "body": body}, deep=True)
+    return changed

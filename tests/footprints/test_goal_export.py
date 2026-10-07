@@ -7,8 +7,10 @@ from zoneinfo import ZoneInfo
 
 from tests.engine_fixture import (engine_factory)  # noqa: F401
 from tests.life.conftest import (StubPlanDayClient, advance_next, context, settle_day_plans, start_request)  # noqa: F401
-from tests.life.routing_fixtures import run_activity_out, selected_food, stage_food_holding, start_eating
-from tests.life.test_day_planning import _goal, _late_engine
+def _goal(intent, goal, remind=None, around=None):
+    """@brief 本测试的当前零点计划输入，不依赖其他测试文件的运行闭包。"""
+    return {"intent_kind": intent, "goal": goal, "remind_time": remind, "around_time": around}
+
 
 from agentsociety2.society import DirectToolCall
 from tests.data_paths import ENVIRONMENT_ROOT
@@ -27,7 +29,7 @@ SCENARIO = ENVIRONMENT_ROOT / "scenarios" / "single-person.json"
 def test_export_command_uses_authenticated_cutoff_and_manifest_code(tmp_path):
     run_dir = tmp_path / "run"
     semantics, _ = load_runtime_scenario(SCENARIO)
-    manifest = {"schema_version": 3, "run_id": "run", "source_group_id": "run",
+    manifest = {"schema_version": 4, "work_content_ids": {"1": []}, "run_id": "run", "source_group_id": "run",
                 "environment_identity": environment_identity(semantics),
                 "agent_ids": [1], "code_sha256": CODE,
                 "window": {"start": 100, "end": 300, "timezone": "UTC"}}
@@ -39,15 +41,18 @@ def test_export_command_uses_authenticated_cutoff_and_manifest_code(tmp_path):
     store.commit({**initial, "version": 1, "current_time": 110}, [EventDraft(
         event_type="action_result", occurred_at=110, agent_id=1, action_id="plan",
         data={"status": "completed", "data": {"day_plan": plan}})])
-    activity = {"activity_id": "work", "agent_id": 1, "kind": "work", "started_at": 110,
+    activity = {"activity_id": "work", "agent_id": 1, "kind": "action", "title": "工作", "data": {"action_id": "work", "category": "work_study", "app_id": None, "content_id": None}, "started_at": 110,
                 "elapsed_seconds": 90, "ended_at": 200, "status": "completed", "location_id": "office"}
     settled = {"day_end": 86400, "goals": [dict(goal, progressed_at=200, progress_activity_id="work")]}
     store.commit({**initial, "version": 2, "current_time": 200}, [EventDraft(
         event_type="activity_progress", occurred_at=200, agent_id=1, activity_id="work",
-        data={"activity": activity, "interval_start": 110, "interval_end": 200, "day_plan": settled})])
+        data={"activity": activity, "interval_start": 110, "interval_end": 200, "day_plan": settled,
+              "content": {"content_id": "assigned-report", "app_id": None,
+                          "position_before_seconds": 0, "position_after_seconds": 90,
+                          "completed": False, "completed_rounds_after": 0}})])
     store.commit({**initial, "version": 3, "current_time": 210}, [EventDraft(
         event_type="action_rejected", occurred_at=210, agent_id=1, action_id="closed",
-        data={"error_code": "APP_NOT_BOUND"})])
+        data={"error_code": "APP_NOT_OFFERED"})])
     store.close()
 
     for cutoff, progressed, other_rejections in ((1, 0, 0), (2, 1, 0), (3, 1, 1)):
@@ -68,7 +73,7 @@ def test_export_command_uses_authenticated_cutoff_and_manifest_code(tmp_path):
         constraints = metrics["external_constraints"]
         assert constraints["block_count"] == 0
         assert constraints["other_rejections"]["count"] == other_rejections
-        expected_codes = {"APP_NOT_BOUND": 1} if other_rejections else {}
+        expected_codes = {"APP_NOT_OFFERED": 1} if other_rejections else {}
         assert constraints["other_rejections"]["by_error_code"] == expected_codes
         assert metrics["gates"]["external_constraint_block_count"]["pass"] is True
         assert quality["event_range"]["last_event_seq"] == cutoff
@@ -131,31 +136,35 @@ def test_real_engine_midnight_settlement_exports_old_day_goal_progress(engine_fa
     assert goals["goals"][0]["progressed_at"] == midnight
 
 
-def test_exported_quality_counts_only_non_routine_goals_and_agrees_with_engine_progress(tmp_path):
+def test_exported_quality_counts_only_non_routine_goals_and_agrees_with_engine_progress(engine_factory, tmp_path):
     """导出的 quality.json 与引擎推进同一判定（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-零点计划只写今天与平常不同的事 、8.2）：10:20–10:45 的进食推进大致时刻
     12:00 的例行午饭目标，大致时刻 23:00 的娱乐目标未推进；目标推进率只计非例行意图，例行意图的目标另计 routine_goals；
     导出的推进时刻与活动身份与引擎的推进证据相同。"""
-    engine = _late_engine(tmp_path, "2026-01-05T10:20:00+08:00", "export-around")
-    try:
-        settle_day_plans(engine, StubPlanDayClient(goals=[_goal("用餐", "午饭提前到十点多吃", None, "12:00"),
-                                                          _goal("娱乐", "睡前看会儿剧", None, "23:00")]))
-        food = selected_food(engine)
-        stage_food_holding(engine, food.food_id, 1.0)
-        _, eating = start_eating(engine, food, "early-lunch")
-        run_activity_out(engine, eating.activity_id, "early-lunch")
-        lunch, evening = engine.context.state.agents[1].day_plan.goals
-        assert (lunch.progress_activity_id, evening.progressed_at) == (eating.activity_id, None)
-        destination = tmp_path / "export"
-        export_run(engine.context.store, engine.context.store.last_event_seq, destination)
-        quality = json.loads((destination / "quality.json").read_bytes())
-        goals = quality["day_plan_metrics"][engine.context.store.manifest["code_sha256"]]["deliberate_goals"]
-        day = goals["per_agent_day"][f"{engine.context.state.run_id}:1:2026-01-05"]
-        assert [(item["intent_kind"], item["routine"], item["status"], item["progressed_at"],
-                 item["progress_activity_id"]) for item in day["goals"]] == [
-            ("用餐", True, "progressed", lunch.progressed_at, eating.activity_id), ("娱乐", False, "pending", None, None)]
-        assert (day["goal_count"], day["progressed_count"], day["family_progress_rate"]) == (1, 0, 0)
-        assert day["routine_goals"] == {"goal_count": 1, "progressed_count": 1, "discarded_count": 0,
-                                        "family_progress_rate": 1}
-        assert goals["summary"]["family_progress_rate"] == 0 and goals["summary"]["routine_goals"]["goal_count"] == 1
-    finally:
-        engine.close()
+    from tests.life.test_acs_amended_runtime import perform, pump
+    from tests.life.test_acs_runtime import request
+
+    def late(document):
+        document.update(start_at="2026-01-05T10:20:00+08:00", end_at="2026-01-05T11:00:00+08:00",
+                        messages=[], payrolls=[], bills=[])
+    engine = engine_factory(mutate=late)
+    settle_day_plans(engine, StubPlanDayClient(goals=[_goal("用餐", "午饭提前到十点多吃", None, "12:00"),
+                                                     _goal("娱乐", "睡前看会儿剧", None, "23:00")]))
+    purchased = perform(engine, "early-lunch", request("牛肉面", "美团", "购买", payment="支付宝"))
+    assert purchased.error_code is None, purchased.data
+    order_id = purchased.data["orders"][0]["order_id"]
+    pump(engine, lambda: engine.context.state.deliveries[order_id].status == "delivered")
+    lunch, evening = engine.context.state.agents[1].day_plan.goals
+    received = next(event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
+                    if event.data.get("kind") == "goods_received" and event.data["order_id"] == order_id)
+    assert lunch.progressed_at == received.occurred_at and evening.progressed_at is None
+    destination = tmp_path / "export"
+    export_run(engine.context.store, engine.context.store.last_event_seq, destination)
+    quality = json.loads((destination / "quality.json").read_bytes())
+    goals = quality["day_plan_metrics"][engine.context.store.manifest["code_sha256"]]["deliberate_goals"]
+    day = goals["per_agent_day"][f"{engine.context.state.run_id}:1:2026-01-05"]
+    assert [(item["intent_kind"], item["routine"], item["status"], item["progressed_at"]) for item in day["goals"]] == [
+        ("用餐", True, "progressed", lunch.progressed_at), ("娱乐", False, "pending", None)]
+    assert (day["goal_count"], day["progressed_count"], day["family_progress_rate"]) == (1, 0, 0)
+    assert day["routine_goals"] == {"goal_count": 1, "progressed_count": 1, "discarded_count": 0,
+                                    "family_progress_rate": 1}
+    assert goals["summary"]["family_progress_rate"] == 0 and goals["summary"]["routine_goals"]["goal_count"] == 1

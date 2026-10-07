@@ -143,7 +143,7 @@ async def test_unwrapped_actor_read_query_equals_direct_environment_call(engine_
         assert recalled == await environment.read_query(staged.frozen, 'recall_task_summary', staged.request)
 
         category = observed['tool_layer']['callable_index']['query_categories'][0]['category']
-        query = QueryWorldRequest(**{'name': None, 'way': None, 'category': category, 'from': None,
+        query = QueryWorldRequest(**{'name': None, 'way': None, 'category': category, 'app': None,
                                      'available_only': False, 'offset': 0})
         page = await actor.read_query(staged.frozen, 'query_world', query)
         assert page['matches'] and page == query_world(observed, query)

@@ -32,10 +32,12 @@ def _changed(tmp_path: Path, mutate) -> Path:
     (lambda d: d["environment"].update(environment_id="other"), "ENVIRONMENT_PIN_MISMATCH"),
     (lambda d: d.update(accounts=[row for row in d["accounts"] if row["role"] != "merchant:cafe"]),
      "MERCHANT_ACCOUNT_MISSING"),
-    (lambda d: d["agents"][0].update(work_topic_ids=["unknown"]), "WORK_TOPIC_UNKNOWN"),
+    (lambda d: d["agents"][0].update(work_content_ids=["unknown"]), "WORK_CONTENT_UNKNOWN"),
+    (lambda d: d["agents"][0].update(work_content_ids=["c-short"]), "WORK_CONTENT_UNKNOWN"),
     (lambda d: d["agents"][0].update(work_schedule=None), "WORK_SCHEDULE_REQUIRED"),
     (lambda d: d["locations"].append({"location_id": "unknown"}), "ENVIRONMENT_REF_UNKNOWN"),
-    (lambda d: d["agents"][0].update(initial_inventory={"home": {"unknown": 1}}), "ENVIRONMENT_REF_UNKNOWN"),
+    (lambda d: d["agents"][0].update(work_content_ids=[]), "WORK_CONTENT_REQUIRED"),
+    (lambda d: d.update(end_at="2026-01-07T00:00:00+08:00"), "WORK_CONTENT_INSUFFICIENT"),
 ])
 def test_real_loader_rejects_registration_counterexamples(tmp_path, change, code):
     """@brief 场景加载走唯一目录准入入口，每个反例返回精确稳定码。"""
@@ -49,6 +51,24 @@ def test_existing_map_without_branch_labels_loads_unchanged() -> None:
     assert len(semantics.scenario.locations) == 7
     assert semantics.catalog.map_data.seed == 7
     assert all(location.display_name == location.name for location in semantics.scenario.locations)
+
+
+def test_work_content_requires_a_schedule_for_the_other_person(tmp_path):
+    """@brief 人物二分配已登记课程后也必须声明自己的排班，不借用人物一的安排。"""
+    document = json.loads((ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/multi-person.json").read_text(encoding="utf-8"))
+    document["agents"][1].update(work_content_ids=["c-course"], work_schedule=None)
+    with pytest.raises(IntegrityError, match="WORK_SCHEDULE_REQUIRED"):
+        load_runtime_scenario(_changed(tmp_path, lambda payload: payload.update(document)))
+
+
+def test_assigned_work_content_covers_the_full_shift_including_breaks(tmp_path):
+    """@brief 工作内容覆盖班次完整起止秒数，不能扣掉午休使不足时长通过。"""
+    def change(document):
+        document["end_at"] = "2026-01-07T00:00:00+08:00"
+        document["agents"][0]["work_schedule"]["weekly"]["1"]["breaks"] = [[540, 1080]]
+
+    with pytest.raises(IntegrityError, match="WORK_CONTENT_INSUFFICIENT"):
+        load_runtime_scenario(_changed(tmp_path, change))
 
 
 def test_work_schedule_workplace_must_be_a_selected_location(tmp_path) -> None:
@@ -81,32 +101,32 @@ def test_overtime_dates_and_dates_outside_the_window_are_not_checked(tmp_path):
 
 
 def test_a_null_work_schedule_is_not_cross_checked_and_others_still_are(tmp_path):
-    """@brief 没有分配主题的人物可没有工作安排。"""
+    """@brief 没有分配工作内容的人物可没有工作安排。"""
     def change(document):
-        document["agents"][0].update(work_topic_ids=[], work_schedule=None)
+        document["agents"][0].update(work_content_ids=[], work_schedule=None)
 
     semantics, _ = load_runtime_scenario(_changed(tmp_path, change))
     assert semantics.scenario.agents[0].work_schedule is None
 
 
-def test_visible_labels_include_registered_apps_foods_and_places():
-    """@brief 应用、食品持有物和地点都进入加载期名称唯一性检查。"""
+def test_visible_labels_include_registered_actions_goods_and_places():
+    """@brief 动作、商品和地点都使用登记的原名执行加载期名称唯一性检查。"""
     semantics, _ = load_runtime_scenario(_SCENARIO)
-    labels = visible_object_labels(semantics.scenario, ARTIFICIAL_ENVIRONMENT_ROOT / "corpora")[1]
-    assert "应用：美团" in labels
-    assert "持有物：薯片" in labels
-    assert "地点：三杯咖啡" in labels
+    labels = visible_object_labels(semantics.scenario)[1]
+    assert labels["刷推荐"] == ["action:browse-feed"]
+    assert labels["薯片"] == ["goods:chips"]
+    assert labels["三杯咖啡"] == ["location:cafe"]
     assert all(len(sources) == 1 for sources in labels.values())
 
 
 def test_duplicate_object_labels_are_rejected_at_load():
-    """@brief 同时可见的应用同名会在加载检查处拒绝，不等到模型决策。"""
+    """@brief 同时可见的动作同名会在加载检查处拒绝，不等到模型决策。"""
     semantics, _ = load_runtime_scenario(_SCENARIO)
-    first, second, *rest = semantics.scenario.apps
+    first, second, *rest = semantics.scenario.actions
     duplicate = second.model_copy(update={"name": first.name})
-    scenario = semantics.scenario.model_copy(update={"apps": (first, duplicate, *rest)})
+    scenario = semantics.scenario.model_copy(update={"actions": (first, duplicate, *rest)})
     with pytest.raises(IntegrityError, match="non-unique object labels"):
-        check_visible_labels(scenario, ARTIFICIAL_ENVIRONMENT_ROOT / "corpora")
+        check_visible_labels(scenario)
 
 
 def _changed_locations(tmp_path, mutate):
@@ -158,8 +178,8 @@ def test_registered_branch_labels_make_selected_locations_distinguishable(tmp_pa
     locations = {row.location_id: row.display_name for row in semantics.scenario.locations}
     assert locations["noodle-1"] == "面馆（北店）"
     assert locations["noodle-2"] == "面馆（南店）"
-    labels = visible_object_labels(semantics.scenario, path.parent.parent / "corpora")[1]
-    assert "地点：面馆（北店）" in labels and "地点：面馆（南店）" in labels
+    labels = visible_object_labels(semantics.scenario)[1]
+    assert "面馆（北店）" in labels and "面馆（南店）" in labels
 
 
 def test_registered_branch_labels_are_normalized_as_part_of_the_full_name(tmp_path):

@@ -9,7 +9,6 @@ from typing import Any
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.app_push import issue_app_push
-from worldmock.life.basket import inventory_change
 from worldmock.life.commerce import deliver_order
 from worldmock.life.models import ActivityKind, WorldState, active_activities
 from worldmock.life.semantics import ScenarioSemantics
@@ -28,18 +27,22 @@ class ScheduledOutcome:
     wake: str | None = None
     #: 人物可见推送来自环境，其余既有预排事件保持场景来源。
     source_kind: str = "scenario"
+    #: 本次真实收货人的证据，与付款人送达事件同一次提交。
+    receipts: tuple[EventDraft, ...] = ()
 
 
 def apply_scheduled_effect(state: WorldState, event: ScheduledEvent,
                            semantics: ScenarioSemantics) -> ScheduledOutcome:
     """@brief 将后台事件投影到世界；供给变更不得另建运行语义中的状态。"""
     if event.kind == ScheduledKind.DELIVERY_ARRIVAL:
-        return _deliver_orders(state, event)
+        return _deliver_orders(state, event, semantics)
     if event.kind == ScheduledKind.APP_PUSH:
-        changed, data = issue_app_push(state, event, semantics.catalog)
+        changed, data = issue_app_push(state, event, semantics.catalog, semantics.scenario)
         sleeping = any(item.kind == ActivityKind.SLEEP for item in active_activities(state, event.agent_id))
         wake = "app_push" if "push_id" in data and not sleeping else None
         return ScheduledOutcome(changed, data, wake, "environment")
+    if event.kind == ScheduledKind.ALARM_RING:
+        return ScheduledOutcome(state, {}, "alarm_ring", "environment")
     if event.kind == ScheduledKind.CALENDAR_FLAG:
         return ScheduledOutcome(state, dict(event.data), "message_arrival")
     if event.kind == ScheduledKind.BILL_DUE:
@@ -62,12 +65,21 @@ def process_scheduled_events(state: WorldState, target: int, semantics: Scenario
     for item in sorted(due, key=lambda value: (value.sequence, value.scheduled_id)):
         outcome = apply_scheduled_effect(state, item, semantics)
         state = outcome.state
+        if item.kind == ScheduledKind.DELIVERY_ARRIVAL and not outcome.data:
+            continue
         if item.agent_id is not None and outcome.wake is not None:
             arrivals.setdefault(item.agent_id, set()).add(outcome.wake)
         visibility = "system" if item.kind == ScheduledKind.APP_PUSH and "push_id" not in outcome.data else "agent"
-        drafts.append(EventDraft(event_type="environment_event", occurred_at=target, agent_id=item.agent_id,
-                                 source_kind=outcome.source_kind, visibility=visibility,
-                                 data={"kind": item.kind.value, "scheduled_id": item.scheduled_id, **outcome.data}))
+        source = EventDraft(event_type="environment_event", occurred_at=target, agent_id=item.agent_id,
+                            source_kind=outcome.source_kind, visibility=visibility,
+                            caused_by=list(item.caused_by),
+                            data={"kind": item.kind.value, "scheduled_id": item.scheduled_id, **outcome.data})
+        drafts.append(source)
+        for receipt in outcome.receipts:
+            receipt.caused_by = [source.event_id]
+            drafts.append(receipt)
+            if not receipt.data["recipient_asleep"]:
+                arrivals.setdefault(receipt.agent_id, set()).add("delivery_arrival")
     return state, drafts, arrivals
 
 
@@ -96,21 +108,27 @@ def _deliver_message(state: WorldState, event: ScheduledEvent) -> ScheduledOutco
                                       "occurred_at": event.due_at}, "message_arrival")
 
 
-def _deliver_orders(state: WorldState, event: ScheduledEvent) -> ScheduledOutcome:
-    """@brief 一次配送交付整单全部项目，重复到期不增加库存或虚报库存变更。"""
+def _deliver_orders(state: WorldState, event: ScheduledEvent,
+                    semantics: ScenarioSemantics) -> ScheduledOutcome:
+    """@brief 配送整单在到期当秒收货，重复到期不产生状态、分录或事件。"""
     identities = event.data["order_ids"]
     if not identities or len(set(identities)) != len(identities):
+        logging.error("Delivery event requires unique nonempty order identities")
         raise IntegrityError("Delivery event requires unique nonempty order identities")
     orders = []
-    changes = []
+    receipts = []
     changed = state
     for identity in identities:
-        before = changed.deliveries.get(identity)
-        changed, order = deliver_order(changed, identity)
-        orders.append(order.model_dump(mode="json"))
-        if before.status == "pending" and order.status == "delivered":
-            changes.append(inventory_change(order))
-    return ScheduledOutcome(changed, {"orders": orders, "inventory_changes": changes}, "delivery_arrival")
+        outcome = deliver_order(changed, semantics, identity)
+        if changed.deliveries[identity].status == "pending":
+            orders.append(outcome.order.model_dump(mode="json"))
+            receipts.extend(outcome.receipts)
+        changed = outcome.state
+    data = {"orders": orders} if orders else {}
+    sleeping = any(item.kind == ActivityKind.SLEEP for item in active_activities(state, event.agent_id))
+    wake = "delivery_arrival" if orders and not sleeping else None
+    return ScheduledOutcome(changed, data, wake,
+                            receipts=tuple(receipts))
 
 
 def _bill_due(state: WorldState, event: ScheduledEvent) -> ScheduledOutcome:

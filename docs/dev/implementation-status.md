@@ -1,13 +1,43 @@
 <a name="implementation-status-worldmock-实现状态"></a>
 # WorldMock 实现状态
 
-> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「实施状态、现行世界格式、历史证据归属与平台边界」（阶段 8）；此前阶段的修订并入同一现行合同。
+> 当前行为以[动作与内容简化规格](SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)及[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)为准；下文既有特性的提交与验收记录保留各自历史身份。
 
-> 状态：资源与规则引擎简化阶段 1–8 已实现；macOS 人工环境同场景同种子双跑完整日一致，第三基线已由生产命令原子冻结。工程门禁及独立审查按各自实际源码、环境与平台身份判定，实现完成不等于全部验收通过。阶段 9 正式环境重制发布、平台及真实模型未执行项分别登记，三项项目级真实验收仍为 NOT-COMPLETE。
+> 状态：动作与内容简化阶段 1–6 已按实际提交完成，`STAGES_DONE` 为 `{1,2,3,4,5,6}`；同场景同种子双跑完整日一致，第四基线已原子冻结，干净提交上的独立审查完成。适配新格式的正式环境、七天模型模拟与 LabelKit-DataSet 消费均未执行，三项项目级真实验收仍为 NOT-COMPLETE。
 > 历史特性身份：个人事务与工作安排特性已在特性分支 `feat/errands-workday` 实现并通过离线验收，并已合入 main（自 `3b4afe5` 起，合并提交 `e54c37b`；阶段 6 配对全天复跑与 strict 端点探针未执行）；工具交互特性已在 main 实现（`3b4afe5`），验收见其验收记录；一日运行保真特性已实现并通过离线验收，经 `938e289` 合入 main（阶段 7 真实复验未执行）；人物 Prompt 七层特性已实现并通过离线验收，经 `4a5b0e6` 合入 main（阶段 7 真实复验未执行）；时间与能量特性已在 main 实现并通过离线验收（阶段 8 真实复验未执行）；一日行为、当日目标独立分支与既有地图/品类主线组合各自通过离线验收；历史证据保留，三项项目级真实验收仍未完成
-> 日期：2026-10-07（增量修订；既有验收记录保留各自基线）
+> 日期：2026-10-08（增量修订；既有验收记录保留各自基线）
 > 历史基线：工作树 HEAD `9b7fbc84d4429c2f05ec4b526df53539f0ed5d78`（另含当时未提交的文档重构与候选呈现代码）；除新增特性验收记录外，下文旧测试数字和真实运行描述均为该次实测快照，不代表新版本已重新完成真实运行
 > 口径：接口与字段以 `docs/CONTRACTS.md#contracts-worldmock-接口合同` 为准，验收门禁与证据规则以 `docs/VERIFICATION.md#verification-worldmock-验收标准` 为准，覆盖率口径见 `docs/dev/coverage-baseline.md#coverage-baseline-覆盖率门禁口径与基线`；当前特性结论与带身份的历史验收分开记录，变更过程由 Git 承载
+
+<a name="implementation-status-动作与内容简化开发状态"></a>
+## 动作与内容简化开发状态
+
+环境维护 app、动作和内容，内容只绑定动作与 app，不再登记内容分类。一个执行器推进真实内容秒数；游戏、音乐和播客由环境动作表达。人物显式选择活动 app、购物 app 和支付 app，内容历史跨 app 保持连续，推送由真实地点会话和动作绑定产生。
+
+系统保留出行、购买、驿站领取、睡眠、一次性闹钟和等待。库存、进食、给予及联系人持有已删除。现场购买与短时直送在实际收货时结算商品效果；超过一天的远程购买先到实际收货人家庭最近驿站，只记录可领取及通知，本人实际到站零秒领取后才产生收货和效果。领取不增加库存。拥有汽车的人物现场加油每笔收货增加七个驾车可用日，实际有驾驶秒数的本地日期各扣一次。
+
+绑定 app 的文字和语音社交由明确通信方式分流，文字话题不生成通话、消息或对方回复事实。模型撰写的进度不增加客观内容秒数；手机、其他设备和线下辅助各按真实使用方式投影。
+
+| 阶段 | 已实施范围 | 提交 |
+| --- | --- | --- |
+| 1 | 固定规则、目录格式、场景与世界加载边界 | `343079d586c067a60473fc2881d8dcf65544dae2` |
+| 2 | 购买、到店与配送收货、驿站领取、无库存结算 | `5da63f1f3439ae2a643aa1a5b18a019d3efd5bee` |
+| 3 | 统一动作执行、内容选择、推送、占用与社交 | `774a7d8d5d2d06184e37d58d3f64fa84c1d3be46` |
+| 4 | 五字段请求、工具面、闹钟与系统层 | `15b411b28eb07de5487b4e6fe98dca4d3b1824a1` |
+| 5 | 事件、检查点、导出、重算、质量与查看器 | `1448f53f57ce5e38214e50c87affaa82f57a5a4f` |
+| 6 | 完整日冻结、登记收口与独立审查 | 审查输入 `fdce103ec7670f89b4ea5c3997aa7549a3295c8a`；完成集合 `5656c683a3b2d89d530983a6440f6c31463918da` |
+
+| 验收范围 | 当前证据与状态 |
+| --- | --- |
+| 生产与格式 | 目录格式 2、场景结构 8、世界结构 11、运行清单 4、导出清单 4、质量报告 6；旧结构直接拒绝；实际行为由 `tests/acs_acceptance.py` 与独立 `tests/fixtures/acs-acceptance.json` 登记 |
+| 人工完整日 | 最终生产摘要 `edd9c39159cd4f353f620446aaec31ff49c5222a8280591a5865051770832a99` 下，两个独立进程同场景、同种子各运行完整一天，中途检查点关闭重开、导出及认证后候选相等；[第四基线](../../tests/fixtures/dayrun-action-content-baseline.json)摘要为 `48db31a4fd290300bb1b61c89b2ff3f65201c33e95b7a936a2ab1ccb42430015`，两人实际决策分别为 52、44 次；此前三份基线与原基线实现字节保持不变 |
+| 标准层 | macOS arm64、CPython 3.12.13、六进程运行 `4b2b49a9-77a1-4b02-8cf6-d70022ae6bf7` 的 5705 个节点全部通过，零跳过；输入摘要 `dd629cf8232221810d46793818a937f5bd6217213268dd591fd0ee842ca16122`；收口文档与完成集合的匹配输入、实测标准墙钟由[测试耗时](test-durations.json)登记 |
+| 全量与覆盖率 | 同一输入的运行 `859031ff-bf91-4ae1-bc23-33f4c10b01c5` 完整执行 5946 个节点，零失败、零错误、零跳过；分支覆盖率 96.76%，未覆盖公共接口为零，这是关闭完成集合前的完整回执；关闭后的匹配输入结果由实际全量入口生成的[覆盖率报告](coverage-report.json)与[测试耗时](test-durations.json)登记。此前旧变异守卫失败及新增所有者测试分录残留的失败回执保留，后者仅以测试隔离修复，未改变生产行为或原断言 |
+| 完成集合与最终门禁 | `5656c683a3b2d89d530983a6440f6c31463918da` 一次登记 `STAGES_DONE={1,2,3,4,5,6}`；真实游戏、音乐、播客闭环、驿站零秒领取且无库存、一次性闹钟及按本地驾车日扣减均经真实引擎验证。独立审查在干净提交 `fdce103ec7670f89b4ea5c3997aa7549a3295c8a` 的隔离工作树实体修改生产源码：68 个 Python 与 2 个查看器变异全部被行为断言杀死，存活、无效与无法判定均为零；未变异及恢复后均为 Python 220 项、Node 75 项通过。30 个契约、T1–T58 和 15 个引擎契约的真实节点完整，调用方与隔离工作树恢复干净；报告摘要 `3c3b2b2cf81c6b2f30d138c239ba6d31f1761d8ee2a99a7ca1b18c1a6b43520a` |
+| 正式环境与模型模拟 | WorldMock-Dataset 持有环境制作和发布；主干合并前不发布新格式，不启动正式七天模型模拟。人工闭环与确定性完整日不充当正式模型运行 |
+| 下游与平台 | LabelKit-DataSet 的手机投影与人设数据转换在真实七天完成后由该仓库执行；Windows 无本次回执，不从 macOS 人工环境推定 |
+
+逐字段与事件合同见[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)，逐条行为与生产归属见[机器追溯](ANALYSIS-spec-coverage.md#analysis-spec-coverage-动作与内容简化映射)。最终完成状态由匹配输入的工程门禁、独立审查与正式环境回执关闭，不能用完成集合代替执行证据。
 
 <a name="implementation-status-目录与数据加工归属"></a>
 ## 目录与数据加工归属
@@ -25,7 +55,7 @@ LabelKit-DataSet 会话已复制 261 个来源文件并核对摘要，证明来�
 <a name="implementation-status-资源与规则引擎简化开发状态"></a>
 ## 资源与规则引擎简化开发状态
 
-人物通过食品交易与进食、图上出行、生活活动、app 使用和主题工作形成连续足迹。目录描述具体世界，固定类型与常数由引擎维护；内容进度跨 app 延续，推送随真实地点会话保留、打开与释放；主题完成只取实际工作时间，人物自述不能增加工时，也不触发工作评审或奖励付款。
+本节保留资源与规则引擎简化当时的实现和验收身份。其食品持有与进食、五类内容和主题工作合同已由动作与内容简化替换；现行行为见本页「动作与内容简化开发状态」，旧回执不证明新格式。
 
 [冻结规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)是本次改造权威。逐行生产归属、行为节点与源码变异以 `tests/fixtures/rrs-acceptance.json`、`tests/rrs_acceptance.py` 和[现行追溯矩阵](ANALYSIS-spec-coverage.md#analysis-spec-coverage-资源与规则简化映射)核对。提交证明实施顺序，实际执行必须另有匹配源码、环境身份和平台的回执。
 
@@ -540,25 +570,26 @@ $ uv run pytest -q
 
 阶段 4 已删除内容、游戏与目录浏览候选，候选种类收敛为 `product`、`lifestyle`、`task`；app 始终作为工具目标列出，
 画像 `tastes` 只进入散文，不生成候选数值权重。当前纯所有者节点是
-`tests/life/test_candidates.py::test_candidates_have_only_product_lifestyle_and_task_kinds`、
+`tests/life/test_candidates.py::test_candidates_have_only_current_product_kind`、
 `tests/life/test_candidates.py::test_relevance_changes_order_without_changing_membership` 与
-`tests/life/test_app_ui.py::test_all_apps_always_listed_without_content_candidates_or_index`。
+`tests/life/test_tool_layer.py::test_all_registered_actions_listed_with_explicit_apps_and_no_app_targets`。
 完整引擎组合属于阶段 1–5 同一集成波次，须由阶段 5 回执闭合；本节不据这些登记宣称已经通过。
 
 <a name="implementation-status-当前世界格式worldstateschema_version-为-9"></a>
-### 当前世界格式：`WorldState.schema_version` 为 10
+### 当前世界格式：`WorldState.schema_version` 为 11
 
-[资源与规则引擎简化](SPEC-resource-and-rule-simplification.md#spec-rrs-状态事件检查点与导出)一次升级当前结构：世界 10、场景 7、运行清单 3、导出清单 3、质量报告 5。旧状态、场景和清单直接按版本或必填字段拒绝，不迁移、不双读；历史文件原始字节仍保留。
+[动作与内容简化](SPEC-action-and-content-simplification.md#spec-acs-状态事件检查点与导出)一次升级当前结构：世界 11、场景 8、运行清单 4、导出清单 4、质量报告 6。旧状态、场景和清单直接按版本或必填字段拒绝，不迁移、不双读；历史文件原始字节仍保留。
 
 | 当前状态 | 恢复与来源要求 |
 | --- | --- |
 | 全局 app 内容进度 | 本人的内容位置与完成轮数跨 app 保存；换 app、暂停或恢复不能重置真实进度 |
 | 会话 app 推送 | 真实 session 的推送身份、打开与钉住状态随检查点保存；结束会话和内容完成按真实事件解除 |
-| 主题工时 | 由非失败工作活动实际区间推导累计；暂停、闲置和自述不累加；已完成主题不能重开，恢复依次核地点、剩余工时、名额与占用 |
+| 指派内容进度 | 由真实动作消费区间累计；暂停、闲置和自述不累加；指派内容完成后不能重开，恢复核地点、剩余内容、名额与占用 |
+| 订单与驾车余额 | 到站和领取分开；本人收货效果恰好一次；驾车余额及已扣本地日期保持真实，恢复不得重复加油或扣减 |
 | 事务、活动与地点会话 | 保留未完成事务、同刻决策、活动和待收尾；恢复不得重复结算、记下或提醒 |
 | 环境身份 | 同一环境标识、版本、规则、目录和地图字节绑定运行及冻结清单；新分支新目录，父目录不改 |
 
-逐字段合同见[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)，当前行为节点由[机器追溯](ANALYSIS-spec-coverage.md#analysis-spec-coverage-资源与规则简化映射)登记。此前版本 6–9 的发布和验收身份见历史特性与归档记录，不充当当前格式证明；正式环境完整日与跨平台换目录恢复仍由阶段 9 留证。
+逐字段合同见[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)，当前行为节点由[机器追溯](ANALYSIS-spec-coverage.md#analysis-spec-coverage-动作与内容简化映射)登记。此前世界格式的发布和验收身份见历史特性与归档记录，不充当当前格式证明；本次正式环境、换目录恢复与平台回执由动作与内容简化交接阶段留证。
 
 <a name="implementation-status-已完成的确定性范围"></a>
 ## 已完成的确定性范围
@@ -655,8 +686,7 @@ $ uv run pytest -q
   WorldMock 的模型调用走 DeepSeek 的 strict 端点 `https://api.deepseek.com/beta`（7.5，LabelKit 用自己的端点）；推理原文经 `model_response` 数字足迹事件的
   `data.response.choices[0].message.reasoning_content` 落库。思考只在同秒续接中回传：同一人物、同一 session、同一秒的相邻决策，续接请求原样带上此前各 assistant 回合的 `reasoning_content`（思考模式下续接链中任一 assistant 缺该字段会得到 400，`max_retries=0` 不重试），宿主发送前自检，缺失即断链；时间推进、session 切换或反事实分支后请求从新快照构造，此前的思考不再出现；开关 `worldmock run --same-second-continuation on|off`（缺省开）冻结进清单 `stages.action` 与人物配置。模型请求超时为 300 秒
   （`src/worldmock/runtime.py` 设 `AGENTSOCIETY_LLM_REQUEST_TIMEOUT`，AS2 默认 60 秒）。
-- 内容品类：`kind` 取 `feature_film`、`drama_series`、`webnovel_excerpt`、`news_feed`、`joke_feed`、
-  `subtitle_experience`、`game_session`；`experience_label` 保留为结算与目录的可读标签。
+- 当前内容没有 `kind` 或内容分类，只声明动作、可用 app、标题、摘要、时长与可选系列；游戏、音乐和播客使用环境登记的动作。
 - 路径清理：受版本控制的路径中不再保留任何旧工程代码或经验档案。
 
 <a name="implementation-status-已具备的真实运行证据"></a>
@@ -682,7 +712,7 @@ $ uv run pytest -q
 <a name="implementation-status-项目级真实验收边界"></a>
 ## 项目级真实验收边界
 
-本次人工环境的认证 app 足迹和主题工时证明实现行为，不证明长期相似度或正式发布。旧素材、品类与路线的可达性结论保留当时身份，现行内容按 app 绑定和目录准入求可达性。
+本次人工环境的认证 app 足迹和分配工作内容实际秒数证明实现行为，不证明长期相似度或正式发布。旧素材、品类与路线的可达性结论保留当时身份，现行内容按 app 绑定和目录准入求可达性。
 
 - 正式 DeepSeek 十二周运行：本次未执行，不以确定性工具驱动流程替代八十四天的真实模型产物。
 - LabelKit 完整自然日交付：本次未重跑；历史基线在 action 阶段中止，未完成 intent、dreaming、规则和训练加载，原证据仍按其当时身份解释。
@@ -710,3 +740,4 @@ $ uv run pytest -q
 | 版本 | 日期 | 变更 |
 | --- | --- | --- |
 | `2026-10-06-rrs-docs` | 2026-10-07 | 当前主题、app 足迹和结构；阶段提交、历史证据、人工/正式环境与平台边界分别登记 |
+| `2026-10-07-acs-close` | 2026-10-08 | 登记动作与内容简化阶段 1–6 的实际提交、第四基线、独立审查和未执行的阶段 7、正式七天及下游消费 |

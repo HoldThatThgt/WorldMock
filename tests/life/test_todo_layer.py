@@ -11,137 +11,117 @@ import pytest
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
                                  stage_day_plan, start_activity, start_request, submit_round, target_tools,
-                                 tool_targets, wake_by_mail, pause_request)
-from tests.life.routing_fixtures import decision_round, run_until, selected_food, stage_food_holding, start_eating
-from tests.life.test_same_moment_decisions import _act, _content, _start
+                                 tool_targets, wake_by_mail, pause_request, report_request)
+from tests.life.test_acs_amended_runtime import perform, pump
+from tests.life.test_acs_runtime import request
+from tests.life.work_runtime import trip_to
+from worldmock.life.models import StartActivityRequest
 from worldmock.footprints.models import EventDraft
 from worldmock.life.vocabulary import WAYS
-from worldmock.life.models import ActivityKind, ActivityStatus, SendMessageActionRequest, paused_activities
+from worldmock.life.models import ActivityKind, ActivityStatus, SendMessageActionRequest
 from worldmock.life.prompt_schemas import validate_layer
 from worldmock.life.readable import iso_time, local_date, portion_phrase
 from worldmock.life.schedule import INTENT_KINDS, DayPlan, PlanGoal, day_end_seconds
 
 
-def _pause(engine, round_id: str, activity_id: str) -> int:
-    """暂停一项进行中的活动，返回暂停时刻。"""
-    paused = _act(engine, round_id, "pause_activity", pause_request(
-        activity_name(engine, activity_id), summary="先停一下。"))
-    assert paused.status == "completed"
+def _pause(engine, label, identity):
+    """@brief 真实暂停请求与实际时间锚点。"""
+    activity = engine.context.state.activities[identity]
+    result = perform(engine, label, pause_request(activity.name), "pause_activity")
+    assert result.error_code is None, result.data
     return engine.context.state.current_time
 
 
-def test_paused_activities_are_ordered_by_pause_time_not_start_time(engine_factory) -> None:
-    """先开始观看、后开始等待；等待先暂停、观看后暂停：待办层按暂停时刻列等待在前，而活动的开始顺序（models.paused_activities）
-    仍是观看在前。每项带暂停时刻、恢复地点、客观进度与恢复、结束两个工具；暂停的活动不在工具层。"""
+def _chance(engine, offset):
+    """@brief 真实邮件到达为在进行中人物提供未来决策。"""
+    due = wake_by_mail(engine, offset=offset)
+    pump(engine, lambda: engine.context.state.current_time >= due and 1 in engine.scheduling_state().ready_agent_ids)
+
+
+def test_paused_activities_are_ordered_by_pause_time_not_start_time(engine_factory):
     engine = engine_factory()
     stage_day_plan(engine)
-    (watch,) = _start(engine, "order-watch", _content(engine, "order"))
-    wake_by_mail(engine, offset=60)
-    assert advance_until_ready(engine)
-    (wait,) = _start(engine, "order-wait", ("自己", "等待"))
-    wake_by_mail(engine, offset=60)
-    assert advance_until_ready(engine)
-    wait_paused = _pause(engine, "order-pause-wait", wait)
-    wake_by_mail(engine, offset=60)
-    assert advance_until_ready(engine)
-    watch_paused = _pause(engine, "order-pause-watch", watch)
-    assert engine.context.state.activities[watch].started_at < engine.context.state.activities[wait].started_at
+    watch = perform(engine, "watch", request())
+    waited = perform(engine, "wait", request("自己", None, "等待"))
+    assert watch.error_code is waited.error_code is None
+    _chance(engine, 60)
+    wait_paused = _pause(engine, "pause-wait", waited.activity_id)
+    _chance(engine, 60)
+    watch_paused = _pause(engine, "pause-watch", watch.activity_id)
     assert wait_paused < watch_paused
-    assert [item.activity_id for item in paused_activities(engine.context.state, 1)] == [watch, wait]
-    observed = engine.observe(context(engine, "order-seen"))
-    todo = observed["todo_layer"]
-    validate_layer(todo)
-    home = next(item.name for item in engine.context.scenario.locations if item.location_id == "home")
-    names = [activity_name(engine, wait), activity_name(engine, watch)]
-    assert [item["name"] for item in todo["paused_activities"]] == names
-    zone = engine.context.scenario.timezone
-    assert [item["paused_at"] for item in todo["paused_activities"]] == [iso_time(wait_paused, zone),
-                                                                         iso_time(watch_paused, zone)]
-    for item in todo["paused_activities"]:
-        assert item["place"] == home and item["progress"]
-        assert item["tools"] == [{"tool": "report_status", "available": True, "reason": None},
-                                 {"tool": "conclude_activity", "available": True, "reason": None}]
-    assert not set(names) & set(tool_targets(observed))
+    observed = engine.observe(context(engine, "seen"))
+    validate_layer(observed["todo_layer"])
+    rows = observed["todo_layer"]["paused_activities"]
+    assert [row["name"] for row in rows] == [engine.context.state.activities[item].name
+        for item in (waited.activity_id, watch.activity_id)]
+    assert [row["paused_at"] for row in rows] == [iso_time(item, engine.context.scenario.timezone)
+                                                  for item in (wait_paused, watch_paused)]
+    for row in rows:
+        assert row["progress"] and row["tools"] == [
+            {"tool": "report_status", "available": True, "reason": None},
+            {"tool": "conclude_activity", "available": True, "reason": None}]
+    assert not {row["name"] for row in rows} & set(tool_targets(observed))
 
 
-def test_same_second_pauses_from_two_decisions_follow_the_pause_event_order(engine_factory) -> None:
-    """同一秒两次决策先后暂停两项活动（暂停时刻相同）：待办层按暂停事件顺序列出，先暂停的在前，而不是按活动身份。
-
-    人物 1 一次开始使用 app 与等待（等待的活动身份排在后面），人物 2 在等；两人同一秒被邮件叫醒：人物 1 先暂停等待，
-    人物 2 同一轮给人物 1 发消息，人物 1 因此同一秒再获得一次决策，暂停 app 使用。"""
+def test_same_second_pauses_from_two_decisions_follow_the_pause_event_order(engine_factory):
     engine = engine_factory("multi-person.json")
-    for agent_id in engine.context.state.agents:
-        stage_day_plan(engine, agent_id)
-    app, app_way = _content(engine, "tie")
-    both = start_request(targets=[app, "自己"], actions=[WAYS[app_way][0], WAYS["等待"][0]],
-                         ways=[app_way, "等待"])
-    submit_round(engine, {1: ("start_activity", both), 2: ("start_activity", start_activity("等待", "自己"))}, "tie")
-    ids = sorted(item.activity_id for item in engine.context.state.activities.values() if item.agent_id == 1)
-    kinds = {engine.context.state.activities[activity_id].kind: activity_id for activity_id in ids}
-    app_use, wait = kinds[ActivityKind.USE_APP], kinds[ActivityKind.WAIT]
-    assert ids == [app_use, wait]
-    wake_by_mail(engine, 1, offset=120)
-    wake_by_mail(engine, 2, offset=120)
-    advance_next(engine)
-    pause = pause_request(activity_name(engine, wait), summary="先停一下。")
+    for identity in engine.context.state.agents:
+        stage_day_plan(engine, identity)
+    both = StartActivityRequest(items=[request().items[0], request("自己", None, "等待").items[0]], answering=None)
+    result = perform(engine, "both", both)
+    assert result.error_code is None, result.data
+    activities = [item for item in engine.context.state.activities.values() if item.agent_id == 1]
+    watch = next(item for item in activities if item.kind == ActivityKind.ACTION)
+    waited = next(item for item in activities if item.kind == ActivityKind.WAIT)
+    wake_by_mail(engine, 1, offset=60)
+    wake_by_mail(engine, 2, offset=60)
+    pump(engine, lambda: set(engine.scheduling_state().ready_agent_ids) == {1, 2})
     message = SendMessageActionRequest(recipient_name=f"人物：{engine.context.state.agents[1].name}", text="在吗")
-    submit_round(engine, {1: ("pause_activity", pause), 2: ("send_message", message)}, "tie-first")
+    now = engine.context.state.current_time
+    submit_round(engine, {1: ("pause_activity", pause_request(waited.name)), 2: ("send_message", message)}, "first")
     assert engine.scheduling_state().ready_agent_ids == (1,)
-    pause = pause_request(activity_name(engine, app_use), summary="也停一下。")
-    submit_round(engine, {1: ("pause_activity", pause)}, "tie-second")
-    moments = {engine.context.state.activities[activity_id].paused_at for activity_id in ids}
-    assert moments == {engine.context.state.current_time}
-    todo = engine.observe(context(engine, "tie-seen"))["todo_layer"]
-    assert [item["name"] for item in todo["paused_activities"]] == [activity_name(engine, wait),
-                                                                    activity_name(engine, app_use)]
+    submit_round(engine, {1: ("pause_activity", pause_request(watch.name))}, "second")
+    assert {engine.context.state.activities[item.activity_id].paused_at for item in (watch, waited)} == {now}
+    rows = engine.observe(context(engine, "tied"))["todo_layer"]["paused_activities"]
+    assert [row["name"] for row in rows] == [waited.name, watch.name]
 
 
-def test_paused_meal_progress_is_only_the_eaten_and_left_portions(engine_factory) -> None:
-    """暂停的进食在待办层的客观进度只写「已吃 X 份，剩 Y 份」，不另写还剩时长。"""
+def test_paused_action_preserves_real_content_position_and_objective_progress(engine_factory):
     engine = engine_factory()
-    stage_day_plan(engine)
-    food = selected_food(engine)
-    stage_food_holding(engine, food.food_id, 1.0)
-    _, started = start_eating(engine, food, "todo-meal")
-    wake_by_mail(engine, offset=750)
-    advance_next(engine)
-    name = activity_name(engine, started.activity_id)
-    decision_round(engine, "todo-meal-pause", "pause_activity", pause_request(name, summary="先停一下。"))
-    (item,) = engine.observe(context(engine, "todo-meal-seen"))["todo_layer"]["paused_activities"]
+    started = perform(engine, "watch", request())
+    assert started.error_code is None
+    _chance(engine, 60)
+    _pause(engine, "pause", started.activity_id)
     activity = engine.context.state.activities[started.activity_id]
-    planned = sum(row["quantity"] for row in activity.data["request"]["items"])
-    eaten = sum(activity.data["consumed"].values())
-    assert 0 < eaten < planned
-    assert (item["name"], item["progress"]) == (
-        name, f"已吃 {portion_phrase(eaten)}，剩 {portion_phrase(planned - eaten)}")
-    assert "分钟" not in item["progress"]
+    [row] = engine.observe(context(engine, "paused"))["todo_layer"]["paused_activities"]
+    assert activity.media_position_seconds > 0
+    assert row["name"] == activity.name and row["progress"]
+    assert activity.data["content_id"] in engine.context.semantics.catalog.contents
+    resumed = perform(engine, "resume", report_request(activity.name), "report_status")
+    assert resumed.error_code is None, resumed.data
+    current = engine.context.state.activities[activity.activity_id]
+    assert current.media_position_seconds == activity.media_position_seconds
+    assert current.data["content_id"] == activity.data["content_id"]
 
 
-def test_resume_elsewhere_is_unavailable_and_names_the_place(engine_factory) -> None:
-    """在家暂停等待后去办公室：待办层里恢复（report_status）标不可用，原因点名家；结束照常可用；活动仍暂停并保留暂停时刻。"""
+def test_resume_elsewhere_is_unavailable_and_names_the_place(engine_factory):
     engine = engine_factory()
-    stage_day_plan(engine)
-    (waiting,) = _start(engine, "away-wait", ("自己", "等待"))
-    wake_by_mail(engine, offset=300)
-    advance_next(engine)
-    _pause(engine, "away-pause", waiting)
-    preview = engine.observe(context(engine, "away-preview"))
-    office = next(row["object"] for row in preview["interaction_bindings"] if row["object_id"] == "office")
-    _, walking = submit_round(engine, {1: ("start_activity", start_activity("步行", office))}, "away-walk")
-    run_until(engine, lambda current: current.context.state.agents[1].location_id == "office")
-    submit_round(engine, {1: ("conclude_activity", conclude_request(activity_name(engine, walking[0].activity_id)))},
-                 "away-arrive")
-    home = next(item.name for item in engine.context.scenario.locations if item.location_id == "home")
-    observed = engine.observe(context(engine, "away-seen"))
-    name = activity_name(engine, waiting)
-    (item,) = observed["todo_layer"]["paused_activities"]
-    assert (item["name"], item["place"]) == (name, home)
-    tools = target_tools(observed, name)
+    started = perform(engine, "wait", request("自己", None, "等待"))
+    assert started.error_code is None
+    _chance(engine, 60)
+    paused_at = _pause(engine, "pause", started.activity_id)
+    trip_to(engine, "office", "away")
+    home = next(place.name for place in engine.context.scenario.locations if place.location_id == "home")
+    [row] = engine.observe(context(engine, "away"))["todo_layer"]["paused_activities"]
+    assert (row["name"], row["place"]) == (engine.context.state.activities[started.activity_id].name, home)
+    tools = {item["tool"]: item for item in row["tools"]}
     assert tools["report_status"] == {"tool": "report_status", "available": False,
-                                      "reason": f"Resume {name} at its start location {home}; it can be concluded elsewhere."}
+        "reason": f"Resume {row['name']} at its start location {home}; it can be concluded elsewhere."}
     assert tools["conclude_activity"]["available"] is True
-    assert engine.context.state.activities[waiting].paused_at is not None
-    assert engine.context.state.activities[waiting].status == ActivityStatus.PAUSED
+    refused = perform(engine, "resume-away", report_request(row["name"]), "report_status")
+    assert refused.error_code == "ACTIVITY_PRECONDITION_UNMET"
+    actual = engine.context.state.activities[started.activity_id]
+    assert actual.status == ActivityStatus.PAUSED and actual.paused_at == paused_at
 
 
 def _stage_plan(engine, plan: DayPlan | None) -> None:

@@ -137,26 +137,25 @@ def test_a_current_request_without_errands_is_rejected(tool: str) -> None:
             read({**lacking, "errands": None})
 
 
-_ERRAND_KEYS = ["change", "name", "outcome", "item", "quantity", "memo", "remind_time", "reason"]
+_ERRAND_KEYS = ["change", "name", "item", "quantity", "memo", "remind_time", "reason"]
 _ERRANDS = [
-    {"change": "新增", "name": "补一份素炒什锦食材包", "outcome": "取得", "item": "素炒什锦食材包", "quantity": 1,
+    {"change": "新增", "name": "补一份素炒什锦食材包", "item": "素炒什锦食材包", "quantity": 1,
      "memo": "下班前下单送到家", "remind_time": "17:00", "reason": None},
-    {"change": "更新", "name": "囤冰红茶", "outcome": None, "item": None, "quantity": None, "memo": "周末去超市",
+    {"change": "更新", "name": "囤冰红茶", "item": None, "quantity": None, "memo": "周末去超市",
      "remind_time": None, "reason": None},
-    {"change": "取消", "name": "晚饭吃掉素炒什锦", "outcome": None, "item": None, "quantity": None, "memo": None,
+    {"change": "取消", "name": "晚饭吃掉素炒什锦", "item": None, "quantity": None, "memo": None,
      "remind_time": None, "reason": "改在公司吃了"},
 ]
 
 
 class _ErrandChange(BaseModel):
-    """测试用的事务变更模型：八个键，声明顺序与请求形状相反（读出的键序不取决于模型或请求里的写法顺序）。"""
+    """测试用的事务变更模型：七个键，声明顺序与请求形状相反（读出的键序不取决于模型或请求里的写法顺序）。"""
 
     reason: str | None
     remind_time: str | None
     memo: str | None
     quantity: int | None
     item: str | None
-    outcome: str | None
     name: str
     change: str
 
@@ -171,7 +170,7 @@ class _ErrandRequest(BaseModel):
 @pytest.mark.parametrize("tool", CONTROL_TOOLS)
 def test_control_errands_reads_every_change_in_order(tool: str) -> None:
     """@brief control_errands 是请求级事务变更的读取入口：模型（嵌套的变更模型按 JSON 形状导出）与 JSON 形状都按请求顺序
-    读出每条变更，每条恰好八键、键序固定、值照写；没有变更时为空。不是控制工具、请求不是对象、缺 errands、errands 不是
+    读出每条变更，每条恰好七键、键序固定、值照写；没有变更时为空。不是控制工具、请求不是对象、缺 errands、errands 不是
     列表、某条不是对象、某条缺一个键都是完整性故障。"""
     body = {"items": [{"activity_name": _WAIT, "summary": "等完了。"}], "errands": _ERRANDS}
     read = control_errands(tool, {"errands": [dict(reversed(entry.items())) for entry in _ERRANDS], "items": []})
@@ -198,7 +197,7 @@ def test_control_errands_reads_every_change_in_order(tool: str) -> None:
 def _readers(engine) -> dict:
     """环境侧读控制请求的全部读者此刻的结果：记忆层、看法与偏好、进度层、零点计划的收尾记录与记忆写入点。"""
     memory_layer._CACHE.clear()
-    context = engine.observations._layer_context(engine.context.state.agents[1], (), [])
+    context = engine.observations._layer_context(engine.context.state.agents[1], [])
     memory = memory_layer.memory_view(context, engine.context.store)
     requests = engine.context.store.read_agent_events("action_requested", 1)
     conclusions = [event for event in requests if event.data["tool_name"] == "conclude_activity"]

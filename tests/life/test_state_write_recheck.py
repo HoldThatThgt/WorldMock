@@ -1,4 +1,4 @@
-"""实际世界在初始写入和后续提交前复校时钟、账户、人物身份及持有物。"""
+"""实际世界在初始写入和后续提交前复校时钟、账户、人物身份及驾车日余额。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,8 @@ from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
 from worldmock.life.models import WorldState, validated_payload
 
-NAMES = ("time_exceeds_end", "negative_account", "body_ahead_of_world", "agent_identity_mismatch", "negative_inventory")
+NAMES = ("time_exceeds_end", "negative_account", "body_ahead_of_world", "agent_identity_mismatch",
+         "negative_driving_days")
 
 
 def _world_state() -> WorldState:
@@ -31,8 +32,8 @@ def _drifted(name: str) -> WorldState:
         state.agents[1].body_settled_at = state.current_time + 1
     elif name == "agent_identity_mismatch":
         state.agents[1].agent_id = 2
-    elif name == "negative_inventory":
-        state.agents[1].inventory = {"home": {"chips": -1}}
+    elif name == "negative_driving_days":
+        state.agents[1].driving_days = -1
     else:
         raise ValueError("Unknown invariant probe")
     return state
@@ -67,10 +68,10 @@ def test_create_initial_persist_rejects_every_domain_invariant(name):
 
 
 def test_engine_write_path_rejects_drifted_state(engine_factory):
-    """真实 observe 提交路径拒绝漂移持有物，已提交的世界版本不前移。"""
+    """真实 observe 提交路径拒绝负的驾车日余额，已提交的世界版本不前移。"""
     engine = engine_factory()
     staged = engine.context.state.model_copy(deep=True)
-    staged.agents[1].inventory = {"home": {"chips": -1}}
+    staged.agents[1].driving_days = -1
     staged.version += 1
     engine.context.state = staged
     with pytest.raises(IntegrityError):

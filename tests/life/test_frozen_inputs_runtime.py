@@ -3,15 +3,18 @@
 from tests.data_paths import ENVIRONMENT_ROOT
 
 import json
-from pathlib import Path
 
 import pytest
 
-from tests.integration.test_external_environment_lifecycle import _identity
 from tests.engine_fixture import (_mutated_scenario)  # noqa: F401
+from tests.life.scenario_fixtures import run_identity
 from worldmock.errors import IntegrityError
 from worldmock.life import world_setup
-from worldmock.life.engine import LifeEngine
+
+
+def _identity(path):
+    """@brief 直接运行仍生成真实代码与模型身份，不导入另一个集成测试模块。"""
+    return run_identity(json.loads(path.read_text(encoding="utf-8")), "direct-frozen-input")
 
 
 def test_formal_factory_worlds_and_storage_are_independent(engine_factory, frozen_inputs):
@@ -36,15 +39,18 @@ def test_mutated_factory_does_not_use_formal_input_cache(engine_factory, frozen_
     assert len(frozen_inputs.records) == before
     path = mutated.context.store.run_dir.parent / "scenario-0/scenarios/single-person.json"
     document = json.loads(path.read_text(encoding="utf-8"))
-    assert not Path(document["corpus_root"]).is_absolute()
+    assert "corpus_root" not in document
+    assert (path.parent.parent / "catalog/manifest.json").is_file()
+    assert not (path.parent.parent / "corpora").exists()
 
 
 def test_direct_create_and_open_still_run_real_loaders_after_cache_use(engine_factory, monkeypatch, tmp_path):
+    from worldmock.life.engine import LifeEngine
+
     engine_factory(ENVIRONMENT_ROOT / "scenarios/single-person.json")
     path = ENVIRONMENT_ROOT / "scenarios/single-person.json"
-    document = json.loads(path.read_text(encoding="utf-8"))
     calls = []
-    for name in ("load_runtime_scenario", "load_manifest"):
+    for name in ("load_runtime_scenario",):
         original = getattr(world_setup, name)
 
         def checked(*arguments, _name=name, _original=original, **keywords):
@@ -57,17 +63,18 @@ def test_direct_create_and_open_still_run_real_loaders_after_cache_use(engine_fa
     reopened = LifeEngine.open(path, tmp_path / "direct")
     reopened.close()
     assert calls.count("load_runtime_scenario") == 2
-    assert calls.count("load_manifest") == 4
     invalid = _identity(path).model_copy(update={"agent_ids": (999,)})
     with pytest.raises(IntegrityError, match="agent ids disagree"):
         LifeEngine.create(path, tmp_path / "invalid", invalid)
     assert calls.count("load_runtime_scenario") == 3
-    assert calls.count("load_manifest") == 6
 
 
 def test_uncached_input_manifest_and_restore_identity_are_actually_validated(engine_factory, tmp_path):
-    with pytest.raises(IntegrityError, match="manifest"):
-        engine_factory(ENVIRONMENT_ROOT / "scenarios/single-person.json", mutate=lambda document: document.update(corpus_manifest_sha256="0" * 64))
+    from worldmock.life.engine import LifeEngine
+
+    with pytest.raises(IntegrityError, match="ENVIRONMENT_PIN_MISMATCH"):
+        engine_factory(ENVIRONMENT_ROOT / "scenarios/single-person.json",
+                       mutate=lambda document: document["environment"].update(environment_version="unknown"))
     engine = engine_factory(ENVIRONMENT_ROOT / "scenarios/single-person.json")
     run_dir = engine.context.store.run_dir
     engine.close()

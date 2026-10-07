@@ -1,4 +1,4 @@
-"""@brief 订单与给予的收货人：可读名称与收货地点（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「来源与去向」）。
+"""@brief 订单的收货人：可读名称与收货地点（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「来源与去向」）。
 
 收货人身份：同世界人物为 agent:<id>（付款人自己也是），场景联系人为联系人身份。收货地点不作参数：自己是当前地点
 （途中为出发地，与远程下单的送达地同一口径），同世界人物是其所在地点（途中没有），联系人取
@@ -8,6 +8,8 @@ Contact.receive_location_id（为空时不能收实物）。同世界的其他�
 
 from __future__ import annotations
 
+from worldmock.errors import PreconditionError
+from worldmock.life.guidance import guided
 from worldmock.life.admission import present_location
 from worldmock.life.models import WorldState
 from worldmock.life.scenario import RuntimeScenario
@@ -35,7 +37,7 @@ def person_name(state: WorldState, scenario: RuntimeScenario, agent_id: int, ide
 def recipient_location(state: WorldState, scenario: RuntimeScenario, agent_id: int, recipient_id: str) -> str | None:
     """@brief 收货人此刻的收货地点：自己为当前地点，同世界人物为其所在地点（途中为 None），联系人为其收货地点。
 
-    :param agent_id: 付款或给予的人物（收货人是联系人时按其通讯录查找）。
+    :param agent_id: 付款的人物（收货人是联系人时按其通讯录查找）。
     """
     if recipient_id == agent_identity(agent_id):
         return present_location(state, agent_id)
@@ -48,3 +50,11 @@ def _contact(scenario: RuntimeScenario, agent_id: int, contact_id: str) -> Conta
     """@brief 人物通讯录中的一位联系人（身份来自本轮观察的私有绑定，必然存在）。"""
     config = next(item for item in scenario.agents if item.agent_id == agent_id)
     return next(item for item in config.contacts if item.contact_id == contact_id)
+
+
+def undeliverable(state: WorldState, scenario: RuntimeScenario, agent_id: int,
+                  recipient_id: str) -> PreconditionError:
+    """@brief 无实际收货地时明确等待或给本人购买，不能建议已删除的给予动作。"""
+    name = person_name(state, scenario, agent_id, recipient_id)
+    return guided("ACTIVITY_PRECONDITION_UNMET", f"{name} currently has no eligible receiving location.",
+                  f"Wait until {name} can receive it, or buy it for yourself.")

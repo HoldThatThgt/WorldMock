@@ -32,7 +32,7 @@ FROZEN = (
     "person_arrived", "person_left", "activity_infeasible", "rejection_feedback",
     "discovery_result", "wake_from_sleep", "run_start", "progress_report_due", "no_active_activity",
     "plan_reminder_due", "errand_reminder_due", "shift_start", "shift_end", "break_start", "break_end",
-    "app_push",
+    "app_push", "alarm_ring",
 )
 
 
@@ -45,11 +45,11 @@ def test_frozen_wake_and_intent_names():
     assert tuple(get_args(IntentKind)) == INTENT_KINDS
 
 
-def test_sleep_allowed_reasons_add_only_plan_reminder_due():
-    """时间与能量规格第一章规则 6：睡眠允许集合只新增 plan_reminder_due，no_active_activity 不进入。"""
+def test_sleep_allowed_reasons_include_plan_reminder_and_alarm():
+    """当前睡眠允许集合包含计划提醒与闹钟，no_active_activity 不进入。"""
     assert SLEEP_ALLOWED_REASONS == {
         WakeReason.PLANNED_END, WakeReason.WAKE_FROM_SLEEP, WakeReason.RUN_START,
-        WakeReason.PLAN_REMINDER_DUE,
+        WakeReason.PLAN_REMINDER_DUE, WakeReason.ALARM_RING,
     }
     assert WakeReason.NO_ACTIVE_ACTIVITY not in SLEEP_ALLOWED_REASONS
 
@@ -122,7 +122,7 @@ def test_scenario_rejects_idle_interval_shorter_than_regular(engine_factory):
 
 def test_commitments_exclude_messages_history_and_completed_activities(engine_factory):
     from tests.life.test_day_plan import act, goal
-    engine = engine_factory(mutate=lambda document: document["agents"][0].update(work_topic_ids=[]))
+    engine = engine_factory(mutate=lambda document: document["agents"][0].update(work_content_ids=[], work_schedule=None))
     state = engine.context.state.model_copy(deep=True)
     now = state.current_time
     agent = state.agents[1].model_copy(update={"day_plan": None})
@@ -150,7 +150,7 @@ def test_commitments_exclude_messages_history_and_completed_activities(engine_fa
     state.activities["b"] = item.model_copy(update={"activity_id": "b"})
     assert _has_commitments(agent, inputs)
     state.activities["b"] = item.model_copy(update={"activity_id": "b", "status": ActivityStatus.ACTIVE,
-                                                    "kind": ActivityKind.USE_APP})
+                                                    "kind": ActivityKind.ACTION})
     assert _has_commitments(agent, inputs)
 
 
@@ -236,7 +236,7 @@ def test_zero_energy_during_activity_raises_neither_infeasible_nor_threat(engine
     from tests.life.test_day_plan import act, goal
     engine = engine_factory()
     started = act(engine, "zero-energy-watch", "start_activity",
-                  start_activity("打开", "应用：哔哩哔哩"))
+                  start_activity("进行", "刷推荐", app=["哔哩哔哩"]))
     assert started.status == "in_progress"
     state = engine.context.state.model_copy(deep=True)
     state.agents[1].body.energy_kcal = 0
@@ -301,7 +301,7 @@ def test_low_energy_bands_match_the_decision_reference(engine_factory, energy, b
 
     engine = engine_factory()
     _stage_morning(engine, energy)
-    started = act(engine, "low-energy-watch", "start_activity", start_activity("打开", "应用：哔哩哔哩"))
+    started = act(engine, "low-energy-watch", "start_activity", start_activity("进行", "刷推荐", app=["哔哩哔哩"]))
     assert started.status == "in_progress"
     assert engine.context.state.agents[1].felt_bands_at_last_decision["appetite"] == band
     state = engine.context.state.model_copy(deep=True)
@@ -442,11 +442,8 @@ def test_report_anchor_moves_on_start_report_and_resume_and_paused_activity_neve
         assert engine.context.state.activities[wait_id].report_anchor_at == start
         wake_by_mail(engine, offset=300)
         assert _wake_at(engine, start + 300, "anchor-first") == ["message_arrival"]
-        observed = engine.observe(context(engine, "anchor-content"))
-        target, label = next((row["object"], action["label"]) for row in observed["interaction_bindings"]
-                             if row["kind"] == "app" for action in row["actions"]
-                             if action["canonical_action"] == "use_app")
-        watched = act(engine, "anchor-watch", "start_activity", start_activity(label, target))
+        watched = act(engine, "anchor-watch", "start_activity",
+                      start_activity("进行", "学课程", app=["哔哩哔哩"]))
         assert watched.status == "in_progress"
         watch_id = watched.activity_id
         assert engine.context.state.activities[watch_id].report_anchor_at == start + 300

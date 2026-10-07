@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 from worldmock.catalog.affordances import AffordanceView
 from worldmock.errors import IntegrityError
 from worldmock.footprints.store import FootprintStore
-from worldmock.life.content import load_lifestyle_items
 from worldmock.life.app_push import validate_app_pushes
 from worldmock.life.models import WorldState
 from worldmock.life.run_identity import require_environment_identity
@@ -56,16 +55,12 @@ class EngineContext:
     semantics: ScenarioSemantics
     #: 真实场景文件内容身份。
     scenario_sha256: str
-    #: 本运行实际读取的语料根。
-    corpus_root: Path
     #: 唯一持久提交和恢复存储。
     store: FootprintStore
     #: 当前已提交世界状态，不保存第二份权威。
     state: WorldState = field(init=False)
-    #: 冻结目录与内容驱动的生活规则。
+    #: 冻结目录与固定规则。
     rules: LifeRuleEngine = field(init=False)
-    #: 已加载的生活活动内容。
-    lifestyle_items: tuple = field(init=False)
     #: 活动与目标名称的纯投影索引。
     titles: TitleIndex = field(init=False)
     #: 观察所需的冻结可供性合同。
@@ -74,17 +69,14 @@ class EngineContext:
     ops: OpsLogger = field(init=False)
 
     def __post_init__(self) -> None:
-        """@brief 按原生产顺序读取内容、恢复状态并核验身份。"""
+        """@brief 读取冻结目录、恢复状态并核验身份。"""
         from worldmock.life.activity_titles import title_index
         from worldmock.life.rules import LifeRuleEngine
 
-        self.corpus_root = Path(self.corpus_root).resolve()
         self.state = WorldState.model_validate(self.store.state)
-        self.rules = LifeRuleEngine(self.scenario, self.semantics.catalog, self.corpus_root)
+        self.rules = LifeRuleEngine(self.scenario, self.semantics.catalog)
         self.affordance_contract = affordance_contract(self.semantics.affordances)
-        self.lifestyle_items = load_lifestyle_items(self.corpus_root, self.scenario.body.activity_met)
-        names = {item.activity_id: item.name for item in self.lifestyle_items}
-        self.titles = title_index(self.scenario, names, self.semantics.catalog)
+        self.titles = title_index(self.scenario, self.semantics.catalog)
         self.ops = OpsLogger(self.store.run_dir, self.scenario.timezone)
         self.validate()
 
@@ -98,9 +90,6 @@ class EngineContext:
         if self.state.scenario_sha256 != self.scenario_sha256:
             logging.error("Runtime scenario identity mismatch")
             raise IntegrityError("Runtime scenario identity mismatch")
-        if self.state.content_manifest_sha256 != self.scenario.corpus_manifest_sha256:
-            logging.error("Runtime corpus identity mismatch")
-            raise IntegrityError("Runtime corpus identity mismatch")
         if self.state.run_id != self.store.manifest["run_id"]:
             logging.error("Runtime run identity mismatch")
             raise IntegrityError("Runtime run identity mismatch")
@@ -109,14 +98,4 @@ class EngineContext:
         from worldmock.life.activity_validation import validate_activity_targets
 
         validate_activity_targets(self.state, self.rules, self.scenario)
-        self._validate_inventory_foods()
         validate_app_pushes(self.state, self.semantics.catalog)
-
-    def _validate_inventory_foods(self) -> None:
-        """@brief 恢复的持有食品必须存在于当前冻结环境。"""
-        known = set(self.semantics.catalog.foods)
-        held = {food_id for agent in self.state.agents.values()
-                for inventory in agent.inventory.values() for food_id in inventory}
-        if not held <= known:
-            logging.error("Runtime inventory refers to an unregistered food")
-            raise IntegrityError("Runtime inventory refers to an unregistered food")

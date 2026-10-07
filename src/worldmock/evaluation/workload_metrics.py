@@ -37,6 +37,7 @@ class AgentWorkday:
 
     work_schedule: WorkSchedule | None
     home_location_id: str
+    work_content_ids: tuple[str, ...]
     leave_work_window: tuple[float, float] | None
     arrive_home_window: tuple[float, float] | None
 
@@ -80,8 +81,9 @@ def workday_inputs(document: LifeScenario, cards: Mapping[int, Mapping[str, Any]
     agents = {}
     for agent in document.agents:
         card = cards.get(agent.agent_id)
-        agents[agent.agent_id] = AgentWorkday(agent.work_schedule, agent.home_location_id,
-                                              _card_window(card, "leave_work"), _card_window(card, "arrive_home"))
+        agents[agent.agent_id] = AgentWorkday(
+            agent.work_schedule, agent.home_location_id, tuple(agent.work_content_ids),
+            _card_window(card, "leave_work"), _card_window(card, "arrive_home"))
     return WorkdayInputs(agents, document.progress_report_interval_seconds)
 
 
@@ -149,7 +151,9 @@ def _timeline(events: list[dict[str, Any]], agent: AgentWorkday, zone: ZoneInfo)
     end = max((data["interval_end"] for data in bodies), default=0)
     trips = _trips(events)
     work = tuple((event["data"]["interval_start"], event["data"]["interval_end"])
-                 for event in _progress(events, "work") if _snapshot(event).get("status") != "failed")
+                 for event in _progress(events, "action") if _snapshot(event).get("status") != "failed"
+                 and _snapshot(event).get("data", {}).get("category") == "work_study"
+                 and event["data"].get("content", {}).get("content_id") in agent.work_content_ids)
     sleep = tuple((event["data"]["interval_start"], event["data"]["interval_end"])
                   for event in _progress(events, "sleep"))
     return _Timeline(start, end, trips, _stays(trips, agent.home_location_id, start, end), work, sleep)

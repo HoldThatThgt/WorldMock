@@ -22,7 +22,7 @@ VIEW_MEMORY_TYPES = frozenset({"relationship", "preference"})
 #: 请求形状的记忆字段（不带对象）；存储形状在其后加 subject。
 _MEMORY_KEYS = ("type", "text", "importance", "keywords")
 #: 一条个人事务变更的八个键（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 「每条变更」），全部必填，按这个顺序读出。
-_ERRAND_KEYS = ("change", "name", "outcome", "item", "quantity", "memo", "remind_time", "reason")
+_ERRAND_KEYS = ("change", "name", "item", "quantity", "memo", "remind_time", "reason")
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,12 +69,15 @@ def control_errands(tool: str, request: Mapping[str, Any] | BaseModel) -> tuple[
 
     :param tool: report_status、pause_activity 或 conclude_activity。
     :param request: 已校验的请求模型，或事件与导出里记录的请求参数（JSON 形状）。
-    :returns: 按请求顺序的各条变更，每条是只含八个键（change、name、outcome、item、quantity、memo、remind_time、reason，
+    :returns: 按请求顺序的各条变更，每条是只含七个键（change、name、item、quantity、memo、remind_time、reason，
         按此顺序）的普通字典，值照请求所写。
-    :raises IntegrityError: 不是控制工具、请求不是对象、缺 errands、errands 不是列表，或某条变更不是对象、缺八键之一。
+    :raises IntegrityError: 不是控制工具、请求不是对象、缺 errands、errands 不是列表，或某条变更不是对象、缺七键之一。
     """
     body = _body(tool, request)
     entries = [_mapping(entry, tool) for entry in _list(_field(body, "errands", tool), tool)]
+    if any(set(entry) - set(_ERRAND_KEYS) for entry in entries):
+        logging.error("Invalid errand change fields in %s request", tool)
+        raise IntegrityError(f"{tool} errand change contains unknown fields")
     return tuple({key: _field(entry, key, tool) for key in _ERRAND_KEYS} for entry in entries)
 
 

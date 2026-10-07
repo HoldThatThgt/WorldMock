@@ -17,13 +17,12 @@ FOUNDATION = frozenset({
     "worldmock.model_endpoint", "worldmock.scheduling.events", "worldmock.base_models",
     "worldmock.footprints.intervals",
     "worldmock.exchange.types",
+    "worldmock.exchange.constants",
 })
 # 运行配置尚未初始化前不能导入的重依赖与命令行启动边界。
-DELAYED_IMPORTS: dict[tuple[str, str, str], str] = {('worldmock.runtime', '_prepare_resume', 'worldmock.life.models'): '恢复发布前按现行世界模型拒绝退役身份，不提前加载完整引擎',
+DELAYED_IMPORTS: dict[tuple[str, str, str], str] = {('worldmock.catalog.admission', '_check_actions', 'worldmock.life.vocabulary'): '目录登记名称碰撞时读取唯一公开方式词声明',
+ ('worldmock.runtime', '_prepare_resume', 'worldmock.life.models'): '恢复发布前按现行世界模型拒绝退役身份，不提前加载完整引擎',
  ('worldmock.life.observe', 'ObservationBuilder._layer_data', 'worldmock.life.environment_layer'): '出行纯观察不提前装载完整环境层',
- ('worldmock.life.relevance', 'entry_family', 'worldmock.life.candidates'): '纯清单加载不导入候选执行模块',
- ('worldmock.life.relevance', 'entry_family', 'worldmock.life.schedule'): '纯清单加载不导入活动执行模块',
- ('worldmock.life.relevance', 'intent_families', 'worldmock.life.schedule'): '纯清单加载不导入活动执行模块',
  ('worldmock.model_endpoint', 'IndependentModelClient.__init__', 'agentsociety2.config'): 'AS2 重依赖在正式运行配置完成后加载',
  ('worldmock.cli', '_compile_once', 'worldmock.profile.compile'): '命令行按所选命令延迟加载执行入口',
  ('worldmock.cli', '_dispatch', 'worldmock.validation'): '命令行按所选命令延迟加载执行入口',
@@ -83,7 +82,6 @@ DELAYED_IMPORTS: dict[tuple[str, str, str], str] = {('worldmock.runtime', '_prep
  ('worldmock.life.engine_context', 'EngineContext.__post_init__', 'worldmock.life.activity_titles'): '纯加载不触发完整引擎；实际执行入口按冻结波次加载职责模块',
  ('worldmock.life.engine_context', 'EngineContext.__post_init__', 'worldmock.life.rules'): '纯加载不触发完整引擎；实际执行入口按冻结波次加载职责模块',
  ('worldmock.life.engine_context', 'EngineContext.validate', 'worldmock.life.activity_validation'): '纯加载不触发完整引擎；实际执行入口按冻结波次加载职责模块',
- ('worldmock.life.semantics', '_lifestyle_met', 'worldmock.life.content'): '纯加载不触发完整引擎；实际执行入口按冻结波次加载职责模块',
  ('worldmock.life.world_setup', '_initial_agent', 'worldmock.life.body'): '纯加载不触发完整引擎；实际执行入口按冻结波次加载职责模块',
  ('worldmock.life.world_setup', '_initial_agent', 'worldmock.life.readable'): '纯加载不触发完整引擎；实际执行入口按冻结波次加载职责模块',
  ('worldmock.life.world_setup', '_initial_state', 'worldmock.life.sessions'): '纯加载不触发完整引擎；实际执行入口按冻结波次加载职责模块',
@@ -155,7 +153,8 @@ DELAYED_IMPORTS: dict[tuple[str, str, str], str] = {('worldmock.runtime', '_prep
  ('worldmock.runtime', '_call_plan_day', 'worldmock.life.models'): '纯世界校验在实际持久化入口执行，不在收集期加载引擎',
  ('worldmock.runtime', '_commit_contact_reply', 'worldmock.life.models'): '纯世界校验在实际持久化入口执行，不在收集期加载引擎',
  ('worldmock.runtime', '_generate_day_plan', 'worldmock.life.models'): '纯世界校验在实际持久化入口执行，不在收集期加载引擎',
- ('worldmock.validation', 'validate_persona_coverage', 'worldmock.life.semantics'): '纯画像校验读取真实目录与场景语义，不装载完整引擎'}
+ ('worldmock.validation', 'validate_persona_coverage', 'worldmock.life.semantics'): '纯画像校验读取真实目录与场景语义，不装载完整引擎',
+ ('worldmock.life.world_ops', '_activity_origin', 'worldmock.life.activities'): '世界事件只在构造真实活动来源时读取活动详情'}
 
 
 @dataclass(frozen=True)

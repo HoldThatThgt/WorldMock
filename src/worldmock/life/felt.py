@@ -15,6 +15,11 @@ from __future__ import annotations
 
 from worldmock.base_models import FrozenModel
 import math
+from worldmock.exchange.constants import (
+    MOOD_DISCOMFORT_TRIGGER_HOURS, MOOD_HALFLIFE_MINUTES, MOOD_HALFLIFE_NEUROTICISM_FACTOR,
+    MOOD_PULSES, MOOD_PULSE_NEUROTICISM_FACTOR, SOCIAL_NEED_AWAKE_RATE, SOCIAL_NEED_REMOTE_RATE,
+    SOCIAL_NEED_CONVERSATION_RATE, SOCIAL_NEED_MESSAGE_RELIEF,
+)
 from bisect import bisect_right
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -104,33 +109,18 @@ MOOD_BASE_LEVEL = "很烦"
 #: experiment_assumption：docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」明示
 #: "数值为实验假设"；Humanoid Agents 的 social 需要与 The Sims 的 Social
 #: motive 为结构依据。
-SOCIAL_NEED_AWAKE_RATE = 0.04
-SOCIAL_NEED_CONVERSATION_RATE = 0.5
-SOCIAL_NEED_CALL_RATE = 0.4
-SOCIAL_NEED_SHARED_MEAL_RATE = 0.3
-SOCIAL_NEED_MESSAGE_RELIEF = 0.05
 
 #: 情绪脉冲表（基础幅度，应用时再乘 (1 + 0.5·N_norm)）。
 #: experiment_assumption：docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」明示"脉冲与半衰期是实验假设"；
 #: OCC 评价理论与 PAD 心境模型为结构依据。
-MOOD_PULSES: dict[str, float] = {
-    "message_received": 0.1,
-    "discomfort_hourly": -0.1,
-    "goal_progressed": 0.05,
-    "service_refused": -0.05,
-}
 #: 情绪半衰期基准（分钟）。experiment_assumption：docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」。
-MOOD_HALFLIFE_MINUTES = 45.0
 #: 半衰期神经质调制系数（× (1 + 0.3·N_norm)）。
 #: experiment_assumption：docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」。
-MOOD_HALFLIFE_NEUROTICISM_FACTOR = 0.3
 #: 脉冲幅度神经质调制系数（× (1 + 0.5·N_norm)）。
 #: experiment_assumption：docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」。
-MOOD_PULSE_NEUROTICISM_FACTOR = 0.5
 #: 连续饿/困的不适脉冲门槛（小时）：连续不适超出该时长的部分按小时计脉冲；门槛只在 rhythm 的边界结算中判定一次，
 #: discomfort_pulse 不再判定（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-不适脉冲与睡眠中的消息 ）。
 #: experiment_assumption：docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」冻结值。
-MOOD_DISCOMFORT_TRIGGER_HOURS = 2.0
 
 
 class MealWindows(FrozenModel):
@@ -159,14 +149,13 @@ class MealWindows(FrozenModel):
 class SocialExposure(FrozenModel):
     """@brief 一个结算段内的社交暴露量（小时/条数由结算侧从时间线拆解）。
 
-    交谈/通话/共同用餐的小时同时计入清醒小时（账本各项线性叠加，拆解归调用方）。
+    当面与远程社交的小时同时计入清醒小时（账本各项线性叠加，拆解归调用方）。
     """
 
 
     awake_hours: float = Field(default=0.0, ge=0)
     conversation_hours: float = Field(default=0.0, ge=0)
-    call_hours: float = Field(default=0.0, ge=0)
-    shared_meal_hours: float = Field(default=0.0, ge=0)
+    remote_hours: float = Field(default=0.0, ge=0)
     messages_read: int = Field(default=0, ge=0)
 
 
@@ -309,8 +298,8 @@ def summarize_felt_levels(values: Mapping[str, float], energy: EnergyReading) ->
 def apply_social_need_ledger(social_need: float, exposure: SocialExposure) -> float:
     """@brief 按账本速率推进社交需要并夹到 [0, 1]（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」）。
 
-    清醒每小时 +0.04；与在场人物交谈每小时 −0.5、与联系人通话每小时 −0.4、
-    共同用餐每小时 −0.3、收到并阅读一条来自人物或联系人的消息 −0.05。
+    清醒每小时 +0.04；与在场人物交谈每小时 −0.5、与联系人远程社交每小时 −0.4、
+    收到并阅读一条来自人物或联系人的消息 −0.05。
     数值为实验假设（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」）。
     """
     if not 0 <= social_need <= 1:
@@ -318,8 +307,7 @@ def apply_social_need_ledger(social_need: float, exposure: SocialExposure) -> fl
     delta = (
         SOCIAL_NEED_AWAKE_RATE * exposure.awake_hours
         - SOCIAL_NEED_CONVERSATION_RATE * exposure.conversation_hours
-        - SOCIAL_NEED_CALL_RATE * exposure.call_hours
-        - SOCIAL_NEED_SHARED_MEAL_RATE * exposure.shared_meal_hours
+        - SOCIAL_NEED_REMOTE_RATE * exposure.remote_hours
         - SOCIAL_NEED_MESSAGE_RELIEF * exposure.messages_read
     )
     return _clamp(social_need + delta, 0.0, 1.0)

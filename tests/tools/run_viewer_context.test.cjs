@@ -209,10 +209,9 @@ test('tool layer drill-down lists every target with its actions and tools and th
   assert.equal(items.length, expected);
   assert.equal(items[0].label, `${targets[0].name}（${targets[0].kind}）`);
   assert.deepEqual(JSON.parse(items[0].text), targets[0]);
-  const contract = items.find(item => item.label === '工作：季度销售数据整理（task）');
-  assert.deepEqual(Object.keys(JSON.parse(contract.text).contract), ['topic', 'target', 'done', 'remaining']);
-  assert.ok(items.some(item => item.label.includes('柠檬茶') && item.label.includes('obtain：远程下单')));
-  assert.ok(items.some(item => item.label.includes('柠檬茶') && item.label.includes('obtain：到店')));
+  const actions = items.filter(item => item.label === '刷推荐 · interact：进行 · 可用');
+  assert.deepEqual(actions.map(item => JSON.parse(item.text).app), ['哔哩哔哩', '抖音']);
+  assert.ok(items.some(item => item.label.includes('柠檬茶') && item.label.includes('obtain：购买')));
   assert.ok(items.some(item => item.label.includes('不可用：')));
   assert.equal(items.some(item => item.label.includes('submit_work')), false);
 });
@@ -224,12 +223,19 @@ test('progress drill-down follows real record fields and labels self_note as unv
   const items = plain(api.drillItems(progress));
   const records = layers()[5].events;
   assert.equal(items.length, records.length);
-  assert.equal(items[0].label, `${records[0].occurred_at} · tool_call · start_activity`);
-  assert.equal(items[1].label, `${records[1].occurred_at} · message_arrival · ${records[1].subject}`);
-  assert.equal(items[2].label, `${records[2].occurred_at} · tool_call · conclude_activity · self_note（未经核验）`);
-  assert.ok(items[2].text.startsWith('self_note（未经核验）：先把事务记下来。\n\n'));
-  assert.deepEqual(JSON.parse(items[2].text.split('\n\n').slice(1).join('\n\n')), records[2]);
-  assert.equal(items[0].text.includes('未经核验'), false);
+  items.forEach((item, index) => {
+    const record = records[index];
+    const subject = record.tool ?? record.sender ?? record.subject ?? record.order ?? record.app ??
+      record.topic ?? record.goal ?? record.errand ?? '';
+    assert.equal(item.label, `${record.occurred_at} · ${record.type}${subject ? ' · ' + subject : ''}`);
+    assert.deepEqual(JSON.parse(item.text), record);
+  });
+  const annotated = layers();
+  annotated[5].events = [{...records[0], self_note: '先把事务记下来。'}];
+  const note = plain(api.drillItems(api.parseRequest(event(withLayers(annotated))).blocks
+    .find(block => block.key === 'progress')))[0];
+  assert.match(note.label, /self_note（未经核验）$/);
+  assert.ok(note.text.startsWith('self_note（未经核验）：先把事务记下来。\n\n'));
   assert.deepEqual(plain(api.drillItems(parsed.blocks.find(block => block.key === 'persona'))), []);
   assert.deepEqual(plain(api.drillItems(parsed.blocks.find(block => block.key === 'system'))), []);
 });
@@ -247,7 +253,7 @@ test('a continuation-shaped first request keeps its six layers and shows the ext
     assert.equal(extra[offset].interpretation, 'recorded');
     assert.equal(extra[offset].rule, 'message');
   });
-  assert.ok(extra[0].text.includes('reasoning_content'));
+  assert.equal(Object.hasOwn(JSON.parse(extra[0].text), 'reasoning_content'), false);
   assert.equal(new Set(parsed.blocks.map(block => block.id)).size, parsed.blocks.length);
   assert.equal(errors.length, 0);
 });
@@ -255,12 +261,14 @@ test('a continuation-shaped first request keeps its six layers and shows the ext
 test('a decision first request with sources is a continuation: source decisions and returned thinking listed once', () => {
   const {api, errors} = parser();
   const input = event(request('continuation'));
+  const callId = api.prefixCallIds(input.data.request)[0];
+  input.data.request.messages[2].reasoning_content = '返回思考';
   const [assistantMessage] = input.data.request.messages.slice(2);
-  const parsed = api.parseRequest(input, {sources: {'call-action': '10:43:00 · decision-k'}});
+  const parsed = api.parseRequest(input, {sources: {[callId]: '10:43:00 · decision-k'}});
   assert.equal(parsed.continuation, true);
   assert.deepEqual(plain(messageBlocks(parsed).map(block => block.key)), LAYER_KEYS);
   const assistant = parsed.blocks.find(block => block.messageIndex === 2 && block.key === 'message');
-  assert.equal(assistant.label, '续接 · assistant · 来源决策 10:43:00 · decision-k · 回复正文（未经核验）');
+  assert.equal(assistant.label, '续接 · assistant · 来源决策 10:43:00 · decision-k');
   assert.equal(assistant.rule, 'continuation');
   assert.equal(assistant.text, JSON.stringify(assistantMessage));
   const reasoning = parsed.blocks.find(block => block.key === 'reasoning');
@@ -275,7 +283,7 @@ test('a decision first request with sources is a continuation: source decisions 
   assert.equal(unmatched.blocks.find(block => block.key === 'reasoning').label, '回传思考 · 来源决策 未匹配');
   assert.equal(api.parseRequest(event(), {sources: {}}).continuation, false);
   assert.equal(api.parseRequest(input).continuation, false);
-  assert.deepEqual(plain(api.prefixCallIds(input.data.request)), ['call-action']);
+  assert.deepEqual(plain(api.prefixCallIds(input.data.request)), [callId]);
   assert.deepEqual(plain(api.prefixCallIds(request())), []);
   assert.equal(errors.length, 0);
 });
@@ -283,7 +291,8 @@ test('a decision first request with sources is a continuation: source decisions 
 test('a continuation prefix reply body written by an earlier decision is labelled unverified', () => {
   const {api} = parser();
   const input = event(request('continuation'));
-  const sources = {sources: {'call-action': '10:43:00 · decision-k'}};
+  const callId = api.prefixCallIds(input.data.request)[0];
+  const sources = {sources: {[callId]: '10:43:00 · decision-k'}};
   input.data.request.messages[2].content = '';
   const silent = api.parseRequest(input, sources).blocks.find(block => block.messageIndex === 2 && block.key === 'message');
   assert.equal(silent.label.includes('未经核验'), false, 'no reply body, no label');
@@ -449,8 +458,8 @@ test('the tool definition rule counts the tool surface the host offers and when 
   const {api} = parser();
   const {worldRequests, worldQueries, memory} = hostToolSurface();
   assert.deepEqual(worldQueries, ['recall_task_summary', 'query_world']);
-  assert.deepEqual([worldRequests.length, worldQueries.length, memory.length], [6, 2, 3]);
-  const numerals = {2: '两', 3: '三', 6: '六'};
+  assert.deepEqual([worldRequests.length, worldQueries.length, memory.length], [7, 2, 3]);
+  const numerals = {2: '两', 3: '三', 7: '七'};
   const fill = api.rules.tools.fill;
   assert.ok(fill.includes(`${numerals[worldRequests.length]}个世界请求工具`), fill);
   assert.ok(fill.includes(`${numerals[worldQueries.length]}个世界查询工具`), fill);
@@ -463,12 +472,15 @@ test('the tool definition rule counts the tool surface the host offers and when 
   assert.match(last, /世界查询与记忆查询/);
 });
 
-test('progress drill-down labels the two errand records with the errand name they carry', () => {
+test('progress drill-down labels current errand records with the errand name they carry', () => {
   const {api} = parser();
-  const records = layers()[5].events.filter(record => record.type.startsWith('errand_'));
-  assert.deepEqual(records.map(record => [record.type, record.errand]),
-    [['errand_reminder', '买柠檬茶'], ['errand_completed', '吃掉薯片']]);
-  const parsed = api.parseRequest(event());
+  const records = [
+    {occurred_at: '2026-01-05T18:30:00+08:00', type: 'errand_reminder', errand: '取快递'},
+    {occurred_at: '2026-01-05T18:45:00+08:00', type: 'errand_completed', errand: '取快递'},
+  ];
+  const current = layers();
+  current[5].events = records;
+  const parsed = api.parseRequest(event(withLayers(current)));
   const items = plain(api.drillItems(parsed.blocks.find(block => block.key === 'progress')))
     .filter(item => item.label.includes(' · errand_'));
   assert.deepEqual(items.map(item => item.label), records.map(record =>
@@ -476,18 +488,14 @@ test('progress drill-down labels the two errand records with the errand name the
   assert.deepEqual(items.map(item => JSON.parse(item.text)), records);
 });
 
-test('the fixture action request is in the layer shape of the errands and workday feature and parses unchanged', () => {
+test('the fixture action request matches the current layer builders and parses unchanged', () => {
   const {api, errors} = parser();
   const [, , , todo, environment, progress] = layers();
-  // 键序与行的键取自各层的构造源码：待办层增 errands（六键一行），环境层增 duty，进度层增两种事务记录。
+  // 键序取自当前各层构造源码，值则保留真实请求原文。
   const todoBuilder = read('src/worldmock/life/todo_layer.py');
   assert.deepEqual(Object.keys(todo), literalKeys(/return \{"layer": "待办层"[\s\S]*?\}\n/.exec(todoBuilder)[0]));
   assert.deepEqual(Object.keys(todo), ['layer', 'paused_activities', 'errands', 'day_plan']);
-  const rowBuilder = /def _row\([\s\S]*?return (\{[\s\S]*?\})\n\n/.exec(read('src/worldmock/life/errands.py'))[1];
-  assert.deepEqual(literalKeys(rowBuilder), ['name', 'done_when', 'progress', 'memo', 'remind_time', 'noted_on']);
-  assert.ok(todo.errands.length >= 2);
-  for (const row of todo.errands) assert.deepEqual(Object.keys(row), literalKeys(rowBuilder));
-  assert.deepEqual(todo.errands.map(row => row.remind_time), [null, '18:30'], 'a reminded errand and a pending one');
+  assert.deepEqual(todo.errands, []);
   const environmentBuilder = read('src/worldmock/life/environment_layer.py');
   assert.deepEqual(Object.keys(environment),
     literalKeys(/return \{"layer": "环境层"[\s\S]*?"duty": _duty\(context\)\}/.exec(environmentBuilder)[0]));
@@ -497,9 +505,8 @@ test('the fixture action request is in the layer shape of the errands and workda
     [...literalKeys(/return \{"day": DAY_WORK[\s\S]*?\}\n/.exec(schedule)[0]), 'status']);
   assert.ok(/return \{\*\*arrangement, "status": /.test(schedule), 'duty adds status to the day arrangement');
   assert.deepEqual(progress.events.map(record => record.type),
-    ['tool_call', 'message_arrival', 'tool_call', 'tool_call', 'app_push', 'errand_reminder',
-      'tool_call', 'errand_completed', 'tool_call', 'tool_call', 'message_arrival', 'tool_call', 'tool_call']);
-  // 原生工具是宿主此刻发给模型的十一个：六个世界请求、两个世界查询（含 query_world）、三个记忆查询，顺序相同。
+    ['tool_call', 'tool_call', 'tool_call', 'tool_call', 'tool_call', 'app_push', 'tool_call']);
+  // 真实工具是宿主此刻发给模型的十二个：七个世界请求、两个世界查询、三个记忆查询。
   const {worldRequests, worldQueries, memory} = hostToolSurface();
   const names = fixture.action.tools.map(tool => tool.function.name);
   assert.deepEqual(names, [...worldRequests, ...worldQueries, ...memory]);
@@ -527,21 +534,19 @@ test('the fixture action request is in the layer shape of the errands and workda
 test('the current fixture preserves app targets and the complete closed push record', () => {
   const {api} = parser();
   const [tool, , , todo, , progress] = layers();
-  assert.deepEqual(Object.keys(tool.callable_index), ['lifestyle', 'goods', 'query_categories']);
-  const groups = tool.groups.filter(group => group.kind === 'app');
-  assert.ok(groups.every(group => group.action === 'interact' && group.way === '打开'));
-  const apps = groups.flatMap(group => group.targets.map(target => target.name));
-  const catalogApps = JSON.parse(read('tests/fixtures/environment/catalog/apps.json')).apps;
-  assert.deepEqual(apps.sort(), catalogApps.map(app => `应用：${app.name}`).sort());
-  assert.equal(todo.paused_activities[0].name, '打开哔哩哔哩（1月5日 10:03 起）');
+  assert.deepEqual(Object.keys(tool.callable_index), ['goods', 'navigation_apps', 'payment_apps', 'query_categories']);
+  const groups = tool.groups.filter(group => group.kind === 'action');
+  assert.ok(groups.every(group => group.action === 'interact' && group.way === '进行'));
+  const targets = groups.flatMap(group => group.targets.map(target => [target.name, target.app ?? null]));
+  assert.deepEqual(targets, [['刷推荐', '哔哩哔哩'], ['刷推荐', '抖音'], ['办公', null], ['安静休息', null],
+    ['跑步', 'Keep'], ['聊天', null], ['学课程', '哔哩哔哩'], ['语音通话', '微信']]);
+  assert.equal(todo.paused_activities[0].name, '等待（1月5日 07:45 起）');
   const push = progress.events.find(record => record.type === 'app_push');
-  assert.deepEqual(Object.keys(push), ['occurred_at', 'type', 'app', 'title', 'kind', 'summary']);
-  const catalog = JSON.parse(read('tests/fixtures/environment/catalog/contents.json'));
-  const content = catalog.contents.find(row => row.content_id === 'c-short');
+  assert.deepEqual(Object.keys(push), ['occurred_at', 'type', 'app', 'action', 'title', 'summary']);
   assert.equal(push.app, '抖音');
-  assert.equal(push.title, content.title);
-  assert.equal(push.kind, '短视频');
-  assert.equal(push.summary, content.summary);
+  assert.equal(push.action, '刷推荐');
+  assert.equal(push.title, '测试实况');
+  assert.equal(push.summary, '测试实况的测试用合成摘要。');
   const block = api.parseRequest(event()).blocks.find(row => row.key === 'progress');
   const item = plain(api.drillItems(block)).find(row => row.label.includes(' · app_push'));
   assert.equal(item.label, `${push.occurred_at} · app_push · 抖音`);

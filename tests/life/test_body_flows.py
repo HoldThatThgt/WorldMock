@@ -70,14 +70,14 @@ def test_food_intake_records_single_energy_source(body_config) -> None:
 def test_activity_energy_cost_records_combined_drain(body_config) -> None:
     """活动能量成本是一笔合并 drain，金额与领域成本函数完全一致。"""
     body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)
-    settle_body(body, ActivityKind.WORK, 3600, body_config, ActivityFactors(1.5))
+    settle_body(body, ActivityKind.ACTION, 3600, body_config, ActivityFactors(1.5))
     energy_flows = [flow for flow in last_flows() if flow.resource == ENERGY_RESOURCE]
 
     assert len(energy_flows) == 1
     assert energy_flows[0].direction == "drain"
     assert energy_flows[0].amount == minimum_energy_cost(
-        ActivityKind.WORK, 3600, body_config, 1.5)
-    assert "work" in energy_flows[0].cause
+        ActivityKind.ACTION, 3600, body_config, 1.5)
+    assert "action" in energy_flows[0].cause
 
 
 def test_awake_activity_accrues_deficit_via_two_process(body_config) -> None:
@@ -85,7 +85,7 @@ def test_awake_activity_accrues_deficit_via_two_process(body_config) -> None:
     from worldmock.life import sleep as sleep_module
 
     body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=4, entertainment_need=0)
-    result = settle_body(body, ActivityKind.WORK, 1800, body_config, ActivityFactors(1.5))
+    result = settle_body(body, ActivityKind.ACTION, 1800, body_config, ActivityFactors(1.5))
 
     expected = sleep_module.deficit_after_awake(4, 0.5, body.sleep_need_hours)
     assert result.after.sleep_deficit_hours == pytest.approx(expected)
@@ -115,14 +115,14 @@ def test_sleep_emits_no_entertainment_flow(body_config) -> None:
 
 
 def test_relief_activity_drains_entertainment_need(body_config) -> None:
-    """实际接触按人物偏好系数降低娱乐需要，是一笔 drain。"""
+    """娱乐动作按固定速率降低娱乐需要，是一笔 drain。"""
     body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0.8)
-    settle_body(body, ActivityKind.USE_APP, 3600, body_config, ActivityFactors(1, 0.21))
+    settle_body(body, ActivityKind.ACTION, 3600, body_config, ActivityFactors(1, 0.3))
     flows = [flow for flow in last_flows() if flow.resource == ENTERTAINMENT_RESOURCE]
 
     assert len(flows) == 1
     assert flows[0].direction == "drain"
-    assert flows[0].amount == pytest.approx(0.21)
+    assert flows[0].amount == pytest.approx(0.3)
 
 
 def test_plain_awake_activity_accrues_entertainment_source(body_config) -> None:
@@ -165,7 +165,7 @@ def test_sleep_recovery_beyond_deficit_clamps_at_zero(body_config) -> None:
 def test_entertainment_relief_beyond_need_drains_only_the_need(body_config) -> None:
     """缓解量超过现有娱乐需要时 drain 金额截断到需要本身，期末为零。"""
     body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0.05)
-    result = settle_body(body, ActivityKind.USE_APP, 3600, body_config, ActivityFactors(1, 0.21))
+    result = settle_body(body, ActivityKind.ACTION, 3600, body_config, ActivityFactors(1, 0.3))
     flows = [flow for flow in last_flows() if flow.resource == ENTERTAINMENT_RESOURCE]
 
     assert result.after.entertainment_need == 0
@@ -186,11 +186,10 @@ def test_entertainment_accrual_beyond_one_clamps_at_one(body_config) -> None:
 
 
 @pytest.mark.parametrize("kind,relief", [
-    (ActivityKind.WORK, 0),
+    (ActivityKind.ACTION, 0),
     (ActivityKind.SLEEP, 0),
-    (ActivityKind.USE_APP, 0.21),
+    (ActivityKind.ACTION, 0.3),
     (ActivityKind.WAIT, 0),
-    (ActivityKind.CONSUME, 0),
 ])
 def test_every_flow_carries_cause_owner_and_stamp(body_config, kind, relief) -> None:
     """每条分录都带非空 cause、固定 owner 与占位时间戳。"""
@@ -209,7 +208,7 @@ def test_every_flow_carries_cause_owner_and_stamp(body_config, kind, relief) -> 
 def test_last_flows_returns_each_settlement_exactly_once(body_config) -> None:
     """last_flows 取走增量后再次调用为空，结算后重新产生新分录。"""
     body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)
-    settle_body(body, ActivityKind.WORK, 3600, body_config, ActivityFactors(1.5))
+    settle_body(body, ActivityKind.ACTION, 3600, body_config, ActivityFactors(1.5))
     first = last_flows()
 
     assert first
@@ -228,7 +227,7 @@ def test_overdrawn_settlement_drains_only_the_remaining_energy(body_config) -> N
     """透支结算不报错：能量分录只扣掉余额，期末以 0 截断（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「能量不拦人」）。"""
     last_flows()
     body = BodyState(energy_kcal=10, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)
-    result = settle_body(body, ActivityKind.WORK, 3600, body_config, ActivityFactors(1.5))
+    result = settle_body(body, ActivityKind.ACTION, 3600, body_config, ActivityFactors(1.5))
 
     energy = [flow for flow in last_flows() if flow.resource == ENERGY_RESOURCE]
     assert [flow.amount for flow in energy] == [pytest.approx(10)]
@@ -238,7 +237,7 @@ def test_overdrawn_settlement_drains_only_the_remaining_energy(body_config) -> N
 def test_zero_duration_settlement_emits_no_flows(body_config) -> None:
     """零时长结算不产生分录，身体状态保持不变。"""
     body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=1, entertainment_need=0.2)
-    result = settle_body(body, ActivityKind.WORK, 0, body_config, ActivityFactors(1.5))
+    result = settle_body(body, ActivityKind.ACTION, 0, body_config, ActivityFactors(1.5))
 
     assert result.after.energy_kcal == 1600
     assert result.after.sleep_deficit_hours == 1
@@ -254,7 +253,7 @@ def test_full_history_replay_matches_incremental_settlement(body_config) -> None
     steps = [
         (ActivityKind.WAIT, 3600, None),
         (ActivityKind.SLEEP, 3600, ActivityFactors(0.95)),
-        (ActivityKind.USE_APP, 3600, ActivityFactors(1, 0.21)),
+        (ActivityKind.ACTION, 3600, ActivityFactors(1, 0.3)),
     ]
     for kind, seconds, factors in steps:
         states.append(settle_body(states[-1], kind, seconds, body_config, factors).after)

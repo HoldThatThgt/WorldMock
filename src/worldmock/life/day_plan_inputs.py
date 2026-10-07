@@ -28,7 +28,7 @@ from zoneinfo import ZoneInfo
 from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.life import errands, progress_layer, projection, work_schedule
 from worldmock.life.control_items import control_items
-from worldmock.life.work import contract_view, work_totals
+from worldmock.life.readable import duration_phrase
 from worldmock.life.day_planning import SELF_REPORT_NOTE, plan_date
 from worldmock.life.settled_text import (
     ActivityFacts,
@@ -162,10 +162,12 @@ def _experience_sentences(
 ) -> tuple[tuple[str, str], ...]:
     """@brief 回顾时段里已核验经历的确定性句子（settled_text 的共享写法），按时间顺序，带来源事件身份。"""
     store = context.store
-    events = store.read_agent_events("activity_progress", agent_id)
+    events = [*store.read_agent_events("activity_progress", agent_id),
+              *store.read_agent_events("environment_event", agent_id)]
+    events.sort(key=lambda event: event.event_seq)
     facts = project_verified_experiences(events, agent_id=agent_id, cutoff_seq=store.last_event_seq)
-    context = observations._layer_context(context.state.agents[agent_id], (), [])
-    facts.sort(key=lambda item: (item["event_seq"], item["kind"], item.get("food_id", "")))
+    context = observations._layer_context(context.state.agents[agent_id], [])
+    facts.sort(key=lambda item: (item["event_seq"], item["kind"], item.get("goods_id", "")))
     return tuple(
         (experience_sentence(context, fact), fact["source_event_id"])
         for fact in facts
@@ -177,7 +179,7 @@ def _result_sentences(context: Any, observations: Any, agent_id: int, window: _W
     """@brief 本人已结算的公开动作结果与送达，写成 settled 句（与记忆层同一共享句式，不含身份）：发消息、下单、
     送达，以及在回顾时段内结束的活动（按结束事件，起止含已恢复的暂停区间）；失败、重放的请求与其余工具不写。"""
     store = context.store
-    context = observations._layer_context(context.state.agents[agent_id], (), [])
+    context = observations._layer_context(context.state.agents[agent_id], [])
     outcomes = store.read_agent_events("action_result", agent_id)
     environment = store.read_agent_events("environment_event", agent_id)
     results: dict[str, Any] = {}
@@ -251,22 +253,23 @@ def _conclusion_records(context: Any, agent_id: int, window: _Window) -> tuple[l
 
 
 def _task_rows(context: Any, observations: Any, agent: Any, window: _Window) -> list[dict[str, Any]]:
-    """@brief 已分配且未完成的主题只写主题、目标和实际已做，不写不存在的截止或任务验收。"""
+    """@brief 未完成的分配工作内容只写标题、总时长和实际已做秒数。"""
     config = next(item for item in context.scenario.agents if item.agent_id == agent.agent_id)
     rows = []
-    for topic_id in config.work_topic_ids:
-        topic = context.rules.work_topics[topic_id]
-        worked = work_totals(context.state, agent.agent_id, topic_id)
-        if worked >= topic.target_seconds:
+    for content_id in config.work_content_ids:
+        content = context.semantics.catalog.contents[content_id]
+        progress = agent.content_progress.get(content_id)
+        if progress is not None and progress.completed_rounds:
             continue
-        view = contract_view(topic, worked)
-        rows.append({"主题": topic.topic, "目标": view["target"], "已做": view["done"]})
+        seconds = 0 if progress is None else progress.position_seconds
+        rows.append({"主题": content.title, "目标": duration_phrase(content.duration_seconds),
+                     "已做": duration_phrase(seconds)})
     return rows
 
 
 def _product_names(context: Any) -> dict[str, str]:
-    """@brief 冻结目录里可持有对象的商品身份 → 商品名（个人事务「要办成什么」按它写商品名，与待办层同一张表）。"""
-    return {product_id: item.name for product_id, item in context.semantics.catalog.foods.items()}
+    """@brief 冻结目录里商品的商品身份 → 商品名（个人事务「要办成什么」按它写商品名，与待办层同一张表）。"""
+    return {product_id: item.name for product_id, item in context.semantics.catalog.goods.items()}
 
 
 def _inbox_rows(context: Any, agent: Any, window: _Window) -> list[dict[str, Any]]:
@@ -288,7 +291,7 @@ def _pending_orders(context: Any, agent_id: int, window: _Window) -> list[dict[s
     """@brief 在途订单及预计送达（state.deliveries 中本人待交付的订单）。"""
     return [
         {
-            "商品": context.semantics.catalog.foods[item.food_id].name,
+            "商品": context.semantics.catalog.goods[item.goods_id].name,
             "数量": item.quantity,
             "预计送达": window.when(item.expected_at),
             "送到": _place(context, item.destination_id),

@@ -12,7 +12,7 @@ from worldmock.life.world_ops import _request_sha
 import logging
 from worldmock.errors import BusinessRuleError, PreconditionError, ProtocolError
 from worldmock.footprints.models import EventDraft
-from worldmock.life import activity_control, errands, same_moment, social_actions
+from worldmock.life import activity_control, day_planning, errands, same_moment, social_actions
 from worldmock.life.action_evidence import _pending_causes, _remember_action, _result_draft, _result_event_data
 from worldmock.life.guidance import rejection_guidance
 from worldmock.life.business_feedback import business_feedback
@@ -40,7 +40,7 @@ from worldmock.life.models import (
     active_activities,
 )
 from worldmock.life.observe import ObservationBuilder
-from worldmock.life.rhythm import engine_rhythm_inputs, next_decision_candidates
+from worldmock.life.rhythm import consume_progress_report_opportunity, engine_rhythm_inputs, next_decision_candidates
 from worldmock.life.session_actions import ActionHandlers
 from worldmock.life.models import validated_payload
 from worldmock.life.presentation import stage_presentation
@@ -169,6 +169,7 @@ class DecisionCoordinator:
             drafts.extend(action_drafts)
             if not pending.reused:
                 staged = _remember_action(staged, pending, result)
+        staged = day_planning.settle_receipt_goals(staged, drafts)
         (staged, settled) = errands.settle(staged, drafts)
         drafts.extend(settled)
         recipients = {
@@ -369,13 +370,13 @@ class DecisionCoordinator:
         try:
             (changed, result) = self.actions.dispatch(state, pending)
             (changed, _) = social_actions.end_partner_chats(state, changed)
+            changed = self._consume_report_opportunity(state, changed, pending.agent_id)
             changed = self._after_success(changed, pending.agent_id, pending.tool_name)
             (changed, records) = activity_control.record_changes(state, changed, pending, self.actions.record_context)
             resolved = changed.activities.get(result.activity_id) if result.activity_id else None
             resolved_title = activity_title(resolved, self.context.titles) if resolved is not None else None
             accepted = EventDraft(
-                event_type="action_accepted",
-                occurred_at=state.current_time,
+                event_type="action_accepted", occurred_at=state.current_time,
                 agent_id=pending.agent_id,
                 decision_id=pending.decision_id,
                 action_id=pending.action_id,
@@ -383,22 +384,28 @@ class DecisionCoordinator:
                 caused_by=_pending_causes(pending),
                 data=_result_event_data(result, changed, resolved_title),
             )
-            drafts = [accepted, _result_draft(pending, result, "action_result"), *records]
+            result_draft = _result_draft(pending, result, "action_result")
+            new_ids = {event.scheduled_id for event in state.pending_events}
+            changed.pending_events = [event.model_copy(update={"caused_by": [result_draft.event_id]})
+                if event.scheduled_id not in new_ids and event.kind.value in {"delivery_arrival", "alarm_ring"}
+                else event for event in changed.pending_events]
+            drafts = [accepted, result_draft, *records]
+            drafts.extend(self._receipt_drafts(result_draft))
             drafts.extend(self.actions.drain_drafts())
             return (changed, result, drafts)
         except BusinessRuleError as error:
-            (changed, result) = self._after_rejection(state, pending, error)
+            self.actions.storefront.drain_receipts()
+            consumed = self._consume_report_opportunity(state, state, pending.agent_id)
+            (changed, result) = self._after_rejection(consumed, pending, error)
             agent = changed.agents[pending.agent_id]
             activity = next(iter(active_activities(changed, agent.agent_id)), None)
             data = {"error_code": str(error), **result.data}
             if activity is not None:
-                data["activity"] = activity_snapshot(activity, self.context.titles, self.context.lifestyle_items)
+                data["activity"] = activity_snapshot(activity, self.context.titles)
             rejected = EventDraft(
-                event_type="action_rejected",
-                occurred_at=state.current_time,
+                event_type="action_rejected", occurred_at=state.current_time,
                 agent_id=pending.agent_id,
-                decision_id=pending.decision_id,
-                action_id=pending.action_id,
+                decision_id=pending.decision_id, action_id=pending.action_id,
                 activity_id=activity.activity_id if activity else None,
                 caused_by=_pending_causes(pending),
                 data=data,
@@ -407,6 +414,18 @@ class DecisionCoordinator:
             drafts.extend(self.actions.drain_drafts())
             return (changed, result, drafts)
 
+    def _receipt_drafts(self, result: EventDraft) -> list[EventDraft]:
+        """@brief 到店收货证据以本次真实购买结果为直接原因，随同一次状态提交。"""
+        return [draft.model_copy(update={"caused_by": [result.event_id]})
+                for draft in self.actions.storefront.drain_receipts()]
+
+    def _consume_report_opportunity(self, before: WorldState, changed: WorldState, agent_id: int) -> WorldState:
+        """@brief 播报机会给出后，受理和拒绝都消费所有当时到期的锚点。"""
+        if "progress_report_due" not in before.agents[agent_id].pending_wake_reasons:
+            return changed
+        interval = self.context.semantics.document.progress_report_interval_seconds
+        return consume_progress_report_opportunity(changed, agent_id, interval)
+
     def _after_success(self, state: WorldState, agent_id: int, tool_name: str) -> WorldState:
         """@brief 受理计入同刻轮数并清零连续拒绝，按同刻规则或决策节律安排下一次决策（第一章规则 2、4、7）。"""
         agent = same_moment.count_round(state.agents[agent_id])
@@ -414,7 +433,6 @@ class DecisionCoordinator:
         changed = agent.model_copy(
             update={
                 "next_decision_at": next_at,
-                "consecutive_rejections": 0,
                 "pending_wake_reasons": reasons,
                 "same_moment_stage": stage,
             },
@@ -473,7 +491,7 @@ class DecisionCoordinator:
         body = agent.body if pulse_key is None else apply_mood_pulse(agent.body, pulse_key)
         changed_agent = agent.model_copy(
             update={
-                "next_decision_at": next_decision_at, "consecutive_rejections": agent.consecutive_rejections + 1,
+                "next_decision_at": next_decision_at,
                 "pending_wake_reasons": reasons, "same_moment_stage": stage, "body": body,
             }, deep=True,
         )

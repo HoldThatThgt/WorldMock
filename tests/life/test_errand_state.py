@@ -15,7 +15,7 @@ from worldmock.life.errand_state import ErrandState
 
 def _errand(**overrides) -> dict:
     """一条合法的未完成事务（取得一份素炒什锦食材包，尚无进展、带备注与未交付的提醒）。"""
-    fields = {"errand_id": "action-1:errand:0", "name": "补一份素炒什锦食材包", "outcome": "obtain",
+    fields = {"errand_id": "action-1:errand:0", "name": "补一份素炒什锦食材包",
               "product_id": "ingredient-vegetable-kit", "quantity": 1, "progress": 0.0, "memo": "下班前下单送到家",
               "registered_at": 1_000, "remind_at": 2_000, "reminded_at": None,
               "origin_action_id": "action-1", "origin_event_id": "event-1"}
@@ -23,14 +23,14 @@ def _errand(**overrides) -> dict:
 
 
 def test_a_valid_open_errand_keeps_every_field_as_written() -> None:
-    """合法的未完成事务照写保存：名称与备注原样，结果种类是代码 obtain 或 eat；部分进展与已交付的提醒都合法。"""
+    """合法的未完成事务照写保存：名称与备注原样；部分进展与已交付的提醒都合法。"""
     errand = ErrandState(**_errand())
     assert errand.model_dump() == _errand()
-    eaten = ErrandState(**_errand(outcome="eat", product_id="meal-0030", quantity=2, progress=1.5, memo=None,
+    partial = ErrandState(**_errand(product_id="meal-0030", quantity=2, progress=1.5, memo=None,
                                   remind_at=2_000, reminded_at=2_000))
-    assert (eaten.outcome, eaten.progress, eaten.reminded_at) == ("eat", 1.5, 2_000)
+    assert (partial.product_id, partial.progress, partial.reminded_at) == ("meal-0030", 1.5, 2_000)
     assert list(ErrandState.model_fields) == [
-        "errand_id", "name", "outcome", "product_id", "quantity", "progress", "memo", "registered_at", "remind_at",
+        "errand_id", "name", "product_id", "quantity", "progress", "memo", "registered_at", "remind_at",
         "reminded_at", "origin_action_id", "origin_event_id"]
 
 
@@ -63,7 +63,7 @@ def test_a_reminder_delivery_requires_an_earlier_reminder(remind_at, reminded_at
 
 
 def test_the_model_is_closed_frozen_and_every_field_is_required() -> None:
-    """未知字段被拒绝；构造后不可改；十二个字段都必填（可空的也要写 null），名称不能只是空白，结果种类只有两种代码。"""
+    """未知字段被拒绝；构造后不可改；十一个字段都必填（可空的也要写 null），名称不能只是空白。"""
     with pytest.raises(ValidationError, match="extra_forbidden|Extra inputs"):
         ErrandState(**_errand(status="未完成"))
     errand = ErrandState(**_errand())
@@ -76,18 +76,23 @@ def test_the_model_is_closed_frozen_and_every_field_is_required() -> None:
             ErrandState(**fields)
     with pytest.raises(ValidationError, match="name"):
         ErrandState(**_errand(name="   "))
-    with pytest.raises(ValidationError, match="outcome"):
-        ErrandState(**_errand(outcome="取得"))
+
+
+@pytest.mark.parametrize("outcome", ["obtain", "eat", "取得", "吃掉", None])
+def test_retired_outcome_is_an_unknown_field_for_every_previous_value(outcome) -> None:
+    """@brief 事务只依赖商品收货，旧结果分类连 null 都不能写入状态。"""
+    with pytest.raises(ValidationError) as caught:
+        ErrandState(**_errand(outcome=outcome))
+    assert [(error["loc"], error["type"]) for error in caught.value.errors()] == [(("outcome",), "extra_forbidden")]
 
 
 def test_limits_words_and_event_kinds_are_the_spec_values() -> None:
-    """上限、变更与结果种类的写法、六种事务事件与两种人物可见的种类都是规格的取值（2.1、2.2、2.7）。"""
+    """上限、变更写法、六种事务事件与两种人物可见的种类保持固定，结果分类直接删除。"""
     assert (errand_state.MAX_OPEN_ERRANDS, errand_state.MAX_ERRAND_CHANGES) == (8, 4)
     assert (errand_state.ERRAND_NAME_MAX_CHARS, errand_state.ERRAND_TEXT_MAX_CHARS) == (30, 120)
     assert errand_state.ERRAND_TOLERANCE == 1e-9
     assert errand_state.ERRAND_CHANGES == ("新增", "更新", "取消")
-    assert errand_state.OUTCOME_CODES == {"取得": "obtain", "吃掉": "eat"}
-    assert errand_state.OUTCOME_WORDS == {code: word for word, code in errand_state.OUTCOME_CODES.items()}
+    assert not hasattr(errand_state, "OUTCOME_CODES") and not hasattr(errand_state, "OUTCOME_WORDS")
     assert errand_state.ERRAND_EVENT_KINDS == ("errand_registered", "errand_updated", "errand_cancelled",
                                                "errand_progressed", "errand_completed", "errand_reminded")
     assert errand_state.AGENT_VISIBLE_KINDS == {"errand_completed", "errand_reminded"}

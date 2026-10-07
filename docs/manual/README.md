@@ -1,6 +1,8 @@
 <a name="readme-用户配置手册"></a>
 # 用户配置手册
 
+> 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)收口 app、地点、商品、动作、内容五类对象、场景结构 8 与五字段动作请求。
+
 > 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「手册入口、创建自己的第一个场景与运行证据边界」（阶段 8）；此前阶段的修订并入同一现行合同。
 
 WorldMock-Dataset 提供具体世界，WorldMock 执行这个世界并记录结果。
@@ -20,8 +22,8 @@ WorldMock-Dataset 提供具体世界，WorldMock 执行这个世界并记录结�
 | 你想改变什么 | 阅读页面 | 主要输入 |
 | --- | --- | --- |
 | 人物是谁、习惯和兴趣、作息（含下班与到家）、联系人、睡眠需要 | [人物画像](personas.md#personas-人物画像) | 场景的 `agents`，画像正文 |
-| 模拟日期、人数、余额、工作安排、主题、消息、账单、允许的行动 | [生活场景](scenarios.md#scenarios-生活场景) | `experiments/my-world/scenarios/*.json` |
-| 地点、生成图、店铺、食品、app 与内容、生活活动和语料 | [世界素材](resources.md#resources-定义地点门店供给与世界素材) | 七份目录 JSON、生活活动和联系人邮件语料 |
+| 模拟日期、人数、余额、工作安排、分配内容、消息、账单、允许的行动 | [生活场景](scenarios.md#scenarios-生活场景) | `experiments/my-world/scenarios/*.json` |
+| app、地点、商品、动作、内容与图 | [世界素材](resources.md#resources-定义地点门店供给与世界素材) | 清单和六个目录 JSON；对象绑定，不含语料目录 |
 | 人物动机、身体初值和画像映射 | [规则配置](rules.md#rules-调整世界规则与人物动机参数) | 场景人物参数与明确画像编译；固定规则与常数由引擎包维护 |
 | 模型凭据、新建运行、恢复和反事实条件 | [运行配置](runtime.md#runtime-运行配置) | 私密凭据、命令参数、干预 JSON |
 | 评估数据、统计设置、人工参照与盲评 | [真实性评估](evaluation.md#evaluation-自定义评估与盲评输入) | 评估配置、评审文件 |
@@ -29,8 +31,8 @@ WorldMock-Dataset 提供具体世界，WorldMock 执行这个世界并记录结�
 ```mermaid
 flowchart LR
     PERSON[人物画像] --> SCENE[生活场景]
-    WORLD[Dataset：地点、食品、app 与内容] --> SCENE
-    TOPICS[Dataset：主题与工作安排] --> SCENE
+    WORLD[Dataset：app、地点、商品、动作、内容与图] --> SCENE
+    WORK[场景：人物与工作内容分配] --> SCENE
     PACKAGE[WorldMock 包：固定通用规则] --> CHECK
     SCENE --> CHECK[离线检查与模型校验]
     KEY[模型凭据] --> RUN[新建运行]
@@ -43,7 +45,7 @@ flowchart LR
 <a name="readme-创建自己的第一个场景"></a>
 ## 创建自己的第一个场景
 
-命令在 WorldMock 根目录执行，安装见[运行配置](runtime.md#runtime-运行配置)。先将当前人工环境完整复制到新目录，保留场景、目录与语料的相对引用，再编辑人物。它是一天的最小样例，不是正式发布环境；数据仓发布后可改用实际新目录，旧发布目录不能当作新格式输入。
+命令在 WorldMock 根目录执行，安装见[运行配置](runtime.md#runtime-运行配置)。先将当前人工环境完整复制到新目录，保留场景与目录的相对引用，再编辑人物。它是一天的最小样例，不是正式发布环境；数据仓发布后可改用实际新目录，旧发布目录不能当作新格式输入。
 
 ```bash
 python - <<'PY'
@@ -62,7 +64,7 @@ print(scenario)
 PY
 ```
 
-修改 `agents` 的画像和参数，并从 `catalog/work_topics.json` 分配 `work_topic_ids`；改变日期或窗口时核对日历、消息、工资、账单及工作安排。新目录已存在时复制直接失败，请选新目录或明确编辑已有环境，不覆盖发布字节。
+修改 `agents` 的画像和参数，并从 `catalog/contents.json` 分配 `work_content_ids`；动作请求保持五字段项 `{name, way, from, to, app}`；改变日期或窗口时核对日历、消息、工资、账单及工作安排。新目录已存在时复制直接失败，请选新目录或明确编辑已有环境，不覆盖发布字节。
 
 先执行不调用模型的目录与完整场景加载检查：
 
@@ -77,7 +79,7 @@ print(scene.scenario_id, len(scene.agents), digest)
 PY
 ```
 
-这检查结构 7、引用、目录及图准入。准备好[模型凭据](runtime.md#runtime-填写模型凭据)后，完整场景校验抽取人物卡片并报告覆盖率：
+这检查结构 8、引用、目录及图准入。准备好[模型凭据](runtime.md#runtime-填写模型凭据)后，完整场景校验抽取人物卡片并报告覆盖率：
 
 ```bash
 worldmock validate --scenario experiments/my-world/scenarios/single-person.json \
@@ -90,16 +92,15 @@ worldmock run --scenario experiments/my-world/scenarios/single-person.json --out
 <a name="readme-文件放在哪里"></a>
 ## 文件放在哪里
 
-保持 `catalog/`、`corpora/`、`scenarios/` 在同一环境根内并列：
+保持 `catalog/`、`scenarios/` 在同一环境根内并列：
 
 ```text
 experiments/my-world/
-├── catalog/       # 七份 JSON 与三份包规则副本
-├── corpora/       # 生活活动、联系人、邮件及清单
-└── scenarios/     # 结构 7，钉住环境标识与版本
+├── catalog/       # 清单、六个目录文件
+└── scenarios/     # 结构 8、环境标识与版本
 ```
 
-具体正式环境和制作工具由 Dataset 维护，重制后的路径由其发布决定。WorldMock 提供固定规则和真实生成、检查命令；场景上两级解析环境目录，corpus_root 相对场景位置解析，输出相对当前工作目录解析。移动场景时复制完整环境并保留环境钉，不能依赖相邻仓库搜索。
+正式环境和制作工具由 WorldMock-Dataset 维护，路径由其发布决定。WorldMock 提供固定规则、生成与检查命令；场景上两级解析环境目录，输出相对当前工作目录解析。复制完整环境并保留环境钉。
 
 <a name="readme-修改配置前要知道的约定"></a>
 ## 修改配置前要知道的约定
@@ -122,3 +123,5 @@ experiments/my-world/
 | 版本 | 日期 | 变更 |
 | --- | --- | --- |
 | `2026-10-06-rrs-docs` | 2026-10-07 | app 与主题入口、当前人工环境完整复制及场景检查；正式发布和真实运行边界 |
+| `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |
+| `2026-10-07-acs-close` | 2026-10-08 | 手册入口按 app、地点、商品、动作、内容五类对象，场景结构 8、五字段动作请求及仅含 catalog/scenarios 的环境根收口 |

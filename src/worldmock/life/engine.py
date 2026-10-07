@@ -44,9 +44,9 @@ if TYPE_CHECKING:
 class LifeEngine:
     """@brief 仅编排现有公开生活协议，不保存第二份世界或业务簿记。"""
 
-    def __init__(self, semantics: ScenarioSemantics, scenario_sha256: str, corpus_root: Path, store: FootprintStore):
+    def __init__(self, semantics: ScenarioSemantics, scenario_sha256: str, store: FootprintStore):
         """@brief 建立唯一上下文并绑定明确职责。"""
-        self.context = EngineContext(semantics, scenario_sha256, corpus_root, store)
+        self.context = EngineContext(semantics, scenario_sha256, store)
         self.observations = ObservationBuilder(self.context)
         self.actions = ActionHandlers(self.context, StorefrontRuntime(self.context))
         self.decisions = DecisionCoordinator(self.context, self.actions, self.observations)
@@ -196,5 +196,4 @@ class LifeEngine:
             "state_version": self.context.state.version,
             "current_time": self.context.state.current_time,
             "scenario_sha256": self.context.scenario_sha256,
-            "corpus_manifest_sha256": self.context.scenario.corpus_manifest_sha256,
         }

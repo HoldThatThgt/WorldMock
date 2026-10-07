@@ -172,6 +172,9 @@ def runtime_code_sha256(project_root: Path) -> str:
     files = [(path.relative_to(root).as_posix(), path)
              for directory in (root / "src", root / "custom") for path in directory.rglob("*.py")]
     files.extend((name, root / name) for name in ("pyproject.toml", "uv.lock"))
+    files.extend((path.relative_to(root).as_posix(), path)
+                 for path in (root / "src/worldmock/data").rglob("*")
+                 if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".py")
     return _labeled_sha256([*files, *require_locked_as2()])
 
 
@@ -293,8 +296,7 @@ def _coverage_targets(scenario_path: Path, scenario: RuntimeScenario, catalog: A
     """@brief 从真实登记目录与已验证的生活活动语料构造同一覆盖目标集。"""
     from worldmock.profile.coverage_targets import build_coverage_targets
 
-    root = (Path(scenario_path).resolve().parent / scenario.corpus_root).resolve()
-    return build_coverage_targets(scenario, catalog, root)
+    return build_coverage_targets(scenario, catalog)
 
 
 def _agent_specs(scenario: RuntimeScenario, *, persona_compiler=None,

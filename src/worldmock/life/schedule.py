@@ -9,13 +9,27 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 import logging
+import re
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from worldmock.base_models import FrozenModel
+from worldmock.errors import reject_value
 from worldmock.footprints.intervals import valid_interval
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def alarm_time(value: str) -> int:
+    """@brief 接受带偏移的 ISO 整秒时刻，拒绝小数秒和无时区输入。"""
+    pattern = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)"
+    try:
+        parsed = datetime.fromisoformat(value) if re.fullmatch(pattern, value) else None
+    except ValueError:
+        parsed = None
+    if parsed is None:
+        reject_value("ALARM_TIME_INVALID: Alarm time must be a future whole second before the run ends.")
+    return int(parsed.timestamp())
 
 #: 有在手承诺时的常规重估间隔。
 RECONSIDERATION_INTERVAL_SECONDS = 5400
@@ -62,11 +76,12 @@ class WakeReason(str, Enum):
     BREAK_START = "break_start"
     BREAK_END = "break_end"
     APP_PUSH = "app_push"
+    ALARM_RING = "alarm_ring"
 
 
 SLEEP_ALLOWED_REASONS = frozenset(
     {WakeReason.PLANNED_END, WakeReason.WAKE_FROM_SLEEP, WakeReason.RUN_START,
-     WakeReason.PLAN_REMINDER_DUE}
+     WakeReason.PLAN_REMINDER_DUE, WakeReason.ALARM_RING}
 )
 """睡眠期间仍可提供决策的唤醒原因：计划结束、唤醒事件与当日目标提醒（docs/dev/SPEC-life-runtime.md#spec-life-runtime-决策节律结算边界与唤醒条件分离 「决策节律」）。"""
 
@@ -106,44 +121,31 @@ IntentKind = Literal[
 ]
 
 
-#: 活动种类对应的评估聚合家族；计划匹配仍使用活动种类本身作为令牌。
-ACTIVITY_KIND_FAMILIES = {
-    "sleep": "sleep", "travel": "commute", "work": "work", "consume": "meal",
-    "use_app": "entertainment",
-    "read_mail": "entertainment", "wait": "rest", "chat": "social", "call": "social",
-}
-#: 冻结生活活动品类对应的聚合家族；评估中的外出并入通勤规则由报告自身声明。
-LIFESTYLE_CATEGORY_FAMILIES = {
-    "sport": "exercise", "household": "chore", "social": "social", "outdoor": "outing",
-    "hobby": "entertainment", "learning": "entertainment", "wellness": "rest",
-    "pet": "chore", "volunteer": "social",
+#: 系统活动与数据集动作的固定聚合家族。
+ACTIVITY_KIND_FAMILIES = {"sleep": "sleep", "travel": "commute", "wait": "rest"}
+ACTION_CATEGORY_FAMILIES = {
+    "entertainment": "entertainment", "work_study": "work", "social": "social",
+    "exercise": "exercise", "daily_care": "chore",
 }
 
 
 def activity_family(snapshot: Any) -> str | None:
-    """@brief 活动快照的领域家族令牌；生活活动只认真实冻结品类，缺失或未知品类不猜测。"""
+    """@brief 动作只读其真实类别，系统活动只认三个固定种类。"""
     kind = snapshot.get("kind")
-    if kind == "lifestyle":
-        category = snapshot.get("category")
-        known = isinstance(category, str) and category in LIFESTYLE_CATEGORY_FAMILIES
-        return f"lifestyle:{category}" if known else None
+    if kind == "action":
+        category = snapshot.get("data", {}).get("category")
+        return category if category in ACTION_CATEGORY_FAMILIES else None
     return kind if isinstance(kind, str) and kind in ACTIVITY_KIND_FAMILIES else None
 
 
 INTENT_ACTIVITY_FAMILIES: dict[str, frozenset[str]] = {
-    "睡眠": frozenset({"sleep"}),
-    "晨间例程": frozenset({"lifestyle:wellness", "wait"}),
-    "通勤": frozenset({"travel"}),
-    "工作": frozenset({"work"}),
-    "用餐": frozenset({"consume"}),
-    "休息": frozenset({"wait", "lifestyle:wellness"}),
-    "娱乐": frozenset({"use_app", "lifestyle:hobby"}),
-    "社交": frozenset({"chat", "call", "lifestyle:social"}),
-    "家务": frozenset({"lifestyle:household", "lifestyle:pet"}),
-    "运动": frozenset({"lifestyle:sport"}),
-    "外出": frozenset({"travel", "lifestyle:outdoor"}),
+    "睡眠": frozenset({"sleep"}), "晨间例程": frozenset({"daily_care"}),
+    "通勤": frozenset({"travel"}), "工作": frozenset({"work_study"}), "用餐": frozenset(),
+    "休息": frozenset({"wait", "daily_care"}), "娱乐": frozenset({"entertainment"}), "社交": frozenset({"social"}),
+    "家务": frozenset({"daily_care"}), "运动": frozenset({"exercise"}), "外出": frozenset({"travel"}),
 }
-"""意图到实际活动家族的映射；共享家族由目标清单顺序裁决。"""
+"""意图到实际活动家族的固定映射；用餐只由正餐收货推进。"""
+
 
 ROUTINE_INTENT_KINDS: frozenset[str] = frozenset({"睡眠", "晨间例程", "通勤", "用餐"})
 """例行意图（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-零点计划只写今天与平常不同的事 ，裁决 S11）：十一种意图闭集中属于人设层作息的四种。这类目标照常受理、
@@ -223,6 +225,8 @@ class WakeSnapshot(BaseModel):
     duty_edges_now: frozenset[WakeReason] = frozenset()
     #: 本边界实际收到应用推送，睡眠过滤仍由既有允许集合负责。
     app_push_arrived: bool = False
+    #: 本边界实际结算的一次性闹钟，睡眠期间也可以提供决策。
+    alarm_rang: bool = False
     is_asleep: bool = False
 
 
@@ -269,6 +273,7 @@ class PlanGoal(FrozenModel):
     registered_at: int = Field(ge=0)
     progressed_at: int | None = Field(default=None, ge=0)
     progress_activity_id: str | None = Field(default=None, min_length=1)
+    progress_order_id: str | None = Field(default=None, min_length=1)
     progress_note: str = Field(default="", max_length=500)
     remind_at: int | None = Field(default=None, ge=0)
     reminded_at: int | None = Field(default=None, ge=0)
@@ -277,10 +282,13 @@ class PlanGoal(FrozenModel):
     @model_validator(mode="after")
     def _check_progress(self) -> "PlanGoal":
         """@brief 推进证据必须成对存在，且不能早于登记；只有设了提醒的目标才有触发时刻，且不早于提醒时刻。"""
-        if (self.progressed_at is None) != (self.progress_activity_id is None):
+        evidence_count = sum(item is not None for item in (self.progress_activity_id, self.progress_order_id))
+        if evidence_count != int(self.progressed_at is not None):
             _LOGGER.error("Goal progress evidence is incomplete")
             raise ValueError("goal progress evidence must be present together")
-        if self.progressed_at is not None and self.progressed_at <= self.registered_at:
+        if (self.progressed_at is not None and
+                (self.progressed_at < self.registered_at or
+                 (self.progressed_at == self.registered_at and self.progress_activity_id is not None))):
             _LOGGER.error("Goal progress must follow registration")
             raise ValueError("goal progress must follow registration")
         if self.reminded_at is not None and (self.remind_at is None or self.reminded_at < self.remind_at):
@@ -299,7 +307,9 @@ class DayPlan(FrozenModel):
     def _check_plan(self) -> "DayPlan":
         """@brief 核验意图唯一、活动证据唯一及当日登记和推进边界。"""
         kinds = [goal.intent_kind for goal in self.goals]
-        evidence = [goal.progress_activity_id for goal in self.goals if goal.progress_activity_id is not None]
+        evidence = [(kind, identity) for goal in self.goals
+                    for kind, identity in (("activity", goal.progress_activity_id), ("order", goal.progress_order_id))
+                    if identity is not None]
         if len(kinds) != len(set(kinds)) or len(evidence) != len(set(evidence)):
             _LOGGER.error("Day plan contains duplicate intent or activity evidence")
             raise ValueError("day plan intent and activity evidence must be unique")
@@ -404,6 +414,8 @@ def _clock_reasons(snap: WakeSnapshot) -> list[WakeReason]:
     reasons.extend(member for member in DUTY_EDGE_REASONS if member in snap.duty_edges_now)
     if snap.app_push_arrived:
         reasons.append(WakeReason.APP_PUSH)
+    if snap.alarm_rang:
+        reasons.append(WakeReason.ALARM_RING)
     return reasons
 
 
@@ -495,7 +507,8 @@ def ran_in_goal_window(around_at: int | None, started_at: int | None, stop: int)
     return lower < min(stop, around_at + GOAL_TIME_TOLERANCE_SECONDS)
 
 
-def progress_day_plan(plan: DayPlan, activity: dict, start: int, end: int) -> DayPlan:
+def progress_day_plan(plan: DayPlan, activity: dict, start: int, end: int,
+                      work_content_ids: tuple[str, ...]) -> DayPlan:
     """@brief 正时长结算最多推进一个匹配目标，活动证据在当日只消费一次。
 
     匹配：未推进、同家族、登记后的正时长结算，目标带大致时刻时活动须在其前后容差内进行（ran_in_goal_window，
@@ -511,6 +524,8 @@ def progress_day_plan(plan: DayPlan, activity: dict, start: int, end: int) -> Da
     if any(goal.progress_activity_id == activity_id for goal in plan.goals):
         return plan
     family = activity_family(activity)
+    if family == "work_study" and activity["data"]["content_id"] not in work_content_ids:
+        return plan
     stop = min(end, plan.day_end)
     for index, goal in enumerate(plan.goals):
         if goal.progressed_at is not None or stop <= max(start, goal.registered_at):
@@ -520,6 +535,24 @@ def progress_day_plan(plan: DayPlan, activity: dict, start: int, end: int) -> Da
         if not ran_in_goal_window(goal.around_at, activity.get("started_at"), stop):
             continue
         progressed = goal.model_copy(update={"progressed_at": stop, "progress_activity_id": activity_id})
+        goals = plan.goals[:index] + (progressed,) + plan.goals[index + 1:]
+        return DayPlan(day_end=plan.day_end, goals=goals)
+    return plan
+
+
+def progress_receipt_day_plan(plan: DayPlan, receipt: dict, now: int) -> DayPlan:
+    """@brief 本人的正餐收货在登记之后、当天与大致时刻容差内推进用餐目标，订单证据当天只用一次。"""
+    if receipt.get("kind") != "goods_received" or receipt["category"] != "meal" or now >= plan.day_end:
+        return plan
+    order_id = receipt["order_id"]
+    if any(goal.progress_order_id == order_id for goal in plan.goals):
+        return plan
+    for index, goal in enumerate(plan.goals):
+        if goal.intent_kind != "用餐" or goal.progressed_at is not None or now < goal.registered_at:
+            continue
+        if goal.around_at is not None and abs(now - goal.around_at) > GOAL_TIME_TOLERANCE_SECONDS:
+            continue
+        progressed = goal.model_copy(update={"progressed_at": now, "progress_order_id": order_id})
         goals = plan.goals[:index] + (progressed,) + plan.goals[index + 1:]
         return DayPlan(day_end=plan.day_end, goals=goals)
     return plan

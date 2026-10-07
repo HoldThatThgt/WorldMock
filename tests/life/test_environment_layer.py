@@ -46,7 +46,9 @@ def test_stay_writes_the_place_name_type_felt_levels_and_no_fixed_rules(engine_f
 @pytest.mark.parametrize(("way", "label"), [("步行", "步行"), ("驾车", "驾车")])
 def test_transit_names_the_road_to_the_destination_and_the_travel_mode(engine_factory, way: str, label: str) -> None:
     """路程中：session_kind 为 transit，name 为「去<目的地>的路上」（不是出发地），place_type 为出行方式。"""
-    engine = engine_factory()
+    def car_owner(document):
+        document["agents"][0].update(owns_car=True, initial_driving_days=7)
+    engine = engine_factory(mutate=car_owner)
     stage_day_plan(engine)
     preview = engine.observe(context(engine, f"{way}-preview"))
     office = next(row["object"] for row in preview["interaction_bindings"] if row["object_id"] == "office")
@@ -64,13 +66,13 @@ def test_transit_names_the_road_to_the_destination_and_the_travel_mode(engine_fa
 def test_fixed_rules_name_every_action_the_menu_excludes(engine_factory) -> None:
     """有效菜单只开放出行、等待与睡觉时，fixed_rules 按固定顺序为其余每个动作写一句「这里不能<说法>」。"""
     engine = engine_factory()
-    base = engine.observations._layer_context(engine.context.state.agents[1], (), [])
+    base = engine.observations._layer_context(engine.context.state.agents[1], [])
     narrow = replace(base, menu=InteractionMenu(allowed_actions=("sleep", "travel_to", "wait")))
     layer = environment_layer(narrow, engine.observe(context(engine, "menu"))["body"]["levels"])
     validate_layer(layer)
     excluded = [action for action in ACTION_PHRASES if action not in {"sleep", "travel_to", "wait"}]
     assert layer["location"]["fixed_rules"] == [f"这里不能{ACTION_PHRASES[action]}" for action in excluded]
-    assert layer["location"]["fixed_rules"][:2] == ["这里不能工作", "这里不能用手机 app"]
+    assert layer["location"]["fixed_rules"][:2] == ["这里不能做工具层里的动作", "这里不能买东西"]
 
 
 def test_place_types_cover_every_scenario_location_kind_and_unknown_kinds_are_defects(engine_factory) -> None:
@@ -85,7 +87,7 @@ def test_place_types_cover_every_scenario_location_kind_and_unknown_kinds_are_de
         kinds |= {item.kind for item in semantics.scenario.locations}
     assert kinds and kinds <= set(PLACE_TYPES)
     engine = engine_factory()
-    base = engine.observations._layer_context(engine.context.state.agents[1], (), [])
+    base = engine.observations._layer_context(engine.context.state.agents[1], [])
     locations = tuple(item.model_copy(update={"kind": "observatory"}) if item.location_id == "home" else item
                       for item in engine.context.scenario.locations)
     broken = replace(base, scenario=engine.context.scenario.model_copy(update={"locations": locations}))

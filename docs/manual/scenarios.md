@@ -1,6 +1,8 @@
 <a name="scenarios-生活场景"></a>
 # 生活场景
 
+> 2026-10-07 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界、收货结算」（阶段 1、2）。
+
 > 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题分配与工作安排。
 
 > 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「看懂场景的组成、修改日期与模拟节奏、限制人物可以做什么、配置日历和预排事件、校验自己的场景、选择起点与文件位置」（阶段 1）；「修改人物、身体与账户」（阶段 3）。
@@ -20,40 +22,31 @@
 <a name="scenarios-选择起点与文件位置"></a>
 ## 选择起点与文件位置
 
-| 现成场景 | 适合用来修改什么 |
-| --- | --- |
-| `single-person.json` | 单人物、工作主题、工资和生活支出；首页示例由它裁出一天 |
-| `multi-person.json` | 多人物与按人分配工作 |
-| `multi-person-half-day.json` | 短时段、多人、没有工作主题的生活观察 |
+人工入口位于 `tests/fixtures/environment/scenarios/`；正式环境路径由 WorldMock-Dataset 发布决定。自定义场景放在完整环境的 `experiments/my-world/scenarios/`，解析器用场景上两级目录定位 `catalog/`。场景不写 `corpus_root`，不要移动到更深目录。
 
-人工入口位于 `tests/fixtures/environment/scenarios/`；正式环境路径由 Dataset 重制发布决定。
-本页命令在 WorldMock 根目录执行，自定义场景放在完整环境的 `experiments/my-world/scenarios/` 下。解析器用场景的上两级目录定位 `catalog/`，
-场景中的 `corpus_root` 则相对场景所在目录解析。不要把场景移动到 `scenarios/custom/` 等更深目录而不调整整个项目布局。
-`schema_version` 当前为 `7`：每个人物须显式写 `work_schedule`（对象或 `null`），
-内容标题与摘要直接从目录 `contents.json` 提供；多余字段和旧结构的输入都严格拒绝。标题由引擎直接呈现，
-不再按来源元数据另找名称；生活活动的三项效果由所选语料根提供，见[生活活动](resources.md#resources-编写生活活动)。
+`schema_version` 为 `8`，每个人物显式写 `work_schedule`（对象或 null）、`owns_car`（布尔）和 `initial_driving_days`（非负严格整数，无车时为零）；内容标题、摘要及绑定来自目录。多余字段与旧结构严格拒绝。动作效果由 WorldMock 按类别固定，见[编写动作](resources.md#resources-编写生活活动)。
 
 <a name="scenarios-看懂场景的组成"></a>
 ## 看懂场景的组成
 
 ```mermaid
 flowchart LR
-    E[七份目录与语料] --> P[场景环境标识与版本钉]
+    E[清单与六个目录文件] --> P[场景环境标识与版本]
     P --> S[人物、时间、地点与初值]
     S --> V[真实加载和统一登记]
 ```
 
-| 字段组 | 场景结构 7 |
+| 字段组 | 场景结构 8 |
 | --- | --- |
-| 身份和时间 | `schema_version: 7`、scenario_id、timezone、start_at、end_at、random_seed |
-| 环境与语料 | `environment{environment_id, environment_version}`、corpus_root、corpus_manifest_sha256 |
-| 人物 | 画像、节律、工作安排、联系人、interaction_menu、work_topic_ids、initial_inventory |
+| 身份和时间 | `schema_version: 8`、scenario_id、timezone、start_at、end_at、random_seed |
+| 环境 | `environment{environment_id, environment_version}` |
+| 人物 | 画像、节律、工作安排、联系人、interaction_menu、work_content_ids、必填 owns_car 与 initial_driving_days |
 | 身体初值 | mass_kg、initial_energy_kcal、initial_sleep_debt_hours、initial_entertainment_need |
-| 世界选择 | `locations[]{location_id}`；对象与图来自目录，不能复制到场景 |
+| 世界选择 | `locations[]{location_id}`；对象与图来自目录 |
 | 账户与事件 | accounts、messages、calendar、bills、payrolls；人物账户由 initial_balance_fen 建立 |
-| 交互菜单 | 显式八个 LocationKind 的菜单，人物菜单必填可为 null |
+| 交互菜单 | 完整十种 LocationKind 的菜单，包含加油站与驿站；人物菜单必填可为 null |
 
-有工作主题的人物必须声明 work_schedule，已选食品店铺必须有 `merchant:<location_id>` 账户。初始食品持有按地点和食品身份给份数。删除旧 catalog_version、map_dataset、products、supplies、tasks、contents、games、调价、补货、配方和手机配置字段；旧结构直接拒绝。
+场景没有语料引用、初始食品持有、生活活动筛选、工作主题或动机参数。已选店铺必须有 `merchant:<location_id>` 账户。旧结构与未知字段直接拒绝。
 
 <a name="scenarios-修改日期与模拟节奏"></a>
 ## 修改日期与模拟节奏
@@ -84,7 +77,7 @@ flowchart LR
 
 | 参数 | 单位与约束 | 如何理解 |
 | --- | --- | --- |
-| `activity_feedback_seconds` | 秒，60–86400 | 结算间隔，也是等待、浏览、交谈的计划时长；不是保证每隔这些秒都会重新决策 |
+| `activity_feedback_seconds` | 秒，60–86400 | 结算间隔，也是等待的计划时长；动作时长只来自内容；不是保证每隔这些秒都会重新决策 |
 | `reconsideration_interval_seconds` | 秒，默认 5400，范围 1–86400 | 清醒且有在手承诺时的常规重估间隔（进行中的等待不算在手承诺）；其他更早事件仍能触发决策 |
 | `idle_reconsideration_interval_seconds` | 秒，默认 10800，范围 1–86400，不能短于常规间隔 | 人物只在等待、且没有其他在手承诺时的空闲重估间隔；调大常规间隔时也要检查此值 |
 | `max_same_moment_decisions` | 正整数，缺省 3 | 同一秒内的决策轮数上限；达到上限后另有至多三轮受限轮：有刚结束的活动时只开放收尾，否则只开放开始或恢复（等待始终可选；暂停的活动不占名额，只有暂停的活动时也一样），其余动作在工具层标为不可用并写明原因；开始或恢复被拒后留在原阶段；受限轮用完仍没有进行中活动或仍有待收尾活动时，环境不替人物造活动，写一条预算耗尽事件，`activity_feedback_seconds` 之后再给决策；不标失败 |
@@ -94,28 +87,24 @@ flowchart LR
 | `rotation_quota_ratio` | 默认 0.15，严格在 0 与 1 之间 | 为轮换呈现预留的比例；呈现上限乘比例向下取整必须至少为 1 |
 | `rotation_stale_seconds` | 必填，范围 1–31536000 秒 | 多久未出现的对象进入长期未呈现判定 |
 
-呈现窗口只决定人物本轮看到哪些对象，不是资格上限：没有列出的生活活动、内容和商品，人物写出名称也能调用，受理照常核验。
-窗口内先按口味权重乘注意力排序，再按相关度：生活活动的时间窗覆盖此刻 +2，对应当日计划里尚未推进的目标 +2，
-条目名或品类出现在人物卡片的习惯里 +1；仍同分时按含日期的哈希决胜，所以顺序随日期变化，也不是名称的字母序。
-生活活动窗口只列当前地点环境合适的活动；环境不合适的不列出，按名写它时以「这里不适合做这件事」拒绝。
-每轮工具层还附一份只列名称的可调用索引 `callable_index`：此地此刻可做的生活活动全部列名，内容与此刻从这里能得到的商品按品类给个数和
-至多 3 个示例名；它不是候选，不带动作，不受 `candidate_presentation_limit` 限制，有效菜单不允许的部分为空。
+商品呈现窗口只限制本轮展示，不禁止按登记名称购买未展示商品。排序使用商品名称与类别对冻结习惯文本的命中分数、确定性日期哈希和真实曝光轮转；没有口味数值、生活活动时间窗或目标家族加分。
+目录动作及其 app 组合始终列出，不占商品窗口；地点或内容条件未满足时标为不可用并说明实际原因。
+`callable_index` 恰为 `goods`、`navigation_apps`、`payment_apps`、`query_categories`，不列私有身份。
 
 不要把反馈间隔当作“人物每十五分钟行动一次”。决策本身不耗时：没有进行中活动的人物在同一秒接着决策，
 只有人人都有事在做时，时间才根据活动完成、消息、任务、身体变化和其他事件推进。
-在手承诺包括尚未推进的当日目标、已分配但未完成的工作主题、暂停的活动与进行中的活动（等待除外）。未完成的个人事务不算在手承诺，不改变两个重估间隔。
+在手承诺包括尚未推进的当日目标、已分配但未完成的工作内容、暂停的活动与进行中的活动（等待除外）。未完成的个人事务不算在手承诺，不改变两个重估间隔。
 当日目标由零点计划生成：运行开始时和每个场景本地零点（运行恰在零点结束时除外），系统为每个人物调用模型生成当天的
 有序目标，同一人物同一天只生成一次；人物醒着时可以修订。目标不填写时间段，每条带模型写的大致时刻 `around_time`
 （场景本地 `HH:MM`，可为空）：写了时，只有进行时段与它前后 90 分钟有交集的同类活动才算推进这条目标。
-会在某一刻提醒人物的有两种：当日目标的 `remind_time` 与个人事务的 `remind_time`（都是场景本地 `HH:MM`，可为空），每次设定只触发一次。
-只有当日目标的提醒能叫醒睡着的人；个人事务的提醒在睡眠中不交付也不消耗，人物醒来的那一刻一并交付。
+当日目标与个人事务的 `remind_time` 都是场景本地 `HH:MM`，可为空，每次设定只触发一次；人物还可用 `set_alarm(at)` 设置一次性原生闹钟，`at` 为带偏移、严格未来且早于结束的整秒 ISO 时间。目标提醒与闹钟都能叫醒睡着的人；个人事务提醒在睡眠中不交付也不消耗，醒来时一并交付。闹钟保存在实际预排事件中，恢复不重复响铃。
 声明了工作安排的人物在班次与休息时段的起止也会得到决策机会，但起止不是提醒：它们只给醒着的人物一次决策机会，不叫醒睡着的人，睡过的也不补（见下文「声明工作安排」）。
-睡眠中除了当日目标的提醒，只有睡够等专用唤醒条件才会结束睡眠。
+睡眠中只有目标提醒、原生闹钟及睡够等专用条件能够唤醒，普通消息、到货与工作班次起止不能叫醒人物。
 规则见[当日目标规格](../dev/SPEC-day-plan-goals.md#spec-day-plan-goals-当日目标特性开发规格)与[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第四章。
 
 个人事务由人物在运行中自己记下（播报、暂停或收尾时写在请求的 `errands` 里），场景不能预置。
-它只表达能由结算确认的事：取得或吃掉某件具体商品若干份（1 至 9）；环境按真实结算确认办成，人物只能取消并写原因，没有截止与过期。
-「取得」不看地点：到店买下的东西留在门店，事务照样办成，要在家里用的东西应远程下单送到家。
+它只表达能由结算确认的事：取得某件具体商品若干份（1 至 9）；环境按真实结算确认办成，人物只能取消并写原因，没有截止与过期。
+事务只按本人 `goods_received` 中真实商品与件数累计：现场收货同秒生效，直送实际收货后生效，长途到站尚未领取时不生效。没有留在门店或家里的库存，也没有额外吃掉条件。
 事务的提醒钟点不晚于写下它的时刻（新增或更新被受理时）时，指下一天的这个钟点。每人未完成事务至多 8 条，一次请求至多 4 条变更，
 名称至多 30 字符，备注与取消原因各至多 120 字符；事务跨零点保留并一直显示在待办层，零点计划与修订计划都不删它。
 这些上限是实验假设，见[实验设置](../EXPERIMENT.md#experiment-实验假设声明)；规则见[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)第二章。
@@ -124,7 +113,7 @@ flowchart LR
 ## 修改人物、身体与账户
 
 人物字段及联系人详见[人物画像](personas.md#personas-人物画像)。增加人物时，为它分配唯一正整数 `agent_id`，
-同步修改属于它的任务受理人、邮件收件人、工资和账单引用。
+同步修改属于它的分配工作内容、邮件收件人、工资和账单引用，并显式声明汽车条件。
 
 身体初值是顶层 `body` 对象，当前所有人物共享这份初值配置；睡眠需要和时型可以逐人物声明。
 下面是完整 `body` 对象的局部配置：
@@ -142,7 +131,7 @@ flowchart LR
 
 体重为大于 0 且不超过 300 的千克数；能量为非负千卡，且不超过 BODY_CONSTANTS 的能量上界；
 睡眠不足初值为非负小时数。`initial_entertainment_need` 接受 0–1，
-但当前运行初始化仍固定为 0，非零设置尚未生效。不要用它构造不同娱乐需要的实验。
+并作为人物起点的实际娱乐需要进入世界状态；固定缓解速率不能由场景覆盖。
 饥饿与困意由身体和时刻计算，没有可直接设置的“饥饿值”或“疲劳值”。
 起点困意也不另设：系统按人物作息反推起点的睡眠压力（假定自最近一次惯常起床时刻起一直清醒），
 公式与起点落在惯常睡眠时段时的效果见[人物画像](personas.md#personas-在场景中填写人物)。
@@ -162,61 +151,31 @@ flowchart LR
 ```
 
 金额为整数分，账户角色按场景严格模型校验。
-保留模板所需雇主、交通和商家账户；账户删改后，订单、任务和事件里的引用也必须一致。
+保留模板所需雇主、交通和商家账户；账户删改后，订单与实际事件的引用也必须一致。
 
-食品账户结算使用固定价格与商家账户，人物持有不是账户库存字段；没有娱乐缓解下限可供覆盖。食品利用效率由 BODY_CONSTANTS 唯一维护。
+商品付款使用固定价格与商家账户，收货按收货人的实际状态施加效果，没有持有或账户库存字段；食品利用效率由 BODY_CONSTANTS 唯一维护，场景不能覆盖。
 
 <a name="scenarios-限制人物可以做什么"></a>
 ## 限制人物可以做什么
 
-地点菜单在 `interaction_menus_by_location_kind` 中填写；键恰好覆盖八个内置 `LocationKind`，
-不允许缺项、多项或通配键。每个人物必须显式写 `interaction_menu`，不额外限制时写 `null`。
-
-```mermaid
-flowchart LR
-    LOCATION[当前位置的地点菜单] --> BOTH[取共同允许的活动动作]
-    PERSON[人物菜单；null 表示沿用地点菜单] --> BOTH
-    BOTH --> STATE[列出菜单内全部动作，受理时按占用、目标、地点与出行方式核验]
-    STATE --> ACTION[本轮实际能做的事情]
-```
-
-例如从菜单的 `allowed_actions` 中移除 `watch`，人物在该地点就不能发起观看活动；
-工作等其他动作仍按各自的菜单准入判断。场景配置使用稳定的内部英文动作名；模型在本轮交互对象中看到的是
-五个动词（`travel`、`interact`、`obtain`、`consume`、`sleep`）与方式（如「interact：接着看」），经本轮私有绑定映射回内部动作。
-取得商品的「到店」「远程下单」与不列出的「购买」（由系统定到店或远程下单）都映射为 `purchase`，按名写的商品也计为它；
-移除 `purchase`，人物在该地点既不能到店买，也不能远程下单。
-
-下面是完整的最小菜单对象，可作为一个地点类或一个人物的 `interaction_menu` 值。
-它只保留等待、睡眠；不适合作为需要正常工作和购物的日常场景菜单。
+地点菜单在 `interaction_menus_by_location_kind` 填写，键恰好覆盖十个 `LocationKind`，不允许缺项、多项或通配键。每个人物显式写 `interaction_menu`；null 表示不额外限制。有效菜单取地点与人物共同允许的动作。
 
 ```json
-{
-  "allowed_actions": ["wait", "sleep"]
-}
+{"allowed_actions": ["travel_to", "sleep", "wait", "purchase", "do", "collect_parcel"]}
 ```
 
-`wait` 和 `sleep` 是每份菜单必须保留的自身动作。数组必须非空、无重复，名称只能来自动作闭集。
-菜单只剪裁 `start_activity` 的可选动作；动作不因人物状态隐藏，条件未满足的照常列出并带说明，只有阶段与
-同刻上限的受限轮照常收窄；其他工具由工具层按当前阶段与活动状态开放。
-名称写错或找不到而被拒（名称类拒绝，例如 `SUPPLY_NOT_FOUND`、`TASK_NOT_FOUND`）时，每人每秒的前两次不计同刻轮数、
-不影响情绪，也就不会用掉受限轮；第三次起与其他拒绝一样计轮。
-目标工具接口一次最多选择两个交互对象，items每项填写target/way/from/to，方式推导的内部动作须在有效菜单中；
-每人两个名额，进行中与刚结束待收尾的活动各占一个，暂停的活动不占；结束或暂停活动后让出名额，恢复暂停的活动要有空名额；
-引擎按注册表占用与准入事实（目标在场与实际地点、出行方式、物品状态）整体核验，能量不参与。
-菜单控制动作权限；画像偏好只影响选择和排序。
-
-场景结构 7 的菜单先使用当前动作闭集；app 活动在阶段 4 切换时同时更新菜单为新 `START_ACTIVITY_ACTIONS`。地点活动环境由固定类型派生，生活活动条目仍声明自己的 location_kinds，不通过菜单替代地点资格。
+菜单权限只能取 `START_ACTIVITY_ACTIONS` 的六项；数组非空、无重复，每份菜单必须保留 `wait` 和 `sleep`。例如移除 `purchase` 会同时禁止到店购买与远程下单；`do` 是执行目录动作的菜单权限，`collect_parcel` 是本人在驿站零秒领取的权限，不新增活动种类。菜单控制动作权限，画像偏好影响人物选择。
 
 <a name="scenarios-声明工作安排"></a>
 ## 声明工作安排
 
 每个人物条目必须显式写 `work_schedule`：没有固定班次写 `null`，这个人物就没有任何在岗语义。
-`work_topic_ids` 非空的人物必须写工作安排对象，主题的工作地点就是 `workplace_location_id`；
-没有分配主题的人物也可以声明工作安排。有固定班次时写一个对象。下面是 `agents[]` 条目里的局部片段，示意形状：
+`work_content_ids` 非空的人物必须写工作安排对象，内容的工作地点就是 `workplace_location_id`；
+声明工作安排的人物必须分配工作内容。有固定班次时写一个对象。下面是 `agents[]` 条目里的局部片段，示意形状：
 
 ```json
 {
-  "work_topic_ids": ["topic-sales"],
+  "work_content_ids": ["content-sales"],
   "work_schedule": {
     "workplace_location_id": "office",
     "weekly": {
@@ -246,52 +205,45 @@ flowchart LR
   加班机会日与聚餐日不要求班次；时间窗外的日期不核对，写了例外也不拒绝。日历是场景级的，病假、事假日对所有声明了班次的人物同时生效。
 - 班次形状错误报 `Scenario validation failed`（明细在异常链）；地点与日历核对的错误是 `Work schedules are not admissible: …`，
   逐条写明人物、日期与字段。
-- 人物分配了工作主题时，`work_schedule` 不得为 `null`；主题工作只能在 `workplace_location_id` 开始。
+- 人物分配了工作内容时，`work_schedule` 不得为 `null`；内容工作只能在 `workplace_location_id` 开始。
   当前外部环境以实际人物声明为准。
 
 **效果。** 声明了工作安排的人物每轮在环境层看到 `duty`：当班日写「工作日」、班次钟点、工作地点名、休息时段与状态
 （「未到上班时间」「当班中」「休息时段」「已下班」之一，只由时钟与班次决定，不看人物在不在场）；不当班的日子写「休息日」；
 没有工作安排的人物为 `null`。零点计划的输入另有计划日期当天的上班安排（不含状态），零点计划不把目标安排在上班时间离开上班地点。
-它是事实呈现，不是一般动作的受理条件：出行照常列出、照常受理，零点计划、修订计划和主题完成都不改变它；
+它是事实呈现，不是一般动作的受理条件：出行照常列出、照常受理，零点计划、修订计划和内容完成都不改变它；
 班内离岗由行为评估的工作负荷与作息偏离指标报告（`scripts/inspect_run.py <运行目录> workday --scenario <场景文件>`）。
 班次开始、班次结束与每个休息时段的开始、结束这几个时刻，人物只要醒着就在那一秒得到一次决策机会：正在做的事照常继续，不会被结束；
 睡着的人不会被叫醒，睡过的也不补。给人物声明班次因此会让他每个当班日多出几次决策机会。
-工作安排不产生开放、截止或预约；工作主题从运行开始可见，开始与恢复只按工作地点、主题剩余上限、名额与占用判定。
+工作安排不产生开放、截止或预约；工作内容从运行开始可见，开始与恢复只按工作地点、内容剩余上限、名额与占用判定。
+
+
+人物以 `work_content_ids` 分配 `work_study` 类别的目录内容，引用必须已登记且不得重复。
+分配内容的动作不得是 `offline_assisted`；同一工作内容只能分配给一个人物。
+有分配内容的人物必须声明 `work_schedule`（`WORK_SCHEDULE_REQUIRED`）；
+声明排班的人物至少分配一条内容（`WORK_CONTENT_REQUIRED`）。
+分配内容的 `duration_seconds` 之和不得少于运行起止区间内的排班秒数（`WORK_CONTENT_INSUFFICIENT`）；
+引用不存在、不是工作与学习类别、重复分配或方式不合要求，以 `WORK_CONTENT_UNKNOWN` 拒绝。
+工作地点取 `work_schedule.workplace_location_id`，分配的工作内容只能在该地点进行；从运行开始可做，班次不改变内容可见性。
 
 <a name="scenarios-配置工作任务和消息"></a>
+## 分配工作内容与消息
 
-## 分配工作主题与消息
-
-工作主题在环境目录的 `catalog/work_topics.json` 中定义；场景人物只列出分配关系：
+工作内容在 `catalog/contents.json` 登记；下面仅是人物条目的分配关系局部片段，完整人物还须填写工作安排、汽车与其他必填字段：
 
 ```json
-{
-  "work_topic_ids": ["topic-sales"],
-  "work_schedule": {
-    "workplace_location_id": "office",
-    "weekly": {
-      "0": {"starts": 540, "ends": 1080, "breaks": [[720, 810]]},
-      "1": {"starts": 540, "ends": 1080, "breaks": [[720, 810]]},
-      "2": {"starts": 540, "ends": 1080, "breaks": [[720, 810]]},
-      "3": {"starts": 540, "ends": 1080, "breaks": [[720, 810]]},
-      "4": {"starts": 540, "ends": 1080, "breaks": [[720, 810]]},
-      "5": null,
-      "6": null
-    },
-    "exceptions": {}
-  }
-}
+{"work_content_ids": ["content-sales"]}
 ```
 
-`work_topic_ids` 中每个标识必须存在且不能重复。只要列表非空，`work_schedule` 就必须是对象；
-主题的工作地点就是 `work_schedule.workplace_location_id`。主题本身只含名称与目标工时，不写开放时间、截止、
-预约、通知、材料、技能、交付、评审或报酬。
+人物以 `work_content_ids` 分配 `work_study` 类别的目录内容，引用必须已登记且不得重复。
+分配内容的动作不得是 `offline_assisted`；同一工作内容只能分配给一个人物。
+有分配内容的人物必须声明 `work_schedule`（`WORK_SCHEDULE_REQUIRED`）；
+声明排班的人物至少分配一条内容（`WORK_CONTENT_REQUIRED`）。
+分配内容的 `duration_seconds` 之和不得少于运行起止区间内的排班秒数（`WORK_CONTENT_INSUFFICIENT`）；
+引用不存在、不是工作与学习类别、重复分配或方式不合要求，以 `WORK_CONTENT_UNKNOWN` 拒绝。
+工作地点取 `work_schedule.workplace_location_id`，分配的工作内容只能在该地点进行；从运行开始可做，班次不改变内容可见性。
 
-场景消息与工作主题彼此独立。消息仍按邮件呈现：到达时人物只看到主题，阅读后取得正文；消息不带工作主题引用。
-`sent_at` 必须早于场景结束且时区偏移匹配场景，可以早于运行开始。直接消息仍以全文呈现。
-
-场景联系人可以填可空的 `receive_location_id`：直接配送给联系人或当面交给联系人的实物，以它为收货地点；
-为空时联系人不能收实物。联系人的其余字段见[人物画像](personas.md#personas-人物画像)。
+场景消息与工作内容彼此独立。消息按现有邮件与直接消息合同呈现，不带工作内容引用；`sent_at` 必须早于场景结束且偏移匹配时区，可以早于运行开始。
 
 <a name="scenarios-配置日历和预排事件"></a>
 ## 配置日历和预排事件
@@ -333,7 +285,7 @@ flowchart LR
 
 事件标识各自唯一，金额为正整数分；账单付款与收款账户不能相同，所需账户必须存在。
 
-场景结构 7 不接受调价或补货字段；食品价格由环境统一发布，店铺全天服务。
+场景结构 8 不接受调价或补货字段；食品价格由环境统一发布，店铺全天服务。
 
 <a name="scenarios-校验自己的场景"></a>
 ## 校验自己的场景
@@ -345,27 +297,24 @@ worldmock validate --environment experiments/my-world
 worldmock validate --scenario experiments/my-world/scenarios/single-person.json
 ```
 
-环境命令不启动人物或完整引擎，真实加载全部场景并检查目录、图字节、语料与包资源副本；项目命令保留 AS2、依赖、阶段身份和 0.8 覆盖率检查。
+环境命令真实加载全部场景，检查目录与图字节，不读语料或规则副本；项目命令保留 AS2、依赖、阶段身份与 0.8 覆盖率检查。
 
 | 登记失败 | 应修正的事实 |
 | --- | --- |
-| ENVIRONMENT_PIN_MISMATCH | 场景环境标识和版本与清单一致 |
-| ENVIRONMENT_REF_UNKNOWN / WORK_TOPIC_UNKNOWN | 引用真实登记对象或主题 |
-| FOOD_BINDING_KIND_INCONSISTENT | 同类店铺完全相同菜单 |
-| MERCHANT_ACCOUNT_MISSING | 给每个已选食品店铺声明 merchant 账户 |
-| WORK_SCHEDULE_REQUIRED | 有工作主题的人物声明工作安排 |
-| MAP_NOT_REGENERATED | 用实际地点清单和种子重新生成并发布图 |
+| `ENVIRONMENT_PIN_MISMATCH` | 场景环境标识与版本须和清单一致 |
+| `ENVIRONMENT_REF_UNKNOWN` | 引用已登记对象 |
+| `GOODS_BINDING_KIND_INCONSISTENT` | 同类型店铺完全相同菜单 |
+| `MERCHANT_ACCOUNT_MISSING` | 给已选店铺声明 merchant 账户 |
+| `WORK_CONTENT_UNKNOWN` | 工作内容已登记、类别与使用方式合规且不得重复分配 |
+| `WORK_SCHEDULE_REQUIRED` | 分配工作内容时声明工作安排 |
+| `WORK_CONTENT_REQUIRED` | 声明排班时至少分配一条工作内容 |
+| `WORK_CONTENT_INSUFFICIENT` | 分配时长之和覆盖排班秒数 |
+| `MAP_NOT_REGENERATED` | 按地点清单与种子生成发布图 |
 
-完整码与英文原因见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)。严格场景结构 7 拒绝旧字段，不通过补齐或 warning 放行。
+完整码与英文原因见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)。严格场景结构 8 拒绝旧字段。
 
 <a name="scenarios-工作通知与目标发布"></a>
+## 工作内容从运行开始可做
 
-## 工作主题从运行开始可见
-
-分配给人物且尚未完成的工作主题从运行开始就可见，不依赖邮件、预约或预排开放事件。
-主题没有 `available_at`、`opens_at`、`due_at`、`appointment` 或 `related_task_id`。
-场景消息可以描述日常沟通，但不会开放主题，也不会改变主题工时。
-
-工作主题的目标工时由目录换算为秒；人物在自己的工作地点开始，实际工作活动按秒累计。
-完成事实由累计工时首次达到目标时生成，不由消息、模型叙述或计划目标推断。
-正式目录、地图与场景的具体版本及内容摘要由 Dataset 环境清单绑定，不能从历史版本推断当前字节。
+分配给人物且尚未完成的工作内容从运行开始可做，不依赖邮件、预约或预排开放事件。班次不改变内容可见性。
+工作内容的 `duration_seconds` 就是目标工时，实际进度由模拟引擎维护；消息、模型叙述与计划目标不能改写目录时长。环境目录、地图与场景的具体身份由数据仓发布清单绑定。

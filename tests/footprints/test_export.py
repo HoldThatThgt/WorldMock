@@ -10,19 +10,35 @@ from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
 
 
+def work_snapshot():
+    """@brief 无应用工作仍声明真实内容游标，导出经历以客观内容结算为据。"""
+    return {'activity_id': 'work', 'agent_id': 1, 'kind': 'action', 'title': '工作',
+            'data': {'action_id': 'work', 'category': 'work', 'app_id': None, 'manner': None,
+                     'counterpart': None, 'content_id': 'work-content', 'start_position_seconds': 0,
+                     'pinned_by_push_id': None, 'draw_index': None, 'played': [], 'communication_mode': None},
+            'started_at': 100, 'elapsed_seconds': 10, 'ended_at': None, 'status': 'active'}
+
+
+def work_progress(activity, start, end, before, after):
+    """@brief 内容前进秒数与实际活动区间保持一致，暂停的空白不成为内容证据。"""
+    return {'activity': activity, 'interval_start': start, 'interval_end': end,
+            'content': {'content_id': 'work-content', 'app_id': None,
+                        'position_before_seconds': before, 'position_after_seconds': after,
+                        'completed': False, 'completed_rounds_after': 0}}
+
+
 def test_export_uses_cutoff_and_excludes_pause_from_duration(tmp_path):
     store = FootprintStore.create(tmp_path / 'run', {
-        'run_id': 'run', 'agent_ids': [1], 'window': {'start': 100, 'end': 300, 'timezone': 'UTC'}
+        'run_id': 'run', 'source_group_id': 'run', 'work_content_ids': {'1': []}, 'agent_ids': [1], 'window': {'start': 100, 'end': 300, 'timezone': 'UTC'}
     }, {'version': 0, 'current_time': 100})
-    activity = {'activity_id': 'work', 'agent_id': 1, 'kind': 'work', 'started_at': 100,
-                'elapsed_seconds': 10, 'ended_at': None, 'status': 'active'}
+    activity = work_snapshot()
     store.commit({'version': 1, 'current_time': 110}, [EventDraft(
-        event_type='activity_progress', occurred_at=110, activity_id='work',
-        data={'activity': activity, 'interval_start': 100, 'interval_end': 110})])
+        event_type='activity_progress', occurred_at=110, agent_id=1, activity_id='work',
+        data=work_progress(activity, 100, 110, 0, 10))])
     activity = {**activity, 'elapsed_seconds': 20, 'ended_at': 200, 'status': 'completed'}
     store.commit({'version': 2, 'current_time': 200}, [EventDraft(
-        event_type='activity_progress', occurred_at=200, activity_id='work',
-        data={'activity': activity, 'interval_start': 190, 'interval_end': 200})])
+        event_type='activity_progress', occurred_at=200, agent_id=1, activity_id='work',
+        data=work_progress(activity, 190, 200, 10, 20))])
     store.commit({'version': 3, 'current_time': 300}, [EventDraft(
         event_type='run_ended', occurred_at=300, visibility='system')])
     manifest = export_run(store, 2, tmp_path / 'export')
@@ -40,7 +56,7 @@ def test_export_uses_cutoff_and_excludes_pause_from_duration(tmp_path):
 def test_export_writes_full_committed_experience_prefix(tmp_path):
     """@brief 离线事实导出超过观察五条窗口，且每条保留来源事件身份。"""
     store = FootprintStore.create(tmp_path / 'run', {
-        'run_id': 'run', 'agent_ids': [1], 'window': {'start': 100, 'end': 300, 'timezone': 'UTC'}
+        'run_id': 'run', 'source_group_id': 'run', 'work_content_ids': {'1': []}, 'agent_ids': [1], 'window': {'start': 100, 'end': 300, 'timezone': 'UTC'}
     }, {'version': 0, 'current_time': 100})
     drafts = []
     for index in range(6):
@@ -62,7 +78,7 @@ def test_export_writes_full_committed_experience_prefix(tmp_path):
 
 def test_clock_end_without_successful_final_checkpoint_is_not_complete(tmp_path):
     store = FootprintStore.create(tmp_path / 'run', {
-        'run_id': 'run', 'agent_ids': [1], 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}
+        'run_id': 'run', 'source_group_id': 'run', 'work_content_ids': {'1': []}, 'agent_ids': [1], 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}
     }, {'version': 0, 'current_time': 100})
     store.commit({'version': 1, 'current_time': 200}, [EventDraft(event_type='run_ended', occurred_at=200, visibility='system')])
     assert export_run(store, 1, tmp_path / 'unsaved')['experiment_completed'] is False
@@ -78,7 +94,7 @@ def test_clock_end_without_successful_final_checkpoint_is_not_complete(tmp_path)
 
 def test_export_corrupt_asset_never_publishes_manifest(tmp_path):
     store = FootprintStore.create(tmp_path / 'run', {
-        'run_id': 'run', 'agent_ids': [1], 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}
+        'run_id': 'run', 'source_group_id': 'run', 'work_content_ids': {'1': []}, 'agent_ids': [1], 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}
     }, {'version': 0, 'current_time': 100})
     ref = store.assets.put_json({'actual': 'content'}, {'kind': 'fixture'})
     store.commit({'version': 1, 'current_time': 200}, [EventDraft(
@@ -92,7 +108,7 @@ def test_export_corrupt_asset_never_publishes_manifest(tmp_path):
 
 def test_event_after_final_checkpoint_invalidates_completion(tmp_path):
     store = FootprintStore.create(tmp_path / 'run', {
-        'run_id': 'run', 'agent_ids': [1], 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}
+        'run_id': 'run', 'source_group_id': 'run', 'work_content_ids': {'1': []}, 'agent_ids': [1], 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}
     }, {'version': 0, 'current_time': 100})
     store.commit({'version': 1, 'current_time': 200}, [EventDraft(event_type='run_ended', occurred_at=200, visibility='system')])
     ref = store.assets.put_json({'snapshot': 'saved'}, {'kind': 'fixture'})
@@ -116,13 +132,12 @@ def test_checkpoint_requires_every_participant(tmp_path):
 def test_export_writes_hash_bound_timeline_projections(tmp_path):
     """导出生成 timeline/<agent>-<date>.md 投影并列入清单（哈希绑定）。"""
     store = FootprintStore.create(tmp_path / 'run', {
-        'run_id': 'run', 'agent_ids': [1], 'window': {'start': 100, 'end': 300, 'timezone': 'UTC'}
+        'run_id': 'run', 'source_group_id': 'run', 'work_content_ids': {'1': []}, 'agent_ids': [1], 'window': {'start': 100, 'end': 300, 'timezone': 'UTC'}
     }, {'version': 0, 'current_time': 100})
-    activity = {'activity_id': 'work', 'agent_id': 1, 'kind': 'work', 'started_at': 100,
-                'elapsed_seconds': 10, 'ended_at': None, 'status': 'active'}
+    activity = work_snapshot()
     store.commit({'version': 1, 'current_time': 110}, [EventDraft(
         event_type='activity_progress', occurred_at=110, agent_id=1, activity_id='work',
-        data={'activity': activity, 'interval_start': 100, 'interval_end': 110})])
+        data=work_progress(activity, 100, 110, 0, 10))])
     manifest = export_run(store, 1, tmp_path / 'export')
 
     records = manifest['timeline']
@@ -146,7 +161,7 @@ def test_export_timeline_projection_matches_render_day_output(tmp_path):
     import importlib.util
 
     store = FootprintStore.create(tmp_path / 'run', {
-        'run_id': 'run', 'agent_ids': [1], 'window': {'start': 100, 'end': 300, 'timezone': 'UTC'}
+        'run_id': 'run', 'source_group_id': 'run', 'work_content_ids': {'1': []}, 'agent_ids': [1], 'window': {'start': 100, 'end': 300, 'timezone': 'UTC'}
     }, {'version': 0, 'current_time': 100})
     activity = {'activity_id': 'wait', 'agent_id': 1, 'kind': 'wait', 'started_at': 100,
                 'elapsed_seconds': 10, 'ended_at': None, 'status': 'active'}
@@ -170,7 +185,7 @@ def test_export_timeline_projection_matches_render_day_output(tmp_path):
 def test_export_quality_counts_person_interval_union_separately(tmp_path):
     """实际导出的质量报告对每个人的重叠、包含和分离区间取并集。"""
     store = FootprintStore.create(tmp_path / "run", {
-        "run_id": "run", "agent_ids": [1, 2], "window": {"start": 100, "end": 300, "timezone": "UTC"}
+        "run_id": "run", "source_group_id": "run", "work_content_ids": {"1": [], "2": []}, "agent_ids": [1, 2], "window": {"start": 100, "end": 300, "timezone": "UTC"}
     }, {"version": 0, "current_time": 100})
     try:
         intervals = [(1, 100, 130), (1, 115, 145), (1, 120, 125), (1, 160, 170), (2, 100, 110)]

@@ -1,6 +1,8 @@
 <a name="spec-idle-fillers-让等待成为例外开发规格"></a>
 # 让「等待」成为例外开发规格
 
+> 按[动作与内容简化规格](SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界」（阶段 1）。
+
 > 2026-10-07 按用户确认的[数据加工归属](../ARCHITECTURE.md#architecture-数据加工归属)修订：WorldMock 负责模拟、记录、完整认证足迹导出与真实性评估；LabelKit 加工、模型任务、训练装载与规则测试归 LabelKit-DataSet；环境素材归 WorldMock-Dataset。历史验收数字只证明原源码基线，不代表本次消费链已验收。
 
 > 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「身份、版本与完整日基线」（阶段 1）、app 内容与推送（阶段 4）、最终唤醒与主题工时（阶段 5）、系统文本（阶段 6）及验收登记（阶段 7）。
@@ -199,13 +201,13 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 - `src/worldmock/footprints/models.py::WAKE_REASON_NAMES` 逐项镜像。
 - `tests/footprints/test_event_fields.py` 守事件字段成员。
 - `tests/life/test_wake_reasons.py` 守有序成员表与睡眠允许集合。
-- `tests/life/test_work_topics.py` 守工作主题完成不产生旧工作唤醒。
+- `tests/life/test_action_run.py` 守工作主题完成不产生旧工作唤醒。
 - `tools/run-viewer.html` 提供唤醒原因标签。
 - `tests/tools/run_viewer.test.cjs` 守查看器成员数。
 - `docs/dev/SPEC-life-runtime.md` 的冻结词表与触发表，以及 `docs/design/05-recording-engine.md` 的登记，与最终闭集一致。
 - 系统层第 7 条仍由阶段 6 改写并重钉提示指纹；阶段 5 的引擎与记录闭集不能借该后续文本宣称提示已经通过。
 
-`tests/life/test_wake_reasons.py::test_sleep_allowed_reasons_add_only_plan_reminder_due` 保持不变。
+`tests/life/test_wake_reasons.py::test_sleep_allowed_reasons_include_plan_reminder_and_alarm` 保持不变。
 质量报告直接读足迹侧词表；漏登足迹侧词表会让带新原因的事件无法落库。
 声明班次且跨过起止的既有用例继续核对班次、工作负荷、当日计划与同秒续接行为。
 
@@ -221,7 +223,7 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 <a name="spec-idle-fillers-身份与基线"></a>
 ## 身份、版本与完整日基线
 
-| 部分 | `prompt_sha256` | `tool_schema_sha256` | `code_sha256` | 世界 9、质量报告 5、当前场景 6 | 对同输入完整日工件的影响 |
+| 部分 | `prompt_sha256` | `tool_schema_sha256` | `code_sha256` | 世界 9、质量报告 5、当前场景 8 | 对同输入完整日工件的影响 |
 | --- | --- | --- | --- | --- | --- |
 | C | 不变 | 不变 | 变 | 不变 | 不变（脚本里的两个人都没有工作安排） |
 | A | 变 | 不变 | 变 | 不变 | 变（请求与响应事件带着系统层全文） |
@@ -238,7 +240,10 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 - `tests/dayrun_baseline.py` 继续核验当前工件的原始摘要，历史两份 JSON 与其独立双跑证明保持原字节；不新增或重录旧格式 golden。
 - 数据仓负责当前正式输入冻结、来源质量与逐字节重建。本次完整性验收不作为跨版本摘要相同或跨平台提案已实现的证明。
 
-资源与规则引擎简化规格允许同场景同种子的两次真实新格式完整日产出一致后冻结第三份基线；两份历史基线 JSON 保持字节。该规格移动 `tool_schema_sha256`、`prompt_sha256` 与 `code_sha256`，重设计前的检查点由世界结构 10 和占用核对拒绝，不能用旧证明宣称新运行通过。
+资源与规则引擎简化规格允许同场景同种子的两次真实新格式完整日产出一致后冻结第三份基线；两份历史基线 JSON 保持字节。该规格移动 `tool_schema_sha256`、`prompt_sha256` 与 `code_sha256`，重设计前的检查点由世界结构 11 和占用核对拒绝，不能用旧证明宣称新运行通过。
+
+
+现行场景结构 8、世界结构 11、运行清单 4、导出清单 4、质量报告 6。动作与内容简化修改 prompt_sha256、tool_schema_sha256 与 code_sha256，此前检查点由结构号拒绝；同场景同种子独立双跑一致后已冻结第四份 `dayrun-action-content-baseline.json`，历史三份基线字节保持。
 
 <a name="spec-idle-fillers-现行文档"></a>
 ## 现行文档原位改写
@@ -526,3 +531,4 @@ C 的行为用例：
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步最终唤醒与预排闭集，提示规则后续边界保持明确 |
 | `2026-10-06-rrs-prompt` | 2026-10-07 | 推送时机与剩余系统文本改写，提示身份变化而工具身份保持 |
 | `2026-10-06-rrs-record` | 2026-10-07 | 阶段 7：验收登记保留现行行与守卫，最终唤醒 22 项、睡眠允许四项、真实推送与实际主题工时；删除任务开放和有效工时旧绑定，交付检查现行世界结构 10 并拒绝旧版本；历史裁决原文不变 |
+| `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |

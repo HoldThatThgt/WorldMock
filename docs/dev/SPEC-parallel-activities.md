@@ -1,34 +1,28 @@
 <a name="spec-parallel-activities-同时做两件事开发规格"></a>
 # 同时做两件事开发规格
 
-> 2026-10-07 按用户确认的[数据加工归属](../ARCHITECTURE.md#architecture-数据加工归属)修订：WorldMock 负责模拟、记录、完整认证足迹导出与真实性评估；LabelKit 加工、模型任务、训练装载与规则测试归 LabelKit-DataSet；环境素材归 WorldMock-Dataset。历史验收数字只证明原源码基线，不代表本次消费链已验收。
+> 按[动作与内容简化规格](SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界」「动作消费、内容选择、推送与分配工作」「工具、提示、名称与查询」「足迹、导出与评估」。
 
-> 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题恢复检查次序。
-
-> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「身份、版本与完整日基线」（阶段 1）；「占用声明、各种情形、随实现一起改的测试」（阶段 4，app 使用取代旧娱乐动作）。
-
-> 状态：FROZEN。本文件是本修复的唯一开发规格；条款随阶段 1–3 的提交逐阶段生效，某阶段落地之前，当前行为与提示文本仍以所属正文与接口合同为准。
-> 日期：2026-10-07。
-> 代码基线：183326cc68bda388403df61709e7fcd50abb35c9。
-> 来源：[GitHub issue #4](https://github.com/HoldThatThgt/WorldMock/issues/4)（运行证据、三次本地试验 `efa50f8`、`4f39246`、`afebabb` 的改动与配对复跑读数、待裁决清单）；本文按 issue 里的用户裁定与对现行合同、规格、设计和代码的逐条核对收敛，试验分支不在本仓库，本文不依赖它的代码。
-> 范围：甲 暂停的活动不占并行名额；乙 只有同一种动作互斥；丙 系统层第 8 条原位改写。只落 issue 里已裁定或已给方向的部分，其余待裁决事项见「不在本规格内」。
+> 状态：FROZEN。当前正文使用登记动作与内容合同；历史裁决和版本记录保存原文。
+> 日期：2026-10-08。
+> 归属：WorldMock 模拟、记录并导出认证足迹；环境数据归 WorldMock-Dataset；LabelKit 加工归 LabelKit-DataSet。
 
 <a name="spec-parallel-activities-用户得到什么"></a>
 ## 用户得到什么
 
-人物午休时可以先打开 app，外卖到了边吃边用 app：暂停的上午工作不再占掉一个名额。
-吃东西可以配读邮件或打开 app，工作时可以等人，app 使用时可以聊天：环境只拦同一种的两件。
-系统层第 8 条告诉人物哪些事环境会拦、哪些要自己按常理判断、两样吃的怎样算一顿，以及暂停的活动不占名额。
+上午工作暂停后，人物可以开始两项类别不同且没有持续手机占用冲突的动作。暂停不占名额，恢复需要空位；工作只能回原地点继续。东西买到或收到即结算，不再占一个进食活动名额。
+
+环境按动作类别和 app 使用方式拦同种冲突，跨种组合由人物按常理判断。系统层保持十八句，直接说明持续手机冲突、驾车与睡眠限制，不依靠旧生活活动或内容分类。
 
 ```mermaid
 flowchart LR
-    A[甲 名额<br/>暂停的不占，恢复要有空位] --> B[乙 占用声明<br/>每种动作只占自己的名字]
-    B --> C[丙 系统层第 8 条<br/>写清能拦什么、要自己判断什么]
-    C --> D[记录<br/>实现状态与文档入口]
-    D -.-> E[完整回归<br/>发布环境重新发布后运行]
+    A[暂停让出名额] --> B[真实内容与地点资格]
+    B --> C[动作类别和手机占用]
+    C --> D[最多两项进行中或待收尾]
+    D --> E[真实区间与数字足迹]
 ```
 
-环境不判断跨种组合合不合情理（issue 待裁决 8，用户裁定先只改第 8 条措辞）；两个名额仍是常量 2；交谈与通话仍不能暂停，路上的活动仍不能暂停。
+两个名额为固定常量。社交与路上活动不能暂停；恢复不重新抽内容，已完成分配工作不能恢复。
 
 <a name="spec-parallel-activities-裁决记录"></a>
 ## 裁决记录
@@ -62,38 +56,39 @@ flowchart LR
 <a name="spec-parallel-activities-名额规则"></a>
 ### 规则
 
-- 每人两个并行名额；占名额的是进行中与待收尾的活动，暂停的不占。`conclude_activity` 之后名额释放，`pause_activity` 也让出名额。
-- 能结束的活动是进行中、暂停中与待收尾的活动；暂停的活动在开始地点以外仍可直接结束。
-- 开始活动、出行与恢复暂停的活动都要有空名额。开始两项而只剩一个名额时照旧拒绝；恢复时按 R4 的次序检查，没有空名额以 `SESSION_LIMIT_EXCEEDED` 拒绝。工具层、待办层的 `available` 与 `reason` 与受理同文。
-- `SESSION_LIMIT_EXCEEDED` 的原因点名占名额的活动：只剩一个名额时 `Only one activity slot remains because … occupies a slot.`，名额占满时 `Both activity slots are occupied by ….`；下一步按 R3。未带原因抛出该码时的缺省原因不再提暂停的活动。
-- 出发前仍要结束或暂停进行中的活动；只有暂停的活动时可以出发，它们留在原地。
-- 同刻决策：到达同刻上限、没有进行中也没有待收尾的活动时，下一阶段一律是开始或恢复（`start_or_resume`），不再按名额分流。待收尾时仍进入只收尾的阶段。
+- 进行中与待收尾各占一个名额，暂停不占且个数不设上限；pause_activity 让出名额，conclude_activity 释放名额。
+- 进行中、暂停与待收尾均可结束，暂停在其他地点仍可结束。
+- 开始、出行与恢复均要求空名额；恢复依次核验开始地点、真实内容资格、名额和占用冲突。工作内容完成时以 CONTENT_EXHAUSTED 拒绝，不恢复旧主题上限。
+- SESSION_LIMIT_EXCEEDED 点名真正占名额的活动。下一步根据能否暂停分别给结束、暂停或两种选项；工具层和受理同源。
+- 出发前结束或暂停进行中的动作，只有暂停活动时可出发，它们留在原地点。
+- 同刻受限阶梯在没有进行中且没有待收尾时进入 start_or_resume；有待收尾时先收尾，不按暂停数量分流。
 
 <a name="spec-parallel-activities-名额情形"></a>
 ### 各种情形
 
-| 情形 | 旧行为 | 新行为 |
-| --- | --- | --- |
-| 午休时工作暂停，同时打开 app 与吃饭 | 只剩一个名额，整组拒绝 | 受理 |
-| 一项进行、一项暂停，再开始一项 | 名额占满拒绝 | 受理 |
-| 两项进行，恢复暂停的第三项 | 不会出现（暂停的那项已占名额） | `SESSION_LIMIT_EXCEEDED`，点名进行中的两项；结束或暂停其中一项后可以恢复 |
-| 两项都暂停，选择出行 | 名额占满拒绝 | 受理，两项留在原地 |
-| 一项进行、一项暂停，选择出行 | 名额占满拒绝 | 出发前仍有进行中的活动，以 `ACTIVITY_PRECONDITION_UNMET` 拒绝，只点名进行中的那项 |
-| 两项都暂停，同刻轮数到上限 | 进入「恢复或结束」 | 进入「开始或恢复」 |
-| 在别处结束暂停的活动 | 受理 | 受理 |
-| 名额被一项通话与一项 app 使用占满 | 下一步写结束或暂停任一项 | `Conclude one of …, or pause …, first.`，暂停只点名 app 使用 |
+| 情形 | 当前行为 |
+| --- | --- |
+| 工作暂停，开始娱乐与日常照护 | 类别、使用方式和地点合法时受理，暂停工作不占名额 |
+| 一项进行、一项暂停，再开始另一类动作 | 有空名额且没有占用冲突时受理 |
+| 两项进行，恢复暂停的第三项 | SESSION_LIMIT_EXCEEDED，点名进行中两项；释放名额后可恢复 |
+| 两项暂停后出行 | 受理，暂停活动留在原地点 |
+| 仍有一项非路上动作进行时出发 | 按出发前置条件拒绝，只点名实际进行中的活动 |
+| 只有暂停活动，同刻预算达到上限 | 进入开始或恢复 |
+| 在其他地点结束暂停活动 | 受理 |
+| 社交与可暂停动作占满名额 | 下一步仅允许暂停真正可暂停的动作 |
+| 已完成分配工作恢复 | CONTENT_EXHAUSTED，完成内容不再安排 |
 
 <a name="spec-parallel-activities-名额落点"></a>
 ### 代码落点
 
-| 位置 | 改动 |
+| 当前模块 | 职责 |
 | --- | --- |
-| `src/worldmock/life/activity_control.py` | `occupies_slot` 只认进行中与待收尾；新增「能结束」与「能暂停」的判定，`_pause_refusal`、`_conclude_refusal` 改用它们；名额拒绝抽成开始、出行与恢复共用的一个函数，`_report_refusal` 在工作主题上限之后、名额与占用冲突之前调用；下一步按 R3；模块与函数文档字符串随改 |
-| `src/worldmock/life/session_actions.py` | `_conclude_activity` 用「能结束」判定；文档字符串里「仍占名额」「释放名额」随改 |
-| `src/worldmock/life/same_moment.py` | 删去按名额分流的阶梯与 `RoundOutcome` 的名额字段，`next_stage` 在没有进行中与待收尾时返回开始或恢复；`request_kind` 用「能结束」判定；两个阶段在 `_STAGE_REQUEST_KINDS` 里的条目保留 |
-| `src/worldmock/life/decision_coordinator.py` | 构造轮次结果时不再传名额字段 |
-| `src/worldmock/life/guidance.py` | `SESSION_LIMIT_EXCEEDED` 的缺省原因 |
-| `src/worldmock/life/models.py` | `SameMomentStage`、`PauseActivityRequest`、`ConcludeActivityRequest` 的文档字符串；`purpose_only_schema` 剥掉这些说明，工具指纹不变 |
+| life/activity_control.py | 进行中与待收尾占名额；暂停与结束资格；恢复地点、内容、名额、占用按顺序检查 |
+| life/admission.py | 开始和组合受理使用同一名额与固定占用事实；分配工作声明实际工作地点 |
+| life/content_select.py | 从真实目录与人物状态求内容资格；读取不变更状态，不调用引擎 |
+| life/session_actions.py | 世界请求原子结算，结束与暂停保留真实内容进度 |
+| life/same_moment.py、decision_coordinator.py | 同秒阶梯与预算不按暂停数量分流 |
+| life/models.py | 世界结构 11，暂停、待收尾、内容进度、驾驶日和闹钟完整恢复 |
 
 <a name="spec-parallel-activities-乙同一种"></a>
 ## 乙：只有同一种动作互斥
@@ -101,189 +96,129 @@ flowchart LR
 <a name="spec-parallel-activities-占用声明"></a>
 ### 占用声明
 
-准入机制不变：注册表显式声明每种动作的占用，同一人物进行中活动的占用交集非空即 `RESOURCE_CONFLICT`。
-阶段 4 将旧娱乐动作合并为 `use_app`；每种动作只占自己的名字：
+固定占用闭集为 wait、travel、talk、use_app、entertainment、work_study、exercise、daily_care。进行中活动占用交集非空即 RESOURCE_CONFLICT；暂停不参与占用。
 
-| 动作 | 声明的占用 | 与谁互斥 |
-| --- | --- | --- |
-| 等待 | `wait` | 另一段等待 |
-| 工作 | `work` | 另一项工作 |
-| 打开 app | `use_app` | 另一项 app 使用 |
-| 读信 | `read_mail` | 另一封信 |
-| 食用、制作、使用 | `consume` | 另一项食用、制作或使用（同一请求里同一方式的两样食物照旧合成一顿，只占一个名额） |
-| 生活活动 | `lifestyle` | 另一项生活活动 |
-| 交谈、通话 | `talk` | 另一段交谈或通话 |
-| 步行 | `travel` | 另一段出行 |
-| 驾车 | `travel`，另占 `wait`、`work`、`use_app`、`read_mail`、`consume`、`lifestyle` | 除说话以外的全部 |
-| 睡眠 | 全部八个名字 | 全部 |
+| 动作或方式 | 固定占用 |
+| --- | --- |
+| 等待 | wait |
+| 步行 | travel |
+| 娱乐类动作 | entertainment |
+| 工作与学习类动作 | work_study |
+| 社交类动作 | talk |
+| 运动类动作 | exercise |
+| 日常照护类动作 | daily_care |
+| phone_continuous | 在类别占用上加 use_app |
+| offline_assisted、other_device | 只保留类别占用，不增加 use_app |
+| 驾车 | 除 talk 外的全部占用 |
+| 睡眠 | 全部八种占用 |
 
-占用闭集为 `wait`、`work`、`use_app`、`read_mail`、`consume`、`lifestyle`、`talk`、`travel`
-八个。互斥只来自同种占用、睡眠全占用和驾车一行；驾车只可再与交谈或通话并行。
-在场、持有与地点等其他准入检查不变（步行 ∥ 工作仍因不在工作地点被拒）。
+同类动作互斥，不同类的两项持续手机动作也互斥。驾车只可与符合对象资格且不是持续手机的社交动作并行；无 app 社交需同处真人，有 app 社交按明确通信方式与联系人资格受理。分配工作地点等内容资格继续核验。收货与领取是零秒行为，不占活动名额。
 
 <a name="spec-parallel-activities-占用落点"></a>
 ### 代码与数据落点
 
-| 位置 | 改动 |
-| --- | --- |
-| `src/worldmock/data/affordances.toml` | 十种动作类型的 `resource_claims` 与文件头的占用名说明按上表 |
-| `src/worldmock/catalog/affordances.py` | `RESOURCE_CLAIM_SLOTS` 换成十一个名字；五个身体部位名与此前退役的名字一样被拒绝 |
-| `src/worldmock/life/social.py` | `SOCIAL_RESOURCE_CLAIMS` 改为 `talk` |
-| `tests/fixtures/environment/catalog/affordances.toml`、`tests/fixtures/environment/catalog/manifest.json` | 测试环境的占用声明副本与包资源逐字节同步，清单的目录内容摘要随之刷新（R7） |
+规则只从包资源 src/worldmock/data/affordances.toml 读取；只声明四种活动 wait、sleep、travel、action，类别与使用方式的占用由固定表派生。目录格式 2 只有六份环境文件，不含规则副本。
 
-准入（`src/worldmock/life/admission.py`）、恢复核对（`src/worldmock/life/models.py`）、候选与观察证据都把占用当作不透明的名字，不改。
+catalog/affordances.py 解析固定 kinds 视图；exchange/types.py 和 constants.py 定义类别、方式及资源闭集。admission、activity_control 与 models 共用同一固定占用计算，恢复逐项核对真实快照与登记。旧占用名、家族、动作类和规则副本直接拒绝，不兼容或迁移。
 
 <a name="spec-parallel-activities-丙第8条"></a>
 ## 丙：系统层第 8 条
 
-十八条与下标不变，只原位改写第 8 条。落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的系统层 JSON 块，模块常量 `src/worldmock/agents/life_prompt.py::LIFE_SYSTEM_LAYER` 与之逐字相同。
+系统层保持十八句，当前并行规则与 docs/CONTRACTS.md 的系统层 JSON、实际 LIFE_SYSTEM_LAYER 同源。当前原文如下：
 
 ```text
-第 8 条
-你可以同时做两件事。环境只拦同一种的两件：吃、做饭、用东西算一种，工具层里方式为「进行」的都算生活活动这一种（不看名称），看和听内容算一种，读信、浏览、玩游戏、等待、工作、出行、和人说话各算一种。不同种的两件环境不拦，但没拦不等于做得到，做不做得到由你照常理判断：边吃边看、边吃边刷手机、边做家务边听，做得到；两只手都占着的事，比如洗漱、洗碗、打扫，配不了吃东西，也配不了拿着手机看，只适合再配听的；你自己觉得别扭的组合就不要一起做，一件做完再做另一件。想一起吃或喝的两样东西，在同一个 start_activity 里写成两项，算一顿；已经在吃了，另一样等这一顿吃完再开始。开车时只能再听播客或和人说话，睡觉时不做别的。手上有一件在进行时，轮到你决策就可以再开始一件，原来那件照常进行。同时进行的最多两项，刚结束还没收尾的也算，暂停的不算，恢复暂停的活动要有空位；活动一结束，同一时刻先用 conclude_activity 收尾，再做别的。
+你可以同时做两件事。环境只拦同一种的两件：工具层里类别相同的动作算一种，写着「持续使用手机 app」的动作不论类别另算一种，等待、出行各算一种。不同种的两件环境不拦，但没拦不等于做得到，做不做得到由你照常理判断：边做家务边听、边走边聊，做得到；两只手都占着的事，比如洗漱、洗碗、打扫，配不了拿着手机看；你自己觉得别扭的组合就不要一起做，一件做完再做另一件。开车时只能再和人说话，睡觉时不做别的。手上有一件在进行时，轮到你决策就可以再开始一件，原来那件照常进行。同时进行的最多两项，刚结束还没收尾的也算，暂停的不算，恢复暂停的活动要有空位；活动一结束，同一时刻先用 conclude_activity 收尾，再做别的。
 ```
 
-文本必须同时满足 `tests/integration/test_seven_layer_request.py` 与 `tests/integration/test_tool_description_references.py` 的既有约束（十八条；「待办」「上班安排」「reason」各自的所在条不变；不写工具用途句；不含语言指定词）；在模块常量里写成相邻的普通字符串字面量，不带转义与注释；不重复让「等待」成为例外与个人事务登记的变异原文（「手上的活动照常进行」等），第 8 条用的是「原来那件照常进行」。
-`tests/integration/test_life_agent_protocol.py` 里钉住「你最多同时有两项活动」的断言改为钉住新第 8 条的「同时进行的最多两项」只出现在一条规则里。
+类别标签与三种使用方式来自唯一固定表。工具用途说明只写用途；七层归属、真实已核验结果、恢复原地点、明确 app 和支付、收货即时效果、一次闹钟、有限工作和文字社交在各自规则位置说明，不恢复旧进食或 app 目标语义。
+
+真实请求的系统层、接口合同和模块常量逐字核对；十八句、待办、上班安排、reason 及用途边界由当前宿主测试守卫。
 
 <a name="spec-parallel-activities-身份与基线"></a>
 ## 身份、版本与完整日基线
 
-| 部分 | `prompt_sha256` | `tool_schema_sha256` | `code_sha256` | `catalog_content_sha256` | 世界结构 10、质量报告 5、场景 6 |
-| --- | --- | --- | --- | --- | --- |
-| 甲 | 不变 | 不变 | 变 | 不变 | 不变 |
-| 乙 | 不变 | 变（绑定 `src/worldmock/data/affordances.toml` 的字节） | 变 | 测试环境副本变；外部环境由发布方重新发布 | 不变 |
-| 丙 | 变 | 不变 | 变 | 不变 | 不变 |
+当前身份为目录格式 2、规则版本 2、场景结构 8、世界结构 11、运行清单 4、导出清单 4、质量报告 6。动作快照、通信方式、内容进度、驾驶日、闹钟与订单都属于当前严格状态；旧结构、退役字段或占用不一致时拒绝恢复，不转译。
 
-乙落地后，此前的检查点与运行不能再恢复或重放：活动的占用随世界状态保存，恢复时与注册表逐项核对，旧名字以「world activity resource claims disagree with the registry」拒绝。甲、丙落地前后的运行不可合并比较。没有测试、夹具或现行文档钉着指纹的字面值；`catalog/manifest.json` 的目录摘要由清单用例核对。
+动作与内容简化改变 prompt_sha256、tool_schema_sha256 和 code_sha256；目录字节变更另核对 catalog_content_sha256。引擎规则只有包资源，环境清单没有占用副本。当前源码、提示、工具、目录和地图分别留身份，不以历史指纹证明新运行。
 
-完整日用例逐字段核对实际存储与导出，不比较冻结签名（R10）；它需要完整世界，以 `--environment-root` 指向发布环境运行，仍带旧占用名的发布环境加载时被拒，要等数据集一侧按新占用名重新发布。
-
-资源与规则引擎简化规格允许同场景同种子的两次真实新格式完整日产出一致后冻结第三份基线；两份历史基线 JSON 保持字节。该规格移动 `tool_schema_sha256`、`prompt_sha256` 与 `code_sha256`，重设计前的检查点由世界结构 10 和占用核对拒绝，不能用旧证明宣称新运行通过。
+完整日按真实存储和认证导出核验。同场景同种子真实双跑一致后由生产冻结入口写第四基线；历史三份基线字节保持。正式环境由 WorldMock-Dataset 发布，完整回归通过明确 environment-root 使用它，发布与平台证据分别登记。
 
 <a name="spec-parallel-activities-现行文档"></a>
 ## 现行文档原位改写
 
-冲突条款在所属正文原位改写，不留两套同时有效的要求。每份有版本表的现行文档在改写它的阶段在表内末行加一行，行标识 `2026-10-06-parallel-activities-<阶段>`（`slots`、`claims`、`rule8`、`record`），写被改写条款的当前语义；设计章节（05 除外）在本修复第一次改写它时把文件头「版本」末位加一并改写日期；被改写的每份文件在文件头加一行「按同时做两件事规格修订「<节名>」（阶段 N）」，规格名链接到本文件标题锚点 `spec-parallel-activities-同时做两件事开发规格`，后续阶段在同一行补；手册沿用带日期的文件头修订说明。设计章节或接口合同改动的提交都运行 `python scripts/build_design_doc.py` 并提交重新汇编的 `docs/design/worldmock-design.html`。归档、调研、已裁决与未冻结的提案、既有验收记录与冻结的其他特性规格的裁决原文不改。
+当前冲突条款按动作与内容简化规格的阶段表原位更新，不保留两套有效语义。显式锚点和历史裁决、版本行保持原文；新增版本行说明当前改变。设计与合同同步后重建汇编，文档门禁核对链接、源码事实和唯一来源。
+
+以下名额、占用、提示与记录章节描述当前对应内容，不重新执行历史并行修复的提交计划。
 
 <a name="spec-parallel-activities-文档甲"></a>
 ### 阶段 1（甲）
 
-| 文档与节 | 改写后的语义 |
-| --- | --- |
-| `docs/CONTRACTS.md`「状态归属」 | 名额为常量 2，进行中与待收尾的活动各占一个，暂停的不占；阶段闭集照旧五个值，`resume_or_conclude` 与 `conclude_only` 留在闭集中，现行阶梯不再进入 |
-| `docs/CONTRACTS.md`「人物工具」 | `pause_activity`：暂停让出名额，恢复要有空名额 |
-| `docs/CONTRACTS.md`「活动受理拒绝码」 | `SESSION_LIMIT_EXCEEDED`：进行中与待收尾的活动占满名额；开始、出行与恢复暂停的活动都可能触发；下一步按 R3；删去「两个名额都被暂停活动占满时出行」一支 |
-| `docs/CONTRACTS.md`「行动结果」与「七层」的待办层 | 受限轮不再进入 `resume_or_conclude`；待办层恢复的不可用原因增名额占满 |
-| `docs/dev/SPEC-life-runtime.md`「活动组合政策」「并行准入」的名额段、「三层结构」、「活动的生命周期」（含状态图的恢复条件、两个名额、两项都暂停时、恢复的写法）、同刻决策规则 3 与实现约定 | 按「甲」的规则与情形改写；规则 3 的阶梯写成：没有进行中与待收尾时开始或恢复 |
-| `docs/dev/SPEC-agent-interaction.md`「会话与活动的关系」「稳定工具面」「受限轮」「冻结条款修订」第 2 行与验收台账 | 名额只算进行中与待收尾；暂停让出名额、恢复要有空位；受限轮清单删去两项的进入条件 |
-| `docs/dev/SPEC-life-realism.md` 待办层一节 | 恢复的不可用原因增名额占满 |
-| `docs/design/01-architecture.md`、`02-exchange-engine.md`、`04-simulation-engine.md`（门店供给的恢复、校验与占用安排、活动生命周期状态图、验收重点）、`09-io-formats.md`（人物状态的阶段与名额） | 同上 |
-| `docs/manual/scenarios.md`「修改日期与模拟节奏」「限制人物可以做什么」 | 同刻上限后只开放开始或恢复；暂停的活动不占名额 |
-| `tests/fixtures/acceptance_requirements.json` 同刻决策与会话两行的判据文字 | 随文更正（不改节点名与状态列） |
+生活运行时、数字人交互、人物提示和接口合同使用同一名额：进行中与待收尾计入，暂停不计；恢复地点、内容、名额、占用顺序一致。同刻受限阶梯只根据进行中与待收尾，不根据暂停数量。活动控制、待办可用性与业务拒绝给同一真实原因。
 
 <a name="spec-parallel-activities-文档乙"></a>
 ### 阶段 2（乙）
 
-| 文档与节 | 改写后的语义 |
-| --- | --- |
-| `docs/dev/SPEC-life-runtime.md`「活动组合政策」的占用表、「并行准入」的占用段与占用表、同时发生的组合表、通话的占用 | 换成「乙」的表与闭集；同时发生表里观看与游戏改为受理，同种的两件仍拒绝 |
-| `docs/dev/SPEC-dayrun-behavior.md` 占用名与占用表、拒绝的组合清单 | 同上 |
-| `docs/CONTRACTS.md`「状态归属」的占用名、「交谈与通话」、「活动控制行」 | 十一个占用名；交谈与通话占 `talk` |
-| `docs/design/02-exchange-engine.md`、`03-resource-engine.md`、`08-configuration.md`、`09-io-formats.md`、`README.md`、`SUMMARY.md` | 占用名；仍带旧占用名的外部环境要重新发布 |
-| `docs/manual/rules.md`「活动声明」 | 占用名 |
-| `docs/EXPERIMENT.md`「交互菜单与运行身份」 | 占用声明改变 `tool_schema_sha256`；仍带旧占用名的外部环境要重新发布 |
+当前占用按五类动作与三种 app 使用方式派生。固定资源八种，活动类型四种；目录无规则副本，商品收货无独立进食或持有状态。生活运行时、交易引擎、配置、输入输出合同与手册都采用同一固定表，不再写生活活动家族或十种旧动作。
 
 <a name="spec-parallel-activities-文档丙"></a>
 ### 阶段 3（丙）
 
-| 文档与节 | 改写后的语义 |
-| --- | --- |
-| `docs/CONTRACTS.md#contracts-model-request` | 系统层第 8 条换成定稿文本（与模块常量同一提交） |
-| `docs/CONTRACTS.md`「七层 Schema」的分阶段指纹叙述 | 补一句：系统层第 8 条原位改写（仍为十八条）使 `prompt_sha256` 重钉，`tool_schema_sha256` 不变 |
-| `docs/EXPERIMENT.md`「交互菜单与运行身份」、`docs/design/04-simulation-engine.md`「当前实现边界」 | 第 8 条改写改变 `prompt_sha256`，工具面与各层 Schema 不变 |
+十八句系统层以实际模块常量和接口合同逐字同步。并行句明确类别和持续手机冲突，保持暂停与收尾语义；五字段开始和明确路由在请求句说明，正文不出现旧 from、prefer 或打开 app 目标。工具说明只写用途。
 
 <a name="spec-parallel-activities-文档记录"></a>
 ### 阶段 4（记录）
 
-`docs/dev/implementation-status.md` 新增本修复一节（范围、三个阶段的提交、证据层级与平台、未执行的完整日基线）；`docs/INDEX.md` 冻结时登记本规格（`FROZEN`），被修订的生活运行时、数字人交互、人物规格、一日行为、LabelKit 交付各行注明修订部分与阶段，阶段落地后写「修订条款已实现」，版本表加行。
+实现状态、验证记录与索引登记当前源码、严格输入、完整日、冻结基线、覆盖率和独立变异回执；历史验证不改写成当前通过。完整认证足迹包含真实动作类别、使用方式、通信方式、消费区间、付款与收货，手机由实际设备方式判断。
 
 <a name="spec-parallel-activities-测试"></a>
 ## 随实现一起改的测试
 
-| 阶段 | 位置 | 改动 |
-| --- | --- | --- |
-| 1 | `tests/life/test_location_sessions.py` | 名额占满、只剩一个名额、带暂停活动出行三个用例按新规则改写：两项进行时第三项被拒，暂停一项后受理；一项暂停时开始两项受理；一项进行一项暂停时出行按出发前仍有进行中活动拒绝 |
-| 1 | `tests/life/test_same_moment_decisions.py`、`tests/life/test_tool_layer.py`、`tests/life/test_decision_budget.py` | 依赖「两项都暂停进入恢复或结束」的用例改写为两项都暂停到上限后进入开始或恢复、开始被受理；阶梯单元用例去掉名额分支；最后一轮受限请求成功仍耗尽预算的用例改走待收尾路径；含义已不成立的改名并同步 `tests/time_and_energy_acceptance.py` 与 `tests/persona_prompt_acceptance.py` |
-| 1 | `tests/life/test_paused_slots.py`（新增） | 经真实请求、引擎与 SQLite：一项暂停时开始两项受理；两项进行时恢复被拒并点名两项、待办层同一原因，结束一项后恢复受理、第三项再被拒；只有暂停的活动时出发受理且它们留在原地；暂停的活动在别处可直接结束；恢复的检查次序（工作主题上限先于名额、名额先于占用冲突）；下一步的三种写法（含通话不可暂停）；两项暂停到同刻上限后开始被受理 |
-| 4 | `tests/catalog/test_affordance_shadow.py` | 占用闭集断言为八个名字，十三个退役名字都被拒绝；逐对核对只有同种、睡眠一行与驾车一行有交集 |
-| 4 | `tests/life/test_parallel_acceptance.py`、`tests/life/test_parallel_admission.py`、`tests/life/test_parallel_activities.py`、`tests/life/test_paused_slots.py`、`tests/life/test_candidates.py` | 旧观看、游戏与浏览占用用例改为 `use_app`；断言两个 app 使用同种拒绝，app 使用与吃饭或交谈可并行，驾车与 app 使用冲突 |
-| 4 | `tests/fixtures/environment/catalog/affordances.toml`、`tests/catalog/test_engine_package_resources.py` | 测试环境副本与包资源逐字节同步；包资源断言八个占用名与 app 使用占用 |
-| 3 | `tests/integration/test_life_agent_protocol.py`、`tests/fixtures/viewer-context.json` | 见「丙」；查看器夹具 `action` 与 `continuation` 两处系统层换新，`legacy_` 开头的两处不动 |
-| 3 | `tests/integration/test_seven_layer_request.py`（新增断言） | 第 8 条含「暂停的不算」「恢复暂停的活动要有空位」「环境只拦同一种的两件」，不再含「进行中、暂停与刚结束的都算」 |
+| 当前测试入口 | 行为 |
+| --- | --- |
+| tests/catalog/test_affordances.py、test_engine_package_resources.py | 八资源、四种活动、类别/方式派生、规则仅包资源、目录无副本 |
+| tests/life/test_parallel_admission.py、test_parallel_acceptance.py | 同类与双持续手机拒绝，不同类合法受理，驾车与睡眠固定冲突 |
+| tests/life/test_paused_slots.py、test_same_moment_decisions.py | 暂停让位、恢复顺序、第三项拒绝、只有暂停时出行与受限阶梯 |
+| tests/life/test_content_select.py、test_action_run.py | 真实合格内容与人物隔离，恢复不抽取，有限工作与实际区间 |
+| tests/life/test_prompt_layers.py、tests/integration/test_seven_layer_request.py | 系统层十八句与实际请求逐字，内部身份、退役字段与用途边界 |
+| tests/integration/test_dayrun_complete_days.py | 实际完整日、共同身体、内容、商品、工作、检查点与导出证据 |
 
 <a name="spec-parallel-activities-验收"></a>
 ## 验收
 
-| 契约点 | 阶段 | 必须通过的验证 |
-| --- | --- | --- |
-| 名额只算进行中与待收尾 | 1 | `tests/life/test_paused_slots.py` 的开始与出行用例；改写后的名额用例 |
-| 恢复要有空名额，判定与待办层同文 | 1 | `tests/life/test_paused_slots.py` 的恢复与次序用例；工具层既有的受理一致性用例 |
-| 暂停的活动仍可结束 | 1 | `tests/life/test_paused_slots.py`；既有的在别处结束用例 |
-| 同刻阶梯不再按名额分流 | 1 | 改写后的同刻决策、工具层与预算用例 |
-| 只有同一种互斥 | 2 | 逐对核对用例；跨种受理与同种拒绝的引擎用例；驾车与睡眠的既有用例照常通过 |
-| 退役占用名被拒、测试环境副本同步 | 2 | 闭集用例；包资源字节绑定用例与测试环境的完整加载 |
-| 系统层逐字 | 3 | 实际请求、接口合同与模块常量三者相等，十八条；既有约束全部通过；查看器 Node 用例 |
-| 既有登记与变异不回退 | 1–3 | 既有特性的登记守卫；个人事务与让「等待」成为例外的变异执行（未变异时杀手节点全部通过） |
-| 文档与汇编 | 1–4 | 设计说明书汇编 `--check`、文档门禁、风格门禁、导入图与单一来源守卫 |
+名额、占用、内容资格与提示必须同时有纯函数反例和真实引擎接受/拒绝证据；不能用暂停数量或目标名称代替实际状态。开始与恢复保持整组原子性，失败不改变活动、随机流或进度。
+
+当前验收登记归动作与内容简化规格。所有者测试、独立源码变异、文档汇编、标准/全量、覆盖和完整日分别留下真实回执，历史登记不复活退役行为或规则副本。
 
 <a name="spec-parallel-activities-实施阶段"></a>
 ## 实施阶段与提交
 
-| 阶段 | 内容 | 提交 |
-| --- | --- | --- |
-| 0 冻结 | 本规格与 INDEX 登记 | `docs:` |
-| 1 甲 | 先合同与规格（阶段 1 表），再代码与测试；各自一个提交 | `docs:`、`feat(life):` |
-| 2 乙 | 先合同与规格（阶段 2 表），再目录、代码、清单与测试；各自一个提交 | `docs:`、`feat(catalog):` |
-| 3 丙 | 合同与模块常量同一提交，连同夹具、测试与阶段 3 表 | `feat(prompt):` |
-| 4 记录 | 实现状态与 INDEX | `docs:` |
-| 5 完整回归 | 数据集一侧按新占用名重新发布环境之后，以 `--environment-root` 运行完整层（含完整日）与覆盖率门禁（R10） | 不产生代码；结果记入实现状态 |
+当前实施顺序服从动作与内容简化规格：固定规则与目录、商品付款收货、动作内容与工作、工具提示名称查询、足迹导出评估、最终验收。名额、类别占用和真实运行链随必要依赖一同落地，保持可运行的最小端到端，不拆成不能运行的中间态。
 
-每个代码提交前，以针对文件的 pytest 运行该阶段改动与新增的测试文件、直接相关的测试文件和既有特性的登记守卫；设计汇编 `--check`。
+每次提交运行相应所有者与消费者测试。最终实现后完成标准、全量、覆盖、独立 Uncle Bob 和完整日证明，再合入并发布；这里不新增功能或独立提交要求。
 
 <a name="spec-parallel-activities-门禁与平台"></a>
 ## 门禁与平台
 
-本机（Windows）`scripts/run_tests.py` 在收集阶段因 TextWorld 没有 Windows 制品失败，按[让「等待」成为例外规格的门禁与平台](SPEC-idle-fillers.md#spec-idle-fillers-门禁与平台)的口径以针对文件的 pytest 代替；文档门禁与字节相关的检查在 `core.autocrlf=false` 的独立检出里执行。标准层、全量层、覆盖率门禁与完整日基线在 POSIX 平台执行，未执行的如实写进实现状态，不写成通过。
+平台结论以当前实际回执为准，不能把历史 Windows 依赖失败或某次 POSIX 成功当作当前状态。相同源码与输入在所需平台分别执行已登记门禁；缺失回执如实记录。文档汇编、源码风格、导入图、单一来源、标准层、全量层、覆盖率与真实完整日各自保留证据。
 
 <a name="spec-parallel-activities-配对复跑"></a>
 ## 配对复跑指标
 
-行为结论只能来自真实运行，何时运行由用户决定；以下只报告。基线是 issue #4 第四节的四个运行。
+当前并行对数和分钟从真实活动交叠区间计算，按五类动作与使用方式解释；购买收货是零秒事实，不计独立进食活动。跨类受理不等于行为合理，需结合人物选择和真实设备使用审阅。
 
-| 指标 | 基线（`8d507fa` r2） | 预期 |
-| --- | --- | --- |
-| 并行对数、并行分钟 | 2、30 | 上升，接近 `afebabb` 的 6、89 |
-| 吃 ∥ 看、吃 ∥ 读邮件 | 0 | 出现 |
-| 做不到的组合（吃 ∥ 洗漱、吃 ∥ 洗碗、洗漱 ∥ 读邮件） | 0 | 0 |
-| 10 分钟以上的等待 | 2 | 下降 |
-| `SESSION_LIMIT_EXCEEDED`、`RESOURCE_CONFLICT` | 1、1 | 不上升 |
-
-守护项：当班时段的观看分钟；暂停活动的个数与最长暂停时长；同刻决策轮数与 `decision_budget_exhausted`；午餐与晚餐各一次；工时与提交；就寝时间。
+复跑核对同刻上限、名额拒绝、资源拒绝、暂停恢复、当班时段工作与娱乐、每顿收货、驾驶日、闹钟和就寝。历史 issue 的单次读数只在原历史记录有效，不作当前数值预测。
 
 <a name="spec-parallel-activities-不在本规格内"></a>
 ## 不在本规格内
 
-issue #4 的下列待裁决事项不由本规格决定，现行行为不变：系统层第 7 条与等待的默认时长（待裁决 2、5）；工具层的正面并行提示（4）；人设卡「饭后」触发词（6）；准入读仓库注册表还是场景目录的声明（7）；环境侧拦不合情理组合的排除项（8）；场景没有播客时「只适合再配听的」落空（9，数据集一侧补播客）；做饭时能否吃（10）；一顿最多两样（11）。
+本规格不增加跨类身体部位限制、设备配置、内容分类或候选评分配置层。正式 app、动作与内容素材归 WorldMock-Dataset；LabelKit 加工归 LabelKit-DataSet。当前动作与内容简化规定的行为全部执行，不保留历史待裁决项作为实现延期。
 
 <a name="spec-parallel-activities-已知局限"></a>
 ## 已知局限
 
-- 引擎受理身体上做不到的跨种组合（吃 ∥ 洗碗）和两个屏幕（刷B站 ∥ 看剧），只靠第 8 条的措辞让人物不选；`afebabb` 的单次复跑里三对做不到的组合消失，其余人物未验证。
-- 人物要自己把工具层的条目对到「种」上，对错了没有反馈（issue 待裁决 4）。
-- `RESOURCE_CONFLICT` 的下一步仍写「Conclude or pause …」，被点名的是交谈或通话时暂停会被拒（R3 只改名额超限）。
-- 暂停的活动没有上限，长期不处理会在待办层堆积（R1）。
-- 一个请求里恢复两项而只剩一个名额时，第二项的原因点名第一项（R4）。
+不同类别且不冲突的动作仍可能在常理上不适合一起做，系统层让人物自行判断，不新增物理限制。两个持续手机动作已经由 use_app 占用互斥。
+
+暂停活动个数没有上限，人物应自行恢复或结束。一个请求恢复两项时仍逐项核验，第二项的名额与冲突原因包含第一项，整批拒绝时不部分执行。社交和路上动作不能暂停，提示与拒绝应说明真实条件。
 
 <a name="spec-parallel-activities-版本表"></a>
 ## 版本表
@@ -297,3 +232,7 @@ issue #4 的下列待裁决事项不由本规格决定，现行行为不变：�
 | `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
 | `2026-10-06-rrs-app` | 2026-10-07 | 资源占用闭集改为八个名字；旧观看、游戏和浏览占用合并为 `use_app`，驾车只允许再交谈；乙表和相关用例由资源与规则引擎简化规格取代 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题恢复检查次序 |
+| `2026-10-07-acs-rules` | 2026-10-07 | 固定规则版本 2；目录格式 2、场景结构 8、世界结构 11、运行清单 4；环境仅发布目录与场景，规则只从包读取。 |
+| `2026-10-07-acs-action` | 2026-10-08 | 五类动作与三种使用方式派生八资源，四种活动；恢复核验真实内容资格，暂停不占名额，目录删除占用副本。 |
+| `2026-10-07-acs-request` | 2026-10-08 | 十八句系统层逐字同步当前类别与持续手机语义，五字段明确路由，收货即时结算，没有旧 app 或进食目标。 |
+| `2026-10-07-acs-record` | 2026-10-08 | 世界 11、运行与导出清单 4、质量 6；完整日第四基线与当前所有者、消费者、变异回执分层核验。 |

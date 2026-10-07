@@ -32,20 +32,18 @@ from worldmock.agents.life_prompt import (LIFE_SYSTEM_LAYER, TOOL_DESCRIPTIONS, 
                                        user_message)
 from tests.integration.test_life_agent_protocol import (
     _Environment,
-    _GroundedCorrectionDispatcher,
     _ModelResponse,
-    _TASK,
     _WAIT,
-    _WAIT_CHOICE,
     _WORK,
     _context,
-    _observations,
     _wire_agent,
     _with_activities,
 )
 from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
 from tests.life.conftest import (context, stage_day_plan, start_request)  # noqa: F401
-from tests.life.test_presentation_fidelity import _stage
+from tests.life.action_contract_world import contract_world
+from tests.integration.test_life_agent_protocol import _layers
+from worldmock.footprints.models import EventDraft
 from worldmock.life.tool_groups import compact_render, expand_tool_layer
 from worldmock.life.world_query import QueryWorldRequest
 from worldmock.life import prompt_capacity
@@ -60,6 +58,61 @@ _CONTACTS = [{"contact_id": "contact-wang", "salutation": "王磊", "relation": 
               "channels": ["phone"]}]
 _LAYER_ORDER = ["工具层", "人设层", "记忆层", "待办层", "环境层", "进度层"]
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+_TASK = "办公"
+_WAIT_CHOICE = {"items": [{"target": "自己", "way": "等待", "app": None, "to": None, "pay_app": None}],
+                "answering": None}
+
+
+def _observations(*progress_event_ids: str) -> list[dict]:
+    """@brief 以真实目录工具层建立当前观察，其他层沿用通用空状态。"""
+    _, facts = contract_world()
+    layers = _layers()
+    layers["tool_layer"] = facts.pop("tool_layer")
+    layers["environment_layer"]["duty"] = None
+    data = {**facts, **layers, "agent_id": 7, "current_time": int(_context().observed_at.timestamp()),
+            "observation_event_id": "observation-current", "wake_reasons": [], "same_moment_stage": "open",
+            "progress_event_ids": list(progress_event_ids), "presented_message_ids": [], "verified_experiences": [],
+            "activity_bindings": [], "goal_bindings": [], "task_bindings": [], "errand_bindings": [],
+            "errand_item_bindings": [], "active_activities": [], "paused_activities": [],
+            "pending_conclusions": [], "interaction_menu": {"allowed_actions": sorted({
+                row["canonical_action"] for item in facts["interaction_bindings"] for row in item["actions"]})}}
+    return [{"turn": 0, "action": "observe", "ok": True, "data": data}]
+
+
+class _GroundedCorrectionDispatcher:
+    """@brief 捕获真实宿主请求并按明示响应序列回复当前工具参数。"""
+
+    model_name = "deepseek-flash"
+
+    def __init__(self, responses=None):
+        """@brief 默认序列先查询、收到一次错误纠正后提交完整等待请求。"""
+        self.requests = []
+        self.responses = list(responses) if responses is not None else [
+            _ModelResponse("call-memory", "memory_recent", '{"limit":1}'),
+            _ModelResponse("call-invalid", "play_game", '{"game_id":"game-visible"}'),
+            _ModelResponse("call-action", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False))]
+
+    async def call(self, **request):
+        """@brief 记录实际 wire 请求并返回下一项响应。"""
+        self.requests.append(request)
+        return self.responses.pop(0)
+
+
+def _stage(engine, moment=None, location=None):
+    """@brief 测试时刻经真实 SQLite 提交，解除退休语料测试的辅助依赖。"""
+    staged = engine.context.state.model_copy(deep=True)
+    now = staged.current_time if moment is None else moment
+    staged.current_time = now
+    staged.pending_events = [event for event in staged.pending_events if event.due_at > now]
+    agent = staged.agents[1]
+    staged.agents[1] = agent.model_copy(update={"next_decision_at": now, "body_settled_at": now,
+                                               "location_id": location or agent.location_id}, deep=True)
+    staged.version += 1
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=now, visibility="system", data={"kind": "test_staged"})])
+    engine.context.state = staged
 
 
 @pytest.fixture(autouse=True)
@@ -177,15 +230,14 @@ async def test_rule_14_makes_the_routine_the_default_and_the_day_plan_override_i
     assert rules[14].startswith("你会饿") and "每个饭点的正餐只吃一次" in rules[14] and "趁早" not in rules[14]
     assert rules[15].startswith("晚上照人设层作息里的就寝时间去睡") and "困了就去睡" not in rules[15]
     assert rules[3].endswith("消息只核验了对方这样说过，说已经做了、正在赶来，都不等于发生了。")
-    assert rules[17].endswith("联系人只能发消息或通话，不会来到你身边。")
+    assert "联系人只能发消息或通过工具层列出的社交动作远程交流，不会来到你身边" in rules[17]
+    assert rules[17].endswith("具体聊天内容和进展由你播报，不会自动生成对方回复。")
     assert "最接近的候选，不会替你改" in rules[11]
 
 
 #: 系统层第 16 条，随让「等待」成为例外规格改写（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-系统层）：仍专指当日目标的
 #: 提醒，睡着时只有提醒或睡够了才会醒，与第 6 条（事务提醒不叫醒睡着的人）不相抵。
-_RULE_16 = ("晚上照人设层作息里的就寝时间去睡（没写就寝时间，就困了再睡）：有点乏、困是睡前的常态，还没到就寝时间就照常过晚上，"
-            "到了就可以睡，不用撑到某个钟点；很困或撑不住了可以提前，精神还好也可以晚些。想在某个时刻起来，"
-            "就给今日计划的目标写上提醒时刻；睡着时只有提醒或睡够了才会醒，早睡也就早醒。")
+_RULE_16 = '晚上照人设层作息里的就寝时间去睡（没写就寝时间，就困了再睡）：有点乏、困是睡前的常态，还没到就寝时间就照常过晚上，到了就可以睡，不用撑到某个钟点；很困或撑不住了可以提前，精神还好也可以晚些。想在某个时刻起来，可以用 set_alarm 设置一次闹钟，也可以给今日计划的目标写上提醒时刻；睡着时只有提醒、闹钟或睡够了才会醒，早睡也就早醒。'
 #: 旧第 6 条的延续句（docs/dev/SPEC-life-realism.md#errands-workday-提示信息分工-可判定口径 逐字项）：它把 report_status 的 summary 也写成延续载体。
 _RETIRED_SENTENCE = "需要延续的打算写进 report_status、pause_activity 或 conclude_activity 的 summary"
 
@@ -256,7 +308,7 @@ async def test_rules_1_4_6_divide_errands_summaries_and_memories() -> None:
                      "report_status 的 summary 只留到本段停留或路程结束", "想记住的事只记以后做决定用得上的新情况",
                      "人设层已有的作息和待办层已有的事务不再记"):
         assert sentence in rules[5]
-    assert rules[15] == _RULE_16 and "睡着时只有提醒或睡够了才会醒" in rules[15] and "事务" not in rules[15]
+    assert rules[15] == _RULE_16 and "睡着时只有提醒、闹钟或睡够了才会醒" in rules[15] and "事务" not in rules[15]
     assert [index for index, rule in enumerate(rules) if "待办" in rule] == [0, 3, 5, 11]
 
 
@@ -302,7 +354,7 @@ async def test_retired_meal_delivery_and_bedtime_readings_are_gone_from_the_syst
     life, _ = _contract_system_layers()
     for place in (rules, LIFE_SYSTEM_LAYER["rules"], life["rules"]):
         assert [phrase for phrase in _RETIRED_IDLE_READINGS for rule in place if phrase in rule] == []
-    assert "正餐留到平常的饭点前后吃" in rules[14] and "下单的东西送到、拿到手才能吃" in rules[14]
+    assert "正餐留到平常的饭点前后吃" in rules[14] and "下单的东西要送到才算吃上" in rules[14]
     assert "还没到就寝时间就照常过晚上" in rules[15]
 
 
@@ -329,12 +381,10 @@ async def test_rule_8_says_paused_activities_do_not_count_and_only_same_kinds_co
 
 @pytest.mark.asyncio
 async def test_resource_rule_system_text_is_the_frozen_app_and_work_contract() -> None:
-    """资源与规则简化的系统层（docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-系统层）：
-    实际请求、宿主常量与合同逐字使用冻结的推送、并行、名称、购买来源与实际工时规则；娱乐句只在名称规则末尾。
-    旧工作开放、主动选择内容、做饭或播客例外、渠道与截止提交读法均不再进入人物请求。"""
-    spec = section_text((_REPO_ROOT / "docs/dev/SPEC-resource-and-rule-simplification.md").read_text(encoding="utf-8"),
-                        "spec-rrs-系统层")
-    positions = {6, 7, 11, 12, 16}
+    """@brief 真实请求、常量与合同按最新规格逐字一致，不保留退休操作语义。"""
+    spec = section_text((_REPO_ROOT / "docs/dev/SPEC-action-and-content-simplification.md").read_text(encoding="utf-8"),
+                        "spec-acs-系统层")
+    positions = {6, 7, 11, 12, 14, 16, 17}
     expected = {int(number) - 1: text for number, text in re.findall(r"第 (\d+) 条\n([^\n]+)", spec)
                 if int(number) - 1 in positions}
     assert set(expected) == positions
@@ -343,15 +393,11 @@ async def test_resource_rule_system_text_is_the_frozen_app_and_work_contract() -
     for place in (rules, LIFE_SYSTEM_LAYER["rules"], life["rules"]):
         assert len(place) == 18
         assert {index: place[index] for index in positions} == expected
-        for phrase, index in (("有 app 推送", 6), ("娱乐只选 app", 11), ("按主题计工时", 16)):
+        for phrase, index in (("有 app 推送", 6), ("你只选动作和它列出的 app", 11), ("按实际做的时间计进度", 16)):
             assert [i for i, text in enumerate(place) if phrase in text] == [index]
             assert sum(text.count(phrase) for text in place) == 1
-        entertainment = ("娱乐只选 app、方式写打开，看什么由 app 决定；这段停留或路程里收到推送后打开那个 app，"
-                         "先看的是推送的内容，不打开也可以。")
-        assert place[11].endswith(entertainment)
-        retired = ("有工作可以开始做了", "吃、做饭、用东西", "看和听内容算一种", "读信、浏览、玩游戏", "只适合再配听的",
-                   "开车时只能再听播客", "商品、生活活动、内容、地点", "门店或渠道", "留意截止时间与已完成的有效工时",
-                   "工时达标不等于已经提交", "过了截止再提交会被拒绝")
+        retired = ("娱乐只选 app", "方式写打开", "按主题计工时", "门店或渠道", "工时达标不等于已经提交",
+                   "开车时只能再听播客", "给予必须写他人", "自己写工作主题")
         assert [phrase for phrase in retired for text in place if phrase in text] == []
 
 
@@ -507,7 +553,7 @@ async def test_native_tools_are_stable_purpose_only_and_drop_memory_only_on_the_
 
     first, last = (item["tools"] for item in dispatcher.requests)
     world_tools = ["start_activity", "send_message", "report_status", "pause_activity", "conclude_activity",
-                   "revise_day_plan"]
+                   "revise_day_plan", "set_alarm"]
     queries = ["recall_task_summary", "query_world", "memory_recent", "memory_search", "memory_time_range"]
     assert [item["function"]["name"] for item in first] == [*world_tools, *queries]
     assert [item["function"]["name"] for item in last] == world_tools
@@ -524,8 +570,8 @@ async def test_native_tools_are_stable_purpose_only_and_drop_memory_only_on_the_
 @pytest.mark.asyncio
 async def test_a_decision_without_memory_queries_sends_exactly_one_request_and_no_prelude() -> None:
     """没有记忆查询的决策恰好一次模型请求，参数符合行动行（思考开启、auto、8000）；登记后不追加 tool 消息。"""
-    work = {"items": [{"target": _TASK, "way": "工作", "from": None, "to": None}],
-            "answering": None, "prefer": None}
+    work = {"items": [{"target": _TASK, "way": "进行", "app": None, "to": None, "pay_app": None}],
+            "answering": None}
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("action", "start_activity", json.dumps(work, ensure_ascii=False))])
     agent, environment = _agent(dispatcher)
@@ -754,10 +800,10 @@ def test_prompt_fingerprint_binds_the_layer_schemas(monkeypatch) -> None:
 
 @pytest.mark.parametrize("index,current,retired", [
     (6, "有 app 推送", "有工作可以开始做了"),
-    (7, "用手机 app 算一种", "看和听内容算一种"),
-    (11, "商品、生活活动、app、地点", "商品、生活活动、内容、地点"),
-    (12, "门店或 app", "门店或渠道"),
-    (16, "按主题计工时", "留意截止时间与已完成的有效工时"),
+    (7, "工具层里类别相同的动作算一种", "看和听内容算一种"),
+    (11, "环境定，你只选动作和它列出的 app", "人物自己点名内容"),
+    (12, "target、way、app、to、pay_app", "target、way、from、to"),
+    (16, "按实际做的时间计进度", "留意截止时间与已完成的有效工时"),
 ])
 def test_each_resource_rule_change_moves_only_the_prompt_fingerprint(monkeypatch, index, current, retired) -> None:
     """五条规则的语义都绑定新运行提示指纹（docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-系统层）：
@@ -788,7 +834,7 @@ def test_prompt_fingerprint_binds_the_callable_index_schema(monkeypatch) -> None
     schema = prompt_schemas.TOOL_LAYER_SCHEMA
     assert "callable_index" in schema["required"]
     assert set(schema["properties"]["callable_index"]["properties"]) == {
-        "lifestyle", "goods", "query_categories"}
+        "goods", "navigation_apps", "payment_apps", "query_categories"}
     current = life_prompt.life_prompt_sha256()
     assert _model_identity().prompt_sha256 == current
     tools = copy.deepcopy(schema)
@@ -824,8 +870,10 @@ async def test_callable_index_rides_in_the_tool_layer_and_counts_toward_capacity
     layers = json.loads(request["messages"][1]["content"])
     assert compact_render(expand_tool_layer(layers[0])) == compact_render(observed["tool_layer"])
     assert list(layers[0]) == ["layer", "groups", "callable_index"]
-    assert layers[0]["callable_index"]["lifestyle"] == [item.name for item in engine.context.lifestyle_items]
-    assert layers[0]["callable_index"]["lifestyle"] == ["安静休息"] and layers[5]["events"] == []
+    assert layers[0]["callable_index"] == observed["tool_layer"]["callable_index"]
+    assert layers[0]["callable_index"]["goods"] and layers[5]["events"] == []
+    assert layers[0]["callable_index"]["navigation_apps"] == [
+        app.name for app in engine.context.semantics.catalog.apps.values() if "navigation" in app.purposes]
     bare = [{key: value for key, value in layers[0].items() if key != "callable_index"}, *layers[1:]]
     without = prompt_capacity.request_token_count({**request, "messages": [request["messages"][0],
                                                                            user_message(bare)]})

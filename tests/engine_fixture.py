@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 
-from tests.frozen_inputs import relative_corpus
 from tests import data_paths
 
 
@@ -66,11 +65,9 @@ def engine_factory(tmp_path: Path, frozen_inputs):
 
 
 def _mutated_scenario(source: Path, mutate, root: Path) -> Path:
-    """把人工场景副本交给 mutate(document) 改写，目录保持隔离，语料用相对路径引用。"""
+    """把人工场景副本交给 mutate(document) 改写，目录保持隔离。"""
     document = json.loads(source.read_text(encoding="utf-8"))
     mutate(document)
-    corpus = (source.parent / document["corpus_root"]).resolve()
-    document["corpus_root"] = relative_corpus(corpus, root / "scenarios")
     (root / "scenarios").mkdir(parents=True)
     shutil.copytree(source.resolve().parent.parent / "catalog", root / "catalog")
     path = root / "scenarios" / source.name

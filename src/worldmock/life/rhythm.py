@@ -15,7 +15,8 @@ decision_offered=false 与 wake_reasons=[]；提供决策的边界记录实际�
 """
 
 from __future__ import annotations
-from worldmock.life.work import work_totals
+
+from worldmock.exchange import constants
 from worldmock.life.activities import shared_activity_factors
 from worldmock.life import projection as projection_module
 from worldmock.life.models import ActivityKind
@@ -247,7 +248,7 @@ def _settle_discomfort(agent: AgentState, levels: dict[str, str], now: int) -> A
     """@brief 连续饿或困的不适脉冲（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」，
     docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-不适脉冲与睡眠中的消息 ）。
 
-    两小时门槛（felt.MOOD_DISCOMFORT_TRIGGER_HOURS）只在这里按连续不适时长判定一次：超出门槛的小时数减去已计费的，
+    两小时门槛（constants.MOOD_DISCOMFORT_TRIGGER_HOURS）只在这里按连续不适时长判定一次：超出门槛的小时数减去已计费的，
     即本边界新增的计费小时，按 −0.1/小时施加（felt.discomfort_pulse 不再判门槛）；只有实际施加了脉冲（新增计费小时
     为正）才把这些小时记为已计费。不适解除时起点与已计费小时一并清零。
 
@@ -258,7 +259,7 @@ def _settle_discomfort(agent: AgentState, levels: dict[str, str], now: int) -> A
     if levels["appetite"] not in HUNGRY_BANDS and levels["sleepiness"] not in SLEEPY_BANDS:
         return agent.model_copy(update={"discomfort_started_at": None, "discomfort_pulse_hours": 0.0}, deep=True)
     started = agent.discomfort_started_at if agent.discomfort_started_at is not None else now
-    chargeable = max(0.0, (now - started) / 3600 - felt.MOOD_DISCOMFORT_TRIGGER_HOURS)
+    chargeable = max(0.0, (now - started) / 3600 - constants.MOOD_DISCOMFORT_TRIGGER_HOURS)
     new_charge = chargeable - agent.discomfort_pulse_hours
     update: dict[str, Any] = {"discomfort_started_at": started}
     if new_charge > 0:
@@ -302,7 +303,7 @@ def _apply_awake_social_ledger(agent: AgentState, inputs: RhythmInputs) -> Agent
 
     是否在睡、交谈与通话覆盖、共同用餐都按本区间共同身体结算所用的活动集合判定（_interval_activities，
     docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-区间事实只有一个来源社交账与共同用餐 ），不在推进后重新推断：在本边界结束的睡眠整段仍按睡眠计，不计清醒增长；
-    计费小时取本边界的区间（inputs.interval_seconds）。CHAT/CALL 活动区间的账本由 life.social_actions.advance_social
+    计费小时取本边界的区间（inputs.interval_seconds）。social 类别活动区间的账本由 life.social_actions.advance_social
     在活动结算内推进（含清醒增长），此处跳过避免重复计数。
     """
     activities = _interval_activities(agent, inputs)
@@ -310,10 +311,9 @@ def _apply_awake_social_ledger(agent: AgentState, inputs: RhythmInputs) -> Agent
         return agent
     asleep = any(item.kind == ActivityKind.SLEEP for item in activities)
     hours = 0.0 if asleep else inputs.interval_seconds / 3600
-    shared = hours if _shared_meal(agent, inputs, activities) else 0.0
-    if hours <= 0 and shared <= 0:
+    if hours <= 0:
         return agent
-    body = apply_social_ledger(agent.body, felt.SocialExposure(awake_hours=hours, shared_meal_hours=shared))
+    body = apply_social_ledger(agent.body, felt.SocialExposure(awake_hours=hours))
     return agent.model_copy(update={"body": body}, deep=True)
 
 
@@ -343,17 +343,10 @@ def _interval_activities(agent: AgentState, inputs: RhythmInputs) -> list[Activi
 
 
 def _social_activity_covered(activities: list[ActivityState]) -> bool:
-    """@brief 本区间是否由 CHAT/CALL 活动结算推进（其内部已应用账本）：区间活动集合里有交谈或通话。"""
-    return any(item.kind in {ActivityKind.CHAT, ActivityKind.CALL} for item in activities)
+    """@brief 本区间是否由 social 类别活动结算推进（其内部已应用账本）：区间活动集合里有交谈或通话。"""
+    return any(item.kind == ActivityKind.ACTION and item.data["category"] == "social" for item in activities)
 
 
-def _shared_meal(agent: AgentState, inputs: RhythmInputs, activities: list[ActivityState]) -> bool:
-    """@brief 本区间是否共同用餐：区间活动集合里有堂食的进食（在本边界吃完的一餐也算），且此刻同地点有他人在场。"""
-    eating = any(
-        item.kind == ActivityKind.CONSUME and item.data.get("request", {}).get("use_mode") == "eat"
-        for item in activities
-    )
-    return eating and bool(_people_here(inputs.state, agent))
 
 
 def is_asleep(state: WorldState, agent_id: int) -> bool:
@@ -385,7 +378,8 @@ def _goal_progress_pulses(agent: AgentState, inputs: RhythmInputs) -> AgentState
         if plan is None or "activity" not in data or data["activity"].get("agent_id") != agent.agent_id:
             continue
         changed = rhythm_schedule.progress_day_plan(
-            plan, data["activity"], data["interval_start"], data["interval_end"]
+            plan, data["activity"], data["interval_start"], data["interval_end"],
+            next(item.work_content_ids for item in inputs.scenario.agents if item.agent_id == agent.agent_id)
         )
         if changed != plan:
             body = apply_mood_pulse(body, "goal_progressed")
@@ -407,9 +401,8 @@ def _has_commitments(agent: AgentState, inputs: RhythmInputs) -> bool:
     ):
         return True
     config = next(item for item in inputs.scenario.agents if item.agent_id == agent.agent_id)
-    topics = {topic.topic_id: topic for topic in inputs.scenario.work_topics}
-    if any(work_totals(inputs.state, agent.agent_id, topic_id) < topics[topic_id].target_seconds
-           for topic_id in config.work_topic_ids):
+    if any(agent.content_progress.get(content_id) is None
+           or agent.content_progress[content_id].completed_rounds < 1 for content_id in config.work_content_ids):
         return True
     return any(
         activity.agent_id == agent.agent_id
@@ -469,6 +462,7 @@ def _wake_snapshot(agent: AgentState, inputs: RhythmInputs) -> rhythm_schedule.W
         errand_reminder_due=bool(errands.reminders_due(agent, now)),
         duty_edges_now=duty_edges.edges_at(inputs.scenario, agent.agent_id, now),
         app_push_arrived="app_push" in flags,
+        alarm_rang="alarm_ring" in flags,
         is_asleep=any(item.kind == ActivityKind.SLEEP for item in activities),
     )
 
@@ -655,3 +649,13 @@ def _deliver_errand_reminders(
             staged, drafts = errands.deliver_reminders(staged, agent_id)
             boundary.drafts.extend(drafts)
     return staged
+
+
+def consume_progress_report_opportunity(state: WorldState, agent_id: int, interval_seconds: int) -> WorldState:
+    """@brief 播报机会给出即消费，人物任何工具受理或拒绝都移动当时已到期的活动锚点。"""
+    now = state.current_time
+    changed = state.model_copy(deep=True)
+    for activity in active_activities(changed, agent_id):
+        if now - _report_anchor(activity) >= interval_seconds:
+            changed.activities[activity.activity_id] = activity.model_copy(update={"report_anchor_at": now}, deep=True)
+    return changed

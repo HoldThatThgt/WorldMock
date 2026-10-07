@@ -17,7 +17,8 @@ from tests.life.conftest import (
     advance_until_ready, conclude_pending, pause_request, report_request,
     stage_day_plan, start_activity, wake_by_mail,
 )
-from tests.life.test_app_progress import _action_for, _advance, _change, _open, _world
+from tests.life.action_worlds import action_world, advance, begin, pin
+from worldmock.life.action_run import resume_action
 from tests.life.test_location_sessions import _depart, _preview, _round, _started_ids, _until_ended, _wait
 from worldmock.life import projection
 from worldmock.life.activities import change_activity
@@ -77,16 +78,14 @@ def test_every_experience_kind_is_written_as_a_sentence_without_identities(engin
     driving = engine.context.state.activities[travel_id].model_copy(update={"travel_mode": TravelMode.DRIVING}, deep=True)
     state = engine.context.state.model_copy(update={"activities": {**engine.context.state.activities, "drive": driving}})
     now = engine.context.state.current_time
-    food = engine.context.scenario.foods[0]
+    food = engine.context.semantics.catalog.goods["beef-noodles"]
     article = engine.context.rules.contents["c-article"]
     video = engine.context.rules.contents["c-long"]
     common = {"agent_id": 1, "source_event_id": "event-0123456789abcdef", "event_seq": 1, "occurred_at": now}
     facts = [
         {**common, "kind": "waited", "activity_id": "wait", "interval_start": now - 600, "interval_end": now,
          "duration_seconds": 600, "reason": "wait"},
-        {**common, "kind": "consumed", "activity_id": "eat", "food_id": food.food_id, "category": "meal",
-         "location_id": "home", "interval_portion": 1.0, "cumulative_portion": 1.0,
-         "interval_start": now - 1200, "interval_end": now},
+        {**common, "kind": "received", "goods_id": food.goods_id, "quantity": 1},
         {**common, "kind": "played", "activity_id": "article", "content_id": article.content_id, "app_id": "bilibili",
          "position_before_seconds": 0, "position_after_seconds": 60, "interval_start": now - 60, "interval_end": now},
         {**common, "kind": "played", "activity_id": "video", "content_id": video.content_id, "app_id": "douyin",
@@ -94,7 +93,8 @@ def test_every_experience_kind_is_written_as_a_sentence_without_identities(engin
         {**common, "kind": "arrived", "activity_id": "drive", "location_id": "office", "access_status": "allowed"},
         {**common, "kind": "arrived", "activity_id": travel_id, "location_id": "office", "access_status": "denied"},
     ]
-    inputs = SimpleNamespace(scenario=engine.context.scenario, state=state, rules=engine.context.rules)
+    inputs = SimpleNamespace(scenario=engine.context.scenario, state=state, rules=engine.context.rules,
+                             semantics=engine.context.semantics)
     def clock(epoch: int) -> str:
         """@brief 共享句式里的钟点：与此刻不在同一本地日期时带「M月D日」。"""
         return clock_phrase(epoch, now, engine.context.scenario.timezone)
@@ -103,94 +103,100 @@ def test_every_experience_kind_is_written_as_a_sentence_without_identities(engin
     office = _place(engine, "office")
     assert [experience_sentence(inputs, fact) for fact in facts] == [
         f"{span} 等待了约 10 分钟",
-        f"{clock(now - 1200)}–{clock(now)} 吃了{food.name}",
-        f"{clock(now - 60)}–{clock(now)} 用哔哩哔哩看了《{article.title}》",
-        f"{clock(now - 60)}–{clock(now)} 用抖音看了《{video.title}》",
+        f"{clock(now)} 收到{food.name} 1 份",
+        f"{clock(now - 60)}–{clock(now)} 用哔哩哔哩刷推荐《{article.title}》",
+        f"{clock(now - 60)}–{clock(now)} 用抖音刷推荐《{video.title}》",
         f"{clock(now)} 开车到了{office}",
         f"{clock(now)} 走路到了{office}，但没能进去",
     ]
 
 
 @pytest.mark.parametrize("seconds", [0, 60, 120, 150, 1800])
-def test_settled_app_sentence_uses_only_actual_completed_and_advanced_content(seconds):
-    """真实 app 初始化与逐内容结算：已完成写全文标题，新抽内容零推进不冒充部分观看。"""
-    semantics, state = _world()
-    key = _action_for(semantics.catalog, "douyin", state.random_state, "c-short", "settled")
-    state, identity = _open(semantics, state, "douyin", key)
-    state, intervals = _advance(semantics, state, identity, seconds)
-    activity = state.activities[identity]
+def test_settled_action_sentence_uses_only_actual_completed_and_advanced_content(seconds):
+    """@brief 统一动作逐内容结算，新抽内容零推进不冒充部分消费。"""
+    semantics, state = action_world()
+    pin(state)
+    state, activity = begin(semantics, state)
+    state, interval = advance(semantics, state, activity, min(seconds, 120))
+    intervals = [interval]
+    if seconds > 120:
+        state, interval = advance(semantics, state, state.activities[activity.activity_id], min(seconds - 120, 30))
+        intervals.append(interval)
+    actual = state.activities[activity.activity_id]
     inputs = SimpleNamespace(state=state, scenario=semantics.scenario, rules=semantics.catalog,
-                             names={"activities": {identity: "应用：抖音"}})
+                             names={"activities": {activity.activity_id: "刷推荐（抖音）"}})
     advanced = {}
     for interval in intervals:
         if interval["completed"]:
-            advanced.pop(identity, None)
+            advanced.pop(activity.activity_id, None)
         elif interval["position_after_seconds"] > interval["position_before_seconds"]:
-            advanced[identity] = interval["content_id"]
-    sentence = activity_sentence(inputs, activity, ((state.current_time - 30, state.current_time - 10),), advanced)
-    titles = "".join(f"《{semantics.catalog.contents[row['content_id']].title}》" for row in activity.data["played"])
-    current = semantics.catalog.contents[activity.data["content_id"]]
-    assert "暂停 " in sentence
+            advanced[activity.activity_id] = interval["content_id"]
+    sentence = activity_sentence(inputs, actual, ((state.current_time - 30, state.current_time - 10),), advanced)
+    assert "暂停 " in sentence and activity.activity_id not in sentence
+    completed = "".join(f"《{semantics.catalog.contents[row['content_id']].title}》" for row in actual.data["played"])
+    partial = f"（《{semantics.catalog.contents[actual.data['content_id']].title}》未完）" if advanced else ""
     if seconds == 0:
-        assert "用抖音看了" not in sentence
-    elif seconds == 60:
-        assert sentence.endswith("用抖音看了《测试短视频》的一部分")
-    elif seconds == 120:
-        assert sentence.endswith("用抖音看了《测试短视频》") and "看了一部分" not in sentence
-    elif seconds == 150:
-        assert sentence.endswith(f"用抖音看了{titles}（《{current.title}》看了一部分）")
+        assert "《" not in sentence
     else:
-        assert sentence.endswith(f"用抖音看了{titles}（《{current.title}》看了一部分）")
-    assert identity not in sentence and activity.data["content_id"] not in sentence
+        assert sentence.endswith(completed + partial)
 
 
-def test_real_pause_resume_immediate_cancellation_keeps_prior_partial_app_viewing(engine_factory):
-    """真实宿主暂停与恢复后，在同刻用生产取消转换复核句子；不虚构宿主的再次决策资格。"""
+def test_real_pause_resume_immediate_cancellation_keeps_prior_partial_action_consumption(engine_factory):
+    """@brief 真实暂停恢复后同刻取消，经历句保留本活动先前的实际消费。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    action = _action_for(engine.context.semantics.catalog, "bilibili", engine.context.state.random_state,
-                         "c-long", "action-paused-view")
-    _, started = _round(engine, action.removeprefix("action-"), "start_activity",
-                        start_activity("打开", "应用：哔哩哔哩"))
-    assert engine.context.state.activities[started.activity_id].data["content_id"] == "c-long"
+    _, started = _round(engine, "paused-view", "start_activity", start_activity("进行", "刷推荐", app=["哔哩哔哩"]))
+    assert started.error_code is None, started.data
+    selected = engine.context.state.activities[started.activity_id].data["content_id"]
     wake_by_mail(engine, offset=60)
     assert advance_until_ready(engine)
     current = engine.context.state.activities[started.activity_id]
     assert current.media_position_seconds == 60
     _, paused = _round(engine, "paused-view-pause", "pause_activity", pause_request(current.name))
-    assert paused.status.value == "completed"
+    assert paused.error_code is None
     _, resumed = _round(engine, "paused-view-resume", "report_status", report_request(current.name))
-    assert resumed.status.value == "completed"
+    assert resumed.error_code is None
     resumed_activity = engine.context.state.activities[started.activity_id]
     assert resumed_activity.data["start_position_seconds"] == resumed_activity.media_position_seconds == 60
     _, ended = change_activity(engine.context.state.agents[1], resumed_activity,
-                               ChangeActivityRequest(activity_id=started.activity_id, operation=ActivityChange.CANCEL),
-                               engine.context.state.current_time, engine.context.scenario.activity_feedback_seconds)
-    inputs = engine.observations._layer_context(engine.context.state.agents[1], (), [])
+        ChangeActivityRequest(activity_id=started.activity_id, operation="cancel"),
+        engine.context.state.current_time, engine.context.scenario.activity_feedback_seconds)
+    inputs = engine.observations._layer_context(engine.context.state.agents[1], [])
     facts = memory_view(inputs, engine.context.store).facts
     sentence = activity_sentence(inputs, ended, facts.pauses[started.activity_id], facts.app_progress)
-    assert sentence.endswith("用哔哩哔哩看了《测试长视频》的一部分") and "暂停 " in sentence
+    assert sentence.endswith(f"（《{engine.context.rules.contents[selected].title}》未完）") and "暂停 " in sentence
     assert ended.elapsed_seconds == 60 and ended.status == ActivityStatus.CANCELLED
-    observed = _preview(engine, "paused-view-done")
-    played = [row for row in observed["verified_experiences"] if row["kind"] == "played"]
+    played = [row for row in _preview(engine, "paused-view-done")["verified_experiences"] if row["kind"] == "played"]
     assert len(played) == 1 and played[0]["app_id"] == "bilibili"
     assert played[0]["position_after_seconds"] - played[0]["position_before_seconds"] == 60
 
 
-def test_shared_cursor_advance_from_another_app_is_not_this_activitys_viewing():
-    """另一个 app 推进共享游标后，本活动恢复但没有实际消费；句子不能把别处的观看算到本活动。"""
-    semantics, state = _world()
-    key = _action_for(semantics.catalog, "bilibili", state.random_state, "c-long", "unwatched")
-    state, original = _open(semantics, state, "bilibili", key)
-    state = _change(semantics, state, original, ActivityChange.PAUSE)
-    key = _action_for(semantics.catalog, "douyin", state.random_state, "c-long", "watched")
-    state, other = _open(semantics, state, "douyin", key)
-    state, actual = _advance(semantics, state, other, 60)
-    assert actual[-1]["position_after_seconds"] == 60
-    state = _change(semantics, state, other, ActivityChange.PAUSE)
-    state = _change(semantics, state, original, ActivityChange.RESUME)
-    assert state.activities[original].media_position_seconds == 60
-    state = _change(semantics, state, original, ActivityChange.CANCEL)
+def test_shared_cursor_advance_from_another_app_is_not_this_activitys_consumption():
+    """@brief 另一应用推进共享游标不构成本活动消费事实。"""
+    semantics, state = action_world()
+    pin(state, "c-long", "bilibili")
+    state, original = begin(semantics, state, app="bilibili", suffix="unwatched")
+    state, paused = _change(semantics, state, original, "pause")
+    pin(state, "c-long", "douyin")
+    state, other = begin(semantics, state, app="douyin", suffix="watched")
+    state, actual = advance(semantics, state, other, 60)
+    assert actual["position_after_seconds"] == 60
+    state, _ = _change(semantics, state, state.activities[other.activity_id], "pause")
+    state, _ = _change(semantics, state, paused, "resume")
+    resumed = state.activities[original.activity_id]
+    assert resumed.media_position_seconds == 60
+    state, ended = _change(semantics, state, resumed, "cancel")
     inputs = SimpleNamespace(state=state, scenario=semantics.scenario, rules=semantics.catalog,
-                             names={"activities": {original: "应用：哔哩哔哩"}})
-    assert "用哔哩哔哩看了" not in activity_sentence(inputs, state.activities[original], (), {})
+                             names={"activities": {original.activity_id: "刷推荐（哔哩哔哩）"}})
+    assert "《" not in activity_sentence(inputs, ended, (), {})
+
+
+def _change(semantics, state, activity, operation):
+    """@brief 实际暂停恢复或取消，不伪造任何内容消费区间。"""
+    _, updated = change_activity(state.agents[activity.agent_id], activity,
+        ChangeActivityRequest(activity_id=activity.activity_id, operation=operation), state.current_time, 900)
+    changed = state.model_copy(deep=True)
+    changed.activities[activity.activity_id] = updated
+    if operation == "resume":
+        changed = resume_action(changed, updated, semantics.catalog, semantics.scenario)
+    return changed, changed.activities[activity.activity_id]

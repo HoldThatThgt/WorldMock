@@ -3,14 +3,15 @@
 
 > 状态：FROZEN。本文件是本特性的唯一开发规格；条款随阶段 1–6 的集成波次一次生效，波次合入之前，当前行为、接口与设计正文仍以所属合同与[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)为准。
 > 日期：2026-10-07。
+> 用户补订：同日用户明确要求自定义动作和内容交由环境维护，系统不再维护内容分类。内容只绑定动作与 app，并保留标题、摘要、时长与系列；游戏、音乐、播客由环境动作表达。娱乐缓解统一按动作类别每小时 0.3 结算。此前增加内容类型的选择由本条替代。
 > 代码基线：05a295ab464165e9ce3bd7cd7783e0513fb57e8d。
 > 来源：[提案](PROPOSAL_2026-10-07_APP_ACTION_RESOURCE_AND_RULE_SIMPLIFICATION.md)（用户原话、心智模型、简化后的设计、六个补充选择、差距与路线）；本文按 2026-10-07 用户给定的审查准则与对现行合同、规格、设计和代码的逐条核对收敛，六个补充选择与提案没有写明之处在「裁决记录」逐项定稿。
-> 范围：系统动作只留出行、睡眠、购买，等待是时间原语；库存、进食、给予与联系人持有删除，商品收货即结算；其余行为由数据集以 app、动作、内容三类对象登记，由一个执行器按内容时长执行、按历史选择内容并保留 app 推送；导航、购物、支付 app 由人物点名并写进足迹；类别、使用方式、效果与供给表归 WorldMock 固定（`RULES_VERSION = 2`）；目录格式 2、场景结构 8、世界结构 11 与足迹合同一并更换，旧格式一律拒绝；数据仓按新格式重制正式环境，下游的 LabelKit-DataSet 按新足迹合同适配手机信号投影与数据加工。
+> 范围：系统动作包含出行、睡眠、购买、驿站领取与一次性闹钟，等待是时间原语；库存、进食、给予与联系人持有删除，商品收货即结算；其余行为由数据集以 app、动作、内容三类对象登记，由一个执行器按内容时长执行、按历史选择内容并保留 app 推送；导航、购物、支付 app 由人物点名并写进足迹；类别、使用方式、效果与供给表归 WorldMock 固定（`RULES_VERSION = 2`）；目录格式 2、场景结构 8、世界结构 11 与足迹合同一并更换，旧格式一律拒绝；数据仓按新格式重制正式环境，下游的 LabelKit-DataSet 按新足迹合同适配手机信号投影与数据加工。
 
 <a name="spec-acs-用户得到什么"></a>
 ## 用户得到什么
 
-环境只登记五类对象：app（真实名称；可带导航、购物、支付用途，购物 app 写明能用哪些支付 app）、地点、商品（五个固定类别之一、价格、在哪些店卖）、动作（名称、说明、五个固定类别之一；可以绑定 app 并选一种使用方式，也可以不绑定）和内容（必须绑定一个动作；标题、摘要、时长，电视剧按集带系列与集数）。人物能做的事只有四种写法：出行（可点名一个导航 app）、睡眠、购买（网购点名购物 app 与它绑定的一个支付 app，到店可点名支付 app 也可不用），以及「进行」一个数据集命名的动作（动作绑定了 app 就再选一个 app，社交类动作另写对方是谁）；空下来仍可等待，等待只是让时间流过的原语。买的东西到手即结算，没有库存也没有「吃」这一步：吃的加热量，休闲用品缓解一点娱乐需要，日常用品带来一次小的情绪脉冲。做动作时看哪一条、做哪个主题由系统选：先看这段停留或路程里推给这个 app 与这个动作的那条，再接没看完的，再接追到一半的剧的下一集，再取没看过的，都看过才重播并如实记下第几轮；动作自己没有时长，内容多长就做多久，娱乐类看完一条自动接下一条直到人物停下，其余类别做完一条就结束；工作也是动作，场景分配给人物的工作内容做完不再重做。运行之后的足迹只写真实发生过的 app 使用：持续用手机或其他设备的动作有一行使用区间和逐条内容消费记录，借助 app 的线下动作与导航只有开始和结束两个触点，没有 app 的动作不留 app 记录；订单记下实际用到的购物 app 与支付 app，每次收货恰有一条收货记录；每一行都能追到产生它的那个模拟事件。类别、数值与结算规则由 WorldMock 定死，WorldMock-Dataset 只提供名字、摘要、价格、时长与绑定。WorldMock 交出的是完整认证的足迹导出；手机信号投影、LabelKit 窗口、训练与规则数据由 LabelKit-DataSet 从导出加工，本仓库不产出它们，也不安装或调用 LabelKit。
+环境只登记五类对象：app（真实名称；可带导航、购物、支付用途，购物 app 写明能用哪些支付 app）、地点、商品（六个固定类别之一、价格、在哪些店卖）、动作（名称、说明、五个固定类别之一；可以绑定 app 并选一种使用方式，也可以不绑定）和内容（必须绑定一个动作；标题、摘要、时长，电视剧按集带系列与集数）。人物通过出行、睡眠、购买、驿站领取、设置闹钟和进行环境动作表达生活：出行（可点名一个导航 app）、睡眠、购买（网购点名购物 app 与它绑定的一个支付 app，到店可点名支付 app 也可不用），以及「进行」一个数据集命名的动作（动作绑定了 app 就再选一个 app，社交类动作另写对方是谁）；空下来仍可等待，等待只是让时间流过的原语。买的东西到手即结算，没有库存也没有「吃」这一步：吃的加热量，休闲用品缓解一点娱乐需要，日常用品带来一次小的情绪脉冲。做动作时看哪一条、做哪个主题由系统选：先看这段停留或路程里推给这个 app 与这个动作的那条，再接没看完的，再接追到一半的剧的下一集，再取没看过的，都看过才重播并如实记下第几轮；动作自己没有时长，内容多长就做多久，娱乐类看完一条自动接下一条直到人物停下，其余类别做完一条就结束；工作也是动作，场景分配给人物的工作内容做完不再重做。运行之后的足迹只写真实发生过的 app 使用：持续用手机或其他设备的动作有一行使用区间和逐条内容消费记录，借助 app 的线下动作与导航只有开始和结束两个触点，没有 app 的动作不留 app 记录；订单记下实际用到的购物 app 与支付 app，每次收货恰有一条收货记录；每一行都能追到产生它的那个模拟事件。类别、数值与结算规则由 WorldMock 定死，WorldMock-Dataset 只提供名字、摘要、价格、时长与绑定。WorldMock 交出的是完整认证的足迹导出；手机信号投影、LabelKit 窗口、训练与规则数据由 LabelKit-DataSet 从导出加工，本仓库不产出它们，也不安装或调用 LabelKit。
 
 ```mermaid
 flowchart LR
@@ -39,11 +40,11 @@ flowchart LR
 
 | 编号 | 用户原话 | 本规格的精确化 |
 | --- | --- | --- |
-| U1 | 「系统仅保留出行，睡眠，购买；对应的导航，购物，支付app由数据集提供候选」 | 有世界后果的系统动作恰为出行、睡眠、购买，`START_ACTIVITY_ACTIONS` 为 `travel_to`、`sleep`、`wait`、`purchase`、`do`；等待是时间原语，`send_message` 是零时长工具，二者不是生活动作（P-19）。app 以 `AppPurpose` 的三种用途登记，人物从工具层候选里点名，系统不代选（P-11 … P-14）。定义在「固定规则与常数」「环境格式」「购买与支付」「收货结算」「出行与导航」「睡眠」 |
-| U2 | 「食物不再需要购买 + 食用，取消库存，persona购买并收到后即获得热量；包括其他的物品也一样，人物在收到物品后视为自动消耗并获得对应的状态」 | 删除 `AgentState.inventory`、`agents[].initial_inventory`、`WorldState.contact_holdings` 与进食、使用、给予；五个 `GoodsCategory` 各有固定的收货效果，由唯一的收货结算函数在到店受理或送达时结算一次（R2、P-8 … P-10）。定义在「购买与支付」「收货结算」 |
+| U1 | 「系统仅保留出行，睡眠，购买；对应的导航，购物，支付app由数据集提供候选」 | 有世界后果的系统动作包括出行、睡眠、购买与用户补订的领取和闹钟，`START_ACTIVITY_ACTIONS` 为 `travel_to`、`sleep`、`wait`、`purchase`、`do`、`collect_parcel`，set_alarm 为独立工具；等待是时间原语，`send_message` 是零时长工具，二者不是生活动作（P-19）。app 以 `AppPurpose` 的三种用途登记，人物从工具层候选里点名，系统不代选（P-11 … P-14）。定义在「固定规则与常数」「环境格式」「购买与支付」「收货结算」「出行与导航」「睡眠」 |
+| U2 | 「食物不再需要购买 + 食用，取消库存，persona购买并收到后即获得热量；包括其他的物品也一样，人物在收到物品后视为自动消耗并获得对应的状态」 | 删除 `AgentState.inventory`、`agents[].initial_inventory`、`WorldState.contact_holdings` 与进食、使用、给予；六个 `GoodsCategory` 各有固定的收货效果，由唯一的收货结算函数在到店受理或送达时结算一次（R2、P-8 … P-10）。定义在「购买与支付」「收货结算」 |
 | U3 | 「其他的动作由数据集进行自定义+维护，分为三个部分，内容，动作，app；内容必须绑定到某个动作上，但persona仅选择app+动作，内容则随机推送（app推送消费机制仍然保留），由系统记录进度和是否看过；内容随机推送时尽量保证不重复；」 | 目录文件 `apps.json`、`actions.json`、`contents.json`；内容以 `action_id` 绑定恰好一个动作；人物请求只写动作名与可选的 app，没有内容键。「随机推送」落在两处：开始动作时系统按 R4 … R6 选内容；整点 app 推送沿用现行机制并限定在娱乐类的手机动作（P-27）。「看过」的唯一定义是 `last_consumed_at`（P-25）。「尽量不重复」是未看单元优先，耗尽后取 `completed_rounds` 最少者重播并如实记轮（R6）。定义在「环境格式」「执行与时长」「内容选择」「进度与确定性」「推送」 |
 | U4 | 「动作也不一定非要绑定app，但是内容一定会绑定到动作上」 | 动作的 `app_ids` 可为空，此时 `manner` 为 null、其内容的 `app_ids` 为空；非空时内容的 `app_ids` 是动作 app 的非空子集；每个动作、每个动作与 app 的组合至少有一条内容（`ACTION_APP_MANNER_INVALID`、`CONTENT_ACTION_MISSING`、`CONTENT_APP_BINDING_INVALID`、`ACTION_CONTENT_EMPTY`）。定义在「环境格式」 |
-| U5 | 「动作本身不占用时长，某个动作的时长由具体消费的内容决定」 | 登记拒绝动作上的任何时长字段；`action` 活动的 `planned_end_at` 恒为当前内容的结束时刻，实际消费秒数推进进度并按固定速率结算状态；「内容」只指目录 `Content`，三种系统动作的时间按次计算（P-1、P-2、P-5）。定义在「执行与时长」 |
+| U5 | 「动作本身不占用时长，某个动作的时长由具体消费的内容决定」 | 登记拒绝动作上的任何时长字段；`action` 活动的 `planned_end_at` 恒为当前内容的结束时刻，实际消费秒数推进进度并按固定速率结算状态；「内容」只指目录 `Content`，系统动作的时间按次计算（P-1、P-2、P-5）。定义在「执行与时长」 |
 | U6 | 「请根据以上描述重新设计我们的资源和规则引擎，力求大幅简化两个引擎的复杂度，让数据更多地向真实使用的app靠拢（不要再使用开源的奇怪数据，更多的是真实的app名称/真实的电视剧名称/电影名称 + 合成/真实摘要 + 合成数值），并减少运行时系统的维护压力；分类规则和交换规则在worldmock系统端钉死，数据集端仅提供实际的对象名称和内容；」 | 全部闭集、类别表、占用、常数与收货效果定义在 `src/worldmock/exchange/` 并由 `RULES_VERSION = 2` 绑定；数据集能填的数只有 `price_fen`、`duration_seconds`、`series.episode`，严格模型拒绝其余字段；规则字节由 `code_sha256` 钉住（P-31）；生活活动语料、工作主题目录与规则副本退出环境。定义在「固定规则与常数」「环境格式」「数据仓交接」 |
 
 <a name="spec-acs-裁决提案决策表"></a>
@@ -52,7 +53,7 @@ flowchart LR
 | 编号 | 提案的选择名 | 定稿 | 依据 |
 | --- | --- | --- | --- |
 | R1 | 固定动作类别与 app 使用方式 | 五个类别 `ActionCategory`（`entertainment` 娱乐、`work_study` 工作与学习、`social` 社交、`exercise` 运动、`daily_care` 日常照护）与三种方式 `AppUseManner`（`phone_continuous`、`other_device`、`offline_assisted`）；不设合法组合表，不设细分类别；类别与方式各固定一张 WorldMock 小表；绑定了 app 的动作恰选一种方式，没有 app 的动作没有方式 | 三种方式是把八小时工作或一次跑步挡在手机使用区间之外的最小集合，前提是每种方式恰对应一种足迹形状、同一时刻只有一段持续的手机使用（足迹审查 2、足迹审查 5）；类别的接续一列决定一次使用是一行 `app_use` 还是许多行（行为审查 1）；组合表多一张表和一个登记码却不改变任何足迹行 |
-| R2 | 非食品商品效果 | 休闲用品每个订单行使 `entertainment_need` 降低 0.10（下限 0）；日常用品每个订单行施加一次 +0.05 的情绪脉冲，幅度同现行 `goal_progressed` 脉冲。不变量：任何非食品收货效果不超过最弱内容形式 30 分钟的缓解量（每小时 0.2 × 0.5 小时 = 0.10）。两个值是实验假设；不设耐用品与持有 | 收货不占模拟时间；一次购买若抵得上一小时视频，买东西就成了解闷最省的办法，挤掉本系统要记录的 app 使用（行为审查 12）；足迹需要的是每笔非食品订单与食品一样以一条可审计的收货记录收尾 |
+| R2 | 非食品商品效果 | 休闲用品每个订单行使 `entertainment_need` 降低 0.10（下限 0）；日常用品每个订单行施加一次 +0.05 的情绪脉冲，幅度同现行 `goal_progressed` 脉冲。不变量：任何非食品收货效果不超过娱乐内容 30 分钟的缓解量（每小时 0.3 × 0.5 小时 = 0.15）。两个值是实验假设；不设耐用品与持有 | 收货不占模拟时间；一次购买若抵得上一小时视频，买东西就成了解闷最省的办法，挤掉本系统要记录的 app 使用（行为审查 12）；足迹需要的是每笔非食品订单与食品一样以一条可审计的收货记录收尾 |
 | R3 | 场景联系人收货 | 带 `receive_location_id` 的场景联系人可以作收货人：订单到 `delivered` 并写 `received_at`，`receipt` 行的 `provided`、`applied` 为 null；不建身体，不写 `goods_received` 事件，不声称联系人消费了什么；`WorldState.contact_holdings` 删除；买家保留既有 `delivery_arrival` 事件与唤醒 | 给模拟之外的人下单是常见的真实手机足迹，保留它不增加机制；给没有模型的人记「消费完成」是一条背后没有模拟事件的事实（三份审查对本项结论一致） |
 | R4 | 继续观看与未看内容顺序 | 一次执行开始时依次取：(1) 当前 session 里推给这个 app 与这个动作的置顶推送；(2) 该人物该动作未完成的内容（`position_seconds > 0`），取 `last_consumed_at` 最近者，同值按 `content_id`；(3) 已开始系列的下一集；(4) 未看的单元，带键均匀抽取；(5) R6 的耗尽规则。`entertainment` 接续内用同一次序但没有第 1 步：推送只由人物开始该 app 与该动作打开 | 接着看留下位置连续的 `content_consumed` 行，这正是真实「继续观看」历史的样子；先取未看会留下一条越积越长、没有手机历史会呈现的弃看尾巴；次序只多用一个时间字段（足迹审查 9） |
 | R5 | 连续内容顺序 | 跨系列随机、系列内按序，不加字段，沿用既有 `Content.series{title, episode}`。系列身份是 `(action_id, series.title)`；同一系列各集的 `action_id` 与 `app_ids` 相同，`(series.title, episode)` 唯一，违反为 `CONTENT_SERIES_INVALID`。抽取以单元为对象：一条独立内容，或一个系列以它在当前轮未完成的最低集为代表；已开始的系列先于未开始的单元，最近消费的优先。推送用同一单元规则，不会跳集 | 集数乱序或每看一集换一部剧，标注者一眼即知是假的；所需字段目录里已有，只是选择器不读；以单元抽取使长剧不因集数多而占满抽取 |
@@ -65,41 +66,41 @@ flowchart LR
 
 | 编号 | 定稿 | 依据 |
 | --- | --- | --- |
-| P-1 | 动作的一次执行是一个 `action` 活动。每条内容完成都写完成证据、`completed_rounds` 加一并释放指向它的 session 推送；类别 `entertainment` 在同一次结算里选出下一条，在同一活动、同一行 `app_use` 内静默接续，其余四类做完一条即以既有 `planned_end` 完成。只有既有 22 个唤醒原因之一到期或活动完成时才请人物决策；不加唤醒原因、继续工具或逐条决策 | 逐条决策把一次刷视频拆成几十个两三分钟的活动：`app_use` 碎成每条一行，动作窗口被相同的「继续」样本填满，两小时短视频的决策由现行的 8 次变成 40–80 次，而逐条足迹行不需要决策就已存在（足迹审查 1、行为审查 1、简化审查 CADENCE） |
+| P-1 | 动作的一次执行是一个 `action` 活动。每条内容完成都写完成证据、`completed_rounds` 加一并释放指向它的 session 推送；类别 `entertainment` 在同一次结算里选出下一条，在同一活动、同一行 `app_use` 内静默接续，其余四类做完一条即以既有 `planned_end` 完成。只有 23 个唤醒原因之一到期或活动完成时才请人物决策；内容完成不增加唤醒原因、继续工具或逐条决策 | 逐条决策把一次刷视频拆成几十个两三分钟的活动：`app_use` 碎成每条一行，动作窗口被相同的「继续」样本填满，两小时短视频的决策由现行的 8 次变成 40–80 次，而逐条足迹行不需要决策就已存在（足迹审查 1、行为审查 1、简化审查 CADENCE） |
 | P-2 | `action` 活动没有自己的时长：`planned_end_at` 恒为正在消费的内容的结束时刻，以 `DERIVED_DURATION_CAP_SECONDS` 封顶，每次换内容与恢复时按恢复已在使用的公式（已用秒数加当前内容余量）重定；暂停不加进度，提前结束只记已消费部分，恢复只需余量且不重抽；`ACTIVITY_TOO_SHORT` 不再用于 `action` 活动；`APP_USE_DEFAULT_SECONDS` 删除 | U5；没有动作窗口，一次 app 使用才始终是一个活动、一行 `app_use`（行为审查 1） |
 | P-3 | 播报机会一经提出即被消耗：结算一次唤醒原因含 `progress_report_due` 的决策时，该人物当时到期的每个活动的 `report_anchor_at` 都移到该时刻，不论人物提交的是什么请求；长时间执行里的常设询问就是按场景 `progress_report_interval_seconds` 到期的既有 `progress_report_due` | 内容驱动之后每条内容的结束都是时钟边界；一次没被回答的播报会在每条内容结束时重新触发，把逐条决策带回来（行为审查 4） |
 | P-4 | `CONTENT_MIN_SECONDS = 60`：每条内容登记时 `duration_seconds` 不小于 60，违反以 `ENVIRONMENT_NUMBER_INVALID` 拒绝；不设上限；下限只约束登记，恢复时的内容余量可以更短 | 每条内容的结束都带一次全世界的结算与提交；不足一分钟的内容不给手机足迹增加信息，却成倍增加事件量（行为审查 5、简化审查 CADENCE） |
-| P-5 | 「内容」只指绑定到数据集动作的目录 `Content`。三种系统动作没有内容：行程时长按发布图与固定速度逐次计算并存在出行活动上；睡眠的计划长度沿用现行睡眠需要规则，按实际秒数结算；购买与支付是零模拟秒的时点事实，不建活动、不占名额；配送等待是既有预排事件。登记拒绝动作上的任何时长字段 | 行程、睡眠与交易没有可供数据集撰写的对象；计时的下单活动需要一个编造的常数，并写出一段编造长度的购物 app 使用（足迹审查 10、行为审查 9、简化审查 SYSCONTENT） |
-| P-6 | 足迹合同在冻结时定稿，随阶段 5 在波次内实现。`app-usage.jsonl` 的事实为 `app_use`、`app_touch`、`content_consumed`、`push_delivered`、`push_opened`、`push_released`，`purchases.jsonl` 的事实为 `purchase`、`order_attempt`、`receipt`；导出工件仍是五个文件。行取自带非空 app 身份的活动快照，不看活动类型；`MANNER_DEVICE` 把 `phone_continuous`、`offline_assisted` 映射到 `phone`，把 `other_device` 映射到 `other`。`phone_continuous` 与 `other_device` 写一行带 `segments` 的 `app_use` 和每次结算一行 `content_consumed`；`offline_assisted` 只在受理开始与实际结束各写一个 `app_touch`；没有 app 的活动零行。七条不变量由 `validate_export` 检查；导出不作亮屏或前台声明 | 提案规定了哪些足迹不得存在，没有定义存在的记录；现行导出按活动类型 `use_app` 取行且区间跨过暂停，线下辅助动作照此写出的正是被禁止的全程区间；每次导出都从事件重算 app 使用，事件从第一段代码起就要带齐动作、方式、支付 app 与收货证据（足迹审查 2、足迹审查 6） |
+| P-5 | 「内容」只指绑定到数据集动作的目录 `Content`。系统动作没有内容：行程时长按发布图与固定速度逐次计算并存在出行活动上；睡眠的计划长度沿用现行睡眠需要规则，按实际秒数结算；购买与支付是零模拟秒的时点事实，不建活动、不占名额；配送等待是既有预排事件。登记拒绝动作上的任何时长字段 | 行程、睡眠与交易没有可供数据集撰写的对象；计时的下单活动需要一个编造的常数，并写出一段编造长度的购物 app 使用（足迹审查 10、行为审查 9、简化审查 SYSCONTENT） |
+| P-6 | 足迹合同在冻结时定稿，随阶段 5 在波次内实现。`app-usage.jsonl` 的事实为 `app_use`、`app_touch`、`content_consumed`、`push_delivered`、`push_opened`、`push_released`，`purchases.jsonl` 的事实为 `purchase`、`order_attempt`、`pickup_ready`、`receipt`；导出工件仍是五个文件。行取自带非空 app 身份的活动快照，不看活动类型；`MANNER_DEVICE` 把 `phone_continuous`、`offline_assisted` 映射到 `phone`，把 `other_device` 映射到 `other`。`phone_continuous` 与 `other_device` 写一行带 `segments` 的 `app_use` 和每次结算一行 `content_consumed`；`offline_assisted` 只在受理开始与实际结束各写一个 `app_touch`；没有 app 的活动零行。七条不变量由 `validate_export` 检查；导出不作亮屏或前台声明 | 提案规定了哪些足迹不得存在，没有定义存在的记录；现行导出按活动类型 `use_app` 取行且区间跨过暂停，线下辅助动作照此写出的正是被禁止的全程区间；每次导出都从事件重算 app 使用，事件从第一段代码起就要带齐动作、方式、支付 app 与收货证据（足迹审查 2、足迹审查 6） |
 | P-7 | 两份足迹工件 `app-usage.jsonl`、`purchases.jsonl`、它们的行形状与 `validate_export` 的七条不变量归 WorldMock。手机信号投影归 LabelKit-DataSet，本规格只把它写成交接要求：逐行投影，只筛 `device = phone`，一行对一行，不带自己的规则；由订单派生的下单、付款、送达通知三种信号按「数字足迹合同」归属表写明的取法。本仓库与 WorldMock-Dataset 都不实现这份投影；WorldMock 不安装也不调用 LabelKit，没有数据加工命令，也没有交付清单。LabelKit 窗口及其对事件的公开投影同归 LabelKit-DataSet（P-8、P-27）；下游消费者仍是未完成的验收 | 活在下游投影脚本里的规则与「规则在 WorldMock 钉死」相悖；只写「手机投影」而不点名工件、归属与字段的规格，可以通过全部门禁却交不出消费者读得了的东西（足迹审查 4、足迹审查 6）；三个仓库的归属按 2026-10-07 的用户裁决，即现行文档版本表的 `2026-10-07-repository-ownership` 行 |
-| P-8 | 收货只有一个结算函数，由到店受理处与既有 `delivery_arrival` 事件处调用：`pending → delivered`、`received_at`、状态效果与收货人资源流的排空都在这一个函数内；已是 `delivered` 的订单再遇事件原样返回且不写任何东西，重复提交的动作返回已存结果。模拟人物收货恰写一条 `data.kind = "goods_received"` 的 `environment_event`：归收货人所有、对其可见、`source_kind = "environment"`、与状态改变同一次提交，以 `order_id` 和 `caused_by` 关联；事件连同完整载荷、所有人与可见性原样进入 `events.jsonl`，下游窗口怎样投影它是对 LabelKit-DataSet 的交接要求（「数据仓交接」） | 进食删除后收货是「东西被消费了」的唯一证据，必须是全程审计最严的记录；现行摄入流只在时钟推进时排空，不立这条规则它会挂到下一个、可能属于别人的事件上，第三方收货人的能量变化也没有自己的事件（足迹审查 3、行为审查 8） |
+| P-8 | 收货只有一个结算函数，由到店受理、短时直送与本人驿站领取调用：`pending` 或 `ready_for_pickup → delivered`、`received_at`、状态效果与收货人资源流的排空都在这一个函数内；已是 `delivered` 的订单再遇事件原样返回且不写任何东西，重复提交的动作返回已存结果。模拟人物收货恰写一条 `data.kind = "goods_received"` 的 `environment_event`：归收货人所有、对其可见、`source_kind = "environment"`、与状态改变同一次提交，以 `order_id` 和 `caused_by` 关联；事件连同完整载荷、所有人与可见性原样进入 `events.jsonl`，下游窗口怎样投影它是对 LabelKit-DataSet 的交接要求（「数据仓交接」） | 进食删除后收货是「东西被消费了」的唯一证据，必须是全程审计最严的记录；现行摄入流只在时钟推进时排空，不立这条规则它会挂到下一个、可能属于别人的事件上，第三方收货人的能量变化也没有自己的事件（足迹审查 3、行为审查 8） |
 | P-9 | 食品收货沿用现行 `apply_food`，包括睡眠不足利用率曲线与能量上限：`provided` 为类别千卡乘数量，`applied` 为实际变化，超出上限的部分丢失且不转成任何东西；`GOODS_ENERGY_KCAL` 为 `meal` 600、`snack` 200、`drink` 100，进食时长删除 | 身体轨迹与既有基线保持可比，不新增常数；标注者凭记录里的两个数就能核对一笔收货（足迹审查 3、行为审查 8） |
-| P-10 | 配送在既有 `delivery_arrival` 事件上结算给订单的收货人，不论其身在何处、是否睡着；门口不留任何东西。睡着的收货人不被叫醒；醒着的模拟收货人以既有 `delivery_arrival` 原因唤醒；不是收货人的买家保留唤醒与进度记录 | 「等人在场再结算」是换了名字的库存；不写明则留下一条能量在公司上涨、货却送到家里而无规则可依的足迹（足迹审查 14、行为审查 8） |
-| P-11 | `AppPurpose` 为 `navigation`、`shopping`、`payment`，app 的 `purposes` 可为空。`shopping` 在用途里当且仅当至少一家店铺绑定该 app；`payment_app_ids` 非空当且仅当有 `shopping` 用途，每项指向带 `payment` 用途的 app，可以指向自己；违反为 `APP_PURPOSE_INVALID`。`APP_UNBOUND` 保留码名，含义改为既无用途也无动作绑定。购物 app 总是绑定地图店铺；无店铺电商、包裹与次日达不在范围内，真实电商 app 以绑定超市的即时零售登记并声明为环境假设 | U1 点名三种用途；多用途的真实 app 可以如实登记，导航与支付 app 不必伪造娱乐内容；二十分钟送达的包裹电商订单是地图表达不了的渠道（足迹审查 4、简化审查 APPPURPOSE） |
+| P-10 | 短时配送在既有 `delivery_arrival` 事件上结算给订单实际收货人，不论其身在何处、是否睡着；门口不留东西。长途配送到最近家庭驿站只置 `ready_for_pickup` 并通知实际收货人，状态效果在本人现场领取时结算；两条路径均无库存。睡着的收货人不被叫醒；醒着的模拟收货人以既有 `delivery_arrival` 原因唤醒；付款人不能替代收货人拥有到站事件 | 到站与收货是不同事实，只有本人领取才完成长途收货，不把待领取订单写成库存或提前结算效果 |
+| P-11 | `AppPurpose` 为 `navigation`、`shopping`、`payment`，app 的 `purposes` 可为空。`shopping` 在用途里当且仅当至少一家店铺绑定该 app；`payment_app_ids` 非空当且仅当有 `shopping` 用途，每项指向带 `payment` 用途的 app，可以指向自己；违反为 `APP_PURPOSE_INVALID`。`APP_UNBOUND` 保留码名，含义改为既无用途也无动作绑定。购物 app 总是绑定地图店铺；店铺明确声明运输时长，超过一天的远程购买按最近家庭驿站到站、通知、本人领取 | U1 点名三种用途；多用途的真实 app 可以如实登记，导航与支付 app 不必伪造娱乐内容；二十分钟送达的包裹电商订单是地图表达不了的渠道（足迹审查 4、简化审查 APPPURPOSE） |
 | P-12 | 网购必须点名购物 app（`app`）与它 `payment_app_ids` 里的一个支付 app（`pay_app`）；缺失或未绑定是带候选的名称拒绝，没有默认值；现行取最小 `app_id` 的回退删除。履约店铺由系统在绑定该 app 且售卖该商品的店铺中取 `expected_at` 最早者，同值按 `store_id` | 被默认填上的 app 是一条没人选过的 app 使用记录（足迹审查 4） |
 | P-13 | 到店订单的 `app` 为 null；`pay_app` 可以点名任一带支付用途的 app，为 null 表示这笔支付不留 app 记录。不引入现金或支付渠道闭集；出行车费不记支付 app | 到店扫码付款是最常见的真实支付足迹，支付 app 若只挂在购物 app 之后就表达不了它；代码里不存在任何支付渠道（足迹审查 4、简化审查 APPPURPOSE） |
 | P-14 | 出行项可以点名一个已登记的导航用途 app；不点名就没有导航记录，系统从不代选。导航固定为方式 `offline_assisted`：出行活动保存 `navigation_app_id`，导出在受理出发与实际到达各写一个 `app_touch`，以 `activity_id` 关联；导航不占名额、不属于行程身份。睡眠不产生 app 使用行，睡眠中送达的推送仍是 `push_delivered` 事实且不叫醒人 | `trip_id` 每走同一段路都重复，按它关联会把不同日子并在一起；整段行程的使用区间夸大了步行时的手机使用（足迹审查 11） |
 | P-15 | 一个订单行就是一件，人物请求没有数量键；一次请求至多两行；同一商品只在收货人不同时才能出现两次；结算公式仍读行上的 `quantity`，其值恒为 1 | 没有库存、配送费按单固定时，一次订两三顿最划算：三次饭点下单并成一次，午晚的下单节律从足迹里消失（行为审查 6、简化审查 GOODS） |
 | P-16 | 请求删除 `from` 与 `prefer`；渠道由 `app` 表达；`query_world.from` 改名为 `app` | 一个商品一个价、配送费固定之后 `prefer` 没有可比较的东西（简化与数据审查的呈现项） |
 | P-17 | 每个 `action` 活动占用它的类别名额，`social` 占 `talk`；方式 `phone_continuous` 另占 `use_app`；`other_device`、`offline_assisted` 与导航 app 不另占。驾车占 `wait`、`entertainment`、`work_study`、`exercise`、`daily_care`、`use_app`，只剩交谈；睡眠占全部八个；`SLOT_LIMIT = 2` 不变 | 一个人同一时刻至多一段持续的手机使用，不论类别；否则导出里出现同一人两段重叠的手机区间，没有手机记得出这种东西；用其他设备或不用 app 工作时仍可用手机（足迹审查 5、行为审查 10） |
-| P-18 | 类别 `social` 的对方必填，由人物写在请求的 `to` 键：在场的人物，或通话时的场景联系人。没有 app 的社交动作走现行共处路径（邀请、接受、对方结束时对齐），有 app 的走现行通话路径并把该 app 记在活动上；内容不引用任何场景对象，只给话题、摘要与时长；没有对方的社交信息流浏览归 `entertainment` | 目录内容为所有场景共享，登记不了对场景人物的引用；由系统随机抽出通话对象会打断标注者最先看的因果链：来了消息，人物回的是那个人（足迹审查 7、行为审查 11、简化审查 SOCIALREF） |
+| P-18 | 类别 `social` 的对方必填，由人物写在请求的 `to` 键：在场的人物，或远程社交时的场景联系人。没有 app 的社交动作走现行共处路径（邀请、接受、对方结束时对齐），有 app 的按 communication_mode 走文字主题记录或现行语音通话路径，并把该 app 记在活动上；内容不引用任何场景对象，只给话题、摘要与时长；没有对方的社交信息流浏览归 `entertainment` | 目录内容为所有场景共享，登记不了对场景人物的引用；由系统随机抽出通话对象会打断标注者最先看的因果链：来了消息，人物回的是那个人（足迹审查 7、行为审查 11、简化审查 SOCIALREF） |
 | P-19 | 等待不是生活动作，也不是数据集动作，是引擎的时间原语，语义与现行相同：目标「自己」、方式「等待」、长度为场景的 `activity_feedback_seconds`，没有内容、app、类别与 app 使用记录；它与睡眠一起在每张菜单上受保护。`send_message` 仍是零时长工具，没有 app 身份 | 时钟只在有活动时推进；没有等待，空着的人物会在同一秒里耗尽同刻决策预算，或被推去在中午睡一整觉（行为审查 2、简化审查 WAIT） |
 | P-20 | 读信作为活动删除：场景邮件的正文在到达时可见，与直接消息相同；`read_mail`、方式「阅读」与目标类 `message` 退出 | U1 之外不保留专用活动类型；读信活动不产生任何 app 使用事实（简化审查 WAIT） |
-| P-21 | `ContentKind` 五个成员不变；内容所属动作的类别是 `entertainment` 时 `kind` 必填，其余类别必须为 null，违反为 `ENVIRONMENT_KIND_INVALID`；`CONTENT_RELIEF_PER_HOUR` 的五个速率不变，只用于娱乐 | 工作主题、一次跑步、整理房间没有媒体形式；给形式闭集添上没有规则含义的成员，等于让数据集为一件事维护两套标签（简化审查 FORM） |
-| P-22 | `GoodsCategory`（`meal`、`snack`、`drink`、`leisure`、`daily`）取代 `FoodCategory`；`FOOD_STORE_KINDS` 改名 `STORE_KINDS`，成员不变；`GOODS_CATEGORY_STORE_KINDS` 固定每种店铺类型能供给的类别。商品沿用现行食品的 `store_ids` 规则（显式列表或 `"all"`，同类型店铺同菜单），`"all"` 展开到每一家类型可供给该类别的店铺；码改名为 `GOODS_BINDING_MISSING`、`GOODS_BINDING_KIND_INCONSISTENT`，绑定到不是店铺或类型不能供给该类别的地点为 `GOODS_STORE_KIND_INVALID` | 哪种店卖哪类东西是分类规则，归 WorldMock（U6）；绑定机制沿用已冻结的做法，不为同一事实另造形状（简化审查 GOODS） |
+| P-21 | 删除 `ContentKind`、`CONTENT_KIND_LABELS`、内容 `kind` 与 `CONTENT_RELIEF_PER_HOUR`；内容只绑定动作与 app，分类仅属于动作。娱乐动作统一以 `ENTERTAINMENT_RELIEF_PER_HOUR = 0.3` 按实际消费时间结算 | 用户最新裁决：自定义动作和内容由环境维护，WorldMock 无需再维护娱乐内容分类；游戏、音乐、播客如实用动作名称、内容与 app 表达，不增加玩法或播放器系统 |
+| P-22 | `GoodsCategory`（`meal`、`snack`、`drink`、`leisure`、`daily`、`fuel`）取代 `FoodCategory`；`FOOD_STORE_KINDS` 改名 `STORE_KINDS`，增加 gas_station；`GOODS_CATEGORY_STORE_KINDS` 固定每种店铺类型能供给的类别。商品沿用现行食品的 `store_ids` 规则（显式列表或 `"all"`，同类型店铺同菜单），`"all"` 展开到每一家类型可供给该类别的店铺；码改名为 `GOODS_BINDING_MISSING`、`GOODS_BINDING_KIND_INCONSISTENT`，绑定到不是店铺或类型不能供给该类别的地点为 `GOODS_STORE_KIND_INVALID` | 哪种店卖哪类东西是分类规则，归 WorldMock（U6）；绑定机制沿用已冻结的做法，不为同一事实另造形状（简化审查 GOODS） |
 | P-23 | 场所限制只有一张粗粒度的类别表：`exercise` 限 `home`、`outdoor`、`fitness`，其余类别不限；另有一条对象规则：场景分配的工作内容只有被分配者能消费，且只能在其 `work_schedule.workplace_location_id`。动作不带场所字段 | 场所限制是分类规则（U6）；更细的场所合理性交给人物的常识，并写进「已知局限」（简化审查 PLACE） |
 | P-24 | 类别表的接续方式、MET 与按实际秒数的状态效果由 WorldMock 固定，数据集碰不到任何一列。`exercise` 的 MET 5.0 与 `daily_care` 的 MET 2.0 是新增的实验假设，其余取现行值；现在定义在 `life/felt.py`、`life/social.py`、`life/activities.py` 的社交、情绪与运动速率移入 `exchange`，并进入单一来源归属表 | 新造的数只有两个；这些常数现在处于 `RULES_VERSION` 的归属之外，「规则钉死在一处」尚不成立（行为与成本、简化与数据两份审查的类别常数项） |
 | P-25 | `ContentProgress{content_id, position_seconds, completed_rounds, last_consumed_at}` 以人物与内容为键、跨 app 共享。`last_consumed_at` 是最近一次消费秒数为正的结算的模拟秒，是「看过」「执行过」的唯一定义；推送送达、摘要展示、进入候选与零秒暂停都不算。不另存当前内容、所属动作或 app。预留集合在抽取时派生、从不保存：该人物其他进行中或暂停活动里选中的内容，加上当前 session 待消费或已打开推送置顶的内容；只在另有合格内容时跳过 | 可推导事实的存储副本是每次恢复都要校验、还可能与目录不一致的新检查点状态；零秒暂停若算看过，会标记一条从未产生 `content_consumed` 行的内容（足迹审查 9、简化审查 DERIVED） |
 | P-26 | 选择只读冻结目录、`content_progress`、当前 session 的推送、该人物的活动与 `WorldState.random_state`；每个候选集与并列集都按 `content_id` 排序；抽取用现行带键 sha256 流，键为 `activity_id:draw_index`（开始时为 0，每接续一条加 1），推送用 `scheduled_id`；不用内置 `hash()`、集合次序或墙钟。选中的内容存在活动数据与 session 推送里，暂停、恢复与检查点恢复从不重抽；键格式属 `RULES_VERSION` 范围 | 选择依赖历史之后，缺了排序与带键决胜，两台机器或一次检查点恢复就会抽到不同内容，内容足迹不再逐字节可复现（足迹审查 9） |
 | P-27 | 推送的白天网格、每个 session 每个 app 至多一条、session 有效期与不打断睡眠不变。推送只从类别 `entertainment` 且方式 `phone_continuous` 的动作的内容里抽，单元规则与历史同一次打开；`push_id` 公式与逐 session 键不变，环境事件与进度层记录增加动作名。`push_opened` 是同一 session 内对该 app 该动作第一次被受理的开始；开始该 app 的另一个动作既不打开也不消费它，接续从不打开它。WorldMock 导出的是人物可见的 `app_push` 原始事件及其载荷；下游窗口对它的投影归 LabelKit-DataSet，列为交接要求（「数据仓交接」） | 工作主题与打卡页成为内容之后可能被推送，那是没有手机会显示的通知；人物不知道推送属于哪个动作就会打开错的那个，推送、打开、消费的链条合不上（足迹审查 8） |
-| P-28 | 工具名与数量不变。`start_activity.items[]` 为 `{target, way, app, to, pay_app}`，每个键必填、不用时写 null；请求里没有时长、内容、主题或数量键；`WAYS` 为 步行、驾车、睡觉、等待、购买、进行。工具层新增目标类 `action`：内容里至少有一条未被分配或分配给本人的每个动作始终列出（不看内容是否已完成、人物此刻在哪里），每个绑定的 app 一行，没有 app 的一行 `app: null`，动作不轮转；列出的行没有合格内容时不可用并写 `CONTENT_EXHAUSTED` 的原因；候选种类只剩 `product`，`lifestyle`、`task` 两种候选、生活活动检索表、`named_catalog.py` 与非商品对象的轮转退出。动作行显示的时长只由内容派生 | 人物只选动作与可选的 app（U3）；对象少到可以全列之后，三种候选的轮转与呈现管线没有重新挂键的必要；动作行不显示时长，人物会在常人不会开始的时刻开始长内容（行为审查 14） |
+| P-28 | 新增原生工具 set_alarm；其他工具名不变。`start_activity.items[]` 为 `{target, way, app, to, pay_app}`，每个键必填、不用时写 null；请求里没有时长、内容、主题或数量键；`WAYS` 为 步行、驾车、睡觉、等待、购买、进行、领取。工具层新增目标类 `action`：内容里至少有一条未被分配或分配给本人的每个动作始终列出（不看内容是否已完成、人物此刻在哪里），每个绑定的 app 一行，没有 app 的一行 `app: null`，动作不轮转；列出的行没有合格内容时不可用并写 `CONTENT_EXHAUSTED` 的原因；候选种类只剩 `product`，`lifestyle`、`task` 两种候选、生活活动检索表、`named_catalog.py` 与非商品对象的轮转退出。动作行显示的时长只由内容派生 | 人物只选动作与可选的 app（U3）；对象少到可以全列之后，三种候选的轮转与呈现管线没有重新挂键的必要；动作行不显示时长，人物会在常人不会开始的时刻开始长内容（行为审查 14） |
 | P-29 | 系统层保持十八条及其位置；只改写提到进食、持有物、以 app 为目标、工作主题或工具层时长的条文，新文逐字写在「系统层」；其他特性台账逐字钉住的句子原样保留 | 旧文在每一次决策里告诉人物去做世界已不支持的事（送到才能吃、打开 app、按主题计工时），诱发重复下单与无意义的决策（行为审查 7、行为审查 14） |
 | P-30 | 当日计划意图落到新对象上：睡眠对应睡眠；晨间例程、家务对应 `daily_care`；通勤、外出对应出行；工作对应带分配内容的 `work_study`；用餐对应本人在既有时间容差内收到一件 `meal` 商品；休息对应等待或 `daily_care`；娱乐对应 `entertainment`；社交对应 `social`；运动对应 `exercise` | 不改则用餐目标永远无法推进，整天挂作未完成的承诺；生活活动类别消失后若干意图失去证据（行为审查 7） |
 | P-31 | 规则文件只从包读取；`runtime_code_sha256` 另外哈希 `src/worldmock/data/` 下的每个文件，规则字节由 `code_sha256` 钉住。目录清单保留 `rules_version`（必须等于 2），不加规则哈希；`environment_identity` 仍是五个字段；`require_engine_rules` 与 `catalog/rules/` 的副本删除；清单的 `files` 恰列六个文件 | 包内规则文件现在只靠环境里的字节副本进入运行身份，撤掉副本而不扩大哈希范围，规则可以在 `RULES_VERSION` 不动时改变而旧运行仍能恢复；把哈希放进清单则要数据仓去算引擎包的字节（简化审查 RULEHASH） |
 | P-32 | 发布环境是 `catalog/` 加 `scenarios/`，引擎不再读 `corpora/`。场景结构 8 删除 `corpus_root`、`corpus_manifest_sha256`；世界结构 11 删除 `content_manifest_sha256`；运行清单 4 去掉语料钉 | 生活活动语料退出后引擎不读 `corpora/` 下的任何文件；钉住没有运行期读取方的文件只产生与行为无关的身份不符（简化审查 CORPORA） |
 | P-33 | 内部动机评分器随本特性退役：删除 `src/worldmock/life/motivation.py`、`src/worldmock/exchange/motivation.py`、`src/worldmock/data/motivation.toml`、`affordances.toml` 的家族层及其解析、`observation.data.motivation_internal`；场景结构 8 删除整个 `agents[].motivation`（十个字段都随评分器失去读取方），`MotivationProfile` 与 `MotivationProfileSource` 一并删除 | 它读取的输入（持有食品与进食时间、生活活动效果与典型时长、主题目标工时）全部被本特性删除；输出不进提示，在评估、足迹、脚本与工具里没有读取方；保留等于为一个没人用的数重写三个生成器（简化审查 MOTIVATION） |
 | P-34 | 进食与持有删除后失去来源的读取方逐项定稿：`meal_diversity` 改按食品类别 `receipt` 行的 `goods_id`；质量报告 `conversion_efficiency.food` 改按收货的 `applied / provided`；`activity_distribution` 去掉用餐族，并在口径里写明参照用餐分钟没有模拟对应物；已核验经历删除 `consumed`、加入 `received`，`played.app_id` 可为 null；个人事务结果「吃掉」与结果键删除，事务在收货时办成；`SOCIAL_NEED_SHARED_MEAL_RATE` 与共餐规则删除；评估域 `eat` 删除；评估以「快照有 app 且 `device = phone`」判定手机数字交互，以 `goods_received` 与 `delivery_arrival.orders[]` 为收货证据；质量 `content_contact.by_app` 只计 app 使用行，新增 `by_action` 计全部内容结算，并在 `repeat_watch` 旁给出重播秒数占比；时间线与查看器只在快照有 app 时写 app 名，只对 `device = phone` 写「用手机」；系统从不合成用餐活动 | 这些读取方不会报错，只会读出零并被当成行为解读；八小时工作若继续算作数字交互，正是提案对手机禁止的结果（足迹审查 12、足迹审查 13） |
-| P-35 | 身份号：目录 `format_version` 2；`RULES_VERSION` 2；场景结构 8；世界结构 11；运行清单 4；导出清单 4；质量报告 6；行为报告 `behavior-metrics-2`；`affordances.toml` 版本 2；WorldMock-Dataset 的 `environment_version "2"`；LabelKit-DataSet 所有的下游手机投影清单（随新行形状升号，号由该仓库定）。不变：地图结构 1 与生成器规则 1、`Event` 与 `Checkpoint` 结构 1、22 个唤醒原因、事件类型集合、`environment_identity` 的五个字段。每个入口拒绝旧号，不迁移、不双读 | 行形状、状态字段与抽取键都在变；有一个号没写明，就会出现漏掉某道门的查找替换式升级（足迹真实性、简化与数据两份审查的身份号项） |
+| P-35 | 身份号：目录 `format_version` 2；`RULES_VERSION` 2；场景结构 8；世界结构 11；运行清单 4；导出清单 4；质量报告 6；行为报告 `behavior-metrics-2`；`affordances.toml` 版本 2；WorldMock-Dataset 的 `environment_version "2"`；LabelKit-DataSet 所有的下游手机投影清单（随新行形状升号，号由该仓库定）。不变：地图结构 1 与生成器规则 1、`Event` 与 `Checkpoint` 结构 1、事件类型集合、`environment_identity` 的五个字段。每个入口拒绝旧号，不迁移、不双读 | 行形状、状态字段与抽取键都在变；有一个号没写明，就会出现漏掉某道门的查找替换式升级（足迹真实性、简化与数据两份审查的身份号项） |
 | P-36 | 新代码的位置：收货结算 `src/worldmock/life/receipt.py`，执行器 `src/worldmock/life/action_run.py`，选择 `src/worldmock/life/content_select.py`；`session_actions.py` 与 `life/models.py` 的行数只许减少或持平。可供性注册表保留 TOML 载体，类型行改为 `wait`、`sleep`、`travel`、`action`，现行条件占用机制增加 `category` 与 `manner` 两个维度 | 风格门限制单个文件的行数，逼近上限的正是这两个文件；条件占用已为出行方式存在，不另造机制（简化与数据审查的代码落点项） |
 | P-37 | 提案的四段落成阶段 0、一个集成波次（阶段 1–6）与阶段 7。波次在一条特性分支上开发、一次合入主干；阶段 1–6 各有自己的提交和所有者测试，行为是纯函数的阶段 1–3 的所有者测试不导入 `LifeEngine`；后继与被替换的路径在同一提交里交换，新旧不并存；不留空壳、兼容重导出、跳过的检查或延期标记；整文件在最后一个消费者离开的阶段删除。完成集合 `STAGES_DONE` 只接受 `∅ → {1,2,3,4,5,6} → {1,…,7}`。阶段 4 的首个 `LifeEngine` 创建、决策、推进、检查点、重开闭环就是提案的「最小端到端闭环」里程碑，不是合入点；阶段 7 只登记回执 | 不许兼容路径、引擎创建急切读取整个目录、只有一套夹具环境和一种请求形状，「最小端到端闭环」与「完整运行替换」不可能分别合入，理由同前序规格的 B-33；足迹读取方若留到最后一段，会在整整一段里失效（简化审查 STAGE、足迹审查 6） |
 | P-38 | 台账至多 30 个契约点；属于引擎行为的契约点至少有一个走真实请求、引擎与 SQLite 路径的行为用例，每个契约点至少一个源码变异；不建前序规格那种规模的变异表。必有一行成本：一次不少于两小时、跨不少于 20 条内容的 `entertainment` 执行恰产生一行 `app_use`、每条内容一行内容证据，且可归于这次执行的 `decision_started` 事件不多于 `2 + floor(seconds / progress_report_interval_seconds)`；新的完整日基线运行把每人每日决策数报告为观测值（写在阶段 6 的回执与实现状态里，不设阈值） | 成本行让节律规则可测，并在十二周运行开始之前给出实测成本（行为与成本审查的成本证据项、简化与数据审查的预算项） |
@@ -137,13 +138,13 @@ flowchart LR
 
 | 文档 | 对象 | 被取代 | 被修订 | 保留 |
 | --- | --- | --- | --- | --- |
-| 资源与规则引擎简化规格 | 裁决 | D-12、D-14、D-15、D-51、C-5（app 目标、方式「打开」与固定使用窗口；R1、P-1、P-2、P-28）；D-20、D-50、B-6、B-42（工作主题目录与主题上限；R6、P-4）；D-34（来源为空时取最小 `app_id`；P-12、P-16）；B-2、B-3（系统层句子；P-29）；B-26（非食品退出目录、生活服务由语料表达；R2、P-22）；D-28 的生活活动 `location_kinds` 半句（P-23）；D-41 的 `read_mail` 半句（P-20） | D2（绑定规则推广到商品；P-22）；D4、B-16（推送候选；P-27）；D7 后半句（生活活动改为数据集动作）；D8、C-4（千卡保留，进食秒数与食用窗口删除；P-9）；D9（加入 R4 … R6 的次序、预留与有限内容）；D-18、C-3（速率不变，只用于娱乐；P-21）；D-19（加 `last_consumed_at`；P-25）；D-22、D-49（叙述通道保留，目标类 `task` 退出）；D-35（`APP_CONTENT_EMPTY` 由 `CONTENT_EXHAUSTED` 取代，其余码以「活动受理拒绝码」为准）；D-36（`APP_UNBOUND` 改义；P-11）；D-43（系列决定选择次序；R5）；D-44（事实种类，逐行投影归 LabelKit-DataSet；P-6、P-7）；D-46、B-7（人工环境与第四份基线；P-41）；D-52、B-30（打开键改为 `activity_id:draw_index`；P-26）；B-1（改写集合；P-29）；B-4（进度记录加动作名，系统不再代选 app）；B-9（常数名）；B-17（数量门槛；P-42）；B-20（`WORK_SCHEDULE_REQUIRED` 的条件改为分配了工作内容）；B-21（随 P-33）；B-22、B-23（占用闭集与「人物选动作与可选 app、系统选内容」；P-17、P-28）；B-25（内容时长下限；P-4） | D1、D3、D5、D6、D10、D-11、D-13、D-16、D-17、D-21、D-23 … D-27、D-29 … D-33、D-37、D-40、D-42、D-45、D-47、D-48、C-1、C-2、C-6、C-8、B-10 … B-14、B-24、B-29、B-31、B-32、B-35、B-43 |
-| 同上 | 闭集 | `FoodCategory`（由 `GoodsCategory`）；`ActivityKind`（十个减为 `wait`、`sleep`、`travel`、`action`）；`RESOURCE_CLAIM_SLOTS`（成员换为 `wait`、`travel`、`talk`、`use_app`、`entertainment`、`work_study`、`exercise`、`daily_care`）；`WAYS`（十六个减为六个）及随之收缩的 `ACTION_WAYS`；`START_ACTIVITY_ACTIONS`（十一个减为五个）；`CandidateKind`（只剩 `product`）；`TARGET_KINDS`（改为 `location`、`product`、`action`、`person`、`contact`、`self`、`activity`） | `FOOD_STORE_KINDS` 改名 `STORE_KINDS`；`ContentKind` 的必填条件（P-21）；`environment_event.data.kind` 加 `goods_received`，`work_topic_completed` 改名 `work_content_completed` | `LocationKind`、`PLACE_KIND_ENVIRONMENTS`、`SummarySourceKind`、`ScheduledKind`、`WakeReason` 的 22 个成员与次序 |
-| 同上 | 常数 | `APP_USE_DEFAULT_SECONDS`；`FOOD_CONSTANTS` 的进食秒数；`BODY_CONSTANTS.activity_met` 的 `work`、`use_app`、`read_mail`、`consume`、`chat`、`call` 键与生活活动条目自带的 `met_value`（由 `CATEGORY_MET`） | `RULES_VERSION` 由 1 改为 2；`FOOD_CONSTANTS` 的千卡改名 `GOODS_ENERGY_KCAL`；`CONTENT_RELIEF_PER_HOUR` 值不变、只用于娱乐；新增 `GOODS_RECEIPT_EFFECTS`、`CONTENT_MIN_SECONDS` | 出行、配送、地图与推送常数；身体常数，含 `food_efficiency_curve` 与能量上限；`wait`、`sleep`、`travel:walking`、`travel:driving` 的 MET；`DERIVED_DURATION_CAP_SECONDS` |
+| 资源与规则引擎简化规格 | 裁决 | D-12、D-14、D-15、D-51、C-5（app 目标、方式「打开」与固定使用窗口；R1、P-1、P-2、P-28）；D-20、D-50、B-6、B-42（工作主题目录与主题上限；R6、P-4）；D-34（来源为空时取最小 `app_id`；P-12、P-16）；B-2、B-3（系统层句子；P-29）；B-26（非食品退出目录、生活服务由语料表达；R2、P-22）；D-28 的生活活动 `location_kinds` 半句（P-23）；D-41 的 `read_mail` 半句（P-20） | D2（绑定规则推广到商品；P-22）；D4、B-16（推送候选；P-27）；D7 后半句（生活活动改为数据集动作）；D8、C-4（千卡保留，进食秒数与食用窗口删除；P-9）；D9（加入 R4 … R6 的次序、预留与有限内容）；D-18、C-3（改为娱乐类别统一速率；P-21）；D-19（加 `last_consumed_at`；P-25）；D-22、D-49（叙述通道保留，目标类 `task` 退出）；D-35（`APP_CONTENT_EMPTY` 由 `CONTENT_EXHAUSTED` 取代，其余码以「活动受理拒绝码」为准）；D-36（`APP_UNBOUND` 改义；P-11）；D-43（系列决定选择次序；R5）；D-44（事实种类，逐行投影归 LabelKit-DataSet；P-6、P-7）；D-46、B-7（人工环境与第四份基线；P-41）；D-52、B-30（打开键改为 `activity_id:draw_index`；P-26）；B-1（改写集合；P-29）；B-4（进度记录加动作名，系统不再代选 app）；B-9（常数名）；B-17（数量门槛；P-42）；B-20（`WORK_SCHEDULE_REQUIRED` 的条件改为分配了工作内容）；B-21（随 P-33）；B-22、B-23（占用闭集与「人物选动作与可选 app、系统选内容」；P-17、P-28）；B-25（内容时长下限；P-4） | D1、D3、D5、D6、D10、D-11、D-13、D-16、D-17、D-21、D-23 … D-27、D-29 … D-33、D-37、D-40、D-42、D-45、D-47、D-48、C-1、C-2、C-6、C-8、B-10 … B-14、B-24、B-29、B-31、B-32、B-35、B-43 |
+| 同上 | 闭集 | `FoodCategory`（由 `GoodsCategory`）；`ActivityKind`（十个减为 `wait`、`sleep`、`travel`、`action`）；`RESOURCE_CLAIM_SLOTS`（成员换为 `wait`、`travel`、`talk`、`use_app`、`entertainment`、`work_study`、`exercise`、`daily_care`）；`WAYS`（七个最终方式）及随之收缩的 `ACTION_WAYS`；`START_ACTIVITY_ACTIONS`（六个最终内部动作）；`CandidateKind`（只剩 `product`）；`TARGET_KINDS`（改为 `location`、`product`、`action`、`person`、`contact`、`self`、`activity`） | `FOOD_STORE_KINDS` 改名 `STORE_KINDS`；删除 `ContentKind` 与内容类型标签（P-21）；`environment_event.data.kind` 加 `goods_received`，`work_topic_completed` 改名 `work_content_completed` | `SummarySourceKind` 与既有 WakeReason 成员的次序；LocationKind、PLACE_KIND_ENVIRONMENTS、ScheduledKind、WakeReason 按用户补订增加成员 |
+| 同上 | 常数 | `APP_USE_DEFAULT_SECONDS`；`FOOD_CONSTANTS` 的进食秒数；`BODY_CONSTANTS.activity_met` 的 `work`、`use_app`、`read_mail`、`consume`、`chat`、`call` 键与生活活动条目自带的 `met_value`（由 `CATEGORY_MET`） | `RULES_VERSION` 由 1 改为 2；`FOOD_CONSTANTS` 的千卡改名 `GOODS_ENERGY_KCAL`；`CONTENT_RELIEF_PER_HOUR` 删除，改用 `ENTERTAINMENT_RELIEF_PER_HOUR`；新增 `GOODS_RECEIPT_EFFECTS`、`CONTENT_MIN_SECONDS` | 出行、配送、地图与推送常数；身体常数，含 `food_efficiency_curve` 与能量上限；`wait`、`sleep`、`travel:walking`、`travel:driving` 的 MET；`DERIVED_DURATION_CAP_SECONDS` |
 | 同上 | 章节 | 「三类食品与进食」整节；「娱乐：app、内容与推送」的内容选择、固定窗口与活动生命周期条款；「工作主题与叙述」的主题目录、分配与完成条款；「数据仓交接」 | 「用户得到什么」；「固定规则与常数」；「环境格式」的目录文件、场景结构 7、注册校验与错误；「店铺、食品与外卖」的即时交付到当地持有与持有条款；「观察与工具面」「系统层」；「状态、事件、检查点与导出」；「人工环境」；「验收台账」「行为用例」「变异登记」里随测试退役的行，在删除该测试的同一提交删除 | 「地图与出行」；「店铺、食品与外卖」的同类型同菜单、全地图可达、配送时间与费用、商家账户条款；「娱乐：app、内容与推送」的推送网格与 session 条款；「工作主题与叙述」的叙述通道与按实际秒数计时；规格不归档，其机器登记仍是现行特性 |
 | 同上 | 过程性裁决 | — | — | B-8、B-18、B-19、B-27、B-33、B-34、B-36 … B-41、B-44、C-7 与两份早期备忘的条目是该特性的实施历史，不约束本特性；本特性的阶段、台账、基线与人工环境由 P-37 … P-41 自定 |
 | `docs/dev/SPEC-environment-data-ownership.md` | 条款族 | 「活动效果来自环境」一行 | 通用规则归属（包内 TOML 的环境副本）、数据准备归属、测试输入归属、发布与约束 | 其余 |
-| `docs/dev/SPEC-life-runtime.md` | 条款族 | 进食的交互语义；持有、使用与给予；app 使用的固定时长 | 状态归属；内容完成边界与续行；播报锚点（P-3）；转换效率与具体活动结算；活动组合政策的占用表；七层请求与工具层目标；候选契约与呈现；远程订购；社交路径的入口；生活动作与请求形状；派生时长上限；个人事务的完成依据 | 共享时钟、同刻决策、22 个唤醒原因、身体基础模型、导航与配送、资金与合同 |
+| `docs/dev/SPEC-life-runtime.md` | 条款族 | 进食的交互语义；持有、使用与给予；app 使用的固定时长 | 状态归属；内容完成边界与续行；播报锚点（P-3）；转换效率与具体活动结算；活动组合政策的占用表；七层请求与工具层目标；候选契约与呈现；远程订购；社交路径的入口；生活动作与请求形状；派生时长上限；个人事务的完成依据 | 共享时钟、同刻决策、23 个唤醒原因、身体基础模型、导航与配送、资金与合同 |
 | `docs/dev/SPEC-life-realism.md` | 条款族 | 动机层（P-33）；商务与进食的进食部分；家庭储备一行 | 世界素材品类要求；`location_kinds` 的运行期语义；素材可达性；工具层与进度层的呈现；时间线标签 | 其余 |
 | `docs/dev/SPEC-interaction-menu.md` | 条款族 | 生活活动的地点类资格与排序 | 菜单动作闭集（`START_ACTIVITY_ACTIONS` 五项）；观察与人物工具；查询筛选里的来源措辞 | 菜单声明与门控机制 |
 | `docs/dev/SPEC-map-and-storefront.md` | 条款族 | 食品持有；请求级 `from` 与 `prefer` | 按地点类型的供给（商品类别与供给表）；整单购买与履约（收货结算、支付 app）；指名购买 | 发布图、地点发现、固定价格、配送时间与费用 |
@@ -155,9 +156,57 @@ flowchart LR
 | `docs/dev/SPEC-agent-interaction.md` | 条款族 | 以 app 为目标的条款 | 对象与动作选择；动作时长的来源；会话字段里的推送；稳定工具面；决策触发表 | 三级结构与七层上下文 |
 | `docs/dev/SPEC-as2-integration.md` | 条款族 | — | 错误合同示例与验收矩阵里的进食、给予条目 | 其余 |
 | `docs/dev/SPEC-run-viewer-names.md` | 条款族 | — | 名称索引的来源（动作与商品取代食品、工作主题、生活活动）；活动标题 | 地点名称、缺失与重新加载 |
-| `docs/dev/SPEC-run-viewer-context.md` | 条款族 | — | 名称索引的来源与事件标签（`use_app`、方式「打开」、工作主题完成） | 请求选择与关联、22 个唤醒标签 |
+| `docs/dev/SPEC-run-viewer-context.md` | 条款族 | — | 名称索引的来源与事件标签（`use_app`、方式「打开」、工作主题完成） | 请求选择与关联、23 个唤醒标签 |
 | `docs/dev/SPEC-shared-rules-and-rebuildable-env.md` | 条款族 | 活动规则表里「生活活动效果来自环境」与活动家族 | 活动时长、缓解速率、候选种类各行；包内 TOML 的环境副本；文档原子同步清单 | 可重建环境 |
 | `docs/dev/SPEC-layering-and-test-tiers.md` | 条款族 | — | 现行特性集合（阶段 1 接纳本特性的台账）；完整日基线清单（阶段 6 的第四份） | 其余 |
+
+<a name="spec-acs-用户补订系统行为"></a>
+## 用户补订：加油、长途配送、闹钟与文字聊天
+
+用户在实现期间明确增加以下行为，并确认加油天数口径。本节随同一集成波次实现；不是延期项。新增系统动作仍不登记 Content，不恢复库存、持有、进食或给予。未提及的固定规则保持原值。
+
+### 加油站与驾车可用天数
+
+- `LocationKind` 增加 `gas_station`（加油站）与 `parcel_station`（驿站）。前者属于 `STORE_KINDS`，只供给新增的 `GoodsCategory.fuel`（燃油）；原四种店铺的五类商品供给表不变。驿站不是店铺，不绑定购物 app，不供应商品；两类地点在场所投影中均为 `venue`。
+- `agents[].owns_car` 为必填布尔值，`initial_driving_days` 为必填非负严格整数；没有汽车时初始天数必须为零。世界人物状态保存必填的 `driving_days`（非负整数）与 `last_driving_date`（场景本地 ISO 日期或 null）。所有权只读场景声明，不从背景关键词猜测，不建立车辆库存。
+- 燃油只能由拥有汽车、实际位于加油站的本人为自己购买，当秒经唯一收货函数增加 7 个驾车可用日；常数为 `FUEL_DRIVING_DAYS = 7`，环境不能改。`provided`、`applied` 均为 7，单位为驾车可用日；不增加热量、娱乐缓解、情绪或库存。加油不清除 `last_driving_date`，不设容量上限。
+- 现场购买燃油仍为 `app: null`，可在 `pay_app` 选择具有 `payment` 用途的真实加油 app 或其他支付 app；无支付 app 则保持 null。加油 app 不因此成为远程购物 app。远程购买燃油、替他人加油、无车或不在加油站均在付款前拒绝。
+- 当某个本地日期第一次产生实际驾车秒数时，扣 1 个 `driving_days` 并记录该日期；同日多次驾驶不重复扣。不驾车不扣，零秒取消不扣，加油不会使同日再扣一次。剩余天数为零但当天已扣过时，当天仍可驾车；进入新的驾车日期必须有剩余天数。
+- 跨本地午夜的驾驶按具有正驾驶秒数的每个日期各扣一次；受理前按实际计划区间检查覆盖这些日期的可用天数，边界恰到午夜不计下一日。日期按场景时区换算，不能除以 86400。既有驾车距离计费与 `transport:service` 转账保持原规则，加油另按商品价格付款。
+- 新增稳定业务码 `CAR_REQUIRED`、`DRIVING_DAYS_EXHAUSTED`、`FUEL_PURCHASE_INVALID`。英文原因依次为 "Driving requires a car owned by this persona."、"No driving days are available for this trip."、"Fuel must be bought for yourself while present at a gas station."。驾车候选显示真实汽车和天数条件，不自动改为步行。
+
+### 运送超过一天时先到驿站、再领取
+
+- `Location.shipping_seconds` 为必填的严格正整数或 null。普通店铺的非空值声明从下单到末端送达或到站的完整运送时长；null 明确使用原本的固定备餐秒数加图上行程。非店铺及加油站必须为 null。环境能声明运送事实，不能改固定配送费、同城速度或准备时间。
+- 远程购买的完整时长严格大于 86400 秒时，履约方式为 `station_pickup`；不超过 86400 秒仍为既有 `delivery`。到店购买仍为 `pickup`。同门店商品使用同一运输声明，不引入逐商品运输配置。
+- 运送时长只报价一次。shipping_seconds 非空时直接使用完整声明；为 null 时先按实际收货人的当前可收货地址计算固定备餐秒数加图上行程。模拟收货人正在途中而无当前地址时，可用家庭地址报价，但只有严格超过一天才受理，短时仍按既有无收货地址规则拒绝。分类为长途后改用家庭地址和最近驿站保存履约目的地，不重新计算时长或改回短时；expected_at 恒为下单秒加这次报价。
+- 长途下单先取实际模拟收货人的 `home_location_id`；从完整发布图上全部 `parcel_station` 中，以家庭地址的最短图距离选择最近驿站，距离相同按 `location_id` 排序。最近驿站必须被当前场景实例化，缺驿站或未选择最近驿站时拒绝环境准入，不改选更远的站。收货人正在外出或睡眠不影响长途下单。联系人没有家庭地址和自主领取语义，长途联系人订单在付款前拒绝，短时联系人直送保持原合同。
+- 订单保存 `delivery_address_id`（长途为家庭地址，短时为原合同实际收货地址）、`destination_id`（长途为最近驿站）、`arrived_at`、`received_at`。状态为 `pending`、`ready_for_pickup`、`delivered`：pending 两时刻均为 null；ready_for_pickup 只有 arrived_at；delivered 两时刻非空且 `created_at <= arrived_at <= received_at`。到店两时刻等于 created_at；短时直送两时刻等于 expected_at；长途到站 arrived_at 等于 expected_at，received_at 只在本人领取时填写。
+- 下单仍按既有整单分组规则付款一次，按组只收一次配送费。预排按 `(expected_at, fulfillment, destination_id, recipient_id)` 分组；分开预排不再次收费。购买结果事件的真实 `event_id` 随同一次提交绑定到配送排期的 `caused_by`，`scheduled_id` 不冒充事件身份。
+- 长途到期只把订单置为 ready_for_pickup，并向实际收货人写一条本人可见的 `delivery_arrival` 环境事件（kind、scheduled_id、orders[]，每张订单明确 arrived_at 与 ready_for_pickup）；沿用 `delivery_arrival` 唤醒原因，睡眠中不叫醒。此时没有 receipt、goods_received、商品效果或库存变化。该记录的可读文字提示前往具体驿站领取。
+- `start_activity` 五键不变，新增方式「领取」，内部动作为 `collect_parcel`。target 是「地点：<驿站显示名>」，app、to、pay_app 为 null。本人须实际在该站，零秒领取本人在此站全部 ready_for_pickup 订单，每张订单经唯一收货函数变为 delivered；不建活动，不占活动名额，不建立或改变库存。其他人订单不能取，无本人可取订单以 `PARCEL_NOT_READY` 拒绝，英文原因为 "No parcels are ready for you at this station."。
+- 领取的 goods_received 归实际收货人，caused_by 指向本人真实领取结果事件。重复身份重放返回已存结果；重复到站和重复领取均零重复效果、零重复收货证据。
+- `purchases.jsonl` 增加 `pickup_ready{agent_id, order_id, app_id, pickup_location_id, arrived_at, source_event_id}`，归实际收货人，来源取本人到站事件；此行证明通知可取。receipt 的 agent_id 改为实际模拟收货人，source_event_id 取本人的 goods_received；联系人仍归付款人，来源取真实下单或送达事件，provided、applied 为 null。purchase 行仍归付款人。跨行通过 order_id 与 recipient_id 关联，不能要求付款人与收货人相同。
+- 足迹不变量保留来源与行同一所有人；增加 ready_for_pickup 零 receipt/零 goods_received、每张长途已到站订单恰一 pickup_ready、received_at 不早于 arrived_at 的检查。LabelKit-DataSet 从 pickup_ready 投影到站通知，不能从领取 receipt 再制造一次到站通知；短时配送通知保留原交接规则。
+- 新增登记码 `PARCEL_STATION_REQUIRED`，英文原因为 "The nearest parcel station to a persona home must be registered and selected by the scenario."。长途联系人下单以现有收货人不能收货分句拒绝，不虚构家庭地址。
+
+### 系统默认闹钟
+
+- 新增一个零秒原生工具 `set_alarm`，严格请求只有 `at`：带时区偏移的 ISO 日期时间，精确到整秒，严格晚于当前模拟时间且早于运行结束。没有 app、重复周期、延后或自动创建目标；每次设置一项一次性闹钟。
+- 复用 pending_events，不另建闹钟状态池；增加 `ScheduledKind.alarm_ring`。scheduled_id 由原请求 action_id 确定，data 保存原请求事件身份；设置结果为 `{alarm_id, at}`。自己的工具状态显示尚未触发的闹钟时刻。重复动作身份返回已存结果，不增加排期。
+- 到点先结算睡眠的真实经过秒数，在活动快照生成前以 `alarm_ring` 结束尚未自然完成的睡眠并待收尾，其他活动继续；自然结束同秒仍保留 planned_end。随后按既有排期弹出和提交机制写一次本人可见的环境事件 `{kind: alarm_ring, scheduled_id}`，caused_by 关联真实设置结果。
+- WakeReason 增加 alarm_ring，并加入 SLEEP_ALLOWED_REASONS；其余既有成员次序与含义不变。多个同秒闹钟各有证据，但按同秒节律只合并一次决策机会。触发前后检查点恢复和重放都不能重响或漏响。
+- 原生工具 12 项、稳定面 9 项、REQUEST_MODELS 8 项；十八条系统层仍为十八条，仅原位修订涉及工具列表、闹钟与文字聊天的句子。新工具的宿主和环境结构校验共用同一模型；无效时刻以 `ALARM_TIME_INVALID` 拒绝，英文原因为 "Alarm time must be a future whole second before the run ends."。
+
+### 微信文字聊天记录主题与 LLM 注记
+
+- Action 增加必填 `communication_mode: text | voice | null`。绑定 app 的 social 动作必须明示 text 或 voice；无 app 社交及其他类别必须为 null。这是动作通信方式，Content 仍然没有分类；不根据动作名、app 名或内容标题猜测路径。
+- text 保持 social 类别，to 仍须明确点名通讯录中的联系人。统一执行器按目录主题、摘要与时长推进本人内容，不调用通话执行函数，不写通话事实，不模拟对方回复。
+- 实际文字讨论和进度由 LLM 经已有 report_status.items[].summary 编写，存入 progress_note、note_history；其文字为人物自述。实际秒数才推进 ContentProgress，注记不能改位置、完成轮数、主题分配或发送事实，不把注记投影成已发送消息或对方回信。
+- 有 app 社交的既有每小时 0.4 缓解与 MET 1.3 同时适用于文字和语音；常数名与说明统一为远程社交。占用仍按 social 类别和 app 使用方式决定，不能暂停，完成一条主题即 planned_end，不增加新的活动类型或内容分类。
+- 新增登记码 `ACTION_COMMUNICATION_MODE_INVALID`，英文原因为 "App-based social actions must declare text or voice communication; other actions must declare null."。
+
+上述扩展的纯所有者与真实引擎、SQLite、检查点、导出证据都纳入本规格台账和源码变异：缺目录字段、无车驾车、燃油异地或远程购买、零秒/同日/跨午夜扣日、到站误收货、离站或他人领取、重复领取、错误最近驿站、付款重复、源所有权、闹钟睡眠与恢复、文字聊天误记通话、自述篡改进度均须有验收反例。没有任何一项留给七天模型运行替代测试。
 
 <a name="spec-acs-固定规则与常数"></a>
 ## 固定规则与常数
@@ -167,7 +216,7 @@ WorldMock 拥有全部分类、常数与交换公式，定义在 `src/worldmock/
 <a name="spec-acs-闭集"></a>
 ### 闭集
 
-新闭集 `ActionCategory`、`AppUseManner`、`MANNER_DEVICE`、`AppPurpose`、`GoodsCategory`、`STORE_KINDS`、`GOODS_CATEGORY_STORE_KINDS` 与既有的 `ContentKind`、`START_ACTIVITY_ACTIONS` 定义在 `exchange/types.py`。运行协议闭集留在今天的定义处，只改成员：`ActivityKind` 与订单状态在 `life/models.py`，`RESOURCE_CLAIM_SLOTS` 在 `catalog/affordances.py`，`WAYS` 在 `life/vocabulary.py`，`TARGET_KINDS` 在 `life/prompt_schemas.py`，`CandidateKind` 在 `life/candidates.py`，`WakeReason` 在 `life/schedule.py`，`ScheduledKind` 在 `scheduling/events.py`。`LocationKind`（八个）、`PLACE_KIND_ENVIRONMENTS` 与 `SummarySourceKind` 不变。
+新闭集 `ActionCategory`、`AppUseManner`、`MANNER_DEVICE`、`AppPurpose`、`GoodsCategory`、`STORE_KINDS`、`GOODS_CATEGORY_STORE_KINDS` 与既有的 `START_ACTIVITY_ACTIONS` 定义在 `exchange/types.py`。运行协议闭集留在今天的定义处，只改成员：`ActivityKind` 与订单状态在 `life/models.py`，`RESOURCE_CLAIM_SLOTS` 在 `catalog/affordances.py`，`WAYS` 在 `life/vocabulary.py`，`TARGET_KINDS` 在 `life/prompt_schemas.py`，`CandidateKind` 在 `life/candidates.py`，`WakeReason` 在 `life/schedule.py`，`ScheduledKind` 在 `scheduling/events.py`。`LocationKind` 为十个，增加 gas_station 与 parcel_station；二者 PLACE_KIND_ENVIRONMENTS 均为 venue。SummarySourceKind 不变。
 
 | 闭集 | 成员 | 变化 |
 | --- | --- | --- |
@@ -175,21 +224,21 @@ WorldMock 拥有全部分类、常数与交换公式，定义在 `src/worldmock/
 | `AppUseManner` | `phone_continuous`「持续使用手机 app」、`other_device`「通过其他设备使用 app」、`offline_assisted`「借助 app 安排或记录线下行为」 | 新；没有类别与使用方式的合法组合表 |
 | `MANNER_DEVICE` | `phone_continuous → phone`、`other_device → other`、`offline_assisted → phone` | 新；设备值只有 `phone`、`other` |
 | `AppPurpose` | `navigation` 导航、`shopping` 购物、`payment` 支付 | 新；一个 app 的 `purposes` 可以为空（只承载动作） |
-| `GoodsCategory` | `meal` 正餐、`snack` 零食、`drink` 饮品、`leisure` 休闲用品、`daily` 日常用品 | 取代 `FoodCategory`（`snack`、`drink`、`meal`），标签表由 `FOOD_CATEGORY_LABELS` 的三项改为五项；加 `leisure`、`daily` |
-| `STORE_KINDS` | `restaurant`、`cafe`、`convenience_store`、`supermarket` | `FOOD_STORE_KINDS` 改名，成员不变；只有这四类地点可绑定 app、可出现在商品绑定里 |
-| `GOODS_CATEGORY_STORE_KINDS` | restaurant：`meal`、`drink`、`snack`；cafe：`drink`、`snack`；convenience_store：五类；supermarket：五类 | 新；店铺类型可供给类别的固定表，今天任何食品店铺可卖任何食品 |
-| `ContentKind` | `article`、`image_text`、`short_video`、`long_video`、`live` | 成员与 `CONTENT_KIND_LABELS` 不变；内容的动作属于 `entertainment` 时必填，其他类别必须为 null |
+| `GoodsCategory` | `meal` 正餐、`snack` 零食、`drink` 饮品、`leisure` 休闲用品、`daily` 日常用品、`fuel` 燃油 | 取代 `FoodCategory`（`snack`、`drink`、`meal`），标签表由 `FOOD_CATEGORY_LABELS` 的三项改为六项；加 `leisure`、`daily`、`fuel` |
+| `STORE_KINDS` | `restaurant`、`cafe`、`convenience_store`、`supermarket`、`gas_station` | `FOOD_STORE_KINDS` 改名，增加加油站；只有这五类地点可绑定 app、可出现在商品绑定里 |
+| `GOODS_CATEGORY_STORE_KINDS` | restaurant：`meal`、`drink`、`snack`；cafe：`drink`、`snack`；convenience_store：meal、snack、drink、leisure、daily；supermarket：meal、snack、drink、leisure、daily；gas_station：fuel | 新；店铺类型可供给类别的固定表，今天任何食品店铺可卖任何食品 |
+
 | `ActivityKind` | `wait`、`sleep`、`travel`、`action` | 删 `work`、`use_app`、`read_mail`、`consume`、`lifestyle`、`chat`、`call`；加 `action` |
 | `RESOURCE_CLAIM_SLOTS` | `wait`、`travel`、`talk`、`use_app`、`entertainment`、`work_study`、`exercise`、`daily_care`（仍是八个） | 删 `work`、`read_mail`、`consume`、`lifestyle`；加四个类别名；闭集外的名字加载时拒绝 |
-| `WAYS` | 步行、驾车、睡觉、等待、购买、进行 | 删 到店、远程下单、食用、使用、给予、工作、打开、交谈、通话、阅读 |
-| `START_ACTIVITY_ACTIONS` | `travel_to`、`sleep`、`wait`、`purchase`、`do` | 删 `work`、`consume`、`use_app`、`chat`、`call`、`read`；场景菜单的 `allowed_actions` 取自本集，`wait`、`sleep` 仍是保护项 |
+| `WAYS` | 步行、驾车、睡觉、等待、购买、进行、领取 | 删 到店、远程下单、食用、使用、给予、工作、打开、交谈、通话、阅读 |
+| `START_ACTIVITY_ACTIONS` | `travel_to`、`sleep`、`wait`、`purchase`、`do`、`collect_parcel` | 删 `work`、`consume`、`use_app`、`chat`、`call`、`read`；场景菜单的 `allowed_actions` 取自本集，`wait`、`sleep` 仍是保护项 |
 | `TARGET_KINDS` | `location`、`product`、`action`、`person`、`contact`、`self`、`activity` | 删 `holding`、`task`、`app`、`lifestyle`、`message`；加 `action` |
 | `CandidateKind` | `product` | 删 `lifestyle`、`task` |
-| `WakeReason` | 现有 22 个，声明次序不变 | 不变；内容完成不是唤醒原因 |
-| `ScheduledKind` | `mail_arrival`、`delivery_arrival`、`calendar_flag`、`bill_due`、`payroll`、`message_arrival`、`app_push` | 不变 |
-| 订单状态 | `pending`、`delivered` | 今天的字面量另有从不写入的 `ready`、`cancelled`，一并删除 |
+| `WakeReason` | 原有 22 个追加 alarm_ring，共 23 个 | 内容完成不是唤醒原因 |
+| `ScheduledKind` | `mail_arrival`、`delivery_arrival`、`calendar_flag`、`bill_due`、`payroll`、`message_arrival`、`app_push`、`alarm_ring` | 增加一次性闹钟 |
+| 订单状态 | `pending`、`ready_for_pickup`、`delivered` | 今天的字面量另有从不写入的 `ready`、`cancelled`，一并删除 |
 | `app-usage.jsonl` 事实类型 | `app_use`、`app_touch`、`content_consumed`、`push_delivered`、`push_opened`、`push_released` | 加 `app_touch` |
-| `purchases.jsonl` 事实类型 | `purchase`、`order_attempt`、`receipt` | 加 `receipt` |
+| `purchases.jsonl` 事实类型 | `purchase`、`order_attempt`、`pickup_ready`、`receipt` | 增加到站通知与收货 |
 | 已核验经历类型 | `waited`、`arrived`、`played`、`received` | 删 `consumed`；加 `received`；`played.app_id` 可为 null |
 | `environment_event.data.kind` | 现有成员加 `goods_received`；`work_topic_completed` 改名 `work_content_completed` | 载荷见「状态、事件、检查点与导出」 |
 
@@ -198,7 +247,7 @@ WorldMock 拥有全部分类、常数与交换公式，定义在 `src/worldmock/
 
 | 类别 | 内容完成后的接续 | `CATEGORY_MET` | 按实际秒数的状态效果 | 场所 | 附加规则 |
 | --- | --- | --- | --- | --- | --- |
-| `entertainment` | 系统选出下一条，在同一活动内静默接续 | 1.0 | `entertainment_need` 按内容类型以 `CONTENT_RELIEF_PER_HOUR` 缓解 | 任意 | 唯一可推送的类别，且只在使用方式为 `phone_continuous` 时 |
+| `entertainment` | 系统选出下一条，在同一活动内静默接续 | 1.0 | `entertainment_need` 以 `ENTERTAINMENT_RELIEF_PER_HOUR` 每小时 0.3 缓解 | 任意 | 唯一可推送的类别，且只在使用方式为 `phone_continuous` 时 |
 | `work_study` | 一条内容，随后活动以既有的 `planned_end` 完成 | 1.5 | 没有按秒效果；场景分配的内容完成的那次结算，对本人施加一次 `MOOD_PULSES["goal_progressed"]`（+0.05）；这是新增的触发点，当日目标首次推进时的同名脉冲不变，两者互不替代 | 任意；场景分配的内容只能在本人的 `work_schedule.workplace_location_id` | 场景分配的内容有限，且只有被分配者可消费 |
 | `social` | 一条内容 | 无 app 1.5，有 app 1.3 | `social_need` 缓解：无 app 每小时 0.5，有 app 每小时 0.4，只计既有共同交谈或通话事实证明的秒数；对方不在的秒数每小时 0.2 | 任意 | 必须有对象，由人物在请求的 `to` 写出 |
 | `exercise` | 一条内容 | 5.0 | 情绪每小时 +0.1 | 活动环境 `home`、`outdoor`、`fitness`（按 `PLACE_KIND_ENVIRONMENTS`，即地点类型 home、park、fitness） | 无 |
@@ -230,14 +279,15 @@ WorldMock 拥有全部分类、常数与交换公式，定义在 `src/worldmock/
 | --- | --- | --- | --- |
 | `RULES_VERSION` | 2 | 无 | 今天为 1 |
 | `GOODS_ENERGY_KCAL` | `meal` 600、`snack` 200、`drink` 100 | 千卡每份 | 取代 `FOOD_CONSTANTS` 与 `FoodConstants`，热量不变；食用秒数（1200、300、180）删除 |
-| `GOODS_RECEIPT_EFFECTS` | `leisure`：`entertainment_need` −0.10（下限 0）；`daily`：一次情绪脉冲 +0.05 | 每条订单行 | 实验假设；`daily` 与 `MOOD_PULSES` 的 `goal_progressed` 同幅；不变量：非食品收货效果不超过最弱内容形式 30 分钟的缓解（每小时 0.2 × 0.5 小时 = 0.10） |
+| `GOODS_RECEIPT_EFFECTS` | `leisure`：`entertainment_need` −0.10（下限 0）；`daily`：一次情绪脉冲 +0.05 | 每条订单行 | 实验假设；`daily` 与 `MOOD_PULSES` 的 `goal_progressed` 同幅；不变量：非食品收货效果不超过娱乐内容 30 分钟的缓解（每小时 0.3 × 0.5 小时 = 0.15） |
 | `CATEGORY_MET` | `entertainment` 1.0、`work_study` 1.5、`social` 1.5（无 app）与 1.3（有 app）、`exercise` 5.0、`daily_care` 2.0 | MET | 前三类取今天 `activity_met` 的 `use_app`、`work`、`chat`、`call`；`exercise`、`daily_care` 是实验假设；重复定义 `CHAT_MET`、`CALL_MET` 删除 |
 | `BODY_CONSTANTS.activity_met` | `wait: 1.3`、`sleep: 0.95`、`travel:walking: 3.5`、`travel:driving: 1.5` | MET | 值不变；键 `work`、`use_app`、`read_mail`、`consume`、`chat`、`call` 删除；环境条目 `lifestyle:<id>` 的并入删除 |
-| `CONTENT_RELIEF_PER_HOUR` | `article` 0.2、`image_text` 0.2、`short_video` 0.3、`long_video` 0.4、`live` 0.3 | 娱乐需要单位每小时 | 不变；只用于 `entertainment` |
+| `ENTERTAINMENT_RELIEF_PER_HOUR` | 0.3 | 娱乐需要单位每小时 | 统一娱乐动作速率；没有按内容类型的效果表 |
+| `FUEL_DRIVING_DAYS` | 7 | 驾车可用日每次加油 | 用户确认；只按实际驾车的本地日期扣减 |
 | `CONTENT_MIN_SECONDS` | 60 | 秒 | 实验假设；每条内容 `duration_seconds` 的登记下限；没有上限 |
 | `DERIVED_DURATION_CAP_SECONDS` | 86400 | 秒 | 值与定义处（`life/models.py`）不变；当前内容的剩余更长时封顶一次活动的计划时长，内容按续看规则接着消费 |
 | `APP_USE_DEFAULT_SECONDS` | 删除（今天 1800） | 秒 | 动作没有窗口 |
-| `SOCIAL_NEED_CONVERSATION_RATE`、`SOCIAL_NEED_CALL_RATE`、`CHAT_RELIEF_DECLINED_PER_HOUR` | 0.5、0.4、0.2 | 社交需要单位每小时 | 前两个由 `life/felt.py`、第三个由 `life/social.py` 迁入，依次用于无 app 的 `social`、有 app 的 `social`、对方不在的秒数；同值的重复定义 `CHAT_RELIEF_ACCEPTED_PER_HOUR`、`CALL_RELIEF_PER_HOUR` 删除 |
+| `SOCIAL_NEED_CONVERSATION_RATE`、`SOCIAL_NEED_REMOTE_RATE`、`CHAT_RELIEF_DECLINED_PER_HOUR` | 0.5、0.4、0.2 | 社交需要单位每小时 | 前两个由 `life/felt.py`、第三个由 `life/social.py` 迁入，依次用于无 app 的 `social`、有 app 的 `social`、对方不在的秒数；同值的重复定义 `CHAT_RELIEF_ACCEPTED_PER_HOUR`、`CALL_RELIEF_PER_HOUR` 删除 |
 | `SOCIAL_NEED_AWAKE_RATE`、`SOCIAL_NEED_MESSAGE_RELIEF` | 0.04、0.05 | 每清醒小时、每条已读消息 | 由 `life/felt.py` 迁入；`SOCIAL_NEED_SHARED_MEAL_RATE`（今天 0.3）随共餐规则删除 |
 | `MOOD_PULSES` | `message_received` +0.1、`discomfort_hourly` −0.1、`goal_progressed` +0.05、`service_refused` −0.05 | 情绪单位每次 | 由 `life/felt.py` 迁入 |
 | `MOOD_HALFLIFE_MINUTES`、`MOOD_HALFLIFE_NEUROTICISM_FACTOR`、`MOOD_PULSE_NEUROTICISM_FACTOR`、`MOOD_DISCOMFORT_TRIGGER_HOURS` | 45、0.3、0.5、2 | 分钟、系数、系数、小时 | 由 `life/felt.py` 迁入 |
@@ -259,28 +309,28 @@ WorldMock 拥有全部分类、常数与交换公式，定义在 `src/worldmock/
 | --- | --- |
 | `catalog/manifest.json` | `{format_version: 2, environment_id: str, environment_version: str, rules_version, files: [{path, sha256, size_bytes: 非负整数}], catalog_content_sha256}`；`rules_version` 必须等于 `RULES_VERSION`；`files` 恰好列出下面六个文件；`catalog_content_sha256` 的框架化摘要算法不变，只是必需文件集改为这六个 |
 | `catalog/apps.json` | `{apps: [{app_id, name, purposes: [AppPurpose], payment_app_ids: [app_id]}]}`；两个列表无重复且排序，都可以为空；`channel_key(name)` 唯一且不等于任何地点显示名 |
-| `catalog/locations.json` | 不变：`{locations: [{location_id, name, branch_label（可选）, kind: LocationKind, app_ids: [app_id]}]}`；`app_ids` 只在 `kind ∈ STORE_KINDS` 时允许非空；空列表 = 只能到店 |
+| `catalog/locations.json` | `{locations: [{location_id, name, branch_label（可选）, kind: LocationKind, app_ids: [app_id], shipping_seconds: 严格正整数或 null}]}`；`app_ids` 只在 `kind ∈ STORE_KINDS` 时允许非空；空列表 = 只能到店 |
 | `catalog/goods.json` | `{goods: [{goods_id, name, category: GoodsCategory, price_fen: 正整数, store_ids: [location_id] 或 "all"}]}`；取代 `foods.json`；列表形态的 `store_ids` 无重复且排序；`"all"` 展开到类型可供给该类别的全部店铺；同类型店铺同菜单 |
-| `catalog/actions.json` | `{actions: [{action_id, name, description, category: ActionCategory, app_ids: [app_id], manner: AppUseManner 或 null}]}`；`app_ids` 无重复且排序，可以为空，空不表示全部 app；`manner` 键必填，值在无 app 时为 null；没有时长、时间窗、场所、效果字段 |
-| `catalog/contents.json` | `{contents: [{content_id, action_id, title, kind: ContentKind 或 null, summary, summary_source: {kind, url: str 或 null, notice: str 或 null}, duration_seconds: 不小于 CONTENT_MIN_SECONDS 的整数, app_ids: [app_id], series（可选）: {title, episode: 正整数}}]}`；`kind` 键必填；`app_ids` 无重复且排序；`summary` 按 `len(summary)` 不超过 `PUSH_SUMMARY_MAX_CHARS`；标题不要求唯一；同一内容跨 app 只有一个标识 |
+| `catalog/actions.json` | `{actions: [{action_id, name, description, category: ActionCategory, app_ids: [app_id], manner: AppUseManner 或 null, communication_mode: text 或 voice 或 null}]}`；`app_ids` 无重复且排序，可以为空，空不表示全部 app；`manner` 键必填，值在无 app 时为 null；没有时长、时间窗、场所、效果字段 |
+| `catalog/contents.json` | `{contents: [{content_id, action_id, title, summary, summary_source: {kind, url: str 或 null, notice: str 或 null}, duration_seconds: 不小于 CONTENT_MIN_SECONDS 的整数, app_ids: [app_id], series（可选）: {title, episode: 正整数}}]}`；内容没有 `kind` 或分类字段；`app_ids` 无重复且排序；`summary` 按 `len(summary)` 不超过 `PUSH_SUMMARY_MAX_CHARS`；标题不要求唯一；同一内容跨 app 只有一个标识 |
 | `catalog/map.json` | 不变（地图结构 1、生成规则 1） |
 
 `foods.json`、`work_topics.json`、`affordances.toml`、`rules/` 与生活活动语料退出环境。文件模型沿用 `AppsFile`、`LocationsFile`、`ContentsFile` 的命名方式，定义在 `src/worldmock/catalog/models.py`：`GoodsFile`（`goods.json`，行模型 `Goods`）与 `ActionsFile`（`actions.json`，行模型 `Action`）；`FoodsFile`、`WorkTopicsFile` 与行模型 `Food`、`WorkTopic` 删除，`CatalogData` 与 `Catalog` 以字段 `goods`、`actions` 取代 `foods`、`work_topics`。绑定方向是内容→动作、动作→app、商品→店铺、店铺→购物 app，反向索引由 `Catalog` 在登记通过后一次冻结：`menus_by_kind`（每种店铺类型的商品）、每个店铺的商品（取代 `foods_by_store`）、`stores_by_app`、`apps_by_store`、每个动作的内容、每个（动作，app）对的内容（取代 `contents_by_app`）、每个 app 承载的动作、每种用途的 app、每个系列按集数升序的内容，以及不变的 `graph`、`map_sha256`、`location_kinds(kind)`、`shortest_m(a, b)`。系列身份是 `(action_id, series.title)`，沿用既有的 `series` 字段，不加新字段。
 
-数据仓只提供三种数：`price_fen`、`duration_seconds`、`series.episode`。数据仓永远不能设置：类别与使用方式的含义、代谢当量、状态效果与缓解速率、热量与营养、收货效果、动作的时长、时间窗或默认窗口、场所限制、对象要求、前置条件、设备与前台比例、操作脚本或回调、重复权重与推荐策略、店铺类型的可供给类别、配送费与配送时间、支付渠道、库存与份数、内容对场景人物的引用、`summary_source` 之外的来源字段、规则副本与规则哈希。
+数据仓提供价格、内容时长、集数、明确的运输时长与人物初始驾车天数；后两项的严格合同见用户补订。数据仓永远不能设置：类别与使用方式的含义、代谢当量、状态效果与缓解速率、热量与营养、收货效果、动作的时长、时间窗或默认窗口、场所限制、对象要求、前置条件、设备与前台比例、操作脚本或回调、重复权重与推荐策略、店铺类型的可供给类别、配送费、固定同城运输规则、支付渠道、库存与份数、内容对场景人物的引用、`summary_source` 之外的来源字段、规则副本与规则哈希。
 
 <a name="spec-acs-场景结构8"></a>
 ### 场景结构 8
 
-- 保留：`scenario_id`、`timezone`、`start_at`、`end_at`、`random_seed`、`activity_feedback_seconds`、`reconsideration_interval_seconds`、`idle_reconsideration_interval_seconds`、`progress_report_interval_seconds`、`max_same_moment_decisions`、`candidate_presentation_limit`、`candidate_pool_limit`、`rotation_quota_ratio`、`rotation_stale_seconds`、`environment{environment_id, environment_version}`、`accounts[]{account_id, money_fen, role}`（角色 `merchant:<location_id>`，每个已选的 `STORE_KINDS` 地点一个；`employer:*`、`transport:service`、`external:scenario`）、`body{mass_kg, initial_energy_kcal, initial_sleep_debt_hours, initial_entertainment_need}`、`locations[]{location_id}`、`interaction_menus_by_location_kind`（键为八个 `LocationKind`）、`messages[]`、`calendar`、`bills[]`、`payrolls[]`；`agents[]` 的 `agent_id`、`name`、`background_story`、`health_habits`、`social_style`、`trait_source_kind`、`home_location_id`、`initial_balance_fen`、`interaction_menu`、`work_schedule`、`chronotype_midsleep`、`sleep_need_hours`、`lunch_window`、`dinner_window`、`leave_work_window`、`arrive_home_window`、`bedtime_window`、`contacts[]{contact_id, salutation, relation, closeness, channels, reply_policy, receive_location_id}`。
-- 新增与改义：`schema_version: 8`；`agents[].work_content_ids: [content_id]`（无重复的非空标识，默认空；与 `work_schedule` 同有同无）；`interaction_menus_by_location_kind` 与 `agents[].interaction_menu` 的 `allowed_actions` 取自新的 `START_ACTIVITY_ACTIONS`，必须保留 `wait`、`sleep`。
+- 保留：`scenario_id`、`timezone`、`start_at`、`end_at`、`random_seed`、`activity_feedback_seconds`、`reconsideration_interval_seconds`、`idle_reconsideration_interval_seconds`、`progress_report_interval_seconds`、`max_same_moment_decisions`、`candidate_presentation_limit`、`candidate_pool_limit`、`rotation_quota_ratio`、`rotation_stale_seconds`、`environment{environment_id, environment_version}`、`accounts[]{account_id, money_fen, role}`（角色 `merchant:<location_id>`，每个已选的 `STORE_KINDS` 地点一个；`employer:*`、`transport:service`、`external:scenario`）、`body{mass_kg, initial_energy_kcal, initial_sleep_debt_hours, initial_entertainment_need}`、`locations[]{location_id}`、`interaction_menus_by_location_kind`（键为十个 `LocationKind`）、`messages[]`、`calendar`、`bills[]`、`payrolls[]`；`agents[]` 的 `agent_id`、`name`、`background_story`、`health_habits`、`social_style`、`trait_source_kind`、`home_location_id`、`initial_balance_fen`、`interaction_menu`、`work_schedule`、`chronotype_midsleep`、`sleep_need_hours`、`lunch_window`、`dinner_window`、`leave_work_window`、`arrive_home_window`、`bedtime_window`、`contacts[]{contact_id, salutation, relation, closeness, channels, reply_policy, receive_location_id}`。
+- 新增与改义：`schema_version: 8`；agents[].owns_car、initial_driving_days 必填；`agents[].work_content_ids: [content_id]`（无重复的非空标识，默认空；与 `work_schedule` 同有同无）；`interaction_menus_by_location_kind` 与 `agents[].interaction_menu` 的 `allowed_actions` 取自新的 `START_ACTIVITY_ACTIONS`，必须保留 `wait`、`sleep`。
 - 删除：`corpus_root`、`corpus_manifest_sha256`、`agents[].initial_inventory`、`agents[].lifestyle_activities`、`agents[].work_topic_ids`，以及整个 `agents[].motivation`。它的 `weights`、`tau`、`beta_present_bias`、`loss_aversion`、`comfort`、`aspiration.daily_work_seconds`、`emotion_sensitivity` 今天只被内部动机评分器 `src/worldmock/life/motivation.py` 读取，`schema_version`、`big_five`、`source{persona_text_sha256, model, prompt_version, consensus}` 只被加载校验、没有任何读者；评分器退役后十个字段全部失去读者，`MotivationProfile` 与 `MotivationProfileSource` 一并删除，画像编译不产出该对象。
-- 运行视图：`RuntimeScenario` 以 `goods`、`actions` 取代 `foods`、`work_topics`；`BodyConfig.activity_met` 与 `entertainment_relief_per_hour` 只是包常数的投影，不再并入环境条目。人物卡片的覆盖目标（`CoverageTargets`）由登记目录确定，不读语料：`habit_response_keywords` 取动作名与地点显示名，`food_kinds` 取类别为 `meal`、`snack`、`drink` 的商品名，`media_kinds`（五个内容类型标签）与 `app_names`（全部登记 app 名）不变；运行输入警告 `CONTENT_EMPTY_WITH_MEDIA_TASTES` 在没有任何内容带非空 `app_ids` 时发出。结构 7 在每个入口直接拒绝，没有迁移与双读。
+- 运行视图：`RuntimeScenario` 以 `goods`、`actions` 取代 `foods`、`work_topics`；`BodyConfig.activity_met` 与 `entertainment_relief_per_hour`（单个娱乐类别速率）只是包常数的投影，不再并入环境条目。人物卡片的覆盖目标（`CoverageTargets`）由登记目录确定，不读语料：`habit_response_keywords` 取动作名与地点显示名，`food_kinds` 取类别为 `meal`、`snack`、`drink` 的商品名，`media_kinds` 删除，换为 `action_names`（全部登记动作名），媒体偏好对动作名作双向子串匹配或对 `app_names`（全部登记 app 名）作精确匹配；运行输入警告 `CONTENT_EMPTY_WITH_MEDIA_TASTES` 在没有任何内容带非空 `app_ids` 时发出。结构 7 在每个入口直接拒绝，没有迁移与双读。
 
 <a name="spec-acs-注册校验与错误"></a>
 ### 注册校验与错误
 
-`src/worldmock/catalog/admission.py` 仍是唯一的登记校验器，`load_catalog`、`worldmock validate --environment` 与数据仓的检查都调用它；失败抛 `RegistrationError`（`IntegrityError` 子类，带稳定 `code`），原因与日志一律英文，文字只定义在 `src/worldmock/catalog/errors.py` 的 `REGISTRATION_REASONS`。名称比较一律经 `channel_key`。严格模型的多余字段错误一律先映射为 `ENVIRONMENT_KIND_INVALID`，再按字段名映射其余错误（动作行上名为 `duration_seconds` 的多余字段因此是 `ENVIRONMENT_KIND_INVALID`，不是 `ENVIRONMENT_NUMBER_INVALID`）。下表是改动后的全部 32 个码；条件前标「新」的是新码，标「改」的是含义或文字有变的保留码，其余不变。
+`src/worldmock/catalog/admission.py` 仍是唯一的登记校验器，`load_catalog`、`worldmock validate --environment` 与数据仓的检查都调用它；失败抛 `RegistrationError`（`IntegrityError` 子类，带稳定 `code`），原因与日志一律英文，文字只定义在 `src/worldmock/catalog/errors.py` 的 `REGISTRATION_REASONS`。名称比较一律经 `channel_key`。严格模型的多余字段错误一律先映射为 `ENVIRONMENT_KIND_INVALID`，再按字段名映射其余错误（动作行上名为 `duration_seconds` 的多余字段因此是 `ENVIRONMENT_KIND_INVALID`，不是 `ENVIRONMENT_NUMBER_INVALID`）。下表为原本的 32 个码；用户补订另增加 ACTION_COMMUNICATION_MODE_INVALID 与 PARCEL_STATION_REQUIRED，共 34 个；条件前标「新」的是新码，标「改」的是含义或文字有变的保留码，其余不变。
 
 | 码 | 条件 | 英文原因 |
 | --- | --- | --- |
@@ -291,7 +341,7 @@ WorldMock 拥有全部分类、常数与交换公式，定义在 `src/worldmock/
 | `ENVIRONMENT_PIN_MISMATCH` | 场景 `environment` 钉与正在加载的清单 `environment_id` 或 `environment_version` 不同 | "The scenario pins an environment that is not the one being loaded." |
 | `ENVIRONMENT_ID_DUPLICATE` | 改：同一文件内标识重复；app 名、地点显示名或商品名在本文件内重复；同一绑定列表或清单路径重复 | "An identifier or display name is declared twice in one catalog file." |
 | `ENVIRONMENT_REF_UNKNOWN` | 改：`store_ids`、`app_ids`、`payment_app_ids` 或场景引用（已选地点、住处）指向未登记的对象 | "A binding refers to an object that is not registered." |
-| `ENVIRONMENT_KIND_INVALID` | 改：`kind`、`category`、`purposes`、`manner`、`summary_source.kind` 不在闭集；任何未知字段，含动作上的时长、时间窗、场所与效果字段；条目或绑定未按标识排序；非 `STORE_KINDS` 地点带 `app_ids`；内容 `kind` 在 `entertainment` 动作下为 null，或在其他类别下非 null | "A declared kind is outside the fixed set." |
+| `ENVIRONMENT_KIND_INVALID` | 改：`kind`、`category`、`purposes`、`manner`、`summary_source.kind` 不在闭集；任何未知字段，含动作上的时长、时间窗、场所与效果字段；条目或绑定未按标识排序；非 `STORE_KINDS` 地点带 `app_ids`；内容带 `kind` 同样作为未知字段拒绝 | "A declared kind is outside the fixed set." |
 | `ENVIRONMENT_NUMBER_INVALID` | 改：`price_fen`、`length_m`、`series.episode` 不是正整数；`duration_seconds` 不是整数或小于 `CONTENT_MIN_SECONDS`；`size_bytes` 不是非负整数；`seed` 不是整数 | "A declared number is outside its allowed domain." |
 | `GOODS_BINDING_MISSING` | 新：商品没有 `store_ids`，或显式列表为空 | "A goods item must be bound to stores or to all stores that may supply its category." |
 | `GOODS_STORE_KIND_INVALID` | 新：`store_ids` 含不属于 `STORE_KINDS` 的地点，或含类型不能供给该类别的店铺 | "A goods item is bound to a place that cannot supply its category." |
@@ -370,28 +420,28 @@ WorldMock 拥有全部分类、常数与交换公式，定义在 `src/worldmock/
 | `study-course` | 学课程 | work_study | `[bilibili]` | other_device |
 | `voice-call` | 语音通话 | social | `[wechat]` | phone_continuous |
 
-| 内容 `content_id` | 标题 | `action_id` | `kind` | `duration_seconds` | `app_ids` | `series` |
-| --- | --- | --- | --- | --- | --- | --- |
-| `c-article` | 测试文章 | `browse-feed` | article | 600 | `[bilibili]` | 无 |
-| `c-call` | 测试通话 | `voice-call` | null | 600 | `[wechat]` | 无 |
-| `c-chat` | 测试闲聊 | `small-talk` | null | 600 | `[]` | 无 |
-| `c-course` | 测试课程 | `study-course` | null | 1800 | `[bilibili]` | 无 |
-| `c-drama-1`、`c-drama-2`、`c-drama-3` | 测试剧集第一集、第二集、第三集 | `browse-feed` | long_video | 各 1800 | `[bilibili]` | `title` 测试剧集，`episode` 1、2、3 |
-| `c-image` | 测试图文 | `browse-feed` | image_text | 300 | `[bilibili]` | 无 |
-| `c-live` | 测试实况 | `browse-feed` | live | 1500 | `[douyin]` | 无 |
-| `c-long` | 测试长视频 | `browse-feed` | long_video | 2400 | `[bilibili, douyin]` | 无 |
-| `c-rest` | 测试休息 | `quiet-rest` | null | 900 | `[]` | 无 |
-| `c-run` | 测试慢跑 | `run` | null | 1200 | `[keep]` | 无 |
-| `c-short`、`c-short-2` | 测试短视频、测试短视频二 | `browse-feed` | short_video | 120、90 | `[douyin]` | 无 |
-| `topic-sales` | 季度销售数据整理 | `office-work` | null | 32400 | `[]` | 无 |
+| 内容 `content_id` | 标题 | `action_id` | `duration_seconds` | `app_ids` | `series` |
+| --- | --- | --- | --- | --- | --- |
+| `c-article` | 测试文章 | `browse-feed` | 600 | `[bilibili]` | 无 |
+| `c-call` | 测试通话 | `voice-call` | 600 | `[wechat]` | 无 |
+| `c-chat` | 测试闲聊 | `small-talk` | 600 | `[]` | 无 |
+| `c-course` | 测试课程 | `study-course` | 1800 | `[bilibili]` | 无 |
+| `c-drama-1`、`c-drama-2`、`c-drama-3` | 测试剧集第一集、第二集、第三集 | `browse-feed` | 各 1800 | `[bilibili]` | `title` 测试剧集，`episode` 1、2、3 |
+| `c-image` | 测试图文 | `browse-feed` | 300 | `[bilibili]` | 无 |
+| `c-live` | 测试实况 | `browse-feed` | 1500 | `[douyin]` | 无 |
+| `c-long` | 测试长视频 | `browse-feed` | 2400 | `[bilibili, douyin]` | 无 |
+| `c-rest` | 测试休息 | `quiet-rest` | 900 | `[]` | 无 |
+| `c-run` | 测试慢跑 | `run` | 1200 | `[keep]` | 无 |
+| `c-short`、`c-short-2` | 测试短视频、测试短视频二 | `browse-feed` | 120、90 | `[douyin]` | 无 |
+| `topic-sales` | 季度销售数据整理 | `office-work` | 32400 | `[]` | 无 |
 
 摘要均为合成（`summary_source.kind = synthetic`，`notice` 写「测试用合成摘要」，`url` 为 null）；动作的 `description` 是一句人工说明。今天的 `sandwich` 三明治删除（cafe 按固定供给表不能供给正餐）；`quiet-rest` 由生活活动条目改为动作，`topic-sales` 由工作主题改为内容。`topic-sales` 是唯一由场景分配的内容，时长等于人物 1 一个班次的 32400 秒；`c-course` 是未分配、可重复的 `work_study` 内容；三集系列放在可推送的动作上。
 
 | 场景事实 | 值 |
 | --- | --- |
-| 文件 | `scenarios/single-person.json` 与 `multi-person.json`（2026-01-05 当地整日）、`multi-person-half-day.json`（当日 8 点至 12 点）；结构 8，`random_seed: 7`，`activity_feedback_seconds: 900`，`rotation_stale_seconds: 3600`，`environment` 钉同清单；八个地点类型的 `allowed_actions` 均为 `[do, purchase, sleep, travel_to, wait]` |
-| 人物 1 `Test Person` | 住处 `home`，`initial_balance_fen: 10000`，`work_schedule` 为周一至周五 9 点至 18 点在 `office`、无休息时段，`work_content_ids: [topic-sales]`，`interaction_menu: null` |
-| 人物 2 `Second Test Person`（两个双人场景） | 住处 `home`，`initial_balance_fen: 10000`，`work_schedule: null`，`work_content_ids: []`；人物 1 下单、人物 2 收货即第三方收货人场景（有完整状态的模拟收货人） |
+| 文件 | `scenarios/single-person.json` 与 `multi-person.json`（2026-01-05 当地整日）、`multi-person-half-day.json`（当日 8 点至 12 点）；结构 8，`random_seed: 7`，`activity_feedback_seconds: 900`，`rotation_stale_seconds: 3600`，`environment` 钉同清单；十个地点类型的 `allowed_actions` 均为 `[collect_parcel, do, purchase, sleep, travel_to, wait]` |
+| 人物 1 `Test Person` | 住处 `home`，`owns_car: false`、`initial_driving_days: 0`，`initial_balance_fen: 10000`，`work_schedule` 为周一至周五 9 点至 18 点在 `office`、无休息时段，`work_content_ids: [topic-sales]`，`interaction_menu: null` |
+| 人物 2 `Second Test Person`（两个双人场景） | 住处 `home`，`owns_car: false`、`initial_driving_days: 0`，`initial_balance_fen: 10000`，`work_schedule: null`，`work_content_ids: []`；人物 1 下单、人物 2 收货即第三方收货人场景（有完整状态的模拟收货人） |
 | 联系人收货人 | 三个场景里人物 1 的 `contacts[]` 各有同一位：`contact_id: "contact-colleague"`、`salutation: "王磊"`、`relation: "同事"`、`closeness: 16`、`channels: ["phone", "message"]`、`reply_policy: "none"`、`receive_location_id: "office"`；也是语音通话的对象 |
 | 账户 | `merchant:noodle-1`、`merchant:noodle-2`、`merchant:cafe`、`merchant:store`、`transport:service`、`external:scenario`（各 0 分）与 `employer:test`（10000 分）；人物账户由 `initial_balance_fen` 隐式建立 |
 | 预排与初值 | `payrolls[]` 一条（`test-payroll`，10000 分，当日 10 点付给人物 1）与 `messages[]` 一封（`test-mail`，发给人物 1）逐字段同今天；`body` 与 `calendar` 同今天；没有初始库存，也没有任何替代字段 |
@@ -399,9 +449,9 @@ WorldMock 拥有全部分类、常数与交换公式，定义在 `src/worldmock/
 覆盖核对：导航 app `amap`；只有支付用途的 app `alipay`；带支付绑定的购物 app `meituan`、`eleme`（`wechat` 未绑定 `eleme`）；同一 app 两个不同使用方式的动作在 `bilibili`；两个 app 的动作 `browse-feed`；无 app 的动作 `office-work`、`quiet-rest`、`small-talk`；`other_device` 动作 `study-course`；`offline_assisted` 动作 `run`；五个类别各有动作；三集系列 `c-drama-1` 至 `c-drama-3`；已分配的工作内容 `topic-sales` 与未分配可重复的 `c-course`；今天已有的三个食品类别各有商品，另有休闲用品与日常用品各一。
 
 <a name="spec-acs-系统动作"></a>
-## 系统动作：出行、睡眠与购买
+## 系统动作：出行、睡眠、购买、领取与闹钟
 
-系统自己实现的生活动作只有出行、睡眠、购买三种；其余生活行为都是 Dataset 登记的动作，由「其他动作：统一执行、内容与推送」的同一个执行器执行。「内容」在本文只指目录里绑定到某个 Dataset 动作的一条 `Content`。三种系统动作没有内容：行程时长按发布图与固定速度逐次计算并存在出行活动上；睡眠计划时长取睡眠需要规则并存在睡眠活动上，按实际经过秒数结算；购买与支付是零模拟秒的时点事实，不建活动、不占名额；配送等待是既有的预排事件。登记拒绝动作上的任何时长字段。本章只写行为：闭集、常数、目录字段、请求形状、状态与导出行分别定义在「闭集」「常数表」「环境格式」「观察与工具面」「状态、事件、检查点与导出」。
+系统自己实现出行、睡眠、购买、驿站领取与一次性闹钟；其余生活行为都是 Dataset 登记的动作，由「其他动作：统一执行、内容与推送」的同一个执行器执行。「内容」在本文只指目录里绑定到某个 Dataset 动作的一条 `Content`。系统动作没有内容：行程时长按发布图与固定速度逐次计算并存在出行活动上；睡眠计划时长取睡眠需要规则并存在睡眠活动上，按实际经过秒数结算；购买与支付是零模拟秒的时点事实，不建活动、不占名额；配送等待是既有的预排事件。登记拒绝动作上的任何时长字段。本章只写行为：闭集、常数、目录字段、请求形状、状态与导出行分别定义在「闭集」「常数表」「环境格式」「观察与工具面」「状态、事件、检查点与导出」。
 
 <a name="spec-acs-出行与导航"></a>
 ### 出行与导航
@@ -416,15 +466,15 @@ WorldMock 拥有全部分类、常数与交换公式，定义在 `src/worldmock/
 ### 睡眠
 
 - 计划时长：睡眠没有内容、app 与类别，人物也不选时长。时长取 `src/worldmock/life/durations.py::derived_activity_duration` 的睡眠分支，`capped_duration_seconds(round(body.sleep_need_hours × 3600))`，存为睡眠活动的 `planned_duration_seconds`。身体按实际经过秒数结算，睡眠压力、睡眠不足恢复与代谢当量的规则不变。
-- 提前结束只有两种：当日目标提醒到点（`src/worldmock/life/activities.py::end_sleep_by_reminder`，`boundary_type` 与 `interruption_reason` 记 `plan_reminder`）与运行终点截断；都按已睡秒数结算。睡眠中只有 `src/worldmock/life/schedule.py::SLEEP_ALLOWED_REASONS` 的四个原因形成决策；睡眠不能暂停，占全部名额。
+- 提前结束包含闹钟到点、当日目标提醒到点（`src/worldmock/life/activities.py::end_sleep_by_reminder`，`boundary_type` 与 `interruption_reason` 记 `plan_reminder`）与运行终点截断；都按已睡秒数结算。睡眠中只有 `src/worldmock/life/schedule.py::SLEEP_ALLOWED_REASONS` 的五个原因形成决策；睡眠不能暂停，占全部名额。
 - 足迹：睡眠不产生任何 app 使用行。睡眠中到期的推送照常写入 session 并形成 `push_delivered` 事实，不唤醒；睡眠中送达的订单照常收货结算，不唤醒（「收货结算」）。
 
 <a name="spec-acs-购买与支付"></a>
 ### 购买与支付
 
 - 行与件：一个购买项是一行一件。行上的 `quantity` 恒为 1（`worldmock.life.order_routing::_item` 今天写死的值，结算公式仍读这个字段）；人物请求没有数量键；一次请求至多两项；同一商品出现两次只允许收货人不同（`src/worldmock/life/routing.py::combination_issues` 现行的 `(target, to)` 重复检查）。多人份用不同收货人的两行表达。
-- 拆单：各项按 `(store_id, destination_id, app_id, payment_app_id)` 组成整单（`order_requests` 的分组键加入店铺与支付 app），其中 `store_id` 是系统为该行选出的履约店铺（到店为人物所在的店铺，在线见下面的选店）。各行独立选店，选到不同店铺的行各成一张整单；同一请求里到店与在线各成一单。每张整单一次付款、一次配送费，配送单各有一个 `delivery_arrival` 预排事件。`ORDER_LOCATION_MISMATCH` 只留作整单校验的完整性检查（`basket` 的订单行检查），人物请求到不了它：人物不能点名店铺，它现行的下一步 "Order from each store separately." 不再对人物成立。
-- 在线下单：`app` 写购物 app；`pay_app` 必填，且属于该购物 app 的 `payment_app_ids`。缺失是 `PAYMENT_APP_REQUIRED`，未绑定是 `PAYMENT_APP_NOT_BOUND`，都是带候选的名称类拒绝，从不取默认值。`fulfillment = delivery`。
+- 拆单：各项按 `(store_id, destination_id, app_id, payment_app_id)` 组成整单（`order_requests` 的分组键加入店铺与支付 app），其中 `store_id` 是系统为该行选出的履约店铺（到店为人物所在的店铺，在线见下面的选店）。各行独立选店，选到不同店铺的行各成一张整单；同一请求里到店与在线各成一单。每张整单一次付款、一次配送费，配送预排按用户补订分组，各组有一个 delivery_arrival 事件，不重复收费。`ORDER_LOCATION_MISMATCH` 只留作整单校验的完整性检查（`basket` 的订单行检查），人物请求到不了它：人物不能点名店铺，它现行的下一步 "Order from each store separately." 不再对人物成立。
+- 在线下单：`app` 写购物 app；`pay_app` 必填，且属于该购物 app 的 `payment_app_ids`。缺失是 `PAYMENT_APP_REQUIRED`，未绑定是 `PAYMENT_APP_NOT_BOUND`，都是带候选的名称类拒绝，从不取默认值。fulfillment 按完整运输时长取 delivery 或 station_pickup。
 - 选店：履约店铺由系统在「绑定该购物 app 且在售该商品」的店铺里选，取最早 `expected_at`（`delivery_seconds` 按图上最短距离），并列取最小 `store_id`。所写名称不是 `shopping` 用途的 app 是 `APP_NOT_OFFERED`；是购物 app 但它绑定的店铺都不售该商品是 `SUPPLY_NOT_AT_STORE`。
 - 到店购买：`app` 为 null，店铺就是人物所在地点。该地点不是在售该商品的店铺时按「活动受理拒绝码」的要求地点分句拒绝，下一步去图上最近的在售店铺（今天 `nearest_store` 的选法）。`fulfillment = pickup`，订单 `app_id` 为 null。`pay_app` 可写任一登记了 `payment` 用途的 app；写 null 表示这笔付款不留 app 记录。不设现金或支付渠道闭集。
 - 收货人与收货地：`to` 为 null 是本人，否则是已知人物或联系人（`RECIPIENT_NOT_FOUND` 不变）。收货地不是参数，取 `src/worldmock/life/recipients.py::recipient_location`：本人为当前停留地点（途中给自己下单按现行分句拒绝），同世界人物为其所在地点，联系人为 `receive_location_id`。到店为他人购买要求收货人此刻就在该店。收货人没有可用收货地时按「活动受理拒绝码」的收货人分句拒绝。
@@ -435,10 +485,10 @@ WorldMock 拥有全部分类、常数与交换公式，定义在 `src/worldmock/
 <a name="spec-acs-收货结算"></a>
 ### 收货结算
 
-- 一个函数，两个调用点：`worldmock.life.receipt::settle_receipt` 是唯一的收货结算函数，只从今天写入持有的两处调用。到店：`src/worldmock/life/basket.py::purchase_order` 里今天调用 `add_holding` 的位置，即受理与付款的同一次结算。配送：`delivery_arrival` 到期时，`worldmock.scheduling.effects::_deliver_orders` 经 `src/worldmock/life/commerce.py::deliver_order` 调用 `add_holding` 的位置。两处的 `add_holding` 与 `inventory_change` 在同一提交删除。
-- 函数内一次做完四件事，不能分开调用：订单 `pending → delivered`；写 `received_at`（到店等于 `created_at`，配送为到期当秒）；对收货人施加状态效果；取走本次效果产生的资源分录。到店订单以 `pending` 建单并在同一次 `purchase_order` 内结算，今天 `_build_orders` 直接写 `delivered` 的分支删除。订单状态闭集为 `pending`、`delivered`。
+- 一个函数，三个调用点：`worldmock.life.receipt::settle_receipt` 是唯一的收货结算函数，只从今天写入持有的两处调用。到店：`src/worldmock/life/basket.py::purchase_order` 里今天调用 `add_holding` 的位置，即受理与付款的同一次结算。配送：`delivery_arrival` 到期时，`worldmock.scheduling.effects::_deliver_orders` 经 `src/worldmock/life/commerce.py::deliver_order` 调用 `add_holding` 的位置。旧 add_holding 与 inventory_change 删除；第三个调用点为本人驿站领取。
+- 函数内一次做完四件事，不能分开调用：订单 `pending` 或 `ready_for_pickup → delivered`；写 `received_at`（到店等于 `created_at`，短时直送为到期当秒、长途为本人领取当秒）；对收货人施加状态效果；取走本次效果产生的资源分录。到店订单以 `pending` 建单并在同一次 `purchase_order` 内结算，今天 `_build_orders` 直接写 `delivered` 的分支删除。订单状态闭集为 pending、ready_for_pickup、delivered；到站与收货时刻按用户补订。
 - 恰好一次，沿用三道现有保护：到期事件在施加效果之前弹出并与效果同一提交（`process_scheduled_events` 的现行次序）；`delivered` 的订单再次遇到事件时原样返回、不写任何东西（`deliver_order` 现行的非 `pending` 提前返回）；重复提交的动作经 `worldmock.life.decision_coordinator::DecisionCoordinator._existing_action` 与 `processed_actions` 返回已存结果，不再分发。
-- 收货人不在场或在睡：配送在到期当秒对订单的收货人结算，不看收货人此刻在哪里、是否睡着。不设门口暂存、待取或延后结算。
+- 收货人不在场或在睡：配送在到期当秒对订单的收货人结算，不看收货人此刻在哪里、是否睡着。短时直送不设门口暂存或延后结算；长途按用户补订只到站可取，本人领取才结算。
 - `goods_received` 事件：模拟人物每次收货恰好写一条 `environment_event`，`data.kind = "goods_received"`，`agent_id` 是收货人，人物可见，`source_kind = "environment"`，与状态变更同一提交，不带 `action_id` 与 `decision_id`。它以 `order_id` 与 `caused_by` 关联：到店指向购买结果事件，配送指向 `delivery_arrival` 事件。
 
 | `data` 字段 | 含义 |
@@ -481,7 +531,7 @@ WorldMock 拥有全部分类、常数与交换公式，定义在 `src/worldmock/
 <a name="spec-acs-其他动作"></a>
 ## 其他动作：统一执行、内容与推送
 
-出行、睡眠、购买与等待之外的全部生活行为都是 Dataset 登记的动作，由一个执行器（`src/worldmock/life/action_run.py`）执行，由一个选择器（`src/worldmock/life/content_select.py`）选内容。人物只选动作，动作绑定 app 时再选其中一个 app，社交动作另在 `to` 写对方；消费哪条内容、持续多久、何时接下一条都由系统按本章确定。类别、使用方式、占用与状态效果只取「闭集」与「类别固定表」；执行器从 Dataset 读到的数值只有内容时长。
+出行、睡眠、购买、领取、闹钟与等待之外的全部生活行为都是 Dataset 登记的动作，由一个执行器（`src/worldmock/life/action_run.py`）执行，由一个选择器（`src/worldmock/life/content_select.py`）选内容。人物只选动作，动作绑定 app 时再选其中一个 app，社交动作另在 `to` 写对方；消费哪条内容、持续多久、何时接下一条都由系统按本章确定。类别、使用方式、占用与状态效果只取「闭集」与「类别固定表」；执行器从 Dataset 读到的数值只有内容时长。
 
 <a name="spec-acs-执行与时长"></a>
 ### 执行与时长
@@ -491,7 +541,7 @@ WorldMock 拥有全部分类、常数与交换公式，定义在 `src/worldmock/
 - 推进与证据：活动内游标 `media_position_seconds` 按实际经过秒数推进；每次结算把游标写回全局 `ContentProgress`，并写一条 `activity_progress.data.content` 证据。连续消费的总时长等于各条内容实际消费秒数之和，没有另一层截止时间，也没有额外的操作耗时。
 - 完成证据：使位置到达内容 `duration_seconds` 的那次结算写 `completed = true` 的证据，`completed_rounds` 加 1，全局位置归零，向 `played[]` 追加一行，并解除当前 session 指向该内容的全部推送（`src/worldmock/life/app_push.py::release_app_pushes`）。
 - 接续按类别固定：`entertainment` 在同一次结算里按「内容选择」第 2–5 步取下一条，`draw_index` 加 1，重设计划结束；活动保持进行中，`boundary_type` 仍为 null，同一条 `app_use` 行延续。其余四个类别一次执行只消费一条内容，内容结束时活动以现有的 `planned_end` 完成并成为待收尾。进行中活动的合格集合变空时同样以 `planned_end` 完成。
-- 决策机会：只有现有 22 个唤醒原因之一到期，或活动完成时，才请人物决策。内容完成本身不是唤醒原因；不新增唤醒成员，不新增「继续」工具，不逐条内容决策。长时间连续执行期间的固定检查点是既有的 `progress_report_due`（场景 `progress_report_interval_seconds`，可以落在一条内容中间）。被请决策时活动照常进行，人物不结束、不暂停它就继续。
+- 决策机会：只有现有 23 个唤醒原因之一到期，或活动完成时，才请人物决策。内容完成本身不是唤醒原因；除用户补订 alarm_ring 外不新增唤醒成员，不新增「继续」工具，不逐条内容决策。长时间连续执行期间的固定检查点是既有的 `progress_report_due`（场景 `progress_report_interval_seconds`，可以落在一条内容中间）。被请决策时活动照常进行，人物不结束、不暂停它就继续。
 - 播报机会给出即消耗：一次决策的唤醒原因含 `progress_report_due` 时，该次决策的请求结算后，不论人物提交的是哪个工具、受理还是拒绝，该人物当时已到期的每项进行中活动的 `report_anchor_at` 都移到这一时刻。「已到期」用 `worldmock.life.rhythm::_progress_report_due` 的同一判定。`report_status` 仍经 `src/worldmock/life/activity_control.py::with_note` 写自述并移动锚点。不这样做，一次没有回应的播报会在每条内容结束时重新成立。本条修订 `docs/dev/SPEC-life-runtime.md` 的播报锚点规则，在该文件登记版本行。
 - 暂停：保留 `content_id` 与已消费位置，不增加进度。零消费秒的暂停不写、也不新建 `ContentProgress` 记录。
 - 提前结束：`conclude_activity` 结束进行中或暂停的活动，只记录已消费的部分；未完成的内容留下 `position_seconds > 0`。`action` 活动在任何一次决策都可以结束；除社交外也都可以暂停（「社交」）。
@@ -554,12 +604,12 @@ WorldMock 拥有全部分类、常数与交换公式，定义在 `src/worldmock/
 <a name="spec-acs-社交"></a>
 ### 社交
 
-- 两条执行路径由动作是否绑定 app 决定。不绑定 app 的 `social` 动作走今天的共同在场路径（`src/worldmock/life/social_actions.py::start_chat`）；绑定 app 的走今天的通话路径（`start_call`），所选 app 记在活动上，足迹行由使用方式决定。
+- 不绑定 app 的 `social` 动作走共同在场路径（`src/worldmock/life/social_actions.py::start_chat`）；绑定 app 时由 `communication_mode` 分流：`voice` 走 `start_call`，`text` 走统一动作执行器，不调用通话函数。所选 app 记在活动上，足迹行由使用方式决定。
 - 对方必填，由人物写在 `to`；为 null 即 `COUNTERPART_REQUIRED`。无 app 路径的对方必须是此刻同处一地、可以交谈的人物；有 app 路径的对方必须是本人通讯录里的场景联系人。内容从不引用场景对象，只给话题、摘要与时长；系统不抽取对方。
 - 无 app 路径：发起时向对方送出交谈邀请（现行邀请消息与 `message_arrival`）。对方以任一不绑定 app 的 `social` 动作、`to` 写发起方即为接受，不再发邀请。接受方保留自己写的动作，按「内容选择」从自己的进度取内容，按「执行与时长」的同一公式重设自己的计划结束；双方各自的 `ContentProgress` 只按本人实际消费的秒数推进，谁也不沿用对方的游标。一对人物同时至多一项。结束对齐沿用现行的 `partner_ended` 规则：任一方的活动结束（做完内容的 `planned_end`，或人物结束它），对方的那项在同一秒以 `partner_ended` 结束（`end_partner_chats`），没做完的内容留下已消费的位置。
-- 有 app 路径：不建模对方的回复；受理即成立通话事实。
+- 有 app 路径不建模对方的回复。`voice` 受理时建立真实通话事实；`text` 只执行所选话题内容，由模型在播报中编写聊天内容与进度，不生成通话、消息或回复事实。
 - 两条路径共有：一次执行一条内容，结束即 `planned_end`；不能暂停；时长只来自内容，今天按反馈间隔派生再截取的 `CHAT_DURATION_BOUNDS`、`CALL_DURATION_BOUNDS` 不再适用，晚接受不因剩余不足一分钟被拒。
-- 共同秒数的证明：缓解只对事实证明的秒数给出。无 app 路径按 `shared_chat_seconds`：双方互指对方的两项活动同时进行的秒数按共同交谈速率，其余秒数（对方未接受或已结束）按无对方速率。有 app 路径的全部实际秒数按通话速率。三个速率与代谢当量见「类别固定表」；抽到的话题摘要本身不构成交谈。
+- 共同秒数的证明：缓解只对事实证明的秒数给出。无 app 路径按 `shared_chat_seconds`：双方互指对方的两项活动同时进行的秒数按共同交谈速率，其余秒数（对方未接受或已结束）按无对方速率。绑定 app 的文字或语音社交全部实际秒数按远程社交速率。三个速率与代谢当量见「类别固定表」；抽到的话题摘要本身不构成交谈。
 - 占用：社交活动占 `talk`；使用方式为 `phone_continuous` 时另占 `use_app`。
 
 <a name="spec-acs-活动受理拒绝码"></a>
@@ -593,18 +643,19 @@ WorldMock 拥有全部分类、常数与交换公式，定义在 `src/worldmock/
 <a name="spec-acs-观察与工具面"></a>
 ## 观察与工具面
 
-人物仍只经七层请求与十一个原生工具接触世界：`REQUEST_MODELS` 七个模型、`custom/envs/life_env.py::_STABLE_TOOL_SURFACE` 的八个名字与启动时的工具面核对都不变，不新增购买、支付、打开 app 或「下一条」工具（P-28）。本章只定人物看到与提交的形状：成员闭集见「闭集」，受理、选内容与结算见「系统动作：出行、睡眠与购买」「其他动作：统一执行、内容与推送」，拒绝码的条件与英文文字见「活动受理拒绝码」。贯穿全章的要求只有一条：每条 app 足迹都能回指人物在请求里亲手写下的一个键（动作的 app、购物 app、支付 app、导航 app、交流对象），内容、主题、时长与数量没有键。宿主与环境继续在同一份冻结观察上调用同一组名称解析与错误合同函数；所写名称不准时返回可照填的候选，从不替换。
+人物仍只经七层请求与十二个原生工具接触世界：`REQUEST_MODELS` 八个模型、`custom/envs/life_env.py::_STABLE_TOOL_SURFACE` 的九个名字与启动时的工具面核对都不变，不新增购买、支付、打开 app 或「下一条」工具（P-28）。本章只定人物看到与提交的形状：成员闭集见「闭集」，受理、选内容与结算见「系统动作：出行、睡眠与购买」「其他动作：统一执行、内容与推送」，拒绝码的条件与英文文字见「活动受理拒绝码」。贯穿全章的要求只有一条：每条 app 足迹都能回指人物在请求里亲手写下的一个键（动作的 app、购物 app、支付 app、导航 app、交流对象），内容、主题、时长与数量没有键。宿主与环境继续在同一份冻结观察上调用同一组名称解析与错误合同函数；所写名称不准时返回可照填的候选，从不替换。
 
 <a name="spec-acs-请求形状"></a>
 ### 请求形状
 
-`start_activity` 为 `{items, answering}`：`items` 一至两项、原子受理；每项恰有五个键 `target`、`way`、`app`、`to`、`pay_app`，全部必填，用不上的写 null（严格 Schema 不用判别联合，只有一种扁平的项）；`answering` 的含义与校验不变。方式唯一决定内部动作，六种方式见「闭集」的 `WAYS`。
+`start_activity` 为 `{items, answering}`：`items` 一至两项、原子受理；每项恰有五个键 `target`、`way`、`app`、`to`、`pay_app`，全部必填，用不上的写 null（严格 Schema 不用判别联合，只有一种扁平的项）；`answering` 的含义与校验不变。方式唯一决定内部动作，七种方式见「闭集」的 `WAYS`。
 
 | 动作 | `target` | `way` | `app` | `to` | `pay_app` |
 | --- | --- | --- | --- | --- | --- |
 | 出行 | 地点名 | 步行 或 驾车 | 一个导航用途的 app，或 null | null | null |
 | 睡眠 | 自己 | 睡觉 | null | null | null |
 | 等待 | 自己 | 等待 | null | null | null |
+| 驿站领取 | 地点：驿站名 | 领取 | null | null | null |
 | 到店购买 | 商品名 | 购买 | null | null（本人收）或收货人 | 一个支付用途的 app，或 null |
 | 在线购买 | 商品名 | 购买 | 购物 app | null（本人收）或收货人 | 该购物 app 的 `payment_app_ids` 里的一个 |
 | 不绑定 app 的数据集动作 | 动作名 | 进行 | null | 类别 `social` 时写对方，其余 null | null |
@@ -627,6 +678,7 @@ WorldMock 拥有全部分类、常数与交换公式，定义在 `src/worldmock/
 | `PurchaseOrderRequest` | `{items, fulfillment, destination_id, app_id, payment_app_id}`：在线两个 app 身份都非空；到店 `app_id` 为 null、`payment_app_id` 可空 |
 | `ConsumeItem`、`ConsumeRequest`、`CONSUME_DURATION_CAP_SECONDS` | 删除 |
 | `StartSocialActivityRequest` | 删除：社交走动作执行器，没有请求时长 |
+| `SetAlarmRequest` | 新增：严格 at 一个键，校验见用户补订 |
 | `ActivityStartParams` | 删 `target_id` 与 `_TARGETED_ACTIVITY_KINDS`；加 `action_id`、`app_id`、`counterpart`（`action`）与 `navigation_app_id`（`travel`）；`planned_duration_seconds` 对 `action` 为 null，对 `wait`、`sleep`、`travel` 仍由规则派生后填入 |
 | `ChangeActivityRequest` | 删 `resume_cap_seconds`：主题上限随工作主题消失，恢复时长按「执行与时长」重设 |
 | `ErrandChange`、`_ERRAND_REQUIRED`、`_ERRAND_NULL` | 七个键，见「当日目标与事务」 |
@@ -640,53 +692,62 @@ WorldMock 拥有全部分类、常数与交换公式，定义在 `src/worldmock/
 
 | `kind` | 列出什么 | `state` | 动作行 |
 | --- | --- | --- | --- |
-| `location` | 现行来源的可达地点 | null | 步行、驾车各一行：`app` 为 null，`price` 车费、`duration` 行程时长、`note` 费力程度不变；导航 app 不逐行列 |
-| `product` | 每种商品一个目标，名称即商品名，不再按店铺展开；集合是人物所在店铺的菜单与经某个购物 app 可送到当前地点的商品之并，受既有呈现上限与按 `goods_id` 的轮转 | 「<类别标签>」，食品类另写「，每份约 N 千卡」 | 方式都是 购买，`quantity` 恒为「1 份」。到店一行：`app` 为 null，`price` 为商品价；人物不在在售该商品的店铺时不可用，原因取要求地点分句。每个绑定了在售店铺的购物 app 一行：`app` 为该 app 名，`price` 为含配送费的到手价，`note` 写「预计 HH:MM 送到；可用<支付 app 1>、<支付 app 2>付款」，时刻按系统将选的履约店铺算 |
-| `action` | 列出集合与合格集合分开：内容里至少有一条未被分配或分配给本人的每个动作始终列出，不看内容是否已完成、人物此刻在哪里（合格集合里的完成、工作地点条件与类别场所规则只影响行的可用性），没有呈现窗口与轮转；内容全部分配给别人的动作不列出，但每个登记的动作名都能解析，这样的开始以 `CONTENT_EXHAUSTED` 拒绝 | 「<类别标签>；<动作说明>」 | 方式 进行。动作不绑定 app 时一行 `app` 为 null；绑定时每个 app 一行。`price`、`quantity` 为 null，`duration` 见下。`note` 依次写：使用方式标签（无 app 不写）；本 session 推给该 app 且属于该动作的待消费推送「有推送：《<标题>》（<类型标签>）」；类别 `social` 的「to 写对方」。列出的行合格集合为空时 `available` 为 false，原因同 `CONTENT_EXHAUSTED`；只因不在要求的地点而此刻不能做的行不可用，原因取要求地点分句或类别场所码 |
+| `location` | 现行来源的可达地点以及场景选中的驿站 | null | 驿站另有领取行，仅本人在此站有可取订单时可用；步行、驾车各一行：`app` 为 null，`price` 车费、`duration` 行程时长、`note` 费力程度不变；导航 app 不逐行列 |
+| `product` | 每种商品一个目标，名称即商品名，不再按店铺展开；集合是人物所在店铺的菜单与经某个购物 app 可送到当前地点或按长途规则到站的商品之并，受既有呈现上限与按 `goods_id` 的轮转 | 「<类别标签>」，食品类另写「，每份约 N 千卡」 | 方式都是 购买，`quantity` 恒为「1 份」。到店一行：`app` 为 null，`price` 为商品价；人物不在在售该商品的店铺时不可用，原因取要求地点分句。每个绑定了在售店铺的购物 app 一行：`app` 为该 app 名，`price` 为含配送费的到手价，`note` 写「预计 HH:MM 送到（长途写到站）；可用<支付 app 1>、<支付 app 2>付款」，时刻按系统将选的履约店铺算 |
+| `action` | 列出集合与合格集合分开：内容里至少有一条未被分配或分配给本人的每个动作始终列出，不看内容是否已完成、人物此刻在哪里（合格集合里的完成、工作地点条件与类别场所规则只影响行的可用性），没有呈现窗口与轮转；内容全部分配给别人的动作不列出，但每个登记的动作名都能解析，这样的开始以 `CONTENT_EXHAUSTED` 拒绝 | 「<类别标签>；<动作说明>」 | 方式 进行。动作不绑定 app 时一行 `app` 为 null；绑定时每个 app 一行。`price`、`quantity` 为 null，`duration` 见下。`note` 依次写：使用方式标签（无 app 不写）；本 session 推给该 app 且属于该动作的待消费推送「有推送：《<标题>》」；类别 `social` 的「to 写对方」。列出的行合格集合为空时 `available` 为 false，原因同 `CONTENT_EXHAUSTED`；只因不在要求的地点而此刻不能做的行不可用，原因取要求地点分句或类别场所码 |
 | `person`、`contact` | 现行来源；它们是 `to` 的候选 | 在场人物写「正在<在做的事>」，`action` 活动用动作名 | 没有动作行；工具 `send_message` 不变 |
 | `self` | 恒在 | null | 等待、睡觉两行，`duration` 不变 |
 | `activity` | 进行中与刚结束的活动 | `action` 活动写「已做<时长>，《<当前内容标题>》还剩<时长>」，刚结束的另写终局；其余三种沿用现行客观进度 | 没有动作行；三个控制工具；类别 `work_study` 的活动可带 `last_report`，取该人物同一内容各次活动里最近的一条 `progress_note` |
 
 - 时长只由内容派生，不是动作的字段：该行存在将被续上的内容时（「内容选择」第 1 步命中的推送内容，否则第 2 步的未完成内容）`duration` 写它的剩余时长；否则写该行合格集合里内容时长的最小值至最大值「约 A 至 B」，相等时写一个值。购买行的 `duration` 为 null。
-- 开始与恢复的结果：`details.content{action, app, title, kind, summary, duration, pushed}` 写明这次选中的内容，依次是动作名、app 名（无 app 为 null）、标题、内容类型标签（非娱乐内容为 null）、摘要、这条内容此刻还剩的时长、是否由推送钉住；它取代 `details.app_content` 与 `details.work`。恢复不重抽，结果带同一形状。娱乐接续换到的下一条不产生结果，只反映在活动目标的 `state`。
+- 开始与恢复的结果：`details.content{action, app, title, summary, duration, pushed}` 写明这次选中的内容，依次是动作名、app 名（无 app 为 null）、标题、摘要、这条内容此刻还剩的时长、是否由推送钉住；它取代 `details.app_content` 与 `details.work`。恢复不重抽，结果带同一形状。娱乐接续换到的下一条不产生结果，只反映在活动目标的 `state`。
 - `callable_index` 四个键，`INDEX_KEYS` 依此次序：`goods`（按商品类别标签给 `{category, count, examples}`，口径与商品目标集合相同，菜单不许 `purchase` 时为空）、`navigation_apps`（导航用途的 app 名，菜单不许 `travel_to` 时为空）、`payment_apps`（支付用途的 app 名，菜单不许 `purchase` 时为空）、`query_categories`（商品类别与动作类别的完整计数）。两个 app 名单按 `app_id` 排序，只列名称，不带动作与可用性。
-- 私有观察（不进任何一层）：`goods[]`（取代 `foods[]`）、`actions[{action_id, name, category, app_ids, manner}]`、`apps[{app_id, name, purposes, payment_app_ids}]`、`contents[{content_id, action_id, title, kind}]`、`menus`、`pending_deliveries`、`routes`、`locations`、`app_pushes`（当前 session）、`messages`（到达的邮件都带正文）、`world_query_apps`、`home_location_id`（「家」「住处」按它解析，由 `ObservationBuilder._observation_data` 直接写入）；绑定表为 `interaction_bindings`（类别 `location`、`supply`、`action`、`person`、`contact`、`self`）、`goal_bindings`、`activity_bindings`、`person_bindings`、`errand_bindings`、`errand_item_bindings`。删除 `inventory`、`available_inventory`、`held_foods`、`work_topics`、`task_bindings`、`catalog_bindings`、`motivation_internal`。提示禁键表以 `goods_id`、`payment_app_id`、`navigation_app_id` 取代 `food_id`、`topic_id`、`work_topics`、`task_bindings`、`catalog_bindings`。
+- 私有观察（不进任何一层）：`goods[]`（取代 `foods[]`）、`actions[{action_id, name, category, app_ids, manner, communication_mode}]`、`apps[{app_id, name, purposes, payment_app_ids}]`、`contents[{content_id, action_id, title}]`、`menus`、`pending_deliveries`、`routes`、`locations`、`app_pushes`（当前 session）、`messages`（到达的邮件都带正文）、`world_query_apps`、`home_location_id`（「家」「住处」按它解析，由 `ObservationBuilder._observation_data` 直接写入）；绑定表为 `interaction_bindings`（类别 `location`、`supply`、`action`、`person`、`contact`、`self`）、`goal_bindings`、`activity_bindings`、`person_bindings`、`errand_bindings`、`errand_item_bindings`。删除 `inventory`、`available_inventory`、`held_foods`、`work_topics`、`task_bindings`、`catalog_bindings`、`motivation_internal`。提示禁键表以 `goods_id`、`payment_app_id`、`navigation_app_id` 取代 `food_id`、`topic_id`、`work_topics`、`task_bindings`、`catalog_bindings`。
 - 离开工具层的东西：`holding`、`task`、`app`、`lifestyle`、`message` 五类目标；非商品对象的呈现窗口与轮转、按名调用未展示的生活活动、`callable_index.lifestyle`；候选种类 `lifestyle`、`task`；持有份数、食用与给予行；app 的「约 30 分钟」、生活活动的典型时长、工作行按主题剩余派生的时长；到店、远程下单两种行与按店铺展开的商品目标。
-- 其余各层：环境层 `fixed_rules` 仍对有效菜单排除的每个动作写一句「这里不能<说法>」，`ACTION_PHRASES` 缩为五项，`do` 的说法为「做工具层里的动作」；`ACTIVITY_KIND_LABELS`、`ACTIVITY_DOING_LABELS` 缩为四个活动种类，`action` 活动在人读文字里一律用动作名。待办层与进度层的变化见「当日目标与事务」「事件与证据」。
+- 其余各层：环境层 `fixed_rules` 仍对有效菜单排除的每个动作写一句「这里不能<说法>」，`ACTION_PHRASES` 为六项，包含领取，`do` 的说法为「做工具层里的动作」；`ACTIVITY_KIND_LABELS`、`ACTIVITY_DOING_LABELS` 缩为四个活动种类，`action` 活动在人读文字里一律用动作名。待办层与进度层的变化见「当日目标与事务」「事件与证据」。
 
 <a name="spec-acs-系统层"></a>
 ### 系统层
 
-十八条与下标不变（P-29）。改写第 6、7、8、12、13、15、17 条，其余十一条逐字不动；第 2 条列出的六个世界请求与工具面一致，不改。落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的系统层 JSON 块，模块常量 `src/worldmock/agents/life_prompt.py::LIFE_SYSTEM_LAYER` 与之逐字相同；只读系统层不变。下面围栏块是七条的冻结全文，取代[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-系统层)「系统层」围栏块里的第 7、8、12、13、17 条，逐条锁定测试改读本节。
+十八条与下标不变（P-29）。按原规格与用户补订原位改写第 2、6、7、8、12、13、15、16、17、18 条；其余规则字节不变。落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的系统层 JSON 块，模块常量 `src/worldmock/agents/life_prompt.py::LIFE_SYSTEM_LAYER` 与之逐字相同；只读系统层不变。下面围栏块冻结这十条全文，既有逐条锁定测试按本节核验。
 
 ```text
+第 2 条
+每次决策恰好提交一个世界请求：start_activity、report_status、pause_activity、conclude_activity、revise_day_plan、send_message、set_alarm 之一；提交前可以查询自己的记忆、回看任务或查询已知世界。只读查询可以同批，世界请求单独提交。
+
 第 6 条
 思考只在同一时刻的连续决策之间保留，时间推进后丢弃。以后要买到或拿到的具体东西，在 report_status、pause_activity 或 conclude_activity 的 errands 里记成个人事务，它一直留在待办层，到提醒时刻只提醒一次，不会叫醒睡着的你；其他需要延续的打算写进 pause_activity 或 conclude_activity 的 summary，report_status 的 summary 只留到本段停留或路程结束。想记住的事只记以后做决定用得上的新情况，人设层已有的作息和待办层已有的事务不再记。
 
 第 7 条
-时间只在你有进行中的活动时推进；没有进行中的活动时，同一时刻会继续请你决策。等待与睡觉也是活动。醒着时，等待与出行一般要做满工具层写的时长才会再请你决策；其他动作自己没有时长，做多久由这次拿到的内容决定：工具层写的是大概要多久，开始的结果里写明这次是哪一条、有多长，这一条做完活动就结束并请你决策，只有娱乐类的会自己接着下一条，直到你停下。做得久的中途隔一阵也会请一次；自己下的单送到、提醒到点、有人找你、有 app 推送、到了定下的上下班时刻、写明的休息时段开始或结束，到时也会请你决策，手上的活动照常进行，哪一次想停都可以结束。所以空下来不必干等，像平常人那样照自己的习惯做点别的，刷刷手机、看点东西、收拾一下都算，不用等闷了才做；等待只留给几分钟内就有事请你决策的时候。
+时间只在你有进行中的活动时推进；没有进行中的活动时，同一时刻会继续请你决策。等待与睡觉也是活动。醒着时，等待与出行一般要做满工具层写的时长才会再请你决策；其他动作自己没有时长，做多久由这次拿到的内容决定：工具层写的是大概要多久，开始的结果里写明这次是哪一条、有多长，这一条做完活动就结束并请你决策，只有娱乐类的会自己接着下一条，直到你停下。做得久的中途隔一阵也会请一次；自己下的单送到或到站可领、提醒或闹钟到点、有人找你、有 app 推送、到了定下的上下班时刻、写明的休息时段开始或结束，到时也会请你决策，手上的活动照常进行，哪一次想停都可以结束。所以空下来不必干等，像平常人那样照自己的习惯做点别的，刷刷手机、看点东西、收拾一下都算，不用等闷了才做；等待只留给几分钟内就有事请你决策的时候。
 
 第 8 条
 你可以同时做两件事。环境只拦同一种的两件：工具层里类别相同的动作算一种，写着「持续使用手机 app」的动作不论类别另算一种，等待、出行各算一种。不同种的两件环境不拦，但没拦不等于做得到，做不做得到由你照常理判断：边做家务边听、边走边聊，做得到；两只手都占着的事，比如洗漱、洗碗、打扫，配不了拿着手机看；你自己觉得别扭的组合就不要一起做，一件做完再做另一件。开车时只能再和人说话，睡觉时不做别的。手上有一件在进行时，轮到你决策就可以再开始一件，原来那件照常进行。同时进行的最多两项，刚结束还没收尾的也算，暂停的不算，恢复暂停的活动要有空位；活动一结束，同一时刻先用 conclude_activity 收尾，再做别的。
 
 第 12 条
-名称照工具层、待办层中的写法填写；商品、地点都可以直接写名称，即使此刻没有展示；写得不准时会返回最接近的候选，不会替你改。出行、睡觉、等待、购买以外的事都是工具层里的动作，做哪一条内容由环境定，你只选动作和它列出的 app，开始的结果里会写明这次是哪一条。这段停留或路程里收到推送后，用那个 app 开始推送所属的动作，先做的是推送的内容，不开始也可以。
+名称照工具层、待办层中的写法填写；商品、地点都可以直接写名称，即使此刻没有展示；写得不准时会返回最接近的候选，不会替你改。出行、睡觉、等待、购买、领取以外的事都是工具层里的动作，做哪一条内容由环境定，你只选动作和它列出的 app，开始的结果里会写明这次是哪一条。这段停留或路程里收到推送后，用那个 app 开始推送所属的动作，先做的是推送的内容，不开始也可以。
 
 第 13 条
-start_activity 一项一个对象，写 target、way、app、to、pay_app，用不上的写 null；方式决定动作。出行：target 写地点，way 写步行或驾车，app 可以写一个导航 app，不用导航就写 null。购买：target 写商品，way 写购买，一项一件；人在店里买，app 写 null，pay_app 可以写一个支付 app，写 null 就是不经 app 付款；网上买，app 写购物 app，pay_app 写这个购物 app 能用的一个支付 app，由环境安排门店送来；to 写 null 是自己收，给别人买就写对方实名。工具层里的动作：target 写动作名，way 写进行，动作列了 app 就在 app 写其中一个，没列就写 null；社交类的动作在 to 写对方实名，其他动作 to 写 null。睡觉与等待 target 写自己。替别人办事时用 answering 关联未回复消息。
+start_activity 一项一个对象，写 target、way、app、to、pay_app，用不上的写 null；方式决定动作。出行：target 写地点，way 写步行或驾车，app 可以写一个导航 app，不用导航就写 null。购买：target 写商品，way 写购买，一项一件；人在店里买，app 写 null，pay_app 可以写一个支付 app，写 null 就是不经 app 付款；网上买，app 写购物 app，pay_app 写这个购物 app 能用的一个支付 app，由环境安排门店送来；to 写 null 是自己收，给别人买就写对方实名。工具层里的动作：target 写动作名，way 写进行，动作列了 app 就在 app 写其中一个，没列就写 null；社交类的动作在 to 写对方实名，其他动作 to 写 null。睡觉与等待 target 写自己。替别人办事时用 answering 关联未回复消息。驿站领取 target 写地点里的驿站，way 写领取，app、to、pay_app 都写 null；要本人到场，领取不保存库存。
 
 第 15 条
-你会饿、会困、会累，饿着或困着做事会慢，走路比坐车更费力。东西买到手或送到就算用掉：吃的喝的当场算吃了，别的东西当场算用了，没有另外吃或用的一步，也存不下来。只是「有点想吃」时，正餐留到平常的饭点前后吃，离饭点还早可以买点喝的或零食；到了「饿」，离平常饭点一小时以内可以提前下单，更早就先买点东西垫一下；到了「很饿」或更饿，别等饭点，马上买吃的。在路上的、这里能买的、能送到这里的都算；下单的东西要送到才算吃上。每个饭点的正餐只吃一次，提前吃过的那顿就算吃过了。
+你会饿、会困、会累，饿着或困着做事会慢，走路比坐车更费力。东西买到手或直送收到就算用掉；长途先到驿站，只通知领取，本人到场领取后才算收到：吃的喝的当场算吃了，别的东西当场算用了，没有另外吃或用的一步，也存不下来。只是「有点想吃」时，正餐留到平常的饭点前后吃，离饭点还早可以买点喝的或零食；到了「饿」，离平常饭点一小时以内可以提前下单，更早就先买点东西垫一下；到了「很饿」或更饿，别等饭点，马上买吃的。在路上的、这里能买的、能送到这里的都算；下单的东西要送到才算吃上。每个饭点的正餐只吃一次，提前吃过的那顿就算吃过了。
+
+第 16 条
+晚上照人设层作息里的就寝时间去睡（没写就寝时间，就困了再睡）：有点乏、困是睡前的常态，还没到就寝时间就照常过晚上，到了就可以睡，不用撑到某个钟点；很困或撑不住了可以提前，精神还好也可以晚些。想在某个时刻起来，可以用 set_alarm 设置一次闹钟，也可以给今日计划的目标写上提醒时刻；睡着时只有提醒、闹钟或睡够了才会醒，早睡也就早醒。
 
 第 17 条
 安排给你的工作要在要求的地点做，做哪一项由环境安排，按实际做的时间计进度：播报时用自己的话写这段做了什么、做到哪里；写的进度不改变已做的时间，一项做满它的时长环境会结束这次活动，做完的不再安排。
+
+第 18 条
+花钱量力而行；有人找你时，按你们的关系与当时的情况回应。联系人只能发消息或通过工具层列出的社交动作远程交流，不会来到你身边；文字交流只记录话题与实际用时，具体聊天内容和进展由你播报，不会自动生成对方回复。
 ```
 
 - 仍然满足的文字约束（`tests/integration/test_seven_layer_request.py`、`tests/integration/test_tool_description_references.py`、`tests/integration/test_life_agent_protocol.py`）：十八条；「上班安排」只在第 1、14 条；「待办」只在第 1、4、6、12 条；`reason` 只在第 11 条；「只是登记」「available 为 false 的会被拒绝」「能送到这里的都算」「同时进行的最多两项」「有 app 推送」各恰好一次；「暂停的不算」「恢复暂停的活动要有空位」「环境只拦同一种的两件」「原来那件照常进行」只在第 8 条；「到时也会请你决策，手上的活动照常进行」「等待只留给几分钟内就有事请你决策的时候」只在第 7 条；「到时不一定会请你决策」「不为凑钟点干等」只在第 14 条；「不用撑到某个钟点」只在第 16 条；第 12 条含「最接近的候选，不会替你改」；第 13 条以「start_activity 一项一个对象」开头；第 15 条以「你会饿」开头、含「每个饭点的正餐只吃一次」、「」引语恰好三处且依次是饥饿分级的前三档；不写工具用途句、不含语言指定词、不新增行动次序；此前登记的退役读法（名额、饭点、送达、就寝四处与资源与规则引擎简化规格的十一处）仍不出现。
-- 其他特性台账钉住的源码原文逐字保留，并各落在模块常量的同一源码行内：第 2 条「conclude_activity、revise_day_plan、send_message 之一；」，第 6 条以「到提醒时刻只提醒一次，不会叫醒睡着的你；」开头的那一整行，第 7 条「手上的活动照常进行」与「有 app 推送」，第 8 条「原来那件照常进行」，第 14 条的钟点一句，第 15 条「正餐留到平常的饭点前后吃」，第 16 条「还没到就寝时间就照常过晚上」。
+- 其他特性台账钉住的源码原文逐字保留，并在模块常量的完整字符串值中核验，不要求同一物理源码行：第 2 条工具列表的原文随 set_alarm 修订，其余钉住短语，第 6 条以「到提醒时刻只提醒一次，不会叫醒睡着的你；」开头的那一整行，第 7 条「手上的活动照常进行」与「有 app 推送」，第 8 条「原来那件照常进行」，第 14 条的钟点一句，第 15 条「正餐留到平常的饭点前后吃」，第 16 条「还没到就寝时间就照常过晚上」。
 - 被本节取代的既有断言与台账行，随阶段 4 的同一提交改写：第 15 条的「下单的东西送到、拿到手才能吃」改断言「下单的东西要送到才算吃上」；第 12 条的「娱乐只选 app」与第 17 条的「按主题计工时」两个定位短语、资源与规则引擎简化规格台账里跨第 12、13 条的两行变异原文与「按主题计工时」变异退役，由本特性台账的系统层行接管。新增的退役读法，任何一条规则里都不再出现：「吃、用东西算一种」「用手机 app 算一种」「边吃边看」「算一顿」「娱乐只选 app」「方式写打开」「写 target、way、from、to」「给予必须写他人」「prefer 必须写」「手边的」「拿到手才能吃」「按主题计工时」「吃掉的具体东西」。
 - 用途句：`TOOL_DESCRIPTIONS["start_activity"]` 改为「开始一项或两项活动：逐项写目标、方式、所用应用、对方或收货人与付款应用。」，`TOOL_DESCRIPTIONS["query_world"]` 改为「按已知名称、方式、公开品类或所用应用查询世界，可只看此刻能做的，按返回的偏移量翻页。」；其余十个用途句不变。两句都满足只写用途的扫描：一句中文、句号结尾、没有三个字母以上的拉丁词与规则说法。
-- 指纹：`prompt_sha256` 绑定两份系统层与 `LAYER_SCHEMAS`（后者活引用 `WAYS`、`LIFE_VERBS`、`TARGET_KINDS`、`CONTENT_KIND_LABELS`、`INTENT_KINDS`，并写着可调用索引的键、进度层记录与结果详情的形状）；`tool_schema_sha256` 绑定十一个原生工具定义与 `affordances.toml` 的原始字节。阶段 4 改写系统层七条、请求模型、两句用途句、七层 Schema 与可调用索引，两个指纹在该阶段取得最终值；阶段 1–3 中凡删改上述闭集成员或注册表字节的提交都会移动对应指纹，中间值不作任何断言；阶段 5、6 不改这两个指纹的输入；`code_sha256` 在阶段 1–6 的每个代码提交变动。没有测试、夹具或现行文档钉任何指纹字面值，落地后此前的运行、检查点与导出都不能恢复、重放或合并比较。
+- 指纹：`prompt_sha256` 绑定两份系统层与 `LAYER_SCHEMAS`（后者活引用 `WAYS`、`LIFE_VERBS`、`TARGET_KINDS`、`INTENT_KINDS`，并写着可调用索引的键、进度层记录与结果详情的形状）；`tool_schema_sha256` 绑定十二个原生工具定义与 `affordances.toml` 的原始字节。阶段 4 改写系统层十条、请求模型、两句用途句、七层 Schema 与可调用索引，两个指纹在该阶段取得最终值；阶段 1–3 中凡删改上述闭集成员或注册表字节的提交都会移动对应指纹，中间值不作任何断言；阶段 5、6 不改这两个指纹的输入；`code_sha256` 在阶段 1–6 的每个代码提交变动。没有测试、夹具或现行文档钉任何指纹字面值，落地后此前的运行、检查点与导出都不能恢复、重放或合并比较。
 
 <a name="spec-acs-当日目标"></a>
 ### 当日目标与事务
@@ -705,7 +766,7 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | 社交 | `action` 活动，`data.category` 为 `social` |
 | 运动 | `action` 活动，`data.category` 为 `exercise` |
 
-- 用餐之外的十种意图沿用 `progress_day_plan` 的判定：目标未推进、家族相符、登记之后的正时长结算，带 `around_time` 的目标另要求活动在 `GOAL_TIME_TOLERANCE_SECONDS` 的容差内进行；一次结算至多推进一个目标，同一活动当日只用一次，共享家族仍按目标清单的次序裁决。家族令牌由活动快照给出：`sleep`、`travel`、`wait` 取活动种类，`action` 取 `data.category`；`ACTIVITY_KIND_FAMILIES`、`LIFESTYLE_CATEGORY_FAMILIES`、`INTENT_ACTIVITY_FAMILIES` 按上表重写，`lifestyle:<品类>` 令牌消失。
+- 用餐之外的十种意图沿用 `progress_day_plan` 的判定：目标未推进、家族相符、登记之后的正时长结算，带 `around_time` 的目标另要求活动在 `GOAL_TIME_TOLERANCE_SECONDS` 的容差内进行；一次结算至多推进一个目标，同一活动当日只用一次，共享家族仍按目标清单的次序裁决。家族令牌由活动快照给出：`sleep`、`travel`、`wait` 取活动种类，`action` 取 `data.category`；`ACTIVITY_KIND_FAMILIES`、`ACTION_CATEGORY_FAMILIES`、`INTENT_ACTIVITY_FAMILIES` 按上表重写，`lifestyle:<品类>` 令牌消失。
 - 用餐由收货推进：本人的 `goods_received` 事件 `category` 为 `meal`、收货秒不早于目标的登记时刻、在当日之内，且目标带 `around_time` 时收货秒落在它前后 `GOAL_TIME_TOLERANCE_SECONDS` 之内，即推进清单里第一条未推进的用餐目标。`PlanGoal` 新增 `progress_order_id`：`progressed_at` 非空时它与 `progress_activity_id` 恰有一个非空；一张订单当日只推进一个目标。谁付的款不论；零食、饮品与非食品的收货、别人或联系人收货都不推进。系统不合成用餐活动，`ROUTINE_INTENT_KINDS` 不变。
 - 个人事务只剩「取得」一种结果，所以不再有结果键：`ErrandChange` 为七个键 `change`、`name`、`item`、`quantity`、`memo`、`remind_time`、`reason`，新增必填 `item`、`quantity`；`ErrandState` 删 `outcome`，同一人物对同一商品至多一条未完成事务；`item` 的字段说明改为「要取得的商品名称。」，`docs/CONTRACTS.md` 的控制工具定稿表去掉 `outcome` 一行，为十三行。
 - 事务在收货时办成，完成依据只读一处：事务所有人自己的 `goods_received` 事件，按 `goods_id` 命中，每条累加它的 `quantity`，达到数量即办成。到店成交、配送送达与别人买给本人都经这一事件；买给联系人的不算任何人取得。`evidence_rows` 现行的四个读点（结果里的已送达订单、`given`、`inventory_changes`、进食进度）删除。待办层行的 `done_when`「取得<商品> N 份」与 `progress`「已取得 N 份」不变；`errand_bindings` 的行减 `outcome`，`errand_item_bindings` 列全部商品名；事务事件的快照随 `ErrandState`。
@@ -713,7 +774,7 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 <a name="spec-acs-状态事件检查点与导出"></a>
 ## 状态、事件、检查点与导出
 
-本章与「固定规则与常数」「环境格式」同为字段的唯一定义处：世界状态、事件载荷、导出行与结构版本在这里各定义一次。共同检查点仍封存完整的 `WorldState` 与各人物工作区，`Event` 与 `Checkpoint` 的结构仍为 1，事件类型集合与 22 个唤醒原因不变；恢复与重放读已存的选择，从不重抽内容。
+本章与「固定规则与常数」「环境格式」同为字段的唯一定义处：世界状态、事件载荷、导出行与结构版本在这里各定义一次。共同检查点仍封存完整的 `WorldState` 与各人物工作区，`Event` 与 `Checkpoint` 的结构仍为 1，事件类型集合不变，唤醒原因追加 alarm_ring 后为 23 个；恢复与重放读已存的选择，从不重抽内容。
 
 <a name="spec-acs-世界状态"></a>
 ### 世界状态
@@ -723,12 +784,12 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | 模型 | 保留 | 新增 | 删除 |
 | --- | --- | --- | --- |
 | `WorldState` | `schema_version`、`version`、`current_time`、`end_time`、`run_id`、`timezone`、`scenario_sha256`、`agents`、`accounts`、`activities`、`sessions`、`deliveries`、`pending_events`、`processed_actions`、`presentation_state`（只剩商品轮转，键为 `goods_id`）、`same_moment_presentation`、`random_seed`、`random_state` | 无 | `content_manifest_sha256`、`contact_holdings`；`validate_world` 的库存非负检查 |
-| `AgentState` | 其余全部字段；`content_progress{content_id: ContentProgress}` 仍是跨 app 的进度权威 | 无 | `inventory`；`read_message_ids`（邮件到达即见正文，没有已读状态）；`consecutive_rejections`（唯一的读取方是内部动机评分器，随它删除；拒绝结果里的同刻轮次字段不变） |
+| `AgentState` | 其余全部字段；`content_progress{content_id: ContentProgress}` 仍是跨 app 的进度权威 | `driving_days`、`last_driving_date` | `inventory`；`read_message_ids`（邮件到达即见正文，没有已读状态）；`consecutive_rejections`（唯一的读取方是内部动机评分器，随它删除；拒绝结果里的同刻轮次字段不变） |
 | `ContentProgress` | `content_id`、`position_seconds`、`completed_rounds` | `last_consumed_at`（必填整数；记录只由消费秒数为正的结算创建与更新） | 无 |
 | `SessionState` | 全部字段；`app_pushes{app_id: AppPush{push_id, content_id, issued_at, status}}` 的键与 `push_id` 公式不变，推送所属的动作由内容的唯一绑定得出，不另存 | 无 | 无 |
 | `ActivityState` | 生命周期、计划、结算、播报、会话与自述字段；`media_position_seconds` 是当前内容的运行游标；`route_progress_meters`、`destination_id`、`travel_mode` 只属出行；`planned_end_at` 与 `planned_duration_seconds` 对 `action` 活动按「执行与时长」重设，剩余时长校验照旧成立 | 无 | `target_id`（`action` 的对象身份在 `data.action_id`，其余三种本来就没有对象）；`task_kind` 的 `work_topic` 取值 |
-| `ActivityState.data` | `wait`、`sleep` 不变；`travel` 的 `trip_id`、`path`、`distance_meters`、`origin_id`、`destination_id`、`travel_payment`、`arrival` | `travel` 加 `navigation_app_id`（可空，不参与行程完整性比对）；`action` 为 `{action_id, category, app_id, manner, counterpart, content_id, start_position_seconds, pinned_by_push_id, draw_index, played[{content_id, kind, from_position, to_position}]}`，其中 `app_id`、`manner`、`counterpart`、`pinned_by_push_id` 与 `played[].kind` 可空 | `use_app` 的 `content_kind`、`summary`、`repeat`；`work`、`consume`、`lifestyle`、`read_mail`、`chat`、`call` 各自的形状（含 `partner_id`、`contact_id`，由 `counterpart` 取代） |
-| `DeliveryState` | `order_id`、`agent_id`、`store_id`、`app_id`、`seller_account_id`、`quantity`（恒为 1）、`unit_price_fen`、`delivery_fee_fen`、`total_price_fen`、`destination_id`、`fulfillment`、`recipient_id`、`request_message_id`、`created_at`、`expected_at`、`status`、`path`、`trip_id`、`distance_meters`、`prep_seconds` | `goods_id`（原 `food_id`）、`category`、`payment_app_id`（可空）、`received_at`（`pending` 时为 null，到店等于 `created_at`） | `status` 的 `ready`、`cancelled` 两个取值 |
+| `ActivityState.data` | `wait`、`sleep` 不变；`travel` 的 `trip_id`、`path`、`distance_meters`、`origin_id`、`destination_id`、`travel_payment`、`arrival` | `travel` 加 `navigation_app_id`（可空，不参与行程完整性比对）；`action` 为 `{action_id, category, app_id, manner, communication_mode, counterpart, content_id, start_position_seconds, pinned_by_push_id, draw_index, played[{content_id, from_position, to_position}]}`，其中 `app_id`、`manner`、`communication_mode`、`counterpart`、`pinned_by_push_id` 可空 | `use_app` 的 `content_kind`、`summary`、`repeat`；`work`、`consume`、`lifestyle`、`read_mail`、`chat`、`call` 各自的形状（含 `partner_id`、`contact_id`，由 `counterpart` 取代） |
+| `DeliveryState` | `order_id`、`agent_id`、`store_id`、`app_id`、`seller_account_id`、`quantity`（恒为 1）、`unit_price_fen`、`delivery_fee_fen`、`total_price_fen`、`destination_id`、`fulfillment`、`recipient_id`、`request_message_id`、`created_at`、`expected_at`、`status`、`path`、`trip_id`、`distance_meters`、`prep_seconds` | `goods_id`（原 `food_id`）、`category`、`payment_app_id`（可空）、`delivery_address_id`、`arrived_at`、`received_at`（时刻与状态见用户补订） | `status` 的 `ready`、`cancelled` 两个取值 |
 | `PlanGoal`、`ErrandState` | 其余全部字段 | `PlanGoal.progress_order_id` | `ErrandState.outcome` |
 
 候选游标身份的 `catalog_digest`（今天取 `content_manifest_sha256`）改取冻结目录清单的 `catalog_content_sha256`，即 `environment_identity` 的同名字段；商品轮转的其余输入不变。新建与恢复时的身份核对（`EngineContext.validate`）删去语料身份与持有食品两项，其余不变；活动与订单引用的 `action_id`、`app_id`、`content_id`、`navigation_app_id`、`goods_id`、`payment_app_id` 与对方身份必须存在于当前冻结环境，否则是 `IntegrityError`。
@@ -736,12 +797,12 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 <a name="spec-acs-事件与证据"></a>
 ### 事件与证据
 
-- `environment_event.data.kind` 的成员只变两处。新增 `goods_received`：归收货人所有、人物可见、`source_kind` 为 `environment`，载荷 `{kind, order_id, payer_id, goods_id, category, quantity, destination_id, recipient_location_id, recipient_asleep, provided, applied, efficiency}` 另带本次效果自己的资源分录，`efficiency` 只有食品非空，写入时机与关联见「收货结算」。`work_topic_completed` 改名 `work_content_completed`，载荷 `{kind, content_id}`，只对本人可见。载荷改形的另有两种：`delivery_arrival` 为 `{kind, scheduled_id, orders[]}`，`orders[]` 是 `DeliveryState` 的 JSON，`inventory_changes` 删除，事件仍归付款人；`app_push` 见下一条。
-- 推送事件：人物可见的 `app_push` 载荷加 `action_id` 与 `action`（动作名），为 `{kind, push_id, app_id, app, action_id, action, content_id, title, content_kind, summary, session_id, issued_at}`；没有合格 app 的系统可见结算 `{kind, pushed: false, session_id}` 不变。
-- `activity_progress.data`：`interval_start`、`interval_end`、活动快照、资源分录与出行的 `arrival` 不变；`action` 活动每次结算带 `content{content_id, app_id, kind, position_before_seconds, position_after_seconds, completed, completed_rounds_after}`，`app_id`、`kind` 可空；`work`、`consumption` 两个键删除。事件里的活动快照是 `ActivityState` 的 JSON，`action` 活动另带 `title`（动作名）与 `content_title`（当前内容标题）。
+- `environment_event.data.kind` 增加 `alarm_ring`，载荷与因果见用户补订；另有以下收货与完成变化。新增 `goods_received`：归收货人所有、人物可见、`source_kind` 为 `environment`，载荷 `{kind, order_id, payer_id, goods_id, category, quantity, destination_id, recipient_location_id, recipient_asleep, provided, applied, efficiency}` 另带本次效果自己的资源分录，`efficiency` 只有食品非空，写入时机与关联见「收货结算」。`work_topic_completed` 改名 `work_content_completed`，载荷 `{kind, content_id}`，只对本人可见。载荷改形的另有两种：`delivery_arrival` 为 `{kind, scheduled_id, orders[]}`，`orders[]` 是 `DeliveryState` 的 JSON，`inventory_changes` 删除，短时事件仍归付款人，长途到站事件归实际模拟收货人；`app_push` 见下一条。
+- 推送事件：人物可见的 `app_push` 载荷加 `action_id` 与 `action`（动作名），为 `{kind, push_id, app_id, app, action_id, action, content_id, title, summary, session_id, issued_at}`；没有合格 app 的系统可见结算 `{kind, pushed: false, session_id}` 不变。
+- `activity_progress.data`：`interval_start`、`interval_end`、活动快照、资源分录与出行的 `arrival` 不变；`action` 活动每次结算带 `content{content_id, app_id, position_before_seconds, position_after_seconds, completed, completed_rounds_after}`，`app_id` 可空；`work`、`consumption` 两个键删除。事件里的活动快照是 `ActivityState` 的 JSON，`action` 活动另带 `title`（动作名）与 `content_title`（当前内容标题）。
 - `action_result.data`：`orders[]` 为 `DeliveryState` 的 JSON；删除 `given`、`inventory_changes`、`app_content`、`work` 与 `outcome[]` 的 `items`、`note`。`details` 的键为 `purchases`、`planned`、`arrival`、`content`、`outcome`（每项 `{activity, outcome}`）、`recall`、`reason`、`next_step`、`fix`、`items`、`linked_orders`、`resolved`、`notes`、`errands`；`purchases[]` 的键不变（`product` 取商品名，不复述请求里的 app）；删除 `given`、`mail`、`app_content`、`work`。
 - 已核验经历四种：`waited`、`arrived` 不变；`played{content_id, app_id, position_before_seconds, position_after_seconds, interval_start, interval_end}` 的 `app_id` 可空，来源是任一 `action` 活动位置前进的结算；`received{order_id, goods_id, category, quantity}` 的来源是本人的 `goods_received` 事件，公共字段 `activity_id` 为 null；`consumed` 删除，去重与排序键里的 `food_id` 随之删除。
-- 进度层记录类型仍是九种。`app_push` 加 `action`，为 `{occurred_at, type, app, action, title, kind, summary}`。`work_completed{topic}` 的 `topic` 写完成的那条工作内容的标题。`delivery{order, status, message}` 的 `status` 只有 `delivered`：付款人照旧从 `delivery_arrival` 得到「已送到<地点>」（收货人不是自己时写明收货人）；不是付款人的模拟收货人从自己的 `goods_received` 得到一条，`message` 写「<付款人>买的，已送到<地点>」。订单名为「<商品> 1 份（HH:MM 购买）」，在线订单写「（HH:MM 经<购物 app>购买）」。邮件的 `message_arrival` 同时带 `subject` 与 `text`（正文）；交谈邀请的 `text` 结尾改为「，开始一项不用 app 的社交动作并在 to 写<发起人>即接受」。
+- 进度层记录类型仍是九种。`app_push` 加 `action`，为 `{occurred_at, type, app, action, title, summary}`。`work_completed{topic}` 的 `topic` 写完成的那条工作内容的标题。`delivery{order, status, message}` 的 `status` 只有 `delivered`：付款人照旧从 `delivery_arrival` 得到「已送到<地点>」（收货人不是自己时写明收货人）；不是付款人的模拟收货人从自己的 `goods_received` 得到一条，`message` 写「<付款人>买的，已送到<地点>」。订单名为「<商品> 1 份（HH:MM 购买）」，在线订单写「（HH:MM 经<购物 app>购买）」。邮件的 `message_arrival` 同时带 `subject` 与 `text`（正文）；交谈邀请的 `text` 结尾改为「，开始一项不用 app 的社交动作并在 to 写<发起人>即接受」。
 - 记忆层 `settled` 句：活动句仍是「<活动名>：<起止>（暂停 …），<终局>」，`action` 活动后接已完成内容的标题「，《A》《B》」，当前内容有实际推进而未完成时再写「（《C》未完）」，一条都没有推进时不接；活动名已含动作名与 app 名，句中不另写 app。订单句为「HH:MM 购买<商品> 1 份，付 N 元」，在线订单在「购买」前写「经<购物 app>」并接「，预计 HH:MM 送到<地点>」，有支付 app 时在金额后写「（<支付 app>）」，回应与收货人的括注不变。完成句为「HH:MM 完成「<内容标题>」」。「吃了…」「丢弃…」与「把…给了…」三种句子删除。零点计划输入的经历句：`played` 写「<起止> <动作名>《<标题>》」，有 app 时在动作名前写「用<app>」；`received` 写「HH:MM 收到<商品> 1 份」。
 - 交给下游的事件：WorldMock 不构造 LabelKit 窗口，也不定义环境事件在窗口里的公开投影。导出的 `events.jsonl` 原样带着人物可见的 `goods_received` 与 `app_push`，各有本节前两条写明的完整载荷，连同所有人、可见性与 `caused_by`；窗口怎样裁剪它们是对 LabelKit-DataSet 的交接要求，写在「数据仓交接」（P-8、P-27）。
 
@@ -753,7 +814,7 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | `fact_kind` | 另有字段 | 何时写 |
 | --- | --- | --- |
 | `app_use` | `segments[{started_at, ended_at}]`、`status` | 使用方式为 `phone_continuous` 或 `other_device` 的每个 `action` 活动一行，取最后一份权威快照；`segments` 与 `activities.jsonl` 用同一合并，暂停区间不在其中；现行的顶层 `started_at`、`ended_at` 删除 |
-| `content_consumed` | `content_id`、`kind`、`interval_start`、`interval_end`、`position_before`、`position_after`、`completed`、`push_id` | 上述两种方式的活动每次带 `content` 的结算一行；`kind` 对非娱乐内容为 null；`push_id` 只在该内容由推送钉住时非空 |
+| `content_consumed` | `content_id`、`interval_start`、`interval_end`、`position_before`、`position_after`、`completed`、`push_id` | 上述两种方式的活动每次带 `content` 的结算一行；没有内容类型字段；`push_id` 只在该内容由推送钉住时非空 |
 | `app_touch` | `edge`（`start` 或 `end`）、`occurred_at` | `offline_assisted` 的 `action` 活动与带导航 app 的出行：受理开始一行，实际结束（完成、到达或人物结束）一行；运行终点截断不写 `end`，暂停与恢复不写；导航行的 `action_id` 为 null |
 | `push_delivered` | `push_id`、`content_id`、`session_id`、`occurred_at` | 人物可见的 `app_push` 事件；`activity_id` 为 null |
 | `push_opened` | 同上 | 同一 session 内对该 app 该动作第一次受理的开始；`activity_id` 是打开它的活动 |
@@ -771,14 +832,15 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | --- | --- | --- |
 | `purchase` | `agent_id`、`order_id`、`goods_id`（原 `food_id`）、`category`、`store_id`、`app_id`、`payment_app_id`、`unit_price_fen`、`delivery_fee_fen`、`quantity`、`total_price_fen`、`fulfillment`、`recipient_id`、`request_message_id`、`created_at`、`action_id`、`source_event_id` | 订单首次出现的那条动作结果，现行规则不变；到店 `app_id` 为 null，`payment_app_id` 为 null 即这笔付款没有 app 记录 |
 | `order_attempt` | `agent_id`、`action_id`、`request_event_id`、`way`、`status`、`error_code`、`occurred_at` | 现行规则不变；方式归一后只有 购买 |
-| `receipt` | `agent_id`、`order_id`、`recipient_id`、`received_at`、`goods_id`、`category`、`quantity`、`provided`、`applied`、`source_event_id` | 每张 `delivered` 的订单恰好一行。`agent_id` 是付款人；`source_event_id` 是使订单变为 `delivered` 的付款人事件（到店为下单的动作结果，配送为 `delivery_arrival`）；`provided`、`applied` 取收货人的 `goods_received`，收货人是联系人时为 null |
+| `receipt` | `agent_id`、`order_id`、`recipient_id`、`received_at`、`goods_id`、`category`、`quantity`、`provided`、`applied`、`source_event_id` | 每张 `delivered` 的订单恰好一行。`agent_id` 是实际模拟收货人，`source_event_id` 取本人的 `goods_received`；联系人收货时两者取付款人与真实下单或送达事件，`provided`、`applied` 为 null；模拟收货效果取本人 `goods_received` |
+| `pickup_ready` | `agent_id`、`order_id`、`app_id`、`pickup_location_id`、`arrived_at`、`source_event_id` | 每张已到站长途订单恰一行，归实际模拟收货人，来源是本人的到站事件；领取后该行仍保留 |
 
 `purchase` 与 `receipt` 行以订单行为单位：每个 `order_id` 恰一行 `purchase`；同一整单各行的 `source_event_id`、`created_at` 相同，金额按行给出，各行合计等于那一笔转账。
 
 | 归属 | 拥有 | 不做 |
 | --- | --- | --- |
 | WorldMock | 两份足迹工件、它们的行形状与「足迹不变量」 | 不产出手机行；不安装也不调用 LabelKit，没有数据加工命令，也没有交付清单 |
-| LabelKit-DataSet | 手机信号投影，本规格只作交接要求（「数据仓交接」）：只筛 `device` 为 `phone` 的行，一行对一行地投影；下单取 `purchase` 的 `created_at` 与 `app_id`，付款取 `created_at` 与 `payment_app_id`，送达通知取配送订单的 `receipt` 行并发给付款人，并按 `order_id` 取同一订单 `purchase` 行的 `app_id` 与 `fulfillment`，这是送达通知唯一允许的查找。LabelKit 窗口、训练与规则数据同归它；下游消费者仍是未完成的验收 | 不带自己的规则，不再读 `events.jsonl` 推导送达（P-7） |
+| LabelKit-DataSet | 手机信号投影，本规格只作交接要求（「数据仓交接」）：只筛 `device` 为 `phone` 的行，一行对一行地投影；下单取 `purchase` 的 `created_at` 与 `app_id`，付款取 `created_at` 与 `payment_app_id`，短时送达通知取直送订单的 `receipt` 行并发给实际收货人，长途到站通知取 `pickup_ready` 行，领取 receipt 不再制造通知，并按 `order_id` 取同一订单 `purchase` 行的 `app_id` 与 `fulfillment`，这是送达通知唯一允许的查找。LabelKit 窗口、训练与规则数据同归它；下游消费者仍是未完成的验收 | 不带自己的规则，不再读 `events.jsonl` 推导送达（P-7） |
 | WorldMock-Dataset | 环境素材、制作工具与环境发布（「数据仓交接」） | 不实现手机信号投影 |
 
 <a name="spec-acs-足迹不变量"></a>
@@ -786,13 +848,13 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 
 `src/worldmock/footprints/validation.py::validate_export` 在从事件重算并逐行比对五个工件之外，另查下面七条；任何一条不成立都是 `IntegrityError`，导出不被接受。每条是验收台账的一行。
 
-1. `app-usage.jsonl` 里出现的每个 `activity_id` 都属于快照带 app 身份的活动；没有 app 的活动一行也没有。
-2. 同一人物的 `device` 为 `phone` 的 `segments` 两两不重叠。
-3. 每张 `delivered` 的订单恰有一行 `receipt`；收货人是模拟人物时恰有一条 `goods_received` 事件，是联系人时没有。
-4. 每张订单 `created_at <= received_at`；账户变化只出现在创建该订单的那条事件上，收货事件不带账户变化。
-5. 同一人物同一内容在一轮之内（相邻两次 `completed` 之间）位置单调不减，每行 `position_after` 不小于 `position_before`；每条 `content_consumed` 的区间落在所属活动的某个 `segment` 内。
-6. 每条 `push_opened`、`push_released` 与每个非空的 `content_consumed.push_id` 都指向同一人物此前一条 `push_delivered`。
-7. 每一行的 `source_event_id`（`order_attempt` 为 `request_event_id`）都是该行 `agent_id` 所有的事件。
+- app 身份：`app-usage.jsonl` 每个 `activity_id` 都属于快照带 app 身份的活动；没有 app 的活动一行也没有。
+- 手机区间：同一人物 `device = phone` 的 `segments` 两两不重叠。
+- 收货唯一性：每张 `delivered` 订单恰有一行 `receipt`；模拟收货人恰有一条本人的 `goods_received`，联系人没有该事件；`ready_for_pickup` 没有收货行，到站长途订单恰有一行实际收货人的 `pickup_ready`。
+- 时刻与账户：已到站或收货订单满足 `created_at <= arrived_at <= received_at`（待领取时 received_at 为 null）；账户变化只属于创建订单事件，收货和到站不带账户变化；到站与领取来源必须是实际到期事件与实际领取结果。
+- 内容区间：同一人物同一内容在一轮内位置单调不减，每行 position_after 不小于 position_before；content_consumed 区间落在所属活动某个 segment 内。
+- 推送关联：push_opened、push_released 与非空 content_consumed.push_id 都指向同一人物此前的 push_delivered。
+- 事件归属：每行 source_event_id（order_attempt 为 request_event_id）都是该行 agent_id 所有事件；模拟收货、到站归实际收货人，联系人收货来源归付款人。
 
 <a name="spec-acs-进食与持有的读者"></a>
 ### 进食与持有的读者处置
@@ -806,9 +868,9 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | 当日目标推进与 `evaluation/goal_metrics.py` | 用餐对应 `consume` 活动 | 用餐由收货推进，见「当日目标与事务」；目标度量按同一判定读 `progress_order_id` |
 | 社交账的共餐（`SOCIAL_NEED_SHARED_MEAL_RATE`） | 进行中的进食活动 | 规则与常数删除，没有替代 |
 | 内部动机评分 | 持有食品、进食时间、生活活动效果、主题目标工时 | 随评分器退役（P-33），没有读者 |
-| 质量 `conversion_efficiency.food` | 进食进度的份量与 `food_efficiency` | 改按食品类 `goods_received` 的 `applied / provided`，以 `provided` 加权；没有食品收货时的空原因由 `no_food_consumption_progress` 改为 `no_food_receipt` |
-| 质量 `content_contact` | 只有 `use_app` 的内容结算 | `by_app` 只计 `app-usage.jsonl` 的 `content_consumed` 行，没有空键；新增 `by_action` 计全部内容结算（含无 app 的动作）；`by_kind` 只计 `kind` 非空的；`repeat_watch` 旁新增 `repeat_seconds_share`，即重播的已消费秒数占全部已消费秒数之比 |
-| 质量 `work_topics` | 工作活动的 `target_id`、观察里的 `work_topics`、`work_topic_completed` | 键名不变，改读分配内容：`topics` 为各人物 `work_content_ids` 的条数，`completed` 为 `work_content_completed` 事件数，`worked_seconds_by_topic` 以 `content_id` 为键累加内容结算秒数 |
+| 质量 `conversion_efficiency.food` | 进食进度的份量与 `food_efficiency` | 改按食品类 `goods_received` 的 `applied / provided`，以 `provided` 千卡加权，计量字段为 `known_provided_kcal`；没有食品收货时的空原因由 `no_food_consumption_progress` 改为 `no_food_receipt` |
+| 质量 `content_contact` | 只有 `use_app` 的内容结算 | `by_app` 只计 `app-usage.jsonl` 的 `content_consumed` 行，没有空键；新增 `by_action` 计全部内容结算（含无 app 的动作）；没有内容分类或 `by_kind`；`repeat_watch` 旁新增 `repeat_seconds_share`，即重播的已消费秒数占全部已消费秒数之比 |
+| 质量 `work_topics` | 工作活动的 `target_id`、观察里的 `work_topics`、`work_topic_completed` | 键名不变，改读分配内容：运行清单 4 保存从场景冻结的 `work_content_ids:{agent_id:[content_id]}`，`topics` 为该清单中各人物分配内容的条数，`completed` 为 `work_content_completed` 事件数，`worked_seconds_by_topic` 以 `content_id` 为键累加内容结算秒数 |
 | 质量 `errand_metrics` | 提醒后受理的购买与进食；办成事件的证据 | 提醒后的行动只认受理的购买；证据只认 `goods_received` |
 | 质量 `day_plan_metrics`、`memory_references`、`timeline_labels`、`name_rejections`、`app_pushes` | 目标推进、五行经历窗口、时间线标签、名称拒绝码、推送漏斗 | 前四项随新的推进证据、经历种类、标签规则与名称码集合；`app_pushes` 的六个计数口径不变 |
 | 行为 `meal_diversity` | 进食进度 | 改按本人为收货人的食品类 `receipt` 行，以 `goods_id` 计 |
@@ -839,7 +901,7 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | WorldMock-Dataset 的 `environment_version` | "2" | 数据仓发布的 `catalog/manifest.json` | 场景的环境钉不符即 `ENVIRONMENT_PIN_MISMATCH` |
 | 下游手机投影清单 | 随新行形状升号，号由 LabelKit-DataSet 定 | LabelKit-DataSet 的手机信号投影 | 该仓库自己的读取方 |
 
-不变：地图结构 1 与生成器规则 1、`Event` 与 `Checkpoint` 结构 1、22 个唤醒原因、十四个事件类型、`environment_identity` 的五个字段。
+不变：地图结构 1 与生成器规则 1、`Event` 与 `Checkpoint` 结构 1、追加 alarm_ring 后 23 个唤醒原因、十四个事件类型、`environment_identity` 的五个字段。
 
 <a name="spec-acs-删除清单"></a>
 ## 删除清单
@@ -857,7 +919,7 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | 2 | `src/worldmock/life/giving.py` | 给予由购买时在 `to` 写收货人取代；消费者 `worldmock.life.session_actions::ActionHandlers._give_action` 与 `worldmock.life.tool_layer::_give_check` 同提交删除；[PP]、[RRS] 的 `FEATURE_PRODUCTION_FILES` |
 | 3 | `src/worldmock/life/named_catalog.py` | 按名调用未展示的生活活动与工作主题随这两种旧活动种类退出（P-28）；消费者 `worldmock.life.observe::ObservationBuilder._observation_data` 里的 `name_bindings` 调用同提交删除；私有键 `home_location_id` 保留，改由 `ObservationBuilder._observation_data` 直接写入，只有 `catalog_bindings` 离开；[DF]、[RRS] 的 `FEATURE_PRODUCTION_FILES` |
 
-`src/worldmock/life/{commerce,content,durations,retrieval,rules,work}.py` 与 `src/worldmock/corpora/manifest.py` 保留，只删下表所列符号；`life/retrieval.py` 保留 `feasible_kinds`、`LOCATION_KINDS`、`ANYWHERE_KIND`，供运动类的场所规则使用。新文件只有 `src/worldmock/life/{receipt,action_run,content_select}.py`（P-36）。
+`src/worldmock/life/{commerce,content,durations,retrieval,rules,work}.py` 与 `src/worldmock/corpora/manifest.py` 保留，只删下表所列符号；`life/retrieval.py` 保留 `feasible_kinds`、`LOCATION_KINDS`、`ANYWHERE_KIND`，供运动类的场所规则使用。新文件为 `src/worldmock/life/{receipt,action_run,content_select}.py`（P-36），用户补订另增加 `life/{alarm,fuel,parcel}.py`。
 
 <a name="spec-acs-删除生产符号"></a>
 ### 生产符号（文件保留）
@@ -866,7 +928,7 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | --- | --- | --- |
 | 1 | `worldmock.exchange.types::FoodCategory`、`FOOD_CATEGORY_LABELS`（由 `GoodsCategory` 与五项标签表取代）、`FOOD_STORE_KINDS`（改名 `STORE_KINDS`）；`START_ACTIVITY_ACTIONS` 的成员 `work`、`consume`、`use_app`、`chat`、`call`、`read` | [OWN] `exchange/types.py` 行改名并加入新闭集；[SR] 公共枚举 行节点不变 |
 | 1 | `worldmock.exchange.constants::FoodConstants`、`FOOD_CONSTANTS`（千卡改名 `GOODS_ENERGY_KCAL`，进食秒数删除）、`APP_USE_DEFAULT_SECONDS`（`worldmock.life.durations` 对它的模块级导入与 `derived_activity_duration` 的 `USE_APP` 分支同提交删除）；`worldmock.exchange.operators::evaluate_food_energy`（由 `evaluate_goods_receipt` 取代）；`worldmock.exchange.body::BodyConstants.activity_met` 的键 `work`、`use_app`、`read_mail`、`consume`、`chat`、`call` | [OWN] `exchange/constants.py`、`exchange/operators.py` 两行；[RRS] 变异 `rrs_drink_energy_200`、`rrs_food_energy_always_meal` |
-| 1 | `worldmock.life.felt::SOCIAL_NEED_AWAKE_RATE`、`SOCIAL_NEED_CONVERSATION_RATE`、`SOCIAL_NEED_CALL_RATE`、`SOCIAL_NEED_MESSAGE_RELIEF`、`MOOD_PULSES`、`MOOD_HALFLIFE_MINUTES`、`MOOD_HALFLIFE_NEUROTICISM_FACTOR`、`MOOD_PULSE_NEUROTICISM_FACTOR`、`MOOD_DISCOMFORT_TRIGGER_HOURS`，`worldmock.life.social::CHAT_RELIEF_DECLINED_PER_HOUR`，`worldmock.life.activities::LIFESTYLE_HEALTH_MOOD_PER_HOUR`（迁入 `exchange/constants.py`，原处不留）；重复定义 `worldmock.life.social::CHAT_RELIEF_ACCEPTED_PER_HOUR`、`CALL_RELIEF_PER_HOUR`、`CHAT_MET`、`CALL_MET`（删除） | [OWN] 为迁入的每个名字加行 |
+| 1 | `worldmock.life.felt::SOCIAL_NEED_AWAKE_RATE`、`SOCIAL_NEED_CONVERSATION_RATE`、`SOCIAL_NEED_REMOTE_RATE`、`SOCIAL_NEED_MESSAGE_RELIEF`、`MOOD_PULSES`、`MOOD_HALFLIFE_MINUTES`、`MOOD_HALFLIFE_NEUROTICISM_FACTOR`、`MOOD_PULSE_NEUROTICISM_FACTOR`、`MOOD_DISCOMFORT_TRIGGER_HOURS`，`worldmock.life.social::CHAT_RELIEF_DECLINED_PER_HOUR`，`worldmock.life.activities::LIFESTYLE_HEALTH_MOOD_PER_HOUR`（迁入 `exchange/constants.py`，原处不留）；重复定义 `worldmock.life.social::CHAT_RELIEF_ACCEPTED_PER_HOUR`、`CALL_RELIEF_PER_HOUR`、`CHAT_MET`、`CALL_MET`（删除） | [OWN] 为迁入的每个名字加行 |
 | 1 | `worldmock.catalog.models::Food`、`FoodsFile`、`WorkTopic`、`WorkTopicsFile`（由行模型 `Goods`、`Action` 与文件模型 `GoodsFile`、`ActionsFile` 取代，工作主题并入内容；`worldmock.life.work` 对 `WorkTopic` 的模块级导入同提交换成 `Content`），`CatalogData` 与 `Catalog` 的 `foods`、`work_topics`（由字段 `goods`、`actions` 取代），`Catalog.foods_by_store`、`contents_by_app`；`worldmock.catalog.admission::_check_foods`；`worldmock.catalog.loader::require_engine_rules`；`worldmock.catalog.identity::REQUIRED_CATALOG_FILES` 的 `foods.json`、`work_topics.json`、`affordances.toml`、`rules/motivation.toml`、`rules/persona-mapping.toml` | [OWN] `catalog/models.py` 行的 `Food`、`WorkTopic`；[RRS] 变异 `rrs_spread_inconsistent_food`、`rrs_all_foods_in_homes`、`rrs_food_kcal_from_environment`、`rrs_package_snapshots_unchecked` |
 | 1 | `worldmock.corpora.manifest::CorpusSource`、`CorpusEntry`、`CorpusManifest`、`load_manifest`、`_validate_entry` 与包 `worldmock.corpora` 的两个导出 | [OWN] `corpora/manifest.py` 行（`safe_file`、`relative_declaration`）不变；[SR] 安全文件 行 |
 | 1 | `worldmock.life.scenario::LifeScenario.corpus_root`、`corpus_manifest_sha256`，`AgentConfig.initial_inventory`、`lifestyle_activities`、`work_topic_ids`、`motivation`，`MotivationProfile`、`MotivationProfileSource`、`_BIG_FIVE_TRAITS`、`_MOTIVATION_WEIGHTS`，`RuntimeScenario.foods`、`work_topics`，`_check_document_references` 的持有地点检查 | [EW] 变异 `scenario_structure_four_admitted` |
@@ -916,7 +978,7 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | 2 | 事件与观察载荷 | `action_result.data` 的 `given`、`inventory_changes` 与 `outcome[]` 的 `items`、`note`；`delivery_arrival` 的 `inventory_changes`；`activity_progress.data.consumption`；`details.given`；已核验经历 `consumed`；私有键 `inventory`、`available_inventory`、`held_foods` | `goods_received` 事件；经历 `received` |
 | 2 | 业务码与常数 | `PRODUCT_NOT_HELD`、`PRODUCT_NOT_FOUND`、`PRODUCT_USE_MODE_NOT_ALLOWED`、`PRODUCT_USE_LOCATION_REQUIRED`、`PRODUCT_USE_DURATION_MISMATCH`、`NON_FOOD_USE_SINGLE_ITEM`、`MEAL_DURATION_MUST_BE_LONGEST`、`MEAL_ITEM_COUNT_OUT_OF_RANGE`；`unmet` 值 `recipient_present`；`CONSUME_DURATION_CAP_SECONDS`、`GIVE_PORTION_LIMIT`、`SOCIAL_NEED_SHARED_MEAL_RATE` | 无 |
 | 3 | 活动种类 | `ActivityKind` 的 `work`、`use_app`、`read_mail`、`consume`、`lifestyle`、`chat`、`call`；`task_kind` 的 `work_topic`；子类型前缀 `lifestyle:` | `action` |
-| 3 | 状态与载荷 | `ActivityState.target_id`、`AgentState.read_message_ids`；活动数据里 `use_app` 的 `content_kind`、`summary`、`repeat` 与工作、生活活动、读信、交谈、通话各自的形状（`topic_id`、`message_id`、`partner_id`、`contact_id`、冻结的效果）；`activity_progress.data.work`；`action_result.data` 与 `details` 的 `app_content`、`work`、`mail` | `action` 活动数据的十个键；`details.content` |
+| 3 | 状态与载荷 | `ActivityState.target_id`、`AgentState.read_message_ids`；活动数据里 `use_app` 的 `content_kind`、`summary`、`repeat` 与工作、生活活动、读信、交谈、通话各自的形状（`topic_id`、`message_id`、`partner_id`、`contact_id`、冻结的效果）；`activity_progress.data.work`；`action_result.data` 与 `details` 的 `app_content`、`work`、`mail` | `action` 活动数据的十一个键；`details.content` |
 | 3 | 事件名、码与常数 | `work_topic_completed`；`MESSAGE_NOT_VISIBLE`、`APP_CONTENT_EMPTY`、`LIFESTYLE_ACTIVITY_NOT_FOUND`、`WORK_TOPIC_NOT_FOUND`；`ACTIVITY_DURATION_INVALID` 的工作主题分句；`CHAT_DURATION_BOUNDS`、`CALL_DURATION_BOUNDS`、`WORK_START_MINIMUM_SECONDS`、两个 `LIFESTYLE_*_SCALE_PER_HOUR` | `work_content_completed`；`CONTENT_EXHAUSTED` 与 `COUNTERPART_REQUIRED` 随选择器与执行器加入 |
 | 3 | 方式与目标 | 方式 工作、打开、交谈、通话、阅读及其同义词，`ACTION_WAYS` 的对应五项；目标类 `task`、`app`、`lifestyle`、`message`；名称前缀「工作」「应用」「活动」「邮件」；目标的 `contract` 键 | 方式 进行（今天已有）；目标类 `action` 在阶段 4 加入 |
 | 3 | 工具层与私有键 | `callable_index.lifestyle`；候选种类 `lifestyle`、`task`；私有键 `work_topics`、`task_bindings`、`catalog_bindings`；提示禁键 `topic_id` | 没有后继 |
@@ -1006,11 +1068,11 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | 3 | `tests/life/test_action_run.py`、`tests/life/test_content_select.py`（新增） | 执行器：计划结束恒为当前内容结束、暂停与提前结束只计实际消费、恢复不重抽、五个类别的接续与效果、分配工作内容的有限性与工作地点、播报机会给出即消耗；选择器：R4 的五步、系列单元、预留集合、R6 的轮数与 `CONTENT_EXHAUSTED`、抽取键与逐字节确定性 |
 | 3 | `tests/life/test_app_progress.py`、`test_app_push.py` | 跨 app 共享进度、零秒暂停不建记录、`last_consumed_at`；推送只取娱乐类的手机动作、同一单元规则、打开限定在同一 app 与动作、接续不打开 |
 | 3 | `tests/life/test_parallel_admission.py`、`test_parallel_acceptance.py`、`test_parallel_activities.py`、`test_paused_slots.py`、`test_resource_conflict_progress.py` | 并行准入的行为：类别名额、驾车与睡眠的占用、`phone_continuous` 互斥 |
-| 3 | `tests/life/test_activities.py`、`test_activity_effects.py`、`test_duration_boundaries.py`、`test_shared_rules.py`、`test_shared_body.py`、`test_social.py`、`test_social_rounds.py`、`test_wake_reasons.py`、`test_activity_wake_facts.py`、`test_same_moment_decisions.py`、`test_progress_events.py`、`test_scheduling.py` | 类别 MET 与按秒效果；社交两条路径、对方必填与共同秒数；22 个唤醒原因与次序不变，内容完成不成原因；邮件到达即见正文；工资节点迁入 |
+| 3 | `tests/life/test_activities.py`、`test_activity_effects.py`、`test_duration_boundaries.py`、`test_shared_rules.py`、`test_shared_body.py`、`test_social.py`、`test_social_rounds.py`、`test_wake_reasons.py`、`test_activity_wake_facts.py`、`test_same_moment_decisions.py`、`test_progress_events.py`、`test_scheduling.py` | 类别 MET 与按秒效果；社交两条路径、对方必填与共同秒数；追加 alarm_ring 后 23 个唤醒原因与既有原因次序，内容完成不成原因；邮件到达即见正文；工资节点迁入 |
 | 3 | `tests/life/test_day_plan.py`、`test_day_planning.py`、`test_relevance.py`、`test_workload_report.py`、`test_work_schedule.py` | 十一种意图按「当日目标与事务」的证据推进；家族令牌取活动种类或类别；在手承诺读分配内容的进度；零点计划输入的待办任务是分配的工作内容 |
 | 4 | `tests/integration/test_acs_engine_wave.py`（新增） | 首个引擎闭环（P-37）：在人工环境上创建、决策、推进、检查点、重开；同一 app 两个不同方式的动作与一个无 app 动作；付款、收货、状态；选择、进度、恢复不重抽；结构 7、10 与环境身份不符在打开、恢复与重放入口被拒 |
 | 4 | `tests/test_start_activity_contract.py`、`tests/life/conftest.py`、`tests/life/test_tool_protocol.py`、`test_tool_layer.py`、`test_prompt_layers.py`、`test_callable_index.py`、`test_name_resolution.py`、`test_error_contract.py`、`test_world_query.py`、`test_world_query_filters.py`、`test_request_linking.py`、`test_control_name_rejections.py`、`test_interaction_menu_invariants.py`、`test_interaction_menu_runtime.py`、`test_activity_menu.py`、`test_readable.py`、`test_environment_layer.py`、`test_candidates.py`、`test_food_presentation.py`、`test_menu_discovery.py`、`test_app_vocabulary.py` | 六种方式与同义词表，退役方式仍被拒；五个键的请求项与逐键拒绝码；动作行、购买行与 `app` 字段；时长只由内容派生；`callable_index` 四个键；`query_world.app`；候选只有商品；宿主与环境同码同文 |
-| 4 | `tests/integration/test_seven_layer_request.py`、`test_tool_description_references.py`、`test_life_agent_protocol.py`、`test_activity_schema.py`、`test_strict_endpoint.py`、`test_interaction_menu.py`、`test_grounded_targets.py`、`test_storefront_tools.py`、`test_decision_context_protocol.py`、`test_unique_presence_run.py`、`test_external_environment_lifecycle.py` | 系统层七条的正向断言与新增退役读法、两句用途句、工具数 11 与稳定面 8 不变、最终 `prompt_sha256` 与 `tool_schema_sha256`；逐条锁定测试改读本文件「系统层」 |
+| 4 | `tests/integration/test_seven_layer_request.py`、`test_tool_description_references.py`、`test_life_agent_protocol.py`、`test_activity_schema.py`、`test_strict_endpoint.py`、`test_interaction_menu.py`、`test_grounded_targets.py`、`test_storefront_tools.py`、`test_decision_context_protocol.py`、`test_unique_presence_run.py`、`test_external_environment_lifecycle.py` | 系统层十条的正向断言与新增退役读法、两句用途句、工具数 12 与稳定面 9、最终 `prompt_sha256` 与 `tool_schema_sha256`；逐条锁定测试改读本文件「系统层」 |
 | 4 | `tests/life/test_tool_interaction_habits.py`、`tests/fixtures/tool_interaction_habits.json`、`tests/fixtures/viewer-context.json`、`tests/integration/test_run_viewer_recording.py` | 习惯链改为 购买、进行；查看器夹具的 `action`、`continuation` 从新格式运行重录，`legacy_*` 不动 |
 | 5 | `tests/footprints/test_app_usage.py`、`test_purchases.py`、`test_export.py`、`test_validation.py`、`test_quality.py`、`test_event_fields.py`、`test_branch_coverage.py`、`test_goal_export.py`、`test_errand_export.py`、`tests/life/test_export_integration.py`、`test_timeline_labels.py` | 六种 app 使用事实与三种使用方式的行形状、`receipt` 行、导出清单 4、质量报告 6；`validate_export` 的七条不变量每条一个正例与一个反例；`export_run` 与 `validate_export` 的重算比对；`validate_export` 拒绝导出清单 3 与世界 10 的导出；`events.jsonl` 原样带着人物可见的 `goods_received` 与 `app_push`（完整载荷、所有人与可见性），导出侧不做窗口投影 |
 | 5 | `tests/integration/test_acs_engine_wave.py` | 导出与成本节点：两小时以上、不少于 20 条内容的娱乐执行恰一行 `app_use`、每条内容一条证据，决策数不超过 P-38 的上限 |
@@ -1086,7 +1148,7 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | `docs/design/00-overview.md`、`docs/design/01-architecture.md`、`docs/design/04-simulation-engine.md`、`docs/design/05-recording-engine.md`、`docs/design/09-io-formats.md` 的文件头 | 带键引用块上移到标题之下，现有不带键的资源与规则引擎简化说明行移到带键块之后，本特性说明行排在它们后面；改后状态、日期、版本都落在前十二行。今天汇编封面上这五章与 07 的版本、其中 01、04 与 07 的日期显示为「—」，原因就是说明行排在带键块之前；07 在阶段 5 第一次被改写时同样处理 |
 | 00、01、02、03、04、08、09 七章文件头之后以「具体环境及制作工具」开头的环境说明段；`docs/design/04-simulation-engine.md#design-04-simulation-engine-共享规则与可重建环境修订` 与 `docs/design/09-io-formats.md#io-formats-当前工具请求查询与错误格式` 里各一句「当前场景结构 6」 | 现行结构号统一为场景结构 8、世界结构 11（今天 00、04 写 6，其余五章写 7）；「活动效果随环境加载并在启动时冻结」改为「类别、使用方式、效果与供给表由 WorldMock 固定，环境只登记对象、绑定与价格、内容时长、集数三种数」；外部环境目录只列 `catalog/`、`scenarios/`；正式环境一句统一成 02、03、08 已用的「正式重制环境路径由 WorldMock-Dataset 发布决定」（00、01、04 今天写的 `environment/zhangjiang-baseline/` 在数据仓并不存在）。其他特性自述当时身份的句子不动 |
 | `docs/design/00-overview.md#overview-核心原则` | 「离线语料」一行改为：环境只经目录登记进入引擎，引擎不读语料；真实名称、合成或有出处的摘要与合成数值由数据仓的目录提供 |
-| `docs/design/00-overview.md#overview-核心术语`、`docs/design/00-overview.md#overview-设计决策`、`docs/design/00-overview.md#overview-设计假设若不成立需回到设计层`、`docs/design/00-overview.md#overview-开放问题后续版本议题`、`docs/design/00-overview.md#overview-参考文献` | 资源引擎一行改为登记 app、地点、商品、动作、内容及其绑定。新增三个术语：动作（五个固定类别之一，可绑定 app 并取一种使用方式）、内容（绑定恰好一个动作，自带时长）、商品（五个固定类别，收货即结算）；app 改为「带固定用途、可被动作绑定的渠道」；「工作主题」改为「分配的工作内容」（场景 `work_content_ids`）。设计决策与设计假设的绑定链写内容→动作→可选的 app；开放问题的类型一行写五种内容形式只属娱乐类、动作类别五个；参考文献加本规格 |
+| `docs/design/00-overview.md#overview-核心术语`、`docs/design/00-overview.md#overview-设计决策`、`docs/design/00-overview.md#overview-设计假设若不成立需回到设计层`、`docs/design/00-overview.md#overview-开放问题后续版本议题`、`docs/design/00-overview.md#overview-参考文献` | 资源引擎一行改为登记 app、地点、商品、动作、内容及其绑定。新增三个术语：动作（五个固定类别之一，可绑定 app 并取一种使用方式）、内容（绑定恰好一个动作，自带时长）、商品（六个固定类别，收货即结算）；app 改为「带固定用途、可被动作绑定的渠道」；「工作主题」改为「分配的工作内容」（场景 `work_content_ids`）。设计决策与设计假设的绑定链写内容→动作→可选的 app；开放问题一行写内容不设类型、动作类别五个；参考文献加本规格 |
 | `docs/design/00-overview.md#overview-需求映射表`、`docs/design/00-overview.md#overview-版本历史` | 需求映射表里两行前序特性之前的旧文改正：「按 kind 池与逐店类别、价格位置加确定性偏移」改为同类型店铺同菜单、一个商品一个固定价、店铺类型可供给的类别由 WorldMock 固定；「内容来自固化的开源语料」改为真实 app 与作品名、合成或有出处的摘要、合成数值，由数据仓目录登记。版本历史表中间的空行删除：它把表拆成两张，汇编取到的最新修订停在 2026-10-05 的「环境数据归属」一行；本特性的行加在并回后的表末 |
 | `docs/design/01-architecture.md#architecture-职责与交接`、`docs/design/01-architecture.md#architecture-状态归属与写入边界`、`docs/design/01-architecture.md#architecture-准备与初始化`、`docs/design/01-architecture.md#architecture-地图与门店供给的交接`、`docs/design/01-architecture.md#architecture-配置与运行入口`、`docs/design/01-architecture.md#architecture-状态与记录`、`docs/design/01-architecture.md#architecture-现有代码与职责的对应关系` | 资源引擎只做登记、校验、只读查询与反向索引，内容选择、进度与历史归模拟引擎；环境对象一行为 app、地点、商品、动作、内容与图。初始化登记清单加六个目录文件，引擎不读 `corpora/`，规则文件只从包读取。供给交接补一句：店铺类型可供给的商品类别由 `GOODS_CATEGORY_STORE_KINDS` 固定。「状态与记录」写现行身份：目录格式 2、`RULES_VERSION` 2、场景结构 8、世界结构 11、运行清单 4，规则字节由 `code_sha256` 钉住。对应表里指向被删模块的链接同提交改 |
 | `docs/design/02-exchange-engine.md#exchange-engine-系统固定类型与常数`、`docs/design/02-exchange-engine.md#exchange-engine-交换对象与资源变化声明`、`docs/design/02-exchange-engine.md#exchange-engine-门店供给的时态与履约判断`、`docs/design/02-exchange-engine.md#design-exchange-engine-current-responsibility` | `RULES_VERSION = 2`。固定类型表新增动作类别与类别固定表（接续、代谢当量、按秒效果、场所）、使用方式与设备、app 用途、商品类别与店铺供给表、收货效果与 `CONTENT_MIN_SECONDS`；食品一行只留每份热量，食用秒数删除；数值与「闭集」「类别固定表」「常数表」同文。「三份包 TOML 的环境副本」一句改为规则只从包读取、环境里没有副本。交换对象声明改为：数据仓只为对象选类别与使用方式，只填价格、内容时长与集数。门店供给读 `goods.json` 的 `price_fen`，菜单由商品绑定与供给表得出，节内相对阶段的遗留句删除。「纯规则与执行职责」列出的固定闭集、常数与算子补类别固定表与收货算子 |
@@ -1106,9 +1168,9 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | `docs/design/09-io-formats.md#io-formats-职责与边界` | 统一的目录是清单加六个文件；规则没有环境副本 |
 | `docs/design/09-io-formats.md#io-formats-worldstate世界状态` | `WorldState.schema_version` 为 `Literal[11]`，删 `content_manifest_sha256`。本节里前序特性之前的整段旧文（`SupplyQuoteState`、`opening_exceptions`、`purchase_pairing_state`、`InventoryItemConfig` 与浏览）删除，这些名字在代码里早已不存在；推送字段一句里相对阶段的说法删除 |
 | `docs/CONTRACTS.md#contracts-环境与检查命令合同`、`docs/CONTRACTS.md#contracts-环境数据归属合同` | 数据仓发布 app、地点、商品、动作、内容、图与绑定，只填价格、内容时长与集数三种数；环境根只有 `catalog/` 与 `scenarios/`。分类、常数与规则归 WorldMock，规则文件只从包读取，「三份包 TOML 副本逐字节一致」一行与生活活动自带效果、场所、时间窗、代谢当量的一句删除。`validate --environment` 不读语料、不比对规则副本 |
-| `docs/CONTRACTS.md#contracts-环境目录与绑定`、`docs/CONTRACTS.md#contracts-环境目录文件`、`docs/CONTRACTS.md#contracts-语料内容目录字段`、`docs/CONTRACTS.md#contracts-环境标题与活动效果` | 目录文件表、绑定方向、32 个登记码及英文原因与「环境格式」同文；内容字段加 `action_id`、可空的 `kind` 与沿用的 `series`。「环境标题与活动效果」只留标题一行，生活活动效果四行删除 |
+| `docs/CONTRACTS.md#contracts-环境目录与绑定`、`docs/CONTRACTS.md#contracts-环境目录文件`、`docs/CONTRACTS.md#contracts-语料内容目录字段`、`docs/CONTRACTS.md#contracts-环境标题与活动效果` | 目录文件表、绑定方向、32 个登记码及英文原因与「环境格式」同文；内容字段加 `action_id`，删除 `kind`，保留 `series`。「环境标题与活动效果」只留标题一行，生活活动效果四行删除 |
 | `docs/CONTRACTS.md#contracts-cli`、`docs/CONTRACTS.md#contracts-地点类词表` | `validate --scenario` 与 `validate --environment` 两行去掉语料与三份包 TOML；`--scenario` 的结果没有 `corpus_entries`，`--environment` 的结果为 `{valid, environment_id, environment_version, scenarios}`；本节属被摘录的十五节，汇编 HTML 同提交重建。地点类词表里「生活活动条目保留自己的 `location_kinds`」一句删除，类别场所表在阶段 3 加入 |
-| `docs/CONTRACTS.md#contracts-人物卡片覆盖率产出`、`docs/CONTRACTS.md#contracts-运行输入警告`、`docs/dev/SPEC-life-realism.md#spec-life-realism-画像编译`、`docs/manual/personas.md#personas-习惯的行为核验目标` | 覆盖目标由登记目录确定，不读语料：习惯反应对动作名与地点显示名，饮食喜好对类别为 `meal`、`snack`、`drink` 的商品名，媒体对五个内容类型标签与全部 app 名；`CONTENT_EMPTY_WITH_MEDIA_TASTES` 在没有任何内容带非空 `app_ids` 时发出；定义在「场景结构 8」 |
+| `docs/CONTRACTS.md#contracts-人物卡片覆盖率产出`、`docs/CONTRACTS.md#contracts-运行输入警告`、`docs/dev/SPEC-life-realism.md#spec-life-realism-画像编译`、`docs/manual/personas.md#personas-习惯的行为核验目标` | 覆盖目标由登记目录确定，不读语料：习惯反应对动作名与地点显示名，饮食喜好对类别为 `meal`、`snack`、`drink` 的商品名，媒体对登记动作名作双向子串匹配或对全部 app 名作精确匹配；`CONTENT_EMPTY_WITH_MEDIA_TASTES` 在没有任何内容带非空 `app_ids` 时发出；定义在「场景结构 8」 |
 | `docs/dev/SPEC-life-realism.md#spec-life-realism-动机层`、`docs/dev/SPEC-life-realism.md#spec-life-realism-验收矩阵` 的「动机层不外泄」一行、`docs/CONTRACTS.md#contracts-体感与动机证据`、`docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动-实现约定`、`docs/design/09-io-formats.md#io-formats-agentstate人物状态` | 内部动机评分器退役（P-33）：「动机层」改写为不再计算也不再写 `motivation_internal`，人物的选择只来自七层请求；接口合同删 `motivation_internal`；验收矩阵该行改为观察里没有 `motivation_internal`，指向被删测试文件的引用同提交删除。`AgentState.consecutive_rejections` 随评分器删除：实现约定里「保留，只作动机层挫败感的输入」一句连同对 `MotivationContext.max_same_moment_decisions` 的源码引用改写为该字段已删除、拒绝结果里的同刻轮次字段不变；人物状态表删这一行 |
 | `docs/CONTRACTS.md#contracts-交互菜单声明与有效菜单`、`docs/CONTRACTS.md#contracts-工作安排声明`、`docs/CONTRACTS.md#contracts-冻结地图与场景引用`、`docs/CONTRACTS.md#contracts-领域枚举`、`docs/CONTRACTS.md#contracts-model-identity`、`docs/CONTRACTS.md#contracts-共同检查点与恢复`、`docs/CONTRACTS.md#contracts-持久化结构`、`docs/CONTRACTS.md#contracts-版本表` | 菜单闭集为五项 `START_ACTIVITY_ACTIONS`。工作安排改述为分配的工作内容与四个 `WORK_*` 码。身份为目录 2、规则 2、场景 8、世界 11、运行清单 4，`code_sha256` 的范围加 `src/worldmock/data/`。领域枚举新增「世界 10 → 11」对照表，本阶段写 `content_manifest_sha256` 的删除，其余各行在删改该字段的阶段补。版本表加行 |
 | `docs/ARCHITECTURE.md#architecture-环境数据与通用规则的归属`、`docs/ARCHITECTURE.md#architecture-核心决策`、`docs/ARCHITECTURE.md#architecture-离线语料如何进入环境` | 分类与规则归 `worldmock.exchange`，包内规则文件没有环境副本；数据仓发布清单加六个目录文件；核心决策的结构号一句写新号，「地点类型和食品类别」一句改为地点类型、商品五类与动作五类；环境只经目录登记进入引擎 |
@@ -1169,21 +1231,21 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | 文档与位置 | 改写后的语义 |
 | --- | --- |
 | `docs/design/00-overview.md#overview-需求映射表`、`docs/design/00-overview.md#overview-算法与工程背书总表` | 工作两行改为：人物做 `work_study` 类动作，场景分配的工作内容按实际秒数累计，做满即完成且不重做。「覆盖 app 使用与 app 内容」一行改为：人物选动作与可选的 app，系统选内容并记进度与历史。背书表「工作主题」改为「分配的工作内容」；「内容呈现」改为一个选择器，次序是推送、未完成的内容、已开始系列的下一集、未看单元、轮数最少者重播，娱乐类静默接续 |
-| `docs/design/01-architecture.md#architecture-系统定位`、`docs/design/01-architecture.md#architecture-状态归属与写入边界`、`docs/design/01-architecture.md#architecture-事件驱动的时间推进` | 活动执行一行改为三种系统动作、等待原语与一个执行全部数据集动作的执行器。状态归属加内容进度（含最近消费时刻）与 session 推送。边界清单为活动计划结束（即当前内容结束）、预排事件与既有唤醒，去掉「工作截止」 |
+| `docs/design/01-architecture.md#architecture-系统定位`、`docs/design/01-architecture.md#architecture-状态归属与写入边界`、`docs/design/01-architecture.md#architecture-事件驱动的时间推进` | 活动执行一行改为系统动作、等待原语与一个执行全部数据集动作的执行器。状态归属加内容进度（含最近消费时刻）与 session 推送。边界清单为活动计划结束（即当前内容结束）、预排事件与既有唤醒，去掉「工作截止」 |
 | `docs/design/01-architecture.md#architecture-观察行动与执行`、`docs/design/01-architecture.md#architecture-已采用的设计决策`、`docs/design/01-architecture.md#design-architecture-current-responsibility` | 三处前序特性之前的旧文改正：「观察、行动与执行」里 `appointment` 与 `RuntimeWorkTask` 一段删除；设计决策「内容检索：属性筛选与倒排索引」一行改为按消费历史的确定性内容选择；职责图去掉并不存在的 `WorkReviewCoordinator`，按执行器、选择器与收货结算三个模块重画 |
 | `docs/design/02-exchange-engine.md#exchange-engine-可供性与活动声明`、`docs/design/02-exchange-engine.md#exchange-engine-不同交换的计算依据` | 活动种类只有 `wait`、`sleep`、`travel`、`action`，并行准入与执行器的占用照「占用」；生活活动条目自带的 `location_kinds` 与效果删除，场所限制只有类别表。计算依据表「工作」一行改为「动作内容消费：类别速率 × 实际消费秒数」 |
-| `docs/design/04-simulation-engine.md#simulation-engine-校验与占用安排`、`docs/design/04-simulation-engine.md#simulation-engine-程序加速与媒体倍速` | 出行、睡眠、购买与等待之外的全部行为由一个执行器执行。动作没有自己的时长：计划结束恒为当前内容的结束时刻，以 `DERIVED_DURATION_CAP_SECONDS` 封顶，人物不提交时长；`APP_USE_DEFAULT_SECONDS` 与工作主题上限两处删除，「app 使用时长」一节的标题随改、锚点保留。每个 `action` 活动占类别名额，`phone_continuous` 另占 `use_app` |
+| `docs/design/04-simulation-engine.md#simulation-engine-校验与占用安排`、`docs/design/04-simulation-engine.md#simulation-engine-程序加速与媒体倍速` | 出行、睡眠、购买、领取、闹钟与等待之外的全部行为由一个执行器执行。动作没有自己的时长：计划结束恒为当前内容的结束时刻，以 `DERIVED_DURATION_CAP_SECONDS` 封顶，人物不提交时长；`APP_USE_DEFAULT_SECONDS` 与工作主题上限两处删除，「app 使用时长」一节的标题随改、锚点保留。每个 `action` 活动占类别名额，`phone_continuous` 另占 `use_app` |
 | `docs/design/04-simulation-engine.md#simulation-engine-活动生命周期`、`docs/design/04-simulation-engine.md#simulation-engine-实际区间身体变化与效率` | 生命周期图改为：选内容、按内容推进、每条完成写证据；选内容不消耗模拟时间；暂停不加进度，提前结束只记已消费部分，恢复只需余量且不重抽。身体表按五个类别各一行，代谢当量与按秒效果照「类别固定表」，工作与 app 使用两行并入，生活活动条目自带效果的一句删除 |
-| `docs/design/04-simulation-engine.md#simulation-engine-预排事件`、`docs/design/04-simulation-engine.md#simulation-engine-反馈续行与结束`、`docs/design/04-simulation-engine.md#simulation-engine-判断唤醒条件`、`docs/design/04-simulation-engine.md#simulation-engine-结算边界与决策机会` | 推送只从娱乐类且 `phone_continuous` 的动作的内容里抽，单元规则、历史与预留同一次打开，载荷加动作名；预排一节的工作主题一句删除。娱乐类内容完成是静默边界，同一次结算选出下一条并在同一活动内接续；其余类别做完一条即以 `planned_end` 完成。播报机会一经提出即被消耗（P-3）。唤醒原因仍是 22 项，没有内容完成一项；边界表「app 内容完成」「app 推送」两行按上述改写。「系统层第 7 条归阶段 6 重钉」的遗留句删除 |
+| `docs/design/04-simulation-engine.md#simulation-engine-预排事件`、`docs/design/04-simulation-engine.md#simulation-engine-反馈续行与结束`、`docs/design/04-simulation-engine.md#simulation-engine-判断唤醒条件`、`docs/design/04-simulation-engine.md#simulation-engine-结算边界与决策机会` | 推送只从娱乐类且 `phone_continuous` 的动作的内容里抽，单元规则、历史与预留同一次打开，载荷加动作名；预排一节的工作主题一句删除。娱乐类内容完成是静默边界，同一次结算选出下一条并在同一活动内接续；其余类别做完一条即以 `planned_end` 完成。播报机会一经提出即被消耗（P-3）。唤醒原因追加 alarm_ring 后为 23 项，没有内容完成一项；边界表「app 内容完成」「app 推送」两行按上述改写。「系统层第 7 条归阶段 6 重钉」的遗留句删除 |
 | `docs/design/04-simulation-engine.md#simulation-engine-从实际进度到世界变化`、`docs/design/04-simulation-engine.md#simulation-engine-接收当日目标并记录实际推进`、`docs/design/04-simulation-engine.md#simulation-engine-恢复与反事实运行编排`、`docs/design/04-simulation-engine.md#design-simulation-engine-current-responsibility`、`docs/design/04-simulation-engine.md#simulation-engine-验收重点` | 世界变化表的「工作主题与工资」改为「内容进度与完成、工资」：分配内容做满时写 `work_content_completed`。当日目标的家族由活动快照给出，`action` 取类别，对应关系照「当日目标与事务」。恢复读已存的选择，从不重抽内容。职责对象一节按执行器、选择器与推送三处改写，去掉工作主题累计。验收重点的工作主题、app 内容与推送、唤醒三行按本规格的验收台账改写 |
-| `docs/design/05-recording-engine.md#recording-engine-事件字段`、`docs/design/05-recording-engine.md#recording-engine-事件类型枚举`、`docs/design/05-recording-engine.md#recording-engine-事件正文与资源证据`、`docs/design/05-recording-engine.md#recording-engine-activity_progress-事件` | 观察一行的 `app_content` 与结果一行的 `work{…}` 改为统一的 `details.content` 与 `activity_progress.data.content`。`work_topic_completed` 改名 `work_content_completed`，载荷 `{kind, content_id}`。`app_push` 载荷加 `action_id` 与 `action`；`action_result.data` 删 `app_content`、`work`。每个 `action` 活动每次结算带 `content{content_id, app_id, kind, position_before_seconds, position_after_seconds, completed, completed_rounds_after}`，`app_id` 与 `kind` 可空；`ContentProgress` 加 `last_consumed_at`，只由消费秒数为正的结算创建与更新；活动数据照「世界状态」 |
+| `docs/design/05-recording-engine.md#recording-engine-事件字段`、`docs/design/05-recording-engine.md#recording-engine-事件类型枚举`、`docs/design/05-recording-engine.md#recording-engine-事件正文与资源证据`、`docs/design/05-recording-engine.md#recording-engine-activity_progress-事件` | 观察一行的 `app_content` 与结果一行的 `work{…}` 改为统一的 `details.content` 与 `activity_progress.data.content`。`work_topic_completed` 改名 `work_content_completed`，载荷 `{kind, content_id}`。`app_push` 载荷加 `action_id` 与 `action`；`action_result.data` 删 `app_content`、`work`。每个 `action` 活动每次结算带 `content{content_id, app_id, position_before_seconds, position_after_seconds, completed, completed_rounds_after}`，`app_id` 与 `kind` 可空；`ContentProgress` 加 `last_consumed_at`，只由消费秒数为正的结算创建与更新；活动数据照「世界状态」 |
 | `docs/design/05-recording-engine.md#recording-engine-已核验经历与主观记忆`、`docs/design/05-recording-engine.md#recording-engine-工具纠错只读查询与当天操作备忘的证据`、`docs/design/05-recording-engine.md#recording-engine-检查点创建` | `played` 的来源是任一 `action` 活动位置前进的结算，`app_id` 可空。工作主题一段改为场景 `work_content_ids` 分配的工作内容、内容进度与 `work_content_completed`。检查点快照含带最近消费时刻的内容进度、session 推送与活动里已选中的内容 |
 | `docs/design/09-io-formats.md#io-formats-agentstate人物状态`、`docs/design/09-io-formats.md#io-formats-activitystate活动状态` | `ContentProgress` 加 `last_consumed_at`；`read_message_ids` 删除；占用名换为八个新名。`ActivityState.kind` 取 `wait`、`sleep`、`travel`、`action`；删 `target_id` 与 `task_kind` 的 `work_topic` 取值；`action` 的 `data` 照「世界状态」，`consume`、`use_app`、`work`、`lifestyle`、`read_mail`、`chat`、`call` 各行删除；`action` 的计划时长由当前内容派生 |
 | `docs/CONTRACTS.md#contracts-状态归属`、`docs/CONTRACTS.md#contracts-request-settlement`、`docs/CONTRACTS.md#contracts-活动受理拒绝码`、`docs/CONTRACTS.md#contracts-action-results`、`docs/CONTRACTS.md#contracts-领域枚举`、`docs/CONTRACTS.md#contracts-持久化当下事实` | 活动一行的占用名换为八个新名；工作一行改为分配内容的进度；内容接触一行加 `last_consumed_at`，它是「看过」的唯一定义。结算检查删「app 打开固定 1800 秒」与生活活动上限两处，改为时长只来自内容、选择次序照「内容选择」。拒绝码：`CONTENT_EXHAUSTED` 取代 `APP_CONTENT_EMPTY`，新增 `COUNTERPART_REQUIRED`，`WORK_TOPIC_NOT_FOUND`、`LIFESTYLE_ACTIVITY_NOT_FOUND`、`MESSAGE_NOT_VISIBLE` 离开，`ACTIVITY_TOO_SHORT` 与 `ACTIVITY_DURATION_INVALID` 收窄，恢复次序里「工作主题剩余」一步改为「内容仍合格」。`ActivityKind` 四个成员，「世界 10 → 11」表补活动与内容进度各行，`environment_event.data.kind` 的 `work_topic_completed` 改名 |
 | `docs/CONTRACTS.md#contracts-day-goal-request`、`docs/CONTRACTS.md#contracts-day-plan-template`、`docs/CONTRACTS.md#contracts-model-request` 的零点计划输入 | 意图家族表照「当日目标与事务」重写，`lifestyle:<品类>` 令牌消失，家族由活动快照给出。在手承诺里的「可见未完成任务」改为尚有未完成的分配工作内容。零点计划输入的待办任务各行取本人分配且未完成的工作内容，目标为内容时长，已做为内容进度 |
 | `docs/CONTRACTS.md#contracts-消息与收件箱`、`docs/CONTRACTS.md#contracts-交谈与通话`、`docs/CONTRACTS.md#contracts-语料内容目录字段`、`docs/CONTRACTS.md#contracts-记忆字段` | 场景邮件到达时连同正文可见，读信活动删除。交谈与通话是 `social` 类动作的两条执行路径：不绑定 app 走共处，绑定 app 走通话，时长只来自内容。内容一句改为人物选动作与可选的 app、系统按「内容选择」选内容。`settled` 的活动句与完成句照「事件与证据」 |
 | `docs/ARCHITECTURE.md#architecture-必须达到的行为`、`docs/ARCHITECTURE.md#architecture-核心决策`；`docs/EXPERIMENT.md#experiment-需求状态`、`docs/EXPERIMENT.md#experiment-活动节奏与同刻决策上限`、`docs/EXPERIMENT.md#experiment-决策点节奏`；`docs/VERIFICATION.md#verification-测试矩阵` | 内容丰富一行改为动作与内容的覆盖；工作主题一段改为分配的工作内容。娱乐需要一行里已退役的偏好公式删去，写按内容形式的固定速率、只用于娱乐类。决策点节奏：娱乐接续中的内容完成不增加 `decision_started`，其余类别做完一条即活动完成并请人物决策，长时间执行的常设询问是 `progress_report_due`。测试矩阵的时间一致、决策节律、工作主题累计、内容知识、共同恢复各行改写 |
-| `docs/dev/SPEC-life-runtime.md#spec-life-runtime-状态归属规则`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-共享时钟`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-决策节律结算边界与唤醒条件分离`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-决策机会规则`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-内容提供行为`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-结算间隔与续行`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-具体活动结算` | 工作主题累计一行改为分配内容的进度。边界来源含每个 `action` 活动当前内容的结束时刻；22 个唤醒原因与同步点不变。播报锚点规则改为 P-3：结算一次唤醒原因含 `progress_report_due` 的决策时，该人物当时到期的每个活动的 `report_anchor_at` 都移到该时刻，不论提交的是什么请求。内容只经动作提供。续行按类别：娱乐静默接续，其余完成。结算表的工作、app 使用与生活活动各行并为五个类别 |
+| `docs/dev/SPEC-life-runtime.md#spec-life-runtime-状态归属规则`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-共享时钟`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-决策节律结算边界与唤醒条件分离`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-决策机会规则`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-内容提供行为`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-结算间隔与续行`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-具体活动结算` | 工作主题累计一行改为分配内容的进度。边界来源含每个 `action` 活动当前内容的结束时刻；23 个唤醒原因与同步点不变。播报锚点规则改为 P-3：结算一次唤醒原因含 `progress_report_due` 的决策时，该人物当时到期的每个活动的 `report_anchor_at` 都移到该时刻，不论提交的是什么请求。内容只经动作提供。续行按类别：娱乐静默接续，其余完成。结算表的工作、app 使用与生活活动各行并为五个类别 |
 | `docs/dev/SPEC-life-runtime.md#spec-life-runtime-活动组合政策`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-社交最小可行版`、`docs/dev/SPEC-life-runtime.md#time-and-energy-五类生活动作与并行准入-并行准入`、`docs/dev/SPEC-life-runtime.md#time-and-energy-五类生活动作与并行准入-交谈` | 占用表照「占用」：类别名额、`phone_continuous` 另占 `use_app`、驾车只剩交谈、睡眠占全部八个。社交的两条路径、对方必填与共同秒数的证明照「社交」，时长只来自内容，晚接受不因剩余不足一分钟被拒 |
 | `docs/dev/SPEC-life-runtime.md#time-and-energy-五类生活动作与并行准入-派生时长上限`、`docs/dev/SPEC-life-runtime.md#time-and-energy-会话活动与记忆提示中不出现内部身份-活动的生命周期`、`docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径`、`docs/dev/SPEC-life-runtime.md#tool-interaction-普通工作与预约活动` | 「派生时长上限」只留上限：`action` 的时长属于内容，等待与睡眠仍由规则派生，app 固定窗口与食用范围两句删除。生命周期写暂停、提前结束与恢复的新规则。缓解按内容形式的固定速率，只用于娱乐类。普通工作一节改为分配的工作内容：累计是内容进度，做满即完成且不重做，叙述不改变进度 |
 | `docs/dev/SPEC-life-realism.md#spec-life-realism-location_kinds-的运行期强制语义`；`docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序`、`docs/dev/SPEC-interaction-menu.md#spec-interaction-menu-环境执行与拒绝` | 场所资格只有类别表（`exercise` 限 `home`、`outdoor`、`fitness`）与分配工作内容的工作地点条件；动作始终列出，不排序、不轮转，不满足时该行不可用并写原因。拒绝不累计内容进度 |
@@ -1206,19 +1268,19 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | `docs/design/03-resource-engine.md#resource-engine-检索与呈现`、`docs/design/03-resource-engine.md#resource-engine-地点发现与供给比较`、`docs/design/03-resource-engine.md#resource-engine-无结果与范围限制`、`docs/design/03-resource-engine.md#resource-engine-检索呈现的实现与验收` | 候选种类只剩 `product`；动作不经候选管线，按「工具层」的列出集合始终列出。`callable_index` 恰为 `goods`、`navigation_apps`、`payment_apps`、`query_categories`。网购必须点名购物 app 与它绑定的支付 app，「来源为空时取最小 `app_id`」一句删除；到店 `app` 为 null，可点名任一支付 app。`query_world` 的筛选键 `from` 改名 `app`，只接受登记的 app 名 |
 | `docs/design/04-simulation-engine.md#simulation-engine-人物所见与可做之事` | 工具层的目标类为 `location`、`product`、`action`、`person`、`contact`、`self`、`activity`；动作行加可空的 `app`，时长只由内容派生；内容里至少有一条未被分配或分配给本人的动作始终列出，每个绑定的 app 一行，没有合格内容的行不可用；商品每种一个目标，到店一行、每个购物 app 一行；`callable_index` 四个键。请求五键与各动作的写法照「请求形状」，没有时长、内容、主题与数量键。「渠道称呼由场景钉定的手机配置派生」一句是前序特性之前的旧文，删除 |
 | `docs/design/04-simulation-engine.md#simulation-engine-发现与比较门店供给`、`docs/design/04-simulation-engine.md#simulation-engine-调用并等待人物决策` | 供给一节去掉 `from`、`prefer` 与「来源为空时取最小 `app_id`」的默认：网购点名购物 app 与它绑定的支付 app，缺失或未绑定是带候选的名称拒绝。`query_world` 的六个键与明细照「请求形状」 |
-| `docs/design/04-simulation-engine.md#simulation-engine-校验与占用安排`、`docs/design/04-simulation-engine.md#simulation-engine-将真实结果交还人物`、`docs/design/04-simulation-engine.md#simulation-engine-失败处理`、`docs/design/04-simulation-engine.md#simulation-engine-当前实现边界` | 名称解析的对象是地点、商品、动作、人物与联系人；出行可点名一个导航用途的 app，写在活动的 `navigation_app_id`，不占名额、不属于行程身份。开始与恢复的结果带 `details.content{action, app, title, kind, summary, duration, pushed}`，取代 `details.app_content` 与 `details.work`。失败表的指名购买一行按新的名称类拒绝码。实现边界加提示与工具两个指纹取得新值的一句 |
+| `docs/design/04-simulation-engine.md#simulation-engine-校验与占用安排`、`docs/design/04-simulation-engine.md#simulation-engine-将真实结果交还人物`、`docs/design/04-simulation-engine.md#simulation-engine-失败处理`、`docs/design/04-simulation-engine.md#simulation-engine-当前实现边界` | 名称解析的对象是地点、商品、动作、人物与联系人；出行可点名一个导航用途的 app，写在活动的 `navigation_app_id`，不占名额、不属于行程身份。开始与恢复的结果带 `details.content{action, app, title, summary, duration, pushed}`，取代 `details.app_content` 与 `details.work`。失败表的指名购买一行按新的名称类拒绝码。实现边界加提示与工具两个指纹取得新值的一句 |
 | `docs/design/05-recording-engine.md#recording-engine-必须保存的内容`、`docs/design/05-recording-engine.md#recording-engine-地图与门店供给证据`、`docs/design/05-recording-engine.md#recording-engine-工具纠错只读查询与当天操作备忘的证据` | 动作执行一行补请求五键、订单的支付 app 与出行的导航 app；出行证据加可空的 `navigation_app_id`；查询证据的键为 `name`、`way`、`category`、`app`、`available_only`、`offset`，工具层紧凑形状的动作行带 `app` |
 | `docs/design/09-io-formats.md#io-formats-当前工具请求查询与错误格式` | 按「请求形状」重写：五键请求与六键查询；`appointment` 一段（前序特性之前的旧文）、生活活动效果复制到活动数据的一段与相对阶段的遗留句删除 |
-| `docs/CONTRACTS.md#contracts-person-tools`、`docs/CONTRACTS.md#contracts-closed-request-models` | `start_activity` 为 `{items, answering}`，每项五键，没有 `prefer`；`query_world` 六键。`start_activity` 与 `query_world` 两句用途句的定稿照「系统层」。可写名称的对象是地点、人物、联系人、商品、动作与活动，商品与动作直接写登记名称。方式闭集六个，键与动作的对应表、同义词表照「请求形状」，来源与去向表删除；「`use_app` 没有可指定内容的参数」一段改为请求里没有时长、内容、主题与数量键 |
+| `docs/CONTRACTS.md#contracts-person-tools`、`docs/CONTRACTS.md#contracts-closed-request-models` | `start_activity` 为 `{items, answering}`，每项五键，没有 `prefer`；`query_world` 六键。`start_activity` 与 `query_world` 两句用途句的定稿照「系统层」。可写名称的对象是地点、人物、联系人、商品、动作与活动，商品与动作直接写登记名称。方式闭集七个，键与动作的对应表、同义词表照「请求形状」，来源与去向表删除；「`use_app` 没有可指定内容的参数」一段改为请求里没有时长、内容、主题与数量键 |
 | `docs/CONTRACTS.md#contracts-活动受理拒绝码`、`docs/CONTRACTS.md#contracts-tool-result-channel`、`docs/CONTRACTS.md#contracts-social-errors` | 新增 `APP_REQUIRED`、`APP_NOT_OFFERED`、`PAYMENT_APP_REQUIRED`、`PAYMENT_APP_NOT_BOUND`，离开的来源与履约码照「活动受理拒绝码」；「英文原因与下一步逐字采用资源与规则引擎简化规格」一句对本表新增、改名与改义的码改指本规格；宿主码表同步。社交码的文字不变，触发位置由 `target` 移到 `to` |
 | `docs/CONTRACTS.md#contracts-观察投影字段`、`docs/CONTRACTS.md#contracts-seven-layers`、`docs/CONTRACTS.md#contracts-工具交互公开投影`、`docs/CONTRACTS.md#contracts-seven-layer-schema`、`docs/CONTRACTS.md#contracts-活动控制行`、`docs/CONTRACTS.md#contracts-候选与呈现合同`、`docs/CONTRACTS.md#contracts-候选对象与来源`、`docs/CONTRACTS.md#contracts-排除原因码`、`docs/CONTRACTS.md#contracts-private-fields` | 七层的目标类、各类目标的 `state` 与动作行、`callable_index` 四键、进度层记录与结果详情的键照「工具层」「事件与证据」；目标的 `contract` 键删除。活动名为「<动作名>（<app 名>）（M月D日 HH:MM 起）」，没有 app 时省去中间一段，不含内容标题。候选种类只剩 `product`，来源 `carried` 删除。禁键表以 `goods_id`、`payment_app_id`、`navigation_app_id` 取代 `food_id`、`topic_id`、`work_topics`、`task_bindings`、`catalog_bindings` |
-| `docs/CONTRACTS.md#contracts-model-request`、`docs/CONTRACTS.md#contracts-model-identity` | 系统层 JSON 块的第 6、7、8、12、13、15、17 条换成「系统层」的冻结全文，其余十一条逐字不动；块后「阶段 5 只改动第 2 条、其余五条仍是阶段 6 的实施边界」两句相对阶段的遗留删除。模型身份写明两个提示指纹由本特性移动，文档不登记指纹字面值 |
-| `docs/ARCHITECTURE.md#architecture-核心决策`；`docs/EXPERIMENT.md#experiment-交互菜单与运行身份`；`docs/VERIFICATION.md#verification-测试矩阵` | 请求一句写五键。指纹历史加本特性一行：`prompt_sha256`、`tool_schema_sha256`、`code_sha256` 都变，此前的运行、检查点与导出不能恢复、重放或合并比较。测试矩阵的自主选择、观察投影、七层提示、候选与呈现一致性各行改写，原生工具十一个、稳定面八个不变 |
-| `docs/dev/SPEC-life-runtime.md#spec-life-runtime-七层请求`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-观察投影行为规则`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-交互菜单的运行边界`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-系统层`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-候选契约与呈现规则`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-曝光轮转` | 工具层目标与动作行照「工具层」；菜单排除的动作在环境层各写一句，说法只有五项。系统层摘要随七条新文改。候选契约、两级上限与轮转只作用于商品，动作始终列出 |
+| `docs/CONTRACTS.md#contracts-model-request`、`docs/CONTRACTS.md#contracts-model-identity` | 系统层 JSON 块的第 2、6、7、8、12、13、15、16、17、18 条换成「系统层」的冻结全文，其余八条逐字不动；块后「阶段 5 只改动第 2 条、其余五条仍是阶段 6 的实施边界」两句相对阶段的遗留删除。模型身份写明两个提示指纹由本特性移动，文档不登记指纹字面值 |
+| `docs/ARCHITECTURE.md#architecture-核心决策`；`docs/EXPERIMENT.md#experiment-交互菜单与运行身份`；`docs/VERIFICATION.md#verification-测试矩阵` | 请求一句写五键。指纹历史加本特性一行：`prompt_sha256`、`tool_schema_sha256`、`code_sha256` 都变，此前的运行、检查点与导出不能恢复、重放或合并比较。测试矩阵的自主选择、观察投影、七层提示、候选与呈现一致性各行改写，原生工具十二个、稳定面九个，包含新增的 set_alarm |
+| `docs/dev/SPEC-life-runtime.md#spec-life-runtime-七层请求`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-观察投影行为规则`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-交互菜单的运行边界`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-系统层`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-候选契约与呈现规则`、`docs/dev/SPEC-life-runtime.md#spec-life-runtime-曝光轮转` | 工具层目标与动作行照「工具层」；菜单排除的动作在环境层各写一句，说法只有五项。系统层摘要随十条新文改。候选契约、两级上限与轮转只作用于商品，动作始终列出 |
 | `docs/dev/SPEC-life-runtime.md#time-and-energy-五类生活动作与并行准入-人物选择什么`、`docs/dev/SPEC-life-runtime.md#time-and-energy-五类生活动作与并行准入-请求形状与菜单`、`docs/dev/SPEC-life-runtime.md#time-and-energy-五类生活动作与并行准入-动作照常列出做错了再说明`、`docs/dev/SPEC-life-runtime.md#persona-prompt-交互语义-指名购买`、`docs/dev/SPEC-life-runtime.md#tool-interaction-工具请求-开始活动`、`docs/dev/SPEC-life-runtime.md#tool-interaction-工具请求-只读查询` | 人物能做的是出行、睡眠、等待、购买与「进行」一个动作，`consume` 一类动词删除。请求五键与键和动作不符时的拒绝照「请求形状」。指名购买写商品名，渠道由 `app` 表达，没有 `from` 与 `prefer`。查询六键 |
 | `docs/dev/SPEC-life-realism.md#persona-prompt-七层请求-系统层`、`docs/dev/SPEC-life-realism.md#persona-prompt-七层请求-工具层`、`docs/dev/SPEC-life-realism.md#persona-prompt-七层请求-工具层的紧凑编码与即时查询`、`docs/dev/SPEC-life-realism.md#persona-prompt-七层请求-进度层`、`docs/dev/SPEC-life-realism.md#persona-prompt-七层请求-唯一出现原则`、`docs/dev/SPEC-life-realism.md#errands-workday-提示信息分工-系统层第-146-条`、`docs/dev/SPEC-life-realism.md#errands-workday-提示信息分工-工具用途句与字段说明` | 工具层目标类七个，app 不再是目标，动作行带 `app`；紧凑编码的动作字段加 `app`；进度层九种记录的形状照「事件与证据」；人物可写的 app 名只出现在动作行、在线购买行的备注与两个名单。逐字引用系统层第 6 条与用途句的段落换成新文 |
 | `docs/dev/SPEC-interaction-menu.md#spec-interaction-menu-观察与人物工具`、`docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引`、`docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-请求`、`docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-来源解析`；`docs/dev/SPEC-map-and-storefront.md#spec-map-and-storefront-地点发现与候选呈现`、`docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-指名购买from-是约束不是语法`、`docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-购买渠道app-名解析为成员门店`、`docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-更简单的购买请求裁决-s10` | 观察与工具的目标、动作与控制映射照「工具层」；可调用索引四个键；查询的来源筛选改为 `app`，店铺名不再是筛选值。指名购买：请求级 `from` 与 `prefer` 离开，网购点名购物 app 与支付 app，履约店铺由系统在绑定该 app 且售卖该商品的店铺里取最早送达者，同值按 `store_id` |
-| `docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-对象与动作选择`、`docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-稳定工具面`、`docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-保护项修订`、`docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-上下文分层`；`docs/dev/SPEC-decision-context.md#spec-decision-context-即时查询操作备忘与紧凑结果` | 以 app 为目标的条款改写为：对象是动作，app 是动作行上的一个键；动作时长来自内容，生活活动的典型时长一句删除。稳定工具面八个名字不变；保护项仍是等待与睡觉。查询结果的紧凑形状带 `app` |
+| `docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-对象与动作选择`、`docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-稳定工具面`、`docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-保护项修订`、`docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-上下文分层`；`docs/dev/SPEC-decision-context.md#spec-decision-context-即时查询操作备忘与紧凑结果` | 以 app 为目标的条款改写为：对象是动作，app 是动作行上的一个键；动作时长来自内容，生活活动的典型时长一句删除。稳定工具面保留八个名字并新增 set_alarm，共九个；保护项仍是等待与睡觉。查询结果的紧凑形状带 `app` |
 | `docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-丙第8条`、`docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-系统层`、`docs/dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-活动规则` | 同时做两件事规格的第 8 条、让「等待」成为例外规格的第 7 条与第 15 条，全文换成「系统层」的冻结全文，第 14、16 条不动；让「等待」成为例外规格里「环境在人物所选 app 内选内容」改为「人物选动作与可选的 app，系统选内容」。活动规则表的候选种类一行只剩 `product` |
 | `docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-版本表` 与文件头说明行 | 加行 `2026-10-07-acs-request`：「观察与工具面」「系统层」由本规格同名章节取代，系统层的逐条锁定测试改读本规格「系统层」的围栏块；文件头加 `worldmock.life.name_resolution::resolve_source` 的引用出处行（该规格「店铺、食品与外卖」一节引用它，这个定义在本阶段删除） |
 | `docs/CONTRACTS.md#contracts-场景常量`；`docs/dev/SPEC-interaction-menu.md#spec-interaction-menu-验收台账`；`docs/dev/SPEC-life-realism.md#spec-life-realism-验收矩阵` 的「候选与呈现」一行；`docs/dev/implementation-status.md#implementation-status-已落地的条款口味权重降级为排序信号` | 「候选常量只约束商品、生活活动与任务」改为只约束商品；交互菜单台账里 `use_app`、`prefer`、食品持有与工作主题上限各行按现行请求与工具层改写；「候选与呈现」一行写候选只有商品。两处指向测试节点的引用按「改写规则」的源码引用一行处置，不等到本阶段：`tests/life/test_candidates.py` 里写着三种候选的节点改名的提交、`tests/life/test_app_ui.py` 删除的提交各自同时改指 |
@@ -1233,15 +1295,15 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | `docs/design/07-evaluation.md` 的文件头 | 07 在本阶段第一次被改写：带键引用块上移、不带键的说明行移到其后，版本末位加一，做法同阶段 1 的五章 |
 | `docs/design/00-overview.md#overview-解决方案` | 补一句产品定位：产出是动作与 app 使用的数字足迹，身体、资金、地图与工作为它提供处境；足迹只写真实发生的 app 使用，持续使用留区间与逐条内容消费，线下辅助与导航只留起止两个触点，没有 app 的动作不留 app 记录，每一行都能追到一个模拟事件 |
 | `docs/design/01-architecture.md#architecture-状态与记录` | 现行身份补导出清单 4、质量报告 6 与行为报告 `behavior-metrics-2` |
-| `docs/design/05-recording-engine.md#recording-engine-导出行为`、`docs/design/05-recording-engine.md#recording-engine-完整性验证`、`docs/design/05-recording-engine.md#recording-engine-固定截止导出的验收` | 导出清单结构 4，工件仍是五个文件。`app-usage.jsonl` 的六种事实、八个共有字段与按使用方式的行形状，`purchases.jsonl` 的 `purchase`、`order_attempt` 与 `receipt` 三种行，逐字段照「数字足迹合同」；行取自带 app 身份的活动快照，不看活动种类；导出不作亮屏、前台或通知被点开的声明。`validate_export` 在重算比对之外另查「足迹不变量」七条，任何一条不成立即 `IntegrityError`；验收表加这七条与收货行 |
-| `docs/design/05-recording-engine.md#recording-engine-质量报告` | `quality.json` 结构 6。`conversion_efficiency.food` 按食品收货的 `applied / provided`，空原因为 `no_food_receipt`；`content_contact` 的 `by_app` 只计 `content_consumed` 行，新增 `by_action`，`by_kind` 只计类型非空的，`repeat_watch` 旁加 `repeat_seconds_share`；`work_topics` 键名不变、改读分配内容；`errand_metrics` 只认受理的购买与 `goods_received` |
+| `docs/design/05-recording-engine.md#recording-engine-导出行为`、`docs/design/05-recording-engine.md#recording-engine-完整性验证`、`docs/design/05-recording-engine.md#recording-engine-固定截止导出的验收` | 导出清单结构 4，工件仍是五个文件。`app-usage.jsonl` 的六种事实、八个共有字段与按使用方式的行形状，`purchases.jsonl` 的 `purchase`、`order_attempt`、`pickup_ready`、`receipt` 四种行，逐字段照「数字足迹合同」；行取自带 app 身份的活动快照，不看活动种类；导出不作亮屏、前台或通知被点开的声明。`validate_export` 在重算比对之外另查「足迹不变量」七条，任何一条不成立即 `IntegrityError`；验收表加这七条与收货行 |
+| `docs/design/05-recording-engine.md#recording-engine-质量报告` | `quality.json` 结构 6。`conversion_efficiency.food` 按食品收货的 `applied / provided`，空原因为 `no_food_receipt`；`content_contact` 的 `by_app` 只计 `content_consumed` 行，新增 `by_action`，`by_kind` 删除，`repeat_watch` 旁加 `repeat_seconds_share`；`work_topics` 键名不变、改读分配内容；`errand_metrics` 只认受理的购买与 `goods_received` |
 | `docs/design/05-recording-engine.md#recording-engine-调试工具` | 名称索引以 `goods`、`actions` 取代 `foods`、`work_topics`。时间线与查看器用一个 `action` 标签器：只在快照有 app 时写 app 名，只对 `device` 为 `phone` 写「用手机」；订单行按 `goods_id` 并显示支付 app；事件标签加 `goods_received`、`work_content_completed`。运行检查的进食次数与首餐前最低能量改按本人的食品类 `goods_received`，重复下单按 `goods_id` |
 | `docs/design/07-evaluation.md#evaluation-协议门禁gates`、`docs/design/07-evaluation.md#evaluation-报告项reports`、`docs/design/07-evaluation.md#evaluation-小时重复率` | 质量报告 6 的键照「进食与持有的读者处置」。`meal_diversity` 与 24 小时重复率按本人收货的食品类 `receipt` 行的 `goods_id`；`content_contact_minutes` 读娱乐类的内容结算；`workload` 读内容在本人 `work_content_ids` 里的 `work_study` 结算；`activity_distribution` 去掉用餐族，`wait` 计休息、`travel` 计通勤、`action` 按类别计娱乐、工作、社交、运动、家务，口径写明参照的用餐与个人卫生分钟没有模拟对应物。报告标识 `behavior-metrics-2` |
 | `docs/design/07-evaluation.md#evaluation-证据事件publicevidence`、`docs/design/07-evaluation.md#evaluation-活动activitysession`、`docs/design/07-evaluation.md#evaluation-适配器职责`、`docs/design/07-evaluation.md#evaluation-两个数据集对比`、`docs/design/07-evaluation.md#evaluation-门店选择与供给假设的比较边界` | 适配器读导出清单 4 的五个工件。动作映射按 `action` 的类别；收货证据读 `goods_received`（每单一行，键为 `order_id`）与 `delivery_arrival` 的订单列表。快照有 app 且 `device` 为 `phone` 才是手机数字交互，`other` 是数字交互但不是手机，没有 app 的是线下活动。官方域 `eat` 删除，映射与评审闭集改用四个活动种类、五个类别、`goods_id` 与 `content_id`。分别核验的事实是付款与收货 |
 | `docs/CONTRACTS.md#contracts-版本表` | 加行：导出 4、质量 6、`behavior-metrics-2`。`docs/CONTRACTS.md#contracts-足迹交接` 在本阶段不改写：五类工件一句照旧成立，字段仍指向记录引擎的导出合同（`purchases.jsonl` 多出 `receipt` 行不改变工件个数）；手机信号投影与 LabelKit 任务归 LabelKit-DataSet 的现行句已与 P-7 一致，本合同不定义这份投影，也不定义 `goods_received`、`app_push` 在下游窗口里的投影 |
-| `docs/ARCHITECTURE.md#architecture-一条完整生活经历如何形成数据` | 流程图与正文改为：三种系统动作与统一执行的动作产生事件，收货结算写收货证据，导出按使用方式写 app 使用事实与收货行；流程图末端「认证导出：五类工件」交给 LabelKit-DataSet 的一步不变 |
+| `docs/ARCHITECTURE.md#architecture-一条完整生活经历如何形成数据` | 流程图与正文改为：系统动作与统一执行的动作产生事件，收货结算写收货证据，导出按使用方式写 app 使用事实与收货行；流程图末端「认证导出：五类工件」交给 LabelKit-DataSet 的一步不变 |
 | `docs/VERIFICATION.md#verification-协议门禁`、`docs/VERIFICATION.md#verification-报告项report-only`、`docs/VERIFICATION.md#verification-交付阶段与通过条件`、`docs/VERIFICATION.md#errands-workday-度量与下游-质量报告`、`docs/VERIFICATION.md#errands-workday-度量与下游-行为评估`、`docs/VERIFICATION.md#verification-真实性评估与结论边界`、`docs/VERIFICATION.md#verification-测试矩阵` | 质量报告 6 的键与行为报告项按新的读取口径；「交付阶段与通过条件」表的「内容与出行」一行写六种 app 使用事实，「完整足迹导出」一行写导出清单 4、质量报告 6、收货行与七条不变量；真实性评估不含用餐时长。测试矩阵的行为指标一行改写 |
-| `docs/dev/SPEC-run-viewer-names.md#spec-run-viewer-names-运行内对象名称`、`docs/dev/SPEC-run-viewer-names.md#spec-run-viewer-names-活动标题`、`docs/dev/SPEC-run-viewer-names.md#spec-run-viewer-names-验证`；`docs/dev/SPEC-run-viewer-context.md#spec-run-viewer-context-结构与原文`、`docs/dev/SPEC-run-viewer-context.md#spec-run-viewer-context-验证与边界` | 名称索引读 `goods`、`actions`、`apps`、`contents`；`action` 活动的标题是动作名，有 app 时加 app 名。事件标签去掉 `use_app`、方式「打开」与工作主题完成，加 `goods_received`、`work_content_completed`；22 个唤醒标签与十一个工具标签不变 |
+| `docs/dev/SPEC-run-viewer-names.md#spec-run-viewer-names-运行内对象名称`、`docs/dev/SPEC-run-viewer-names.md#spec-run-viewer-names-活动标题`、`docs/dev/SPEC-run-viewer-names.md#spec-run-viewer-names-验证`；`docs/dev/SPEC-run-viewer-context.md#spec-run-viewer-context-结构与原文`、`docs/dev/SPEC-run-viewer-context.md#spec-run-viewer-context-验证与边界` | 名称索引读 `goods`、`actions`、`apps`、`contents`；`action` 活动的标题是动作名，有 app 时加 app 名。事件标签去掉 `use_app`、方式「打开」与工作主题完成，加 `goods_received`、`work_content_completed`；唤醒标签追加 alarm_ring，工具标签追加 set_alarm |
 | `docs/dev/SPEC-life-realism.md#spec-life-realism-呈现与导出`；`docs/dev/SPEC-dayrun-behavior.md#spec-dayrun-behavior-事件投影`；`docs/dev/SPEC-day-plan-goals.md#spec-day-plan-goals-三层度量与质量导出` | 时间线只在快照有 app 时写 app 名，只对 `device` 为 `phone` 写「用手机」；`app-usage.jsonl` 写六种事实，「手机行只从这些认证事实投影」一句改为：手机信号投影归 LabelKit-DataSet，只从 `app-usage.jsonl` 与 `purchases.jsonl` 逐行投影；工作时间线读 `content_id`、内容进度与 `work_content_completed`。事件投影的 app 使用事实按使用方式。目标度量按同一判定读 `progress_order_id` |
 | `docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-版本表` 与文件头说明行 | 加行 `2026-10-07-acs-record`：「状态、事件、检查点与导出」由本规格同名章节取代，D-44 的事实种类与投影归属按 P-6、P-7 |
 | `docs/manual/evaluation.md#evaluation-修改类别映射和公开参照` | 类别映射按四个活动种类与五个动作类别，没有用餐族 |
@@ -1287,15 +1349,15 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 - 所有者节点：阶段 1–3 的契约点各有不导入 `LifeEngine` 的所有者节点。阶段 1 直接测交换、目录、场景与状态加载；阶段 2 在手工构造的 `WorldState` 上直接测收货结算、订单与送达预排事件的效果；阶段 3 直接测执行器、选择器、推送的编译与结算、占用注册表。这三个阶段的变异只由同阶段的这类节点杀死，收集失败不算杀死。
 - 引擎路径：阶段 2–4 的契约点（`系统层逐字` 除外）与 `接续成本`、`足迹事实与导出身份`、`完整日基线` 是引擎行为，各至少一个节点经真实请求、引擎与 SQLite：以 `engine_factory` 加 `mutate` 在人工环境上构造场景。阶段 2、3 的这类节点从阶段 4 起登记为集成节点，只加强证据，不改变契约点与变异的归属阶段。阶段 1 的四行、`系统层逐字`、七条不变量与 `进食与持有的读者` 是规则、目录或投影行为，由纯所有者用例验证。
 - 目录变体：需要人工环境表外对象的用例（T19、T23、T36）复制人工环境、改写目录文件并以 `refresh_manifest_identity` 刷新清单；「人工环境」各表不为用例加行。
-- 不变量反例：T39–T45 的反例改的是事件流，使五个工件的逐行重算仍然相符，只有被测的那一条不成立；T37 的真实导出通过全部七条。
+- 不变量反例：T39–T45 均有直接不变量守卫的反例，以及对真实五工件导出副本的认证拒绝。能由同一事件投影制造的反例改事件流并重算全部工件与摘要；投影结构本身不能产生的无 app 行或暂停区间污染，直接反例杀死守卫，工件污染节点证明 validate_export 的重算拒绝，不把后者声称为该守卫的变异证据。T37 的真实导出通过全部七条。
 
 | 契约点 | 阶段 | 必须通过的验证 |
 | --- | --- | --- |
 | 分类与规则归系统 | 1 | T1、T2、T3、T4：闭集、常数与可供性注册表的声明单一来源；环境里的效果、代谢当量与动作时长被拒绝；规则字节由 `code_sha256` 钉住，环境里没有规则副本 |
 | 环境登记与错误码 | 1 | T5、T6 |
 | 用途、供给与内容绑定 | 1 | T7、T8、T9：app 用途与支付绑定；按店铺类型的商品供给；内容绑定动作与 app 子集；系列 |
-| 场景 8、世界 11 与工作内容检查 | 1 | T10、T11：旧结构号在加载、打开、恢复与重放入口被拒；两项工作内容加载检查 |
-| 收货恰好一次 | 2 | T12、T13：到店、配送、检查点恢复、重复事件 |
+| 场景 8、世界 11 与工作内容检查 | 1 | T10、T11、T51：旧结构号在加载、打开、恢复与重放入口被拒；两项工作内容加载检查 |
+| 收货恰好一次 | 2 | T12、T13、T52、T53、T54：到店、配送、检查点恢复、重复事件 |
 | 收货事件归收货人 | 2 | T14、T15、T16：`provided` 与 `applied`；不在场与睡着的收货人；联系人收货；收货是事务与用餐目标的唯一证据 |
 | 没有库存 | 2 | T17 |
 | 时长只来自内容 | 3 | T18、T19 |
@@ -1304,12 +1366,12 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | 进度与确定性 | 3 | T24、T25：看过只由正消费产生；恢复不重抽 |
 | 推送资格与打开 | 3 | T26、T27 |
 | 按类别与方式占用 | 3 | T28：同一人物没有两段持续的手机使用 |
-| 社交、等待与邮件 | 3 | T29、T30：对方来自请求；等待是时间原语；没有读信活动 |
+| 社交、等待与邮件 | 3 | T29、T30、T58：对方来自请求；等待是时间原语；没有读信活动 |
 | 订单点名购物与支付 app | 4 | T31：没有默认值 |
-| 请求形状与工具面 | 4 | T32、T33、T34：T34 是首个引擎闭环 |
+| 请求形状与工具面 | 4 | T32、T33、T34、T55、T56：T34 是首个引擎闭环 |
 | 系统层逐字 | 4 | T35 |
 | 接续成本 | 5 | T36 |
-| 足迹事实与导出身份 | 5 | T37、T38：每种使用方式的行形状；收货行；导出侧的结构号 |
+| 足迹事实与导出身份 | 5 | T37、T38、T57：每种使用方式的行形状；收货行；导出侧的结构号 |
 | 足迹不变量 1 | 5 | T39：app 使用行只来自带 app 的活动 |
 | 足迹不变量 2 | 5 | T40：同一人物的手机区间不重叠 |
 | 足迹不变量 3 | 5 | T41：每张已送达订单恰一行收货、至多一条收货事件 |
@@ -1329,15 +1391,15 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 
 | 编号 | 用例验证什么 |
 | --- | --- |
-| T1 | `exchange.types` 的闭集成员与标签（`ActionCategory` 五个、`AppUseManner` 三个、`MANNER_DEVICE` 三项、`AppPurpose` 三个、`GoodsCategory` 五个、`STORE_KINDS` 四个、`GOODS_CATEGORY_STORE_KINDS`）、`RULES_VERSION == 2` 与「常数表」各值只在 `exchange` 定义（`OWNERS` 核对）；`life/felt.py`、`life/social.py`、`life/activities.py` 里没有第二份社交、情绪或运动速率；可供性注册表为版本 2、种类行恰为 `wait`、`sleep`、`travel`、`action`，`RESOURCE_CLAIM_SLOTS` 恰为八个，`affordances.toml` 里闭集外的占用名加载时拒绝 |
-| T2 | 算子与常数逐值：`evaluate_goods_receipt` 对 `meal`、`snack`、`drink` 返回 600、200、100 乘数量，对 `leisure`、`daily` 返回 0.10 与 0.05；`CATEGORY_MET` 为 1.0、1.5、1.5（社交有 app 时 1.3）、5.0、2.0；非食品收货效果不超过最弱内容形式 30 分钟的缓解量 0.10；出行、配送与购买算子与今天逐值相等 |
+| T1 | `exchange.types` 的闭集成员与标签（`ActionCategory` 五个、`AppUseManner` 三个、`MANNER_DEVICE` 三项、`AppPurpose` 三个、`GoodsCategory` 六个、`STORE_KINDS` 五个、`GOODS_CATEGORY_STORE_KINDS`）、`RULES_VERSION == 2` 与「常数表」各值只在 `exchange` 定义（`OWNERS` 核对）；`life/felt.py`、`life/social.py`、`life/activities.py` 里没有第二份社交、情绪或运动速率；可供性注册表为版本 2、种类行恰为 `wait`、`sleep`、`travel`、`action`，`RESOURCE_CLAIM_SLOTS` 恰为八个，`affordances.toml` 里闭集外的占用名加载时拒绝 |
+| T2 | 算子与常数逐值：`evaluate_goods_receipt` 对 `meal`、`snack`、`drink` 返回 600、200、100 乘数量，对 `leisure`、`daily` 返回 0.10 与 0.05；`CATEGORY_MET` 为 1.0、1.5、1.5（社交有 app 时 1.3）、5.0、2.0；非食品收货效果不超过娱乐动作 30 分钟的缓解量 0.15；出行、配送与购买算子与今天逐值相等 |
 | T3 | 数据集设不了规则：动作行带 `duration_seconds`、`typical_duration_minutes`、`time_window`、`location_kinds`、`met_value` 或 `effects`，内容行带缓解速率，商品行带 `kcal`，各被严格模型以 `ENVIRONMENT_KIND_INVALID` 拒绝；人工环境里的数只有 `price_fen`、`duration_seconds`、`series.episode` |
 | T4 | 规则字节：在仓库树的副本上改动 `src/worldmock/data/` 下任一文件的一个字节，`runtime_code_sha256` 随之改变；`catalog/` 下出现 `affordances.toml` 或 `rules/`、清单列出第七个路径 → `ENVIRONMENT_STALE_FILE`；清单带规则哈希字段被严格模型拒绝；`environment_identity` 恰为五个字段 |
 | T5 | 人工环境登记往返：六个目录文件加载后，派生索引（按店铺类型的菜单、每家店的商品、`stores_by_app`、`apps_by_store`、每个动作的内容、每个动作与 app 组合的内容、每个 app 承载的动作、每种用途的 app、系列按集数升序）与「人工环境」各表的手工期望相等；`worldmock validate --environment` 对人工环境退出码 0，结果为 `{valid, environment_id, environment_version, scenarios}` |
 | T6 | 「注册校验与错误」的 32 个码各一个最小反例（参数化），码与英文原因相符，没有一条被静默通过；`validate --environment` 对每个反例非零退出并给出 `{path, code, reason}`；`duration_seconds` 为 59 以 `ENVIRONMENT_NUMBER_INVALID` 拒绝、为 60 受理；五个退役码不在 `REGISTRATION_REASONS` 里 |
 | T7 | `amap`、`alipay` 没有任何动作与内容仍登记通过；`eleme` 的 `payment_app_ids` 置空、`bilibili` 带 `payment_app_ids`、`meituan` 列出没有支付用途的 `douyin`、`eleme` 去掉 `shopping` 而 `cafe` 仍绑定它、`amap` 加 `shopping` 而没有店铺绑定它，各 → `APP_PURPOSE_INVALID`；`meituan` 加 `payment` 用途并在 `payment_app_ids` 列出自己时受理；既无用途也无动作绑定的 app → `APP_UNBOUND` |
 | T8 | 固定供给表：`"all"` 的扑克牌只进 `store` 的菜单，薯片与柠檬茶进四家店铺；`cafe` 没有正餐，两家面馆菜单逐项相同，`home`、`office`、`park` 菜单为空；牛肉面绑定 `cafe`、纸巾绑定 `noodle-1`、薯片绑定 `home` 各 → `GOODS_STORE_KIND_INVALID`；饭团只绑定两家面馆之一 → `GOODS_BINDING_KIND_INCONSISTENT`；`store_ids` 为空 → `GOODS_BINDING_MISSING` |
-| T9 | 内容的 `action_id` 缺失或未登记 → `CONTENT_ACTION_MISSING`；`c-rest`（动作无 app）带 `app_ids`、`c-run` 的 `app_ids` 置空、`c-short` 的 `app_ids` 写不属于「刷推荐」的 `keep` → `CONTENT_APP_BINDING_INVALID`；删掉 `c-run`，或删掉 `douyin` 上「刷推荐」的全部内容 → `ACTION_CONTENT_EMPTY`；`run` 的 `manner` 置 null、`quiet-rest` 写 `manner` → `ACTION_APP_MANNER_INVALID`；`c-run` 写 `kind`、`c-short` 的 `kind` 置 null → `ENVIRONMENT_KIND_INVALID`；《测试剧集》第二集改绑另一个动作、改成与另两集不同的 `app_ids`、`episode` 改为 1，各 → `CONTENT_SERIES_INVALID` |
+| T9 | 内容的 `action_id` 缺失或未登记 → `CONTENT_ACTION_MISSING`；`c-rest`（动作无 app）带 `app_ids`、`c-run` 的 `app_ids` 置空、`c-short` 的 `app_ids` 写不属于「刷推荐」的 `keep` → `CONTENT_APP_BINDING_INVALID`；删掉 `c-run`，或删掉 `douyin` 上「刷推荐」的全部内容 → `ACTION_CONTENT_EMPTY`；`run` 的 `manner` 置 null、`quiet-rest` 写 `manner` → `ACTION_APP_MANNER_INVALID`；任意内容行写 `kind`（包括 null）→ `ENVIRONMENT_KIND_INVALID`；内容模型没有内容类型，游戏、听音乐、轻松播客均能以自定义动作名与内容绑定登记，无需添加系统枚举；《测试剧集》第二集改绑另一个动作、改成与另两集不同的 `app_ids`、`episode` 改为 1，各 → `CONTENT_SERIES_INVALID` |
 | T10 | 场景结构 8 受理；`schema_version: 7`、`corpus_root`、`corpus_manifest_sha256`、`agents[].initial_inventory`、`agents[].lifestyle_activities`、`agents[].work_topic_ids`、`agents[].motivation` 各被拒绝；`allowed_actions` 含 `use_app` 或缺 `wait` 被拒绝；`work_content_ids` 写 `c-short` → `WORK_CONTENT_UNKNOWN`；人物 2 写 `[c-course]` 而没有 `work_schedule` → `WORK_SCHEDULE_REQUIRED`；人物 1 的 `work_content_ids` 置空 → `WORK_CONTENT_REQUIRED`；`end_at` 延后一天（两个班次 64800 秒、分配内容 32400 秒）→ `WORK_CONTENT_INSUFFICIENT`，原场景一个班次 32400 秒恰好受理 |
 | T11 | 世界 11 校验通过；带 `content_manifest_sha256` 或 `schema_version: 10` 的世界状态被 `WorldState.model_validate` 拒绝；目录 `format_version: 1` 被拒绝，`rules_version: 1` → `RULES_VERSION_MISMATCH`；运行清单 4 带五个身份字段、没有语料钉；阶段 4 起由真实的打开、恢复与重放入口各拒绝世界 10 与运行清单 3，篡改目录一个字节后恢复以 "Runtime environment identity mismatch" 拒绝 |
 | T12 | 到店在 `store` 买饭团：同一次结算里订单 `pending → delivered`、`received_at == created_at`、能量上涨恰一次；经美团（支付宝付款）订牛肉面：受理当秒只扣 3300 分、订单 `pending`、能量不变，`delivery_arrival` 到期当秒订单 `delivered`、`received_at` 为到期秒、能量上涨恰一次；余额只在下单当秒变化 |
@@ -1348,7 +1410,7 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | T17 | `AgentState` 与 `WorldState` 没有 `inventory`、`contact_holdings`；`delivery_arrival` 载荷恰为 `{kind, scheduled_id, orders[]}`，`action_result` 没有 `given`、`inventory_changes`；收货之后任何状态里都没有这件商品的份数；阶段 4 起观察没有 `inventory`、`available_inventory`、`held_foods`，工具层没有 `holding` 目标与 食用、使用、给予 行 |
 | T18 | 同一动作「刷推荐」（哔哩哔哩）抽到《测试图文》时 `planned_end_at` 为开始后 300 秒，抽到《测试长视频》时为 2400 秒；「跑步」做满 1200 秒、「安静休息」做满 900 秒各以 `planned_end` 完成；请求与目录动作都没有时长字段，一次活动的经过秒数等于各条内容实际消费秒数之和 |
 | T19 | 「学课程」看到 700 秒后暂停 30 分钟：进度仍是 700；恢复不重抽，`planned_end_at` 为恢复时刻加 1100 秒；改为提前结束则只记 700 秒、`completed_rounds` 不变；余量 40 秒的恢复受理（`ACTIVITY_TOO_SHORT` 不用于 `action`）；目录副本里 90000 秒的内容一次活动计划 86400 秒，结束后位置为 86400、未完成，下次开始接着做 |
-| T20 | 「刷推荐」（抖音）里《测试短视频》在 120 秒处完成的那次结算：写 `completed` 为 true 的证据、`completed_rounds` 加 1、位置归零、`played[]` 加一行、`draw_index` 加 1、`planned_end_at` 重设为下一条的结束时刻；活动仍在进行、`boundary_type` 为 null；人物没有因内容完成而就绪，`WakeReason` 仍是 22 个 |
+| T20 | 「刷推荐」（抖音）里《测试短视频》在 120 秒处完成的那次结算：写 `completed` 为 true 的证据、`completed_rounds` 加 1、位置归零、`played[]` 加一行、`draw_index` 加 1、`planned_end_at` 重设为下一条的结束时刻；活动仍在进行、`boundary_type` 为 null；人物没有因内容完成而就绪，`WakeReason` 为 23 个，内容完成没有新增原因 |
 | T21 | 「跑步」「安静休息」「学课程」「办公」「聊天」「语音通话」各在一条内容结束时以 `planned_end` 完成并成为待收尾，不接下一条；唤醒原因含 `progress_report_due` 的决策里人物提交的不是 `report_status` 或请求被拒，结算后该人物到期活动的 `report_anchor_at` 都移到该时刻，下一条内容结束时不因播报再次就绪；各类别的活动按「当日目标与事务」的表推进对应意图的目标 |
 | T22 | 在哔哩哔哩开始「刷推荐」，依次：本 session 有推给哔哩哔哩且属于「刷推荐」的推送时取推送内容并置 `opened`；否则取 `position_seconds > 0` 的内容里 `last_consumed_at` 最近的一条，同值取最小 `content_id`；否则看完第一集的《测试剧集》取第二集，从不先到第三集；否则在未看单元里带键均匀抽取，三集的系列只算一个单元；接续用同一次序但不取推送 |
 | T23 | 抖音上四条内容各完成一轮后继续接续：取到的都是 `completed_rounds` 最少的单元，重播使其变为 2、不新建内容；另有合格内容时不接刚完成的那条，合格集合只剩一条时才立即重播；另一项暂停活动选中的内容与当前 session 待消费推送钉住的内容只在另有合格内容时被跳过；`topic-sales` 完成后在 `office` 开始「办公」→ `CONTENT_EXHAUSTED`，未分配的 `c-course` 完成后可再做并记第二轮；分配内容对人物 2 不合格；`topic-sales` 做满时写一条只对人物 1 可见的 `work_content_completed{kind, content_id}` 并施加一次 `goal_progressed` 脉冲（+0.05），`c-course` 完成时两者都没有 |
@@ -1360,13 +1422,13 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | T29 | 「聊天」的 `to` 为 null → `COUNTERPART_REQUIRED`；`to` 写同在 `home` 的人物 2：发出邀请，人物 2 以无 app 的社交动作、`to` 写人物 1 即接受；接受方保留自己写的动作，按自己的进度取内容（人工环境里同为 `c-chat`，从 0 秒起），先到内容结束的一方以 `planned_end` 完成，另一方同秒以 `partner_ended` 结束且内容未完成，各自的 `ContentProgress` 只增加本人实际消费的秒数；共同进行的秒数按每小时 0.5、对方未接受的秒数按 0.2 缓解；「语音通话」（微信）`to` 写联系人王磊受理、`wechat` 记在活动上、全程按 0.4；相同种子下换一个 `to` 抽到的内容不变；社交活动不能暂停 |
 | T30 | 等待：`target` 自己、`way` 等待，计划 900 秒（场景 `activity_feedback_seconds`），代谢当量 1.3，占 `wait`，没有内容、app、类别与 app 使用行；菜单去掉 `wait` 或 `sleep` 被拒；没有进行中活动时同刻继续请决策，等待使时钟推进；`mail_arrival` 到期当秒 `test-mail` 的正文对人物 1 可见，唤醒原因 `message_arrival`；`ActivityKind`、`WAYS`、`TARGET_KINDS` 里没有 `read_mail`、阅读、`message`；`send_message` 零秒且没有 app 身份 |
 | T31 | 经美团订牛肉面：`pay_app` 为 null → `PAYMENT_APP_REQUIRED`，候选是换上支付宝、微信的两条完整请求项；经饿了么订柠檬茶而 `pay_app` 写微信 → `PAYMENT_APP_NOT_BOUND`，候选只有支付宝；`app` 写抖音 → `APP_NOT_OFFERED`；经美团买饭团 → `SUPPLY_NOT_AT_STORE`；任何情形系统都不补 app；受理的订单 `app_id`、`payment_app_id` 即所写，经美团订薯片的履约店铺取 `expected_at` 最早者、同值取较小 `store_id`；经美团同时订牛肉面与薯片，两行各自选店，选到的店铺不同时成两张整单，各自付款、各收一次配送费、各有一个 `delivery_arrival`；在 `noodle-2` 到店买牛肉面 `app_id` 为 null，`pay_app` 写微信则 `payment_app_id` 为 `wechat`、写 null 则为 null、写高德地图 → `PAYMENT_APP_NOT_BOUND`；一项一件、`quantity` 恒为 1，给自己与人物 2 各订一份受理，`(target, to)` 相同的两项被拒 |
-| T32 | `items[]` 每项恰有 `target`、`way`、`app`、`to`、`pay_app` 五个必填键；多出 `from`、时长、内容、主题、数量键或请求级 `prefer` 被严格 Schema 拒绝；`WAYS` 恰六个，打开、食用、工作等退役方式被拒；出行写 `pay_app`、非社交动作写 `to` → `ROUTE_FIELDS_INVALID`；「刷推荐」`app` 为 null → `APP_REQUIRED`，写 Keep、或「安静休息」写任一 app → `APP_NOT_OFFERED`，各带此刻可写的全部 app 名与可照填的候选；出行 `app` 写高德地图受理并存 `navigation_app_id`，写美团 → `APP_NOT_OFFERED`；原生工具 11 个、稳定面 8 个；`query_world` 的六个键含 `app`、不含 `from`；宿主与环境对同一请求给出相同的码与文字 |
+| T32 | `items[]` 每项恰有 `target`、`way`、`app`、`to`、`pay_app` 五个必填键；多出 `from`、时长、内容、主题、数量键或请求级 `prefer` 被严格 Schema 拒绝；`WAYS` 恰七个，打开、食用、工作等退役方式被拒；出行写 `pay_app`、非社交动作写 `to` → `ROUTE_FIELDS_INVALID`；「刷推荐」`app` 为 null → `APP_REQUIRED`，写 Keep、或「安静休息」写任一 app → `APP_NOT_OFFERED`，各带此刻可写的全部 app 名与可照填的候选；出行 `app` 写高德地图受理并存 `navigation_app_id`，写美团 → `APP_NOT_OFFERED`；原生工具 12 个、稳定面 9 个；`query_world` 的六个键含 `app`、不含 `from`；宿主与环境对同一请求给出相同的码与文字 |
 | T33 | 工具层目标类恰为 `location`、`product`、`action`、`person`、`contact`、`self`、`activity`；人物 1 的七个动作始终列出、不轮转：「刷推荐」两行、「办公」一行 `app` 为 null；人物 2 列出六个，内容全部分配给人物 1 的「办公」不列出，人物 2 按名开始它 → `CONTENT_EXHAUSTED`；动作行 `duration` 在有未完成内容时是它的余量，否则是该行合格集合时长的最小至最大（抖音行为 90 秒至 2400 秒）；有待消费推送的行 `note` 写出推送；不在 `office` 时「办公」行不可用，原因与提交后的拒绝一字不差；`topic-sales` 完成后「办公」行仍然列出，以 `CONTENT_EXHAUSTED` 的原因不可用；商品目标一行到店、每个购物 app 一行，在线行写预计送达与可用支付 app；`callable_index` 恰为 `goods`、`navigation_apps`、`payment_apps`、`query_categories`；开始结果的 `details.content` 写明这次的内容；任何一层都没有 `content_id`、`goods_id`、`payment_app_id`、`navigation_app_id` |
-| T34 | 首个引擎闭环：人工环境登记 → 场景加载 → `LifeEngine.create` → 人物 1 以最终请求开始「安静休息」，再开始「刷推荐」（抖音）→ 推进到接续中途 → 共同检查点 → 关闭 → `LifeEngine.open` 重开后环境身份、世界状态、当前内容与位置逐项相等 → 继续调度，受理一笔经美团的订单并在送达当秒收货；全程没有运行故障 |
-| T35 | 实际请求、`docs/CONTRACTS.md` 的系统层 JSON 块与模块常量三者逐字相等，共十八条；第 6、7、8、12、13、15、17 条等于「系统层」的围栏块，其余十一条字节不变；「系统层」列出的既有文字约束与新增退役读法的反向断言全部通过；两句用途句等于「系统层」的定稿；提示指纹与工具指纹随本阶段改变 |
-| T36 | 成本：人工环境副本把 `douyin` 上「刷推荐」的内容换成二十条各 360 秒的短视频，场景经 `mutate` 去掉这段时间里的其他预排唤醒，`progress_report_interval_seconds` 为缺省的 1800；人物开始「刷推荐」（抖音），被请决策时只播报，满 7200 秒结束：`app-usage.jsonl` 恰一行 `app_use`，二十条内容各恰一条 `completed` 为 true 的内容证据，从开始到结束归于该人物的 `decision_started` 不多于 `2 + floor(7200 / 1800)` 即 6 个 |
+| T34 | 首个引擎闭环：人工环境登记 → 场景加载 → `LifeEngine.create` → 人物 1 以最终请求开始「安静休息」，再开始「刷推荐」（抖音）→ 推进到接续中途 → 共同检查点 → 关闭 → `LifeEngine.open` 重开后环境身份、世界状态、当前内容与位置逐项相等 → 继续调度，受理一笔经美团的订单并在送达当秒收货；全程没有运行故障；游戏、听音乐、轻松播客三个自定义动作各通过真实 app 内容执行闭环，状态证据、结果和推送没有内容分类字段 |
+| T35 | 实际请求、`docs/CONTRACTS.md` 的系统层 JSON 块与模块常量三者逐字相等，共十八条；第 6、7、8、12、13、15、17 条等于「系统层」的围栏块，其余八条字节不变；「系统层」列出的既有文字约束与新增退役读法的反向断言全部通过；两句用途句等于「系统层」的定稿；提示指纹与工具指纹随本阶段改变 |
+| T36 | 成本：人工环境副本把 `douyin` 上「刷推荐」的内容换成三十条各 360 秒的内容，为尚未打开的同会话推送保留独立候选，场景经 `mutate` 去掉这段时间里的其他预排唤醒，`progress_report_interval_seconds` 为缺省的 1800；人物开始「刷推荐」（抖音），被请决策时只播报，满 7200 秒结束：`app-usage.jsonl` 恰一行 `app_use`，实际完成的二十个不同 `content_id` 各恰一条 `completed` 为 true 的独立来源内容证据，从开始到结束归于该人物的 `decision_started` 不多于 `2 + floor(7200 / 1800)` 即 6 个 |
 | T37 | 一次真实运行的导出：「刷推荐」（抖音，中途暂停一次）→ 一行 `app_use`（`segments` 两段、不含暂停、`device` 为 `phone`）与每次内容结算一行 `content_consumed`；「学课程」（哔哩哔哩）→ 同样两种行，`device` 为 `other`；「跑步」（Keep）→ 只有 `edge` 为 `start`、`end` 的两行 `app_touch`；带高德地图的步行 → 出发与到达两行 `app_touch`，`action_id` 为 null，同一路段走两次是两组不同 `activity_id` 的行；没点名导航的出行、「安静休息」「办公」「聊天」与睡眠零行；运行终点截断的「跑步」没有 `end` 行；每行带齐八个共有字段，三种推送行带 `action_id` |
-| T38 | `purchases.jsonl`：`purchase` 行带 `goods_id`、`category`、`payment_app_id`（到店未写支付 app 为 null）；每张 `delivered` 订单恰一行 `receipt`，`agent_id` 是付款人、`provided` 与 `applied` 取自收货人的 `goods_received`，联系人收货时为 null，`pending` 订单没有 `receipt`；导出仍是五个工件，导出清单 4、质量报告 6、行为报告 `behavior-metrics-2`；`validate_export` 与评估各拒绝导出清单 3 或世界 10 的导出；`events.jsonl` 原样带着人物可见的 `goods_received` 与 `app_push`，载荷、所有人、可见性与 `caused_by` 同「事件与证据」，导出不含窗口投影 |
+| T38 | `purchases.jsonl`：`purchase` 行带 `goods_id`、`category`、`payment_app_id`（到店未写支付 app 为 null）；每张 `delivered` 订单恰一行 `receipt`，`agent_id` 是实际模拟收货人（联系人为付款人）、`provided` 与 `applied` 取自收货人的 `goods_received`，联系人收货时为 null，`pending` 与 ready_for_pickup 订单没有 `receipt`；导出仍是五个工件，导出清单 4、质量报告 6、行为报告 `behavior-metrics-2`；`validate_export` 与评估各拒绝导出清单 3 或世界 10 的导出；`events.jsonl` 原样带着人物可见的 `goods_received` 与 `app_push`，载荷、所有人、可见性与 `caused_by` 同「事件与证据」，导出不含窗口投影 |
 | T39 | 不变量 1：事件流让没有 app 的「安静休息」的 `activity_id` 出现在 `app-usage.jsonl` → `validate_export` 以 `IntegrityError` 拒绝 |
 | T40 | 不变量 2：同一人物的「刷推荐」（抖音）与「语音通话」（微信）两段 `device` 为 `phone` 的 `segments` 重叠 60 秒 → 拒绝；与 `device` 为 `other` 的「学课程」重叠不拒绝 |
 | T41 | 不变量 3：`delivered` 订单没有或有两行 `receipt`；模拟收货人的订单没有或有两条 `goods_received`；联系人收货的订单带一条 `goods_received` → 各拒绝 |
@@ -1379,6 +1441,14 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | T48 | 人工环境上的脚本日以同一场景、同一种子完整运行两次，中途做检查点并重开；两个候选的场景哈希、种子与摘要逐项相等时，生产冻结入口才原子写出第四份完整日基线 `tests/fixtures/dayrun-action-content-baseline.json`，任一失配拒绝且目标字节不变；回执写真实的 OS、架构、CPython 版本、`.python-version` 与两份锁文件的身份；每人每日 `decision_started` 数由完整日用例从该次运行的事件计算，写进阶段 6 的回执与 `docs/dev/implementation-status.md` 的「动作与内容简化开发状态」，不设阈值；基线 JSON 的键集与 `scripts/freeze_rrs_baseline.py` 不变；`tests/dayrun_baseline.py` 与前三份基线的字节不变 |
 | T49 | `scripts/run_tests.py --environment-root` 的输入摘要只要求非空的 `catalog/` 与 `scenarios/`：没有 `corpora/` 的环境根受理，缺 `scenarios/` 以 "Test environment input directory is missing: scenarios" 失败；`scripts/run_tests.py` 的这项改动随阶段 1 的环境格式落地，本用例与它的变异作为门禁用例登记在阶段 6 的契约点 |
 | T50 | 风格门禁（`_OUTSTANDING` 只减不增，`session_actions.py` 与 `life/models.py` 的行数不高于代码基线）、导入图、单一来源（`OWNERS` 登记新闭集与迁入的常数）、快速、标准与全量三层完整收集、设计说明书汇编 `--check`、文档门禁、全部现行验收守卫与归属守卫通过；本特性登记的生产与测试文件没有延期标记与空壳函数 |
+| T51 | 严格登记新增地点与字段：gas_station 只卖 fuel；parcel_station 无店铺 app 与商品；shipping_seconds、communication_mode、owns_car、initial_driving_days 缺失或非法均拒绝，最近家庭驿站必须登记且被选中，未授权车辆归属不从人物故事推断 |
+| T52 | 现场本人燃油收货恰加七天且不改变库存、热量、情绪；远程、异地、无车和为他人购买在付款前原子拒绝；重放、恢复和重复送达不重复增加 |
+| T53 | 长途严格大于一天按实际收货人家庭最近驿站选址，外出或睡眠仍可下单；到站只 ready_for_pickup 与本人可见通知，零 receipt、零 goods_received、零商品效果；恰一天仍直送，同批不同预排不重复收费，联系人长途拒绝 |
+| T54 | 本人在站零秒领取本人全部可取订单，received_at 不早于 arrived_at，每单唯一收货效果与证据，不创建库存；离站、他人订单和重复领取均不能产生额外效果；真实购买与领取结果是因果来源，scheduled_id 不冒充事件身份 |
+| T55 | 无车或未来驾驶日余额不足拒绝，实际正驾驶秒数按本地日期扣一次；零秒取消与非驾车日期不扣，同日多次和加油不重扣；跨午夜覆盖每个实际驾驶日期、恰到午夜不计次日；驾车候选显示真实条件，既有车费仍一次付款 |
+| T56 | set_alarm 严格单键 whole-second 时刻且在当前与运行终点之间；到点先结算睡眠秒数再结束睡眠，自然结束同秒保留 planned_end，其他活动不停止；同秒多个闹钟各有证据但一次决策，恢复与重放无漏响和重响，宿主与环境拒绝相同 |
+| T57 | pickup_ready 属实际收货人且恰一条来源于本人到站事件，receipt 来源于本人 goods_received；到站未取零 receipt，领取不产生第二次通知；付款仍归买家，联系人 receipt 空效果，validate_export 拒绝所有错误数量、时间与来源所有权 |
+| T58 | text 社交记录目录主题与实际进度、LLM 注记，不调用通话或投影对方回复；voice 保留真实通话路径。注记不能改内容位置与轮数，通信方式不由名字猜测，社交占用和实际秒数缓解保持固定规则 |
 
 <a name="spec-acs-机器登记"></a>
 ### 机器登记
@@ -1392,7 +1462,7 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 <a name="spec-acs-变异登记"></a>
 ## 变异登记
 
-每个实施契约点至少一个改变行为的源码变异，全表的变异分句不超过实施契约点数的两倍（P-38）；只报告行不登记变异。一行里以中文分号隔开的分句各是一个变异，同绑该行的契约点、同由该行所列用例杀死；「行为所有者阶段」等于契约点的阶段。未被杀死的变异先补测试再重审，不删变异。
+每个实施契约点至少一个改变行为的源码变异，原范围的变异分句不超过实施契约点数的两倍（P-38）；用户补订允许另增加十二条分句，总上限为 68；只报告行不登记变异。一行里以中文分号隔开的分句各是一个变异，同绑该行的契约点、同由该行所列用例杀死；「行为所有者阶段」等于契约点的阶段。未被杀死的变异先补测试再重审，不删变异。
 
 | 变异 | 行为所有者阶段 | 被谁杀死 | 绑定契约点 |
 | --- | --- | --- | --- |
@@ -1440,6 +1510,14 @@ start_activity 一项一个对象，写 target、way、app、to、pay_app，用�
 | 评估把一切 `action` 活动都算作手机数字交互，不看 app 与 `device` | 5 | T47 | 进食与持有的读者 |
 | 冻结入口只比较场景哈希与种子、不比较摘要就写出基线 | 6 | T48 | 完整日基线 |
 | 测试运行器的环境输入摘要仍要求环境根下有非空的 `corpora/` | 6 | T49 | 工程门禁与文档一致性 |
+| 未检查环境汽车归属与天数；有 app 社交未要求通信方式 | 1 | T51 | 场景 8、世界 11 与工作内容检查 |
+| 重复燃油收货仍增加七天 | 2 | T52 | 收货恰好一次 |
+| 长途到站即执行收货效果；选择离当前地点最近而不是家庭最近的驿站 | 2 | T53 | 收货恰好一次 |
+| 领取其他人的 ready_for_pickup 订单；重复领取重复写 goods_received | 2 | T54 | 收货恰好一次 |
+| 同日第二次驾驶再次扣一天；跨午夜只检查出发日期 | 4 | T55 | 请求形状与工具面 |
+| 睡眠中的闹钟不触发结束 | 4 | T56 | 请求形状与工具面 |
+| 到站可取导出为 receipt 而不是 pickup_ready | 5 | T57 | 足迹事实与导出身份 |
+| 文字聊天仍调用语音通话执行函数 | 3 | T58 | 社交、等待与邮件 |
 
 删除闭集成员、字段或整个模块属导入期或模型校验失败，不登记为变异；`ActivityKind`、`WAYS`、`TARGET_KINDS` 与 `RESOURCE_CLAIM_SLOTS` 的成员由 T1、T28、T30、T32、T33 的断言守住。
 
@@ -1481,7 +1559,7 @@ LabelKit-DataSet 的适配不在这五步里排号：它在波次进入主干之
 
 第一部分，环境仓库 WorldMock-Dataset：
 
-- 未提交的考勤改动：数据仓工作树里新增了 app `dingtalk`「钉钉」、内容 `attendance-dingtalk`「考勤打卡」（占位类型 `article`）与办公地点 `wc-office` 的 `app_ids` 绑定，它依赖没有进入本仓库主干的引擎改动，现行登记校验拒绝它。这部分环境与来源文件不以格式 1 提交或发布，改作最小移植里的第一个格式 2 动作：绑定 `dingtalk` 的一个动作，使用方式 `offline_assisted`，类别由数据仓从五个固定类别里选；打卡内容的 `kind` 为 null、时长不短于 `CONTENT_MIN_SECONDS`；办公地点的 `app_ids` 清空（只有 `STORE_KINDS` 地点可以绑定 app）。它的足迹是起止两个 `app_touch`，永不被推送；引擎不把它限定在办公地点（「已知局限」）。
+- 未提交的考勤改动：数据仓工作树里新增了 app `dingtalk`「钉钉」、内容 `attendance-dingtalk`「考勤打卡」（占位类型 `article`）与办公地点 `wc-office` 的 `app_ids` 绑定，它依赖没有进入本仓库主干的引擎改动，现行登记校验拒绝它。这部分环境与来源文件不以格式 1 提交或发布，改作最小移植里的第一个格式 2 动作：绑定 `dingtalk` 的一个动作，使用方式 `offline_assisted`，类别由数据仓从五个固定类别里选；打卡内容不带 `kind`，时长不短于 `CONTENT_MIN_SECONDS`；办公地点的 `app_ids` 清空（只有 `STORE_KINDS` 地点可以绑定 app）。它的足迹是起止两个 `app_touch`，永不被推送；引擎不把它限定在办公地点（「已知局限」）。
 - 不可变证据：`requests/*/inputs/**`、`runs/**`、`execution/**` 原样保留，不按新格式改写。
 
 要产出的文件：
@@ -1491,9 +1569,9 @@ LabelKit-DataSet 的适配不在这五步里排号：它在波次进入主干之
 | `catalog/manifest.json` | `format_version: 2`、`rules_version: 2`、`environment_version "2"`，`files` 恰列下面六个文件；身份由制作工具刷新 |
 | `catalog/apps.json` | 每个 app 加 `purposes` 与 `payment_app_ids`；补导航用途与支付用途的 app；被店铺绑定的 app 带 `shopping` 与至少一个可用支付 app |
 | `catalog/locations.json`、`catalog/map.json` | 形状不变；`app_ids` 只留在 `STORE_KINDS` 地点；地点集与种子不变时 `map.json` 逐字节不变 |
-| `catalog/goods.json` | 取代 `foods.json`：标识改为 `goods_id`，类别取五个 `GoodsCategory`，`store_ids` 服从固定供给表（咖啡店不能绑定正餐），同类型店铺同菜单 |
+| `catalog/goods.json` | 取代 `foods.json`：标识改为 `goods_id`，类别取六个 `GoodsCategory`，`store_ids` 服从固定供给表（咖啡店不能绑定正餐），同类型店铺同菜单 |
 | `catalog/actions.json` | 新文件：生活活动、工作与各内容 app 的使用都登记为动作（名称、说明、类别；绑定 app 时选一种使用方式）；不带时长、时间窗、场所、效果与代谢当量 |
-| `catalog/contents.json` | 每行加 `action_id`；娱乐内容保留 `kind`，其余为 null；动作有 app 时 `app_ids` 是其 app 的非空子集，没有 app 时为空；工作主题改为 `work_study` 动作下的内容，`duration_seconds` 取原目标工时的秒数；每个动作、每个动作与 app 的组合至少一条内容；电视剧按集写 `series` |
+| `catalog/contents.json` | 每行加 `action_id`；删除 `kind` 与内容分类；动作有 app 时 `app_ids` 是其 app 的非空子集，没有 app 时为空；工作主题改为 `work_study` 动作下的内容，`duration_seconds` 取原目标工时的秒数；每个动作、每个动作与 app 的组合至少一条内容；电视剧按集写 `series` |
 | `scenarios/*.json`（现有十个） | 结构 8：删 `corpus_root`、`corpus_manifest_sha256`、`agents[].initial_inventory`、`agents[].lifestyle_activities`、`agents[].work_topic_ids`、`agents[].motivation`；加 `agents[].work_content_ids`；菜单的 `allowed_actions` 取自五项并保留 `wait`、`sleep`；`environment` 钉新版本 |
 | `sources/catalog/{apps, locations, goods, actions, contents, sources}.json` 与两份说明 | 作者文件、来源登记与说明同步；来源、许可与合成标记只留在这里 |
 
@@ -1511,7 +1589,7 @@ LabelKit-DataSet 的适配不在这五步里排号：它在波次进入主干之
 | `tools/scenario_build.py` | 不再发布 `corpora/`，不再往场景写 `corpus_root` 与 `corpus_manifest_sha256`；只发布结构 8 的场景并以真实加载器逐个加载 |
 | `tools/{environment_ownership, freeze_dataset, rebuild_dataset, preflight_data}.py` | 去掉语料清单身份与 `corpora/` 目录的读取、复制与比对；生成目录只有 `catalog`、`scenarios`、`phone` |
 | `tools/preflight_persona.py` | 工时核对改读 `agents[].work_content_ids` 所指内容的 `duration_seconds`；同一条件引擎已在场景加载时以 `WORK_CONTENT_INSUFFICIENT` 检查 |
-| `tools/shared_media.py` | 产出带 `action_id` 的 `contents.json` 行，非娱乐内容 `kind` 为 null |
+| `tools/shared_media.py` | 产出带 `action_id` 的 `contents.json` 行，所有内容不带 `kind` |
 | `tools/{action_chain, verify_scenario_repairs}.py` | 请求项写五个键；以方式「进行」与动作名开始活动，不再按 `use_app` 找对象；读 `inventory` 的持有核对删除，改核对订单的收货；不再复制语料目录 |
 | `tools/{run_day, verify_day_run, dataset_preflight, preflight_runtime, verify_environment_ownership, environment_baseline}.py` | 随运行清单 4、导出清单 4、世界结构 11 与新事件形状核对各自读取的字段；`run_day.py` 的 `phone`、`labelkit`、`audit` 三个阶段与 `verify_day_run.py` 对来源审计的调用，随第二部分那三项职责的归属处置，其余命令行不变 |
 
@@ -1523,7 +1601,7 @@ LabelKit-DataSet 的适配不在这五步里排号：它在波次进入主干之
 | 同模块的 `AppsFile`、`LocationsFile`、`ContentsFile`、`MapGraph`、`CatalogData` | `environment_prepare/catalog.py`、`shared_media.py` | 名字保留；行形状见「目录文件」；`CatalogData` 的字段 `goods`、`actions` 取代 `foods`、`work_topics` |
 | `worldmock.catalog.load_catalog`、`worldmock.catalog.admission.validate_registration`、`worldmock.catalog.identity.compute_catalog_identity` | `environment_prepare/catalog.py`、`environment_ownership.py` | 名字保留；必需文件集是六个目录文件，只接受格式 2 |
 | `worldmock.exchange.constants.RULES_VERSION` | `environment_prepare/catalog.py` | 保留，值为 2 |
-| `worldmock.exchange.types.CONTENT_KIND_LABELS` | `labelkit_input.py`、`audit_sources.py` | 保留，五项不变 |
+| 内容类型标签 | `labelkit_input.py`、`audit_sources.py` | 删除，不再从 WorldMock 导入任何内容分类 |
 | 包资源 `worldmock.data` 的三个 TOML | `environment_rules.py` | `motivation.toml` 删除；其余两个不再被数据仓读取 |
 | `worldmock.corpora.manifest.load_manifest` | `scenario_build.py`、`environment_ownership.py`、`freeze_dataset.py` | 删除，数据仓停止导入 |
 | `worldmock.life.scenario.LifeScenario`、`worldmock.life.world_setup` 的 `load_runtime_scenario`、`load_scenario` | `scenario_build.py`、`preflight_data.py`、`preflight_runtime.py`、`freeze_dataset.py`、`simulate_phone.py`、`verify_scenario_repairs.py`、`action_chain.py` | 名字保留；只接受结构 8 |
@@ -1532,7 +1610,7 @@ LabelKit-DataSet 的适配不在这五步里排号：它在波次进入主干之
 | `worldmock.footprints.validation.validate_export`、`worldmock.footprints.export.export_run` | `simulate_phone.py`、`labelkit_input.py`、`audit_sources.py`、`verify_day_run.py`、`action_chain.py` | 名字保留；只接受导出清单 4 与世界结构 11 |
 | `worldmock.footprints.app_usage.project_app_usage`、`worldmock.footprints.purchases.project_purchase_facts` | `audit_sources.py` | 名字保留；返回「数字足迹合同」的行 |
 | `worldmock.life.run_identity.environment_identity` | `simulate_phone.py` | 不变，仍是五个字段 |
-| `worldmock.life.engine.LifeEngine`、`worldmock.life.day_planning.agents_missing_plan`、`worldmock.life.models` 的 `ModelIdentity`、`PlanDayRequest`、`REQUEST_MODELS`、`RunIdentity` | `action_chain.py`、`verify_scenario_repairs.py` | 名字保留；`REQUEST_MODELS` 仍是七个模型，`start_activity` 的项见「请求形状」 |
+| `worldmock.life.engine.LifeEngine`、`worldmock.life.day_planning.agents_missing_plan`、`worldmock.life.models` 的 `ModelIdentity`、`PlanDayRequest`、`REQUEST_MODELS`、`RunIdentity` | `action_chain.py`、`verify_scenario_repairs.py` | 名字保留；`REQUEST_MODELS` 为八个模型，增加 SetAlarmRequest，`start_activity` 的项见「请求形状」 |
 | `worldmock.life.world_query` 的 `QueryWorldRequest`、`query_world`、`validate_world_query` | `action_chain.py` | 名字保留；查询的 `from` 键改名 `app` |
 | `worldmock.run_setup` 的 `runtime_code_sha256`、`require_locked_as2`，`worldmock.runtime`，`worldmock.model_endpoint` 的 `DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL`，`worldmock.errors.IntegrityError`，`worldmock.footprints.assets.atomic_write`，`worldmock.footprints.models.canonical_json` | `action_chain.py`、`run_day.py`、`verify_scenario_repairs.py`、`environment_prepare/catalog.py`、`scenario_build.py` | 不变；`runtime_code_sha256` 的哈希范围另含 `src/worldmock/data/` |
 | 以 `python -m worldmock.cli` 调用的命令（`environment generate-map` 与 `run`、`resume`、`export`） | `environment_prepare/catalog.py`、`run_day.py` | 子命令与参数不变 |
@@ -1569,19 +1647,19 @@ LabelKit-DataSet 的适配不在这五步里排号：它在波次进入主干之
 | 活动 | `ActivityKind` 只有 `wait`、`sleep`、`travel`、`action`；`work`、`use_app`、`read_mail`、`consume`、`lifestyle`、`chat`、`call` 不再出现。`action` 活动的 `data` 带目录动作的 `action_id`、五个类别之一的 `category`（`entertainment`、`work_study`、`social`、`exercise`、`daily_care`）、可空的 `app_id` 与 `manner`，形状见「世界状态」；活动没有 `target_id`；出行的 `data` 可带 `navigation_app_id` |
 | `app-usage.jsonl` | 六种 `fact_kind`：`app_use`、`app_touch`、`content_consumed`、`push_delivered`、`push_opened`、`push_released`，各带八个共有字段 `fact_kind`、`agent_id`、`activity_id`、`app_id`、`action_id`、`manner`、`device`、`source_event_id`（「数字足迹合同」）。`app_use` 带 `segments`，顶层 `started_at`、`ended_at` 已不存在；`app_touch` 是新事实，带 `edge` 与 `occurred_at`；行取自带 app 身份的活动快照，不再按活动种类 `use_app` |
 | `purchases.jsonl` | `purchase` 行的 `food_id` 改名 `goods_id`，另带 `category` 与可空的 `payment_app_id`；`order_attempt.way` 只有 购买；新增 `receipt` 行，每张 `delivered` 订单恰一行，字段为 `agent_id`、`order_id`、`recipient_id`、`received_at`、`goods_id`、`category`、`quantity`、`provided`、`applied`、`source_event_id` |
-| 环境事件 | 人物可见的 `goods_received` 是新事件，归收货人，载荷见「事件与证据」；`work_topic_completed` 改名 `work_content_completed`，载荷 `{kind, content_id}`；`app_push` 的载荷加 `action_id` 与 `action`；`delivery_arrival` 为 `{kind, scheduled_id, orders[]}`，订单里 `food_id` 改名 `goods_id`，另带 `category`、`payment_app_id`、`received_at`，状态只有 `pending`、`delivered`。事件类型集合与 22 个唤醒原因不变 |
+| 环境事件 | 人物可见的 `goods_received` 是新事件，归收货人，载荷见「事件与证据」；`work_topic_completed` 改名 `work_content_completed`，载荷 `{kind, content_id}`；`app_push` 的载荷加 `action_id` 与 `action`；`delivery_arrival` 为 `{kind, scheduled_id, orders[]}`，订单里 `food_id` 改名 `goods_id`，另带 `category`、`payment_app_id`、`received_at`，状态为 pending、ready_for_pickup、delivered。事件类型集合不变，WakeReason 增加 alarm_ring |
 | 退出的证据 | 进食与持有的证据全部退出：`activity_progress.data` 的 `consumption` 与 `work`，`action_result.data` 的 `given`、`inventory_changes`、`app_content`、`work`，`delivery_arrival` 的 `inventory_changes`，已核验经历 `consumed`，事务的 `outcome`。读它们的窗口、训练字段与规则数据改读收货（`goods_received`、`receipt` 行、经历 `received`）与内容结算（`activity_progress.data.content`）；系统不合成用餐活动，足迹里没有用餐区间（「已知局限」） |
-| 人物请求 | `action_requested` 里 `start_activity` 的请求项恰为 `target`、`way`、`app`、`to`、`pay_app` 五个键，方式只有六种（「请求形状」）；`prompt_sha256` 与 `tool_schema_sha256` 随波次改变（「系统层」） |
+| 人物请求 | `action_requested` 里 `start_activity` 的请求项恰为 `target`、`way`、`app`、`to`、`pay_app` 五个键，方式只有七种（「请求形状」）；`prompt_sha256` 与 `tool_schema_sha256` 随波次改变（「系统层」） |
 
 手机信号投影（P-7；行形状只在「数字足迹合同」定义）：
 
 - 投影在 `validate_export` 认证导出之后只做四件事：取本人物 `device` 为 `phone` 的行、一行对一行改写成手机行、按时刻稳定排序、写身份。它不带自己的规则，不再从 `events.jsonl` 的 `delivery_arrival` 推导送达；行里没有的展示字段（推送的标题、类型与摘要）仍按 `source_event_id` 查来源事件。
 - `app-usage.jsonl`：`app_use` 一行带 `segments`（顶层 `started_at` 已不存在）；`app_touch` 一行带 `edge`，时刻取 `occurred_at`；`content_consumed` 与三种推送行的取法不变并多带 `action_id`；事实类型闭集按六种核对。`device` 为 `other` 的行与没有 app 的动作不产生手机行。
-- `purchases.jsonl`：下单取 `purchase` 行的 `created_at` 与 `app_id`（到店订单没有这一行）；付款取同一行的 `created_at` 与 `payment_app_id`（为 null 即没有这一行）；送达通知取配送订单的 `receipt` 行的 `received_at`，发给付款人，所用 app 与履约方式按 `order_id` 取同一订单 `purchase` 行的 `app_id` 与 `fulfillment`，这是送达通知唯一允许的查找。
+- `purchases.jsonl`：下单取 `purchase` 行的 `created_at` 与 `app_id`（到店订单没有这一行）；付款取同一行的 `created_at` 与 `payment_app_id`（为 null 即没有这一行）；短时直送通知取配送订单的 receipt 行 received_at；长途到站通知取 pickup_ready 行 arrived_at 发给实际收货人；领取 receipt 不再造到站通知，所用 app 与履约方式按 `order_id` 取同一订单 `purchase` 行的 `app_id` 与 `fulfillment`，这是送达通知唯一允许的查找。
 - 投影清单随新行形状升号，号由 LabelKit-DataSet 定（可见的实现今天写 `schema_version` 1），旧号由它自己的读取方拒绝；投影不作亮屏、前台或通知被点开的声明。
 - 核对：以一次真实导出核对上面各条；`device` 为 `other` 的行不出现在手机行里。
 
-窗口对人物可见环境事件的公开投影（P-8、P-27）：WorldMock 只导出原始事件及其完整载荷（「事件与证据」），窗口里的投影由 LabelKit-DataSet 定义。`goods_received` 投影为恰好 `{kind, goods, category_label, quantity}`（商品名与类别标签）；`app_push` 仍是 `{kind, app, kind_label, summary}` 四键；其他环境事件仍为空对象。
+窗口对人物可见环境事件的公开投影（P-8、P-27）：WorldMock 只导出原始事件及其完整载荷（「事件与证据」），窗口里的投影由 LabelKit-DataSet 定义。`goods_received` 投影为恰好 `{kind, goods, category_label, quantity}`（商品名与类别标签）；`app_push` 为 `{kind, app, action, summary}` 四键；其他环境事件仍为空对象。
 
 输入整理与来源审计：接受新增的事实类型与收货行；来源记录不再带 `corpus_manifest_sha256`；推送记录带动作名。
 
@@ -1610,15 +1688,15 @@ LabelKit-DataSet 按新结构消费导出的回执（手机信号投影、输入
 
 提交前的门禁：阶段 0 只需 `python scripts/documentation_gate.py` 与 `python scripts/build_design_doc.py --check` 通过，它不动任何登记，既有守卫不受影响；阶段 1–7 各自提交前必须通过的验证只在「门禁与平台」的表里定义。波次在阶段 6 的门禁全部通过、完成集合写为 `{1,…,6}` 之后以一个合并提交进入主干；阶段 7 的回执提交在数据仓发布之后单独进行。
 
-下表的「拥有的文件」列的是首次改动该文件的阶段：每个生产文件只列一次，生产路径省略 `src/worldmock/` 前缀，没有标「新增」的生产文件今天都存在；后续阶段可以再改同一文件，有约束的在表后写明。各阶段另拥有本阶段登记的所有者测试、所删测试在其他现行特性登记里的行，以及「现行文档原位改写」的同阶段条目。
+下表的「拥有的文件」列的是首次改动该文件的阶段：每个生产文件只列一次，生产路径省略 `src/worldmock/` 前缀，没有标「新增」的生产文件今天都存在；后续阶段可以再改同一文件，有约束的在表后写明。用户补订去除内容分类的模块级读取方随阶段 1 同步删除分类字段与导入，包含 `life/{content,activities,app_push,observe,prompt_schemas,tool_layer,progress_layer}.py` 与 `profile/coverage.py`，不改变这些模块的其他阶段行为。各阶段另拥有本阶段登记的所有者测试、所删测试在其他现行特性登记里的行，以及「现行文档原位改写」的同阶段条目。
 
 | 阶段 | 内容 | 拥有的文件 | 提交 |
 | --- | --- | --- | --- |
 | 0 冻结 | 本规格定稿；INDEX 登记本规格并把提案行改为 `已裁决`；不动 `docs/design/`、其他文档、测试与提案文件 | 本规格文件、`docs/INDEX.md` | `docs:` |
 | 1 固定规则、目录格式与加载边界 | `exchange` 的闭集、常数与算子（`RULES_VERSION = 2`）；可供性注册表的最终声明；内部动机评分器整体删除；目录格式 2 与登记校验；场景结构 8、世界结构 11、运行清单 4 与加载链；规则文件只从包读取并进入 `code_sha256`；语料钉删除；人工环境重写；机器登记创建、完成集合为空 | `exchange/{types,constants,operators,body}.py`、`catalog/{models,loader,admission,errors,identity,affordances}.py`、`data/affordances.toml`、`corpora/{__init__,manifest}.py`（删语料清单的读取，路径安全函数留在原处）、`life/{scenario,semantics,load_checks,world_setup,engine_context,run_identity,engine}.py`、`life/models.py`（状态字段与 `WORLD_SCHEMA_VERSION`）、`life/rules.py`（构造期读取）、`life/{felt,social,activities}.py`（常数迁入 `exchange`）、`life/{body,rhythm,social_actions}.py`（只改迁入常数的读取处）、`life/{content,retrieval}.py`（生活活动语料的读取）、`life/presentation.py`（候选游标的 `catalog_digest` 改取 `catalog_content_sha256`）、`life/work.py`（`WorkTopic` 的导入换成内容行模型）、`life/durations.py`（`APP_USE_DEFAULT_SECONDS` 的导入与 `USE_APP` 分支）、`life/{observe,projection}.py`（只删 `motivation_internal` 的读取方）、`life/decision_coordinator.py`（`consecutive_rejections` 的两处写入）、`run_setup.py`、`validation.py`、`cli.py`（`validate` 的帮助文字）、`profile/{coverage_targets,injection}.py`、`scripts/run_tests.py`（环境输入摘要不再要求 `corpora/`）；删除 `life/motivation.py`、`exchange/motivation.py`、`data/motivation.toml`；`tests/fixtures/environment/**`；新建的三个登记文件 `tests/fixtures/acs-acceptance.json`、`tests/acs_acceptance.py`、`tests/test_acs_acceptance.py` 与三处注册表 | `feat(exchange):`、`feat(catalog):`、`feat(life):`、`chore(scripts):`、`test:`、`docs:` |
-| 2 收货结算 | 唯一的收货结算函数接在到店受理与 `delivery_arrival` 两处；库存、进食、给予、联系人持有与事务的结果键同提交删除；订单带支付 app 与收货时刻；`goods_received` 事件；事务与用餐目标改由收货推进；已核验经历 `received` | 新增 `life/receipt.py`；删除 `life/giving.py`；`life/{activity_control,activity_evidence,activity_validation,admission,basket,callable_index,commerce,contact_exchange,control_items,day_plan_inputs,discovery,errand_state,errands,guidance,interaction_menu,memory_layer,name_resolution,named_purchase,narration,object_labels,order_routing,progress_layer,prompt_schemas,purchase_offers,recipients,request_linking,result_projection,routing,same_moment,schedule,session_actions,settled_text,storefront_runtime,time_advance,todo_layer,tool_layer,vocabulary,world_ops,world_query}.py`、`scheduling/effects.py`、`footprints/experiences.py`、`agents/life_memory.py` | `feat(life):`、`feat(scheduling):`、`docs:` |
+| 2 收货结算 | 唯一的收货结算函数接在到店受理与 `delivery_arrival` 两处；库存、进食、给予、联系人持有与事务的结果键同提交删除；订单带支付 app 与收货时刻；`goods_received` 事件；事务与用餐目标改由收货推进；已核验经历 `received` | 新增 `life/receipt.py`；删除 `life/giving.py`；`life/{activity_control,activity_evidence,activity_validation,admission,basket,callable_index,commerce,contact_exchange,control_items,day_plan_inputs,day_planning,decision_coordinator,discovery,errand_state,errands,guidance,interaction_menu,memory_layer,name_resolution,named_purchase,narration,object_labels,order_routing,progress_layer,prompt_schemas,purchase_offers,recipients,request_linking,result_projection,routing,same_moment,schedule,session_actions,settled_text,storefront_runtime,time_advance,todo_layer,tool_layer,vocabulary,world_ops,world_query}.py`、`scheduling/effects.py`、`footprints/{experiences,store}.py`（收货候选同进度候选按人物索引分页读取）、`agents/life_memory.py` | `feat(life):`、`feat(scheduling):`、`docs:` |
 | 3 动作执行、内容选择与推送 | 一个执行器执行全部数据集动作；按历史选择、系列与耗尽；推送归到动作之下；`ActivityKind` 换为四个，并行准入按类别与使用方式；七种旧活动种类在各模块的读取方与读信活动删除 | 新增 `life/{action_run,content_select}.py`；删除 `life/named_catalog.py`；`life/{activity_titles,app_push,candidates,error_contract,readable,relevance}.py`、`scripts/fresh_check.py`（`QUICK_TESTS` 随所列旧测试文件的删除改写） | `feat(life):`、`docs:` |
-| 4 人物请求、工具层与系统层 | 最终请求形状与词表；名称解析与路由；工具层、可调用索引与 `query_world`；系统层七条与两句用途句；导航 app、购物 app 与支付 app 的点名和选店；首个引擎闭环 | `life/{business_feedback,request_errors,tool_groups,travel}.py`、`agents/life_prompt.py`、`custom/agents/life_agent.py`；阶段 2、3 动过的请求与呈现文件在本阶段取得最终形状 | `feat(life):`、`feat(prompt):`、`feat(host):`、`docs:` |
+| 4 人物请求、工具层与系统层 | 最终请求形状与词表；名称解析与路由；工具层、可调用索引与 `query_world`；系统层十条与两句用途句；导航 app、购物 app 与支付 app 的点名和选店；首个引擎闭环 | `life/{business_feedback,request_errors,tool_groups,travel}.py`、`agents/life_prompt.py`、`custom/agents/life_agent.py`；阶段 2、3 动过的请求与呈现文件在本阶段取得最终形状 | `feat(life):`、`feat(prompt):`、`feat(host):`、`docs:` |
 | 5 记录、导出与评估 | 六种 app 使用事实与收货行；`validate_export` 的七条不变量；导出清单 4、质量报告 6、行为报告 `behavior-metrics-2`；评估、脚本与查看器 | `footprints/{app_usage,export,purchases,quality,validation}.py`、`evaluation/{adapters,behavior_metrics,errand_metrics,goal_metrics,public_evidence,review,validation,workload_metrics}.py`、`scripts/{inspect_run,render_day}.py`、`tools/run-viewer.html`、`tools/run-viewer-context.js` | `feat(footprints):`、`feat(evaluation):`、`docs:` |
 | 6 收口 | 同场景同种子的双跑完整日与第四份基线；台账闭合；标准层、全量层与覆盖率门禁；源码变异审查；文档收口 | 冻结入口沿用 `scripts/freeze_rrs_baseline.py`，不改它，也不新增入口；完整日脚本与第四份基线 `tests/fixtures/dayrun-action-content-baseline.json`、登记模块的完成集合；`docs/INDEX.md`、`docs/dev/implementation-status.md`、`docs/design/README.md` 与汇编 HTML，`docs/design/SUMMARY.md` 只复核 | `test:`、`docs:` |
 | 7 数据仓交接与正式回执（只报告） | 两个兄弟仓库（「数据仓交接」）：WorldMock-Dataset 改工具、最小移植、内容重制；LabelKit-DataSet 把手机信号投影、窗口、训练与规则数据改到新的事件种类、活动种类、事实行与身份号；本仓库登记正式环境回执 | 两个仓库各有自己的提交；本仓库只改实现状态、覆盖率与耗时报告、正式环境路径与登记模块的完成集合，不改契约点 | 数据仓：`feat(environment):`；LabelKit-DataSet：按该仓库的约定；本仓库：`docs:`、`test:` |
@@ -1628,7 +1706,7 @@ LabelKit-DataSet 按新结构消费导出的回执（手机信号投影、输入
 - 阶段 1 先动、所属行为在后的文件：`life/{content,retrieval,presentation}.py`、`life/{body,rhythm,social_actions}.py`、`life/{work,durations,decision_coordinator}.py` 与 `life/{observe,projection}.py` 在阶段 1 只做表里括注的那一处改动。`body`、`rhythm`、`observe`、`projection` 在阶段 2 再删进食、共餐与持有的部分；`content`、`retrieval`、`presentation`、`social_actions`、`work`、`durations`、`decision_coordinator` 的其余改动在阶段 3，随执行器、选择器与新的活动种类落地。
 - `life/models.py` 与 `life/session_actions.py` 在阶段 1–4 都会被改（前者依次是世界状态字段、订单与事务模型、`ActivityKind` 与活动启动参数、人物请求模型；后者依次是进食与给予的入口、旧活动种类的启动、请求分发），两个文件的行数在每个阶段的提交之后都不高于代码基线（P-36）。
 - `life/{tool_layer,projection,observe,name_resolution,vocabulary,prompt_schemas,callable_index,world_query}.py` 在阶段 2 只删持有、进食与给予的部分，在阶段 3 删工作主题、生活活动、app 目标与读信的部分，最终的目标类、行形状与索引键在阶段 4 完成。
-- `agents/life_prompt.py` 只在阶段 4 改一次：系统层七条与两句用途句同提交落地，此前各阶段不改系统层文本。
+- `agents/life_prompt.py` 只在阶段 4 改一次：系统层十条与两句用途句同提交落地，此前各阶段不改系统层文本。
 - `footprints/experiences.py` 在观察路径上，不留到阶段 5：`received` 随阶段 2，`played` 的可空 `app_id` 随阶段 3。
 
 依赖顺序固定为 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7：阶段 2 用阶段 1 的商品类别、收货常数与订单字段；阶段 3 用阶段 1 的动作与内容目录，并改阶段 2 已清掉进食入口的同一批文件；阶段 4 把请求接到阶段 2、3 的结算与执行器上；阶段 5 读阶段 2–4 写出的事件；阶段 6 只收证据；阶段 7 以主干上的波次为输入。阶段内可以按互不重叠的文件或函数并行：阶段 1 的 `exchange` 先行，目录登记与场景、世界模型并行，评分器的删除与注册表的最终声明同提交；阶段 2 的结算函数及其两个调用点与各文件里持有读取方的删除并行，但同提交落地；阶段 3 的选择器与占用准入并行，执行器与推送在选择器之后；阶段 4 的请求与名称解析、工具层与索引、系统层文本三路并行，引擎闭环最后；阶段 5 在两份足迹工件的行形状定下之后，质量报告、评估、脚本与查看器并行。不能跨阶段提前删除仍有消费者的模块，也不能把行为留到阶段 6。
@@ -1636,14 +1714,14 @@ LabelKit-DataSet 按新结构消费导出的回执（手机信号投影、输入
 <a name="spec-acs-已知局限"></a>
 ## 已知局限
 
-- 消息没有 app 身份：`send_message` 与 `message_arrival` 不带 app，现实里最常见的 app 使用在 `app-usage.jsonl` 里没有一行；社交类里只有绑定 app 的通话动作留下 app 记录。
+- 零秒消息没有 app 身份：`send_message` 与 `message_arrival` 不带 app，因此这两种原语不产生 app 使用行。绑定 app 的文字或语音社交动作按实际使用方式记录 app 足迹，不从话题摘要生成消息或回复事实。
 - 用餐没有进食时间，到店没有停留：食品在收货当秒结算，足迹里只有下单、支付与收货三个时点，没有用餐活动；餐馆里的停留只在人物另外等待或做别的动作时才存在，行为报告没有可与参照对比的用餐分钟。
 - 配送结算给不在场或睡着的收货人：身体状态的变化可以发生在收货人不在收货地或正在睡觉的时刻；收货事件如实记下收货人当秒所在地点与是否在睡，不代表人物当时在收货地接了货。
 - 十二周内的足迹多样性受数据仓内容量限制：未看的内容用完之后只能重播，重播如实记轮并在质量报告里以重播秒数占比报告；引擎不能让有限的目录不重复。
 - 电脑上的工作与线下活动不再算手机使用：其他设备的使用不进下游的手机信号投影，没有 app 的动作零行；手机使用区间比此前的运行稀疏而更真实，app 使用时长与此前的基线不可直接比较。
 - 新增的数全是实验假设：运动与日常照护的代谢当量、两种非食品收货效果、内容时长下限、娱乐内容量门槛与每日余额门槛；本规格不承诺由它们得到的行为指标，每人每日决策数只作为观测值报告。
 - 场所合理性在粗粒度的类别表之外靠人物的常识：只有运动与分配的工作内容受场所限制，打卡、家务一类动作在任何地点都会被受理，足迹里可能出现地点不合常理的动作。
-- 无店铺电商无法表达：购物 app 必须绑定地图上的店铺，真实电商 app 只能登记为绑定超市的即时零售（环境假设），订单在几十分钟内送达，没有包裹、驿站与次日达的足迹。
+- 购物 app 仍须绑定地图店铺。超过一天的声明运输时长以家庭最近驿站到站、通知、本人领取表达，不增加逐段运输轨迹或物流退货。
 - 导出不作亮屏、前台或后台的声明：`app_use` 只表示持续使用，`push_opened` 只表示同一 session 里开始了那个 app 的那个动作；需要屏幕级事件的消费者不能从两份足迹工件得到。
 - 整单里的多行各有记录：足迹行以订单行为单位，一张整单含两行时，下游逐行投影的手机信号有两条同秒的下单、付款与送达记录，它们对应同一笔转账。
 - Windows 回执与下游消费的验收不由本特性产出：Windows 上没有执行回执，不从其他平台推定；手机信号投影、LabelKit 窗口、训练与规则数据归 LabelKit-DataSet，它按新结构消费导出仍是未完成的验收，本仓库不运行也不代它声明。

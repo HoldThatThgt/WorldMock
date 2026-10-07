@@ -1,34 +1,35 @@
-"""@brief 固定食品菜单经生产发现、投影、菜单准入到真实工具目标。"""
+"""@brief 固定商品集合经生产发现、投影、准入到真实工具目标。"""
 
 import json
 
-from worldmock.life.callable_index import IndexSources, callable_index
+from worldmock.life.callable_index import callable_index
+from worldmock.life.discovery import DiscoveryContext, product_rows
 from worldmock.life.tool_layer import tool_layer
 from tests.life.purchase_worlds import menu_context
 
 
-def test_same_kind_stores_share_foods_with_real_distinct_bindings():
+def test_same_kind_stores_share_goods_and_product_discovery_deduplicates_real_app_bindings():
     context = menu_context("noodle-2")
-    rows = [row for row in context.bindings if row["kind"] == "supply"]
-    stores = {store: {row["food_id"] for row in rows if row["store_id"] == store}
-              for store in ("noodle-1", "noodle-2")}
-    assert stores["noodle-1"] == stores["noodle-2"] == {"beef-noodles", "chips", "lemon-tea"}
-    assert len({row["object_id"] for row in rows}) == 9
+    catalog = context.semantics.catalog
+    assert catalog.goods_by_store["noodle-1"] == catalog.goods_by_store["noodle-2"] == (
+        "beef-noodles", "chips", "lemon-tea")
+    rows = product_rows(DiscoveryContext(context.state, context.scenario, context.semantics, context.state.agents[1]))
+    assert {row["goods_id"] for row in rows} == {"beef-noodles", "chips", "lemon-tea"}
+    assert len(rows) == len({row["goods_id"] for row in rows})
+    assert next(row for row in rows if row["goods_id"] == "chips")["app_ids"] == ["eleme", "meituan"]
     assert all(not ({"quote", "stock", "opening_status", "price_version"} & row.keys()) for row in rows)
 
 
-def test_food_tool_state_category_energy_apps_and_fixed_price():
+def test_goods_tool_state_category_energy_apps_and_fixed_price():
     context = menu_context("noodle-2")
-    layer = tool_layer(context, callable_index(context, IndexSources()))
+    layer = tool_layer(context, callable_index(context))
     targets = {target["name"]: target for target in layer["targets"]}
-    meituan = targets["一心面馆出售的牛肉面"]
-    onsite = targets["二味小炒出售的牛肉面"]
-    assert meituan["state"] == "正餐，每份约 600 千卡；可用美团下单"
-    assert onsite["state"] == "正餐，每份约 600 千卡"
-    assert {action["way"] for action in meituan["actions"]} == {"到店", "远程下单"}
-    assert onsite["actions"][0]["available"] is True
-    assert onsite["actions"][0]["price"] == "28 元"
-    delivery = next(action for action in meituan["actions"] if action["way"] == "远程下单")
+    product = targets["牛肉面"]
+    assert product["kind"] == "product" and "正餐" in product["state"] and "600" in product["state"]
+    assert {action["way"] for action in product["actions"]} == {"购买"}
+    onsite = next(action for action in product["actions"] if action["app"] is None)
+    delivery = next(action for action in product["actions"] if action["app"] == "美团")
+    assert onsite["available"] is True and onsite["price"] == "28 元"
     assert delivery["available"] is True and delivery["price"] == "33 元"
     assert "taste_weights" not in json.dumps(layer, ensure_ascii=False)
     assert {row["category"] for row in layer["callable_index"]["goods"]} == {"正餐", "零食", "饮品"}

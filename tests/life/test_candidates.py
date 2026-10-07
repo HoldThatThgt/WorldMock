@@ -1,12 +1,14 @@
-"""@brief 当前候选三类使用世界事实准入，相关度只排序，哈希决定稳定次序。"""
+"""@brief 商品候选使用世界事实准入，相关度只排序，哈希决定稳定次序。"""
 
 from dataclasses import asdict, replace
 import json
+from typing import get_args
 
 import pytest
 
 from worldmock.life.candidates import (
-    CANDIDATE_KINDS, CANDIDATE_SOURCES, EXCLUSION_REASONS, CandidateEntry, CandidateInputs, LocationView,
+    CANDIDATE_KINDS, CANDIDATE_SOURCES, EXCLUSION_REASONS, CandidateEntry, CandidateInputs,
+    CandidateSource, LocationView,
     cursor_identity, generate_candidates, recall, tiebreak_digest,
 )
 
@@ -20,9 +22,9 @@ def candidate_inputs(entries=(), **changes):
     return replace(inputs, **changes)
 
 
-def test_candidates_have_only_product_lifestyle_and_task_kinds():
-    assert CANDIDATE_KINDS == ("product", "lifestyle", "task")
-    assert CANDIDATE_SOURCES == ("on_site", "carried", "activated")
+def test_candidates_have_only_current_product_kind():
+    assert CANDIDATE_KINDS == ("product",)
+    assert CANDIDATE_SOURCES == get_args(CandidateSource) == ("on_site", "activated")
     assert EXCLUSION_REASONS == ("ELIGIBILITY_LOCATION_ABSENT", "ELIGIBILITY_LOCATION_KIND_MISMATCH",
                                 "ELIGIBILITY_RESOURCE_CONFLICT", "ELIGIBILITY_DURATION_OUT_OF_RANGE",
                                 "ELIGIBILITY_DISABLED", "ROTATION_DEFERRED")
@@ -31,19 +33,17 @@ def test_candidates_have_only_product_lifestyle_and_task_kinds():
 def test_all_actual_kinds_are_retained_without_occupancy():
     entries = tuple(CandidateEntry(kind, kind) for kind in CANDIDATE_KINDS)
     page = recall(candidate_inputs(entries))
-    assert len(page.generated) == len(page.retained) == page.total == 3
+    assert len(page.generated) == len(page.retained) == page.total == 1
     assert page.excluded == ()
     assert {row.kind for row in page.retained} == set(CANDIDATE_KINDS)
 
 
 @pytest.mark.parametrize("entry,changes,reason", (
-    (CandidateEntry("work", "task", required_location_id="office"), {}, "ELIGIBILITY_LOCATION_ABSENT"),
-    (CandidateEntry("sport", "lifestyle", location_kinds=frozenset({"fitness"})), {},
+    (CandidateEntry("work", "product", required_location_id="office"), {}, "ELIGIBILITY_LOCATION_ABSENT"),
+    (CandidateEntry("sport", "product", location_kinds=frozenset({"fitness"})), {},
      "ELIGIBILITY_LOCATION_KIND_MISMATCH"),
-    (CandidateEntry("meal", "product"), {"occupied_resources": frozenset({"consume"})},
-     "ELIGIBILITY_RESOURCE_CONFLICT"),
     (CandidateEntry("meal", "product", enabled=False), {}, "ELIGIBILITY_DISABLED"),
-    (CandidateEntry("sport", "lifestyle", minimum_seconds=1500), {"window_end_time": 1000},
+    (CandidateEntry("sport", "product", minimum_seconds=1500), {"window_end_time": 1000},
      "ELIGIBILITY_DURATION_OUT_OF_RANGE"),
 ))
 def test_actual_world_constraints_are_reported(entry, changes, reason):
@@ -53,21 +53,23 @@ def test_actual_world_constraints_are_reported(entry, changes, reason):
     assert sum(page.exclusion_counts.values()) == len(page.generated)
 
 
-def test_app_usage_does_not_remove_meal_candidate_and_driving_does():
+def test_zero_second_purchase_candidates_do_not_occupy_activity_resources():
     entry = CandidateEntry("meal", "product")
     assert recall(candidate_inputs((entry,), occupied_resources=frozenset({"use_app"}))).total == 1
-    assert recall(candidate_inputs((entry,), occupied_resources=frozenset({"consume", "use_app", "travel"}))).total == 0
+    assert recall(candidate_inputs((entry,), occupied_resources=frozenset({"work", "social", "exercise", "use_app", "travel"}))).total == 1
 
 
 def test_generation_merges_actual_sources_without_duplicates():
     entry = CandidateEntry("meal", "product")
-    inputs = candidate_inputs(sources={"on_site": (entry,), "carried": (entry,), "activated": ()})
+    inputs = candidate_inputs(sources={"on_site": (entry,), "activated": (entry,)})
     generated = generate_candidates(inputs)
-    assert len(generated) == 1 and generated[0].sources == ("on_site", "carried")
+    assert len(generated) == 1 and generated[0].sources == ("on_site", "activated")
+    page = recall(inputs)
+    assert page.source_counts == {"on_site": 1, "activated": 1} and page.total == 1
 
 
 def test_relevance_changes_order_without_changing_membership():
-    entries = tuple(CandidateEntry(identity, "lifestyle") for identity in ("first", "last"))
+    entries = tuple(CandidateEntry(identity, "product") for identity in ("first", "last"))
     neutral = recall(candidate_inputs(entries))
     changed = recall(candidate_inputs(entries, relevance={"last": 2}))
     assert changed.retained[0].object_id == "last"
@@ -76,14 +78,14 @@ def test_relevance_changes_order_without_changing_membership():
 
 
 def test_rotation_deferred_objects_remain_eligible():
-    entries = tuple(CandidateEntry(identity, "lifestyle") for identity in ("first", "last"))
+    entries = tuple(CandidateEntry(identity, "product") for identity in ("first", "last"))
     page = recall(candidate_inputs(entries, withheld_object_ids=frozenset({"last"})))
     assert page.total == 2 and page.returned == 1 and page.deferred == ("last",)
     assert page.excluded == ()
 
 
 def test_candidates_and_cursor_are_deterministic():
-    entries = tuple(CandidateEntry(identity, "lifestyle") for identity in ("first", "last", "middle"))
+    entries = tuple(CandidateEntry(identity, "product") for identity in ("first", "last", "middle"))
     inputs = candidate_inputs(entries, presentation_limit=1)
     first, second = recall(inputs), recall(inputs)
     assert json.dumps(asdict(first), sort_keys=True, default=sorted) == json.dumps(

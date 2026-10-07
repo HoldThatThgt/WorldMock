@@ -250,7 +250,7 @@ def _validate_canonical_manifest(
     """@brief 验证共同交付清单的固定模式。"""
     if manifest.get("committed") is not True:
         raise EvaluationError("invalid_input", "delivery manifest is not committed")
-    version = 3 if source_kind == "worldmock" else 1
+    version = 4 if source_kind == "worldmock" else 1
     if manifest.get("schema_version") != version:
         raise EvaluationError("invalid_input", f"delivery schema_version must be {version}")
     if source_kind == "worldmock" and manifest.get("experiment_completed") is not True:

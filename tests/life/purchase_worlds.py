@@ -1,4 +1,4 @@
-"""@brief 固定食品菜单购买的真实登记环境和严格世界模型。"""
+"""@brief 固定商品菜单购买的真实登记环境和严格世界模型。"""
 
 from pathlib import Path
 
@@ -17,14 +17,14 @@ def registered_world(location="home", balance=30000, scenario_path=None):
         agents[config.agent_id] = AgentState(
             agent_id=config.agent_id, name=config.name, location_id=location if config.agent_id == 1 else config.home_location_id,
             balance_account_id=f"agent:{config.agent_id}", body_settled_at=now, next_decision_at=now,
+            driving_days=config.initial_driving_days, last_driving_date=None,
             body=BodyState(energy_kcal=semantics.body.initial_energy_kcal, sleep_pressure=0,
-                           sleep_deficit_hours=0, entertainment_need=0), inventory=config.initial_inventory)
+                           sleep_deficit_hours=0, entertainment_need=0))
     accounts = dict(semantics.accounts)
     accounts["agent:1"] = balance
-    state = WorldState(schema_version=10, version=1, current_time=now,
+    state = WorldState(schema_version=11, version=1, current_time=now,
                        end_time=int(semantics.scenario.end_at.timestamp()), run_id="pure-food",
                        timezone=semantics.scenario.timezone, scenario_sha256=digest,
-                       content_manifest_sha256=semantics.document.corpus_manifest_sha256,
                        agents=agents, accounts=accounts, random_seed=7, random_state="pure-fixed")
     return semantics, state
 
@@ -37,7 +37,8 @@ def at_time(state, moment):
 
 def menu_context(location="home", balance=30000):
     """@brief 实际目录菜单经过生产发现、投影与菜单解析后组成工具上下文。"""
-    from worldmock.life import admission, activity_control
+    from worldmock.life import activity_control
+    from worldmock.life.rules import LifeRuleEngine
     from worldmock.life.discovery import DiscoveryContext
     from worldmock.life.observe import _supply_entries
     from worldmock.life.projection import ProjectionInputs, interaction_bindings
@@ -48,8 +49,9 @@ def menu_context(location="home", balance=30000):
     menu = resolve_interaction_menu(scenario, 1, location)
     entries = _supply_entries(DiscoveryContext(state, scenario, semantics, agent))
     inputs = ProjectionInputs(state, scenario, agent,
-        extras={"product_rows": [entry.row for entry in entries], "interaction_menu": menu, "activity_rows": []})
+        extras={"product_rows": [entry.row for entry in entries], "interaction_menu": menu, "activity_rows": [],
+                "actions": tuple(semantics.catalog.actions.values())})
     bindings = interaction_bindings(inputs)
-    facts = admission.WorldFacts(semantics.catalog.work_topics, semantics.catalog.foods)
+    facts = LifeRuleEngine(scenario, semantics.catalog)
     names = activity_control.visible_names(state, 1, {})
     return LayerContext(state, scenario, facts, semantics, 1, names, bindings, menu)

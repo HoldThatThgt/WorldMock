@@ -133,7 +133,7 @@ def test_business_rejection_is_reported_in_progress_and_run_continues(engine_fac
     before = engine.context.state.current_time
     _, rejected = _observed_action(
         engine, "unknown-object", "start_activity",
-        start_request(targets=["不存在的对象"], actions=["interact"], ways=["打开"]))
+        start_request(targets=["不存在的对象"], actions=["interact"], ways=["进行"]))
     assert rejected.status == "rejected" and rejected.error_code == "ACTION_REQUEST_INVALID"
     assert engine.context.state.current_time == before
     assert engine.context.state.agents[1].next_decision_at == engine.context.state.current_time
@@ -162,7 +162,7 @@ def test_business_rejection_is_reported_in_progress_and_run_continues(engine_fac
     engine.submit_action(DirectToolCall(decision, "action-recovered", "start_activity", request))
     assert engine.commit_decision_round("after-rejection")[0].status == "in_progress"
     assert engine.context.state.current_time == before
-    assert engine.context.state.agents[1].consecutive_rejections == 0
+    assert "consecutive_rejections" not in engine.context.state.agents[1].model_dump()
     assert engine.context.state.agents[1].same_moment_rounds == 2
     assert engine.context.state.agents[1].next_decision_at > engine.context.state.current_time
 

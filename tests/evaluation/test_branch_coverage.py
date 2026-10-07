@@ -921,7 +921,7 @@ def _rehash_checkpoint(manifest: dict) -> None:
     "mutate, match",
     [
         (lambda m: m.update(committed=False), "manifest is not committed"),
-        (lambda m: m.update(schema_version=1), "schema_version must be 3"),
+        (lambda m: m.update(schema_version=1), "schema_version must be 4"),
         (lambda m: m.update(experiment_completed=False), "experiment_completed"),
         (lambda m: m.update(checkpoint="x"), "checkpoint is missing"),
         (lambda m: m.update(asset_index="x"), "asset_index is missing"),
@@ -1138,7 +1138,7 @@ def test_world_activity_rows_are_strictly_validated(tmp_path: Path) -> None:
     delivery = _delivery_stub(scenario)
     start = scenario.window.start + timedelta(hours=9)
     base, _ = _world_activity("world-run", 1, start)
-    assert adapters._adapt_world_activity(base, 1, delivery, scenario).category == "browsing"
+    assert adapters._adapt_world_activity(base, 1, delivery, scenario).category == "entertainment"
 
     missing = dict(base)
     missing.pop("status")
@@ -1837,7 +1837,7 @@ def test_world_actions_without_request_or_unknown_tool_leave_no_evidence() -> No
     assert worldmock_public_evidence([parse_world_event(row) for row in [unknown]], [], {}) == ()
     unmapped = _public_event(
         1, "action_requested",
-        {"tool_name": "start_activity", "request": {'items': [{'target': '活动：冥想', 'way': '冥想', 'from': None, 'to': None}], 'answering': None, 'prefer': None}}, "t1",
+        {"tool_name": "start_activity", "request": {'items': [{'target': '活动：冥想', 'way': '冥想', 'app': None, 'to': None, 'pay_app': None}], 'answering': None}}, "t1",
     )
     assert worldmock_public_evidence([parse_world_event(row) for row in [unmapped]], [], {}) == ()
     without_ways = _public_event(
@@ -1856,7 +1856,7 @@ def test_world_actions_without_request_or_unknown_tool_leave_no_evidence() -> No
 def test_start_travel_projects_route_identity_mode_and_payment() -> None:
     request = _public_event(1, "action_requested",
                             {"tool_name": "start_activity",
-                             "request": {'items': [{'target': '地点：公园', 'way': '步行', 'from': None, 'to': None}], 'answering': None, 'prefer': None}},
+                             "request": {'items': [{'target': '地点：公园', 'way': '步行', 'app': None, 'to': None, 'pay_app': None}], 'answering': None}},
                             "travel-action")
     result = _public_event(2, "action_result",
                            {"status": "completed",
@@ -1874,33 +1874,22 @@ def test_start_travel_projects_route_identity_mode_and_payment() -> None:
 
     unsupported = _public_event(1, "action_requested",
                                 {"tool_name": "start_activity",
-                                 "request": {'items': [{'target': '地点：公园', 'way': '火箭', 'from': None, 'to': None}], 'answering': None, 'prefer': None}},
+                                 "request": {'items': [{'target': '地点：公园', 'way': '火箭', 'app': None, 'to': None, 'pay_app': None}], 'answering': None}},
                                 "travel-action")
     assert worldmock_public_evidence([parse_world_event(row) for row in [unsupported]], [], {}) == ()
     retired = _public_event(1, "action_requested",
                             {"tool_name": "start_activity",
-                             "request": {'items': [{'target': '地点：公园', 'way': '步行前往', 'from': None, 'to': None}], 'answering': None, 'prefer': None}},
+                             "request": {'items': [{'target': '地点：公园', 'way': '步行前往', 'app': None, 'to': None, 'pay_app': None}], 'answering': None}},
                             "travel-action")
     assert worldmock_public_evidence([parse_world_event(row) for row in [retired]], [], {}) == ()
 
 
-def test_social_actions_project_chat_and_call_partner_objects() -> None:
-    chat = _public_event(1, "action_requested",
-                         {"tool_name": "start_activity",
-                          "request": {'items': [{'target': '人物：同事', 'way': '交谈', 'from': None, 'to': None}], 'answering': None, 'prefer': None}},
-                         "social-1")
-    call = _public_event(2, "action_requested",
-                         {"tool_name": "start_activity",
-                          "request": {'items': [{'target': '联系人：朋友', 'way': '通话', 'from': None, 'to': None}], 'answering': None, 'prefer': None}},
-                         "social-2")
-    hug = _public_event(3, "action_requested",
-                        {"tool_name": "start_activity",
-                         "request": {'items': [{'target': '人物：同事', 'way': '拥抱', 'from': None, 'to': None}], 'answering': None, 'prefer': None}},
-                        "social-3")
-    evidence = worldmock_public_evidence([parse_world_event(row) for row in [chat, call, hug]], [], {})
-    assert [(item.interaction, item.object_type, item.object_key) for item in evidence] == [
-        ("chat", "person", "人物：同事"), ("call", "person", "联系人：朋友"),
-    ]
+def test_social_actions_project_chat_and_call_partner_objects():
+    from tests.evaluation.test_public_evidence import action_events
+    events = action_events("social", "voice", app="weixin")
+    evidence = worldmock_public_evidence(events, [], {})
+    assert [(item.interaction,item.object_type,item.object_key) for item in evidence] == [
+        ("call","person","contact-real"),("call","person","contact-real")]
     assert all(item.category == "social" for item in evidence)
 
 
@@ -1908,7 +1897,7 @@ def test_parallel_start_keeps_supported_evidence_when_other_action_has_no_public
     request = _public_event(
         1, "action_requested",
         {"tool_name": "start_activity",
-         "request": {'items': [{'target': '地点：公园', 'way': '步行', 'from': None, 'to': None}, {'target': '自己', 'way': '等待', 'from': None, 'to': None}], 'answering': None, 'prefer': None}},
+         "request": {'items': [{'target': '地点：公园', 'way': '步行', 'app': None, 'to': None, 'pay_app': None}, {'target': '自己', 'way': '等待', 'app': None, 'to': None, 'pay_app': None}], 'answering': None}},
         "parallel-action",
     )
     result = _public_event(
@@ -1925,87 +1914,37 @@ def test_parallel_start_keeps_supported_evidence_when_other_action_has_no_public
     ]
 
 
-def test_game_and_targeted_keys_come_from_actual_activity_data() -> None:
-    game_request = _public_event(1, "action_requested",
-                                 {"tool_name": "start_activity",
-                                  "request": {'items': [{'target': '哔哩哔哩', 'way': '打开', 'from': None, 'to': None}], 'answering': None, 'prefer': None}},
-                                 "game-action")
-    game_result = _public_event(2, "action_result",
-                                {"status": "completed",
-                                 "data": {"activity": {"kind": "use_app", "status": "completed",
-                                                       "target_id": "bilibili", "data": {}}}},
-                                "game-action")
-    evidence = worldmock_public_evidence([parse_world_event(row) for row in [game_request, game_result]], [], {})
-    assert {item.object_key for item in evidence} == {"bilibili"}
-
-    deleted_tool = _public_event(1, "action_requested",
-                                 {"tool_name": "game_action", "request": {}}, "game-2")
-    deleted_result = _public_event(2, "action_result", {"status": "completed", "data": {}}, "game-2")
-    rows = worldmock_public_evidence([parse_world_event(row) for row in [deleted_tool, deleted_result]], [], {})
-    assert rows == ()
-
-    watch = _public_event(1, "action_requested",
-                          {"tool_name": "start_activity",
-                           "request": {'items': [{'target': '抖音', 'way': '打开', 'from': None, 'to': None}], 'answering': None, 'prefer': None}},
-                          "watch-action")
-    watched = _public_event(2, "action_result",
-                            {"status": "completed",
-                             "data": {"activity": {"kind": "use_app", "status": "completed",
-                                                   "target_id": "douyin", "data": {}}}},
-                            "watch-action")
-    viewed = worldmock_public_evidence([parse_world_event(row) for row in [watch, watched]], [], {})
-    assert [item.state for item in viewed] == ["requested", "viewed"]
+def test_action_content_keys_come_from_actual_activity_data():
+    from tests.evaluation.test_public_evidence import action_events
+    events = action_events("entertainment")
+    rows = worldmock_public_evidence(events, [], {})
+    assert {item.object_key for item in rows} == {"content-real"}
+    assert [item.state for item in rows] == ["requested", "started"]
+    deleted = _public_event(1,"action_requested",{"tool_name":"game_action","request":{}},"old")
+    assert worldmock_public_evidence([parse_world_event(deleted)],[],{}) == ()
 
 
-def test_control_actions_bind_to_real_activities_and_closed_operations() -> None:
-    """活动控制工具按 items[] 点名活动，结果 data.activity_ids 只绑定导出中的真实活动。"""
-    browsing = "使用哔哩哔哩（1月5日 09:00 起）"
-    activity = {"activity_id": "act-1", "activity_type": "use_app", "target_id": "bilibili",
-                "travel_mode": None, "status": "active", "data": {}}
-    missing = _public_event(1, "action_requested",
-                            {"tool_name": "report_status",
-                             "request": {"items": [{"activity_name": "不存在的活动", "summary": "继续。"}],
-                                         "errands": []}}, "control-1")
-    assert worldmock_public_evidence([parse_world_event(row) for row in [missing]], [activity], {}) == ()
-    invalid = _public_event(1, "action_requested",
-                            {"tool_name": "pause_activity",
-                             "request": {"items": [{"activity_name": browsing, "summary": "暂停。"}], "errands": []}},
-                            "control-2")
-    assert worldmock_public_evidence([parse_world_event(row) for row in [invalid]], [activity], {}) == ()
-    deleted_tool = worldmock_public_evidence(
-        [parse_world_event(row) for row in [_public_event(1, "action_requested",
-                       {"tool_name": "change_playback_speed",
-                        "request": {"activity_id": "act-1", "speed": 2}}, "control-3")]],
-        [activity], {"use_app": "entertainment"},
-    )
-    assert deleted_tool == ()
-    report = _public_event(1, "action_requested",
-                           {"tool_name": "report_status",
-                            "request": {"items": [{"activity_name": browsing, "summary": "继续。"}], "errands": []}},
-                           "control-4")
-    unexported = _public_event(2, "action_result",
-                               {"status": "completed",
-                                "data": {"activity_ids": ["act-absent"]}}, "control-4")
-    assert worldmock_public_evidence([parse_world_event(row) for row in [report, unexported]], [activity], {"use_app": "entertainment"}) == ()
-    evidence = worldmock_public_evidence(
-        [parse_world_event(row) for row in [report,
-         _public_event(2, "action_result",
-                       {"status": "completed", "data": {"activity_ids": ["act-1"]}},
-                       "control-4")]],
-        [activity], {"use_app": "entertainment"},
-    )
-    assert [(item.interaction, item.state, item.object_type, item.object_key) for item in evidence] == [
-        ("report", "requested", "activity", "act-1"), ("report", "started", "activity", "act-1"),
-    ]
+def test_control_actions_bind_to_real_activities_and_closed_operations():
+    activity = {"activity_id":"real","activity_type":"action","status":"active",
+                "data":{"category":"entertainment","app_id":None,"content_id":"content-real"}}
+    request = _public_event(1,"action_requested",{"tool_name":"report_status","request":{
+        "items":[{"activity_name":"刷推荐","summary":"继续。"}],"errands":[]}},"control")
+    assert worldmock_public_evidence([parse_world_event(request)],[activity],{}) == ()
+    result = _public_event(2,"action_result",{"status":"completed","data":{"activity_ids":["absent"]}},"control")
+    assert worldmock_public_evidence([parse_world_event(row) for row in [request,result]],[activity],{}) == ()
+    result["data"]["data"]["activity_ids"] = ["real"]
+    rows = worldmock_public_evidence([parse_world_event(row) for row in [request,result]],[activity],{})
+    assert [(item.interaction,item.state,item.object_key) for item in rows] == [
+        ("report","requested","real"),("report","started","real")]
 
 
 def test_control_actions_project_each_selected_activity() -> None:
     """一次控制点名两项活动时逐活动投影；结束的公开状态取该活动在导出中的实际终态，而不是按工具名推断。"""
     activities = [
-        {"activity_id": "act-watch", "activity_type": "use_app", "target_id": "bilibili", "status": "paused",
-         "data": {}},
-        {"activity_id": "act-browse", "activity_type": "use_app", "target_id": "douyin", "status": "paused",
-         "data": {}},
+        {"activity_id": "act-watch", "activity_type": "action", "status": "paused",
+         "data": {"category":"entertainment","content_id":"c-one","app_id":None}},
+        {"activity_id": "act-browse", "activity_type": "action", "status": "paused",
+         "data": {"category":"entertainment","content_id":"c-two","app_id":None}},
     ]
     names = ["使用哔哩哔哩（1月5日 09:00 起）", "使用抖音（1月5日 09:05 起）"]
     request = _public_event(
@@ -2019,7 +1958,7 @@ def test_control_actions_project_each_selected_activity() -> None:
         {"status": "completed", "data": {"activity_ids": ["act-watch", "act-browse"]}},
         "control-both",
     )
-    activity_map = {"use_app": "entertainment"}
+    activity_map = {}
     evidence = worldmock_public_evidence([parse_world_event(row) for row in [request, result]], activities, activity_map)
     assert {(item.state, item.object_key) for item in evidence} == {
         ("requested", "act-watch"), ("paused", "act-watch"),
@@ -2046,64 +1985,37 @@ def test_control_actions_project_each_selected_activity() -> None:
     }
 
 
-def test_activity_shapes_use_real_targets_and_closed_categories() -> None:
+def test_activity_shapes_use_real_content_and_closed_categories():
     import worldmock.evaluation.public_evidence as public
-
-    assert public._activity_shape(
-        {"activity_type": "wait", "data": {}, "target_id": "t"}, {"wait": "waiting"}) is None
-    assert public._activity_shape(
-        {"activity_type": "use_app", "data": {}, "target_id": "t"}, {}) is None
-    travel = public._activity_shape(
-        {"activity_type": "travel", "data": {"trip_id": "route-9"}, "travel_mode": "transit"},
-        {"travel": "travel"},
-    )
-    assert (travel.category, travel.interaction, travel.object_key) == ("travel", "travel", "route-9")
-    assert travel.attributes == {"travel_mode": "transit"}
-    game = public._activity_shape(
-        {"activity_type": "use_app", "data": {}, "target_id": "target-game"},
-        {"use_app": "entertainment"},
-    )
-    assert game.object_key == "target-game"
-    keyed = public._activity_shape(
-        {"activity_type": "use_app", "data": {"content_id": "long-video"}, "target_id": "x"},
-        {"use_app": "entertainment"},
-    )
-    assert keyed.object_key == "x"
+    assert public._activity_shape({"activity_type":"wait","data":{}},{"wait":"waiting"}) is None
+    with pytest.raises(EvaluationError,match="closed set"):
+        public._activity_shape({"activity_type":"use_app","data":{}},{})
+    travel = public._activity_shape({"activity_type":"travel","data":{"trip_id":"route-9"},
+                                     "travel_mode":"driving"},{"travel":"travel"})
+    assert (travel.category,travel.interaction,travel.object_key) == ("travel","travel","route-9")
+    assert travel.attributes == {"travel_mode":"driving"}
+    content = public._activity_shape({"activity_type":"action","data":{
+        "category":"work_study","content_id":"real-content","app_id":None}},{})
+    assert content.object_key == "real-content" and content.category == "work_study"
 
 
-def test_purchase_and_work_results_follow_actual_object_states() -> None:
-    request = _public_event(1, "action_requested",
-                            {"tool_name": "start_activity",
-                             "request": {'items': [{'target': '商店出售的午餐', 'way': '到店', 'from': None, 'to': None}], 'answering': None, 'prefer': '最快拿到'}},
-                            "purchase-1")
-    cooked = _public_event(2, "action_result",
-                           {"status": "completed",
-                            "data": {"orders": [{"order_id": "o1", "status": "ready"}]}},
-                           "purchase-1")
-    evidence = worldmock_public_evidence([parse_world_event(row) for row in [request, cooked]], [], {})
-    assert [item.state for item in evidence] == ["requested", "ready"]
-
-    work = _public_event(1, "environment_event", {
-        "kind":"work_topic_completed", "topic_id":"topic-1", "worked_seconds":28800})
-    rows = worldmock_public_evidence([parse_world_event(work)], [], {})
-    assert [(row.interaction, row.state, row.object_type, row.object_key) for row in rows] == [
-        ("work", "completed", "work_topic", "topic-1")]
-
-    consume = _public_event(1, "action_requested",
-                            {"tool_name": "start_activity",
-                             "request": {'items': [{'target': '持有物：午餐', 'way': '食用', 'from': None, 'to': None}], 'answering': None, 'prefer': None}},
-                            "consume-1")
-    failed = _public_event(2, "action_result",
-                           {"status": "rejected", "data": {"activity": {"status": "cancelled"}}},
-                           "consume-1")
-    states = [item.state for item in worldmock_public_evidence([parse_world_event(row) for row in [consume, failed]], [], {})]
-    assert states == ["requested", "rejected"]
+def test_purchase_and_work_results_follow_actual_object_states():
+    request = _public_event(1,"action_requested",{"tool_name":"start_activity","request":{
+        "items":[{"target":"午餐","way":"购买","app":None,"to":None,"pay_app":None}],"answering":None}},"purchase")
+    result = _public_event(2,"action_result",{"status":"completed","data":{"orders":[
+        {"order_id":"o1","status":"ready_for_pickup","fulfillment":"station_pickup"}]}},"purchase")
+    rows = worldmock_public_evidence([parse_world_event(row) for row in [request,result]],[],{})
+    assert [item.state for item in rows] == ["requested","ready_for_pickup"]
+    work = _public_event(1,"environment_event",{"kind":"work_content_completed","content_id":"work-real"})
+    rows = worldmock_public_evidence([parse_world_event(work)],[],{})
+    assert [(row.category,row.interaction,row.state,row.object_type,row.object_key) for row in rows] == [
+        ("work_study","work","completed","content","work-real")]
 
 
 def test_purchase_request_without_object_result_keeps_missing_order_identity() -> None:
     request = _public_event(1, "action_requested",
                             {"tool_name": "start_activity",
-                             "request": {'items': [{'target': '商店出售的午餐', 'way': '到店', 'from': None, 'to': None}], 'answering': None, 'prefer': '最快拿到'}},
+                             "request": {'items': [{'target': '商店出售的午餐', 'way': '购买', 'app': None, 'to': None, 'pay_app': None}], 'answering': None}},
                             "purchase-1")
     result = _public_event(2, "action_result",
                            {"status": "completed", "data": {"receipt": "no order here"}},
@@ -2120,12 +2032,11 @@ def test_environment_kinds_outside_the_closed_set_leave_no_evidence() -> None:
         worldmock_public_evidence([parse_world_event(row) for row in [{"event_id": "broken"}]], [], {})
 
 
-def test_activity_category_requires_object_request_with_closed_use_mode() -> None:
-    with pytest.raises(EvaluationError, match="consume activity data must be an object"):
-        worldmock_activity_category("consume", "not-an-object", {})
-    with pytest.raises(EvaluationError, match="consume activity must preserve its request"):
-        worldmock_activity_category("consume", {"request": "missing"}, {})
-    assert worldmock_activity_category("sleep", None, {"sleep": "sleep"}) == "sleep"
+def test_activity_category_requires_actual_snapshot_fixed_category():
+    for invalid in ("not-an-object", {}, {"category":"consume"}):
+        with pytest.raises(EvaluationError,match="fixed category"):
+            worldmock_activity_category("action",invalid,{})
+    assert worldmock_activity_category("sleep",None,{"sleep":"sleep"}) == "sleep"
 
 
 # ---------------------------------------------------------------------------

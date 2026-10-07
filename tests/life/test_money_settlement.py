@@ -38,40 +38,6 @@ def _wait() -> StartActivityRequest:
     return start_request(targets=["自己"], actions=["interact"], ways=["等待"])
 
 
-def _choice(observation: dict, action: str, object_id: str | None = None,
-            mode: str | None = None) -> StartActivityRequest:
-    """@brief 在冻结观察中选可读对象、动词与方式，报价与路线参数交给引擎。"""
-    for row in observation["interaction_bindings"]:
-        if object_id is not None and row["object_id"] != object_id:
-            continue
-        for offered in row["actions"]:
-            if offered["canonical_action"] != action:
-                continue
-            if mode is not None and (offered.get("travel_mode") or offered.get("fulfillment")) != mode:
-                continue
-            if action == "purchase" and mode == "delivery":
-                app = next(item for item in observation["apps"] if item["app_id"] == row["app_id"])
-                return start_request(targets=[row["object"]], actions=[offered["verb"]],
-                                     ways=[offered["label"]], from_=[app["name"]])
-            return start_request(targets=[row["object"]], actions=[offered["verb"]], ways=[offered["label"]])
-    raise AssertionError(f"No observed choice for {action}: {object_id}")
-
-
-def _selected_round(engine, round_id: str, agent_one_action: str,
-                    object_id: str | None = None, mode: str | None = None):
-    """@brief 观察所有就绪人物并提交本轮真实可读选择。"""
-    ready = engine.scheduling_state().ready_agent_ids
-    contexts = [context(engine, round_id, agent_id) for agent_id in ready]
-    engine.begin_decision_round(contexts)
-    observations = {item.agent_id: engine.observe(item) for item in contexts}
-    for item in contexts:
-        request = (_choice(observations[1], agent_one_action, object_id, mode)
-                   if item.agent_id == 1 else _wait())
-        engine.submit_action(DirectToolCall(item, f"action-{round_id}-{item.agent_id}",
-                                            "start_activity", request))
-    return sorted(engine.commit_decision_round(round_id), key=lambda item: item.agent_id), observations
-
-
 def _conclude_round(engine, round_id: str) -> list:
     """@brief 全部就绪人物在活动结束的那一秒给各自刚结束的活动收尾（规格第七章「活动一结束就要结束它」）。"""
     ready = engine.scheduling_state().ready_agent_ids
@@ -106,38 +72,28 @@ def _transfer_entries(engine) -> list[TransferEntry]:
 
 def test_one_day_fixture_reconciles_six_accounts_against_ledger(engine_factory) -> None:
     """真实固定菜单直接购买并按图支付车费后，登记账户可从足迹分录逐分重放对账。"""
-    engine = engine_factory("multi-person.json")
+    from tests.life.test_acs_amended_runtime import perform
+    from tests.life.test_acs_runtime import request
+    def owns_vehicle(document):
+        document["agents"][0].update(owns_car=True, initial_driving_days=2)
+    engine = engine_factory("multi-person.json", mutate=owns_vehicle)
     stage_day_plan(engine, 1)
     stage_day_plan(engine, 2)
-    purchase, purchase_observed = _selected_round(engine, "buy", "purchase", "noodle-1:beef-noodles", "delivery")
-    assert purchase[0].status == "completed", purchase[0].error_code
-    order = purchase[0].data["orders"][0]
-    selected = next(row for row in purchase_observed[1]["interaction_bindings"]
-                    if row["object_id"] == "noodle-1:beef-noodles")
-    assert (order["store_id"], order["food_id"], order["app_id"]) == (
-        selected["store_id"], selected["food_id"], selected["app_id"])
+    purchase = perform(engine, "buy", request("牛肉面", "美团", "购买", payment="微信"))
+    assert purchase.error_code is None, purchase.data
+    [order] = purchase.data["orders"]
+    assert (order["goods_id"], order["app_id"], order["payment_app_id"]) == ("beef-noodles", "meituan", "wechat")
     seller = f"merchant:{order['store_id']}"
     assert order["seller_account_id"] == seller
     price = order["total_price_fen"]
-    assert price == engine.context.semantics.catalog.foods[order["food_id"]].price_fen + 500
-    # 修订决策节律：静默边界不再唤醒；循环推进直到出行发起者获得决策机会
-    while 1 not in engine.scheduling_state().ready_agent_ids:
-        ready_now = engine.scheduling_state().ready_agent_ids
-        if ready_now:
-            submit_round(engine, {
-                agent_id: ("start_activity", _wait()) for agent_id in ready_now
-            }, f"hold-{engine.context.state.current_time}")
-        assert advance_until_ready(engine), "agent 1 never regained a decision"
+    assert price == engine.context.semantics.catalog.goods[order["goods_id"]].price_fen + 500
     origin = engine.context.state.agents[1].location_id
     meters = engine.context.semantics.catalog.graph.distance_meters(origin, "office")
-    travel, travel_observed = _selected_round(engine, "to-office", "travel_to", "office", "driving")
-    assert travel[0].status == "in_progress", travel[0].error_code
-    target = next(row["object"] for row in travel_observed[1]["interaction_bindings"] if row["object_id"] == "office")
-    quoted = next(action for row in travel_observed[1]["tool_layer"]["targets"] if row["name"] == target
-                  for action in row["actions"] if action["way"] == "驾车")
-    fare = int(Decimal(quoted["price"].removesuffix(" 元")) * 100)
-    assert fare == max(500, ceil(Decimal(meters) / 5))
-    assert engine.context.state.activities[travel[0].activity_id].data["travel_payment"]["fare_fen"] == fare
+    destination = next(place.display_name for place in engine.context.scenario.locations if place.location_id == "office")
+    travel = perform(engine, "to-office", request(f"地点：{destination}", None, "驾车"))
+    assert travel.error_code is None, travel.data
+    fare = max(500, ceil(Decimal(meters) / 5))
+    assert engine.context.state.activities[travel.activity_id].data["travel_payment"]["fare_fen"] == fare
 
     accounts = dict(engine.context.state.accounts)
     assert set(accounts) == set(engine.context.semantics.accounts)

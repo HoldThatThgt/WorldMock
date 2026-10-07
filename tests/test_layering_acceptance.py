@@ -23,7 +23,7 @@ NEW_PRODUCTION = (
     "session_actions", "storefront_runtime", "time_advance", "vocabulary", "world_ops", "world_setup",
 )
 ARCHIVED_FEATURES = ("time-and-energy", "persona-prompt", "dayrun-fidelity", "tool-interaction", "errands-workday")
-FEATURES = (*ARCHIVED_FEATURES, "resource-rule-simplification")
+FEATURES = (*ARCHIVED_FEATURES, "resource-rule-simplification", "action-content-simplification")
 
 
 def _fixture(name):
@@ -102,7 +102,7 @@ def test_context_has_one_state_owner_and_no_facade_back_reference():
     from worldmock.life.engine_context import EngineContext
 
     assert set(EngineContext.__dataclass_fields__) == {
-        "semantics", "scenario_sha256", "corpus_root", "store", "state", "rules", "lifestyle_items", "titles",
+        "semantics", "scenario_sha256", "store", "state", "rules", "titles",
         "affordance_contract", "ops",
     }
     assert isinstance(EngineContext.scenario, property)

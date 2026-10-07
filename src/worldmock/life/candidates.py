@@ -15,10 +15,10 @@ from worldmock.catalog.models import Location
 from worldmock.exchange.types import PLACE_KIND_ENVIRONMENTS
 
 #: 候选类别闭集（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「候选对象与来源」）。
-CandidateKind = Literal["product", "lifestyle", "task"]
+CandidateKind = Literal["product"]
 
 #: 候选来源闭集（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「候选对象与来源」）。
-CandidateSource = Literal["on_site", "carried", "activated"]
+CandidateSource = Literal["on_site", "activated"]
 
 #: 排除原因码闭集（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「排除原因码」）。
 ExclusionReason = Literal[
@@ -31,9 +31,9 @@ ExclusionReason = Literal[
 ]
 
 #: 候选类别闭集的可枚举形式（成员与顺序与 `CandidateKind` 逐字一致）。
-CANDIDATE_KINDS: tuple[CandidateKind, ...] = ("product", "lifestyle", "task")
+CANDIDATE_KINDS: tuple[CandidateKind, ...] = ("product",)
 #: 候选来源闭集及生成合并顺序（成员与顺序与 `CandidateSource` 逐字一致）。
-CANDIDATE_SOURCES: tuple[CandidateSource, ...] = ("on_site", "carried", "activated")
+CANDIDATE_SOURCES: tuple[CandidateSource, ...] = ("on_site", "activated")
 #: 排除原因码闭集的可枚举形式（成员与顺序与 `ExclusionReason` 逐字一致）。
 EXCLUSION_REASONS: tuple[ExclusionReason, ...] = (
     "ELIGIBILITY_LOCATION_ABSENT",
@@ -50,11 +50,7 @@ ORDER_KEY_VERSION = 3
 #: 本轮可取候选的时间窗（秒），截至世界当前时刻加该值；候选只在此窗内自足。
 CANDIDATE_WINDOW_SECONDS = 86_400
 #: 候选类别 → 活动类型（资源占用判据按注册表取该类型的显式占用）。
-CANDIDATE_ACTIVITY_KINDS: dict[str, ActivityKind | None] = {
-    "product": ActivityKind.CONSUME,
-    "lifestyle": ActivityKind.LIFESTYLE,
-    "task": ActivityKind.WORK,
-}
+CANDIDATE_ACTIVITY_KINDS: dict[str, ActivityKind | None] = {"product": None}
 
 
 
@@ -157,11 +153,6 @@ class Exclusion:
     kind: CandidateKind
     reason: ExclusionReason
 
-    def as_row(self) -> dict[str, str]:
-        """@brief 返回真实世界事实排除原因。"""
-        return {"object_id": self.object_id, "kind": self.kind, "reason": self.reason}
-
-
 @dataclass(frozen=True, slots=True)
 class OrderedCandidate:
     """@brief 排序段的一行：对象 + 完整稳定排序键（游标即上一页最后一条的该键）。"""
@@ -210,7 +201,7 @@ class CandidatePage:
 
 
 def recall(inputs: CandidateInputs) -> CandidatePage:
-    """@brief 三段式取候选：生成（四来源合并）→ 资格（硬过滤带原因码）→ 排序（定点键）。
+    """@brief 三段式取候选：生成（在场与菜单来源合并）→ 资格（硬过滤带原因码）→ 排序（定点键）。
 
     返回体同时带三段证据：生成段的逐来源命中计数、资格段的逐原因码排除计数、排序段
     的完整稳定排序键与下一页游标。被轮转推迟的对象只计入 `deferred`，不进 `excluded`。
@@ -231,7 +222,7 @@ def recall(inputs: CandidateInputs) -> CandidatePage:
 
 
 def generate_candidates(inputs: CandidateInputs) -> tuple[GeneratedCandidate, ...]:
-    """@brief 生成段：按四个来源合并候选全集，同一对象取来源并集（第一个来源定序）。"""
+    """@brief 生成段：合并在场与菜单来源，同一对象取来源并集（第一个来源定序）。"""
     merged: dict[tuple[str, str], tuple[CandidateEntry, list[CandidateSource]]] = {}
     for source in CANDIDATE_SOURCES:
         for entry in inputs.sources.get(source, ()):
@@ -330,7 +321,7 @@ def _exclusion_reason(item: GeneratedCandidate,
     只有世界事实可以排除——口味权重与注意力先验在本函数里完全不被读到。
     """
     entry = item.entry
-    for check in (_location_reason, _enabled_reason, _resource_reason, _duration_reason):
+    for check in (_location_reason, _enabled_reason, _duration_reason):
         reason = check(entry, inputs)
         if reason is not None:
             return reason
@@ -376,13 +367,6 @@ def _entry_location(entry: CandidateEntry, inputs: CandidateInputs) -> LocationV
 def _enabled_reason(entry: CandidateEntry, inputs: CandidateInputs) -> ExclusionReason | None:
     """@brief 不在本人启用集内：人物未启用该条目。"""
     return None if entry.enabled else "ELIGIBILITY_DISABLED"
-
-
-def _resource_reason(entry: CandidateEntry, inputs: CandidateInputs) -> ExclusionReason | None:
-    """@brief 候选与全部 ACTIVE 活动按同一注册表的显式占用交集判定（内容条目按内容品类的条件占用）。"""
-    kind = CANDIDATE_ACTIVITY_KINDS[entry.kind]
-    claims = engine_affordances().resource_claims(kind.value)
-    return "ELIGIBILITY_RESOURCE_CONFLICT" if claims & inputs.occupied_resources else None
 
 
 def _duration_reason(entry: CandidateEntry, inputs: CandidateInputs) -> ExclusionReason | None:

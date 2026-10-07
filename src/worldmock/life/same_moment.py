@@ -23,7 +23,6 @@ from worldmock.footprints.models import EventDraft
 from worldmock.life.activity_control import concludable, pending_conclusions
 from worldmock.life.error_contract import NAME_REJECTION_CODES
 from worldmock.life.guidance import Refusal, refusal_for_code
-from worldmock.life.vocabulary import GIVE_WAY
 from worldmock.life.models import (ActionStatus, ActivityState, ActivityStatus, AgentState,
                                    SameMomentStage, WorldState, active_activities)
 from worldmock.life.rhythm import is_asleep, read_new_messages
@@ -36,8 +35,7 @@ SERVICE_REFUSED = "service_refused"
 #: docs/EXPERIMENT.md#experiment-worldmock-实验设置「活动节奏与同刻决策上限」）；超出的照常计轮、照常施加脉冲。
 FREE_NAME_REJECTIONS_PER_SECOND = 2
 
-#: 受限轮不开放的内部标准动作：到店购买与远程下单是瞬时的生活动作，不产生进行中活动（规则 3）；方式为给予的
-#: consume 同样瞬时（request_kind 按方式识别）。
+#: 受限轮不开放的内部标准动作：到店购买与远程下单是瞬时的生活动作，不产生进行中活动（规则 3）。
 RESTRICTED_EXCLUDED_ACTIONS = frozenset({"purchase"})
 
 #: 各阶段接受的请求类（引擎按请求派生 start、resume、wait、conclude、conclude_pending、other）：
@@ -183,21 +181,20 @@ def exhausted_schedule(outcome: RoundOutcome, feedback_seconds: int,
 
 
 def request_kind(tool_name: str, canonical_actions: Sequence[str], named: Sequence[ActivityState],
-                 pending_ids: frozenset[str], ways: Sequence[str] = ()) -> str:
+                 pending_ids: frozenset[str]) -> str:
     """@brief 受限轮复核的请求类（引擎解析名称与对象后传入，宿主收窄与引擎复核用同一口径）。
 
     :param tool_name: 世界请求工具名。
     :param canonical_actions: start_activity 各项的内部标准动作（其他工具为空）。
     :param named: report_status、conclude_activity 点名的权威活动（其他工具为空）。
     :param pending_ids: 人物当前全部待收尾活动身份。
-    :param ways: start_activity 各项的方式（给予是瞬时的，与受限轮排除的动作同样归入 other）。
     :returns: wait（只等待）、start（开始持续活动，不含受限轮排除的动作）、resume（只恢复暂停活动）、
               conclude_pending（只点名待收尾活动，全部或其中几项）、conclude（只结束能结束的活动）或 other。
     """
     if tool_name == "start_activity":
         if list(canonical_actions) == ["wait"]:
             return "wait"
-        return "other" if RESTRICTED_EXCLUDED_ACTIONS & set(canonical_actions) or GIVE_WAY in ways else "start"
+        return "other" if RESTRICTED_EXCLUDED_ACTIONS & set(canonical_actions) else "start"
     if tool_name == "report_status":
         return "resume" if named and all(item.status == ActivityStatus.PAUSED for item in named) else "other"
     if tool_name == "conclude_activity":

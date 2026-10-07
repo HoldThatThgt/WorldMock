@@ -53,7 +53,7 @@ def same_second_chain(store: FootprintStore, state: WorldState, observations: An
     if evidence is None:
         return None
     messages, assistant, requested = evidence
-    context = observations._layer_context(state.agents[agent_id], (), [])
+    context = observations._layer_context(state.agents[agent_id], [])
     records = records_after(context, store, previous.event_seq)
     own = [record for record, sources in records if requested.event_id in sources]
     if len(own) != 1:

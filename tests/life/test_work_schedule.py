@@ -27,7 +27,8 @@ from tests.life.conftest import (StubPlanDayClient, activity_name, advance_next,
                                  pause_request, report_request, settle_day_plans, stage_day_plan, start_activity,
                                  target_actions, wake_by_mail)
 from tests.evaluation.test_workload_metrics import _clock, _decide, _decide_at, _drive, _start_work
-from tests.life.test_work_topics import _engine_until, _engine_work
+from tests.life.work_runtime import start_assigned_work
+from tests.life.test_acs_amended_runtime import pump
 from tests.life.work_schedule_fixtures import STANDARD_SHIFT, declare
 from worldmock.footprints.models import EventDraft
 from worldmock.life import sessions
@@ -44,6 +45,34 @@ from worldmock.life.work_schedule import (DAY_REST, DAY_WORK, DUTY_DAYS, DUTY_ST
 _FORMAL = ENVIRONMENT_ROOT / "scenarios/single-person.json"
 _ZONE = "Asia/Shanghai"
 _PLACES = {"office": "公司", "home": "家"}
+
+
+@pytest.fixture
+def engine_factory(engine_factory, monkeypatch):
+    """为工作班次测试明确发布两条分配内容，完整覆盖最长班次且每条可在当班内完成。"""
+    from tests import engine_fixture
+    from worldmock.catalog.identity import refresh_manifest_identity
+    original = engine_fixture._mutated_scenario
+    def declared(source, mutate, root):
+        path = original(source, mutate, root)
+        document = json.loads(path.read_text())
+        catalog = root / "catalog"
+        content_path = catalog / "contents.json"
+        contents = json.loads(content_path.read_text())
+        work = next(row for row in contents["contents"] if row["content_id"] == "topic-sales")
+        work["duration_seconds"] = 3600
+        contents["contents"].append({**work, "content_id": "duty-work-remainder", "duration_seconds": 30600,
+                                      "title": "后续工作", "summary": "工作安排测试的合成后续内容。"})
+        contents["contents"].sort(key=lambda row: row["content_id"])
+        content_path.write_text(json.dumps(contents, ensure_ascii=False), encoding="utf-8")
+        for agent in document["agents"]:
+            if agent["work_content_ids"]:
+                agent["work_content_ids"] = ["topic-sales", "duty-work-remainder"]
+        path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+        refresh_manifest_identity(catalog)
+        return path
+    monkeypatch.setattr(engine_fixture, "_mutated_scenario", declared)
+    return engine_factory
 
 
 def _schedule(**changes) -> WorkSchedule:
@@ -154,7 +183,7 @@ def _commit_clock_location(engine, moment):
 def _no_schedule(document):
     """@brief 明确声明没有工作主题或工作安排的人物。"""
     for agent in document['agents']:
-        agent.update(work_topic_ids=[], work_schedule=None)
+        agent.update(work_content_ids=[], work_schedule=None)
 
 
 def _checked(engine, observed: dict, agent_id: int = 1) -> dict:
@@ -243,9 +272,10 @@ def test_duty_stays_on_duty_after_topic_completion(engine_factory) -> None:
         declare()(document)
         document['start_at'] = '2026-01-05T09:00:00+08:00'
     engine = engine_factory(mutate=daytime)
-    _, work_id = _engine_work(engine, 'duty-completion')
+    _commit_clock_location(engine, _clock('09:00:00'))
+    _, work_id = start_assigned_work(engine, 'duty-completion')
     before = _duty_of(engine, 'before-completion')
-    _engine_until(engine, lambda: engine.context.state.activities[work_id].status == 'completed', 'duty-work')
+    pump(engine, lambda: engine.context.state.activities[work_id].status == 'completed')
     assert before == _duty_of(engine, 'after-completion') == {**_WORKDAY, 'status': '当班中'}
 
 
@@ -338,13 +368,13 @@ def test_work_can_start_before_the_shift_and_continue_after_it(engine_factory) -
     _commit_clock_location(late, _clock("17:30:00"))
     stage_day_plan(late)
     work_id = _start_work(late, "late-start").activity_id
-    _decide_at(late, _clock("18:30:00"))
+    _decide_at(late, _clock("18:05:00"))
     assert late.context.state.activities[work_id].status == "active"
     assert _duty_of(late, "after-shift")["status"] == "已下班"
     assert _decide(late, "after-shift-pause", "pause_activity", pause_request(activity_name(late, work_id))).status == "completed"
     resumed = _decide(late, "after-shift-resume", "report_status", report_request(activity_name(late, work_id)))
     assert (resumed.status, resumed.error_code) == ("completed", None)
-    assert late.context.state.activities[work_id].status == "active" and late.context.state.current_time == _clock("18:30:00")
+    assert late.context.state.activities[work_id].status == "active" and late.context.state.current_time == _clock("18:05:00")
 
 
 #: 08:30–18:00、两段休息（12:30–13:00 与 15:00–15:15）的班次：班次与第一段休息的起点都不在整点上。

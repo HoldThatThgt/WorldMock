@@ -54,7 +54,7 @@ def test_shared_support_uses_observation_semantics_and_reports_denominators(
 
     assert support["comparable"] is True
     assert support["shared_channels"] == ["digital_interaction"]
-    assert support["shared_categories"] == ["browsing"]
+    assert support["shared_categories"] == ["entertainment"]
     assert support["coverage"]["right"]["private_events_excluded"] == 2
     assert support["coverage"]["left"]["total_activities"] == 1
 

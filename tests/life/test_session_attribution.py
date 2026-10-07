@@ -18,7 +18,7 @@ from agentsociety2.society import DirectToolCall
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
                                  progress_calls, stage_day_plan, start_activity, submit_round, wake_by_mail,
                                  pause_request, report_request)
-from tests.life.test_dayrun_restaurants import _stage
+from tests.life.routing_fixtures import stage_person
 from tests.life.test_memory_layer import (_act, _clock, _contact_message, _mail_line, _observe, _remote_order,
                                           _walk)
 from tests.life.test_same_moment_decisions import _contacts
@@ -139,10 +139,12 @@ def test_answering_binds_progress_messages_and_only_unreplied_memory_messages(en
 def test_chat_invitation_writes_no_settled_line_for_condensation(engine_factory) -> None:
     """交谈邀请在收件人的进度层带全文，但不是直接消息：progress_meta 里它的 settled 句为空，预算浓缩不会把它写成「收到…的消息」。"""
     engine = engine_factory("multi-person.json")
+    from tests.life.routing_fixtures import place
     for agent_id in engine.context.state.agents:
         stage_day_plan(engine, agent_id)
+        place(engine, agent_id, "home")
     submit_round(engine, {1: ("revise_day_plan", _REVISE),
-                          2: ("start_activity", start_activity("交谈", f"人物：{engine.context.state.agents[1].name}"))},
+                          2: ("start_activity", start_activity("进行", "聊天", to=[f"人物：{engine.context.state.agents[1].name}"]))},
                  "invite")
     observed = _observe(engine, "invite-seen")
     (invite,) = [row for row in observed["progress_layer"]["events"] if row["type"] == "message_arrival"]
@@ -179,7 +181,7 @@ def test_open_order_record_stays_uncondensed_while_older_records_fold(engine_fac
     condensed，它之后的记录不与之前的连成一段。"""
     engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
-    _stage(engine, "home", 1500)
+    stage_person(engine, "home", 1500)
     _act(engine, "fold-revise", "revise_day_plan", _REVISE)
     order = _remote_order(engine, "fold-order")
     friend = engine.context.scenario.agents[0].contacts[0].salutation

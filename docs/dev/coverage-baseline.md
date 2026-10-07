@@ -89,6 +89,13 @@ python scripts/run_tests.py --tier full --workers 4
 <a name="coverage-baseline-基线记录"></a>
 ## 基线记录
 
+<a name="coverage-baseline-动作与内容简化合入波次"></a>
+### 动作与内容简化：合入波次人工环境基线
+
+动作与内容简化生产摘要 `edd9c39159cd4f353f620446aaec31ff49c5222a8280591a5865051770832a99` 的结构 8 人工完整日由两个独立进程同场景同种子运行，均通过检查点关闭重开和认证导出，候选逐项一致；第四基线 `tests/fixtures/dayrun-action-content-baseline.json` 的摘要为 `48db31a4fd290300bb1b61c89b2ff3f65201c33e95b7a936a2ab1ccb42430015`，前三份基线字节保持。
+
+同一合入波次的 macOS arm64、CPython 3.12.13 人工环境回执：标准层运行 `4b2b49a9-77a1-4b02-8cf6-d70022ae6bf7` 为 5705 项通过、零跳过；全量运行 `859031ff-bf91-4ae1-bc23-33f4c10b01c5` 为 5946 项通过、零失败、零错误、零跳过；分支覆盖率 96.76%，未覆盖公共接口为零。两份工程回执绑定输入摘要 `dd629cf8232221810d46793818a937f5bd6217213268dd591fd0ee842ca16122`，发生在完成集合关闭前；关闭声明后的匹配输入结果只读本次生成的 `coverage-report.json` 与 `test-durations.json`，中断运行不记为通过。正式环境和其他平台属于阶段 7，未由这些人工环境数字证明。
+
 <a name="coverage-baseline-资源与规则引擎简化正式环境"></a>
 ### 资源与规则引擎简化：首次正式回归失败与修复收据
 
