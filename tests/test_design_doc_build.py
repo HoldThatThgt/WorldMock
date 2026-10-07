@@ -169,9 +169,9 @@ def test_contract_appendix_rewrites_links_relative_to_the_assembled_page():
 
 
 def test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current():
-    """@brief 真实十章加附录：两次汇编相同、每章与每个二级标题都进目录、附录含工具表；已提交的汇编文件与源一致。"""
+    """@brief 现行设计章节加附录：两次汇编相同、每章与每个二级标题都进目录、附录含工具表；已提交的汇编文件与源一致。"""
     chapters = builder.load_chapters()
-    assert [c.number for c in chapters] == list(range(11))
+    assert [c.number for c in chapters] == [0, 1, 2, 3, 4, 5, 7, 8, 9, 10]
     document = builder.assemble(chapters)
     assert document == builder.assemble(builder.load_chapters())
     for chapter in chapters:

@@ -170,14 +170,10 @@ def _persona_layer(profile: dict) -> dict:
 
 
 def _validate_root(tmp_path: Path) -> Path:
-    """validate 的工程根：只放 LabelKit 命令的占位文件（这里验证的是输入警告，不执行 LabelKit）。"""
+    """@brief 输入警告校验只需隔离工程根，不需要下游加工环境。"""
     root = tmp_path / "project"
-    (root / "labelkit-projects").mkdir(parents=True)
-    command = root / "vendor/labelkit/.venv" / ("Scripts/labelkit.exe" if os.name == "nt" else "bin/labelkit")
-    command.parent.mkdir(parents=True)
-    command.write_bytes(b"")
+    root.mkdir()
     return root
-
 
 async def test_run_creation_freezes_input_warnings_into_the_manifest_ops_log_and_quality_report(
         tmp_path, monkeypatch) -> None:

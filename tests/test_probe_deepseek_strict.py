@@ -19,7 +19,7 @@ import pytest
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
 
 from custom.agents.life_agent import ACTION_MAX_TOKENS, _tool_schema  # noqa: E402
-from custom.agents.life_prompt import system_message  # noqa: E402
+from worldmock.agents.life_prompt import system_message  # noqa: E402
 from tests.life.conftest import conclude_request  # noqa: E402
 from worldmock.life.models import REQUEST_MODELS, _validate_deepseek_schema_node, deepseek_strict_schema  # noqa: E402
 from worldmock.model_endpoint import DEEPSEEK_MODEL  # noqa: E402

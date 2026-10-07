@@ -1,14 +1,8 @@
-"""@brief 使用成熟规则引擎执行独立预期，并在支持范围内检查因果约束。"""
+"""@brief 检查已发生足迹的因果、时间和资源连续性。"""
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime
-from pathlib import Path
-
-import rule_engine
-
-from worldmock.errors import IntegrityError
 
 
 def evaluate_causal_events(events: list[dict], support: dict) -> list[dict]:
@@ -67,34 +61,3 @@ def _check_resources(event: dict, findings: list[dict]) -> None:
     money = {key: value for key, value in event["resource_changes"].items() if key.startswith("account:")}
     if money and (len(money) < 2 or sum(money.values()) != 0):
         findings.append(_finding("money_not_conserved", event, "Account changes do not balance"))
-
-
-def execute_fixture(fixture: dict, expressions: dict[str, str]) -> dict:
-    """@brief 在严格字段环境中执行独立冻结的规则，比较非引擎生成的预期。"""
-    facts = sequence_facts(fixture["initial_state"], fixture["events"])
-    context = rule_engine.Context(type_resolver=rule_engine.type_resolver_from_dict(facts))
-    actual = {}
-    try:
-        for name, expression in expressions.items():
-            actual[name] = bool(rule_engine.Rule(expression, context=context).evaluate(facts))
-    except Exception:
-        logging.exception("Rule fixture execution failed")
-        raise
-    if actual != fixture["expected"]:
-        raise IntegrityError("Rule fixture output does not match its independent expected result")
-    return {"passed": True, "actual": actual, "provenance": fixture["provenance"]}
-
-
-def sequence_facts(initial_state: dict, events: list[dict]) -> dict:
-    """@brief 从明确请求、受理和完成事件计算时序事实，不生成预期结论。"""
-    times = {}
-    duplicate = False
-    for event in events:
-        role = event["role"]
-        duplicate = duplicate or role in times
-        times[role] = event["timestamp_seconds"]
-    complete = all(role in times for role in ("request", "accept", "complete"))
-    ordered = complete and times["request"] <= times["accept"] <= times["complete"]
-    elapsed = times["complete"] - times["accept"] if complete else -1
-    return {"complete": complete, "ordered": ordered, "duplicate": duplicate,
-            "elapsed_seconds": elapsed, "deadline_seconds": initial_state["deadline_seconds"]}

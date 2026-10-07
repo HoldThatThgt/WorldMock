@@ -25,7 +25,7 @@ from scripts.bootstrap_sources import file_sha256
 from scripts.bootstrap_environment import required_python_version, require_python_identity
 DURATIONS = ROOT / "docs/dev/test-durations.json"
 INPUT_ROOTS = ("src/worldmock", "custom/agents", "custom/envs", "tests", "scripts", "docs",
-               "requirements", "patches", "labelkit-projects")
+               "requirements", "patches")
 GENERATED_REPORTS = {"docs/dev/test-durations.json", "docs/dev/coverage-report.json"}
 
 
@@ -76,15 +76,13 @@ def environment_source_digest(environment_root):
 
 def source_digest(environment_root=None):
     """@brief 绑定本次源码、测试、设计和冻结输入的真实字节，生成的计时与覆盖报告不进入输入。"""
-    paths = {ROOT / name for name in ("conftest.py", "pyproject.toml", "uv.lock", ".gitattributes", ".python-version")}
+    paths = {ROOT / name for name in ("tests/conftest.py", "pyproject.toml", "uv.lock", ".gitattributes", ".python-version")}
     for name in INPUT_ROOTS:
         paths.update(path for path in (ROOT / name).rglob("*") if path.is_file())
     digest = hashlib.sha256()
     for path in sorted(paths):
         relative = path.relative_to(ROOT).as_posix()
         if "__pycache__" in path.parts or relative in GENERATED_REPORTS:
-            continue
-        if relative.startswith("labelkit-projects/") and {"data", "out"} & set(Path(relative).parts[1:]):
             continue
         _add_digest_file(digest, relative, path)
     if environment_root is not None:

@@ -33,12 +33,6 @@ _GREEN_BASELINE_TESTS = ['tests/life/test_dayrun_inventory_regressions.py::test_
  'tests/life/test_work_topics.py::test_actual_scheduled_payroll_transfers_fixed_salary_without_work_or_submission',
  'tests/life/test_work_protocol.py::test_work_tool_and_stage_closed_sets_match_real_host']
 
-_DELIVERY_TESTS = [
-    "tests/delivery/test_publication.py::"
-    "test_delivery_rejects_export_whose_final_checkpoint_has_another_world_schema_version",
-    "tests/delivery/test_publication.py::test_delivery_checks_world_schema_before_preparing_windows",
-]
-
 _SAME_MOMENT = "tests/life/test_same_moment_decisions.py::"
 
 #: 阶段 1 预先登记：同刻决策行由阶段 4 完成（「刚才」、交谈对方结束与名额、待收尾各支在阶段 3–4）。
@@ -291,10 +285,9 @@ _LOCAL_RUN_FIX_TESTS = [
     _LOCATION + "test_experiment_end_export_matches_the_final_checkpoint_for_every_truncated_activity",
 ]
 
-#: 阶段 3 完成交付行：带记忆的 conclude_activity 进入意图与 dreaming 窗口时不含 memories。
-_DELIVERY_TESTS += [
-    "tests/delivery/test_windows.py::test_conclude_activity_with_memories_does_not_leak_memory_text",
-    "tests/life/test_export_integration.py::test_completed_activity_exports_terminal_outcome_and_training_windows",
+#: 阶段 3 完成足迹导出与记忆记录行：结束结果、原始请求和记忆写入均来自真实模拟。
+_EXPORT_AND_MEMORY_TESTS = [
+    "tests/life/test_export_integration.py::test_completed_activity_exports_terminal_outcome_and_recorded_prompt",
 ]
 
 #: 阶段 3 预先登记：同轮可见名称重复、到达被拒、途中结束出行与检查点恢复下无 run_failed。
@@ -520,7 +513,6 @@ _DAY_PLANNING_TESTS = [
     "tests/evaluation/test_behavior_metrics.py::test_plan_day_requests_are_not_decision_requests",
     "tests/footprints/test_quality.py::test_model_usage_counts_plan_day_and_lists_it_by_purpose",
     "tests/footprints/test_quality.py::test_plan_day_response_naming_memories_is_no_memory_problem",
-    "tests/delivery/test_windows.py::test_plan_day_request_never_becomes_a_decision_prompt_or_window_input",
     "tests/evaluation/test_goal_metrics.py::test_zero_point_plan_event_registers_goals_that_revisions_keep",
     "tests/footprints/test_goal_export.py::test_real_engine_midnight_settlement_exports_old_day_goal_progress",
     "tests/life/test_day_plan.py::test_midnight_final_interval_progresses_old_plan_before_expiry",
@@ -608,7 +600,7 @@ ACCEPTANCE: dict[str, dict[str, object]] = {
     "本机运行修复": {"stage": "7",
                "tests": _RUN_IDENTITY_TESTS + _STAGE2_LOCAL_RUN_FIX_TESTS + _LOCAL_RUN_FIX_TESTS
                + _STAGE4_LOCAL_RUN_FIX_TESTS + _STAGE7_LOCAL_RUN_FIX_TESTS},
-    "交付": {"stage": "3", "tests": _DELIVERY_TESTS},
+    "足迹导出": {"stage": "3", "tests": _EXPORT_AND_MEMORY_TESTS},
     "无新增故障": {"stage": "7",
               "tests": _NO_NEW_FAULT_TESTS + _STAGE2_NO_NEW_FAULT_TESTS + _STAGE4_NO_NEW_FAULT_TESTS
               + _STAGE7_NO_NEW_FAULT_TESTS},

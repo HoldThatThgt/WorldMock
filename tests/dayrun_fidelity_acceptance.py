@@ -268,7 +268,7 @@ LEDGER: dict[str, list[str]] = {'睡眠计费': ['tests/life/test_sleep_billing.
           'tests/life/test_control_items.py::test_readers_project_current_items_events_consistently',
           'tests/life/test_control_items.py::test_unrecognised_or_malformed_requests_fail_as_integrity_errors',
           'tests/tools/test_run_viewer.py::test_run_viewer_recorded_names',
-          'tests/delivery/test_windows.py::test_retired_control_request_shapes_are_rejected_by_delivery',
+
           'tests/footprints/test_quality.py::test_memory_quality_reads_current_control_items_and_structured_errors',
           'tests/life/test_progress_events.py::test_conclude_arguments_omit_relationship_and_preference_memories',
           'tests/life/test_memory_evidence.py::test_write_points_read_current_control_items'],
@@ -508,14 +508,14 @@ STATUS_ONLY: dict[str, str] = {
 #: 冻结（26d626b 是本特性规格初稿的提交，代码与 4a5b0e6 相同）；另一会话的设计文档汇编提交（14a6cfe、185cad7）新增的
 #: scripts/build_design_doc.py 不属于本特性，不列入。环境制作源码已归属数据仓，扫描仅检查仍属引擎的文件。
 FEATURE_PRODUCTION_FILES: tuple[str, ...] = ('custom/agents/life_agent.py',
- 'custom/agents/life_feedback.py',
- 'custom/agents/life_memory.py',
- 'custom/agents/life_prompt.py',
- 'custom/agents/life_truncation.py',
+ 'src/worldmock/agents/life_feedback.py',
+ 'src/worldmock/agents/life_memory.py',
+ 'src/worldmock/agents/life_prompt.py',
+ 'src/worldmock/agents/life_truncation.py',
  'custom/envs/life_env.py',
  'scripts/probe_deepseek_strict.py',
  'scripts/render_day.py',
- 'src/worldmock/delivery/windows.py',
+
  'src/worldmock/evaluation/goal_metrics.py',
  'src/worldmock/evaluation/public_evidence.py',
  'src/worldmock/footprints/purchases.py',

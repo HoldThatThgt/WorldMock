@@ -345,7 +345,7 @@ worldmock validate --environment experiments/my-world
 worldmock validate --scenario experiments/my-world/scenarios/single-person.json
 ```
 
-环境命令不启动人物或完整引擎，真实加载全部场景并检查目录、图字节、语料与包资源副本；项目命令保留 AS2、LabelKit、依赖、阶段身份和 0.8 覆盖率检查。
+环境命令不启动人物或完整引擎，真实加载全部场景并检查目录、图字节、语料与包资源副本；项目命令保留 AS2、依赖、阶段身份和 0.8 覆盖率检查。
 
 | 登记失败 | 应修正的事实 |
 | --- | --- |

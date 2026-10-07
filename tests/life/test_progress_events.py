@@ -674,7 +674,7 @@ def test_a_completion_record_follows_the_calls_of_its_second_by_event_sequence(e
 
 
 def test_the_progress_layer_refuses_a_stored_control_request_without_errands(engine_factory) -> None:
-    """进度层经 control_items 读控制请求（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-交付边界 、2.3）：真实播报之后的观察照现行形状写出
+    """进度层经 control_items 读控制请求（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-控制请求记录 、2.3）：真实播报之后的观察照现行形状写出
     它的参数（每项活动名与自述，不带 errands）；经 FootprintStore 在同一 session 里补登一条带 items 而缺请求级 errands 的
     旧形状播报及其结果后，下一次观察以完整性故障拒绝，不当作没有事务变更的请求放行。"""
     engine = engine_factory()

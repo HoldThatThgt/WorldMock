@@ -27,9 +27,9 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.society import DirectToolCall  # noqa: E402
 from custom.agents.life_agent import LifeAgent  # noqa: E402
-from custom.agents.life_continuation import _earlier_changes, _overlay, _view  # noqa: E402
-from custom.agents.life_persona import persona_layer  # noqa: E402
-from custom.agents.life_prompt import life_user_layers, system_message, user_message  # noqa: E402
+from worldmock.agents.life_continuation import _earlier_changes, _overlay, _view  # noqa: E402
+from worldmock.agents.life_persona import persona_layer  # noqa: E402
+from worldmock.agents.life_prompt import life_user_layers, system_message, user_message  # noqa: E402
 from custom.envs.life_env import LifeEnv  # noqa: E402
 from tests.integration.test_life_agent_protocol import (_ModelResponse, _TextResponse, _conclude_args,  # noqa: E402
                                                         _memory, _stored_memories, _view as _opinion)

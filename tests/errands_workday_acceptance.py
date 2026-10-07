@@ -109,8 +109,7 @@ _REFLECTION = "tests/integration/test_strict_reflection.py::"
 #: 第七、八个经真实引擎、SQLite、LifeEnv 与直接导入的 LifeAgent 跑醒来那次决策（耗尽：四对请求与响应留证、请求关闭
 #: 思考、没有 memory_updated、中止后动作未结算；改正：恰好一条 memory_updated）。第九个是 Society 层的验收口径（本轮中止、
 #: 不提交、无 memory_updated，原因带最后一次校验错误）。其后三个是既有登记用例与真实日运行：反思条目的字段、巩固不计反思、
-#: 整日运行里反思请求不是行动请求且含反思的决策其交付窗口提示仍是行动请求（一颗种子的反思首次不合合同、经一次校验
-#: 重试改正：两人逐字相同的附回消息不进观察重复门禁，门禁仍为 1）。再后两个守交付窗口的提示选取与行动请求判定。
+#: 整日运行分别记录行动与反思请求；反思校验重试的附回消息不进入观察重复门禁，门禁仍为 1。
 #: 末八个只调用 reflection_insights、reflection_tool、reflection_correction、只读常量或以合成事件调用行为指标，是补充证据。
 _REFLECTION_TESTS = [
     _REFLECTION + "test_runtime_submits_reflection_through_the_only_strict_tool",
@@ -127,7 +126,6 @@ _REFLECTION_TESTS = [
     "test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime_reflection",
     "tests/integration/test_dayrun_complete_days.py::"
     "test_complete_two_person_day_uses_real_tools_memory_and_restoration",
-    "tests/delivery/test_windows.py::test_reflection_requests_after_the_action_never_become_the_decision_prompt",
     "tests/life/test_engine_branch_coverage.py::test_only_action_requests_satisfy_the_predicate",
     _REFLECTION + "test_reflection_tool_schema_is_inline_strict_and_bound_to_the_host_limit",
     _REFLECTION + "test_reflection_records_only_valid_subjective_insights",
@@ -140,12 +138,11 @@ _REFLECTION_TESTS = [
 ]
 
 _SESSION_STATE = "tests/life/test_session_state.py::"
-_PUBLICATION = "tests/delivery/test_publication.py::"
 _ERRAND_TODO = "tests/life/test_errand_todo_layer.py::"
 
 #: 「检查点」中「版本 8 检查点被拒」一项：头一个经真实引擎与 SQLite——落盘的版本 8 世界状态（人物状态里没有 errands 键，
 #: 与版本 8 写出的检查点同形）在重新打开运行时只以版本不符拒绝；其后一个守世界状态模型本身只拒绝版本、同形的版本 9
-#: 通过；第三个守交付入口：版本 8 的导出在构造窗口与运行 LabelKit 之前按版本拒绝，版本 9 的导出到达窗口构造。末一个是
+#: 通过；末一个是
 #: 「共同检查点恢复后待办层逐字节相同；不重复记下、完成与提醒」：经真实请求、引擎与 SQLite 记下带提醒的事务、到店累计
 #: 一份、远程订单在途时创建共同检查点并恢复成分支（engine.checkpoint → store.restore → LifeEngine.open），事务逐字段相同、
 #: 同一时刻的待办层逐字节相同；父运行与分支接着过下去各提醒一次、送达各一次并各办成一次，分支没有第二条记下事件。
@@ -154,7 +151,6 @@ _RESTORED_BRANCH = ("tests/integration/test_errand_checkpoint.py::"
 _CHECKPOINT_TESTS = [
     _SESSION_STATE + "test_run_with_version_8_world_state_is_rejected_on_open",
     _SESSION_STATE + "test_world_state_schema_version_8_is_rejected",
-    _PUBLICATION + "test_delivery_gate_rejects_version_eight_exports",
     _RESTORED_BRANCH,
 ]
 
@@ -345,42 +341,13 @@ _ERRAND_NAME_TESTS = [
 ]
 
 _CONTROL_ITEMS = "tests/life/test_control_items.py::"
-_WINDOW_TESTS = "tests/delivery/test_windows.py::"
-_ERRAND_WINDOWS = "tests/integration/test_errand_delivery_windows.py::"
-_PROJECTIONS_TRIMMED = (_WINDOW_TESTS + "test_intent_and_dreaming_projections_drop_memories_views_and_errands"
-                        "_and_leave_the_event_intact")
-_FULL_TARGET = _WINDOW_TESTS + "test_the_action_target_keeps_the_full_control_request"
-_EXPORT_WINDOWS = _ERRAND_WINDOWS + "test_an_export_with_errand_reminder_and_completion_builds_all_three_windows"
-_FOREIGN_COMPLETION = (_ERRAND_WINDOWS
-                       + "test_a_completion_caused_by_another_persons_action_stays_out_of_their_decision_group")
-_REAL_PROJECTIONS = (_ERRAND_WINDOWS + "test_control_requests_with_errands_reach_windows_without_them_and_legacy"
-                     "_requests_are_refused")
 
-#: 「交付边界」，按台账各项的顺序：
-#: - 「意图与 dreaming 投影不含 memories、views 与请求级 errands，原事件不被原地修改」与「动作目标保留完整请求」：第三个节点
-#:   经真实请求、引擎、SQLite 与认证导出——记下三条事务的收尾与带一条更新、一条取消的播报，在意图窗口与陈曦每个显示它们的
-#:   dreaming 窗口里投影都只留每项的活动名与自述、不带 errands，动作与意图窗口的目标就是导出里的请求事件、逐键相等、保留
-#:   完整的 errands（投影没有原地改写它）。头两个以手写事件直调窗口构造（_action_windows、_dream_windows），是补充证据与
-#:   变异杀手：两项都带记忆与看法的收尾请求，投影两项都只留活动名与自述（不只裁首项），构造完三类窗口后原请求事件逐键不变。
-#: - 「事务事件不带决策与动作身份，他人动作触发的办成事件不落进对方决策的分组」：真实引擎、SQLite、共同检查点与认证导出
-#:   上，李凡两次当面给陈曦纯牛奶，累计与办成两条事件归陈曦、以李凡的给予结果为原因，六种事务事件都没有决策、动作与活动
-#:   身份，李凡那两次给予的决策分组与动作分组里没有陈曦的事件，任何窗口的目标都不含事务事件。
-#: - 「缺 errands 的旧控制请求被拒」：第三个节点的后一半——经 FootprintStore 补登一条带 items 而缺请求级 errands 的旧形状
-#:   播报请求并认证导出，交付构造窗口时以完整性故障拒绝，不当作没有事务变更放行。其后三个是补充证据：唯一读取入口
-#:   control_items、进度层与交付窗口的投影 control_request、请求级变更的读取 control_errands 与收尾记忆判定一律拒绝，
-#:   手写事件的窗口构造同样拒绝；control_errands 按请求顺序读出每条变更的八键。
-#: - 「含事务提醒与办成记录的导出能构造三类窗口」：同一段真实生活的认证导出构造出动作、意图与 dreaming 三类窗口，提醒与
-#:   办成两种事件本人可见，作为办成之后那次决策观察的进度来源展开为证据、公开投影是空对象；提醒带来的那次决策的窗口里
-#:   待办层（含三条事务行）是存储的那一份。
-_DELIVERY_BOUNDARY_TESTS = [
-    _PROJECTIONS_TRIMMED,
-    _FULL_TARGET,
-    _REAL_PROJECTIONS,
-    _FOREIGN_COMPLETION,
+#: 控制请求在记录和读取时保留个人事务变更的顺序，并拒绝缺少请求级 errands 的旧形状。
+_CONTROL_RECORD_TESTS = [
+    _CONTROL_ITEMS + "test_current_shape_items_carry_views_as_subject_memories",
     _CONTROL_ITEMS + "test_a_current_request_without_errands_is_rejected",
-    _WINDOW_TESTS + "test_control_requests_without_errands_are_rejected_by_delivery",
     _CONTROL_ITEMS + "test_control_errands_reads_every_change_in_order",
-    _EXPORT_WINDOWS,
+    "tests/life/test_export_integration.py::test_completed_activity_exports_terminal_outcome_and_recorded_prompt",
 ]
 
 _ERRAND_METRICS = "tests/evaluation/test_errand_metrics.py::"
@@ -405,7 +372,6 @@ _METRIC_TESTS = [
     _ERRAND_METRICS + "test_no_errand_or_no_conclusion_memory_gives_null",
     "tests/integration/test_dayrun_complete_days.py::"
     "test_complete_two_person_day_uses_real_tools_memory_and_restoration",
-    _REAL_PROJECTIONS,
     "tests/footprints/test_goal_export.py::test_export_command_uses_authenticated_cutoff_and_manifest_code",
     "tests/footprints/test_quality.py::test_report_sections_are_the_documented_grouping_without_a_language_count",
     _ERRAND_EXPORT,
@@ -496,7 +462,7 @@ _CARD_SCENARIO = "tests/life/test_scenario.py::"
 #: 运行清单）与直接导入的 LifeAgent：降级说明作为画像编译警告冻结进清单（PERSONA_AGREEMENT_LOW 只带原文、消息不归因于
 #: 一致性），写明的下班与到家按九键键序到达实际请求的人设层、卡片文本追加两个分句。随后是画像文本各自非空时追加分句并
 #: 计入预算、都为 null 时逐字节不变（render_card 与新建运行冻结的卡片文本是同一函数）；人设层（直接导入
-#: custom.agents.life_persona）九键键序与 null、缺两键的旧结构化卡片在恢复路径被拒（真实 _prepare_resume 与父运行
+#: worldmock.agents.life_persona）九键键序与 null、缺两键的旧结构化卡片在恢复路径被拒（真实 _prepare_resume 与父运行
 #: SQLite）；再一个守宿主不渲染人物档案里的工作安排与场景窗口（人设层键集与值不变）。场景作息覆盖七字段的三个节点经
 #: 真实新建（场景副本、画像编译、场景作息覆盖、LifeEnv 与 SQLite 运行清单）、直接导入的 LifeAgent 与真实 plan_inputs：
 #: 场景声明的下班、到家窗口落进卡片空槽并记覆盖、到达人设层与零点计划人物输入；只来自卡片的两个锚点不进零点计划输入；
@@ -646,7 +612,7 @@ LEDGER: dict[str, dict[str, object]] = {
     "事务提醒": {"stage": "2", "tests": _REMINDER_TESTS},
     "检查点": {"stage": "2", "tests": _CHECKPOINT_TESTS},
     "提示与唯一出现": {"stage": "2", "tests": _PROMPT_PRESENCE_TESTS},
-    "交付边界": {"stage": "2", "tests": _DELIVERY_BOUNDARY_TESTS},
+    "控制请求记录": {"stage": "2", "tests": _CONTROL_RECORD_TESTS},
     "事务与收尾记忆指标": {"stage": "2", "tests": _METRIC_TESTS},
     "作息锚点": {"stage": "3", "tests": _WORK_ANCHOR_TESTS},
     "工作安排加载": {"stage": "3", "tests": _WORK_SCHEDULE_LOAD_TESTS},
@@ -696,12 +662,10 @@ _ASSEMBLY_KILLERS = (_READ_QUERY + "test_runtime_assembly_builds_life_actor_and_
 _PROXY_KILLERS = _ASSEMBLY_KILLERS
 _ACTOR_KILLERS = (_READ_QUERY + "test_unwrapped_actor_read_query_equals_direct_environment_call",)
 _CONCURRENCY_KILLERS = (_READ_QUERY + "test_life_env_actor_class_fixes_single_concurrency_without_parameters",)
-_REFLECTION_MODULE = "custom.agents.life_reflection"
-_REFLECTION_SOURCE = "custom/agents/life_reflection.py"
-_MEMORY_MODULE = "custom.agents.life_memory"
-_MEMORY_SOURCE = "custom/agents/life_memory.py"
-_WINDOWS_MODULE = "worldmock.delivery.windows"
-_WINDOWS_SOURCE = "src/worldmock/delivery/windows.py"
+_REFLECTION_MODULE = "worldmock.agents.life_reflection"
+_REFLECTION_SOURCE = "src/worldmock/agents/life_reflection.py"
+_MEMORY_MODULE = "worldmock.agents.life_memory"
+_MEMORY_SOURCE = "src/worldmock/agents/life_memory.py"
 #: 严格反思的杀手都经真实记忆运行时：前一个逐种合同违约各重试一次（本地校验被放宽、重试上限为 0 时首个响应的去向不同），
 #: 后一个四次都不合合同（不设上限时脚本在第五次调用直接失败；返回空列表时不再抛出；附回逐次累积时消息数不再恒为三）。
 #: 两个模块都按本名导入（记忆运行时由人物类正常导入），经直接导入的 LifeAgent 跑真实引擎的那一例也执行变异后的代码。
@@ -715,18 +679,11 @@ _REFLECTION_FAULT_KILLERS = (
     *_REFLECTION_RETRY_KILLERS,
     _REFLECTION + "test_exhausted_reflection_leaves_evidence_but_no_memory_update_in_the_run_database",
 )
-_WINDOW_KILLERS = (
-    "tests/delivery/test_windows.py::test_reflection_requests_after_the_action_never_become_the_decision_prompt",
-)
-_PIPELINE_MODULE = "worldmock.delivery.pipeline"
-_PIPELINE_SOURCE = "src/worldmock/delivery/pipeline.py"
-#: 「版本 8 检查点被放行」的两个变异：世界状态模型同时接受版本 8（杀手是只拒绝版本的模型用例与重开运行的真实引擎用例），
-#: 交付入口放行版本 8 的导出（杀手是交付门禁用例：版本 8 的导出到达被替换为失败的窗口构造）。
+#: 世界状态模型接受旧版本的变异由模型拒绝和真实运行重开两个用例共同验证。
 _VERSION_8_STATE_KILLERS = (
     _SESSION_STATE + "test_world_state_schema_version_8_is_rejected",
     _SESSION_STATE + "test_run_with_version_8_world_state_is_rejected_on_open",
 )
-_VERSION_8_EXPORT_KILLERS = (_PUBLICATION + "test_delivery_gate_rejects_version_eight_exports",)
 _TODO_LAYER_MODULE = "worldmock.life.todo_layer"
 _TODO_LAYER_SOURCE = "src/worldmock/life/todo_layer.py"
 _SESSION_ACTIONS_MODULE = "worldmock.life.session_actions"
@@ -822,27 +779,27 @@ _PROGRESS_LAYER_MODULE = "worldmock.life.progress_layer"
 _PROGRESS_LAYER_SOURCE = "src/worldmock/life/progress_layer.py"
 _MEMORY_LAYER_MODULE = "worldmock.life.memory_layer"
 _MEMORY_LAYER_SOURCE = "src/worldmock/life/memory_layer.py"
-_PROMPT_MODULE = "custom.agents.life_prompt"
-_PROMPT_SOURCE = "custom/agents/life_prompt.py"
+_PROMPT_MODULE = "worldmock.agents.life_prompt"
+_PROMPT_SOURCE = "src/worldmock/agents/life_prompt.py"
 #: 提示分工三个变异的杀手：进度层工具调用参数带上请求级 errands 时，人物在那段停留里实际看到的收尾调用参数多出 errands、
 #: 备注出现在进度层；self_notes 把请求里的事务名与备注当成自述时，离开那段停留后实际请求的记忆层出现事务的名称与备注
 #: （两者都经真实 LifeAgent、LifeEnv 与 SQLite，引擎按本名导入这两个模块）；生活决策系统层第 6 条改掉一个分句时，直接
-#: 导入的 LifeAgent（按本名导入 custom.agents.life_prompt）发出的系统层与接口合同登记不再逐字相同。
+#: 导入的 LifeAgent（按本名导入 worldmock.agents.life_prompt）发出的系统层与接口合同登记不再逐字相同。
 _SEPARATION_KILLERS = (_SEPARATED,)
 _VERBATIM_KILLERS = (_SYSTEM_VERBATIM,)
 _ERRAND_METRICS_MODULE = "worldmock.evaluation.errand_metrics"
 _ERRAND_METRICS_SOURCE = "src/worldmock/evaluation/errand_metrics.py"
-#: 交付边界与指标各变异的杀手：提醒与办成写成系统可见时，办成之后那次观察的进度来源不再是本人可见的事件，认证导出构造
-#: 窗口以完整性故障失败（真实引擎、SQLite 与认证导出，errands 由引擎按本名导入）；结算事件沿用证据事件的决策与动作身份
-#: 时，李凡那次给予的决策分组里出现陈曦的累计与办成事件（同一条真实链路）；投影带出请求级 errands、只裁第一项或原地修改
-#: 原事件时，意图与 dreaming 输入的投影不再只留两项的活动名与自述、原请求事件被改写（动作窗口的目标随之丢掉 errands 与
-#: 记忆）——带出 errands 与原地修改另由真实导出的那一例杀死（真实生活里的收尾与播报都只点名一项，只裁首项在那里不可
-#: 区分）；事务指标以当日目标数为分母时，三条目标、两条事务的导出报出 3。
-_VISIBLE_KILLERS = (_EXPORT_WINDOWS,)
-_IDENTITY_KILLERS = (_FOREIGN_COMPLETION,)
-_PROJECTION_KILLERS = (_PROJECTIONS_TRIMMED,)
-_ERRANDS_PROJECTION_KILLERS = (_PROJECTIONS_TRIMMED, _REAL_PROJECTIONS)
-_INTACT_KILLERS = (_PROJECTIONS_TRIMMED, _FULL_TARGET, _REAL_PROJECTIONS)
+#: 核心行为杀手核对提醒可见性、事务事件归属、进度层参数及指标分母；数据集投影的变异由下游负责。
+_VISIBLE_KILLERS = (
+    "tests/life/test_errand_reminder.py::"
+    "test_an_awake_person_is_reminded_once_exactly_on_time_and_the_errand_is_unchanged",
+)
+_IDENTITY_KILLERS = (
+    "tests/life/test_errand_completion.py::"
+    "test_completion_and_progress_events_cite_their_evidence_and_carry_no_decision_identity",
+)
+_PROJECTION_KILLERS = (_CONTROL_ITEMS + "test_current_shape_items_carry_views_as_subject_memories",)
+_ERRANDS_PROJECTION_KILLERS = (_CONTROL_ITEMS + "test_current_shape_items_carry_views_as_subject_memories",)
 _DENOMINATOR_KILLERS = (_ERRAND_METRICS + "test_the_denominator_is_registered_errands_not_goals",)
 _EXTRACTOR_MODULE = "worldmock.profile.extractor"
 _EXTRACTOR_SOURCE = "src/worldmock/profile/extractor.py"
@@ -856,9 +813,9 @@ _NO_DEFAULT_KILLERS = (_CARD_EXTRACTION + "test_unmentioned_work_anchors_stay_nu
 _WRAPAROUND_KILLERS = (_CARD_EXTRACTION + "test_null_work_anchors_keep_the_after_midnight_bedtime_normalised",)
 _DEMOTION_KILLERS = (
     _CARD_EXTRACTION + "test_out_of_order_consensus_demotes_leave_work_then_arrive_home_and_still_compiles",)
-_PERSONA_LAYER_MODULE = "custom.agents.life_persona"
-_PERSONA_LAYER_SOURCE = "custom/agents/life_persona.py"
-#: 人设层三个变异的杀手都直接导入 custom.agents.life_persona（适配器目录的文件只有直接导入才杀得死）：人设层把卡片写明的
+_PERSONA_LAYER_MODULE = "worldmock.agents.life_persona"
+_PERSONA_LAYER_SOURCE = "src/worldmock/agents/life_persona.py"
+#: 人设层三个变异的杀手都直接导入 worldmock.agents.life_persona（适配器目录的文件只有直接导入才杀得死）：人设层把卡片写明的
 #: 下班或到家投影成 null 时，写明它们的卡片在人设层的下班不再是「18点到18点半」、到家不再是「19点到19点半」；人设层多渲染
 #: profile 里的工作安排时，带工作安排的档案的人设层多出一个键、不再与不带工作安排的同一档案相同。
 _PERSONA_ANCHOR_KILLERS = (
@@ -1029,7 +986,7 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "reflection_accepts_free_text",
-        'custom.agents.life_reflection::reflection_insights.arguments',
+        'worldmock.agents.life_reflection::reflection_insights.arguments',
         "    arguments = _tool_arguments(response)\n",
         (
             "    try:\n"
@@ -1048,42 +1005,42 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "reflection_skips_unknown_reference_check",
-        'custom.agents.life_reflection::reflection_insights',
+        'worldmock.agents.life_reflection::reflection_insights',
         "    if problems:\n",
         "    if False:\n",
         _REFLECTION_CONTRACT_KILLERS,
     ),
     SourceMutation(
         "reflection_count_bound_widened",
-        'custom.agents.life_reflection::ReflectionRequest.require_insights',
+        'worldmock.agents.life_reflection::ReflectionRequest.require_insights',
         "        if not 1 <= len(insights) <= MEMORY_REFLECTION_MAX_INSIGHTS:\n",
         "        if not 1 <= len(insights) <= MEMORY_REFLECTION_MAX_INSIGHTS + 1:\n",
         _REFLECTION_CONTRACT_KILLERS,
     ),
     SourceMutation(
         "reflection_text_validation_skipped",
-        'custom.agents.life_reflection::ReflectionInsight.validate_insight',
+        'worldmock.agents.life_reflection::ReflectionInsight.validate_insight',
         "        return validate_memory_text(insight)\n",
         "        return insight\n",
         _REFLECTION_CONTRACT_KILLERS,
     ),
     SourceMutation(
         "reflection_retry_bound_zero",
-        'custom.agents.life_reflection::REFLECTION_VALIDATION_RETRIES',
+        'worldmock.agents.life_reflection::REFLECTION_VALIDATION_RETRIES',
         "REFLECTION_VALIDATION_RETRIES = 3\n",
         "REFLECTION_VALIDATION_RETRIES = 0\n",
         _REFLECTION_CONTRACT_KILLERS,
     ),
     SourceMutation(
         "reflection_retries_without_a_bound",
-        'custom.agents.life_memory::WorldMockMemoryRuntime._validated_reflection',
+        'worldmock.agents.life_memory::WorldMockMemoryRuntime._validated_reflection',
         "                if attempt > REFLECTION_VALIDATION_RETRIES:\n",
         "                if False:\n",
         _REFLECTION_RETRY_KILLERS,
     ),
     SourceMutation(
         "reflection_failure_returns_an_empty_list",
-        'custom.agents.life_memory::WorldMockMemoryRuntime._validated_reflection',
+        'worldmock.agents.life_memory::WorldMockMemoryRuntime._validated_reflection',
         (
             "                    raise ProtocolError(\n"
             '                        f"memory reflection output remained invalid after three retries: {error}") '
@@ -1094,17 +1051,10 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "reflection_correction_accumulates_messages",
-        'custom.agents.life_memory::WorldMockMemoryRuntime._validated_reflection',
+        'worldmock.agents.life_memory::WorldMockMemoryRuntime._validated_reflection',
         "                messages, attempt = reflection_correction(original, response, error), attempt + 1\n",
         "                messages, attempt = reflection_correction(messages, response, error), attempt + 1\n",
         _REFLECTION_RETRY_KILLERS,
-    ),
-    SourceMutation(
-        "decision_prompt_ignores_action_order",
-        'worldmock.delivery.windows::_decision_prompt_source.candidates',
-        '                  and row["event_seq"] < action["event_seq"] and row["agent_id"] == action["agent_id"]\n',
-        '                  and row["agent_id"] == action["agent_id"]\n',
-        _WINDOW_KILLERS,
     ),
     SourceMutation(
         "version_8_world_state_accepted",
@@ -1112,13 +1062,6 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         "    schema_version: Literal[WORLD_SCHEMA_VERSION]\n",
         "    schema_version: Literal[WORLD_SCHEMA_VERSION, 8]\n",
         _VERSION_8_STATE_KILLERS,
-    ),
-    SourceMutation(
-        "version_8_export_passes_delivery_gate",
-        'worldmock.delivery.pipeline::_require_current_world_schema',
-        "    if schema_version != WORLD_SCHEMA_VERSION:\n",
-        "    if schema_version not in {WORLD_SCHEMA_VERSION, 8}:\n",
-        _VERSION_8_EXPORT_KILLERS,
     ),
     SourceMutation(
         "todo_layer_omits_errands",
@@ -1453,8 +1396,8 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     SourceMutation(
         "progress_arguments_carry_errands",
         'worldmock.life.progress_layer::_arguments',
-        "    return control_request(tool, request, memories=True)\n",
-        '    return {**control_request(tool, request, memories=True), "errands": request["errands"]}\n',
+        "    return control_request(tool, request)\n",
+        '    return {**control_request(tool, request), "errands": request["errands"]}\n',
         _SEPARATION_KILLERS,
     ),
     SourceMutation(
@@ -1471,7 +1414,7 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "system_layer_copy_diverges",
-        'custom.agents.life_prompt::LIFE_SYSTEM_LAYER',
+        'worldmock.agents.life_prompt::LIFE_SYSTEM_LAYER',
         '        "到提醒时刻只提醒一次，不会叫醒睡着的你；其他需要延续的打算写进 pause_activity 或 conclude_activity 的 "\n',
         '        "到提醒时刻只提醒一次，会叫醒睡着的你；其他需要延续的打算写进 pause_activity 或 conclude_activity 的 "\n',
         _VERBATIM_KILLERS,
@@ -1511,16 +1454,9 @@ MUTATIONS: tuple[SourceMutation, ...] = (
             "    for index, item in enumerate(control_items(tool, request)):\n"
             '        row: dict[str, Any] = {"activity_name": item.activity_name, "summary": item.summary}\n'
             "        if index:\n"
-            "            row.update(memories=list(item.plain_memories), views=list(item.views))\n"
+            "            row[\"views\"] = list(item.views)\n"
         ),
         _PROJECTION_KILLERS,
-    ),
-    SourceMutation(
-        "projection_mutates_source_event",
-        'worldmock.delivery.windows::_public_event_data.public',
-        '        public = {key: data[key] for key in ("tool_name", "request", "self_note") if key in data}\n',
-        "        public = data\n",
-        _INTACT_KILLERS,
     ),
     SourceMutation(
         "errand_metrics_use_goal_denominator",
@@ -1572,21 +1508,21 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "persona_layer_drops_work_anchor",
-        'custom.agents.life_persona::_card_fields',
+        'worldmock.agents.life_persona::_card_fields',
         '"leave_work": _optional_window(anchors.leave_work)',
         '"leave_work": None',
         _PERSONA_ANCHOR_KILLERS,
     ),
     SourceMutation(
         "persona_layer_drops_arrive_home",
-        'custom.agents.life_persona::_card_fields',
+        'worldmock.agents.life_persona::_card_fields',
         '"arrive_home": _optional_window(anchors.arrive_home)',
         '"arrive_home": None',
         _PERSONA_ANCHOR_KILLERS,
     ),
     SourceMutation(
         "host_renders_work_schedule",
-        'custom.agents.life_persona::persona_layer.layer',
+        'worldmock.agents.life_persona::persona_layer.layer',
         '        "preferences": [dict(item) for item in views["preferences"]],\n',
         (
             '        "preferences": [dict(item) for item in views["preferences"]],\n'
@@ -1822,11 +1758,10 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "结算事件沿用证据事件的决策身份": {"stage": "2", "mutations": ("settlement_event_inherits_evidence_identity",)},
     "事务文字写进进度层参数或 `self_notes`": {"stage": "2", "mutations": ("progress_arguments_carry_errands",
                                                                      "self_notes_carry_errand_text")},
-    "意图或 dreaming 投影带出请求级 `errands`": {"stage": "2", "mutations": ("control_projection_carries_errands",)},
-    "投影原地修改原事件": {"stage": "2", "mutations": ("projection_mutates_source_event",)},
+    "进度层请求参数带出个人事务": {"stage": "2", "mutations": ("control_projection_carries_errands",)},
     "事务指标以目标数为分母": {"stage": "2", "mutations": ("errand_metrics_use_goal_denominator",)},
     "版本 8 检查点被放行": {"stage": "2", "mutations": ("version_8_world_state_accepted",
-                                                  "version_8_export_passes_delivery_gate")},
+                                                  )},
     "抽取或人设层投影丢掉故事写明的下班、到家锚点": {"stage": "3", "mutations": (
         "extraction_drops_stated_work_anchor", "extraction_drops_stated_arrive_home",
         "persona_layer_drops_work_anchor", "persona_layer_drops_arrive_home")},
@@ -1870,8 +1805,6 @@ EXTRA_MUTATIONS: dict[str, str] = {
     "reflection_retry_bound_zero": "实施计划阶段 1「突变审查的目标」严格反思：重试上限改为 0（第一次不合合同即运行故障）。",
     "reflection_correction_accumulates_messages": "实施计划阶段 1「突变审查的目标」严格反思：附回消息逐次累积而不基于原始"
                                                   "消息。",
-    "decision_prompt_ignores_action_order": "实施计划阶段 1「突变审查的目标」交付窗口：选取决策提示时去掉「早于动作」条件"
-                                            "（杀手为反思请求排在动作之后的一例）。",
     "items_without_errands_accepted": "实施计划阶段 2「突变审查的目标」：带 items 缺 `errands` 的请求被放行（control_items "
                                       "去掉请求级 errands 的必有检查）。",
     "duplicates_judged_before_cancels": "实施计划阶段 2「突变审查的目标」：同一请求不先扣除取消就判重名与上限（新增与"
@@ -1887,8 +1820,8 @@ EXTRA_MUTATIONS: dict[str, str] = {
                                               "（deliver_reminders 只留第一条草稿）。",
     "system_layer_copy_diverges": "实施计划阶段 2「突变审查的目标」：系统层两份手写副本不一致（life_prompt.py 第 6 条改掉"
                                   "一个分句，接口合同「请求组成」的登记不跟随）。",
-    "control_projection_trims_first_item_only": "实施计划阶段 2「突变审查的目标」：交付投影只裁首项（control_request 让"
-                                                "第二项起保留 memories 与 views）。",
+    "control_projection_trims_first_item_only": "实施计划阶段 2「突变审查的目标」：进度层只过滤首项（control_request 让"
+                                                "第二项起带出 views）。",
     "errand_named_twice_accepted": "规格 2.2「同一条未完成事务在一次请求里至多被一条更新或取消点名」与 2.3 表第 1 行（阶段 2 "
                                    "复审补登）：同一事务被第二条更新或取消点名时不再判出。",
     "added_twins_with_one_product_accepted": "规格 2.3 表第 4 行「结果种类与商品都与…同请求另一条新增相同」（阶段 2 复审"
@@ -1917,14 +1850,12 @@ EXTRA_MUTATIONS: dict[str, str] = {
 #: 本特性新增或改动的生产文件（延期标记与空壳函数的扫描范围），随各提交增长；阶段 1 的清单取自实施计划「台账形态」行。
 FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "custom/agents/life_agent.py",
-    "custom/agents/life_continuation.py",
-    "custom/agents/life_memory.py",
-    "custom/agents/life_persona.py",
-    "custom/agents/life_prompt.py",
-    "custom/agents/life_reflection.py",
+    "src/worldmock/agents/life_continuation.py",
+    "src/worldmock/agents/life_memory.py",
+    "src/worldmock/agents/life_persona.py",
+    "src/worldmock/agents/life_prompt.py",
+    "src/worldmock/agents/life_reflection.py",
     "scripts/inspect_run.py",
-    "src/worldmock/delivery/pipeline.py",
-    "src/worldmock/delivery/windows.py",
     "src/worldmock/evaluation/behavior_metrics.py",
     "src/worldmock/evaluation/errand_metrics.py",
     "src/worldmock/evaluation/workload_metrics.py",
@@ -1977,7 +1908,6 @@ FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/evaluation/test_workload_metrics.py",
     "tests/footprints/test_errand_export.py",
     "tests/integration/test_errand_checkpoint.py",
-    "tests/integration/test_errand_delivery_windows.py",
     "tests/integration/test_errand_prompt_separation.py",
     "tests/integration/test_read_query_runtime.py",
     "tests/integration/test_strict_reflection.py",

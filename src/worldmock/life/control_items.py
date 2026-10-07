@@ -1,6 +1,6 @@
 """@brief 只读取现行逐项控制请求，旧控制记录直接拒绝。
 
-本模块是控制请求的唯一读取入口（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-交付边界 ）：control_items 读逐项内容，control_errands 读请求级
+本模块是控制请求的唯一读取入口（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-控制请求记录 ）：control_items 读逐项内容，control_errands 读请求级
 的个人事务变更；两者对工具与请求形状用同一套检查，缺字段（含请求级 errands）即完整性故障。
 """
 
@@ -78,15 +78,15 @@ def control_errands(tool: str, request: Mapping[str, Any] | BaseModel) -> tuple[
     return tuple({key: _field(entry, key, tool) for key in _ERRAND_KEYS} for entry in entries)
 
 
-def control_request(tool: str, request: Mapping[str, Any] | BaseModel, *, memories: bool) -> dict[str, Any]:
-    """@brief 以现行形状重写的请求参数：每项活动名与自述；memories 为真时结束工具每项另带普通记忆（请求形状，没有
-    subject），看法与偏好一律不带（进度层参数带普通记忆，交付窗口的意图与 dreaming 输入都不带）。请求级 errands
-    恒不带出（进度层参数略去它，回执 details.errands 是事务变更的唯一呈现；意图与 dreaming 投影同样不带），但输入必须
-    是带 errands 的现行形状（经 control_items 读取）。"""
+def control_request(tool: str, request: Mapping[str, Any] | BaseModel) -> dict[str, Any]:
+    """@brief 生成进度层的现行请求参数：活动名、自述和收尾的普通记忆。
+
+    看法与偏好仅在人设层呈现；个人事务只通过回执 details.errands 呈现。输入必须是现行逐项请求。
+    """
     rows = []
     for item in control_items(tool, request):
         row: dict[str, Any] = {"activity_name": item.activity_name, "summary": item.summary}
-        if memories and tool == "conclude_activity":
+        if tool == "conclude_activity":
             row["memories"] = [{key: memory[key] for key in _MEMORY_KEYS} for memory in item.plain_memories]
         rows.append(row)
     return {"items": rows}

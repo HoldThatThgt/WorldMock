@@ -13,7 +13,7 @@
 创建完整的 `experiments/my-world/` 副本，保留目录与语料相对引用。
 数据采集与制作按数据仓说明执行，WorldMock 安装与导入不要求源码仓中有正式环境数据。
 
-[返回手册](README.md#readme-用户配置手册) · [生活场景](scenarios.md#scenarios-生活场景) · [数据生成](delivery.md#delivery-自定义训练数据交付)
+[返回手册](README.md#readme-用户配置手册) · [生活场景](scenarios.md#scenarios-生活场景)
 
 <a name="runtime-准备环境"></a>
 ## 准备环境
@@ -28,8 +28,8 @@ python scripts/bootstrap.py --profile release
 ```
 
 引导使用 Python 3.12、Git 与哈希依赖锁，不需要 SSH 密钥或预先安装 uv；Windows 可用 `py -3.12`，
-其它系统可用 `python3.12`。默认 `release` 要求 Node SQLite、中文图表字体与独立 LabelKit 环境齐全；
-`dev` 记录缺失，只有 Node 与 LabelKit 的对应消费者会明确跳过，字体消费者仍执行实际检查，
+其它系统可用 `python3.12`。默认 `release` 要求 Node SQLite 与中文图表字体齐全；
+`dev` 记录缺失，只有 Node 的对应消费者会明确跳过，字体消费者仍执行实际检查，
 缺失任何组件都不能取得完整通过。`--use-uv` 只在显式指定时使用 uv，缺少 uv 即失败。
 `--wheelhouse` 指定离线依赖及固定源码制品目录，禁止联网补缺；制品或哈希不符即失败。
 环境收据写入 `.work/environment-receipt.json`，记录 Python、锁、源码摘要、缺失部件与实际能力，路径均相对项目。
@@ -66,17 +66,12 @@ macOS 与 Windows 也由生产字体选择器核对本机已安装的中文字�
 | Windows PowerShell | `.venv\Scripts\Activate.ps1` |
 | Windows cmd | `.venv\Scripts\activate.bat` |
 
-独立 LabelKit CLI 使用下文的自身环境入口；它不使用 WorldMock 的虚拟环境。
-
 AS2 唯一来源是 `patches/agentsociety2/SERIES` 登记的上游源码与有序补丁，从生成目录
 `vendor/agentsociety2/packages/agentsociety2` 可编辑安装。启动时核对实际导入的 AS2 包：
 包目录为空、无法导入或源码摘要与锁定值不符时，`run`、`resume`、
 `replay` 与 `validate` 都拒绝启动，不能用别处安装的其他 AS2 版本代替。wheel 安装或 `--no-editable` 安装同样
 被拒绝：构建 wheel 时 AS2 的 `.gitignore` 会剔除 `agentsociety2/custom/*/examples/` 下 6 个受跟踪文件，摘要因此不符。
 
-WorldMock 与 LabelKit 使用各自环境；LabelKit 的命令入口在 Linux 为
-`vendor/labelkit/.venv/bin/labelkit`，在 Windows 为 `vendor/labelkit/.venv/Scripts/labelkit.exe`。
-完整 `worldmock validate` 也会检查这个入口，不能只安装 WorldMock 的环境。
 Windows 还需要安装[微软官方 Visual C++ v14 x64 运行库](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170)；
 Ray 的子进程需要它加载原生模块。`worldmock validate` 会在独立进程中检查 Ray 导入，
 避免到模拟启动时才发现缺少运行库。
@@ -163,7 +158,6 @@ AgentSociety2 调度器发送 OpenAI 格式请求，因此必须连接 OpenAI �
 | --- | --- |
 | `run`、`resume`、`replay` | 固定私密文件中的 `DEEPSEEK_NODE_KEYS`，不以同名环境变量替代文件 |
 | `profile compile`、`profile check`、画像覆盖率校验 | 优先环境变量 `DEEPSEEK_NODE_KEYS`，其次私密文件，取池中第一把密钥 |
-| LabelKit 数据生成 | 使用其项目配置和凭据引用，见[数据生成](delivery.md#delivery-自定义训练数据交付) |
 
 画像抽取通过独立客户端请求 `https://api.deepseek.com/beta/chat/completions`，默认模型同为
 `deepseek-flash`，只使用密钥池第一把；直接调用抽取接口时可显式传入密钥。
@@ -305,7 +299,6 @@ worldmock replay \
 | --- | --- |
 | `DeepSeek credential file is missing or unsafe` | 文件路径、是否为普通文件、是否为符号链接 |
 | `DeepSeek credential file has an invalid schema` | 是否只有 `DEEPSEEK_NODE_KEYS`，值或逗号分隔的密钥段是否为空 |
-| `The isolated LabelKit CLI environment is not installed` | 是否安装了 LabelKit 的独立环境 |
 | `AS2 runtime identity differs from the locked source` | 是否按「准备环境」运行 `python scripts/bootstrap.py --profile release`，核对 SERIES 源码摘要并从生成源码可编辑安装（wheel 或 `--no-editable` 安装会被拒绝）；实际导入的 AS2 包是否为空、无法导入或被改动 |
 | 只设置环境变量，模拟仍报凭据缺失 | 模拟启动器读取私密文件；画像抽取的读取顺序不同 |
 | 输出目录已经存在 | 改用新的运行或导出目录，保留原记录 |
@@ -341,7 +334,7 @@ worldmock run --scenario experiments/my-world/scenarios/single-person.json --out
 worldmock export --run-dir runs/my-persona-day --output runs/my-persona-day/exports/final
 ```
 
-目录、规则包副本、图和运行身份必须一致；地图种子属于 `map.json`，不与场景种子绑定。已发布字节不原版覆盖，旧检查点直接拒绝，不迁移；恢复和假设分支新目录。导出 3 的五类工件、质量 5、交付 3 按[现行合同](../CONTRACTS.md#contracts-worldmock-接口合同)核对；正式回归阻断与各平台实际回执见[实施状态](../dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态)。
+目录、规则包副本、图和运行身份必须一致；地图种子属于 `map.json`，不与场景种子绑定。已发布字节不原版覆盖，旧检查点直接拒绝，不迁移；恢复和假设分支新目录。导出 3 的五类工件、质量 5 按[现行合同](../CONTRACTS.md#contracts-worldmock-接口合同)核对；正式回归阻断与各平台实际回执见[实施状态](../dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态)。
 
 <a name="runtime-版本表"></a>
 ## 版本表

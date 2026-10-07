@@ -23,7 +23,7 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest  # noqa: E402
 
 from custom.agents.life_agent import LifeAgent  # noqa: E402
-from custom.agents.life_feedback import FEEDBACK_INSTRUCTION, HostFeedback, host_feedback  # noqa: E402
+from worldmock.agents.life_feedback import FEEDBACK_INSTRUCTION, HostFeedback, host_feedback  # noqa: E402
 from tests.integration.test_life_agent_protocol import (_TASK, _WAIT, _WAIT_CHOICE, _WORK,  # noqa: E402
                                                         _Environment, _GroundedCorrectionDispatcher, _ModelResponse,
                                                         _add_objects, _conclude_args, _context, _memory, _observations,

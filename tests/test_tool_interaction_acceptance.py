@@ -28,8 +28,8 @@ FEATURE_SOURCES = (
     "src/worldmock/life/business_feedback.py", "src/worldmock/life/engine.py",
     "src/worldmock/life/session_actions.py", "src/worldmock/life/tool_layer.py",
     "src/worldmock/life/activity_control.py", "src/worldmock/life/interaction_menu.py",
-    "custom/agents/life_agent.py", "custom/agents/life_feedback.py", "custom/envs/life_env.py",
-    "custom/agents/life_continuation.py", "src/worldmock/life/todo_layer.py",
+    "custom/agents/life_agent.py", "src/worldmock/agents/life_feedback.py", "custom/envs/life_env.py",
+    "src/worldmock/agents/life_continuation.py", "src/worldmock/life/todo_layer.py",
     "src/worldmock/life/motivation.py", "src/worldmock/footprints/purchases.py",
     "src/worldmock/footprints/quality.py",
 )

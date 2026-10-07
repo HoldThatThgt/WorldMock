@@ -1,6 +1,8 @@
 <a name="spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面"></a>
 # 特性规格：数字人交互（会话层、上下文分层与稳定工具面）
 
+> 2026-10-07 按用户确认的[数据加工归属](../ARCHITECTURE.md#architecture-数据加工归属)修订：WorldMock 负责模拟、记录、完整认证足迹导出与真实性评估；LabelKit 加工、模型任务、训练装载与规则测试归 LabelKit-DataSet；环境素材归 WorldMock-Dataset。历史验收数字只证明原源码基线，不代表本次消费链已验收。
+
 > 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的最终工具面与工作主题会话。
 
 > 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「对象与动作选择」、「前置条件前置与前往提醒」、「会话的状态位置」（阶段 2）；「即时查询、完整纠错与紧凑呈现、与既有文档的一致性核对」（阶段 3）；「对象与动作选择、决策轮循环与播报节律、冻结条款修订、游戏简化、上下文分层、会话字段、一致性核对」（阶段 4，app 使用与推送）。
@@ -75,8 +77,8 @@ flowchart TB
 **范围**：三级结构、活动生命周期、上下文分层与进度层、稳定工具面、决策轮循环与播报节律、
 前置条件前置与前往提醒、并发上限、容量与午夜浓缩、游戏简化。
 
-**跨规格边界**：评估、LabelKit 交付、画像、语料、品类与账本的领域规则分别由其规格负责；
-本规格要求交付链读取与实际模型请求一致的公开投影，不能再从原始观察重组一份不同的输入。
+**跨规格边界**：评估、画像、语料与账本的领域规则分别由其规格负责；数据加工和模型任务由 LabelKit-DataSet 的规格负责。
+WorldMock 保存实际发送给模型的最终请求与响应，并通过完整导出交接，保证下游能够读取原始事实。
 
 <a name="spec-agent-interaction-三级结构与概念边界"></a>
 ## 三级结构与概念边界
@@ -685,7 +687,7 @@ if snap.is_asleep:
 | 零点计划 | `model_request`、`model_response` 带 `data.purpose="plan_day"`（`visibility=system`，不带 `decision_id` 与 `action_id`）；计划写 `environment_event`（`data.kind="day_plan_generated"`，带 `data.day_plan` 与输入来源 `data.source_event_ids`），与世界状态中的计划、提醒和 `plan_submitted_dates` 同一次提交 |
 | 会话快照 | 世界状态，随 `life` 快照保存 |
 | 可读名称至内部身份及冻结报价 | 私有观察绑定与已登记动作证据，不能进入模型提示 |
-| 实际模型请求与交付输入 | 保存同一份最终公开请求视图；交付时不从原始观察重组另一版本 |
+| 实际模型请求与足迹 | 保存同一份最终请求和响应；完整导出可追溯到实际模型调用 |
 
 **这同时确认**：进展自述一旦提交就永久留在 append-only 记录里，提示层的浓缩只改变
 下一次所见，不会删除原始记录。
@@ -732,10 +734,8 @@ flowchart LR
 | `docs/dev/SPEC-decision-context.md#spec-decision-context-特性规格决策上下文与工具结果` | 结果在本 session 内留在进度层、session 结束后进入记忆层；达到阈值先提前结束续接再浓缩进度层；旧字符闸门与新 token 预算关系 |
 | `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则` | 业务拒绝后同一秒再决策（同刻上限）、引擎派生执行参数、会话状态和播报原因 |
 | `docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像` | 午夜记忆巩固仍不篡改事件与已核验经历；app 使用只暴露 app 目标、app 推送与公开内容结果 |
-| `docs/dev/SPEC-labelkit-delivery.md#spec-labelkit-delivery-特性规格数字足迹接入-labelkit` 与 `docs/EXPERIMENT.md#experiment-worldmock-实验设置` | 交付输入采用实际发送给模型的公开请求视图，保留其记忆与自述来源；不得把私有观察或后台 `plan_day` 请求混进样本；模型阶段只有 `action` |
 | `docs/design/04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎` | 对象与动作选择、固定食品价格、引擎派生时长和资源前置条件、非致命业务拒绝 |
-| `docs/design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎` | 会话和公开结果的事件归属、模型请求及交付输入的可重建性、世界结构版本 |
-| `docs/design/06-delivery.md#delivery-worldmock-产品设计说明书-数据交付` | LabelKit 输入只采用实际人物请求的公开视图，私有观察、重复前置状态和后台请求不混入 |
+| `docs/design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎` | 会话和公开结果的事件归属、模型请求及完整足迹的可重建性、世界结构版本 |
 | `docs/design/08-configuration.md#configuration-worldmock-产品设计说明书-配置规格` | 保护项改为世界请求工具与只读查询工具，场景已有节律参数的归属 |
 | `docs/design/09-io-formats.md#io-formats-worldmock-产品设计说明书-输入输出格式` | 模型请求与引擎内部请求分离、私有名称绑定、公开进度结构、世界结构版本 |
 | `docs/design/00-overview.md#overview-worldmock-产品设计说明书-概述`、`docs/design/01-architecture.md#architecture-worldmock-产品设计说明书-总体架构` | 七层请求（system 为系统层，user 为六层 JSON）取代三段消息载体、规格修订权威 |
@@ -749,11 +749,11 @@ flowchart LR
 | 职责 | 文件 |
 | --- | --- |
 | 模型工具与可读名称绑定 | `custom/agents/life_agent.py`、`src/worldmock/life/models.py`、`src/worldmock/life/observe.py`、`src/worldmock/life/session_actions.py` |
-| 对象、进度和容量投影 | `src/worldmock/life/projection.py`、`src/worldmock/life/narration.py`、`custom/agents/life_context.py` |
+| 对象、进度和容量投影 | `src/worldmock/life/projection.py`、`src/worldmock/life/narration.py`、`src/worldmock/agents/life_context.py` |
 | 结算、失败分类和执行反馈 | `src/worldmock/life/engine.py`、`src/worldmock/life/rules.py`、`src/worldmock/life/result_projection.py` |
-| 交付输入与公开结果一致性 | `src/worldmock/delivery/windows.py`、`training.py`、`pipeline.py` 与 `src/worldmock/evaluation/public_evidence.py`；不新增独立输入副本 |
+| 完整足迹与公开结果一致性 | `src/worldmock/footprints/export.py` 与 `src/worldmock/evaluation/public_evidence.py`；保存实际请求并认证其来源 |
 | 合同与设计文档 | 上节表中的所有文档，以及 `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态` 的实际实现状态 |
-| 验证 | `tests/life/` 的对象绑定、活动参数、非致命拒绝、进度容量测试；`tests/integration/` 的真实人物工具与交付输入往返测试 |
+| 验证 | `tests/life/` 的对象绑定、活动参数、非致命拒绝、进度容量测试；`tests/integration/` 的真实人物工具、原始请求持久化与完整导出测试 |
 
 <a name="spec-agent-interaction-验收台账"></a>
 ## 验收台账
@@ -774,7 +774,7 @@ flowchart LR
 | 前置条件 | 工作主题只在人物的工作地点开始，恢复依次核对地点、主题剩余上限、名额与占用；不满足时 `reason` 给出可执行下一步；没有技能、截止或材料门槛 |
 | 游戏与旧接口 | `game_action`、播放中变速和旧模型工具签名全链路不存在，游戏仍可选择、结算和自述 |
 | 记忆与检查点 | 午夜目标单句与记忆巩固不改已核验证据与事件，巩固摘要不进提示；记忆层按场景本地日期分区，未了结事项处理后消失；旧世界结构检查点被拒，未做迁移或兼容读取 |
-| 事件与交付 | 人物请求及系统结算可由事件审计；交付输入与实际发送给模型的公开请求视图一致，私有观察和评审模型请求不进入人物样本 |
+| 事件与足迹导出 | 人物请求及系统结算可由事件审计；完整导出保留实际模型请求、来源与可见性；数据集样本选择由 LabelKit-DataSet 验收 |
 | 文档一致性 | 上节每份冻结合同同步；相互链接与锚点可解析，旧 7 工具、单会话 4000 字符、只计 user 字符、独立结果层、三段消息载体、`scene`、`facts`、身份前言与「怎样过一天」的表述均不存在或注明被取代 |
 
 <a name="spec-agent-interaction-版本表"></a>

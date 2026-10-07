@@ -22,8 +22,8 @@ TRAITS = ('trait_source_kind',)
 
 def test_frozen_persona_identity_reaches_the_native_agent_prompt_as_the_persona_layer():
     """@brief 真实画像输入经宿主人设层与提示组装保留散文，不依赖其他用例的旧世界观察。"""
-    from custom.agents.life_persona import persona_layer
-    from custom.agents.life_prompt import life_user_layers, system_message
+    from worldmock.agents.life_persona import persona_layer
+    from worldmock.agents.life_prompt import life_user_layers, system_message
     from tests.profile.conftest import make_card
     from worldmock.profile.textgen import render_card
 

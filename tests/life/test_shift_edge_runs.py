@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from agentsociety2.society import DirectToolCall
 
-from custom.agents.life_prompt import life_user_layers, user_message
+from worldmock.agents.life_prompt import life_user_layers, user_message
 from tests.footprints.test_quality import _event, _manifest, _started as _started_data
 from tests.life.conftest import (StubPlanDayClient, activity_name, advance_next, conclude_request, context,
                                  layer_start, pause_request, report_request, settle_day_plans, stage_day_plan, stage_errands,

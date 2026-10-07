@@ -18,7 +18,7 @@ from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 
 from custom.agents.life_agent import LifeAgent
-from custom.agents.life_feedback import feedback_report
+from worldmock.agents.life_feedback import feedback_report
 from tests.life.conftest import context, errand_add, errand_cancel, errand_update, stage_errands
 from tests.life.test_errand_changes import engine_factory
 from tests.life.test_errand_requests import _constructed, _errand_events, _next_chance, _one, _waiting

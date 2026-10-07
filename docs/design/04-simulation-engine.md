@@ -99,7 +99,7 @@ flowchart TB
     PERSON -->|模型调用与记忆证据| RECORD
     RECORD -->|已核验的分支存储与恢复材料| RESTORE
     CONTROL[明确的恢复或反事实运行请求] --> RESTORE
-    RECORD -->|认证导出| DELIVERY[数据交付<br/>离线 Dreaming、LabelKit 加工与发布]
+    RECORD -->|认证导出| DELIVERY[LabelKit-DataSet<br/>数据加工与发布]
     DELIVERY --> OUTPUT[模型训练数据与规则引擎测试数据]
 
     classDef engine fill:#f2f2f2,stroke:#888,color:#222
@@ -120,7 +120,7 @@ flowchart TB
 | [资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎) | 资源与内容定义、语料准入、目录发布、检索排序与内容提供 | 传入当前世界条件、可见范围和实际接触区间，使用返回结果 |
 | [交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎) | 交换条件、占用与转换规则求值，投入产出和资源约束校验 | 提供当前状态、实际时长、工作量与食品利用效率等输入，使用返回结果落实状态变化 |
 | [记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎) | 事件与状态存储、事务、证据关联、检查点校验、分支材料、认证导出与查询 | 提供真实过程，在完整运行边界请求保存；取得确认或恢复结果后继续 |
-| [数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付) | 证据窗口、离线 Dreaming、LabelKit 调用、编码和发布 | 实际反事实运行结束后，由记录引擎向交付提供认证导出 |
+| LabelKit-DataSet 数据加工 | 证据窗口、离线 Dreaming、LabelKit 调用、编码和发布 | 实际反事实运行结束后，由记录引擎向 LabelKit-DataSet 提供完整认证导出 |
 | [行为评估](07-evaluation.md#evaluation-worldmock-产品设计说明书-行为评估) | 行为指标、评分与真实性评价；原始足迹的客观统计由记录引擎提供 | 提供可分析的运行事实，正式运行不因报告而自行改变规则或选择 |
 
 世界状态由模拟引擎中的生活环境统一修改；人物模块维护自己的记忆与工作区，
@@ -893,7 +893,7 @@ flowchart LR
 [记录引擎](05-recording-engine.md#recording-engine-反事实分支与来源关系)。
 
 模拟引擎只负责在恢复状态上实际执行。离线经历归纳、反思、假设文本生成和 LabelKit 调用
-由[数据交付](06-delivery.md#delivery-dreaming-窗口提取规则)负责，默认不写回运行中的人物。
+由 LabelKit-DataSet 负责，默认不写回运行中的人物。
 只有实际完成并由记录引擎认证的运行结果，才能作为真实反事实分支交付。
 
 <a name="simulation-engine-附录运行约束与验证"></a>
@@ -1084,3 +1084,4 @@ LifeEngine 的初始化、新建、打开、检查点、干预和关闭按实际
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题准入、累计与完成设计，版本号不变 |
 | `2026-10-06-rrs-prompt` | 2026-10-07 | 剩余系统规则与提示身份、当前 app 和工作主题查看器；工具身份保持已验收形状 |
+| `2026-10-07-repository-ownership` | 2026-10-07 | 按用户裁决收敛目录与职责：WorldMock 保留模拟、记录、完整认证足迹与评估；下游加工、模型任务、训练和规则数据归 LabelKit-DataSet，源码快照已接收，新消费验收另记实际证据 |

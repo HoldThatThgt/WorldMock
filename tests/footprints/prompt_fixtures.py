@@ -1,7 +1,4 @@
-"""交付测试用的实际行动请求 user 消息：六层 JSON（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「请求组成」）。
-
-dreaming 读实际请求中的层 JSON（第七章「交付」），夹具中的行动请求须带这条 user 消息，层序与生产请求相同。
-"""
+"""@brief 导出认证测试使用的已记录六层行动请求。"""
 
 from __future__ import annotations
 

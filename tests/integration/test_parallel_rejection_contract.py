@@ -12,7 +12,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
 os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
-from custom.agents.life_menu import menu_action_error
+from worldmock.agents.life_menu import menu_action_error
 from custom.envs.life_env import LifeEnv
 from tests.integration.test_interaction_menu_roundtrip import _decide
 from tests.integration.test_life_agent_protocol import _WAIT_CHOICE, _offer, _visible_object

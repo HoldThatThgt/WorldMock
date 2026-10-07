@@ -18,11 +18,11 @@ from worldmock.status import read_status, write_status
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """@brief 公开明确的新建、恢复、只读查询和交付命令。"""
+    """@brief 公开明确的新建、恢复、只读查询和足迹导出命令。"""
     parser = argparse.ArgumentParser(prog="worldmock", description="Auditable AS2 life simulation")
     parser.add_argument("--project-root", type=Path, default=Path(__file__).resolve().parents[2])
     commands = parser.add_subparsers(dest="command", required=True)
-    validate = commands.add_parser("validate", help="validate scenario, corpus, dependencies, and delivery contracts")
+    validate = commands.add_parser("validate", help="validate scenario, corpus, dependencies, and runtime contracts")
     validation_source = validate.add_mutually_exclusive_group(required=True)
     validation_source.add_argument("--scenario", type=Path)
     validation_source.add_argument("--environment", type=Path, help="validate a published environment directory")
@@ -46,10 +46,6 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--run-dir", type=Path, required=True)
     export.add_argument("--cutoff", type=int)
     export.add_argument("--output", type=Path, required=True)
-    deliver = commands.add_parser("deliver", help="execute LabelKit, training loader, and rule fixtures")
-    deliver.add_argument("--export", type=Path, required=True)
-    deliver.add_argument("--output", type=Path, required=True)
-    deliver.add_argument("--replay-export", type=Path, action="append", default=[])
     _profile_arguments(commands)
     _evaluation_arguments(commands)
     _environment_arguments(commands)
@@ -128,9 +124,6 @@ def _dispatch(arguments) -> dict:
         return read_status(arguments.run_dir)
     if command == "export":
         return _export_command(arguments)
-    if command == "deliver":
-        from worldmock.delivery.pipeline import deliver
-        return deliver(arguments.export, arguments.output, arguments.project_root, tuple(arguments.replay_export))
     if command == "validate":
         from worldmock.validation import validate_environment, validate_project
         if arguments.environment is not None:

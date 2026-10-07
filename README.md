@@ -1,146 +1,128 @@
 <a name="readme-worldmock"></a>
 # WorldMock
 
-> 按[资源与规则引擎简化规格](docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「安装、实验与数据、命令及实施证据边界」（阶段 8）；此前阶段的修订并入同一现行合同。
+WorldMock 用 AgentSociety 2 与 DeepSeek 驱动数字人的日常生活，把观察、决策、行动、状态变化和结果写成
+连续、可追溯的数字足迹。WorldMock 负责模拟、记录、完整足迹导出和真实性评估。
+WorldMock-Dataset 提供环境素材与制作工具；LabelKit-DataSet 负责足迹整理、LabelKit 模型任务、训练数据加载和规则测试数据。
 
-
-WorldMock 用 AgentSociety 2（下称 AS2）与 DeepSeek 驱动数字人的日常生活，把生活过程写成可追溯的数字足迹，
-再交给 LabelKit 生产模型训练数据与规则引擎测试数据。
-WorldMock-Dataset 提供具体环境的数据与制作工具；WorldMock 提供引擎及安装包内的固定通用规则。
+```mermaid
+flowchart LR
+    D[WorldMock-Dataset<br/>环境素材与冻结发布] --> W[WorldMock<br/>模拟与记录]
+    W --> E[完整认证足迹导出]
+    E --> P[LabelKit-DataSet / persona<br/>数据加工与数据集发布]
+    P --> L[LabelKit<br/>模型任务执行]
+    L --> P
+    E --> V[WorldMock<br/>真实性评估]
+```
 
 <a name="readme-文档导航"></a>
 ## 文档导航
 
-[docs/INDEX.md](docs/INDEX.md#index-worldmock-文档入口) 是唯一入口，给出项目状态、文档地图与阅读路径；其余文档按职责分工：
-
-想自定义人物和生活环境，从[用户配置手册](docs/manual/README.md#readme-用户配置手册)开始：包含一天场景入门、
-人物画像、场景、世界素材、规则、模型凭据、数据生成和评估配置的编写与校验方法。
+[文档入口](docs/INDEX.md#index-worldmock-文档入口)说明权威层级与当前状态。
+自定义人物、环境和运行，从[用户配置手册](docs/manual/README.md#readme-用户配置手册)开始。
 
 <a name="readme-主文档集"></a>
 ### 主文档集
 
-- [架构设计](docs/ARCHITECTURE.md#architecture-worldmock-架构设计)：系统分层、职责、数据流与核心裁决。
-- [接口合同](docs/CONTRACTS.md#contracts-worldmock-接口合同)：跨模块接口合同与导航，记录引擎定义见所属设计。
-- [实验身份](docs/EXPERIMENT.md#experiment-worldmock-实验设置)：依赖、场景、时间窗、样本与外部参照。
-- [验证与验收](docs/VERIFICATION.md#verification-worldmock-验收标准)：四项协议门禁、report-only 边界、测试矩阵与证据规则。
-- [实现状态](docs/dev/implementation-status.md#implementation-status-worldmock-实现状态)：当前实现情况与覆盖率。
-- [覆盖率口径与基线](docs/dev/coverage-baseline.md#coverage-baseline-覆盖率门禁口径与基线)：覆盖率门禁的判定口径、失败关闭约定与基线记录。
-- `docs/dev/SPEC-*.md`：特性实施规格；是否冻结以文件抬头与 `docs/INDEX.md#index-worldmock-文档入口` 为准。
-- `docs/dev/PROPOSAL-*.md`（含按日期命名的 `PROPOSAL_<日期>_*.md`）：提案与裁决记录；是否已裁决以 `docs/INDEX.md#index-worldmock-文档入口` 为准。
-- [规格覆盖率追溯矩阵](docs/dev/ANALYSIS-spec-coverage.md#analysis-spec-coverage-规格测试用例覆盖率追溯矩阵)：规格条款与测试用例的覆盖率追溯矩阵。
-- `docs/dev/research/`：技术分析、审计与调研证据。
+- [架构设计](docs/ARCHITECTURE.md#architecture-worldmock-架构设计)：系统职责与数据流。
+- [接口合同](docs/CONTRACTS.md#contracts-worldmock-接口合同)：模拟请求、运行身份与公共接口。
+- [实验设置](docs/EXPERIMENT.md#experiment-worldmock-实验设置)：场景、时间窗、模型与外部参照。
+- [验收标准](docs/VERIFICATION.md#verification-worldmock-验收标准)：行为、真实性和工程门禁。
+- [实现状态](docs/dev/implementation-status.md#implementation-status-worldmock-实现状态)：按实际来源登记的证据和未完成项。
 
 <a name="readme-设计文档集"></a>
 ### 设计文档集
 
-- [记录引擎](docs/design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)：记录、素材、事务、检查点、分支、导出与诊断的统一设计和合同。
+[设计文档集](docs/design/README.md#readme-worldmock-设计文档集)按模拟、记录、评估等职责组织。
+[汇编版设计说明书](docs/design/worldmock-design.html)由 `scripts/build_design_doc.py` 生成，包含当前设计章节和接口合同摘录。
+[记录引擎设计](docs/design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)
+是事件、素材、检查点、导出与诊断的唯一合同。
 
-- [docs/design/](docs/design/)：产品设计说明书，提供实现级的完整规格，包含模块详细设计、算法流程、配置规格、数据格式等。参考 LabelKit 设计文档风格组织。
-- [汇编版设计说明书](docs/design/worldmock-design.html)：十章设计文档加接口合同摘录（人物工具、模型请求与命令行）汇编成的单文件，先看这一份；由 `scripts/build_design_doc.py` 生成，章节或合同改动后重新汇编。
+<a name="readme-目录结构"></a>
+## 目录结构
 
-```mermaid
-flowchart LR
-    A[DeepSeek 人物与记忆] --> B[AS2 决策轮]
-    B --> C[WorldMock：LifeEnv 生活与内容]
-    I[WorldMock-Dataset：冻结环境] -->|显式场景路径| C
-    J[WorldMock 安装包：通用规则] --> C
-    C --> D[SQLite 事件与共同检查点]
-    D --> E[固定足迹导出]
-    E --> F[LabelKit 语义加工]
-    F --> G[训练加载与规则执行]
-    E --> H[十二周真实性比较]
+```text
+WorldMock/
+├── .github/                    GitHub 自动检查的固定入口
+├── custom/
+│   ├── agents/life_agent.py    AgentSociety 2 扫描的 LifeAgent 类定义
+│   └── envs/life_env.py        AgentSociety 2 扫描的 LifeEnv 类定义
+├── src/worldmock/              可安装的生产代码
+│   ├── agents/                 人物提示、记忆与模型协议辅助模块
+│   ├── life/                   生活规则与世界运行
+│   ├── footprints/             事件、素材、检查点与完整导出
+│   └── evaluation/             因果核对、真实性评估与报告
+├── tests/                      测试与人工最小环境；共享配置在 tests/conftest.py
+├── scripts/                    环境引导、工程门禁与文档构建
+├── tools/                      运行查看器等人工检查工具
+├── patches/                    固定 AgentSociety 2 源码与补丁
+├── requirements/               固定依赖锁
+└── docs/                       当前合同、设计、手册与历史证据
 ```
+
+`custom/` 的两个类必须在文件内实际定义，框架按文件扫描注册；内部辅助代码由安装包管理。
+环境素材和数据加工工程分别在所属数据仓维护，通过正式文件交接。
 
 <a name="readme-安装"></a>
 ## 安装
 
-使用 Python 3.12、Git 和 Node。AS2 与 LabelKit 的 protobuf 依赖范围互斥，分别使用固定源码及各自环境。
-引导从仓库内上游源码与补丁重建 AS2，从固定 HTTPS 制品取得 LabelKit，不需要 SSH 密钥或预先安装 uv。
-使用 `.python-version` 固定的 CPython 3.12.13；每个平台的重建与运行能力须有真实回执。
-人工环境验收在 macOS 执行，Windows 与其他未执行平台不能据此宣称通过，见[实施状态](docs/dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态)。
+使用 `.python-version` 固定的 CPython 3.12.13、Git 与具有 SQLite 能力的 Node，并准备中文图表字体。
+引导从固定源码与补丁重建 AgentSociety 2，只安装 WorldMock 和 AgentSociety 2：
 
 ```sh
 python scripts/bootstrap.py --profile release
 ```
 
-Windows 可用 `py -3.12`，其它系统可用 `python3.12` 执行引导；找不到 Python 3.12 会明确失败。
-`--wheelhouse` 指定包含固定依赖和源码制品的离线目录；`--use-uv` 显式选择 uv 安装执行器。
-`dev` 档位可记录缺少 Node 或 LabelKit，但缺失检查不能取得完整放行。
-环境收据位于 `.work/environment-receipt.json`。安装步骤和平台验收边界见[运行配置](docs/manual/runtime.md#runtime-准备环境)。
+Windows 可用 `py -3.12`，其他系统可用 `python3.12`。`--wheelhouse` 指定离线制品目录；
+`--use-uv` 显式选择 uv。`release` 要求 Node 和中文字体齐全，`dev` 记录缺失且不能取得完整放行。
+环境收据位于 `.work/environment-receipt.json`；安装和激活步骤见[运行配置](docs/manual/runtime.md#runtime-准备环境)。
 
-引导完成后，在当前终端激活 WorldMock 环境，再执行本文的 `python` 和 `worldmock` 命令：
-
-| 终端 | 激活命令 |
-| --- | --- |
-| POSIX shell | `source .venv/bin/activate` |
-| Windows PowerShell | `.venv\Scripts\Activate.ps1` |
-| Windows cmd | `.venv\Scripts\activate.bat` |
-
-AS2 必须匹配 `patches/agentsociety2/SERIES` 登记的固定源码摘要；实际导入的包目录为空、无法导入或摘要不符时，
-`run`、`resume`、`replay` 与 `validate` 拒绝启动。
-
-DeepSeek 凭据保存于用户目录 `~/.config/worldmock/deepseek.env`，文件仅含 `DEEPSEEK_NODE_KEYS`，
-填写单把或逗号分隔的多把密钥。建议权限为 `0600`；完整格式及各入口的读取方式见[运行配置](docs/manual/runtime.md#runtime-填写模型凭据)。
-凭据文件不属于工程或运行产物，不能加入版本控制。
+模型凭据的格式与读取方式见[填写模型凭据](docs/manual/runtime.md#runtime-填写模型凭据)，凭据不加入版本控制。
+每个平台的重建与运行能力须由对应实际回执证明。
 
 <a name="readme-实验与数据"></a>
 ## 实验与数据
 
-正式环境由 WorldMock-Dataset 重制发布，尚未取得新发布回执；路径由实际发布身份确定，`corpora/`、`catalog/`、`scenarios/` 并列。
-目录为七份 JSON 与三份包 TOML 副本，场景结构为 `7`，使用环境标识和版本钉。
-内容标题与摘要来自目录，生活活动效果来自语料；系统分类、身体和交换常数由 WorldMock 固定规则包提供。
-人物自行选择行动；日历控制可用机会，不能将规定动作序列冒充模型决策。
+正式环境由 WorldMock-Dataset 发布，环境根中 `corpora/`、`catalog/`、`scenarios/` 并列。
+当前场景结构为 `7`，目录含七份 JSON 与三份包 TOML 副本；具体发布身份和验收按实际收据核对。
+人物自行选择行动，场景只提供现实约束、机会和到达事件。
 
-运行输出位于 `runs/`。事件数据库与内容素材保留实际来源；模型调用、行为结果、共同检查点、
-数据交付和真实性评估分别记录证据。恢复使用新目录，保留父运行。
+运行输出位于 `runs/`。事件数据库、素材、模型证据和共同检查点保留实际来源，恢复使用新的目录并保留父运行。
+导出清单列出事件、活动、已核验经历、购买和 app 使用五类工件。
 
 <a name="readme-命令"></a>
 ## 命令
 
-以下命令在 WorldMock 根目录执行，显式选择数据仓发布或人工编辑的环境根：
+在仓库根目录执行，显式选择数据仓发布或人工编辑的环境根：
 
 ```sh
 worldmock environment generate-map --locations experiments/published-environment/catalog/locations.json \
   --seed 7 --output experiments/published-environment/catalog/map.json --check
 worldmock validate --environment experiments/published-environment
 worldmock validate --scenario experiments/published-environment/scenarios/single-person.json
-worldmock run \
-  --scenario experiments/published-environment/scenarios/single-person.json \
-  --output runs/white-collar
+worldmock run --scenario experiments/published-environment/scenarios/single-person.json --output runs/white-collar
 worldmock status --run-dir runs/white-collar
 worldmock export --run-dir runs/white-collar --output runs/white-collar/exports/final
-worldmock deliver --export runs/white-collar/exports/final --output runs/white-collar/delivery
 ```
 
-`resume` 必须显式提供父运行、检查点和新的输出目录。数据采集、地图准备和正式目录构建由 WorldMock-Dataset 维护，
-按数据仓的说明发布冻结环境。运行时只读已校验快照，不访问在线路线服务。
+`resume` 显式提供父运行、检查点和新的输出目录；`replay` 还需提供严格的干预文件，实际执行新分支。
+完整导出随后交给 LabelKit-DataSet，加工任务、训练格式和规则测试数据由该仓库定义与验收。
+来源快照已交接并核对摘要，整合后的新消费验收尚未取得。
 
-引擎最小端到端测试使用人工夹具 `tests/fixtures/environment/`。验证 Dataset 环境下的完整行为回归时显式选择环境：
+真实性评估分两阶段：`evaluate` 提供双方输入、配置和新目录生成统计及盲评包；
+评审完成后提供同一 `--output` 与三个 `--reviews` 文件进行解盲和结论发布。
+
+引擎最小端到端测试使用 `tests/fixtures/environment/`。正式环境的完整行为回归显式选择环境：
 
 ```sh
-python scripts/run_tests.py --tier full --workers 6 \
-  --environment-root experiments/published-environment
+python scripts/run_tests.py --tier full --workers 6 --environment-root experiments/published-environment
 ```
 
-双仓归属、发布与验收要求见[环境数据归属规格](docs/dev/SPEC-environment-data-ownership.md)；
-本次整理的最终放行以实际门禁收据为准。
-
-`replay` 还需 `--intervention` 指向严格的假设条件文件，在新分支中实际重演；`deliver --replay-export`
-可接收该分支的完整导出，把实际分支结果与普通反事实想象分别标明。
-
-交给 LabelKit 的 `DatasetDict` 数据集结构、导出与交付产物的字段，由
-[接口合同](docs/CONTRACTS.md#contracts-worldmock-接口合同) 定义，本文件不重复。
-
-真实性评估分两阶段：`evaluate` 提供双方数据、配置和新目录以生成固定统计及盲评包；
-评审完成后，只传同一 `--output` 与三个 `--reviews` 文件进行解盲和结论发布。不能把模型评审称为真人评审。
-
-人工环境已在真实 LifeEngine 中完成活动、持久化、重开、认证导出与重算的阶段验收；app 使用、内容与推送来自实际事件，工作完成只取实际工时。导出清单含事件、活动、已核验经历、购买和 app 使用五类工件，字段以合同为准。
-
-阶段 1–8 已实现，macOS 人工完整日已双跑一致并冻结第三基线。工程门禁和独立审查按报告身份判定；正式环境和平台的未执行边界见[实施状态](docs/dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态)。目录检查不能替代真实模型、长期相似度或完整自然日 LabelKit 交付。
+工程门禁、正式模型运行、数据集消费验收和跨平台证明分别登记，当前状态见[实现状态](docs/dev/implementation-status.md#implementation-status-worldmock-实现状态)。
 
 <a name="readme-项目版本表"></a>
 ## 版本表
 
 | 版本 | 日期 | 变更 |
 | --- | --- | --- |
-| `2026-10-06-rrs-docs` | 2026-10-07 | 当前环境入口、固定 Python 与数字足迹链路；正式发布及平台证明按实际回执 |
+| `2026-10-07-repository-ownership` | 2026-10-07 | 明确三仓职责，整理框架入口、安装包与测试目录，删除下游加工入口和安装要求；新消费验收仍待所属仓库完成 |

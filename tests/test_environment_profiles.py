@@ -16,7 +16,35 @@ from tests import conftest as profiles
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.mark.parametrize("missing", [["Node"], ["LabelKit"], ["Node", "LabelKit"]])
+def _collection_config(missing):
+    """@brief 提供完整收集参数，只隔离环境部件的可用性。"""
+    options = {"--environment-profile": "dev", "--worldmock-selected": None,
+               "--worldmock-tier": "full", "--worldmock-changed": [],
+               "--worldmock-manifest": None, "--worldmock-receipt": None}
+    return SimpleNamespace(worldmock_component_status={"missing_components": missing},
+                           rootpath=ROOT, getoption=options.__getitem__)
+
+
+class _CollectionItem:
+    """@brief 模拟完整 pytest 收集项，让环境标记与正常分层选择共同执行。"""
+
+    def __init__(self, needs):
+        self.needs, self.marks = needs, []
+        self.path = Path(__file__).resolve()
+        self.name = self.originalname = "test_" + ("_".join(sorted(needs)) or "ordinary")
+        self.nodeid = "test_environment_profiles.py::" + self.name
+        self.fixturenames = []
+        self._fixtureinfo = SimpleNamespace(name2fixturedefs={})
+        self.obj = lambda: None
+
+    def get_closest_marker(self, marker):
+        return marker if marker in self.needs else None
+
+    def add_marker(self, marker):
+        self.marks.append(marker)
+
+
+@pytest.mark.parametrize("missing", [["Node"], ["Chinese font"], ["Node", "Chinese font"]])
 def test_release_rejects_each_missing_component(missing):
     with pytest.raises(RuntimeError, match="Required release components are missing"):
         environment.require_profile({"missing_components": missing}, "release")
@@ -24,22 +52,11 @@ def test_release_rejects_each_missing_component(missing):
 
 
 def test_dev_marks_only_tests_that_need_a_missing_component():
-    class Item:
-        def __init__(self, needs):
-            self.needs, self.marks = needs, []
-
-        def get_closest_marker(self, marker):
-            return marker if marker in self.needs else None
-
-        def add_marker(self, marker):
-            self.marks.append(marker)
-
-    items = [Item({"requires_node"}), Item({"requires_labelkit"}), Item(set())]
-    config = SimpleNamespace(worldmock_component_status={"missing_components": ["LabelKit"]},
-                             getoption=lambda name: "dev")
+    items = [_CollectionItem({"requires_node"}), _CollectionItem(set())]
+    config = _collection_config(["Node"])
     profiles.pytest_collection_modifyitems(config, items)
-    assert [bool(item.marks) for item in items] == [False, True, False]
-    assert items[1].marks[0].kwargs["reason"] == environment.MISSING_LABELKIT
+    assert [bool(item.marks) for item in items] == [True, False]
+    assert items[0].marks[0].kwargs["reason"] == environment.MISSING_NODE
     session = SimpleNamespace(config=config, exitstatus=0)
     profiles.pytest_sessionfinish(session, 0)
     assert session.exitstatus == pytest.ExitCode.TESTS_FAILED
@@ -47,21 +64,11 @@ def test_dev_marks_only_tests_that_need_a_missing_component():
 
 def test_chinese_font_missing_never_adds_skip_and_keeps_dev_nonpassing():
     """@brief 字体缺失保留评估实际执行，不新增 skip，且不能取得开发环境最终通过。"""
-    class Item:
-        def __init__(self, needs):
-            self.needs, self.marks = needs, []
-
-        def get_closest_marker(self, marker):
-            return marker if marker in self.needs else None
-
-        def add_marker(self, marker):
-            self.marks.append(marker)
-
-    items = [Item({"requires_node"}), Item({"requires_labelkit"}), Item(set())]
+    items = [_CollectionItem({"requires_node"}), _CollectionItem(set())]
     status = {"missing_components": ["Chinese font"]}
-    config = SimpleNamespace(worldmock_component_status=status, getoption=lambda name: "dev")
+    config = _collection_config(status["missing_components"])
     profiles.pytest_collection_modifyitems(config, items)
-    assert [item.marks for item in items] == [[], [], []]
+    assert [item.marks for item in items] == [[], []]
     session = SimpleNamespace(config=config, exitstatus=0)
     profiles.pytest_sessionfinish(session, 0)
     assert session.exitstatus == pytest.ExitCode.TESTS_FAILED
@@ -70,24 +77,12 @@ def test_chinese_font_missing_never_adds_skip_and_keeps_dev_nonpassing():
 
 
 def test_dev_known_missing_consumers_keep_exact_skips_when_font_is_also_missing():
-    """@brief 混合缺失仍只标记现有 Node 与 LabelKit 消费者，字体不制造额外跳过。"""
-    class Item:
-        def __init__(self, needs):
-            self.needs, self.marks = needs, []
-
-        def get_closest_marker(self, marker):
-            return marker if marker in self.needs else None
-
-        def add_marker(self, marker):
-            self.marks.append(marker)
-
-    items = [Item({"requires_node"}), Item({"requires_labelkit"}), Item(set())]
-    config = SimpleNamespace(worldmock_component_status={"missing_components": ["Node", "LabelKit", "Chinese font"]},
-                             getoption=lambda name: "dev")
+    """@brief 混合缺失只标记 Node 消费者，字体不制造额外跳过。"""
+    items = [_CollectionItem({"requires_node"}), _CollectionItem(set())]
+    config = _collection_config(["Node", "Chinese font"])
     profiles.pytest_collection_modifyitems(config, items)
-    assert [len(item.marks) for item in items] == [1, 1, 0]
+    assert [len(item.marks) for item in items] == [1, 0]
     assert items[0].marks[0].kwargs["reason"] == environment.MISSING_NODE
-    assert items[1].marks[0].kwargs["reason"] == environment.MISSING_LABELKIT
 
 
 def test_release_rejects_expected_failure_even_when_it_could_pass():
@@ -103,12 +98,12 @@ def test_dev_environment_receipt_records_missing_without_absolute_paths(tmp_path
     (requirements / "lock.txt").write_bytes(b"locked\n")
     (tmp_path / ".python-version").write_text("3.12.13\n")
     monkeypatch.setattr(environment, "component_status",
-                        lambda root: {"node_version": None, "missing_components": ["Node", "LabelKit"]})
+                        lambda root: {"node_version": None, "missing_components": ["Node", "Chinese font"]})
     monkeypatch.setattr(environment.subprocess, "check_output",
                         lambda *args, **kwargs: json.dumps({"implementation": "CPython", "version": "3.12.13"}))
     result = environment.write_receipt(tmp_path, "dev", {"as2_source_sha256": "a" * 64})
     assert result["passed"] is False
-    assert result["missing_components"] == ["Node", "LabelKit"]
+    assert result["missing_components"] == ["Node", "Chinese font"]
     content = (tmp_path / ".work/environment-receipt.json").read_text()
     assert str(tmp_path) not in content
     assert json.loads(content) == result

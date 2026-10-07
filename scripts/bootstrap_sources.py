@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import shutil
 import subprocess
 import tarfile
 import tempfile
-import urllib.request
 from pathlib import Path, PurePosixPath
 
 
@@ -113,50 +111,3 @@ def restore_as2(root: Path) -> str:
         package.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(stage, package, dirs_exist_ok=True)
     return digest
-
-
-def labelkit_artifact(root: Path, wheelhouse: Path | None = None) -> Path:
-    """@brief 按固定 HTTPS 制品取得 LabelKit，离线入口绝不访问网络。"""
-    spec = json.loads((root / "requirements/labelkit-source.json").read_text(encoding="utf-8"))
-    directory = wheelhouse if wheelhouse is not None else root / ".work/bootstrap/artifacts"
-    archive = directory / spec["archive"]
-    if not archive.exists() and wheelhouse is None:
-        directory.mkdir(parents=True, exist_ok=True)
-        temporary = archive.with_suffix(".download")
-        try:
-            with urllib.request.urlopen(spec["url"], timeout=60) as response, temporary.open("wb") as output:
-                shutil.copyfileobj(response, output)
-            require_hash(temporary, spec["sha256"])
-            os.replace(temporary, archive)
-        finally:
-            temporary.unlink(missing_ok=True)
-    require_hash(archive, spec["sha256"])
-    return archive
-
-
-def restore_labelkit(root: Path, wheelhouse: Path | None = None) -> dict:
-    """@brief 独立 LabelKit 进程只消费固定公开源码，既有错误源码不得覆盖。"""
-    spec = json.loads((root / "requirements/labelkit-source.json").read_text(encoding="utf-8"))
-    destination = root / "vendor/labelkit"
-    paths = tuple(spec["source_paths"])
-    if destination.exists() and any(destination.iterdir()):
-        if source_sha256(destination, paths) != spec["source_sha256"]:
-            raise RuntimeError("LabelKit source identity differs from the locked source")
-        return spec
-    archive = labelkit_artifact(root, wheelhouse)
-    work = root / ".work/bootstrap"
-    work.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="labelkit-", dir=work) as temporary:
-        stage = Path(temporary)
-        extract_archive(archive, stage, spec["archive_prefix"])
-        if source_sha256(stage, paths) != spec["source_sha256"]:
-            raise RuntimeError("LabelKit source identity differs from the locked source")
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.mkdir(exist_ok=True)
-        for relative in paths:
-            source, target = stage / relative, destination / relative
-            if source.is_dir():
-                shutil.copytree(source, target)
-            else:
-                shutil.copy2(source, target)
-    return spec

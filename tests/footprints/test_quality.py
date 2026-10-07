@@ -372,7 +372,7 @@ def test_a_conclusion_that_only_changes_errands_is_no_memory_write_point():
 
 
 def test_a_replayed_conclusion_recorded_without_errands_is_an_integrity_fault():
-    """质量报告经 control_items 读每一条 conclude_activity 请求（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-交付边界、2.3）：带 items 而缺
+    """质量报告经 control_items 读每一条 conclude_activity 请求（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-控制请求记录、2.3）：带 items 而缺
     请求级 errands 的旧形状记录是完整性故障，重放（reused）的请求也不例外——收尾记忆的计数不读重放的请求，拒绝它的是记忆
     核对这一处读取。同一条重放请求带着 errands（空列表）时报告照常生成、没有记忆问题。引擎只在原请求之后才写重放，这样
     单独一条重放只能以已认证事件的形状构造。"""
@@ -710,7 +710,7 @@ def test_input_warnings_section_counts_the_frozen_manifest_warnings():
     assert empty["warning_count"] == 0 and set(empty["code_counts"].values()) == {0}
 
 
-#: 截断回合写进模型响应证据的协议错误串（custom/agents/life_truncation.py）。
+#: 截断回合写进模型响应证据的协议错误串（src/worldmock/agents/life_truncation.py）。
 _TRUNCATION_ERROR = ("OUTPUT_TRUNCATED: model output reached max_tokens while reasoning, before any tool call "
                      "(finish_reason=length)")
 #: 4a5b0e6 两次全天运行的真实截断记录（只省略请求与思考正文）。

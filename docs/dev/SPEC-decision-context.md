@@ -1,6 +1,8 @@
 <a name="spec-decision-context-特性规格决策上下文与工具结果"></a>
 # 特性规格：决策上下文与工具结果
 
+> 2026-10-07 按用户确认的[数据加工归属](../ARCHITECTURE.md#architecture-数据加工归属)修订：WorldMock 负责模拟、记录、完整认证足迹导出与真实性评估；LabelKit 加工、模型任务、训练装载与规则测试归 LabelKit-DataSet；环境素材归 WorldMock-Dataset。历史验收数字只证明原源码基线，不代表本次消费链已验收。
+
 > 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的无独立工作评审的结果通道。
 
 > 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「地点发现与供给比较」（阶段 2）；「地点发现与供给比较、即时查询、操作备忘与紧凑结果、预算与失败」（阶段 3）。
@@ -189,7 +191,7 @@ session 结束后，结果按 `settled` 写法进入记忆层（[人物 Prompt �
 
 | 责任 | 生产文件 | 验证文件 |
 | --- | --- | --- |
-| 人物循环与消息 | `custom/agents/life_agent.py`、`custom/agents/life_context.py`，新增 `custom/agents/life_prompt.py`、`custom/agents/life_continuation.py`；AS2 锁定提交不改 | `tests/integration/test_life_agent_protocol.py`、`tests/integration/test_decision_context_protocol.py`，新增 `tests/integration/test_same_second_continuation.py` |
+| 人物循环与消息 | `custom/agents/life_agent.py`、`src/worldmock/agents/life_context.py`，新增 `src/worldmock/agents/life_prompt.py`、`src/worldmock/agents/life_continuation.py`；AS2 锁定提交不改 | `tests/integration/test_life_agent_protocol.py`、`tests/integration/test_decision_context_protocol.py`，新增 `tests/integration/test_same_second_continuation.py` |
 | 七层与结果 | 新增 `src/worldmock/life/tool_layer.py`、`todo_layer.py`、`environment_layer.py`、`progress_layer.py`、`prompt_schemas.py`、`continuation.py`；`projection.py`、`observe.py`、`narration.py`、`result_projection.py`、`prompt_capacity.py` | `tests/life/test_decision_context_projection.py`，新增 `tests/life/test_tool_layer.py`、`test_progress_events.py`、`test_prompt_layers.py` |
 | 决策证据与下游 | `life/decision_start.py`、`life/engine.py`、`footprints/models.py`、`footprints/quality.py`、`footprints/store.py`、`runtime.py`、`validation.py`、`delivery/windows.py`、`evaluation/behavior_metrics.py` | 事件字段、运行清单、足迹质量、观察重复门禁与 delivery 窗口测试 |
 | 规范一致性 | `CONTRACTS.md`、相关 `SPEC-*.md`、`INDEX.md`、`VERIFICATION.md`、实现状态、覆盖追溯、模拟／记录／交付设计 | 文档链接与锚点、条款到测试的双向核对 |

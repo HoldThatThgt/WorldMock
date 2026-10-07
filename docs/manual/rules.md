@@ -215,4 +215,4 @@ worldmock validate --environment experiments/my-world
 worldmock validate --scenario experiments/my-world/scenarios/single-person.json
 ```
 
-环境命令校验全部场景、图字节、语料与包规则副本；项目命令保留 AS2、LabelKit、依赖和覆盖率检查。规则常数的研究必须在 WorldMock 中改唯一常数定义并升级 `RULES_VERSION`，重新发布环境，不覆盖旧运行输入。
+环境命令校验全部场景、图字节、语料与包规则副本；项目命令保留 AS2、依赖和覆盖率检查。规则常数的研究必须在 WorldMock 中改唯一常数定义并升级 `RULES_VERSION`，重新发布环境，不覆盖旧运行输入。

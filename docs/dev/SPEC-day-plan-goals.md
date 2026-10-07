@@ -1,6 +1,8 @@
 <a name="spec-day-plan-goals-当日目标特性开发规格"></a>
 # 当日目标特性开发规格
 
+> 2026-10-07 按用户确认的[数据加工归属](../ARCHITECTURE.md#architecture-数据加工归属)修订：WorldMock 负责模拟、记录、完整认证足迹导出与真实性评估；LabelKit 加工、模型任务、训练装载与规则测试归 LabelKit-DataSet；环境素材归 WorldMock-Dataset。历史验收数字只证明原源码基线，不代表本次消费链已验收。
+
 > 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题计划输入与决策节律。
 
 > 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「场景加载时就该拒绝的问题」（阶段 1）与「度量输出合同」（阶段 4）。
@@ -292,7 +294,7 @@ app 内容完成仍是静默边界。零点计划、修订和目标推进本身�
 `plan_day` 无论人物在睡觉、工作还是做别的都执行。它不是决策，不占用决策轮，也不调用人物：
 
 - 不提供生活决策机会，不暂停、结束或重启活动，睡眠不被零点打断；
-- 不调用 LifeAgent，不读写人物工作区与记忆运行时（`custom/agents/life_memory.py` 不因 `plan_day` 改动）；
+- 不调用 LifeAgent，不读写人物工作区与记忆运行时（`src/worldmock/agents/life_memory.py` 不因 `plan_day` 改动）；
 - 不产生 `observation`、`decision_started`、`memory_updated`，不计同刻轮数；
 - 不改 `last_decision_time`、`felt_bands_at_last_decision`、`people_at_last_decision`、`known_task_ids`、
   `pending_wake_reasons`、`next_decision_at`。

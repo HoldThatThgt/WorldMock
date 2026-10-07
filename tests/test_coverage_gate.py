@@ -286,8 +286,9 @@ def full_run_files(tmp_path, monkeypatch):
     """@brief 真实落盘同一次运行的 collection、summary、选择和完成回执。"""
     from scripts import run_tests
 
-    for name in ("conftest.py", "pyproject.toml", "uv.lock", ".gitattributes", ".python-version"):
+    for name in ("tests/conftest.py", "pyproject.toml", "uv.lock", ".gitattributes", ".python-version"):
         content = (REPO_ROOT / name).read_text(encoding="utf-8") if name == ".python-version" else "frozen"
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / name).write_text(content, encoding="utf-8")
     monkeypatch.setattr(gate, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(run_tests, "ROOT", tmp_path)

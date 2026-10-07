@@ -1,6 +1,8 @@
 <a name="spec-as2-integration-特性规格agentsociety-2-集成与改动"></a>
 # 特性规格：AgentSociety 2 集成与改动
 
+> 2026-10-07 按用户确认的[数据加工归属](../ARCHITECTURE.md#architecture-数据加工归属)修订：WorldMock 负责模拟、记录、完整认证足迹导出与真实性评估；LabelKit 加工、模型任务、训练装载与规则测试归 LabelKit-DataSet；环境素材归 WorldMock-Dataset。历史验收数字只证明原源码基线，不代表本次消费链已验收。
+
 > 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的app、推送与工作主题职责。
 
 > 状态：FROZEN——条款已裁决并冻结；AS2 分支改动与确定性测试守卫均已落地，正式 DeepSeek 十二周运行仍待真实运行（测试基线与收据见 `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态`）；2026-09-27 按人物 Prompt 规格修订（[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)「冻结条款修订」第 5、17 行；AS2 锁定提交不改），修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；2026-09-29 按[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」第 14 行补登三个 LifeAgent 覆写点（AS2 锁定提交不改），修订部分已实现并通过离线验收；2026-10-02 按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)修订（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 AS1–AS14）：补登就寝反思 `_run_reflection`、`LifeAgent.step` 与工具分发日志、环境 actor 与代理子类（AS2 锁定提交不改），同步控制请求 `errands` 与 `query_world` 六键；修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）
@@ -382,18 +384,11 @@ observation_record = {
 - 新增接口方法（如 `scheduling_state`、`commit_decision_round`）
 - 删除不适合本场景的自动转换路径
 
-<a name="spec-as2-integration-与-labelkit-的进程隔离"></a>
-### 与 LabelKit 的进程隔离
+<a name="spec-as2-integration-数据加工归属"></a>
+### 数据加工归属
 
-**问题**：AS2 的 pycityproto 需要 protobuf <6，LabelKit 的 OR-Tools 需要 protobuf 6.33，两者不能安装进同一个 Python 环境。
-
-**解决方案**：
-1. WorldMock 锁定 AS2 生活仿真依赖
-2. `vendor/labelkit` 由固定提交的 HTTPS 源制品恢复，核对制品哈希并使用独立哈希锁和环境
-3. WorldMock 不在进程内 import LabelKit
-4. 使用独立环境的 LabelKit CLI 处理固定文件
-
-**验证**：交付程序严格验证 CLI 的退出状态、产物、运行身份和哈希。接口见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「LabelKit 输入结构与窗口编码」。
+WorldMock 只安装 AS2 与自身生产包。LabelKit 模型任务、数据加工和其独立环境由 LabelKit-DataSet 管理，
+通过完整认证足迹导出交接。人物运行中的记忆与就寝反思仍按本规格执行；不建立下游 CLI 或加工入口。
 
 <a name="spec-as2-integration-扩展模块职责"></a>
 ## 扩展模块职责
@@ -463,7 +458,7 @@ LifeAgent 的全部请求模型按严格 JSON 类型及各字段既有范围、�
 
 | 不足一份的食物无法消费 | 执行固定一份（`src/worldmock/life/session_actions.py`），按一份核库存后拒绝（`src/worldmock/life/basket.py`） | 第五章「进食」 | 商品目标 `consume` 的 `quantity`、`duration` |
 | 混合动作的购买记录遗漏 | 并行结果整体为 `in_progress`，订单在顶层 `data.orders`；数据集侧 `simulate_phone.py` 只收整体 `completed` | 导出新增购买事实（第七章），按订单去重，与整体状态无关；数据集侧改读它 | 不在七层 |
-| 零条最近记忆失效 | 覆写 `build_context` 时丢了 `>0` 守卫（`custom/agents/life_memory.py::WorldMockMemoryRuntime.build_context`），AS2 又把 0 改回 8 | 恢复守卫：零条返回空列表 | 记忆层不再单列最近条目；零值仍按零处理 |
+| 零条最近记忆失效 | 覆写 `build_context` 时丢了 `>0` 守卫（`src/worldmock/agents/life_memory.py::WorldMockMemoryRuntime.build_context`），AS2 又把 0 改回 8 | 恢复守卫：零条返回空列表 | 记忆层不再单列最近条目；零值仍按零处理 |
 
 | 缺口 | 修复 | 七层呈现 |
 | --- | --- | --- |
@@ -686,8 +681,7 @@ DeepSeek 的 `max_tokens` 同时覆盖思考与输出（默认 64K，`reasoning_
 
 **身份与判定。** `submit_reflection` 不属于人物工具面，不进 `tool_schema_sha256`；反思文案不进 `prompt_sha256`；二者由 `code_sha256` 绑定，与 `submit_day_plan` 同一处理。
 行动请求的判定不变（不带 `purpose`、工具中有 `start_activity`、思考开启），反思请求不产生 `decision_started`；凡以「不带 `purpose` 且带工具」筛选行动请求的读者与用例都改为按 `start_activity` 判定。
-交付窗口选取决策提示的现行做法保持：取动作之前最后一份不带 `purpose` 的请求，并核对其工具含该动作的工具名，不满足是完整性故障，不回退到更早的请求；截断重试请求照此被选中，反思请求晚于动作登记、不会被选中。
-接口合同、人物 Prompt 规格与 LabelKit 交付规格里「交付窗口取最后一次行动请求」一类表述与这一实现不符（按行动请求的判定，截断重试不是行动请求），随本特性更正，不是新行为。
+WorldMock 原样记录行动请求、截断重试与反思请求，并以 `purpose` 和事件顺序区分各自用途；实际动作、最终请求和响应可以沿事件来源重建。LabelKit 窗口的请求选取和编码由 LabelKit-DataSet 的消费合同负责。
 
 <a name="errands-workday-运行修复入库-只读查询转发"></a>
 ### 只读查询转发
@@ -744,7 +738,6 @@ DeepSeek 的 `max_tokens` 同时覆盖思考与输出（默认 64K，`reasoning_
 | 记忆运行时改动 | `conclude_activity.items[].memories` 由宿主按 `activity_name` 展平后经 `after_step` 写入，空数组合法；三种巩固触发条件各自生效而单条偏好不触发；巩固提示携带人物卡片且不含示例身份；相似同类记忆在窗口内合并只增加计数 | `tests/as2/test_worldmock_life_hooks.py`（`test_step_finish_with_empty_memories_is_legal`、`test_after_step_accepts_empty_memory_list`、`test_consolidation_triggers_importance_accumulation`、`test_consolidation_triggers_pending_threshold`、`test_consolidation_triggers_sleep_boundary`、`test_single_preference_does_not_trigger_consolidation`、`test_consolidation_prompt_carries_persona_card_without_example_identity`、`test_similar_same_type_memory_merges_within_window`）；`tests/integration/test_conclude_memories.py::test_conclusion_memories_flatten_by_task_with_system_source`、`tests/integration/test_life_agent_protocol.py::test_person_step_records_conclusion_memory_update` | 代码层已验证 |
 | 模型客户端生命周期 | 连续超过一百轮 worker 任务后不残留 Router 回调；任务异常与取消同样经过清理；跨事件循环重建只丢弃前一个 Router | `tests/as2/test_llm_callback_lifecycle.py`（`test_more_than_one_hundred_task_loops_leave_no_router_callbacks`、`test_worker_task_cleanup_covers_failure_and_cancellation`、`test_cross_loop_rebuild_discards_only_previous_router`） | 代码层已验证 |
 | 观察记录单写 | 一次决策的 user 消息中同一结构化观察只出现一次，不再额外出现 JSON 字符串副本；续接链内复用链首 user，续接消息不写进观察事件 | `tests/integration/test_life_agent_protocol.py::test_react_messages_are_system_layer_and_six_layer_user`、`tests/as2/test_worldmock_life_hooks.py::test_structured_observation_appears_once_in_user_message`、`tests/integration/test_same_second_continuation.py` | 代码层已验证 |
-| 与 LabelKit 的进程隔离 | 交付程序校验独立环境 CLI 的调用生命周期与最终判定，产物清单与来源绑定不匹配时拒绝交付 | `tests/delivery/test_labelkit_process.py`（`test_trace_binding_requires_successful_lifecycle_and_final_verdicts`、`test_process_rejects_candidate_source_mismatch`）、`tests/delivery/test_host_delivery_coverage.py`（`test_deliver_success_path_publishes_full_manifest`、`test_file_inventory_rejects_symbolic_artifacts`） | 代码层已验证 |
 | 严格反思 | 就寝反思恰一次 `submit_reflection` 调用；洞见一至五条，引用非空、条内不重复且全部取自输入；自由文本、其他工具、多次调用、未知引用不被接受；校验重试首次之外至多三次，耗尽即运行故障，本轮中止、不提交、无 `memory_updated`；请求关闭思考 | `tests/integration/test_strict_reflection.py`（`test_runtime_submits_reflection_through_the_only_strict_tool`、`test_runtime_feeds_each_contract_violation_back_and_stores_only_the_corrected_reflection`、`test_runtime_stops_with_a_run_fault_after_three_validation_retries_and_stores_no_reflection`、`test_runtime_propagates_transport_failures_without_validation_retries`、`test_exhausted_reflection_leaves_evidence_but_no_memory_update_in_the_run_database`、`test_reflection_retry_bound_is_its_own_constant_with_the_plan_day_value`）、`tests/integration/test_life_agent_protocol.py::test_reflection_contract_failure_aborts_society_before_commit`；其余节点见[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「严格反思」行的登记（`tests/errands_workday_acceptance.py`） | 代码层已验证 |
 | 只读查询转发 | 真实 Ray 下 `recall_task_summary` 经代理返回结果字典而非对象引用，世界状态与事件序号不变；worker 侧经代理调用成功；主进程内直接调用未经 `ray.remote` 包装的 `LifeEnvActor.read_query` 等于环境直调；`query_world` 两入口逐值相等；actor 并发度为 1 | `tests/integration/test_read_query_runtime.py`（`test_task_recall_crosses_real_ray_without_world_mutation`、`test_unwrapped_actor_read_query_equals_direct_environment_call`、`test_life_env_actor_class_fixes_single_concurrency_without_parameters`、`test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query`）、`tests/life/test_world_query.py::test_environment_read_query_keeps_world_clock_round_and_store_unchanged`；[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「只读查询转发」行 | 代码层已验证 |
 | 真实端点集成 | 全部改动通过真实 AS2 与 DeepSeek 端点的集成测试，不用模拟模型或手工 JSON 替代 | `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态` 记录的正式十二周运行与隔离盲评收据 | 待真实运行 |
@@ -772,7 +765,7 @@ DeepSeek 的 `max_tokens` 同时覆盖思考与输出（默认 64K，`reasoning_
 | `2026-10-01-tool-interaction` | 2026-10-01 | 按工具交互规格直接修订当前条款：逐项对象请求、方式推导、严格中文购买枚举与完整错误定位、即时只读查询、当天操作备忘及紧凑呈现；合同已实现，验收证据另列，历史验收不证明新增功能。 |
 | `2026-10-01-tool-interaction-review` | 2026-10-01 | 按附件复核定稿：开始活动改逐项对象、购买偏好用精确中文枚举且非购买为 null、to=null 统一本人、查询四键与二十项分页；合同已实现，验收证据另列，错误语言仍待澄清且暂维持英文。 |
 | `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)修订（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 AS1–AS15），修订部分在冻结时未随文实现（该规格阶段 1、2、4 实现后的核对见 `2026-10-04-errands-workday-implemented` 行）：环境 actor 与代理改为 WorldMock 子类并只新增 `read_query` 转发，登记三个私有成员耦合点；「失败传播改动」写明反思输出与零点计划同形的有界校验重试（首次之外至多三次，每次是 AS2 记忆调度下的独立调用，不覆写记忆调度）；「记忆运行时改动」新增第 7 条严格反思覆写，第 1 条补控制请求 `errands` 不是记忆写入点；「覆写点」补登 `step`、`_execute_react_tool` 与 `_run_reflection`，注明失败阶段码只标出失败阶段；`query_world` 改六键、返回不再附候选、写明两类查询的执行位置；验收矩阵新增「严格反思」「只读查询转发」两行与一档状态说明。补记：「补登三个 LifeAgent 覆写」的计数更正为四个；`_execute_react_tool` 的覆写此前未登记。AS2 锁定提交 `8768e14` 与运行身份不变；文件头补修订说明，日期改写 |
-| `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 AS16，按 `d8a41d3` 的代码与测试核对）：就寝反思的 `_run_reflection` 覆写（`custom/agents/life_memory.py`、`custom/agents/life_reflection.py`）、`LifeAgent.step` 与工具分发日志、`LifeEnvActor` 与 `LifeEnvProxy`（`src/worldmock/life/read_query_runtime.py`）均已落地，文件头改为修订部分已实现并通过离线验收，链接[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)；验收矩阵「严格反思」「只读查询转发」两行的证据位置改为实际登记的测试节点，状态改记 `代码层已验证`，状态说明随之改写；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行；条款正文不变。AS2 锁定提交 `8768e14` 与 AS2 源码摘要不变（`vendor/agentsociety2` 仍在该提交，`AS2_LOCKED_SOURCE_SHA256` 未改）。证据为离线测试，「真实端点集成」行仍为 `待真实运行` |
+| `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 AS16，按 `d8a41d3` 的代码与测试核对）：就寝反思的 `_run_reflection` 覆写（`src/worldmock/agents/life_memory.py`、`src/worldmock/agents/life_reflection.py`）、`LifeAgent.step` 与工具分发日志、`LifeEnvActor` 与 `LifeEnvProxy`（`src/worldmock/life/read_query_runtime.py`）均已落地，文件头改为修订部分已实现并通过离线验收，链接[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)；验收矩阵「严格反思」「只读查询转发」两行的证据位置改为实际登记的测试节点，状态改记 `代码层已验证`，状态说明随之改写；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行；条款正文不变。AS2 锁定提交 `8768e14` 与 AS2 源码摘要不变（`vendor/agentsociety2` 仍在该提交，`AS2_LOCKED_SOURCE_SHA256` 未改）。证据为离线测试，「真实端点集成」行仍为 `待真实运行` |
 
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 五项已验收增量行为并回所属正文；提示唯一文本、机器验收登记与稳定引用同步，历史过程归档 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步 app、推送与工作主题职责 |

@@ -26,7 +26,6 @@ DELAYED_IMPORTS: dict[tuple[str, str, str], str] = {('worldmock.runtime', '_prep
  ('worldmock.life.relevance', 'intent_families', 'worldmock.life.schedule'): '纯清单加载不导入活动执行模块',
  ('worldmock.model_endpoint', 'IndependentModelClient.__init__', 'agentsociety2.config'): 'AS2 重依赖在正式运行配置完成后加载',
  ('worldmock.cli', '_compile_once', 'worldmock.profile.compile'): '命令行按所选命令延迟加载执行入口',
- ('worldmock.cli', '_dispatch', 'worldmock.delivery.pipeline'): '命令行按所选命令延迟加载执行入口',
  ('worldmock.cli', '_dispatch', 'worldmock.validation'): '命令行按所选命令延迟加载执行入口',
  ('worldmock.cli', '_evaluate_command', 'worldmock.evaluation.runner'): '命令行按所选命令延迟加载执行入口',
  ('worldmock.cli', '_export_command', 'worldmock.footprints.export'): '命令行按所选命令延迟加载执行入口',
@@ -54,7 +53,7 @@ DELAYED_IMPORTS: dict[tuple[str, str, str], str] = {('worldmock.runtime', '_prep
  ('worldmock.run_setup', '_identity_problems', 'agentsociety2.config.llm_dispatcher'): 'AS2、Ray 或 TextWorld '
                                                                                        '重依赖在正式运行配置完成后加载',
  ('worldmock.run_setup', '_model_identity', 'custom.agents.life_agent'): 'AS2、Ray 或 TextWorld 重依赖在正式运行配置完成后加载',
- ('worldmock.run_setup', '_model_identity', 'custom.agents.life_prompt'): 'AS2、Ray 或 TextWorld 重依赖在正式运行配置完成后加载',
+ ('worldmock.run_setup', '_model_identity', 'worldmock.agents.life_prompt'): 'AS2、Ray 或 TextWorld 重依赖在正式运行配置完成后加载',
  ('worldmock.run_setup', '_require_loaded_config', 'agentsociety2.config.config'): 'AS2、Ray 或 TextWorld '
                                                                                    '重依赖在正式运行配置完成后加载',
  ('worldmock.run_setup', 'stage_model_identity', 'agentsociety2.config.llm_dispatcher'): 'AS2、Ray 或 TextWorld '
@@ -150,8 +149,6 @@ DELAYED_IMPORTS: dict[tuple[str, str, str], str] = {('worldmock.runtime', '_prep
  ('worldmock.validation', 'validate_persona_coverage', 'worldmock.profile.coverage'): '纯加载不触发完整引擎；实际执行入口按冻结波次加载职责模块',
  ('worldmock.validation', 'validate_persona_coverage', 'worldmock.profile.coverage_targets'): '纯加载不触发完整引擎；实际执行入口按冻结波次加载职责模块',
  ('worldmock.validation', 'validate_persona_coverage', 'worldmock.run_setup'): '纯加载不触发完整引擎；实际执行入口按冻结波次加载职责模块',
- ('worldmock.validation', 'validate_project', 'worldmock.delivery.generation'): '纯加载不触发完整引擎；实际执行入口按冻结波次加载职责模块',
- ('worldmock.validation', 'validate_project', 'worldmock.delivery.rules'): '纯加载不触发完整引擎；实际执行入口按冻结波次加载职责模块',
  ('worldmock.validation', 'validate_project', 'worldmock.life.world_setup'): '纯加载不触发完整引擎；实际执行入口按冻结波次加载职责模块',
  ('worldmock.validation', 'validate_project', 'worldmock.run_setup'): '纯加载不触发完整引擎；实际执行入口按冻结波次加载职责模块',
  ('worldmock.life.world_setup', 'create_world', 'worldmock.life.models'): '纯世界校验在实际持久化入口执行，不在收集期加载引擎',

@@ -44,7 +44,6 @@ _SKIP_MARK_FRAGMENTS = ("mark." + "skip", "mark." + "x" + "fail")
 #: 既有平台条件跳过所在的测试文件：只豁免跳过标记，其余延期标记照常判定。
 _SKIP_ALLOWLIST = frozenset({
     "tests/corpora/test_branch_coverage.py",
-    "tests/delivery/test_host_delivery_coverage.py",
     "tests/footprints/test_branch_coverage.py",
     "tests/footprints/test_validation.py",
     "tests/integration/test_host_branch_coverage.py",

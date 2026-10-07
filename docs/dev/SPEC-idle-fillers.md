@@ -1,6 +1,8 @@
 <a name="spec-idle-fillers-让等待成为例外开发规格"></a>
 # 让「等待」成为例外开发规格
 
+> 2026-10-07 按用户确认的[数据加工归属](../ARCHITECTURE.md#architecture-数据加工归属)修订：WorldMock 负责模拟、记录、完整认证足迹导出与真实性评估；LabelKit 加工、模型任务、训练装载与规则测试归 LabelKit-DataSet；环境素材归 WorldMock-Dataset。历史验收数字只证明原源码基线，不代表本次消费链已验收。
+
 > 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「身份、版本与完整日基线」（阶段 1）、app 内容与推送（阶段 4）、最终唤醒与主题工时（阶段 5）、系统文本（阶段 6）及验收登记（阶段 7）。
 
 > 状态：FROZEN。本文件是本特性的唯一开发规格；阶段 1–3 已实现，门禁与变异证据另行登记。阶段 4 的旧格式第三份完整日夹具计划未执行，当前验收由环境数据归属合同替代；其余验收与配对复跑不得称为已完成。
@@ -73,7 +75,7 @@ flowchart LR
 ## A：系统层第 7、14、15、16 条
 
 十八条与下标不变；第 6 条源码行不动；第 14 条末尾的上班安排一句逐字不动。下面是定稿文本。
-A 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的系统层 JSON 块，模块常量 `custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER` 与之逐字相同；测试只比对合同、常量与实际请求，不读取本节。
+A 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的系统层 JSON 块，模块常量 `src/worldmock/agents/life_prompt.py::LIFE_SYSTEM_LAYER` 与之逐字相同；测试只比对合同、常量与实际请求，不读取本节。
 
 ```text
 第 7 条
@@ -268,7 +270,6 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 | `docs/dev/SPEC-dayrun-behavior.md#spec-dayrun-behavior-共同时间与身体结算` | 下一边界在事务一项之后补「清醒人物的班次与休息时段起止（睡眠中的人物不计入，不形成静默边界）」 |
 | `docs/dev/SPEC-dayrun-behavior.md#spec-dayrun-behavior-持续活动与必要唤醒` | 在事务提醒一条之后新增一条：起止各提供一次决策机会，四个成员不进睡眠允许集合，预测与唤醒共用同一事实生成器，不保存交付状态，恢复后照常求值、已判定未决策的原因随人物状态恢复，持续活动不因此结束；运行第一秒落在起止上时只记 `run_start` |
 | `docs/dev/SPEC-run-viewer-names.md#spec-run-viewer-names-运行内对象名称` | 四个唤醒原因用中文说法「班次开始」「班次结束」「休息时段开始」「休息时段结束」显示，没有伴随事件，不带名称，不适用缺失提示 |
-| `docs/dev/SPEC-labelkit-delivery.md#persona-prompt-下游` | 唤醒原因分桶把 `errand_reminder_due` 与四个成员计入已知原因；「版本」一条补：班次边界唤醒只改变 `code_sha256`，两个指纹、世界结构 9、质量报告结构 4、场景结构、交付清单与 AS2 锁定摘要不变 |
 | `docs/CONTRACTS.md#contracts-工作安排声明` | 「班次起止不新增唤醒原因」改为：班次与休息时段的起止是唤醒原因（四个成员），只给清醒的人物在该时刻一次决策机会，不结束任何活动，不进入睡眠允许集合，不写事件，也不新增进度层记录；通常表现为环境层 `duty.status` 的变化，首尾相接的休息时段没有可见变化；闭集、触发条件与候选口径见生活运行时规格的决策节律 |
 | `docs/EXPERIMENT.md#experiment-决策点节奏` | 「班次起止不是触发点」改为四个成员是触发点，清醒的人物精确在该时刻获得一次决策机会、活动继续，睡眠中不计入、睡过的不补；声明班次的人物每个当班日由起止直接新增的提供决策的边界至多 2 + 2 × 休息时段数 个，与既有机会同秒的不另计，这些边界上同一秒的再决策与其后引出的边界照常计入 `D`（R6），实施基线的三份场景不受影响，当前正式输入按数据仓的实际声明核对；触发点清单补「班次与休息时段的起止」 |
 | `docs/EXPERIMENT.md#experiment-交互菜单与运行身份` | 「是否给正式十二周场景声明班次另行裁决」之后补：班次边界唤醒只改变 `code_sha256`，两个指纹、世界结构 9、质量报告结构 4、场景结构与 AS2 锁定摘要都不变；没有声明班次的场景行为不变 |
@@ -283,7 +284,6 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 | `docs/design/09-io-formats.md#io-formats-agentstate人物状态` | `pending_wake_reasons` 一行补：班次与休息时段的起止恰在边界时记四个成员之一，只对清醒人物，由场景与时钟求值、不另存状态，睡过的不补 |
 | `docs/design/README.md` | 文档清单的模拟引擎一行补「班次与休息时段起止的唤醒」；新增「让「等待」成为例外修订」一节，链接本规格标题锚点并列出受影响章节（A、B 阶段在该节补各自章节）；版本表加行 |
 | `docs/design/SUMMARY.md` | 新增「让「等待」成为例外修订」一节，C 阶段写：班次与休息时段的起止给清醒的人物各一次决策机会，不结束活动、不写事件、不叫醒睡着的人；`#summary-simulation-enginemd` 补同一条；文件头日期改写 |
-| `docs/design/06-delivery.md#delivery-接收记录引擎导出` | 分阶段身份补 C 一句：班次与休息时段起止的唤醒只变代码身份，世界结构 9、质量报告结构 4、当前场景结构 6 不因本特性改变；表外版本行并回表内（R8） |
 | `docs/ARCHITECTURE.md` | 版本表加行，登记新增模块 `src/worldmock/life/duty_edges.py` 与四个唤醒成员；正文不改 |
 | `docs/manual/scenarios.md` | `#scenarios-声明工作安排` 补：班次开始、班次结束与每个休息时段的开始、结束，人物醒着就在那一秒得到一次决策机会，正在做的事照常继续，睡着的人不被叫醒、睡过的不补，声明班次会让人物每个当班日多出几次决策机会；`#scenarios-修改日期与模拟节奏` 的提醒一段补起止不是提醒；文件头补带日期的修订说明 |
 | `docs/INDEX.md` | 文档地图里被 C 修订的各行（生活运行时、人物规格、当日目标、一日行为、查看器对象名称、LabelKit 交付、数字人交互）把冻结时写的「随阶段 1 提交实现」改为「修订条款已实现」；版本表加行 |
@@ -300,9 +300,8 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 | `docs/dev/SPEC-dayrun-behavior.md#spec-dayrun-behavior-等待与内容接触` | 原句保留，其后补：系统层把「空档里照自己的习惯做别的事、等待只用于几分钟内就有决策机会的时候」作为平常人的过法写给人物；环境仍不设占比上限、不替人物选择内容。2026-10-05 的用户裁决取代早先一日行为设计采纳的「不预设等待越少越好」 |
 | `docs/EXPERIMENT.md#experiment-交互菜单与运行身份` | 在「四键旧请求按缺字段拒绝。」之后补：系统层第 7、14、15、16 条原位改写，改变 `prompt_sha256`，工具面与各层 Schema 不变；实施前后的运行不可合并比较 |
 | `docs/VERIFICATION.md#verification-测试矩阵` | 七层提示一行的括注补「第 7、14、15、16 条随等待例外原位改写」 |
-| `docs/dev/SPEC-labelkit-delivery.md#persona-prompt-下游` | 「版本」一条补独立一句：系统层第 7、14、15、16 条再改一次 `prompt_sha256`，`tool_schema_sha256`、世界结构与场景结构不变 |
 | `docs/design/04-simulation-engine.md#simulation-engine-当前实现边界` | 分阶段身份补 A 一句：`prompt_sha256` 与代码身份随之变化，`tool_schema_sha256`、世界结构与场景结构不变 |
-| `docs/design/01-architecture.md#architecture-状态与记录`、`docs/design/06-delivery.md#delivery-接收记录引擎导出` | 分阶段身份补 A 一句 |
+| `docs/design/01-architecture.md#architecture-状态与记录` | 分阶段身份补 A 一句 |
 | `docs/design/SUMMARY.md` | 「让「等待」成为例外修订」一节补：系统层告诉人物何时会再请他决策、哪些事到点会请他决策而活动照常进行、作息与计划里的钟点只是大概 |
 | `docs/manual/personas.md#personas-正文与实际世界条件要一致` | 在讲大致时刻与提醒的一段之后补：作息和计划里的钟点都只是大概，系统层告诉人物临近就可以去做、不必为对准钟点干等，非准点不可的事靠目标的提醒时刻；文件头补带日期的修订说明 |
 | `docs/dev/implementation-status.md#implementation-status-已冻结条款与确定性证据` | 能量不阻断一行的「只是「有点想吃」时等平常的饭点」改为「只是「有点想吃」时正餐留到平常的饭点前后」，括注补由让「等待」成为例外规格改写 |
@@ -321,7 +320,7 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 | `docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进` | 「模板不再写作息里已有的事，所以大致时刻主要落在今天特有的目标上」改为不把天天如此的事写成目标、只为今天不同或要提醒的作息写目标，所以大致时刻主要落在今天特有的目标和带提醒的目标上；跨零点睡眠目标一句改为：大致时刻在就寝前后的睡眠目标不被跨零点的睡眠推进，带起床提醒、大致时刻在起床前后的睡眠目标会被当夜睡眠推进，都按同一判定、计入 `routine_goals`、不入推进比例 |
 | `docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-零点计划修订与只读问答` | 零点计划不照抄日常作息和事务：天天如此的事不写成目标，只写今天不同的安排、要办的事与要按时起床或出门的提醒（模板第三条）；可以为打算执行的事务写一条今天的目标 |
 | `docs/VERIFICATION.md#errands-workday-度量与下游-首次受影响发布身份` | 「模板合同的变更由 `prompt_sha256` 绑定」写清：零点计划与就寝反思的后台模板只由 `code_sha256` 绑定 |
-| `docs/EXPERIMENT.md#experiment-交互菜单与运行身份`、`docs/dev/SPEC-labelkit-delivery.md#persona-prompt-下游`、`docs/design/04-simulation-engine.md#simulation-engine-当前实现边界`、`docs/design/01-architecture.md#architecture-状态与记录`、`docs/design/06-delivery.md#delivery-接收记录引擎导出` | 各在 A 的补句之后补半句：零点计划模板第三、五、六条的改写只改变 `code_sha256` |
+| `docs/EXPERIMENT.md#experiment-交互菜单与运行身份`、`docs/design/04-simulation-engine.md#simulation-engine-当前实现边界`、`docs/design/01-architecture.md#architecture-状态与记录` | 各在 A 的补句之后补半句：零点计划模板第三、五、六条的改写只改变 `code_sha256` |
 | `docs/design/04-simulation-engine.md#simulation-engine-接收当日目标并记录实际推进` | 计划只写今天与平常不同的事、要办的事和需要提醒的事（要按时起床的写起床时刻的提醒、要按时到的事写该出门时刻的提醒）；天天如此的作息与消遣在人设层，不写成目标，目标文字只给和人约好的事写钟点 |
 | `docs/design/SUMMARY.md` | 「让「等待」成为例外修订」一节补：零点计划只写与平常不同的事、要办的事和要按时起床、出门的提醒 |
 | `docs/INDEX.md` | 被 B 修订的各行的「随阶段 3 提交实现」改为「修订条款已实现」；版本表加行 |
@@ -353,7 +352,7 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 | A | `tests/integration/test_seven_layer_request.py::test_rules_1_and_14_state_the_duty_arrangement_verbatim` | 常量 `_RULE_14_BEFORE_WORKDAY` 仍是前缀，注释改为「第 14 条开头的四个分句（前缀；其后依次是插入的钟点一句与上班安排一句）」；余下部分期望插入句加上班安排一句；说明文字改为四个分句之后是插入的「作息里的钟点…」一句、再接上班安排一句，并更正「三处副本」 |
 | A | `tests/integration/test_seven_layer_request.py::test_rules_1_4_6_divide_errands_summaries_and_memories` | 常量 `_RULE_16` 换成新第 16 条；常量注释与说明文字改为第 16 条随本规格改写，仍说睡着时只有提醒或睡够了才会醒，与第 6 条不相抵 |
 | A | `tests/integration/test_seven_layer_request.py::test_system_layers_are_the_contract_registration_verbatim` | 说明文字补第 7、14、15、16 条的改写 |
-| A | `tests/integration/test_seven_layer_request.py`（新增用例） | 正向断言（「到时也会请你决策，手上的活动照常进行」「等待只留给几分钟内就有事请你决策的时候」「到时不一定会请你决策」「不为凑钟点干等」「不用撑到某个钟点」）与反向断言（「等平常的饭点」「下单后要等送到」「不必因此提早上床」不再出现）；查看器夹具两处系统层与 `custom/agents/life_prompt.py::system_message` 的输出逐字相等 |
+| A | `tests/integration/test_seven_layer_request.py`（新增用例） | 正向断言（「到时也会请你决策，手上的活动照常进行」「等待只留给几分钟内就有事请你决策的时候」「到时不一定会请你决策」「不为凑钟点干等」「不用撑到某个钟点」）与反向断言（「等平常的饭点」「下单后要等送到」「不必因此提早上床」不再出现）；查看器夹具两处系统层与 `src/worldmock/agents/life_prompt.py::system_message` 的输出逐字相等 |
 | A | `tests/life/test_activity_wake_facts.py`、`tests/life/test_app_push.py` | 真实订单送达与 app 推送到期给清醒人物决策机会，手上的活动照常进行；睡着时不给决策，推送保留为 pending；配送经真实请求、引擎与 SQLite，推送经真实预排结算与已提交事件 |
 | A 与阶段 4 修订 | `tests/fixtures/viewer-context.json` | `action` 与 `continuation` 重录 app 推送和 app 内容语义；`legacy_` 开头的历史记录不动 |
 | A | `tests/errands_workday_acceptance.py`、`tests/fixtures/acceptance_requirements.json` | 判据注释、判据文字与 `EXTRA_MUTATIONS` 的说明文字里「第 16 条不动」「第 16 条与改写之前逐字节相同」「第 14 条在四个分句之后追加」「三处副本」「人物 Prompt 规格」等说法随文更正（D12）；一日运行保真台账「系统层」行的「与规格、接口合同逐字相同」改为「与接口合同、实际请求逐字相同」；节点名、变异名与变异原文不改 |

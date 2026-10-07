@@ -1,6 +1,8 @@
 <a name="spec-life-realism-特性规格人物决策与画像"></a>
 # 特性规格：人物决策与画像
 
+> 2026-10-07 按用户确认的[数据加工归属](../ARCHITECTURE.md#architecture-数据加工归属)修订：WorldMock 负责模拟、记录、完整认证足迹导出与真实性评估；LabelKit 加工、模型任务、训练装载与规则测试归 LabelKit-DataSet；环境素材归 WorldMock-Dataset。历史验收数字只证明原源码基线，不代表本次消费链已验收。
+
 > 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 7 的记录、导出、交付与评估合同。
 
 > 2026-10-07：按资源与规则引擎简化规格同步剩余系统规则、最终提示身份与查看器（阶段 6）。
@@ -520,7 +522,7 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
   意图与 dreaming 窗口对控制请求的投影裁去 `errands`（与 `memories`、`views` 同等对待），动作窗口的目标保留完整请求，
   观察里的待办层原样进入窗口（个人事务与工作安排规格 2.9，阶段 2 落地）
 
-本规格不改变 `docs/CONTRACTS.md#contracts-worldmock-接口合同` 中 LabelKit 最终数据合同的字段；训练目标是否改为叙事化 completion
+本规格只约束人物请求与记忆来源。下游字段由 LabelKit-DataSet 的数据加工合同定义；训练目标是否改为叙事化 completion
 不由本规格决定。
 
 查看器使用食品、app、内容与工作主题的真实名称索引；app 活动标题取 app 名，工作活动标题取主题。
@@ -559,7 +561,6 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 | `src/worldmock/life/commerce.py`、`activities.py` | 多件购买与整单拒绝、家中储备补货 |
 | `src/worldmock/profile/extractor.py`、`mapper.py`、`textgen.py`、`models.py`、`taste.py`、`src/worldmock/data/persona-mapping.toml` | 卡片抽取、大五到世界层动力学映射、卡片渲染、覆盖率校验、`taste_weights` 降级为纯排序权重（零权重不出局） |
 | `src/worldmock/footprints/models.py`、`quality.py`、`export.py` | `decision_started.data` 为闭集 `{round_id, round_order, world_state_version, wake_reasons}`，带 `decision_statement` 即拒绝；时间线投影、指标接入 |
-| `src/worldmock/delivery/windows.py` | dreaming 窗口读 `self_note` 与实际请求中的层 JSON，不再重新渲染 `scene` |
 | `src/worldmock/evaluation/review.py`、`public_evidence.py` | 盲评记录的地点与同伴列 |
 | `scripts/inspect_run.py`、`scripts/render_day.py`、`tools/run-viewer.html` | `tool_name` 修正、时间线投影生成、“一天”视图 |
 | Dataset `../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/`、`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/` 及数据仓制作工具 | 正餐、地点、app 与内容、工作主题、生活活动 Schema 与联系人 |
@@ -749,7 +750,7 @@ app 名称列在工具层，本 session 推送在进度层呈现；选择 app �
   `bedtime_window`、`leave_work_window`、`arrive_home_window`）覆盖卡片抽取值，卡片槽为 `null` 时同样可覆盖；覆盖与冲突规则不变并一体适用于两个新槽：
   场景声明的窗口落下后违反顺序约束，或量化后写不成合法窗口时，该槽保留卡片值（新槽的卡片值可以是 `null`）并记 `CARD_FIELD_CONFLICT`；
   `persona_card_struct` 保存覆盖后的值，所以 `rhythm` 与身体结算、零点计划读同一组作息（一日运行保真规格 2.1）；
-  600 汉字上限只约束卡片派生的字段。没有结构化卡片的人物（`custom/agents/life_context.py`）只填姓名，其余为 `null` 或 `[]`。
+  600 汉字上限只约束卡片派生的字段。没有结构化卡片的人物（`src/worldmock/agents/life_context.py`）只填姓名，其余为 `null` 或 `[]`。
 - **合并。** 卡片关系与场景联系人按名称精确合并（卡片 `name_or_appellation` 等于联系人姓名或称谓）；对不上的各占一项。只来自场景联系人的项，
   `closeness` 为 `null`、`channels` 为 `[]`：场景联系人的亲密度与渠道仍不进提示（所属现行合同不变，〔#35〕）。
 - **原地更新。** `view` 与 `preferences` 只来自成功的 `conclude_activity` 中 `type` 为 relationship、preference 的看法与偏好（〔#33〕）：
@@ -1075,7 +1076,7 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 
 人物写的正文、summary、记忆与人设层看法用中文还是英文不作要求（裁决 D18，用户裁定）。本次运行里 WC 记为 `self_note` 的 10 条中 5 条、BIZ 18 条中 2 条是英文，
 全部进入了 LabelKit 输入；是否需要统一语言由数据集在交付侧决定，系统不加系统层语言句、不在质量报告计数。其他调用点已有的中文要求（联系人回复 `src/worldmock/runtime.py`、
-零点计划 `src/worldmock/life/day_planning.py`、记忆归纳 `custom/agents/life_memory.py`、画像抽取 `src/worldmock/profile/extractor.py`）不变；思考只保留在私有证据里。
+零点计划 `src/worldmock/life/day_planning.py`、记忆归纳 `src/worldmock/agents/life_memory.py`、画像抽取 `src/worldmock/profile/extractor.py`）不变；思考只保留在私有证据里。
 
 <a name="tool-interaction-操作备忘与紧凑提示"></a>
 ## 操作备忘与紧凑提示
@@ -1256,13 +1257,12 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 | 要求 | 必须通过的观察 | 证据位置 | 状态 |
 | --- | --- | --- | --- |
 | 单一行动阶段 | 没有只读查询或纠错的决策恰好一次模型请求，不产生自述请求；`decision_started` 与首个行动请求同批且在前，`data` 为闭集；回复正文有则写入 `action_requested.data.self_note` 并在本 session 的进度层出现，没有时不重问、不代写 | `tests/integration/test_seven_layer_request.py`、`tests/integration/test_life_agent_protocol.py`；[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)验收台账「单一行动阶段」「回复正文」 | 代码层已验证；工具交互修订的查询扩展见[工具交互验收记录](../archive/tool-interaction/tool-interaction-verification.md) |
-| 回复正文与交付窗口 | `self_note` 随实际请求进入动作与意图窗口并进入 dreaming 输入；实际请求中的 `reasoning_content` 原样保留；交付不重新渲染 `scene` | `tests/delivery/test_windows.py` | 代码层已验证 |
 | 记忆写入 | `conclude_activity.items[].memories` 空数组合法；自由文字和检索结果固定为主观；WorldMock 输入删除 `event`、`observation`；相似合并只增加计数与最近时刻；relationship、preference 带 `subject`，同一对象后写的看法替换先写的，事件中两条都保留；反例：首次购买后只写「明天还想吃」时人设层 `preferences` 为空 | `tests/as2/test_worldmock_life_hooks.py`（WorldMock 记忆存储与运行时）、`tests/life/test_revision_contract.py`、`tests/integration/test_conclude_memories.py`、`tests/life/test_persona_layer.py`（看法替换与「明天还想吃」反例）、一日行为端到端验收 | 代码层已验证 |
 | 记忆巩固 | 三种主观触发条件各自生效，事实视图刷新不重置计数；待巩固条数与重要度累计只计 `conclude_activity` 写入的条目，就寝反思不计；模型只归纳主观内容；就寝反思保留身份且不进入完成事实章节；就寝反思恰好一次 `submit_reflection`、一至五条，引用非空、条内不重复且全部取自输入，正文超长或含身份串、自由文本、其他工具、多次调用与未知引用都不被接受；校验重试耗尽即运行故障，本轮中止、无 `memory_updated`；巩固摘要不进入人物决策提示；反思按睡眠开始时刻前推 6 小时的本地日期归属（23:00、01:00 入睡与 14:00 小睡） | `tests/as2/test_worldmock_life_hooks.py`（直接测试 WorldMock 记忆运行时的巩固触发与归纳）、`tests/integration/test_conclude_memories.py` 的 `test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime_reflection`、`tests/life/test_memory_layer.py`（反思归属日期）、`tests/life/test_persona_layer.py`（巩固摘要不进提示）、一日行为端到端验收；就寝反思的提交、校验与重试走 WorldMock 记忆运行时覆写的 `_run_reflection`，由 `tests/integration/test_strict_reflection.py` 的 `test_runtime_submits_reflection_through_the_only_strict_tool`、`test_runtime_feeds_each_contract_violation_back_and_stores_only_the_corrected_reflection`、`test_runtime_stops_with_a_run_fault_after_three_validation_retries_and_stores_no_reflection`、`test_exhausted_reflection_leaves_evidence_but_no_memory_update_in_the_run_database` 与 `tests/integration/test_verified_memory.py::test_sleep_reflection_is_subjective_and_its_id_is_reported` 守卫；见[个人事务与工作安排规格](SPEC-as2-integration.md#errands-workday-运行修复入库)验收台账「严格反思」 | 代码层已验证 |
 | 记忆质量门禁 | 记忆重复率与示例身份残留两项，判定对象与阈值按 `docs/VERIFICATION.md`「协议门禁」执行；长期记忆文件里不出现示例身份与示例编号 | `tests/evaluation/test_behavior_metrics.py` | 代码层已验证 |
 | 动机层不外泄 | 提示中不出现候选、名次、概率与数字权重，也没有 `drive_summary`；体感只以环境层五项分级出现；内部评分保留在 `motivation_internal` | `tests/life/test_motivation.py`、`tests/life/test_grounded_observation.py` | 代码层已验证 |
 | 当日目标 | 清单、生命周期、修订、证据推进、威胁唤醒与三层度量按专属规格逐项验证 | [当日目标规格](SPEC-day-plan-goals.md#spec-day-plan-goals-当日目标特性开发规格)验收台账 | 本特性确定性验收通过 |
-| 个人事务、工作安排与查询筛选 | 事务变更与原子受理、完成依据、提醒、待办层与进度层呈现、交付边界；上班安排呈现与计划的关系；六键查询、来源与可执行筛选按专属规格逐项验证 | [个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账阶段 2–4 各行，登记表 `tests/errands_workday_acceptance.py`；逐行证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md) | 本特性确定性验收通过（配对全天复跑未执行，只报告、不作门禁） |
+| 个人事务、工作安排与查询筛选 | 事务变更与原子受理、完成依据、提醒、待办层与进度层呈现、控制请求记录；上班安排呈现与计划的关系；六键查询、来源与可执行筛选按专属规格逐项验证 | [个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账阶段 2–4 各行，登记表 `tests/errands_workday_acceptance.py`；逐行证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md) | 本特性确定性验收通过（配对全天复跑未执行，只报告、不作门禁） |
 | 世界素材品类 | 地点、家的可供性、办公室可供性、正餐、内容、工作、生活活动与联系人逐条满足；不满足即拒绝启动 | `tests/catalog/`、`tests/corpora/`；正式地点能力由地图准入与实际活动测试验证 | 独立地图分支及[当前主线组合](research/map-and-storefront-main-verification.md)均已通过 |
 | 画像编译 | 卡片字段完整；结构化字段存入 `persona_card_struct` 并渲染为人设层 JSON，不含 `situation`，卡片关系与场景联系人按名称合并，刻钟时刻写对；大五分数与权重不进提示；四个模板字段与随机浮点已删除；场景只声明部分作息字段时只覆盖这些字段，覆盖后锚点乱序时保留卡片值并记警告，身体结算、零点计划输入与人设层三处同值，`validate` 与运行路径结果一致；故事写明时产出下班、到家窗口，未提及为 null 且不取缺省；下班摇摆不改变其余五个锚点；乱序时降级为 null、不失败，三次采样各自乱序但共识合法时不降级，降级说明经画像编译警告透传；场景作息覆盖为七字段，下班、到家两槽沿用现行冲突规则（冲突时该槽保留卡片值并记 `CARD_FIELD_CONFLICT`），卡片槽为 null 时覆盖与告警照常；缺下班、到家两键的旧结构化卡片被拒，卡片结构 3 | `tests/profile/`、`tests/integration/test_persona_profile.py`、`tests/life/test_persona_upgrade.py`、`tests/life/test_persona_layer.py`；场景作息见 `tests/profile/test_injection.py` 的 `test_only_explicitly_declared_fields_are_overridden`、`test_out_of_order_window_keeps_the_card_value_and_records_a_conflict` 与 `tests/integration/test_input_warnings.py` 的 `test_a_scenario_declaring_only_the_midpoint_changes_only_the_midpoint_in_the_request`、`test_body_settlement_day_plan_inputs_and_the_persona_layer_read_the_same_rhythm`、`test_restore_verifies_the_frozen_card_rhythm_against_the_scenario`；见[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「场景作息」；下班与到家锚点见 `tests/profile/test_extractor.py` 的 `test_stated_work_anchors_are_extracted_into_the_card`、`test_unmentioned_work_anchors_stay_null_without_toml_defaults`、`test_wavering_leave_work_does_not_change_the_five_anchors`、`test_out_of_order_consensus_demotes_leave_work_then_arrive_home_and_still_compiles`、`test_samples_out_of_order_on_their_own_but_legal_in_consensus_are_not_demoted`，`tests/profile/test_compile.py::test_demotion_notes_follow_the_agreement_warning_and_stand_alone_without_it` 与 `tests/integration/test_input_warnings.py` 的 `test_a_demotion_note_is_frozen_as_a_compiler_warning_that_does_not_blame_agreement`、`test_extracted_work_anchors_reach_the_real_request_persona_layer`；七字段覆盖见 `tests/profile/test_injection.py` 的 `test_a_null_card_slot_takes_the_scenario_work_window_and_is_reported_as_overridden`、`test_a_scenario_window_violating_the_work_anchor_order_keeps_the_card_value_as_a_conflict` 与 `tests/integration/test_input_warnings.py` 的 `test_scenario_declared_work_windows_reach_the_card_the_persona_layer_and_the_plan_input`、`test_a_conflicting_scenario_work_window_keeps_the_null_card_slot_and_is_frozen_as_a_conflict`；旧结构化卡片被拒见 `tests/life/test_persona_layer.py::test_structured_card_without_work_anchor_keys_is_rejected_on_restore`；见[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「作息锚点」 | 代码层已验证 |
 | 人物卡片覆盖率 | 习惯关键词、食品名称、五个类型标签与全部 app 名称形成实际目标集；低于 0.8 的 validate 失败，运行只警告；六警告闭集 |

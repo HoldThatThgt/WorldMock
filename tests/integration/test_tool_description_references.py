@@ -15,7 +15,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 
 from custom.agents.life_agent import (MemoryRecentRequest, MemorySearchRequest, MemoryTimeRangeRequest,  # noqa: E402
                                       ReadonlyFinishRequest)
-from custom.agents.life_prompt import LIFE_SYSTEM_LAYER, TOOL_DESCRIPTIONS  # noqa: E402
+from worldmock.agents.life_prompt import LIFE_SYSTEM_LAYER, TOOL_DESCRIPTIONS  # noqa: E402
 from worldmock.life.control_items import CONTROL_TOOLS  # noqa: E402
 from worldmock.life.models import REQUEST_MODELS, deepseek_strict_schema  # noqa: E402
 from worldmock.life.narration import FORBIDDEN_OBSERVATION_KEYS  # noqa: E402
@@ -155,7 +155,7 @@ def test_query_world_purpose_is_the_contract_text_and_moves_only_the_tool_finger
     工具指纹变、提示指纹不变（本阶段不改系统层与层 Schema）；严格 Schema 的六个键全部必填、按 name, way, category, from,
     available_only, offset 的顺序，from 是字符串或 null、available_only 是布尔，任何位置都没有字段说明。"""
     from custom.agents.life_agent import life_tool_schema_sha256
-    from custom.agents.life_prompt import life_prompt_sha256
+    from worldmock.agents.life_prompt import life_prompt_sha256
 
     [line] = [line for line in _CONTRACTS.read_text(encoding="utf-8").splitlines() if _PURPOSE_LEAD in line]
     sentence = line.split(_PURPOSE_LEAD, 1)[1].split("」", 1)[0]

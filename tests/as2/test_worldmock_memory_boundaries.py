@@ -8,8 +8,8 @@ import pytest
 
 from agentsociety2.agent.memory import AgentMemoryStore
 from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig
-from custom.agents.life_memory import WorldMockMemoryRuntime, _episode_snapshot
-from custom.agents.life_memory_store import WorldMockMemoryStore, bigram_jaccard
+from worldmock.agents.life_memory import WorldMockMemoryRuntime, _episode_snapshot
+from worldmock.agents.life_memory_store import WorldMockMemoryStore, bigram_jaccard
 from worldmock.life.memory_evidence import valid_subjective_snapshot
 
 

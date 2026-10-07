@@ -10,7 +10,7 @@ const ViewerContext = {};
   const UNVERIFIED = '未经核验';
   const rules = {
     system: {
-      label: '系统层', source: 'custom/agents/life_prompt.py · LIFE_SYSTEM_LAYER、system_message',
+      label: '系统层', source: 'src/worldmock/agents/life_prompt.py · LIFE_SYSTEM_LAYER、system_message',
       fill: '固定交互规则按紧凑 JSON 写入 system 消息；整次运行逐字节相同，不追加预算或阶段文字。',
       steps: [
         ['每次复用', '同一运行的每个行动请求使用同一份系统层。'],
@@ -28,7 +28,7 @@ const ViewerContext = {};
       ],
     },
     persona: {
-      label: '人设层', source: 'custom/agents/life_persona.py · persona_layer',
+      label: '人设层', source: 'src/worldmock/agents/life_persona.py · persona_layer',
       fill: '宿主从人物卡片的结构化字段、姓名、场景联系人与观察中的看法偏好构建身份、作息、习惯、口味、关系与偏好。',
       steps: [
         ['卡片来源', '新建运行时保存卡片的结构化字段，不含当下处境；没有卡片的人物只有姓名，其余为 null 或空列表。'],
@@ -80,7 +80,7 @@ const ViewerContext = {};
       ],
     },
     tools: {
-      label: '工具定义', source: 'custom/agents/life_agent.py · 原生工具；custom/agents/life_prompt.py · TOOL_DESCRIPTIONS',
+      label: '工具定义', source: 'custom/agents/life_agent.py · 原生工具；src/worldmock/agents/life_prompt.py · TOOL_DESCRIPTIONS',
       fill: '六个世界请求工具、两个世界查询工具（query_world、recall_task_summary）与三个记忆查询工具，'
         + '严格参数结构，整次运行字节相同。',
       steps: [
@@ -101,7 +101,7 @@ const ViewerContext = {};
     },
     continuation: {
       label: '同秒续接',
-      source: 'src/worldmock/life/continuation.py · same_second_chain；custom/agents/life_continuation.py · continuation_messages',
+      source: 'src/worldmock/life/continuation.py · same_second_chain；src/worldmock/agents/life_continuation.py · continuation_messages',
       fill: '同一秒的后续决策原样续接上一决策末次请求的全部消息，再追加上一决策的 assistant 与一条 tool 消息 {result, changes, events}。',
       steps: [
         ['识别', '一次决策的首个请求多于两条消息即判为续接。'],
@@ -111,7 +111,7 @@ const ViewerContext = {};
     },
     reflection: {
       label: '睡醒反思',
-      source: 'custom/agents/life_memory.py · after_step；custom/agents/life_reflection.py；agentsociety2/agent/memory_runtime.py',
+      source: 'src/worldmock/agents/life_memory.py · after_step；src/worldmock/agents/life_reflection.py；agentsociety2/agent/memory_runtime.py',
       fill: '睡眠完成后的睡醒边界触发，输入当前时刻与最近三十条记忆，不含人物卡片。',
       steps: [
         ['睡醒边界', '先检查主观归纳，再进行反思；没有已有记忆时不调用反思模型。'],
@@ -121,7 +121,7 @@ const ViewerContext = {};
       ],
     },
     memory_view: {
-      label: '工作区记忆视图', source: 'custom/agents/life_memory.py · render_memory_view、build_context',
+      label: '工作区记忆视图', source: 'src/worldmock/agents/life_memory.py · render_memory_view、build_context',
       fill: '工作区 MEMORY.md 由身份、五条已核验经历和主观归纳组合，最多四千字符。',
       steps: [
         ['每步重写', '根据当前身份、事实窗口和最新主观归纳重新生成视图。'],

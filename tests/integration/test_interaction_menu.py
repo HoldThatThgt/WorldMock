@@ -16,7 +16,7 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from custom.agents.life_agent import LifeAgent
-from custom.agents.life_menu import menu_action_error, parse_interaction_menu
+from worldmock.agents.life_menu import menu_action_error, parse_interaction_menu
 from tests.integration.test_life_agent_protocol import (
     _Environment, _GroundedCorrectionDispatcher, _ModelResponse, _SELF_OBJECT, _WAIT_CHOICE, _add_objects,
     _context, _observations, _offer, _visible_object, _wire_agent,

@@ -41,7 +41,7 @@
 <a name="io-formats-职责与边界"></a>
 ### 1.1 职责与边界
 
-世界、人物与活动状态由当前严格模型定义，事件、素材、检查点、导出与质量报告归[记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)，LabelKit 产物归[数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付)。
+世界、人物与活动状态由当前严格模型定义，事件、素材、检查点、导出与质量报告归[记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)；下游数据集格式由 LabelKit-DataSet 定义。
 环境通过统一七份目录与 `environment_identity` 登记对象和绑定。不存在独立品类契约、交换规则 JSON 或原生对象增量接口；分类、资源定义和算子归 `worldmock.exchange`。字段与登记码见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)。
 
 食品、店铺与固定价格属于只读目录；实际订单、食品持有和消费属于世界状态与事件，不将店铺库存输出绑定到资源定义。消费请求 `product_id` 保留，事件和核验经历使用 `food_id` 与类别。
@@ -58,7 +58,7 @@ flowchart TB
     EVENT --> EXPORT[导出模块]
     STATE --> EXPORT
     ASSET --> EXPORT
-    EXPORT -->|JSONL 格式| LABEL[LabelKit]
+    EXPORT -->|JSONL 格式| LABEL[LabelKit-DataSet 数据加工]
     FOOT -->|创建| CKPT[检查点]
     CKPT -->|恢复| FOOT
 ```
@@ -379,18 +379,6 @@ JSON 解析失败定位参数对象、附行列与必要闭集；未知工具定
 `activity_progress.data.work{topic_id, worked_seconds, remaining_seconds}`；首次达到目标写
 `work_topic_completed{topic_id, worked_seconds}`。没有工作材料、效率、截止、交付或评审字段。
 
-<a name="io-formats-labelkit-交付格式"></a>
-## LabelKit 交付格式
-
-LabelKit 只接收交付清单结构 3。清单逐字复制来源运行的五字段 `environment_identity`，在来源工件中列出
-`events`、`activities`、`verified_experiences`、`purchases` 与 `app_usage`，并绑定每个消费文件及门禁结果。
-交付入口读取导出最终检查点，`WorldState.schema_version` 必须为 10；结构 9 及更早版本直接拒绝，不迁移、不双读。
-
-手机行只由 `app-usage.jsonl` 的五种 `fact_kind` 与 `purchases.jsonl.app_id` 投影。人物可见的 app 推送公开行为
-`{kind: "app_push", app, kind_label, summary}`；系统可见 `pushed: false` 没有公开行。训练记录、字段字典、
-来源连通组与规则夹具由[数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付)定义加工流程；
-不得把训练字段附会成持久事件字段。
-
 <a name="io-formats-通用校验说明"></a>
 ## 通用校验说明
 
@@ -501,3 +489,4 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步工作活动状态格式，版本号不变 |
 | `2026-10-06-rrs-record` | 2026-10-07 | 阶段 7：交付清单 3、环境身份、app 使用工件与世界结构 10 门禁；版本保持 v1.24 |
+| `2026-10-07-repository-ownership` | 2026-10-07 | 按用户裁决收敛目录与职责：WorldMock 保留模拟、记录、完整认证足迹与评估；下游加工、模型任务、训练和规则数据归 LabelKit-DataSet，源码快照已接收，新消费验收另记实际证据 |

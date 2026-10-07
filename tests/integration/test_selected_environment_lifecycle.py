@@ -28,14 +28,15 @@ def _selected_hour(root: Path) -> tuple[Path, dict]:
     document["end_at"] = end.isoformat()
     document["messages"] = [row for row in document["messages"] if datetime.fromisoformat(row["sent_at"]) < end]
     for name in ("bills", "payrolls"):
-        document[name] = [row for row in document[name] if start < datetime.fromisoformat(row["due_at"]) < end]
+        if name in document:
+            document[name] = [row for row in document[name] if start < datetime.fromisoformat(row["due_at"]) < end]
     path = root / "scenarios/single-person.json"
     path.write_text(json.dumps(document, ensure_ascii=False) + "\n", encoding="utf-8")
     provenance = {
         "source": "scenarios/single-person.json", "source_sha256": hashlib.sha256(original).hexdigest(),
         "original_window": original_window,
         "derived_window": {name: document[name] for name in ("start_at", "end_at", "timezone")},
-        "retained_timed_inputs": {name: document[name] for name in ("messages", "bills", "payrolls")},
+        "retained_timed_inputs": {name: document[name] for name in ("messages", "bills", "payrolls") if name in document},
     }
     (root / "test-window-provenance.json").write_text(
         json.dumps(provenance, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",

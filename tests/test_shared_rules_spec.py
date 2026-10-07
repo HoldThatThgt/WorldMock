@@ -46,6 +46,6 @@ def test_frozen_current_as2_identity_agrees_with_installation_and_runtime():
 def test_design_chapters_and_contracts_reference_the_frozen_feature():
     paths = [ROOT / "docs/CONTRACTS.md", ROOT / "docs/ARCHITECTURE.md"]
     paths += sorted((ROOT / "docs/design").glob("0[0-9]-*.md"))
-    assert len(paths) == 12
+    assert len(paths) == 11
     for path in paths:
         assert "SPEC-shared-rules-and-rebuildable-env.md" in path.read_text(encoding="utf-8"), path

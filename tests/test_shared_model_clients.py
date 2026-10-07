@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from custom.agents import life_reflection
+from worldmock.agents import life_reflection
 from worldmock.errors import ProtocolError
 from worldmock.life import day_planning
 from worldmock.life.models import PlanDayRequest

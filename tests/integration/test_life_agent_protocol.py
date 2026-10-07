@@ -43,9 +43,9 @@ from custom.agents.life_agent import (
     life_action_tool_names,
     life_tool_schema_sha256,
 )
-from custom.agents.life_feedback import FEEDBACK_INSTRUCTION, feedback_report
-from custom.agents.life_memory_store import WorldMockMemoryStore
-from custom.agents.life_prompt import LIFE_SYSTEM_LAYER, READONLY_SYSTEM_LAYER, life_prompt_sha256
+from worldmock.agents.life_feedback import FEEDBACK_INSTRUCTION, feedback_report
+from worldmock.agents.life_memory_store import WorldMockMemoryStore
+from worldmock.agents.life_prompt import LIFE_SYSTEM_LAYER, READONLY_SYSTEM_LAYER, life_prompt_sha256
 from worldmock.catalog.affordances import engine_affordances
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PAUSED, PHASE_PENDING
 from worldmock.life.engine_context import affordance_contract
@@ -374,7 +374,7 @@ def test_life_tool_schema_fingerprint_is_the_person_tool_surface_without_the_ref
     import hashlib
 
     import custom.agents.life_agent as life_agent_module
-    from custom.agents import life_reflection
+    from worldmock.agents import life_reflection
 
     original = life_tool_schema_sha256()
     offered = _functions(_prepared())
@@ -1330,7 +1330,7 @@ async def test_native_memory_update_records_real_subjective_merge_without_duplic
     """真实记忆运行时合并旧身份，原生记录入口保留合并、来源及文件证据。"""
     import hashlib
 
-    from custom.agents.life_memory import WorldMockMemoryRuntime
+    from worldmock.agents.life_memory import WorldMockMemoryRuntime
     from worldmock.footprints.experiences import project_verified_experiences
     from worldmock.footprints.models import EventDraft
     from worldmock.footprints.store import FootprintStore

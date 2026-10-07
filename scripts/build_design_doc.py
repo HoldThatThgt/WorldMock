@@ -2,7 +2,7 @@
 """docs/design/ 汇编版设计说明书构建脚本（仅标准库，确定性）。
 
 @file     build_design_doc.py
-@brief    把 docs/design/00-overview.md … 09-io-formats.md 十章与附录 A（从 docs/CONTRACTS.md 逐字摘录的
+@brief    把 docs/design/当前设计章节与附录 A（从 docs/CONTRACTS.md 逐字摘录的
           人物工具、模型请求与命令行接口各节）汇编为单文件自包含 HTML docs/design/worldmock-design.html：
           封面与章节一览（各章版本、日期、状态取自章节文件头）→ 修订历史（各章版本表的最新一行）
           → 目录（章与二级标题自动生成）→ 正文（Markdown 子集的确定性转换；mermaid 图由页内脚本在打开时
@@ -34,7 +34,7 @@ OUT_PDF = DESIGN_DIR / "worldmock-design.pdf"
 #: 章节装配顺序；文件名前两位是章号，正文里以「第 N 章」呈现。
 CHAPTERS: tuple[str, ...] = (
     "00-overview", "01-architecture", "02-exchange-engine", "03-resource-engine",
-    "04-simulation-engine", "05-recording-engine", "06-delivery", "07-evaluation",
+    "04-simulation-engine", "05-recording-engine", "07-evaluation",
     "08-configuration", "09-io-formats",
 )
 #: 附录 A：从接口合同逐字摘录的节（按此顺序装配；选择键是合同中显式标识）。
@@ -204,7 +204,7 @@ def contract_appendix(contracts: str) -> Chapter:
               f"> **版本**：{version[0] if version else '—'}\n\n"
               "本附录把人物能调用的工具、请求字段与结算检查、拒绝码、人物看到的七层输入、请求组成与生成参数、"
               "模型身份以及命令行接口从接口合同里逐字摘录到一处，方便在同一份文件里查阅；"
-              "合同其余各节（状态字段、地图与门店供给、社交接口、记录引擎、品类与语料、LabelKit 交付）仍在 "
+              "合同其余各节（状态字段、地图与门店供给、社交接口、记录引擎、品类与语料、完整足迹交接）仍在 "
               "[接口合同](../CONTRACTS.md) 中。收录节以合同的稳定章节标识选择，正文标题可随设计修订。\n\n")
     body = extract_sections(contracts, APPENDIX_SECTIONS)
     tail = "\n## 版本表\n\n| 版本 | 日期 | 修订内容 |\n| --- | --- | --- |\n| " + " | ".join(version) + " |\n" if version else ""
@@ -453,7 +453,7 @@ def convert(text: str, ctx: Context) -> str:
 
 
 def load_chapters(design_dir: Path = DESIGN_DIR, contracts_path: Path = CONTRACTS_PATH) -> list[Chapter]:
-    """@brief 按装配顺序读取十章源文件，再附上从接口合同摘录的附录 A。"""
+    """@brief 按装配顺序读取当前章节源文件，再附上从接口合同摘录的附录 A。"""
     chapters = [parse_chapter(stem, (design_dir / f"{stem}.md").read_text(encoding="utf-8"))
                 for stem in CHAPTERS]
     chapters.append(contract_appendix(contracts_path.read_text(encoding="utf-8")))
@@ -474,7 +474,7 @@ def build_cover(chapters: list[Chapter], ctx: Context) -> str:
   <h1 class="no-break">WorldMock<br>数字人生活模拟与数据生产</h1>
   <div class="sub">产品设计说明书（汇编版）</div>
   <table class="meta-table kv">
-    <tr><td>文档定位</td><td>由 <code>docs/design/</code> 十章与接口合同摘录（附录 A）汇编生成的单文件设计说明书；接口与字段以 <code>docs/CONTRACTS.md</code> 为准，行为规则以 <code>docs/dev/SPEC-*.md</code> 为准</td></tr>
+    <tr><td>文档定位</td><td>由 <code>docs/design/</code> 当前章节与接口合同摘录（附录 A）汇编生成的单文件设计说明书；接口与字段以 <code>docs/CONTRACTS.md</code> 为准，行为规则以 <code>docs/dev/SPEC-*.md</code> 为准</td></tr>
     <tr><td>生成方式</td><td><code>python scripts/build_design_doc.py</code>；请修改章节源或合同后重新汇编，勿直接编辑本文件</td></tr>
     <tr><td>图示</td><td>mermaid 图在联网打开时渲染；离线时显示图源</td></tr>
   </table>
@@ -562,7 +562,7 @@ MERMAID_SCRIPT = f"""<script type="module">
 
 
 def assemble(chapters: list[Chapter]) -> str:
-    """@brief 汇编完整 HTML：封面、章节一览、修订历史、目录、十章正文与附录。"""
+    """@brief 汇编完整 HTML：封面、章节一览、修订历史、目录、当前章节正文与附录。"""
     ctx = prescan_anchors(chapters)
     sections: list[str] = []
     for chapter in chapters:

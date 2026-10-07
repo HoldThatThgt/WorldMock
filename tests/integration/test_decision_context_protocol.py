@@ -24,9 +24,10 @@ from tests.integration.test_life_agent_protocol import (
 from agentsociety2.agent.base import ReactLoopRequest
 from agentsociety2.agent.base import agent_runtime
 from agentsociety2.society import DecisionContext
-from custom.agents import life_agent, life_prompt
+from custom.agents import life_agent
+from worldmock.agents import life_prompt
 from custom.agents.life_agent import LifeAgent
-from custom.agents.life_persona import persona_layer
+from worldmock.agents.life_persona import persona_layer
 from worldmock.life.models import REQUEST_MODELS
 from worldmock.life import prompt_capacity
 from worldmock.life.narration import render_layer_json

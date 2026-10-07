@@ -22,7 +22,7 @@ import pytest
 from scripts.documentation_refs import section_text
 from agentsociety2.society import DirectToolCall
 from custom.agents.life_agent import life_tool_schema_sha256
-from custom.agents.life_prompt import life_prompt_sha256
+from worldmock.agents.life_prompt import life_prompt_sha256
 
 import worldmock.runtime as runtime_module
 from tests.life.conftest import (StubPlanDayClient, advance_next, advance_until_ready, conclude_request, context, drive,
@@ -1016,7 +1016,7 @@ def test_plan_inputs_list_only_accepted_conclusions_once(engine_factory):
 
 
 def test_plan_inputs_refuse_an_accepted_conclusion_recorded_without_errands(engine_factory):
-    """零点计划输入经 control_items 读已受理的收尾请求（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-交付边界、2.3）：一次真实受理的收尾
+    """零点计划输入经 control_items 读已受理的收尾请求（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-控制请求记录、2.3）：一次真实受理的收尾
     照常列为一条收尾记录；经 FootprintStore 在回顾时段里补登一条带 items 而缺请求级 errands 的旧形状收尾及其已完成的结果
     后，装配输入以完整性故障拒绝，不把它当作没有事务变更的收尾列出来。"""
     engine = engine_factory()

@@ -39,7 +39,7 @@ def _stored(entry: dict, subject: str | None) -> dict:
 
 def test_current_shape_items_carry_views_as_subject_memories() -> None:
     """现行形状一项一个对象：结束工具每项先普通记忆（subject 为 null）、后看法（about 写作 subject）；播报与暂停没有记忆；
-    进度层与交付窗口的现行形状改写只留活动名与自述（进度层另留普通记忆），看法与偏好与请求级 errands 一律不带。"""
+    进度层的现行请求参数保留活动名、自述与普通记忆，看法与偏好与请求级 errands 一律不带。"""
     request = conclude_request(_WORK, _WAIT, summary=["纪要写完了。", "等完了。"], memories=[[_PLAIN], []],
                                views=[[_FRIEND, _TASTE], []])
     work, wait = control_items("conclude_activity", request)
@@ -49,17 +49,14 @@ def test_current_shape_items_carry_views_as_subject_memories() -> None:
     assert (work.plain_memories, work.views) == ((_stored(_PLAIN, None),), work.memories[1:])
     assert wait == ControlItem(_WAIT, "等完了。")
     assert control_items("conclude_activity", request.model_dump(mode="json")) == (work, wait)
-    assert control_request("conclude_activity", request, memories=True) == {"items": [
+    assert control_request("conclude_activity", request) == {"items": [
         {"activity_name": _WORK, "summary": "纪要写完了。", "memories": [_PLAIN]},
         {"activity_name": _WAIT, "summary": "等完了。", "memories": []}]}
-    assert control_request("conclude_activity", request, memories=False) == {"items": [
-        {"activity_name": _WORK, "summary": "纪要写完了。"}, {"activity_name": _WAIT, "summary": "等完了。"}]}
-    assert not any("errands" in control_request("conclude_activity", request, memories=memories)
-                   for memories in (True, False))
+    assert "errands" not in control_request("conclude_activity", request)
     for tool, model in (("report_status", report_request), ("pause_activity", pause_request)):
         read = control_items(tool, model(_WAIT, _WORK, summary=["还在等。", "写到一半。"]))
         assert read == (ControlItem(_WAIT, "还在等。"), ControlItem(_WORK, "写到一半。"))
-        assert control_request(tool, model(_WAIT), memories=True) == {"items": [
+        assert control_request(tool, model(_WAIT)) == {"items": [
             {"activity_name": _WAIT, "summary": model(_WAIT).items[0].summary}]}
 
 
@@ -122,7 +119,7 @@ def test_unrecognised_or_malformed_requests_fail_as_integrity_errors(tool: str, 
 @pytest.mark.parametrize("tool", CONTROL_TOOLS)
 def test_a_current_request_without_errands_is_rejected(tool: str) -> None:
     """@brief 带 items 而缺请求级 errands 的控制请求是旧形状记录（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误 、2.9）：唯一读取
-    入口 control_items 以完整性故障拒绝，经它读取的投影（进度层参数与交付窗口的 control_request）、请求级变更的读取
+    入口 control_items 以完整性故障拒绝，经它读取的投影（进度层参数 control_request）、请求级变更的读取
     （control_errands）与收尾记忆的判定随之拒绝，不留读取分支；errands 不是列表同样拒绝。带空 errands 的同一请求照常读出。"""
     builder = {"report_status": report_request, "pause_activity": pause_request, "conclude_activity": conclude_request}
     current = builder[tool](_WAIT, summary="等完了。").model_dump(mode="json")
@@ -130,8 +127,7 @@ def test_a_current_request_without_errands_is_rejected(tool: str) -> None:
     assert control_items(tool, current) == (ControlItem(_WAIT, "等完了。"),)
     lacking = {"items": current["items"]}
     readers = [lambda request: control_items(tool, request), lambda request: control_errands(tool, request),
-               lambda request: control_request(tool, request, memories=True),
-               lambda request: control_request(tool, request, memories=False)]
+               lambda request: control_request(tool, request)]
     if tool == "conclude_activity":
         readers.append(conclusion_has_memories)
     for read in readers:

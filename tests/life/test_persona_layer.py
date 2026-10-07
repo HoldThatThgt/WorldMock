@@ -22,10 +22,10 @@ from agentsociety2.agent.base import ReactLoopRequest  # noqa: E402
 from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig  # noqa: E402
 
 from custom.agents.life_agent import LifeAgent, _conclusion_memories, _validate_prepared_action  # noqa: E402
-from custom.agents.life_memory import WorldMockMemoryRuntime  # noqa: E402
-from custom.agents.life_persona import (PROMPT_SNAPSHOT_FILE, card_struct, known_persons, persona_layer,  # noqa: E402
+from worldmock.agents.life_memory import WorldMockMemoryRuntime  # noqa: E402
+from worldmock.agents.life_persona import (PROMPT_SNAPSHOT_FILE, card_struct, known_persons, persona_layer,  # noqa: E402
                                         readonly_layers, write_prompt_snapshot)
-from custom.agents.life_prompt import empty_memory_layer, readonly_messages  # noqa: E402
+from worldmock.agents.life_prompt import empty_memory_layer, readonly_messages  # noqa: E402
 from tests.integration.test_life_agent_protocol import _context, _observations  # noqa: E402
 from tests.integration.runtime_fixtures import write_agent_workspace  # noqa: E402
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, stage_day_plan, start_activity,

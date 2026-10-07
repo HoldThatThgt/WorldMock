@@ -51,7 +51,6 @@ _START = "tests/test_start_activity_contract.py::"
 _PURCHASES = "tests/footprints/test_purchases.py::"
 _EVENTS = "tests/footprints/test_event_fields.py::"
 _QUALITY = "tests/footprints/test_quality.py::"
-_WINDOWS = "tests/delivery/test_windows.py::"
 _ATTRIBUTION = "tests/life/test_session_attribution.py::"
 _BEHAVIOR = "tests/evaluation/test_behavior_metrics.py::"
 _DOC_GATE = "tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve"
@@ -187,7 +186,7 @@ LEDGER: dict[str, list[str]] = {'七层请求': ['tests/integration/test_seven_l
           'tests/integration/test_same_second_continuation.py::test_real_pause_and_body_changes_reach_the_next_tool_message_once',
           'tests/integration/test_same_second_continuation.py::test_a_recorded_request_without_its_response_breaks_the_chain',
           'tests/integration/test_same_second_continuation.py::test_replay_with_an_intervention_inherits_the_parent_switch',
-          'tests/integration/test_same_second_continuation.py::test_a_real_continuation_run_passes_delivery_windows_and_the_observation_gate'],
+          'tests/integration/test_same_second_continuation.py::test_a_real_continuation_run_preserves_requests_and_the_observation_gate'],
  '可用性': ['tests/life/test_tool_layer.py::test_every_listed_item_matches_admission_at_run_start',
          'tests/life/test_tool_layer.py::test_pending_conclusion_marks_everything_but_conclusion_unavailable',
          'tests/life/test_tool_layer.py::test_restricted_round_marks_closed_items_with_the_same_moment_reason',
@@ -342,18 +341,14 @@ LEDGER: dict[str, list[str]] = {'七层请求': ['tests/integration/test_seven_l
              'tests/life/test_same_moment_decisions.py::test_rejected_start_stays_in_start_or_resume_and_marks_the_option',
              'tests/life/test_same_moment_decisions.py::test_restricted_stage_check_and_ladder_units',
              'tests/footprints/test_quality.py::test_decision_rhythm_counts_silent_boundaries_and_wake_reasons'],
- '下游': ['tests/footprints/test_event_fields.py::test_retired_decision_statement_field_is_rejected_on_event_drafts',
+ '足迹交接与查看器': ['tests/footprints/test_event_fields.py::test_retired_decision_statement_field_is_rejected_on_event_drafts',
         'tests/footprints/test_event_fields.py::test_persisted_decision_started_is_validated_when_reading_events',
         'tests/footprints/test_quality.py::test_decision_rhythm_counts_silent_boundaries_and_wake_reasons',
         'tests/evaluation/test_behavior_metrics.py::test_observation_gate_allows_same_second_continuation_chain_reuse',
         'tests/evaluation/test_behavior_metrics.py::test_observation_gate_fails_on_cross_second_or_cross_agent_duplicate',
-        'tests/delivery/test_windows.py::test_dreaming_window_reads_self_note_and_the_actual_request_layer_json',
-        'tests/delivery/test_windows.py::test_dreaming_rejects_an_action_without_the_recorded_layer_json',
-        'tests/delivery/test_windows.py::test_action_and_intent_windows_show_layers_and_self_note_but_never_decision_started',
-        'tests/delivery/test_windows.py::test_continued_same_second_request_is_kept_verbatim_in_action_and_intent_windows',
-        'tests/delivery/test_publication.py::test_delivery_gate_is_world_schema_ten_and_rejects_version_seven_exports',
-        'tests/delivery/test_publication.py::test_delivery_world_schema_ten_rejects_nine_before_consumers',
-        'tests/integration/test_same_second_continuation.py::test_a_real_continuation_run_passes_delivery_windows_and_the_observation_gate',
+
+
+        'tests/integration/test_same_second_continuation.py::test_a_real_continuation_run_preserves_requests_and_the_observation_gate',
         'tests/tools/test_run_viewer.py::test_run_viewer_recorded_names',
         'tests/life/test_continuation_metrics.py::test_the_subcommand_opens_the_run_read_only',
         'tests/life/test_continuation_metrics.py::test_the_baseline_comparison_refuses_runs_that_are_not_comparable',
@@ -464,17 +459,16 @@ RULINGS: dict[int, list[str]] = {21: ['tests/integration/test_decision_context_p
 #: 得出后冻结（c3b24da 是本特性实施前的主线提交）。延期标记扫描逐个检查这些文件的全文。
 FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "custom/agents/life_agent.py",
-    "custom/agents/life_context.py",
-    "custom/agents/life_continuation.py",
-    "custom/agents/life_memory.py",
-    "custom/agents/life_persona.py",
-    "custom/agents/life_prompt.py",
+    "src/worldmock/agents/life_context.py",
+    "src/worldmock/agents/life_continuation.py",
+    "src/worldmock/agents/life_memory.py",
+    "src/worldmock/agents/life_persona.py",
+    "src/worldmock/agents/life_prompt.py",
     "custom/envs/life_env.py",
     "scripts/inspect_run.py",
     "src/worldmock/cli.py",
-    "src/worldmock/delivery/pipeline.py",
-    "src/worldmock/delivery/replay.py",
-    "src/worldmock/delivery/windows.py",
+
+
     "src/worldmock/evaluation/behavior_metrics.py",
     "src/worldmock/evaluation/validation.py",
     "src/worldmock/footprints/export.py",
@@ -538,7 +532,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
 
 #: 本特性新增的测试文件（`git diff --name-only --diff-filter=A c3b24da -- tests`）与本守卫自身。
 FEATURE_TEST_FILES: tuple[str, ...] = (
-    'tests/delivery/prompt_fixtures.py',
+
     'tests/footprints/test_purchases.py',
     'tests/integration/test_mail_read_result.py',
     'tests/integration/test_same_second_continuation.py',

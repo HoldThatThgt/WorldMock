@@ -13,7 +13,7 @@ _FINDING_FIELDS = {"code", "severity", "event_ids", "source_pointer", "message"}
 
 
 try:
-    from worldmock.delivery.rules import evaluate_causal_events
+    from worldmock.evaluation.causal_checks import evaluate_causal_events
 except (ImportError, ModuleNotFoundError) as exc:
     LOGGER.exception("Production causal evaluator is unavailable")
     raise EvaluationError("causal_checker_unavailable", "production causal evaluator is unavailable") from exc

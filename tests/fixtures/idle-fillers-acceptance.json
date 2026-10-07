@@ -151,8 +151,8 @@
       "tests/integration/test_tool_description_references.py::test_interaction_rules_live_only_in_the_system_layer"
     ],
     "implementation": [
-      "custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER",
-      "custom/agents/life_prompt.py::system_message"
+      "src/worldmock/agents/life_prompt.py::LIFE_SYSTEM_LAYER",
+      "src/worldmock/agents/life_prompt.py::system_message"
     ]
   },
   "第 7 条的事实有引擎证据": {
@@ -186,7 +186,7 @@
       "tests/integration/test_seven_layer_request.py::test_retired_meal_delivery_and_bedtime_readings_are_gone_from_the_system_layer"
     ],
     "implementation": [
-      "custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER"
+      "src/worldmock/agents/life_prompt.py::LIFE_SYSTEM_LAYER"
     ]
   },
   "夹具与查看器": {
@@ -197,7 +197,7 @@
       "tests/tools/test_run_viewer.py::test_run_viewer_recorded_names"
     ],
     "implementation": [
-      "custom/agents/life_prompt.py::system_message"
+      "src/worldmock/agents/life_prompt.py::system_message"
     ]
   },
   "模板逐字": {

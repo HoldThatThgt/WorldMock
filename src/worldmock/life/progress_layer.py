@@ -155,7 +155,7 @@ def _arguments(tool: str, request: dict) -> dict:
     看法与偏好（views 派生的 relationship 与 preference 记忆）略去，只在人设层出现。"""
     if tool not in CONTROL_TOOLS:
         return request
-    return control_request(tool, request, memories=True)
+    return control_request(tool, request)
 
 
 def _order_ids(results: list[Event]) -> tuple[str, ...]:

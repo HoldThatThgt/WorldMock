@@ -1,6 +1,8 @@
 <a name="spec-parallel-activities-同时做两件事开发规格"></a>
 # 同时做两件事开发规格
 
+> 2026-10-07 按用户确认的[数据加工归属](../ARCHITECTURE.md#architecture-数据加工归属)修订：WorldMock 负责模拟、记录、完整认证足迹导出与真实性评估；LabelKit 加工、模型任务、训练装载与规则测试归 LabelKit-DataSet；环境素材归 WorldMock-Dataset。历史验收数字只证明原源码基线，不代表本次消费链已验收。
+
 > 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题恢复检查次序。
 
 > 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「身份、版本与完整日基线」（阶段 1）；「占用声明、各种情形、随实现一起改的测试」（阶段 4，app 使用取代旧娱乐动作）。
@@ -134,7 +136,7 @@ flowchart LR
 <a name="spec-parallel-activities-丙第8条"></a>
 ## 丙：系统层第 8 条
 
-十八条与下标不变，只原位改写第 8 条。落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的系统层 JSON 块，模块常量 `custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER` 与之逐字相同。
+十八条与下标不变，只原位改写第 8 条。落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的系统层 JSON 块，模块常量 `src/worldmock/agents/life_prompt.py::LIFE_SYSTEM_LAYER` 与之逐字相同。
 
 ```text
 第 8 条
@@ -199,7 +201,7 @@ flowchart LR
 | --- | --- |
 | `docs/CONTRACTS.md#contracts-model-request` | 系统层第 8 条换成定稿文本（与模块常量同一提交） |
 | `docs/CONTRACTS.md`「七层 Schema」的分阶段指纹叙述 | 补一句：系统层第 8 条原位改写（仍为十八条）使 `prompt_sha256` 重钉，`tool_schema_sha256` 不变 |
-| `docs/EXPERIMENT.md`「交互菜单与运行身份」、`docs/dev/SPEC-labelkit-delivery.md` 下游的「版本」一条、`docs/design/04-simulation-engine.md`「当前实现边界」 | 第 8 条改写改变 `prompt_sha256`，工具面与各层 Schema 不变 |
+| `docs/EXPERIMENT.md`「交互菜单与运行身份」、`docs/design/04-simulation-engine.md`「当前实现边界」 | 第 8 条改写改变 `prompt_sha256`，工具面与各层 Schema 不变 |
 
 <a name="spec-parallel-activities-文档记录"></a>
 ### 阶段 4（记录）

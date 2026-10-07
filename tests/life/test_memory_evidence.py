@@ -236,7 +236,7 @@ def test_reflection_snapshots_carry_their_source_and_both_checks_accept_it(tmp_p
     from agentsociety2.agent.memory import AgentMemoryStore
     from agentsociety2.agent.memory_runtime import MemoryStepOutcome
 
-    from custom.agents.life_memory import memory_update_evidence
+    from worldmock.agents.life_memory import memory_update_evidence
     from worldmock.life.memory_evidence import valid_subjective_snapshots
     from worldmock.life.memory_evidence import _memory_evidence_data
 

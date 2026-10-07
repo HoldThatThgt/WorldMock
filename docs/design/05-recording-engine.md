@@ -40,7 +40,7 @@
 本文统一维护记录引擎的设计、接口和行为约束。
 [接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)保留跨模块接口导航；
 [交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎)提供交换条件与投入产出规则，[模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎)推进活动并落实结算；
-[数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付)定义认证导出进入 LabelKit 后如何加工；
+LabelKit-DataSet 定义认证导出接收后的数据加工；
 [验收门禁](../VERIFICATION.md#verification-worldmock-验收标准)和[实现状态](../dev/implementation-status.md#implementation-status-worldmock-实现状态)分别记录放行条件与实测证据。
 文档整合不构成实现完成或真实运行验收。
 
@@ -77,7 +77,7 @@ flowchart TB
     SIMULATION -->|交互边界的全过程| PROCESS
     SIMULATION -->|收齐本轮状态与参与者快照| CHECKPOINT
     BRANCH -->|已核验的分支存储与恢复材料| SIMULATION
-    EXPORT -->|通过认证的数字足迹| LABELKIT["LabelKit<br/>证据窗口与数据加工"]
+    EXPORT -->|通过认证的数字足迹| LABELKIT["LabelKit-DataSet<br/>证据整理与数据加工"]
     LABELKIT --> TRAINING["模型训练数据"]
     LABELKIT --> TESTING["规则引擎测试数据"]
 
@@ -526,7 +526,7 @@ flowchart LR
 
 原始记录保留世界事实、数字人自述与推断的来源区别，按提交内容保存来源和可见性标记。
 模拟引擎负责观察投影与访问范围；记录引擎保留实际交付证据，不能把事后完整状态冒充当时的观察。
-下游的字段裁剪与证据窗口由[数据交付](06-delivery.md#delivery-证据窗口)负责，原始事件保持不变。
+下游的字段裁剪与证据窗口由 LabelKit-DataSet 负责，原始事件保持不变。
 
 <a name="recording-engine-素材存储行为"></a>
 ### 素材存储行为
@@ -853,7 +853,7 @@ flowchart TD
 分支获得新的 `run_id`，记录 `parent_run_id`、`parent_checkpoint_id` 与分支原因，沿用 `source_group_id`。
 记录引擎保存调用方提供的干预描述和 `intervention_sha256`，保持父检查点、原始事件与新分支证据可追溯。
 干预是否受支持、何时执行及如何改变世界，由模拟引擎决定；实际执行结果仍通过事件和状态提交。
-来源身份如何用于样本划分与反事实标签，见[数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付)。
+下游样本划分与反事实标签由 LabelKit-DataSet 定义；原始来源身份随完整导出提供。
 
 <a name="recording-engine-重放与重新调用的区别"></a>
 ### 重放与重新调用的区别
@@ -935,14 +935,14 @@ position_before, position_after, completed, push_id, source_event_id}`；三种�
 正式交付前，记录引擎校验完成标志、运行与覆盖身份、全部主文件哈希和行数、事件全序与因果引用、
 唯一正常结束、最终共同检查点、参与者快照及所有素材。
 只达到场景终点不代表完整；缺少最终共同检查点，或最终检查点之后仍有事件，都不能认定为完成。
-不完整导出只用于诊断，禁止进入正式 LabelKit 交付。
+不完整导出只用于诊断，不能作为下游正式加工的认证输入。
 
 <a name="recording-engine-导出认证"></a>
 ### 导出认证
 
 导出保留原始 `event_id`、`run_id`、序号、输入文件和行位置，素材索引绑定对应字节及摘要。
 恢复与反事实分支保留父检查点和来源身份，使下游能够追溯材料来自哪段原始历史。
-认证只证明导出与固定截止的持久事实一致；样本标识、窗口正文展开与数据划分由[数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付)定义。
+认证只证明导出与固定截止的持久事实一致；样本标识、窗口正文展开与数据划分由 LabelKit-DataSet 定义。
 素材哈希与事件身份分别标识内容和发生记录，不能互相代替。
 
 <a name="recording-engine-质量报告"></a>
@@ -1106,8 +1106,7 @@ python3 scripts/render_day.py runs/white-collar/footprints.sqlite --agent 0 --da
 `rerun` 只读计算[时间与能量规格「验收台账」](../VERIFICATION.md#verification-incremental-evidence)「真实复验」行的八项指标
 （无进行中活动总时长、同刻轮数分布、播报唤醒占比、最低饥饿分级、首次进食前最低能量、进食次数、步行占比、
 零点计划是否含早于 08:30 的提醒），逐项打印中文报告，缺少可计算记录的项标「不适用」；只报告，不作门禁。
-`continuation [--topic 话题 ...] [--baseline <run_dir>]` 只读给出[人物 Prompt 规格](../dev/SPEC-labelkit-delivery.md#persona-prompt-下游)第七章
-「续接对比」的指标，以 JSON 打印 `{run_id, same_second_continuation, decisions, summary}`：`decisions` 逐决策（按首个行动请求的事件序号）
+`continuation [--topic 话题 ...] [--baseline <run_dir>]` 只读给出当前完整模型证据中的续接对比指标，以 JSON 打印 `{run_id, same_second_continuation, decisions, summary}`：`decisions` 逐决策（按首个行动请求的事件序号）
 给 `decision_id`、`agent_id`、`occurred_at`、`same_second_follow_up`、`chain_position`（链首为 0，断链为 `null`）、`chain_intact`、
 `tools_same_as_head`、`requests`、`reasoning_tokens` 与 `reasoning_chars`（每个响应都报告思考 token 时给 token 数，否则只给思考原文字符数，
 两者不混算）、`protocol_errors`、`transport_failures`、`bad_request_400`（400 单列，不计入传输失败）、`cache_hit_tokens`、`prompt_tokens`、
@@ -1247,3 +1246,4 @@ flowchart LR
 | `2026-10-06-rrs-app` | 2026-10-07 | app 内容接触的 `data.content` 与 `played[]`、`app_push` 环境事件、公开 `app_content` 结果；阶段 4 唤醒词表仍为 25 项，工作事件留到阶段 5；版本保持 v1.6 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题证据与质量报告，保留特性版本 v1.6 |
 | `2026-10-06-rrs-record` | 2026-10-07 | 阶段 7：导出清单 3、五个工件、app 使用事实与最终查看器标签；版本保持 v1.6 |
+| `2026-10-07-repository-ownership` | 2026-10-07 | 按用户裁决收敛目录与职责：WorldMock 保留模拟、记录、完整认证足迹与评估；下游加工、模型任务、训练和规则数据归 LabelKit-DataSet，源码快照已接收，新消费验收另记实际证据 |

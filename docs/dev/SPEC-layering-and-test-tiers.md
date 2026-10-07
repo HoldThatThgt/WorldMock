@@ -1,6 +1,8 @@
 <a name="spec-layering-and-test-tiers-代码分层文档引用与测试分层开发规格"></a>
 # 代码分层、文档引用与测试分层开发规格
 
+> 2026-10-07 按用户确认的[数据加工归属](../ARCHITECTURE.md#architecture-数据加工归属)修订：WorldMock 负责模拟、记录、完整认证足迹导出与真实性评估；LabelKit 加工、模型任务、训练装载与规则测试归 LabelKit-DataSet；环境素材归 WorldMock-Dataset。历史验收数字只证明原源码基线，不代表本次消费链已验收。
+
 > 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题依赖边界。
 
 > 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「测试只读输入缓存、生活引擎的职责对象、行为不变基线、生产依赖方向」（阶段 1）与「快速、标准与全量层」（阶段 4）。
@@ -40,7 +42,7 @@ flowchart TD
 本次交付覆盖提案的代码分层、文档与测试解耦、测试分层全部要求。
 提案明确单独立项的生产观察缓存不属于本次功能；本次不增加生产缓存、不改变观察结果。
 共享规则与可重建环境提案的其它功能不属于本次；覆盖率入口改用当前解释器属于本次统一运行入口。
-不改 AS2、LabelKit 锁定提交、运行身份算法、事件和检查点结构、人物工具签名及业务合同。
+不改 AS2 锁定来源、运行身份算法、事件和检查点结构、人物工具签名及业务合同。
 
 | 提案中的安排 | 本次唯一实现 |
 | --- | --- |
@@ -194,10 +196,10 @@ mutate 场景和临时输入不走正式输入缓存，场景副本使用相对�
 <a name="layering-tiers"></a>
 ## 快速、标准与全量层
 
-根 `conftest.py` 在收集后按实际 fixture 依赖及静态调用边界自动生成 `engine`、`mutation`、`day_run`、`external` 标记。
+`tests/conftest.py` 在收集后按实际 fixture 依赖及静态调用边界自动生成 `engine`、`mutation`、`day_run`、`external` 标记。
 引擎夹具使用者及直接驱动 LifeEngine/LifeEnv 的用例标为 engine；实际源码变异执行标为 mutation，
 登记格式与定位检查不带 mutation；完整自然日和多日运行标为 day_run；
-需要 Node 或 LabelKit 独立环境的用例标为 external。app 使用与 app 内容用例按是否直接驱动生活引擎归入普通或 engine 集合，不设专属外部测试层。
+需要 Node 独立进程的用例标为 external。app 使用与 app 内容用例按是否直接驱动生活引擎归入普通或 engine 集合，不设专属外部测试层。
 新增相关用例须自动归类，不要求作者手写标记；不得把整个测试文件的格式守卫误归为变异执行。
 
 | 层 | 用例集合 | 使用时机 |
@@ -237,8 +239,8 @@ mutate 场景和临时输入不走正式输入缓存，场景副本使用相对�
 覆盖数据生成后，其实际字节摘要绑定到同次运行的 summary。`--from-json` 核对覆盖摘要和 collection、
 summary、worker 选择清单及完成回执的运行身份与节点多重集；缺失或失效收据拒绝，
 不能以其它运行的绿色覆盖文件或回执替代当前运行。输入摘要覆盖实际读取的源码、测试、设计、
-依赖锁、源码补丁、场景与语料、根 `.gitattributes` 和交付 `labelkit-projects` 配置、hooks 与 schemas，
-交付工程的 data、out 和 `__pycache__` 不纳入输入，自动生成的计时与覆盖报告仍按现有排除范围处理。
+依赖锁、源码补丁、场景与语料、根 `.gitattributes` 和引擎人工测试环境，
+`__pycache__` 不纳入输入，自动生成的计时与覆盖报告仍按现有排除范围处理。
 共享规则及可重建环境的其余要求见[所属冻结规格](SPEC-shared-rules-and-rebuildable-env.md#shared-rules-门禁可选部件与操作系统)。
 
 <a name="layering-baseline"></a>
@@ -279,12 +281,12 @@ summary、worker 选择清单及完成回执的运行身份与节点多重集；
 | 交换与资源设计 | `docs/design/02-exchange-engine.md`、`03-resource-engine.md`：纯规则和基础词表、类型与资源装配边界 |
 | 模拟设计 | `docs/design/04-simulation-engine.md`：上下文、职责对象、观察、受理、活动与工作主题推进和证据登记的实际调用关系 |
 | 记录设计 | `docs/design/05-recording-engine.md`：恢复由检查点编排、存储只存取、时间线加载归属和行为摘要证据 |
-| 交付与评估设计 | `docs/design/06-delivery.md`、`07-evaluation.md`：现行正文引用、身份边界与完整验收证据；不改业务规则 |
+| 评估设计 | `07-evaluation.md`：现行正文引用、身份边界与完整验收证据；不改业务规则 |
 | 配置与格式设计 | `docs/design/08-configuration.md`、`09-io-formats.md`：相对路径、冻结输入和身份不变；不增加运行配置或持久字段 |
 | 设计入口与生成物 | `docs/design/README.md`、`SUMMARY.md`、`worldmock-design.html`：稳定章节、附录和重新汇编 |
 | 归档 | `docs/archive/` 五项已验收增量规格及证据，删除原位置并同步全部现行引用；`tests/fixtures/archive-assets.json` 与现行所有者守卫核对固定历史原文和非 Markdown 资产字节 |
 | 测试解耦 | `tests/fixtures/acceptance_requirements.json`、`current-feature-owners.json`、`layering-acceptance.json` 与固定行为基线；原文档读取与文本钉守卫、`mutation_runner.py`、两份突变登记及符号作用域行为测试 |
-| 测试分层 | 根 `conftest.py`、`tests/engine_fixture.py`、`tests/life/conftest.py`、其它共享 fixture、分层与缓存守卫、`scripts/run_tests.py`、`scripts/coverage_gate.py`、对应测试、`pyproject.toml` 标记和耗时报告 |
+| 测试分层 | `tests/conftest.py`、`tests/engine_fixture.py`、`tests/life/conftest.py`、其它共享 fixture、分层与缓存守卫、`scripts/run_tests.py`、`scripts/coverage_gate.py`、对应测试、`pyproject.toml` 标记和耗时报告 |
 
 <a name="layering-consistency"></a>
 ## 与现有规格一致性

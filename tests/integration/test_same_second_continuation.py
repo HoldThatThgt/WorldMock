@@ -29,7 +29,7 @@ from agentsociety2.agent.base import ReactLoopRequest  # noqa: E402
 from agentsociety2.society import DirectToolCall  # noqa: E402
 
 from custom.agents.life_agent import LifeAgent  # noqa: E402
-from custom.agents.life_continuation import _overlay, _view as _seen, layer_changes, send_check  # noqa: E402
+from worldmock.agents.life_continuation import _overlay, _view as _seen, layer_changes, send_check  # noqa: E402
 from custom.envs.life_env import LifeEnv  # noqa: E402
 from tests.integration.runtime_fixtures import current_run_identity, write_agent_workspace  # noqa: E402
 from tests.integration.test_life_agent_protocol import (_OBSERVED_AT, _ModelResponse, _conclude_args,  # noqa: E402
@@ -977,7 +977,7 @@ async def test_switch_off_every_decisions_first_request_has_exactly_two_messages
 def test_continuation_messages_read_earlier_changes_and_skip_memory_and_feedback_tool_messages() -> None:
     """宿主组装：链中此前的续接 tool 消息的 changes 叠加到链首快照上，记忆查询与协议纠错的 tool 消息不算改动；
     新 tool 消息只写相对叠加结果的改动。"""
-    from custom.agents.life_continuation import continuation_messages
+    from worldmock.agents.life_continuation import continuation_messages
 
     def layers(state: str, body: str) -> list[dict]:
         return [{"layer": "工具层", "targets": [{"name": "店", "kind": "location", "state": state,
@@ -1208,13 +1208,12 @@ def test_replay_with_an_intervention_inherits_the_parent_switch(tmp_path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_a_real_continuation_run_passes_delivery_windows_and_the_observation_gate(_engine_factory,
+async def test_a_real_continuation_run_preserves_requests_and_the_observation_gate(_engine_factory,
                                                                                       tmp_path) -> None:
     """真实续接运行走完导出、交付窗口与行为指标：终点前两段同秒续接（修订计划→等待，收尾→再等待）；动作与意图窗口的
     prompt 原样是续接的实际请求（带上一决策 assistant 的思考与 tool 消息）；观察重复门禁在链内复用链首 user 时通过，
     同一链首 user 确实出现在同一秒的两个决策里（第七章「质量与指标」「交付」）。"""
     from tests.life.test_export_integration import _stage_final_interval
-    from worldmock.delivery.windows import prepare_windows
     from worldmock.evaluation.behavior_metrics import behavior_metrics_report
     from worldmock.footprints.export import export_run
     from worldmock.footprints.validation import validate_export
@@ -1236,13 +1235,10 @@ async def test_a_real_continuation_run_passes_delivery_windows_and_the_observati
     export_dir = tmp_path / "continued-export"
     export_run(engine.context.store, checkpoint.last_event_seq, export_dir)
     _, events, _ = validate_export(export_dir)
-    windows = prepare_windows(export_dir)
     for decision_id, sent in (("decision-wait-1", run["second"][0]), ("decision-final-1", final)):
-        [action_id] = [event["action_id"] for event in events
-                       if event["event_type"] == "action_requested" and event["decision_id"] == decision_id]
-        for kind in ("action", "intent"):
-            [record] = [item for item in windows[kind] if item["target"]["request"]["action_id"] == action_id]
-            assert record["input"]["decision_prompt"] == sent and len(sent["messages"]) == 4
+        [prompt] = [event for event in events if event["event_type"] == "model_request"
+                    and event["decision_id"] == decision_id and event["data"]["phase"] == "request"]
+        assert prompt["data"]["request"] == sent and len(sent["messages"]) == 4
     [report] = behavior_metrics_report(events).values()
     gate = report["gates"]["observation_repetition"]
     assert (gate["value"], gate["pass"], gate["duplicated_observation_count"]) == (1, True, 0)
