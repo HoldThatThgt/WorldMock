@@ -21,8 +21,10 @@
 ## 环境数据归属
 
 [环境数据归属规格](dev/SPEC-environment-data-ownership.md)定义双仓职责；实施与最终验收仍须核对对应收据。
-WorldMock-Dataset 在 `environment/zhangjiang-baseline/` 发布语料、目录和场景，并维护数据制作工具。
+WorldMock-Dataset 在 `environment/shanghai-simplified/` 发布语料、目录和结构 7 场景，并维护数据制作工具。
 WorldMock 安装包提供引擎和固定通用规则，通过显式场景路径加载环境；引擎仓只保留人工最小测试环境。
+正式环境已发布；当前 macOS 与 Linux 正式回归均在 standard 参考层失败，正式 full 主体尚未执行，
+未产生新的覆盖率测量。平台与完整日证据按[实施状态](dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态)分别核对。
 
 ```mermaid
 flowchart LR
@@ -57,7 +59,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | `docs/EXPERIMENT.md#experiment-worldmock-实验设置` | 实验身份：时间窗与日历情境、依赖冻结、运行绑定、场景参数、内容与语料绑定、样本划分与外部参照；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步 | FROZEN |
 | `docs/VERIFICATION.md#verification-worldmock-验收标准` | 放行门禁（最终门禁、协议门禁、工程门禁、报告项）、交付阶段与通过条件、测试矩阵、验收原则与结论边界；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步；阶段 7 的内容、出行、质量与交付通过条件已同步，执行状态按实际回执登记 | NOT-COMPLETE |
 | `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态` | 当前实现状态：确定性范围与测试基线实测、覆盖率口径、规格追溯与突变守卫、未完成项与阻塞 | NOT-COMPLETE |
-| `docs/dev/coverage-baseline.md#coverage-baseline-覆盖率门禁口径与基线` | 覆盖率门禁的判定口径、测量与排除范围、失败关闭约定与基线记录（最近一次完整门禁通过） | 现行口径 |
+| `docs/dev/coverage-baseline.md#coverage-baseline-覆盖率门禁口径与基线` | 覆盖率门禁的判定口径、测量与排除范围、失败关闭约定、历史基线及本次正式门禁阻断 | 现行口径 |
 | `docs/dev/coverage-report.json` | 门禁生成物：分支覆盖率、未覆盖公共接口与逐文件分项，由 `scripts/coverage_gate.py` 写入 | 生成物 |
 | `docs/dev/test-durations.json` | 统一测试入口生成的节点、层次、阶段与文件耗时，标准墙钟取相同内容和执行条件的实际标准层回执 | 生成物 |
 
@@ -99,7 +101,8 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | [完整日行为基线跨平台一致提案](dev/PROPOSAL_2026-10-05_CROSS_PLATFORM_DAY_BASELINE.md) | 完整日用例在 Windows 上对 macOS 生成的现行夹具不符（按 `0184c97` 在 Windows 上实测，按 `b83292f` 与 macOS 导出逐条比较）：四处原因已全部定位并经确认实验复现——工作区快照归档次序、工作区文本文件换行、`AGENT.json` 路径分隔符，以及 macOS 数学库在一个难舍入参数上不正确舍入的 `exp`（进入 `sleep_pressure` 与 `sleepiness` 的末位）；前三处的修复在 POSIX 上是空操作，数学库须改用标准库 `decimal` 的正确舍入实现，提议在 Windows 与 macOS 上用同一份当前结构 6 外部输入生成新证明，现存两份历史夹具与签名实现保持原字节；方案未实施 | 未冻结提案 |
 | [环境数据归属规格](dev/SPEC-environment-data-ownership.md) | 正式环境与制作工具归数据仓；通用规则归引擎包；场景结构 6、环境标题与活动效果、显式环境加载及人工测试夹具；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现 | FROZEN |
 | [以 app 为入口的资源与规则引擎简化提案](dev/PROPOSAL_2026-10-06_RESOURCE_AND_RULE_SIMPLIFICATION.md) | 用户需求、运行证据与设计背景；全部推荐及最终裁决已收敛为资源与规则引擎简化冻结规格 | 已裁决 |
-| [资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格) | 固定规则、目录、图、食品、app 内容推送、主题工作、当前工具和认证足迹；阶段 1–8 修订条款已实现，macOS 人工完整日双跑一致并冻结基线；阶段 9 正式发布和平台回执未执行 | FROZEN |
+| [资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格) | 固定规则、目录、图、食品、app 内容推送、主题工作、当前工具和认证足迹；阶段 1–8 修订条款已实现，macOS 人工完整日双跑一致并冻结基线；阶段 9 正式环境已发布，macOS 与 Linux 正式回归受 standard 参考层失败阻断，完整发布与平台结论按实际收据判断 | FROZEN |
+| [正式环境验收记录](dev/resource-rule-formal-verification.md#resource-rule-formal-verification-正式环境验收记录) | 已发布 Dataset 与实际引擎身份、确定性完整日和来源投影、正式回归失败、覆盖率未测量及逐平台边界 | 验收记录 |
 | [同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格) | GitHub issue #4 的正式修复：暂停的活动不占两个并行名额、恢复要有空名额、同刻受限轮不再按名额分流（甲）；只有同一种动作互斥，占用名改为每种动作自己的名字，改的是引擎包资源 `src/worldmock/data/affordances.toml`，仍带旧占用名的已发布环境须按新占用名重新发布（乙）；系统层第 8 条原位改写（丙）；裁决记录、各阶段的现行文档改写、随实现一起改的测试、验收、门禁与平台、配对复跑指标与不在本规格内的待裁决事项；条款随阶段 1–3 提交逐阶段实现，完整日基线在 POSIX 平台另行生成；阶段 1（暂停的活动不占名额）、阶段 2（只有同一种动作互斥）与阶段 3（系统层第 8 条）已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；阶段 4 的八项占用与驾车仅可并行交谈正文已同步；阶段 5 的恢复检查改为地点、主题上限、名额、占用 | FROZEN |
 | [共享规则与可重建环境规格](dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-特性规格共享规则单一归宿与可重建环境) | 共享规则、固定源码、引导和平台要求；与分层与测试层次规格共同使用唯一 full runner；「安全文件」一行 2026-10-06 补 Windows 路径加固；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，修订条款已实现；阶段 4 的 app 固定时长、五类固定缓解率与三类候选正文已同步；阶段 5 的规范摘要与安全路径正文已改为工作主题累计；当前 macOS 证据与尚未执行的 Windows 回执分开登记 | FROZEN |
 | [共享规则与可重建环境验收记录](dev/shared-rules-and-rebuildable-env-verification.md) | 合并前具体被测身份的实现、完整门禁、平台重建和独立源码变异证据；不证明新主线合并后的代码 | 验收记录 |
@@ -252,7 +255,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | 实现或审查个人事务与工作安排（已冻结、已实现）：运行修复入库、个人事务、提示信息分工、下班与到家作息、场景工作安排、查询筛选 | `docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库`；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步 | 「裁决记录」取已定裁决，「冻结条款修订」取被改写的冻结条款，`docs/archive/errands-workday/errands-workday-implementation-plan.md`（实施台账）取逐文档的文档同步作业、逐阶段的文件修改清单与被钉点，规格「实施计划」「验收台账」取阶段、身份与验收，`docs/VERIFICATION.md#verification-worldmock-验收标准`「个人事务与工作安排特性门禁」取门禁，`docs/dev/ANALYSIS-spec-coverage.md#analysis-spec-coverage-规格测试用例覆盖率追溯矩阵`「个人事务与工作安排增量映射」取验收台账逐行到测试的追溯，`docs/archive/errands-workday/errands-workday-verification.md` 取验收证据（源码身份、门禁与突变审查）；评审逐条结论见 `docs/archive/errands-workday/2026-10-02-errands-workday-design-review.md`，设计背景与运行证据见已裁决的提案 |
 | 实现或审查让「等待」成为例外（已冻结）：系统层第 7、14、15、16 条、零点计划模板第三、五、六条、班次与休息时段起止的唤醒 | [让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格) | 「裁决记录」取已定裁决，「现行文档原位改写」取各阶段的文档改写，「验收台账」与 `tests/fixtures/idle-fillers-acceptance.json` 取验收与变异登记，「门禁与平台」取各门禁的执行平台；运行证据与取舍依据见已裁决的提案 |
 | 实现或审查同时做两件事（已冻结）：暂停的活动不占名额、只有同一种动作互斥、系统层第 8 条 | [同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)；阶段 6 的剩余系统规则、最终提示身份与查看器正文已同步 | 「随实现一起改的测试」「验收」与 `docs/CONTRACTS.md#contracts-model-request` |
-| 实现或审查资源与规则简化：系统固定规则、随机地图、食品、app 与主题工作 | [资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格) | 「裁决记录」「实施阶段」与「验收台账」；阶段 1–8 修订条款已实现，人工完整日已双跑一致并冻结；工程门禁结果按报告身份判断；阶段 9 正式发布、完整回归及平台回执未执行，见[实施状态](dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态) |
+| 实现或审查资源与规则简化：系统固定规则、随机地图、食品、app 与主题工作 | [资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格) | 「裁决记录」「实施阶段」与「验收台账」；阶段 1–8 修订条款已实现，人工完整日已双跑一致并冻结；工程门禁结果按报告身份判断；阶段 9 正式环境已发布，macOS 与 Linux 正式回归失败、覆盖率未测量；跨平台结论分别核对，见[实施状态](dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态) |
 | 找某个文件归谁管、代码在哪 | 本文件「文件归属」 | `docs/ARCHITECTURE.md#architecture-worldmock-架构设计` 看该模块的职责边界 |
 
 <a name="index-权威层级"></a>
@@ -369,10 +372,10 @@ flowchart TB
 
 | 路径 | 职责 |
 | --- | --- |
-| `WorldMock-Dataset/environment/<新标识>/scenarios/` | 发布后结构 7 场景；真实新路径由阶段 9 回执登记 |
+| `WorldMock-Dataset/environment/shanghai-simplified/scenarios/` | 已发布结构 7 生活场景；其中 evaluation.json 仍是生活运行输入 |
 | `docs/manual/` | 当前可用配置的用户编写手册与校验示例 |
-| `WorldMock-Dataset/environment/<新标识>/corpora/` | 仅生活活动、联系人和邮件语料；新发布尚未执行 |
-| `WorldMock-Dataset/environment/<新标识>/catalog/` | 地点、食品、app、内容、主题和图；规则包副本须与引擎字节一致 |
+| `WorldMock-Dataset/environment/shanghai-simplified/corpora/` | 已发布生活活动、联系人和邮件语料 |
+| `WorldMock-Dataset/environment/shanghai-simplified/catalog/` | 地点、食品、app、内容、主题和图；规则包副本须与引擎字节一致 |
 | `labelkit-projects/` | LabelKit 项目配置 |
 
 <a name="index-状态与变更约定"></a>
@@ -452,3 +455,4 @@ flowchart TB
 | `2026-10-06-rrs-prompt` | 2026-10-07 | 剩余系统规则与查看器同步，最终工具身份保持 |
 | `2026-10-06-rrs-record` | 2026-10-07 | 阶段 7：记录、导出、交付、评估与最终查看器合同的文档入口；执行结果仍按实际回执登记 |
 | `2026-10-06-rrs-docs` | 2026-10-07 | 当前规格、提案和实施阶段，exchange/catalog/corpora 归属与手册入口；正式发布及平台未执行 |
+| `2026-10-07-rrs-formal-docs` | 2026-10-07 | 正式环境路径、纯事实手机投影与评估输入入口同步；正式回归、覆盖率与平台结论仍按实际回执分别判定 |

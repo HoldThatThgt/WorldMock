@@ -3,11 +3,13 @@
 
 > 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 7 的记录、导出、交付与评估合同。
 
-本页命令以 WorldMock 为当前工作目录，场景输入显式位于 `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/`。
+本页命令以 WorldMock 为当前工作目录，评估配置使用 `.work/my-evaluation.json`。
 
 评估配置决定“比较同一时间段内哪些活动、使用哪些公开参照、请评审判断哪些维度”。
-从 scenarios/evaluation.json（`../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/evaluation.json`） 复制完整文件修改。
-它和[人物运行场景](scenarios.md#scenarios-生活场景)是两种不同输入，不要把它传给 `worldmock run`。
+从现有 `tests/evaluation/fixtures/scenario.json` 复制完整评估输入修改。
+它和[人物运行场景](scenarios.md#scenarios-生活场景)是两种不同输入，不要把评估配置传给 `worldmock run`。
+正式环境 `../WorldMock-Dataset/environment/shanghai-simplified/scenarios/evaluation.json` 是结构 7 的生活场景，
+不能传给 `worldmock.evaluation.scenario.load_scenario`。
 所有命令均在仓库根目录执行。
 
 [返回配置手册](README.md#readme-用户配置手册)
@@ -36,7 +38,7 @@ flowchart LR
 
 | 文件或目录 | 谁填写 | 用途 |
 |---|---|---|
-| `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-evaluation.json` | 用户 | 时间窗口、类别映射、参照来源、评审设计和旧交付身份 |
+| `.work/my-evaluation.json` | 用户 | 时间窗口、类别映射、参照来源、评审设计和旧交付身份 |
 | `--human-reference` 指向目录的 `manifest.json` | 真人数据提供方 | 可选；声明规范化真人轨迹的文件、时间范围和身份 |
 | 三份 `review-record-1` JSON | 评审组织者根据真实评审结果填写 | 绑定实际评审包、会话、原始回答和每项判断 |
 | `metrics.json`、`mapping-report.json`、`official-reference.json` | 程序生成 | 统计与适配结果，不是用户配置 |
@@ -49,7 +51,8 @@ flowchart LR
 <a name="evaluation-从完整示例开始"></a>
 ## 从完整示例开始
 
-下面命令会创建一个**完整的自定义评估配置**，保留现有基准交付身份与时间窗口，只修改评估名称及随机种子。
+下面命令从真实评估夹具创建完整配置，只修改评估名称及随机种子。该夹具用于离线结构演示，
+`expected_labelkit.run_id="artificial-labelkit"`，全部摘要为零占位值；它没有绑定可信的真实候选交付。
 目标文件已经存在时会拒绝覆盖：
 
 ```bash
@@ -57,20 +60,21 @@ python - <<'PY'
 import json
 from pathlib import Path
 
-source = Path("../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/evaluation.json")
-target = Path("../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-evaluation.json")
+source = Path("tests/evaluation/fixtures/scenario.json")
+target = Path(".work/my-evaluation.json")
 config = json.loads(source.read_text(encoding="utf-8"))
 config["scenario_id"] = "my-white-collar-evaluation"
 config["bootstrap"]["seed"] = 20260921
 config["review"]["seed"] = "my-review-2026-09-21"
+target.parent.mkdir(parents=True, exist_ok=True)
 with target.open("x", encoding="utf-8") as handle:
     json.dump(config, handle, ensure_ascii=False, indent=2)
     handle.write("\n")
 PY
 ```
 
-先确定双方真实覆盖的日期，再修改窗口、特殊日期和映射。使用另一套旧交付时，同时核对
-`expected_labelkit` 的身份、行数与文件哈希；不能只把评估文件名改成自己的名称。
+离线加载通过只证明结构合规。执行候选比较前，先确定双方真实覆盖的日期，再修改窗口、特殊日期和映射，
+并从已认证的真实旧交付填写全部 `expected_labelkit` 身份、行数与文件哈希；保留占位值不能进入真实评估。
 
 | 必填字段 | 单位与边界 | 与其他配置的关系 |
 |---|---|---|
@@ -156,7 +160,9 @@ WorldMock 当前十种活动类型。
 ## 绑定真实候选输入
 
 `--worldmock` 指向 `worldmock export` 生成的**已完成运行的足迹导出目录**，其中包含
-`manifest.json`、活动、事件、检查点和素材索引。
+`manifest.json`、认证检查点及 `events.jsonl`、`activities.jsonl`、`verified-experiences.jsonl`、
+`purchases.jsonl`、`app-usage.jsonl` 五类正文。导出清单结构为 3，检查点世界结构为 10，
+冻结清单的 `environment_identity` 必须与实际环境和规则身份一致。
 评估要求 `experiment_completed: true`，检查点位于窗口终点，并验证实际导出内容。
 [训练数据交付](delivery.md#delivery-自定义训练数据交付)产生的 `training.jsonl` 不能替代这里的足迹导出。
 
@@ -217,7 +223,7 @@ from pathlib import Path
 from worldmock.evaluation.adapters import adapt_human_reference
 from worldmock.evaluation.scenario import load_scenario
 
-scenario = load_scenario(Path("../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-evaluation.json"))
+scenario = load_scenario(Path(".work/my-evaluation.json"))
 view = adapt_human_reference(Path("references/my-human"), scenario)
 print({"valid": True, "events": len(view.events), "activities": len(view.activities)})
 PY
@@ -233,7 +239,7 @@ python - <<'PY'
 from pathlib import Path
 from worldmock.evaluation.scenario import load_scenario
 
-scenario = load_scenario(Path("../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-evaluation.json"))
+scenario = load_scenario(Path(".work/my-evaluation.json"))
 print({"valid": True, "scenario_id": scenario.scenario_id, "days": len(scenario.window.days)})
 PY
 ```
@@ -244,7 +250,7 @@ PY
 worldmock evaluate \
   --legacy deliveries/legacy-white-collar \
   --worldmock exports/my-world \
-  --scenario ../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-evaluation.json \
+  --scenario .work/my-evaluation.json \
   --output evaluations/my-comparison
 ```
 
@@ -341,7 +347,7 @@ from pathlib import Path
 from worldmock.evaluation.review import ingest_reviews
 from worldmock.evaluation.scenario import load_scenario
 
-scenario = load_scenario(Path("../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-evaluation.json"))
+scenario = load_scenario(Path(".work/my-evaluation.json"))
 paths = sorted(Path("reviews/my-comparison").glob("reviewer-??.json"))
 result = ingest_reviews(paths, Path("evaluations/my-comparison"), scenario)
 print({"valid": True, "records": len(result["records"])})

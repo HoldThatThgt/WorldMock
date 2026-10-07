@@ -90,11 +90,33 @@ python scripts/run_tests.py --tier full --workers 4
 ## 基线记录
 
 <a name="coverage-baseline-资源与规则引擎简化正式环境"></a>
-### 资源与规则引擎简化：正式环境回执未执行
+### 资源与规则引擎简化：正式回归失败，覆盖率未测量
 
-阶段八仅验收本仓人工环境。WorldMock-Dataset 尚未提供新正式环境发布回执，带该环境的 full 与覆盖率未执行；发布后才以实际路径执行统一 full 及 `scripts/coverage_gate.py --from-json`，重录[覆盖率](coverage-report.json)与[测试耗时](test-durations.json)的源码、环境、平台及输入身份。
+WorldMock-Dataset 已发布 `a399cbca835c48cef2163613a80d132f85e07e07`，实际正式路径为
+`../WorldMock-Dataset/environment/shanghai-simplified`。发布后在 macOS 独立重建的 dev 环境执行统一 full 入口，
+被测引擎提交为 `6d1130129907def4e7187104cb53745293aa3258`，源码与输入摘要为
+`f5e6df00185aa07070be50ab1bff03d6ce857481e19ea580d579c9bb85c6da26`。
 
-生成报告按各自源码、环境与平台身份解释；人工环境即使通过，也不能成为新正式环境证明，历史报告不自动变成当前证明。Windows、POSIX 与正式环境 macOS 的完整日及换目录恢复分别未执行；当前进度见[实施状态](implementation-status.md#implementation-status-资源与规则引擎简化开发状态)。以下历史命令、数字与报告说明保持当时身份。
+| 实际门禁 | 结果与身份 |
+| --- | --- |
+| full 入口 | `fa5e8552-b4c8-4ad7-8868-ee0a896d3713`，收集 5701 个节点，退出码 1 |
+| 必需 standard 参考层 | `1bb248cc-3500-484c-972c-ace61dc572ae`，完整执行 5454 个不同节点：4988 passed、453 failed、13 errors、0 skipped |
+| full 主体 | standard 失败后未启动，不能把收集数量作为执行数量 |
+| `coverage_gate.py --from-json` | 实际退出码 1；本次 coverage.json 未生成，覆盖率未测量 |
+| 生成报告 | 没有新的正式环境 coverage-report.json 或 test-durations.json；原文件原字节保留，按原身份解释 |
+
+独立失败审计已保存全部 466 个失败或错误节点、阶段、异常和原日志位置。
+其中 345 个涉及人工测试来源职责，119 个涉及无效测试输入，另有 2 个尚未定因；没有把审计分类当作测试通过。
+修复测试输入职责超出冻结规格限定的本阶段引擎文档范围，等待用户确认。
+Linux full 入口也已实际退出 1；所需 standard 完整执行相同 5454 个不同节点，
+4983 passed、458 failed、13 errors、零跳过。macOS 的全部 466 个失败或错误节点也在 Linux 失败集合中，
+另外五个 Linux 节点已独立定位到中文绘图字体缺失和 Node 内置 SQLite 不可用；
+补齐成熟系统依赖后，精确五个节点真实重验 5 passed。没有重跑 full，原全量失败结果保留，
+局部通过不替代正式完整回归。
+完整命令与两平台原始分片收据见[正式环境验收记录](resource-rule-formal-verification.md)。
+macOS 正式场景确定性完整日、换目录恢复及 Dataset 手机来源审计已经通过，均不能替代此处完整测试与覆盖率门禁。
+Linux、Windows、跨机器与实际时区来源分别登记；当前进度见
+[实施状态](implementation-status.md#implementation-status-资源与规则引擎简化开发状态)。以下历史命令、数字与报告说明保持当时身份。
 
 <a name="coverage-baseline-当前共享规则与可重建环境"></a>
 ### 历史：共享规则与可重建环境合并前

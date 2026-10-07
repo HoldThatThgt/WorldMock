@@ -46,7 +46,7 @@ LabelKit 固定制品身份、`node_version`、`missing_components`、`passed`�
 ## 环境数据归属合同
 
 WorldMock 维护模拟器、严格模型、加载校验、记录和导出。分类、身体常数、出行与配送常数和交换公式的唯一来源是 `worldmock.exchange`，一起由 `RULES_VERSION` 绑定；活动闭集、动机与人物映射仍由包 TOML 提供。
-WorldMock-Dataset 发布具体环境的 app、地点、食品、内容、工作主题、图、绑定和来源。环境根中 `catalog/`、`corpora/`、`scenarios/` 并列；重制后的正式环境路径由数据仓发布决定，运行不搜索相邻仓库。
+WorldMock-Dataset 发布具体环境的 app、地点、食品、内容、工作主题、图、绑定和来源。环境根中 `catalog/`、`corpora/`、`scenarios/` 并列；当前正式环境为 `../WorldMock-Dataset/environment/shanghai-simplified/`，调用方显式给出场景或环境根，运行不搜索相邻仓库。
 
 | 输入 | 当前合同 |
 | --- | --- |
@@ -2305,9 +2305,20 @@ app 使用的已结算事实句按实际 `played[]` 写「用<app>看了《A》�
 `content_kind` 只表示内容类型。`{kind: "app_push", pushed: false, session_id}` 是系统结算，
 不进入人物窗口，也不能由交付层补成一次推送。
 
-手机行从认证导出的 `app-usage.jsonl` 读取，以 `fact_kind` 区分 app 使用、内容消费和推送的交付、打开、释放；
-不从当前 app 目录或相邻事件猜测。公开窗口禁键包含 `app_id`、`content_id`、`push_id`、`trip_id`、
+手机行在完整 `validate_export` 通过后读取 `app-usage.jsonl`，以 `fact_kind` 区分 app 使用、内容消费
+和推送的交付、打开、释放；采购只投影 `purchases.jsonl` 中非空的真实 `app_id`，送达只投影
+`events.jsonl` 中 `delivery_arrival.orders[]` 已送达订单的非空 `app_id`。只选择本人公开来源，
+应用显示名取同一场景绑定的 `catalog/apps.json`，不从相邻事件或模型文字猜测。
+配置只含 `{agent_id, timezone, scenario_path}`，其中场景路径相对配置文件；来源为 `source_kind="worldmock"`，
+清单保存 `environment_identity`，没有 `phone_config_sha256`。`app_use` 保留真实起止，
+`content_consumed` 保留内容事实，不重复添加使用时段；没有真实推送的事实不能补为通知。
+公开窗口禁键包含 `app_id`、`content_id`、`push_id`、`trip_id`、
 `path`、`food_id`、`store_id` 与 `topic_id`，名称与中文标签只由已认证来源投影。
+运行、人物、环境与源事件身份留在来源记录中回链；推送公开正文保持上述四键。
+控制请求里的主观记忆、看法与个人事务按既有窗口边界移除。
+
+WorldMock-Dataset 已生成这种来源交接；独立 LabelKit-DataSet 当前没有直接读取 `phone_event` 的入口，
+其原生导出消费路径仍使用旧字段，尚未完成新导出与共同目录接入验收。数据仓交接通过不能替代第三仓消费验收。
 
 <a name="contracts-输入结构示例"></a>
 ### 输入结构示例
@@ -2394,7 +2405,8 @@ LabelKit 只接收通过认证的导出清单 3。清单的 `artifacts` 恰好�
 交付清单结构版本为 3，逐字复制来源运行的 `environment_identity`，并把 `app_usage` 列入来源工件。
 最终检查点的世界结构必须为 10；结构 9 及更早版本在构造窗口前拒绝。
 
-手机训练行只从 `app-usage.jsonl` 与 `purchases.jsonl` 的已提交事实生成，不从提示、当前目录或模型文字补造。
+手机训练行只从 `app-usage.jsonl`、`purchases.jsonl.app_id` 与真实送达订单的 `app_id` 生成，
+不从提示、当前目录或模型文字补造。
 `app-usage.jsonl` 每行以 `fact_kind` 判别 `app_use`、`content_consumed`、`push_delivered`、
 `push_opened` 或 `push_released`；消费端从 `events.jsonl` 和认证检查点独立重算并逐行核对。
 

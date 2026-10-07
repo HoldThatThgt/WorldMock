@@ -3,7 +3,9 @@
 
 > 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「习惯的行为核验目标、写出一个能够生活的人、正文与实际世界条件要一致、预览与校验、常见错误、在场景中填写人物」（阶段 3）。
 
-本页命令以 WorldMock 为当前工作目录，场景输入显式位于 `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/`。
+本页命令以 WorldMock 为当前工作目录。正式场景位于
+`../WorldMock-Dataset/environment/shanghai-simplified/scenarios/`；预览与修改使用[手册入口](README.md#readme-创建自己的第一个场景)
+创建的完整 `experiments/my-world/` 副本，保留场景、目录与语料相对引用。
 
 > 2026-10-01：[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)已冻结并已实现；本手册描述当前程序实际读取的配置。
 > 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步个人事务与提醒的说明（阶段 2）。
@@ -14,7 +16,7 @@
 正式运行从生活场景的 `agents` 数组读取人物，主要正文是 `background_story`。
 可以用 UTF-8 文本文件单独起草，但场景没有 `persona_file` 或画像文件引用字段。
 
-[返回手册](README.md#readme-用户配置手册) · 完整白领场景（`../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/single-person.json`）
+[返回手册](README.md#readme-用户配置手册) · 完整白领场景（`../WorldMock-Dataset/environment/shanghai-simplified/scenarios/single-person.json`）
 
 <a name="personas-写出一个能够生活的人"></a>
 ## 写出一个能够生活的人
@@ -202,7 +204,8 @@ python - <<'PY'
 import json
 from pathlib import Path
 
-scene = json.loads(Path("../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-persona-day.json").read_text(encoding="utf-8"))
+scene = json.loads(Path("experiments/my-world/scenarios/single-person.json").read_text(encoding="utf-8"))
+Path(".work").mkdir(exist_ok=True)
 Path(".work/my-persona.txt").write_text(scene["agents"][0]["background_story"], encoding="utf-8")
 PY
 worldmock profile compile \
@@ -228,7 +231,7 @@ worldmock profile check --text .work/my-persona.txt
 
 ```bash
 worldmock profile validate \
-  --scenario ../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-persona-day.json \
+  --scenario experiments/my-world/scenarios/single-person.json \
   --coverage-out .work/my-persona-coverage.json
 ```
 

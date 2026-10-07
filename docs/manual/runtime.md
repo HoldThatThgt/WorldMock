@@ -8,7 +8,9 @@
 
 准备模型凭据、选择场景和新输出目录后，就能启动自己的生活模拟。
 本页也说明恢复已有运行和编写反事实干预文件的方法。
-命令均在 WorldMock 根目录执行，显式使用同一父目录下 WorldMock-Dataset 发布的环境。
+命令均在 WorldMock 根目录执行。正式环境根显式使用
+`../WorldMock-Dataset/environment/shanghai-simplified/`；个人实验先按[手册入口](README.md#readme-创建自己的第一个场景)
+创建完整的 `experiments/my-world/` 副本，保留目录与语料相对引用。
 数据采集与制作按数据仓说明执行，WorldMock 安装与导入不要求源码仓中有正式环境数据。
 
 [返回手册](README.md#readme-用户配置手册) · [生活场景](scenarios.md#scenarios-生活场景) · [数据生成](delivery.md#delivery-自定义训练数据交付)
@@ -30,6 +32,11 @@ python scripts/bootstrap.py --profile release
 但不能取得完整通过。`--use-uv` 只在显式指定时使用 uv，缺少 uv 即失败。
 `--wheelhouse` 指定离线依赖及固定源码制品目录，禁止联网补缺；制品或哈希不符即失败。
 环境收据写入 `.work/environment-receipt.json`，记录 Python、锁、源码摘要和缺失部件，路径均相对项目。
+
+查看已有足迹需要 Node 能实际加载 [内置 SQLite](https://nodejs.org/api/sqlite.html)；
+生成中文评估图表还需要代码认可的中文字体。当前引导仅检查 Node 版本存在，没有核验这两项能力，
+因此引导收据通过仍须配合实际查看器与评估执行结果。可先检查 `node -e "require('node:sqlite')"`；
+Debian 的中文字体使用维护中的 [fonts-noto-cjk 包](https://packages.debian.org/trixie/fonts-noto-cjk)。
 
 依赖安装与仿真环境分开准备。重制发布环境使用七份目录 JSON、生活活动与联系人邮件语料、结构 7 场景；先运行 `worldmock validate --environment experiments/published-environment` 检查实际输入，不从安装位置寻找正式世界。
 
@@ -65,17 +72,21 @@ Ray 的子进程需要它加载原生模块。`worldmock validate` 会在独立�
 任何跳过、xfail 或缺失必需证据都不能报完整通过。
 测试统一由 `python scripts/run_tests.py --tier fast|standard|full --workers 4` 执行，集合按[分层与测试层次规格](../dev/SPEC-layering-and-test-tiers.md#layering-tiers)定义。
 引擎最小端到端固定使用人工夹具 `tests/fixtures/environment/`；正式来源、数量与重建验收在 Dataset 执行。
-完整行为回归针对发布环境执行时须显式选择路径，不能沿用旧正式环境的测试收据：
+先核验正式目录，再显式选择同一根运行完整行为回归，不能沿用旧环境的测试收据：
+
+```bash
+worldmock validate --environment ../WorldMock-Dataset/environment/shanghai-simplified
+```
 
 ```bash
 python scripts/run_tests.py --tier full --workers 4 \
-  --environment-root experiments/published-environment
+  --environment-root ../WorldMock-Dataset/environment/shanghai-simplified
 ```
 完整发布环境的覆盖率门禁使用相同显式路径，并绑定外部环境的实际字节摘要：
 
 ```bash
 python scripts/coverage_gate.py --shards 4 \
-  --environment-root experiments/published-environment
+  --environment-root ../WorldMock-Dataset/environment/shanghai-simplified
 ```
 
 不要求 uv；`--shards` 映射同一 full runner 的 worker 数。
@@ -263,7 +274,7 @@ PY
 
 ```bash
 worldmock replay \
-  --scenario ../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-persona-day.json \
+  --scenario experiments/my-world/scenarios/single-person.json \
   --parent runs/my-persona-day \
   --checkpoint CHECKPOINT_ID \
   --intervention .work/my-intervention.json \
@@ -315,7 +326,7 @@ worldmock run --scenario experiments/my-world/scenarios/single-person.json --out
 worldmock export --run-dir runs/my-persona-day --output runs/my-persona-day/exports/final
 ```
 
-目录、规则包副本、图和运行身份必须一致；地图种子属于 `map.json`，不与场景种子绑定。已发布字节不原版覆盖，旧检查点直接拒绝，不迁移；恢复和假设分支新目录。导出 3 的五类工件、质量 5、交付 3 按[现行合同](../CONTRACTS.md#contracts-worldmock-接口合同)核对；正式数据仓与跨平台未执行项见[实施状态](../dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态)。
+目录、规则包副本、图和运行身份必须一致；地图种子属于 `map.json`，不与场景种子绑定。已发布字节不原版覆盖，旧检查点直接拒绝，不迁移；恢复和假设分支新目录。导出 3 的五类工件、质量 5、交付 3 按[现行合同](../CONTRACTS.md#contracts-worldmock-接口合同)核对；正式回归阻断与各平台实际回执见[实施状态](../dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态)。
 
 <a name="runtime-版本表"></a>
 ## 版本表
