@@ -2822,7 +2822,7 @@ class LifeScenario(DeepFrozenModel):
 
 
 <a name="proposal-envdataset-q17"></a>
-### Q17【部分结案｜本次会话 2026-10-09】闹钟删除（不是回调），水电费待定
+### Q17【已结案｜本次会话 2026-10-09】闹钟删除（不是回调）；水电费由数据集定义并走回调
 
 **闹钟：不适用——已裁决删除**（作者 D17）。`set_alarm` 与 `ALARM_RING` 整个删除，见 §1.2.11。
 作者原话：「他要是想设置一个闹钟，我们怎么让这个闹钟真的生效呢？」经查证**已有实现**（`src/worldmock/life/alarm.py:15-33`），
