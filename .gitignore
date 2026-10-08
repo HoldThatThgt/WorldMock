@@ -19,3 +19,9 @@ vendor/agentsociety2/
 .work-shared-rules*.log
 argv.json
 docs/coverage-report.json
+
+# CI reports and generated reading copy
+execution/
+docs/dev/test-durations.json
+docs/dev/coverage-report.json
+docs/design/worldmock-design.html
