@@ -29,15 +29,15 @@ logger = logging.getLogger(__name__)
 
 #: 自述、工具纠错与结束共享的有限回合预算。
 
-#: 工作验收阶段参数（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「两阶段决策」：独立工作验收保持
+#: 工作验收阶段参数（docs/design/06-agent.md「两阶段决策」：独立工作验收保持
 #: disabled/required）。
 #: 运行身份覆盖的 AS2 导入包名；包目录由 importlib.util.find_spec 按实际导入解析
-#: （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「运行身份」）。
+#: （docs/design/06-agent.md「模型身份」）。
 #: 联系人回复的生成上限。
 CONTACT_REPLY_MAX_TOKENS = 8000
-#: 联系人回复的 system 提示（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「社交最小可行版」：独立调用、中文、不超过 200 汉字；
-#: docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-联系人回复不虚构到场 ：联系人只通过消息来往）。中文模板逐字登记在
-#: docs/CONTRACTS.md#contracts-worldmock-接口合同「联系人回复」。
+#: 联系人回复的 system 提示（docs/design/04-simulation-engine.md「社交接口」：独立调用、中文、不超过 200 汉字；
+#: docs/design/04-simulation-engine.md ：联系人只通过消息来往）。中文模板逐字登记在
+#: docs/design/04-simulation-engine.md「联系人回复」。
 _CONTACT_REPLY_PROMPT = (
     "你是消息收件人通讯录里的一名联系人，只通过消息和对方来往：你不在对方身边，也不会去找对方。"
     "根据你的联系人档案、这次来信与你们此前的往来，以你本人的口吻写一条自然、简短的中文回复。"
@@ -55,7 +55,7 @@ class RunRequest:
     :param run_id: 调用方分配的稳定运行身份。
     :param source_group_id: 首次运行的来源组身份，必须等于 run_id。
     :param same_second_continuation: 同秒续接开关（缺省开），冻结进清单 stages.action 与人物配置；
-        恢复与重放继承父清单的值（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第二章「同秒续接」）。
+        恢复与重放继承父清单的值（docs/design/06-agent.md「同秒续接」）。
     """
 
     project_root: Path
@@ -486,7 +486,7 @@ def _validate_agent_workspace(workspace: Path, agent_id: int, continuation: bool
 def _validate_persona_card_struct(profile: Any, agent_config: Any = None) -> None:
     """@brief 恢复时校验人物 profile 中的结构化卡片（persona_card_struct；没有卡片的人物不带该键）。
 
-    新建运行保存的是经场景作息覆盖后的卡片（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-场景作息覆盖卡片抽取值 ），覆盖是不动点：给出场景人物声明时，
+    新建运行保存的是经场景作息覆盖后的卡片（docs/design/06-agent.md ），覆盖是不动点：给出场景人物声明时，
     对恢复的卡片再覆盖一次必须不改任何值，否则说明卡片作息与场景显式声明的作息不一致。
     """
     from worldmock.profile.injection import apply_scenario_rhythm
@@ -611,7 +611,7 @@ def _build_society(prepared: _PreparedRun) -> tuple[Any, Any]:
 def _society_specs(prepared: _PreparedRun) -> tuple[dict[str, Any], ...]:
     """@brief 人物工作区输入。新建运行：编译卡片、经场景作息覆盖渲染，并计算运行输入警告——警告经
     create_options 冻结进运行清单 input_warnings，另逐条写一条 ops 警告，永不使创建失败
-    （docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-运行输入警告 ）。恢复运行不重新编译，人物 profile 随检查点工作区恢复、警告随父清单继承。
+    （docs/design/04-simulation-engine.md ）。恢复运行不重新编译，人物 profile 随检查点工作区恢复、警告随父清单继承。
     """
     from worldmock import run_setup
     from worldmock.opslog import OpsLogger
@@ -640,7 +640,7 @@ def _society_specs(prepared: _PreparedRun) -> tuple[dict[str, Any], ...]:
 def habit_responses(specs: tuple[dict[str, Any], ...]) -> dict[int, list[str]]:
     """@brief 人设层习惯签名的反应文本（人物编号 → 文本，按卡片顺序）：取工作区输入里经场景作息覆盖后的结构化卡片，
     没有卡片的人物不出现；经 create_options 冻结进运行清单 persona_habit_responses，引擎排序候选时据此给相关度
-    （docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ）。"""
+    （docs/design/04-simulation-engine.md ）。"""
     return {spec["id"]: [habit["response"] for habit in spec["profile"]["persona_card_struct"]["habits"]]
             for spec in specs if "persona_card_struct" in spec["profile"]}
 
@@ -678,7 +678,7 @@ def prepare_contact_reply(request: Any, contact: dict[str, Any] | None,
     """@brief 形成联系人回复的独立请求（thinking=disabled、无工具、无传输重试）。
 
     载荷带来信与它的事实（发件人姓名、场景本地时刻、presence 固定 remote、联系人的收货地名），以及双方往来与对方
-    实际收到的物品（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-联系人回复不虚构到场 ）。
+    实际收到的物品（docs/design/04-simulation-engine.md ）。
     """
     payload = {"contact": contact if contact is not None
                else {"contact_id": request.contact_id},
@@ -713,13 +713,13 @@ def parse_contact_reply(raw: dict[str, Any]) -> str:
 
 async def settle_pending_model_replies(engine: Any, client: Any | None = None) -> list[dict]:
     """@brief 执行引擎登记的联系人 model
-    回复并登记预排送达（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「社交最小可行版」）。
+    回复并登记预排送达（docs/design/04-simulation-engine.md「社交接口」）。
 
     每轮结算后调用：从足迹库取未结算的 model_npc_reply_pending 请求，经
     独立 DeepSeek 调用生成不超过 200 汉字的回复，请求/原始响应/用量保存为
     事件证据，回复经 social.finalize_model_reply 登记为 CONTACT_REPLY_DELAY_SECONDS
     后到期的预排送达，到期只进入收件箱（不改资源或任务）。回复经后验守卫：命中越界说法时在本次结算内
-    重试一次，仍命中则用固定兜底句（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-联系人回复不虚构到场 ）。传输与结构异常按运行故障传播
+    重试一次，仍命中则用固定兜底句（docs/design/04-simulation-engine.md ）。传输与结构异常按运行故障传播
     （与工作验收同边界）；同一消息最多回复一次（幂等键 reply_to_message_id），重试也只写一条回复事件。
     """
     from worldmock.life import social as social_domain
@@ -799,7 +799,7 @@ def _commit_contact_reply(engine: Any, pending_event: Any, attempts: list[dict],
 
     回复生成时即留 model_npc_reply 证据：request、response、usage 取最后一次尝试，attempts 保存每次尝试，
     guard_applied 表示两次都命中而改用了兜底句；收件箱条目在 CONTACT_REPLY_DELAY_SECONDS 后由预排事件
-    message_arrival 送达，收件人届时以 message_arrival 唤醒、睡眠中过滤（docs/CONTRACTS.md#contracts-worldmock-接口合同「联系人回复」）。
+    message_arrival 送达，收件人届时以 message_arrival 唤醒、睡眠中过滤（docs/design/04-simulation-engine.md「联系人回复」）。
     """
     from worldmock.footprints.models import EventDraft, canonical_json
     from worldmock.life.social import CONTACT_REPLY_DELAY_SECONDS
@@ -844,7 +844,7 @@ class PlanDayClient(IndependentModelClient):
 
 
 async def settle_pending_day_plans(engine: Any, client: Any | None = None) -> list[dict]:
-    """@brief 零点计划后台任务（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章「执行位置」）：为缺当日计划的人物生成当日计划。
+    """@brief 零点计划后台任务（docs/design/04-simulation-engine.md「执行位置」）：为缺当日计划的人物生成当日计划。
 
     与联系人回复并列：LifeEnv 在零点推进之后、启动检查点之后与普通恢复的 init 中 await 它。不经 LifeAgent，
     不读写人物工作区与记忆运行时，不产生 observation、decision_started、memory_updated。按

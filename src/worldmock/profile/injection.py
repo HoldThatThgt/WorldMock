@@ -1,4 +1,4 @@
-"""@brief 运行输入警告与场景作息覆盖：注入即核对（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-运行输入警告 、2.1、8.1）。
+"""@brief 运行输入警告与场景作息覆盖：注入即核对（docs/design/06-agent.md 、2.1、8.1）。
 
 纯函数模块：只按显式输入计算，不读文件、不调模型、不改输入。新建运行（run_setup.creation_inputs）与 validate 调用同一组
 函数，警告冻结进运行清单 input_warnings、计入质量报告 input_warnings 一节并逐条写一条 ops 警告；运行路径永不因警告失败，
@@ -7,7 +7,7 @@ validate 在覆盖率低于 80% 时照旧失败（裁决 D4）。
 每条警告的形状固定为 {code, agent_id, message, details}：code 取警告码闭集 INPUT_WARNING_CODES；agent_id 为人物编号，
 场景级警告（地点显示名）为 null；message 是给数据集维护者看的一句说明；details 的键按警告码固定（见各函数）。
 场景作息覆盖（apply_scenario_rhythm，裁决 D16）：场景显式声明的作息字段覆盖卡片抽取值，未声明的字段仍取卡片值；
-字段为七项、窗口槽为五个（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-场景作息覆盖  增下班、到家），新槽的卡片值可以是 null。
+字段为七项、窗口槽为五个（docs/design/06-agent.md#agent-场景作息覆盖  增下班、到家），新槽的卡片值可以是 null。
 """
 
 from __future__ import annotations
@@ -93,7 +93,7 @@ def apply_scenario_rhythm(card: PersonaCard, agent: Any) -> RhythmOverride:
     dump/validate 往返的对象会把全部字段记为已设。取值按卡片格点量化（中点与睡眠需要 0.25 小时，窗口 0.5 小时）；
     窗口经 TimeAnchors 回绕归一、validate_order 与下班到家的顺序约束重建锚点，按落槽顺序反复尝试直到没有槽能再落下，
     落不下的槽保留卡片值（下班、到家槽的卡片值可以是 null）并记 CARD_FIELD_CONFLICT；每处实际改变卡片值的覆盖记
-    CARD_FIELD_OVERRIDDEN。不降级任何卡片锚点（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-场景作息覆盖 ）。结果是不动点：对结果再覆盖一次
+    CARD_FIELD_OVERRIDDEN。不降级任何卡片锚点（docs/design/06-agent.md#agent-场景作息覆盖 ）。结果是不动点：对结果再覆盖一次
     卡片不变。
 
     @param card 画像编译的卡片（或恢复时的结构化卡片 PersonaCardStruct）
@@ -251,7 +251,7 @@ def coverage_warnings(agent_id: int, report: PersonaCoverageReport) -> list[dict
 def agreement_warnings(agent_id: int, compiler_warnings: Sequence[str]) -> list[dict[str, Any]]:
     """@brief PERSONA_AGREEMENT_LOW：逐条透传画像编译留下的警告（一致性偏低的字段、下班与到家锚点的降级说明等）。
 
-    该码泛指画像编译留下的警告，消息不预设原因（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-下班与到家锚点 ）。
+    该码泛指画像编译留下的警告，消息不预设原因（docs/design/06-agent.md#agent-下班与到家锚点 ）。
     @return details 键：compiler_warning（编译产物 warnings 中的原文）
     """
     return [_warning("PERSONA_AGREEMENT_LOW", agent_id, f"Persona compilation warning: {text}.", compiler_warning=text)

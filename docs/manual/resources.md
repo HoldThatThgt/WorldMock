@@ -1,8 +1,6 @@
 <a name="resources-定义地点门店供给与世界素材"></a>
 # 定义地点、门店供给与世界素材
 
-> 2026-10-07 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界、收货结算」（阶段 1、2）。
-
 环境目录说明“这个世界有什么”，类别、效果与常数由 WorldMock 固定。环境维护 app、地点、商品、动作、内容及绑定，再按地点生成地图、刷新身份并检查整个环境。修改不改变已经运行的世界。
 
 ```mermaid
@@ -13,12 +11,12 @@ flowchart LR
     M --> I --> V[校验目录、地图与全部场景]
 ```
 
-地点共有十个固定类型，包含 `gas_station` 与 `parcel_station`。只有店铺允许绑定购物 app，驿站不绑定 app、不卖商品；加油站只卖新增 `fuel`，原四种店铺的五类商品供给保持固定。完整类型与供给表见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)。
+地点共有十个固定类型，包含 `gas_station` 与 `parcel_station`。只有店铺允许绑定购物 app，驿站不绑定 app、不卖商品；加油站只卖新增 `fuel`，原四种店铺的五类商品供给保持固定。完整类型与供给表见[环境目录文件](../design/03-resource-engine.md#resource-engine-环境目录文件)。
 
-<a name="resources-共享规则与可重建环境修订"></a>
-## 共享规则与可重建环境修订
+<a name="resources-环境与规则的归属"></a>
+## 环境与规则的归属
 
-按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)修订；验收结果独立记录。
+按[运行与框架集成](../design/10-runtime.md)修订；验收结果独立记录。
 
 目录清单引用必须是只用 / 分隔的根内相对路径，不能含 ..、反斜杠或任一平台不能原样保存的名字（以点或空格结尾、Windows 设备名如 NUL、Windows 禁用字符 <>:"|?* 与控制字符、孤立代理码点、一级超过 255 字节），不能使用符号链接或目录联接；文件须为普通文件并符合声明的大小与摘要。修改内容后按现行身份发布流程重新生成声明，不能沿用旧摘要。
 
@@ -45,7 +43,7 @@ flowchart LR
 <a name="resources-输入与生成文件"></a>
 ### 输入与生成文件
 
-清单加六个目录文件，格式与字段见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)。`map.json` 由地点清单与整数种子生成；清单只绑定六个文件的规范发布字节，没有规则副本。
+清单加六个目录文件，格式与字段见[环境目录文件](../design/03-resource-engine.md#resource-engine-环境目录文件)。`map.json` 由地点清单与整数种子生成；清单只绑定六个文件的规范发布字节，没有规则副本。
 
 ```bash
 worldmock environment generate-map --locations experiments/my-world/catalog/locations.json --seed 7 --output experiments/my-world/catalog/map.json
@@ -66,7 +64,7 @@ worldmock environment generate-map --locations experiments/my-world/catalog/loca
 <a name="resources-先完成一个最小修改减少一家门店的初始库存"></a>
 ## 先完成一个最小修改：调整一个商品的价格
 
-在自己的完整环境副本中，修改 `catalog/goods.json` 一条既有商品的 `price_fen`，保留正整数分、类别与店铺绑定。同一商品跨店同价，不在场景或门店上再写价格。随后按下方[更新文件身份](resources.md#resources-修改后更新文件身份)刷新清单和场景钉，再[校验整个环境](resources.md#resources-验证修改)。
+在自己的完整环境副本中，修改 `catalog/goods.json` 一条既有商品的 `price_fen`，保留正整数分、类别与店铺绑定。同一商品跨店同价，不在场景或门店上再写价格。随后按下方[更新文件身份](#resources-修改后更新文件身份)刷新清单和场景钉，再[校验整个环境](#resources-验证修改)。
 
 <a name="resources-编写地点与营业时间"></a>
 ## 编写地点
@@ -95,17 +93,11 @@ WorldMock 生成随机连通加权图并提供固定规则，Dataset 保存图�
 <a name="resources-添加地点时还要补路线"></a>
 ### 添加地点时还要补路线
 
-
-
 <a name="resources-编写门店供给与商品"></a>
 ## 编写门店供给与商品
 
-
-
 <a name="resources-完整类别供给与冻结价格"></a>
 ### 完整类别供给与冻结价格
-
-
 
 <a name="resources-只读查询与有时长浏览"></a>
 ### 只读查询
@@ -123,21 +115,16 @@ WorldMock 生成随机连通加权图并提供固定规则，Dataset 保存图�
 
 实际购买仍逐项声明 `target`、`way`、`app`、`to`、`pay_app`；动作则写动作名和它实际支持的 app。
 
-
 <a name="resources-当前供给字段与发布注意事项"></a>
 ### 当前供给字段与发布注意事项
-
-
 
 <a name="resources-新增商品对象"></a>
 ### 新增商品对象
 
-
-
 <a name="resources-真实制作后再食用"></a>
 ### 商品在真实收货时结算
 
-商品效果只在实际收货时立即施加，不另登记持有、制作产物或进食行为。数据集可以登记日常照护动作及其内容，执行只按真实内容时长与固定类别规则留证，不把动作名称当作库存变化。完整边界见[请求字段与结算检查](../CONTRACTS.md#contracts-request-settlement)。
+商品效果只在实际收货时立即施加，不另登记持有、制作产物或进食行为。数据集可以登记日常照护动作及其内容，执行只按真实内容时长与固定类别规则留证，不把动作名称当作库存变化。完整边界见[请求字段与结算检查](../design/04-simulation-engine.md#simulation-engine-请求字段与结算检查)。
 
 <a name="resources-编写生活活动"></a>
 ## 编写动作
@@ -170,18 +157,6 @@ app 写在 `catalog/apps.json`，内容写在 `catalog/contents.json`。
 
 内容不登记分类。导航与支付 app 无需内容，购物 app 须被店铺绑定并声明支付目标，目标有支付用途；绑定允许指向自己。每个 app 必须有用途或动作绑定。
 
-内容必须绑定恰好一个动作；动作可以不绑定 app。动作的 `app_ids` 非空时，`manner` 必须是一种固定使用方式，
-每条内容的 `app_ids` 是该动作 app 集合的非空子集；动作没有 app 时，`manner` 为 null、内容 app 集合为空。
-每个动作及每个动作与 app 的组合至少有一条内容。空集合从不表示全部 app。
-内容 `duration_seconds` 是正整数且不小于 60 秒；动作不登记时长、时间窗、场所或效果。
-内容不声明分类；环境维护动作名称、说明及其内容。
-系列以 `(action_id, series.title)` 识别，各集具有相同动作与 app 集合，集数为唯一的正整数。
-
-商品绑定店铺，店铺绑定购物 app。`GOODS_CATEGORY_STORE_KINDS` 固定类型可供给的类别，
-`"all"` 展开到全部可供给该类别的店铺；显式绑定列表去重排序，同类型店铺同菜单。
-购物用途存在当且仅当至少一家店铺绑定该 app；支付绑定非空当且仅当有购物用途，
-绑定目标具有支付用途，允许绑定自己。导航与支付 app 可以没有内容；app 必须有用途或动作绑定。
-
 人物以 `work_content_ids` 分配 `work_study` 类别的目录内容，引用必须已登记且不得重复。
 分配内容的动作不得是 `offline_assisted`；同一工作内容只能分配给一个人物。
 有分配内容的人物必须声明 `work_schedule`（`WORK_SCHEDULE_REQUIRED`）；
@@ -204,7 +179,7 @@ app 写在 `catalog/apps.json`，内容写在 `catalog/contents.json`。
 | daily | 每行施加 +0.05 情绪脉冲 |
 | fuel | 本人有车且在加油站为自己现场购买，当秒恰增加七个驾驶可用日，无身体效果或库存 |
 
-没有家庭储备或初始持有。现场购买付款当秒收货，直送在配送到期收货；完整运输时长严格大于 86400 秒时送往实际模拟收货人家庭最近且场景选中的驿站，恰为 86400 秒仍直送。到站只进入 `ready_for_pickup`，本人到站执行零秒领取，才由唯一函数每单结算一次效果与 `goods_received`。给别人买时显式写收货人；联系人使用有效的 `receive_location_id` 直送，收货只记订单终态与 `received_at`，不创建身体或本人收货事件。联系人不能替代长途链所需的模拟收货人家庭地址。详见[请求字段与结算检查](../CONTRACTS.md#contracts-request-settlement)。
+没有家庭储备或初始持有。现场购买付款当秒收货，直送在配送到期收货；完整运输时长严格大于 86400 秒时送往实际模拟收货人家庭最近且场景选中的驿站，恰为 86400 秒仍直送。到站只进入 `ready_for_pickup`，本人到站执行零秒领取，才由唯一函数每单结算一次效果与 `goods_received`。给别人买时显式写收货人；联系人使用有效的 `receive_location_id` 直送，收货只记订单终态与 `received_at`，不创建身体或本人收货事件。联系人不能替代长途链所需的模拟收货人家庭地址。详见[请求字段与结算检查](../design/04-simulation-engine.md#simulation-engine-请求字段与结算检查)。
 
 <a name="resources-修改后更新文件身份"></a>
 ## 修改后更新文件身份
@@ -225,4 +200,4 @@ worldmock environment generate-map --locations experiments/my-world/catalog/loca
 worldmock validate --environment experiments/my-world
 ```
 
-第一条只比较已有地图；第二条执行唯一登记校验、重生成比对并真实加载 `scenarios/` 下全部 JSON。每个失败带稳定码与英文原因，任一失败退出非零。成功结果为 `{valid, environment_id, environment_version, scenarios}`。登记码完整定义见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)。目录有效不等于完整引擎行为验证完成。
+第一条只比较已有地图；第二条执行唯一登记校验、重生成比对并真实加载 `scenarios/` 下全部 JSON。每个失败带稳定码与英文原因，任一失败退出非零。成功结果为 `{valid, environment_id, environment_version, scenarios}`。登记码完整定义见[环境目录文件](../design/03-resource-engine.md#resource-engine-环境目录文件)。目录有效不等于完整引擎行为验证完成。

@@ -4,7 +4,7 @@
 （曝光轮转）在运行期的唯一装配处。它把世界状态与冻结目录装成候选池，经候选契约产出
 保留项与被排除项，再按场景声明的换新名额调 `rotate_candidates` 决定本次呈现顺序。本
 模块本身**不写世界状态**：`last_presented_at` 由引擎在提交路径写入
-（docs/CONTRACTS.md#contracts-worldmock-接口合同「派生量字段」的 `presentation_state`）。
+（docs/design/06-agent.md「派生量字段」的 `presentation_state`）。
 
 三类可选对象（product / lifestyle / task）共用入口 `present`，返回体形
 状一致：`PresentationWindow` 携带 `items`（本次呈现行）、`total`（该分区过滤后的候选总
@@ -14,18 +14,18 @@
 
 **只有世界事实可以排除**：排除只发生在 `candidates.filter_candidates` 内；口味权重与注
 意力先验只进排序键，零权重条目仍然留在候选里并排在非零权重之后
-（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「两条排除纪律」）。
+（docs/design/04-simulation-engine.md「两条排除纪律」）。
 
 **呈现顺序由轮转决定**：首屏的换新名额来自 `rotate_candidates`，按每个对象的上次呈现时刻
 留给该分区内最久未呈现的对象，因此它们能与排序键头名并列进窗；不设人物级共享偏移量，也不设
-分区游标（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ）。本次未进窗的对象以 `ROTATION_DEFERRED` 记入
+分区游标（docs/design/04-simulation-engine.md ）。本次未进窗的对象以 `ROTATION_DEFERRED` 记入
 排除项——合同明文规定它是闭集成员、计入排除计数，但不改对象状态、不写目录。
 
 **排序键**：（非零口味，−口味×注意力，−相关度，哈希决胜键），由 `candidates.ordered_candidate`
 唯一给出；相关度由调用方按人物自己的事实与目录事实算好传入（`life.relevance`）。
 
 **两级上限分开**：`candidate_pool_limit` 只进 `total`，`candidate_presentation_limit` 才
-是单次呈现条数上限（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「两级上限」）。
+是单次呈现条数上限（docs/design/04-simulation-engine.md「两级上限」）。
 
 **两个观察面共用一条链路**：呈现窗口与观察投影（`observe`）从同
 一组 `*_entries` 装配候选；区别只在是否施加地点、营业、占用这三类当下的可行性事实——
@@ -33,7 +33,7 @@
 地点类资格（地点类不符的条目不进窗口，排除项带 `ELIGIBILITY_LOCATION_KIND_MISMATCH`）。
 
 **禁止向量检索**：本模块与两个纯函数模块都不含 ANN 索引、embedding 或浮点距离比较；检
-索分区键取条目属性，全序由整数排序键给出（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「检索」）。
+索分区键取条目属性，全序由整数排序键给出（docs/design/04-simulation-engine.md「检索」）。
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ from worldmock.life.candidates import (
 from worldmock.life.models import DERIVED_DURATION_CAP_SECONDS, active_activities
 from worldmock.life.readable import local_date
 
-#: 活动品类摘要里的食品下钻键：候选类别仍是 product（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选对象与来源」）。
+#: 活动品类摘要里的食品下钻键：候选类别仍是 product（docs/design/06-agent.md「候选对象与来源」）。
 FOOD_CATEGORY = "foods"
 #: 工作合同的下钻键。
 
@@ -179,7 +179,7 @@ def rotate_window(entries: tuple[PoolEntry, ...], inputs: CandidateInputs
                   ) -> rotation.RotationDecision:
     """@brief 对候选池跑一次曝光轮转：换新名额按每个对象的上次呈现时刻留给该分区内最久未呈现者。
 
-    判据只有本分区各对象自己的 `last_presented_at`（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「曝光轮转」）
+    判据只有本分区各对象自己的 `last_presented_at`（docs/design/04-simulation-engine.md「曝光轮转」）
     ：不用人物级共享
     偏移量，也不设分区游标，别的分区呈现了多少对象不影响本分区，`⌈N ÷ k⌉ ÷ D` 的界按分区成立。这里绝不把互动
     次数当判据——池成员视图里根本没有计数字段。
@@ -204,7 +204,7 @@ def _deferred(entries: tuple[PoolEntry, ...], presented: frozenset[str],
 
     推迟只影响本次呈现：它不改对象状态、不写目录、不产生下架事件。已经被资格段排除的
     条目不再重复计入（一个条目只能有一个原因码），因此排除项计数与保留项计数之和恒等于
-    候选全集规模（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「两条排除纪律」）。
+    候选全集规模（docs/design/04-simulation-engine.md「两条排除纪律」）。
 
     @param entries 该分区的池条目。
     @param presented 本次进窗的对象标识集合。
@@ -409,8 +409,8 @@ def candidate_inputs(context: PresentationContext, sources: dict, moment: bool =
     目录事实算好（life.relevance），三者都只进排序键。`moment` 区分两个观察面：观察投影问「此刻能不能做」，因此
     施加全部可行性事实（地点实例与地点类、营业时段、资源占用）；目录浏览面是菜单级视角，只施加目录级事实（库存、
     下架、启用集、时长窗口），不判定营业时段与地点实例，不把「现在正在忙」当成条目不存在。生活活动窗口另按
-    人物当前地点判定地点类（调用方置 `apply_location_kinds`，docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ）。
-    能量不构成排除（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「删除的机制」）。决胜键取场景、人物与场景时区的本地日期。
+    人物当前地点判定地点类（调用方置 `apply_location_kinds`，docs/design/04-simulation-engine.md ）。
+    能量不构成排除（docs/design/04-simulation-engine.md「删除的机制」）。决胜键取场景、人物与场景时区的本地日期。
 
     @param context 只读世界切片。
     @param sources 生成段的实际来源映射（`entry_sources` 的产物）。
@@ -444,7 +444,7 @@ def stage_presentation(state: WorldState, pending: dict[int, SameMomentPresentat
 
     观察边界不允许同版本改状态（`store._validate_state` 只允许同版本追加事件），因此观察先把留痕
     记在引擎内存，随本轮提交按人物写入 `same_moment_presentation`；同一秒已有暂存的人物合并对象时刻，
-    保留该秒首轮置顶的浏览结果（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「同一秒内的呈现与「刚才」」）。
+    保留该秒首轮置顶的浏览结果（docs/design/04-simulation-engine.md「同一秒内的呈现与「刚才」」）。
 
     @param state 本轮提交的世界状态。
     @param pending 本轮观察产生的人物→呈现暂存；空字典表示没有留痕。

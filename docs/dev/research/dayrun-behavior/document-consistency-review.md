@@ -1,3 +1,6 @@
+> 历史记录：本文件保存提交 `72f004b0087efa1b6f6d662ac6a143e087e4e21c` 时的过程与判断，不再定义当前系统。
+> 当前设计见 [文档入口](../../../INDEX.md)；正文中的路径、规则和结果按当时上下文理解。
+
 > 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
 > 原始路径：`docs/dev/research/dayrun-behavior/document-consistency-review.md`
 > 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。

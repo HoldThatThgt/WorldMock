@@ -149,7 +149,7 @@ class TimeAdvanceCoordinator:
         return self.midnight is not None
 
     def decide_midnight_rhythm(self) -> None:
-        """@brief 零点节律入口（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章「运行时机」）：零点计划提交之后只执行判定段。
+        """@brief 零点节律入口（docs/design/04-simulation-engine.md「运行时机」）：零点计划提交之后只执行判定段。
 
         判定该秒的唤醒原因与 next_decision_at（在手承诺按新计划计，新计划的提醒进入候选），写共同身体结算的唤醒字段，
         并与活动反馈对齐一次提交；不再执行结算段的情绪账，已读消息与社交账不会重复记账。
@@ -391,7 +391,7 @@ class TimeAdvanceCoordinator:
     def _next_epoch(self) -> int:
         """@brief 选择严格晚于当前时刻的最近活动、后台或节律边界，含场景本地零点与未触发的提醒（第四章），以及清醒人物
         的班次与休息时段起止：直接取生成器给出的严格晚于当前的时刻，睡眠中的人物不计入
-        （docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界机制 ）。"""
+        （docs/design/04-simulation-engine.md ）。"""
         candidates = [
             self.context.state.end_time,
             *reminders.boundary_candidates(self.context.state, self.context.scenario.timezone),

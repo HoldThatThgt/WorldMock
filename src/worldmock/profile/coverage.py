@@ -1,4 +1,4 @@
-"""@brief 人物卡片覆盖率校验：persona_coverage.json 结构（docs/CONTRACTS.md#contracts-worldmock-接口合同「人物卡片覆盖率产出」）。
+"""@brief 人物卡片覆盖率校验：persona_coverage.json 结构（docs/design/06-agent.md「人物卡片覆盖率产出」）。
 
 习惯签名、食品偏好与媒介必须映射到登记目录中的可执行目标。内容题材仍保留为画像散文，不参与覆盖率。
 可执行比例低于 80% 时校验失败并列出缺失项。习惯、食品名与动作名按双向子串匹配，应用名精确匹配。
@@ -12,7 +12,7 @@ from pydantic import Field
 from worldmock.errors import IntegrityError
 from worldmock.profile.models import PersonaCard
 
-#: 可执行比例阈值（docs/CONTRACTS.md#contracts-worldmock-接口合同「人物卡片覆盖率产出」合同常数：低于 0.8 校验失败）。
+#: 可执行比例阈值（docs/design/06-agent.md「人物卡片覆盖率产出」合同常数：低于 0.8 校验失败）。
 COVERAGE_THRESHOLD = 0.8
 COVERAGE_SCHEMA_VERSION = 1
 

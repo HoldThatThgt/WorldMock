@@ -1,6 +1,6 @@
 """@brief 地点类与人物交互菜单的声明、交集，人物动词与方式的词表，以及按私有绑定解析的统一动作准入判断。
 
-人物所选的（对象，动词，方式）经本轮观察的私有绑定映射为内部标准动作（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章
+人物所选的（对象，动词，方式）经本轮观察的私有绑定映射为内部标准动作（docs/design/04-simulation-engine.md
 「请求形状与菜单」）；菜单、习惯归并与证据都按映射后的内部动作判定，不按短语反解。
 """
 
@@ -17,7 +17,7 @@ from worldmock.errors import IntegrityError
 from worldmock.base_models import FrozenModel
 from worldmock.exchange.types import START_ACTIVITY_ACTIONS
 
-#: 「自身」对象的动作（docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面「保护项修订」）：每份菜单必须保留，
+#: 「自身」对象的动作（docs/design/04-simulation-engine.md「交互菜单声明与有效菜单」）：每份菜单必须保留，
 #: 否则人物在该地点既不能等待也不能睡眠。人物所见分别是动词 interact 的「自己」对象（方式「等待」）与动词 sleep。
 PROTECTED_SELF_ACTIONS = frozenset({"wait", "sleep"})
 

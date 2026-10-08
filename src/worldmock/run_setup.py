@@ -131,7 +131,7 @@ def _model_identity() -> ModelIdentity:
 
 
 def stage_model_identity(same_second_continuation: bool = True) -> dict[str, Any]:
-    """@brief 行动阶段的完整冻结请求身份（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第二章「单一行动阶段」）。
+    """@brief 行动阶段的完整冻结请求身份（docs/design/06-agent.md「单一行动阶段」）。
 
     行动阶段参数取自 LifeAgent 导出常量（单一事实源）；运行中不变更。不发送 reasoning_effort
     （以 None 表示该字段不进请求）。行动阶段另记运行开关 same_second_continuation（第二章「同秒续接」，缺省开）。
@@ -164,7 +164,7 @@ def stage_model_identity(same_second_continuation: bool = True) -> dict[str, Any
 
 
 def runtime_code_sha256(project_root: Path) -> str:
-    """@brief 哈希全部生产 Python 源码、根依赖锁定文件与实际导入的 AS2 包（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「运行身份」）。
+    """@brief 哈希全部生产 Python 源码、根依赖锁定文件与实际导入的 AS2 包（docs/design/06-agent.md「模型身份」）。
 
     AS2 文件以 agentsociety2/<相对路径> 为标签，与安装位置无关；AS2 未通过锁定核对时拒绝给出代码身份。
     """
@@ -305,7 +305,7 @@ def _agent_specs(scenario: RuntimeScenario, *, persona_compiler=None,
 
     新建运行时为声明 background_story 的人物注入 PersonaCard 渲染文本
     （A9 compile_persona -> render_card，记忆巩固与反思读取 profile["persona_card"]）与卡片的结构化字段
-    profile["persona_card_struct"]（去掉当下处境，宿主据此渲染人设层，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「人设层」），
+    profile["persona_card_struct"]（去掉当下处境，宿主据此渲染人设层，docs/design/06-agent.md「人设层」），
     卡片先经场景作息覆盖（apply_scenario_rhythm），渲染文本与结构化字段都取覆盖后的卡片。
     人物的口味只保留散文，不派生口味权重或注意力参数。恢复运行不重新编译，
     人物 profile 由检查点工作区原样恢复，分支人物身份与父运行保持一致。
@@ -376,7 +376,7 @@ RETIRED_STAGE_NAME = "work_review"
 
 
 def validate_manifest_stage_identity(manifest: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
-    """@brief 五个入口共用的清单阶段身份校验（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「清单」）。
+    """@brief 五个入口共用的清单阶段身份校验（docs/design/06-agent.md 「模型身份」）。
 
     新建（写清单之前）、打开既有运行（含从工作区加载）、普通恢复与反事实重放（父清单）、环境校验（manifest 为 None，
     即新运行将冻结的清单）都只调用本函数。旧键 two_stage_model_identity 下的身份先经阶段校验，含退役的决策自述阶段即以
@@ -401,7 +401,7 @@ def validate_stage_model_identity(identity: dict[str, Any] | None = None) -> dic
     """@brief 阶段 model_identity 一致性校验：只允许行动阶段（LifeAgent 常量单一事实源）。
 
     五个入口经 validate_manifest_stage_identity 调用本函数；含退役的决策自述阶段的身份以英文错误拒绝
-    （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「清单」）。行动阶段的运行开关 same_second_continuation 须为布尔值
+    （docs/design/06-agent.md 「模型身份」）。行动阶段的运行开关 same_second_continuation 须为布尔值
     （第二章「同秒续接」），开与关都合法。
     """
 

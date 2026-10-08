@@ -105,7 +105,8 @@ def restore_as2(root: Path) -> str:
         for entry in series["patches"]:
             patch = patch_root / entry["file"]
             require_hash(patch, entry["sha256"])
-            command = ["git", "apply", f"--directory={stage.relative_to(root).as_posix()}", str(patch)]
+            command = ["git", "-c", "core.autocrlf=false", "-c", "core.eol=lf", "apply",
+                       f"--directory={stage.relative_to(root).as_posix()}", str(patch)]
             subprocess.run(command, cwd=root, check=True)
         digest = _require_as2(stage, series)
         package.parent.mkdir(parents=True, exist_ok=True)

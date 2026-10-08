@@ -1,0 +1,139 @@
+name: Tests and design
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  design:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: .python-version
+      - name: Check current documentation and build the reading copy
+        run: |
+          python scripts/documentation_gate.py
+          python scripts/build_design_doc.py
+          cp docs/INDEX.md .work/docs/INDEX.md
+          cp docs/design/*.md .work/docs/design/
+          cp -r docs/manual .work/docs/manual
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: system-design
+          path: .work/docs/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+      - name: Summarize documentation checks
+        run: |
+          printf '### Current system design\n\nTested commit: %s\n\nDownload the **system-design** artifact to read the HTML and module sources.\n' "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+  tests:
+    name: Tests (${{ matrix.layer }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        layer: [unit, integration, system]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: .python-version
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install runtime components
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends fonts-noto-cjk libatomic1
+          python scripts/bootstrap.py --profile release
+      - name: Run the fixed test layer
+        env:
+          TEST_LAYER: ${{ matrix.layer }}
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p ".work/test-results/$TEST_LAYER"
+          .venv/bin/python -m coverage run --data-file ".work/test-results/$TEST_LAYER/.coverage" \
+            -m pytest "tests/$TEST_LAYER" -q --tb=short \
+            --junitxml ".work/test-results/$TEST_LAYER/junit.xml" \
+            2>&1 | tee ".work/test-results/$TEST_LAYER/output.log"
+      - name: Save reports even when a test fails
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: tests-${{ matrix.layer }}
+          path: .work/test-results/${{ matrix.layer }}/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Summarize this layer
+        if: always()
+        env:
+          TEST_LAYER: ${{ matrix.layer }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          printf '### %s tests: %s\n\nTested commit: %s\n\nSee the **tests-%s** artifact for JUnit results and logs.\n' "$TEST_LAYER" "$JOB_STATUS" "$GITHUB_SHA" "$TEST_LAYER" >> "$GITHUB_STEP_SUMMARY"
+
+  coverage:
+    name: Combined coverage
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: .python-version
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          pattern: tests-*
+          path: .work/test-results
+      - name: Install the existing coverage tool
+        run: |
+          python - <<'PY'
+          import pathlib, subprocess, sys, tomllib
+          project = tomllib.loads(pathlib.Path('pyproject.toml').read_text())
+          subprocess.run([sys.executable, '-m', 'pip', 'install', *project['dependency-groups']['dev']], check=True)
+          PY
+      - name: Combine coverage from every fixed layer
+        run: |
+          python -m coverage combine --keep --data-file .work/test-results/.coverage \
+            .work/test-results/tests-unit/.coverage \
+            .work/test-results/tests-integration/.coverage \
+            .work/test-results/tests-system/.coverage
+          python -m coverage json --data-file .work/test-results/.coverage -o .work/test-results/coverage.json
+          python -m coverage html --data-file .work/test-results/.coverage -d .work/test-results/html
+          python scripts/coverage_gate.py --from-json .work/test-results/coverage.json \
+            --junit .work/test-results/tests-unit/junit.xml \
+              .work/test-results/tests-integration/junit.xml .work/test-results/tests-system/junit.xml \
+            --summary "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: combined-coverage
+          path: |
+            .work/test-results/coverage.json
+            .work/test-results/coverage-report.json
+            .work/test-results/html/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30

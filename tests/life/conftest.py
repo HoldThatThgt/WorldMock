@@ -76,7 +76,7 @@ def stage_errands(engine: LifeEngine, agent_id: int, errands=()) -> None:
 def stage_legacy_control_request(engine: LifeEngine, tool: str, agent_id: int = 1) -> str:
     """经 FootprintStore 补登一条旧形状的控制请求及其结果（世界结构 8 的写法：带 items 而缺请求级 errands）：照该人物最近
     一次 tool 请求的逐项内容，同一决策、动作身份另起，请求摘要按同一算法对旧形状重算，结果照原结果；世界状态不变、版本
-    加一。引擎自己写不出这种记录，只用于核对各读取方对旧记录的拒绝（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误 、2.9）。
+    加一。引擎自己写不出这种记录，只用于核对各读取方对旧记录的拒绝（docs/design/04-simulation-engine.md 、2.9）。
     返回补登的动作身份。"""
     import hashlib
 
@@ -123,7 +123,7 @@ def errand_cancel(name: str, reason: str) -> dict:
 def bring_to_window(engine: LifeEngine, object_ids, agent_id: int = 1) -> None:
     """让给定商品进入下一次观察的呈现窗口：其余门店商品都记为此刻刚呈现过，
     给定对象从未呈现——轮转按每个对象的上次呈现时刻把换新名额留给该分区最久未呈现的对象
-    （docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ），每个分区至多三个。经存储落盘并保持版本连续。"""
+    （docs/design/04-simulation-engine.md ），每个分区至多三个。经存储落盘并保持版本连续。"""
     from worldmock.footprints.models import EventDraft
 
     wanted = set(object_ids)

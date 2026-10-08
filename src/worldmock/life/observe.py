@@ -1,7 +1,7 @@
 """@brief LifeEngine 的观察投影与浏览/动机上下文装配。
 
 本模块从 engine.py 下沉（生产文件 ≤2000 行规范）：观察的七层数据（工具层、待办层、环境层、进度层、记忆层与看法偏好，
-docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章）、私有绑定与证据、事件级工具支持行、活动品类摘要、呈现窗口、内部动机仪表上下文
+docs/design/06-agent.md）、私有绑定与证据、事件级工具支持行、活动品类摘要、呈现窗口、内部动机仪表上下文
 与决策参照快照。ObservationBuilder 只持有唯一上下文并承担观察暂存。
 """
 
@@ -60,9 +60,9 @@ class ObservationBuilder:
         以及按名调用的目录绑定与住处）、证据与事件级工具支持行。
 
         商品呈现经统一候选契约产出，呈现后由 `_presentation_stamps` 留痕轮转判据；留痕按人物暂存，同一秒各轮沿用该秒首轮的
-        呈现窗口与置顶的浏览结果。进度层、progress_meta 只供宿主当次使用（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「进度层」）。
+        呈现窗口与置顶的浏览结果。进度层、progress_meta 只供宿主当次使用（docs/design/06-agent.md「进度层」）。
         工具层另附只列名称的可调用索引（callable_index：生活活动窗口资格段保留的全部条目，此刻从这里能得到的
-        商品，docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引 ）：它不是候选条目，不计入单次呈现上限，也不写呈现留痕。
+        商品，docs/design/04-simulation-engine.md ）：它不是候选条目，不计入单次呈现上限，也不写呈现留痕。
         """
         config = agent_config(self.context.scenario, agent.agent_id)
         meal_windows = felt.MealWindows(lunch=config.lunch_window, dinner=config.dinner_window)
@@ -145,7 +145,7 @@ class ObservationBuilder:
         活动绑定另带 resumable：暂停的活动此刻停留在其开始地点、可以恢复；note_labels：记忆层 self_notes 中这项活动去掉
         开始时刻后缀的标注（只作回看名称，两个条目的同一标注指不同活动时两项都带，回看按重名处理）。人物绑定不论是否同处
         （recipients.person_bindings）。个人事务另有两类绑定（errands.bindings：本人未完成事务与全部商品名），事务名不是
-        回看名称（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误 ）。
+        回看名称（docs/design/04-simulation-engine.md ）。
         """
         goals = [
             {"task_name": goal.goal, "intent_kind": goal.intent_kind}
@@ -189,7 +189,7 @@ class ObservationBuilder:
     def _observation_evidence(self, agent, experiences: list[dict]) -> dict:
         """@brief 观察的数值与身份证据段（不进提示，供事件、唤醒与宿主使用）。
 
-        same_moment_stage 是同刻上限受限轮的阶段（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「实现约定」），受限只由
+        same_moment_stage 是同刻上限受限轮的阶段（docs/design/04-simulation-engine.md「实现约定」），受限只由
         工具层的 available 与 reason 表达；verified_experiences 是已核验经历的结构行，只作私有证据（记忆写入证据依赖它）。
         """
         return {
@@ -350,7 +350,7 @@ class ObservationBuilder:
 
     def _last_presented(self, agent_id: int) -> dict[str, int]:
         """@brief 该人物各对象的上次呈现时刻（轮转的唯一判据，逐对象记录，不含任何偏好推断；不设共享偏移量或分区
-        游标，docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「曝光轮转」）。"""
+        游标，docs/design/04-simulation-engine.md「曝光轮转」）。"""
         return dict(self.context.state.presentation_state.get(agent_id, {}))
 
     def _product_pool(self, agent) -> tuple[PoolEntry, ...]:
@@ -362,7 +362,7 @@ class ObservationBuilder:
 
 
     def _snapshot_decision_references(self, staged, agent_ids: list[int]):
-        """@brief 决策落定后更新滞回参照：分级/在场人物/已知任务（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「滞回规则」）
+        """@brief 决策落定后更新滞回参照：分级/在场人物/已知任务（docs/design/04-simulation-engine.md「滞回规则」）
         。"""
         agents = dict(staged.agents)
         for agent_id in agent_ids:
@@ -393,7 +393,7 @@ def _route_catalog(scenario, state, agent_id: int, semantics) -> list[dict]:
 
 
 def _paused_activity_observation(activity) -> dict:
-    """@brief 暂停活动的完整记录与剩余墙钟时长；恢复不查能量（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「删除的机制」）。"""
+    """@brief 暂停活动的完整记录与剩余墙钟时长；恢复不查能量（docs/design/04-simulation-engine.md「删除的机制」）。"""
     data = activity.model_dump(mode="json")
     data["remaining_duration_seconds"] = max(0, activity.planned_duration_seconds - activity.elapsed_seconds)
     return data
@@ -445,7 +445,7 @@ def _presentation_stamps(state, presented: tuple[str, ...], catalog) -> dict[str
     轮转的判据是「上次呈现时刻」，所以每次呈现都要留痕；留痕是新的派生量取值，但**不
     允许在观察边界直接落盘**——`store._validate_state` 只允许同版本追加事件，因此引擎
     把结果按人物暂存，决策轮提交时写入世界状态的本秒暂存，时钟推进时才并入 `presentation_state`。
-    这里不改目录、不改对象状态、不产生下架事件（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「曝光轮转」
+    这里不改目录、不改对象状态、不产生下架事件（docs/design/04-simulation-engine.md「曝光轮转」
     「禁止永久退役」）。
 
     @param state 当前世界状态。

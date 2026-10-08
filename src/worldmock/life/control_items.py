@@ -1,6 +1,6 @@
 """@brief 只读取现行逐项控制请求，旧控制记录直接拒绝。
 
-本模块是控制请求的唯一读取入口（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-控制请求记录 ）：control_items 读逐项内容，control_errands 读请求级
+本模块是控制请求的唯一读取入口（docs/design/04-simulation-engine.md ）：control_items 读逐项内容，control_errands 读请求级
 的个人事务变更；两者对工具与请求形状用同一套检查，缺字段（含请求级 errands）即完整性故障。
 """
 
@@ -21,7 +21,7 @@ CONTROL_TOOLS = ("report_status", "pause_activity", "conclude_activity")
 VIEW_MEMORY_TYPES = frozenset({"relationship", "preference"})
 #: 请求形状的记忆字段（不带对象）；存储形状在其后加 subject。
 _MEMORY_KEYS = ("type", "text", "importance", "keywords")
-#: 一条个人事务变更的八个键（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 「每条变更」），全部必填，按这个顺序读出。
+#: 一条个人事务变更的八个键（docs/design/04-simulation-engine.md 「每条变更」），全部必填，按这个顺序读出。
 _ERRAND_KEYS = ("change", "name", "item", "quantity", "memo", "remind_time", "reason")
 
 
@@ -48,7 +48,7 @@ def control_items(tool: str, request: Mapping[str, Any] | BaseModel) -> tuple[Co
     """@brief 读出控制工具请求的逐项内容，只接受现行形状：items 与请求级 errands（列表，可为空）都在。
 
     缺 errands 的请求是旧形状记录，经本入口读取的每个读取方（环境处理器、同刻请求分类、宿主校验、进度层、记忆层、记忆
-    证据、零点计划输入、质量报告与交付窗口）都随之以完整性故障拒绝，不留读取分支（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误 、2.9）。
+    证据、零点计划输入、质量报告与交付窗口）都随之以完整性故障拒绝，不留读取分支（docs/design/04-simulation-engine.md 、2.9）。
 
     :param tool: report_status、pause_activity 或 conclude_activity。
     :param request: 已校验的请求模型，或事件与导出里记录的请求参数（JSON 形状）。
@@ -64,7 +64,7 @@ def control_items(tool: str, request: Mapping[str, Any] | BaseModel) -> tuple[Co
 
 
 def control_errands(tool: str, request: Mapping[str, Any] | BaseModel) -> tuple[dict[str, Any], ...]:
-    """@brief 读出控制工具请求里请求级的个人事务变更（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 、2.9），与 control_items 同一
+    """@brief 读出控制工具请求里请求级的个人事务变更（docs/design/04-simulation-engine.md 、2.9），与 control_items 同一
     入口检查：工具须是三个控制工具之一，模型按 JSON 形状导出，请求须是对象。
 
     :param tool: report_status、pause_activity 或 conclude_activity。

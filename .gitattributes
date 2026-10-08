@@ -2,6 +2,8 @@ corpora/** text=auto eol=lf
 catalog/** text=auto eol=lf
 *.py text eol=lf
 *.toml text eol=lf
+*.json text eol=lf
+*.jsonl text eol=lf
 uv.lock text eol=lf
 requirements/*.txt text eol=lf
 patches/** -text -whitespace

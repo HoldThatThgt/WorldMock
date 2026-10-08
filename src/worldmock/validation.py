@@ -69,7 +69,7 @@ def validate_persona_coverage(scenario_path: Path, *,
     persona_compiler 供确定性测试注入）得到 PersonaCard；可执行比例低于
     80% 时抛 PersonaCoverageError（校验失败，裁决 D4），缺失项列在报告与文件中。
     同一份编译结果经 run_setup.creation_inputs 计算与新建运行同一组输入警告（场景作息覆盖走同一个 apply_scenario_rhythm；
-    docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-运行输入警告 、2.1）：先逐条写到标准错误流，再做覆盖率门禁；返回值另带 input_warnings，
+    docs/design/06-agent.md 、2.1）：先逐条写到标准错误流，再做覆盖率门禁；返回值另带 input_warnings，
     persona_coverage.json 的结构不变。
     """
 

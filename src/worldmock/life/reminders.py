@@ -1,10 +1,10 @@
-"""@brief 场景本地零点与当日目标提醒（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章「运行时机」「计划与提醒」）。
+"""@brief 场景本地零点与当日目标提醒（docs/design/04-simulation-engine.md「运行时机」「计划与提醒」）。
 
 引擎只接线，本模块给出：零点（本地日期变更的那一秒）与未触发的提醒作为下一边界候选（不依赖人物的 next_decision_at）；
 零点边界（不是终点）把该秒的唤醒判定留到零点计划提交之后；提醒到点的判定与只触发一次的记账。提醒触发后由进度层
-按触发时刻推导 plan_reminder 记录（只写目标名，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「进度层」）。提醒与推进无关，只在修订
+按触发时刻推导 plan_reminder 记录（只写目标名，docs/design/06-agent.md「进度层」）。提醒与推进无关，只在修订
 替换或删除该目标、或当日结束时失效。个人事务的提醒时刻（只计清醒人物，errands.boundary_times）另行并入下一边界候选，
-它们的到期判定与交付在 errands 与节律判定段，不经本模块的当日目标提醒判定（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-提醒时刻 ）。
+它们的到期判定与交付在 errands 与节律判定段，不经本模块的当日目标提醒判定（docs/design/04-simulation-engine.md#simulation-engine-提醒时刻 ）。
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ def reminder_times(agent: AgentState, now: int) -> tuple[int, ...]:
 
 def boundary_candidates(state: WorldState, timezone_name: str) -> list[int]:
     """@brief 下一边界候选：场景本地下一零点、每个人物当日未触发的提醒，以及每个清醒人物未提醒的个人事务提醒时刻
-    （docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-提醒时刻 ：睡眠中的人物不计入，事务提醒不形成静默边界）。"""
+    （docs/design/04-simulation-engine.md#simulation-engine-提醒时刻 ：睡眠中的人物不计入，事务提醒不形成静默边界）。"""
     now = state.current_time
     moments = [day_end_seconds(now, timezone_name)]
     for agent in state.agents.values():

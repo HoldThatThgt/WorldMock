@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from agentsociety2.agent.base import ReactLoopRequest
 from custom.agents.life_agent import LifeAgent
 from custom.envs.life_env import LifeEnv
-from tests.integration.test_life_agent_protocol import _ModelResponse
+from tests.integration.runtime.test_life_agent_protocol import _ModelResponse
 from tests.life.conftest import context
 
 

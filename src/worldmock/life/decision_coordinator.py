@@ -61,7 +61,7 @@ class DecisionCoordinator:
         self.pending_decision_starts: dict[int, dict] = {}
 
     def begin_decision_round(self, contexts: list["DecisionContext"], ready_agent_ids: tuple[int, ...]) -> None:
-        """@brief 持久化观察顺序；decision_started 延迟到首个行动请求时写（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第二章）。"""
+        """@brief 持久化观察顺序；decision_started 延迟到首个行动请求时写（docs/design/06-agent.md）。"""
         if self.round is not None or not contexts:
             raise ProtocolError("Decision round cannot be started")
         for context in contexts:
@@ -150,8 +150,8 @@ class DecisionCoordinator:
     def commit_decision_round(self, round_id: str) -> list[ActionResult]:
         """@brief 按冻结顺序结算完整决策轮并一次提交所有状态与结果。
 
-        全轮动作完成后合并收件人的同秒机会，避免自身排期覆盖（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「人物之间的消息」）。
-        合并前把已全文呈现的消息记为已读，后续不重复唤醒（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第六章「直接消息截断」）。
+        全轮动作完成后合并收件人的同秒机会，避免自身排期覆盖（docs/design/04-simulation-engine.md「人物之间的消息」）。
+        合并前把已全文呈现的消息记为已读，后续不重复唤醒（docs/design/06-agent.md「直接消息截断」）。
         重放身份可能对应多条观察，不参与记已读，也不重做领域动作。
         """
         current = self.require_round(round_id)
@@ -443,13 +443,13 @@ class DecisionCoordinator:
     def _round_schedule(
         self, state: WorldState, agent, rejection: str | None, rhythm_next=None, free: bool = False
     ) -> tuple[int, list[str], SameMomentStage]:
-        """@brief 按同刻阶梯安排本轮之后的下一次决策（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章规则 2–4、7）。
+        """@brief 按同刻阶梯安排本轮之后的下一次决策（docs/design/04-simulation-engine.md规则 2–4、7）。
 
-        受限轮用完仍要同一秒再决策时，暂存 decision_budget_exhausted 事件并技术停顿（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求
+        受限轮用完仍要同一秒再决策时，暂存 decision_budget_exhausted 事件并技术停顿（docs/design/06-agent.md
         第五章「失败后强制等待与跨决策预算」），随本动作的结果一起提交；事件带最近一次计入同刻轮数的拒绝码。
 
         :param rejection: 本轮业务拒绝的错误码（重放按存档结果），受理时为 None。
-        :param free: 本轮的拒绝是免计的名称类拒绝（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-名称类拒绝不计同刻轮数 ，不计同刻轮数）。
+        :param free: 本轮的拒绝是免计的名称类拒绝（docs/design/04-simulation-engine.md ，不计同刻轮数）。
         """
         now = state.current_time
 
@@ -481,7 +481,7 @@ class DecisionCoordinator:
         self, state: WorldState, pending: PendingAction, error: BusinessRuleError
     ) -> tuple[WorldState, ActionResult]:
         """@brief 业务拒绝计入同刻轮数与连续拒绝；未达上限同一秒再决策，服务拒绝脉冲每人每秒至多一次；名称类拒绝每人每秒
-        前两次不计同刻轮数、不施加脉冲（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-名称类拒绝不计同刻轮数 ）。
+        前两次不计同刻轮数、不施加脉冲（docs/design/04-simulation-engine.md ）。
         same_moment.rejection_counts 控制计数；结果 message 就是公开原因 reason，data 带 reason、fix、next_step 与逐项明细。"""
         counted = same_moment.rejection_counts(state, pending.agent_id, str(error))
         agent = state.agents[pending.agent_id]

@@ -42,14 +42,14 @@ MAX_PLAN_GOALS = 8
 #: 单条自然语言目标的字符上限。
 PLAN_GOAL_MAX_CHARS = 300
 #: 目标大致时刻的判定容差：同家族活动在当日内的进行区间与 [around − 容差, around + 容差] 有正时长交集才算推进
-#: （docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进 ，裁决 D12）。experiment_assumption：
+#: （docs/design/04-simulation-engine.md ，裁决 D12）。experiment_assumption：
 #: 敏感区间 3600–7200 秒，登记在
-#: docs/EXPERIMENT.md#experiment-worldmock-实验设置「实验假设声明」，复跑后按数据校准。
+#: docs/design/02-exchange-engine.md「规则数值与实验假设」，复跑后按数据校准。
 GOAL_TIME_TOLERANCE_SECONDS = 5400
 
 
 class WakeReason(str, Enum):
-    """@brief 唤醒原因冻结枚举（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「决策节律：结算边界与唤醒条件分离」，成员不可改名、
+    """@brief 唤醒原因冻结枚举（docs/design/04-simulation-engine.md「决策节律：结算边界与唤醒条件分离」，成员不可改名、
     不可删除，新增走版本表）。"""
 
     PLANNED_END = "planned_end"
@@ -68,9 +68,9 @@ class WakeReason(str, Enum):
     PROGRESS_REPORT_DUE = "progress_report_due"
     NO_ACTIVE_ACTIVITY = "no_active_activity"
     PLAN_REMINDER_DUE = "plan_reminder_due"
-    #: 个人事务提醒到点（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-提醒时刻 ）：不进入睡眠允许集合，睡眠中错过的在醒来的边界交付。
+    #: 个人事务提醒到点（docs/design/04-simulation-engine.md#simulation-engine-提醒时刻 ）：不进入睡眠允许集合，睡眠中错过的在醒来的边界交付。
     ERRAND_REMINDER_DUE = "errand_reminder_due"
-    #: 班次与休息时段的起止（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界规则 ）：不进入睡眠允许集合，睡过的醒来后不补。
+    #: 班次与休息时段的起止（docs/design/04-simulation-engine.md ）：不进入睡眠允许集合，睡过的醒来后不补。
     SHIFT_START = "shift_start"
     SHIFT_END = "shift_end"
     BREAK_START = "break_start"
@@ -83,12 +83,12 @@ SLEEP_ALLOWED_REASONS = frozenset(
     {WakeReason.PLANNED_END, WakeReason.WAKE_FROM_SLEEP, WakeReason.RUN_START,
      WakeReason.PLAN_REMINDER_DUE, WakeReason.ALARM_RING}
 )
-"""睡眠期间仍可提供决策的唤醒原因：计划结束、唤醒事件与当日目标提醒（docs/dev/SPEC-life-runtime.md#spec-life-runtime-决策节律结算边界与唤醒条件分离 「决策节律」）。"""
+"""睡眠期间仍可提供决策的唤醒原因：计划结束、唤醒事件与当日目标提醒（docs/design/04-simulation-engine.md#simulation-engine-决策节律-结算边界与唤醒条件分离 「决策节律」）。"""
 
 DUTY_EDGE_REASONS: tuple[WakeReason, ...] = (
     WakeReason.SHIFT_START, WakeReason.SHIFT_END, WakeReason.BREAK_START, WakeReason.BREAK_END,
 )
-"""班次与休息时段起止的四个唤醒成员，按声明次序（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界规则 ）。"""
+"""班次与休息时段起止的四个唤醒成员，按声明次序（docs/design/04-simulation-engine.md ）。"""
 
 
 INTENT_KINDS: tuple[str, ...] = (
@@ -148,7 +148,7 @@ INTENT_ACTIVITY_FAMILIES: dict[str, frozenset[str]] = {
 
 
 ROUTINE_INTENT_KINDS: frozenset[str] = frozenset({"睡眠", "晨间例程", "通勤", "用餐"})
-"""例行意图（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-零点计划只写今天与平常不同的事 ，裁决 S11）：十一种意图闭集中属于人设层作息的四种。这类目标照常受理、
+"""例行意图（docs/design/06-agent.md ，裁决 S11）：十一种意图闭集中属于人设层作息的四种。这类目标照常受理、
 判定与记录，质量报告的推进比例只计非例行意图的目标，例行意图的目标另计一行。"""
 
 
@@ -162,8 +162,8 @@ def day_end_seconds(now: int, timezone_name: str) -> int:
 def clock_epoch(clock: str | None, now: int, timezone_name: str) -> int | None:
     """@brief 把场景本地 HH:MM 换算为 now 所在本地日的绝对时刻；None 原样返回。
 
-    提醒时刻 remind_time（None 表示不设提醒，docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章）与大致时刻 around_time
-    （None 表示不限时刻，docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进 ）共用这一换算。
+    提醒时刻 remind_time（None 表示不设提醒，docs/design/04-simulation-engine.md）与大致时刻 around_time
+    （None 表示不限时刻，docs/design/04-simulation-engine.md ）共用这一换算。
     """
     if clock is None:
         return None
@@ -184,7 +184,7 @@ class RemindTimeInvalid(ValueError):
 def registered_goals(goals: Sequence[Any], now: int, timezone_name: str) -> tuple["PlanGoal", ...]:
     """@brief 以 now 登记请求目标（intent_kind、goal、remind_time、around_time），提醒与大致时刻换算为该本地日的绝对时刻。
 
-    大致时刻不像提醒：不要求晚于登记时刻，也不触发决策（docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进 ）。
+    大致时刻不像提醒：不要求晚于登记时刻，也不触发决策（docs/design/04-simulation-engine.md ）。
     """
     return tuple(PlanGoal(intent_kind=goal.intent_kind, goal=goal.goal, registered_at=now,
                           remind_at=clock_epoch(goal.remind_time, now, timezone_name),
@@ -215,13 +215,13 @@ class WakeSnapshot(BaseModel):
     wake_from_sleep: bool = False
     run_start: bool = False
     progress_report_due: bool = False
-    #: 边界兜底（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章规则 5）：结算后没有进行中活动。
+    #: 边界兜底（docs/design/04-simulation-engine.md规则 5）：结算后没有进行中活动。
     no_active_activity: bool = False
-    #: 当日目标提醒到点（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章）：同时到期的合并为一项。
+    #: 当日目标提醒到点（docs/design/04-simulation-engine.md）：同时到期的合并为一项。
     plan_reminder_due: bool = False
-    #: 有已到点未提醒的个人事务（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-提醒时刻 ）：同时到期的合并为一项。
+    #: 有已到点未提醒的个人事务（docs/design/04-simulation-engine.md#simulation-engine-提醒时刻 ）：同时到期的合并为一项。
     errand_reminder_due: bool = False
-    #: 本边界恰好成立的班次与休息时段起止成员（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界规则 ）：同一秒重合的各记一次。
+    #: 本边界恰好成立的班次与休息时段起止成员（docs/design/04-simulation-engine.md ）：同一秒重合的各记一次。
     duty_edges_now: frozenset[WakeReason] = frozenset()
     #: 本边界实际收到应用推送，睡眠过滤仍由既有允许集合负责。
     app_push_arrived: bool = False
@@ -241,7 +241,7 @@ class NextDecisionQuery(BaseModel):
     """@brief 下一决策时刻计算的输入：各候选时刻由引擎侧预测/排定后传入。
 
     体感分级预计跨越时刻复用现有 next_body_boundary_seconds 预测
-    （docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「决策节律：结算边界与唤醒条件分离」），本模块不另写能耗或压力
+    （docs/design/04-simulation-engine.md「决策节律：结算边界与唤醒条件分离」），本模块不另写能耗或压力
     公式。scheduled_arrival_times 汇总已排定的通知与配送时刻。
     """
 
@@ -254,11 +254,11 @@ class NextDecisionQuery(BaseModel):
     idle_reconsideration_interval_seconds: int = IDLE_RECONSIDERATION_INTERVAL_SECONDS
     has_commitments: bool = False
     next_progress_report_at: int | None = None
-    #: 当日未触发的提醒时刻（睡眠中不剔除，docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章）。
+    #: 当日未触发的提醒时刻（睡眠中不剔除，docs/design/04-simulation-engine.md）。
     plan_reminder_times: tuple[int, ...] = ()
-    #: 未提醒的个人事务提醒时刻（睡眠中剔除，docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-提醒时刻 ）。
+    #: 未提醒的个人事务提醒时刻（睡眠中剔除，docs/design/04-simulation-engine.md#simulation-engine-提醒时刻 ）。
     errand_reminder_times: tuple[int, ...] = ()
-    #: 严格晚于当前的班次与休息时段起止时刻（醒睡都照填、睡眠中剔除，docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界机制 ）。
+    #: 严格晚于当前的班次与休息时段起止时刻（醒睡都照填、睡眠中剔除，docs/design/04-simulation-engine.md ）。
     duty_edge_times: tuple[int, ...] = ()
     is_asleep: bool = False
 
@@ -266,7 +266,7 @@ class NextDecisionQuery(BaseModel):
 class PlanGoal(FrozenModel):
     """@brief 已登记的当日目标；推进时刻与活动标识是环境证据，remind_at/reminded_at 是提醒及其触发时刻，
     around_at 是大致时刻 around_time 换算出的当日绝对时刻（为空表示不限时刻，
-    docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进 ）。"""
+    docs/design/04-simulation-engine.md ）。"""
 
     intent_kind: IntentKind
     goal: str = Field(min_length=1, max_length=PLAN_GOAL_MAX_CHARS, pattern=r"\S")
@@ -360,7 +360,7 @@ def reconsideration_interval(query: WakeSnapshot | NextDecisionQuery) -> int:
 
 def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
     """@brief 按当前结算边界判定全部唤醒原因。
-    规格：docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则。
+    规格：docs/design/04-simulation-engine.md。
     按 WakeReason 声明顺序输出（前半由 _event_reasons、后半由 _clock_reasons 逐项追加）；无命中即静默边界，
     decision_offered=false、wake_reasons=[]。
     睡眠期间只保留 SLEEP_ALLOWED_REASONS（含目标提醒，不含边界兜底、事务提醒与班次边界的四个成员）。
@@ -397,7 +397,7 @@ def _event_reasons(snap: WakeSnapshot) -> list[WakeReason]:
 def _clock_reasons(snap: WakeSnapshot) -> list[WakeReason]:
     """@brief 唤醒原因的后半（睡醒至班次边界）：睡醒、运行开始、播报、边界兜底、两种提醒与班次和休息时段的起止，
     按声明顺序逐项追加；同一秒重合的起止各记一次，按 DUTY_EDGE_REASONS 的次序并列
-    （docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界规则 ）。"""
+    （docs/design/04-simulation-engine.md ）。"""
     reasons: list[WakeReason] = []
     if snap.wake_from_sleep:
         reasons.append(WakeReason.WAKE_FROM_SLEEP)
@@ -421,16 +421,16 @@ def _clock_reasons(snap: WakeSnapshot) -> list[WakeReason]:
 
 def next_decision_time(query: NextDecisionQuery) -> int | None:
     """@brief
-    计算下一决策时刻：各项候选的最小值（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「决策节律：结算边界与唤醒条件分离」）。
+    计算下一决策时刻：各项候选的最小值（docs/design/04-simulation-engine.md「决策节律：结算边界与唤醒条件分离」）。
 
     候选=计划结束、体感分级预计跨越、已排定通知与配送、承诺威胁边界、重估间隔
     到期、地点营业变化、进行中活动的播报到期、当日未触发的提醒、未提醒的个人事务提醒与清醒人物的班次与休息时段起止
     （睡眠中剔除）；只取严格晚于 now 的时刻，本边界已判定的机会不重复计。
-    睡眠不受重估间隔影响（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「决策节律：结算边界与唤醒条件分离」），is_asleep
+    睡眠不受重估间隔影响（docs/design/04-simulation-engine.md「决策节律：结算边界与唤醒条件分离」），is_asleep
     时剔除该项；
-    当日目标提醒在睡眠中不剔除（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章），个人事务提醒在睡眠中剔除
-    （docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-提醒时刻 ），班次与休息时段的起止同样在睡眠中剔除
-    （docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界机制 ）。无任何候选返回 None。游戏模式保持逐回合反馈，不经过本函数。
+    当日目标提醒在睡眠中不剔除（docs/design/04-simulation-engine.md），个人事务提醒在睡眠中剔除
+    （docs/design/04-simulation-engine.md#simulation-engine-提醒时刻 ），班次与休息时段的起止同样在睡眠中剔除
+    （docs/design/04-simulation-engine.md ）。无任何候选返回 None。游戏模式保持逐回合反馈，不经过本函数。
 
     @param query 各候选时刻的汇总输入
     @return 下一决策时刻（UTC epoch 秒），无候选时为 None
@@ -456,10 +456,10 @@ def next_decision_time(query: NextDecisionQuery) -> int | None:
 
 
 def revise_day_plan(plan: DayPlan, now: int, new_goals: Sequence[PlanGoal]) -> DayPlan:
-    """@brief 保留已推进目标，整体替换未推进目标（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章「计划与提醒」）。
+    """@brief 保留已推进目标，整体替换未推进目标（docs/design/04-simulation-engine.md「计划与提醒」）。
 
     意图与文字相同的条目是同一个目标，按四个字段（意图、文字、提醒、大致时刻）与原条目比较
-    （docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进 ）：四项都相同的原样保留登记时刻与提醒状态，不重校时刻（原样
+    （docs/design/04-simulation-engine.md ）：四项都相同的原样保留登记时刻与提醒状态，不重校时刻（原样
     重发已触发的
     目标不被拒绝）；只改了大致时刻的保留登记时刻与提醒状态，只换大致时刻（大致时刻不重校、不触发决策）；改了提醒的
     保留登记时刻，换成新提醒与新的大致时刻；被替换或删除的目标，旧提醒随之取消。新登记与改了提醒的条目经
@@ -491,7 +491,7 @@ def _revised_goal(old: PlanGoal | None, new: PlanGoal, now: int, day_end: int) -
 
 
 def ran_in_goal_window(around_at: int | None, started_at: int | None, stop: int) -> bool:
-    """@brief 大致时刻判定（docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进 ）：活动在当日内的进行区间
+    """@brief 大致时刻判定（docs/design/04-simulation-engine.md ）：活动在当日内的进行区间
     [started_at, stop] 与
     [around_at − 容差, around_at + 容差] 的交集时长为正；around_at 为空时不限时刻（沿用家族与登记后正时长结算的判定）。
 
@@ -512,7 +512,7 @@ def progress_day_plan(plan: DayPlan, activity: dict, start: int, end: int,
     """@brief 正时长结算最多推进一个匹配目标，活动证据在当日只消费一次。
 
     匹配：未推进、同家族、登记后的正时长结算，目标带大致时刻时活动须在其前后容差内进行（ran_in_goal_window，
-    以活动快照的 started_at 为活动开始时刻，docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进 ）。
+    以活动快照的 started_at 为活动开始时刻，docs/design/04-simulation-engine.md ）。
 
     @param activity 结算后的活动快照
     @param start 结算区间起点
@@ -562,7 +562,7 @@ def day_plan_expired(plan: DayPlan, now: int) -> bool:
     """@brief 判定目标清单是否跨日残留：now 越过计划自带的 day_end 即属前一天。
 
     引擎在零点边界据此把 day_plan 归零，随后由零点计划为新的一天生成计划
-    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章）；判定不做时区换算，day_end 即生成日的次日
+    （docs/design/04-simulation-engine.md）；判定不做时区换算，day_end 即生成日的次日
     本地零点（修订沿用原计划的 day_end，判定对修订结果稳定）。
 
     @param plan 当日目标
@@ -573,7 +573,7 @@ def day_plan_expired(plan: DayPlan, now: int) -> bool:
 
 
 def expired_plan_agent_ids(state: Any) -> tuple[int, ...]:
-    """@brief 枚举 day_plan 已跨日残留的人物编号（引擎跨日边界归零用，docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「当日目标」）。
+    """@brief 枚举 day_plan 已跨日残留的人物编号（引擎跨日边界归零用，docs/design/06-agent.md「当日目标」）。
 
     @param state 世界状态（只读 agents 与 current_time 两字段；鸭子类型避免
                  与人物状态模型的环依赖）

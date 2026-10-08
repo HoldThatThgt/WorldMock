@@ -1,4 +1,4 @@
-"""@brief 发送模型请求前计量完整上下文，超过阈值时先结束本秒续接，再结构化浓缩 user 中的进度层（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第四章）。
+"""@brief 发送模型请求前计量完整上下文，超过阈值时先结束本秒续接，再结构化浓缩 user 中的进度层（docs/design/06-agent.md）。
 
 计量覆盖原生 tools、系统层、六层 JSON、续接消息（含回传的 reasoning_content）、此后的原生消息与预留输出。达到上下文 85% 时依次：
 0. 提前结束本秒续接：链前缀换成新快照（系统层与此刻的六层），思考不再出现；
@@ -8,7 +8,7 @@
 并以容量故障停止，不静默删减。
 
 工具层的可调用索引 callable_index 在 user 消息里，照样计入整次请求的容量计数（阈值与浓缩步骤不变），也从不被浓缩或删减；
-它不计入单次呈现上限（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引 ）。容量故障的分层记录另单列它的 token 用量。
+它不计入单次呈现上限（docs/design/04-simulation-engine.md ）。容量故障的分层记录另单列它的 token 用量。
 """
 
 from __future__ import annotations

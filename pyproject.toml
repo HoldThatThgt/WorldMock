@@ -63,6 +63,7 @@ markers = [
 
 [tool.coverage.run]
 branch = true
+relative_files = true
 # 注意：coverage 枚举未执行文件时会剪枝无 __init__.py 的子目录，custom/agents
 # 与 custom/envs 均非包，必须显式列为 source 叶子目录才能计入测量。
 source = ["src/worldmock", "custom/agents", "custom/envs"]

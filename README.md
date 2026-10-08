@@ -18,25 +18,9 @@ flowchart LR
 <a name="readme-文档导航"></a>
 ## 文档导航
 
-[文档入口](docs/INDEX.md#index-worldmock-文档入口)说明权威层级与当前状态。
-自定义人物、环境和运行，从[用户配置手册](docs/manual/README.md#readme-用户配置手册)开始。
-
-<a name="readme-主文档集"></a>
-### 主文档集
-
-- [架构设计](docs/ARCHITECTURE.md#architecture-worldmock-架构设计)：系统职责与数据流。
-- [接口合同](docs/CONTRACTS.md#contracts-worldmock-接口合同)：模拟请求、运行身份与公共接口。
-- [实验设置](docs/EXPERIMENT.md#experiment-worldmock-实验设置)：场景、时间窗、模型与外部参照。
-- [验收标准](docs/VERIFICATION.md#verification-worldmock-验收标准)：行为、真实性和工程门禁。
-- [实现状态](docs/dev/implementation-status.md#implementation-status-worldmock-实现状态)：按实际来源登记的证据和未完成项。
-
-<a name="readme-设计文档集"></a>
-### 设计文档集
-
-[设计文档集](docs/design/README.md#readme-worldmock-设计文档集)按模拟、记录、评估等职责组织。
-[汇编版设计说明书](docs/design/worldmock-design.html)由 `scripts/build_design_doc.py` 生成，包含当前设计章节和接口合同摘录。
-[记录引擎设计](docs/design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)
-是事件、素材、检查点、导出与诊断的唯一合同。
+[文档入口](docs/INDEX.md)按模块列出当前系统设计，并区分操作手册和历史开发记录。
+自定义人物、环境和运行，从[用户配置手册](docs/manual/README.md)开始。
+在仓库根运行 `python scripts/build_design_doc.py` 可生成完整设计说明书 HTML；生成附件不进入版本控制。
 
 <a name="readme-目录结构"></a>
 ## 目录结构
@@ -84,7 +68,7 @@ Windows 可用 `py -3.12`，其他系统可用 `python3.12`。`--wheelhouse` 指
 ## 实验与数据
 
 正式环境由 WorldMock-Dataset 发布，环境根只含 `catalog/` 与 `scenarios/`。
-当前目录格式为 `2`、场景结构为 `8`；`catalog/` 由清单和 app、地点、商品、动作、内容、图六个 JSON 文件组成，不含语料或规则副本。具体正式发布身份在阶段 7 按实际收据登记。
+当前目录格式为 `2`、场景结构为 `8`；`catalog/` 由清单和 app、地点、商品、动作、内容、图六个 JSON 文件组成，不含语料或规则副本。正式环境身份以实际发布清单为准。
 人物自行选择行动，场景只提供现实约束、机会和到达事件。
 
 运行输出位于 `runs/`。事件数据库、素材、模型证据和共同检查点保留实际来源，恢复使用新的目录并保留父运行。
@@ -107,7 +91,6 @@ worldmock export --run-dir runs/white-collar --output runs/white-collar/exports/
 
 `resume` 显式提供父运行、检查点和新的输出目录；`replay` 还需提供严格的干预文件，实际执行新分支。
 完整导出随后交给 LabelKit-DataSet，加工任务、训练格式和规则测试数据由该仓库定义与验收。
-来源快照已交接并核对摘要，整合后的新消费验收尚未取得。
 
 真实性评估分两阶段：`evaluate` 提供双方输入、配置和新目录生成统计及盲评包；
 评审完成后提供同一 `--output` 与三个 `--reviews` 文件进行解盲和结论发布。
@@ -115,15 +98,8 @@ worldmock export --run-dir runs/white-collar --output runs/white-collar/exports/
 引擎最小端到端测试使用 `tests/fixtures/environment/`。正式环境的完整行为回归显式选择环境：
 
 ```sh
-python scripts/run_tests.py --tier full --workers 6 --environment-root experiments/published-environment
+python -m pytest tests --environment-root experiments/published-environment
 ```
 
-工程门禁、正式模型运行、数据集消费验收和跨平台证明分别登记，当前状态见[实现状态](docs/dev/implementation-status.md#implementation-status-worldmock-实现状态)。
-
-<a name="readme-项目版本表"></a>
-## 版本表
-
-| 版本 | 日期 | 变更 |
-| --- | --- | --- |
-| `2026-10-07-repository-ownership` | 2026-10-07 | 明确三仓职责，整理框架入口、安装包与测试目录，删除下游加工入口和安装要求；新消费验收仍待所属仓库完成 |
-| `2026-10-07-acs-close` | 2026-10-08 | 环境根收口为 catalog/scenarios，目录格式 2、场景结构 8、清单加六个目录文件；正式发布与下游消费仍按各自回执 |
+测试入口与证明范围见[总体架构](docs/design/01-architecture.md#architecture-工程验证)。
+测试耗时、覆盖率明细和运行回执写入 `.work/`，由 CI 或发布附件保存。

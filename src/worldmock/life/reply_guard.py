@@ -1,9 +1,9 @@
 """@brief 联系人回复的后验守卫：四类越界说法的正则闭集、命中后的重试请求与固定兜底句。
 
-联系人只通过消息和人物来往（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-联系人回复不虚构到场 ，裁决 D11）：回复不能说自己正在赶来或已经到场，
+联系人只通过消息和人物来往（docs/design/04-simulation-engine.md ）：回复不能说自己正在赶来或已经到场，
 不能说已替对方做完或带着东西过来，不能揽下对方的活，也不能替结果打包票。模型回复命中任一类时，在同一次结算内
 重试一次（原请求后附被拦下的回复与一句纠正）；重试仍命中则改用固定兜底句。类别码、正则与纠正句逐字登记在
-docs/CONTRACTS.md#contracts-worldmock-接口合同「联系人回复」。正则只能拦下常见说法，守卫不是保证，兜底句才是。
+docs/design/04-simulation-engine.md「联系人回复」。正则只能拦下常见说法，守卫不是保证，兜底句才是。
 """
 
 from __future__ import annotations

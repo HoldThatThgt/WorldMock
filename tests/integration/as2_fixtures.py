@@ -2,7 +2,7 @@
 
 @file     as2_fixtures.py
 @brief    在临时目录写一个可被 importlib.util.find_spec 解析的包，让 runtime 的 AS2 身份解析到它；
-          摘要按 docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「运行身份」独立计算（除 __pycache__ 外的全部文件，
+          摘要按 docs/design/04-simulation-engine.md「运行身份」独立计算（除 __pycache__ 外的全部文件，
           标签 agentsociety2/<相对路径>），不复用生产实现。
 """
 

@@ -1,4 +1,4 @@
-"""@brief 多资源分录账本：纯函数式结算与不变量守卫（docs/design/02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎「校验资源分录」）。
+"""@brief 多资源分录账本：纯函数式结算与不变量守卫（docs/design/02-exchange-engine.md「校验资源分录」）。
 
 账本以 (resource, owner) 二元组为主键。转账分录只在 closed 账户域内移动数量（零和），
 流水分录只在 open level 域内有源有漏（界内），转换分录一笔事务内原子完成跨资源交换。

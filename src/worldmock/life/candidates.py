@@ -14,13 +14,13 @@ from worldmock.life.models import ActivityKind, DERIVED_DURATION_CAP_SECONDS
 from worldmock.catalog.models import Location
 from worldmock.exchange.types import PLACE_KIND_ENVIRONMENTS
 
-#: 候选类别闭集（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「候选对象与来源」）。
+#: 候选类别闭集（docs/design/06-agent.md「候选与呈现合同」的「候选对象与来源」）。
 CandidateKind = Literal["product"]
 
-#: 候选来源闭集（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「候选对象与来源」）。
+#: 候选来源闭集（docs/design/06-agent.md「候选与呈现合同」的「候选对象与来源」）。
 CandidateSource = Literal["on_site", "activated"]
 
-#: 排除原因码闭集（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「排除原因码」）。
+#: 排除原因码闭集（docs/design/06-agent.md「候选与呈现合同」的「排除原因码」）。
 ExclusionReason = Literal[
     "ELIGIBILITY_LOCATION_ABSENT",
     "ELIGIBILITY_LOCATION_KIND_MISMATCH",
@@ -44,8 +44,8 @@ EXCLUSION_REASONS: tuple[ExclusionReason, ...] = (
     "ROTATION_DEFERRED",
 )
 
-#: 排序键版本（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「排序键与游标」）：只参与游标身份，升版使在途游标失效。
-#: 2 起排序键为（非零口味，−口味×注意力，−相关度，哈希决胜键）（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ）。
+#: 排序键版本（docs/design/06-agent.md「候选与呈现合同」的「排序键与游标」）：只参与游标身份，升版使在途游标失效。
+#: 2 起排序键为（非零口味，−口味×注意力，−相关度，哈希决胜键）（docs/design/04-simulation-engine.md ）。
 ORDER_KEY_VERSION = 3
 #: 本轮可取候选的时间窗（秒），截至世界当前时刻加该值；候选只在此窗内自足。
 CANDIDATE_WINDOW_SECONDS = 86_400
@@ -119,7 +119,7 @@ class CandidateInputs:
     rotation_constants: Any = None
     #: 是否要求条目声明的具体地点实例（人必须站在该地点）；目录浏览时为 False。
     require_location_instance: bool = True
-    #: 是否按人物当前地点判定地点类资格（生活活动窗口，docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ）：目录浏览面的
+    #: 是否按人物当前地点判定地点类资格（生活活动窗口，docs/design/04-simulation-engine.md ）：目录浏览面的
     #: 其余类别不判定营业时段与地点实例，生活活动窗口仍按当前地点的地点类排除不相容的条目。
     apply_location_kinds: bool = False
     #: 按对象标识记录的「上次呈现时刻」（纪元秒）：缺失表示从未呈现（轮转判据）。
@@ -159,7 +159,7 @@ class OrderedCandidate:
 
     object_id: str
     kind: CandidateKind
-    #: 相关度（整数分，docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ）：只在口味 × 注意力相同时区分先后。
+    #: 相关度（整数分，docs/design/04-simulation-engine.md ）：只在口味 × 注意力相同时区分先后。
     relevance: int = 0
     #: 决胜键 `sha256(场景|人物|日期|对象)` 的十六进制摘要。
     tiebreak: str = ""
@@ -290,7 +290,7 @@ def _cursor(inputs: CandidateInputs, presented: Sequence[OrderedCandidate],
 
 def tiebreak_digest(scenario_id: str, agent_id: int, local_date: str, object_id: str) -> str:
     """@brief 决胜键 `sha256(场景|人物|日期|对象)`（十六进制）：同分时的先后只由这四项决定，跨日期变化，与对象标识的
-    字母序无关（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ）。"""
+    字母序无关（docs/design/04-simulation-engine.md ）。"""
     text = f"{scenario_id}|{agent_id}|{local_date}|{object_id}"
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 

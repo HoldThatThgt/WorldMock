@@ -1,7 +1,7 @@
 """@brief PersonaCard → 提示用中文卡片文本（确定性组装，零 LLM，≤600 汉字）。
 
 渲染只做确定性文本组装，不调用模型。黑名单保障：大五分数、旧九参数与
-任何权重不出现在渲染文本（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」）——卡片本身不承载这些字段，渲染器
+任何权重不出现在渲染文本（docs/design/06-agent.md「画像编译」）——卡片本身不承载这些字段，渲染器
 也不引入数字权重。超出 600 汉字是输入侧问题：如实抛错，不静默截断。
 """
 
@@ -62,7 +62,7 @@ def _window_text(window: TimeWindow) -> str:
     return f"{_hour_text(window.start_hour)}到{_hour_text(end)}"
 
 
-#: 整点后的分钟数 → 中文说法（刻钟与半点；睡眠中点在 0.25 小时格点上，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「人设层」）。
+#: 整点后的分钟数 → 中文说法（刻钟与半点；睡眠中点在 0.25 小时格点上，docs/design/06-agent.md「人设层」）。
 _MINUTE_WORDS = {0: "", 15: "一刻", 30: "半", 45: "三刻"}
 
 
@@ -123,7 +123,7 @@ def _relationship_line(card: PersonaCard) -> str:
 
 def _rhythm_line(card: PersonaCard) -> str:
     """@brief 作息行：时间锚点、睡眠中点与睡眠需要；下班、到家锚点各自非空时按此顺序各追加一个分句
-    （「；下班<窗口>」「；到家<窗口>」），都为 null 时与原作息行逐字节相同（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-下班与到家锚点 ）。"""
+    （「；下班<窗口>」「；到家<窗口>」），都为 null 时与原作息行逐字节相同（docs/design/06-agent.md#agent-下班与到家锚点 ）。"""
     anchors = card.time_anchors
     work = (("下班", anchors.leave_work), ("到家", anchors.arrive_home))
     clauses = "".join(f"；{label}{_window_text(window)}" for label, window in work if window is not None)

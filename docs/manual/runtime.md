@@ -1,13 +1,6 @@
 <a name="runtime-运行配置"></a>
 # 运行配置
 
-> 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界」（阶段 1）。
-
-> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「准备环境、工具交互的运行检查及发布身份」（阶段 8）；此前阶段的修订并入同一现行合同。
-
-> 2026-10-01：[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)已冻结并已实现；本手册描述当前程序实际读取的配置。
-> 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步就寝反思的严格工具与校验重试（阶段 1）、个人事务与检查点恢复（阶段 2）、查询六键（阶段 4）。
-
 准备模型凭据、选择场景和新输出目录后，就能启动自己的生活模拟。
 本页也说明恢复已有运行和编写反事实干预文件的方法。
 命令均在 WorldMock 根目录执行。正式环境根显式使用
@@ -21,7 +14,7 @@
 ## 准备环境
 
 使用 `.python-version` 固定的 CPython 3.12.13；平台能力须有安装、运行与恢复回执。
-当前人工环境在 macOS 验收，Windows 与其他未执行平台不能推定通过，见[实施状态](../dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态)。
+每个平台独立执行引导和测试；平台支持结论以该平台实际结果为准。
 
 在仓库根目录执行，使用 Python 3.12 和项目锁定的依赖：
 
@@ -82,28 +75,22 @@ Ray 的子进程需要它加载原生模块。`worldmock validate` 会在独立�
 新机器重建检查运行 `python scripts/fresh_check.py`，克隆指定提交且禁止 SSH、不使用 pip 缓存，
 执行相同引导、源码身份核对与固定快速检查；Windows 和 POSIX 各须真实重建与运行回执，不能沿用其他平台结果。
 任何跳过、xfail 或缺失必需证据都不能报完整通过。
-测试统一由 `python scripts/run_tests.py --tier fast|standard|full --workers 4` 执行，集合按[分层与测试层次规格](../dev/SPEC-layering-and-test-tiers.md#layering-tiers)定义。
-引擎最小端到端固定使用人工夹具 `tests/fixtures/environment/`；正式来源、数量与重建验收在 Dataset 执行。
-先核验正式目录，再显式选择同一根运行完整行为回归，不能沿用旧环境的测试收据：
+测试使用标准 pytest 入口：
+
+```bash
+python -m pytest tests/unit
+python -m pytest tests/integration
+python -m pytest tests/system
+```
+
+`python -m pytest tests` 执行全部测试。报告与覆盖率门禁见[工程验证](../design/01-architecture.md#architecture-工程验证)。
+引擎最小端到端使用人工夹具 `tests/fixtures/environment/`；正式来源、数量与重建验收在 Dataset 执行。
+需要使用正式环境的检查显式提供同一个环境根：
 
 ```bash
 worldmock validate --environment ../WorldMock-Dataset/environment/shanghai-simplified
+python -m pytest tests/system --environment-root ../WorldMock-Dataset/environment/shanghai-simplified
 ```
-
-```bash
-python scripts/run_tests.py --tier full --workers 4 \
-  --environment-root ../WorldMock-Dataset/environment/shanghai-simplified
-```
-完整发布环境的覆盖率门禁使用相同显式路径，并绑定外部环境的实际字节摘要：
-
-```bash
-python scripts/coverage_gate.py --shards 4 \
-  --environment-root ../WorldMock-Dataset/environment/shanghai-simplified
-```
-
-不要求 uv；`--shards` 映射同一 full runner 的 worker 数。
-`--from-json` 只接受同一运行身份下的完整收集、worker 选择和完成回执及其覆盖摘要；
-全量节点三阶段必须完整且全部 passed，重复、跳过、旧绿色证据或输入字节变化均不能通过。
 
 激活后可直接运行 `worldmock environment generate-map --locations experiments/my-world/catalog/locations.json --seed 7 --output experiments/my-world/catalog/map.json [--check]` 与 `worldmock validate --environment experiments/my-world`。这两个纯环境命令不急切加载完整 AS2/LifeEngine 链。
 
@@ -165,7 +152,7 @@ AgentSociety2 调度器发送 OpenAI 格式请求，因此必须连接 OpenAI �
 `deepseek-flash`，只使用密钥池第一把；直接调用抽取接口时可显式传入密钥。
 画像编译可用不等于模拟启动凭据已经齐备，两者的读取顺序与完整文件校验不同。
 当前读取与请求身份依据为[运行启动器](../../src/worldmock/runtime.py)、
-[画像抽取器](../../src/worldmock/profile/extractor.py)和[模型凭据合同](../CONTRACTS.md#contracts-model-identity)。
+[画像抽取器](../../src/worldmock/profile/extractor.py)和[模型凭据合同](../design/06-agent.md#agent-模型身份)。
 
 <a name="runtime-从校验到新建运行"></a>
 ## 从校验到新建运行
@@ -218,9 +205,9 @@ worldmock export \
 
 `--cutoff` 可指定事件序号截止点；不指定时使用当前导出逻辑的默认截止点。
 导出文件、检查点、运行身份及状态文件由程序管理；用户输入文件不应放进这些生成物里。
-产物格式见[记录引擎](../design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)。
+产物格式见[记录引擎](../design/05-recording-engine.md)。
 
-环境命令返回每个失败的码和英文原因，任何失败非零退出；项目校验仍执行原有完整检查。新格式最小引擎运行在阶段 5 完成，此处流程不以目录检查通过替代真实运行验收。
+环境命令返回每个失败的码和英文原因，任何失败非零退出；项目校验仍执行原有完整检查。目录检查通过不替代真实运行验证。
 
 <a name="runtime-从检查点恢复"></a>
 ## 从检查点恢复
@@ -246,7 +233,7 @@ worldmock resume \
 世界结构须为 11、运行清单须为 4；旧结构号直接拒绝，没有迁移。
 没有检查点或标识不属于该父运行时，不能用猜测的名字代替。
 
-恢复还核对 `environment_identity` 五字段：environment_id、environment_version、rules_version、catalog_content_sha256、map_sha256。不符报 `Runtime environment identity mismatch`。订单及其实际收货时刻、全局内容进度、当前活动内容、会话推送、驾驶可用天数与闹钟随检查点保存；没有食品持有状态。长途订单到站只恢复为待领取，不能因恢复而提前收货或重复施加效果。完整持久事实见[持久化当下事实](../CONTRACTS.md#contracts-持久化当下事实)，恢复边界见[共同检查点与恢复](../CONTRACTS.md#contracts-共同检查点与恢复)。
+恢复还核对 `environment_identity` 五字段：environment_id、environment_version、rules_version、catalog_content_sha256、map_sha256。不符报 `Runtime environment identity mismatch`。订单及其实际收货时刻、全局内容进度、当前活动内容、会话推送、驾驶可用天数与闹钟随检查点保存；没有食品持有状态。长途订单到站只恢复为待领取，不能因恢复而提前收货或重复施加效果。完整持久事实见[持久化当下事实](../design/09-io-formats.md)，恢复边界见[共同检查点与恢复](../design/09-io-formats.md)。
 
 <a name="runtime-编写反事实干预文件"></a>
 ## 编写反事实干预文件
@@ -317,16 +304,16 @@ worldmock replay \
 | `ENVIRONMENT_IDENTITY_MISMATCH` | 核对实际文件、清单与环境版本，不能只改声明摘要 |
 | `MAP_NOT_REGENERATED` | 生成器、种子、地点清单和已发布图逐字节一致 |
 
-全部登记码见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)。
+全部登记码见[环境目录文件](../design/03-resource-engine.md#resource-engine-环境目录文件)。
 
 <a name="runtime-工具交互的运行检查"></a>
 ## 工具交互的运行检查
 
-原生工具包含七个世界请求（`start_activity`、`report_status`、`pause_activity`、`conclude_activity`、`revise_day_plan`、`send_message`、`set_alarm`）、两个世界查询（`recall_task_summary`、`query_world`）及三个记忆查询，共十二项；稳定公共请求面为九项。暂停活动通过 `report_status` 恢复。世界 11、场景 8、运行清单 4，运行阶段只含 `action`；工具定义见[人物工具与管理接口](../CONTRACTS.md#contracts-person-tools)。
+原生工具包含七个世界请求（`start_activity`、`report_status`、`pause_activity`、`conclude_activity`、`revise_day_plan`、`send_message`、`set_alarm`）、两个世界查询（`recall_task_summary`、`query_world`）及三个记忆查询，共十二项；稳定公共请求面为九项。暂停活动通过 `report_status` 恢复。世界 11、场景 8、运行清单 4，运行阶段只含 `action`；工具定义见[人物工具与管理接口](../design/04-simulation-engine.md#simulation-engine-人物工具与管理接口)。
 
-`start_activity` 只含 `items` 与 `answering`；每项五键 `{target, way, app, to, pay_app}` 全写，不用的字段写 null。人物逐字写动作名称并明确选择可用 app；环境从合格内容中选择，按真实剩余时长推进，不接受点名内容或自述工时。购买明确购物与支付 app，现场购买的 `app` 为 null；远程购买在绑定门店中选择预计送达最早者，不代选 app 或支付 app。完整方式、字段与候选见[人物工具与管理接口](../CONTRACTS.md#contracts-person-tools)。
+`start_activity` 只含 `items` 与 `answering`；每项五键 `{target, way, app, to, pay_app}` 全写，不用的字段写 null。人物逐字写动作名称并明确选择可用 app；环境从合格内容中选择，按真实剩余时长推进，不接受点名内容或自述工时。购买明确购物与支付 app，现场购买的 `app` 为 null；远程购买在绑定门店中选择预计送达最早者，不代选 app 或支付 app。完整方式、字段与候选见[人物工具与管理接口](../design/04-simulation-engine.md#simulation-engine-人物工具与管理接口)。
 
-`report_status`、`pause_activity`、`conclude_activity` 必填请求级 `errands`（可为空；每条七键全写，不用的写 null，`change` 为“新增”“更新”“取消”）。个人事务没有独立工具，完成只按本人实际商品收货证据确认；付款、配送到站或自述不能替代收货。参数错误保留英文完整校验路径、写入值、允许值、格式和原因，具体字段见[个人事务](../CONTRACTS.md#contracts-个人事务)。
+`report_status`、`pause_activity`、`conclude_activity` 必填请求级 `errands`（可为空；每条七键全写，不用的写 null，`change` 为“新增”“更新”“取消”）。个人事务没有独立工具，完成只按本人实际商品收货证据确认；付款、配送到站或自述不能替代收货。参数错误保留英文完整校验路径、写入值、允许值、格式和原因，具体字段见[个人事务](../design/04-simulation-engine.md#simulation-engine-个人事务)。
 
 `query_world` 必填 `name/way/category/app/available_only/offset` 六键，前四项至少一项非 null；`app` 只接受真实 app 显示名。按完整目录取交集，再按该命中方式与 app 的真实可用性筛选，最后分页；合法无匹配为正常空页，未知 app 是参数错误。返回 `matches/total_count/next_offset`。查询及回看即时只读，不推进世界时间或同刻轮数、不抽取内容或改变内容进度，仍受十六模型回合预算。
 
@@ -336,7 +323,7 @@ worldmock run --scenario experiments/my-world/scenarios/single-person.json --out
 worldmock export --run-dir runs/my-persona-day --output runs/my-persona-day/exports/final
 ```
 
-目录、包内规则、图和运行身份必须一致；地图种子属于 `map.json`，不与场景种子绑定。已发布字节不原版覆盖，旧检查点直接拒绝，不迁移；恢复和假设分支新目录。导出 4 的五类工件、质量 6 按[现行合同](../CONTRACTS.md#contracts-worldmock-接口合同)核对；正式回归阻断与各平台实际回执见[实施状态](../dev/implementation-status.md#implementation-status-资源与规则引擎简化开发状态)。
+目录、包内规则、图和运行身份必须一致；地图种子属于 `map.json`，不与场景种子绑定。已发布字节不原版覆盖，旧检查点直接拒绝，不迁移；恢复和假设分支新目录。导出 4 的五类工件、质量 6 按[现行合同](../design/09-io-formats.md)核对；各平台分别执行[工程验证](../design/01-architecture.md#architecture-工程验证)。
 
 <a name="runtime-版本表"></a>
 ## 版本表

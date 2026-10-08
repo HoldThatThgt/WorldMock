@@ -1,14 +1,14 @@
 """@brief 活动名额、待收尾、可读名称、客观进度与控制记录。
 
-依据 docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第七章「活动的生命周期」与第八章「活动」：
+依据 docs/design/04-simulation-engine.md「活动的生命周期」与第八章「活动」：
 - 每人两个活动名额，进行中与待收尾的活动各占一个，暂停的活动不占：pause_activity 让出名额，conclude_activity 之后释放；
-  开始、出行与恢复暂停的活动都要有空名额（docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-甲名额）；
+  开始、出行与恢复暂停的活动都要有空名额（docs/design/04-simulation-engine.md#simulation-engine-活动名额-暂停与恢复）；
 - 待收尾是状态为 completed、failed 或 cancelled 且 concluded_at 为空的活动（truncated 不收尾），ActivityStatus 闭集不变；
 - 活动名称是「<做什么><对象>（<M月D日> HH:MM 起）」；同一轮可见的名称重复时追加「（第二次）」这类序号，不抛错；
-- 工具层活动目标与待办层写活动客观进度的人读短语（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」「待办层」）：工作不写
+- 工具层活动目标与待办层写活动客观进度的人读短语（docs/design/06-agent.md「工具层」「待办层」）：工作不写
   「还差」，剩余只在任务目标的 contract；刚结束的活动另写终局说法；
 - 控制工具（播报与恢复、暂停、结束）的准入由 control_refusal 判定，受理与工具层可用性共用同一 Refusal；所写的活动名
-  逐项按统一名称解析，解析不出的各项合并成一次拒绝（activity_name_refusal，docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析  第
+  逐项按统一名称解析，解析不出的各项合并成一次拒绝（activity_name_refusal，docs/design/04-simulation-engine.md  第
    5 条）；
 - conclude_activity、pause_activity 与 report_status 的恢复每改变一项活动就写一条 environment_event
   （activity_concluded、activity_paused、activity_resumed，带活动快照与含本次请求事件的 caused_by）；
@@ -208,7 +208,7 @@ def activity_name_refusal(written: Sequence[str], visible: Sequence[str]) -> Ref
     """@brief 控制工具（播报、暂停、结束）逐项所写的活动名在本轮可见的活动名中按统一名称解析（精确或无损归一后唯一，
     object_labels.resolve_name，与宿主本地校验同一函数）；解析不出的各项合并成的一次拒绝，都唯一解析时为 None。
 
-    名称类失败逐项报全部（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析  第 5 条、第四章）：找不到的明细码为 NAME_NOT_FOUND，
+    名称类失败逐项报全部（docs/design/04-simulation-engine.md  第 5 条、第四章）：找不到的明细码为 NAME_NOT_FOUND，
     原因
     列出最接近的几个活动名；归一后（如没写开始时刻）对应不止一项的为 NAME_AMBIGUOUS，原因列出它们。明细的参数名为
     activity_name、原文照录，不带候选（可照填的候选是 start_activity 形状的请求），与宿主纠错中活动名的明细相同；原因逐项写
@@ -282,7 +282,7 @@ def _report_refusal(context: Context, activity: ActivityState) -> Refusal | None
     """@brief 播报与恢复：状态、恢复地点、工作的主题上限、空名额与恢复后的占用（按这个顺序）。
 
     地点与主题上限先于名额：腾出名额解决不了它们，名额拒绝不该让人物白白结束或暂停别的活动；名额先于占用冲突，与开始
-    请求的名额先于整组准入一致（docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-裁决记录 R4）。
+    请求的名额先于整组准入一致（docs/design/04-simulation-engine.md R4）。
     """
     if activity.status not in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}:
         return refusal_for_code("ACTION_REQUEST_INVALID")
@@ -351,7 +351,7 @@ def require_start_admission(state: WorldState, agent_id: int, request: tuple[lis
                             names: dict[str, str]) -> None:
     """@brief 开始请求的名额与出发前判定：名额不足报 SESSION_LIMIT_EXCEEDED，出发前仍有进行中活动报前置条件。
 
-    名额不足的原因与下一步见 slot_refusal（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动
+    名额不足的原因与下一步见 slot_refusal（docs/design/04-simulation-engine.md
     第五章「并行准入」）；只有暂停的活动时出行照常受理，暂停的活动留在原地。
 
     :param request: (内部标准动作列表, 方式短语列表)，与请求 targets 逐项对应。
@@ -382,7 +382,7 @@ def slot_refusal(state: WorldState, agent_id: int, needed: int, names: Mapping[s
     """@brief 名额判定（开始、出行与恢复暂停的活动共用）：需要的名额多于空名额时以 SESSION_LIMIT_EXCEEDED 拒绝，够用时为 None。
 
     原因点名占名额的活动（进行中与待收尾）：只剩一个名额时说明只剩一个，名额占满时说明两个都被占着；下一步按被点名
-    活动能否暂停写（docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-裁决记录 R3）。
+    活动能否暂停写（docs/design/04-simulation-engine.md R3）。
 
     :param needed: 这次要占的名额（开始请求为 new_activity_count，恢复一项为 1）。
     :param names: 活动身份→本轮可读名称。
@@ -416,7 +416,7 @@ def _listed(activities: Iterable[ActivityState], names: Mapping[str, str]) -> st
 def record_changes(before: WorldState, after: WorldState, pending: PendingAction,
                    context: RecordContext) -> tuple[WorldState, list[EventDraft]]:
     """@brief 本次控制改变的每项活动写一条 environment_event；原始动作全部子活动终结时写一次终态；控制请求里每条被受理
-    的个人事务变更各写一条事务事件（errands.request_drafts，只在这条成功分支生成，docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消
+    的个人事务变更各写一条事务事件（errands.request_drafts，只在这条成功分支生成，docs/design/04-simulation-engine.md
     「原子性」）。"""
     drafts = _lifecycle_drafts(before, after, pending, context.snapshot)
     changed, terminal = _terminal_records(before, after, pending.requested_event_id, context.title)
@@ -427,7 +427,7 @@ def truncation_record(activity: ActivityState, snapshot: dict, now: int) -> Even
     """@brief 实验截止截断的一项活动（此前进行中或暂停）写一条带截断快照的 environment_event。
 
     同源两项的聚合终态不带快照，暂停的活动此前只有暂停时的快照；逐项写截断快照，导出的活动才与最终检查点逐项一致
-    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第八章「活动」）。原因回链开始该活动的请求事件。
+    （docs/design/04-simulation-engine.md「活动」）。原因回链开始该活动的请求事件。
 
     :param snapshot: 截断后的活动权威快照（引擎的活动快照投影）。
     """

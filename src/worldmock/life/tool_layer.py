@@ -1,4 +1,4 @@
-"""@brief 工具层：本轮可操作的目标、各目标的动作与工具，以及可用性的单一来源（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。
+"""@brief 工具层：本轮可操作的目标、各目标的动作与工具，以及可用性的单一来源（docs/design/06-agent.md「工具层」）。
 
 目标由本轮私有绑定（projection.interaction_bindings）与进行中、刚结束的活动组成；暂停的活动只在待办层。每个列出的动作与
 工具都带 available 与 reason：reason 由 refusal_for 按环境受理的同一顺序判定（菜单→决策到期→同刻阶段→待收尾→名额与出发前
@@ -278,7 +278,7 @@ def annotated_bindings(context: LayerContext) -> list[dict]:
 
 def tool_layer(context: LayerContext, index: dict[str, Any]) -> dict:
     """@brief 工具层 JSON：绑定目标（按绑定顺序）之后是进行中与刚结束的活动目标，名称全局唯一；另附只列名称的可调用索引
-    callable_index（life.callable_index 按本轮呈现窗口构建，docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引 ）：它不
+    callable_index（life.callable_index 按本轮呈现窗口构建，docs/design/04-simulation-engine.md ）：它不
     是目标，不带
     动作与条件，不参与目标名称的唯一性判定。"""
     targets = [_binding_target(context, row) for row in context.bindings]

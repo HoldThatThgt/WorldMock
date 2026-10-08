@@ -298,7 +298,7 @@ def _record_receipt_progress(day: dict, event: dict, used: set) -> None:
 def _goal_summary(goals: list[dict]) -> dict:
     """@brief 推进比例只计非例行意图的目标，按首次登记的清单优先级输出，不从修订后的名次重排历史；例行意图
     （schedule.ROUTINE_INTENT_KINDS）的目标照常判定与记录，另计一行 routine_goals（
-    docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-零点计划只写今天与平常不同的事 ）。"""
+    docs/design/04-simulation-engine.md ）。"""
     counted = [goal for goal in goals if not goal["routine"]]
     priorities = sorted({goal["initial_priority"] for goal in counted})
     return {**_goal_counts(counted), "by_priority": {

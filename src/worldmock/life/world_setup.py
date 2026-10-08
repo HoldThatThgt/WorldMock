@@ -127,7 +127,7 @@ def _run_manifest(
     """@brief 绑定新运行的场景、内容、人物身份、代码身份（另记 Git 提交与未提交标志）、各阶段请求形状、运行输入警告与
     习惯签名的反应文本。
 
-    清单版本 2 起带 input_warnings（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-运行输入警告 ：创建时计算的输入警告，按闭集形状冻结；
+    清单版本 2 起带 input_warnings（docs/design/04-simulation-engine.md ：创建时计算的输入警告，按闭集形状冻结；
     引擎直驱为 null）与 persona_habit_responses（5.1 相关度的人设层习惯签名反应文本，人物编号 → 文本列表；引擎直驱为
     null），两者都取自 create_options。
     """

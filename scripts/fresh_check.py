@@ -17,15 +17,7 @@ sys.path.insert(0, str(ROOT))
 
 from scripts.bootstrap_environment import environment_python, python_command
 
-QUICK_TESTS = (
-    "tests/test_single_source.py", "tests/test_bootstrap.py", "tests/test_fresh_check.py",
-    "tests/catalog/test_engine_package_resources.py", "tests/test_coverage_gate.py",
-    "tests/test_shared_primitives.py", "tests/test_shared_model_clients.py",
-    "tests/evaluation/test_shared_event_parsing.py", "tests/test_shared_rules_spec.py",
-    "tests/test_environment_profiles.py", "tests/as2", "tests/integration/test_external_environment_lifecycle.py",
-    "tests/life/test_action_run.py", "tests/catalog/test_loader.py",
-    "tests/life/test_app_progress.py", "tests/life/test_app_push.py",
-)
+QUICK_TESTS = ("tests/unit/engineering", "tests/integration/environment", "tests/integration/as2")
 
 
 def check_environment() -> dict[str, str]:
@@ -38,7 +30,7 @@ def check_environment() -> dict[str, str]:
 
 
 def quick_check(root: Path, profile: str, environment: dict) -> dict:
-    """@brief 真实执行固定快速检查并读取实际导入源码的运行身份。"""
+    """@brief 执行环境引导与 AS2 接入检查，并读取实际导入源码的运行身份。"""
     python = environment_python(root / ".venv")
     command = [str(python), "-m", "pytest", "-q", f"--environment-profile={profile}",
                "-p", "no:cacheprovider", *QUICK_TESTS]

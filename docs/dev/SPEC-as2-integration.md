@@ -1,3 +1,6 @@
+> 历史记录：本文件保存提交 `72f004b0087efa1b6f6d662ac6a143e087e4e21c` 时的过程与判断，不再定义当前系统。
+> 当前设计见 [文档入口](../INDEX.md)；正文中的路径、规则和结果按当时上下文理解。
+
 <a name="spec-as2-integration-特性规格agentsociety-2-集成与改动"></a>
 # 特性规格：AgentSociety 2 集成与改动
 

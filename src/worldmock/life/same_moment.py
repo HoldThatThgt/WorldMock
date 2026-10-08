@@ -1,16 +1,16 @@
 """@brief 同刻决策：同一模拟秒内的轮数、受限轮阶梯、跨决策预算、本轮唤醒原因、受限轮复核、拒绝脉冲与消息机会。
 
-依据 docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「规则」与「实现约定」：决策不消耗模拟时间；没有进行中活动或有待收尾活动
+依据 docs/design/04-simulation-engine.md「规则」与「实现约定」：决策不消耗模拟时间；没有进行中活动或有待收尾活动
 的人物在同一秒再决策（规则 2）；同一人物同一秒的决策轮数由场景 max_same_moment_decisions 封顶，达到上限后至多再给
 三个受限轮，每个受限轮只开放一类动作（规则 3：有待收尾只开放收尾；没有进行中与待收尾的活动时开始或恢复，暂停的活动不占
 名额，所以不再按名额分流；开始或恢复被拒后留在原阶段）；受限轮用完仍要同一秒再决策时，环境不替人物造活动，写 decision_budget_exhausted
-并把下一次决策排在一个结算间隔之后（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「失败后强制等待与跨决策预算」）；
+并把下一次决策排在一个结算间隔之后（docs/design/06-agent.md「失败后强制等待与跨决策预算」）；
 有进行中活动且没有待收尾活动时瞬时动作成功后按决策节律，业务拒绝后未达上限在同一秒再给一次机会（规则 4）；同刻轮次的
 唤醒原因按本轮替换（规则 6）；受理、业务拒绝与重放各计一轮（规则 9），时钟推进时轮数与阶段归零；名称类拒绝
 （error_contract.NAME_REJECTION_CODES）例外：每人每模拟秒的前两次不计同刻轮数、不施加 service_refused 情绪脉冲，第 3 次起
-照常（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-名称类拒绝不计同刻轮数 ，裁决 D7；免计次数是实验假设）；人物消息送达时清醒且未达上限的收件人在同一秒
-获得机会，决策轮观察以全文呈现过的消息随本轮提交记为已读（「人物之间的消息」；docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第六章
-「直接消息截断」），轮前在睡的人物不记已读（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-不适脉冲与睡眠中的消息 ）。
+照常（docs/design/04-simulation-engine.md ，裁决 D7；免计次数是实验假设）；人物消息送达时清醒且未达上限的收件人在同一秒
+获得机会，决策轮观察以全文呈现过的消息随本轮提交记为已读（「人物之间的消息」；docs/design/06-agent.md
+「直接消息截断」），轮前在睡的人物不记已读（docs/design/04-simulation-engine.md ）。
 引擎只接线，计数、阶梯与预算判定都在本模块。
 """
 
@@ -31,8 +31,8 @@ from worldmock.life.social_actions import PARTNER_ENDED
 
 #: 当前业务拒绝都产生服务拒绝脉冲。
 SERVICE_REFUSED = "service_refused"
-#: 每人每模拟秒至多几次名称类拒绝不计同刻轮数、不施加情绪脉冲（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-名称类拒绝不计同刻轮数 ；实验假设，登记在
-#: docs/EXPERIMENT.md#experiment-worldmock-实验设置「活动节奏与同刻决策上限」）；超出的照常计轮、照常施加脉冲。
+#: 每人每模拟秒至多几次名称类拒绝不计同刻轮数、不施加情绪脉冲（docs/design/04-simulation-engine.md ；实验假设，登记在
+#: docs/design/02-exchange-engine.md「活动节奏与同刻决策上限」）；超出的照常计轮、照常施加脉冲。
 FREE_NAME_REJECTIONS_PER_SECOND = 2
 
 #: 受限轮不开放的内部标准动作：到店购买与远程下单是瞬时的生活动作，不产生进行中活动（规则 3）。
@@ -41,7 +41,7 @@ RESTRICTED_EXCLUDED_ACTIONS = frozenset({"purchase"})
 #: 各阶段接受的请求类（引擎按请求派生 start、resume、wait、conclude、conclude_pending、other）：
 #: conclude 指结束能结束的活动（进行中、暂停中或待收尾），conclude_pending 指只点名待收尾活动（全部或其中几项；开放
 #: 结束的阶段同样接受它），受限轮的收尾因此不会被业务拒绝；收尾阶段一直持续到没有待收尾活动。resume_or_conclude 与
-#: conclude_only 留在阶段闭集与本表中，现行阶梯不再进入它们（docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-裁决记录 R2）。
+#: conclude_only 留在阶段闭集与本表中，现行阶梯不再进入它们（docs/design/04-simulation-engine.md R2）。
 _STAGE_REQUEST_KINDS = {
     SameMomentStage.OPEN: frozenset({"start", "resume", "wait", "conclude", "conclude_pending", "other"}),
     SameMomentStage.CONCLUDE_PENDING: frozenset({"conclude_pending"}),
@@ -52,7 +52,7 @@ _STAGE_REQUEST_KINDS = {
 
 #: 达到同刻上限后至多再给的受限轮数（规则 3）；用完仍要同一秒再决策即跨决策预算耗尽。
 RESTRICTED_ROUNDS = 3
-#: 跨决策预算耗尽时写入的 environment_event 种类（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章，裁决 #25）。
+#: 跨决策预算耗尽时写入的 environment_event 种类（docs/design/06-agent.md，裁决 #25）。
 BUDGET_EXHAUSTED_KIND = "decision_budget_exhausted"
 
 
@@ -83,7 +83,7 @@ def count_round(agent: AgentState) -> AgentState:
 
 
 def free_rejection_flags(codes: Sequence[str | None]) -> list[bool]:
-    """@brief 同一人物同一模拟秒内按结算先后的业务拒绝码逐个是否免计（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-名称类拒绝不计同刻轮数 ）：名称
+    """@brief 同一人物同一模拟秒内按结算先后的业务拒绝码逐个是否免计（docs/design/04-simulation-engine.md ）：名称
     类拒绝码
     的前 FREE_NAME_REJECTIONS_PER_SECOND 次免计（不计同刻轮数、不施加情绪脉冲），此后的名称类拒绝与其余拒绝一样照常。"""
     flags, seen = [], 0
@@ -156,7 +156,7 @@ def schedule_after_round(outcome: RoundOutcome,
 def budget_exhausted(outcome: RoundOutcome) -> bool:
     """@brief 跨决策预算是否耗尽：本秒轮数已达上限加三（受限轮用完），本轮之后仍没有进行中活动或仍有待收尾活动。
 
-    单次决策的回合预算（宿主的 ReAct 回合）与此分开计（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「失败后强制等待与跨决策预算」）。
+    单次决策的回合预算（宿主的 ReAct 回合）与此分开计（docs/design/06-agent.md「失败后强制等待与跨决策预算」）。
     """
     used_up = outcome.agent.same_moment_rounds >= outcome.limit + RESTRICTED_ROUNDS
     return used_up and (not outcome.active or outcome.pending)
@@ -207,7 +207,7 @@ def request_kind(tool_name: str, canonical_actions: Sequence[str], named: Sequen
 def stage_refusal(stage: SameMomentStage, request_kind: str) -> Refusal | None:
     """@brief 受限轮复核的判定本身：请求类不属于本阶段开放的动作类时返回 SAME_MOMENT_ACTION_RESTRICTED，否则 None。
 
-    工具层的可用性说明与受理共用这一判定，所以说明与拒绝原因一字不差（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。
+    工具层的可用性说明与受理共用这一判定，所以说明与拒绝原因一字不差（docs/design/06-agent.md「工具层」）。
 
     :param stage: 人物当前的受限轮阶段
     :param request_kind: 引擎派生的请求类：start（开始持续活动）、resume（恢复暂停活动）、wait（只等待）、
@@ -272,14 +272,14 @@ def reset_same_moment(state: WorldState) -> WorldState:
 
 def read_observed_messages(state: WorldState, observed: WorldState,
                            presented: Mapping[int, frozenset[str]]) -> WorldState:
-    """@brief 决策轮提交时，把本轮观察以全文呈现过的消息记为已读（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第六章「直接消息截断」）。
+    """@brief 决策轮提交时，把本轮观察以全文呈现过的消息记为已读（docs/design/06-agent.md「直接消息截断」）。
 
     「已读」即全文已呈现：只读 presented[人物]（该人物本轮观察的 presented_message_ids）中已在轮前收件箱里的消息，
     看过的消息不在其后的边界再以 message_arrival 唤醒；没有出现在本 session 进度层的消息保持未读。本轮内送达的消息仍未读，
     由 merge_message_readiness 给同秒机会，或在下一边界提供。受限轮（轮前阶段不是 open）与轮前有待收尾活动的轮次
-    （只接受收尾，docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第七章「活动一结束就要结束它」）回应不了消息，不记已读：这些收件人
+    （只接受收尾，docs/design/04-simulation-engine.md「活动一结束就要结束它」）回应不了消息，不记已读：这些收件人
     照常在其后的轮次或下一边界获得消息机会。轮前在睡的人物（睡眠中只因睡眠允许的原因得到决策轮）也不记已读：睡眠中不读
-    （docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-不适脉冲与睡眠中的消息 ），消息留到醒来后的第一个边界；本轮才开始睡的人物轮前醒着，照常记已读。
+    （docs/design/04-simulation-engine.md ），消息留到醒来后的第一个边界；本轮才开始睡的人物轮前醒着，照常记已读。
 
     :param state: 本轮全部动作结算后的世界副本
     :param observed: 本轮观察所用的轮前世界状态

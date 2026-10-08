@@ -1,36 +1,11 @@
-<a name="evaluation-worldmock-产品设计说明书-行为评估"></a>
+<a name="evaluation"></a>
 # WorldMock 产品设计说明书 — 行为评估
 
-> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 7 的记录、导出、交付与评估合同。
-
-> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的按实际工作秒数计算的报告项。
-
-> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「门店选择与供给假设的比较边界」（阶段 3）。
-
-> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 EV1），已实现；按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D7 作业），已随代码落地到阶段 1–4<br>
-> **工具交互修订**：按[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结本次设计；本次修订已实现，既有验收不覆盖新行为。
-> **让「等待」成为例外修订**：按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「2.1 协议门禁（Gates）」「2.2 报告项（Reports）」（阶段 1）。
-> **日期**：2026-10-08
-> **版本**：v1.18
-> **目标读者**：算法工程师、开发工程师
-> **动作与内容简化修订**：现行设计按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)使用统一动作、无分类内容、真实收货与 app 足迹合同；实施与验收状态见[实现状态](../dev/implementation-status.md#implementation-status-动作与内容简化开发状态)。
-
-<a name="design-07-evaluation-共享规则与可重建环境修订"></a>
-## 共享规则与可重建环境修订
-
-按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)修订；验收结果独立记录。
-
-质量、行为、目标和工作负荷使用同一整数结算区间校验；质量、行为和工作负荷共用共同身体筛选。适配器每行事件只解析一次。统一动作按实际快照中的固定类别映射，社交按明确通信方式记录；外部证据缺类别仍记 unknown、unclassified 或缺证，不猜测进度。主观记忆快照校验与记录侧相同，合法反思不作为重复经历错误。
-
-工程覆盖门禁复用唯一 full runner：收集、选择、完成回执与覆盖摘要绑定同一运行身份，
-选择、收集与完成节点的全局多重集精确一致且无重复；全量节点的三阶段必须完整且全部通过。
-旧绿色文件、未知阶段结果、跳过或缺失证据均拒绝，分支百分之八十五和公共接口零缺口阈值不变。
-
 <a name="evaluation-模块概述"></a>
-## 1. 模块概述
+## 模块概述
 
 <a name="evaluation-职责与边界"></a>
-### 1.1 职责与边界
+### 职责与边界
 
 行为评估模块（`worldmock.evaluation`）负责：
 
@@ -48,8 +23,8 @@
 - 不推断缺失字段（缺失即标为不可用）
 - 不把合成数据当作人类真值
 
-资金守恒与身体资源变化是否符合规则，按[运行时规格](../dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)和
-[记录引擎设计](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)确定性核验；行为合理性评分不能代替这些结算检查。
+资金守恒与身体资源变化是否符合规则，按[模拟引擎](04-simulation-engine.md)和
+[记录引擎设计](05-recording-engine.md)确定性核验；行为合理性评分不能代替这些结算检查。
 
 **评估的目的与限制**：
 
@@ -62,7 +37,7 @@
 - ❌ 禁止：把两套合成数据当作人类真值
 
 <a name="evaluation-与其他模块的关系"></a>
-### 1.2 与其他模块的关系
+### 与其他模块的关系
 
 ```mermaid
 flowchart TB
@@ -87,7 +62,7 @@ flowchart TB
 ```
 
 <a name="evaluation-核心设计原则"></a>
-### 1.3 核心设计原则
+### 核心设计原则
 
 | 原则 | 含义 | 体现 |
 | --- | --- | --- |
@@ -98,10 +73,10 @@ flowchart TB
 | **结论边界明确** | 不声称已验证人类真实性 | `result_status: comparative_plausibility_only` |
 
 <a name="evaluation-指标定义"></a>
-## 2. 指标定义
+## 指标定义
 
-<a name="evaluation-协议门禁gates"></a>
-### 2.1 协议门禁（Gates）
+<a name="evaluation-协议门禁-gates"></a>
+### 协议门禁（Gates）
 
 协议门禁由 `behavior_metrics_report` 计算，证据缺失时 `pass=false`（fail-closed）。
 
@@ -112,7 +87,7 @@ flowchart TB
 | `memory_repetition_ratio` | 同类型记忆两两 bigram Jaccard ≥ 0.6 的对数占比 | `<=` | 0.2 | 记忆内容重复 |
 | `memory_md_identity_residue` | 调用方传入的各人物工作区 `MEMORY.md` 文本命中示例身份的人物数（`MEMORY.md` 不再进人物提示，门禁仍检查它） | `==` | 0 | 示例身份残留 |
 
-**背书**：门禁阈值来自 `docs/VERIFICATION.md#verification-worldmock-验收标准` §协议门禁，源码为唯一依据。
+**背书**：门禁阈值来自 `docs/design/01-architecture.md` §协议门禁，源码为唯一依据。
 
 认证导出必须通过质量报告结构 6 的结构与重算检查：
 
@@ -124,8 +99,8 @@ flowchart TB
 
 `model_usage.by_purpose` 不含 `work_review`，`conversion_efficiency` 不含 `work`。这些键属于认证质量报告，
 不能用缺失值、模型文字或当前状态猜测；执行结果取实际门禁回执。
-<a name="evaluation-报告项reports"></a>
-### 2.2 报告项（Reports）
+<a name="evaluation-报告项-reports"></a>
+### 报告项（Reports）
 
 报告项只进报告，不参与放行。并行活动的各自时长允许重叠，人的经过时间取区间并集；
 食品多样性只取本人实际 `goods_received` 中 `meal`、`snack`、`drink` 的收货事实；用餐目标只取其中正餐收货。付款、在途或驿站待领取订单均不算收货，不推导独立进食区间。
@@ -156,7 +131,7 @@ flowchart TB
 结构化卡片打包，不解析提示文本）传入，所以只在行为评估的 `reports`，不进 `quality.json`，运行清单不升版，报告自带的结构标识
 `behavior-metrics-2`。没有打包输入时两项为 null 并写一条说明，事件里出现而输入里没有的人物两项都为 null 并写说明，说明沿用本模块的中文惯例；
 产出入口是 `scripts/inspect_run.py workday --scenario <场景文件>`（见[记录引擎设计「调试工具」](05-recording-engine.md#recording-engine-调试工具)），
-口径见[个人事务与工作安排规格](../VERIFICATION.md#errands-workday-度量与下游-行为评估) 6.2。
+口径见[总体架构](01-architecture.md)。
 
 同秒续接轮的思考 token（`reasoning_tokens`，缺失时报字符数，两者不混算）与缓存命中由 `scripts/inspect_run.py continuation`
 逐决策报告（链位置、请求数、协议错误与 400、计价成本、话题命中与按订单去重后的重复下单），`--baseline` 先核对两臂清单只差续接开关，
@@ -179,12 +154,12 @@ flowchart TB
 失败数、返回字符数、带筛选（`app` 或 `available_only`）的调用数、筛选后为空的次数、从首次查询到购买结算的模型调用数，以及反思校验
 重试次数（工具只有 `submit_reflection` 且带附回消息的模型请求数）；口径取已落库的模型工具交换证据，对照运行同时报告协议错误
 （取 `continuation` 报告，本子命令不另设键），降低返回量不能以购买失败为代价。
-错误接口、任务、供给价格、料理、查询、操作备忘与紧凑呈现按独立端到端阶段留下行为与变异收据，
-见[工具交互特性门禁](../VERIFICATION.md#verification-工具交互特性门禁)；不同阶段身份分别报告，不能混成同一源码的已实现评估结论。
+错误接口、任务、供给价格、料理、查询、操作备忘与紧凑呈现通过实际行为测试和有效源码变异验证。
+评估结论必须绑定实际源码与运行身份，不能合并不同身份的结果来声称同一版本通过。
 分配工作内容只在指定工作地点执行，完成后不再分配；剩余不足一分钟仍可按实际秒数完成，不设置技能、截止、预约或通知等待。
 报价只按构建后冻结的实际供给报告，不能把同商品不同门店重复计成商品多样性，也不能把查询命中计成已获得对象。
 上述行为指标只报告，不追加没有依据的运行质量阈值；请求、错误位置与合法值、任务时序及紧凑呈现等价性
-以工具交互规格的行为测试与变异测试确定性验收。
+由当前行为测试与变异测试确定性验证。
 
 **2018 年全国时间利用调查参照**（城镇/工作日口径，居民均值）：
 
@@ -207,9 +182,8 @@ flowchart TB
 - 参照的看电视与休闲娱乐合并为屏幕娱乐 165m
 - 休息与家务无参照项，并入无参照桶
 
-
 <a name="evaluation-指标计算公式"></a>
-### 2.3 指标计算公式
+### 指标计算公式
 
 <a name="evaluation-simpson-集中度"></a>
 #### Simpson 集中度
@@ -221,7 +195,7 @@ $$
 其中 $count_i$ 为第 $i$ 个 `goods_id` 的本人食品收货订单数，$total$ 为本人食品收货订单总数；食品包含 `meal`、`snack`、`drink`。同一订单只计一次，值越高越集中。
 
 <a name="evaluation-小时重复率"></a>
-#### 24 小时重复率
+#### 小时重复率
 
 $$
 R = \frac{\text{与前 24h 本人已收货商品重复的食品收货订单数}}{\text{本人食品收货订单总数}}
@@ -255,19 +229,19 @@ $$
 #### 留一最近邻准确率
 
 对于每个 $(run_i, agent_j)$：
-1. 计算其活动分布向量 $\mathbf{v}_{ij}$（十类家族的归一化比例）
-2. 在所有其他运行中找最近邻（L1 距离最小）
-3. 若最近邻的 agent 身份匹配，则正确
+- 计算其活动分布向量 $\mathbf{v}_{ij}$（十类家族的归一化比例）
+- 在所有其他运行中找最近邻（L1 距离最小）
+- 若最近邻的 agent 身份匹配，则正确
 
 $$
 Accuracy = \frac{\text{正确识别次数}}{\text{总向量数}}
 $$
 
 <a name="evaluation-对比协议"></a>
-## 3. 对比协议
+## 对比协议
 
 <a name="evaluation-三层数据模型"></a>
-### 3.1 三层数据模型
+### 三层数据模型
 
 评估使用三个层级的共同数据模型：
 
@@ -277,7 +251,7 @@ $$
 | **活动** | `started_at`, `ended_at`, `category`, `status`, `segments` | 节律、时长、转换、因果 |
 | **自然日** | `date`, `calendar_class`, 活动向量 | 配对比较、自助法 |
 
-<a name="evaluation-证据事件publicevidence"></a>
+<a name="evaluation-证据事件-publicevidence"></a>
 #### 证据事件（PublicEvidence）
 
 ```python
@@ -299,7 +273,7 @@ class PublicEvidence:
 结算事件证明。工作证据按真实 `content_id` 与 `work_content_completed` 表示内容累计及完成，不构造任务评审或截止事实。
 无法映射的类别使用 `unknown`，缺失字段保留为缺失，不按名称或相邻时刻补值。
 
-<a name="evaluation-活动activitysession"></a>
+<a name="evaluation-活动-activitysession"></a>
 #### 活动（ActivitySession）
 
 代码名 `ActivitySession` 沿用，与地点会话无关。WorldMock 适配器只接受认证导出的当前活动行，
@@ -329,7 +303,7 @@ class ActivitySession:
 构造；相同 `activity_id` 的多段推进保持同一活动身份。`ActivitySession` 不保存或重建 `segments` 字段。
 
 <a name="evaluation-适配器职责"></a>
-### 3.2 适配器职责
+### 适配器职责
 
 适配器把两个真实上游格式转换为共同模型，来源分支显式分开：
 
@@ -345,9 +319,8 @@ class ActivitySession:
 一个原始事件可以产生多条共同证据，但每条都保留来源事件指针。无法映射的类别写 `unknown`，一方不支持的
 字段保持缺失；适配器拒绝已退役的 WorldMock 请求形状和游戏、目录浏览、任务评审字段，不设置兼容读取。
 
-
 <a name="evaluation-两个数据集对比"></a>
-### 3.3 两个数据集对比
+### 两个数据集对比
 
 ```mermaid
 flowchart LR
@@ -381,15 +354,15 @@ flowchart LR
 }
 ```
 
-三层事件口径与缺证据规则统一见 [当日目标规格](../dev/SPEC-day-plan-goals.md#spec-day-plan-goals-三层度量与质量导出)。
+三层事件口径与缺证据规则统一见 [当日目标规格](#evaluation-三层度量与质量导出)。
 纯事件统计由行为评估和生产质量导出共同调用，各层按最终规格的分组键隔离：
 目标按人物日归属，习惯跨不同本地日比较，外部约束按运行与动作去重。
 
 <a name="evaluation-盲评流程"></a>
-## 4. 盲评流程
+## 盲评流程
 
 <a name="evaluation-盲评包生成"></a>
-### 4.1 盲评包生成
+### 盲评包生成
 
 ```python
 def create_review_material(
@@ -447,7 +420,7 @@ def masked_ref(mask: EvidenceMask, object_type: str, object_key: str) -> str:
 ```
 
 <a name="evaluation-六维可判定性"></a>
-### 4.2 六维可判定性
+### 六维可判定性
 
 每个评审单元声明六个维度的可判定性：
 
@@ -465,7 +438,7 @@ def masked_ref(mask: EvidenceMask, object_type: str, object_key: str) -> str:
 - 单侧证据更丰富不代表更真实
 
 <a name="evaluation-评审收据校验"></a>
-### 4.3 评审收据校验
+### 评审收据校验
 
 ```python
 def ingest_reviews(
@@ -476,11 +449,11 @@ def ingest_reviews(
 ```
 
 **校验项**：
-1. 索引与解盲键的身份一致性
-2. 每个隔离包的哈希、字段闭集
-3. 评审记录的身份绑定
-4. 逐单元逐维度完整性
-5. 可判定性与选择的一致性
+- 索引与解盲键的身份一致性
+- 每个隔离包的哈希、字段闭集
+- 评审记录的身份绑定
+- 逐单元逐维度完整性
+- 可判定性与选择的一致性
 
 **拒绝项**：
 - 包内出现 `model`、`provider`、`path`、`run_id` 等身份字段
@@ -489,7 +462,7 @@ def ingest_reviews(
 - 维度不完整或选择超出闭集
 
 <a name="evaluation-解盲与汇总"></a>
-### 4.4 解盲与汇总
+### 解盲与汇总
 
 **偏好汇总**（`_preference_summary`）：
 
@@ -535,10 +508,10 @@ $$
 ```
 
 <a name="evaluation-评估流程"></a>
-## 5. 评估流程
+## 评估流程
 
 <a name="evaluation-两阶段执行"></a>
-### 5.1 两阶段执行
+### 两阶段执行
 
 ```mermaid
 stateDiagram-v2
@@ -579,7 +552,7 @@ worldmock evaluate \
 这一阶段只接受 `--output` 与 `--reviews`，同时带阶段一的输入参数即以英文错误拒绝。
 
 输入：
-- `evaluation-output/`（阶段一的输出）
+- `evaluation-output/`
 - `--reviews`（评审收据，每个评审者一个）
 
 输出：
@@ -588,7 +561,7 @@ worldmock evaluate \
 - `charts/`（图表）
 
 <a name="evaluation-输入认证"></a>
-### 5.2 输入认证
+### 输入认证
 
 **左右候选必需文件**：
 - `manifest.json`（交付清单）
@@ -615,10 +588,10 @@ flowchart LR
 - `run_id` 或 `code_sha256` 缺失
 
 <a name="evaluation-统计方法"></a>
-## 6. 统计方法
+## 统计方法
 
 <a name="evaluation-分布对比"></a>
-### 6.1 分布对比
+### 分布对比
 
 **活动时长分布**：
 
@@ -644,7 +617,7 @@ def js_distance(p: list[float], q: list[float]) -> float:
 将自然日活动向量投影到 10 分钟格，计算欧氏距离矩阵，报告日间距离分布。
 
 <a name="evaluation-显著性检验"></a>
-### 6.2 显著性检验
+### 显著性检验
 
 **Bootstrap 置信区间**：
 
@@ -660,10 +633,10 @@ def bootstrap_ci(data: np.ndarray, statistic, seed: int, n_boot: int = 10000):
 
 **重抽样单位**：
 
-正式 84 天以十二个完整自然周为配对重抽样单位，不把事件行当独立样本。
+完整自然周是配对重抽样单位；十二周实验使用十二个自然周，不把事件行当独立样本。
 
 <a name="evaluation-相似度度量"></a>
-### 6.3 相似度度量
+### 相似度度量
 
 **Jaccard 相似度**（记忆重复检测）：
 
@@ -684,10 +657,10 @@ D_{KL}(P \| Q) = \sum_{i} p_i \log_2 \frac{p_i}{q_i}
 $$
 
 <a name="evaluation-结论边界"></a>
-## 7. 结论边界
+## 结论边界
 
 <a name="evaluation-四种结果状态"></a>
-### 7.1 四种结果状态
+### 四种结果状态
 
 | `result_status` | 含义 | 允许的结论 |
 | --- | --- | --- |
@@ -697,34 +670,22 @@ $$
 | `human_reference_comparison` | 匹配真人轨迹通过同一适配和可比性检查 | 可以按预先声明的判定规则报告胜者或无结论 |
 
 <a name="evaluation-本次结论边界"></a>
-### 7.2 本次结论边界
+### 结论表述边界
 
-**本次评估状态**：`comparative_plausibility_only`
-
-原因：
-- 既有对照数据真实存在（DeepSeek 十二周基线）
-- 没有匹配的真人微观轨迹
-- 两套合成数据自身不能构成人类真值
-
-**允许表述**：
-- ✅ "候选 A 在工作时长维度更接近 2018 年全国时间利用调查的城镇居民均值"
-- ✅ "三个模型评审会话中，2 个偏好候选 B，1 个选择 tie"
-- ✅ "候选 B 的 Simpson 集中度为 0.42，低于候选 A 的 0.68，显示更高的商品多样性"
-
-**禁止表述**：
-- ❌ "候选 A 已通过目标人群实证验证"
-- ❌ "真人评审一致认为候选 B 更真实"
-- ❌ "候选 A 完全符合上海张江白领的真实行为"
+结论由输入身份、共同观察覆盖和参照材料决定，不能在设计文档中预先声明某次执行成功。
+两套合成数据可以支持相对合理性比较，不能独自证明与真实人群相似。
+报告可指出某个时长维度接近匹配的官方聚合值，或说明模型评审偏好；不能把模型会话称为独立真人评审。
+具体实验的人物、日期、候选身份、评审结果和未完成项保存在相应实验记录。
 
 <a name="evaluation-门店选择与供给假设的比较边界"></a>
 ### 门店选择与供给假设的比较边界
 
 环境身份、发布图、商品菜单、app 绑定、完整运输时长与规则版本不同，必须记录为不同实验条件。同类型店铺菜单相同，同一商品跨店同价；比较条件是距离、实际收货等待和固定每单配送费。
 食品多样性按本人食品收货的 `goods_id`，门店归属按 `(store_id, goods_id)`；实际订单金额按真实订单件数和配送费核验，单价不能替代账本总额。付款、配送到达与实际收货分别核验：长途到站只进入 `ready_for_pickup`，本人在站零秒领取后才写 `goods_received` 并施加效果，没有持有或独立进食事实。
-真实地点与商品名称不证明真实价格或路网，价格、边长和店铺明示运输时长是合成输入。报告人物实际看到的信息、明确选择的 app、付款与收货，不预设近店或外卖必胜，也不继承旧目录的验收数字。详细收货边界见[请求字段与结算检查](../CONTRACTS.md#contracts-request-settlement)。
+真实地点与商品名称不证明真实价格或路网，价格、边长和店铺明示运输时长是合成输入。报告人物实际看到的信息、明确选择的 app、付款与收货，不预设近店或外卖必胜，也不继承旧目录的验收数字。详细收货边界见[请求字段与结算检查](04-simulation-engine.md#simulation-engine-请求字段与结算检查)。
 
 <a name="evaluation-外部参照限制"></a>
-### 7.3 外部参照限制
+### 外部参照限制
 
 **2018 年全国时间利用调查**：
 
@@ -736,10 +697,10 @@ $$
 因此只能报告"更符合公开聚合特性"，不能声称"符合目标人群真实分布"。
 
 <a name="evaluation-报告生成"></a>
-## 8. 报告生成
+## 报告生成
 
 <a name="evaluation-报告结构"></a>
-### 8.1 报告结构
+### 报告结构
 
 ```markdown
 # WorldMock 行为评估报告
@@ -800,7 +761,7 @@ $$
 ```
 
 <a name="evaluation-图表"></a>
-### 8.2 图表
+### 图表
 
 **活动分布雷达图**：
 
@@ -844,7 +805,7 @@ plt.savefig('review-preference-heatmap.png')
 ```
 
 <a name="evaluation-解读指南"></a>
-### 8.3 解读指南
+### 解读指南
 
 报告末尾附带解读指南：
 
@@ -860,50 +821,157 @@ plt.savefig('review-preference-heatmap.png')
 - alpha < 0.4 表示一致性较低
 
 **结论边界**：
-- 本次评估为 `comparative_plausibility_only`
+- 缺少匹配真人微观轨迹时，只能得出 `comparative_plausibility_only`
 - 不声称已验证目标人群真实性
 - 模型评审不等同于真人评审
 
+<a name="evaluation-三层度量与质量导出"></a>
+## 三层度量与质量导出
 
-<a name="design-evaluation-current-responsibility"></a>
-## 分层工程验证与证据状态
+三层分别输出，不再输出 `plan_actual_deviation`，不能把人物遵守自己叙述当作真实性证据。
+行为评估 `reports` 另增的 `workload` 与 `routine_deviation`不属于三层，也不是被删除的偏离分钟指标的恢复：
+`routine_deviation` 的参照是覆盖后的作息窗口或场景班次，不是当日计划，不使用 `plan_actual_deviation` 及其字段名，只报告，不进 `quality.json`。
+指标按代码摘要分组，各层使用下文指定的运行、人物、动作或情境键；目标按本地日归属，
+习惯在同一运行的不同本地日间比较。结果必须确定性，缺样本返回 null 并注明。
+
+| 层 | 度量与证据 | 判定 |
+| --- | --- | --- |
+| 习惯 | 相同人物、地点、本地小时的已结算活动家族一致率；至少两个不同本地日才有可比较情境，按每个活动首次正时长结算取样 | 只报告；这是情境重复性代理，不声称识别心理习惯 |
+| 外部结构 | 动作终态的外部约束受阻次数与成功率；仅计下方冻结错误码闭集中的营业、地点/路线与工作约束拒绝，幂等重放不重复计数 | 受阻次数必须为零；正确拒绝仍是该次运行的受阻证据，不叫引擎校验缺陷 |
+| 刻意目标 | 全部成功登记的目标中有真实推进证据的比例，按初始优先级分组，保留未推进的丢弃条目与分母 | 只报告；命名为目标推进率，不叫文字目标完成率 |
+
+目标无外部实测分布时参照值为 null 并说明未接入，不编造兑现阈值；
+「低优先级更少兑现」「失败更可能丢弃」仅为未来可验证的预期，不能强制生成行为。
+
+三层报告必须实际进入 `worldmock export` 生成的 `quality.json`，同时供既有行为评估入口使用。
+不借此新增其他行为门禁或改写无关记忆协议。外部约束错误码闭集、输出字段与无样本规则由
+下面的输出合同冻结，接口合同和验证文档只按职责引用。
+
+<a name="evaluation-度量输出合同"></a>
+### 度量输出合同
+
+运行事件表不重复存代码摘要；质量导出从冻结 manifest 的 `code_sha256` 向统计输入注入同源身份，
+行为评估输入按自带摘要分组，缺失时明确归入 `code_sha256_unreported`。
+
+新增纯事件模块 `src/worldmock/evaluation/goal_metrics.py`，提供
+`day_plan_metrics(events, timezone)`，由行为评估与质量导出共同调用。
+`quality.json.day_plan_metrics` 按代码摘要分组，每组有 `habitual_consistency`、
+`external_constraints`、`deliberate_goals` 和 `gates.external_constraint_block_count`。
+既有行为评估将三层放入 `reports`，将相同约束门禁放入 `gates`；不把既有其他协议门禁强接进质量导出。
+`day_plan_metrics` 的键集与分母不因个人事务改变：当前质量报告结构 6 中的 `errand_metrics`、`conclusion_memories` 是与它并列的顶层分组；
+`errand_metrics` 以有新增事件的不同事务数（`registered_count`）为分母，两个分组都不使用 `goal_count`、`progressed_count`、`family_progress_rate`
+等当日目标指标的键名，不以目标数为分母，也不写进 `day_plan_metrics`；没有样本时整组为 null。
+
+- `habitual_consistency` 按 `(run_id, agent_id, location_id, 本地小时)` 分组。
+  来源为活动快照中的地点与每项活动首次正时长结算；以该区间的 `interval_start` 定本地日和小时，
+  每活动只取一个样本。
+  至少覆盖两个不同本地日才计算同情境家族一致率，分子为同家族有序样本对，分母为全部有序样本对。
+  总值按可比样本对加权；输出 `consistency_rate`、`comparable_pair_count`、`groups` 与 `missing_samples`。
+  习惯统计沿用既有评估的活动家族聚合口径，映射如下；目标推进则按接口合同中的实际活动令牌匹配，
+  不用这一统计聚合去证明目标。未知活动快照类别不进入有效样本。
+
+  | 当前活动种类或 ACTION 类别 | 评估活动家族 |
+  | --- | --- |
+  | sleep | sleep |
+  | travel | commute |
+  | wait | rest |
+  | action：work_study | work |
+  | action：entertainment | entertainment |
+  | action：social | social |
+  | action：daily_care | chore |
+  | action：exercise | exercise |
+
+- `deliberate_goals` 回放零点计划的登记事件（`day_plan_generated`）、修订结果与活动推进后的清单；推进判定与环境同一口径
+  （含 `around_time` 前后 90 分钟的窗口，见「实际推进与情绪」）。例行意图 `ROUTINE_INTENT_KINDS`（睡眠、晨间例程、通勤、用餐）的目标
+  照常判定与记录，另计一行；推进比例只计非例行意图的目标（一日运行保真规格 2.3、8.2）。
+  用首次登记事件与意图区别目标实例；完全相同的未推进条目保留实例；只改 `remind_time` 或只改 `around_time` 的条目保留原实例，
+  不产生新实例，也不记为丢弃；文字改变或删除使旧实例成为 `discarded`，再加入产生新实例。
+  推进必须关联真实正时长结算事件和 `progress_activity_id`，不能相信孤立的状态字段。
+  输出 `per_agent_day`（键含 run_id）、`summary`、`reference=null` 和口径说明；
+  每组保留 `goals`（首次优先级、登记及推进事件、pending/progressed/discarded）、
+  `goal_count`、`progressed_count`、`discarded_count`、`family_progress_rate`、`by_priority`。
+  空目标分母为零且比率为 null。
+- `external_constraints` 从 `action_rejected` 及动作终态按 `(run_id, action_id)` 去重；
+  外部约束错误码闭集只保留营业、到达准入与路线：`MERCHANT_CLOSED`、`MERCHANT_OPENING_UNKNOWN`、
+  `LOCATION_ACCESS_DENIED`、
+  `FROZEN_ROUTE_NOT_FOUND`、`ROUTE_UNREACHABLE`、`ROUTE_INFORMATION_UNKNOWN`、
+  `DELIVERY_ROUTE_NOT_FOUND`、`DELIVERY_ROUTE_UNREACHABLE`、`DELIVERY_ROUTE_INFORMATION_UNKNOWN`。
+  引导性拒绝码 `ACTIVITY_PRECONDITION_UNMET`、`ACTIVITY_CONCLUSION_REQUIRED`、`SESSION_LIMIT_EXCEEDED`
+  与其他协议或参数拒绝列为 `other_rejections`，不冒充外部约束。
+  输出 `block_count`、`by_error_code`、`source_event_ids`、`evidence_complete`、
+  `observed_action_acceptance_rate`。接受率的分母为有确定终态的唯一动作，分子为其中未被拒绝的动作；
+  无动作时为 null。拒绝缺 action_id 或 error_code 时证据不完整，门禁 value=null、pass=false；
+  完整且无外部受阻时门禁 value=0、pass=true。仅正当业务拒绝不表示软件实现缺陷。
+
+活动快照需保存生活活动目录 `category`，用于真实家族核验；不是从目标文字推测品类。
+`render_day` 展示实际活动时间线，目标指标按真实目标与活动证据计算。
+
+<a name="evaluation-真实性结论的通过条件"></a>
+## 真实性结论的通过条件
+
+评估实现统一位于 `worldmock.evaluation`，对外入口为 `worldmock evaluate`（准备与定稿两个阶段）。
+工具接受明确声明的完整时间窗口；具体日期由评估输入指定。十二周是实验设置，不是所有调用的固定时长。
 
 ```mermaid
 flowchart LR
-    FAST[快速反馈] --> STANDARD[合并前标准回归]
-    STANDARD --> FULL[特性全量验收]
-    FULL --> GATES[覆盖率、当前文档、汇编与源码突变]
-    GATES --> RECEIPT[实际执行证据]
+    A[旧数据原清单与修复审计链] --> C[逐事件守恒适配]
+    B[新数据最终交付清单] --> C
+    C --> D[双方共同可见活动]
+    D --> E[节律、时长、多样性、变化与因果]
+    D --> F[同日期与同星期配对盲评]
+    G[官方人类时间利用参照] --> E
+    E --> H[分维度比较与有边界的结论]
+    F --> H
 ```
-三层共用完整收集集合，标准层包括外部执行；全量包括突变和完整日，并检查回执节点集合恰等于预收集集合。测试分层是工程入口，不改变人物质量、协议、真实十二周、隔离盲评或交付门禁。实际耗时及超目标提醒登记，不把少选或跳过用例当作性能改进。
 
-<a name="evaluation-版本历史"></a>
-## 版本历史
+适配保留的层次依次为证据事件、活动（评估代码名 `ActivitySession`，与地点会话无关）与自然日，每条原始事件恰好映射一次。不把一项活动里的多个屏幕帧当成多个生活行为，
+不把没有记录直接认定为睡眠。缺失渠道与未知类别进入明确的支持掩码和覆盖分母，不能计为零质量，更不能自动补齐。
+WorldMock 内部模型思考、私有记忆与隐藏身体值不进入共同评分或盲评。
 
-| 版本 | 日期 | 修订内容 |
-| --- | --- | --- |
-| v1.0 | 2026-09-20 | 初版：模块概述、指标定义、对比协议、盲评流程、评估流程、统计方法、结论边界、报告生成 |
-| v1.1 | 2026-09-20 | 区分行为合理性评估与资源结算的确定性核验 |
-| v1.2 | 2026-09-24 | 按时间与能量规格：决策统计排除零点计划请求，被动轮与控制轮分列，唤醒原因分边界与决策轮两份；目标登记来源改为零点计划与修订；引导性拒绝计入 `other_rejections`；consume 用餐口径对齐源码；「活动会话」改称「活动」并删未实现字段；适配器按动词与方式配对、控制工具逐活动投影 |
-| v1.3 | 2026-09-25 | 按时间与能量规格阶段 1：观察重复门禁改按 `decision_id` 计，同一决策内重发只计一次；静默边界占比注明同刻轮次不写共同身体结算、不进分母 |
-| v1.4 | 2026-09-25 | 按时间与能量规格阶段 5：观察重复门禁排除带 `purpose` 的系统请求，除工作验收外也排除零点计划 `purpose="plan_day"` 的请求 |
-| v1.5 | 2026-09-27 | 按人物 Prompt 七层规格（人物 Prompt 台账 E7-1–E7-5，E7-2 为阶段 1、E7-4 为阶段 2、E7-3 与 E7-5 为阶段 3 同批作业）：文件头注明修订部分待实现；观察重复门禁按（人物，模拟秒）的续接链计，链内复用链首 user 合法，跨秒重复仍失败；示例身份残留改为检查记忆层 JSON；决策 prompt token 中位数按单次行动请求（含续接）计，续接轮的思考 token 与缓存命中由 `inspect_run continuation` 只报告；报告结构示例随之标注 |
-| v1.6 | 2026-09-28 | 人物 Prompt 七层规格实现后文档：按最终代码核对，`memory_md_identity_residue` 仍检查调用方传入的 `MEMORY.md` 文本（冻结时误写为记忆层 JSON，改回），`observation_repetition` 与 `decision_prompt_token_median` 按不带 `purpose` 的全部请求计，`scripts/inspect_run.py continuation` 补报告项、`--baseline` 核对与输出字段链接；报告结构示例同步；文件头注明修订部分已实现 |
-| v1.7 | 2026-09-29 | 按[一日运行保真规格](../dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要)同步（一日运行保真 EV1，随阶段 2、5 的代码落地，按 `34a41ee` 核对）：「报告项」`deliberate_goals` 的家族推进率只计非例行意图，带大致时刻的目标只认其前后 90 分钟内进行的活动，例行意图另计；作息参照写明场景声明的 `bedtime_window` 优先；输出截断计入 `quality.json` 的 `truncations`，截断率的分母写明 `decision` 组口径；「适配器职责」控制工具按请求的 `items[].activity_name` 逐活动投影（旧运行为 `task[]`，活动身份取结果逐项回报的 `activity_ids`）；文件头补修订说明，日期改写 |
-| v1.8 | 2026-10-01 | 工具交互设计冻结并已实现：公共证据改用`items[]`与真实绑定解析，任务回看和世界查询不作为世界请求或活动，错误留精确位置与合法值；报告跨时刻重复拒绝、普通工作通知至开工及预约例外；新行为须经行为与变异测试，不追加无依据阈值 |
-| v1.9 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步（实施计划 D7 作业，阶段 1，按 `a1f680b` 核对）：阶段 1 的四项运行修复不改变本文的指标与门禁；顺带把 5.1 的命令行参数改为实际的 `--legacy`、`--worldmock`、`--scenario`、`--output`、`--reviews`（另有可选的 `--human-reference`），两个阶段按是否带 `--reviews` 区分，没有 `--phase` 参数；文件头补同步说明，日期改写；版本表改为末行最新 |
-| v1.10 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)阶段 1 的独立复核修订（规格 1.1「身份与判定」）：协议门禁 `observation_repetition` 与报告项 `decision_prompt_token_median` 的输入改为带工具的请求只在工具中有 `start_activity` 时计入，只带 `submit_reflection` 的就寝反思及其校验重试不计，不带工具的记忆巩固与截断重试照计；原口径下两次同类反思校验失败的附回消息在两条续接链里逐字相同，正确运行的门禁会取 2。门禁键名、比较符与阈值不变；更正 v1.9 行「阶段 1 的四项运行修复不改变本文的指标与门禁」 |
-| v1.11 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步（实施计划 D7 作业，阶段 2，按 `d09d574` 核对）：「2.2 报告项」写明个人事务与收尾记忆两组只报告项计入 `quality.json` 的 `errand_metrics` 与 `conclusion_memories`，以记下过的不同事务数为分母，不复用当日目标指标的名称与分母、不并入三层，`deliberate_goals` 与 `memory_repetition_ratio` 门禁不变；文件头的阶段号改为 2。实施计划把阶段 2 记为 v1.10，该号已由阶段 1 的独立复核修订占用，顺延为 v1.11 |
-| v1.12 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步（实施计划 D7 作业，阶段 4，阶段 4 与阶段 2 并行开发，在阶段 2 之后并入）：「2.2 报告项」工具交互行为报告段补查询成本由 `queries` 子命令只报告（规格 6.3 的八个键，含反思校验重试次数），口径引记录引擎设计「调试工具」；文件头状态改为已落地阶段 1、2 与阶段 4 |
-| v1.13 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步（实施计划 D7 作业，阶段 3，按 `56451b4` 核对）：「2.2 报告项」增 `workload` 与 `routine_deviation` 两行，写明十个键（规格的八项另把声明例外拆成休息时段与任务外出两项）、按观察窗截取、不当班日不产生班次、任务外出含直接回工作地点的一程、早退口径，逐日偏离的键、参照（场景班次与覆盖后的作息窗口，不是当日计划）与班次两端在睡的标注，容差等于播报间隔、写进报告而不作用于偏离值；输入经 `behavior_metrics_report` 唯一新增的可选打包参数 `workday` 传入，不进 `quality.json`，结构标识 `behavior-metrics-1` 不变，说明为中文，产出入口为 `inspect_run` 的 `workday` 子命令；文件头状态改为已落地阶段 1–4（阶段 3 在自己的分支上开发，在阶段 2、4 之后并入），版本改写 |
-| v1.14 | 2026-10-04 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)阶段 3 的复核更正（规格 4.5「含预约任务」与 6.2 的输入「任务的预约与要求地点」）：「2.2 报告项」`workload` 写明任务外出的起算——普通任务从开放时刻，预约任务从约定开始那一天的当地零点（赴约前去往约定地点的路上与提前到达的等候也算，不等约定开始），都到首次付款结清为止；原实现只从约定开始算起，约定开始前出发赴约被记成缺勤与早退。键名与其余口径不变；文件头的日期、版本改写 |
-| 环境数据归属 | 2026-10-05 | 按环境数据归属规格同步双仓职责、包内通用规则与显式环境路径；场景结构 6、必填标题和冻结活动效果按正文说明，最终验收另记实际收据 |
-| `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 当前职责对象与依赖方向、五项行为正文归属、固定历史来源和稳定引用；业务与持久合同保持不变 |
-| 共享规则与可重建环境 | 2026-10-05 | 同步规则归属、源码重建与验收合同 |
-| 共享门禁独立复核 | 2026-10-05 | 同次运行与覆盖摘要绑定、节点多重集和三阶段完成条件，既有覆盖阈值不变 |
-| `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1 同步：「2.1 协议门禁」`silent_boundary_ratio` 的失败含义更正为静默续行边界占比过低、提供决策的边界过密，口径与阈值不变；「2.2 报告项」`routine_deviation` 的容差定义改为等于播报间隔、是没有班次边界唤醒的运行里清醒且有进行中活动的人物在班次结束后首个决策机会的滞后上界，同一份评估代码读修订前后两臂的导出时对两臂都成立，只写进报告、不作用于偏离值，键与取值不变；版本表去掉隔开末三行的空行；文件头增该规格修订行，版本改为 v1.16 |
-| 环境归属与等待行为整合 | 2026-10-06 | 保留已实施的班次唤醒、系统层与零点计划文本；现行场景结构 6 与显式数据仓输入，完整日核验实际工件，历史两份证明不改；跨平台方案仍未实施 |
-| `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
-| `2026-10-06-rrs-work` | 2026-10-07 | 同步按实际工作秒数计算的报告项，版本号不变 |
-| `2026-10-06-rrs-record` | 2026-10-07 | 阶段 7：当前 app、出行和工作主题证据，冻结活动行与真实推进区间；版本保持 v1.17 |
-| `2026-10-07-acs-close` | 2026-10-07 | 商品收货按 goods_id 与真实订单计数，付款、到站与领取分开；统一动作类别与实际设备映射，不构造持有或进食事实。 |
+盲评每侧同时提供活动区间和公开结构证据，分别保留时长统计与即时状态事实。公开证据只含时间、活动类别、交互、
+对象类型、已证实状态、匿名对象引用和双方共同支持的闭集属性。共同支持按「类别 × 字段」求交集，
+逐侧报告实际存在数和适用数；某行缺字段保留缺失，不能填造取值。订单、付款、交付、邮件到达与阅读等状态
+必须由对应结构事件证明。商品效果由实际收货事件证明，付款与收货分别核验，不推定食品持有或额外进食活动；活动时长与公开证据按当前动作类别和实际使用方式分类。
+活动控制后的状态读取真实活动快照；app 使用读取 `app_use` 与 `content_consumed` 的实际位置和完成状态，
+推送漏斗读取交付、打开、消费绑定、完成释放及 session 到期事实。动作回执只证明该次请求执行结果。
+`work_content_completed` 只证明本人指派内容的实际消费首次达到时长；播报与工资仍各由独立事实证明。旧数据的 `actionInfo` 只证明声明的行动，
+不能直接证明导航已经到达或订单已经提交。会话标识只证明属于同一会话，不能当作真实订单、内容或跨日对象的身份；
+没有对象身份就不制造因果链。
+
+原文、品牌、应用名、商品名、地点名、坐标、原始身份、裸摘要及任何私有事件均不进入盲评包。
+对象引用使用冻结种子派生密钥的 HMAC，包含真实候选、评审会话、对象类型和已证实对象身份；
+同一候选在同一评审包跨日期稳定，候选之间与评审会话之间隔离，左右随机交换不改变引用。
+共享人物只声明三项已经核实的事实：单人、白领、所在时区；评审不能从该粗画像推断消费偏好等未共享事实。
+
+| 结论项 | 规则 |
+| --- | --- |
+| 六维可判定性 | 每个评审单元声明六维可判定性，并在导入评审时强制执行；缺少证据的维度必须选择 `unjudgeable` |
+| 行动与后果 | 需要公开的真实对象状态变化 |
+| 长期结果 | 需要多日范围和真实跨日对象证据；订单、消息、app 推送 session、全局内容进度和工作主题累计发生真实状态变化才算，重复访问同一路线或地点仅证明重复活动 |
+| 证据替代 | 重复屏幕或时间相邻的类别不能替代对象链；单侧提供较丰富的链只说明可观测性差异，不自动获得真实性优势 |
+| 节律与例行 | 时间节律、例行与变化、缺失活动和粗画像一致性分别依据活动覆盖、重复与日历范围决定是否可判定 |
+| 身份不合法 | 返回 `invalid_input` |
+| 共同观察不足 | 返回 `not_comparable` |
+| 硬错误 | 存在有证据支持的因果硬错误时，该候选不能被宣布为优胜者；另一方不会因此自动获得人类真实性证明 |
+| 冲突与互有优劣 | 量化与盲评冲突、维度互有优劣或区间不足时，明确报告混合结果，不强行选胜者 |
+| 缺少人类参照 | 没有匹配的人类微观参照时结果状态为 `comparative_plausibility_only`，仍必须完成本次指标和盲评比较，说明哪些活动特性更合理、各自缺陷和证据局限，不能声称已经验证目标人群的人类相似度 |
+
+必需指标为星期小时节律、工作日/周末差异、活动数量与时长分布、有限样本修正爆发性、相邻间隔相关、
+类别熵与有效类别数、类别转换、十分钟活动向量的日间距离及跨周漂移、因果与资源连续性。
+统计报告逐维度输出原值、适用日/周、缺失原因与置信区间，不合成一个任意加权总分。
+完整自然周是配对重抽样单位；十二周实验使用十二个自然周，固定种子执行 10000 次，报告 95% 区间；不把事件行当独立样本。
+
+盲评包覆盖输入窗口内全部自然周和特殊日期；每周在对应日期存在时，分别按日期哈希选择一个普通工作日和普通周末日，
+左右顺序随机。春节整周等不存在普通日期的情况明确记录缺失，不伪造日历类别。
+包内只保留共享可见内容，不出现模型、provider、文件路径、运行标识或解盲 key。
+同模型的不同会话不能称为独立真人，同源模型相关性必须在报告中说明。工具也接受真实人工评审记录，
+计算偏好、无法判断比例及 Krippendorff's alpha，不能把可靠性不足包装成确定胜者。
+
+评估产物包括输入与因果校验、映射报告、`metrics.json`、官方参照、盲评包、独立解盲 key、评审记录、图表和 `report.md`。
+固定输入哈希、配置和随机种子时，确定性统计与抽样逐字节相同；模型评审原始响应作为证据保存，不承诺重新调用逐字一致。
+
+<a name="evaluation-重放与外部调用边界"></a>
+## 重放与外部调用边界
+
+重放只能复原已经记录下来的结果；再次调用模型时，模型不一定给出相同选择。
+本设计不对同一外部服务调用承诺恰好一次，也不以重新调用模型冒充精确重放。恢复与重放的协议与证据见 `docs/design/05-recording-engine.md`「重放与重新调用的区别」。

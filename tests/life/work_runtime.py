@@ -1,8 +1,8 @@
 """@brief 当前分配工作内容的真实请求、出行与客观完成辅助。"""
 
 from tests.life.conftest import conclude_request, context, stage_day_plan
-from tests.life.test_acs_amended_runtime import perform, pump
-from tests.life.test_acs_runtime import request
+from tests.integration.life.test_acs_amended_runtime import perform, pump
+from tests.integration.life.test_acs_runtime import request
 from worldmock.life.activity_control import is_pending_conclusion
 
 

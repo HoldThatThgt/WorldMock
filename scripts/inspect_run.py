@@ -13,13 +13,13 @@
   python3 scripts/inspect_run.py <run_dir> workday --scenario <场景文件>
   python3 scripts/inspect_run.py <run_dir> queries
 
-rerun 只读计算 docs/VERIFICATION.md#verification-时间与能量特性门禁 验收台账「真实复验」行的八项指标，只报告，不作门禁。
-continuation 只读给出 docs/VERIFICATION.md#verification-人物-prompt-七层特性门禁的逐决策指标与合计（JSON）；--baseline 先核对
+rerun 只读计算 docs/design/05-recording-engine.md 「调试工具」的运行指标，只报告，不作门禁。
+continuation 只读给出 docs/design/05-recording-engine.md的逐决策指标与合计（JSON）；--baseline 先核对
 两份清单（同一提交、同一场景文件、同一模型身份，只有 same_second_continuation 不同），不可比即拒绝比较。
-workday 只读打印 docs/VERIFICATION.md#errands-workday-度量与下游-行为评估 的 {run_id, workload, routine_deviation, notes}（JSON，只报告）：
+workday 只读打印 docs/design/05-recording-engine.md 的 {run_id, workload, routine_deviation, notes}（JSON，只报告）：
 班次、住处与播报间隔取自 --scenario 场景文件（其摘要须等于运行清单的 scenario_sha256，否则拒绝、不打印），
 作息窗口取自运行目录里人物工作区的结构化卡片。
-queries 只读给出 docs/VERIFICATION.md#errands-workday-度量与下游-查询成本只报告「查询成本」的八个键（JSON），口径取已落库的模型工具交换证据，
+queries 只读给出 docs/design/05-recording-engine.md「调试工具」的八个键（JSON），口径取已落库的模型工具交换证据，
 只报告，不作门禁。
 """
 from __future__ import annotations
@@ -406,7 +406,7 @@ def cmd_rerun(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     print("\n".join(rerun_lines(rerun_metrics(conn))))
 
 
-#: 续接对比的缺省话题（docs/VERIFICATION.md#verification-人物-prompt-七层特性门禁的例子：思考里反复推敲的咖啡）。
+#: 续接对比的缺省话题（docs/design/05-recording-engine.md「调试工具」中的续接对比示例）。
 DEFAULT_TOPICS = ("咖啡",)
 #: 两臂清单比较时允许不同的运行身份键；其余键（去掉续接开关）必须相同。
 RUN_IDENTITY_KEYS = frozenset({"run_id", "source_group_id", "source_run_ids"})
@@ -596,7 +596,7 @@ def _summary(rows: list[dict], topics: tuple[str, ...]) -> dict:
 def _switch(manifest: dict) -> bool | None:
     """@brief 清单冻结的同秒续接开关（与引擎同一读法）；清单没有阶段身份（特性之前的运行、引擎直驱）时为 None。
 
-    特性之前的运行带决策自述阶段，既不是开臂也不是关臂（docs/VERIFICATION.md#verification-人物-prompt-七层特性门禁）。
+    特性之前的运行带决策自述阶段，既不是开臂也不是关臂（docs/design/05-recording-engine.md）。
     """
     from worldmock.life.continuation import continuation_enabled
 
@@ -693,7 +693,7 @@ def cmd_workday(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     print(json.dumps({"run_id": manifest["run_id"], **report}, ensure_ascii=False, indent=2))
 
 
-#: queries 子命令按此顺序打印的键（docs/VERIFICATION.md#errands-workday-度量与下游-查询成本只报告「查询成本」）。
+#: queries 子命令按此顺序打印的键（docs/design/05-recording-engine.md「调试工具」）。
 QUERY_REPORT_KEYS = ("run_id", "calls", "failures", "returned_chars", "filtered_calls", "empty_after_filter",
                      "model_calls_to_purchase", "reflection_retries")
 #: 被计量的查询工具；决策循环请求开放的世界请求工具；就寝反思唯一的严格工具。
@@ -808,7 +808,7 @@ def _reflection_retries(requests: list[tuple]) -> int:
 
 
 def query_cost_report(conn: sqlite3.Connection, run_id: str | None) -> dict:
-    """@brief 查询成本（只报告，docs/VERIFICATION.md#errands-workday-度量与下游-查询成本只报告），键序即 QUERY_REPORT_KEYS。
+    """@brief 查询成本（只报告，docs/design/05-recording-engine.md），键序即 QUERY_REPORT_KEYS。
 
     调用数是模型响应里 query_world 的工具调用数；有结果页的调用算成功，其余（整批被拒、从未回答）是失败；返回字符数
     只计成功调用结果页的正文；带筛选的调用与筛选后为空（成功且 total_count 为 0）按 _query_filtered 判定。

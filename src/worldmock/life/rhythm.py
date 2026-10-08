@@ -1,17 +1,17 @@
 """@brief 决策节律的引擎侧装配：唤醒判定、
-静默边界留痕与下一决策候选（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「决策节律：结算边界与唤醒条件分离」）。
+静默边界留痕与下一决策候选（docs/design/04-simulation-engine.md「决策节律：结算边界与唤醒条件分离」）。
 
 结算边界（activity_feedback_seconds=900）照常结算资源；是否提供决策只由唤醒
 条件决定——判定委托 life.schedule.evaluate_wake_reasons，本模块负责从世界状态
 装配 WakeSnapshot、在同一边界推进情绪账（脉冲与衰减）、计算下一决策候选
 （schedule.next_decision_time）。静默边界在 activity_progress.data 留
 decision_offered=false 与 wake_reasons=[]；提供决策的边界记录实际命中的全部
-唤醒原因。滞回参照=上次实际提供决策时的分级（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「滞回规则」）。
+唤醒原因。滞回参照=上次实际提供决策时的分级（docs/design/04-simulation-engine.md「滞回规则」）。
 个人事务的提醒时刻只对清醒人物进入下一决策候选；判定为清醒人物提供决策的边界交付其全部到点的事务提醒
-（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-提醒时刻 ）；未完成事务不计入在手承诺（裁决 E6）。
+（docs/design/04-simulation-engine.md#simulation-engine-提醒时刻 ）；未完成事务不计入在手承诺（裁决 E6）。
 班次与休息时段的起止（life.duty_edges）恰在边界时在唤醒判定里记对应成员；严格晚于此刻的起止进入下一决策候选
 （睡眠中由 schedule.next_decision_time 剔除），清醒人物的起止另由 awake_duty_edge_times 进入下一时钟边界的候选，
-睡眠判定复用 is_asleep（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界机制 ）。
+睡眠判定复用 is_asleep（docs/design/04-simulation-engine.md ）。
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus, A
 from worldmock.life.projection import felt_values
 from worldmock.life.scenario import BodyConfig, RuntimeScenario
 
-#: 饥饿不适档（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」连续两小时以上饿）：appetite 分级达到"饿"及以上，
+#: 饥饿不适档（docs/design/02-exchange-engine.md「其他体感分级」连续两小时以上饿）：appetite 分级达到"饿"及以上，
 #: 含只由能量决定的第六档「饿得发慌」。
 HUNGRY_BANDS = frozenset({"饿", "很饿", "饿得难受", felt.APPETITE_STARVING_LEVEL})
 #: 困倦不适档：sleepiness 分级达到"困"及以上。
@@ -96,7 +96,7 @@ class RhythmInputs:
     reconsideration_interval_seconds: int
     #: 没有在手承诺时的较长重估间隔。
     idle_reconsideration_interval_seconds: int = rhythm_schedule.IDLE_RECONSIDERATION_INTERVAL_SECONDS
-    #: 播报间隔（docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面「决策轮循环与播报节律」）
+    #: 播报间隔（docs/design/06-agent.md「决策轮循环与播报节律」）
     #: ：进行中活动距其播报锚点满该秒数触发唤醒。
     progress_report_interval_seconds: int = 1800
     #: 人物档案餐时窗口（agent_id -> MealWindows；滞回参照与观察同源）。
@@ -135,7 +135,7 @@ def apply_decision_rhythm(inputs: RhythmInputs) -> tuple[WorldState, dict[int, A
 def settle_decision_rhythm(inputs: RhythmInputs) -> WorldState:
     """@brief 边界节律的结算段：情绪账、按当前计划计的目标推进，并给本人活动进度草稿标注 day_plan 快照。
 
-    零点边界（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章「运行时机」）只在 advance 内执行本段，旧日末段的推进计入旧计划；
+    零点边界（docs/design/04-simulation-engine.md「运行时机」）只在 advance 内执行本段，旧日末段的推进计入旧计划；
     判定段在零点计划提交之后由零点节律入口执行，不再重复本段的记账。
     """
     state = inputs.state
@@ -157,8 +157,8 @@ def decide_decision_rhythm(inputs: RhythmInputs) -> tuple[WorldState, dict[int, 
     for agent_id in sorted(state.agents):
         agent = state.agents[agent_id]
         verdict = rhythm_schedule.evaluate_wake_reasons(_wake_snapshot(agent, inputs))
-        # 收件箱在唤醒判定之后才记为已读（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「人物之间的消息」）：
-        # 未读消息在本边界成立 message_arrival，睡眠中由判定过滤。睡眠中也不读（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-不适脉冲与睡眠中的消息 ）：
+        # 收件箱在唤醒判定之后才记为已读（docs/design/04-simulation-engine.md「人物之间的消息」）：
+        # 未读消息在本边界成立 message_arrival，睡眠中由判定过滤。睡眠中也不读（docs/design/04-simulation-engine.md ）：
         # 睡眠中送达的消息保持未读，醒来后的第一个边界才记已读并施加阅读效果。到点的提醒记为已触发，只触发一次。
         if not is_asleep(state, agent_id):
             agent = read_new_messages(agent)
@@ -231,7 +231,7 @@ def _body_boundary_seconds(agent: AgentState, activities: list, inputs: RhythmIn
 
 
 def _settle_mood(agent: AgentState, inputs: RhythmInputs) -> AgentState:
-    """@brief 边界情绪账：先按半衰期衰减，再叠加本区间事件脉冲（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」）。
+    """@brief 边界情绪账：先按半衰期衰减，再叠加本区间事件脉冲（docs/design/02-exchange-engine.md「其他体感分级」）。
 
     新收件箱消息的已读与脉冲不在此处，而在唤醒判定之后结算（read_new_messages），睡眠中不读。
     """
@@ -245,8 +245,8 @@ def _settle_mood(agent: AgentState, inputs: RhythmInputs) -> AgentState:
 
 
 def _settle_discomfort(agent: AgentState, levels: dict[str, str], now: int) -> AgentState:
-    """@brief 连续饿或困的不适脉冲（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」，
-    docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-不适脉冲与睡眠中的消息 ）。
+    """@brief 连续饿或困的不适脉冲（docs/design/02-exchange-engine.md「其他体感分级」，
+    docs/design/04-simulation-engine.md ）。
 
     两小时门槛（constants.MOOD_DISCOMFORT_TRIGGER_HOURS）只在这里按连续不适时长判定一次：超出门槛的小时数减去已计费的，
     即本边界新增的计费小时，按 −0.1/小时施加（felt.discomfort_pulse 不再判门槛）；只有实际施加了脉冲（新增计费小时
@@ -272,13 +272,13 @@ def _settle_discomfort(agent: AgentState, levels: dict[str, str], now: int) -> A
 
 def read_new_messages(agent: AgentState, only: set[str] | None = None) -> AgentState:
     """@brief 新收件箱消息计为已读：社交需要 −0.05/条 + 情绪
-    +0.1/条（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」）。
+    +0.1/条（docs/design/02-exchange-engine.md「其他体感分级」）。
 
     边界在唤醒判定之后调用，使未读消息先成立 message_arrival
-    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「人物之间的消息」）。决策轮提交时以 only 限定为本轮观察全文已呈现的
-    消息（观察的 presented_message_ids 与轮前收件箱的交集，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第六章「直接消息截断」）：
+    （docs/design/04-simulation-engine.md「人物之间的消息」）。决策轮提交时以 only 限定为本轮观察全文已呈现的
+    消息（观察的 presented_message_ids 与轮前收件箱的交集，docs/design/06-agent.md「直接消息截断」）：
     全文看过的消息不在其后的边界再次唤醒，没有全文呈现的与本轮内送达的消息仍未读。人物在睡时两条路径都不调用
-    （is_asleep，docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-不适脉冲与睡眠中的消息 ）：睡眠中送达的消息在醒来后的第一个边界才读。
+    （is_asleep，docs/design/04-simulation-engine.md ）：睡眠中送达的消息在醒来后的第一个边界才读。
 
     :param agent: 人物状态
     :param only: 只读这些消息身份；None 表示全部未读消息
@@ -299,10 +299,10 @@ def read_new_messages(agent: AgentState, only: set[str] | None = None) -> AgentS
 
 def _apply_awake_social_ledger(agent: AgentState, inputs: RhythmInputs) -> AgentState:
     """@brief 清醒社交需要增长 +0.04/h 与共同用餐
-    −0.3/h（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」）。
+    −0.3/h（docs/design/02-exchange-engine.md「其他体感分级」）。
 
     是否在睡、交谈与通话覆盖、共同用餐都按本区间共同身体结算所用的活动集合判定（_interval_activities，
-    docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-区间事实只有一个来源社交账与共同用餐 ），不在推进后重新推断：在本边界结束的睡眠整段仍按睡眠计，不计清醒增长；
+    docs/design/04-simulation-engine.md ），不在推进后重新推断：在本边界结束的睡眠整段仍按睡眠计，不计清醒增长；
     计费小时取本边界的区间（inputs.interval_seconds）。social 类别活动区间的账本由 life.social_actions.advance_social
     在活动结算内推进（含清醒增长），此处跳过避免重复计数。
     """
@@ -318,7 +318,7 @@ def _apply_awake_social_ledger(agent: AgentState, inputs: RhythmInputs) -> Agent
 
 
 def _interval_activities(agent: AgentState, inputs: RhythmInputs) -> list[ActivityState]:
-    """@brief 本结算区间的本人活动集合（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-区间事实只有一个来源社交账与共同用餐 「区间事实只有一个来源」）。
+    """@brief 本结算区间的本人活动集合（docs/design/04-simulation-engine.md 「区间事实只有一个来源」）。
 
     取本边界共同身体结算草稿（RhythmInputs.progress_data，零点路径同样携带）的 activity_ids：推进前进行中、结算
     本区间共同身体所用的活动。_next_epoch 把每个活动的计划结束、未触发的提醒与预排事件都当作边界，区间内集合恒定。
@@ -360,7 +360,7 @@ def is_asleep(state: WorldState, agent_id: int) -> bool:
 
 def awake_duty_edge_times(state: WorldState, scenario: RuntimeScenario) -> list[int]:
     """@brief 下一时钟边界的班次与休息时段起止候选：每个清醒人物（is_asleep 为假）严格晚于此刻的起止时刻；睡眠中的
-    人物不计入，不形成静默边界，睡过的起止醒来后不补（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界机制 ）。
+    人物不计入，不形成静默边界，睡过的起止醒来后不补（docs/design/04-simulation-engine.md ）。
 
     @param state 世界状态
     @param scenario 运行场景（人物的工作安排与时区）
@@ -390,7 +390,7 @@ def _goal_progress_pulses(agent: AgentState, inputs: RhythmInputs) -> AgentState
 def _has_commitments(agent: AgentState, inputs: RhythmInputs) -> bool:
     """@brief 在手承诺：未推进目标、已分配未完成工作主题、暂停活动或等待之外的进行中活动。
 
-    进行中的等待不算在手承诺（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「拒绝的情绪代价与重估间隔」）：
+    进行中的等待不算在手承诺（docs/design/04-simulation-engine.md「拒绝的情绪代价与重估间隔」）：
     只在等待（或无活动）且没有其余各项时返回假，此时用空闲重估间隔。
     """
     plan = agent.day_plan
@@ -523,7 +523,7 @@ def _report_anchor(activity) -> int:
 
 
 def _progress_report_due(agent: AgentState, state: WorldState, interval_seconds: int) -> bool:
-    """@brief 本人某项进行中活动距其播报锚点已满间隔时触发播报（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第八章「活动」）。
+    """@brief 本人某项进行中活动距其播报锚点已满间隔时触发播报（docs/design/04-simulation-engine.md「活动」）。
 
     只遍历进行中活动；暂停、待收尾与已收尾的活动不播报。
 
@@ -640,7 +640,7 @@ def decide_engine_rhythm(context, staged, boundary: RhythmBoundary) -> "WorldSta
 def _deliver_errand_reminders(
     staged: WorldState, rhythms: dict[int, AgentRhythm], boundary: RhythmBoundary
 ) -> WorldState:
-    """@brief 交付本边界的个人事务提醒（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-提醒时刻 「调度口径」）：由唤醒判定决定，不看时钟——
+    """@brief 交付本边界的个人事务提醒（docs/design/04-simulation-engine.md#simulation-engine-提醒时刻 「调度口径」）：由唤醒判定决定，不看时钟——
     判定结果含 errand_reminder_due 的人物（清醒且有已到点未提醒的事务，本边界为他提供了决策机会，含刚醒来的边界）把
     全部到点的事务一并交付，提醒事件草稿追加到本边界的草稿（平常边界随 advance 提交，零点边界随零点节律入口提交）；
     睡眠中的人物判定被过滤，不交付也不消耗，留到醒来的边界。"""

@@ -1,12 +1,12 @@
-"""@brief 业务拒绝的公开原因、改法与下一步（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「动作照常列出，做错了再说明」，
-docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章「错误合同」）。
+"""@brief 业务拒绝的公开原因、改法与下一步（docs/design/04-simulation-engine.md 第五章「动作照常列出，做错了再说明」，
+docs/design/04-simulation-engine.md 第四章「错误合同」）。
 
 拒绝结果的 data.reason（一句原因）、data.fix（怎样改这次请求，没有可照做的改法时为 null）、data.next_step（世界里下一步
 做什么：可读的活动名、地点名或做法，不含内部身份，没有时为 null）与逐项明细 data.items 由本模块从拒绝确定性生成：
 引导性拒绝在抛出处用 guided() 或 Refusal.error() 写明原因与下一步（或以可读名称写 suggested），原因记在错误的
 public_reason 上，改法与逐项明细写进 suggested；其余错误码按码取默认原因与改法，从不取链式底层异常的文字（其中可能是
-请求模型的校验转储）。源码中会抛出的每个业务拒绝码都有具体的默认原因（tests/life/test_error_contract.py 机械核对）。
-结果 message 就是 reason；这些键经公开结果投影进入进度层 tool_call.result.details（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求
+请求模型的校验转储）。源码中会抛出的每个业务拒绝码都有具体的默认原因，行为由跨模块错误合同测试验证。
+结果 message 就是 reason；这些键经公开结果投影进入进度层 tool_call.result.details（docs/design/06-agent.md
 「进度层」）。工具层的可用性说明取同一原因：只有错误码的拒绝经 refusal_for_code 取得与拒绝一字不差的 Refusal。
 """
 
@@ -206,7 +206,7 @@ def refusal_for_code(code: str) -> Refusal:
 
 
 def items_refusal(entries: Sequence[tuple[ErrorItem, str]], total: int) -> Refusal:
-    """@brief 逐项的名称类拒绝合并成一次（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章）：码取第一项的码；原因逐项写
+    """@brief 逐项的名称类拒绝合并成一次（docs/design/04-simulation-engine.md 第四章）：码取第一项的码；原因逐项写
     「第 N 项「原文」：该项原因」（请求只有一项时不写序号），以「；」相连；改法按码写「第 N 项<该码的默认改法>」；下一步
     取第一项的码的默认做法。
 
@@ -226,9 +226,9 @@ def rejection_guidance(error: BusinessRuleError) -> dict:
 
     原因只取 guided() 或 Refusal.error() 写明的 public_reason，否则按错误码取默认原因（不读链式底层异常）；下一步取
     suggested 中的可读下一步、要去的地点或要先处理的活动名，否则按错误码取默认做法；改法取 suggested 中写明的，否则按
-    错误码取默认改法。下一步与改法没有时为 None（公开结果写 null，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「通用格式」：允许为空
+    错误码取默认改法。下一步与改法没有时为 None（公开结果写 null，docs/design/06-agent.md「通用格式」：允许为空
     的写 null，不填编造的值）。逐项明细里的候选是可照填的请求 {target, action, way, from, to}（至多 3 个，
-    docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章）。
+    docs/design/04-simulation-engine.md 第四章）。
     """
     code = str(error)
     suggested = getattr(error, "suggested", None) or {}
