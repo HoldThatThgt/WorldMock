@@ -1,6 +1,6 @@
 """@brief 人物提示七层的机器可读 Schema（JSON Schema 2020-12）与测试用的校验入口。
 
-依据 docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章与接口合同登记：系统层、工具层、人设层、记忆层、待办层、环境层、进度层各一份
+依据 docs/design/06-agent.md与接口合同登记：系统层、工具层、人设层、记忆层、待办层、环境层、进度层各一份
 Schema，另有原生 tools 的一项定义。各层构建器的输出由测试逐层校验；发送前不做逐层校验（裁决 #2），运行时只有提示指纹
 （life_prompt.life_prompt_sha256）读取本模块。枚举直接读取各领域的冻结闭集，Schema 不维护字面副本。
 """
@@ -106,7 +106,7 @@ SYSTEM_LAYER_SCHEMA: dict[str, Any] = {
 _INDEX_CATEGORY = _object({"category": _TEXT, "count": {"type": "string", "pattern": r"^[1-9][0-9]* 个$"},
                            "examples": {"type": "array", "maxItems": MAX_EXAMPLES, "uniqueItems": True,
                                         "items": _TEXT}})
-#: 工具层的可调用索引（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引 ）：只有名称、品类与计数，不带动作与条件。
+#: 工具层的可调用索引（docs/design/04-simulation-engine.md ）：只有名称、品类与计数，不带动作与条件。
 _CALLABLE_INDEX = _object({
     "navigation_apps": {"type": "array", "uniqueItems": True, "items": _TEXT},
     "payment_apps": {"type": "array", "uniqueItems": True, "items": _TEXT},
@@ -172,7 +172,7 @@ MEMORY_LAYER_SCHEMA: dict[str, Any] = {
 _GOAL = _object({"intent_kind": {"enum": list(INTENT_KINDS)}, "goal": _TEXT, "progressed": {"type": "boolean"},
                  "remind_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"},
                  "around_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"}})
-#: 待办层的一条个人事务（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-待办层与进度层呈现 ）：六键，不含内部身份、状态枚举与可用性。
+#: 待办层的一条个人事务（docs/design/04-simulation-engine.md ）：六键，不含内部身份、状态枚举与可用性。
 _ERRAND = _object({"name": _TEXT, "done_when": _TEXT, "progress": _TEXT, "memo": _NULLABLE_TEXT,
                    "remind_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"},
                    "noted_on": _DATE})

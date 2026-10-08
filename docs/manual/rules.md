@@ -1,16 +1,6 @@
 <a name="rules-调整世界规则与人物动机参数"></a>
 # 调整世界规则与人物动机参数
 
-> 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界」（阶段 1）。
-
-> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题累计参数。
-
-> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「品类契约、交换规则、供给与制作边界、检查与发布品类修改、出行时长、食品来源映射说明、配置入口与生效范围、身体规则、在独立目录中调参并验证」（阶段 1）；「活动声明、单个人物的参数、人物映射表」（阶段 3）；再次修订「活动声明」（阶段 4）。
-
-> 更新日期：2026-10-07。[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)中的构建价格范围、完整类别供给、
-> 正式食材配方和发布身份已实现；当前场景结构 8、品类契约与规则绑定 3，目录身份以 Dataset 环境清单为准；下班与到家锚点、卡片结构 3 见[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)，画像映射表不变。
-> 2026-10-06：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)同步「活动声明」的占用名（阶段 2）；仍带旧占用名副本的外部环境在装配时被拒绝，要由 WorldMock-Dataset 按新占用名重新发布。
-
 人物初值与节律在[场景](scenarios.md#scenarios-生活场景)调整；对象和绑定在[环境目录](resources.md#resources-定义地点门店供给与世界素材)调整。
 分类、身体、食品、出行与交换常数由 WorldMock 包固定，研究规则变化需修改其唯一定义并发布规则版本。
 本页命令使用显式相对环境根，修改只影响新的运行输入。
@@ -23,10 +13,10 @@ flowchart LR
     V --> E[新的真实运行]
 ```
 
-<a name="rules-共享规则与可重建环境修订"></a>
-## 共享规则与可重建环境修订
+<a name="rules-环境与规则的归属"></a>
+## 环境与规则的归属
 
-按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)修订；验收结果独立记录。
+按[运行与框架集成](../design/10-runtime.md)修订；验收结果独立记录。
 
 一般活动的显示时长与受理时长共用推导，超过一天按一天；消费 60–14400 秒且越界拒绝。MET 键从活动注册表读取，效率曲线有限非负。sleep_channel 是当前声明字段，仍不驱动身体睡眠，不能靠配置该字段改变睡眠行为。
 
@@ -43,22 +33,14 @@ flowchart LR
 <a name="rules-品类契约"></a>
 ## 品类契约
 
-
-
 <a name="rules-交换规则"></a>
 ## 交换规则
-
-
 
 <a name="rules-供给与制作边界"></a>
 ### 供给与制作边界
 
-
-
 <a name="rules-检查与发布品类修改"></a>
 ### 检查与发布品类修改
-
-
 
 <a name="rules-活动声明"></a>
 ## 活动声明
@@ -83,8 +65,6 @@ flowchart LR
 
 <a name="rules-出行时长"></a>
 ## 出行时长
-
-
 
 <a name="rules-动机评分"></a>
 ## 动机评分
@@ -151,8 +131,6 @@ bedtime = "23:00-24:00"
 
 <a name="rules-食品来源映射说明"></a>
 ## 食品来源映射说明
-
-
 
 <a name="rules-身体规则"></a>
 ## 身体规则

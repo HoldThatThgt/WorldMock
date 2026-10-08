@@ -1,7 +1,7 @@
 """@brief 编译入口：background_story -> 卡片 + 大五 + 世界层动力学（编排，零数值）。
 
 旧模板字段 occupation/routine_preference/consumption_preference/risk_preference
-已删除不保留别名（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」）：输入档案携带任一旧字段即明确报错，不静默
+已删除不保留别名（docs/design/06-agent.md「画像编译」）：输入档案携带任一旧字段即明确报错，不静默
 兼容；旧 v1 九参数档案（schema_version=1）同样被 schema 拒绝。
 """
 
@@ -83,7 +83,7 @@ def _resolve_story(source: str | Mapping) -> str:
 def _warnings(extraction: PersonaExtraction) -> tuple[str, ...]:
     """@brief 编译警告：共识标黄字段（低于 2/3 众数占比）一条在前，其后逐条接下班与到家锚点的降级说明。
 
-    没有一致性警告时降级说明照样列出（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-下班与到家锚点 ）。
+    没有一致性警告时降级说明照样列出（docs/design/06-agent.md#agent-下班与到家锚点 ）。
     """
     agreement: tuple[str, ...] = ()
     if extraction.warning:

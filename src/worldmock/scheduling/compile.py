@@ -1,4 +1,4 @@
-"""@brief 场景材料到时间有序预排表的确定性编译（docs/design/04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎「预排事件」）。
+"""@brief 场景材料到时间有序预排表的确定性编译（docs/design/04-simulation-engine.md「预排事件」）。
 
 加载时把邮件、日历、账单、工资与应用推送编译为确定事件；
 引擎按模拟时刻、序号与稳定身份依次处理，不通过周期轮询生成事实。

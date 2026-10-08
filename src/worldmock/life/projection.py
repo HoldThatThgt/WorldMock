@@ -1,9 +1,9 @@
-"""@brief 观察投影引擎侧组装：身体两组证据、在场人物与本轮交互对象的私有绑定（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章）。
+"""@brief 观察投影引擎侧组装：身体两组证据、在场人物与本轮交互对象的私有绑定（docs/design/06-agent.md）。
 
 发给人物模型的七层 JSON 由各层构建器生成（life.tool_layer、todo_layer、environment_layer、progress_layer）；本模块只从
 世界状态计算观察的证据段（身体数值与分级、余额、活动控制行）与交互对象的私有绑定：每个本轮可见对象的可读名称、内部身份
 与动词和方式映射。绑定动作的说明（note）由工具层按可用性单一来源填写（「工具层」）。身体数值只进事件供评估，分级进环境层
-（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「数值与分级的分离」）。
+（docs/design/02-exchange-engine.md「数值与分级的分离」）。
 
 供给可见期：仅实际呈现的供给具有购买凭据，位置未变且呈现后未超 1800 秒；供给身份与商品身份分别保留。
 零点计划输入（life.day_plan_inputs）另取本模块的联系人与收件箱。
@@ -27,13 +27,13 @@ from worldmock.life.object_labels import SELF_LABEL, object_label
 from worldmock.life.scenario import BodyConfig, RuntimeScenario
 from worldmock.life.sleep import SLEEPINESS_CLIP_MAX, sleepiness
 
-#: 供给浏览可见期（秒）：距浏览超过该值清空（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「观察投影行为规则」）。
+#: 供给浏览可见期（秒）：距浏览超过该值清空（docs/design/06-agent.md「观察投影字段」）。
 #: 路线费力分档的代谢当量分界：MET < 2 为「轻松」，2 ≤ MET < 3 为「一般」，≥ 3 为「费力」。
-#: experiment_assumption：登记在 docs/EXPERIMENT.md#experiment-worldmock-实验设置「能量感知标签」。
+#: experiment_assumption：登记在 docs/design/02-exchange-engine.md「能量感知标签」。
 ROUTE_EFFORT_MODERATE_MET = 2.0
 ROUTE_EFFORT_STRENUOUS_MET = 3.0
 #: 食品每份热量的取整粒度与「几乎不含热量」的上界（千卡）：按 5 进位取整到 10 千卡。
-#: experiment_assumption：登记在 docs/EXPERIMENT.md#experiment-worldmock-实验设置「能量感知标签」。
+#: experiment_assumption：登记在 docs/design/02-exchange-engine.md「能量感知标签」。
 FOOD_ENERGY_ROUNDING_KCAL = 10
 FOOD_ENERGY_NEGLIGIBLE_KCAL = 5.0
 
@@ -79,10 +79,10 @@ def other_presences(state: WorldState, agent: AgentState) -> list[social.AgentPr
 
 
 def people_here_views(state: WorldState, agent: AgentState) -> list[dict[str, Any]]:
-    """@brief 同一地点他人的可见投影闭集：姓名、活动家族、可交谈（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「社交最小可行版」）
+    """@brief 同一地点他人的可见投影闭集：姓名、活动家族、可交谈（docs/design/04-simulation-engine.md「社交接口」）
     。
 
-    按现场地点判定：人物自己在途中时身边没有人（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」）。
+    按现场地点判定：人物自己在途中时身边没有人（docs/design/04-simulation-engine.md「并行准入」）。
     """
     if admission.en_route(state, agent.agent_id):
         return []
@@ -95,7 +95,7 @@ def body_projection(agent: AgentState, hour: float, body: BodyConfig,
     """@brief body 两组投影：levels 分级（进环境层）与 values 数值（只进事件）。
 
     饥饿分级按当前能量与身体配置的紧急阈值叠加两条低能量规则；决策参照快照与唤醒判定
-    传入同一身体配置，保证分级同源（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「饥饿在低能量时不失灵」）。
+    传入同一身体配置，保证分级同源（docs/design/02-exchange-engine.md「饥饿在低能量时不失灵」）。
     """
     values = felt_values(agent, hour, meal_windows)
     levels = felt.summarize_felt_levels(
@@ -117,7 +117,7 @@ def felt_values(agent: AgentState, hour: float,
 
 
 def route_effort(met: float) -> str:
-    """@brief 按出行方式的代谢当量给路线费力标签（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「商品热量与路线费力」）。"""
+    """@brief 按出行方式的代谢当量给路线费力标签（docs/design/04-simulation-engine.md「商品热量与路线费力」）。"""
     if met >= ROUTE_EFFORT_STRENUOUS_MET:
         return "费力"
     if met >= ROUTE_EFFORT_MODERATE_MET:
@@ -214,7 +214,7 @@ def interaction_bindings(inputs: ProjectionInputs) -> list[dict[str, Any]]:
     """@brief 将本轮可见对象冻结为可读选择及仅供引擎使用的身份映射（动作 note 由工具层按可用性填写）。
 
     不按人物状态剪裁：可见的全部对象与动作都列出，此刻不能做的由工具层标 available=false 并写原因；永久不能满足的
-    （没有路线、技能不够、没有购买规则或资格）不列（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。名称须唯一。
+    （没有路线、技能不够、没有购买规则或资格）不列（docs/design/06-agent.md「工具层」）。名称须唯一。
     """
     bindings = [_interaction_binding(inputs, row) for row in _interactive_objects_rows(inputs)]
     labels = [row["object"] for row in bindings]
@@ -279,7 +279,7 @@ def _supply_actions(inputs: ProjectionInputs, row: dict[str, Any]) -> list[dict[
 def _interactive_objects_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
     """@brief 交互对象层：本轮可见对象及其内部动作。
 
-    动作按对象绑定（docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面「对象与动作选择」）
+    动作按对象绑定（docs/design/06-agent.md「对象与动作选择」）
     ：每个对象只列出对它自己合法的动作。
     「自己」（等待、睡觉）恒在列表中。
     """

@@ -153,7 +153,7 @@ class ActionHandlers:
         进行中或暂停的活动先取消（agent_cancelled）再收尾；待收尾活动不改终态，只写总结并置 concluded_at。
         有待收尾活动而本次没有点名任何一项时以 ACTIVITY_CONCLUSION_REQUIRED 拒绝。记忆由宿主写入，环境只校验形状，
         并在结果中登记私有来源 memory_sources。结果的 outcome 逐项写实际终局，
-        未完成的浏览写未取得浏览结果（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「进食」、第六章）。请求级的事务变更在活动名
+        未完成的浏览写未取得浏览结果（docs/design/06-agent.md「进食」、第六章）。请求级的事务变更在活动名
         解析后复核、在结束与收尾之后应用，回执登记为 errands；其后的任何拒绝都使事务变更一并不生效。
         """
         items = control_items("conclude_activity", request)
@@ -300,7 +300,7 @@ class ActionHandlers:
     def _errand_changes(self, pending: PendingAction, tool: str, request) -> tuple[dict, ...]:
         """@brief 控制请求里的个人事务变更（经唯一读取入口 control_errands 读出）在本轮冻结观察上的环境复核：与宿主同一
         函数（errands.change_issues）、同一份观察，全部问题合并成一次 ACTION_REQUEST_INVALID（业务拒绝，照常计入同刻
-        轮数，docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误 「环境复核」）。
+        轮数，docs/design/04-simulation-engine.md 「环境复核」）。
 
         :returns: 通过复核的各条变更（八键字典，按请求顺序；没有变更时为空，不读观察），交给 _apply_errands。
         """
@@ -367,7 +367,7 @@ class ActionHandlers:
         08:25 起）」），再唯一对应人物自己的权威活动。
 
         名称类失败（找不到、有歧义）逐项收集，合并成一次 ACTION_REQUEST_INVALID，逐项写进 items
-        （activity_control.activity_name_refusal，docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析  第
+        （activity_control.activity_name_refusal，docs/design/04-simulation-engine.md  第
         5 条；宿主已在本轮纠正，
         这里只防
         绕过宿主的请求，与 start_activity 的 _unresolved_start 同一顶层码，照常计入同刻轮数）；名称都解析出来、对应的却不是
@@ -793,7 +793,7 @@ class ActionHandlers:
     def _unresolved_start(self, pending: PendingAction) -> BusinessRuleError:
         """@brief 本轮解析不出的 start_activity：名称类失败逐项写进 ACTION_REQUEST_INVALID 的 items（候选可以照填，原因逐项
         相连）；数组形状或来源、去向与 answering 不合法时为不带明细的 ACTION_REQUEST_INVALID。宿主已在本轮纠正这些名称，
-        这里只防绕过宿主的请求（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析  第 4 条）。"""
+        这里只防绕过宿主的请求（docs/design/04-simulation-engine.md  第 4 条）。"""
         outcome = self._start_outcome(pending)
         if not outcome.failures:
             return BusinessRuleError("ACTION_REQUEST_INVALID")
@@ -812,7 +812,7 @@ class ActionHandlers:
         return resolve_start(name_book(self._frozen_observation(pending)), request)
 
     def _offered_selection(self, pending: PendingAction, request: StartActivityRequest) -> list[dict] | None:
-        """@brief 在本轮冻结观察上逐项解析（对象，动词，方式）并写上去向（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析 ）：列出的
+        """@brief 在本轮冻结观察上逐项解析（对象，动词，方式）并写上去向（docs/design/04-simulation-engine.md ）：列出的
         对象、
         目录绑定与冻结地点表中的名称精确或无损归一后唯一即选中（与宿主本地校验同一函数 name_resolution.resolve_start），
         指名购买为占位行；名称类失败或组合不合法时为 None。组合按归一后的请求判定（冗余的 from、to 已换成 null）；去向不是
@@ -923,7 +923,7 @@ class ActionHandlers:
 
         selection 是派发时解析的本轮绑定（_start_selection，菜单判定、受限轮复核与受理共用这一次解析），解析不出时
         以 ACTION_REQUEST_INVALID 拒绝。整组先按名额、目标在场与实际地点、出行方式、占用、物品状态的顺序判定
-        （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」），再派发；
+        （docs/design/04-simulation-engine.md「并行准入」），再派发；
         结果与组内先后无关：合成一单或一餐的两项
         一次派发，其余逐项派发，瞬时的取得（到店、远程下单）可与持续活动同一请求。
         """
@@ -1162,7 +1162,7 @@ class ActionHandlers:
         self, state: WorldState, pending: PendingAction, request: SendMessageRequest
     ) -> tuple[WorldState, ActionResult]:
         """@brief 瞬时消息：登记收件方 inbox 与 message_arrival
-        送达（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「社交最小可行版」）。"""
+        送达（docs/design/04-simulation-engine.md「社交接口」）。"""
         agent = state.agents[pending.agent_id]
         contacts = agent_config(self.context.scenario, agent.agent_id).contacts
         outgoing = social_domain.OutgoingMessage(
@@ -1196,8 +1196,8 @@ class ActionHandlers:
         """@brief 送达登记：收件方 inbox、发给联系人的消息记入本人 outbox、model 联系人回复待办与 message_arrival 事件。
 
         同世界收件人的 message_arrival 草稿登记其同秒就绪，由 commit_decision_round 在本轮全部动作结算后合并
-        （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「人物之间的消息」）；联系人回复请求带双方往来与对方收到的物品
-        （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「联系人往来」）。
+        （docs/design/04-simulation-engine.md「人物之间的消息」）；联系人回复请求带双方往来与对方收到的物品
+        （docs/design/06-agent.md「联系人往来」）。
         """
         drafts: list[EventDraft] = []
         recipient_agent = next(
@@ -1255,7 +1255,7 @@ class ActionHandlers:
 
         不就地改动传入的状态：整组开始被拒时连同暂存草稿一起丢弃，对方不会收到幽灵邀请。
         该草稿登记清醒收件人的同秒就绪，由 commit_decision_round 在本轮全部动作结算后合并
-        （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「人物之间的消息」）。
+        （docs/design/04-simulation-engine.md「人物之间的消息」）。
         """
         recipient = next(
             (item for item in state.agents.values() if f"agent:{item.agent_id}" == sent.message.recipient_id), None
@@ -1296,7 +1296,7 @@ def _purchase_placeholder(row: dict) -> dict:
 
 def _with_names(result: ActionResult, pairs) -> ActionResult:
     """@brief 受理结果写上名称归一 details.resolved：（所写名称，解析出的名称）逐对中两者不同的记一条；都照写时结果不变
-    （docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析 ）。"""
+    （docs/design/04-simulation-engine.md ）。"""
     resolved = [{"written": written, "as": name} for written, name in pairs if written != name]
     return result.model_copy(update={"data": resolution_data(result.data, resolved, ())}) if resolved else result
 
@@ -1317,7 +1317,7 @@ def _self_report(note: str) -> dict:
 
 def _remembered(observed: dict, activity: ActivityState | None) -> dict | None:
     """@brief 活动的最新自述仍在本轮记忆层 self_notes 中时的回看结果：只写它在记忆层中的活动名与「已在记忆层」，
-    不写其他回看事实；否则为 None（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「唯一出现原则」）。"""
+    不写其他回看事实；否则为 None（docs/design/06-agent.md「唯一出现原则」）。"""
     if activity is None or not activity.progress_note:
         return None
     names = {row["activity_id"]: row["name"] for row in observed["activity_bindings"]}

@@ -1,8 +1,8 @@
-"""@brief 测试共享输入、环境验收、自动标记和分片回执。"""
+"""@brief 测试共享输入与正式环境验收。"""
 
 from __future__ import annotations
 
-import json
+import logging
 import os
 import shutil
 from pathlib import Path
@@ -14,10 +14,10 @@ from scripts.bootstrap_environment import MISSING_NODE, PROFILE_ENV, component_s
 from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 from tests.engine_fixture import engine_factory  # noqa: F401
 from tests.frozen_inputs import FrozenInputs
-from tests.tier_support import TIERS, classify, selected, source_dependencies
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SKIPPED = pytest.StashKey[bool]()
 
 # 离线测试使用明确无效的本地配置值，不读取或要求供应商密钥。
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "offline-test-key")
@@ -50,29 +50,23 @@ def frozen_inputs():
 
 
 def pytest_addoption(parser):
-    """@brief 添加运行脚本使用的收集、选择与回执参数。"""
+    """@brief 只提供环境能力与显式发布环境选择。"""
     parser.addoption("--environment-profile", choices=("release", "dev"),
                      default=os.environ.get(PROFILE_ENV, "release"))
-    group = parser.getgroup("worldmock")
-    group.addoption("--worldmock-tier", choices=TIERS, default="full")
-    group.addoption("--worldmock-changed", action="append", default=[])
-    group.addoption("--worldmock-manifest")
-    group.addoption("--worldmock-selected")
-    group.addoption("--worldmock-receipt")
-    group.addoption("--environment-root", type=Path, help="explicit published environment for behavior regression")
+    parser.addoption("--environment-root", type=Path, help="explicit published environment for behavior regression")
 
 
 def pytest_configure(config):
-    """@brief 初始化本进程回执；标记在 pyproject.toml 中统一声明。"""
+    """@brief 登记真实环境依赖，并初始化本次会话的跳过状态。"""
     config.addinivalue_line("markers", "requires_node: executes the actual Node.js viewer regression")
-    config._worldmock_collected = []
-    config._worldmock_reports = {}
+    config.stash[SKIPPED] = False
     if config.getoption("--environment-root") is not None:
         from tests.data_paths import select_environment
 
         try:
             select_environment(config.getoption("--environment-root"))
         except ValueError as error:
+            logging.error("Invalid test environment: %s", error)
             raise pytest.UsageError(str(error)) from error
 
 
@@ -87,73 +81,31 @@ def pytest_sessionstart(session):
 
 
 def pytest_collection_modifyitems(config, items):
-    """@brief 自动标记后按完整节点身份选择；未知节点、重复节点均拒绝收集。"""
+    """@brief 正式验收拒绝预期失败；开发环境仅标记确实缺失的 Node 消费者。"""
     if config.getoption("--environment-profile") == "release":
         marked = [item.nodeid for item in items if item.get_closest_marker("xfail") is not None]
         if marked:
+            logging.error("Expected failures cannot satisfy release acceptance: %s", ", ".join(marked))
             raise pytest.UsageError("xfail cannot satisfy release acceptance: " + ", ".join(marked))
     if "Node" in config.worldmock_component_status["missing_components"]:
         for item in items:
             if item.get_closest_marker("requires_node") is not None:
                 item.add_marker(pytest.mark.skip(reason=MISSING_NODE))
-    requested_path = config.getoption("--worldmock-selected")
-    selection = None if requested_path is None else json.loads(Path(requested_path).read_text("utf-8"))
-    if selection is not None and not isinstance(selection, dict):
-        raise pytest.UsageError("Selected tests require the current run identity and nodes")
-    if selection is not None and selection["run_id"] != Path(requested_path).parent.parent.name:
-        raise pytest.UsageError("Selected tests belong to a different run")
-    requested_nodes = None if selection is None else selection["nodes"]
-    requested = None if requested_nodes is None else set(requested_nodes)
-    if requested is not None and len(requested) != len(requested_nodes):
-        raise pytest.UsageError("Selected tests contain duplicate node ids")
-    records, kept, dropped = [], [], []
-    for item in items:
-        path = item.path.relative_to(config.rootpath).as_posix()
-        fixtures = {name: definitions[-1].func for name, definitions in
-                    item._fixtureinfo.name2fixturedefs.items() if definitions}
-        markers = classify(item.path, item.fixturenames, item.originalname or item.name,
-                           fixture_functions=fixtures, test_function=item.obj,
-                           parameter_values=getattr(getattr(item, "callspec", None), "params", {}))
-        for marker in markers:
-            item.add_marker(getattr(pytest.mark, marker))
-        record = {"nodeid": item.nodeid, "file": path, "markers": sorted(markers),
-                  "imports": sorted(source_dependencies(str(item.path))[0])}
-        records.append(record)
-        choose = (item.nodeid in requested if requested is not None else
-                  selected(record, config.getoption("--worldmock-tier"), config.getoption("--worldmock-changed")))
-        (kept if choose else dropped).append(item)
-    nodes = [record["nodeid"] for record in records]
-    if len(nodes) != len(set(nodes)):
-        raise pytest.UsageError("Test collection contains duplicate node ids")
-    if requested is not None and requested - set(nodes):
-        raise pytest.UsageError(f"Selected tests were not collected: {sorted(requested - set(nodes))}")
-    config._worldmock_collected = [item.nodeid for item in kept]
-    target = config.getoption("--worldmock-manifest")
-    if target:
-        manifest = {"run_id": Path(target).parent.name, "records": records}
-        Path(target).write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    if dropped:
-        config.hook.pytest_deselected(items=dropped)
-    items[:] = kept
 
 
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
-    """@brief 记录 setup/call/teardown 的真实结果和用时，缺 call 的跳过仍有明确证据。"""
+    """@brief 只记录是否发生跳过，正式验收不以跳过代替通过。"""
     outcome = yield
-    report = outcome.get_result()
-    entry = item.config._worldmock_reports.setdefault(item.nodeid, {"duration": 0.0, "phases": {}})
-    entry["duration"] += report.duration
-    entry["phases"][report.when] = {"outcome": report.outcome, "duration": report.duration}
+    if outcome.get_result().skipped:
+        item.config.stash[SKIPPED] = True
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """@brief 每个子进程写独立回执；崩溃或被终止后的缺失回执不能冒充成功。"""
-    if exitstatus == 0 and session.config.worldmock_component_status["missing_components"]:
+    """@brief 缺组件或正式验收跳过均使当前 pytest 会话失败。"""
+    missing = session.config.worldmock_component_status["missing_components"]
+    release = session.config.getoption("--environment-profile") == "release"
+    skipped = session.config.stash.get(SKIPPED, False)
+    if exitstatus == 0 and (missing or release and skipped):
+        logging.error("Test acceptance requires available components and no release skips")
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
-    target = session.config.getoption("--worldmock-receipt")
-    if target:
-        value = {"run_id": Path(target).parent.parent.name,
-                 "exit_code": int(session.exitstatus), "collected": session.config._worldmock_collected,
-                 "tests": session.config._worldmock_reports}
-        Path(target).write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

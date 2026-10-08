@@ -2,28 +2,28 @@
 """覆盖率门禁工具：运行测试套件，计算分支覆盖率与公共接口覆盖率并判定。
 
 @file     coverage_gate.py
-@brief    WorldMock 覆盖率门禁；三项覆盖率口径定义见 docs/dev/coverage-baseline.md。
+@brief    读取 coverage 与 pytest JUnit 报告，判定当前源码的分支和公共接口覆盖。
 @note     机器判定两项：整体分支覆盖率 >= 85%，且公共接口未覆盖数为 0；
-          功能 spec 测试用例覆盖率为映射义务，不由本脚本计算。
+          CI 对固定测试层执行、附件和被测提交负责，本脚本不调度测试。
 """
 
 from __future__ import annotations
 
 import argparse
+import logging
 import ast
-import hashlib
 import json
 import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from xml.etree import ElementTree
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BRANCH_THRESHOLD = 85.0
-TEST_COMMAND = (sys.executable, "scripts/run_tests.py", "--tier", "full", "--workers", "6")
 PRODUCTION_ROOTS = ("src/worldmock", "custom/agents", "custom/envs")
-REPORT_PATH = REPO_ROOT / "docs" / "dev" / "coverage-report.json"
+REPORT_PATH = REPO_ROOT / ".work" / "test-results" / "coverage-report.json"
 
 
 @dataclass
@@ -222,211 +222,92 @@ def judge_gate(
     return branch_percent >= threshold and uncovered_count == 0
 
 
-def run_test_suite(shards: int = 6, environment_root=None) -> int:
-    """@brief 使用当前解释器调用唯一全量入口；分片数就是该入口的进程数。"""
-    command = (*TEST_COMMAND[:-1], str(shards))
-    if environment_root is not None:
-        command = (*command, "--environment-root", str(environment_root))
-    print(f"[coverage-gate] running: {' '.join(command)}", flush=True)
-    return subprocess.call(command, cwd=REPO_ROOT)
+
+def read_test_results(paths: list[Path]) -> dict[str, int]:
+    """@brief 汇总 pytest 原生 JUnit 报告，空报告和无效计数不能表示通过。"""
+    totals = dict(tests=0, failures=0, errors=0, skipped=0)
+    for path in paths:
+        suites = ElementTree.parse(path).getroot().findall("testsuite")
+        if not suites:
+            raise ValueError(f"JUnit report has no test suite: {path}")
+        for suite in suites:
+            counts = {key: int(suite.attrib[key]) for key in totals}
+            if any(value < 0 for value in counts.values()) or counts["tests"] == 0:
+                raise ValueError(f"JUnit report has invalid test counts: {path}")
+            for key, value in counts.items():
+                totals[key] += value
+    return totals
 
 
-def _runner():
-    """@brief 复用唯一测试入口的集合身份与回执判定。"""
-    sys.path.insert(0, str(REPO_ROOT))
-    from scripts import run_tests
-
-    return run_tests
-
-
-def _read_worker_receipts(directory: Path, shards: list[dict]) -> list[dict]:
-    """@brief 读取同一运行目录内的节点选择和真实回执，缺失或重复分片均报错。"""
-    indices = [shard["index"] for shard in shards]
-    if not indices or sorted(indices) != list(range(len(indices))):
-        raise RuntimeError("Full run worker indices are empty or duplicated")
-    results = []
-    for shard in shards:
-        target = directory / f"shard-{shard['index']}"
-        selection = json.loads((target / "selected.json").read_text("utf-8"))
-        if selection["run_id"] != directory.name:
-            raise RuntimeError("Full run worker selection belongs to a different run")
-        expected = selection["nodes"]
-        if not expected:
-            raise RuntimeError("Full run contains an empty worker selection")
-        receipt_path = target / "receipt.json"
-        selected_path = target / "selected.json"
-        if (_runner().file_sha256(receipt_path) != shard["receipt_sha256"]
-                or _runner().file_sha256(selected_path) != shard["selected_sha256"]):
-            raise RuntimeError("Full run worker artifacts differ from their original bytes")
-        receipt = json.loads(receipt_path.read_text("utf-8"))
-        results.append({**shard, "expected": expected, "receipt": receipt})
-    return results
-
-
-def full_run_receipts(directory: Path, environment_root=None) -> tuple[dict, dict]:
-    """@brief 将本次覆盖数据绑定到完整收集、源码输入和每个实际执行节点。"""
-    runner = _runner()
-    collection = json.loads((directory / "collection.json").read_text("utf-8"))
-    summary = json.loads((directory / "summary.json").read_text("utf-8"))
-    if collection["run_id"] != directory.name or summary["run_id"] != directory.name:
-        raise RuntimeError("Full run artifacts belong to a different run")
-    if runner.file_sha256(directory / "coverage.json") != summary["coverage_sha256"]:
-        raise RuntimeError("Coverage report differs from the original full run bytes")
-    records = collection["records"]
-    nodes = [row["nodeid"] for row in records]
-    if not nodes or len(nodes) != len(set(nodes)):
-        raise RuntimeError("Full run collection is empty or contains duplicate nodes")
-    if summary["tier"] != "full" or summary["selected_nodes"] != len(nodes):
-        raise RuntimeError("Coverage requires the complete full tier collection")
-    if summary["collection_sha256"] != runner.collection_digest(records):
-        raise RuntimeError("Full run collection identity differs from its summary")
-    if summary["environment"] != runner.environment(summary["workers"]):
-        raise RuntimeError("Full run environment differs from the current gate")
-    runner.require_unchanged_input(summary["source_sha256"], environment_root)
-    tests = runner.validate_receipts(nodes, _read_worker_receipts(directory, summary["shards"]), directory.name)
-    skipped = sum(any(phase["outcome"] == "skipped" for phase in value["phases"].values())
-                  for value in tests.values())
-    return {"tests": len(tests), "failures": 0, "errors": 0, "skipped": skipped}, summary
-
-
-def build_report(
-    branch: BranchSummary,
-    gaps: list[InterfaceGap],
-    passed: bool,
-    command: str,
-    snapshot_id: str,
-    manifest_hash: str,
-    source_identity: str,
-) -> dict:
-    """@brief 组装写往 docs/dev/coverage-report.json 的门禁报告字典。
-    
-    @param snapshot_id      本次测试运行的唯一标识符。
-    @param manifest_hash    manifest 文件或覆盖数据的 SHA-256 哈希。
-    @param source_identity  被测源代码的标识（如 Git commit hash）。
-    """
+def build_report(branch: BranchSummary, gaps: list[InterfaceGap], results: dict, commit: str) -> dict:
+    """@brief 生成适合 PR 摘要和附件的覆盖报告，不保存历史调度或规格台账。"""
+    passed = (results["tests"] > 0 and not any(results[key] for key in ("failures", "errors", "skipped"))
+              and judge_gate(branch.percent, len(gaps)))
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "command": command,
-        "evidence_manifest": {
-            "snapshot_id": snapshot_id,
-            "manifest_hash": manifest_hash,
-            "source_identity": source_identity,
-        },
-        "thresholds": {"branch_coverage_percent_min": BRANCH_THRESHOLD},
-        "branch_coverage": {
-            "covered_branches": branch.covered,
-            "missing_branches": branch.missing,
-            "total_branches": branch.covered + branch.missing,
-            "percent": branch.percent,
-            "passed": branch.percent >= BRANCH_THRESHOLD,
-        },
-        "per_file_branch": [
-            {
-                "file": stat.file,
-                "covered_branches": stat.covered,
-                "missing_branches": stat.missing,
-                "percent": stat.percent,
-            }
-            for stat in branch.per_file
-        ],
+        "source_commit": commit,
+        "test_results": results,
+        "branch_coverage": {"covered_branches": branch.covered, "missing_branches": branch.missing,
+                            "percent": branch.percent, "threshold": BRANCH_THRESHOLD},
         "uncovered_public_interfaces": [
-            {"file": gap.file, "line": gap.line, "name": gap.name, "kind": gap.kind}
-            for gap in gaps
+            {"file": gap.file, "line": gap.line, "name": gap.name, "kind": gap.kind} for gap in gaps
         ],
         "passed": passed,
     }
 
 
 def write_report(report: dict, path: Path) -> None:
-    """@brief 将门禁报告以 JSON 写入目标路径（自动创建父目录）。"""
+    """@brief 将当次覆盖结论写到指定运行附件目录。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"[coverage-gate] report written: {path}")
 
 
 def get_git_commit_hash() -> str:
-    """@brief 获取实际提交身份；不能以 unknown 代替失败的证据来源。"""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        print(f"[coverage-gate] ERROR: Source identity lookup failed: {error}", file=sys.stderr)
-        raise RuntimeError("Source identity lookup failed") from error
-    if result.returncode != 0:
-        print(f"[coverage-gate] ERROR: Source identity lookup failed: {result.stderr.strip()}", file=sys.stderr)
-        raise RuntimeError("Source identity lookup failed")
+    """@brief 获取当前检出的提交；CI 在该提交的干净工作树执行全部层。"""
+    result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True,
+                            text=True, timeout=5, check=True)
     return result.stdout.strip()
 
 
-def compute_manifest_hash(cov_data: dict) -> str:
-    """@brief 计算覆盖数据 manifest 的 SHA-256 哈希（用于绑定证据）。"""
-    canonical = json.dumps(cov_data, sort_keys=True, ensure_ascii=False)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
-def print_gate_summary(branch: BranchSummary, gaps: list[InterfaceGap], passed: bool) -> None:
-    """@brief 打印整体与分文件分支覆盖率、未覆盖接口缺口清单与最终判定。"""
-    print(
-        f"[coverage-gate] branch coverage: {branch.percent:.2f}% "
-        f"(covered={branch.covered}, missing={branch.missing}, "
-        f"threshold={BRANCH_THRESHOLD:.2f})"
-    )
-    for stat in branch.per_file:
-        percent = "n/a" if stat.percent is None else f"{stat.percent:.2f}%"
-        print(
-            f"[coverage-gate]   {stat.file}: {percent} "
-            f"(covered={stat.covered}, missing={stat.missing})"
-        )
-    print(f"[coverage-gate] uncovered public interfaces: {len(gaps)}")
-    for gap in gaps:
-        print(f"[coverage-gate]   {gap.file}:{gap.line}: {gap.name} ({gap.kind})")
-    verdict = "PASSED" if passed else "FAILED"
-    print(f"[coverage-gate] gate verdict: {verdict}")
-
-
-def _evaluate_coverage(path: Path, environment_root=None) -> int:
-    """@brief 只评估同一完整运行的覆盖文件与回执，报告绑定实际输入和提交。"""
-    cov_data = json.loads(path.read_text(encoding="utf-8"))
-    if path.name != "coverage.json" or cov_data["run_id"] != path.parent.name:
-        raise RuntimeError("Coverage report belongs to a different run")
-    results, summary = full_run_receipts(path.parent, environment_root)
-    branch = compute_branch_summary(cov_data)
-    gaps = find_uncovered_interfaces(REPO_ROOT, PRODUCTION_ROOTS, cov_data)
-    passed = results["tests"] > 0 and results["skipped"] == 0 and judge_gate(branch.percent, len(gaps))
-    command = (*TEST_COMMAND[:-1], str(summary["workers"]))
-    if environment_root is not None:
-        command = (*command, "--environment-root", str(environment_root))
-    report = build_report(branch, gaps, passed, "python " + " ".join(command[1:]),
-                          path.parent.name, compute_manifest_hash(cov_data), get_git_commit_hash())
-    report["test_results"] = results
-    report["shards"] = summary["workers"]
-    report["evidence_manifest"].update(source_sha256=summary["source_sha256"],
-                                       collection_sha256=summary["collection_sha256"])
-    write_report(report, REPORT_PATH)
-    print_gate_summary(branch, gaps, passed)
-    return 0 if passed else 1
+def summary_markdown(report: dict) -> str:
+    """@brief 生成 GitHub Actions 可直接显示的检查摘要。"""
+    results, branch = report["test_results"], report["branch_coverage"]
+    verdict = "PASSED" if report["passed"] else "FAILED"
+    return (f"### Test and coverage checks: {verdict}\n\n"
+            f"Tested commit: {report['source_commit']}\n\n"
+            "| Check | Result |\n| --- | --- |\n"
+            f"| Tests | {results['tests']} |\n"
+            f"| Failures / errors / skipped | {results['failures']} / {results['errors']} / {results['skipped']} |\n"
+            f"| Branch coverage | {branch['percent']:.2f}% (required: {branch['threshold']:.0f}%) |\n"
+            f"| Uncovered public interfaces | {len(report['uncovered_public_interfaces'])} |\n\n"
+            "Detailed reports and logs are available in this workflow run's artifacts.\n")
 
 
 def main(argv: list[str] | None = None) -> int:
-    """@brief 全量入口委托唯一 runner；已合并覆盖只接受本次完整节点回执。"""
-    parser = argparse.ArgumentParser(description="WorldMock complete coverage gate")
-    parser.add_argument("--from-json", type=Path)
-    parser.add_argument("--shards", type=int, default=6)
-    parser.add_argument("--environment-root", help="explicit published environment bound to the full run")
+    """@brief 评估原生覆盖和测试报告；失败输出英文诊断并返回非零码。"""
+    parser = argparse.ArgumentParser(description="Evaluate coverage and pytest JUnit reports")
+    parser.add_argument("--from-json", required=True, type=Path)
+    parser.add_argument("--junit", required=True, nargs="+", type=Path)
+    parser.add_argument("--output", type=Path, default=REPORT_PATH)
+    parser.add_argument("--summary", type=Path)
     args = parser.parse_args(argv)
-    if args.shards < 1:
-        parser.error("--shards must be a positive integer")
     try:
-        if args.from_json is None:
-            return run_test_suite(args.shards, args.environment_root)
-        return _evaluate_coverage(args.from_json, args.environment_root)
-    except (OSError, ValueError, TypeError, KeyError, RuntimeError) as error:
-        print(f"[coverage-gate] ERROR: {error}", file=sys.stderr)
+        data = json.loads(args.from_json.read_text(encoding="utf-8"))
+        branch = compute_branch_summary(data)
+        gaps = find_uncovered_interfaces(REPO_ROOT, PRODUCTION_ROOTS, data)
+        report = build_report(branch, gaps, read_test_results(args.junit), get_git_commit_hash())
+        write_report(report, args.output)
+        summary = summary_markdown(report)
+        if args.summary is not None:
+            args.summary.parent.mkdir(parents=True, exist_ok=True)
+            with args.summary.open("a", encoding="utf-8") as output:
+                output.write(summary)
+        print(summary)
+        for gap in gaps:
+            logging.error("Uncovered public interface: %s:%s %s", gap.file, gap.line, gap.name)
+        return 0 if report["passed"] else 1
+    except (OSError, ValueError, KeyError, ElementTree.ParseError, subprocess.SubprocessError) as error:
+        logging.error("Coverage check failed: %s", error)
         return 1
 
 

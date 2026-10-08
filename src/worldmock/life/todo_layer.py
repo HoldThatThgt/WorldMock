@@ -1,5 +1,5 @@
-"""@brief 待办层：暂停的活动、还没办完的个人事务与今日计划（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「待办层」，
-docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-待办层与进度层呈现 ）。
+"""@brief 待办层：暂停的活动、还没办完的个人事务与今日计划（docs/design/06-agent.md「待办层」，
+docs/design/04-simulation-engine.md ）。
 
 键序为 layer、paused_activities、errands、day_plan。
 暂停的活动按暂停时刻从老到新（同刻按 activity_paused 事件顺序：同一秒两次决策先后暂停的，先暂停的在前），带暂停时刻、
@@ -10,7 +10,7 @@ docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-待办层与进度层
 今日计划在零点计划生成之前或当日结束之后为 null，之后按计划顺序列出至多八个目标的意图、文字、是否已推进、提醒时刻与
 大致时刻；
 目标行不显示人物自述（PlanGoal.progress_note 照存，不进提示）。目标的回看名称就是这里写出的目标文字（visible_goals 是
-待办层与私有目标绑定的同一来源，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 系统层规则 12）。
+待办层与私有目标绑定的同一来源，docs/design/06-agent.md 系统层规则 12）。
 """
 
 from __future__ import annotations
@@ -71,7 +71,7 @@ def visible_goals(state: WorldState, agent_id: int) -> tuple[PlanGoal, ...] | No
 
 def _day_plan(context: LayerContext) -> dict | None:
     """@brief 今日计划：计划日期与各目标的意图、文字、是否已推进、提醒时刻（HH:MM 或 null）与大致时刻（HH:MM 或
-    null，docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进 ）；没有或已过期时为 null。"""
+    null，docs/design/04-simulation-engine.md ）；没有或已过期时为 null。"""
     goals = visible_goals(context.state, context.agent_id)
     if goals is None:
         return None

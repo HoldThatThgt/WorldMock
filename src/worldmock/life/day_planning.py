@@ -1,4 +1,4 @@
-"""@brief 零点计划 plan_day 的请求、输出校验、模型证据与系统登记（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章）。
+"""@brief 零点计划 plan_day 的请求、输出校验、模型证据与系统登记（docs/design/04-simulation-engine.md）。
 
 plan_day 是运行时的独立后台任务（worldmock.runtime.settle_pending_day_plans），不是决策、不调用人物：
 本模块给出请求模板与输出 Schema（模块常量，由 code_sha256 覆盖，不进运行清单的阶段键）、输出不合法时附回的
@@ -28,7 +28,7 @@ from worldmock.life.schedule import (DayPlan, RemindTimeInvalid, day_end_seconds
 
 #: 零点计划请求与响应的用途标记；交付窗口、决策 token 统计与行为指标的决策请求按它排除。
 PLAN_DAY_PURPOSE = "plan_day"
-#: 零点计划的生成上限（docs/CONTRACTS.md#contracts-worldmock-接口合同「生成参数」）。
+#: 零点计划的生成上限（docs/design/06-agent.md「生成参数」）。
 PLAN_DAY_MAX_TOKENS = 8000
 #: 输出不合法时附回错误的重试次数上限：首次之外至多再请求 3 次，与传输重试预算分开计数。
 PLAN_DAY_VALIDATION_RETRIES = 3
@@ -36,7 +36,7 @@ PLAN_DAY_VALIDATION_RETRIES = 3
 PLAN_DAY_TOOL = "submit_day_plan"
 #: 输入中人物收尾自述的标注（与观察中的自述同一说法）。
 SELF_REPORT_NOTE = "你自己记下的，未经核验"
-#: 零点计划的中文模板（docs/CONTRACTS.md#contracts-worldmock-接口合同「请求组成」）。
+#: 零点计划的中文模板（docs/design/06-agent.md「请求组成」）。
 PLAN_DAY_PROMPT = """
 你要为一个人写出他这一天的当日目标清单。用户消息是一份 JSON，只含世界已经记下的事实：人物档案与背景原文、当天的上班安排、
 回顾时段里已核验的经历、他本人已结算的动作结果、他收尾时自己记下的话（未经核验，只代表他的想法），

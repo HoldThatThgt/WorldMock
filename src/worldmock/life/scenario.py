@@ -28,13 +28,13 @@ from worldmock.life.sleep import (
 )
 
 #: 重估间隔缺省（秒）：Kleitman 基本休息—活动周期约 90
-#: 分钟（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「决策节律：结算边界与唤醒条件分离」）。
+#: 分钟（docs/design/04-simulation-engine.md「决策节律：结算边界与唤醒条件分离」）。
 RECONSIDERATION_INTERVAL_SECONDS = 5400
 
 #: 候选与呈现常量的合法上界。上界的作用是拦住让两侧口径失效的取值，不是推荐值：
 #: 单次呈现上限 1000 已远超一次模型调用能承载的条目数；检索分区池上限 100_000 之外的
 #: 池在 15% 换新名额（每次 3 条）下最坏等待约 1.5 年，已超出正式实验窗口，
-#: 闭式断言会退化成不断言（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「候选契约与呈现规则」「两级上限」）。
+#: 闭式断言会退化成不断言（docs/design/04-simulation-engine.md「候选契约与呈现规则」「两级上限」）。
 CANDIDATE_PRESENTATION_LIMIT_MAX = 1000
 CANDIDATE_POOL_LIMIT_MAX = 100_000
 
@@ -75,7 +75,7 @@ class BodyConfig(DeepFrozenModel):
 
 
 class WorkShift(DeepFrozenModel):
-    """@brief 一天的班次（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-工作安排声明 ）：自当地零点起的分钟，同日、starts < ends，休息时段落在
+    """@brief 一天的班次（docs/design/06-agent.md#agent-工作安排声明 ）：自当地零点起的分钟，同日、starts < ends，休息时段落在
     班次内、升序且互不重叠；区间一律半开。三个键都必填，没有休息时段写空列表。"""
 
     starts: int
@@ -121,7 +121,7 @@ class WorkSchedule(DeepFrozenModel):
 class AgentConfig(DeepFrozenModel):
     """@brief 人物的初态、技能、内容偏好、动机档案与人物档案声明。
 
-    修订合同（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」）删除 occupation/routine_preference/consumption_
+    修订合同（docs/design/06-agent.md「画像编译」）删除 occupation/routine_preference/consumption_
     preference/risk_preference 四个模板字段与随机偏好浮点字段（其生产者已随
     画像编译 v2 删除，单位区间校验一并移除）；其内容并入
     画像编译产出的 PersonaCard。人物档案字段（chronotype_midsleep、
@@ -145,25 +145,25 @@ class AgentConfig(DeepFrozenModel):
     work_content_ids: tuple[str, ...] = ()
     # 交互菜单人物声明必须显式出现；null 表示不在地点类菜单之上追加限制。
     interaction_menu: InteractionMenu | None
-    # 工作安排（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-工作安排声明 ，裁决 W3）：必须显式出现；null 表示这个人物没有任何在岗语义。
+    # 工作安排（docs/design/06-agent.md#agent-工作安排声明 ，裁决 W3）：必须显式出现；null 表示这个人物没有任何在岗语义。
     work_schedule: WorkSchedule | None
-    # 人物档案字段（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「两过程睡眠模型」、
-    # docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」）：时型与睡眠需要可按人声明。
+    # 人物档案字段（docs/design/02-exchange-engine.md「两过程睡眠模型」、
+    # docs/design/06-agent.md「画像编译」）：时型与睡眠需要可按人声明。
     chronotype_midsleep: float = Field(default=DEFAULT_CHRONOTYPE_MIDSLEEP_H, ge=0.0, lt=24.0)
     sleep_need_hours: float = Field(default=DEFAULT_SLEEP_NEED_H, ge=SLEEP_NEED_MIN_H, le=SLEEP_NEED_MAX_H)
     # 时间锚点窗口（自午夜起的小时数，半开区间 [start, end)）：午餐/晚餐窗口
-    # 驱动饥饿体感餐时项（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」）；None=未声明（无餐时项）。
+    # 驱动饥饿体感餐时项（docs/design/02-exchange-engine.md「其他体感分级」）；None=未声明（无餐时项）。
     lunch_window: tuple[float, float] | None = None
     dinner_window: tuple[float, float] | None = None
-    # 下班、到家窗口（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-场景作息覆盖 ）：与午餐、晚餐窗口同单位同校验，两者都声明时下班起点不晚于
+    # 下班、到家窗口（docs/design/06-agent.md#agent-场景作息覆盖 ）：与午餐、晚餐窗口同单位同校验，两者都声明时下班起点不晚于
     # 到家起点；只用于场景作息覆盖卡片与零点计划的人物输入，None=未声明。
     leave_work_window: tuple[float, float] | None = None
     arrive_home_window: tuple[float, float] | None = None
     # 人物声明的就寝窗口，仅用于人物作息表达；末端可跨午夜。
     # 例如 25.0 表示次日 01:00，与画像层 TimeWindow 口径一致。
     bedtime_window: tuple[float, float] | None = None
-    # 场景联系人（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「社交最小可行版」与
-    # docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「世界素材品类要求」）：按人物声明，
+    # 场景联系人（docs/design/04-simulation-engine.md「社交接口」与
+    # docs/design/06-agent.md「世界素材品类要求」）：按人物声明，
     # schema 复用 life.social.Contact。
     contacts: tuple[Contact, ...] = ()
 
@@ -433,7 +433,7 @@ def _aware(value: datetime, field_name: str) -> None:
 def _check_day_windows(agent: "AgentConfig") -> None:
     """@brief 人物档案的日内窗口：午餐、晚餐、下班、到家窗口满足 0 ≤ 起点 < 末端 ≤ 24，午餐与晚餐不重叠，就寝窗口可跨
     午夜且不压晚餐；下班与到家都声明时下班起点不晚于到家起点（起点相等可以），与午餐、晚餐、就寝不设先后
-    （docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-场景作息覆盖 ）。"""
+    （docs/design/06-agent.md#agent-场景作息覆盖 ）。"""
     for name, window in (
         ("lunch_window", agent.lunch_window),
         ("dinner_window", agent.dinner_window),

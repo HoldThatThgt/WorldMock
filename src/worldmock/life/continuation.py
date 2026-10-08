@@ -1,4 +1,4 @@
-"""@brief 同秒续接的环境侧：从模型证据重建上一决策的末次行动请求与响应（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第二章「同秒续接」）。
+"""@brief 同秒续接的环境侧：从模型证据重建上一决策的末次行动请求与响应（docs/design/06-agent.md「同秒续接」）。
 
 成链条件：同一人物在同一模拟秒内的相邻两次决策，同一 session；两者之间没有反事实干预（反事实分支一律断链，普通恢复
 照常续接）；此前各 assistant 回合都带非空 reasoning_content；上一决策以恰好一个世界请求结束。任一条件不满足、模型证据

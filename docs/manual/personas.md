@@ -1,18 +1,9 @@
 <a name="personas-人物画像"></a>
 # 人物画像
 
-> 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界」（阶段 1）。
-
-> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「习惯的行为核验目标、写出一个能够生活的人、正文与实际世界条件要一致、预览与校验、常见错误、在场景中填写人物」（阶段 3）。
-
 本页命令以 WorldMock 为当前工作目录。正式场景位于
 `../WorldMock-Dataset/environment/shanghai-simplified/scenarios/`；预览与修改使用[手册入口](README.md#readme-创建自己的第一个场景)
 创建的完整 `experiments/my-world/` 副本，保留场景、目录与发布图的相对引用。
-
-> 2026-10-01：[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)已冻结并已实现；本手册描述当前程序实际读取的配置。
-> 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步个人事务与提醒的说明（阶段 2）。
-> 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步下班与到家作息、场景工作安排（阶段 3）。
-> 2026-10-05：按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)同步作息与计划里的钟点只是大概的说明（阶段 2）与零点计划只写和平常不同的事、给按时起床与出门设提醒的说明（阶段 3）。
 
 人物画像描述“这个人通常怎样生活、在意什么、遇到事情会怎样反应”。
 正式运行从生活场景的 `agents` 数组读取人物，主要正文是 `background_story`。
@@ -67,7 +58,7 @@ flowchart LR
 兴趣对应的素材需要在世界中存在，编译成功也不保证其世界覆盖率合格。
 口味里的内容题材只按词面与场景内容条目的 `genre` 精确匹配，例如电影素材的「悬疑」「喜剧」；「B站视频」这类平台或 App 名
 
-运行照常进行，校验与新建运行会给出输入警告，见[预览与校验](personas.md#personas-预览与校验)。
+运行照常进行，校验与新建运行会给出输入警告，见[预览与校验](#personas-预览与校验)。
 
 画像对照登记动作、地点、商品与 app 名称，习惯按关键词，媒体对动作名作双向子串匹配、对全部 app 名作精确匹配；`tastes` 是散文，不产生数值权重。
 
@@ -133,7 +124,7 @@ flowchart LR
 | `sleep_need_hours` | 否 | 睡眠需要，7–9 小时，默认 `7.5` |
 | `lunch_window`、`dinner_window` | 否 | `[开始小时,结束小时]`，范围 0–24，开始小于结束；两餐窗口不重叠；窗口起止是食欲跳变的预测时刻，饥饿跨档才给决策 |
 | `bedtime_window` | 否 | 开始小于 24，结束可到 30，跨度不超过 12 小时；声明晚餐时就寝开始不得早于晚餐结束 |
-| `leave_work_window`、`arrive_home_window` | 否 | 下班与到家窗口，`[开始小时,结束小时]`，范围 0–24，开始小于结束（首版不支持跨午夜）；两者都写时下班开始不晚于到家开始；与午餐、晚餐、就寝的先后不在这里校验；省略时取卡片值，卡片也没有（故事没写固定时刻）时为 null |
+| `leave_work_window`、`arrive_home_window` | 否 | 下班与到家窗口，`[开始小时,结束小时]`，范围 0–24，开始小于结束（不支持跨午夜）；两者都写时下班开始不晚于到家开始；与午餐、晚餐、就寝的先后不在这里校验；省略时取卡片值，卡片也没有（故事没写固定时刻）时为 null |
 | `contacts` | 否 | 联系人列表，默认 `[]`；同一人物内 `contact_id` 唯一 |
 | `health_habits`、`social_style` | 否 | 可保存辅助说明；画像编译只读取正文，重要信息仍需写入 `background_story` |
 
@@ -142,7 +133,7 @@ flowchart LR
 0.25 小时格点，卡片的时间窗口吸附到 0.5 小时格点；建议正文和场景声明按此口径保持一致。
 场景里写出的 `chronotype_midsleep`、`sleep_need_hours`、`lunch_window`、`dinner_window`、`bedtime_window`、
 `leave_work_window`、`arrive_home_window`
-还会覆盖卡片从正文抽取的对应值进入人设层；省略时人设层仍取卡片值，见[正文与实际世界条件要一致](personas.md#personas-正文与实际世界条件要一致)。
+还会覆盖卡片从正文抽取的对应值进入人设层；省略时人设层仍取卡片值，见[正文与实际世界条件要一致](#personas-正文与实际世界条件要一致)。
 写跨午夜就寝窗口时使用 `[23.0,25.0]`，不要写成开始大于结束的 `[23.0,1.0]`。
 
 起点困意按作息反推：惯常起床时刻 `t_wake = (chronotype_midsleep + sleep_need_hours / 2) mod 24`，
@@ -158,7 +149,7 @@ flowchart LR
 只有卡片中的关系带亲密度与渠道。
 同世界的另一个自主人物应在 `agents` 里声明，联系人条目不会额外启动一个自主人物。
 
-场景人物不声明技能、资格或偏好权重；职业、消费和饮食喜好用 `background_story` 散文描述。商品用实际目录的 `goods_id`，分配工作用实际 `work_content_ids`；画像不会自动生成商品、动作、内容或 app 绑定。商品在实际收货时立即施加效果，不创建持有物或独立消费动作，见[请求字段与结算检查](../CONTRACTS.md#contracts-request-settlement)。
+场景人物不声明技能、资格或偏好权重；职业、消费和饮食喜好用 `background_story` 散文描述。商品用实际目录的 `goods_id`，分配工作用实际 `work_content_ids`；画像不会自动生成商品、动作、内容或 app 绑定。商品在实际收货时立即施加效果，不创建持有物或独立消费动作，见[请求字段与结算检查](../design/04-simulation-engine.md#simulation-engine-请求字段与结算检查)。
 
 <a name="personas-正文与实际世界条件要一致"></a>
 ## 正文与实际世界条件要一致
@@ -215,7 +206,7 @@ worldmock profile compile \
 编译默认独立抽取三次，会调用模型。查看产物的 `persona_card_text`、`card` 和 `warnings`：
 有没有遗漏的关系、错误的时间、没有在正文中提供的事实。生成卡片最多 600 汉字，超出即报错，
 不会截断原文。这里的 600 汉字限制针对生成卡片，不是要求原始故事最多 600 字。
-抽取到的下班或到家窗口与出门、就寝先后冲突时（到家也不得早于下班），或窗口越过当日 24 点时（首版不支持跨午夜的下班与到家，就寝在凌晨也一样），该锚点被置为 null，`warnings` 里各留一条以 `work_anchor_demoted:` 开头的说明，整张卡片不因此编译失败；新建运行时这条说明经运行输入警告 `PERSONA_AGREEMENT_LOW` 透传。
+抽取到的下班或到家窗口与出门、就寝先后冲突时（到家也不得早于下班），或窗口越过当日 24 点时（不支持跨午夜的下班与到家，就寝在凌晨也一样），该锚点被置为 null，`warnings` 里各留一条以 `work_anchor_demoted:` 开头的说明，整张卡片不因此编译失败；新建运行时这条说明经运行输入警告 `PERSONA_AGREEMENT_LOW` 透传。
 运行时人物看到的不是 `persona_card_text` 原文，而是由 `card` 结构化字段渲染的人设层 JSON（去掉 `situation`，关系与偏好原地更新）。
 
 需要进一步检查提取稳定性时运行：
@@ -262,10 +253,10 @@ worldmock profile validate \
 | `Input warning CARD_FIELD_CONFLICT` | 场景窗口与卡片其余锚点先后冲突或不在 0.5 小时格点，人设层保留了卡片值；调整该窗口或正文作息 |
 | 旧字段被拒绝 | `occupation`、`routine_preference`、`consumption_preference`、`risk_preference` 和 `entertainment_preferences` 不能作为人物顶层配置；对应内容写入正文 |
 
-详细限制见[人物卡片合同](../CONTRACTS.md#contracts-人格与卡片字段)、
-[画像规格](../dev/SPEC-life-realism.md#spec-life-realism-画像编译)和[人物配置加载器](../../src/worldmock/life/scenario.py)。
+详细限制见[人物卡片合同](../design/06-agent.md#agent-人格与卡片字段)、
+[人物](../design/06-agent.md#agent-画像编译)和[人物配置加载器](../../src/worldmock/life/scenario.py)。
 
-运行警告只有六个码；无内容警告的 `details` 为 `media` 与 `habits`，不保留口味或游戏权重字段。覆盖率目标与匹配口径统一见下方[习惯的行为核验目标](personas.md#personas-习惯的行为核验目标)，不使用内容分类标签。
+运行警告只有六个码；无内容警告的 `details` 为 `media` 与 `habits`，不保留口味或游戏权重字段。覆盖率目标与匹配口径统一见下方[习惯的行为核验目标](#personas-习惯的行为核验目标)，不使用内容分类标签。
 
 <a name="personas-习惯的行为核验目标"></a>
 ## 习惯的行为核验目标

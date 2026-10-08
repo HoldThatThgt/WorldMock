@@ -1,4 +1,4 @@
-"""@brief 进度层：当前 session 的有序记录（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「进度层」）。
+"""@brief 进度层：当前 session 的有序记录（docs/design/06-agent.md「进度层」）。
 
 记录由已提交事件组装，写到本次观察这一刻：人物的世界请求连同最新结果与回复正文（self_note）、收到的直接消息
 与交谈邀请（全文）和邮件（主题）、订单送达、个人事务的提醒到点与办成（只写事务名，由人物可见的事务事件派生），
@@ -115,7 +115,7 @@ def _tool_records(context: LayerContext, store: FootprintStore, lower: int) -> l
     """@brief 本 session 的世界请求：每个 action_requested 连同其最新结果（即时结果另作来源）与 self_note。
 
     开始活动的请求在活动结束后带终态结果：浏览得到的商品名、到达等事实只在终态结果里，唯一出现原则要求它们写在该调用的
-    结果上（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「唯一出现原则」「进度层」）；活动目标的 state 只写终局说法与客观进度。
+    结果上（docs/design/06-agent.md「唯一出现原则」「进度层」）；活动目标的 state 只写终局说法与客观进度。
     """
     requests = store.read_agent_events("action_requested", context.agent_id, after=lower)
     results = store.read_agent_events("action_result", context.agent_id, after=lower)
@@ -200,7 +200,7 @@ def _world_records(context: LayerContext, store: FootprintStore, lower: int) -> 
 
 
 def _errand_record(context: LayerContext, event: Event) -> _Record:
-    """@brief 个人事务事件派生的记录（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-待办层与进度层呈现 ）：errand_reminded 为
+    """@brief 个人事务事件派生的记录（docs/design/04-simulation-engine.md ）：errand_reminded 为
     errand_reminder（提醒到点），
     errand_completed 为 errand_completed（环境确认办成），都只写事务名；来源是该事件，计入观察的进度来源。"""
     record = {"occurred_at": iso_time(event.occurred_at, context.scenario.timezone),
@@ -210,7 +210,7 @@ def _errand_record(context: LayerContext, event: Event) -> _Record:
 
 def _message_record(context: LayerContext, event: Event) -> _Record:
     """@brief message_arrival 记录：直接消息与交谈邀请取收件箱全文与发件人，交谈邀请另写回应方式「对<发起人>选择交谈
-    即接受」（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「交谈」）；邮件到达时取场景主题与正文，发件人为 null。"""
+    即接受」（docs/design/04-simulation-engine.md「交谈」）；邮件到达时取场景主题与正文，发件人为 null。"""
     moment = iso_time(event.occurred_at, context.scenario.timezone)
     message_id = event.data["message_id"]
     if event.data["kind"] == "mail_arrival":

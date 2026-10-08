@@ -1,20 +1,13 @@
 <a name="readme-用户配置手册"></a>
 # 用户配置手册
 
-> 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)收口 app、地点、商品、动作、内容五类对象、场景结构 8 与五字段动作请求。
-
-> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「手册入口、创建自己的第一个场景与运行证据边界」（阶段 8）；此前阶段的修订并入同一现行合同。
-
 WorldMock-Dataset 提供具体世界，WorldMock 执行这个世界并记录结果。
 以下命令在 WorldMock 根目录执行，WorldMock-Dataset 与它位于同一父目录；环境路径均显式传入。
 先按[运行配置](runtime.md#runtime-准备环境)建立并激活 WorldMock 环境；本手册的 `python` 和 `worldmock` 命令均在该环境中执行。
 
-> 2026-10-01：[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)已冻结并已实现；本手册描述当前程序实际读取的配置。
-> 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步入口表（作息含下班与到家、场景工作安排）。
-
 从这里开始，把 WorldMock 配置成你想观察的人物与生活环境。
 本手册介绍当前程序实际读取的配置、编写方法和检查步骤；配置格式的正式定义仍由
-[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)、对应特性规格和[记录引擎合同](../design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)维护。
+[状态与序列化](../design/09-io-formats.md)、对应特性规格和[记录引擎合同](../design/05-recording-engine.md)维护。
 
 <a name="readme-按你想改变的事情选择入口"></a>
 ## 按你想改变的事情选择入口

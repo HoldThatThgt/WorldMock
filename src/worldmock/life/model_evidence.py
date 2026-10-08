@@ -30,7 +30,7 @@ class ModelEvidenceRecorder:
         """@brief 保存实际模型请求、响应或失败，并保持生活状态不变。
 
         本次决策的首个行动请求与其 decision_started 同批提交，decision_started 在前
-        （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第二章「单一行动阶段」）。
+        （docs/design/06-agent.md「单一行动阶段」）。
         """
         context = exchange.context
         self.decisions.validate_context(context)

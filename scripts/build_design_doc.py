@@ -1,24 +1,10 @@
 #!/usr/bin/env python3
-"""docs/design/ 汇编版设计说明书构建脚本（仅标准库，确定性）。
-
-@file     build_design_doc.py
-@brief    把 docs/design/当前设计章节与附录 A（从 docs/CONTRACTS.md 逐字摘录的
-          人物工具、模型请求与命令行接口各节）汇编为单文件自包含 HTML docs/design/worldmock-design.html：
-          封面与章节一览（各章版本、日期、状态取自章节文件头）→ 修订历史（各章版本表的最新一行）
-          → 目录（章与二级标题自动生成）→ 正文（Markdown 子集的确定性转换；mermaid 图由页内脚本在打开时
-          渲染，离线时显示图源）。
-@note     输出只由章节源与合同源决定，不含时间戳或提交哈希，同一源两次构建逐字节相同。`--check` 只比对
-          已提交的汇编文件与源是否一致，不写文件，是 docs/VERIFICATION.md「工程门禁」的
-          「设计说明书汇编与源一致」整行的机器判定；用法与 scripts/documentation_gate.py 一致。
-
-用法：
-  python scripts/build_design_doc.py           # 生成 HTML
-  python scripts/build_design_doc.py --check   # 只比对：汇编文件与源不一致即非零退出并说明
-  python scripts/build_design_doc.py --pdf     # 生成 HTML 后用 Chrome headless 打印 PDF（可选）
-"""
+"""@brief 将当前模块设计确定性地汇编成 HTML 阅读附件，源文档是唯一维护对象。"""
 
 from __future__ import annotations
 
+import argparse
+import logging
 import html as _html
 import re
 import subprocess
@@ -28,23 +14,13 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DESIGN_DIR = REPO_ROOT / "docs" / "design"
-CONTRACTS_PATH = REPO_ROOT / "docs" / "CONTRACTS.md"
-OUT_HTML = DESIGN_DIR / "worldmock-design.html"
-OUT_PDF = DESIGN_DIR / "worldmock-design.pdf"
-#: 章节装配顺序；文件名前两位是章号，正文里以「第 N 章」呈现。
+OUT_HTML = REPO_ROOT / ".work" / "docs" / "design" / "worldmock-design.html"
+OUT_PDF = OUT_HTML.with_suffix(".pdf")
+#: 章节顺序按系统职责组织，不引用历次特性规格。
 CHAPTERS: tuple[str, ...] = (
     "00-overview", "01-architecture", "02-exchange-engine", "03-resource-engine",
-    "04-simulation-engine", "05-recording-engine", "07-evaluation",
-    "08-configuration", "09-io-formats",
-)
-#: 附录 A：从接口合同逐字摘录的节（按此顺序装配；选择键是合同中显式标识）。
-APPENDIX_STEM = "10-contract-excerpts"
-APPENDIX_TITLE = "接口合同摘录：人物工具、模型请求与命令行"
-APPENDIX_SECTIONS: tuple[str, ...] = (
-    "contracts-person-tools", "contracts-day-goal-request", "contracts-request-settlement", "contracts-closed-request-models",
-    "contracts-action-results", "contracts-social-errors", "contracts-seven-layers", "contracts-seven-layer-schema",
-    "contracts-model-request", "contracts-tool-result-channel", "contracts-turn-budget", "contracts-generation-parameters",
-    "contracts-model-identity", "contracts-reasoning-return", "contracts-cli",
+    "04-simulation-engine", "05-recording-engine", "06-agent", "07-evaluation",
+    "08-configuration", "09-io-formats", "10-runtime",
 )
 TITLE_PREFIX = "WorldMock 产品设计说明书 — "
 DOC_TITLE = "WorldMock 产品设计说明书（汇编版）"
@@ -55,7 +31,6 @@ _ANCHOR_RE = re.compile(r'^<a name="([a-z][\w-]*)"></a>\s*$')
 _HEADING_RE = re.compile(r"^(#{1,5}) (.+?)\s*$")
 _TABLE_SEP_RE = re.compile(r"^\s*\|[\s:|-]+\|?\s*$")
 _LIST_RE = re.compile(r"^(\s*)(- |\d+\. )(.*)$")
-_META_RE = re.compile(r"^> \*\*(.+?)\*\*[：:]\s*(.*?)\s*(?:\\|  )?$")
 _INLINE_CODE_RE = re.compile(r"`([^`]+)`")
 _LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)\s]+)\)")
 _AUTOLINK_RE = re.compile(r"&lt;(https?://[^&\s]+)&gt;")
@@ -71,21 +46,13 @@ _PARA_CLASSES = (
 
 @dataclass
 class Chapter:
-    """@brief 一个装配单元：章号、文件名、标题、显示标签、文件头元信息、版本表最新一行、正文与链接基准。
-
-    `link_base` 是源文件相对 docs/design/ 的目录前缀（章节源为空，合同摘录为 `../`）；
-    `source_href` 是本文内未摘录章节所属合同源文件路径。
-    """
+    """@brief 一个装配单元：章号、文件名、标题、显示标签与正文。"""
 
     number: int
     stem: str
     title: str
     label: str
-    meta: dict[str, str]
-    latest_revision: list[str]
     text: str
-    link_base: str = ""
-    source_href: str = ""
 
 
 @dataclass
@@ -94,8 +61,6 @@ class Context:
 
     chapter: int = 0
     label: str = ""
-    link_base: str = ""
-    source_href: str = ""
     used_ids: set[str] = field(default_factory=set)
     anchors: dict[tuple[int, str], str] = field(default_factory=dict)
     queued_ids: dict[int, list[str]] = field(default_factory=dict)
@@ -105,7 +70,6 @@ class Context:
     def enter(self, chapter: Chapter) -> None:
         """@brief 切换到某一章：章号、显示标签与链接基准随之变化。"""
         self.chapter, self.label = chapter.number, chapter.label
-        self.link_base, self.source_href = chapter.link_base, chapter.source_href
 
 
 def esc(text: str) -> str:
@@ -133,84 +97,21 @@ def fence_mask(lines: list[str]) -> list[bool]:
 
 
 def parse_chapter(stem: str, text: str, label: str | None = None) -> Chapter:
-    """@brief 解析章节源：章号取文件名前两位，标题取首个 h1，元信息取文件头引用块，版本取版本表末行。"""
+    """@brief 从当前章节提取标题和显示信息，不再维护章节版本流水账。"""
     lines = text.replace("\r\n", "\n").split("\n")
     number = int(stem[:2])
-    title = stem
-    meta: dict[str, str] = {}
-    for line in lines[:12]:
-        if line.startswith("# ") and title == stem:
-            title = line[2:].strip().removeprefix(TITLE_PREFIX)
-        match = _META_RE.match(line)
-        if match:
-            meta[match.group(1)] = match.group(2)
-    return Chapter(number, stem, title, label or f"第 {number} 章", meta, latest_revision(lines),
-                   "\n".join(lines))
+    title = next((line[2:].strip().removeprefix(TITLE_PREFIX) for line in lines if line.startswith("# ")), stem)
+    return Chapter(number, stem, title, label or f"第 {number} 章", "\n".join(lines))
 
 
-def latest_revision(lines: list[str]) -> list[str]:
-    """@brief 版本表（「版本历史」或「版本表」标题之后的第一张表）的最后一行单元格；没有则为空。"""
-    start = next((i for i, line in enumerate(lines)
-                  if re.match(r"^## (版本历史|版本表|修订历史)\s*$", line)), None)
-    if start is None:
-        return []
-    rows: list[list[str]] = []
-    i = start + 1
-    while i < len(lines):
-        if lines[i].strip().startswith("|") and i + 1 < len(lines) and _TABLE_SEP_RE.match(lines[i + 1]):
-            i += 2
-            while i < len(lines) and lines[i].strip().startswith("|"):
-                rows.append(split_row(lines[i]))
-                i += 1
-            break
-        i += 1
-    return rows[-1] if rows else []
 
 
-def extract_sections(text: str, identifiers: tuple[str, ...]) -> str:
-    """@brief 按显式稳定标识摘录合同正文；标题改名不影响选择，缺失标识立即中止。"""
-    lines = text.replace("\r\n", "\n").split("\n")
-    mask = fence_mask(lines)
-    heads = [(i, len(m.group(1))) for i, (line, fenced) in enumerate(zip(lines, mask))
-             if not fenced and (m := _HEADING_RE.match(line))]
-    out: list[str] = []
-    for identifier in identifiers:
-        declarations = [i for i, (line, fenced) in enumerate(zip(lines, mask))
-                        if not fenced and line == f'<a name="{identifier}"></a>']
-        if len(declarations) != 1:
-            raise SystemExit(f"contract section identifier is not unique: {identifier}")
-        declaration = declarations[0]
-        hit = next(((i, level) for i, level in heads if i > declaration), None)
-        if hit is None:
-            raise SystemExit(f"contract section identifier has no heading: {identifier}")
-        start, level = hit
-        end = next((i for i, lv in heads if i > start and lv <= level), len(lines))
-        while end > start and (not lines[end - 1].strip() or _ANCHOR_RE.fullmatch(lines[end - 1])):
-            end -= 1
-        shift = 2 - level
-        for line, fenced in zip(lines[declaration:end], mask[declaration:end]):
-            match = None if fenced else _HEADING_RE.match(line)
-            out.append(f"{'#' * (len(match.group(1)) + shift)} {match.group(2)}" if match else line)
-        out.append("")
-    return "\n".join(out)
 
 
-def contract_appendix(contracts: str) -> Chapter:
-    """@brief 附录 A：合同摘录章。文件头写明来源与权威，正文是逐字摘录；链接基准为上级目录。"""
-    version = latest_revision(contracts.replace("\r\n", "\n").split("\n"))
-    header = (f"# {TITLE_PREFIX}{APPENDIX_TITLE}\n\n"
-              f"> **状态**：摘录；正文逐字取自 [接口合同](../CONTRACTS.md)，以合同为准，改动请改合同并重新汇编  \n"
-              f"> **日期**：{version[1] if len(version) > 1 else '—'}  \n"
-              f"> **版本**：{version[0] if version else '—'}\n\n"
-              "本附录把人物能调用的工具、请求字段与结算检查、拒绝码、人物看到的七层输入、请求组成与生成参数、"
-              "模型身份以及命令行接口从接口合同里逐字摘录到一处，方便在同一份文件里查阅；"
-              "合同其余各节（状态字段、地图与门店供给、社交接口、记录引擎、品类与语料、完整足迹交接）仍在 "
-              "[接口合同](../CONTRACTS.md) 中。收录节以合同的稳定章节标识选择，正文标题可随设计修订。\n\n")
-    body = extract_sections(contracts, APPENDIX_SECTIONS)
-    tail = "\n## 版本表\n\n| 版本 | 日期 | 修订内容 |\n| --- | --- | --- |\n| " + " | ".join(version) + " |\n" if version else ""
-    chapter = parse_chapter(APPENDIX_STEM, header + body + tail, label="附录 A")
-    chapter.link_base, chapter.source_href = "../", "../CONTRACTS.md"
-    return chapter
+
+
+
+
 
 
 def split_row(line: str) -> list[str]:
@@ -273,24 +174,21 @@ def lookup_anchor(ctx: Context, number: int, anchor: str) -> str | None:
 
 
 def map_href(href: str, ctx: Context) -> str:
-    """@brief 链接改写：本章与章节间的标题链接改为文内锚点；其余相对链接按链接基准改写；外部网址原样保留。
-
-    未摘录的合同章节仍链接到其权威源文件；
-    `design/0N-*.md` 形状的链接（合同指向设计章节）同样映射为文内锚点。
-    """
+    """@brief 将所属模块内及模块间链接改为阅读附件内的锚点。"""
     if href.startswith("#"):
         target = lookup_anchor(ctx, ctx.chapter, href[1:])
-        return f"#{target}" if target else (f"{ctx.source_href}{href}" if ctx.source_href else href)
-    if href.startswith(("http://", "https://", "../", "/")):
-        return href
-    match = _SIBLING_RE.match(href.removeprefix("design/"))
+        if target is None:
+            raise ValueError(f"Section identifier does not exist: {href}")
+        return f"#{target}"
+    match = _SIBLING_RE.match(href)
     if not match:
-        return ctx.link_base + href
+        return href
     number, anchor = int(match.group(1)), match.group(2)
-    target = lookup_anchor(ctx, number, anchor) if anchor else None
-    if anchor and target is None:
-        raise SystemExit(f"section identifier does not exist: {href}")
-    return f"#{target}" if anchor else f"#{ctx.chapter_ids[number]}"
+    target = lookup_anchor(ctx, number, anchor) if anchor else ctx.chapter_ids.get(number)
+    if target is None:
+        raise ValueError(f"Section identifier does not exist: {href}")
+    return f"#{target}"
+
 
 
 def inline(text: str, ctx: Context) -> str:
@@ -402,7 +300,7 @@ def take_paragraph(lines: list[str], i: int, ctx: Context) -> tuple[str, int]:
 
 
 def take_heading(line: str, ctx: Context, seen_h1: bool) -> tuple[str, bool]:
-    """@brief 标题：章标题加显示标签（「第 N 章」或「附录 A」），同章内多余的 h1 降为 h2；h1、h2 收进目录。"""
+    """@brief 标题：章标题加显示标签，同章内多余的 h1 降为 h2；h1、h2 收进目录。"""
     match = _HEADING_RE.match(line)
     assert match is not None
     level, text = len(match.group(1)), match.group(2)
@@ -452,40 +350,25 @@ def convert(text: str, ctx: Context) -> str:
     return "\n".join(out)
 
 
-def load_chapters(design_dir: Path = DESIGN_DIR, contracts_path: Path = CONTRACTS_PATH) -> list[Chapter]:
-    """@brief 按装配顺序读取当前章节源文件，再附上从接口合同摘录的附录 A。"""
-    chapters = [parse_chapter(stem, (design_dir / f"{stem}.md").read_text(encoding="utf-8"))
-                for stem in CHAPTERS]
-    chapters.append(contract_appendix(contracts_path.read_text(encoding="utf-8")))
-    return chapters
+def load_chapters(design_dir: Path = DESIGN_DIR) -> list[Chapter]:
+    """@brief 按架构顺序读取唯一的当前模块设计。"""
+    return [parse_chapter(stem, (design_dir / f"{stem}.md").read_text(encoding="utf-8")) for stem in CHAPTERS]
+
 
 
 def build_cover(chapters: list[Chapter], ctx: Context) -> str:
-    """@brief 封面、章节一览与修订历史：全部取自章节文件头与版本表，不含时间戳。"""
-    overview = "".join(
-        f"<tr><td>{esc(c.label)}</td><td><a href=\"#{ctx.chapter_ids[c.number]}\">{esc(c.title)}</a></td>"
-        f"<td>{inline(c.meta.get('版本', '—'), ctx)}</td><td>{inline(c.meta.get('日期', '—'), ctx)}</td>"
-        f"<td>{inline(c.meta.get('状态', '—').split('；')[0], ctx)}</td></tr>" for c in chapters)
-    revisions = "".join(
-        f"<tr><td>{esc(c.label)}</td><td>{inline(c.latest_revision[0], ctx)}</td>"
-        f"<td>{inline(c.latest_revision[1], ctx)}</td><td>{inline(c.latest_revision[-1], ctx)}</td></tr>"
-        for c in chapters if len(c.latest_revision) >= 3)
-    return f"""<div class="cover">
-  <h1 class="no-break">WorldMock<br>数字人生活模拟与数据生产</h1>
-  <div class="sub">产品设计说明书（汇编版）</div>
-  <table class="meta-table kv">
-    <tr><td>文档定位</td><td>由 <code>docs/design/</code> 当前章节与接口合同摘录（附录 A）汇编生成的单文件设计说明书；接口与字段以 <code>docs/CONTRACTS.md</code> 为准，行为规则以 <code>docs/dev/SPEC-*.md</code> 为准</td></tr>
-    <tr><td>生成方式</td><td><code>python scripts/build_design_doc.py</code>；请修改章节源或合同后重新汇编，勿直接编辑本文件</td></tr>
-    <tr><td>图示</td><td>mermaid 图在联网打开时渲染；离线时显示图源</td></tr>
-  </table>
-</div>
-<section class="revision-history">
-  <h1 class="no-break">章节一览</h1>
-  <table class="meta-table"><tr><th>章</th><th>标题</th><th>版本</th><th>日期</th><th>状态</th></tr>{overview}</table>
-  <h2>修订历史（各章最新一行）</h2>
-  <table class="meta-table" style="font-size:8.5pt;"><tr><th>章</th><th>版本</th><th>日期</th><th>修订内容</th></tr>{revisions}</table>
-</section>
-"""
+    """@brief 按模块生成阅读入口，不复制版本和实施状态。"""
+    rows = "".join(f'<tr><td>{esc(chapter.label)}</td><td>'
+                   f'<a href="#{ctx.chapter_ids[chapter.number]}">{esc(chapter.title)}</a></td></tr>'
+                   for chapter in chapters)
+    return ('<div class="cover"><h1 class="no-break">WorldMock</h1>'
+            '<div class="sub">系统设计说明书</div>'
+            '<p>本文由 docs/design/ 中的当前模块设计自动汇编；正文只在所属模块维护。</p>'
+            '<p>开发过程记录保留在 docs/dev/，不定义当前系统行为。</p>'
+            '<p>Mermaid 图在联网打开时渲染。</p></div>'
+            '<section><h1>系统模块</h1><table><tr><th>章</th><th>模块</th></tr>'
+            + rows + '</table></section>')
+
 
 
 def build_toc(headings: list[tuple[int, str, str]]) -> str:
@@ -539,8 +422,6 @@ CSS = """
            page-break-after: always; }
   .cover h1 { border: none; font-size: 26pt; page-break-before: avoid; margin-top: 0; }
   .cover .sub { font-size: 14pt; color: #444; margin-top: 8px; }
-  .cover .meta-table { width: 70%; margin: 40px auto 0; font-size: 10pt; text-align: left; }
-  .revision-history { page-break-after: always; }
   .toc { font-size: 10pt; }
   .toc a { text-decoration: none; color: #1a1a1a; }
   .toc ul { list-style: none; padding-left: 18px; line-height: 2; }
@@ -556,13 +437,13 @@ MERMAID_SCRIPT = f"""<script type="module">
                           suppressErrorRendering: true }});
     await mermaid.run({{ querySelector: "pre.mermaid", suppressErrors: true }});
   }} catch (error) {{
-    console.warn("mermaid 未能加载，图示以图源显示", error);
+    console.warn("Mermaid could not be loaded.", error);
   }}
 </script>"""
 
 
 def assemble(chapters: list[Chapter]) -> str:
-    """@brief 汇编完整 HTML：封面、章节一览、修订历史、目录、当前章节正文与附录。"""
+    """@brief 汇编完整 HTML：封面、章节一览、目录与当前模块正文。"""
     ctx = prescan_anchors(chapters)
     sections: list[str] = []
     for chapter in chapters:
@@ -574,20 +455,12 @@ def assemble(chapters: list[Chapter]) -> str:
     return (f"<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"UTF-8\">\n"
             f"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
             f"<title>{esc(DOC_TITLE)}</title>\n<style>{CSS}</style>\n</head>\n"
-            f"<!-- 本文件由 scripts/build_design_doc.py 从 docs/design/0*.md 与 docs/CONTRACTS.md 汇编生成；"
+            f"<!-- 本文件由 scripts/build_design_doc.py 从 docs/design/ 的模块正文汇编生成；"
             f"请修改源后重新构建，勿直接编辑。 -->\n"
             f"<body>\n{body}\n{MERMAID_SCRIPT}\n</body>\n</html>\n")
 
 
-def check_current(document: str, out_html: Path = OUT_HTML) -> list[str]:
-    """@brief 比对已提交的汇编文件与本次汇编结果（行尾归一），返回问题列表；为空即一致。"""
-    if not out_html.is_file():
-        return [f"missing assembled document: {out_html.relative_to(REPO_ROOT).as_posix()}"]
-    existing = out_html.read_text(encoding="utf-8").replace("\r\n", "\n")
-    if existing != document.replace("\r\n", "\n"):
-        return [f"assembled document is stale: rerun scripts/build_design_doc.py "
-                f"({out_html.relative_to(REPO_ROOT).as_posix()})"]
-    return []
+
 
 
 def export_pdf(out_html: Path = OUT_HTML, out_pdf: Path = OUT_PDF) -> None:
@@ -600,20 +473,23 @@ def export_pdf(out_html: Path = OUT_HTML, out_pdf: Path = OUT_PDF) -> None:
 
 
 def main(argv: list[str]) -> int:
-    """@brief 命令入口：默认写出 HTML；`--check` 只比对；`--pdf` 另打印 PDF。返回进程退出码。"""
-    document = assemble(load_chapters())
-    if "--check" in argv:
-        problems = check_current(document)
-        for problem in problems:
-            print(f"[design-doc] {problem}")
-        print(f"[design-doc] verdict: {'PASSED' if not problems else 'FAILED'}")
-        return 1 if problems else 0
-    OUT_HTML.write_text(document, encoding="utf-8", newline="\n")
-    print(f"[design-doc] wrote {OUT_HTML.relative_to(REPO_ROOT).as_posix()} ({len(document):,} chars)")
-    if "--pdf" in argv:
-        export_pdf()
-        print(f"[design-doc] wrote {OUT_PDF.relative_to(REPO_ROOT).as_posix()} ({OUT_PDF.stat().st_size:,} bytes)")
-    return 0
+    """@brief 构建阅读附件；不读取或比较任何已提交的生成文件。"""
+    parser = argparse.ArgumentParser(description="Build the current system design reading copy")
+    parser.add_argument("--output", type=Path, default=OUT_HTML)
+    parser.add_argument("--pdf", action="store_true")
+    args = parser.parse_args(argv)
+    try:
+        document = assemble(load_chapters())
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(document, encoding="utf-8", newline="\n")
+        print(f"[design-doc] wrote {args.output} ({len(document):,} chars)")
+        if args.pdf:
+            export_pdf(args.output, args.output.with_suffix(".pdf"))
+        return 0
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        logging.error("Design document build failed: %s", error)
+        return 1
+
 
 
 if __name__ == "__main__":

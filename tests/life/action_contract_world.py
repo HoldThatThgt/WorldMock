@@ -2,7 +2,7 @@
 
 from dataclasses import replace
 
-from tests.life.test_content_select import registered_content_world
+from tests.integration.life.test_content_select import registered_content_world
 from worldmock.life.discovery import product_bindings
 from worldmock.life.interaction_menu import binding_action, resolve_interaction_menu
 from worldmock.life.object_labels import object_label

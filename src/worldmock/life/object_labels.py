@@ -1,7 +1,7 @@
-"""@brief 交互对象可读名称的唯一写法：私有绑定的 object 与工具层目标名（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。
+"""@brief 交互对象可读名称的唯一写法：私有绑定的 object 与工具层目标名（docs/design/06-agent.md「工具层」）。
 
 观察投影（projection.interaction_bindings）按这里的写法给本轮可见对象命名，场景加载（load_checks）按同一写法预先
-核对这些名称不会重复（docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-场景加载时就该拒绝的问题 「可见标签唯一」），两处不各写一份格式。
+核对这些名称不会重复（docs/design/04-simulation-engine.md 「可见标签唯一」），两处不各写一份格式。
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 """@brief 已落盘主观记忆更新的封闭证据校验与写入点推导。
 
-记忆写入点只有两处（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第七章「finish 并入 conclude_activity」）：结束活动
+记忆写入点只有两处（docs/design/04-simulation-engine.md「finish 并入 conclude_activity」）：结束活动
 （activity_conclusion）与就寝反思（reflection），阈值巩固不是写入点。AS2 的 MemoryUpdateEvidence 不带写入点，
 由引擎按登记推导 memory_updated.data.trigger：同一决策已登记带记忆或看法的 conclude_activity（经 control_items
 读出，唯一 items 形状）时含 activity_conclusion；绑定观察的唤醒原因含 wake_from_sleep 时含 reflection；顺序固定。

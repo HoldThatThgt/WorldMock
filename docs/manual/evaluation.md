@@ -1,10 +1,6 @@
 <a name="evaluation-自定义评估与盲评输入"></a>
 # 自定义评估与盲评输入
 
-> 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界」（阶段 1）。
-
-> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 7 的记录、导出、交付与评估合同。
-
 本页命令以 WorldMock 为当前工作目录，评估配置使用 `.work/my-evaluation.json`。
 
 评估配置决定“比较同一时间段内哪些活动、使用哪些公开参照、请评审判断哪些维度”。
@@ -28,10 +24,10 @@ flowchart LR
     G --> I[报告和成功 manifest]
 ```
 
-<a name="evaluation-共享规则与可重建环境修订"></a>
-## 共享规则与可重建环境修订
+<a name="evaluation-环境与规则的归属"></a>
+## 环境与规则的归属
 
-按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)修订；验收结果独立记录。
+按[运行与框架集成](../design/10-runtime.md)修订；验收结果独立记录。
 
 报告只将非布尔整数秒且起点小于终点的区间计为有效结算；缺活动品类仍报告未归类或缺证。日期按运行时区切分，反思快照使用主观来源校验，不能当作畸形活动经历。
 
@@ -185,7 +181,7 @@ legacy-root/
 
 `--human-reference` 接受规范化的真实事件与活动目录；当前没有把手机日志或 CSV 自动转成该格式的命令。
 它复用 WorldMock 的事件和活动结构，只是不要求世界运行的检查点与完成事件。
-字段结构见[足迹数据合同](../CONTRACTS.md#contracts-worldmock-接口合同)；缺失的真实经历不能通过填造事件补齐。
+字段结构见[足迹数据合同](../design/09-io-formats.md)；缺失的真实经历不能通过填造事件补齐。
 
 参照目录必须有 `manifest.json` 和两个 JSONL 文件。清单的必需内容如下，
 其中哈希由文件计算，不能照抄占位值：
@@ -369,4 +365,4 @@ worldmock evaluate --output evaluations/my-comparison --reviews \
 | 评审材料不可判断却填了偏好 | 根据包中 `judgeability` 改为真实的 `unjudgeable` 判断 |
 | 准备目录出现意外文件或哈希变化 | 收据放到外部目录；不要编辑已冻结的准备文件 |
 
-评估依据和完整结果边界见[评估设计](../design/07-evaluation.md#evaluation-worldmock-产品设计说明书-行为评估)。
+评估依据和完整结果边界见[评估设计](../design/07-evaluation.md)。

@@ -1,14 +1,14 @@
-"""@brief 零点计划 plan_day 的只读输入装配（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章「输入、调用、失败与记录」）。
+"""@brief 零点计划 plan_day 的只读输入装配（docs/design/04-simulation-engine.md「输入、调用、失败与记录」）。
 
 输入全部来自世界状态与足迹记录，不读人物工作区与记忆运行时：人物档案与场景背景原文（background_story）、
 回顾时段里已核验经历的句子与本人已结算的公开动作结果（消息送达、订单受理与交付、结束的活动），二者都取
-settled_text 的共享句式（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第三章「settled 的写法」）、
+settled_text 的共享句式（docs/design/06-agent.md「settled 的写法」）、
 回顾时段里已受理的 conclude_activity 请求记下的 summary 与记忆（经 control_items 读出，含看法与偏好；标「你自己记下的，
 未经核验」；被拒与重放的请求不列），以及此刻可见的事实子集：工作主题、还没办完的个人事务、收件箱、在途订单及预计送达、
 联系人、上一天目标的推进情况。
-「个人事务」是只读键（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-零点计划修订与只读问答 ）：行与待办层同一构造（errands.plan_rows），写名称、要办成
+「个人事务」是只读键（docs/design/04-simulation-engine.md ）：行与待办层同一构造（errands.plan_rows），写名称、要办成
 什么、已办到哪、备注与提醒时刻，不登记来源事件；零点计划不创建、不更改、不终结事务，「待办任务」只呈现分配的工作主题。
-「上班安排」是场景声明的工作安排按输入「计划日期」所指的本地日求值的结果（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库 4.6；
+「上班安排」是场景声明的工作安排按输入「计划日期」所指的本地日求值的结果（docs/design/06-agent.md 4.6；
 零点边界上即新开始的一日）：与环境层 duty 同源（work_schedule.day_arrangement），不含 status，地点写显示名，
 没有工作安排为 null。
 不读身体数值、交互对象、私有绑定、未到期的预排事件与人物的主观记忆库，也不含内部身份。
@@ -122,7 +122,7 @@ def _review_window(now: int, timezone_name: str, midnight_boundary: bool) -> _Wi
 
 def _persona(context: Any, agent_id: int) -> dict[str, Any]:
     """@brief 场景声明的人物档案与背景原文（不读工作区里编译过的卡片）：下班、到家时段只取场景字段、未声明省略，只来自
-    卡片的下班与到家时刻不进这里（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-场景作息覆盖 ）。"""
+    卡片的下班与到家时刻不进这里（docs/design/06-agent.md#agent-场景作息覆盖 ）。"""
     config = next(item for item in context.scenario.agents if item.agent_id == agent_id)
     fields = {
         "名字": config.name,

@@ -155,7 +155,7 @@ def end_partner_chats(before: WorldState, after: WorldState) -> tuple[WorldState
 
 def schedule_template_reply(state: WorldState, message: social.Message, contact: social.Contact) -> WorldState:
     """@brief template 策略联系人落一条占位回复（social.template_reply），登记为 CONTACT_REPLY_DELAY_SECONDS 后
-    送达的预排事件，到期写入收件箱并以 message_arrival 唤醒，睡眠中过滤（docs/CONTRACTS.md#contracts-worldmock-接口合同「联系人回复」）。"""
+    送达的预排事件，到期写入收件箱并以 message_arrival 唤醒，睡眠中过滤（docs/design/04-simulation-engine.md「联系人回复」）。"""
 
     incoming = social.IncomingMessage(message_id=message.message_id, sender_id=message.sender_id,
                                       contact_id=contact.contact_id, text=message.text,

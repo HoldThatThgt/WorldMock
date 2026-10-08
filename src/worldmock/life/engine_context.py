@@ -29,7 +29,7 @@ AFFORDANCE_CONTRACT_KEYS = frozenset({
 
 
 def affordance_contract(view: AffordanceView) -> dict[str, dict]:
-    """@brief 从可供性派生视图构造观察合同冻结块（docs/design/02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎「可供性与活动声明」）。
+    """@brief 从可供性派生视图构造观察合同冻结块（docs/design/02-exchange-engine.md「可供性与活动声明」）。
 
     合同随场景组装后不变，键集见 AFFORDANCE_CONTRACT_KEYS。
     """

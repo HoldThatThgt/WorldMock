@@ -1,18 +1,6 @@
 <a name="scenarios-生活场景"></a>
 # 生活场景
 
-> 2026-10-07 按[动作与内容简化规格](../dev/SPEC-action-and-content-simplification.md#spec-acs-动作与内容简化开发规格)修订「固定规则、目录格式与加载边界、收货结算」（阶段 1、2）。
-
-> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题分配与工作安排。
-
-> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「看懂场景的组成、修改日期与模拟节奏、限制人物可以做什么、配置日历和预排事件、校验自己的场景、选择起点与文件位置」（阶段 1）；「修改人物、身体与账户」（阶段 3）。
-
-> 2026-10-01：[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)已冻结并已实现；本手册描述当前程序实际读取的配置。
-> 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步个人事务与提醒（阶段 2）。
-> 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步场景结构 5 的工作安排（阶段 3）。
-> 2026-10-05：按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)同步班次与休息时段起止的决策机会（阶段 1）。
-> 2026-10-06：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)同步暂停的活动不占名额与同刻上限后的受限轮（阶段 1）；「工作通知与目标发布」补仍带旧占用声明副本的环境在装配时被拒绝（阶段 2）。
-
 生活场景决定模拟谁、从什么时候到什么时候、有哪些生活机会，以及世界开始时的状态。
 从[手册首页](README.md#readme-创建自己的第一个场景)复制现有场景开始，按本页调整自己的条件。
 人物具体怎么过一天仍由人物决定；场景提供环境和机会，也可以声明人物定下的工作安排——它是每轮告诉人物的事实，环境不因此拒绝任何行动。
@@ -100,14 +88,14 @@ flowchart LR
 当日目标与个人事务的 `remind_time` 都是场景本地 `HH:MM`，可为空，每次设定只触发一次；人物还可用 `set_alarm(at)` 设置一次性原生闹钟，`at` 为带偏移、严格未来且早于结束的整秒 ISO 时间。目标提醒与闹钟都能叫醒睡着的人；个人事务提醒在睡眠中不交付也不消耗，醒来时一并交付。闹钟保存在实际预排事件中，恢复不重复响铃。
 声明了工作安排的人物在班次与休息时段的起止也会得到决策机会，但起止不是提醒：它们只给醒着的人物一次决策机会，不叫醒睡着的人，睡过的也不补（见下文「声明工作安排」）。
 睡眠中只有目标提醒、原生闹钟及睡够等专用条件能够唤醒，普通消息、到货与工作班次起止不能叫醒人物。
-规则见[当日目标规格](../dev/SPEC-day-plan-goals.md#spec-day-plan-goals-当日目标特性开发规格)与[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第四章。
+规则见[模拟引擎](../design/04-simulation-engine.md)与[模拟引擎](../design/04-simulation-engine.md)。
 
 个人事务由人物在运行中自己记下（播报、暂停或收尾时写在请求的 `errands` 里），场景不能预置。
 它只表达能由结算确认的事：取得某件具体商品若干份（1 至 9）；环境按真实结算确认办成，人物只能取消并写原因，没有截止与过期。
 事务只按本人 `goods_received` 中真实商品与件数累计：现场收货同秒生效，直送实际收货后生效，长途到站尚未领取时不生效。没有留在门店或家里的库存，也没有额外吃掉条件。
 事务的提醒钟点不晚于写下它的时刻（新增或更新被受理时）时，指下一天的这个钟点。每人未完成事务至多 8 条，一次请求至多 4 条变更，
 名称至多 30 字符，备注与取消原因各至多 120 字符；事务跨零点保留并一直显示在待办层，零点计划与修订计划都不删它。
-这些上限是实验假设，见[实验设置](../EXPERIMENT.md#experiment-实验假设声明)；规则见[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)第二章。
+这些上限是实验假设，见[交换引擎](../design/02-exchange-engine.md)；规则见[运行与框架集成](../design/10-runtime.md)。
 
 <a name="scenarios-修改人物身体与账户"></a>
 ## 修改人物、身体与账户
@@ -217,7 +205,6 @@ flowchart LR
 睡着的人不会被叫醒，睡过的也不补。给人物声明班次因此会让他每个当班日多出几次决策机会。
 工作安排不产生开放、截止或预约；工作内容从运行开始可见，开始与恢复只按工作地点、内容剩余上限、名额与占用判定。
 
-
 人物以 `work_content_ids` 分配 `work_study` 类别的目录内容，引用必须已登记且不得重复。
 分配内容的动作不得是 `offline_assisted`；同一工作内容只能分配给一个人物。
 有分配内容的人物必须声明 `work_schedule`（`WORK_SCHEDULE_REQUIRED`）；
@@ -311,7 +298,7 @@ worldmock validate --scenario experiments/my-world/scenarios/single-person.json
 | `WORK_CONTENT_INSUFFICIENT` | 分配时长之和覆盖排班秒数 |
 | `MAP_NOT_REGENERATED` | 按地点清单与种子生成发布图 |
 
-完整码与英文原因见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)。严格场景结构 8 拒绝旧字段。
+完整码与英文原因见[环境目录文件](../design/03-resource-engine.md#resource-engine-环境目录文件)。严格场景结构 8 拒绝旧字段。
 
 <a name="scenarios-工作通知与目标发布"></a>
 ## 工作内容从运行开始可做

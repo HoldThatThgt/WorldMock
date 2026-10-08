@@ -1,4 +1,4 @@
-"""@brief 将完整结算证据投影为人物可见的公开结果（进度层 tool_call.result，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「进度层」）。
+"""@brief 将完整结算证据投影为人物可见的公开结果（进度层 tool_call.result，docs/design/06-agent.md「进度层」）。
 
 公开结果含 occurred_at（带时区 ISO）、status、error_code（恒写，没有时为 null）、message（原文；业务拒绝时就是 reason）
 与 details（恒写，没有新事实时为 {}）。details 只放本次新产生的可读事实：购买的商品、份数、
@@ -16,8 +16,8 @@ from worldmock.life.readable import duration_phrase, iso_time, money_phrase, por
 from worldmock.life.scenario import RuntimeScenario
 
 #: 原样进入 details 的已公开键：回看由处理器以名称与人读时长写成，拒绝原因、改法、下一步与逐项明细由 life.guidance
-#: 生成（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章「错误合同」），终局、名称归一与附带说明只含可读名称；errands 是控制
-#: 工具受理的事务变更回执 [{errand, change}]（只有名称，docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 「回执」）。
+#: 生成（docs/design/04-simulation-engine.md「错误合同」），终局、名称归一与附带说明只含可读名称；errands 是控制
+#: 工具受理的事务变更回执 [{errand, change}]（只有名称，docs/design/04-simulation-engine.md 「回执」）。
 _PASSTHROUGH_DETAILS = ("recall", "reason", "next_step", "fix", "items", "outcome", "linked_orders", "resolved",
                         "notes", "errands", "content")
 

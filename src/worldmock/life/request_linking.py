@@ -1,4 +1,4 @@
-"""@brief 代点请求与订单关联（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「代点请求与订单关联」）。
+"""@brief 代点请求与订单关联（docs/design/06-agent.md「代点请求与订单关联」）。
 
 answering 填一条可见直接消息的规范名称「<发件人> HH:MM 的消息」（不是今天的在 HH:MM 前加「M月D日」），时刻取消息送达
 （进度层 message_arrival 的 occurred_at）；私有绑定 message_bindings 把名称映射到消息与发件人，只收本次观察可见的

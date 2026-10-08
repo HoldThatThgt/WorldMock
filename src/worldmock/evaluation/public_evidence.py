@@ -26,7 +26,7 @@ _LEGACY_ACTIONS = {
 #: 结果活动种类只取现行四类，环境动作类别由快照保存。
 _ACTION_OF_KIND = {"travel": "travel_to", "action": "do", "wait": "wait", "sleep": "sleep"}
 _ACTION_INTERACTIONS = {"entertainment": "view", "work_study": "work", "exercise": "do", "daily_care": "do"}
-#: 活动控制工具 -> 公开交互动词（docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面「稳定工具面」），按请求
+#: 活动控制工具 -> 公开交互动词（docs/design/04-simulation-engine.md「人物工具与管理接口」），按请求
 #: items[] 逐活动投影。
 _SESSION_CONTROL_TOOLS = {
     "report_status": "report",

@@ -7,7 +7,7 @@
 故事未提及的时型、睡眠需要与五个时间锚点输出 null，由 persona-mapping.toml
 [defaults] 确定性补齐（不在提示层编造）。下班与到家锚点在独立顶层键 work_anchors
 里单独取共识，null 保持 null、不读缺省；不合顺序约束时按固定顺序降级为 null，
-降级说明只在共识后的最终卡片上生成（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-下班与到家锚点 ）。
+降级说明只在共识后的最终卡片上生成（docs/design/06-agent.md#agent-下班与到家锚点 ）。
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ from worldmock.profile.models import (
 #: 画像抽取使用与运行相同的官方模型端点（DEEPSEEK_BASE_URL，即 strict 所在的 /beta）。
 API_URL = f"{DEEPSEEK_BASE_URL}/chat/completions"
 DEFAULT_MODEL = DEEPSEEK_MODEL
-#: 三次一致性口径：默认 3 次独立采样（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」）。
+#: 三次一致性口径：默认 3 次独立采样（docs/design/06-agent.md「画像编译」）。
 DEFAULT_RUNS = 3
 #: 采样温度：要多样性做共识，但保持在低躁区间。
 TEMPERATURE = 0.3
