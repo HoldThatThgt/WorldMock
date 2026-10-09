@@ -11,7 +11,7 @@ from worldmock.catalog.models import MapEdge, MapGraph
 def hand_graph(edges, nodes=None):
     """@brief 使用真实发布模型构造可手算的无向图。"""
     ids = nodes or sorted({node for a, b, _ in edges for node in (a, b)})
-    return Graph(MapGraph(schema_version=1, seed=7, generator_rule_version=1, nodes=tuple(ids),
+    return Graph(MapGraph(nodes=tuple(ids),
                           edges=tuple(MapEdge(a=a, b=b, length_m=length) for a, b, length in edges)))
 
 
@@ -46,16 +46,16 @@ def test_full_path_comparison_prefers_smaller_first_hop_despite_larger_suffix(re
 
 
 def test_catalog_routes_through_an_unselected_intermediate_location(loaded_catalog):
-    """@brief 场景只选家和公司也必须沿完整环境图经过面馆。"""
-    assert loaded_catalog.graph.path("home", "office") == ("home", "noodle-1", "office")
-    assert loaded_catalog.shortest_m("home", "office") == 3274
+    """@brief 家和公司之间必须沿完整环境图经过公园。"""
+    assert loaded_catalog.graph.path("home", "office") == ("home", "park", "office")
+    assert loaded_catalog.shortest_m("home", "office") == 1957
     paths = loaded_catalog.graph.shortest_paths("home")
     with pytest.raises(TypeError):
         paths["office"] = (1, ("home", "office"))
 
 
 def test_catalog_graph_does_not_recreate_published_edges(loaded_catalog):
-    shifted = loaded_catalog.map_data.model_copy(update={"seed": 123456})
+    shifted = loaded_catalog.map_data.model_copy()
     catalog = replace(loaded_catalog, map_data=shifted)
     assert catalog.graph.path("home", "office") == loaded_catalog.graph.path("home", "office")
 

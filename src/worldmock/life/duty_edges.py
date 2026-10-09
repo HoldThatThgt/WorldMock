@@ -17,56 +17,54 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from worldmock.life.schedule import WakeReason
 from worldmock.life.work_schedule import break_spans, shift_on, shift_span
-from worldmock.life.world_ops import agent_config
 
 
-def duty_edges(scenario: Any, agent_id: int, moment: int) -> Iterator[tuple[int, WakeReason]]:
+def duty_edges(inputs: Any, agent_id: int, moment: int) -> Iterator[tuple[int, str]]:
     """@brief 生成器：moment 所在当地日的前一日、当日与次日里，该人物班次与休息时段的起止（时刻, 成员）。
 
     扫描前一日使前一日写到 1440 的止点在当地零点上可见，扫描次日使次日 00:00 的起点在零点之前就进入候选
     （docs/design/04-simulation-engine.md ）。按日期、班次开始、各休息时段、班次结束的次序产出，
     同一时刻可以出现多次；没有工作安排或三天都不当班时什么都不产出。
 
-    @param scenario 运行场景（读 timezone 与人物配置）
+    @param inputs 完整环境输入（读 timezone 与唯一人物声明）
     @param agent_id 人物身份
     @param moment 查询时刻（UTC epoch 秒）
     """
-    schedule = agent_config(scenario, agent_id).work_schedule
+    schedule = inputs.persona.work_schedule
     if schedule is None:
         return
-    zone = ZoneInfo(scenario.timezone)
+    zone = ZoneInfo(inputs.config.timezone)
     today = datetime.fromtimestamp(moment, zone).date()
     for day in (today - timedelta(days=1), today, today + timedelta(days=1)):
         shift = shift_on(schedule, day)
         if shift is None:
             continue
         start, end = shift_span(shift, day, zone)
-        yield start, WakeReason.SHIFT_START
+        yield start, "shift_start"
         for begin, finish in break_spans(shift, day, zone):
-            yield begin, WakeReason.BREAK_START
-            yield finish, WakeReason.BREAK_END
-        yield end, WakeReason.SHIFT_END
+            yield begin, "break_start"
+            yield finish, "break_end"
+        yield end, "shift_end"
 
 
-def edges_at(scenario: Any, agent_id: int, now: int) -> frozenset[WakeReason]:
+def edges_at(inputs: Any, agent_id: int, now: int) -> frozenset[str]:
     """@brief 恰在 now 这一秒成立的起止成员（唤醒判定的输入）：同一秒重合的多个起止各记一次，并列的次序由
     schedule.evaluate_wake_reasons 按声明次序给出（docs/design/04-simulation-engine.md ）。
 
-    @param scenario 运行场景
+    @param inputs 完整环境输入
     @param agent_id 人物身份
     @param now 结算边界时刻（UTC epoch 秒）
     """
-    return frozenset(member for moment, member in duty_edges(scenario, agent_id, now) if moment == now)
+    return frozenset(member for moment, member in duty_edges(inputs, agent_id, now) if moment == now)
 
 
-def edge_times_after(scenario: Any, agent_id: int, now: int) -> tuple[int, ...]:
+def edge_times_after(inputs: Any, agent_id: int, now: int) -> tuple[int, ...]:
     """@brief 严格晚于 now 的起止时刻（升序去重）：下一次决策机会与下一时钟边界的候选，本边界已判定的起止不重复计
     （docs/design/04-simulation-engine.md ）。
 
-    @param scenario 运行场景
+    @param inputs 完整环境输入
     @param agent_id 人物身份
     @param now 当前时刻（UTC epoch 秒）
     """
-    return tuple(sorted({moment for moment, _member in duty_edges(scenario, agent_id, now) if moment > now}))
+    return tuple(sorted({moment for moment, _member in duty_edges(inputs, agent_id, now) if moment > now}))

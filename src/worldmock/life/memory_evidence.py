@@ -1,12 +1,8 @@
-"""@brief 已落盘主观记忆更新的封闭证据校验与写入点推导。
-
-记忆写入点只有两处（docs/design/04-simulation-engine.md「finish 并入 conclude_activity」）：结束活动
-（activity_conclusion）与就寝反思（reflection），阈值巩固不是写入点。AS2 的 MemoryUpdateEvidence 不带写入点，
-由引擎按登记推导 memory_updated.data.trigger：同一决策已登记带记忆或看法的 conclude_activity（经 control_items
-读出，唯一 items 形状）时含 activity_conclusion；绑定观察的唤醒原因含 wake_from_sleep 时含 reflection；顺序固定。
-"""
+"""@brief 主观记忆只在真实活动收尾或当前决策点刚完成睡眠时写入，来源与快照严格核验。"""
 
 from __future__ import annotations
+
+import logging
 
 from collections.abc import Mapping, Sequence
 from worldmock.footprints.models import is_sha256
@@ -22,6 +18,14 @@ MEMORY_WRITE_POINTS = ("activity_conclusion", "reflection")
 def conclusion_has_memories(request: Any) -> bool:
     """@brief conclude_activity 请求是否带至少一条记忆或看法（items[].memories 与 items[].views）。"""
     return any(item.memories for item in control_items("conclude_activity", request))
+
+
+def observation_ended_sleep(data: Mapping[str, Any]) -> bool:
+    """@brief 核对冻结观察中的真实睡眠结束事实，不从唤醒原因推测反思资格。"""
+    sleep = data.get("ended_sleep")
+    return (isinstance(sleep, Mapping) and sleep.get("kind") == "sleep"
+            and sleep.get("status") == "completed"
+            and sleep.get("ended_at") == data.get("current_time"))
 
 
 def memory_write_points(requests: list, decision_id: str, observation: Any, written: bool) -> list[str]:
@@ -40,9 +44,10 @@ def memory_write_points(requests: list, decision_id: str, observation: Any, writ
     if any(event.decision_id == decision_id and event.data.get("tool_name") == "conclude_activity"
            and conclusion_has_memories(event.data.get("request")) for event in requests):
         points.append(MEMORY_WRITE_POINTS[0])
-    if "wake_from_sleep" in observation.data.get("wake_reasons", []):
+    if observation_ended_sleep(observation.data):
         points.append(MEMORY_WRITE_POINTS[1])
     if written and not points:
+        logging.error("Memory update evidence is invalid")
         raise ProtocolError("Memory update has no registered write point")
     return points
 
@@ -71,6 +76,7 @@ def _memory_evidence_data(evidence: Any) -> dict[str, Any]:
             or (evidence.operation == "refresh_summary" and
                 (identities or evidence.memory_before_sha256 == evidence.memory_sha256))
             or not valid_subjective_snapshots(episodes, identities)):
+        logging.error("Memory update evidence is invalid")
         raise ProtocolError("Memory update payload is invalid")
     return {"operation": evidence.operation, "created_episode_ids": list(created),
             "merged_episode_ids": list(merged), "episodes": list(episodes),

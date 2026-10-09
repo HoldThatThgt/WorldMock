@@ -4,168 +4,195 @@
 <a name="resource-engine-职责与边界"></a>
 ## 职责与边界
 
-资源引擎负责加载、校验和查询冻结目录。WorldMock-Dataset 制作并发布环境，WorldMock 接受目录与场景，
-不读取语料目录，不保存环境规则副本，不拥有运行中的订单、内容历史或活动进度。
+资源引擎读取环境包中的发布目录，校验身份、字段、容器绑定和回调声明，建立只读索引与内存地图。
+人物和运行配置由环境加载器读取；资源引擎不读取语料、保存活动进度、执行回调或修改资金。
 
 ```mermaid
 flowchart LR
-    D[数据仓制作环境] --> C[目录与场景]
-    C --> V[身份、字段、绑定与图校验]
-    V --> F[只读目录]
-    F --> W[模拟引擎的活动与交易]
+    Package[环境包] --> Manifest[清单与真实字节身份]
+    Manifest --> Rows[严格 JSONL 行]
+    Rows --> Registration[对象、容器、营业安排与回调登记]
+    Registration --> Catalog[只读目录索引]
+    Seed[运行种子] --> Map[确定性内存地图]
+    Registration --> Map
+    Catalog --> Engine[模拟引擎]
+    Map --> Engine
 ```
 
 <a name="resource-engine-环境目录文件"></a>
 ## 环境目录文件
 
-| 文件 | 内容 |
+环境根目录只允许 `catalog/`、`persona.toml`、`config.toml`。`catalog/` 只允许以下文件。
+包外条目直接拒绝，不遍历包外目录或符号链接；实际读取也拒绝链接和越界路径。
+
+| 文件 | 登记内容 |
 | --- | --- |
-| `manifest.json` | `format_version: 2`、环境标识与版本、`rules_version: 2`、六个文件的路径/哈希/字节数、`catalog_content_sha256` |
-| `apps.json` | `app_id`、真实 `name`、`purposes`、`payment_app_ids`；用途与绑定列表去重并排序 |
-| `locations.json` | `location_id`、`name`、可选 `branch_label`、`kind`、`app_ids`、必填可空的 `shipping_seconds`；非店铺及加油站的运输时长必须为 null |
-| `goods.json` | `goods_id`、`name`、六个固定商品类别之一、正整数 `price_fen`、`store_ids` 列表或 `"all"` |
-| `actions.json` | `action_id`、`name`、`description`、五个固定类别之一、`app_ids`、必填可空 `manner`、`communication_mode` |
-| `contents.json` | `content_id`、`action_id`、`title`、摘要与来源、`duration_seconds`、`app_ids`、可选 `series` |
-| `map.json` | 地图结构 1、种子、生成器规则版本 1、节点与规范无向边 |
+| `manifest.json` | `format_version: 3`、环境身份和版本、`rules_version: 3`、五个 JSONL 的路径、摘要和字节数，以及 `catalog_content_sha256` |
+| `app-catalog.jsonl` | app 身份、名称、角色，以及功能动作或纯目录浏览时长 |
+| `location.jsonl` | 全部实际地点、显示名、自由类型、内容 app、住宿和驿站资格、营业安排 |
+| `merchant-catalog.jsonl` | 商品身份、名称、四类商品、固定价格、地点类型或内容 app 绑定 |
+| `content-catalog.jsonl` | 内容身份、标题、时长、体力消耗、推送资格、心理缓解档位、摘要与容器 |
+| `callbacks.jsonl` | 状态声明和触发规则，允许零字节 |
 
-内容必须绑定恰好一个动作；动作可以不绑定 app。动作的 `app_ids` 非空时，`manner` 必须是一种固定使用方式，
-每条内容的 `app_ids` 是该动作 app 集合的非空子集；动作没有 app 时，`manner` 为 null、内容 app 集合为空。
-每个动作及每个动作与 app 的组合至少有一条内容。空集合从不表示全部 app。
-内容 `duration_seconds` 是正整数且不小于 60 秒；动作不登记时长、时间窗、场所或效果。
-内容不登记分类；环境维护动作名称、说明及其内容。
-系列以 `(action_id, series.title)` 识别，各集具有相同动作与 app 集合，集数为唯一的正整数。
+没有 `map.json`、目录动作、地点实例数量、环境规则副本、脚本或运输时长。
+未知字段不忽略、不翻译；旧格式直接拒绝。
 
-商品绑定店铺，店铺绑定购物 app。`GOODS_CATEGORY_STORE_KINDS` 固定类型可供给的类别，
-`"all"` 展开到全部可供给该类别的店铺；显式绑定列表去重排序，同类型店铺同菜单。
-购物用途存在当且仅当至少一家店铺绑定该 app；支付绑定非空当且仅当有购物用途，
-绑定目标具有支付用途，允许绑定自己。导航与支付 app 可以没有内容；app 必须有用途或动作绑定。
+<a name="resource-engine-jsonl-行读取"></a>
+## JSONL 行读取与环境包边界
 
-登记只接受这六个文件与清单；环境规则副本、旧目录文件与额外清单路径以 `ENVIRONMENT_STALE_FILE` 拒绝。
-目录按实际文件的路径、字节数和摘要绑定身份，发布使用原子写入。
+JSONL 按真实 UTF-8 字节和 LF 逐行解析。零字节表示零行；末尾 LF 后的空串不算一行，最后一行可以没有 LF。
+每行恰好包含一个 JSON 对象。空行、全空白、BOM、非法 UTF-8、多值、跨行对象、数组、标量和非 JSON 数值拒绝。
+任意 CR 使用 `ENVIRONMENT_KIND_INVALID`，详情保留 `Catalog JSON must use LF line endings.`；
+其他行解析失败使用 `ENVIRONMENT_LINE_INVALID`。行失败详情均以 `<目录相对路径>:<行号>` 开头。
+模型未知字段优先使用种类错误，再按实际字段判断数值错误。行内空白和键序不规范化，身份按实际字节计算。
+
+清单原始对象中的 `rules_version` 若为严格整数，先比较当前规则版本，再解析严格清单模型。
+不匹配直接报 `RULES_VERSION_MISMATCH`；字符串、布尔、缺失版本和非法清单形状报 `ENVIRONMENT_KIND_INVALID`。
 
 <a name="resource-engine-注册校验与错误"></a>
 ## 注册校验与错误
 
-`src/worldmock/catalog/admission.py` 仍是唯一的登记校验器，`load_catalog`、`worldmock validate --environment` 与数据仓的检查都调用它；失败抛 `RegistrationError`（`IntegrityError` 子类，带稳定 `code`），原因与日志一律英文，文字只定义在 `src/worldmock/catalog/errors.py` 的 `REGISTRATION_REASONS`。名称比较一律经 `channel_key`。严格模型的多余字段错误一律先映射为 `ENVIRONMENT_KIND_INVALID`，再按字段名映射其余错误（动作行上名为 `duration_seconds` 的多余字段因此是 `ENVIRONMENT_KIND_INVALID`，不是 `ENVIRONMENT_NUMBER_INVALID`）。下表按当前目录与场景准入条件定义错误。
+`catalog.admission` 是唯一对象登记校验器。`load_catalog(catalog_dir, seed)` 和
+`validate_catalog_files(catalog_dir)` 共用文件读取与登记阶段；纯校验不需要种子、不生成地图。
+失败抛带稳定 `code` 的 `RegistrationError`，英文原因只维护在 `catalog.errors`，异常均记录英文日志。
+`validate_environment_entries` 独立检查两层包闭集，使人物、配置和目录能够各自报告输入错误。
 
-| 码 | 条件 | 英文原因 |
-| --- | --- | --- |
-| `RULES_VERSION_MISMATCH` | 清单 `rules_version` ≠ `RULES_VERSION` | "The environment was published for a different rules version." |
-| `ENVIRONMENT_STALE_FILE` | `catalog/` 下有六个目录文件与清单之外的文件（`foods.json`、`work_topics.json`、`affordances.toml`、`rules/` 等），或清单列出了六个之外的路径 | "The catalog contains a file that the manifest does not list." |
-| `ENVIRONMENT_FILE_UNLISTED` | 清单缺少六个必需文件之一 | "The manifest does not list a required catalog file." |
-| `ENVIRONMENT_IDENTITY_MISMATCH` | 文件 sha256 或字节数与清单不符；`catalog_content_sha256` 与重算不符（不再用于规则副本） | "A catalog file does not match the identity recorded in the manifest." |
-| `ENVIRONMENT_PIN_MISMATCH` | 场景 `environment` 钉与正在加载的清单 `environment_id` 或 `environment_version` 不同 | "The scenario pins an environment that is not the one being loaded." |
-| `ENVIRONMENT_ID_DUPLICATE` | 同一文件内标识重复；app 名、地点显示名或商品名在本文件内重复；同一绑定列表或清单路径重复 | "An identifier or display name is declared twice in one catalog file." |
-| `ENVIRONMENT_REF_UNKNOWN` | `store_ids`、`app_ids`、`payment_app_ids` 或场景引用（已选地点、住处）指向未登记的对象 | "A binding refers to an object that is not registered." |
-| `ENVIRONMENT_KIND_INVALID` | `kind`、`category`、`purposes`、`manner`、`summary_source.kind` 不在闭集；任何未知字段，含动作上的时长、时间窗、场所与效果字段；条目或绑定未按标识排序；非 `STORE_KINDS` 地点带 `app_ids`；内容带 `kind` 同样作为未知字段拒绝 | "A declared kind is outside the fixed set." |
-| `ENVIRONMENT_NUMBER_INVALID` | `price_fen`、`length_m`、`series.episode` 不是正整数；`duration_seconds` 不是整数或小于 `CONTENT_MIN_SECONDS`；`size_bytes` 不是非负整数；`seed` 不是整数 | "A declared number is outside its allowed domain." |
-| `GOODS_BINDING_MISSING` | 商品没有 `store_ids`，或显式列表为空 | "A goods item must be bound to stores or to all stores that may supply its category." |
-| `GOODS_STORE_KIND_INVALID` | `store_ids` 含不属于 `STORE_KINDS` 的地点，或含类型不能供给该类别的店铺 | "A goods item is bound to a place that cannot supply its category." |
-| `GOODS_BINDING_KIND_INCONSISTENT` | 某类型的店铺里有的绑定了该商品、有的没有 | "A goods item must be bound to every store of a kind or to none of them." |
-| `APP_PURPOSE_INVALID` | `shopping ∈ purposes` 而没有店铺绑定该 app，或店铺绑定了没有 `shopping` 的 app；`payment_app_ids` 在非购物 app 上非空，或在购物 app 上为空；其中某项不是带 `payment` 用途的 app（app 可以列出自己） | "An app purpose does not match its store or payment bindings." |
-| `APP_UNBOUND` | app 的 `purposes` 为空，且没有任何动作绑定它 | "An app must declare a purpose or be bound by at least one action." |
-| `APP_NAME_COLLIDES_LOCATION` | app 名与地点显示名相同 | "An app name must differ from every place name." |
-| `ACTION_APP_MANNER_INVALID` | `app_ids` 非空而 `manner` 为 null，或 `app_ids` 为空而 `manner` 非 null | "An action must declare a manner exactly when it is bound to apps." |
-| `ACTION_CONTENT_EMPTY` | 某个动作没有内容，或某个（动作，app）对没有 `app_ids` 含该 app 的内容 | "An action and each of its apps must have at least one content." |
-| `ACTION_NAME_COLLIDES` | 动作名与另一个动作、任一 app、地点显示名、商品名或 `WAYS` 的方式词相同 | "An action name must differ from every other action, app, place, goods and way name." |
-| `CONTENT_ACTION_MISSING` | 内容没有 `action_id`，或它不是已登记的动作 | "A content must be bound to one registered action." |
-| `CONTENT_APP_BINDING_INVALID` | 动作无 app 而内容 `app_ids` 非空；动作有 app 而内容 `app_ids` 为空或不是动作 `app_ids` 的子集 | "A content must list a non-empty subset of its action's apps, or none when the action has no app." |
-| `CONTENT_SERIES_INVALID` | 同一 `series.title` 的各集不在同一个动作下，或 `app_ids` 不全相同；`(series.title, episode)` 重复 | "Episodes of a series must share one action and one app set and have unique episode numbers." |
-| `CONTENT_SUMMARY_TOO_LONG` | `summary` 超过 `PUSH_SUMMARY_MAX_CHARS` | "A content summary exceeds the registration limit." |
-| `CONTENT_SOURCE_URL_MISSING` | `summary_source.kind = real` 而 `url` 为空 | "A real summary must record its source url." |
-| `MAP_TOO_SMALL` | 节点少于 `MAP_MIN_NODES` | "The map needs at least two places." |
-| `MAP_EDGE_INVALID` | 自环、重复无序对、未知端点、非正长度、未按规范排序、`nodes` 与地点清单不等 | "The map has an edge that is not a sorted positive link between two registered places." |
-| `MAP_DISCONNECTED` | BFS 不能到达全部节点 | "The map is not connected." |
-| `MAP_NOT_REGENERATED` | `worldmock validate --environment` 或 `--check` 的重生成结果与发布的 `map.json` 不逐字节相同 | "The published map differs from the generator output for its seed." |
-| `MERCHANT_ACCOUNT_MISSING` | 已选的 `STORE_KINDS` 地点没有 `merchant:<location_id>` 账户 | "A selected store has no merchant account." |
-| `WORK_CONTENT_UNKNOWN` | 场景 `work_content_ids` 指向未登记的内容，或指向动作类别不是 `work_study` 的内容 | "A scenario assigns a work content that is not a registered work and study content." |
-| `WORK_SCHEDULE_REQUIRED` | `work_content_ids` 非空的人物没有 `work_schedule` | "A person with assigned work content must declare a work schedule." |
-| `WORK_CONTENT_REQUIRED` | 声明了 `work_schedule` 的人物 `work_content_ids` 为空 | "A person with a work schedule must be assigned at least one work content." |
-| `WORK_CONTENT_INSUFFICIENT` | 人物被分配内容的 `duration_seconds` 之和小于其班次落在 `[start_at, end_at)` 内的秒数（班次按 `shift_on` 取，每个班次计 `starts` 到 `ends` 的全长） | "The assigned work content is shorter than the person's scheduled shifts in the run window." |
-| `ACTION_COMMUNICATION_MODE_INVALID` | 绑定 app 的社交动作未声明 text 或 voice，或其他动作声明了通信方式 | "App-based social actions must declare text or voice communication; other actions must declare null." |
-| `PARCEL_STATION_REQUIRED` | 长途配送场景缺少离人物家庭地址最近且被场景选中的驿站 | "The nearest parcel station to a persona home must be registered and selected by the scenario." |
+身份行和引用列表按身份字符串升序且无重复；名称比较经 `channel_key` 去全部空白并忽略大小写。
+app、地点显示名、商品名分别在所属文件唯一。app 名不得与任何地点显示名相同；
+人物实际可见的地点、商品、内容 app 名称唯一性由环境加载器检查，内容标题不参与名称解析。
+
+| 拒绝码 | 登记边界 |
+| --- | --- |
+| `ENVIRONMENT_STALE_FILE` | 环境根、目录或清单存在闭集外条目，详情指出实际路径 |
+| `ENVIRONMENT_FILE_UNLISTED` | 清单缺少必需 JSONL |
+| `ENVIRONMENT_IDENTITY_MISMATCH` | 安全文件边界失败，或实际文件表、字节摘要和清单不一致 |
+| `ENVIRONMENT_ID_DUPLICATE` | 身份、名称或引用列表重复 |
+| `ENVIRONMENT_REF_UNKNOWN` | app、商品等对象引用未登记 |
+| `ENVIRONMENT_KIND_INVALID` | 未知字段、非法闭集值、坏字符串或布尔、未排序列表、非法营业安排 |
+| `ENVIRONMENT_NUMBER_INVALID` | 严格整数类型或范围不符 |
+| `HOME_LOCATION_REQUIRED` | 没有显式住宿地点，或人物住处未解析到住宿地点 |
+| `PARCEL_STATION_REQUIRED` | app 侧商品需要驿站但未登记，或驿站类型没有地点内容 |
+| `APP_ROLE_BINDING_INVALID` | 内容 app 声明动作，或地点、商品、内容、提醒引用功能 app |
+| `APP_UNBOUND` | 内容 app 没有有效内容来源，或功能 app 没有具体动作 |
+| `APP_NAME_COLLIDES_LOCATION` | app 名与地点显示名碰撞 |
+| `GOODS_BINDING_MISSING`、`GOODS_BINDING_SIDE_EXCLUSIVE`、`GOODS_BINDING_DANGLING` | 商品容器缺失、两侧同时绑定、类型没有实际地点 |
+| `CONTENT_CONTAINER_MISSING`、`CONTENT_CONTAINER_SIDE_EXCLUSIVE`、`CONTENT_BINDING_DANGLING` | 内容容器缺失、两侧同时绑定、类型没有实际地点 |
+| `CONTENT_SERIES_INVALID` | 同系列容器不同或集号重复 |
+| `CONTENT_SUMMARY_TOO_LONG`、`CONTENT_SOURCE_URL_MISSING` | 摘要超过 200 字符或真实来源缺少 URL |
+| `CALLBACK_STATE_UNREGISTERED`、`CALLBACK_FOOTPRINT_EMPTY`、`CALLBACK_NOTIFY_MISMATCH` | 回调状态未知、足迹为空、提醒与效果不配对 |
+| `MAP_TOO_SMALL`、`MAP_EDGE_INVALID`、`MAP_DISCONNECTED` | 内存地图节点不足、边非法或不连通 |
 
 <a name="resource-engine-图与地点关系准入"></a>
-## 图与地点关系准入
+## 地点与营业安排
 
-| 校验 | 失败行为 |
-| --- | --- |
-| 节点至少两个 | `MAP_TOO_SMALL` |
-| 节点与地点集合相等且排序；边无自环、重复或未知端点，`a < b`，边长正整数、边排序 | `MAP_EDGE_INVALID` |
-| 图连通 | `MAP_DISCONNECTED` |
-| 生成检查和环境校验重生成字节一致 | `MAP_NOT_REGENERATED` |
+每行声明一个实际地点，必填 `location_id`、`name`、`kind`、`app_ids`。`kind` 是非空白严格字符串，
+与商品 `store_kinds`、内容 `location_kinds` 逐字符相等匹配，不按名称归一或旧类型推断资格。
+可选 `branch_label` 缺省为 null；显示名为名称，或「名称（分店标签）」。同名分店必须提供不同标签。
+可选严格布尔 `is_home`、`accepts_parcels` 缺省 false，资格只按标记判断。
+目录至少有一个住宿地点；驿站类型必须有地点内容。全部地点参与供给、名称检查、出行和寻路。
 
-登记加载只验证发布图结构，不重生成。场景地点必须存在于目录，最短路可经过未选择地点；不存在道路范围、许可或未知路线准入。
-对象与绑定继续由统一目录登记验证，同类型店铺菜单一致，`"all"` 不展开到住宅，店铺 app 绑定只允许具备供给能力的店铺。错误输出稳定码、英文原因和所属路径。
-项目 `validate` 的覆盖率 0.8 门禁保留，输入覆盖不足不转成运行期默认内容。
+`opens` 缺省表示全天营业；显式声明必须是对象，不能是 null。
+完整形状为 `{weekly: {mon..sun: [[HH:MM, HH:MM], ...]}, exceptions: {YYYY-MM-DD: [...]}}`。
+`weekly` 必填，`exceptions` 可省略；缺失星期关闭，特殊日期完全替换该日每周时段，空数组表示关闭。
+时段按开始时间升序、不重叠、使用半开区间；`24:00` 只作为结束，跨午夜拆到两日。
+地点的 `is_open` 接收已换算到运行时区的本地时刻，购买和互动资格由模拟引擎调用。
 
 <a name="resource-engine-加权连通图与路线"></a>
 ## 加权连通图与路线
 
-- 生成规则（B-13）：数据仓调用命令或库，WorldMock 生成，数据仓发布；相同地点清单与种子在任何平台得到逐字节相同的 `map.json`。
-- 校验：登记时查 `MAP_TOO_SMALL`、`MAP_EDGE_INVALID`、`MAP_DISCONNECTED`；`validate --environment` 与 `--check` 另查 `MAP_NOT_REGENERATED`；运行与恢复只读发布图。
-- 最短路（B-12）由 `src/worldmock/catalog/graph.py` 提供 `shortest_paths`、`distance_meters(a, b)`、`path(a, b)`；`src/worldmock/life/wayfinding.py` 只剩图查询与 `go_step = "Go to <place>."`；多跳提示、`UNREACHABLE_STORE_STEP`、`UNREACHABLE_DELIVERY_STEP` 与不可达分支删除。
-- 出行：`plan_trip(graph, origin, destination, mode)` 返回 `Trip(trip_id, path, distance_meters, duration_seconds, fare_fen)`；`duration_seconds = ceil(distance ÷ 方式速度)`；`src/worldmock/life/travel.py::planned_travel` 保留名字与单一来源地位，`pay_travel_fare` 只把 `route_id` 改成 `trip_id`，`update_travel` 读 `trip.distance_meters`；`ROUTE_DURATION_MISMATCH` 按图重算；同地点出行按 B-11 拒绝。
-- 车费：步行 0；驾车 `max(DRIVING_FARE_MINIMUM_FEN, ceil(DRIVING_FARE_FEN_PER_METER × 米数))`，付给 `transport:service`。
-- 出行身份：活动 `data{trip_id, path, distance_meters, travel_payment{trip_id, fare_fen, …}, arrival{location_id, access_status}}`；事件、`DeliveryState`、公开证据 `object_type = "route"` 的键与禁键表全部用 `trip_id`，`route_id` 不再出现。
-- 工具层地点目标：每个其他已选地点各列一行，动作 步行、驾车 各带 `price`、`duration = ceil(长度 ÷ 速度)`、费力程度（MET 不变）；私有观察 `data.routes[{trip_id, origin_id, destination_id, mode, distance_meters, duration_seconds, fare_fen}]`、`data.locations[{location_id, name, kind}]`；坐标、`business_kind`、路线状态不再出现。
-- 位置记录：出行事件与活动行引用 `origin_id`、`destination_id`、`path`、`distance_meters`；GPS 轨迹采样、球面距离、折线插值整段删除。
+地图节点恰为全部登记地点，至少两个。既有 NetworkX 生成随机标号树，再加入 `floor((n-1)/2)` 条树外边，
+边长按排序后的边在 200–2000 米内抽取。无向端点规范为 `a < b`，不允许自环或重复，图必须连通。
+使用运行种子先派生 `sha256("random:{seed}")`，再从独立 `map` 随机流取 64 位地图种子。
+相同地点集合和运行种子得到相同规范图和 `map_sha256`；地图只在内存维护，不发布文件。
+`Graph` 保留确定性最短路。住处最近驿站先比较最短距离，同距取较小地点身份。
+出行方式、天气、时长和车费见[模拟引擎](04-simulation-engine.md)。
 
 <a name="resource-engine-环境发布身份"></a>
 ## 环境发布身份
 
-现行身份是目录格式 2、`RULES_VERSION = 2`、场景结构 8、世界结构 11、运行清单 4。
-运行、检查点与恢复使用五字段 `environment_identity`：`environment_id`、`environment_version`、
-`rules_version`、`catalog_content_sha256`、`map_sha256`。
-规则文件只从引擎包读取，环境不发布副本，也不添加规则哈希；`code_sha256` 额外覆盖 `src/worldmock/data/` 下每个文件。
-旧格式与旧结构号直接拒绝，不迁移、不双读。
-
-新增 app、动作、内容与商品只需数据仓重新发布；新增类别、效果或规则须修改 WorldMock 并提升 `RULES_VERSION`。
-地图结构和生成器规则版本都为 1；目录清单不列规则副本，也不带规则哈希。
+清单文件表恰为五个 JSONL 的真实路径、字节数和 SHA-256，按路径排序。
+目录摘要按每个相对路径、NUL、八字节大端内容长度和实际内容分帧；
+最后加入移除 `catalog_content_sha256` 且使用真实文件表的规范清单。
+行内空白、是否有末尾 LF 和键序都影响实际文件身份。目录摘要不包含地图或引擎规则副本。
+运行身份包含环境标识、版本、规则版本、目录摘要和运行种子生成的地图摘要。
 
 <a name="resource-engine-目录发布"></a>
 ## 目录发布
 
-`catalog.identity.refresh_manifest_identity` 安全读取实际文件，重算文件表与框架化目录摘要，经 `atomic_write` 写出规范 LF 清单。地图由 `worldmock environment generate-map` 发布；`--check` 只比较字节。
-验收核对清单身份、原子发布失败保持旧目标，以及 `worldmock validate --environment` 的真实成功和逐类失败，不用声明摘要替代实际文件。
+`refresh_manifest_identity` 安全读取实际 JSONL，重算文件表和框架化摘要，经原子写入发布 LF 清单。
+文件或原子写入失败使用稳定身份错误；失败不替换旧清单。环境校验读取真实输入，不用声明摘要代替实际文件。
 
 <a name="resource-engine-地点发现与候选呈现"></a>
-## 地点发现与候选呈现
+## app、内容与候选呈现
 
-目录提供登记名称、类别与对象绑定；模拟引擎依据人物权限、实际地点和应用绑定构造冻结候选。
-供给目录不保存人物库存、模型偏好权重或动态报价，人物可见名称与内部身份分离。
-商品呈现窗口限制展示数量，不限制人物按登记名称购买未展示商品。
+app 必填 `app_id`、`name`、`role`。功能 app 必须声明非空 `actions`，只可绑定
+`walk`、`drive`、`take_taxi`、`take_bus`、`purchase`；内容 app 不得携带 `actions`，即使空数组也拒绝。
+只有内容 app 可以被地点、商品、内容、阈值提醒引用。功能 app 的自动选择和足迹由模拟引擎处理。
 
-`query_world` 按冻结的公开候选求值，不揭示新世界事实、不推进时间、不占活动名额。
-六键请求、应用筛选、实际可用性与分页统一见[模拟引擎的查询规则](04-simulation-engine.md#simulation-engine-查询筛选与返回精简)。
-候选投影、排序键与游标统一见[人物的候选与呈现](06-agent.md#agent-候选与呈现合同)。
+内容 app 至少承载一条显式内容，或供应 app 侧商品，或由实际供应商品的地点绑定。
+没有显式内容的纯目录 app 必须提供严格整数 `browse_duration_seconds >= 60`；
+有显式内容的 app 和功能 app 不得声明浏览时长。纯目录浏览不伪造内容身份或标题。
 
-食品目标呈现完整标签「<店铺>出售的<食品>」，动作到店在场才可用；有 app 绑定才列远程下单。价格为到手价，说明写实际预计送达或 app 名，不显示报价版本或库存。
+内容必填身份、标题、`exertion`、`pushable`、`relaxation_relief`、`social_relief`、摘要、来源和时长。
+体力消耗档为 `idle`、`light`、`moderate`、`heavy`；两个心理缓解档独立取 `none`、`low`、`medium`、`high`，
+固定每小时缓解量为 0、0.1、0.3、0.5，由身体结算按实际消费时间应用。
+`pushable` 是严格布尔，时长是至少 60 秒的严格整数，摘要至多 200 字符。
+来源完整形状为 `{kind, url, notice}`，真实来源必须有非空 URL。
+
+内容恰有 `app_ids` 或 `location_kinds` 一侧非空，可以绑定多个同侧容器。
+可选 `series` 为 null 或 `{title, episode}`；系列按标题识别，各集容器必须完全相同，正整数集号不得重复。
+目录提供按集号排序的系列索引；推荐、进度、连续消费和恢复由模拟引擎处理，不由推送资格决定。
+候选投影见[人物的候选与呈现](06-agent.md)。
 
 <a name="resource-engine-地点供给和价格"></a>
 ## 地点供给和价格
 
-食品在 `foods.json` 定义 `food_id`、名称、`category`、固定 `price_fen` 与店铺绑定。类别只有 `snack`、`drink`、`meal`，同一食品全店同价，同类型店铺菜单完全相同。
-`store_ids="all"` 只展开到食品店铺类型，住宅不出售食品；目录一次派生 `foods_by_store` 与店铺 app 索引。没有报价、价位、抖动、库存、营业或资格。
-
-`from` 只接受 `null`、登记店铺显示名或 `apps.json` 的 app 名，来源与购买共用同一名称解析；`null` 不额外限制，食品完整标签仍约束标签店铺。
-到店必须人在店内，`app_id=null`；app 配到店以 `SUPPLY_SOURCE_MISMATCH` 拒绝。远程下单要求店铺绑定 app；没有任何 app 是 `FULFILLMENT_NOT_SUPPORTED`，所点 app 未绑定该店是 `APP_NOT_BOUND`，app 的店不卖该食品是 `SUPPLY_NOT_AT_STORE`。
-`from=null` 且店铺绑定多个 app 时取最小 `app_id`，写进 `details.notes`。app 来源从目录绑定派生，不读取手机配置。
+商品必填 `goods_id`、`name`、`category`、严格正整数 `price_fen`。
+类别只有 `snack`、`meal`、`drink`、`goods`；价格全店同价，无库存、供给上限或动态报价。
+`store_kinds` 与 `app_ids` 缺省空数组，恰有一侧非空。地点侧展开到全部逐字匹配地点；
+app 侧只出现在 app 商品索引，不虚构店铺。任何类别都可绑定任何实际地点类型。
+商品实际收货效果和履约见[模拟引擎](04-simulation-engine.md)。
 
 <a name="resource-engine-按类型共享菜单"></a>
-### 按类型共享菜单
+### 按类型共享供给
 
-类型菜单由显式绑定完整派生，运行不抽样、不补齐；旧逐店类别准入池与构建供给机制退役。
+相同类型的地点自然共享商品集合，使用 `goods_by_store`；app 侧使用 `goods_by_app`。
+`stores_by_app`、`apps_by_store` 记录实际容器绑定，不维护另一份类型菜单或场景地点子集。
 
 <a name="resource-engine-固定价格与配送费"></a>
 ### 固定价格与配送费
 
-每个食品只有 `price_fen`，全店同价。没有种子、价格范围、店铺价格位置、随机抖动、Quote 或后续调价；规则版本绑定固定配送费与购买算子。
-金额按固定食品单价和实际份数求值，货款与每单配送费一次转入商家账户；比较和付款使用同一口径。
+目录只登记商品固定单价；外卖和快递费用、组合订单、报价选择、付款与收货归模拟引擎。
+购买收款方为 `external:scenario`，目录不声明商家账户或资金账户标签。
+
+## 声明式回调
+
+状态行恰为 `{state, initial, cap, reset_on_goods}`，初值和上限为严格整数，`0 <= initial <= cap`。
+商品重置列表可为空，引用实际商品。状态行在前按状态名升序，规则行在后按规则身份升序。
+规则恰为 `{rule_id, trigger, effect}`，仅可额外声明 `notify`。状态和规则分别唯一。
+
+| 对象 | 完整形状 |
+| --- | --- |
+| 动作触发 | `{class: action, key: 七个具体动作之一}` |
+| 时间触发 | `{class: time, key: hourly / daily / run_start / run_stop}`；月度为 `{class: time, key: monthly, day, time}` |
+| 状态触发 | `{class: state, key: 登记状态名, below: 阈值}` |
+| 事件触发 | `{class: event, key}`，仅合格预排事件或静态唤醒类别 |
+| 状态增量 | `{type: state_delta, state, delta}`，可选 `once_per: local_day`；增量为非零严格整数 |
+| 足迹链 | `{type: footprint_chain, steps}`，非空步骤恰为 `{kind: browse / payment, app_pool, pick: random}` |
+| 转账 | `{type: transfer, direction: income / expense, amount_fen: 严格正整数}` |
+| 可见提示 | `{visible: 严格布尔}`，只配足迹链 |
+| 状态提醒 | `{when: {state, below}, channel: app_push, app_id, text}`，只配状态增量；必须引用内容 app |
+
+状态和提醒阈值是 `1..cap` 的严格整数。月度日号是 `1..31`，时刻为规范有效的 `HH:MM`。
+足迹 app 池非空且按身份升序无重复，允许功能 app；不存在空值候选。
+事件键为 `delivery_arrival`、`app_push`、`calendar_flag`、`weather`，或
+`time_boundary`、`duty_boundary`、`reminder_due`、`event_arrival`、`state_change`、`outcome_feedback`。
+退役事件、可执行字段、账户字段、未知效果和非法提醒形状直接拒绝。
+转账只在人物账户与 `external:scenario` 之间按方向执行，求值、余额不足、系统证据和提醒投递归模拟引擎。
 
 <a name="resource-engine-验证边界"></a>
 ## 验证边界
 
-加载检查必须验证真实文件的路径、字节数和摘要，严格模型拒绝未知字段、坏类型和无效绑定。
-发布图的结构检查与按种子重新生成检查分别执行；场景选择不改变整张发布图的最短路。
-场景准入在配置模块定义，商品资格和实际付款由模拟引擎再次核验。
+目录单元测试消费真实五个 JSONL 和清单，核对字节身份、严格行定位、对象引用与错误优先级，
+并验证全量供给索引、内容系列、营业安排、回调登记和运行种子地图。
+环境加载再检查人物名称与冻结身份；动作、交易、实际消费、回调效果和恢复由对应集成及系统测试证明。

@@ -1,70 +1,141 @@
-"""@brief 依据实际商品、购物应用与收货人只读选择履约店铺。"""
+"""@brief 查看与受理共用的确定性商品履约报价。"""
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+import logging
+from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
-from worldmock.catalog.models import Goods
-from worldmock.errors import PreconditionError
-from worldmock.life.admission import present_location
-from worldmock.life.basket import plan_recipient_delivery
-from worldmock.life.recipients import recipient_location
-
-if TYPE_CHECKING:
-    from worldmock.life.tool_layer import LayerContext
+from worldmock.errors import BusinessRuleError, PreconditionError
+from worldmock.exchange.operators import delivery_seconds
+from worldmock.life.models import ActivityKind, WorldState, active_activities
+from worldmock.life.randomness import random_stream
+from worldmock.life.guidance import rejection_guidance
+from worldmock.life.readable import iso_time, money_phrase
 
 
 @dataclass(frozen=True, slots=True)
 class Offer:
-    """@brief 一件商品的实际店铺、目的地、到达时刻及履约方式。"""
+    """@brief 每件商品在当前真实环境中的冻结履约事实。"""
 
-    store_id: str
-    goods: Goods
+    #: 商品身份。
+    goods_id: str
+    #: 实体店铺；快递为空。
+    store_id: str | None
+    #: 引擎代选下单 app；到店为空。
+    app_id: str | None
+    #: 真实末端目的地。
     destination_id: str
+    #: 受理时冻结的预计到达时刻。
     expected_at: int
+    #: 到店、外卖或快递。
     fulfillment: str
+    #: 该商品组合的运费策略。
+    delivery_fee_fen: int
+    #: 外卖收货地址或快递住处。
+    delivery_address_id: str
+    #: 外卖图路径；快递只含驿站。
+    path: tuple[str, ...]
+    #: 外卖行程身份；其他为空。
+    trip_id: str | None
+    #: 外卖路径长度。
+    distance_meters: int
+    #: 外卖备餐秒数。
+    prep_seconds: int
 
 
-def menu_goods(context: LayerContext) -> tuple[tuple[str, Goods], ...]:
-    """@brief 所选环境所有在售商品，身份按店铺和商品排序。"""
-    catalog = context.semantics.catalog
-    selected = {place.location_id for place in context.scenario.locations}
-    return tuple((store, catalog.goods[identity]) for store in sorted(catalog.goods_by_store)
-                 if store in selected for identity in sorted(catalog.goods_by_store[store]))
+def present_location(state: WorldState, agent_id: int) -> str | None:
+    """@brief 正在出行没有停留收货地点。"""
+    travelling = any(item.kind == ActivityKind.TRAVEL for item in active_activities(state, agent_id))
+    return None if travelling else state.agents[agent_id].location_id
 
 
-def nearest_store(context: LayerContext, store_ids) -> str:
-    """@brief 去在售店铺时按图上最短距离和地点身份选店。"""
-    origin = context.state.agents[context.agent_id].location_id
-    return min(set(store_ids), key=lambda identity: (context.semantics.catalog.shortest_m(origin, identity), identity))
-
-
-def offers(context: LayerContext, goods_id: str, app_id: str | None,
-           recipient_id: str) -> tuple[Offer, ...]:
-    """@brief 到店只能取当前店铺，在线只取所写应用的在售店铺。"""
-    catalog = context.semantics.catalog
-    stores = {store for store, goods in menu_goods(context) if goods.goods_id == goods_id}
-    if app_id is None:
-        here = present_location(context.state, context.agent_id)
-        destination = recipient_location(context.state, context.scenario, context.agent_id, recipient_id)
-        if here not in stores or destination != here:
-            return ()
-        return (Offer(here, catalog.goods[goods_id], here, context.state.current_time, "pickup"),)
-    result = []
-    for store in sorted(stores):
-        if app_id not in catalog.apps_by_store[store]:
-            continue
+def app_goods(inputs, state: WorldState, agent_id: int, app_id: str) -> list[dict]:
+    """@brief 平台开始明细冻结直接供应与绑定店铺商品的同源真实履约报价。"""
+    catalog = inputs.catalog
+    identities = set(catalog.goods_by_app[app_id])
+    identities.update(identity for store in catalog.stores_by_app[app_id]
+                      for identity in catalog.goods_by_store[store])
+    rows = []
+    for identity in sorted(identities):
+        goods = catalog.goods[identity]
+        row = {"name": goods.name, "price": money_phrase(goods.price_fen), "delivery_fee": None,
+               "expected_at": None, "available": False, "reason": None}
         try:
-            plan = plan_recipient_delivery(context.state, context.semantics, context.agent_id, recipient_id, store)
-        except PreconditionError as error:
-            logging.error("Store cannot fulfill this recipient: %s", str(error))
-            continue
-        result.append(Offer(store, catalog.goods[goods_id], plan.destination_id, plan.expected_at, plan.kind.value))
-    return tuple(result)
+            offer = quote_goods(inputs, state, agent_id, identity)
+        except BusinessRuleError as error:
+            logging.error("Platform product quote is unavailable: %s", error)
+            row["reason"] = rejection_guidance(error)["reason"]
+        else:
+            row.update(delivery_fee=money_phrase(offer.delivery_fee_fen),
+                       expected_at=iso_time(offer.expected_at, state.timezone), available=True)
+        rows.append(row)
+    return rows
 
 
-def choose(served: tuple[Offer, ...]) -> Offer:
-    """@brief 在线按最早到达时刻选店，同刻按店铺身份稳定选择。"""
-    return min(served, key=lambda offer: (offer.expected_at, offer.store_id))
+def quote_goods(inputs, state: WorldState, agent_id: int, goods_id: str) -> Offer:
+    """@brief 按绑定侧与真实现场派生唯一报价，不消费未来请求身份。"""
+    goods = inputs.catalog.goods.get(goods_id)
+    if goods is None:
+        raise BusinessRuleError("SUPPLY_NOT_FOUND")
+    if goods.app_ids:
+        return _courier_offer(inputs, state, goods)
+    here = present_location(state, agent_id)
+    stores = tuple(key for key in sorted(inputs.catalog.goods_by_store)
+                   if goods_id in inputs.catalog.goods_by_store[key])
+    local = datetime.fromtimestamp(state.current_time, ZoneInfo(inputs.config.timezone))
+    if here in stores:
+        if not inputs.catalog.locations[here].is_open(local):
+            raise BusinessRuleError("LOCATION_CLOSED")
+        return Offer(goods_id, here, None, here, state.current_time, "pickup", 0, here,
+                     (here,), None, 0, 0)
+    if here is None:
+        raise PreconditionError("ACTIVITY_PRECONDITION_UNMET", ["delivery_destination"],
+                                public_reason="Place the order after arriving at a location.")
+    eligible = tuple(key for key in stores if inputs.catalog.apps_by_store[key]
+                     and inputs.catalog.locations[key].is_open(local))
+    if not eligible:
+        _require_store(inputs, state, agent_id, stores)
+    store = min(eligible, key=lambda key: (goods.price_fen + 500,
+                state.current_time + delivery_seconds(inputs.catalog.shortest_m(key, here)), key))
+    return _delivery_offer(inputs, state, goods, store, here)
+
+
+def _require_store(inputs, state: WorldState, agent_id: int, stores: tuple[str, ...]) -> None:
+    """@brief 没有营业远程渠道时说明最近实际有售地点。"""
+    origin = state.agents[agent_id].location_id
+    nearest = min(stores, key=lambda key: (inputs.catalog.shortest_m(origin, key), key))
+    name = inputs.catalog.locations[nearest].display_name
+    raise PreconditionError("ACTIVITY_PRECONDITION_UNMET", ["required_location_id"],
+                            public_reason=f"Purchase requires presence at {name} while it is open.")
+
+
+def _order_app(state: WorldState, goods_id: str, source: str, apps: tuple[str, ...]) -> str:
+    """@brief 下单渠道只依赖商品、店铺或快递标记、本地日期。"""
+    local_date = datetime.fromtimestamp(state.current_time, ZoneInfo(state.timezone)).date().isoformat()
+    key = f"order-app:{goods_id}:{source}:{local_date}"
+    return random_stream(state.random_state, key).choice(sorted(apps))
+
+
+def _delivery_offer(inputs, state: WorldState, goods, store: str, here: str) -> Offer:
+    """@brief 外卖保留完整图路线，不因距离长而改为快递。"""
+    catalog = inputs.catalog
+    meters = catalog.shortest_m(store, here)
+    app = _order_app(state, goods.goods_id, store, catalog.apps_by_store[store])
+    return Offer(goods.goods_id, store, app, here, state.current_time + delivery_seconds(meters),
+                 "delivery", 500, here, catalog.graph.path(store, here),
+                 f"{store}->{here}:driving", meters, 600)
+
+
+def _courier_offer(inputs, state: WorldState, goods) -> Offer:
+    """@brief 快递按本地日期边界到站；费用不随日期或查看次数改变。"""
+    app = _order_app(state, goods.goods_id, "courier", goods.app_ids)
+    local = datetime.fromtimestamp(state.current_time, ZoneInfo(state.timezone))
+    days_key = f"courier-days:{goods.goods_id}:{app}:{local.date().isoformat()}"
+    days = random_stream(state.random_state, days_key).choice((2, 3, 4, 5))
+    arrival = datetime.combine(local.date() + timedelta(days=days), time.min, local.tzinfo)
+    fee = random_stream(state.random_state, f"courier-fee:{goods.goods_id}:{app}").choice((0, 500))
+    station = inputs.catalog.nearest_parcel_station(inputs.home_location_id)
+    return Offer(goods.goods_id, None, app, station, int(arrival.timestamp()), "station_pickup", fee,
+                 inputs.home_location_id, (station,), None, 0, 0)

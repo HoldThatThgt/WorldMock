@@ -346,7 +346,7 @@ def test_legacy_contract_constants():
     """@brief 旧合同明确删除：四个模板字段、schema v1。"""
     assert LEGACY_TEMPLATE_FIELDS == frozenset({
         "occupation", "routine_preference", "consumption_preference", "risk_preference"})
-    assert SCHEMA_VERSION == 3
+    assert SCHEMA_VERSION == 4
     assert BIG_FIVE_DIMENSIONS == ("openness", "conscientiousness", "extraversion",
                                    "agreeableness", "neuroticism")
 

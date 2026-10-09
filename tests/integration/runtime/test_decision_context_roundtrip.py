@@ -1,6 +1,6 @@
+from tests.integration.runtime.current_contract_fixtures import profile as current_profile
 """真实人物、环境与足迹边界上的跨轮决策上下文验收。"""
 
-from __future__ import annotations
 
 from worldmock.life.tool_groups import compact_render, expand_tool_layer
 
@@ -44,12 +44,13 @@ class _RoundDispatcher:
 def _person(environment, ctx, dispatcher):
     """把人物绑定到真实环境和本轮宿主身份。"""
     person = LifeAgent()
+    person._profile = current_profile()
     person._id = ctx.agent_id
     person._name = "测试人物"
-    person._profile = {"id": ctx.agent_id, "name": "测试人物"}
+    person._profile = {**current_profile(), **{'id': ctx.agent_id, 'name': '测试人物'}}
     person._env = environment
     person._dispatcher = dispatcher
-    person._model_name = "deepseek-flash"
+    person._model_name = "test-model"
     person._decision_context = ctx
     person._max_react_turns = 3
     person._enable_memory = False
@@ -77,7 +78,7 @@ async def _decide(environment, ctx, choose):
 
 def _wait(observation: dict) -> tuple[str, dict]:
     """对「自己」选择 interact：等待，开始一段等待。"""
-    return "start_activity", start_arguments(["自己"], ["interact"], ["等待"])
+    return "start_activity", start_arguments(["家"], ["interact"])
 
 
 def _conclude_just_ended(observation: dict) -> tuple[str, dict]:
@@ -97,7 +98,8 @@ def _tool_calls(observation: dict) -> list[dict]:
 async def test_real_context_roundtrip_preserves_evidence_and_delays_results(_engine_factory, monkeypatch):
     """登记留宿主、结算后调用与结果进入本段停留的进度层（带回复正文；结果取该请求的最新结果，活动结束后是终态），
     刚结束的活动当秒收尾；decision_started 与首个行动请求同批提交，观察事件只存进度层来源引用（即时与终态结果）。"""
-    monkeypatch.setattr("worldmock.life.prompt_capacity.model_context_length", lambda _model: 131072)
+    monkeypatch.setattr("worldmock.life.prompt_capacity.model_context_length",
+                        lambda _model, metadata: metadata.context_window)
     engine = _engine_factory()
     stage_day_plan(engine)
     environment = LifeEnv()

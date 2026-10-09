@@ -1,438 +1,220 @@
-"""@brief 按实际活动区间结算能量、两过程睡眠、睡眠不足账与娱乐需要。
-
-身体语义按 `docs/design/04-simulation-engine.md`「身体语义：两过程睡眠、睡眠不足账、
-体感分级」重写：sleep_pressure 与 sleep_deficit_hours 的演化委托 life.sleep 的两过程
-纯函数（18.2h/4.2h 时间常数、清醒累积 need/(24−need)、睡眠恢复 1h）；效率
-食品利用效率曲线输入为 sleep_deficit_hours。
-娱乐需要在有缓解的活动进行时只按缓解下降、不再累积，共同区间与单活动两条路径以及边界预测同一口径
-（entertainment_need_rate，docs/design/04-simulation-engine.md ）。
-能量与娱乐需要沿用 ResourceLedger 分录通道（docs/design/05-recording-engine.md「事件正文与资源证据」）；
-社交需要账本（felt.apply_
-social_need_ledger）与情绪脉冲/衰减（felt.apply_mood_pulse / decay_mood_
-valence）由引擎在结算边界调用本模块的包装函数驱动。
-
-能量不阻止任何活动：所有活动集合的结算都以 0 截断、不报错；低能量的代价只是饥饿上升与
-困意增加（docs/design/04-simulation-engine.md「能量不拦人」）。边界预测对困意与饥饿做同一种
-跨档扫描，并把餐时窗口起止列为候选（同规格第八章「节律」）。
-"""
-
+"""@brief 实际活动区间的能量、双过程睡眠与两项需要共同结算。"""
 from __future__ import annotations
-
-from worldmock.exchange import constants
-
-import math
 import logging
+import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-
-from worldmock.catalog.affordances import engine_affordances
-from worldmock.exchange.body import BODY_CONSTANTS, RESOURCE_METAS
+from worldmock.exchange.body import RESOURCE_METAS
+from worldmock.input_models import PersonaConfig
 from worldmock.life import felt, sleep
-from worldmock.base_models import CurvePoint
-from worldmock.life.models import (ActivityKind, BodyState)
-from worldmock.life.scenario import BodyConfig
+from worldmock.life.body_config import BodyConfig
+from worldmock.life.models import ActivityKind, BodyState
 from worldmock.resources import FlowEntry, ResourceLedger, ResourceMeta
-from worldmock.resources.models import (
-    DRAIN_DIRECTION,
-    LEVEL_KIND,
-    OPEN_CONSERVATION,
-    SOURCE_DIRECTION,
-)
+from worldmock.resources.models import DRAIN_DIRECTION, SOURCE_DIRECTION
 
-
-#: 恢复类活动闭集（sleep/wait/consume）——自可供性注册表 kinds.*.energy_floor_exempt 派生。
-#: 只供内部动机评分按能量取舍（maximum_energy_duration_seconds），不代表世界规则：结算对所有活动
-#: 集合都以 0 截断（docs/design/04-simulation-engine.md「删除的机制」）。
-ENERGY_RECOVERY_ACTIVITY_KINDS = frozenset(
-    ActivityKind(name) for name in engine_affordances().energy_recovery_kinds)
-
-#: 身体域 level 资源的分录标识（与 BodyState 字段及 tests/resources 夹具同名）。
-#: 修订合同删除 sleep_debt_hours 资源：睡眠侧分录改为 sleep_deficit_hours。
 ENERGY_RESOURCE = "energy_kcal"
 SLEEP_DEFICIT_RESOURCE = "sleep_deficit_hours"
-ENTERTAINMENT_RESOURCE = "entertainment_need"
-#: 结算函数不携带人物身份与墙钟：分录以固定 owner 与占位时间戳落地，
-#: 引擎接线时以真实 agent 与 occurred_at 重盖（resource_flows 字典不含时间戳）。
+RELAXATION_RESOURCE = "relaxation_need"
+SOCIAL_RESOURCE = "social_need"
 BODY_FLOW_OWNER = "body"
 BODY_FLOW_OCCURRED_AT = 0
-
-#: 自上次 last_flows()
-#: 调用以来结算产生的分录证据流（docs/design/05-recording-engine.md「事件正文与资源证据」）。
+FELT_SCAN_STEP_SECONDS = 900
+FELT_SCAN_HORIZON_SECONDS = 86400
 _flow_buffer: list[FlowEntry] = []
 
+@dataclass(frozen=True, slots=True)
+class BodySettlement:
+    """@brief 一段真实区间的完整身体变化证据。"""
+    #: 区间开始的身体状态。
+    before: BodyState
+    #: 区间结束的身体状态。
+    after: BodyState
+    #: 实际经过的秒数。
+    duration_seconds: int
+    #: 一次基础代谢的千卡消耗。
+    basal_energy_kcal: float
+    #: 最大活动强度产生的额外千卡消耗。
+    extra_energy_kcal: float
+    #: 食品经实际效率利用的千卡。
+    food_energy_kcal: float
+    #: 食品利用效率，无食品时为空。
+    food_efficiency: float | None
+
+@dataclass(frozen=True, slots=True)
+class ActivityFactors:
+    """@brief 内容声明的强度与两项独立的实际缓解速率。"""
+    #: 固定代谢当量。
+    met: float
+    #: 每实际小时减少的放松需要。
+    relaxation_relief_per_hour: float = 0.0
+    #: 每实际小时减少的社交需要。
+    social_relief_per_hour: float = 0.0
+
+@dataclass(frozen=True, slots=True)
+class BoundaryClock:
+    """@brief 身体边界预测的本地时刻与餐时窗口。"""
+    #: 自本地午夜起的小时数。
+    hour_of_day: float
+    #: 人物实际声明的午餐与晚餐窗口。
+    meal_windows: felt.MealWindows | None = None
 
 def last_flows() -> tuple[FlowEntry, ...]:
-    """@brief 取回并清空自上次调用以来结算产生的分录序列。"""
+    """@brief 取回并清空实际发生的资源分录。"""
     pending = tuple(_flow_buffer)
     _flow_buffer.clear()
     return pending
 
-
 def body_resource_metas(config: BodyConfig) -> tuple[ResourceMeta, ...]:
-    """@brief 系统能量元信息与身体状态分录域；身体规则不接受环境覆盖。"""
-    return (
-        RESOURCE_METAS[ENERGY_RESOURCE],
-        ResourceMeta(SLEEP_DEFICIT_RESOURCE, LEVEL_KIND, OPEN_CONSERVATION, 0,
-                     sleep.SLEEP_DEFICIT_MAX_H),
-        ResourceMeta(ENTERTAINMENT_RESOURCE, LEVEL_KIND, OPEN_CONSERVATION, 0, 1),
-    )
+    """@brief 系统固定的身体资源定义不接受目录覆盖。"""
+    return tuple(RESOURCE_METAS[name] for name in
+                 (ENERGY_RESOURCE, SLEEP_DEFICIT_RESOURCE, RELAXATION_RESOURCE, SOCIAL_RESOURCE))
 
-
-def _settle_via_ledger(config: BodyConfig, before: BodyState,
-                       entries: list[FlowEntry]) -> tuple[float, float, float]:
-    """@brief 经 ResourceLedger 纯函数结算分录，返回能量、不足账、娱乐期末余额。"""
-    ledger = ResourceLedger(body_resource_metas(config))
-    balances = {
-        (ENERGY_RESOURCE, BODY_FLOW_OWNER): before.energy_kcal,
-        (SLEEP_DEFICIT_RESOURCE, BODY_FLOW_OWNER): before.sleep_deficit_hours,
-        (ENTERTAINMENT_RESOURCE, BODY_FLOW_OWNER): before.entertainment_need,
-    }
-    final = ledger.apply(entries, balances)
-    return (final[(ENERGY_RESOURCE, BODY_FLOW_OWNER)],
-            final[(SLEEP_DEFICIT_RESOURCE, BODY_FLOW_OWNER)],
-            final[(ENTERTAINMENT_RESOURCE, BODY_FLOW_OWNER)])
-
-
-@dataclass(frozen=True, slots=True)
-class BodySettlement:
-    """@brief 一段活动的身体变化证据。"""
-
-    before: BodyState
-    after: BodyState
-    duration_seconds: int
-    basal_energy_kcal: float
-    extra_energy_kcal: float
-    food_energy_kcal: float
-    food_efficiency: float | None
-
-
-@dataclass(frozen=True, slots=True)
-class ActivityFactors:
-    """@brief 当前活动方式的真实身体消耗与娱乐缓解速率。"""
-
-    met: float
-    entertainment_relief_per_hour: float = 0
-
-
-#: 困意与饥饿跨档扫描的最大步长与扫描上限（秒）；步点变档后在该步内二分到整秒
-#: （docs/design/04-simulation-engine.md「节律」）。
-FELT_SCAN_STEP_SECONDS = 900
-FELT_SCAN_HORIZON_SECONDS = 86_400
-
-
-@dataclass(frozen=True, slots=True)
-class BoundaryClock:
-    """@brief 边界预测的时刻输入：场景本地小时与人物的午餐、晚餐窗口。"""
-
-    hour_of_day: float
-    meal_windows: felt.MealWindows | None = None
-
-
-
+def _settle_ledger(body: BodyState, changes: dict[str, float], config: BodyConfig) -> BodyState:
+    """@brief 每项资源只记录真实限幅差额。"""
+    entries = [FlowEntry(name, BODY_FLOW_OWNER, SOURCE_DIRECTION if delta > 0 else DRAIN_DIRECTION,
+                         abs(delta), f"settle:shared:{name}", BODY_FLOW_OCCURRED_AT)
+               for name, delta in changes.items() if delta]
+    balances = {(name, BODY_FLOW_OWNER): getattr(body, name) for name in changes}
+    final = ResourceLedger(body_resource_metas(config)).apply(entries, balances)
+    _flow_buffer.extend(entries)
+    return body.model_copy(update={name: final[(name, BODY_FLOW_OWNER)] for name in changes}, deep=True)
 
 def settle_body(body: BodyState, kind: ActivityKind, seconds: int, config: BodyConfig,
                 factors: ActivityFactors | None = None) -> BodySettlement:
-    """@brief 结算连续活动：能量分录 + 两过程睡眠演化 + 不足账 + 娱乐分录。
-
-    sleep_pressure 与 sleep_deficit_hours 按 life.sleep 的纯函数直接演化
-    （不进 ResourceLedger——两者不是 open level 资源，钳制语义由纯函数承载）；
-    能量与娱乐需要维持分录证据流。能量消耗超过余额时以 0 截断，任何活动都不因
-    透支报错。社交需要与情绪由引擎侧 apply_social_ledger 与 apply_mood_* 在同一
-    结算边界另行推进。
-    """
-    if seconds < 0:
-        raise ValueError("settlement duration cannot be negative")
-    hours = seconds / 3600
-    basal = config.basal_kcal_per_hour * hours
-    met = factors.met if factors else config.activity_met[kind.value]
-    extra = max(met - 1, 0) * config.mass_kg * hours
-    cost = minimum_energy_cost(kind, seconds, config, met)
-    relief = factors.entertainment_relief_per_hour if factors else 0
-    entertainment_entries, entertainment_capped = _entertainment_entries(
-        kind, body.entertainment_need, hours, config, relief)
-    entries = [entry for entry in (
-        _energy_cost_entry(kind, min(cost, body.energy_kcal)),
-        *entertainment_entries,
-    ) if entry is not None]
-    energy, deficit, entertainment = _settle_via_ledger(config, body, entries)
-    if entertainment_capped:
-        entertainment = 1.0
-    if kind == ActivityKind.SLEEP:
-        pressure = sleep.pressure_after_sleep(body.sleep_pressure, hours)
-        deficit = sleep.deficit_after_sleep(deficit, hours)
-    else:
-        pressure = sleep.pressure_after_awake(body.sleep_pressure, hours)
-        deficit = sleep.deficit_after_awake(deficit, hours, body.sleep_need_hours)
-    after = BodyState(energy_kcal=energy, sleep_pressure=pressure,
-                      sleep_deficit_hours=deficit, sleep_need_hours=body.sleep_need_hours,
-                      chronotype_midsleep=body.chronotype_midsleep,
-                      social_need=body.social_need, mood_valence=body.mood_valence,
-                      neuroticism_norm=body.neuroticism_norm,
-                      entertainment_need=entertainment)
-    _flow_buffer.extend(entries)
-    return BodySettlement(body.model_copy(deep=True), after, seconds, basal, extra, 0, None)
-
+    """@brief 单活动复用共同结算路径，不重复自然增长。"""
+    key = "idle" if kind == ActivityKind.INTERACT else kind.value
+    if kind == ActivityKind.TRAVEL and factors is None:
+        logging.error("Travel settlement requires its actual mode")
+        raise ValueError("travel settlement requires its actual mode")
+    actual = factors or ActivityFactors(config.activity_met[key])
+    return settle_shared_body(body, ((kind, actual),), seconds, config)
 
 def settle_shared_body(body: BodyState, activities: tuple[tuple[ActivityKind, ActivityFactors], ...],
                        seconds: int, config: BodyConfig) -> BodySettlement:
-    """@brief 一个人物真实区间只结算一次基础消耗，运动负荷取最大值。
-
-    消耗超过余额时能量以 0 截断：任何活动集合都照常结算，不因透支报错
-    （docs/design/04-simulation-engine.md「删除的机制」）。
-    """
+    """@brief 只结算一次自然增长和基础代谢，最大强度及缓解总和共同生效。"""
     if seconds < 0:
-        raise ValueError("settlement duration cannot be negative")
+        logging.error("Body settlement duration cannot be negative")
+        raise ValueError("body settlement duration cannot be negative")
     hours = seconds / 3600
     sleeping = any(kind == ActivityKind.SLEEP for kind, _ in activities)
     met = max((factors.met for _, factors in activities), default=1.0)
     basal = config.basal_kcal_per_hour * hours
     extra = max(met - 1, 0) * config.mass_kg * hours
-    cost = basal + extra
-    entries = _shared_entries(body, activities, hours, cost, config)
-    energy, _deficit, entertainment = _settle_via_ledger(config, body, entries)
-    if sleeping:
-        pressure = sleep.pressure_after_sleep(body.sleep_pressure, hours)
-        deficit = sleep.deficit_after_sleep(body.sleep_deficit_hours, hours)
-    else:
-        pressure = sleep.pressure_after_awake(body.sleep_pressure, hours)
-        deficit = sleep.deficit_after_awake(body.sleep_deficit_hours, hours, body.sleep_need_hours)
-    after = body.model_copy(update={"energy_kcal": energy, "sleep_pressure": pressure,
-                                    "sleep_deficit_hours": deficit,
-                                    "entertainment_need": entertainment}, deep=True)
-    _flow_buffer.extend(entries)
+    deficit = (sleep.deficit_after_sleep(body.sleep_deficit_hours, hours) if sleeping else
+               sleep.deficit_after_awake(body.sleep_deficit_hours, hours, body.sleep_need_hours))
+    changes = {ENERGY_RESOURCE: -min(basal + extra, body.energy_kcal),
+               SLEEP_DEFICIT_RESOURCE: deficit - body.sleep_deficit_hours}
+    if not sleeping:
+        changes.update(_need_changes(body, activities, hours, config))
+    after = _settle_ledger(body, changes, config)
+    pressure = (sleep.pressure_after_sleep(body.sleep_pressure, hours) if sleeping else
+                sleep.pressure_after_awake(body.sleep_pressure, hours))
+    after = after.model_copy(update={"sleep_pressure": pressure}, deep=True)
     return BodySettlement(body.model_copy(deep=True), after, seconds, basal, extra, 0, None)
 
-
-def entertainment_need_rate(relief_per_hour: float, config: BodyConfig) -> float:
-    """@brief 清醒区间娱乐需要的每小时净变化，两条结算路径与动机评分共用同一口径。
-
-    有缓解的活动进行时只按缓解下降、不再累积清醒增长；没有缓解时按清醒速率累积
-    （docs/design/04-simulation-engine.md 「累积口径统一为有缓解的活动进行时不再累积娱乐需要」）。
-    睡眠区间不走本函数：娱乐需要在睡眠中不变。
-    """
-    if relief_per_hour > 0:
-        return -relief_per_hour
-    return config.entertainment_need_per_awake_hour
-
-
-def _shared_entries(body: BodyState, activities: tuple[tuple[ActivityKind, ActivityFactors], ...],
-                    hours: float, cost: float, config: BodyConfig) -> list[FlowEntry]:
-    """@brief 同一身体通道先汇总效果再限幅，生成一份资源分录；娱乐缓解先求和，有缓解时不再累积。"""
-    entries = []
-    if cost > 0 and body.energy_kcal > 0:
-        entries.append(FlowEntry(ENERGY_RESOURCE, BODY_FLOW_OWNER, DRAIN_DIRECTION,
-                                 min(cost, body.energy_kcal), "settle:shared:energy_cost",
-                                 BODY_FLOW_OCCURRED_AT))
-    if any(kind == ActivityKind.SLEEP for kind, _ in activities):
-        return entries
-    relief = sum(factors.entertainment_relief_per_hour for _, factors in activities)
-    change = entertainment_need_rate(relief, config) * hours
-    actual = min(1.0, max(0.0, body.entertainment_need + change)) - body.entertainment_need
-    if actual:
-        direction = SOURCE_DIRECTION if actual > 0 else DRAIN_DIRECTION
-        entries.append(FlowEntry(ENTERTAINMENT_RESOURCE, BODY_FLOW_OWNER, direction,
-                                 abs(actual), "settle:shared:entertainment_need",
-                                 BODY_FLOW_OCCURRED_AT))
-    return entries
-
+def _need_changes(body: BodyState, activities: tuple[tuple[ActivityKind, ActivityFactors], ...],
+                  hours: float, config: BodyConfig) -> dict[str, float]:
+    """@brief 自然增长与内容效果同时相加，暂停活动不进入区间集合。"""
+    relaxation = sum(factor.relaxation_relief_per_hour for _, factor in activities)
+    social = sum(factor.social_relief_per_hour for _, factor in activities)
+    rates = {RELAXATION_RESOURCE: config.relaxation_need_per_awake_hour - relaxation,
+             SOCIAL_RESOURCE: body.social_need_growth_per_hour - social}
+    return {name: min(1.0, max(0.0, getattr(body, name) + rate * hours)) - getattr(body, name)
+            for name, rate in rates.items()}
 
 def apply_food(body: BodyState, calories: float, config: BodyConfig) -> BodySettlement:
-    """@brief 以收货当秒睡眠不足账计算食品利用效率（sleep.food_utilization）。"""
+    """@brief 收货当秒按实际睡眠不足账计算食品利用效率。"""
     if not math.isfinite(calories) or calories < 0:
-        logging.error("Food calories must be finite and nonnegative: %s", calories)
-        raise ValueError("Food calories must be finite and nonnegative")
+        logging.error("Food calories must be finite and nonnegative")
+        raise ValueError("food calories must be finite and nonnegative")
     efficiency = sleep.food_utilization_efficiency(body.sleep_deficit_hours)
     gained = calories * efficiency
-    projected = body.energy_kcal + gained
-    capped = projected > BODY_CONSTANTS.maximum_energy_kcal
-    amount = min(gained, BODY_CONSTANTS.maximum_energy_kcal - body.energy_kcal) if capped else gained
-    entries = []
-    if amount > 0:
-        entries.append(FlowEntry(ENERGY_RESOURCE, BODY_FLOW_OWNER, SOURCE_DIRECTION, amount,
-                                 "food:intake", BODY_FLOW_OCCURRED_AT))
-    energy, _deficit, _entertainment = _settle_via_ledger(config, body, entries)
-    if capped:
-        energy = BODY_CONSTANTS.maximum_energy_kcal
-    after = body.model_copy(update={"energy_kcal": energy}, deep=True)
-    _flow_buffer.extend(entries)
+    actual = min(gained, config.maximum_energy_kcal - body.energy_kcal)
+    after = _settle_ledger(body, {ENERGY_RESOURCE: actual}, config)
     return BodySettlement(body.model_copy(deep=True), after, 0, 0, 0, gained, efficiency)
 
-
-def minimum_energy_cost(kind: ActivityKind, seconds: int, config: BodyConfig,
-                        met: float | None = None) -> float:
-    """@brief 计算一段活动的完整能量成本（结算与内部动机评分共用；受理不查能量）。"""
-    hours = seconds / 3600
-    activity_met = config.activity_met[kind.value] if met is None else met
-    return (config.basal_kcal_per_hour + max(activity_met - 1, 0) * config.mass_kg) * hours
-
-
-def maximum_energy_duration_seconds(
-    kind: ActivityKind,
-    energy_kcal: float,
-    config: BodyConfig,
-    met: float | None = None,
-    limit_seconds: int = 86_400,
-) -> int:
-    """@brief 以同一完整成本函数求当前能量能够覆盖的最大整数墙钟秒数。
-
-    只供内部动机评分（motivation_internal）按能量取舍；恢复类活动不受能量限制。
-    受理、结算与恢复都不调用本函数（docs/design/04-simulation-engine.md「删除的机制」）。
-    """
-    if energy_kcal < 0:
-        raise ValueError("available energy cannot be negative")
-    if limit_seconds < 0:
-        raise ValueError("energy duration limit cannot be negative")
-    if kind in ENERGY_RECOVERY_ACTIVITY_KINDS:
-        return limit_seconds
-    low, high = 0, limit_seconds
-    while low < high:
-        middle = (low + high + 1) // 2
-        if minimum_energy_cost(kind, middle, config, met) <= energy_kcal:
-            low = middle
-        else:
-            high = middle - 1
-    return low
-
-
-def apply_social_ledger(body: BodyState, exposure: felt.SocialExposure) -> BodyState:
-    """@brief 按 felt 账本速率推进社交需要（「身体语义：两过程睡眠、睡眠不足账、体感分级」），返回新身体状态。"""
-    need = felt.apply_social_need_ledger(body.social_need, exposure)
-    return body.model_copy(update={"social_need": need}, deep=True)
-
-
-def apply_mood_pulse(body: BodyState, pulse_key: str) -> BodyState:
-    """@brief 按事件脉冲表叠加一次情绪脉冲（「身体语义：两过程睡眠、睡眠不足账、体感分级」）。"""
-    amplitude = constants.MOOD_PULSES[pulse_key]
-    valence = felt.apply_mood_pulse(body.mood_valence, amplitude, body.neuroticism_norm)
-    return body.model_copy(update={"mood_valence": valence}, deep=True)
-
+def apply_relaxation_change(body: BodyState, amount: float) -> BodyState:
+    """@brief 真实拒绝和收货改变统一放松需要，不产生情绪量。"""
+    if not math.isfinite(amount):
+        logging.error("Relaxation change must be finite")
+        raise ValueError("relaxation change must be finite")
+    actual = min(1.0, max(0.0, body.relaxation_need + amount)) - body.relaxation_need
+    if actual:
+        _flow_buffer.append(FlowEntry(RELAXATION_RESOURCE, BODY_FLOW_OWNER,
+            SOURCE_DIRECTION if actual > 0 else DRAIN_DIRECTION, abs(actual),
+            "relaxation:event", BODY_FLOW_OCCURRED_AT))
+    return body.model_copy(update={"relaxation_need": body.relaxation_need + actual}, deep=True)
 
 def apply_discomfort_pulse(body: BodyState, billed_hours: float) -> BodyState:
-    """@brief 叠加连续饿/困的不适脉冲：−0.1/小时 × 本次计费小时，两小时门槛由 rhythm 判定一次，计费为 0 时不变
-    （「身体语义：两过程睡眠、睡眠不足账、体感分级」）。"""
-    amplitude = felt.discomfort_pulse(billed_hours)
-    valence = felt.apply_mood_pulse(body.mood_valence, amplitude, body.neuroticism_norm)
-    return body.model_copy(update={"mood_valence": valence}, deep=True)
+    """@brief 连续不适超出两小时的新增部分每小时增加零点一放松需要。"""
+    if not math.isfinite(billed_hours) or billed_hours < 0:
+        logging.error("Discomfort hours must be finite and nonnegative")
+        raise ValueError("discomfort hours must be finite and nonnegative")
+    return apply_relaxation_change(body, 0.10 * billed_hours)
 
-
-def decay_mood(body: BodyState, elapsed_minutes: float) -> BodyState:
-    """@brief 按半衰期衰减情绪（「身体语义：两过程睡眠、睡眠不足账、体感分级」），返回新身体状态。"""
-    valence = felt.decay_mood_valence(body.mood_valence, elapsed_minutes,
-                                      body.neuroticism_norm)
-    return body.model_copy(update={"mood_valence": valence}, deep=True)
-
-
-def initial_body(config: BodyConfig, hour_of_day: float,
-                 sleep_need_hours: float = sleep.DEFAULT_SLEEP_NEED_H,
-                 chronotype_midsleep: float = sleep.DEFAULT_CHRONOTYPE_MIDSLEEP_H,
-                 neuroticism_norm: float = 0.0) -> BodyState:
-    """@brief 构造场景起点身体：初始睡眠不足账与按作息反推的初始 sleep_pressure。
-
-    experiment_assumption（docs/design/04-simulation-engine.md「作息初值」）：人物自起点之前最近一次惯常
-    起床时刻 t_wake = (chronotype_midsleep + sleep_need_hours / 2) mod 24 起一直清醒。起床时刻的压力取
-    睡满一个睡眠需要量后的衰减值（sleep.initial_sleep_pressure），此后按清醒过程推进到起点；不读
-    bedtime_window，不预置任何活动。起点落在惯常睡眠时段内或接近它时，人物以困倦状态开始。
-    """
-    wake_hour = (chronotype_midsleep + sleep_need_hours / 2) % 24
+def initial_body(config: BodyConfig, hour_of_day: float, persona: PersonaConfig,
+                 social_need_growth_per_hour: float) -> BodyState:
+    """@brief 从真实人设初值与惯常起床时刻构造身体，不预置活动。"""
+    wake_hour = (persona.chronotype_midsleep + persona.sleep_need_hours / 2) % 24
     awake_hours = (hour_of_day - wake_hour) % 24
-    at_wake = sleep.initial_sleep_pressure(wake_hour, sleep_need_hours, chronotype_midsleep)
-    pressure = sleep.pressure_after_awake(at_wake, awake_hours)
-    return BodyState(energy_kcal=config.initial_energy_kcal, sleep_pressure=pressure,
-                     sleep_deficit_hours=config.initial_sleep_debt_hours,
-                     sleep_need_hours=sleep_need_hours,
-                     chronotype_midsleep=chronotype_midsleep,
-                     social_need=0.0, mood_valence=0.0,
-                     neuroticism_norm=neuroticism_norm, entertainment_need=0.0)
-
-
-def next_body_boundary_seconds(body: BodyState, kind: ActivityKind, config: BodyConfig,
-                               factors: ActivityFactors | None = None,
-                               clock: BoundaryClock | None = None) -> int | None:
-    """@brief 预测能量阈值、体感分级或餐时窗口的首个未来整秒边界。
-
-    能量阈值为饥饿、紧急阈值与 felt.APPETITE_STARVING_KCAL（800、400、100 kcal）；困意与饥饿从当前状态
-    做跨档扫描（升档、降档都给候选），午餐、晚餐窗口的起止是候选，娱乐按与结算同一口径的净速率、社交按清醒增长速率
-    求下一档（有缓解的活动进行时娱乐需要不累积，不给升档候选，docs/design/04-simulation-engine.md ）；
-    效率曲线沿用 sleep_deficit_hours 轴上的节点（docs/design/04-simulation-engine.md「让人物趁早吃」、
-    第八章「节律」）。clock 为 None 或睡眠时跳过依赖时刻的体感候选（娱乐需要在睡眠中不增长）。
-    """
-    actual = factors or ActivityFactors(config.activity_met[kind.value])
-    net_burn = _net_burn_per_hour(actual, config)
-    candidates = _energy_boundaries(body.energy_kcal, net_burn, config)
-    if clock is not None and kind != ActivityKind.SLEEP:
-        candidates.extend(_felt_band_boundaries(_FeltProjection(
-            body, net_burn, clock, config, actual.entertainment_relief_per_hour)))
-    return min(candidates) if candidates else None
-
+    at_wake = sleep.initial_sleep_pressure(wake_hour, persona.sleep_need_hours, persona.chronotype_midsleep)
+    return BodyState(energy_kcal=persona.body.initial_energy_kcal,
+                     sleep_pressure=sleep.pressure_after_awake(at_wake, awake_hours),
+                     sleep_deficit_hours=min(24.0, persona.body.initial_sleep_debt_hours),
+                     sleep_need_hours=persona.sleep_need_hours, chronotype_midsleep=persona.chronotype_midsleep,
+                     social_need=persona.initial_social_need, relaxation_need=persona.initial_relaxation_need,
+                     social_need_growth_per_hour=social_need_growth_per_hour)
 
 def next_shared_body_boundary_seconds(body: BodyState,
                                       activities: tuple[tuple[ActivityKind, ActivityFactors], ...],
                                       config: BodyConfig, clock: BoundaryClock) -> int | None:
-    """@brief 以实际共同结算的最大 MET 和合并效果预测下一个身体边界。
-
-    交谈、通话照常预测（调用方按 CHAT_MET、CALL_MET 给出系数）；游戏按回合、睡眠按睡眠允许原因处理，
-    不另做预测（docs/design/04-simulation-engine.md「让人物趁早吃」）。
-    """
+    """@brief 用实际共同强度和缓解预测身体边界，睡眠仅接受自身终点。"""
     if any(kind == ActivityKind.SLEEP for kind, _ in activities):
         return None
     factors = ActivityFactors(max((item.met for _, item in activities), default=1.0),
-                              entertainment_relief_per_hour=sum(
-                                  item.entertainment_relief_per_hour for _, item in activities))
-    kinds = {kind for kind, _ in activities}
-    kind = ActivityKind.ACTION if ActivityKind.ACTION in kinds else ActivityKind.WAIT
-    return next_body_boundary_seconds(body, kind, config, factors, clock)
-
-
-def _net_burn_per_hour(factors: ActivityFactors, config: BodyConfig) -> float:
-    """@brief 共同净消耗（千卡/小时）：基础代谢加 MET 增量。"""
-    burn = config.basal_kcal_per_hour + max(factors.met - 1, 0) * config.mass_kg
-    return burn
-
-
-
+                              sum(item.relaxation_relief_per_hour for _, item in activities),
+                              sum(item.social_relief_per_hour for _, item in activities))
+    projection = _FeltProjection(body, config, clock, factors)
+    candidates = _energy_boundaries(body.energy_kcal, projection.burn_per_hour, config)
+    meal_edges = _meal_window_boundaries(clock)
+    candidates.extend(meal_edges)
+    candidates.extend(value for value in (_first_band_change(projection.sleepiness_level),
+                      _first_band_change(projection.appetite_level, meal_edges)) if value is not None)
+    candidates.extend(_need_band_boundaries(projection))
+    return min(candidates) if candidates else None
 
 @dataclass(frozen=True, slots=True)
 class _FeltProjection:
-    """@brief 从当前状态外推的体感：能量按当前共同净消耗推进，睡眠压力按清醒过程推进，娱乐需要按
-    entertainment_need_rate 与结算同一口径推进（entertainment_relief_per_hour 为本区间活动的合并缓解速率）。"""
-
+    """@brief 用共同区间真实系数预测未来体感。"""
+    #: 当前身体。
     body: BodyState
-    net_burn_per_hour: float
-    clock: BoundaryClock
+    #: 固定身体参数。
     config: BodyConfig
-    entertainment_relief_per_hour: float = 0
+    #: 本地时刻与餐时窗口。
+    clock: BoundaryClock
+    #: 真实活动的合并系数。
+    factors: ActivityFactors
+
+    @property
+    def burn_per_hour(self) -> float:
+        """@brief 最大强度只叠加一次基础代谢。"""
+        return self.config.basal_kcal_per_hour + max(self.factors.met - 1, 0) * self.config.mass_kg
 
     def hour_after(self, seconds: int) -> float:
-        """@brief 距现在 seconds 秒后的场景本地小时（按 24 小时取模）。"""
+        """@brief 距当前秒数后的本地小时。"""
         return (self.clock.hour_of_day + seconds / 3600) % 24
 
     def sleepiness_level(self, seconds: int) -> str:
-        """@brief 清醒 seconds 秒后的困意分级：当前压力按清醒过程推进，阈值取那一刻的昼夜相位。"""
+        """@brief 双过程睡眠压力与未来昼夜相位决定困意。"""
         pressure = sleep.pressure_after_awake(self.body.sleep_pressure, seconds / 3600)
-        return felt.sleepiness_level(
-            sleep.sleepiness(pressure, self.hour_after(seconds), self.body.chronotype_midsleep))
+        return felt.sleepiness_level(sleep.sleepiness(pressure, self.hour_after(seconds),
+                                                    self.body.chronotype_midsleep))
 
     def appetite_level(self, seconds: int) -> str:
-        """@brief seconds 秒后的饥饿分级：含昼夜项、餐时项与 400、100 千卡两个保底档。"""
-        energy = min(max(self.body.energy_kcal - self.net_burn_per_hour * seconds / 3600, 0.0),
-                     self.config.maximum_energy_kcal)
+        """@brief 未来能量与实际餐时窗口决定饥饿分级。"""
+        energy = max(self.body.energy_kcal - self.burn_per_hour * seconds / 3600, 0.0)
         appetite = felt.compute_appetite(energy, self.hour_after(seconds), self.clock.meal_windows)
         return felt.appetite_level(appetite, energy, self.config.emergency_threshold_kcal)
-
-
-def _felt_band_boundaries(projection: _FeltProjection) -> list[int]:
-    """@brief 体感分级预计跨越时刻：困意与饥饿的跨档扫描、餐时窗口起止，以及娱乐与社交的下一档。
-
-    饥饿扫描以餐时窗口起止为跳变点：食欲的餐时项只在这些时刻跳变，困意没有跳变点。
-    """
-    meal_edges = _meal_window_boundaries(projection.clock)
-    candidates = [seconds for seconds in (_first_band_change(projection.sleepiness_level),
-                                          _first_band_change(projection.appetite_level, meal_edges))
-                  if seconds is not None]
-    candidates.extend(meal_edges)
-    candidates.extend(_need_band_boundaries(projection))
-    return candidates
-
 
 def _first_band_change(level_at: Callable[[int], str], breakpoints: Sequence[int] = ()) -> int | None:
     """@brief 以不超过 900 秒的步长正向扫描至多 24 小时，取首个分级变化的步点后在该步内二分到整秒。
@@ -474,76 +256,22 @@ def _meal_window_boundaries(clock: BoundaryClock) -> list[int]:
 
 
 def _need_band_boundaries(projection: _FeltProjection) -> list[int]:
-    """@brief 娱乐与社交需要到达更高一档的整秒。
-
-    娱乐取与两条结算路径同一口径的净速率 entertainment_need_rate：有缓解的活动（观看、游戏、带缓解的生活活动）
-    进行时只按缓解下降、不再累积，没有升档候选；没有缓解时按清醒速率累积（docs/design/04-simulation-engine.md ）。
-    睡眠中娱乐需要不增长，调用方在睡眠时不做体感预测。社交按清醒增长速率。
-    """
-    body = projection.body
-    candidates: list[int] = []
-    rates = ((body.entertainment_need, felt.ENTERTAINMENT_BANDS,
-              entertainment_need_rate(projection.entertainment_relief_per_hour, projection.config)),
-             (body.social_need, felt.SOCIAL_BANDS, constants.SOCIAL_NEED_AWAKE_RATE))
+    """@brief 自然增长和缓解净速率同时预测升档与降档。"""
+    body, factors = projection.body, projection.factors
+    rates = ((body.relaxation_need, felt.RELAXATION_BANDS,
+              projection.config.relaxation_need_per_awake_hour - factors.relaxation_relief_per_hour),
+             (body.social_need, felt.SOCIAL_BANDS, body.social_need_growth_per_hour - factors.social_relief_per_hour))
+    candidates = []
     for value, bands, rate in rates:
-        if rate <= 0:
-            continue
-        for bound, _level in bands:
-            if bound > value:
+        for bound, _ in bands:
+            if rate > 0 and value < bound:
                 candidates.append(max(1, math.ceil((bound - value) / rate * 3600)))
+            elif rate < 0 and value >= bound:
+                candidates.append(max(1, math.floor((bound - value) / rate * 3600) + 1))
     return candidates
 
-
 def _energy_boundaries(energy: float, burn_per_hour: float, config: BodyConfig) -> list[int]:
-    """@brief 返回首次严格低于尚未越过的能量阈值（饥饿、紧急与「饿得发慌」三档）的整秒数。"""
-    if burn_per_hour <= 0:
-        return []
-    thresholds = (config.hunger_threshold_kcal, config.emergency_threshold_kcal,
-                  felt.APPETITE_STARVING_KCAL)
+    """@brief 预测首次严格低于能量阈值的整秒。"""
+    thresholds = (config.hunger_threshold_kcal, config.emergency_threshold_kcal, felt.APPETITE_STARVING_KCAL)
     return [math.floor((energy - threshold) * 3600 / burn_per_hour) + 1
-            for threshold in thresholds if energy >= threshold]
-
-
-
-
-def _energy_cost_entry(kind: ActivityKind, amount: float) -> FlowEntry | None:
-    """@brief 活动能量成本是一笔合并 drain（基础代谢+活动 MET 增量，保持逐位等价）。"""
-    if amount > 0:
-        return FlowEntry(ENERGY_RESOURCE, BODY_FLOW_OWNER, DRAIN_DIRECTION, amount,
-                         f"settle:{kind.value}:energy_cost", BODY_FLOW_OCCURRED_AT)
-    return None
-
-
-def _entertainment_entries(kind: ActivityKind, need: float, hours: float, config: BodyConfig,
-                           relief_per_hour: float) -> tuple[list[FlowEntry], bool]:
-    """@brief 娱乐需要分录：实际接触计 drain（有缓解时不再累积），其余清醒活动计 source。
-
-    与共同区间路径同用 entertainment_need_rate 判定口径，同一活动在两条路径上的净效果相同
-    （docs/design/04-simulation-engine.md ）。
-
-    :returns: (分录列表, 累积是否触及上限 1 需要钳制)。
-    """
-    if kind == ActivityKind.SLEEP:
-        return [], False
-    rate = entertainment_need_rate(relief_per_hour, config)
-    if rate < 0:
-        amount = min(-rate * hours, need)
-        if amount > 0:
-            return [FlowEntry(ENTERTAINMENT_RESOURCE, BODY_FLOW_OWNER, DRAIN_DIRECTION, amount,
-                              f"settle:{kind.value}:entertainment_relief",
-                              BODY_FLOW_OCCURRED_AT)], False
-        return [], False
-    accrual = rate * hours
-    projected = need + accrual
-    if projected <= 1:
-        if accrual > 0:
-            return [FlowEntry(ENTERTAINMENT_RESOURCE, BODY_FLOW_OWNER, SOURCE_DIRECTION, accrual,
-                              f"settle:{kind.value}:awake_entertainment_need",
-                              BODY_FLOW_OCCURRED_AT)], False
-        return [], False
-    capped = min(accrual, 1 - need)
-    if capped > 0:
-        return [FlowEntry(ENTERTAINMENT_RESOURCE, BODY_FLOW_OWNER, SOURCE_DIRECTION, capped,
-                          f"settle:{kind.value}:awake_entertainment_need",
-                          BODY_FLOW_OCCURRED_AT)], True
-    return [], True
+            for threshold in thresholds if burn_per_hour > 0 and energy >= threshold]

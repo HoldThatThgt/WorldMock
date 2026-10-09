@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import get_args
+
 import logging
 import math
 from collections.abc import Sequence
@@ -10,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from worldmock.errors import IntegrityError
 from worldmock.exchange.types import GoodsCategory
 from worldmock.footprints.models import Event
+from worldmock.footprints.app_usage import validate_activity_prefix
 
 if TYPE_CHECKING:
     from worldmock.footprints.store import FootprintStore
@@ -18,7 +21,6 @@ _SOURCE_TYPES = frozenset({"activity_progress", "environment_event"})
 _PAGE_SIZE = 32
 _COMMON_FIELDS = frozenset({"kind", "agent_id", "activity_id", "source_event_id", "event_seq", "occurred_at"})
 _KIND_FIELDS = {
-    "waited": frozenset({"interval_start", "interval_end", "duration_seconds", "reason"}),
     "received": frozenset({"order_id", "goods_id", "category", "quantity"}),
     "arrived": frozenset({"location_id", "access_status"}),
     "played": frozenset({"content_id", "app_id", "position_before_seconds", "position_after_seconds",
@@ -61,12 +63,8 @@ def _validate_fact(row: Any, agent_id: int, current_time: int) -> None:
     if ((kind == "received" and row["activity_id"] is not None)
             or (kind != "received" and (not isinstance(row["activity_id"], str) or not row["activity_id"]))):
         _invalid("Observed experience activity identity is invalid")
-    if kind in {"waited", "played"}:
+    if kind == "played":
         _validate_fact_interval(row, current_time)
-    if kind == "waited" and (type(row["duration_seconds"]) is not int
-                              or row["duration_seconds"] != row["interval_end"] - row["interval_start"]
-                              or row["reason"] is not None):
-        _invalid("Observed wait duration or reason is invalid")
     if kind == "received":
         _validate_received_fact(row)
     if kind == "arrived" and (not isinstance(row["location_id"], str) or not row["location_id"]
@@ -86,7 +84,7 @@ def _validate_fact_interval(row: dict[str, Any], current_time: int) -> None:
 def _validate_received_fact(row: dict[str, Any]) -> None:
     """@brief 校验本人收货的商品、订单与实际取得份数。"""
     if (any(not isinstance(row[key], str) or not row[key] for key in ("order_id", "goods_id"))
-            or row["category"] not in set(GoodsCategory)
+            or row["category"] not in set(get_args(GoodsCategory))
             or not _finite_number(row["quantity"]) or row["quantity"] <= 0):
         _invalid("Observed goods receipt evidence is invalid")
 
@@ -111,6 +109,7 @@ def project_verified_experiences(
     """@brief 从认证事件的完整截止前缀投影本人全部规范经历。"""
     if type(agent_id) is not int or agent_id <= 0 or type(cutoff_seq) is not int or cutoff_seq < 0:
         _invalid("Experience projection boundary is invalid")
+    validate_activity_prefix([event.model_dump(mode="json") for event in events])
     facts: list[dict[str, Any]] = []
     seen: dict[str, Event] = {}
     previous_seq = 0
@@ -161,9 +160,9 @@ def _project_event(event: Event) -> list[dict[str, Any]]:
     if not isinstance(activity, dict):
         _invalid("Activity progress has no activity snapshot")
     kind = activity.get("kind")
-    if kind == "wait":
-        return [_waited(event, activity)]
-    if kind == "action":
+    if kind == "interact":
+        if activity.get("data", {}).get("content_id") is None:
+            return []
         row = _played(event, activity)
         return [row] if row is not None else []
     if kind == "travel":
@@ -187,14 +186,6 @@ def _interval(event: Event) -> tuple[int, int]:
     if type(start) is not int or type(end) is not int or start < 0 or end <= start:
         _invalid("Experience interval is invalid")
     return start, end
-
-
-def _waited(event: Event, activity: dict[str, Any]) -> dict[str, Any]:
-    """@brief 仅以等待实际区间证明经过的时间。"""
-    del activity
-    start, end = _interval(event)
-    return {**_base(event, "waited"), "interval_start": start, "interval_end": end,
-            "duration_seconds": end - start, "reason": None}
 
 
 def _received(event: Event) -> dict[str, Any]:

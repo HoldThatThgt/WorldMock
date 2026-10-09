@@ -5,8 +5,8 @@
 「0.25 份」），不给原始秒数或以分为单位的整数。数字与单位之间留一个空格。各层构建器、公开结果与 settled 句
 都从这里取短语，全仓只有这一套口径。
 
-中文种类表（活动种类、场所类型、内部动作的说法、出行方式、浏览目录）也只在这里定义（docs/design/05-recording-engine.md ）：环境层、交互
-菜单与时间线渲染器 scripts/render_day.py 都取这几张表，环境层与交互菜单沿用的同名表就是这里的对象；
+中文种类表只定义活动、具体动作和出行方式；地点类型直接使用数据集声明的原文。
+环境层与时间线渲染器 scripts/render_day.py 共用这些说法（docs/design/05-recording-engine.md）；
 表的英文键合成 ENGLISH_KIND_NAMES，质量报告据此检查时间线里有没有漏出英文种类名。
 """
 
@@ -15,23 +15,17 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from worldmock.life.action_contract import ACTIVITY_ACTIONS
+
 #: 活动种类（ActivityKind 的值）→ 时间线的中文种类名；带对象的活动由渲染器在种类名之外写上对象名称。
-ACTIVITY_KIND_LABELS = {"wait": "空档", "sleep": "睡觉", "travel": "出行", "action": "动作"}
-#: 在场人物实际动作由目录名提供，其余活动使用固定说法。
-ACTIVITY_DOING_LABELS = {"wait": "等待", "sleep": "睡觉", "travel": "赶路", "action": "做事"}
-#: 所选场所类型的中文标签。
-PLACE_TYPES = {"home": "家", "office": "办公室", "park": "公园", "fitness": "健身房",
-               "restaurant": "餐馆", "cafe": "咖啡馆", "convenience_store": "便利店", "supermarket": "超市",
-               "gas_station": "加油站", "parcel_station": "驿站"}
-#: 菜单排除动作时使用的六种固定说法。
-ACTION_PHRASES = {"travel_to": "出发去别处", "do": "做工具层里的动作", "purchase": "买东西",
-                  "collect_parcel": "领取包裹", "wait": "等待", "sleep": "睡觉"}
-#: 出行方式 → 方式短语（交互菜单的出行方式、环境层路程中的出行方式、时间线出行行的动词）。
-TRAVEL_WAYS = {"walking": "步行", "driving": "驾车"}
-#: 商品目录与内容品类的公开名称，用于可调用索引、查询和时间线。
+ACTIVITY_KIND_LABELS = {"sleep": "睡觉", "travel": "出行", "interact": "互动", "purchase": "购买"}
+#: 本人正在进行的活动使用固定说法。
+ACTIVITY_DOING_LABELS = {"sleep": "睡觉", "travel": "赶路", "interact": "互动", "purchase": "买东西"}
+#: 出行方式 → 环境层路程与时间线出行行共用的方式短语。
+TRAVEL_WAYS = {"walking": "步行", "driving": "驾车", "taxi": "乘出租车", "bus": "乘公交车"}
 #: 上面各表的英文键：面向人读的时间线里不得出现的英文种类名（质量报告 timeline_labels 按它计数）。
-ENGLISH_KIND_NAMES = frozenset({*ACTIVITY_KIND_LABELS, *ACTIVITY_DOING_LABELS, *PLACE_TYPES,
-                              *ACTION_PHRASES, *TRAVEL_WAYS})
+ENGLISH_KIND_NAMES = frozenset({*ACTIVITY_KIND_LABELS, *ACTIVITY_DOING_LABELS,
+                              *ACTIVITY_ACTIONS, *TRAVEL_WAYS})
 
 
 def _local(epoch: int, timezone_name: str) -> datetime:

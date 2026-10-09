@@ -84,13 +84,13 @@ class ModelEvidenceRecorder:
             self.context.state.current_time,
             "agent_runtime",
             "error" if exchange.phase == "failure" else "info",
-            "MODEL_EXCHANGE",
-            f"Model {exchange.phase} recorded for call {exchange.call_id}",
-            agent_id=context.agent_id,
-            decision_id=context.decision_id,
-            model=response.get("model"),
-            tokens_in=usage.get("prompt_tokens"),
-            tokens_out=usage.get("completion_tokens"),
+            {"code": "MODEL_EXCHANGE",
+            "detail": f"Model {exchange.phase} recorded for call {exchange.call_id}",
+            "agent_id": context.agent_id,
+            "decision_id": context.decision_id,
+            "model": response.get("model"),
+            "tokens_in": usage.get("prompt_tokens"),
+            "tokens_out": usage.get("completion_tokens")},
         )
 
     def record_memory_update(self, evidence: Any) -> None:
@@ -135,8 +135,8 @@ class ModelEvidenceRecorder:
             self.context.state.current_time,
             "memory",
             "info",
-            "MEMORY_UPDATED",
-            f"Memory update recorded {len(data['episodes'])} episodes",
-            agent_id=evidence.context.agent_id,
-            decision_id=evidence.context.decision_id,
+            {"code": "MEMORY_UPDATED",
+            "detail": f"Memory update recorded {len(data['episodes'])} episodes",
+            "agent_id": evidence.context.agent_id,
+            "decision_id": evidence.context.decision_id},
         )

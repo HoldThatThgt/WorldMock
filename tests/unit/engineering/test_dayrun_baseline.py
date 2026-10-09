@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from tests.dayrun_baseline import DayBaseline, day_baseline_signature
+from worldmock.errors import IntegrityError
 
 
 def _bytes(value):
@@ -22,11 +23,18 @@ def _digest(content):
 
 def _case(root: Path):
     """@brief 创建带完整哈希和检查点的最小独立运行工件。"""
-    for relative in ["scenarios", "run/assets", "export"]:
+    from tests.integration.runtime.current_contract_fixtures import inputs
+    from worldmock.environment import environment_identity
+    from worldmock.footprints.assets import AssetStore
+    from worldmock.life.world_setup import _freeze_environment
+
+    for relative in ["run/assets", "export"]:
         (root / relative).mkdir(parents=True)
-    scenario = _bytes({"schema_version": 8, "random_seed": 12})
-    (root / "scenarios/custom.json").write_bytes(scenario)
-    manifest = _bytes({"scenario_sha256": _digest(scenario), "run_id": "day-test"})
+    frozen = inputs()
+    assets = _freeze_environment(frozen, AssetStore(root / "run/assets"))
+    manifest = _bytes({"schema_version": 5, "persona_sha256": frozen.persona_sha256,
+                       "config_sha256": frozen.config_sha256, "environment_identity": environment_identity(frozen),
+                       "environment_assets": assets, "run_id": "day-test"})
     (root / "run/manifest.json").write_bytes(manifest)
     body = _bytes({"manifest_sha256": _digest(manifest), "state": {"balance": 10}, "snapshots": {}})
     with sqlite3.connect(root / "run/footprints.sqlite") as connection:
@@ -76,3 +84,15 @@ def test_normalization_preserves_unknown_hashes_and_every_other_field(tmp_path):
     baseline = DayBaseline(tmp_path, tmp_path)
     payload = {"code_sha256": "a" * 64, "some_id": "123", "nested": {"result": False}, "wall_elapsed_ms": 9}
     assert baseline.normalize(payload) == payload
+
+
+@pytest.mark.parametrize("field", ["persona_sha256", "config_sha256", "map_sha256", "catalog_content_sha256"])
+def test_frozen_environment_input_identity_is_authenticated_before_normalizing(tmp_path, field):
+    case = _case(tmp_path / "case")
+    path = case / "run/manifest.json"
+    manifest = json.loads(path.read_bytes())
+    identity = manifest if field in {"persona_sha256", "config_sha256"} else manifest["environment_identity"]
+    identity[field] = "0" * 64
+    path.write_bytes(_bytes(manifest))
+    with pytest.raises(IntegrityError):
+        day_baseline_signature(case, case)

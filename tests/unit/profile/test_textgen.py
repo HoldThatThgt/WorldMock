@@ -103,7 +103,7 @@ _IDENTITY = ("产品经理，32岁，与伴侣合租两居室。\n本周在忙�
 _TAIL = "口味：爱看悬疑、纪录片；喜欢吃川菜、面食；常用长视频、短视频。\n压力时拼高达模型。"
 #: c3b24da 的 render_card 对三类卡片的输出（由 `git show c3b24da:src/worldmock/profile/textgen.py` 算出后写死）：
 #: 刻钟睡眠中点仍写整点、半点窗口、午夜后开始的窗口仍写「24点半」「25点」。
-_C3B24DA_RENDERS = {
+_EXPECTED_RENDERED_CARDS = {
     "quarter_hour": _IDENTITY + (
         "约7点到7点半起床、8点到8点半出门；午餐12点到13点、晚餐18点半到19点半；就寝23点到24点，睡眠中点约3点，"
         "需睡7.5小时。\n习惯：午饭后→散步一刻钟（12点半到13点）。\n") + _TAIL,
@@ -133,12 +133,12 @@ def _golden_card(kind: str):
         HabitSignature(trigger="睡前", response="读几页小说", time_window=make_window(23.5, 24.0))))
 
 
-@pytest.mark.parametrize("kind", sorted(_C3B24DA_RENDERS))
-def test_render_card_is_byte_identical_to_the_pre_persona_layer_renderer(kind):
+@pytest.mark.parametrize("kind", sorted(_EXPECTED_RENDERED_CARDS))
+def test_render_card_preserves_current_clock_and_window_text(kind):
     """@brief render_card 不动（docs/design/06-agent.md「人设层」）：刻钟、半点与
-    午夜后开始的窗口渲染出的卡片文本与 c3b24da 逐字节相同；刻钟与钟面写法只属于人设层的 hour_text / window_text。"""
+    午夜后开始的窗口渲染出的卡片文本与当前可读卡片合同逐字节相同；刻钟与钟面写法只属于人设层的 hour_text / window_text。"""
     card = _golden_card(kind)
-    assert render_card(card) == _C3B24DA_RENDERS[kind]
+    assert render_card(card) == _EXPECTED_RENDERED_CARDS[kind]
 
 
 def _with_work_anchors(card, leave_work, arrive_home):

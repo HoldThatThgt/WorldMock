@@ -22,14 +22,14 @@ def _event(sequence, kind, data, *, at=START, version=None, activity_id=None, ag
 
 
 def _app(identity="phone", app_id="bilibili", *, session="stay", content="long-video", pin=None,
-         status="active", ended_at=None, manner="phone_continuous", action_id="recommend"):
-    """@brief 当前 ACTION 活动的完整应用身份与内容游标。"""
-    return ActivityState(activity_id=identity, agent_id=1, kind="action",
+         status="active", ended_at=None):
+    """@brief 当前交互 活动的完整应用身份与内容游标。"""
+    return ActivityState(activity_id=identity, agent_id=1, kind="interact",
                          status=status, location_id="home", started_at=START, last_settled_at=START, elapsed_seconds=0,
                          planned_end_at=START + 1800, planned_duration_seconds=1800, ended_at=ended_at,
                          origin_action_id="open", origin_decision_id="decision", origin_request_event_id="request",
-                         session_ids=[session], data={"action_id": action_id, "category": "entertainment",
-                             "app_id": app_id, "manner": manner, "counterpart": None, "content_id": content,
+                         session_ids=[session], data={"action": "interact",
+                             "app_id": app_id, "content_id": content,
                              "start_position_seconds": 0, "pinned_by_push_id": pin, "draw_index": 0, "played": []}
                          ).model_dump(mode="json")
 
@@ -38,7 +38,7 @@ def _push(sequence, identity="push", app="bilibili", session="stay", content="lo
     """@brief 推送使用现有 environment_event 的完整实际载荷。"""
     return _event(sequence, "environment_event", {"kind":"app_push", "push_id":identity,
                   "app_id":app, "app":"哔哩哔哩", "content_id":content, "title":"城市纪录片",
-                  "action_id":"recommend", "action":"刷推荐", "summary":"城市的一天。", "session_id":session,
+                  "summary":"城市的一天。", "session_id":session,
                   "issued_at":START, **fields})
 
 
@@ -77,19 +77,18 @@ def test_five_app_facts_use_real_sources_and_the_consumed_content_before_automat
     assert {row["fact_kind"] for row in facts} == {
         "app_use", "content_consumed", "push_delivered", "push_opened", "push_released"}
     assert facts[0] == {"fact_kind":"app_use", "agent_id":1, "activity_id":"phone", "app_id":"bilibili",
-                        "action_id":"recommend", "manner":"phone_continuous", "device":"phone",
+
                         "segments":[{"started_at":START, "ended_at":START + 300}],
                         "status":"paused", "source_event_id":"event-4"}
     consumed = next(row for row in facts if row["fact_kind"] == "content_consumed")
     assert consumed == {"fact_kind":"content_consumed", "agent_id":1, "activity_id":"phone",
-                        "app_id":"bilibili", "action_id":"recommend", "manner":"phone_continuous",
-                        "device":"phone", "content_id":"long-video", "interval_start":START,
+                        "app_id":"bilibili", "content_id":"long-video", "interval_start":START,
                         "interval_end":START + 300,
                         "position_before":0, "position_after":300, "completed":True, "push_id":"push",
                         "source_event_id":"event-3"}
     assert [row["source_event_id"] for row in facts if row["fact_kind"].startswith("push_")] == [
         "event-1", "event-2", "event-3"]
-    assert all(set(row) == {"fact_kind", "agent_id", "activity_id", "action_id", "manner", "device",
+    assert all(set(row) == {"fact_kind", "agent_id", "activity_id",
                             "push_id", "app_id", "content_id", "session_id",
                             "occurred_at", "source_event_id"}
                for row in facts if row["fact_kind"].startswith("push_"))
@@ -126,7 +125,7 @@ def test_push_funnel_counts_each_push_once_across_partial_consumption_and_repeat
               _progress(5, initial, before=60, after=120)]
     result = app_usage_quality(events, "UTC")
     assert result["app_pushes"]["consumed_pinned"] == result["app_pushes"]["opened_in_session"] == 1
-    assert result["content_contact"] == {"by_app":{"bilibili":2}, "by_action":{"recommend":2},
+    assert result["content_contact"] == {"by_app":{"bilibili":2},
                                         "repeat_watch":0, "repeat_seconds_share":0.0}
 
 
@@ -136,7 +135,7 @@ def test_repeat_watch_counts_real_rounds_at_each_interval_start_including_resume
               _progress(3, _app(), before=0, after=30, rounds=1),
               _progress(4, _app(identity="phone-douyin", app_id="douyin"), before=30, after=90, rounds=1)]
     result = app_usage_quality(events, "UTC")["content_contact"]
-    assert result == {"by_app":{"bilibili":2, "douyin":1}, "by_action":{"recommend":3}, "repeat_watch":2,
+    assert result == {"by_app":{"bilibili":2, "douyin":1}, "repeat_watch":2,
                       "repeat_seconds_share":pytest.approx(90 / 390)}
 
 
@@ -264,15 +263,15 @@ def test_non_activity_events_cannot_introduce_app_or_travel_snapshots(event_type
         project_app_usage([_push(1), row])
 
 
-def test_wait_content_payload_cannot_create_consumption_or_repeat_counts():
+def test_sleep_content_payload_cannot_create_consumption_or_repeat_counts():
     """@brief 私自给真实等待快照夹带内容字段，不能制造手机消费或重复观看次数。"""
     row = _progress(1, _app(), rounds=7)
-    row["data"]["activity"] = ActivityState.model_validate({**_app(), "kind":"wait",
+    row["data"]["activity"] = ActivityState.model_validate({**_app(), "kind":"sleep",
                                                          "data":{}}).model_dump(mode="json")
     row = Event.model_validate(row).model_dump(mode="json")
-    with pytest.raises(IntegrityError, match="Content consumption must use the current action content contract"):
+    with pytest.raises(IntegrityError, match="Content consumption must use the current interact content contract"):
         project_app_usage([row])
-    with pytest.raises(IntegrityError, match="Content consumption must use the current action content contract"):
+    with pytest.raises(IntegrityError, match="Content consumption must use the current interact content contract"):
         app_usage_quality([row], "UTC")
 
 

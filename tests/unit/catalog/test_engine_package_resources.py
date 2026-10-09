@@ -15,15 +15,15 @@ PACKAGED_FILES = tuple(path.relative_to(ROOT / "src/worldmock/data") for path in
                       if path.is_file() and "__pycache__" not in path.parts)
 
 
-def test_catalog_has_only_six_object_files_and_no_engine_rule_copies(catalog_dir):
-    """@brief 目录不再提供规则副本或语料，导航与支付应用也不需要虚构内容。"""
-    catalog = load_catalog(catalog_dir)
+def test_catalog_has_only_five_object_files_and_no_engine_rule_copies(catalog_dir):
+    """目录只保留五个作者文件，地图与固定规则不进入发布清单。"""
+    catalog = load_catalog(catalog_dir, 7)
     assert REQUIRED_CATALOG_FILES == {
-        "apps.json", "locations.json", "goods.json", "actions.json", "contents.json", "map.json"}
-    assert len(catalog.manifest.files) == 6
+        "app-catalog.jsonl", "callbacks.jsonl", "content-catalog.jsonl", "location.jsonl", "merchant-catalog.jsonl"}
+    assert len(catalog.manifest.files) == 5
     assert {path.name for path in catalog_dir.iterdir()} == REQUIRED_CATALOG_FILES | {"manifest.json"}
-    assert not catalog.actions_by_app["amap"]
-    assert not catalog.actions_by_app["alipay"]
+    assert catalog.apps_by_action["walk"] == ("amap",)
+    assert catalog.apps_by_action["purchase"] == ("alipay", "wechat")
 
 
 @pytest.mark.parametrize("relative", PACKAGED_FILES)

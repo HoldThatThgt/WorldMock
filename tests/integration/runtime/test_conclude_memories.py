@@ -1,3 +1,4 @@
+from tests.integration.runtime.current_contract_fixtures import profile as current_profile
 """一轮决策恰好一个世界请求；记忆只经 conclude_activity 写入、来源由系统登记；发给人物模型的内容不含内部身份；
 阈值巩固只计结束活动写入的条目。
 
@@ -5,7 +6,6 @@
 「会话、活动与记忆」；实施台账「七·记忆新增」。
 """
 
-from __future__ import annotations
 
 from worldmock.life.tool_groups import expand_tool_layer
 
@@ -61,7 +61,7 @@ from tests.integration.runtime.test_verified_memory import _runtime
 from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
 from tests.life.conftest import (
     activity_name, advance_until_ready, context, errand_add, stage_day_plan, start_activity,
-    wake_by_mail, pause_request, report_request,
+    pause_request, report_request,
 )  # noqa: F401
 from worldmock.errors import IntegrityError
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PENDING
@@ -75,7 +75,7 @@ def _fixed_context_window(monkeypatch) -> None:
     """脚本模型使用固定供应商窗口，不请求外部模型元数据。"""
     from worldmock.life import prompt_capacity
 
-    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_048_576)
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: metadata.context_window)
 
 
 def _observed(*activities: tuple[str, str]) -> list[dict]:
@@ -113,6 +113,7 @@ def test_life_tool_surface_never_offers_finish(stage: str) -> None:
     observations = _observed((_WORK, PHASE_ACTIVE), (_WAIT, PHASE_PENDING))
     observations[0]["data"]["same_moment_stage"] = stage
     agent = LifeAgent()
+    agent._profile = current_profile()
     agent.prepare_react_loop(ReactLoopRequest(0, _OBSERVED_AT, observations))
 
     names = {item["function"]["name"] for item in agent.build_react_tool_schemas(readonly=False)}
@@ -121,6 +122,7 @@ def test_life_tool_surface_never_offers_finish(stage: str) -> None:
     assert names - _MEMORY_TOOL_NAMES == set(REQUEST_MODELS) | {"query_world"}
     assert life_action_tool_names() == frozenset(REQUEST_MODELS) | {"query_world"}
     readonly = LifeAgent()
+    readonly._profile = current_profile()
     readonly.prepare_react_loop(ReactLoopRequest(0, _OBSERVED_AT, [], "今天过得怎么样？", True))
     functions = {item["function"]["name"]: item["function"]
                  for item in readonly.build_react_tool_schemas(readonly=True)}
@@ -141,6 +143,7 @@ async def test_registered_world_request_ends_the_decision_and_memory_queries_do_
     ])
     environment = _Environment()
     agent = LifeAgent()
+    agent._profile = current_profile()
     _wire_agent(agent, environment, dispatcher, 8)
     request = ReactLoopRequest(0, _OBSERVED_AT, _observed((_WAIT, PHASE_ACTIVE)))
 
@@ -170,6 +173,7 @@ async def test_conclusion_memories_flatten_by_task_with_system_source() -> None:
         dispatcher = _GroundedCorrectionDispatcher(responses=[
             _ModelResponse("call-action", tool, json.dumps(arguments, ensure_ascii=False))])
         agent = LifeAgent()
+        agent._profile = current_profile()
         _wire_agent(agent, _Environment(), dispatcher, 4, memory=False)
         request = ReactLoopRequest(0, _OBSERVED_AT, _observed((_WORK, PHASE_ACTIVE), (_WAIT, PHASE_ACTIVE)))
         assert await agent.run_react_loop(request) == f"{tool} registered"
@@ -215,6 +219,7 @@ async def test_views_persist_as_memories_byte_identical_to_the_subject_shape(tmp
 def test_only_conclude_activity_carries_memories() -> None:
     """结束工具每项带记忆与看法；播报与暂停不带，多给 memories 按协议错误拒绝（第七章，一项一个对象）。"""
     agent = LifeAgent()
+    agent._profile = current_profile()
     agent.prepare_react_loop(ReactLoopRequest(0, _OBSERVED_AT, _observed((_WORK, PHASE_ACTIVE))))
     functions = {item["function"]["name"]: item["function"] for item in agent.build_react_tool_schemas(readonly=False)}
 
@@ -315,6 +320,7 @@ async def test_conclusion_memory_limits_are_protocol_errors_retried_in_the_same_
     ])
     environment = _Environment()
     agent = LifeAgent()
+    agent._profile = current_profile()
     _wire_agent(agent, environment, dispatcher, 4, memory=False)
 
     result = await agent.run_react_loop(ReactLoopRequest(
@@ -348,6 +354,7 @@ def test_conclusion_memory_limits_accept_the_boundaries() -> None:
              _view("晚风", "晚风很舒服。", kind="preference", keywords=tuple(f"词{index}" for index in range(12)))]
     arguments = _conclude_args(_WORK, _WAIT, memories=[boundary, []], views=[views, []])
     agent = LifeAgent()
+    agent._profile = current_profile()
     agent.prepare_react_loop(ReactLoopRequest(0, _OBSERVED_AT, _observed((_WORK, PHASE_ACTIVE), (_WAIT, PHASE_ACTIVE))))
     agent.build_react_tool_schemas(readonly=False)
 
@@ -377,7 +384,7 @@ class _ScriptedModel:
     可调用的脚本项按本次实际请求构造响应（例如从工具层取活动名）。
     """
 
-    model_name = "deepseek-flash"
+    model_name = "test-model"
 
     def __init__(self, responses: list) -> None:
         self.responses = list(responses)
@@ -430,24 +437,22 @@ def _engine_with_pending_wait(engine_factory) -> tuple[Any, LifeEnv, str]:
     """真实引擎：人物开始一段等待并推进到等待到点，等待成为刚结束、待收尾，人物在同一秒获得决策。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    started = _settle(engine, "wait", "start_activity", start_activity("等待", "自己"))
+    started = _settle(engine, "wait", "start_activity", start_activity("interact", "家"))
     assert advance_until_ready(engine)
     assert engine.context.state.activities[started.activity_id].status.value == "completed"
     return engine, _environment(engine), started.activity_id
 
 
-def _engine_with_paused_app_and_pending_wait(engine_factory) -> tuple[Any, LifeEnv, str, str]:
+def _engine_with_paused_app_and_pending_wait(engine) -> tuple[Any, LifeEnv, str, str]:
     """真实引擎：人物看了五分钟内容后暂停，接着等待到点；此刻有暂停的观看与刚结束、待收尾的等待（只有后者占名额）。"""
-    engine = engine_factory()
     stage_day_plan(engine)
-    watch = _settle(engine, "open-app", "start_activity", start_activity("进行", "刷推荐", app=["哔哩哔哩"]))
+    watch = _settle(engine, "open-app", "start_activity", start_activity("interact", "抖音"))
     assert watch.status.value == "in_progress"
-    wake_by_mail(engine, offset=300)
     assert advance_until_ready(engine)
     watch_name = activity_name(engine, watch.activity_id)
     paused = _settle(engine, "pause", "pause_activity", pause_request(watch_name, summary="先停一下。"))
     assert paused.status.value == "completed"
-    wait = _settle(engine, "wait", "start_activity", start_activity("等待", "自己"))
+    wait = _settle(engine, "wait", "start_activity", start_activity("interact", "家"))
     for index in range(16):
         assert advance_until_ready(engine)
         if engine.context.state.activities[wait.activity_id].status.value == "completed":
@@ -461,8 +466,7 @@ def _engine_with_paused_app_and_pending_wait(engine_factory) -> tuple[Any, LifeE
 
 async def _person(environment: LifeEnv, workspace: Path, model: _ScriptedModel) -> LifeAgent:
     """从全新工作区装配启用记忆的真实 LifeAgent（巩固阈值取默认值），绑定真实环境。"""
-    contacts = [{"salutation": "沈昊", "relation": "老友"}, {"salutation": "陈母", "relation": "家人"}]
-    LifeAgent.create(workspace, {"id": 1, "name": "陈曦", "occupation": "engineer", "contacts": contacts},
+    LifeAgent.create(workspace, {**current_profile(), "id": 1, "name": "陈曦", "occupation": "engineer"},
                      {"enable_memory": True, "enable_todo_list": False, "max_react_turns": 8})
     service = SimpleNamespace(env=environment, llm=SimpleNamespace(default=model), trace=None)
     return await LifeAgent.from_workspace(workspace, service)
@@ -490,7 +494,7 @@ async def test_conclusion_sources_are_registered_by_the_system(_engine_factory, 
     engine, environment, wait_id = _engine_with_pending_wait(_engine_factory)
     name = activity_name(engine, wait_id)
     memories = [_memory("等了一刻钟，心里平静了。", importance=0.3)]
-    views = [_view("陈母", "想起还没回妈妈的消息。", importance=0.4, keywords=("妈妈",))]
+    views = [_view("抖音", "想起还没看完的内容。", kind="preference", importance=0.4, keywords=("妈妈",))]
     conclusion = {"items": [{"activity_name": name, "summary": "等完了。", "memories": memories, "views": views}],
                   "errands": []}
     model = _ScriptedModel([_ModelResponse("call-conclude", "conclude_activity",
@@ -520,13 +524,14 @@ async def test_conclusion_sources_are_registered_by_the_system(_engine_factory, 
     assert all("subject" not in item and "about" not in item for item in stored)
     after = context(engine, "after-conclusion")
     engine.begin_decision_round([after])
-    assert engine.observe(after)["persona_views"]["relationships"] == [{"person": "陈母", "view": views[0]["text"]}]
+    assert engine.observe(after)["persona_views"]["preferences"] == [
+        {"subject": "抖音", "preference": views[0]["text"], "noted_on": "2026-01-05"}]
 
 
 @pytest.mark.asyncio
-async def test_conclusion_rejected_at_settlement_keeps_its_memories(_engine_factory, tmp_path) -> None:
+async def test_conclusion_rejected_at_settlement_keeps_its_memories(long_content_engine, tmp_path) -> None:
     """登记后结算被拒的 conclude_activity（有刚结束的等待却只结束暂停的观看），其记忆仍作为人物自述保留，写入点记为该动作。"""
-    engine, environment, watch_id, wait_id = _engine_with_paused_app_and_pending_wait(_engine_factory)
+    engine, environment, watch_id, wait_id = _engine_with_paused_app_and_pending_wait(long_content_engine)
     memories = [_memory("那段短剧还没看完，有点惦记。", importance=0.3)]
     conclusion = {"items": [
         {"activity_name": activity_name(engine, watch_id), "summary": "不看了。", "memories": memories, "views": []}],
@@ -552,13 +557,13 @@ async def test_conclusion_rejected_at_settlement_keeps_its_memories(_engine_fact
 
 
 @pytest.mark.asyncio
-async def test_rejected_conclusion_keeps_its_memories_but_registers_no_errand(_engine_factory, tmp_path) -> None:
+async def test_rejected_conclusion_keeps_its_memories_but_registers_no_errand(long_content_engine, tmp_path) -> None:
     """被业务拒绝的收尾带着一条合法的个人事务新增（docs/design/04-simulation-engine.md 「原子性」）：真实 LifeAgent 经
     LifeEnv 登记收尾（有刚结束的等待却只结束暂停的观看），宿主本地校验通过，登记时照常写入收尾记忆——memory_updated 的
     触发点只有 activity_conclusion，新建条目只有这一条收尾记忆；事务变更不是记忆写入点，记忆里没有事务的文字。结算以
     ACTIVITY_CONCLUSION_REQUIRED 拒绝，事务变更随整请求一并不生效：人物没有未完成事务，没有任何事务事件，结果没有回执键，
     请求事件原样留着这条变更。"""
-    engine, environment, watch_id, _ = _engine_with_paused_app_and_pending_wait(_engine_factory)
+    engine, environment, watch_id, _ = _engine_with_paused_app_and_pending_wait(long_content_engine)
     memories = [_memory("那段短剧还没看完，有点惦记。", importance=0.3)]
     noted = errand_add("买一袋薯片", "薯片", memo="下班前下单送到家", remind_time="17:00")
     conclusion = {"items": [
@@ -686,7 +691,7 @@ async def test_memory_queries_and_the_reply_body_reach_the_next_progress_layer(_
     engine, environment, wait_id = _engine_with_pending_wait(_engine_factory)
     name = activity_name(engine, wait_id)
     memories = [_memory("等完这一刻钟，心里踏实了。", importance=0.2)]
-    views = [_view("沈昊", "想给老朋友打个电话。", importance=0.3)]
+    views = [_view("抖音", "想看看下一条内容。", kind="preference", importance=0.3)]
     conclusion = {"items": [{"activity_name": name, "summary": "等完了。", "memories": memories, "views": views}],
                   "errands": []}
     model = _ScriptedModel([
@@ -774,6 +779,7 @@ async def test_readonly_finish_batched_with_another_tool_is_rejected() -> None:
     ])
     environment = _Environment()
     agent = LifeAgent()
+    agent._profile = current_profile()
     _wire_agent(agent, environment, dispatcher, 3)
 
     answer = await agent.run_react_loop(ReactLoopRequest(0, _OBSERVED_AT, [], "昨天做了什么？", True))
@@ -792,7 +798,7 @@ async def test_readonly_finish_batched_with_another_tool_is_rejected() -> None:
 _CONCLUSION_MEMORIES = (
     ("routine", "晚上把碗洗了，厨房总算清爽。"),
     ("goal", "想在月底前读完那本小说。"),
-    ("relationship", "给妈妈打电话时她声音很精神。"),
+    ("routine", "给妈妈打电话时她声音很精神。"),
     ("preference", "比起外卖，我还是喜欢自己煮面。"),
     ("commitment", "答应了同事周五前交方案初稿。"),
     ("conflict", "和房东为了热水器又争了几句。"),
@@ -800,11 +806,11 @@ _CONCLUSION_MEMORIES = (
     ("identity", "我越来越像个能自己拿主意的人。"),
     ("routine", "早起先喝一杯温水已经成了习惯。"),
     ("goal", "这个季度想把英语口语练起来。"),
-    ("relationship", "楼下的邻居送了我一袋橘子。"),
+    ("routine", "楼下的邻居送了我一袋橘子。"),
     ("preference", "下雨天最适合窝在沙发上听播客。"),
 )
 #: relationship 与 preference 记忆写下的对象（relationship 的对象是档案里的场景联系人）。
-_SUBJECTS = {"relationship": "陈母", "preference": "吃饭"}
+_SUBJECTS = {"preference": "整理会议纪要"}
 #: 就寝反思的五条洞见（AS2 固定重要度 0.8，合计 4.0，已超过重要度阈值）。
 _INSIGHTS = ("我其实很在意家里整不整洁。", "和家人的联系让我踏实。", "工作上的承诺我都记在心里。",
              "独处的时候我最放松。", "我想让日子过得更有规律。")
@@ -813,7 +819,7 @@ _INSIGHTS = ("我其实很在意家里整不整洁。", "和家人的联系让�
 class _DayModel:
     """脚本化人物模型：按请求形状回答收尾请求、阈值巩固与就寝反思，并留存巩固载荷。"""
 
-    model_name = "deepseek-flash"
+    model_name = "test-model"
 
     def __init__(self) -> None:
         self.conclusions: list[dict] = []
@@ -852,6 +858,8 @@ class _DayEnvironment(_StepEnvironment):
         """在一项进行中等待的观察上再加一项进行中的工作，并写入本轮唤醒原因。"""
         data = _with_activities(await super().observe(context), (_WORK, PHASE_ACTIVE))
         data["wake_reasons"] = list(self.wake_reasons)
+        if "wake_from_sleep" in self.wake_reasons:
+            data["ended_sleep"] = {"kind": "sleep", "status": "completed", "ended_at": data["current_time"]}
         data["todo_layer"]["day_plan"] = {"date": "2026-01-05", "goals": []}
         return data
 
@@ -863,8 +871,7 @@ async def test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime
     巩固载荷每条只有 {type, text, time}，不带条目身份（第七章「finish 并入 conclude_activity」「发给模型的内容不含内部身份」）。
     """
     workspace = tmp_path / "agent_0007"
-    LifeAgent.create(workspace, {"id": 7, "name": "Alice", "occupation": "engineer",
-                                 "contacts": [{"salutation": "陈母", "relation": "家人"}]},
+    LifeAgent.create(workspace, {**current_profile(), "id": 7, "name": "Alice", "occupation": "engineer"},
                      {"enable_memory": True, "enable_todo_list": False, "max_react_turns": 4})
     environment, model = _DayEnvironment(), _DayModel()
     agent = await LifeAgent.from_workspace(workspace, _service(environment, model))

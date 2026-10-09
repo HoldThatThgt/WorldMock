@@ -17,41 +17,34 @@ from typing import Any, Sequence
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
+from worldmock.input_models import ModelMetadata
 
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import PlanDayRequest, WorldState, deepseek_strict_schema
-from worldmock.life.body import apply_mood_pulse
 from worldmock.life.prompt_capacity import CONTEXT_THRESHOLD, model_context_length, request_token_count
 from worldmock.life.schedule import (DayPlan, RemindTimeInvalid, day_end_seconds, initial_day_plan,
-                                     registered_goals, progress_receipt_day_plan)
+                                     registered_goals)
 
 #: 零点计划请求与响应的用途标记；交付窗口、决策 token 统计与行为指标的决策请求按它排除。
 PLAN_DAY_PURPOSE = "plan_day"
 #: 零点计划的生成上限（docs/design/06-agent.md「生成参数」）。
 PLAN_DAY_MAX_TOKENS = 8000
-#: 输出不合法时附回错误的重试次数上限：首次之外至多再请求 3 次，与传输重试预算分开计数。
-PLAN_DAY_VALIDATION_RETRIES = 3
 #: 提交当日目标清单的唯一工具名。
 PLAN_DAY_TOOL = "submit_day_plan"
 #: 输入中人物收尾自述的标注（与观察中的自述同一说法）。
 SELF_REPORT_NOTE = "你自己记下的，未经核验"
 #: 零点计划的中文模板（docs/design/06-agent.md「请求组成」）。
 PLAN_DAY_PROMPT = """
-你要为一个人写出他这一天的当日目标清单。用户消息是一份 JSON，只含世界已经记下的事实：人物档案与背景原文、当天的上班安排、
-回顾时段里已核验的经历、他本人已结算的动作结果、他收尾时自己记下的话（未经核验，只代表他的想法），
-以及此刻他能看到的待办任务、还没办完的个人事务、收件箱、在途订单、联系人和上一天目标的推进情况。
-按下面的规矩写：
-一、写零到八条目标，按优先级从高到低排列；每条从给定的意图里选一个，同一意图只写一条。
-二、goal 用一句中文写他打算做什么，可以写粗略的时段和要提前做的准备，不超过三百字；记录里没有的事不要编造。
-三、remind_time 是到点提醒他或叫醒他的时刻，取当天本地时间 HH:MM，必须晚于生成时刻、早于当天结束：要按时起床的填起床的时刻，
-出门去上班、上课、接人、赴约这类要按时到的事填该出门的时刻，一条目标里有几件就填最早的；只是打算在某个时段做的事填 null，几点去睡也不设提醒。他收尾时写明了第二天几点起床或几点出门的，就给对应的目标定这个时刻的提醒。
-四、只调用一次 submit_day_plan，提交完整清单。
-五、人物档案与背景里天天如此的事（睡觉、起床、上下班、吃饭、休息、每天的消遣）不写成目标；只写今天与平常不同的安排（写清楚哪里不同）、要办的事，以及照第三条要提醒的事。清单可以很短。
-六、每条目标都写大致时刻 around_time：他打算在当天几点前后做这件事，取当天本地时间 HH:MM，只知道大致时段的写时段的中点；
-大致时刻只表示大概在那前后，不是开始的钟点，也不会提醒他，需要提醒的照第三条填 remind_time；goal 里只给和人约好的事写钟点，其余只写上午、午饭后这样的时段或先后。
-七、个人事务已经记在待办里，不必照抄成目标；今天打算去办的，可以写一条目标说明什么时候办。
-八、输入里有上班安排的日子，目标不要安排在上班时间离开上班地点，写明的休息时段和工作要求去别处的外出除外。
+根据一个人的真实档案与背景、当天工作安排、已核验经历、已结算动作结果、明确为主观的收尾记录、
+未完成个人事务、本人在途订单以及上一天的目标，为他写今天的目标清单。
+只调用一次 submit_day_plan，提交完整的零至八条中文目标，按优先级排列，意图不重复。记录中没有的事情不要编造。
+goal 写今天特别要做的事情，不超过三百字；平常每天的作息习惯不重复列目标。
+remind_time 是当天本地 HH:MM，必须晚于生成时刻且早于次日零点，不需要提醒时填 null。
+提醒只是醒着时到点请他决策，不会打断睡眠。around_time 写当天大致 HH:MM 或 null，不触发提醒；
+正文尽量用上午、午饭后或先后关系说明时段。
+个人事务已经记在待办中，无需抄成目标；计划不创建、完成或取消个人事务，也不判定目标是否办成。
+工作安排是固定世界事实，今日目标不能改变班次；不要安排在班次中离开工作地点，已声明休息时段除外。
 """.strip()
 #: 附回重试时的英文指令。
 _CORRECTION_INSTRUCTION = "Return a complete new submit_day_plan tool call using the unchanged schema."
@@ -90,15 +83,17 @@ def prepare_plan_day(payload: dict[str, Any], model_name: str) -> dict[str, Any]
             "extra_body": {"thinking": {"type": "disabled"}}}
 
 
-def fit_plan_day(payload: dict[str, Any], sentences: Sequence[str], model_name: str) -> tuple[dict, int]:
+def fit_plan_day(payload: dict[str, Any], sentences: Sequence[str], model_name: str,
+                 metadata: ModelMetadata) -> tuple[dict, int]:
     """@brief 整次请求达到窗口 85% 时先裁掉较早的当日经历句子；仍超限按容量故障处理。
 
     @return (请求, 实际保留的经历句子条数；保留的是最后这些条)
     """
-    limit = CONTEXT_THRESHOLD * model_context_length(model_name)
+    limit = CONTEXT_THRESHOLD * model_context_length(model_name, metadata)
     kept = list(sentences)
     while True:
         request = prepare_plan_day({**payload, "已核验经历": kept}, model_name)
+        request["max_tokens"] = min(PLAN_DAY_MAX_TOKENS, metadata.max_output_tokens)
         if request_token_count(request) <= limit:
             return request, len(kept)
         if not kept:
@@ -213,19 +208,3 @@ def _tool_arguments(raw: dict[str, Any]) -> str:
 def _schema_feedback(error: ValidationError) -> str:
     """@brief 保留零点计划的根字段名称并共用 Schema 错误格式。"""
     return schema_feedback(error, "goals")
-
-
-def settle_receipt_goals(state: WorldState, drafts: Sequence[EventDraft]) -> WorldState:
-    """@brief 正餐收货只推进收货人当日用餐目标，并在首次推进时施加一次情绪脉冲。"""
-    changed = state.model_copy(deep=True)
-    for draft in drafts:
-        if draft.event_type != "environment_event" or draft.data.get("kind") != "goods_received":
-            continue
-        agent = changed.agents[draft.agent_id]
-        if agent.day_plan is None:
-            continue
-        plan = progress_receipt_day_plan(agent.day_plan, draft.data, draft.occurred_at)
-        if plan != agent.day_plan:
-            body = apply_mood_pulse(agent.body, "goal_progressed")
-            changed.agents[agent.agent_id] = agent.model_copy(update={"day_plan": plan, "body": body}, deep=True)
-    return changed

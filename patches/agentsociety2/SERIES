@@ -21,14 +21,14 @@
     },
     {
       "file": "model-lifecycle.patch",
-      "sha256": "718d4755835517b229a82726e22f3e416d1337b1233e346edcffad0fb51aa524"
+      "sha256": "0f94b5a120a14d28d47a6095f5d716eee8f6faa103ef32cf8ba3711cc2499f5e"
     },
     {
       "file": "package-metadata.patch",
       "sha256": "2cda7b864178be11c28d6706083382dcf123570d45fef97436f64d02baad79e8"
     }
   ],
-  "source_sha256": "bb655cb3b4d7a68c725431a507192389b4e6770015e9673d6f5e9ef92dba1c46",
+  "source_sha256": "bf716c7b982ea1aa057207b4ad06e1758b598bccef90834e18da2ca4253db3c6",
   "install_files": {
     "pyproject.toml": "1e1b1e454999add2106f73c961620c684e4111ebc09b55a0e56309f249713e6b",
     "README.md": "c8c860146cbd2b54cc61c134c2a3bc1a7d71479b6d71c0039b1ab976988e3e4c",

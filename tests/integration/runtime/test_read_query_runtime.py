@@ -1,3 +1,4 @@
+from tests.integration.runtime.current_contract_fixtures import profile as current_profile
 """@brief 只读查询转发的四类证据（docs/design/10-runtime.md 「证据分工」）。
 
 1. 真实 Ray：驱动侧与 worker 侧各经代理调用一次，回看任务返回结果字典而非对象引用，世界状态逐字节不变、不追加事件；
@@ -8,6 +9,8 @@
 """
 
 from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT, ENVIRONMENT_ROOT
+from tests.system.cli.test_cli import published_environment
+from tests.integration.runtime.current_contract_fixtures import inputs as frozen_inputs
 
 import inspect
 import os
@@ -32,17 +35,17 @@ from worldmock.life.schedule import PlanGoal
 from worldmock.life.world_query import QueryWorldRequest, query_world
 
 ROOT = Path(__file__).resolve().parents[3]
-SCENARIO = ENVIRONMENT_ROOT / 'scenarios' / 'single-person.json'
-_RECALL_SCENARIO = ARTIFICIAL_ENVIRONMENT_ROOT / 'scenarios' / 'single-person.json'
+SCENARIO = ENVIRONMENT_ROOT
+_RECALL_SCENARIO = ENVIRONMENT_ROOT
 _ERROR_KEYS = {'error_code', 'reason', 'fix', 'items', 'unmet'}
 #: 真实 Ray 用例给 raylet 启动取系统配置的等待秒数（Ray 的 RAY_raylet_start_wait_time_s 配置，经子进程环境传入）。
 _RAYLET_START_WAIT_SECONDS = 180
 
 
-async def _staged_recall(engine_factory) -> SimpleNamespace:
+async def _staged_recall(engine_factory, environment_root) -> SimpleNamespace:
     """经真实引擎备好一份带当日目标的世界，以直接导入的 LifeEnv 求得回看结果作为环境直调的基准；随后关闭引擎，
     把运行目录留给 actor 重新打开。返回基准结果、关闭前的世界状态字节与事件序号、给 actor 用的新决策上下文与请求。"""
-    engine = engine_factory()
+    engine = engine_factory(environment_root=environment_root)
     stage_day_plan(engine, goals=(PlanGoal(intent_kind='休息', goal='歇一歇',
                                          registered_at=engine.context.state.current_time),))
     direct = context(engine, 'direct-recall')
@@ -55,22 +58,23 @@ async def _staged_recall(engine_factory) -> SimpleNamespace:
     assert expected['recall']['kind'] == 'goal'
     staged = SimpleNamespace(
         expected=expected, request=request, run_dir=engine.context.store.run_dir,
+        environment_root=environment_root, inputs=engine.context.inputs,
         state=engine.context.state.model_dump_json().encode('utf-8'), sequence=engine.context.store.last_event_seq,
         frozen=context(engine, 'forwarded-recall'))
     engine.close()
     return staged
 
 
-def _actor_spec(run_dir: Path) -> DirectEnvActorSpec:
+def _actor_spec(run_dir: Path, environment_root: Path) -> DirectEnvActorSpec:
     """环境 actor 的构造输入：打开已有运行目录上的正式场景，形状同运行装配。"""
     return DirectEnvActorSpec(
-        ('LifeEnv',), {'LifeEnv': {'scenario_path': str(_RECALL_SCENARIO), 'run_dir': str(run_dir), 'open_existing': True}},
+        ('LifeEnv',), {'LifeEnv': {'environment_root': str(environment_root), 'run_dir': str(run_dir), 'open_existing': True}},
         str(run_dir), str(ROOT), {})
 
 
 def _assert_world_untouched(staged: SimpleNamespace) -> None:
     """重新打开运行目录：世界状态逐字节等于查询之前；序号只多出 actor 一侧那一次观察，查询本身不写任何事件。"""
-    reopened = LifeEngine.open(_RECALL_SCENARIO, staged.run_dir)
+    reopened = LifeEngine.open(staged.inputs, staged.run_dir)
     try:
         assert reopened.context.state.model_dump_json().encode('utf-8') == staged.state
         added = [event for event in reopened.context.store.read_events(reopened.context.store.last_event_seq)
@@ -82,18 +86,19 @@ def _assert_world_untouched(staged: SimpleNamespace) -> None:
 
 
 @pytest.mark.asyncio
-async def test_task_recall_crosses_real_ray_without_world_mutation(engine_factory, monkeypatch):
+async def test_task_recall_crosses_real_ray_without_world_mutation(engine_factory, monkeypatch, published_environment):
     """真实代理、actor 与 LifeEnv：驱动侧与 worker 侧经代理各调用一次，都拿到与环境直调相同的结果字典（不是对象
     引用）；代理随任务序列化到 worker 后仍可用；查询不追加足迹、不改世界状态。"""
     monkeypatch.setenv('WORKSPACE_PATH', str(ROOT))
     # 机器繁忙时 raylet 向 GCS 取系统配置可能超出其默认等待而退出，驱动随后报「启动超时」；放宽这一等待只改变
     # 基础设施的启动耐心，不改变本用例证明的内容。
     monkeypatch.setenv('RAY_raylet_start_wait_time_s', str(_RAYLET_START_WAIT_SECONDS))
-    staged = await _staged_recall(engine_factory)
+    monkeypatch.setenv("WORLDMOCK_TEST_API_KEY", "test-only-key")
+    staged = await _staged_recall(engine_factory, published_environment)
     ray.init(num_cpus=1, include_dashboard=False, log_to_driver=False)
     actor = None
     try:
-        actor = life_env_actor_class().remote(_actor_spec(staged.run_dir))
+        actor = life_env_actor_class().remote(_actor_spec(staged.run_dir, staged.environment_root))
         proxy = LifeEnvProxy(actor, run_dir=staged.run_dir, env_module_types=['LifeEnv'])
         await proxy.init(staged.frozen.observed_at)
         await proxy.begin_decision_round((staged.frozen,))
@@ -120,13 +125,14 @@ async def test_task_recall_crosses_real_ray_without_world_mutation(engine_factor
 
 
 @pytest.mark.asyncio
-async def test_unwrapped_actor_read_query_equals_direct_environment_call(engine_factory, monkeypatch):
+async def test_unwrapped_actor_read_query_equals_direct_environment_call(engine_factory, monkeypatch, published_environment):
     """主进程内直接构造 LifeEnvActor（不经 ray.remote）：read_query 把查询交给它持有的唯一生活环境，两个工具的结果
     都等于环境直调；回看被业务拒绝时返回错误结构而不抛出；工具与请求类型不符、找不到唯一观察是协议违约；
     查询不写事件、不改世界状态。"""
     monkeypatch.setenv('WORKSPACE_PATH', str(ROOT))
-    staged = await _staged_recall(engine_factory)
-    actor = LifeEnvActor(_actor_spec(staged.run_dir))
+    monkeypatch.setenv("WORLDMOCK_TEST_API_KEY", "test-only-key")
+    staged = await _staged_recall(engine_factory, published_environment)
+    actor = LifeEnvActor(_actor_spec(staged.run_dir, staged.environment_root))
     try:
         await actor.init(staged.frozen.observed_at)
         (environment,) = actor._router.env_modules
@@ -143,7 +149,7 @@ async def test_unwrapped_actor_read_query_equals_direct_environment_call(engine_
         assert recalled == await environment.read_query(staged.frozen, 'recall_task_summary', staged.request)
 
         category = observed['tool_layer']['callable_index']['query_categories'][0]['category']
-        query = QueryWorldRequest(**{'name': None, 'way': None, 'category': category, 'app': None,
+        query = QueryWorldRequest(**{'name': None, 'action': None, 'category': category,
                                      'available_only': False, 'offset': 0})
         page = await actor.read_query(staged.frozen, 'query_world', query)
         assert page['matches'] and page == query_world(observed, query)
@@ -194,7 +200,6 @@ async def test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query(mo
     import worldmock.runtime as runtime
     from agentsociety2.config import llm_dispatcher
     from agentsociety2.env import direct_env_actor
-    from worldmock.life.world_setup import load_scenario
 
     wrapped, received = [], []
     answer = {'recall': {'kind': 'goal', 'name': '歇一歇'}}
@@ -215,12 +220,15 @@ async def test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query(mo
     monkeypatch.setattr(direct_env_actor, '_CACHED_ACTOR_CLASSES', {})
     monkeypatch.setenv('WORKSPACE_PATH', str(ROOT))
     monkeypatch.setattr(llm_dispatcher, 'build_client_for_role', lambda role: role)
-    scenario, _ = load_scenario(SCENARIO)
+    frozen = frozen_inputs()
+    async def restored_specs(prepared):
+        return ({"id": 1, "profile": current_profile(), "config": {}},)
+    monkeypatch.setattr(runtime, "_society_specs", restored_specs)
 
-    actor, society = runtime._build_society(SimpleNamespace(
+    actor, society = await runtime._build_society(SimpleNamespace(
         project_root=ROOT, run_dir=tmp_path / 'run', run_id='assembly', env_kwargs={},
-        scenario_path=SCENARIO, scenario=scenario, workspace_mode='restored',
-        start_time=scenario.start_at, same_second_continuation=True))
+        inputs=frozen, workspace_mode='restored',
+        start_time=frozen.config.start_time, same_second_continuation=True))
 
     assert actor is handle
     assert wrapped == [(LifeEnvActor, {'max_concurrency': 1})]
@@ -249,7 +257,7 @@ async def test_host_tool_message_is_the_environment_recall_result(engine_factory
     from tests.integration.runtime.test_same_second_continuation import _PLAN, _Script, _person, _reply
     from worldmock.life import prompt_capacity
 
-    monkeypatch.setattr(prompt_capacity, 'model_context_length', lambda model: 1_048_576)
+    monkeypatch.setattr(prompt_capacity, 'model_context_length', lambda model, metadata: metadata.context_window)
     engine = engine_factory()
     now = engine.context.state.current_time
     stage_day_plan(engine, goals=tuple(PlanGoal(intent_kind=kind, goal=goal, registered_at=now) for kind, goal in (
@@ -279,7 +287,7 @@ async def test_host_tool_message_is_the_environment_recall_result(engine_factory
     assert recalled == await environment.read_query(decision, 'recall_task_summary', unique)
     assert recalled == engine.read_task_summary(1, unique, observed)
     assert list(recalled) == ['recall'] and next(iter(recalled['recall'])) == 'kind'
-    assert recalled['recall'] == {'kind': 'goal', 'goal': '好好吃顿午饭', 'intent_kind': '用餐', 'progressed': False}
+    assert recalled['recall'] == {'kind': 'goal', 'goal': '好好吃顿午饭', 'intent_kind': '用餐'}
     assert refused == await environment.read_query(decision, 'recall_task_summary', shared)
     assert set(refused) == _ERROR_KEYS and refused['error_code'] == 'TASK_NOT_FOUND'
     assert refused['items'][0]['written'] == '歇一歇' and refused['unmet'] == []

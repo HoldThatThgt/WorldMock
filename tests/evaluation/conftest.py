@@ -14,8 +14,6 @@ import pytest
 
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import Event, EventDraft, canonical_json
-from worldmock.life.world_setup import load_runtime_scenario
-from worldmock.life.run_identity import environment_identity
 from tests.data_paths import ENVIRONMENT_ROOT
 from worldmock.footprints.store import FootprintStore
 
@@ -233,60 +231,121 @@ def _legacy_audit(run_id: str, digest: str, main_rows: int, stream_rows: int) ->
     }
 
 
-#: 真实动作快照按 app 与 manner 判定数字交互；占用只作为独立证据。
-ACTIVITY_CLAIMS = {"action": ["entertainment", "use_app"], "wait": ["wait"]}
+_CANONICAL_CACHE: dict[tuple, Path] = {}
 
 
 def _write_canonical(root: Path, scenario: dict[str, Any], run_id: str, hour: int,
-                     activity_type: str = "action") -> None:
-    start = datetime.fromisoformat(scenario["window"]["start"])
-    end = datetime.fromisoformat(scenario["window"]["end"])
-    frozen = {"schema_version": 4, "environment_identity": environment_identity(
-                  load_runtime_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]),
-              "run_id": run_id, "source_group_id": run_id, "agent_ids": [1], "work_content_ids": {"1": []},
-              "window": {"start": int(start.timestamp()), "end": int(end.timestamp()),
-                         "timezone": scenario["window"]["timezone"]}}
-    store = FootprintStore.create(root.with_name(root.name + "-source"), frozen,
-                                  {"schema_version": 11, "version": 0, "current_time": int(start.timestamp())})
-    for day_offset in range((end.date() - start.date()).days):
-        activity_start = start + timedelta(days=day_offset, hours=hour)
-        activity, rows = _world_activity(run_id, store.last_event_seq + 1, activity_start, activity_type)
-        for index, row in enumerate(rows):
-            snapshot = {key: value for key, value in activity.items()
-                        if key not in {"activity_type", "segments", "source_event_ids"}}
-            snapshot.update(kind=activity["activity_type"])
-            if index == 0:
-                snapshot.update(status="active", ended_at=None, elapsed_seconds=3600,
-                                last_settled_at=row["occurred_at"])
-            draft = EventDraft.model_validate({key: value for key, value in row.items()
-                                               if key in EventDraft.model_fields})
-            draft.data["activity"] = snapshot
-            if activity_type == "action":
-                draft.data["content"] = {"app_id": "douyin", "content_id": "c-long",
-                    "position_before_seconds": index * 3600, "position_after_seconds": (index + 1) * 3600,
-                    "completed": index == 1, "completed_rounds_after": 1 if index == 1 else 0}
-            state = {"schema_version": 11, "version": store.state["version"] + 1, "current_time": row["occurred_at"]}
-            store.commit(state, [draft])
-    state = {"schema_version": 11, "version": store.state["version"] + 1, "current_time": int(end.timestamp())}
-    store.commit(state, [EventDraft(event_type="run_ended", occurred_at=state["current_time"],
-                                   visibility="system")])
-    reference = store.assets.put_json(state, {"kind": "test"})
-    checkpoint = store.checkpoint(state, {"agent:1": reference, "life": reference})
-    export_run(store, checkpoint.last_event_seq, root)
+                     activity_type: str = "interact") -> None:
+    """通过当前引擎和冻结环境真实生成、结算并导出，不拼装旧运行格式。"""
+    import shutil
+    import tomlkit
+    cache_key = (scenario["window"]["start"], scenario["window"]["end"], run_id, activity_type)
+    if cache_key in _CANONICAL_CACHE:
+        shutil.copytree(_CANONICAL_CACHE[cache_key], root)
+        return
+    from worldmock.catalog.identity import refresh_manifest_identity
+    from worldmock.environment import load_environment
+    from tests.frozen_inputs import fixture_metadata
+    from worldmock.life.engine import LifeEngine
+    from tests.integration.runtime_fixtures import current_run_identity
+    from worldmock.profile.mapper import map_world_dynamics
+    from worldmock.profile.models import BigFiveProfile
+
+    environment = root.with_name(root.name + "-environment")
+    shutil.copytree(ENVIRONMENT_ROOT, environment)
+    config = tomlkit.parse((environment / "config.toml").read_text(encoding="utf-8"))
+    config.update(start_time=datetime.fromisoformat(scenario["window"]["start"]),
+                  stop_time=datetime.fromisoformat(scenario["window"]["end"]),
+                  activity_feedback_seconds=86400, reconsideration_interval_seconds=86400,
+                  progress_report_interval_seconds=86400)
+    (environment / "config.toml").write_text(tomlkit.dumps(config), encoding="utf-8", newline="\n")
+    persona = tomlkit.parse((environment / "persona.toml").read_text(encoding="utf-8"))
+    persona.pop("work_schedule", None)
+    (environment / "persona.toml").write_text(tomlkit.dumps(persona), encoding="utf-8", newline="\n")
+    contents_path = environment / "catalog/content-catalog.jsonl"
+    contents = [json.loads(line) for line in contents_path.read_text(encoding="utf-8").splitlines()]
+    contents = [row for row in contents if "douyin" not in row.get("app_ids", []) or row["content_id"] == "c-long"]
+    next(row for row in contents if row["content_id"] == "c-long")["duration_seconds"] = 86400
+    contents_path.write_bytes(b"".join(canonical_json(row) + b"\n" for row in contents))
+    refresh_manifest_identity(environment / "catalog")
+    inputs = load_environment(environment, metadata_loader=fixture_metadata)
+    identity = current_run_identity(inputs, run_id)
+    dynamics = map_world_dynamics(BigFiveProfile(openness=4, conscientiousness=4, extraversion=4,
+        agreeableness=4, neuroticism=4)).model_dump(mode="json")
+    from worldmock.run_setup import stage_model_identity
+    stages = stage_model_identity(inputs.config.model, inputs.model_metadata, same_second_continuation=False)
+    engine = LifeEngine.create(inputs, root.with_name(root.name + "-source"), identity, stages,
+                              {"world_dynamics": dynamics})
+    try:
+        _complete_engine(engine, activity_type)
+        ref = engine.context.store.assets.put_json({"test": "actual engine"}, {"kind": "test_agent"})
+        checkpoint = engine.checkpoint({f"agent:{inputs.persona.agent_id}": ref})
+        export_run(engine.context.store, checkpoint.last_event_seq, root)
+    finally:
+        engine.close()
     if run_id == "human-run":
         manifest_path = root / "manifest.json"
-        manifest = json.loads(manifest_path.read_text())
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest["schema_version"] = 1
-        for name, path in (("verified_experiences", "verified-experiences.jsonl"), ("purchases", "purchases.jsonl"),
-                           ("app_usage", "app-usage.jsonl")):
+        for name, path in (("verified_experiences", "verified-experiences.jsonl"),
+                           ("purchases", "purchases.jsonl"), ("app_usage", "app-usage.jsonl")):
             manifest["artifacts"].pop(name)
             (root / path).unlink()
-        manifest_path.write_text(json.dumps(manifest))
-    store.close()
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    cache = root.with_name(root.name + "-cache")
+    shutil.copytree(root, cache)
+    _CANONICAL_CACHE[cache_key] = cache
+
+
+def _complete_engine(engine, activity_type):
+    from worldmock.life.models import PlanDayRequest
+    from worldmock.life.day_planning import agents_missing_plan
+    count = 0
+    while engine.context.state.current_time < engine.context.state.end_time:
+        for agent_id in agents_missing_plan(engine.context.state, engine.context.config.timezone):
+            engine.register_day_plan(agent_id, PlanDayRequest(goals=()), [], [])
+        if engine.midnight_rhythm_pending:
+            engine.decide_midnight_rhythm()
+        scheduling = engine.scheduling_state()
+        if scheduling.ready_agent_ids:
+            _engine_decision(engine, count, activity_type)
+            count += 1
+        else:
+            engine.advance(int((scheduling.next_event_at - scheduling.current_time).total_seconds()),
+                           scheduling.next_event_at)
+
+
+def _engine_decision(engine, count, activity_type):
+    from agentsociety2.society import DecisionContext, DirectToolCall
+    from worldmock.life.activity_control import pending_conclusions
+    from worldmock.life.models import active_activities, ConcludeActivityRequest, ReportStatusRequest, StartActivityRequest
+    agent_id = engine.context.persona.agent_id
+    state = engine.context.state
+    at = datetime.fromtimestamp(state.current_time, ZoneInfo(state.timezone))
+    context = DecisionContext(state.run_id, f"round-{count}", f"decision-{count}", agent_id, at, state.version)
+    engine.begin_decision_round([context])
+    engine.observe(context)
+    pending = pending_conclusions(state, agent_id)
+    active = active_activities(state, agent_id)
+    if pending:
+        tool = "conclude_activity"
+        request = ConcludeActivityRequest(items=[{"activity_name": item.name, "summary": "完成测试消费。",
+            "memories": [], "views": []} for item in pending], errands=[])
+    elif active:
+        tool = "report_status"
+        request = ReportStatusRequest(items=[{"activity_name": item.name, "summary": "继续测试消费。"}
+            for item in active], errands=[])
+    else:
+        tool = "start_activity"
+        request = StartActivityRequest(items=[{"action": activity_type,
+            "target": "家" if activity_type == "sleep" else "抖音"}])
+    engine.submit_action(DirectToolCall(context, f"action-{count}", tool, request))
+    results = engine.commit_decision_round(context.round_id)
+    assert all(row.error_code is None for row in results), results
 
 
 def _world_activity(run_id: str, sequence: int, start: datetime,
-                    activity_type: str = "action") -> tuple[dict[str, Any], list[dict[str, Any]]]:
+                    activity_type: str = "interact") -> tuple[dict[str, Any], list[dict[str, Any]]]:
     first_start = int(start.timestamp())
     first_end = first_start + 3_600
     second_start = first_end + 3_600
@@ -309,14 +368,13 @@ def _world_activity(run_id: str, sequence: int, start: datetime,
         "next_interaction_at": None,
         "destination_id": None,
         "travel_mode": None,
-        "resource_claims": list(ACTIVITY_CLAIMS[activity_type]),
+        "resource_claims": ["first"] if activity_type in {"travel", "sleep"} else ["second"],
         "boundary_type": "planned_end",
         "interruption_reason": None,
-        "data": {"action_id": "browse-feed", "category": "entertainment", "app_id": "douyin",
-                 "manner": "phone_continuous", "communication_mode": None, "counterpart": None,
+        "data": {"action": "interact", "app_id": "douyin",
                  "content_id": "c-long",
                  "start_position_seconds": 0, "pinned_by_push_id": None, "draw_index": 0, "played": []}
-                if activity_type == "action" else {},
+                if activity_type == "interact" else {"action": activity_type},
         "segments": [
             {"started_at": first_start, "ended_at": first_end},
             {"started_at": second_start, "ended_at": second_end},

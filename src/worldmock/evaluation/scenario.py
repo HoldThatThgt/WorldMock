@@ -20,28 +20,25 @@ def load_scenario(path: Path) -> EvaluationScenario:
     bootstrap = _require_mapping(value["bootstrap"], "bootstrap")
     review = _require_mapping(value["review"], "review")
     mappings = _require_mapping(value["category_mappings"], "category_mappings")
-    _require_keys(bootstrap, {"seed", "repetitions", "block_days"}, "bootstrap")
-    _require_keys(review, {"seed", "reviewer_count", "dimensions"}, "review")
+    _require_keys(bootstrap, {"repetitions", "block_days"}, "bootstrap")
+    _require_keys(review, {"reviewer_count", "dimensions"}, "review")
     _require_keys(
         mappings,
-        {"labelkit_sequence_class", "labelkit_pattern", "worldmock_activity"},
+        {"labelkit_sequence_class", "labelkit_pattern"},
         "category_mappings",
     )
     scenario = EvaluationScenario(
         scenario_id=_require_string(value["scenario_id"], "scenario_id"),
         schema_version=_require_string(value["schema_version"], "schema_version"),
         window=window,
-        bootstrap_seed=_require_int(bootstrap.get("seed"), "bootstrap.seed"),
         bootstrap_repetitions=_positive_int(bootstrap.get("repetitions"), "bootstrap.repetitions"),
         block_days=_positive_int(bootstrap.get("block_days"), "bootstrap.block_days"),
-        review_seed=_require_string(review.get("seed"), "review.seed"),
         reviewer_count=_positive_int(review.get("reviewer_count"), "review.reviewer_count"),
         review_dimensions=_string_tuple(review.get("dimensions"), "review.dimensions"),
         shared_profile=_load_shared_profile(value["shared_profile"], window),
         special_dates=_string_mapping(value["special_dates"], "special_dates"),
         labelkit_class_map=_string_mapping(mappings.get("labelkit_sequence_class"), "labelkit class map"),
         labelkit_pattern_map=_string_mapping(mappings.get("labelkit_pattern"), "labelkit pattern map"),
-        worldmock_activity_map=_string_mapping(mappings.get("worldmock_activity"), "worldmock activity map"),
         official_domain_map=_tuple_mapping(value["official_domain_map"], "official_domain_map"),
         official_reference=_require_mapping(value["official_reference"], "official_reference"),
         expected_labelkit=_require_mapping(value["expected_labelkit"], "expected_labelkit"),
@@ -63,8 +60,6 @@ def _validate_scenario(scenario: EvaluationScenario) -> None:
             raise EvaluationError("invalid_scenario", "special date key is invalid") from exc
         if parsed not in scenario.window.days or not calendar_class:
             raise EvaluationError("invalid_scenario", "special date is outside the declared window")
-    if set(scenario.worldmock_activity_map) - {"sleep", "travel", "wait"}:
-        raise EvaluationError("invalid_scenario", "WorldMock mappings only declare sleep, travel and wait")
     if "eat" in scenario.official_domain_map:
         raise EvaluationError("invalid_scenario", "Eating is not a current evaluation domain")
     _validate_official_reference(scenario)

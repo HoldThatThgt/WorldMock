@@ -1,0 +1,143 @@
+"""实际购买从受理到付款、收货和取消的原子行为。"""
+
+from datetime import timedelta
+
+import pytest
+
+from tests.life.conftest import advance_next, conclude_request, errand_add, report_request, start_activity
+from tests.life.current_world import stage_moment
+from tests.life.environment_inputs import copy_environment, write_catalog_rows
+from tests.life.environment_runtime import act, events, finish_activity, reach
+from worldmock.life.models import StartActivityRequest
+
+
+def at_store(persona, config):
+    persona["initial_location"] = "四季便利"
+
+
+def business_events(engine, kind):
+    return [row for row in events(engine, "environment_event") if row.data.get("kind") == kind]
+
+
+def purchase(*names):
+    return StartActivityRequest(items=[{"action": "purchase", "target": name} for name in names])
+
+
+def test_local_basket_pays_once_at_completion_and_receives_each_actual_item(engine_factory):
+    engine = engine_factory(mutate=at_store)
+    _, result = act(engine, "basket", purchase("柠檬茶", "纸巾"))
+    assert result.status == "in_progress", result.error_code
+    activity = engine.context.state.activities[result.activity_id]
+    orders = list(engine.context.state.deliveries.values())
+    assert len(orders) == 2 and len(engine.context.state.activities) == 1
+    assert activity.resource_claims == {"second"}
+    assert len({order.group_key for order in orders}) == 1
+    assert engine.context.state.accounts["agent:1"] == 200000
+    assert all(order.paid_at is None and order.received_at is None for order in orders)
+    while engine.context.state.current_time < activity.planned_end_at:
+        advance_next(engine)
+        if engine.context.state.current_time < activity.planned_end_at:
+            assert engine.context.state.accounts["agent:1"] == 200000
+            assert business_events(engine, "purchase_payment") == []
+            assert business_events(engine, "goods_received") == []
+    payment = business_events(engine, "purchase_payment")
+    assert len(payment) == 1 and payment[0].data["amount_fen"] == 1800
+    assert engine.context.state.accounts == {"agent:1": 198200, "external:scenario": -198200}
+    assert len(business_events(engine, "goods_received")) == 2
+    assert all(order.paid_at == activity.planned_end_at and order.received_at == activity.planned_end_at
+               and order.status == "delivered" for order in engine.context.state.deliveries.values())
+    notifications = business_events(engine, "payment_notification")
+    touches = business_events(engine, "app_touch")
+    if orders[0].payment_app_id is None:
+        assert notifications == [] and touches == []
+    else:
+        assert len(notifications) == len(touches) == 1
+        assert notifications[0].caused_by == [payment[0].event_id]
+        assert touches[0].occurred_at < payment[0].occurred_at
+        assert notifications[0].data["amount_fen"] == 1800
+    _, concluded = act(engine, "basket-concluded", conclude_request(activity.name), "conclude_activity")
+    assert concluded.status == "completed"
+    assert engine.context.state.accounts["agent:1"] == 198200
+
+
+def test_early_conclusion_cancels_every_unpaid_item_without_receipt(engine_factory):
+    def mutate(persona, config):
+        at_store(persona, config)
+        config["progress_report_interval_seconds"] = 1
+    engine = engine_factory(mutate=mutate)
+    _, result = act(engine, "cancel-basket", purchase("柠檬茶", "纸巾"))
+    while not engine.scheduling_state().ready_agent_ids:
+        advance_next(engine)
+    activity = engine.context.state.activities[result.activity_id]
+    assert activity.status == "active"
+    _, ended = act(engine, "cancel", conclude_request(activity.name), "conclude_activity")
+    assert ended.status == "completed"
+    assert all(order.status == "cancelled" and order.paid_at is None and order.received_at is None
+               for order in engine.context.state.deliveries.values())
+    assert engine.context.state.accounts["agent:1"] == 200000
+    assert business_events(engine, "purchase_payment") == business_events(engine, "goods_received") == []
+
+
+def test_stop_boundary_truncates_and_cancels_every_unpaid_item(engine_factory):
+    def mutate(persona, config):
+        at_store(persona, config)
+        config["stop_time"] = config["start_time"] + timedelta(hours=1)
+    engine = engine_factory(mutate=mutate)
+    stage_moment(engine, moment=engine.context.state.end_time - 10)
+    _, result = act(engine, "truncated-basket", purchase("柠檬茶", "纸巾"))
+    assert result.status == "in_progress"
+    reach(engine, engine.context.state.end_time)
+    assert engine.context.state.activities[result.activity_id].status == "truncated"
+    assert all(order.status == "cancelled" and order.paid_at is None and order.received_at is None
+               for order in engine.context.state.deliveries.values())
+    assert engine.context.state.accounts["agent:1"] == 200000
+    assert business_events(engine, "purchase_payment") == business_events(engine, "goods_received") == []
+    assert not any(row.kind == "delivery_arrival" for row in engine.context.state.pending_events)
+
+
+def test_actual_purchase_completion_rechecks_total_after_a_declared_callback(engine_factory, tmp_path):
+    root = copy_environment(tmp_path / "input")
+    write_catalog_rows(root, "callbacks.jsonl", [{
+        "rule_id": "purchase-expense", "trigger": {"class": "action", "key": "purchase"},
+        "effect": {"type": "transfer", "direction": "expense", "amount_fen": 199999}}])
+    engine = engine_factory(root, mutate=at_store)
+    _, result = act(engine, "unaffordable-end", purchase("柠檬茶", "纸巾"))
+    assert result.status == "in_progress"
+    assert engine.context.state.accounts["agent:1"] == 1
+    activity = engine.context.state.activities[result.activity_id]
+    reach(engine, activity.planned_end_at)
+    assert engine.context.state.activities[result.activity_id].status == "failed"
+    assert all(order.status == "cancelled" and order.paid_at is None and order.received_at is None
+               for order in engine.context.state.deliveries.values())
+    assert engine.context.state.accounts["agent:1"] == 1
+    assert business_events(engine, "purchase_payment") == business_events(engine, "goods_received") == []
+
+
+def test_errand_completion_waits_for_real_receipt_and_counts_actual_units(engine_factory):
+    def mutate(persona, config):
+        at_store(persona, config)
+        config["progress_report_interval_seconds"] = 60
+    engine = engine_factory(mutate=mutate)
+    _, browsing = act(engine, "browse", start_activity("interact", "美团"))
+    while not engine.scheduling_state().ready_agent_ids:
+        advance_next(engine)
+    name = engine.context.state.activities[browsing.activity_id].name
+    _, added = act(engine, "remember", conclude_request(name, errands=[errand_add("买纸巾", "纸巾", 2)]),
+                   "conclude_activity")
+    assert added.status == "completed", added.error_code
+    for ordinal in (1, 2):
+        _, bought = act(engine, f"paper-{ordinal}", purchase("纸巾"))
+        held = list(engine.context.state.agents[1].errands.values())
+        assert len(held) == 1 and held[0].progress == ordinal - 1
+        finish_activity(engine, bought, f"paper-{ordinal}")
+        if ordinal == 1:
+            held = list(engine.context.state.agents[1].errands.values())
+            assert held[0].progress == 1
+        else:
+            assert engine.context.state.agents[1].errands == {}
+    progress = business_events(engine, "errand_progressed")
+    completed = business_events(engine, "errand_completed")
+    assert len(progress) == len(completed) == 1
+    receipts = business_events(engine, "goods_received")
+    assert progress[0].caused_by == [receipts[0].event_id]
+    assert completed[0].caused_by == [receipts[1].event_id]

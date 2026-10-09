@@ -30,7 +30,7 @@ def context(engine: LifeEngine, round_id: str, agent_id: int = 1) -> DecisionCon
     """形成指向当前已提交世界的宿主上下文。"""
     from agentsociety2.society import DecisionContext
 
-    observed = datetime.fromtimestamp(engine.context.state.current_time, ZoneInfo(engine.context.scenario.timezone))
+    observed = datetime.fromtimestamp(engine.context.state.current_time, ZoneInfo(engine.context.config.timezone))
     return DecisionContext(engine.context.state.run_id, round_id, f"decision-{round_id}-{agent_id}",
                            agent_id, observed, engine.context.state.version)
 
@@ -45,10 +45,10 @@ def stage_day_plan(engine: LifeEngine, agent_id: int = 1, goals: tuple = (), sub
     from worldmock.life.schedule import DayPlan, day_end_seconds
 
     now = engine.context.state.current_time
-    day_end = day_end_seconds(now, engine.context.scenario.timezone)
+    day_end = day_end_seconds(now, engine.context.config.timezone)
     staged = engine.context.state.model_copy(deep=True)
     agent = staged.agents[agent_id]
-    dates = set(agent.plan_submitted_dates) | ({plan_date(now, engine.context.scenario.timezone)} if submitted else set())
+    dates = set(agent.plan_submitted_dates) | ({plan_date(now, engine.context.config.timezone)} if submitted else set())
     staged.agents[agent_id] = agent.model_copy(
         update={"day_plan": DayPlan(day_end=day_end, goals=tuple(goals)), "plan_submitted_dates": dates}, deep=True)
     staged.version += 1
@@ -127,7 +127,7 @@ def bring_to_window(engine: LifeEngine, object_ids, agent_id: int = 1) -> None:
     from worldmock.footprints.models import EventDraft
 
     wanted = set(object_ids)
-    catalog = engine.context.semantics.catalog
+    catalog = engine.context.catalog
     everything = set(catalog.goods)
     staged = engine.context.state.model_copy(deep=True)
     staged.presentation_state = {**staged.presentation_state,
@@ -139,12 +139,12 @@ def bring_to_window(engine: LifeEngine, object_ids, agent_id: int = 1) -> None:
     engine.context.state = staged
 
 
-def plan_day_response(goals: list[dict] | None = None, arguments: str | None = None) -> dict:
+def plan_day_response(goals: list[dict] | None = None, arguments: str | None = None, model="test-model") -> dict:
     """零点计划模型的确定性原始响应：唯一 submit_day_plan 调用（arguments 覆盖时原样作为参数文本）。"""
     import json
 
     text = arguments if arguments is not None else json.dumps({"goals": goals or []}, ensure_ascii=False)
-    return {"model": "deepseek-flash",
+    return {"model": model,
             "choices": [{"message": {"role": "assistant", "content": None, "tool_calls": [
                 {"id": "call-plan-day", "type": "function",
                  "function": {"name": "submit_day_plan", "arguments": text}}]}}],
@@ -157,10 +157,11 @@ class StubPlanDayClient:
     脚本用尽后按 goals（缺省为空清单）返回合法计划；raises 非空时下一次调用抛出该异常（模拟传输失败）。
     """
 
-    model_name = "deepseek-flash"
+    model_name = "test-model"
 
     def __init__(self, model_identity: dict | None = None, goals: list[dict] | None = None,
                  responses: list[dict] | None = None, raises: BaseException | None = None):
+        self.model_name = (model_identity or {}).get("requested_model", "test-model")
         self.calls: list[dict] = []
         self.goals = goals or []
         self.responses = list(responses or [])
@@ -170,7 +171,7 @@ class StubPlanDayClient:
         self.calls.append(request)
         if self.raises is not None:
             raise self.raises
-        return self.responses.pop(0) if self.responses else plan_day_response(self.goals)
+        return self.responses.pop(0) if self.responses else plan_day_response(self.goals, model=self.model_name)
 
 
 def drive(coroutine):
@@ -187,7 +188,7 @@ def settle_day_plans(engine: LifeEngine, client=None) -> list[dict]:
     """执行零点计划后台任务（确定性桩），零点边界随后执行零点节律入口；返回登记摘要。"""
     from worldmock.runtime import settle_pending_day_plans
 
-    registered = drive(settle_pending_day_plans(engine, client=client or StubPlanDayClient()))
+    registered = drive(settle_pending_day_plans(engine, client=client or StubPlanDayClient({"requested_model": engine.context.config.model.requested_model})))
     if engine.midnight_rhythm_pending:
         engine.decide_midnight_rhythm()
     return registered
@@ -241,66 +242,24 @@ def advance_until_ready(engine: LifeEngine, limit: int = 64) -> bool:
     return False
 
 
-def wake_by_mail(engine: LifeEngine, agent_id: int = 1, offset: int = 900) -> int:
-    """在 current+offset 注入一封到达邮件，使该边界成为 message_arrival 唤醒。
-
-    修订决策节律下静默边界不提供决策；用受控的邮件到达把决策机会钉在
-    指定边界，供需要在中途边界控制活动（暂停/继续/切换）的用例使用。
-    """
-    from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
-
-    staged = engine.context.state.model_copy(deep=True)
-    at = staged.current_time + offset
-    message_id = engine.context.scenario.messages[0].message_id
-    sequence = max((item.sequence for item in staged.pending_events), default=0) + 1
-    staged.pending_events.append(ScheduledEvent(
-        scheduled_id=f"test-wake-mail-{sequence}", kind=ScheduledKind.MAIL_ARRIVAL,
-        due_at=at, sequence=sequence, agent_id=agent_id, data={"message_id": message_id}))
-    staged.pending_events.sort(key=lambda item: (item.due_at, item.sequence, item.scheduled_id))
-    staged.version += 1
-    from worldmock.footprints.models import EventDraft
-    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
-        event_type="environment_event", occurred_at=staged.current_time,
-        visibility="system", data={"kind": "test_wake_mail_scheduled"})])
-    engine.context.state = staged
-    return at
-
-
-def routing_defaults(actions: list[str]) -> dict:
-    """@brief 测试默认路由明确不用应用、不指定他人、不选择支付应用。"""
-    return {"app": [None for _ in actions], "to": [None for _ in actions],
-            "pay_app": [None for _ in actions], "answering": None}
-
-
-def start_arguments(targets, actions, ways, **fields) -> dict:
-    """@brief 测试数组帮助函数只生成当前五字段项，不解释退役方式或字段。"""
-    apps = fields.pop("app", [None for _ in targets])
-    recipients = fields.pop("to", [None for _ in targets])
-    payments = fields.pop("pay_app", [None for _ in targets])
-    return {"items": [{"target": target, "way": way, "app": app, "to": recipient, "pay_app": payment}
-                      for target, way, app, recipient, payment in zip(targets, ways, apps, recipients, payments, strict=True)],
-            "answering": None, **fields}
+def start_arguments(targets, actions) -> dict:
+    """@brief 明确每项的实际动作与完整对象名称。"""
+    return {"items": [{"action": action, "target": target}
+                      for action, target in zip(actions, targets, strict=True)]}
 
 
 def start_request(**fields):
-    """@brief 既有测试帮助函数名称保留，输出只有现行逐项请求。"""
+    """@brief 从当前动作条目或两条等长数组构造封闭请求。"""
     from worldmock.life.models import StartActivityRequest
 
     if "items" in fields:
         return StartActivityRequest.model_validate(fields)
-    targets = fields.pop("targets")
-    actions = fields.pop("actions")
-    ways = fields.pop("ways")
-    return StartActivityRequest.model_validate(start_arguments(targets, actions, ways, **fields))
+    return StartActivityRequest.model_validate(start_arguments(fields.pop("targets"), fields.pop("actions")))
 
 
-def start_activity(way: str, *targets: str, **fields):
-    """@brief 按「动词＋对象＋方式」构造启动请求：每个对象取同一方式短语，动词由方式唯一确定（第五章）。"""
-    from worldmock.life.vocabulary import WAYS
-
-    payload = {"targets": list(targets), "actions": [WAYS[way][0] for _ in targets], "ways": [way for _ in targets]}
-    payload.update(fields)
-    return start_request(**payload)
+def start_activity(action: str, *targets: str):
+    """@brief 每个完整目标执行同一个实际动作。"""
+    return start_request(targets=list(targets), actions=[action for _ in targets])
 
 
 def activity_name(engine: LifeEngine, activity_id: str) -> str:
@@ -375,7 +334,7 @@ def tool_targets(observed: dict) -> dict[str, dict]:
 
 def target_actions(observed: dict, name: str) -> dict[str, dict]:
     """工具层某个目标的动作，按方式索引。"""
-    return {row["way"]: row for row in tool_targets(observed)[name]["actions"]}
+    return {row["action"]: row for row in tool_targets(observed)[name]["actions"]}
 
 
 def target_tools(observed: dict, name: str) -> dict[str, dict]:
@@ -386,10 +345,10 @@ def target_tools(observed: dict, name: str) -> dict[str, dict]:
     return {row["tool"]: row for row in rows}
 
 
-def layer_start(observed: dict, name: str, way: str):
-    """按工具层目标名与方式构造 start_activity 请求（动词取该动作的 action）。"""
-    action = target_actions(observed, name)[way]
-    return start_request(targets=[name], actions=[action["action"]], ways=[way], app=[action["app"]])
+def layer_start(observed: dict, name: str, action: str):
+    """@brief 从观察中的实际动作和完整名称构造请求。"""
+    assert action in target_actions(observed, name)
+    return start_activity(action, name)
 
 
 def progress_calls(observed: dict, tool: str | None = None) -> list[dict]:

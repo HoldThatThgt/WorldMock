@@ -1,86 +1,75 @@
-"""@brief 模型运行身份的字段与完整性规则。"""
+"""真实环境配置、权威容量和独立预算的冻结身份。"""
 
 import copy
 
 import pytest
 
+from tests.integration.runtime.current_contract_fixtures import inputs
 from worldmock.errors import IntegrityError
+from worldmock.run_setup import _model_identity, stage_model_identity, validate_stage_model_identity
 
 
-def test_model_identity_freezes_complete_strict_endpoint_and_request() -> None:
-    """运行身份记录完整节点 URL 和唯一 strict 请求参数。"""
-    from worldmock.run_setup import _model_identity, stage_model_identity
-
-    identity = _model_identity().model_dump(mode="json")
-
-    assert identity["base_url"] == "https://api.deepseek.com/beta"
-    assert identity["provider"] == "openai_compatible"
-    assert identity["requested_model"] == "deepseek-flash"
-    assert identity["tool_choice"] == "auto"
-    assert identity["thinking"] == "enabled"
-    assert identity["max_retries"] == 0
-    assert "base_url_host" not in identity
-
+def test_model_identity_freezes_explicit_endpoint_and_separate_retry_budgets():
+    """运行身份来自声明，凭据名称与凭据值不进入身份。"""
+    frozen = inputs()
+    config = frozen.config.model
+    identity = _model_identity(config).model_dump(mode="json")
+    assert identity["base_url"] == config.base_url
+    assert identity["requested_model"] == config.requested_model
+    assert identity["provider"] == config.provider
+    assert identity["max_retries"] == config.max_retries
+    assert identity["transport_max_retries"] == config.transport_max_retries
+    assert "api_key_env" not in identity
+    assert identity["thinking"] == "enabled" and identity["tool_choice"] == "auto"
 
 
-def test_model_identity_top_level_tracks_life_agent_action_constants() -> None:
-    """顶层 thinking/tool_choice 与 B2 导出的行动阶段常量同源。"""
-    from worldmock.run_setup import _model_identity, stage_model_identity
+def test_stage_identity_freezes_actual_capacity_and_all_validation_budgets():
+    """只有行动阶段，真实输出上限约束请求；全部独立预算保留原值。"""
+    from custom.agents.life_agent import ACTION_MAX_TOKENS
 
-    from custom.agents.life_agent import ACTION_THINKING, ACTION_TOOL_CHOICE
-
-    identity = _model_identity()
-
-    assert identity.thinking == ACTION_THINKING["thinking"]["type"]
-    assert identity.tool_choice == ACTION_TOOL_CHOICE
-
-
-
-def test_stage_model_identity_shape_matches_life_agent_constants() -> None:
-    """阶段身份只有行动与工作验收两个阶段，行动参数与 LifeAgent 常量单一事实源一致。"""
-    from worldmock.run_setup import _model_identity, stage_model_identity
-
-    from custom.agents.life_agent import (
-        ACTION_THINKING,
-        ACTION_TOOL_CHOICE,
-        ACTION_MAX_TOKENS,
-    )
-
-    identity = stage_model_identity()
-    stages = identity["stages"]
-
-    assert set(stages) == {"action"}
-    assert stages["action"] == {"thinking": ACTION_THINKING["thinking"]["type"],
-                                "tool_choice": ACTION_TOOL_CHOICE, "max_tokens": ACTION_MAX_TOKENS,
-                                "same_second_continuation": True}
-    assert stage_model_identity(False)["stages"]["action"]["same_second_continuation"] is False
-    assert identity["base_url"] == "https://api.deepseek.com/beta"
-    assert identity["max_retries"] == 0 and identity["strict"] is True
-    assert identity["reasoning_effort"] is None
+    frozen = inputs()
+    identity = stage_model_identity(frozen.config.model, frozen.model_metadata)
+    assert identity["model_metadata"] == frozen.model_metadata.model_dump(mode="json")
+    assert set(identity["stages"]) == {"action"}
+    assert identity["stages"]["action"] == {
+        "thinking": "enabled", "tool_choice": "auto",
+        "max_tokens": min(ACTION_MAX_TOKENS, frozen.model_metadata.max_output_tokens),
+        "same_second_continuation": True,
+    }
+    for field in ("persona_validation_max_retries", "reflection_validation_max_retries",
+                  "day_plan_validation_max_retries", "max_react_turns"):
+        assert identity[field] == getattr(frozen.config.model, field)
+    disabled = stage_model_identity(frozen.config.model, frozen.model_metadata, False)
+    assert disabled["stages"]["action"]["same_second_continuation"] is False
+    assert validate_stage_model_identity(identity) == identity
 
 
+@pytest.mark.parametrize("change", [
+    lambda row: row["stages"]["action"].update(max_tokens=4000),
+    lambda row: row.update(reasoning_effort="high"),
+    lambda row: row.update(strict=False),
+    lambda row: row.update(api_key_env="SECRET"),
+    lambda row: row["model_metadata"].update(requested_model="different-model"),
+    lambda row: row["model_metadata"].update(context_window=262143),
+    lambda row: row.update(stages={}),
+    lambda row: row.pop("model_metadata"),
+])
+def test_tampered_identity_is_rejected(change):
+    """冻结阶段身份中的参数、容量、额外字段或缺失声明都明确拒绝。"""
+    frozen = inputs()
+    identity = copy.deepcopy(stage_model_identity(frozen.config.model, frozen.model_metadata))
+    change(identity)
+    with pytest.raises(IntegrityError):
+        validate_stage_model_identity(identity)
 
-def test_stage_model_identity_is_frozen_and_tamper_rejected() -> None:
-    """阶段身份运行中不变更；任何篡改被一致性校验拒绝。"""
-    from worldmock.run_setup import _model_identity, stage_model_identity
-    from worldmock.run_setup import validate_stage_model_identity
 
-    identity = stage_model_identity()
-
-    assert stage_model_identity() == identity
-    validate_stage_model_identity(identity)
-
-    tampered = copy.deepcopy(identity)
-    tampered["stages"]["action"]["max_tokens"] = 4000
-    with pytest.raises(IntegrityError, match="stage action"):
-        validate_stage_model_identity(tampered)
-
-    wrong_endpoint = copy.deepcopy(identity)
-    wrong_endpoint["base_url"] = "https://elsewhere.example/v1"
-    with pytest.raises(IntegrityError, match="base_url"):
-        validate_stage_model_identity(wrong_endpoint)
-
-    reasoning = copy.deepcopy(identity)
-    reasoning["reasoning_effort"] = "high"
-    with pytest.raises(IntegrityError, match="reasoning_effort"):
-        validate_stage_model_identity(reasoning)
+def test_endpoint_change_is_valid_only_with_matching_declared_metadata():
+    """服务端点可以配置，身份校验拒绝端点与实际元数据来源不一致。"""
+    frozen = inputs()
+    identity = stage_model_identity(frozen.config.model, frozen.model_metadata)
+    identity["base_url"] = "https://elsewhere.example/v1"
+    identity["metadata_url"] = "https://elsewhere.example/v1/models"
+    with pytest.raises(IntegrityError, match="metadata"):
+        validate_stage_model_identity(identity)
+    identity["model_metadata"]["metadata_url"] = identity["metadata_url"]
+    assert validate_stage_model_identity(identity)["base_url"] == "https://elsewhere.example/v1"

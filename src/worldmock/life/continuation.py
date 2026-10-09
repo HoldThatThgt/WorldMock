@@ -14,7 +14,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
+import logging
 
+from worldmock.errors import IntegrityError
 from worldmock.footprints.models import Event
 from worldmock.footprints.store import FootprintStore
 from worldmock.life.decision_start import is_action_request
@@ -29,10 +31,11 @@ _MESSAGE_KEYS = ("role", "tool_call_id", "content", "tool_calls", "reasoning_con
 
 
 def continuation_enabled(manifest: Mapping[str, Any]) -> bool:
-    """@brief 运行开关 same_second_continuation（清单 stages.action）；清单没有阶段身份（测试建库路径）时按缺省开。"""
+    """@brief 同秒续接读取冻结的行动阶段身份，缺失身份直接拒绝。"""
     identity = manifest.get("stage_model_identity")
     if identity is None:
-        return True
+        logging.error("Same-second continuation requires the frozen action stage identity")
+        raise IntegrityError("Same-second continuation requires the frozen action stage identity")
     return identity["stages"]["action"]["same_second_continuation"]
 
 

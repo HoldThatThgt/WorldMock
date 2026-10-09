@@ -7,12 +7,10 @@
     "timezone": "Asia/Shanghai"
   },
   "bootstrap": {
-    "seed": 20260915,
     "repetitions": 10000,
     "block_days": 7
   },
   "review": {
-    "seed": "worldmock-evaluation-2026-09-15",
     "reviewer_count": 3,
     "dimensions": [
       "temporal_plausibility",
@@ -59,11 +57,6 @@
       "fitness_habit": "exercise",
       "social_habit": "social",
       "entertainment_habit": "entertainment"
-    },
-    "worldmock_activity": {
-      "sleep": "sleep",
-      "travel": "travel",
-      "wait": "waiting"
     }
   },
   "official_domain_map": {

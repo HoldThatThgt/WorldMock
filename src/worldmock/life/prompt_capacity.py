@@ -21,12 +21,11 @@ from typing import Any
 from litellm import token_counter
 
 from worldmock.life.narration import render_layer_json
-from worldmock.model_endpoint import DEEPSEEK_CONTEXT_LENGTH, DEEPSEEK_MODEL
+from worldmock.model_endpoint import model_context_length
+from worldmock.input_models import ModelMetadata
 
 
 CONTEXT_THRESHOLD = 0.85
-MODEL_ALIAS = DEEPSEEK_MODEL
-TOKENIZER_MODEL = f"deepseek/{DEEPSEEK_MODEL}"
 #: 进度层的层名与折叠记录的类型。
 _PROGRESS_LAYER = "进度层"
 _CONDENSED = "condensed"
@@ -49,18 +48,10 @@ class ProgressBudget:
     chain_length: int = 0
 
 
-def model_context_length(model: str) -> int:
-    """@brief 返回冻结模型合同中的官方上下文长度，拒绝身份不符。"""
-    if model != MODEL_ALIAS:
-        logging.error("Model context metadata is unavailable for %s", model)
-        raise RuntimeError("model context metadata is unavailable")
-    return DEEPSEEK_CONTEXT_LENGTH
-
-
 def prompt_token_count(request: dict[str, Any]) -> int:
     """@brief 计量实际发送的消息与工具定义。"""
     try:
-        return token_counter(model=TOKENIZER_MODEL, messages=request["messages"],
+        return token_counter(model=request["model"], messages=request["messages"],
                              tools=request.get("tools"))
     except Exception as error:
         logging.error("Model request token count failed: %s", error)
@@ -76,9 +67,15 @@ def request_token_count(request: dict[str, Any]) -> int:
     return prompt_token_count(request) + reserve
 
 
-def fit_request(request: dict[str, Any], budget: ProgressBudget | None = None) -> dict[str, Any]:
+def fit_request(request: dict[str, Any], metadata: ModelMetadata | dict,
+                budget: ProgressBudget | None = None) -> dict[str, Any]:
     """@brief 请求低于阈值时原样返回；否则先结束本秒续接，再按第四章步骤浓缩进度层，每步重计，仍超限即容量故障。"""
-    limit = model_context_length(request["model"]) * CONTEXT_THRESHOLD
+    frozen = metadata if isinstance(metadata, ModelMetadata) else ModelMetadata.model_validate(metadata)
+    reserve = request.get("max_tokens")
+    if type(reserve) is not int or not 0 < reserve <= frozen.max_output_tokens:
+        logging.error("Model request output reserve exceeds verified service capacity")
+        raise RuntimeError("model request output reserve exceeds verified service capacity")
+    limit = model_context_length(request["model"], frozen) * CONTEXT_THRESHOLD
     measured = request_token_count(request)
     if measured < limit:
         return request
@@ -153,15 +150,15 @@ def _log_capacity_failure(request: dict[str, Any], layers: list[dict], measured:
     """@brief 按系统层、工具定义、各 user 层（工具层的可调用索引另单列，它已含在工具层之内）、此后的原生消息与预留输出
     分层记录 token 用量。"""
     counts: dict[str, int] = {
-        "system": token_counter(model=TOKENIZER_MODEL, messages=request["messages"][:1]),
-        "tools": token_counter(model=TOKENIZER_MODEL, messages=[], tools=request.get("tools")),
+        "system": token_counter(model=request["model"], messages=request["messages"][:1]),
+        "tools": token_counter(model=request["model"], messages=[], tools=request.get("tools")),
     }
     for layer in layers:
-        counts[str(layer.get("layer"))] = token_counter(model=TOKENIZER_MODEL, text=render_layer_json(layer))
+        counts[str(layer.get("layer"))] = token_counter(model=request["model"], text=render_layer_json(layer))
         if isinstance(layer.get(_INDEX_KEY), dict):
-            counts[f"{layer['layer']}.{_INDEX_KEY}"] = token_counter(model=TOKENIZER_MODEL,
+            counts[f"{layer['layer']}.{_INDEX_KEY}"] = token_counter(model=request["model"],
                                                                      text=render_layer_json(layer[_INDEX_KEY]))
-    counts["continuation_messages"] = token_counter(model=TOKENIZER_MODEL, messages=request["messages"][2:])
+    counts["continuation_messages"] = token_counter(model=request["model"], messages=request["messages"][2:])
     counts["reserved_output"] = request["max_tokens"]
     logging.error("Model request capacity exceeded: total=%s threshold=%s parts=%s", measured, limit, counts)
 

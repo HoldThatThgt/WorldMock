@@ -1,25 +1,10 @@
-"""@brief 体感分级与情绪：饥饿/困意/娱乐/社交分级、社交与情绪账本、滞回判定。
-
-纯函数库（stdlib + pydantic），不 import 本项目其他模块：
-- 饥饿体感含昼夜因子（Scheer、Morris 与 Shea 2013 内源饥饿节律）与餐时项；
-- 困意只做分级：输入是 sleep.sleepiness 按两过程压力与昼夜阈值归一后的困意，演化与归一归 sleep.py；
-- 社交需要按账本速率推进并夹到 [0, 1]；
-- 情绪按事件加脉冲并以半衰期衰减：只影响体感呈现与记忆重要度加权，不直接
-  改变任何动作可行性（docs/design/02-exchange-engine.md「其他体感分级」）——本模块不耦合可行性判断，由调用方保证；
-- 滞回以"上一次实际提供决策时的分级"为参照（docs/design/04-simulation-engine.md「滞回规则」），非结算边界。
-数值参数一律标注 experiment_assumption（明确引用文献的常数除外）。
-分级区间为下闭上开 [lo, hi)，顶档取 ≥ 顶下界；分级文本为中文提示文本。
-"""
+"""@brief 饥饿、困意、放松需要与社交需要的体感分级。"""
 
 from __future__ import annotations
 
 from worldmock.base_models import FrozenModel
 import math
-from worldmock.exchange.constants import (
-    MOOD_DISCOMFORT_TRIGGER_HOURS, MOOD_HALFLIFE_MINUTES, MOOD_HALFLIFE_NEUROTICISM_FACTOR,
-    MOOD_PULSES, MOOD_PULSE_NEUROTICISM_FACTOR, SOCIAL_NEED_AWAKE_RATE, SOCIAL_NEED_REMOTE_RATE,
-    SOCIAL_NEED_CONVERSATION_RATE, SOCIAL_NEED_MESSAGE_RELIEF,
-)
+import logging
 from bisect import bisect_right
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -76,14 +61,14 @@ SLEEPINESS_BANDS: tuple[tuple[float, str], ...] = (
 #: 困意分级基档（低于首档下界 0.80）。
 SLEEPINESS_BASE_LEVEL = "清醒"
 
-#: 娱乐需要分级阈值表。experiment_assumption：docs/design/02-exchange-engine.md「其他体感分级」冻结阈值，
+#: 放松需要分级阈值表。experiment_assumption：docs/design/02-exchange-engine.md「其他体感分级」冻结阈值，
 #: 无文献出处。
-ENTERTAINMENT_BANDS: tuple[tuple[float, str], ...] = (
+RELAXATION_BANDS: tuple[tuple[float, str], ...] = (
     (0.3, "有点想放松"),
     (0.6, "很想放松"),
 )
-#: 娱乐需要分级基档。experiment_assumption：docs/design/02-exchange-engine.md「其他体感分级」。
-ENTERTAINMENT_BASE_LEVEL = "不闷"
+#: 放松需要分级基档。experiment_assumption：docs/design/02-exchange-engine.md「其他体感分级」。
+RELAXATION_BASE_LEVEL = "不闷"
 
 #: 社交需要分级阈值表。experiment_assumption：docs/design/02-exchange-engine.md「其他体感分级」冻结阈值，
 #: 无文献出处。
@@ -93,35 +78,6 @@ SOCIAL_BANDS: tuple[tuple[float, str], ...] = (
 )
 #: 社交需要分级基档。experiment_assumption：docs/design/02-exchange-engine.md「其他体感分级」。
 SOCIAL_BASE_LEVEL = "不想找人"
-
-#: 情绪分级阈值表（mood_valence ∈ [−1, 1]）。
-#: experiment_assumption：docs/design/02-exchange-engine.md「其他体感分级」冻结阈值，无文献出处。
-MOOD_BANDS: tuple[tuple[float, str], ...] = (
-    (-0.4, "有点烦"),
-    (-0.15, "平静"),
-    (0.15, "挺好"),
-    (0.4, "很开心"),
-)
-#: 情绪分级基档（低于 −0.4）。experiment_assumption：docs/design/02-exchange-engine.md「其他体感分级」。
-MOOD_BASE_LEVEL = "很烦"
-
-#: 社交需要账本速率（每小时/每条）。
-#: experiment_assumption：docs/design/02-exchange-engine.md「其他体感分级」明示
-#: "数值为实验假设"；Humanoid Agents 的 social 需要与 The Sims 的 Social
-#: motive 为结构依据。
-
-#: 情绪脉冲表（基础幅度，应用时再乘 (1 + 0.5·N_norm)）。
-#: experiment_assumption：docs/design/02-exchange-engine.md「其他体感分级」明示"脉冲与半衰期是实验假设"；
-#: OCC 评价理论与 PAD 心境模型为结构依据。
-#: 情绪半衰期基准（分钟）。experiment_assumption：docs/design/02-exchange-engine.md「其他体感分级」。
-#: 半衰期神经质调制系数（× (1 + 0.3·N_norm)）。
-#: experiment_assumption：docs/design/02-exchange-engine.md「其他体感分级」。
-#: 脉冲幅度神经质调制系数（× (1 + 0.5·N_norm)）。
-#: experiment_assumption：docs/design/02-exchange-engine.md「其他体感分级」。
-#: 连续饿/困的不适脉冲门槛（小时）：连续不适超出该时长的部分按小时计脉冲；门槛只在 rhythm 的边界结算中判定一次，
-#: discomfort_pulse 不再判定（docs/design/04-simulation-engine.md ）。
-#: experiment_assumption：docs/design/02-exchange-engine.md「其他体感分级」冻结值。
-
 
 class MealWindows(FrozenModel):
     """@brief 人物卡片声明的午餐/晚餐窗口（自午夜起的小时数，半开区间 [start, end)）。"""
@@ -135,6 +91,7 @@ class MealWindows(FrozenModel):
         """@brief 窗口须满足 0 ≤ start < end ≤ 24，且两窗口不相交。"""
         for name, window in (("lunch", self.lunch), ("dinner", self.dinner)):
             if window is not None and not 0 <= window[0] < window[1] <= 24:
+                logging.error("Felt input is invalid")
                 raise ValueError(f"{name} window must satisfy 0 <= start < end <= 24")
         if (
             self.lunch is not None
@@ -142,21 +99,9 @@ class MealWindows(FrozenModel):
             and self.lunch[1] > self.dinner[0]
             and self.dinner[1] > self.lunch[0]
         ):
+            logging.error("Felt input is invalid")
             raise ValueError("dinner window must not overlap lunch window")
         return self
-
-
-class SocialExposure(FrozenModel):
-    """@brief 一个结算段内的社交暴露量（小时/条数由结算侧从时间线拆解）。
-
-    当面与远程社交的小时同时计入清醒小时（账本各项线性叠加，拆解归调用方）。
-    """
-
-
-    awake_hours: float = Field(default=0.0, ge=0)
-    conversation_hours: float = Field(default=0.0, ge=0)
-    remote_hours: float = Field(default=0.0, ge=0)
-    messages_read: int = Field(default=0, ge=0)
 
 
 def _clamp(value: float, low: float, high: float) -> float:
@@ -173,15 +118,10 @@ def _band_level(value: float, base_level: str, bands: tuple[tuple[float, str], .
     return bands[index][1]
 
 
-def _require_neuroticism_range(neuroticism_norm: float) -> None:
-    """@brief 校验 N_norm 已归一到 [−1, 1]，越界即拒绝。"""
-    if not -1.0 <= neuroticism_norm <= 1.0:
-        raise ValueError("neuroticism_norm must be within [-1, 1]")
-
-
 def _require_time_hour(time_hour: float) -> None:
     """@brief 校验时刻为自午夜起的小时数 [0, 24)。"""
     if not 0 <= time_hour < 24:
+        logging.error("Felt input is invalid")
         raise ValueError("time_hour must be within [0, 24)")
 
 
@@ -224,8 +164,10 @@ def compute_appetite(
     ≥ 0.85 判"饿得难受"，与 docs/design/02-exchange-engine.md「其他体感分级」的 800/400 kcal 阈值一致。
     """
     if appetite_anchor_kcal <= APPETITE_KCAL_FLOOR:
+        logging.error("Felt input is invalid")
         raise ValueError("appetite_anchor_kcal must exceed 400 kcal")
     if energy_kcal < 0:
+        logging.error("Felt input is invalid")
         raise ValueError("energy_kcal must be non-negative")
     _require_time_hour(time_hour)
     span = appetite_anchor_kcal - APPETITE_KCAL_FLOOR
@@ -263,9 +205,9 @@ def sleepiness_level(sleepiness: float) -> str:
     return _band_level(sleepiness, SLEEPINESS_BASE_LEVEL, SLEEPINESS_BANDS)
 
 
-def entertainment_need_level(need: float) -> str:
-    """@brief 娱乐需要分级文本（docs/design/02-exchange-engine.md「其他体感分级」）：不闷/有点想放松/很想放松。"""
-    return _band_level(need, ENTERTAINMENT_BASE_LEVEL, ENTERTAINMENT_BANDS)
+def relaxation_need_level(need: float) -> str:
+    """@brief 放松需要分级文本（docs/design/02-exchange-engine.md「其他体感分级」）：不闷/有点想放松/很想放松。"""
+    return _band_level(need, RELAXATION_BASE_LEVEL, RELAXATION_BANDS)
 
 
 def social_need_level(need: float) -> str:
@@ -274,101 +216,14 @@ def social_need_level(need: float) -> str:
     return _band_level(need, SOCIAL_BASE_LEVEL, SOCIAL_BANDS)
 
 
-def mood_level(valence: float) -> str:
-    """@brief 情绪分级文本（docs/design/02-exchange-engine.md「其他体感分级」）：很烦/有点烦/平静/挺好/很开心。
-    """
-    return _band_level(valence, MOOD_BASE_LEVEL, MOOD_BANDS)
-
-
 def summarize_felt_levels(values: Mapping[str, float], energy: EnergyReading) -> dict[str, str]:
-    """@brief 汇总五个体感信号为分级文本字典（滞回判定与提示渲染的输入）。
-
-    values 取 appetite、sleepiness、entertainment_need、social_need、mood_valence 五个数值；
-    饥饿分级另按 energy 叠加两条低能量规则，因此观察与唤醒判定须传入同一能量与紧急阈值。
-    """
+    """@brief 观察和唤醒只读取同一组四个体感分级。"""
     return {
         "appetite": appetite_level(values["appetite"], energy.energy_kcal, energy.emergency_kcal),
         "sleepiness": sleepiness_level(values["sleepiness"]),
-        "entertainment": entertainment_need_level(values["entertainment_need"]),
+        "relaxation": relaxation_need_level(values["relaxation_need"]),
         "social": social_need_level(values["social_need"]),
-        "mood": mood_level(values["mood_valence"]),
     }
-
-
-def apply_social_need_ledger(social_need: float, exposure: SocialExposure) -> float:
-    """@brief 按账本速率推进社交需要并夹到 [0, 1]（docs/design/02-exchange-engine.md「其他体感分级」）。
-
-    清醒每小时 +0.04；与在场人物交谈每小时 −0.5、与联系人远程社交每小时 −0.4、
-    收到并阅读一条来自人物或联系人的消息 −0.05。
-    数值为实验假设（docs/design/02-exchange-engine.md「其他体感分级」）。
-    """
-    if not 0 <= social_need <= 1:
-        raise ValueError("social_need must be within [0, 1]")
-    delta = (
-        SOCIAL_NEED_AWAKE_RATE * exposure.awake_hours
-        - SOCIAL_NEED_CONVERSATION_RATE * exposure.conversation_hours
-        - SOCIAL_NEED_REMOTE_RATE * exposure.remote_hours
-        - SOCIAL_NEED_MESSAGE_RELIEF * exposure.messages_read
-    )
-    return _clamp(social_need + delta, 0.0, 1.0)
-
-
-def normalize_neuroticism(raw_value: float, scale_low: float, scale_high: float) -> float:
-    """@brief 把人物卡片原始神经质线性归一到 [−1, 1]（越界夹断）。
-
-    量表上下界由调用方提供（人物卡片量纲归画像编译管，本模块不预设）。
-    """
-    if scale_high <= scale_low:
-        raise ValueError("neuroticism scale bounds must satisfy low < high")
-    ratio = (raw_value - scale_low) / (scale_high - scale_low)
-    return _clamp(2.0 * ratio - 1.0, -1.0, 1.0)
-
-
-def mood_halflife_minutes(neuroticism_norm: float) -> float:
-    """@brief 情绪半衰期 45 分钟 × (1 +
-    0.3·N_norm)（docs/design/02-exchange-engine.md「其他体感分级」）。"""
-    _require_neuroticism_range(neuroticism_norm)
-    factor = 1.0 + MOOD_HALFLIFE_NEUROTICISM_FACTOR * neuroticism_norm
-    return MOOD_HALFLIFE_MINUTES * factor
-
-
-def apply_mood_pulse(
-    mood_valence: float, base_amplitude: float, neuroticism_norm: float
-) -> float:
-    """@brief 叠加一次情绪脉冲并夹到 [−1, 1]（docs/design/02-exchange-engine.md「其他体感分级」）。
-
-    幅度调制 × (1 + 0.5·N_norm)；base_amplitude 取 MOOD_PULSES 的基础幅度
-    （不适脉冲取 discomfort_pulse(本次计费小时数)）。
-    """
-    if not -1.0 <= mood_valence <= 1.0:
-        raise ValueError("mood_valence must be within [-1, 1]")
-    _require_neuroticism_range(neuroticism_norm)
-    factor = 1.0 + MOOD_PULSE_NEUROTICISM_FACTOR * neuroticism_norm
-    return _clamp(mood_valence + base_amplitude * factor, -1.0, 1.0)
-
-
-def discomfort_pulse(billed_hours: float) -> float:
-    """@brief 连续饿/困的不适脉冲基础幅度：−0.1/小时 ×
-    本次计费小时数（docs/design/02-exchange-engine.md「其他体感分级」）。
-
-    计费小时是连续不适时长超出两小时门槛（MOOD_DISCOMFORT_TRIGGER_HOURS）后本边界新增的部分；门槛只在 rhythm 的
-    边界结算中判定一次，本函数不再判门槛（docs/design/04-simulation-engine.md ）。
-    """
-    if billed_hours < 0:
-        raise ValueError("billed_hours must be non-negative")
-    return MOOD_PULSES["discomfort_hourly"] * billed_hours
-
-
-def decay_mood_valence(
-    mood_valence: float, elapsed_minutes: float, neuroticism_norm: float
-) -> float:
-    """@brief 按半衰期指数衰减情绪（docs/design/02-exchange-engine.md「其他体感分级」）：valence ·
-    0.5^(elapsed / halflife)。"""
-    if elapsed_minutes < 0:
-        raise ValueError("elapsed_minutes must be non-negative")
-    _require_neuroticism_range(neuroticism_norm)
-    halflife = mood_halflife_minutes(neuroticism_norm)
-    return mood_valence * 0.5 ** (elapsed_minutes / halflife)
 
 
 def changed_felt_levels(

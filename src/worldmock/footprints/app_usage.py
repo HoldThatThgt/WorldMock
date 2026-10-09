@@ -1,4 +1,4 @@
-"""@brief 只从实际应用快照和推送投影六种数字使用事实。"""
+"""@brief 只从实际应用快照和推送投影七种数字使用事实。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from itertools import groupby
 from zoneinfo import ZoneInfo
 
 from worldmock.errors import IntegrityError
-from worldmock.exchange.types import AppUseManner, MANNER_DEVICE
+from worldmock.life.action_contract import ACTIVITY_ACTIONS
 
 
 @dataclass
@@ -31,41 +31,40 @@ class _Projection:
     opened: set[str] = field(default_factory=set)
     released: set[str] = field(default_factory=set)
     expired: set[str] = field(default_factory=set)
-    touches: set[tuple[str, str]] = field(default_factory=set)
 
 
 def project_app_usage(events: list[dict]) -> list[dict]:
-    """@brief 持续使用按活动输出实际区间，辅助使用仅输出真实起止触点。"""
+    """@brief 持续应用活动输出实际区间，系统触点及支付通知只取独立事件。"""
     projection = _project(events)
-    uses = []
-    for activity, source in projection.activities.values():
-        binding = _app_binding(activity)
-        if binding[2] == AppUseManner.OFFLINE_ASSISTED:
-            continue
-        uses.append({**_common("app_use", activity["agent_id"], binding, source),
-                     "activity_id": activity["activity_id"], "status": activity["status"],
-                     "segments": projection.segments.get(activity["activity_id"], [])})
+    uses = [{**_common("app_use", activity["agent_id"], _app_binding(activity), source),
+             "activity_id": activity["activity_id"], "status": activity["status"],
+             "segments": projection.segments.get(activity["activity_id"], [])}
+            for activity, source in projection.activities.values()]
     return uses + projection.facts
 
 
-def _common(kind: str, agent_id: int, binding: tuple, source: str) -> dict:
-    """@brief 六种事实共用八个字段，设备只来自固定方式映射。"""
-    app_id, action_id, manner = binding
-    return {"fact_kind": kind, "agent_id": agent_id, "activity_id": None, "app_id": app_id,
-            "action_id": action_id, "manner": manner, "device": MANNER_DEVICE[manner],
-            "source_event_id": source}
+def _common(kind: str, agent_id: int, app_id: str, source: str) -> dict:
+    """@brief 七种应用事实共用五个字段，不复制系统动作及步骤信息。"""
+    return {"fact_kind": kind, "agent_id": agent_id, "activity_id": None,
+            "app_id": app_id, "source_event_id": source}
 
 
-def _app_binding(activity: dict) -> tuple | None:
-    """@brief 应用身份来自快照数据；导航使用固定线下辅助方式。"""
-    data = activity.get("data", {})
-    if data.get("navigation_app_id") is not None:
-        return data["navigation_app_id"], None, AppUseManner.OFFLINE_ASSISTED.value
-    if data.get("app_id") is None:
-        return None
-    if data["manner"] not in MANNER_DEVICE:
-        _invalid_source("App activity manner is not registered")
-    return data["app_id"], data["action_id"], data["manner"]
+def _app_binding(activity: dict) -> str | None:
+    """@brief 只有真实交互活动的应用身份形成持续使用。"""
+    return activity.get("data", {}).get("app_id")
+
+
+def validate_activity_prefix(events: list[dict]) -> None:
+    """@brief 全部消费者首先拒绝退役活动，避免由下游偶然字段错误决定结果。"""
+    for event in events:
+        rows = activity_snapshots(event["data"])
+        nested = event["data"].get("data", {}).get("activity")
+        if isinstance(nested, dict):
+            rows.append(nested)
+        if any(row.get("kind") not in {"sleep", "travel", "interact", "purchase"} for row in rows):
+            _invalid_source("Activity snapshot uses a retired activity kind")
+        if any("title" in row for row in rows):
+            _invalid_source("Activity snapshot contains a retired title field")
 
 
 def append_activity_segment(segments: list[dict], event: dict) -> None:
@@ -81,6 +80,7 @@ def append_activity_segment(segments: list[dict], event: dict) -> None:
 
 def _project(events: list[dict]) -> _Projection:
     """@brief 同次提交的完成先全部结算，再按真实会话结束使推送失效。"""
+    validate_activity_prefix(events)
     projection = _Projection()
     commits = groupby(events, key=lambda event: (event["run_id"], event["state_version_after"]))
     for _, committed in commits:
@@ -95,13 +95,15 @@ def _visit(event: dict, projection: _Projection, ended: set[str]) -> None:
     """@brief 活动、内容和会话全部取真实事件，不解释人物自述。"""
     validate_app_event_source(event)
     data = event["data"]
+    if event["event_type"] == "environment_event" and data.get("kind") in {"app_touch", "payment_notification"}:
+        _system_fact(event, projection)
     if event["event_type"] == "environment_event" and data.get("kind") == "app_push" and "push_id" in data:
         _delivered(event, projection)
     for activity in activity_snapshots(data):
         sessions = activity.get("session_ids", [])
         if event["event_type"] == "action_accepted" and sessions:
             _change_session(projection, activity["agent_id"], sessions[-1])
-        if _app_binding(activity) is not None:
+        if activity["kind"] == "interact" and _app_binding(activity) is not None:
             _app_snapshot(event, activity, projection)
         if event["event_type"] == "activity_progress" and data.get("content", {}).get("completed"):
             _release_completed(event, activity, projection)
@@ -122,7 +124,7 @@ def validate_app_event_source(event: dict) -> None:
         if (event["event_type"] not in {"action_accepted", "action_result", "environment_event", "activity_progress"}
                 or event.get("source_kind") != "environment" or event.get("visibility") != "agent"):
             _invalid_source("Activity snapshots must come from agent-visible environment events")
-        if any(row["kind"] not in {"wait", "sleep", "travel", "action"} for row in snapshots):
+        if any(row["kind"] not in {"sleep", "travel", "interact", "purchase"} for row in snapshots):
             _invalid_source("Activity snapshot uses a retired activity kind")
         if any(row["agent_id"] != event["agent_id"] for row in snapshots):
             _invalid_source("Activity snapshot owner disagrees with its source event")
@@ -132,12 +134,15 @@ def validate_app_event_source(event: dict) -> None:
         if "content" in data:
             fields = {"content_id", "app_id", "position_before_seconds", "position_after_seconds",
                       "completed", "completed_rounds_after"}
-            if data["activity"]["kind"] != "action" or set(data["content"]) != fields:
-                _invalid_source("Content consumption must use the current action content contract")
+            if data["activity"]["kind"] != "interact" or set(data["content"]) != fields:
+                _invalid_source("Content consumption must use the current interact content contract")
             if data["content"]["app_id"] != data["activity"]["data"]["app_id"]:
                 _invalid_source("Content consumption app disagrees with its actual action")
-    if event["event_type"] == "environment_event" and data.get("kind") == "app_push":
-        _validate_push_source(event)
+    if event["event_type"] == "environment_event":
+        if data.get("kind") == "app_push":
+            _validate_push_source(event)
+        elif data.get("kind") in {"app_touch", "payment_notification", "purchase_payment"}:
+            _validate_system_source(event)
 
 
 def _validate_push_source(event: dict) -> None:
@@ -145,7 +150,7 @@ def _validate_push_source(event: dict) -> None:
     data = event["data"]
     empty = data.get("pushed") is False
     fields = ({"kind", "pushed", "session_id"} if empty else
-              {"kind", "push_id", "app_id", "app", "action_id", "action", "content_id", "title", "summary",
+              {"kind", "push_id", "app_id", "app", "content_id", "title", "summary",
                "session_id", "issued_at"})
     if set(data) not in (fields, fields | {"scheduled_id"}):
         _invalid_source("App push settlement fields disagree with its delivery state")
@@ -194,9 +199,8 @@ def _delivered(event: dict, projection: _Projection) -> None:
 
 
 def _push_fact(kind: str, push: dict, event: dict, activity_id: str | None) -> dict:
-    """@brief 推送转换保留原 app、动作与会话身份，并引用真实转换事件。"""
-    binding = push["app_id"], push["action_id"], AppUseManner.PHONE_CONTINUOUS.value
-    return {**_common(kind, push["agent_id"], binding, event["event_id"]), "activity_id": activity_id,
+    """@brief 推送转换保留原应用及会话身份，并引用真实转换事件。"""
+    return {**_common(kind, push["agent_id"], push["app_id"], event["event_id"]), "activity_id": activity_id,
             "push_id": push["push_id"], "content_id": push["content_id"], "session_id": push["session_id"],
             "occurred_at": event["occurred_at"]}
 
@@ -212,36 +216,60 @@ def _app_snapshot(event: dict, activity: dict, projection: _Projection) -> None:
         if pin not in projection.pushes:
             _invalid_source("Opened push must have a prior delivery")
         push = projection.pushes[pin]
-        if (push["agent_id"] != activity["agent_id"] or push["app_id"] != binding[0]
-                or push["action_id"] != binding[1] or push["session_id"] not in activity["session_ids"]):
-            _invalid_source("Opened push disagrees with the actual app, action, or session")
+        if (push["agent_id"] != activity["agent_id"] or push["app_id"] != binding
+                or push["session_id"] not in activity["session_ids"]):
+            _invalid_source("Opened push disagrees with the actual app or session")
         projection.opened.add(pin)
         projection.facts.append(_push_fact("push_opened", push, event, identity))
     if event["event_type"] == "activity_progress":
         append_activity_segment(projection.segments.setdefault(identity, []), event)
-        if "content" in event["data"] and binding[2] != AppUseManner.OFFLINE_ASSISTED:
+        if "content" in event["data"]:
             old = previous[0]["data"] if previous is not None else data
             consumed = event["data"]["content"]
             consumed_pin = old.get("pinned_by_push_id") if old.get("content_id") == consumed["content_id"] else None
             projection.facts.append(_content_fact(event, activity, consumed_pin))
-    if binding[2] == AppUseManner.OFFLINE_ASSISTED:
-        _touch(event, activity, projection)
     projection.activities[identity] = activity, event["event_id"]
 
 
-def _touch(event: dict, activity: dict, projection: _Projection) -> None:
-    """@brief 只有实际受理与终态发生触点，暂停恢复和终点截断不补触点。"""
-    edge = None
-    if event["event_type"] == "action_accepted":
-        edge = "start"
-    elif activity["status"] in {"completed", "cancelled", "failed"}:
-        edge = "end"
-    key = activity["activity_id"], edge
-    if edge is None or key in projection.touches:
-        return
-    projection.touches.add(key)
-    projection.facts.append({**_common("app_touch", activity["agent_id"], _app_binding(activity), event["event_id"]),
-        "activity_id": activity["activity_id"], "edge": edge, "occurred_at": event["occurred_at"]})
+def _validate_system_source(event: dict) -> None:
+    """@brief 自动触点、支付和通知使用封闭系统载荷，必须引用真实原因。"""
+    data = event["data"]
+    fields = {
+        "app_touch": {"kind", "app_id", "action", "step", "rule_id"},
+        "purchase_payment": {"kind", "activity_id", "order_ids", "amount_fen"},
+        "payment_notification": {"kind", "app_id", "amount_fen", "order_ids", "title", "summary"},
+    }
+    if set(data) != fields[data["kind"]]:
+        _invalid_source("System app event fields are outside the current contract")
+    if event.get("source_kind") != "environment" or event.get("visibility") != "system":
+        _invalid_source("System app event must be a system-visible environment event")
+    if len(event.get("caused_by", [])) != 1:
+        _invalid_source("System app event requires one actual cause event")
+    if data["kind"] == "app_touch":
+        if data["action"] is not None and data["action"] not in ACTIVITY_ACTIONS:
+            _invalid_source("App touch action is invalid")
+        allowed = {"navigation", "payment"} if data["rule_id"] is None else {"browse", "payment"}
+        if data["step"] not in allowed:
+            _invalid_source("App touch step disagrees with its source")
+    else:
+        order_ids = data["order_ids"]
+        if (not isinstance(order_ids, list) or not order_ids or order_ids != sorted(set(order_ids))
+                or any(not isinstance(identity, str) or not identity for identity in order_ids)
+                or type(data["amount_fen"]) is not int or data["amount_fen"] <= 0):
+            _invalid_source("Purchase payment order group or amount is invalid")
+    if data["kind"] == "payment_notification" and (data["title"] != "支付成功"
+            or not isinstance(data["summary"], str) or not data["summary"]):
+        _invalid_source("Payment notification text is invalid")
+    if "app_id" in data and (not isinstance(data["app_id"], str) or not data["app_id"]):
+        _invalid_source("System app event requires an actual app identity")
+
+
+def _system_fact(event: dict, projection: _Projection) -> None:
+    """@brief 系统触点和通知没有活动身份，不进入人物公开经历。"""
+    data = event["data"]
+    fields = () if data["kind"] == "app_touch" else ("amount_fen", "order_ids", "title", "summary")
+    projection.facts.append({**_common(data["kind"], event["agent_id"], data["app_id"], event["event_id"]),
+                             "occurred_at": event["occurred_at"], **{key: data[key] for key in fields}})
 
 
 def _content_fact(event: dict, activity: dict, push_id: str | None) -> dict:
@@ -276,12 +304,9 @@ def app_usage_quality(events: list[dict], timezone_name: str) -> dict:
     repeated = [event for event in content_events if event["data"]["content"]["completed_rounds_after"]
                 - int(event["data"]["content"]["completed"]) >= 1]
     repeat_seconds = sum(event["data"]["interval_end"] - event["data"]["interval_start"] for event in repeated)
-    by_action = Counter(event["data"]["activity"]["data"]["action_id"] for event in content_events
-                        if event["data"]["content"]["position_after_seconds"]
-                        > event["data"]["content"]["position_before_seconds"])
     zone = ZoneInfo(timezone_name)
     return {"content_contact": {"by_app": dict(sorted(Counter(row["app_id"] for row in advances).items())),
-            "by_action": dict(sorted(by_action.items())), "repeat_watch": len(repeated),
+            "repeat_watch": len(repeated),
             "repeat_seconds_share": repeat_seconds / total if total else None},
         "app_pushes": {"pushed": len(projection.pushes), "opened_in_session": len(projection.opened),
             "consumed_pinned": len({row["push_id"] for row in advances if row["push_id"] is not None}),

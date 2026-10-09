@@ -1,14 +1,4 @@
-"""@brief background_story -> PersonaCard + 大五的 LLM 提取层（三次一致性口径）。
-
-沿用既有口径：温度 0.3 独立采样 N 次（默认 3，三次一致性），逐字段取众数、
-大五逐维度取中位数；单次运行内 JSON 解析/校验失败重试至多 2 次。字段众数
-占比 < 2/3 标黄警告。凭据 ~/.config/worldmock/deepseek.env
-（DEEPSEEK_NODE_KEYS 多 key 池取第一把，与 runtime 契约同源）。
-故事未提及的时型、睡眠需要与五个时间锚点输出 null，由 persona-mapping.toml
-[defaults] 确定性补齐（不在提示层编造）。下班与到家锚点在独立顶层键 work_anchors
-里单独取共识，null 保持 null、不读缺省；不合顺序约束时按固定顺序降级为 null，
-降级说明只在共识后的最终卡片上生成（docs/design/06-agent.md#agent-下班与到家锚点 ）。
-"""
+"""@brief 在原生 dispatcher 执行三次独立画像抽取，输出修正是独立逻辑请求。"""
 
 from __future__ import annotations
 
@@ -16,17 +6,14 @@ from worldmock.base_models import FrozenModel
 import json
 import logging
 import math
-import os
 from collections import Counter
-from pathlib import Path
 from typing import Any, Mapping
 
-import requests
-from dotenv import dotenv_values
 from pydantic import BaseModel, ConfigDict, Field
 
 from worldmock.profile.mapper import load_mapping_config
-from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
+from worldmock.input_models import ModelConfig, ModelMetadata
+from worldmock.model_endpoint import IndependentModelClient
 from worldmock.profile.models import (
     BIG_FIVE_DIMENSIONS,
     PROMPT_VERSION,
@@ -44,22 +31,11 @@ from worldmock.profile.models import (
     settle_work_anchors,
 )
 
-#: 画像抽取使用与运行相同的官方模型端点（DEEPSEEK_BASE_URL，即 strict 所在的 /beta）。
-API_URL = f"{DEEPSEEK_BASE_URL}/chat/completions"
-DEFAULT_MODEL = DEEPSEEK_MODEL
-#: 三次一致性口径：默认 3 次独立采样（docs/design/06-agent.md「画像编译」）。
+#: 每次画像编译执行三次独立一致性采样。
 DEFAULT_RUNS = 3
-#: 采样温度：要多样性做共识，但保持在低躁区间。
 TEMPERATURE = 0.3
-#: 单次响应补全预算。
 MAX_COMPLETION_TOKENS = 8000
-#: 单次运行内 JSON 解析/校验失败的重试上限。
-MAX_PARSE_RETRIES = 2
-#: 任一字段众数占比低于该阈值 -> 标黄警告（2/3 与三次口径一致）。
 AGREEMENT_WARNING_THRESHOLD = 2 / 3
-#: 请求超时（秒）。
-TIMEOUT_SECONDS = 60.0
-CREDENTIALS_PATH = Path.home() / ".config" / "worldmock" / "deepseek.env"
 
 #: 抽取载荷的顶层键（三次一致性按这些字段逐个取共识）。
 PAYLOAD_KEYS = ("big_five", "identity", "relationships", "situation",
@@ -120,96 +96,50 @@ class PersonaExtraction(FrozenModel):
     demotion_notes: tuple[str, ...] = ()
 
 
-def resolve_api_key(explicit: str | None = None) -> str:
-    """@brief 凭据解析：显式参数 > 环境变量 > ~/.config/worldmock/deepseek.env。
-
-    与 runtime._read_deepseek_key 的 DEEPSEEK_NODE_KEYS 多 key 契约一致；
-    抽取层是单 key 独立客户端，取逗号分隔池中的第一把。
-    """
-    if explicit:
-        return explicit
-    raw = os.environ.get("DEEPSEEK_NODE_KEYS") or dotenv_values(
-        CREDENTIALS_PATH, interpolate=False).get("DEEPSEEK_NODE_KEYS")
-    first = raw.split(",")[0].strip() if isinstance(raw, str) else ""
-    if not first:
-        raise ExtractionError(
-            f"DEEPSEEK_NODE_KEYS not found in environment or {CREDENTIALS_PATH}")
-    return first
-
-
-def extract_persona(background_story: str, n_runs: int = DEFAULT_RUNS, *,
-                    model: str = DEFAULT_MODEL, api_key: str | None = None,
-                    session: Any | None = None) -> PersonaExtraction:
-    """@brief N 次独立 LLM 运行 -> 卡片与大五的三次一致性共识。
-
-    逐字段共识规则（确定性）：大五逐维度取中位数（偶数样本 round half up）；
-    其余顶层字段取众数（按 canonical JSON 序列化计数，平手取字典序最小序列化）。
-    agreement 为各字段众数占比均值；任一字段 < 2/3 -> warning=True。
-    """
+async def extract_persona(background_story: str, model_config: ModelConfig, metadata: ModelMetadata,
+                          n_runs: int = DEFAULT_RUNS, *, client: Any | None = None) -> PersonaExtraction:
+    """@brief 独立抽取采用实际配置与容量，每次响应修正共用同一请求调度器。"""
     story = background_story.strip()
-    if not story:
-        raise ExtractionError("background story is empty")
-    if n_runs < 1:
-        raise ExtractionError(f"n_runs must be >= 1, got {n_runs}")
-    key = resolve_api_key(api_key)
-    caller = session if session is not None else requests
-    config = load_mapping_config()
-    payloads = [_single_run(story, model, key, caller, config)
+    if not story or type(n_runs) is not int or n_runs < 1:
+        logging.error("Persona extraction input is invalid")
+        raise ExtractionError("Persona extraction input is invalid")
+    identity = model_config.model_dump(mode="json", exclude={"api_key_env"})
+    identity["model_metadata"] = metadata.model_dump(mode="json")
+    caller = client if client is not None else IndependentModelClient(identity, "Persona extraction")
+    mapping = load_mapping_config()
+    request = {"model": model_config.requested_model, "temperature": TEMPERATURE,
+               "max_tokens": min(MAX_COMPLETION_TOKENS, metadata.max_output_tokens),
+               "thinking": {"type": "disabled"}, "response_format": {"type": "json_object"},
+               "messages": [{"role": "system", "content": _SYSTEM_PROMPT},
+                            {"role": "user", "content": f"background_story：\n{story}"}]}
+    payloads = [await _single_run(request, caller, mapping, model_config.persona_validation_max_retries)
                 for _ in range(n_runs)]
     consensus, per_field = _consensus(payloads)
-    card, notes = _build_card(consensus, config)
-    big_five = BigFiveProfile(**consensus["big_five"])
-    agreement = sum(per_field.values()) / len(per_field)
-    return PersonaExtraction(
-        card=card,
-        big_five=big_five,
-        runs=n_runs,
-        agreement=round(agreement, 4),
-        per_field={name: round(share, 4) for name, share in per_field.items()},
-        warning=any(share < AGREEMENT_WARNING_THRESHOLD for share in per_field.values()),
-        model=model,
-        prompt_version=PROMPT_VERSION,
-        demotion_notes=notes,
-    )
+    card, notes = _build_card(consensus, mapping)
+    return PersonaExtraction(card=card, big_five=BigFiveProfile(**consensus["big_five"]), runs=n_runs,
+                             agreement=round(sum(per_field.values()) / len(per_field), 4),
+                             per_field={name: round(share, 4) for name, share in per_field.items()},
+                             warning=any(share < AGREEMENT_WARNING_THRESHOLD for share in per_field.values()),
+                             model=model_config.requested_model, prompt_version=PROMPT_VERSION,
+                             demotion_notes=notes)
 
 
-def _single_run(story: str, model: str, api_key: str, caller: Any,
-                config: Mapping) -> dict:
-    """@brief 单次 API 调用 + JSON 解析（失败重试至多 MAX_PARSE_RETRIES 次）。"""
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": f"background_story：\n{story}"},
-        ],
-        "temperature": TEMPERATURE,
-        "max_tokens": MAX_COMPLETION_TOKENS,
-        "thinking": {"type": "disabled"},
-        "response_format": {"type": "json_object"},
-    }
-    headers = {"Authorization": f"Bearer {api_key}",
-               "Content-Type": "application/json"}
-    last_error = "no attempt made"
-    for _ in range(MAX_PARSE_RETRIES + 1):
-        response = caller.post(API_URL, json=payload, headers=headers,
-                               timeout=TIMEOUT_SECONDS)
-        if response.status_code != 200:
-            last_error = f"HTTP {response.status_code}: {response.text[:200]}"
-            continue
+async def _single_run(request: dict, client: Any, mapping: Mapping, validation_retries: int) -> dict:
+    """@brief 请求错误直接失败；仅解析和结构校验失败发起新的输出修正请求。"""
+    payload = {**request, "messages": [dict(item) for item in request["messages"]]}
+    last_error = "No attempt made"
+    for attempt in range(validation_retries + 1):
+        response = await client.call(payload)
         try:
-            content = response.json()["choices"][0]["message"]["content"]
-            return _parse_payload(content, config)
-        except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as error:
+            return _parse_payload(response["choices"][0]["message"]["content"], mapping)
+        except (KeyError, IndexError, TypeError, ValueError) as error:
             last_error = f"{type(error).__name__}: {error}"
-            logging.warning("Persona extraction output failed validation: %s", last_error)
-            payload = {**payload, "messages": [*payload["messages"][:2], {
-                "role": "user",
-                "content": ("上一次输出未通过结构校验，请依据原故事重新输出完整 JSON。"
-                            "只修正错误，不改写故事事实。校验错误：\n" + last_error),
-            }]}
-            continue
-    raise ExtractionError(
-        f"persona extraction failed after {MAX_PARSE_RETRIES + 1} attempts: {last_error}")
+            logging.error("Persona extraction output failed validation: %s", last_error)
+            if attempt < validation_retries:
+                payload["messages"] = [*request["messages"], {
+                    "role": "user", "content": "上一次输出未通过结构校验，请依据原故事重新输出完整 JSON。"
+                    "只修正错误，不改写故事事实。校验错误：\n" + last_error}]
+    raise ExtractionError(f"Persona extraction failed after {validation_retries + 1} attempts: {last_error}")
 
 
 def _parse_payload(content: str, config: Mapping) -> dict:

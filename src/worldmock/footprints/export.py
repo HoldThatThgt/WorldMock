@@ -15,9 +15,11 @@ from zoneinfo import ZoneInfo
 
 from worldmock.errors import IntegrityError
 from worldmock.footprints.assets import atomic_write
-from worldmock.footprints.app_usage import activity_snapshots, append_activity_segment, project_app_usage
+from worldmock.footprints.app_usage import (
+    activity_snapshots, append_activity_segment, project_app_usage, validate_activity_prefix,
+)
 from worldmock.footprints.experiences import project_verified_experiences
-from worldmock.footprints.models import Event, canonical_json
+from worldmock.footprints.models import AssetRef, Event, canonical_json
 from worldmock.footprints.purchases import project_purchase_facts
 from worldmock.footprints.quality import build_quality_report
 from worldmock.footprints.store import FootprintStore
@@ -66,6 +68,10 @@ def _write_export(store: FootprintStore, events: list[Event], stage: Path) -> di
                                  project_app_usage([event.model_dump() for event in events])),
     }
     references = {}
+    for value in store.manifest["environment_assets"].values():
+        reference = AssetRef.model_validate(value)
+        atomic_write(stage / "assets" / reference.sha256, store.assets.read(reference))
+        references[reference.sha256] = reference.model_dump()
     if manifest["experiment_completed"]:
         checkpoint_event = next(event for event in reversed(events) if event.event_type == "checkpoint_created")
         checkpoint = store.get_checkpoint(checkpoint_event.data["checkpoint_id"])
@@ -144,6 +150,7 @@ def _export_identity(run: dict, events: list[Event]) -> dict:
 
 def reconstruct_activities(events: list[Event]) -> list[dict]:
     """@brief 只读取截止范围中的权威活动快照，进度区间避免把暂停算作活动。"""
+    validate_activity_prefix([event.model_dump(mode="json") for event in events])
     activities = {}
     segments = {}
     sources = {}
@@ -156,7 +163,9 @@ def reconstruct_activities(events: list[Event]) -> list[dict]:
             if previous and snapshot["elapsed_seconds"] < previous["elapsed_seconds"]:
                 raise IntegrityError("Activity progress cannot move backwards")
             activities[identity] = dict(snapshot)
-            sources.setdefault(identity, []).append(event.event_id)
+            activity_sources = sources.setdefault(identity, [])
+            if event.event_id not in activity_sources:
+                activity_sources.append(event.event_id)
             if event.event_type == "activity_progress":
                 _append_segment(segments.setdefault(identity, []), event)
     return [_activity_record(value, segments.get(key, []), sources[key]) for key, value in activities.items()]

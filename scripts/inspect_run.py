@@ -10,14 +10,14 @@
   python3 scripts/inspect_run.py <run_dir> flows [--tail K]
   python3 scripts/inspect_run.py <run_dir> rerun
   python3 scripts/inspect_run.py <run_dir> continuation [--topic 话题 ...] [--baseline <run_dir>]
-  python3 scripts/inspect_run.py <run_dir> workday --scenario <场景文件>
+  python3 scripts/inspect_run.py <run_dir> workday --environment <环境目录>
   python3 scripts/inspect_run.py <run_dir> queries
 
 rerun 只读计算 docs/design/05-recording-engine.md 「调试工具」的运行指标，只报告，不作门禁。
 continuation 只读给出 docs/design/05-recording-engine.md的逐决策指标与合计（JSON）；--baseline 先核对
-两份清单（同一提交、同一场景文件、同一模型身份，只有 same_second_continuation 不同），不可比即拒绝比较。
+两份清单（同一提交、同一环境输入、同一模型身份），不可比即拒绝比较。
 workday 只读打印 docs/design/05-recording-engine.md 的 {run_id, workload, routine_deviation, notes}（JSON，只报告）：
-班次、住处与播报间隔取自 --scenario 场景文件（其摘要须等于运行清单的 scenario_sha256，否则拒绝、不打印），
+班次、住处与播报间隔取自 --environment 完整输入（原文字节身份须等于运行清单，否则拒绝、不打印），
 作息窗口取自运行目录里人物工作区的结构化卡片。
 queries 只读给出 docs/design/05-recording-engine.md「调试工具」的八个键（JSON），口径取已落库的模型工具交换证据，
 只报告，不作门禁。
@@ -119,7 +119,7 @@ def _brief(r: dict) -> str:
         return f"{d.get('kind')} {d.get('scheduled_id','')}"
     if t == "activity_progress":
         act = d.get("activity", {})
-        content = f"《{act['content_title']}》" if act["kind"] == "action" else ""
+        content = f"《{act['content_title']}》" if act.get("content_title") else ""
         return f"{act['name']}{content} → {act['status']}"
     if t == "memory_updated":
         return f"{len(d.get('episode_ids', []))} 条"
@@ -137,8 +137,8 @@ def cmd_event(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
 def cmd_money(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     """@brief 打印全部资金流水与期末余额。"""
     balances: dict[str, int] = {}
-    for r in _rows(conn, "json_extract(body,'$.data.resource_changes') IS NOT NULL"):
-        changes = r["data"].get("resource_changes") or {}
+    for r in _rows(conn, "json_extract(body,'$.resource_changes') IS NOT NULL"):
+        changes = r["resource_changes"]
         if not changes:
             continue
         print(f"[{r['seq']:>5}] {_t(r['occurred_at'])} {r['event_type']:18s} {json.dumps(changes, ensure_ascii=False)}")
@@ -678,17 +678,17 @@ def _workspace_cards(run_dir: Path, agent_ids: list[int]) -> tuple[dict[int, dic
 
 
 def cmd_workday(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
-    """@brief 打印工作负荷与作息偏离（JSON，只报告）：班次、住处与播报间隔取自 --scenario 场景文件，其摘要须等于
-    运行清单的 scenario_sha256（不等即以英文错误退出、不打印任何内容）；作息窗口取自运行工作区的结构化卡片。"""
+    """@brief 工作安排取已核对两份原文身份的完整环境，卡片取实际运行工作区。"""
+    from worldmock.environment import load_environment
     from worldmock.evaluation.workload_metrics import workday_inputs, workday_reports
-    from worldmock.life.scenario import parse_scenario_document
 
     manifest = _manifest(a.run_dir)
-    document, digest = parse_scenario_document(a.scenario)
-    if digest != manifest.get("scenario_sha256"):
-        raise SystemExit("Scenario file does not match the run manifest scenario_sha256")
-    cards, notes = _workspace_cards(a.run_dir, [agent.agent_id for agent in document.agents])
-    report = workday_reports(_rows(conn), document.timezone, workday_inputs(document, cards))
+    inputs = load_environment(a.environment)
+    if (inputs.persona_sha256 != manifest["persona_sha256"]
+            or inputs.config_sha256 != manifest["config_sha256"]):
+        raise SystemExit("Environment inputs do not match the run manifest")
+    cards, notes = _workspace_cards(a.run_dir, [inputs.persona.agent_id])
+    report = workday_reports(_rows(conn), inputs.config.timezone, workday_inputs(inputs, cards))
     report["notes"] = [*report["notes"], *notes]
     print(json.dumps({"run_id": manifest["run_id"], **report}, ensure_ascii=False, indent=2))
 
@@ -852,7 +852,7 @@ if __name__ == "__main__":
     pc.add_argument("--topic", action="append")
     pc.add_argument("--baseline", type=Path)
     pw = sub.add_parser("workday")
-    pw.add_argument("--scenario", type=Path, required=True)
+    pw.add_argument("--environment", type=Path, required=True)
     sub.add_parser("queries")
     args = parser.parse_args()
     conn = _connect(args.run_dir)

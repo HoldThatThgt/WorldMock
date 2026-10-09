@@ -375,7 +375,9 @@ def _runtime(tmp_path: Path, *, dispatch=None, profile=None):
     async def noop_dispatch(**request):
         return _text_response("我想保留这些记忆。")
 
-    profile = profile or {"name": "Alice", "language": "zh-CN"}
+    from tests.integration.runtime.current_contract_fixtures import profile as current_profile
+
+    profile = profile or current_profile()
     owner = SimpleNamespace(
         id=1, name="Alice", _model_name="m", _dispatch_memory_llm=dispatch or noop_dispatch,
         get_profile=lambda: profile, _logger=SimpleNamespace(warning=lambda *a: None), trace_span=None,

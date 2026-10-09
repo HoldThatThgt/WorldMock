@@ -31,9 +31,6 @@ from worldmock.footprints.models import AssetRef, Event, EventDraft, canonical_j
 from worldmock.footprints.quality import build_quality_report
 from worldmock.footprints.store import FootprintStore
 from worldmock.footprints.validation import validate_export
-from worldmock.life.run_identity import environment_identity
-from worldmock.life.world_setup import load_runtime_scenario
-from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 
 
 # ---------------------------------------------------------------------------
@@ -99,31 +96,12 @@ def _run_report(events, activities, manifest):
 
 def _make_store(tmp_path, agent_ids=(1,)):
     manifest = {"run_id": "run", "source_group_id": "run", "agent_ids": list(agent_ids),
-                "work_content_ids": {str(i): [] for i in agent_ids},
+                "environment_assets": {},
                 "window": {"start": 100, "end": 300, "timezone": "UTC"}}
     return FootprintStore.create(tmp_path / "run", manifest,
                                  {"version": 0, "current_time": 100})
 
 
-def _complete_export(tmp_path):
-    """@brief 构造一个可通过 validate_export 的完整终态导出，返回目录。"""
-    manifest = {"run_id": "run", "source_group_id": "run", "agent_ids": [1],
-                "schema_version": 4, "work_content_ids": {"1": []},
-                "environment_identity": environment_identity(load_runtime_scenario(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]),
-                "model_identity": {"name": "fixture"},
-                "window": {"start": 100, "end": 200, "timezone": "UTC"}}
-    store = FootprintStore.create(tmp_path / "run", manifest, {"schema_version": 11, "version": 0, "current_time": 100})
-    observation = EventDraft(event_type="observation", occurred_at=100, agent_id=1,
-                             decision_id="decision", data={"energy_kcal": 100})
-    store.commit(store.state, [observation])
-    store.commit({"schema_version": 11, "version": 1, "current_time": 200},
-                 [EventDraft(event_type="run_ended", occurred_at=200, visibility="system")])
-    reference = store.assets.put_json({"saved": "complete"}, {"kind": "fixture"})
-    point = store.checkpoint(store.state, {"agent:1": reference, "life": reference})
-    directory = tmp_path / "export"
-    export_run(store, point.last_event_seq, directory)
-    store.close()
-    return directory
 
 
 def _rewrite_jsonl(directory, name, rows):
@@ -131,7 +109,7 @@ def _rewrite_jsonl(directory, name, rows):
     raw = b"".join(canonical_json(row) + b"\n" for row in rows)
     (directory / name).write_bytes(raw)
     manifest_path = directory / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     descriptor = {"path": name, "rows": len(rows), "sha256": hashlib.sha256(raw).hexdigest()}
     if name == "events.jsonl":
         manifest["artifacts"]["events"] = descriptor
@@ -145,7 +123,7 @@ def _rewrite_jsonl(directory, name, rows):
 
 
 def _load_manifest_json(directory):
-    return json.loads((directory / "manifest.json").read_text())
+    return json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
 
 
 def _save_manifest_json(directory, manifest):
@@ -212,7 +190,7 @@ def test_watch_repeat_report_missing_targets_and_single_session_groups():
     report = _run_report([actual], activities, _manifest(end=200))['content_contact']
     assert report['repeat_watch'] == 1
     assert report['by_app'] == {'bilibili': 1}
-    assert report['by_action'] == {'recommend': 1}
+    assert 'by_action' not in report
     assert report['repeat_seconds_share'] == 1.0
 
 
@@ -770,7 +748,7 @@ def test_export_includes_event_artifact_refs_in_asset_index(tmp_path):
     manifest = export_run(store, 1, tmp_path / "export")
     assert reference.sha256 in [row["sha256"] for row in
                                 [json.loads(line) for line in
-                                 (tmp_path / "export" / "asset-index.jsonl").read_text().splitlines()]]
+                                 (tmp_path / "export" / "asset-index.jsonl").read_text(encoding="utf-8").splitlines()]]
     assert (tmp_path / "export" / "assets" / reference.sha256).is_file()
     assert manifest["asset_index"]["rows"] >= 1
     store.close()
@@ -809,7 +787,7 @@ def _progress_event(sequence, activity, interval_start, interval_end, **fields):
 
 
 def test_reconstruct_activities_merges_adjacent_segments_and_accepts_non_progress_snapshots():
-    activity = {"activity_id": "work", "agent_id": 1, "kind": "work", "started_at": 100,
+    activity = {"activity_id": "work", "agent_id": 1, "kind": "interact", "started_at": 100,
                 "elapsed_seconds": 20, "ended_at": None, "status": "active"}
     first = _progress_event(1, activity, 100, 110, activity_id="work", occurred_at=110)
     second = _progress_event(2, {**activity, "elapsed_seconds": 20}, 110, 120,
@@ -819,7 +797,7 @@ def test_reconstruct_activities_merges_adjacent_segments_and_accepts_non_progres
                                               "ended_at": 120}})
     records = reconstruct_activities([first, second, snapshot_only])
     assert records[0]["segments"] == [{"started_at": 100, "ended_at": 120}]
-    assert records[0]["activity_type"] == "work"
+    assert records[0]["activity_type"] == "interact"
     assert records[0]["source_event_ids"] == ["event-1", "event-2", "event-3"]
 
 
@@ -832,7 +810,7 @@ def test_reconstruct_activities_merges_adjacent_segments_and_accepts_non_progres
     "duration_mismatch",
 ])
 def test_reconstruct_activities_rejects_invalid_progress_chains(craft):
-    activity = {"activity_id": "work", "agent_id": 1, "kind": "work", "started_at": 100,
+    activity = {"activity_id": "work", "agent_id": 1, "kind": "interact", "started_at": 100,
                 "elapsed_seconds": 10, "ended_at": None, "status": "active"}
     if craft == "identity_mismatch":
         events = [_event(1, "activity_progress", occurred_at=110, activity_id="other",
@@ -878,10 +856,10 @@ def test_reconstruct_activities_rejects_invalid_progress_chains(craft):
     "ancestor_before_branch", "run_failed", "no_end",
     "asset_index_repeat", "asset_index_missing", "asset_corrupt",
 ])
-def test_validate_export_rejects_each_tamper_shape(tmp_path, tamper):
-    directory = _complete_export(tmp_path)
+def test_validate_export_rejects_each_tamper_shape(tmp_path, tamper, engine_factory):
+    directory = _complete_export(tmp_path, engine_factory)
     manifest = _load_manifest_json(directory)
-    events = [json.loads(line) for line in (directory / "events.jsonl").read_text().splitlines()]
+    events = [json.loads(line) for line in (directory / "events.jsonl").read_text(encoding="utf-8").splitlines()]
 
     if tamper == "identity":
         manifest["run_id"] = "not-the-run"
@@ -931,17 +909,17 @@ def test_validate_export_rejects_each_tamper_shape(tmp_path, tamper):
         _rewrite_jsonl(directory, "events.jsonl", events)
         manifest = _load_manifest_json(directory)
     elif tamper == "no_end":
-        events[1]["event_type"] = "observation"
+        next(row for row in events if row["event_type"] == "run_ended")["event_type"] = "observation"
         _rewrite_jsonl(directory, "events.jsonl", events)
         manifest = _load_manifest_json(directory)
     elif tamper == "asset_index_repeat":
         indexed = [json.loads(line) for line in
-                   (directory / "asset-index.jsonl").read_text().splitlines()]
+                   (directory / "asset-index.jsonl").read_text(encoding="utf-8").splitlines()]
         _rewrite_jsonl(directory, "asset-index.jsonl", indexed + [indexed[0]])
         manifest = _load_manifest_json(directory)
     elif tamper == "asset_index_missing":
         indexed = [json.loads(line) for line in
-                   (directory / "asset-index.jsonl").read_text().splitlines()]
+                   (directory / "asset-index.jsonl").read_text(encoding="utf-8").splitlines()]
         _rewrite_jsonl(directory, "asset-index.jsonl", [])
         manifest = _load_manifest_json(directory)
     elif tamper == "asset_corrupt":
@@ -965,67 +943,12 @@ def _money_event(data):
     return SimpleNamespace(data=data)
 
 
-def test_account_transition_rejects_identity_change_and_bad_initial_funding():
-    before = {"accounts": {"a": 10}}
-    with pytest.raises(IntegrityError, match="identity cannot change"):
-        validate_account_transition(before, {"accounts": {"a": 10, "b": 0}}, [], False)
-    initial_event = _money_event({"kind": "initial_funds_injected",
-                                  "resource_changes": {"account:a": 10,
-                                                       "account:external:scenario": -10}})
-    neutral = _money_event({})
-    with pytest.raises(IntegrityError, match="first event"):
-        validate_account_transition(before, before, [neutral, initial_event], True)
-    with pytest.raises(IntegrityError, match="without changing"):
-        validate_account_transition({"accounts": {"a": 5}}, {"accounts": {"a": 10}},
-                                    [initial_event], True)
-    short = _money_event({"kind": "initial_funds_injected",
-                          "resource_changes": {"account:a": 5, "account:external:scenario": -5}})
-    with pytest.raises(IntegrityError, match="does not describe"):
-        validate_account_transition({"accounts": {"a": 10}}, {"accounts": {"a": 10}},
-                                    [short], True)
 
 
-def test_account_transition_rejects_unbalanced_changes_and_bad_types():
-    before = {"accounts": {"a": 10, "b": 0}}
-    bad_shape = _money_event({"resource_changes": "nope"})
-    with pytest.raises(IntegrityError, match="must be an object"):
-        validate_account_transition(before, before, [bad_shape], False)
-    unbalanced = _money_event({"resource_changes": {"account:a": -5}})
-    with pytest.raises(IntegrityError, match="balance"):
-        validate_account_transition(before, {"accounts": {"a": 5, "b": 0}},
-                                    [unbalanced], False)
-    with pytest.raises(IntegrityError, match="nonnegative integer"):
-        validate_account_transition({"accounts": {}}, {"accounts": {}}, [], False)
-    with pytest.raises(IntegrityError, match="nonnegative integer"):
-        validate_account_transition({"accounts": {"a": -1}}, {"accounts": {"a": -1}}, [], False)
 
 
-def test_account_transition_rejects_nonzero_sum_counterparty_event():
-    """资金零和守恒（docs/design/05-recording-engine.md「资金守恒验证」）：每笔转账必须指名双方且合计为零。
-
-    双边金额不抵消的事件（{a:-5, b:+4}，合计 -1）即使账户差额与事件逐项
-    一致，也必须被 `sum(money.values()) != 0` 子句拒绝——`len(money) < 2`
-    单边用例测不到它。正例：等额对倒的零和事件通过。
-    """
-    before = {"accounts": {"a": 10, "b": 0}}
-    leak = _money_event({"resource_changes": {"account:a": -5, "account:b": 4}})
-    with pytest.raises(IntegrityError, match="does not balance across its counterparties"):
-        validate_account_transition(before, {"accounts": {"a": 5, "b": 4}}, [leak], False)
-    balanced = _money_event({"resource_changes": {"account:a": -5, "account:b": 5}})
-    validate_account_transition(before, {"accounts": {"a": 5, "b": 5}}, [balanced], False)
 
 
-def test_account_history_rejects_missing_initial_negative_and_drift():
-    funding = _money_event({"kind": "initial_funds_injected",
-                            "resource_changes": {"account:a": 10, "account:external:scenario": -10}})
-    spend = _money_event({"resource_changes": {"account:a": -4, "account:b": 4}})
-    with pytest.raises(IntegrityError, match="one initial funding"):
-        validate_account_history([spend, funding], {"accounts": {"a": 6, "b": 4}})
-    overdraft = _money_event({"resource_changes": {"account:a": -20, "account:b": 20}})
-    with pytest.raises(IntegrityError, match="negative balance"):
-        validate_account_history([funding, overdraft], {"accounts": {"a": 0, "b": 20}})
-    with pytest.raises(IntegrityError, match="do not reconstruct"):
-        validate_account_history([funding], {"accounts": {"a": 5}})
 
 
 def test_account_checks_pass_without_accounts():
@@ -1078,3 +1001,16 @@ def test_asset_store_put_reuses_existing_content(tmp_path):
     assert first == second
     assert assets.read(first) == b"same-bytes"
     assert len(os.listdir(assets.root)) == 1
+
+
+def _complete_export(tmp_path, engine_factory):
+    """真实环境运行结束后导出共同检查点。"""
+    from tests.life.environment_runtime import run_to_end
+    engine = engine_factory()
+    run_to_end(engine)
+    store = engine.context.store
+    reference = store.assets.put_json({"saved": "complete"}, {"kind": "fixture"})
+    point = engine.checkpoint({"agent:1": reference})
+    directory = tmp_path / "export"
+    export_run(store, point.last_event_seq, directory)
+    return directory

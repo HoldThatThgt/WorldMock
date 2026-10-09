@@ -1,13 +1,13 @@
-"""@brief 运行输入警告与场景作息覆盖：注入即核对（docs/design/06-agent.md 、2.1、8.1）。
+"""@brief 运行输入警告与人设作息覆盖：注入即核对（docs/design/06-agent.md 、2.1、8.1）。
 
 纯函数模块：只按显式输入计算，不读文件、不调模型、不改输入。新建运行（run_setup.creation_inputs）与 validate 调用同一组
 函数，警告冻结进运行清单 input_warnings、计入质量报告 input_warnings 一节并逐条写一条 ops 警告；运行路径永不因警告失败，
 validate 在覆盖率低于 80% 时照旧失败（裁决 D4）。
 
 每条警告的形状固定为 {code, agent_id, message, details}：code 取警告码闭集 INPUT_WARNING_CODES；agent_id 为人物编号，
-场景级警告（地点显示名）为 null；message 是给数据集维护者看的一句说明；details 的键按警告码固定（见各函数）。
-场景作息覆盖（apply_scenario_rhythm，裁决 D16）：场景显式声明的作息字段覆盖卡片抽取值，未声明的字段仍取卡片值；
-字段为七项、窗口槽为五个（docs/design/06-agent.md#agent-场景作息覆盖  增下班、到家），新槽的卡片值可以是 null。
+人设级警告（地点显示名）为 null；message 是给数据集维护者看的一句说明；details 的键按警告码固定（见各函数）。
+人设作息覆盖（apply_persona_rhythm，裁决 D16）：人设显式声明的作息字段覆盖卡片抽取值，未声明的字段仍取卡片值；
+字段为七项、窗口槽为五个（docs/design/06-agent.md#agent-人设作息覆盖  增下班、到家），新槽的卡片值可以是 null。
 """
 
 from __future__ import annotations
@@ -40,10 +40,10 @@ InputWarningCode = Literal[
     "LOCATION_NAME_SUSPICIOUS",
 ]
 INPUT_WARNING_CODES: tuple[str, ...] = get_args(InputWarningCode)
-#: 场景人物可显式声明、覆盖卡片抽取值的七个作息字段（scenario.AgentConfig）。
+#: 人设人物可显式声明、覆盖卡片抽取值的七个作息字段（PersonaConfig）。
 RHYTHM_FIELDS = ("chronotype_midsleep", "sleep_need_hours", "lunch_window", "leave_work_window",
                  "arrive_home_window", "dinner_window", "bedtime_window")
-#: 场景窗口字段 → 卡片时间锚点的五个槽；插入顺序即落槽顺序（午餐、下班、到家、晚餐、就寝）。
+#: 人设窗口字段 → 卡片时间锚点的五个槽；插入顺序即落槽顺序（午餐、下班、到家、晚餐、就寝）。
 _WINDOW_SLOTS = {"lunch_window": "lunch", "leave_work_window": "leave_work", "arrive_home_window": "arrive_home",
                  "dinner_window": "dinner", "bedtime_window": "bedtime"}
 #: 「看、刷、听」用于识别习惯中的媒体使用；口味的媒体列表本身就是显式偏好。
@@ -67,7 +67,7 @@ class InputWarning(FrozenModel):
 
 
 class RhythmOverride(NamedTuple):
-    """@brief 场景作息覆盖的结果：覆盖后的卡片与逐处警告（CARD_FIELD_OVERRIDDEN、CARD_FIELD_CONFLICT）。"""
+    """@brief 人设作息覆盖的结果：覆盖后的卡片与逐处警告（CARD_FIELD_OVERRIDDEN、CARD_FIELD_CONFLICT）。"""
 
     card: PersonaCard
     warnings: tuple[dict[str, Any], ...]
@@ -86,18 +86,18 @@ def frozen_input_warnings(value: Iterable[Mapping[str, Any]] | None) -> list[dic
         raise IntegrityError("Input warnings do not match the closed warning shape") from error
 
 
-def apply_scenario_rhythm(card: PersonaCard, agent: Any) -> RhythmOverride:
-    """@brief 场景显式声明的作息字段覆盖卡片抽取值（规格 2.1，裁决 D16：场景优先）。
+def apply_persona_rhythm(card: PersonaCard, agent: Any) -> RhythmOverride:
+    """@brief 人设显式声明的作息字段覆盖卡片抽取值（规格 2.1，裁决 D16：人设优先）。
 
-    只覆盖 agent.model_fields_set 与七个作息字段的交集中值非空的字段——覆盖必须在原始加载的场景人物上做，经过
+    只覆盖 agent.model_fields_set 与七个作息字段的交集中值非空的字段——覆盖必须在原始加载的人设人物上做，经过
     dump/validate 往返的对象会把全部字段记为已设。取值按卡片格点量化（中点与睡眠需要 0.25 小时，窗口 0.5 小时）；
     窗口经 TimeAnchors 回绕归一、validate_order 与下班到家的顺序约束重建锚点，按落槽顺序反复尝试直到没有槽能再落下，
     落不下的槽保留卡片值（下班、到家槽的卡片值可以是 null）并记 CARD_FIELD_CONFLICT；每处实际改变卡片值的覆盖记
-    CARD_FIELD_OVERRIDDEN。不降级任何卡片锚点（docs/design/06-agent.md#agent-场景作息覆盖 ）。结果是不动点：对结果再覆盖一次
+    CARD_FIELD_OVERRIDDEN。不降级任何卡片锚点（docs/design/06-agent.md#agent-人设作息覆盖 ）。结果是不动点：对结果再覆盖一次
     卡片不变。
 
     @param card 画像编译的卡片（或恢复时的结构化卡片 PersonaCardStruct）
-    @param agent 场景人物声明（带可靠的 model_fields_set）
+    @param agent 人设人物声明（带可靠的 model_fields_set）
     @return 覆盖后的卡片（无变化时就是输入对象）与警告
     """
     fields_set = getattr(agent, "model_fields_set", set())
@@ -162,7 +162,7 @@ def _window_overrides(card: PersonaCard, agent: Any, declared: set[str]) -> tupl
 
 
 def _window_target(raw: tuple[float, ...]) -> TimeWindow | None:
-    """@brief 场景窗口量化到 0.5 小时格点；量化后退化或越界、写不成卡片窗口时为 None。"""
+    """@brief 人设窗口量化到 0.5 小时格点；量化后退化或越界、写不成卡片窗口时为 None。"""
     start, end = (quantize(value, 0.0, 30.0, 0.5) for value in raw)
     try:
         return TimeWindow(start_hour=start, end_hour=end)
@@ -188,28 +188,28 @@ def _window_value(window: TimeWindow | None) -> list[float] | None:
 
 
 def _overridden(agent_id: int, field: str, values: tuple[Any, Any, Any]) -> dict[str, Any]:
-    """@brief CARD_FIELD_OVERRIDDEN：values 为（卡片值, 场景声明值, 写进卡片的值）；窗口写成 [start, end]，
+    """@brief CARD_FIELD_OVERRIDDEN：values 为（卡片值, 人设声明值, 写进卡片的值）；窗口写成 [start, end]，
     卡片槽为 null 时卡片值为 None（正文写 null）。"""
-    card_value, scenario_value, applied = values
-    declared = list(scenario_value) if isinstance(scenario_value, tuple) else scenario_value
+    card_value, persona_value, applied = values
+    declared = list(persona_value) if isinstance(persona_value, tuple) else persona_value
     return _warning("CARD_FIELD_OVERRIDDEN", agent_id,
-                    f"Scenario {field} overrides the extracted card value: card {_json_text(card_value)}, "
-                    f"scenario {_json_text(declared)}, applied {_json_text(applied)}.",
-                    field=field, card_value=card_value, scenario_value=declared, applied_value=applied)
+                    f"Persona {field} overrides the extracted card value: card {_json_text(card_value)}, "
+                    f"persona {_json_text(declared)}, applied {_json_text(applied)}.",
+                    field=field, card_value=card_value, persona_value=declared, applied_value=applied)
 
 
 def _conflict(agent_id: int, field: str, values: tuple[TimeWindow | None, tuple[float, ...]], reason: str) -> dict:
-    """@brief CARD_FIELD_CONFLICT：场景窗口落不进卡片锚点（顺序冲突或写不成 0.5 小时格点窗口），保留卡片值；
+    """@brief CARD_FIELD_CONFLICT：人设窗口落不进卡片锚点（顺序冲突或写不成 0.5 小时格点窗口），保留卡片值；
     下班、到家槽的卡片值可以是 null（details.card_value 为 null，正文写 null）。"""
-    kept, scenario_value = values
+    kept, persona_value = values
     why = ("conflicts with card anchor order: wake, departure, lunch, dinner and bedtime must be nondecreasing; "
            "work departure cannot precede departure, home arrival cannot precede either departure, "
            "and both must not follow bedtime" if reason == "anchor_order"
            else "is not a valid window after quantization to a half-hour grid")
     return _warning("CARD_FIELD_CONFLICT", agent_id,
-                    f"Scenario {field} {_json_text(list(scenario_value))} {why}; "
+                    f"Persona {field} {_json_text(list(persona_value))} {why}; "
                     f"keeping card value {_json_text(_window_value(kept))}.",
-                    field=field, card_value=_window_value(kept), scenario_value=list(scenario_value), reason=reason)
+                    field=field, card_value=_window_value(kept), persona_value=list(persona_value), reason=reason)
 
 
 def content_empty_warnings(agent_id: int, card: PersonaCard | None, catalog: Any) -> list[dict[str, Any]]:
@@ -258,13 +258,13 @@ def agreement_warnings(agent_id: int, compiler_warnings: Sequence[str]) -> list[
             for text in compiler_warnings]
 
 
-def location_name_warnings(scenario: Any) -> list[dict[str, Any]]:
+def location_name_warnings(catalog: Any) -> list[dict[str, Any]]:
     """@brief LOCATION_NAME_SUSPICIOUS：地点显示名带坐标或标识形态（裁决 D19：只警告，人物会照抄这个名字）。
 
     @return details 键：location_id、name、patterns（coordinates / identifier）
     """
     found = []
-    for location in sorted(scenario.locations, key=lambda item: item.location_id):
+    for location in sorted(catalog.locations.values(), key=lambda item: item.location_id):
         patterns = suspicious_name_patterns(location.name)
         if patterns:
             kinds = ", ".join(patterns)

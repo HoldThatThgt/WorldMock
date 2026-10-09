@@ -1,56 +1,45 @@
-"""@brief 编译入口：background_story -> 卡片 + 大五 + 世界层动力学（编排，零数值）。
-
-旧模板字段 occupation/routine_preference/consumption_preference/risk_preference
-已删除不保留别名（docs/design/06-agent.md「画像编译」）：输入档案携带任一旧字段即明确报错，不静默
-兼容；旧 v1 九参数档案（schema_version=1）同样被 schema 拒绝。
-"""
+"""@brief 已严格校验人设与真实抽取结果的纯画像编译。"""
 
 from __future__ import annotations
 
+import logging
 from typing import Mapping
 
+from worldmock.input_models import PersonaConfig
+
 from worldmock.errors import WorldMockError
-from worldmock.profile.extractor import PersonaExtraction, extract_persona
+from worldmock.profile.extractor import PersonaExtraction
 from worldmock.profile.mapper import load_mapping_config, map_world_dynamics
 from worldmock.profile.models import (
-    LEGACY_TEMPLATE_FIELDS,
     PROMPT_VERSION,
     CompiledPersona,
     Consensus,
     PersonaSource,
-    background_story_sha256,
 )
 
-#: 编译入口需要的最小人物文档键。
-STORY_FIELD = "background_story"
-
-
-class LegacyTemplateFieldError(WorldMockError):
-    """@brief 输入档案携带已删除的旧模板字段：明确报错，不静默兼容。"""
-
-
-def compile_persona(source: str | Mapping, *,
-                    extraction: PersonaExtraction | None = None,
+def compile_persona(source: PersonaConfig, *,
+                    extraction: PersonaExtraction,
+                    persona_sha256: str,
                     config: Mapping | None = None) -> CompiledPersona:
     """@brief 编译：三次一致性抽取 -> 卡片 + 大五 -> 世界层动力学。
 
-    @param source background_story 文本，或含 background_story 的人物文档
+    @param source 已通过纯准入的人设声明
     @param extraction 预取的共识结果（None 时真实调用提取层）
     @param config 映射规则表（None 时加载 persona-mapping.toml）
-    @return CompiledPersona（schema v3）
-    @exception LegacyTemplateFieldError 文档携带旧模板字段
+    @return 当前版本的 CompiledPersona
+    @exception WorldMockError 输入不是严格人设声明
     """
-    story = _resolve_story(source)
+    if not isinstance(source, PersonaConfig):
+        logging.error("Persona compilation requires validated persona inputs")
+        raise WorldMockError("Persona compilation requires validated persona inputs")
     if config is None:
         config = load_mapping_config()
-    if extraction is None:
-        extraction = extract_persona(story)
     return CompiledPersona(
         card=extraction.card,
         big_five=extraction.big_five,
         world_dynamics=map_world_dynamics(extraction.big_five, config),
         source=PersonaSource(
-            background_story_sha256=background_story_sha256(story),
+            background_story_sha256=persona_sha256,
             model=extraction.model,
             prompt_version=PROMPT_VERSION,
             consensus=Consensus(runs=extraction.runs,
@@ -58,26 +47,6 @@ def compile_persona(source: str | Mapping, *,
         ),
         warnings=_warnings(extraction),
     )
-
-
-def _resolve_story(source: str | Mapping) -> str:
-    """@brief 输入归一：文本直用；文档先拒旧模板字段再取 background_story。"""
-    if isinstance(source, str):
-        story = source.strip()
-        if not story:
-            raise WorldMockError("background story is empty")
-        return story
-    legacy = LEGACY_TEMPLATE_FIELDS.intersection(source)
-    if legacy:
-        raise LegacyTemplateFieldError(
-            f"legacy template fields are deleted, merge them into the card: "
-            f"{sorted(legacy)}")
-    if STORY_FIELD not in source:
-        raise WorldMockError(f"agent document must carry {STORY_FIELD}")
-    story = str(source[STORY_FIELD]).strip()
-    if not story:
-        raise WorldMockError("background story is empty")
-    return story
 
 
 def _warnings(extraction: PersonaExtraction) -> tuple[str, ...]:

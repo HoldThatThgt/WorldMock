@@ -297,16 +297,21 @@ index 9081ddb..a275aa9 100644
  # ═══════════════════════════════════════════════════════════
  # Factory
 diff --git a/agentsociety2/config/llm_dispatcher.py b/agentsociety2/config/llm_dispatcher.py
-index 22cefd4..2cd90f5 100644
+index 22cefd4..5406e8a 100644
 --- a/agentsociety2/config/llm_dispatcher.py
 +++ b/agentsociety2/config/llm_dispatcher.py
-@@ -25,7 +25,13 @@ from pathlib import Path
+@@ -25,7 +25,18 @@ from pathlib import Path
  from typing import Any
  
  from litellm import AllMessageValues
 -from litellm.exceptions import RateLimitError
 +from litellm.exceptions import (
 +    APIConnectionError,
++    AuthenticationError,
++    BadRequestError,
++    NotFoundError,
++    PermissionDeniedError,
++    UnprocessableEntityError,
 +    InternalServerError,
 +    RateLimitError,
 +    ServiceUnavailableError,
@@ -315,55 +320,52 @@ index 22cefd4..2cd90f5 100644
  from litellm.types.utils import ModelResponse
  
  from agentsociety2.config.config import Config
-@@ -40,6 +46,7 @@ __all__ = [
-     "AdaptiveSemaphore",
-     "LLMClient",
-     "LLMDispatchError",
-+    "TRANSPORT_MAX_RETRIES",
-     "init_dispatchers",
-     "is_rate_limit_like_error",
-     "merge_token_stats",
-@@ -54,6 +61,10 @@ logger = get_logger()
+@@ -54,6 +65,11 @@ logger = get_logger()
  # hard requirement, not a diagnostic — removing it reintroduces the stall at the
  # per-process level (verified). litellm raises on expiry; the dispatcher retries.
  _LLM_REQUEST_TIMEOUT = float(os.getenv("AGENTSOCIETY_LLM_REQUEST_TIMEOUT", "60"))
 +#: 只接受 LiteLLM 明确的连接、超时及服务暂时不可用异常，不按错误文本猜测。
 +_TRANSPORT_ERRORS = (APIConnectionError, Timeout, InternalServerError, ServiceUnavailableError)
-+#: 传输重试独立于调用者的普通重试预算，固定三次，耗尽后立即报告失败。
-+TRANSPORT_MAX_RETRIES = 3
++#: 凭据、权限和请求参数错误不会因服务重试预算而重复发送。
++_FATAL_ERRORS = (AuthenticationError, BadRequestError, NotFoundError, PermissionDeniedError,
++                 UnprocessableEntityError)
  
  # Disable Ray's uv-runtime-env packaging (see comment below in init_dispatchers).
  os.environ.setdefault("RAY_ENABLE_UV_RUN_RUNTIME_ENV", "0")
-@@ -302,18 +313,27 @@ def _build_router(base_url: str, api_key: str, model: str) -> Any:
-     dispatcher's own retry loop (rate-limit backoff + bounded attempts) is
-     authoritative; litellm's internal retries are disabled to keep the total
-     attempt count predictable.
-+
-+    ``api_key`` may carry a comma-joined key pool (the multi-key credential
-+    contract). Each key becomes its own deployment under the same ``model_name``
-+    so litellm's default simple-shuffle strategy load-spreads across keys. The
-+    ``openai/`` prefix routes each deployment through the OpenAI-compatible
-+    client against ``base_url`` (custom_llm_provider="openai", api_base passed
-+    through unchanged), so unknown model names need no provider registration.
-     """
+@@ -294,28 +310,12 @@ class AdaptiveSemaphore:
+ 
+ 
+ def _build_router(base_url: str, api_key: str, model: str) -> Any:
+-    """Build a litellm :class:`Router` for one model from raw connection params.
+-
+-    Takes explicit params instead of reading them from process config/env, so a
+-    :class:`LLMClient` that crossed a Ray task boundary can rebuild its Router
+-    in the worker without depending on worker env state. ``num_retries=0``: the
+-    dispatcher's own retry loop (rate-limit backoff + bounded attempts) is
+-    authoritative; litellm's internal retries are disabled to keep the total
+-    attempt count predictable.
+-    """
++    """@brief 单一端点和单个声明凭据构造原生 Router，关闭其内部重试及响应缓存。"""
      from litellm import Router
  
-+    keys = [item.strip() for item in api_key.split(",") if item.strip()]
-     model_list = [
-         {
-             "model_name": model,
-             "litellm_params": {
-                 "model": f"openai/{model}",
+-    model_list = [
+-        {
+-            "model_name": model,
+-            "litellm_params": {
+-                "model": f"openai/{model}",
 -                "api_key": api_key,
-+                "api_key": key,
-                 "api_base": base_url,
-             },
-         }
-+        for key in keys
-     ]
-     return Router(model_list=model_list, cache_responses=True, num_retries=0)
+-                "api_base": base_url,
+-            },
+-        }
+-    ]
+-    return Router(model_list=model_list, cache_responses=True, num_retries=0)
++    model_list = [{"model_name": model, "litellm_params": {
++        "model": f"openai/{model}", "api_key": api_key, "api_base": base_url, "max_retries": 0}}]
++    return Router(model_list=model_list, cache_responses=False, num_retries=0)
  
-@@ -408,6 +428,20 @@ class LLMClient:
+ 
+ def merge_token_stats(*deltas: dict[str, dict[str, int]]) -> dict[str, dict[str, int]]:
+@@ -408,6 +408,20 @@ class LLMClient:
          self._token_stats = {}
          self._loop = None
  
@@ -384,7 +386,7 @@ index 22cefd4..2cd90f5 100644
      def _ensure_runtime(self) -> None:
          """Build (or rebuild) the Router + semaphore for the current event loop."""
          try:
-@@ -416,6 +450,7 @@ class LLMClient:
+@@ -416,6 +430,7 @@ class LLMClient:
              loop = None
          if self._loop is loop and self._router is not None:
              return
@@ -392,7 +394,7 @@ index 22cefd4..2cd90f5 100644
          self._router = _build_router(self.base_url, self.api_key, self.model_name)
          initial = max(1, Config.LLM_RAY_CONCURRENCY)
          # No hard cap: AIMD probes the real API ceiling freely and backs off
-@@ -456,91 +491,67 @@ class LLMClient:
+@@ -456,91 +471,72 @@ class LLMClient:
          """Return a copy of this client's token stats without clearing."""
          return {model: dict(s) for model, s in self._token_stats.items()}
  
@@ -409,8 +411,8 @@ index 22cefd4..2cd90f5 100644
 -        """Send a completion request with per-loop AIMD gating + retry."""
 -        if stream:
 +    async def call(self, model: str | None = None, messages: list[AllMessageValues] | None = None,
-+                   max_retries: int = 3, **kwargs: Any) -> ModelResponse:
-+        """@brief 发送模型请求；普通重试与三次传输重试分别计数，失败报告实际请求次数。"""
++                   max_retries: int = 0, transport_max_retries: int = 3, **kwargs: Any) -> ModelResponse:
++        """@brief 发送模型请求；配置中的普通重试与传输重试分别计数，失败报告实际请求次数。"""
 +        if kwargs.pop("stream", False):
 +            logger.error("Streaming completion is not supported")
              raise NotImplementedError(
@@ -419,7 +421,10 @@ index 22cefd4..2cd90f5 100644
 -        if messages is None:
 -            messages = []
 -        max_retries = max(max_retries, 1)
-+        max_retries = max(max_retries, 0)
++        if (type(max_retries) is not int or type(transport_max_retries) is not int
++                or not 0 <= max_retries <= 10 or not 0 <= transport_max_retries <= 10):
++            logger.error("Model retry budgets must be integers in [0, 10]")
++            raise ValueError("Model retry budgets must be integers in [0, 10]")
          effective_model = model or self.model_name
          self._ensure_runtime()
 -        router = self._router
@@ -458,8 +463,10 @@ index 22cefd4..2cd90f5 100644
 +            except Exception as error:
 +                overloaded = is_rate_limit_like_error(error)
 +                error_name = type(error).__name__
-+                if isinstance(error, _TRANSPORT_ERRORS):
-+                    exhausted = transport_retries >= TRANSPORT_MAX_RETRIES
++                if isinstance(error, _FATAL_ERRORS):
++                    exhausted, delay = True, 0.0
++                elif isinstance(error, _TRANSPORT_ERRORS):
++                    exhausted = transport_retries >= transport_max_retries
 +                    delay = 2.0 * (2**transport_retries)
 +                    transport_retries += 1
 +                else:

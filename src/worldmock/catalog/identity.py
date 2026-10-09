@@ -16,7 +16,7 @@ from worldmock.footprints.models import canonical_json
 
 
 REQUIRED_CATALOG_FILES = frozenset({
-    "apps.json", "locations.json", "goods.json", "actions.json", "contents.json", "map.json",
+    "app-catalog.jsonl", "callbacks.jsonl", "content-catalog.jsonl", "location.jsonl", "merchant-catalog.jsonl",
 })
 
 
@@ -63,7 +63,7 @@ def compute_catalog_identity(
     catalog_dir: Path | str,
     manifest_payload: dict[str, Any] | None = None,
 ) -> CatalogIdentity:
-    """@brief 对六个必需文件和去自引用清单按路径及字节长度分帧求摘要。"""
+    """@brief 对五个必需 JSONL 和去自引用清单按路径及字节长度分帧求摘要。"""
     directory = Path(catalog_dir)
     payload = read_manifest_payload(directory) if manifest_payload is None else dict(manifest_payload)
     digest = hashlib.sha256()

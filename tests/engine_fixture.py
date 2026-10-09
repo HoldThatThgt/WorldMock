@@ -1,60 +1,41 @@
-"""@brief 全仓共享的真实生活引擎夹具；装配时才导入生产运行模块。"""
+"""共享真实单人生活引擎，模型服务与画像使用明确离线测试输入。"""
 
 from __future__ import annotations
 
-import json
 import shutil
-from contextlib import nullcontext
-from datetime import datetime
 from pathlib import Path
 
 import pytest
+import tomlkit
 
 from tests import data_paths
+from tests.frozen_inputs import fixture_metadata
 
 
 @pytest.fixture
 def engine_factory(tmp_path: Path, frozen_inputs):
-    """建立绑定人工环境但隔离存储的 LifeEngine；给出 mutate(document) 时先改写场景文档的副本；create_options 原样交给
-    LifeEngine.create（例如 persona_habit_responses，缺省为引擎直驱：不带新建运行的附加输入）。"""
+    from worldmock.environment import load_environment
     from worldmock.life.engine import LifeEngine
-    from worldmock.life.models import ModelIdentity, RunIdentity
+    from tests.integration.runtime_fixtures import current_run_identity
+    from worldmock.profile.mapper import map_world_dynamics
+    from worldmock.profile.models import BigFiveProfile
+    from worldmock.run_setup import stage_model_identity
 
     created = []
 
-    def create(scenario_name: str | Path = "single-person.json", mutate=None,
-               create_options: dict | None = None) -> LifeEngine:
-        scenario_path = (scenario_name if isinstance(scenario_name, Path)
-                         else data_paths.ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios" / scenario_name)
+    def create(environment_root: Path | None = None, mutate=None, create_options: dict | None = None):
+        source = Path(environment_root) if environment_root is not None else data_paths.ENVIRONMENT_ROOT
         if mutate is not None:
-            scenario_path = _mutated_scenario(scenario_path, mutate, tmp_path / f"scenario-{len(created)}")
-        document = json.loads(scenario_path.read_text(encoding="utf-8"))
-        run_id = f"test-{len(created)}-{document['scenario_id']}"
-        identity = RunIdentity(
-            run_id=run_id,
-            source_group_id=f"group-{run_id}",
-            agent_ids=tuple(item["agent_id"] for item in document["agents"]),
-            start_at=datetime.fromisoformat(document["start_at"]).isoformat(),
-            end_at=datetime.fromisoformat(document["end_at"]).isoformat(),
-            timezone=document["timezone"],
-            code_sha256="2" * 64,
-            model_identity=ModelIdentity(
-                provider="openai_compatible",
-                base_url="https://api.deepseek.com/beta",
-                requested_model="deepseek-flash",
-                thinking="enabled",
-                tool_choice="auto",
-                max_retries=0,
-                prompt_sha256="0" * 64,
-                tool_schema_sha256="1" * 64,
-            ),
-        )
-        selected = scenario_path.resolve().parent in (
-            data_paths.ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios", data_paths.SCENARIOS_ROOT,
-        )
-        cache = frozen_inputs.use(scenario_path) if mutate is None and selected else nullcontext()
-        with cache:
-            engine = LifeEngine.create(scenario_path, tmp_path / f"run-{len(created)}", identity, None, create_options)
+            source = _mutated_environment(source, mutate, tmp_path / f"environment-{len(created)}")
+            inputs = load_environment(source, metadata_loader=fixture_metadata)
+        else:
+            inputs = frozen_inputs.record(source)["inputs"]
+        run_id = f"test-{len(created)}"
+        config = inputs.config
+        identity = current_run_identity(inputs, run_id)
+        scores = BigFiveProfile(openness=4, conscientiousness=4, extraversion=4, agreeableness=4, neuroticism=4)
+        options = {"world_dynamics": map_world_dynamics(scores).model_dump(mode="json"), **(create_options or {})}
+        engine = LifeEngine.create(inputs, tmp_path / f"run-{len(created)}", identity, stage_model_identity(config.model, inputs.model_metadata), options)
         created.append(engine)
         return engine
 
@@ -63,13 +44,11 @@ def engine_factory(tmp_path: Path, frozen_inputs):
         engine.close()
 
 
-
-def _mutated_scenario(source: Path, mutate, root: Path) -> Path:
-    """把人工场景副本交给 mutate(document) 改写，目录保持隔离。"""
-    document = json.loads(source.read_text(encoding="utf-8"))
-    mutate(document)
-    (root / "scenarios").mkdir(parents=True)
-    shutil.copytree(source.resolve().parent.parent / "catalog", root / "catalog")
-    path = root / "scenarios" / source.name
-    path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
-    return path
+def _mutated_environment(source: Path, mutate, target: Path) -> Path:
+    shutil.copytree(source, target)
+    persona = tomlkit.parse((target / "persona.toml").read_text(encoding="utf-8"))
+    config = tomlkit.parse((target / "config.toml").read_text(encoding="utf-8"))
+    mutate(persona, config)
+    for name, document in (("persona.toml", persona), ("config.toml", config)):
+        (target / name).write_text(tomlkit.dumps(document), encoding="utf-8", newline="\n")
+    return target

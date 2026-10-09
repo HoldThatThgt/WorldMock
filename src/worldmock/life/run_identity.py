@@ -8,34 +8,27 @@ from pathlib import Path
 from typing import Any
 
 from worldmock.errors import IntegrityError
+from worldmock.environment import EnvironmentInputs, environment_identity
 
 
-def environment_identity(semantics: Any) -> dict[str, str | int]:
-    """@brief 从已校验目录提取运行必须冻结的五个环境身份字段。"""
-    catalog = semantics.catalog
-    return {
-        "environment_id": catalog.manifest.environment_id,
-        "environment_version": catalog.manifest.environment_version,
-        "rules_version": catalog.manifest.rules_version,
-        "catalog_content_sha256": catalog.manifest.catalog_content_sha256,
-        "map_sha256": catalog.map_sha256,
-    }
-
-
-def require_environment_identity(manifest: dict[str, Any], semantics: Any) -> None:
-    """@brief 在读取已有运行状态前拒绝缺失身份或同版本异内容。"""
-    expected = environment_identity(semantics)
-    if manifest.get("schema_version") != 4 or manifest.get("environment_identity") != expected:
+def require_environment_identity(manifest: dict[str, Any], inputs: EnvironmentInputs) -> None:
+    """@brief 在读取已有运行状态前核对目录、人物、配置与权威模型容量。"""
+    expected = environment_identity(inputs)
+    valid = (manifest.get("schema_version") == 5 and manifest.get("environment_identity") == expected
+             and manifest.get("persona_sha256") == inputs.persona_sha256
+             and manifest.get("config_sha256") == inputs.config_sha256
+             and manifest.get("model_metadata") == inputs.model_metadata.model_dump(mode="json"))
+    if not valid:
         logging.error("Runtime environment identity mismatch")
         raise IntegrityError("Runtime environment identity mismatch")
 
 
-def open_environment_validated_store(run_dir: Path, semantics: Any) -> Any:
+def open_environment_validated_store(run_dir: Path, inputs: EnvironmentInputs) -> Any:
     """@brief 打开既有存储后先核对环境身份，失败时立即关闭连接。"""
 
     store = FootprintStore(run_dir)
     try:
-        require_environment_identity(store.manifest, semantics)
+        require_environment_identity(store.manifest, inputs)
     except Exception:
         store.close()
         raise

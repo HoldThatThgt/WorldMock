@@ -13,7 +13,7 @@ from agentsociety2.agent.base.react import MemoryUpdateEvidence
 from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig, MemoryStepOutcome, PersonMemoryRuntime
 from agentsociety2.agent.person_prompt import xml_block
 from worldmock.agents.life_memory_store import WorldMockMemoryStore
-from worldmock.agents.life_reflection import (REFLECTION_PROMPT, REFLECTION_VALIDATION_RETRIES, ReflectionOutputError,
+from worldmock.agents.life_reflection import (REFLECTION_PROMPT, ReflectionOutputError,
                                            reflection_correction, reflection_insights, reflection_tool)
 from worldmock.life.memory_evidence import SUBJECTIVE_TYPES, valid_subjective_snapshot
 from worldmock.errors import ProtocolError
@@ -160,6 +160,7 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
         :raises ProtocolError: 首次之外第三次重试仍不合合同；消息带最后一次校验错误原文。
         """
         original = [{"role": "system", "content": REFLECTION_PROMPT}, self._reflection_messages(episodes, t)[1]]
+        retries = self._owner.get_profile()["model_identity"]["reflection_validation_max_retries"]
         messages, attempt = original, 1
         while True:
             response = await self._dispatch_llm(model=self._require_model_name(), messages=messages, stream=False,
@@ -167,9 +168,10 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
             try:
                 return reflection_insights(response, episodes)
             except ReflectionOutputError as error:
-                if attempt > REFLECTION_VALIDATION_RETRIES:
+                if attempt > retries:
+                    logging.error("Memory reflection validation retry budget exhausted")
                     raise ProtocolError(
-                        f"memory reflection output remained invalid after three retries: {error}") from error
+                        f"memory reflection output remained invalid after {retries} retries: {error}") from error
                 logging.warning("Memory reflection output is invalid on attempt %d: %s", attempt, error)
                 messages, attempt = reflection_correction(original, response, error), attempt + 1
 

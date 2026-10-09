@@ -1,3 +1,4 @@
+from tests.integration.runtime.current_contract_fixtures import profile as current_profile
 """公开接口行为补齐：人物按 ISO 时间闭区间读取记忆（memory_time_range）的请求校验。
 
 `MemoryTimeRangeRequest.validate_interval` 此前只被反向区间与缺时区两种拒绝路径执行过；这里补上
@@ -5,7 +6,6 @@
 记忆运行时的区间查询；不可能的日期与反向区间在转交之前拒绝。
 """
 
-from __future__ import annotations
 
 import copy
 import os
@@ -43,6 +43,7 @@ class _RecordingMemory:
 def _person(memory: _RecordingMemory) -> LifeAgent:
     """通过正式入口冻结一次决策的当前观察，并接上记录用的记忆运行时。"""
     person = LifeAgent()
+    person._profile = current_profile()
     person.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, copy.deepcopy(_observations()), None, False))
     person._memory_runtime = memory
     return person

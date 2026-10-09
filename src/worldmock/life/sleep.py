@@ -62,6 +62,15 @@ DEFICIT_RECOVERY_PER_SLEEP_H = 1.0
 SLEEP_DEFICIT_MAX_H = 24.0
 
 
+def ended_sleep_at(state, agent_id: int, moment: int):
+    """@brief 返回本决策点刚完成的本人睡眠；首次运行不制造结束事实。"""
+    from worldmock.life.models import ActivityKind, ActivityStatus
+
+    return next((item for item in state.activities.values()
+                 if item.agent_id == agent_id and item.kind == ActivityKind.SLEEP
+                 and item.status == ActivityStatus.COMPLETED and item.ended_at == moment), None)
+
+
 class SleepinessGrade(StrEnum):
     """@brief 困意五档分级（英文代码，语义对应规格中文分级注释）。"""
 

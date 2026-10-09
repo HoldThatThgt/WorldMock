@@ -1,6 +1,8 @@
 """符号作用域变异执行器的边界与反例。"""
 
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
@@ -99,10 +101,19 @@ def test_source_mutation_has_only_current_symbol_fields():
 def test_source_mutation_resolves_actual_python_production_roots():
     """@brief 三个实际 Python 生产根只解析当前物理模块。"""
     for symbol, relative in (
-        ("worldmock.life.work::begin_work", "src/worldmock/life/work.py"),
+        ("worldmock.life.interact::InteractivityRuntime.start", "src/worldmock/life/interact.py"),
         ("custom.agents.life_agent::LifeAgent.step", "custom/agents/life_agent.py"),
         ("scripts.freeze_rrs_baseline::freeze_matching_baseline", "scripts/freeze_rrs_baseline.py"),
     ):
         module, path = source_location(symbol)
         assert module == symbol.split("::")[0] and path == relative
         assert (mutation_runner.REPO_ROOT / path).is_file()
+
+
+def test_retired_test_environment_selector_is_rejected(tmp_path):
+    """@brief 真实测试入口拒绝退役环境选择参数，不接受旧发布目录路径。"""
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "--environment-root", str(tmp_path), "--collect-only"],
+        cwd=mutation_runner.REPO_ROOT, capture_output=True, text=True, encoding="utf-8", check=False)
+    assert result.returncode == 4
+    assert "unrecognized arguments: --environment-root" in result.stderr

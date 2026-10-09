@@ -58,20 +58,6 @@ def assert_deeply_immutable(value, seen=None):
         assert_deeply_immutable(child, visited)
 
 
-def clone_semantics(semantics):
-    """@brief 复制场景、原始声明、身体参数与账户；共享其余经过深度不可变检查的分支。"""
-    copied = {"document", "scenario", "body", "accounts"}
-    for field in fields(semantics):
-        if field.name not in copied:
-            assert_deeply_immutable(getattr(semantics, field.name))
-    document, scenario, body = (
-        type(value).model_validate(deepcopy(value.model_dump(mode="python")))
-        for value in (semantics.document, semantics.scenario, semantics.body)
-    )
-    accounts = deepcopy(dict(semantics.accounts))
-    return replace(semantics, document=document, scenario=scenario, body=body, accounts=accounts)
-
-
 def _canonical(value):
     """@brief 把场景数据写成可重复摘要的结构，保留全部成员与容器内容。"""
     children = _children(value)
@@ -118,57 +104,40 @@ def tree_digest(root):
     return digest.hexdigest()
 
 
-def input_digest(path):
-    """@brief 缓存身份覆盖场景、目录清单与六个目录文件，不信任声明摘要或文件时间。"""
-    if Path(path).is_symlink():
-        raise AssertionError("Cached scenario cannot be a symbolic link")
-    content = Path(path).read_bytes()
-    catalog = Path(path).resolve().parent.parent / "catalog"
-    digest = hashlib.sha256(content)
-    digest.update(tree_digest(catalog).encode("ascii"))
-    return digest.hexdigest()
+def input_digest(root):
+    """测试缓存摘要包含完整环境的真实文件集合及原文字节。"""
+    return tree_digest(root)
+
+
+def fixture_metadata(config):
+    """明确离线服务返回的权威测试容量，不访问真实模型服务。"""
+    from worldmock.input_models import ModelMetadata
+
+    return ModelMetadata(requested_model=config.requested_model, metadata_url=config.metadata_url,
+                         context_window=524288, max_output_tokens=32768)
 
 
 class FrozenInputs:
-    """@brief 每个 pytest 进程的会话缓存，仅供人工场景的 engine_factory 使用。"""
+    """测试会话共享严格不可变完整输入，世界与存储仍分别新建。"""
 
     def __init__(self):
         self.records = {}
 
-    def record(self, path):
-        """@brief 相同路径与完整输入字节复用组装结果；发生输入漂移时重新验证。"""
-        key = (Path(path).resolve(), input_digest(path))
+    def record(self, root):
+        from worldmock.environment import load_environment
+
+        key = (Path(root).absolute(), input_digest(root))
         if key not in self.records:
-            value = self._load(path)
-            assert input_digest(path) == key[1], "Source input changed while filling the test cache"
-            self.records[key] = value
+            inputs = load_environment(root, metadata_loader=fixture_metadata)
+            assert_deeply_immutable(inputs)
+            self.records[key] = {"inputs": inputs, "object_sha256": object_digest(inputs)}
         return self.records[key]
 
-    def _load(self, path):
-        """@brief 真实目录装配只执行一次，并保存完整缓存对象摘要。"""
-        from worldmock.life import world_setup
-
-        semantics, digest = world_setup.load_runtime_scenario(path)
-        clone_semantics(semantics)
-        value = {"semantics": semantics, "digest": digest}
-        value["object_sha256"] = object_digest(value)
-        return value
-
     @contextmanager
-    def use(self, path):
-        """@brief 只在工厂创建期间接入缓存，直接生产新建、打开与恢复仍执行真实加载器。"""
-        from worldmock.life import world_setup
-
-        value = self.record(path)
-        semantics = clone_semantics(value["semantics"])
-        with pytest.MonkeyPatch.context() as patch:
-            patch.setattr(world_setup, "load_runtime_scenario", lambda candidate: (semantics, value["digest"]))
-            yield
+    def use(self, root):
+        yield self.record(root)["inputs"]
 
     def verify(self):
-        """@brief 会话结束时同时核对输入文件与缓存对象，任一漂移都使测试失败。"""
-        for (path, digest), value in self.records.items():
-            assert input_digest(path) == digest, "Cached source input changed during the test session"
-            original = value["object_sha256"]
-            payload = {key: item for key, item in value.items() if key != "object_sha256"}
-            assert object_digest(payload) == original, "Cached object changed during the test session"
+        for (root, digest), value in self.records.items():
+            assert input_digest(root) == digest, "Cached source input changed during the test session"
+            assert object_digest(value["inputs"]) == value["object_sha256"], "Cached object changed"

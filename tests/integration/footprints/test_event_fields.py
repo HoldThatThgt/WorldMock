@@ -5,12 +5,9 @@ from typing import get_args
 from tests.engine_fixture import (engine_factory)  # noqa: F401
 from tests.life.conftest import (context)  # noqa: F401
 from worldmock.footprints.models import (
-    CHAT_INVITE_KIND,
     DECISION_OFFERED_FIELD,
     DECISION_STARTED_FIELDS,
     EventType,
-    MESSAGE_ARRIVAL_KIND,
-    WAKE_REASON_NAMES,
     WAKE_REASONS_FIELD,
     validate_decision_rhythm,
     validate_decision_started,
@@ -18,15 +15,12 @@ from worldmock.footprints.models import (
 
 #: 事件类型冻结枚举（footprints/models.py EventType Literal 的运行时视图）。
 EVENT_TYPES = get_args(EventType)
+from worldmock.life.schedule import WAKE_TRIGGERS
+WAKE_REASON_NAMES = frozenset(trigger.name for trigger in WAKE_TRIGGERS)
 
 _SPEC_WAKE_REASONS = frozenset({
-    "planned_end", "felt_band_change", "message_arrival", "delivery_arrival",
-    "commitment_threatened",
-    "reconsideration_interval", "person_arrived", "person_left",
-    "activity_infeasible", "rejection_feedback", "discovery_result", "wake_from_sleep", "run_start",
-    "progress_report_due", "no_active_activity", "plan_reminder_due", "errand_reminder_due",
-    "shift_start", "shift_end", "break_start", "break_end",
-    "app_push", "alarm_ring",
+    "planned_end", "felt_band_change", "delivery_arrival", "reconsideration_interval", "rejection_feedback",
+    "session_open", "duty_boundary", "progress_report_due", "no_active_activity", "reminder_due", "app_push",
 })
 
 #: 规格事件类型冻结枚举 14 类（`docs/design/05-recording-engine.md`「事件类型枚举」逐字）。
@@ -55,26 +49,23 @@ def test_wake_reason_vocabulary_is_the_frozen_spec_set():
 
 
 def test_wake_reason_vocabulary_matches_the_engine_side_enum():
-    from worldmock.life.schedule import WakeReason
+    from worldmock.life.schedule import WAKE_TRIGGERS
 
-    assert WAKE_REASON_NAMES == {reason.value for reason in WakeReason}
+    assert WAKE_REASON_NAMES == {trigger.name for trigger in WAKE_TRIGGERS}
 
 
-def test_arrival_kind_constants_match_the_spec_names():
-    assert MESSAGE_ARRIVAL_KIND == "message_arrival"
-    assert CHAT_INVITE_KIND == "chat_invite"
 
 
 def test_decision_rhythm_accepts_offered_and_silent_boundaries():
     validate_decision_rhythm({DECISION_OFFERED_FIELD: True,
-                              WAKE_REASONS_FIELD: ["run_start", "planned_end", "run_start"]})
+                              WAKE_REASONS_FIELD: ["session_open", "planned_end", "session_open"]})
     validate_decision_rhythm({DECISION_OFFERED_FIELD: False, WAKE_REASONS_FIELD: []})
     validate_decision_rhythm({DECISION_OFFERED_FIELD: True})
 
 
 def test_legacy_activity_progress_without_new_fields_passes():
     validate_decision_rhythm({})
-    validate_decision_rhythm({"activity": {"kind": "work"}, "body_settlement": {}})
+    validate_decision_rhythm({"activity": {"kind": "sleep"}, "body_settlement": {}})
 
 
 @pytest.mark.parametrize("offered", ["true", 1, 0, None, [], 1.0])
@@ -98,9 +89,9 @@ def test_wake_reasons_outside_the_frozen_vocabulary_are_rejected(reasons):
 def test_new_wake_reasons_are_accepted_by_validation():
     """时间与能量规格第一章规则 6：追加在 progress_report_due 之后的两员属于冻结闭集；个人事务规格 2.5 追加在
     plan_reminder_due 之后的 errand_reminder_due 同样属于冻结闭集（漏登词表时带它的事件落不了库）。"""
-    validate_decision_rhythm({WAKE_REASONS_FIELD: ["no_active_activity", "plan_reminder_due"]})
+    validate_decision_rhythm({WAKE_REASONS_FIELD: ["no_active_activity"]})
     validate_decision_rhythm({DECISION_OFFERED_FIELD: True,
-                              WAKE_REASONS_FIELD: ["plan_reminder_due", "errand_reminder_due"]})
+                              WAKE_REASONS_FIELD: ["reminder_due"]})
     validate_decision_rhythm({DECISION_OFFERED_FIELD: True,
                               WAKE_REASONS_FIELD: ["progress_report_due", "no_active_activity"]})
 
@@ -120,47 +111,18 @@ def test_unknown_wake_reason_is_rejected_on_decision_started_write(engine_factor
     contexts = [context(engine, "round-1")]
     with pytest.raises(ValueError, match="frozen wake reasons"):
         defer_decision_starts(contexts, "round-1", _with_pending_reasons(engine, ["bogus"]))
-    for reasons in (["no_active_activity"], ["plan_reminder_due"], ["errand_reminder_due"]):
+    for reasons in (["no_active_activity"], ["reminder_due"]):
         starts = defer_decision_starts(contexts, "round-1", _with_pending_reasons(engine, reasons))
         assert starts[1]["decision_id"] == contexts[0].decision_id
         assert starts[1]["data"][WAKE_REASONS_FIELD] == reasons
 
 
-def _settlement_rhythm(engine, monkeypatch, verdict):
-    """以一份共同身体结算草稿驱动 apply_decision_rhythm，verdict 非空时替换唤醒判定结果。
-
-    草稿照真实结算带 activity_ids（节律结算按它记社交账，docs/design/04-simulation-engine.md ）；此处区间为空。"""
-    from worldmock.life import rhythm
-
-    if verdict is not None:
-        monkeypatch.setattr(rhythm.rhythm_schedule, "evaluate_wake_reasons", lambda snapshot: verdict)
-    now = engine.context.state.current_time
-    settlement = {"kind": "body_settlement", "interval_start": now, "interval_end": now, "activity_ids": []}
-    rhythm.apply_decision_rhythm(rhythm.engine_rhythm_inputs(engine.context, engine.context.state, progress_data={1: [settlement]}))
-    return settlement
 
 
-def test_unknown_wake_reason_is_rejected_on_body_settlement_write(engine_factory, monkeypatch):
-    """共同身体结算注解唤醒原因时经闭集校验：未知原因被拒，新成员与真实判定结果照常写入。"""
-    from worldmock.life.schedule import WakeReason, WakeVerdict
-
-    engine = engine_factory()
-    unpatched = _settlement_rhythm(engine, monkeypatch, None)
-    assert isinstance(unpatched[DECISION_OFFERED_FIELD], bool)
-    assert set(unpatched[WAKE_REASONS_FIELD]) <= WAKE_REASON_NAMES
-
-    new_members = WakeVerdict(decision_offered=True, wake_reasons=[
-        WakeReason.NO_ACTIVE_ACTIVITY, WakeReason.PLAN_REMINDER_DUE, WakeReason.ERRAND_REMINDER_DUE])
-    accepted = _settlement_rhythm(engine, monkeypatch, new_members)
-    assert accepted[WAKE_REASONS_FIELD] == ["no_active_activity", "plan_reminder_due", "errand_reminder_due"]
-
-    bogus = SimpleNamespace(decision_offered=True, wake_reasons=[SimpleNamespace(value="bogus")])
-    with pytest.raises(ValueError, match="frozen wake reasons"):
-        _settlement_rhythm(engine, monkeypatch, bogus)
 
 
 #: 一条合法的 decision_started.data（闭集四个字段）。
-_STARTED = {"round_id": "round", "round_order": 0, "world_state_version": 3, "wake_reasons": ["run_start"]}
+_STARTED = {"round_id": "round", "round_order": 0, "world_state_version": 3, "wake_reasons": ["session_open"]}
 
 
 def test_decision_started_data_is_the_closed_four_field_set():

@@ -17,7 +17,10 @@ ROOT = Path(__file__).resolve().parents[3]
 
 def _candidate():
     """@brief 构造当前候选形状，完整日的实际生成由独立整日入口验证。"""
-    return {"scenario_sha256": "a" * 64, "random_seed": 20260106,
+    return {"persona_sha256": "a" * 64, "config_sha256": "f" * 64, "seed": 20260106,
+            "environment_identity": {"environment_id": "artificial-test", "environment_version": "2",
+                                     "rules_version": 3, "catalog_content_sha256": "1" * 64,
+                                     "map_sha256": "2" * 64},
             "summary": {"artifacts": {"events.jsonl": "b" * 64},
                         "checkpoints_sha256": "c" * 64, "run_assets": [["d" * 64, 12]]}}
 
@@ -36,7 +39,7 @@ def test_matching_full_candidates_publish_complete_summary_and_actual_generation
     candidate = _candidate()
     paths = _paths(tmp_path, candidate, candidate)
     result = freezer.freeze_matching_baseline(*paths)
-    assert set(result) == {"scenario_sha256", "random_seed", "summary", "generation"}
+    assert set(result) == {"persona_sha256", "config_sha256", "environment_identity", "seed", "summary", "generation"}
     assert {key: result[key] for key in candidate} == candidate
     assert json.loads(paths[2].read_text()) == result
     assert paths[2].read_bytes().endswith(b"\n")
@@ -51,7 +54,8 @@ def test_matching_full_candidates_publish_complete_summary_and_actual_generation
         assert generation[key] == hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
 
 
-@pytest.mark.parametrize("field", ["scenario_sha256", "random_seed", "artifacts", "checkpoints_sha256", "run_assets"])
+@pytest.mark.parametrize("field", ["persona_sha256", "config_sha256", "environment_identity", "seed", "artifacts",
+                                   "checkpoints_sha256", "run_assets"])
 def test_mismatched_complete_day_candidates_preserve_existing_target(tmp_path, caplog, monkeypatch, field):
     """@brief 三个身份和摘要内每类证据任一失配都拒绝，旧目标不可被第一份覆盖。"""
     generation = {"os": "test", "architecture": "test", "python_implementation": "CPython",
@@ -59,9 +63,11 @@ def test_mismatched_complete_day_candidates_preserve_existing_target(tmp_path, c
                   "requirements_lock_sha256": "b" * 64, "uv_lock_sha256": "c" * 64}
     monkeypatch.setattr(freezer, "_generation", lambda: generation)
     first, second = _candidate(), _candidate()
-    if field == "scenario_sha256":
+    if field in {"persona_sha256", "config_sha256"}:
         second[field] = "e" * 64
-    elif field == "random_seed":
+    elif field == "environment_identity":
+        second[field]["map_sha256"] = "e" * 64
+    elif field == "seed":
         second[field] += 1
     elif field == "artifacts":
         second["summary"][field]["events.jsonl"] = "e" * 64
@@ -77,20 +83,27 @@ def test_mismatched_complete_day_candidates_preserve_existing_target(tmp_path, c
     assert "Complete-day candidates differ" in caplog.text
 
 
-@pytest.mark.parametrize("change", ["extra", "bool_seed", "bad_hash", "partial_summary", "partial_asset"])
+@pytest.mark.parametrize("change", ["extra", "bool_seed", "bad_hash", "partial_summary", "partial_asset",
+                                    "scenario_format", "partial_environment", "bool_rules"])
 def test_invalid_current_candidate_is_rejected_before_publication(tmp_path, caplog, change):
     """@brief 输入身份和完整摘要形状有误时拒绝，不制造部分基线。"""
     first, second = _candidate(), _candidate()
     if change == "extra":
         second["generation"] = {}
     elif change == "bool_seed":
-        second["random_seed"] = True
+        second["seed"] = True
     elif change == "bad_hash":
-        second["scenario_sha256"] = "not a hash"
+        second["persona_sha256"] = "not a hash"
     elif change == "partial_summary":
         second["summary"].pop("checkpoints_sha256")
-    else:
+    elif change == "partial_asset":
         second["summary"]["run_assets"] = [["d" * 64]]
+    elif change == "scenario_format":
+        second = {"scenario_sha256": "a" * 64, "random_seed": 20260106, "summary": second["summary"]}
+    elif change == "partial_environment":
+        second["environment_identity"].pop("map_sha256")
+    else:
+        second["environment_identity"]["rules_version"] = True
     paths = _paths(tmp_path, first, second)
     with pytest.raises(ValueError, match="invalid current identity or summary"):
         freezer.freeze_matching_baseline(*paths)

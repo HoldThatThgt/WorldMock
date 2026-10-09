@@ -38,7 +38,7 @@ def loaded_catalog(catalog_dir: Path):
     """@brief 通过生产加载器登记真实人工目录。"""
     from worldmock.catalog.loader import load_catalog
 
-    return load_catalog(catalog_dir)
+    return load_catalog(catalog_dir, 7)
 
 
 @pytest.fixture(scope="session")
@@ -50,24 +50,15 @@ def frozen_inputs():
 
 
 def pytest_addoption(parser):
-    """@brief 只提供环境能力与显式发布环境选择。"""
+    """@brief 只选择测试所需的运行环境能力。"""
     parser.addoption("--environment-profile", choices=("release", "dev"),
                      default=os.environ.get(PROFILE_ENV, "release"))
-    parser.addoption("--environment-root", type=Path, help="explicit published environment for behavior regression")
 
 
 def pytest_configure(config):
     """@brief 登记真实环境依赖，并初始化本次会话的跳过状态。"""
     config.addinivalue_line("markers", "requires_node: executes the actual Node.js viewer regression")
     config.stash[SKIPPED] = False
-    if config.getoption("--environment-root") is not None:
-        from tests.data_paths import select_environment
-
-        try:
-            select_environment(config.getoption("--environment-root"))
-        except ValueError as error:
-            logging.error("Invalid test environment: %s", error)
-            raise pytest.UsageError(str(error)) from error
 
 
 def pytest_sessionstart(session):

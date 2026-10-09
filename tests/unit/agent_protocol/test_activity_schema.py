@@ -22,6 +22,7 @@ from worldmock.agents.life_prompt import TOOL_DESCRIPTIONS
 from tests.integration.runtime.test_life_agent_protocol import (
     _OBSERVED_AT, _WORK_ACTION, _WAIT, _add_objects, _memory, _observations, _offer, _visible_object, _with_activities,
 )
+from tests.integration.runtime.current_contract_fixtures import profile
 from worldmock.life.activity_control import PHASE_ACTIVE
 from worldmock.life.models import REQUEST_MODELS, deepseek_strict_schema
 from tests.life.conftest import start_arguments
@@ -29,21 +30,20 @@ from tests.life.conftest import start_arguments
 
 _UNSUPPORTED_KEYS = {"oneOf", "minLength", "maxLength", "minItems", "maxItems", "default"}
 #: 稳定工具面的八件人物动作工具；当日计划由零点后台任务 plan_day 生成，不是人物工具（时间与能量规格第四章）。
-_ACTION_TOOLS = {
-    "start_activity", "send_message", "recall_task_summary",
-    "report_status", "pause_activity", "conclude_activity", "revise_day_plan", "set_alarm",
-}
+_ACTION_TOOLS = {"start_activity", "recall_task_summary", "report_status", "pause_activity",
+                 "conclude_activity", "revise_day_plan"}
 
 
 def _prepared_agent(revise: bool = False) -> LifeAgent:
     """用本轮公开事实及私有身份绑定准备实际人物工具（当前停留里有一项进行中的等待）。"""
     observations = deepcopy(_observations())
     data = observations[0]["data"]
-    _add_objects(data, _visible_object("同事", "person", "agent:9"))
     _with_activities(data, (_WAIT, PHASE_ACTIVE))
     if revise:
         data["todo_layer"]["day_plan"] = {"date": "2026-01-05", "goals": []}
     agent = LifeAgent()
+    agent._profile = profile()
+    agent._name = "林舟"
     agent.prepare_react_loop(ReactLoopRequest(0, _OBSERVED_AT, observations))
     return agent
 
@@ -110,24 +110,24 @@ def _host_error(tool: str, arguments: dict) -> str:
 
 
 def test_start_activity_uses_readable_frozen_objects_and_paired_actions() -> None:
-    """逐项五字段闭合请求，方式推导动作，应用与支付必须明确填写。"""
+    """每项只写具体动作和完整目标，旧字段由严格模型拒绝。"""
     schema = _function("start_activity")["parameters"]
     assert schema == deepseek_strict_schema(REQUEST_MODELS["start_activity"])
-    assert set(schema["properties"]) == {"items", "answering"}
-    assert schema["required"] == ["items", "answering"]
+    assert set(schema["properties"]) == {"items"}
+    assert schema["required"] == ["items"]
     item = schema["properties"]["items"]["items"]
-    assert set(item["properties"]) == set(item["required"]) == {"target", "way", "app", "to", "pay_app"}
-    assert all("enum" not in item["properties"][field] for field in ("target", "way"))
+    assert set(item["properties"]) == set(item["required"]) == {"target", "action"}
+    assert all("enum" not in item["properties"][field] for field in ("target", "action"))
     assert "$ref" not in json.dumps(schema) and "$defs" not in json.dumps(schema)
-    valid = start_arguments(["自己", _WORK_ACTION], ["interact", "interact"], ["等待", "进行"])
+    valid = start_arguments(["自己家", _WORK_ACTION], ["interact", "interact"])
     assert list(Draft202012Validator(schema).iter_errors(valid)) == []
     REQUEST_MODELS["start_activity"].model_validate(valid)
     assert _host_error("start_activity", valid) == ""
-    error = _host_error("start_activity", start_arguments(["internal:task:1"], ["interact"], ["进行"]))
+    error = _host_error("start_activity", start_arguments(["internal:task:1"], ["interact"]))
     assert error.report.error_code == "NAME_NOT_FOUND" and error.report.items[0].written == "internal:task:1"
-    for way in ("interact", "invented_way"):
-        error = _host_error("start_activity", start_arguments(["自己"], ["interact"], [way]))
-        assert error.report.error_code == "WAY_NOT_OFFERED" and error.report.items[0].path[-1] == "way"
+    for action in ("wait", "invented_action"):
+        error = _host_error("start_activity", start_arguments(["自己家"], [action]))
+        assert error.report.error_code == "ACTION_NOT_OFFERED" and error.report.items[0].path[-1] == "action"
     for deleted in ({"targets": ["自己"], "actions": ["interact"]}, {**valid, "actions": ["interact"]}):
         assert list(Draft202012Validator(schema).iter_errors(deleted))
         with pytest.raises(ValidationError):
@@ -226,17 +226,13 @@ def test_control_tool_fields_carry_format_and_source_descriptions(name: str) -> 
         assert "对象" in described["items.views.about"]["description"]
 
 
-def test_named_content_tools_bind_visible_names_and_inline_deliverable() -> None:
-    """工作与通讯保留正文生成，身份字段是可读名称：不做 Schema 枚举，由宿主按任务、人物与回看绑定校验；会话名不在七层中
-    出现，不是回看名称。"""
-    assert "submit_work" not in {entry["function"]["name"] for entry in _prepared_agent().build_react_tool_schemas(readonly=False)}
-    message = _function("send_message")["parameters"]
+def test_recall_uses_readable_activity_name_and_retired_world_tools_are_absent() -> None:
+    """回看绑定真实活动名称，旧消息、工作提交与闹钟工具不再提供。"""
+    names = {entry["function"]["name"] for entry in _prepared_agent().build_react_tool_schemas(readonly=False)}
+    assert {"submit_work", "send_message", "set_alarm", "finish"}.isdisjoint(names)
+    assert len(names) == 10
     recall = _function("recall_task_summary")["parameters"]
-    assert set(message["properties"]) == {"recipient_name", "text"}
-    assert "enum" not in message["properties"]["recipient_name"]
     assert set(recall["properties"]) == {"task_name"}
-    assert _host_error("send_message", {"recipient_name": "同事", "text": "在吗"}) == ""
-    assert _host_error("send_message", {"recipient_name": "自己", "text": "在吗"}).report.error_code == "NAME_NOT_FOUND"
     for name in (_WAIT,):
         assert _host_error("recall_task_summary", {"task_name": name}) == ""
     for name in ("同事", "自己家（1月4日 18:00 起）"):

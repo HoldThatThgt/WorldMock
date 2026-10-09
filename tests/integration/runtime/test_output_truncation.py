@@ -38,7 +38,7 @@ from worldmock.life.models import REQUEST_MODELS  # noqa: E402
 
 #: 截断回合的思考（每次不同，用来确认它不进入任何后续请求）。
 _SPIRALS = ("先想想要不要回家，家里没有吃的，外卖要等，还是先去楼下……", "再算一遍：回家要四十分钟，楼下那家没有菜单……")
-_WAIT = start_arguments(["自己"], ["interact"], ["等待"])
+_WAIT = start_arguments(["家"], ["interact"])
 _MEMORY_TOOLS = {"memory_recent", "memory_search", "memory_time_range"}
 #: 截断纠错回给模型的正文（第四章结构，登记的原因与改法）。
 _TRUNCATION_FEEDBACK = json.loads(TRUNCATION_CONTENT)
@@ -47,7 +47,7 @@ _TRUNCATION_FEEDBACK = json.loads(TRUNCATION_CONTENT)
 @pytest.fixture(autouse=True)
 def _fixed_context_window(monkeypatch) -> None:
     """测试使用固定供应商窗口，只验证请求与纠错合同。"""
-    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_048_576)
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: metadata.context_window)
 
 
 class _TextOnly:
@@ -263,7 +263,7 @@ async def test_a_world_request_from_the_retry_ends_the_decision_and_breaks_the_s
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(("retried", "code", "named"), [
-    pytest.param(("call-bad", "start_activity", start_arguments(["不存在的对象"], ["interact"], ["等待"])),
+    pytest.param(("call-bad", "start_activity", start_arguments(["不存在的对象"], ["interact"])),
                  "NAME_NOT_FOUND", "不存在的对象", id="misspelled_name"),
     pytest.param(("call-memory", "memory_recent", {"limit": 3}), "TOOL_CALL_REQUIRED", "memory_recent",
                  id="memory_query"),
@@ -365,4 +365,4 @@ async def test_the_exported_quality_report_counts_the_truncations_the_run_record
         "responses_missing_output_tokens": 0, "responses_missing_reasoning_tokens": 0,
         "method": quality["truncations"]["method"]}
     assert quality["truncations"]["wasted_output_tokens"] == 24001 == quality["truncations"]["reasoning_tokens"]
-    assert quality["schema_version"] == 6
+    assert quality["schema_version"] == 7

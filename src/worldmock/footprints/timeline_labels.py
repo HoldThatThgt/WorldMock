@@ -1,8 +1,8 @@
 """@brief 质量报告的时间线标签检查：投影出的时间线里不得出现英文种类名与内部标识（docs/design/05-recording-engine.md ）。
 
 从同批已认证事件用唯一的时间线渲染器 scripts/render_day.py（与导出同一实现）逐人逐日投影时间线，
-逐行检查活动标签：书名号《》与引号「」里是作品标题与邮件主题，不参与检查；其余文字按英文与数字连成的片段
-逐段判定，片段恰为 readable 中文种类表的英文键（call、work 等）计一项英文种类名，形如内部标识
+逐行检查活动标签：书名号《》与引号「」里的内容标题不参与检查；其余文字按英文与数字连成的片段
+逐段判定，片段恰为 readable 中文种类表的英文键（sleep、interact 等）计一项英文种类名，形如内部标识
 （task-zhaoming-client-a、agent:5、长十六进制串、#a1b2c3）计一项内部标识。两项分开计数，只报告不放行。
 """
 
@@ -21,12 +21,12 @@ from worldmock.life.readable import ENGLISH_KIND_NAMES
 
 #: 渲染器读取的事件类型：活动进度与名称来源。
 _TIMELINE_EVENT_TYPES = frozenset({"activity_progress", "observation", "action_result"})
-#: 标签里的作品标题与邮件主题（书名号与引号内），不参与检查。
+#: 标签里的内容标题（书名号与引号内），不参与检查。
 _QUOTED = re.compile(r"《[^》]*》|「[^」]*」")
 #: 英文、数字与标识连接符连成的片段。
 _TOKEN = re.compile(r"[A-Za-z0-9_#:\-]+")
 #: 内部标识形态：小写片段以 - _ : 相连（task-…、agent:5）、十二位以上十六进制串、# 加六位十六进制；
-#: 恰为英文种类名的片段（如 play_game）先按种类名计，不重复计。
+#: 恰为英文种类名的片段（如 interact）先按种类名计，不重复计。
 _ID_SHAPE = re.compile(r"[a-z][a-z0-9]*(?:[-_:][a-z0-9]+)+|[0-9a-f]{12,}|#[0-9a-f]{6}")
 #: 两个检查项的名称。
 ENGLISH_KIND_NAME = "english_kind_name"

@@ -9,7 +9,7 @@ WorldMock 修改明确保存在 Git 补丁中，并依次由标准 `git apply` �
 - `decision-round.patch` 修改共同决策轮、直接环境调用与完整合同注册校验、恢复与时钟编排。
 - `failure-propagation.patch` 修改工具协议和故障传播，不以合成结果掩盖失败。
 - `memory-checkpoints.patch` 修改记忆存储、工作区恢复与人物接入钩子。
-- `model-lifecycle.patch` 修改 worker 模型客户端清理、传输重试与密钥池调度。
+- `model-lifecycle.patch` 修改 worker 模型客户端清理、配置中的普通与传输独立重试预算，关闭底层隐式重试及响应缓存。
 - `package-metadata.patch` 删除不再存在的上游 CLI 入口。
 
 WorldMock 修改源于原固定维护提交 `8768e14df5c887c710fe96bf24981a2d8508346e`，

@@ -17,10 +17,11 @@ from worldmock.exchange.constants import RULES_VERSION
 from worldmock.life.models import WORLD_SCHEMA_VERSION
 from worldmock.footprints.ledger import validate_account_history
 from worldmock.footprints.models import AssetRef, Checkpoint, Event, canonical_json
-from worldmock.footprints.app_usage import project_app_usage
+from worldmock.footprints.app_usage import project_app_usage, validate_activity_prefix
 from worldmock.footprints.purchases import project_purchase_facts
 from worldmock.footprints.quality import build_quality_report
 from worldmock.footprints.invariants import validate_footprint_facts
+from worldmock.footprints.frozen_environment import validate_frozen_environment
 
 
 def validate_export(directory: Path) -> tuple[dict, list[dict], list[dict]]:
@@ -35,10 +36,11 @@ def validate_export(directory: Path) -> tuple[dict, list[dict], list[dict]]:
     purchases = _read_artifact(root, manifest["artifacts"]["purchases"], "purchases.jsonl")
     app_usage = _read_artifact(root, manifest["artifacts"]["app_usage"], "app-usage.jsonl")
     indexed = _read_artifact(root, manifest["asset_index"], "asset-index.jsonl")
+    validate_activity_prefix(events)
     records = [Event.model_validate(row, strict=True) for row in events]
     checkpoint = _validate_checkpoint(manifest, records)
     _validate_events(manifest, records)
-    _validate_assets(root, records, checkpoint, indexed)
+    _validate_assets(root, records, checkpoint, indexed, manifest["frozen_run_manifest"])
     validate_account_history(records, checkpoint.state)
 
     if reconstruct_activities(records) != activities:
@@ -50,6 +52,7 @@ def validate_export(directory: Path) -> tuple[dict, list[dict], list[dict]]:
     if project_app_usage(events) != app_usage:
         logging.error("Export app usage facts disagree with committed events")
         raise IntegrityError("Export app usage facts disagree with committed events")
+    validate_frozen_environment(root, manifest["frozen_run_manifest"], activities, events)
     validate_footprint_facts(events, activities, purchases, app_usage, checkpoint.state)
     _validate_quality(root, manifest, records, activities)
     return manifest, events, activities
@@ -168,13 +171,15 @@ def _validate_events(manifest: dict, events: list[Event]) -> None:
         raise IntegrityError("Export source runs or cutoff disagree with its events")
 
 
-def _validate_assets(root: Path, events: list[Event], checkpoint: Checkpoint, indexed: list[dict]) -> None:
+def _validate_assets(root: Path, events: list[Event], checkpoint: Checkpoint, indexed: list[dict],
+                     frozen: dict) -> None:
     """@brief 每个事件及人物快照引用必须存在于索引并通过实际内容验证。"""
     references = [AssetRef.model_validate(value) for value in indexed]
     by_hash = {value.sha256: value for value in references}
     if len(by_hash) != len(references):
         raise IntegrityError("Export asset index repeats an identity")
     required = list(checkpoint.snapshots.values())
+    required.extend(AssetRef.model_validate(value) for value in frozen["environment_assets"].values())
     required.extend(reference for event in events for reference in event.artifact_refs)
     for reference in required:
         indexed_ref = by_hash.get(reference.sha256)
@@ -193,12 +198,11 @@ def _validate_run_identity(frozen: dict) -> None:
     """@brief 在读取工件和启动下游前验证当前运行清单及五字段环境身份。"""
     identity = frozen.get("environment_identity")
     fields = {"environment_id", "environment_version", "rules_version", "catalog_content_sha256", "map_sha256"}
-    valid = frozen.get("schema_version") == 4 and isinstance(identity, dict) and set(identity) == fields
-    assignments = frozen.get("work_content_ids")
-    valid = (valid and isinstance(assignments, dict)
-             and set(assignments) == {str(agent) for agent in frozen["agent_ids"]}
-             and all(isinstance(contents, list) and all(isinstance(value, str) and value for value in contents)
-                     and len(contents) == len(set(contents)) for contents in assignments.values()))
+    valid = frozen.get("schema_version") == 5 and isinstance(identity, dict) and set(identity) == fields
+    valid = (valid and all(isinstance(frozen.get(key), str)
+                          and re.fullmatch(r"[a-f0-9]{64}", frozen[key])
+                          for key in ("persona_sha256", "config_sha256"))
+             and isinstance(frozen.get("environment_assets"), dict))
     if valid:
         valid = (all(isinstance(identity[key], str) and identity[key].strip()
                      for key in ("environment_id", "environment_version"))

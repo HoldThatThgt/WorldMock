@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from worldmock.errors import IntegrityError
 from worldmock.evaluation.errors import EvaluationError
+from worldmock.evaluation.randomness import checkpoint_random_state
 from worldmock.evaluation.io import read_json, read_jsonl, sha256_file, verify_artifact
 from worldmock.evaluation.models import ArtifactIdentity, EvaluationScenario, JsonObject, TimeWindow, parse_datetime
 from worldmock.footprints.models import Checkpoint, canonical_json
@@ -232,6 +233,8 @@ def validate_canonical_delivery(
         "checkpoint_id": checkpoint.checkpoint_id if checkpoint else None,
         "complete_export_authenticated": source_kind == "worldmock",
     }
+    if checkpoint is not None:
+        evidence["random_state"] = checkpoint_random_state(checkpoint.state)
     return VerifiedDelivery(
         run_id=manifest["run_id"],
         dataset_id=f"{source_kind}:{manifest['run_id']}",
@@ -347,6 +350,7 @@ def _validated_checkpoint(manifest: JsonObject, window: TimeWindow) -> Checkpoin
         raise EvaluationError("invalid_input", "WorldMock frozen run manifest is missing")
     if sha256_json(frozen) != checkpoint.manifest_sha256:
         raise EvaluationError("hash_mismatch", "WorldMock checkpoint manifest hash is invalid")
+    checkpoint_random_state(checkpoint.state)
     return checkpoint
 
 

@@ -1,3 +1,4 @@
+from tests.integration.runtime.current_contract_fixtures import profile as current_profile
 """宿主协议纠错的错误合同（docs/design/04-simulation-engine.md 第四章「错误合同」）。
 
 LifeAgent 覆写 AS2 的 _protocol_feedback_content（锁定提交不改）：纠错正文是共用错误结构 {error_code, reason, fix, items,
@@ -7,7 +8,6 @@ unmet} 加固定 instruction「本次没有登记到世界；按 fix 修改后�
 候选原样提交即被受理。
 """
 
-from __future__ import annotations
 
 import copy
 import json
@@ -47,7 +47,7 @@ _DUMP_MARKERS = ("input_value", "input_type", "http://", "https://", "errors.pyd
 @pytest.fixture(autouse=True)
 def _fixed_context_window(monkeypatch) -> None:
     """测试使用固定供应商窗口，只验证纠错合同。"""
-    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_048_576)
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: metadata.context_window)
 
 
 class _NoToolResponse:
@@ -79,6 +79,7 @@ async def _corrected_loop(bad_responses: list, observations: list[dict] | None =
         *bad_responses, _ModelResponse("call-action", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False))])
     environment = _Environment()
     agent = LifeAgent()
+    agent._profile = current_profile()
     _wire_agent(agent, environment, dispatcher, len(bad_responses) + 2, memory=False)
     result = await agent.run_react_loop(ReactLoopRequest(0, _context().observed_at, observations or [
         {"turn": 0, "action": "observe", "ok": True, "data": _step_observation()}]))
@@ -92,8 +93,8 @@ async def _corrected_loop(bad_responses: list, observations: list[dict] | None =
 async def test_protocol_feedback_is_the_shared_structure_with_the_fixed_instruction() -> None:
     """损坏 JSON、缺字段与无调用保留五键反馈、完整路径和纯英文证据。"""
     missing = copy.deepcopy(_WAIT_CHOICE)
-    missing["items"][0].pop("way")
-    broken = '{"items": [{"target": "自己" "way":"等待"}]}'
+    missing["items"][0].pop("action")
+    broken = '{"items": [{"target": "自己家" "action":"interact"}]}'
     feedback, errors, requests = await _corrected_loop([
         _ModelResponse("call-json", "start_activity", broken),
         _ModelResponse("call-shape", "start_activity", json.dumps(missing, ensure_ascii=False)), _NoToolResponse()])
@@ -105,119 +106,12 @@ async def test_protocol_feedback_is_the_shared_structure_with_the_fixed_instruct
     assert feedback[0]["items"][0]["path"] == ["tool_calls", 0, "function", "arguments"]
     assert "line 1, column" in feedback[0]["items"][0]["expected"]
     row = feedback[1]["items"][0]
-    assert row["path"] == ["tool_calls", 0, "function", "arguments", "items", 0, "way"]
+    assert row["path"] == ["tool_calls", 0, "function", "arguments", "items", 0, "action"]
     assert row["written"] is None and "required" in row["expected"]
     assert feedback[2]["items"][0]["path"] == ["tool_calls"]
     assert [type(error) for error in errors] == [str, str, str]
     assert [error.split(":", 1)[0] for error in errors] == [item["error_code"] for item in feedback]
     assert len(requests) == 4
-
-
-def _twin_places() -> LifeAgent:
-    """@brief 两个真实地点名称归一为同一简称，完整候选能消除歧义。"""
-    observed = _observations()
-    _add_objects(observed[0]["data"],
-        _visible_object("地点：食堂（模拟）", "location", "cafeteria-east", _offer("travel", "步行", "travel_to")),
-        _visible_object("地点：食堂", "location", "cafeteria-west", _offer("travel", "步行", "travel_to")))
-    return _prepared(observed)
-
-
-def _routing_host_cases():
-    """@brief 当前登记动作和真实应用表覆盖应用、支付和社交对方的宿主错误闭集。"""
-    from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
-    from worldmock.catalog.loader import load_catalog
-    catalog = load_catalog(ARTIFICIAL_ENVIRONMENT_ROOT / "catalog")
-    observed = _observations()
-    data = observed[0]["data"]
-    data["actions"] = [row.model_dump(mode="json") for row in catalog.actions.values()]
-    data["apps"] = [row.model_dump(mode="json") for row in catalog.apps.values()]
-    for identity in ("browse-feed", "voice-call"):
-        row = catalog.actions[identity]
-        _add_objects(data, _visible_object(row.name, "action", identity,
-            _offer("interact", "进行", "do", category=row.category.value, app_id=None, manner=None),
-            category=row.category.value, app_ids=list(row.app_ids), manner=None, communication_mode=row.communication_mode))
-    person = _prepared(observed)
-    cases = {
-        "APP_REQUIRED": start_arguments(["刷推荐"], ["interact"], ["进行"]),
-        "APP_NOT_OFFERED": start_arguments(["刷推荐"], ["interact"], ["进行"], app=["微信"]),
-        "PAYMENT_APP_REQUIRED": start_arguments(["牛肉面"], ["obtain"], ["购买"], app=["美团"]),
-        "PAYMENT_APP_NOT_BOUND": start_arguments(["牛肉面"], ["obtain"], ["购买"], app=["美团"], pay_app=["抖音"]),
-        "COUNTERPART_REQUIRED": start_arguments(["语音通话"], ["interact"], ["进行"], app=["微信"]),
-    }
-    return {code: person.validate_react_decisions([_decision("start_activity", arguments)], False)
-            for code, arguments in cases.items()}
-
-
-def _host_cases() -> dict[str, tuple[str, str]]:
-    """宿主错误码闭集的每个码经真实宿主路径得到的（错误码，原因）：截断经 LifeAgent 覆写的 _parse_react_responses 判定
-    （docs/design/10-runtime.md ），名称歧义经统一名称解析（同名的内容与游戏，3.1），来源不一致是列出的标签配
-    冻结地点表里的另一个地点（3.2（b））。"""
-    agent = _prepared()
-    concluding = _prepared([{"turn": 0, "action": "observe", "ok": True, "data": _step_observation()}])
-    unknown = _conclude_args(_WAIT, memories=[[]], views=[[_view("陌生人")]])
-    produced = {
-        "ARGUMENTS_NOT_JSON": agent._parse_react_responses(_ModelResponse("bad", "start_activity", "{"))[1],
-        "ARGUMENTS_INVALID": agent.validate_react_decisions([_decision("start_activity", {
-            **_WAIT_CHOICE, "targets": "自己"})], False),
-        "TOOL_CALL_REQUIRED": agent.validate_react_decisions([_decision("start_activity", _WAIT_CHOICE)] * 2, False),
-        "TOO_MANY_TARGETS": agent.validate_react_decisions([_decision("start_activity", start_arguments(
-            ["自己"] * 3, ["interact"] * 3, ["等待"] * 3))], False),
-        "NAME_NOT_FOUND": agent.validate_react_decisions([_decision("start_activity", start_arguments(
-            ["不存在的对象"], ["interact"], ["等待"]))], False),
-        "NAME_AMBIGUOUS": _twin_places().validate_react_decisions([_decision("start_activity", start_arguments(
-            ["食 堂"], ["travel"], ["步行"]))], False),
-        "WAY_NOT_OFFERED": agent.validate_react_decisions([_decision("start_activity", start_arguments(
-            ["自己"], ["interact"], ["打开"]))], False),
-        "ROUTE_FIELDS_INVALID": agent.validate_react_decisions([_decision("start_activity", start_arguments(
-            ["自己"], ["interact"], ["等待"], app=["自己"]))], False),
-        "SUBJECT_NOT_KNOWN": concluding.validate_react_decisions([_decision("conclude_activity", unknown)], False),
-        "OUTPUT_TRUNCATED": agent._parse_react_responses(TruncatedResponse("思考写满了输出上限。"))[1],
-    }
-    produced.update(_routing_host_cases())
-    return {code: _as_report(value) for code, value in produced.items()}
-
-
-def _as_report(value) -> tuple[str, str]:
-    """一次纠错的（错误码，原因）：宿主本地校验是 HostFeedback，AS2 的协议错误串已写成纠错正文。"""
-    payload = _feedback(value) if isinstance(value, HostFeedback) else value
-    return payload["error_code"], payload["reason"]
-
-
-def test_each_host_code_has_a_concrete_reason_through_the_host() -> None:
-    """每类旧有效错误行为保留，并使用新的英文完整错误合同。"""
-    cases = _host_cases()
-    assert set(cases) == set(HOST_ERROR_CODES) - {
-        "MODEL_SERVICE_FAILED", "EVIDENCE_WRITE_FAILED", "MEMORY_QUERY_FAILED", "TOOL_SERVICE_FAILED",
-        "SUPPLY_NOT_AT_STORE"}
-    for code, (produced, reason) in cases.items():
-        expected = "ARGUMENTS_INVALID" if code == "TOO_MANY_TARGETS" else code
-        assert produced == expected and reason, (code, produced, reason)
-    assert "not declared" in cases["ARGUMENTS_INVALID"][1]
-    assert "world request" in cases["TOOL_CALL_REQUIRED"][1]
-    assert "one or two" in cases["TOO_MANY_TARGETS"][1]
-    assert "不存在的对象" in cases["NAME_NOT_FOUND"][1]
-    assert "closed set" in cases["WAY_NOT_OFFERED"][1]
-    assert "route fields" in cases["ROUTE_FIELDS_INVALID"][1]
-    assert "陌生人" in cases["SUBJECT_NOT_KNOWN"][1]
-    assert "several" in cases["NAME_AMBIGUOUS"][1]
-    assert "truncated" in cases["OUTPUT_TRUNCATED"][1]
-
-
-def test_a_second_item_failing_is_reported_at_index_one_with_fill_in_candidates() -> None:
-    """第二项方式错误仍精确定位，候选均为完整可直接提交的新请求。"""
-    agent = _prepared()
-    error = agent.validate_react_decisions([_decision("start_activity", start_arguments(
-        [_WORK_ACTION, "自己"], ["interact", "interact"], ["进行", "打开"]))], False)
-    payload = _feedback(error)
-    assert payload["error_code"] == "WAY_NOT_OFFERED"
-    [item] = payload["items"]
-    assert item["path"] == ["tool_calls", 0, "function", "arguments", "items", 1, "way"]
-    from worldmock.life.vocabulary import WAYS
-    assert item["written"] == "打开" and item["allowed_values"] == list(WAYS)
-    assert item["candidates"] == []
-    assert all(row["tool"] == "start_activity" and set(row["arguments"]) == {"items", "answering"}
-               and row["arguments"]["answering"] is None for row in item["candidates"])
-    assert "closed set" in payload["reason"] and payload["fix"]
 
 
 def test_a_view_about_an_unknown_person_in_the_second_item_is_reported_at_index_one() -> None:
@@ -237,11 +131,9 @@ def test_a_view_about_an_unknown_person_in_the_second_item_is_reported_at_index_
 _SUBJECT_DETAIL = "conclude_activity relationship subject is not a known person"
 
 
-def _two_activities(*people: str) -> LifeAgent:
-    """当前停留里工作与等待两项都在进行；people 是同世界人物（私有绑定 person_bindings，都是认识的人）。"""
+def _two_activities() -> LifeAgent:
+    """构造两项真实绑定形状的活动，检验逐项纠错位置。"""
     data = _with_activities(_observations()[0]["data"], (_WORK, PHASE_ACTIVE), (_WAIT, PHASE_ACTIVE))
-    data["person_bindings"] = [{"name": f"人物：{name}", "person_id": f"agent:{index + 8}"}
-                               for index, name in enumerate(people)]
     return _prepared([{"turn": 0, "action": "observe", "ok": True, "data": data}])
 
 
@@ -251,21 +143,6 @@ def _concluded(agent: LifeAgent, arguments: dict) -> tuple[str, dict]:
     return error, _feedback(error)
 
 
-def test_every_unknown_relationship_view_is_reported_at_its_own_item() -> None:
-    """每条未知关系对象均带真实 views 下标，同名重复也保留独立位置。"""
-    agent = _two_activities("沈昊")
-    _, payload = _concluded(agent, _conclude_args(_WORK, _WAIT, memories=[[], []], views=[
-        [_view("王五"), _view("沈昊"), _view("拿铁", "下午想喝拿铁。", kind="preference")], [_view("陌生人")]]))
-    assert payload["error_code"] == "SUBJECT_NOT_KNOWN"
-    assert [(item["path"][-5:], item["written"]) for item in payload["items"]] == [
-        (["items", 0, "views", 0, "about"], "王五"), (["items", 1, "views", 0, "about"], "陌生人")]
-    _, payload = _concluded(agent, _conclude_args(_WORK, _WAIT, memories=[[], []], views=[
-        [_view("王五"), _view("陌生人"), _view("王五", "又想起他。")], []]))
-    assert [(item["path"][-2], item["written"]) for item in payload["items"]] == [(0, "王五"), (1, "陌生人"), (2, "王五")]
-    _, single = _concluded(agent, _conclude_args(_WAIT, memories=[[]], views=[[_view("王五"), _view("陌生人")]]))
-    assert [item["written"] for item in single["items"]] == ["王五", "陌生人"]
-    assert all(item["error_code"] == "SUBJECT_NOT_KNOWN" for item in single["items"])
-    assert single["fix"] and payload["fix"]
 
 
 def test_an_unknown_activity_name_does_not_hide_an_unknown_view_in_another_item() -> None:
@@ -282,23 +159,6 @@ def test_an_unknown_activity_name_does_not_hide_an_unknown_view_in_another_item(
     assert "散步" in payload["reason"] and "陌生人" in payload["reason"] and payload["fix"]
 
 
-def test_all_name_errors_are_reported_and_other_conditions_report_the_first() -> None:
-    """名称与独立路线错误一次全报，依赖不存在对象的条件不推断。"""
-    agent = _prepared()
-    both = _feedback(agent.validate_react_decisions([_decision("start_activity", start_arguments(
-        ["不存在的对象", "自己"], ["interact", "interact"], ["等待", "观看"]))], False))
-    assert both["error_code"] == "NAME_NOT_FOUND"
-    assert [(item["path"][-2], item["error_code"]) for item in both["items"]] == [(0, "NAME_NOT_FOUND"), (1, "WAY_NOT_OFFERED")]
-    mixed = _feedback(agent.validate_react_decisions([_decision("start_activity", start_arguments(
-        ["自己", "不存在的对象"], ["interact", "interact"], ["等待", "等待"], app=["自己", None]))], False))
-    assert [(item["path"][-2], item["error_code"]) for item in mixed["items"]] == [(1, "NAME_NOT_FOUND"), (0, "ROUTE_FIELDS_INVALID")]
-    places = _twin_places()
-    route = _feedback(places.validate_react_decisions([_decision("start_activity", start_arguments(
-        ["自己", "地点：食堂"], ["interact", "travel"], ["等待", "步行"],
-        app=["自己", None], to=[None, "自己"]))], False))
-    assert [item["path"][-3:] for item in route["items"]] == [["items", 0, "app"], ["items", 1, "to"]]
-    assert route["items"][0]["allowed_values"] == [None]
-    assert route["items"][1]["allowed_values"] == [None]
 
 
 def test_argument_errors_are_written_per_field_without_any_validation_dump() -> None:
@@ -318,49 +178,8 @@ def test_argument_errors_are_written_per_field_without_any_validation_dump() -> 
     assert row["path"][-5:] == ["items", 0, "memories", 0, "text"] and "1000" in row["why"]
 
 
-def _obtain_arguments(target: str, candidate: dict | None = None) -> dict:
-    """一次远程下单送给自己的 start_activity 参数；给出候选时逐字段照填候选。"""
-    if candidate is None:
-        return start_arguments([target], ["obtain"], ["购买"], app=["美团"], pay_app=["支付宝"])
-    return candidate["arguments"]
 
 
-@pytest.mark.asyncio
-async def test_a_candidate_submitted_verbatim_is_accepted_through_the_host_and_the_engine(_engine_factory) -> None:
-    """真实 LifeEngine、LifeEnv 与 LifeAgent（脚本化模型）：人物用登记购物应用购买其未售的商品，宿主按指名购买放行，
-    环境以 SUPPLY_NOT_AT_STORE 拒绝，应用字段的候选是可照填请求；同秒下一次决策原样提交可售应用的候选，
-    宿主不纠错、环境受理并下单（docs/design/04-simulation-engine.md 第四章验收：候选原样提交可受理）。"""
-    engine = _engine_factory()
-    food = engine.context.semantics.catalog.goods["beef-noodles"]
-    store = engine.context.semantics.catalog.locations["noodle-1"]
-    label = food.name
-    written = food.name
-    environment = environment_for(engine)
-    await decide(environment, "misspelled", [reply("call-misspelled", "start_activity",
-                                                     start_arguments([written], ["obtain"], ["购买"], app=["饿了么"], pay_app=["支付宝"]), "买一份。")])
-    rejected = engine.context.store.read_agent_events("action_result", 1)[-1].data
-    assert (rejected["status"], rejected["error_code"]) == ("rejected", "SUPPLY_NOT_AT_STORE")
-    seen: dict = {}
-
-    def resubmit(observation: dict) -> list:
-        """从本次观察进度层的拒绝结果里取这件商品的候选，逐字段原样提交。"""
-        details = last_result(observation)["details"]
-        [item] = details["items"]
-        seen.update(details=details, candidate=item["candidates"][0])
-        return [reply("call-candidate", "start_activity", _obtain_arguments(label, seen["candidate"]), "照候选买。")]
-
-    _, requests, _ = await decide(environment, "candidate", resubmit)
-    [offered] = seen["candidate"]["arguments"]["items"]
-    assert offered["way"] == "购买" and offered["app"] == "美团" and offered["pay_app"] == "支付宝"
-    assert offered["to"] is None and set(offered) == {"target", "way", "app", "to", "pay_app"}
-    assert seen["details"]["reason"] and seen["details"]["items"][0]["written"] == "饿了么"
-    assert len(requests) == 1
-    accepted = engine.context.store.read_agent_events("action_result", 1)[-1].data
-    assert (accepted["status"], accepted["error_code"]) == ("completed", None)
-    [order] = accepted["data"]["orders"]
-    assert order["goods_id"] in engine.context.semantics.catalog.goods
-    assert order["store_id"] in engine.context.semantics.catalog.goods[order["goods_id"]].store_ids
-    assert order["app_id"] == "meituan" and order["payment_app_id"] == "alipay"
 
 
 def test_feedback_rejects_bare_strings_instead_of_reconstructing_positions() -> None:
@@ -373,7 +192,41 @@ def test_feedback_rejects_bare_strings_instead_of_reconstructing_positions() -> 
 def test_feedback_structure_survives_copying_and_evidence_stays_a_plain_string() -> None:
     """HostFeedback 复制后仍带结构（AS2 或证据链路可能复制协议错误串）；落进证据时是普通字符串。"""
     error = _prepared().validate_react_decisions([_decision("start_activity", start_arguments(
-        ["不存在的对象"], ["interact"], ["等待"]))], False)
+        ["不存在的对象"], ["interact"]))], False)
     copied = copy.deepcopy(error)
     assert isinstance(copied, HostFeedback) and copied.report == error.report and copied == error
     assert type(str(error)) is str
+
+@pytest.mark.asyncio
+async def test_reported_allowed_action_can_be_resubmitted_to_real_engine(engine_factory):
+    from tests.integration.runtime.current_contract_fixtures import decide, ToolResponse
+    from tests.life.conftest import stage_day_plan
+    engine = engine_factory()
+    stage_day_plan(engine)
+    _, requests, _, [result] = await decide(engine, "correct-action", [
+        ToolResponse("start_activity", {"items": [{"action": "wait", "target": "抖音"}]}, "wrong"),
+        ToolResponse("start_activity", {"items": [{"action": "interact", "target": "抖音"}]}, "correct")])
+    assert result.status == "in_progress" and len(requests) == 2
+    report = json.loads(requests[1]["messages"][-1]["content"])
+    assert report["error_code"] == "ACTION_NOT_OFFERED"
+    assert "interact" in report["items"][0]["allowed_values"]
+    assert len(engine.context.store.read_agent_events("action_requested", 1)) == 1
+
+
+def test_each_unknown_name_has_its_actual_item_position():
+    agent = _prepared()
+    error = agent.validate_react_decisions([_decision("start_activity", {"items": [
+        {"action": "interact", "target": "不存在的对象甲"},
+        {"action": "interact", "target": "不存在的对象乙"}]})], False)
+    report = _feedback(error)
+    assert [row["path"][-2:] for row in report["items"]] == [[0, "target"], [1, "target"]]
+    assert all(row["error_code"] == "NAME_NOT_FOUND" for row in report["items"])
+
+
+def test_each_unknown_subject_keeps_the_nested_view_position():
+    agent = _two_activities()
+    _, report = _concluded(agent, _conclude_args(_WORK, _WAIT, memories=[[], []], views=[
+        [_view("陌生人甲"), _view("陌生人乙")], [_view("陌生人丙")]]))
+    assert [row["path"][-5:] for row in report["items"]] == [
+        ["items", 0, "views", 0, "about"], ["items", 0, "views", 1, "about"],
+        ["items", 1, "views", 0, "about"]]

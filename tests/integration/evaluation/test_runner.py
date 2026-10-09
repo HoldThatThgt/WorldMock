@@ -114,10 +114,10 @@ def test_production_causal_hard_error_disqualifies_only_its_candidate(
 
 
 def test_no_shared_observation_returns_not_comparable(evaluation_fixture, tmp_path) -> None:
-    """只有等待这类实体活动的运行与只含数字交互的参照没有共同观察通道（数字交互按活动类型判定）。"""
+    """只有睡眠这类实体活动的运行与只含数字交互的参照没有共同观察通道（数字交互按活动类型判定）。"""
     root = tmp_path / "physical-export"
     _write_canonical(root, json.loads(evaluation_fixture.scenario_path.read_text(encoding="utf-8")),
-                     "physical-run", 9, activity_type="wait")
+                     "physical-run", 9, activity_type="sleep")
     receipt = _prepare(replace(evaluation_fixture, worldmock_root=root))
 
     assert receipt["prepare_status"] == "not_comparable"

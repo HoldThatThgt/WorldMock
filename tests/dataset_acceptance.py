@@ -1,0 +1,45 @@
+"""当前环境输入、结算和证据的有效源码变异。"""
+
+from tests.mutation_runner import REPO_ROOT, SourceMutation
+
+RECEIPTS = REPO_ROOT / ".work/environment-dataset/mutation-receipts"
+
+MUTATIONS = (
+    SourceMutation("duplicate_model_metadata", "worldmock.model_endpoint::parse_model_metadata",
+        "if len(matching) != 1:", "if len(matching) < 1:",
+        ("tests/unit/test_environment_inputs.py::test_duplicate_model_metadata_is_rejected",)),
+    SourceMutation("undersized_model_capacity", "worldmock.model_endpoint::parse_model_metadata",
+        "if metadata.context_window < config.context_window:", "if False:",
+        ("tests/unit/test_environment_inputs.py::test_model_metadata_requires_actual_matching_capacity",)),
+    SourceMutation("input_carriage_return", "worldmock.environment::_read_toml",
+        'content.startswith(b"\\xef\\xbb\\xbf") or b"\\r" in content',
+        'content.startswith(b"\\xef\\xbb\\xbf")',
+        ("tests/unit/test_environment_inputs.py::test_raw_input_encoding_is_strict",)),
+    SourceMutation("opening_right_boundary", "worldmock.catalog.models::Location.is_open",
+        "start <= minute < end", "start <= minute <= end",
+        ("tests/unit/catalog/test_dataset_catalog.py::test_weekly_opening_hours_use_local_half_open_intervals_and_full_date_override",)),
+    SourceMutation("opening_exception_ignored", "worldmock.catalog.models::Location.opening_intervals",
+        "if key in self.opens.exceptions:", "if False:",
+        ("tests/unit/catalog/test_dataset_catalog.py::test_weekly_opening_hours_use_local_half_open_intervals_and_full_date_override",)),
+    SourceMutation("sleep_need_growth", "worldmock.life.body::settle_shared_body",
+        "if not sleeping:", "if True:",
+        ("tests/unit/life/test_environment_body.py::test_sleep_freezes_both_needs_and_recovers_sleep_deficit",)),
+    SourceMutation("content_relaxation_ignored", "worldmock.life.body::_need_changes",
+        "config.relaxation_need_per_awake_hour - relaxation", "config.relaxation_need_per_awake_hour",
+        ("tests/unit/life/test_environment_body.py::test_two_content_effects_are_independent_actual_time",)),
+    SourceMutation("content_social_ignored", "worldmock.life.body::_need_changes",
+        "body.social_need_growth_per_hour - social", "body.social_need_growth_per_hour",
+        ("tests/unit/life/test_environment_body.py::test_two_content_effects_are_independent_actual_time",)),
+    SourceMutation("natural_growth_doubled", "worldmock.life.body::_need_changes",
+        "rate * hours", "rate * hours * 2",
+        ("tests/unit/life/test_environment_body.py::test_awake_growth_is_added_once_across_both_slots",)),
+    SourceMutation("first_slot_removed", "worldmock.life.action_contract::activity_slot",
+        'return "first" if action in FIRST_SLOT_ACTIONS else "second"', 'return "second"',
+        ("tests/integration/life/test_environment_runtime.py::test_two_slot_group_starts_travel_and_app_interaction_atomically",)),
+    SourceMutation("unrecorded_account_change", "worldmock.footprints.ledger::validate_account_transition",
+        "if any(current[key] - previous[key] != changes[key] for key in current):", "if False:",
+        ("tests/unit/footprints/test_ledger.py::test_missing_or_false_ledger_cannot_commit_changed_accounts",)),
+    SourceMutation("history_balance_ignored", "worldmock.footprints.ledger::validate_account_history",
+        "if balances != expected:", "if False:",
+        ("tests/unit/footprints/test_ledger.py::test_final_checkpoint_balance_must_equal_complete_event_history",)),
+)

@@ -21,9 +21,6 @@ from worldmock.life.models import ToolRequestModel, deepseek_strict_schema, vali
 
 #: 提交反思的唯一工具名。
 REFLECTION_TOOL = "submit_reflection"
-#: 输出不合合同时附回错误的重试次数上限：首次之外至多再请求 3 次（连同首次至多四次模型调用），与传输重试分开计数。
-#: 数值与零点计划的校验重试相同，但各自独立，互不引用。
-REFLECTION_VALIDATION_RETRIES = 3
 #: 就寝反思的 system 文案；请求与重试行为见 docs/design/06-agent.md 的就寝反思。
 #: 宿主限定至多五条洞见；反思不改变个人事务，输入是人物自己的记录，并非核验过的事实。
 

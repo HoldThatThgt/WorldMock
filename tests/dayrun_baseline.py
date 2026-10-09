@@ -59,6 +59,7 @@ class DayBaseline:
         self.project = project.resolve()
         self.hashes = {}
         self.assets = {}
+        self.input_assets = set()
 
     def normalize(self, value):
         """@brief 递归替换确定的机器路径及其派生摘要，不屏蔽未知字段。"""
@@ -80,6 +81,8 @@ class DayBaseline:
 
     def content(self, content: bytes, name: str = "") -> bytes:
         """@brief 按真实格式规范化完整文本和归档成员，保留归档元信息。"""
+        if _sha(content) in self.input_assets:
+            return content
         if tarfile.is_tarfile(io.BytesIO(content)):
             destination = io.BytesIO()
             with tarfile.open(fileobj=io.BytesIO(content)) as source, tarfile.open(fileobj=destination, mode="w") as out:
@@ -99,20 +102,23 @@ class DayBaseline:
 
     def prepare(self) -> list[dict]:
         """@brief 重新计算输入、运行清单、素材与检查点的规范化摘要，先验证原始哈希完整性。"""
-        scenario_raw = (self.case / "scenarios/custom.json").read_bytes()
-        scenario = json.loads(scenario_raw)
-        scenario["corpus_root"] = "<frozen-corpus>"
+        from worldmock.footprints.frozen_environment import validate_frozen_environment
+
         manifest_raw = (self.case / "run/manifest.json").read_bytes()
         manifest = json.loads(manifest_raw)
-        assert manifest["scenario_sha256"] == _sha(scenario_raw), "scenario digest does not match frozen bytes"
-        self.hashes[manifest["scenario_sha256"]] = _sha(_json(scenario))
-        self.hashes[_sha(manifest_raw)] = _sha(_json(self.normalize(manifest)))
+        assert manifest["schema_version"] == 5, "baseline run manifest is not the current format"
+        assert "scenario_sha256" not in manifest, "baseline run manifest contains a retired input identity"
+        validate_frozen_environment(self.case / "run", manifest, [], [])
+        self.input_assets = {reference["sha256"] for reference in manifest["environment_assets"].values()}
         for path in sorted((self.case / "run/assets").iterdir()):
             raw = path.read_bytes()
             assert _sha(raw) == path.name, "baseline asset digest does not match its bytes"
             normalized = self.content(raw)
             self.hashes[path.name] = _sha(normalized)
             self.assets[path.name] = raw, normalized
+        normalized_manifest = _sha(_json(self.normalize(manifest)))
+        self.hashes[_sha(manifest_raw)] = normalized_manifest
+        self.hashes[_sha(_json(manifest))] = normalized_manifest
         checkpoints = []
         with sqlite3.connect(self.case / "run/footprints.sqlite") as connection:
             for body, raw_sha in connection.execute("SELECT body, record_sha256 FROM checkpoints ORDER BY rowid"):

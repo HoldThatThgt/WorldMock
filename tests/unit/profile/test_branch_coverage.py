@@ -12,9 +12,10 @@ from types import SimpleNamespace
 import pytest
 
 from tests.profile.conftest import make_card, make_payload
+from tests.profile.model_fixture import Response, ScriptedClient, extracted, persona
 from worldmock.errors import WorldMockError
 from worldmock.profile import extractor
-from worldmock.profile.compile import LegacyTemplateFieldError, compile_persona
+from worldmock.profile.compile import compile_persona
 from worldmock.profile.mapper import load_mapping_config
 from worldmock.profile.models import (
     BigFiveProfile,
@@ -44,7 +45,7 @@ def test_render_card_without_habits_or_tastes_uses_fallback_lines():
 
 def test_hour_text_distinguishes_half_grid_points():
     window = TimeWindow(start_hour=7.0, end_hour=7.5)
-    assert "7点到7点半" in render_card(make_card()).splitlines()[3] or True
+    assert "7点到7点半" in render_card(make_card()).splitlines()[3]
     assert window.end_hour == 7.5
 
 
@@ -79,7 +80,7 @@ def test_tastes_rejects_blank_entries():
 def test_default_mapping_ignores_removed_environment_override(monkeypatch):
     """@brief 旧环境变量不能改变引擎的通用人物映射规则。"""
     monkeypatch.setenv("WORLDMOCK_PERSONA_MAPPING", "missing-persona-mapping.toml")
-    assert load_mapping_config()["version"] == 2
+    assert load_mapping_config()["version"] == 3
 
 
 def test_default_mapping_ignores_working_directory_rules(monkeypatch, tmp_path):
@@ -88,7 +89,7 @@ def test_default_mapping_ignores_working_directory_rules(monkeypatch, tmp_path):
     directory.mkdir(parents=True)
     (directory / "persona-mapping.toml").write_text("version = 0\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
-    assert load_mapping_config()["version"] == 2
+    assert load_mapping_config()["version"] == 3
 
 
 def test_default_mapping_fails_when_package_rule_is_missing(monkeypatch, tmp_path, caplog):
@@ -112,7 +113,7 @@ def test_map_world_dynamics_accepts_explicit_config():
     dynamics = map_world_dynamics(BigFiveProfile(openness=4, conscientiousness=4,
                                                  extraversion=4, agreeableness=4,
                                                  neuroticism=4), config)
-    assert 0.0 <= dynamics.mood_pulse_amplitude <= 1.0
+    assert 0.0 <= dynamics.social_need_growth_per_hour <= 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -126,32 +127,23 @@ def _extraction(card):
                                                    extraversion=4, agreeableness=4,
                                                    neuroticism=4),
                            runs=3, agreement=1.0, per_field={}, warning=False,
-                           model="deepseek-chat", demotion_notes=())
+                           model="test-model", demotion_notes=())
 
 
 def test_compile_persona_uses_explicit_config_and_reports_agreement_warnings():
     card = make_card()
     config = load_mapping_config()
-    compiled = compile_persona("故事", extraction=_extraction(card), config=config)
+    compiled = compile_persona(persona(), persona_sha256="a" * 64, extraction=_extraction(card), config=config)
     assert compiled.card == card
-    assert compiled.schema_version == 3
+    assert compiled.schema_version == 4
     low_agreement = SimpleNamespace(card=card,
                                     big_five=compiled.big_five, runs=3, agreement=0.5,
                                     per_field={"coping": 0.5}, warning=True,
-                                    model="deepseek-chat", demotion_notes=())
-    warned = compile_persona("故事", extraction=low_agreement, config=config)
+                                    model="test-model", demotion_notes=())
+    warned = compile_persona(persona(), persona_sha256="a" * 64, extraction=low_agreement, config=config)
     assert warned.warnings == ("field_agreement_below_two_thirds: ['coping']",)
 
 
-def test_compile_persona_rejects_empty_and_legacy_documents():
-    with pytest.raises(WorldMockError, match="background story is empty"):
-        compile_persona("   ")
-    with pytest.raises(WorldMockError, match="background story is empty"):
-        compile_persona({"background_story": "  "})
-    with pytest.raises(WorldMockError, match="must carry background_story"):
-        compile_persona({"name": "无故事"})
-    with pytest.raises(LegacyTemplateFieldError, match="legacy template fields"):
-        compile_persona({"background_story": "故事", "occupation": "工程师"})
 
 
 # ---------------------------------------------------------------------------
@@ -159,38 +151,12 @@ def test_compile_persona_rejects_empty_and_legacy_documents():
 # ---------------------------------------------------------------------------
 
 
-class FakeResponse:
-    def __init__(self, status_code=200, content="{}"):
-        self.status_code = status_code
-        self._content = content
-        self.text = content
-
-    def json(self):
-        return {"choices": [{"message": {"content": self._content}}]}
 
 
-class FakeSession:
-    def __init__(self, responses):
-        self.responses = list(responses)
-        self.calls = []
-
-    def post(self, url, json=None, headers=None, timeout=None):
-        self.calls.append(url)
-        return self.responses.pop(0)
 
 
-@pytest.fixture(autouse=True)
-def isolate_credentials(monkeypatch, tmp_path):
-    monkeypatch.delenv("DEEPSEEK_NODE_KEYS", raising=False)
-    monkeypatch.setattr(extractor, "CREDENTIALS_PATH", tmp_path / "absent.env")
-    monkeypatch.setenv("DEEPSEEK_NODE_KEYS", "test-key")
 
 
-def test_single_run_retries_on_http_errors_then_raises():
-    session = FakeSession([FakeResponse(status_code=500, content="boom")] * 3)
-    with pytest.raises(extractor.ExtractionError, match="after 3 attempts: HTTP 500"):
-        extractor.extract_persona("故事", n_runs=1, session=session)
-    assert len(session.calls) == 3
 
 
 def test_median_int_rounds_half_up_on_even_samples():
@@ -200,18 +166,18 @@ def test_median_int_rounds_half_up_on_even_samples():
 
 
 def test_extract_persona_rejects_empty_story_and_bad_run_count():
-    with pytest.raises(extractor.ExtractionError, match="empty"):
-        extractor.extract_persona("  ")
-    with pytest.raises(extractor.ExtractionError, match="n_runs must be >= 1"):
-        extractor.extract_persona("故事", n_runs=0)
+    with pytest.raises(extractor.ExtractionError, match="input is invalid"):
+        extracted("  ", client=ScriptedClient([]))
+    with pytest.raises(extractor.ExtractionError, match="input is invalid"):
+        extracted("故事", n_runs=0, client=ScriptedClient([]))
 
 
 def test_consensus_modes_and_warning_thresholds():
     payloads = []
     contents = [make_payload(), make_payload(coping="去江边散步"),
                 make_payload(coping="听老歌")]
-    session = FakeSession([FakeResponse(content=content) for content in contents])
-    result = extractor.extract_persona("故事", n_runs=3, session=session)
+    session = ScriptedClient([Response(content=content) for content in contents])
+    result = extracted("故事", n_runs=3, client=session)
     assert result.warning is True
     assert result.per_field["coping"] == pytest.approx(1 / 3, abs=1e-3)
     assert result.big_five.neuroticism == 3

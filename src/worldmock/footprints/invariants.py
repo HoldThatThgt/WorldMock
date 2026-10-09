@@ -7,16 +7,16 @@ from collections import defaultdict
 from pydantic import ValidationError
 
 from worldmock.errors import IntegrityError
-from worldmock.exchange.types import AppUseManner, MANNER_DEVICE
 from worldmock.footprints.app_usage import _app_binding
 from worldmock.footprints.purchases import event_orders, orders_by_id
 from worldmock.life.models import DeliveryState
 
 
-_COMMON_APP = {"fact_kind", "agent_id", "activity_id", "app_id", "action_id", "manner", "device", "source_event_id"}
+_COMMON_APP = {"fact_kind", "agent_id", "activity_id", "app_id", "source_event_id"}
 _APP_FIELDS = {
     "app_use": {"segments", "status"},
-    "app_touch": {"edge", "occurred_at"},
+    "app_touch": {"occurred_at"},
+    "payment_notification": {"occurred_at", "amount_fen", "order_ids", "title", "summary"},
     "content_consumed": {"content_id", "interval_start", "interval_end", "position_before", "position_after",
                          "completed", "push_id"},
     "push_delivered": {"push_id", "content_id", "session_id", "occurred_at"},
@@ -36,10 +36,11 @@ def validate_footprint_facts(events: list[dict], activities: list[dict], purchas
             raise IntegrityError("Footprint source event is missing or owned by another persona")
     by_activity = {row["activity_id"]: row for row in activities}
     _app_invariants(app_usage, by_activity)
-    _phone_intervals(app_usage)
+    _app_intervals(app_usage)
     _content_positions(app_usage, by_activity)
     _push_references(app_usage, sources)
     _order_invariants(events, purchases, state, sources)
+    _payment_invariants(events, state, sources)
 
 
 def _app_invariants(rows: list[dict], activities: dict[str, dict]) -> None:
@@ -48,40 +49,35 @@ def _app_invariants(rows: list[dict], activities: dict[str, dict]) -> None:
         kind = row["fact_kind"]
         if kind not in _APP_FIELDS or set(row) != _COMMON_APP | _APP_FIELDS[kind]:
             raise IntegrityError("App usage fact fields are outside the current contract")
-        if row["manner"] not in MANNER_DEVICE or row["device"] != MANNER_DEVICE[row["manner"]]:
-            raise IntegrityError("App usage device disagrees with its fixed manner")
         if not isinstance(row["app_id"], str) or not row["app_id"]:
             raise IntegrityError("App usage fact requires an actual app identity")
-        if kind == "push_delivered":
+        if kind in {"push_delivered", "app_touch", "payment_notification"}:
             if row["activity_id"] is not None:
-                raise IntegrityError("Push delivery cannot invent an activity")
+                raise IntegrityError("System app fact or push delivery cannot invent an activity")
             continue
         activity = activities.get(row["activity_id"])
         binding = None if activity is None else _app_binding(activity)
-        if binding is None:
+        if binding is None or activity["activity_type"] != "interact":
             raise IntegrityError("App usage activity has no actual app identity")
         if kind.startswith("push_"):
             continue
-        if (row["app_id"], row["action_id"], row["manner"]) != binding:
+        if row["app_id"] != binding:
             raise IntegrityError("App usage identity disagrees with its activity")
-        assisted = row["manner"] == AppUseManner.OFFLINE_ASSISTED
-        if assisted != (kind == "app_touch"):
-            raise IntegrityError("App usage fact disagrees with the fixed manner")
         if kind == "app_use" and row["segments"] != activity["segments"]:
             raise IntegrityError("App use intervals disagree with actual execution")
 
 
-def _phone_intervals(rows: list[dict]) -> None:
-    """@brief 同一人物持续使用手机的半开区间不允许重叠。"""
+def _app_intervals(rows: list[dict]) -> None:
+    """@brief 同一人物持续使用应用的半开区间不允许重叠。"""
     grouped = defaultdict(list)
     for row in rows:
-        if row["fact_kind"] == "app_use" and row["device"] == "phone":
+        if row["fact_kind"] == "app_use":
             grouped[row["agent_id"]].extend(row["segments"])
     for segments in grouped.values():
         end = None
         for segment in sorted(segments, key=lambda value: (value["started_at"], value["ended_at"])):
             if segment["started_at"] >= segment["ended_at"] or end is not None and segment["started_at"] < end:
-                raise IntegrityError("Phone app use intervals overlap or have no positive duration")
+                raise IntegrityError("App use intervals overlap or have no positive duration")
             end = segment["ended_at"]
 
 
@@ -114,9 +110,8 @@ def _push_references(rows: list[dict], sources: dict[str, dict]) -> None:
             raise IntegrityError("Push reference has no delivery owned by this persona")
         if sources[push["source_event_id"]]["event_seq"] >= sources[row["source_event_id"]]["event_seq"]:
             raise IntegrityError("Push reference precedes its actual delivery")
-        if (push["app_id"], push["action_id"], push["content_id"]) != (
-                row["app_id"], row["action_id"], row["content_id"]):
-            raise IntegrityError("Push reference disagrees with its app, action, or content")
+        if (push["app_id"], push["content_id"]) != (row["app_id"], row["content_id"]):
+            raise IntegrityError("Push reference disagrees with its app or content")
         if kind.startswith("push_") and row["session_id"] != push["session_id"]:
             raise IntegrityError("Push transition disagrees with its actual session")
 
@@ -160,37 +155,29 @@ def _validate_order_shape(order: dict) -> None:
 
 def _account_changes(event: dict) -> bool:
     """@brief 收货不能夹带顶层或结果内的账户变化。"""
-    data = event["data"]
-    return any(key.startswith("account:") and value != 0 for values in (
-        data.get("resource_changes", {}), data.get("data", {}).get("resource_changes", {}))
-        for key, value in values.items())
+    return any(key.startswith("account:") and value != 0
+               for key, value in event.get("resource_changes", {}).items())
 
 
 def _receipt_invariants(order: dict, receipts: list[dict], received: list[dict], sources: dict[str, dict]) -> None:
-    """@brief 模拟人物必须恰一本人收货事件，联系人没有身体效果和收货事件。"""
+    """@brief 每个已履约订单必须具有恰一条本人的收货事实。"""
     delivered = order["status"] == "delivered"
-    simulated = order["recipient_id"].startswith("agent:")
-    if len(receipts) != int(delivered) or len(received) != int(delivered and simulated):
+    if len(receipts) != int(delivered) or len(received) != int(delivered):
         raise IntegrityError("Receipt and goods received counts disagree with the actual order status")
     if not delivered:
         return
-    owner = int(order["recipient_id"].split(":", 1)[1]) if simulated else order["agent_id"]
-    receipt = receipts[0]
-    fields = ("recipient_id", "received_at", "goods_id", "category", "quantity")
-    if receipt["agent_id"] != owner or any(receipt[field] != order[field] for field in fields):
+    receipt, event = receipts[0], received[0]
+    fields = ("received_at", "goods_id", "category", "quantity")
+    if receipt["agent_id"] != order["agent_id"] or any(receipt[field] != order[field] for field in fields):
         raise IntegrityError("Receipt identity, quantity, owner, or time disagrees with its order")
-    if simulated:
-        event = received[0]
-        data = event["data"]
-        if (event["agent_id"] != owner or event["occurred_at"] != order["received_at"]
-                or event["source_kind"] != "environment" or event["visibility"] != "agent"
-                or any(data[field] != order[field] for field in ("goods_id", "category", "quantity", "destination_id"))
-                or data["payer_id"] != order["agent_id"] or receipt["source_event_id"] != event["event_id"]
-                or any(receipt[field] != data[field] for field in ("provided", "applied"))):
-            raise IntegrityError("Goods received evidence disagrees with the actual recipient or receipt")
-        _receipt_cause(order, event, sources)
-    elif receipt["provided"] is not None or receipt["applied"] is not None:
-        raise IntegrityError("Contact receipts cannot contain body effects")
+    data = event["data"]
+    if (event["agent_id"] != order["agent_id"] or event["occurred_at"] != order["received_at"]
+            or event["source_kind"] != "environment" or event["visibility"] != "agent"
+            or any(data[field] != order[field] for field in ("goods_id", "category", "quantity", "destination_id"))
+            or receipt["source_event_id"] != event["event_id"]
+            or any(receipt[field] != data[field] for field in ("provided", "applied"))):
+        raise IntegrityError("Goods received evidence disagrees with the actual recipient or receipt")
+    _receipt_cause(order, event, sources)
 
 
 def _receipt_cause(order: dict, event: dict, sources: dict[str, dict]) -> None:
@@ -199,11 +186,17 @@ def _receipt_cause(order: dict, event: dict, sources: dict[str, dict]) -> None:
     if len(causes) != 1 or causes[0] is None:
         raise IntegrityError("Goods receipt requires one true fulfillment cause event")
     cause = causes[0]
-    expected_type = "environment_event" if order["fulfillment"] == "delivery" else "action_result"
-    if (cause["event_type"] != expected_type
-            or not any(value["order_id"] == order["order_id"] and value["status"] == "delivered"
-                       for value in event_orders(cause))):
-        raise IntegrityError("Goods receipt cause is not the actual fulfilled order event")
+    if order["fulfillment"] == "pickup":
+        if (cause["event_type"] != "environment_event" or cause["data"].get("kind") != "purchase_payment"
+                or order["order_id"] not in cause["data"]["order_ids"]
+                or cause["occurred_at"] != order["paid_at"]):
+            raise IntegrityError("Goods receipt cause is not the actual fulfilled order event")
+    else:
+        expected_type = "environment_event" if order["fulfillment"] == "delivery" else "action_result"
+        if (cause["event_type"] != expected_type
+                or not any(value["order_id"] == order["order_id"] and value["status"] == "delivered"
+                           for value in event_orders(cause))):
+            raise IntegrityError("Goods receipt cause is not the actual fulfilled order event")
     if order["fulfillment"] == "station_pickup" and cause["agent_id"] != event["agent_id"]:
         raise IntegrityError("Parcel receipt must be caused by its recipient collection result")
 
@@ -216,7 +209,7 @@ def _pickup_invariants(order: dict, rows: list[dict], sources: dict[str, dict]) 
     if not rows:
         return
     row = rows[0]
-    owner = int(order["recipient_id"].split(":", 1)[1])
+    owner = order["agent_id"]
     source = sources[row["source_event_id"]]
     if (row["agent_id"] != owner or row["arrived_at"] != order["arrived_at"]
             or row["app_id"] != order["app_id"] or row["pickup_location_id"] != order["destination_id"]
@@ -227,7 +220,82 @@ def _pickup_invariants(order: dict, rows: list[dict], sources: dict[str, dict]) 
                        for value in event_orders(source))):
         raise IntegrityError("Parcel pickup notification disagrees with its true recipient arrival")
     causes = [sources.get(identity) for identity in source["caused_by"]]
-    if (len(causes) != 1 or causes[0] is None or causes[0]["event_type"] != "action_result"
+    if (len(causes) != 1 or causes[0] is None or causes[0]["event_type"] != "environment_event"
             or causes[0]["agent_id"] != order["agent_id"]
-            or not any(value["order_id"] == order["order_id"] for value in event_orders(causes[0]))):
+            or causes[0]["data"].get("kind") != "purchase_payment"
+            or order["order_id"] not in causes[0]["data"]["order_ids"]):
         raise IntegrityError("Parcel arrival must reference its true payer purchase result")
+
+
+def _payment_invariants(events: list[dict], state: dict, sources: dict[str, dict]) -> None:
+    """@brief 每个真实支付组恰一付款，非空支付应用恰一对应通知。"""
+    orders = state.get("deliveries", {})
+    groups = defaultdict(list)
+    payments = defaultdict(list)
+    notifications = defaultdict(list)
+    for order in orders.values():
+        groups[order["group_key"]].append(order)
+    for event in events:
+        kind = event["data"].get("kind")
+        if kind not in {"purchase_payment", "payment_notification"}:
+            continue
+        identities = event["data"]["order_ids"]
+        if any(identity not in orders for identity in identities):
+            raise IntegrityError("Purchase payment references an unknown order")
+        group = orders[identities[0]]["group_key"]
+        (payments if kind == "purchase_payment" else notifications)[group].append(event)
+    for group, values in groups.items():
+        paid = all(order["paid_at"] is not None for order in values)
+        if any((order["paid_at"] is not None) != paid for order in values):
+            raise IntegrityError("Purchase group has partial payment")
+        if len(payments[group]) != int(paid):
+            raise IntegrityError("Purchase group payment count disagrees with actual payment")
+        app = values[0]["payment_app_id"]
+        if len(notifications[group]) != int(paid and app is not None):
+            raise IntegrityError("Payment notification count disagrees with actual payment")
+        if paid:
+            _validate_payment_group(values, payments[group][0], sources)
+            if app is not None:
+                _validate_payment_notification(values, payments[group][0], notifications[group][0])
+
+
+def _validate_payment_group(orders: list[dict], event: dict, sources: dict[str, dict]) -> None:
+    """@brief 付款金额及完整订单集合与同刻购买终态、实际受理来源相符。"""
+    data = event["data"]
+    identity = data["activity_id"]
+    amount = sum(order["total_price_fen"] for order in orders)
+    owner = orders[0]["agent_id"]
+    if (data["order_ids"] != sorted(order["order_id"] for order in orders)
+            or data["amount_fen"] != amount or event["agent_id"] != owner
+            or any(order["paid_at"] != event["occurred_at"] for order in orders)):
+        raise IntegrityError("Purchase payment disagrees with its actual order group")
+    changes = {f"account:agent:{owner}": -amount, "account:external:scenario": amount}
+    if event.get("resource_changes", {}) != changes:
+        raise IntegrityError("Purchase payment account changes disagree with its actual amount")
+    causes = [sources.get(key) for key in event["caused_by"]]
+    if (len(causes) != 1 or causes[0] is None or causes[0]["event_type"] != "action_result"
+            or causes[0]["agent_id"] != owner or causes[0]["data"].get("status") not in {"in_progress", "completed"}
+            or not any(row["activity_id"] == identity and row["kind"] == "purchase"
+                       for row in causes[0]["data"].get("data", {}).get("activities", []))):
+        raise IntegrityError("Purchase payment must reference its actual successful purchase start result")
+    terminal = [row for source in sources.values() for row in (source["data"].get("activity"),)
+                if source["event_type"] == "activity_progress" and source["agent_id"] == owner
+                and source["state_version_after"] == event["state_version_after"]
+                and isinstance(row, dict) and row["activity_id"] == identity and row["status"] == "completed"
+                and row["ended_at"] == event["occurred_at"]]
+    if not terminal:
+        raise IntegrityError("Purchase payment requires actual same-second purchase completion")
+
+
+def _validate_payment_notification(orders: list[dict], payment: dict, notification: dict) -> None:
+    """@brief 消费通知只引用同组付款，同刻正文与真实支付应用一致。"""
+    data = notification["data"]
+    if (notification["caused_by"] != [payment["event_id"]]
+            or notification["occurred_at"] != payment["occurred_at"]
+            or notification["state_version_after"] != payment["state_version_after"]
+            or notification["agent_id"] != payment["agent_id"]
+            or data["order_ids"] != payment["data"]["order_ids"]
+            or data["amount_fen"] != payment["data"]["amount_fen"]
+            or any(order["payment_app_id"] != data["app_id"] for order in orders)
+            or notification.get("resource_changes", {})):
+        raise IntegrityError("Payment notification disagrees with its actual purchase payment")

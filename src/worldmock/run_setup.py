@@ -1,7 +1,5 @@
 """@brief 配置进程、冻结运行身份与准备人物输入的唯一职责。"""
 from __future__ import annotations
-from worldmock.catalog.loader import load_catalog
-from worldmock.life.semantics import resolve_catalog_dir
 import hashlib
 import importlib.util
 import json
@@ -11,51 +9,38 @@ import subprocess
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
-from dotenv import dotenv_values
+
+from worldmock.environment import EnvironmentInputs
 from worldmock.errors import IntegrityError
+from worldmock.input_models import ModelConfig, ModelMetadata, PersonaConfig
 from worldmock.life.models import ModelIdentity
-from worldmock.life.scenario import RuntimeScenario
-from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
-from worldmock.footprints.models import RETIRED_DECISION_STATEMENT
+from worldmock.model_endpoint import credential_value
 
 logger = logging.getLogger(__name__)
 
 
-MAX_REACT_TURNS = 16
-
-
-
-
-
-
 _AS2_PACKAGE = "agentsociety2"
-
-
-#: 固定基线与补丁共同生成的 AS2 源码身份，与 patches/agentsociety2/SERIES.json 保持一致。
-AS2_LOCKED_SOURCE_SHA256 = "bb655cb3b4d7a68c725431a507192389b4e6770015e9673d6f5e9ef92dba1c46"
-
-
+#: 固定基线与补丁共同生成的实际 AS2 源码身份。
+AS2_LOCKED_SOURCE_SHA256 = "bf716c7b982ea1aa057207b4ad06e1758b598bccef90834e18da2ca4253db3c6"
 _AS2_IDENTITY_ERROR = "AS2 runtime identity differs from the locked source"
 
 
-def _configure_process(project_root: Path) -> None:
-    """@brief 核对实际导入的 AS2 与锁定源码一致后，从唯一私密文件配置显式 DeepSeek 角色和 worker 导入路径。
-
-    AS2 身份在读取凭据、改写进程环境与导入任何 AS2 模块之前核对，run、resume、replay 共用。
-    """
+def _configure_process(project_root: Path, config: ModelConfig) -> None:
+    """@brief 核对锁定源码后，按唯一运行配置与环境变量凭据配置原生模型客户端。"""
     root = Path(project_root).resolve()
     if not (root / "custom" / "agents" / "life_agent.py").is_file():
+        logger.error("WorldMock project root is incomplete")
         raise FileNotFoundError("WorldMock project root is incomplete")
     require_locked_as2()
-    secret = _read_deepseek_key()
+    secret = credential_value(config)
     variables = {
         "WORKSPACE_PATH": str(root),
         "AGENTSOCIETY_LLM_API_KEY": secret,
-        "AGENTSOCIETY_LLM_API_BASE": DEEPSEEK_BASE_URL,
-        "AGENTSOCIETY_LLM_MODEL": DEEPSEEK_MODEL,
+        "AGENTSOCIETY_LLM_API_BASE": config.base_url,
+        "AGENTSOCIETY_LLM_MODEL": config.requested_model,
         "AGENTSOCIETY_CODER_LLM_API_KEY": secret,
-        "AGENTSOCIETY_CODER_LLM_API_BASE": DEEPSEEK_BASE_URL,
-        "AGENTSOCIETY_CODER_LLM_MODEL": DEEPSEEK_MODEL,
+        "AGENTSOCIETY_CODER_LLM_API_BASE": config.base_url,
+        "AGENTSOCIETY_CODER_LLM_MODEL": config.requested_model,
         "AGENTSOCIETY_EMBEDDING_MODEL": "",
         "LITELLM_LOCAL_MODEL_COST_MAP": "True",
         "AGENTSOCIETY_LLM_REQUEST_TIMEOUT": "300",
@@ -64,27 +49,7 @@ def _configure_process(project_root: Path) -> None:
     }
     os.environ.update(variables)
     _prepend_pythonpath(root)
-    _require_loaded_config()
-
-
-def _read_deepseek_key() -> str:
-    """@brief 只读取固定私密配置中的多把 DeepSeek 节点密钥，不输出其内容。
-
-    值为逗号分隔的至少一个非空密钥段；逐段 strip、按出现顺序去重后
-    以逗号 join 返回（单把密钥也 join），由 Router 侧拆分为多 deployment。
-    """
-    path = Path.home() / ".config" / "worldmock" / "deepseek.env"
-    if not path.is_file() or path.is_symlink():
-        raise FileNotFoundError("DeepSeek credential file is missing or unsafe")
-    values = dotenv_values(path, interpolate=False)
-    unknown = set(values) - {"DEEPSEEK_NODE_KEYS"}
-    raw = values.get("DEEPSEEK_NODE_KEYS")
-    if unknown or not isinstance(raw, str) or not raw.strip():
-        raise IntegrityError("DeepSeek credential file has an invalid schema")
-    segments = [item.strip() for item in raw.split(",")]
-    if not segments or any(not item for item in segments):
-        raise IntegrityError("DeepSeek credential file has an invalid schema")
-    return ",".join(dict.fromkeys(segments))
+    _require_loaded_config(config)
 
 
 def _prepend_pythonpath(root: Path) -> None:
@@ -94,73 +59,41 @@ def _prepend_pythonpath(root: Path) -> None:
     os.environ["PYTHONPATH"] = os.pathsep.join(dict.fromkeys([*required, *current]))
 
 
-def _require_loaded_config() -> None:
-    """@brief 拒绝进程早先导入的不同 AS2 模型配置。"""
+def _require_loaded_config(config: ModelConfig) -> None:
+    """@brief 已加载客户端配置必须与显式端点及模型一致。"""
     from agentsociety2.config.config import Config
 
-    expected = (DEEPSEEK_BASE_URL, DEEPSEEK_MODEL)
-    default = (Config.LLM_API_BASE, Config.LLM_MODEL)
-    coder = (Config.CODER_LLM_API_BASE, Config.CODER_LLM_MODEL)
-    if default != expected or coder != expected or Config.EMBEDDING_MODEL:
+    expected = (config.base_url, config.requested_model)
+    actual = ((Config.LLM_API_BASE, Config.LLM_MODEL), (Config.CODER_LLM_API_BASE, Config.CODER_LLM_MODEL))
+    if any(value != expected for value in actual) or Config.EMBEDDING_MODEL:
+        logger.error("AgentSociety2 was imported before the required model configuration")
         raise RuntimeError("AgentSociety2 was imported before the required model configuration")
 
 
-def _model_identity() -> ModelIdentity:
-    """@brief 形成不含凭据的显式 DeepSeek、提示和工具身份。
-
-    顶层 thinking/tool_choice 取行动阶段参数并直接来自 LifeAgent 导出常量
-    （单一事实源）；各阶段完整形状见 stage_model_identity()。提示指纹绑定七层系统层与层 Schema。
-    """
-    from custom.agents.life_agent import (
-        ACTION_THINKING,
-        ACTION_TOOL_CHOICE,
-        life_tool_schema_sha256,
-    )
+def _model_identity(config: ModelConfig) -> ModelIdentity:
+    """@brief 冻结显式模型端点、独立预算与当前提示和工具身份，不包含凭据。"""
+    from custom.agents.life_agent import ACTION_THINKING, ACTION_TOOL_CHOICE, life_tool_schema_sha256
     from worldmock.agents.life_prompt import life_prompt_sha256
 
-    return ModelIdentity(
-        provider="openai_compatible",
-        base_url=DEEPSEEK_BASE_URL,
-        requested_model=DEEPSEEK_MODEL,
-        thinking=ACTION_THINKING["thinking"]["type"],
-        tool_choice=ACTION_TOOL_CHOICE,
-        max_retries=0,
-        prompt_sha256=life_prompt_sha256(),
-        tool_schema_sha256=life_tool_schema_sha256(),
-    )
+    return ModelIdentity(provider=config.provider, base_url=config.base_url, requested_model=config.requested_model,
+                         thinking=ACTION_THINKING["thinking"]["type"], tool_choice=ACTION_TOOL_CHOICE,
+                         max_retries=config.max_retries, transport_max_retries=config.transport_max_retries,
+                         prompt_sha256=life_prompt_sha256(), tool_schema_sha256=life_tool_schema_sha256())
 
 
-def stage_model_identity(same_second_continuation: bool = True) -> dict[str, Any]:
-    """@brief 行动阶段的完整冻结请求身份（docs/design/06-agent.md「单一行动阶段」）。
+def stage_model_identity(config: ModelConfig, metadata: ModelMetadata,
+                         same_second_continuation: bool = True) -> dict[str, Any]:
+    """@brief 冻结行动阶段、实际服务容量及每个独立输出校验预算。"""
+    from custom.agents.life_agent import ACTION_MAX_TOKENS, ACTION_THINKING, ACTION_TOOL_CHOICE
 
-    行动阶段参数取自 LifeAgent 导出常量（单一事实源）；运行中不变更。不发送 reasoning_effort
-    （以 None 表示该字段不进请求）。行动阶段另记运行开关 same_second_continuation（第二章「同秒续接」，缺省开）。
-    """
-    from agentsociety2.config.llm_dispatcher import TRANSPORT_MAX_RETRIES
-    from custom.agents.life_agent import (
-        ACTION_THINKING,
-        ACTION_TOOL_CHOICE,
-        ACTION_MAX_TOKENS,
-    )
-
-    return {
-        "provider": "openai_compatible",
-        "base_url": DEEPSEEK_BASE_URL,
-        "requested_model": DEEPSEEK_MODEL,
-        "max_retries": 0,
-        "transport_max_retries": TRANSPORT_MAX_RETRIES,
-        "max_react_turns": MAX_REACT_TURNS,
-        "strict": True,
-        "reasoning_effort": None,
-        "stages": {
-            "action": {
-                "thinking": ACTION_THINKING["thinking"]["type"],
-                "tool_choice": ACTION_TOOL_CHOICE,
-                "max_tokens": ACTION_MAX_TOKENS,
-                "same_second_continuation": same_second_continuation,
-            },
-        },
-    }
+    identity = config.model_dump(mode="json", exclude={"api_key_env"})
+    identity.update({"max_react_turns": config.max_react_turns, "strict": True, "reasoning_effort": None,
+                     "model_metadata": metadata.model_dump(mode="json"),
+                     "stages": {"action": {"thinking": ACTION_THINKING["thinking"]["type"],
+                                           "tool_choice": ACTION_TOOL_CHOICE,
+                                           "max_tokens": min(ACTION_MAX_TOKENS, metadata.max_output_tokens),
+                                           "same_second_continuation": same_second_continuation}}})
+    return validate_stage_model_identity(identity)
 
 
 def runtime_code_sha256(project_root: Path) -> str:
@@ -256,202 +189,118 @@ def _git_output(project_root: Path, *arguments: str) -> bytes | None:
     return result.stdout if result.returncode == 0 else None
 
 
-def creation_inputs(scenario_path: Path, scenario: RuntimeScenario, compiled: Mapping[int, Any],
+def creation_inputs(inputs: EnvironmentInputs, compiled: Mapping[int, Any],
                     same_second_continuation: bool = True) -> tuple[tuple[dict[str, Any], ...], list[dict]]:
-    """@brief 新建运行与 validate 共用：由已编译的画像形成人物工作区输入并计算同一组运行输入警告。
-
-    工作区输入经 _agent_specs（卡片先经场景作息覆盖 apply_scenario_rhythm，再渲染并存结构化卡片）；
-    警告见 input_warnings。validate 用同一函数，所以两条路径对同一份编译结果给出相同的覆盖与警告。
-    @param scenario_path 冻结场景路径（解析语料根与目录）
-    @param scenario 原始加载的运行时场景（人物的 model_fields_set 可靠）
-    @param compiled 人物编号 → 编译结果（CompiledPersona，测试桩可给 PersonaCard；没有背景故事的人物为 None 或缺席）
-    @param same_second_continuation 同秒续接开关（冻结进人物配置）
-    @return（工作区输入, 输入警告）
-    """
-    specs = _agent_specs(scenario, persona_compiler=lambda agent: compiled.get(agent.agent_id),
-                         same_second_continuation=same_second_continuation)
-    return specs, input_warnings(scenario_path, scenario, compiled)
-
-
-def input_warnings(scenario_path: Path, scenario: RuntimeScenario,
-                   compiled: Mapping[int, Any]) -> list[dict[str, Any]]:
-    """@brief 按真实登记目录计算人物覆盖、空内容、作息、编译和地点显示名警告。"""
-    from worldmock.profile import injection
-    from worldmock.profile.coverage import validate_coverage
-
-    catalog = load_catalog(resolve_catalog_dir(scenario_path))
-    targets = _coverage_targets(scenario_path, scenario, catalog)
-    warnings: list[dict[str, Any]] = []
-    for agent in sorted(scenario.agents, key=lambda item: item.agent_id):
-        card, notes = _compiled_parts(compiled.get(agent.agent_id))
-        warnings += injection.content_empty_warnings(agent.agent_id, card, catalog)
-        if card is not None:
-            warnings += injection.coverage_warnings(agent.agent_id, validate_coverage(card, targets))
-            warnings += injection.apply_scenario_rhythm(card, agent).warnings
-        warnings += injection.agreement_warnings(agent.agent_id, notes)
-    return [*warnings, *injection.location_name_warnings(scenario)]
-
-
-def _coverage_targets(scenario_path: Path, scenario: RuntimeScenario, catalog: Any) -> Any:
-    """@brief 从真实登记目录与已验证的生活活动语料构造同一覆盖目标集。"""
-    from worldmock.profile.coverage_targets import build_coverage_targets
-
-    return build_coverage_targets(scenario, catalog)
-
-
-def _agent_specs(scenario: RuntimeScenario, *, persona_compiler=None,
-                 same_second_continuation: bool = True) -> tuple[dict[str, Any], ...]:
-    """@brief 从冻结生活人物形成原生 runner 工作区输入；同秒续接开关冻结进人物配置 profile["same_second_continuation"]。
-
-    新建运行时为声明 background_story 的人物注入 PersonaCard 渲染文本
-    （A9 compile_persona -> render_card，记忆巩固与反思读取 profile["persona_card"]）与卡片的结构化字段
-    profile["persona_card_struct"]（去掉当下处境，宿主据此渲染人设层，docs/design/06-agent.md「人设层」），
-    卡片先经场景作息覆盖（apply_scenario_rhythm），渲染文本与结构化字段都取覆盖后的卡片。
-    人物的口味只保留散文，不派生口味权重或注意力参数。恢复运行不重新编译，
-    人物 profile 由检查点工作区原样恢复，分支人物身份与父运行保持一致。
-    persona_compiler 供测试注入确定性桩（persona_compiler 返回 CompiledPersona、PersonaCard 或 None，
-    不触发真实模型调用）。
-    """
-    from worldmock.profile.injection import apply_scenario_rhythm
-    from worldmock.profile.models import PersonaCard, persona_card_struct
-
-    specs = []
-    for agent in sorted(scenario.agents, key=lambda item: item.agent_id):
-        profile = agent.model_dump(mode="json")
-        profile["id"] = agent.agent_id
-        profile["same_second_continuation"] = same_second_continuation
-        compiled = persona_compiler(agent) if persona_compiler is not None else _compile_persona(agent)
-        card = _compiled_parts(compiled)[0]
-        if card is not None:
-            card = apply_scenario_rhythm(card, agent).card
-            profile["persona_card"] = _render_card(card)
-            profile["persona_card_struct"] = persona_card_struct(card)
-        config = {
-            "enable_memory": True,
-            "enable_todo_list": False,
-            "max_react_turns": MAX_REACT_TURNS,
-            "disabled_skill_ids": [],
-            "default_activated_skill_ids": [],
-        }
-        specs.append({"id": agent.agent_id, "profile": profile, "config": config})
-    return tuple(specs)
-
-
-def _render_card(card: Any) -> str:
-    """@brief 编译卡片的渲染文本（记忆巩固与反思的人物段）。"""
+    """@brief 使用已编译的唯一人物卡生成原生工作区及真实目录输入警告。"""
+    persona = inputs.persona
+    card, notes = _compiled_parts(compiled.get(persona.agent_id))
+    if card is None:
+        logger.error("Compiled persona card is missing for agent %s", persona.agent_id)
+        raise IntegrityError("Compiled persona card is missing")
+    from worldmock.profile.injection import apply_persona_rhythm
+    from worldmock.profile.models import persona_card_struct
     from worldmock.profile.textgen import render_card
 
+    card = apply_persona_rhythm(card, persona).card
+    profile = persona.model_dump(mode="json")
+    profile.update({"id": persona.agent_id, "same_second_continuation": same_second_continuation,
+                    "persona_card": render_card(card), "persona_card_struct": persona_card_struct(card),
+                    "model_identity": stage_model_identity(inputs.config.model, inputs.model_metadata,
+                                                            same_second_continuation)})
+    config = {"enable_memory": True, "enable_todo_list": False,
+              "max_react_turns": inputs.config.model.max_react_turns, "disabled_skill_ids": [],
+              "default_activated_skill_ids": []}
+    specs = ({"id": persona.agent_id, "profile": profile, "config": config},)
+    return specs, input_warnings(inputs, compiled)
 
-    return render_card(card)
+
+def input_warnings(inputs: EnvironmentInputs, compiled: Mapping[int, Any]) -> list[dict[str, Any]]:
+    """@brief 按真实目录计算人物覆盖、内容、作息、一致性和地点名称警告。"""
+    from worldmock.profile import injection
+    from worldmock.profile.coverage import validate_coverage
+    from worldmock.profile.coverage_targets import build_coverage_targets
+
+    persona = inputs.persona
+    card, notes = _compiled_parts(compiled.get(persona.agent_id))
+    if card is None:
+        logger.error("Compiled persona card is missing")
+        raise IntegrityError("Compiled persona card is missing")
+    targets = build_coverage_targets(inputs)
+    return [*injection.content_empty_warnings(persona.agent_id, card, inputs.catalog),
+            *injection.coverage_warnings(persona.agent_id, validate_coverage(card, targets)),
+            *injection.apply_persona_rhythm(card, persona).warnings,
+            *injection.agreement_warnings(persona.agent_id, notes),
+            *injection.location_name_warnings(inputs.catalog)]
 
 
-def _compile_persona(agent: Any) -> Any:
-    """@brief 场景 background_story -> CompiledPersona（卡片与编译警告；真实调用走三次一致性抽取）。
-
-    编译警告（三次一致性低于 2/3 的字段、下班与到家锚点的降级说明）经输入警告 PERSONA_AGREEMENT_LOW 逐条透传，不再丢弃。
-    """
+async def _compile_persona(persona: PersonaConfig, config: ModelConfig,
+                           metadata: ModelMetadata, persona_sha256: str) -> Any:
+    """@brief 在同一原生 dispatcher 执行三次独立画像抽取，再映射实际世界动力学。"""
     from worldmock.profile.compile import compile_persona
+    from worldmock.profile.extractor import extract_persona
 
-    if agent.background_story is None:
-        return None
-
-    return compile_persona(agent.background_story)
+    extraction = await extract_persona(persona.background_story, config, metadata)
+    return compile_persona(persona, extraction=extraction, persona_sha256=persona_sha256)
 
 
-def _compiled_parts(result: Any) -> tuple[PersonaCard | None, tuple[str, ...]]:
-    """@brief 编译结果 → (卡片, 编译警告)：CompiledPersona 与带 card 的对象取其卡片与 warnings；
-    测试桩可直接给 PersonaCard（没有编译警告）或 None（没有背景故事）。"""
-    from worldmock.profile.models import PersonaCard, persona_card_struct
+def _compiled_parts(result: Any) -> tuple[Any | None, tuple[str, ...]]:
+    """@brief 取编译卡片与警告；测试可直接注入经过模型校验的卡片。"""
+    from worldmock.profile.models import PersonaCard
 
     if result is None:
         return None, ()
     if isinstance(result, PersonaCard):
         return result, ()
-    return result.card, tuple(getattr(result, "warnings", ()))
+    return result.card, tuple(result.warnings)
 
 
 RETIRED_STAGE_IDENTITY_KEY = "two_stage_model_identity"
-#: 退役工作验收阶段，与决策自述阶段同样拒绝。
-RETIRED_STAGE_NAME = "work_review"
 
 
-def validate_manifest_stage_identity(manifest: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
-    """@brief 五个入口共用的清单阶段身份校验（docs/design/06-agent.md 「模型身份」）。
-
-    新建（写清单之前）、打开既有运行（含从工作区加载）、普通恢复与反事实重放（父清单）、环境校验（manifest 为 None，
-    即新运行将冻结的清单）都只调用本函数。旧键 two_stage_model_identity 下的身份先经阶段校验，含退役的决策自述阶段即以
-    英文错误拒绝；旧键本身不提供别名或迁移。缺少 stage_model_identity 拒绝；显式为 null 的引擎直驱身份返回 None。
-    """
-    if manifest is None:
-
-
-        manifest = {"stage_model_identity": stage_model_identity()}
+def validate_manifest_stage_identity(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    """@brief 运行入口拒绝退役阶段及缺失身份，只校验实际冻结的显式身份。"""
     if RETIRED_STAGE_IDENTITY_KEY in manifest:
-        retired = manifest[RETIRED_STAGE_IDENTITY_KEY]
-        if isinstance(retired, dict):
-            validate_stage_model_identity(retired)
+        logger.error("Run manifest key %s is retired", RETIRED_STAGE_IDENTITY_KEY)
         raise IntegrityError(f"Run manifest key {RETIRED_STAGE_IDENTITY_KEY} is retired")
     if "stage_model_identity" not in manifest:
+        logger.error("Run manifest decision stage identity is missing")
         raise IntegrityError("Run manifest decision stage identity is missing")
-    identity = manifest["stage_model_identity"]
-    return None if identity is None else validate_stage_model_identity(identity)
+    return validate_stage_model_identity(manifest["stage_model_identity"])
 
 
-def validate_stage_model_identity(identity: dict[str, Any] | None = None) -> dict[str, Any]:
-    """@brief 阶段 model_identity 一致性校验：只允许行动阶段（LifeAgent 常量单一事实源）。
-
-    五个入口经 validate_manifest_stage_identity 调用本函数；含退役的决策自述阶段的身份以英文错误拒绝
-    （docs/design/06-agent.md 「模型身份」）。行动阶段的运行开关 same_second_continuation 须为布尔值
-    （第二章「同秒续接」），开与关都合法。
-    """
-
-
-    actual = identity if identity is not None else stage_model_identity()
-    if not isinstance(actual, dict):
-        raise IntegrityError("Stage model identity must be an object")
-    problems = _identity_problems(actual)
-    stages = actual.get("stages")
-    if isinstance(stages, dict):
-        for retired in (RETIRED_DECISION_STATEMENT, RETIRED_STAGE_NAME):
-            if retired in stages:
-                logger.error("Model identity stage %s is retired", retired)
-                raise IntegrityError(f"Model identity stage {retired} is retired")
-    if not isinstance(stages, dict) or set(stages) != {"action"}:
-        logger.error("Model identity stages must be exactly action")
-        raise IntegrityError("Model identity stages must be exactly action")
+def validate_stage_model_identity(identity: dict[str, Any]) -> dict[str, Any]:
+    """@brief 校验唯一行动阶段与实际容量、预算；端点及模型来自运行声明。"""
     from custom.agents.life_agent import ACTION_MAX_TOKENS, ACTION_THINKING, ACTION_TOOL_CHOICE
+    from pydantic import ValidationError
 
-    action = stages.get("action")
+    if not isinstance(identity, dict):
+        _identity_error("Stage model identity must be an object")
+    stages = identity.get("stages")
+    if not isinstance(stages, dict) or set(stages) != {"action"}:
+        _identity_error("Model identity stages must be exactly action")
+    try:
+        fields = set(ModelConfig.model_fields) - {"api_key_env"}
+        config = ModelConfig.model_validate({**{key: identity[key] for key in fields}, "api_key_env": "MODEL_KEY"})
+        metadata = ModelMetadata.model_validate(identity["model_metadata"])
+    except (KeyError, TypeError, ValidationError) as error:
+        _identity_error("Stage model identity has invalid configuration", error)
+    if (metadata.requested_model != config.requested_model or metadata.metadata_url != config.metadata_url
+            or metadata.context_window < config.context_window):
+        _identity_error("Stage model identity has inconsistent model metadata")
+    action = stages["action"]
     switch = action.get("same_second_continuation") if isinstance(action, dict) else None
-    if not isinstance(switch, bool):
-        problems.append(f"stage action same_second_continuation is {switch!r}, expected a boolean")
-    expected_action = {"thinking": ACTION_THINKING["thinking"]["type"],
-                       "tool_choice": ACTION_TOOL_CHOICE,
-                       "max_tokens": ACTION_MAX_TOKENS,
-                       "same_second_continuation": switch}
-    if action != expected_action:
-        problems.append(f"stage action is {action!r}, expected {expected_action!r}")
-    if problems:
-        raise IntegrityError("Stage model identity is inconsistent: " + "; ".join(problems))
-    return actual
+    expected = {"thinking": ACTION_THINKING["thinking"]["type"], "tool_choice": ACTION_TOOL_CHOICE,
+                "max_tokens": min(ACTION_MAX_TOKENS, metadata.max_output_tokens), "same_second_continuation": switch}
+    if (not isinstance(switch, bool) or action != expected or identity.get("strict") is not True
+            or identity.get("reasoning_effort") is not None):
+        _identity_error("Stage model identity is inconsistent")
+    allowed = fields | {"model_metadata", "stages", "strict", "reasoning_effort"}
+    if set(identity) != allowed:
+        _identity_error("Stage model identity has unexpected fields")
+    return identity
 
 
-def _identity_problems(actual: dict[str, Any]) -> list[str]:
-    """@brief 核对阶段身份的端点（DeepSeek strict 端点，主站地址即拒绝）、重试、回合预算、严格声明与 reasoning_effort 顶层字段。"""
-    from agentsociety2.config.llm_dispatcher import TRANSPORT_MAX_RETRIES
-
-    problems: list[str] = []
-    if actual.get("base_url") != DEEPSEEK_BASE_URL:
-        problems.append(f"base_url={actual.get('base_url')!r} must be the DeepSeek strict endpoint "
-                        f"{DEEPSEEK_BASE_URL!r}")
-    if actual.get("max_retries") != 0:
-        problems.append(f"max_retries={actual.get('max_retries')!r} must be 0")
-    if type(actual.get("transport_max_retries")) is not int or actual["transport_max_retries"] != TRANSPORT_MAX_RETRIES:
-        problems.append("transport_max_retries must match the dispatcher budget")
-    if type(actual.get("max_react_turns")) is not int or actual["max_react_turns"] != MAX_REACT_TURNS:
-        problems.append("max_react_turns must match the agent budget")
-    if actual.get("strict") is not True:
-        problems.append("every function declaration must be strict=true")
-    if actual.get("reasoning_effort") is not None:
-        problems.append("reasoning_effort must not be sent")
-    return problems
+def _identity_error(message: str, cause: Exception | None = None) -> None:
+    """@brief 冻结模型身份不合法时写入英文日志并停止。"""
+    logger.error("%s", message)
+    raise IntegrityError(message) from cause

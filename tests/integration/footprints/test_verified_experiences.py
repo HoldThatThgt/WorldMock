@@ -43,10 +43,10 @@ def _receipt(order_id, agent_id=1, **fields):
 
 def test_recent_window_only_projects_own_committed_progress_before_observation(store, monkeypatch):
     drafts = [
-        _progress("wait", "wait-1"),
-        _progress("wait", "other-wait", agent_id=2),
+        _progress("sleep", "sleep-1"),
+        _progress("sleep", "other-sleep", agent_id=2),
         _receipt("order-1"),
-        _progress("action", "app-1", activity={"data": {"app_id": "bilibili", "action_id": "recommend", "manner": "phone_continuous", "communication_mode": None}}, content={
+        _progress("interact", "app-1", activity={"data": {"app_id": "bilibili", "action": "interact", "content_id": "c-article"}}, content={
             "content_id": "c-article", "app_id": "bilibili",
             "position_before_seconds": 0, "position_after_seconds": 10,
             "completed": False, "completed_rounds_after": 0,
@@ -64,8 +64,8 @@ def test_recent_window_only_projects_own_committed_progress_before_observation(s
     monkeypatch.setattr(store, "read_events", lambda _: pytest.fail("observation scanned all events"))
     recent = recent_verified_experiences(store, 1, observation.event_seq - 1)
     assert recent == expected
-    assert [row["kind"] for row in recent] == ["waited", "received", "played", "arrived"]
-    assert [row["source_event_id"] for row in recent] == [event.event_id for event in committed if event.agent_id == 1]
+    assert [row["kind"] for row in recent] == ["received", "played", "arrived"]
+    assert [row["source_event_id"] for row in recent] == [event.event_id for event in committed[2:] if event.agent_id == 1]
     assert validate_verified_experiences(recent, 1, 100) == recent
     received = next(row for row in recent if row["kind"] == "received")
     assert (received["order_id"], received["goods_id"], received["category"], received["quantity"]) == (
@@ -87,33 +87,6 @@ def test_received_orders_are_distinct_and_projection_is_idempotent(store):
     assert project_verified_experiences(events + events[-1:], agent_id=1, cutoff_seq=2) == facts
 
 
-def test_real_goods_receipt_commit_projects_only_its_received_order(tmp_path):
-    """@brief 真实人工环境购买、收货结算与 SQLite 提交给出订单绑定的收到经历。"""
-    from tests.life.purchase_worlds import registered_world
-    from tests.integration.life.test_commerce import order_request
-    from worldmock.life.basket import purchase_order
-
-    semantics, state = registered_world("store")
-    outcome = purchase_order(state, semantics, 1, order_request(
-        "store", "store", None, "pickup", ("rice-ball",), payment=None))
-    store = FootprintStore.create(tmp_path / "real-receipt", {"run_id": state.run_id, "agent_ids": [1]},
-                                  state.model_dump(mode="json"))
-    try:
-        committed_state = outcome.state.model_copy(update={"version": state.version + 1})
-        payment = EventDraft(event_type="action_result", occurred_at=state.current_time, agent_id=1,
-                             data={"resource_changes": {f"account:{key}": value - state.accounts[key]
-                                   for key, value in committed_state.accounts.items()
-                                   if value != state.accounts[key]}})
-        events = store.commit(committed_state.model_dump(mode="json"), [payment, *outcome.receipts])
-        facts = recent_verified_experiences(store, 1, store.last_event_seq)
-        assert facts == project_verified_experiences(events, agent_id=1, cutoff_seq=store.last_event_seq)
-        assert facts == [{"kind": "received", "agent_id": 1, "activity_id": None,
-                          "source_event_id": events[1].event_id, "event_seq": events[1].event_seq,
-                          "occurred_at": state.current_time, "order_id": outcome.orders[0].order_id,
-                          "goods_id": "rice-ball", "category": "meal", "quantity": 1}]
-        assert validate_verified_experiences(facts, 1, state.current_time) == facts
-    finally:
-        store.close()
 
 
 @pytest.mark.parametrize("field", ["order_id", "goods_id", "category", "quantity"])
@@ -126,7 +99,7 @@ def test_missing_settlement_evidence_is_an_error_not_a_guessed_fact(store, field
 
 
 def test_reference_window_rejects_other_person_and_future_time(store):
-    event = store.commit(store.state, [_progress("wait", "wait-1")])[0]
+    event = store.commit(store.state, [_receipt("order")])[0]
     fact = project_verified_experiences([event], agent_id=1, cutoff_seq=1)[0]
     with pytest.raises(IntegrityError):
         validate_verified_experiences([{**fact, "agent_id": 2}], 1, 100)
@@ -135,7 +108,7 @@ def test_reference_window_rejects_other_person_and_future_time(store):
 
 
 def test_observed_window_rejects_invalid_boundary_duplicates_and_reordering(store):
-    events = store.commit(store.state, [_progress("wait", "first"), _progress("wait", "second")])
+    events = store.commit(store.state, [_receipt("first"), _receipt("second")])
     facts = project_verified_experiences(events, agent_id=1, cutoff_seq=2)
     with pytest.raises(IntegrityError, match="window"):
         validate_verified_experiences(facts, 0, 100)
@@ -146,14 +119,14 @@ def test_observed_window_rejects_invalid_boundary_duplicates_and_reordering(stor
 
 
 def test_projection_rejects_uncommitted_origin_conflict_and_invalid_cutoff(store):
-    events = store.commit(store.state, [_progress("wait", "first"), _progress("wait", "second")])
+    events = store.commit(store.state, [_receipt("first"), _receipt("second")])
     with pytest.raises(IntegrityError, match="boundary"):
         project_verified_experiences(events, agent_id=0, cutoff_seq=2)
     with pytest.raises(IntegrityError, match="cutoff"):
         project_verified_experiences(events, agent_id=1, cutoff_seq=1)
     with pytest.raises(IntegrityError, match="ordered"):
         project_verified_experiences(list(reversed(events)), agent_id=1, cutoff_seq=2)
-    changed = events[0].model_copy(update={"data": {"activity": {"kind": "action"}}})
+    changed = events[0].model_copy(update={"data": {**events[0].data, "quantity": 2}})
     with pytest.raises(IntegrityError, match="conflicts"):
         project_verified_experiences([events[0], changed], agent_id=1, cutoff_seq=2)
     untrusted = events[0].model_copy(update={"source_kind": "model"})
@@ -162,7 +135,7 @@ def test_projection_rejects_uncommitted_origin_conflict_and_invalid_cutoff(store
 
 
 def test_recent_experience_reader_rejects_uncommitted_cutoff_and_bad_query(store):
-    store.commit(store.state, [_progress("wait", "first")])
+    store.commit(store.state, [_receipt("first")])
     with pytest.raises(IntegrityError, match="cutoff"):
         recent_verified_experiences(store, 1, store.last_event_seq + 1)
     with pytest.raises(IntegrityError, match="boundary"):
@@ -170,7 +143,7 @@ def test_recent_experience_reader_rejects_uncommitted_cutoff_and_bad_query(store
 
 
 def test_recent_reader_returns_no_experience_from_another_person(store):
-    store.commit(store.state, [_progress("wait", "other", agent_id=2)])
+    store.commit(store.state, [_receipt("other", agent_id=2)])
     assert recent_verified_experiences(store, 1, store.last_event_seq) == []
 
 
@@ -181,7 +154,7 @@ def test_received_window_ignores_payment_delivery_and_retired_consumption(store)
                    data={"orders": [{"order_id": "other", "status": "delivered", "recipient_id": "agent:2"}]}),
         EventDraft(event_type="environment_event", occurred_at=100, agent_id=1,
                    data={"kind": "delivery_arrival", "scheduled_id": "arrival", "orders": []}),
-        _progress("consume", "retired", consumption={"items": [{"food_id": "rice", "interval_portion": 1}]}),
+        _progress("sleep", "rest"),
         _receipt("other", agent_id=2),
     ])
     assert project_verified_experiences(events, agent_id=1, cutoff_seq=4) == []
@@ -240,7 +213,7 @@ def test_received_recent_window_pages_past_nonprojected_activity_sources(store, 
 
 def test_zero_playback_and_unfinished_travel_do_not_become_completed_facts(store):
     events = store.commit(store.state, [
-        _progress("action", "app", activity={"data": {"app_id": "bilibili", "action_id": "recommend", "manner": "phone_continuous", "communication_mode": None}}, content={
+        _progress("interact", "app", activity={"data": {"app_id": "bilibili", "action": "interact", "content_id": "c-article"}}, content={
             "content_id": "c-article", "app_id": "bilibili",
             "position_before_seconds": 10, "position_after_seconds": 10,
             "completed": False, "completed_rounds_after": 0,
@@ -282,41 +255,11 @@ def test_arrival_snapshot_at_origin_still_projects_arrived(store):
 @pytest.mark.parametrize("count", [8, 40])
 def test_recent_window_returns_latest_five_before_cutoff_with_more_history(store, count):
     """最近窗口明确排除旧经历、其他人物以及截止之后的新经历。"""
-    own = store.commit(store.state, [_progress("wait", f"own-{index}") for index in range(count)])
-    store.commit(store.state, [_progress("wait", "other", agent_id=2)])
+    own = store.commit(store.state, [_receipt(f"own-{index}") for index in range(count)])
+    store.commit(store.state, [_receipt("other", agent_id=2)])
     cutoff = store.last_event_seq
-    store.commit(store.state, [_progress("wait", "after-cutoff")])
+    store.commit(store.state, [_receipt("after-cutoff")])
     facts = recent_verified_experiences(store, 1, cutoff)
-    assert [row["activity_id"] for row in facts] == [f"own-{index}" for index in range(count - 5, count)]
+    assert [row["order_id"] for row in facts] == [f"own-{index}" for index in range(count - 5, count)]
     assert [row["source_event_id"] for row in facts] == [event.event_id for event in own[-5:]]
     assert [row["event_seq"] for row in facts] == list(range(count - 4, count + 1))
-
-
-def test_actual_engine_app_progress_projects_the_consumed_content_and_app(engine_factory):
-    """真实宿主自动接续内容后，经历仍引用该区间消费的内容而不是已抽出的下一项。"""
-    from tests.life.conftest import stage_day_plan
-    from tests.integration.life.test_acs_runtime import request
-    from tests.integration.life.test_acs_amended_runtime import perform, pump
-
-    engine = engine_factory()
-    stage_day_plan(engine)
-    started = perform(engine, "verified-app", request("刷推荐", "抖音", "进行"))
-    assert started.status.value == "in_progress"
-    pump(engine, lambda: any(event.data.get("content", {}).get("completed") for event in
-                            engine.context.store.read_agent_events("activity_progress", 1)))
-    events = engine.context.store.read_events(engine.context.store.last_event_seq)
-    sources = [event for event in events if event.event_type == "activity_progress"
-               and event.activity_id == started.activity_id and event.data["content"]["position_after_seconds"]
-               > event.data["content"]["position_before_seconds"]]
-    assert sources and any(source.data["content"]["completed"] for source in sources)
-    facts = project_verified_experiences(events, agent_id=1, cutoff_seq=engine.context.store.last_event_seq)
-    played = [fact for fact in facts if fact["kind"] == "played"]
-    assert len(played) == len(sources)
-    for fact, source in zip(played, sources, strict=True):
-        content = source.data["content"]
-        assert fact["source_event_id"] == source.event_id and fact["app_id"] == "douyin"
-        assert fact["content_id"] == content["content_id"]
-        assert fact["position_before_seconds"] == content["position_before_seconds"]
-        assert fact["position_after_seconds"] == content["position_after_seconds"]
-    assert any(source.data["activity"]["data"]["content_id"] != source.data["content"]["content_id"]
-               for source in sources)

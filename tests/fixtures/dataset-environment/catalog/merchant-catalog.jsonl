@@ -1,0 +1,7 @@
+{"category":"meal","goods_id":"beef-noodles","name":"牛肉面","price_fen":2800,"store_kinds":["restaurant"]}
+{"category":"snack","goods_id":"chips","name":"薯片","price_fen":800,"store_kinds":["cafe","convenience_store","restaurant"]}
+{"category":"drink","goods_id":"lemon-tea","name":"柠檬茶","price_fen":1200,"store_kinds":["cafe","convenience_store","restaurant"]}
+{"app_ids":["bilibili"],"category":"goods","goods_id":"online-notebook","name":"平台笔记本","price_fen":1200}
+{"category":"goods","goods_id":"playing-cards","name":"扑克牌","price_fen":1500,"store_kinds":["cafe","convenience_store","restaurant"]}
+{"category":"meal","goods_id":"rice-ball","name":"饭团","price_fen":1000,"store_kinds":["convenience_store"]}
+{"category":"goods","goods_id":"tissue","name":"纸巾","price_fen":600,"store_kinds":["convenience_store"]}

@@ -14,7 +14,7 @@ from typing import Any
 from worldmock.life import felt
 from worldmock.life.callable_index import MAX_EXAMPLES
 from worldmock.life.control_items import CONTROL_TOOLS
-from worldmock.life.vocabulary import LIFE_VERBS, WAYS
+from worldmock.life.action_contract import ACTIVITY_ACTIONS
 from worldmock.life.models import ActionStatus
 from worldmock.life.schedule import INTENT_KINDS
 from worldmock.life.work_schedule import DUTY_DAYS, DUTY_STATUSES
@@ -28,12 +28,10 @@ _TEXT = {"type": "string", "minLength": 1}
 _NULLABLE_TEXT = {"type": ["string", "null"], "minLength": 1}
 _LINES = {"type": "array", "items": _TEXT}
 
-#: 工具层目标类别闭集（英文值；场景联系人并入 person）。
-TARGET_KINDS = ("location", "product", "action", "person", "contact", "self", "activity")
-#: 工具层方式全部来自当前方式闭集。
-WAY_LABELS = tuple(WAYS)
+#: 工具层目标类别闭集，只含当前真实目标。
+TARGET_KINDS = ("location", "product", "app", "activity")
 #: 以目标名称为参数的其他工具。
-TARGET_TOOLS = (*CONTROL_TOOLS, "send_message")
+TARGET_TOOLS = CONTROL_TOOLS
 #: 动作状态由生产枚举按声明顺序投影。
 ACTION_STATUSES = tuple(status.value for status in ActionStatus)
 #: 五项体感分级文字由实际分级表派生。
@@ -41,9 +39,8 @@ BODY_LEVELS = {
     "appetite": (felt.APETITE_BASE_LEVEL, *(label for _, label in felt.APPETITE_BANDS),
                  felt.APPETITE_STARVING_LEVEL),
     "sleepiness": (felt.SLEEPINESS_BASE_LEVEL, *(label for _, label in felt.SLEEPINESS_BANDS)),
-    "entertainment": (felt.ENTERTAINMENT_BASE_LEVEL, *(label for _, label in felt.ENTERTAINMENT_BANDS)),
+    "relaxation": ("不闷", "有点想放松", "很想放松"),
     "social": (felt.SOCIAL_BASE_LEVEL, *(label for _, label in felt.SOCIAL_BANDS)),
-    "mood": (felt.MOOD_BASE_LEVEL, *(label for _, label in felt.MOOD_BANDS)),
 }
 
 def _object(properties: dict[str, Any], optional: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -67,17 +64,10 @@ def _tool_action(tools: tuple[str, ...]) -> dict[str, Any]:
 
 
 _VERB_ACTION = _availability({
-    "action": {"enum": list(LIFE_VERBS)}, "way": {"enum": list(WAY_LABELS)},
-    "app": _NULLABLE_TEXT, "price": _NULLABLE_TEXT, "duration": _NULLABLE_TEXT,
+    "action": {"enum": list(ACTIVITY_ACTIONS)}, "price": _NULLABLE_TEXT, "duration": _NULLABLE_TEXT,
     "quantity": _NULLABLE_TEXT, "note": _NULLABLE_TEXT})
 
 
-def _tools_for(kind: str, tools: tuple[str, ...]) -> dict[str, Any]:
-    """@brief 某类目标的 tools 形状：按固定顺序列出该类的工具。"""
-    return {"if": {"properties": {"kind": {"const": kind}}},
-            "then": {"properties": {"tools": {"prefixItems": [
-                {"properties": {"tool": {"const": tool}}} for tool in tools],
-                "minItems": len(tools), "maxItems": len(tools)}}}}
 
 
 _TARGET = _object({
@@ -90,10 +80,7 @@ _TARGET["allOf"] = [
     {"if": {"properties": {"kind": {"const": "activity"}}},
      "then": {"properties": {"phase": {"enum": ["进行中", "刚结束"]}, "actions": {"maxItems": 0}}},
      "else": {"properties": {"phase": {"type": "null"}}}},
-    _tools_for("activity", CONTROL_TOOLS),
-    _tools_for("person", ("send_message",)),
-    _tools_for("contact", ("send_message",)),
-    {"if": {"properties": {"kind": {"enum": ["activity", "person", "contact"]}}}, "else": {
+    {"if": {"properties": {"kind": {"const": "activity"}}}, "else": {
         "properties": {"tools": {"maxItems": 0}}}},
 ]
 
@@ -108,11 +95,10 @@ _INDEX_CATEGORY = _object({"category": _TEXT, "count": {"type": "string", "patte
                                         "items": _TEXT}})
 #: 工具层的可调用索引（docs/design/04-simulation-engine.md ）：只有名称、品类与计数，不带动作与条件。
 _CALLABLE_INDEX = _object({
-    "navigation_apps": {"type": "array", "uniqueItems": True, "items": _TEXT},
-    "payment_apps": {"type": "array", "uniqueItems": True, "items": _TEXT},
     "goods": {"type": "array", "items": _INDEX_CATEGORY},
     "query_categories": {"type": "array", "items": _object({"category": _TEXT,
-                          "count": {"type": "integer", "minimum": 0}})},
+                          "count": {"type": "integer", "minimum": 0},
+                          "examples": {"type": "array", "maxItems": MAX_EXAMPLES, "items": _TEXT}})},
 })
 
 TOOL_LAYER_SCHEMA: dict[str, Any] = {
@@ -122,8 +108,8 @@ TOOL_LAYER_SCHEMA: dict[str, Any] = {
 }
 
 
-_GROUP = _object({"kind": {"enum": list(TARGET_KINDS)}, "action": {"enum": [*LIFE_VERBS, None]},
-                  "way": {"enum": [*WAY_LABELS, None]}, "shared": {"type": "object"},
+_GROUP = _object({"kind": {"enum": list(TARGET_KINDS)}, "action": {"enum": [*ACTIVITY_ACTIONS, None]},
+                  "shared": {"type": "object"},
                   "targets": {"type": "array", "minItems": 1, "items": {"type": "object"}}})
 COMPACT_TOOL_LAYER_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "工具层",
@@ -169,7 +155,7 @@ MEMORY_LAYER_SCHEMA: dict[str, Any] = {
     }),
 }
 
-_GOAL = _object({"intent_kind": {"enum": list(INTENT_KINDS)}, "goal": _TEXT, "progressed": {"type": "boolean"},
+_GOAL = _object({"intent_kind": {"enum": list(INTENT_KINDS)}, "goal": _TEXT,
                  "remind_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"},
                  "around_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"}})
 #: 待办层的一条个人事务（docs/design/04-simulation-engine.md ）：六键，不含内部身份、状态枚举与可用性。
@@ -204,18 +190,31 @@ ENVIRONMENT_LAYER_SCHEMA: dict[str, Any] = {
     **_object({
         "layer": {"const": "环境层"}, "observed_at": _TIME,
         "body": _object({key: {"enum": list(levels)} for key, levels in BODY_LEVELS.items()}),
-        "location": _object({"session_kind": {"enum": ["stay", "transit"]}, "name": _TEXT, "place_type": _TEXT,
-                             "fixed_rules": {"type": "array", "uniqueItems": True, "items": _TEXT}}),
+        "location": _object({"session_kind": {"enum": ["stay", "transit"]}, "name": _TEXT,
+                             "travel_mode": _TEXT}, optional=("travel_mode",)),
+        "weather": {"enum": ["晴", "多云", "小雨", "大雨", "雪"]},
         "duty": {"oneOf": [{"type": "null"}, _DUTY]},
     }),
 }
 
+_PURCHASE = _object({"product": _TEXT, "quantity": _TEXT, "destination": _TEXT,
+                     "expected_at": _TIME, "paid": _TEXT, "price": _TEXT}, optional=("paid", "price"))
+_PURCHASE["oneOf"] = [{"required": ["paid"], "not": {"required": ["price"]}},
+                       {"required": ["price"], "not": {"required": ["paid"]}}]
+_RESULT_DETAILS = _object({
+    "purchases": {"type": "array", "items": _PURCHASE},
+    "planned": {"type": "array", "items": _object({"name": _TEXT, "duration": _TEXT})},
+    "arrival": _object({"place": _TEXT, "access": {"enum": ["进入", "没能进去"]}}),
+    "recall": {"type": "object"}, "reason": _TEXT, "next_step": _TEXT, "fix": _TEXT,
+    "items": {"type": "array", "items": {"type": "object"}},
+    "outcome": {"type": "array", "items": _object({"activity": _TEXT, "outcome": _TEXT})},
+    "resolved": {"type": "array", "items": {"type": "object"}},
+    "notes": {"type": "array", "items": _TEXT},
+    "errands": {"type": "array", "items": _object({"errand": _TEXT, "change": _TEXT})},
+}, optional=("purchases", "planned", "arrival", "recall", "reason", "next_step", "fix", "items", "outcome",
+             "resolved", "notes", "errands"))
 _RESULT = _object({"occurred_at": _TIME, "status": {"enum": list(ACTION_STATUSES)},
-                   "error_code": _NULLABLE_TEXT, "message": _TEXT, "details": {"type": "object", "properties": {
-                       "content": _object({"action": _TEXT, "app": _NULLABLE_TEXT, "title": _TEXT,
-                                           "summary": {"type": "string", "maxLength": 200},
-                                           "duration": _TEXT, "pushed": {"type": "boolean"}})}},
-                   })
+                   "error_code": _NULLABLE_TEXT, "message": _TEXT, "details": _RESULT_DETAILS})
 
 
 def _record(kind: str, fields: dict[str, Any], optional: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -223,14 +222,6 @@ def _record(kind: str, fields: dict[str, Any], optional: tuple[str, ...] = ()) -
     return _object({"occurred_at": _TIME, "type": {"const": kind}, **fields}, optional=optional)
 
 
-_MESSAGE_RECORD = _record("message_arrival", {
-    "sender": _NULLABLE_TEXT, "kind": {"enum": ["direct", "chat_invite", "mail"]},
-    "text": _TEXT, "subject": _TEXT, "body": _TEXT,
-}, optional=("text", "subject", "body"))
-_MESSAGE_RECORD["if"] = {"properties": {"kind": {"const": "mail"}}}
-_MESSAGE_RECORD["then"] = {"required": ["subject", "body"], "not": {"required": ["text"]}}
-_MESSAGE_RECORD["else"] = {"required": ["text"], "not": {"anyOf": [{"required": ["subject"]}, {"required": ["body"]}]},
-                           "properties": {"sender": _TEXT}}
 PROGRESS_LAYER_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "进度层",
     **_object({
@@ -242,12 +233,12 @@ PROGRESS_LAYER_SCHEMA: dict[str, Any] = {
             _record("tool_call", {"tool": {"type": "string", "pattern": r"^[a-z][a-z0-9_]*$"},
                                   "arguments": {"type": "object"}, "result": _RESULT, "self_note": _TEXT},
                     optional=("self_note",)),
-            _MESSAGE_RECORD,
             _record("delivery", {"order": _TEXT, "status": {"enum": ["pending", "ready_for_pickup", "delivered"]},
                                  "message": _TEXT}),
-            _record("app_push", {"app": _TEXT, "action": _TEXT, "title": _TEXT,
+            _record("app_push", {"app": _TEXT, "title": _TEXT,
                                   "summary": {"type": "string", "maxLength": 200}}),
-            _record("work_completed", {"topic": _TEXT}),
+            _record("callback_reminder", {"app": _TEXT, "text": _TEXT}),
+            _record("balance_decreased", {"message": _TEXT}),
             _record("plan_reminder", {"goal": _TEXT}),
             _record("errand_reminder", {"errand": _TEXT}),
             _record("errand_completed", {"errand": _TEXT}),

@@ -1,22 +1,4 @@
-"""@brief 零点计划 plan_day 的只读输入装配（docs/design/04-simulation-engine.md「输入、调用、失败与记录」）。
-
-输入全部来自世界状态与足迹记录，不读人物工作区与记忆运行时：人物档案与场景背景原文（background_story）、
-回顾时段里已核验经历的句子与本人已结算的公开动作结果（消息送达、订单受理与交付、结束的活动），二者都取
-settled_text 的共享句式（docs/design/06-agent.md「settled 的写法」）、
-回顾时段里已受理的 conclude_activity 请求记下的 summary 与记忆（经 control_items 读出，含看法与偏好；标「你自己记下的，
-未经核验」；被拒与重放的请求不列），以及此刻可见的事实子集：工作主题、还没办完的个人事务、收件箱、在途订单及预计送达、
-联系人、上一天目标的推进情况。
-「个人事务」是只读键（docs/design/04-simulation-engine.md ）：行与待办层同一构造（errands.plan_rows），写名称、要办成
-什么、已办到哪、备注与提醒时刻，不登记来源事件；零点计划不创建、不更改、不终结事务，「待办任务」只呈现分配的工作主题。
-「上班安排」是场景声明的工作安排按输入「计划日期」所指的本地日求值的结果（docs/design/06-agent.md 4.6；
-零点边界上即新开始的一日）：与环境层 duty 同源（work_schedule.day_arrangement），不含 status，地点写显示名，
-没有工作安排为 null。
-不读身体数值、交互对象、私有绑定、未到期的预排事件与人物的主观记忆库，也不含内部身份。
-
-回顾时段自 day_start 至 now：零点边界上是刚结束的本地日（前一日零点至本次零点），启动路径上是生成时刻所在
-本地日里生成时刻之前的部分（起点恰为零点时为空）。动作结果与收尾按发生时刻取闭区间；经历按结算区间的结束时刻取左开右闭，
-day_start 那一刻结束的区间属于前一日，本次零点结束的末段属于刚结束的这一日。
-"""
+"""@brief 零点计划只读人物声明、当前上班安排、真实经历与结果、主观收尾、个人事务和本人在途订单。"""
 
 from __future__ import annotations
 
@@ -26,9 +8,8 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from worldmock.footprints.experiences import project_verified_experiences
-from worldmock.life import errands, progress_layer, projection, work_schedule
+from worldmock.life import errands, progress_layer, work_schedule
 from worldmock.life.control_items import control_items
-from worldmock.life.readable import duration_phrase
 from worldmock.life.day_planning import SELF_REPORT_NOTE, plan_date
 from worldmock.life.settled_text import (
     ActivityFacts,
@@ -82,7 +63,7 @@ class _Window:
 
 def plan_inputs(context: Any, observations: Any, midnight_pending: bool, agent_id: int) -> PlanInputs:
     """@brief 为一个人物装配零点计划输入（只读引擎的世界状态、场景与足迹库，不产生任何事件）。"""
-    state, zone = context.state, context.scenario.timezone
+    state, zone = context.state, context.config.timezone
     window = _review_window(state.current_time, zone, midnight_pending)
     agent = state.agents[agent_id]
     experiences = _experience_sentences(context, observations, agent_id, window)
@@ -98,14 +79,8 @@ def plan_inputs(context: Any, observations: Any, midnight_pending: bool, agent_i
         "上班安排": _duty_arrangement(context, agent_id),
         "动作结果": results,
         "收尾记录": conclusions,
-        "待办任务": _task_rows(context, observations, agent, window),
         "个人事务": errands.plan_rows(agent, _product_names(context), zone),
-        "收件箱": _inbox_rows(context, agent, window),
         "在途订单": _pending_orders(context, agent_id, window),
-        "联系人": [
-            {"称呼": row["salutation"], "关系": row["relation"]}
-            for row in projection._contact_rows(context.scenario, agent)
-        ],
         "上一天的目标": goals,
     }
     return PlanInputs(payload, experiences, (*result_sources, *conclusion_sources, *goal_sources))
@@ -123,7 +98,7 @@ def _review_window(now: int, timezone_name: str, midnight_boundary: bool) -> _Wi
 def _persona(context: Any, agent_id: int) -> dict[str, Any]:
     """@brief 场景声明的人物档案与背景原文（不读工作区里编译过的卡片）：下班、到家时段只取场景字段、未声明省略，只来自
     卡片的下班与到家时刻不进这里（docs/design/06-agent.md#agent-场景作息覆盖 ）。"""
-    config = next(item for item in context.scenario.agents if item.agent_id == agent_id)
+    config = context.persona
     fields = {
         "名字": config.name,
         "背景": config.background_story,
@@ -151,9 +126,9 @@ def _hours(window: tuple[float, float] | None) -> str | None:
 
 def _duty_arrangement(context: Any, agent_id: int) -> dict[str, Any] | None:
     """@brief 计划日期当天的上班安排（与环境层 duty 同源，不含 status）；没有工作安排为 None。"""
-    config = next(item for item in context.scenario.agents if item.agent_id == agent_id)
-    day = date.fromisoformat(plan_date(context.state.current_time, context.scenario.timezone))
-    places = {item.location_id: item.name for item in context.scenario.locations}
+    config = context.persona
+    day = date.fromisoformat(plan_date(context.state.current_time, context.config.timezone))
+    places = {key: item.display_name for key, item in context.catalog.locations.items()}
     return work_schedule.day_arrangement(config.work_schedule, day, places)
 
 
@@ -176,7 +151,7 @@ def _experience_sentences(
 
 
 def _result_sentences(context: Any, observations: Any, agent_id: int, window: _Window) -> tuple[list[str], list[str]]:
-    """@brief 本人已结算的公开动作结果与送达，写成 settled 句（与记忆层同一共享句式，不含身份）：发消息、下单、
+    """@brief 本人已结算的公开动作结果与送达，写成 settled 句（与记忆层同一共享句式，不含身份）：下单、
     送达，以及在回顾时段内结束的活动（按结束事件，起止含已恢复的暂停区间）；失败、重放的请求与其余工具不写。"""
     store = context.store
     context = observations._layer_context(context.state.agents[agent_id], [])
@@ -214,7 +189,7 @@ def _result_sentences(context: Any, observations: Any, agent_id: int, window: _W
 
 def _place(context: Any, location_id: str) -> str:
     """@brief 地点名称。"""
-    return next(item.name for item in context.scenario.locations if item.location_id == location_id)
+    return context.catalog.locations[location_id].display_name
 
 
 def _conclusion_records(context: Any, agent_id: int, window: _Window) -> tuple[list[dict], list[str]]:
@@ -252,46 +227,20 @@ def _conclusion_records(context: Any, agent_id: int, window: _Window) -> tuple[l
     return records, sources
 
 
-def _task_rows(context: Any, observations: Any, agent: Any, window: _Window) -> list[dict[str, Any]]:
-    """@brief 未完成的分配工作内容只写标题、总时长和实际已做秒数。"""
-    config = next(item for item in context.scenario.agents if item.agent_id == agent.agent_id)
-    rows = []
-    for content_id in config.work_content_ids:
-        content = context.semantics.catalog.contents[content_id]
-        progress = agent.content_progress.get(content_id)
-        if progress is not None and progress.completed_rounds:
-            continue
-        seconds = 0 if progress is None else progress.position_seconds
-        rows.append({"主题": content.title, "目标": duration_phrase(content.duration_seconds),
-                     "已做": duration_phrase(seconds)})
-    return rows
 
 
 def _product_names(context: Any) -> dict[str, str]:
     """@brief 冻结目录里商品的商品身份 → 商品名（个人事务「要办成什么」按它写商品名，与待办层同一张表）。"""
-    return {product_id: item.name for product_id, item in context.semantics.catalog.goods.items()}
+    return {product_id: item.name for product_id, item in context.catalog.goods.items()}
 
 
-def _inbox_rows(context: Any, agent: Any, window: _Window) -> list[dict[str, Any]]:
-    """@brief 收件箱：发件人、摘要、是否已读与时间（与观察同源，不含消息身份）。"""
-    inputs = projection.ProjectionInputs(
-        state=context.state,
-        scenario=context.scenario,
-        agent=agent,
-        extras={"scenario_messages": context.rules.messages},
-    )
-    rows = projection._public_inbox(inputs, projection._inbox_rows(inputs))
-    return [
-        {"发件人": row["sender"], "摘要": row["head"], "已读": row["read"], "时间": window.when(row["created_at"])}
-        for row in rows
-    ]
 
 
 def _pending_orders(context: Any, agent_id: int, window: _Window) -> list[dict[str, Any]]:
     """@brief 在途订单及预计送达（state.deliveries 中本人待交付的订单）。"""
     return [
         {
-            "商品": context.semantics.catalog.goods[item.goods_id].name,
+            "商品": context.catalog.goods[item.goods_id].name,
             "数量": item.quantity,
             "预计送达": window.when(item.expected_at),
             "送到": _place(context, item.destination_id),
@@ -320,7 +269,6 @@ def _previous_goals(context: Any, agent_id: int, window: _Window) -> tuple[list[
         {
             "意图": goal["intent_kind"],
             "目标": goal["goal"],
-            "推进": "已推进" if goal.get("progressed_at") is not None else "未推进",
         }
         for goal in plan["goals"]
     ], [source]

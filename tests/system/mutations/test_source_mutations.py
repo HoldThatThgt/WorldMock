@@ -2,15 +2,13 @@
 
 import pytest
 
-from tests import acs_acceptance, errands_workday_acceptance, idle_fillers_acceptance
-from tests import rrs_acceptance, tool_interaction_acceptance
+from tests import dataset_acceptance
 from tests.acceptance_guard import resolve_problem
 from tests.mutation_runner import mutated_source
 
 
 @pytest.mark.parametrize("registration", [
-    acs_acceptance, rrs_acceptance, errands_workday_acceptance,
-    idle_fillers_acceptance, tool_interaction_acceptance,
+    dataset_acceptance,
 ], ids=lambda registration: registration.__name__.rsplit(".", 1)[-1])
 def test_source_mutations_have_unique_compilable_anchors_and_existing_killers(registration):
     """@brief 每个变异改变可编译源码，且对应实际存在、未跳过的行为测试。"""

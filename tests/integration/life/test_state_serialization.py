@@ -22,30 +22,29 @@ def _world_state() -> WorldState:
         name="Alice",
         location_id="home",
         balance_account_id="agent:1",
-        driving_days=0,
-        last_driving_date=None,
-        body=BodyState(energy_kcal=500, sleep_pressure=0.0, sleep_deficit_hours=1, entertainment_need=0.5),
-        active_effects={"work_notes", "coffee"},
+        body=BodyState(energy_kcal=500, sleep_pressure=0.0, sleep_deficit_hours=1, sleep_need_hours=7.5,
+                       chronotype_midsleep=4.0, relaxation_need=0.5, social_need=0.5,
+                       social_need_growth_per_hour=0.06),
+        callback_once_keys={"fuel:2026-01-06", "fuel:2026-01-05"},
         body_settled_at=1,
         next_decision_at=1,
-        read_inbox_ids={"mail-z", "mail-a"},
-        visible_message_ids={"visible-z", "visible-a"},
     )
     activity = ActivityState(
         activity_id="activity-1",
         agent_id=1,
         location_id="home",
-        kind="wait",
+        kind="interact",
         status="active",
         started_at=1,
         planned_end_at=10,
         last_settled_at=1,
         elapsed_seconds=0,
         planned_duration_seconds=9,
-        resource_claims={"wait"},
+        resource_claims={"second"},
         origin_action_id="action-1",
         origin_decision_id="decision-1",
         origin_request_event_id="request-1",
+        data={"action": "interact"},
     )
     return WorldState(
         schema_version=WORLD_SCHEMA_VERSION,
@@ -54,9 +53,10 @@ def _world_state() -> WorldState:
         end_time=10,
         run_id="run-1",
         timezone="Asia/Shanghai",
-        scenario_sha256="a" * 64,
+        persona_sha256="a" * 64,
+        config_sha256="b" * 64,
         agents={1: agent},
-        accounts={"agent:1": 0},
+        accounts={"agent:1": 0, "external:scenario": 0},
         activities={activity.activity_id: activity},
         presentation_state={1: {"product-z": 1_700_000_000, "product-a": 1_700_000_600}},
         random_seed=1,
@@ -69,9 +69,7 @@ def _set_arrays(payload: dict) -> list[list[str]]:
     agent = payload["agents"]["1"]
     activity = payload["activities"]["activity-1"]
     return [
-        agent["active_effects"],
-        agent["read_inbox_ids"],
-        agent["visible_message_ids"],
+        agent["callback_once_keys"],
         activity["resource_claims"],
     ]
 
@@ -125,7 +123,7 @@ def test_json_mode_sorts_every_persisted_string_set() -> None:
     for values in _set_arrays(payload):
         assert isinstance(values, list)
         assert values == sorted(values)
-    assert isinstance(state.model_dump()["agents"][1]["active_effects"], set)
+    assert isinstance(state.model_dump()["agents"][1]["callback_once_keys"], set)
     assert isinstance(state.model_dump()["activities"]["activity-1"]["resource_claims"], set)
     # 轮转派生量按（人物, 对象标识）逐个记录时刻，JSON 模式取值确定
     assert payload["presentation_state"] == {

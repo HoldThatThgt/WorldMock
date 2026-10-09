@@ -1,14 +1,14 @@
 """@brief LifeEnv 的封闭请求、状态与结果模型。"""
 
 from __future__ import annotations
-from worldmock.life.social import SOCIAL_RESOURCE_CLAIMS
 from worldmock.exchange.types import GoodsCategory
-from worldmock.catalog.affordances import engine_affordances
 
 from worldmock.base_models import StrictModel, FrozenModel
 from worldmock.errors import IntegrityError
 import logging
 import re
+import unicodedata
+from worldmock.life.action_contract import ACTIVITY_ACTIONS, ActivityAction, activity_slot
 from datetime import date
 from enum import StrEnum
 from collections.abc import Callable, Sequence
@@ -19,9 +19,7 @@ from pydantic import (ValidationError, BaseModel, ConfigDict, Field, StrictBool,
 
 from worldmock.life.errand_state import (ERRAND_NAME_MAX_CHARS, ERRAND_QUANTITY_MAX, ERRAND_QUANTITY_MIN,
                                          ERRAND_TEXT_MAX_CHARS, MAX_ERRAND_CHANGES, ErrandState)
-from worldmock.life.schedule import MAX_PLAN_GOALS, PLAN_GOAL_MAX_CHARS, DayPlan, IntentKind, alarm_time
-from worldmock.life.social import Message
-from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
+from worldmock.life.schedule import MAX_PLAN_GOALS, PLAN_GOAL_MAX_CHARS, DayPlan, IntentKind
 
 # 世界状态以调度基础层的预排事件模型保存未来边界。
 from worldmock.scheduling.events import ScheduledEvent
@@ -32,10 +30,7 @@ from worldmock.scheduling.events import ScheduledEvent
 #: 版本 8（docs/design/06-agent.md「版本」）新增 SessionState.opened_by_action_id 与
 #: ActivityState.paused_at，观察改为七层数据；版本 9（docs/design/04-simulation-engine.md ）新增只存未完成个人事务的
 #: AgentState.errands。
-WORLD_SCHEMA_VERSION = 11
-
-#: 普通活动的派生时长上限。
-DERIVED_DURATION_CAP_SECONDS = 86400
+WORLD_SCHEMA_VERSION = 12
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -78,17 +73,10 @@ class ModelIdentity(FrozenModel):
     requested_model: str
     thinking: Literal["disabled", "enabled"]
     tool_choice: Literal["required", "auto"]
-    max_retries: Literal[0]
+    max_retries: int = Field(strict=True, ge=0, le=10)
+    transport_max_retries: int = Field(strict=True, ge=0, le=10)
     prompt_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     tool_schema_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-
-    @model_validator(mode="after")
-    def validate_endpoint(self) -> "ModelIdentity":
-        """@brief 冻结模型身份必须使用单一官方端点：DeepSeek strict 端点与配置的模型（主站地址即拒绝）。"""
-        if self.base_url != DEEPSEEK_BASE_URL or self.requested_model != DEEPSEEK_MODEL:
-            _LOGGER.error("Model identity endpoint does not match the configured DeepSeek model")
-            raise ValueError("Model identity endpoint does not match the configured DeepSeek model")
-        return self
 
 
 class RunIdentity(FrozenModel):
@@ -150,10 +138,10 @@ class CounterfactualReceipt(FrozenModel):
 class ActivityKind(StrEnum):
     """@brief 人物能够显式启动的活动类型。"""
 
-    WAIT = "wait"
     SLEEP = "sleep"
     TRAVEL = "travel"
-    ACTION = "action"
+    INTERACT = "interact"
+    PURCHASE = "purchase"
 
 
 class ActivityStatus(StrEnum):
@@ -199,8 +187,10 @@ class FulfillmentKind(StrEnum):
 class TravelMode(StrEnum):
     """@brief 冻结路线支持的出行方式。"""
 
-    DRIVING = "driving"
     WALKING = "walking"
+    DRIVING = "driving"
+    TAXI = "taxi"
+    BUS = "bus"
 
 
 
@@ -212,26 +202,16 @@ class TravelMode(StrEnum):
 
 
 class BodyState(StrictModel):
-    """@brief 人物的可结算身体资源与体感状态（修订合同身体语义，2026-09-18）。
+    """@brief 身体资源保留能量、双过程睡眠、放松需要与社交需要。"""
 
-    两过程睡眠（Daan/Beersma/Borbély 1984）：sleep_pressure 清醒时以 18.2h
-    时间常数趋近 1、睡眠时以 4.2h 衰减，决定人物此刻困不困；sleep_deficit_hours
-    为独立不足账（清醒累积、睡眠恢复，钳制 [0, 24]），驱动效率曲线。旧字段
-    旧睡眠债字段已删除，不保留别名。sleep_need_hours 与 chronotype_midsleep
-    为人物档案常量（默认 7.5h 与 04:00，experiment_assumption），随状态持久化
-    使结算纯函数自包含。mood_valence 只影响体感呈现与记忆重要度加权，不直接
-    改变任何动作可行性（docs/design/02-exchange-engine.md「其他体感分级」）。
-    """
-
-    energy_kcal: float = Field(ge=0)
-    sleep_pressure: float = Field(default=0.0, ge=0, le=1.2)
-    sleep_deficit_hours: float = Field(default=0.0, ge=0, le=24)
-    sleep_need_hours: float = Field(default=7.5, ge=7.0, le=9.0)
-    chronotype_midsleep: float = Field(default=4.0, ge=0.0, lt=24.0)
-    social_need: float = Field(default=0.0, ge=0, le=1)
-    mood_valence: float = Field(default=0.0, ge=-1, le=1)
-    neuroticism_norm: float = Field(default=0.0, ge=-1.0, le=1.0)
-    entertainment_need: float = Field(ge=0, le=1)
+    energy_kcal: float = Field(ge=0, le=2400)
+    sleep_pressure: float = Field(ge=0, le=1.2)
+    sleep_deficit_hours: float = Field(ge=0, le=24)
+    sleep_need_hours: float = Field(ge=7.0, le=9.0)
+    chronotype_midsleep: float = Field(ge=0.0, lt=24.0)
+    social_need: float = Field(ge=0, le=1)
+    relaxation_need: float = Field(ge=0, le=1)
+    social_need_growth_per_hour: float = Field(ge=0.02, le=0.10)
 
 
 class ContentProgress(StrictModel):
@@ -331,71 +311,33 @@ class SameMomentStage(StrEnum):
 
 
 class AgentState(StrictModel):
-    """@brief 一个人物的全部生活状态。"""
+    """@brief 唯一人物的生活状态与幂等节律簿记。"""
 
     agent_id: int = Field(gt=0)
     name: str = Field(min_length=1)
     location_id: str = Field(min_length=1)
     balance_account_id: str = Field(min_length=1)
-    #: 本人的驾车可用日余额，不是物品库存。
-    driving_days: int = Field(strict=True, ge=0)
-    #: 最近一次实际驾车已扣日的场景本地日期。
-    last_driving_date: str | None
     body: BodyState
-    active_effects: set[str] = Field(default_factory=set)
     body_settled_at: int = Field(ge=0)
     next_decision_at: int = Field(ge=0)
-    # 同刻决策（docs/design/04-simulation-engine.md「实现约定」）：本秒已进行的决策轮数与受限轮阶段，时钟推进归零。
     same_moment_rounds: int = Field(default=0, ge=0)
     same_moment_stage: SameMomentStage = SameMomentStage.OPEN
     content_progress: dict[str, ContentProgress] = Field(default_factory=dict)
-    visible_message_ids: set[str] = Field(default_factory=set)
-    # 决策节律簿记（docs/design/04-simulation-engine.md「决策节律：结算边界与唤醒条件分离」）
-    # ：滞回参照=上次实际提供决策时的分级。
     last_decision_time: int | None = Field(default=None, ge=0)
     felt_bands_at_last_decision: dict[str, str] = Field(default_factory=dict)
-    people_at_last_decision: frozenset[str] = frozenset()
     pending_wake_reasons: list[str] = Field(default_factory=list)
-    # 当日目标只记录人物自我承诺和实际推进证据，不驱动活动执行。
     day_plan: DayPlan | None = None
     plan_submitted_dates: set[str] = Field(default_factory=set)
-    # 未完成的个人事务（docs/design/04-simulation-engine.md 「存放」）：键为事务身份；完成或取消即移出，终态只在事件里；
-    # 不放进 DayPlan，零点置空与修订整表替换都不波及它。
     errands: dict[str, ErrandState] = Field(default_factory=dict)
-    # 社交最小可行版（docs/design/04-simulation-engine.md「社交接口」）：收件箱与已读消息。
-    inbox: dict[str, Message] = Field(default_factory=dict)
-    read_inbox_ids: set[str] = Field(default_factory=set)
-    # 发给场景联系人的消息（docs/design/06-agent.md「联系人往来」），联系人回复请求的往来由它与收件箱组成。
-    outbox: dict[str, Message] = Field(default_factory=dict)
-    # 情绪与不适脉冲簿记（docs/design/02-exchange-engine.md「其他体感分级」）。
-    mood_updated_at: int | None = Field(default=None, ge=0)
     discomfort_started_at: int | None = Field(default=None, ge=0)
     discomfort_pulse_hours: float = Field(default=0.0, ge=0)
+    callback_states: dict[str, int] = Field(default_factory=dict)
+    callback_once_keys: set[str] = Field(default_factory=set)
+    callback_reminder_days: dict[str, str] = Field(default_factory=dict)
 
-    @field_validator("last_driving_date")
-    @classmethod
-    def validate_driving_date(cls, value: str | None) -> str | None:
-        """@brief 已扣日必须使用完整本地 ISO 日期。"""
-        if value is not None:
-            try:
-                valid = date.fromisoformat(value).isoformat() == value
-            except ValueError:
-                valid = False
-            if not valid:
-                _LOGGER.error("Last driving date must use a canonical ISO date")
-                raise ValueError("Last driving date must use a canonical ISO date")
-        return value
-
-    @field_serializer(
-        "active_effects",
-        "visible_message_ids",
-        "plan_submitted_dates",
-        "read_inbox_ids",
-        "people_at_last_decision",
-        when_used="json",
-    )
-    def serialize_agent_sets(self, value) -> list[str]:
-        """@brief 按稳定顺序编码人物集合，使跨进程状态字节一致。"""
+    @field_serializer("plan_submitted_dates", "callback_once_keys", when_used="json")
+    def serialize_agent_sets(self, value: set[str]) -> list[str]:
+        """@brief 集合按稳定次序保存，恢复不依赖进程哈希种子。"""
         return sorted(value)
 
 
@@ -485,62 +427,61 @@ def _validate_task_reference(kind: SessionTaskKind, reference: str | None, inten
 
 
 class DeliveryState(StrictModel):
-    """@brief 已付款商品订单、配送路径与恰好一次收货时刻。"""
+    """@brief 一件商品的待支付订单、配送与恰好一次收货状态。"""
 
     order_id: str = Field(min_length=1)
     agent_id: int = Field(gt=0)
     goods_id: str = Field(min_length=1)
     category: GoodsCategory
-    store_id: str = Field(min_length=1)
+    store_id: str | None
     app_id: str | None
     payment_app_id: str | None
-    seller_account_id: str = Field(min_length=1)
+    group_key: str = Field(min_length=1)
+    payment_duration_seconds: int = Field(strict=True, ge=0, le=20)
+    payment_started_at: int | None = Field(default=None, ge=0)
+    payment_ended_at: int | None = Field(default=None, ge=0)
     quantity: int = Field(strict=True, ge=1, le=1)
     unit_price_fen: int = Field(gt=0)
     delivery_fee_fen: int = Field(ge=0)
     total_price_fen: int = Field(ge=0)
     destination_id: str = Field(min_length=1)
-    #: 改送驿站前的真实收货地址，长途取收货人物家庭地址。
     delivery_address_id: str = Field(min_length=1)
     fulfillment: FulfillmentKind
-    recipient_id: str = Field(min_length=1)
-    request_message_id: str | None = None
     created_at: int = Field(ge=0)
+    paid_at: int | None = Field(default=None, ge=0)
     expected_at: int = Field(ge=0)
-    arrived_at: int | None = Field(ge=0)
-    received_at: int | None = Field(ge=0)
-    status: Literal["pending", "ready_for_pickup", "delivered"]
+    arrived_at: int | None = Field(default=None, ge=0)
+    received_at: int | None = Field(default=None, ge=0)
+    status: Literal["cancelled", "pending", "ready_for_pickup", "delivered"]
     path: tuple[str, ...]
-    #: 到店无行程；配送使用图上现有出行方式的稳定行程身份。
     trip_id: str | None
     distance_meters: int = Field(ge=0)
     prep_seconds: int = Field(ge=0)
 
     @model_validator(mode="after")
     def validate_receipt_time(self) -> "DeliveryState":
-        """@brief 运输、到站和收货时刻与物流状态严格配对。"""
+        """@brief 未支付和取消无收货，已送达具有真实付款及收货时刻。"""
         shape = (self.arrived_at is not None, self.received_at is not None)
-        required = {"pending": (False, False), "ready_for_pickup": (True, False), "delivered": (True, True)}
-        if shape != required[self.status]:
-            _LOGGER.error("Order status and receipt timestamp disagree")
-            raise ValueError("Order status and receipt timestamp disagree")
-        if self.arrived_at is not None and self.arrived_at < self.created_at:
-            _LOGGER.error("Receipt timestamp precedes order creation")
-            raise ValueError("Receipt timestamp precedes order creation")
+        required = {"cancelled": (False, False), "pending": (False, False),
+                    "ready_for_pickup": (True, False), "delivered": (True, True)}
+        paid_required = self.status in {"ready_for_pickup", "delivered"}
+        invalid_payment = (paid_required and self.paid_at is None
+                           or self.status == "cancelled" and self.paid_at is not None)
+        if shape != required[self.status] or invalid_payment:
+            _LOGGER.error("Order status and payment or receipt timestamp disagree")
+            raise ValueError("Order status and payment or receipt timestamp disagree")
+        if self.paid_at is not None and self.paid_at < self.created_at:
+            _LOGGER.error("Order payment precedes creation")
+            raise ValueError("Order payment precedes creation")
+        if self.arrived_at is not None and self.arrived_at < self.paid_at:
+            _LOGGER.error("Order arrival precedes payment")
+            raise ValueError("Order arrival precedes payment")
         if self.received_at is not None and self.received_at < self.arrived_at:
-            _LOGGER.error("Receipt timestamp precedes order arrival")
-            raise ValueError("Receipt timestamp precedes order arrival")
+            _LOGGER.error("Order receipt precedes arrival")
+            raise ValueError("Order receipt precedes arrival")
         if self.status == "ready_for_pickup" and self.fulfillment != FulfillmentKind.STATION_PICKUP:
             _LOGGER.error("Only station pickup orders may be ready for pickup")
             raise ValueError("Only station pickup orders may be ready for pickup")
-        arrival = self.created_at if self.fulfillment == FulfillmentKind.PICKUP else self.expected_at
-        if self.arrived_at is not None and self.arrived_at != arrival:
-            _LOGGER.error("Order arrival timestamp disagrees with fulfillment")
-            raise ValueError("Order arrival timestamp disagrees with fulfillment")
-        if self.fulfillment != FulfillmentKind.STATION_PICKUP and self.received_at is not None:
-            if self.received_at != arrival:
-                _LOGGER.error("Immediate receipt timestamp disagrees with fulfillment")
-                raise ValueError("Immediate receipt timestamp disagrees with fulfillment")
         return self
 
 
@@ -601,7 +542,8 @@ class WorldState(StrictModel):
     end_time: int = Field(gt=0)
     run_id: str = Field(min_length=1)
     timezone: str = Field(min_length=1)
-    scenario_sha256: str = Field(min_length=64, max_length=64)
+    persona_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    config_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     agents: dict[int, AgentState]
     accounts: dict[str, int]
     activities: dict[str, ActivityState] = Field(default_factory=dict)
@@ -614,6 +556,9 @@ class WorldState(StrictModel):
     presentation_state: dict[int, dict[str, int]] = Field(default_factory=dict)
     #: 按人物暂存的本秒呈现留痕：同一秒各轮沿用该秒首轮的呈现窗口，时钟推进时逐人并入 presentation_state 并清空。
     same_moment_presentation: dict[int, SameMomentPresentation] = Field(default_factory=dict)
+    weather_by_date: dict[str, str] = Field(default_factory=dict)
+    run_start_callbacks_applied: bool = False
+    run_stop_callbacks_applied: bool = False
     random_seed: int
     random_state: str = Field(min_length=1)
 
@@ -623,8 +568,13 @@ class WorldState(StrictModel):
         """@brief 核对时钟、账户、库存与人物活动集合。"""
         if self.current_time > self.end_time:
             raise ValueError("world current time exceeds experiment end")
-        if any(value < 0 for value in self.accounts.values()):
-            raise ValueError("world account balance cannot be negative")
+        expected = {f"agent:{agent_id}" for agent_id in self.agents} | {"external:scenario"}
+        if len(self.agents) != 1 or set(self.accounts) != expected:
+            _LOGGER.error("World must contain exactly one agent and its two accounts")
+            raise ValueError("World must contain exactly one agent and its two accounts")
+        if any(self.accounts[f"agent:{agent_id}"] < 0 for agent_id in self.agents):
+            _LOGGER.error("Agent account balance cannot be negative")
+            raise ValueError("Agent account balance cannot be negative")
         for agent_id, agent in self.agents.items():
             if agent_id != agent.agent_id:
                 raise ValueError("world agent mapping identity mismatch")
@@ -668,11 +618,18 @@ def _validate_activity_collection(state: WorldState) -> None:
             raise ValueError("world activity resource claims disagree with the registry")
     for agent_id in state.agents:
         claimed: set[str] = set()
-        for activity in active_activities(state, agent_id):
+        occupants = (item for item in state.activities.values() if item.agent_id == agent_id
+                     and (item.status == ActivityStatus.ACTIVE
+                          or item.status in CONCLUDABLE_TERMINAL_STATUSES and item.concluded_at is None))
+        for activity in occupants:
             if claimed & activity.resource_claims:
                 _LOGGER.error("World active activities claim the same resource")
                 raise ValueError("world active activities claim the same resource")
             claimed.update(activity.resource_claims)
+        sleeping = any(item.kind == ActivityKind.SLEEP for item in active_activities(state, agent_id))
+        if sleeping and "second" in claimed:
+            _LOGGER.error("Sleep requires the second activity slot to be empty")
+            raise ValueError("Sleep requires the second activity slot to be empty")
 
 
 def _validate_session_collection(state: WorldState) -> None:
@@ -696,93 +653,19 @@ def _validate_session_collection(state: WorldState) -> None:
 
 
 def _expected_activity_claims(activity: ActivityState) -> set[str]:
-    """@brief 从唯一注册表及动作的固定类别与使用方式恢复权威资源占用。"""
-    mode = activity.travel_mode.value if activity.travel_mode is not None else None
-    return set(engine_affordances().resource_claims(
-        activity.kind.value, travel_mode=mode, category=activity.data.get("category"),
-        manner=activity.data.get("manner")))
-
-
-class ActivityStartParams(FrozenModel):
-    """@brief 领域内部统一启动一个有时长生活活动。"""
-
-    activity_type: ActivityKind
-    planned_duration_seconds: int | None = Field(gt=0, le=DERIVED_DURATION_CAP_SECONDS)
-    action_id: str | None = None
-    app_id: str | None = None
-    counterpart: str | None = None
-    navigation_app_id: str | None = None
-    destination_id: str | None = Field(
-        default=None,
-        description="Required for travel.",
-    )
-    travel_mode: TravelMode | None = Field(
-        default=None,
-        description="Required for travel.",
-    )
-
-    @model_validator(mode="after")
-    def validate_target(self) -> "ActivityStartParams":
-        """@brief 动作不带时长，系统活动必须带规则已派生的时长。"""
-        if self.activity_type == ActivityKind.ACTION:
-            if not self.action_id or self.planned_duration_seconds is not None:
-                _LOGGER.error("Action parameters require an action and no duration")
-                raise ValueError("action parameters require action_id and null planned_duration_seconds")
-        elif self.planned_duration_seconds is None:
-            _LOGGER.error("System activity requires a derived duration")
-            raise ValueError("system activity requires planned_duration_seconds")
-        if self.activity_type == ActivityKind.TRAVEL:
-            if not self.destination_id or self.travel_mode is None:
-                raise ValueError("destination_id and travel_mode are required for travel")
-        return self
+    """@brief 两个固定名额的占用只从真实动作恢复，不从环境加载。"""
+    action = activity.data.get("action")
+    if action not in ACTIVITY_ACTIONS:
+        _LOGGER.error("Activity action is missing or unknown")
+        raise ValueError("Activity action is missing or unknown")
+    return {activity_slot(action)}
 
 
 class ChangeActivityRequest(FrozenModel):
-    """@brief 领域内部统一暂停、恢复或退出。"""
+    """@brief 已有活动的暂停、恢复或退出请求。"""
 
     activity_id: str = Field(min_length=1)
     operation: ActivityChange
-
-
-
-class PurchaseItem(FrozenModel):
-    """@brief 一个商品行是一件，明确店铺、商品与收货人。"""
-
-    store_id: str = Field(pattern=r"\S")
-    goods_id: str = Field(pattern=r"\S")
-    quantity: int = Field(strict=True, ge=1, le=1)
-    recipient_id: str = Field(pattern=r"\S")
-    request_message_id: str | None = None
-
-
-class PurchaseOrderRequest(FrozenModel):
-    """@brief 一至两件同店商品一次付款，购物与支付应用由人物明确选择。"""
-
-    items: Annotated[
-        tuple[PurchaseItem, ...],
-        WithJsonSchema({
-            "type": "array",
-            "items": PurchaseItem.model_json_schema(mode="validation"),
-        }),
-    ]
-    fulfillment: Literal["delivery", "pickup", "station_pickup"]
-    destination_id: str = Field(pattern=r"\S")
-    app_id: str | None
-    payment_app_id: str | None
-
-
-class SetAlarmRequest(FrozenModel):
-    """@brief 一次性闹钟只有带时区偏移、精确到整秒的时刻。"""
-
-    model_config = ConfigDict(json_schema_extra=purpose_only_schema())
-    at: str = Field(strict=True)
-
-    @field_validator("at")
-    @classmethod
-    def validate_alarm_time(cls, value: str) -> str:
-        """@brief 宿主与环境共享闹钟的严格 ISO 整秒校验。"""
-        alarm_time(value)
-        return value
 
 
 class PlanGoalInput(FrozenModel):
@@ -868,61 +751,31 @@ class ReviseDayPlanRequest(ToolRequestModel):
         return _validate_plan_goals(goals, cls.__name__)
 
 
-class SendMessageRequest(FrozenModel):
-    """@brief 向同世界人物或场景联系人发送瞬时消息（docs/design/04-simulation-engine.md「社交接口」）。"""
-
-    recipient_id: str = Field(pattern=r"\S")
-    text: str
-
-
-
-
-
-
-
-
-#: 会话进展自述的字符上限（DeepSeek strict 禁 maxLength；由 model_validator 执行）。
-SESSION_SUMMARY_MAX_CHARS = 500
-
 class ActivityRequestItem(ToolRequestModel):
-    """@brief 一项活动严格声明对象、方式、应用、对方和支付应用。"""
+    """@brief 人物只声明动作与显示名称目标。"""
 
-    model_config = ConfigDict(strict=True, extra="forbid", frozen=True,
-                              json_schema_extra=purpose_only_schema())
+    action: str = Field(pattern=r"\S")
     target: str = Field(pattern=r"\S")
-    way: str = Field(pattern=r"\S")
-    app: str | None
-    to: str | None
-    pay_app: str | None
 
 
 class StartActivityRequest(ToolRequestModel):
-    """@brief 一至两项活动原子受理，不补应用、对方或购买偏好。"""
+    """@brief 一至两项不同目标原子受理，所有自动选择由环境负责。"""
 
     items: Annotated[list[ActivityRequestItem], WithJsonSchema(
         {"type": "array", "items": ActivityRequestItem.model_json_schema(mode="validation")})]
-    answering: str | None
 
     @field_validator("items")
     @classmethod
     def validate_items(cls, items: list[ActivityRequestItem]) -> list[ActivityRequestItem]:
-        """@brief 限制原子批次一至两项，重复目标必须有不同收货人。"""
+        """@brief 批次不得超过两项，同一显示名称标准化后不可重复。"""
         if not 1 <= len(items) <= 2:
             _LOGGER.error("Start activity requires one or two items")
-            raise ValueError("items requires one or two activity objects; acceptance is atomic")
-        pairs = [(item.target, item.to) for item in items]
-        if len(set(pairs)) != len(pairs):
-            _LOGGER.error("Start activity repeats a target and recipient")
-            raise ValueError("a target may repeat only with a different recipient")
+            raise ValueError("Start activity requires one or two items")
+        targets = ["".join(unicodedata.normalize("NFKC", item.target).split()) for item in items]
+        if len(set(targets)) != len(targets):
+            _LOGGER.error("Start activity repeats a target")
+            raise ValueError("Start activity repeats a target")
         return items
-
-
-class SendMessageActionRequest(ToolRequestModel):
-    """@brief 按人物可读收件人名称发送人物撰写的消息。"""
-
-    model_config = ConfigDict(json_schema_extra=purpose_only_schema())
-    recipient_name: str = Field(pattern=r"\S")
-    text: str
 
 
 class RecallTaskSummaryRequest(ToolRequestModel):
@@ -955,7 +808,7 @@ def _validate_control_items(tool: str, items: list[Any]) -> list[Any]:
 
 def _validate_summary(summary: str) -> str:
     """@brief 自述不超过 500 字符（DeepSeek strict 禁 maxLength，由本地校验兜住；非空白由 Schema 的 pattern 约束）。"""
-    if len(summary) > SESSION_SUMMARY_MAX_CHARS:
+    if len(summary) > 500:
         _LOGGER.error("Activity control summary exceeds its character limit")
         raise ValueError("must be within 500 characters")
     return summary
@@ -1313,13 +1166,11 @@ def rejection_reason_text(error: Exception) -> str:
 
 REQUEST_MODELS: dict[str, type[FrozenModel]] = {
     "start_activity": StartActivityRequest,
-    "send_message": SendMessageActionRequest,
     "recall_task_summary": RecallTaskSummaryRequest,
     "report_status": ReportStatusRequest,
     "pause_activity": PauseActivityRequest,
     "conclude_activity": ConcludeActivityRequest,
     "revise_day_plan": ReviseDayPlanRequest,
-    "set_alarm": SetAlarmRequest,
 }
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from worldmock.base_models import StrictModel
 from worldmock.base_models import FrozenModel
+from worldmock.errors import reject_value
 import json
 import logging
 import math
@@ -27,37 +28,17 @@ _FLOW_DICT_KEYS = frozenset({"resource", "owner", "direction", "amount", "cause"
 #: 决策节律增量字段（docs/design/04-simulation-engine.md「决策节律：结算边界与唤醒条件分离」）
 #: ：activity_progress.data 声明该结算边界是否
 #: 向人物提供了决策机会。静默边界（decision_offered=false）不调用模型、不产生
-#: decision_started 等决策事件；旧事件缺省该字段，读取方不得拒收。
+#: decision_started 等决策事件；共同身体结算明确记录是否提供决策。
 DECISION_OFFERED_FIELD = "decision_offered"
 
 #: 决策节律增量字段（docs/design/04-simulation-engine.md「决策节律：结算边界与唤醒条件分离」）
 #: ：提供决策的边界记录实际命中的全部唤醒原因。
 WAKE_REASONS_FIELD = "wake_reasons"
 
-#: 唤醒原因冻结词表（docs/design/04-simulation-engine.md「决策节律：结算边界与唤醒条件分离」表格的枚举名闭集，
-#: 成员不可改名、不可删除，新增走版本表）。与 life.schedule.WakeReason 同源；footprints 是存储合同层、不依赖 life 层，
-#: 故在此登记足迹侧词表，两侧由测试互锁防漂移。
-WAKE_REASON_NAMES = frozenset({
-    "planned_end", "felt_band_change", "message_arrival", "delivery_arrival",
-    "commitment_threatened",
-    "reconsideration_interval", "person_arrived", "person_left",
-    "activity_infeasible", "rejection_feedback", "discovery_result", "wake_from_sleep", "run_start",
-    "progress_report_due", "no_active_activity", "plan_reminder_due", "errand_reminder_due",
-    "shift_start", "shift_end", "break_start", "break_end",
-    "app_push", "alarm_ring",
-})
-
 #: decision_started.data 的闭集（docs/design/06-agent.md「单一行动阶段」、第七章「事件」）。
 DECISION_STARTED_FIELDS = frozenset({"round_id", "round_order", "world_state_version", WAKE_REASONS_FIELD})
 #: 已退役的决策自述名（decision_started 字段与清单阶段键）：带它的事件与清单以英文错误拒绝。
 RETIRED_DECISION_STATEMENT = "decision_statement"
-
-#: 消息送达记录种类（docs/design/04-simulation-engine.md「社交接口」）：message 动作的送达记录为
-#: environment_event kind=message_arrival；交谈邀约以 chat_invite
-#: 消息送达（docs/design/04-simulation-engine.md「社交接口」）。
-MESSAGE_ARRIVAL_KIND = "message_arrival"
-CHAT_INVITE_KIND = "chat_invite"
-
 
 def validate_resource_flows(payload: Any) -> list[dict[str, Any]]:
     """@brief 校验 data[resource_flows] 的分录字典约定，合法则原样返回。
@@ -67,38 +48,40 @@ def validate_resource_flows(payload: Any) -> list[dict[str, Any]]:
     :raises ValueError: 结构、词表或数值违反约定时 fail-closed。
     """
     if not isinstance(payload, list):
-        raise ValueError("resource_flows must be a list of flow dicts")
+        reject_value("resource_flows must be a list of flow dicts")
     for index, item in enumerate(payload):
         if not isinstance(item, dict) or set(item) != _FLOW_DICT_KEYS:
-            raise ValueError(f"resource_flows[{index}] must contain exactly {sorted(_FLOW_DICT_KEYS)}")
+            reject_value(f"resource_flows[{index}] must contain exactly {sorted(_FLOW_DICT_KEYS)}")
         for field in ("resource", "owner", "cause"):
             if not isinstance(item[field], str) or not item[field]:
-                raise ValueError(f"resource_flows[{index}].{field} must be a non-empty string")
+                reject_value(f"resource_flows[{index}].{field} must be a non-empty string")
         if item["direction"] not in (SOURCE_DIRECTION, DRAIN_DIRECTION):
-            raise ValueError(f"resource_flows[{index}].direction must be source or drain")
+            reject_value(f"resource_flows[{index}].direction must be source or drain")
         amount = item["amount"]
         if isinstance(amount, bool) or not isinstance(amount, (int, float)) \
                 or not math.isfinite(amount) or amount <= 0:
-            raise ValueError(f"resource_flows[{index}].amount must be a finite positive number")
+            reject_value(f"resource_flows[{index}].amount must be a finite positive number")
     return payload
 
 
 def validate_decision_rhythm(data: dict[str, Any]) -> None:
-    """@brief 校验决策节律增量字段：decision_started.data 与共同身体结算 body_settlement 的 data（及旧 activity_progress.data）。
+    """@brief 校验事件携带的决策节律字段：决策开始、共同身体结算与活动进度。
 
-    写入路径在落库前调用，闭集外的唤醒原因在写入时拒绝；缺省字段视为旧事件不拒收。
+    写入路径在落库前调用，事件携带的唤醒原因必须属于当前闭集。
 
-    :param data: decision_started、body_settlement 或旧 activity_progress 事件的 data 字典。
+    :param data: decision_started、body_settlement 或 activity_progress 事件的 data 字典。
     :raises ValueError: decision_offered 非布尔或 wake_reasons 违反冻结词表时 fail-closed。
     """
     if DECISION_OFFERED_FIELD in data and not isinstance(data[DECISION_OFFERED_FIELD], bool):
         raise ValueError(f"{DECISION_OFFERED_FIELD} must be a boolean")
     if WAKE_REASONS_FIELD in data:
+        from worldmock.life.schedule import WAKE_TRIGGERS
+        allowed = {trigger.name for trigger in WAKE_TRIGGERS}
         reasons = data[WAKE_REASONS_FIELD]
         if not isinstance(reasons, list):
             raise ValueError(f"{WAKE_REASONS_FIELD} must be a list of wake reason names")
         for index, reason in enumerate(reasons):
-            if not isinstance(reason, str) or reason not in WAKE_REASON_NAMES:
+            if not isinstance(reason, str) or reason not in allowed:
                 raise ValueError(f"{WAKE_REASONS_FIELD}[{index}] must be one of the frozen wake reasons")
 
 
@@ -154,6 +137,8 @@ class EventDraft(BaseModel):
     activity_id: str | None = None
     caused_by: list[str] = Field(default_factory=list)
     data: dict[str, Any] = Field(default_factory=dict)
+    #: 事件实际造成的账户或资源差额；领域正文不复制资金流水。
+    resource_changes: dict[str, int | float] = Field(default_factory=dict)
     artifact_refs: list[AssetRef] = Field(default_factory=list)
     visibility: Literal["agent", "evaluation", "system"] = "agent"
     source_kind: Literal["environment", "model", "scenario", "external"] = "environment"
@@ -162,8 +147,15 @@ class EventDraft(BaseModel):
     @model_validator(mode="after")
     def validate_decision_started_evidence(self) -> EventDraft:
         """@brief 在创建、持久化和读取决策事件时校验 decision_started 的闭集字段。"""
+        if "resource_changes" in self.data or "resource_changes" in self.data.get("data", {}):
+            logging.error("Event data carries retired resource_changes")
+            raise ValueError("Event data carries retired resource_changes")
         if self.event_type == "decision_started":
             validate_decision_started(self.data)
+        if self.event_type == "environment_event":
+            from worldmock.footprints.environment_events import validate_environment_event
+
+            validate_environment_event(self)
         return self
 
 

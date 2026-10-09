@@ -80,18 +80,6 @@ def _resource_flows_data(agent_id: int, occurred_at: int) -> list[dict[str, Any]
     return validate_resource_flows(payload) if payload else []
 
 
-def _activity_progress_phrase(activity) -> str:
-    """@brief 活动进度短语（不含完整快照，观察合同禁完整活动快照）。"""
-    remaining = max(0, activity.planned_duration_seconds - activity.elapsed_seconds)
-    return f"还剩约{round(remaining / 60)}分钟"
-
-
-def _paused_activity_control(activity) -> dict:
-    """@brief 暂停活动的控制身份：activity_id 与剩余时长（不含完整快照）。"""
-    remaining = max(0, activity.planned_duration_seconds - activity.elapsed_seconds)
-    return {"activity_id": activity.activity_id, "kind": activity.kind.value, "remaining_seconds": remaining}
-
-
 def _current_branch_event(events: list, manifest: dict):
     """@brief 定位属于当前运行且绑定当前父检查点的唯一分支创建事件。"""
     matches = [
@@ -116,19 +104,11 @@ def _failure_draft(occurred_at: int, error: Exception | str, round_id: str | Non
     )
 
 
-def meal_windows_by_agent(scenario) -> dict[int, "felt.MealWindows"]:
+def meal_windows_by_agent(persona) -> dict[int, "felt.MealWindows"]:
     """@brief 人物档案餐时窗口索引（观察与滞回判定同源）。"""
-    return {
-        config.agent_id: felt.MealWindows(lunch=config.lunch_window, dinner=config.dinner_window)
-        for config in scenario.agents
-    }
+    return {persona.agent_id: felt.MealWindows(lunch=persona.lunch_window, dinner=persona.dinner_window)}
 
 
-def agent_config(scenario, agent_id: int):
-    """@brief 取得冻结场景中该人物的配置。"""
-    return next(item for item in scenario.agents if item.agent_id == agent_id)
-
-
-def place_names(scenario) -> dict[str, str]:
-    """@brief 地点身份到场景中可读名称的纯投影。"""
-    return {item.location_id: item.name for item in scenario.locations}
+def place_names(catalog) -> dict[str, str]:
+    """@brief 地点身份到完整显示名的纯投影。"""
+    return {key: item.display_name for key, item in catalog.locations.items()}

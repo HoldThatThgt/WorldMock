@@ -1,4 +1,4 @@
-"""@brief 同场景同种子的两个完整日候选相等后，原子发布真实机器身份基线。"""
+"""@brief 同人设、配置和环境的两个完整日候选相等后，原子发布真实机器身份基线。"""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT))
 
 from scripts.bootstrap_environment import require_python_identity, required_python_version
 from scripts.bootstrap_sources import file_sha256
+from worldmock.exchange.constants import RULES_VERSION
 from worldmock.footprints.assets import atomic_write
 from worldmock.footprints.models import canonical_json
 
@@ -27,8 +28,10 @@ def _sha(value) -> bool:
 def _candidate(path: Path) -> dict:
     """@brief 读取完整摘要，拒绝旧格式、缺失身份及部分摘要。"""
     candidate = json.loads(path.read_text(encoding="utf-8"))
-    valid = (isinstance(candidate, dict) and set(candidate) == {"scenario_sha256", "random_seed", "summary"}
-             and _sha(candidate["scenario_sha256"]) and type(candidate["random_seed"]) is int)
+    valid = (isinstance(candidate, dict) and set(candidate) == {
+        "persona_sha256", "config_sha256", "environment_identity", "seed", "summary"}
+        and _sha(candidate["persona_sha256"]) and _sha(candidate["config_sha256"])
+        and type(candidate["seed"]) is int and _environment_identity(candidate["environment_identity"]))
     summary = candidate.get("summary") if isinstance(candidate, dict) else None
     valid = valid and isinstance(summary, dict) and set(summary) == {
         "artifacts", "checkpoints_sha256", "run_assets"}
@@ -42,6 +45,16 @@ def _candidate(path: Path) -> dict:
         logging.error("Complete-day candidate has an invalid current identity or summary: %s", path.name)
         raise ValueError("Complete-day candidate has an invalid current identity or summary")
     return candidate
+
+
+def _environment_identity(identity) -> bool:
+    """@brief 当前目录和内存地图身份完整，不接收旧场景或发布地图格式。"""
+    return (isinstance(identity, dict) and set(identity) == {
+        "environment_id", "environment_version", "rules_version", "catalog_content_sha256", "map_sha256"}
+        and all(isinstance(identity[key], str) and bool(identity[key].strip())
+                for key in ("environment_id", "environment_version"))
+        and type(identity["rules_version"]) is int and identity["rules_version"] == RULES_VERSION
+        and all(_sha(identity[key]) for key in ("catalog_content_sha256", "map_sha256")))
 
 
 def _generation() -> dict:
@@ -67,8 +80,8 @@ def freeze_matching_baseline(first_path: Path, second_path: Path, target_path: P
     """@brief 完整候选逐项一致才写入第三基线，任何失配均保留目标原字节。"""
     first, second = _candidate(first_path), _candidate(second_path)
     if first != second:
-        logging.error("Complete-day candidates differ in scenario, seed or summary")
-        raise ValueError("Complete-day candidates differ in scenario, seed or summary")
+        logging.error("Complete-day candidates differ in inputs, environment, seed or summary")
+        raise ValueError("Complete-day candidates differ in inputs, environment, seed or summary")
     result = {**first, "generation": _generation()}
     atomic_write(target_path, canonical_json(result) + b"\n")
     return result

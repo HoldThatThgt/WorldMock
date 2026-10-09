@@ -1,117 +1,29 @@
-"""人物用一组可读对象和逐项的动词与方式启动兼容的并行活动（docs/design/04-simulation-engine.md 第五章）。"""
-
-from __future__ import annotations
-
-import copy
-import os
-
+"""原生人物请求把兼容名额的真实动作整组登记，环境仍原子结算。"""
 import pytest
+from tests.integration.runtime.current_contract_fixtures import decide, ToolResponse
+from tests.life.conftest import stage_day_plan
 
-os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
-os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
-
-from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
-from agentsociety2.society import DirectToolCall
-from custom.agents.life_agent import LifeAgent
-from tests.integration.runtime.test_life_agent_protocol import (
-    _add_objects, _context, _observations, _offer, _visible_object,
-)
-from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
-from tests.life.conftest import (context, stage_day_plan, start_request, start_arguments)  # noqa: F401
-from worldmock.life import sessions
-from worldmock.life.activity_control import object_display_name
-from worldmock.life.models import SessionKind, SessionStatus
-from worldmock.life.sessions import moment_label
-
-_PLACE = "地点：办公室"
-_ACTION = "刷推荐"
-
-
-def _prepared() -> LifeAgent:
-    """在正式观察结构中增加可读地点（步行）与登记动作与明确应用（进行）。"""
-    observed = copy.deepcopy(_observations())
-    data = observed[0]["data"]
-    data["actions"].append({"action_id": "action-visible", "name": _ACTION, "category": "entertainment",
-                            "manner": "phone_continuous", "app_ids": ["app-visible"], "communication_mode": None})
-    data["apps"].append({"app_id": "app-visible", "name": "抖音", "purposes": [], "payment_app_ids": []})
-    _add_objects(data,
-                 _visible_object(_PLACE, "location", "office",
-                                 _offer("travel", "步行", "travel_to", travel_mode="walking")),
-                 _visible_object(_ACTION, "action", "action-visible",
-                                 _offer("interact", "进行", "do", app_id="app-visible",
-                                        category="entertainment", manner="phone_continuous"),
-                                 category="entertainment", manner="phone_continuous",
-                                 app_ids=["app-visible"], communication_mode=None))
-    person = LifeAgent()
-    person.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observed))
-    return person
-
-
-def _decision(targets: list[str], actions: list[str], ways: list[str]) -> ReactDecision:
-    """构造一次真实 ReAct 工具决定：对象、动词与方式三个数组。"""
-    return ReactDecision("", "start_activity", start_arguments(targets, actions, ways, app=["抖音" if way == "进行" else None for way in ways]), "")
-
-
-def test_parallel_schema_and_local_pairing_use_readable_items() -> None:
-    """单工具接收逐项对象和方式，拒绝缺字段、错配和重复对象。"""
-    person = _prepared()
-    functions = {row["function"]["name"]: row["function"]
-                 for row in person.build_react_tool_schemas(readonly=False)}
-    assert "start_parallel_activities" not in functions
-    schema = functions["start_activity"]["parameters"]
-    assert set(schema["properties"]) == {"items", "answering"}
-    fields = schema["properties"]["items"]["items"]["properties"]
-    assert all("enum" not in fields[name] for name in ("target", "way"))
-    assert person.validate_react_decisions([
-        _decision([_PLACE, _ACTION], ["travel", "interact"], ["步行", "进行"]),
-    ], False) == ""
-    incomplete = start_arguments([_PLACE, _ACTION], ["travel", "interact"], ["步行", "进行"], app=[None, "抖音"])
-    del incomplete["items"][1]["way"]
-    error = person.validate_react_decisions([ReactDecision("", "start_activity", incomplete, "")], False)
-    assert error.report.items[0].path == ("tool_calls", 0, "function", "arguments", "items", 1, "way")
-    assert error.report.items[0].why == "This required field was omitted."
-    for actions, ways in ((["interact", "travel"], ["进行", "步行"]), (["travel", "travel"], ["步行", "步行"])):
-        assert "does not support" in person.validate_react_decisions([
-            _decision([_PLACE, _ACTION], actions, ways),
-        ], False)
-    assert "different recipient" in person.validate_react_decisions([
-        _decision([_PLACE, _PLACE], ["travel", "travel"], ["步行", "步行"]),
-    ], False)
-
-
-def test_parallel_start_is_atomic_in_real_engine(_engine_factory) -> None:
-    """真实引擎从同一观察原子启动出行与应用：两项活动各占一个名额、按「做什么＋对象＋开始时刻」命名，
-    出发结束运行开始的停留会话，两项活动同属新开始的路上会话（时间与能量规格第七章「会话与活动的字段」）。"""
-    engine = _engine_factory()
+@pytest.mark.asyncio
+async def test_native_parallel_walk_and_app_interaction_use_both_actual_slots(engine_factory):
+    engine = engine_factory()
     stage_day_plan(engine)
-    current = context(engine, "parallel-walk-watch")
-    engine.begin_decision_round([current])
-    observed = engine.observe(current)
-    place = next(row for row in observed["interaction_bindings"]
-                 if row["kind"] == "location" and any(
-                     action.get("travel_mode") == "walking" for action in row["actions"]))
-    content = next(row for row in observed["interaction_bindings"]
-                   if row["kind"] == "action" and row["object"] == "刷推荐" and any(
-                       action["canonical_action"] == "do" for action in row["actions"]))
-    travel = next(action["label"] for action in place["actions"]
-                  if action.get("travel_mode") == "walking")
-    watch = next(action["label"] for action in content["actions"] if action["canonical_action"] == "do")
-    assert travel == "步行" and watch == "进行"
-    request = start_request(
-        targets=[place["object"], content["object"]], actions=["travel", "interact"], ways=[travel, watch], app=[None, "抖音"])
-    before = engine.context.state.model_dump(mode="json")
-    engine.submit_action(DirectToolCall(current, "parallel-readable", "start_activity", request))
-    assert engine.context.state.model_dump(mode="json") == before
-    result = engine.commit_decision_round(current.round_id)[0]
-    assert result.status.value == "in_progress"
+    _, requests, _, [result] = await decide(engine, "parallel", [ToolResponse("start_activity", {
+        "items": [{"action": "walk", "target": "三杯咖啡"}, {"action": "interact", "target": "抖音"}]})])
+    assert result.status == "in_progress"
     assert len(engine.context.state.activities) == 2
-    started = moment_label(engine.context.state.current_time, engine.context.scenario.timezone)
-    assert {activity.name for activity in engine.context.state.activities.values()} == {
-        f"步行前往{object_display_name(place)}（{started} 起）",
-        f"{object_display_name(content)}（抖音）（{started} 起）",
-    }
-    road = sessions.current_session(engine.context.state, 1)
-    assert road.kind == SessionKind.TRANSIT and set(road.activity_ids) == set(engine.context.state.activities)
-    assert [item.status for item in engine.context.state.sessions.values() if item.kind == SessionKind.STAY] == [
-        SessionStatus.ENDED]
+    assert {slot for activity in engine.context.state.activities.values()
+            for slot in activity.resource_claims} == {"first", "second"}
+    [record] = engine.context.store.read_agent_events("action_requested", 1)
+    assert record.data["request"]["items"] == [
+        {"action": "walk", "target": "三杯咖啡"}, {"action": "interact", "target": "抖音"}]
+    assert len(requests) == 1
+
+@pytest.mark.asyncio
+async def test_conflicting_parallel_request_registers_once_then_changes_no_activities(engine_factory):
+    engine = engine_factory()
+    stage_day_plan(engine)
+    _, requests, _, [result] = await decide(engine, "conflict", [ToolResponse("start_activity", {
+        "items": [{"action": "interact", "target": "家"}, {"action": "interact", "target": "抖音"}]})])
+    assert result.error_code == "RESOURCE_CONFLICT"
+    assert not engine.context.state.activities
+    assert len(requests) == len(engine.context.store.read_agent_events("action_requested", 1)) == 1

@@ -21,12 +21,8 @@ OWNERS = {'base_models.py': ('StrictModel',
  'corpora/manifest.py': ('safe_file', 'relative_declaration'),
  'footprints/intervals.py': ('valid_interval', 'is_body_settlement', 'body_settlements'),
  'footprints/timeline_labels.py': ('window_days', 'local_day_bounds', 'split_local_days'),
- 'life/models.py': ('DERIVED_DURATION_CAP_SECONDS', 'validated_payload'),
- 'life/durations.py': ('capped_duration_seconds', 'derived_activity_duration'),
- 'life/travel.py': ('planned_travel',),
- 'life/activities.py': ('entertainment_relief_rate', 'content_entertainment_relief_rate'),
- 'life/candidates.py': ('CANDIDATE_ACTIVITY_KINDS', 'CANDIDATE_SOURCES'),
- 'life/schedule.py': ('activity_family', 'ACTIVITY_KIND_FAMILIES'),
+ 'life/models.py': ('validated_payload',),
+ 'life/travel.py': ('plan_trip',),
  'life/readable.py': ('ACTIVITY_KIND_LABELS', 'ACTIVITY_DOING_LABELS'),
  'life/memory_evidence.py': ('SUBJECTIVE_TYPES',
                              'SUBJECTIVE_SNAPSHOT_FIELDS',
@@ -40,20 +36,8 @@ OWNERS = {'base_models.py': ('StrictModel',
  'model_endpoint.py': ('IndependentModelClient',),
  'model_feedback.py': ('correction_message', 'schema_error_details', 'schema_feedback', 'tool_arguments'),
  'resources/models.py': ('AMOUNT_TYPES', 'Conservation'),
- 'exchange/types.py': ('LocationKind',
-                       'GoodsCategory',
-                       'SummarySourceKind',
-                       'STORE_KINDS',
-                       'PLACE_KIND_ENVIRONMENTS',
-                       'GOODS_CATEGORY_LABELS',
-                       'START_ACTIVITY_ACTIONS',
-                       'ActionCategory',
-                       'AppUseManner',
-                       'MANNER_DEVICE',
-                       'AppPurpose',
-                       'GOODS_CATEGORY_STORE_KINDS'),
+ 'exchange/types.py': ('GoodsCategory', 'GOODS_CATEGORY_LABELS'),
  'exchange/constants.py': ('RULES_VERSION',
-                           'GOODS_ENERGY_KCAL',
                            'WALKING_METERS_PER_SECOND',
                            'DRIVING_METERS_PER_SECOND',
                            'DRIVING_FARE_MINIMUM_FEN',
@@ -63,25 +47,9 @@ OWNERS = {'base_models.py': ('StrictModel',
                            'DELIVERY_FEE_FEN',
                            'MAP_MIN_NODES',
                            'MAP_EDGE_LENGTH_M',
-                           'MAP_GENERATOR_RULE_VERSION',
                            'MAP_EXTRA_EDGES',
                            'PUSH_HOURS_LOCAL',
-                           'PUSH_SUMMARY_MAX_CHARS',
-                           'ENTERTAINMENT_RELIEF_PER_HOUR',
-                           'GOODS_RECEIPT_EFFECTS',
-                           'CATEGORY_MET',
-                           'CONTENT_MIN_SECONDS',
-                           'SOCIAL_NEED_AWAKE_RATE',
-                           'SOCIAL_NEED_CONVERSATION_RATE',
-                           'SOCIAL_NEED_CALL_RATE',
-                           'SOCIAL_NEED_MESSAGE_RELIEF',
-                           'CHAT_RELIEF_DECLINED_PER_HOUR',
-                           'MOOD_PULSES',
-                           'MOOD_HALFLIFE_MINUTES',
-                           'MOOD_HALFLIFE_NEUROTICISM_FACTOR',
-                           'MOOD_PULSE_NEUROTICISM_FACTOR',
-                           'MOOD_DISCOMFORT_TRIGGER_HOURS',
-                           'LIFESTYLE_HEALTH_MOOD_PER_HOUR'),
+                           'PUSH_SUMMARY_MAX_CHARS'),
  'exchange/body.py': ('BodyConstants', 'BODY_CONSTANTS', 'RESOURCE_METAS'),
  'exchange/operators.py': ('evaluate_purchase',
                            'evaluate_goods_receipt',
@@ -98,12 +66,14 @@ OWNERS = {'base_models.py': ('StrictModel',
                        'Goods',
                        'Content',
                        'Location',
-                       'Action',
                        'SummarySource',
-                       'ContentSeries',
-                       'GoodsFile',
-                       'ActionsFile'),
- 'catalog/loader.py': ('load_catalog',)}
+                       'ContentSeries'),
+ 'catalog/loader.py': ('load_catalog',),
+ 'input_models.py': ('LEGACY_TEMPLATE_FIELDS',),
+ 'life/action_contract.py': ('ACTIVITY_ACTIONS',
+                             'FIRST_SLOT_ACTIONS',
+                             'TRAVEL_ACTIONS',
+                             'TRAVEL_ACTION_MODES')}
 # 语义排除仅限普通 logger、Python 类型声明、不同类作用域的薄协议钩子与导入绑定。
 SEMANTIC_EXCLUSIONS = ('module logger', 'Python type declaration', 'thin decorated protocol hook', 'import binding')
 
@@ -183,17 +153,14 @@ def test_production_shared_rules_have_one_owner_and_no_business_clones():
     assert not single_source_violations(ROOT)
 
 
-def test_current_registry_and_observation_contract_retire_energy_and_game_keys():
-    """@brief 当前可供性声明和真实观察合同都没有已退役的能量投影与游戏边界字段。"""
-    from worldmock.catalog.affordances import KindSpec, engine_affordances
-    from worldmock.life.engine_context import AFFORDANCE_CONTRACT_KEYS, affordance_contract
+def test_observation_offers_only_current_actions_without_retired_resource_gate(engine_factory):
+    """@brief 真实观察只提供七种动作，活动工具不附加退役资源门。"""
+    engine = engine_factory()
+    from tests.life.conftest import context
 
-    assert "energy_projection" not in KindSpec.__dataclass_fields__
-    assert AFFORDANCE_CONTRACT_KEYS == {"action", "target_discovery", "target_field", "feedback_eligible"}
-    rows = affordance_contract(engine_affordances())
-    assert "action" in rows
-    assert all(set(row) == AFFORDANCE_CONTRACT_KEYS for row in rows.values())
-    assert all(not {"energy_projection", "game_boundary"} & row.keys() for row in rows.values())
+    data = engine.observe(context(engine, "actions"))
+    assert data["known_activity_actions"] == ["walk", "drive", "take_taxi", "take_bus", "purchase", "sleep", "interact"]
+    assert not {"affordance_contract", "game_boundary", "energy_projection"} & data.keys()
 
 
 def test_new_function_clone_fails_even_with_different_name_and_docstring(tmp_path):

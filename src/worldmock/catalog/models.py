@@ -1,28 +1,34 @@
-"""@brief 环境对象、绑定和发布图的严格不可变数据合同。"""
+"""@brief 单人目录、容器绑定与内存地图的严格不可变合同。"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
-from typing import Annotated, Literal, Mapping
+from typing import TYPE_CHECKING, Annotated, Literal, Mapping
 
-from pydantic import Field, StrictInt
+from pydantic import Field, StrictBool, StrictInt, field_validator
 
 from worldmock.base_models import DeepFrozenModel
 from worldmock.catalog.graph import Graph
-from worldmock.exchange.constants import CONTENT_MIN_SECONDS
-from worldmock.exchange.types import (
-    ActionCategory, AppPurpose, AppUseManner, CommunicationMode, GoodsCategory, LocationKind,
-    PLACE_KIND_ENVIRONMENTS, SummarySourceKind,
-)
+from worldmock.errors import reject_value
+from worldmock.exchange.types import GoodsCategory
+
+if TYPE_CHECKING:
+    from worldmock.catalog.callback_models import CallbackRule, CallbackState
 
 PositiveInteger = Annotated[StrictInt, Field(gt=0)]
 NonNegativeInteger = Annotated[StrictInt, Field(ge=0)]
 NonEmptyString = Annotated[str, Field(strict=True, pattern=r"\S")]
+ConcreteAction = Literal["walk", "drive", "take_taxi", "take_bus", "purchase", "interact", "sleep"]
+Exertion = Literal["idle", "light", "moderate", "heavy"]
+ReliefLevel = Literal["none", "low", "medium", "high"]
+OpeningIntervals = tuple[tuple[NonEmptyString, NonEmptyString], ...]
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 
 def channel_key(name: str) -> str:
-    """@brief 应用名称去掉全部空白后不分大小写比较，不做其他归一化。"""
+    """@brief 名称去掉全部空白后不分大小写比较，不做其他归一化。"""
     return "".join(name.split()).casefold()
 
 
@@ -37,7 +43,7 @@ class CatalogFile(DeepFrozenModel):
 class CatalogManifest(DeepFrozenModel):
     """@brief 目录版本、规则版本和完整文件集合的发布身份。"""
 
-    format_version: Literal[2]
+    format_version: Literal[3]
     environment_id: NonEmptyString
     environment_version: NonEmptyString
     rules_version: StrictInt
@@ -46,77 +52,107 @@ class CatalogManifest(DeepFrozenModel):
 
 
 class App(DeepFrozenModel):
-    """@brief 应用的身份、用途与购物支付绑定。"""
+    """@brief 内容浏览入口或功能 app 的具体动作绑定。"""
 
     app_id: NonEmptyString
     name: NonEmptyString
-    purposes: tuple[AppPurpose, ...]
-    payment_app_ids: tuple[NonEmptyString, ...]
+    role: Literal["content", "function"]
+    actions: tuple[ConcreteAction, ...] = ()
+    browse_duration_seconds: Annotated[StrictInt, Field(ge=60)] | None = None
+
+
+class OpeningHours(DeepFrozenModel):
+    """@brief 每周营业时段与按日期替换的特殊营业时段。"""
+
+    weekly: dict[str, OpeningIntervals]
+    exceptions: dict[str, OpeningIntervals] = Field(default_factory=dict)
 
 
 class Location(DeepFrozenModel):
-    """@brief 场所类型及店铺的购物应用绑定。"""
+    """@brief 显式地点、住宿与驿站资格以及内容 app 绑定。"""
 
     location_id: NonEmptyString
     name: NonEmptyString
     branch_label: NonEmptyString | None = None
-    kind: LocationKind
+    kind: NonEmptyString
     app_ids: tuple[NonEmptyString, ...]
-    shipping_seconds: PositiveInteger | None
+    is_home: StrictBool = False
+    accepts_parcels: StrictBool = False
+    opens: OpeningHours | None = None
+
+    @field_validator("opens", mode="before")
+    @classmethod
+    def require_declared_schedule(cls, value):
+        """@brief 显式营业声明必须是对象，缺省才表示全天营业。"""
+        if value is None:
+            reject_value("A declared location opening schedule must be an object.")
+        return value
 
     @property
     def display_name(self) -> str:
-        """@brief 在声明了分店标签时返回带标签的场所显示名。"""
+        """@brief 分店显示名统一使用全角括号。"""
         return self.name if self.branch_label is None else f"{self.name}（{self.branch_label}）"
+
+    def opening_intervals(self, local_date: date) -> OpeningIntervals:
+        """@brief 特殊日期覆盖整日，未声明的星期关闭；缺省全天营业。"""
+        if self.opens is None:
+            return (("00:00", "24:00"),)
+        key = local_date.isoformat()
+        if key in self.opens.exceptions:
+            return self.opens.exceptions[key]
+        return self.opens.weekly.get(WEEKDAYS[local_date.weekday()], ())
+
+    def is_open(self, local_moment: datetime) -> bool:
+        """@brief 按已经换算为运行时区的本地时刻检查半开营业时段。"""
+        minute = local_moment.hour * 60 + local_moment.minute
+        for starts, ends in self.opening_intervals(local_moment.date()):
+            start = int(starts[:2]) * 60 + int(starts[3:])
+            end = int(ends[:2]) * 60 + int(ends[3:])
+            if start <= minute < end:
+                return True
+        return False
 
 
 class Goods(DeepFrozenModel):
-    """@brief 固定类别、固定单价和按店铺类型完整绑定的商品。"""
+    """@brief 固定价格的四类商品，恰好绑定地点类型或内容 app 一侧。"""
 
     goods_id: NonEmptyString
     name: NonEmptyString
     category: GoodsCategory
     price_fen: PositiveInteger
-    store_ids: tuple[NonEmptyString, ...] | Literal["all"]
-
-
-class Action(DeepFrozenModel):
-    """@brief 数据集命名的动作与固定类别、应用使用方式。"""
-
-    action_id: NonEmptyString
-    name: NonEmptyString
-    description: NonEmptyString
-    category: ActionCategory
-    app_ids: tuple[NonEmptyString, ...]
-    manner: AppUseManner | None
-    communication_mode: CommunicationMode | None
+    store_kinds: tuple[NonEmptyString, ...] = ()
+    app_ids: tuple[NonEmptyString, ...] = ()
 
 
 class SummarySource(DeepFrozenModel):
     """@brief 摘要的真实来源地址或合成说明。"""
 
-    kind: SummarySourceKind
+    kind: Literal["real", "synthetic"]
     url: Annotated[str, Field(strict=True)] | None
     notice: Annotated[str, Field(strict=True)] | None
 
 
 class ContentSeries(DeepFrozenModel):
-    """@brief 连续内容所属系列及集数。"""
+    """@brief 连续内容所属系列与唯一集号。"""
 
     title: NonEmptyString
     episode: PositiveInteger
 
 
 class Content(DeepFrozenModel):
-    """@brief 绑定一个动作的内容及其摘要、时长和应用子集。"""
+    """@brief 内容容器、实际时长、体力消耗与独立心理缓解档位。"""
 
     content_id: NonEmptyString
-    action_id: NonEmptyString
     title: NonEmptyString
+    exertion: Exertion
+    pushable: StrictBool
+    relaxation_relief: ReliefLevel
+    social_relief: ReliefLevel
     summary: str = Field(strict=True)
     summary_source: SummarySource
-    duration_seconds: Annotated[StrictInt, Field(ge=CONTENT_MIN_SECONDS)]
-    app_ids: tuple[NonEmptyString, ...]
+    duration_seconds: Annotated[StrictInt, Field(ge=60)]
+    app_ids: tuple[NonEmptyString, ...] = ()
+    location_kinds: tuple[NonEmptyString, ...] = ()
     series: ContentSeries | None = None
 
 
@@ -129,103 +165,64 @@ class MapEdge(DeepFrozenModel):
 
 
 class MapGraph(DeepFrozenModel):
-    """@brief 已发布的生成图模型，不包含运行期最短路查询。"""
+    """@brief 加载期生成的内存图，不含发布结构号或独立种子声明。"""
 
-    schema_version: Literal[1]
-    seed: StrictInt
-    generator_rule_version: Literal[1]
     nodes: tuple[NonEmptyString, ...]
     edges: tuple[MapEdge, ...]
 
 
-class AppsFile(DeepFrozenModel):
-    """@brief 应用文件的唯一根字段。"""
-
-    apps: tuple[App, ...]
-
-
-class LocationsFile(DeepFrozenModel):
-    """@brief 地点文件的唯一根字段。"""
-
-    locations: tuple[Location, ...]
-
-
-class GoodsFile(DeepFrozenModel):
-    """@brief 商品文件的唯一根字段。"""
-
-    goods: tuple[Goods, ...]
-
-
-class ContentsFile(DeepFrozenModel):
-    """@brief 内容文件的唯一根字段。"""
-
-    contents: tuple[Content, ...]
-
-
-class ActionsFile(DeepFrozenModel):
-    """@brief 动作文件的唯一根字段。"""
-
-    actions: tuple[Action, ...]
-
-
-class CatalogData(DeepFrozenModel):
-    """@brief 登记前尚未建立身份索引的原始对象集合。"""
-
-    apps: tuple[App, ...]
-    locations: tuple[Location, ...]
-    goods: tuple[Goods, ...]
-    contents: tuple[Content, ...]
-    actions: tuple[Action, ...]
-    map_data: MapGraph
-
-
 @dataclass(frozen=True)
 class Catalog:
-    """@brief 已通过登记校验的对象映射及冻结派生索引。"""
+    """@brief 已登记对象、回调与冻结派生索引。"""
 
-    #: 目录版本和字节身份。
+    #: 清单字节身份。
     manifest: CatalogManifest
-    #: 正在读取的目录根。
+    #: 目录根。
     source_dir: Path
-    #: 按内部身份索引的应用。
+    #: app 身份索引。
     apps: Mapping[str, App]
-    #: 按内部身份索引的地点。
+    #: 全量地点身份索引。
     locations: Mapping[str, Location]
-    #: 按内部身份索引的商品。
+    #: 商品身份索引。
     goods: Mapping[str, Goods]
-    #: 按内部身份索引的内容。
+    #: 内容身份索引。
     contents: Mapping[str, Content]
-    #: 按内部身份索引的动作。
-    actions: Mapping[str, Action]
-    #: 已发布图的严格模型。
+    #: 内存地图。
     map_data: MapGraph
-    #: 发布图原始字节摘要。
+    #: 内存地图规范摘要。
     map_sha256: str
-    #: 完整环境图的确定性最短路查询。
+    #: 确定性最短路查询。
     graph: Graph
-    #: 每种地点类型拥有的商品身份，非店铺类型为空。
-    menus_by_kind: Mapping[LocationKind, tuple[str, ...]]
-    #: 每个地点拥有的商品身份，非店铺地点为空。
+    #: 各地点实际商品。
     goods_by_store: Mapping[str, tuple[str, ...]]
-    #: 每个应用绑定的店铺身份。
+    #: app 直接供应的商品。
+    goods_by_app: Mapping[str, tuple[str, ...]]
+    #: 各 app 绑定地点。
     stores_by_app: Mapping[str, tuple[str, ...]]
-    #: 每个动作绑定的内容身份。
-    contents_by_action: Mapping[str, tuple[str, ...]]
-    #: 每个动作与应用组合绑定的内容身份。
-    contents_by_action_app: Mapping[tuple[str, str], tuple[str, ...]]
-    #: 每个应用承载的动作身份。
-    actions_by_app: Mapping[str, tuple[str, ...]]
-    #: 每种用途的应用身份。
-    apps_by_purpose: Mapping[AppPurpose, tuple[str, ...]]
-    #: 每个动作与系列标题组合的内容身份，按集数升序。
-    contents_by_series: Mapping[tuple[str, str], tuple[str, ...]]
-    #: 每个地点绑定的应用身份。
+    #: 各地点绑定内容 app。
     apps_by_store: Mapping[str, tuple[str, ...]]
-
-    def location_kinds(self, kind: LocationKind | str) -> tuple[str, ...]:
-        """@brief 从地点类型派生生活活动的环境类型。"""
-        return (PLACE_KIND_ENVIRONMENTS[LocationKind(kind)],)
+    #: 各 app 的内容。
+    contents_by_app: Mapping[str, tuple[str, ...]]
+    #: 各地点类型的内容。
+    contents_by_location_kind: Mapping[str, tuple[str, ...]]
+    #: 按集号排序的系列内容。
+    contents_by_series: Mapping[str, tuple[str, ...]]
+    #: 具体动作的功能 app 候选。
+    apps_by_action: Mapping[str, tuple[str, ...]]
+    #: 通用状态声明。
+    callback_states: Mapping[str, CallbackState]
+    #: 回调规则声明。
+    callback_rules: Mapping[str, CallbackRule]
 
     def shortest_m(self, origin: str, destination: str) -> int:
-        """@brief 返回完整登记图上的距离，未选中间地点仍参与寻路。"""
+        """@brief 全部登记地点参与寻路的最短距离。"""
         return self.graph.distance_meters(origin, destination)
+
+    def nearest_parcel_station(self, home_location_id: str) -> str:
+        """@brief 按住处最短距离与地点身份确定最近驿站。"""
+        from worldmock.catalog.errors import RegistrationError
+
+        stations = [place.location_id for place in self.locations.values() if place.accepts_parcels]
+        if not stations:
+            raise RegistrationError("PARCEL_STATION_REQUIRED")
+        return min(stations, key=lambda key: (self.shortest_m(home_location_id, key), key))
