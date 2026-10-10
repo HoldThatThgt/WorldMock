@@ -64,8 +64,6 @@ def restore_directory(reference: AssetRef, assets: AssetStore, destination: Path
             destination.mkdir(parents=True)
             for member in members:
                 source = archive.extractfile(member)
-                if source is None:
-                    raise IntegrityError("Workspace snapshot content is missing")
                 target = destination / member.name
                 # 目标目录是新建的：写入前已存在只能是先前成员的别名（Windows 8.3 短名、大小写或 Unicode 规范化）。
                 if os.path.lexists(target):
@@ -127,9 +125,7 @@ def _populate_branch(store: FootprintStore, checkpoint, events, stage: Path, met
     manifest["source_run_ids"] = sorted({event.run_id for event in events} | {manifest["run_id"]})
     child = FootprintStore.create(stage, manifest, checkpoint.state)
     try:
-        references = {reference.sha256: reference for reference in checkpoint.snapshots.values()}
-        for event in events:
-            references.update({reference.sha256: reference for reference in event.artifact_refs})
+        references = _branch_asset_references(store, checkpoint, events)
         for reference in references.values():
             child.assets.put(store.assets.read(reference), {
                 "media_type": reference.media_type, "source": reference.source,
@@ -145,6 +141,20 @@ def _populate_branch(store: FootprintStore, checkpoint, events, stage: Path, met
         atomic_write(stage / "restored-checkpoint.json", canonical_json(checkpoint.model_dump()))
     finally:
         child.close()
+
+
+def _branch_asset_references(store: FootprintStore, checkpoint, events: list) -> dict[str, AssetRef]:
+    """@brief 检查点、真实事件与完整冻结环境素材必须共同复制到恢复分支。"""
+    references = {reference.sha256: reference for reference in checkpoint.snapshots.values()}
+    if not isinstance(store.manifest.get("environment_assets"), dict):
+        logging.error("Frozen environment assets are missing from the parent run")
+        raise IntegrityError("Frozen environment assets are missing from the parent run")
+    for value in store.manifest["environment_assets"].values():
+        reference = AssetRef.model_validate(value)
+        references[reference.sha256] = reference
+    for event in events:
+        references.update({reference.sha256: reference for reference in event.artifact_refs})
+    return references
 
 
 def _branch_metadata(value: dict | None) -> dict:

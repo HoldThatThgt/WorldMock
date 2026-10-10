@@ -39,54 +39,49 @@ from worldmock.life.models import (
     ModelIdentity,
     RunIdentity,
 )
-from worldmock.life.world_setup import load_scenario
+from tests.integration.runtime.current_contract_fixtures import inputs, metadata_service
+from tests.integration.runtime_fixtures import current_run_identity
+from worldmock.profile.mapper import map_world_dynamics
+from worldmock.profile.models import BigFiveProfile
 
-_SCENARIO = ENVIRONMENT_ROOT / "scenarios/single-person.json"
-
-
-def _identity(scenario, tag: str) -> RunIdentity:
-    """形成与 tests/life 工厂同口径的运行身份（隔离运行目录）。"""
-    run_id = f"envcov-{tag}-{scenario.scenario_id}"
-    return RunIdentity(
-        run_id=run_id,
-        source_group_id=f"group-{run_id}",
-        agent_ids=tuple(item.agent_id for item in scenario.agents),
-        start_at=scenario.start_at.isoformat(),
-        end_at=scenario.end_at.isoformat(),
-        timezone=scenario.timezone,
-        code_sha256="4" * 64,
-        model_identity=ModelIdentity(
-            provider="openai_compatible",
-            base_url="https://api.deepseek.com/beta",
-            requested_model="deepseek-flash",
-            thinking="enabled",
-            tool_choice="auto",
-            max_retries=0,
-            prompt_sha256="0" * 64,
-            tool_schema_sha256="1" * 64,
-        ),
-    )
+_SCENARIO = ENVIRONMENT_ROOT
 
 
-def _start(scenario) -> datetime:
-    """场景起始时刻（带时区）。"""
-    return datetime.fromtimestamp(scenario.start_at.timestamp(),
-                                  ZoneInfo(scenario.timezone))
+@pytest.fixture(autouse=True)
+def actual_service_metadata(monkeypatch):
+    metadata_service(monkeypatch)
+
+
+def _identity(frozen, tag: str) -> RunIdentity:
+    """当前完整环境身份。"""
+    return current_run_identity(frozen, f"envcov-{tag}")
+
+
+def _options():
+    scores = BigFiveProfile(openness=4, conscientiousness=4, extraversion=4, agreeableness=4, neuroticism=4)
+    return {"world_dynamics": map_world_dynamics(scores).model_dump(mode="json")}
+
+
+def _start(frozen) -> datetime:
+    """完整环境的明确起始时刻。"""
+    return frozen.config.start_time
 
 
 async def _new_env(tmp_path: Path, tag: str) -> LifeEnv:
     """建立并初始化一个全新运行的 LifeEnv。"""
-    scenario, _ = load_scenario(_SCENARIO)
-    env = LifeEnv(scenario_path=str(_SCENARIO),
+    scenario = inputs()
+    env = LifeEnv(environment_root=str(_SCENARIO),
                   run_dir=str(tmp_path / f"run-{tag}"),
-                  run_identity=_identity(scenario, tag).model_dump(mode="json"))
+                  run_identity=_identity(scenario, tag).model_dump(mode="json"),
+        create_options={"world_dynamics": map_world_dynamics(BigFiveProfile(openness=4, conscientiousness=4,
+            extraversion=4, agreeableness=4, neuroticism=4)).model_dump(mode="json")})
     await env.init(_start(scenario))
     return env
 
 
 def _context_for(env: LifeEnv, round_id: str, agent_id: int = 1) -> DecisionContext:
     """按引擎当前状态形成宿主决策上下文。"""
-    timezone = ZoneInfo(env.engine.context.scenario.timezone)
+    timezone = ZoneInfo(env.engine.context.config.timezone)
     observed = datetime.fromtimestamp(env.engine.context.state.current_time, timezone)
     return DecisionContext(env.engine.context.state.run_id, round_id,
                            f"decision-{round_id}-{agent_id}", agent_id,
@@ -116,12 +111,12 @@ def _inject_plan_day_client(monkeypatch) -> list[StubPlanDayClient]:
 
 async def test_init_requires_paths_identity_and_fresh_state(tmp_path) -> None:
     """缺路径、缺身份、重复初始化与起始时钟不符都拒绝。"""
-    scenario, _ = load_scenario(_SCENARIO)
-    with pytest.raises(ProtocolError, match="requires scenario_path and run_dir"):
+    scenario = inputs()
+    with pytest.raises(ProtocolError, match="requires environment_root and run_dir"):
         await LifeEnv().init(_start(scenario))
 
     with pytest.raises(ProtocolError, match="requires explicit run_identity"):
-        env = LifeEnv(scenario_path=str(_SCENARIO),
+        env = LifeEnv(environment_root=str(_SCENARIO),
                       run_dir=str(tmp_path / "no-identity"))
         await env.init(_start(scenario))
 
@@ -132,9 +127,9 @@ async def test_init_requires_paths_identity_and_fresh_state(tmp_path) -> None:
     finally:
         await env.close()
 
-    disagree = LifeEnv(scenario_path=str(_SCENARIO),
+    disagree = LifeEnv(environment_root=str(_SCENARIO),
                        run_dir=str(tmp_path / "disagree"),
-                       run_identity=_identity(scenario, "disagree").model_dump(mode="json"))
+                       run_identity=_identity(scenario, "disagree").model_dump(mode="json"), create_options=_options())
     with pytest.raises(ProtocolError, match="start time disagrees"):
         await disagree.init(_start(scenario) + timedelta(seconds=60))
     assert disagree.engine is None  # 引擎已关闭并置空
@@ -142,12 +137,12 @@ async def test_init_requires_paths_identity_and_fresh_state(tmp_path) -> None:
 
 async def test_open_existing_restores_prior_run(tmp_path) -> None:
     """open_existing=true 只能打开已有不可变运行目录。"""
-    scenario, _ = load_scenario(_SCENARIO)
+    scenario = inputs()
     first = await _new_env(tmp_path, "reopen")
     run_id = first.engine.context.state.run_id
     await first.close()
 
-    reopened = LifeEnv(scenario_path=str(_SCENARIO),
+    reopened = LifeEnv(environment_root=str(_SCENARIO),
                        run_dir=str(tmp_path / "run-reopen"), open_existing=True)
     await reopened.init(_start(scenario))
     try:
@@ -158,23 +153,24 @@ async def test_open_existing_restores_prior_run(tmp_path) -> None:
 
 async def test_registered_tool_surface_fails_closed(tmp_path, monkeypatch) -> None:
     """环境或人物侧登记工具面漂移都在 init 时失败，不留给运行中 KeyError。"""
-    scenario, _ = load_scenario(_SCENARIO)
+    scenario = inputs()
     monkeypatch.setattr(life_env_module, "_STABLE_TOOL_SURFACE",
                         life_env_module._STABLE_TOOL_SURFACE | {"ghost_tool"})
-    drifted = LifeEnv(scenario_path=str(_SCENARIO),
+    drifted = LifeEnv(environment_root=str(_SCENARIO),
                       run_dir=str(tmp_path / "drift-env"),
-                      run_identity=_identity(scenario, "drift").model_dump(mode="json"))
+                      run_identity=_identity(scenario, "drift").model_dump(mode="json"), create_options=_options())
     with pytest.raises(ProtocolError, match="disagrees with the stable tool surface"):
         await drifted.init(_start(scenario))
     if drifted.engine is not None:
         drifted.engine.close()
 
     monkeypatch.undo()
+    metadata_service(monkeypatch)
     monkeypatch.setattr(life_env_module, "life_action_tool_names",
                         lambda: frozenset({"start_activity"}))
-    mismatch = LifeEnv(scenario_path=str(_SCENARIO),
+    mismatch = LifeEnv(environment_root=str(_SCENARIO),
                        run_dir=str(tmp_path / "mismatch-env"),
-                       run_identity=_identity(scenario, "mismatch").model_dump(mode="json"))
+                       run_identity=_identity(scenario, "mismatch").model_dump(mode="json"), create_options=_options())
     with pytest.raises(ProtocolError, match="disagrees with the LifeAgent action tool set"):
         await mismatch.init(_start(scenario))
     if mismatch.engine is not None:
@@ -219,7 +215,7 @@ async def test_full_round_drives_engine_interfaces(tmp_path, monkeypatch) -> Non
 
         receipt = await env.submit_action(DirectToolCall(
             contexts[-1], "action-round-1", "start_activity",
-            start_request(targets=["自己"], actions=["interact"], ways=["等待"])))
+            start_request(targets=["家"], actions=["interact"])))
         assert receipt.action_id == "action-round-1"
         results = await env.commit_decision_round("round-1")
         assert [item.action_id for item in results] == ["action-round-1"]
@@ -252,7 +248,7 @@ async def test_full_round_drives_engine_interfaces(tmp_path, monkeypatch) -> Non
             workspace.mkdir(parents=True, exist_ok=True)
             (workspace / "MEMORY.md").write_text("# round memory\n", encoding="utf-8")
         now = datetime.fromtimestamp(engine.context.state.current_time,
-                                     ZoneInfo(engine.context.scenario.timezone))
+                                     ZoneInfo(engine.context.config.timezone))
         assert plan_clients == []  # init 与决策轮都不执行零点计划
         checkpoint = await env.checkpoint(SocietyCheckpointRequest(
             run_id=engine.context.state.run_id, round_id="round-1", current_time=now,
@@ -274,7 +270,7 @@ async def test_full_round_drives_engine_interfaces(tmp_path, monkeypatch) -> Non
                 await env.submit_action(DirectToolCall(
                     context, f"action-{round_id}-{context.agent_id}",
                     "start_activity",
-                    start_request(targets=["自己"], actions=["interact"], ways=["等待"])))
+                    start_request(targets=["家"], actions=["interact"])))
             await env.commit_decision_round(round_id)
             state = await env.scheduling_state()
             guard += 1
@@ -309,7 +305,7 @@ async def test_checkpoint_identity_is_validated(tmp_path) -> None:
         for _agent_id, path in workspaces:
             Path(path).mkdir(parents=True, exist_ok=True)
         now = datetime.fromtimestamp(engine.context.state.current_time,
-                                     ZoneInfo(engine.context.scenario.timezone))
+                                     ZoneInfo(engine.context.config.timezone))
         stale = SocietyCheckpointRequest(
             run_id="other-run", round_id="round-ck", current_time=now,
             agent_workspaces=workspaces)
@@ -363,8 +359,8 @@ async def test_counterfactual_applies_once_on_fresh_branch(tmp_path) -> None:
     finally:
         await parent.close()
 
-    scenario, _ = load_scenario(_SCENARIO)
-    branch = LifeEnv(scenario_path=str(_SCENARIO), run_dir=str(branch_dir),
+    scenario = inputs()
+    branch = LifeEnv(environment_root=str(_SCENARIO), run_dir=str(branch_dir),
                      open_existing=True)
     await branch.init(_start(scenario))
     try:
@@ -391,7 +387,7 @@ async def test_workspace_binding_and_restore_round_trip(tmp_path) -> None:
     finally:
         await env.close()
 
-    with pytest.raises(ProtocolError, match="restore requires scenario_path"):
+    with pytest.raises(ProtocolError, match="restore requires environment_root"):
         await LifeEnv().restore(run_dir)
 
     first = await _new_env(tmp_path, "restore-first")
@@ -404,7 +400,7 @@ async def test_workspace_binding_and_restore_round_trip(tmp_path) -> None:
     await second.close()
     await first.close()
 
-    restored = LifeEnv(scenario_path=str(_SCENARIO))
+    restored = LifeEnv(environment_root=str(_SCENARIO))
     assert await restored.restore(run_dir) is True
     try:
         assert restored.engine.context.state.run_id == run_id
@@ -413,7 +409,7 @@ async def test_workspace_binding_and_restore_round_trip(tmp_path) -> None:
         await restored.close()
 
     from_workspace = await LifeEnv.from_workspace(
-        run_dir, scenario_path=str(_SCENARIO))
+        run_dir, environment_root=str(_SCENARIO))
     try:
         assert from_workspace.engine.context.state.run_id == run_id
     finally:

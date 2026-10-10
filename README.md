@@ -1,7 +1,7 @@
 <a name="readme-worldmock"></a>
 # WorldMock
 
-WorldMock 用 AgentSociety 2 与 DeepSeek 驱动数字人的日常生活，把观察、决策、行动、状态变化和结果写成
+WorldMock 用 AgentSociety 2 与配置的 OpenAI 兼容模型服务驱动数字人的日常生活，把观察、决策、行动、状态变化和结果写成
 连续、可追溯的数字足迹。WorldMock 负责模拟、记录、完整足迹导出和真实性评估。
 WorldMock-Dataset 提供环境素材与制作工具；LabelKit-DataSet 负责足迹整理、LabelKit 模型任务、训练数据加载和规则测试数据。
 
@@ -59,17 +59,17 @@ python scripts/bootstrap.py --profile release
 
 Windows 可用 `py -3.12`，其他系统可用 `python3.12`。`--wheelhouse` 指定离线制品目录；
 `--use-uv` 显式选择 uv。`release` 要求 Node 和中文字体齐全，`dev` 记录缺失且不能取得完整放行。
-环境收据位于 `.work/environment-receipt.json`；安装和激活步骤见[运行配置](docs/manual/runtime.md#runtime-准备环境)。
+环境收据位于 `.work/environment-receipt.json`；安装和激活步骤见[运行配置](docs/manual/runtime.md)。
 
-模型凭据的格式与读取方式见[填写模型凭据](docs/manual/runtime.md#runtime-填写模型凭据)，凭据不加入版本控制。
+模型凭据的格式与读取方式见[填写模型凭据](docs/manual/runtime.md)，凭据不加入版本控制。
 每个平台的重建与运行能力须由对应实际回执证明。
 
 <a name="readme-实验与数据"></a>
 ## 实验与数据
 
-正式环境由 WorldMock-Dataset 发布，环境根只含 `catalog/` 与 `scenarios/`。
-当前目录格式为 `2`、场景结构为 `8`；`catalog/` 由清单和 app、地点、商品、动作、内容、图六个 JSON 文件组成，不含语料或规则副本。正式环境身份以实际发布清单为准。
-人物自行选择行动，场景只提供现实约束、机会和到达事件。
+环境根只含 catalog/、persona.toml 与 config.toml，描述一个世界、一个人物和一次运行。
+目录使用清单及五份 JSONL；地图由唯一运行种子在内存生成，发布包不包含 map.json。
+完整格式和实际模型服务要求见[用户手册](docs/manual/README.md)。
 
 运行输出位于 `runs/`。事件数据库、素材、模型证据和共同检查点保留实际来源，恢复使用新的目录并保留父运行。
 导出清单列出事件、活动、已核验经历、购买和 app 使用五类工件。
@@ -77,14 +77,11 @@ Windows 可用 `py -3.12`，其他系统可用 `python3.12`。`--wheelhouse` 指
 <a name="readme-命令"></a>
 ## 命令
 
-在仓库根目录执行，显式选择数据仓发布或人工编辑的环境根：
+在仓库根目录执行，显式选择完整环境。以下 `D:/datasets/my-world` 是需要自行准备的外部环境：
 
 ```sh
-worldmock environment generate-map --locations experiments/published-environment/catalog/locations.json \
-  --seed 7 --output experiments/published-environment/catalog/map.json --check
-worldmock validate --environment experiments/published-environment
-worldmock validate --scenario experiments/published-environment/scenarios/single-person.json
-worldmock run --scenario experiments/published-environment/scenarios/single-person.json --output runs/white-collar
+worldmock validate --environment D:/datasets/my-world
+worldmock run --environment D:/datasets/my-world --output runs/white-collar
 worldmock status --run-dir runs/white-collar
 worldmock export --run-dir runs/white-collar --output runs/white-collar/exports/final
 ```
@@ -95,10 +92,11 @@ worldmock export --run-dir runs/white-collar --output runs/white-collar/exports/
 真实性评估分两阶段：`evaluate` 提供双方输入、配置和新目录生成统计及盲评包；
 评审完成后提供同一 `--output` 与三个 `--reviews` 文件进行解盲和结论发布。
 
-引擎最小端到端测试使用 `tests/fixtures/environment/`。正式环境的完整行为回归显式选择环境：
+引擎端到端测试使用实际存在的合成环境 `tests/fixtures/dataset-environment/`，其中模型地址仅供测试。
+完整验证运行：
 
 ```sh
-python -m pytest tests --environment-root experiments/published-environment
+python -m pytest tests
 ```
 
 测试入口与证明范围见[总体架构](docs/design/01-architecture.md#architecture-工程验证)。

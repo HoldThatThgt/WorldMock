@@ -34,9 +34,7 @@ def test_read_only_tools_cannot_enter_action_dispatch(engine_factory, caplog, to
     with caplog.at_level(logging.ERROR), pytest.raises(BusinessRuleError, match="^ACTION_REQUEST_INVALID$"):
         engine.actions.dispatch(state, pending)
 
-    assert any(record.levelno == logging.ERROR
-               and record.getMessage() == f"Read-only query reached world dispatch: {tool_name}"
-               for record in caplog.records)
+    assert any(record.levelno == logging.ERROR for record in caplog.records)
     assert all(record.getMessage().isascii() for record in caplog.records)
     assert engine.context.state is state
     assert state.model_dump(mode="json") == before

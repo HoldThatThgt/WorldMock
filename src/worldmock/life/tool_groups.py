@@ -8,7 +8,7 @@ from copy import deepcopy
 from worldmock.errors import IntegrityError
 
 #: 动作的字段闭集，用于把分组行还原为完整公开动作。
-_ACTION_FIELDS = ("app", "available", "reason", "price", "duration", "quantity", "note")
+_ACTION_FIELDS = ("available", "reason", "price", "duration", "quantity", "note")
 
 
 def compact(value: object) -> object:
@@ -28,12 +28,11 @@ def compact_tool_layer(layer: dict) -> dict:
         metadata = {key: value for key, value in target.items() if key not in {"kind", "actions"}}
         actions = target["actions"] or [None]
         for action in actions:
-            key = (target["kind"], None if action is None else action["action"],
-                   None if action is None else action["way"])
+            key = (target["kind"], None if action is None else action["action"])
             fields = {} if action is None else {name: action[name] for name in _ACTION_FIELDS if name in action}
             row = compact({**metadata, **fields})
-            if not groups or tuple(groups[-1][name] for name in ("kind", "action", "way")) != key:
-                groups.append({"kind": key[0], "action": key[1], "way": key[2], "shared": {}, "targets": []})
+            if not groups or tuple(groups[-1][name] for name in ("kind", "action")) != key:
+                groups.append({"kind": key[0], "action": key[1], "shared": {}, "targets": []})
             groups[-1]["targets"].append(row)
     for group in groups:
         targets = group["targets"]
@@ -63,8 +62,7 @@ def expand_tool_layer(layer: dict) -> dict:
                 raise IntegrityError("Compact tool groups contain conflicting target metadata")
             target = targets.setdefault(name, {**metadata, "actions": []})
             if group["action"] is not None:
-                action = {"action": group["action"], "way": group["way"],
-                          **{key: row.get(key) for key in _ACTION_FIELDS}}
+                action = {"action": group["action"], **{key: row.get(key) for key in _ACTION_FIELDS}}
                 if action not in target["actions"]:
                     target["actions"].append(action)
     return {"layer": layer["layer"], "targets": list(targets.values()),

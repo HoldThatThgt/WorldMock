@@ -104,7 +104,6 @@ async def test_persistent_transport_failure_stops_after_four_attempts(monkeypatc
     client, delays = _client(monkeypatch, [failure] * 5)
     with pytest.raises(llm_dispatcher.LLMDispatchError, match="after 4 attempts") as captured:
         await client.call(messages=[], max_retries=0)
-    assert llm_dispatcher.TRANSPORT_MAX_RETRIES == 3
     assert captured.value.__cause__ is failure
     assert not captured.value.rate_limit_like
     assert len(client._router.requests) == len(client._sem.releases) == 4
@@ -309,3 +308,48 @@ def test_real_router_has_no_fallback_models():
         assert not router.content_policy_fallbacks
     finally:
         router.discard()
+
+
+@pytest.mark.parametrize("budget", [0, 1, 2, 5, 10])
+async def test_configured_transport_budget_controls_actual_attempts(monkeypatch, budget):
+    """声明预算直接限定实际发送次数，首次请求不算重试。"""
+    client, delays = _client(monkeypatch, [_error(Timeout)] * (budget + 2))
+    with pytest.raises(llm_dispatcher.LLMDispatchError, match=f"after {budget + 1} attempts"):
+        await client.call(messages=[], max_retries=10, transport_max_retries=budget)
+    assert len(client._router.requests) == budget + 1
+    assert len(delays) == budget
+    assert all("transport_max_retries" not in request for request in client._router.requests)
+
+
+@pytest.mark.parametrize("kind", [AuthenticationError, BadRequestError])
+async def test_authentication_and_parameters_fail_with_unspent_retry_budgets(monkeypatch, kind):
+    """认证及参数错误立即失败，不消耗两个服务重试预算。"""
+    client, delays = _client(monkeypatch, [_error(kind), _success()])
+    with pytest.raises(llm_dispatcher.LLMDispatchError, match="after 1 attempts"):
+        await client.call(messages=[], max_retries=10, transport_max_retries=10)
+    assert len(client._router.requests) == 1
+    assert delays == []
+
+
+@pytest.mark.parametrize("budget", [True, -1, 11, 1.5, "3"])
+async def test_invalid_retry_budgets_do_not_send_request(monkeypatch, budget):
+    """不合法预算在请求前失败，不能转型或修补。"""
+    client, delays = _client(monkeypatch, [_success()])
+    with pytest.raises(ValueError, match="retry budgets"):
+        await client.call(messages=[], transport_max_retries=budget)
+    assert client._router.requests == []
+    assert delays == []
+
+
+def test_router_disables_underlying_retries_and_preserves_declared_credential(monkeypatch):
+    """成熟 Router 仅承担原生发送与并发，重试预算只由一个循环负责。"""
+    import litellm
+
+    calls = []
+    monkeypatch.setattr(litellm, "Router", lambda **kwargs: calls.append(kwargs) or object())
+    llm_dispatcher._build_router("https://model.example/v1", "literal,credential", "configured-model")
+    assert calls[0]["num_retries"] == 0
+    assert calls[0]["cache_responses"] is False
+    assert calls[0]["model_list"] == [{"model_name": "configured-model", "litellm_params": {
+        "model": "openai/configured-model", "api_key": "literal,credential",
+        "api_base": "https://model.example/v1", "max_retries": 0}}]

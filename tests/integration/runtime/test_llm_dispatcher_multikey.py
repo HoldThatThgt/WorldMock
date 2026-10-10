@@ -24,13 +24,6 @@ def _deployments(api_key: str):
     return list(router.model_list)
 
 
-def test_key_pool_builds_one_deployment_per_key():
-    """N 把 key -> 同一 model_name 的 N 个 deployment（litellm 原生负载分摊）。"""
-    deployments = _deployments("key-a,key-b,key-c")
-    assert len(deployments) == 3
-    assert {dep["model_name"] for dep in deployments} == {NODE_MODEL}
-    keys = [dep["litellm_params"]["api_key"] for dep in deployments]
-    assert keys == ["key-a", "key-b", "key-c"]
 
 
 def test_single_key_builds_single_deployment():
@@ -46,9 +39,3 @@ def test_deployments_use_openai_prefix_and_passthrough_base():
         params = dep["litellm_params"]
         assert params["model"] == f"openai/{NODE_MODEL}"
         assert params["api_base"] == NODE_BASE
-
-
-def test_deployments_have_distinct_generated_ids():
-    """同组 deployment 的生成 id 互不相同（distinct api_key -> distinct hash）。"""
-    ids = [dep["model_info"]["id"] for dep in _deployments("key-a,key-b,key-c")]
-    assert len(ids) == len(set(ids)) == 3

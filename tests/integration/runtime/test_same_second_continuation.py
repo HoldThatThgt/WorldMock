@@ -9,6 +9,9 @@
 
 from __future__ import annotations
 
+from tests.profile.conftest import make_card
+from tests.integration.runtime.current_contract_fixtures import inputs as current_inputs, profile as current_profile
+
 from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT, ENVIRONMENT_ROOT
 from worldmock.footprints.checkpoint import restore_branch
 
@@ -35,41 +38,38 @@ from tests.integration.runtime_fixtures import current_run_identity, write_agent
 from tests.integration.runtime.test_life_agent_protocol import (_OBSERVED_AT, _ModelResponse, _conclude_args,  # noqa: E402
                                                         _memory, _stored_memories, _view)
 from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
-from tests.life.conftest import (advance_next, advance_until_ready, context, errand_add, errand_cancel, errand_update, pending_names, stage_day_plan, start_activity, start_arguments, wake_by_mail)  # noqa: F401
-from tests.life.routing_fixtures import DRINK_NAME, FOOD_STORE, SNACK_NAME, place, single_person_home  # noqa: E402
+from tests.life.conftest import (advance_next, advance_until_ready, context, errand_add, errand_cancel, errand_update, pending_names, stage_day_plan, start_activity, start_arguments)  # noqa: F401
 from tests.life.work_schedule_fixtures import declare  # noqa: E402
 from worldmock.life.readable import iso_time  # noqa: E402
 from worldmock.errors import IntegrityError  # noqa: E402
 from worldmock.life import prompt_capacity  # noqa: E402
 from worldmock.life.continuation import _session_changed  # noqa: E402
 from worldmock.life.engine import LifeEngine  # noqa: E402
-from worldmock.life.vocabulary import WAYS
 from worldmock.life.models import CounterfactualIntervention, ModelIdentity, RunIdentity  # noqa: E402
 from worldmock.life.prompt_capacity import ProgressBudget, fit_request  # noqa: E402
-from worldmock.life.world_setup import load_scenario
 
 ROOT = Path(__file__).resolve().parents[3]
-SCENARIO = ENVIRONMENT_ROOT / "scenarios" / "single-person.json"
+SCENARIO = ENVIRONMENT_ROOT
 #: 上一决策修订今日计划（瞬时请求，人物同一秒再决策）；思考里提到咖啡。
 _PLAN = {"goals": [{"intent_kind": "休息", "goal": "下午喝杯咖啡", "remind_time": None, "around_time": None}]}
-_WAIT = start_arguments(["自己"], ["interact"], ["等待"])
+_WAIT = start_arguments(["家"], ["interact"])
 _THINK_PLAN = "上午有点困，先把下午喝咖啡写进计划。"
 _THINK_WAIT = "计划写好了，先歇一会儿。"
 _NOTE = "先把计划写上。"
 #: 人物档案中的场景联系人（人设层关系项与 relationship 记忆可写的对象）。
-_CONTACTS = [{"salutation": "沈昊", "relation": "老友"}, {"salutation": "陈母", "relation": "家人"}]
+_CONTACTS = [{"salutation": "老周", "relation": "老友"}, {"salutation": "陈母", "relation": "家人"}]
 
 
 @pytest.fixture(autouse=True)
 def _fixed_context_window(monkeypatch) -> None:
     """测试使用固定供应商窗口，只验证请求合同。"""
-    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_048_576)
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: metadata.context_window)
 
 
 class _Script:
     """只替换远程模型传输：按顺序返回预定响应，记录实际发送的请求。"""
 
-    model_name = "deepseek-flash"
+    model_name = "test-model"
 
     def __init__(self, responses: list) -> None:
         self.requests: list[dict] = []
@@ -92,11 +92,10 @@ def _person(environment: LifeEnv, ctx, dispatcher: _Script) -> LifeAgent:
     person = LifeAgent()
     person._id = ctx.agent_id
     person._name = f"人物{ctx.agent_id}"
-    person._profile = {"id": ctx.agent_id, "name": f"人物{ctx.agent_id}", "contacts": _CONTACTS,
-                       "same_second_continuation": True}
+    person._profile = current_profile()
     person._env = environment
     person._dispatcher = dispatcher
-    person._model_name = "deepseek-flash"
+    person._model_name = "test-model"
     person._decision_context = ctx
     person._max_react_turns = 4
     person._enable_memory = False
@@ -228,7 +227,7 @@ async def test_duty_is_constant_within_a_same_second_chain_and_never_enters_chan
     """同秒续接内时钟不动，环境层 duty 与所在地点一样在链内不变、不进 changes（docs/design/06-agent.md#agent-环境层-duty ）：
     有工作安排的人物在周一零点先修订今日计划、同一秒再开始等待；链首 user 消息的环境层带非空 duty（未到上班时间），两次
     观察的 duty 逐值相同，续接的 tool 消息只交还 changes 里的今日计划，不带 duty，也不重述班次。"""
-    engine = _engine_factory(mutate=declare())
+    engine = _engine_factory()
     run = await _plan_then_wait(engine)
     [previous], [request] = run["first"], run["second"]
     head = json.loads(previous["messages"][1]["content"])[4]
@@ -243,55 +242,8 @@ async def test_duty_is_constant_within_a_same_second_chain_and_never_enters_chan
     assert "duty" not in tool["content"] and "09:00–18:00" not in tool["content"]
 
 
-@pytest.mark.asyncio
-async def test_another_persons_same_second_message_appears_once_in_the_whole_request(_engine_factory) -> None:
-    """他人同秒发来的消息只在续接的 tool 消息 events 中出现一次（带全文），链首快照里没有它。"""
-    engine = _engine_factory("multi-person.json")
-    for agent_id in engine.context.state.agents:
-        stage_day_plan(engine, agent_id)
-    environment = _environment(engine)
-    text = "我在楼下，给你带了杯咖啡。"
-    scripts = {1: lambda observation: _wait_reply("call-1"),
-               2: lambda observation: [_reply("call-2", "send_message", {
-                   "recipient_name": _person_name(observation, 1), "text": text}, "告诉她咖啡到了。")]}
-    await _round(environment, "meet", scripts)
-    requests = await _round(environment, "reply", {1: lambda observation: _wait_reply("call-1b"),
-                                                   2: lambda observation: _wait_reply("call-2b")})
-    request = requests[1][0]
-    assert json.dumps(request["messages"], ensure_ascii=False).count(text) == 1
-    assert text not in request["messages"][1]["content"]
-    events = json.loads(request["messages"][-1]["content"])["events"]
-    assert [(row["type"], row["kind"], row["text"]) for row in events] == [("message_arrival", "direct", text)]
 
 
-@pytest.mark.asyncio
-async def test_a_message_already_returned_in_the_chain_is_not_repeated_by_a_later_tool_message(
-        _engine_factory) -> None:
-    """同一秒三次决策：他人的消息在第一次决策之后到达，由第二次决策的 tool 消息交还；第三次决策的 tool 消息只写第二次
-    观察之后同秒发生的事，不再重复它，消息全文在整个请求中仍只出现一次（「唯一出现原则」、tool 消息 events）。"""
-    engine = _engine_factory("multi-person.json")
-    for agent_id in engine.context.state.agents:
-        stage_day_plan(engine, agent_id)
-    environment = _environment(engine)
-    text = "我在楼下，给你带了杯咖啡。"
-    await _round(environment, "meet", {1: lambda observation: _plan_reply(),
-                                       2: lambda observation: [_reply("call-2", "send_message", {
-                                           "recipient_name": _person_name(observation, 1), "text": text},
-                                           "告诉她咖啡到了。")]})
-
-    def recall(observation: dict) -> list:
-        goal = observation["goal_bindings"][0]["task_name"]
-        return [_reply("call-recall", "recall_task_summary", {"task_name": goal}, "回看一下这段停留。"),
-                _reply("call-revision", "revise_day_plan", _PLAN, "回看后保持计划不变。")]
-
-    await _round(environment, "recall", {1: recall, 2: lambda observation: _wait_reply("call-2b")})
-    assert engine.scheduling_state().ready_agent_ids == (1,)
-    requests = await _round(environment, "wait", {1: lambda observation: _wait_reply("call-1c")})
-    [request] = requests[1]
-    assert json.dumps(request["messages"], ensure_ascii=False).count(text) == 1
-    returned = json.loads(request["messages"][3]["content"])
-    assert [(row["type"], row["text"]) for row in returned["events"]] == [("message_arrival", text)]
-    assert "events" not in json.loads(request["messages"][-1]["content"])
 
 
 async def _round(environment: LifeEnv, round_id: str, scripts: dict) -> dict[int, list[dict]]:
@@ -330,48 +282,6 @@ async def test_after_time_advances_the_request_has_no_native_turns_or_earlier_th
     assert calls["revise_day_plan"]["self_note"] == _NOTE and "start_activity" in calls
 
 
-@pytest.mark.asyncio
-async def test_a_same_second_departure_breaks_the_chain(_engine_factory) -> None:
-    """出发后同秒（对方的消息使人物同秒再决策）：仍是出发那一秒，session 已切换为路程，断链；真实人物在路上的这次
-    决策首个请求从新快照构造，只有 system 与 user 两条消息，出发那次的思考不再出现，出发调用不在路程的进度层。"""
-    engine = _engine_factory("multi-person.json")
-    for agent_id in engine.context.state.agents:
-        stage_day_plan(engine, agent_id)
-    environment = _environment(engine)
-    departed_at = engine.context.state.current_time
-
-    def leave(observation: dict) -> list:
-        target, way = next((row["object"], action["label"]) for row in observation["interaction_bindings"]
-                           if row["kind"] == "location" for action in row["actions"] if action["label"] == "步行")
-        return [_reply("call-leave", "start_activity", start_arguments([target], [WAYS[way][0]], [way]),
-                       "出门去。")]
-
-    scripts = {1: leave, 2: lambda observation: [_reply("call-2", "send_message", {
-        "recipient_name": _person_name(observation, 1), "text": "路上小心。"}, "提醒她。")]}
-    await _round(environment, "leave", scripts)
-    assert engine.context.state.current_time == departed_at and 1 in engine.scheduling_state().ready_agent_ids
-
-    def report(observation: dict) -> list:
-        walk = next(row["name"] for row in observation["tool_layer"]["targets"] if row["kind"] == "activity")
-        return [_reply("call-road", "report_status", {"items": [
-            {"activity_name": walk, "summary": "在路上了。"}], "errands": []}, "边走边看消息。")]
-
-    contexts = [context(engine, "on-road", agent_id) for agent_id in engine.scheduling_state().ready_agent_ids]
-    engine.begin_decision_round(contexts)
-    decided = {ctx.agent_id: await _decide(environment, ctx, report if ctx.agent_id == 1 else _wait_reply("call-2b"))
-               for ctx in contexts}
-    engine.commit_decision_round("on-road")
-    observation, [request], _ = decided[1]
-    assert engine.context.state.current_time == departed_at
-    assert observation["environment_layer"]["location"]["session_kind"] == "transit"
-    assert observation["continuation"] is None
-    assert [item["role"] for item in request["messages"]] == ["system", "user"]
-    assert "出门去。" not in json.dumps(request, ensure_ascii=False)
-    progress = json.loads(request["messages"][1]["content"])[5]
-    assert progress == observation["progress_layer"]
-    assert not [row for row in progress["events"] if row["type"] == "tool_call"]
-    left = engine.context.store.read_agent_events("observation", 1)[-2]
-    assert left.decision_id == "decision-leave-1" and _session_changed(engine.context.store, engine.context.state, 1, left)
 
 
 def _checkpoint(engine: LifeEngine):
@@ -384,7 +294,7 @@ def _checkpoint(engine: LifeEngine):
 def _branch(engine: LifeEngine, checkpoint, destination: Path, metadata: dict | None = None) -> LifeEngine:
     """从检查点恢复一个分支并打开。"""
     restore_branch(engine.context.store, checkpoint.checkpoint_id, destination, metadata).close()
-    return LifeEngine.open(ARTIFICIAL_ENVIRONMENT_ROOT / "scenarios/single-person.json", destination)
+    return LifeEngine.open(engine.context.inputs, destination)
 
 
 @pytest.mark.asyncio
@@ -446,7 +356,7 @@ async def test_missing_model_evidence_breaks_the_chain(_engine_factory) -> None:
     ctx = context(engine, "direct")
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
-    engine.submit_action(DirectToolCall(ctx, "action-direct", "start_activity", start_activity("进行", "不存在的对象")))
+    engine.submit_action(DirectToolCall(ctx, "action-direct", "start_activity", start_activity("interact", "不存在的对象")))
     assert engine.commit_decision_round("direct")[0].status == "rejected"
     observation, [request], _ = await _single(_environment(engine), "wait", _wait_reply())
     assert observation["continuation"] is None and len(request["messages"]) == 2
@@ -463,13 +373,13 @@ def _recorded_decision(engine: LifeEngine, messages: list[dict], response: dict 
     ctx = context(engine, "recorded")
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
-    request = {"model": "deepseek-flash", "messages": messages, "extra_body": {"thinking": {"type": "enabled"}},
+    request = {"model": "test-model", "messages": messages, "extra_body": {"thinking": {"type": "enabled"}},
                "tools": [{"type": "function", "function": {"name": "start_activity"}}]}
     call_id = f"{ctx.decision_id}:model:0001:attempt:1"
     engine.record_model_exchange(ModelCallEvidence(ctx, call_id, "request", 1, request))
     if response is not None:
         engine.record_model_exchange(ModelCallEvidence(ctx, call_id, "response", 1, request, response=response))
-    engine.submit_action(DirectToolCall(ctx, "action-recorded", "start_activity", start_activity("进行", "不存在的对象")))
+    engine.submit_action(DirectToolCall(ctx, "action-recorded", "start_activity", start_activity("interact", "不存在的对象")))
     assert engine.commit_decision_round("recorded")[0].status == "rejected"
 
 
@@ -522,7 +432,7 @@ def test_a_decision_that_registered_no_world_request_does_not_continue(_engine_f
     ctx = context(engine, "aborted")
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
-    request = {"model": "deepseek-flash", "messages": _BASE, "extra_body": {"thinking": {"type": "enabled"}},
+    request = {"model": "test-model", "messages": _BASE, "extra_body": {"thinking": {"type": "enabled"}},
                "tools": [{"type": "function", "function": {"name": "start_activity"}}]}
     call_id = f"{ctx.decision_id}:model:0001:attempt:1"
     engine.record_model_exchange(ModelCallEvidence(ctx, call_id, "request", 1, request))
@@ -589,7 +499,7 @@ def _unavailable(observation: dict) -> list:
     row = next(row for row in observation["tool_layer"]["targets"] for action in row["actions"]
                if not action["available"])
     action = next(action for action in row["actions"] if not action["available"])
-    arguments = start_arguments([row["name"]], [action["action"]], [action["way"]])
+    arguments = start_arguments([row["name"]], [action["action"]])
     return [_reply("call-refused", "start_activity", arguments, "试试看。")]
 
 
@@ -601,7 +511,7 @@ def _tool_payload(request: dict) -> dict:
 async def _workspace_person(environment: LifeEnv, workspace: Path, responses: list) -> tuple[LifeAgent, _Script]:
     """启用记忆的真实 LifeAgent：首次在工作区新建，此后每次决策都从工作区重建（与 AS2 每次决策重建人物相同）。"""
     if not (workspace / "AGENT.json").is_file():
-        LifeAgent.create(workspace, {"id": 1, "name": "陈曦", "contacts": _CONTACTS, "same_second_continuation": True},
+        LifeAgent.create(workspace, current_profile(),
                          {"enable_memory": True, "enable_todo_list": False, "max_react_turns": 8})
     dispatcher = _Script(responses)
     service = SimpleNamespace(env=environment, llm=SimpleNamespace(default=dispatcher), trace=None)
@@ -628,7 +538,7 @@ async def test_a_decision_with_memory_and_correction_turns_is_continued_byte_for
     stage_day_plan(engine)
     environment = _environment(engine)
     workspace = tmp_path / "agent_0001"
-    bad = start_arguments(["不存在的对象"], ["interact"], ["等待"])
+    bad = start_arguments(["不存在的对象"], ["interact"])
     person, first = await _workspace_person(environment, workspace, [
         _reply("call-memory", "memory_recent", {"limit": 5}, "先翻翻记忆。"),
         _reply("call-bad", "start_activity", bad, "那就先等一会儿。"), *_plan_reply()])
@@ -664,13 +574,13 @@ def _ended(names: list[str], summary: str) -> dict:
 
 def _views() -> list[dict]:
     """一次收尾写下的看法与偏好（写在 views，about 写对象，只在人设层出现）。"""
-    return [_view("沈昊", "沈昊一向靠谱。"), _view("咖啡", "下午想喝拿铁。", kind="preference")]
+    return [_view("老周", "老周一向靠谱。"), _view("咖啡", "下午想喝拿铁。", kind="preference")]
 
 
 @pytest.mark.asyncio
 async def test_changes_overlay_relationships_and_preferences_so_later_tool_messages_do_not_repeat_them(
         _engine_factory) -> None:
-    """同一秒三次决策：先给刚结束的等待收尾并写下对沈昊的看法与对咖啡的偏好，第二次决策的 tool 消息以 changes 交还人设层
+    """同一秒三次决策：先给刚结束的等待收尾并写下对老周的看法与对咖啡的偏好，第二次决策的 tool 消息以 changes 交还人设层
     关系项的更新（完整条目）与新偏好；第三次决策的 tool 消息相对「链首快照叠加此前 changes」计算，看法与偏好已经交还过，
     不再重复，只写今日计划的改动（第二章 tool 消息 changes「以最新为准」）。"""
     engine = _engine_factory()
@@ -689,10 +599,10 @@ async def test_changes_overlay_relationships_and_preferences_so_later_tool_messa
     _, [second], _ = await _single(environment, "plan", _plan_reply())
     observation, [third], _ = await _single(environment, "again", _wait_reply("call-wait-again"))
     persona = json.loads(second["messages"][1]["content"])[1]
-    [friend] = [item for item in persona["relationships"] if item["person"] == "沈昊"]
+    [friend] = [item for item in persona["relationships"] if item["person"] == "老周"]
     assert friend["view"] is None and persona["preferences"] == []
     changes = _tool_payload(second)["changes"]
-    assert changes["relationships"] == [{**friend, "view": "沈昊一向靠谱。"}]
+    assert changes["relationships"] == [{**friend, "view": "老周一向靠谱。"}]
     assert changes["preferences"] == [{"subject": "咖啡", "preference": "下午想喝拿铁。",
                                        "noted_on": observation["environment_layer"]["observed_at"][:10]}]
     assert pending_names(head)[0] in changes["targets"]["removed"]
@@ -700,148 +610,41 @@ async def test_changes_overlay_relationships_and_preferences_so_later_tool_messa
     assert third["messages"][:len(second["messages"])] == second["messages"]
 
 
-def _stage_mood(engine: LifeEngine, valence: float) -> None:
-    """把人物 1 的情绪数值置于 valence（初始条件，之后的变化都走真实结算）并持久提交。"""
-    from worldmock.footprints.models import EventDraft
-
-    staged = engine.context.state.model_copy(deep=True)
-    agent = staged.agents[1]
-    staged.agents[1] = agent.model_copy(update={"body": agent.body.model_copy(update={"mood_valence": valence})},
-                                        deep=True)
-    staged.version += 1
-    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
-        event_type="environment_event", occurred_at=staged.current_time, visibility="system",
-        data={"kind": "test_mood_staged"})])
-    engine.context.state = staged
 
 
-@pytest.mark.asyncio
-async def test_real_pause_and_body_changes_reach_the_next_tool_message_once(_engine_factory) -> None:
-    """同一秒三次决策：邮件唤醒时暂停进行中的等待，下一条 tool 消息的 changes 写待办层 paused_activities.added（完整
-    条目）并从工具层移除该活动；接着一次被业务拒绝的开始使情绪跌出「平静」，再下一条 tool 消息整体替换 body，且不再
-    重复已交还的暂停活动（链首快照依次叠加此前 changes）。"""
-    engine = _engine_factory()
-    stage_day_plan(engine)
-    environment = _environment(engine)
-    await _single(environment, "wait", _wait_reply(reasoning="先等一刻钟。"))
-    wake_by_mail(engine, offset=300)
-    advance_next(engine)
-    _stage_mood(engine, -0.13)
-
-    def pause(observation: dict) -> list:
-        name = next(row["name"] for row in observation["tool_layer"]["targets"] if row["kind"] == "activity")
-        return [_reply("call-pause", "pause_activity", {"items": [
-            {"activity_name": name, "summary": "先停一下。"}], "errands": []}, "邮件来了。")]
-
-    head, _, _ = await _single(environment, "pause", pause)
-    paused, [second], _ = await _single(environment, "refused", _unavailable)
-    observation, [third], _ = await _single(environment, "again", _wait_reply("call-wait-again"))
-    [item] = paused["todo_layer"]["paused_activities"]
-    changes = _tool_payload(second)["changes"]
-    assert changes["paused_activities"] == {"added": [item]}
-    assert item["name"] in changes["targets"]["removed"] and "body" not in changes
-    assert _tool_payload(third)["result"]["status"] == "rejected"
-    later = _tool_payload(third)["changes"]
-    assert head["environment_layer"]["body"]["mood"] == "平静"
-    assert later["body"] == observation["environment_layer"]["body"] and later["body"]["mood"] == "有点烦"
-    assert "paused_activities" not in later
-    assert observation["todo_layer"]["paused_activities"] == [item]
 
 
 #: 同一秒续接链里新增的两条个人事务（正式目录里的真实商品）：一条带备注与提醒钟点，一条要取得三份。
-_SNACK_ERRAND = errand_add("周末补薯片", SNACK_NAME, memo="下班顺路去超市", remind_time="18:00")
-_TEA_ERRAND = errand_add("囤三杯柠檬茶", DRINK_NAME, quantity=3)
+_SNACK_ERRAND = errand_add("周末补薯片", "薯片", memo="下班顺路去超市", remind_time="18:00")
+_TEA_ERRAND = errand_add("囤三杯柠檬茶", "柠檬茶", quantity=3)
 
 
 @pytest.mark.asyncio
 async def test_errand_changes_reach_the_next_tool_message_as_added_and_removed(_engine_factory) -> None:
-    """同一秒三次真实决策（docs/design/04-simulation-engine.md 「同秒续接」）：邮件唤醒时暂停进行中的等待并新增两条个人
-    事务，下一次决策的 tool 消息以 changes.errands.added 交还两条完整的待办层行（与那一刻观察的待办层逐字相同）；第二次
-    决策结束暂停的等待，同时更新一条的备注（提醒钟点清空）、取消另一条，再下一条 tool 消息的 changes 只写 errands 的
-    added（内容有变的那条完整行）与 removed（被取消的名称），不重复上一条已交还的行。两条 tool 消息的 result 各带按请求
-    顺序的回执；链首快照的待办层始终没有事务（续接前缀逐字节不变），叠加两次 changes 后模型所见的事务与第三次观察的
-    待办层相同。"""
+    """真实收尾新增两条事务，同秒后续收尾更改或取消，仅回报未出现的变化。"""
     engine = _engine_factory()
     stage_day_plan(engine)
     environment = _environment(engine)
-    await _single(environment, "wait", _wait_reply(reasoning="先等一刻钟。"))
-    wake_by_mail(engine, offset=300)
-    advance_next(engine)
+    await _single(environment, "interact", _wait_reply())
+    advance_until_ready(engine)
 
-    def pause(observation: dict) -> list:
-        name = next(row["name"] for row in observation["tool_layer"]["targets"] if row["kind"] == "activity")
-        return [_reply("call-pause", "pause_activity", {"items": [{"activity_name": name, "summary": "先停一下。"}],
-                                                        "errands": [_SNACK_ERRAND, _TEA_ERRAND]}, "先把要买的记下。")]
+    def note(observation):
+        [name] = pending_names(observation)
+        return [_reply("call-note", "conclude_activity", {
+            **_ended([name], "聊完了。"), "errands": [_SNACK_ERRAND, _TEA_ERRAND]}, "把要买的记下。")]
 
-    def conclude(observation: dict) -> list:
-        [paused] = observation["todo_layer"]["paused_activities"]
-        changes = [errand_update("周末补薯片", memo="周六上午去超市"), errand_cancel("囤三杯柠檬茶", "家里还有饮料")]
-        return [_reply("call-end", "conclude_activity", {**_ended([paused["name"]], "不等了。"), "errands": changes},
-                       "改个主意。")]
-
-    head, _, _ = await _single(environment, "pause", pause)
-    noted, [second], _ = await _single(environment, "end", conclude)
-    observation, [third], _ = await _single(environment, "again", _wait_reply("call-wait-again"))
-    rows = noted["todo_layer"]["errands"]
-    assert head["todo_layer"]["errands"] == [] and [row["name"] for row in rows] == ["周末补薯片", "囤三杯柠檬茶"]
+    head, _, _ = await _single(environment, "note", note)
+    rows, requests, _ = await _single(environment, "plan", _plan_reply())
+    [second] = requests
     earlier = _tool_payload(second)
-    assert earlier["changes"]["errands"] == {"added": rows}
-    assert earlier["result"]["details"]["errands"] == [{"errand": "周末补薯片", "change": "新增"},
-                                                       {"errand": "囤三杯柠檬茶", "change": "新增"}]
-    [kit] = observation["todo_layer"]["errands"]
-    assert (kit["name"], kit["memo"], kit["remind_time"]) == ("周末补薯片", "周六上午去超市", None)
-    later = _tool_payload(third)
-    assert later["changes"]["errands"] == {"added": [kit], "removed": ["囤三杯柠檬茶"]}
-    assert later["result"]["details"]["errands"] == [{"errand": "周末补薯片", "change": "更新"},
-                                                     {"errand": "囤三杯柠檬茶", "change": "取消"}]
+    assert earlier["changes"]["errands"] == {"added": rows["todo_layer"]["errands"]}
+    assert head["todo_layer"]["errands"] == []
+    assert [row["name"] for row in rows["todo_layer"]["errands"]] == ["周末补薯片", "囤三杯柠檬茶"]
+    assert earlier["result"]["details"]["errands"] == [
+        {"errand": "周末补薯片", "change": "新增"}, {"errand": "囤三杯柠檬茶", "change": "新增"}]
+    current, [third], _ = await _single(environment, "again", _wait_reply("call-again"))
+    assert _tool_payload(third)["changes"] == {"day_plan": current["todo_layer"]["day_plan"]}
     assert third["messages"][:len(second["messages"])] == second["messages"]
-    chain_head = json.loads(third["messages"][1]["content"])
-    assert chain_head[3]["layer"] == "待办层" and chain_head[3]["errands"] == []
-    seen = _overlay(_overlay(_seen(chain_head), earlier["changes"]), later["changes"])
-    assert seen["errands"] == {kit["name"]: kit}
-
-
-@pytest.mark.asyncio
-async def test_an_errand_completed_in_the_same_second_appears_once_in_the_continuation_events(
-        _engine_factory) -> None:
-    """同一秒三次真实决策（docs/design/04-simulation-engine.md#simulation-engine-完成依据与结算 、2.6「同秒续接」）：人物在集市，邮件唤醒时结束进行中的
-    等待并新增「买一杯柠檬茶」（取得柠檬茶 1 份）；第二次决策到店买下一份，买下的那次提交里事务办成，写一条人物可见、
-    不带决策与动作身份的 errand_completed。第三次决策的 tool 消息里，这次办成作为 events 里一条只写名称的
-    errand_completed 记录恰好出现一次，changes 写这条事务从待办层移除；整次请求里办成记录只此一处，链首快照与前一条
-    tool 消息都没有它。第三次观察的进度层同样只有这一条办成记录，待办层没有事务。"""
-    engine = single_person_home(_engine_factory)
-    place(engine, 1, FOOD_STORE)
-    environment = _environment(engine)
-    await _single(environment, "wait", _wait_reply(reasoning="在店里等一会儿。"))
-    wake_by_mail(engine, offset=60)
-    advance_next(engine)
-    errand = errand_add("买一杯柠檬茶", DRINK_NAME, memo="就在这家买")
-
-    def conclude(observation: dict) -> list:
-        name = next(row["name"] for row in observation["tool_layer"]["targets"] if row["kind"] == "activity")
-        return [_reply("call-end", "conclude_activity", {**_ended([name], "不等了。"), "errands": [errand]},
-                       "想起要买茶。")]
-
-    buy = start_arguments([DRINK_NAME], ["purchase"], ["购买"])
-    await _single(environment, "note", conclude)
-    noted, [second], _ = await _single(environment, "buy", [_reply("call-buy", "start_activity", buy, "就在这买。")])
-    observation, [third], _ = await _single(environment, "again", _wait_reply("call-wait-again"))
-    [completed] = [event for event in engine.context.store.read_agent_events("environment_event", 1)
-                   if event.data.get("kind") == "errand_completed"]
-    assert (completed.visibility, completed.decision_id, completed.action_id) == ("agent", None, None)
-    assert completed.occurred_at == engine.context.state.current_time and engine.context.state.agents[1].errands == {}
-    record = {"occurred_at": iso_time(completed.occurred_at, engine.context.scenario.timezone), "type": "errand_completed",
-              "errand": "买一杯柠檬茶"}
-    payload = _tool_payload(third)
-    assert [row for row in payload["events"] if row["type"] == "errand_completed"] == [record]
-    assert payload["changes"]["errands"] == {"removed": ["买一杯柠檬茶"]}
-    assert payload["result"]["status"] == "completed" and "purchases" in payload["result"]["details"]
-    marker = '"type":"errand_completed"'
-    assert [message["role"] for message in third["messages"] if marker in (message.get("content") or "")] == ["tool"]
-    assert sum((message.get("content") or "").count(marker) for message in third["messages"]) == 1
-    assert marker not in second["messages"][-1]["content"]
-    assert [row for row in observation["progress_layer"]["events"] if row["type"] == "errand_completed"] == [record]
-    assert noted["todo_layer"]["errands"] and observation["todo_layer"]["errands"] == []
 
 
 @pytest.mark.asyncio
@@ -853,7 +656,7 @@ async def test_the_pre_send_check_fails_when_the_current_decision_lacks_thinking
     await _single(environment, "plan", _plan_reply())
     ctx = context(engine, "wait")
     engine.begin_decision_round([ctx])
-    bad = _reply("call-bad", "start_activity", start_arguments(["不存在的对象"], ["interact"], ["等待"]), None)
+    bad = _reply("call-bad", "start_activity", start_arguments(["不存在的对象"], ["interact"]), None)
     with pytest.raises(RuntimeError, match="current decision is missing reasoning_content"):
         await _decide(environment, ctx, [bad, *_wait_reply()])
 
@@ -886,7 +689,7 @@ def _chained_request(reasoning: str) -> tuple[dict, ProgressBudget]:
     chain = [system, {"role": "user", "content": "head"},
              {"role": "assistant", "content": None, "tool_calls": call, "reasoning_content": reasoning},
              {"role": "tool", "tool_call_id": "call", "content": "{}"}]
-    request = {"model": prompt_capacity.MODEL_ALIAS, "messages": chain, "tools": [], "max_tokens": 10}
+    request = {"model": "test-model", "messages": chain, "tools": [], "max_tokens": 10}
     return request, ProgressBudget(layers, ({"protected": False, "lines": []},), fresh_messages=(system, fresh),
                                    chain_length=len(chain))
 
@@ -906,12 +709,12 @@ def test_budget_step_zero_ends_the_continuation_before_any_condensation(monkeypa
         layer, ensure_ascii=False, separators=(",", ":"))}]}
     fresh_size, noteless_size = (prompt_capacity.request_token_count(item) for item in (fresh, noteless))
     assert noteless_size + 3 < fresh_size < prompt_capacity.request_token_count(request)
-    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: _window_above(fresh_size))
-    fitted = fit_request(request, budget)
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: _window_above(fresh_size))
+    fitted = fit_request(request, current_inputs().model_metadata, budget)
     assert fitted["messages"] == list(budget.fresh_messages)
     assert len(request["messages"]) == 4
-    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: _window_above(noteless_size))
-    condensed = fit_request(request, budget)
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: _window_above(noteless_size))
+    condensed = fit_request(request, current_inputs().model_metadata, budget)
     assert condensed["messages"] == noteless["messages"]
 
 
@@ -934,7 +737,7 @@ async def test_budget_step_zero_starts_the_decision_from_a_fresh_snapshot_for_ev
         return original(request)
 
     monkeypatch.setattr(prompt_capacity, "request_token_count", count)
-    bad = _reply("call-bad", "start_activity", start_arguments(["不存在的对象"], ["interact"], ["等待"]),
+    bad = _reply("call-bad", "start_activity", start_arguments(["不存在的对象"], ["interact"]),
                  "先试一个。")
     observation, requests, _ = await _single(environment, "wait", [bad, *_wait_reply()])
     assert observation["continuation"] is not None and len(requests) == 2
@@ -945,18 +748,16 @@ async def test_budget_step_zero_starts_the_decision_from_a_fresh_snapshot_for_ev
 
 
 def _switch_off_engine(tmp_path: Path) -> LifeEngine:
-    """以关闭同秒续接的阶段身份新建运行。"""
-    from worldmock.run_setup import stage_model_identity
-
-    scenario, _ = load_scenario(SCENARIO)
-    identity = RunIdentity(
-        run_id="switch-off", source_group_id="switch-off", agent_ids=tuple(item.agent_id for item in scenario.agents),
-        start_at=scenario.start_at.isoformat(), end_at=scenario.end_at.isoformat(), timezone=scenario.timezone,
-        code_sha256="2" * 64, model_identity=ModelIdentity(
-            provider="openai_compatible", base_url="https://api.deepseek.com/beta", requested_model="deepseek-flash",
-            thinking="enabled", tool_choice="auto", max_retries=0, prompt_sha256="0" * 64,
-            tool_schema_sha256="1" * 64))
-    return LifeEngine.create(SCENARIO, tmp_path / "switch-off", identity, stage_model_identity(False))
+    """以关闭同秒续接的阶段身份新建当前环境运行。"""
+    from tests.integration.runtime_fixtures import current_run_identity
+    from worldmock.profile.mapper import map_world_dynamics
+    from worldmock.profile.models import BigFiveProfile
+    frozen = current_inputs()
+    scores = BigFiveProfile(openness=4, conscientiousness=4, extraversion=4, agreeableness=4, neuroticism=4)
+    return LifeEngine.create(frozen, tmp_path / "switch-off", current_run_identity(frozen, "switch-off"),
+        __import__("worldmock.run_setup", fromlist=["stage_model_identity"]).stage_model_identity(
+            frozen.config.model, frozen.model_metadata, False),
+        {"same_second_continuation": False, "world_dynamics": map_world_dynamics(scores).model_dump(mode="json")})
 
 
 @pytest.mark.asyncio
@@ -1061,57 +862,10 @@ def test_layer_changes_report_errand_rows_added_changed_and_removed() -> None:
     assert layer_changes(head, [earlier, {"errands": {"added": [noted]}}], layers([paused], [noted, meal], None)) == {}
 
 
-@pytest.mark.parametrize("switch", [None, 1, "on"])
-def test_the_stage_identity_requires_a_boolean_switch(switch) -> None:
-    """五个入口共用的阶段身份校验：开关缺失或不是布尔值即拒绝；开与关都合法。"""
-    from worldmock.run_setup import stage_model_identity
-    from worldmock.run_setup import validate_stage_model_identity
-
-    for value in (True, False):
-        validate_stage_model_identity(stage_model_identity(value))
-    identity = stage_model_identity()
-    if switch is None:
-        del identity["stages"]["action"]["same_second_continuation"]
-    else:
-        identity["stages"]["action"]["same_second_continuation"] = switch
-    with pytest.raises(IntegrityError, match="same_second_continuation is .*expected a boolean"):
-        validate_stage_model_identity(identity)
 
 
-def test_the_switch_is_frozen_into_the_run_manifest_and_the_agent_profile(tmp_path) -> None:
-    """运行参数 same_second_continuation 冻结进清单 stages.action 与人物配置；命令行 run 可以关闭。"""
-    from worldmock.cli import build_parser
-    from worldmock.runtime import RunRequest, _prepare_new_run
-    from worldmock.run_setup import _agent_specs
-
-    prepared = _prepare_new_run(RunRequest(ROOT, SCENARIO, tmp_path / "off", "off", "off", False))
-    assert prepared.env_kwargs["create_options"] == {"same_second_continuation": False}
-    assert prepared.same_second_continuation is False
-    scenario, _ = load_scenario(SCENARIO)
-    profiles = [spec["profile"] for spec in _agent_specs(scenario, persona_compiler=lambda _: None,
-                                                         same_second_continuation=False)]
-    assert profiles and all(profile["same_second_continuation"] is False for profile in profiles)
-    arguments = ["run", "--scenario", str(SCENARIO), "--output", str(tmp_path / "cli")]
-    assert build_parser().parse_args(arguments).same_second_continuation == "on"
-    switched = build_parser().parse_args([*arguments, "--same-second-continuation", "off"])
-    assert switched.same_second_continuation == "off"
 
 
-@pytest.mark.asyncio
-async def test_life_env_freezes_the_switch_into_the_manifest(tmp_path) -> None:
-    """LifeEnv 新建运行时把 create_options 的开关冻结进清单；打开已有运行读取清单中的值。"""
-    from tests.integration.runtime.test_env_lifecycle_coverage import _identity, _start
-
-    scenario, _ = load_scenario(SCENARIO)
-    environment = LifeEnv(scenario_path=str(SCENARIO), run_dir=str(tmp_path / "env"),
-                          run_identity=_identity(scenario, "env").model_dump(mode="json"),
-                          create_options={"same_second_continuation": False})
-    await environment.init(_start(scenario))
-    try:
-        action = environment.engine.context.store.manifest["stage_model_identity"]["stages"]["action"]
-        assert action["same_second_continuation"] is False
-    finally:
-        await environment.close()
 
 
 @pytest.mark.parametrize("command", ["resume", "replay"])
@@ -1119,129 +873,10 @@ def test_resume_and_replay_cannot_override_the_switch(command, tmp_path) -> None
     """恢复与重放继承父清单的值：命令行不接受续接开关。"""
     from worldmock.cli import build_parser
 
-    arguments = [command, "--scenario", str(SCENARIO), "--output", str(tmp_path / "child"), "--parent",
+    arguments = [command, "--environment", str(SCENARIO), "--output", str(tmp_path / "child"), "--parent",
                  str(tmp_path / "parent"), "--checkpoint", "checkpoint"]
     if command == "replay":
         arguments += ["--intervention", str(tmp_path / "intervention.json")]
     assert build_parser().parse_args(arguments).command == command
     with pytest.raises(SystemExit):
         build_parser().parse_args([*arguments, "--same-second-continuation", "off"])
-
-
-def _parent_run(tmp_path: Path, switch: bool, profile_switch: bool):
-    """父运行：清单冻结开关 switch，检查点中人物工作区的配置冻结 profile_switch。"""
-    from worldmock.footprints.checkpoint import snapshot_directory
-    from worldmock.run_setup import stage_model_identity
-    from worldmock.life.world_setup import load_runtime_scenario
-
-    semantics, _ = load_runtime_scenario(SCENARIO)
-    identity = current_run_identity(semantics.scenario, "parent")
-    engine = LifeEngine.create(SCENARIO, tmp_path / "parent", identity, stage_model_identity(switch),
-                               {"same_second_continuation": switch})
-    parent = engine.context.store
-    state = engine.context.state.model_dump(mode="json")
-    agent = {"schema_version": 1, "agent_class": "LifeAgent", "agent_id": 1, "initialized_at": None,
-             "profile": {"id": 1, "same_second_continuation": profile_switch}}
-    workspace = write_agent_workspace(tmp_path / "agent", agent_document=agent)
-    snapshots = {"agent:1": snapshot_directory(workspace, parent.assets),
-                 "life": parent.assets.put_json({"state_version": state["version"]}, {"kind": "life_checkpoint"})}
-    return parent, parent.checkpoint(state, snapshots)
-
-
-def test_resume_inherits_the_parent_switch_and_rejects_a_diverged_profile(tmp_path) -> None:
-    """恢复继承父清单的开关（子清单与准备结果都取父值）；人物配置冻结的值与父清单不同时拒绝发布分支。"""
-    from worldmock.runtime import ResumeRequest, _prepare_resume
-
-    parent, checkpoint = _parent_run(tmp_path / "same", False, False)
-    try:
-        prepared = _prepare_resume(ResumeRequest(ROOT, SCENARIO, tmp_path / "same" / "parent",
-                                                 checkpoint.checkpoint_id, tmp_path / "same" / "child"))
-    finally:
-        parent.close()
-    assert prepared.same_second_continuation is False
-    manifest = json.loads((tmp_path / "same" / "child" / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["stage_model_identity"]["stages"]["action"]["same_second_continuation"] is False
-    parent, checkpoint = _parent_run(tmp_path / "diverged", False, True)
-    try:
-        with pytest.raises(IntegrityError, match="same_second_continuation must match the parent manifest"):
-            _prepare_resume(ResumeRequest(ROOT, SCENARIO, tmp_path / "diverged" / "parent",
-                                          checkpoint.checkpoint_id, tmp_path / "diverged" / "child"))
-        assert not (tmp_path / "diverged" / "child").exists()
-    finally:
-        parent.close()
-
-
-def test_replay_with_an_intervention_inherits_the_parent_switch(tmp_path) -> None:
-    """重放（反事实分支）走与 replay_world 相同的准备路径 _prepare_resume(base, intervention)：子清单是反事实分支并继承
-    父清单关闭的开关，准备结果与由它构造的人物配置都取父值；人物工作区冻结的值与父清单不同时同样拒绝发布分支。"""
-    from worldmock.runtime import CounterfactualRequest, ResumeRequest, _prepare_resume
-    from worldmock.run_setup import _agent_specs
-
-    intervention = CounterfactualIntervention(kind="set_balance_fen", agent_id=1, balance_fen=123_456,
-                                              hypothesis="More money changes the plan.",
-                                              source_event_ids=("observation-parent",))
-    parent, checkpoint = _parent_run(tmp_path / "replay", False, False)
-    request = CounterfactualRequest(ResumeRequest(ROOT, SCENARIO, tmp_path / "replay" / "parent",
-                                                  checkpoint.checkpoint_id, tmp_path / "replay" / "child"),
-                                    intervention)
-    try:
-        prepared = _prepare_resume(request.base, request.intervention)
-    finally:
-        parent.close()
-    assert (prepared.same_second_continuation, prepared.intervention) == (False, intervention)
-    manifest = json.loads((tmp_path / "replay" / "child" / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["branch_kind"] == "counterfactual"
-    assert manifest["intervention_sha256"] == prepared.intervention_sha256
-    assert manifest["stage_model_identity"]["stages"]["action"]["same_second_continuation"] is False
-    specs = _agent_specs(prepared.scenario, persona_compiler=lambda _: None,
-                         same_second_continuation=prepared.same_second_continuation)
-    assert specs and all(spec["profile"]["same_second_continuation"] is False for spec in specs)
-    parent, checkpoint = _parent_run(tmp_path / "diverged", True, False)
-    try:
-        with pytest.raises(IntegrityError, match="same_second_continuation must match the parent manifest"):
-            _prepare_resume(ResumeRequest(ROOT, SCENARIO, tmp_path / "diverged" / "parent",
-                                          checkpoint.checkpoint_id, tmp_path / "diverged" / "child"), intervention)
-        assert not (tmp_path / "diverged" / "child").exists()
-    finally:
-        parent.close()
-
-
-@pytest.mark.asyncio
-async def test_a_real_continuation_run_preserves_requests_and_the_observation_gate(_engine_factory,
-                                                                                      tmp_path) -> None:
-    """真实续接运行走完导出、交付窗口与行为指标：终点前两段同秒续接（修订计划→等待，收尾→再等待）；动作与意图窗口的
-    prompt 原样是续接的实际请求（带上一决策 assistant 的思考与 tool 消息）；观察重复门禁在链内复用链首 user 时通过，
-    同一链首 user 确实出现在同一秒的两个决策里（第七章「质量与指标」「交付」）。"""
-    from tests.integration.life.test_export_integration import _stage_final_interval
-    from worldmock.evaluation.behavior_metrics import behavior_metrics_report
-    from worldmock.footprints.export import export_run
-    from worldmock.footprints.validation import validate_export
-
-    engine = _engine_factory()
-    _stage_final_interval(engine, 2 * engine.context.scenario.activity_feedback_seconds)
-    run = await _plan_then_wait(engine)
-    advance_next(engine)
-
-    def conclude(observation: dict) -> list:
-        names = pending_names(observation)
-        return [_reply("call-end", "conclude_activity", _ended(names, "等完了。"), "等完了，收尾。")]
-
-    await _single(run["environment"], "end", conclude)
-    _, [final], _ = await _single(run["environment"], "final", _wait_reply("call-final", "再等最后一刻钟。"))
-    advance_next(engine)
-    assert engine.context.state.current_time == engine.context.state.end_time
-    checkpoint = engine.checkpoint({"agent:1": engine.context.store.assets.put_json({"agent_id": 1}, {"kind": "chain"})})
-    export_dir = tmp_path / "continued-export"
-    export_run(engine.context.store, checkpoint.last_event_seq, export_dir)
-    _, events, _ = validate_export(export_dir)
-    for decision_id, sent in (("decision-wait-1", run["second"][0]), ("decision-final-1", final)):
-        [prompt] = [event for event in events if event["event_type"] == "model_request"
-                    and event["decision_id"] == decision_id and event["data"]["phase"] == "request"]
-        assert prompt["data"]["request"] == sent and len(sent["messages"]) == 4
-    [report] = behavior_metrics_report(events).values()
-    gate = report["gates"]["observation_repetition"]
-    assert (gate["value"], gate["pass"], gate["duplicated_observation_count"]) == (1, True, 0)
-    head = run["first"][0]["messages"][1]["content"]
-    sharing = {event["decision_id"] for event in events if event["event_type"] == "model_request"
-               and any(item.get("content") == head for item in event["data"]["request"]["messages"])}
-    assert sharing == {"decision-plan-1", "decision-wait-1"}

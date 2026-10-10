@@ -23,16 +23,13 @@ from worldmock.profile.models import (
 )
 
 #: 动力学参数名清单；与 TOML [world_dynamics.*] section 一一对应集中对齐。
-DYNAMICS_FIELDS = (
-    "mood_pulse_amplitude", "mood_halflife_minutes", "social_need_growth_per_hour",
-    "conversation_relief_per_hour", "diversity_weight", "invitation_acceptance",
-    "reply_tendency", "present_preference")
+DYNAMICS_FIELDS = ("social_need_growth_per_hour",)
 #: mapper 单独使用时的溯源标记：数值来自确定性映射，未经 LLM 共识提取。
-DETERMINISTIC_SOURCE_MODEL = "persona-mapping v2 (deterministic, zero-LLM)"
+DETERMINISTIC_SOURCE_MODEL = "persona-mapping v3 (deterministic, zero-LLM)"
 
 
 def load_mapping_config(path: Path | str | None = None) -> dict:
-    """@brief 读取显式路径或引擎包的 v2 映射规则表，缺声明时直接失败。"""
+    """@brief 读取显式路径或引擎包的 v3 映射规则表，缺声明时直接失败。"""
     config_resource = (files("worldmock.data").joinpath("persona-mapping.toml")
                        if path is None else Path(path))
     try:
@@ -46,8 +43,8 @@ def load_mapping_config(path: Path | str | None = None) -> dict:
 
 
 def _validate_config(config: Mapping) -> None:
-    """@brief 结构校验 v2 规则表：版本、四 section、八参数完整与斜率维度合法。"""
-    assert config.get("version") == 2, "persona-mapping.toml must declare version = 2"
+    """@brief 结构校验 v3 规则表：版本、四 section、八参数完整与斜率维度合法。"""
+    assert config.get("version") == 3, "persona-mapping.toml must declare version = 3"
     required = {"big_five_center", "world_dynamics", "defaults"}
     missing = required - set(config)
     assert not missing, f"persona-mapping.toml missing sections: {sorted(missing)}"

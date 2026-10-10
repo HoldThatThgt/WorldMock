@@ -4,11 +4,7 @@
 行宽 ≤120 字符、生产函数 ≤50 行且 ≤5 参（下划线私有同受约束，方法不计
 self/cls）、文件 ≤2000 行、生产函数 docstring 含中文（Doxygen 口径）。
 
-棘轮口径：本门禁对新增违规零容忍——任何新违规立即失败。既有存量违规
-以 _OUTSTANDING 按文件×种类冻结记账（均为本门禁建立时点非本单元所有权
-的文件，见 C7 交付报告）：只允许各所有权单元修复后同步把对应计数清零，
-实际计数与清单不一致（新增或清单腐化）同样失败；清单清空后本门禁即成为
-纯全量门禁。
+全部生产源码按同一规则检查，不保留历史违规豁免。
 """
 
 from __future__ import annotations
@@ -24,14 +20,6 @@ MAX_FUNCTION_LINES = 50
 MAX_PARAMETERS = 5
 MAX_FILE_LINES = 2000
 _CJK = re.compile(r"[\u4e00-\u9fff]")
-
-#: 既有存量违规（文件 -> 种类 -> 计数）；修复后必须同步缩减直至清空。
-_OUTSTANDING: dict[str, dict[str, int]] = {
-    "src/worldmock/evaluation/behavior_metrics.py": {"DOCSTRING": 1},
-    "src/worldmock/opslog.py": {"PARAMS": 1},
-    "src/worldmock/runtime.py": {"PARAMS": 1},
-}
-
 
 def _production_files() -> list[Path]:
     """返回两个扫描根下的全部生产 Python 文件（稳定排序）。"""
@@ -84,17 +72,5 @@ def _style_violations() -> dict[str, dict[str, int]]:
 
 
 def test_style_gate_admits_no_new_violations():
-    """全量风格门禁：实际违规恰等于冻结清单（新增即红，修复后清单须缩减）。"""
-    actual = _style_violations()
-    expected = {path: dict(kinds) for path, kinds in _OUTSTANDING.items() if kinds}
-    new = {path: {kind: count for kind, count in kinds.items()
-                  if count > expected.get(path, {}).get(kind, 0)}
-           for path, kinds in actual.items()}
-    new = {path: kinds for path, kinds in new.items() if kinds}
-    stale = {path: {kind: expected[path][kind] - actual.get(path, {}).get(kind, 0)
-                    for kind in kinds if expected[path][kind] > actual.get(path, {}).get(kind, 0)}
-             for path, kinds in expected.items()}
-    stale = {path: kinds for path, kinds in stale.items() if kinds}
-    assert not new, f"new style violations must be fixed, not waived: {new}"
-    assert not stale, (f"style debt was fixed; shrink _OUTSTANDING accordingly: {stale}")
-    assert actual == expected, f"unexpected violation shape: actual={actual} expected={expected}"
+    """所有当前生产文件均满足风格约束。"""
+    assert not _style_violations(), "Production source violates the current style rules"

@@ -20,12 +20,11 @@ def _canonical_world(tmp_path):
     document = {
         "scenario_id": "artificial-event-parsing", "schema_version": "evaluation-scenario-1",
         "window": {"start": start.isoformat(), "end": end.isoformat(), "timezone": "Asia/Shanghai"},
-        "bootstrap": {"seed": 7, "repetitions": 100, "block_days": 7},
-        "review": {"seed": "artificial-review", "reviewer_count": 3, "dimensions": ["continuity"]},
+        "bootstrap": {"repetitions": 100, "block_days": 7},
+        "review": {"reviewer_count": 3, "dimensions": ["continuity"]},
         "shared_profile": {"person_count": 1, "occupation_class": "white_collar", "timezone": "Asia/Shanghai"},
         "special_dates": {},
-        "category_mappings": {"labelkit_sequence_class": {}, "labelkit_pattern": {},
-                              "worldmock_activity": {}},
+        "category_mappings": {"labelkit_sequence_class": {}, "labelkit_pattern": {}},
         "official_domain_map": {"entertainment": ["internet_use"]},
         "official_reference": {"source": "Artificial unit-test reference; no empirical claim", "domains": {
             "internet_use": {"label_zh": "人工浏览参照", "supported_duration_kinds": ["world_internet_session"],
@@ -44,9 +43,9 @@ def test_canonical_adapter_validates_each_event_once_for_statistics_and_public_e
     scenario, worldmock_root = _canonical_world(tmp_path)
     calls, adapter_calls, projected = [], [], []
     public = adapters.worldmock_public_evidence
-    def counted_public(events, activities, mapping):
+    def counted_public(events, activities):
         projected.extend(events)
-        return public(events, activities, mapping)
+        return public(events, activities)
     monkeypatch.setattr(adapters, "worldmock_public_evidence", counted_public)
     parse = adapters.parse_world_event
     def counted_parse(row):
@@ -59,7 +58,7 @@ def test_canonical_adapter_validates_each_event_once_for_statistics_and_public_e
         return validate(row, **kwargs)
     monkeypatch.setattr(Event, 'model_validate', classmethod(counted))
     view = adapt_worldmock(worldmock_root, scenario)
-    rows = [json.loads(line) for line in (worldmock_root / 'events.jsonl').read_text().splitlines()]
+    rows = [json.loads(line) for line in (worldmock_root / 'events.jsonl').read_text(encoding='utf-8').splitlines()]
     identities = [row['event_id'] for row in rows]
     assert adapter_calls == identities
     assert calls == identities * 2  # 独立导出身份认证与一次适配解析各核验一次，公开投影不再次核验。

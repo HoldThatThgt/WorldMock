@@ -11,8 +11,6 @@ from worldmock.life.world_ops import _body_settlement_data
 from worldmock.life.world_ops import _put_agent
 from worldmock.life.world_ops import _resource_flows_data
 
-import hashlib
-import random
 from datetime import datetime
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import RESOURCE_FLOWS_FIELD, EventDraft
@@ -24,22 +22,16 @@ from worldmock.life import (
     reminders,
     same_moment,
     sessions,
-    social_actions,
 )
 from worldmock.life.action_evidence import _origin_terminal_draft, _origin_terminal_result, _terminal_action_records
-from worldmock.life.activity_titles import activity_title
 from worldmock.life.activities import (
     ActivityAdvance,
     advance_activity_shared,
-    end_sleep_by_reminder,
     shared_activity_factors,
+    schedule_feedback,
     truncate_activity,
 )
 from worldmock.life.body import ActivityFactors, BoundaryClock, next_shared_body_boundary_seconds, settle_shared_body
-from worldmock.life.action_run import settle_action
-from worldmock.life.fuel import charge_driving_days
-from worldmock.life.work import work_completion_draft
-from worldmock.scheduling.events import ScheduledKind
 from worldmock.life.models import (
     ActionResult,
     ActivityKind,
@@ -64,7 +56,7 @@ from worldmock.life.travel import persisted_trip, record_arrival, update_travel
 from worldmock.scheduling.effects import process_scheduled_events
 
 from worldmock.life.engine_context import EngineContext
-from worldmock.life.activity_titles import activity_title, activity_snapshot
+from worldmock.life.activity_titles import activity_snapshot, title_index
 from worldmock.life.world_ops import place_names, meal_windows_by_agent
 
 class TimeAdvanceCoordinator:
@@ -80,22 +72,16 @@ class TimeAdvanceCoordinator:
         from agentsociety2.society import SchedulingState
 
         self._require_midnight_decided()
-        current = _datetime(self.context.state.current_time, self.context.scenario.timezone)
+        current = _datetime(self.context.state.current_time, self.context.config.timezone)
         if self.context.state.current_time >= self.context.state.end_time:
             return SchedulingState(current, (), None, self.context.state.version)
         ready = self._ready_agent_ids()
-        next_at = _datetime(self._next_epoch(), self.context.scenario.timezone)
+        next_at = _datetime(self._next_epoch(), self.context.config.timezone)
         return SchedulingState(current, ready, next_at, self.context.state.version)
 
     def _ready_agent_ids(self) -> tuple[int, ...]:
-        """@brief 以冻结随机状态为同秒竞争人物生成可恢复顺序。"""
-        ready = sorted((agent.agent_id for agent in self.context.state.agents.values() if self._ready(agent.agent_id)))
-        material = (
-            f"{self.context.state.random_state}:{self.context.state.current_time}:{self.context.state.version}".encode()
-        )
-        seed = int.from_bytes(hashlib.sha256(material).digest()[:8], "big")
-        random.Random(seed).shuffle(ready)
-        return tuple(ready)
+        """@brief 单人世界按实际到期状态返回人物身份，不产生多人竞争抽取。"""
+        return tuple(agent_id for agent_id in self.context.state.agents if self._ready(agent_id))
 
     def advance(self, tick: int, target: datetime, round_open: bool) -> list[ActionResult]:
         """@brief 精确推进到下一事件边界并结算连续活动、后台事件与决策节律。"""
@@ -108,27 +94,29 @@ class TimeAdvanceCoordinator:
         if tick <= 0 or target_epoch - self.context.state.current_time != tick or target_epoch != self._next_epoch():
             raise ProtocolError("World advance must match the next scheduling boundary")
         interval = target_epoch - self.context.state.current_time
+        self.context.callback_causes.clear()
         staged = flush_presentation(stage_presentation(self.context.state, self.observations.pending_presentation))
-        staged = staged
         staged = staged.model_copy(update={"current_time": target_epoch}, deep=True)
         staged = same_moment.reset_same_moment(staged)
         (drafts, results) = self._advance_activities(staged, target_epoch)
         (staged, background, arrivals) = self._process_scheduled(staged, target_epoch)
         drafts.extend(background)
-        staged = day_planning.settle_receipt_goals(staged, drafts)
         (staged, credited) = errands.settle(staged, drafts)
         drafts.extend(credited)
         boundary = RhythmBoundary(target_epoch, interval, arrivals, drafts)
-        if reminders.defers_rhythm(staged, target_epoch, self.context.scenario.timezone):
+        if reminders.defers_rhythm(staged, target_epoch, self.context.config.timezone):
             staged = settle_engine_rhythm(self.context, staged, boundary)
             (drafts, self.midnight) = hold_body_settlements(boundary)
         else:
             staged = apply_engine_rhythm(self.context, staged, boundary)
+            drafts.extend(self._wake_callbacks(staged, drafts))
         for agent_id in expired_plan_agent_ids(staged):
             staged = _put_agent(staged, staged.agents[agent_id].model_copy(update={"day_plan": None}, deep=True))
         if target_epoch == staged.end_time:
             drafts.extend(self._truncate(staged, target_epoch))
             staged = sessions.end_all(staged)
+            staged, stopped = self._run_stop(staged)
+            drafts.extend(stopped)
             drafts.append(
                 EventDraft(
                     event_type="run_ended",
@@ -137,11 +125,55 @@ class TimeAdvanceCoordinator:
                     data={"end_time": target_epoch},
                 )
             )
+        self._commit_advance(staged, drafts)
+        return results
+
+    def _commit_advance(self, staged: WorldState, drafts: list[EventDraft]) -> None:
+        """@brief 所有效果完成后比对阈值一次，提交唯一新世界。"""
+        from worldmock.life.callbacks import compare_callback_states
+
+        outcome = compare_callback_states(self.context.state, staged, self.context.catalog, drafts,
+                                          self.context.callback_causes)
+        staged, drafts = outcome.state, [*drafts, *outcome.drafts]
         staged.version = self.context.state.version + 1
         self.context.store.commit(validated_payload(staged), drafts)
         self.context.state = staged
         self.observations.pending_presentation = {}
-        return results
+
+    def _run_stop(self, state: WorldState) -> tuple[WorldState, list[EventDraft]]:
+        """@brief 正常截止只执行一次运行结束时间回调，不用于失败停止。"""
+        from worldmock.life.callbacks import CallbackCause, evaluate_callbacks
+
+        if state.run_stop_callbacks_applied:
+            return state, []
+        identity = self.context.persona.agent_id
+        key = f"time-run_stop-{state.current_time}"
+        source = EventDraft(event_type="environment_event", occurred_at=state.current_time, agent_id=identity,
+            visibility="system", source_kind="environment", data={"kind":"time_trigger", "key":"run_stop",
+                                                                   "scheduled_id":key})
+        outcome = evaluate_callbacks(state, self.context.catalog,
+                                    CallbackCause("time", "run_stop", identity, source.event_id, key))
+        self.context.callback_causes.update(outcome.causes)
+        state = outcome.state.model_copy(update={"run_stop_callbacks_applied": True})
+        return state, [source, *outcome.drafts]
+
+    def _wake_callbacks(self, state: WorldState, drafts: list[EventDraft]) -> list[EventDraft]:
+        """@brief 真实提供决策的边界按静态类别去重，以共同身体结算为直接原因。"""
+        from worldmock.life.callbacks import CallbackCause, evaluate_callbacks
+        from worldmock.life.schedule import wake_categories
+
+        emitted = []
+        sources = [draft for draft in drafts if draft.data.get("kind") == "body_settlement"
+                   and draft.data.get("decision_offered", False)]
+        for source in sources:
+            for category in wake_categories(source.data["wake_reasons"]):
+                cause = CallbackCause("event", category, source.agent_id, source.event_id,
+                                      f"wake:{source.agent_id}:{state.current_time}")
+                outcome = evaluate_callbacks(state, self.context.catalog, cause)
+                state.agents, state.accounts = outcome.state.agents, outcome.state.accounts
+                self.context.callback_causes.update(outcome.causes)
+                emitted.extend(outcome.drafts)
+        return emitted
 
     @property
     def midnight_rhythm_pending(self) -> bool:
@@ -152,15 +184,14 @@ class TimeAdvanceCoordinator:
         """@brief 零点节律入口（docs/design/04-simulation-engine.md「运行时机」）：零点计划提交之后只执行判定段。
 
         判定该秒的唤醒原因与 next_decision_at（在手承诺按新计划计，新计划的提醒进入候选），写共同身体结算的唤醒字段，
-        并与活动反馈对齐一次提交；不再执行结算段的情绪账，已读消息与社交账不会重复记账。
+        并与活动反馈对齐一次提交；心理需要只由同一实际消费区间结算。
         """
         boundary = self.midnight
         if boundary is None:
             raise ProtocolError("No midnight rhythm is pending")
         staged = decide_engine_rhythm(self.context, self.context.state.model_copy(deep=True), boundary)
-        staged.version = self.context.state.version + 1
-        self.context.store.commit(validated_payload(staged), list(boundary.drafts))
-        self.context.state = staged
+        drafts = [*boundary.drafts, *self._wake_callbacks(staged, list(boundary.drafts))]
+        self._commit_advance(staged, drafts)
         self.midnight = None
 
     def register_day_plan(
@@ -173,7 +204,7 @@ class TimeAdvanceCoordinator:
         """
         causes = [evidence[-1].event_id] if evidence else []
         (staged, plan, draft) = day_planning.registration(
-            self.context.state, agent_id, request, (sources, causes), self.context.scenario.timezone
+            self.context.state, agent_id, request, (sources, causes), self.context.config.timezone
         )
         staged.version = self.context.state.version + 1
         self.context.store.commit(validated_payload(staged), [*evidence, draft])
@@ -182,120 +213,80 @@ class TimeAdvanceCoordinator:
 
     def _require_midnight_decided(self) -> None:
         """@brief 零点判定段未执行时拒绝调度、推进与检查点（半结算的边界不能提供决策或封存）。"""
+        same_moment.require_budget_available(self.context.state)
         if self.midnight is not None:
             raise ProtocolError("Midnight rhythm must be decided after the day plans are registered")
 
     def _advance_activities(self, state: WorldState, target: int) -> tuple[list[EventDraft], list[ActionResult]]:
-        """@brief 每个人先结算共同身体，再独立推进全部正在执行的活动。"""
-        drafts: list[EventDraft] = []
-        results: list[ActionResult] = []
+        """@brief 同一区间先结算共同身体一次，再推进各活动与真实效果。"""
+        drafts, results = [], []
         for agent_id in sorted(state.agents):
             agent = state.agents[agent_id]
-            interval_start = agent.body_settled_at
-            if interval_start == target:
+            start = agent.body_settled_at
+            if start == target:
                 continue
             activities = active_activities(state, agent_id)
-            factors = tuple(((item.kind, self._shared_factors(item, agent)) for item in activities))
-            settlement = settle_shared_body(agent.body, factors, target - interval_start, self.context.semantics.body)
-            body_event = EventDraft(
-                event_type="environment_event",
-                occurred_at=target,
-                agent_id=agent_id,
-                source_kind="environment",
-                caused_by=list(dict.fromkeys((item.origin_request_event_id for item in activities))),
-                data={
-                    "kind": "body_settlement",
-                    "interval_start": interval_start,
-                    "interval_end": target,
-                    "activity_ids": [item.activity_id for item in activities],
-                    "body_settlement": _body_settlement_data(settlement),
-                    RESOURCE_FLOWS_FIELD: _resource_flows_data(agent_id, target),
-                },
-            )
+            factors = tuple((item.kind, self._shared_factors(item, agent)) for item in activities)
+            settlement = settle_shared_body(agent.body, factors, target - start, self.context.body)
+            body_event = EventDraft(event_type="environment_event", occurred_at=target, agent_id=agent_id,
+                source_kind="environment", caused_by=list(dict.fromkeys(item.origin_request_event_id
+                    for item in activities)), data={"kind":"body_settlement", "interval_start":start,
+                    "interval_end":target, "activity_ids":[item.activity_id for item in activities],
+                    "body_settlement":_body_settlement_data(settlement),
+                    RESOURCE_FLOWS_FIELD:_resource_flows_data(agent_id,target)})
             drafts.append(body_event)
             state.agents[agent_id] = agent.model_copy(
-                update={"body": settlement.after, "body_settled_at": target}, deep=True
-            )
+                update={"body":settlement.after,"body_settled_at":target},deep=True)
             for activity in activities:
-                (progress, terminal) = self._advance_one_activity(
-                    state, activity, target, settlement, body_event.event_id
-                )
-                drafts.append(progress)
-                content = progress.data.get("content")
-                config = next(item for item in self.context.scenario.agents if item.agent_id == agent_id)
-                if content is not None and content["completed"]:
-                    completed = work_completion_draft(state, activity,
-                        self.context.semantics.catalog.contents[content["content_id"]],
-                        progress.event_id, config.work_content_ids)
-                    if completed is not None:
-                        drafts.append(completed)
+                progress, terminal = self._advance_one_activity(
+                    state, activity, target, settlement, body_event.event_id)
+                drafts.extend(progress)
                 if terminal is not None:
-                    (result, event) = terminal
+                    result,event=terminal
                     results.append(result)
                     drafts.append(event)
-            self._switch_session_on_arrival(state, agent_id, target)
-        return (drafts, results)
+            self._switch_session_on_arrival(state,agent_id,target)
+        return drafts,results
 
     def _switch_session_on_arrival(self, state: WorldState, agent_id: int, target: int) -> None:
         """@brief 到达（含到达被拒）的边界：结束路上会话，在所到地点开始停留会话（就地写入本次推进的世界副本）。"""
         if sessions.arriving_transit(state, agent_id, target) is None:
             return
-        (changed, _) = sessions.end_transit(state, agent_id, place_names(self.context.scenario))
+        changed = sessions.end_transit(state, agent_id, place_names(self.context.catalog))
         (state.sessions, state.activities) = (changed.sessions, changed.activities)
 
     def _shared_factors(self, activity, agent) -> ActivityFactors:
         """@brief 社交活动用冻结常量，其余活动复用自身声明系数（与边界预测同源）。"""
-        return shared_activity_factors(activity, agent, self.context.semantics.body)
+        return shared_activity_factors(activity, agent, self.context.body)
 
     def _advance_one_activity(self, state: WorldState, activity, target: int, settlement, body_event_id: str):
-        """@brief 推进单项进度并引用已排在前面的唯一共同身体事件。"""
-        agent = state.agents[activity.agent_id]
-        before_consumed = {"media_position_seconds": activity.media_position_seconds}
-        if activity.kind == ActivityKind.ACTION and activity.data["category"] == "social":
-            advanced = social_actions.advance_social_shared(
-                activity, agent, target, settlement, social_actions.shared_chat_seconds(state, activity, target)
-            )
-        else:
-            advanced = advance_activity_shared(activity, agent, target, settlement)
-        if reminders.reminder_due(agent, target):
-            advanced = end_sleep_by_reminder(advanced, target)
-        alarm_due = any(event.kind == ScheduledKind.ALARM_RING and event.agent_id == activity.agent_id
-                        and event.due_at == target for event in state.pending_events)
-        if alarm_due and not advanced.completed and activity.kind == ActivityKind.SLEEP:
-            ended = advanced.activity.model_copy(update={"status": ActivityStatus.COMPLETED,
-                "ended_at": target, "boundary_type": "alarm_ring", "interruption_reason": "alarm_ring",
-                "next_interaction_at": None}, deep=True)
-            advanced = ActivityAdvance(ended, advanced.agent, settlement, True)
-        state.agents[activity.agent_id] = advanced.agent
-        state.activities[activity.activity_id] = advanced.activity
-        effects = self._apply_activity_effect(state, advanced.activity, before_consumed)
-        if state.activities[activity.activity_id].status == ActivityStatus.COMPLETED:
-            state.agents[activity.agent_id] = state.agents[activity.agent_id].model_copy(
-                update={"next_decision_at": target}, deep=True)
-        state.activities[activity.activity_id] = sessions.arrival_route_end(state, activity.activity_id, target)
-        data = {
-            "interval_start": activity.last_settled_at,
-            "interval_end": target,
-            "activity": activity_snapshot(
-                state.activities[activity.activity_id], self.context.titles
-            ),
-            "body_settlement_event_id": body_event_id,
-            **effects,
-        }
-        flows = _resource_flows_data(activity.agent_id, target)
+        """@brief 推进活动、付款或内容后引用唯一共同身体事件。"""
+        advanced=advance_activity_shared(activity,state.agents[activity.agent_id],target,settlement)
+        state.agents[activity.agent_id]=advanced.agent
+        state.activities[activity.activity_id]=advanced.activity
+        effects,content=self._apply_activity_effect(state,advanced.activity,target)
+        from worldmock.life.callbacks import settle_callback_dates
+
+        outcome=settle_callback_dates(state,self.context.catalog,activity,(activity.last_settled_at,target))
+        state.agents,state.accounts=outcome.state.agents,outcome.state.accounts
+        effects.extend(outcome.drafts)
+        self.context.callback_causes.update(outcome.causes)
+        changed=state.activities[activity.activity_id]
+        if changed.status in {ActivityStatus.COMPLETED,ActivityStatus.FAILED,ActivityStatus.CANCELLED}:
+            state.agents[activity.agent_id]=state.agents[activity.agent_id].model_copy(
+                update={"next_decision_at":target})
+        data={"interval_start":activity.last_settled_at,"interval_end":target,
+              "activity":activity_snapshot(changed,title_index(self.context.catalog)),
+              "body_settlement_event_id":body_event_id}
+        if content is not None:
+            data["content"] = content
+        flows=_resource_flows_data(activity.agent_id,target)
         if flows:
-            data[RESOURCE_FLOWS_FIELD] = flows
-        draft = EventDraft(
-            event_type="activity_progress",
-            occurred_at=target,
-            agent_id=activity.agent_id,
-            decision_id=activity.origin_decision_id,
-            action_id=activity.origin_action_id,
-            activity_id=activity.activity_id,
-            caused_by=[body_event_id, activity.origin_request_event_id],
-            data=data,
-        )
-        return (draft, self._terminal_for_progress(state, state.activities[activity.activity_id], target))
+            data[RESOURCE_FLOWS_FIELD]=flows
+        draft=EventDraft(event_type="activity_progress",occurred_at=target,agent_id=activity.agent_id,
+            decision_id=activity.origin_decision_id,action_id=activity.origin_action_id,
+            activity_id=activity.activity_id,caused_by=[body_event_id,activity.origin_request_event_id],data=data)
+        return [draft,*effects],self._terminal_for_progress(state,changed,target)
 
     def _terminal_for_progress(self, state: WorldState, activity, target: int):
         """@brief 原动作的所有活动均终结后写一次聚合结算。"""
@@ -308,34 +299,46 @@ class TimeAdvanceCoordinator:
             return None
         if activity.origin_action_id not in state.processed_actions:
             raise ProtocolError("Activity origin action is missing from processed actions")
-        result = _origin_terminal_result(state, activity, target, activity_title(activity, self.context.titles))
+        index = title_index(self.context.catalog)
+        result = _origin_terminal_result(state, activity, target, index)
         if result is None:
             return None
         state.processed_actions = _terminal_action_records(state, result)
         return (
             result,
-            _origin_terminal_draft(state, activity, target, [], activity_title(activity, self.context.titles)),
+            _origin_terminal_draft(state, activity, target, [], index),
         )
 
-    def _apply_activity_effect(self, state: WorldState, activity, before_consumed: dict[str, float]) -> dict:
-        """@brief 真实推进后结算路线、驾车日与统一内容证据。"""
-        evidence = {}
-        if activity.kind == ActivityKind.TRAVEL:
-            trip = persisted_trip(self.context.semantics.catalog.graph, activity)
-            activity, agent = update_travel(activity, trip, state.agents[activity.agent_id])
-            record_arrival(activity, agent)
-            state.activities[activity.activity_id] = activity
-            state.agents[agent.agent_id] = agent
-            if activity.travel_mode == "driving":
-                seconds = activity.elapsed_seconds - self.context.state.activities[activity.activity_id].elapsed_seconds
-                changed = charge_driving_days(state, self.context.semantics, activity.agent_id,
-                                               activity.last_settled_at - seconds, activity.last_settled_at)
-                state.agents = changed.agents
-        if activity.kind == ActivityKind.ACTION:
-            changed, evidence["content"] = settle_action(state, activity, self.context.semantics.catalog,
-                self.context.scenario, before_consumed["media_position_seconds"])
-            state.agents, state.activities, state.sessions = changed.agents, changed.activities, changed.sessions
-        return evidence
+    def _apply_activity_effect(self,state:WorldState,activity,target:int)->tuple[list[EventDraft], dict | None]:
+        """@brief 真实推进后结算路线、购买付款和内容，读取各模块唯一状态。"""
+        drafts=[]
+        content=None
+        if activity.kind==ActivityKind.TRAVEL:
+            trip=persisted_trip(self.context.catalog.graph,activity)
+            changed,agent=update_travel(activity,trip,state.agents[activity.agent_id])
+            record_arrival(changed,agent)
+            state.activities[activity.activity_id],state.agents[agent.agent_id]=changed,agent
+        elif activity.kind==ActivityKind.PURCHASE:
+            from worldmock.life.storefront_runtime import StorefrontRuntime
+
+            runtime=StorefrontRuntime(self.context)
+            changed,payment=runtime.advance_payment(state,activity)
+            drafts.extend(payment)
+            if activity.status==ActivityStatus.COMPLETED:
+                changed,completion=runtime.complete_purchase(changed,activity)
+                drafts.extend(completion)
+            state.agents,state.accounts,state.deliveries=changed.agents,changed.accounts,changed.deliveries
+            state.activities,state.pending_events=changed.activities,changed.pending_events
+        elif activity.kind==ActivityKind.INTERACT:
+            from worldmock.life.interact import InteractivityRuntime
+
+            changed,content=InteractivityRuntime(self.context).advance(state,activity,target)
+            state.agents,state.activities,state.sessions=changed.agents,changed.activities,changed.sessions
+        changed=state.activities[activity.activity_id]
+        if changed.status==ActivityStatus.ACTIVE and changed.next_interaction_at==target:
+            state.activities[activity.activity_id]=schedule_feedback(changed,target,
+                self.context.config.activity_feedback_seconds)
+        return drafts,content
 
 
     def _process_scheduled(
@@ -343,17 +346,17 @@ class TimeAdvanceCoordinator:
     ) -> tuple[WorldState, list[EventDraft], dict[int, set[str]]]:
         """@brief 委托唯一预排算法弹出并结算事件，保留运行日志与实际唤醒。"""
         due = [item for item in state.pending_events if item.due_at == target]
-        state, drafts, arrivals = process_scheduled_events(state, target, self.context.semantics)
+        state, drafts, arrivals = process_scheduled_events(state, target, self.context)
         for item in sorted(due, key=lambda value: (value.sequence, value.scheduled_id)):
             self.context.ops.log(
                 target,
                 "push" if item.kind.value == "app_push" else "engine",
                 "info",
-                "SCHEDULED_EVENT_DISPATCHED",
-                f"Scheduled event {item.kind.value} dispatched",
-                agent_id=item.agent_id,
-                event_kind=item.kind.value,
-                scheduled_id=item.scheduled_id,
+                {"code": "SCHEDULED_EVENT_DISPATCHED",
+                "detail": f"Scheduled event {item.kind.value} dispatched",
+                "agent_id": item.agent_id,
+                "event_kind": item.kind.value,
+                "scheduled_id": item.scheduled_id},
             )
         return (state, drafts, arrivals)
 
@@ -364,18 +367,24 @@ class TimeAdvanceCoordinator:
             if activity.status not in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}:
                 continue
             (activity, agent) = truncate_activity(activity, state.agents[activity.agent_id], now)
+            if activity.kind == ActivityKind.PURCHASE:
+                from worldmock.life.storefront_runtime import StorefrontRuntime
+
+                cancelled = StorefrontRuntime(self.context).cancel_purchase(state, activity)
+                state.deliveries = cancelled.deliveries
             state.activities[activity_id] = activity
             state.agents[agent.agent_id] = agent
             drafts.append(
                 activity_control.truncation_record(
-                    activity, activity_snapshot(activity, self.context.titles), now
+                    activity, activity_snapshot(activity, title_index(self.context.catalog)), now
                 )
             )
-            result = _origin_terminal_result(state, activity, now, activity_title(activity, self.context.titles))
+            index = title_index(self.context.catalog)
+            result = _origin_terminal_result(state, activity, now, index)
             if result is not None:
                 state.processed_actions = _terminal_action_records(state, result)
                 drafts.append(
-                    _origin_terminal_draft(state, activity, now, [], activity_title(activity, self.context.titles))
+                    _origin_terminal_draft(state, activity, now, [], index)
                 )
         return drafts
 
@@ -394,9 +403,9 @@ class TimeAdvanceCoordinator:
         （docs/design/04-simulation-engine.md ）。"""
         candidates = [
             self.context.state.end_time,
-            *reminders.boundary_candidates(self.context.state, self.context.scenario.timezone),
+            *reminders.boundary_candidates(self.context.state, self.context.config.timezone),
         ]
-        candidates.extend(awake_duty_edge_times(self.context.state, self.context.scenario))
+        candidates.extend(awake_duty_edge_times(self.context.state, self.context.inputs))
         candidates.extend(
             (item.due_at for item in self.context.state.pending_events if item.due_at > self.context.state.current_time)
         )
@@ -411,6 +420,10 @@ class TimeAdvanceCoordinator:
             if activity.status != ActivityStatus.ACTIVE:
                 continue
             candidates.append(activity.planned_end_at)
+            if activity.kind == ActivityKind.PURCHASE:
+                from worldmock.life.storefront_runtime import StorefrontRuntime
+
+                candidates.extend(StorefrontRuntime(self.context).payment_boundaries(self.context.state, activity))
             if activity.next_interaction_at and activity.next_interaction_at > self.context.state.current_time:
                 candidates.append(activity.next_interaction_at)
         for agent_id in self.context.state.agents:
@@ -425,11 +438,11 @@ class TimeAdvanceCoordinator:
         activities = active_activities(self.context.state, agent_id)
         current = self.context.state.current_time
         clock = BoundaryClock(
-            projection.hour_of_day(current, self.context.scenario.timezone),
-            meal_windows_by_agent(self.context.scenario)[agent_id],
+            projection.hour_of_day(current, self.context.config.timezone),
+            meal_windows_by_agent(self.context.persona)[agent_id],
         )
         factors = tuple(((item.kind, self._shared_factors(item, agent)) for item in activities))
-        seconds = next_shared_body_boundary_seconds(agent.body, factors, self.context.semantics.body, clock)
+        seconds = next_shared_body_boundary_seconds(agent.body, factors, self.context.body, clock)
         if seconds is None:
             return None
         candidate = current + seconds

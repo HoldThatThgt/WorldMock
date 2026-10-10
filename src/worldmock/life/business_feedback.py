@@ -20,29 +20,13 @@ def business_feedback(request: dict, code: str, guidance: dict, unmet: list[str]
 
 def _affected_fields(request: dict, code: str) -> list[tuple[str | int, ...]]:
     """@brief 依据工具实际结构和业务条件定位，不暴露内部价格、身份或时长。"""
-    if "answering" in request and code == "REQUEST_ALREADY_HANDLED":
-        return [("answering",)]
     if isinstance(request.get("items"), list):
         paths = []
         for index, item in enumerate(request["items"]):
-            if "target" in item:
-                field = ("app" if code in {"APP_REQUIRED", "APP_NOT_OFFERED"} else
-                         "pay_app" if code in {"PAYMENT_APP_REQUIRED", "PAYMENT_APP_NOT_BOUND"} else
-                         "to" if code in {"RECIPIENT_NOT_FOUND", "COUNTERPART_REQUIRED"} else
-                         "way" if code == "INTERACTION_MENU_DENIED" else "target")
-            else:
-                field = "activity_name"
+            field = "target" if "target" in item else "activity_name"
             paths.append(("items", index, field))
         return paths
-    if "at" in request:
-        field = "at"
-    elif "task_name" in request:
-        field = "task_name"
-    elif "recipient_name" in request:
-        field = "text" if code == "MESSAGE_TEXT_TOO_LONG" else "recipient_name"
-    else:
-        field = "goals"
-    return [(field,)]
+    return [("task_name" if "task_name" in request else "goals",)]
 
 
 def _domain_item(request: dict, code: str, reason: str, observation: dict,

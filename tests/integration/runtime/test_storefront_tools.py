@@ -1,22 +1,26 @@
-"""@brief 实际固定菜单的完整工具目标与七层 Schema 边界，无引擎生命周期。"""
-
+"""真实目录供给与严格公开请求使用当前目标模型。"""
 import pytest
 from pydantic import ValidationError
-from worldmock.life.callable_index import callable_index
-from worldmock.life.models import ActivityStartParams
+from tests.engine_fixture import engine_factory
+from tests.life.conftest import context
+from worldmock.life.models import StartActivityRequest
 from worldmock.life.prompt_schemas import validate_layer
-from worldmock.life.tool_layer import tool_layer
-from tests.life.purchase_worlds import menu_context
 
 
-def test_real_goods_targets_validate_against_the_production_tool_layer_schema():
-    context = menu_context("noodle-2")
-    layer = tool_layer(context, callable_index(context))
-    validate_layer(layer)
-    assert any(target["name"] == "牛肉面" for target in layer["targets"])
-    assert not any(target["kind"] == "catalog" for target in layer["targets"])
+def test_real_goods_targets_validate_against_the_production_tool_layer_schema(engine_factory):
+    engine = engine_factory()
+    observed = engine.observe(context(engine, "catalog"))
+    validate_layer(observed["tool_layer"])
+    assert any(row["match"]["kind"] == "product" for row in observed["world_query_bindings"])
+    assert all(row["kind"] in {"location", "app", "product", "activity"} for row in observed["tool_layer"]["targets"])
 
 
-def test_retired_browse_activity_request_is_strictly_rejected():
-    with pytest.raises(ValidationError):
-        ActivityStartParams(activity_type="browse", target_id="products", planned_duration_seconds=60)
+@pytest.mark.parametrize("retired", ["browse", "wait", "cook", "use_app", "take_transit", "send_message"])
+def test_retired_activity_actions_are_strictly_rejected(engine_factory, retired):
+    from tests.life.conftest import stage_day_plan
+    from tests.life.environment_runtime import act
+    engine = engine_factory()
+    stage_day_plan(engine)
+    _, result = act(engine, "retired", StartActivityRequest(items=[{"action": retired, "target": "家"}]))
+    assert result.status == "rejected" and result.error_code == "ACTION_REQUEST_INVALID"
+    assert engine.context.state.activities == {}

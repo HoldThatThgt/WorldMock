@@ -19,32 +19,18 @@ from dataclasses import dataclass
 from worldmock.errors import BusinessRuleError, PreconditionError
 from worldmock.life.error_contract import ErrorItem, items_fix
 
-#: 没有专门说明的业务拒绝的通用原因（兜底句；会被抛出的码都另有默认原因）。
-
 #: 抛出处没有写明原因时按错误码取的原因（只写世界事实，不含内部身份）。
 _DEFAULT_REASONS = {
-    "ROUTE_FIELDS_INVALID": "The route fields do not match the way.",
-    'APP_NOT_BOUND': 'This store cannot be ordered through that app.',
-    'ORDER_DUPLICATE_ITEM': 'The same goods for the same recipient appear twice in one order.',
+    'ORDER_DUPLICATE_ITEM': 'The same goods appear twice in one purchase.',
     'ACTIVITY_DURATION_INVALID': 'The derived activity duration is outside the allowed range.',
-    'ACTION_REQUEST_INVALID': 'The requested object or way does not satisfy this tool contract.',
-    'INTERACTION_MENU_DENIED': 'The current location does not admit this action.',
+    'ACTION_REQUEST_INVALID': 'The requested object or action does not satisfy this tool contract.',
     'ROUTE_DURATION_INVALID': 'The route duration exceeds the maximum travel duration.',
     'ACTIVITY_TOO_SHORT': 'An activity must last at least one minute.',
     'INSUFFICIENT_FUNDS': "The caller's available balance is below the actual purchase total.",
     'INSUFFICIENT_TRAVEL_FUNDS': "The caller's available balance is below the route fare.",
-    'CHAT_PARTNER_NOT_AVAILABLE': "The conversation partner is not available at the caller's place.",
-    'CHAT_ALREADY_ACTIVE': 'A conversation with this partner is already active.',
-    'SOCIAL_ACTIVITY_CANNOT_PAUSE': 'Conversations and calls cannot be paused.',
-    'RECIPIENT_NOT_FOUND': 'The recipient is not a known other person; use null for the caller.',
-    'MESSAGE_TEXT_TOO_LONG': 'A message must contain at most 300 characters.',
-    'ELIGIBILITY_LOCATION_KIND_MISMATCH': 'The current location category does not admit this activity.',
     'SAME_MOMENT_ACTION_RESTRICTED': 'This same-moment stage only accepts its offered action types.',
     'TASK_NOT_FOUND': 'No known task, goal or activity uniquely matches this name.',
     'SUPPLY_NOT_FOUND': 'No goods exist for the written name; changing spelling cannot create goods.',
-    'SUPPLY_NOT_AT_STORE': 'The named app does not sell these goods.',
-    'REQUEST_ALREADY_HANDLED': 'An order already fulfills this message request.',
-    'ACTION_NOT_SUPPORTED': 'This object does not support the requested action.',
     'ACTIVITY_NOT_FOUND': 'No known activity matches the written activity name.',
     'ACTIVITY_NOT_OWNED': 'The named activity belongs to another person.',
     'ACTIVITY_NOT_ACTIVE': 'Only an active activity can be paused.',
@@ -56,17 +42,15 @@ _DEFAULT_REASONS = {
     'ACTIVITY_PRECONDITION_UNMET': 'The requested activity has unmet world prerequisites.',
     'SESSION_LIMIT_EXCEEDED': 'Active and pending-conclusion activities occupy both available slots.',
     'RESOURCE_CONFLICT': 'The requested activity conflicts with an occupied resource.',
-    'SOCIAL_PARTNER_NOT_FOUND': 'The named conversation partner is unknown.',
-    'CONTACT_NOT_FOUND': 'The named contact is unknown.',
     'ROUTE_DURATION_MISMATCH': 'The requested travel duration differs from the published graph.',
-    'ORDER_ITEM_COUNT_OUT_OF_RANGE': 'An order requires one to five items.',
-    'ORDER_LOCATION_MISMATCH': 'An order must use one store location.',
+    'ORDER_ITEM_COUNT_OUT_OF_RANGE': 'A purchase requires one or two goods.',
     'ORDER_NOT_FOUND': 'The order is unknown.',
+    'ORDER_NOT_PAID': 'The order has not been paid.',
+    'LOCATION_CLOSED': 'The location is closed at the current time.',
     'DELIVERY_NOT_DUE': 'The order has not reached its delivery time.',
     'DESTINATION_NOT_FOUND': 'The receiving place does not exist.',
     'EXCHANGE_INPUT_INVALID': 'The exchange input quantity is invalid.',
     'EXCHANGE_RESULT_INVALID': 'The exchange result is not a finite valid number.',
-    'EXCHANGE_PIECE_COUNT_MISSING': 'The exchange requires a piece count.',
     'OUT_OF_BOUNDS': 'The quantity is outside its declared resource bounds.',
     'NEGATIVE_BALANCE': 'The available resource quantity cannot cover this exchange.',
     'UNKNOWN_RESOURCE': 'The resource is not declared.',
@@ -79,29 +63,16 @@ _DEFAULT_REASONS = {
     'TRANSFER_UNBALANCED': 'The transferred input and output amounts do not balance.',
     'PLAN_NOT_FOUND': 'No day plan exists for the current day.',
     'PLAN_REMIND_TIME_INVALID': 'The reminder must be after now and before the next local midnight.',
-    'PLAN_GOAL_ALREADY_PROGRESSED': 'This goal intent has already progressed today.',
     'PLAN_GOALS_INVALID': 'The revised plan must preserve unique intents and contain at most eight goals.',
     'OBSERVATION_NOT_FOUND': 'The decision has no unique frozen observation.',
-    'APP_REQUIRED': 'This action is done through an app and none was named.',
-    'APP_NOT_OFFERED': 'The named app is not offered for this target.',
-    'PAYMENT_APP_REQUIRED': 'An order placed through a shopping app must name a payment app.',
-    'PAYMENT_APP_NOT_BOUND': 'The named payment app cannot be used for this order.',
-    'COUNTERPART_REQUIRED': 'This action needs the other person to be named.',
     'CONTENT_EXHAUSTED': 'Nothing is left to do for this action.',
-    'CAR_REQUIRED': 'Driving requires a car owned by this persona.',
-    'DRIVING_DAYS_EXHAUSTED': 'No driving days are available for this trip.',
-    'FUEL_PURCHASE_INVALID': 'Fuel must be bought for yourself while present at a gas station.',
     'PARCEL_NOT_READY': 'No parcels are ready for you at this station.',
-    'ALARM_TIME_INVALID': 'Alarm time must be a future whole second before the run ends.',
 }
 
 #: 按错误码给的改法：怎样改这次请求（世界条件造成的拒绝没有改法，只看下一步）。
 _DEFAULT_FIXES = {
-    "ROUTE_FIELDS_INVALID": "Correct app, to, pay_app and answering.",
-    'ORDER_DUPLICATE_ITEM': 'Keep one line for that goods and recipient.',
-    'ACTION_REQUEST_INVALID': 'Use the published exact object name and offered way.',
-    'ACTION_NOT_SUPPORTED': "Use one of the object's offered ways.",
-    'INTERACTION_MENU_DENIED': 'Use an action admitted at the current location.',
+    'ORDER_DUPLICATE_ITEM': 'Keep one line for each goods.',
+    'ACTION_REQUEST_INVALID': 'Use the published exact object name and offered action.',
     'ACTIVITY_NOT_FOUND': 'Use an exact known activity name.',
     'ACTIVITY_NOT_OWNED': "Name only the caller's activities.",
     'ACTIVITY_NOT_ACTIVE': 'Pause only an active activity.',
@@ -109,39 +80,24 @@ _DEFAULT_FIXES = {
     'ACTIVITY_ALREADY_TERMINAL': 'Do not operate on an activity that has already ended.',
     'ACTIVITY_CONCLUSION_REQUIRED': 'Conclude the finished activity first.',
     'ACTIVITY_PAUSE_UNAVAILABLE': 'Conclude this activity instead.',
-    'SOCIAL_ACTIVITY_CANNOT_PAUSE': 'Conclude the conversation or call.',
-    'SOCIAL_PARTNER_NOT_FOUND': 'Use an exact known person name.',
-    'CONTACT_NOT_FOUND': 'Use an exact known contact name.',
-    'RECIPIENT_NOT_FOUND': 'Use null for the caller, or the exact name of a known other person.',
-    'MESSAGE_TEXT_TOO_LONG': 'Shorten the message to at most 300 characters.',
     'SUPPLY_NOT_FOUND': 'Use an exact known goods name.',
-    'SUPPLY_NOT_AT_STORE': 'Set app to a shopping app that sells these goods, or buy them in a store.',
     'ORDER_ITEM_COUNT_OUT_OF_RANGE': 'Submit one or two order items.',
-    'ORDER_LOCATION_MISMATCH': 'Order from each store separately.',
-    'DESTINATION_NOT_FOUND': 'Use null for the caller or a person with a receiving place.',
+    'DESTINATION_NOT_FOUND': 'Use an exact known location name.',
     'TASK_NOT_FOUND': 'Use an exact known task, goal or activity name.',
     'PLAN_REMIND_TIME_INVALID': 'Use a local HH:MM after now and before midnight, or null.',
-    'PLAN_GOAL_ALREADY_PROGRESSED': 'Submit only intents that have not progressed today.',
     'PLAN_GOALS_INVALID': 'Use unique intents and at most eight goals including preserved goals.',
-    'APP_REQUIRED': 'Set app to one of the apps offered for this action.',
-    'APP_NOT_OFFERED': 'Use one of the offered apps, or null where none is offered.',
-    'PAYMENT_APP_REQUIRED': 'Set pay_app to a payment app offered by that shopping app.',
-    'PAYMENT_APP_NOT_BOUND': 'Use one of the offered payment apps, or null for an in-store purchase.',
-    'COUNTERPART_REQUIRED': 'Name a person who is here, or a contact when the action uses an app.',
 }
 
 #: 抛出处没有写下一步时按错误码给的做法。
 _DEFAULT_NEXT_STEPS = {
     'SAME_MOMENT_ACTION_RESTRICTED': 'Choose an action offered in this stage.',
-    'ACTION_REQUEST_INVALID': 'Choose a known object and an offered way.',
-    'SOCIAL_ACTIVITY_CANNOT_PAUSE': 'Conclude the activity.',
+    'ACTION_REQUEST_INVALID': 'Choose a known object and an offered action.',
     'SUPPLY_NOT_FOUND': 'Choose a known product or candidate request.',
-    'REQUEST_ALREADY_HANDLED': 'Wait for the existing order to arrive.',
     'CONTENT_EXHAUSTED': 'Choose another action.',
 }
 
-#: 原样进入公开结果的可读建议：逐项明细（带可照填候选）、重复的代点请求已关联的订单、名称归一与附带说明（都不含内部身份）。
-_PUBLIC_SUGGESTIONS = ("items", "linked_orders", "resolved", "notes")
+#: 原样进入公开结果的可读建议：逐项明细（带可照填候选）、名称归一与附带说明（都不含内部身份）。
+_PUBLIC_SUGGESTIONS = ("items", "resolved", "notes")
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,7 +134,7 @@ class Refusal:
 
 
 def default_reason(code: str) -> str:
-    """@brief 错误码的默认原因；没有登记的码取兜底句（会被抛出的码都已登记，见模块说明）。"""
+    """@brief 错误码必须有已登记的原因；未知码记录错误并拒绝。"""
     if code not in _DEFAULT_REASONS:
         logging.error("Business rejection code has no declared reason: %s", code)
         raise ValueError(f"business rejection code has no declared reason: {code}")
@@ -221,13 +177,13 @@ def items_refusal(entries: Sequence[tuple[ErrorItem, str]], total: int) -> Refus
 
 
 def rejection_guidance(error: BusinessRuleError) -> dict:
-    """@brief 从一次业务拒绝确定性生成公开的 reason、next_step 与 fix，另带逐项明细 items、已关联的订单 linked_orders、
+    """@brief 从一次业务拒绝确定性生成公开的 reason、next_step 与 fix，另带逐项明细 items、
     名称归一 resolved 与说明 notes（有才写）。
 
     原因只取 guided() 或 Refusal.error() 写明的 public_reason，否则按错误码取默认原因（不读链式底层异常）；下一步取
     suggested 中的可读下一步、要去的地点或要先处理的活动名，否则按错误码取默认做法；改法取 suggested 中写明的，否则按
     错误码取默认改法。下一步与改法没有时为 None（公开结果写 null，docs/design/06-agent.md「通用格式」：允许为空
-    的写 null，不填编造的值）。逐项明细里的候选是可照填的请求 {target, action, way, from, to}（至多 3 个，
+    的写 null，不填编造的值）。逐项明细里的候选是可照填的请求 {target, action}（至多 3 个，
     docs/design/04-simulation-engine.md 第四章）。
     """
     code = str(error)
@@ -243,8 +199,6 @@ def _next_step(suggested: dict) -> str:
     """@brief 把可读的建议写成一句下一步：直接写明的下一步、要去的地点或要先结束或暂停的活动。"""
     if suggested.get("next_step"):
         return str(suggested["next_step"])
-    if suggested.get("travel_to"):
-        return f"Travel to {suggested['travel_to']}."
     if suggested.get("conclude_or_pause"):
         return f"Conclude or pause {', '.join(suggested['conclude_or_pause'])} first."
     return ""

@@ -58,34 +58,3 @@ def test_count_phrase_for_the_callable_index() -> None:
     from worldmock.life.readable import count_phrase
 
     assert [count_phrase(count) for count in (1, 3, 90, 110)] == ["1 个", "3 个", "90 个", "110 个"]
-
-
-def test_chinese_kind_tables_have_a_single_source() -> None:
-    """中文种类表只在 readable 定义（docs/design/10-runtime.md ）：环境层的 PLACE_TYPES、ACTION_PHRASES 与实际
-    消费方的 TRAVEL_WAYS 就是这里的对象；活动种类表覆盖 ActivityKind 的全部取值；各表使用中文，应用动作保留冻结的 app 字样，英文键
-    合成 ENGLISH_KIND_NAMES。"""
-    import re
-
-    from worldmock.life import admission, environment_layer, name_resolution, projection, readable, tool_layer
-    from worldmock.life.models import ActivityKind
-
-    assert environment_layer.PLACE_TYPES is readable.PLACE_TYPES
-    assert environment_layer.ACTION_PHRASES is readable.ACTION_PHRASES
-    assert all(module.TRAVEL_WAYS is readable.TRAVEL_WAYS
-               for module in (admission, environment_layer, name_resolution, projection))
-    assert tool_layer.ACTIVITY_DOING_LABELS is readable.ACTIVITY_DOING_LABELS
-    assert set(readable.ACTIVITY_KIND_LABELS) == {kind.value for kind in ActivityKind}
-    tables = (readable.ACTIVITY_KIND_LABELS, readable.ACTIVITY_DOING_LABELS, readable.PLACE_TYPES,
-              readable.ACTION_PHRASES, readable.TRAVEL_WAYS)
-    assert all(re.fullmatch(r"[一-鿿]+", label) or (table is readable.ACTION_PHRASES and label == "用手机 app")
-               for table in tables for label in table.values())
-    assert readable.ENGLISH_KIND_NAMES == {key for table in tables for key in table}
-
-
-def test_action_public_labels_use_catalog_actions_without_phone_inference():
-    """@brief 单一中文词表保留统一动作标签，手机身份由实际应用与使用方式提供。"""
-    from worldmock.life.readable import ACTIVITY_KIND_LABELS, ACTIVITY_DOING_LABELS, ACTION_PHRASES
-    assert ACTIVITY_KIND_LABELS['action'] == '动作'
-    assert ACTIVITY_DOING_LABELS['action'] == '做事'
-    assert ACTION_PHRASES['do'] == '做工具层里的动作'
-    assert all('use_app' not in table for table in (ACTIVITY_KIND_LABELS, ACTIVITY_DOING_LABELS, ACTION_PHRASES))

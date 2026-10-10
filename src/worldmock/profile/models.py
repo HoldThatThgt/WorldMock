@@ -14,6 +14,7 @@ PersonaCard 从 background_story 抽取（三次一致性口径），承载身�
 from __future__ import annotations
 
 from worldmock.base_models import FrozenModel
+from worldmock.input_models import LEGACY_TEMPLATE_FIELDS
 import hashlib
 import math
 from typing import Literal
@@ -23,9 +24,9 @@ from pydantic import (BaseModel, ConfigDict, Field, field_validator,
 
 #: 卡片合同 schema 版本：3 在时间锚点上增必填可空的下班、到家锚点；更早的结构（含 v1 九参数动机档案）一律拒绝，
 #: 不保留兼容。
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 #: 卡片抽取提示版本（换提示词必须换版本号）。
-PROMPT_VERSION = "card-v3"
+PROMPT_VERSION = "card-v4"
 #: 卡片渲染汉字上限（docs/design/06-agent.md「人格与卡片字段」，与 life/narration.py 同源常数；不互相
 #: import，
 #: 两处同时钉死同一规格行）。
@@ -34,8 +35,6 @@ PERSONA_CARD_HANZI_BUDGET = 600
 BIG_FIVE_DIMENSIONS = ("openness", "conscientiousness", "extraversion",
                        "agreeableness", "neuroticism")
 #: 已删除的旧模板字段（docs/design/06-agent.md「画像编译」）：出现在输入档案即明确报错，不静默兼容。
-LEGACY_TEMPLATE_FIELDS = frozenset({
-    "occupation", "routine_preference", "consumption_preference", "risk_preference"})
 
 #: 睡眠需要小时数区间（docs/design/06-agent.md「画像编译」，合同常数；与 life/sleep.py 同口径）。
 SLEEP_NEED_MIN_H = 7.0
@@ -377,23 +376,9 @@ def persona_card_struct(card: PersonaCard) -> dict:
 
 
 class WorldDynamics(_Frozen):
-    """@brief 大五 → 世界层动力学参数（只供引擎内部使用，不进提示，docs/design/06-agent.md「画像编译」）。
+    """@brief 世界层仅保留实际使用的社交需要增长率，不进入人物提示。"""
 
-    神经质→mood_pulse_amplitude/mood_halflife_minutes；外向性→
-    social_need_growth_per_hour/conversation_relief_per_hour；开放性→
-    diversity_weight；宜人性→invitation_acceptance/reply_tendency；
-    尽责性→present_preference。数值映射规则集中声明在
-    catalog/rules/persona-mapping.toml [world_dynamics.*]（experiment_assumption）。
-    """
-
-    mood_pulse_amplitude: float = Field(ge=0.0, le=1.0)
-    mood_halflife_minutes: float = Field(ge=10.0, le=180.0)
-    social_need_growth_per_hour: float = Field(gt=0.0, le=0.5)
-    conversation_relief_per_hour: float = Field(ge=0.0, le=1.0)
-    diversity_weight: float = Field(ge=0.0, le=1.0)
-    invitation_acceptance: float = Field(ge=0.0, le=1.0)
-    reply_tendency: float = Field(ge=0.0, le=1.0)
-    present_preference: float = Field(ge=0.0, le=1.0)
+    social_need_growth_per_hour: float = Field(ge=0.02, le=0.10)
 
 
 class Consensus(_Frozen):
@@ -404,7 +389,7 @@ class Consensus(_Frozen):
 
 
 class PersonaSource(_Frozen):
-    """@brief 档案溯源：background_story 指纹、提取模型、提示版本与共识。"""
+    """@brief 档案溯源：整份人设原文字节指纹、提取模型、提示版本与共识。"""
 
     background_story_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     model: str = Field(min_length=1)
@@ -413,7 +398,7 @@ class PersonaSource(_Frozen):
 
 
 class CompiledPersona(_Frozen):
-    """@brief 编译产物：卡片 + 大五 + 世界层动力学（schema v3；更早的结构明确拒绝）。"""
+    """@brief 编译产物：卡片 + 大五 + 世界层动力学（schema v4；更早的结构明确拒绝）。"""
 
     schema_version: Literal[SCHEMA_VERSION] = SCHEMA_VERSION
     card: PersonaCard
@@ -421,11 +406,6 @@ class CompiledPersona(_Frozen):
     world_dynamics: WorldDynamics
     source: PersonaSource
     warnings: tuple[str, ...] = ()
-
-
-def background_story_sha256(background_story: str) -> str:
-    """@brief background_story 的 sha256 指纹（source.background_story_sha256）。"""
-    return hashlib.sha256(background_story.encode("utf-8")).hexdigest()
 
 
 def normalized_scores(big_five: BigFiveProfile, center: float, span: float) -> dict[str, float]:

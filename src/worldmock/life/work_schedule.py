@@ -5,7 +5,7 @@
 不从星期或任务分布推断班次，不看人物在不在场，也不带时区字段（复用场景唯一的 timezone）。环境层 `duty`、零点计划输入
 「上班安排」与加载时的日历交叉核对都经这里取同一天的班次。
 
-本模块只依赖标准库，按属性读取 scenario.WorkSchedule / WorkShift（weekly、exceptions、workplace_location_id、starts、
+本模块只依赖标准库，按属性读取 input_models.WorkSchedule / WorkShift（weekly、exceptions、workplace_location_id、starts、
 ends、breaks），因此加载检查、环境层与度量都可以导入它而不成环。
 """
 
@@ -32,8 +32,8 @@ def shift_on(schedule: Any, day: date) -> Any:
     """@brief 某个本地日期的班次：日期例外优先于每周声明；None 表示当日不当班（不从星期或任务推断）。"""
     key = day.isoformat()
     if key in schedule.exceptions:
-        return schedule.exceptions[key]
-    return schedule.weekly[str(day.weekday())]
+        return schedule.exceptions[key] or None
+    return schedule.weekly.get(str(day.weekday()))
 
 
 def shift_span(shift: Any, day: date, zone: ZoneInfo) -> tuple[int, int]:
@@ -70,7 +70,7 @@ def day_arrangement(schedule: Any, day: date, places: Mapping[str, str]) -> dict
     if shift is None:
         return {"day": DAY_REST, "hours": None, "place": None, "breaks": []}
     return {"day": DAY_WORK, "hours": _span_text(shift.starts, shift.ends),
-            "place": places[schedule.workplace_location_id],
+            "place": schedule.workplace,
             "breaks": [_span_text(begin, finish) for begin, finish in shift.breaks]}
 
 

@@ -30,7 +30,7 @@ from worldmock.evaluation.models import (
 )
 from worldmock.evaluation.public_evidence import (
     labelkit_public_evidence,
-    worldmock_activity_category,
+    worldmock_activity_action,
     worldmock_public_evidence,
 )
 from worldmock.evaluation.validation import (
@@ -76,7 +76,9 @@ _WORLD_SOURCE_CHANNELS = {
     "run_failed": "lifecycle",
 }
 #: 数字交互只按实际活动类型判定，主题工作、应用使用与读信沿用同一评估通道。
-_RIGHT_BOUNDARY_EVENTS = {"checkpoint_created", "run_ended", "run_failed"}
+_RIGHT_BOUNDARY_EVENTS = {
+    "checkpoint_created", "run_ended", "run_failed", "activity_progress", "action_result", "environment_event",
+}
 
 
 def adapt_labelkit(root: Path, scenario: EvaluationScenario) -> DatasetView:
@@ -124,9 +126,9 @@ def _index_labelkit_sequences(
         sequence_id = _text(meta.get("id"), f"main line {line_number} _meta.id")
         if sequence_id in indexed:
             raise EvaluationError("duplicate_id", "LabelKit sequence IDs must be unique")
-        category = _labelkit_category(meta, scenario)
+        action = _labelkit_category(meta, scenario)
         _validate_sequence_members(meta, line_number)
-        indexed[sequence_id] = (row, category)
+        indexed[sequence_id] = (row, action)
     return indexed
 
 
@@ -196,7 +198,7 @@ def _adapt_labelkit_event(
     channel = _LABELKIT_COMMON_CHANNELS[source_channel]
     ended = _labelkit_event_end(payload, data_name, occurred, line_number)
     _validate_labelkit_payload_time(payload, data_name, occurred, line_number)
-    category = sequences[owner][1]
+    action = sequences[owner][1]
     event = EvidenceEvent(
         delivery.dataset_id,
         event_id,
@@ -205,7 +207,7 @@ def _adapt_labelkit_event(
         ended,
         data_name,
         channel,
-        category,
+        action,
         owner,
         None,
         None,
@@ -296,21 +298,21 @@ def _labelkit_activities(
     """@brief 从权威 owner 边界构造不会重复帧的活动会话。"""
     event_by_id = {event.source_event_id: event for event in events}
     activities: list[ActivitySession] = []
-    for sequence_id, (row, category) in sequences.items():
+    for sequence_id, (row, action) in sequences.items():
         members = [event_by_id[event_id] for event_id in owner_order[sequence_id]]
         session_members = [event for event in members if event.channel == "digital_interaction"] or members
         starts = [event.occurred_at for event in session_members]
         ends = [event.ended_at or event.occurred_at for event in session_members]
         channels = tuple(sorted({event.channel for event in members}))
         source_channels = tuple(sorted({event.source_channel for event in members}))
-        domains = set(scenario.official_domain_map.get(category, ()))
+        domains = set(scenario.official_domain_map.get(action, ()))
         if "application" in source_channels:
             domains.add("internet_use")
         activities.append(
             ActivitySession(
                 sequence_id,
                 "user",
-                category,
+                action,
                 min(starts),
                 max(ends),
                 (max(ends) - min(starts)).total_seconds(),
@@ -362,7 +364,7 @@ def _adapt_canonical(root: Path, scenario: EvaluationScenario, source_kind: str)
     _validate_world_links(events, activities, delivery)
     if source_kind == "worldmock":
         _validate_world_completion(events, scenario, delivery)
-    public = worldmock_public_evidence(event_rows, activity_rows, scenario.worldmock_activity_map)
+    public = worldmock_public_evidence(event_rows, activity_rows)
     _validate_public_window(public, scenario, allow_right_boundary=True)
     days = build_days(events, activities, scenario)
     validation = dict(delivery.evidence)
@@ -449,7 +451,7 @@ def _adapt_world_event(
     activity = activity_index.get(parsed.activity_id) if parsed.activity_id else None
     source_channel = _WORLD_SOURCE_CHANNELS[parsed.event_type]
     channel = _world_common_channel(parsed, activity)
-    category = activity.category if activity else "unknown"
+    action = activity.action if activity else "unknown"
     interval = _world_interval(parsed)
     return EvidenceEvent(
         delivery.dataset_id,
@@ -459,14 +461,14 @@ def _adapt_world_event(
         _world_event_end(parsed.data),
         parsed.event_type,
         channel,
-        category,
+        action,
         parsed.activity_id,
         parsed.action_id,
         parsed.decision_id,
         tuple(parsed.caused_by),
         parsed.state_version_before,
         parsed.state_version_after,
-        _resource_changes(parsed.data),
+        _resource_changes(parsed.model_dump()),
         _optional_text(parsed.data.get("status")),
         f"{delivery.event_path}:{expected_seq}",
         source_channel,
@@ -559,6 +561,7 @@ def _adapt_world_activity(
     row: JsonObject, line_number: int, delivery: VerifiedDelivery, scenario: EvaluationScenario
 ) -> ActivitySession:
     """@brief 适配一个 Life activity。"""
+    worldmock_activity_action(str(row.get("activity_type")), row.get("data"))
     _require_activity_fields(row, line_number)
     activity_id = _text(row.get("activity_id"), f"activity line {line_number} activity_id")
     activity_type = _text(row.get("activity_type"), f"activity line {line_number} activity_type")
@@ -569,20 +572,18 @@ def _adapt_world_activity(
     if not delivery.window.contains(started) or ended > delivery.window.end:
         raise EvaluationError("invalid_input", "WorldMock activity is outside the declared window")
     _validate_planned_end(row, started, line_number)
-    category = worldmock_activity_category(
-        activity_type, row.get("data"), scenario.worldmock_activity_map
-    )
+    action = worldmock_activity_action(activity_type, row.get("data"))
     resources = _string_list(row.get("resource_claims"), f"activity line {line_number} resource_claims")
-    digital = activity_type == "action" and row["data"].get("app_id") is not None
+    digital = activity_type == "interact" and row["data"].get("app_id") is not None
     channels = ("digital_interaction",) if digital else ("physical_activity",)
     duration_kind = "world_internet_session" if digital else "world_activity"
-    domains = set(scenario.official_domain_map.get(category, ()))
+    domains: set[str] = set()
     if digital:
         domains.add("internet_use")
     return ActivitySession(
         activity_id,
         _person_id(row.get("agent_id")),
-        category,
+        action,
         started,
         ended,
         elapsed,
@@ -594,6 +595,7 @@ def _adapt_world_activity(
         _string_list(row.get("source_event_ids"), f"activity line {line_number} source_event_ids"),
         f"{delivery.activity_path}:{line_number}",
         tuple(sorted(resources)),
+        _optional_text(row.get("location_id")),
     )
 
 
@@ -738,28 +740,15 @@ def _build_day(
     end = start + timedelta(days=1)
     day_activities = [item for item in activities if _activity_overlaps(item, start, end, events)]
     day_events = [item for item in events if start <= item.occurred_at.astimezone(zone) < end]
-    slots = tuple(_slot_category(start, index, day_activities, events) for index in range(144))
     return DayRecord(
         value,
         scenario.calendar_class(value),
         tuple(item.activity_id for item in day_activities),
-        slots,
         len(day_events),
         tuple(sorted({item.channel for item in day_events})),
     )
 
 
-def _slot_category(start: datetime, index: int, activities: list[ActivitySession], events: tuple) -> str:
-    """@brief 按最大重叠选择一个十分钟格的确定类别。"""
-    slot_start = start + timedelta(minutes=index * 10)
-    slot_end = slot_start + timedelta(minutes=10)
-    ranked = [(_overlap_seconds(item, slot_start, slot_end, events), item.category, item.activity_id)
-              for item in activities]
-    eligible = [item for item in ranked if item[0] > 0]
-    if not eligible:
-        return "none"
-    best = sorted(eligible, key=lambda item: (-item[0], item[1], item[2]))[0]
-    return best[1]
 
 
 def _overlap_seconds(activity: ActivitySession, start: datetime, end: datetime, events: tuple) -> float:

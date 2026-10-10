@@ -36,7 +36,7 @@ from worldmock.life.narration import render_layer_json
 @pytest.fixture(autouse=True)
 def _fixed_model_context(monkeypatch) -> None:
     """@brief 集成测试固定模型窗口，避免读取在线供应商元数据。"""
-    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_000_000)
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: metadata.context_window)
 
 
 @pytest.mark.parametrize("layer", ["LIFE_SYSTEM_LAYER", "READONLY_SYSTEM_LAYER"])
@@ -60,7 +60,7 @@ def test_tool_fingerprint_binds_start_activity_description(monkeypatch) -> None:
 class _ScriptedDispatcher:
     """@brief 留存真实请求的独立副本，按脚本返回模型响应或传输错误。"""
 
-    model_name = "deepseek-flash"
+    model_name = "test-model"
 
     def __init__(self, responses: list) -> None:
         self.responses = list(responses)
@@ -92,6 +92,7 @@ def _configured(responses: list, max_turns: int = 6) -> tuple:
     agent, environment = LifeAgent(), _Environment()
     dispatcher = _ScriptedDispatcher(responses)
     _wire_agent(agent, environment, dispatcher, max_turns)
+    agent._model_name = agent._profile["model_identity"]["requested_model"]
     return agent, environment, dispatcher
 
 
@@ -215,8 +216,8 @@ async def test_each_model_entry_preflights_the_complete_token_request(monkeypatc
     readonly = stage == "readonly"
     responses = [_finish_response()] if readonly else [_action_response()]
     agent, environment, dispatcher = _configured(responses, 3)
-    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 100_000)
-    monkeypatch.setattr(prompt_capacity, "request_token_count", lambda request: 85_000)
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: 524288)
+    monkeypatch.setattr(prompt_capacity, "request_token_count", lambda request: 445645)
     with pytest.raises(RuntimeError, match="model request capacity exceeded"):
         await agent.run_react_loop(_request(readonly=readonly))
     assert dispatcher.requests == []
@@ -228,8 +229,8 @@ async def test_long_system_message_passes_when_complete_request_is_below_thresho
     """@brief system 字符数不设熔断：整次请求低于窗口阈值时只读决策照常发送。"""
     long_layer = {**life_prompt.READONLY_SYSTEM_LAYER, "role": life_prompt.READONLY_SYSTEM_LAYER["role"] + "很长" * 1600}
     monkeypatch.setattr(life_prompt, "READONLY_SYSTEM_LAYER", long_layer)
-    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 100_000)
-    monkeypatch.setattr(prompt_capacity, "request_token_count", lambda request: 84_999)
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: 524288)
+    monkeypatch.setattr(prompt_capacity, "request_token_count", lambda request: 445644)
     agent, _, dispatcher = _configured([_finish_response()], 1)
     await agent.run_react_loop(_request(readonly=True))
     assert len(dispatcher.requests[0]["messages"][0]["content"]) > 3000
@@ -244,13 +245,14 @@ async def test_start_activity_description_says_notes_give_length_or_unmet_condit
     request = dispatcher.requests[0]
     description = next(tool["function"]["description"] for tool in request["tools"]
                        if tool["function"]["name"] == "start_activity")
-    assert description == life_prompt.TOOL_DESCRIPTIONS["start_activity"] == "开始一项或两项活动：逐项写目标、方式、所用应用、对方或收货人与付款应用。"
+    assert description == life_prompt.TOOL_DESCRIPTIONS["start_activity"]
+    assert "具体动作" in description and "完整对象名称" in description
     rules = json.loads(request["messages"][0]["content"])["rules"]
     assert [rule for rule in rules if "reason" in rule] == [
-        "工具层列出的动作都可以提交；available 为 false 的会被拒绝，原因就是 reason 所写，照着调整即可。"]
+        "工具层 available 为 false 的动作仍可提交，会按 reason 拒绝；先照原因处理。查询只读，不推进时间。"]
     task = next(target for target in expand_tool_layer(json.loads(request["messages"][1]["content"])[0])["targets"]
-                if target["kind"] == "action")
+                if target["name"] == "整理会议纪要")
     [work] = task["actions"]
     assert (work["available"], work["reason"]) == (False, "整理会议纪要需要在办公室")
-    assert set(work) == {"action", "way", "app", "available", "reason", "price", "duration", "quantity", "note"}
+    assert "way" not in work
     assert environment.calls[0].request.model_dump(by_alias=True) == _WAIT_CHOICE

@@ -107,7 +107,7 @@ class EvidenceEvent:
     ended_at: datetime | None
     event_family: str
     channel: str
-    category: str
+    action: str
     activity_id: str | None
     action_id: str | None
     decision_id: str | None
@@ -141,7 +141,7 @@ class EvidenceEvent:
             "caused_by": list(self.caused_by),
             "state_version_before": self.state_version_before,
             "state_version_after": self.state_version_after,
-            "category": self.category,
+            "action": self.action,
             "resource_changes": dict(self.resource_changes),
             "outcome": self.outcome,
             "source_pointer": self.source_pointer,
@@ -157,7 +157,7 @@ class ActivitySession:
 
     activity_id: str
     person_id: str
-    category: str
+    action: str
     started_at: datetime
     ended_at: datetime
     elapsed_seconds: float
@@ -169,6 +169,7 @@ class ActivitySession:
     caused_by: tuple[str, ...]
     source_pointer: str
     source_channels: tuple[str, ...] = ()
+    location_id: str | None = None
 
     @property
     def duration_seconds(self) -> float:
@@ -190,7 +191,7 @@ class PublicEvidence:
     """@brief 保存可进入盲评的闭集公开结构事实。"""
 
     occurred_at: datetime
-    category: str
+    action: str
     interaction: str
     object_type: str
     state: str | None
@@ -218,7 +219,6 @@ class DayRecord:
     calendar_date: date
     calendar_class: str
     activity_ids: tuple[str, ...]
-    slot_categories: tuple[str, ...]
     event_count: int
     channels: tuple[str, ...]
 
@@ -240,9 +240,9 @@ class DatasetView:
 
     def mapping_report(self) -> JsonObject:
         """@brief 返回事件守恒和类别覆盖报告。"""
-        unknown = sum(activity.category == "unknown" for activity in self.activities)
+        unknown = sum(activity.action == "unknown" for activity in self.activities)
         channels = sorted({event.channel for event in self.events})
-        categories = sorted({activity.category for activity in self.activities})
+        categories = sorted({activity.action for activity in self.activities})
         return {
             "source_kind": self.source_kind,
             "dataset_id": self.dataset_id,
@@ -254,7 +254,7 @@ class DatasetView:
             "unknown_activities": unknown,
             "public_evidence": len(self.public_evidence),
             "channels": channels,
-            "categories": categories,
+            "actions": categories,
             "declared_days": len(self.window.days),
             "mapped_days": len(self.days),
         }
@@ -284,17 +284,14 @@ class EvaluationScenario:
     scenario_id: str
     schema_version: str
     window: TimeWindow
-    bootstrap_seed: int
     bootstrap_repetitions: int
     block_days: int
-    review_seed: str
     reviewer_count: int
     review_dimensions: tuple[str, ...]
     shared_profile: SharedProfile
     special_dates: Mapping[str, str]
     labelkit_class_map: Mapping[str, str]
     labelkit_pattern_map: Mapping[str, str]
-    worldmock_activity_map: Mapping[str, str]
     official_domain_map: Mapping[str, tuple[str, ...]]
     official_reference: Mapping[str, Any]
     expected_labelkit: Mapping[str, Any]

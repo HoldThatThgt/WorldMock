@@ -116,7 +116,7 @@ flowchart LR
 宿主绑定调用身份；只读查询返回冻结事实，世界请求在收齐本轮请求后确定性结算。
 模型的叙述只作为主观文字保存，不能代替实际进度、支付或收货。
 
-请求和受理规则见[人物工具与管理接口](04-simulation-engine.md#simulation-engine-人物工具与管理接口)，
+请求和受理规则见[人物工具与管理接口](04-simulation-engine.md)，
 提示与模型协议见[人物](06-agent.md)，框架调用边界见[运行与框架集成](10-runtime.md)。
 
 <a name="architecture-事件驱动的时间推进"></a>
@@ -139,7 +139,7 @@ flowchart LR
 检查点包含共同边界上的世界状态、数字人工作区及恢复所需材料。
 记录引擎负责核验和提供这些材料，模拟引擎负责恢复外部运行实例、施加已声明的干预并继续执行。
 假设文本和实际重新模拟得到的结果分别标明来源，新分支结果不改写原分支经历。
-完整规则见[记录引擎](05-recording-engine.md#recording-engine-恢复与反事实分支)与[模拟引擎](04-simulation-engine.md)。
+完整规则见[记录引擎](05-recording-engine.md)与[模拟引擎](04-simulation-engine.md)。
 
 <a name="architecture-足迹交接与评估"></a>
 ### 足迹交接与评估
@@ -164,10 +164,10 @@ flowchart LR
 | --- | --- | --- |
 | 数字人 | [LifeAgent](../../custom/agents/life_agent.py)、[就寝反思工具](../../src/worldmock/agents/life_reflection.py)、[人物画像](../../src/worldmock/profile)、AgentSociety 2 人物与记忆模块 | [人物](06-agent.md) |
 | 资源引擎 | [目录登记、加载与图查询](../../src/worldmock/catalog)及只读反向索引；内容选择与进度由模拟引擎负责 | [资源引擎](03-resource-engine.md) |
-| 交换引擎 | [固定类型、常数与算子](../../src/worldmock/exchange)、[固定活动声明](../../src/worldmock/data/affordances.toml)、[资源分录计算与校验](../../src/worldmock/resources)及生活模型中的条件、费用和报酬规则 | [交换引擎](02-exchange-engine.md) |
+| 交换引擎 | [固定类型、常数与算子](../../src/worldmock/exchange)、[具体动作声明](../../src/worldmock/life/action_contract.py)、[资源分录计算与校验](../../src/worldmock/resources)及生活模型中的条件、费用和报酬规则 | [交换引擎](02-exchange-engine.md) |
 | 模拟引擎 | [运行入口](../../src/worldmock/runtime.py)、[LifeEnv](../../custom/envs/life_env.py)、[只读查询转发](../../src/worldmock/life/read_query_runtime.py)、[生活运行逻辑](../../src/worldmock/life/engine.py)及活动、身体和调度模块 | [模拟引擎](04-simulation-engine.md) | 初始化、时间调度、动作受理、世界结算与恢复编排 | 人物观察与反馈、实际事件、状态和共同快照 |
 | 记录引擎 | [足迹存储](../../src/worldmock/footprints)、[素材存储](../../src/worldmock/footprints/assets.py) | [记录引擎](05-recording-engine.md) |
-| 完整导出与评估 | [导出模块](../../src/worldmock/footprints/export.py)、[评估模块](../../src/worldmock/evaluation) | [记录引擎](05-recording-engine.md#recording-engine-固定截止导出)、[行为评估](07-evaluation.md) |
+| 完整导出与评估 | [导出模块](../../src/worldmock/footprints/export.py)、[评估模块](../../src/worldmock/evaluation) | [记录引擎](05-recording-engine.md)、[行为评估](07-evaluation.md) |
 
 LifeEngine 是现有内部代码载体，不作为四个引擎之外的另一项顶层职责。
 身体相关资源、体感与活动效率在模拟引擎中计算，资源定义来自资源引擎，
@@ -221,7 +221,7 @@ flowchart LR
 | --- | --- |
 | 复用 AgentSociety、Pydantic、JSON Schema 与 SQLite | 使用现有调度、校验、结构与事务能力，WorldMock 集中实现生活规则 |
 | 模型负责选择，环境负责事实 | 主观计划和叙述不能直接更改余额、身体、活动进度或完成状态 |
-| 统一模拟时钟与确定性结算 | 多人物共享同一个时间和世界，不依赖程序运行速度 |
+| 统一模拟时钟与确定性结算 | 唯一人物使用同一个已提交时间和世界，不依赖程序运行速度 |
 | 只提供实际可见内容 | 观察、查询与记忆可追溯到明确的世界版本和事件 |
 | 结构化事件与原始素材分离保存 | 支持查询和对账，同时保留模型请求与内容原貌 |
 | 从共同检查点建立新分支 | 恢复和反事实运行保存父子关系，保留原运行事实 |

@@ -65,8 +65,8 @@ def test_shrunk_source_keeps_framework_integrity_and_generic_scanner(tmp_path):
     root = _source_repository(tmp_path)
     sources.restore_as2(root)
     package = root / "vendor/agentsociety2/packages/agentsociety2/agentsociety2"
-    memory = ast.parse((package / "agent/memory.py").read_text())
-    runtime = ast.parse((package / "agent/memory_runtime.py").read_text())
+    memory = ast.parse((package / "agent/memory.py").read_text(encoding="utf-8"))
+    runtime = ast.parse((package / "agent/memory_runtime.py").read_text(encoding="utf-8"))
     methods = {node.name for node in ast.walk(memory) if isinstance(node, ast.FunctionDef)}
     assert {"validate_existing", "_read_state_file", "_read_episodes_file", "_validate_episode_record"} <= methods
     assert not {"text_bigrams", "bigram_jaccard", "_find_merge_target", "_within_merge_window"} & methods

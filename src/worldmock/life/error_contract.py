@@ -22,8 +22,7 @@ _HOST_DEFAULTS = {
     'TOO_MANY_TARGETS': ('The activity request exceeds its item limit.', 'Submit one or two activity items.'),
     'NAME_NOT_FOUND': ('The name does not identify a known object.', 'Use an exact known name or a candidate.'),
     'NAME_AMBIGUOUS': ('The name identifies several known objects.', 'Use a complete candidate name.'),
-    'WAY_NOT_OFFERED': ('The object does not support this way.', "Use one of the object's offered ways."),
-    'ROUTE_FIELDS_INVALID': ('The route fields do not match the way.', 'Correct app, to, pay_app and answering.'),
+    'ACTION_NOT_OFFERED': ('The object does not support this action.', "Use one of the object's offered actions."),
     'SUBJECT_NOT_KNOWN': ('The relationship subject is unknown.', 'Use a known person in about.'),
     'OUTPUT_TRUNCATED': ('The model output was truncated.', 'Submit one complete tool call.'),
     'MODEL_SERVICE_FAILED': ('The model service failed before a response was available.',
@@ -34,24 +33,10 @@ _HOST_DEFAULTS = {
         'Retry the read query after memory retrieval is available.'),
     'TOOL_SERVICE_FAILED': ('The tool service failed before a result was available.',
         'Restore the tool service before retrying this decision.'),
-    'APP_REQUIRED': ('This action is done through an app and none was named.',
-        'Set app to one of the apps offered for this action.'),
-    'APP_NOT_OFFERED': ('The named app is not offered for this target.',
-        'Use one of the offered apps, or null where none is offered.'),
-    'PAYMENT_APP_REQUIRED': ('An order placed through a shopping app must name a payment app.',
-        'Set pay_app to a payment app offered by that shopping app.'),
-    'PAYMENT_APP_NOT_BOUND': ('The named payment app cannot be used for this order.',
-        'Use one of the offered payment apps, or null for an in-store purchase.'),
-    'COUNTERPART_REQUIRED': ('This action needs the other person to be named.',
-        'Name a person who is here, or a contact when the action uses an app.'),
-    'SUPPLY_NOT_AT_STORE': ('The named app does not sell these goods.',
-        'Set app to a shopping app that sells these goods, or buy them in a store.'),
 }
 HOST_ERROR_CODES = tuple(_HOST_DEFAULTS)
-HOST_NAME_CODES = frozenset({"NAME_NOT_FOUND", "NAME_AMBIGUOUS", "WAY_NOT_OFFERED",
-                             "SUBJECT_NOT_KNOWN", "APP_REQUIRED", "APP_NOT_OFFERED",
-                             "PAYMENT_APP_REQUIRED", "PAYMENT_APP_NOT_BOUND", "COUNTERPART_REQUIRED"})
-ENVIRONMENT_NAME_CODES = frozenset({"SUPPLY_NOT_FOUND", "SUPPLY_NOT_AT_STORE", "TASK_NOT_FOUND"})
+HOST_NAME_CODES = frozenset({"NAME_NOT_FOUND", "NAME_AMBIGUOUS", "ACTION_NOT_OFFERED", "SUBJECT_NOT_KNOWN"})
+ENVIRONMENT_NAME_CODES = frozenset({"SUPPLY_NOT_FOUND", "TASK_NOT_FOUND"})
 NAME_REJECTION_CODES = HOST_NAME_CODES | ENVIRONMENT_NAME_CODES
 
 
@@ -68,12 +53,6 @@ class Candidate:
         return {"tool": self.tool, "arguments": self.arguments, "note": self.note}
 
 
-def activity_candidate(target: str, way: str, route: tuple = (None, None, None),
-                       note: str | None = None) -> Candidate:
-    """@brief 从目标、方式和三个明确路由值构造完整请求。"""
-    return Candidate("start_activity", {
-        "items": [{"target": target, "way": way, "app": route[0], "to": route[1], "pay_app": route[2]}],
-        "answering": None}, note)
 
 
 @dataclass(frozen=True, slots=True)

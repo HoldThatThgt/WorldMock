@@ -274,7 +274,6 @@ def _support_table(support: Mapping[str, Any]) -> list[str]:
         "| 范围 | 值 |",
         "| --- | --- |",
         f"| 共同渠道 | {', '.join(support['shared_channels']) or '无'} |",
-        f"| 共同类别 | {', '.join(support['shared_categories']) or '无'} |",
     ]
     for label, key in (("A", "left"), ("B", "right")):
         value = support["coverage"][key]

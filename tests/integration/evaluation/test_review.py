@@ -38,7 +38,7 @@ def test_blind_packets_are_deterministic_and_hide_source_identity(evaluation_fix
         "timezone": "Asia/Shanghai",
     }
     activities = packet["items"][0]["left"]["activities"]
-    assert all(set(row) == {"category", "start", "end", "status", "location", "companion"}
+    assert all(set(row) == {"action", "start", "end", "status", "location"}
                for row in activities)
     assert packet["items"][0]["left"]["public_evidence"] == []
 
@@ -46,9 +46,10 @@ def test_blind_packets_are_deterministic_and_hide_source_identity(evaluation_fix
 def test_formal_item_selection_covers_twelve_weeks_and_every_special_date() -> None:
     scenario = load_scenario(Path(__file__).resolve().parents[3] / 'tests/evaluation' / "fixtures/scenario.json")
     empty = DatasetView("test", "test", "test", scenario.window, (), (), (), {}, {})
-    support = {"shared_categories": [], "shared_channels": []}
+    support = {"shared_channels": []}
 
-    material = create_review_material(empty, empty, support, scenario)
+    seeded = replace(empty, validation={"random_state": "evaluation-random-root"})
+    material = create_review_material(empty, seeded, support, scenario)
     items = material.packets[0]["items"]
 
     assert sum(item["scope"] == "week" for item in items) == 12
@@ -203,12 +204,12 @@ def test_judgeability_requires_two_sided_state_changes_and_persistent_long_term_
     assert route_week["judgeability"]["long_term_consequences"]["judgeable"] is False
 
     left_place = tuple(
-        replace(item, category="work", interaction="visit", object_type="workplace",
+        replace(item, action="visit", interaction="visit", object_type="workplace",
                 state="observed" if index == 0 else "viewed")
         for index, item in enumerate(left_route)
     )
     right_place = tuple(
-        replace(item, category="work", interaction="visit", object_type="workplace",
+        replace(item, action="visit", interaction="visit", object_type="workplace",
                 state="observed" if index == 0 else "viewed")
         for index, item in enumerate(right_route)
     )
@@ -272,62 +273,6 @@ def _review_inputs(evaluation_fixture):
     return scenario, left, right, shared_support(left, right)
 
 
-def _located_partner_session(view: DatasetView):
-    """构造带地点与同伴的活动会话（模拟适配层扩展的 location_id/partner_id 载体）。"""
-    from types import SimpleNamespace
-
-    existing = view.activities[0]
-    return SimpleNamespace(
-        activity_id="session-with-partner", person_id=existing.person_id,
-        category=existing.category, started_at=view.window.start,
-        ended_at=view.window.start + timedelta(minutes=30), status="completed",
-        channels=existing.channels, elapsed_seconds=1800, duration_kind="observed_digital_session",
-        location_id="office-west", partner_id="agent:2")
-
-
-def test_activity_rows_carry_location_and_anonymous_companion(evaluation_fixture) -> None:
-    """GAP-4：活动记录增加地点与同伴两列；同伴只用匿名对象引用（docs/design/04-simulation-engine.md「社交最小可行版」、docs/design/06-agent.md「呈现与导出」）。"""
-    scenario, left, right, support = _review_inputs(evaluation_fixture)
-    session = _located_partner_session(left)
-    left = replace(left, activities=(*left.activities, session))
-
-    material = create_review_material(left, right, support, scenario)
-
-    rows = [row for row in material.packets[0]["items"][0]["left"]["activities"]
-            if row["category"] == session.category and row["location"] == "office-west"]
-    assert rows, "located session must appear in the timeline"
-    serialized = json.dumps(material.packets, ensure_ascii=False)
-    assert "agent:2" not in serialized
-    for row in rows:
-        assert row["location"] == "office-west"
-        assert re.fullmatch(r"object-[0-9a-f]{64}", row["companion"])
-    companions = {row["companion"] for row in rows}
-    assert len(companions) == 1
-
-
-def test_companion_reference_is_slot_isolated_and_day_stable(evaluation_fixture) -> None:
-    """同伴匿名引用跨评审槽不同（keyed by slot），同侧同对象跨日稳定。"""
-    scenario, left, right, support = _review_inputs(evaluation_fixture)
-    session = _located_partner_session(left)
-    # 两个相隔一日的分段：同一会话跨日出现，同伴引用必须一致。
-    from datetime import datetime as _dt
-
-    session.ended_at = left.window.start + timedelta(days=1, minutes=30)
-    session.elapsed_seconds = (session.ended_at - session.started_at).total_seconds()
-    left = replace(left, activities=(*left.activities, session))
-
-    material = create_review_material(left, right, support, scenario)
-
-    def companions(reviewer_index: int) -> list[str]:
-        rows = material.packets[reviewer_index]["items"][0]["left"]["activities"]
-        return [row["companion"] for row in rows if row["location"] == "office-west"]
-
-    first, second = companions(0), companions(1)
-    assert first and second
-    assert len(set(first)) == 1 and len(set(second)) == 1
-    assert set(first) != set(second), "different reviewer slots must use different HMAC keys"
-
-
 def _object_history(view: DatasetView, object_type: str, object_key: str) -> tuple[PublicEvidence, ...]:
     """构造跨日真实状态变化，并在其后保留重复观察。"""
     values = []
@@ -361,3 +306,52 @@ def _candidate_refs(material, reviewer_index: int, candidate: str) -> set[str]:
             if row.get("object_ref") is not None
         )
     return references
+
+
+@pytest.mark.parametrize("retired", ["category", "companion"])
+def test_packet_two_rejects_retired_activity_fields(evaluation_fixture, retired):
+    """五字段合同在读取边界拒绝旧分类和同伴。"""
+    scenario, left, right, support = _review_inputs(evaluation_fixture)
+    material = create_review_material(left, right, support, scenario)
+    row = dict(material.packets[0]["items"][0]["left"]["activities"][0])
+    row[retired] = "retired"
+    with pytest.raises(EvaluationError, match="blind review activity timeline schema is invalid"):
+        review_module._validate_candidate_timeline(
+            {"activities": [row], "public_evidence": []}, {})
+
+
+def test_review_packet_two_preserves_action_and_masks_actual_location(evaluation_fixture):
+    """动作不被分类，地点只显示本评审本候选作用域的匿名引用。"""
+    scenario, left, right, support = _review_inputs(evaluation_fixture)
+    material = create_review_material(left, right, support, scenario)
+    assert {packet["schema_version"] for packet in material.packets} == {"blind-review-packet-2"}
+    timeline = [row for packet in material.packets for item in packet["items"]
+                for side in ("left", "right") for row in item[side]["activities"]]
+    assert any(row["action"] == "interact" for row in timeline)
+    assert all(set(row) == {"action", "start", "end", "status", "location"} for row in timeline)
+    locations = [row["location"] for row in timeline if row["location"] is not None]
+    assert locations and all(re.fullmatch(r"object-[0-9a-f]{64}", value) for value in locations)
+
+
+def test_ingest_is_self_contained_after_source_runs_are_removed(evaluation_fixture, tmp_path):
+    """冻结包持有自己的已认证随机根，独立收据读取不再访问源运行。"""
+    import shutil
+    scenario, left, right, support = _review_inputs(evaluation_fixture)
+    output = tmp_path / "standalone"
+    write_review_material(output, create_review_material(left, right, support, scenario))
+    records = make_review_records(output, tmp_path / "records")
+    shutil.rmtree(evaluation_fixture.worldmock_root)
+    shutil.rmtree(evaluation_fixture.labelkit_root)
+    result = ingest_reviews(records, output, scenario)
+    assert len(result["records"]) == scenario.reviewer_count
+    key = json.loads((output / "unblinding-key.json").read_text(encoding="utf-8"))
+    assert key["random_state"] == right.validation["random_state"]
+
+
+def test_packet_one_is_rejected_before_standalone_review_ingestion(evaluation_fixture):
+    """旧包版本不能通过当前验证，不能靠旧字段兼容读取。"""
+    scenario, left, right, support = _review_inputs(evaluation_fixture)
+    material = create_review_material(left, right, support, scenario)
+    packet = dict(material.packets[0], schema_version="blind-review-packet-1")
+    with pytest.raises(EvaluationError, match="blind review packet schema is invalid"):
+        review_module._validate_packet(packet, material.index["packets"][0], material.index, scenario)

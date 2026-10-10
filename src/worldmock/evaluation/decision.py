@@ -42,7 +42,6 @@ def _not_comparable(support: Mapping[str, Any]) -> JsonObject:
         "evidence_by_dimension": {},
         "missing_support": {
             "shared_channels": support.get("shared_channels", []),
-            "shared_categories": support.get("shared_categories", []),
         },
         "claim_boundary": "No candidate comparison is supported by the declared observations.",
     }

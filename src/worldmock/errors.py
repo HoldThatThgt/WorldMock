@@ -17,6 +17,15 @@ class IntegrityError(WorldMockError):
     """@brief 数据身份、来源、哈希或状态不一致。"""
 
 
+class EnvironmentInputError(IntegrityError):
+    """@brief 输入故障保留所属文件、固定错误码与英文原因。"""
+
+    def __init__(self, path: str, code: str, reason: str):
+        """@brief 将输入诊断交给统一运行故障日志。"""
+        self.path, self.code, self.reason = path, code, reason
+        super().__init__(reason)
+
+
 class ProtocolError(WorldMockError):
     """@brief 宿主或模型调用违反已冻结的协议。"""
 

@@ -15,7 +15,8 @@ from worldmock.footprints.store import FootprintStore
 
 @pytest.fixture
 def store(tmp_path):
-    value = FootprintStore.create(tmp_path / 'parent', {'run_id': 'parent', 'agent_ids': [1], 'code': 'frozen'},
+    value = FootprintStore.create(tmp_path / 'parent',
+                                  {'run_id': 'parent', 'agent_ids': [1], 'code': 'frozen', 'environment_assets': {}},
                                   {'version': 0, 'current_time': 100, 'balance': 50})
     yield value
     value.close()

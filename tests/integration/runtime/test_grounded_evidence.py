@@ -1,6 +1,6 @@
+from tests.integration.runtime.current_contract_fixtures import profile as current_profile
 """动态工具请求的持久化、身份冻结和跨目录去重回归。"""
 
-from __future__ import annotations
 
 import json
 import os
@@ -26,7 +26,7 @@ from tests.integration.as2_fixtures import use_fake_as2
 @pytest.fixture(autouse=True)
 def _fixed_context_window(monkeypatch):
     """用固定供应商窗口测试请求持久化，不依赖远程元数据服务。"""
-    monkeypatch.setattr("worldmock.life.prompt_capacity.model_context_length", lambda _model: 131072)
+    monkeypatch.setattr("worldmock.life.prompt_capacity.model_context_length", lambda _model, metadata: metadata.context_window)
 
 
 class _PersistentResponse:
@@ -84,6 +84,7 @@ class _EngineEvidenceEnvironment:
 def _prepared_tools(data, observed_at):
     """用明确首观察生成实际原生工具声明。"""
     agent = LifeAgent()
+    agent._profile = current_profile()
     observation = {"turn": 0, "action": "observe", "ok": True, "data": data}
     agent.prepare_react_loop(ReactLoopRequest(0, observed_at, [observation]))
     return agent, agent.build_react_tool_schemas(readonly=False)
@@ -97,14 +98,14 @@ def test_model_request_persists_exact_grounded_tools(_engine_factory):  # noqa: 
     engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)
     agent, tools = _prepared_tools(observation, ctx.observed_at)
-    agent._model_name = "deepseek-flash"
+    agent._model_name = "test-model"
     wire = agent._model_request([{"role": "user", "content": "Choose a visible activity."}], tools)
     expected = canonical_json(wire)
     start = next(item for item in tools if item["function"]["name"] == "start_activity")
     fields = start["function"]["parameters"]["properties"]
-    assert set(fields) == {"items", "answering"}
-    assert set(fields["items"]["items"]["properties"]) == {"target", "way", "app", "to", "pay_app"}
-    for field in ("target", "way"):
+    assert set(fields) == {"items"}
+    assert set(fields["items"]["items"]["properties"]) == {"target", "action"}
+    for field in ("target", "action"):
         assert "enum" not in fields["items"]["items"]["properties"][field]
     engine.record_model_exchange(ModelCallEvidence(ctx, "grounded-call", "request", 1, wire))
     cutoff = engine.context.store.last_event_seq
@@ -125,10 +126,11 @@ def test_model_request_persists_exact_grounded_tools(_engine_factory):  # noqa: 
 async def _run_persisted_protocol_correction(engine, ctx) -> Path:
     """通过真实人物与环境证据接口执行一次协议纠正。"""
     agent = LifeAgent()
+    agent._profile = current_profile()
     agent._id = ctx.agent_id
     agent._name = "Alice"
-    agent._profile = {"id": ctx.agent_id, "name": "Alice"}
-    agent._model_name = "deepseek-flash"
+    agent._profile = {**current_profile(), **{'id': ctx.agent_id, 'name': 'Alice'}}
+    agent._model_name = "test-model"
     agent._dispatcher = _CorrectionDispatcher()
     agent._env = _EngineEvidenceEnvironment(engine)
     agent._decision_context = ctx

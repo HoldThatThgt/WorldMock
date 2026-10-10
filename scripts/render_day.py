@@ -2,8 +2,8 @@
 """@brief 从 footprints.sqlite 确定性投影人物一天的 timeline/<agent>-<date>.md。
 
 同一 activity_id 的连续 activity_progress 合并为一行（起止与总时长），
-静默边界产生的分段折叠不单列；活动目标先取快照标题，再按名称索引解析为品名、地名、
-邮件主题、内容标题、app 名称、工作主题与人名；种类名取 worldmock.life.readable 的中文种类表
+静默边界产生的分段折叠不单列；活动目标按真实内容标题与名称索引解析为地名、
+内容标题与 app 名称；种类名取 worldmock.life.readable 的中文种类表
 （单一来源），解析不到名称时只写中文种类名：时间线里不出现英文种类名与内部标识
 （docs/design/05-recording-engine.md）。按 agent_id 与冻结清单的场景时区
 的模拟日期过滤。同库同参数输出逐字节相同；name_index 与 day_rows 也接受已排序的事件正文，
@@ -32,8 +32,8 @@ from worldmock.footprints.timeline_labels import local_day_bounds  # noqa: E402
 from worldmock.footprints.intervals import valid_interval  # noqa: E402
 from worldmock.life.readable import ACTIVITY_KIND_LABELS, TRAVEL_WAYS  # noqa: E402
 
-#: 名称索引的类别：品名（带使用方式）、地名、邮件主题、内容标题、app 名称、工作主题、人名（联系人与同世界人物）。
-NAME_KINDS = ("goods", "locations", "messages", "apps", "contents", "actions", "people")
+#: 名称索引的类别：商品、地点、应用与实际内容。
+NAME_KINDS = ("goods", "locations", "apps", "contents")
 #: 种类表之外的活动种类的中文名。
 _UNKNOWN_KIND_LABEL = "活动"
 
@@ -124,24 +124,13 @@ def _remember(bucket: dict, key: object, name: object) -> None:
         bucket[key] = name
 
 
-def _object_name(label: object) -> object:
-    """@brief 私有绑定的对象名去掉类别前缀：「联系人：王磊」→「王磊」。"""
-    return label.split("：", 1)[-1] if isinstance(label, str) else label
-
-
 def _absorb_observation(names: dict, data: dict) -> None:
     """@brief 吸收一条 observation/action_result 里的公开名称索引。"""
     fields = {"goods": ("goods_id", "name"), "locations": ("location_id", "name"),
-              "messages": ("message_id", "subject"), "apps": ("app_id", "name"),
-              "contents": ("content_id", "title"), "actions": ("action_id", "name")}
+              "apps": ("app_id", "name"), "contents": ("content_id", "title")}
     for category, (identity, label) in fields.items():
         for row in _dict_rows(data.get(category)):
             _remember(names[category], row.get(identity), row.get(label))
-    for binding in _dict_rows(data.get("interaction_bindings")):
-        if binding.get("kind") in ("contact", "person"):
-            _remember(names["people"], binding.get("object_id"), _object_name(binding.get("object")))
-    for binding in _dict_rows(data.get("person_bindings")):
-        _remember(names["people"], binding.get("person_id"), _object_name(binding.get("name")))
 
 
 def name_index(bodies: Iterable[dict]) -> dict:
@@ -157,14 +146,8 @@ def name_index(bodies: Iterable[dict]) -> dict:
     return names
 
 
-def _title(snapshot: dict) -> str | None:
-    """@brief 活动快照上引擎写的标题（活动关联对象的名称），没有时为 None。"""
-    title = snapshot.get("title")
-    return title if isinstance(title, str) and title else None
-
-
 def _snapshot_data(snapshot: dict) -> dict:
-    """@brief 活动快照的数据字典（通话、交谈的对象身份在这里）。"""
+    """@brief 活动快照的实际容器与内容数据。"""
     return snapshot.get("data") if isinstance(snapshot.get("data"), dict) else {}
 
 
@@ -175,23 +158,17 @@ def _travel_label(snapshot: dict, names: dict) -> str:
     return f"{mode}去{destination}" if destination else mode
 
 
-def _action_label(snapshot: dict, names: dict) -> str:
-    """@brief 动作、应用与内容均取当前事实，只对手机使用方式显示用手机。"""
-    from worldmock.exchange.types import MANNER_DEVICE
-
+def _interact_label(snapshot: dict, names: dict) -> str:
+    """@brief 互动只读取真实内容与应用名称。"""
     data = _snapshot_data(snapshot)
-    action = names["actions"].get(data["action_id"]) or _title(snapshot)
-    app = names["apps"].get(data["app_id"]) if data["app_id"] is not None else None
-    label = action if action is not None else ACTIVITY_KIND_LABELS["action"]
-    if app is not None:
-        prefix = "用手机" if MANNER_DEVICE[data["manner"]] == "phone" else "用"
-        label = f"{prefix}{app}，{action}"
-    content = snapshot.get("content_title") or names["contents"].get(data["content_id"])
+    app = names["apps"].get(data.get("app_id"))
+    content = snapshot.get("content_title") or names["contents"].get(data.get("content_id"))
+    label = f"使用{app}" if app else ACTIVITY_KIND_LABELS["interact"]
     return f"{label}《{content}》" if content else label
 
 
 #: 只按四种当前活动读取，动作使用真实目录身份。
-_LABELERS: dict[str, Callable[[dict, dict], str]] = {"travel": _travel_label, "action": _action_label}
+_LABELERS: dict[str, Callable[[dict, dict], str]] = {"travel": _travel_label, "interact": _interact_label}
 
 
 def _activity_label(snapshot: dict, names: dict) -> str:

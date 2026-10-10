@@ -24,29 +24,25 @@ class OpsLogger:
         self._timezone = ZoneInfo(timezone_name)
         self._handles: dict[str, TextIO] = {}
 
-    def log(self, sim_time: int | datetime | None, component: str, level: str,
-            code: str, detail: str, **keys: Any) -> None:
+    def log(self, sim_time: int | datetime | None, component: str, level: str, message: dict[str, Any]) -> None:
         """@brief 追加一条记录并立即 flush；任何自身失败都被吞掉不影响主流程。
 
         :param sim_time: 模拟时间（epoch 秒或带时区 datetime），None 时退化为墙钟。
         :param component: 稳定组件名，取值见 :data:`OPS_COMPONENTS`。
         :param level: info、warn 或 error。
-        :param code: 稳定英文短码，如 DECISION_ROUND_COMMITTED。
-        :param detail: 英文一句话说明。
-        :param keys: 可选关联键（agent_id、decision_id、round_id、event_seq_first/last
-            、tokens_in/out 等）；值为 None 的键不落盘。
+        :param message: 必含 code 英文短码与 detail 英文说明，可包含事件关联键；None 值不落盘。
         """
         try:
             moment = self._moment(sim_time)
             record = {"at": datetime.now(timezone.utc).isoformat(),
                       "sim_time": moment.isoformat(), "component": component,
-                      "level": level, "code": code, "detail": detail}
-            record.update({key: value for key, value in keys.items() if value is not None})
+                      "level": level, "code": message["code"], "detail": message["detail"]}
+            record.update({key: value for key, value in message.items() if value is not None})
             handle = self._handle(moment)
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
             handle.flush()
         except Exception as error:
-            print(f"opslog write failed for {code}: {error!r}", file=sys.stderr)
+            print(f"opslog write failed: {error!r}", file=sys.stderr)
 
     def close(self) -> None:
         """@brief 关闭全部日文件句柄；关闭失败同样只记 stderr。"""

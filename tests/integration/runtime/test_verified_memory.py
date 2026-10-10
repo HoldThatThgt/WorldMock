@@ -17,7 +17,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/bet
 from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig
 from agentsociety2.agent.base.react import MemoryUpdateEvidence
 from tests.life.conftest import (
-    advance_until_ready, conclude_request, stage_day_plan, start_activity, submit_round, wake_by_mail,
+    advance_until_ready, conclude_request, stage_day_plan, start_activity, submit_round,
 )
 from custom.agents.life_agent import _conclusion_memories
 from worldmock.agents.life_memory import WorldMockMemoryRuntime, render_memory_view
@@ -41,7 +41,7 @@ def _runtime(tmp_path, dispatch=None, config=None):
 
     owner = SimpleNamespace(
         id=1, name="Person", _model_name="fixture", _dispatch_memory_llm=dispatch or no_call,
-        get_profile=lambda: {"name": "Person"}, _logger=SimpleNamespace(warning=lambda *a: None),
+        get_profile=lambda: __import__("tests.integration.runtime.current_contract_fixtures", fromlist=["profile"]).profile(), _logger=SimpleNamespace(warning=lambda *a: None),
         trace_span=None, _persona_card_text=lambda: "人物画像里的身份",
         _life_verified_experiences=[], _life_observation_event_id="observation-1",
     )
@@ -157,8 +157,7 @@ async def test_actual_app_progress_is_written_to_verified_memory_with_source_and
     """真实 app 足迹进入启用的 AS2 记忆存储；应用、内容与实际区间位置不靠人物自述补齐。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    wake_by_mail(engine, offset=120)
-    _, results = submit_round(engine, {1: ("start_activity", start_activity("进行", "刷推荐", app=["抖音"]))},
+    _, results = submit_round(engine, {1: ("start_activity", start_activity("interact", "抖音"))},
                               "memory-app")
     started = results[0]
     assert started.status == "in_progress"

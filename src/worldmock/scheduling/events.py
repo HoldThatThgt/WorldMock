@@ -16,17 +16,12 @@ from pydantic import Field
 class ScheduledKind(StrEnum):
     """@brief 环境自主到期事件的封闭类型。"""
 
-    MAIL_ARRIVAL = "mail_arrival"
     DELIVERY_ARRIVAL = "delivery_arrival"
     CALENDAR_FLAG = "calendar_flag"
-    BILL_DUE = "bill_due"
-    PAYROLL = "payroll"
-    #: 联系人回复的预排送达（docs/design/04-simulation-engine.md「联系人回复」）：到期写入收件箱并以 message_arrival 唤醒。
-    MESSAGE_ARRIVAL = "message_arrival"
-    #: 应用整点推送机会，到期时以人物当前会话判定资格。
     APP_PUSH = "app_push"
-    #: 本人设置的一次性闹钟，到期可唤醒睡眠。
-    ALARM_RING = "alarm_ring"
+    TIME_TRIGGER = "time_trigger"
+    WEATHER = "weather"
+
 
 
 class ScheduledEvent(StrictModel):

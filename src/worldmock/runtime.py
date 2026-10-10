@@ -1,4 +1,4 @@
-"""@brief 编排原生 AgentSociety2、DeepSeek、LifeAgent 与 LifeEnv。"""
+"""@brief 编排原生 AgentSociety2、声明的模型服务、LifeAgent 与 LifeEnv。"""
 
 from __future__ import annotations
 
@@ -22,8 +22,7 @@ from worldmock.errors import IntegrityError, ProtocolError
 if TYPE_CHECKING:
     from worldmock.footprints.store import FootprintStore
     from worldmock.life.models import CounterfactualIntervention, RunIdentity
-    from worldmock.life.scenario import RuntimeScenario
-    from worldmock.life.semantics import ScenarioSemantics
+    from worldmock.environment import EnvironmentInputs
 
 logger = logging.getLogger(__name__)
 
@@ -33,24 +32,12 @@ logger = logging.getLogger(__name__)
 #: disabled/required）。
 #: 运行身份覆盖的 AS2 导入包名；包目录由 importlib.util.find_spec 按实际导入解析
 #: （docs/design/06-agent.md「模型身份」）。
-#: 联系人回复的生成上限。
-CONTACT_REPLY_MAX_TOKENS = 8000
-#: 联系人回复的 system 提示（docs/design/04-simulation-engine.md「社交接口」：独立调用、中文、不超过 200 汉字；
-#: docs/design/04-simulation-engine.md ：联系人只通过消息来往）。中文模板逐字登记在
-#: docs/design/04-simulation-engine.md「联系人回复」。
-_CONTACT_REPLY_PROMPT = (
-    "你是消息收件人通讯录里的一名联系人，只通过消息和对方来往：你不在对方身边，也不会去找对方。"
-    "根据你的联系人档案、这次来信与你们此前的往来，以你本人的口吻写一条自然、简短的中文回复。"
-    "不说自己正在赶来、已经到了或几点到哪里，不约当面见；不说已经替对方做完了什么，也不揽下对方的活、不替对方分工；"
-    "要做的事只写成打算，不替结果打包票。只输出回复正文，不超过 200 个汉字，不要解释、不要客套开场。")
-
-
 @dataclass(frozen=True, slots=True)
 class RunRequest:
     """@brief 新建正式运行所需的完整输入。
 
     :param project_root: 包含 custom 与 src 的 WorldMock 根目录。
-    :param scenario_path: 已冻结生活场景路径。
+    :param environment_root: 已冻结生活场景路径。
     :param run_dir: 必须尚不存在的新运行目录。
     :param run_id: 调用方分配的稳定运行身份。
     :param source_group_id: 首次运行的来源组身份，必须等于 run_id。
@@ -59,7 +46,7 @@ class RunRequest:
     """
 
     project_root: Path
-    scenario_path: Path
+    environment_root: Path
     run_dir: Path
     run_id: str
     source_group_id: str
@@ -71,14 +58,14 @@ class ResumeRequest:
     """@brief 从共同检查点建立新分支所需的完整输入。
 
     :param project_root: 包含 custom 与 src 的 WorldMock 根目录。
-    :param scenario_path: 与父运行身份一致的冻结场景路径。
+    :param environment_root: 与父运行身份一致的冻结场景路径。
     :param parent_run_dir: 只读父运行目录。
     :param checkpoint_id: SQLite 中已提交的共同检查点身份。
     :param run_dir: 必须尚不存在的新分支目录。
     """
 
     project_root: Path
-    scenario_path: Path
+    environment_root: Path
     parent_run_dir: Path
     checkpoint_id: str
     run_dir: Path
@@ -128,10 +115,10 @@ class _PreparedRun:
     """@brief 统一新建与恢复后的内部启动输入。"""
 
     project_root: Path
-    scenario_path: Path
+    environment_root: Path
     run_dir: Path
     run_id: str
-    scenario: RuntimeScenario
+    inputs: EnvironmentInputs
     start_time: datetime
     env_kwargs: dict[str, Any]
     workspace_mode: str
@@ -149,8 +136,8 @@ async def run_world(request: RunRequest) -> RunResult:
     from worldmock import run_setup
 
     try:
-        run_setup._configure_process(request.project_root)
         prepared = _prepare_new_run(request)
+        run_setup._configure_process(request.project_root, prepared.inputs.config.model)
         return await _execute(prepared)
     except Exception:
         logger.exception("WorldMock run failed")
@@ -166,8 +153,8 @@ async def resume_world(request: ResumeRequest) -> RunResult:
     from worldmock import run_setup
 
     try:
-        run_setup._configure_process(request.project_root)
         prepared = _prepare_resume(request)
+        run_setup._configure_process(request.project_root, prepared.inputs.config.model)
         return await _execute(prepared)
     except Exception:
         logger.exception("WorldMock resume failed")
@@ -183,8 +170,8 @@ async def replay_world(request: CounterfactualRequest) -> RunResult:
     from worldmock import run_setup
 
     try:
-        run_setup._configure_process(request.base.project_root)
         prepared = _prepare_resume(request.base, request.intervention)
+        run_setup._configure_process(request.base.project_root, prepared.inputs.config.model)
         return await _execute(prepared)
     except Exception:
         logger.exception("WorldMock counterfactual replay failed")
@@ -200,108 +187,77 @@ async def replay_world(request: CounterfactualRequest) -> RunResult:
 
 
 def _prepare_new_run(request: RunRequest) -> _PreparedRun:
-    """@brief 校验新目录并形成 LifeEnv 新建参数。"""
+    """@brief 完整环境纯准入后形成唯一人物与新世界参数。"""
     from worldmock import run_setup
-    from worldmock.life.world_setup import load_runtime_scenario
+    from worldmock.environment import load_environment
 
     run_dir = Path(request.run_dir).resolve()
     _require_run_shell(run_dir)
     if not request.run_id.strip() or request.source_group_id != request.run_id:
+        logger.error("A fresh run requires matching run_id and source_group_id")
         raise ValueError("A fresh run requires matching run_id and source_group_id")
-    scenario_path = Path(request.scenario_path).resolve()
-    semantics, digest = load_runtime_scenario(scenario_path)
-    _admit_scenario(semantics)
-    scenario = semantics.scenario
-    identity = _run_identity(request, scenario)
-    kwargs = {
-        "scenario_path": str(scenario_path),
-        "run_dir": str(run_dir),
-        "run_identity": identity.model_dump(mode="json"),
-        "open_existing": False,
-        "create_options": {"same_second_continuation": request.same_second_continuation},
-    }
-    _ops_log(run_dir, scenario.timezone, scenario.start_at, "RUN_STARTED", "Run started",
-             run_id=request.run_id, code_sha256=identity.code_sha256, scenario_sha256=digest,
-             stage_model_identity=run_setup.stage_model_identity(request.same_second_continuation))
-    return _PreparedRun(
-        Path(request.project_root).resolve(), scenario_path, run_dir, request.run_id,
-        scenario, scenario.start_at, kwargs, "create",
-        same_second_continuation=request.same_second_continuation,
-    )
+    root = Path(request.environment_root).absolute()
+    inputs = load_environment(root)
+    identity = _run_identity(request, inputs)
+    kwargs = {"environment_root": str(root), "run_dir": str(run_dir),
+              "run_identity": identity.model_dump(mode="json"), "open_existing": False,
+              "create_options": {"same_second_continuation": request.same_second_continuation}}
+    _ops_log(run_dir, inputs.config.timezone, inputs.config.start_time,
+             {"code": "RUN_STARTED", "detail": "Run started", "run_id": request.run_id,
+              "code_sha256": identity.code_sha256, "persona_sha256": inputs.persona_sha256,
+              "config_sha256": inputs.config_sha256, "stage_model_identity": run_setup.stage_model_identity(
+                  inputs.config.model, inputs.model_metadata, request.same_second_continuation)})
+    return _PreparedRun(Path(request.project_root).resolve(), root, run_dir, request.run_id,
+                        inputs, inputs.config.start_time, kwargs, "create",
+                        same_second_continuation=request.same_second_continuation)
 
 
-def _run_identity(request: RunRequest, scenario: RuntimeScenario) -> RunIdentity:
-    """@brief 形成与场景、当前 LifeAgent 合同和代码（含锁定的 AS2）绑定的运行身份，另记检出的 Git 状态。"""
+def _run_identity(request: RunRequest, inputs: EnvironmentInputs) -> RunIdentity:
+    """@brief 冻结唯一人物、配置时间、实际模型和锁定代码身份。"""
     from worldmock import run_setup
-    from worldmock.life.models import CounterfactualIntervention, RunIdentity
+    from worldmock.life.models import RunIdentity
 
     root = Path(request.project_root)
     git_commit, git_dirty = run_setup._git_state(root)
-    return RunIdentity(
-        run_id=request.run_id,
-        source_group_id=request.source_group_id,
-        agent_ids=tuple(sorted(item.agent_id for item in scenario.agents)),
-        start_at=scenario.start_at.isoformat(),
-        end_at=scenario.end_at.isoformat(),
-        timezone=scenario.timezone,
-        model_identity=run_setup._model_identity(),
-        code_sha256=run_setup.runtime_code_sha256(root),
-        git_commit=git_commit,
-        git_dirty=git_dirty,
-    )
+    return RunIdentity(run_id=request.run_id, source_group_id=request.source_group_id,
+                       agent_ids=(inputs.persona.agent_id,),
+                       start_at=inputs.config.start_time.isoformat(), end_at=inputs.config.stop_time.isoformat(),
+                       timezone=inputs.config.timezone, model_identity=run_setup._model_identity(inputs.config.model),
+                       code_sha256=run_setup.runtime_code_sha256(root), git_commit=git_commit, git_dirty=git_dirty)
 
 
-def _admit_scenario(semantics: ScenarioSemantics) -> None:
-    """@brief 使用唯一环境登记器验证当前场景引用，不读取退役的品类引用模型。"""
-    from worldmock.catalog.admission import validate_scenario_against_catalog
-
-    validate_scenario_against_catalog(semantics.scenario, semantics.catalog)
-
-
-def _prepare_resume(
-    request: ResumeRequest,
-    intervention: CounterfactualIntervention | None = None,
-) -> _PreparedRun:
-    """@brief 校验父身份并原子恢复普通或反事实子分支。"""
+def _prepare_resume(request: ResumeRequest,
+                    intervention: CounterfactualIntervention | None = None) -> _PreparedRun:
+    """@brief 校验三个输入身份后原子恢复工作区与世界，不重编画像。"""
+    from worldmock.environment import load_environment
     from worldmock.footprints.store import FootprintStore
     from worldmock.life.continuation import continuation_enabled
     from worldmock.life.run_identity import require_environment_identity
-    from worldmock.life.world_setup import load_runtime_scenario
     from worldmock.life.models import WorldState
 
     destination = Path(request.run_dir).resolve()
     _require_run_shell(destination)
-    scenario_path = Path(request.scenario_path).resolve()
-    semantics, scenario_digest = load_runtime_scenario(scenario_path)
-    _admit_scenario(semantics)
-    scenario = semantics.scenario
+    root = Path(request.environment_root).absolute()
+    inputs = load_environment(root)
     digest = _intervention_sha256(intervention) if intervention is not None else None
-    metadata = (
-        {"branch_kind": "counterfactual", "intervention_sha256": digest}
-        if digest is not None
-        else None
-    )
+    metadata = {"branch_kind": "counterfactual", "intervention_sha256": digest} if digest else None
     parent = FootprintStore(Path(request.parent_run_dir))
     try:
-        if parent.manifest.get("scenario_sha256") != scenario_digest:
-            raise IntegrityError("Checkpoint scenario identity differs from the requested scenario")
         checkpoint = parent.get_checkpoint(request.checkpoint_id)
         WorldState.model_validate(checkpoint.state)
-        _require_runtime_identity(parent.manifest, Path(request.project_root))
-        require_environment_identity(parent.manifest, semantics)
-        manifest, state = _restore_branch(parent, checkpoint, destination, metadata, scenario)
+        _require_runtime_identity(parent.manifest, Path(request.project_root), inputs)
+        require_environment_identity(parent.manifest, inputs)
+        manifest, state = _restore_branch(parent, checkpoint, destination, metadata, inputs)
     finally:
         parent.close()
     continuation = continuation_enabled(manifest)
-    start = datetime.fromtimestamp(state["current_time"], ZoneInfo(scenario.timezone))
-    kwargs = {"scenario_path": str(scenario_path), "run_dir": str(destination), "open_existing": True}
-    _ops_log(destination, scenario.timezone, start, "RUN_RESUMED", "Run resumed from checkpoint",
-             run_id=manifest["run_id"], code_sha256=manifest.get("code_sha256"),
-             scenario_sha256=manifest.get("scenario_sha256"), checkpoint_id=request.checkpoint_id)
-    return _PreparedRun(
-        Path(request.project_root).resolve(), scenario_path, destination, manifest["run_id"],
-        scenario, start, kwargs, "restored", intervention, digest, continuation,
-    )
+    start = datetime.fromtimestamp(state["current_time"], ZoneInfo(inputs.config.timezone))
+    kwargs = {"environment_root": str(root), "run_dir": str(destination), "open_existing": True}
+    _ops_log(destination, inputs.config.timezone, start,
+             {"code": "RUN_RESUMED", "detail": "Run resumed from checkpoint", "run_id": manifest["run_id"],
+              "code_sha256": manifest.get("code_sha256"), "checkpoint_id": request.checkpoint_id})
+    return _PreparedRun(Path(request.project_root).resolve(), root, destination, manifest["run_id"],
+                        inputs, start, kwargs, "restored", intervention, digest, continuation)
 
 
 def _intervention_sha256(intervention: CounterfactualIntervention) -> str:
@@ -315,46 +271,30 @@ def _intervention_sha256(intervention: CounterfactualIntervention) -> str:
     return sha256_json(payload)
 
 
-def _require_runtime_identity(manifest: dict[str, Any], project_root: Path) -> None:
-    """@brief 拒绝用不同代码（含实际导入的 AS2）、端点、模型、提示或工具恢复父运行。
-
-    清单的 git_commit 与 git_dirty 只记录，不参与比对。阶段身份先经五个入口共用的清单校验函数拒绝退役阶段与旧键，
-    再做等值比对；同秒续接开关继承父清单的值（按父清单的开关构造期望身份），恢复与重放不能覆盖。
-    """
+def _require_runtime_identity(manifest: dict[str, Any], project_root: Path, inputs: EnvironmentInputs) -> None:
+    """@brief 恢复核对代码、配置模型与继承的阶段开关。"""
     from worldmock import run_setup
     from worldmock.life.continuation import continuation_enabled
 
-
     identity = run_setup.validate_manifest_stage_identity(manifest)
-    expected = run_setup._model_identity().model_dump(mode="json")
-    if manifest.get("model_identity") != expected:
+    expected = run_setup._model_identity(inputs.config.model).model_dump(mode="json")
+    stages = run_setup.stage_model_identity(inputs.config.model, inputs.model_metadata, continuation_enabled(manifest))
+    if manifest.get("model_identity") != expected or identity != stages:
+        logger.error("Checkpoint model identity differs from the current contract")
         raise IntegrityError("Checkpoint model identity differs from the current LifeAgent contract")
-    if identity != run_setup.stage_model_identity(continuation_enabled(manifest)):
-        raise IntegrityError("Checkpoint decision stage identity differs from the current LifeAgent contract")
     if manifest.get("code_sha256") != run_setup.runtime_code_sha256(project_root):
+        logger.error("Checkpoint code identity differs from the current runtime")
         raise IntegrityError("Checkpoint code identity differs from the current runtime")
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 def _ops_log(run_dir: Path, timezone_name: str, sim_time: int | datetime | None,
-             code: str, detail: str, level: str = "info", **keys: Any) -> None:
+             message: dict[str, Any], level: str = "info") -> None:
     """@brief 运行进程侧写一条 runtime 操作日志，随写随关不驻留句柄。"""
     from worldmock.opslog import OpsLogger
 
     writer = OpsLogger(run_dir, timezone_name)
     try:
-        writer.log(sim_time, "runtime", level, code, detail, **keys)
+        writer.log(sim_time, "runtime", level, message)
     finally:
         writer.close()
 
@@ -363,9 +303,9 @@ def _ops_crash_log(prepared: _PreparedRun, society: Any, error: BaseException) -
     """@brief 崩溃路径操作日志；自身任何故障只记日志，不得掩盖原始异常。"""
     try:
         sim_time = society.current_time if society is not None else prepared.start_time
-        _ops_log(prepared.run_dir, prepared.scenario.timezone, sim_time, "RUN_CRASHED",
-                 f"Run crashed: {type(error).__name__}: {error}",
-                 level="error", run_id=prepared.run_id)
+        _ops_log(prepared.run_dir, prepared.inputs.config.timezone, sim_time,
+                 {"code": "RUN_CRASHED", "detail": f"Run crashed: {type(error).__name__}: {error}",
+                  "run_id": prepared.run_id}, level="error")
     except Exception:
         logger.exception("Run crash operations log failed")
 
@@ -386,7 +326,7 @@ def _restore_branch(
     checkpoint: Any,
     destination: Path,
     branch_metadata: dict[str, str] | None = None,
-    scenario: RuntimeScenario | None = None,
+    inputs: EnvironmentInputs | None = None,
 ) -> tuple[dict, dict]:
     """@brief 在外层临时目录恢复数据库和人物，完整后才发布子目录；给出场景时另核对结构化卡片与场景作息一致。"""
     from worldmock.footprints.checkpoint import restore_branch
@@ -398,7 +338,7 @@ def _restore_branch(
     child: FootprintStore | None = None
     try:
         child = restore_branch(parent, checkpoint.checkpoint_id, staged_run, branch_metadata)
-        _restore_agents(checkpoint, child, staged_run, scenario)
+        _restore_agents(checkpoint, child, staged_run, inputs)
         manifest, state = dict(child.manifest), child.state
         child.close()
         child = None
@@ -425,14 +365,14 @@ def _transfer_status_shell(destination: Path, staged_run: Path) -> None:
 
 
 def _restore_agents(checkpoint: Any, child: FootprintStore, run_dir: Path,
-                    scenario: RuntimeScenario | None = None) -> None:
+                    inputs: EnvironmentInputs | None = None) -> None:
     """@brief 从同一权威检查点恢复清单中的全部人物工作区；人物配置的续接开关须与清单一致，
     给出场景时结构化卡片的作息须与场景显式声明的作息一致。"""
     from worldmock.footprints.checkpoint import restore_directory
     from worldmock.life.continuation import continuation_enabled
 
     agent_ids = tuple(sorted(int(item) for item in child.manifest["agent_ids"]))
-    configs = {item.agent_id: item for item in scenario.agents} if scenario is not None else {}
+    configs = {inputs.persona.agent_id: inputs.persona} if inputs is not None else {}
     for agent_id in agent_ids:
         reference = checkpoint.snapshots.get(f"agent:{agent_id}")
         if reference is None:
@@ -440,11 +380,11 @@ def _restore_agents(checkpoint: Any, child: FootprintStore, run_dir: Path,
         destination = run_dir / "as2" / "agents" / f"agent_{agent_id:04d}"
         restore_directory(reference, child.assets, destination)
         _validate_agent_workspace(destination, agent_id, continuation_enabled(child.manifest),
-                                  configs.get(agent_id))
+                                  configs.get(agent_id), child.manifest["stage_model_identity"])
 
 
 def _validate_agent_workspace(workspace: Path, agent_id: int, continuation: bool,
-                              agent_config: Any = None) -> None:
+                              agent_config: Any, model_identity: dict) -> None:
     """@brief 发布恢复分支前严格验证人物身份、配置、冻结的续接开关（与父清单相同）、结构化卡片和已用记忆。"""
     from worldmock import run_setup
 
@@ -470,8 +410,12 @@ def _validate_agent_workspace(workspace: Path, agent_id: int, continuation: bool
         raise IntegrityError("Restored agent same_second_continuation must match the parent manifest")
     if not bool(config.get("enable_memory", True)):
         raise IntegrityError("Restored LifeAgent must keep memory enabled")
+    if profile.get("model_identity") != model_identity:
+        logger.error("Restored LifeAgent model configuration differs from the parent manifest")
+        raise IntegrityError("Restored LifeAgent model configuration must match the parent manifest")
     _validate_persona_card_struct(agent.get("profile"), agent_config)
-    if type(config.get("max_react_turns")) is not int or config["max_react_turns"] != run_setup.MAX_REACT_TURNS:
+    if (type(config.get("max_react_turns")) is not int
+            or config["max_react_turns"] != model_identity["max_react_turns"]):
         logger.error("Restored LifeAgent ReAct budget differs from the frozen runtime budget")
         raise IntegrityError("Restored LifeAgent max_react_turns must match the frozen runtime budget")
     store = AgentMemoryStore(workspace, agent_id=agent_id)
@@ -484,12 +428,12 @@ def _validate_agent_workspace(workspace: Path, agent_id: int, continuation: bool
 
 
 def _validate_persona_card_struct(profile: Any, agent_config: Any = None) -> None:
-    """@brief 恢复时校验人物 profile 中的结构化卡片（persona_card_struct；没有卡片的人物不带该键）。
+    """@brief 恢复时严格校验必填的冻结结构化卡片与人物作息。
 
     新建运行保存的是经场景作息覆盖后的卡片（docs/design/06-agent.md ），覆盖是不动点：给出场景人物声明时，
     对恢复的卡片再覆盖一次必须不改任何值，否则说明卡片作息与场景显式声明的作息不一致。
     """
-    from worldmock.profile.injection import apply_scenario_rhythm
+    from worldmock.profile.injection import apply_persona_rhythm
     from worldmock.profile.models import PersonaCardStruct
 
     if isinstance(profile, dict) and "taste_weights" in profile:
@@ -497,13 +441,14 @@ def _validate_persona_card_struct(profile: Any, agent_config: Any = None) -> Non
         raise IntegrityError("Restored persona profile contains retired taste weights")
     struct = profile.get("persona_card_struct") if isinstance(profile, dict) else None
     if struct is None:
-        return
+        logger.error("Restored persona card structure is invalid")
+        raise IntegrityError("Restored persona card structure is invalid")
     try:
         card = PersonaCardStruct.model_validate(struct)
     except ValidationError as exc:
         logger.error("Restored persona card structure is invalid")
         raise IntegrityError("Restored persona card structure is invalid") from exc
-    if agent_config is not None and apply_scenario_rhythm(card, agent_config).card != card:
+    if agent_config is not None and apply_persona_rhythm(card, agent_config).card != card:
         logger.error("Restored persona card rhythm disagrees with the scenario-declared rhythm")
         raise IntegrityError("Restored persona card rhythm disagrees with the scenario-declared rhythm")
 
@@ -520,7 +465,7 @@ async def _execute(prepared: _PreparedRun) -> RunResult:
     society = None
     failure: BaseException | None = None
     try:
-        actor, society = _build_society(prepared)
+        actor, society = await _build_society(prepared)
         await society.init()
         if prepared.intervention is not None:
             if prepared.intervention_sha256 is None:
@@ -530,8 +475,9 @@ async def _execute(prepared: _PreparedRun) -> RunResult:
                 prepared.intervention_sha256,
             )
         await society.run()
-        _ops_log(prepared.run_dir, prepared.scenario.timezone, society.current_time,
-                 "RUN_ENDED", "Run finished", run_id=prepared.run_id, steps=society.step_count)
+        _ops_log(prepared.run_dir, prepared.inputs.config.timezone, society.current_time,
+                 {"code": "RUN_ENDED", "detail": "Run finished", "run_id": prepared.run_id,
+                  "steps": society.step_count})
         return RunResult(
             prepared.run_id, prepared.run_dir, society.current_time,
             society.step_count, society.token_stats,
@@ -576,7 +522,7 @@ async def _cleanup_runtime(society: Any, actor: Any, owned_ray: bool) -> list[Ba
     return errors
 
 
-def _build_society(prepared: _PreparedRun) -> tuple[Any, Any]:
+async def _build_society(prepared: _PreparedRun) -> tuple[Any, Any]:
     """@brief 连接 LifeEnvActor、LifeEnvProxy、ServiceProxy 与 AgentSociety；环境 actor 与代理取带只读查询转发的
     Life 子类（src/worldmock/life/read_query_runtime.py），装配 AS2 原类时回看任务到不了环境。"""
     from worldmock.life.read_query_runtime import LifeEnvProxy, life_env_actor_class
@@ -588,7 +534,7 @@ def _build_society(prepared: _PreparedRun) -> tuple[Any, Any]:
 
     _require_custom_modules(prepared.project_root)
     clients = {role: build_client_for_role(role) for role in ("coder", "default")}
-    specs = _society_specs(prepared)
+    specs = await _society_specs(prepared)
     spec = DirectEnvActorSpec(
         ("LifeEnv",), {"LifeEnv": prepared.env_kwargs}, str(prepared.run_dir),
         str(prepared.project_root), clients,
@@ -599,7 +545,7 @@ def _build_society(prepared: _PreparedRun) -> tuple[Any, Any]:
         service = build_service_proxy(env, run_dir=prepared.run_dir, trace=False, replay=False)
         config = AgentSocietyConfig(
             prepared.run_id, specs, "LifeAgent", env, service,
-            prepared.start_time, prepared.scenario.end_at, prepared.run_dir,
+            prepared.start_time, prepared.inputs.config.stop_time, prepared.run_dir,
             prepared.project_root, prepared.workspace_mode,
         )
         return actor, AgentSociety(config)
@@ -608,33 +554,45 @@ def _build_society(prepared: _PreparedRun) -> tuple[Any, Any]:
         raise
 
 
-def _society_specs(prepared: _PreparedRun) -> tuple[dict[str, Any], ...]:
-    """@brief 人物工作区输入。新建运行：编译卡片、经场景作息覆盖渲染，并计算运行输入警告——警告经
-    create_options 冻结进运行清单 input_warnings，另逐条写一条 ops 警告，永不使创建失败
-    （docs/design/04-simulation-engine.md ）。恢复运行不重新编译，人物 profile 随检查点工作区恢复、警告随父清单继承。
-    """
+async def _society_specs(prepared: _PreparedRun) -> tuple[dict[str, Any], ...]:
+    """@brief 新建编译唯一卡片，恢复读取已验证工作区，不制造替代画像。"""
     from worldmock import run_setup
     from worldmock.opslog import OpsLogger
 
     if prepared.workspace_mode != "create":
-        return run_setup._agent_specs(prepared.scenario, persona_compiler=_no_persona_compilation,
-                            same_second_continuation=prepared.same_second_continuation)
-    compiled = {agent.agent_id: run_setup._compile_persona(agent)
-                for agent in sorted(prepared.scenario.agents, key=lambda item: item.agent_id)}
-    specs, warnings = run_setup.creation_inputs(prepared.scenario_path, prepared.scenario, compiled,
-                                      prepared.same_second_continuation)
+        return _restored_specs(prepared)
+    inputs = prepared.inputs
+    result = await run_setup._compile_persona(
+        inputs.persona, inputs.config.model, inputs.model_metadata, inputs.persona_sha256)
+    compiled = {inputs.persona.agent_id: result}
+    specs, warnings = run_setup.creation_inputs(inputs, compiled, prepared.same_second_continuation)
     options = prepared.env_kwargs["create_options"]
-    options["input_warnings"] = warnings
-    options["persona_habit_responses"] = habit_responses(specs)
-    writer = OpsLogger(prepared.run_dir, prepared.scenario.timezone)
+    options.update(input_warnings=warnings, persona_habit_responses=habit_responses(specs),
+                   world_dynamics=result.world_dynamics.model_dump(mode="json"))
+    writer = OpsLogger(prepared.run_dir, inputs.config.timezone)
     try:
         for warning in warnings:
-            writer.log(prepared.start_time, "runtime", "warn", warning["code"],
-                       "Input warning frozen into the run manifest", agent_id=warning["agent_id"],
-                       message=warning["message"], details=warning["details"])
+            writer.log(prepared.start_time, "runtime", "warn",
+                       {"code": warning["code"], "detail": "Input warning frozen into the run manifest",
+                        "agent_id": warning["agent_id"], "message": warning["message"], "details": warning["details"]})
     finally:
         writer.close()
     return specs
+
+
+def _restored_specs(prepared: _PreparedRun) -> tuple[dict[str, Any], ...]:
+    """@brief 人物与模型配置逐字沿用检查点已恢复的工作区。"""
+    identity = prepared.inputs.persona.agent_id
+    workspace = prepared.run_dir / "as2" / "agents" / f"agent_{identity:04d}"
+    from worldmock.run_setup import stage_model_identity
+
+    model = stage_model_identity(prepared.inputs.config.model, prepared.inputs.model_metadata,
+                                 prepared.same_second_continuation)
+    _validate_agent_workspace(workspace, identity, prepared.same_second_continuation,
+                              prepared.inputs.persona, model)
+    agent = json.loads((workspace / "AGENT.json").read_text(encoding="utf-8"))
+    config = json.loads((workspace / "config.json").read_text(encoding="utf-8"))
+    return ({"id": identity, "profile": agent["profile"], "config": config},)
 
 
 def habit_responses(specs: tuple[dict[str, Any], ...]) -> dict[int, list[str]]:
@@ -665,176 +623,6 @@ def _terminate_failed_actor(actor: Any, cause: BaseException) -> None:
         ) from cause
 
 
-class ContactReplyClient(IndependentModelClient):
-    """@brief Contact reply 业务客户端，协议重试仍由业务调用方计数。"""
-
-    def __init__(self, model_identity: dict[str, Any]):
-        """@brief 使用冻结身份建立业务客户端。"""
-        super().__init__(model_identity, "Contact reply")
-
-
-def prepare_contact_reply(request: Any, contact: dict[str, Any] | None,
-                          model_name: str) -> dict[str, Any]:
-    """@brief 形成联系人回复的独立请求（thinking=disabled、无工具、无传输重试）。
-
-    载荷带来信与它的事实（发件人姓名、场景本地时刻、presence 固定 remote、联系人的收货地名），以及双方往来与对方
-    实际收到的物品（docs/design/04-simulation-engine.md ）。
-    """
-    payload = {"contact": contact if contact is not None
-               else {"contact_id": request.contact_id},
-               "sender_name": request.sender_name,
-               "now": request.now,
-               "presence": request.presence,
-               "receive_location": request.receive_location,
-               "incoming_message": request.incoming_text,
-               "history": [item.model_dump(mode="json") for item in request.history],
-               "received": [item.model_dump(mode="json") for item in request.received],
-               "reply_char_limit": request.max_chars}
-    messages = [
-        {"role": "system", "content": _CONTACT_REPLY_PROMPT},
-        {"role": "user", "content": json.dumps(payload, ensure_ascii=False, sort_keys=True)},
-    ]
-    return {"model": model_name, "messages": messages, "stream": False,
-            "max_tokens": CONTACT_REPLY_MAX_TOKENS, "max_retries": 0,
-            "extra_body": {"thinking": {"type": "disabled"}}}
-
-
-def parse_contact_reply(raw: dict[str, Any]) -> str:
-    """@brief 从原始响应提取唯一回复文本（结构异常按运行故障传播）。"""
-    choices = raw.get("choices")
-    if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict):
-        raise ProtocolError("Contact reply response must contain exactly one choice")
-    message = choices[0].get("message")
-    content = message.get("content") if isinstance(message, dict) else None
-    if not isinstance(content, str) or not content.strip():
-        raise ProtocolError("Contact reply response has no reply text")
-    return content.strip()
-
-
-async def settle_pending_model_replies(engine: Any, client: Any | None = None) -> list[dict]:
-    """@brief 执行引擎登记的联系人 model
-    回复并登记预排送达（docs/design/04-simulation-engine.md「社交接口」）。
-
-    每轮结算后调用：从足迹库取未结算的 model_npc_reply_pending 请求，经
-    独立 DeepSeek 调用生成不超过 200 汉字的回复，请求/原始响应/用量保存为
-    事件证据，回复经 social.finalize_model_reply 登记为 CONTACT_REPLY_DELAY_SECONDS
-    后到期的预排送达，到期只进入收件箱（不改资源或任务）。回复经后验守卫：命中越界说法时在本次结算内
-    重试一次，仍命中则用固定兜底句（docs/design/04-simulation-engine.md ）。传输与结构异常按运行故障传播
-    （与工作验收同边界）；同一消息最多回复一次（幂等键 reply_to_message_id），重试也只写一条回复事件。
-    """
-    from worldmock.life import social as social_domain
-
-
-    pending = _pending_reply_requests(engine)
-    if not pending:
-        return []
-    caller = client if client is not None else ContactReplyClient(
-        engine.context.store.manifest["model_identity"])
-    settled = []
-    for event, request in pending:
-        model_request = prepare_contact_reply(
-            request, _contact_profile(engine, request), caller.model_name)
-        text, attempts = await _guarded_contact_reply(caller, model_request)
-        reply = social_domain.finalize_model_reply(
-            request, text, f"reply-{request.reply_to_message_id}", engine.context.state.current_time)
-        settled.append(_commit_contact_reply(engine, event, attempts, reply))
-    return settled
-
-
-async def _guarded_contact_reply(caller: Any, model_request: dict[str, Any]) -> tuple[str, list[dict]]:
-    """@brief 守卫下的一条回复：命中越界说法时以附回纠正的请求重试一次，仍命中则取固定兜底句。
-
-    :returns: 回复正文与每次尝试的记录（请求、原始响应、回复正文与命中的类别码）。
-    """
-    from worldmock.life.reply_guard import FALLBACK_REPLY, REPLY_ATTEMPT_LIMIT, guard_matches, retry_request
-
-    attempts: list[dict] = []
-    request = model_request
-    while len(attempts) < REPLY_ATTEMPT_LIMIT:
-        raw = await caller.call(request)
-        text = parse_contact_reply(raw)
-        matched = guard_matches(text)
-        attempts.append({"request": request, "response": raw, "text": text, "matched": matched})
-        if not matched:
-            return text, attempts
-        request = retry_request(model_request, text, matched)
-    return FALLBACK_REPLY, attempts
-
-
-def _pending_reply_requests(engine: Any) -> list[tuple[Any, Any]]:
-    """@brief 取尚未回复的 pending 请求（事件序升序，幂等去重）。"""
-    from worldmock.life.social import ModelReplyRequest
-
-
-    events = engine.context.store.read_events(engine.context.store.last_event_seq)
-    replied = {event.data.get("reply_to_message_id") for event in events
-               if event.event_type == "environment_event"
-               and event.data.get("kind") == "model_npc_reply"}
-    pending = []
-    for event in events:
-        if (event.event_type != "environment_event"
-                or event.data.get("kind") != "model_npc_reply_pending"):
-            continue
-        request = ModelReplyRequest.model_validate(event.data["request"])
-        if request.reply_to_message_id not in replied:
-            pending.append((event, request))
-    return pending
-
-
-def _contact_profile(engine: Any, request: Any) -> dict[str, Any] | None:
-    """@brief 从场景声明查找联系人公开档案（找不到返回 None）。"""
-    for agent in engine.context.semantics.scenario.agents:
-        for contact in agent.contacts:
-            if contact.contact_id == request.contact_id:
-                return {"contact_id": contact.contact_id,
-                        "salutation": contact.salutation,
-                        "relation": contact.relation,
-                        "closeness": contact.closeness,
-                        "channels": list(contact.channels)}
-    return None
-
-
-def _commit_contact_reply(engine: Any, pending_event: Any, attempts: list[dict], reply: Any) -> dict:
-    """@brief 一次事务提交回复证据并登记预排送达（版本 +1，资源零变动）。
-
-    回复生成时即留 model_npc_reply 证据：request、response、usage 取最后一次尝试，attempts 保存每次尝试，
-    guard_applied 表示两次都命中而改用了兜底句；收件箱条目在 CONTACT_REPLY_DELAY_SECONDS 后由预排事件
-    message_arrival 送达，收件人届时以 message_arrival 唤醒、睡眠中过滤（docs/design/04-simulation-engine.md「联系人回复」）。
-    """
-    from worldmock.footprints.models import EventDraft, canonical_json
-    from worldmock.life.social import CONTACT_REPLY_DELAY_SECONDS
-    from worldmock.life.models import validated_payload
-    from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
-
-
-    recipient = int(reply.message.recipient_id.split(":", 1)[1])
-    staged = engine.context.state.model_copy(deep=True)
-    sequence = max((item.sequence for item in staged.pending_events), default=0) + 1
-    staged.pending_events.append(ScheduledEvent(
-        scheduled_id=f"contact-reply:{reply.message.message_id}", kind=ScheduledKind.MESSAGE_ARRIVAL,
-        due_at=staged.current_time + CONTACT_REPLY_DELAY_SECONDS, sequence=sequence, agent_id=recipient,
-        data={"message": reply.message.model_dump(mode="json")}))
-    staged.pending_events.sort(key=lambda item: (item.due_at, item.sequence, item.scheduled_id))
-    staged.version = engine.context.state.version + 1
-    last = attempts[-1]
-    drafts = [
-        EventDraft(event_type="environment_event", occurred_at=staged.current_time,
-                   agent_id=recipient, source_kind="model", visibility="system",
-                   caused_by=[pending_event.event_id],
-                   data={"kind": "model_npc_reply", "source_kind": reply.source_kind,
-                         "reply_to_message_id": reply.message.message_id.removeprefix("reply-"),
-                         "request": last["request"], "response": last["response"],
-                         "usage": last["response"].get("usage"),
-                         "reply": reply.message.model_dump(mode="json"),
-                         "attempts": attempts, "guard_applied": bool(last["matched"])}),
-    ]
-    engine.context.store.commit(validated_payload(staged), drafts)
-    engine.context.state = staged
-    return {"reply_to_message_id": reply.message.message_id.removeprefix("reply-"),
-            "reply_message_id": reply.message.message_id,
-            "source_kind": reply.source_kind}
-
-
 class PlanDayClient(IndependentModelClient):
     """@brief Plan day 业务客户端，协议重试仍由业务调用方计数。"""
 
@@ -846,7 +634,7 @@ class PlanDayClient(IndependentModelClient):
 async def settle_pending_day_plans(engine: Any, client: Any | None = None) -> list[dict]:
     """@brief 零点计划后台任务（docs/design/04-simulation-engine.md「执行位置」）：为缺当日计划的人物生成当日计划。
 
-    与联系人回复并列：LifeEnv 在零点推进之后、启动检查点之后与普通恢复的 init 中 await 它。不经 LifeAgent，
+    LifeEnv 在零点推进之后、启动检查点之后与普通恢复的 init 中 await 它。不经 LifeAgent，
     不读写人物工作区与记忆运行时，不产生 observation、decision_started、memory_updated。按
     plan_submitted_dates 找出缺当日计划的人物（按编号），运行已到终点或无人缺计划时在构造客户端之前返回。
     输出不合法时附回英文错误重试，至多 3 次；重试耗尽或传输失败时先提交已有尝试的证据再抛出（运行故障）。
@@ -854,10 +642,10 @@ async def settle_pending_day_plans(engine: Any, client: Any | None = None) -> li
     from worldmock.life import day_planning
 
 
-    missing = day_planning.agents_missing_plan(engine.context.state, engine.context.scenario.timezone)
+    missing = day_planning.agents_missing_plan(engine.context.state, engine.context.config.timezone)
     if not missing:
         return []
-    caller = client if client is not None else PlanDayClient(engine.context.store.manifest["model_identity"])
+    caller = client if client is not None else PlanDayClient(engine.context.store.manifest["stage_model_identity"])
     registered = []
     for agent_id in missing:
         registered.append(await _generate_day_plan(engine, caller, agent_id))
@@ -871,10 +659,11 @@ async def _generate_day_plan(engine: Any, caller: Any, agent_id: int) -> dict:
     from worldmock.life.models import validated_payload
 
 
-    now, timezone_name = engine.context.state.current_time, engine.context.scenario.timezone
+    now, timezone_name = engine.context.state.current_time, engine.context.config.timezone
     inputs = plan_inputs(engine.context, engine.observations, engine.midnight_rhythm_pending, agent_id)
     sentences = [sentence for sentence, _ in inputs.experiences]
-    original, kept = day_planning.fit_plan_day(inputs.payload, sentences, caller.model_name)
+    original, kept = day_planning.fit_plan_day(
+        inputs.payload, sentences, caller.model_name, engine.context.inputs.model_metadata)
     sources = [*(source for _, source in inputs.experiences[len(sentences) - kept:]), *inputs.sources]
     date = day_planning.plan_date(now, timezone_name)
     request, evidence, previous, attempt = original, [], None, 1
@@ -887,9 +676,9 @@ async def _generate_day_plan(engine: Any, caller: Any, agent_id: int) -> dict:
             parsed = day_planning.parse_plan_day(raw, now, timezone_name)
         except day_planning.PlanDayOutputError as error:
             evidence.append(day_planning.response_draft(now, agent_id, link, raw, error))
-            if attempt > day_planning.PLAN_DAY_VALIDATION_RETRIES:
+            if attempt > engine.context.config.model.day_plan_validation_max_retries:
                 engine.context.store.commit(validated_payload(engine.context.state), evidence)
-                raise ProtocolError("plan_day output remained invalid after three retries") from error
+                raise ProtocolError("plan_day output validation retries exhausted") from error
             attempt, previous = attempt + 1, evidence[-1].event_id
             request = day_planning.prepare_plan_day_correction(original, raw, error)
             continue
@@ -925,22 +714,3 @@ def _require_custom_modules(project_root: Path) -> None:
     environments = {item["type"] for item in result.get("envs", [])}
     if errors or "LifeAgent" not in agents or "LifeEnv" not in environments:
         raise RuntimeError("LifeAgent or LifeEnv custom module registration failed")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def _no_persona_compilation(agent: Any) -> None:
-    """@brief 恢复运行不重新编译：人物卡片随检查点工作区原样恢复。"""
-    return None

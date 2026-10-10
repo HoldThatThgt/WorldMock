@@ -27,7 +27,7 @@ flowchart LR
 | [记录引擎](design/05-recording-engine.md) | 事件、素材、事务、检查点、认证导出与查看器 |
 | [人物](design/06-agent.md) | 画像、记忆、七层提示、模型请求和纠错 |
 | [行为评估](design/07-evaluation.md) | 指标、对比、盲评、报告与结论边界 |
-| [配置](design/08-configuration.md) | 场景、工作安排、人物初值、模型凭据与加载检查 |
+| [配置](design/08-configuration.md) | 单人人设、工作安排、运行配置、模型身份与加载检查 |
 | [状态与序列化](design/09-io-formats.md) | 世界与人物状态、严格字段和编码规则 |
 | [运行与框架集成](design/10-runtime.md) | AgentSociety 装配、生命周期、命令行、安装和恢复 |
 
@@ -36,14 +36,14 @@ HTML 是阅读附件，只从模块正文生成，不直接编辑、不进入版
 
 ## 用户手册
 
-从[创建自己的第一个场景](manual/README.md#readme-创建自己的第一个场景)开始。
+从[准备自己的第一个环境](manual/README.md)开始。
 手册回答怎样配置和运行；字段与规则以对应模块设计为准。
 
 | 目标 | 手册 |
 | --- | --- |
-| 配置人物 | [人物画像](manual/personas.md) |
-| 创建场景 | [生活场景](manual/scenarios.md) |
-| 准备环境 | [世界素材](manual/resources.md) |
+| 配置人物 | [编写 persona.toml](manual/personas.md#personas-编写-persona-toml) |
+| 配置运行 | [编写 config.toml](manual/runtime.md#runtime-编写-config-toml) |
+| 准备环境 | [设计环境数据集](manual/resources.md#resources-设计环境数据集) |
 | 理解固定规则 | [规则配置](manual/rules.md) |
 | 安装、运行和恢复 | [运行配置](manual/runtime.md) |
 | 比较与评审 | [真实性评估](manual/evaluation.md) |

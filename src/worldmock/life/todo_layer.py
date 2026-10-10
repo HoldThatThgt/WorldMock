@@ -1,17 +1,4 @@
-"""@brief 待办层：暂停的活动、还没办完的个人事务与今日计划（docs/design/06-agent.md「待办层」，
-docs/design/04-simulation-engine.md ）。
-
-键序为 layer、paused_activities、errands、day_plan。
-暂停的活动按暂停时刻从老到新（同刻按 activity_paused 事件顺序：同一秒两次决策先后暂停的，先暂停的在前），带暂停时刻、
-只能回去恢复的地点、客观进度与两个控制工具（report_status 表示恢复，conclude_activity 表示结束）的可用性；人在别处时
-恢复不可用，原因点名地点。
-个人事务（没有时为空列表）按记下的时刻与事务身份排序，每行只由 errands.todo_rows 构建：名称、要办成的事、已办到哪、
-备注、尚未提醒的提醒钟点与记下的本地日期；行内不含内部身份、状态枚举与可用性。
-今日计划在零点计划生成之前或当日结束之后为 null，之后按计划顺序列出至多八个目标的意图、文字、是否已推进、提醒时刻与
-大致时刻；
-目标行不显示人物自述（PlanGoal.progress_note 照存，不进提示）。目标的回看名称就是这里写出的目标文字（visible_goals 是
-待办层与私有目标绑定的同一来源，docs/design/06-agent.md 系统层规则 12）。
-"""
+"""@brief 待办层保存暂停的活动、未办完的个人事务及当前完整目标清单。"""
 
 from __future__ import annotations
 
@@ -31,13 +18,13 @@ def todo_layer(context: LayerContext, store: FootprintStore) -> dict:
     paused.sort(key=lambda item: (item.paused_at, order.get(item.activity_id, 0)))
     agent, names = context.state.agents[context.agent_id], _product_names(context)
     return {"layer": "待办层", "paused_activities": [_paused_item(context, item) for item in paused],
-            "errands": errands.todo_rows(agent, names, context.scenario.timezone),
+            "errands": errands.todo_rows(agent, names, context.config.timezone),
             "day_plan": _day_plan(context)}
 
 
 def _product_names(context: LayerContext) -> dict[str, str]:
     """@brief 冻结目录里商品的商品身份 → 商品名（事务行的「要办成的事」按它写商品名）。"""
-    return {product_id: item.name for product_id, item in context.semantics.catalog.goods.items()}
+    return {product_id: item.name for product_id, item in context.catalog.goods.items()}
 
 
 def _pause_order(store: FootprintStore, agent_id: int, moments: list[int]) -> dict[str, int]:
@@ -53,11 +40,11 @@ def _pause_order(store: FootprintStore, agent_id: int, moments: list[int]) -> di
 
 def _paused_item(context: LayerContext, activity: ActivityState) -> dict:
     """@brief 一项暂停的活动：名称、暂停时刻、恢复地点、客观进度与恢复、结束两个工具的可用性。"""
-    place = next(item.name for item in context.scenario.locations if item.location_id == activity.location_id)
+    place = context.catalog.locations[activity.location_id].display_name
     tools = [{"tool": tool, **availability(context, Candidate(tool, activity_id=activity.activity_id))}
              for tool in ("report_status", "conclude_activity")]
     return {"name": context.names["activities"][activity.activity_id],
-            "paused_at": iso_time(activity.paused_at, context.scenario.timezone), "place": place,
+            "paused_at": iso_time(activity.paused_at, context.config.timezone), "place": place,
             "progress": activity_control.objective_progress(activity), "tools": tools}
 
 
@@ -70,13 +57,13 @@ def visible_goals(state: WorldState, agent_id: int) -> tuple[PlanGoal, ...] | No
 
 
 def _day_plan(context: LayerContext) -> dict | None:
-    """@brief 今日计划：计划日期与各目标的意图、文字、是否已推进、提醒时刻（HH:MM 或 null）与大致时刻（HH:MM 或
+    """@brief 今日计划：计划日期与各目标的意图、文字、提醒时刻（HH:MM 或 null）与大致时刻（HH:MM 或
     null，docs/design/04-simulation-engine.md ）；没有或已过期时为 null。"""
     goals = visible_goals(context.state, context.agent_id)
     if goals is None:
         return None
-    plan, zone = context.state.agents[context.agent_id].day_plan, context.scenario.timezone
-    rows = [{"intent_kind": goal.intent_kind, "goal": goal.goal, "progressed": goal.progressed_at is not None,
+    plan, zone = context.state.agents[context.agent_id].day_plan, context.config.timezone
+    rows = [{"intent_kind": goal.intent_kind, "goal": goal.goal,
              "remind_time": epoch_clock(goal.remind_at, zone) if goal.remind_at is not None else None,
              "around_time": epoch_clock(goal.around_at, zone) if goal.around_at is not None else None}
             for goal in goals]

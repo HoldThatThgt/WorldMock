@@ -5,16 +5,14 @@
 
 评估配置决定“比较同一时间段内哪些活动、使用哪些公开参照、请评审判断哪些维度”。
 从现有 `tests/evaluation/fixtures/scenario.json` 复制完整评估输入修改。
-它和[人物运行场景](scenarios.md#scenarios-生活场景)是两种不同输入，不要把评估配置传给 `worldmock run`。
-正式环境 `../WorldMock-Dataset/environment/shanghai-simplified/scenarios/evaluation.json` 是结构 8 的生活场景，
-不能传给 `worldmock.evaluation.scenario.load_scenario`。
+它和[运行配置](runtime.md#runtime-编写-config-toml)是两种不同输入，评估配置用于 `worldmock evaluate`。
 所有命令均在仓库根目录执行。
 
-[返回配置手册](README.md#readme-用户配置手册)
+[返回配置手册](README.md)
 
 ```mermaid
 flowchart LR
-    A[评估场景与类别映射] --> D[认证输入与计算统计]
+    A[评估配置与公开参照] --> D[认证输入与计算统计]
     B[旧 LabelKit 完整交付] --> D
     C[已完成的 WorldMock 足迹导出] --> D
     H[可选的真人参照] --> D
@@ -29,7 +27,8 @@ flowchart LR
 
 按[运行与框架集成](../design/10-runtime.md)修订；验收结果独立记录。
 
-报告只将非布尔整数秒且起点小于终点的区间计为有效结算；缺活动品类仍报告未归类或缺证。日期按运行时区切分，反思快照使用主观来源校验，不能当作畸形活动经历。
+报告只将非布尔整数秒且起点小于终点的区间计为有效结算，缺少实际区间时明确报告缺证。
+日期按运行时区切分，反思快照使用主观来源校验，不能当作活动经历。
 
 <a name="evaluation-先分清要编辑的文件"></a>
 ## 先分清要编辑的文件
@@ -49,7 +48,7 @@ flowchart LR
 <a name="evaluation-从完整示例开始"></a>
 ## 从完整示例开始
 
-下面命令从真实评估夹具创建完整配置，只修改评估名称及随机种子。该夹具用于离线结构演示，
+下面命令从真实评估夹具创建完整配置，只修改评估名称。该夹具用于离线结构演示，
 `expected_labelkit.run_id="artificial-labelkit"`，全部摘要为零占位值；它没有绑定可信的真实候选交付。
 目标文件已经存在时会拒绝覆盖：
 
@@ -62,8 +61,6 @@ source = Path("tests/evaluation/fixtures/scenario.json")
 target = Path(".work/my-evaluation.json")
 config = json.loads(source.read_text(encoding="utf-8"))
 config["scenario_id"] = "my-white-collar-evaluation"
-config["bootstrap"]["seed"] = 20260921
-config["review"]["seed"] = "my-review-2026-09-21"
 target.parent.mkdir(parents=True, exist_ok=True)
 with target.open("x", encoding="utf-8") as handle:
     json.dump(config, handle, ensure_ascii=False, indent=2)
@@ -79,20 +76,20 @@ PY
 | `scenario_id`、`schema_version` | 非空字符串 | 名称可以自定义；通常保留当前 `schema_version` |
 | `window.start`、`window.end` | 带时区偏移的 ISO 8601 时间，起点小于终点 | 在 `window.timezone` 下均须为午夜；包含起点，不包含终点 |
 | `window.timezone` | 有效 IANA 时区名，例如 `Asia/Shanghai` | 决定自然日边界；须与共享人物和输入清单一致 |
-| `bootstrap.seed` | 整数 | 统计重采样种子 |
 | `bootstrap.repetitions` | 正整数，次 | 默认示例使用一万次；降低会影响区间稳定性 |
 | `bootstrap.block_days` | 固定为 `7` 天 | 当前采用周块重采样，不能任意调短 |
-| `review.seed` | 非空字符串 | 普通日抽样和左右顺序的种子 |
 | `review.reviewer_count` | 固定为 `3` | 必须提交三个不同槽、不同会话的评审收据 |
 | `review.dimensions` | 不重复的非空字符串数组 | 使用下表已有维度；新名称没有对应可判定性规则 |
 | `shared_profile` | 固定 `person_count: 1`、`occupation_class: "white_collar"`，必填 `timezone` | 当前评估支持单人白领；不能通过此处配置其他群体 |
 | `special_dates` | 日期字符串到日历类别名称的对象，可为空 | 日期必须在窗口内；其余日期自动区分工作日、周末 |
-| `category_mappings` | 必须包含三个映射对象 | 把双方已有类别映射到相同含义 |
+| `category_mappings` | 包含两组外部 LabelKit 映射 | 保留外部交付的真实类别来源，WorldMock 直接使用实际动作与对象 |
 | `official_domain_map`、`official_reference` | 必填对象 | 活动类别映射的官方领域必须实际存在 |
 | `expected_labelkit` | 必填对象 | 冻结旧候选交付身份，见后文 |
 
 结束时间写成 `2026-03-30T00:00:00+08:00` 表示最后一个被评估的自然日是三月二十九日，
 不是三月三十日。双方和可选真人参照必须使用完全一致的窗口，不会自动取交集或裁剪数据。
+统计重抽样、日期抽样、左右交换和匿名引用都读取已认证 WorldMock 检查点的唯一随机根。
+随机根不公开给评审，评估配置不另设种子。
 
 | 已支持的评审维度 | 判断什么 |
 |---|---|
@@ -109,20 +106,13 @@ PY
 <a name="evaluation-修改类别映射和公开参照"></a>
 ## 修改类别映射和公开参照
 
-`category_mappings.worldmock_activity` 只允许当前原生活动 `sleep`、`travel`、`wait` 的映射。统一 `action` 活动直接使用实际快照中的五个固定类别：`entertainment`、`work_study`、`social`、`exercise`、`daily_care`，不通过动作名、app 名或旧活动类型猜测。
-完整评估配置仍保留 `labelkit_sequence_class` 与 `labelkit_pattern` 两组真实 LabelKit 上游类别映射；它们不是旧 WorldMock 输入的兼容读取。WorldMock 的当前配置示例为：
+WorldMock 直接使用真实请求和活动中的七个动作，公开证据保留实际内容、应用、路线和订单对象。
+内容没有评估类别，报告不把工作、娱乐或社交标签套到 WorldMock 活动。
+`category_mappings` 仅保留 `labelkit_sequence_class` 与 `labelkit_pattern` 两组外部 LabelKit 类别映射。
 
-```json
-{
-  "worldmock_activity": {
-    "sleep": "sleep",
-    "travel": "travel",
-    "wait": "waiting"
-  }
-}
-```
-
-缺合法动作快照类别时报告 `unknown` 或未归类，不补造证据。商品效果在实际收货时结算，食品多样性读取本人食品 `goods_received`，不新增进食或持有活动。数字交互由实际 app 与使用方式确定，其他设备的数字交互不能算成手机使用。
+商品效果在实际收货时结算，食品多样性读取本人食品 goods_received。
+数字交互只来自真实 app 绑定活动；目录浏览、内容消费和系统应用触点分别依据实际证据呈现。
+共同渠道或时长语义不足时明确报告不可比较，缺失事实不补造。
 
 官方参照把共同活动含义映射到统计领域，例如：
 
@@ -144,8 +134,9 @@ PY
 
 `--worldmock` 指向 `worldmock export` 生成的**已完成运行的足迹导出目录**，其中包含
 `manifest.json`、认证检查点及 `events.jsonl`、`activities.jsonl`、`verified-experiences.jsonl`、
-`purchases.jsonl`、`app-usage.jsonl` 五类正文。导出清单结构为 4，检查点世界结构为 11，
-冻结清单的 `environment_identity` 必须与实际环境和规则身份一致。
+`purchases.jsonl`、`app-usage.jsonl` 五类正文。当前版本与字段以
+[状态与序列化](../design/09-io-formats.md)及[记录引擎](../design/05-recording-engine.md)为准，
+冻结清单的 environment_identity 必须与实际环境和规则身份一致。
 评估要求 `experiment_completed: true`，检查点位于窗口终点，并验证实际导出内容。
 LabelKit-DataSet 的训练记录不能替代这里的完整足迹导出。
 
@@ -184,11 +175,11 @@ legacy-root/
 字段结构见[足迹数据合同](../design/09-io-formats.md)；缺失的真实经历不能通过填造事件补齐。
 
 参照目录必须有 `manifest.json` 和两个 JSONL 文件。清单的必需内容如下，
-其中哈希由文件计算，不能照抄占位值：
+其中哈希由文件计算，不能照抄占位值；版本和字段定义见[状态与序列化](../design/09-io-formats.md)：
 
 | 清单字段 | 约束 |
 |---|---|
-| `schema_version`、`committed` | 分别为 `1`、`true` |
+| `schema_version`、`committed` | 使用当前参照格式并确认文件已提交 |
 | `run_id`、`source_run_ids` | 非空身份；来源数组不重复且包含当前 `run_id`；事件只能引用声明的来源 |
 | `window`、`daily_coverage` | 窗口与评估配置完全相同；按顺序列出窗口内所有本地自然日 |
 | `artifacts.events`、`artifacts.activities` | 只声明这两个工件；每项含相对 `path`、实际 `sha256`、`rows` |
@@ -360,7 +351,7 @@ worldmock evaluate --output evaluations/my-comparison --reviews \
 |---|---|
 | 窗口不匹配或时间越界 | 双方导出、真人参照、共享人物时区和评估窗口是否一致 |
 | 缺少完成检查点 | `--worldmock` 是否为完整运行的足迹导出，而非中途导出或训练交付 |
-| 未知维度、类别大量 `unknown` | 维度使用已实现名称；映射键是否对应输入中的实际类别 |
+| 未知维度或缺少共同观察范围 | 维度使用已实现名称；双方是否提供相同渠道与时长语义的真实证据 |
 | 评审条目不全或槽重复 | 三个包分别评审，所有条目、所有维度都有判断，会话标识互异 |
 | 评审材料不可判断却填了偏好 | 根据包中 `judgeability` 改为真实的 `unjudgeable` 判断 |
 | 准备目录出现意外文件或哈希变化 | 收据放到外部目录；不要编辑已冻结的准备文件 |

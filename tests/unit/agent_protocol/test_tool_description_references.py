@@ -55,8 +55,8 @@ def test_every_native_tool_has_a_purpose_only_description() -> None:
 def test_interaction_rules_live_only_in_the_system_layer() -> None:
     """登记即结束、可用性与 reason 的机制只在系统层写一次，任何描述都不复述。"""
     rules = LIFE_SYSTEM_LAYER["rules"]
-    assert sum("只是登记" in rule for rule in rules) == 1
-    assert sum("available 为 false 的会被拒绝" in rule for rule in rules) == 1
+    assert sum("世界请求登记后由环境结算" in rule for rule in rules) == 1
+    assert sum("available 为 false" in rule for rule in rules) == 1
     for text in TOOL_DESCRIPTIONS.values():
         assert "登记" not in text and "available" not in text and not any(text in rule for rule in rules)
 
@@ -130,14 +130,14 @@ def test_query_world_purpose_describes_filters_and_changes_only_the_tool_fingerp
     from worldmock.agents.life_prompt import life_prompt_sha256
 
     sentence = TOOL_DESCRIPTIONS["query_world"]
-    assert all(word in sentence for word in ("名称", "方式", "品类", "应用", "此刻能做", "偏移量", "翻页"))
+    assert all(word in sentence for word in ("名称", "具体动作", "商品品类", "此刻能做", "偏移量", "翻页"))
     assert not _violations(sentence)
     tools, prompt = life_tool_schema_sha256(), life_prompt_sha256()
-    monkeypatch.setitem(TOOL_DESCRIPTIONS, "query_world", "按已知名称、方式或公开品类查询世界，按返回的偏移量翻页。")
+    monkeypatch.setitem(TOOL_DESCRIPTIONS, "query_world", "按已知名称、具体动作或商品品类查询世界，按返回的偏移量翻页。")
     assert life_tool_schema_sha256() != tools and life_prompt_sha256() == prompt
     schema = deepseek_strict_schema(QueryWorldRequest)
-    assert schema["required"] == ["name", "way", "category", "app", "available_only", "offset"]
+    assert schema["required"] == ["name", "action", "category", "available_only", "offset"]
     assert list(schema["properties"]) == schema["required"]
-    assert schema["properties"]["app"]["anyOf"] == [{"type": "string"}, {"type": "null"}]
+    assert schema["properties"]["action"]["anyOf"] == [{"type": "string"}, {"type": "null"}]
     assert schema["properties"]["available_only"]["type"] == "boolean"
     assert _descriptions(schema, "query_world") == []

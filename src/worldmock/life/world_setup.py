@@ -1,208 +1,174 @@
-"""@brief 场景完整装配、世界准入与新建运行的唯一编排。"""
+"""@brief 单人环境输入冻结、世界初始化与已有运行准入。"""
 
 from __future__ import annotations
 
 import hashlib
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
-from worldmock.catalog import load_catalog
+from worldmock.catalog.mapgen import map_bytes
+from worldmock.environment import EnvironmentInputs, environment_identity, load_environment
 from worldmock.errors import IntegrityError
-from worldmock.life.load_checks import (
-    check_location_kinds, check_parcel_stations, check_visible_labels, check_work_schedules,
-)
+from worldmock.footprints.assets import AssetStore
+from worldmock.footprints.models import EventDraft
+from worldmock.footprints.store import FootprintStore
 from worldmock.life.models import AgentState, RunIdentity, WorldState, WORLD_SCHEMA_VERSION
-from worldmock.life.scenario import RuntimeScenario, parse_scenario_document
-from worldmock.life.semantics import ScenarioSemantics, assemble_semantics, resolve_catalog_dir
-from worldmock.life.run_identity import environment_identity, open_environment_validated_store
-
-if TYPE_CHECKING:
-    from worldmock.footprints.store import FootprintStore
+from worldmock.life.models import validated_payload
+from worldmock.life.run_identity import open_environment_validated_store
+from worldmock.profile.models import WorldDynamics
 
 
-def load_runtime_scenario(
-    scenario_path: Path,
-    catalog_dir: Path | None = None,
-) -> tuple[ScenarioSemantics, str]:
-    """@brief 读取结构八场景、登记环境与固定规则，再执行可见名称和工作安排准入。
-
-    @param scenario_path 场景 JSON 路径，目录使用场景兄弟目录 catalog。
-    @param catalog_dir 环境登记根；缺省为场景兄弟目录 catalog。
-    @return 已验证的冻结语义及场景原文字节的 SHA-256。
-    @exception IntegrityError 文档、环境身份或场景准入不满足合同。
-    """
-
-    document, digest = parse_scenario_document(scenario_path)
-    directory = Path(catalog_dir) if catalog_dir is not None else resolve_catalog_dir(scenario_path)
-    catalog = load_catalog(directory)
-    semantics = assemble_semantics(document, catalog)
-    check_location_kinds(semantics.scenario)
-    check_visible_labels(semantics.scenario)
-    check_work_schedules(semantics.scenario)
-    check_parcel_stations(semantics)
-    return semantics, digest
-
-
-def load_scenario(path: Path) -> tuple[RuntimeScenario, str]:
-    """@brief 完整加载场景：文档校验、目录组装与准入通过后返回运行时场景。"""
-
-    semantics, digest = load_runtime_scenario(path)
-    return semantics.scenario, digest
-
-
-def _initial_state(semantics: ScenarioSemantics, scenario_sha256: str, run_id: str) -> WorldState:
-    """@brief 从组装语义形成无隐藏动作的完整初始世界。"""
+def _initial_state(inputs: EnvironmentInputs, run_id: str, dynamics: WorldDynamics) -> WorldState:
+    """@brief 无隐式活动地初始化唯一人物、签名账户与目录回调状态。"""
     from worldmock.life import sessions
-    from worldmock.life.settlement import inject_initial_funds
-    from worldmock.scheduling.compile import compile_schedule
 
-    scenario = semantics.scenario
-    start = int(scenario.start_at.timestamp())
-    end = int(scenario.end_at.timestamp())
-    agents = {}
-    accounts = inject_initial_funds(dict(semantics.accounts), start)
-    for config in scenario.agents:
-        account_id = f"agent:{config.agent_id}"
-        agents[config.agent_id] = _initial_agent(config, scenario, account_id, start)
-    pending = compile_schedule(scenario, start, end)
-    random_state = hashlib.sha256(f"random:{scenario.random_seed}".encode()).hexdigest()
+    start = int(inputs.config.start_time.timestamp())
+    persona = inputs.persona
+    account_id = f"agent:{persona.agent_id}"
+    agent = _initial_agent(inputs, dynamics, start)
     state = WorldState(
-        schema_version=WORLD_SCHEMA_VERSION,
-        version=0,
-        current_time=start,
-        end_time=end,
-        run_id=run_id,
-        timezone=scenario.timezone,
-        scenario_sha256=scenario_sha256,
-        agents=agents,
-        accounts=accounts,
-        pending_events=pending,
-        random_seed=scenario.random_seed,
-        random_state=random_state,
+        schema_version=WORLD_SCHEMA_VERSION, version=0, current_time=start,
+        end_time=int(inputs.config.stop_time.timestamp()), run_id=run_id, timezone=inputs.config.timezone,
+        persona_sha256=inputs.persona_sha256, config_sha256=inputs.config_sha256,
+        agents={persona.agent_id: agent},
+        accounts={account_id: persona.initial_balance_fen, "external:scenario": -persona.initial_balance_fen},
+        random_seed=inputs.config.seed,
+        random_state=hashlib.sha256(f"random:{inputs.config.seed}".encode()).hexdigest(),
     )
-    place_names = {item.location_id: item.name for item in scenario.locations}
-    for agent_id in sorted(agents):
-        state = sessions.open_stay(state, agent_id, place_names)
-    return state
+    from worldmock.life.weather import generated_weather, local_weather_date
+
+    date = local_weather_date(state)
+    state.weather_by_date[date] = generated_weather(state, date)
+    names = {identity: place.display_name for identity, place in inputs.catalog.locations.items()}
+    return sessions.open_stay(state, persona.agent_id, names)
 
 
-def _initial_agent(config, scenario: RuntimeScenario, account_id: str, start: int):
-    """@brief 构造人物身体初值与已送达的可见邮件。"""
+def _initial_agent(inputs: EnvironmentInputs, dynamics: WorldDynamics, start: int) -> AgentState:
+    """@brief 身体初值来自人设，社交增长率来自实际编译画像，不提供缺省替代。"""
+    from datetime import datetime
 
+    persona = inputs.persona
+    local = datetime.fromtimestamp(start, ZoneInfo(inputs.config.timezone))
+    hour = local.hour + local.minute / 60
     from worldmock.life.body import initial_body
-    from worldmock.life.readable import _datetime
+    from worldmock.life.body_config import assemble_body_config
 
-    delivered = [
-        item
-        for item in scenario.messages
-        if int(item.sent_at.timestamp()) <= start and item.recipient_agent_id == config.agent_id
-    ]
-    visible_mail = {item.message_id for item in delivered}
-    start_hour = _datetime(start, scenario.timezone).hour + _datetime(start, scenario.timezone).minute / 60
-    body = initial_body(scenario.body, start_hour, config.sleep_need_hours, config.chronotype_midsleep)
-    body = body.model_copy(update={"entertainment_need": scenario.body.initial_entertainment_need})
+    body = initial_body(assemble_body_config(persona), hour, persona, dynamics.social_need_growth_per_hour)
     return AgentState(
-        agent_id=config.agent_id,
-        name=config.name,
-        location_id=config.home_location_id,
-        balance_account_id=account_id,
-        driving_days=config.initial_driving_days,
-        last_driving_date=None,
-        body=body,
-        body_settled_at=start,
-        visible_message_ids=visible_mail,
-        next_decision_at=start,
-        pending_wake_reasons=["run_start"],
+        agent_id=persona.agent_id, name=persona.name, location_id=inputs.initial_location_id,
+        balance_account_id=f"agent:{persona.agent_id}", body=body, body_settled_at=start,
+        next_decision_at=start, pending_wake_reasons=["session_open"],
+        callback_states={name: row.initial for name, row in inputs.catalog.callback_states.items()},
     )
 
 
-def _run_manifest(
-    semantics: ScenarioSemantics,
-    scenario_sha256: str,
-    identity: RunIdentity,
-    stage_identity: dict | None = None,
-    options: dict | None = None,
-) -> dict:
-    """@brief 绑定新运行的场景、内容、人物身份、代码身份（另记 Git 提交与未提交标志）、各阶段请求形状、运行输入警告与
-    习惯签名的反应文本。
+def _freeze_environment(inputs: EnvironmentInputs, assets: AssetStore) -> dict[str, dict]:
+    """@brief 原文字节与内存地图分别冻结，身份仍由各自原字节计算。"""
+    names = ["persona.toml", "config.toml", "catalog/manifest.json"]
+    names.extend(f"catalog/{entry.path}" for entry in inputs.catalog.manifest.files)
+    frozen = {}
+    for name in sorted(names):
+        content = (inputs.root / name).read_bytes()
+        media = "application/json" if name.endswith(".json") else "text/plain"
+        reference = assets.put(content, {"media_type": media, "source": {"kind": "environment_input", "path": name}})
+        frozen[name] = reference.model_dump(mode="json")
+    reference = assets.put(map_bytes(inputs.catalog.map_data),
+                           {"media_type": "application/json", "source": {"kind": "environment_map"}})
+    frozen["map.json"] = reference.model_dump(mode="json")
+    return frozen
 
-    清单版本 2 起带 input_warnings（docs/design/04-simulation-engine.md ：创建时计算的输入警告，按闭集形状冻结；
-    引擎直驱为 null）与 persona_habit_responses（5.1 相关度的人设层习惯签名反应文本，人物编号 → 文本列表；引擎直驱为
-    null），两者都取自 create_options。
-    """
-    from worldmock.life import relevance
+
+def _run_manifest(inputs: EnvironmentInputs, identity: RunIdentity, stages: dict,
+                  options: dict, assets: dict[str, dict]) -> dict:
+    """@brief 目录、人物与配置各自保持身份，清单不再含场景文档身份。"""
     from worldmock.profile.injection import frozen_input_warnings
-    from worldmock.run_setup import validate_manifest_stage_identity
-
-    validate_manifest_stage_identity({"stage_model_identity": stage_identity})
-    scenario, options = semantics.scenario, options or {}
     return {
-        "schema_version": 4,
-        "run_id": identity.run_id,
-        "source_group_id": identity.source_group_id,
-        "scenario_id": scenario.scenario_id,
-        "environment_identity": environment_identity(semantics),
-        "scenario_sha256": scenario_sha256,
-        "agent_ids": list(identity.agent_ids),
-        "work_content_ids": {str(agent.agent_id): list(agent.work_content_ids) for agent in scenario.agents},
-        "code_sha256": identity.code_sha256,
-        "git_commit": identity.git_commit,
-        "git_dirty": identity.git_dirty,
-        "model_identity": identity.model_identity.model_dump(mode="json"),
-        "stage_model_identity": stage_identity,
+        "schema_version": 5, "run_id": identity.run_id, "source_group_id": identity.source_group_id,
+        "environment_identity": environment_identity(inputs), "environment_assets": assets,
+        "persona_sha256": inputs.persona_sha256, "config_sha256": inputs.config_sha256,
+        "agent_ids": list(identity.agent_ids), "code_sha256": identity.code_sha256,
+        "git_commit": identity.git_commit, "git_dirty": identity.git_dirty,
+        "model_identity": identity.model_identity.model_dump(mode="json"), "stage_model_identity": stages,
+        "model_metadata": inputs.model_metadata.model_dump(mode="json"),
+        "world_dynamics": options["world_dynamics"],
         "input_warnings": frozen_input_warnings(options.get("input_warnings")),
-        relevance.MANIFEST_KEY: relevance.frozen_habit_responses(options.get(relevance.MANIFEST_KEY)),
-        "window": {
-            "start": int(scenario.start_at.timestamp()),
-            "end": int(scenario.end_at.timestamp()),
-            "timezone": scenario.timezone,
-        },
+        "persona_habit_responses": options.get("persona_habit_responses"),
+        "window": {"start": int(inputs.config.start_time.timestamp()),
+                   "end": int(inputs.config.stop_time.timestamp()), "timezone": inputs.config.timezone},
     }
 
 
-def _validate_run_identity(scenario: RuntimeScenario, identity: RunIdentity) -> None:
-    """@brief 拒绝 runtime 身份与冻结场景窗口或人物不一致。"""
-    expected_agents = tuple(sorted(item.agent_id for item in scenario.agents))
-    if tuple(sorted(identity.agent_ids)) != expected_agents:
-        logging.error("Run identity agent ids disagree with scenario")
-        raise IntegrityError("Run identity agent ids disagree with scenario")
-    if identity.start_at != scenario.start_at.isoformat() or identity.end_at != scenario.end_at.isoformat():
-        logging.error("Run identity window disagrees with scenario")
-        raise IntegrityError("Run identity window disagrees with scenario")
-    if identity.timezone != scenario.timezone:
-        logging.error("Run identity timezone disagrees with scenario")
-        raise IntegrityError("Run identity timezone disagrees with scenario")
+def _validate_run_identity(inputs: EnvironmentInputs, identity: RunIdentity) -> None:
+    """@brief 新运行身份必须逐字匹配单人人设、原生时间窗口与时区。"""
+    valid = (identity.agent_ids == (inputs.persona.agent_id,)
+             and identity.start_at == inputs.config.start_time.isoformat()
+             and identity.end_at == inputs.config.stop_time.isoformat()
+             and identity.timezone == inputs.config.timezone)
+    if not valid:
+        logging.error("Run identity disagrees with environment inputs")
+        raise IntegrityError("Run identity disagrees with environment inputs")
 
 
-def create_world(
-    scenario_path: Path, run_dir: Path, run_identity: RunIdentity, stage_identity: dict | None, options: dict
-):
-    """@brief 完成实际新建装配、输入身份检查和初始资金事务。"""
-    from worldmock.footprints.models import EventDraft
-    from worldmock.footprints.store import FootprintStore
-    from worldmock.life.models import validated_payload
+def create_world(environment: EnvironmentInputs | Path, run_dir: Path, identity: RunIdentity,
+                 stage_identity: dict, options: dict):
+    """@brief 已验证输入或完整目录新建唯一世界，保存原文并登记真实初始资金。"""
+    inputs = environment if isinstance(environment, EnvironmentInputs) else load_environment(environment)
+    _validate_run_identity(inputs, identity)
+    _validate_creation_model(inputs, identity, stage_identity)
+    if "world_dynamics" not in options:
+        logging.error("Compiled persona dynamics are required to create a world")
+        raise IntegrityError("Compiled persona dynamics are required to create a world")
+    dynamics = WorldDynamics.model_validate(options["world_dynamics"])
+    state = _initial_state(inputs, identity.run_id, dynamics)
+    from worldmock.scheduling.compile import compile_schedule
 
-    semantics, digest = load_runtime_scenario(scenario_path)
-    scenario = semantics.scenario
-    _validate_run_identity(scenario, run_identity)
-    state = _initial_state(semantics, digest, run_identity.run_id)
-    manifest = _run_manifest(semantics, digest, run_identity, stage_identity, options)
+    state.pending_events = compile_schedule(inputs)
+    assets = _freeze_environment(inputs, AssetStore(Path(run_dir) / "assets"))
+    manifest = _run_manifest(inputs, identity, stage_identity, options, assets)
     store = FootprintStore.create(Path(run_dir), manifest, validated_payload(state))
-    changes = {f"account:{key}": value for key, value in state.accounts.items()}
-    changes["account:external:scenario"] = -sum(state.accounts.values())
     injection = EventDraft(
-        event_type="environment_event",
-        occurred_at=state.current_time,
-        visibility="evaluation",
-        source_kind="scenario",
-        data={"kind": "initial_funds_injected", "resource_changes": changes},
+        event_type="environment_event", occurred_at=state.current_time, visibility="evaluation",
+        source_kind="scenario", data={"kind": "initial_funds_injected"},
+        resource_changes={f"account:{key}": value for key, value in state.accounts.items()},
     )
-    store.commit(validated_payload(state), [injection])
-    return semantics, digest, store
+    state, drafts = _run_start_callbacks(state, inputs.catalog)
+    store.commit(validated_payload(state), [injection, *drafts])
+    return inputs, store
 
 
-def open_world(scenario_path: Path, run_dir: Path):
-    """@brief 真实加载场景、核对环境身份并只打开现有合法运行。"""
-    semantics, digest = load_runtime_scenario(scenario_path)
-    return semantics, digest, open_environment_validated_store(Path(run_dir), semantics)
+def _validate_creation_model(inputs: EnvironmentInputs, identity: RunIdentity, stages: dict) -> None:
+    """@brief 从实际配置与元数据派生既有身份，在创建资产前拒绝自洽但不同源的调用方声明。"""
+    from worldmock import run_setup
+
+    checked = run_setup.validate_manifest_stage_identity({"stage_model_identity": stages})
+    expected_model = run_setup._model_identity(inputs.config.model)
+    if identity.model_identity != expected_model:
+        logging.error("Run model identity disagrees with environment inputs")
+        raise IntegrityError("Run model identity disagrees with environment inputs")
+    continuation = checked["stages"]["action"]["same_second_continuation"]
+    expected_stages = run_setup.stage_model_identity(inputs.config.model, inputs.model_metadata, continuation)
+    if checked != expected_stages:
+        logging.error("Stage model identity disagrees with environment inputs")
+        raise IntegrityError("Stage model identity disagrees with environment inputs")
+
+
+def open_world(environment: EnvironmentInputs | Path, run_dir: Path):
+    """@brief 已有运行核对目录及两个原文字节身份，不重建初值或重复运行开始回调。"""
+    inputs = environment if isinstance(environment, EnvironmentInputs) else load_environment(environment)
+    return inputs, open_environment_validated_store(Path(run_dir), inputs)
+
+
+def _run_start_callbacks(state: WorldState, catalog) -> tuple[WorldState, list[EventDraft]]:
+    """@brief 初始化之后只执行一次运行开始，不订阅首次启动的唤醒类别。"""
+    from worldmock.life.callbacks import CallbackCause, compare_callback_states, evaluate_callbacks
+    from worldmock.scheduling.effects import time_trigger_draft
+
+    before = state
+    source = time_trigger_draft(state, "run_start")
+    cause = CallbackCause("time", "run_start", next(iter(state.agents)), source.event_id, source.data["scheduled_id"])
+    outcome = evaluate_callbacks(state, catalog, cause)
+    drafts = [source, *outcome.drafts]
+    threshold = compare_callback_states(before, outcome.state, catalog, drafts, outcome.causes)
+    changed = threshold.state.model_copy(update={"run_start_callbacks_applied": True, "version": state.version + 1})
+    return changed, [*drafts, *threshold.drafts]

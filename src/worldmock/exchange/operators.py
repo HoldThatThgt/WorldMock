@@ -8,7 +8,7 @@ from worldmock.base_models import require_finite_number
 from worldmock.errors import reject_value
 from worldmock.exchange.constants import (
     DELIVERY_FEE_FEN, DELIVERY_METERS_PER_SECOND, DELIVERY_PREP_SECONDS, DRIVING_FARE_FEN_PER_METER,
-    DRIVING_FARE_MINIMUM_FEN, DRIVING_METERS_PER_SECOND, GOODS_ENERGY_KCAL, GOODS_RECEIPT_EFFECTS,
+    DRIVING_FARE_MINIMUM_FEN, DRIVING_METERS_PER_SECOND,
     WALKING_METERS_PER_SECOND,
 )
 from worldmock.exchange.types import GoodsCategory
@@ -23,31 +23,36 @@ def evaluate_purchase(unit_price_fen: int, quantity: int) -> int:
 
 
 def evaluate_goods_receipt(category: GoodsCategory | str, quantity: int) -> int | float:
-    """@brief 食品返回提供热量，非食品返回每条订单行效果，燃油为七个驾驶日。"""
+    """@brief 零食食品每份提供热量，饮料商品每次实际收货缓解放松需要。"""
     if type(quantity) is not int or quantity <= 0:
         reject_value("quantity must be a positive integer")
-    try:
-        category = GoodsCategory(category)
-    except ValueError:
+    if category not in {"snack", "meal", "drink", "goods"}:
         reject_value("Goods category is outside the fixed set")
-    if category in GOODS_ENERGY_KCAL:
-        return GOODS_ENERGY_KCAL[category] * quantity
-    return GOODS_RECEIPT_EFFECTS[category]
+    if category in {"snack", "meal"}:
+        return {"snack": 200, "meal": 600}[category] * quantity
+    return 0.10
 
 
 def evaluate_travel_fare(mode: str, distance_m: int | float) -> int:
-    """@brief 步行免费，驾车按固定下限和米费率向上取整。"""
+    """@brief 四种方式按固定规则计算整数车费，与天气无关。"""
     _speed(mode)
     distance = _non_negative(distance_m, "distance_m")
     if mode == "walking":
         return 0
-    amount = max(Decimal(DRIVING_FARE_MINIMUM_FEN), _multiply_exact((distance, DRIVING_FARE_FEN_PER_METER)))
+    if mode == "bus":
+        return 200
+    minimum, rate = (1400, Decimal("0.3")) if mode == "taxi" else (500, Decimal("0.2"))
+    amount = max(Decimal(minimum), _multiply_exact((distance, rate)))
     return int(amount.to_integral_value(rounding=ROUND_CEILING))
 
 
-def travel_seconds(mode: str, distance_m: int | float) -> int:
-    """@brief 按固定出行速度把图距离向上取整为秒。"""
-    return _ceil_ratio(_non_negative(distance_m, "distance_m"), _speed(mode))
+def travel_seconds(mode: str, distance_m: int | float, weather_factor: float = 1.0) -> int:
+    """@brief 四种出行都按受理时真实天气系数向上取整。"""
+    factor = _non_negative(weather_factor, "weather_factor")
+    if factor <= 0:
+        reject_value("weather_factor must be positive")
+    speed = _multiply_exact((_speed(mode), factor))
+    return _ceil_ratio(_non_negative(distance_m, "distance_m"), speed)
 
 
 def delivery_seconds(distance_m: int | float) -> int:
@@ -85,9 +90,11 @@ def _ceil_ratio(distance: Decimal, speed: Decimal) -> int:
 
 
 def _speed(mode: str) -> Decimal:
-    """@brief 只接受步行和驾车两种固定出行方式。"""
+    """@brief 固定四种方式的基础速度，不从数据集接受系数。"""
     if mode == "walking":
         return Decimal(str(WALKING_METERS_PER_SECOND))
-    if mode == "driving":
+    if mode in {"driving", "taxi"}:
         return Decimal(str(DRIVING_METERS_PER_SECOND))
+    if mode == "bus":
+        return Decimal("5")
     reject_value("Travel mode is outside the fixed set")

@@ -5,7 +5,7 @@
 同一输入两次计算逐字节相等。协议门禁在证据缺失时按不通过处理（fail-closed）。
 
 当前事件合同已提供共同身体结算的 decision_offered / wake_reasons、主观记忆快照及
-社交请求的 kind / duration_minutes。认证输入若缺少这些指标所需证据，报告以未知值和 notes
+实际活动与内容消费的区间。认证输入若缺少这些指标所需证据，报告以未知值和 notes
 明示，相关协议门禁按不通过处理；不得把缺证据解释成零次事件。
 观察重复门禁按（人物，模拟秒）的续接链计：同一秒内的续接复用链首 user 合法。事件顶层 code_sha256 缺失时
 归入 code_sha256_unreported 组并注明，不猜测代码身份。
@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-from worldmock.life.schedule import ACTIVITY_KIND_FAMILIES, ACTION_CATEGORY_FAMILIES, activity_family
 from worldmock.footprints.intervals import valid_interval, body_settlements
 from worldmock.footprints.purchases import project_purchase_facts
 from worldmock.footprints.timeline_labels import local_day_bounds, window_days
@@ -28,35 +27,11 @@ from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
 from worldmock.evaluation.goal_metrics import day_plan_metrics
+from worldmock.catalog.models import Location
+from worldmock.footprints.app_usage import validate_activity_prefix
+from worldmock.errors import IntegrityError
+from worldmock.evaluation.errors import EvaluationError
 from worldmock.evaluation.workload_metrics import WorkdayInputs, workday_reports
-
-#: 十类活动家族闭集（外出 outing 并入通勤，见 CONVENTIONS）。
-ACTIVITY_FAMILY_ORDER = (
-    "sleep", "morning_routine", "commute", "work", "rest",
-    "entertainment", "social", "chore", "exercise",
-)
-
-#: 2018 年全国时间利用调查公报参照（分钟；城镇/工作日口径，居民均值，docs/design/07-evaluation.md「真实性结论的通过条件」）。
-#: 睡觉 9h13m、个人卫生 50m、用餐 1h44m、就业参与者工作 7h40m、交通 44m、
-#: 社会交往 21m、健身 41m、看电视 100m、休闲娱乐 65m（后两项合并为屏幕娱乐 165m）。
-TIME_USE_REFERENCE_MINUTES = {
-    "sleep": 553, "hygiene": 50, "meals": 104, "work": 460, "transport": 44,
-    "socializing": 21, "exercise": 41, "screen_entertainment": 165, "no_reference": 0,
-}
-
-REFERENCE_SOURCE = (
-    "2018年全国时间利用调查公报（城镇/工作日口径，各项口径不同、均为居民均值；"
-    "只作方向对照，不当作目标人物真值）"
-)
-
-#: JS 距离口径说明（闭集聚合与参照桶的合并规则）。
-CONVENTIONS = [
-    "wait 活动时间计入休息(rest)",
-    "action 活动按五个固定类别归入对应家族",
-    "参照的用餐与个人卫生分钟没有模拟活动对应物",
-    "参照的看电视与休闲娱乐合并为屏幕娱乐 165 分钟",
-    "休息与家务无参照项，并入无参照桶",
-]
 
 #: MEMORY.md 示例身份残留标记（来源：AS2 memory_runtime.py:55-56 巩固提示示例）。
 MEMORY_IDENTITY_MARKERS = (
@@ -77,7 +52,7 @@ def behavior_metrics_report(
     events: list[dict[str, Any]],
     *,
     timezone: str = "Asia/Shanghai",
-    location_open_hours: Mapping[str, int] | None = None,
+    locations: Mapping[str, Location] | None = None,
     memory_md_texts: Mapping[int | str, str] | None = None,
     workday: WorkdayInputs | None = None,
 ) -> dict[str, Any]:
@@ -85,18 +60,22 @@ def behavior_metrics_report(
 
     :param events: 冻结足迹事件 dict 列表（可跨多次运行）。
     :param timezone: 模拟时间的本地时区（默认与全部冻结场景一致的 Asia/Shanghai）。
-    :param location_open_hours: 地点到开门整点小时的映射；提供才计算早到分钟。
+    :param locations: 地点身份到当前目录地点对象的映射；提供才计算早到分钟。
     :param memory_md_texts: 人物编号到 MEMORY.md 文本的映射；提供才计算身份残留。
     :param workday: 工作负荷与作息偏离的打包输入（workload_metrics.workday_inputs）；提供才计算这两项。
     :returns: {code_sha256: {schema_version, gates, reports, notes}} 的报告字典。
     """
+    try:
+        validate_activity_prefix(events)
+    except IntegrityError as exc:
+        raise EvaluationError("invalid_input", str(exc)) from exc
     groups: dict[str, list[dict[str, Any]]] = {}
     for event in events:
         groups.setdefault(str(event.get("code_sha256") or UNREPORTED_CODE_KEY), []).append(event)
     reports: dict[str, Any] = {}
     goal_reports = day_plan_metrics(events, timezone)
     for code, group_events in sorted(groups.items()):
-        reports[code] = _group_report(group_events, timezone, location_open_hours, memory_md_texts, workday)
+        reports[code] = _group_report(group_events, timezone, locations, memory_md_texts, workday)
         reports[code]["reports"].update({key: value for key, value in goal_reports[code].items() if key != "gates"})
         reports[code]["gates"].update(goal_reports[code]["gates"])
         if code == UNREPORTED_CODE_KEY:
@@ -107,11 +86,11 @@ def behavior_metrics_report(
 def _group_report(
     events: list[dict[str, Any]],
     timezone: str,
-    location_open_hours: Mapping[str, int] | None,
+    locations: Mapping[str, Location] | None,
     memory_md_texts: Mapping[int | str, str] | None,
     workday: WorkdayInputs | None,
 ) -> dict[str, Any]:
-    """@brief 汇总单个代码组内的协议门禁、报告项与口径说明；工作负荷与作息偏离按打包输入算一次，写在 social 之后。"""
+    """@brief 汇总单个代码组内的协议门禁、报告项与口径说明；工作负荷与作息偏离按打包输入算一次，按真实观察事实计算。"""
     notes: list[str] = []
     gates = {
         "observation_repetition": _observation_gate(events, notes),
@@ -120,29 +99,21 @@ def _group_report(
         "memory_md_identity_residue": _memory_residue_gate(memory_md_texts, notes),
     }
     token_median = _decision_token_median(events, notes)
-    autonomous = _autonomous_decision_rate(events)
-    wait_and_early = _wait_and_early_minutes(events, timezone, location_open_hours, notes)
-    distribution = _activity_distribution(events, timezone)
+    early = _early_minutes(events, timezone, locations, notes)
     workload = workday_reports(events, timezone, workday)
     notes.extend(workload["notes"])
     reports = {
         "decision_prompt_token_median": token_median,
-        "effective_autonomous_decision_rate": autonomous,
         "wake_reason_distribution": _wake_reason_distribution(events, notes),
-        "wait_minutes": wait_and_early["wait_minutes"],
-        "unknown_wait_minutes": wait_and_early["unknown_wait_minutes"],
         "content_contact_minutes": _content_contact_minutes(events),
         "person_elapsed_minutes": _person_elapsed_minutes(events, notes),
-        "early_arrival_minutes": wait_and_early["early_arrival_minutes"],
+        "early_arrival_minutes": early,
         "sleep_schedule": _sleep_schedule(events, timezone, notes),
         "meal_diversity": _meal_diversity(events),
-        "activity_distribution": distribution,
-        "persona_distinguishability": _persona_distinguishability(events),
-        "social": _social(events, notes),
         "workload": workload["workload"],
         "routine_deviation": workload["routine_deviation"],
     }
-    return {"schema_version": "behavior-metrics-2", "gates": gates, "reports": reports, "notes": notes}
+    return {"schema_version": "behavior-metrics-3", "gates": gates, "reports": reports, "notes": notes}
 
 
 def _gate(value: Any, comparison: str, threshold: Any, note: str | None = None) -> dict[str, Any]:
@@ -290,67 +261,15 @@ def _decision_token_median(events: list[dict[str, Any]], notes: list[str]) -> di
             "sample_size": len(tokens_list)}
 
 
-def _final_action_by_decision(events: list[dict[str, Any]]) -> dict[str, Mapping[str, Any]]:
-    """@brief 按决策取 event_seq 最大的动作请求作为最终动作。"""
-    final: dict[str, Mapping[str, Any]] = {}
-    for event in events:
-        if event.get("event_type") != "action_requested":
-            continue
-        decision_id = str(event.get("decision_id"))
-        order = (event.get("event_seq", 0), event.get("occurred_at", 0), str(event.get("event_id")))
-        held = final.get(decision_id)
-        if held is None or order > (held.get("event_seq", 0), held.get("occurred_at", 0),
-                                    str(held.get("event_id"))):
-            final[decision_id] = event
-    return final
 
 
-def _started_kinds(events: list[dict[str, Any]]) -> dict[str, list[str]]:
-    """@brief 按动作身份取受理时开始的活动 kind 列表（action_accepted 的活动快照）。"""
-    kinds: dict[str, list[str]] = {}
-    for event in events:
-        if event.get("event_type") != "action_accepted":
-            continue
-        data = event.get("data", {})
-        rows = [data["activity"]] if isinstance(data.get("activity"), dict) else data.get("data", {}).get(
-            "activities", [])
-        kinds[str(event.get("action_id"))] = [str(row.get("kind")) for row in rows if isinstance(row, dict)]
-    return kinds
 
 
-def _is_passive_action(action: Mapping[str, Any], kinds: Mapping[str, list[str]]) -> bool:
-    """@brief 判断最终动作是否为播报进展或等待（非自主动作）：等待按实际开始的活动 kind=wait 判定。"""
-    tool_name = action.get("data", {}).get("tool_name")
-    if tool_name == "report_status":
-        return True
-    return tool_name == "start_activity" and kinds.get(str(action.get("action_id"))) == ["wait"]
 
 
 #: 只做结束、暂停或修订的控制轮：单列计数，不计入自主或被动（docs/design/07-evaluation.md「2.2 报告项」）。
-_CONTROL_TOOLS = frozenset({"conclude_activity", "pause_activity", "revise_day_plan"})
 
 
-def _autonomous_decision_rate(events: list[dict[str, Any]]) -> dict[str, Any]:
-    """@brief 计算最终动作既非 continue 也非 wait 的决策占比（报告项）；控制轮单列，不进占比。"""
-    decisions = [event for event in events if event.get("event_type") == "decision_started"]
-    final = _final_action_by_decision(events)
-    kinds = _started_kinds(events)
-    decided = [decision for decision in decisions if str(decision.get("decision_id")) in final]
-    autonomous, control = 0, 0
-    for decision in decided:
-        action = final[str(decision.get("decision_id"))]
-        tool_name = str(action.get("data", {}).get("tool_name"))
-        if tool_name in _CONTROL_TOOLS:
-            control += 1
-        elif not _is_passive_action(action, kinds):
-            autonomous += 1
-    counted = len(decided) - control
-    if not counted:
-        return {"value": None, "decision_count": len(decisions), "decisions_without_action":
-                len(decisions) - len(decided), "control_decisions": control}
-    return {"value": autonomous / counted, "decision_count": len(decisions),
-            "decisions_with_action": len(decided), "autonomous_decisions": autonomous,
-            "control_decisions": control}
 
 
 def _wake_reason_distribution(events: list[dict[str, Any]], notes: list[str]) -> dict[str, Any]:
@@ -391,42 +310,33 @@ def _interval_minutes(event: Mapping[str, Any]) -> float:
     return 0.0
 
 
-def _wait_and_early_minutes(
+def _early_minutes(
     events: list[dict[str, Any]], timezone: str,
-    location_open_hours: Mapping[str, int] | None, notes: list[str],
+    locations: Mapping[str, Location] | None, notes: list[str],
 ) -> dict[str, Any]:
-    """@brief 统计 wait 活动总分钟与到达开门地点早于开门的分钟（报告项）。"""
-    wait_total: dict[str, float] = {}
+    """@brief 统计真实到达早于开门的分钟，不累计等待。"""
     arrivals: dict[str, list[tuple[str, float]]] = {}
     for event in _activity_progress_events(events):
         kind = _snapshot(event).get("kind")
         agent = str(event.get("agent_id"))
-        if kind == "wait":
-            wait_total[agent] = wait_total.get(agent, 0.0) + _interval_minutes(event)
         detail = _snapshot(event).get("data")
         arrived = isinstance(detail, dict) and isinstance(detail.get("arrival"), dict)
-        if kind == "travel" and arrived and location_open_hours:
+        if kind == "travel" and arrived and locations:
             destination = str(_snapshot(event).get("destination_id"))
-            if destination in location_open_hours:
+            if destination in locations:
                 arrivals.setdefault(destination, []).append((agent, _interval_end(event)))
     early: dict[str, Any] = {"value": None}
-    if location_open_hours is not None:
-        early = _early_arrival_summary(arrivals, location_open_hours, timezone)
+    if locations is not None:
+        early = _early_arrival_summary(arrivals, locations, timezone)
     else:
-        notes.append("location_open_hours 未提供，早到分钟无法计算")
-    waits = {"per_agent_minutes": dict(sorted(wait_total.items())),
-             "total_minutes": round(sum(wait_total.values()), 6)}
-    return {"wait_minutes": waits, "unknown_wait_minutes": waits,
-            "early_arrival_minutes": early}
+        notes.append("locations 未提供，早到分钟无法计算")
+    return early
 
 
 def _content_contact_minutes(events: list[dict[str, Any]]) -> dict[str, Any]:
     """@brief 只计真实前进的媒体位置，不把等待或浏览目录算内容接触。"""
     per_agent: dict[str, float] = {}
     for event in _activity_progress_events(events):
-        if _snapshot(event).get("kind") != "action" or (
-                _snapshot(event).get("data", {}).get("category") != "entertainment"):
-            continue
         content = event.get("data", {}).get("content")
         if not isinstance(content, dict):
             continue
@@ -466,29 +376,33 @@ def _interval_union_seconds(intervals: list[tuple[float, float]]) -> float:
 
 
 def _interval_end(event: Mapping[str, Any]) -> int | float:
-    """@brief 取活动快照的结束时刻，缺 ended_at 时退回最后结算区间终点。"""
+    """@brief 已结束活动读取终局时刻，仍在进行的活动读取真实结算区间终点。"""
     snapshot_data = _snapshot(event)
     ended = snapshot_data.get("ended_at")
-    if isinstance(ended, (int, float)):
+    if type(ended) is int:
         return ended
-    fallback = event.get("data", {}).get("interval_end")
-    return fallback if isinstance(fallback, (int, float)) else event.get("occurred_at", 0)
+    end = event.get("data", {}).get("interval_end")
+    if type(end) is not int:
+        raise EvaluationError("invalid_input", "Activity progress requires an integer interval_end")
+    return end
 
 
 def _early_arrival_summary(
-    arrivals: Mapping[str, list[tuple[str, float]]], location_open_hours: Mapping[str, int],
+    arrivals: Mapping[str, list[tuple[str, float]]], locations: Mapping[str, Location],
     timezone: str,
 ) -> dict[str, Any]:
-    """@brief 按地点将到达时刻与开门整点比较，累计早到分钟。"""
+    """@brief 按本地日期的实际营业安排与例外计算早到分钟。"""
     zone = ZoneInfo(timezone)
     per_location: dict[str, float] = {}
     per_agent: dict[str, float] = {}
     for destination, samples in sorted(arrivals.items()):
-        open_hour = location_open_hours[destination]
         for agent, arrival in samples:
             local = datetime.fromtimestamp(arrival, zone)
-            opening = local.replace(hour=open_hour, minute=0, second=0, microsecond=0)
-            early = max(0.0, (opening - local).total_seconds() / 60.0)
+            intervals = locations[destination].opening_intervals(local.date())
+            opening = intervals[0][0] if intervals else None
+            early = 0.0 if opening is None else max(0.0,
+                (local.replace(hour=int(opening[:2]), minute=int(opening[3:]), second=0, microsecond=0)
+                 - local).total_seconds() / 60.0)
             per_location[destination] = per_location.get(destination, 0.0) + early
             per_agent[agent] = per_agent.get(agent, 0.0) + early
     return {"value": round(sum(per_location.values()), 6),
@@ -537,6 +451,7 @@ def _sleep_sessions(valid: list[dict[str, Any]], zone: ZoneInfo) -> list[dict[st
 def _sleep_summary(valid: list[dict[str, Any]], zone: ZoneInfo) -> dict[str, Any]:
     """@brief 汇总就寝/起床时刻中位数（自零点的分钟，不做环形换算）与平均时长。"""
     def minutes_of_day(epoch: int | float) -> int:
+        """将真实时刻转换为本地日内分钟。"""
         local = datetime.fromtimestamp(epoch, zone)
         return local.hour * 60 + local.minute
 
@@ -551,7 +466,7 @@ def _meal_sessions(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """@brief 每张本人食品收货订单是一次真实收货，不推导用餐区间。"""
     return [{"occurred_at": row["received_at"], "products": [row["goods_id"]], "order_id": row["order_id"]}
             for row in project_purchase_facts(events) if row["fact_kind"] == "receipt"
-            and row["category"] in {"meal", "drink", "snack"}]
+            and row["category"] in {"meal", "snack"}]
 
 
 def _meal_diversity(events: list[dict[str, Any]]) -> dict[str, Any]:
@@ -587,142 +502,20 @@ def _repetition_24h(consumed: list[dict[str, Any]]) -> float | None:
     return repeated / len(ordered)
 
 
-def _family_of(snapshot_data: Mapping[str, Any]) -> str | None:
-    """@brief 系统活动与动作类别使用共同家族映射。"""
-    token = activity_family(snapshot_data)
-    return {**ACTIVITY_KIND_FAMILIES, **ACTION_CATEGORY_FAMILIES}.get(token)
 
 
-def _family_minutes(events: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
-    """@brief 按（运行，人物）累计各家族分钟与未归类分钟。"""
-    totals: dict[str, dict[str, float]] = {}
-    for event in _activity_progress_events(events):
-        run_id = str(event.get("run_id"))
-        agent = str(event.get("agent_id"))
-        family = _family_of(_snapshot(event))
-        bucket = totals.setdefault(run_id, {}).setdefault(agent, {})
-        key = family or "unclassified"
-        bucket[key] = bucket.get(key, 0.0) + _interval_minutes(event)
-    return totals
 
 
-def _agent_days(events: list[dict[str, Any]], agent_id: str, zone: ZoneInfo) -> int:
-    """@brief 以人物事件跨度覆盖的本地自然日数为分母口径。"""
-    stamps = [event.get("occurred_at") for event in events
-              if str(event.get("agent_id")) == agent_id
-              and isinstance(event.get("occurred_at"), (int, float))]
-    if not stamps:
-        return 0
-    dates = {datetime.fromtimestamp(stamp, zone).date() for stamp in stamps}
-    start = local_day_bounds(min(dates), zone)[0]
-    end = local_day_bounds(max(dates), zone)[1]
-    return len(window_days({"start": start, "end": end, "timezone": zone.key}))
 
 
-def _js_buckets(family_minutes: Mapping[str, float]) -> list[float]:
-    """@brief 将十类家族分钟投影到参照的九个 JS 桶（外出并入通勤，休息+家务为无参照）。"""
-    commute = family_minutes.get("commute", 0.0) + family_minutes.get("outing", 0.0)
-    return [
-        family_minutes.get("sleep", 0.0), family_minutes.get("morning_routine", 0.0),
-        0.0, family_minutes.get("work", 0.0), commute,
-        family_minutes.get("social", 0.0), family_minutes.get("exercise", 0.0),
-        family_minutes.get("entertainment", 0.0),
-        family_minutes.get("rest", 0.0) + family_minutes.get("chore", 0.0),
-    ]
 
 
-def _js_distance(left: list[float], right: list[float]) -> tuple[float, float]:
-    """@brief 计算两个分钟向量的 JS 距离（log2 口径），返回 (散度, 距离=开方)。"""
-    left_total, right_total = sum(left), sum(right)
-    if left_total <= 0 or right_total <= 0:
-        return float("nan"), float("nan")
-    p = [value / left_total for value in left]
-    q = [value / right_total for value in right]
-    divergence = 0.0
-    for pi, qi in zip(p, q):
-        middle = (pi + qi) / 2.0
-        if pi > 0 and middle > 0:
-            divergence += 0.5 * pi * math.log2(pi / middle)
-        if qi > 0 and middle > 0:
-            divergence += 0.5 * qi * math.log2(qi / middle)
-    return divergence, math.sqrt(divergence)
 
 
-def _activity_distribution(events: list[dict[str, Any]], timezone: str) -> dict[str, Any]:
-    """@brief 计算各人物十类活动日时间分布与时间利用调查参照的 JS 距离（报告项）。"""
-    zone = ZoneInfo(timezone)
-    totals = _family_minutes(events)
-    per_agent: dict[str, Any] = {}
-    js_values: list[float] = []
-    for run_id in sorted(totals):
-        for agent in sorted(totals[run_id]):
-            minutes = totals[run_id][agent]
-            days = max(_agent_days(events, agent, zone), 1)
-            daily = {family: round(minutes.get(family, 0.0) / days, 6)
-                     for family in ACTIVITY_FAMILY_ORDER}
-            entry = {"run_id": run_id, "observed_days": days,
-                     "family_minutes": {family: round(minutes.get(family, 0.0), 6)
-                                        for family in ACTIVITY_FAMILY_ORDER},
-                     "outing_minutes_merged_into_commute": round(minutes.get("outing", 0.0), 6),
-                     "unclassified_minutes": round(minutes.get("unclassified", 0.0), 6),
-                     "daily_minutes": daily}
-            divergence, distance = _js_distance(_js_buckets(minutes),
-                                                list(TIME_USE_REFERENCE_MINUTES.values()))
-            if not math.isnan(distance):
-                entry["js_divergence_bits"] = round(divergence, 9)
-                entry["js_distance"] = round(distance, 9)
-                js_values.append(distance)
-            per_agent[f"{run_id}:{agent}"] = entry
-    return {"per_agent": per_agent,
-            "js_distance_mean": round(statistics.mean(js_values), 9) if js_values else None,
-            "reference_minutes": dict(TIME_USE_REFERENCE_MINUTES), "reference_source": REFERENCE_SOURCE,
-            "conventions": list(CONVENTIONS)}
 
 
-def _persona_distinguishability(events: list[dict[str, Any]]) -> dict[str, Any]:
-    """@brief 同代码 ≥3 次运行中按活动分布做留一最近邻的人物识别准确率（报告项）。"""
-    totals = _family_minutes(events)
-    vectors: dict[tuple[str, str], list[float]] = {}
-    for run_id, agents in totals.items():
-        for agent, minutes in agents.items():
-            vector = [minutes.get(family, 0.0) for family in ACTIVITY_FAMILY_ORDER]
-            if sum(vector) > 0:
-                vectors[(run_id, agent)] = [value / sum(vector) for value in vector]
-    runs = sorted({run_id for run_id, _ in vectors})
-    agents = sorted({agent for _, agent in vectors})
-    if len(runs) < 3 or len(agents) < 2:
-        return {"accuracy": None, "run_count": len(runs), "agent_count": len(agents),
-                "note": "需要同代码 ≥3 次运行且 ≥2 个人物才有留一最近邻结果"}
-    correct = 0
-    for (run_id, agent), vector in sorted(vectors.items()):
-        neighbours = [((other_run, other_agent), other)
-                      for (other_run, other_agent), other in vectors.items() if other_run != run_id]
-        best_key, _ = min(neighbours, key=lambda item: (sum(abs(a - b) for a, b in zip(vector, item[1])),
-                                                        item[0]))
-        correct += best_key[1] == agent
-    return {"accuracy": correct / len(vectors), "run_count": len(runs),
-            "agent_count": len(agents), "vector_count": len(vectors)}
 
 
-def _social(events: list[dict[str, Any]], notes: list[str]) -> dict[str, Any]:
-    """@brief 用实际活动区间统计交谈/通话，用独立消息工具统计发送。"""
-    minutes: Counter[str] = Counter()
-    sent = 0
-    received = 0
-    for event in events:
-        data = event.get("data", {})
-        if event.get("event_type") == "activity_progress":
-            snapshot = _snapshot(event)
-            activity = snapshot.get("data", {})
-            if snapshot.get("kind") == "action" and activity.get("category") == "social":
-                mode = "call" if activity.get("communication_mode") == "voice" else "chat"
-                minutes[mode] += _interval_minutes(event)
-        if event.get("event_type") == "action_requested" and data.get("tool_name") == "send_message":
-            sent += 1
-        if event.get("event_type") == "environment_event" and data.get("kind") == "message_arrival":
-            received += 1
-    return {"chat_call_minutes": dict(sorted(minutes.items())),
-            "sent_message_count": sent, "received_message_count": received}
 
 
 def _bigrams(text: str) -> frozenset[str]:

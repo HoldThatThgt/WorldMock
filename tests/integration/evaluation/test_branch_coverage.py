@@ -46,8 +46,6 @@ from worldmock.evaluation.io import (
 )
 from worldmock.evaluation.metrics import (
     evaluate_metrics,
-    finite_sample_burstiness,
-    interval_memory,
     shared_support,
 )
 from worldmock.evaluation.models import (
@@ -63,7 +61,7 @@ from worldmock.evaluation.models import (
 )
 from worldmock.evaluation.public_evidence import (
     labelkit_public_evidence,
-    worldmock_activity_category,
+    worldmock_activity_action,
     worldmock_public_evidence,
 )
 from worldmock.evaluation.reporting import ReportBundle, render_report
@@ -119,7 +117,7 @@ def _view(
 ) -> DatasetView:
     """构造一个最小数据视图夹具。"""
     return DatasetView(
-        "test", "test-dataset", "test-run", WINDOW, events, activities, days, {}, {}, public,
+        "test", "test-dataset", "test-run", WINDOW, events, activities, days, {}, {"random_state": "real-frozen-test-root"}, public,
     )
 
 
@@ -401,8 +399,7 @@ def test_evaluate_causality_wraps_checker_failure(monkeypatch) -> None:
 
 
 def _decision_inputs() -> tuple[dict[str, Any], ...]:
-    support = {"comparable": True, "shared_channels": ["digital_interaction"],
-               "shared_categories": ["browsing"]}
+    support = {"comparable": True, "shared_channels": ["digital_interaction"]}
     causality = {"left": {"hard_error_count": 0}, "right": {"hard_error_count": 0}}
     official = {"domains": {"internet_use": {"pair_alignment": {"status": "ok", "result": "left"}}}}
     reviews = {
@@ -417,10 +414,9 @@ def _decision_inputs() -> tuple[dict[str, Any], ...]:
 
 def test_decide_result_returns_not_comparable_without_shared_support() -> None:
     support, causality, official, reviews = _decision_inputs()
-    result = decide_result({"comparable": False, "shared_channels": [],
-                            "shared_categories": []}, causality, {}, official, reviews)
+    result = decide_result({"comparable": False, "shared_channels": []}, causality, {}, official, reviews)
     assert result["status"] == "not_comparable" and result["outcome"] == "no_comparison"
-    assert result["missing_support"] == {"shared_channels": [], "shared_categories": []}
+    assert result["missing_support"] == {"shared_channels": []}
 
 
 def test_decide_result_uses_interval_and_alpha_gates_for_directions() -> None:
@@ -471,14 +467,14 @@ def test_decide_result_human_reference_distances_and_claim_boundaries() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_week_hour_histogram_skips_unshared_categories() -> None:
+def test_week_hour_histogram_counts_observed_actual_actions() -> None:
     view = _view(activities=(_session(category="secret"),))
-    histogram = metrics_module._week_hour_histogram(view, ("other",))
-    assert histogram == [0.0] * 168
+    histogram = metrics_module._week_hour_histogram(view, ("secret",))
+    assert sum(histogram) == 1.0
 
 
 def test_day_type_contrast_returns_none_without_both_day_types() -> None:
-    workday = DayRecord(date(2026, 1, 5), "regular_workday", (), (), 0, ())
+    workday = DayRecord(date(2026, 1, 5), "regular_workday", (), 0, ())
     assert metrics_module._day_type_contrast((workday,), (1.0, 2.0)) is None
     block = (date(2026, 1, 5),)
     values = {date(2026, 1, 5): 3.0}
@@ -486,32 +482,10 @@ def test_day_type_contrast_returns_none_without_both_day_types() -> None:
     assert metrics_module._block_contrast(block, values, classes) is None
 
 
-def test_hamming_distance_zero_for_mismatched_or_empty_vectors() -> None:
-    assert metrics_module._hamming(("a",), ()) == 0.0
-    assert metrics_module._hamming((), ()) == 0.0
-    assert metrics_module._hamming(("a", "b"), ("a", "c")) == 0.5
 
 
-def test_cross_week_hamming_handles_empty_days_and_multi_week_spans(tmp_path: Path) -> None:
-    assert metrics_module._cross_week_hamming((), ("browsing",)) == []
-    fixture = make_evaluation_fixture(tmp_path, days=14)
-    scenario = load_scenario(fixture.scenario_path)
-    left = adapt_labelkit(fixture.labelkit_root, scenario)
-    support = shared_support(left, adapt_worldmock(fixture.worldmock_root, scenario))
-    drift = metrics_module._cross_week_hamming(left.days, tuple(support["shared_categories"]))
-    assert len(drift) >= 1
 
 
-def test_finite_sample_burstiness_and_memory_guards() -> None:
-    base = datetime(2026, 1, 5, 9, 0, tzinfo=timezone.utc)
-    irregular = [base, base + timedelta(hours=1), base + timedelta(hours=3),
-                  base + timedelta(hours=7)]
-    assert finite_sample_burstiness([base]) is None
-    assert finite_sample_burstiness([base, base]) is None
-    assert finite_sample_burstiness(irregular) is not None
-    assert interval_memory([base, base]) is None
-    assert interval_memory([base, base, base, base]) is None
-    assert interval_memory(irregular) is not None
 
 
 def test_duration_group_keeps_non_digital_kinds() -> None:
@@ -531,13 +505,13 @@ def test_human_metrics_report_not_comparable_without_shared_support(tmp_path: Pa
     assert full["human_reference"]["status"] == "not_comparable"
 
 
-def test_shared_public_fields_report_empty_intersection_for_disjoint_categories() -> None:
+def test_shared_public_fields_report_empty_intersection_for_disjoint_objects() -> None:
     left = _view(public=(_evidence(category="purchase"),))
     right = _view(public=(_evidence(category="travel", interaction="travel",
                                      object_type="route"),))
     shared, coverage = metrics_module._shared_public_fields(left, right)
     assert shared == {}
-    assert coverage["left"]["purchase"]["interaction"] == {"present": 1, "eligible": 1}
+    assert coverage["left"]["order"]["interaction"] == {"present": 1, "eligible": 1}
 
 
 # ---------------------------------------------------------------------------
@@ -686,7 +660,7 @@ def _load_mutated_scenario(tmp_path: Path, mutate: Callable[[dict], None]) -> No
          "expected LabelKit stream_rows is invalid"),
         (lambda s: s.update(window="x"), "window must be an object"),
         (lambda s: s.update(scenario_id=""), "scenario_id must be a non-empty string"),
-        (lambda s: s["bootstrap"].update(seed="seven"), "bootstrap.seed must be an integer"),
+        (lambda s: s["bootstrap"].update(seed="seven"), "bootstrap fields are invalid"),
         (lambda s: s["bootstrap"].update(repetitions=0), "bootstrap.repetitions must be positive"),
         (lambda s: s["review"].update(dimensions=[]), "review.dimensions must be a non-empty"),
         (lambda s: s["review"].update(dimensions=["a", "a"]),
@@ -1138,7 +1112,7 @@ def test_world_activity_rows_are_strictly_validated(tmp_path: Path) -> None:
     delivery = _delivery_stub(scenario)
     start = scenario.window.start + timedelta(hours=9)
     base, _ = _world_activity("world-run", 1, start)
-    assert adapters._adapt_world_activity(base, 1, delivery, scenario).category == "entertainment"
+    assert adapters._adapt_world_activity(base, 1, delivery, scenario).action == "interact"
 
     missing = dict(base)
     missing.pop("status")
@@ -1354,12 +1328,12 @@ def _reject_ingest(scenario, output: Path, records: list[Path], match: str) -> N
         (lambda i: i.update(schema_version="x"), "blind review index schema is invalid"),
         (lambda i: i.update(dimensions=[]), "review dimensions do not match scenario"),
         (lambda i: i.update(shared_profile={}), "review shared profile does not match scenario"),
-        (lambda i: i.update(public_fields_by_category=[]), "public field support must be an object"),
-        (lambda i: i.update(public_fields_by_category={"c": "x"}),
+        (lambda i: i.update(public_fields_by_object_type=[]), "public field support must be an object"),
+        (lambda i: i.update(public_fields_by_object_type={"c": "x"}),
          "public field support contains invalid fields"),
-        (lambda i: i.update(public_fields_by_category={"c": ["interaction", "bogus"]}),
+        (lambda i: i.update(public_fields_by_object_type={"c": ["interaction", "bogus"]}),
          "public field support contains invalid fields"),
-        (lambda i: i.update(public_fields_by_category={"c": ["interaction", "interaction"]}),
+        (lambda i: i.update(public_fields_by_object_type={"c": ["interaction", "interaction"]}),
          "public field support contains invalid fields"),
         (lambda i: i.update(selection_coverage={}), "selection coverage does not match scenario"),
         (lambda i: i.update(packets=i["packets"][:2]), "review packet count does not match scenario"),
@@ -1393,7 +1367,8 @@ def test_ingest_rejects_tampered_review_index(
         (lambda k: next(iter(k["reviewer_mappings"]["reviewer-01"].values())).update(left_side="x"),
          "unblinding mapping schema is invalid"),
         (lambda k: next(iter(k["reviewer_mappings"]["reviewer-01"].values())).update(
-            right="left_candidate"), "unblinding candidate mapping is invalid"),
+            right=next(iter(k["reviewer_mappings"]["reviewer-01"].values()))["left"]),
+            "unblinding candidate mapping is invalid"),
     ],
 )
 def test_ingest_rejects_tampered_unblinding_key(
@@ -1427,7 +1402,7 @@ def _mutate_first_packet(output: Path, records: list[Path], mutate: Callable[[di
         (lambda p: p.update(pack_id="0" * 64), "blind review packet identity is invalid"),
         (lambda p: p.update(dimensions=[]), "blind review packet dimensions are invalid"),
         (lambda p: p.update(shared_profile={}), "blind review packet shared profile is invalid"),
-        (lambda p: p.update(public_fields_by_category={"c": ["interaction"]}),
+        (lambda p: p.update(public_fields_by_object_type={"c": ["interaction"]}),
          "blind review packet public field support is invalid"),
         (lambda p: p.update(items=[]), "blind review packet item count is invalid"),
         (lambda p: p["items"][0].pop("judgeability"), "blind review item schema is invalid"),
@@ -1464,17 +1439,17 @@ def test_ingest_rejects_tampered_blind_packets(
 
 def test_ingest_rejects_invalid_public_evidence_rows(tmp_path: Path) -> None:
     scenario, output, records = _prepare_review(tmp_path)
-    fields = {"purchase": ["interaction", "object_ref"]}
+    fields = {"order": ["interaction", "object_ref"]}
 
     def _support(packet: dict) -> None:
-        packet["public_fields_by_category"] = fields
+        packet["public_fields_by_object_type"] = fields
         packet["items"][0]["left"]["public_evidence"] = [
-            {"at": "2026-01-05T09:00:00+08:00", "category": "purchase",
+            {"at": "2026-01-05T09:00:00+08:00", "object_type": "order",
              "interaction": "order", "object_ref": "object-" + "0" * 64}
         ]
 
     index = _read_json(output / "blind-review-pack.json")
-    index["public_fields_by_category"] = fields
+    index["public_fields_by_object_type"] = fields
     _write_json(output / "blind-review-pack.json", index)
     for descriptor in index["packets"]:
         packet_path = output / "review-packets" / f"{descriptor['reviewer_slot']}.json"
@@ -1487,7 +1462,7 @@ def test_ingest_rejects_invalid_public_evidence_rows(tmp_path: Path) -> None:
 
     def _with_missing_values(packet: dict) -> None:
         packet["items"][0]["left"]["public_evidence"] = [
-            {"at": "2026-01-05T09:00:00+08:00", "category": "purchase",
+            {"at": "2026-01-05T09:00:00+08:00", "object_type": "order",
              "interaction": None, "object_ref": None}
         ]
 
@@ -1496,7 +1471,7 @@ def test_ingest_rejects_invalid_public_evidence_rows(tmp_path: Path) -> None:
     assert result["decoded_ratings"], "missing public values must stay missing, not fabricated"
 
     def _row(**overrides: Any) -> dict:
-        row = {"at": "2026-01-05T09:00:00+08:00", "category": "purchase",
+        row = {"at": "2026-01-05T09:00:00+08:00", "object_type": "order",
                "interaction": "order", "object_ref": None}
         row.update(overrides)
         return row
@@ -1830,223 +1805,9 @@ def test_legacy_stream_rows_require_known_owner_and_valid_timestamps() -> None:
         )
 
 
-def test_world_actions_without_request_or_unknown_tool_leave_no_evidence() -> None:
-    orphan = _public_event(1, "action_result", {"status": "completed", "data": {}}, "orphan")
-    assert worldmock_public_evidence([parse_world_event(row) for row in [orphan]], [], {}) == ()
-    unknown = _public_event(1, "action_requested", {"tool_name": "dance_move", "request": {}}, "d1")
-    assert worldmock_public_evidence([parse_world_event(row) for row in [unknown]], [], {}) == ()
-    unmapped = _public_event(
-        1, "action_requested",
-        {"tool_name": "start_activity", "request": {'items': [{'target': '活动：冥想', 'way': '冥想', 'app': None, 'to': None, 'pay_app': None}], 'answering': None}}, "t1",
-    )
-    assert worldmock_public_evidence([parse_world_event(row) for row in [unmapped]], [], {}) == ()
-    without_ways = _public_event(
-        1, "action_requested",
-        {"tool_name": "start_activity", "request": {"targets": ["自己"], "actions": ["等待"]}}, "t2",
-    )
-    assert worldmock_public_evidence([parse_world_event(row) for row in [without_ways]], [], {}) == ()
-    uneven = _public_event(
-        1, "action_requested",
-        {"tool_name": "start_activity", "request": {"targets": ["内容：影片"], "actions": ["interact"],
-                                                   "ways": ["接着看", "游玩"]}}, "t3",
-    )
-    assert worldmock_public_evidence([parse_world_event(row) for row in [uneven]], [], {}) == ()
-
-
-def test_start_travel_projects_route_identity_mode_and_payment() -> None:
-    request = _public_event(1, "action_requested",
-                            {"tool_name": "start_activity",
-                             "request": {'items': [{'target': '地点：公园', 'way': '步行', 'app': None, 'to': None, 'pay_app': None}], 'answering': None}},
-                            "travel-action")
-    result = _public_event(2, "action_result",
-                           {"status": "completed",
-                            "data": {"activity": {"kind": "travel", "status": "completed",
-                                                  "travel_mode": "walking",
-                                                  "data": {"trip_id": "route-private"}},
-                                     "resource_changes": {"account:traveler": -100}}},
-                           "travel-action")
-    evidence = worldmock_public_evidence([parse_world_event(row) for row in [request, result]], [], {})
-    assert [(item.interaction, item.state) for item in evidence] == [
-        ("travel", "requested"), ("pay", "paid"), ("travel", "completed"),
-    ]
-    assert all(item.object_key == "route-private" for item in evidence)
-    assert evidence[0].attributes == {"travel_mode": "walking"}
-
-    unsupported = _public_event(1, "action_requested",
-                                {"tool_name": "start_activity",
-                                 "request": {'items': [{'target': '地点：公园', 'way': '火箭', 'app': None, 'to': None, 'pay_app': None}], 'answering': None}},
-                                "travel-action")
-    assert worldmock_public_evidence([parse_world_event(row) for row in [unsupported]], [], {}) == ()
-    retired = _public_event(1, "action_requested",
-                            {"tool_name": "start_activity",
-                             "request": {'items': [{'target': '地点：公园', 'way': '步行前往', 'app': None, 'to': None, 'pay_app': None}], 'answering': None}},
-                            "travel-action")
-    assert worldmock_public_evidence([parse_world_event(row) for row in [retired]], [], {}) == ()
-
-
-def test_social_actions_project_chat_and_call_partner_objects():
-    from tests.integration.evaluation.test_public_evidence import action_events
-    events = action_events("social", "voice", app="weixin")
-    evidence = worldmock_public_evidence(events, [], {})
-    assert [(item.interaction,item.object_type,item.object_key) for item in evidence] == [
-        ("call","person","contact-real"),("call","person","contact-real")]
-    assert all(item.category == "social" for item in evidence)
-
-
-def test_parallel_start_keeps_supported_evidence_when_other_action_has_no_public_shape() -> None:
-    request = _public_event(
-        1, "action_requested",
-        {"tool_name": "start_activity",
-         "request": {'items': [{'target': '地点：公园', 'way': '步行', 'app': None, 'to': None, 'pay_app': None}, {'target': '自己', 'way': '等待', 'app': None, 'to': None, 'pay_app': None}], 'answering': None}},
-        "parallel-action",
-    )
-    result = _public_event(
-        2, "action_result",
-        {"status": "accepted", "data": {"activities": [
-            {"kind": "travel", "status": "active", "travel_mode": "walking", "data": {"trip_id": "route-1"}},
-            {"kind": "wait", "status": "active", "data": {}},
-        ]}},
-        "parallel-action",
-    )
-    evidence = worldmock_public_evidence([parse_world_event(row) for row in [request, result]], [], {})
-    assert [(item.interaction, item.state, item.object_key) for item in evidence] == [
-        ("travel", "requested", "route-1"), ("travel", "started", "route-1"),
-    ]
-
-
-def test_action_content_keys_come_from_actual_activity_data():
-    from tests.integration.evaluation.test_public_evidence import action_events
-    events = action_events("entertainment")
-    rows = worldmock_public_evidence(events, [], {})
-    assert {item.object_key for item in rows} == {"content-real"}
-    assert [item.state for item in rows] == ["requested", "started"]
-    deleted = _public_event(1,"action_requested",{"tool_name":"game_action","request":{}},"old")
-    assert worldmock_public_evidence([parse_world_event(deleted)],[],{}) == ()
-
-
-def test_control_actions_bind_to_real_activities_and_closed_operations():
-    activity = {"activity_id":"real","activity_type":"action","status":"active",
-                "data":{"category":"entertainment","app_id":None,"content_id":"content-real"}}
-    request = _public_event(1,"action_requested",{"tool_name":"report_status","request":{
-        "items":[{"activity_name":"刷推荐","summary":"继续。"}],"errands":[]}},"control")
-    assert worldmock_public_evidence([parse_world_event(request)],[activity],{}) == ()
-    result = _public_event(2,"action_result",{"status":"completed","data":{"activity_ids":["absent"]}},"control")
-    assert worldmock_public_evidence([parse_world_event(row) for row in [request,result]],[activity],{}) == ()
-    result["data"]["data"]["activity_ids"] = ["real"]
-    rows = worldmock_public_evidence([parse_world_event(row) for row in [request,result]],[activity],{})
-    assert [(item.interaction,item.state,item.object_key) for item in rows] == [
-        ("report","requested","real"),("report","started","real")]
-
-
-def test_control_actions_project_each_selected_activity() -> None:
-    """一次控制点名两项活动时逐活动投影；结束的公开状态取该活动在导出中的实际终态，而不是按工具名推断。"""
-    activities = [
-        {"activity_id": "act-watch", "activity_type": "action", "status": "paused",
-         "data": {"category":"entertainment","content_id":"c-one","app_id":None}},
-        {"activity_id": "act-browse", "activity_type": "action", "status": "paused",
-         "data": {"category":"entertainment","content_id":"c-two","app_id":None}},
-    ]
-    names = ["使用哔哩哔哩（1月5日 09:00 起）", "使用抖音（1月5日 09:05 起）"]
-    request = _public_event(
-        1, "action_requested",
-        {"tool_name": "pause_activity",
-         "request": {"items": [{"activity_name": name, "summary": "暂停。"} for name in names], "errands": []}},
-        "control-both",
-    )
-    result = _public_event(
-        2, "action_result",
-        {"status": "completed", "data": {"activity_ids": ["act-watch", "act-browse"]}},
-        "control-both",
-    )
-    activity_map = {}
-    evidence = worldmock_public_evidence([parse_world_event(row) for row in [request, result]], activities, activity_map)
-    assert {(item.state, item.object_key) for item in evidence} == {
-        ("requested", "act-watch"), ("paused", "act-watch"),
-        ("requested", "act-browse"), ("paused", "act-browse"),
-    }
-
-    ended = [{**activities[0], "status": "completed"}, {**activities[1], "status": "cancelled"}]
-    conclude = _public_event(
-        1, "action_requested",
-        {"tool_name": "conclude_activity",
-         "request": {"items": [{"activity_name": name, "summary": summary, "memories": [], "views": []}
-                               for name, summary in zip(names, ["看完了。", "不看了。"])], "errands": []}},
-        "conclude-both",
-    )
-    concluded = _public_event(
-        2, "action_result",
-        {"status": "completed", "data": {"activity_ids": ["act-watch", "act-browse"]}},
-        "conclude-both",
-    )
-    evidence = worldmock_public_evidence([parse_world_event(row) for row in [conclude, concluded]], ended, activity_map)
-    assert {(item.interaction, item.state, item.object_key) for item in evidence} == {
-        ("conclude", "requested", "act-watch"), ("conclude", "completed", "act-watch"),
-        ("conclude", "requested", "act-browse"), ("conclude", "cancelled", "act-browse"),
-    }
-
-
-def test_activity_shapes_use_real_content_and_closed_categories():
-    import worldmock.evaluation.public_evidence as public
-    assert public._activity_shape({"activity_type":"wait","data":{}},{"wait":"waiting"}) is None
-    with pytest.raises(EvaluationError,match="closed set"):
-        public._activity_shape({"activity_type":"use_app","data":{}},{})
-    travel = public._activity_shape({"activity_type":"travel","data":{"trip_id":"route-9"},
-                                     "travel_mode":"driving"},{"travel":"travel"})
-    assert (travel.category,travel.interaction,travel.object_key) == ("travel","travel","route-9")
-    assert travel.attributes == {"travel_mode":"driving"}
-    content = public._activity_shape({"activity_type":"action","data":{
-        "category":"work_study","content_id":"real-content","app_id":None}},{})
-    assert content.object_key == "real-content" and content.category == "work_study"
-
-
-def test_purchase_and_work_results_follow_actual_object_states():
-    request = _public_event(1,"action_requested",{"tool_name":"start_activity","request":{
-        "items":[{"target":"午餐","way":"购买","app":None,"to":None,"pay_app":None}],"answering":None}},"purchase")
-    result = _public_event(2,"action_result",{"status":"completed","data":{"orders":[
-        {"order_id":"o1","status":"ready_for_pickup","fulfillment":"station_pickup"}]}},"purchase")
-    rows = worldmock_public_evidence([parse_world_event(row) for row in [request,result]],[],{})
-    assert [item.state for item in rows] == ["requested","ready_for_pickup"]
-    work = _public_event(1,"environment_event",{"kind":"work_content_completed","content_id":"work-real"})
-    rows = worldmock_public_evidence([parse_world_event(work)],[],{})
-    assert [(row.category,row.interaction,row.state,row.object_type,row.object_key) for row in rows] == [
-        ("work_study","work","completed","content","work-real")]
-
-
-def test_purchase_request_without_object_result_keeps_missing_order_identity() -> None:
-    request = _public_event(1, "action_requested",
-                            {"tool_name": "start_activity",
-                             "request": {'items': [{'target': '商店出售的午餐', 'way': '购买', 'app': None, 'to': None, 'pay_app': None}], 'answering': None}},
-                            "purchase-1")
-    result = _public_event(2, "action_result",
-                           {"status": "completed", "data": {"receipt": "no order here"}},
-                           "purchase-1")
-    evidence = worldmock_public_evidence([parse_world_event(row) for row in [request, result]], [], {})
-    assert all(item.object_key is None for item in evidence)
-    assert [item.state for item in evidence] == ["requested", "completed"]
-
-
-def test_environment_kinds_outside_the_closed_set_leave_no_evidence() -> None:
-    unknown = _public_event(1, "environment_event", {"kind": "earthquake"})
-    assert worldmock_public_evidence([parse_world_event(row) for row in [unknown]], [], {}) == ()
-    with pytest.raises(EvaluationError, match="WorldMock event does not match Event schema"):
-        worldmock_public_evidence([parse_world_event(row) for row in [{"event_id": "broken"}]], [], {})
-
-
-def test_activity_category_requires_actual_snapshot_fixed_category():
-    for invalid in ("not-an-object", {}, {"category":"consume"}):
-        with pytest.raises(EvaluationError,match="fixed category"):
-            worldmock_activity_category("action",invalid,{})
-    assert worldmock_activity_category("sleep",None,{"sleep":"sleep"}) == "sleep"
-
-
-# ---------------------------------------------------------------------------
-# 残余分支补齐：metrics、review、validation、decision、aggregate_reference
-# ---------------------------------------------------------------------------
-
-
 def test_day_type_contrast_computes_means_when_both_types_present() -> None:
-    work = DayRecord(date(2026, 1, 5), "regular_workday", (), (), 0, ())
-    weekend = DayRecord(date(2026, 1, 10), "ordinary_weekend", (), (), 0, ())
+    work = DayRecord(date(2026, 1, 5), "regular_workday", (), 0, ())
+    weekend = DayRecord(date(2026, 1, 10), "ordinary_weekend", (), 0, ())
     assert metrics_module._day_type_contrast((work, weekend), (3.0, 1.0)) == 2.0
     values = {date(2026, 1, 5): 3.0, date(2026, 1, 10): 1.0}
     classes = {date(2026, 1, 5): "regular_workday", date(2026, 1, 10): "ordinary_weekend"}
@@ -2061,18 +1822,14 @@ def test_filtered_hour_histogram_skips_unselected_dates() -> None:
     assert histogram == [0.0] * 168
 
 
-def test_cross_week_hamming_skips_weekday_sets_without_overlap() -> None:
-    monday = DayRecord(date(2026, 1, 5), "regular_workday", (), ("none",) * 144, 0, ())
-    following_tuesday = DayRecord(date(2026, 1, 13), "regular_workday", (), ("none",) * 144, 0, ())
-    assert metrics_module._cross_week_hamming((monday, following_tuesday), ("browsing",)) == []
 
 
 def test_public_status_converges_source_specific_states() -> None:
-    assert review_module._public_status("cancelled") == "interrupted"
-    assert review_module._public_status("truncated") == "interrupted"
-    assert review_module._public_status("active") == "ongoing"
-    assert review_module._public_status("paused") == "ongoing"
-    assert review_module._public_status("observed") == "recorded"
+    assert review_module._public_status("cancelled") == "cancelled"
+    assert review_module._public_status("truncated") == "cancelled"
+    assert review_module._public_status("active") == "started"
+    assert review_module._public_status("paused") == "paused"
+    assert review_module._public_status("observed") == "observed"
 
 
 def test_checkpoint_run_id_must_match_manifest(tmp_path: Path) -> None:

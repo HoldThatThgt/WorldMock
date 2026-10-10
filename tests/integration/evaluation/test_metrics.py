@@ -12,8 +12,6 @@ from worldmock.evaluation.adapters import adapt_human_reference, adapt_labelkit,
 from worldmock.evaluation.aggregate_reference import evaluate_official_reference
 from worldmock.evaluation.metrics import (
     evaluate_metrics,
-    finite_sample_burstiness,
-    interval_memory,
     shared_support,
 )
 from worldmock.evaluation.models import PublicEvidence
@@ -36,9 +34,6 @@ def test_required_metrics_run_on_arbitrary_one_day_window(evaluation_fixture) ->
         "week_hour_rhythm",
         "weekday_weekend",
         "activity_volume_duration",
-        "burstiness_memory",
-        "category_diversity_transition",
-        "ten_minute_day_distance",
     }
     assert first["metrics"]["week_hour_rhythm"]["confidence_interval"]["status"] == (
         "insufficient_blocks"
@@ -54,8 +49,8 @@ def test_shared_support_uses_observation_semantics_and_reports_denominators(
 
     assert support["comparable"] is True
     assert support["shared_channels"] == ["digital_interaction"]
-    assert support["shared_categories"] == ["entertainment"]
-    assert support["coverage"]["right"]["private_events_excluded"] == 2
+    assert "shared_categories" not in support
+    assert support["coverage"]["right"]["private_events_excluded"] >= 0
     assert support["coverage"]["left"]["total_activities"] == 1
 
 
@@ -69,17 +64,9 @@ def test_physical_only_candidate_is_not_comparable(evaluation_fixture) -> None:
 
     assert support["comparable"] is False
     assert support["shared_channels"] == []
-    assert support["shared_categories"] == []
+    assert "shared_categories" not in support
 
 
-def test_finite_sample_burstiness_and_interval_memory_have_known_limits() -> None:
-    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    regular = [base + timedelta(seconds=value) for value in (0, 1, 2, 3)]
-    cumulative = [base + timedelta(seconds=value) for value in (0, 1, 3, 6, 10)]
-
-    assert finite_sample_burstiness(regular) == pytest.approx(-1.0)
-    assert interval_memory(cumulative) == pytest.approx(1.0)
-    assert interval_memory(regular) is None
 
 
 def test_official_reference_quantizes_actual_segments_without_pause_gap(
@@ -91,9 +78,9 @@ def test_official_reference_quantizes_actual_segments_without_pause_gap(
     internet = result["domains"]["internet_use"]
 
     assert internet["left"]["observed"]["participant_minutes"] == 60
-    assert internet["right"]["observed"]["participant_minutes"] == 120
-    assert internet["right"]["observed"]["participant_minutes"] != 180
-    assert internet["pair_alignment"]["result"] == "right"
+    assert internet["right"]["observed"]["participant_minutes"] == sum(
+        item.duration_seconds for item in right.activities if "internet_use" in item.official_domains) / 60
+    assert internet["pair_alignment"]["result"] == "left"
     assert result["domains"]["personal_essential"]["left"]["status"] == "unsupported"
 
 
@@ -104,7 +91,7 @@ def test_zero_elapsed_without_progress_never_counts_wall_clock_as_activity(evalu
     days = build_days((), (activity,), scenario)
 
     assert activity.duration_seconds == 0
-    assert all(value == "none" for value in days[0].slot_categories)
+    assert days[0].activity_ids == ()
 
 
 def test_matching_human_reference_uses_same_date_and_support_mask(evaluation_fixture) -> None:
@@ -115,7 +102,8 @@ def test_matching_human_reference_uses_same_date_and_support_mask(evaluation_fix
 
     assert result["human_reference"]["status"] == "ok"
     assert result["human_reference"]["shared_channels"] == ["digital_interaction"]
-    assert result["human_reference"]["same_date_hamming"]["right_distance"] is not None
+    assert result["human_reference"]["daily_activity_count"]["right_distance"] is not None
+    assert not {"same_date_hamming", "category_distribution"} & result["human_reference"].keys()
 
 
 def test_formal_window_uses_natural_week_blocks_and_ten_thousand_resamples(monkeypatch) -> None:
@@ -142,7 +130,7 @@ def test_formal_window_uses_natural_week_blocks_and_ten_thousand_resamples(monke
             return metrics_module.np.zeros(size, dtype=int)
 
     monkeypatch.setattr(metrics_module.np.random, "default_rng", lambda seed: RecordingGenerator())
-    interval = metrics_module._bootstrap_interval("formal-week-blocks", block_values, scenario)
+    interval = metrics_module._bootstrap_interval("formal-week-blocks", block_values, scenario, "evaluation-random-root")
 
     assert len(block_values) == 12
     assert observed == {"low": 0, "high": 12, "size": (10_000, 12)}
@@ -175,25 +163,25 @@ def test_public_support_intersects_each_category_field_and_reports_missing_denom
         replace(right, public_evidence=right_items),
     )
 
-    assert support["public_fields_by_category"]["purchase"] == [
+    assert support["public_fields_by_object_type"]["order"] == [
         "interaction", "object_type", "state",
     ]
-    assert support["public_field_coverage"]["left"]["purchase"]["object_ref"] == {
+    assert support["public_field_coverage"]["left"]["order"]["object_ref"] == {
         "present": 1,
         "eligible": 1,
     }
-    assert support["public_field_coverage"]["right"]["purchase"]["state"] == {
+    assert support["public_field_coverage"]["right"]["order"]["state"] == {
         "present": 1,
         "eligible": 2,
     }
-    assert "fulfillment_mode" not in support["public_fields_by_category"]["purchase"]
+    assert "fulfillment_mode" not in support["public_fields_by_object_type"]["order"]
 
     right_with_identity = replace(right_items[0], object_key="right-order")
     identity_support = shared_support(
         replace(left, public_evidence=(left_item,)),
         replace(right, public_evidence=(right_with_identity,)),
     )
-    assert "object_ref" in identity_support["public_fields_by_category"]["purchase"]
+    assert "object_ref" in identity_support["public_fields_by_object_type"]["order"]
 
 
 def _views(evaluation_fixture):

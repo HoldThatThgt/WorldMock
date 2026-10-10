@@ -1,6 +1,6 @@
+from tests.integration.runtime.current_contract_fixtures import profile as current_profile
 """当前工具协议的观察冻结、名称守卫、受限轮不收窄工具面与记忆查询分支。"""
 
-from __future__ import annotations
 
 import copy
 import json
@@ -47,6 +47,7 @@ from tests.life.conftest import start_arguments, conclude_request
 def _prepared(data: dict | None = None, *, readonly: bool = False) -> LifeAgent:
     """通过正式入口冻结单条当前观察。"""
     person = LifeAgent()
+    person._profile = current_profile()
     observations = [] if readonly else copy.deepcopy(_observations())
     if data is not None:
         observations[0]["data"] = data
@@ -123,7 +124,7 @@ def _misaligned_meta(data: dict) -> None:
     (lambda data: data["interaction_bindings"].append(dict(data["interaction_bindings"][0])),
      "interaction binding identity is invalid"),
     (lambda data: data["interaction_bindings"][0].pop("kind"), "interaction binding identity is invalid"),
-    (lambda data: data["interaction_bindings"][0]["actions"][0].pop("canonical_action"),
+    (lambda data: data["interaction_bindings"][0]["actions"][0].pop("action"),
      "interaction binding action is invalid"),
     (lambda data: data["interaction_bindings"][0].update(actions=["等待"]), "interaction binding action is invalid"),
     (lambda data: data.pop("activity_bindings"), "activity_bindings are invalid"),
@@ -131,8 +132,6 @@ def _misaligned_meta(data: dict) -> None:
                                                     "phase": "进行中", "resumable": False, "note_labels": None}),
      "activity_bindings are invalid"),
     (lambda data: data.update(goal_bindings=None), "goal_bindings are invalid"),
-    (lambda data: data.pop("person_bindings"), "person_bindings are invalid"),
-    (lambda data: data.update(interaction_menu={"allowed_actions": ["wait"]}), "interaction menu"),
     (lambda data: data.update(wake_reasons=[""]), "wake reasons are invalid"),
     (lambda data: data.pop("errand_bindings"), "errand_bindings are invalid"),
     (lambda data: data["errand_bindings"].append({"name": "补一份食品", "errand_id": "errand-x", "outcome": "obtain"}),
@@ -165,6 +164,7 @@ async def test_empty_interactive_layer_decision_continues_without_failure() -> N
     ])
     environment = _Environment()
     agent = LifeAgent()
+    agent._profile = current_profile()
     _wire_agent(agent, environment, dispatcher, 5, memory=False)
 
     result = await agent.run_react_loop(ReactLoopRequest(
@@ -179,7 +179,7 @@ async def test_empty_interactive_layer_decision_continues_without_failure() -> N
     start = next(item["function"] for item in dispatcher.requests[0]["tools"]
                  if item["function"]["name"] == "start_activity")
     properties = start["parameters"]["properties"]
-    for field in ("target", "way"):
+    for field in ("target", "action"):
         assert "enum" not in properties["items"]["items"]["properties"][field]
 
 
@@ -195,16 +195,16 @@ def _restricted_data(stage: str) -> dict:
     data["same_moment_stage"] = stage
     _add_objects(data, _visible_object(
         _APP,
-        "action",
+        "app",
         "learn-course",
-        _offer("interact", "进行", "do", _RESTRICTED, app_id=None, category="work_study", manner=None),
+        _offer("interact", _RESTRICTED),
     ))
     return _with_activities(data, (_WORK, PHASE_ACTIVE), (_NEWS, PHASE_PAUSED))
 
 
-def _choice(target: str, verb: str, way: str) -> dict:
+def _choice(target: str, action: str) -> dict:
     """对一个对象选择一项「动词：方式」的 start_activity 参数。"""
-    return start_arguments([target], [verb], [way])
+    return start_arguments([target], [action])
 
 
 def _conclusion(*names: str) -> dict:
@@ -213,30 +213,6 @@ def _conclusion(*names: str) -> dict:
             "errands": []}
 
 
-def test_visible_objects_freeze_verb_way_and_bound_internal_action() -> None:
-    """私有绑定冻结为「名称 → （动词，方式，内部标准动作）」；标为不可用的动作照常可选（由环境以同一原因拒绝），
-    未提供的方式按协议错误纠正。"""
-    data = copy.deepcopy(_observations()[0]["data"])
-    _add_objects(data, _visible_object(
-        _APP,
-        "action",
-        "learn-course",
-        _offer("interact", "进行", "do", _SLOTS_FULL, app_id=None, category="work_study", manner=None),
-    ))
-    person = _prepared(data)
-    assert person._life_names["objects"] == {
-        "自己": (("interact", "等待", "wait"), ("sleep", "睡觉", "sleep")),
-        _WORK_ACTION: (("interact", "进行", "do"),),
-        _APP: (("interact", "进行", "do"),),
-    }
-    assert data["tool_layer"]["targets"][1]["actions"][0]["available"] is False
-    assert person.validate_react_decisions([
-        _decision("start_activity", _choice(_WORK_ACTION, "interact", "进行"))], False) == ""
-    assert "WAY_NOT_OFFERED" in person.validate_react_decisions([
-        _decision("start_activity", _choice(_APP, "interact", "等待"))], False)
-    start = copy.deepcopy(_functions(person)["start_activity"])
-    assert set(start["parameters"]["properties"]) == {"items", "answering"}
-    assert '"enum"' not in json.dumps(start)
 
 
 @pytest.mark.parametrize("stage", ["open", "start_or_resume", "resume_or_conclude", "conclude_only",
@@ -246,7 +222,7 @@ def test_restricted_rounds_do_not_narrow_the_host_tool_surface(stage: str) -> No
     本地校验，交给环境以同一原因业务拒绝。"""
     person = _prepared(_restricted_data(stage))
     assert json.dumps(_functions(person)) == json.dumps(_functions(_prepared()))
-    for decision in (_decision("start_activity", _choice(_APP, "interact", "进行")),
+    for decision in (_decision("start_activity", _choice(_APP, "interact")),
                      _decision("pause_activity", {"items": [{"activity_name": _WORK, "summary": "先停。"}],
                                                   "errands": []}),
                      _decision("report_status", {"items": [{"activity_name": _NEWS, "summary": "接着看。"}],
@@ -270,7 +246,7 @@ def test_tool_visibility_uses_current_named_tasks_and_activities() -> None:
     assert "not known" in person.validate_react_decisions([
         _decision("pause_activity", {"items": [{"activity_name": _NEWS, "summary": "先停。"}], "errands": []})],
         False)
-    assert "NAME_NOT_FOUND: The name 陌生人 is not known." == person.validate_react_decisions([
+    assert "TOOL_CALL_REQUIRED: The tool call batch is invalid." == person.validate_react_decisions([
         _decision("send_message", {"recipient_name": "陌生人", "text": "你好"})], False)
     assert "activity-private-1" not in str(functions)
     assert "session-7-0001" not in str(functions)
@@ -282,11 +258,11 @@ def test_action_validation_rejects_unseen_object_wrong_action_and_second_action(
     _functions(person)
     assert person.validate_react_decisions([_decision("start_activity", _WAIT_CHOICE)], False) == ""
     assert "No known object" in person.validate_react_decisions([
-        _decision("start_activity", _choice("object-private", "interact", "等待")),
+        _decision("start_activity", _choice("object-private", "interact")),
     ], False)
-    for verb, way in (("interact", "工作"), ("sleep", "游玩"), ("interact", "未知方式")):
-        assert "WAY_NOT_OFFERED" in person.validate_react_decisions([
-            _decision("start_activity", _choice("自己", verb, way)),
+    for verb in ("wait", "travel", "obtain"):
+        assert "ACTION_NOT_OFFERED" in person.validate_react_decisions([
+            _decision("start_activity", _choice("自己家", verb)),
         ], False)
     assert "not declared" in person.validate_react_decisions([
         _decision("start_activity", {**_WAIT_CHOICE, "ways": ["等待", "睡觉"]}),

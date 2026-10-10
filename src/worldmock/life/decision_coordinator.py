@@ -12,19 +12,17 @@ from worldmock.life.world_ops import _request_sha
 import logging
 from worldmock.errors import BusinessRuleError, PreconditionError, ProtocolError
 from worldmock.footprints.models import EventDraft
-from worldmock.life import activity_control, day_planning, errands, same_moment, social_actions
+from worldmock.life import activity_control, day_planning, errands, same_moment
 from worldmock.life.action_evidence import _pending_causes, _remember_action, _result_draft, _result_event_data
 from worldmock.life.guidance import rejection_guidance
 from worldmock.life.business_feedback import business_feedback
-from worldmock.life.vocabulary import WAYS
-from worldmock.life.activity_titles import activity_title
 from worldmock.life.decision_start import (
     defer_decision_starts,
     flush_decision_starts,
     pop_decision_start,
     response_self_note,
 )
-from worldmock.life.body import apply_mood_pulse
+from worldmock.life.body import apply_relaxation_change
 from worldmock.life.models import (
     ActionReceipt,
     ActionResult,
@@ -40,16 +38,13 @@ from worldmock.life.models import (
     active_activities,
 )
 from worldmock.life.observe import ObservationBuilder
-from worldmock.life.rhythm import consume_progress_report_opportunity, engine_rhythm_inputs, next_decision_candidates
+from worldmock.life.rhythm import consume_progress_report_opportunity, next_decision_at
 from worldmock.life.session_actions import ActionHandlers
 from worldmock.life.models import validated_payload
 from worldmock.life.presentation import stage_presentation
 
 from worldmock.life.engine_context import EngineContext
-from worldmock.life.activity_titles import activity_title, activity_snapshot
-
-_OPS_COMPONENTS = {"purchase": "commerce", "travel_to": "travel"}
-
+from worldmock.life.activity_titles import activity_snapshot, title_index
 
 class DecisionCoordinator:
     """@brief 显式依赖上下文的DecisionCoordinator。"""
@@ -62,6 +57,7 @@ class DecisionCoordinator:
 
     def begin_decision_round(self, contexts: list["DecisionContext"], ready_agent_ids: tuple[int, ...]) -> None:
         """@brief 持久化观察顺序；decision_started 延迟到首个行动请求时写（docs/design/06-agent.md）。"""
+        same_moment.require_budget_available(self.context.state)
         if self.round is not None or not contexts:
             raise ProtocolError("Decision round cannot be started")
         for context in contexts:
@@ -77,14 +73,15 @@ class DecisionCoordinator:
         self.round = DecisionRoundState(
             round_id=round_id, expected_agent_ids=agent_ids, observed_version=self.context.state.version
         )
+        self.context.callback_causes.clear()
         self.pending_decision_starts = defer_decision_starts(contexts, round_id, self.context.state)
         self.context.ops.log(
             self.context.state.current_time,
             "engine",
             "info",
-            "DECISION_ROUND_BEGAN",
-            f"Decision round opened for {len(agent_ids)} agents",
-            round_id=round_id,
+            {"code": "DECISION_ROUND_BEGAN",
+            "detail": f"Decision round opened for {len(agent_ids)} agents",
+            "round_id": round_id},
         )
 
     def submit_action(self, call: "DirectToolCall") -> ActionReceipt:
@@ -148,66 +145,43 @@ class DecisionCoordinator:
         return receipt
 
     def commit_decision_round(self, round_id: str) -> list[ActionResult]:
-        """@brief 按冻结顺序结算完整决策轮并一次提交所有状态与结果。
-
-        全轮动作完成后合并收件人的同秒机会，避免自身排期覆盖（docs/design/04-simulation-engine.md「人物之间的消息」）。
-        合并前把已全文呈现的消息记为已读，后续不重复唤醒（docs/design/06-agent.md「直接消息截断」）。
-        重放身份可能对应多条观察，不参与记已读，也不重做领域动作。
-        """
+        """@brief 完整轮次按冻结顺序结算，一次提交当前世界与结果。"""
         current = self.require_round(round_id)
-        submitted = {item.agent_id for item in current.pending_actions}
-        if submitted != set(current.expected_agent_ids):
+        if {item.agent_id for item in current.pending_actions} != set(current.expected_agent_ids):
+            logging.error("Decision round is incomplete")
             raise ProtocolError("Decision round does not contain every expected agent")
         staged = stage_presentation(self.context.state, self.observations.pending_presentation).model_copy(deep=True)
-        staged = staged
-        drafts: list[EventDraft] = flush_decision_starts(self.pending_decision_starts, self.context.state.current_time)
+        drafts = flush_decision_starts(self.pending_decision_starts, self.context.state.current_time)
         results = []
         for pending in sorted(current.pending_actions, key=lambda item: item.order):
-            (staged, result, action_drafts) = self._resolve(staged, pending)
+            staged, result, action_drafts = self._resolve(staged, pending)
             self._ops_action(pending, result)
             results.append(result)
             drafts.extend(action_drafts)
             if not pending.reused:
                 staged = _remember_action(staged, pending, result)
-        staged = day_planning.settle_receipt_goals(staged, drafts)
-        (staged, settled) = errands.settle(staged, drafts)
+        staged, settled = errands.settle(staged, drafts)
         drafts.extend(settled)
-        recipients = {
-            draft.agent_id
-            for draft in drafts
-            if draft.event_type == "environment_event"
-            and draft.data.get("kind") == "message_arrival"
-            and (draft.agent_id is not None)
-        }
-        presented = {
-            item.agent_id: self._presented_messages(item) for item in current.pending_actions if not item.reused
-        }
-        staged = same_moment.read_observed_messages(staged, self.context.state, presented)
-        staged = same_moment.merge_message_readiness(
-            staged, recipients, self.context.scenario.max_same_moment_decisions
-        )
-        staged = same_moment.merge_partner_endings(
-            self.context.state, staged, self.context.scenario.max_same_moment_decisions
-        )
+        from worldmock.life.callbacks import compare_callback_states
+
+        outcome = compare_callback_states(self.context.state, staged, self.context.catalog, drafts,
+                                          self.context.callback_causes)
+        staged, drafts = outcome.state, [*drafts, *outcome.drafts]
         staged = self.observations._snapshot_decision_references(staged, list(current.expected_agent_ids))
         staged.version = self.context.state.version + 1
+        failed = any(draft.data.get("kind") == same_moment.BUDGET_EXHAUSTED_KIND for draft in drafts)
+        if failed:
+            drafts.append(_failure_draft(staged.current_time, "decision_budget_exhausted", round_id))
         events = self.context.store.commit(validated_payload(staged), drafts)
         self.context.state = staged
         self.observations.pending_presentation = {}
         self.round = None
         self._ops_committed(round_id, results, events)
+        if failed:
+            logging.error("Decision budget exhausted")
+            raise ProtocolError("decision_budget_exhausted")
         return results
 
-    def _presented_messages(self, pending: PendingAction) -> frozenset[str]:
-        """@brief 本决策观察中已全文呈现的消息身份（观察事件的 presented_message_ids）。
-
-        没有观察的引擎直驱提交什么也没呈现，返回空集；同一决策同一秒有多条观察是协议错误。
-        """
-        matches = self.context.store.read_decision_observations(
-            pending.agent_id, pending.decision_id, pending.observed_at)
-        if len(matches) > 1:
-            raise ProtocolError("Decision observation is ambiguous")
-        return frozenset(matches[0].data["presented_message_ids"]) if matches else frozenset()
 
     def _ops_committed(self, round_id: str, results: list[ActionResult], events: list) -> None:
         """@brief 写决策轮结算操作日志，事件区间用于与足迹库互相跳转。"""
@@ -215,53 +189,26 @@ class DecisionCoordinator:
             self.context.state.current_time,
             "engine",
             "info",
-            "DECISION_ROUND_COMMITTED",
-            f"Decision round committed {len(results)} actions",
-            round_id=round_id,
-            event_seq_first=events[0].event_seq if events else None,
-            event_seq_last=events[-1].event_seq if events else None,
+            {"code": "DECISION_ROUND_COMMITTED",
+            "detail": f"Decision round committed {len(results)} actions",
+            "round_id": round_id,
+            "event_seq_first": events[0].event_seq if events else None,
+            "event_seq_last": events[-1].event_seq if events else None},
         )
 
     def _ops_action(self, pending: PendingAction, result: ActionResult) -> None:
-        """@brief 写动作受理或拒绝与资金变动操作日志；重放动作不重复记资金。
-
-        start_activity 的组件按私有绑定的方式闭集（WAYS）映射的内部标准动作取，不按动词或短语反解。
-        """
-        valid_start = pending.tool_name == "start_activity" and result.error_code != "ACTION_REQUEST_INVALID"
-        ways = [item["way"] for item in pending.request["items"]] if valid_start else []
-        components = {
-            _OPS_COMPONENTS.get(WAYS[way][1], "engine") for way in ways if isinstance(way, str) and way in WAYS
-        }
-        component = next(iter(components)) if len(components) == 1 else _OPS_COMPONENTS.get(pending.tool_name, "engine")
+        """@brief 日志组件直接读取请求中七个固定动作名称。"""
+        actions = [row["action"] for row in pending.request.get("items", []) if "action" in row]
+        components = {"commerce" if action == "purchase" else "travel" if action in
+                      {"walk", "drive", "take_taxi", "take_bus"} else "engine" for action in actions}
+        component = next(iter(components)) if len(components) == 1 else "engine"
         accepted = result.status in {ActionStatus.ACCEPTED, ActionStatus.IN_PROGRESS, ActionStatus.COMPLETED}
-        keys = {
-            "agent_id": pending.agent_id,
-            "decision_id": pending.decision_id,
-            "round_id": pending.round_id,
-            "action_id": pending.action_id,
-            "tool_name": pending.tool_name,
-            "error_code": result.error_code,
-            "reused": pending.reused,
-        }
-        self.context.ops.log(
-            result.occurred_at,
-            component,
-            "info" if accepted else "warn",
-            "ACTION_ACCEPTED" if accepted else "ACTION_REJECTED",
-            f"Action {pending.tool_name} resulted in {result.status.value}",
-            **keys,
-        )
-        changes = result.data.get("resource_changes")
-        if changes and (not pending.reused):
-            self.context.ops.log(
-                result.occurred_at,
-                component,
-                "info",
-                "FUNDS_CHANGED",
-                f"Action {pending.tool_name} moved account funds",
-                account_changes=changes,
-                **keys,
-            )
+        self.context.ops.log(result.occurred_at, component, "info" if accepted else "error",
+            {"code": "ACTION_ACCEPTED" if accepted else "ACTION_REJECTED",
+            "detail": f"Action {pending.tool_name} resulted in {result.status.value}",
+            "agent_id": pending.agent_id, "decision_id": pending.decision_id, "round_id": pending.round_id,
+            "action_id": pending.action_id, "tool_name": pending.tool_name,
+            "error_code": result.error_code, "reused": pending.reused})
 
     def abort_decision_round(self, round_id: str, error: Exception | str) -> None:
         """@brief 保存失败结果和幂等身份，不执行本轮生活动作。"""
@@ -297,9 +244,9 @@ class DecisionCoordinator:
             self.context.state.current_time,
             "engine",
             "error",
-            "DECISION_ROUND_ABORTED",
-            f"Decision round aborted after {len(current.pending_actions)} actions: {error}",
-            round_id=round_id,
+            {"code": "DECISION_ROUND_ABORTED",
+            "detail": f"Decision round aborted after {len(current.pending_actions)} actions: {error}",
+            "round_id": round_id},
         )
 
     def validate_context(self, context: "DecisionContext") -> None:
@@ -369,12 +316,10 @@ class DecisionCoordinator:
             return self._reused_result(state, pending)
         try:
             (changed, result) = self.actions.dispatch(state, pending)
-            (changed, _) = social_actions.end_partner_chats(state, changed)
             changed = self._consume_report_opportunity(state, changed, pending.agent_id)
             changed = self._after_success(changed, pending.agent_id, pending.tool_name)
             (changed, records) = activity_control.record_changes(state, changed, pending, self.actions.record_context)
-            resolved = changed.activities.get(result.activity_id) if result.activity_id else None
-            resolved_title = activity_title(resolved, self.context.titles) if resolved is not None else None
+            index = title_index(self.context.catalog)
             accepted = EventDraft(
                 event_type="action_accepted", occurred_at=state.current_time,
                 agent_id=pending.agent_id,
@@ -382,48 +327,117 @@ class DecisionCoordinator:
                 action_id=pending.action_id,
                 activity_id=result.activity_id,
                 caused_by=_pending_causes(pending),
-                data=_result_event_data(result, changed, resolved_title),
+                data=_result_event_data(result, changed, index),
             )
             result_draft = _result_draft(pending, result, "action_result")
+            result_draft = result_draft.model_copy(
+                update={"resource_changes":dict(self.actions.pending_resource_changes)})
+            self.actions.pending_resource_changes.clear()
             new_ids = {event.scheduled_id for event in state.pending_events}
             changed.pending_events = [event.model_copy(update={"caused_by": [result_draft.event_id]})
-                if event.scheduled_id not in new_ids and event.kind.value in {"delivery_arrival", "alarm_ring"}
+                if event.scheduled_id not in new_ids and event.kind.value == "delivery_arrival"
                 else event for event in changed.pending_events]
             drafts = [accepted, result_draft, *records]
-            drafts.extend(self._receipt_drafts(result_draft))
-            drafts.extend(self.actions.drain_drafts())
+            for activity in changed.activities.values():
+                if activity.origin_action_id == pending.action_id:
+                    activity.data["accepted_event_id"] = result_draft.event_id
+            drafts.extend(self._action_callbacks(changed, pending, result_draft,
+                state.accounts[state.agents[pending.agent_id].balance_account_id]))
+            drafts.extend(draft.model_copy(update={"caused_by": [result_draft.event_id]})
+                if draft.data.get("kind") == "goods_received" and not draft.caused_by else draft
+                for draft in self.actions.drain_drafts())
+            drafts.extend(self._same_moment_callbacks(changed, pending, result_draft))
             return (changed, result, drafts)
         except BusinessRuleError as error:
-            self.actions.storefront.drain_receipts()
-            consumed = self._consume_report_opportunity(state, state, pending.agent_id)
-            (changed, result) = self._after_rejection(consumed, pending, error)
-            agent = changed.agents[pending.agent_id]
-            activity = next(iter(active_activities(changed, agent.agent_id)), None)
-            data = {"error_code": str(error), **result.data}
-            if activity is not None:
-                data["activity"] = activity_snapshot(activity, self.context.titles)
-            rejected = EventDraft(
-                event_type="action_rejected", occurred_at=state.current_time,
-                agent_id=pending.agent_id,
-                decision_id=pending.decision_id, action_id=pending.action_id,
-                activity_id=activity.activity_id if activity else None,
-                caused_by=_pending_causes(pending),
-                data=data,
-            )
-            drafts = [rejected, _result_draft(pending, result, "action_result")]
-            drafts.extend(self.actions.drain_drafts())
-            return (changed, result, drafts)
+            return self._reject_result(state, pending, error)
 
-    def _receipt_drafts(self, result: EventDraft) -> list[EventDraft]:
-        """@brief 到店收货证据以本次真实购买结果为直接原因，随同一次状态提交。"""
-        return [draft.model_copy(update={"caused_by": [result.event_id]})
-                for draft in self.actions.storefront.drain_receipts()]
+    def _reject_result(self, state: WorldState, pending: PendingAction,
+                       error: BusinessRuleError) -> tuple[WorldState, ActionResult, list[EventDraft]]:
+        """@brief 业务拒绝回滚领域转换，只保存拒绝和真实同刻后续触发。"""
+        self.actions.pending_resource_changes.clear()
+        self.actions.drain_drafts()
+        consumed = self._consume_report_opportunity(state, state, pending.agent_id)
+        (changed, result) = self._after_rejection(consumed, pending, error)
+        agent = changed.agents[pending.agent_id]
+        activity = next(iter(active_activities(changed, agent.agent_id)), None)
+        data = {"error_code": str(error), **result.data}
+        if activity is not None:
+            data["activity"] = activity_snapshot(activity, title_index(self.context.catalog))
+        rejected = EventDraft(
+            event_type="action_rejected", occurred_at=state.current_time,
+            agent_id=pending.agent_id,
+            decision_id=pending.decision_id, action_id=pending.action_id,
+            activity_id=activity.activity_id if activity else None,
+            caused_by=_pending_causes(pending),
+            data=data,
+        )
+        result_draft = _result_draft(pending, result, "action_result")
+        drafts = [rejected, result_draft]
+        drafts.extend(self.actions.drain_drafts())
+        drafts.extend(self._same_moment_callbacks(changed, pending, result_draft))
+        return (changed, result, drafts)
+
+    def _action_callbacks(self, state: WorldState, pending: PendingAction, result: EventDraft,
+                          balance_before: int) -> list[EventDraft]:
+        """@brief 成功开始后按实际请求项触发回调，并回链真实动作结果。"""
+        if pending.tool_name != "start_activity":
+            return []
+        from worldmock.life.callbacks import CallbackCause, evaluate_callbacks
+
+        drafts = []
+        for index, item in enumerate(pending.request["items"]):
+            cause = CallbackCause("action", item["action"], pending.agent_id, result.event_id,
+                                  f"{pending.action_id}:{index}")
+            outcome = evaluate_callbacks(state, self.context.catalog, cause, balance_before=balance_before)
+            state.agents, state.accounts = outcome.state.agents, outcome.state.accounts
+            drafts.extend(outcome.drafts)
+            self.context.callback_causes.update(outcome.causes)
+        drafts.extend(self._navigation_drafts(state, pending, result.event_id))
+        return drafts
+
+    def _same_moment_callbacks(self, state: WorldState, pending: PendingAction,
+                               result: EventDraft) -> list[EventDraft]:
+        """@brief 同刻再决策类别只以本轮真实动作结果作为触发原因。"""
+        agent = state.agents[pending.agent_id]
+        if agent.next_decision_at != state.current_time:
+            return []
+        from worldmock.life.callbacks import CallbackCause, evaluate_callbacks
+        from worldmock.life.schedule import wake_categories
+
+        drafts = []
+        for category in wake_categories(agent.pending_wake_reasons):
+            cause = CallbackCause("event", category, agent.agent_id, result.event_id,
+                                  f"wake:{pending.action_id}")
+            outcome = evaluate_callbacks(state, self.context.catalog, cause)
+            state.agents, state.accounts = outcome.state.agents, outcome.state.accounts
+            self.context.callback_causes.update(outcome.causes)
+            drafts.extend(outcome.drafts)
+        return drafts
+
+    def _navigation_drafts(self, state: WorldState, pending: PendingAction, source_event_id: str) -> list[EventDraft]:
+        """@brief 每项实际出行按稳定活动键自动选择功能应用，仅写瞬时导航足迹。"""
+        from worldmock.life.randomness import random_stream
+
+        drafts = []
+        activities = [item for item in state.activities.values() if item.origin_action_id == pending.action_id
+                      and item.kind == ActivityKind.TRAVEL]
+        for activity in activities:
+            action = activity.data["action"]
+            candidates = self.context.catalog.apps_by_action.get(action, ())
+            if candidates:
+                app_id = random_stream(state.random_state, f"function-app:{activity.activity_id}").choice(candidates)
+                drafts.append(EventDraft(event_type="environment_event", occurred_at=state.current_time,
+                    agent_id=pending.agent_id, action_id=pending.action_id, activity_id=activity.activity_id,
+                    visibility="system", source_kind="environment", caused_by=[source_event_id],
+                    data={"kind":"app_touch", "app_id":app_id, "action":action,
+                          "step":"navigation", "rule_id":None}))
+        return drafts
 
     def _consume_report_opportunity(self, before: WorldState, changed: WorldState, agent_id: int) -> WorldState:
         """@brief 播报机会给出后，受理和拒绝都消费所有当时到期的锚点。"""
         if "progress_report_due" not in before.agents[agent_id].pending_wake_reasons:
             return changed
-        interval = self.context.semantics.document.progress_report_interval_seconds
+        interval = self.context.config.progress_report_interval_seconds
         return consume_progress_report_opportunity(changed, agent_id, interval)
 
     def _after_success(self, state: WorldState, agent_id: int, tool_name: str) -> WorldState:
@@ -445,8 +459,7 @@ class DecisionCoordinator:
     ) -> tuple[int, list[str], SameMomentStage]:
         """@brief 按同刻阶梯安排本轮之后的下一次决策（docs/design/04-simulation-engine.md规则 2–4、7）。
 
-        受限轮用完仍要同一秒再决策时，暂存 decision_budget_exhausted 事件并技术停顿（docs/design/06-agent.md
-        第五章「失败后强制等待与跨决策预算」），随本动作的结果一起提交；事件带最近一次计入同刻轮数的拒绝码。
+        六轮耗尽仍需再决策时，随本动作结果记录真实预算故障，提交后停止，时间不推进。
 
         :param rejection: 本轮业务拒绝的错误码（重放按存档结果），受理时为 None。
         :param free: 本轮的拒绝是免计的名称类拒绝（docs/design/04-simulation-engine.md ，不计同刻轮数）。
@@ -455,26 +468,19 @@ class DecisionCoordinator:
 
         def by_rhythm() -> int:
             """@brief 节律候选以本次决策时刻为上次决策时刻（规则 7）；无候选取结算间隔。"""
-            candidate = next_decision_candidates(
-                agent.model_copy(update={"last_decision_time": now}), engine_rhythm_inputs(self.context, state)
-            )
-            return candidate if candidate is not None else now + self.context.scenario.activity_feedback_seconds
+            return next_decision_at(self.context, state, agent.model_copy(update={"last_decision_time": now}))
 
         outcome = same_moment.RoundOutcome(
             now=now,
             agent=agent,
             active=bool(active_activities(state, agent.agent_id)),
             rejected=rejection is not None,
-            limit=self.context.scenario.max_same_moment_decisions,
             pending=bool(activity_control.pending_conclusions(state, agent.agent_id)),
         )
         if same_moment.budget_exhausted(outcome):
             code = (None if free else rejection) or same_moment.latest_rejection_code(state, agent.agent_id)
-            (schedule, draft) = same_moment.exhausted_schedule(
-                outcome, self.context.scenario.activity_feedback_seconds, code
-            )
-            self.actions.pending_event_drafts.append(draft)
-            return schedule
+            self.actions.pending_event_drafts.append(same_moment.exhausted_event(outcome, code))
+            return now, [], same_moment.next_stage(outcome)
         return same_moment.schedule_after_round(outcome, rhythm_next or by_rhythm)
 
     def _after_rejection(
@@ -488,7 +494,7 @@ class DecisionCoordinator:
         agent = same_moment.count_round(agent) if counted else agent
         (next_decision_at, reasons, stage) = self._round_schedule(state, agent, str(error), free=not counted)
         pulse_key = same_moment.rejection_pulse(state, agent.agent_id, str(error))
-        body = agent.body if pulse_key is None else apply_mood_pulse(agent.body, pulse_key)
+        body = agent.body if pulse_key is None else apply_relaxation_change(agent.body, 0.05)
         changed_agent = agent.model_copy(
             update={
                 "next_decision_at": next_decision_at,
@@ -496,7 +502,7 @@ class DecisionCoordinator:
             }, deep=True,
         )
         changed = _put_agent(state, changed_agent)
-        logging.info("Action rejected: %s", rejection_reason_text(error))
+        logging.error("Action rejected: %s", rejection_reason_text(error))
         guidance = rejection_guidance(error)
         guidance.update(
             business_feedback(
@@ -507,7 +513,7 @@ class DecisionCoordinator:
         message = guidance["reason"]
         data = {
             "same_moment_round": changed_agent.same_moment_rounds,
-            "max_same_moment_decisions": self.context.scenario.max_same_moment_decisions,
+            "max_same_moment_decisions": same_moment.OPEN_ROUNDS,
             "next_decision_at": next_decision_at,
             **guidance,
         }

@@ -3,9 +3,7 @@
 依据 docs/design/04-simulation-engine.md「三层结构」「会话与活动的字段」：
 - 运行开始时按初始地点开始首个停留会话；
 - 出发（出行被受理）时结束当前停留会话，开始去目的地的路上会话；同一请求开始的活动都归入路上会话；
-- 到达（含到达被拒）或途中结束出行时结束路上会话，路上开始、仍在进行的其他活动由世界结束（status=cancelled，
-  boundary_type 与 interruption_reason 都记 route_ended，媒体位置保留），成为待收尾；随后在人物此刻所在地点开始
-  停留会话（未到达时仍是出发地）；
+- 到达或提前结束出行时结束路上会话，在人物此刻地点开始停留会话；第二槽活动保持各自生命周期；
 - 暂停的活动属于它的开始地点，回到该地点时归入那里的新停留会话；
 - 实验截止时所有会话结束。
 
@@ -20,10 +18,6 @@ from zoneinfo import ZoneInfo
 
 from worldmock.life.models import (ActivityKind, ActivityState, ActivityStatus, SessionKind, SessionState,
                                    SessionStatus, WorldState)
-
-#: 路上开始的活动随出行结束时的结束原因（boundary_type 与 interruption_reason 同值）。
-ROUTE_ENDED = "route_ended"
-
 
 def moment_label(epoch: int, timezone_name: str) -> str:
     """@brief 名称中的绝对时刻「<M月D日> HH:MM」（场景时区）；名称用绝对日期，结束后不改名。"""
@@ -91,29 +85,12 @@ def begin_transit(state: WorldState, agent_id: int, destination_id: str,
 
 
 def end_transit(state: WorldState, agent_id: int, place_names: dict[str, str],
-                opened_by_action_id: str | None = None) -> tuple[WorldState, list[str]]:
-    """@brief 到达或途中结束出行：路上仍在进行的活动由世界结束，结束路上会话并在所在地点开始停留会话。
-
-    :param opened_by_action_id: 途中结束出行的动作身份，写进新的停留会话；到达（时钟推进）为 None。
-    :returns: (新世界状态, 本次以 route_ended 结束的活动身份)
-    """
+                opened_by_action_id: str | None = None) -> WorldState:
+    """@brief 到达或提前结束出行后开始停留会话，第二槽活动保持各自生命周期。"""
     session = current_session(state, agent_id)
     if session is None or session.kind != SessionKind.TRANSIT:
-        return state, []
-    ended = [activity_id for activity_id in session.activity_ids
-             if state.activities[activity_id].status == ActivityStatus.ACTIVE]
-    activities = dict(state.activities)
-    for activity_id in ended:
-        activities[activity_id] = route_ended(activities[activity_id])
-    changed = _end_current(state.model_copy(update={"activities": activities}), agent_id)
-    return open_stay(changed, agent_id, place_names, opened_by_action_id), ended
-
-
-def route_ended(activity: ActivityState) -> ActivityState:
-    """@brief 路上开始的活动随出行由世界结束：取消、结束原因 route_ended，保留已结算进度与媒体位置。"""
-    return activity.model_copy(update={"status": ActivityStatus.CANCELLED, "ended_at": activity.last_settled_at,
-                                       "boundary_type": ROUTE_ENDED, "interruption_reason": ROUTE_ENDED,
-                                       "next_interaction_at": None}, deep=True)
+        return state
+    return open_stay(_end_current(state, agent_id), agent_id, place_names, opened_by_action_id)
 
 
 def arriving_transit(state: WorldState, agent_id: int, target: int) -> str | None:
@@ -129,16 +106,6 @@ def arriving_transit(state: WorldState, agent_id: int, target: int) -> str | Non
                 ActivityStatus.COMPLETED, ActivityStatus.FAILED} and travel.ended_at == target:
             return session.session_id
     return None
-
-
-def arrival_route_end(state: WorldState, activity_id: str, target: int) -> ActivityState:
-    """@brief 到达边界上路上开始、仍在进行的其他活动由世界结束（route_ended）；其余活动原样返回。"""
-    activity = state.activities[activity_id]
-    arriving = arriving_transit(state, activity.agent_id, target)
-    if (arriving is None or activity.kind == ActivityKind.TRAVEL or activity.status != ActivityStatus.ACTIVE
-            or not activity.session_ids or activity.session_ids[-1] != arriving):
-        return activity
-    return route_ended(activity)
 
 
 def assign(state: WorldState, session_id: str, activity_ids: list[str]) -> WorldState:

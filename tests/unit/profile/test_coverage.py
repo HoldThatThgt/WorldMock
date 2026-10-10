@@ -19,7 +19,7 @@ def _targets():
     return CoverageTargets(
         habit_response_keywords=("慢跑", "读几页小说"),
         food_kinds=("川菜", "面食"),
-        action_names=("看长视频", "刷短视频"),
+        app_names=("长视频", "短视频"),
     )
 
 
@@ -121,17 +121,17 @@ def test_content_genres_stay_prose_and_do_not_enter_coverage():
         CoverageTargets.model_validate({"content_genres": ["旧题材"]})
 
 
-@pytest.mark.parametrize("medium", ["推荐", "下班后刷推荐"])
-def test_media_preferences_match_registered_action_names_in_both_directions(medium):
-    """@brief 媒体偏好按真实动作名称双向子串匹配，不要求属于分类词表。"""
+@pytest.mark.parametrize("medium", ["推荐", "下班后刷推荐", "购买", "交互"])
+def test_media_preferences_do_not_match_action_or_partial_app_names(medium):
+    """@brief 媒体偏好只有完整内容应用名称命中，动作与双向子串均不能代替。"""
     card = make_card(habits=(), tastes=Tastes(content_genres=(), food_preferences=(), media=(medium,)))
-    report = validate_coverage(card, CoverageTargets(action_names=("刷推荐",)))
-    assert report.total_items == report.covered_items == 1
-    assert report.passed and report.missing == ()
+    report = validate_coverage(card, CoverageTargets(app_names=("刷推荐",)))
+    assert report.total_items == 1 and report.covered_items == 0
+    assert not report.passed and [(item.kind, item.value) for item in report.missing] == [("media", medium)]
 
 
 def test_media_app_names_require_the_full_registered_name():
-    """@brief 媒体条目以完整应用名命中，应用名子串不能绕过真实动作覆盖。"""
+    """@brief 媒体条目以完整应用名命中，应用名子串不能算作覆盖。"""
     card = make_card(habits=(), tastes=Tastes(content_genres=(), food_preferences=(),
                                            media=("哔哩哔哩", "哔哩哔哩视频")))
     report = validate_coverage(card, CoverageTargets(app_names=("哔哩哔哩",)))
@@ -145,3 +145,11 @@ def test_coverage_targets_reject_the_retired_content_classification_field():
 
     with pytest.raises(ValidationError, match="media_kinds"):
         CoverageTargets.model_validate({"media_kinds": ["短视频"]})
+
+
+def test_coverage_targets_reject_removed_action_names():
+    """@brief 动作覆盖入口已删除，旧字段不能继续影响媒体匹配。"""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="action_names"):
+        CoverageTargets.model_validate({"action_names": ["刷推荐"]})

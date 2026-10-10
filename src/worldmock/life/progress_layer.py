@@ -1,13 +1,4 @@
-"""@brief 进度层：当前 session 的有序记录（docs/design/06-agent.md「进度层」）。
-
-记录由已提交事件组装，写到本次观察这一刻：人物的世界请求连同最新结果与回复正文（self_note）、收到的直接消息
-与交谈邀请（全文）和邮件（主题）、订单送达、个人事务的提醒到点与办成（只写事务名，由人物可见的事务事件派生），
-以及由截止时刻与提醒写入时刻推导的截止预警与目标提醒。session 下界是开启它的边界提交的末事件序号（session_bounds，
-与记忆层同一区间口径）：运行开始为 0，到达取到达所在的时钟推进提交，由决策引起的切换（出发、途中结束出行）取引起
-切换的那条结果所在的提交；推导记录按时刻取，决策切换的 session 不含切换那一秒。同一秒内推导记录在前（截止在提醒前），
-事件记录按最小来源事件序号。结果游标及其文本嗅探已删除：结果在整个 session 内保留。每条记录另有私有元数据
-（是否受保护、settled 句），供宿主按预算浓缩。
-"""
+"""@brief 当前停留或路程的有序记录，只从真实人物可见事件和已交付提醒派生。"""
 
 from __future__ import annotations
 
@@ -23,9 +14,7 @@ from worldmock.life import schedule, sessions
 from worldmock.life.control_items import CONTROL_TOOLS, control_request
 from worldmock.life.errand_state import COMPLETED_KIND, REMINDED_KIND
 from worldmock.life.models import WorldState
-from worldmock.life.readable import iso_time, local_date
-from worldmock.life.recipients import agent_identity, person_name
-from worldmock.life.request_linking import order_label
+from worldmock.life.readable import clock_phrase, iso_time, local_date, money_phrase, portion_phrase
 from worldmock.life.result_projection import public_result
 from worldmock.life.session_bounds import session_lower
 from worldmock.life.settled_text import ActivityFacts, record_lines
@@ -39,24 +28,21 @@ _ERRAND_RECORDS = {REMINDED_KIND: "errand_reminder", COMPLETED_KIND: "errand_com
 
 @dataclass(frozen=True, slots=True)
 class ProgressView:
-    """@brief 一次观察的进度层与私有配套：layer 为进度层 JSON，meta 与 layer.events 一一对应，
-    event_ids 为全部记录来源事件身份（记录顺序），presented_message_ids 为全文已呈现的收件箱消息。"""
+    """@brief 本段进度、浓缩元数据与实际人物可见来源。"""
 
     layer: dict
     meta: list[dict]
     event_ids: list[str]
-    presented_message_ids: list[str]
 
 
 @dataclass(frozen=True, slots=True)
 class _Record:
-    """@brief 组装中的一条记录：记录本身、来源事件、排序键与相关订单。"""
+    """@brief 一条记录及实际来源、排序位置和关联订单。"""
 
     record: dict
     sources: tuple[Event, ...]
     key: tuple
     orders: tuple[str, ...] = ()
-    message_id: str | None = None
 
 
 def session_bound(store: FootprintStore, state: WorldState, agent_id: int) -> tuple[int, int]:
@@ -69,7 +55,7 @@ def session_bound(store: FootprintStore, state: WorldState, agent_id: int) -> tu
 
 
 def progress_view(context: LayerContext, store: FootprintStore, facts: ActivityFacts | None = None) -> ProgressView:
-    """@brief 进度层 JSON 与私有配套（progress_meta、progress_event_ids、presented_message_ids）。
+    """@brief 进度层 JSON 与私有浓缩元数据及真实来源事件身份。
 
     :param facts: 本人活动的暂停区间与结束事件（记忆层同一份）；结束活动的调用在 settled 句中只写在本 session 内结束的
         活动（起止含暂停区间，与记忆层同一写法），更早 session 结束的已在记忆层。
@@ -82,11 +68,10 @@ def progress_view(context: LayerContext, store: FootprintStore, facts: ActivityF
         facts.app_progress)
     meta = [{"protected": _protected(context, item, (request_seq, request_time)),
              "lines": record_lines(context, item.record, list(item.sources), here)} for item in records]
-    layer = {"layer": "进度层", "session_started_at": iso_time(started_at, context.scenario.timezone),
+    layer = {"layer": "进度层", "session_started_at": iso_time(started_at, context.config.timezone),
              "events": [item.record for item in records], "rejected_today": rejected_today(context, store)}
     return ProgressView(layer=layer, meta=meta,
-                        event_ids=[event.event_id for item in records for event in item.sources],
-                        presented_message_ids=[item.message_id for item in records if item.message_id is not None])
+                        event_ids=list(dict.fromkeys(event.event_id for item in records for event in item.sources)))
 
 
 def records_after(context: LayerContext, store: FootprintStore, after_seq: int) -> list[tuple[dict, list[str]]]:
@@ -138,11 +123,11 @@ def _tool_record(context: LayerContext, request: Event, results: list[Event]) ->
     开始活动的请求其后的终态结果不带当时的订单，公开结果的 purchases 取即时结果的订单。
     """
     data = request.data
-    result = public_result(results[-1].data, context.scenario)
-    first = public_result(results[0].data, context.scenario)
+    result = public_result(results[-1].data, context.inputs)
+    first = public_result(results[0].data, context.inputs)
     if "purchases" in first["details"] and "purchases" not in result["details"]:
         result["details"] = {"purchases": first["details"]["purchases"], **result["details"]}
-    record = {"occurred_at": iso_time(request.occurred_at, context.scenario.timezone), "type": "tool_call",
+    record = {"occurred_at": iso_time(request.occurred_at, context.config.timezone), "type": "tool_call",
               "tool": data["tool_name"], "arguments": _arguments(data["tool_name"], data["request"]), "result": result}
     if data.get("self_note"):
         record["self_note"] = data["self_note"]
@@ -176,25 +161,29 @@ def _tool_calls(response: Event) -> list[dict]:
 
 
 def _world_records(context: LayerContext, store: FootprintStore, lower: int) -> list[_Record]:
-    """@brief 本人收到的消息（直接消息与交谈邀请带全文，邮件只有主题）、本人订单的送达，以及个人事务的提醒到点与办成。"""
+    """@brief 只读取人物可见的真实送达、事务、内容推送和声明的回调提示。"""
     records: list[_Record] = []
     for event in store.read_agent_events("environment_event", context.agent_id, after=lower):
+        if event.visibility != "agent":
+            continue
         kind = event.data.get("kind")
         if kind in _ERRAND_RECORDS:
             records.append(_errand_record(context, event))
         elif kind == "delivery_arrival":
             records.extend(_delivery_records(context, event))
-        elif kind in {"message_arrival", "mail_arrival"}:
-            records.append(_message_record(context, event))
-        elif kind == "work_content_completed" and event.visibility == "agent":
-            content = context.rules.contents[event.data["content_id"]]
-            record = {"occurred_at": iso_time(event.occurred_at, context.scenario.timezone),
-                      "type": "work_completed", "topic": content.title}
+        elif kind == "app_push" and event.data.get("pushed", True):
+            record = {"occurred_at": iso_time(event.occurred_at, context.config.timezone), "type": "app_push",
+                      "app": context.catalog.apps[event.data["app_id"]].name,
+                      "title": event.data["title"], "summary": event.data["summary"]}
             records.append(_Record(record, (event,), _event_key(event.occurred_at, [event])))
-        elif kind == "app_push" and event.visibility == "agent":
-            record = {"occurred_at": iso_time(event.occurred_at, context.scenario.timezone), "type": "app_push",
-                      "app": event.data["app"], "action": event.data["action"], "title": event.data["title"],
-                      "summary": event.data["summary"]}
+        elif kind == "callback_reminder":
+            record = {"occurred_at": iso_time(event.occurred_at, context.config.timezone),
+                      "type": "callback_reminder", "app": context.catalog.apps[event.data["app_id"]].name,
+                      "text": event.data["text"]}
+            records.append(_Record(record, (event,), _event_key(event.occurred_at, [event])))
+        elif kind == "balance_decreased":
+            record = {"occurred_at": iso_time(event.occurred_at, context.config.timezone),
+                      "type": "balance_decreased", "message": f"余额减少了 {money_phrase(event.data['amount_fen'])}"}
             records.append(_Record(record, (event,), _event_key(event.occurred_at, [event])))
     return records
 
@@ -203,61 +192,45 @@ def _errand_record(context: LayerContext, event: Event) -> _Record:
     """@brief 个人事务事件派生的记录（docs/design/04-simulation-engine.md ）：errand_reminded 为
     errand_reminder（提醒到点），
     errand_completed 为 errand_completed（环境确认办成），都只写事务名；来源是该事件，计入观察的进度来源。"""
-    record = {"occurred_at": iso_time(event.occurred_at, context.scenario.timezone),
+    record = {"occurred_at": iso_time(event.occurred_at, context.config.timezone),
               "type": _ERRAND_RECORDS[event.data["kind"]], "errand": event.data["errand"]["name"]}
     return _Record(record, (event,), _event_key(event.occurred_at, [event]))
 
 
-def _message_record(context: LayerContext, event: Event) -> _Record:
-    """@brief message_arrival 记录：直接消息与交谈邀请取收件箱全文与发件人，交谈邀请另写回应方式「对<发起人>选择交谈
-    即接受」（docs/design/04-simulation-engine.md「交谈」）；邮件到达时取场景主题与正文，发件人为 null。"""
-    moment = iso_time(event.occurred_at, context.scenario.timezone)
-    message_id = event.data["message_id"]
-    if event.data["kind"] == "mail_arrival":
-        message = context.rules.messages[message_id]
-        record = {"occurred_at": moment, "type": "message_arrival", "sender": None, "kind": "mail",
-                  "subject": message.subject, "body": message.body}
-        return _Record(record, (event,), _event_key(event.occurred_at, [event]))
-    message = context.state.agents[context.agent_id].inbox[message_id]
-    sender = _sender(context, message.sender_id)
-    text = message.text if message.kind != "chat_invite" else f"{message.text}，对{sender}选择交谈即接受"
-    record = {"occurred_at": moment, "type": "message_arrival", "sender": sender, "kind": message.kind,
-              "text": text}
-    return _Record(record, (event,), _event_key(event.occurred_at, [event]), message_id=message_id)
 
 
-def _sender(context: LayerContext, sender_id: str) -> str:
-    """@brief 发件人的可读名称：同世界人物取姓名，场景联系人取称谓。"""
-    return person_name(context.state, context.scenario, context.agent_id, sender_id)
 
 
 def _delivery_records(context: LayerContext, event: Event) -> list[_Record]:
-    """@brief 一次送达事件中本人所下每个订单一条 delivery 记录：订单名称、状态与送达进展（收货人不是自己时写明收货人）。"""
-    zone, now = context.scenario.timezone, context.state.current_time
-    places = {item.location_id: item.name for item in context.scenario.locations}
-    names = {item_id: item.name for item_id, item in context.semantics.catalog.goods.items()}
+    """@brief 本人每项真实送达或到站订单各一条，不显示自动下单或支付渠道。"""
+    zone, now = context.config.timezone, context.state.current_time
+    places = {key: item.display_name for key, item in context.catalog.locations.items()}
+    names = {key: item.name for key, item in context.catalog.goods.items()}
     records = []
     for order in event.data.get("orders", []):
-        owner = (int(order["recipient_id"].split(":", 1)[1])
-                 if order["fulfillment"] == "station_pickup" else order["agent_id"])
-        if owner != context.agent_id:
+        if order["agent_id"] != context.agent_id:
             continue
-        label = order_label(order, names, (zone, now))
-        receiver = ("" if order["recipient_id"] == agent_identity(context.agent_id) else
-                    f"，收货人{person_name(context.state, context.scenario, context.agent_id, order['recipient_id'])}")
         messages = {"pending": "等待送达",
                     "ready_for_pickup": f"已到{places[order['destination_id']]}，请本人领取",
-                    "delivered": f"已送到{places[order['destination_id']]}{receiver}"}
-        record = {"occurred_at": iso_time(event.occurred_at, zone), "type": "delivery", "order": label,
+                    "delivered": f"已送到{places[order['destination_id']]}"}
+        record = {"occurred_at": iso_time(event.occurred_at, zone), "type": "delivery",
+                  "order": order_label(order, names, (zone, now)),
                   "status": order["status"], "message": messages[order["status"]]}
         records.append(_Record(record, (event,), _event_key(event.occurred_at, [event]), (order["order_id"],)))
     return records
 
 
+def order_label(order: dict, names: dict[str, str], clock: tuple[str, int]) -> str:
+    """@brief 订单只用商品、份数和购买时刻命名。"""
+    timezone_name, now = clock
+    return (f"{names[order['goods_id']]} {portion_phrase(order['quantity'])}（"
+            f"{clock_phrase(order['created_at'], now, timezone_name)} 购买）")
+
+
 def _derived_records(context: LayerContext, started_at: int) -> list[_Record]:
     """@brief 由截止时刻与提醒写入时刻推导的记录：工具层每个任务的截止预警（提前量与唤醒同源，
     schedule.TASK_DUE_SOON_SECONDS）与到期，今日目标的提醒，各只一次。"""
-    now, zone = context.state.current_time, context.scenario.timezone
+    now, zone = context.state.current_time, context.config.timezone
     decided = sessions.current_session(context.state, context.agent_id).opened_by_action_id is not None
 
     def in_range(moment: int) -> bool:
@@ -296,11 +269,11 @@ def _protected(context: LayerContext, item: _Record, request: tuple[int, int | N
 
 def rejected_today(context: LayerContext, store: FootprintStore) -> list[dict]:
     """@brief 当日真实拒绝由持久证据派生，跨会话保留且不写检查点或人物记忆。"""
-    day = local_date(context.state.current_time, context.scenario.timezone)
+    day = local_date(context.state.current_time, context.config.timezone)
     events = [event for kind in ("model_response", "action_rejected", "action_accepted", "action_requested")
               for event in store.read_agent_events(kind, context.agent_id)
               if event.occurred_at <= context.state.current_time
-              and local_date(event.occurred_at, context.scenario.timezone) == day]
+              and local_date(event.occurred_at, context.config.timezone) == day]
     requests = {event.action_id: event for event in events if event.event_type == "action_requested"}
     rows: dict[tuple, dict] = {}
     for event in sorted(events, key=lambda item: item.event_seq):
@@ -312,7 +285,7 @@ def rejected_today(context: LayerContext, store: FootprintStore) -> list[dict]:
         report = (event.data.get("protocol_feedback") if event.event_type == "model_response" else event.data)
         if isinstance(report, dict) and report.get("error_code"):
             request = requests.get(event.action_id)
-            _memo_reject(rows, event, report, request, context.scenario.timezone)
+            _memo_reject(rows, event, report, request, context.config.timezone)
     latest = sorted(rows.values(), key=lambda item: item["sequence"], reverse=True)[:8]
     return [{key: row[key] for key in ("written", "why", "times", "last", "accepted_as")} for row in latest]
 

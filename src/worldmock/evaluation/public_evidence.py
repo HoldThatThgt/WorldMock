@@ -13,8 +13,9 @@ from pydantic import ValidationError
 from worldmock.evaluation.errors import EvaluationError
 from worldmock.evaluation.models import JsonObject, PublicEvidence
 from worldmock.footprints.models import Event
-from worldmock.life.vocabulary import WAYS
-from worldmock.exchange.types import ActionCategory, MANNER_DEVICE
+from worldmock.life.action_contract import ACTIVITY_ACTIONS, TRAVEL_ACTIONS
+from worldmock.footprints.app_usage import validate_activity_prefix
+from worldmock.errors import IntegrityError
 
 
 _LEGACY_ACTIONS = {
@@ -24,8 +25,6 @@ _LEGACY_ACTIONS = {
     "navigation": ("travel", "travel", "route"),
 }
 #: 结果活动种类只取现行四类，环境动作类别由快照保存。
-_ACTION_OF_KIND = {"travel": "travel_to", "action": "do", "wait": "wait", "sleep": "sleep"}
-_ACTION_INTERACTIONS = {"entertainment": "view", "work_study": "work", "exercise": "do", "daily_care": "do"}
 #: 活动控制工具 -> 公开交互动词（docs/design/04-simulation-engine.md「人物工具与管理接口」），按请求
 #: items[] 逐活动投影。
 _SESSION_CONTROL_TOOLS = {
@@ -34,8 +33,7 @@ _SESSION_CONTROL_TOOLS = {
     "conclude_activity": "conclude",
 }
 #: 公开终态取自活动快照的启动动作；其余动作以动作自身终态为准。
-_ACTIVITY_BACKED_ACTIONS = frozenset({
-    "travel_to", "do", "wait", "sleep"})
+_ACTIVITY_BACKED_ACTIONS = frozenset(ACTIVITY_ACTIONS)
 _RESULT_STATES = {
     "accepted": "started",
     "in_progress": "started",
@@ -59,7 +57,7 @@ _ACTIVITY_RESULT_STATES = {
 class _Shape:
     """@brief 保存一个内部对象的闭集公开投影。"""
 
-    category: str
+    action: str
     interaction: str
     object_type: str
     object_key: str | None
@@ -126,9 +124,9 @@ def _legacy_action_shape(sequence_class: str | None, action: Mapping[str, Any]) 
     mapped = _LEGACY_ACTIONS.get(sequence_class or "")
     if mapped is None:
         return None
-    category, interaction, object_type = mapped
+    actual_action, interaction, object_type = mapped
     attributes = _legacy_action_attributes(sequence_class or "", action)
-    return _Shape(category, interaction, object_type, None, attributes)
+    return _Shape(actual_action, interaction, object_type, None, attributes)
 
 
 def _legacy_action_attributes(sequence_class: str, action: Mapping[str, Any]) -> JsonObject:
@@ -199,14 +197,15 @@ def _legacy_commute_shape(payload: Mapping[str, Any]) -> tuple[_Shape | None, st
     return _Shape("", interaction, "workplace", None, {"place_type": "workplace"}), "observed"
 
 
-def worldmock_public_evidence(
-    events: Sequence[Event],
-    activity_rows: Sequence[JsonObject],
-    activity_map: Mapping[str, str],
-) -> tuple[PublicEvidence, ...]:
-    """@brief 消费适配器已校验的事件和活动，提取 WorldMock 公开结构事实。"""
-    activities = {str(row.get("activity_id")): row for row in activity_rows}
-    actions = _world_actions(events, activities, activity_map)
+def worldmock_public_evidence(events: Sequence[Event],
+                              activity_rows: Sequence[JsonObject]) -> tuple[PublicEvidence, ...]:
+    """@brief 先校验事件前缀，再从真实动作、对象和付款事实生成公开证据。"""
+    try:
+        validate_activity_prefix([event.model_dump(mode="json") for event in events])
+    except IntegrityError as exc:
+        raise EvaluationError("invalid_input", str(exc)) from exc
+    activities = {str(row["activity_id"]): row for row in activity_rows}
+    actions = _world_actions(events, activities)
     evidence: list[PublicEvidence] = []
     for event in events:
         if event.event_type == "action_requested" and event.action_id in actions:
@@ -217,15 +216,14 @@ def worldmock_public_evidence(
                 evidence.extend(_world_result(event, action))
         elif event.event_type == "environment_event":
             evidence.extend(_world_environment(event))
+        elif event.event_type == "activity_progress":
+            evidence.extend(_content_progress(event))
     return tuple(sorted(evidence, key=_evidence_order))
 
 
-def _world_actions(
-    events: Sequence[Event],
-    activities: Mapping[str, JsonObject],
-    activity_map: Mapping[str, str],
-) -> dict[str, tuple[_Action, ...]]:
-    """@brief 以 action_id 回链请求、结果和确实对象字段。"""
+def _world_actions(events: Sequence[Event],
+                   activities: Mapping[str, JsonObject]) -> dict[str, tuple[_Action, ...]]:
+    """@brief 以请求身份回链真实启动和控制结果。"""
     by_action: dict[str, list[Event]] = defaultdict(list)
     for event in events:
         if event.action_id:
@@ -240,77 +238,53 @@ def _world_actions(
         if tool_name == "start_activity":
             selected = _start_shapes(request, related)
         elif tool_name in _SESSION_CONTROL_TOOLS:
-            selected = _control_actions(tool_name, request, related, activities, activity_map)
+            selected = _control_actions(tool_name, request, related, activities)
         else:
-            shape = _world_request_shape(tool_name, request)
-            selected = (_Action(tool_name, request, shape),) if shape is not None else ()
+            selected = ()
         if selected:
             result[action_id] = selected
     return result
 
 
-def _world_request_shape(
-    tool_name: str | None,
-    request: Mapping[str, Any],
-) -> _Shape | None:
-    """@brief 映射一个稳定工具请求并用结果中的对象字段回链。"""
-    if tool_name == "send_message":
-        return _Shape("social", "message", "person", _string(request.get("recipient_name")), {})
-    return None
 
 
 def _start_shapes(request: Mapping[str, Any], related: Sequence[Event]) -> tuple[_Action, ...]:
-    """@brief 把等长的可读对象、动词与方式数组逐项映射为独立公开证据。
-
-    内部动作按结果中的活动快照 kind 分类（购买按实际订单）；没有结果活动的请求（如被拒绝）按私有绑定的方式闭集
-    （WAYS）映射，不按动词或短语反解。
-    """
+    """@brief 请求逐项直接读取七个具体动作，不从名称或方式反解。"""
     items = request.get("items")
-    if not isinstance(items, list) or not 1 <= len(items) <= 2:
-        return ()
+    if not isinstance(items, list) or not items:
+        raise EvaluationError("invalid_input", "Start activity requires current action items")
     selected = []
     for index, item in enumerate(items):
-        target, way = item["target"], item["way"]
-        action = _started_action(related, index, way)
-        shape = _start_shape(action, way, target, related, index)
+        if not isinstance(item, dict) or set(item) != {"action", "target"}:
+            raise EvaluationError("invalid_input", "Start activity item schema is invalid")
+        action = item["action"]
+        if action not in ACTIVITY_ACTIONS:
+            raise EvaluationError("invalid_input", "Start activity action is outside the current closed set")
+        shape = _start_shape(action, related, index)
         if shape is not None:
             key = _string(_related_activity(related, index).get("activity_id"))
             selected.append(_Action("start_activity", request, shape, action, index, activity_key=key))
     return tuple(selected)
 
 
-def _started_action(related: Sequence[Event], index: int, way: Any) -> str | None:
-    """@brief 逐项的内部标准动作：结果活动快照的 kind，其次实际订单（购买），最后是方式在 WAYS 中的内部动作。"""
-    kind = _string(_related_activity(related, index).get("kind"))
-    if kind in _ACTION_OF_KIND:
-        return _ACTION_OF_KIND[kind]
-    if _order_key(related, index) is not None:
-        return "purchase"
-    return WAYS[way][1] if isinstance(way, str) and way in WAYS else None
 
 
-def _start_shape(action: str | None, label: str, target: Any,
-                 related: Sequence[Event], index: int) -> _Shape | None:
-    """@brief 类别只读实际动作快照；没有快照不能从目标名字猜环境动作。"""
+def _start_shape(action: str, related: Sequence[Event], index: int) -> _Shape | None:
+    """@brief 实际快照提供对象，睡眠沿用不生成开始点事实的规则。"""
     activity = _related_activity(related, index)
-    if action == "travel_to":
+    if action in TRAVEL_ACTIONS:
         trip = _string(_mapping(activity.get("data")).get("trip_id"))
-        return _Shape("travel", "travel", "route", trip, _travel_mode(activity.get("travel_mode")))
-    if action == "do" and activity:
-        return _activity_shape(activity, {})
+        return _Shape(action, "travel", "route", trip, _travel_mode(activity.get("travel_mode")))
+    if action == "interact" and activity:
+        return _activity_shape(activity)
     if action == "purchase":
-        return _Shape("purchase", "order", "order", _order_key(related, index), {})
+        return _Shape(action, "order", "order", _order_key(related, index), {})
     return None
 
 
-def _control_actions(
-    tool_name: str,
-    request: Mapping[str, Any],
-    related: Sequence[Event],
-    activities: Mapping[str, JsonObject],
-    activity_map: Mapping[str, str],
-) -> tuple[_Action, ...]:
-    """@brief 按请求 items[] 逐活动投影，结果身份绑定到导出的真实活动快照。"""
+def _control_actions(tool_name: str, request: Mapping[str, Any], related: Sequence[Event],
+                     activities: Mapping[str, JsonObject]) -> tuple[_Action, ...]:
+    """@brief 控制事实取结果中的真实活动身份和状态。"""
     selected: list[_Action] = []
     for event in related:
         if event.event_type != "action_result":
@@ -318,57 +292,41 @@ def _control_actions(
         identities = _result_payload(event.data).get("activity_ids")
         if not isinstance(identities, list):
             continue
-        for index, activity_id in enumerate(identities):
-            key = _string(activity_id)
-            row = activities.get(key) if key is not None else None
-            base = _activity_shape(row, activity_map) if row is not None else None
+        for index, key in enumerate(identities):
+            row = activities.get(key)
+            base = _activity_shape(row) if row is not None else None
             if base is None:
                 continue
-            shape = _Shape(base.category, _SESSION_CONTROL_TOOLS[tool_name], "activity",
-                           key, base.attributes)
+            shape = _Shape(base.action, _SESSION_CONTROL_TOOLS[tool_name], "activity", key, {})
             selected.append(_Action(tool_name, request, shape, index=index,
                                     activity_status=_string(row.get("status"))))
         break
     return tuple(selected)
 
 
-def _activity_shape(row: Mapping[str, Any], activity_map: Mapping[str, str]) -> _Shape | None:
-    """@brief 动作对象取实际内容或社交对方，不公开标题、摘要及应用身份。"""
+def _activity_shape(row: Mapping[str, Any]) -> _Shape | None:
+    """@brief 内容交互使用真实内容，目录浏览使用真实应用，不推断设备或语义类别。"""
     kind = _string(row.get("activity_type")) or _string(row.get("kind"))
     data = _mapping(row.get("data"))
-    category = worldmock_activity_category(kind or "", data, activity_map)
+    action = worldmock_activity_action(kind or "", data)
     if kind == "travel":
-        return _Shape(category, "travel", "route", _string(data.get("trip_id")), _travel_mode(row.get("travel_mode")))
-    if kind != "action":
+        return _Shape(action, "travel", "route", _string(data.get("trip_id")), _travel_mode(row.get("travel_mode")))
+    if kind != "interact":
         return None
-    attributes = worldmock_activity_attributes(data)
-    if category == "social":
-        interaction = "call" if data.get("communication_mode") == "voice" else "chat"
-        return _Shape(category, interaction, "person", _string(data.get("counterpart")), attributes)
-    return _Shape(category, _ACTION_INTERACTIONS[category], "content", _string(data.get("content_id")), attributes)
+    content = _string(data.get("content_id"))
+    return _Shape(action, "interact", "content" if content else "app", content or _string(data.get("app_id")), {})
 
 
-def worldmock_activity_attributes(data: Mapping[str, Any]) -> Mapping[str, str]:
-    """@brief 只有快照真实带应用时按唯一使用方式表公开手机或其他设备。"""
-    if data.get("app_id") is None:
-        return {}
-    manner = data.get("manner")
-    if manner not in MANNER_DEVICE:
-        raise EvaluationError("invalid_input", "Action with an app requires a declared use manner")
-    return {"device": MANNER_DEVICE[manner]}
 
 
 def _world_result(event: Event, action: _Action) -> list[PublicEvidence]:
-    """@brief 投影动作终态，并为确实付款生成独立公开状态。"""
-    started = _start_action(action)
-    if started == "purchase":
+    """@brief 购买付款只由独立付款事件证明，出行付款只取真实账户变化。"""
+    if action.action_name == "purchase":
         return _purchase_result(event, action)
-    state = _result_state(event, action)
-    rows = [_from_event(event, action.shape, state)]
-    if started == "travel_to" and _account_changes(event, action):
-        payment = _Shape(action.shape.category, "pay", action.shape.object_type,
-                         action.shape.object_key, action.shape.attributes)
-        rows.append(_from_event(event, payment, "paid"))
+    rows = [_from_event(event, action.shape, _result_state(event, action))]
+    if action.action_name in TRAVEL_ACTIONS and _account_changes(event, action):
+        shape = _Shape(action.shape.action, "pay", "route", action.shape.object_key, action.shape.attributes)
+        rows.append(_from_event(event, shape, "paid"))
     return rows
 
 
@@ -378,25 +336,15 @@ def _start_action(action: _Action) -> str | None:
 
 
 def _purchase_result(event: Event, action: _Action) -> list[PublicEvidence]:
-    """@brief 仅依据实际订单对象投影订单、付款与履约状态。
-
-    与持续活动同一请求的取得：只由带着本项订单的结果投影；同一动作之后只描述活动的终态结果不是这项订单的结果，
-    不投影（组合请求中瞬时的取得当场成单并付款，组合结果仍是进行中）。
-    """
+    """@brief 每个真实订单独立投影，取消不会产生成功付款或收货。"""
     payload = _result_payload(event.data)
-    order = _item_order(payload, action.index)
-    if not order and ("activity" in payload or "activities" in payload):
-        return []
-    key = _string(order.get("order_id")) or action.shape.object_key
-    attributes = _fulfillment(order.get("fulfillment")) or dict(action.shape.attributes)
-    state = order.get("status")
-    if state not in {"pending", "ready_for_pickup", "delivered"}:
-        state = _result_state(event, action)
-    order_shape = _Shape("purchase", "order", "order", key, attributes)
-    rows = [_from_event(event, order_shape, str(state) if state is not None else None)]
-    if _account_changes(event, action) and event.data.get("status") in {"completed", "in_progress"}:
-        payment = _Shape("purchase", "pay", "order", key, attributes)
-        rows.append(_from_event(event, payment, "paid"))
+    orders = _mapping(_item_result(payload, action.index)).get("orders", payload.get("orders", []))
+    rows = []
+    for order in orders:
+        shape = _Shape("purchase", "order", "order", order["order_id"], _fulfillment(order["fulfillment"]))
+        rows.append(_from_event(event, shape, order["status"]))
+    if not rows and event.data.get("status") == "rejected":
+        rows.append(_from_event(event, action.shape, "rejected"))
     return rows
 
 
@@ -421,11 +369,8 @@ def _result_state(event: Event, action: _Action) -> str | None:
 
 
 def _world_environment(event: Event) -> tuple[PublicEvidence, ...]:
-    """@brief 收货与到站按每张真实订单分别取证，付款仍来自原始下单结果。"""
+    """@brief 独立订单、成功付款、到站与真实收货保留点事实。"""
     kind = event.data.get("kind")
-    if kind == "mail_arrival":
-        shape = _Shape("work_study", "notify", "message", _string(event.data.get("message_id")), {})
-        return (_from_event(event, shape, "received"),)
     if kind == "delivery_arrival":
         rows = []
         for order in event.data["orders"]:
@@ -438,9 +383,9 @@ def _world_environment(event: Event) -> tuple[PublicEvidence, ...]:
         shape = _Shape("purchase", "receive", "order", event.data["order_id"],
                        {"goods_category": event.data["category"]})
         return (_from_event(event, shape, "received"),)
-    if kind == "work_content_completed":
-        shape = _Shape("work_study", "work", "content", event.data["content_id"], {})
-        return (_from_event(event, shape, "completed"),)
+    if kind == "purchase_payment":
+        return tuple(_from_event(event, _Shape("purchase", "pay", "order", order_id, {}), "paid")
+                     for order_id in event.data["order_ids"])
     return ()
 
 
@@ -505,16 +450,9 @@ def _activity_with_identity(data: Mapping[str, Any], identity: str) -> Mapping[s
 
 
 def _account_changes(event: Event, action: _Action) -> bool:
-    """@brief 只在逐项结果确有账户资金变化时投影付款。"""
-    payload = _result_payload(event.data)
-    results = payload.get("activity_results")
-    if isinstance(results, list) and action.index < len(results):
-        row = _mapping(results[action.index])
-        changes = _mapping(row.get("resource_changes"))
-    else:
-        changes = _mapping(payload.get("resource_changes")) or _mapping(event.data.get("resource_changes"))
-    return any(key.startswith("account:") and isinstance(value, (int, float))
-               and not isinstance(value, bool) and value != 0 for key, value in changes.items())
+    """@brief 资金变化只读事件顶层的权威账本。"""
+    return any(key.startswith("account:agent:") and value < 0
+               for key, value in event.resource_changes.items())
 
 
 def _related_activity(events: Sequence[Event], index: int) -> Mapping[str, Any]:
@@ -539,7 +477,7 @@ def _related_activity(events: Sequence[Event], index: int) -> Mapping[str, Any]:
 def _from_event(event: Event, shape: _Shape, state: str | None) -> PublicEvidence:
     """@brief 从严格事件和闭集投影构造公开证据。"""
     return PublicEvidence(
-        datetime.fromtimestamp(event.occurred_at, ZoneInfo("UTC")), shape.category,
+        datetime.fromtimestamp(event.occurred_at, ZoneInfo("UTC")), shape.action,
         shape.interaction, shape.object_type, state, shape.object_key,
         shape.attributes, (event.event_id,), event.activity_id or event.action_id or shape.object_key,
     )
@@ -551,19 +489,24 @@ def _fulfillment(value: Any) -> JsonObject:
 
 
 def _travel_mode(value: Any) -> JsonObject:
-    """@brief 保留受支持的交通方式。"""
-    return {"travel_mode": value} if value in {"walking", "driving", "transit"} else {}
+    """@brief 盲评只归并真实交通方式，内部仍区分打车与公共交通。"""
+    public = {"walking": "walking", "driving": "driving", "taxi": "driving", "bus": "transit"}.get(value)
+    return {"travel_mode": public} if public is not None else {}
 
 
-def worldmock_activity_category(activity_type: str, data: Any, activity_map: Mapping[str, str]) -> str:
-    """@brief 系统活动读既有映射，环境动作只读五种固定动作类别。"""
-    if activity_type != "action":
-        if activity_type not in {"wait", "sleep", "travel"}:
-            raise EvaluationError("invalid_input", "Activity type is outside the current closed set")
-        return activity_map.get(activity_type, "unknown")
-    if not isinstance(data, dict) or data.get("category") not in ActionCategory:
-        raise EvaluationError("invalid_input", "Action requires a fixed category in its snapshot")
-    return data["category"]
+def worldmock_activity_action(activity_type: str, data: Any) -> str:
+    """@brief 当前活动只读取真实启动动作，退役种类优先拒绝。"""
+    if activity_type in {"wait", "action"}:
+        raise EvaluationError("invalid_input", "Activity snapshot uses a retired activity kind")
+    if activity_type not in {"sleep", "travel", "interact", "purchase"}:
+        raise EvaluationError("invalid_input", "Activity type is outside the current closed set")
+    action = _mapping(data).get("action")
+    if action not in ACTIVITY_ACTIONS:
+        raise EvaluationError("invalid_input", "Activity requires its actual action")
+    valid = action in TRAVEL_ACTIONS if activity_type == "travel" else action == activity_type
+    if not valid:
+        raise EvaluationError("invalid_input", "Activity action disagrees with its kind")
+    return action
 
 
 def _mapping(value: Any) -> dict[str, Any]:
@@ -596,6 +539,15 @@ def _iso_time(value: Any) -> datetime:
 def _evidence_order(value: PublicEvidence) -> tuple[Any, ...]:
     """@brief 返回与来源身份无关的稳定内部排序键。"""
     return (
-        value.occurred_at, value.category, value.interaction, value.object_type,
+        value.occurred_at, value.action, value.interaction, value.object_type,
         value.state or "", value.object_key or "", value.source_event_ids,
     )
+
+
+def _content_progress(event: Event) -> tuple[PublicEvidence, ...]:
+    """@brief 只有真实正向播放结算提供内容消费与完成事实。"""
+    content = event.data.get("content")
+    if not isinstance(content, dict) or content["position_after_seconds"] <= content["position_before_seconds"]:
+        return ()
+    shape = _Shape("interact", "interact", "content", content["content_id"], {})
+    return (_from_event(event, shape, "completed" if content["completed"] else "in_progress"),)

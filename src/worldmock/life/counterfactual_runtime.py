@@ -29,6 +29,7 @@ class CounterfactualRuntime:
         before = self.context.state.accounts[agent.balance_account_id]
         staged = self.context.state.model_copy(deep=True)
         staged.accounts[agent.balance_account_id] = intervention.balance_fen
+        staged.accounts["external:scenario"] += before - intervention.balance_fen
         staged.version = self.context.state.version + 1
         changes = {
             f"account:{agent.balance_account_id}": intervention.balance_fen - before,
@@ -42,7 +43,6 @@ class CounterfactualRuntime:
             "intervention_sha256": digest,
             "before_balance_fen": before,
             "after_balance_fen": intervention.balance_fen,
-            "resource_changes": changes,
         }
         draft = EventDraft(
             event_type="environment_event",
@@ -52,6 +52,7 @@ class CounterfactualRuntime:
             visibility="evaluation",
             source_kind="scenario",
             data=data,
+            resource_changes=changes,
         )
         event = self.context.store.commit(validated_payload(staged), [draft])[0]
         self.context.state = staged

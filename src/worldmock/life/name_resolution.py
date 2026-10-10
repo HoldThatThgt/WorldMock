@@ -1,36 +1,27 @@
-"""@brief 从同一冻结观察解析动作、商品与地点名称，不猜测应用或内容。"""
+"""@brief 冻结观察中的动作与完整名称解析，不猜测实例或内容。"""
 
 from __future__ import annotations
-
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+import unicodedata
 from typing import Any, TypeVar
-
-from worldmock.life import object_labels, vocabulary
-from worldmock.life.error_contract import MAX_CANDIDATES, Candidate, ErrorItem, activity_candidate
-from worldmock.life.interaction_menu import binding_action, named_supply_row
-from worldmock.life.object_labels import object_label
-from worldmock.life.readable import TRAVEL_WAYS
-from worldmock.life.vocabulary import WAYS
+from worldmock.life import object_labels
+from worldmock.life.action_contract import ACTIVITY_ACTIONS, TRAVEL_ACTIONS, binding_action
+from worldmock.life.error_contract import MAX_CANDIDATES, Candidate, ErrorItem
 
 _Entry = TypeVar("_Entry")
-MAX_START_ITEMS = 2
-_WAY_KINDS = {
-    "步行": frozenset({"location"}), "驾车": frozenset({"location"}), "领取": frozenset({"location"}),
-    "进行": frozenset({"action"}), "购买": frozenset({"supply"}),
-    "睡觉": frozenset({"self"}), "等待": frozenset({"self"}),
-}
-_TRAVEL_MODES = {way: mode for mode, way in TRAVEL_WAYS.items()}
+_ACTION_KINDS = {**{action: frozenset({"location"}) for action in TRAVEL_ACTIONS},
+                 "sleep": frozenset({"location"}), "purchase": frozenset({"supply"}),
+                 "interact": frozenset({"location", "app"})}
 
 
 @dataclass(frozen=True, slots=True)
 class Target:
-    """@brief 本轮目标或完整目录中的可按名调用对象。"""
-
+    """@brief 冻结目标及其真实动作与公开资格。"""
     label: str
     kind: str
     object_id: Any
-    offers: tuple[tuple[str, str], ...]
+    actions: tuple[str, ...]
     blocked: tuple[str | None, ...]
     notes: tuple[str | None, ...]
     listed: bool = True
@@ -38,25 +29,21 @@ class Target:
 
     @property
     def feasible(self) -> bool:
-        """@brief 候选排序优先此刻至少有一种方式可做的目标。"""
+        """@brief 候选优先至少有一个可用动作的目标。"""
         return any(reason is None for reason in self.blocked)
 
 
 @dataclass(frozen=True, slots=True)
 class NameBook:
-    """@brief 冻结的完整目标、本人地点、人物与可关联消息名称。"""
-
+    """@brief 本轮绑定和完整地点、内容 app 名称。"""
     targets: tuple[Target, ...]
     home: str | None = None
     here: str | None = None
-    people: tuple[str, ...] = ()
-    messages: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class Failure:
-    """@brief 名称或方式的完整错误项、可读原因与证据说明。"""
-
+    """@brief 完整名称错误与可提交候选。"""
     item: ErrorItem
     sentence: str
     detail: str
@@ -64,32 +51,20 @@ class Failure:
 
 @dataclass(frozen=True, slots=True)
 class StartItem:
-    """@brief 归一请求恰有目标、方式、应用、对方和支付应用五个字段。"""
-
+    """@brief 无损归一后的动作与对象名。"""
+    action: str
     target: str
-    way: str
-    app: str | None
-    to: str | None
-    pay_app: str | None
-
-    @property
-    def action(self) -> str:
-        """@brief 从方式唯一推出内部动词。"""
-        return vocabulary.way_verb(self.way)
 
 
 @dataclass(frozen=True, slots=True)
 class StartRequest:
-    """@brief 原子活动项与关联的未回复消息。"""
-
+    """@brief 一次原子开始请求的全部项。"""
     items: tuple[StartItem, ...]
-    answering: str | None
 
 
 @dataclass(frozen=True, slots=True)
 class StartOutcome:
-    """@brief 名称解析后的请求、私有绑定行和全部名称错误。"""
-
+    """@brief 解析后绑定与所有独立名称错误。"""
     request: StartRequest | None
     rows: tuple[dict, ...] = ()
     failures: tuple[Failure, ...] = ()
@@ -97,52 +72,44 @@ class StartOutcome:
     notes: tuple[str, ...] = ()
 
 
-@dataclass(frozen=True, slots=True)
-class _Item:
-    """@brief 一项选择或失败与无损归一记录。"""
-
-    row: dict | None
-    failure: Failure | None = None
-    resolved: tuple[dict, ...] = ()
+def named_supply_row(name: str) -> dict:
+    """@brief 未展示商品交给唯一指名商品解析入口。"""
+    action = binding_action("purchase")
+    return {"object": name, "kind": "named_supply", "object_id": None,
+            "actions": [action], "selected_action": action}
 
 
 def lookup(written: str, targets: Sequence[Target], kinds: frozenset[str] = frozenset(),
            home: str | None = None) -> tuple[Target, ...]:
-    """@brief 动作必须精确匹配登记名称；其他目标允许既有无损归一和本人住处写法。"""
-    found = tuple(target for target in targets if target.label == written)
-    if found:
-        return found
-    pool = tuple(target for target in targets if target.kind != "action" and (not kinds or target.kind in kinds))
+    """@brief 先匹配完整标签，再在允许类型中作三级无损归一。"""
+    exact = tuple(target for target in targets if target.label == written)
+    if exact:
+        return exact
+    pool = tuple(target for target in targets if not kinds or target.kind in kinds)
     keys = object_labels._keys(written)
     for level in (0, 1):
         found = tuple(target for target in pool if object_labels._keys(target.label)[level] == keys[level])
         if found:
             return found
-    if keys[2] in object_labels.HOME_WORDS and home is not None and (not kinds or "location" in kinds):
+    if keys[2] in object_labels.HOME_WORDS and home is not None:
         return tuple(target for target in pool if target.label == home)
     return tuple(target for target in pool if object_labels._keys(target.label)[2] == keys[2])
 
 
-def pick_way(target: Target, verb: str, way: str) -> str | None:
-    """@brief 所写方式只能选中该目标声明的一种方式，同义词也必须唯一命中。"""
-    hits = vocabulary.way_options(way) & {offered for owner, offered in target.offers if owner == verb}
-    return next(iter(hits)) if len(hits) == 1 else None
-
-
 def terms(text: str) -> frozenset[str]:
-    """@brief 名称排名使用大小写归一后的单字与相邻二字。"""
+    """@brief 名称排序使用单字和相邻双字。"""
     compact = "".join(text.split()).casefold()
     return frozenset(compact) | frozenset(compact[index:index + 2] for index in range(len(compact) - 1))
 
 
 def dice(left: frozenset[str], right: frozenset[str]) -> float:
-    """@brief 两组词项的 Dice 相似度，空集合得零。"""
+    """@brief 空集合相似度为零。"""
     return 0.0 if not left or not right else 2 * len(left & right) / (len(left) + len(right))
 
 
 def rank(written: str, entries: Iterable[_Entry], names: Callable[[_Entry], Sequence[str]],
          feasible: Callable[[_Entry], bool], limit: int = MAX_CANDIDATES) -> list[_Entry]:
-    """@brief 可行性、名称相似度与完整名称决定稳定候选顺序，排名不替代所写名称。"""
+    """@brief 按可行性、相似度与完整名称稳定排序。"""
     query, scored = terms(written), []
     for entry in entries:
         labels = tuple(names(entry))
@@ -154,186 +121,120 @@ def rank(written: str, entries: Iterable[_Entry], names: Callable[[_Entry], Sequ
 
 
 def near_names(written: str, names: Iterable[str], limit: int = MAX_CANDIDATES) -> list[str]:
-    """@brief 为名称拒绝返回近名列表，不自动修正人物输入。"""
+    """@brief 近名仅供纠错，不自动更改输入。"""
     return rank(object_labels.bare_name(written), dict.fromkeys(names),
                 lambda name: (object_labels.bare_name(name),), lambda name: True, limit)
 
 
 def name_book(observation: Mapping[str, Any]) -> NameBook:
-    """@brief 动作取完整登记表，商品与地点可以按名调用；人物和联系人只作为对方候选。"""
-    rows = observation["interaction_bindings"]
-    durations = {(target["name"], action["way"]): action["duration"]
-                 for target in observation["tool_layer"]["targets"] for action in target["actions"]
-                 if action.get("duration")}
-    listed = tuple(_listed_target(row, durations) for row in rows)
-    labels = {target.label for target in listed}
-    actions = tuple(_action_target(row) for row in observation["actions"] if row["name"] not in labels)
-    places = {row["location_id"]: object_label("location", row["name"]) for row in observation["locations"]}
-    unlisted = tuple(_place_target(row, places[row["location_id"]]) for row in observation["locations"]
-                     if places[row["location_id"]] not in labels)
-    return NameBook(listed + actions + unlisted, places.get(observation["home_location_id"]),
-                    places.get(observation["location_id"]),
-                    tuple(dict.fromkeys([*(row["name"] for row in observation["person_bindings"]),
-                                         *(row["object"] for row in rows if row["kind"] in {"person", "contact"})])),
-                    tuple(row["name"] for row in observation["message_bindings"]))
+    """@brief 未展示地点和内容 app 可按名调用，功能 app 永不补入。"""
+    public = {row["name"]: row for row in observation["tool_layer"]["targets"]}
+    targets = [_target(row, public.get(row["object"]), True) for row in observation["interaction_bindings"]]
+    labels = {target.label for target in targets}
+    for row in observation["catalog_bindings"]:
+        if row["object"] not in labels:
+            targets.append(_target(row, None, False))
+    places = {row["location_id"]: row["name"] for row in observation["locations"]}
+    return NameBook(tuple(targets), places[observation["home_location_id"]], places[observation["location_id"]])
 
 
-def _listed_target(row: Mapping[str, Any], durations: Mapping[tuple[str, str], str]) -> Target:
-    """@brief 同目标重复应用行合并为方式资格，具体应用仍由路由按所写名称选择。"""
-    actions = tuple({(action["verb"], action["label"]): action for action in row["actions"]}.values())
-    offers = tuple((action["verb"], action["label"]) for action in actions)
-    return Target(row["object"], row["kind"], row["object_id"], offers,
-                  tuple(action.get("note") for action in actions),
-                  tuple(durations.get((row["object"], way)) for _, way in offers), row=row)
+def _target(row: Mapping, public: Mapping | None, listed: bool) -> Target:
+    """@brief 私有资格与公开时长按同一动作位置对齐。"""
+    actions = tuple(item["action"] for item in row["actions"])
+    facts = {} if public is None else {item["action"]: item for item in public["actions"]}
+    return Target(row["object"], row["kind"], row["object_id"], actions,
+                  tuple(item.get("note") for item in row["actions"]),
+                  tuple(facts.get(action, {}).get("duration") for action in actions), listed, row)
 
 
-def _action_target(row: Mapping[str, Any]) -> Target:
-    """@brief 所有登记动作均可解析，内容是否属于本人由实际受理判定。"""
-    action = binding_action("进行", "do", category=row["category"], manner=row["manner"])
-    binding = {"object": row["name"], "kind": "action", "object_id": row["action_id"],
-               "category": row["category"], "app_ids": row["app_ids"], "manner": row["manner"],
-               "communication_mode": row["communication_mode"], "actions": [action]}
-    return Target(row["name"], "action", row["action_id"], (("interact", "进行"),), (None,), (None,), False, binding)
+def selection_row(target: Target, action: str) -> dict:
+    """@brief 选择实际提供的动作，不增加旧路由字段。"""
+    selected = next(item for item in target.row["actions"] if item["action"] == action)
+    return {**target.row, "selected_action": dict(selected)}
 
 
-def _place_target(row: Mapping[str, Any], label: str) -> Target:
-    """@brief 未展示地点可按名出行，只有驿站还提供领取方式。"""
-    ways = (*_TRAVEL_MODES, *(("领取",) if row["kind"] == "parcel_station" else ()))
-    actions = [binding_action(way, WAYS[way][1], travel_mode=_TRAVEL_MODES.get(way)) for way in ways]
-    binding = {"object": label, "kind": "location", "object_id": row["location_id"], "actions": actions}
-    return Target(label, "location", row["location_id"], tuple((WAYS[way][0], way) for way in ways),
-                  tuple(None for _ in ways), tuple(None for _ in ways), False, binding)
-
-
-def selection_row(target: Target, verb: str, way: str) -> dict:
-    """@brief 从冻结绑定选方式，应用身份与对方由路由随后加入。"""
-    action = next(item for item in target.row["actions"] if (item["verb"], item["label"]) == (verb, way))
-    return {**target.row, "selected_action": dict(action)}
-
-
-def fill_in(target: Target, item: StartItem, way: str | None = None) -> Candidate:
-    """@brief 名称候选保留五个显式字段，仅把目标及不合方式改成声明值。"""
-    chosen = way or pick_way(target, item.action, item.way)
-    if chosen is None:
-        chosen = next((offer[1] for offer, reason in zip(target.offers, target.blocked) if reason is None),
-                      target.offers[0][1])
-    position = target.offers.index((WAYS[chosen][0], chosen))
-    return activity_candidate(target.label, chosen, (item.app, item.to, item.pay_app),
-                              target.blocked[position] or _duration_note(target.notes[position]))
-
-
-def _duration_note(note: str | None) -> str | None:
-    """@brief 候选沿用冻结时长并转为英文。"""
-    if note is None:
-        return None
-    if note == "不到 1 分钟":
-        return "Less than one minute."
-    return note.replace("约 ", "About ").replace(" 分钟", " minutes.").replace(" 小时", " hours.")
+def fill_in(target: Target, item: StartItem, action: str | None = None) -> Candidate:
+    """@brief 候选只含动作与对象，支持原动作时保留原动作。"""
+    chosen = action or (item.action if item.action in target.actions else next(
+        (offered for offered, reason in zip(target.actions, target.blocked) if reason is None), target.actions[0]))
+    position = target.actions.index(chosen)
+    return Candidate("start_activity", {"items": [{"action": chosen, "target": target.label}]},
+                     target.blocked[position] or target.notes[position])
 
 
 def near_candidates(book: NameBook, item: StartItem) -> tuple[Candidate, ...]:
-    """@brief 同类近名仅提供完整请求，未展示的地点不作可达候选。"""
-    kinds = frozenset().union(*(_WAY_KINDS[way] for way in vocabulary.way_options(item.way)))
-    pool = (target for target in book.targets if (target.listed or target.kind == "action") and target.kind in kinds)
-    chosen = rank(object_labels.bare_name(item.target), pool, lambda target: (object_labels.bare_name(target.label),),
-                  lambda target: target.feasible)
-    return tuple(fill_in(target, item) for target in chosen)
+    """@brief 近名候选只来自已展示且类型允许的目标。"""
+    pool = (target for target in book.targets if target.listed and target.kind in _ACTION_KINDS[item.action])
+    chosen = rank(object_labels.bare_name(item.target), pool,
+                  lambda target: (object_labels.bare_name(target.label),), lambda target: target.feasible)
+    return tuple(fill_in(target, item) for target in chosen if target.actions)
 
 
 def resolve_start(book: NameBook, request: Any) -> StartOutcome:
-    """@brief 汇总各项名称与方式错误；只归一目标、方式、人物和消息，不补应用或支付。"""
-    items = [_resolve_item(book, request, index) for index in range(len(request.items))]
-    normalized, records = [], []
-    for raw, result in zip(request.items, items):
-        label = result.row["object"] if result.row else raw.target
-        way = result.row["selected_action"]["label"] if result.row else raw.way
-        destination, record = _person(book, raw.to)
-        normalized.append(StartItem(label, way, raw.app, destination, raw.pay_app))
-        records.extend(record)
-    answering, answered = _answering(book, request.answering)
-    converted = StartRequest(tuple(normalized), answering)
-    failures = tuple(item.failure for item in items if item.failure is not None)
-    if failures:
-        return StartOutcome(converted, failures=failures)
-    resolved = (*(record for item in items for record in item.resolved), *records, *answered)
-    return StartOutcome(converted, tuple(item.row for item in items), resolved=resolved)
+    """@brief 逐项汇总名称错误，任一失败时不派发任何项。"""
+    results = [_resolve_item(book, item, index) for index, item in enumerate(request.items)]
+    rows = tuple(row for row, _, _ in results if row is not None)
+    failures = tuple(failure for _, failure, _ in results if failure is not None)
+    normalized = tuple(StartItem(row["selected_action"]["action"] if row else item.action,
+                                 row["object"] if row else item.target)
+                       for item, (row, _, _) in zip(request.items, results))
+    return StartOutcome(StartRequest(normalized), () if failures else rows, failures,
+                        tuple(record for _, _, records in results for record in records))
 
 
-def _resolve_item(book: NameBook, request: Any, index: int) -> _Item:
-    """@brief 合法方式先查已知对象；未展示商品的购买交给唯一商品解析入口。"""
-    raw = request.items[index]
-    item = StartItem(raw.target, raw.way, raw.app, raw.to, raw.pay_app)
-    options = vocabulary.way_options(item.way)
-    if not options:
-        reason = "The way is outside the declared closed set."
-        error = ErrorItem(("items", index, "way"), item.way, "WAY_NOT_OFFERED", tuple(WAYS),
-                          expected="An offered activity way is required.", why=reason)
-        return _Item(None, Failure(error, reason, reason))
-    way = next(iter(options))
-    matches = lookup(item.target, book.targets, _WAY_KINDS[way], book.home)
+def _resolve_item(book: NameBook, item: Any, index: int) -> tuple:
+    """@brief 合法动作先查对象，指名购买交给真实商品入口。"""
+    normalized = "".join(unicodedata.normalize("NFKC", item.action).split())
+    if normalized not in ACTIVITY_ACTIONS:
+        why = "The action is outside the declared closed set."
+        error = ErrorItem(("items", index, "action"), item.action, "ACTION_NOT_OFFERED", ACTIVITY_ACTIONS,
+                          "An offered activity action is required.", why)
+        return None, Failure(error, why, why), ()
+    row, failure, records = _resolve_known(book, StartItem(normalized, item.target), index)
+    if failure is not None and failure.item.path[-1] == "action":
+        failure = replace(failure, item=replace(failure.item, written=item.action))
+    changed = () if normalized == item.action else ({"written": item.action, "as": normalized},)
+    return row, failure, (*changed, *records)
+
+
+def _resolve_known(book: NameBook, item: StartItem, index: int) -> tuple:
+    """@brief 已知动作按允许目标类型完成唯一名称匹配。"""
+    matches = lookup(item.target, book.targets, _ACTION_KINDS[item.action], book.home)
     if len(matches) == 1:
         target = matches[0]
-        chosen = pick_way(target, item.action, item.way)
-        if chosen is None:
-            return _Item(None, _failure(target, item, index, "WAY_NOT_OFFERED"))
-        return _Item(selection_row(target, item.action, chosen),
-                     resolved=(*_record(item.target, target.label), *_record(item.way, chosen)))
+        if item.action not in target.actions:
+            return None, _unsupported(target, item, index), ()
+        records = () if target.label == item.target else ({"written": item.target, "as": target.label},)
+        return selection_row(target, item.action), None, records
     if matches:
-        return _Item(None, _ambiguous(matches, item, index))
-    if way == "购买":
-        return _Item(named_supply_row(item.target, "购买"), resolved=_record(item.way, "购买"))
-    reason = f"No known object named {item.target} supports this way; changing spelling cannot create an object."
+        why = f"The name {item.target} identifies several known objects."
+        candidates = tuple(fill_in(target, item) for target in matches[:MAX_CANDIDATES] if target.actions)
+        error = ErrorItem(("items", index, "target"), item.target, "NAME_AMBIGUOUS",
+                          expected="One unambiguous complete object name is required.", why=why, candidates=candidates)
+        return None, Failure(error, why, why), ()
+    if item.action == "purchase":
+        return named_supply_row(item.target), None, ()
+    why = f"No known object named {item.target} supports this action; changing spelling cannot create an object."
     error = ErrorItem(("items", index, "target"), item.target, "NAME_NOT_FOUND",
-                      expected="A known object name in the selected way's category is required.", why=reason,
+                      expected="A known object name in the selected action's category is required.", why=why,
                       candidates=near_candidates(book, item))
-    return _Item(None, Failure(error, reason, reason))
+    return None, Failure(error, why, why), ()
 
 
-def _record(written: str, name: str) -> tuple[dict, ...]:
-    """@brief 无损归一仅在写法实际变化时记证据。"""
-    return () if written == name else ({"written": written, "as": name},)
-
-
-def _failure(target: Target, item: StartItem, index: int, code: str) -> Failure:
-    """@brief 已知对象的方式错误列出全部声明方式与可照填候选。"""
-    ways = tuple(dict.fromkeys(way for _, way in target.offers))
-    reason = f"The known object {target.label} does not support the written way."
-    error = ErrorItem(("items", index, "way"), item.way, code, ways,
-                      "A way offered by this object is required.", reason,
-                      tuple(fill_in(target, item, way) for way in ways[:MAX_CANDIDATES]))
-    return Failure(error, reason, reason)
-
-
-def _ambiguous(matches: Sequence[Target], item: StartItem, index: int) -> Failure:
-    """@brief 名称歧义只给声明过该方式的对象候选。"""
-    reason = f"The name {item.target} identifies several known objects."
-    candidates = tuple(fill_in(target, item) for target in matches[:MAX_CANDIDATES] if target.offers)
-    error = ErrorItem(("items", index, "target"), item.target, "NAME_AMBIGUOUS",
-                      expected="One unambiguous complete object name is required.", why=reason, candidates=candidates)
-    return Failure(error, reason, reason)
+def _unsupported(target: Target, item: Any, index: int) -> Failure:
+    """@brief 已知目标不支持动作时提供完整合法请求。"""
+    why = f"The known object {target.label} does not support the written action."
+    candidates = tuple(fill_in(target, item, action) for action in target.actions[:MAX_CANDIDATES])
+    error = ErrorItem(("items", index, "action"), item.action, "ACTION_NOT_OFFERED", target.actions,
+                      "An action offered by this object is required.", why, candidates)
+    return Failure(error, why, why)
 
 
 def resolution_data(data: Mapping[str, Any], resolved: Sequence[dict], notes: Sequence[str]) -> dict[str, Any]:
-    """@brief 把真实发生的名称归一与说明追加到结果。"""
-    merged = dict(data)
+    """@brief 仅追加实际发生的无损名称归一证据。"""
+    result = dict(data)
     if resolved:
-        merged["resolved"] = [*merged.get("resolved", []), *resolved]
+        result["resolved"] = [*result.get("resolved", []), *resolved]
     if notes:
-        merged["notes"] = [*merged.get("notes", []), *notes]
-    return merged
-
-
-def _person(book: NameBook, destination: str | None) -> tuple[str | None, tuple[dict, ...]]:
-    """@brief 对方和收货人沿用统一人物名称的无损归一，不猜未知人物。"""
-    if destination is None or destination in book.people:
-        return destination, ()
-    match = object_labels.resolve_name(destination, book.people)
-    return (match.name, _record(destination, match.name)) if match.name is not None else (destination, ())
-
-
-def _answering(book: NameBook, answering: str | None) -> tuple[str | None, tuple[dict, ...]]:
-    """@brief 可关联消息只按已冻结的消息名称解析。"""
-    if answering is None or answering in book.messages:
-        return answering, ()
-    match = object_labels.resolve_name(answering, book.messages)
-    return (match.name, _record(answering, match.name)) if match.name is not None else (answering, ())
+        result["notes"] = [*result.get("notes", []), *notes]
+    return result

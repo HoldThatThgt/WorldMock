@@ -1,0 +1,8 @@
+{"app_ids":["eleme","meituan"],"kind":"cafe","location_id":"cafe","name":"三杯咖啡"}
+{"app_ids":[],"is_home":true,"kind":"home","location_id":"home","name":"家"}
+{"app_ids":["meituan"],"kind":"restaurant","location_id":"noodle-1","name":"一心面馆"}
+{"app_ids":[],"kind":"restaurant","location_id":"noodle-2","name":"二味小炒"}
+{"app_ids":[],"kind":"office","location_id":"office","name":"公司"}
+{"accepts_parcels":true,"app_ids":[],"kind":"parcel_station","location_id":"parcel-station","name":"快递驿站"}
+{"app_ids":[],"kind":"park","location_id":"park","name":"五里公园"}
+{"app_ids":[],"kind":"convenience_store","location_id":"store","name":"四季便利"}

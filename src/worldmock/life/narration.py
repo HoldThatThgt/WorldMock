@@ -16,18 +16,14 @@ import logging
 PERSONA_CARD_HANZI_BUDGET = 600
 
 #: 不得进入提示的字面键（「不进入提示的字段」）。activity_snapshot 与 activities 对应"完整活动快照"；
-#: affordance_contract 和 interaction_menu 是合同全表；*_bindings 是名称到内部身份的私有绑定；world_query_channels 是
-#: 查询来源筛选的私有渠道索引（docs/design/04-simulation-engine.md#simulation-engine-应用筛选 ）；
-#: persona_views、progress_meta、progress_event_ids、presented_message_ids 与 continuation 是观察私有证据
+#: *_bindings 是名称到内部身份的私有绑定；world_query_page_size 是查询分页使用的内部参数。
+#: persona_views、progress_meta、progress_event_ids 与 continuation 是观察私有证据
 #: （docs/design/06-agent.md、第二章「同秒续接」）；个人事务的两类私有绑定与事务身份 errand_id 同列禁键
 #: （docs/design/04-simulation-engine.md ）。七层字段 activity（记忆层 self_notes 与结果 outcome 的活动名）是可读名称，
 #: 不在禁键之列。
 FORBIDDEN_OBSERVATION_KEYS = frozenset({
     "world_state_version",
     "end_time",
-    "affordance_contract",
-    "interaction_menu",
-    "interaction_menus_by_location_kind",
     "observation_event_id",
     "motivation_hints",
     "profile.motivation",
@@ -40,7 +36,6 @@ FORBIDDEN_OBSERVATION_KEYS = frozenset({
     "reference_assessment",
     "world_query_bindings",
     "world_query_page_size",
-    "world_query_channels",
     "oracle_path",
     "input_path",
     "accounts",
@@ -56,8 +51,6 @@ FORBIDDEN_OBSERVATION_KEYS = frozenset({
     "path",
     "product_id",
     "order_id",
-    "message_id",
-    "contact_id",
     "resource_changes",
     "energy_kcal",
     "sleep_pressure",
@@ -74,14 +67,11 @@ FORBIDDEN_OBSERVATION_KEYS = frozenset({
     "push_id",
     "goods_id",
     "payment_app_id",
-    "navigation_app_id",
     "store_id",
     "interaction_bindings",
     "goal_bindings",
     "activity_bindings",
     "session_bindings",
-    "message_bindings",
-    "person_bindings",
     "errand_bindings",
     "errand_item_bindings",
     "errand_id",
@@ -89,13 +79,12 @@ FORBIDDEN_OBSERVATION_KEYS = frozenset({
     "persona_views",
     "progress_meta",
     "progress_event_ids",
-    "presented_message_ids",
     "continuation",
 })
 
 #: 体感分级允许进入提示，同名的数值身体状态禁止进入。
 BODY_VALUE_KEYS = frozenset({
-    "appetite", "sleepiness", "entertainment_need", "social_need", "mood_valence",
+    "appetite", "sleepiness", "relaxation", "social", "relaxation_need", "social_need",
 })
 
 #: 嵌套路径禁键：(父键, 子键)。profile 的动机与娱乐偏好不得进入提示。
@@ -163,9 +152,8 @@ def _is_error_parameter_path(item: dict) -> bool:
 def enforce_field_blacklist(payload: object) -> None:
     """@brief 校验渲染输入不含黑名单字段（多层递归，含列表内嵌套）。
 
-    覆盖「不进入提示的字段」的全部禁项：字面键（world_state_version、end_time、affordance_contract、
-    observation_event_id、motivation_hints、game_catalog、activity_snapshot/activities 即完整活动快照）、
-    工作隐藏参考与答案、哈希、内部身份与账户、私有绑定与观察私有证据、数值身体状态、profile 嵌套键与
+    覆盖「不进入提示的字段」的全部禁项：完整活动快照、哈希、内部身份与账户、私有绑定与观察私有证据、
+    数值身体状态、profile 嵌套键与
     点号扁平键。通过时静默返回。
 
     @param payload 渲染输入（一层 JSON 对象或层数组）

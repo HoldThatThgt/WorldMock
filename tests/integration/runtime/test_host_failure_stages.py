@@ -99,7 +99,7 @@ async def test_tool_service_failure_points_to_real_call_without_claiming_executi
 
 def _fixed_context_window(monkeypatch) -> None:
     """脚本模型使用固定供应商窗口，不请求外部模型元数据。"""
-    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_048_576)
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: metadata.context_window)
 
 
 def _agent_logs(caplog) -> list[tuple]:

@@ -27,7 +27,7 @@ from worldmock.life.models import (
 )
 from worldmock.life.observe import ObservationBuilder
 from worldmock.life.schedule import DayPlan
-from worldmock.life.semantics import ScenarioSemantics
+from worldmock.environment import EnvironmentInputs
 from worldmock.life.session_actions import ActionHandlers
 from worldmock.life.storefront_runtime import StorefrontRuntime
 from worldmock.life.time_advance import TimeAdvanceCoordinator
@@ -44,9 +44,9 @@ if TYPE_CHECKING:
 class LifeEngine:
     """@brief 仅编排现有公开生活协议，不保存第二份世界或业务簿记。"""
 
-    def __init__(self, semantics: ScenarioSemantics, scenario_sha256: str, store: FootprintStore):
+    def __init__(self, inputs: EnvironmentInputs, store: FootprintStore):
         """@brief 建立唯一上下文并绑定明确职责。"""
-        self.context = EngineContext(semantics, scenario_sha256, store)
+        self.context = EngineContext(inputs, store)
         self.observations = ObservationBuilder(self.context)
         self.actions = ActionHandlers(self.context, StorefrontRuntime(self.context))
         self.decisions = DecisionCoordinator(self.context, self.actions, self.observations)
@@ -57,19 +57,19 @@ class LifeEngine:
     @classmethod
     def create(
         cls,
-        scenario_path: Path,
+        environment: EnvironmentInputs | Path,
         run_dir: Path,
         run_identity: RunIdentity,
-        stage_identity: dict | None = None,
+        stage_identity: dict,
         create_options: dict | None = None,
     ) -> "LifeEngine":
         """@brief 真实装配冻结输入并新建唯一运行。"""
-        return cls(*create_world(scenario_path, run_dir, run_identity, stage_identity, create_options or {}))
+        return cls(*create_world(environment, run_dir, run_identity, stage_identity, create_options or {}))
 
     @classmethod
-    def open(cls, scenario_path: Path, run_dir: Path) -> "LifeEngine":
+    def open(cls, environment: EnvironmentInputs | Path, run_dir: Path) -> "LifeEngine":
         """@brief 重新核对实际输入并只打开已存在的运行。"""
-        return cls(*open_world(scenario_path, run_dir))
+        return cls(*open_world(environment, run_dir))
 
     def observe(self, context: "DecisionContext") -> dict:
         """@brief 提交一次真实观察并附当前同秒续接。"""
@@ -149,7 +149,7 @@ class LifeEngine:
 
     def meal_windows_by_agent(self) -> dict[int, "felt.MealWindows"]:
         """@brief 返回冻结人物声明的用餐时间窗口。"""
-        return meal_windows_by_agent(self.context.scenario)
+        return meal_windows_by_agent(self.context.persona)
 
     def fail_run(self, error: str) -> None:
         """@brief 追加唯一 run_failed，使后续故障覆盖先前完成候选。"""
@@ -160,7 +160,8 @@ class LifeEngine:
             return
         self.context.store.commit(validated_payload(self.context.state),
                                   [world_ops._failure_draft(self.context.state.current_time, error, None)])
-        self.context.ops.log(self.context.state.current_time, "engine", "error", "RUN_FAILED", f"Run failed: {error}")
+        self.context.ops.log(self.context.state.current_time, "engine", "error",
+                             {"code": "RUN_FAILED", "detail": f"Run failed: {error}"})
 
     def checkpoint(self, agent_snapshots: dict[str, AssetRef]) -> "Checkpoint":
         """@brief 合并全部人物和 life 快照后提交一个共同检查点。"""
@@ -177,9 +178,9 @@ class LifeEngine:
             self.context.state.current_time,
             "checkpoint",
             "info",
-            "CHECKPOINT_COMMITTED",
-            f"Checkpoint {committed.checkpoint_id} committed",
-            event_seq_last=committed.last_event_seq,
+            {"code": "CHECKPOINT_COMMITTED",
+            "detail": f"Checkpoint {committed.checkpoint_id} committed",
+            "event_seq_last": committed.last_event_seq},
         )
         return committed
 
@@ -195,5 +196,6 @@ class LifeEngine:
             "run_id": self.context.state.run_id,
             "state_version": self.context.state.version,
             "current_time": self.context.state.current_time,
-            "scenario_sha256": self.context.scenario_sha256,
+            "persona_sha256": self.context.inputs.persona_sha256,
+            "config_sha256": self.context.inputs.config_sha256,
         }

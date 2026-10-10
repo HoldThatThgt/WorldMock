@@ -1,11 +1,13 @@
-"""@brief 真实环境命令、地图发布和纯命令收集边界。"""
-
-from __future__ import annotations
+"""@brief 实际命令仅接受完整环境，纯入口和验证不加载运行引擎。"""
 
 import json
+import os
+from pathlib import Path
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import shutil
 import subprocess
 import sys
-from pathlib import Path
+import threading
 
 import pytest
 
@@ -16,82 +18,138 @@ ROOT = Path(__file__).resolve().parents[3]
 CLI_ENTRY = "from worldmock.cli import main; raise SystemExit(main())"
 
 
-def _command(*arguments: str) -> subprocess.CompletedProcess:
-    """@brief 用当前解释器调用实际 CLI 入口，不替换生产模型或目录加载器。"""
+def _command(*arguments):
+    environment = {**os.environ, "WORLDMOCK_TEST_API_KEY": "test-only-key"}
     return subprocess.run([sys.executable, "-c", CLI_ENTRY, *map(str, arguments)], cwd=ROOT,
-                          capture_output=True, text=True, timeout=60)
+                          capture_output=True, text=True, timeout=60, env=environment)
 
 
+@pytest.fixture
+def published_environment(tmp_path):
+    """@brief 真正 HTTP 服务只返回当前模型的权威元数据，CLI 不替换生产加载器。"""
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path != "/v1/models" or self.headers.get("Authorization") != "Bearer test-only-key":
+                self.send_error(401)
+                return
+            body = json.dumps({"data": [{"id": "test-model", "context_window": 524288,
+                                         "max_output_tokens": 32768}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    root = tmp_path / "environment"
+    shutil.copytree(ENVIRONMENT_ROOT, root)
+    path = root / "config.toml"
+    replacement = f"http://127.0.0.1:{server.server_port}/v1"
+    path.write_bytes(path.read_bytes().replace(b"https://model.example.invalid/v1", replacement.encode()))
+    try:
+        yield root
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 
-def test_generate_map_command_writes_the_real_library_bytes(tmp_path) -> None:
-    """@brief 实际命令发布字节与真实生成库逐字节相等并恰有一个末尾换行。"""
-    from worldmock.catalog.loader import parse_catalog_model
-    from worldmock.catalog.mapgen import generate_map, map_bytes
-    from worldmock.catalog.models import LocationsFile
-
-    source = ENVIRONMENT_ROOT / "catalog/locations.json"
-    locations = parse_catalog_model(json.loads(source.read_bytes()), LocationsFile)
-    output = tmp_path / "map.json"
-    result = _command("environment", "generate-map", "--locations", source, "--seed", "17", "--output", output)
-    assert result.returncode == 0, result.stderr
-    expected = map_bytes(generate_map([row.location_id for row in locations.locations], 17))
-    assert output.read_bytes() == expected and expected.endswith(b"\n") and not expected.endswith(b"\n\n")
-    assert json.loads(result.stdout)["seed"] == 17
-
-
-def test_generate_map_check_preserves_matching_and_mismatched_output(tmp_path) -> None:
-    """@brief 检查只比较发布字节，失配打印登记码且不会修补目标。"""
-    source, output = ENVIRONMENT_ROOT / "catalog/locations.json", tmp_path / "map.json"
-    arguments = ("environment", "generate-map", "--locations", source, "--seed", "17", "--output", output)
-    result = _command(*arguments)
-    assert result.returncode == 0, result.stderr
-    expected = output.read_bytes()
-    matching = _command(*arguments, "--check")
-    assert matching.returncode == 0 and output.read_bytes() == expected, matching.stderr
-    changed = expected + b" "
-    output.write_bytes(changed)
-    mismatched = _command(*arguments, "--check")
-    assert mismatched.returncode == 1 and "MAP_NOT_REGENERATED" in mismatched.stderr
-    assert output.read_bytes() == changed
-
-
-def test_pure_cli_validation_and_runtime_imports_do_not_load_the_engine_or_as2() -> None:
-    """@brief 纯命令与恢复输入类型收集不导入完整引擎或 AgentSociety2。"""
+def test_pure_cli_and_runtime_imports_do_not_load_engine_or_as2():
     script = (
         "import sys; from worldmock.cli import build_parser; import worldmock.validation; import worldmock.runtime; "
         "build_parser(); forbidden=('worldmock.life.engine','worldmock.life.engine_context',"
-        "'worldmock.life.read_query_runtime'); "
-        "assert not set(forbidden)&set(sys.modules); "
+        "'worldmock.life.read_query_runtime'); assert not set(forbidden)&set(sys.modules); "
         "assert not any(name.startswith('agentsociety2') for name in sys.modules)"
     )
     result = subprocess.run([sys.executable, "-c", script], cwd=ROOT, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_real_pytest_collection_of_pure_nodes_does_not_load_engine_or_as2(tmp_path) -> None:
-    """@brief 真实 pytest 收集命令同时核对模块清单，不能用静态源码检查冒充隔离。"""
+def test_real_pytest_collection_of_pure_commands_does_not_load_engine_or_as2(tmp_path):
     arguments = ["--collect-only", "tests/system/cli/test_cli.py", "tests/system/environment/test_validation.py",
-                 "tests/unit/runtime/test_run_shell.py::test_run_shell_allows_only_status_file", "-q",
-                 "--environment-profile", "dev", "-p", "no:cacheprovider", "--basetemp", str(tmp_path / "collection")]
+                 "tests/unit/cli/test_parser.py", "-q", "-p", "no:cacheprovider",
+                 "--basetemp", str(tmp_path / "collection")]
     script = (
-        "import sys,pytest; code=pytest.main(" + repr(arguments) + "); "
-        "assert code==0; forbidden=('worldmock.life.engine','worldmock.life.engine_context',"
-        "'worldmock.life.read_query_runtime'); assert not set(forbidden)&set(sys.modules); "
+        "import sys,pytest; code=pytest.main(" + repr(arguments) + "); assert code==0; "
+        "forbidden=('worldmock.life.engine','worldmock.life.engine_context','worldmock.life.read_query_runtime'); "
+        "assert not set(forbidden)&set(sys.modules); "
         "assert not any(name.startswith('agentsociety2') for name in sys.modules)"
     )
     result = subprocess.run([sys.executable, "-c", script], cwd=ROOT, capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_generate_map_check_uses_the_real_cli_dispatch(tmp_path, caplog) -> None:
-    """@brief 进程内真实命令拒绝失配，用于证明注入 CLI 源码的变异确实被行为断言杀死。"""
+def test_validate_real_command_reads_current_inputs_without_writing_assets(published_environment):
+    before = {path.relative_to(published_environment): path.read_bytes()
+              for path in published_environment.rglob("*") if path.is_file()}
+    result = _command("validate", "--environment", published_environment)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout) == {"valid": True, "environment_id": "artificial-test",
+                                        "environment_version": "2"}
+    assert before == {path.relative_to(published_environment): path.read_bytes()
+                      for path in published_environment.rglob("*") if path.is_file()}
+
+
+def test_rejected_run_does_not_create_an_output_directory(published_environment, tmp_path):
+    (published_environment / "persona.toml").write_bytes(b"schema_version = 1\n")
+    output = tmp_path / "run"
+    result = _command("run", "--environment", published_environment, "--output", output)
+    assert result.returncode == 1
+    assert "PERSONA_INVALID" in result.stderr
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("valid", [True, False], ids=["valid", "invalid"])
+def test_main_validation_exit_code_matches_the_actual_input_report(
+    published_environment, monkeypatch, capsys, valid
+):
     from worldmock.cli import main
 
-    source, output = ENVIRONMENT_ROOT / "catalog/locations.json", tmp_path / "map.json"
-    arguments = ["environment", "generate-map", "--locations", str(source), "--seed", "17", "--output", str(output)]
-    assert main(arguments) == 0
-    changed = output.read_bytes() + b" "
-    output.write_bytes(changed)
-    assert main([*arguments, "--check"]) == 1
-    assert "MAP_NOT_REGENERATED" in caplog.text and output.read_bytes() == changed
+    monkeypatch.setenv("WORLDMOCK_TEST_API_KEY", "test-only-key")
+    if not valid:
+        (published_environment / "persona.toml").write_bytes(b"schema_version = 1\n")
+    before = {path.relative_to(published_environment): path.read_bytes()
+              for path in published_environment.rglob("*") if path.is_file()}
+    assert main(["validate", "--environment", str(published_environment)]) == (0 if valid else 1)
+    report = json.loads(capsys.readouterr().out)
+    assert report["valid"] is valid
+    if not valid:
+        assert any(item["code"] == "PERSONA_INVALID" for item in report["errors"])
+    assert before == {path.relative_to(published_environment): path.read_bytes()
+                      for path in published_environment.rglob("*") if path.is_file()}
+
+
+def test_main_logs_an_actual_missing_run_failure_without_creating_files(tmp_path, capsys, caplog):
+    from worldmock.cli import main
+
+    missing = tmp_path / "missing-run"
+    assert main(["status", "--run-dir", str(missing)]) == 1
+    assert capsys.readouterr().out == ""
+    assert "Run database does not exist" in caplog.text
+    assert "WorldMock command failed" in caplog.text
+    assert not missing.exists()
+
+
+def test_main_cancellation_logs_interrupt_and_returns_shell_interrupt_status(
+    tmp_path, monkeypatch, capsys, caplog
+):
+    from worldmock import cli
+
+    requested = tmp_path / "cancelled-run"
+    received = []
+
+    def interrupted_read(run_dir):
+        received.append(run_dir)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "read_status", interrupted_read)
+    assert cli.main(["status", "--run-dir", str(requested)]) == 130
+    assert received == [requested]
+    assert capsys.readouterr().out == ""
+    assert "WorldMock command interrupted" in caplog.text
+    assert not requested.exists()

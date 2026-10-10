@@ -26,7 +26,7 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from worldmock.agents.life_reflection import MEMORY_REFLECTION_MAX_INSIGHTS
 from worldmock.agents import life_reflection
 from custom.agents.life_agent import LifeAgent
-from worldmock.agents.life_reflection import (REFLECTION_PROMPT, REFLECTION_VALIDATION_RETRIES, ReflectionOutputError,
+from worldmock.agents.life_reflection import (REFLECTION_PROMPT, ReflectionOutputError,
                                            ReflectionRequest, reflection_correction, reflection_insights,
                                            reflection_tool)
 from custom.envs.life_env import LifeEnv
@@ -34,9 +34,10 @@ from tests.integration.runtime.test_life_agent_protocol import _ModelResponse, _
 from tests.integration.runtime.test_verified_memory import _TIME, _concluded, _runtime
 from tests.engine_fixture import (engine_factory)  # noqa: F401
 from tests.life.conftest import (context, stage_day_plan)  # noqa: F401
-from tests.integration.life.test_memory_evidence import _started, _until_ended
+from tests.life.environment_runtime import act, settle_decision
+from tests.life.conftest import advance_next, start_activity
+from tests.integration.runtime.current_contract_fixtures import profile as current_profile
 from worldmock.errors import ProtocolError
-from worldmock.life.day_planning import PLAN_DAY_VALIDATION_RETRIES
 from worldmock.life.decision_start import is_action_request
 from worldmock.life.models import deepseek_strict_schema
 
@@ -57,7 +58,7 @@ def _fixed_context_window(monkeypatch) -> None:
     """脚本模型使用固定供应商窗口，不请求外部模型元数据。"""
     from worldmock.life import prompt_capacity
 
-    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_048_576)
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: metadata.context_window)
 
 
 def _insight(ref: str, text: str = "我想休息。") -> dict:
@@ -330,7 +331,7 @@ async def test_runtime_stops_with_a_run_fault_after_three_validation_retries_and
         await _sleep_boundary(runtime)
 
     last_error = _VIOLATIONS[names[-1]][1]
-    assert str(failure.value) == f"memory reflection output remained invalid after three retries: {last_error}"
+    assert str(failure.value) == f"memory reflection output remained invalid after 3 retries: {last_error}"
     assert type(failure.value.__cause__) is ReflectionOutputError and str(failure.value.__cause__) == last_error
     assert len(script.requests) == 4 and script.replies == []
     original = script.requests[0]
@@ -413,7 +414,7 @@ async def test_reflection_prompt_ends_with_the_errand_sentences(tmp_path) -> Non
 class _WakingModel:
     """醒来那一轮的脚本模型：行动请求结束刚睡完的那一觉并写下一条记忆；不带工具的请求是主观归纳；就寝反思按脚本作答。"""
 
-    model_name = "deepseek-flash"
+    model_name = "test-model"
 
     def __init__(self, sleep_name: str, *replies) -> None:
         self.sleep_name = sleep_name
@@ -435,15 +436,20 @@ async def _waking_decision(engine_factory, tmp_path, *replies) -> SimpleNamespac
     """真实引擎上睡完一觉，开出含 wake_from_sleep 的那一轮决策，并备好真实 LifeEnv 与直接导入的 LifeAgent。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    slept = _started(engine, "睡觉", "sleep")
-    _until_ended(engine, slept, "sleep")
+    _, result = act(engine, "sleep-start", start_activity("sleep", "家"))
+    slept = result.activity_id
+    while engine.context.state.activities[slept].status == "active":
+        if engine.scheduling_state().ready_agent_ids:
+            settle_decision(engine, f"sleep-progress-{engine.context.state.current_time}")
+        else:
+            advance_next(engine)
     decision = context(engine, "woke")
     environment = LifeEnv()
     environment.engine = engine
     await environment.begin_decision_round((decision,))
     model = _WakingModel(engine.context.state.activities[slept].name, *replies)
     workspace = tmp_path / "people" / "agent_0001"
-    LifeAgent.create(workspace, {"id": 1, "name": "Person 1", "occupation": "engineer"},
+    LifeAgent.create(workspace, current_profile(),
                      {"enable_memory": True, "enable_todo_list": False, "max_react_turns": 16})
     service = SimpleNamespace(env=environment, llm=SimpleNamespace(default=model), trace=None)
     agent = await LifeAgent.from_workspace(workspace, service)
@@ -494,7 +500,7 @@ async def test_exhausted_reflection_leaves_evidence_but_no_memory_update_in_the_
     run = await _waking_decision(engine_factory, tmp_path, *(_VIOLATIONS[name][0] for name in names))
     last_error = _VIOLATIONS[names[-1]][1]
 
-    with pytest.raises(ProtocolError, match="remained invalid after three retries") as failure:
+    with pytest.raises(ProtocolError, match="remained invalid after 3 retries") as failure:
         await run.agent.step(0, run.decision.observed_at)
 
     assert last_error in str(failure.value)
@@ -627,5 +633,6 @@ def test_reflection_correction_appends_one_compact_message_without_touching_the_
 
 def test_reflection_retry_bound_is_its_own_constant_with_the_plan_day_value() -> None:
     """补充证据：反思的校验重试次数另设常量，数值与零点计划的相同（3），本模块不引用零点计划的那一个。"""
-    assert REFLECTION_VALIDATION_RETRIES == PLAN_DAY_VALIDATION_RETRIES == 3
+    identity = current_profile()["model_identity"]
+    assert identity["reflection_validation_max_retries"] == identity["day_plan_validation_max_retries"] == 3
     assert not any(name.startswith("PLAN_DAY") for name in vars(life_reflection))

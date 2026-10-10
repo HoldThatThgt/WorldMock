@@ -1,49 +1,41 @@
-"""@brief 环境登记失败的稳定错误码和英文原因。"""
+"""@brief 环境登记失败的稳定错误码与唯一英文原因。"""
 
 from worldmock.errors import IntegrityError
 
 
 REGISTRATION_REASONS = {
     "RULES_VERSION_MISMATCH": "The environment was published for a different rules version.",
-    "ENVIRONMENT_STALE_FILE": "The catalog contains a file that the manifest does not list.",
+    "ENVIRONMENT_STALE_FILE": "The environment contains an entry outside its declared package.",
+    "ENVIRONMENT_LINE_INVALID": "A catalog JSONL line is not exactly one JSON object.",
     "ENVIRONMENT_FILE_UNLISTED": "The manifest does not list a required catalog file.",
     "ENVIRONMENT_IDENTITY_MISMATCH": "A catalog file does not match the identity recorded in the manifest.",
-    "ENVIRONMENT_PIN_MISMATCH": "The scenario pins an environment that is not the one being loaded.",
     "ENVIRONMENT_ID_DUPLICATE": "An identifier or display name is declared twice in one catalog file.",
     "ENVIRONMENT_REF_UNKNOWN": "A binding refers to an object that is not registered.",
     "ENVIRONMENT_KIND_INVALID": "A declared kind is outside the fixed set.",
     "ENVIRONMENT_NUMBER_INVALID": "A declared number is outside its allowed domain.",
-    "GOODS_BINDING_MISSING": "A goods item must be bound to stores or to all stores that may supply its category.",
-    "GOODS_STORE_KIND_INVALID": "A goods item is bound to a place that cannot supply its category.",
-    "GOODS_BINDING_KIND_INCONSISTENT": "A goods item must be bound to every store of a kind or to none of them.",
-    "APP_PURPOSE_INVALID": "An app purpose does not match its store or payment bindings.",
-    "ACTION_APP_MANNER_INVALID": "An action must declare a manner exactly when it is bound to apps.",
-    "ACTION_COMMUNICATION_MODE_INVALID":
-        "App-based social actions must declare text or voice communication; other actions must declare null.",
-    "PARCEL_STATION_REQUIRED":
-        "The nearest parcel station to a persona home must be registered and selected by the scenario.",
-    "ACTION_CONTENT_EMPTY": "An action and each of its apps must have at least one content.",
-    "ACTION_NAME_COLLIDES":
-        "An action name must differ from every other action, app, place, goods and way name.",
-    "CONTENT_ACTION_MISSING": "A content must be bound to one registered action.",
-    "CONTENT_APP_BINDING_INVALID":
-        "A content must list a non-empty subset of its action's apps, or none when the action has no app.",
+    "HOME_LOCATION_REQUIRED": "The environment must register the persona home as a home location.",
+    "PARCEL_STATION_REQUIRED": "Parcel stations must exist when required and have location content.",
+    "GOODS_BINDING_MISSING": "A goods item must be bound to at least one store kind or content app.",
+    "GOODS_BINDING_SIDE_EXCLUSIVE": "A goods item must be bound either to store kinds or apps, not both.",
+    "GOODS_BINDING_DANGLING": "A goods item is bound to a kind that no registered location declares.",
+    "APP_ROLE_BINDING_INVALID":
+        "Only function apps may bind actions, and only content apps may be referenced by locations, goods or contents.",
+    "APP_UNBOUND": "An app must have content or a concrete action binding for its role.",
+    "APP_NAME_COLLIDES_LOCATION": "An app name must differ from every place name.",
+    "CONTENT_CONTAINER_MISSING": "A content must be bound to at least one app or at least one location kind.",
+    "CONTENT_CONTAINER_SIDE_EXCLUSIVE": "A content must be bound either to apps or to location kinds, not both.",
+    "CONTENT_BINDING_DANGLING": "A content is bound to a location kind that no registered location declares.",
     "CONTENT_SERIES_INVALID":
-        "Episodes of a series must share one action and one app set and have unique episode numbers.",
+        "Episodes of a series must share one container binding and have unique episode numbers.",
     "CONTENT_SUMMARY_TOO_LONG": "A content summary exceeds the registration limit.",
     "CONTENT_SOURCE_URL_MISSING": "A real summary must record its source url.",
-    "APP_UNBOUND": "An app must declare a purpose or be bound by at least one action.",
-    "APP_NAME_COLLIDES_LOCATION": "An app name must differ from every place name.",
+    "CALLBACK_STATE_UNREGISTERED": "A callback rule refers to a state that the environment does not register.",
+    "CALLBACK_FOOTPRINT_EMPTY": "A callback footprint chain needs at least one step and every step at least one app.",
+    "CALLBACK_NOTIFY_MISMATCH":
+        "A callback reminder needs a state delta effect and a visible hint needs a footprint chain effect.",
     "MAP_TOO_SMALL": "The map needs at least two places.",
     "MAP_EDGE_INVALID": "The map has an edge that is not a sorted positive link between two registered places.",
     "MAP_DISCONNECTED": "The map is not connected.",
-    "MAP_NOT_REGENERATED": "The published map differs from the generator output for its seed.",
-    "WORK_CONTENT_UNKNOWN": "A scenario assigns a work content that is not a registered work and study content.",
-    "MERCHANT_ACCOUNT_MISSING": "A selected store has no merchant account.",
-    "WORK_SCHEDULE_REQUIRED": "A person with assigned work content must declare a work schedule.",
-    "WORK_CONTENT_REQUIRED": "A person with a work schedule must be assigned at least one work content.",
-    "WORK_CONTENT_INSUFFICIENT":
-        "The assigned work content is shorter than the person's scheduled shifts in the run window.",
 }
 
 
@@ -51,7 +43,7 @@ class RegistrationError(IntegrityError):
     """@brief 携带稳定登记码并记录英文故障的完整性错误。"""
 
     def __init__(self, code: str, detail: str | None = None):
-        """@brief 绑定唯一定义的错误原因和可选诊断详情。"""
+        """@brief 绑定唯一错误原因与可选诊断详情。"""
         self.code = code
         self.message = REGISTRATION_REASONS[code]
         self.detail = detail

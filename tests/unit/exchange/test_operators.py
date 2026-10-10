@@ -12,8 +12,8 @@ from worldmock.exchange.operators import (
 
 
 @pytest.mark.parametrize("category,quantity,expected", [
-    ("meal", 1, 600), ("meal", 3, 1800), ("snack", 2, 400), ("drink", 4, 400),
-    ("leisure", 1, 0.10), ("daily", 1, 0.05), ("leisure", 5, 0.10), ("daily", 5, 0.05), ("fuel", 1, 7), ("fuel", 5, 7),
+    ("meal", 1, 600), ("meal", 3, 1800), ("snack", 2, 400), ("drink", 4, 0.10),
+    ("goods", 1, 0.10), ("goods", 5, 0.10),
 ])
 def test_goods_receipt_has_quantity_only_for_food(category, quantity, expected):
     """@brief 食品热量乘数量，非食品每条订单行只结算一次固定效果。"""
@@ -39,7 +39,7 @@ def test_decimal_precision_does_not_change_settlement():
     with localcontext(prec=2):
         assert evaluate_travel_fare("driving", 12345.67) == 2470
         assert evaluate_goods_receipt("meal", 1234567) == 740740200
-        assert evaluate_goods_receipt("daily", 1234567) == 0.05
+        assert evaluate_goods_receipt("goods", 1234567) == 0.10
         assert travel_seconds("walking", 12000.01) == 10001
         assert delivery_seconds(5000.01) == 1601
 

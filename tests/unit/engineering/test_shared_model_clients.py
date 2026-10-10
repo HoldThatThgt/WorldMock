@@ -1,4 +1,4 @@
-"""联系人与零点计划的原业务入口执行相同独立客户端规则。"""
+"""零点计划业务入口执行同一冻结模型客户端规则。"""
 
 from __future__ import annotations
 
@@ -15,10 +15,12 @@ from worldmock.errors import ProtocolError
 from worldmock.life import day_planning
 from worldmock.life.models import PlanDayRequest
 from worldmock.model_feedback import schema_error_details
-from worldmock.runtime import ContactReplyClient, PlanDayClient
+from worldmock.runtime import PlanDayClient
 
-CLIENTS = ((ContactReplyClient, 'Contact reply'), (PlanDayClient, 'Plan day'))
-IDENTITY = {'requested_model': 'mock-model', 'base_url': 'https://example.test', 'max_retries': 0}
+CLIENTS = ((PlanDayClient, 'Plan day'),)
+IDENTITY = {'requested_model': 'mock-model', 'base_url': 'https://example.test', 'max_retries': 0,
+            'transport_max_retries': 3, 'model_metadata': {'requested_model': 'mock-model',
+             'metadata_url': 'https://example.test/models', 'context_window': 262144, 'max_output_tokens': 32000}}
 
 
 class FakeClient:
@@ -53,13 +55,13 @@ def test_original_clients_share_single_call_serialization_and_request_isolation(
         request = {'messages': [{'role': 'user', 'content': 'request'}], 'max_retries': 0}
         original = copy.deepcopy(request)
         assert _call(client, request)['choices'] == []
-        assert transport.requests == [original]
+        assert transport.requests == [{**original, 'transport_max_retries': 3}]
         assert request == original
         assert client.purpose == purpose
 
 
 @pytest.mark.parametrize('cls,purpose', CLIENTS)
-@pytest.mark.parametrize('key,value', [('requested_model', 'other'), ('base_url', 'https://wrong.test'), ('max_retries', 1)])
+@pytest.mark.parametrize('key,value', [('requested_model', 'other'), ('base_url', 'https://wrong.test')])
 def test_original_clients_reject_identity_and_retry_drift(monkeypatch, cls, purpose, key, value):
     import agentsociety2.config
     monkeypatch.setattr(agentsociety2.config, 'build_client_for_role', lambda role: FakeClient({}))

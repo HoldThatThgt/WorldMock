@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 
 from worldmock.errors import IntegrityError
@@ -21,10 +22,10 @@ def validate_account_transition(before: dict, after: dict, events: list[EventDra
     for event in events:
         money = _money_changes(event, set(current))
         if event.data.get("kind") == "initial_funds_injected":
-            if not initial or event != events[0] or previous != current:
-                raise IntegrityError("Initial funding must be the first event without changing initialized balances")
-            expected = {f"account:{key}": value for key, value in current.items()}
-            expected["account:external:scenario"] = -sum(current.values())
+            if not initial or event != events[0]:
+                logging.error("Initial funding is not the first event of world creation")
+                raise IntegrityError("Initial funding must be the first event of world creation")
+            expected = {f"account:{key}": value for key, value in previous.items()}
             if money != expected:
                 raise IntegrityError("Initial funding does not describe the complete initialized accounts")
             continue
@@ -49,7 +50,7 @@ def validate_account_history(events: list[Event], final_state: dict) -> None:
             identity = key.removeprefix("account:")
             if identity in balances:
                 balances[identity] += amount
-                if balances[identity] < 0:
+                if identity != "external:scenario" and balances[identity] < 0:
                     raise IntegrityError("Account history contains a negative balance")
     if balances != expected:
         raise IntegrityError("Export financial events do not reconstruct the final account balances")
@@ -57,15 +58,19 @@ def validate_account_history(events: list[Event], final_state: dict) -> None:
 
 def _validate_accounts(accounts: dict) -> None:
     """@brief 所有真实账户余额必须是非负的最小货币单位整数。"""
-    if (not isinstance(accounts, dict) or not accounts
+    if (not isinstance(accounts, dict) or len(accounts) != 2
             or any(not isinstance(key, str) or not key for key in accounts)
-            or any(type(value) is not int or value < 0 for value in accounts.values())):
+            or any(type(value) is not int or key != "external:scenario" and value < 0
+                   for key, value in accounts.items())
+            or "external:scenario" not in accounts
+            or any(key != "external:scenario" and not key.startswith("agent:") for key in accounts)):
+        logging.error("Account balances violate the current account contract")
         raise IntegrityError("Account balances must be nonnegative integer minor units")
 
 
 def _money_changes(event: EventDraft, accounts: set[str]) -> dict[str, int]:
-    """@brief 唯一账本字段位于事件 data 顶层，外部注资对手方也必须显式守恒。"""
-    values = event.data.get("resource_changes", {})
+    """@brief 唯一账本字段位于事件信封，外部资金对手方也必须显式守恒。"""
+    values = event.resource_changes
     if not isinstance(values, dict):
         raise IntegrityError("Event resource changes must be an object")
     money = {key: value for key, value in values.items() if key.startswith("account:")}

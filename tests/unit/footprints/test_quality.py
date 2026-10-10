@@ -102,10 +102,9 @@ def _content_event(sequence, *, before=0, after=300, completed=False, rounds=0, 
     """@brief 内容接触来自当前 ACTION 和完整真实内容结算区间。"""
     start = 100 + (rounds - int(completed)) * 600 + before
     end = start + after - before
-    activity = {"activity_id": f"phone-{sequence}", "agent_id": agent_id, "kind": "action",
+    activity = {"activity_id": f"phone-{sequence}", "agent_id": agent_id, "kind": "interact",
                 "started_at": start, "ended_at": None, "status": "active", "session_ids": [],
-                "data": {"action_id": action_id, "category": category, "app_id": app_id,
-                         "manner": "phone_continuous" if app_id is not None else None,
+                "data": {"action": "interact", "app_id": app_id,
                          "content_id": content, "pinned_by_push_id": None}}
     return _event(sequence, "activity_progress", occurred_at=end, agent_id=agent_id,
                   activity_id=activity["activity_id"], data={"activity": activity,
@@ -136,7 +135,6 @@ def test_quality_report_covers_run_behavior_usage_cost_and_speedup():
         _event(12, "action_rejected", agent_id=1, action_id="action-2",
                data={"error_code": "ACTIVITY_CONCLUSION_REQUIRED"}),
         _event(13, "action_result", agent_id=1, action_id="action-2", data={"status": "rejected"}),
-        _event(14, "environment_event", data={"kind": "work_content_completed", "content_id": "sales"}),
         _event(15, "environment_event", agent_id=1, data={"kind": "goods_received", "category": "meal",
                                                         "provided": 400, "applied": 360}),
         _content_event(16, after=600, completed=True, rounds=1),
@@ -158,7 +156,7 @@ def test_quality_report_covers_run_behavior_usage_cost_and_speedup():
     assert report["actions"]["business_rejection_codes"] == {"ACTIVITY_CONCLUSION_REQUIRED": 1}
     assert report["activities"]["completed_activities"] == 3
     assert report["activities"]["terminal_interruptions"] == 2
-    assert report["content_contact"] == {"by_app": {"bilibili": 2}, "by_action": {"recommend": 2},
+    assert report["content_contact"] == {"by_app": {"bilibili": 2},
                                          "repeat_watch": 1, "repeat_seconds_share": pytest.approx(1 / 3)}
     assert "work" not in report["conversion_efficiency"]
     assert report["conversion_efficiency"]["food"]["weighted_mean"] == 0.9
@@ -200,7 +198,7 @@ def test_missing_measurements_remain_unknown_instead_of_becoming_zero():
     report = build_quality_report(events, activities, _manifest(end=200))
 
     contact = report["content_contact"]
-    assert contact == {"by_app": {}, "by_action": {}, "repeat_watch": 0, "repeat_seconds_share": None}
+    assert contact == {"by_app": {}, "repeat_watch": 0, "repeat_seconds_share": None}
     assert report["activities"]["known_elapsed_seconds"] == 20
     assert report["activities"]["elapsed_seconds_complete"] is False
     assert report["model_usage"]["token_usage"]["known_tokens"] is None
@@ -407,20 +405,17 @@ def test_non_memory_tool_json_error_is_counted_without_memory_warning():
 
 
 def test_conclusion_and_reflection_in_one_step_are_each_matched_to_their_registration():
-    """醒来那一轮的收尾记忆与就寝反思同在一步：trigger 按顺序列两项，逐项对上登记（收尾请求、醒来的观察）。"""
-    events = [
-        _event(1, "observation", agent_id=1, decision_id="woke",
-               data={"verified_experiences": [], "wake_reasons": ["wake_from_sleep", "planned_end"]}),
-        _concluded(2, "woke", _memory("睡得不太踏实。")),
-        _event(3, "memory_updated", agent_id=1, decision_id="woke",
-               data=_memory_update("m1", "event-1", "woke", ("activity_conclusion", "reflection"))),
-        _event(4, "observation", agent_id=1, decision_id="rested",
-               data={"verified_experiences": [], "wake_reasons": ["wake_from_sleep"]}),
-        _event(5, "memory_updated", agent_id=1, decision_id="rested",
-               data=_memory_update("m2", "event-4", "rested", ("reflection",))),
-    ]
+    """@brief 同一边界真实睡眠终态和控制请求分别证明反思与收尾写入点。"""
+    ended = _event(1, "activity_progress", occurred_at=102, agent_id=1, activity_id="sleep",
+                   data={"activity": {"kind": "sleep", "status": "completed", "agent_id": 1, "ended_at": 102}})
+    events = [ended,
+        _event(2, "observation", occurred_at=102, agent_id=1, decision_id="woke",
+               data={"verified_experiences": [], "progress_event_ids": [ended.event_id]}),
+        _concluded(3, "woke", _memory("睡得不太踏实。")),
+        _event(4, "memory_updated", agent_id=1, decision_id="woke",
+               data=_memory_update("m1", "event-2", "woke", ("activity_conclusion", "reflection")))]
     memory = build_quality_report(events, [], _manifest())["memory_references"]
-    assert memory == {"memory_update_events": 2, "persisted_episode_ids": 2, "write_points_checked": 3,
+    assert memory == {"memory_update_events": 1, "persisted_episode_ids": 1, "write_points_checked": 2,
                       "problem_count": 0, "problems": []}
 
 
@@ -490,16 +485,15 @@ def test_merged_memory_identity_is_not_reported_as_a_duplicate():
 
 
 def test_valid_looking_observed_fact_must_equal_its_committed_source():
-    source = _event(1, 'activity_progress', agent_id=1, activity_id='wait', data={
-        'interval_start': 90, 'interval_end': 101,
-        'activity': {'activity_id': 'wait', 'agent_id': 1, 'kind': 'wait'}})
-    forged = {'kind': 'waited', 'agent_id': 1, 'activity_id': 'wait',
-              'source_event_id': 'event-1', 'event_seq': 1, 'occurred_at': 101,
-              'interval_start': 91, 'interval_end': 101, 'duration_seconds': 10, 'reason': None}
-    observation = _event(2, 'observation', agent_id=1, decision_id='decision',
-                         data={'verified_experiences': [forged]})
-    quality = build_quality_report([source, observation], [], _manifest())['memory_references']
-    assert [item['code'] for item in quality['problems']] == ['invalid_verified_experience_source']
+    source = _event(1, "environment_event", occurred_at=101, agent_id=1, data={
+        "kind": "goods_received", "order_id": "order", "goods_id": "goods", "category": "meal", "quantity": 1})
+    forged = {"kind": "received", "agent_id": 1, "activity_id": None, "source_event_id": "event-1",
+              "event_seq": 1, "occurred_at": 101, "order_id": "order", "goods_id": "goods", "category": "meal",
+              "quantity": 2}
+    observation = _event(2, "observation", agent_id=1, decision_id="decision",
+                         data={"verified_experiences": [forged]})
+    quality = build_quality_report([source, observation], [], _manifest())["memory_references"]
+    assert [item["code"] for item in quality["problems"]] == ["invalid_verified_experience_source"]
 
 
 @pytest.mark.parametrize('source,valid', [
@@ -531,12 +525,12 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
         _event(1, "environment_event", agent_id=1, data={"kind": "body_settlement", DECISION_OFFERED_FIELD: False,
                                              WAKE_REASONS_FIELD: []}),
         _event(2, "environment_event", agent_id=1, data={"kind": "body_settlement", DECISION_OFFERED_FIELD: True,
-                                             WAKE_REASONS_FIELD: ["planned_end", "person_arrived"]}),
+                                             WAKE_REASONS_FIELD: ["planned_end", "delivery_arrival"]}),
         _event(3, "environment_event", agent_id=1, data={"kind": "body_settlement", DECISION_OFFERED_FIELD: True,
                                              WAKE_REASONS_FIELD: ["planned_end", "mystery"]}),
         _event(4, "environment_event", agent_id=1, data={"kind": "body_settlement"}),
         _event(5, "decision_started", agent_id=1, decision_id="decision-1", data=_started()),
-        _event(6, "decision_started", agent_id=1, decision_id="decision-2", data=_started(["run_start"])),
+        _event(6, "decision_started", agent_id=1, decision_id="decision-2", data=_started(["session_open"])),
         _event(7, "environment_event", agent_id=1, data={"kind": "decision_budget_exhausted",
                                                          "error_code": "ACTION_REQUEST_INVALID",
                                                          "next_decision_at": 1000}),
@@ -546,15 +540,15 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
     report = build_quality_report(events, [], _manifest())
     rhythm = report["decision_rhythm"]
 
-    assert report["schema_version"] == 6
-    assert rhythm["decision_budget_exhausted_events"] == 1
+    assert report["schema_version"] == 7
+    assert "decision_budget_exhausted_events" not in rhythm
     assert rhythm["body_settlement_events"] == 4
     assert rhythm["boundaries_with_decision_field"] == 3
-    assert rhythm["boundaries_missing_decision_field"] == 1
+    assert "boundaries_missing_decision_field" not in rhythm
     assert rhythm["silent_boundaries"] == 1
     assert rhythm["offered_boundaries"] == 2
     assert rhythm["wake_reason_events"] == 3
-    assert rhythm["wake_reason_counts"] == {"person_arrived": 1, "planned_end": 2}
+    assert rhythm["wake_reason_counts"] == {"delivery_arrival": 1, "planned_end": 2}
     assert rhythm["unrecognized_wake_reason_counts"] == {"mystery": 1}
     assert rhythm["decision_started_events"] == 2
     assert not {"decision_started_with_decision_statement", "decision_started_missing_decision_statement"} & set(
@@ -569,15 +563,14 @@ def test_report_sections_are_the_documented_grouping_without_a_language_count():
     计数（docs/design/06-agent.md），一日运行保真新增的五节是输入警告、时间线标签、联系人回复守卫、名称类
     拒绝与截断。"""
     report = build_quality_report([_event(1, "run_ended", occurred_at=200)], [], _manifest(end=200))
-    documented = ['event_range', 'run_outcome', 'actions', 'activities', 'content_contact', 'app_pushes', 'work_topics', 'conversion_efficiency', 'decision_rhythm', 'memory_references', 'model_usage', 'acceleration', 'day_plan_metrics', 'errand_metrics', 'conclusion_memories', 'input_warnings', 'timeline_labels', 'contact_reply_guard', 'name_rejections', 'truncations']
-    assert len(documented) == len(set(documented)) == 20
-    assert documented[-5:] == ["input_warnings", "timeline_labels", "contact_reply_guard", "name_rejections",
-                               "truncations"]
+    documented = ['event_range', 'run_outcome', 'actions', 'activities', 'content_contact', 'app_pushes', 'conversion_efficiency', 'decision_rhythm', 'memory_references', 'model_usage', 'acceleration', 'day_plan_metrics', 'errand_metrics', 'conclusion_memories', 'input_warnings', 'timeline_labels', 'name_rejections', 'truncations']
+    assert len(documented) == len(set(documented)) == 18
+    assert documented[-4:] == ["input_warnings", "timeline_labels", "name_rejections", "truncations"]
     plan = documented.index("day_plan_metrics")
     assert documented[plan:plan + 3] == ["day_plan_metrics", "errand_metrics", "conclusion_memories"]
     assert list(report)[3:] == documented
     assert set(report) == {"schema_version", "run_id", "source_group_id", *documented}
-    assert report["schema_version"] == 6
+    assert report["schema_version"] == 7
     assert (report["errand_metrics"], report["conclusion_memories"]) == (None, None)
     assert [key for key in report if any(word in key for word in ("language", "english", "chinese"))] == []
 
@@ -591,10 +584,10 @@ def test_decision_rhythm_counts_same_moment_rounds():
                       decision_id=f"decision-{sequence}", data=_started(reasons))
 
     events = [
-        started(1, 1, first, ["run_start"]),
+        started(1, 1, first, ["session_open"]),
         started(2, 1, first, ["no_active_activity"]),
         started(3, 1, first, ["rejection_feedback"]),
-        started(4, 2, first, ["run_start"]),
+        started(4, 2, first, ["session_open"]),
         _event(5, "environment_event", occurred_at=later, agent_id=1,
                data={"kind": "body_settlement", DECISION_OFFERED_FIELD: True,
                      WAKE_REASONS_FIELD: ["no_active_activity"]}),
@@ -607,7 +600,7 @@ def test_decision_rhythm_counts_same_moment_rounds():
     assert rhythm["same_moment_round_counts"] == {"1": 2, "3": 1}
     assert rhythm["decision_started_events"] == 5
     assert rhythm["decision_started_wake_reason_counts"] == {
-        "no_active_activity": 1, "planned_end": 1, "rejection_feedback": 1, "run_start": 2}
+        "no_active_activity": 1, "planned_end": 1, "rejection_feedback": 1, "session_open": 2}
     assert rhythm["wake_reason_counts"] == {"no_active_activity": 1}
     assert rhythm["unrecognized_decision_started_wake_reason_counts"] == {}
     assert rhythm["unrecognized_wake_reason_counts"] == {}
@@ -621,21 +614,21 @@ def test_decision_rhythm_counts_same_moment_rounds():
 def test_errand_reminder_due_is_a_known_wake_reason():
     """个人事务提醒的唤醒原因 errand_reminder_due（docs/design/04-simulation-engine.md#simulation-engine-提醒时刻）由质量报告按同一份足迹词表
     分桶：共同身体结算与 decision_started 里的它都计入已知原因，与同刻到期的当日目标提醒各计一次，未识别的原因为空。"""
-    reasons = ["plan_reminder_due", "errand_reminder_due"]
+    reasons = ["reminder_due"]
     events = [
         _event(1, "environment_event", agent_id=1, data={"kind": "body_settlement", DECISION_OFFERED_FIELD: True,
                                                          WAKE_REASONS_FIELD: reasons}),
         _event(2, "decision_started", agent_id=1, decision_id="decision-1", data=_started(reasons)),
         _event(3, "environment_event", agent_id=1, data={"kind": "body_settlement", DECISION_OFFERED_FIELD: True,
-                                                         WAKE_REASONS_FIELD: ["errand_reminder_due"]}),
-        _event(4, "decision_started", agent_id=1, decision_id="decision-2", data=_started(["errand_reminder_due"])),
+                                                         WAKE_REASONS_FIELD: ["reminder_due"]}),
+        _event(4, "decision_started", agent_id=1, decision_id="decision-2", data=_started(["reminder_due"])),
         _event(5, "run_ended", occurred_at=1100),
     ]
 
     rhythm = build_quality_report(events, [], _manifest())["decision_rhythm"]
 
-    assert rhythm["wake_reason_counts"] == {"errand_reminder_due": 2, "plan_reminder_due": 1}
-    assert rhythm["decision_started_wake_reason_counts"] == {"errand_reminder_due": 2, "plan_reminder_due": 1}
+    assert rhythm["wake_reason_counts"] == {"reminder_due": 2}
+    assert rhythm["decision_started_wake_reason_counts"] == {"reminder_due": 2}
     assert rhythm["unrecognized_wake_reason_counts"] == {}
     assert rhythm["unrecognized_decision_started_wake_reason_counts"] == {}
     assert rhythm["offered_boundaries"] == 2
@@ -650,12 +643,12 @@ def test_decision_rhythm_reports_zero_coverage_for_legacy_event_sets():
 
     assert rhythm["silent_boundaries"] == 0
     assert rhythm["offered_boundaries"] == 0
-    assert rhythm["boundaries_missing_decision_field"] == 1
+    assert "boundaries_missing_decision_field" not in rhythm
     assert rhythm["wake_reason_events"] == 0
     assert rhythm["wake_reason_counts"] == {}
     assert rhythm["unrecognized_wake_reason_counts"] == {}
     assert rhythm["decision_started_events"] == 1
-    assert rhythm["decision_budget_exhausted_events"] == 0
+    assert "decision_budget_exhausted_events" not in rhythm
 
 
 def test_acceleration_sums_observed_wall_time_across_restore_branches():
@@ -814,13 +807,15 @@ def test_quality_report_is_deterministic_for_the_same_authenticated_input():
 
 @pytest.mark.parametrize("source,codes", [("reflection", []), ("activity_conclusion", ["invalid_memory_update"])])
 def test_bedtime_reflection_snapshot_may_carry_its_source(source, codes):
-    """醒来那一轮登记的就寝反思快照可另带 source=reflection（宿主标注，记忆层据此找归属日期）；其他来源值仍是无效登记。"""
-    update = {**_memory_update("r1", "event-1", "decision", trigger=("reflection",)),
-              "episodes": [{"id": "r1", "type": "reflection", "text": "睡前想了想", "epistemic_status": "subjective",
+    """@brief 反思来源来自同一决策边界的睡眠终态，不依赖唤醒名称。"""
+    update = {**_memory_update("r1", "event-2", "decision", trigger=("reflection",)),
+              "episodes": [{"id": "r1", "type": "reflection", "text": "睡前有点困", "epistemic_status": "subjective",
                             "source": source}]}
-    events = [_event(1, "observation", agent_id=1, decision_id="decision",
-                     data={"verified_experiences": [], "wake_reasons": ["wake_from_sleep"]}),
-              _event(2, "memory_updated", agent_id=1, decision_id="decision", data=update)]
+    ended = _event(1, "activity_progress", occurred_at=102, agent_id=1, activity_id="sleep",
+                   data={"activity": {"kind": "sleep", "status": "completed", "agent_id": 1, "ended_at": 102}})
+    events = [ended, _event(2, "observation", agent_id=1, decision_id="decision",
+                         data={"verified_experiences": [], "progress_event_ids": [ended.event_id]}),
+              _event(3, "memory_updated", agent_id=1, decision_id="decision", data=update)]
     memory = build_quality_report(events, [], _manifest())["memory_references"]
     assert [item["code"] for item in memory["problems"]] == codes
 
@@ -832,29 +827,31 @@ def _progress(sequence, snapshot, start, end):
 
 
 def _timeline_events(place, lifestyle, subject):
-    """一条命名观察加四段进度：步行去某地、一项生活活动、读一封邮件、空档；地名、活动名与邮件主题由参数给出。"""
+    """一条名称观察加四段真实活动区间，作品标题与应用名遵守不同标签检查规则。"""
     names = {"locations": [{"location_id": "loc-x", "name": place}],
-             "messages": [{"message_id": "mail-1", "subject": subject}]}
+             "apps": [{"app_id": "platform", "name": lifestyle}]}
     return [
         _event(1, "observation", occurred_at=100, agent_id=1, data=names),
         _progress(2, {"activity_id": "a-go", "kind": "travel", "status": "completed", "travel_mode": "walking", "destination_id": "loc-x"},
                   100, 200),
-        _progress(3, {"activity_id": "a-life", "kind": "action", "title": lifestyle, "data": {"action_id": "physical", "app_id": None, "content_id": None}}, 200, 300),
-        _progress(4, {"activity_id": "a-mail", "kind": "action", "title": "处理邮件", "content_title": subject, "data": {"action_id": "mail", "app_id": None, "content_id": "mail-1"}}, 300, 400),
-        _progress(5, {"activity_id": "a-wait", "kind": "wait"}, 400, 500),
+        _progress(3, {"activity_id": "a-life", "kind": "interact",
+                     "data": {"action": "interact", "app_id": "platform", "content_id": None}}, 200, 300),
+        _progress(4, {"activity_id": "a-content", "kind": "interact", "content_title": subject,
+                     "data": {"action": "interact", "app_id": None, "content_id": "topic"}}, 300, 400),
+        _progress(5, {"activity_id": "a-wait", "kind": "sleep"}, 400, 500),
     ]
 
 
 def test_timeline_labels_count_english_kind_names_and_internal_ids_in_the_rendered_timeline():
     """时间线标签检查（docs/design/10-runtime.md）：用唯一的时间线渲染器投影同批事件，标签里恰为英文种类名的
     片段与内部标识形态的片段各计一项；书名号与引号里的作品标题、邮件主题不查；名称都是中文时两项为零。"""
-    crafted = build_quality_report(_timeline_events("poi-node-11991340957", "action", "work"), [],
+    crafted = build_quality_report(_timeline_events("poi-node-11991340957", "interact", "work"), [],
                                    _manifest())["timeline_labels"]
     assert (crafted["rows_checked"], crafted["english_kind_names"], crafted["internal_ids"]) == (4, 1, 1)
     assert [(item["agent_id"], item["date"], item["interval"], item["label"], item["item"], item["text"])
             for item in crafted["findings"]] == [
         (1, "1970-01-01", "08:01–08:03", "步行去poi-node-11991340957", "internal_id", "poi-node-11991340957"),
-        (1, "1970-01-01", "08:03–08:05", "action", "english_kind_name", "action")]
+        (1, "1970-01-01", "08:03–08:05", "使用interact", "english_kind_name", "interact")]
     clean = build_quality_report(_timeline_events("中山公园", "瑜伽", "周报"), [], _manifest())["timeline_labels"]
     assert clean == {"rows_checked": 4, "english_kind_names": 0, "internal_ids": 0, "findings": []}
 
@@ -866,26 +863,12 @@ def test_timeline_labels_count_hexadecimal_and_hash_identifiers_as_internal_ids(
                                    _manifest())["timeline_labels"]
     assert (crafted["english_kind_names"], crafted["internal_ids"]) == (0, 2)
     assert [(item["label"], item["item"], item["text"]) for item in crafted["findings"]] == [
-        ("步行去便利店#a1b2c3", "internal_id", "#a1b2c3"), ("3e71a031bb3d", "internal_id", "3e71a031bb3d")]
+        ("步行去便利店#a1b2c3", "internal_id", "#a1b2c3"), ("使用3e71a031bb3d", "internal_id", "3e71a031bb3d")]
     near = build_quality_report(_timeline_events("便利店#a1b2c", "3e71a031bb3", "周报"), [],
                                 _manifest())["timeline_labels"]
     assert (near["english_kind_names"], near["internal_ids"], near["findings"]) == (0, 0, [])
 
 
-def test_contact_reply_guard_counts_attempts_and_replies_without_evidence_separately():
-    """联系人回复守卫（docs/design/10-runtime.md）：命中与类别按尝试计，重试与兜底按回复计；没有 attempts
-    证据的回复单列，不算未命中。"""
-    replies = [
-        {"attempts": [{"matched": ["arriving"]}, {"matched": []}], "guard_applied": False},
-        {"attempts": [{"matched": ["taking_over", "guaranteeing"]}, {"matched": ["arriving"]}], "guard_applied": True},
-        {"attempts": [{"matched": []}], "guard_applied": False},
-        {},
-    ]
-    events = [_event(index, "environment_event", agent_id=1, data={"kind": "model_npc_reply", **fields})
-              for index, fields in enumerate(replies, start=1)]
-    assert build_quality_report(events, [], _manifest())["contact_reply_guard"] == {
-        "replies": 4, "replies_without_guard_evidence": 1, "attempts": 5, "hits": 3, "retries": 2, "fallbacks": 1,
-        "hits_by_category": {"arriving": 2, "done_or_bringing": 0, "taking_over": 1, "guaranteeing": 1}}
 
 
 def _protocol_error(sequence, call_id, code, purpose=None):
@@ -911,23 +894,23 @@ def test_name_rejections_are_counted_apart_from_other_protocol_errors():
     重放），同一人物同一秒的前两次记为免计；名称类以外的拒绝码不进这一节。"""
     events = [
         _protocol_error(1, "c1", "NAME_NOT_FOUND"),
-        _protocol_error(2, "c2", "WAY_NOT_OFFERED"),
+        _protocol_error(2, "c2", "ACTION_NOT_OFFERED"),
         _protocol_error(3, "c3", "SUBJECT_NOT_KNOWN"),
         _protocol_error(4, "c4", "ARGUMENTS_NOT_JSON"),
         _protocol_error(5, "c5", "TOOL_CALL_REQUIRED"),
         _protocol_error(6, "c6", "ARGUMENTS_INVALID"),
         _protocol_error(7, "c7", "NAME_NOT_FOUND", purpose="plan_day"),
-        _rejected(8, "SUPPLY_NOT_FOUND", 500), _rejected(9, "SUPPLY_NOT_AT_STORE", 500),
+        _rejected(8, "SUPPLY_NOT_FOUND", 500), _rejected(9, "SUPPLY_NOT_FOUND", 500),
         _rejected(10, "ACTION_REQUEST_INVALID", 500), _rejected(11, "TASK_NOT_FOUND", 500),
         _rejected(12, "SUPPLY_NOT_FOUND", 600), _rejected(13, "SUPPLY_NOT_FOUND", 600, reused=True),
     ]
     report = build_quality_report(events, [], _manifest(end=1100))["name_rejections"]
     assert (report["host_protocol_errors"], report["other_protocol_errors"]) == (3, 3)
     assert report["host_codes"] == {"NAME_AMBIGUOUS": 0, "NAME_NOT_FOUND": 1, "SUBJECT_NOT_KNOWN": 1,
-                                    "WAY_NOT_OFFERED": 1, "APP_REQUIRED": 0, "APP_NOT_OFFERED": 0, "PAYMENT_APP_REQUIRED": 0, "PAYMENT_APP_NOT_BOUND": 0, "COUNTERPART_REQUIRED": 0}
+                                     "ACTION_NOT_OFFERED": 1}
     assert report["other_protocol_codes"] == {"ARGUMENTS_INVALID": 1, "ARGUMENTS_NOT_JSON": 1, "TOOL_CALL_REQUIRED": 1}
     assert report["environment_rejections"] == 4
-    assert report["environment_codes"] == {"SUPPLY_NOT_AT_STORE": 1, "SUPPLY_NOT_FOUND": 2, "TASK_NOT_FOUND": 1}
+    assert report["environment_codes"] == {"SUPPLY_NOT_FOUND": 3, "TASK_NOT_FOUND": 1}
     assert report["environment_free_rejections"] == 3
 
 
@@ -955,28 +938,21 @@ def test_work_progress_does_not_create_conversion_efficiency():
     assert report["conversion_efficiency"]["food"]["weighted_mean"] is None
 
 
-def test_work_topic_quality_uses_actual_activity_seconds_and_real_completions_and_reports():
-    """@brief 累计进度与重放回执不能制造工时、完成数或播报数。"""
-    first = _content_event(1, after=120, app_id=None, content="sales", category="work_study", action_id="work")
-    second = _content_event(2, before=120, after=180, app_id=None, content="sales", category="work_study",
-                            action_id="work")
-    research = _content_event(3, before=180, after=210, app_id=None, content="research", agent_id=2,
-                              category="work_study", action_id="work")
-    events = [first, second, research,
-        _event(4, "environment_event", occurred_at=310, agent_id=1,
-               data={"kind": "work_content_completed", "content_id": "sales"}),
-        _event(5, "action_requested", occurred_at=311, agent_id=1, action_id="report",
-               data={"tool_name": "report_status"}),
-        _event(6, "action_result", occurred_at=312, agent_id=1, action_id="report",
-               data={"status": "completed", "data": {"activity_ids": ["first", "paused"]}}),
-        _event(7, "action_result", occurred_at=313, agent_id=1, action_id="report",
-               data={"status": "completed", "reused": True, "data": {"activity_ids": ["first"]}})]
-    activities = [_activity("first", "action", 120, data={"category": "work_study"}),
-                  _activity("paused", "action", 60, "paused", data={"category": "work_study"}),
-                  _activity("failed", "action", 90, "failed", data={"category": "work_study"}),
-                  _activity("research", "action", 30, "cancelled", agent_id=2, data={"category": "work_study"})]
-    manifest = {**_manifest(), "work_content_ids": {"1": ["sales", "other"], "2": ["research"]}}
-    report = build_quality_report(events, activities, manifest)
-    assert report["work_topics"] == {"topics": 3, "completed": 1,
-                                       "worked_seconds_by_topic": {"research": 30, "sales": 180}, "reports": 2}
-    assert "work" not in report["conversion_efficiency"]
+
+def test_drink_receipt_does_not_count_as_calorie_conversion():
+    events = [_event(1, "environment_event", agent_id=1,
+                     data={"kind": "goods_received", "category": "drink", "provided": 400, "applied": 300})]
+    report = build_quality_report(events, [], _manifest())
+    assert report["conversion_efficiency"]["food"]["sample_count"] == 0
+    assert report["conversion_efficiency"]["food"]["unavailable_or_incomplete_reason"] == "no_food_receipt"
+    assert not {"work_topics", "contact_reply_guard"} & report.keys()
+    assert "by_action" not in report["content_contact"]
+
+
+def test_old_wake_name_does_not_prove_reflection_without_sleep_completion():
+    events = [_event(1, "observation", agent_id=1, decision_id="decision",
+                     data={"verified_experiences": [], "wake_reasons": ["session_open"]}),
+              _event(2, "memory_updated", agent_id=1, decision_id="decision",
+                     data=_memory_update("r1", "event-1", "decision", trigger=("reflection",)))]
+    problems = build_quality_report(events, [], _manifest())["memory_references"]["problems"]
+    assert [item["code"] for item in problems] == ["memory_update_without_source"]

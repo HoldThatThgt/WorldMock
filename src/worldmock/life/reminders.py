@@ -13,7 +13,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from worldmock.life import errands
-from worldmock.life.models import AgentState, WorldState
+from worldmock.life.models import ActivityKind, AgentState, WorldState, active_activities
 from worldmock.life.schedule import PlanGoal, day_end_seconds, day_plan_expired
 
 
@@ -55,7 +55,8 @@ def boundary_candidates(state: WorldState, timezone_name: str) -> list[int]:
     now = state.current_time
     moments = [day_end_seconds(now, timezone_name)]
     for agent in state.agents.values():
-        moments.extend(reminder_times(agent, now))
+        if not any(item.kind == ActivityKind.SLEEP for item in active_activities(state, agent.agent_id)):
+            moments.extend(reminder_times(agent, now))
     moments.extend(errands.boundary_times(state))
     return moments
 

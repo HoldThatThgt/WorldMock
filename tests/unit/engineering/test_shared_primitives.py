@@ -25,7 +25,7 @@ from worldmock.footprints.timeline_labels import _load_render_day
 from worldmock.footprints.intervals import body_settlements, valid_interval
 from worldmock.footprints.models import Event, canonical_json, is_sha256, sha256_json
 from worldmock.footprints.timeline_labels import local_day_bounds, split_local_days, timeline_label_report, window_days
-from worldmock.life import content, day_planning, memory_evidence
+from worldmock.life import day_planning, memory_evidence
 from worldmock.model_feedback import schema_error_details
 
 
@@ -265,13 +265,13 @@ def test_interval_consumers_do_not_count_invalid_settlements(start, end):
     assert not valid_interval(start, end)
     assert quality._activity_quality([], [event])['body_settlements_missing_interval'] == 1
     assert behavior_metrics._person_elapsed_minutes([row], [])['missing_interval_events'] == 1
-    agent = workload_metrics.AgentWorkday(None, 'home', (), None, None)
+    agent = workload_metrics.AgentWorkday(None, 'home', None, 'home', None, None)
     timeline = workload_metrics._timeline([row], agent, __import__('zoneinfo').ZoneInfo('UTC'))
     assert (timeline.start, timeline.end) == (0, 0)
     progress = {**row, 'event_type': 'activity_progress', 'activity_id': 'activity',
                 'data': {**row['data'], 'activity': {'activity_id': 'activity', 'agent_id': 1,
                                                    'kind': 'chat', 'status': 'active', 'started_at': 0}}}
-    assert goal_metrics._progress_evidence(progress) is None
+    assert list(body_settlements([progress])) == []
 
 
 def test_body_settlement_subject_filter_is_shared_and_strict():
@@ -304,10 +304,8 @@ def test_renderer_and_label_report_use_manifest_timezone_and_real_local_day(zone
     assert rows[0]['duration'] == f'{length//3600} 小时'
     assert timeline_label_report([event], {'window': window})['rows_checked'] == 1
     zone_info = __import__('zoneinfo').ZoneInfo(zone)
-    assert behavior_metrics._agent_days([{'agent_id': 1, 'occurred_at': start},
-                                        {'agent_id': 1, 'occurred_at': end-1}], '1', zone_info) == 1
     body = _body(start, end).model_dump()
-    agent = workload_metrics.AgentWorkday(None, 'home', (), None, None)
+    agent = workload_metrics.AgentWorkday(None, 'home', None, 'home', None, None)
     timeline = workload_metrics._timeline([body], agent, zone_info)
     assert workload_metrics._days(timeline, zone_info) == [day]
 

@@ -36,12 +36,10 @@ def test_finite_number_primitive_rejects_invalid_json_number(value, caplog):
 
 def test_surviving_definitions_have_one_canonical_owner():
     """@brief 旧品类位置不保留兼容重导出，消费者直接引用搬移后的定义。"""
-    import importlib.util
     from worldmock.catalog import models
     from worldmock.exchange import operators
     assert DeepFrozenModel.__module__ == "worldmock.base_models"
     assert Conservation.__module__ == "worldmock.resources.models"
-    assert importlib.util.find_spec("worldmock.categories") is None
     assert models.DeepFrozenModel is DeepFrozenModel
     assert operators.require_finite_number is require_finite_number
     assert tuple(Conservation) == ("open", "closed")

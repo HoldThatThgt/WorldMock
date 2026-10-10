@@ -15,7 +15,7 @@ models、名称解析与错误合同，models.py 从不导入本模块。
 - 提醒钟点（2.5）：remind_epoch 把 HH:MM 换算为绝对时刻，该钟点的今日时刻严格晚于受理时刻取今天，否则取下一本地日。
   预测与唤醒共用同一事实生成器（_unreminded，未提醒的事务）：reminder_times 给严格晚于此刻的时刻（下一次决策机会的
   候选），boundary_times 只给清醒人物的这些时刻（下一边界的候选，睡眠中的人物不计入），reminders_due 给已到点的事务
-  （唤醒原因 errand_reminder_due）；deliver_reminders 在为清醒人物提供决策机会的边界把全部已到点的事务一并交付，每条
+  （唤醒原因 reminder_due）；deliver_reminders 在为清醒人物提供决策机会的边界把全部已到点的事务一并交付，每条
   记下提醒时刻、写一条人物可见的 errand_reminded，事务的其余状态不变。
 - 完成依据与结算：evidence_rows 只读事务所有人自己的 goods_received，按商品累加 quantity，达到数量减容差
   即移出并写办成事件，否则写进展事件；两种事件只经 caused_by 关联该收货草稿。
@@ -237,6 +237,7 @@ def evidence_rows(event_type: str, agent_id: int | None, data: Mapping[str, Any]
     if event_type != "environment_event" or data.get("kind") != "goods_received":
         return []
     if type(agent_id) is not int or agent_id <= 0:
+        _LOGGER.error("Goods receipt evidence has no simulated recipient")
         raise IntegrityError("Goods receipt evidence has no simulated recipient")
     return [Evidence(agent_id, data["goods_id"], float(data["quantity"]))]
 
@@ -281,7 +282,7 @@ def reminder_times(agent: AgentState, now: int) -> tuple[int, ...]:
 
 
 def reminders_due(agent: AgentState, now: int) -> tuple[ErrandState, ...]:
-    """@brief 本人已到点（提醒时刻不晚于 now）而未提醒的事务，待办层顺序；非空即唤醒原因 errand_reminder_due 成立，
+    """@brief 本人已到点（提醒时刻不晚于 now）而未提醒的事务，待办层顺序；非空即唤醒原因 reminder_due 成立，
     人物在睡时由唤醒判定过滤（它不在睡眠允许集合）。"""
     return tuple(errand for errand in _unreminded(agent) if errand.remind_at <= now)
 
@@ -301,6 +302,8 @@ def deliver_reminders(state: WorldState, agent_id: int) -> tuple[WorldState, lis
 
     :returns: （交付后的世界，提醒事件草稿），草稿按待办层顺序。
     """
+    if _asleep(state, agent_id):
+        return state, []
     agent = state.agents[agent_id]
     errands, drafts = dict(agent.errands), []
     head = _Head(agent_id, state.current_time, ())

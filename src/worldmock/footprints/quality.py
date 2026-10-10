@@ -16,10 +16,9 @@ from worldmock.errors import IntegrityError
 from worldmock.evaluation.errand_metrics import conclusion_memories, errand_metrics
 from worldmock.evaluation.goal_metrics import day_plan_metrics
 from worldmock.footprints.experiences import project_verified_experiences, validate_verified_experiences
-from worldmock.footprints.app_usage import app_usage_quality
+from worldmock.footprints.app_usage import app_usage_quality, validate_activity_prefix
 from worldmock.footprints.models import (
     DECISION_OFFERED_FIELD,
-    WAKE_REASON_NAMES,
     WAKE_REASONS_FIELD,
     Event,
 )
@@ -27,8 +26,6 @@ from worldmock.profile.injection import INPUT_WARNING_CODES
 from worldmock.footprints.timeline_labels import timeline_label_report
 from worldmock.life.control_items import control_items
 from worldmock.life.error_contract import ENVIRONMENT_NAME_CODES, HOST_NAME_CODES
-from worldmock.life.reply_guard import GUARD_PATTERNS
-from worldmock.life.same_moment import free_rejection_flags
 
 from worldmock.life.models import ActionStatus
 
@@ -57,7 +54,7 @@ _PRICING = {
 def build_quality_report(events: list[Event], activities: list[dict], manifest: dict) -> dict:
     """@brief 汇总完成、异常、内容、效率、记忆、模型用量、实测加速比、当日目标、个人事务与收尾记忆、运行输入警告与输出截断。
 
-    报告结构 6：个人事务与工作安排规格的两个只报告分组 errand_metrics、conclusion_memories 紧随 day_plan_metrics
+    报告结构 7：个人事务与工作安排规格的两个只报告分组 errand_metrics、conclusion_memories 紧随 day_plan_metrics
     （docs/design/05-recording-engine.md ）；三者读同一份事件字典，按事件模型的 JSON 形状只构造一次。
 
     @param events 已经认证且按 event_seq 排序的完整事件。
@@ -65,10 +62,11 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
     @param manifest 对应运行的冻结清单。
     @return 可规范序列化且不把缺失测量记为零的质量报告。
     """
+    validate_activity_prefix([event.model_dump(mode="json") for event in events])
     _validate_inputs(events, activities, manifest)
     rows = [{**event.model_dump(mode="json"), "code_sha256": manifest.get("code_sha256")} for event in events]
     return {
-        "schema_version": 6,
+        "schema_version": 7,
         "run_id": manifest["run_id"],
         "source_group_id": manifest["source_group_id"],
         "event_range": {
@@ -81,7 +79,6 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
         "actions": _action_quality(events),
         "activities": _activity_quality(activities, events),
         **app_usage_quality(rows, manifest["window"]["timezone"]),
-        "work_topics": _work_quality(events, activities, manifest),
         "conversion_efficiency": _efficiency_quality(events),
         "decision_rhythm": _decision_rhythm_quality(events),
         "memory_references": _memory_quality(events),
@@ -92,7 +89,6 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
         "conclusion_memories": conclusion_memories(rows),
         "input_warnings": _input_warning_quality(manifest),
         "timeline_labels": timeline_label_report(events, manifest),
-        "contact_reply_guard": _contact_reply_guard_quality(events),
         "name_rejections": _name_rejection_quality(events),
         "truncations": _truncation_quality(events),
     }
@@ -104,7 +100,7 @@ def _validate_inputs(events: list[Event], activities: list[dict], manifest: dict
         raise IntegrityError("Quality report requires at least one authenticated event")
     if (not isinstance(manifest, dict) or not isinstance(manifest.get("run_id"), str)
             or not isinstance(manifest.get("source_group_id"), str)
-            or not isinstance(manifest.get("work_content_ids"), dict)):
+):
         raise IntegrityError("Quality report manifest has no run identity")
     window = manifest.get("window")
     if not isinstance(window, dict):
@@ -226,31 +222,6 @@ def _person_elapsed_seconds(events: list[Event]) -> dict[str, int]:
     return dict(sorted(totals.items()))
 
 
-def _work_quality(events: list[Event], activities: list[dict], manifest: dict) -> dict:
-    """@brief 分配条数由冻结场景声明，工时和完成只由实际内容结算计入。"""
-    assignments = {(int(agent), content) for agent, contents in manifest["work_content_ids"].items()
-                   for content in contents}
-    totals: Counter[str] = Counter()
-    completed = set()
-    requested = {event.action_id: event.data.get("tool_name") for event in events
-                 if event.event_type == "action_requested"}
-    reported = set()
-    reports = 0
-    working = {row["activity_id"] for row in activities
-               if row.get("data", {}).get("category") == "work_study"}
-    for event in events:
-        if event.event_type == "activity_progress" and "content" in event.data:
-            content = event.data["content"]
-            if (event.agent_id, content["content_id"]) in assignments:
-                totals[content["content_id"]] += event.data["interval_end"] - event.data["interval_start"]
-        if event.event_type == "environment_event" and event.data.get("kind") == "work_content_completed":
-            completed.add((event.agent_id, event.data["content_id"]))
-        if (event.event_type == "action_result" and event.action_id not in reported
-                and event.data.get("status") == "completed" and requested.get(event.action_id) == "report_status"):
-            reported.add(event.action_id)
-            reports += sum(identity in working for identity in event.data.get("data", {}).get("activity_ids", []))
-    return {"topics": len(assignments), "completed": len(completed),
-            "worked_seconds_by_topic": dict(sorted(totals.items())), "reports": reports}
 
 
 def _efficiency_quality(events: list[Event]) -> dict:
@@ -266,7 +237,7 @@ def _food_efficiency_samples(events: list[Event]) -> tuple[list[tuple[float, flo
     for event in events:
         data = event.data
         if (event.event_type != "environment_event" or data.get("kind") != "goods_received"
-                or data.get("category") not in {"meal", "snack", "drink"}):
+                or data.get("category") not in {"meal", "snack"}):
             continue
         provided, applied = data.get("provided"), data.get("applied")
         if not _is_positive_number(provided) or not _is_nonnegative_number(applied):
@@ -317,21 +288,21 @@ def _decision_rhythm_quality(events: list[Event]) -> dict:
     return {
         "body_settlement_events": len(boundaries),
         "boundaries_with_decision_field": offered + silent,
-        "boundaries_missing_decision_field": len(boundaries) - offered - silent,
         "silent_boundaries": silent,
         "offered_boundaries": offered,
         "wake_reason_events": reason_events,
         "wake_reason_counts": dict(sorted(known_reasons.items())),
+        "wake_category_counts": _wake_category_distribution(boundaries),
         "unrecognized_wake_reason_counts": dict(sorted(unrecognized_reasons.items())),
         "decision_started_events": len(started),
         "same_moment_round_counts": _same_moment_round_counts(started),
         "decision_started_wake_reason_counts": dict(sorted(started_known.items())),
+        "decision_started_wake_category_counts": _wake_category_distribution(started),
         "unrecognized_decision_started_wake_reason_counts": dict(sorted(started_unrecognized.items())),
-        "decision_budget_exhausted_events": sum(
-            event.event_type == "environment_event" and event.data.get("kind") == "decision_budget_exhausted"
-            for event in events),
         "method": "Raw counts from shared body settlement and decision started events",
     }
+
+
 
 
 def _same_moment_round_counts(started: list[Event]) -> dict[str, int]:
@@ -346,6 +317,8 @@ def _same_moment_round_counts(started: list[Event]) -> dict[str, int]:
 
 def _wake_reason_distribution(progresses: list[Event]) -> tuple[Counter, Counter, int]:
     """@brief 汇总各唤醒原因计数，冻结词表之外的成员单列，不并入已知分布。"""
+    from worldmock.life.schedule import WAKE_TRIGGERS
+    names = {trigger.name for trigger in WAKE_TRIGGERS}
     known: Counter = Counter()
     unrecognized: Counter = Counter()
     reason_events = 0
@@ -355,11 +328,21 @@ def _wake_reason_distribution(progresses: list[Event]) -> tuple[Counter, Counter
             continue
         reason_events += 1
         for reason in reasons:
-            if isinstance(reason, str) and reason in WAKE_REASON_NAMES:
+            if isinstance(reason, str) and reason in names:
                 known[reason] += 1
             else:
                 unrecognized[str(reason)] += 1
     return known, unrecognized, reason_events
+
+
+def _wake_category_distribution(events: list[Event]) -> dict:
+    """@brief 每条事实中同类触发只计一次，分类唯一取静态触发表。"""
+    from worldmock.life.schedule import WAKE_TRIGGERS
+    categories = {trigger.name: trigger.category for trigger in WAKE_TRIGGERS}
+    counts = Counter(category for event in events
+                     for category in {categories[reason] for reason in event.data.get(WAKE_REASONS_FIELD, [])
+                                      if isinstance(reason, str) and reason in categories})
+    return dict(sorted(counts.items()))
 
 
 def _memory_quality(events: list[Event]) -> dict:
@@ -442,9 +425,24 @@ def _inspect_memory_observation(event: Event, state: dict) -> None:
                                 [identity] if isinstance(identity, str) else [])
     key = (event.agent_id, event.decision_id)
     state["windows"][key] = (event.event_id, {item["source_event_id"] for item in facts})
-    wake_reasons = event.data.get("wake_reasons")
-    if isinstance(wake_reasons, list) and "wake_from_sleep" in wake_reasons:
+    if _sleep_ended_at_observation(event, state["events"]):
         state["reflections"].add(key)
+
+
+def _sleep_ended_at_observation(observation: Event, sources: dict) -> bool:
+    """@brief 本决策边界真实结束睡眠才登记就寝反思，不依赖旧唤醒名称。"""
+    for identity in observation.data.get("progress_event_ids", []):
+        source = sources.get(identity)
+        if (source is None or source.occurred_at != observation.occurred_at
+                or source.agent_id != observation.agent_id or source.event_seq >= observation.event_seq
+                or source.event_type != "activity_progress" or source.source_kind != "environment"):
+            continue
+        activity = source.data.get("activity", {})
+        if (activity.get("kind") == "sleep" and activity.get("status") == "completed"
+                and activity.get("ended_at") == observation.occurred_at
+                and activity.get("agent_id") == observation.agent_id):
+            return True
+    return False
 
 
 def _verified_source_matches(source: Event | None, fact: dict, observation: Event) -> bool:
@@ -745,26 +743,6 @@ def _usage_by_purpose(requests: list[Event], usage: list[dict]) -> list[dict]:
             for purpose in sorted(set(counts) | set(groups))]
 
 
-def _contact_reply_guard_quality(events: list[Event]) -> dict:
-    """@brief 联系人回复守卫的命中、重试与兜底计数（docs/design/05-recording-engine.md 、第九章）。
-
-    命中按尝试计（首次与重试各算一次），类别也按尝试计；重试与兜底按回复计。没有 attempts 证据的回复单列，
-    不当作未命中。
-    """
-    replies = [event.data for event in events if event.event_type == "environment_event"
-               and event.data.get("kind") == "model_npc_reply"]
-    guarded = [data for data in replies if isinstance(data.get("attempts"), list)]
-    attempts = [item for data in guarded for item in data["attempts"] if isinstance(item, dict)]
-    matched = [item["matched"] if isinstance(item.get("matched"), list) else [] for item in attempts]
-    return {
-        "replies": len(replies),
-        "replies_without_guard_evidence": len(replies) - len(guarded),
-        "attempts": len(attempts),
-        "hits": sum(bool(codes) for codes in matched),
-        "retries": sum(len(data["attempts"]) > 1 for data in guarded),
-        "fallbacks": sum(data.get("guard_applied") is True for data in guarded),
-        "hits_by_category": {code: sum(code in codes for codes in matched) for code in GUARD_PATTERNS},
-    }
 
 
 def _name_rejection_quality(events: list[Event]) -> dict:
@@ -775,6 +753,7 @@ def _name_rejection_quality(events: list[Event]) -> dict:
     重放）按名称类拒绝码（ENVIRONMENT_NAME_CODES）逐码计数，并按同一人物同一模拟秒的结算先后用同刻规则分出免计（不计同刻
     轮数、不施加脉冲）的次数。只报告，不放行。
     """
+    from worldmock.life.same_moment import free_rejection_flags
     host: Counter[str] = Counter()
     other: Counter[str] = Counter()
     for event in _terminal_responses(events):

@@ -4,7 +4,7 @@ from __future__ import annotations
 from worldmock.run_setup import stage_model_identity
 from worldmock.runtime import settle_pending_day_plans
 from custom.agents.life_agent import life_action_tool_names
-from worldmock.runtime import settle_pending_model_replies
+from worldmock.environment import load_environment
 
 from datetime import datetime
 from pathlib import Path
@@ -21,18 +21,16 @@ from worldmock.life.models import CounterfactualIntervention, REQUEST_MODELS, Ru
 from worldmock.life.world_query import QueryWorldRequest, query_world, validate_world_query
 from worldmock.status import write_status
 
-#: 稳定工具面（docs/design/04-simulation-engine.md「人物工具与管理接口」）：环境侧必须恰好受理九个工具；
+#: 稳定工具面（docs/design/04-simulation-engine.md「人物工具与管理接口」）：环境侧必须恰好受理七个工具；
 #: 零点计划 plan_day 是运行时后台任务，不是人物工具（docs/design/04-simulation-engine.md）。
 _STABLE_TOOL_SURFACE = frozenset(
     {
         "start_activity",
-        "set_alarm",
         "recall_task_summary",
         "report_status",
         "pause_activity",
         "conclude_activity",
         "revise_day_plan",
-        "send_message",
         "query_world",
     }
 )
@@ -43,7 +41,7 @@ class LifeEnv(EnvBase):
 
     def __init__(
         self,
-        scenario_path: str | None = None,
+        environment_root: str | None = None,
         run_dir: str | None = None,
         run_identity: dict | None = None,
         open_existing: bool = False,
@@ -57,7 +55,7 @@ class LifeEnv(EnvBase):
         （同秒续接开关，缺省开，冻结进清单 stages.action；docs/design/06-agent.md「同秒续接」）。
         """
         super().__init__()
-        self.scenario_path = Path(scenario_path).resolve() if scenario_path else None
+        self.environment_root = Path(environment_root).resolve() if environment_root else None
         self.run_dir = Path(run_dir).resolve() if run_dir else None
         self.run_identity = RunIdentity.model_validate(run_identity) if run_identity else None
         self.open_existing = open_existing
@@ -68,7 +66,7 @@ class LifeEnv(EnvBase):
     def init_description(cls) -> str:
         """@brief 描述唯一新建或明确打开运行的构造参数。"""
         return (
-            "LifeEnv requires scenario_path, run_dir, and run_identity for a new run. "
+            "LifeEnv requires environment_root, run_dir, and run_identity for a new run. "
             "Set open_existing=false for a new run or "
             "open_existing=true only for an existing immutable run directory."
         )
@@ -81,23 +79,25 @@ class LifeEnv(EnvBase):
         运行故障的范围，任务异常先经 engine.fail_run 登记再抛出。反事实分支在干预检查点之后执行。
         """
         await super().init(start_datetime)
-        if self.scenario_path is None or self.run_dir is None:
-            raise ProtocolError("LifeEnv init requires scenario_path and run_dir")
+        if self.environment_root is None or self.run_dir is None:
+            raise ProtocolError("LifeEnv init requires environment_root and run_dir")
         if self.engine is not None:
             raise ProtocolError("LifeEnv was already initialized")
         if self.open_existing:
-            self.engine = LifeEngine.open(self.scenario_path, self.run_dir)
+            self.engine = LifeEngine.open(self.environment_root, self.run_dir)
         else:
             if self.run_identity is None:
                 raise ProtocolError("New LifeEnv run requires explicit run_identity")
-            identity = stage_model_identity(self.create_options.get("same_second_continuation", True))
+            inputs = load_environment(self.environment_root)
+            identity = stage_model_identity(inputs.config.model, inputs.model_metadata,
+                                             self.create_options.get("same_second_continuation", True))
             self.engine = LifeEngine.create(
-                self.scenario_path, self.run_dir, self.run_identity, identity, self.create_options
+                inputs, self.run_dir, self.run_identity, identity, self.create_options
             )
         if int(start_datetime.timestamp()) != self.engine.context.state.current_time:
             self.engine.close()
             self.engine = None
-            raise ProtocolError("LifeEnv start time disagrees with the scenario")
+            raise ProtocolError("LifeEnv start time disagrees with the environment")
         self._validate_registered_tool_surface()
         self._workspace_root = self.run_dir
         if self.open_existing and self.engine.context.store.manifest.get("branch_kind") == "resume":
@@ -179,12 +179,10 @@ class LifeEnv(EnvBase):
             }
 
     async def commit_decision_round(self, round_id: str):
-        """@brief 原子结算人物批次，随后送达待发的联系人 model
-        回复（docs/design/04-simulation-engine.md「社交接口」）。"""
+        """@brief 原子结算唯一人物的决策批次并提交真实环境证据。"""
         engine = self._require_engine()
         write_status(engine.context.store.run_dir, "running", "resolving")
         results = engine.commit_decision_round(round_id)
-        await settle_pending_model_replies(engine)
         return results
 
     async def abort_decision_round(self, round_id: str, error: str) -> None:
@@ -243,6 +241,13 @@ class LifeEnv(EnvBase):
             engine.decide_midnight_rhythm()
         self.t = t
 
+    async def set_current_time(self, t: datetime) -> None:
+        """@brief 核对原生 Society 确认的环境时钟，禁止绕过领域推进修改世界时间。"""
+        engine = self._require_engine()
+        if int(t.timestamp()) != engine.context.state.current_time:
+            raise ProtocolError("Society current time disagrees with the environment")
+        self.t = t
+
     async def fail_run(self, error: str) -> None:
         """@brief 接收 Society 致命通知并持久化唯一 run_failed 证据。"""
         self._require_engine().fail_run(error)
@@ -261,12 +266,12 @@ class LifeEnv(EnvBase):
 
     async def restore(self, workspace_path: Path) -> bool:
         """@brief 从明确已有的分支运行恢复；任何缺失或损坏直接失败。"""
-        if self.scenario_path is None:
-            raise ProtocolError("LifeEnv restore requires scenario_path")
+        if self.environment_root is None:
+            raise ProtocolError("LifeEnv restore requires environment_root")
         if self.engine is not None:
             self.engine.close()
         self.run_dir = Path(workspace_path).resolve()
-        self.engine = LifeEngine.open(self.scenario_path, self.run_dir)
+        self.engine = LifeEngine.open(self.environment_root, self.run_dir)
         self._workspace_root = self.run_dir
         timezone = self.engine.scheduling_state().current_time.tzinfo
         self.t = datetime.fromtimestamp(self.engine.context.state.current_time, timezone)

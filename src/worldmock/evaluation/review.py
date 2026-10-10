@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from worldmock.evaluation.metrics import date_blocks
+from worldmock.evaluation.randomness import checkpoint_random_state
+from worldmock.life.randomness import random_stream
 from worldmock.footprints.models import is_sha256
+from worldmock.exchange.types import GoodsCategory
 import hashlib
 import hmac
 import math
@@ -12,7 +15,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence, get_args
 from zoneinfo import ZoneInfo
 
 import krippendorff
@@ -39,9 +42,9 @@ _PUBLIC_VALUES = {
     "interaction": {
         "order", "travel", "check_in", "check_out", "open", "close", "view", "copy",
         "notify", "arrive", "leave", "visit", "read", "work", "pay", "deliver",
-        "do", "receive", "report", "pause", "conclude", "chat", "call",
+        "do", "receive", "report", "pause", "conclude", "interact",
     },
-    "object_type": {"order", "route", "workplace", "application", "app", "content", "message", "activity", "person"},
+    "object_type": {"order", "route", "workplace", "application", "app", "content", "message", "activity"},
     "state": {
         "declared", "requested", "started", "completed", "received", "read", "pending", "ready_for_pickup",
         "paid", "delivered", "available", "expired", "rejected", "cancelled", "failed", "unknown",
@@ -51,7 +54,7 @@ _PUBLIC_VALUES = {
     "travel_mode": {"walking", "driving", "transit"},
     "place_type": {"workplace"},
     "device": {"phone", "other"},
-    "goods_category": {"meal", "snack", "drink", "leisure", "daily", "fuel"},
+    "goods_category": set(get_args(GoodsCategory)),
 }
 _LONG_TERM_OBJECT_TYPES = {"order", "content", "message", "app"}
 _CAUSAL_STATES = {
@@ -90,6 +93,7 @@ class _ReviewContext:
     right: DatasetView
     support: Mapping[str, Any]
     scenario: EvaluationScenario
+    random_state: str
 
 
 @dataclass(frozen=True)
@@ -98,8 +102,8 @@ class _EvidenceMask:
 
     reviewer_slot: str
     candidate_namespace: str
-    seed: str
-    fields_by_category: Mapping[str, Sequence[str]]
+    random_state: str
+    fields_by_object_type: Mapping[str, Sequence[str]]
 
 
 def create_review_material(
@@ -109,11 +113,12 @@ def create_review_material(
     scenario: EvaluationScenario,
 ) -> ReviewMaterial:
     """@brief 为每个评审槽生成独立且确定性左右随机的盲评包。"""
-    items = _review_items(scenario)
+    random_state = checkpoint_random_state(right.validation)
+    items = _review_items(scenario, random_state)
     pack_id = _pack_id(scenario, items, support)
     packets: list[JsonObject] = []
     key_items: dict[str, JsonObject] = {}
-    context = _ReviewContext(left, right, support, scenario)
+    context = _ReviewContext(left, right, support, scenario, random_state)
     for index in range(scenario.reviewer_count):
         slot = f"reviewer-{index + 1:02d}"
         packet, mapping = _reviewer_packet(slot, pack_id, items, context)
@@ -126,12 +131,13 @@ def create_review_material(
         "reviewer_count": scenario.reviewer_count,
         "dimensions": list(scenario.review_dimensions),
         "shared_profile": scenario.shared_profile.to_dict(),
-        "public_fields_by_category": support.get("public_fields_by_category", {}),
+        "public_fields_by_object_type": support.get("public_fields_by_object_type", {}),
         "selection_coverage": _selection_coverage(scenario, items),
         "packets": descriptors,
     }
     key = {
         "schema_version": "blind-review-key-1",
+        "random_state": random_state,
         "pack_id": pack_id,
         "candidate_labels": ["left_candidate", "right_candidate"],
         "reviewer_mappings": key_items,
@@ -169,13 +175,13 @@ def ingest_reviews(
         "selection_coverage": index["selection_coverage"],
         "records": records,
         "decoded_ratings": decoded,
-        "preference": _preference_summary(decoded, scenario),
+        "preference": _preference_summary(decoded, scenario, checkpoint_random_state(key)),
         "reliability": _reliability(decoded, scenario),
         "reviewer_dependence": _reviewer_dependence(records),
     }
 
 
-def _review_items(scenario: EvaluationScenario) -> list[JsonObject]:
+def _review_items(scenario: EvaluationScenario, random_state: str) -> list[JsonObject]:
     """@brief 覆盖每个周块、特殊日期及每周哈希选择的普通日。"""
     blocks = date_blocks(scenario)
     items: list[JsonObject] = []
@@ -187,7 +193,7 @@ def _review_items(scenario: EvaluationScenario) -> list[JsonObject]:
         for calendar_class in ("regular_workday", "ordinary_weekend"):
             candidates = [value for value in block if scenario.calendar_class(value) == calendar_class]
             if candidates:
-                chosen = _hashed_choice(candidates, scenario.review_seed, block_start, calendar_class)
+                chosen = _sample_day(candidates, random_state, block_start, calendar_class)
                 items.append(_item(calendar_class, (chosen,), block_start))
     return items
 
@@ -228,10 +234,9 @@ def _item(scope: str, dates: Sequence[date], block_start: date) -> JsonObject:
     }
 
 
-def _hashed_choice(values: Sequence[date], seed: str, block_start: date, kind: str) -> date:
+def _sample_day(values: Sequence[date], random_state: str, block_start: date, kind: str) -> date:
     """@brief 用冻结种子和日期哈希选择普通自然日。"""
-    digest = hashlib.sha256(f"{seed}:{block_start}:{kind}".encode()).digest()
-    return values[int.from_bytes(digest[:8], "big") % len(values)]
+    return random_stream(random_state, f"review-day:{block_start}:{kind}").choice(values)
 
 
 def _pack_id(
@@ -243,7 +248,7 @@ def _pack_id(
         "window_end": scenario.window.end.isoformat(),
         "dimensions": scenario.review_dimensions,
         "shared_profile": scenario.shared_profile.to_dict(),
-        "public_fields_by_category": support.get("public_fields_by_category", {}),
+        "public_fields_by_object_type": support.get("public_fields_by_object_type", {}),
         "items": list(items),
     }
     return hashlib.sha256(stable_json_bytes(public)).hexdigest()
@@ -259,7 +264,7 @@ def _reviewer_packet(
     packet_items: list[JsonObject] = []
     mappings: dict[str, JsonObject] = {}
     for item in items:
-        swap = _swap_sides(context.scenario.review_seed, slot, item["item_id"])
+        swap = _swap_sides(context.random_state, slot, item["item_id"])
         first, second = (context.right, context.left) if swap else (context.left, context.right)
         namespaces = (
             "right_candidate" if swap else "left_candidate",
@@ -274,10 +279,9 @@ def _reviewer_packet(
     return _packet_document(slot, pack_id, packet_items, context), mappings
 
 
-def _swap_sides(seed: str, slot: str, item_id: str) -> bool:
+def _swap_sides(random_state: str, slot: str, item_id: str) -> bool:
     """@brief 为每个评审槽和单元确定性随机左右顺序。"""
-    digest = hashlib.sha256(f"{seed}:{slot}:{item_id}".encode()).digest()
-    return bool(digest[0] & 1)
+    return bool(random_stream(random_state, f"review-swap:{slot}:{item_id}").getrandbits(1))
 
 
 def _packet_item(
@@ -308,8 +312,8 @@ def _candidate_timeline(
 ) -> JsonObject:
     """@brief 生成一侧的活动区间和匿名公开结构事实。"""
     mask = _EvidenceMask(
-        slot, namespace, context.scenario.review_seed,
-        context.support.get("public_fields_by_category", {}),
+        slot, namespace, context.random_state,
+        context.support.get("public_fields_by_object_type", {}),
     )
     return {
         "activities": _timeline(view, dates, context.support, mask),
@@ -317,19 +321,15 @@ def _candidate_timeline(
     }
 
 
-def _timeline(
-    view: DatasetView, dates: Sequence[date], support: Mapping[str, Any], mask: _EvidenceMask
-) -> list[JsonObject]:
-    """@brief 输出类别、起止时间、地点、同伴与规范化状态，不输出来源或内部身份。"""
-    categories = set(support["shared_categories"])
+def _timeline(view: DatasetView, dates: Sequence[date], support: Mapping[str, Any],
+              mask: _EvidenceMask) -> list[JsonObject]:
+    """@brief 真实活动独立保留区间，不由点事实或内容分类决定是否存在。"""
     channels = set(support["shared_channels"])
-    selected = set(dates)
     rows: list[JsonObject] = []
     for activity in view.activities:
-        if activity.category not in categories or not set(activity.channels) & channels:
-            continue
-        rows.extend(_timeline_segments(view, activity, selected, mask))
-    return sorted(rows, key=lambda item: (item["start"], item["end"], item["category"]))
+        if set(activity.channels) & channels:
+            rows.extend(_timeline_segments(view, activity, set(dates), mask))
+    return sorted(rows, key=lambda item: (item["start"], item["end"], item["action"]))
 
 
 def _timeline_segments(
@@ -349,31 +349,15 @@ def _timeline_segments(
     return rows
 
 
-def _timeline_row(
-    activity: ActivitySession, start: datetime, end: datetime, zone: ZoneInfo,
-    mask: _EvidenceMask,
-) -> JsonObject:
-    """@brief 规范化一个可见活动区间，同伴以 keyed HMAC 匿名对象引用输出。
-
-    地点与同伴两列为docs/design/04-simulation-engine.md「社交接口」、
-    docs/design/05-recording-engine.md「数字足迹合同」新增：location_id 适配层尚未
-    填充时为 null；partner_id 只以评审槽+候选命名空间隔离的匿名引用出现，
-    原始人物身份不进盲评包。
-    """
-    return {
-        "category": activity.category,
-        "start": start.astimezone(zone).isoformat(),
-        "end": end.astimezone(zone).isoformat(),
-        "status": _public_status(activity.status),
-        "location": getattr(activity, "location_id", None),
-        "companion": _companion_ref(activity, mask),
-    }
+def _timeline_row(activity: ActivitySession, start: datetime, end: datetime,
+                  zone: ZoneInfo, mask: _EvidenceMask) -> JsonObject:
+    """@brief 活动只有实际动作、区间、状态和匿名地点五个字段。"""
+    location = _masked_ref(mask, "location", activity.location_id) if activity.location_id else None
+    return {"action": activity.action, "start": start.astimezone(zone).isoformat(),
+            "end": end.astimezone(zone).isoformat(), "status": _public_status(activity.status),
+            "location": location}
 
 
-def _companion_ref(activity: ActivitySession, mask: _EvidenceMask) -> str | None:
-    """@brief 同伴匿名引用：无同伴为 null，有则与对象引用同一 HMAC 机制。"""
-    partner = getattr(activity, "partner_id", None)
-    return _masked_ref(mask, "person", partner) if partner else None
 
 
 def _public_evidence_rows(
@@ -385,7 +369,7 @@ def _public_evidence_rows(
     previous: dict[tuple[str, str, str, str], tuple[Any, ...]] = {}
     for evidence in view.public_evidence:
         local = view.window.localize(evidence.occurred_at)
-        fields = mask.fields_by_category.get(evidence.category)
+        fields = mask.fields_by_object_type.get(evidence.object_type)
         if local.date() not in selected or not fields:
             continue
         group, signature = _evidence_change_identity(evidence)
@@ -393,7 +377,7 @@ def _public_evidence_rows(
             continue
         previous[group] = signature
         rows.append(_public_evidence_row(evidence, local, fields, mask))
-    return sorted(rows, key=lambda item: (item["at"], item["category"], item["interaction"]))
+    return sorted(rows, key=lambda item: (item["at"], item["object_type"], item["interaction"]))
 
 
 def _evidence_change_identity(
@@ -401,7 +385,7 @@ def _evidence_change_identity(
 ) -> tuple[tuple[str, str, str, str], tuple[Any, ...]]:
     """@brief 仅在同一真实会话和对象语义内折叠重复状态。"""
     session = evidence.session_key or "\0".join(evidence.source_event_ids)
-    group = (session, evidence.category, evidence.object_type, evidence.object_key or "")
+    group = (session, evidence.action, evidence.object_type, evidence.object_key or "")
     signature = (
         evidence.interaction,
         evidence.state,
@@ -418,7 +402,7 @@ def _public_evidence_row(
 ) -> JsonObject:
     """@brief 生成一条带缺失值和 keyed HMAC 引用的公开事实。"""
     values = evidence.field_values()
-    row: JsonObject = {"at": local.isoformat(), "category": evidence.category}
+    row: JsonObject = {"at": local.isoformat(), "object_type": evidence.object_type}
     for field in fields:
         if field == "object_ref":
             row[field] = _object_ref(evidence, mask) if evidence.object_key else None
@@ -429,7 +413,8 @@ def _public_evidence_row(
 
 def _masked_ref(mask: _EvidenceMask, object_type: str, object_key: str) -> str:
     """@brief keyed HMAC 匿名引用：候选与评审槽隔离、同侧跨日稳定。"""
-    key = hmac.new(mask.seed.encode(), f"reviewer:{mask.reviewer_slot}".encode(), hashlib.sha256).digest()
+    stream = random_stream(mask.random_state, f"review-mask:{mask.reviewer_slot}")
+    key = stream.getrandbits(256).to_bytes(32, "big")
     message = "\0".join((mask.candidate_namespace, object_type, object_key))
     return "object-" + hmac.new(key, message.encode(), hashlib.sha256).hexdigest()
 
@@ -486,11 +471,10 @@ def _has_state_chain(rows: Sequence[JsonObject], cross_day: bool) -> bool:
 
 def _public_status(value: str) -> str:
     """@brief 将来源特有状态收敛为共同公开状态。"""
-    if value in {"cancelled", "failed", "truncated"}:
-        return "interrupted"
-    if value in {"active", "paused"}:
-        return "ongoing"
-    return "recorded"
+    if value == "truncated":
+        return "cancelled"
+    return "started" if value == "active" else value
+
 
 
 def _packet_document(
@@ -498,12 +482,12 @@ def _packet_document(
 ) -> JsonObject:
     """@brief 组装单个评审只能独立读取的完整包。"""
     return {
-        "schema_version": "blind-review-packet-1",
+        "schema_version": "blind-review-packet-2",
         "pack_id": pack_id,
         "reviewer_slot": slot,
         "dimensions": list(context.scenario.review_dimensions),
         "shared_profile": context.scenario.shared_profile.to_dict(),
-        "public_fields_by_category": context.support.get("public_fields_by_category", {}),
+        "public_fields_by_object_type": context.support.get("public_fields_by_object_type", {}),
         "instructions_zh": [
             "只依据本包中的活动区间和公开结构证据，逐项判断哪一侧更贴近连贯的人类活动。",
             "每个维度必须选择 left、right、tie 或 unjudgeable，并给出简短依据。",
@@ -537,8 +521,9 @@ def _validate_review_identity(
         raise EvaluationError("invalid_review", "review dimensions do not match scenario")
     if index.get("shared_profile") != scenario.shared_profile.to_dict():
         raise EvaluationError("invalid_review", "review shared profile does not match scenario")
-    _validate_public_fields(index.get("public_fields_by_category"))
-    if index.get("selection_coverage") != _selection_coverage(scenario, _review_items(scenario)):
+    _validate_public_fields(index.get("public_fields_by_object_type"))
+    selection = _selection_coverage(scenario, _review_items(scenario, checkpoint_random_state(key)))
+    if index.get("selection_coverage") != selection:
         raise EvaluationError("invalid_review", "review selection coverage does not match scenario")
     packets = index.get("packets")
     if not isinstance(packets, list) or len(packets) != scenario.reviewer_count:
@@ -582,9 +567,9 @@ def _validate_packet(
     """@brief 验证公开包身份、闭集字段和时间线遮蔽。"""
     required = {
         "schema_version", "pack_id", "reviewer_slot", "dimensions", "shared_profile",
-        "public_fields_by_category", "instructions_zh", "items",
+        "public_fields_by_object_type", "instructions_zh", "items",
     }
-    if set(packet) != required or packet.get("schema_version") != "blind-review-packet-1":
+    if set(packet) != required or packet.get("schema_version") != "blind-review-packet-2":
         raise EvaluationError("invalid_review", "blind review packet schema is invalid")
     if packet.get("pack_id") != index["pack_id"] or packet.get("reviewer_slot") != descriptor["reviewer_slot"]:
         raise EvaluationError("invalid_review", "blind review packet identity is invalid")
@@ -592,14 +577,14 @@ def _validate_packet(
         raise EvaluationError("invalid_review", "blind review packet dimensions are invalid")
     if packet.get("shared_profile") != index.get("shared_profile"):
         raise EvaluationError("invalid_review", "blind review packet shared profile is invalid")
-    if packet.get("public_fields_by_category") != index.get("public_fields_by_category"):
+    if packet.get("public_fields_by_object_type") != index.get("public_fields_by_object_type"):
         raise EvaluationError("invalid_review", "blind review packet public field support is invalid")
     items = packet.get("items")
     if not isinstance(items, list) or len(items) != descriptor.get("item_count"):
         raise EvaluationError("invalid_review", "blind review packet item count is invalid")
     _reject_identity_keys(packet)
     validated = [
-        _validate_packet_item(item, scenario.review_dimensions, packet["public_fields_by_category"])
+        _validate_packet_item(item, scenario.review_dimensions, packet["public_fields_by_object_type"])
         for item in items
     ]
     item_ids = [identity for identity, _ in validated]
@@ -646,37 +631,39 @@ def _validate_packet_item(
 
 
 def _validate_candidate_timeline(value: Any, public_fields: Mapping[str, Any]) -> None:
-    """@brief 验证一侧活动和公开事实的闭集结构。"""
+    """@brief 活动行严格使用五键，拒绝旧同伴或分类字段。"""
     if not isinstance(value, dict) or set(value) != {"activities", "public_evidence"}:
         raise EvaluationError("invalid_review", "blind review candidate timeline schema is invalid")
     if not isinstance(value["activities"], list) or not isinstance(value["public_evidence"], list):
         raise EvaluationError("invalid_review", "blind review candidate collections must be arrays")
     for row in value["activities"]:
-        if (not isinstance(row, dict)
-                or set(row) != {"category", "start", "end", "status", "location", "companion"}
-                or not _valid_location(row["location"])
-                or not _valid_anonymous_ref(row["companion"])):
+        valid = isinstance(row, dict) and set(row) == {"action", "start", "end", "status", "location"}
+        if not valid or not isinstance(row["action"], str) or not row["action"] or not _valid_location(row["location"]):
+            raise EvaluationError("invalid_review", "blind review activity timeline schema is invalid")
+        if (not isinstance(row["start"], str) or not isinstance(row["end"], str)
+                or row["status"] not in {
+                    "started", "paused", "completed", "cancelled", "failed", "observed", "unknown"}):
             raise EvaluationError("invalid_review", "blind review activity timeline schema is invalid")
     for row in value["public_evidence"]:
         _validate_public_row(row, public_fields)
 
 
 def _validate_public_fields(value: Any) -> None:
-    """@brief 验证类别字段掩码只包含允许公开的闭集字段。"""
+    """@brief 验证实际对象的字段掩码只包含允许公开的闭集字段。"""
     if not isinstance(value, dict):
         raise EvaluationError("invalid_review", "public field support must be an object")
-    for category, fields in value.items():
-        valid = isinstance(category, str) and category and isinstance(fields, list) and fields
+    for action, fields in value.items():
+        valid = isinstance(action, str) and action and isinstance(fields, list) and fields
         if not valid or len(fields) != len(set(fields)) or not set(fields) <= _PUBLIC_FIELDS:
             raise EvaluationError("invalid_review", "public field support contains invalid fields")
 
 
 def _validate_public_row(value: Any, public_fields: Mapping[str, Any]) -> None:
-    """@brief 验证一条公开事实完全符合该类别共同字段。"""
-    if not isinstance(value, dict) or not isinstance(value.get("category"), str):
+    """@brief 每条点事实只能含该真实对象共同支持的字段。"""
+    if not isinstance(value, dict) or value.get("object_type") not in _PUBLIC_VALUES["object_type"]:
         raise EvaluationError("invalid_review", "blind review public evidence schema is invalid")
-    fields = public_fields.get(value["category"])
-    if not isinstance(fields, list) or set(value) != {"at", "category", *fields}:
+    fields = public_fields.get(value["object_type"])
+    if not isinstance(fields, list) or set(value) != {"at", "object_type", *fields}:
         raise EvaluationError("invalid_review", "blind review public evidence fields are invalid")
     if not isinstance(value.get("at"), str):
         raise EvaluationError("invalid_review", "blind review public evidence time is invalid")
@@ -685,8 +672,8 @@ def _validate_public_row(value: Any, public_fields: Mapping[str, Any]) -> None:
 
 
 def _valid_location(value: Any) -> bool:
-    """@brief 活动地点列为显式缺失或非空字符串（场景地名不是闭集）。"""
-    return value is None or (isinstance(value, str) and bool(value))
+    """@brief 地点只有明确缺失或匿名引用，不能泄露原始地点身份。"""
+    return _valid_anonymous_ref(value)
 
 
 def _valid_anonymous_ref(value: Any) -> bool:
@@ -905,7 +892,7 @@ def _decode_choice(choice: str, mapping: Mapping[str, Any]) -> str:
 
 
 def _preference_summary(
-    decoded: Sequence[JsonObject], scenario: EvaluationScenario
+    decoded: Sequence[JsonObject], scenario: EvaluationScenario, random_state: str
 ) -> JsonObject:
     """@brief 分维度汇总偏好、无法判断比例和周块区间。"""
     results: dict[str, JsonObject] = {}
@@ -919,7 +906,7 @@ def _preference_summary(
             "right_preference_proportion": counts["right_candidate"] / judged if judged else None,
             "tie_proportion": counts["tie"] / judged if judged else None,
             "unjudgeable_proportion": counts["unjudgeable"] / len(choices) if choices else None,
-            "week_block_confidence_interval": _preference_interval(choices, dimension, scenario),
+            "week_block_confidence_interval": _preference_interval(choices, dimension, scenario, random_state),
         }
     return {"by_dimension": results}
 
@@ -936,7 +923,7 @@ def _dimension_choices(
 
 
 def _preference_interval(
-    choices: Sequence[tuple[str, str]], dimension: str, scenario: EvaluationScenario
+    choices: Sequence[tuple[str, str]], dimension: str, scenario: EvaluationScenario, random_state: str
 ) -> JsonObject:
     """@brief 以自然周块重抽样候选偏好差。"""
     grouped: dict[str, list[str]] = defaultdict(list)
@@ -946,7 +933,7 @@ def _preference_interval(
     eligible = [value for value in block_values if value is not None]
     if len(eligible) < 2:
         return {"status": "insufficient_blocks", "eligible_blocks": len(eligible)}
-    seed = int.from_bytes(hashlib.sha256(f"{scenario.bootstrap_seed}:{dimension}".encode()).digest()[:8], "big")
+    seed = random_stream(random_state, f"bootstrap-review:{dimension}").getrandbits(64)
     generator = np.random.default_rng(seed)
     data = np.asarray(eligible, dtype=float)
     indices = generator.integers(0, len(data), size=(scenario.bootstrap_repetitions, len(data)))

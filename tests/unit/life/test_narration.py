@@ -23,9 +23,9 @@ from worldmock.life.narration import (
 
 #: 观察私有证据与私有绑定：只给宿主与读者，绝不渲染进提示。
 _PRIVATE_KEYS = ("interaction_bindings", "goal_bindings", "activity_bindings", "session_bindings",
-                 "message_bindings", "person_bindings", "persona_views", "progress_meta", "progress_event_ids", "presented_message_ids",
+                 "persona_views", "progress_meta", "progress_event_ids",
                  "continuation", "errand_bindings", "errand_item_bindings", "world_query_bindings",
-                 "world_query_page_size", "world_query_channels")
+                 "world_query_page_size")
 
 
 class TestFieldBlacklist:
@@ -34,7 +34,6 @@ class TestFieldBlacklist:
     @pytest.mark.parametrize("forbidden_key", [
         "world_state_version",
         "end_time",
-        "affordance_contract",
         "observation_event_id",
         "motivation_hints",
         "profile.motivation",
@@ -66,7 +65,7 @@ class TestFieldBlacklist:
 
     def test_deeply_nested_key_inside_list_raises(self) -> None:
         """列表内多层数据包藏的禁键同样被递归查出，路径含索引。"""
-        payload = [{"layer": "工具层", "targets": [{"affordance_contract": {"levels": [1, 2]}}]}]
+        payload = [{"layer": "工具层", "targets": [{"activity_snapshot": {"levels": [1, 2]}}]}]
         with pytest.raises(
             ForbiddenObservationFieldError, match=r"observation\[0\]\.targets\[0\]",
         ):
@@ -74,8 +73,7 @@ class TestFieldBlacklist:
 
     @pytest.mark.parametrize("internal_key", [
         "session_id", "activity_id", "task_id", "app_id", "goods_id", "store_id", "product_id",
-        "payment_app_id", "navigation_app_id",
-        "order_id", "message_id", "contact_id", "push_id", "trip_id", "path",
+        "payment_app_id", "order_id", "push_id", "trip_id", "path",
         "agent_id", "source_event_id", "event_seq", "location_id", "destination_id", "content_id", "errand_id",
     ])
     def test_internal_identity_cannot_hide_inside_a_progress_result(self, internal_key: str) -> None:
@@ -86,8 +84,8 @@ class TestFieldBlacklist:
         with pytest.raises(ForbiddenObservationFieldError, match=internal_key):
             render_layer_json(layer)
 
-    @pytest.mark.parametrize("body_key", ["appetite", "sleepiness", "entertainment_need", "social_need",
-                                          "mood_valence"])
+    @pytest.mark.parametrize("body_key", ["appetite", "sleepiness", "relaxation_need", "social_need",
+                                          "social_need"])
     def test_numeric_body_state_is_rejected_but_felt_text_passes(self, body_key: str) -> None:
         """体感分级文字可以进入提示，同名的数值身体状态不行。"""
         enforce_field_blacklist({"body": {body_key: "有点饿"}})
@@ -159,22 +157,21 @@ class TestHanziCounter:
 #: 人物可见层禁止泄漏的内部身份、私有绑定与身体数值字段。
 _FORBIDDEN_KEYS = frozenset({
     'account_id', 'accounts', 'action_id', 'activities',
-    'activity_bindings', 'activity_id', 'activity_snapshot', 'affordance_contract',
+    'activity_bindings', 'activity_id', 'activity_snapshot',
     'agent_id', 'app_id', 'balance_account_id', 'balance_fen',
-    'chronotype_midsleep', 'contact_id', 'content_id', 'continuation',
+    'chronotype_midsleep', 'content_id', 'continuation',
     'destination_id', 'end_time', 'energy_kcal', 'errand_bindings',
     'errand_id', 'errand_item_bindings', 'event_id', 'event_seq',
     'goal_bindings', 'goods_id', 'home_location_id', 'input_path',
-    'interaction_bindings', 'interaction_menu', 'interaction_menus_by_location_kind', 'location_id',
-    'message_bindings', 'message_id', 'motivation_hints', 'navigation_app_id',
+    'interaction_bindings', 'location_id', 'motivation_hints',
     'observation_event_id', 'oracle', 'oracle_path', 'order_id',
-    'path', 'payment_app_id', 'person_bindings', 'persona_views',
-    'presented_message_ids', 'product_id', 'profile.entertainment_preferences', 'profile.motivation',
+    'path', 'payment_app_id', 'persona_views',
+    'product_id', 'profile.entertainment_preferences', 'profile.motivation',
     'progress_event_ids', 'progress_meta', 'push_id', 'reference_assessment',
     'reference_assessments', 'reference_id', 'resource_changes', 'session_bindings',
     'session_id', 'sleep_deficit_hours', 'sleep_need_hours', 'sleep_pressure',
     'source_event_id', 'store_id', 'task_id', 'trip_id',
-    'world_query_bindings', 'world_query_channels', 'world_query_page_size', 'world_state_version',
+    'world_query_bindings', 'world_query_page_size', 'world_state_version',
 })
 
 
@@ -187,8 +184,8 @@ class TestForbiddenKeys:
         """@brief 独立列出的私有字段经实际渲染入口逐键拒绝，不从实现常量生成测试输入。"""
         keys = _FORBIDDEN_KEYS
         assert len(keys) >= 55
-        assert {"home_location_id", "world_query_channels", "location_id", "errand_id", "goods_id", "app_id",
-                "payment_app_id", "navigation_app_id"} <= keys
+        assert {"home_location_id", "world_query_page_size", "location_id", "errand_id", "goods_id", "app_id",
+                "payment_app_id", "interaction_bindings"} <= keys
         assert keys <= FORBIDDEN_OBSERVATION_KEYS, sorted(keys - FORBIDDEN_OBSERVATION_KEYS)
         for key in sorted(keys):
             with pytest.raises(ForbiddenObservationFieldError, match=re.escape(key)):

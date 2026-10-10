@@ -29,10 +29,10 @@ const ViewerContext = {};
     },
     persona: {
       label: '人设层', source: 'src/worldmock/agents/life_persona.py · persona_layer',
-      fill: '宿主从人物卡片的结构化字段、姓名、场景联系人与观察中的看法偏好构建身份、作息、习惯、口味、关系与偏好。',
+      fill: '宿主从人物卡片的结构化字段、姓名与观察中的看法偏好构建身份、作息、习惯、口味、关系与偏好。',
       steps: [
         ['卡片来源', '新建运行时保存卡片的结构化字段，不含当下处境；没有卡片的人物只有姓名，其余为 null 或空列表。'],
-        ['关系合并', '卡片关系与场景联系人按名称合并；只来自联系人的项亲密度为 null、渠道为空。'],
+        ['关系合并', '卡片关系按名称登记；关系内容保留人物卡片原文。'],
         ['看法偏好', '取自结束活动时写下的关系与偏好记忆，同一对象以最后一条为准，未经核验。'],
       ],
     },
@@ -62,14 +62,14 @@ const ViewerContext = {};
       fill: '观察时刻、身体感受文字、所在地点（停留或路程、地点类型、固定规则）与今天的上班安排（没有工作安排为 null）。',
       steps: [
         ['身体感受', '只给感受文字，不给内部数值。'],
-        ['所在地点', '路程中名称为「去某地的路上」，类型为步行或驾车。'],
-        ['固定规则', '地点菜单排除的动作写成「这里不能……」。'],
+        ['所在地点', '路程中名称为「去某地的路上」，类型为实际出行方式。'],
+        ['固定规则', '地点信息直接来自登记目录与当前开放时段。'],
         ['上班安排', 'duty 由场景工作安排与世界时钟求值，今日计划改不了它。'],
       ],
     },
     progress: {
       label: '进度层', source: 'src/worldmock/life/progress_layer.py · progress_view',
-      fill: '本段停留或路程中的调用与结果、消息全文、配送、app 推送、工作内容完成与提醒，以及事务提醒与办成两种只写事务名称的记录，'
+      fill: '本段停留或路程中的调用与结果、配送、app 推送与状态提醒，以及事务提醒与办成两种只写事务名称的记录，'
         + '按发生时刻排列。',
       steps: [
         ['段落边界', '运行开始、出发与到达时重新开始，结果保留到本段结束。'],
@@ -81,7 +81,7 @@ const ViewerContext = {};
     },
     tools: {
       label: '工具定义', source: 'custom/agents/life_agent.py · 原生工具；src/worldmock/agents/life_prompt.py · TOOL_DESCRIPTIONS',
-      fill: '七个世界请求工具、两个世界查询工具（query_world、recall_task_summary）与三个记忆查询工具，'
+      fill: '五个世界请求工具、两个世界查询工具（query_world、recall_task_summary）与三个记忆查询工具，'
         + '严格参数结构，整次运行字节相同。',
       steps: [
         ['稳定工具面', '不再按观察绑定枚举，名称在宿主本地按私有绑定校验。'],
@@ -339,8 +339,8 @@ const ViewerContext = {};
         const target = {...group.shared, ...entry, kind:group.kind};
         items.push({label:`${target.name}（${target.kind}）`, text:JSON.stringify(target, null, 2)});
         if (group.action !== null) {
-          const action = {action:group.action, way:group.way, ...target};
-          items.push({label:`${target.name} · ${group.action}：${group.way} · ${availability(target)}`,
+          const action = {action:group.action, ...target};
+          items.push({label:`${target.name} · ${group.action} · ${availability(target)}`,
             text:JSON.stringify(action, null, 2)});
         }
         for (const row of Array.isArray(target.tools) ? target.tools : []) {

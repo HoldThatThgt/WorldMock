@@ -12,16 +12,16 @@ from zoneinfo import ZoneInfo
 from worldmock.life.work_schedule import break_spans, shift_on, shift_span
 
 if TYPE_CHECKING:
-    from worldmock.life.scenario import LifeScenario, WorkSchedule
+    from worldmock.environment import EnvironmentInputs
+    from worldmock.input_models import WorkSchedule
 
 #: 没有打包输入、与某个人物缺输入时的说明。
 NO_INPUT_NOTE = "未提供工作安排评估输入，workload 与 routine_deviation 为 null"
 MISSING_AGENT_NOTE = "人物 {agent_id} 缺少工作安排评估输入，workload 与 routine_deviation 为 null"
 
-#: 每个人物的八个实际班次与出勤量。
+#: 每个人物的六个实际班次与出勤量。
 WORKLOAD_KEYS = (
-    "shift_seconds", "at_workplace_seconds", "work_activity_seconds",
-    "idle_at_workplace_seconds", "break_seconds", "declared_exception_seconds",
+    "shift_seconds", "at_workplace_seconds", "break_seconds", "declared_exception_seconds",
     "absence_seconds", "early_leave_seconds",
 )
 
@@ -37,7 +37,8 @@ class AgentWorkday:
 
     work_schedule: WorkSchedule | None
     home_location_id: str
-    work_content_ids: tuple[str, ...]
+    workplace_location_id: str | None
+    initial_location_id: str
     leave_work_window: tuple[float, float] | None
     arrive_home_window: tuple[float, float] | None
 
@@ -65,26 +66,23 @@ class _Trip:
 
 @dataclass(frozen=True, slots=True)
 class _Timeline:
-    """@brief 从真实事件重建观察窗、出行、停留、工作和睡眠区间。"""
+    """@brief 从真实事件重建观察窗、出行、停留和睡眠区间。"""
 
     start: int
     end: int
     trips: tuple[_Trip, ...]
     stays: tuple[tuple[int, int, str], ...]
-    work: tuple[tuple[int, int], ...]
     sleep: tuple[tuple[int, int], ...]
 
 
-def workday_inputs(document: LifeScenario, cards: Mapping[int, Mapping[str, Any] | None]) -> WorkdayInputs:
-    """@brief 场景提供班次、住处和播报间隔；卡片 time_anchors 提供下班与到家窗口。"""
-
-    agents = {}
-    for agent in document.agents:
-        card = cards.get(agent.agent_id)
-        agents[agent.agent_id] = AgentWorkday(
-            agent.work_schedule, agent.home_location_id, tuple(agent.work_content_ids),
-            _card_window(card, "leave_work"), _card_window(card, "arrive_home"))
-    return WorkdayInputs(agents, document.progress_report_interval_seconds)
+def workday_inputs(inputs: EnvironmentInputs, cards: Mapping[int, Mapping[str, Any] | None]) -> WorkdayInputs:
+    """@brief 人设提供班次和地点，配置提供播报间隔；卡片提供实际作息窗口。"""
+    persona = inputs.persona
+    card = cards.get(persona.agent_id)
+    agent = AgentWorkday(
+        persona.work_schedule, inputs.home_location_id, inputs.workplace_location_id, inputs.initial_location_id,
+        _card_window(card, "leave_work"), _card_window(card, "arrive_home"))
+    return WorkdayInputs({persona.agent_id: agent}, inputs.config.progress_report_interval_seconds)
 
 
 def workday_reports(events: list[dict[str, Any]], timezone: str, inputs: WorkdayInputs | None) -> dict[str, Any]:
@@ -150,13 +148,9 @@ def _timeline(events: list[dict[str, Any]], agent: AgentWorkday, zone: ZoneInfo)
     start = min((data["interval_start"] for data in bodies), default=0)
     end = max((data["interval_end"] for data in bodies), default=0)
     trips = _trips(events)
-    work = tuple((event["data"]["interval_start"], event["data"]["interval_end"])
-                 for event in _progress(events, "action") if _snapshot(event).get("status") != "failed"
-                 and _snapshot(event).get("data", {}).get("category") == "work_study"
-                 and event["data"].get("content", {}).get("content_id") in agent.work_content_ids)
     sleep = tuple((event["data"]["interval_start"], event["data"]["interval_end"])
                   for event in _progress(events, "sleep"))
-    return _Timeline(start, end, trips, _stays(trips, agent.home_location_id, start, end), work, sleep)
+    return _Timeline(start, end, trips, _stays(trips, agent.initial_location_id, start, end), sleep)
 
 
 
@@ -276,15 +270,13 @@ def _workload(timeline: _Timeline, agent: AgentWorkday, zone: ZoneInfo) -> dict[
 
 def _duty_day(timeline: _Timeline, agent: AgentWorkday, span: tuple[int, int],
               breaks: _Spans) -> dict[str, Any]:
-    """@brief 班次按停留、休息与缺勤拆分，工作只计班次内真实工作活动经过秒数。"""
+    """@brief 班次按真实停留、休息、缺勤与早退拆分，不推断工作内容消费。"""
     shift = [span]
     rests = _intersect(breaks, shift)
-    present = _intersect(_at(timeline, agent.work_schedule.workplace_location_id), shift)
-    working = _intersect(list(timeline.work), shift)
+    present = _intersect(_at(timeline, agent.workplace_location_id), shift)
     absent = _subtract(_subtract(shift, rests), present)
     return {"shift_seconds": _length(shift), "at_workplace_seconds": _length(present),
-            "work_activity_seconds": _length(working),
-            "idle_at_workplace_seconds": _length(_subtract(present, working)), "break_seconds": _length(rests),
+            "break_seconds": _length(rests),
             "declared_exception_seconds": _length(rests),
             "absence_seconds": _length(absent), "early_leave_seconds": _early_leave(timeline, agent, span, rests)}
 
@@ -293,7 +285,7 @@ def _duty_day(timeline: _Timeline, agent: AgentWorkday, span: tuple[int, int],
 
 def _early_leave(timeline: _Timeline, agent: AgentWorkday, span: tuple[int, int], rests: _Spans) -> int:
     """@brief 班内最后一次离开工作地点后未在下班前回来且出发不在休息时段时，计算早退秒数。"""
-    workplace = agent.work_schedule.workplace_location_id
+    workplace = agent.workplace_location_id
     departures = [trip for trip in timeline.trips if trip.origin == workplace and span[0] <= trip.start < span[1]]
     if not departures:
         return 0
@@ -337,7 +329,7 @@ def _left_workplace(timeline: _Timeline, agent: AgentWorkday, day: date, zone: Z
     """@brief 当天最后一次从工作地点出发的出行；没有工作安排或当天没有这样的出发时为 None。"""
     if agent.work_schedule is None:
         return None
-    workplace = agent.work_schedule.workplace_location_id
+    workplace = agent.workplace_location_id
     leaving = [trip for trip in timeline.trips
                if trip.origin == workplace and datetime.fromtimestamp(trip.start, zone).date() == day]
     return leaving[-1] if leaving else None
