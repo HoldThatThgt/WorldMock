@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from worldmock.errors import BusinessRuleError
 from worldmock.life.models import DeliveryState, FulfillmentKind, ScheduledEvent, WorldState
 from worldmock.life.order_routing import group_offers, group_shipping_fen
 from worldmock.life.purchase_offers import quote_goods
@@ -11,17 +10,14 @@ from worldmock.scheduling.events import ScheduledKind
 
 
 def quoted_basket(inputs, state: WorldState, agent_id: int, goods_ids: tuple[str, ...]) -> tuple[dict, int]:
-    """@brief 整次请求核对重复商品和合并后总价，不改变世界或资金。"""
-    if not 1 <= len(goods_ids) <= 2:
-        raise BusinessRuleError("ORDER_ITEM_COUNT_OUT_OF_RANGE")
-    if len(set(goods_ids)) != len(goods_ids):
-        raise BusinessRuleError("ORDER_DUPLICATE_ITEM")
+    """@brief 逐份报价并按配送组合并运费，返回配送组与整次总价；同一商品写几次就是几份，件数不设上限。
+
+    不改变世界或资金；余额由整组核验与购买结束时的付款各核对一次。
+    """
     offers = tuple(quote_goods(inputs, state, agent_id, key) for key in goods_ids)
     groups = group_offers(offers)
     total = sum(inputs.catalog.goods[row.goods_id].price_fen for row in offers)
     total += sum(group_shipping_fen(rows) for rows in groups.values())
-    if state.accounts[state.agents[agent_id].balance_account_id] < total:
-        raise BusinessRuleError("INSUFFICIENT_FUNDS")
     return groups, total
 
 
@@ -35,7 +31,7 @@ def build_orders(context, state: WorldState, pending, groups: dict) -> tuple[Del
                    random_stream(state.random_state, f"payment-duration:{pending.action_id}:{key}").randint(10, 20))
         fee = group_shipping_fen(offers)
         for index, offer in enumerate(offers):
-            order_id = f"order-{pending.action_id}-{len(orders) + 1}"
+            order_id = f"order-{pending.action_id}-{len(orders) + 1:04d}"
             orders.append(_order(context, offer, (pending.agent_id, order_id, state.current_time),
                                  (key, app, seconds, fee if index == 0 else 0)))
     return tuple(orders)

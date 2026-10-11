@@ -1,4 +1,4 @@
-"""@brief 活动的固定名额、生命周期、客观进度与控制工具共享准入。"""
+"""@brief 活动的固定槽位、生命周期、客观进度与控制工具共享准入。"""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from worldmock.life.sessions import at_stay, moment_label, on_road
 if TYPE_CHECKING:
     from worldmock.life.admission import Context
 
-#: 每人活动名额（常量，不设场景参数）。
+#: 每人活动槽位数（常量，不设场景参数）。
 SLOT_LIMIT = 2
 #: 活动阶段的人读说法：进行中、已暂停、刚结束（待收尾）、已收尾、已结束（实验截止截断）。
 PHASE_ACTIVE, PHASE_PAUSED, PHASE_PENDING, PHASE_CONCLUDED, PHASE_ENDED = (
@@ -61,12 +61,12 @@ def pending_conclusions(state: WorldState, agent_id: int) -> tuple[ActivityState
 
 
 def slot_activities(state: WorldState, agent_id: int) -> tuple[ActivityState, ...]:
-    """@brief 占名额的活动：进行中与待收尾（暂停的不占）。"""
+    """@brief 占槽位的活动：进行中与待收尾（暂停的不占）。"""
     return _agent_activities(state, agent_id, occupies_slot)
 
 
 def occupies_slot(activity: ActivityState) -> bool:
-    """@brief 活动是否占一个名额：进行中或待收尾；暂停的活动不占名额。"""
+    """@brief 活动是否占一个槽位：进行中或待收尾；暂停的活动不占槽位。"""
     return activity.status == ActivityStatus.ACTIVE or is_pending_conclusion(activity)
 
 
@@ -78,13 +78,13 @@ def concludable(activity: ActivityState) -> bool:
 def pausable(state: WorldState, activity: ActivityState) -> bool:
     """@brief 活动能否暂停（与 pause_activity 的判定同源）：进行中的交互活动。
 
-    决策边界只关乎暂停的时机，不在此判定；名额超限的下一步据此决定写不写「暂停」。
+    决策边界只关乎暂停的时机，不在此判定；槽位超限的下一步据此决定写不写「暂停」。
     """
     return activity.status == ActivityStatus.ACTIVE and activity.kind == ActivityKind.INTERACT
 
 
 def free_slots(state: WorldState, agent_id: int) -> int:
-    """@brief 人物剩余的活动名额。"""
+    """@brief 人物剩余的活动槽位。"""
     return SLOT_LIMIT - len(slot_activities(state, agent_id))
 
 
@@ -156,7 +156,7 @@ def with_note(activity: ActivityState, summary: str, now: int, anchor: bool = Fa
 
 
 def concluded(activity: ActivityState, summary: str, now: int) -> ActivityState:
-    """@brief 收尾：写入总结自述并置 concluded_at（待收尾的活动由此释放名额）；终态不变。"""
+    """@brief 收尾：写入总结自述并置 concluded_at（待收尾的活动由此释放槽位）；终态不变。"""
     return with_note(activity, summary, now).model_copy(update={"concluded_at": now}, deep=True)
 
 
@@ -179,9 +179,9 @@ def activity_name_refusal(written: Sequence[str], visible: Sequence[str]) -> Ref
     名称类失败逐项报全部（docs/design/04-simulation-engine.md  第 5 条、第四章）：找不到的明细码为 NAME_NOT_FOUND，
     原因
     列出最接近的几个活动名；归一后（如没写开始时刻）对应不止一项的为 NAME_AMBIGUOUS，原因列出它们。明细的参数名为
-    activity_name、原文照录，不带候选（可照填的候选是 start_activity 形状的请求），与宿主纠错中活动名的明细相同；原因逐项写
+    activity_name、原文照录，不带候选（可照填的候选是开始工具的完整调用），与宿主纠错中活动名的明细相同；原因逐项写
     「第 N 项「原文」：…」（guidance.items_refusal），改法按码各写一句。宿主已在本轮纠正这些名称，这里只防绕过宿主的请求，
-    所以顶层码与 start_activity 的防御拒绝（session_actions._unresolved_start）一样取 ACTION_REQUEST_INVALID，下一步取该码的
+    所以顶层码与开始组名称问题的防御拒绝（start_group）一样取 ACTION_REQUEST_INVALID，下一步取该码的
     默认做法：它不在名称类拒绝码闭集（error_contract.NAME_REJECTION_CODES）中，照常计入同刻轮数、照常施加情绪脉冲。
 
     :param written: 请求逐项所写的活动名，按请求中的先后。
@@ -231,7 +231,7 @@ def control_refusal(context: Context, tool: str, activity: ActivityState) -> Ref
     """@brief 控制工具点名一项活动时第一条不成立的准入，成立时为 None；受理与工具层、待办层的可用性共用它。
 
     report_status：只接受进行中或暂停的活动；暂停的活动只在实际开始地点恢复。
-    恢复要有空名额且与进行中活动的占用不能冲突（按这个顺序）。
+    恢复要有空槽位且与进行中活动的占用不能冲突（按这个顺序）。
     pause_activity：只暂停进行中的活动；只有进行中的交互活动可以暂停；须在活动的决策边界。
     conclude_activity：只结束能结束的活动（进行中、暂停中或待收尾）；有别的待收尾活动时先收尾；进行中的活动须在决策边界
     。
@@ -247,7 +247,7 @@ def control_refusal(context: Context, tool: str, activity: ActivityState) -> Ref
 
 
 def _report_refusal(context: Context, activity: ActivityState) -> Refusal | None:
-    """@brief 播报与恢复按状态、实际开始地点、空名额与恢复后的占用依次核验。"""
+    """@brief 播报与恢复按状态、实际开始地点、空槽位与恢复后的占用依次核验。"""
     if activity.status not in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}:
         return refusal_for_code("ACTION_REQUEST_INVALID")
     if activity.status == ActivityStatus.ACTIVE:
@@ -306,12 +306,12 @@ def _conclude_refusal(context: Context, activity: ActivityState) -> Refusal | No
 
 
 def slot_refusal(state: WorldState, agent_id: int, needed: int, names: Mapping[str, str]) -> Refusal | None:
-    """@brief 名额判定（开始、出行与恢复暂停的活动共用）：需要的名额多于空名额时以 SESSION_LIMIT_EXCEEDED 拒绝，够用时为 None。
+    """@brief 槽位判定（开始、出行与恢复暂停的活动共用）：需要的槽位多于空槽位时以 SESSION_LIMIT_EXCEEDED 拒绝，够用时为 None。
 
-    原因点名占名额的活动（进行中与待收尾）：只剩一个名额时说明只剩一个，名额占满时说明两个都被占着；下一步按被点名
+    原因点名占槽位的活动（进行中与待收尾）：只剩一个槽位时说明只剩一个，槽位占满时说明两个都被占着；下一步按被点名
     活动能否暂停写（docs/design/04-simulation-engine.md R3）。
 
-    :param needed: 恢复所需的活动名额。
+    :param needed: 恢复所需的活动槽位。
     :param names: 活动身份→本轮可读名称。
     """
     free = free_slots(state, agent_id)
@@ -325,7 +325,7 @@ def slot_refusal(state: WorldState, agent_id: int, needed: int, names: Mapping[s
 
 
 def _slot_next_step(state: WorldState, occupying: Sequence[ActivityState], names: Mapping[str, str]) -> str:
-    """@brief 名额超限的下一步：都能暂停时写结束或暂停其中一项，都不能时只写结束，混合时暂停只点名能暂停的。"""
+    """@brief 槽位超限的下一步：都能暂停时写结束或暂停其中一项，都不能时只写结束，混合时暂停只点名能暂停的。"""
     listed = _listed(occupying, names)
     can_pause = [item for item in occupying if pausable(state, item)]
     if len(can_pause) == len(occupying):

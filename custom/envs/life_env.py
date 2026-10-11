@@ -21,11 +21,12 @@ from worldmock.life.models import CounterfactualIntervention, REQUEST_MODELS, Ru
 from worldmock.life.world_query import QueryWorldRequest, query_world, validate_world_query
 from worldmock.status import write_status
 
-#: 稳定工具面（docs/design/04-simulation-engine.md「人物工具与管理接口」）：环境侧必须恰好受理七个工具；
+#: 稳定工具面（docs/design/06-agent.md「提示与工具」）：环境侧必须恰好受理七个请求工具与 query_world；
 #: 零点计划 plan_day 是运行时后台任务，不是人物工具（docs/design/04-simulation-engine.md）。
 _STABLE_TOOL_SURFACE = frozenset(
     {
-        "start_activity",
+        "start_main_activity",
+        "start_side_activity",
         "recall_task_summary",
         "report_status",
         "pause_activity",

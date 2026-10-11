@@ -340,7 +340,8 @@ const ViewerContext = {};
         items.push({label:`${target.name}（${target.kind}）`, text:JSON.stringify(target, null, 2)});
         if (group.action !== null) {
           const action = {action:group.action, ...target};
-          items.push({label:`${target.name} · ${group.action} · ${availability(target)}`,
+          const named = target.detail == null ? group.action : `${group.action} · ${target.detail}`;
+          items.push({label:`${target.name} · ${named} · ${availability(target)}`,
             text:JSON.stringify(action, null, 2)});
         }
         for (const row of Array.isArray(target.tools) ? target.tools : []) {

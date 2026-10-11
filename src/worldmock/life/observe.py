@@ -4,9 +4,11 @@ from copy import deepcopy
 from dataclasses import replace
 
 from worldmock.footprints.experiences import recent_verified_experiences
-from worldmock.life import activity_control, callable_index, discovery, errands, felt, memory_layer, projection
-from worldmock.life import progress_layer, rotation, sessions
-from worldmock.life.action_contract import ACTIVITY_ACTIONS, TRAVEL_ACTIONS, binding_action
+from worldmock.life import activity_control, admission, callable_index, discovery, errands, felt, memory_layer
+from worldmock.life import progress_layer, projection, rotation, sessions
+from worldmock.life.action_contract import (ACTIVITY_ACTIONS, TRAVEL_ACTION_MODES, TRAVEL_ACTION_NAMES,
+                                             TRAVEL_ACTIONS, binding_action)
+from worldmock.life.location_activities import location_units, unit_binding
 from worldmock.life.presentation import subtype_of, tiebreak_digest
 from worldmock.life.environment_layer import environment_layer
 from worldmock.life.models import ActivityStatus, SameMomentPresentation
@@ -58,20 +60,23 @@ class ObservationBuilder:
         return len(self.context.catalog.locations)
 
     def _catalog_bindings(self, agent) -> list[dict]:
-        """@brief 地点全量绑定、当前地点交互、本人住处睡眠和内容 app。"""
+        """@brief 地点全量绑定与内容 app：别处的地点只有出行各方式的动作行；人物停留的地点逐单元列出能点名的事，
+        标了可睡时再列睡眠；人在路上时不列任何地点的做事与睡眠。"""
         locations = sorted(self.context.catalog.locations.values(), key=lambda row: row.location_id)
         locations.sort(key=lambda row: row.location_id == agent.location_id)
+        stay = admission.present_location(self.context.state, agent.agent_id)
         result = []
         for location in locations:
-            actions = list(TRAVEL_ACTIONS) if location.location_id != agent.location_id else []
-            actions = [action for action in ACTIVITY_ACTIONS if action in actions]
-            if location.location_id == agent.location_id and (
-                    location.kind in self.context.catalog.contents_by_location_kind or location.accepts_parcels):
-                actions.append("interact")
-            if location.location_id == agent.location_id == self.context.inputs.home_location_id:
-                actions.append("sleep")
+            if location.location_id != agent.location_id:
+                actions = [{**binding_action("travel", TRAVEL_ACTION_NAMES[action]),
+                            "travel_method_id": TRAVEL_ACTION_MODES[action]} for action in TRAVEL_ACTIONS]
+            elif location.location_id == stay:
+                actions = [unit_binding(unit) for unit in location_units(self.context.catalog, location.kind)]
+                actions.extend([binding_action("sleep")] if location.sleepable else [])
+            else:
+                actions = []
             result.append({"object": location.display_name, "kind": "location", "object_id": location.location_id,
-                           "actions": [binding_action(action) for action in actions]})
+                           "actions": actions})
         result.extend({"object": app.name, "kind": "app", "object_id": app.app_id,
                        "actions": [binding_action("interact")]}
                       for _, app in sorted(self.context.catalog.apps.items()) if app.role == "content")

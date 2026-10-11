@@ -18,7 +18,7 @@ from worldmock.life.models import (
 class ActivityStartParams:
     """@brief 引擎由已准入的对象生成的参数，不向人物暴露。"""
 
-    #: 七个固定动作之一。
+    #: 活动 data.action 记下的动作：出行为四个出行动作之一，其余为动作本身。
     action: str
     #: 引擎已经确定的实际计划时长。
     planned_duration_seconds: int
@@ -54,26 +54,24 @@ class ActivityOrigin:
     decision_id: str
     #: 实际请求事件身份。
     request_event_id: str
-    #: 同请求内活动的稳定次序。
-    activity_ordinal: int = 1
 
 
 def start_activity(agent: AgentState, request: ActivityStartParams, now: int,
                    origin: ActivityOrigin, config: BodyConfig) -> tuple[AgentState, ActivityState]:
-    """@brief 按已派生时长开始一个固定槽位的活动。"""
+    """@brief 按已派生时长开始一项活动；一条动作只开始一项活动，槽位由动作与所用内容 app 给出。"""
     travel = request.travel_mode is not None
     if request.planned_duration_seconds < (1 if travel else 60):
         logging.error("Activity duration is too short")
         raise BusinessRuleError("ACTIVITY_TOO_SHORT")
     kind = ActivityKind.TRAVEL if travel else ActivityKind(request.action)
-    suffix = f":{origin.activity_ordinal:04d}" if origin.activity_ordinal > 1 else ""
     activity = ActivityState(
-        activity_id=f"activity-{origin.action_id}{suffix}", agent_id=agent.agent_id,
+        activity_id=f"activity-{origin.action_id}", agent_id=agent.agent_id,
         location_id=agent.location_id, kind=kind, status=ActivityStatus.ACTIVE,
         started_at=now, planned_end_at=now + request.planned_duration_seconds, last_settled_at=now,
         elapsed_seconds=0, planned_duration_seconds=request.planned_duration_seconds,
         destination_id=request.destination_id, travel_mode=request.travel_mode,
-        resource_claims={activity_slot(request.action)}, origin_action_id=origin.action_id,
+        resource_claims={activity_slot(request.action, request.data.get("app_id"))},
+        origin_action_id=origin.action_id,
         origin_decision_id=origin.decision_id, origin_request_event_id=origin.request_event_id,
         report_anchor_at=now, data={"action": request.action, **request.data},
     )

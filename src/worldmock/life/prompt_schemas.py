@@ -64,8 +64,8 @@ def _tool_action(tools: tuple[str, ...]) -> dict[str, Any]:
 
 
 _VERB_ACTION = _availability({
-    "action": {"enum": list(ACTIVITY_ACTIONS)}, "price": _NULLABLE_TEXT, "duration": _NULLABLE_TEXT,
-    "quantity": _NULLABLE_TEXT, "note": _NULLABLE_TEXT})
+    "action": {"enum": list(ACTIVITY_ACTIONS)}, "detail": _NULLABLE_TEXT, "price": _NULLABLE_TEXT,
+    "duration": _NULLABLE_TEXT, "quantity": _NULLABLE_TEXT, "note": _NULLABLE_TEXT})
 
 
 

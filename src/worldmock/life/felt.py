@@ -216,6 +216,19 @@ def social_need_level(need: float) -> str:
     return _band_level(need, SOCIAL_BASE_LEVEL, SOCIAL_BANDS)
 
 
+def sleep_debt_phrase(deficit_hours: float) -> str:
+    """@brief 睡前提示：现在睡大约多久能补满欠的觉，只给半小时一档的时长，不给身体原值。
+
+    欠的觉超过 12 小时写 12 小时以上，不到一刻钟写不欠觉，其余四舍五入到半小时。
+    """
+    if deficit_hours > 12:
+        return "现在睡，12 小时以上才能补满"
+    if deficit_hours < 0.25:
+        return "现在不欠觉"
+    steps = math.floor(deficit_hours * 2 + 0.5)
+    return "现在睡，约半小时能补满" if steps == 1 else f"现在睡，约 {steps / 2:g} 小时能补满"
+
+
 def summarize_felt_levels(values: Mapping[str, float], energy: EnergyReading) -> dict[str, str]:
     """@brief 观察和唤醒只读取同一组四个体感分级。"""
     return {

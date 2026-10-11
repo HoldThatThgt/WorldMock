@@ -12,6 +12,7 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.models import Event
 from worldmock.footprints.store import FootprintStore
 from worldmock.life import progress_layer
+from worldmock.life.action_contract import START_TOOLS
 from worldmock.life.control_items import control_items
 from worldmock.life.models import ActivityKind, SessionState, SessionStatus
 from worldmock.life.object_labels import START_SUFFIX
@@ -259,7 +260,7 @@ def _request_lines(build: _Build, request: Event, result: Event) -> list[_Line]:
     """@brief 一个世界请求的 settled 句；下单逐订单一句，订单仍 pending 时标未了结。"""
     context, key = build.context, (request.occurred_at, request.event_seq)
     orders = (result.data.get("data") or {}).get("orders", [])
-    if (request.data["tool_name"] == "start_activity" and orders and result.data.get("status") == "completed"
+    if (request.data["tool_name"] in START_TOOLS and orders and result.data.get("status") == "completed"
             and not request.data.get("reused")):
         deliveries = context.state.deliveries
         data = result.data.get("data") or {}

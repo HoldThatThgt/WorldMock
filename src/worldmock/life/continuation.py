@@ -1,13 +1,13 @@
 """@brief 同秒续接的环境侧：从模型证据重建上一决策的末次行动请求与响应（docs/design/06-agent.md「同秒续接」）。
 
 成链条件：同一人物在同一模拟秒内的相邻两次决策，同一 session；两者之间没有反事实干预（反事实分支一律断链，普通恢复
-照常续接）；此前各 assistant 回合都带非空 reasoning_content；上一决策以恰好一个世界请求结束。任一条件不满足、模型证据
-缺失或运行开关 same_second_continuation 关闭时断链（null），下一次请求从新快照构造。
+照常续接）；此前各 assistant 回合都带非空 reasoning_content；上一决策以一个世界请求或一个开始组结束。任一条件不满足、
+模型证据缺失或运行开关 same_second_continuation 关闭时断链（null），下一次请求从新快照构造。
 
 链对象在观察事件提交之后挂到观察返回体的私有键 continuation 上交给宿主：不另存、不导出，并列入禁止渲染的键表。
-messages 是上一决策末次行动请求的全部消息（原样取自 model_request），assistant 是它的最终 assistant 消息，result 是
-该世界请求的公开结果（与进度层 tool_call.result 同一投影），events 是上一决策观察之后同秒发生、且不是本结果的进度层
-事件（其记忆查询已作为原生回合留在 messages 中，不再列出）。
+messages 是上一决策末次行动请求的全部消息（原样取自 model_request），assistant 是它的最终 assistant 消息，tool_results
+按调用次序给出每个世界请求的调用身份与公开结果（一条或两条，与进度层 tool_call.result 同一投影），events 是上一决策
+观察之后同秒发生、且不是这些结果的进度层事件（其记忆查询已作为原生回合留在 messages 中，不再列出）。
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ import logging
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import Event
 from worldmock.footprints.store import FootprintStore
+from worldmock.life.action_contract import START_TOOLS
 from worldmock.life.decision_start import is_action_request
 from worldmock.life.models import REQUEST_MODELS, WorldState
 from worldmock.life.progress_layer import records_after, session_bound
@@ -41,7 +42,8 @@ def continuation_enabled(manifest: Mapping[str, Any]) -> bool:
 
 def same_second_chain(store: FootprintStore, state: WorldState, observations: Any,
                       agent_id: int, observation_event_id: str) -> dict | None:
-    """@brief 本次观察对应决策的续接链：上一决策的末次行动请求、最终 assistant、世界请求的调用身份、公开结果与同秒新事件。
+    """@brief 本次观察对应决策的续接链：上一决策的末次行动请求、最终 assistant、各世界请求的调用身份与公开结果、
+    同秒新事件。
 
     读取唯一世界状态和观察构造职责的层上下文；任一断链条件成立时返回 None。
     """
@@ -55,14 +57,17 @@ def same_second_chain(store: FootprintStore, state: WorldState, observations: An
     evidence = _decision_evidence(store, agent_id, previous)
     if evidence is None:
         return None
-    messages, assistant, requested = evidence
+    messages, assistant, registered = evidence
     context = observations._layer_context(state.agents[agent_id], [])
     records = records_after(context, store, previous.event_seq)
-    own = [record for record, sources in records if requested.event_id in sources]
-    if len(own) != 1:
-        return None
-    return {"messages": messages, "assistant": assistant, "tool_call_id": assistant["tool_calls"][0]["id"],
-            "result": own[0]["result"], "events": [record for record, _ in records if record["type"] != "tool_call"]}
+    results = []
+    for call, requested in zip(assistant["tool_calls"], registered, strict=True):
+        own = [record for record, sources in records if requested.event_id in sources]
+        if len(own) != 1:
+            return None
+        results.append({"tool_call_id": call["id"], "result": own[0]["result"]})
+    return {"messages": messages, "assistant": assistant, "tool_results": results,
+            "events": [record for record, _ in records if record["type"] != "tool_call"]}
 
 
 def _previous_observation(store: FootprintStore, state: WorldState, agent_id: int,
@@ -90,11 +95,12 @@ def _counterfactual_since(store: FootprintStore, state: WorldState, previous: Ev
                for event in store.read_agent_events("environment_event", agent_id, previous.event_seq))
 
 
-def _decision_evidence(store: FootprintStore, agent_id: int, previous: Event) -> tuple[list, dict, Event] | None:
-    """@brief 上一决策的末次行动请求消息、最终 assistant 与唯一的世界请求登记；证据缺失、不相邻或缺思考时为 None。"""
+def _decision_evidence(store: FootprintStore, agent_id: int, previous: Event) -> tuple[list, dict, list] | None:
+    """@brief 上一决策的末次行动请求消息、最终 assistant 与它登记的世界请求（一条，或开始组的两条）；证据缺失、
+    不相邻、调用与登记不按次序同名或缺思考时为 None。"""
     after, decision_id = previous.event_seq, previous.decision_id
     registered = store.read_agent_events("action_requested", agent_id, after)
-    if [event.decision_id for event in registered] != [decision_id]:
+    if not 1 <= len(registered) <= 2 or any(event.decision_id != decision_id for event in registered):
         return None
     requests = [event for event in store.read_agent_events("model_request", agent_id, after)
                 if event.decision_id == decision_id and is_action_request(event.data.get("request"))]
@@ -104,12 +110,13 @@ def _decision_evidence(store: FootprintStore, agent_id: int, previous: Event) ->
                  if requests[-1].event_id in event.caused_by and event.data.get("phase") == "response"
                  and event.data.get("error") is None]
     assistant = _final_assistant(responses[0].data.get("response")) if len(responses) == 1 else None
-    if assistant is None or assistant["tool_calls"][0]["function"]["name"] != registered[0].data["tool_name"]:
+    called = [] if assistant is None else [call["function"]["name"] for call in assistant["tool_calls"]]
+    if called != [event.data["tool_name"] for event in registered]:
         return None
     messages = [_wire_message(item) for item in requests[-1].data["request"]["messages"]]
     if not all(_has_reasoning(item) for item in messages if item.get("role") == "assistant"):
         return None
-    return messages, assistant, registered[0]
+    return messages, assistant, registered
 
 
 def _wire_message(message: Mapping[str, Any]) -> dict:
@@ -138,19 +145,24 @@ def _ordered(value: Mapping[str, Any], keys: tuple[str, ...]) -> dict:
 
 
 def _final_assistant(response: Any) -> dict | None:
-    """@brief 由持久化响应重建最终 assistant 消息（与 AS2 回传的形状与键序相同）；不是恰好一个世界请求或缺思考时为 None。"""
+    """@brief 由持久化响应重建最终 assistant 消息（与 AS2 回传的形状与键序相同）；不是一个世界请求或一个开始组
+    （两个开始工具各一个），或缺思考时为 None。"""
     choices = response.get("choices") if isinstance(response, dict) else None
     first = choices[0] if isinstance(choices, list) and choices else None
     message = first.get("message") if isinstance(first, dict) else None
     calls = message.get("tool_calls") if isinstance(message, dict) else None
-    if not isinstance(calls, list) or len(calls) != 1 or not isinstance(calls[0], dict) or not _has_reasoning(message):
+    if not isinstance(calls, list) or not _has_reasoning(message):
         return None
-    function = calls[0].get("function")
-    if not isinstance(function, dict) or function.get("name") not in REQUEST_MODELS:
+    functions = [call.get("function") if isinstance(call, dict) else None for call in calls]
+    if any(not isinstance(function, dict) or function.get("name") not in REQUEST_MODELS for function in functions):
         return None
-    call = {"id": str(calls[0].get("id") or ""), "type": "function",
-            "function": {"name": function["name"], "arguments": str(function.get("arguments") or "{}")}}
-    return {"role": "assistant", "content": message.get("content"), "tool_calls": [call],
+    names = [function["name"] for function in functions]
+    if len(names) != 1 and sorted(names) != sorted(START_TOOLS):
+        return None
+    wired = [{"id": str(call.get("id") or ""), "type": "function",
+              "function": {"name": function["name"], "arguments": str(function.get("arguments") or "{}")}}
+             for call, function in zip(calls, functions, strict=True)]
+    return {"role": "assistant", "content": message.get("content"), "tool_calls": wired,
             "reasoning_content": message["reasoning_content"]}
 
 

@@ -27,11 +27,10 @@ def _put_activity(state: WorldState, agent, activity) -> WorldState:
 
 
 def _activity_origin(state: WorldState, pending: PendingAction) -> ActivityOrigin:
-    """@brief 同一模型动作内给每条活动分配独立身份，保留共同的原动作归因。"""
+    """@brief 一条动作只开始一项活动，活动保留这条动作、决策与请求事件的归因。"""
     from worldmock.life.activities import ActivityOrigin
 
-    ordinal = 1 + sum(item.origin_action_id == pending.action_id for item in state.activities.values())
-    return ActivityOrigin(pending.action_id, pending.decision_id, pending.requested_event_id, ordinal)
+    return ActivityOrigin(pending.action_id, pending.decision_id, pending.requested_event_id)
 
 
 def _put_agent(state: WorldState, agent) -> WorldState:

@@ -125,6 +125,13 @@ def activity_orders(state: WorldState, activities) -> list[dict]:
     return [state.deliveries[identity].model_dump(mode="json") for identity in sorted(identities)]
 
 
+def collected_orders(before: WorldState, after: WorldState) -> list[dict]:
+    """@brief 这次受理在驿站领取的商品履约记录在领取后的快照：受理前已到站、受理后已收货。"""
+    return [order.model_dump(mode="json") for identity, order in sorted(after.deliveries.items())
+            if order.status == "delivered" and identity in before.deliveries
+            and before.deliveries[identity].status == "ready_for_pickup"]
+
+
 
 
 

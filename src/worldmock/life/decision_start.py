@@ -11,9 +11,10 @@ from __future__ import annotations
 from typing import Any
 
 from worldmock.footprints.models import WAKE_REASONS_FIELD, EventDraft, validate_decision_rhythm
+from worldmock.life.action_contract import START_TOOLS
 
-#: 行动请求才开放的世界请求工具；只读问答、记忆巩固与反思的请求都不带它。
-_ACTION_TOOL = "start_activity"
+#: 行动请求才开放的世界请求工具（start_main_activity）；只读问答、记忆巩固与反思的请求都不带它。
+_ACTION_TOOL = START_TOOLS[0]
 
 
 def defer_decision_starts(contexts: list[Any], round_id: str,
@@ -55,10 +56,10 @@ def flush_decision_starts(pending: dict[int, dict], occurred_at: int) -> list[Ev
 
 
 def is_action_request(request: Any) -> bool:
-    """@brief 行动请求的唯一判定：没有 purpose、tools 含 start_activity 且 thinking 开启。
+    """@brief 行动请求的唯一判定：没有 purpose、tools 含 start_main_activity 且 thinking 开启。
 
     与存储侧 SQL 谓词同义（docs/design/06-agent.md「单一行动阶段」）；工作验收与零点计划带 purpose，
-    只读问答、记忆巩固与反思不带 start_activity。
+    只读问答、记忆巩固与反思不带 start_main_activity。
     """
     if not isinstance(request, dict) or request.get("purpose") is not None:
         return False

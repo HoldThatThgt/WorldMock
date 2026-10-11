@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from worldmock.life.action_contract import ACTIVITY_ACTIONS
+from worldmock.life.action_contract import ACTIVITY_ACTIONS, TRAVEL_ACTIONS
 
 #: 活动种类（ActivityKind 的值）→ 时间线的中文种类名；带对象的活动由渲染器在种类名之外写上对象名称。
 ACTIVITY_KIND_LABELS = {"sleep": "睡觉", "travel": "出行", "interact": "互动", "purchase": "购买"}
@@ -25,7 +25,7 @@ ACTIVITY_DOING_LABELS = {"sleep": "睡觉", "travel": "赶路", "interact": "互
 TRAVEL_WAYS = {"walking": "步行", "driving": "驾车", "taxi": "乘出租车", "bus": "乘公交车"}
 #: 上面各表的英文键：面向人读的时间线里不得出现的英文种类名（质量报告 timeline_labels 按它计数）。
 ENGLISH_KIND_NAMES = frozenset({*ACTIVITY_KIND_LABELS, *ACTIVITY_DOING_LABELS,
-                              *ACTIVITY_ACTIONS, *TRAVEL_WAYS})
+                              *ACTIVITY_ACTIONS, *TRAVEL_ACTIONS, *TRAVEL_WAYS})
 
 
 def _local(epoch: int, timezone_name: str) -> datetime:
