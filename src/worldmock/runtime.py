@@ -28,10 +28,10 @@ logger = logging.getLogger(__name__)
 
 #: 自述、工具纠错与结束共享的有限回合预算。
 
-#: 工作验收阶段参数（docs/design/06-agent.md「两阶段决策」：独立工作验收保持
+#: 工作验收阶段参数（独立工作验收保持
 #: disabled/required）。
 #: 运行身份覆盖的 AS2 导入包名；包目录由 importlib.util.find_spec 按实际导入解析
-#: （docs/design/06-agent.md「模型身份」）。
+#: （docs/design/06-agent.md「宿主模型协议」）。
 @dataclass(frozen=True, slots=True)
 class RunRequest:
     """@brief 新建正式运行所需的完整输入。
@@ -42,7 +42,7 @@ class RunRequest:
     :param run_id: 调用方分配的稳定运行身份。
     :param source_group_id: 首次运行的来源组身份，必须等于 run_id。
     :param same_second_continuation: 同秒续接开关（缺省开），冻结进清单 stages.action 与人物配置；
-        恢复与重放继承父清单的值（docs/design/06-agent.md「同秒续接」）。
+        恢复与重放继承父清单的值（docs/design/06-agent.md「宿主模型协议」）。
     """
 
     project_root: Path
@@ -430,7 +430,7 @@ def _validate_agent_workspace(workspace: Path, agent_id: int, continuation: bool
 def _validate_persona_card_struct(profile: Any, agent_config: Any = None) -> None:
     """@brief 恢复时严格校验必填的冻结结构化卡片与人物作息。
 
-    新建运行保存的是经场景作息覆盖后的卡片（docs/design/06-agent.md ），覆盖是不动点：给出场景人物声明时，
+    新建运行保存的是经场景作息覆盖后的卡片（docs/design/06-agent.md），覆盖是不动点：给出场景人物声明时，
     对恢复的卡片再覆盖一次必须不改任何值，否则说明卡片作息与场景显式声明的作息不一致。
     """
     from worldmock.profile.injection import apply_persona_rhythm
@@ -598,7 +598,7 @@ def _restored_specs(prepared: _PreparedRun) -> tuple[dict[str, Any], ...]:
 def habit_responses(specs: tuple[dict[str, Any], ...]) -> dict[int, list[str]]:
     """@brief 人设层习惯签名的反应文本（人物编号 → 文本，按卡片顺序）：取工作区输入里经场景作息覆盖后的结构化卡片，
     没有卡片的人物不出现；经 create_options 冻结进运行清单 persona_habit_responses，引擎排序候选时据此给相关度
-    （docs/design/04-simulation-engine.md ）。"""
+    （docs/design/04-simulation-engine.md）。"""
     return {spec["id"]: [habit["response"] for habit in spec["profile"]["persona_card_struct"]["habits"]]
             for spec in specs if "persona_card_struct" in spec["profile"]}
 
@@ -632,7 +632,7 @@ class PlanDayClient(IndependentModelClient):
 
 
 async def settle_pending_day_plans(engine: Any, client: Any | None = None) -> list[dict]:
-    """@brief 零点计划后台任务（docs/design/04-simulation-engine.md「执行位置」）：为缺当日计划的人物生成当日计划。
+    """@brief 零点计划后台任务（docs/design/04-simulation-engine.md「唤醒、日计划与个人事务」）：为缺当日计划的人物生成当日计划。
 
     LifeEnv 在零点推进之后、启动检查点之后与普通恢复的 init 中 await 它。不经 LifeAgent，
     不读写人物工作区与记忆运行时，不产生 observation、decision_started、memory_updated。按

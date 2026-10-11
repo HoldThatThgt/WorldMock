@@ -10,7 +10,7 @@
 观察重复门禁按（人物，模拟秒）的续接链计：同一秒内的续接复用链首 user 合法。事件顶层 code_sha256 缺失时
 归入 code_sha256_unreported 组并注明，不猜测代码身份。
 工作负荷 workload 与作息偏离 routine_deviation 需要事件之外的输入（一个可选的打包对象，见 workload_metrics），
-没有它时两项为 null 并写说明；它们只报告，报告结构标识不变（docs/design/07-evaluation.md ）。
+没有它时两项为 null 并写说明；它们只报告，报告结构标识不变（docs/design/07-evaluation.md）。
 """
 
 from __future__ import annotations
@@ -150,7 +150,7 @@ def _request_tool_names(request: Any) -> list[str]:
 def _decision_model_requests(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """@brief 取人物决策的模型请求事件：排除任一带 purpose 的系统请求（工作验收、零点计划 plan_day）；带工具的请求
     只在工具中有 start_main_activity 时计入，所以只带 submit_reflection 的就寝反思及其校验重试不计，不带工具的记忆巩固
-    照计（docs/design/07-evaluation.md 「身份与判定」）。"""
+    照计（docs/design/07-evaluation.md）。"""
     selected = []
     for event in events:
         data = event.get("data", {})
@@ -277,7 +277,7 @@ def _decision_token_median(events: list[dict[str, Any]], notes: list[str]) -> di
 
 
 
-#: 只做结束、暂停或修订的控制轮：单列计数，不计入自主或被动（docs/design/07-evaluation.md「2.2 报告项」）。
+#: 只做结束、暂停或修订的控制轮：单列计数，不计入自主或被动。
 
 
 

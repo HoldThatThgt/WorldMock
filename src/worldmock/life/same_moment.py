@@ -17,14 +17,14 @@ from worldmock.life.schedule import WAKE_TRIGGERS
 
 #: 当前业务拒绝都产生服务拒绝脉冲。
 SERVICE_REFUSED = "service_refused"
-#: 每人每模拟秒至多几次名称类拒绝不计同刻轮数、不施加情绪脉冲（docs/design/04-simulation-engine.md ；实验假设，登记在
-#: docs/design/02-exchange-engine.md「活动节奏与同刻决策上限」）；超出的照常计轮、照常施加脉冲。
+#: 每人每模拟秒至多几次名称类拒绝不计同刻轮数、不施加情绪脉冲（docs/design/04-simulation-engine.md；实验假设，登记在
+#: docs/design/04-simulation-engine.md「原子性与恢复」）；超出的照常计轮、照常施加脉冲。
 FREE_NAME_REJECTIONS_PER_SECOND = 2
 
 #: 各阶段接受的请求类（引擎按请求派生 start、resume、conclude、conclude_pending、other）：
 #: conclude 指结束能结束的活动（进行中、暂停中或待收尾），conclude_pending 指只点名待收尾活动（全部或其中几项；开放
 #: 结束的阶段同样接受它），受限轮的收尾因此不会被业务拒绝；收尾阶段一直持续到没有待收尾活动。resume_or_conclude 与
-#: conclude_only 留在阶段闭集与本表中，现行阶梯不再进入它们（docs/design/04-simulation-engine.md R2）。
+#: conclude_only 留在阶段闭集与本表中，现行阶梯不再进入它们（docs/design/04-simulation-engine.md）。
 _STAGE_REQUEST_KINDS = {
     SameMomentStage.OPEN: frozenset({"start", "resume", "conclude", "conclude_pending", "other"}),
     SameMomentStage.CONCLUDE_PENDING: frozenset({"conclude_pending"}),
@@ -37,7 +37,7 @@ _STAGE_REQUEST_KINDS = {
 OPEN_ROUNDS = 3
 #: 开放轮之后的受限轮数。
 RESTRICTED_ROUNDS = 3
-#: 跨决策预算耗尽时写入的 environment_event 种类（docs/design/06-agent.md，裁决 #25）。
+#: 跨决策预算耗尽时写入的 environment_event 种类（docs/design/06-agent.md）。
 BUDGET_EXHAUSTED_KIND = "decision_budget_exhausted"
 
 
@@ -67,7 +67,7 @@ def count_round(agent: AgentState) -> AgentState:
 
 
 def free_rejection_flags(codes: Sequence[str | None]) -> list[bool]:
-    """@brief 同一人物同一模拟秒内按结算先后的业务拒绝码逐个是否免计（docs/design/04-simulation-engine.md ）：名称
+    """@brief 同一人物同一模拟秒内按结算先后的业务拒绝码逐个是否免计（docs/design/04-simulation-engine.md）：名称
     类拒绝码
     的前 FREE_NAME_REJECTIONS_PER_SECOND 次免计（不计同刻轮数、不施加情绪脉冲），此后的名称类拒绝与其余拒绝一样照常。"""
     flags, seen = [], 0
@@ -140,7 +140,7 @@ def schedule_after_round(outcome: RoundOutcome,
 def budget_exhausted(outcome: RoundOutcome) -> bool:
     """@brief 跨决策预算是否耗尽：本秒轮数已达上限加三（受限轮用完），本轮之后仍没有进行中活动或仍有待收尾活动。
 
-    单次决策的回合预算（宿主的 ReAct 回合）与此分开计（docs/design/06-agent.md「生成参数与预算」）。
+    单次决策的回合预算（宿主的 ReAct 回合）与此分开计（docs/design/06-agent.md「宿主模型协议」）。
     """
     used_up = outcome.agent.same_moment_rounds >= OPEN_ROUNDS + RESTRICTED_ROUNDS
     return used_up and (not outcome.active or outcome.pending)
@@ -192,7 +192,7 @@ def request_kind(tool_name: str, named: Sequence[ActivityState], pending_ids: fr
 def stage_refusal(stage: SameMomentStage, request_kind: str) -> Refusal | None:
     """@brief 受限轮复核的判定本身：请求类不属于本阶段开放的动作类时返回 SAME_MOMENT_ACTION_RESTRICTED，否则 None。
 
-    工具层的可用性说明与受理共用这一判定，所以说明与拒绝原因一字不差（docs/design/06-agent.md「工具层」）。
+    工具层的可用性说明与受理共用这一判定，所以说明与拒绝原因一字不差（docs/design/06-agent.md「提示与工具」）。
 
     :param stage: 人物当前的受限轮阶段
     :param request_kind: 引擎派生的请求类：start（开始持续活动）、resume（恢复暂停活动）、

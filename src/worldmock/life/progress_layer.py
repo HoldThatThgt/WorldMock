@@ -100,7 +100,7 @@ def _tool_records(context: LayerContext, store: FootprintStore, lower: int) -> l
     """@brief 本 session 的世界请求：每个 action_requested 连同其最新结果（即时结果另作来源）与 self_note。
 
     开始活动的请求在活动结束后带终态结果：浏览得到的商品名、到达等事实只在终态结果里，唯一出现原则要求它们写在该调用的
-    结果上（docs/design/06-agent.md「唯一出现原则」「进度层」）；活动目标的 state 只写终局说法与客观进度。
+    结果上（docs/design/06-agent.md「进度、待办与记忆」）；活动目标的 state 只写终局说法与客观进度。
     """
     requests = store.read_agent_events("action_requested", context.agent_id, after=lower)
     results = store.read_agent_events("action_result", context.agent_id, after=lower)
@@ -189,7 +189,7 @@ def _world_records(context: LayerContext, store: FootprintStore, lower: int) -> 
 
 
 def _errand_record(context: LayerContext, event: Event) -> _Record:
-    """@brief 个人事务事件派生的记录（docs/design/04-simulation-engine.md ）：errand_reminded 为
+    """@brief 个人事务事件派生的记录（docs/design/04-simulation-engine.md）：errand_reminded 为
     errand_reminder（提醒到点），
     errand_completed 为 errand_completed（环境确认办成），都只写事务名；来源是该事件，计入观察的进度来源。"""
     record = {"occurred_at": iso_time(event.occurred_at, context.config.timezone),

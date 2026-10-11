@@ -187,7 +187,7 @@ def activity_name_refusal(written: Sequence[str], visible: Sequence[str]) -> Ref
     """@brief 控制工具（播报、暂停、结束）逐项所写的活动名在本轮可见的活动名中按统一名称解析（精确或无损归一后唯一，
     object_labels.resolve_name，与宿主本地校验同一函数）；解析不出的各项合并成的一次拒绝，都唯一解析时为 None。
 
-    名称类失败逐项报全部（docs/design/04-simulation-engine.md  第 5 条、第四章）：找不到的明细码为 NAME_NOT_FOUND，
+    名称类失败逐项报全部（docs/design/04-simulation-engine.md）：找不到的明细码为 NAME_NOT_FOUND，
     原因
     列出最接近的几个活动名；归一后（如没写开始时刻）对应不止一项的为 NAME_AMBIGUOUS，原因列出它们。明细的参数名为
     activity_name、原文照录，不带候选（可照填的候选是开始工具的完整调用），与宿主纠错中活动名的明细相同；原因逐项写
@@ -320,7 +320,7 @@ def slot_refusal(state: WorldState, agent_id: int, needed: int, names: Mapping[s
     """@brief 槽位判定（开始、出行与恢复暂停的活动共用）：需要的槽位多于空槽位时以 SESSION_LIMIT_EXCEEDED 拒绝，够用时为 None。
 
     原因点名占槽位的活动（进行中与待收尾）：只剩一个槽位时说明只剩一个，槽位占满时说明两个都被占着；下一步按被点名
-    活动能否暂停写（docs/design/04-simulation-engine.md R3）。
+    活动能否暂停写（docs/design/04-simulation-engine.md）。
 
     :param needed: 恢复所需的活动槽位。
     :param names: 活动身份→本轮可读名称。
@@ -355,7 +355,7 @@ def record_changes(before: WorldState, after: WorldState, pending: PendingAction
                    context: RecordContext) -> tuple[WorldState, list[EventDraft]]:
     """@brief 本次控制改变的每项活动写一条 environment_event；活动终结时给开始它的动作写一次终态；控制请求里每条被受理
     的个人事务变更各写一条事务事件（errands.request_drafts，只在这条成功分支生成，docs/design/04-simulation-engine.md
-    「原子性」）。"""
+    「唤醒、日计划与个人事务」）。"""
     drafts = _lifecycle_drafts(before, after, pending, context.snapshot)
     changed, terminal = _terminal_records(before, after, pending.requested_event_id, context.index)
     return changed, drafts + terminal + errands.request_drafts(before, after, pending)
@@ -365,7 +365,7 @@ def truncation_record(activity: ActivityState, snapshot: dict, now: int) -> Even
     """@brief 实验截止截断的一项活动（此前进行中或暂停）写一条带截断快照的 environment_event。
 
     同源两项的聚合终态不带快照，暂停的活动此前只有暂停时的快照；逐项写截断快照，导出的活动才与最终检查点逐项一致
-    （docs/design/04-simulation-engine.md「活动」）。原因回链开始该活动的请求事件。
+    （docs/design/04-simulation-engine.md）。原因回链开始该活动的请求事件。
 
     :param snapshot: 截断后的活动权威快照（引擎的活动快照投影）。
     """

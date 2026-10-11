@@ -24,7 +24,7 @@ from worldmock.life.settled_text import (
 )
 from worldmock.life.tool_layer import LayerContext
 
-#: 记忆层 JSON 的字符上限（新常量，docs/design/06-agent.md「窗口」）。
+#: 记忆层 JSON 的字符上限（新常量，docs/design/06-agent.md「进度、待办与记忆」）。
 MEMORY_WINDOW_CHARS = 8000
 #: 派生记忆层读取的本人事件类型。
 _EVENT_TYPES = ("action_requested", "action_result", "environment_event", "memory_updated")
@@ -138,7 +138,7 @@ def persona_views(context: LayerContext, store: FootprintStore) -> dict:
 
 def noted_label(layer: dict, name: str, text: str) -> str | None:
     """@brief 这段人物自述若仍在记忆层 self_notes 中（按活动名标注，标注可去掉开始时刻后缀），返回它所用的活动标注，
-    否则为 None；回看据此不重复正文（docs/design/06-agent.md「唯一出现原则」）。"""
+    否则为 None；回看据此不重复正文（docs/design/06-agent.md「进度、待办与记忆」）。"""
     labels = {name, START_SUFFIX.sub("", name, count=1)}
     return next((note["activity"] for entry in (*layer["earlier_days"], *layer["earlier_today"])
                  for note in entry["self_notes"] if note["activity"] in labels and note["text"] == text), None)

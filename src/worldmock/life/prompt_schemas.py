@@ -93,7 +93,7 @@ SYSTEM_LAYER_SCHEMA: dict[str, Any] = {
 _INDEX_CATEGORY = _object({"category": _TEXT, "count": {"type": "string", "pattern": r"^[1-9][0-9]* 个$"},
                            "examples": {"type": "array", "maxItems": MAX_EXAMPLES, "uniqueItems": True,
                                         "items": _TEXT}})
-#: 工具层的可调用索引（docs/design/04-simulation-engine.md ）：只有名称、品类与计数，不带动作与条件。
+#: 工具层的可调用索引（docs/design/04-simulation-engine.md）：只有名称、品类与计数，不带动作与条件。
 _CALLABLE_INDEX = _object({
     "goods": {"type": "array", "items": _INDEX_CATEGORY},
     "query_categories": {"type": "array", "items": _object({"category": _TEXT,
@@ -158,7 +158,7 @@ MEMORY_LAYER_SCHEMA: dict[str, Any] = {
 _GOAL = _object({"intent_kind": {"enum": list(INTENT_KINDS)}, "goal": _TEXT,
                  "remind_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"},
                  "around_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"}})
-#: 待办层的一条个人事务（docs/design/04-simulation-engine.md ）：六键，不含内部身份、状态枚举与可用性。
+#: 待办层的一条个人事务（docs/design/04-simulation-engine.md）：六键，不含内部身份、状态枚举与可用性。
 _ERRAND = _object({"name": _TEXT, "done_when": _TEXT, "progress": _TEXT, "memo": _NULLABLE_TEXT,
                    "remind_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"},
                    "noted_on": _DATE})

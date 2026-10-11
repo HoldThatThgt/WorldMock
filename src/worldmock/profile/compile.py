@@ -52,7 +52,7 @@ def compile_persona(source: PersonaConfig, *,
 def _warnings(extraction: PersonaExtraction) -> tuple[str, ...]:
     """@brief 编译警告：共识标黄字段（低于 2/3 众数占比）一条在前，其后逐条接下班与到家锚点的降级说明。
 
-    没有一致性警告时降级说明照样列出（docs/design/06-agent.md#agent-下班与到家锚点 ）。
+    没有一致性警告时降级说明照样列出（docs/design/06-agent.md「人物身份与画像」）。
     """
     agreement: tuple[str, ...] = ()
     if extraction.warning:

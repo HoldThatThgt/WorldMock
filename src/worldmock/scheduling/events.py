@@ -1,4 +1,4 @@
-"""@brief 预排事件的封闭类型与载荷模型（docs/design/04-simulation-engine.md「预排事件」）。
+"""@brief 预排事件的封闭类型与载荷模型（docs/design/04-simulation-engine.md「唤醒、日计划与个人事务」）。
 
 本模块是 ScheduledKind/ScheduledEvent 的权威定义处，直接使用共享严格模型基类，
 不依赖生活领域模块。

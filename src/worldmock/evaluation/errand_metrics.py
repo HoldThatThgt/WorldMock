@@ -1,4 +1,4 @@
-"""@brief 个人事务与收尾记忆的只报告指标（docs/design/05-recording-engine.md 、3.4 第 3 项）。
+"""@brief 个人事务与收尾记忆的只报告指标（docs/design/05-recording-engine.md）。
 
 质量报告的两个顶层分组 errand_metrics 与 conclusion_memories 都只读同批已认证事件（与 day_plan_metrics 同一份事件字典），
 可逐值重算，全部只报告：不参与任何完成判定与门禁，也不把人物写下的文字当作已发生事实的依据。
@@ -61,7 +61,7 @@ class _Errand:
 
 
 def errand_metrics(events: Sequence[Mapping[str, Any]], timezone: str) -> dict[str, int] | None:
-    """@brief 质量报告的 errand_metrics 分组（docs/design/05-recording-engine.md ）。
+    """@brief 质量报告的 errand_metrics 分组（docs/design/05-recording-engine.md）。
 
     - registered_count：有新增事件的不同事务数，是办成、取消、截止时未完成与跨夜四项的分母；
     - completed_count、cancelled_count、open_at_cutoff_count：按终态分（三者之和恒等于分母）；
@@ -100,7 +100,7 @@ def errand_metrics(events: Sequence[Mapping[str, Any]], timezone: str) -> dict[s
 
 
 def conclusion_memories(events: Sequence[Mapping[str, Any]]) -> dict[str, int] | None:
-    """@brief 质量报告的 conclusion_memories 分组（docs/design/05-recording-engine.md 、3.4 第 3 项）
+    """@brief 质量报告的 conclusion_memories 分组（docs/design/05-recording-engine.md）
     ：对自述文字本身的
     计数，只报告。
 

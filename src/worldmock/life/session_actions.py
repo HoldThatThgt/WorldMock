@@ -83,7 +83,7 @@ class ActionHandlers:
         进行中或暂停的活动先取消（agent_cancelled）再收尾；待收尾活动不改终态，只写总结并置 concluded_at。
         有待收尾活动而本次没有点名任何一项时以 ACTIVITY_CONCLUSION_REQUIRED 拒绝。记忆由宿主写入，环境只校验形状，
         并在结果中登记私有来源 memory_sources。结果的 outcome 逐项写实际终局，
-        未完成的浏览写未取得浏览结果（docs/design/06-agent.md「进食」、第六章）。请求级的事务变更在活动名
+        未完成的浏览写未取得浏览结果（docs/design/06-agent.md）。请求级的事务变更在活动名
         解析后复核、在结束与收尾之后应用，回执登记为 errands；其后的任何拒绝都使事务变更一并不生效。
         """
         items = control_items("conclude_activity", request)
@@ -227,7 +227,7 @@ class ActionHandlers:
     def _errand_changes(self, pending: PendingAction, tool: str, request) -> tuple[dict, ...]:
         """@brief 控制请求里的个人事务变更（经唯一读取入口 control_errands 读出）在本轮冻结观察上的环境复核：与宿主同一
         函数（errands.change_issues）、同一份观察，全部问题合并成一次 ACTION_REQUEST_INVALID（业务拒绝，照常计入同刻
-        轮数，docs/design/04-simulation-engine.md 「环境复核」）。
+        轮数，docs/design/04-simulation-engine.md「唤醒、日计划与个人事务」）。
 
         :returns: 通过复核的各条变更（八键字典，按请求顺序；没有变更时为空，不读观察），交给 _apply_errands。
         """
@@ -273,8 +273,8 @@ class ActionHandlers:
         08:25 起）」），再唯一对应人物自己的权威活动。
 
         名称类失败（找不到、有歧义）逐项收集，合并成一次 ACTION_REQUEST_INVALID，逐项写进 items
-        （activity_control.activity_name_refusal，docs/design/04-simulation-engine.md  第
-        5 条；宿主已在本轮纠正，
+        （activity_control.activity_name_refusal，docs/design/04-simulation-engine.md
+        ；宿主已在本轮纠正，
         这里只防
         绕过宿主的请求，与开始组名称问题的防御拒绝同一顶层码，照常计入同刻轮数）；名称都解析出来、对应的却不是
         本人的权威活动时（观察与世界对不上）只报这一条不带明细的 ACTION_REQUEST_INVALID。
@@ -473,7 +473,7 @@ class ActionHandlers:
 
 def _with_names(result: ActionResult, pairs) -> ActionResult:
     """@brief 受理结果写上名称归一 details.resolved：（所写名称，解析出的名称）逐对中两者不同的记一条；都照写时结果不变
-    （docs/design/04-simulation-engine.md ）。"""
+    （docs/design/04-simulation-engine.md）。"""
     resolved = [{"written": written, "as": name} for written, name in pairs if written != name]
     return result.model_copy(update={"data": resolution_data(result.data, resolved, ())}) if resolved else result
 
@@ -491,7 +491,7 @@ def _self_report(note: str) -> dict:
 
 def _remembered(observed: dict, activity: ActivityState | None) -> dict | None:
     """@brief 活动的最新自述仍在本轮记忆层 self_notes 中时的回看结果：只写它在记忆层中的活动名与「已在记忆层」，
-    不写其他回看事实；否则为 None（docs/design/06-agent.md「唯一出现原则」）。"""
+    不写其他回看事实；否则为 None（docs/design/06-agent.md「进度、待办与记忆」）。"""
     if activity is None or not activity.progress_note:
         return None
     names = {row["activity_id"]: row["name"] for row in observed["activity_bindings"]}

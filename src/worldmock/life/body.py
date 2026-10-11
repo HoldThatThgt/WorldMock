@@ -234,7 +234,7 @@ def _first_band_change(level_at: Callable[[int], str], breakpoints: Sequence[int
 
     breakpoints 是分级可能跳变的时刻（距现在的整秒）：跳变前一秒与跳变那一秒也作步点，二分区间不跨跳变，
     跳变之前刚发生、又被跳变抵消的跨档也能扫到。升档、降档都算变化；扫描范围内分级不变时没有候选
-    （docs/design/04-simulation-engine.md「节律」）。
+    （docs/design/04-simulation-engine.md「唤醒、日计划与个人事务」）。
     """
     current = level_at(0)
     previous = 0

@@ -56,7 +56,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
     """@brief 汇总完成、异常、内容、效率、记忆、模型用量、实测加速比、当日目标、个人事务与收尾记忆、运行输入警告与输出截断。
 
     报告结构 7：个人事务与工作安排规格的两个只报告分组 errand_metrics、conclusion_memories 紧随 day_plan_metrics
-    （docs/design/05-recording-engine.md ）；三者读同一份事件字典，按事件模型的 JSON 形状只构造一次。
+    （docs/design/05-recording-engine.md）；三者读同一份事件字典，按事件模型的 JSON 形状只构造一次。
 
     @param events 已经认证且按 event_seq 排序的完整事件。
     @param activities 已经认证的活动终态视图。
@@ -762,7 +762,7 @@ def _usage_by_purpose(requests: list[Event], usage: list[dict]) -> list[dict]:
 
 
 def _name_rejection_quality(events: list[Event]) -> dict:
-    """@brief 名称类拒绝与其余协议错误分开计数（docs/design/05-recording-engine.md 、第九章）。
+    """@brief 名称类拒绝与其余协议错误分开计数（docs/design/05-recording-engine.md）。
 
     宿主一侧取人物决策（没有 purpose 的模型调用，按调用身份去重后的终态响应）的 protocol_feedback 错误码：
     名称类纠错码（error_contract.HOST_NAME_CODES）逐码计数，其余协议错误另计；环境一侧取 action_rejected（不含
@@ -835,7 +835,7 @@ def _acceleration(events: list[Event], manifest: dict) -> dict:
 
 
 def _input_warning_quality(manifest: dict) -> dict:
-    """@brief 运行输入警告（docs/design/04-simulation-engine.md ）：按警告码闭集、按人物统计清单冻结的 input_warnings。
+    """@brief 运行输入警告（docs/design/04-simulation-engine.md）：按警告码闭集、按人物统计清单冻结的 input_warnings。
 
     清单没有记录警告（引擎直驱为 null，或清单版本 2 之前的运行没有这个键）时计数为 null，不记为零；闭集外的码单列。
     只报告，不放行。
@@ -861,7 +861,7 @@ def _input_warning_quality(manifest: dict) -> dict:
 
 
 def _truncation_quality(events: list[Event]) -> dict:
-    """@brief 输出截断（docs/design/05-recording-engine.md 、九）：提供商回复 finish_reason=length 的
+    """@brief 输出截断（docs/design/05-recording-engine.md）：提供商回复 finish_reason=length 的
     次数与按用途分列，
     以及这些回复实报的输出 token（截断回合整段丢弃，全部浪费）与其中的思考 token（completion_tokens_details.reasoning_tokens）。
 

@@ -1,6 +1,6 @@
 """@brief AgentSociety2 原生 LifeAgent，使用闭集生活工具直接调用 LifeEnv。
 
-一次决策只有一个行动阶段（docs/design/06-agent.md「单一行动阶段」）：请求由原生 tools、系统层
+一次决策只有一个行动阶段（docs/design/06-agent.md「宿主模型协议」）：请求由原生 tools、系统层
 system 与六层 user 组成；可以先做记忆查询，世界请求（一个控制请求，或同一次回复里两个开始工具各至多一次的开始组）
 登记即结束本次决策，登记后不追加任何 tool 消息。原生工具
 整次运行不变，不按轮绑定名称枚举；名称只按观察私有绑定做本地校验，可用性由环境受理判定。同一秒的后续决策
@@ -8,7 +8,7 @@ system 与六层 user 组成；可以先做记忆查询，世界请求（一个�
 宿主与环境共用的错误结构回给模型，多项请求逐项报全部名称类错误（docs/design/04-simulation-engine.md，
 src/worldmock/agents/life_feedback.py）；三个控制工具请求级的个人事务变更与环境复核调用同一纯函数
 （worldmock.life.errands.change_issues）、读同一份冻结观察的两类私有事务绑定，问题并入同一次纠错
-（docs/design/04-simulation-engine.md ）。宿主不写入事务，事务变更也不是记忆写入点。思考用尽输出上限的截断回合丢弃并
+（docs/design/04-simulation-engine.md）。宿主不写入事务，事务变更也不是记忆写入点。思考用尽输出上限的截断回合丢弃并
 纠错，随后以关闭思考、强制工具调用的请求重试一次（7.2，src/worldmock/agents/life_truncation.py）。
 每个本地日第一次睡醒的那一步，在取观察之前先做记忆巩固与就寝反思并登记，再做当天的第一次决策
 （docs/design/06-agent.md「宿主模型协议」）；一次决策恰有一份观察。
@@ -175,7 +175,7 @@ _MEMORY_RUNTIME_ACTIONS = {
     "memory_time_range": "memory_range",
 }
 
-#: 记忆查询返回给模型的字段（不含条目身份，docs/design/06-agent.md 「禁止进入提示的字段」）。
+#: 记忆查询返回给模型的字段（不含条目身份，docs/design/06-agent.md「提示与工具」）。
 _MEMORY_RESULT_FIELDS = ("type", "text", "time", "epistemic_status")
 
 #: 以活动名为参数的控制工具。
@@ -249,7 +249,7 @@ class LifeAgent(PersonAgent):
 
     def _append_react_protocol_feedback(self, messages: list[dict[str, Any]], response: Any, error: str) -> None:
         """@brief 把协议纠错加入下一回合的消息历史（覆写 AS2 同名方法，锁定提交不改，
-        docs/design/06-agent.md ）。
+        docs/design/06-agent.md）。
 
         没有工具调用的回复（含截断回合）与截断重试（关闭思考的请求）的回合都不留在历史中：纠错作为一条 user 消息，本次
         决策中已有的相同纠错替换、不叠加，续接链前缀不动；这样本次决策此后带思考的请求里没有缺思考的 assistant。带工具
@@ -339,7 +339,7 @@ class LifeAgent(PersonAgent):
         tool_choice"），因此与思考开启同时把 tool_choice 放宽为 auto；模型不产出工具调用时由 ReAct 协议纠错回合
         兜底（"native tool_calls are required"）。截断之后的那一次重试按状态判定（上一回合的思考请求被截断，行动与
         只读问答相同）：关闭思考并 tool_choice=required，max_tokens 不变，其余请求不变（
-        docs/design/06-agent.md ）。system 不附加任何预算文字。带续接链的请求先做发送前协议自检；预算第 0 步
+        docs/design/06-agent.md）。system 不附加任何预算文字。带续接链的请求先做发送前协议自检；预算第 0 步
         结束续接后，本决策此后的回合
         都从新快照续写。
         """
@@ -749,7 +749,7 @@ def _visible_names(data: dict[str, Any], todo: dict[str, Any]) -> dict[str, Any]
     缺失或形状不符的绑定是损坏的宿主观察。回看名称是待办层写出的目标文字、活动名与
     记忆层 self_notes 所写的活动名（活动绑定的 note_labels）；事务名不进回看名称。个人事务变更的本地校验读两类私有事务
     绑定原样的行：errand_bindings（本人未完成事务的名称、事务身份、结果种类与商品身份）与 errand_item_bindings（全部
-    商品名到商品身份），与环境复核读同一份冻结观察（docs/design/04-simulation-engine.md ）。
+    商品名到商品身份），与环境复核读同一份冻结观察（docs/design/04-simulation-engine.md）。
     """
     objects = _binding_objects(data.get("interaction_bindings"))
     goals = _binding_names(data, "goal_bindings", "task_name")
@@ -813,8 +813,8 @@ def _note_labels(rows: list[dict[str, Any]]) -> tuple[str, ...]:
 
 
 def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, Any]) -> str:
-    """@brief 用同一冻结观察的私有绑定核对工具参数中的名称（docs/design/06-agent.md「工具层」）：精确或
-    无损归一后唯一即受理（docs/design/04-simulation-engine.md ，worldmock.life.name_resolution），找不到
+    """@brief 用同一冻结观察的私有绑定核对工具参数中的名称（docs/design/06-agent.md「提示与工具」）：精确或
+    无损归一后唯一即受理（docs/design/04-simulation-engine.md，worldmock.life.name_resolution），找不到
     的逐项写成
     NAME_NOT_FOUND、归一后不止一个的写成 NAME_AMBIGUOUS（第四章）；控制工具的活动名、结束工具关系看法的对象与请求级
     个人事务变更的问题一并逐项报全部。"""
@@ -830,8 +830,8 @@ def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, 
 
 def _control_feedback(action: str, request: BaseModel, names: dict[str, Any]) -> str:
     """@brief 控制工具（播报、暂停、结束）逐项核对名称与请求级个人事务变更，全部问题合并成一次纠错
-    （docs/design/04-simulation-engine.md  第 5 条、第四章；
-    docs/design/04-simulation-engine.md ）：各项的活动名
+    （docs/design/04-simulation-engine.md；
+    docs/design/04-simulation-engine.md）：各项的活动名
     （NAME_NOT_FOUND、NAME_AMBIGUOUS）、各项关系看法的对象（SUBJECT_NOT_KNOWN，只有结束工具带看法），再是事务变更在冻结
     观察私有事务绑定上的问题——与环境复核同一函数 errands.change_issues（更新或取消的名称找不到或有歧义、同一事务被点名
     两次、商品名解析不到唯一商品、新增重名、同结果同商品、超过上限），路径到 errands[j].<键>、不带候选。明细按此先后
