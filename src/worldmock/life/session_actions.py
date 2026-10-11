@@ -561,13 +561,13 @@ class ActionHandlers:
         changed = sessions.assign(changed, session.session_id, created)
         activities = [changed.activities[key] for key in created]
         activity_id = created[0] if len(created) == 1 else None
-        from worldmock.life.action_evidence import activity_orders
+        from worldmock.life.action_evidence import start_orders
         index = title_index(self.context.catalog)
 
         result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
             status=ActionStatus.IN_PROGRESS, occurred_at=state.current_time, activity_id=activity_id,
             message="Activities started", data={"activities": [activity_snapshot(item, index) for item in activities],
-                                                 "orders": activity_orders(changed, activities)})
+                                                 "orders": start_orders(state, changed, activities)})
         app_id = next((item.data["app_id"] for item in activities if item.kind == ActivityKind.INTERACT), None)
         if app_id is not None:
             result.data["goods"] = app_goods(self.context.inputs, changed, pending.agent_id, app_id)

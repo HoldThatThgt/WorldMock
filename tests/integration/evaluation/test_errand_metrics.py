@@ -376,6 +376,19 @@ def test_acting_after_a_later_reminder_counts_although_nothing_followed_the_firs
         assert (metrics["reminded_errand_count"], metrics["acted_after_reminder_count"]) == (1, 0 if early else 1)
 
 
+def test_collecting_a_parcel_after_a_reminder_is_not_an_accepted_purchase() -> None:
+    """提醒后在驿站取件的受理结果带着所领取记录的收货快照，它不是指向该商品的购买；同商品在途的快递订单才是。"""
+    for status, acted in (("delivered", 0), ("pending", 1)):
+        log = _Log()
+        errand = _snapshot("a", "取回快递", MILK, "2026-01-05 10:00")
+        log.errand(REGISTERED_KIND, "2026-01-05 10:00", errand)
+        log.errand(REMINDED_KIND, "2026-01-05 12:00", errand)
+        log.accepted("2026-01-05 12:10", {"data": {"orders": [
+            {"goods_id": MILK, "status": status, "fulfillment": "station_pickup"}]}})
+        metrics = errand_metrics(log.events, _ZONE)
+        assert (metrics["reminded_errand_count"], metrics["acted_after_reminder_count"]) == (1, acted)
+
+
 def test_multiple_orders_match_only_the_actual_purchased_products() -> None:
     """同一次购买受理只计真实订单指向的商品；活动快照不伪造商品购买。"""
     for product, acted in ((MEAL, 1), (KIT, 0)):

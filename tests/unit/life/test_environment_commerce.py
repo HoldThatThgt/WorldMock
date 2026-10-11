@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 from datetime import datetime, time
+import json
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -12,7 +13,7 @@ from worldmock.catalog.models import Goods, Location, OpeningHours
 from worldmock.environment import load_environment
 from worldmock.errors import BusinessRuleError, IntegrityError, PreconditionError
 from worldmock.input_models import ModelMetadata
-from worldmock.life.basket import activity_orders, quoted_basket
+from worldmock.life.basket import activity_orders, delivery_events, quoted_basket
 from worldmock.life.body_config import assemble_body_config
 from worldmock.life.commerce import deliver_order
 from worldmock.life.models import ActivityStatus, AgentState, BodyState, WorldState, WORLD_SCHEMA_VERSION
@@ -270,3 +271,72 @@ def test_skipped_payment_boundary_is_rejected_without_backdated_touch(environmen
         commerce.advance_payment(state, activity)
     with pytest.raises(IntegrityError, match="actual payment operation evidence"):
         commerce.complete_purchase(state, activity)
+
+
+def paid_purchase(environment, goods, location="home"):
+    """经真实受理、付款段和完成结算得到已付款世界、购买活动与当次事件。"""
+    commerce = runtime(environment)
+    state, activity = commerce.prepare_purchase(world(environment, location), pending(), goods)
+    state, _ = operate_payments(commerce, state, activity)
+    state, activity = finish(state, activity)
+    state, events = commerce.complete_purchase(state, activity)
+    return state, activity, events
+
+
+def arrivals(state):
+    return [row for row in state.pending_events if row.kind == "delivery_arrival"]
+
+
+def test_completion_schedules_each_trip_with_its_own_payment_as_the_only_cause(environment):
+    state, activity, events = paid_purchase(environment, ("lemon-tea", "online-notebook"), "store")
+    payments = {tuple(event.data["order_ids"]): event.event_id for event in events
+                if event.data.get("kind") == "purchase_payment"}
+    local, parcel = sorted(activity_orders(state, activity), key=lambda order: order.fulfillment)
+    assert (local.fulfillment, parcel.fulfillment) == ("pickup", "station_pickup") and len(payments) == 2
+    (scheduled,) = arrivals(state)
+    assert scheduled.scheduled_id == f"delivery-{parcel.order_id}" and scheduled.agent_id == 1
+    assert scheduled.data == {"order_ids": [parcel.order_id]} and scheduled.due_at == parcel.expected_at
+    assert scheduled.caused_by == [payments[(parcel.order_id,)]]
+    assert scheduled.caused_by != [payments[(local.order_id,)]] and scheduled.caused_by != ["accepted-result"]
+
+
+def test_trips_sharing_arrival_time_method_and_destination_stay_separate_per_delivery_group(environment):
+    state, activity, _ = paid_purchase(environment, ("online-notebook",))
+    first = activity_orders(state, activity)[0]
+    other_group = json.dumps([None, first.destination_id, "douyin", first.fulfillment], separators=(",", ":"))
+    assert first.group_key < other_group
+    second = first.model_copy(update={"order_id": "order-buy-2", "app_id": "douyin", "group_key": other_group})
+    assert (second.expected_at, second.fulfillment, second.destination_id) == (
+        first.expected_at, first.fulfillment, first.destination_id)
+    idle = state.model_copy(update={"pending_events": []})
+    scheduled = delivery_events(idle, (second, first), {first.order_id: "paid-first", second.order_id: "paid-second"})
+    assert [(row.scheduled_id, row.data, row.caused_by, row.sequence) for row in scheduled] == [
+        (f"delivery-{first.order_id}", {"order_ids": [first.order_id]}, ["paid-first"], 1),
+        ("delivery-order-buy-2", {"order_ids": ["order-buy-2"]}, ["paid-second"], 2)]
+    assert all(row.kind == "delivery_arrival" and row.due_at == first.expected_at for row in scheduled)
+
+
+def test_one_delivery_group_with_two_arrival_days_schedules_two_trips_in_arrival_order(environment):
+    state, activity, _ = paid_purchase(environment, ("online-notebook",))
+    early = activity_orders(state, activity)[0]
+    late = early.model_copy(update={"order_id": "order-buy-0", "expected_at": early.expected_at + 86400})
+    same_day = early.model_copy(update={"order_id": "order-buy-3"})
+    unpaid = early.model_copy(update={"order_id": "order-buy-4", "paid_at": None})
+    assert late.group_key == early.group_key == same_day.group_key
+    causes = {early.order_id: "paid", late.order_id: "paid", same_day.order_id: "paid"}
+    scheduled = delivery_events(state, (late, unpaid, same_day, early), causes)
+    busy = max(row.sequence for row in state.pending_events)
+    assert [(row.scheduled_id, row.due_at, row.data["order_ids"], row.sequence) for row in scheduled] == [
+        (f"delivery-{early.order_id}", early.expected_at, [early.order_id, "order-buy-3"], busy + 1),
+        ("delivery-order-buy-0", late.expected_at, ["order-buy-0"], busy + 2)]
+    assert all(row.caused_by == ["paid"] for row in scheduled)
+
+
+def test_trip_whose_expected_arrival_precedes_payment_is_due_at_payment(environment):
+    state, activity, _ = paid_purchase(environment, ("online-notebook",))
+    order = activity_orders(state, activity)[0]
+    overdue = order.model_copy(update={"expected_at": order.paid_at - 30})
+    on_time = order.model_copy(update={"order_id": "order-buy-9", "expected_at": order.paid_at})
+    scheduled = delivery_events(state, (on_time, overdue), {order.order_id: "paid", "order-buy-9": "paid"})
+    assert [(row.data["order_ids"], row.due_at) for row in scheduled] == [
+        ([order.order_id], order.paid_at), (["order-buy-9"], order.paid_at)]

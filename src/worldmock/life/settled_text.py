@@ -11,6 +11,7 @@ from typing import Any
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import Event
 from worldmock.life import activity_control
+from worldmock.life.action_evidence import placed_orders
 from worldmock.life.models import ActivityKind, ActivityState, TravelMode
 from worldmock.life.readable import clock_phrase, duration_phrase, iso_time, money_phrase, portion_phrase
 from worldmock.life.tool_layer import LayerContext
@@ -195,7 +196,7 @@ def _tool_lines(context: LayerContext, record: dict, sources: list[Event], facts
             activity_sentence(context, context.state.activities[activity_id], facts.pauses.get(activity_id, ()),
                               facts.app_progress)
             for activity_id in payload.get("activity_ids", []) if activity_id in facts.endings]
-    lines = [purchase_sentence(context, order) for order in payload.get("orders", [])
+    lines = [purchase_sentence(context, order) for order in placed_orders(payload)
              if order.get("paid_at") is not None]
     return lines
 

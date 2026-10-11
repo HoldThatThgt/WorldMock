@@ -18,7 +18,7 @@ from worldmock.life.models import ActivityKind, ActivityStatus
 from worldmock.life.prompt_schemas import validate_layer
 from worldmock.life.result_projection import public_result
 from worldmock.life.schedule import DayPlan, PlanGoal, revise_day_plan
-from worldmock.life.settled_text import app_progress, experience_sentence, purchase_sentence
+from worldmock.life.settled_text import app_progress, experience_sentence, purchase_sentence, record_lines
 
 
 @pytest.fixture
@@ -175,6 +175,33 @@ def test_unpaid_order_is_a_quote_without_a_payment_claim(inputs):
                     "destination_id": "home", "expected_at": 200}]}}, inputs)
     assert "price" in result["details"]["purchases"][0]
     assert "paid" not in result["details"]["purchases"][0]
+
+
+def test_parcel_collected_at_the_station_is_carried_as_evidence_but_not_reported_as_a_purchase(inputs):
+    bought = {"goods_id": "tissue", "quantity": 1, "paid_at": None, "total_price_fen": 600, "status": "pending",
+              "destination_id": "store", "expected_at": 200, "fulfillment": "pickup"}
+    collected = {"goods_id": "online-notebook", "quantity": 1, "paid_at": 60, "total_price_fen": 1200,
+                 "status": "delivered", "destination_id": "parcel-station", "expected_at": 90,
+                 "fulfillment": "station_pickup"}
+
+    def started(*orders):
+        return {"occurred_at": 100, "status": "in_progress", "message": "Activities started",
+                "data": {"activities": [], "orders": list(orders)}}
+
+    def lines(result):
+        record = {"occurred_at": "1970-01-01T08:01:40+08:00", "type": "tool_call", "tool": "start_activity"}
+        return record_lines(layer_context(inputs), record, [SimpleNamespace(event_type="action_result", data=result)])
+
+    assert "purchases" not in public_result(started(collected), inputs)["details"]
+    assert lines(started(collected)) == []
+    mixed = public_result(started(bought, collected), inputs)["details"]["purchases"]
+    assert [row["product"] for row in mixed] == ["纸巾"]
+    in_transit = {**collected, "status": "pending"}
+    assert [row["product"] for row in public_result(started(in_transit), inputs)["details"]["purchases"]] == ["平台笔记本"]
+    (sentence,) = lines(started(in_transit))
+    assert "买了平台笔记本" in sentence and "快递驿站" in sentence
+    local = {**bought, "paid_at": 100, "status": "delivered"}
+    assert len(lines(started(local, collected))) == 1 and "买了纸巾" in lines(started(local, collected))[0]
 
 
 @pytest.mark.parametrize("retired,value", [("progressed_at", 100), ("progress_activity_id", "activity"),
