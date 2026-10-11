@@ -75,7 +75,8 @@ flowchart LR
 | 其余类型或取值错误 | `<字段>: <英文说明>`；`schema_version = 1` 得到 `schema_version: Input should be 2` |
 | 初始能量超过系统上限 | `initial energy exceeds maximum energy` |
 
-一次只报告第一处。文件不是合法的 UTF-8 无 BOM、LF 的 TOML 时原因是 `Persona file validation failed`。
+一次只报告第一处。文件本身读不出来（缺失、不是 UTF-8 无 BOM 与 LF、不是合法 TOML）时用文件级的原因，不带字段路径；
+顶层出现已删除的旧模板字段时原因是 `legacy template fields are deleted, merge them into the card: [...]`。
 卡片怎样由这些字段构造和怎样显示归[人物](06-agent.md)「人物身份与画像」。
 
 人物不声明联系人、邮件、账单、工资、工作内容指派、车辆归属、专用燃油初值或种子。
