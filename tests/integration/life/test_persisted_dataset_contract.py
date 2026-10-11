@@ -4,12 +4,13 @@ from copy import deepcopy
 
 import pytest
 
-from tests.life.conftest import travel, use_app
+from tests.life.conftest import advance_next, travel, use_app
 from tests.life.environment_inputs import copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act
 from worldmock.errors import IntegrityError
 from worldmock.life.activity_validation import validate_activity_targets
 from worldmock.life.callbacks import validate_callback_states
+from worldmock.life.travel import persisted_trip
 
 
 def started(engine_factory, request=None):
@@ -104,6 +105,41 @@ def test_frozen_travel_must_keep_the_travel_method_it_departed_with(engine_facto
     activity.travel_method_id = persisted
     with pytest.raises(IntegrityError, match="Persisted activity target is invalid"):
         validate_activity_targets(state, engine.context.catalog, engine.context.persona)
+
+
+TRAVEL_PLAN_FAULT = "^Persisted travel plan does not match the published graph$"
+
+
+def test_frozen_trip_recomputes_to_the_plan_accepted_at_departure(engine_factory):
+    """受理时冻结的行程按同一出行方式和同一天气系数重算，得到出发时的同一份计划：行程身份、路径、米数、用时和已付的车费。"""
+    engine = engine_factory()
+    payer = engine.context.state.agents[1].balance_account_id
+    balance = engine.context.state.accounts[payer]
+    _, result = act(engine, "drive", travel("公司", "驾车"))
+    assert result.status == "in_progress", result.error_code
+    activity = engine.context.state.activities[result.activity_id]
+    trip = persisted_trip(engine.context.catalog, activity)
+    assert (trip.trip_id, trip.origin_id, trip.destination_id) == ("home->office:driving", "home", "office")
+    assert (list(trip.path), trip.distance_meters) == (activity.data["path"], activity.data["distance_meters"])
+    assert trip.duration_seconds == activity.planned_duration_seconds
+    assert trip.fare_fen == balance - engine.context.state.accounts[payer] > 0
+
+
+@pytest.mark.parametrize("tamper", [
+    pytest.param(lambda activity: setattr(activity, "travel_method_id", "taxi"), id="travel-method"),
+    pytest.param(lambda activity: activity.data.update(exertion="walking"), id="exertion"),
+])
+def test_tampered_frozen_trip_stops_with_the_published_graph_fault(engine_factory, tamper):
+    """驾车出发后把保存的出行方式身份换成打车，或把代谢当量键换成步行的：重算核对报规定的故障原文；
+    引擎推进这趟行程时同样以这条故障停下，不照改过的状态继续走。"""
+    engine, _, activity = started(engine_factory, travel("公司", "驾车"))
+    assert (activity.travel_method_id, activity.data["exertion"]) == ("driving", "light")
+    tamper(activity)
+    with pytest.raises(IntegrityError, match=TRAVEL_PLAN_FAULT):
+        persisted_trip(engine.context.catalog, activity)
+    tamper(engine.context.state.activities[activity.activity_id])
+    with pytest.raises(IntegrityError, match=TRAVEL_PLAN_FAULT):
+        advance_next(engine)
 
 
 def callback_input(tmp_path):

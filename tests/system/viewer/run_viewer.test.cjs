@@ -1433,7 +1433,7 @@ test('money uses authoritative envelope changes once and allows signed external 
 
 test('an aggregate acceptance keeps both actual travel and interaction activities', t => {
   const travel={activity_id:'travel',kind:'travel',started_at:epoch,status:'active',elapsed_seconds:0,
-    destination_id:'store',data:{action:'walk'}};
+    destination_id:'store',travel_method_id:'walking',data:{action:'travel'}};
   const interaction={activity_id:'browse',kind:'interact',started_at:epoch,status:'active',elapsed_seconds:0,
     data:{action:'interact',app_id:'meituan',content_id:null}};
   const view=viewer([
@@ -1441,7 +1441,8 @@ test('an aggregate acceptance keeps both actual travel and interaction activitie
     event('action_accepted',{data:{activities:[travel,interaction]}}),
   ]);
   t.after(()=>view.close());
-  assert.deepEqual(targets(view.activities()),['→ 四季便利','美团']);
+  // 聚合受理里的出行活动同样带出行方式身份，活动行在目的地前写出行方式名称
+  assert.deepEqual(targets(view.activities()),['步行 · → 四季便利','美团']);
   assert.deepEqual(view.errors,[]);
 });
 

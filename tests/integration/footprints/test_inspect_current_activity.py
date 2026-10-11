@@ -5,8 +5,8 @@ import argparse
 import pytest
 
 from scripts import inspect_run
-from tests.life.conftest import advance_next, sleep, use_app
-from tests.life.environment_runtime import act, events
+from tests.life.conftest import advance_next, sleep, travel, use_app
+from tests.life.environment_runtime import act, events, finish_activity
 
 
 @pytest.mark.parametrize("request_factory,kind,has_content", [
@@ -39,6 +39,40 @@ def test_inspector_activity_summary_uses_actual_current_content_title(
     output = capsys.readouterr().out
     assert expected in output
     assert ("《" in output) is has_content
+    assert store.last_event_seq == point
+
+
+def test_rerun_walking_share_counts_only_the_built_in_walking_among_all_travel(engine_factory, capsys):
+    """真实引擎先驾车去公司、再步行回家，检查工具从运行的 SQLite 读回步行占比。
+
+    只驾过车时没有步行，报告写「不适用（没有步行）」；步行之后，步行秒数是那一趟步行的实际用时，出行秒数是两趟之和。
+    """
+    engine = engine_factory()
+    store = engine.context.store
+    home = engine.context.catalog.locations[engine.context.inputs.home_location_id].display_name
+
+    def measured():
+        """只读打开运行库，返回步行占比和复验报告里的那一行。"""
+        with inspect_run._connect(store.run_dir) as conn:
+            share = inspect_run.walking_share(conn)
+            inspect_run.cmd_rerun(conn, argparse.Namespace())
+        return share, [line for line in capsys.readouterr().out.splitlines() if line.startswith("7. ")]
+
+    _, drive = act(engine, "drive", travel("公司", "驾车"))
+    assert drive.status == "in_progress", drive.error_code
+    finish_activity(engine, drive, "drive")
+    driven = engine.context.state.activities[drive.activity_id].elapsed_seconds
+    assert measured() == ({"walking_seconds": 0, "travel_seconds": driven, "available": False},
+                          ["7. 步行占比：不适用（没有步行）"])
+    _, walk = act(engine, "walk", travel(home))
+    assert walk.status == "in_progress", walk.error_code
+    finish_activity(engine, walk, "walk")
+    walked = engine.context.state.activities[walk.activity_id].elapsed_seconds
+    assert 0 < driven < walked
+    point = store.last_event_seq
+    assert measured() == (
+        {"walking_seconds": walked, "travel_seconds": driven + walked, "available": True},
+        [f"7. 步行占比：{walked}/{driven + walked}（{walked / (driven + walked):.0%}）"])
     assert store.last_event_seq == point
 
 

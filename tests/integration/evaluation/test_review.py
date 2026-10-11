@@ -360,13 +360,37 @@ def test_packet_one_is_rejected_before_standalone_review_ingestion(evaluation_fi
 @pytest.mark.parametrize("value,accepted", [
     ("walking", True), ("driving", True), ("transit", True), (None, True),
     ("taxi", False), ("bus", False), ("bike", False), ("步行", False), ("Walking", False)])
-def test_blind_review_travel_mode_closed_set_keeps_exactly_three_words(value, accepted):
-    """盲评的出行方式公开闭集保持 walking、driving、transit 三个词；数据集出行方式的身份或名称不是其中的值。"""
-    row = {"at": "2026-01-05T09:00:00+08:00", "object_type": "route", "interaction": "travel", "travel_mode": value}
-    timeline = {"activities": [], "public_evidence": [row]}
-    fields = {"route": ["interaction", "travel_mode"]}
+def test_blind_review_travel_mode_closed_set_keeps_exactly_three_words(evaluation_fixture, tmp_path, value, accepted):
+    """盲评的出行方式公开闭集保持 walking、driving、transit 三个词；数据集出行方式的身份或名称不是其中的值。
+
+    两侧各有一条步行路线和一条带待测值的路线，照常生成、写出盲评包并交回收据；闭集由读取收据的入口核对。
+    """
+    scenario, left, right, _ = _review_inputs(evaluation_fixture)
+    left = replace(left, public_evidence=_route_modes(left, ("walking", value)))
+    right = replace(right, public_evidence=_route_modes(right, ("walking", value)))
+    material = create_review_material(left, right, shared_support(left, right), scenario)
+    output = tmp_path / "prepared"
+    write_review_material(output, material)
+    records = make_review_records(output, tmp_path / "reviews")
+    written = [json.loads(path.read_text(encoding="utf-8")) for path in sorted((output / "review-packets").iterdir())]
+    routes = [row for packet in written for item in packet["items"] for side in ("left", "right")
+              for row in item[side]["public_evidence"] if row["object_type"] == "route"]
+    assert {row["travel_mode"] for row in routes} == {"walking", value}
+    assert all(row["interaction"] == "travel" for row in routes)
     if accepted:
-        review_module._validate_candidate_timeline(timeline, fields)
+        assert len(ingest_reviews(records, output, scenario)["records"]) == scenario.reviewer_count
     else:
         with pytest.raises(EvaluationError, match="^blind review public evidence value is outside the closed set$"):
-            review_module._validate_candidate_timeline(timeline, fields)
+            ingest_reviews(records, output, scenario)
+
+
+def _route_modes(view: DatasetView, modes: tuple[str | None, ...]) -> tuple[PublicEvidence, ...]:
+    """每个值一条各自独立的路线事实；值为 None 的那条不带出行方式属性。"""
+    return tuple(
+        PublicEvidence(
+            view.window.start + timedelta(hours=9 + index), "travel", "travel", "route", "started",
+            f"route-{index}", {} if mode is None else {"travel_mode": mode},
+            (f"event-route-{index}",), f"session-route-{index}",
+        )
+        for index, mode in enumerate(modes)
+    )
