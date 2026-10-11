@@ -35,7 +35,7 @@ from tests.integration.runtime.test_verified_memory import _TIME, _concluded, _r
 from tests.engine_fixture import (engine_factory)  # noqa: F401
 from tests.life.conftest import (context, stage_day_plan)  # noqa: F401
 from tests.life.environment_runtime import act, settle_decision
-from tests.life.conftest import advance_next, start_activity
+from tests.life.conftest import advance_next, sleep
 from tests.integration.runtime.current_contract_fixtures import profile as current_profile
 from worldmock.errors import ProtocolError
 from worldmock.life.decision_start import is_action_request
@@ -425,7 +425,7 @@ class _WakingModel:
         names = _tool_names(request)
         if names == [_TOOL] or not names:
             return await self.reflection(**request)
-        assert "start_activity" in names
+        assert "start_main_activity" in names and is_action_request(request) is True
         memory = {"type": "routine", "text": "这一觉睡得很沉。", "importance": 0.4, "keywords": ["睡眠"]}
         arguments = {"items": [{"activity_name": self.sleep_name, "summary": "睡醒了。", "memories": [memory],
                                 "views": []}], "errands": []}
@@ -436,7 +436,7 @@ async def _waking_decision(engine_factory, tmp_path, *replies) -> SimpleNamespac
     """真实引擎上睡完一觉，开出含 wake_from_sleep 的那一轮决策，并备好真实 LifeEnv 与直接导入的 LifeAgent。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    _, result = act(engine, "sleep-start", start_activity("sleep", "家"))
+    _, result = act(engine, "sleep-start", sleep())
     slept = result.activity_id
     while engine.context.state.activities[slept].status == "active":
         if engine.scheduling_state().ready_agent_ids:

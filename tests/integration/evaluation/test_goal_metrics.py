@@ -183,14 +183,14 @@ def test_actual_world_constraint_is_counted_once_and_fails_the_block_gate(code):
 
 
 def test_real_unaffordable_purchase_is_an_external_block(engine_factory):
-    from tests.life.conftest import start_activity
+    from tests.life.conftest import purchase
     from tests.life.environment_runtime import act
 
     def empty_balance(persona, config):
         persona["initial_balance_fen"] = 0
 
     engine = engine_factory(mutate=empty_balance)
-    _, result = act(engine, "unaffordable-purchase", start_activity("purchase", "柠檬茶"))
+    _, result = act(engine, "unaffordable-purchase", purchase("柠檬茶"))
     assert result.status == "rejected" and result.error_code == "INSUFFICIENT_FUNDS"
     events = [row.model_dump(mode="json") for row in engine.context.store.read_events(
         engine.context.store.last_event_seq)]
@@ -198,6 +198,33 @@ def test_real_unaffordable_purchase_is_an_external_block(engine_factory):
     assert metrics["external_constraints"]["block_count"] == 1
     assert metrics["external_constraints"]["by_error_code"] == {"INSUFFICIENT_FUNDS": 1}
     assert metrics["external_constraints"]["other_rejections"]["count"] == 0
+    assert metrics["gates"]["external_constraint_block_count"]["pass"] is False
+
+
+def test_real_rejected_start_group_counts_two_rejected_actions(engine_factory):
+    """一个被拒的开始组是两条被拒动作：步行（不花钱）与买不起的柠檬茶同组，整组不开始，两条动作各有同一个拒绝码；
+    按动作计数的外部约束不合并，记两次受阻、两条终态动作，证据是两条动作各自的拒绝事件。"""
+    from tests.life.conftest import purchase, travel
+    from tests.life.environment_runtime import act_group
+
+    def empty_balance(persona, config):
+        persona["initial_balance_fen"] = 0
+
+    engine = engine_factory(mutate=empty_balance)
+    _, results = act_group(engine, "unaffordable-group", travel("公司"), purchase("柠檬茶"))
+    assert [(row.status, row.error_code) for row in results] == [("rejected", "INSUFFICIENT_FUNDS")] * 2
+    assert engine.context.state.activities == {}
+    events = [row.model_dump(mode="json") for row in engine.context.store.read_events(
+        engine.context.store.last_event_seq)]
+    rejected = [row for row in events if row["event_type"] == "action_rejected"]
+    assert [row["action_id"] for row in rejected] == ["action-unaffordable-group-1", "action-unaffordable-group-2"]
+    metrics = day_plan_metrics(events, engine.context.config.timezone)[UNREPORTED_CODE_KEY]
+    external = metrics["external_constraints"]
+    assert external["block_count"] == 2 and external["by_error_code"] == {"INSUFFICIENT_FUNDS": 2}
+    assert external["source_event_ids"] == sorted(row["event_id"] for row in rejected)
+    assert external["terminal_action_count"] == 2 and external["observed_action_acceptance_rate"] == 0
+    assert external["other_rejections"]["count"] == 0 and external["evidence_complete"] is True
+    assert metrics["gates"]["external_constraint_block_count"]["value"] == 2
     assert metrics["gates"]["external_constraint_block_count"]["pass"] is False
 
 

@@ -2,9 +2,8 @@
 
 from datetime import timedelta
 
-from tests.life.conftest import start_activity
+from tests.life.conftest import purchase, use_app
 from tests.life.environment_runtime import act, finish_activity, run_to_end
-from worldmock.life.models import StartActivityRequest
 
 
 def short_window(persona, config):
@@ -17,13 +16,11 @@ def recorded_engine(engine_factory, *, purchases=True, content=True):
     """通过真实请求得到付款、本人收货和持续内容接触。"""
     engine = engine_factory(mutate=short_window)
     if purchases:
-        request = StartActivityRequest(items=[{"action": "purchase", "target": target}
-                                              for target in ("柠檬茶", "纸巾")])
-        _, result = act(engine, "recorded-basket", request)
+        _, result = act(engine, "recorded-basket", purchase("柠檬茶", "纸巾"))
         assert result.status == "in_progress", result.error_code
         finish_activity(engine, result, "recorded-basket")
     if content:
-        _, result = act(engine, "recorded-content", start_activity("interact", "哔哩哔哩"))
+        _, result = act(engine, "recorded-content", use_app("哔哩哔哩"))
         assert result.status == "in_progress", result.error_code
     run_to_end(engine)
     store = engine.context.store

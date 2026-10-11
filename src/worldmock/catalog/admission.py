@@ -170,9 +170,9 @@ def _check_goods(rows, apps, kinds) -> None:
 
 
 def _check_contents(rows, apps, kinds) -> None:
-    """@brief 内容容器、摘要、来源和系列符合独立登记规则。"""
-    series, episodes = {}, set()
-    for content in rows["contents"]:
+    """@brief 内容容器、摘要、来源和系列符合独立登记规则；同一地点类型下可点名的单元名唯一。"""
+    series, episodes, units = {}, set(), {}
+    for number, content in enumerate(rows["contents"], start=1):
         if not content.app_ids and not content.location_kinds:
             raise RegistrationError("CONTENT_CONTAINER_MISSING")
         if content.app_ids and content.location_kinds:
@@ -190,6 +190,23 @@ def _check_contents(rows, apps, kinds) -> None:
                 raise RegistrationError("CONTENT_SERIES_INVALID")
             series[title] = binding
             episodes.add((title, episode))
+        _check_unit_name(units, content, number)
+
+
+def _check_unit_name(units: dict, content, number: int) -> None:
+    """@brief 一行内容在它的每个地点类型下登记单元名；同名而所属单元不同时拒绝并指出两行行号。
+
+    单元名是独立内容的标题或系列名，两者合在一起按去掉全部空白、不分大小写比较；同一系列的各集属于同一单元。
+    """
+    name = content.title if content.series is None else content.series.title
+    unit = ("content", content.content_id) if content.series is None else ("series", name)
+    for kind in sorted(content.location_kinds):
+        owner, first_number, first_name = units.setdefault((kind, channel_key(name)), (unit, number, name))
+        if owner != unit:
+            raise RegistrationError(
+                "ENVIRONMENT_ID_DUPLICATE",
+                f"content-catalog.jsonl:{first_number} and content-catalog.jsonl:{number} "
+                f"give location kind {kind} the same activity name {first_name}.")
 
 
 def _check_apps(rows, apps) -> None:

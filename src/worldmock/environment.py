@@ -122,13 +122,15 @@ def load_environment(root: Path | str, *, metadata_loader: Callable | None = Non
 
 
 def _resolve_persona_locations(persona: PersonaConfig, catalog: Any) -> tuple[str, str, str | None]:
-    """@brief 住宿、起点与工作地点均按完整显示名解析到真实地点。"""
+    """@brief 住宿、起点与工作地点均按完整显示名解析到真实地点；人物自己的家必须标了可睡。"""
     from worldmock.catalog.models import channel_key
 
     by_name = {channel_key(place.display_name): place for place in catalog.locations.values()}
     home = by_name.get(channel_key(persona.home_location))
     if home is None or not home.is_home:
         raise RegistrationError("HOME_LOCATION_REQUIRED", "persona.home_location")
+    if not home.sleepable:
+        raise RegistrationError("HOME_NOT_SLEEPABLE", "persona.home_location")
     initial = by_name.get(channel_key(persona.initial_location))
     if initial is None:
         detail = "Persona location reference is unknown or ambiguous: initial_location"

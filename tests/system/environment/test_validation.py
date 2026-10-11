@@ -76,6 +76,62 @@ def test_persona_location_reference_uses_exact_registered_display_names(publishe
                for row in report(published_environment))
 
 
+def republish_rows(root, name, change):
+    """@brief 改写夹具副本的一份目录文件（逐行 JSON、身份升序），再按真实字节刷新清单身份。"""
+    path = root / "catalog" / name
+    rows = change([json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()])
+    path.write_bytes("".join(json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
+                             for row in rows).encode("utf-8"))
+    refresh_manifest_identity(path.parent)
+
+
+@pytest.mark.parametrize("marked", ["absent", "false"])
+def test_persona_home_that_is_not_sleepable_is_a_registration_failure(published_environment, marked):
+    """人物自己的家没有标 sleepable（缺这个键或写成 false）：目录本身能加载，validate 以非零退出并只报这一条，
+    原因后接详情 persona.home_location。"""
+    def unmark(rows):
+        home = next(row for row in rows if row["location_id"] == "home")
+        assert home["name"] == "家" and home.pop("sleepable") is True
+        if marked == "false":
+            home["sleepable"] = False
+        return rows
+
+    republish_rows(published_environment, "location.jsonl", unmark)
+    assert report(published_environment) == [{
+        "path": "persona.toml", "code": "HOME_NOT_SLEEPABLE",
+        "reason": "The persona home must be marked sleepable. persona.home_location"}]
+
+
+@pytest.mark.parametrize("title", ["测试休息", "测试 休息", " 测试休息\t"])
+def test_two_location_contents_of_one_kind_sharing_a_unit_name_are_a_registration_failure(
+        published_environment, title):
+    """同一地点类型（home）下两条独立内容的单元名相同（只差空白也算相同）：validate 以非零退出并只报这一条，
+    原因后接详情：两行的行号、地点类型和先登记的单元名。"""
+    def duplicate(rows):
+        rest = next(row for row in rows if row["content_id"] == "c-rest")
+        assert rest["title"] == "测试休息" and rest["location_kinds"] == ["home"] and "series" not in rest
+        return sorted([*rows, {**rest, "content_id": "c-rest-2", "title": title}], key=lambda row: row["content_id"])
+
+    republish_rows(published_environment, "content-catalog.jsonl", duplicate)
+    assert report(published_environment) == [{
+        "path": "catalog", "code": "ENVIRONMENT_ID_DUPLICATE",
+        "reason": "An identifier or display name is declared twice in one catalog file. content-catalog.jsonl:10 "
+                  "and content-catalog.jsonl:11 give location kind home the same activity name 测试休息."}]
+
+
+def test_republished_fixture_copy_with_a_distinct_unit_name_stays_valid(published_environment):
+    """对照：同一条新增内容换一个不重名的单元名后，照同样的改写与刷新仍然通过 validate。"""
+    def distinct(rows):
+        rest = next(row for row in rows if row["content_id"] == "c-rest")
+        return sorted([*rows, {**rest, "content_id": "c-rest-2", "title": "测试午休"}],
+                      key=lambda row: row["content_id"])
+
+    republish_rows(published_environment, "content-catalog.jsonl", distinct)
+    result = _command("validate", "--environment", published_environment)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["valid"] is True
+
+
 @pytest.mark.parametrize("declared,reason", [
     (b"lunch_window = [18.0, 19.0]\ndinner_window = [12.0, 13.0]\n",
      "lunch_window must end before dinner_window starts"),

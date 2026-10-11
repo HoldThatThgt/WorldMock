@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import pytest
 
-from tests.life.conftest import start_activity
+from tests.life.conftest import travel, use_app
 from tests.life.environment_inputs import copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act
 from worldmock.errors import IntegrityError
@@ -12,9 +12,9 @@ from worldmock.life.activity_validation import validate_activity_targets
 from worldmock.life.callbacks import validate_callback_states
 
 
-def started(engine_factory, target="哔哩哔哩", action="interact"):
+def started(engine_factory, request=None):
     engine = engine_factory()
-    _, result = act(engine, "actual-start", start_activity(action, target))
+    _, result = act(engine, "actual-start", request or use_app("哔哩哔哩"))
     assert result.status == "in_progress"
     state = engine.context.state.model_copy(deep=True)
     return engine, state, state.activities[result.activity_id]
@@ -73,7 +73,7 @@ def test_completed_segments_remain_valid_only_at_the_actual_content_end(engine_f
     ("relaxation_relief_per_hour", 0.1), ("social_relief_per_hour", 0.1),
 ])
 def test_platform_browse_restore_requires_its_actual_zero_effect_snapshot(engine_factory, field, value):
-    engine, state, activity = started(engine_factory, "美团")
+    engine, state, activity = started(engine_factory, use_app("美团"))
     activity.data[field] = value
     with pytest.raises(IntegrityError, match="Persisted activity target is invalid"):
         validate_activity_targets(state, engine.context.catalog, engine.context.persona)
@@ -84,7 +84,7 @@ def test_platform_browse_restore_requires_its_actual_zero_effect_snapshot(engine
     ("origin_id", "office"), ("destination_id", "home"),
 ])
 def test_frozen_travel_must_match_original_graph_route(engine_factory, field, value):
-    engine, state, activity = started(engine_factory, "公司", "walk")
+    engine, state, activity = started(engine_factory, travel("公司"))
     if field == "path" and activity.data[field] == value:
         value = list(reversed(value))
     activity.data[field] = value

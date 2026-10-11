@@ -10,7 +10,7 @@ from itertools import groupby
 from zoneinfo import ZoneInfo
 
 from worldmock.errors import IntegrityError
-from worldmock.life.action_contract import ACTIVITY_ACTIONS
+from worldmock.life.action_contract import ACTIVITY_ACTIONS, TRAVEL_ACTIONS
 
 
 @dataclass
@@ -246,7 +246,7 @@ def _validate_system_source(event: dict) -> None:
     if len(event.get("caused_by", [])) != 1:
         _invalid_source("System app event requires one actual cause event")
     if data["kind"] == "app_touch":
-        if data["action"] is not None and data["action"] not in ACTIVITY_ACTIONS:
+        if data["action"] is not None and data["action"] not in {*ACTIVITY_ACTIONS, *TRAVEL_ACTIONS}:
             _invalid_source("App touch action is invalid")
         allowed = {"navigation", "payment"} if data["rule_id"] is None else {"browse", "payment"}
         if data["step"] not in allowed:

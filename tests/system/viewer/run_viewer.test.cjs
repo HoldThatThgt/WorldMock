@@ -318,6 +318,49 @@ test('context drills into current tools and real-shaped progress self notes', ()
   } finally { app.close(); }
 });
 
+/** @brief 不读录制夹具，按七层合同内联构造一个现行行动请求：角色原文取自提示的唯一来源 LIFE_SYSTEM_LAYER，工具层是
+ * 提示里的紧凑分组（出行与在地点做事的行带 detail，睡眠没有），工具数组含两个开始工具。 */
+function inlineContextRequest() {
+  const prompt = readFileSync(path.join(__dirname, '../../../src/worldmock/agents/life_prompt.py'), 'utf8');
+  const role = /LIFE_SYSTEM_LAYER[^=]*= \{\s*"layer": "系统层",\s*"role": "([^"]+)"/.exec(prompt)[1];
+  const toolLayer = {layer: '工具层', groups: [
+    {kind: 'location', action: 'travel', shared: {state: '全天营业', available: true}, targets: [
+      {name: '公司', detail: '步行', price: '0 元', duration: '约 32 分钟', note: '费力'},
+      {name: '公司', detail: '公共交通', price: '2 元', duration: '约 8 分钟', note: '轻松'}]},
+    {kind: 'location', action: 'interact', shared: {state: '全天营业', available: true}, targets: [
+      {name: '家', detail: '测试休息', duration: '约 15 分钟'}]},
+    {kind: 'location', action: 'sleep', shared: {state: '全天营业', available: true, note: '现在不欠觉'},
+      targets: [{name: '家'}]},
+  ], callable_index: {}};
+  const layers = [toolLayer, ...['人设层', '记忆层', '待办层', '环境层', '进度层'].map(layer => ({layer}))];
+  return {model: 'test-model', messages: [
+    {role: 'system', content: JSON.stringify({layer: '系统层', role, rules: []})},
+    {role: 'user', content: JSON.stringify(layers)}],
+  tools: ['start_main_activity', 'start_side_activity'].map(name => ({type: 'function', function: {name}}))};
+}
+
+test('context drills into an inline current tool layer and lists travel methods and location units by detail', () => {
+  const app = viewer([contextEvent('current', inlineContextRequest())]);
+  try {
+    assert.deepEqual(Array.from(app.run('ContextView.index()'), item => item.stage), ['action']);
+    app.context();
+    app.get('button:message:1:tool').onclick();
+    const select = app.get('#ctx-item');
+    const labels = Array.from(select.innerHTML.matchAll(/<option[^>]*>([^<]*)<\/option>/g), match => match[1]);
+    assert.deepEqual(labels, ['整层原文',
+      '公司（location）', '公司 · travel · 步行 · 可用',
+      '公司（location）', '公司 · travel · 公共交通 · 可用',
+      '家（location）', '家 · interact · 测试休息 · 可用',
+      '家（location）', '家 · sleep · 可用']);
+    // 选中「公司 · travel · 公共交通」一项：正文是这一行的完整字段，动作在前。
+    select.value = '3';
+    select.onchange();
+    assert.deepEqual(JSON.parse(app.get('#ctx-raw').textContent), {action: 'travel', state: '全天营业', available: true,
+      name: '公司', detail: '公共交通', price: '2 元', duration: '约 8 分钟', note: '轻松', kind: 'location'});
+    assert.deepEqual(app.errors, []);
+  } finally { app.close(); }
+});
+
 test('context index respects the actual first message role and tools field type', () => {
   const wrongRole = contextRequest();
   wrongRole.messages[0].role = 'user';
@@ -346,12 +389,14 @@ test('context comparison keeps the slicing note when only the previous input was
 
 test('action request summaries show self_note as unverified only when the reply had text', t => {
   const view = viewer([
-    event('action_requested', {tool_name: 'start_activity', request: {items: [{target:'美团',action:'interact',from:null,navigation_app:null,payment_app:null,quantity:1}],answering:null,prefer:null}, request_sha256: 'f'.repeat(64), reused: false, self_note: '先歇一会儿，再去买菜。'}),
-    event('action_requested', {tool_name: 'start_activity', request: {items: [{target:'家',action:'sleep',from:null,navigation_app:null,payment_app:null,quantity:1}],answering:null,prefer:null}, request_sha256: 'e'.repeat(64), reused: false, self_note: null}),
+    event('action_requested', {tool_name: 'start_side_activity', request: {action: 'interact', target: ['美团']},
+      request_sha256: 'f'.repeat(64), reused: false, self_note: '先歇一会儿，再去买菜。'}),
+    event('action_requested', {tool_name: 'start_main_activity', request: {action: 'sleep', target: '450', detail: null},
+      request_sha256: 'e'.repeat(64), reused: false, self_note: null}),
   ]);
   t.after(() => view.close());
-  assert.equal(view.summary(1), '请求 开始活动 · 美团 · 进行 · self_note（未经核验）：先歇一会儿，再去买菜。');
-  assert.equal(view.summary(2), '请求 开始活动 · 家 · 睡觉');
+  assert.equal(view.summary(1), '请求 开始槽位 2 的活动 · 进行 · 美团 · self_note（未经核验）：先歇一会儿，再去买菜。');
+  assert.equal(view.summary(2), '请求 开始槽位 1 的活动 · 睡觉 · 450 分钟');
   assert.deepEqual(view.errors, []);
 });
 
@@ -381,11 +426,14 @@ function targets(markup) {
   return tableRows(markup, 'act-table').map(cells => cells[3]);
 }
 
-/** @brief 构造 start_activity 请求：对象、动词与方式三个等长数组（第五章「请求形状与菜单」）。 */
-function startRequest(...items) {
-  return event('action_requested', {tool_name: 'start_activity', request: {
-    items: items.map(([target, action]) => ({target,action,from:null,navigation_app:null,payment_app:null,quantity:1})),
-  }});
+/** @brief 构造 start_main_activity 请求：action、target、detail 三个键都出现，睡眠的 detail 为 null。 */
+function mainRequest(action, target, detail = null) {
+  return event('action_requested', {tool_name: 'start_main_activity', request: {action, target, detail}});
+}
+
+/** @brief 构造 start_side_activity 请求：target 恒为名称数组，购买一份写一项。 */
+function sideRequest(action, ...target) {
+  return event('action_requested', {tool_name: 'start_side_activity', request: {action, target}});
 }
 
 test('locations accumulate across people and replace fixed home office market labels', t => {
@@ -397,7 +445,7 @@ test('locations accumulate across people and replace fixed home office market la
   ];
   const events = [event('observation', {locations}), event('observation', {locations: []}, {agent_id: 2})];
   for (const place of locations) {
-    events.push(startRequest([place.name, 'walk', '步行']));
+    events.push(mainRequest('travel', place.name, '步行'));
     events.push(activity('action_accepted', `go-${place.location_id}`, {
       kind: 'travel', destination_id: place.location_id,
     }));
@@ -410,7 +458,7 @@ test('locations accumulate across people and replace fixed home office market la
   assert.deepEqual(targets(view.activities()), locations.map(place => `→ ${place.name}`));
   locations.forEach((place, index) => {
     for (const offset of [3, 4, 5]) assert.ok(view.summary(index * 3 + offset).includes(place.name));
-    assert.ok(view.summary(index * 3 + 3).endsWith(`${place.name} · 步行`));
+    assert.equal(view.summary(index * 3 + 3), `请求 开始槽位 1 的活动 · ${place.name} · 出行 · 步行`);
   });
   assert.deepEqual(view.errors, []);
 });
@@ -518,32 +566,72 @@ test('each activity shows its actual current episode title without mixing anothe
 test('progress-only activity titles name both activity rows and request summaries', t => {
   const title = '城市生活随笔';
   const view = viewer([
-    startRequest(['城市生活随笔', 'interact']),
+    mainRequest('interact', '张江公寓', title),
     activity('activity_progress', 'only-progress', {kind: 'interact', content_title: title,
       data: {action: 'interact', app_id: null, content_id: 'article'}}),
   ]);
   t.after(() => view.close());
   assert.deepEqual(targets(view.activities()), [title]);
-  assert.ok(view.summary(1).includes('城市生活随笔'));
+  assert.equal(view.summary(1), `请求 开始槽位 1 的活动 · 张江公寓 · 进行 · ${title}`);
   assert.ok(view.summary(2).includes(title));
   assert.deepEqual(view.errors, []);
 });
 
-test('start activity request displays each object with its concrete action', t => {
+test('the two start tools display their own arguments: place, action and detail, or action and the named objects', t => {
   const view = viewer([
     event('observation', {locations: [{location_id: 'home', name: '张江公寓'}],
       goods: [{goods_id: 'food-rice', name: '菜饭'}]}),
-    startRequest(['菜饭', 'purchase', '购买'], ['美团', 'interact', '进行']),
-    startRequest(['张江公寓', 'drive', '驾车']),
-    startRequest(['家', 'sleep', '睡觉']),
+    sideRequest('purchase', '菜饭', '菜饭', '柠檬茶'),
+    sideRequest('interact', '美团'),
+    mainRequest('travel', '张江公寓', '驾车'),
+    mainRequest('interact', '张江公寓', '测试休息'),
+    mainRequest('sleep', '450'),
   ]);
   t.after(() => view.close());
-  assert.equal(view.summary(2), '请求 开始活动 · 菜饭 · 购买；美团 · 进行');
-  assert.equal(view.summary(3), '请求 开始活动 · 张江公寓 · 驾车');
-  assert.equal(view.summary(4), '请求 开始活动 · 家 · 睡觉');
-  for (const sequence of [2, 3, 4]) {
-    assert.doesNotMatch(view.summary(sequence), /food-rice|purchase|wait|travel|sleep/);
+  // 副工具：动作在前，名称数组照所写顺序以顿号相连，同名写两次就是两份。
+  assert.equal(view.summary(2), '请求 开始槽位 2 的活动 · 购买 · 菜饭、菜饭、柠檬茶');
+  assert.equal(view.summary(3), '请求 开始槽位 2 的活动 · 进行 · 美团');
+  // 主工具：地点名、动作、detail（出行方式名称或内容单元名）；睡眠只写分钟数。
+  assert.equal(view.summary(4), '请求 开始槽位 1 的活动 · 张江公寓 · 出行 · 驾车');
+  assert.equal(view.summary(5), '请求 开始槽位 1 的活动 · 张江公寓 · 进行 · 测试休息');
+  assert.equal(view.summary(6), '请求 开始槽位 1 的活动 · 睡觉 · 450 分钟');
+  for (const sequence of [2, 3, 4, 5, 6]) {
+    assert.doesNotMatch(view.summary(sequence),
+      /food-rice|purchase|interact|travel|sleep|start_main_activity|start_side_activity|null|undefined/);
   }
+  assert.deepEqual(view.errors, []);
+});
+
+test('readableReq reads the two start tools directly and keeps no branch for the deleted start_activity', t => {
+  const view = viewer([
+    event('action_requested', {tool_name: 'start_activity',
+      request: {items: [{action: 'walk', target: '公司'}, {action: 'interact', target: '美团'}]}}),
+  ]);
+  t.after(() => view.close());
+  const readable = (tool, request) => view.run(`readableReq(${JSON.stringify(tool)}, ${JSON.stringify(request)})`);
+  assert.deepEqual(JSON.parse(JSON.stringify(view.run('ACTION_LABELS'))),
+    {travel: '出行', purchase: '购买', sleep: '睡觉', interact: '进行'});
+  assert.equal(view.run('TOOL_LABELS.start_main_activity'), '开始槽位 1 的活动');
+  assert.equal(view.run('TOOL_LABELS.start_side_activity'), '开始槽位 2 的活动');
+  for (const [detail, text] of [['步行', '公司 · 出行 · 步行'], ['驾车', '公司 · 出行 · 驾车'],
+    ['打车', '公司 · 出行 · 打车'], ['公共交通', '公司 · 出行 · 公共交通']]) {
+    assert.equal(readable('start_main_activity', {action: 'travel', target: '公司', detail}), text);
+  }
+  assert.equal(readable('start_main_activity', {action: 'interact', target: '家', detail: '测试闲聊'}),
+    '家 · 进行 · 测试闲聊');
+  assert.equal(readable('start_main_activity', {action: 'sleep', target: '10', detail: null}), '睡觉 · 10 分钟');
+  // 请求在事件里既可能是对象也可能是 JSON 文本（时间线索引取出的原文），两种读法结果相同。
+  assert.equal(readable('start_main_activity', JSON.stringify({action: 'sleep', target: '720', detail: null})),
+    '睡觉 · 720 分钟');
+  assert.equal(readable('start_side_activity', {action: 'purchase', target: ['牛肉面']}), '购买 · 牛肉面');
+  assert.equal(readable('start_side_activity', {action: 'purchase', target: ['牛肉面', '薯片', '薯片']}),
+    '购买 · 牛肉面、薯片、薯片');
+  assert.equal(readable('start_side_activity', {action: 'interact', target: ['哔哩哔哩']}), '进行 · 哔哩哔哩');
+  // 已删除的工具没有标签也没有读取分支：工具名原样显示，请求内容不被解读成两个开始工具的任何一种。
+  assert.equal(view.run('TOOL_LABELS.start_activity'), undefined);
+  assert.equal(readable('start_activity', {items: [{action: 'walk', target: '公司'}]}), '');
+  assert.equal(view.summary(1), '请求 start_activity · ');
+  assert.deepEqual(view.errors, []);
 });
 
 test('plan_day is no longer a person tool while day plan revisions keep their label', t => {
@@ -816,8 +904,8 @@ test('a control request that is not in the current shape fails the timeline inde
     view.close();
   }
   // 其他工具的请求不带 errands，照常显示。
-  const other = viewer([startRequest(['美团', 'interact'])]);
-  assert.equal(other.summary(1), '请求 开始活动 · 美团 · 进行');
+  const other = viewer([sideRequest('interact', '美团')]);
+  assert.equal(other.summary(1), '请求 开始槽位 2 的活动 · 进行 · 美团');
   other.close();
 });
 

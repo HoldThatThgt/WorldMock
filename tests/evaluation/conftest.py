@@ -318,7 +318,8 @@ def _complete_engine(engine, activity_type):
 def _engine_decision(engine, count, activity_type):
     from agentsociety2.society import DecisionContext, DirectToolCall
     from worldmock.life.activity_control import pending_conclusions
-    from worldmock.life.models import active_activities, ConcludeActivityRequest, ReportStatusRequest, StartActivityRequest
+    from tests.life.conftest import sleep, tool_of, use_app
+    from worldmock.life.models import active_activities, ConcludeActivityRequest, ReportStatusRequest
     agent_id = engine.context.persona.agent_id
     state = engine.context.state
     at = datetime.fromtimestamp(state.current_time, ZoneInfo(state.timezone))
@@ -336,9 +337,9 @@ def _engine_decision(engine, count, activity_type):
         request = ReportStatusRequest(items=[{"activity_name": item.name, "summary": "继续测试消费。"}
             for item in active], errands=[])
     else:
-        tool = "start_activity"
-        request = StartActivityRequest(items=[{"action": activity_type,
-            "target": "家" if activity_type == "sleep" else "抖音"}])
+        assert activity_type in {"sleep", "interact"}, activity_type
+        request = sleep() if activity_type == "sleep" else use_app("抖音")
+        tool = tool_of(request)
     engine.submit_action(DirectToolCall(context, f"action-{count}", tool, request))
     results = engine.commit_decision_round(context.round_id)
     assert all(row.error_code is None for row in results), results

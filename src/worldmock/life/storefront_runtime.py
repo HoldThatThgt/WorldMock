@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -140,9 +141,16 @@ class StorefrontRuntime:
         return changed, events
 
 
+def _goods_names(orders: tuple, catalog) -> list[str]:
+    """@brief 活动名里的商品名列表：按商品身份升序，同一商品的几份合写成「名称×N」。"""
+    counts = Counter(order.goods_id for order in orders)
+    return [catalog.goods[key].name if count == 1 else f"{catalog.goods[key].name}×{count}"
+            for key, count in sorted(counts.items())]
+
+
 def _purchase_activity(state: WorldState, pending, orders: tuple, duration: int, catalog) -> ActivityState:
-    """@brief 同请求全部商品组成一个第二槽活动，时长只抽一次。"""
-    goods = [catalog.goods[key].name for key in sorted(order.goods_id for order in orders)]
+    """@brief 同请求全部商品组成一个占槽位 2 的活动，时长只抽一次。"""
+    goods = _goods_names(orders, catalog)
     moment = datetime.fromtimestamp(state.current_time, ZoneInfo(state.timezone))
     data = {"action": "purchase", "order_ids": [order.order_id for order in orders], "exertion": "idle",
             "relaxation_relief": "none", "social_relief": "none",

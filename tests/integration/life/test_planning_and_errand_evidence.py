@@ -5,7 +5,8 @@ import copy
 import pytest
 
 from tests.life.conftest import (
-    advance_until_ready, conclude_request, errand_cancel, errand_update, plan_day_response, stage_errands, start_activity,
+    advance_until_ready, conclude_request, do_at, errand_cancel, errand_update, plan_day_response, stage_errands,
+    travel,
 )
 from tests.life.environment_runtime import act, events, finish_activity
 from tests.unit.life.test_planning_and_errand_boundaries import note
@@ -20,7 +21,7 @@ def test_control_updates_and_cancels_open_errands_with_one_request_cause(engine_
     other = first.model_copy(update={"errand_id": "note:errand:1", "name": "买一本笔记本",
                                      "product_id": "online-notebook"})
     stage_errands(engine, 1, [first, other])
-    _, started = act(engine, "browse-before-change", start_activity("interact", "家"))
+    _, started = act(engine, "browse-before-change", do_at("家", "测试休息"))
     assert advance_until_ready(engine)
     current = engine.context.state.activities[started.activity_id]
     _, changed = act(engine, "change-open-errands", conclude_request(current.name, errands=[
@@ -42,9 +43,9 @@ def test_control_updates_and_cancels_open_errands_with_one_request_cause(engine_
 
 def test_plan_inputs_read_verified_travel_without_changing_world_or_store(engine_factory):
     engine = engine_factory()
-    _, travel = act(engine, "actual-travel", start_activity("walk", "公司"))
-    assert travel.status == "in_progress"
-    finish_activity(engine, travel, "arrived-office")
+    _, departure = act(engine, "actual-travel", travel("公司"))
+    assert departure.status == "in_progress"
+    finish_activity(engine, departure, "arrived-office")
     before = engine.context.state.model_dump(mode="json")
     event_sequence = engine.context.store.last_event_seq
     planned = plan_inputs(engine.context, engine.observations, engine.midnight_rhythm_pending, 1)

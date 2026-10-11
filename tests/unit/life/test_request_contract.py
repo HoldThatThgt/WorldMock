@@ -5,28 +5,53 @@ from pydantic import ValidationError
 
 from tests.life.conftest import conclude_request, errand_add, pause_request, report_request
 from worldmock.life.models import (
-    ConcludeActivityRequest, ErrandChange, PauseActivityRequest, ReportStatusRequest, StartActivityRequest,
+    ConcludeActivityRequest, ErrandChange, PauseActivityRequest, ReportStatusRequest, StartMainActivityRequest,
+    StartSideActivityRequest,
 )
 
+_MAIN = {"action": "interact", "target": "家", "detail": "测试休息"}
+_SIDE = {"action": "purchase", "target": ["牛肉面"]}
 
-@pytest.mark.parametrize("old", ["way", "app", "to", "pay_app", "planned_duration_seconds", "content_id"])
-def test_start_item_rejects_every_removed_or_system_owned_field(old):
-    payload = {"items": [{"action": "interact", "target": "家", old: None}]}
+
+@pytest.mark.parametrize("old", ["way", "app", "to", "pay_app", "planned_duration_seconds", "content_id", "items"])
+def test_start_request_rejects_every_removed_or_system_owned_field(old):
+    for model, valid in ((StartMainActivityRequest, _MAIN), (StartSideActivityRequest, _SIDE)):
+        model.model_validate(valid)
+        with pytest.raises(ValidationError):
+            model.model_validate({**valid, old: None})
+
+
+@pytest.mark.parametrize("count", [0, 2, 3, 4])
+def test_side_target_takes_at_least_one_name_and_exactly_one_app(count):
+    """名称数组不能为空；用内容 app 恰好一项；购买不设上限，同名可以重复。"""
+    names = [str(index) for index in range(count)]
     with pytest.raises(ValidationError):
-        StartActivityRequest.model_validate(payload)
-
-
-@pytest.mark.parametrize("count", [0, 3, 4])
-def test_start_must_have_one_or_two_items(count):
-    with pytest.raises(ValidationError):
-        StartActivityRequest(items=[{"action": "walk", "target": str(index)} for index in range(count)])
+        StartSideActivityRequest(action="interact", target=names)
+    if count == 0:
+        with pytest.raises(ValidationError):
+            StartSideActivityRequest(action="purchase", target=names)
+    else:
+        assert StartSideActivityRequest(action="purchase", target=names).target == names
+        assert StartSideActivityRequest(action="purchase", target=["同一件"] * count).target == ["同一件"] * count
+    assert StartSideActivityRequest(action="interact", target=["哔哩哔哩"]).target == ["哔哩哔哩"]
 
 
 @pytest.mark.parametrize("bad", [None, True, 1, [], {}, "", "  "])
-@pytest.mark.parametrize("field", ["action", "target"])
-def test_written_action_and_target_are_nonblank_strict_strings(field, bad):
+@pytest.mark.parametrize("field", ["action", "target", "detail"])
+def test_written_main_action_target_and_detail_are_nonblank_strict_strings(field, bad):
+    """detail 只在睡眠时为 null：出行与在地点做事缺了它同样被拒。"""
     with pytest.raises(ValidationError):
-        StartActivityRequest(items=[{**{"action": "interact", "target": "家"}, field: bad}])
+        StartMainActivityRequest.model_validate({**_MAIN, field: bad})
+
+
+@pytest.mark.parametrize("bad", [None, True, 1, [], {}, "", "  "])
+def test_written_side_action_and_every_target_name_are_nonblank_strict_strings(bad):
+    with pytest.raises(ValidationError):
+        StartSideActivityRequest.model_validate({**_SIDE, "action": bad})
+    with pytest.raises(ValidationError):
+        StartSideActivityRequest.model_validate({**_SIDE, "target": bad})
+    with pytest.raises(ValidationError):
+        StartSideActivityRequest.model_validate({**_SIDE, "target": ["牛肉面", bad]})
 
 
 @pytest.mark.parametrize("factory", [pause_request, report_request, conclude_request])

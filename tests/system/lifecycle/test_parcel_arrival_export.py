@@ -4,13 +4,15 @@ from datetime import timedelta
 import json
 
 from tests.integration.runtime_fixtures import write_agent_workspace
-from tests.life.conftest import advance_next, stage_day_plan, start_activity
+from tests.life.conftest import advance_next, do_at, main_arguments, purchase, stage_day_plan, travel
 from tests.life.environment_runtime import act, events, finish_activity, reach, run_to_end, settle_decision
 from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.export import export_run
 from worldmock.footprints.validation import validate_export
 
 STATION = "快递驿站"
+#: 驿站绑定的那件事的名称；人物在驿站点名它来取件。
+PICKUP = "驿站取件"
 
 
 def six_local_days(persona, config):
@@ -27,7 +29,7 @@ def parcel_at_station(engine_factory):
     """经真实请求买下唯一绑定在 app 上的商品，购买正常结束并付款，再运行到快递到站。"""
     engine = engine_factory(mutate=six_local_days)
     stage_day_plan(engine)
-    _, bought = act(engine, "parcel-buy", start_activity("purchase", "平台笔记本"))
+    _, bought = act(engine, "parcel-buy", purchase("平台笔记本"))
     assert bought.status == "in_progress", bought.error_code
     finish_activity(engine, bought, "parcel-buy")
     (order,) = engine.context.state.deliveries.values()
@@ -52,13 +54,13 @@ def until_idle(engine, label):
 
 
 def collect_at_station(engine):
-    """人物步行到驿站，在那里开始一件事；这一次受理领取本站全部到站包裹。"""
+    """人物步行到驿站，在那里点名开始一件事；这一次受理领取本站全部到站包裹。"""
     until_idle(engine, "before-station")
-    _, trip = act(engine, "to-station", start_activity("walk", STATION))
+    _, trip = act(engine, "to-station", travel(STATION))
     assert trip.status == "in_progress", trip.error_code
     finish_activity(engine, trip, "to-station")
     until_idle(engine, "at-station")
-    _, pickup = act(engine, "parcel-pickup", start_activity("interact", STATION))
+    _, pickup = act(engine, "parcel-pickup", do_at(STATION, PICKUP))
     assert pickup.status == "in_progress", pickup.error_code
     return pickup
 
@@ -128,7 +130,7 @@ def test_parcel_arrival_collection_and_export_are_authenticated(engine_factory, 
     accepted = next(row for row in events(engine, "action_result") if row.action_id == pickup.action_id)
     progress = next_observation(engine, "after-pickup")["progress_layer"]
     (shown,) = [row["result"]["details"] for row in progress["events"] if row["type"] == "tool_call"
-                and row["arguments"] == {"items": [{"action": "interact", "target": STATION}]}]
+                and row["arguments"] == main_arguments("interact", STATION, PICKUP)]
     assert "purchases" not in shown and "买了" not in str(progress)
     sources, facts = export_completed_run(engine, tmp_path)
     final = engine.context.state.deliveries[order.order_id]

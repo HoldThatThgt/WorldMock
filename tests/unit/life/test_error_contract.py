@@ -5,7 +5,6 @@ from worldmock.life.guidance import Refusal, default_reason, guided, refusal_for
 
 
 @pytest.mark.parametrize("code,reason", [
-    ("ORDER_DUPLICATE_ITEM", "The same goods appear twice in one purchase."),
     ("LOCATION_CLOSED", "The location is closed at the current time."),
     ("ORDER_NOT_PAID", "The order has not been paid."),
     ("SUPPLY_NOT_FOUND", "No goods exist for the written name; changing spelling cannot create goods."),
@@ -19,24 +18,25 @@ def test_goods_rejection_reason_is_the_declared_exact_text(code, reason):
                                  "ORDER_DUPLICATE_SUPPLY", "BROWSE_TARGET_NOT_FOUND", "CATEGORY_PAIRING_NO_EFFECT",
                                  "FULFILLMENT_NOT_SUPPORTED", "SOURCE_NOT_FOUND", "APP_NOT_BOUND",
                                  "SUPPLY_NOT_AT_STORE", "CAR_REQUIRED", "DRIVING_DAYS_EXHAUSTED",
-                                 "ALARM_TIME_INVALID", "MESSAGE_TEXT_TOO_LONG"])
+                                 "ALARM_TIME_INVALID", "MESSAGE_TEXT_TOO_LONG",
+                                 "ORDER_DUPLICATE_ITEM", "ORDER_ITEM_COUNT_OUT_OF_RANGE", "TOO_MANY_TARGETS"])
 def test_retired_food_and_store_rejection_codes_have_no_default(code):
     with pytest.raises(ValueError, match="no declared reason"):
         default_reason(code)
 
 
 def test_guided_refusal_preserves_readable_remedy_and_keeps_unmet_conditions_private():
-    unmet = ["required_location_id"]
-    error = guided("ACTIVITY_PRECONDITION_UNMET", "This content requires presence at 家.",
-                   "Go to 家.", unmet, "Choose content available here.")
+    unmet = ["sleepable_location"]
+    error = guided("ACTIVITY_PRECONDITION_UNMET", "Sleeping is not possible at 五里公园.",
+                   "Go to 家.", unmet, "Sleep where sleeping is possible.")
     unmet.append("private-condition")
     assert str(error) == "ACTIVITY_PRECONDITION_UNMET"
-    assert error.unmet == ["required_location_id"]
-    assert str(error.__cause__) == "This content requires presence at 家."
+    assert error.unmet == ["sleepable_location"]
+    assert str(error.__cause__) == "Sleeping is not possible at 五里公园."
     assert rejection_guidance(error) == {
-        "reason": "This content requires presence at 家.",
+        "reason": "Sleeping is not possible at 五里公园.",
         "next_step": "Go to 家.",
-        "fix": "Choose content available here.",
+        "fix": "Sleep where sleeping is possible.",
     }
 
 

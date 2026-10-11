@@ -79,7 +79,7 @@ class TestFieldBlacklist:
     def test_internal_identity_cannot_hide_inside_a_progress_result(self, internal_key: str) -> None:
         """进度层调用结果的任意嵌套层不能重新泄漏引擎身份或报价版本。"""
         layer = {"layer": "进度层", "session_started_at": "2026-09-18T08:00:00+08:00", "events": [
-            {"occurred_at": "2026-09-18T08:30:00+08:00", "type": "tool_call", "tool": "start_activity",
+            {"occurred_at": "2026-09-18T08:30:00+08:00", "type": "tool_call", "tool": "start_main_activity",
              "arguments": {}, "result": {"details": {internal_key: "private-7"}}}]}
         with pytest.raises(ForbiddenObservationFieldError, match=internal_key):
             render_layer_json(layer)
@@ -132,7 +132,7 @@ class TestRenderLayerJson:
         """真实错误指出待修正参数；内部地图路径不能借同名字段进入提示。"""
         from worldmock.life.error_contract import ErrorItem, host_report
 
-        item = ErrorItem(("items", 0, "target"), "不存在的对象", "NAME_NOT_FOUND")
+        item = ErrorItem(("tool_calls", 0, "function", "arguments", "target", 1), "不存在的对象", "NAME_NOT_FOUND")
         report = host_report("NAME_NOT_FOUND", items=(item,)).payload()
         assert json.loads(render_layer_json({"details": report})) == {"details": report}
         for value in (["home", "office"], "private-map-path"):

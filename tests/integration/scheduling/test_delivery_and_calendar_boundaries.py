@@ -3,7 +3,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from tests.life.conftest import start_activity
+from tests.life.conftest import purchase
 from tests.life.environment_runtime import act, events, finish_activity, reach
 from worldmock.scheduling.compile import compile_schedule
 from worldmock.scheduling.effects import process_scheduled_events
@@ -23,10 +23,12 @@ def test_calendar_declaration_is_compiled_at_real_local_midnight(engine_factory)
 
 def test_actual_takeout_arrival_binds_one_receipt_and_replayed_delivery_emits_no_fact(engine_factory):
     engine = engine_factory()
-    _, result = act(engine, "order-delivery", start_activity("purchase", "柠檬茶"))
+    _, result = act(engine, "order-delivery", purchase("柠檬茶"))
     assert result.status == "in_progress"
     finish_activity(engine, result, "purchase-completion")
     paid = next(iter(engine.context.state.deliveries.values()))
+    assert result.activity_id == f"activity-{result.action_id}-purchase"
+    assert paid.order_id == f"order-{result.action_id}-0001"
     assert paid.fulfillment == "delivery" and paid.paid_at is not None and paid.received_at is None
     scheduled = next(item for item in engine.context.state.pending_events if item.kind == "delivery_arrival")
     balance = dict(engine.context.state.accounts)

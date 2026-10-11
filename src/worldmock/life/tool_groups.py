@@ -8,7 +8,7 @@ from copy import deepcopy
 from worldmock.errors import IntegrityError
 
 #: 动作的字段闭集，用于把分组行还原为完整公开动作。
-_ACTION_FIELDS = ("available", "reason", "price", "duration", "quantity", "note")
+_ACTION_FIELDS = ("detail", "available", "reason", "price", "duration", "quantity", "note")
 
 
 def compact(value: object) -> object:

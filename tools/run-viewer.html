@@ -316,7 +316,8 @@ const TYPE_LABELS = {
   run_ended:'结束', run_failed:'运行失败',
 };
 const KIND_LABELS = {sleep:'睡眠', travel:'出行', interact:'互动', purchase:'购买'};
-const TOOL_LABELS = {start_activity:'开始活动', query_world:'查询世界', recall_task_summary:'回看任务',
+const TOOL_LABELS = {start_main_activity:'开始槽位 1 的活动', start_side_activity:'开始槽位 2 的活动',
+  query_world:'查询世界', recall_task_summary:'回看任务',
   report_status:'播报进展', pause_activity:'暂停活动', conclude_activity:'结束活动', revise_day_plan:'调整当日目标'};
 const STATUS_LABELS = { active:'进行中', completed:'已完成', in_progress:'进行中', rejected:'被拒绝', cancelled:'已取消' };
 const BND_LABELS = { planned_end:'按计划结束', feedback:'反馈中断',
@@ -347,8 +348,7 @@ const MEMORY_TYPE_LABELS = {
   commitment:'承诺', preference:'偏好', resolution:'决定',
 };
 const ACCT_LABELS = {'external:scenario':'外部账户'};
-const ACTION_LABELS = {walk:'步行', drive:'驾车', take_taxi:'打车', take_bus:'公共交通',
-  purchase:'购买', sleep:'睡觉', interact:'进行'};
+const ACTION_LABELS = {travel:'出行', purchase:'购买', sleep:'睡觉', interact:'进行'};
 const typeLabel = t => TYPE_LABELS[t]||t;
 const bndLabel = b => BND_LABELS[b]||b;
 const envkLabel = k => ENVK_LABELS[k]||k;
@@ -703,8 +703,11 @@ function readableReq(tool, reqRaw){
   catch(error){ console.error('Invalid action request JSON:', error); return ''; }
   if (!req || typeof req!=='object') return '';
   switch (tool){
-    case 'start_activity':
-      return (req.items||[]).map(item=>`${item.target} · ${ACTION_LABELS[item.action]||item.action}`).join('；');
+    case 'start_main_activity':
+      if (req.action==='sleep') return `${ACTION_LABELS.sleep} · ${req.target} 分钟`;
+      return `${req.target} · ${ACTION_LABELS[req.action]||req.action} · ${req.detail??''}`;
+    case 'start_side_activity':
+      return `${ACTION_LABELS[req.action]||req.action} · ${(Array.isArray(req.target)?req.target:[]).join('、')}`;
     case 'query_world':
       return `${req.name||req.category||req.action||''} · 偏移 ${req.offset}`;
     case 'recall_task_summary':

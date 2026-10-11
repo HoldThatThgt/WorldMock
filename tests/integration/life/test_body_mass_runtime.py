@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.life.conftest import advance_next, context, start_activity
+from tests.life.conftest import advance_next, context, sleep, use_app
 from tests.life.environment_runtime import act, events, finish_activity
 
 
@@ -36,13 +36,13 @@ def test_committed_body_settlements_charge_the_body_mass_per_hour(engine_factory
     能量分录等于基础加额外；睡眠不折减基础代谢。65 公斤夹具人物的数值就是修订前的每小时 65 千卡。"""
     engine = engine_factory(mutate=_body(mass_kg))
     assert engine.context.body.mass_kg == mass_kg
-    _, browsing = act(engine, "browse", start_activity("interact", "美团"))
+    _, browsing = act(engine, "browse", use_app("美团"))
     assert browsing.status == "in_progress", browsing.error_code
     finish_activity(engine, browsing, "browse")
-    _, sleeping = act(engine, "sleep", start_activity("sleep", "家"))
+    _, sleeping = act(engine, "sleep", sleep())
     assert sleeping.status == "in_progress", sleeping.error_code
-    sleep = engine.context.state.activities[sleeping.activity_id]
-    while engine.context.state.current_time < min(sleep.planned_end_at, sleep.started_at + 3 * 3600):
+    night = engine.context.state.activities[sleeping.activity_id]
+    while engine.context.state.current_time < min(night.planned_end_at, night.started_at + 3 * 3600):
         advance_next(engine)
 
     idle, asleep = _settlements(engine, browsing.activity_id), _settlements(engine, sleeping.activity_id)
@@ -65,7 +65,7 @@ def test_committed_body_settlements_charge_the_body_mass_per_hour(engine_factory
 def _first_hunger_wake(engine_factory, mass_kg: float) -> tuple[int, dict]:
     """相同起始能量、相同活动下第一次因体感分级变化得到决策机会的时刻（距开始的秒数）与当时的体感。"""
     engine = engine_factory(mutate=_body(mass_kg, 1075.0))
-    observed, watching = act(engine, "watch", start_activity("interact", "哔哩哔哩"))
+    observed, watching = act(engine, "watch", use_app("哔哩哔哩"))
     assert watching.status == "in_progress", watching.error_code
     assert observed["environment_layer"]["body"]["appetite"] == "不饿"
     while not engine.scheduling_state().ready_agent_ids:

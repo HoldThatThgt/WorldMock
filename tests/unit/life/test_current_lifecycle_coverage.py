@@ -9,7 +9,8 @@ import pytest
 from agentsociety2.agent.base import ModelCallEvidence, MemoryUpdateEvidence
 from agentsociety2.society import DirectToolCall
 from tests.life.conftest import (
-    advance_until_ready, conclude_request, context, pause_request, report_request, stage_day_plan, start_activity,
+    MAIN_TOOL, SIDE_TOOL, advance_until_ready, conclude_request, context, do_at, pause_request, report_request,
+    stage_day_plan, use_app,
 )
 from tests.life.environment_runtime import act, events
 from worldmock.errors import BusinessRuleError, IntegrityError, ProtocolError
@@ -58,10 +59,12 @@ def test_round_rejects_absent_duplicate_unscheduled_and_incomplete_participants(
 
 
 @pytest.mark.parametrize("tool,payload", [
-    ("query_world", start_activity("interact", "家")),
+    ("query_world", do_at("家", "测试休息")),
     ("recall_task_summary", RecallTaskSummaryRequest(task_name="家")),
-    ("unknown_tool", start_activity("interact", "家")),
-    ("pause_activity", start_activity("interact", "家")),
+    ("unknown_tool", do_at("家", "测试休息")),
+    ("pause_activity", do_at("家", "测试休息")),
+    (SIDE_TOOL, do_at("家", "测试休息")),
+    (MAIN_TOOL, use_app("哔哩哔哩")),
 ])
 def test_only_typed_mutations_can_enter_the_real_action_queue(engine_factory, tool, payload):
     engine = engine_factory()
@@ -78,8 +81,8 @@ def test_only_typed_mutations_can_enter_the_real_action_queue(engine_factory, to
 def test_duplicate_submission_reuses_receipt_and_commits_one_actual_activity(engine_factory):
     engine = engine_factory()
     frozen = context(engine, "duplicate")
-    request = start_activity("interact", "家")
-    call = DirectToolCall(frozen, "same-action", "start_activity", request)
+    request = do_at("家", "测试休息")
+    call = DirectToolCall(frozen, "same-action", MAIN_TOOL, request)
     with pytest.raises(ProtocolError, match="open decision round"):
         engine.submit_action(call)
     engine.begin_decision_round([frozen])
@@ -88,13 +91,13 @@ def test_duplicate_submission_reuses_receipt_and_commits_one_actual_activity(eng
     assert engine.submit_action(call) == first
     assert len(engine.decisions.round.pending_actions) == 1
     with pytest.raises(ProtocolError, match="different parameters"):
-        engine.submit_action(DirectToolCall(frozen, "same-action", "start_activity",
-                                           start_activity("interact", "哔哩哔哩")))
+        engine.submit_action(DirectToolCall(frozen, "same-action", MAIN_TOOL, do_at("家", "测试闲聊")))
+    with pytest.raises(ProtocolError, match="different parameters"):
+        engine.submit_action(DirectToolCall(frozen, "same-action", SIDE_TOOL, use_app("哔哩哔哩")))
     with pytest.raises(ProtocolError, match="already submitted"):
-        engine.submit_action(DirectToolCall(frozen, "another-action", "start_activity", request))
+        engine.submit_action(DirectToolCall(frozen, "another-action", MAIN_TOOL, request))
     with pytest.raises(ProtocolError, match="another decision round"):
-        engine.submit_action(DirectToolCall(replace(frozen, round_id="foreign"), "same-action",
-                                           "start_activity", request))
+        engine.submit_action(DirectToolCall(replace(frozen, round_id="foreign"), "same-action", MAIN_TOOL, request))
     [result] = engine.commit_decision_round("duplicate")
     assert result.status == "in_progress"
     assert len(engine.context.state.activities) == 1
@@ -196,7 +199,7 @@ def test_failure_is_one_durable_fact_and_empty_failure_is_rejected(engine_factor
 def test_activity_recall_is_readonly_and_returns_real_progress_and_note_history(engine_factory):
     engine = engine_factory(mutate=lambda persona, config: config.update(progress_report_interval_seconds=60))
     stage_day_plan(engine)
-    _, started = act(engine, "app", start_activity("interact", "哔哩哔哩"))
+    _, started = act(engine, "app", use_app("哔哩哔哩"))
     assert advance_until_ready(engine)
     activity = engine.context.state.activities[started.activity_id]
     _, report = act(engine, "reported", report_request(activity.name, summary="看了一段内容。"), "report_status")
@@ -216,14 +219,15 @@ def test_activity_recall_is_readonly_and_returns_real_progress_and_note_history(
 def test_pause_and_resume_preserve_elapsed_content_and_reject_an_occupied_second_slot(engine_factory):
     engine = engine_factory(mutate=lambda persona, config: config.update(progress_report_interval_seconds=60))
     stage_day_plan(engine)
-    _, started = act(engine, "app", start_activity("interact", "哔哩哔哩"))
+    _, started = act(engine, "app", use_app("哔哩哔哩"))
     assert advance_until_ready(engine)
     current = engine.context.state.activities[started.activity_id]
     elapsed = current.elapsed_seconds
     _, paused = act(engine, "paused", pause_request(current.name), "pause_activity")
     assert paused.status == "completed"
-    _, other = act(engine, "other", start_activity("interact", "家"))
+    _, other = act(engine, "other", use_app("抖音"))
     assert other.status == "in_progress"
+    assert engine.context.state.activities[other.activity_id].resource_claims == {"second"}
     assert advance_until_ready(engine)
     _, blocked = act(engine, "blocked", report_request(current.name), "report_status")
     assert blocked.status == "rejected" and blocked.error_code == "RESOURCE_CONFLICT"

@@ -1,18 +1,22 @@
-"""真实购买与出行组合的在场、总价和整组回滚。"""
+"""真实购买与出行组合的槽位、在场、总价和整组回滚。"""
 
 import pytest
 
-from tests.life.conftest import advance_next, conclude_request, start_activity
-from tests.life.environment_runtime import act, events, reach
+from tests.life.conftest import advance_next, conclude_request, do_at, purchase, travel, travel_rows, use_app
+from tests.life.environment_runtime import act, act_group, events, reach
 from worldmock.catalog.graph import Graph
 from worldmock.catalog.models import MapEdge, MapGraph
 from worldmock.errors import BusinessRuleError
 from worldmock.life.basket import quoted_basket
 from worldmock.life.guidance import rejection_guidance
-from worldmock.life.models import StartActivityRequest
 from worldmock.life.purchase_offers import quote_goods
 from worldmock.life.travel import pay_travel_fare, plan_trip
 from worldmock.life.weather import current_weather_factor
+
+#: 开始组有两条调用时追加在拒绝原因后的一句。
+NEITHER = " Neither start request was started."
+#: 四种固定出行方式的名称，按工具层的行序。
+METHODS = ["步行", "驾车", "打车", "公共交通"]
 
 
 def _configure(persona, config):
@@ -24,9 +28,17 @@ def _at_store(persona, config):
     persona["initial_location"] = "四季便利"
 
 
-def _group(action, goods, reverse):
-    items = [{"action": action, "target": "公司"}, {"action": "purchase", "target": goods}]
-    return StartActivityRequest(items=list(reversed(items)) if reverse else items)
+def _group(engine, label, method, goods, reverse):
+    """同一决策登记去公司的出行与一次购买（reverse 时购买在前），返回（出行结果，购买结果）。"""
+    requests = [travel("公司", method), purchase(goods)]
+    _, results = act_group(engine, label, *(reversed(requests) if reverse else requests))
+    return tuple(reversed(results)) if reverse else tuple(results)
+
+
+def _target_item(position, written, code, reason):
+    """业务拒绝为负责的调用写下的明细：路径落在该调用的 target 上，written 是它所写的原值，不带候选。"""
+    return {"path": ["tool_calls", position, "function", "arguments", "target"], "written": written,
+            "error_code": code, "allowed_values": [], "expected": reason, "why": reason, "candidates": []}
 
 
 def _business(engine, kind):
@@ -67,34 +79,46 @@ def _assert_rollback(engine, before):
         assert not [event for event in _business(engine, kind) if event.state_version_after > before.version]
 
 
-@pytest.mark.parametrize("action", ["walk", "drive", "take_taxi", "take_bus"])
+@pytest.mark.parametrize("method", METHODS, ids=["walk", "drive", "take_taxi", "take_bus"])
 @pytest.mark.parametrize("reverse", [False, True])
-def test_local_purchase_and_departure_reject_the_whole_request(engine_factory, action, reverse):
+def test_local_purchase_and_departure_reject_the_whole_request(engine_factory, method, reverse):
     engine = engine_factory(mutate=_at_store)
     before = engine.context.state.model_copy(deep=True)
-    _, result = act(engine, "local-departure", _group(action, "纸巾", reverse))
-    assert result.status == "rejected" and result.error_code == "ACTIVITY_PRECONDITION_UNMET"
+    departure, bought = _group(engine, "local-departure", method, "纸巾", reverse)
+    # 到店购买不能与出发同组开始：两条动作得到同一份拒绝，明细只落在购买那条调用上
+    reason = "A local purchase cannot start with departure."
+    assert departure.status == bought.status == "rejected"
+    assert departure.error_code == bought.error_code == "ACTIVITY_PRECONDITION_UNMET"
+    assert departure.message == bought.message == reason + NEITHER
+    assert departure.data == bought.data
+    assert bought.data["next_step"] == "Complete or conclude the local purchase before leaving."
+    assert bought.data["items"] == [_target_item(0 if reverse else 1, ["纸巾"], "ACTIVITY_PRECONDITION_UNMET", reason)]
     _assert_rollback(engine, before)
 
 
 def test_existing_local_purchase_blocks_departure_until_concluded(engine_factory):
     engine = engine_factory(mutate=_at_store)
-    _, purchase = act(engine, "local-purchase", start_activity("purchase", "纸巾"))
-    assert purchase.status == "in_progress"
+    _, bought = act(engine, "local-purchase", purchase("纸巾"))
+    assert bought.status == "in_progress"
     _next_decision(engine)
     before = engine.context.state.model_copy(deep=True)
-    observed, rejected = act(engine, "leave-purchase", start_activity("walk", "公司"))
-    assert rejected.error_code == "ACTIVITY_PRECONDITION_UNMET"
-    target = next(row for row in observed["tool_layer"]["targets"] if row["name"] == "公司")
-    option = next(row for row in target["actions"] if row["action"] == "walk")
-    assert option["available"] is False and "Conclude" in option["reason"]
-    assert "pause" not in option["reason"]
+    name = before.activities[bought.activity_id].name
+    reason = f"Conclude {name} before departure."
+    observed, rejected = act(engine, "leave-purchase", travel("公司"))
+    assert rejected.status == "rejected" and rejected.error_code == "ACTIVITY_PRECONDITION_UNMET"
+    assert rejected.message == reason and rejected.data["next_step"] == f"Conclude {name}."
+    assert rejected.data["unmet"] == ["activities_before_departure"]
+    assert rejected.data["items"] == [_target_item(0, "公司", "ACTIVITY_PRECONDITION_UNMET", reason)]
+    # 工具层去公司的每种出行方式都写着与受理一字不差的原因；购买不能暂停，原因里只有结束
+    options = travel_rows(observed, "公司")
+    assert list(options) == METHODS
+    assert all(option["available"] is False and option["reason"] == reason for option in options.values())
+    assert "pause" not in reason
     _assert_rollback(engine, before)
-    name = before.activities[purchase.activity_id].name
     _, concluded = act(engine, "cancel-local", conclude_request(name), "conclude_activity")
     assert concluded.status == "completed"
     assert all(order.status == "cancelled" and order.paid_at is None for order in engine.context.state.deliveries.values())
-    _, departed = act(engine, "leave-after-cancel", start_activity("walk", "公司"))
+    _, departed = act(engine, "leave-after-cancel", travel("公司"))
     assert departed.status == "in_progress"
     assert _business(engine, "purchase_payment") == _business(engine, "goods_received") == []
 
@@ -105,29 +129,44 @@ def test_combined_fare_and_purchase_shortfall_rejects_before_either_starts(engin
     assert trip.fare_fen > 0 and total > 0
     before = engine.context.state.model_copy(deep=True)
     assert before.accounts["agent:1"] >= max(total, trip.fare_fen)
-    _, result = act(engine, "short-total", _group("take_taxi", "平台笔记本", reverse))
-    assert result.status == "rejected" and result.error_code == "INSUFFICIENT_FUNDS"
+    departure, bought = _group(engine, "short-total", "打车", "平台笔记本", reverse)
+    # 余额少于「货款 + 运费 + 同组车费」：车费参与合计，两条调用都负责，各有一条明细
+    reason = "The caller's available balance is below the actual purchase total."
+    assert departure.status == bought.status == "rejected"
+    assert departure.error_code == bought.error_code == "INSUFFICIENT_FUNDS"
+    assert departure.message == bought.message == reason + NEITHER
+    assert departure.data == bought.data
+    written = [["平台笔记本"], "公司"] if reverse else ["公司", ["平台笔记本"]]
+    assert bought.data["items"] == [_target_item(position, target, "INSUFFICIENT_FUNDS", reason)
+                                    for position, target in enumerate(written)]
     _assert_rollback(engine, before)
 
 
 @pytest.mark.parametrize("reverse", [False, True])
 def test_exact_combined_budget_pays_fare_then_frozen_courier_quote_at_completion(engine_factory, reverse):
     engine, quote, total, trip = _with_budget(engine_factory, 0)
-    _, result = act(engine, "exact-total", _group("take_taxi", "平台笔记本", reverse))
-    assert result.status == "in_progress", result.error_code
+    departure, bought = _group(engine, "exact-total", "打车", "平台笔记本", reverse)
+    assert departure.status == bought.status == "in_progress", (departure.error_code, bought.error_code)
     assert engine.context.state.accounts["agent:1"] == total
-    purchase = next(row for row in engine.context.state.activities.values() if row.kind == "purchase")
+    # 出行与快递类购买同一时刻开始，各占一个槽位；商品履约记录只记在购买那条动作的结果里
+    trip_activity = engine.context.state.activities[departure.activity_id]
+    purchase_activity = engine.context.state.activities[bought.activity_id]
+    assert (trip_activity.kind, trip_activity.resource_claims) == ("travel", {"first"})
+    assert (purchase_activity.kind, purchase_activity.resource_claims) == ("purchase", {"second"})
+    assert trip_activity.started_at == purchase_activity.started_at
     order = next(iter(engine.context.state.deliveries.values()))
+    assert order.order_id == f"order-{bought.action_id}-0001"
+    assert [row["order_id"] for row in bought.data["orders"]] == [order.order_id] and departure.data["orders"] == []
     assert (order.store_id, order.app_id, order.destination_id, order.expected_at) == (
         quote.store_id, quote.app_id, quote.destination_id, quote.expected_at)
     assert order.total_price_fen == total and order.paid_at is None
-    reach(engine, purchase.planned_end_at)
+    reach(engine, purchase_activity.planned_end_at)
     order = engine.context.state.deliveries[order.order_id]
-    assert order.paid_at == purchase.planned_end_at and order.status == "pending"
+    assert order.paid_at == purchase_activity.planned_end_at and order.status == "pending"
     assert order.received_at is None and engine.context.state.accounts == {"agent:1": 0, "external:scenario": 0}
     payments = _business(engine, "purchase_payment")
     assert len(payments) == 1 and payments[0].data["amount_fen"] == total
-    assert payments[0].occurred_at == purchase.planned_end_at
+    assert payments[0].occurred_at == purchase_activity.planned_end_at
 
 
 @pytest.mark.parametrize("reverse", [False, True])
@@ -135,16 +174,18 @@ def test_delivery_and_departure_preserve_the_real_initial_quote_and_destination(
     engine = engine_factory()
     state = engine.context.state
     quote = quote_goods(engine.context.inputs, state, 1, "lemon-tea")
-    _, result = act(engine, "delivery-departure", _group("walk", "柠檬茶", reverse))
-    assert result.status == "in_progress", result.error_code
+    departure, bought = _group(engine, "delivery-departure", "步行", "柠檬茶", reverse)
+    assert departure.status == bought.status == "in_progress", (departure.error_code, bought.error_code)
+    # 与出发同组的外卖按出发前的停留地点报价，收货地点就是出发地
     order = next(iter(engine.context.state.deliveries.values()))
     assert order.fulfillment == "delivery" and order.destination_id == "home"
     assert (order.store_id, order.app_id, order.expected_at, order.delivery_fee_fen) == (
         quote.store_id, quote.app_id, quote.expected_at, quote.delivery_fee_fen)
-    purchase = next(row for row in engine.context.state.activities.values() if row.kind == "purchase")
-    reach(engine, purchase.planned_end_at)
+    assert engine.context.state.activities[departure.activity_id].status == "active"
+    purchase_activity = engine.context.state.activities[bought.activity_id]
+    reach(engine, purchase_activity.planned_end_at)
     current = engine.context.state.deliveries[order.order_id]
-    assert current.paid_at == purchase.planned_end_at and current.received_at is None
+    assert current.paid_at == purchase_activity.planned_end_at and current.received_at is None
     assert current.destination_id == "home" and current.store_id == quote.store_id
     assert _business(engine, "purchase_payment")[0].data["amount_fen"] == 1700
 
@@ -152,43 +193,57 @@ def test_delivery_and_departure_preserve_the_real_initial_quote_and_destination(
 @pytest.mark.parametrize("goods,accepted", [("平台笔记本", True), ("柠檬茶", False)])
 def test_in_transit_purchase_accepts_only_goods_without_a_stay_destination(engine_factory, goods, accepted):
     engine = engine_factory(mutate=_configure)
-    _, travel = act(engine, "departure", start_activity("walk", "公司"))
-    assert travel.status == "in_progress"
+    _, departure = act(engine, "departure", travel("公司"))
+    assert departure.status == "in_progress"
     _next_decision(engine)
     before = engine.context.state.model_copy(deep=True)
-    _, result = act(engine, "in-transit-purchase", start_activity("purchase", goods))
+    _, result = act(engine, "in-transit-purchase", purchase(goods))
     if accepted:
         assert result.status == "in_progress", result.error_code
         order = next(iter(engine.context.state.deliveries.values()))
         assert order.fulfillment == "station_pickup" and order.destination_id == "parcel-station"
         assert order.paid_at is None and engine.context.state.accounts == before.accounts
+        assert engine.context.state.activities[departure.activity_id].status == "active"
     else:
+        # 店铺商品要送到停留地点，人在路上时下不了单
+        reason = "Place the order after arriving at a location."
         assert result.status == "rejected" and result.error_code == "ACTIVITY_PRECONDITION_UNMET"
+        assert result.message == reason and result.data["unmet"] == ["delivery_destination"]
+        assert result.data["items"] == [_target_item(0, [goods], "ACTIVITY_PRECONDITION_UNMET", reason)]
         _assert_rollback(engine, before)
 
 
 def test_existing_courier_purchase_allows_departure_without_requoting(engine_factory):
     engine = engine_factory(mutate=_configure)
-    _, purchase = act(engine, "courier", start_activity("purchase", "平台笔记本"))
-    assert purchase.status == "in_progress"
+    _, bought = act(engine, "courier", purchase("平台笔记本"))
+    assert bought.status == "in_progress"
     _next_decision(engine)
     before = next(iter(engine.context.state.deliveries.values())).model_copy(deep=True)
-    _, travel = act(engine, "courier-departure", start_activity("walk", "公司"))
-    assert travel.status == "in_progress", travel.error_code
+    _, departure = act(engine, "courier-departure", travel("公司"))
+    assert departure.status == "in_progress", departure.error_code
     assert engine.context.state.deliveries[before.order_id] == before
-    assert engine.context.state.activities[purchase.activity_id].status == "active"
+    assert engine.context.state.activities[bought.activity_id].status == "active"
 
 
-def test_existing_location_content_requires_presence_but_app_content_can_depart(engine_factory):
-    for target, accepted in (("家", False), ("哔哩哔哩", True)):
+def test_existing_location_content_occupies_the_first_slot_but_app_content_can_depart(engine_factory):
+    for request, accepted in ((do_at("家", "测试休息"), False), (use_app("哔哩哔哩"), True)):
         engine = engine_factory(mutate=_configure)
-        _, started = act(engine, "content", start_activity("interact", target))
+        _, started = act(engine, "content", request)
         assert started.status == "in_progress", started.error_code
         _next_decision(engine)
-        _, travel = act(engine, "content-departure", start_activity("walk", "公司"))
-        assert travel.status == ("in_progress" if accepted else "rejected")
+        before = engine.context.state.model_copy(deep=True)
+        name = before.activities[started.activity_id].name
+        _, departure = act(engine, "content-departure", travel("公司"))
+        assert departure.status == ("in_progress" if accepted else "rejected")
         if not accepted:
-            assert travel.error_code == "ACTIVITY_PRECONDITION_UNMET"
+            # 在地点做事与出行同占槽位 1：出发被占用者挡住；占用者是进行中的 interact，可以结束也可以暂停
+            reason = f"The first activity slot is occupied by {name}."
+            assert name.startswith("进行测试休息（") and before.activities[started.activity_id].resource_claims == {"first"}
+            assert departure.error_code == "RESOURCE_CONFLICT" and departure.message == reason
+            assert departure.data["unmet"] == ["resource_claims"]
+            assert departure.data["next_step"] == f"Conclude or pause {name} first."
+            assert departure.data["items"] == [_target_item(0, "公司", "RESOURCE_CONFLICT", reason)]
+            _assert_rollback(engine, before)
         assert engine.context.state.activities[started.activity_id].status == "active"
 
 
@@ -294,7 +349,7 @@ def _seed_with_weather(condition):
     raise AssertionError(condition)
 
 
-def test_tool_layer_quotes_the_declared_distance_for_every_travel_action(engine_factory, tmp_path):
+def test_tool_layer_quotes_the_declared_distance_for_every_travel_method(engine_factory, tmp_path):
     """家到公司声明 12,600 米、当天小雨：工具层给出的用时和车费就是按声明值算出的结果。"""
     engine = engine_factory(_declared_world(tmp_path, ("home", "office", 12600)))
     state, graph = engine.context.state, engine.context.catalog.graph
@@ -303,11 +358,11 @@ def test_tool_layer_quotes_the_declared_distance_for_every_travel_action(engine_
     trips = {mode: plan_trip(graph, "home", "office", mode, 0.85) for mode in ("walking", "driving", "taxi", "bus")}
     assert {mode: (trip.duration_seconds, trip.fare_fen) for mode, trip in trips.items()} == {
         "walking": (12353, 0), "driving": (2118, 2520), "taxi": (2118, 3780), "bus": (2965, 200)}
-    observed, result = act(engine, "declared-drive", start_activity("drive", "公司"))
-    target = next(row for row in observed["tool_layer"]["targets"] if row["name"] == "公司")
-    assert {row["action"]: (row["available"], row["price"], row["duration"]) for row in target["actions"]} == {
-        "walk": (True, "0 元", "约 3.5 小时"), "drive": (True, "25.2 元", "约 35 分钟"),
-        "take_taxi": (True, "37.8 元", "约 35 分钟"), "take_bus": (True, "2 元", "约 49 分钟")}
+    observed, result = act(engine, "declared-drive", travel("公司", "驾车"))
+    assert {method: (row["available"], row["price"], row["duration"])
+            for method, row in travel_rows(observed, "公司").items()} == {
+        "步行": (True, "0 元", "约 3.5 小时"), "驾车": (True, "25.2 元", "约 35 分钟"),
+        "打车": (True, "37.8 元", "约 35 分钟"), "公共交通": (True, "2 元", "约 49 分钟")}
     assert result.status == "in_progress", result.error_code
     activity = engine.context.state.activities[result.activity_id]
     assert activity.planned_duration_seconds == 2118 and activity.planned_end_at - activity.started_at == 2118
@@ -315,18 +370,18 @@ def test_tool_layer_quotes_the_declared_distance_for_every_travel_action(engine_
     assert engine.context.state.accounts["agent:1"] == 200000 - 2520
 
 
-@pytest.mark.parametrize("condition,action,seconds", [
-    ("sunny", "drive", 1800), ("cloudy", "drive", 1800), ("light_rain", "drive", 2118),
-    ("heavy_rain", "drive", 2572), ("snow", "drive", 3000), ("sunny", "walk", 10500)])
+@pytest.mark.parametrize("condition,method,seconds", [
+    ("sunny", "驾车", 1800), ("cloudy", "驾车", 1800), ("light_rain", "驾车", 2118),
+    ("heavy_rain", "驾车", 2572), ("snow", "驾车", 3000), ("sunny", "步行", 10500)])
 def test_accepted_trip_over_the_declared_distance_takes_the_documented_time_in_each_weather(
-        engine_factory, tmp_path, condition, action, seconds):
+        engine_factory, tmp_path, condition, method, seconds):
     """12,600 米驾车：晴和多云 30 分钟，小雨 35 分 18 秒，大雨 42 分 52 秒，雪 50 分钟；晴天步行 2 小时 55 分。"""
     seed = _seed_with_weather(condition)
     engine = engine_factory(_declared_world(tmp_path, ("home", "office", 12600)),
                             mutate=lambda persona, config: config.update(seed=seed))
     assert engine.context.state.weather_by_date == {"2026-01-05": condition}
     assert engine.context.catalog.shortest_m("home", "office") == 12600
-    _, result = act(engine, f"declared-{condition}", start_activity(action, "公司"))
+    _, result = act(engine, f"declared-{condition}", travel("公司", method))
     assert result.status == "in_progress", result.error_code
     activity = engine.context.state.activities[result.activity_id]
     assert activity.planned_duration_seconds == seconds
@@ -356,7 +411,7 @@ def test_delivery_store_and_expected_arrival_follow_the_declared_distances(
     assert (quote.store_id, quote.destination_id, quote.fulfillment) == (store, "office", "delivery")
     assert quote.distance_meters == catalog.shortest_m(store, "office")
     assert quote.expected_at - state.current_time == seconds == 600 + -(-quote.distance_meters // 5)
-    _, result = act(engine, "declared-delivery", start_activity("purchase", goods))
+    _, result = act(engine, "declared-delivery", purchase(goods))
     assert result.status == "in_progress", result.error_code
     order = next(iter(engine.context.state.deliveries.values()))
     assert (order.store_id, order.destination_id) == (store, "office")

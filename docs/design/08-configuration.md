@@ -162,7 +162,7 @@ flowchart LR
 | 下单 app | `order-app:{goods_id}:{store_id_or_courier}:{local_date}`，店铺侧先确定店铺，app 商品使用 `courier` |
 | 快递天数 | `courier-days:{goods_id}:{app_id}:{local_date}`，二、三、四、五天等概率 |
 | 快递费 | `courier-fee:{goods_id}:{app_id}`，零或五百分等概率，跨日期稳定 |
-| 内容选择 | `{activity_id}:{draw_index}` |
+| 内容选择 | `{activity_id}:{draw_index}`，只用于内容 app；在地点点名内容单元不抽随机数 |
 | 回调链 | `callback:{rule_id}:{anchor}:{step_index}`，步骤下标从零开始 |
 | 指标自举 | `bootstrap-metric:{name}`，抽取六十四位整数供 NumPy |
 | 评审自举 | `bootstrap-review:{dimension}`，抽取六十四位整数供 NumPy |
@@ -179,9 +179,9 @@ flowchart LR
 同一键同一绝对秒一次，夏令时不同绝对秒分别登记。天气使用 `weather-{local_date}`，
 起始日只初始化事实；日历使用 `calendar-{local_date}`；配送组使用首件既有订单的 `delivery-{order_id}`。
 
-回调受理锚点为 `{action_id}:{item_index}`；按日动作效果用 `{origin_action_id}:{local_date}`；
+回调受理锚点为 `{action_id}:0`，一条动作只开始一项活动；按日动作效果用 `{origin_action_id}:{local_date}`；
 预排事件使用其 `scheduled_id`；推进唤醒类别用 `wake:{agent_id}:{current_time}`；
-同刻唤醒类别用 `wake:{action_id}`。阈值触发沿用造成越阈的锚点，不触发级联。
+同刻唤醒类别用 `wake:{action_id}`，开始组取第一条动作的身份。阈值触发沿用造成越阈的锚点，不触发级联。
 回调效果与资金账本原因均为 `callback:{rule_id}:{anchor}`，`caused_by` 必须指向真实触发事件。
 
 评估从已认证 WorldMock 检查点读取非空字符串 `random_state`，缺失时抛出

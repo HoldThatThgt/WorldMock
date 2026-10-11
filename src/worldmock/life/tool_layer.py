@@ -1,4 +1,4 @@
-"""@brief 完整工具层和受理共用实际名额、在场、营业及内容资格。"""
+"""@brief 完整工具层和受理共用实际槽位、营业、内容与余额资格。"""
 
 from __future__ import annotations
 import logging
@@ -9,14 +9,14 @@ from zoneinfo import ZoneInfo
 
 from worldmock.errors import BusinessRuleError
 from worldmock.life import activity_control, admission, same_moment
-from worldmock.life.action_contract import TRAVEL_ACTIONS, TRAVEL_ACTION_MODES
+from worldmock.life.action_contract import START_TOOLS, start_tool
 from worldmock.life.content_select import content_duration_range
-from worldmock.life.guidance import Refusal, refusal_for_code, rejection_guidance
-from worldmock.life.models import ActivityKind, ActivityStatus
+from worldmock.life.felt import sleep_debt_phrase
+from worldmock.life.guidance import Refusal
+from worldmock.life.location_activities import unit_facts
+from worldmock.life.models import ActivityStatus
 from worldmock.life.purchase_offers import quote_goods
 from worldmock.life.readable import duration_phrase, money_phrase
-from worldmock.life.travel import plan_trip
-from worldmock.life.weather import current_weather_factor
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,9 +68,9 @@ class Candidate:
 
 
 def _admission_context(context: LayerContext) -> admission.Context:
-    """@brief 工具与受理使用同一在场、名额上下文。"""
+    """@brief 工具与受理使用同一槽位与对象条件上下文。"""
     places = {key: item.display_name for key, item in context.catalog.locations.items()}
-    return admission.Context(context.state, context.agent_id, places, context.names["activities"], context.catalog)
+    return admission.Context(context.state, context.agent_id, places, context.names["activities"], context.inputs)
 
 
 def availability(context: LayerContext, candidate: Candidate) -> dict:
@@ -80,85 +80,33 @@ def availability(context: LayerContext, candidate: Candidate) -> dict:
 
 
 def refusal_for(context: LayerContext, candidate: Candidate) -> Refusal | None:
-    """@brief 同刻阶段、待收尾与真实目标条件按受理顺序判定。"""
+    """@brief 待收尾、同刻阶段与真实目标条件按受理顺序判定；开始动作行按只含这一行的一组求值。"""
     waiting = activity_control.pending_conclusions(context.state, context.agent_id)
     activity = None if candidate.activity_id is None else context.state.activities[candidate.activity_id]
     if waiting and candidate.tool != "conclude_activity":
         return activity_control.conclusion_refusal(waiting, context.names["activities"])
     named = () if activity is None else (activity,)
-    actions = () if candidate.action is None else (candidate.action["action"],)
-    kind = same_moment.request_kind(candidate.tool, actions, named,
-                                    frozenset(item.activity_id for item in waiting))
+    kind = same_moment.request_kind(candidate.tool, named, frozenset(item.activity_id for item in waiting))
     stage = same_moment.stage_refusal(context.state.agents[context.agent_id].same_moment_stage, kind)
     if stage is not None:
         return stage
-    if candidate.tool != "start_activity":
+    if candidate.tool not in START_TOOLS:
         return activity_control.control_refusal(_admission_context(context), candidate.tool, activity)
-    item = admission.selection_item(candidate.binding, candidate.action)
-    refused = admission.group_refusal(_admission_context(context), (item,))
-    if refused is not None:
-        return refused
-    try:
-        _require_object(context, candidate.binding, candidate.action["action"])
-    except BusinessRuleError as error:
-        logging.error("Tool availability rejected: %s", error)
-        guidance = rejection_guidance(error)
-        return Refusal(str(error), guidance["reason"], guidance.get("fix"),
-                       unmet=tuple(getattr(error, "unmet", ()) or ()))
-    return None
+    row = {**candidate.binding, "selected_action": candidate.action}
+    blocked = admission.group_refusal(
+        _admission_context(context), (admission.Call(candidate.tool, candidate.action["action"], (row,)),))
+    return None if blocked is None else blocked.refusal
 
 
-def _require_object(context: LayerContext, row: dict, action: str) -> None:
-    """@brief 对象条件只读取实际现场，不预演内容抽取。"""
-    agent = context.state.agents[context.agent_id]
-    if action in TRAVEL_ACTIONS:
-        if row["object_id"] == agent.location_id:
-            raise BusinessRuleError("ACTIVITY_PRECONDITION_UNMET")
-        trip = _trip(context, row, action)
-        if context.state.accounts[agent.balance_account_id] < trip.fare_fen:
-            raise BusinessRuleError("INSUFFICIENT_TRAVEL_FUNDS")
-        return
-    if action == "purchase":
-        offer = quote_goods(context.inputs, context.state, context.agent_id, row["goods_id"])
-        total = context.catalog.goods[row["goods_id"]].price_fen + offer.delivery_fee_fen
-        if context.state.accounts[agent.balance_account_id] < total:
-            raise BusinessRuleError("INSUFFICIENT_FUNDS")
-        return
-    if row["kind"] == "location":
-        location = context.catalog.locations[row["object_id"]]
-        local = datetime.fromtimestamp(context.state.current_time, ZoneInfo(context.config.timezone))
-        if not location.is_open(local):
-            raise BusinessRuleError("LOCATION_CLOSED")
-        if action == "sleep" and row["object_id"] != context.inputs.home_location_id:
-            raise BusinessRuleError("ACTIVITY_PRECONDITION_UNMET")
-        if action == "interact" and location.accepts_parcels and not _parcels_ready(context, row["object_id"]):
-            raise BusinessRuleError("PARCEL_NOT_READY")
-    if action == "interact" and _content_range(context, row) is None:
-        raise BusinessRuleError("CONTENT_EXHAUSTED")
-
-
-def _parcels_ready(context: LayerContext, station_id: str) -> bool:
-    """@brief 驿站只能领取本人已经真实到站的订单。"""
-    return any(order.agent_id == context.agent_id and order.destination_id == station_id
-               and order.status == "ready_for_pickup" for order in context.state.deliveries.values())
-
-
-def _trip(context: LayerContext, row: dict, action: str):
-    """@brief 固定规则与世界天气形成同源行程报价。"""
-    origin = context.state.agents[context.agent_id].location_id
-    return plan_trip(context.catalog.graph, origin, row["object_id"], TRAVEL_ACTION_MODES[action],
-                     current_weather_factor(context.state))
-
-
-def _content_range(context: LayerContext, row: dict):
-    """@brief 内容时长范围由选择器只读计算，不消费随机流。"""
-    return content_duration_range(context.inputs, context.state, context.agent_id, row["kind"], row["object_id"])
+def _start_candidate(row: dict, action: dict) -> Candidate:
+    """@brief 一条动作行对应的开始调用：属于哪个开始工具由对象类型与动作决定。"""
+    return Candidate(start_tool(row["kind"], action["action"]), row, action)
 
 
 def annotated_bindings(context: LayerContext) -> list[dict]:
     """@brief 私有绑定仅附同源资格原因。"""
-    return [{**row, "actions": [{**action, "note": availability(
-        context, Candidate("start_activity", row, action))["reason"]} for action in row["actions"]]}
+    return [{**row, "actions": [{**action, "note": availability(context, _start_candidate(row, action))["reason"]}
+                                for action in row["actions"]]}
             for row in context.bindings]
 
 
@@ -185,25 +133,32 @@ def _binding_target(context: LayerContext, row: dict) -> dict:
 
 
 def _action_row(context: LayerContext, row: dict, action: dict) -> dict:
-    """@brief 七个字段的公开动作只表达真实价格、时长和可用性。"""
+    """@brief 八个字段的公开动作行只表达调用里要写的名称、真实价格、时长和可用性。"""
     facts = {"price": None, "duration": None, "quantity": None, "note": None}
-    name = action["action"]
-    if name in TRAVEL_ACTIONS and row["object_id"] != context.state.agents[context.agent_id].location_id:
-        trip = _trip(context, row, name)
-        facts.update(price=money_phrase(trip.fare_fen), duration=duration_phrase(trip.duration_seconds),
-                     note="费力" if name == "walk" else "轻松")
+    name, agent = action["action"], context.state.agents[context.agent_id]
+    if name == "travel":
+        facts.update(_travel_facts(context, row, action))
     elif name == "purchase":
         facts.update(_purchase_facts(context, row))
     elif name == "sleep":
-        seconds = round(context.state.agents[context.agent_id].body.sleep_need_hours * 3600)
-        facts["duration"] = duration_phrase(seconds)
-    elif name == "interact":
-        duration = _content_range(context, row)
+        facts["note"] = sleep_debt_phrase(agent.body.sleep_deficit_hours)
+    elif row["kind"] == "location":
+        facts.update(unit_facts([context.catalog.contents[key] for key in action["content_ids"]], agent))
+    else:
+        duration = content_duration_range(context.inputs, context.state, context.agent_id, row["object_id"])
         if duration is not None:
             facts["duration"] = duration_phrase(duration[0]) if duration[0] == duration[1] else (
                 f"{duration_phrase(duration[0])}–{duration_phrase(duration[1])}")
         facts["note"] = _push_note(context, row)
-    return {"action": name, **availability(context, Candidate("start_activity", row, action)), **facts}
+    return {"action": name, "detail": action["detail"], **availability(context, _start_candidate(row, action)),
+            **facts}
+
+
+def _travel_facts(context: LayerContext, row: dict, action: dict) -> dict:
+    """@brief 出行行的车费、按当前天气算出的用时与体力说明：步行费力，其余轻松。"""
+    trip = admission.planned_trip(_admission_context(context), {**row, "selected_action": action})
+    return {"price": money_phrase(trip.fare_fen), "duration": duration_phrase(trip.duration_seconds),
+            "note": "费力" if action["travel_method_id"] == "walking" else "轻松"}
 
 
 def _purchase_facts(context: LayerContext, row: dict) -> dict:
@@ -222,9 +177,6 @@ def _purchase_facts(context: LayerContext, row: dict) -> dict:
 
 def _push_note(context: LayerContext, row: dict) -> str | None:
     """@brief 推送只展示当前 app 的真实标题。"""
-    if row["kind"] != "app":
-        return None
-    agent = context.state.agents[context.agent_id]
     from worldmock.life.sessions import current_session
 
     session = current_session(context.state, context.agent_id)

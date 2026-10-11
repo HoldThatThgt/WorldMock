@@ -7,7 +7,7 @@ from types import MappingProxyType
 
 import pytest
 
-from tests.life.conftest import start_activity
+from tests.life.conftest import purchase
 from tests.life.environment_runtime import act, events, finish_activity, reach
 from worldmock.exchange import constants
 from worldmock.life.purchase_offers import app_goods, quote_goods
@@ -53,7 +53,7 @@ def delivered_order(engine, label: str) -> dict:
     quote = quote_goods(context.inputs, context.state, 1, "beef-noodles")
     listed = {row["name"]: row for row in app_goods(context.inputs, context.state, 1, "meituan")}
     started = context.state.current_time
-    _, ordered = act(engine, label, start_activity("purchase", "牛肉面", "薯片"))
+    _, ordered = act(engine, label, purchase("牛肉面", "薯片"))
     assert ordered.status == "in_progress", ordered.error_code
     orders = {order.goods_id: order for order in context.state.deliveries.values()}
     assert len({order.group_key for order in orders.values()}) == 1
@@ -65,7 +65,7 @@ def delivered_order(engine, label: str) -> dict:
 def received(engine, *baskets: tuple[str, ...]) -> dict[str, dict]:
     """到店当场逐次买下每一篮商品并走完真实收货，返回按品类取的收货证据。"""
     for index, names in enumerate(baskets):
-        _, bought = act(engine, f"buy-{index}", start_activity("purchase", *names))
+        _, bought = act(engine, f"buy-{index}", purchase(*names))
         assert bought.status == "in_progress", bought.error_code
         finish_activity(engine, bought, f"buy-{index}")
     rows = business(engine, "goods_received")

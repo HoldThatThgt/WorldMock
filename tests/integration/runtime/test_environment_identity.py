@@ -55,10 +55,10 @@ def test_open_rejects_changed_persona_without_mutating_original_run(engine_facto
 def test_export_carries_exact_frozen_environment_and_readable_inputs(engine_factory, tmp_path):
     from worldmock.footprints.export import export_run
     engine = engine_factory()
-    from tests.life.conftest import stage_day_plan, start_activity, advance_next
+    from tests.life.conftest import stage_day_plan, do_at, advance_next
     from tests.life.environment_runtime import act
     stage_day_plan(engine)
-    act(engine, "export", start_activity("interact", "家"))
+    act(engine, "export", do_at("家", "测试休息"))
     advance_next(engine)
     report = export_run(engine.context.store, engine.context.store.last_event_seq, tmp_path / "export")
     manifest = report["frozen_run_manifest"]

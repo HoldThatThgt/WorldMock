@@ -215,12 +215,12 @@ def _public_event(
 def test_graph_travel_result_projects_trip_identity_and_full_path(engine_factory):
     """真实引擎图行程直接进入公开证据，身份只来自实际行程。"""
     from tests.life.environment_runtime import act, events
-    from tests.life.conftest import start_activity
+    from tests.life.conftest import travel
     from worldmock.life.models import PlanDayRequest
 
     engine = engine_factory()
     engine.register_day_plan(1, PlanDayRequest(goals=()), [], [])
-    _, result = act(engine, "drive-office", start_activity("drive", "公司"))
+    _, result = act(engine, "drive-office", travel("公司", "驾车"))
     assert result.status == "in_progress", result.error_code
     activity = engine.context.state.activities[result.activity_id]
     snapshot = activity.model_dump(mode="json")

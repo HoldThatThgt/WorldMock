@@ -217,6 +217,12 @@ def submit_round(engine: LifeEngine, requests: dict[int, tuple[str, object]], ro
     return receipts, engine.commit_decision_round(round_id)
 
 
+#: 两个开始工具：start_main_activity 开始占槽位 1 的活动，start_side_activity 开始占槽位 2 的活动。
+MAIN_TOOL, SIDE_TOOL = "start_main_activity", "start_side_activity"
+#: 夹具人设每日睡眠需要 7.5 小时折成的分钟数。
+NIGHT_SLEEP_MINUTES = 450
+
+
 def advance_next(engine: LifeEngine) -> None:
     """推进到环境报告的下一个严格未来边界；零点边界照 LifeEnv.step 先生成当日计划（确定性空清单桩）再判定节律。"""
     state = engine.scheduling_state()
@@ -242,24 +248,56 @@ def advance_until_ready(engine: LifeEngine, limit: int = 64) -> bool:
     return False
 
 
-def start_arguments(targets, actions) -> dict:
-    """@brief 明确每项的实际动作与完整对象名称。"""
-    return {"items": [{"action": action, "target": target}
-                      for action, target in zip(actions, targets, strict=True)]}
+def main_arguments(action: str, target: str, detail: str | None = None) -> dict:
+    """@brief start_main_activity 的完整参数：三个键都出现，睡眠的 detail 为 null。"""
+    return {"action": action, "target": target, "detail": detail}
 
 
-def start_request(**fields):
-    """@brief 从当前动作条目或两条等长数组构造封闭请求。"""
-    from worldmock.life.models import StartActivityRequest
-
-    if "items" in fields:
-        return StartActivityRequest.model_validate(fields)
-    return StartActivityRequest.model_validate(start_arguments(fields.pop("targets"), fields.pop("actions")))
+def side_arguments(action: str, *targets: str) -> dict:
+    """@brief start_side_activity 的完整参数：target 始终是名称数组。"""
+    return {"action": action, "target": list(targets)}
 
 
-def start_activity(action: str, *targets: str):
-    """@brief 每个完整目标执行同一个实际动作。"""
-    return start_request(targets=list(targets), actions=[action for _ in targets])
+def travel(target: str, method: str = "步行"):
+    """@brief 出行请求：目的地地点名与出行方式名称（步行、驾车、打车、公共交通）。"""
+    from worldmock.life.models import StartMainActivityRequest
+
+    return StartMainActivityRequest.model_validate(main_arguments("travel", target, method))
+
+
+def do_at(location: str, unit: str):
+    """@brief 在当前地点按名称做一件事：当前地点名与内容单元名。"""
+    from worldmock.life.models import StartMainActivityRequest
+
+    return StartMainActivityRequest.model_validate(main_arguments("interact", location, unit))
+
+
+def sleep(minutes: int | str = NIGHT_SLEEP_MINUTES):
+    """@brief 睡眠请求：分钟数写成数字文字，detail 为 null。"""
+    from worldmock.life.models import StartMainActivityRequest
+
+    return StartMainActivityRequest.model_validate(main_arguments("sleep", str(minutes)))
+
+
+def purchase(*goods: str):
+    """@brief 购买请求：一份一项，同一个名称写两次就是两份。"""
+    from worldmock.life.models import StartSideActivityRequest
+
+    return StartSideActivityRequest.model_validate(side_arguments("purchase", *goods))
+
+
+def use_app(app: str):
+    """@brief 使用一个内容 app 的请求。"""
+    from worldmock.life.models import StartSideActivityRequest
+
+    return StartSideActivityRequest.model_validate(side_arguments("interact", app))
+
+
+def tool_of(request) -> str:
+    """@brief 请求模型对应的世界请求工具名。"""
+    from worldmock.life.models import REQUEST_MODELS
+
+    return next(name for name, model in REQUEST_MODELS.items() if type(request) is model)
 
 
 def activity_name(engine: LifeEngine, activity_id: str) -> str:
@@ -333,8 +371,16 @@ def tool_targets(observed: dict) -> dict[str, dict]:
 
 
 def target_actions(observed: dict, name: str) -> dict[str, dict]:
-    """工具层某个目标的动作，按方式索引。"""
-    return {row["action"]: row for row in tool_targets(observed)[name]["actions"]}
+    """工具层某个目标的动作，按动作索引；同一动作有多行（出行各方式、地点各单元）时取第一行。"""
+    rows: dict[str, dict] = {}
+    for row in tool_targets(observed)[name]["actions"]:
+        rows.setdefault(row["action"], row)
+    return rows
+
+
+def travel_rows(observed: dict, name: str) -> dict[str, dict]:
+    """工具层某个目的地下的出行动作行，按出行方式名称索引。"""
+    return {row["detail"]: row for row in action_rows(observed, name, "travel")}
 
 
 def target_tools(observed: dict, name: str) -> dict[str, dict]:
@@ -345,10 +391,20 @@ def target_tools(observed: dict, name: str) -> dict[str, dict]:
     return {row["tool"]: row for row in rows}
 
 
-def layer_start(observed: dict, name: str, action: str):
-    """@brief 从观察中的实际动作和完整名称构造请求。"""
-    assert action in target_actions(observed, name)
-    return start_activity(action, name)
+def action_rows(observed: dict, name: str, action: str) -> list[dict]:
+    """@brief 工具层某个目标下某个动作的全部动作行（出行按方式、在地点做事按单元各一行）。"""
+    return [row for row in tool_targets(observed)[name]["actions"] if row["action"] == action]
+
+
+def layer_start(observed: dict, name: str, action: str, detail: str | None = None):
+    """@brief 从观察中的实际动作行构造开始请求：出行与在地点做事按 detail 取行，缺省取该动作的第一行。"""
+    rows = action_rows(observed, name, action)
+    assert rows, (name, action)
+    row = next(item for item in rows if detail is None or item["detail"] == detail)
+    kind = tool_targets(observed)[name]["kind"]
+    if kind == "location":
+        return sleep() if action == "sleep" else (travel if action == "travel" else do_at)(name, row["detail"])
+    return purchase(name) if action == "purchase" else use_app(name)
 
 
 def progress_calls(observed: dict, tool: str | None = None) -> list[dict]:

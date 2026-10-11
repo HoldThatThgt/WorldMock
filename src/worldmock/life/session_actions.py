@@ -1,41 +1,36 @@
-"""@brief 七个动作的原子准入、生命周期控制与人物事务登记。"""
+"""@brief 世界请求的派发接线、活动的生命周期控制与人物事务登记；开始组的核验与派发在 start_group。"""
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from functools import partial
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 
 from worldmock.errors import BusinessRuleError
 from worldmock.footprints.models import EventDraft
 from worldmock.life import activity_control, admission, errands, memory_layer, same_moment, sessions
-from worldmock.life.action_contract import ACTION_LABELS, TRAVEL_ACTIONS, TRAVEL_ACTION_MODES
-from worldmock.life.activities import ActivityStartParams, change_activity, schedule_feedback, start_activity
+from worldmock.life.action_contract import START_TOOLS
+from worldmock.life.activities import change_activity
 from worldmock.life.activity_evidence import conclusion_outcome
 from worldmock.life.activity_titles import activity_snapshot, title_index
-from worldmock.life.basket import quoted_basket
-from worldmock.life.purchase_offers import app_goods
 from worldmock.life.control_items import control_errands, control_items
 from worldmock.life.engine_context import EngineContext
 from worldmock.life.error_contract import ErrorItem
-from worldmock.life.guidance import Refusal, items_refusal
+from worldmock.life.guidance import Refusal
 from worldmock.life.models import (
     ActionResult, ActionStatus, ActivityChange, ActivityKind, ActivityState, ActivityStatus,
     ChangeActivityRequest, ConcludeActivityRequest, PauseActivityRequest, PendingAction,
-    RecallTaskSummaryRequest, ReportStatusRequest, ReviseDayPlanRequest, REQUEST_MODELS,
-    StartActivityRequest, TravelMode, WorldState,
+    RecallTaskSummaryRequest, ReportStatusRequest, ReviseDayPlanRequest, REQUEST_MODELS, WorldState,
 )
-from worldmock.life.name_resolution import name_book, resolution_data, resolve_start
+from worldmock.life.name_resolution import resolution_data
 from worldmock.life.object_labels import resolve_name
 from worldmock.life.request_errors import argument_report
 from worldmock.life.schedule import RemindTimeInvalid, day_plan_expired, registered_goals, revise_day_plan
+from worldmock.life.start_group import StartGroups, frozen_observation
 from worldmock.life.storefront_runtime import StorefrontRuntime
-from worldmock.life.travel import plan_trip, pay_travel_fare, travel_activity_data
-from worldmock.life.weather import current_weather_factor
-from worldmock.life.world_ops import _activity_origin, _put_activity, _put_agent, place_names
+from worldmock.life.world_ops import _put_activity, _put_agent, place_names
 
 _LOGGER = logging.getLogger(__name__)
 RECALL_IN_MEMORY_LAYER = "已在记忆层"
@@ -45,10 +40,12 @@ class ActionHandlers:
     """@brief 所有领域转换只操作当前决策的世界副本。"""
 
     def __init__(self, context: EngineContext, storefront: StorefrontRuntime):
-        """@brief 绑定状态与购买职责，动作草稿独立暂存。"""
+        """@brief 绑定状态与购买职责，动作草稿与各动作的资金变化独立暂存。"""
         self.context, self.storefront = context, storefront
         self.pending_event_drafts: list[EventDraft] = []
-        self.pending_resource_changes: dict[str, int] = {}
+        #: 各动作受理时的资金变化（出行车费），键为动作身份。
+        self.resource_changes: dict[str, dict[str, int]] = {}
+        self.starts = StartGroups(context, storefront, self.pending_event_drafts, self.resource_changes)
 
     def _memory_sources(self, pending: PendingAction, names: list[str], selected: list[ActivityState]) -> list[dict]:
         """@brief 系统登记的记忆来源：逐项的活动、所属会话与本轮观察中该活动的已核验经历（模型不填身份）。"""
@@ -80,7 +77,7 @@ class ActionHandlers:
     def _conclude_activity(
         self, state: WorldState, pending: PendingAction, request: ConcludeActivityRequest
     ) -> tuple[WorldState, ActionResult]:
-        """@brief 结束所选活动（进行中、暂停中或待收尾）并写下总结；进行中与待收尾的由此释放名额；途中结束出行时路上的其他
+        """@brief 结束所选活动（进行中、暂停中或待收尾）并写下总结；进行中与待收尾的由此释放槽位；途中结束出行时路上的其他
         活动随之结束。
 
         进行中或暂停的活动先取消（agent_cancelled）再收尾；待收尾活动不改终态，只写总结并置 concluded_at。
@@ -129,7 +126,7 @@ class ActionHandlers:
     def _pause_activity(
         self, state: WorldState, pending: PendingAction, request: PauseActivityRequest
     ) -> tuple[WorldState, ActionResult]:
-        """@brief 暂停所选进行中活动（让出名额）并写入自述；路上的活动、交谈与通话不能暂停。
+        """@brief 暂停所选进行中活动（让出槽位）并写入自述；路上的活动、交谈与通话不能暂停。
 
         每项先经 activity_control.control_refusal 判定，与工具层的可用性一字不差。请求级的事务变更在活动名解析后复核、
         在暂停后应用，回执登记为 errands。
@@ -181,7 +178,7 @@ class ActionHandlers:
         """@brief 逐项播报进行中活动并重置其播报锚点；点名暂停的活动即在其开始地点恢复它。
 
         每项先经 activity_control.control_refusal 判定（只接受进行中或暂停的活动；恢复只在实际开始地点，
-        要有空名额且与进行中活动的占用不冲突；多项逐项对已恢复前几项的状态判定），与工具层、
+        要有空槽位且与进行中活动的占用不冲突；多项逐项对已恢复前几项的状态判定），与工具层、
         待办层的可用性一字不差。恢复的活动在结果中登记
         resumed：活动名与恢复后的计划时长（秒，公开结果写成 details.planned）。请求级的事务变更在活动名解析后复核、在
         活动转换后应用，回执登记为 errands。
@@ -279,7 +276,7 @@ class ActionHandlers:
         （activity_control.activity_name_refusal，docs/design/04-simulation-engine.md  第
         5 条；宿主已在本轮纠正，
         这里只防
-        绕过宿主的请求，与 start_activity 的 _unresolved_start 同一顶层码，照常计入同刻轮数）；名称都解析出来、对应的却不是
+        绕过宿主的请求，与开始组名称问题的防御拒绝同一顶层码，照常计入同刻轮数）；名称都解析出来、对应的却不是
         本人的权威活动时（观察与世界对不上）只报这一条不带明细的 ACTION_REQUEST_INVALID。
 
         :returns: （解析出的活动名，权威活动），按请求顺序。
@@ -379,12 +376,7 @@ class ActionHandlers:
 
     def _frozen_observation(self, pending: PendingAction) -> dict:
         """@brief 读取当前决策的已提交观察事件，作为名称与报价的唯一解析来源；缺失或不唯一时 OBSERVATION_NOT_FOUND。"""
-        matches = self.context.store.read_decision_observations(
-            pending.agent_id, pending.decision_id, pending.observed_at)
-        if len(matches) != 1:
-            _LOGGER.error("Decision observation is missing or ambiguous")
-            raise BusinessRuleError("OBSERVATION_NOT_FOUND")
-        return matches[0].data
+        return frozen_observation(self.context, pending)
 
     def _revise_day_plan(
         self, state: WorldState, pending: PendingAction, request: ReviseDayPlanRequest
@@ -421,7 +413,7 @@ class ActionHandlers:
 
     def _admission_context(self, state: WorldState, agent_id: int, names: dict | None = None) -> admission.Context:
         """@brief 观察与受理共用固定槽位和在场判定。"""
-        return admission.Context(state, agent_id, place_names(self.context.catalog), names or {}, self.context.catalog)
+        return admission.Context(state, agent_id, place_names(self.context.catalog), names or {}, self.context.inputs)
 
     def _change(self, state: WorldState, pending: PendingAction,
                 request: ChangeActivityRequest) -> tuple[WorldState, ActionResult]:
@@ -436,172 +428,38 @@ class ActionHandlers:
             status=ActionStatus.COMPLETED, occurred_at=state.current_time, activity_id=activity.activity_id,
             message="Activity changed", data={"activity": activity.model_dump(mode="json")})
 
-    def _start_selection(self, pending: PendingAction, request: StartActivityRequest) -> list[dict]:
-        """@brief 同一冻结观察经宿主共用名称解析，所有失败一次报告。"""
-        outcome = resolve_start(name_book(self._frozen_observation(pending)), request)
-        if outcome.failures:
-            entries = [(failure.item, failure.sentence) for failure in outcome.failures]
-            merged = items_refusal(entries, len(request.items))
-            _LOGGER.error("Start activity names are invalid")
-            raise Refusal("ACTION_REQUEST_INVALID", merged.reason, fix=merged.fix, items=merged.items).error()
-        rows = list(outcome.rows)
-        for row, item in zip(rows, request.items, strict=True):
-            if item.action == "purchase" and row.get("object_id") is None:
-                names = [goods.name for goods in self.context.catalog.goods.values()]
-                canonical = resolve_name(item.target, names).name
-                found = [goods for goods in self.context.catalog.goods.values() if goods.name == canonical]
-                if len(found) != 1:
-                    _LOGGER.error("Named goods are unknown or ambiguous")
-                    raise BusinessRuleError("SUPPLY_NOT_FOUND")
-                row["object_id"] = found[0].goods_id
-        return rows
+    def dispatch(self, state: WorldState, group: Sequence[PendingAction]) -> tuple[WorldState, list[ActionResult]]:
+        """@brief 一个决策登记的动作在独立副本中执行，任何拒绝都回滚整组；返回各动作的结果（按登记次序）。
 
-    def _require_start(self, state: WorldState, pending: PendingAction, rows: list[dict]) -> None:
-        """@brief 派发之前检查整组名额、睡眠、在场与营业时段。"""
-        context = self._admission_context(state, pending.agent_id, self._control_names(pending))
-        items = [admission.selection_item(row, row["selected_action"]) for row in rows]
-        admission.require_group(context, items)
-        local = datetime.fromtimestamp(state.current_time, ZoneInfo(state.timezone))
-        for row in rows:
-            action = row["selected_action"]["action"]
-            if row["kind"] == "location" and action in {"sleep", "interact"}:
-                location = self.context.catalog.locations[row["object_id"]]
-                if not location.is_open(local):
-                    _LOGGER.error("Location is closed")
-                    raise BusinessRuleError("LOCATION_CLOSED")
-                if action == "sleep" and row["object_id"] != self.context.inputs.home_location_id:
-                    _LOGGER.error("Sleep target is not the agent home")
-                    raise BusinessRuleError("ACTIVITY_PRECONDITION_UNMET")
-        self._require_purchase_group(state, pending, rows)
-
-    def _require_purchase_group(self, state: WorldState, pending: PendingAction, rows: list[dict]) -> None:
-        """@brief 派发前按真实停留点报价，核对到店在场与购买加出行的合计费用。"""
-        goods_ids = tuple(row["object_id"] for row in rows if row["selected_action"]["action"] == "purchase")
-        if not goods_ids:
-            return
-        groups, total = quoted_basket(self.context.inputs, state, pending.agent_id, goods_ids)
-        travel = next((row for row in rows if row["selected_action"]["action"] in TRAVEL_ACTIONS), None)
-        if travel is None:
-            return
-        if any(offer.fulfillment == "pickup" for offers in groups.values() for offer in offers):
-            _LOGGER.error("Local purchase cannot be admitted with departure")
-            raise Refusal("ACTIVITY_PRECONDITION_UNMET", "A local purchase cannot start with departure.",
-                          "Complete or conclude the local purchase before leaving.").error()
-        origin = state.agents[pending.agent_id].location_id
-        if travel["object_id"] == origin:
-            _LOGGER.error("Travel destination is already the current location")
-            raise BusinessRuleError("ACTIVITY_PRECONDITION_UNMET")
-        mode = TravelMode(TRAVEL_ACTION_MODES[travel["selected_action"]["action"]])
-        trip = plan_trip(self.context.catalog.graph, origin, travel["object_id"], mode,
-                         current_weather_factor(state))
-        account = state.agents[pending.agent_id].balance_account_id
-        if state.accounts[account] < total + trip.fare_fen:
-            _LOGGER.error("Combined purchase and travel admission failed: insufficient funds")
-            raise BusinessRuleError("INSUFFICIENT_FUNDS")
-
-    def _start_travel(self, state: WorldState, pending: PendingAction, row: dict) -> WorldState:
-        """@brief 受理行程冻结天气、路线和车费，出发时只付款一次。"""
-        action = row["selected_action"]["action"]
-        agent = state.agents[pending.agent_id]
-        if row["object_id"] == agent.location_id:
-            _LOGGER.error("Travel destination is already the current location")
-            raise BusinessRuleError("ACTIVITY_PRECONDITION_UNMET")
-        mode = TravelMode(TRAVEL_ACTION_MODES[action])
-        factor = current_weather_factor(state)
-        trip = plan_trip(self.context.catalog.graph, agent.location_id, row["object_id"], mode, factor)
-        changed, receipt = pay_travel_fare(state, pending.agent_id, trip)
-        params = ActivityStartParams(action, trip.duration_seconds, row["object_id"], mode,
-                                     travel_activity_data(trip, factor))
-        for account, change in receipt["resource_changes"].items():
-            self.pending_resource_changes[account] = self.pending_resource_changes.get(account, 0) + change
-        return self._start(changed, pending, params, f"{ACTION_LABELS[action]}前往{row['object']}")
-
-    def _start(self, state: WorldState, pending: PendingAction, params: ActivityStartParams,
-               label: str) -> WorldState:
-        """@brief 登记一项引擎确定的活动并使用真实开始时刻命名。"""
-        agent, activity = start_activity(state.agents[pending.agent_id], params, state.current_time,
-                                         _activity_origin(state, pending), self.context.body)
-        name = activity_control.activity_name(label, "", state.current_time, state.timezone)
-        activity = schedule_feedback(activity.model_copy(update={"name": name}), state.current_time,
-                                     self.context.config.activity_feedback_seconds)
-        return _put_activity(state, agent, activity)
-
-    def _dispatch_start(self, state: WorldState, pending: PendingAction, row: dict) -> WorldState:
-        """@brief 七个固定动作直接派发，不保留旧动作目录或路由层。"""
-        action = row["selected_action"]["action"]
-        if action in TRAVEL_ACTIONS:
-            return self._start_travel(state, pending, row)
-        if action == "sleep":
-            duration = min(86400, round(state.agents[pending.agent_id].body.sleep_need_hours * 3600))
-            return self._start(state, pending, ActivityStartParams(action, duration), "睡觉")
-        from worldmock.life.interact import InteractivityRuntime
-
-        changed, activity, drafts = InteractivityRuntime(self.context).start(
-            state, pending, row["kind"], row["object_id"])
-        self.pending_event_drafts.extend(drafts)
-        return changed
-
-    def _start_activity(self, state: WorldState, pending: PendingAction,
-                        rows: list[dict]) -> tuple[WorldState, ActionResult]:
-        """@brief 所有准入完成后才真实派发，购买项先组成单个购买过程。"""
-        self._require_start(state, pending, rows)
-        travel = next((row for row in rows if row["selected_action"]["action"] in TRAVEL_ACTIONS), None)
-        changed = state
-        if travel is not None:
-            changed = sessions.begin_transit(changed, pending.agent_id, travel["object_id"],
-                place_names(self.context.catalog), opened_by_action_id=pending.action_id)
-        purchase_ids = [row["object_id"] for row in rows if row["selected_action"]["action"] == "purchase"]
-        if purchase_ids:
-            changed, activity = self.storefront.prepare_purchase(changed, pending, purchase_ids)
-        for row in rows:
-            if row["selected_action"]["action"] != "purchase":
-                changed = self._dispatch_start(changed, pending, row)
-        created = [key for key in changed.activities if key not in state.activities]
-        session = sessions.current_session(changed, pending.agent_id)
-        changed = sessions.assign(changed, session.session_id, created)
-        activities = [changed.activities[key] for key in created]
-        activity_id = created[0] if len(created) == 1 else None
-        from worldmock.life.action_evidence import start_orders
-        index = title_index(self.context.catalog)
-
-        result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
-            status=ActionStatus.IN_PROGRESS, occurred_at=state.current_time, activity_id=activity_id,
-            message="Activities started", data={"activities": [activity_snapshot(item, index) for item in activities],
-                                                 "orders": start_orders(state, changed, activities)})
-        app_id = next((item.data["app_id"] for item in activities if item.kind == ActivityKind.INTERACT), None)
-        if app_id is not None:
-            result.data["goods"] = app_goods(self.context.inputs, changed, pending.agent_id, app_id)
-        return changed, result
-
-    def dispatch(self, state: WorldState, pending: PendingAction) -> tuple[WorldState, ActionResult]:
-        """@brief 严格请求在独立副本中执行，任何拒绝都回滚整组。"""
-        model = REQUEST_MODELS.get(pending.tool_name)
-        if model is None or pending.tool_name == "recall_task_summary":
+        :param group: 同一决策的已登记动作：一条世界请求，或两个开始工具各一条的开始组。
+        """
+        tools = [pending.tool_name for pending in group]
+        if any(tool not in REQUEST_MODELS or tool == "recall_task_summary" for tool in tools):
             _LOGGER.error("Read-only or unknown tool reached world dispatch")
             raise BusinessRuleError("ACTION_REQUEST_INVALID")
+        changed = state.model_copy(deep=True)
+        self.resource_changes.clear()
+        if all(tool in START_TOOLS for tool in tools):
+            return self.starts.dispatch(changed, group)
+        changed, result = self._control(changed, group[0])
+        return changed, [result]
+
+    def _control(self, changed: WorldState, pending: PendingAction) -> tuple[WorldState, ActionResult]:
+        """@brief 控制请求按请求形状、待收尾、同刻阶段的次序复核后交给各自的处理器。"""
+        model = REQUEST_MODELS[pending.tool_name]
         try:
             request = model.model_validate(pending.request)
         except ValidationError as error:
             _LOGGER.error("Tool request validation rejected: %s", pending.tool_name)
             report = argument_report(pending.tool_name, error, model, pending.request, "ACTION_REQUEST_INVALID")
             raise Refusal("ACTION_REQUEST_INVALID", report.reason, fix=report.fix or "", items=report.items).error()
-        changed = state.model_copy(deep=True)
-        self.pending_resource_changes.clear()
         waiting = activity_control.pending_conclusions(changed, pending.agent_id)
         if waiting and pending.tool_name != "conclude_activity":
             raise activity_control.conclusion_required(waiting, self._control_names(pending))
-        if pending.tool_name == "start_activity":
-            rows = self._start_selection(pending, request)
-            kind = "start"
-        else:
-            rows = []
-            named = (self._activities_for_names(changed, pending, [item.activity_name for item in request.items])
-                     if pending.tool_name != "revise_day_plan" else [])
-            kind = same_moment.request_kind(pending.tool_name, (), named,
-                frozenset(item.activity_id for item in waiting))
+        named = (self._activities_for_names(changed, pending, [item.activity_name for item in request.items])
+                 if pending.tool_name != "revise_day_plan" else [])
+        kind = same_moment.request_kind(pending.tool_name, named, frozenset(item.activity_id for item in waiting))
         same_moment.require_stage_action(changed.agents[pending.agent_id].same_moment_stage, kind)
-        if pending.tool_name == "start_activity":
-            return self._start_activity(changed, pending, rows)
         handlers = {"report_status": self._report_status, "pause_activity": self._pause_activity,
                     "conclude_activity": self._conclude_activity, "revise_day_plan": self._revise_day_plan}
         return handlers[pending.tool_name](changed, pending, request)

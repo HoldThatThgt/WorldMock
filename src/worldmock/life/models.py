@@ -7,8 +7,9 @@ from worldmock.base_models import StrictModel, FrozenModel
 from worldmock.errors import IntegrityError
 import logging
 import re
-import unicodedata
-from worldmock.life.action_contract import ACTIVITY_ACTIONS, ActivityAction, activity_slot
+from worldmock.life.action_contract import (ACTIVITY_ACTIONS, MAIN_ACTIVITY_ACTIONS, SIDE_ACTIVITY_ACTIONS,
+                                             START_TOOLS, TRAVEL_ACTIONS, activity_slot)
+from worldmock.life.sleep_plan import parse_sleep_minutes
 from datetime import date
 from enum import StrEnum
 from collections.abc import Callable, Sequence
@@ -24,13 +25,8 @@ from worldmock.life.schedule import MAX_PLAN_GOALS, PLAN_GOAL_MAX_CHARS, DayPlan
 # 世界状态以调度基础层的预排事件模型保存未来边界。
 from worldmock.scheduling.events import ScheduledEvent
 
-#: 世界状态结构版本：版本不符的检查点与导出直接拒绝，不迁移；版本 6 引入三级结构（Task→Session→Activity）与
-#: WorldState.sessions；版本 7（docs/design/04-simulation-engine.md「仍须修复」）起活动快照 location_id
-#: 固定为开始地点；
-#: 版本 8（docs/design/06-agent.md「版本」）新增 SessionState.opened_by_action_id 与
-#: ActivityState.paused_at，观察改为七层数据；版本 9（docs/design/04-simulation-engine.md ）新增只存未完成个人事务的
-#: AgentState.errands。
-WORLD_SCHEMA_VERSION = 12
+#: 世界状态结构版本：版本不符的检查点与导出直接拒绝，不迁移。
+WORLD_SCHEMA_VERSION = 13
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -298,9 +294,8 @@ class SameMomentStage(StrEnum):
     """@brief 同刻受限轮阶段闭集（docs/design/04-simulation-engine.md「规则」3 与「实现约定」）。
 
     未达同刻上限时为 open；达到上限后每个受限轮只开放一类动作，阶段依赖上一受限轮的结果，时钟推进复位为 open。
-    暂停的活动不占名额以后，阶梯不再按名额分流：resume_or_conclude 与 conclude_only 留在闭集中（世界结构版本仍为 9），
-    现行阶梯不再进入它们（docs/design/04-simulation-engine.md R2）。
-    只开放等待的阶段随世界结构版本 8 删除（docs/design/06-agent.md「失败后强制等待与跨决策预算」）。
+    暂停的活动不占槽位，阶梯不按槽位分流：resume_or_conclude 与 conclude_only 留在闭集中，
+    现行阶梯不进入它们（docs/design/04-simulation-engine.md R2）。
     """
 
     OPEN = "open"
@@ -653,12 +648,12 @@ def _validate_session_collection(state: WorldState) -> None:
 
 
 def _expected_activity_claims(activity: ActivityState) -> set[str]:
-    """@brief 两个固定名额的占用只从真实动作恢复，不从环境加载。"""
+    """@brief 两个槽位的占用只从真实动作与所用内容 app 恢复，不从环境加载。"""
     action = activity.data.get("action")
-    if action not in ACTIVITY_ACTIONS:
+    if action not in ACTIVITY_ACTIONS and action not in TRAVEL_ACTIONS:
         _LOGGER.error("Activity action is missing or unknown")
         raise ValueError("Activity action is missing or unknown")
-    return {activity_slot(action)}
+    return {activity_slot(action, activity.data.get("app_id"))}
 
 
 class ChangeActivityRequest(FrozenModel):
@@ -751,31 +746,62 @@ class ReviseDayPlanRequest(ToolRequestModel):
         return _validate_plan_goals(goals, cls.__name__)
 
 
-class ActivityRequestItem(ToolRequestModel):
-    """@brief 人物只声明动作与显示名称目标。"""
+def _cross_errors(model_name: str, problems: list[tuple[str, Any, str]]) -> ValidationError:
+    """@brief 把交叉约束的各条违背写成逐字段定位的校验错误：（字段，所写原值，英文原因）各一条。"""
+    _LOGGER.error("Start request violates its cross-field constraints")
+    return ValidationError.from_exception_data(model_name, [
+        {"type": "value_error", "loc": (field,), "input": written, "ctx": {"error": ValueError(reason)}}
+        for field, written, reason in problems])
 
-    action: str = Field(pattern=r"\S")
-    target: str = Field(pattern=r"\S")
+
+class StartMainActivityRequest(ToolRequestModel):
+    """@brief 开始一项占槽位 1 的活动：出行、在当前地点做一件事，或睡觉。"""
+
+    action: Literal[MAIN_ACTIVITY_ACTIONS] = Field(
+        description="做什么：travel 出行，interact 在当前地点做一件事，sleep 睡觉。")
+    target: str = Field(pattern=r"\S", description=(
+        "travel 写目的地地点的完整名称；interact 写当前所在地点的完整名称；sleep 写要睡的分钟数，只写数字，例如 470。"))
+    detail: Annotated[str, Field(pattern=r"\S")] | None = Field(description=(
+        "travel 写出行方式的名称，照工具层该目的地下列出的写；interact 写要做的那件事的名称，"
+        "照工具层当前地点下列出的写；sleep 写 null。"))
+
+    @model_validator(mode="after")
+    def validate_action_arguments(self) -> "StartMainActivityRequest":
+        """@brief 出行与做事必须写 detail；睡眠的 target 是 10 到 720 的分钟数、detail 必须为 null，各条违背各报一条。"""
+        problems: list[tuple[str, Any, str]] = []
+        if self.action != "sleep":
+            if self.detail is None:
+                problems.append(("detail", None, f"detail is required when action is {self.action}"))
+        else:
+            try:
+                parse_sleep_minutes(self.target)
+            except ValueError as error:
+                problems.append(("target", self.target, str(error)))
+            if self.detail is not None:
+                problems.append(("detail", self.detail, "detail must be null when action is sleep"))
+        if problems:
+            raise _cross_errors(type(self).__name__, problems)
+        return self
 
 
-class StartActivityRequest(ToolRequestModel):
-    """@brief 一至两项不同目标原子受理，所有自动选择由环境负责。"""
+class StartSideActivityRequest(ToolRequestModel):
+    """@brief 开始一项占槽位 2 的活动：购买商品，或使用一个内容 app。"""
 
-    items: Annotated[list[ActivityRequestItem], WithJsonSchema(
-        {"type": "array", "items": ActivityRequestItem.model_json_schema(mode="validation")})]
+    action: Literal[SIDE_ACTIVITY_ACTIONS] = Field(description="做什么：purchase 购买商品，interact 使用内容 app。")
+    target: list[Annotated[str, Field(pattern=r"\S")]] = Field(description=(
+        "名称数组。purchase 逐份写商品的完整名称，同一个名称写两次就是两份；interact 只写一个内容 app 的完整名称。"))
 
-    @field_validator("items")
-    @classmethod
-    def validate_items(cls, items: list[ActivityRequestItem]) -> list[ActivityRequestItem]:
-        """@brief 批次不得超过两项，同一显示名称标准化后不可重复。"""
-        if not 1 <= len(items) <= 2:
-            _LOGGER.error("Start activity requires one or two items")
-            raise ValueError("Start activity requires one or two items")
-        targets = ["".join(unicodedata.normalize("NFKC", item.target).split()) for item in items]
-        if len(set(targets)) != len(targets):
-            _LOGGER.error("Start activity repeats a target")
-            raise ValueError("Start activity repeats a target")
-        return items
+    @model_validator(mode="after")
+    def validate_target_count(self) -> "StartSideActivityRequest":
+        """@brief 名称数组至少一项；用内容 app 时恰好一项；购买不设上限并允许同名重复。每条违背各报一条。"""
+        problems = []
+        if not self.target:
+            problems.append(("target", self.target, "target requires at least one name"))
+        if self.action == "interact" and len(self.target) != 1:
+            problems.append(("target", self.target, "target takes exactly one app name when action is interact"))
+        if problems:
+            raise _cross_errors(type(self).__name__, problems)
+        return self
 
 
 class RecallTaskSummaryRequest(ToolRequestModel):
@@ -956,7 +982,7 @@ class ReportStatusRequest(ToolRequestModel):
 
 
 class PauseActivityRequest(ToolRequestModel):
-    """@brief 逐项写下人物自述并暂停所选进行中活动；暂停让出名额，恢复要有空名额，路上的活动不能暂停（一项一个对象）。
+    """@brief 逐项写下人物自述并暂停所选进行中活动；暂停让出槽位，恢复要有空槽位，路上的活动不能暂停（一项一个对象）。
 
     :param items: 本次暂停的一至两项，每项写活动名与进展自述。
     :param errands: 请求级的个人事务变更，零至四条（docs/design/04-simulation-engine.md ）。
@@ -1088,7 +1114,7 @@ class ActivityConclusionItem(ToolRequestModel):
 
 
 class ConcludeActivityRequest(ToolRequestModel):
-    """@brief 逐项写下总结、记忆与看法并结束所选活动（进行中、暂停中或刚结束待收尾），进行中与待收尾的结束后释放名额；一项一个对象
+    """@brief 逐项写下总结、记忆与看法并结束所选活动（进行中、暂停中或刚结束待收尾），进行中与待收尾的结束后释放槽位；一项一个对象
     （docs/design/04-simulation-engine.md）。
 
     :param items: 本次结束的一至两项；全部项的 memories 与 views 合计不超过八条。
@@ -1120,7 +1146,7 @@ class ConcludeActivityRequest(ToolRequestModel):
 
 
 ActionRequest = Annotated[
-    StartActivityRequest | RecallTaskSummaryRequest |
+    StartMainActivityRequest | StartSideActivityRequest | RecallTaskSummaryRequest |
     ReportStatusRequest | PauseActivityRequest | ConcludeActivityRequest |
     ReviseDayPlanRequest,
     Field(union_mode="left_to_right"),
@@ -1165,7 +1191,7 @@ def rejection_reason_text(error: Exception) -> str:
 
 
 REQUEST_MODELS: dict[str, type[FrozenModel]] = {
-    "start_activity": StartActivityRequest,
+    **dict(zip(START_TOOLS, (StartMainActivityRequest, StartSideActivityRequest), strict=True)),
     "recall_task_summary": RecallTaskSummaryRequest,
     "report_status": ReportStatusRequest,
     "pause_activity": PauseActivityRequest,

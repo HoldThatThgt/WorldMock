@@ -14,6 +14,7 @@ REGISTRATION_REASONS = {
     "ENVIRONMENT_KIND_INVALID": "A declared kind is outside the fixed set.",
     "ENVIRONMENT_NUMBER_INVALID": "A declared number is outside its allowed domain.",
     "HOME_LOCATION_REQUIRED": "The environment must register the persona home as a home location.",
+    "HOME_NOT_SLEEPABLE": "The persona home must be marked sleepable.",
     "PARCEL_STATION_REQUIRED": "Parcel stations must exist when required and have location content.",
     "GOODS_BINDING_MISSING": "A goods item must be bound to at least one store kind or content app.",
     "GOODS_BINDING_SIDE_EXCLUSIVE": "A goods item must be bound either to store kinds or apps, not both.",

@@ -18,6 +18,7 @@ from __future__ import annotations
 from worldmock.footprints.intervals import valid_interval, body_settlements
 from worldmock.footprints.purchases import project_purchase_facts
 from worldmock.footprints.timeline_labels import local_day_bounds, window_days
+from worldmock.life.action_contract import START_TOOLS
 from worldmock.life.memory_evidence import valid_subjective_snapshot
 import math
 import statistics
@@ -44,8 +45,8 @@ UNREPORTED_CODE_KEY = "code_sha256_unreported"
 #: 各协议门禁缺失证据时的统一说明前缀。
 _NOT_PROVIDED = "未提供"
 
-#: 行动请求才开放的世界请求工具；带工具而没有它的请求（就寝反思）不是人物决策请求。
-_ACTION_TOOL = "start_activity"
+#: 行动请求才开放的世界请求工具（start_main_activity）；带工具而没有它的请求（就寝反思）不是人物决策请求。
+_ACTION_TOOL = START_TOOLS[0]
 
 
 def behavior_metrics_report(
@@ -139,7 +140,7 @@ def _request_tool_names(request: Any) -> list[str]:
 
 def _decision_model_requests(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """@brief 取人物决策的模型请求事件：排除任一带 purpose 的系统请求（工作验收、零点计划 plan_day）；带工具的请求
-    只在工具中有 start_activity 时计入，所以只带 submit_reflection 的就寝反思及其校验重试不计，不带工具的记忆巩固
+    只在工具中有 start_main_activity 时计入，所以只带 submit_reflection 的就寝反思及其校验重试不计，不带工具的记忆巩固
     照计（docs/design/07-evaluation.md 「身份与判定」）。"""
     selected = []
     for event in events:

@@ -11,27 +11,19 @@ from worldmock.life.sessions import current_session
 
 @dataclass(frozen=True)
 class ContentRequest:
-    """@brief 唯一人物点名的容器与本次实际活动。"""
+    """@brief 唯一人物点名的内容 app 与本次实际活动；地点内容由人物点名单元，不经这里挑选。"""
     #: 实际消费内容的人物。
     agent_id: int
-    #: 已解析的 app 或地点。
-    target_kind: str
-    #: 已登记的容器身份。
-    target_id: str
+    #: 已登记的内容 app 身份。
+    app_id: str
     #: 开始或接续的活动；生成推送时为空。
     activity_id: str | None = None
     #: 接续时刚完成的内容。
     previous_content_id: str | None = None
 
 def eligible_contents(catalog: Catalog, state: WorldState, request: ContentRequest) -> tuple[Content, ...]:
-    """@brief app 与地点类型候选互不借用，不再过滤工作指派或类别。"""
-    if request.target_kind == "app":
-        ids = catalog.contents_by_app.get(request.target_id, ())
-    elif request.target_kind == "location" and state.agents[request.agent_id].location_id == request.target_id:
-        ids = catalog.contents_by_location_kind.get(catalog.locations[request.target_id].kind, ())
-    else:
-        return ()
-    return tuple(catalog.contents[key] for key in sorted(ids))
+    """@brief 内容 app 的候选只来自它自己绑定的内容，不再过滤工作指派或类别。"""
+    return tuple(catalog.contents[key] for key in sorted(catalog.contents_by_app.get(request.app_id, ())))
 
 def select_content(catalog: Catalog, state: WorldState, request: ContentRequest,
                    stream: Random) -> tuple[Content, str | None]:
@@ -49,7 +41,7 @@ def select_from_contents(contents: tuple[Content, ...], state: WorldState, reque
     if pinned is not None:
         return pinned
     agent = state.agents[request.agent_id]
-    units = _exclude_reserved(_content_units(contents), state, request)
+    units = _exclude_reserved(content_units(contents), state, request)
     unfinished = _unfinished_content(units, agent)
     if unfinished is not None:
         return unfinished, None
@@ -57,28 +49,26 @@ def select_from_contents(contents: tuple[Content, ...], state: WorldState, reque
                and any(_rounds(agent, item) > _unit_round(unit, agent) for item in unit)]
     if started:
         unit = min(started, key=lambda unit: (-max(_last_consumed(agent, item) for item in unit),
-                                             _representative(unit, agent).content_id))
-        return _representative(unit, agent), None
+                                             representative(unit, agent).content_id))
+        return representative(unit, agent), None
     unseen = [unit for unit in units if all(_last_consumed(agent, item) < 0 for item in unit)]
     minimum = min(_unit_round(unit, agent) for unit in units)
     candidates = unseen or [unit for unit in units if _unit_round(unit, agent) == minimum]
-    representatives = sorted((_representative(unit, agent) for unit in candidates), key=lambda item: item.content_id)
+    representatives = sorted((representative(unit, agent) for unit in candidates), key=lambda item: item.content_id)
     return representatives[stream.randrange(len(representatives))], None
 
-def content_duration_range(inputs, state: WorldState, agent_id: int,
-                           target_kind: str, target_id: str) -> tuple[int, int] | None:
-    """@brief 查询不抽样，优先显示推送或未完成余量，否则显示全长范围。"""
+def content_duration_range(inputs, state: WorldState, agent_id: int, app_id: str) -> tuple[int, int] | None:
+    """@brief 内容 app 的查询不抽样，优先显示推送或未完成余量，否则显示全长范围。"""
     catalog = inputs.catalog
-    request = ContentRequest(agent_id, target_kind, target_id)
+    request = ContentRequest(agent_id, app_id)
     contents = eligible_contents(catalog, state, request)
     if not contents:
-        app = catalog.apps.get(target_id) if target_kind == "app" else None
-        duration = None if app is None else app.browse_duration_seconds
+        duration = catalog.apps[app_id].browse_duration_seconds
         return None if duration is None else (duration, duration)
     agent = state.agents[agent_id]
     pinned = _pinned_content(contents, state, request)
     item = pinned[0] if pinned is not None else _unfinished_content(
-        _exclude_reserved(_content_units(contents), state, request), agent)
+        _exclude_reserved(content_units(contents), state, request), agent)
     if item is not None:
         remaining = ceil(item.duration_seconds - _position(agent, item))
         return remaining, remaining
@@ -88,10 +78,8 @@ def content_duration_range(inputs, state: WorldState, agent_id: int,
 def _pinned_content(contents: tuple[Content, ...], state: WorldState,
                     request: ContentRequest) -> tuple[Content, str] | None:
     """@brief 读取当前会话中同应用同动作且未释放的推送，不改变其状态。"""
-    if request.target_kind != "app":
-        return None
     session = current_session(state, request.agent_id)
-    push = None if session is None else session.app_pushes.get(request.target_id)
+    push = None if session is None else session.app_pushes.get(request.app_id)
     if push is None or push.status == "released":
         return None
     item = next((content for content in contents if content.content_id == push.content_id), None)
@@ -100,12 +88,12 @@ def _pinned_content(contents: tuple[Content, ...], state: WorldState,
 
 def _unfinished_content(units: tuple[tuple[Content, ...], ...], agent: AgentState) -> Content | None:
     """@brief 取最近消费的未完成代表内容，时间并列时取最小内容身份。"""
-    items = [_representative(unit, agent) for unit in units]
+    items = [representative(unit, agent) for unit in units]
     unfinished = [item for item in items if _position(agent, item) > 0]
     return min(unfinished, key=lambda item: (-_last_consumed(agent, item), item.content_id)) if unfinished else None
 
 
-def _content_units(contents: tuple[Content, ...]) -> tuple[tuple[Content, ...], ...]:
+def content_units(contents: tuple[Content, ...]) -> tuple[tuple[Content, ...], ...]:
     """@brief 独立内容各自成单元，系列内各集按共同身份归为一个单元。"""
     series, singles = {}, []
     for item in contents:
@@ -130,14 +118,14 @@ def _exclude_reserved(units: tuple[tuple[Content, ...], ...], state: WorldState,
     session = current_session(state, request.agent_id)
     if session is not None:
         reserved.update(push.content_id for push in session.app_pushes.values() if push.status != "released")
-    remaining = tuple(unit for unit in units if _representative(unit, agent).content_id not in reserved)
+    remaining = tuple(unit for unit in units if representative(unit, agent).content_id not in reserved)
     if remaining:
         units = remaining
-    remaining = tuple(unit for unit in units if _representative(unit, agent).content_id != request.previous_content_id)
+    remaining = tuple(unit for unit in units if representative(unit, agent).content_id != request.previous_content_id)
     return remaining if remaining else units
 
 
-def _representative(unit: tuple[Content, ...], agent: AgentState) -> Content:
+def representative(unit: tuple[Content, ...], agent: AgentState) -> Content:
     """@brief 系列代表为最小轮数中的最低集，独立内容只有自身。"""
     return min(unit, key=lambda item: (_rounds(agent, item), item.series.episode if item.series is not None else 0,
                                       item.content_id))

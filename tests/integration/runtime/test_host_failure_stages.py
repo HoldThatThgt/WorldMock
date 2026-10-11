@@ -6,8 +6,12 @@
 
 其后追加的两例同样经真实引擎（上面所说的「末两例」排在它们之前）：失败阶段码不挑异常类型——不是 OSError 的工具服务
 失败照样先留日志再以 TOOL_SERVICE_FAILED 上抛；足迹库以 sqlite3 错误拒写请求证据或响应证据时以 EVIDENCE_WRITE_FAILED 上抛。
+
+开始组（同一次回复里两个开始工具各一次）的第二条世界请求登记失败在替身环境上经真实 ReAct 循环核对：失败阶段码指向
+第二条调用的真实位置，第一条已登记，不再请求模型。
 """
 
+import json
 import logging
 import os
 import sqlite3
@@ -18,11 +22,14 @@ import pytest
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
-from agentsociety2.agent.base import ModelCallEvidence, ReactDecision
+from agentsociety2.agent.base import ModelCallEvidence, ReactDecision, ReactLoopRequest
 from worldmock.agents.life_feedback import HostFeedback
-from tests.integration.runtime.test_life_agent_protocol import _Environment, _context, _prepared, _wire_agent
+from tests.integration.runtime.test_life_agent_protocol import (_Environment, _GroundedCorrectionDispatcher,
+                                                        _MultipleModelResponse, _WAIT_CHOICE, _WORK_CHOICE, _context,
+                                                        _observations, _prepared, _wire_agent)
 from tests.integration.runtime.test_strict_reflection import _waking_decision
 from tests.engine_fixture import (engine_factory)  # noqa: F401
+from tests.life.conftest import MAIN_TOOL, SIDE_TOOL
 from worldmock.life import prompt_capacity
 
 
@@ -100,6 +107,49 @@ async def test_tool_service_failure_points_to_real_call_without_claiming_executi
 def _fixed_context_window(monkeypatch) -> None:
     """脚本模型使用固定供应商窗口，不请求外部模型元数据。"""
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: metadata.context_window)
+
+
+class _SecondSubmitFails(_Environment):
+    """第一条世界请求照常登记并给出回执，第二条登记时环境服务以注入的异常失败。"""
+
+    def __init__(self, injected: Exception) -> None:
+        super().__init__()
+        self.injected = injected
+
+    async def submit_action(self, call):
+        """已经登记过一条之后的登记一律失败。"""
+        if self.calls:
+            raise self.injected
+        return await super().submit_action(call)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("order", [(MAIN_TOOL, SIDE_TOOL), (SIDE_TOOL, MAIN_TOOL)])
+async def test_second_start_call_service_failure_points_to_its_own_call(monkeypatch, caplog, order):
+    """开始组的两条世界请求按回复中的先后依次登记；第二条登记时环境抛出异常是运行故障：先留一条带异常链的英文 error
+    日志，再以 TOOL_SERVICE_FAILED 上抛，明细指向第二条调用的真实位置，原因是注入的异常对象。第一条已经登记（它不结算
+    由决策轮中止保证），宿主不声称第二条已登记，也不再请求模型。"""
+    _fixed_context_window(monkeypatch)
+    arguments = {MAIN_TOOL: _WAIT_CHOICE, SIDE_TOOL: _WORK_CHOICE}
+    injected = OSError("environment actor unavailable")
+    person, environment = _prepared(), _SecondSubmitFails(injected)
+    dispatcher = _GroundedCorrectionDispatcher(responses=[_MultipleModelResponse([
+        (f"call-{tool}", tool, json.dumps(arguments[tool], ensure_ascii=False)) for tool in order])])
+    _wire_agent(person, environment, dispatcher, 4, memory=False)
+
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as failure:
+        await person.run_react_loop(ReactLoopRequest(0, _context().observed_at, _observations()))
+
+    assert type(failure.value) is RuntimeError and failure.value.__cause__ is injected
+    feedback = failure.value.args[0]
+    assert isinstance(feedback, HostFeedback)
+    _assert_report(feedback.report.payload(), "TOOL_SERVICE_FAILED", ["tool_calls", 1])
+    assert [(call.action_id, call.tool_name) for call in environment.calls] == [("decision:action:0001", order[0])]
+    assert len(dispatcher.requests) == 1
+    records = [record for record in caplog.records if record.getMessage().startswith("LifeAgent tool dispatch failed")]
+    assert [(record.levelno, record.getMessage()) for record in records] == [
+        (logging.ERROR, f"LifeAgent tool dispatch failed: {order[1]}")]
+    assert records[0].exc_info[1] is injected
 
 
 def _agent_logs(caplog) -> list[tuple]:

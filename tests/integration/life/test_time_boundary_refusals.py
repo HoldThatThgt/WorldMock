@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from tests.life.conftest import advance_next, context, start_activity
+from tests.life.conftest import advance_next, context, sleep, use_app
 from tests.life.environment_runtime import act, events
 from worldmock.errors import ProtocolError
 from worldmock.life.rhythm import RhythmBoundary, _wake_snapshot, decide_engine_rhythm
@@ -40,7 +40,7 @@ def test_advance_rejects_an_inexact_boundary_without_touching_sleep(
     engine_factory, caplog, error
 ):
     engine = engine_factory()
-    _, started = act(engine, "sleep-before-invalid-advance", start_activity("sleep", "家"))
+    _, started = act(engine, "sleep-before-invalid-advance", sleep())
     assert started.status == "in_progress"
     scheduling = engine.scheduling_state()
     assert scheduling.ready_agent_ids == ()
@@ -80,7 +80,7 @@ def test_rhythm_moves_due_feedback_forward_without_restarting_a_real_activity(en
         config["activity_feedback_seconds"] = 60
 
     engine = engine_factory(mutate=feedback_interval)
-    _, started = act(engine, "feedback-source", start_activity("interact", "抖音"))
+    _, started = act(engine, "feedback-source", use_app("抖音"))
     assert started.status == "in_progress"
     original = engine.context.state.activities[started.activity_id]
     feedback_at = original.next_interaction_at
@@ -133,7 +133,7 @@ def test_configured_reconsideration_matches_the_real_next_boundary_and_wake(engi
         config["reconsideration_interval_seconds"] = interval
 
     engine = engine_factory(mutate=reconsideration)
-    _, started = act(engine, "reconsideration-source", start_activity("interact", "抖音"))
+    _, started = act(engine, "reconsideration-source", use_app("抖音"))
     assert started.status == "in_progress"
     agent = engine.context.state.agents[1]
     activity = engine.context.state.activities[started.activity_id]

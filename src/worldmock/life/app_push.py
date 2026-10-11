@@ -30,7 +30,7 @@ def issue_app_push(state: WorldState, event: ScheduledEvent, catalog: Catalog) -
         return state, {"kind": "app_push", "pushed": False, "session_id": session.session_id}
     stream = random_stream(state.random_state, event.scheduled_id)
     app_id = sorted(candidates)[stream.randrange(len(candidates))]
-    request = ContentRequest(event.agent_id, "app", app_id)
+    request = ContentRequest(event.agent_id, app_id)
     content, _ = select_from_contents(candidates[app_id], state, request, stream)
     push = AppPush(push_id=f"{event.scheduled_id}:{app_id}:{content.content_id}", content_id=content.content_id,
                    issued_at=event.due_at, status="pending")
@@ -48,7 +48,7 @@ def _push_candidates(state: WorldState, catalog: Catalog, agent_id: int) -> dict
     for app_id in sorted(catalog.apps):
         if app_id in session.app_pushes:
             continue
-        content = tuple(item for item in eligible_contents(catalog, state, ContentRequest(agent_id, "app", app_id))
+        content = tuple(item for item in eligible_contents(catalog, state, ContentRequest(agent_id, app_id))
                         if item.pushable)
         if content:
             candidates[app_id] = content

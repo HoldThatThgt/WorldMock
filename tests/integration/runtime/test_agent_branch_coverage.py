@@ -30,6 +30,7 @@ from tests.integration.runtime.test_life_agent_protocol import (
     _WAIT,
     _WAIT_CHOICE,
     _WORK,
+    _WORK_CHOICE,
     _add_objects,
     _context,
     _memory,
@@ -41,7 +42,7 @@ from tests.integration.runtime.test_life_agent_protocol import (
 )
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PAUSED
 from worldmock.life.models import ConclusionMemory, REQUEST_MODELS, RecallTaskSummaryRequest
-from tests.life.conftest import start_arguments, conclude_request
+from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, conclude_request, main_arguments, side_arguments
 
 
 def _prepared(data: dict | None = None, *, readonly: bool = False) -> LifeAgent:
@@ -159,7 +160,7 @@ def _empty_layer_observations() -> list[dict]:
 async def test_empty_interactive_layer_decision_continues_without_failure() -> None:
     """工具层没有目标时决策照常完成：不可见名称在本轮纠正，改为修订空计划后结束本轮。"""
     dispatcher = _GroundedCorrectionDispatcher(responses=[
-        _ModelResponse("call-unseen", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False)),
+        _ModelResponse("call-unseen", MAIN_TOOL, json.dumps(_WAIT_CHOICE, ensure_ascii=False)),
         _ModelResponse("call-revise", "revise_day_plan", '{"goals":[]}'),
     ])
     environment = _Environment()
@@ -176,15 +177,19 @@ async def test_empty_interactive_layer_decision_continues_without_failure() -> N
     action_responses = [item for item in environment.evidence if item.phase == "response"]
     assert len(action_responses) == 2
     assert "No known object" in action_responses[0].error
-    start = next(item["function"] for item in dispatcher.requests[0]["tools"]
-                 if item["function"]["name"] == "start_activity")
-    properties = start["parameters"]["properties"]
-    for field in ("target", "action"):
-        assert "enum" not in properties["items"]["items"]["properties"][field]
+    unseen = action_responses[0].response["protocol_feedback"]["items"][0]
+    assert (unseen["error_code"], unseen["written"], unseen["candidates"]) == ("NAME_NOT_FOUND", "自己家", [])
+    assert unseen["path"] == ["tool_calls", 0, "function", "arguments", "target"]
+    offered = {item["function"]["name"]: item["function"] for item in dispatcher.requests[0]["tools"]}
+    assert json.dumps(offered) == json.dumps(_functions(_prepared()))
+    for tool, actions in ((MAIN_TOOL, ["travel", "interact", "sleep"]), (SIDE_TOOL, ["purchase", "interact"])):
+        properties = offered[tool]["parameters"]["properties"]
+        assert properties["action"]["enum"] == actions
+        assert all("enum" not in json.dumps(properties[field]) for field in properties if field != "action")
 
 
 _APP = "学课程"
-#: 受限轮与名额已满时环境给出的原因（工具层 reason 与私有绑定 note 同一文本）。
+#: 受限轮与槽位已满时环境给出的原因（工具层 reason 与私有绑定 note 同一文本）。
 _RESTRICTED = "同一时刻只能先开始或恢复一件事"
 _SLOTS_FULL = "两件事都在做，先结束一件"
 
@@ -202,11 +207,6 @@ def _restricted_data(stage: str) -> dict:
     return _with_activities(data, (_WORK, PHASE_ACTIVE), (_NEWS, PHASE_PAUSED))
 
 
-def _choice(target: str, action: str) -> dict:
-    """对一个对象选择一项「动词：方式」的 start_activity 参数。"""
-    return start_arguments([target], [action])
-
-
 def _conclusion(*names: str) -> dict:
     """点名活动结束的参数（一项一个对象，写自述，不写记忆与看法；没有个人事务变更）。"""
     return {"items": [{"activity_name": name, "summary": "先收尾。", "memories": [], "views": []} for name in names],
@@ -222,7 +222,8 @@ def test_restricted_rounds_do_not_narrow_the_host_tool_surface(stage: str) -> No
     本地校验，交给环境以同一原因业务拒绝。"""
     person = _prepared(_restricted_data(stage))
     assert json.dumps(_functions(person)) == json.dumps(_functions(_prepared()))
-    for decision in (_decision("start_activity", _choice(_APP, "interact")),
+    for decision in (_decision(SIDE_TOOL, side_arguments("interact", _APP)),
+                     _decision(MAIN_TOOL, _WAIT_CHOICE),
                      _decision("pause_activity", {"items": [{"activity_name": _WORK, "summary": "先停。"}],
                                                   "errands": []}),
                      _decision("report_status", {"items": [{"activity_name": _NEWS, "summary": "接着看。"}],
@@ -233,7 +234,7 @@ def test_restricted_rounds_do_not_narrow_the_host_tool_surface(stage: str) -> No
 
 
 def test_tool_visibility_uses_current_named_tasks_and_activities() -> None:
-    """八个人物工具整次运行都在，名称只按当前私有绑定核对；私有身份不进 Schema。"""
+    """七个请求工具整次运行都在，名称只按当前私有绑定核对；私有身份不进 Schema。"""
     data = copy.deepcopy(_observations()[0]["data"])
     _with_activities(data, (_WORK, PHASE_ACTIVE))
     person = _prepared(data)
@@ -253,24 +254,34 @@ def test_tool_visibility_uses_current_named_tasks_and_activities() -> None:
 
 
 def test_action_validation_rejects_unseen_object_wrong_action_and_second_action() -> None:
-    """对象、逐项动词与方式的闭集、三数组等长与单次动作限制在分派前执行。"""
+    """对象名、action 的闭集、对象提供的动作、多余字段与「登记即结束本次决策」的限制都在分派前执行。
+
+    两个开始工具各自通过、同批也通过；私有身份当对象名写找不到对象；闭集之外的 action 是参数错误，闭集之内但这个对象
+    在这个工具下不提供的动作是 ACTION_NOT_OFFERED；前一次回复已经登记过世界请求后，再来的开始请求或开始组都被拒。"""
     person = _prepared()
     _functions(person)
-    assert person.validate_react_decisions([_decision("start_activity", _WAIT_CHOICE)], False) == ""
-    assert "No known object" in person.validate_react_decisions([
-        _decision("start_activity", _choice("object-private", "interact")),
-    ], False)
-    for verb in ("wait", "travel", "obtain"):
-        assert "ACTION_NOT_OFFERED" in person.validate_react_decisions([
-            _decision("start_activity", _choice("自己家", verb)),
-        ], False)
+    main, side = _decision(MAIN_TOOL, _WAIT_CHOICE), _decision(SIDE_TOOL, _WORK_CHOICE)
+    for batch in ([main], [side], [main, side], [side, main]):
+        assert person.validate_react_decisions(batch, False) == ""
+    for unseen in (_decision(MAIN_TOOL, main_arguments("interact", "object-private", "歇一会儿")),
+                   _decision(SIDE_TOOL, side_arguments("interact", "work-visible"))):
+        assert "No known object" in person.validate_react_decisions([unseen], False)
+    for verb in ("wait", "obtain", "walk"):
+        error = person.validate_react_decisions([_decision(MAIN_TOOL, {**_WAIT_CHOICE, "action": verb})], False)
+        assert error.startswith("ARGUMENTS_INVALID: ") and "outside the declared allowed values" in error
+    for unsupported in (_decision(MAIN_TOOL, main_arguments("travel", "自己家", "步行")),
+                        _decision(SIDE_TOOL, side_arguments("purchase", _WORK_ACTION)),
+                        _decision(SIDE_TOOL, side_arguments("interact", "自己家")),
+                        _decision(MAIN_TOOL, main_arguments("interact", _WORK_ACTION, "歇一会儿"))):
+        assert person.validate_react_decisions([unsupported], False).startswith("ACTION_NOT_OFFERED: ")
     assert "not declared" in person.validate_react_decisions([
-        _decision("start_activity", {**_WAIT_CHOICE, "ways": ["等待", "睡觉"]}),
+        _decision(MAIN_TOOL, {**_WAIT_CHOICE, "ways": ["等待", "睡觉"]}),
     ], False)
+    for repeated in ([main, main], [side, side]):
+        assert "world request" in person.validate_react_decisions(repeated, False)
     person._life_action_count = 1
-    assert "world request" in person.validate_react_decisions([
-        _decision("start_activity", _WAIT_CHOICE),
-    ], False)
+    for later in ([main], [side], [main, side]):
+        assert "world request" in person.validate_react_decisions(later, False)
 
 
 @pytest.mark.asyncio
@@ -302,8 +313,11 @@ async def test_memory_dispatch_returns_retry_feedback_and_hides_episode_identiti
 async def test_life_agent_host_guards_fail_closed_on_unprepared_or_wrong_state() -> None:
     """宿主调用越界时明确失败：只读模式不提交世界请求，未知工具不分派（宿主内部错误，不是人物可触发的业务情形）。"""
     person = _prepared()
-    with pytest.raises(RuntimeError, match="disabled in readonly mode"):
-        await person.dispatch_react_tool("start_activity", _WAIT_CHOICE, readonly=True)
+    for tool, arguments in ((MAIN_TOOL, _WAIT_CHOICE), (SIDE_TOOL, _WORK_CHOICE)):
+        with pytest.raises(RuntimeError, match="disabled in readonly mode"):
+            await person.dispatch_react_tool(tool, arguments, readonly=True)
+    with pytest.raises(RuntimeError, match="Unsupported LifeAgent tool dispatch: start_activity"):
+        await person.dispatch_react_tool("start_activity", _WAIT_CHOICE)
     with pytest.raises(RuntimeError, match="Unsupported LifeAgent tool dispatch"):
         await person.dispatch_react_tool("finish", {"answer": "不存在的生活决策结束工具"})
     with pytest.raises(RuntimeError, match="Unsupported LifeAgent tool dispatch"):
@@ -329,7 +343,8 @@ def test_tool_messages_follow_memory_queries_only() -> None:
     """记忆查询结果只序列化一次写进 tool 消息，失败写 {"error": 原因}；世界请求登记不追加任何消息；缺调用身份即失败。"""
     person = _prepared()
     person._react_messages = []
-    person._append_react_tool_result(_decision("start_activity", _WAIT_CHOICE), ReactToolResult(True, "{}", {}))
+    for tool, arguments in ((MAIN_TOOL, _WAIT_CHOICE), (SIDE_TOOL, _WORK_CHOICE)):
+        person._append_react_tool_result(_decision(tool, arguments), ReactToolResult(True, "{}", {}))
     assert person._react_messages == []
     success = {"epistemic_status": "subjective", "episodes": []}
     person._append_react_tool_result(ReactDecision("", "memory_recent", {"limit": 1}, "", "call-1"),

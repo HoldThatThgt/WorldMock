@@ -414,7 +414,7 @@ RUN_IDENTITY_KEYS = frozenset({"run_id", "source_group_id", "source_run_ids"})
 _ACTION_REQUEST = ("json_extract(body,'$.event_type')='model_request' AND json_extract(body,'$.data.purpose') IS NULL "
                    "AND json_extract(body,'$.data.request.extra_body.thinking.type')='enabled' AND EXISTS "
                    "(SELECT 1 FROM json_each(body,'$.data.request.tools') "
-                   "WHERE json_extract(value,'$.function.name')='start_activity')")
+                   "WHERE json_extract(value,'$.function.name')='start_main_activity')")
 
 
 def _message(response: dict | None) -> dict:
@@ -697,7 +697,7 @@ def cmd_workday(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
 QUERY_REPORT_KEYS = ("run_id", "calls", "failures", "returned_chars", "filtered_calls", "empty_after_filter",
                      "model_calls_to_purchase", "reflection_retries")
 #: 被计量的查询工具；决策循环请求开放的世界请求工具；就寝反思唯一的严格工具。
-QUERY_TOOL, DECISION_TOOL, REFLECTION_TOOL = "query_world", "start_activity", "submit_reflection"
+QUERY_TOOL, DECISION_TOOL, REFLECTION_TOOL = "query_world", "start_main_activity", "submit_reflection"
 #: 就寝反思原始请求的消息条数（AS2 的 system 与 user 两条）；校验重试在其后附一条 user 附回消息，不逐次累积。
 REFLECTION_ORIGINAL_MESSAGES = 2
 #: 模型响应（phase=response）第一条选择里名为 query_world 的工具调用：（响应序号，人物，决策，起因请求，调用身份，参数）。
@@ -785,7 +785,7 @@ def _calls_to_purchase(calls: list[dict], requests: list[tuple], purchases: list
     """@brief 从首次查询到购买结算的模型调用数。
 
     取全运行第一个 query_world 调用：其人物 A 与产生该响应的请求 R；取 A 在 R 之后的第一笔购买结算；计 A 在 R（含）
-    到该结算（不含）之间开放了 start_activity 的模型请求（决策循环的请求，含协议纠错与截断重试；就寝反思、零点计划与
+    到该结算（不含）之间开放了 start_main_activity 的模型请求（决策循环的请求，含协议纠错与截断重试；就寝反思、零点计划与
     工作验收不算）。没有查询、找不到 R 或其后没有 A 的购买结算时为 None。
     """
     if not calls:

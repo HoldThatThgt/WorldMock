@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from worldmock.footprints.models import EventDraft
 import logging
 from worldmock.errors import ProtocolError
+from worldmock.life.action_contract import START_TOOLS
 from worldmock.life.error_contract import NAME_REJECTION_CODES
 from worldmock.life.guidance import Refusal, refusal_for_code
 from worldmock.life.models import (ActionStatus, ActivityState, ActivityStatus, AgentState,
@@ -109,7 +110,7 @@ def next_stage(outcome: RoundOutcome) -> SameMomentStage:
     """@brief 本轮之后的受限轮阶段（规则 3）。
 
     未达上限保持 open；达到上限后有待收尾活动只开放收尾（conclude_pending）；有进行中活动且没有待收尾时不再进入受限轮，
-    阶段保持不变直到时钟推进复位；否则（没有进行中与待收尾的活动，两个名额都空着）一律开始或恢复（start_or_resume），
+    阶段保持不变直到时钟推进复位；否则（没有进行中与待收尾的活动，两个槽位都空着）一律开始或恢复（start_or_resume），
     开始或恢复被拒后留在这一阶段。
     """
     agent = outcome.agent
@@ -167,18 +168,16 @@ def exhausted_event(outcome: RoundOutcome, error_code: str | None) -> EventDraft
     )
 
 
-def request_kind(tool_name: str, canonical_actions: Sequence[str], named: Sequence[ActivityState],
-                 pending_ids: frozenset[str]) -> str:
+def request_kind(tool_name: str, named: Sequence[ActivityState], pending_ids: frozenset[str]) -> str:
     """@brief 受限轮复核的请求类（引擎解析名称与对象后传入，宿主收窄与引擎复核用同一口径）。
 
-    :param tool_name: 世界请求工具名。
-    :param canonical_actions: start_activity 各项的内部标准动作（其他工具为空）。
+    :param tool_name: 世界请求工具名；两个开始工具的请求类都是 start。
     :param named: report_status、conclude_activity 点名的权威活动（其他工具为空）。
     :param pending_ids: 人物当前全部待收尾活动身份。
     :returns: start（开始持续活动）、resume（只恢复暂停活动）、
               conclude_pending（只点名待收尾活动，全部或其中几项）、conclude（只结束能结束的活动）或 other。
     """
-    if tool_name == "start_activity":
+    if tool_name in START_TOOLS:
         return "start"
     if tool_name == "report_status":
         return "resume" if named and all(item.status == ActivityStatus.PAUSED for item in named) else "other"
@@ -221,12 +220,18 @@ def refusal_pulse_key(error_code: str) -> str | None:
 
 
 def _second_rejections(state: WorldState, agent_id: int) -> list[str | None]:
-    """@brief 本人在当前模拟秒已结算的业务拒绝码（依据已存的动作结果，按结算先后；重放不另存结果）。"""
-    return [stored.result.get("error_code") for stored in state.processed_actions.values()
-            if stored.result is not None
-            and stored.result.get("agent_id") == agent_id
-            and stored.result.get("occurred_at") == state.current_time
-            and stored.result.get("status") == ActionStatus.REJECTED.value]
+    """@brief 本人在当前模拟秒已结算的业务拒绝码（依据已存的动作结果，按结算先后；重放不另存结果）。
+
+    按组计：同一决策的两条开始动作被拒时内容相同，只取一次。
+    """
+    codes: dict[str, str | None] = {}
+    for stored in state.processed_actions.values():
+        result = stored.result
+        if (result is not None and result.get("agent_id") == agent_id
+                and result.get("occurred_at") == state.current_time
+                and result.get("status") == ActionStatus.REJECTED.value):
+            codes.setdefault(stored.receipt["decision_id"], result.get("error_code"))
+    return list(codes.values())
 
 
 def latest_rejection_code(state: WorldState, agent_id: int) -> str | None:

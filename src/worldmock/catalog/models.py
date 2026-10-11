@@ -69,7 +69,7 @@ class OpeningHours(DeepFrozenModel):
 
 
 class Location(DeepFrozenModel):
-    """@brief 显式地点、住宿与驿站资格以及内容 app 绑定。"""
+    """@brief 显式地点、住宿、驿站与可睡资格以及内容 app 绑定。"""
 
     location_id: NonEmptyString
     name: NonEmptyString
@@ -78,6 +78,7 @@ class Location(DeepFrozenModel):
     app_ids: tuple[NonEmptyString, ...]
     is_home: StrictBool = False
     accepts_parcels: StrictBool = False
+    sleepable: StrictBool = False
     opens: OpeningHours | None = None
 
     @field_validator("opens", mode="before")

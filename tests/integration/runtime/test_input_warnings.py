@@ -3,7 +3,7 @@ from dataclasses import replace
 import json
 import pytest
 from tests.integration.runtime.current_contract_fixtures import inputs, compiled_persona
-from tests.life.conftest import stage_day_plan, start_activity, advance_next
+from tests.life.conftest import stage_day_plan, do_at, advance_next
 from tests.life.environment_runtime import act
 from tests.profile.conftest import make_card
 from worldmock.run_setup import creation_inputs
@@ -39,7 +39,7 @@ def test_actual_input_warnings_are_frozen_and_exported(engine_factory, tmp_path)
     engine = engine_factory(create_options={"input_warnings": warnings})
     assert engine.context.store.manifest["input_warnings"] == warnings
     stage_day_plan(engine)
-    act(engine, "content", start_activity("interact", "家"))
+    act(engine, "content", do_at("家", "测试休息"))
     advance_next(engine)
     export_run(engine.context.store, engine.context.store.last_event_seq, tmp_path / "export")
     quality = json.loads((tmp_path / "export/quality.json").read_text(encoding="utf-8"))

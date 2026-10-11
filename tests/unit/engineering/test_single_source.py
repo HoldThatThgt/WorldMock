@@ -76,9 +76,18 @@ OWNERS = {'base_models.py': ('StrictModel',
  'catalog/loader.py': ('load_catalog',),
  'input_models.py': ('LEGACY_TEMPLATE_FIELDS', 'BEDTIME_HORIZON_HOURS'),
  'life/action_contract.py': ('ACTIVITY_ACTIONS',
-                             'FIRST_SLOT_ACTIONS',
+                             'MAIN_ACTIVITY_ACTIONS',
+                             'SIDE_ACTIVITY_ACTIONS',
+                             'START_TOOLS',
                              'TRAVEL_ACTIONS',
-                             'TRAVEL_ACTION_MODES')}
+                             'TRAVEL_ACTION_MODES',
+                             'TRAVEL_ACTION_NAMES',
+                             'ACTION_LABELS',
+                             'activity_slot',
+                             'start_tool'),
+ 'life/sleep_plan.py': ('parse_sleep_minutes', 'SLEEP_MINUTES_MIN', 'SLEEP_MINUTES_MAX', 'SLEEP_MINUTES_REASON'),
+ 'life/location_activities.py': ('location_units', 'next_content', 'unit_facts', 'held_refusal'),
+ 'life/start_group.py': ('GROUP_REJECTION_SUFFIX', 'group_rejection', 'frozen_observation')}
 # 语义排除仅限普通 logger、Python 类型声明、不同类作用域的薄协议钩子与导入绑定。
 SEMANTIC_EXCLUSIONS = ('module logger', 'Python type declaration', 'thin decorated protocol hook', 'import binding')
 
@@ -159,12 +168,12 @@ def test_production_shared_rules_have_one_owner_and_no_business_clones():
 
 
 def test_observation_offers_only_current_actions_without_retired_resource_gate(engine_factory):
-    """@brief 真实观察只提供七种动作，活动工具不附加退役资源门。"""
+    """@brief 真实观察只提供四个现行动作，活动工具不附加退役资源门。"""
     engine = engine_factory()
     from tests.life.conftest import context
 
     data = engine.observe(context(engine, "actions"))
-    assert data["known_activity_actions"] == ["walk", "drive", "take_taxi", "take_bus", "purchase", "sleep", "interact"]
+    assert data["known_activity_actions"] == ["travel", "purchase", "sleep", "interact"]
     assert not {"affordance_contract", "game_boundary", "energy_projection"} & data.keys()
 
 

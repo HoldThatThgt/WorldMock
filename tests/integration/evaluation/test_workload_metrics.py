@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 from tests.engine_fixture import engine_factory  # noqa: F401
 from tests.life.conftest import (activity_name, advance_next, conclude_request, context,
-                                 report_request, start_activity)
+                                 MAIN_TOOL, SIDE_TOOL, report_request, travel, use_app)
 from agentsociety2.society import DirectToolCall
 from worldmock.life.models import ActivityStatus, active_activities
 from worldmock.life.activity_control import pending_conclusions
@@ -347,7 +347,7 @@ def _drive(engine, name, done):
                 tool, request = "report_status", report_request(
                     *(activity_name(engine, item.activity_id) for item in running), summary="继续。")
             else:
-                tool, request = "start_activity", start_activity("interact", "抖音")
+                tool, request = SIDE_TOOL, use_app("抖音")
             result = _decide(engine, f"{name}-{index}", tool, request)
             assert result.status in {"completed", "in_progress"}, result.error_code
         else:
@@ -364,7 +364,7 @@ def _decide_at(engine, moment):
 
 def _start_work(engine, name):
     """在工作地点使用真实应用；出勤报告不推断工作语义。"""
-    result = _decide(engine, name, "start_activity", start_activity("interact", "抖音"))
+    result = _decide(engine, name, SIDE_TOOL, use_app("抖音"))
     assert result.status == "in_progress", result.error_code
     return result
 
@@ -403,8 +403,7 @@ def _leave_on_duty_at_three(engine) -> None:
     home = _place(engine, "home")
     _decide_at(engine, _clock("08:00:00"))
     _empty_handed(engine, "stop-waiting")
-    assert _decide(engine, "commute", "start_activity",
-                   start_activity("walk", office)).status == "in_progress"
+    assert _decide(engine, "commute", MAIN_TOOL, travel(office)).status == "in_progress"
     _drive(engine, "to-office", lambda: engine.context.state.agents[1].location_id == "office")
     assert engine.context.state.current_time < _clock("09:00:00")
     _empty_handed(engine, "arrived")
@@ -412,8 +411,7 @@ def _leave_on_duty_at_three(engine) -> None:
     _decide_at(engine, _clock("15:00:00"))
     _empty_handed(engine, "stop-work")
     departure = engine.context.state.current_time
-    assert _decide(engine, "leave", "start_activity",
-                   start_activity("walk", home)).status == "in_progress"
+    assert _decide(engine, "leave", MAIN_TOOL, travel(home)).status == "in_progress"
     _decide_at(engine, _clock("18:30:00"))
     return departure
 
@@ -440,9 +438,8 @@ def _place(engine, location_id: str) -> str:
 
 
 def _walk_to(engine, name: str, location_id: str) -> None:
-    """此刻空手，经真实 start_activity 步行去 location_id，驱动到到达并收尾到达的那一程。"""
-    assert _decide(engine, name, "start_activity",
-                   start_activity("walk", _place(engine, location_id))).status == "in_progress"
+    """此刻空手，经真实 start_main_activity 步行去 location_id，驱动到到达并收尾到达的那一程。"""
+    assert _decide(engine, name, MAIN_TOOL, travel(_place(engine, location_id))).status == "in_progress"
     _drive(engine, f"to-{name}", lambda: engine.context.state.agents[1].location_id == location_id)
     _empty_handed(engine, f"arrived-{name}")
 
@@ -569,8 +566,7 @@ def test_a_real_trip_given_up_on_the_way_keeps_the_person_at_the_workplace(engin
     engine.register_day_plan(1, PlanDayRequest(goals=()), [], [])
     _decide_at(engine, _clock("08:00:00"))
     _empty_handed(engine, "stop-waiting")
-    assert _decide(engine, "commute", "start_activity",
-                   start_activity("walk", _place(engine, "office"))).status == "in_progress"
+    assert _decide(engine, "commute", MAIN_TOOL, travel(_place(engine, "office"))).status == "in_progress"
     _drive(engine, "to-office", lambda: engine.context.state.agents[1].location_id == "office")
     assert engine.context.state.current_time < _clock("09:00:00")
     _empty_handed(engine, "arrived")
@@ -578,8 +574,7 @@ def test_a_real_trip_given_up_on_the_way_keeps_the_person_at_the_workplace(engin
     _decide_at(engine, _clock("15:00:00"))
     _empty_handed(engine, "stop-work")
     departure = engine.context.state.current_time
-    assert _decide(engine, "leave", "start_activity",
-                   start_activity("walk", _place(engine, "home"))).status == "in_progress"
+    assert _decide(engine, "leave", MAIN_TOOL, travel(_place(engine, "home"))).status == "in_progress"
     _decide_at(engine, departure + 600)
     assert engine.context.state.agents[1].location_id == "office"
     away_seconds = engine.context.state.current_time - departure

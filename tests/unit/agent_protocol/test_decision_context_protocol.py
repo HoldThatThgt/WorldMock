@@ -31,6 +31,7 @@ from worldmock.agents.life_persona import persona_layer
 from worldmock.life.models import REQUEST_MODELS
 from worldmock.life import prompt_capacity
 from worldmock.life.narration import render_layer_json
+from tests.life.conftest import MAIN_TOOL, SIDE_TOOL
 
 
 @pytest.fixture(autouse=True)
@@ -49,11 +50,11 @@ def test_prompt_fingerprint_binds_every_formal_template(monkeypatch, layer: str)
     assert life_prompt.life_prompt_sha256() != original
 
 
-def test_tool_fingerprint_binds_start_activity_description(monkeypatch) -> None:
-    """@brief 工具用途说明变更会改变实际工具指纹。"""
+@pytest.mark.parametrize("tool", [MAIN_TOOL, SIDE_TOOL])
+def test_tool_fingerprint_binds_each_start_tool_description(monkeypatch, tool: str) -> None:
+    """@brief 两个开始工具任何一个的用途说明变更都会改变实际工具指纹。"""
     original = life_agent.life_tool_schema_sha256()
-    monkeypatch.setitem(life_prompt.TOOL_DESCRIPTIONS, "start_activity",
-                        life_prompt.TOOL_DESCRIPTIONS["start_activity"] + "改")
+    monkeypatch.setitem(life_prompt.TOOL_DESCRIPTIONS, tool, life_prompt.TOOL_DESCRIPTIONS[tool] + "改")
     assert life_agent.life_tool_schema_sha256() != original
 
 
@@ -78,7 +79,7 @@ class _ScriptedDispatcher:
 def _action_response() -> _ModelResponse:
     """@brief 返回带提供商思考字段的合法生活动作（世界请求登记即结束本轮）。"""
     return _ModelResponse(
-        "provider-action-call", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False),
+        "provider-action-call", MAIN_TOOL, json.dumps(_WAIT_CHOICE, ensure_ascii=False),
         reasoning_content="I intend to rest; the outcome is not known yet.")
 
 
@@ -117,11 +118,11 @@ async def test_followup_requests_hide_receipts_and_keep_memory_pairing_and_initi
         context.agent_id, context.observed_at, context.world_state_version)
     request = _request()
 
-    assert await agent.run_react_loop(request) == "start_activity registered"
+    assert await agent.run_react_loop(request) == f"{MAIN_TOOL} registered"
 
     assert len(environment.calls) == 1
     assert len(dispatcher.requests) == 3
-    host_receipt = next(item for item in request.observations if item["action"] == "start_activity")
+    host_receipt = next(item for item in request.observations if item["action"] == MAIN_TOOL)
     assert host_receipt["data"] == {
         "request_sha256": "a" * 64, "status": "submitted",
         "action_id": "private-decision-identity:action:0001",
@@ -237,16 +238,20 @@ async def test_long_system_message_passes_when_complete_request_is_below_thresho
 
 
 @pytest.mark.asyncio
-async def test_start_activity_description_says_notes_give_length_or_unmet_condition() -> None:
-    """@brief 描述只写用途；动作的时长与未满足的条件改由工具层字段表达（duration、reason），「标为不可用会被拒绝、原因
-    就是 reason」只在系统层写一次（docs/design/06-agent.md 第一章「工具层」「系统层」）。"""
+async def test_start_tool_descriptions_say_purpose_only_and_conditions_stay_in_the_tool_layer() -> None:
+    """@brief 两个开始工具的描述只写用途（各占哪个槽位、能开始哪几种活动）；动作的时长与未满足的条件改由工具层字段表达
+    （duration、reason），「标为不可用会被拒绝、原因就是 reason」只在系统层写一次（docs/design/06-agent.md 第一章
+    「工具层」「系统层」）。"""
     agent, environment, dispatcher = _configured([_action_response()], 3)
     await agent.run_react_loop(_request())
     request = dispatcher.requests[0]
-    description = next(tool["function"]["description"] for tool in request["tools"]
-                       if tool["function"]["name"] == "start_activity")
-    assert description == life_prompt.TOOL_DESCRIPTIONS["start_activity"]
-    assert "具体动作" in description and "完整对象名称" in description
+    descriptions = {tool["function"]["name"]: tool["function"]["description"] for tool in request["tools"]}
+    assert "start_activity" not in descriptions
+    for tool, words in ((MAIN_TOOL, ("槽位 1", "出行", "在当前地点做一件事", "睡觉")),
+                        (SIDE_TOOL, ("槽位 2", "购买商品", "内容 app"))):
+        assert descriptions[tool] == life_prompt.TOOL_DESCRIPTIONS[tool]
+        assert all(word in descriptions[tool] for word in words)
+        assert "reason" not in descriptions[tool] and "available" not in descriptions[tool]
     rules = json.loads(request["messages"][0]["content"])["rules"]
     assert [rule for rule in rules if "reason" in rule] == [
         "工具层 available 为 false 的动作仍可提交，会按 reason 拒绝；先照原因处理。查询只读，不推进时间。"]
@@ -254,5 +259,6 @@ async def test_start_activity_description_says_notes_give_length_or_unmet_condit
                 if target["name"] == "整理会议纪要")
     [work] = task["actions"]
     assert (work["available"], work["reason"]) == (False, "整理会议纪要需要在办公室")
-    assert "way" not in work
+    assert "way" not in work and work["detail"] is None
+    assert environment.calls[0].tool_name == MAIN_TOOL
     assert environment.calls[0].request.model_dump(by_alias=True) == _WAIT_CHOICE

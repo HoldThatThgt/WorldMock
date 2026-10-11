@@ -1,4 +1,4 @@
-"""当前动作槽位、身体变化、餐时体感与睡眠参数的实际边界。"""
+"""身体变化、餐时体感与睡眠参数的实际边界。"""
 
 import math
 import tomllib
@@ -9,7 +9,6 @@ from pydantic import ValidationError
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.unit.life.test_environment_body import body_inputs
 from worldmock.input_models import PersonaConfig
-from worldmock.life.action_contract import activity_slot
 from worldmock.life.body import (
     ActivityFactors, BoundaryClock, apply_discomfort_pulse, apply_relaxation_change, initial_body, last_flows,
     next_shared_body_boundary_seconds, settle_shared_body,
@@ -23,20 +22,6 @@ from worldmock.life.sleep import (
     EfficiencyCurvePoint, SleepinessGrade, initial_sleep_pressure, interpolate_efficiency,
     sleepiness_grade, validate_efficiency_curve,
 )
-
-
-@pytest.mark.parametrize("action,slot", [
-    ("walk", "first"), ("drive", "first"), ("take_taxi", "first"), ("take_bus", "first"),
-    ("sleep", "first"), ("purchase", "second"), ("interact", "second"),
-])
-def test_each_current_action_has_its_fixed_slot(action, slot):
-    assert activity_slot(action) == slot
-
-
-@pytest.mark.parametrize("action", ["wait", "do", "travel_to", "Sleep", "interact "])
-def test_retired_or_noncanonical_action_cannot_acquire_a_slot(action):
-    with pytest.raises(ValueError, match="Unknown activity action"):
-        activity_slot(action)
 
 
 @pytest.mark.parametrize("amount", [math.nan, math.inf, -math.inf])
