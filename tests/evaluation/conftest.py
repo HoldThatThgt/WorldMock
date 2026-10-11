@@ -248,8 +248,6 @@ def _write_canonical(root: Path, scenario: dict[str, Any], run_id: str, hour: in
     from tests.frozen_inputs import fixture_metadata
     from worldmock.life.engine import LifeEngine
     from tests.integration.runtime_fixtures import current_run_identity
-    from worldmock.profile.mapper import map_world_dynamics
-    from worldmock.profile.models import BigFiveProfile
 
     environment = root.with_name(root.name + "-environment")
     shutil.copytree(ENVIRONMENT_ROOT, environment)
@@ -270,12 +268,9 @@ def _write_canonical(root: Path, scenario: dict[str, Any], run_id: str, hour: in
     refresh_manifest_identity(environment / "catalog")
     inputs = load_environment(environment, metadata_loader=fixture_metadata)
     identity = current_run_identity(inputs, run_id)
-    dynamics = map_world_dynamics(BigFiveProfile(openness=4, conscientiousness=4, extraversion=4,
-        agreeableness=4, neuroticism=4)).model_dump(mode="json")
     from worldmock.run_setup import stage_model_identity
     stages = stage_model_identity(inputs.config.model, inputs.model_metadata, same_second_continuation=False)
-    engine = LifeEngine.create(inputs, root.with_name(root.name + "-source"), identity, stages,
-                              {"world_dynamics": dynamics})
+    engine = LifeEngine.create(inputs, root.with_name(root.name + "-source"), identity, stages, {})
     try:
         _complete_engine(engine, activity_type)
         ref = engine.context.store.assets.put_json({"test": "actual engine"}, {"kind": "test_agent"})

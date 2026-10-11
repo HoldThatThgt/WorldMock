@@ -164,9 +164,8 @@ def apply_discomfort_pulse(body: BodyState, billed_hours: float) -> BodyState:
         raise ValueError("discomfort hours must be finite and nonnegative")
     return apply_relaxation_change(body, 0.10 * billed_hours)
 
-def initial_body(config: BodyConfig, hour_of_day: float, persona: PersonaConfig,
-                 social_need_growth_per_hour: float) -> BodyState:
-    """@brief 从真实人设初值与惯常起床时刻构造身体，不预置活动。"""
+def initial_body(config: BodyConfig, hour_of_day: float, persona: PersonaConfig) -> BodyState:
+    """@brief 从人设表的初值、睡眠节律、社交需要增长与惯常起床时刻构造身体，不预置活动。"""
     wake_hour = (persona.chronotype_midsleep + persona.sleep_need_hours / 2) % 24
     awake_hours = (hour_of_day - wake_hour) % 24
     at_wake = sleep.initial_sleep_pressure(wake_hour, persona.sleep_need_hours, persona.chronotype_midsleep)
@@ -175,7 +174,7 @@ def initial_body(config: BodyConfig, hour_of_day: float, persona: PersonaConfig,
                      sleep_deficit_hours=min(24.0, persona.body.initial_sleep_debt_hours),
                      sleep_need_hours=persona.sleep_need_hours, chronotype_midsleep=persona.chronotype_midsleep,
                      social_need=persona.initial_social_need, relaxation_need=persona.initial_relaxation_need,
-                     social_need_growth_per_hour=social_need_growth_per_hour)
+                     social_need_growth_per_hour=persona.social_need_growth_per_hour)
 
 def next_shared_body_boundary_seconds(body: BodyState,
                                       activities: tuple[tuple[ActivityKind, ActivityFactors], ...],

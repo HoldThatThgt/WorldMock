@@ -9,7 +9,7 @@ WorldMock 使用锁定并维护的 AgentSociety2 原生 Society、LifeAgent 与 
 ```mermaid
 flowchart LR
     Inputs[完整环境纯加载] --> Config[配置原生客户端]
-    Config --> Profile[画像抽取与编译]
+    Config --> Profile[由 persona.toml 构造人物卡片]
     Profile --> Society[原生 Society]
     Society --> Agent[LifeAgent 原生模型协议]
     Agent --> Environment[LifeEnv 原生工具接口]
@@ -23,12 +23,16 @@ flowchart LR
 
 ## 运行与恢复
 
-run 创建单人世界与人物工作区，初始化原生时钟、环境与画像后推进实际决策边界。
+run 创建单人世界与人物工作区，初始化原生时钟、环境与人物卡片后推进实际决策边界。
+人物卡片由 persona.toml 直接构造，新建运行不为它发任何模型请求。
 resume 从父共同检查点恢复到新分支，复制完整人物快照及冻结环境，保留活动选择、进度、订单和回调幂等标记。
 replay 从同一认证检查点构造干预分支，沿用冻结模型与输入身份；只读历史查询不访问生成服务。
 
 用户通过 `--environment` 显式指定完整环境根，删除 `--scenario` 生活运行输入和地图生成命令。
-环境验证、画像、导出、状态查询与评估分别使用所属公开入口；评估自己的 scenario 配置文件与生活运行输入无关。
+环境验证、导出、状态查询与评估分别使用所属公开入口；评估自己的 scenario 配置文件与生活运行输入无关。
+命令是 `validate`、`run`、`resume`、`replay`、`status`、`export`、`evaluate`，没有 `profile` 子命令：
+人物卡片没有编译、一致性检查或覆盖率检查这几步，`worldmock validate` 检查 persona.toml 的每个字段，
+也检查由它构造的卡片文本不超过 600 汉字，见[人物](06-agent.md)；通过 `validate` 的人设表不会在 run 构造卡片时被拒绝。
 失败记录英文诊断，实际存在的输出目录才写失败状态；输入拒绝不能留下假的运行资产或成功回执。
 
 ## 原生模型与工具

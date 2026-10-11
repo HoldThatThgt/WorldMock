@@ -1,4 +1,4 @@
-"""完整输入文件中的作息、日期与运行窗口反例必须在纯准入阶段拒绝。"""
+"""完整输入文件中的人设表、日期与运行窗口反例必须在纯准入阶段拒绝。"""
 
 from datetime import datetime
 from pathlib import Path
@@ -28,8 +28,9 @@ def write_input(root, name, values):
 def test_invalid_work_shift_cannot_be_loaded(tmp_path, shift):
     root = copy_environment(tmp_path / "input")
     write_input(root, "persona.toml", {"work_schedule": {"workplace": "公司", "weekly": {"0": shift}}})
-    with pytest.raises(EnvironmentInputError, match="Persona file validation failed"):
+    with pytest.raises(EnvironmentInputError, match=r"^work_schedule\.weekly\.0(\.breaks\.0)?: ") as caught:
         parse_persona_file(root / "persona.toml")
+    assert (caught.value.path, caught.value.code) == ("persona.toml", "PERSONA_INVALID")
 
 
 @pytest.mark.parametrize("schedule", [
@@ -42,29 +43,70 @@ def test_invalid_work_shift_cannot_be_loaded(tmp_path, shift):
 def test_work_schedule_has_canonical_weekdays_dates_and_one_daily_shift(tmp_path, schedule):
     root = copy_environment(tmp_path / "input")
     write_input(root, "persona.toml", {"work_schedule": schedule})
-    with pytest.raises(EnvironmentInputError, match="Persona file validation failed"):
+    with pytest.raises(EnvironmentInputError, match=r"^work_schedule: ") as caught:
         parse_persona_file(root / "persona.toml")
+    assert (caught.value.path, caught.value.code) == ("persona.toml", "PERSONA_INVALID")
+
+
+@pytest.mark.parametrize("shift,reason", [
+    ({"starts": 600, "ends": 500, "breaks": []},
+     "work_schedule.exceptions.2026-01-05: work shift must satisfy 0 <= starts < ends <= 1440"),
+    ({"starts": 600, "ends": 900, "breaks": [[590, 700]]},
+     "work_schedule.exceptions.2026-01-05: work shift breaks must lie within the shift"),
+    ({"starts": 600, "breaks": []}, "work_schedule.exceptions.2026-01-05.ends is required"),
+    ({"starts": "nine", "ends": 700, "breaks": []},
+     "work_schedule.exceptions.2026-01-05.starts: Input should be a valid integer"),
+    ({"starts": 600, "ends": 700, "breaks": [], "overtime": True},
+     "work_schedule.exceptions.2026-01-05.overtime is not a persona.toml field"),
+    ("rest", "work_schedule.exceptions.2026-01-05: Input should be a valid dictionary or instance of WorkShift"),
+])
+def test_a_bad_shift_in_a_date_exception_is_named_by_its_date_without_validator_tags(tmp_path, shift, reason):
+    """日期例外里的班次出错时，原因的路径写到那个日期或班次里的字段为止：只由字段名、表的键和数组下标组成，
+    不带校验库内部的联合分支与校验器标记。"""
+    root = copy_environment(tmp_path / "input")
+    write_input(root, "persona.toml", {"work_schedule": {"workplace": "公司", "weekly": {},
+                                                         "exceptions": {"2026-01-05": shift}}})
+    with pytest.raises(EnvironmentInputError) as caught:
+        parse_persona_file(root / "persona.toml")
+    assert (caught.value.path, caught.value.code, caught.value.reason) == ("persona.toml", "PERSONA_INVALID", reason)
 
 
 @pytest.mark.parametrize("values,reason", [
-    ({"leave_work_window": [19.0, 20.0], "arrive_home_window": [18.0, 19.0]},
-     "leave_work_window must not start after arrive_home_window"),
-    ({"dinner_window": [19.0, 20.0], "bedtime_window": [19.5, 25.0]}, "bedtime_window must not overlap dinner window"),
-    ({"lunch_window": [12.0, 13.5], "dinner_window": [13.0, 14.0]},
-     "lunch_window must end before dinner_window starts"),
-    ({"lunch_window": [12.0]}, "lunch_window must contain two finite hours"),
-    ({"dinner_window": [12.0, 12.0]}, "dinner_window must satisfy 0 <= start < end <= 24"),
-    ({"lunch_window": [1.0, 15.0]}, "lunch_window span must not exceed 12 hours"),
-    ({"bedtime_window": [23.0, 31.0]}, "bedtime_window must satisfy 0 <= start < end <= 30"),
-    ({"lunch_window": [float("nan"), 13.0]}, "lunch_window must contain two finite hours"),
+    ({"lunch_window": [12.0]}, "lunch_window: must be two finite hours with start < end"),
+    ({"dinner_window": [12.0, 12.0]}, "dinner_window: must be two finite hours with start < end"),
+    ({"bedtime_window": [24.0, 23.0]}, "bedtime_window: must be two finite hours with start < end"),
+    ({"lunch_window": [float("nan"), 13.0]}, "lunch_window: must be two finite hours with start < end"),
+    ({"wake_window": [7.0, float("inf")]}, "wake_window: must be two finite hours with start < end"),
+    ({"leave_home_window": "08:00-08:30"}, "leave_home_window: Input should be a valid list"),
 ])
-def test_personal_windows_are_finite_ordered_and_do_not_conflict(tmp_path, values, reason):
-    """作息时段自身的形状与互相矛盾的声明在纯准入阶段被拒绝，英文原因随 PERSONA_INVALID 原样返回。"""
+def test_personal_windows_need_two_finite_hours_in_order(tmp_path, values, reason):
+    """每个时段只有形状这一条检查，不成立时在纯准入阶段被拒绝，英文原因随 PERSONA_INVALID 返回并写出字段。"""
     root = copy_environment(tmp_path / "input")
     write_input(root, "persona.toml", values)
     with pytest.raises(EnvironmentInputError) as caught:
         parse_persona_file(root / "persona.toml")
     assert (caught.value.path, caught.value.code, caught.value.reason) == ("persona.toml", "PERSONA_INVALID", reason)
+
+
+@pytest.mark.parametrize("values", [
+    {"leave_work_window": [19.0, 20.0], "arrive_home_window": [18.0, 19.0]},
+    {"dinner_window": [19.0, 20.0], "bedtime_window": [19.5, 25.0]},
+    {"lunch_window": [12.0, 13.5], "dinner_window": [13.0, 14.0]},
+    {"lunch_window": [1.0, 15.0]},
+    {"bedtime_window": [23.0, 31.0]},
+    {"bedtime_window": [5.0, 7.0]},
+    {"leave_work_window": [25.0, 25.5]},
+])
+def test_windows_that_contradict_each_other_or_leave_the_day_load_as_written(tmp_path, values):
+    """时段之间没有先后、重叠、范围或跨度检查：这些写法通过完整环境加载，引擎的饭点窗口也照写的值装配。"""
+    from worldmock.life.world_ops import meal_windows_by_agent
+
+    root = copy_environment(tmp_path / "input")
+    write_input(root, "persona.toml", values)
+    loaded = load_environment(root, metadata_loader=fixture_metadata).persona
+    assert {name: list(getattr(loaded, name)) for name in values} == values
+    windows = meal_windows_by_agent(loaded)[loaded.agent_id]
+    assert (windows.lunch, windows.dinner) == (tuple(loaded.lunch_window), tuple(loaded.dinner_window))
 
 
 @pytest.mark.parametrize("field", ["occupation", "routine_preference", "consumption_preference", "risk_preference"])
@@ -130,10 +172,13 @@ def test_persona_references_resolve_actual_registered_locations(tmp_path, field,
         load_environment(root, metadata_loader=fixture_metadata)
 
 
-def test_persona_short_story_is_rejected_before_compilation(tmp_path):
+def test_persona_story_is_required_text_without_a_minimum_length(tmp_path):
+    """background_story 必填且非空，但一句话就够：零点计划原样读它，引擎不从中抽取任何字段。"""
     root = copy_environment(tmp_path / "input")
     write_input(root, "persona.toml", {"background_story": "Too short"})
-    with pytest.raises(EnvironmentInputError, match="background_story must contain at least 100 characters"):
+    assert parse_persona_file(root / "persona.toml")[0].background_story == "Too short"
+    write_input(root, "persona.toml", {"background_story": ""})
+    with pytest.raises(EnvironmentInputError, match="^background_story: String should have at least 1 character$"):
         parse_persona_file(root / "persona.toml")
 
 

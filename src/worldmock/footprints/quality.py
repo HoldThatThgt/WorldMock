@@ -23,7 +23,7 @@ from worldmock.footprints.models import (
     WAKE_REASONS_FIELD,
     Event,
 )
-from worldmock.profile.injection import INPUT_WARNING_CODES
+from worldmock.input_warnings import INPUT_WARNING_CODES
 from worldmock.footprints.timeline_labels import timeline_label_report
 from worldmock.life.control_items import control_items
 from worldmock.life.error_contract import ENVIRONMENT_NAME_CODES, HOST_NAME_CODES
@@ -835,7 +835,8 @@ def _acceleration(events: list[Event], manifest: dict) -> dict:
 
 
 def _input_warning_quality(manifest: dict) -> dict:
-    """@brief 运行输入警告（docs/design/04-simulation-engine.md）：按警告码闭集、按人物统计清单冻结的 input_warnings。
+    """@brief 运行输入警告（docs/design/08-configuration.md「校验与输入冻结」）：按警告码闭集、按人物统计清单冻结的
+    input_warnings。
 
     清单没有记录警告（引擎直驱为 null，或清单版本 2 之前的运行没有这个键）时计数为 null，不记为零；闭集外的码单列。
     只报告，不放行。

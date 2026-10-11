@@ -51,8 +51,8 @@ class LifeEnv(EnvBase):
         """@brief 注册扫描可无参数构造；实际 init 必须具有完整路径。
 
         create_options 是新建运行的附加输入：input_warnings（运行输入警告，
-        冻结进清单；docs/design/04-simulation-engine.md）、persona_habit_responses（人设层习惯签名的反应文本，
-        冻结进清单，候选排序的相关度；5.1）与 same_second_continuation
+        冻结进清单；docs/design/08-configuration.md「校验与输入冻结」）、persona_habit_responses（人设层习惯签名的
+        反应文本，冻结进清单）与 same_second_continuation
         （同秒续接开关，缺省开，冻结进清单 stages.action；docs/design/04-simulation-engine.md「世界与请求」）。
         """
         super().__init__()

@@ -41,8 +41,6 @@ from worldmock.life.models import (
 )
 from tests.integration.runtime.current_contract_fixtures import inputs, metadata_service
 from tests.integration.runtime_fixtures import current_run_identity
-from worldmock.profile.mapper import map_world_dynamics
-from worldmock.profile.models import BigFiveProfile
 
 _SCENARIO = ENVIRONMENT_ROOT
 
@@ -57,11 +55,6 @@ def _identity(frozen, tag: str) -> RunIdentity:
     return current_run_identity(frozen, f"envcov-{tag}")
 
 
-def _options():
-    scores = BigFiveProfile(openness=4, conscientiousness=4, extraversion=4, agreeableness=4, neuroticism=4)
-    return {"world_dynamics": map_world_dynamics(scores).model_dump(mode="json")}
-
-
 def _start(frozen) -> datetime:
     """完整环境的明确起始时刻。"""
     return frozen.config.start_time
@@ -72,9 +65,7 @@ async def _new_env(tmp_path: Path, tag: str) -> LifeEnv:
     scenario = inputs()
     env = LifeEnv(environment_root=str(_SCENARIO),
                   run_dir=str(tmp_path / f"run-{tag}"),
-                  run_identity=_identity(scenario, tag).model_dump(mode="json"),
-        create_options={"world_dynamics": map_world_dynamics(BigFiveProfile(openness=4, conscientiousness=4,
-            extraversion=4, agreeableness=4, neuroticism=4)).model_dump(mode="json")})
+                  run_identity=_identity(scenario, tag).model_dump(mode="json"))
     await env.init(_start(scenario))
     return env
 
@@ -129,7 +120,7 @@ async def test_init_requires_paths_identity_and_fresh_state(tmp_path) -> None:
 
     disagree = LifeEnv(environment_root=str(_SCENARIO),
                        run_dir=str(tmp_path / "disagree"),
-                       run_identity=_identity(scenario, "disagree").model_dump(mode="json"), create_options=_options())
+                       run_identity=_identity(scenario, "disagree").model_dump(mode="json"))
     with pytest.raises(ProtocolError, match="start time disagrees"):
         await disagree.init(_start(scenario) + timedelta(seconds=60))
     assert disagree.engine is None  # 引擎已关闭并置空
@@ -158,7 +149,7 @@ async def test_registered_tool_surface_fails_closed(tmp_path, monkeypatch) -> No
                         life_env_module._STABLE_TOOL_SURFACE | {"ghost_tool"})
     drifted = LifeEnv(environment_root=str(_SCENARIO),
                       run_dir=str(tmp_path / "drift-env"),
-                      run_identity=_identity(scenario, "drift").model_dump(mode="json"), create_options=_options())
+                      run_identity=_identity(scenario, "drift").model_dump(mode="json"))
     with pytest.raises(ProtocolError, match="disagrees with the stable tool surface"):
         await drifted.init(_start(scenario))
     if drifted.engine is not None:
@@ -170,7 +161,7 @@ async def test_registered_tool_surface_fails_closed(tmp_path, monkeypatch) -> No
                         lambda: life_env_module._STABLE_TOOL_SURFACE - {"start_side_activity"})
     mismatch = LifeEnv(environment_root=str(_SCENARIO),
                        run_dir=str(tmp_path / "mismatch-env"),
-                       run_identity=_identity(scenario, "mismatch").model_dump(mode="json"), create_options=_options())
+                       run_identity=_identity(scenario, "mismatch").model_dump(mode="json"))
     with pytest.raises(ProtocolError, match="disagrees with the LifeAgent action tool set"):
         await mismatch.init(_start(scenario))
     if mismatch.engine is not None:

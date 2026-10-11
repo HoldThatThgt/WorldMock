@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,9 +15,14 @@ from pydantic import ValidationError
 from worldmock.catalog.errors import RegistrationError
 from worldmock.errors import EnvironmentInputError
 from worldmock.input_models import ModelMetadata, PersonaConfig, RunConfig
+from worldmock.profile.models import persona_card
+from worldmock.profile.textgen import RenderBudgetExceededError, render_card
 
 _LOGGER = logging.getLogger(__name__)
 from worldmock.input_models import LEGACY_TEMPLATE_FIELDS
+
+#: 校验库在错误位置里插入的联合分支与校验器标记（小写类型名后接方括号），不属于人设表的字段路径。
+_VALIDATOR_TAG = re.compile(r"[a-z-]+\[.*\]")
 
 
 @dataclass(frozen=True)
@@ -36,17 +42,27 @@ class EnvironmentInputs:
 
 
 def parse_persona_file(path: Path | str) -> tuple[PersonaConfig, str]:
-    """@brief 从唯一人设文件读取原字节身份并严格检查正文与初值。"""
+    """@brief 从唯一人设文件读取原字节身份，严格检查人设表的每个字段和卡片文本的汉字上限，不调用模型。"""
     payload, digest = _read_toml(Path(path), "Persona", "PERSONA_INVALID")
     legacy = LEGACY_TEMPLATE_FIELDS.intersection(payload)
     if legacy:
         reason = "legacy template fields are deleted, merge them into the card: " + str(sorted(legacy))
         raise EnvironmentInputError("persona.toml", "PERSONA_INVALID", reason)
     try:
-        return PersonaConfig.model_validate(payload), digest
+        persona = PersonaConfig.model_validate(payload)
     except ValidationError as error:
         reason = _persona_reason(error)
         raise EnvironmentInputError("persona.toml", "PERSONA_INVALID", reason) from error
+    _require_card_text_within_budget(persona)
+    return persona, digest
+
+
+def _require_card_text_within_budget(persona: PersonaConfig) -> None:
+    """@brief 用整张人设表构造一次卡片文本，超过汉字上限时在加载阶段拒绝；纯计算，不截断。"""
+    try:
+        render_card(persona_card(persona))
+    except RenderBudgetExceededError as error:
+        raise EnvironmentInputError("persona.toml", "PERSONA_INVALID", str(error)) from error
 
 
 def parse_run_config_file(path: Path | str) -> tuple[RunConfig, str]:
@@ -76,16 +92,23 @@ def _read_toml(path: Path, label: str, code: str) -> tuple[dict, str]:
 
 
 def _persona_reason(error: ValidationError) -> str:
-    """@brief 人物的明确初值与正文失败使用规定原因；模型级的取值错误（作息声明自相矛盾）原样返回英文原因。"""
-    if "background_story must contain at least 100 characters" in str(error):
-        return "background_story must contain at least 100 characters"
-    for item in error.errors():
-        if item["loc"] == () and item["type"] == "value_error":
-            return str(item["ctx"]["error"])
-    if any(item["loc"] == ("body", "initial_energy_kcal") and item["type"] == "less_than_equal"
-           for item in error.errors()):
+    """@brief 人设表的拒绝原因：只报告第一处，先写出错字段的点分路径；初始能量超上限沿用规定原因。
+
+    路径只留字段名、表的键和数组下标，校验库插入的联合分支与校验器标记不写进去。
+    缺少必填字段写「<字段> is required」，未知字段写「<字段> is not a persona.toml field」，
+    其余写「<字段>: <英文说明>」，说明取校验器自己的原文或类型与范围检查的英文消息。
+    """
+    item = error.errors()[0]
+    field = ".".join(str(part) for part in item["loc"]
+                     if not (isinstance(part, str) and _VALIDATOR_TAG.fullmatch(part)))
+    if item["loc"] == ("body", "initial_energy_kcal") and item["type"] == "less_than_equal":
         return "initial energy exceeds maximum energy"
-    return "Persona file validation failed"
+    if item["type"] == "missing":
+        return f"{field} is required"
+    if item["type"] == "extra_forbidden":
+        return f"{field} is not a persona.toml field"
+    detail = item["ctx"]["error"] if item["type"] == "value_error" else item["msg"]
+    return f"{field}: {detail}"
 
 
 def _config_reason(error: ValidationError) -> str:

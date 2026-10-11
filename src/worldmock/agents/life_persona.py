@@ -4,7 +4,7 @@
 最新看法覆盖卡片中的同名关系，已有看法中的其他关系保留为空角色、亲密度与渠道。
 合法关系对象只来自卡片或已有看法，不创建其他模拟人物。
 只读问答使用最近决策保存的人设与记忆快照；尚无快照时使用卡片和空看法。
-工作安排只由环境层给出；人设声明的作息值在编译后原样进入卡片，不取整，时刻显示写到分钟。
+工作安排只由环境层给出；卡片由人设表直接构造，作息值是人设表的原值，不取整，时刻显示写到分钟。
 规则见 docs/design/06-agent.md「提示与工具」。
 """
 
@@ -58,7 +58,7 @@ def card_struct(profile: Mapping[str, Any]) -> PersonaCardStruct:
     """@brief 核验必需的结构化人物卡片，缺失时立即失败。"""
     raw = profile.get("persona_card_struct")
     if raw is None:
-        raise IntegrityError("Compiled persona card structure is required")
+        raise IntegrityError("Persona card structure is required")
     return PersonaCardStruct.model_validate(raw)
 
 

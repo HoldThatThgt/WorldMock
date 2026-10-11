@@ -16,13 +16,8 @@ from tests.integration.runtime_fixtures import current_run_identity
 from worldmock.agents import life_prompt
 from worldmock.errors import IntegrityError
 from worldmock.life.engine import LifeEngine
-from worldmock.profile.models import WorldDynamics
 from worldmock.run_setup import _model_identity, stage_model_identity
 from worldmock.runtime import ResumeRequest, _prepare_resume
-
-
-def _dynamics():
-    return {"world_dynamics": WorldDynamics(social_need_growth_per_hour=0.06).model_dump(mode="json")}
 
 
 def _foreign_stages(frozen, change):
@@ -47,7 +42,7 @@ def _foreign_stages(frozen, change):
 
 @pytest.mark.parametrize("change", [
     "requested_model", "base_url", "context_window", "max_output_tokens", "max_retries",
-    "transport_max_retries", "max_react_turns", "persona_validation_max_retries",
+    "transport_max_retries", "max_react_turns",
     "reflection_validation_max_retries", "day_plan_validation_max_retries",
 ])
 def test_creation_rejects_self_consistent_foreign_stage_identity_without_writing(frozen_inputs, tmp_path, caplog, change):
@@ -58,7 +53,7 @@ def test_creation_rejects_self_consistent_foreign_stage_identity_without_writing
     untouched = copy.deepcopy(stages)
     destination = tmp_path / "rejected-run"
     with caplog.at_level(logging.ERROR), pytest.raises(IntegrityError, match="Stage model identity disagrees"):
-        LifeEngine.create(frozen, destination, identity, stages, _dynamics())
+        LifeEngine.create(frozen, destination, identity, stages, {})
     assert not destination.exists()
     assert stages == untouched
     assert "Stage model identity disagrees with environment inputs" in caplog.text
@@ -77,7 +72,7 @@ def test_creation_rejects_foreign_run_model_identity_without_writing(tmp_path, c
     stages = stage_model_identity(frozen.config.model, frozen.model_metadata)
     destination = tmp_path / "rejected-run"
     with caplog.at_level(logging.ERROR), pytest.raises(IntegrityError, match="Run model identity disagrees"):
-        LifeEngine.create(frozen, destination, identity, stages, _dynamics())
+        LifeEngine.create(frozen, destination, identity, stages, {})
     assert not destination.exists()
     assert "Run model identity disagrees with environment inputs" in caplog.text
 
@@ -88,7 +83,7 @@ def test_creation_accepts_actual_config_metadata_and_explicit_continuation(tmp_p
     frozen = inputs()
     identity = current_run_identity(frozen, "actual-model")
     stages = stage_model_identity(frozen.config.model, frozen.model_metadata, continuation)
-    engine = LifeEngine.create(frozen, tmp_path / "actual-run", identity, stages, _dynamics())
+    engine = LifeEngine.create(frozen, tmp_path / "actual-run", identity, stages, {})
     try:
         manifest = engine.context.store.manifest
         assert manifest["model_identity"] == _model_identity(frozen.config.model).model_dump(mode="json")
@@ -100,17 +95,6 @@ def test_creation_accepts_actual_config_metadata_and_explicit_continuation(tmp_p
         engine.close()
 
 
-def test_creation_requires_compiled_dynamics_before_writing_any_files(tmp_path, caplog):
-    """合法身份也不能绕过必需的真实画像动力学，不创建半份运行。"""
-    frozen = inputs()
-    destination = tmp_path / "missing-dynamics"
-    with caplog.at_level(logging.ERROR), pytest.raises(IntegrityError, match="Compiled persona dynamics are required"):
-        LifeEngine.create(frozen, destination, current_run_identity(frozen, "missing-dynamics"),
-                          stage_model_identity(frozen.config.model, frozen.model_metadata), {})
-    assert not destination.exists()
-    assert "Compiled persona dynamics are required" in caplog.text
-
-
 def test_creation_rejects_a_foreign_agent_before_writing_any_files(tmp_path, caplog):
     """模型身份合法仍须匹配实际唯一人物，拒绝不能产生运行目录。"""
     frozen = inputs()
@@ -118,7 +102,7 @@ def test_creation_rejects_a_foreign_agent_before_writing_any_files(tmp_path, cap
     destination = tmp_path / "foreign-agent"
     with caplog.at_level(logging.ERROR), pytest.raises(IntegrityError, match="Run identity disagrees"):
         LifeEngine.create(frozen, destination, identity,
-                          stage_model_identity(frozen.config.model, frozen.model_metadata), _dynamics())
+                          stage_model_identity(frozen.config.model, frozen.model_metadata), {})
     assert not destination.exists()
     assert "Run identity disagrees with environment inputs" in caplog.text
 

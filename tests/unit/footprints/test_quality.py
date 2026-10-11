@@ -749,23 +749,29 @@ def test_invalid_quality_inputs_are_rejected(events):
 
 
 def test_input_warnings_section_counts_the_frozen_manifest_warnings():
-    """input_warnings 一节（docs/design/04-simulation-engine.md、九）：按警告码闭集与人物统计清单冻结的警告，场景级警告
-    另计；清单没有记录（引擎直驱为 null，或旧清单没有这个键）时计数为 null 而不是 0；只报告，不放行。"""
-    from worldmock.profile.injection import INPUT_WARNING_CODES, agreement_warnings
+    """input_warnings 一节（docs/design/08-configuration.md「校验与输入冻结」）：按警告码闭集与人物统计清单冻结的警告，
+    场景级警告另计；闭集之外的码（包括随人物卡片编译删除的那些）单列；清单没有记录（引擎直驱为 null，或旧清单没有这个键）
+    时计数为 null 而不是 0；只报告，不放行。"""
+    from worldmock.input_warnings import INPUT_WARNING_CODES
+
+    def personal(agent_id):
+        return {"code": "CONTENT_EMPTY_WITH_MEDIA_TASTES", "agent_id": agent_id, "message": "没有绑定内容",
+                "details": {"media": ["短视频"], "habits": []}}
 
     scenario_level = {"code": "LOCATION_NAME_SUSPICIOUS", "agent_id": None, "message": "显示名带坐标",
                       "details": {"location_id": "poi", "name": "全家（31.2, 121.5）", "patterns": ["coordinates"]}}
-    warnings = [*agreement_warnings(1, ("c",)), *agreement_warnings(2, ("a", "b")), scenario_level]
+    deleted = {"code": "CARD_FIELD_CONFLICT", "agent_id": 2, "message": "旧清单里的警告", "details": {}}
+    warnings = [personal(1), personal(2), deleted, scenario_level]
     events = [_event(1, "run_ended", occurred_at=200)]
 
     section = build_quality_report(events, [], {**_manifest(end=200), "input_warnings": warnings})["input_warnings"]
 
-    expected_codes = dict.fromkeys(INPUT_WARNING_CODES, 0)
-    expected_codes.update(PERSONA_AGREEMENT_LOW=3, LOCATION_NAME_SUSPICIOUS=1)
+    assert INPUT_WARNING_CODES == ("CONTENT_EMPTY_WITH_MEDIA_TASTES", "LOCATION_NAME_SUSPICIOUS")
     assert section["recorded"] is True and section["warning_count"] == 4
-    assert section["code_counts"] == expected_codes and list(section["code_counts"]) == list(INPUT_WARNING_CODES)
+    assert section["code_counts"] == {"CONTENT_EMPTY_WITH_MEDIA_TASTES": 2, "LOCATION_NAME_SUSPICIOUS": 1}
+    assert list(section["code_counts"]) == list(INPUT_WARNING_CODES)
     assert section["agent_counts"] == {"1": 1, "2": 2} and section["scenario_warning_count"] == 1
-    assert section["unrecognized_code_counts"] == {}
+    assert section["unrecognized_code_counts"] == {"CARD_FIELD_CONFLICT": 1}
     for manifest in (_manifest(end=200), {**_manifest(end=200), "input_warnings": None}):
         missing = build_quality_report(events, [], manifest)["input_warnings"]
         assert missing["recorded"] is False

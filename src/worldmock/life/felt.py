@@ -9,7 +9,6 @@ from bisect import bisect_right
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 #: 饥饿锚定热量（场景参数默认值，docs/design/02-exchange-engine.md「身体共同结算」）。
 #: experiment_assumption：规格冻结的场景默认，无文献出处。
@@ -80,28 +79,29 @@ SOCIAL_BANDS: tuple[tuple[float, str], ...] = (
 SOCIAL_BASE_LEVEL = "不想找人"
 
 class MealWindows(FrozenModel):
-    """@brief 人物卡片声明的午餐/晚餐窗口（自午夜起的小时数，半开区间 [start, end)）。"""
+    """@brief 人设表写的午饭、晚饭时段（自午夜起的小时数 [start, end)，起点小于终点），原值保存。
 
+    时段按钟面读（in_clock_window），对任何两个有限数都有定义，所以这里不检查范围，也不要求两个时段互不重叠。
+    """
 
     lunch: tuple[float, float] | None = None
     dinner: tuple[float, float] | None = None
 
-    @model_validator(mode="after")
-    def validate_windows(self) -> "MealWindows":
-        """@brief 窗口须满足 0 ≤ start < end ≤ 24，且两窗口不相交。"""
-        for name, window in (("lunch", self.lunch), ("dinner", self.dinner)):
-            if window is not None and not 0 <= window[0] < window[1] <= 24:
-                logging.error("Felt input is invalid")
-                raise ValueError(f"{name} window must satisfy 0 <= start < end <= 24")
-        if (
-            self.lunch is not None
-            and self.dinner is not None
-            and self.lunch[1] > self.dinner[0]
-            and self.dinner[1] > self.lunch[0]
-        ):
-            logging.error("Felt input is invalid")
-            raise ValueError("dinner window must not overlap lunch window")
-        return self
+
+def in_clock_window(time_hour: float, window: tuple[float, float]) -> bool:
+    """@brief 钟面时刻是否落在时段里：两端各对 24 取模后比较，取模后起点不小于终点的时段跨过午夜，
+    跨度达到 24 小时的时段全天命中（docs/design/02-exchange-engine.md「身体共同结算」）。
+
+    @param time_hour 自午夜起的小时数 [0, 24)
+    @param window 起点小于终点的两个有限小时数，可以大于 24
+    """
+    start, end = window
+    if end - start >= 24:
+        return True
+    start, end = start % 24, end % 24
+    if start < end:
+        return start <= time_hour < end
+    return time_hour >= start or time_hour < end
 
 
 def _clamp(value: float, low: float, high: float) -> float:
@@ -138,15 +138,15 @@ def appetite_circadian_multiplier(time_hour: float) -> float:
 
 
 def meal_window_bonus(time_hour: float, windows: MealWindows) -> float:
-    """@brief 餐时项：t 落在任一声明窗口内为 +0.15，窗口外为
+    """@brief 餐时项：钟面时刻落在任一饭点时段内为 +0.15，时段外为
     0（docs/design/02-exchange-engine.md「身体共同结算」）。
 
-    两窗口已由 MealWindows 校验不相交，故至多命中其一、不叠加。
+    命中第一个时段即返回，两个时段重叠时也只加一次、不叠加。
     experiment_assumption：餐时项幅度属实验假设。
     """
     _require_time_hour(time_hour)
     for window in (windows.lunch, windows.dinner):
-        if window is not None and window[0] <= time_hour < window[1]:
+        if window is not None and in_clock_window(time_hour, window):
             return APPETITE_MEAL_WINDOW_BONUS
     return 0.0
 

@@ -36,9 +36,11 @@ def test_stage_identity_freezes_actual_capacity_and_all_validation_budgets():
         "max_tokens": min(ACTION_MAX_TOKENS, frozen.model_metadata.max_output_tokens),
         "same_second_continuation": True,
     }
-    for field in ("persona_validation_max_retries", "reflection_validation_max_retries",
-                  "day_plan_validation_max_retries", "max_react_turns"):
+    for field in ("reflection_validation_max_retries", "day_plan_validation_max_retries", "max_react_turns"):
         assert identity[field] == getattr(frozen.config.model, field)
+    assert "persona_validation_max_retries" not in identity
+    with pytest.raises(IntegrityError, match="Stage model identity has unexpected fields"):
+        validate_stage_model_identity({**identity, "persona_validation_max_retries": 2})
     disabled = stage_model_identity(frozen.config.model, frozen.model_metadata, False)
     assert disabled["stages"]["action"]["same_second_continuation"] is False
     assert validate_stage_model_identity(identity) == identity

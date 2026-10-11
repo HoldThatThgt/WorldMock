@@ -15,60 +15,74 @@ flowchart LR
     Catalog[catalog/] --> Load
     Load --> Metadata[实际服务元数据核验]
     Metadata --> World[内存地图与唯一人物]
-    World --> Run[编译画像并创建运行]
+    World --> Run[构造人物卡片并创建运行]
 ```
 
-两份 TOML 各使用 `schema_version = 1`，UTF-8 无 BOM、只用 LF。
-文件、编码、解析、类型、未知字段与范围失败在创建世界和运行资产前拒绝。
-输入按原字节冻结 SHA-256，不规范化后计算。纯加载不请求生成模型、不编译画像、不创建资产。
+`persona.toml` 使用 `schema_version = 2`，`config.toml` 使用 `schema_version = 1`，写其他值的文件直接拒绝，
+没有读取旧格式的分支；两份文件都是 UTF-8 无 BOM、只用 LF。
+文件、编码、解析、类型、未知字段、范围与卡片文本超长的失败在创建世界和运行资产前拒绝。
+输入按原字节冻结 SHA-256，不规范化后计算。纯加载不请求生成模型、不创建资产。
 所有输入失败以英文记录，人物输入使用 `PERSONA_INVALID`，运行配置使用 `RUN_CONFIG_INVALID`。
 地点引用使用资源引擎规定的登记码。
 
 <a name="configuration-人物声明"></a>
 ## 人物声明
 
-| 字段 | 规则 |
+`persona.toml` 是一张由数据集作者直接填写的表：除了人物的初值和工作安排，它还带着完整的人物卡片。
+引擎不从 `background_story` 推出任何字段，没有缺省值；标「必填」的键缺一个就拒绝加载。
+
+| 字段 | 必填 | 规则 |
+| --- | --- | --- |
+| `schema_version` | 必填 | 严格整数 `2` |
+| `agent_id`、`name` | 必填 | 唯一人物，正严格整数身份与非空白姓名 |
+| `background_story` | 必填 | 非空文字；零点计划原样读它，引擎不从中抽取任何字段，不限最短长度 |
+| `health_habits`、`social_style` | 可省略 | 生活习惯与社交风格散文，零点计划原样读 |
+| `home_location`、`initial_location` | 必填 | 目录中实际地点的完整显示名；住处必须标为住宿地点，起点可与住处不同 |
+| `initial_balance_fen` | 必填 | 非负严格整数分 |
+| `initial_relaxation_need`、`initial_social_need` | 必填 | 有限数，范围 `[0,1]` |
+| `social_need_growth_per_hour` | 必填 | 有限数，范围 `[0.02,0.10]`；清醒时社交需要每小时的自然增长 |
+| `chronotype_midsleep` | 必填 | 有限数，`0 ≤ 值 < 24`；自由日的睡眠中点，困意的昼夜阈值用它 |
+| `sleep_need_hours` | 必填 | 有限数，`7 ≤ 值 ≤ 9`；每天需要睡多久，欠觉公式用它 |
+| `wake_window`、`leave_home_window`、`lunch_window`、`dinner_window`、`bedtime_window` | 必填 | 时段，见下文；起床、出门、午饭、晚饭、开始就寝 |
+| `leave_work_window`、`arrive_home_window` | 可省略 | 时段；不写表示没有固定的下班或到家时刻，与 `work_schedule` 写没写无关 |
+| `coping` | 必填 | 压力时做什么，1 到 60 个字符 |
+| `identity` | 必填 | 表：`age` 严格整数 16 到 100，`occupation` 1 到 20 个字符，`living_arrangement` 1 到 30 个字符 |
+| `situation` | 必填 | 表：`busy_this_week`、`cares_about` 各 1 到 60 个字符 |
+| `relationships` | 必填 | 数组，0 到 4 项；每项 `name_or_appellation`、`role` 各 1 到 12 个字符，`intimacy` 严格整数 0 到 30，`channels` 是 1 到 3 个渠道 |
+| `habits` | 必填 | 数组，0 到 5 项；每项 `trigger` 1 到 30 个字符，`response` 1 到 40 个字符，`time_window` 是时段 |
+| `tastes` | 必填 | 表：`content_genres` 至多 6 项，`food_preferences` 至多 6 项，`media` 至多 4 项，每项是非空白文字 |
+| `body` | 必填 | `mass_kg`、`initial_energy_kcal`、`initial_sleep_debt_hours`；有限合法初值，能量不超过系统上限 |
+| `work_schedule` | 可省略 | `workplace` 为完整地点显示名，`weekly` 为班次，`exceptions` 为日期覆盖 |
+
+时段写成两个数的数组 `[起点, 终点]`，单位是自午夜起的小时，18.25 就是 18:15；不要求落在任何格点上，也不要求是整分钟。
+每个时段只检查一条：恰好两个有限数，起点小于终点。越过午夜的时刻可以写成大于 24 的小时数，
+人物看到的是钟面时刻（24.5 显示为 0 点半）。时段之间不做任何先后或重叠检查，也没有 24 小时或 30 小时的上界和跨度上限：
+`bedtime_window = [5.0, 7.0]`、早于或压着晚饭的就寝、`leave_work_window = [25.0, 25.5]` 都能加载，并照写的样子显示给人物。
+`channels` 的取值闭集是「电话」「微信」「见面」。数组可以为空的只有 `relationships`、`habits` 和 `tastes` 的三个数组，空数组也必须写出来。
+
+保留的检查只有表的格式和计算要用的：类型、必填、渠道闭集、数值范围（睡眠中点、睡眠需要、社交需要增长是公式的定义域，
+亲密度是分档的定义域，年龄限在 16 到 100）、提示容量依赖的条数与字数上限和卡片文本的 600 汉字上限，以及时段的那一条。
+条数与字数上限各管一个字段，合起来仍可能超过 600 汉字，口味数组里的词也没有单独的字数上限；
+所以加载时用整张表构造一次卡片文本并数汉字，超过 600 就拒绝。这一步是纯计算，不调用模型，
+文本怎样组成见[人物](06-agent.md)「人物身份与画像」。饭点加成按钟面读时段，对任何合格的时段都有定义，
+所以不为它另加范围检查，见[交换引擎](02-exchange-engine.md)「身体共同结算」。
+
+未知字段、类型不符、缺少必填字段、取值越界和卡片文本超长在加载时以 `PERSONA_INVALID` 拒绝，`path` 为 `persona.toml`，
+`reason` 先写出错字段的点分路径，没有改法字段。路径只由字段名、表的键和数组下标组成，
+例如 `work_schedule.exceptions.2026-01-05`：
+
+| 情形 | `reason` |
 | --- | --- |
-| `agent_id`、`name` | 唯一人物，正严格整数身份与非空白姓名 |
-| `background_story` | 必填正文，去首尾空白后至少一百字符 |
-| `health_habits`、`social_style` | 可省略的生活习惯与社交风格散文 |
-| `home_location`、`initial_location` | 目录中实际地点的完整显示名；住处必须标为住宿地点，起点可与住处不同 |
-| `initial_balance_fen` | 非负严格整数分 |
-| `initial_relaxation_need`、`initial_social_need` | 必填有限数，范围 `[0,1]` |
-| `body` | 必填 `mass_kg`、`initial_energy_kcal`、`initial_sleep_debt_hours`；有限合法初值，能量不超过系统上限 |
-| `work_schedule` | 可省略；`workplace` 为完整地点显示名，`weekly` 为班次，`exceptions` 为日期覆盖 |
-| 七个作息值 | 可省略；见下表，声明什么卡片里就存什么，不取整 |
+| 缺少必填字段 | `<字段> is required`，例如 `identity.age is required` |
+| 未知字段 | `<字段> is not a persona.toml field` |
+| 时段不合格 | `<字段>: must be two finite hours with start < end`，习惯的时段写成 `habits.0.time_window` |
+| 其余类型或取值错误 | `<字段>: <英文说明>`；`schema_version = 1` 得到 `schema_version: Input should be 2` |
+| 初始能量超过系统上限 | `initial energy exceeds maximum energy` |
+| 卡片文本超过 600 汉字 | `persona card render exceeds budget: <汉字数> hanzi > 600 (input-side problem, not truncated)`，不带字段路径 |
 
-七个作息值都写成自午夜起的小时数，18.25 就是 18:15；取值不要求落在任何格点上，也不要求是整分钟。
-
-| 字段 | 类型 | 约束 | 含义 |
-| --- | --- | --- | --- |
-| `lunch_window`、`dinner_window` | 两个浮点数的数组，依次是起点、终点 | 两端有限；`0 ≤ 起点 < 终点 ≤ 24`；终点减起点不超过 12 | 午饭、晚饭时段，含起点不含终点 |
-| `leave_work_window`、`arrive_home_window` | 同上 | 同上 | 下班、到家时段 |
-| `bedtime_window` | 同上 | 两端有限；`0 ≤ 起点 < 24`；`起点 < 终点 ≤ 30`；终点减起点不超过 12 | 开始就寝的时段；终点大于 24 表示越过午夜 |
-| `chronotype_midsleep` | 浮点数，缺省 4.0 | 有限数，`0 ≤ 值 < 24` | 自由日的睡眠中点 |
-| `sleep_need_hours` | 浮点数，缺省 7.5 | 有限数，`7 ≤ 值 ≤ 9` | 每天需要睡多久 |
-
-两个声明值不可能同时写进卡片时，加载 `persona.toml` 就拒绝，不调用模型、不创建运行资产。
-`bedtime_window` 的起点小于 6 时读作次日凌晨，比较时加 24，否则按当日读；6 是就寝时段上界 30 减 24。
-成对关系只比较就寝起点：起点小于 6 而终点大于 6 的就寝时段能通过加载，但按次日写进卡片时终点越过 30，
-卡片保留原值并记冲突，见[人物](06-agent.md)「人物身份与画像」。
-先按午饭、晚饭、下班、到家、就寝的次序检查每个时段自身的形状，再按下表的次序检查成对关系，只报告第一条不成立的。
-
-| 次序 | 同时声明了 | 必须满足 | 英文原因 |
-| --- | --- | --- | --- |
-| 1 | 下班、到家 | 下班起点 ≤ 到家起点 | `leave_work_window must not start after arrive_home_window` |
-| 2 | 晚饭、就寝 | 就寝起点（次日读法）≥ 晚饭终点 | `bedtime_window must not overlap dinner window` |
-| 3 | 午饭、晚饭 | 午饭终点 ≤ 晚饭起点 | `lunch_window must end before dinner_window starts` |
-| 4 | 午饭、就寝 | 午饭起点 ≤ 就寝起点（次日读法） | `bedtime_window must not start before lunch_window` |
-| 5 | 下班、就寝 | 下班起点 ≤ 就寝起点（次日读法） | `leave_work_window must not start after bedtime_window` |
-| 6 | 到家、就寝 | 到家起点 ≤ 就寝起点（次日读法） | `arrive_home_window must not start after bedtime_window` |
-
-单个时段形状的原因是 `<字段名> must contain two finite hours`、`<字段名> must satisfy 0 <= start < end <= <24 或 30>`、
-`<字段名> span must not exceed 12 hours`。这些原因和上表的原因随 `PERSONA_INVALID` 原样返回，
-`path` 为 `persona.toml`；没有改法字段，作者照原因改其中一个时段。
-没有声明的值照旧：人设层和评估用模型读出的值，零点计划不显示这一项，身体对睡眠中点和睡眠需要用缺省值、对饭点没有加成。
-声明值怎样写进卡片和怎样显示归[人物](06-agent.md)「人物身份与画像」。
+一次只报告第一处，卡片文本的长度在各字段都合格之后才数。文件本身读不出来（缺失、不是 UTF-8 无 BOM 与 LF、不是合法 TOML）时用文件级的原因，不带字段路径；
+顶层出现已删除的旧模板字段时原因是 `legacy template fields are deleted, merge them into the card: [...]`。
+卡片怎样由这些字段构造和怎样显示归[人物](06-agent.md)「人物身份与画像」。
 
 人物不声明联系人、邮件、账单、工资、工作内容指派、车辆归属、专用燃油初值或种子。
 删除 `entertainment_need` 与 `mood_valence` 的两套心理初值；身体结算与体感规则归交换引擎。
@@ -113,14 +127,13 @@ flowchart LR
 | `max_retries` | 默认 `0`，严格整数 `0–10`，可重试非传输服务拒绝 |
 | `transport_max_retries` | 默认 `3`，严格整数 `0–10`，连接、超时与服务暂不可用 |
 | `max_react_turns` | 默认 `16`，严格整数 `1–64`，宿主模型回合预算 |
-| `persona_validation_max_retries` | 默认 `2`，严格整数 `0–5`，画像输出校验重试 |
 | `reflection_validation_max_retries` | 默认 `3`，严格整数 `0–5`，反思输出校验重试 |
 | `day_plan_validation_max_retries` | 默认 `3`，严格整数 `0–5`，日计划输出校验重试 |
 
 凭据值不进入文件、清单、提示或日志。两类服务重试由同一个 dispatcher 循环计数，
 每次失败只消耗一类预算，总尝试至多 `1 + max_retries + transport_max_retries`；
 底层隐式重试关闭，鉴权与参数错误立即失败。输出纠正是新的逻辑请求，各自受同一预算约束。
-画像多次一致性抽取不是重试。耗尽后失败，不合成成功或跳过模拟时间。
+耗尽后失败，不合成成功或跳过模拟时间。
 
 <a name="configuration-上下文核验"></a>
 ## 权威上下文核验
@@ -140,7 +153,12 @@ flowchart LR
 登记失败的 `reason` 是固定英文原因后接一个空格和详情，没有详情时只有固定原因；
 行号、实际路径、地点对和更短路线等详情都经这一处到达作者。
 成功只返回 `valid`、`environment_id`、`environment_version`。
-画像校验与新建运行在纯加载成功后编译唯一人物；恢复和重放沿用冻结卡片。
+新建运行在纯加载成功后由 `persona.toml` 直接构造人物卡片，不调用模型；恢复和重放核对工作区里的卡片与冻结的
+`persona.toml` 一致，见[人物](06-agent.md)「人物身份与画像」。命令行没有单独的人物卡片命令。
+运行输入警告有两种，新建运行时算出、冻结进运行清单的 `input_warnings`、计入质量报告并各写一条运维日志，不使运行失败：
+没有任何 app 绑定内容而人物写了媒体口味或带「看、刷、听」的习惯（`CONTENT_EMPTY_WITH_MEDIA_TASTES`），
+以及地点显示名带坐标或标识形态（`LOCATION_NAME_SUSPICIOUS`）。警告条目的形状是 `{code, agent_id, message, details}`，
+警告码是这两个值的闭集，闭集之外的码在写入清单时拒绝。
 两份 TOML 不进入目录清单和目录摘要，各自身份在运行清单冻结。
 改变任何原字节后使用新运行目录；恢复、重放与跨臂比较核对这些身份。
 

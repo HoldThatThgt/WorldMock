@@ -21,7 +21,6 @@ from worldmock.life.activity_validation import validate_activity_targets
 from worldmock.life.callbacks import settle_callback_dates
 from worldmock.life.rhythm import RhythmBoundary, settle_engine_rhythm
 from worldmock.life.world_setup import _initial_state
-from worldmock.profile.models import WorldDynamics
 from worldmock.scheduling.compile import compile_schedule
 
 
@@ -90,7 +89,7 @@ def test_restore_rejects_retired_navigation_app_activity_field(engine_factory, n
 
 
 def test_relief_at_interval_end_still_bills_the_preceding_actual_discomfort(inputs):
-    state = _initial_state(inputs, "discomfort", WorldDynamics(social_need_growth_per_hour=0.06))
+    state = _initial_state(inputs, "discomfort")
     now = state.current_time
     person = state.agents[1]
     person.body = person.body.model_copy(update={"energy_kcal": 0.0, "sleep_pressure": 0.0})
@@ -160,7 +159,7 @@ def test_daily_action_callback_counts_actual_dates_across_short_and_long_dst_day
                      {"type": "state_delta", "state": "driving_days", "delta": -1, "once_per": "local_day"})
     current = configured(inputs, start, stop, [daily])
     current = replace(current, catalog=replace(current.catalog, callback_states={"driving_days": declaration}))
-    state = _initial_state(current, "dst", WorldDynamics(social_need_growth_per_hour=0.06))
+    state = _initial_state(current, "dst")
     activity = SimpleNamespace(agent_id=1, origin_action_id="actual-trip", travel_method_id="driving",
                                data={"action": "travel", "accepted_event_id": "accepted-trip"})
     first, end = int(current.config.start_time.timestamp()), int(current.config.stop_time.timestamp())

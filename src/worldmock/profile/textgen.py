@@ -1,19 +1,13 @@
 """@brief PersonaCard → 提示用中文卡片文本（确定性组装，零 LLM，≤600 汉字）。
 
-渲染只做确定性文本组装，不调用模型。黑名单保障：大五分数、旧九参数与
-任何权重不出现在渲染文本（docs/design/06-agent.md「人物身份与画像」）——卡片本身不承载这些字段，渲染器
-也不引入数字权重。超出 600 汉字是输入侧问题：如实抛错，不静默截断。
+渲染只做确定性文本组装，不调用模型，时刻照卡片里的原值写到分钟（docs/design/06-agent.md「人物身份与画像」）。
+超出 600 汉字是输入侧问题：如实抛错，不静默截断。
 """
 
 from __future__ import annotations
 
-from worldmock.profile.models import (
-    PERSONA_CARD_HANZI_BUDGET,
-    HabitSignature,
-    PersonaCard,
-    Relationship,
-    TimeWindow,
-)
+from worldmock.input_models import Relationship
+from worldmock.profile.models import PERSONA_CARD_HANZI_BUDGET, HabitSignature, PersonaCard, TimeWindow
 
 
 class RenderBudgetExceededError(ValueError):
@@ -103,14 +97,16 @@ def _relationship_item(relationship: Relationship) -> str:
 
 
 def _relationship_line(card: PersonaCard) -> str:
-    """@brief 关系行：亲近的人列表。"""
+    """@brief 关系行：亲近的人列表；人设表没有写任何关系时写「无」。"""
+    if not card.relationships:
+        return "亲近的人：无。"
     items = "、".join(_relationship_item(item) for item in card.relationships)
     return f"亲近的人：{items}。"
 
 
 def _rhythm_line(card: PersonaCard) -> str:
     """@brief 作息行：时间锚点、睡眠中点与睡眠需要，时刻写到分钟；下班、到家锚点各自非空时按此顺序各追加一个分句
-    （「；下班<窗口>」「；到家<窗口>」），都为 null 时没有这两个分句（docs/design/06-agent.md「人物身份与画像」）。"""
+    （「；下班<时段>」「；到家<时段>」），都为 null 时没有这两个分句（docs/design/06-agent.md「人物身份与画像」）。"""
     anchors = card.time_anchors
     work = (("下班", anchors.leave_work), ("到家", anchors.arrive_home))
     clauses = "".join(f"；{label}{window_text(window)}" for label, window in work if window is not None)

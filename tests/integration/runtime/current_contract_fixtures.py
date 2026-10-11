@@ -10,7 +10,6 @@ from types import SimpleNamespace
 
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.frozen_inputs import fixture_metadata
-from tests.profile.conftest import make_card
 from worldmock.environment import load_environment
 from worldmock.run_setup import creation_inputs, stage_model_identity
 
@@ -24,18 +23,7 @@ def inputs():
 
 def profile():
     frozen = inputs()
-    return creation_inputs(frozen, {frozen.persona.agent_id: make_card()})[0][0]["profile"]
-
-
-def compiled_persona(frozen):
-    from worldmock.profile.compile import compile_persona
-    from worldmock.profile.extractor import PersonaExtraction
-    from worldmock.profile.models import BigFiveProfile
-
-    extracted = PersonaExtraction(card=make_card(), big_five=BigFiveProfile(openness=4,
-        conscientiousness=4, extraversion=4, agreeableness=4, neuroticism=4), runs=3, agreement=1.0,
-        per_field={"coping": 1.0}, warning=False, model=frozen.config.model.requested_model, prompt_version="card-v3")
-    return compile_persona(frozen.persona, extraction=extracted, persona_sha256=frozen.persona_sha256)
+    return creation_inputs(frozen)[0][0]["profile"]
 
 
 def metadata_service(monkeypatch, frozen=None):

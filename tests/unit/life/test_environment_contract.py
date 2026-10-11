@@ -16,8 +16,6 @@ from worldmock.life.schedule import (
     NextDecisionQuery, WAKE_TRIGGERS, WakeSnapshot, WakeTrigger, evaluate_wake_reasons,
     next_decision_time, wake_categories,
 )
-from worldmock.profile.mapper import map_world_dynamics
-from worldmock.profile.models import BigFiveProfile, WorldDynamics
 
 
 def agent():
@@ -238,12 +236,19 @@ def test_exact_six_round_budget(rounds, active, pending, exhausted):
     assert budget_exhausted(RoundOutcome(100, person, active, False, pending)) is exhausted
 
 
-@pytest.mark.parametrize("score,expected", [(1, 0.02), (4, 0.06), (7, 0.10)])
-def test_social_growth_mapping_is_the_only_world_dynamics(score, expected):
-    traits = BigFiveProfile(openness=4, conscientiousness=4, extraversion=score, agreeableness=4, neuroticism=4)
-    assert map_world_dynamics(traits).model_dump() == {"social_need_growth_per_hour": expected}
-    with pytest.raises(ValidationError):
-        WorldDynamics.model_validate({"social_need_growth_per_hour": expected, "mood_halflife_minutes": 45.0})
+@pytest.mark.parametrize("growth", [0.02, 0.06, 0.10])
+def test_social_growth_is_the_value_written_in_the_persona_table(growth):
+    """社交需要每小时增长直接取人设表的值，身体初值原样带着它；0.02 到 0.10 之外的值在加载时被拒绝。"""
+    from tests.life.persona_inputs import persona_document, persona_with
+    from worldmock.input_models import PersonaConfig
+    from worldmock.life.body import initial_body
+    from worldmock.life.body_config import assemble_body_config
+
+    persona = persona_with(social_need_growth_per_hour=growth)
+    assert initial_body(assemble_body_config(persona), 8.0, persona).social_need_growth_per_hour == growth
+    for outside in (0.019, 0.101):
+        with pytest.raises(ValidationError):
+            PersonaConfig.model_validate(persona_document(social_need_growth_per_hour=outside))
 
 
 def test_model_identity_accepts_configured_endpoint_and_budgets():

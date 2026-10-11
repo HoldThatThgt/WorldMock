@@ -8,7 +8,7 @@ import pytest
 import tomlkit
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.frozen_inputs import fixture_metadata
-from tests.integration.runtime.current_contract_fixtures import ROOT, compiled_persona, inputs, metadata_service, ToolResponse
+from tests.integration.runtime.current_contract_fixtures import ROOT, inputs, metadata_service, ToolResponse
 from tests.life.conftest import MAIN_TOOL, StubPlanDayClient, main_arguments
 from worldmock.environment import load_environment
 from worldmock.footprints.store import FootprintStore
@@ -40,7 +40,6 @@ class CurrentDecisionModel:
 @pytest.fixture
 def native_runtime(tmp_path, monkeypatch):
     import worldmock.runtime as runtime
-    import worldmock.run_setup as setup
     import agentsociety2.society.society as society_module
     from agentsociety2.agent.runner import _step_agent_batch_async, _create_direct_agents_batch_async
     from agentsociety2.config import llm_dispatcher
@@ -69,9 +68,6 @@ def native_runtime(tmp_path, monkeypatch):
         monkeypatch.setenv(name, os.environ.get(name, ""))
     models = []
 
-    async def compile_card(*args):
-        return compiled_persona(frozen)
-
     async def initialize():
         return None
 
@@ -79,7 +75,7 @@ def native_runtime(tmp_path, monkeypatch):
         return {"results": await _step_agent_batch_async(request, service), "token_stats": {}}
 
     async def build(prepared):
-        specs = await runtime._society_specs(prepared)
+        specs = runtime._society_specs(prepared)
         env = LifeEnv(**prepared.env_kwargs)
         model = CurrentDecisionModel(env)
         models.append(model)
@@ -87,7 +83,6 @@ def native_runtime(tmp_path, monkeypatch):
         return None, AgentSociety(AgentSocietyConfig(prepared.run_id, specs, "LifeAgent", env, service,
             prepared.start_time, prepared.inputs.config.stop_time, prepared.run_dir, ROOT, prepared.workspace_mode))
 
-    monkeypatch.setattr(setup, "_compile_persona", compile_card)
     monkeypatch.setattr(llm_dispatcher, "init_dispatchers", initialize)
     monkeypatch.setattr(runtime, "PlanDayClient", StubPlanDayClient)
     monkeypatch.setattr(runtime, "_build_society", build)

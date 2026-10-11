@@ -231,7 +231,7 @@ async def test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query(mo
     monkeypatch.setenv('WORKSPACE_PATH', str(ROOT))
     monkeypatch.setattr(llm_dispatcher, 'build_client_for_role', lambda role: role)
     frozen = frozen_inputs()
-    async def restored_specs(prepared):
+    def restored_specs(prepared):
         return ({"id": 1, "profile": current_profile(), "config": {}},)
     monkeypatch.setattr(runtime, "_society_specs", restored_specs)
 

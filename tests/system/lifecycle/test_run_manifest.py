@@ -1,7 +1,7 @@
 """原生环境冻结完整模型能力和输入身份，拒绝预算类型或值漂移。"""
 import copy
 import pytest
-from tests.integration.runtime.current_contract_fixtures import inputs, metadata_service, compiled_persona
+from tests.integration.runtime.current_contract_fixtures import inputs, metadata_service
 from tests.integration.runtime_fixtures import current_run_identity
 from tests.data_paths import ENVIRONMENT_ROOT
 from worldmock.errors import IntegrityError
@@ -9,7 +9,7 @@ from worldmock.run_setup import stage_model_identity, validate_stage_model_ident
 from custom.envs.life_env import LifeEnv
 
 @pytest.mark.parametrize("field", ["transport_max_retries", "max_react_turns", "reflection_validation_max_retries",
-                                   "persona_validation_max_retries", "day_plan_validation_max_retries"])
+                                   "day_plan_validation_max_retries"])
 @pytest.mark.parametrize("change", ["missing", "float", "string", "negative"])
 def test_manifest_model_budgets_refuse_incomplete_or_invalid_values(field, change):
     frozen = inputs()
@@ -28,8 +28,7 @@ async def test_native_environment_manifest_contains_full_declared_service_identi
     frozen = inputs()
     metadata_service(monkeypatch, frozen)
     env = LifeEnv(environment_root=str(ENVIRONMENT_ROOT), run_dir=str(tmp_path / "run"),
-                  run_identity=current_run_identity(frozen, "manifest").model_dump(mode="json"),
-                  create_options={"world_dynamics": compiled_persona(frozen).world_dynamics.model_dump()})
+                  run_identity=current_run_identity(frozen, "manifest").model_dump(mode="json"))
     await env.init(frozen.config.start_time)
     try:
         manifest = env.engine.context.store.manifest

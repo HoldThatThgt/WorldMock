@@ -198,7 +198,7 @@ def test_assumed_sleep_before_the_run_ends_at_the_habitual_wake_time_used_for_th
         began, ended = assumed_sleep(_at(5, clock), hour, midsleep, need)
         assert ended - began == round(need * 3600) and 0 <= _at(5, clock) - ended < 86400
         at_wake = initial_sleep_pressure((midsleep + need / 2) % 24, need, midsleep)
-        body = initial_body(assemble_body_config(persona), hour, persona, 0.06)
+        body = initial_body(assemble_body_config(persona), hour, persona)
         assert body.sleep_pressure == pytest.approx(pressure_after_awake(at_wake, (_at(5, clock) - ended) / 3600))
 
 

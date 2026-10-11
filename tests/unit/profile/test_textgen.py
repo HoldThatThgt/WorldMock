@@ -1,21 +1,12 @@
-"""@brief 卡片渲染：确定性、≤600 汉字、黑名单（大五与随机浮点不出现）。"""
+"""@brief 卡片渲染：确定性、≤600 汉字、时刻照卡片里的原值写到分钟。"""
 
 from __future__ import annotations
 
-import re
-
 import pytest
 
-from worldmock.profile.models import (
-    PERSONA_CARD_HANZI_BUDGET,
-    HabitSignature,
-    Relationship,
-    Situation,
-    Tastes,
-    TimeAnchors,
-)
 from worldmock.agents.life_persona import persona_layer
-from worldmock.profile.models import persona_card_struct
+from worldmock.input_models import Relationship, Situation, Tastes
+from worldmock.profile.models import PERSONA_CARD_HANZI_BUDGET, HabitSignature, TimeAnchors, persona_card_struct
 from worldmock.profile.textgen import (
     RenderBudgetExceededError,
     count_hanzi,
@@ -24,11 +15,6 @@ from worldmock.profile.textgen import (
     window_text,
 )
 from tests.profile.conftest import make_card, make_window
-
-#: 黑名单：大五标签、旧九参数名、百分比与多小数随机浮点不得出现在渲染文本。
-BLACKLIST_TERMS = ("开放性", "尽责性", "外向性", "宜人性", "神经质",
-                   "big_five", "tau", "beta", "λ", "权重", "%", "weights")
-
 
 def test_render_is_deterministic():
     card = make_card()
@@ -45,27 +31,30 @@ def test_maxed_out_card_still_within_budget():
     card = make_card(
         relationships=tuple(
             Relationship(name_or_appellation=f"朋友{index}", role="老友",
-                         intimacy=10 + index, channels=("微信", "电话"))
+                         intimacy=10 + index, channels=["微信", "电话"])
             for index in range(4)),
         habits=tuple(
             HabitSignature(trigger=f"情境{index}", response=f"做一件较长但常规的事情{index}",
                            time_window=make_window(19.0, 20.0))
             for index in range(5)),
-        tastes=Tastes(content_genres=tuple(f"题材{index}" for index in range(6)),
-                      food_preferences=tuple(f"食物{index}" for index in range(6)),
-                      media=tuple(f"媒介{index}" for index in range(4))),
+        tastes=Tastes(content_genres=[f"题材{index}" for index in range(6)],
+                      food_preferences=[f"食物{index}" for index in range(6)],
+                      media=[f"媒介{index}" for index in range(4)]),
         situation=Situation(
             busy_this_week="推进一个跨团队项目的收尾阶段并准备评审材料",
             cares_about="家里长辈的身体检查结果与自己的睡眠质量"))
     assert count_hanzi(render_card(card)) <= PERSONA_CARD_HANZI_BUDGET
 
 
-def test_render_blacklist_excludes_big_five_and_random_floats():
-    """@brief 黑名单断言：大五术语/旧参数名/百分比/多小数浮点不出现。"""
-    text = render_card(make_card())
-    for term in BLACKLIST_TERMS:
-        assert term not in text, f"blacklisted term {term!r} leaked into card render"
-    assert not re.search(r"\d+\.\d{2,}", text), "multi-decimal float leaked into render"
+def test_render_card_without_relationships_habits_or_tastes_uses_fallback_lines():
+    """@brief 人设表的关系、习惯和口味三个数组都可以为空：各写一行固定说法，其余行不变。"""
+    card = make_card(relationships=(), habits=(),
+                     tastes=Tastes(content_genres=[], food_preferences=[], media=[]))
+    lines = render_card(card).splitlines()
+    assert lines[2] == "亲近的人：无。"
+    assert lines[4] == "习惯：无明确习惯签名。"
+    assert lines[5] == "口味：无特别偏好。"
+    assert count_hanzi("\n".join(lines)) <= PERSONA_CARD_HANZI_BUDGET
 
 
 def test_render_carries_card_content():
@@ -152,7 +141,7 @@ def test_hour_text_rounds_to_the_minute_then_wraps_around_the_day(hour, text):
 
 
 def test_card_text_and_persona_layer_write_the_same_window_text():
-    """@brief 同一张卡片（声明值不在格点上）在卡片文本与人设层里写出相同的时段、睡眠中点与睡眠需要。"""
+    """@brief 同一张卡片（取值不在格点上）在卡片文本与人设层里写出相同的时段、睡眠中点与睡眠需要。"""
     card = make_card(chronotype_midsleep=4.1, sleep_need_hours=7.6, time_anchors=TimeAnchors(
         wake=make_window(7.0, 7.5), leave_home=make_window(8.0, 8.5), lunch=make_window(12.1, 12.2),
         dinner=make_window(19.0, 20.0), bedtime=make_window(24.5, 25.5),
@@ -175,16 +164,15 @@ def test_card_text_and_persona_layer_write_the_same_window_text():
 
 
 def _with_work_anchors(card, leave_work, arrive_home):
-    """@brief 同一张卡片换上给定的下班、到家锚点（经 TimeAnchors 校验重建，其余五个锚点不变）。"""
-    anchors = TimeAnchors.model_validate({**card.time_anchors.model_dump(), "leave_work": leave_work,
-                                          "arrive_home": arrive_home})
+    """@brief 同一张卡片换上给定的下班、到家锚点，其余五个锚点不变。"""
+    anchors = card.time_anchors.model_copy(update={"leave_work": leave_work, "arrive_home": arrive_home})
     return card.model_copy(update={"time_anchors": anchors})
 
 
 def test_non_null_work_anchors_each_append_a_clause_and_count_towards_the_budget():
-    """@brief 画像文本（docs/design/06-agent.md#agent-下班与到家锚点 ）：下班、到家各自非空时在作息行「需睡N小时」之后按此顺序各追加
-    一个分句，其余文本逐字节不变；追加的分句计入 600 汉字预算——不带分句恰好 600 汉字的卡片照常渲染，带上下班分句即如实
-    报错、不截断。"""
+    """@brief 卡片文本（docs/design/06-agent.md「人物身份与画像」）：下班、到家各自非空时在作息行「需睡N小时」之后按此顺序
+    各追加一个分句，其余文本逐字节不变；追加的分句计入 600 汉字预算——不带分句恰好 600 汉字的卡片照常渲染，带上下班分句
+    即如实报错、不截断。"""
     card = make_card()
     plain = render_card(card)
     leave, arrive = make_window(18.0, 18.5), make_window(19.0, 19.5)
@@ -196,19 +184,19 @@ def test_non_null_work_anchors_each_append_a_clause_and_count_towards_the_budget
         assert text.splitlines()[3].endswith(ending)
     assert render_card(_with_work_anchors(card, None, None)) == plain
     spare = PERSONA_CARD_HANZI_BUDGET - count_hanzi(plain)
-    full = make_card(tastes=Tastes(content_genres=("悬疑", "纪" * (spare + 3)), food_preferences=("川菜", "面食"),
-                                   media=("长视频", "短视频")))
+    full = make_card(tastes=Tastes(content_genres=["悬疑", "纪" * (spare + 3)], food_preferences=["川菜", "面食"],
+                                   media=["长视频", "短视频"]))
     assert count_hanzi(render_card(full)) == PERSONA_CARD_HANZI_BUDGET
     with pytest.raises(RenderBudgetExceededError, match="606 hanzi > 600"):
         render_card(_with_work_anchors(full, leave, None))
 
 
 def test_the_arrive_home_clause_counts_towards_the_budget_alone_and_with_the_leave_work_clause():
-    """@brief 追加分句计入 600 汉字预算（规格 4.1，裁决 W5）对到家分句同样成立：不带分句恰好 600 汉字的卡片，只带到家分句
+    """@brief 追加分句计入 600 汉字预算对到家分句同样成立：不带分句恰好 600 汉字的卡片，只带到家分句
     时如实报 606、两个分句都带时报 612，不截断也不放行；每个分句恰好多 6 个汉字。"""
     spare = PERSONA_CARD_HANZI_BUDGET - count_hanzi(render_card(make_card()))
-    full = make_card(tastes=Tastes(content_genres=("悬疑", "纪" * (spare + 3)), food_preferences=("川菜", "面食"),
-                                   media=("长视频", "短视频")))
+    full = make_card(tastes=Tastes(content_genres=["悬疑", "纪" * (spare + 3)], food_preferences=["川菜", "面食"],
+                                   media=["长视频", "短视频"]))
     assert count_hanzi(render_card(full)) == PERSONA_CARD_HANZI_BUDGET
     leave, arrive = make_window(18.0, 18.5), make_window(19.0, 19.5)
     roomy = make_card()
@@ -232,7 +220,7 @@ def test_intimacy_bands_render():
     assert "很亲近" in render_card(make_card())
     assert "疏远" in render_card(make_card(relationships=(
         Relationship(name_or_appellation="点头之交", role="邻居", intimacy=2,
-                     channels=("见面",)),)))
+                     channels=["见面"]),)))
 
 
 def test_count_hanzi_counts_only_cjk():
