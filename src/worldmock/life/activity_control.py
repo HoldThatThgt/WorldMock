@@ -28,6 +28,8 @@ if TYPE_CHECKING:
 
 #: 每人活动槽位数（常量，不设场景参数）。
 SLOT_LIMIT = 2
+#: 进行中的活动离计划结束不足这么多秒时不能暂停，只能结束或等它做完；恰好还剩这么多秒可以暂停。
+PAUSE_MIN_REMAINING_SECONDS = 180
 #: 活动阶段的人读说法：进行中、已暂停、刚结束（待收尾）、已收尾、已结束（实验截止截断）。
 PHASE_ACTIVE, PHASE_PAUSED, PHASE_PENDING, PHASE_CONCLUDED, PHASE_ENDED = (
     "进行中", "已暂停", "刚结束", "已收尾", "已结束")
@@ -76,11 +78,13 @@ def concludable(activity: ActivityState) -> bool:
 
 
 def pausable(state: WorldState, activity: ActivityState) -> bool:
-    """@brief 活动能否暂停（与 pause_activity 的判定同源）：进行中的交互活动。
+    """@brief 活动能否暂停的唯一判定：进行中的交互活动，并且离计划结束不少于 PAUSE_MIN_REMAINING_SECONDS。
 
-    决策边界只关乎暂停的时机，不在此判定；槽位超限的下一步据此决定写不写「暂停」。
+    暂停的受理、工具层 pause_activity 一行的可用性与原因、同槽位占用与槽位超限的下一步写不写「暂停」都读它。
+    计划结束取活动此刻的计划结束（系列是正在做的这一集）；决策边界只关乎暂停的时机，不在此判定。
     """
-    return activity.status == ActivityStatus.ACTIVE and activity.kind == ActivityKind.INTERACT
+    return (activity.status == ActivityStatus.ACTIVE and activity.kind == ActivityKind.INTERACT
+            and activity.planned_end_at - state.current_time >= PAUSE_MIN_REMAINING_SECONDS)
 
 
 def free_slots(state: WorldState, agent_id: int) -> int:
@@ -243,7 +247,7 @@ def control_refusal(context: Context, tool: str, activity: ActivityState) -> Ref
 
     report_status：只接受进行中或暂停的活动；暂停的活动只在实际开始地点恢复。
     恢复要有空槽位且与进行中活动的占用不能冲突（按这个顺序）。
-    pause_activity：只暂停进行中的活动；只有进行中的交互活动可以暂停；须在活动的决策边界。
+    pause_activity：只暂停进行中的活动；只有离计划结束不少于三分钟的进行中交互活动可以暂停；须在活动的决策边界。
     conclude_activity：只结束能结束的活动（进行中、暂停中或待收尾）；有别的待收尾活动时先收尾；进行中的活动须在决策边界
     。
 
@@ -272,18 +276,18 @@ def _report_refusal(context: Context, activity: ActivityState) -> Refusal | None
     refusal = slot_refusal(context.state, activity.agent_id, 1, context.activity_names)
     if refusal is not None:
         return refusal
-    blocking = [item.name for item in active_activities(context.state, activity.agent_id)
+    blocking = [item for item in active_activities(context.state, activity.agent_id)
                 if item.activity_id != activity.activity_id and item.resource_claims & activity.resource_claims]
     if blocking:
-        listed = "、".join(blocking)
+        listed = "、".join(item.name for item in blocking)
+        step = "Conclude or pause" if all(pausable(context.state, item) for item in blocking) else "Conclude"
         return Refusal("RESOURCE_CONFLICT", f"This activity conflicts with the running activities {listed}.",
-                       f"Conclude or pause {listed} first.",
-                       ("resource_claims",))
+                       f"{step} {listed} first.", ("resource_claims",))
     return None
 
 
 def _pause_refusal(context: Context, activity: ActivityState) -> Refusal | None:
-    """@brief 暂停：能暂停（进行中的交互活动，pausable），并在决策边界。"""
+    """@brief 暂停：能暂停（离计划结束不少于三分钟的进行中交互活动，pausable），并在决策边界。"""
     if not pausable(context.state, activity):
         return _unpausable_refusal(context, activity)
     if not at_decision_boundary(activity, context.state.current_time):
@@ -292,11 +296,15 @@ def _pause_refusal(context: Context, activity: ActivityState) -> Refusal | None:
 
 
 def _unpausable_refusal(context: Context, activity: ActivityState) -> Refusal:
-    """@brief 不能暂停的活动按第一条不成立的条件拒绝：不是进行中的交互活动。"""
+    """@brief 不能暂停的活动按第一条不成立的条件拒绝：不在进行中；是交互活动而离计划结束不足三分钟；其余种类。"""
     if activity.status != ActivityStatus.ACTIVE:
         return refusal_for_code("ACTION_REQUEST_INVALID")
+    name = context.activity_names.get(activity.activity_id, activity.name)
+    if activity.kind == ActivityKind.INTERACT:
+        return Refusal("ACTIVITY_PAUSE_UNAVAILABLE",
+                       f"The activity {name} ends in under three minutes and cannot be paused.",
+                       f"Conclude {name} or let it finish.", fix="Conclude this activity or let it finish instead.")
     if on_road(context.state, activity):
-        name = context.activity_names.get(activity.activity_id, activity.name)
         return Refusal("ACTIVITY_PAUSE_UNAVAILABLE", f"The activity {name} cannot be paused while travelling.",
                        f"Conclude {name}.")
     return refusal_for_code("ACTIVITY_PAUSE_UNAVAILABLE")
