@@ -73,6 +73,9 @@ MUTATIONS = (
     SourceMutation("unsleepable_location_sleeps", "worldmock.life.admission::_sleep_place_refusal",
         "if not location.sleepable:", "if False:",
         ("tests/integration/start_interfaces/test_sleep_request.py::test_sleeping_where_it_is_not_possible_points_home",)),
+    SourceMutation("sleep_only_at_the_persona_home", "worldmock.life.admission::_sleep_place_refusal",
+        "if not location.sleepable:", "if location.location_id != context.inputs.home_location_id:",
+        ("tests/integration/start_interfaces/test_sleep_request.py::test_sleeping_sixty_minutes_at_the_sleepable_office",)),
     SourceMutation("oversleep_threshold_reversed", "worldmock.life.sleep_plan::oversleep_seconds",
         "if window_seconds >= OVERSLEEP_THRESHOLD_SECONDS:", "if window_seconds < OVERSLEEP_THRESHOLD_SECONDS:",
         ("tests/unit/life/test_sleep_plan.py::test_proposal_sleep_examples_give_the_stated_totals_and_outcomes",)),
@@ -122,6 +125,25 @@ MUTATIONS = (
         'bed = _bedtime_median([minutes_of_day(item["start"]) for item in bedtimes])',
         'bed = statistics.median([minutes_of_day(item["start"]) for item in bedtimes])',
         ("tests/unit/evaluation/test_behavior_metrics.py::test_bedtime_median_starts_the_day_at_six_in_the_morning",)),
+    SourceMutation("oversleep_left_out_of_the_planned_end", "worldmock.life.start_group::StartGroups._start_sleep",
+        'ActivityStartParams("sleep", declared + extra, data=data)', 'ActivityStartParams("sleep", declared, data=data)',
+        ("tests/integration/life/test_sleep_runtime.py"
+         "::test_short_sleep_after_a_long_day_oversleeps_once_and_recovers_by_the_time_actually_slept",)),
+    SourceMutation("reflection_after_observation", "custom.agents.life_agent::LifeAgent._observe_environment",
+        "if await self._env.due_reflection(context) is not None:\n"
+        "            await self._wake_reflection(context)\n"
+        "        return await self._env.observe(context)",
+        "observed = await self._env.observe(context)\n"
+        "        if await self._env.due_reflection(context) is not None:\n"
+        "            await self._wake_reflection(context)\n"
+        "        return observed",
+        ("tests/integration/runtime/test_daily_reflection.py"
+         "::test_exhausted_reflection_retries_fault_the_step_before_any_observation",)),
+    SourceMutation("reflection_filed_by_sleep_start", "worldmock.life.memory_evidence::due_reflection",
+        '"date": (today - timedelta(days=1)).isoformat()',
+        '"date": datetime.fromtimestamp(woke.started_at - 21600, zone).date().isoformat()',
+        ("tests/unit/life/test_daily_reflection_trigger.py"
+         "::test_nap_after_an_all_nighter_is_the_first_wake_up_of_its_day",)),
     SourceMutation("location_unit_name_ignored", "worldmock.life.interact::InteractivityRuntime._unit_plan",
         'for key in action["content_ids"]]', "for key in sorted(self.context.catalog.contents)]",
         ("tests/integration/start_interfaces/test_location_activities.py::test_naming_a_unit_starts_exactly_that_content",)),
