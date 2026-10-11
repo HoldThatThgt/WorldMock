@@ -117,7 +117,7 @@ class BoundedWaitFinding:
 def rotation_quota_slots(presentation_limit: int, quota_ratio: float) -> int:
     """@brief 由场景常量导出换新名额 `k = round(上限 × 比例)`，至少一名额且不超过单次上限。
 
-    名额必须由比例导出，任何写死的 `k` 都违反合同「场景常量」一节；上限为 20、
+    名额必须由比例导出，任何写死的 `k` 都违反 docs/design/06-agent.md「提示与工具」；上限为 20、
     比例为 0.15 时给出 3。名额为 0 会让长期未呈现的对象永远不出现，因此下限恒为 1。
 
     @param presentation_limit 单次呈现上限（`candidate_presentation_limit`）。
@@ -128,7 +128,7 @@ def rotation_quota_slots(presentation_limit: int, quota_ratio: float) -> int:
 
 
 def _ordering_key(member: RotationMember) -> tuple:
-    """@brief 稳定全序键：完整排序键（合同「排序键与游标」），对象标识只作排序键完全相同时的兜底。"""
+    """@brief 稳定全序键：完整排序键（docs/design/06-agent.md「提示与工具」），对象标识只作排序键完全相同时的兜底。"""
     return (tuple(member.order_key), member.object_id)
 
 

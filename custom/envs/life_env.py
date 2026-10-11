@@ -53,7 +53,7 @@ class LifeEnv(EnvBase):
         create_options 是新建运行的附加输入：input_warnings（运行输入警告，
         冻结进清单；docs/design/04-simulation-engine.md）、persona_habit_responses（人设层习惯签名的反应文本，
         冻结进清单，候选排序的相关度；5.1）与 same_second_continuation
-        （同秒续接开关，缺省开，冻结进清单 stages.action；docs/design/06-agent.md「宿主模型协议」）。
+        （同秒续接开关，缺省开，冻结进清单 stages.action；docs/design/04-simulation-engine.md「世界与请求」）。
         """
         super().__init__()
         self.environment_root = Path(environment_root).resolve() if environment_root else None

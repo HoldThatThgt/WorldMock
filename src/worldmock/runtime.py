@@ -42,7 +42,7 @@ class RunRequest:
     :param run_id: 调用方分配的稳定运行身份。
     :param source_group_id: 首次运行的来源组身份，必须等于 run_id。
     :param same_second_continuation: 同秒续接开关（缺省开），冻结进清单 stages.action 与人物配置；
-        恢复与重放继承父清单的值（docs/design/06-agent.md「宿主模型协议」）。
+        恢复与重放继承父清单的值（docs/design/04-simulation-engine.md「世界与请求」）。
     """
 
     project_root: Path

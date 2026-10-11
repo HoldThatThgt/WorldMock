@@ -1108,7 +1108,7 @@ class ConclusionMemory(ToolRequestModel):
 
 class ConclusionView(ToolRequestModel):
     """@brief 结束活动时写下的一条看法（relationship，对某人）或偏好（preference，对某物）；about 写对象，宿主写入记忆时
-    作为 subject 存储（请求里叫 about、存储里叫 subject，指同一件事，接口合同「记忆字段」）。"""
+    作为 subject 存储（请求里叫 about、存储里叫 subject，指同一件事，docs/design/00-overview.md「数据质量原则」）。"""
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema("一条看法或偏好：类型、对象、文字、重要程度与关键词。"))
     type: Literal["relationship", "preference"] = Field(

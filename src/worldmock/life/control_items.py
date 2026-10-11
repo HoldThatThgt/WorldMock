@@ -120,7 +120,7 @@ def _current_item(tool: str, row: Mapping[str, Any]) -> ControlItem:
 
 
 def _stored(memory: Mapping[str, Any], subject: str | None, tool: str) -> dict[str, Any]:
-    """@brief 接口合同「记忆字段」的存储形状 {type, text, importance, keywords, subject}。"""
+    """@brief 记忆字段的存储形状 {type, text, importance, keywords, subject}（docs/design/06-agent.md）。"""
     keywords = _list(_field(memory, "keywords", tool), tool)
     return {"type": _text(memory, "type", tool), "text": _text(memory, "text", tool),
             "importance": _field(memory, "importance", tool), "keywords": list(keywords), "subject": subject}
