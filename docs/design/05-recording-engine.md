@@ -166,5 +166,6 @@ app 的开关、订单通知和地点停留只进事件与这些工件，质量�
 | 停留与出行 | 每个 `arrival` 对应一趟走完的出行：到达时刻、目的地相同，前一行的离开时刻和地点等于这趟出行的开始时刻和出发地；每个 `travel_ended_early` 的地点等于前一行的地点；每次离开对应一次被受理的出发 | `Location stay disagrees with its actual travel` |
 | 停留与最终检查点 | 各行与检查点世界状态里的停留会话逐一对应：身份、地点、开始时刻相同；离开时刻非空时等于会话的结束时刻，为 null 的那一行对应结束于运行截止的会话 | `Location stays disagree with the final checkpoint` |
 
-`app_touch` 只剩回调足迹：`rule_id` 是回调规则的身份，`step` 只取 `browse` 或 `payment`。
+`app_touch` 只剩回调足迹：`rule_id` 是冻结的 `catalog/callbacks.jsonl` 里登记的一条回调规则的身份，`step` 只取 `browse` 或 `payment`；
+没有冻结这份文件的运行不得有 `app_touch`。规则身份没有登记、或步骤不在这两个值之内，都报 `App touch step disagrees with its source`。
 坏素材或投影拒绝发布，已有正确导出不被半成品覆盖。查看器与评估同样先认证输入。
