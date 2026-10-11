@@ -11,7 +11,9 @@ import logging
 from dataclasses import dataclass
 
 from worldmock.errors import IntegrityError
-from worldmock.life.models import ActivityState, DeliveryState, WorldState
+from worldmock.footprints.models import EventDraft
+from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus, DeliveryState, WorldState
+from worldmock.life.navigation_foreground import foreground_event
 from worldmock.life.order_routing import payment_orders
 
 _LOGGER = logging.getLogger(__name__)
@@ -119,3 +121,25 @@ def advance_phases(state: WorldState, activity: ActivityState, since: int) -> Wo
     changed = {order.order_id: order.model_copy(update={reached[key]: now}, deep=True)
                for key, rows in payment_orders(orders).items() if key in reached for order in rows}
     return state.model_copy(update={"deliveries": {**state.deliveries, **changed}}, deep=True)
+
+
+def foreground_events(before: WorldState, after: WorldState) -> list[EventDraft]:
+    """@brief 世界提交之前写购买里各 app 的前台区间：每个带前台 app 的段在它结束的那一秒写一条。
+
+    :param before: 提交前的世界；只看其中进行中的购买。
+    :param after: 待提交的世界；当前时刻取它的时钟。
+
+    时钟走到一个段的结束时刻就写这一段。购买在这次提交里停止而没有走完（人物提前结束，或运行截止截断）时，
+    正在进行的那一段在当前时刻截断并写出，之前走完的段不回删；长度为 0 的区间不写。
+    """
+    now, drafts = after.current_time, []
+    for activity in before.activities.values():
+        if activity.kind != ActivityKind.PURCHASE or activity.status != ActivityStatus.ACTIVE:
+            continue
+        stopped = after.activities[activity.activity_id].status != ActivityStatus.ACTIVE
+        for phase in activity_phases(after, activity):
+            ended = phase.ended_at == now and before.current_time < now
+            cut = stopped and phase.started_at < now < phase.ended_at
+            if ended or cut:
+                drafts.append(foreground_event(activity, phase.app_id, phase.step, (phase.started_at, now)))
+    return drafts

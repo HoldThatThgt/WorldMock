@@ -94,6 +94,17 @@ def order_rows(facts, kind, order_id):
     return [row for row in facts if row["fact_kind"] == kind and row["order_id"] == order_id]
 
 
+def assert_exported_notices_without_a_delivered_one(directory, order):
+    """快递照发「订单已下单」「支付成功」「订单已发货」；到站只有到站取件通知，没有「订单已送达」。"""
+    usage = [json.loads(line) for line in (directory / "export/app-usage.jsonl").read_bytes().splitlines()]
+    sent = [(row["title"], row["occurred_at"]) for row in usage
+            if row["fact_kind"] in {"order_notification", "payment_notification"}
+            and row["order_ids"] == [order.order_id]]
+    shipped = order.paid_at + -(-(order.arrived_at - order.paid_at) // 10)
+    assert sent == [("订单已下单", order.paid_at), ("支付成功", order.paid_at), ("订单已发货", shipped)]
+    assert not [row for row in usage if row.get("title") == "订单已送达"]
+
+
 def assert_exported_arrival_caused_by_payment(sources, facts, order):
     """到站取件通知恰一行，来源到站事件的起因恰为列出这条记录的付款事件。"""
     (ready,) = order_rows(facts, "pickup_ready", order.order_id)
@@ -119,6 +130,7 @@ def test_parcel_arrival_is_caused_by_its_payment_and_exports_before_collection(e
     final = engine.context.state.deliveries[order.order_id]
     assert final == order and final.received_at is None
     assert_exported_arrival_caused_by_payment(sources, facts, final)
+    assert_exported_notices_without_a_delivered_one(tmp_path, final)
     assert order_rows(facts, "receipt", order.order_id) == []
 
 
@@ -137,6 +149,10 @@ def test_parcel_arrival_collection_and_export_are_authenticated(engine_factory, 
     assert final == collected
     assert pickup.data["orders"] == [final.model_dump(mode="json")]
     assert_exported_arrival_caused_by_payment(sources, facts, final)
+    assert_exported_notices_without_a_delivered_one(tmp_path, final)
+    stays = [json.loads(line) for line in (tmp_path / "export/location-stays.jsonl").read_bytes().splitlines()]
+    visits = [row for row in stays if row["location_id"] == "parcel-station"]
+    assert [row["entry_kind"] for row in visits] == ["arrival"] and visits[0]["entered_at"] <= final.received_at
     (receipt,) = order_rows(facts, "receipt", order.order_id)
     assert receipt["received_at"] == final.received_at
     received = sources[receipt["source_event_id"]]

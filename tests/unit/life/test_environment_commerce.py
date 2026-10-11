@@ -20,6 +20,8 @@ from worldmock.life.body_config import assemble_body_config
 from worldmock.life.commerce import deliver_order
 from worldmock.life.guidance import refusal_for_code
 from worldmock.life.models import ActivityStatus, AgentState, BodyState, WorldState, WORLD_SCHEMA_VERSION
+from worldmock.life.order_notices import (delivered_notices, goods_names, goods_text, shipped_notice,
+                                          shipping_delay_seconds)
 from worldmock.life.parcel import collect_parcels
 from worldmock.life.purchase_offers import quote_goods
 from worldmock.life.purchase_phases import advance_phases, phase_boundaries
@@ -263,8 +265,9 @@ def test_unpaid_order_cannot_be_delivered_or_received(environment):
 
 @pytest.mark.parametrize("random_state", [f"payment-{index}" for index in range(12)])
 def test_payment_phases_and_notifications_follow_each_order_and_its_selected_app(environment, random_state):
-    """到店订单加一张快递订单：付款段按订单排在购买末尾，逐边界只写付款时刻不扣款；完成时一张订单一条付款，
-    抽到支付 app 的订单各一条通知。"""
+    """到店订单加一张快递订单：付款段按订单排在购买末尾，逐边界只写付款时刻不扣款；完成时一张订单一条付款。
+    带下单 app 的快递订单有「订单已下单」，它的「支付成功」由支付 app 发、直付时由下单 app 发；
+    到店订单只在抽到支付 app 时有「支付成功」。"""
     commerce = runtime(environment)
     initial = world(environment, "store", random_state=random_state)
     state, activity = commerce.prepare_purchase(initial, pending(), ("lemon-tea", "online-notebook"))
@@ -282,8 +285,15 @@ def test_payment_phases_and_notifications_follow_each_order_and_its_selected_app
     notices = [event for event in events if event.data["kind"] == "payment_notification"]
     assert [event.data["order_ids"] for event in paid] == [[parcel.order_id], [local.order_id]]
     assert not [event for event in events if event.data["kind"] == "app_touch"]
-    assert [notice.data["app_id"] for notice in notices] == [
-        order.payment_app_id for order in (parcel, local) if order.payment_app_id is not None]
+    senders = [parcel.payment_app_id or "bilibili", *([] if local.payment_app_id is None else [local.payment_app_id])]
+    assert [notice.data["app_id"] for notice in notices] == senders
+    (placed,) = [event for event in events if event.data["kind"] == "order_notification"]
+    assert placed.data == {"kind": "order_notification", "app_id": "bilibili", "order_ids": [parcel.order_id],
+                           "title": "订单已下单", "summary": "已下单：平台笔记本"}
+    assert placed.caused_by == [paid[0].event_id] and placed.visibility == "system"
+    # 每张订单先写付款事件，再写「订单已下单」，再写「支付成功」。
+    assert [event.data["kind"] for event in events][:3] == [
+        "purchase_payment", "order_notification", "payment_notification"]
     assert 10 <= parcel.payment_duration_seconds <= 20
     assert local.payment_duration_seconds == 0 if local.payment_app_id is None else (
         10 <= local.payment_duration_seconds <= 20)
@@ -337,7 +347,8 @@ def test_completion_needs_the_finished_payment_phase_of_an_order_paid_inside_its
     assert activity_orders(state, activity) == (order,) and order.paid_at is None and order.status == "pending"
     state, activity = finish(operate_phases(accepted, running), running)
     paid, events = commerce.complete_purchase(state, activity)
-    assert [event.data["kind"] for event in events] == ["purchase_payment"]
+    assert [(event.data["kind"], event.data.get("app_id")) for event in events] == [
+        ("purchase_payment", None), ("order_notification", "bilibili"), ("payment_notification", "bilibili")]
     (settled,) = activity_orders(paid, activity)
     assert (settled.payment_ended_at, settled.paid_at) == (activity.planned_end_at, activity.planned_end_at)
     assert paid.accounts["agent:1"] == 200000 - settled.total_price_fen
@@ -380,10 +391,16 @@ def test_trips_sharing_arrival_time_method_and_destination_stay_separate_per_del
         first.expected_at, first.fulfillment, first.destination_id)
     idle = state.model_copy(update={"pending_events": []})
     scheduled = delivery_events(idle, (second, first), {first.order_id: "paid-first", second.order_id: "paid-second"})
+    # 排程序号先按趟的顺序分给各趟的发货通知，再按同样的顺序分给各趟的到达。
     assert [(row.scheduled_id, row.data, row.caused_by, row.sequence) for row in scheduled] == [
-        (f"delivery-{first.order_id}", {"order_ids": [first.order_id]}, ["paid-first"], 1),
-        ("delivery-order-buy-2", {"order_ids": ["order-buy-2"]}, ["paid-second"], 2)]
-    assert all(row.kind == "delivery_arrival" and row.due_at == first.expected_at for row in scheduled)
+        (f"shipped-{first.order_id}", {"order_ids": [first.order_id]}, ["paid-first"], 1),
+        ("shipped-order-buy-2", {"order_ids": ["order-buy-2"]}, ["paid-second"], 2),
+        (f"delivery-{first.order_id}", {"order_ids": [first.order_id]}, ["paid-first"], 3),
+        ("delivery-order-buy-2", {"order_ids": ["order-buy-2"]}, ["paid-second"], 4)]
+    assert [row.kind for row in scheduled] == ["order_shipped"] * 2 + ["delivery_arrival"] * 2
+    shipped = first.paid_at + shipping_delay_seconds(first.expected_at - first.paid_at)
+    assert [row.due_at for row in scheduled] == [shipped, shipped, first.expected_at, first.expected_at]
+    assert all(row.agent_id == 1 for row in scheduled)
 
 
 def test_one_delivery_group_with_two_arrival_days_schedules_two_trips_in_arrival_order(environment):
@@ -396,9 +413,13 @@ def test_one_delivery_group_with_two_arrival_days_schedules_two_trips_in_arrival
     causes = {early.order_id: "paid", late.order_id: "paid", same_day.order_id: "paid"}
     scheduled = delivery_events(state, (late, unpaid, same_day, early), causes)
     busy = max(row.sequence for row in state.pending_events)
+    paid = early.paid_at
     assert [(row.scheduled_id, row.due_at, row.data["order_ids"], row.sequence) for row in scheduled] == [
-        (f"delivery-{early.order_id}", early.expected_at, [early.order_id, "order-buy-3"], busy + 1),
-        ("delivery-order-buy-0", late.expected_at, ["order-buy-0"], busy + 2)]
+        (f"shipped-{early.order_id}", paid + shipping_delay_seconds(early.expected_at - paid),
+         [early.order_id, "order-buy-3"], busy + 1),
+        ("shipped-order-buy-0", paid + shipping_delay_seconds(late.expected_at - paid), ["order-buy-0"], busy + 2),
+        (f"delivery-{early.order_id}", early.expected_at, [early.order_id, "order-buy-3"], busy + 3),
+        ("delivery-order-buy-0", late.expected_at, ["order-buy-0"], busy + 4)]
     assert all(row.caused_by == ["paid"] for row in scheduled)
 
 
@@ -408,5 +429,63 @@ def test_trip_whose_expected_arrival_precedes_payment_is_due_at_payment(environm
     overdue = order.model_copy(update={"expected_at": order.paid_at - 30})
     on_time = order.model_copy(update={"order_id": "order-buy-9", "expected_at": order.paid_at})
     scheduled = delivery_events(state, (on_time, overdue), {order.order_id: "paid", "order-buy-9": "paid"})
-    assert [(row.data["order_ids"], row.due_at) for row in scheduled] == [
-        ([order.order_id], order.paid_at), (["order-buy-9"], order.paid_at)]
+    # 预计到达不晚于付款的两趟：到达的到期时刻取付款时刻，发货通知也落在付款那一秒，序号排在到达之前。
+    assert [(row.kind, row.data["order_ids"], row.due_at) for row in scheduled] == [
+        ("order_shipped", [order.order_id], order.paid_at), ("order_shipped", ["order-buy-9"], order.paid_at),
+        ("delivery_arrival", [order.order_id], order.paid_at), ("delivery_arrival", ["order-buy-9"], order.paid_at)]
+    assert [row.sequence for row in scheduled] == sorted(row.sequence for row in scheduled)
+
+
+@pytest.mark.parametrize("interval,delay", [(60, 6), (61, 7), (700, 70), (1, 1), (0, 0), (186540, 18654)])
+def test_shipping_notice_comes_a_tenth_of_the_way_to_arrival_rounded_up_to_the_second(interval, delay):
+    assert shipping_delay_seconds(interval) == delay
+
+
+def test_goods_list_sorts_by_goods_identity_and_folds_repeated_portions(environment):
+    state, activity, events = paid_purchase(environment, ("lemon-tea", "beef-noodles", "lemon-tea"))
+    orders = activity_orders(state, activity)
+    assert goods_names(orders, environment.catalog) == ["牛肉面", "柠檬茶×2"]
+    assert goods_text(orders, environment.catalog) == "牛肉面、柠檬茶×2"
+    texts = {event.data["title"]: event.data["summary"] for event in events
+             if event.data["kind"] in {"order_notification", "payment_notification"}}
+    assert texts == {"订单已下单": "已下单：牛肉面、柠檬茶×2", "支付成功": "已消费 57.00 元，购买牛肉面、柠檬茶×2"}
+    assert state.activities[activity.activity_id].name.startswith("购买牛肉面、柠檬茶×2（")
+
+
+def test_shipped_and_delivered_notices_name_the_trip_and_point_at_their_real_causes(environment):
+    state, activity, events = paid_purchase(environment, ("lemon-tea", "beef-noodles", "lemon-tea"))
+    (payment,) = [event for event in events if event.data["kind"] == "purchase_payment"]
+    orders = activity_orders(state, activity)
+    (shipping,) = [row for row in state.pending_events if row.kind == "order_shipped"]
+    (arriving,) = arrivals(state)
+    head = min(order.order_id for order in orders)
+    paid_at, due_at = orders[0].paid_at, orders[0].expected_at
+    assert (shipping.scheduled_id, arriving.scheduled_id) == (f"shipped-{head}", f"delivery-{head}")
+    assert shipping.due_at == paid_at + shipping_delay_seconds(due_at - paid_at) and arriving.due_at == due_at
+    assert shipping.sequence + 1 == arriving.sequence and shipping.caused_by == [payment.event_id]
+    assert shipping.data == arriving.data == {"order_ids": sorted(order.order_id for order in orders)}
+    sent = shipped_notice(state.model_copy(update={"current_time": shipping.due_at}), shipping, environment.catalog)
+    assert (sent.occurred_at, sent.caused_by, sent.visibility, sent.agent_id) == (
+        shipping.due_at, [payment.event_id], "system", 1)
+    assert sent.data == {"kind": "order_notification", "app_id": "meituan", "title": "订单已发货",
+                         "order_ids": shipping.data["order_ids"], "summary": "牛肉面、柠檬茶×2已发货"}
+    arrived = state.model_copy(update={"current_time": due_at}, deep=True)
+    for identity in arriving.data["order_ids"]:
+        arrived = deliver_order(arrived, runtime(environment).context, identity).state
+    arrival = SimpleNamespace(event_id="arrival-event", occurred_at=due_at, data={
+        "orders": [arrived.deliveries[key].model_dump(mode="json") for key in arriving.data["order_ids"]]})
+    (notice,) = delivered_notices(arrived, arrival, environment.catalog)
+    assert (notice.occurred_at, notice.caused_by, notice.visibility) == (due_at, ["arrival-event"], "system")
+    assert notice.data == {"kind": "order_notification", "app_id": "meituan", "title": "订单已送达",
+                           "order_ids": shipping.data["order_ids"], "summary": "牛肉面、柠檬茶×2已送达"}
+
+
+def test_parcel_reaching_the_station_gets_no_delivered_notice(environment):
+    state, activity, _ = paid_purchase(environment, ("online-notebook",))
+    (order,) = activity_orders(state, activity)
+    arrived = deliver_order(state.model_copy(update={"current_time": order.expected_at}, deep=True),
+                            runtime(environment).context, order.order_id).state
+    assert arrived.deliveries[order.order_id].status == "ready_for_pickup"
+    arrival = SimpleNamespace(event_id="arrival-event", occurred_at=order.expected_at, data={
+        "orders": [arrived.deliveries[order.order_id].model_dump(mode="json")]})
+    assert delivered_notices(arrived, arrival, environment.catalog) == []

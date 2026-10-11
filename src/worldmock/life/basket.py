@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from worldmock.life.models import DeliveryState, FulfillmentKind, ScheduledEvent, WorldState
+from worldmock.life.order_notices import shipping_schedule
 from worldmock.life.order_routing import group_offers, group_shipping_fen, payment_order_key, payment_orders
 from worldmock.life.purchase_offers import quote_goods
 from worldmock.life.randomness import random_stream
@@ -78,22 +79,24 @@ def activity_orders(state: WorldState, activity) -> tuple[DeliveryState, ...]:
 
 def delivery_events(state: WorldState, orders: tuple[DeliveryState, ...],
                     payments: dict[str, str]) -> tuple[ScheduledEvent, ...]:
-    """@brief 已付款的外卖和快递按一趟配送各排一条到达，起因是这一趟所属订单的付款事件。
+    """@brief 已付款的外卖和快递按一趟配送各排一条发货通知和一条到达，起因都是这一趟所属订单的付款事件。
 
-    一趟配送是同一个配送组里预计到达时刻相同的记录；各趟按预计到达时刻、配送组键升序取排程序号，
-    到期时刻取预计到达与付款时刻中较晚的一个。payments 给出每条已付款记录所属订单的付款事件身份。
+    一趟配送是同一个配送组里预计到达时刻相同的记录；各趟按预计到达时刻、配送组键升序排列，
+    到达的到期时刻取预计到达与付款时刻中较晚的一个。排程序号从现有最大序号加一开始，先按趟的顺序分给各趟的
+    发货通知排程，再按同样的顺序分给各趟的到达排程，所以同一秒到期时发货通知先于到达处理。
+    payments 给出每条已付款记录所属订单的付款事件身份。
     """
-    trips = {}
+    grouped = {}
     for order in orders:
         if order.paid_at is not None and order.fulfillment != FulfillmentKind.PICKUP:
-            trips.setdefault((order.expected_at, order.group_key), []).append(order)
+            grouped.setdefault((order.expected_at, order.group_key), []).append(order)
+    trips = [sorted(grouped[key], key=lambda order: order.order_id) for key in sorted(grouped)]
     first = max((item.sequence for item in state.pending_events), default=0) + 1
-    result = []
-    for index, key in enumerate(sorted(trips)):
-        selected = sorted(trips[key], key=lambda order: order.order_id)
-        head = selected[0]
-        result.append(ScheduledEvent(scheduled_id=f"delivery-{head.order_id}",
-            kind=ScheduledKind.DELIVERY_ARRIVAL, due_at=max(head.expected_at, head.paid_at),
-            sequence=first + index, agent_id=head.agent_id,
-            data={"order_ids": [order.order_id for order in selected]}, caused_by=[payments[head.order_id]]))
-    return tuple(result)
+    shipped = [shipping_schedule(trip, first + index, payments[trip[0].order_id])
+               for index, trip in enumerate(trips)]
+    arrivals = [ScheduledEvent(scheduled_id=f"delivery-{trip[0].order_id}",
+        kind=ScheduledKind.DELIVERY_ARRIVAL, due_at=max(trip[0].expected_at, trip[0].paid_at),
+        sequence=first + len(trips) + index, agent_id=trip[0].agent_id,
+        data={"order_ids": [order.order_id for order in trip]}, caused_by=[payments[trip[0].order_id]])
+        for index, trip in enumerate(trips)]
+    return (*shipped, *arrivals)

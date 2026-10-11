@@ -296,6 +296,17 @@ class SameMomentStage(StrEnum):
     CONCLUDE_ONLY = "conclude_only"
 
 
+class NavigationForeground(StrictModel):
+    """@brief 导航 app 正在前台的那一段：所属的出行、这趟出行选定的导航 app 和这一段回到前台的时刻。"""
+
+    #: 所属出行：该人物一项进行中的出行活动。
+    activity_id: str = Field(min_length=1)
+    #: 这趟出行选定的导航 app。
+    app_id: str = Field(min_length=1)
+    #: 这一段回到前台的时刻：不早于出行开始，不晚于当前时刻。
+    opened_at: int = Field(ge=0)
+
+
 class AgentState(StrictModel):
     """@brief 唯一人物的生活状态与幂等节律簿记。"""
 
@@ -320,6 +331,8 @@ class AgentState(StrictModel):
     callback_states: dict[str, int] = Field(default_factory=dict)
     callback_once_keys: set[str] = Field(default_factory=set)
     callback_reminder_days: dict[str, str] = Field(default_factory=dict)
+    #: 导航正在前台的那一段；空表示不在前台。它不放进出行活动的私有数据，活动快照是人物可见的。
+    navigation_foreground: NavigationForeground | None = None
 
     @field_serializer("plan_submitted_dates", "callback_once_keys", when_used="json")
     def serialize_agent_sets(self, value: set[str]) -> list[str]:
@@ -598,6 +611,7 @@ class WorldState(StrictModel):
         _validate_activity_collection(self)
         _validate_session_collection(self)
         _validate_order_collection(self)
+        _validate_navigation_foreground(self)
         return self
 
 
@@ -606,6 +620,27 @@ def active_activities(state: WorldState, agent_id: int) -> tuple[ActivityState, 
     return tuple(sorted((activity for activity in state.activities.values()
                          if activity.agent_id == agent_id and activity.status == ActivityStatus.ACTIVE),
                         key=lambda activity: (activity.started_at, activity.activity_id)))
+
+
+def active_side_activities(state: WorldState, agent_id: int) -> tuple[ActivityState, ...]:
+    """@brief 人物进行中的槽位 2 活动：状态为进行中、占槽位 2 的购买或用 app。导航在不在前台只看它。"""
+    return tuple(activity for activity in active_activities(state, agent_id)
+                 if "second" in activity.resource_claims)
+
+
+def _validate_navigation_foreground(state: WorldState) -> None:
+    """@brief 导航在前台时，所指的必须是该人物进行中的出行，打开时刻在出行开始与当前时刻之间，且没有进行中的槽位 2 活动。"""
+    for agent_id, agent in state.agents.items():
+        foreground = agent.navigation_foreground
+        if foreground is None:
+            continue
+        trip = state.activities.get(foreground.activity_id)
+        travelling = (trip is not None and trip.agent_id == agent_id and trip.kind == ActivityKind.TRAVEL
+                      and trip.status == ActivityStatus.ACTIVE)
+        if (not travelling or not trip.started_at <= foreground.opened_at <= state.current_time
+                or active_side_activities(state, agent_id)):
+            _LOGGER.error("Navigation foreground disagrees with active activities")
+            raise ValueError("navigation foreground disagrees with active activities")
 
 
 def _validate_activity_collection(state: WorldState) -> None:

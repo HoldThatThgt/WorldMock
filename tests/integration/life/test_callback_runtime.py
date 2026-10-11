@@ -171,8 +171,9 @@ def _navigation_world(root):
 
 
 def _navigation(engine):
+    """导航 app 的前台区间事件。"""
     return [row for row in events(engine, "environment_event")
-            if row.data.get("kind") == "app_touch" and row.data["step"] == "navigation"]
+            if row.data.get("kind") == "app_foreground" and row.data["step"] == "navigation"]
 
 
 @pytest.mark.parametrize("method,identity,candidates", [
@@ -180,7 +181,8 @@ def _navigation(engine):
     ("驾车", "driving", ("amap", "baidu-map", "didi")), ("轮渡", "ferry", ())])
 def test_navigation_app_is_chosen_only_among_apps_bound_to_the_trips_travel_method(
         engine_factory, tmp_path, method, identity, candidates):
-    """导航 app 只从绑定了这次出行方式的功能 app 里等概率选一个；同一种子得到同一个；没有绑定就没有导航记录。"""
+    """导航 app 只从绑定了这次出行方式的功能 app 里等概率选一个；同一种子得到同一个；没有绑定就没有导航记录。
+    出发那一秒只把导航记在人物状态里，不再写时间点；到达时写一条从出发到到达的前台区间。"""
     from worldmock.life.randomness import random_stream
 
     chosen, seeds = [], (range(1, 7) if len(candidates) > 1 else (1,))
@@ -191,17 +193,22 @@ def test_navigation_app_is_chosen_only_among_apps_bound_to_the_trips_travel_meth
             assert engine.context.catalog.apps_by_travel_method[identity] == candidates
             _, result = act(engine, "trip", travel("公司", method))
             assert result.status == "in_progress", result.error_code
-            touches = _navigation(engine)
+            departed, opened = result.occurred_at, engine.context.state.agents[1].navigation_foreground
+            assert _navigation(engine) == []
+            assert not [row for row in events(engine, "environment_event") if row.data.get("kind") == "app_touch"]
+            finish_activity(engine, result, "trip")
+            arrived = engine.context.state.activities[result.activity_id].ended_at
             if not candidates:
-                assert touches == []
+                assert opened is None and _navigation(engine) == []
                 continue
-            [touch] = touches
-            assert touch.data == {"kind": "app_touch", "app_id": touch.data["app_id"], "action": "travel",
-                                  "step": "navigation", "rule_id": None}
-            assert touch.activity_id == result.activity_id and touch.visibility == "system"
             stream = random_stream(engine.context.state.random_state, f"function-app:{result.activity_id}")
-            assert touch.data["app_id"] == stream.choice(candidates)
-            chosen.append((seed, touch.data["app_id"]))
+            assert opened.model_dump() == {"activity_id": result.activity_id, "app_id": stream.choice(candidates),
+                                           "opened_at": departed}
+            [interval] = _navigation(engine)
+            assert interval.data == {"kind": "app_foreground", "app_id": opened.app_id, "step": "navigation",
+                                     "interval_start": departed, "interval_end": arrived}
+            assert interval.activity_id == result.activity_id and interval.visibility == "system"
+            chosen.append((seed, opened.app_id))
     # 每个种子两次运行选到同一个 app；候选不止一个时，不同种子选到的不总是同一个
     assert len(set(chosen)) == (len(seeds) if candidates else 0)
     distinct = {app for _, app in chosen}

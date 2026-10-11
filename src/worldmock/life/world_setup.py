@@ -16,6 +16,7 @@ from worldmock.footprints.store import FootprintStore
 from worldmock.life.models import AgentState, RunIdentity, WorldState, WORLD_SCHEMA_VERSION
 from worldmock.life.models import validated_payload
 from worldmock.life.run_identity import open_environment_validated_store
+from worldmock.life.stay_records import run_start_event
 from worldmock.profile.models import WorldDynamics
 
 
@@ -112,7 +113,7 @@ def _validate_run_identity(inputs: EnvironmentInputs, identity: RunIdentity) -> 
 
 def create_world(environment: EnvironmentInputs | Path, run_dir: Path, identity: RunIdentity,
                  stage_identity: dict, options: dict):
-    """@brief 已验证输入或完整目录新建唯一世界，保存原文并登记真实初始资金。"""
+    """@brief 已验证输入或完整目录新建唯一世界，保存原文并登记真实初始资金与运行开始时人物所在的那段停留。"""
     inputs = environment if isinstance(environment, EnvironmentInputs) else load_environment(environment)
     _validate_run_identity(inputs, identity)
     _validate_creation_model(inputs, identity, stage_identity)
@@ -132,8 +133,9 @@ def create_world(environment: EnvironmentInputs | Path, run_dir: Path, identity:
         source_kind="scenario", data={"kind": "initial_funds_injected"},
         resource_changes={f"account:{key}": value for key, value in state.accounts.items()},
     )
+    entered = run_start_event(state)
     state, drafts = _run_start_callbacks(state, inputs.catalog)
-    store.commit(validated_payload(state), [injection, *drafts])
+    store.commit(validated_payload(state), [injection, entered, *drafts])
     return inputs, store
 
 

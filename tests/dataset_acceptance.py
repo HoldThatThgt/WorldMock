@@ -211,4 +211,17 @@ MUTATIONS = (
         "if item.seconds:", "if item.seconds and item.payment_app_id is not None:",
         ("tests/integration/life/test_purchase_orders.py"
          "::test_direct_payment_inside_the_content_app_still_takes_ten_to_twenty_seconds",)),
+    SourceMutation("app_started_on_the_road_keeps_navigation_open", "worldmock.life.models::active_side_activities",
+        'if "second" in activity.resource_claims)', "if activity.kind == ActivityKind.PURCHASE)",
+        ("tests/integration/life/test_phone_records.py"
+         "::test_navigation_is_open_on_the_road_closes_for_a_side_activity_and_returns_by_a_draw[True]",)),
+    SourceMutation("shipping_notice_not_a_tenth_of_the_delivery_time",
+        "worldmock.life.order_notices::shipping_delay_seconds",
+        "return -(-interval_seconds // 10)", "return -(-interval_seconds // 2)",
+        ("tests/integration/life/test_phone_records.py"
+         "::test_coffee_purchase_records_the_ordering_and_payment_apps_and_all_four_notices[alipay]",)),
+    SourceMutation("location_stays_artifact_not_compared", "worldmock.footprints.validation::validate_export",
+        "if project_location_stays(events) != stays:", "if False:",
+        ("tests/integration/footprints/test_acs_export.py"
+         "::test_location_stays_artifact_is_compared_with_the_projection_of_the_events",)),
 )

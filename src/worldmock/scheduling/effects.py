@@ -8,6 +8,7 @@ from worldmock.exchange.constants import WEATHER_FACTORS
 from worldmock.footprints.models import EventDraft
 from worldmock.life.callbacks import CallbackCause, evaluate_callbacks, issue_callback_reminders
 from worldmock.life.models import ActivityKind, WorldState, active_activities
+from worldmock.life.order_notices import delivered_notices, shipped_notice
 from worldmock.life.weather import generated_weather
 from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 
@@ -35,7 +36,7 @@ def time_trigger_draft(state: WorldState, key: str, scheduled_id: str | None = N
 
 
 def apply_scheduled_effect(state: WorldState, event: ScheduledEvent, context) -> ScheduledOutcome:
-    """@brief 后台只分派五个现行排程种类，删除工资、邮件、联系人和闹钟分支。"""
+    """@brief 后台分派到达、推送、天气与其余时间类排程；发货通知排程由处理器直接写通知，不经这里。"""
     if event.kind == ScheduledKind.DELIVERY_ARRIVAL:
         return _deliver_orders(state, event, context)
     if event.kind == ScheduledKind.APP_PUSH:
@@ -53,13 +54,20 @@ def apply_scheduled_effect(state: WorldState, event: ScheduledEvent, context) ->
 
 
 def process_scheduled_events(state: WorldState, target: int, context) -> tuple[WorldState, list, dict]:
-    """@brief 按稳定顺序提交真实事实，空配送和未投递推送不执行事件订阅。"""
+    """@brief 按稳定顺序提交真实事实，空配送和未投递推送不执行事件订阅。
+
+    发货通知排程到期时只写一条「订单已发货」：不写别的事件，不求值回调，不唤醒人物。
+    外卖送达先写人物可见的到达事件和收货，再写「订单已送达」。
+    """
     due = sorted((item for item in state.pending_events if item.due_at == target),
                  key=lambda item: (item.sequence, item.scheduled_id))
     remaining = [item for item in state.pending_events if item.due_at != target]
     state = state.model_copy(update={"pending_events": remaining})
     drafts, arrivals = [], {}
     for item in due:
+        if item.kind == ScheduledKind.ORDER_SHIPPED:
+            drafts.append(shipped_notice(state, item, context.catalog))
+            continue
         outcome = apply_scheduled_effect(state, item, context)
         state = outcome.state
         if item.kind == ScheduledKind.DELIVERY_ARRIVAL and not outcome.data:
@@ -70,6 +78,8 @@ def process_scheduled_events(state: WorldState, target: int, context) -> tuple[W
             if receipt.data.get("kind") == "goods_received":
                 receipt.caused_by = [source.event_id]
             drafts.append(receipt)
+        if item.kind == ScheduledKind.DELIVERY_ARRIVAL:
+            drafts.extend(delivered_notices(state, source, context.catalog))
         if outcome.wake is not None:
             arrivals.setdefault(item.agent_id, set()).add(outcome.wake)
         state, effects = _scheduled_callbacks(state, item, source, context)

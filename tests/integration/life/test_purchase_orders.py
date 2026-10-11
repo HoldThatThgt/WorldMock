@@ -42,6 +42,16 @@ def scheduled_arrivals(engine):
     return [row for row in engine.context.state.pending_events if row.kind == "delivery_arrival"]
 
 
+def scheduled_shipping(engine):
+    return [row for row in engine.context.state.pending_events if row.kind == "order_shipped"]
+
+
+def front_intervals(engine):
+    """已写下的前台区间：（app，步骤，开始，结束），按事件先后。"""
+    return [(row.data["app_id"], row.data["step"], row.data["interval_start"], row.data["interval_end"])
+            for row in business_events(engine, "app_foreground")]
+
+
 def drawn_duration(engine, result):
     """这条购买动作抽到的购买时长，键见配置「唯一种子与随机键」。"""
     return random_stream(engine.context.state.random_state, f"purchase-duration:{result.action_id}").randint(60, 300)
@@ -209,7 +219,14 @@ def test_direct_payment_inside_the_content_app_still_takes_ten_to_twenty_seconds
         paying, activity.planned_end_at, activity.planned_end_at)
     (payment,) = business_events(engine, "purchase_payment")
     assert payment.data["amount_fen"] == 3300 and engine.context.state.accounts["agent:1"] == 200000 - 3300
-    assert business_events(engine, "payment_notification") == [] and business_events(engine, "app_touch") == []
+    # 直付时「支付成功」由下单的内容 app 发；付款不再写时间点，付款段是下单 app 的一段前台区间。
+    (notice,) = business_events(engine, "payment_notification")
+    assert (notice.data["app_id"], notice.caused_by, notice.occurred_at) == (
+        "meituan", [payment.event_id], activity.planned_end_at)
+    assert business_events(engine, "app_touch") == []
+    assert [(row.data["app_id"], row.data["step"], row.data["interval_start"], row.data["interval_end"])
+            for row in business_events(engine, "app_foreground")] == [
+        ("meituan", "ordering", activity.started_at, paying), ("meituan", "payment", paying, activity.planned_end_at)]
 
 
 def test_buying_at_the_store_with_direct_payment_takes_no_payment_time(engine_factory, tmp_path):
@@ -323,8 +340,14 @@ def test_balance_short_at_completion_cancels_every_order_without_payment_or_noti
     assert all(order.payment_ended_at - order.payment_started_at == order.payment_duration_seconds
                for order in orders if order.payment_duration_seconds)
     assert engine.context.state.accounts["agent:1"] == 1 and scheduled_arrivals(engine) == []
-    for kind in ("purchase_payment", "payment_notification", "goods_received", "delivery_arrival"):
+    assert scheduled_shipping(engine) == []
+    for kind in ("purchase_payment", "payment_notification", "order_notification", "goods_received",
+                 "delivery_arrival"):
         assert business_events(engine, kind) == []
+    # 余额不足时各段都已走完：四种通知都不发，已经写下的 app 前台区间保留。
+    phases = activity_phases(engine.context.state, failed)
+    assert front_intervals(engine) == [(phase.app_id, phase.step, phase.started_at, phase.ended_at)
+                                       for phase in phases] and len(phases) >= 4
 
 
 def test_payments_longer_than_the_drawn_duration_stretch_the_purchase_and_start_at_acceptance(
@@ -413,8 +436,14 @@ def assert_cut_short(engine, result, now):
         shapes.add((started is not None, ended is not None))
     assert (True, False) in shapes and (False, False) in shapes
     assert engine.context.state.accounts["agent:1"] == 200000 and scheduled_arrivals(engine) == []
-    for kind in ("purchase_payment", "payment_notification", "goods_received"):
+    assert scheduled_shipping(engine) == []
+    for kind in ("purchase_payment", "payment_notification", "order_notification", "goods_received"):
         assert business_events(engine, kind) == []
+    # 正在进行的那一段在这一秒截断并写出，之前走完的段不回删，还没开始的段没有任何记录。
+    begun = [phase for phase in activity_phases(engine.context.state, activity) if phase.started_at < now]
+    assert front_intervals(engine) == [(phase.app_id, phase.step, phase.started_at, min(phase.ended_at, now))
+                                       for phase in begun]
+    assert begun and begun[-1].ended_at > now
 
 
 def test_early_conclusion_cancels_every_record_and_leaves_the_running_payment_phase_open(engine_factory, tmp_path):

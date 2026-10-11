@@ -561,6 +561,25 @@ test('goods receipt and alarm events use the current environment labels', t => {
   assert.deepEqual(view.errors, []);
 });
 
+test('phone records written by the engine use their own environment labels', t => {
+  const view = viewer([
+    event('environment_event', {kind: 'app_foreground', app_id: 'amap', step: 'navigation',
+      interval_start: epoch, interval_end: epoch + 660}, {visibility: 'system'}),
+    event('environment_event', {kind: 'order_notification', app_id: 'luckin', order_ids: ['order-one'],
+      title: '订单已发货', summary: '冰美式已发货'}, {visibility: 'system'}),
+    event('environment_event', {kind: 'location_entered', session_id: 'session-1-0003', location_id: 'office',
+      entry_kind: 'arrival'}, {visibility: 'system'}),
+    event('environment_event', {kind: 'location_left', session_id: 'session-1-0001', location_id: 'home'},
+      {visibility: 'system'}),
+  ]);
+  t.after(() => view.close());
+  assert.equal(view.summary(1), '世界事件 · app 前台区间');
+  assert.equal(view.summary(2), '世界事件 · 订单通知');
+  assert.equal(view.summary(3), '世界事件 · 进入地点');
+  assert.equal(view.summary(4), '世界事件 · 离开地点');
+  assert.deepEqual(view.errors, []);
+});
+
 test('each activity shows its actual current episode title without mixing another activity', t => {
   const view = viewer([
     event('observation', {apps: [{app_id:'app-bili', name:'哔哩哔哩'}]}),
