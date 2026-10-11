@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -15,9 +16,12 @@ from worldmock.footprints.assets import atomic_write
 from worldmock.footprints.models import canonical_json
 
 
+#: 必须存在并登记的目录 JSONL。
 REQUIRED_CATALOG_FILES = frozenset({
-    "app-catalog.jsonl", "callbacks.jsonl", "content-catalog.jsonl", "location.jsonl", "merchant-catalog.jsonl",
+    "app-catalog.jsonl", "content-catalog.jsonl", "location.jsonl", "merchant-catalog.jsonl",
 })
+#: 可以不存在的目录 JSONL；存在就必须登记，不存在等于零行。
+OPTIONAL_CATALOG_FILES = frozenset({"callbacks.jsonl", "map.jsonl"})
 
 
 @dataclass(frozen=True)
@@ -45,6 +49,12 @@ def read_catalog_file(directory: Path, relative: str) -> bytes:
         raise RegistrationError("ENVIRONMENT_IDENTITY_MISMATCH", str(error)) from error
 
 
+def present_catalog_files(directory: Path) -> tuple[str, ...]:
+    """@brief 按路径升序返回必需文件和目录里实际有条目的可选文件，条目类型留给安全文件边界判断。"""
+    optional = {name for name in OPTIONAL_CATALOG_FILES if os.path.lexists(directory / name)}
+    return tuple(sorted(REQUIRED_CATALOG_FILES | optional))
+
+
 def read_manifest_payload(directory: Path) -> dict[str, Any]:
     """@brief 读取原始清单对象用于登记与去自引用摘要。"""
     content = read_catalog_file(directory, "manifest.json")
@@ -63,12 +73,12 @@ def compute_catalog_identity(
     catalog_dir: Path | str,
     manifest_payload: dict[str, Any] | None = None,
 ) -> CatalogIdentity:
-    """@brief 对五个必需 JSONL 和去自引用清单按路径及字节长度分帧求摘要。"""
+    """@brief 对在场的目录 JSONL 和去自引用清单按路径及字节长度分帧求摘要。"""
     directory = Path(catalog_dir)
     payload = read_manifest_payload(directory) if manifest_payload is None else dict(manifest_payload)
     digest = hashlib.sha256()
     entries = []
-    for relative in sorted(REQUIRED_CATALOG_FILES):
+    for relative in present_catalog_files(directory):
         content = read_catalog_file(directory, relative)
         entries.append(CatalogFile(path=relative, sha256=hashlib.sha256(content).hexdigest(), size_bytes=len(content)))
         _update_frame(digest, relative, content)
@@ -79,7 +89,7 @@ def compute_catalog_identity(
 
 
 def refresh_manifest_identity(catalog_dir: Path | str) -> CatalogIdentity:
-    """@brief 以原子写发布真实文件表与摘要，失败时保留原清单字节。"""
+    """@brief 以原子写发布在场文件的文件表与摘要，登记新放入的可选文件并移出已删除的，失败时保留原清单字节。"""
     directory = Path(catalog_dir)
     payload = read_manifest_payload(directory)
     identity = compute_catalog_identity(directory, payload)

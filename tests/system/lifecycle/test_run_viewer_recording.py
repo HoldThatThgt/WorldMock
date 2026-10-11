@@ -7,7 +7,7 @@ import pytest
 
 from tests.engine_fixture import engine_factory as _engine_factory  # noqa: F401
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
-from tests.life.conftest import stage_day_plan, start_arguments
+from tests.life.conftest import SIDE_TOOL, side_arguments, stage_day_plan
 
 
 async def _recorded_viewer_requests(factory):
@@ -17,8 +17,8 @@ async def _recorded_viewer_requests(factory):
     first = await decide(engine, "viewer-plan", [ToolResponse("revise_day_plan", {
         "goals": [{"intent_kind": "休息", "goal": "浏览一下美团", "remind_time": None,
                    "around_time": None}]}, call_id="viewer-plan")])
-    second = await decide(engine, "viewer-browse", [ToolResponse("start_activity",
-        start_arguments(["美团"], ["interact"]), call_id="viewer-browse")])
+    second = await decide(engine, "viewer-browse", [ToolResponse(SIDE_TOOL,
+        side_arguments("interact", "美团"), call_id="viewer-browse")])
     return {"action": first[1][0], "continuation": second[1][0]}, engine
 
 
@@ -33,8 +33,8 @@ async def test_viewer_fixture_is_recorded_from_the_current_host(_engine_factory)
     assert recorded["continuation"]["messages"][:2] == recorded["action"]["messages"]
     assert requests["continuation"]["messages"][:2] == requests["action"]["messages"]
     names = {tool["function"]["name"] for tool in requests["action"]["tools"]}
-    assert {"start_activity", "report_status", "pause_activity", "conclude_activity", "revise_day_plan",
-            "query_world", "recall_task_summary"} <= names
+    assert {"start_main_activity", "start_side_activity", "report_status", "pause_activity", "conclude_activity",
+            "revise_day_plan", "query_world", "recall_task_summary"} <= names
     assert names.isdisjoint({"set_alarm", "send_message", "submit_work"})
     events = engine.context.store.read_events(engine.context.store.last_event_seq)
     assert not any(event.event_type == "action_rejected" for event in events)

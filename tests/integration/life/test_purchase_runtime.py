@@ -147,3 +147,26 @@ def test_errand_completion_waits_for_real_receipt_and_counts_actual_units(engine
     receipts = business_events(engine, "goods_received")
     assert progress[0].caused_by == [receipts[0].event_id]
     assert completed[0].caused_by == [receipts[1].event_id]
+
+
+def test_takeaway_arrival_is_caused_by_its_payment_and_the_receipt_by_that_arrival(engine_factory):
+    engine = engine_factory()
+    _, result = act(engine, "takeaway", purchase("牛肉面"))
+    assert result.status == "in_progress", result.error_code
+    (order,) = engine.context.state.deliveries.values()
+    assert order.fulfillment == "delivery" and order.destination_id == "home"
+    accepted = next(row for row in events(engine, "action_result") if row.action_id == result.action_id)
+    finish_activity(engine, result, "takeaway")
+    (payment,) = business_events(engine, "purchase_payment")
+    assert payment.caused_by == [accepted.event_id] and payment.data["order_ids"] == [order.order_id]
+    (scheduled,) = [row for row in engine.context.state.pending_events if row.kind == "delivery_arrival"]
+    assert scheduled.scheduled_id == f"delivery-{order.order_id}" and scheduled.due_at == order.expected_at
+    assert scheduled.caused_by == [payment.event_id]
+    reach(engine, order.expected_at)
+    (arrival,) = business_events(engine, "delivery_arrival")
+    assert arrival.occurred_at == order.expected_at and arrival.caused_by == [payment.event_id]
+    assert [row["order_id"] for row in arrival.data["orders"]] == [order.order_id]
+    (received,) = business_events(engine, "goods_received")
+    assert received.caused_by == [arrival.event_id] and received.data["order_id"] == order.order_id
+    assert engine.context.state.deliveries[order.order_id].status == "delivered"
+

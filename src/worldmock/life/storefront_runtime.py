@@ -65,7 +65,7 @@ class StorefrontRuntime:
         return changed, events
 
     def complete_purchase(self, state: WorldState, activity: ActivityState) -> tuple:
-        """@brief 先核对整次总价，再在同次提交中依序结算全部组。"""
+        """@brief 先核对整次总价，再在同次提交中依序结算全部组，并把各组付款事件的身份交给到达排程。"""
         orders = activity_orders(state, activity)
         if all(order.paid_at is not None for order in orders) or all(order.status == "cancelled" for order in orders):
             return state, []
@@ -88,8 +88,9 @@ class StorefrontRuntime:
         for grouped in order_groups(orders).values():
             changed, group_events = self._pay_group(changed, activity, grouped, cause)
             events.extend(group_events)
-        paid_orders = activity_orders(changed, activity)
-        scheduled = delivery_events(changed, paid_orders, cause)
+        payments = {identity: event.event_id for event in events if event.data.get("kind") == "purchase_payment"
+                    for identity in event.data["order_ids"]}
+        scheduled = delivery_events(changed, activity_orders(changed, activity), payments)
         pending = sorted([*changed.pending_events, *scheduled],
                          key=lambda row: (row.due_at, row.sequence, row.scheduled_id))
         return changed.model_copy(update={"pending_events": pending}, deep=True), events

@@ -7,22 +7,20 @@ import json
 import logging
 from pathlib import Path
 
-from worldmock.catalog.identity import REQUIRED_CATALOG_FILES, _update_frame
+from worldmock.catalog.identity import OPTIONAL_CATALOG_FILES, REQUIRED_CATALOG_FILES, _update_frame
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import AssetRef, canonical_json
+
+#: 冻结素材里不随目录清单变化的四个名字。
+FIXED_ENVIRONMENT_ASSETS = frozenset({"persona.toml", "config.toml", "map.json", "catalog/manifest.json"})
 
 
 def validate_frozen_environment(root: Path, frozen: dict, activities: list[dict], events: list[dict]) -> None:
     """@brief 核对冻结人设、配置和目录文件，并用实际内容索引认证空内容浏览。"""
-    expected = {"persona.toml", "config.toml", "map.json", "catalog/manifest.json"}
-    expected.update(f"catalog/{name}" for name in REQUIRED_CATALOG_FILES)
-    if set(frozen["environment_assets"]) != expected:
-        _invalid("Frozen environment asset set is invalid")
-    inputs = {name: _read_input(root, value) for name, value in frozen["environment_assets"].items()}
+    inputs, manifest = _frozen_inputs(root, frozen["environment_assets"])
     for name in ("persona", "config"):
         if hashlib.sha256(inputs[f"{name}.toml"]).hexdigest() != frozen[f"{name}_sha256"]:
             _invalid("Frozen environment input identity disagrees with its run manifest")
-    manifest = json.loads(inputs["catalog/manifest.json"])
     identity = frozen["environment_identity"]
     for key in ("environment_id", "environment_version", "rules_version", "catalog_content_sha256"):
         if manifest[key] != identity[key]:
@@ -38,6 +36,19 @@ def validate_frozen_environment(root: Path, frozen: dict, activities: list[dict]
     contents = _rows(inputs["catalog/content-catalog.jsonl"])
     _validate_app_sources(events, apps)
     _validate_browse(activities, apps, contents)
+
+
+def _frozen_inputs(root: Path, assets: dict) -> tuple[dict, dict]:
+    """@brief 先读冻结清单：素材名字恰为四个固定名字加文件表登记的每个目录文件，文件表不缺必需文件也不出闭集。"""
+    if "catalog/manifest.json" not in assets:
+        _invalid("Frozen environment asset set is invalid")
+    manifest = json.loads(_read_input(root, assets["catalog/manifest.json"]))
+    listed = {record["path"] for record in manifest["files"]}
+    if set(assets) != FIXED_ENVIRONMENT_ASSETS | {f"catalog/{relative}" for relative in listed}:
+        _invalid("Frozen environment asset set is invalid")
+    if not REQUIRED_CATALOG_FILES <= listed <= REQUIRED_CATALOG_FILES | OPTIONAL_CATALOG_FILES:
+        _invalid("Frozen catalog file set is invalid")
+    return {name: _read_input(root, value) for name, value in assets.items()}, manifest
 
 
 def _read_input(root: Path, value: dict) -> bytes:
@@ -76,11 +87,9 @@ def _invalid(message: str) -> None:
 
 
 def _validate_catalog_digest(inputs: dict, manifest: dict) -> None:
-    """@brief 冻结目录使用发布层同一分帧摘要，不另造内容身份算法。"""
-    if {record["path"] for record in manifest["files"]} != REQUIRED_CATALOG_FILES:
-        _invalid("Frozen catalog file set is invalid")
+    """@brief 冻结目录按文件表登记的全部文件使用发布层同一分帧摘要，不另造内容身份算法。"""
     digest = hashlib.sha256()
-    for relative in sorted(REQUIRED_CATALOG_FILES):
+    for relative in sorted(record["path"] for record in manifest["files"]):
         _update_frame(digest, relative, inputs[f"catalog/{relative}"])
     payload = dict(manifest)
     payload.pop("catalog_content_sha256")

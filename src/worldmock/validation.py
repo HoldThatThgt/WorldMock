@@ -57,12 +57,12 @@ def _check_locations(persona, catalog) -> None:
 
 
 def _checked(relative: str, operation, errors: list):
-    """@brief 保存固定错误码和原因，继续检查其他独立输入。"""
+    """@brief 保存固定错误码和原因，登记失败的原因后接详情，继续检查其他独立输入。"""
     try:
         return operation()
     except (RegistrationError, EnvironmentInputError, OSError, ValueError) as error:
         if isinstance(error, RegistrationError):
-            code, reason = error.code, error.message
+            code, reason = error.code, error.message + (f" {error.detail}" if error.detail else "")
         elif isinstance(error, EnvironmentInputError):
             relative, code, reason = error.path, error.code, error.reason
         else:

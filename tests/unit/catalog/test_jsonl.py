@@ -8,6 +8,7 @@ from pydantic import Field, StrictInt
 from worldmock.base_models import DeepFrozenModel
 from worldmock.catalog.errors import RegistrationError
 from worldmock.catalog.loader import parse_catalog_lines, read_catalog_rows
+from worldmock.catalog.models import MapEdge
 
 
 class CatalogRow(DeepFrozenModel):
@@ -124,3 +125,44 @@ def test_jsonl_read_rejects_missing_file(tmp_path):
     """@brief 缺失目录文件使用文件边界错误。"""
     with pytest.raises(RegistrationError, match="ENVIRONMENT_IDENTITY_MISMATCH"):
         read_catalog_rows(tmp_path, "content-catalog.jsonl", CatalogRow)
+
+
+def test_map_rows_parse_into_the_strict_edge_model_in_file_order():
+    """@brief 声明边只有三个字段，键序与行内空白不影响解析出的值，零字节就是零行。"""
+    content = b'{"a":"cafe","b":"office","length_m":4500}\n { "length_m": 12600, "b": "office", "a": "home" } \n'
+    rows = parse_catalog_lines(content, "map.jsonl", MapEdge)
+    assert [(row.a, row.b, row.length_m) for row in rows] == [("cafe", "office", 4500), ("home", "office", 12600)]
+    assert parse_catalog_lines(b"", "map.jsonl", MapEdge) == ()
+
+
+@pytest.mark.parametrize("line,code", [
+    (b'{"a":"home","b":"office","length_m":5,"note":"x"}', "ENVIRONMENT_KIND_INVALID"),
+    (b'{"a":"home","b":"office","length_m":0,"note":"x"}', "ENVIRONMENT_KIND_INVALID"),
+    (b'{"a":1,"b":"office","length_m":5}', "ENVIRONMENT_KIND_INVALID"),
+    (b'{"a":"home","b":" ","length_m":5}', "ENVIRONMENT_KIND_INVALID"),
+    (b'{"a":"home","length_m":5}', "ENVIRONMENT_KIND_INVALID"),
+    (b'{"a":"home","b":"office","length_m":0}', "ENVIRONMENT_NUMBER_INVALID"),
+    (b'{"a":"home","b":"office","length_m":-3}', "ENVIRONMENT_NUMBER_INVALID"),
+    (b'{"a":"home","b":"office","length_m":true}', "ENVIRONMENT_NUMBER_INVALID"),
+    (b'{"a":"home","b":"office","length_m":1.5}', "ENVIRONMENT_NUMBER_INVALID"),
+    (b'{"a":"home","b":"office","length_m":12600.0}', "ENVIRONMENT_NUMBER_INVALID"),
+    (b'{"a":"home","b":"office","length_m":"5"}', "ENVIRONMENT_NUMBER_INVALID"),
+    (b'{"a":"home","b":"office","length_m":null}', "ENVIRONMENT_NUMBER_INVALID"),
+    (b'{"a":"home","b":"office"}', "ENVIRONMENT_NUMBER_INVALID"),
+    (b'["home","office",5]', "ENVIRONMENT_LINE_INVALID"),
+    (b'{"a":"home","b":"office","length_m":5} {}', "ENVIRONMENT_LINE_INVALID"),
+    (b"", "ENVIRONMENT_LINE_INVALID"),
+])
+def test_map_row_errors_carry_the_fixed_code_file_and_line(line, code):
+    """@brief 未知键、坏端点和坏长度各用规定的登记码，详情以 map.jsonl 和行号开头。"""
+    content = b'{"a":"cafe","b":"home","length_m":900}\n' + line + b"\n"
+    with pytest.raises(RegistrationError) as captured:
+        parse_catalog_lines(content, "map.jsonl", MapEdge)
+    assert captured.value.code == code
+    assert captured.value.detail.startswith("map.jsonl:2")
+
+
+def test_map_row_accepts_one_metre_and_distances_beyond_the_random_edge_range():
+    """@brief 声明边的下限是 1 米，不设 2000 米上限。"""
+    content = b'{"a":"a","b":"b","length_m":1}\n{"a":"a","b":"c","length_m":62208}\n'
+    assert [row.length_m for row in parse_catalog_lines(content, "map.jsonl", MapEdge)] == [1, 62208]

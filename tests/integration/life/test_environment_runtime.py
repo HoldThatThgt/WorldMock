@@ -9,8 +9,8 @@ import pytest
 
 from agentsociety2.society import DirectToolCall
 from tests.life.conftest import (
-    MAIN_TOOL, advance_next, conclude_request, context, pause_request, report_request, sleep, stage_day_plan,
-    tool_of, travel, use_app,
+    MAIN_TOOL, advance_next, conclude_request, context, pause_request, purchase, report_request, sleep,
+    stage_day_plan, tool_of, travel, use_app,
 )
 from worldmock.errors import ProtocolError
 from worldmock.life.models import StartMainActivityRequest
@@ -334,3 +334,56 @@ def test_completed_interaction_keeps_its_slot_until_actual_conclusion(engine_fac
     assert concluded.status == "completed"
     _, next_activity = act(engine, "new-media", use_app("Keep"))
     assert next_activity.status == "in_progress"
+
+
+def _two_station_world(tmp_path, first_m, second_m):
+    """夹具副本加第二个驿站，并声明两个驿站各自到家的距离。"""
+    from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
+
+    root = copy_environment(tmp_path / "station-input")
+    rows = catalog_rows(root, "location.jsonl")
+    rows.append({"accepts_parcels": True, "app_ids": [], "branch_label": "二店", "kind": "parcel_station",
+                 "location_id": "parcel-station-2", "name": "快递驿站"})
+    write_catalog_rows(root, "location.jsonl", sorted(rows, key=lambda row: row["location_id"]))
+    write_catalog_rows(root, "map.jsonl", [{"a": "home", "b": "parcel-station", "length_m": first_m},
+                                          {"a": "home", "b": "parcel-station-2", "length_m": second_m}])
+    return root
+
+
+@pytest.mark.parametrize("first_m,second_m,nearest", [(9000, 300, "parcel-station-2"), (300, 9000, "parcel-station"),
+                                                      (700, 700, "parcel-station")])
+def test_courier_orders_go_to_the_station_nearest_home_by_declared_distance(
+        engine_factory, tmp_path, first_m, second_m, nearest):
+    """最近的驿站按新地图的最短距离选，同距取较小的地点身份。"""
+    engine = engine_factory(_two_station_world(tmp_path, first_m, second_m))
+    catalog = engine.context.catalog
+    assert (catalog.shortest_m("home", "parcel-station"), catalog.shortest_m("home", "parcel-station-2")) == (
+        first_m, second_m)
+    assert catalog.nearest_parcel_station("home") == nearest
+    _, result = act(engine, "declared-courier", purchase("平台笔记本"))
+    assert result.status == "in_progress", result.error_code
+    order = next(iter(engine.context.state.deliveries.values()))
+    assert (order.fulfillment, order.destination_id) == ("station_pickup", nearest)
+
+
+def test_trip_record_and_arrival_event_carry_the_declared_distance(engine_factory, tmp_path):
+    """行程记录的距离等于声明值：受理结果、到达后的活动和提交的事件都是 12,600 米的直达路径。"""
+    from tests.life.environment_inputs import copy_environment, write_catalog_rows
+
+    root = copy_environment(tmp_path / "trip-input")
+    write_catalog_rows(root, "map.jsonl", [{"a": "home", "b": "office", "length_m": 12600}])
+    engine = engine_factory(root)
+    _, result = act(engine, "declared-walk", travel("公司"))
+    assert result.status == "in_progress", result.error_code
+    started = result.data["activities"][0]
+    assert (started["data"]["distance_meters"], started["data"]["path"]) == (12600, ["home", "office"])
+    assert started["planned_duration_seconds"] == 12353
+    reach(engine, started["planned_end_at"])
+    final = engine.context.state.activities[result.activity_id]
+    assert final.status == "completed" and final.route_progress_meters == 12600
+    assert engine.context.state.agents[1].location_id == "office"
+    terminal = [row for row in events(engine, "action_result") if row.action_id == "action-declared-walk"][-1]
+    assert terminal.data["status"] == "completed"
+    recorded = [row for row in events(engine) if row.activity_id == result.activity_id
+                and isinstance(row.data.get("activity"), dict)]
+    assert recorded and all(row.data["activity"]["data"]["distance_meters"] == 12600 for row in recorded)

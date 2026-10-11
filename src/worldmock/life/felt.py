@@ -18,7 +18,7 @@ APPETITE_ANCHOR_KCAL_DEFAULT = 1200.0
 #: 紧急阈值，不复用本常量（docs/design/02-exchange-engine.md「饥饿在低能量时不失灵」）。
 #: experiment_assumption：规格冻结值，无文献出处。
 APPETITE_KCAL_FLOOR = 400.0
-#: 「饿得发慌」档的能量上界：能量低于该值时饥饿分级只由能量决定（约 1.5 小时基础消耗，不进目录）。
+#: 「饿得发慌」档的能量上界：能量低于该值时饥饿分级只由能量决定（固定 100 千卡，不随体重变）。
 #: experiment_assumption：登记在 docs/design/02-exchange-engine.md「规则数值与实验假设」。
 APPETITE_STARVING_KCAL = 100.0
 #: 第六档饥饿分级文本（只由能量决定，不进 APPETITE_BANDS）。

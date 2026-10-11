@@ -1,4 +1,4 @@
-"""@brief 画像编译结构合同（卡片结构 3）：PersonaCard、大五与世界层动力学（docs/design/06-agent.md「画像编译」）。
+"""@brief 画像编译结构合同（卡片结构 5）：PersonaCard、大五与世界层动力学（docs/design/06-agent.md「人物身份与画像」）。
 
 PersonaCard 从 background_story 抽取（三次一致性口径），承载身份、关系、当下
 处境、时间锚点（五个有序锚点与可空的下班、到家锚点，docs/design/06-agent.md#agent-下班与到家锚点 ）、时型、习惯签名、口味与应对方式；经确定性渲染成不超过 6
@@ -22,9 +22,8 @@ from typing import Literal
 from pydantic import (BaseModel, ConfigDict, Field, field_validator,
                       model_validator)
 
-#: 卡片合同 schema 版本：3 在时间锚点上增必填可空的下班、到家锚点；更早的结构（含 v1 九参数动机档案）一律拒绝，
-#: 不保留兼容。
-SCHEMA_VERSION = 4
+#: 卡片合同 schema 版本：卡片原样保存人设声明的作息值，不要求落在半小时或一刻钟格点上；其他版本一律拒绝，不保留兼容。
+SCHEMA_VERSION = 5
 #: 卡片抽取提示版本（换提示词必须换版本号）。
 PROMPT_VERSION = "card-v4"
 #: 卡片渲染汉字上限（docs/design/06-agent.md「人格与卡片字段」，与 life/narration.py 同源常数；不互相
@@ -53,16 +52,6 @@ MAX_HABITS = 5
 MAX_CONTENT_GENRES = 6
 MAX_FOOD_PREFERENCES = 6
 MAX_MEDIA = 4
-
-_GRID_TOLERANCE = 1e-6
-
-
-def value_on_grid(value: float, low: float, high: float, step: float) -> bool:
-    """@brief 公共格点判定：值是否落在 [low, high] 内步进 step 的格点上。"""
-    if not math.isfinite(value) or value < low - _GRID_TOLERANCE or value > high + _GRID_TOLERANCE:
-        return False
-    units = (value - low) / step
-    return abs(units - round(units)) <= _GRID_TOLERANCE
 
 
 def quantize(value: float, low: float, high: float, step: float) -> float:
@@ -97,7 +86,8 @@ class TimeWindow(_Frozen):
     就寝窗口允许跨午夜（end 可大于 24，如 23–25 表示到次日 01:00）；锚点
     回绕归一（TimeAnchors.normalize_wraparound）后 start 亦可大于 24
     （25 表示次日 01:00），上限 30 小时（次日 06:00 地平线）。窗口跨度
-    上限 12 小时防止病态区间。
+    上限 12 小时防止病态区间。两端不要求落在任何格点上：人设声明的值原样保存，
+    模型读出的值只在抽取入口（from_clock_range）取整到半小时。
     """
 
     start_hour: float = Field(ge=0.0, lt=30.0)
@@ -105,10 +95,7 @@ class TimeWindow(_Frozen):
 
     @model_validator(mode="after")
     def validate_window(self) -> "TimeWindow":
-        """@brief 0 ≤ start < 30、跨度 (0, 12]；小时吸附 0.5 格点保证确定性渲染。"""
-        for name, value in (("start_hour", self.start_hour), ("end_hour", self.end_hour)):
-            if not value_on_grid(value, 0.0, 30.0, 0.5):
-                raise ValueError(f"TimeWindow.{name}={value} is off the 0.5-hour grid")
+        """@brief 0 ≤ start < 30、跨度 (0, 12]；不检查格点。"""
         if not self.start_hour < self.end_hour:
             raise ValueError(f"window must satisfy start < end, got {self.start_hour}..{self.end_hour}")
         if self.end_hour - self.start_hour > 12.0:
@@ -117,7 +104,7 @@ class TimeWindow(_Frozen):
 
     @classmethod
     def from_clock_range(cls, value: str) -> "TimeWindow":
-        """@brief "HH:MM-HH:MM" → TimeWindow；跨午夜（end < start）自动 +24。
+        """@brief 抽取入口："HH:MM-HH:MM" → 取整到半小时的 TimeWindow；跨午夜（end < start）自动 +24。
 
         非字符串（含 null）输入是抽取 payload 合同违规：抛 ValueError
         （而非 AttributeError），使其落入抽取器无效 payload 重试路径。
@@ -351,14 +338,6 @@ class PersonaCard(_Frozen):
     tastes: Tastes
     coping: str = Field(min_length=1, max_length=60)
 
-    @field_validator("chronotype_midsleep", "sleep_need_hours")
-    @classmethod
-    def validate_hour_grid(cls, value: float) -> float:
-        """@brief 时型 0.25 小时格点、睡眠需要 0.25 小时格点（确定性）。"""
-        if not value_on_grid(value, 0.0, 24.0, 0.25):
-            raise ValueError(f"hour value {value} is off the 0.25-hour grid")
-        return value
-
 
 class PersonaCardStruct(PersonaCard):
     """@brief 人物 profile 中的结构化卡片 persona_card_struct：PersonaCard 去掉当下处境（situation 不进提示）。
@@ -398,7 +377,7 @@ class PersonaSource(_Frozen):
 
 
 class CompiledPersona(_Frozen):
-    """@brief 编译产物：卡片 + 大五 + 世界层动力学（schema v4；更早的结构明确拒绝）。"""
+    """@brief 编译产物：卡片 + 大五 + 世界层动力学（schema v5；其他版本明确拒绝）。"""
 
     schema_version: Literal[SCHEMA_VERSION] = SCHEMA_VERSION
     card: PersonaCard

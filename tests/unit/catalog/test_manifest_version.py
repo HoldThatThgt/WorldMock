@@ -1,9 +1,11 @@
 """@brief 真实清单入口先拒绝旧规则版本，不让形状错误掩盖版本错误。"""
 
+import json
+
 import pytest
 
 from worldmock.catalog.errors import RegistrationError
-from worldmock.catalog.loader import load_catalog
+from worldmock.catalog.loader import load_catalog, validate_catalog_files
 from worldmock.exchange.constants import RULES_VERSION
 from worldmock.footprints.models import canonical_json
 
@@ -24,3 +26,23 @@ def test_manifest_rule_version_priority_precedes_strict_shape(tmp_path, payload,
     with pytest.raises(RegistrationError) as captured:
         load_catalog(tmp_path, 7)
     assert captured.value.code == code
+
+
+@pytest.mark.parametrize("change,code,reason", [
+    ({"rules_version": 3}, "RULES_VERSION_MISMATCH", "The environment was published for a different rules version."),
+    ({"rules_version": 3, "format_version": 3}, "RULES_VERSION_MISMATCH",
+     "The environment was published for a different rules version."),
+    ({"rules_version": 5}, "RULES_VERSION_MISMATCH", "The environment was published for a different rules version."),
+    ({"format_version": 3}, "ENVIRONMENT_KIND_INVALID", "A declared kind is outside the fixed set."),
+    ({"format_version": 5}, "ENVIRONMENT_KIND_INVALID", "A declared kind is outside the fixed set."),
+])
+def test_otherwise_complete_package_with_an_old_version_number_is_refused(catalog_dir, change, code, reason):
+    """@brief 其余内容全部合法的环境包，只因版本号是旧值就在加载和纯校验的第一步被拒绝。"""
+    assert RULES_VERSION == 4
+    manifest = json.loads((catalog_dir / "manifest.json").read_bytes())
+    assert (manifest["rules_version"], manifest["format_version"]) == (4, 4)
+    (catalog_dir / "manifest.json").write_bytes(canonical_json({**manifest, **change}) + b"\n")
+    for entry in (lambda: load_catalog(catalog_dir, 7), lambda: validate_catalog_files(catalog_dir)):
+        with pytest.raises(RegistrationError) as captured:
+            entry()
+        assert (captured.value.code, captured.value.message) == (code, reason)

@@ -1,15 +1,23 @@
 """身体变化、餐时体感与睡眠参数的实际边界。"""
 
 import math
+import tomllib
 
 import pytest
 from pydantic import ValidationError
 
+from tests.data_paths import ENVIRONMENT_ROOT
 from tests.unit.life.test_environment_body import body_inputs
-from worldmock.life.body import apply_discomfort_pulse, apply_relaxation_change, last_flows
-from worldmock.life.felt import (
-    MealWindows, changed_felt_levels, compute_appetite, meal_window_bonus, sleepiness_level,
+from worldmock.input_models import PersonaConfig
+from worldmock.life.body import (
+    ActivityFactors, BoundaryClock, apply_discomfort_pulse, apply_relaxation_change, initial_body, last_flows,
+    next_shared_body_boundary_seconds, settle_shared_body,
 )
+from worldmock.life.body_config import assemble_body_config
+from worldmock.life.felt import (
+    MealWindows, appetite_level, changed_felt_levels, compute_appetite, meal_window_bonus, sleepiness_level,
+)
+from worldmock.life.models import ActivityKind
 from worldmock.life.sleep import (
     EfficiencyCurvePoint, SleepinessGrade, initial_sleep_pressure, interpolate_efficiency,
     sleepiness_grade, validate_efficiency_curve,
@@ -148,3 +156,48 @@ def test_valid_efficiency_curve_interpolates_actual_nodes_and_keeps_boundary_fac
     assert interpolate_efficiency(points, 12) == pytest.approx(0.875)
     assert interpolate_efficiency(points, -1) == 0.9
     assert interpolate_efficiency(points, 25) == 0.8
+
+
+def _mass_inputs(mass_kg, hour):
+    """夹具人设只换体重，经真实人设模型装配身体结算视图与给定钟点的初始身体。"""
+    raw = tomllib.loads((ENVIRONMENT_ROOT / "persona.toml").read_text(encoding="utf-8"))
+    persona = PersonaConfig.model_validate({**raw, "body": {**raw["body"], "mass_kg": mass_kg}})
+    config = assemble_body_config(persona)
+    body = initial_body(config, hour, persona, 0.06)
+    last_flows()
+    return config, body
+
+
+@pytest.mark.parametrize("mass_kg,seconds", [(55.0, 12810), (65.0, 8114), (70.0, 6229)])
+def test_first_hunger_after_waking_comes_earlier_for_a_heavier_body(mass_kg, seconds):
+    """0 点带着 1800 千卡入睡、8 点起床后一直做 light 的事、没有声明饭点：第一次「有点想吃」的时刻随体重变，
+    55 公斤 11:33:30、65 公斤 10:15:14（与修订前相同）、70 公斤 09:43:49。两项需要置于顶档，只留饥饿这一个边界。"""
+    config, body = _mass_inputs(mass_kg, 0.0)
+    slept = settle_shared_body(body, ((ActivityKind.SLEEP, ActivityFactors(0.95)),), 8 * 3600, config).after
+    last_flows()
+    assert slept.energy_kcal == 1800 - 8 * mass_kg
+    awake = slept.model_copy(update={"relaxation_need": 1.0, "social_need": 1.0})
+    light = ((ActivityKind.INTERACT, ActivityFactors(config.activity_met["light"])),)
+
+    boundary = next_shared_body_boundary_seconds(awake, light, config, BoundaryClock(8.0))
+
+    def level(elapsed):
+        energy = awake.energy_kcal - elapsed / 3600 * 1.5 * mass_kg
+        return appetite_level(compute_appetite(energy, 8.0 + elapsed / 3600), energy, 400)
+
+    assert boundary == seconds
+    assert (level(seconds - 1), level(seconds)) == ("不饿", "有点想吃")
+
+
+@pytest.mark.parametrize("mass_kg,seconds", [(55.0, 13091), (65.0, 11077), (70.0, 10286)])
+def test_idle_drop_below_the_hunger_threshold_follows_the_body_mass(mass_kg, seconds):
+    """空闲时从 1000 千卡到第一次严格低于 800 千卡：55 公斤 13,091 秒、65 公斤 11,077 秒、70 公斤 10,286 秒。
+    人物处在声明的饭点时段里（饥饿分级在此之前不变）、两项需要在顶档，下一个身体边界就是这一刻。"""
+    config, body = _mass_inputs(mass_kg, 6.0)
+    body = body.model_copy(update={"energy_kcal": 1000.0, "relaxation_need": 1.0, "social_need": 1.0})
+    clock = BoundaryClock(6.0, MealWindows(lunch=(6.0, 12.0)))
+
+    boundary = next_shared_body_boundary_seconds(body, (), config, clock)
+
+    assert boundary == seconds
+    assert 1000.0 - mass_kg * seconds / 3600 < 800 <= 1000.0 - mass_kg * (seconds - 1) / 3600

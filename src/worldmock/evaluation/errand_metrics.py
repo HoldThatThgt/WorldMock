@@ -18,6 +18,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from worldmock.life.action_evidence import placed_orders
 from worldmock.life.control_items import control_items
 from worldmock.life.errand_state import (
     CANCELLED_KIND,
@@ -197,9 +198,8 @@ def _accepted_products(events: Sequence[Mapping[str, Any]]) -> dict[int, list[tu
 
 
 def _referred(data: Mapping[str, Any]) -> frozenset[str]:
-    """@brief 一次受理的购买所指向的商品，直接读取其订单；在途订单也表示购买已受理。"""
-    payload = data.get("data") or {}
-    return frozenset(order["goods_id"] for order in payload.get("orders", []))
+    """@brief 一次受理的购买所指向的商品，直接读取它下的订单；在途订单也表示购买已受理，在驿站领取的包裹不是购买。"""
+    return frozenset(order["goods_id"] for order in placed_orders(data.get("data") or {}))
 
 
 def _acted(life: _Errand, accepted: Sequence[tuple[int, int, frozenset[str]]], timezone: str) -> bool:

@@ -223,3 +223,37 @@ def test_naming_a_unit_at_the_station_collects_every_ready_parcel(engine_factory
     received = [row for row in events(engine, "environment_event") if row.data.get("kind") == "goods_received"]
     assert sorted(row.data["order_id"] for row in received) == [order.order_id for order in parcels]
     assert all(row.caused_by == [accepted.event_id] for row in received)
+
+
+def test_pickup_and_purchase_in_one_group_keep_their_own_orders_and_evidence(engine_factory):
+    """在驿站同一轮点名取件并再买一份快递：取件结果只带领取后的快照，购买结果只带它自己下的那条记录；
+    公开证据里取件动作没有任何订单事实，购买动作的订单事实只指向新下的记录，两条到站包裹各有一条收货事实。"""
+    from worldmock.evaluation.public_evidence import worldmock_public_evidence
+
+    engine = engine_factory(mutate=_parcel_environment)
+    _, bought = act(engine, "notebook", purchase("平台笔记本", "平台笔记本"))
+    finish_activity(engine, bought, "notebook")
+    parcels = [order.order_id for order in _orders(engine, bought)]
+    reach(engine, max(order.expected_at for order in _orders(engine, bought)))
+    _until_free(engine)
+    _to_station(engine)
+    _, (pickup, again) = act_group(engine, "both", do_at("快递驿站", "驿站取件"), purchase("平台笔记本"))
+    assert (pickup.status, again.status) == ("in_progress", "in_progress"), (pickup.error_code, again.error_code)
+    (fresh,) = [order.order_id for order in _orders(engine, again)]
+    assert [(row["order_id"], row["status"]) for row in pickup.data["orders"]] == [
+        (identity, "delivered") for identity in parcels]
+    assert [(row["order_id"], row["status"]) for row in action_result(engine, again.action_id).data["orders"]] == [
+        (fresh, "pending")]
+    recorded = events(engine)
+    owner = {row.event_id: row.action_id for row in recorded}
+    facts = {(row.action, row.interaction, row.object_type, row.object_key, row.state,
+              tuple(owner[identity] for identity in row.source_event_ids))
+             for row in worldmock_public_evidence(recorded, [])}
+    assert {fact for fact in facts if pickup.action_id in fact[5]} == {
+        ("interact", "interact", "content", "parcel-service", "requested", (pickup.action_id,)),
+        ("interact", "interact", "content", "parcel-service", "started", (pickup.action_id,))}
+    assert {fact for fact in facts if again.action_id in fact[5]} == {
+        ("purchase", "order", "order", fresh, "requested", (again.action_id,)),
+        ("purchase", "order", "order", fresh, "pending", (again.action_id,))}
+    assert {fact[:5] for fact in facts if fact[1] == "receive"} == {
+        ("purchase", "receive", "order", identity, "received") for identity in parcels}

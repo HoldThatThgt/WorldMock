@@ -241,19 +241,20 @@ def _build_card(consensus: Mapping, config: Mapping) -> tuple[PersonaCard, tuple
 
 
 def _chronotype(consensus: Mapping, defaults: Mapping) -> float:
-    """@brief 时型：null -> TOML 缺省；"HH:MM" 解析后吸附 0.25 小时格点。"""
+    """@brief 时型：null -> TOML 缺省；模型读出的 "HH:MM" 在抽取入口取整到一刻钟（卡片模型自身不检查格点）。"""
     raw = consensus["chronotype_midsleep"] or defaults["chronotype_midsleep"]
     return quantize(parse_clock(raw), 0.0, 23.75, 0.25)
 
 
 def _sleep_need(consensus: Mapping, defaults: Mapping) -> float:
-    """@brief 睡眠需要：null -> TOML 缺省；吸附 [7,9] 内 0.25 小时格点。"""
+    """@brief 睡眠需要：null -> TOML 缺省；模型读出的值在抽取入口取整到 [7,9] 内的一刻钟。"""
     raw = consensus["sleep_need_hours"] or defaults["sleep_need_hours"]
     return quantize(float(raw), 7.0, 9.0, 0.25)
 
 
 def _build_anchors(raw: Mapping, defaults: Mapping) -> TimeAnchors:
-    """@brief 五个锚点：null -> TOML 缺省窗口；跨午夜窗口自动 +24；下班与到家先置 null，由 _work_anchors 落下。"""
+    """@brief 五个锚点：null -> TOML 缺省窗口；模型读出的时段在抽取入口取整到半小时，跨午夜窗口自动 +24；
+    下班与到家先置 null，由 _work_anchors 落下。"""
     fields: dict[str, TimeWindow | None] = {}
     for name in ("wake", "leave_home", "lunch", "dinner", "bedtime"):
         fields[name] = TimeWindow.from_clock_range(raw[name] or defaults[name])

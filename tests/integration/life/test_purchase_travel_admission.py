@@ -324,3 +324,95 @@ def test_departure_fare_receipt_uses_the_exact_world_accounts_and_zero_sum_trans
         assert changed.model_dump(mode="json") == before
     else:
         assert changed.model_copy(update={"accounts": state.accounts}).model_dump(mode="json") == before
+
+
+def _declared_world(tmp_path, *rows):
+    """夹具副本加 map.jsonl：每行声明一对地点的距离，清单按生产发布入口刷新。"""
+    from tests.life.environment_inputs import copy_environment, write_catalog_rows
+
+    root = copy_environment(tmp_path / "declared-input")
+    write_catalog_rows(root, "map.jsonl", [{"a": a, "b": b, "length_m": meters} for a, b, meters in rows])
+    return root
+
+
+def _seed_with_weather(condition):
+    """找出运行首日抽到指定天气的最小种子；声明的距离不随种子变化。"""
+    import hashlib
+
+    from worldmock.exchange.constants import WEATHER_FACTORS
+    from worldmock.life.randomness import random_stream
+
+    for seed in range(500):
+        state = hashlib.sha256(f"random:{seed}".encode()).hexdigest()
+        if random_stream(state, "weather:2026-01-05").choice(tuple(WEATHER_FACTORS)) == condition:
+            return seed
+    raise AssertionError(condition)
+
+
+def test_tool_layer_quotes_the_declared_distance_for_every_travel_method(engine_factory, tmp_path):
+    """家到公司声明 12,600 米、当天小雨：工具层给出的用时和车费就是按声明值算出的结果。"""
+    engine = engine_factory(_declared_world(tmp_path, ("home", "office", 12600)))
+    state, graph = engine.context.state, engine.context.catalog.graph
+    assert state.weather_by_date == {"2026-01-05": "light_rain"} and current_weather_factor(state) == 0.85
+    assert graph.distance_meters("home", "office") == 12600 and graph.path("home", "office") == ("home", "office")
+    trips = {mode: plan_trip(graph, "home", "office", mode, 0.85) for mode in ("walking", "driving", "taxi", "bus")}
+    assert {mode: (trip.duration_seconds, trip.fare_fen) for mode, trip in trips.items()} == {
+        "walking": (12353, 0), "driving": (2118, 2520), "taxi": (2118, 3780), "bus": (2965, 200)}
+    observed, result = act(engine, "declared-drive", travel("公司", "驾车"))
+    assert {method: (row["available"], row["price"], row["duration"])
+            for method, row in travel_rows(observed, "公司").items()} == {
+        "步行": (True, "0 元", "约 3.5 小时"), "驾车": (True, "25.2 元", "约 35 分钟"),
+        "打车": (True, "37.8 元", "约 35 分钟"), "公共交通": (True, "2 元", "约 49 分钟")}
+    assert result.status == "in_progress", result.error_code
+    activity = engine.context.state.activities[result.activity_id]
+    assert activity.planned_duration_seconds == 2118 and activity.planned_end_at - activity.started_at == 2118
+    assert (activity.data["distance_meters"], activity.data["path"]) == (12600, ["home", "office"])
+    assert engine.context.state.accounts["agent:1"] == 200000 - 2520
+
+
+@pytest.mark.parametrize("condition,method,seconds", [
+    ("sunny", "驾车", 1800), ("cloudy", "驾车", 1800), ("light_rain", "驾车", 2118),
+    ("heavy_rain", "驾车", 2572), ("snow", "驾车", 3000), ("sunny", "步行", 10500)])
+def test_accepted_trip_over_the_declared_distance_takes_the_documented_time_in_each_weather(
+        engine_factory, tmp_path, condition, method, seconds):
+    """12,600 米驾车：晴和多云 30 分钟，小雨 35 分 18 秒，大雨 42 分 52 秒，雪 50 分钟；晴天步行 2 小时 55 分。"""
+    seed = _seed_with_weather(condition)
+    engine = engine_factory(_declared_world(tmp_path, ("home", "office", 12600)),
+                            mutate=lambda persona, config: config.update(seed=seed))
+    assert engine.context.state.weather_by_date == {"2026-01-05": condition}
+    assert engine.context.catalog.shortest_m("home", "office") == 12600
+    _, result = act(engine, f"declared-{condition}", travel("公司", method))
+    assert result.status == "in_progress", result.error_code
+    activity = engine.context.state.activities[result.activity_id]
+    assert activity.planned_duration_seconds == seconds
+    assert activity.data["distance_meters"] == 12600 and activity.data["path"] == ["home", "office"]
+    reach(engine, activity.planned_end_at)
+    final = engine.context.state.activities[result.activity_id]
+    assert final.status == "completed" and final.ended_at - final.started_at == seconds
+    assert final.route_progress_meters == 12600 and engine.context.state.agents[1].location_id == "office"
+
+
+@pytest.mark.parametrize("cafe_m,noodle_m,store,goods,seconds", [
+    (4500, 13400, "cafe", "柠檬茶", 1500), (13400, 4500, "noodle-1", "柠檬茶", 1500),
+    (4500, 13400, "noodle-1", "牛肉面", 3280)])
+def test_delivery_store_and_expected_arrival_follow_the_declared_distances(
+        engine_factory, tmp_path, cafe_m, noodle_m, store, goods, seconds):
+    """外卖从声明距离最近的店送出，时长是备餐 600 秒加距离除以 5 米每秒，不乘天气系数。"""
+    def at_office(persona, config):
+        persona["initial_location"] = "公司"
+
+    root = _declared_world(tmp_path, ("cafe", "office", cafe_m), ("noodle-1", "office", noodle_m))
+    engine = engine_factory(root, mutate=at_office)
+    catalog, state = engine.context.catalog, engine.context.state
+    assert current_weather_factor(state) == 0.85
+    assert (catalog.shortest_m("cafe", "office"), catalog.shortest_m("noodle-1", "office")) == (cafe_m, noodle_m)
+    goods_id = next(key for key, item in catalog.goods.items() if item.name == goods)
+    quote = quote_goods(engine.context.inputs, state, 1, goods_id)
+    assert (quote.store_id, quote.destination_id, quote.fulfillment) == (store, "office", "delivery")
+    assert quote.distance_meters == catalog.shortest_m(store, "office")
+    assert quote.expected_at - state.current_time == seconds == 600 + -(-quote.distance_meters // 5)
+    _, result = act(engine, "declared-delivery", purchase(goods))
+    assert result.status == "in_progress", result.error_code
+    order = next(iter(engine.context.state.deliveries.values()))
+    assert (order.store_id, order.destination_id) == (store, "office")
+    assert order.expected_at - state.current_time == seconds

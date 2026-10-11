@@ -85,22 +85,56 @@ def test_ledger_uses_envelope_and_rejects_retired_embedded_money():
         validate_account_transition(before, after, [], False)
 
 
-def _paid_group_events():
-    order = {"order_id": "order", "group_key": "group", "agent_id": 1, "paid_at": 110,
+def _paid_group_events(purchase="purchase", identity="order", first=1, at=110):
+    order = {"order_id": identity, "group_key": "group", "agent_id": 1, "paid_at": at,
              "payment_app_id": "payment", "total_price_fen": 1000}
-    start = _event(1, "action_result", {"status": "in_progress", "data": {"activities": [
-                   {"activity_id": "purchase", "kind": "purchase"}]}})
-    progress = _event(2, "activity_progress", {"activity": {"activity_id": "purchase", "kind": "purchase",
-                     "status": "completed", "ended_at": 110}}, at=110)
-    payment = _event(3, "environment_event", {"kind": "purchase_payment", "activity_id": "purchase",
-                    "order_ids": ["order"], "amount_fen": 1000}, at=110, visibility="system",
+    activity = {"activity_id": purchase, "kind": "purchase", "data": {"order_ids": [identity]}}
+    start = _event(first, "action_result", {"status": "in_progress", "data": {"activities": [
+                   {"activity_id": purchase, "kind": "purchase"}]}})
+    progress = _event(first + 1, "activity_progress", {"activity": {"activity_id": purchase, "kind": "purchase",
+                     "status": "completed", "ended_at": at}}, at=at)
+    payment = _event(first + 2, "environment_event", {"kind": "purchase_payment", "activity_id": purchase,
+                    "order_ids": [identity], "amount_fen": 1000}, at=at, visibility="system",
                    cause=[start.event_id], changes={"account:agent:1": -1000, "account:external:scenario": 1000})
-    notification = _event(4, "environment_event", {"kind": "payment_notification", "app_id": "payment",
-                          "amount_fen": 1000, "order_ids": ["order"], "title": "支付成功", "summary": "商品 10.00 元"},
-                         at=110, visibility="system", cause=[payment.event_id])
+    notification = _event(first + 3, "environment_event", {"kind": "payment_notification", "app_id": "payment",
+                          "amount_fen": 1000, "order_ids": [identity], "title": "支付成功",
+                          "summary": "商品 10.00 元"}, at=at, visibility="system", cause=[payment.event_id])
     payment = payment.model_copy(update={"state_version_after": progress.state_version_after})
     notification = notification.model_copy(update={"state_version_after": progress.state_version_after})
-    return {"deliveries": {"order": order}}, [row.model_dump() for row in (start, progress, payment, notification)]
+    state = {"deliveries": {identity: order}, "activities": {purchase: activity}}
+    return state, [row.model_dump() for row in (start, progress, payment, notification)]
+
+
+def _two_purchases_on_one_route():
+    state, events = _paid_group_events()
+    later, again = _paid_group_events("purchase-again", "order-again", first=5, at=120)
+    merged = {key: {**state[key], **later[key]} for key in state}
+    assert len({order["group_key"] for order in merged["deliveries"].values()}) == 1
+    return merged, events + again
+
+
+def test_payments_sharing_a_delivery_group_key_are_counted_per_purchase_activity():
+    state, events = _two_purchases_on_one_route()
+    _payment_invariants(events, state, {event["event_id"]: event for event in events})
+
+
+@pytest.mark.parametrize("fault,message", [
+    ("missing_payment", "Purchase group payment count disagrees with actual payment"),
+    ("other_purchase", "Purchase payment disagrees with its actual order group"),
+    ("partial_payment", "Purchase group has partial payment"),
+])
+def test_each_purchase_activity_requires_its_own_complete_group_payment(fault, message):
+    state, events = _two_purchases_on_one_route()
+    if fault == "missing_payment":
+        del events[6:]
+    elif fault == "other_purchase":
+        events[6]["data"]["activity_id"] = "purchase"
+    else:
+        extra = {**state["deliveries"]["order-again"], "order_id": "order-unpaid", "paid_at": None}
+        state["deliveries"]["order-unpaid"] = extra
+        state["activities"]["purchase-again"]["data"]["order_ids"].append("order-unpaid")
+    with pytest.raises(IntegrityError, match=message):
+        _payment_invariants(events, state, {event["event_id"]: event for event in events})
 
 
 def test_payment_group_requires_actual_completion_and_exact_single_notification():

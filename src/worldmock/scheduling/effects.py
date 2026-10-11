@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from worldmock.exchange.constants import WEATHER_FACTORS
 from worldmock.footprints.models import EventDraft
 from worldmock.life.callbacks import CallbackCause, evaluate_callbacks, issue_callback_reminders
 from worldmock.life.models import ActivityKind, WorldState, active_activities
-from worldmock.life.weather import WEATHER_FACTORS, generated_weather
+from worldmock.life.weather import generated_weather
 from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 
 

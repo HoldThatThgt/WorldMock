@@ -361,10 +361,6 @@ class DecisionCoordinator:
             drafts.extend((accepted, result_draft))
             result_drafts.append(result_draft)
         result_draft = result_drafts[0]
-        new_ids = {event.scheduled_id for event in state.pending_events}
-        changed.pending_events = [event.model_copy(update={"caused_by": [result_draft.event_id]})
-            if event.scheduled_id not in new_ids and event.kind.value == "delivery_arrival"
-            else event for event in changed.pending_events]
         drafts.extend(records)
         drafts.extend(self._action_callbacks(changed, group, result_drafts,
             state.accounts[state.agents[first.agent_id].balance_account_id]))

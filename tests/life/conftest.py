@@ -258,15 +258,6 @@ def side_arguments(action: str, *targets: str) -> dict:
     return {"action": action, "target": list(targets)}
 
 
-def start_arguments(targets, actions) -> dict:
-    """@brief 已删除的 start_activity 的参数形状，只为查看器录制样本的测试能被导入而保留。
-
-    该测试与它比对的样本要到修订的最后阶段才重录，此前不得改动；没有别的测试使用这个形状。
-    """
-    return {"items": [{"action": action, "target": target}
-                      for action, target in zip(actions, targets, strict=True)]}
-
-
 def travel(target: str, method: str = "步行"):
     """@brief 出行请求：目的地地点名与出行方式名称（步行、驾车、打车、公共交通）。"""
     from worldmock.life.models import StartMainActivityRequest

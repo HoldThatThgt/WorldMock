@@ -8,7 +8,8 @@ from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from worldmock.errors import BusinessRuleError, PreconditionError
-from worldmock.exchange.operators import delivery_seconds
+from worldmock.exchange.constants import DELIVERY_PREP_SECONDS
+from worldmock.exchange.operators import delivery_fee_fen, delivery_seconds
 from worldmock.life.models import ActivityKind, WorldState, active_activities
 from worldmock.life.randomness import random_stream
 from worldmock.life.guidance import rejection_guidance
@@ -97,7 +98,7 @@ def quote_goods(inputs, state: WorldState, agent_id: int, goods_id: str) -> Offe
                      and inputs.catalog.locations[key].is_open(local))
     if not eligible:
         _require_store(inputs, state, agent_id, stores)
-    store = min(eligible, key=lambda key: (goods.price_fen + 500,
+    store = min(eligible, key=lambda key: (goods.price_fen + delivery_fee_fen(),
                 state.current_time + delivery_seconds(inputs.catalog.shortest_m(key, here)), key))
     return _delivery_offer(inputs, state, goods, store, here)
 
@@ -124,8 +125,8 @@ def _delivery_offer(inputs, state: WorldState, goods, store: str, here: str) -> 
     meters = catalog.shortest_m(store, here)
     app = _order_app(state, goods.goods_id, store, catalog.apps_by_store[store])
     return Offer(goods.goods_id, store, app, here, state.current_time + delivery_seconds(meters),
-                 "delivery", 500, here, catalog.graph.path(store, here),
-                 f"{store}->{here}:driving", meters, 600)
+                 "delivery", delivery_fee_fen(), here, catalog.graph.path(store, here),
+                 f"{store}->{here}:driving", meters, DELIVERY_PREP_SECONDS)
 
 
 def _courier_offer(inputs, state: WorldState, goods) -> Offer:
@@ -135,7 +136,7 @@ def _courier_offer(inputs, state: WorldState, goods) -> Offer:
     days_key = f"courier-days:{goods.goods_id}:{app}:{local.date().isoformat()}"
     days = random_stream(state.random_state, days_key).choice((2, 3, 4, 5))
     arrival = datetime.combine(local.date() + timedelta(days=days), time.min, local.tzinfo)
-    fee = random_stream(state.random_state, f"courier-fee:{goods.goods_id}:{app}").choice((0, 500))
+    fee = random_stream(state.random_state, f"courier-fee:{goods.goods_id}:{app}").choice((0, delivery_fee_fen()))
     station = inputs.catalog.nearest_parcel_station(inputs.home_location_id)
     return Offer(goods.goods_id, None, app, station, int(arrival.timestamp()), "station_pickup", fee,
                  inputs.home_location_id, (station,), None, 0, 0)

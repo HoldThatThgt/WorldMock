@@ -76,9 +76,12 @@ def _read_toml(path: Path, label: str, code: str) -> tuple[dict, str]:
 
 
 def _persona_reason(error: ValidationError) -> str:
-    """@brief 人物的明确初值与正文失败使用规格规定原因。"""
+    """@brief 人物的明确初值与正文失败使用规定原因；模型级的取值错误（作息声明自相矛盾）原样返回英文原因。"""
     if "background_story must contain at least 100 characters" in str(error):
         return "background_story must contain at least 100 characters"
+    for item in error.errors():
+        if item["loc"] == () and item["type"] == "value_error":
+            return str(item["ctx"]["error"])
     if any(item["loc"] == ("body", "initial_energy_kcal") and item["type"] == "less_than_equal"
            for item in error.errors()):
         return "initial energy exceeds maximum energy"

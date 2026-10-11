@@ -17,7 +17,7 @@ from worldmock.errors import BusinessRuleError, PreconditionError
 from worldmock.footprints.models import EventDraft
 from worldmock.life import activity_control, admission, same_moment, sessions
 from worldmock.life.action_contract import ACTION_LABELS, START_TOOLS, TRAVEL_ACTION_MODES, TRAVEL_ACTION_NAMES
-from worldmock.life.action_evidence import activity_orders, collected_orders
+from worldmock.life.action_evidence import activity_orders, start_orders
 from worldmock.life.activities import ActivityStartParams, schedule_feedback, start_activity
 from worldmock.life.activity_titles import activity_snapshot, title_index
 from worldmock.life.business_feedback import call_items
@@ -236,10 +236,10 @@ class StartGroups:
         pending = item.pending
         activity = next(row for key, row in changed.activities.items()
                         if key not in before.activities and row.origin_action_id == pending.action_id)
-        orders = activity_orders(changed, [activity])
         app_id = activity.data["app_id"] if activity.kind == ActivityKind.INTERACT else None
-        if activity.kind == ActivityKind.INTERACT and app_id is None:
-            orders = sorted([*orders, *collected_orders(before, changed)], key=lambda order: order["order_id"])
+        located = activity.kind == ActivityKind.INTERACT and app_id is None
+        # 只有在地点做事的那条动作会在驿站取件；同组的副调用不带主调用领取的记录。
+        orders = start_orders(before, changed, [activity]) if located else activity_orders(changed, [activity])
         data = {"activities": [activity_snapshot(activity, title_index(self.context.catalog))], "orders": orders}
         if app_id is not None:
             data["goods"] = app_goods(self.context.inputs, changed, pending.agent_id, app_id)

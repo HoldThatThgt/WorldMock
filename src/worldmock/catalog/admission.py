@@ -4,12 +4,23 @@ from collections import deque
 from datetime import date
 from pathlib import Path
 import re
+from typing import NoReturn
 
 from worldmock.catalog.callback_models import StateReminder, VisibleHint
 from worldmock.catalog.errors import RegistrationError
-from worldmock.catalog.identity import REQUIRED_CATALOG_FILES, compute_catalog_identity
+from worldmock.catalog.graph import Graph
+from worldmock.catalog.identity import (
+    OPTIONAL_CATALOG_FILES, REQUIRED_CATALOG_FILES, compute_catalog_identity, present_catalog_files,
+)
 from worldmock.catalog.models import CatalogManifest, MapGraph, WEEKDAYS, channel_key
-from worldmock.exchange.constants import MAP_MIN_NODES, PUSH_SUMMARY_MAX_CHARS, RULES_VERSION
+from worldmock.exchange.constants import (
+    MAP_MIN_NODES, PUSH_SUMMARY_MAX_CHARS, RULES_VERSION, TRAVEL_MAX_SECONDS, WALKING_METERS_PER_SECOND,
+    WEATHER_FACTORS,
+)
+from worldmock.exchange.operators import travel_seconds
+
+#: 目录 JSONL 的文件名闭集；清单自己不进文件表。
+CATALOG_FILES = REQUIRED_CATALOG_FILES | OPTIONAL_CATALOG_FILES
 
 
 def validate_environment_entries(environment_root: Path | str) -> None:
@@ -22,7 +33,7 @@ def validate_environment_entries(environment_root: Path | str) -> None:
     if catalog.is_symlink():
         raise RegistrationError("ENVIRONMENT_IDENTITY_MISMATCH", str(catalog))
     if catalog.is_dir():
-        _check_package_entries(catalog, REQUIRED_CATALOG_FILES | {"manifest.json"})
+        _check_package_entries(catalog, CATALOG_FILES | {"manifest.json"})
 
 
 def _check_package_entries(directory: Path, allowed: frozenset[str]) -> None:
@@ -37,20 +48,27 @@ def _check_package_entries(directory: Path, allowed: frozenset[str]) -> None:
 
 
 def validate_manifest(directory: Path, manifest: CatalogManifest) -> None:
-    """@brief 校验清单闭集、实际文件表与目录字节身份。"""
+    """@brief 按固定次序校验规则版本、文件表闭集、在场文件的登记与目录字节身份。"""
     if manifest.rules_version != RULES_VERSION:
         raise RegistrationError("RULES_VERSION_MISMATCH")
     listed = [entry.path for entry in manifest.files]
     _check_order(listed)
-    extra = set(listed) - REQUIRED_CATALOG_FILES
+    extra = set(listed) - CATALOG_FILES
     if extra:
         raise RegistrationError("ENVIRONMENT_STALE_FILE", str(directory / sorted(extra)[0]))
-    if set(listed) != REQUIRED_CATALOG_FILES:
-        raise RegistrationError("ENVIRONMENT_FILE_UNLISTED")
-    _check_package_entries(directory, REQUIRED_CATALOG_FILES | {"manifest.json"})
+    _require_listed(REQUIRED_CATALOG_FILES, listed)
+    _check_package_entries(directory, CATALOG_FILES | {"manifest.json"})
+    _require_listed(present_catalog_files(directory), listed)
     identity = compute_catalog_identity(directory, manifest.model_dump(mode="json"))
     if identity.files != manifest.files or identity.catalog_content_sha256 != manifest.catalog_content_sha256:
         raise RegistrationError("ENVIRONMENT_IDENTITY_MISMATCH")
+
+
+def _require_listed(names, listed) -> None:
+    """@brief 必需文件和在场的可选文件都要登记，详情给出第一个没有登记的文件名。"""
+    unlisted = sorted(set(names) - set(listed))
+    if unlisted:
+        raise RegistrationError("ENVIRONMENT_FILE_UNLISTED", unlisted[0])
 
 
 def _check_order(values) -> None:
@@ -94,6 +112,7 @@ def validate_registration(rows: dict) -> None:
     _check_contents(rows, apps, kinds)
     _check_apps(rows, apps)
     _check_callbacks(rows, apps)
+    _check_map_edges(rows["map_edges"], [place.location_id for place in rows["locations"]])
 
 
 def _check_locations(rows, apps) -> None:
@@ -261,6 +280,59 @@ def _check_notify(rule, states, apps) -> None:
             raise RegistrationError("CALLBACK_NOTIFY_MISMATCH")
         _check_state_threshold(rule.notify.when.state, rule.notify.when.below, states)
         _check_content_apps((rule.notify.app_id,), apps)
+
+
+def _check_map_edges(edges, location_ids) -> None:
+    """@brief 声明边依次核对端点次序、端点登记、地点对唯一、行次序和互不矛盾，详情带行号。"""
+    registered, lines = set(location_ids), {}
+    pairs = [(edge.a, edge.b) for edge in edges]
+    for number, (a, b) in enumerate(pairs, start=1):
+        if a >= b:
+            _reject_map_row("ENVIRONMENT_KIND_INVALID", number, "Map endpoints must satisfy a < b.")
+    for number, pair in enumerate(pairs, start=1):
+        for endpoint in pair:
+            if endpoint not in registered:
+                _reject_map_row("ENVIRONMENT_REF_UNKNOWN", number, f"Unknown location_id: {endpoint}.")
+    for number, (a, b) in enumerate(pairs, start=1):
+        first = lines.setdefault((a, b), number)
+        if first != number:
+            _reject_map_row("ENVIRONMENT_ID_DUPLICATE", first, f"and map.jsonl:{number} declare the same pair {a}-{b}.")
+    for number in range(2, len(pairs) + 1):
+        if pairs[number - 2] > pairs[number - 1]:
+            _reject_map_row("ENVIRONMENT_KIND_INVALID", number, "Map rows must be sorted by (a, b).")
+    _check_declared_distances(edges, location_ids)
+
+
+def _reject_map_row(code: str, number: int, detail: str) -> NoReturn:
+    """@brief 声明边的登记失败详情一律以文件名和行号开头。"""
+    raise RegistrationError(code, f"map.jsonl:{number} {detail}")
+
+
+def _check_declared_distances(edges, location_ids) -> None:
+    """@brief 只含声明边的图上，任何一条声明边都不得被经其他声明边的更短路线绕过。"""
+    declared = Graph(MapGraph(nodes=tuple(sorted(location_ids)), edges=tuple(edges)))
+    for number, edge in enumerate(edges, start=1):
+        meters = declared.distance_meters(edge.a, edge.b)
+        if meters < edge.length_m:
+            route = " -> ".join(declared.path(edge.a, edge.b))
+            _reject_map_row("MAP_DISTANCE_CONTRADICTED", number,
+                            f"{edge.a}-{edge.b} declares {edge.length_m} m but {route} is {meters} m.")
+
+
+def validate_route_limit(nodes: tuple[str, ...], graph: Graph) -> None:
+    """@brief 生成后的地图上最远的一对地点，步行在最差天气下必须一天之内走到。"""
+    farthest = None
+    for origin in nodes:
+        for destination, (meters, _) in graph.shortest_paths(origin).items():
+            if origin < destination and (farthest is None or meters > farthest[0]):
+                farthest = (meters, origin, destination)
+    meters, origin, destination = farthest
+    seconds = travel_seconds("walking", meters, min(WEATHER_FACTORS.values()))
+    if seconds > TRAVEL_MAX_SECONDS:
+        raise RegistrationError(
+            "MAP_ROUTE_TOO_LONG",
+            f"{origin} -> {destination} is {meters} m, which takes {seconds} s at {WALKING_METERS_PER_SECOND} m/s "
+            f"in the worst weather; the limit is {TRAVEL_MAX_SECONDS} s.")
 
 
 def validate_map(graph: MapGraph, location_ids: set[str]) -> None:

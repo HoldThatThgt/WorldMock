@@ -8,7 +8,7 @@ from worldmock.base_models import require_finite_number
 from worldmock.errors import reject_value
 from worldmock.exchange.constants import (
     DELIVERY_FEE_FEN, DELIVERY_METERS_PER_SECOND, DELIVERY_PREP_SECONDS, DRIVING_FARE_FEN_PER_METER,
-    DRIVING_FARE_MINIMUM_FEN, DRIVING_METERS_PER_SECOND,
+    DRIVING_FARE_MINIMUM_FEN, DRIVING_METERS_PER_SECOND, GOODS_ENERGY_KCAL, GOODS_RELAXATION_RELIEF,
     WALKING_METERS_PER_SECOND,
 )
 from worldmock.exchange.types import GoodsCategory
@@ -28,9 +28,9 @@ def evaluate_goods_receipt(category: GoodsCategory | str, quantity: int) -> int 
         reject_value("quantity must be a positive integer")
     if category not in {"snack", "meal", "drink", "goods"}:
         reject_value("Goods category is outside the fixed set")
-    if category in {"snack", "meal"}:
-        return {"snack": 200, "meal": 600}[category] * quantity
-    return 0.10
+    if category in GOODS_ENERGY_KCAL:
+        return GOODS_ENERGY_KCAL[category] * quantity
+    return GOODS_RELAXATION_RELIEF
 
 
 def evaluate_travel_fare(mode: str, distance_m: int | float) -> int:

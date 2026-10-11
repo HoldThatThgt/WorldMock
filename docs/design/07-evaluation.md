@@ -50,6 +50,7 @@ flowchart LR
 
 工作输入从冻结环境的 `persona.toml`、`config.toml` 和覆盖后的结构化人物卡打包。
 `AgentWorkday` 保存工作安排、住处、实际工作地点以及下班和到家窗口。
+下班和到家窗口取卡片里未取整的值，换成当天的时刻时截到整秒。
 报告保留 `shift_seconds`、`at_workplace_seconds`、`break_seconds`、`declared_exception_seconds`、
 `absence_seconds`、`early_leave_seconds`，不从内容、应用或地点推断工作活动。
 作息偏离只比较真实离开工作地点、到家和睡眠时刻，不读取日计划。
