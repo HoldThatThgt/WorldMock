@@ -42,4 +42,10 @@ MUTATIONS = (
     SourceMutation("history_balance_ignored", "worldmock.footprints.ledger::validate_account_history",
         "if balances != expected:", "if False:",
         ("tests/unit/footprints/test_ledger.py::test_final_checkpoint_balance_must_equal_complete_event_history",)),
+    SourceMutation("arrival_caused_by_purchase_acceptance",
+        "worldmock.life.storefront_runtime::StorefrontRuntime.complete_purchase",
+        "delivery_events(changed, activity_orders(changed, activity), payments)",
+        "delivery_events(changed, activity_orders(changed, activity), dict.fromkeys(payments, cause))",
+        ("tests/system/lifecycle/test_parcel_arrival_export.py"
+         "::test_parcel_arrival_is_caused_by_its_payment_and_exports_before_collection",)),
 )
