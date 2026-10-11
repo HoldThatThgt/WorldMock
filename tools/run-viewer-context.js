@@ -111,10 +111,10 @@ const ViewerContext = {};
     },
     reflection: {
       label: '睡醒反思',
-      source: 'src/worldmock/agents/life_memory.py · after_step；src/worldmock/agents/life_reflection.py；agentsociety2/agent/memory_runtime.py',
-      fill: '睡眠完成后的睡醒边界触发，输入当前时刻与最近三十条记忆，不含人物卡片。',
+      source: 'src/worldmock/agents/life_memory.py · wake_reflection；src/worldmock/agents/life_reflection.py；custom/agents/life_agent.py · _observe_environment',
+      fill: '每个本地日第一次睡醒、取观察之前触发，输入当前时刻与最近三十条记忆，不含人物卡片。',
       steps: [
-        ['睡醒边界', '先检查主观归纳，再进行反思；没有已有记忆时不调用反思模型。'],
+        ['当天第一次睡醒', '有未归纳的记录时先做一次主观归纳，再进行反思；没有已有记忆时不调用反思模型。'],
         ['新增条目', '经唯一严格工具 submit_reflection 提交一至五条带原记忆引用的主观反思，重要度为 0.8，进入持久记忆。'],
         ['校验重试', '输出不合合同时附回英文校验错误重新请求，首次之外至多三次；仍不合合同即运行故障，不写入任何反思。'],
         ['后续归纳', '反思不计入归纳触发阈值，但属于后续归纳可读取的未归纳内容。'],
