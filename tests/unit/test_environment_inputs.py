@@ -8,9 +8,11 @@ import pytest
 from pydantic import ValidationError
 
 from tests.life.persona_inputs import declare_rhythm as declare
+from tests.profile.conftest import make_card
 from worldmock.environment import EnvironmentInputError, load_environment, parse_persona_file, parse_run_config_file
 from worldmock.input_models import ModelConfig, ModelMetadata, PersonaConfig, RunConfig
 from worldmock.model_endpoint import parse_model_metadata
+from worldmock.profile.injection import apply_persona_rhythm
 from worldmock.validation import validate_environment
 
 
@@ -201,13 +203,34 @@ def test_overlapping_lunch_and_dinner_never_reach_the_engine(environment):
 @pytest.mark.parametrize("declared", [
     {"bedtime_window": (0.5, 1.5), "leave_work_window": (18.0, 18.5)},
     {"bedtime_window": (1.0, 1.5), "dinner_window": (19.0, 20.0)},
-    {"bedtime_window": (5.9, 7.0), "dinner_window": (19.0, 20.0), "lunch_window": (12.0, 13.0),
+    {"bedtime_window": (5.9, 6.0), "dinner_window": (19.0, 20.0), "lunch_window": (12.0, 13.0),
      "leave_work_window": (18.0, 18.5), "arrive_home_window": (18.5, 19.0)},
 ])
 def test_bedtime_starting_after_midnight_is_read_as_the_next_day(environment, declared):
-    """就寝起点小于 6 时读作次日凌晨：午夜之后才睡的人物可以同时声明晚饭、下班、到家和就寝。"""
+    """就寝起点小于 6 时读作次日凌晨：午夜之后才睡的人物可以同时声明晚饭、下班、到家和就寝，
+    声明的每个时段都落进卡片，就寝按次日存（起点、终点都加 24）。"""
     persona, _ = parse_persona_file(declare(environment, **declared))
     assert tuple(persona.bedtime_window) == declared["bedtime_window"]
+    result = apply_persona_rhythm(make_card(), persona)
+    assert {item["code"] for item in result.warnings} == {"CARD_FIELD_OVERRIDDEN"}
+    for name, (start, end) in declared.items():
+        shift = 24.0 if name == "bedtime_window" else 0.0
+        stored = getattr(result.card.time_anchors, name.removesuffix("_window"))
+        assert (stored.start_hour, stored.end_hour) == (start + shift, end + shift)
+
+
+def test_bedtime_ending_after_the_next_day_horizon_loads_but_is_not_stored(environment):
+    """成对关系只比较就寝起点：起点小于 6、终点大于 6 的就寝通过加载，按次日写进卡片时终点越过 30，
+    卡片保留原值并记 CARD_FIELD_CONFLICT，同时声明的晚饭照常落下。"""
+    persona, _ = parse_persona_file(declare(environment, bedtime_window=(5.9, 7.0), dinner_window=(19.0, 20.0)))
+    assert tuple(persona.bedtime_window) == (5.9, 7.0)
+    card = make_card()
+    result = apply_persona_rhythm(card, persona)
+    assert result.card.time_anchors.bedtime == card.time_anchors.bedtime
+    assert [(item["code"], item["details"]["field"]) for item in result.warnings] == [
+        ("CARD_FIELD_CONFLICT", "bedtime_window"), ("CARD_FIELD_OVERRIDDEN", "dinner_window")]
+    assert result.warnings[0]["details"] == {"field": "bedtime_window", "card_value": [23.0, 24.0],
+                                             "persona_value": [5.9, 7.0], "reason": "anchor_order"}
 
 
 def test_bedtime_next_day_reading_stops_at_six(environment, tmp_path):
