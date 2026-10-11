@@ -32,6 +32,8 @@ flowchart LR
 `payment_started_at`、`payment_ended_at` 在同一张订单的记录上相同。`payment_app_id` 为 null 表示直付；
 `payment_duration_seconds` 是 0 或 10 至 20，只有 `app_id` 与 `payment_app_id` 都为 null 的到店直付为 0，
 这时两个付款时刻恒为 null；其余订单在付款段真实开始、真实走完时各写一次。
+订单由购买活动的 `data.order_ids` 和记录上的 `app_id` 得出：购买活动列出了世界里没有的记录，
+或者同一张订单的记录在这四个付款字段上取值不同，世界状态在写入和恢复时都被拒绝。
 `paid_at` 在一次购买的全部记录上同时写入，等于购买完成的时刻；到店记录的 `expected_at` 是购买开始时刻加实际购买时长。
 内容共享进度以人物与内容身份保存，报告不新增进度。
 
