@@ -22,6 +22,7 @@ from worldmock.life.guidance import refusal_for_code
 from worldmock.life.models import ActivityStatus, AgentState, BodyState, WorldState, WORLD_SCHEMA_VERSION
 from worldmock.life.parcel import collect_parcels
 from worldmock.life.purchase_offers import quote_goods
+from worldmock.life.purchase_phases import advance_phases, phase_boundaries
 from worldmock.life.receipt import settle_receipt
 from worldmock.life.storefront_runtime import StorefrontRuntime
 
@@ -70,13 +71,13 @@ def finish(state, activity):
                                   "activities": {activity.activity_id: activity}}, deep=True), activity
 
 
-def operate_payments(commerce, state, activity):
-    drafts = []
-    for moment in commerce.payment_boundaries(state, activity):
-        state = state.model_copy(update={"current_time": moment}, deep=True)
-        state, events = commerce.advance_payment(state, activity)
-        drafts.extend(events)
-    return state, drafts
+def operate_phases(state, activity):
+    """逐个段边界推进到最后一个段结束，不跳过任何边界；受理那一次提交已经处理了购买开始那一秒。"""
+    since = state.current_time
+    for moment in phase_boundaries(state, activity):
+        state = advance_phases(state.model_copy(update={"current_time": moment}, deep=True), activity, since)
+        since = moment
+    return state
 
 
 def test_local_goods_choose_present_store_and_no_shipping(environment):
@@ -142,6 +143,7 @@ def test_request_freezes_preview_does_not_pay_or_generate_receipt(environment):
 @pytest.mark.parametrize("goods,label,total", [
     (("lemon-tea", "lemon-tea"), "购买柠檬茶×2（", 2400),
     (("playing-cards", "lemon-tea", "rice-ball", "lemon-tea", "lemon-tea"), "购买柠檬茶×3、扑克牌、饭团（", 6100),
+    (("lemon-tea",) * 11, "购买柠檬茶×11（", 13200),
 ])
 def test_repeated_goods_are_separate_portions_of_one_purchase_activity(environment, goods, label, total):
     """同一商品写几次就是几份、份数不设上限：每份一条履约记录，记录按配送组再按商品身份编号，活动名把同一商品合写。"""
@@ -150,6 +152,7 @@ def test_repeated_goods_are_separate_portions_of_one_purchase_activity(environme
     changed, activity = runtime(environment).prepare_purchase(state, pending(), goods)
     orders = activity_orders(changed, activity)
     assert [order.order_id for order in orders] == [f"order-buy-{index:04d}" for index in range(1, len(goods) + 1)]
+    assert [order.order_id for order in orders] == sorted(order.order_id for order in orders)
     assert [order.goods_id for order in orders] == sorted(goods)
     assert all(order.quantity == 1 and order.status == "pending" for order in orders)
     assert activity.activity_id == "activity-buy-purchase" and activity.name.startswith(label)
@@ -182,11 +185,11 @@ def test_basket_precheck_merges_delivery_fee_once(environment):
         refusal_for_code("INSUFFICIENT_FUNDS"), ("start_side_activity",))
 
 
-def test_normal_completion_pays_all_groups_and_receives_local_goods_once(environment):
+def test_normal_completion_pays_the_local_order_and_receives_its_goods_once(environment):
     commerce = runtime(environment)
     state, activity = commerce.prepare_purchase(world(environment, "store"), pending(),
                                                ("lemon-tea", "playing-cards"))
-    state, touches = operate_payments(commerce, state, activity)
+    state = operate_phases(state, activity)
     state, activity = finish(state, activity)
     changed, events = commerce.complete_purchase(state, activity)
     assert changed.accounts == {"agent:1": 197300, "external:scenario": -197300}
@@ -209,7 +212,7 @@ def test_completion_insufficient_funds_cancels_entire_purchase_without_charge(en
     commerce = runtime(environment)
     state, activity = commerce.prepare_purchase(world(environment, "store"), pending(),
                                                ("lemon-tea", "online-notebook"))
-    state, _ = operate_payments(commerce, state, activity)
+    state = operate_phases(state, activity)
     state, activity = finish(state, activity)
     state = state.model_copy(update={"accounts": {"agent:1": 0, "external:scenario": 0}}, deep=True)
     changed, events = commerce.complete_purchase(state, activity)
@@ -231,7 +234,7 @@ def test_cancel_before_completion_never_pays_schedules_or_receives(environment):
 def test_courier_arrival_only_ready_then_collect_all_and_no_double_effect(environment):
     commerce = runtime(environment)
     state, activity = commerce.prepare_purchase(world(environment), pending(), ("online-notebook",))
-    state, _ = operate_payments(commerce, state, activity)
+    state = operate_phases(state, activity)
     state, activity = finish(state, activity)
     state, _ = commerce.complete_purchase(state, activity)
     order = activity_orders(state, activity)[0]
@@ -259,31 +262,41 @@ def test_unpaid_order_cannot_be_delivered_or_received(environment):
 
 
 @pytest.mark.parametrize("random_state", [f"payment-{index}" for index in range(12)])
-def test_payment_segments_and_notifications_match_actual_selected_app(environment, random_state):
+def test_payment_phases_and_notifications_follow_each_order_and_its_selected_app(environment, random_state):
+    """到店订单加一张快递订单：付款段按订单排在购买末尾，逐边界只写付款时刻不扣款；完成时一张订单一条付款，
+    抽到支付 app 的订单各一条通知。"""
     commerce = runtime(environment)
     initial = world(environment, "store", random_state=random_state)
     state, activity = commerce.prepare_purchase(initial, pending(), ("lemon-tea", "online-notebook"))
-    bounds = commerce.payment_boundaries(state, activity)
-    touches = []
-    for moment in bounds:
-        state = state.model_copy(update={"current_time": moment}, deep=True)
-        state, events = commerce.advance_payment(state, activity)
-        touches.extend(events)
+    since = state.current_time
+    for moment in phase_boundaries(state, activity):
+        state = advance_phases(state.model_copy(update={"current_time": moment}, deep=True), activity, since)
+        since = moment
         assert state.accounts == initial.accounts
         assert all(order.paid_at is None for order in state.deliveries.values())
     state, activity = finish(state, activity)
     changed, events = commerce.complete_purchase(state, activity)
-    groups = {order.group_key: order for order in changed.deliveries.values()}
+    parcel, local = sorted(changed.deliveries.values(), key=lambda order: order.app_id is None)
+    assert (parcel.app_id, local.app_id) == ("bilibili", None)
     paid = [event for event in events if event.data["kind"] == "purchase_payment"]
     notices = [event for event in events if event.data["kind"] == "payment_notification"]
-    assert len(paid) == len(groups)
-    external = [order for order in groups.values() if order.payment_app_id is not None]
-    assert len(touches) == len(notices) == len(external)
-    assert [event.occurred_at for event in touches] == sorted(event.occurred_at for event in touches)
-    for order in external:
-        assert 10 <= order.payment_duration_seconds <= 20
-        assert order.payment_ended_at - order.payment_started_at == order.payment_duration_seconds
-        assert activity.started_at <= order.payment_started_at < order.payment_ended_at <= activity.planned_end_at
+    assert [event.data["order_ids"] for event in paid] == [[parcel.order_id], [local.order_id]]
+    assert not [event for event in events if event.data["kind"] == "app_touch"]
+    assert [notice.data["app_id"] for notice in notices] == [
+        order.payment_app_id for order in (parcel, local) if order.payment_app_id is not None]
+    assert 10 <= parcel.payment_duration_seconds <= 20
+    assert local.payment_duration_seconds == 0 if local.payment_app_id is None else (
+        10 <= local.payment_duration_seconds <= 20)
+    timed = [order for order in (parcel, local) if order.payment_duration_seconds]
+    cursor = activity.planned_end_at - sum(order.payment_duration_seconds for order in timed)
+    assert cursor >= activity.started_at
+    for order in timed:
+        assert (order.payment_started_at, order.payment_ended_at) == (
+            cursor, cursor + order.payment_duration_seconds)
+        cursor = order.payment_ended_at
+    assert cursor == activity.planned_end_at
+    if local.payment_duration_seconds == 0:
+        assert local.payment_started_at is None and local.payment_ended_at is None
     for notice in notices:
         source = next(event for event in paid if event.event_id == notice.caused_by[0])
         assert notice.data["amount_fen"] == source.data["amount_fen"]
@@ -292,15 +305,15 @@ def test_payment_segments_and_notifications_match_actual_selected_app(environmen
     assert sum(changed.accounts.values()) == sum(initial.accounts.values())
 
 
-def test_skipped_payment_boundary_is_rejected_without_backdated_touch(environment):
+def test_skipped_phase_boundary_is_a_run_fault_and_completion_needs_the_finished_payment(environment):
     commerce = runtime(environment)
     state, activity = commerce.prepare_purchase(world(environment, "store", random_state="payment-0"),
                                                pending(), ("lemon-tea", "online-notebook"))
-    assert commerce.payment_boundaries(state, activity)
+    assert phase_boundaries(state, activity)
     state, activity = finish(state, activity)
-    with pytest.raises(IntegrityError, match="boundary was skipped"):
-        commerce.advance_payment(state, activity)
-    with pytest.raises(IntegrityError, match="actual payment operation evidence"):
+    with pytest.raises(IntegrityError, match="^Purchase phase boundary was skipped$"):
+        advance_phases(state, activity, activity.started_at)
+    with pytest.raises(IntegrityError, match="^Purchase completion requires actual payment operation evidence$"):
         commerce.complete_purchase(state, activity)
 
 
@@ -308,7 +321,7 @@ def paid_purchase(environment, goods, location="home"):
     """经真实受理、付款段和完成结算得到已付款世界、购买活动与当次事件。"""
     commerce = runtime(environment)
     state, activity = commerce.prepare_purchase(world(environment, location), pending(), goods)
-    state, _ = operate_payments(commerce, state, activity)
+    state = operate_phases(state, activity)
     state, activity = finish(state, activity)
     state, events = commerce.complete_purchase(state, activity)
     return state, activity, events

@@ -228,14 +228,17 @@ def _pickup_invariants(order: dict, rows: list[dict], sources: dict[str, dict]) 
 
 
 def _payment_invariants(events: list[dict], state: dict, sources: dict[str, dict]) -> None:
-    """@brief 每次购买的每个真实支付组恰一付款，非空支付应用恰一对应通知；不同购买的同键组互不合并。"""
+    """@brief 每张已付款订单恰一付款，非空支付应用恰一对应通知；订单是一次购买里下单 app 相同的全部记录。
+
+    记录按（购买活动，app_id）归组，到店记录的 app_id 为空，合成一张到店订单；不同购买的订单互不合并。
+    """
     orders = state.get("deliveries", {})
     purchases = _purchase_activities(state)
     groups = defaultdict(list)
     payments = defaultdict(list)
     notifications = defaultdict(list)
     for identity, order in orders.items():
-        groups[(purchases.get(identity), order["group_key"])].append(order)
+        groups[(purchases.get(identity), order["app_id"])].append(order)
     for event in events:
         kind = event["data"].get("kind")
         if kind not in {"purchase_payment", "payment_notification"}:
@@ -243,19 +246,19 @@ def _payment_invariants(events: list[dict], state: dict, sources: dict[str, dict
         identities = event["data"]["order_ids"]
         if any(identity not in orders for identity in identities):
             raise IntegrityError("Purchase payment references an unknown order")
-        group = (purchases.get(identities[0]), orders[identities[0]]["group_key"])
+        group = (purchases.get(identities[0]), orders[identities[0]]["app_id"])
         (payments if kind == "purchase_payment" else notifications)[group].append(event)
     for group, values in groups.items():
         paid = all(order["paid_at"] is not None for order in values)
         if any((order["paid_at"] is not None) != paid for order in values):
-            raise IntegrityError("Purchase group has partial payment")
+            raise IntegrityError("Purchase order has partial payment")
         if len(payments[group]) != int(paid):
-            raise IntegrityError("Purchase group payment count disagrees with actual payment")
+            raise IntegrityError("Purchase order payment count disagrees with actual payment")
         app = values[0]["payment_app_id"]
         if len(notifications[group]) != int(paid and app is not None):
             raise IntegrityError("Payment notification count disagrees with actual payment")
         if paid:
-            _validate_payment_group(group[0], values, payments[group][0], sources)
+            _validate_payment_order(group[0], values, payments[group][0], sources)
             if app is not None:
                 _validate_payment_notification(values, payments[group][0], notifications[group][0])
 
@@ -266,9 +269,9 @@ def _purchase_activities(state: dict) -> dict[str, str]:
             if activity["kind"] == "purchase" for identity in activity["data"]["order_ids"]}
 
 
-def _validate_payment_group(purchase: str | None, orders: list[dict], event: dict,
+def _validate_payment_order(purchase: str | None, orders: list[dict], event: dict,
                             sources: dict[str, dict]) -> None:
-    """@brief 付款的购买活动、金额及完整订单集合与同刻购买终态、实际受理来源相符。"""
+    """@brief 付款的购买活动、金额及这张订单的完整记录集合与同刻购买终态、实际受理来源相符。"""
     data = event["data"]
     identity = data["activity_id"]
     amount = sum(order["total_price_fen"] for order in orders)
@@ -276,7 +279,7 @@ def _validate_payment_group(purchase: str | None, orders: list[dict], event: dic
     if (identity != purchase or data["order_ids"] != sorted(order["order_id"] for order in orders)
             or data["amount_fen"] != amount or event["agent_id"] != owner
             or any(order["paid_at"] != event["occurred_at"] for order in orders)):
-        raise IntegrityError("Purchase payment disagrees with its actual order group")
+        raise IntegrityError("Purchase payment disagrees with its actual order")
     changes = {f"account:agent:{owner}": -amount, "account:external:scenario": amount}
     if event.get("resource_changes", {}) != changes:
         raise IntegrityError("Purchase payment account changes disagree with its actual amount")
@@ -296,7 +299,7 @@ def _validate_payment_group(purchase: str | None, orders: list[dict], event: dic
 
 
 def _validate_payment_notification(orders: list[dict], payment: dict, notification: dict) -> None:
-    """@brief 消费通知只引用同组付款，同刻正文与真实支付应用一致。"""
+    """@brief 消费通知只引用同一张订单的付款，同刻正文与真实支付应用一致。"""
     data = notification["data"]
     if (notification["caused_by"] != [payment["event_id"]]
             or notification["occurred_at"] != payment["occurred_at"]

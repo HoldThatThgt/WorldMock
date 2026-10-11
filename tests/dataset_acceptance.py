@@ -104,4 +104,12 @@ MUTATIONS = (
         "delivery_events(changed, activity_orders(changed, activity), dict.fromkeys(payments, cause))",
         ("tests/system/lifecycle/test_parcel_arrival_export.py"
          "::test_parcel_arrival_is_caused_by_its_payment_and_exports_before_collection",)),
+    SourceMutation("purchase_duration_adds_payment_time", "worldmock.life.purchase_phases::purchase_seconds",
+        "max(drawn, sum(item.seconds for item in payments))", "drawn + sum(item.seconds for item in payments)",
+        ("tests/integration/life/test_purchase_orders.py"
+         "::test_purchase_lasts_its_drawn_duration_with_the_payment_inside_the_last_seconds",)),
+    SourceMutation("direct_payment_takes_no_time", "worldmock.life.purchase_phases::split_phases",
+        "if item.seconds:", "if item.seconds and item.payment_app_id is not None:",
+        ("tests/integration/life/test_purchase_orders.py"
+         "::test_direct_payment_inside_the_content_app_still_takes_ten_to_twenty_seconds",)),
 )

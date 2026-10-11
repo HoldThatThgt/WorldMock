@@ -100,6 +100,32 @@ def test_order_restore_rejects_unpaid_and_time_reversed_receipts(engine_factory,
         _decode(DeliveryState, payload)
 
 
+@pytest.mark.parametrize("change,message", [
+    ({"payment_duration_seconds": 0}, "payment duration disagrees with its payment method"),
+    ({"payment_duration_seconds": 9}, "payment duration disagrees with its payment method"),
+    ({"payment_app_id": None, "payment_duration_seconds": 0}, "payment duration disagrees with its payment method"),
+    ({"app_id": None, "payment_app_id": None}, "payment duration disagrees with its payment method"),
+    ({"app_id": None, "payment_app_id": "alipay", "payment_duration_seconds": 0},
+     "payment duration disagrees with its payment method"),
+    ({"app_id": None, "payment_app_id": None, "payment_duration_seconds": 0, "payment_started_at": 5},
+     "without a payment phase carries payment times"),
+    ({"app_id": None, "payment_app_id": None, "payment_duration_seconds": 0, "payment_ended_at": 5},
+     "without a payment phase carries payment times"),
+])
+def test_order_restore_rejects_payment_fields_that_no_order_can_carry(engine_factory, change, message):
+    """付款时长为 0 只属于到店直付，其余订单是 10 至 20 秒；没有付款段的记录不带付款时刻。"""
+    engine = engine_factory()
+    _, started = act(engine, "purchase", purchase("牛肉面"))
+    assert started.status == "in_progress"
+    payload = next(iter(engine.context.state.deliveries.values())).model_dump(mode="json")
+    assert payload["app_id"] == "meituan" and 10 <= payload["payment_duration_seconds"] <= 20
+    assert _decode(DeliveryState, payload).model_dump(mode="json") == payload
+    with pytest.raises(ValidationError, match=message):
+        _decode(DeliveryState, {**payload, **change})
+    direct = {**payload, "app_id": None, "payment_app_id": None, "payment_duration_seconds": 0}
+    assert _decode(DeliveryState, direct).payment_duration_seconds == 0
+
+
 @pytest.mark.parametrize("case,message", [("clock", "exceeds experiment end"),
     ("identity", "mapping identity"), ("body", "ahead of world time")])
 def test_world_restore_rejects_identity_and_time_contradictions(engine_factory, case, message):

@@ -112,10 +112,13 @@ def _require_store(inputs, state: WorldState, agent_id: int, stores: tuple[str, 
                             public_reason=f"Purchase requires presence at {name} while it is open.")
 
 
-def _order_app(state: WorldState, goods_id: str, source: str, apps: tuple[str, ...]) -> str:
-    """@brief 下单渠道只依赖商品、店铺或快递标记、本地日期。"""
+def _order_app(state: WorldState, source: str, apps: tuple[str, ...]) -> str:
+    """@brief 下单渠道只依赖抽取来源与本地日期：店铺商品的来源是店铺，快递类商品的来源是商品加快递标记。
+
+    同一家店同一本地日的商品因此总抽到同一个下单 app，一家店在一次购买里只有一个配送组、一份运费。
+    """
     local_date = datetime.fromtimestamp(state.current_time, ZoneInfo(state.timezone)).date().isoformat()
-    key = f"order-app:{goods_id}:{source}:{local_date}"
+    key = f"order-app:{source}:{local_date}"
     return random_stream(state.random_state, key).choice(sorted(apps))
 
 
@@ -123,7 +126,7 @@ def _delivery_offer(inputs, state: WorldState, goods, store: str, here: str) -> 
     """@brief 外卖保留完整图路线，不因距离长而改为快递。"""
     catalog = inputs.catalog
     meters = catalog.shortest_m(store, here)
-    app = _order_app(state, goods.goods_id, store, catalog.apps_by_store[store])
+    app = _order_app(state, store, catalog.apps_by_store[store])
     return Offer(goods.goods_id, store, app, here, state.current_time + delivery_seconds(meters),
                  "delivery", delivery_fee_fen(), here, catalog.graph.path(store, here),
                  f"{store}->{here}:driving", meters, DELIVERY_PREP_SECONDS)
@@ -131,7 +134,7 @@ def _delivery_offer(inputs, state: WorldState, goods, store: str, here: str) -> 
 
 def _courier_offer(inputs, state: WorldState, goods) -> Offer:
     """@brief 快递按本地日期边界到站；费用不随日期或查看次数改变。"""
-    app = _order_app(state, goods.goods_id, "courier", goods.app_ids)
+    app = _order_app(state, f"{goods.goods_id}:courier", goods.app_ids)
     local = datetime.fromtimestamp(state.current_time, ZoneInfo(state.timezone))
     days_key = f"courier-days:{goods.goods_id}:{app}:{local.date().isoformat()}"
     days = random_stream(state.random_state, days_key).choice((2, 3, 4, 5))
