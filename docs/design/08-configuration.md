@@ -107,6 +107,8 @@ flowchart LR
 ## 校验与输入冻结
 
 `validate --environment ROOT` 汇总独立可检查输入的 `{path,code,reason}`，失败非零退出。
+登记失败的 `reason` 是固定英文原因后接一个空格和详情，没有详情时只有固定原因；
+行号、实际路径、地点对和更短路线等详情都经这一处到达作者。
 成功只返回 `valid`、`environment_id`、`environment_version`。
 画像校验与新建运行在纯加载成功后编译唯一人物；恢复和重放沿用冻结卡片。
 两份 TOML 不进入目录清单和目录摘要，各自身份在运行清单冻结。
@@ -121,7 +123,7 @@ flowchart LR
 
 | 用途 | 稳定键与取值 |
 | --- | --- |
-| 地图 | `map`，抽取六十四位整数后使用现有地图生成器 |
+| 地图 | `map`，抽取六十四位整数作地图种子；同一个地图种子用于随机树、额外边抽取和边长，声明边不消耗随机数 |
 | 天气 | `weather:{local_date}` |
 | 购买总时长 | `purchase-duration:{action_id}`，六十至三百整数秒，一次请求只抽一次 |
 | 支付段时长 | `payment-duration:{action_id}:{group_key}`，每个非空支付 app 组十至二十整数秒；空支付 app 不抽取 |
