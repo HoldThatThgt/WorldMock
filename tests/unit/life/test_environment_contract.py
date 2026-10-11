@@ -10,9 +10,10 @@ from worldmock.life.models import (
     ActivityKind, ActivityState, ActivityStatus, AgentState, BodyState, ModelIdentity,
     StartMainActivityRequest, StartSideActivityRequest, WorldState, WORLD_SCHEMA_VERSION,
 )
+from worldmock.life import schedule
 from worldmock.life.same_moment import RoundOutcome, budget_exhausted, round_wake_reasons
 from worldmock.life.schedule import (
-    NextDecisionQuery, WAKE_TRIGGERS, WakeSnapshot, evaluate_wake_reasons,
+    NextDecisionQuery, WAKE_TRIGGERS, WakeSnapshot, WakeTrigger, evaluate_wake_reasons,
     next_decision_time, wake_categories,
 )
 from worldmock.profile.mapper import map_world_dynamics
@@ -149,10 +150,68 @@ def test_exact_wake_names_and_category_order():
         wake_categories(["alarm_ring"])
 
 
+#: 唤醒表的名称、类别与能否叫醒睡着的人，独立写出，不从被测的表生成。
+_WAKE_TABLE = [
+    ("planned_end", "time_boundary", True), ("felt_band_change", "state_change", False),
+    ("delivery_arrival", "event_arrival", False), ("reconsideration_interval", "time_boundary", False),
+    ("rejection_feedback", "outcome_feedback", False), ("session_open", "time_boundary", True),
+    ("progress_report_due", "time_boundary", False), ("no_active_activity", "time_boundary", False),
+    ("reminder_due", "reminder_due", False), ("duty_boundary", "duty_boundary", False),
+    ("app_push", "reminder_due", False),
+]
+
+
+def _everything(**changes):
+    """除 rejection_feedback 外每个原因都命中的边界。"""
+    fields = dict(now=100, planned_end=100, planned_end_is_sleep=True, felt_bands_now={"social_need": "high"},
+                  delivery_arrived=True, last_decision_time=0, reconsideration_interval_seconds=1,
+                  session_open=True, progress_report_due=True, no_active_activity=True, reminder_due=True,
+                  duty_boundary=True, app_push_arrived=True, is_asleep=True)
+    return WakeSnapshot(**{**fields, **changes})
+
+
+def test_wake_table_rows_categories_and_sleep_column_are_the_declared_ones():
+    """唤醒表的行集合、类别、行序与 can_wake_sleep 一列逐行相符。"""
+    assert [(row.name, row.category, row.can_wake_sleep) for row in WAKE_TRIGGERS] == _WAKE_TABLE
+
+
+def test_a_sleeper_is_only_offered_the_rows_that_can_wake_sleep():
+    """睡着时只放行表里能叫醒睡着的人的行；同一个边界人物醒着时命中的都保留。"""
+    assert evaluate_wake_reasons(_everything()).wake_reasons == ["planned_end", "session_open"]
+    assert evaluate_wake_reasons(_everything(is_asleep=False)).wake_reasons == [
+        "planned_end", "felt_band_change", "delivery_arrival", "reconsideration_interval", "session_open",
+        "progress_report_due", "no_active_activity", "reminder_due", "duty_boundary", "app_push"]
+    silent = _everything(planned_end=None, planned_end_is_sleep=False, session_open=False)
+    assert evaluate_wake_reasons(silent).wake_reasons == []
+    assert evaluate_wake_reasons(silent).decision_offered is False
+
+
+def test_planned_end_of_something_other_than_the_sleep_does_not_wake_a_sleeper():
+    """睡着时结束的不是睡眠本身，planned_end 一行不放行；人物醒着时别的活动结束照常放行。"""
+    other = _everything(planned_end_is_sleep=False, session_open=False)
+    assert evaluate_wake_reasons(other).wake_reasons == []
+    assert "planned_end" in evaluate_wake_reasons(other.model_copy(update={"is_asleep": False})).wake_reasons
+    assert evaluate_wake_reasons(_everything(planned_end=101)).wake_reasons == ["session_open"]
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("reminder_due", ["planned_end", "session_open", "reminder_due"]),
+    ("delivery_arrival", ["planned_end", "delivery_arrival", "session_open"]),
+    ("session_open", ["planned_end"]),
+    ("planned_end", ["session_open"]),
+])
+def test_changing_the_sleep_column_of_a_row_changes_who_is_let_through(monkeypatch, name, expected):
+    """睡着时放行谁读的是表里的 can_wake_sleep：把某一行的这一列改掉，结果随之改变。"""
+    changed = tuple(WakeTrigger(row.name, row.category, not row.can_wake_sleep) if row.name == name else row
+                    for row in WAKE_TRIGGERS)
+    monkeypatch.setattr(schedule, "WAKE_TRIGGERS", changed)
+    assert evaluate_wake_reasons(_everything()).wake_reasons == expected
+
+
 def test_sleep_ignores_all_external_wake_conditions():
     snapshot = WakeSnapshot(now=100, planned_end=100, planned_end_is_sleep=False,
                             felt_bands_now={"social_need": "high"}, delivery_arrived=True,
-                            last_decision_time=0, reconsideration_interval_seconds=1, session_open=True,
+                            last_decision_time=0, reconsideration_interval_seconds=1, session_open=False,
                             progress_report_due=True, no_active_activity=True, reminder_due=True,
                             duty_boundary=True, app_push_arrived=True, is_asleep=True)
     assert evaluate_wake_reasons(snapshot).wake_reasons == []

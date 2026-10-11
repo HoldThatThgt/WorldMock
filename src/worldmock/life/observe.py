@@ -11,7 +11,6 @@ from worldmock.life.location_activities import location_units, unit_binding
 from worldmock.life.presentation import subtype_of, tiebreak_digest
 from worldmock.life.environment_layer import environment_layer
 from worldmock.life.models import ActivityStatus, SameMomentPresentation
-from worldmock.life.sleep import ended_sleep_at
 from worldmock.life.todo_layer import todo_layer, visible_goals
 from worldmock.life.tool_layer import LayerContext, annotated_bindings, tool_layer, with_bindings
 from worldmock.life.travel_methods import travel_methods
@@ -121,10 +120,8 @@ class ObservationBuilder:
                 **errands.bindings(agent, self.context.catalog.goods)}
 
     def _evidence(self, agent) -> dict:
-        """@brief 刚结束睡眠与已核验经历只作为宿主证据。"""
-        ended = ended_sleep_at(self.context.state, agent.agent_id, self.context.state.current_time)
-        return {"ended_sleep": None if ended is None else ended.model_dump(mode="json"),
-                "verified_experiences": recent_verified_experiences(
+        """@brief 已核验经历、唤醒原因与进行中的活动只作为宿主证据。"""
+        return {"verified_experiences": recent_verified_experiences(
                     self.context.store, agent.agent_id, self.context.store.last_event_seq),
                 "wake_reasons": list(agent.pending_wake_reasons),
                 "same_moment_stage": agent.same_moment_stage.value,

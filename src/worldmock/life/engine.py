@@ -15,6 +15,7 @@ from worldmock.footprints.store import FootprintStore
 from worldmock.life.counterfactual_runtime import CounterfactualRuntime
 from worldmock.life.decision_coordinator import DecisionCoordinator
 from worldmock.life.engine_context import EngineContext
+from worldmock.life.memory_evidence import due_reflection
 from worldmock.life.model_evidence import ModelEvidenceRecorder
 from worldmock.life.models import (
     ActionReceipt,
@@ -90,6 +91,12 @@ class LifeEngine:
             self.context.store, self.context.state, self.observations, context.agent_id, data["observation_event_id"]
         )
         return data
+
+    def due_reflection(self, context: "DecisionContext") -> dict[str, str] | None:
+        """@brief 只读：本次决策取观察之前该不该先做就寝反思；不写事件，不改世界。"""
+        self.decisions.validate_context(context)
+        self.decisions.require_round(context.round_id)
+        return due_reflection(self.context.state, context.agent_id)
 
     def begin_decision_round(self, contexts: list["DecisionContext"]) -> None:
         """@brief 按当前可恢复顺序开始决策轮。"""

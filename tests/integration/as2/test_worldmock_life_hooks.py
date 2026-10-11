@@ -508,7 +508,7 @@ def test_consolidation_triggers_importance_accumulation(tmp_path: Path) -> None:
         step_count=1,
     )
     runtime, _ = _runtime(tmp_path)
-    should, reason = runtime._consolidation_due(False)
+    should, reason = runtime._consolidation_due()
 
     assert should is True
     assert reason == "importance accumulation threshold"
@@ -536,7 +536,7 @@ def test_consolidation_triggers_pending_threshold(tmp_path: Path) -> None:
         step_count=1,
     )
     runtime, _ = _runtime(tmp_path)
-    should, reason = runtime._consolidation_due(False)
+    should, reason = runtime._consolidation_due()
 
     assert should is True
     assert reason == "pending episode threshold"
@@ -544,9 +544,33 @@ def test_consolidation_triggers_pending_threshold(tmp_path: Path) -> None:
 
 
 
-def test_consolidation_triggers_sleep_boundary(tmp_path: Path) -> None:
-    runtime, _ = _runtime(tmp_path)
-    assert runtime._consolidation_due(True) == (True, "sleep boundary")
+@pytest.mark.asyncio
+async def test_sleep_boundary_no_longer_forces_consolidation_at_the_step_tail(tmp_path: Path) -> None:
+    """步尾不再因睡眠而强制巩固：锁定的 AS2 传来的 sleep_boundary 没有读者，没到阈值就不调用模型；
+    睡醒的反思阶段有未归纳的记录时才巩固一次，原因文字为 daily reflection。"""
+    requests: list[dict] = []
+
+    async def dispatch(**request):
+        requests.append(request)
+        if "tools" in request:
+            identity = json.loads(request["messages"][1]["content"].split("<memory_reflection_input>", 1)[1].split(
+                "</memory_reflection_input>", 1)[0])["episodes"][0]["id"]
+            arguments = json.dumps({"insights": [{"insight": "想把日子过得规律一些。", "refs": [identity]}]},
+                                   ensure_ascii=False)
+            function = SimpleNamespace(name="submit_reflection", arguments=arguments)
+            message = SimpleNamespace(content=None, tool_calls=[SimpleNamespace(function=function)])
+            return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+        return _text_response("我想保留这些记忆。")
+
+    runtime, _ = _runtime(tmp_path, dispatch=dispatch)
+    assert runtime._consolidation_due() == (False, "")
+    tail = await runtime.after_step(tick=60, t=_T0, step_count=1, sleep_boundary=True,
+                                    finish_memories=[_memory("喜欢清淡口味", importance=0.2)])
+    assert requests == [] and tail.consolidated is False
+    woke = await runtime.wake_reflection(tick=60, t=_T0, step_count=2)
+    assert woke.consolidated is True and len(requests) == 2
+    assert json.loads(requests[0]["messages"][1]["content"])["reason"] == "daily reflection"
+    assert [item["source"] for item in woke.created_episodes] == ["reflection"]
 
 
 
@@ -559,7 +583,7 @@ def test_single_preference_does_not_trigger_consolidation(tmp_path: Path) -> Non
         step_count=1,
     )
     runtime, _ = _runtime(tmp_path)
-    should, reason = runtime._consolidation_due(False)
+    should, reason = runtime._consolidation_due()
 
     assert should is False
     assert reason == ""

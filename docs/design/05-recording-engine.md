@@ -26,6 +26,27 @@ callback_effect、callback_reminder、time_trigger、weather 使用闭合字段�
 效果包含一项实际触发原因和完整类型化结果；收入支出方向与信封资金变化一致，未支付结果没有资金变化。
 独立时间事实不能伪装成上游事件的附加效果，天气条件与速度系数必须来自固定世界天气表。
 
+唤醒原因写在共同身体结算、`decision_started` 和观察里，取值是[模拟引擎](04-simulation-engine.md)唤醒表里的名称。
+每次睡醒的原因列表同时含 `planned_end` 与 `session_open`，质量报告和行为评估按原因名的计数各加一。
+
+`memory_updated` 登记人物工作区已落盘的记忆，所有登记用同一组键：`operation`、`created_episode_ids`、
+`merged_episode_ids`、`episodes`、四个文件身份、`consolidated`、`observation_event_id`、`verified_event_ids`、
+`trigger`、`decision_id` 和 `reflection`。环境按 `observation_event_id` 是否为空分两路核对。
+
+| 登记 | `observation_event_id` | `trigger` | `reflection` | 另外要求 |
+| --- | --- | --- | --- | --- |
+| 反思登记 | `null` | 恰为 `["reflection"]` | `{date, sleep_activity_id}`，由环境按 `due_reflection` 写入 | `due_reflection` 此刻非空；这次决策还没有观察；本人在这一时刻还没有登记过反思；`operation` 是 `append_episodes`；每条快照的来源都是 `reflection`；`verified_event_ids` 为空；`MEMORY.md` 的前后身份相等 |
+| 步尾登记 | 本决策的冻结观察 | `[]` 或 `["activity_conclusion"]` | `null` | 观察属于本决策，事实窗口一致；快照里没有来源为 `reflection` 的条目 |
+
+任一条不满足先记英文错误日志，再以 `ProtocolError("Memory update evidence is invalid")` 作为运行故障拒绝。
+睡醒那一步最多有两个 `memory_updated`，先反思、后步尾，两类登记不出现在同一个事件里。
+
+质量报告对每个 `reflection` 非空的记忆更新只凭事件独立重算四件事，任一不成立记一条 `memory_update_without_source`：
+同一人物有一条 `activity_progress` 事件，快照是已完成的睡眠，结束时刻等于这次更新的发生时刻；
+这是该人物在这个本地日（时区取运行清单的窗口时区）最早的一次睡醒；`reflection.date` 是这个本地日的前一天；
+这次更新排在同一决策的观察之前，并且该人物在这一时刻只有这一条反思登记。
+`reflection` 为空的更新照旧核对观察与事实窗口。观察不再带刚结束睡眠的私有键。
+
 ## 数字足迹
 
 数字使用事实只保留 app_use、content_consumed、push_delivered、push_opened、push_released、app_touch 与 payment_notification 中实际适用的投影。

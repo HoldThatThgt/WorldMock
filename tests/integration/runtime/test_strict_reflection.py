@@ -2,12 +2,13 @@
 
 三类证据：
 
-1. 经真实记忆运行时 WorldMockMemoryRuntime.after_step（就寝边界）：恰一次 submit_reflection、一至五条、引用与正文的本地
-   校验；每种合同违约都附回英文校验错误重试；首次之外至多三次，耗尽即运行故障，此前不写入任何洞见；传输异常不进校验
-   重试；没有可反思的记忆时不调用模型；实际发送的 system 文案与接口合同登记块、模块常量逐字相同。
+1. 经真实记忆运行时 WorldMockMemoryRuntime.wake_reflection（当天第一次睡醒、取观察之前的反思阶段）：恰一次
+   submit_reflection、一至五条、引用与正文的本地校验；每种合同违约都附回英文校验错误重试；首次之外至多三次，耗尽即运行
+   故障，此前不写入任何洞见；传输异常不进校验重试；没有可反思的记忆时不调用模型；实际发送的 system 文案与接口合同
+   登记块、模块常量逐字相同。
 2. 经真实引擎、SQLite、LifeEnv 与直接导入的 LifeAgent 跑一次醒来决策：反思的每次请求与响应照常留证（思考关闭、不带
-   purpose、不是行动请求），校验错误随下一次请求的附回消息留证；耗尽时本轮中止、没有 memory_updated，最后一次错误写进
-   运行故障原因。
+   purpose、不是行动请求），校验错误随下一次请求的附回消息留证；耗尽时这一步在取观察之前中止、没有 memory_updated，
+   最后一次错误写进运行故障原因。
 3. 只调用 reflection_insights、reflection_tool、reflection_correction 的用例是补充证据，不单独支撑台账行。
 """
 
@@ -25,17 +26,14 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from worldmock.agents.life_reflection import MEMORY_REFLECTION_MAX_INSIGHTS
 from worldmock.agents import life_reflection
-from custom.agents.life_agent import LifeAgent
 from worldmock.agents.life_reflection import (REFLECTION_PROMPT, ReflectionOutputError,
                                            ReflectionRequest, reflection_correction, reflection_insights,
                                            reflection_tool)
-from custom.envs.life_env import LifeEnv
+from tests.integration.reflection_fixtures import host_run
 from tests.integration.runtime.test_life_agent_protocol import _ModelResponse, _MultipleModelResponse, _TextResponse
 from tests.integration.runtime.test_verified_memory import _TIME, _concluded, _runtime
 from tests.engine_fixture import (engine_factory)  # noqa: F401
-from tests.life.conftest import (context, stage_day_plan)  # noqa: F401
-from tests.life.environment_runtime import act, settle_decision
-from tests.life.conftest import advance_next, sleep
+from tests.life.conftest import stage_day_plan
 from tests.integration.runtime.current_contract_fixtures import profile as current_profile
 from worldmock.errors import ProtocolError
 from worldmock.life.decision_start import is_action_request
@@ -180,10 +178,10 @@ class _ReflectionScript:
 
 
 async def _sleep_boundary(runtime):
-    """就寝边界的一步：收尾写下一条看法，随后主观归纳与就寝反思。"""
-    return await runtime.after_step(
-        tick=60, t=_TIME, step_count=1, sleep_boundary=True,
-        finish_memories=_concluded("想多联系朋友", "relationship", 0.6, about="朋友"))
+    """当天第一次睡醒的反思阶段：此前一步的步尾收尾写下一条看法，睡醒时先主观归纳、再就寝反思。"""
+    await runtime.after_step(tick=60, t=_TIME, step_count=1,
+                             finish_memories=_concluded("想多联系朋友", "relationship", 0.6, about="朋友"))
+    return await runtime.wake_reflection(tick=60, t=_TIME, step_count=2)
 
 
 def _reflections(runtime) -> list[dict]:
@@ -218,7 +216,7 @@ def _assert_retry_request(original: dict, retry: dict, previous, expected_error:
 
 @pytest.mark.asyncio
 async def test_runtime_submits_reflection_through_the_only_strict_tool(tmp_path) -> None:
-    """就寝边界的反思只带 submit_reflection 一个严格工具并强制调用，请求不带 purpose、不是行动请求；一次调用提交五条洞见
+    """反思阶段的反思只带 submit_reflection 一个严格工具并强制调用，请求不带 purpose、不是行动请求；一次调用提交五条洞见
     （上限），不同洞见引用同一条记忆；通过后的条目固定为主观的 reflection、来源 reflection、重要度 0.8、无关键词。"""
     texts = list(_FIVE)
     script = _ReflectionScript(lambda known: _submit([_insight(known, text) for text in texts]))
@@ -361,13 +359,19 @@ async def test_runtime_propagates_transport_failures_without_validation_retries(
 
 @pytest.mark.asyncio
 async def test_runtime_makes_no_model_call_when_there_is_nothing_to_reflect_on(tmp_path) -> None:
-    """没有可反思的主观记忆时不调用模型：就寝边界、没有收尾记忆、存储为空——任何模型调用都会让本用例失败。"""
+    """没有可反思的主观记忆时不调用模型：睡醒的反思阶段、存储为空——任何模型调用都会让本用例失败；
+    步尾不再因睡眠边界而巩固或反思，锁定的 AS2 传来的 sleep_boundary 没有读者。"""
     runtime, _ = _runtime(tmp_path)
 
-    outcome = await runtime.after_step(tick=60, t=_TIME, step_count=1, finish_memories=[], sleep_boundary=True)
+    outcome = await runtime.wake_reflection(tick=60, t=_TIME, step_count=1)
 
     assert outcome.created_episodes == () and outcome.merged_episodes == ()
+    assert (outcome.consolidated, outcome.observation_event_id, outcome.verified_event_ids) == (False, None, ())
     assert runtime.store.iter_episodes() == []
+    written = await runtime.after_step(tick=60, t=_TIME, step_count=2, sleep_boundary=True,
+                                       finish_memories=_concluded("想多联系朋友", "relationship", 0.6, about="朋友"))
+    assert [item["source"] for item in written.created_episodes] == ["activity_conclusion"]
+    assert written.consolidated is False and _reflections(runtime) == []
 
 
 
@@ -411,52 +415,31 @@ async def test_reflection_prompt_ends_with_the_errand_sentences(tmp_path) -> Non
     assert _ERRAND_SENTENCES.count(". ") == 1 and _ERRAND_SENTENCES.endswith("finished.")
 
 
-class _WakingModel:
-    """醒来那一轮的脚本模型：行动请求结束刚睡完的那一觉并写下一条记忆；不带工具的请求是主观归纳；就寝反思按脚本作答。"""
+def _evening(persona, config) -> None:
+    """运行从周一 20:00 开始：写下一条记忆后睡一夜，在周二凌晨醒来。"""
+    from datetime import datetime
 
-    model_name = "test-model"
-
-    def __init__(self, sleep_name: str, *replies) -> None:
-        self.sleep_name = sleep_name
-        self.reflection = _ReflectionScript(*replies)
-
-    async def call(self, **request):
-        """按请求的工具分流：submit_reflection、行动请求或主观归纳。"""
-        names = _tool_names(request)
-        if names == [_TOOL] or not names:
-            return await self.reflection(**request)
-        assert "start_main_activity" in names and is_action_request(request) is True
-        memory = {"type": "routine", "text": "这一觉睡得很沉。", "importance": 0.4, "keywords": ["睡眠"]}
-        arguments = {"items": [{"activity_name": self.sleep_name, "summary": "睡醒了。", "memories": [memory],
-                                "views": []}], "errands": []}
-        return _ModelResponse("call-conclude", "conclude_activity", json.dumps(arguments, ensure_ascii=False))
+    config["start_time"] = datetime.fromisoformat("2026-01-05T20:00:00+08:00")
+    config["stop_time"] = datetime.fromisoformat("2026-01-08T20:00:00+08:00")
 
 
-async def _waking_decision(engine_factory, tmp_path, *replies) -> SimpleNamespace:
-    """真实引擎上睡完一觉，开出含 wake_from_sleep 的那一轮决策，并备好真实 LifeEnv 与直接导入的 LifeAgent。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    _, result = act(engine, "sleep-start", sleep())
-    slept = result.activity_id
-    while engine.context.state.activities[slept].status == "active":
-        if engine.scheduling_state().ready_agent_ids:
-            settle_decision(engine, f"sleep-progress-{engine.context.state.current_time}")
-        else:
-            advance_next(engine)
-    decision = context(engine, "woke")
-    environment = LifeEnv()
-    environment.engine = engine
-    await environment.begin_decision_round((decision,))
-    model = _WakingModel(engine.context.state.activities[slept].name, *replies)
-    workspace = tmp_path / "people" / "agent_0001"
-    LifeAgent.create(workspace, current_profile(),
-                     {"enable_memory": True, "enable_todo_list": False, "max_react_turns": 16})
-    service = SimpleNamespace(env=environment, llm=SimpleNamespace(default=model), trace=None)
-    agent = await LifeAgent.from_workspace(workspace, service)
-    assert type(agent) is LifeAgent
-    agent.bind_decision_context(decision)
-    return SimpleNamespace(engine=engine, environment=environment, agent=agent, decision=decision,
-                           model=model, slept=slept)
+async def _waking_decision(engine_factory, tmp_path, *replies, note: str | None = "这一晚歇得很踏实。") -> SimpleNamespace:
+    """真实引擎上先写下一条记忆、再睡完一夜，开出当天第一次睡醒的那一轮决策，并备好真实 LifeEnv 与直接导入的
+    LifeAgent；就寝反思按给定的脚本作答。note 为 None 时人物睡前什么都没写下：睡醒时没有可反思的记录，
+    这一步在取观察之前不调用模型。"""
+    engine = engine_factory(mutate=_evening)
+    stage_day_plan(engine, submitted=True)
+    run = await host_run(engine, tmp_path / "people" / "agent_0001")
+    if note is not None:
+        await run.rest_and_note(note)
+    slept = await run.sleep(480)
+    run.model.reflection_replies = [lambda episodes, reply=reply: reply(episodes[0]["id"]) for reply in replies]
+    decision = await run.open()
+    name = engine.context.state.activities[slept].name
+    run.model.actions.append(("conclude_activity", {"items": [
+        {"activity_name": name, "summary": "睡醒了。", "memories": [], "views": []}], "errands": []}))
+    return SimpleNamespace(engine=engine, environment=run.environment, agent=run.agent, decision=decision,
+                           model=run.model, slept=slept)
 
 
 def _decision_events(run: SimpleNamespace, event_type: str) -> list:
@@ -476,26 +459,25 @@ def _reflection_exchanges(run: SimpleNamespace) -> tuple[list, list]:
 
 
 def _assert_reflection_request_events(run: SimpleNamespace, requests: list) -> None:
-    """留证的反思请求：思考关闭、强制调用、不带 purpose、不是行动请求；这次决策仍只有随首个行动请求写入的一条
-    decision_started，反思请求都排在已登记的动作之后。"""
-    [started] = _decision_events(run, "decision_started")
-    [action] = _decision_events(run, "action_requested")
-    assert action.data["tool_name"] == "conclude_activity"
+    """留证的反思请求：思考关闭、强制调用、不带 purpose、不是行动请求，调用身份用独立的 reflection 序号；
+    它们都排在这次决策的观察之前。"""
+    observed = _decision_events(run, "observation")
     for event in requests:
         request = event.data["request"]
         assert request["extra_body"] == {"thinking": {"type": "disabled"}}
         assert request["tool_choice"] == "required" and request["max_retries"] == 0
         assert not event.data.get("purpose") and "purpose" not in request
         assert is_action_request(request) is False
-        assert started.event_seq < action.event_seq < event.event_seq
+        assert ":reflection:" in event.data["call_id"]
+        assert all(event.event_seq < row.event_seq for row in observed)
 
 
 @pytest.mark.asyncio
 async def test_exhausted_reflection_leaves_evidence_but_no_memory_update_in_the_run_database(
         engine_factory, tmp_path) -> None:
-    """真实引擎、SQLite、LifeEnv 与直接导入的 LifeAgent：醒来那一轮世界请求已登记、收尾记忆已写入工作区之后，就寝反思
-    四次都不合合同——人物步骤以运行故障中止；库里有这次决策的 action_requested、四条反思请求与四条响应（第二至四条请求
-    的末条消息带上一次的校验错误），没有这次决策的 memory_updated；中止本轮后动作未结算，最后一次错误写进故障原因。"""
+    """真实引擎、SQLite、LifeEnv 与直接导入的 LifeAgent：当天第一次睡醒、取观察之前，就寝反思四次都不合合同——人物步骤以
+    运行故障中止；库里有四条反思请求与四条响应（第二至四条请求的末条消息带上一次的校验错误），没有这次决策的
+    memory_updated、观察、decision_started 或世界请求；中止本轮后最后一次错误写进故障原因，睡眠仍待收尾。"""
     names = ("free_text", "unknown_ref", "six_insights", "identity_in_text")
     run = await _waking_decision(engine_factory, tmp_path, *(_VIOLATIONS[name][0] for name in names))
     last_error = _VIOLATIONS[names[-1]][1]
@@ -514,24 +496,21 @@ async def test_exhausted_reflection_leaves_evidence_but_no_memory_update_in_the_
         retry = requests[index].data["request"]
         assert len(retry["messages"]) == 3 and retry["messages"][:2] == original["messages"]
         assert _VIOLATIONS[names[index - 1]][1] in _feedback(retry)["VALIDATION_ERROR"]
-    assert _decision_events(run, "memory_updated") == []
-    assert _decision_events(run, "action_result") == []
+    for kind in ("memory_updated", "observation", "decision_started", "action_requested", "action_result"):
+        assert _decision_events(run, kind) == []
     stored = run.agent._memory_runtime.store.iter_episodes()
     assert [item["source"] for item in stored] == ["activity_conclusion"]
 
     await run.environment.abort_decision_round(run.decision.round_id, str(failure.value))
 
-    [result] = _decision_events(run, "action_result")
-    assert (result.data["status"], result.data["error_code"]) == ("failed", "DECISION_ROUND_ABORTED")
-    assert last_error in result.data["message"]
     assert _decision_events(run, "memory_updated") == []
     assert run.engine.context.state.activities[run.slept].concluded_at is None
 
 
 @pytest.mark.asyncio
 async def test_corrected_reflection_is_recorded_once_by_the_real_engine(engine_factory, tmp_path) -> None:
-    """同一条真实路径上，第一次反思不合合同、第二次合法：人物步骤照常登记世界请求，库里有两条反思请求与两条响应，
-    这次决策恰好一条 memory_updated，写入点为收尾与反思，快照里带来源 reflection 的只有改正后的那一条；本轮照常结算。"""
+    """同一条真实路径上，第一次反思不合合同、第二次合法：库里有两条反思请求与两条响应，都排在观察之前；
+    反思登记恰好一条，写入点为 reflection，快照只有改正后的那一条；随后人物步骤照常登记世界请求，本轮照常结算。"""
     run = await _waking_decision(engine_factory, tmp_path, _VIOLATIONS["free_text"][0], _valid)
 
     assert await run.agent.step(0, run.decision.observed_at) == "conclude_activity registered"
@@ -540,11 +519,15 @@ async def test_corrected_reflection_is_recorded_once_by_the_real_engine(engine_f
     assert len(requests) == 2 and len(responses) == 2
     _assert_reflection_request_events(run, requests)
     assert _ONE_CALL in _feedback(requests[1].data["request"])["VALIDATION_ERROR"]
-    [update] = _decision_events(run, "memory_updated")
-    assert update.data["trigger"] == ["activity_conclusion", "reflection"]
-    reflected = [row for row in update.data["episodes"] if row.get("source") == "reflection"]
-    assert [(row["type"], row["text"], row["epistemic_status"]) for row in reflected] == [
-        ("reflection", _CORRECTED, "subjective")]
+    reflected, *tail = _decision_events(run, "memory_updated")
+    assert reflected.data["trigger"] == ["reflection"] and reflected.data["observation_event_id"] is None
+    assert [(row["type"], row["text"], row["epistemic_status"], row["source"])
+            for row in reflected.data["episodes"]] == [("reflection", _CORRECTED, "subjective", "reflection")]
+    assert all(row.data["reflection"] is None for row in tail)
+    [started] = _decision_events(run, "decision_started")
+    [action] = _decision_events(run, "action_requested")
+    assert reflected.event_seq < started.event_seq < action.event_seq
+    assert action.data["tool_name"] == "conclude_activity"
     [result] = await run.environment.commit_decision_round(run.decision.round_id)
     assert result.status == "completed"
     assert run.engine.context.state.activities[run.slept].concluded_at is not None

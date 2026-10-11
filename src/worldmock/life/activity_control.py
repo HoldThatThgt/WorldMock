@@ -109,23 +109,34 @@ def activity_name(label: str, object_name: str, epoch: int, timezone_name: str) 
     return f"{label}{object_name}（{moment_label(epoch, timezone_name)} 起）"
 
 
+def oversleep_phrase(activity: ActivityState) -> str:
+    """@brief 睡过头的说法「比打算的多睡了 N 分钟」：只有已完成且多睡了的睡眠才有，其余为空串。"""
+    if activity.kind != ActivityKind.SLEEP or activity.status != ActivityStatus.COMPLETED:
+        return ""
+    seconds = activity.data["oversleep_seconds"]
+    return f"比打算的多睡了 {seconds // 60} 分钟" if seconds > 0 else ""
+
+
 def objective_progress(activity: ActivityState) -> str:
-    """@brief 活动客观进度写已做时长，进行或暂停中的活动另写剩余时长。"""
+    """@brief 活动客观进度写已做时长，进行或暂停中的活动另写剩余时长，睡过头的睡眠另写多睡了多久。"""
     parts = [f"已做{duration_phrase(activity.elapsed_seconds)}"]
     if activity.status in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}:
         remaining = max(0, activity.planned_duration_seconds - activity.elapsed_seconds)
         parts.append(f"还剩{duration_phrase(remaining)}")
+    overslept = oversleep_phrase(activity)
+    if overslept:
+        parts.append(overslept)
     return "，".join(parts)
 
 
 def ending_phrase(activity: ActivityState) -> str:
-    """@brief 已结束活动的终局说法：到达、按计划结束、提前结束或失败（工具层刚结束的状态与 settled 句共用）。"""
+    """@brief 已结束活动的终局说法：到达、按计划结束、睡过头、提前结束或失败（工具层刚结束的状态与 settled 句共用）。"""
     if activity.status == ActivityStatus.FAILED:
         return "失败"
     if activity.kind == ActivityKind.TRAVEL and activity.status == ActivityStatus.COMPLETED:
         return "到达"
     if activity.status == ActivityStatus.COMPLETED and activity.boundary_type == "planned_end":
-        return "按计划结束"
+        return oversleep_phrase(activity) or "按计划结束"
     return "提前结束"
 
 

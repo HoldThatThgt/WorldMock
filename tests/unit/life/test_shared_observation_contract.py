@@ -1,7 +1,6 @@
 """当前观察的结构、冻结身份、查询纠错和已核验经历投影。"""
 
 from copy import deepcopy
-from datetime import datetime
 
 import pytest
 from pydantic import ValidationError
@@ -15,7 +14,6 @@ from worldmock.life.continuation import continuation_enabled
 from worldmock.life.control_items import control_errands, control_items
 from worldmock.life.decision_start import is_action_request
 from worldmock.life.error_contract import ErrorItem, ErrorReport, bind_report, host_defaults
-from worldmock.life.memory_layer import reflection_date
 from worldmock.life.name_resolution import lookup, name_book, resolution_data
 from worldmock.life.progress_layer import order_label, session_bound
 from worldmock.life.prompt_capacity import prompt_token_count, request_token_count
@@ -99,12 +97,6 @@ def test_context_rejects_identity_drift_before_any_runtime_projection(engine_fac
 def test_unknown_host_code_cannot_be_rendered_as_an_invented_contract():
     with pytest.raises(ValueError, match="unknown host error"):
         host_defaults("REMOVED_WORK_TOOL")
-
-
-@pytest.mark.parametrize("clock,day", [("2026-01-05T01:00:00+08:00", "2026-01-04"),
-                                      ("2026-01-05T14:00:00+08:00", "2026-01-05")])
-def test_reflection_date_is_tied_to_the_actual_local_sleep_start(clock, day):
-    assert reflection_date(int(datetime.fromisoformat(clock).timestamp()), "Asia/Shanghai") == day
 
 
 def test_full_catalog_names_remain_callable_when_outside_the_current_window(engine_factory):

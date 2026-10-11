@@ -35,7 +35,7 @@ class WakeTrigger:
     name: str
     #: 回调订阅的完整分类名称。
     category: str
-    #: 是否允许在睡眠边界提供决策。
+    #: 人物睡着时这一行能否提供决策，即能否叫醒睡着的人。
     can_wake_sleep: bool
 
 
@@ -233,11 +233,15 @@ def reconsideration_interval(query: WakeSnapshot | NextDecisionQuery) -> int:
 
 
 def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
-    """@brief 从统一条件表按声明次序输出命中，睡眠只准自己的结束边界。"""
+    """@brief 从统一条件表按声明次序输出命中：醒着时命中的都保留，睡着时只保留表里 can_wake_sleep 的行。
+
+    睡着时 planned_end 一行还要求结束的是睡眠本身，所以睡眠只在自己的计划结束时结束。
+    """
     elapsed = (snapshot.last_decision_time is not None and
                snapshot.now - snapshot.last_decision_time >= snapshot.reconsideration_interval_seconds)
+    ended = snapshot.planned_end is not None and snapshot.now >= snapshot.planned_end
     hits = {
-        "planned_end": snapshot.planned_end is not None and snapshot.now >= snapshot.planned_end,
+        "planned_end": ended and (snapshot.planned_end_is_sleep or not snapshot.is_asleep),
         "felt_band_change": snapshot.felt_bands_now != snapshot.felt_bands_at_last_decision,
         "delivery_arrival": snapshot.delivery_arrived,
         "reconsideration_interval": elapsed,
@@ -249,8 +253,8 @@ def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
         "duty_boundary": snapshot.duty_boundary,
         "app_push": snapshot.app_push_arrived,
     }
-    reasons = [trigger.name for trigger in WAKE_TRIGGERS if hits[trigger.name]
-               and (not snapshot.is_asleep or trigger.name == "planned_end" and snapshot.planned_end_is_sleep)]
+    reasons = [trigger.name for trigger in WAKE_TRIGGERS
+               if hits[trigger.name] and (trigger.can_wake_sleep or not snapshot.is_asleep)]
     return WakeVerdict(decision_offered=bool(reasons), wake_reasons=reasons)
 
 

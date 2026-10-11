@@ -1,15 +1,18 @@
-"""@brief 主观记忆只在真实活动收尾或当前决策点刚完成睡眠时写入，来源与快照严格核验。"""
+"""@brief 主观记忆只在真实活动收尾或当天第一次睡醒时写入，来源与快照严格核验。"""
 
 from __future__ import annotations
 
 import logging
 
 from collections.abc import Mapping, Sequence
+from datetime import datetime, timedelta
 from worldmock.footprints.models import is_sha256
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from worldmock.errors import ProtocolError
 from worldmock.life.control_items import control_items
+from worldmock.life.models import ActivityKind, ActivityStatus
 
 #: 记忆写入点闭集，按此顺序列出本步实际发生的写入点。
 MEMORY_WRITE_POINTS = ("activity_conclusion", "reflection")
@@ -20,23 +23,38 @@ def conclusion_has_memories(request: Any) -> bool:
     return any(item.memories for item in control_items("conclude_activity", request))
 
 
-def observation_ended_sleep(data: Mapping[str, Any]) -> bool:
-    """@brief 核对冻结观察中的真实睡眠结束事实，不从唤醒原因推测反思资格。"""
-    sleep = data.get("ended_sleep")
-    return (isinstance(sleep, Mapping) and sleep.get("kind") == "sleep"
-            and sleep.get("status") == "completed"
-            and sleep.get("ended_at") == data.get("current_time"))
+def due_reflection(state: Any, agent_id: int) -> dict[str, str] | None:
+    """@brief 就寝反思此刻该不该做：本人恰在此刻睡醒、这是当天第一次睡醒、这一秒还没有提交过决策时，给出归属日期与所属睡眠。
+
+    只读世界状态里已有的事实。归属日期是睡醒所在本地日的前一天；恰在本地零点结束的睡眠属于新的一天，
+    被运行终点截断的睡眠不是睡醒。
+
+    :param state: 世界状态（读 current_time、timezone、agents 与 activities）。
+    :param agent_id: 人物身份。
+    :returns: 不该做时为 None，否则为 {date, sleep_activity_id}。
+    """
+    now, zone = state.current_time, ZoneInfo(state.timezone)
+    if state.agents[agent_id].last_decision_time == now:
+        return None
+    sleeps = [item for item in state.activities.values() if item.agent_id == agent_id
+              and item.kind == ActivityKind.SLEEP and item.status == ActivityStatus.COMPLETED]
+    woke = next((item for item in sleeps if item.ended_at == now), None)
+    if woke is None:
+        return None
+    today = datetime.fromtimestamp(now, zone).date()
+    if any(item is not woke and datetime.fromtimestamp(item.ended_at, zone).date() == today for item in sleeps):
+        return None
+    return {"date": (today - timedelta(days=1)).isoformat(), "sleep_activity_id": woke.activity_id}
 
 
-def memory_write_points(requests: list, decision_id: str, observation: Any, written: bool) -> list[str]:
-    """@brief 推导本步的记忆写入点列表（顺序为 activity_conclusion、reflection），并按写入点核对来源。
+def memory_write_points(requests: list, decision_id: str, written: bool) -> list[str]:
+    """@brief 推导步尾登记的记忆写入点（只可能是 activity_conclusion），并核对来源。
 
-    每个写入点都要有登记：结束活动对应同一决策已登记的带记忆 conclude_activity，就寝反思对应醒来那一轮的观察；
-    本步写入了条目却找不到任何写入点，就是宿主越过写入点写记忆，按协议违约拒绝。
+    结束活动对应同一决策已登记的带记忆 conclude_activity；就寝反思的写入点由取观察之前的反思登记给出，不在这里推导。
+    本步写入了条目却找不到写入点，就是宿主越过写入点写记忆，按协议违约拒绝。
 
     :param requests: 本人已持久化的 action_requested 事件。
     :param decision_id: 本步所属决策。
-    :param observation: 本步绑定的观察事件。
     :param written: 本步是否新增或合并了主观条目。
     :raises ProtocolError: 写入了条目却没有任何写入点。
     """
@@ -44,8 +62,6 @@ def memory_write_points(requests: list, decision_id: str, observation: Any, writ
     if any(event.decision_id == decision_id and event.data.get("tool_name") == "conclude_activity"
            and conclusion_has_memories(event.data.get("request")) for event in requests):
         points.append(MEMORY_WRITE_POINTS[0])
-    if observation_ended_sleep(observation.data):
-        points.append(MEMORY_WRITE_POINTS[1])
     if written and not points:
         logging.error("Memory update evidence is invalid")
         raise ProtocolError("Memory update has no registered write point")
@@ -56,7 +72,7 @@ def memory_write_points(requests: list, decision_id: str, observation: Any, writ
 
 
 def _memory_evidence_data(evidence: Any) -> dict[str, Any]:
-    """@brief 核验实际记忆操作、主观条目快照及四个文件身份。"""
+    """@brief 核验实际记忆操作、主观条目快照及四个文件身份；来源观察为空（就寝反思）或非空字符串（步尾）。"""
     created = tuple(evidence.created_episode_ids)
     merged = tuple(evidence.merged_episode_ids)
     identities = created + merged
@@ -67,8 +83,8 @@ def _memory_evidence_data(evidence: Any) -> dict[str, Any]:
     if (evidence.operation not in {"append_episodes", "refresh_summary"}
             or any(not is_sha256(value) for value in hashes)
             or type(evidence.consolidated) is not bool
-            or not isinstance(evidence.observation_event_id, str)
-            or not evidence.observation_event_id
+            or evidence.observation_event_id is not None and (
+                not isinstance(evidence.observation_event_id, str) or not evidence.observation_event_id)
             or any(not isinstance(item, str) or not item for item in identities + verified)
             or len(set(identities)) != len(identities)
             or len(set(verified)) != len(verified)
@@ -89,7 +105,7 @@ def _memory_evidence_data(evidence: Any) -> dict[str, Any]:
             "verified_event_ids": list(verified)}
 
 
-#: 主观快照的键集：四个基本键；就寝反思另带来源 source=reflection（宿主标注，记忆层据此找归属日期）。
+#: 主观快照的键集：四个基本键；就寝反思另带来源 source=reflection（宿主标注，环境据此区分两路登记）。
 
 
 

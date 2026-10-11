@@ -51,6 +51,21 @@ def test_sleep_freezes_both_needs_and_recovers_sleep_deficit(body_inputs):
     assert next_shared_body_boundary_seconds(body, ((ActivityKind.SLEEP, ActivityFactors(0.95)),),
         config, BoundaryClock(8.0)) is None
 
+def test_sleep_debt_recovers_by_the_time_actually_slept_including_the_extra_part(body_inputs):
+    """欠的觉每睡 1 小时补 1 小时，按实际睡的时长算：写 170 分钟又多睡 27 分钟，补回的是 197 分钟；
+    多睡的那段与写的那段分开结算和一次结算相同，补到 0 为止。"""
+    config, body = body_inputs
+    body = body.model_copy(update={'sleep_deficit_hours': 5.0})
+    asleep = ((ActivityKind.SLEEP, ActivityFactors(0.95)),)
+    whole = settle_shared_body(body, asleep, 10200 + 1620, config).after
+    assert whole.sleep_deficit_hours == pytest.approx(5.0 - 11820 / 3600)
+    declared = settle_shared_body(body, asleep, 10200, config).after
+    assert declared.sleep_deficit_hours == pytest.approx(5.0 - 10200 / 3600)
+    extra = settle_shared_body(declared, asleep, 1620, config).after
+    assert extra.sleep_deficit_hours == pytest.approx(whole.sleep_deficit_hours)
+    assert extra.sleep_pressure < declared.sleep_pressure < body.sleep_pressure
+    assert settle_shared_body(body, asleep, 13 * 3600, config).after.sleep_deficit_hours == 0.0
+
 def test_no_active_effects_pure_browse_and_purchase_have_only_growth(body_inputs):
     config, body = body_inputs
     for activities in ((), ((ActivityKind.PURCHASE, ActivityFactors(1.0)),),

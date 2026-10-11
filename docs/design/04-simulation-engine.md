@@ -6,7 +6,8 @@
 公开引擎创建入口从已加载配置和权威元数据派生当前模型身份与阶段预算，逐项核对调用方提供的身份。
 结构合法但与实际输入不同的模型、端点、容量、预算或提示工具身份同样拒绝；拒绝发生在创建任何运行文件之前。
 同秒续接开关保留调用方显式选择，其余身份只来自同一份输入与当前宿主合同。
-初始 `session_open` 唤醒仅提供正常决策，不生成就寝反思，也不触发唤醒类别回调；`run_start` 回调只执行一次。
+运行开始时的初始 `session_open` 唤醒仅提供正常决策：那一刻没有一段睡眠结束，不做就寝反思，也不触发唤醒类别回调；
+`run_start` 回调只执行一次。
 
 ```mermaid
 flowchart LR
@@ -118,6 +119,20 @@ flowchart LR
 下一步指向本人的家。声明了营业时段的地点关门时不能开始睡眠，以 `LOCATION_CLOSED` 拒绝；
 关门只卡开始，睡着后到了关门时刻照常睡到计划结束。
 
+睡眠只在自己的计划结束时结束，计划结束在受理时定下：开始时刻加写的时长，再加多睡的时长。
+受理时从到点时刻（开始时刻加写的时长）往回数 24 小时，合计本人睡了多久：刚写的这一觉整段算在内，
+此前每段已结束的睡眠只计落在窗口内的那一截。窗口早于运行开始时，按人设假定人物在惯常起床时刻
+（睡眠中点加每日睡眠需要的一半）睡醒、此前睡满每日睡眠需要，只假定这一段，更早的时间按没睡算。
+合计不足 4 小时才取随机流（键见[配置](08-configuration.md#configuration-随机键)）：先抽一位，
+抽中再抽 20 到 60 的整数分钟作为多睡的时长；恰好 4 小时不抽。规则只看这 24 小时里睡了多久，不看欠的觉和每日睡眠需要。
+每段睡眠只判一次，延长后的计划结束不再判；12 小时只限制人物写的数，多睡的那段不受它限制。
+写满 240 分钟的一觉自己就满 4 小时，所以会多睡的只有写得不足 240 分钟的睡眠。
+写的时长和多睡的时长分别记在睡眠活动的 `data.declared_duration_seconds` 与 `data.oversleep_seconds`，
+随受理结果的活动快照进入事件；恢复和重放读已写下的值，不再抽。到点时刻不是边界，那一刻不产生事件也不提供决策，
+人物事先不知道这一觉会不会睡过头。身体按实际睡的时长结算，多睡的那段同样补觉。
+睡过头的睡眠结束后，它的客观进度写成「已做约 8.5 小时，比打算的多睡了 40 分钟」，
+收尾后的已结算文字用「比打算的多睡了 N 分钟」代替「按计划结束」；没有睡过头的仍写「按计划结束」。
+
 开始工具之外的世界请求是 report_status、pause_activity、conclude_activity、revise_day_plan 四个控制工具，
 完整工具清单与一次回复的批次形状见[人物](06-agent.md)。
 在地点做事和用内容 app 可以暂停，出行、睡眠、购买不能；已结束活动必须由人物收尾。
@@ -221,11 +236,36 @@ flowchart LR
 真实付款生成信封资金变化；真实收货应用[交换效果](02-exchange-engine.md)、回调状态重置和个人事务累计。
 取件、付款与自动 app 足迹的原因均指向真实源事件，重复请求、恢复与重放不重新选择或重复应用效果。
 
+<a name="simulation-engine-唤醒-日计划与个人事务"></a>
 ## 唤醒、日计划与个人事务
 
-固定唤醒类别为 session_open、activity_completed、activity_boundary、goal_reminder_due、body_state_changed、
-reconsider_due、day_plan_due、shift_start、shift_end、break_start、break_end。
-同一边界同一类别只计一次。睡眠只由自己的计划结束唤醒，商品到期、推送、回调提醒、工作边界和个人事务提醒均不叫醒睡眠。
+共享时钟推进到一个边界后，命中唤醒表里至少一个原因才请人物决策。唤醒表是代码里的唯一声明，
+原因的名称、类别和先后都以它为准；「能否叫醒睡着的人」一列就是代码读的 `can_wake_sleep`。
+
+| 序 | 名称 | 类别 | 能否叫醒睡着的人 |
+| --- | --- | --- | --- |
+| 1 | `planned_end` | `time_boundary` | 能 |
+| 2 | `felt_band_change` | `state_change` | 不能 |
+| 3 | `delivery_arrival` | `event_arrival` | 不能 |
+| 4 | `reconsideration_interval` | `time_boundary` | 不能 |
+| 5 | `rejection_feedback` | `outcome_feedback` | 不能 |
+| 6 | `session_open` | `time_boundary` | 能 |
+| 7 | `progress_report_due` | `time_boundary` | 不能 |
+| 8 | `no_active_activity` | `time_boundary` | 不能 |
+| 9 | `reminder_due` | `reminder_due` | 不能 |
+| 10 | `duty_boundary` | `duty_boundary` | 不能 |
+| 11 | `app_push` | `reminder_due` | 不能 |
+
+人物醒着时命中的原因都保留。人物睡着时只保留能叫醒睡着的人的行，`planned_end` 一行还要求结束的是睡眠本身。
+所以睡眠只在自己的计划结束时结束：日计划提醒、个人事务提醒、推送、外卖送达、快递到站、班次起止、
+重估间隔和进度播报都不叫醒睡着的人，人物也不能暂停或提前结束进行中的睡眠。
+睡着时到点的提醒不交付，醒后同一本地日内补交付。
+
+睡醒那一刻同时记 `planned_end` 和 `session_open`：`session_open` 的含义是本人有一段睡眠恰在本边界完成，
+运行开始时由初始待处理原因表达。体感分级没有变化时，睡醒的原因列表是 `planned_end`、`session_open`、
+`no_active_activity`；这一觉不短于重估间隔时，照醒着时的规则还多一项 `reconsideration_interval`。
+同一边界同一类别只计一次，`planned_end` 与 `session_open` 同属 `time_boundary`，
+按类别订阅的回调只执行一次。`rejection_feedback` 只出现在同一时刻被拒之后的下一次决策里。
 
 天气只来自世界按本地日期生成的事实。天气与日历在实际本地午夜登记，时间回调只在数据集声明的时间登记；
 绝对时钟在夏令时变化时仍单调推进。停止时先完成真实结算和正常 run_end 回调，再写终态。

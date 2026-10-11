@@ -90,11 +90,13 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
         self, *, tick: int, t: datetime, step_count: int,
         finish_memories: list[dict[str, Any]] | None = None, sleep_boundary: bool = False,
     ) -> MemoryStepOutcome:
-        """@brief 保存结束活动写下的主观条目、按阈值归纳，再确定性渲染当前事实窗口。
+        """@brief 步尾：保存结束活动写下的主观条目、按阈值归纳，再确定性渲染当前事实窗口；不做就寝反思。
 
         finish_memories 承载宿主展平的 conclude_activity 逐项记忆与看法（经 control_items 读出，看法的 about 即存储的
         subject，写入存储前剥掉）；
-        阈值巩固只计结束活动写入的条目，就寝反思的条目不计（docs/design/06-agent.md）。
+        阈值巩固只计结束活动写入的条目，就寝反思的条目不计（docs/design/06-agent.md「进度、待办与记忆」）。
+        锁定的 AS2 仍传 sleep_boundary，这里不读它：就寝反思与随它的巩固在取观察之前由 wake_reflection 完成。
+        结果不含来源为就寝反思的条目：收尾记忆被存储并进此前相似的感想时，没有新的收尾条目可登记。
         """
         store = self.store
         if store is None:
@@ -104,19 +106,36 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
         known = {str(item["id"]) for item in store.iter_episodes()}
         memories = self._validate_subjective_memories(finish_memories)
         written = await self._append_subjective(memories, tick=tick, t=t, step_count=step_count)
-        should, reason = await asyncio.to_thread(self._consolidation_due, sleep_boundary)
+        should, reason = await asyncio.to_thread(self._consolidation_due)
         consolidated = False
         if should:
             consolidated = await self._consolidate_subjective(tick, t, step_count, reason)
-        if sleep_boundary:
-            written.extend(await self._run_reflection(tick=tick, t=t, step_count=step_count))
         view = render_memory_view(
             self._owner._persona_card_text(), facts, store.read_subjective_summary(),
         )
         await asyncio.to_thread(store.write_memory_view, view)
-        created, merged = _classify_episodes(written, known)
+        concluded = [item for item in written if item.get("source") != _REFLECTION_SOURCE]
+        created, merged = _classify_episodes(concluded, known)
         return MemoryStepOutcome(created, merged, before, consolidated, observation_id,
                                  tuple(dict.fromkeys(item["source_event_id"] for item in facts)))
+
+    async def wake_reflection(self, *, tick: int, t: datetime, step_count: int) -> MemoryStepOutcome:
+        """@brief 当天第一次睡醒、取观察之前的反思阶段：有未归纳的记录时先巩固一次，再做就寝反思。
+
+        这个阶段不重写 MEMORY.md（巩固出的摘要由同一步的步尾渲染），也不绑定观察：返回的结果没有来源观察与事实窗口。
+        人物的记忆里一条记录都没有时不调用模型，返回空结果。结果只含来源为就寝反思的条目：
+        感想被存储并进人物此前自己写下的相似记录时，没有新的感想可登记。
+        """
+        store = self.store
+        if store is None:
+            return MemoryStepOutcome((), (), None)
+        before = hashlib.sha256(store.memory_md_path.read_bytes()).hexdigest()
+        known = {str(item["id"]) for item in store.iter_episodes()}
+        consolidated = await self._consolidate_subjective(tick, t, step_count, "daily reflection")
+        written = [item for item in await self._run_reflection(tick=tick, t=t, step_count=step_count)
+                   if item.get("source") == _REFLECTION_SOURCE]
+        created, merged = _classify_episodes(written, known)
+        return MemoryStepOutcome(created, merged, before, consolidated)
 
     def _current_facts(self) -> tuple[list[dict[str, Any]], str]:
         """@brief 只取 LifeAgent 从本轮结构化观察冻结的五条事实。"""
@@ -175,13 +194,11 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
                 logging.warning("Memory reflection output is invalid on attempt %d: %s", attempt, error)
                 messages, attempt = reflection_correction(original, response, error), attempt + 1
 
-    def _consolidation_due(self, sleep_boundary: bool) -> tuple[bool, str]:
-        """@brief 阈值巩固判定：就寝边界照常触发；否则只按未巩固条目中来源不是就寝反思的条目计条数与重要度。
+    def _consolidation_due(self) -> tuple[bool, str]:
+        """@brief 步尾的阈值巩固判定：只按未巩固条目中来源不是就寝反思的条目计条数与重要度。
 
         宿主固定阈值为十条、重要度合计三；反思条目不计入这两个触发条件。
         """
-        if sleep_boundary:
-            return True, "sleep boundary"
         pending = [item for item in self._require_store().unconsolidated() if item.get("source") != "reflection"]
         if sum(float(item.get("importance") or 0.0) for item in pending) >= _IMPORTANCE_THRESHOLD:
             return True, "importance accumulation threshold"
@@ -305,10 +322,11 @@ def _classify_episodes(
 
 
 def memory_update_evidence(context: Any, store: Any, outcome: MemoryStepOutcome) -> MemoryUpdateEvidence | None:
-    """@brief 本步已落盘记忆的证据（与 AS2 PersonAgent._record_memory_update 同一组字段）；就寝反思的快照条目另带
-    source=reflection，引擎据此给反思找归属日期（docs/design/06-agent.md「零点、反思与未了结」）。
+    """@brief 已落盘记忆的证据（与 AS2 PersonAgent._record_memory_update 同一组字段）；就寝反思的快照条目另带
+    source=reflection（docs/design/05-recording-engine.md「事件与来源」）。
 
-    本步既没有新增或合并条目、视图也没有变化时返回 None（不登记）。
+    步尾与反思阶段共用：反思阶段的结果没有来源观察，证据的 observation_event_id 为空、事实窗口为空。
+    既没有新增或合并条目、视图也没有变化时返回 None（不登记）。
     """
     memory_sha256 = _file_sha256(store.memory_md_path)
     created = tuple(str(item["id"]) for item in outcome.created_episodes)

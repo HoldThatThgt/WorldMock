@@ -48,6 +48,15 @@ _NOT_PROVIDED = "未提供"
 #: 行动请求才开放的世界请求工具（start_main_activity）；带工具而没有它的请求（就寝反思）不是人物决策请求。
 _ACTION_TOOL = START_TOOLS[0]
 
+#: 实际时长不少于这么多秒的睡眠算作就寝，更短的算小睡。
+BEDTIME_MIN_SECONDS = 10800
+#: 就寝时刻的中位数以这个本地分钟（06:00）为一天的起点。
+BEDTIME_DAY_START_MINUTES = 360
+#: 一天的分钟数。
+_DAY_MINUTES = 1440
+#: 有睡眠但没有就寝睡眠时的说明。
+_NO_BEDTIME_NOTE = "没有睡满 180 分钟的睡眠，就寝与起床时刻无法计算"
+
 
 def behavior_metrics_report(
     events: list[dict[str, Any]],
@@ -114,7 +123,7 @@ def _group_report(
         "workload": workload["workload"],
         "routine_deviation": workload["routine_deviation"],
     }
-    return {"schema_version": "behavior-metrics-3", "gates": gates, "reports": reports, "notes": notes}
+    return {"schema_version": "behavior-metrics-4", "gates": gates, "reports": reports, "notes": notes}
 
 
 def _gate(value: Any, comparison: str, threshold: Any, note: str | None = None) -> dict[str, Any]:
@@ -412,7 +421,7 @@ def _early_arrival_summary(
 
 
 def _sleep_schedule(events: list[dict[str, Any]], timezone: str, notes: list[str]) -> dict[str, Any]:
-    """@brief 由 sleep 活动区间计算就寝、起床时刻与睡眠时长（报告项）。"""
+    """@brief 由 sleep 活动区间报告每段睡眠及其分类：就寝睡眠进 summary，小睡进 naps，未结束的两边都不计。"""
     zone = ZoneInfo(timezone)
     sessions: dict[str, dict[str, Any]] = {}
     for event in _activity_progress_events(events):
@@ -422,19 +431,34 @@ def _sleep_schedule(events: list[dict[str, Any]], timezone: str, notes: list[str
         activity_id = str(event.get("activity_id"))
         record = sessions.setdefault(activity_id, {"agent_id": str(event.get("agent_id")),
                                                    "start": snapshot_data.get("started_at"),
-                                                   "end": _interval_end(event)})
+                                                   "end": _interval_end(event), "completed": False})
         record["end"] = max(record["end"], _interval_end(event))
+        record["completed"] = record["completed"] or snapshot_data.get("status") == "completed"
     valid = sorted((record for record in sessions.values()
                     if valid_interval(record["start"], record["end"])),
                    key=lambda item: (item["start"], item["agent_id"]))
     if not valid:
         notes.append("无有效 sleep 活动区间，就寝与起床时刻无法计算")
-        return {"sessions": [], "summary": None}
-    return {"sessions": _sleep_sessions(valid, zone), "summary": _sleep_summary(valid, zone)}
+        return {"sessions": [], "summary": None, "naps": _nap_summary([])}
+    for record in valid:
+        record["category"] = _sleep_category(record)
+    bedtimes = [record for record in valid if record["category"] == "bedtime"]
+    if not bedtimes:
+        notes.append(_NO_BEDTIME_NOTE)
+    return {"sessions": _sleep_sessions(valid, zone), "summary": _sleep_summary(bedtimes, zone) if bedtimes else None,
+            "naps": _nap_summary([record for record in valid if record["category"] == "nap"])}
+
+
+def _sleep_category(record: Mapping[str, Any]) -> str:
+    """@brief 一段睡眠的分类：没有任何进度快照是 completed 的为 unfinished；其余按实际时长（多睡的那段算在内）
+    分成就寝 bedtime 与小睡 nap。"""
+    if not record["completed"]:
+        return "unfinished"
+    return "bedtime" if record["end"] - record["start"] >= BEDTIME_MIN_SECONDS else "nap"
 
 
 def _sleep_sessions(valid: list[dict[str, Any]], zone: ZoneInfo) -> list[dict[str, Any]]:
-    """@brief 将每个 sleep 区间投影为本地就寝/起床时刻与时长。"""
+    """@brief 将每个 sleep 区间投影为本地就寝/起床时刻、时长与分类。"""
     sessions = []
     for record in valid:
         start_local = datetime.fromtimestamp(record["start"], zone)
@@ -444,23 +468,41 @@ def _sleep_sessions(valid: list[dict[str, Any]], zone: ZoneInfo) -> list[dict[st
             "bed_time": start_local.strftime("%H:%M"),
             "rise_time": end_local.strftime("%H:%M"),
             "duration_hours": round((record["end"] - record["start"]) / 3600.0, 4),
-            "started_at": record["start"], "ended_at": record["end"],
+            "started_at": record["start"], "ended_at": record["end"], "category": record["category"],
         })
     return sessions
 
 
-def _sleep_summary(valid: list[dict[str, Any]], zone: ZoneInfo) -> dict[str, Any]:
-    """@brief 汇总就寝/起床时刻中位数（自零点的分钟，不做环形换算）与平均时长。"""
+def _sleep_summary(bedtimes: list[dict[str, Any]], zone: ZoneInfo) -> dict[str, Any]:
+    """@brief 汇总就寝睡眠：就寝时刻的中位数以 06:00 为一天的起点（平移后取中位数再平移回去），
+    起床时刻的中位数直接取自零点的分钟，另给平均时长与段数。"""
     def minutes_of_day(epoch: int | float) -> int:
         """将真实时刻转换为本地日内分钟。"""
         local = datetime.fromtimestamp(epoch, zone)
         return local.hour * 60 + local.minute
 
-    bed = statistics.median(sorted(minutes_of_day(item["start"]) for item in valid))
-    rise = statistics.median(sorted(minutes_of_day(item["end"]) for item in valid))
-    duration = statistics.mean((item["end"] - item["start"]) / 3600.0 for item in valid)
+    bed = _bedtime_median([minutes_of_day(item["start"]) for item in bedtimes])
+    rise = statistics.median(sorted(minutes_of_day(item["end"]) for item in bedtimes))
+    duration = statistics.mean((item["end"] - item["start"]) / 3600.0 for item in bedtimes)
     return {"median_bed_minutes_of_day": bed, "median_rise_minutes_of_day": rise,
-            "mean_duration_hours": round(duration, 4), "session_count": len(valid)}
+            "mean_duration_hours": round(duration, 4), "session_count": len(bedtimes)}
+
+
+def _bedtime_median(minutes: list[int]) -> float:
+    """@brief 就寝时刻（自本地零点起的分钟）的中位数，以 06:00 为一天的起点：平移、取中位数、再平移回去。
+
+    零点两侧的就寝因此不再被算成中午；已知后果是就寝落在 06:00 两侧时算出偏离很远的时刻。
+    """
+    shifted = statistics.median(sorted((value - BEDTIME_DAY_START_MINUTES) % _DAY_MINUTES for value in minutes))
+    return (shifted + BEDTIME_DAY_START_MINUTES) % _DAY_MINUTES
+
+
+def _nap_summary(naps: list[dict[str, Any]]) -> dict[str, Any]:
+    """@brief 小睡的次数与平均时长；一次都没有时平均时长为空。"""
+    if not naps:
+        return {"count": 0, "mean_duration_hours": None}
+    duration = statistics.mean((item["end"] - item["start"]) / 3600.0 for item in naps)
+    return {"count": len(naps), "mean_duration_hours": round(duration, 4)}
 
 
 def _meal_sessions(events: list[dict[str, Any]]) -> list[dict[str, Any]]:

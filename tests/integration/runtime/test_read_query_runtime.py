@@ -6,6 +6,8 @@ from tests.integration.runtime.current_contract_fixtures import profile as curre
 3. 不启动 Ray 的并发度断言：actor 类固定 max_concurrency=1，不提供参数；
 4. 运行装配（worldmock.runtime._build_society）建立的是 LifeEnvActor 与带 read_query 的 LifeEnvProxy。
 覆盖率门禁只计主进程执行的行，变异执行器也只对主进程生效，所以四类缺一不可。
+同一条 Life 扩展通道上的另一个只读方法 due_reflection（取观察之前该不该先做就寝反思）用同样的分工：未包装的 actor
+等于环境直调，运行装配出的代理把调用送到 actor 句柄并返回等待后的结果。
 """
 
 from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT, ENVIRONMENT_ROOT
@@ -26,7 +28,8 @@ os.environ.setdefault('LITELLM_LOCAL_MODEL_COST_MAP', 'True')
 from agentsociety2.env.direct_env_actor import DirectEnvActorSpec
 from custom.envs.life_env import LifeEnv
 from tests.engine_fixture import (engine_factory)  # noqa: F401
-from tests.life.conftest import (context, stage_day_plan)  # noqa: F401
+from tests.life.conftest import (advance_next, context, sleep, stage_day_plan)  # noqa: F401
+from tests.life.environment_runtime import act
 from worldmock.errors import ProtocolError
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import RecallTaskSummaryRequest
@@ -116,6 +119,8 @@ async def test_task_recall_crosses_real_ray_without_world_mutation(engine_factor
         assert driver == staged.expected
         worker = await worker_side.remote(proxy, staged.frozen, staged.request)
         assert type(worker) is dict and worker == staged.expected
+        # 同一条通道上的另一个只读方法：没有睡醒的这一刻，跨进程的判定结果是空，不写事件。
+        assert await proxy.due_reflection(staged.frozen) is None
         await proxy.close()
     finally:
         if actor is not None:
@@ -209,7 +214,12 @@ async def test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query(mo
         received.append(arguments)
         return answer
 
-    handle = SimpleNamespace(read_query=SimpleNamespace(remote=resolved))
+    async def due(*arguments):
+        """就寝反思判定的远端替身：记录参数，等待后给出归属日期。"""
+        received.append(arguments)
+        return {'date': '2026-01-04', 'sleep_activity_id': 'activity-nap'}
+
+    handle = SimpleNamespace(read_query=SimpleNamespace(remote=resolved), due_reflection=SimpleNamespace(remote=due))
 
     def remote(**options):
         """记录 ray.remote 的参数与被包装的类，返回只产出替身句柄的 actor 类。"""
@@ -242,6 +252,50 @@ async def test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query(mo
     result = await agent_side.read_query('context', 'recall_task_summary', 'request')
     assert result is answer
     assert received == [('context', 'recall_task_summary', 'request')]
+    assert callable(getattr(agent_side, 'due_reflection', None))
+    assert await agent_side.due_reflection('waking-context') == {
+        'date': '2026-01-04', 'sleep_activity_id': 'activity-nap'}
+    assert received[-1] == ('waking-context',)
+
+
+@pytest.mark.asyncio
+async def test_unwrapped_actor_due_reflection_equals_direct_environment_call(engine_factory, monkeypatch,
+                                                                             published_environment):
+    """主进程内直接构造 LifeEnvActor（不经 ray.remote）：due_reflection 把判定交给它持有的唯一生活环境，结果等于环境
+    直调与生活引擎的同名只读方法——当天第一次睡醒时给出归属日期与所属睡眠；先做上下文校验并要求决策轮已开启；
+    不写事件、不改世界状态。"""
+    monkeypatch.setenv('WORKSPACE_PATH', str(ROOT))
+    monkeypatch.setenv("WORLDMOCK_TEST_API_KEY", "test-only-key")
+    engine = engine_factory(environment_root=published_environment)
+    stage_day_plan(engine, submitted=True)
+    _, nap = act(engine, 'nap', sleep(60))
+    while engine.context.state.activities[nap.activity_id].status == 'active':
+        advance_next(engine)
+    frozen, run_dir = context(engine, 'woke'), engine.context.store.run_dir
+    engine.close()
+    actor = LifeEnvActor(_actor_spec(run_dir, published_environment))
+    try:
+        await actor.init(frozen.observed_at)
+        (environment,) = actor._router.env_modules
+        with pytest.raises(ProtocolError, match='Decision round is not open'):
+            await actor.due_reflection(frozen)
+        await actor.begin_decision_round((frozen,))
+        engine = environment.engine
+        before, sequence = engine.context.state.model_dump_json(), engine.context.store.last_event_seq
+        due = await actor.due_reflection(frozen)
+        assert due == {'date': '2026-01-04', 'sleep_activity_id': nap.activity_id}
+        assert due == await environment.due_reflection(frozen) == engine.due_reflection(frozen)
+        stale = context(engine, 'woke')
+        stale = type(stale)(stale.run_id, stale.round_id, stale.decision_id, stale.agent_id, stale.observed_at,
+                            stale.world_state_version + 1)
+        with pytest.raises(ProtocolError, match='Decision context world version is stale'):
+            await actor.due_reflection(stale)
+        assert engine.context.state.model_dump_json() == before
+        assert engine.context.store.last_event_seq == sequence
+        await actor.observe(frozen)
+        assert await actor.due_reflection(frozen) == due
+    finally:
+        await actor.close()
 
 
 @pytest.mark.asyncio

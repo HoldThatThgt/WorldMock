@@ -83,7 +83,10 @@ OWNERS = {'base_models.py': ('StrictModel',
                              'ACTION_LABELS',
                              'activity_slot',
                              'start_tool'),
- 'life/sleep_plan.py': ('parse_sleep_minutes', 'SLEEP_MINUTES_MIN', 'SLEEP_MINUTES_MAX', 'SLEEP_MINUTES_REASON'),
+ 'life/sleep_plan.py': ('parse_sleep_minutes', 'SLEEP_MINUTES_MIN', 'SLEEP_MINUTES_MAX', 'SLEEP_MINUTES_REASON',
+                        'SLEEP_WINDOW_SECONDS', 'OVERSLEEP_THRESHOLD_SECONDS', 'OVERSLEEP_MINUTES_MIN',
+                        'OVERSLEEP_MINUTES_MAX', 'assumed_sleep', 'sleep_seconds_in_window', 'oversleep_seconds'),
+ 'evaluation/behavior_metrics.py': ('BEDTIME_MIN_SECONDS', 'BEDTIME_DAY_START_MINUTES'),
  'life/location_activities.py': ('location_units', 'next_content', 'unit_facts', 'held_refusal'),
  'life/start_group.py': ('GROUP_REJECTION_SUFFIX', 'group_rejection', 'frozen_observation')}
 # 语义排除仅限普通 logger、Python 类型声明、不同类作用域的薄协议钩子与导入绑定。
@@ -195,7 +198,9 @@ def test_copied_rule_table_fails_even_after_renaming(tmp_path):
                                     'BEDTIME_HORIZON_HOURS = 30\n',
                                     'WALKING_TRAVEL_METHOD_NAME = "散步"\n',
                                     'WALKING = None\n',
-                                    'def travel_methods(catalog):\n return ()\n'])
+                                    'def travel_methods(catalog):\n return ()\n',
+                                    'OVERSLEEP_THRESHOLD_SECONDS = 18000\n',
+                                    'BEDTIME_MIN_SECONDS = 7200\n'])
 def test_wrong_shared_rule_owner_fails(tmp_path, source):
     _sample(tmp_path, 'custom/wrong.py', source)
     assert any('wrong owner' in item for item in single_source_violations(tmp_path))
