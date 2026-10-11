@@ -30,7 +30,7 @@ def world_at(root, when=None, location_id='home', origin_id='home'):
     """
     inputs = load_environment(root, metadata_loader=fixture_metadata)
     config = assemble_body_config(inputs.persona)
-    body = initial_body(config, 8.0, inputs.persona, 0.06)
+    body = initial_body(config, 8.0, inputs.persona)
     start = int(inputs.config.start_time.timestamp()) if when is None else when
     agent = AgentState(agent_id=1,name='林舟',location_id=location_id or origin_id,balance_account_id='agent:1',
         body=body,body_settled_at=start,next_decision_at=start)

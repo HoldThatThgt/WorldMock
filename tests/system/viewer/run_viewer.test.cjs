@@ -1329,33 +1329,31 @@ async function loadedViewer(t, files, directories = [], events = [event('observa
 }
 
 test('overview lists every frozen input warning under its person or at scenario level with code and message', async t => {
-  const injection = readFileSync(path.join(__dirname, '../../../src/worldmock/profile/injection.py'), 'utf8')
+  const source = readFileSync(path.join(__dirname, '../../../src/worldmock/input_warnings.py'), 'utf8')
     .replace(/\r\n/g, '\n');
-  const codes = [.../InputWarningCode = Literal\[\n([\s\S]*?)\n\]/.exec(injection)[1].matchAll(/"([A-Z_]+)"/g)]
+  const codes = [.../InputWarningCode = Literal\[\n([\s\S]*?)\n\]/.exec(source)[1].matchAll(/"([A-Z_]+)"/g)]
     .map(match => match[1]);
-  assert.equal(codes.length, 6);
-  const scenarioCodes = ['LOCATION_NAME_SUSPICIOUS'];
-  const personal = codes.filter(code => !scenarioCodes.includes(code));
-  const second = personal.filter((_, index) => index % 2), first = personal.filter((_, index) => !(index % 2));
+  assert.deepEqual(codes, ['CONTENT_EMPTY_WITH_MEDIA_TASTES', 'LOCATION_NAME_SUSPICIOUS']);
+  const [personal, scenario] = codes;
   // 清单顺序故意打乱：人物 2 的警告在前，一条场景级夹在两人之间；页面按人物编号、再场景级排列。
   const warnings = [
-    ...second.map(code => inputWarning(code, 2, `李明：${code}`)),
-    ...first.map(code => inputWarning(code, 1, `陈曦：${code}`)),
-    inputWarning(scenarioCodes[0], null, '地点 poi-1 的显示名「肯德基<东经121.50°>」带坐标。'),
+    inputWarning(personal, 2, `李明：${personal}`),
+    inputWarning(scenario, null, '地点 poi-1 的显示名「肯德基<东经121.50°>」带坐标。'),
+    inputWarning(personal, 1, `陈曦：${personal}`),
   ];
   const view = await loadedViewer(t, [droppedFile('manifest.json', runManifest({input_warnings: warnings}))]);
   const card = warningCard(view.overview());
   assert.deepEqual(warningRows(card), [
-    ...first.map(code => ['陈曦', code, `陈曦：${code}`]), ...second.map(code => ['李明', code, `李明：${code}`]),
-    ['场景级', scenarioCodes[0], '地点 poi-1 的显示名「肯德基&lt;东经121.50°&gt;」带坐标。'],
+    ['陈曦', personal, `陈曦：${personal}`], ['李明', personal, `李明：${personal}`],
+    ['场景级', scenario, '地点 poi-1 的显示名「肯德基&lt;东经121.50°&gt;」带坐标。'],
   ]);
   assert.deepEqual(new Set(warningRows(card).map(row => row[1])), new Set(codes));
-  assert.ok(card.includes('共 6 条：人物 5 条、场景级 1 条') && card.includes('manifest.json'));
+  assert.ok(card.includes('共 3 条：人物 2 条、场景级 1 条') && card.includes('manifest.json'));
   assert.ok(!card.includes('<东经'));
   view.get('#agent-filter').value = '2';
   const filtered = warningCard(view.overview());
-  assert.deepEqual(warningRows(filtered).map(row => row[0]), [...second.map(() => '李明'), '场景级']);
-  assert.ok(filtered.includes('当前筛选 3 条'));
+  assert.deepEqual(warningRows(filtered).map(row => row[0]), ['李明', '场景级']);
+  assert.ok(filtered.includes('当前筛选 2 条'));
   assert.deepEqual(view.errors, []);
   const firstOnly = await loadedViewer(t, [droppedFile('manifest.json',
     runManifest({input_warnings: warnings.filter(item => item.agent_id === 1)}))]);
@@ -1386,9 +1384,9 @@ test('warnings that were not computed or are empty are stated and a missing mani
 
 test('the manifest is bound to the world state run, preferred over the export copy and never another run', async t => {
   const child = runManifest({branch_kind: 'resume', parent_run_id: 'parent-run',
-    input_warnings: [inputWarning('COVERAGE_BELOW_THRESHOLD', 1, '子运行清单冻结的警告')]});
+    input_warnings: [inputWarning('CONTENT_EMPTY_WITH_MEDIA_TASTES', 1, '子运行清单冻结的警告')]});
   const exported = {run_id: 'viewer-test-run', frozen_run_manifest: {...child,
-    input_warnings: [inputWarning('COVERAGE_BELOW_THRESHOLD', 1, '导出清单中的副本')]}};
+    input_warnings: [inputWarning('CONTENT_EMPTY_WITH_MEDIA_TASTES', 1, '导出清单中的副本')]}};
   // 恢复分支的库以父运行的事件开头，世界状态与清单才是本运行；同目录的 LabelKit 输入清单也写着本运行的 run_id。
   const run = directoryEntry('resumed', [
     directoryEntry('labelkit-input', [fileEntry('manifest.json',
@@ -1403,7 +1401,7 @@ test('the manifest is bound to the world state run, preferred over the export co
     [event('observation', {}, {run_id: 'parent-run'}), event('observation', {})]);
   assert.equal(view.state.runId, 'parent-run', 'the first event belongs to the parent run');
   const card = warningCard(view.overview());
-  assert.deepEqual(warningRows(card), [['陈曦', 'COVERAGE_BELOW_THRESHOLD', '子运行清单冻结的警告']]);
+  assert.deepEqual(warningRows(card), [['陈曦', 'CONTENT_EMPTY_WITH_MEDIA_TASTES', '子运行清单冻结的警告']]);
   assert.ok(card.includes('resumed/manifest.json') && !card.includes('frozen_run_manifest'));
   assert.equal(view.state.ignoredManifests, 2);
   assert.equal(view.state.memFiles['1'].memoryMd, '今天把纪要交了。');
@@ -1411,11 +1409,11 @@ test('the manifest is bound to the world state run, preferred over the export co
   // 运行清单在前、导出副本在后时同样取运行清单本身。
   const directFirst = await loadedViewer(t, [droppedFile('manifest.json', child)], [exportDirectory()]);
   assert.deepEqual(warningRows(warningCard(directFirst.overview())),
-    [['陈曦', 'COVERAGE_BELOW_THRESHOLD', '子运行清单冻结的警告']]);
+    [['陈曦', 'CONTENT_EMPTY_WITH_MEDIA_TASTES', '子运行清单冻结的警告']]);
 
   const exportOnly = await loadedViewer(t, [], [exportDirectory()]);
   const copy = warningCard(exportOnly.overview());
-  assert.deepEqual(warningRows(copy), [['陈曦', 'COVERAGE_BELOW_THRESHOLD', '导出清单中的副本']]);
+  assert.deepEqual(warningRows(copy), [['陈曦', 'CONTENT_EMPTY_WITH_MEDIA_TASTES', '导出清单中的副本']]);
   assert.ok(copy.includes('worldmock-export/manifest.json · frozen_run_manifest'));
 
   const strangers = await loadedViewer(t, [parent, droppedFile('manifest.json', '{"run_id": "viewer-test-run"')]);
@@ -1426,7 +1424,7 @@ test('the manifest is bound to the world state run, preferred over the export co
 
 test('reloading another database drops the previous run manifest and its warnings', async t => {
   const view = await loadedViewer(t, [droppedFile('manifest.json',
-    runManifest({input_warnings: [inputWarning('COVERAGE_BELOW_THRESHOLD', 1, '上一份库的警告')]}))]);
+    runManifest({input_warnings: [inputWarning('CONTENT_EMPTY_WITH_MEDIA_TASTES', 1, '上一份库的警告')]}))]);
   assert.equal(warningRows(warningCard(view.overview())).length, 1);
   view.reload([event('observation', {})]);
   const card = warningCard(view.overview());

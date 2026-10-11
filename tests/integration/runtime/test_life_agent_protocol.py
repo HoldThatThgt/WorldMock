@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-from tests.profile.conftest import make_card
 
 from tests.data_paths import ENVIRONMENT_ROOT
 
@@ -577,7 +576,7 @@ def test_react_messages_are_system_layer_and_six_layer_user() -> None:
             assert layer["callable_index"] == data[key]["callable_index"]
         elif key is not None:
             assert layer == data[key]
-    assert layers[1]["identity"] == {"name": "Alice", "age": 32, "occupation": "产品经理", "living_arrangement": make_card().identity.living_arrangement}
+    assert layers[1]["identity"] == {"name": "Alice", "age": 32, "occupation": "产品经理", "living_arrangement": "与伴侣合租两居室"}
     user = messages[1]["content"]
     assert user == render_layer_json(layers)
     for leaked in ("observation-current", "result-prior", "game-visible", "session-7-0001", "task-visible",
@@ -1230,7 +1229,7 @@ async def test_runtime_budget_handles_twelve_bad_responses_then_submits_once() -
     from worldmock.run_setup import creation_inputs
 
     frozen = inputs()
-    config = creation_inputs(frozen, {1: make_card()})[0][0]["config"]
+    config = creation_inputs(frozen)[0][0]["config"]
     responses = [_ModelResponse(f"bad-{index}", "invented_game", "{}") for index in range(12)]
     responses.append(_ModelResponse("action", MAIN_TOOL,
                                     json.dumps(_WAIT_CHOICE, ensure_ascii=False)))

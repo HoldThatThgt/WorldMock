@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-from tests.profile.conftest import make_card
 from tests.integration.runtime.current_contract_fixtures import inputs as current_inputs, profile as current_profile
 
 from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT, ENVIRONMENT_ROOT
@@ -855,14 +854,11 @@ async def test_budget_step_zero_starts_the_decision_from_a_fresh_snapshot_for_ev
 def _switch_off_engine(tmp_path: Path) -> LifeEngine:
     """以关闭同秒续接的阶段身份新建当前环境运行。"""
     from tests.integration.runtime_fixtures import current_run_identity
-    from worldmock.profile.mapper import map_world_dynamics
-    from worldmock.profile.models import BigFiveProfile
     frozen = current_inputs()
-    scores = BigFiveProfile(openness=4, conscientiousness=4, extraversion=4, agreeableness=4, neuroticism=4)
     return LifeEngine.create(frozen, tmp_path / "switch-off", current_run_identity(frozen, "switch-off"),
         __import__("worldmock.run_setup", fromlist=["stage_model_identity"]).stage_model_identity(
             frozen.config.model, frozen.model_metadata, False),
-        {"same_second_continuation": False, "world_dynamics": map_world_dynamics(scores).model_dump(mode="json")})
+        {"same_second_continuation": False})
 
 
 @pytest.mark.asyncio

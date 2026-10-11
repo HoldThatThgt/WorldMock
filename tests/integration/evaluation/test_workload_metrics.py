@@ -297,9 +297,12 @@ def test_routine_deviation_uses_none_of_the_removed_plan_deviation_names() -> No
 
 def test_workday_inputs_use_resolved_persona_places_and_config(frozen_inputs):
     """当前冻结环境直接提供唯一人物与已解析地点，不从旧场景推断。"""
-    document = frozen_inputs.record(ENVIRONMENT_ROOT)["inputs"]
-    card = {"time_anchors": {"leave_work": {"start_hour": 18.0, "end_hour": 18.5}, "arrive_home": None}}
-    inputs = workday_inputs(document, {1: card})
+    from dataclasses import replace
+    from tests.life.persona_inputs import persona_with
+
+    frozen = frozen_inputs.record(ENVIRONMENT_ROOT)["inputs"]
+    document = replace(frozen, persona=persona_with(leave_work_window=(18.0, 18.5)))
+    inputs = workday_inputs(document)
     assert inputs.report_interval_seconds == document.config.progress_report_interval_seconds
     assert set(inputs.agents) == {document.persona.agent_id}
     first = inputs.agents[1]
@@ -307,7 +310,7 @@ def test_workday_inputs_use_resolved_persona_places_and_config(frozen_inputs):
     assert (first.home_location_id, first.workplace_location_id, first.initial_location_id) == (
         document.home_location_id, document.workplace_location_id, document.initial_location_id)
     assert (first.leave_work_window, first.arrive_home_window) == ((18.0, 18.5), None)
-    assert workday_inputs(document, {}).agents[1].leave_work_window is None
+    assert workday_inputs(frozen).agents[1].leave_work_window is None
 
 
 def _workday_run(persona, config):
@@ -379,7 +382,7 @@ def test_a_real_run_leaving_on_duty_is_recomputed_as_early_leave(engine_factory)
     engine.register_day_plan(1, PlanDayRequest(goals=()), [], [])
     departure = _leave_on_duty_at_three(engine)
     events = [event.model_dump(mode="json") for event in engine.context.store.read_events(engine.context.store.last_event_seq)]
-    inputs = workday_inputs(engine.context.inputs, {1: None})
+    inputs = workday_inputs(engine.context.inputs)
     [group] = behavior_metrics_report(events, workday=inputs).values()
     reports = group["reports"]
     row = reports["workload"]["agents"]["1"]
@@ -449,7 +452,7 @@ def _walk_to(engine, name: str, location_id: str) -> None:
 def _recomputed(engine) -> dict:
     """从 SQLite 读回全部事件，用运行自己的场景文档打包输入（没有卡片），经 behavior_metrics_report 重算 reports。"""
     events = [event.model_dump(mode="json") for event in engine.context.store.read_events(engine.context.store.last_event_seq)]
-    [group] = behavior_metrics_report(events, workday=workday_inputs(engine.context.inputs, {1: None})).values()
+    [group] = behavior_metrics_report(events, workday=workday_inputs(engine.context.inputs)).values()
     return group["reports"]
 
 

@@ -17,7 +17,6 @@ from worldmock.life.callbacks import (
     reset_on_receipt, settle_callback_dates, validate_callback_states,
 )
 from worldmock.life.world_setup import _initial_state
-from worldmock.profile.models import WorldDynamics
 from worldmock.scheduling.compile import compile_schedule
 
 
@@ -29,7 +28,7 @@ def world():
     inputs = load_environment(SOURCE, metadata_loader=lambda config: ModelMetadata(
         requested_model=config.requested_model, metadata_url=config.metadata_url,
         context_window=524288, max_output_tokens=32768))
-    state = _initial_state(inputs, "callback-tests", WorldDynamics(social_need_growth_per_hour=0.06))
+    state = _initial_state(inputs, "callback-tests")
     return inputs, state
 
 

@@ -1,4 +1,4 @@
-"""共享真实单人生活引擎，模型服务与画像使用明确离线测试输入。"""
+"""共享真实单人生活引擎，模型服务使用明确离线测试输入，人物卡片来自夹具的人设表。"""
 
 from __future__ import annotations
 
@@ -19,8 +19,6 @@ def engine_factory_at(directory: Path, frozen_inputs):
     from worldmock.environment import load_environment
     from worldmock.life.engine import LifeEngine
     from tests.integration.runtime_fixtures import current_run_identity
-    from worldmock.profile.mapper import map_world_dynamics
-    from worldmock.profile.models import BigFiveProfile
     from worldmock.run_setup import stage_model_identity
 
     created = []
@@ -35,9 +33,8 @@ def engine_factory_at(directory: Path, frozen_inputs):
         run_id = f"test-{len(created)}"
         config = inputs.config
         identity = current_run_identity(inputs, run_id)
-        scores = BigFiveProfile(openness=4, conscientiousness=4, extraversion=4, agreeableness=4, neuroticism=4)
-        options = {"world_dynamics": map_world_dynamics(scores).model_dump(mode="json"), **(create_options or {})}
-        engine = LifeEngine.create(inputs, directory / f"run-{len(created)}", identity, stage_model_identity(config.model, inputs.model_metadata), options)
+        engine = LifeEngine.create(inputs, directory / f"run-{len(created)}", identity,
+                                   stage_model_identity(config.model, inputs.model_metadata), dict(create_options or {}))
         created.append(engine)
         return engine
 

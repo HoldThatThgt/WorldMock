@@ -23,7 +23,7 @@ def parameters():
     inputs = load_environment(ENVIRONMENT_ROOT, metadata_loader=fixture_metadata)
     config = assemble_body_config(inputs.persona)
     last_flows()
-    yield config, initial_body(config, 8.0, inputs.persona, 0.06)
+    yield config, initial_body(config, 8.0, inputs.persona)
     last_flows()
 
 
@@ -32,7 +32,7 @@ def _mass_body(mass_kg):
     raw = tomllib.loads((ENVIRONMENT_ROOT / "persona.toml").read_text(encoding="utf-8"))
     persona = PersonaConfig.model_validate({**raw, "body": {**raw["body"], "mass_kg": mass_kg}})
     config = assemble_body_config(persona)
-    body = initial_body(config, 8.0, persona, 0.06)
+    body = initial_body(config, 8.0, persona)
     last_flows()
     return config, body
 

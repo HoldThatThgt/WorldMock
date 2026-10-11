@@ -134,30 +134,50 @@ def test_republished_fixture_copy_with_a_distinct_unit_name_stays_valid(publishe
     assert json.loads(result.stdout)["valid"] is True
 
 
-@pytest.mark.parametrize("declared,reason", [
-    (b"lunch_window = [18.0, 19.0]\ndinner_window = [12.0, 13.0]\n",
-     "lunch_window must end before dinner_window starts"),
-    (b"bedtime_window = [22.0, 23.0]\nleave_work_window = [23.0, 23.5]\n",
-     "leave_work_window must not start after bedtime_window"),
-    (b"bedtime_window = [9.0, 10.0]\nlunch_window = [12.0, 13.0]\n",
-     "bedtime_window must not start before lunch_window"),
+@pytest.mark.parametrize("original,replacement,reason", [
+    (b"schema_version = 2\n", b"schema_version = 1\n", "schema_version: Input should be 2"),
+    (b"coping = \"\xe6\x8b\xbc\xe9\xab\x98\xe8\xbe\xbe\xe6\xa8\xa1\xe5\x9e\x8b\"\n", b"", "coping is required"),
+    (b"social_need_growth_per_hour = 0.06\n", b"", "social_need_growth_per_hour is required"),
+    (b"wake_window = [7.0, 7.5]\n", b"", "wake_window is required"),
+    (b"age = 32\n", b"", "identity.age is required"),
+    (b"lunch_window = [12.0, 13.0]\n", b"lunch_window = [13.0, 12.0]\n",
+     "lunch_window: must be two finite hours with start < end"),
+    (b"sleep_need_hours = 7.5\n", b"sleep_need_hours = 7.5\nbig_five = 4\n", "big_five is not a persona.toml field"),
 ])
-def test_contradictory_persona_rhythm_is_reported_with_its_verbatim_reason(published_environment, declared, reason):
-    """@brief 自相矛盾的作息声明让 validate 非零退出，输出里是 persona.toml、PERSONA_INVALID 和逐字的英文原因。"""
+def test_persona_table_failures_are_reported_with_the_field_named(published_environment, original, replacement,
+                                                                   reason):
+    """@brief 结构版本 1、缺少必填的卡片字段、不合格的时段和未知键都让 validate 非零退出，输出里是 persona.toml、
+    PERSONA_INVALID 和写出字段的英文原因。"""
     path = published_environment / "persona.toml"
-    assert path.read_bytes().count(b"\n[body]\n") == 1
-    path.write_bytes(path.read_bytes().replace(b"\n[body]\n", b"\n" + declared + b"\n[body]\n"))
+    assert path.read_bytes().count(original) == 1
+    path.write_bytes(path.read_bytes().replace(original, replacement))
     assert report(published_environment) == [{"path": "persona.toml", "code": "PERSONA_INVALID", "reason": reason}]
 
 
-def test_after_midnight_bedtime_with_dinner_passes_validation(published_environment):
-    """@brief 就寝起点在午夜之后的人物可以同时声明晚饭和就寝，不在格点上的声明值照常通过。"""
+def test_windows_without_any_plausible_order_pass_validation(published_environment):
+    """@brief 时段之间没有任何检查：早于晚饭的就寝、清晨才开始的就寝写法、午夜之后的下班和重叠的午饭晚饭都通过 validate。"""
     path = published_environment / "persona.toml"
-    declared = b"dinner_window = [19.0, 20.0]\nbedtime_window = [1.0, 1.5]\narrive_home_window = [18.25, 18.75]\n"
-    path.write_bytes(path.read_bytes().replace(b"\n[body]\n", b"\n" + declared + b"\n[body]\n"))
+    content = path.read_bytes()
+    for original, replacement in (
+            (b"lunch_window = [12.0, 13.0]\n", b"lunch_window = [12.0, 19.0]\n"),
+            (b"dinner_window = [18.5, 19.5]\n", b"dinner_window = [18.5, 19.5]\nleave_work_window = [25.0, 25.5]\n"),
+            (b"bedtime_window = [23.0, 24.0]\n", b"bedtime_window = [5.0, 7.0]\narrive_home_window = [18.25, 18.75]\n")):
+        assert content.count(original) == 1
+        content = content.replace(original, replacement)
+    path.write_bytes(content)
     result = _command("validate", "--environment", published_environment)
     assert result.returncode == 0, result.stdout + result.stderr
     assert json.loads(result.stdout)["valid"] is True
+
+
+@pytest.mark.parametrize("arguments", [("profile",), ("profile", "compile", "--persona", "persona.toml"),
+                                       ("profile", "check", "--persona", "persona.toml"),
+                                       ("profile", "validate", "--environment", "environment")])
+def test_profile_is_not_a_command(arguments):
+    """@brief 人物卡片没有自己的命令：真实入口把 profile 当作无效选择，以参数错误退出，不产生任何输出文件。"""
+    result = _command(*arguments)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "invalid choice: 'profile'" in result.stderr and result.stdout == ""
 
 
 def test_authoritative_metadata_failure_is_a_configuration_error(published_environment):

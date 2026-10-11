@@ -16,7 +16,7 @@ def body_inputs():
     raw = tomllib.loads(Path('tests/fixtures/dataset-environment/persona.toml').read_text(encoding='utf-8'))
     persona = PersonaConfig.model_validate(raw)
     config = assemble_body_config(persona)
-    body = initial_body(config, 8.0, persona, 0.06)
+    body = initial_body(config, 8.0, persona)
     last_flows()
     return config, body
 

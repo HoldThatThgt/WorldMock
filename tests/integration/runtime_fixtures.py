@@ -25,15 +25,14 @@ def write_agent_workspace(workspace: Path, *, agent_document=None, config_docume
 
 
 def _created_persona_profile() -> dict:
-    """@brief 恢复夹具冻结与真实新建入口同形的有效卡片，抽取层使用明确测试卡片。"""
+    """@brief 恢复夹具冻结与真实新建入口同形的有效卡片，卡片由夹具人设表构造。"""
     from tests.data_paths import ENVIRONMENT_ROOT
-    from tests.profile.conftest import make_card
     from tests.frozen_inputs import fixture_metadata
     from worldmock.environment import load_environment
     from worldmock.run_setup import creation_inputs
 
     inputs = load_environment(ENVIRONMENT_ROOT, metadata_loader=fixture_metadata)
-    return creation_inputs(inputs, {inputs.persona.agent_id: make_card()})[0][0]["profile"]
+    return creation_inputs(inputs)[0][0]["profile"]
 
 
 def current_run_identity(inputs, run_id: str):

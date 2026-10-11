@@ -11,7 +11,6 @@ import tomlkit
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.dayrun_baseline import day_baseline_signature, deterministic_day_runtime
 from tests.frozen_inputs import fixture_metadata
-from tests.integration.runtime.current_contract_fixtures import compiled_persona
 from tests.integration.runtime_fixtures import current_run_identity, write_agent_workspace
 from tests.life.conftest import do_at, purchase, sleep, stage_day_plan, travel, use_app
 from tests.life.environment_runtime import act, act_group, finish_activity, run_to_end
@@ -93,10 +92,8 @@ def record_complete_day(monkeypatch, case: Path, project: Path, kind: str) -> di
     case.mkdir(parents=True)
     inputs = _environment(case, kind)
     identity = current_run_identity(inputs, f"baseline-{kind}")
-    compiled = compiled_persona(inputs)
     engine = LifeEngine.create(inputs, case / "run", identity,
-        stage_model_identity(inputs.config.model, inputs.model_metadata),
-        {"world_dynamics": compiled.world_dynamics.model_dump(mode="json")})
+        stage_model_identity(inputs.config.model, inputs.model_metadata), {})
     try:
         stage_day_plan(engine)
         (_activity_day if kind == "activity" else _callback_day)(engine)

@@ -4,7 +4,6 @@ import math
 import tomllib
 
 import pytest
-from pydantic import ValidationError
 
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.unit.life.test_environment_body import body_inputs
@@ -15,7 +14,8 @@ from worldmock.life.body import (
 )
 from worldmock.life.body_config import assemble_body_config
 from worldmock.life.felt import (
-    MealWindows, appetite_level, changed_felt_levels, compute_appetite, meal_window_bonus, sleepiness_level,
+    MealWindows, appetite_level, changed_felt_levels, compute_appetite, in_clock_window, meal_window_bonus,
+    sleepiness_level,
 )
 from worldmock.life.models import ActivityKind
 from worldmock.life.sleep import (
@@ -44,19 +44,36 @@ def test_invalid_discomfort_duration_cannot_create_a_relaxation_pulse(body_input
     assert "Discomfort hours must be finite and nonnegative" in caplog.text
 
 
+@pytest.mark.parametrize("window,inside,outside", [
+    ((12, 13), (12, 12.999), (11.999, 13, 0)),
+    ((23.5, 24.5), (23.5, 23.999, 0, 0.499), (23.499, 0.5, 12)),
+    ((25, 26), (1, 1.999), (0.999, 2, 23.5)),
+    ((23, 24), (23, 23.999), (22.999, 0)),
+    ((-1, 0.5), (23, 23.999, 0, 0.499), (22.999, 0.5)),
+    ((48.5, 49), (0.5, 0.999), (0.499, 1)),
+    ((6, 20.5), (6, 12, 20.499), (5.999, 20.5, 23)),
+    ((0, 24), (0, 12, 23.999), ()),
+    ((22, 47), (22, 3, 21.999, 0), ()),
+])
 @pytest.mark.parametrize("name", ["lunch", "dinner"])
-@pytest.mark.parametrize("window", [(-0.01, 1), (1, 1), (2, 1), (23, 24.01)])
-def test_meal_windows_reject_empty_backward_or_out_of_day_intervals(name, window, caplog):
-    with pytest.raises(ValidationError, match=f"{name} window must satisfy"):
-        MealWindows(**{name: window})
-    assert "Felt input is invalid" in caplog.text
+def test_meal_windows_are_read_on_the_clock_without_any_range_rule(name, window, inside, outside):
+    """饭点时段按钟面读：两端各对 24 取模，取模后起点不小于终点的时段跨过午夜，跨度达到 24 小时全天命中；
+    含起点不含终点。时段没有 0 到 24 的范围检查，写成大于 24 或小于 0 的小时数都照此判断。"""
+    windows = MealWindows(**{name: window})
+    assert getattr(windows, name) == window
+    assert all(in_clock_window(hour, window) for hour in inside)
+    assert not any(in_clock_window(hour, window) for hour in outside)
+    assert [meal_window_bonus(hour, windows) for hour in inside] == [0.15] * len(inside)
+    assert [meal_window_bonus(hour, windows) for hour in outside] == [0] * len(outside)
 
 
-@pytest.mark.parametrize("dinner", [(12.5, 14), (12, 13), (11, 14)])
-def test_overlapping_meal_windows_cannot_double_count_a_meal_bonus(dinner, caplog):
-    with pytest.raises(ValidationError, match="dinner window must not overlap lunch window"):
-        MealWindows(lunch=(12, 13), dinner=dinner)
-    assert "Felt input is invalid" in caplog.text
+@pytest.mark.parametrize("dinner", [(12.5, 14), (12, 13), (11, 14), (36.5, 38)])
+def test_overlapping_meal_windows_load_and_never_double_count_a_meal_bonus(dinner):
+    """午饭与晚饭可以重叠：重叠处只加一次 0.15，只落在其中一个时段里也是 0.15，都不在时为 0。"""
+    windows = MealWindows(lunch=(12, 13), dinner=dinner)
+    assert meal_window_bonus(12.75, windows) == 0.15
+    assert meal_window_bonus(13.5, windows) == (0.15 if in_clock_window(13.5, dinner) else 0)
+    assert meal_window_bonus(9, windows) == 0
 
 
 @pytest.mark.parametrize("hour,expected", [
@@ -163,7 +180,7 @@ def _mass_inputs(mass_kg, hour):
     raw = tomllib.loads((ENVIRONMENT_ROOT / "persona.toml").read_text(encoding="utf-8"))
     persona = PersonaConfig.model_validate({**raw, "body": {**raw["body"], "mass_kg": mass_kg}})
     config = assemble_body_config(persona)
-    body = initial_body(config, hour, persona, 0.06)
+    body = initial_body(config, hour, persona)
     last_flows()
     return config, body
 

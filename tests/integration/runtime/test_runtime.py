@@ -40,7 +40,7 @@ from worldmock.footprints.store import FootprintStore
 from worldmock.life.models import CounterfactualIntervention
 from worldmock.runtime import CounterfactualRequest, ResumeRequest, RunRequest, _build_society, _execute, _intervention_sha256, _prepare_new_run, _require_run_shell, _restore_branch, replay_world, resume_world, run_world
 from worldmock.validation import validate_environment
-from tests.integration.runtime.current_contract_fixtures import inputs, metadata_service, compiled_persona
+from tests.integration.runtime.current_contract_fixtures import inputs, metadata_service
 
 ROOT = Path(__file__).resolve().parents[3]
 SCENARIO = ENVIRONMENT_ROOT
@@ -288,9 +288,6 @@ async def test_run_manifest_records_git_commit_and_dirty_flag(monkeypatch, tmp_p
     from custom.envs.life_env import LifeEnv
 
     metadata_service(monkeypatch)
-    async def compile_card(*arguments):
-        return compiled_persona(inputs())
-    monkeypatch.setattr(__import__("worldmock.run_setup", fromlist=["_compile_persona"]), "_compile_persona", compile_card)
     use_fake_as2(monkeypatch, tmp_path_factory.mktemp("as2-site"))
     _hermetic_git(monkeypatch, tmp_path_factory)
     checkout, head = _committed_project(tmp_path_factory.mktemp("checkout"))
@@ -300,7 +297,7 @@ async def test_run_manifest_records_git_commit_and_dirty_flag(monkeypatch, tmp_p
     manifests = []
     for project, run_dir in ((checkout, tmp_path / "git-run"), (plain, tmp_path / "plain-run")):
         prepared = _prepare_new_run(RunRequest(project, SCENARIO, run_dir, "identity", "identity"))
-        await runtime_module._society_specs(prepared)
+        runtime_module._society_specs(prepared)
         env = LifeEnv(**prepared.env_kwargs)
         await env.init(prepared.start_time)
         try:
