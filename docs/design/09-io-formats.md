@@ -2,8 +2,8 @@
 
 ## 单一状态归属
 
-完整环境由不可变输入对象承载，世界由唯一已提交 WorldState 承载。运行状态结构版本为 13，运行清单结构版本为 6，
-`persona.toml` 与 `config.toml` 的 `schema_version` 都为 2。
+完整环境由不可变输入对象承载，世界由唯一已提交 WorldState 承载。运行状态结构版本为 13，运行清单结构版本为 6；
+`persona.toml` 与 `config.toml` 各自的 `schema_version` 写在[配置](08-configuration.md)「人物声明」与「运行配置」的字段表里。
 不接受旧结构、兼容字段、迁移和 fallback；所有当前模型拒绝未知字段，原始 JSONL/TOML 输入规则归
 [配置](08-configuration.md)与[资源引擎](03-resource-engine.md)。
 一个结构号只守一种结构：字段集合、取值闭集或可接受的取值域变了才升号，只有取值变了不升号。

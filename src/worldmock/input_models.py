@@ -102,9 +102,9 @@ NonBlankText = Annotated[str, Field(pattern=r"\S")]
 
 
 class Identity(InputModel):
-    """@brief 人物卡片的身份：年龄、职业、居住方式。"""
+    """@brief 人物卡片的身份：年龄、职业、居住方式。年龄不进任何计算，只要求是严格整数，不设范围。"""
 
-    age: int = Field(ge=16, le=100)
+    age: int
     occupation: str = Field(min_length=1, max_length=20)
     living_arrangement: str = Field(min_length=1, max_length=30)
 

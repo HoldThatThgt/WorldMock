@@ -32,10 +32,13 @@ async def test_viewer_fixture_is_recorded_from_the_current_host(_engine_factory)
     assert recorded["action"]["tools"] == requests["action"]["tools"]
     assert recorded["continuation"]["messages"][:2] == recorded["action"]["messages"]
     assert requests["continuation"]["messages"][:2] == requests["action"]["messages"]
-    names = {tool["function"]["name"] for tool in requests["action"]["tools"]}
+    # 录制样例里的工具清单：十一个工具各出现一次，含两个开始工具，不含已删除的 start_activity。
+    listed = [tool["function"]["name"] for tool in recorded["action"]["tools"]]
+    names = set(listed)
+    assert len(listed) == len(names) == 11
     assert {"start_main_activity", "start_side_activity", "report_status", "pause_activity", "conclude_activity",
             "revise_day_plan", "query_world", "recall_task_summary"} <= names
-    assert names.isdisjoint({"set_alarm", "send_message", "submit_work"})
+    assert names.isdisjoint({"start_activity", "set_alarm", "send_message", "submit_work"})
     events = engine.context.store.read_events(engine.context.store.last_event_seq)
     assert not any(event.event_type == "action_rejected" for event in events)
     activity = next(iter(engine.context.state.activities.values()))

@@ -58,12 +58,14 @@ def test_guided_refusal_without_a_remedy_exposes_null_instead_of_inventing_a_ste
     }
 
 
-def test_busy_activity_refusal_names_the_actual_activities_to_release():
+def test_refusal_carries_only_the_next_step_its_author_wrote():
+    """拒绝的下一步只有写它的地方写明的那一句；写不写「暂停」由那里按能否暂停决定，这里不另拼一句。"""
     error = Refusal("RESOURCE_CONFLICT", "Both activity slots are occupied.",
-                    suggested={"conclude_or_pause": ["浏览哔哩哔哩", "步行前往公司"]}).error()
+                    "Conclude one of 浏览哔哩哔哩、步行前往公司 first.").error()
+    assert error.suggested == {"next_step": "Conclude one of 浏览哔哩哔哩、步行前往公司 first."}
     assert rejection_guidance(error) == {
         "reason": "Both activity slots are occupied.",
-        "next_step": "Conclude or pause 浏览哔哩哔哩, 步行前往公司 first.",
+        "next_step": "Conclude one of 浏览哔哩哔哩、步行前往公司 first.",
         "fix": None,
     }
 

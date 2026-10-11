@@ -99,7 +99,7 @@ TOML 要求顶层的键写在所有表之前，所以 `coping` 和各个时段�
 | `bedtime_window` | 是 | 开始就寝的时段，不是整夜 | 人物看到的作息、零点计划 |
 | `leave_work_window`、`arrive_home_window` | 否 | 时段；不写就是没有固定时刻 | 人物看到的作息、零点计划、评估里的下班与到家偏离 |
 | `coping` | 是 | 压力时做什么，不超过 60 个字符 | 人物看到的自己 |
-| `identity` | 是 | `age` 16 到 100，`occupation` 不超过 20 个字符，`living_arrangement` 不超过 30 个字符 | 人物看到的自己 |
+| `identity` | 是 | `age` 写整数，不限范围；`occupation` 不超过 20 个字符，`living_arrangement` 不超过 30 个字符 | 人物看到的自己 |
 | `situation` | 是 | `busy_this_week`、`cares_about` 各不超过 60 个字符 | 记忆巩固与就寝反思读的卡片文本 |
 | `relationships` | 是 | 至多 4 个人，没有就写 `relationships = []` | 人物看到的关系，以及记忆里能写到的人 |
 | `habits` | 是 | 至多 5 条，没有就写 `habits = []` | 人物看到的习惯 |

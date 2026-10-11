@@ -111,8 +111,9 @@ flowchart LR
 同槽位占用的原因点名占用者：`The first activity slot is occupied by <活动名>.` 或
 `The second activity slot is occupied by <活动名>.`；占用者此刻能暂停时下一步是 `Conclude or pause <活动名> first.`，
 否则是 `Conclude <活动名> first.`，能否暂停见本节末尾。
-睡眠约束的原因是 `Sleep requires the second activity slot to be empty.`；冲突来自同组的副调用时，
-改法是单独提交 `start_main_activity`。
+睡眠约束的原因是 `Sleep requires the second activity slot to be empty.`。槽位 2 已被占时，占用者此刻能暂停时下一步是
+`Conclude or pause the second activity first.`，否则是 `Conclude the second activity first.`，例如占着槽位 2 的是购买，
+或者是离计划结束不足 180 秒的 app 内容；冲突来自同组的副调用时没有下一步，改法是单独提交 `start_main_activity`。
 
 睡眠由人物写时长：`target` 是 10 到 720 的整数分钟，只写数字，全角数字与空白先归一；
 带单位、小数、正负号或越界的写法都拒绝，引擎不换算、不取整、不截断。
@@ -167,7 +168,7 @@ flowchart LR
 | `fix` | `Conclude this activity or let it finish instead.` |
 
 能否暂停只有一处判定，`activity_control.pausable`：活动进行中、是 interact、离计划结束不少于 180 秒。
-暂停的受理、工具层活动目标行里 `pause_activity` 的 `available` 与 `reason`、同槽位占用的下一步写不写「暂停」、
+暂停的受理、工具层活动目标行里 `pause_activity` 的 `available` 与 `reason`、同槽位占用和睡眠约束的下一步写不写「暂停」、
 槽位不够和恢复时占用冲突的下一步写不写「暂停」，读的都是它，所以人物看到的说明和提交后的结果不会不一致。
 暂停的那一刻活动因此至少还剩 180 秒。不到一分钟的余量仍会出现：人物在一件事快做完时用 `conclude_activity` 结束它，
 没做完的那一点留在共享进度里，下次点名或被挑中照样从那里接着做，开始时不对余量设下限。

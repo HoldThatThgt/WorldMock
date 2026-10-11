@@ -3,8 +3,8 @@ docs/design/04-simulation-engine.md「动作、名称与并行」）。
 
 拒绝结果的 data.reason（一句原因）、data.fix（怎样改这次请求，没有可照做的改法时为 null）、data.next_step（世界里下一步
 做什么：可读的活动名、地点名或做法，不含内部身份，没有时为 null）与逐项明细 data.items 由本模块从拒绝确定性生成：
-引导性拒绝在抛出处用 guided() 或 Refusal.error() 写明原因与下一步（或以可读名称写 suggested），原因记在错误的
-public_reason 上，改法与逐项明细写进 suggested；其余错误码按码取默认原因与改法，从不取链式底层异常的文字（其中可能是
+引导性拒绝在抛出处用 guided() 或 Refusal.error() 写明原因与下一步，原因记在错误的
+public_reason 上，下一步、改法与逐项明细写进 suggested；其余错误码按码取默认原因与改法，从不取链式底层异常的文字（其中可能是
 请求模型的校验转储）。源码中会抛出的每个业务拒绝码都有具体的默认原因，行为由跨模块错误合同测试验证。
 结果 message 就是 reason；这些键经公开结果投影进入进度层 tool_call.result.details（docs/design/06-agent.md
 「进度、待办与记忆」）。工具层的可用性说明取同一原因：只有错误码的拒绝经 refusal_for_code 取得与拒绝一字不差的 Refusal。
@@ -98,10 +98,9 @@ _PUBLIC_SUGGESTIONS = ("items", "resolved", "notes")
 
 @dataclass(frozen=True, slots=True)
 class Refusal:
-    """@brief 一条不成立的准入：错误码、一句原因、可读的下一步、改法、逐项明细与私有的未满足条件和建议（不抛出，供说明
-    复用）。
+    """@brief 一条不成立的准入：错误码、一句原因、可读的下一步、改法、逐项明细与私有的未满足条件（不抛出，供说明复用）。
 
-    :param suggested: 私有 data.suggested 的可读建议（例如 {"conclude_or_pause": [活动名]}）；省略时写下一步。
+    :param next_step: 世界里下一步做什么；提到暂停的下一步由写它的地方按 activity_control.pausable 决定写不写。
     :param fix: 怎样改这次请求；空串时取该码的默认改法。
     :param items: 逐项明细（第四章 items[]），写进 suggested 后公开。
     """
@@ -110,15 +109,13 @@ class Refusal:
     reason: str
     next_step: str = ""
     unmet: tuple[str, ...] = ()
-    suggested: dict | None = None
     fix: str = ""
     items: tuple[ErrorItem, ...] = ()
 
     def error(self) -> PreconditionError:
-        """@brief 换成可抛出的业务拒绝：原因写在 public_reason 上（也作链式底层原因），建议或下一步、改法与逐项明细写进
+        """@brief 换成可抛出的业务拒绝：原因写在 public_reason 上（也作链式底层原因），下一步、改法与逐项明细写进
         suggested。"""
-        suggested = dict(self.suggested) if self.suggested is not None else (
-            {"next_step": self.next_step} if self.next_step else {})
+        suggested: dict = {"next_step": self.next_step} if self.next_step else {}
         if self.fix:
             suggested["fix"] = self.fix
         if self.items:
@@ -184,7 +181,7 @@ def rejection_guidance(error: BusinessRuleError) -> dict:
     名称归一 resolved 与说明 notes（有才写）。
 
     原因只取 guided() 或 Refusal.error() 写明的 public_reason，否则按错误码取默认原因（不读链式底层异常）；下一步取
-    suggested 中的可读下一步、要去的地点或要先处理的活动名，否则按错误码取默认做法；改法取 suggested 中写明的，否则按
+    suggested 中写明的下一步，否则按错误码取默认做法；改法取 suggested 中写明的，否则按
     错误码取默认改法。下一步与改法没有时为 None（公开结果写 null，docs/design/06-agent.md「提示与工具」：允许为空
     的写 null，不填编造的值）。逐项明细里的候选是可照填的请求 {target, action}（至多 3 个，
     docs/design/04-simulation-engine.md）。
@@ -192,16 +189,7 @@ def rejection_guidance(error: BusinessRuleError) -> dict:
     code = str(error)
     suggested = getattr(error, "suggested", None) or {}
     guidance = {"reason": getattr(error, "public_reason", None) or default_reason(code),
-                "next_step": _next_step(suggested) or _DEFAULT_NEXT_STEPS.get(code) or None,
+                "next_step": suggested.get("next_step") or _DEFAULT_NEXT_STEPS.get(code) or None,
                 "fix": suggested.get("fix") or _DEFAULT_FIXES.get(code) or None}
     guidance.update({key: list(suggested[key]) for key in _PUBLIC_SUGGESTIONS if suggested.get(key)})
     return guidance
-
-
-def _next_step(suggested: dict) -> str:
-    """@brief 把可读的建议写成一句下一步：直接写明的下一步、要去的地点或要先结束或暂停的活动。"""
-    if suggested.get("next_step"):
-        return str(suggested["next_step"])
-    if suggested.get("conclude_or_pause"):
-        return f"Conclude or pause {', '.join(suggested['conclude_or_pause'])} first."
-    return ""

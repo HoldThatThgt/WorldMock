@@ -18,8 +18,8 @@ flowchart LR
     World --> Run[构造人物卡片并创建运行]
 ```
 
-`persona.toml` 与 `config.toml` 都使用 `schema_version = 2`，写其他值的文件直接拒绝，
-没有读取旧格式的分支；两份文件都是 UTF-8 无 BOM、只用 LF。
+`persona.toml` 与 `config.toml` 各有自己的 `schema_version`，取值分别写在「人物声明」和「运行配置」的字段表里；
+写其他值的文件直接拒绝，没有读取旧格式的分支。两份文件都是 UTF-8 无 BOM、只用 LF。
 文件、编码、解析、类型、未知字段、范围与卡片文本超长的失败在创建世界和运行资产前拒绝。
 输入按原字节冻结 SHA-256，不规范化后计算。纯加载不请求生成模型、不创建资产。
 所有输入失败以英文记录，人物输入使用 `PERSONA_INVALID`，运行配置使用 `RUN_CONFIG_INVALID`。
@@ -46,7 +46,7 @@ flowchart LR
 | `wake_window`、`leave_home_window`、`lunch_window`、`dinner_window`、`bedtime_window` | 必填 | 时段，见下文；起床、出门、午饭、晚饭、开始就寝 |
 | `leave_work_window`、`arrive_home_window` | 可省略 | 时段；不写表示没有固定的下班或到家时刻，与 `work_schedule` 写没写无关 |
 | `coping` | 必填 | 压力时做什么，1 到 60 个字符 |
-| `identity` | 必填 | 表：`age` 严格整数 16 到 100，`occupation` 1 到 20 个字符，`living_arrangement` 1 到 30 个字符 |
+| `identity` | 必填 | 表：`age` 严格整数，不设范围；`occupation` 1 到 20 个字符，`living_arrangement` 1 到 30 个字符 |
 | `situation` | 必填 | 表：`busy_this_week`、`cares_about` 各 1 到 60 个字符 |
 | `relationships` | 必填 | 数组，0 到 4 项；每项 `name_or_appellation`、`role` 各 1 到 12 个字符，`intimacy` 严格整数 0 到 30，`channels` 是 1 到 3 项非空白文字 |
 | `habits` | 必填 | 数组，0 到 5 项；每项 `trigger` 1 到 30 个字符，`response` 1 到 40 个字符，`time_window` 是时段 |
@@ -63,7 +63,8 @@ flowchart LR
 数组可以为空的只有 `relationships`、`habits` 和 `tastes` 的三个数组，空数组也必须写出来。
 
 保留的检查只有表的格式和计算要用的：类型、必填、数值范围（睡眠中点、睡眠需要、社交需要增长是公式的定义域，
-亲密度是分档的定义域，年龄限在 16 到 100）、提示容量依赖的条数与字数上限和卡片文本的 600 汉字上限，以及时段的那一条。
+亲密度是分档的定义域）、提示容量依赖的条数与字数上限和卡片文本的 600 汉字上限，以及时段的那一条。
+年龄不进任何计算，只照写进人设层和卡片文本，所以只要求是严格整数，写多大由数据集负责。
 条数与字数上限各管一个字段，合起来仍可能超过 600 汉字，口味数组里的词也没有单独的字数上限；
 所以加载时用整张表构造一次卡片文本并数汉字，超过 600 就拒绝。这一步是纯计算，不调用模型，
 文本怎样组成见[人物](06-agent.md)「人物身份与画像」。饭点加成按钟面读时段，对任何合格的时段都有定义，

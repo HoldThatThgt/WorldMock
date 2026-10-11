@@ -95,6 +95,9 @@ MUTATIONS = (
         "channels: list[NonBlankText]", "channels: list[str]",
         ("tests/unit/test_environment_inputs.py"
          "::test_table_format_and_formula_ranges_are_rejected_with_the_field_named",)),
+    SourceMutation("age_plausibility_range_restored", "worldmock.input_models::Identity",
+        "age: int", "age: int = Field(ge=16, le=100)",
+        ("tests/unit/test_environment_inputs.py::test_age_takes_any_integer_the_dataset_writes",)),
     SourceMutation("previous_run_config_version_accepted", "worldmock.input_models::RunConfig",
         "schema_version: Literal[2]", "schema_version: Literal[1, 2]",
         ("tests/unit/test_environment_inputs.py"
@@ -158,6 +161,12 @@ MUTATIONS = (
     SourceMutation("pause_refused_with_exactly_three_minutes_left", "worldmock.life.activity_control::pausable",
         "state.current_time >= PAUSE_MIN_REMAINING_SECONDS", "state.current_time > PAUSE_MIN_REMAINING_SECONDS",
         ("tests/integration/life/test_pause_limit.py::test_pause_with_exactly_180_seconds_left_succeeds",)),
+    SourceMutation("sleep_refusal_offers_pausing_whatever_holds_slot_two", "worldmock.life.admission::_sleep_refusal",
+        'step = f"{_release_step(context, occupant)} the second activity first."',
+        'step = "Conclude or pause the second activity first."',
+        ("tests/integration/life/test_pause_limit.py::test_sleep_refusal_never_offers_pausing_a_running_purchase",
+         "tests/integration/life/test_pause_limit.py"
+         "::test_sleep_refusal_offers_pausing_the_app_only_while_it_can_be_paused")),
     SourceMutation("oversleep_key_without_action", "worldmock.life.sleep_plan::oversleep_seconds",
         'f"oversleep:{action_id}"', '"oversleep:"',
         ("tests/unit/life/test_sleep_plan.py"
