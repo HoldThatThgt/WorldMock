@@ -249,6 +249,11 @@ python -m pytest tests
 测试耗时、覆盖率明细和运行回执写到 `.work/`。CI 自动上传 JUnit、覆盖率报告和设计 HTML，
 从 PR 检查进入 workflow 摘要查看结果，并在 Artifacts 下载附件。
 测试实际消费的输入、期望行为与必要基线留在 `tests/`，不以历史收据代替本次结果。
+两份完整日基线 `tests/fixtures/dayrun-activity-baseline.json` 与 `tests/fixtures/dayrun-callback-baseline.json`
+绑定代码身份：摘要包含冻结的运行清单，其中有 `code_sha256`、提示指纹、工具指纹和环境身份，比对时不屏蔽它们。
+改了生产源码的变更，哪怕只改注释，都要按双候选规程重冻这两份基线：在两个独立进程里各录一份候选，
+交给 `scripts/freeze_rrs_baseline.py`；两份候选逐项相等且身份合法才写入，否则目标文件保留原字节，
+先查明不确定性的来源，不重试到相等为止。`tests/` 不计入代码身份，提交基线不会让它再次失效。
 模型提供商、平台能力和长期人物行为必须由对应真实运行证明，离线测试不能替代。
 
 修改公开行为时，同一变更更新所属模块设计、实现与行为测试；用户操作改变时更新手册。

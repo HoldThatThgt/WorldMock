@@ -55,7 +55,7 @@ JSONL 按真实 UTF-8 字节和 LF 逐行解析。零字节表示零行；末尾
 模型未知字段优先使用种类错误，再按实际字段判断数值错误。行内空白和键序不规范化，身份按实际字节计算。
 
 清单原始对象中的 `rules_version` 若为严格整数，先比较当前规则版本，再解析严格清单模型。
-不匹配直接报 `RULES_VERSION_MISMATCH`；字符串、布尔、缺失版本、`format_version` 不是 4 和非法清单形状报 `ENVIRONMENT_KIND_INVALID`。
+不匹配直接报 `RULES_VERSION_MISMATCH`；字符串、布尔、缺失版本、`format_version` 不是当前目录格式号和非法清单形状报 `ENVIRONMENT_KIND_INVALID`。
 加载与纯校验读四个必需文件和清单文件表登记的可选文件；不存在因而没有登记的可选文件按零行处理，
 此后的对象登记、索引和运行不区分「不存在」与「零行」。
 
