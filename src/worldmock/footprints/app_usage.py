@@ -12,6 +12,10 @@ from zoneinfo import ZoneInfo
 from worldmock.errors import IntegrityError
 from worldmock.life.action_contract import ACTIVITY_ACTIONS
 
+#: 可以带活动快照的事件：受理、拒绝、结果、进度和环境事件。拒绝带的是被拒那一刻仍在进行的那项活动，世界没有变。
+_SNAPSHOT_EVENT_TYPES = frozenset({"action_accepted", "action_rejected", "action_result", "environment_event",
+                                   "activity_progress"})
+
 
 @dataclass
 class _Projection:
@@ -121,7 +125,7 @@ def validate_app_event_source(event: dict) -> None:
             _invalid_source("Run end must be a system-visible environment event")
     snapshots = activity_snapshots(data)
     if snapshots:
-        if (event["event_type"] not in {"action_accepted", "action_result", "environment_event", "activity_progress"}
+        if (event["event_type"] not in _SNAPSHOT_EVENT_TYPES
                 or event.get("source_kind") != "environment" or event.get("visibility") != "agent"):
             _invalid_source("Activity snapshots must come from agent-visible environment events")
         if any(row["kind"] not in {"sleep", "travel", "interact", "purchase"} for row in snapshots):
