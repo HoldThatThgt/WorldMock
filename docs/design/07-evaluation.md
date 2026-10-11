@@ -50,8 +50,12 @@ flowchart LR
 
 工作输入从冻结环境的 `persona.toml` 和 `config.toml` 打包，不读人物工作区。
 `AgentWorkday` 保存工作安排、住处、实际工作地点以及下班和到家窗口。
-下班和到家窗口取 `persona.toml` 的 `leave_work_window` 与 `arrive_home_window` 原值，没有写的那一项偏离为空；
-小时数按当天零点加上这么多小时换成时刻并截到整秒，所以大于 24 的小时数落在次日。
+下班和到家窗口取 `persona.toml` 的 `leave_work_window` 与 `arrive_home_window` 原值，没有写的那一项偏离为空。
+窗口按钟面读，与人设层显示的时刻相同：起点减去整数个 24 小时落进 0 到 24，终点减去同样多的小时，
+所以 `[25.0, 25.5]` 是每天的 01:00 到 01:30，`[23.5, 24.5]` 是 23:30 到次日 00:30；换成时刻时截到整秒。
+一次离开或到家，与它所在本地日的前一天、当天、次日这三次窗口里离它最近的一次比较：
+落在窗口内偏离为 0，早于起点为负，晚于终点为正；两次一样近时取较早的那一次。
+对 `[25.0, 25.5]`，凌晨 01:10 离开的偏离是 0，前一晚 23:50 离开是 −70 分钟。
 报告保留 `shift_seconds`、`at_workplace_seconds`、`break_seconds`、`declared_exception_seconds`、
 `absence_seconds`、`early_leave_seconds`，不从内容、应用或地点推断工作活动。
 作息偏离只比较真实离开工作地点、到家和睡眠时刻，不读取日计划。

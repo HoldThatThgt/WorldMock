@@ -20,7 +20,7 @@ flowchart LR
 
 `persona.toml` 使用 `schema_version = 2`，`config.toml` 使用 `schema_version = 1`，写其他值的文件直接拒绝，
 没有读取旧格式的分支；两份文件都是 UTF-8 无 BOM、只用 LF。
-文件、编码、解析、类型、未知字段与范围失败在创建世界和运行资产前拒绝。
+文件、编码、解析、类型、未知字段、范围与卡片文本超长的失败在创建世界和运行资产前拒绝。
 输入按原字节冻结 SHA-256，不规范化后计算。纯加载不请求生成模型、不创建资产。
 所有输入失败以英文记录，人物输入使用 `PERSONA_INVALID`，运行配置使用 `RUN_CONFIG_INVALID`。
 地点引用使用资源引擎规定的登记码。
@@ -61,11 +61,15 @@ flowchart LR
 `channels` 的取值闭集是「电话」「微信」「见面」。数组可以为空的只有 `relationships`、`habits` 和 `tastes` 的三个数组，空数组也必须写出来。
 
 保留的检查只有表的格式和计算要用的：类型、必填、渠道闭集、数值范围（睡眠中点、睡眠需要、社交需要增长是公式的定义域，
-亲密度是分档的定义域，年龄限在 16 到 100）、人设层 600 汉字预算依赖的条数与字数上限，以及时段的那一条。饭点加成按钟面读时段，对任何合格的时段都有定义，
+亲密度是分档的定义域，年龄限在 16 到 100）、提示容量依赖的条数与字数上限和卡片文本的 600 汉字上限，以及时段的那一条。
+条数与字数上限各管一个字段，合起来仍可能超过 600 汉字，口味数组里的词也没有单独的字数上限；
+所以加载时用整张表构造一次卡片文本并数汉字，超过 600 就拒绝。这一步是纯计算，不调用模型，
+文本怎样组成见[人物](06-agent.md)「人物身份与画像」。饭点加成按钟面读时段，对任何合格的时段都有定义，
 所以不为它另加范围检查，见[交换引擎](02-exchange-engine.md)「身体共同结算」。
 
-未知字段、类型不符、缺少必填字段和取值越界在加载时以 `PERSONA_INVALID` 拒绝，`path` 为 `persona.toml`，
-`reason` 先写出错字段的点分路径，没有改法字段：
+未知字段、类型不符、缺少必填字段、取值越界和卡片文本超长在加载时以 `PERSONA_INVALID` 拒绝，`path` 为 `persona.toml`，
+`reason` 先写出错字段的点分路径，没有改法字段。路径只由字段名、表的键和数组下标组成，
+例如 `work_schedule.exceptions.2026-01-05`：
 
 | 情形 | `reason` |
 | --- | --- |
@@ -74,8 +78,9 @@ flowchart LR
 | 时段不合格 | `<字段>: must be two finite hours with start < end`，习惯的时段写成 `habits.0.time_window` |
 | 其余类型或取值错误 | `<字段>: <英文说明>`；`schema_version = 1` 得到 `schema_version: Input should be 2` |
 | 初始能量超过系统上限 | `initial energy exceeds maximum energy` |
+| 卡片文本超过 600 汉字 | `persona card render exceeds budget: <汉字数> hanzi > 600 (input-side problem, not truncated)`，不带字段路径 |
 
-一次只报告第一处。文件本身读不出来（缺失、不是 UTF-8 无 BOM 与 LF、不是合法 TOML）时用文件级的原因，不带字段路径；
+一次只报告第一处，卡片文本的长度在各字段都合格之后才数。文件本身读不出来（缺失、不是 UTF-8 无 BOM 与 LF、不是合法 TOML）时用文件级的原因，不带字段路径；
 顶层出现已删除的旧模板字段时原因是 `legacy template fields are deleted, merge them into the card: [...]`。
 卡片怎样由这些字段构造和怎样显示归[人物](06-agent.md)「人物身份与画像」。
 

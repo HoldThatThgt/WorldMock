@@ -31,8 +31,8 @@ replay 从同一认证检查点构造干预分支，沿用冻结模型与输入�
 用户通过 `--environment` 显式指定完整环境根，删除 `--scenario` 生活运行输入和地图生成命令。
 环境验证、导出、状态查询与评估分别使用所属公开入口；评估自己的 scenario 配置文件与生活运行输入无关。
 命令是 `validate`、`run`、`resume`、`replay`、`status`、`export`、`evaluate`，没有 `profile` 子命令：
-人物卡片没有编译、一致性检查或覆盖率检查这几步，`worldmock validate` 检查 persona.toml 的每个字段；
-卡片文本超过 600 汉字仍在 run 构造卡片时报错，见[人物](06-agent.md)。
+人物卡片没有编译、一致性检查或覆盖率检查这几步，`worldmock validate` 检查 persona.toml 的每个字段，
+也检查由它构造的卡片文本不超过 600 汉字，见[人物](06-agent.md)；通过 `validate` 的人设表不会在 run 构造卡片时被拒绝。
 失败记录英文诊断，实际存在的输出目录才写失败状态；输入拒绝不能留下假的运行资产或成功回执。
 
 ## 原生模型与工具
