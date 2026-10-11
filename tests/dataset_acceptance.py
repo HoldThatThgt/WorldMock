@@ -158,6 +158,12 @@ MUTATIONS = (
     SourceMutation("pause_refused_with_exactly_three_minutes_left", "worldmock.life.activity_control::pausable",
         "state.current_time >= PAUSE_MIN_REMAINING_SECONDS", "state.current_time > PAUSE_MIN_REMAINING_SECONDS",
         ("tests/integration/life/test_pause_limit.py::test_pause_with_exactly_180_seconds_left_succeeds",)),
+    SourceMutation("sleep_refusal_offers_pausing_whatever_holds_slot_two", "worldmock.life.admission::_sleep_refusal",
+        'step = f"{_release_step(context, occupant)} the second activity first."',
+        'step = "Conclude or pause the second activity first."',
+        ("tests/integration/life/test_pause_limit.py::test_sleep_refusal_never_offers_pausing_a_running_purchase",
+         "tests/integration/life/test_pause_limit.py"
+         "::test_sleep_refusal_offers_pausing_the_app_only_while_it_can_be_paused")),
     SourceMutation("oversleep_key_without_action", "worldmock.life.sleep_plan::oversleep_seconds",
         'f"oversleep:{action_id}"', '"oversleep:"',
         ("tests/unit/life/test_sleep_plan.py"

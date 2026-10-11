@@ -113,6 +113,11 @@ def _name(context: Context, activity: ActivityState) -> str:
     return context.activity_names.get(activity.activity_id, activity.name)
 
 
+def _release_step(context: Context, occupant: ActivityState) -> str:
+    """@brief 让占用者让出槽位的做法：此刻能暂停（activity_control.pausable）时写结束或暂停，否则只写结束。"""
+    return "Conclude or pause" if activity_control.pausable(context.state, occupant) else "Conclude"
+
+
 def _slot_refusal(context: Context, main: Call | None, side: Call | None) -> Blocked | None:
     """@brief 同槽位占用：某条调用要占的槽位已有活动时点名占用者，能暂停的占用者下一步写结束或暂停。"""
     for call in (main, side):
@@ -120,22 +125,25 @@ def _slot_refusal(context: Context, main: Call | None, side: Call | None) -> Blo
         if occupant is None:
             continue
         name = _name(context, occupant)
-        step = "Conclude or pause" if activity_control.pausable(context.state, occupant) else "Conclude"
         refusal = Refusal("RESOURCE_CONFLICT", f"The {call.slot} activity slot is occupied by {name}.",
-                          f"{step} {name} first.", ("resource_claims",))
+                          f"{_release_step(context, occupant)} {name} first.", ("resource_claims",))
         return Blocked(refusal, (call.tool,))
     return None
 
 
 def _sleep_refusal(context: Context, main: Call | None, side: Call | None) -> Blocked | None:
-    """@brief 睡眠约束：睡眠要求槽位 2 空着，也不能与副调用同组；睡着时不能开始槽位 2 的活动。"""
+    """@brief 睡眠约束：睡眠要求槽位 2 空着，也不能与副调用同组；睡着时不能开始槽位 2 的活动。
+
+    槽位 2 已被占时，下一步与同槽位占用一样按占用者此刻能否暂停写：能暂停写结束或暂停，否则只写结束。
+    """
     if main is not None and main.action == "sleep":
         if side is not None:
             refusal = Refusal("RESOURCE_CONFLICT", _SLEEP_SLOT_REASON, fix="Submit start_main_activity alone to sleep.")
             return Blocked(refusal, (main.tool, side.tool))
-        if _occupant(context, "second") is not None:
-            refusal = Refusal("RESOURCE_CONFLICT", _SLEEP_SLOT_REASON, "Conclude or pause the second activity first.")
-            return Blocked(refusal, (main.tool,))
+        occupant = _occupant(context, "second")
+        if occupant is not None:
+            step = f"{_release_step(context, occupant)} the second activity first."
+            return Blocked(Refusal("RESOURCE_CONFLICT", _SLEEP_SLOT_REASON, step), (main.tool,))
     asleep = any(activity.agent_id == context.agent_id and activity.kind == ActivityKind.SLEEP
                  and activity.status == ActivityStatus.ACTIVE for activity in context.state.activities.values())
     if asleep and side is not None:

@@ -155,11 +155,13 @@ def test_sleep_and_second_slot_are_rejected_in_any_call_order(side, reverse):
                                        fix="Submit start_main_activity alone to sleep."), (MAIN_TOOL, SIDE_TOOL))
 
 
-@pytest.mark.parametrize("action,kind", [("interact", ActivityKind.INTERACT), ("purchase", ActivityKind.PURCHASE)])
-def test_sleep_requires_an_empty_second_slot(action, kind):
+@pytest.mark.parametrize("action,kind,step", [("interact", ActivityKind.INTERACT, "Conclude or pause"),
+                                              ("purchase", ActivityKind.PURCHASE, "Conclude")])
+def test_sleep_requires_an_empty_second_slot(action, kind, step):
+    """槽位 2 被占时去睡觉：下一步按占用者能否暂停写，用内容 app 写结束或暂停，购买只写结束。"""
     state = occupied(running(action, kind, "second"))
     assert refusal(state, [sleep_call()]) == Blocked(
-        Refusal("RESOURCE_CONFLICT", _SLEEP_REASON, "Conclude or pause the second activity first."), (MAIN_TOOL,))
+        Refusal("RESOURCE_CONFLICT", _SLEEP_REASON, f"{step} the second activity first."), (MAIN_TOOL,))
 
 
 @pytest.mark.parametrize("call", [app_call(), purchase_call("Bread")])

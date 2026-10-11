@@ -8,7 +8,7 @@ import pytest
 
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
 from tests.life.conftest import (
-    advance_next, advance_until_ready, conclude_request, context, do_at, last_result, pause_request, sleep,
+    advance_next, advance_until_ready, conclude_request, context, do_at, last_result, pause_request, purchase, sleep,
     stage_day_plan, target_actions, target_tools, tool_targets, travel, use_app,
 )
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
@@ -17,6 +17,10 @@ from worldmock.life import activity_control
 
 #: 夹具里绑定到家的「测试休息」时长 900 秒。
 _REST_SECONDS = 900
+#: 夹具里 Keep 唯一的那条内容「测试慢跑」时长 1200 秒。
+_RUN_SECONDS = 1200
+#: 睡眠约束的拒绝原因：槽位 2 被占时去睡觉。
+_SLEEP_REASON = "Sleep requires the second activity slot to be empty."
 
 
 def _decides_after(seconds: int):
@@ -114,6 +118,62 @@ def test_slot_conflict_offers_pausing_only_while_the_running_activity_can_be_pau
         assert blocked.status == "rejected" and blocked.message == reason
         assert blocked.data["next_step"] == f"{step} {name} first."
     assert engine.context.state.activities[activity_id].status == "active"
+
+
+@pytest.mark.parametrize("left,step", [(179, "Conclude"), (180, "Conclude or pause")])
+def test_sleep_refusal_offers_pausing_the_app_only_while_it_can_be_paused(engine_factory, left, step):
+    """槽位 2 的 app 内容离结束不足三分钟时去睡觉：睡眠约束的下一步只写「先结束」，照做之后能睡；恰好三分钟时写
+    「先结束或暂停」，照着暂停之后也能睡。工具层 pause_activity 一行可用与否和这句下一步说的是同一件事。"""
+    engine = engine_factory(mutate=_decides_after(_RUN_SECONDS - left))
+    stage_day_plan(engine, submitted=True)
+    _, used = act(engine, "keep", use_app("Keep"))
+    assert used.status == "in_progress", used.error_code
+    assert advance_until_ready(engine)
+    activity = engine.context.state.activities[used.activity_id]
+    assert activity.status == "active" and activity.resource_claims == {"second"}
+    assert activity.planned_end_at - engine.context.state.current_time == left
+    before = activity.model_dump(mode="json")
+    observed, refused = act(engine, "sleepy", sleep(30))
+    assert refused.status == "rejected" and refused.error_code == "RESOURCE_CONFLICT"
+    assert refused.message == refused.data["reason"] == _SLEEP_REASON
+    assert refused.data["next_step"] == f"{step} the second activity first."
+    assert refused.data["fix"] is None and refused.data["unmet"] == []
+    assert engine.context.state.activities[used.activity_id].model_dump(mode="json") == before
+    pausing = target_tools(observed, activity.name)["pause_activity"]
+    assert pausing["available"] is (left >= 180)
+    assert pausing["reason"] == (None if left >= 180 else _reason(activity.name))
+    if left >= 180:
+        _, released = act(engine, "release", pause_request(activity.name), "pause_activity")
+    else:
+        _, released = act(engine, "release", conclude_request(activity.name), "conclude_activity")
+    assert released.status == "completed", released.error_code
+    _, slept = act(engine, "sleep", sleep(30))
+    assert slept.status == "in_progress", slept.error_code
+    assert engine.context.state.activities[slept.activity_id].kind == "sleep"
+
+
+def test_sleep_refusal_never_offers_pausing_a_running_purchase(engine_factory):
+    """槽位 2 是进行中的购买时去睡觉：购买不能暂停，睡眠约束的下一步只写「先结束」；照着暂停会被拒绝，结束之后能睡。"""
+    engine = engine_factory(mutate=_decides_after(20))
+    stage_day_plan(engine, submitted=True)
+    _, bought = act(engine, "noodles", purchase("牛肉面"))
+    assert bought.status == "in_progress", bought.error_code
+    assert advance_until_ready(engine)
+    order = engine.context.state.activities[bought.activity_id]
+    assert order.status == "active" and order.kind == "purchase" and order.resource_claims == {"second"}
+    assert activity_control.pausable(engine.context.state, order) is False
+    observed, refused = act(engine, "sleepy", sleep(30))
+    assert refused.status == "rejected" and refused.error_code == "RESOURCE_CONFLICT"
+    assert refused.message == _SLEEP_REASON
+    assert refused.data["next_step"] == "Conclude the second activity first."
+    assert target_tools(observed, order.name)["pause_activity"]["available"] is False
+    _, paused = act(engine, "pause", pause_request(order.name), "pause_activity")
+    assert paused.status == "rejected" and paused.error_code == "ACTIVITY_PAUSE_UNAVAILABLE"
+    assert engine.context.state.activities[bought.activity_id].status == "active"
+    _, concluded = act(engine, "conclude", conclude_request(order.name), "conclude_activity")
+    assert concluded.status == "completed", concluded.error_code
+    _, slept = act(engine, "sleep", sleep(30))
+    assert slept.status == "in_progress", slept.error_code
 
 
 def _one_minute_keep(tmp_path):

@@ -106,6 +106,15 @@ def test_second_slot_conflict_follows_the_same_limit():
         conflict("second", "Conclude or pause"), (SIDE_TOOL,))
 
 
+@pytest.mark.parametrize("seconds,step", [(1, "Conclude"), (179, "Conclude"), (180, "Conclude or pause"),
+                                          (900, "Conclude or pause")])
+def test_sleep_constraint_offers_pausing_only_while_the_second_slot_occupant_can_still_be_paused(seconds, step):
+    """槽位 2 的 app 内容还在做时去睡觉：睡眠约束的下一步读同一个判定，离结束不足三分钟时只写结束。"""
+    blocked = refusal(occupied(_ending_in(seconds, presence=False)), [sleep_call()])
+    assert blocked == Blocked(Refusal("RESOURCE_CONFLICT", "Sleep requires the second activity slot to be empty.",
+                                      f"{step} the second activity first."), (MAIN_TOOL,))
+
+
 def test_slot_limit_next_step_only_names_occupants_that_can_still_be_paused():
     """槽位不够的下一步：都能暂停时写结束或暂停，快做完的那一项只能结束，混合时暂停只点名还能暂停的。"""
     ending = _ending_in(179).model_copy(update={"name": "快做完"})
