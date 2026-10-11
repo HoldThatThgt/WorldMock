@@ -32,7 +32,7 @@ flowchart LR
 | `app-catalog.jsonl` | 必需 | app 身份、名称、角色，以及功能动作或纯目录浏览时长 | 加载失败 |
 | `location.jsonl` | 必需 | 全部实际地点、显示名、自由类型、内容 app、住宿和驿站资格、营业安排 | 加载失败 |
 | `merchant-catalog.jsonl` | 必需 | 商品身份、名称、四类商品、固定价格、地点类型或内容 app 绑定 | 加载失败 |
-| `content-catalog.jsonl` | 必需 | 内容身份、标题、时长、体力消耗、推送资格、心理缓解档位、摘要与容器 | 加载失败 |
+| `content-catalog.jsonl` | 必需 | 内容身份、标题、时长、体力消耗、推送资格、心理缓解档位、摘要与容器；绑定到 app 的内容可以另写前提 `prerequisite` | 加载失败 |
 | `callbacks.jsonl` | 可选 | 状态声明和触发规则 | 没有状态，没有规则 |
 | `map.jsonl` | 可选 | 声明的两地距离 | 没有声明，地图全部随机生成 |
 
@@ -75,6 +75,11 @@ app、地点显示名、商品名分别在所属文件唯一。app 名不得与�
 这项检查按文件行序逐行进行，排在该行的容器、引用、摘要、来源和系列检查之后。
 绑定到 app 的内容标题不参与名称解析，也不检查唯一。
 
+内容前提分两步校验，加载与纯校验都执行。行解析时由严格行模型检查 `prerequisite` 及其成员的形状，失败详情以 `content-catalog.jsonl:<行号>` 开头。
+登记核对在内容逐行校验里进行，排在该行的容器、引用、摘要和来源检查之后、系列检查之前，按下面的次序先遇到的先报：
+写在地点内容上、两个成员都没写、`location_kinds` 的重复与排序、`location_kinds` 悬空、`opens` 的时段写法。
+同一系列各集的前提是否相同属于系列检查。
+
 清单检查按下面的次序进行，先遇到的先报：
 
 | 次序 | 检查 | 登记码 |
@@ -97,9 +102,9 @@ app、地点显示名、商品名分别在所属文件唯一。app 名不得与�
 | `ENVIRONMENT_FILE_UNLISTED` | 清单缺少必需 JSONL，或存在的可选文件未登记；详情是没有登记的文件名 |
 | `ENVIRONMENT_IDENTITY_MISMATCH` | 安全文件边界失败，或实际文件表、字节摘要和清单不一致 |
 | `ENVIRONMENT_LINE_INVALID` | 某行不是恰好一个 JSON 对象，含 `map.jsonl` 的行 |
-| `ENVIRONMENT_ID_DUPLICATE` | 身份、名称或引用列表重复；`map.jsonl` 同一对地点出现两行；同一地点类型下单元名重复时详情为 `content-catalog.jsonl:<先登记一行的行号> and content-catalog.jsonl:<当前行的行号> give location kind <类型> the same activity name <先登记的单元名>.` |
+| `ENVIRONMENT_ID_DUPLICATE` | 身份、名称或引用列表重复，含内容前提的 `location_kinds`；`map.jsonl` 同一对地点出现两行；同一地点类型下单元名重复时详情为 `content-catalog.jsonl:<先登记一行的行号> and content-catalog.jsonl:<当前行的行号> give location kind <类型> the same activity name <先登记的单元名>.` |
 | `ENVIRONMENT_REF_UNKNOWN` | app、商品等对象引用未登记；`map.jsonl` 的端点不是登记地点 |
-| `ENVIRONMENT_KIND_INVALID` | 未知字段、非法闭集值、坏字符串或布尔、未排序列表、非法营业安排；`map.jsonl` 的端点不满足 `a < b` 或行未排序 |
+| `ENVIRONMENT_KIND_INVALID` | 未知字段、非法闭集值、坏字符串或布尔、未排序列表、非法营业时段；`map.jsonl` 的端点不满足 `a < b` 或行未排序。内容前提写成 `null`、不是对象或含未知键，`location_kinds` 不是字符串数组、有空白项或未按升序，前提的 `opens` 写成 `null`、形状不符或时段写法不合法，都属于这一项；两种 `null` 的详情分别是 `A declared content prerequisite must be an object.` 与 `A declared opening schedule must be an object.`，后一句地点行与内容前提共用 |
 | `ENVIRONMENT_NUMBER_INVALID` | 严格整数类型或范围不符；`map.jsonl` 的 `length_m` 缺失、不是严格整数或小于 1 |
 | `HOME_LOCATION_REQUIRED` | 没有显式住宿地点，或人物住处未解析到住宿地点 |
 | `HOME_NOT_SLEEPABLE` | 人物住处没有标 `sleepable`；原因 `The persona home must be marked sleepable.`，详情 `persona.home_location` |
@@ -108,8 +113,10 @@ app、地点显示名、商品名分别在所属文件唯一。app 名不得与�
 | `APP_UNBOUND` | 内容 app 没有有效内容来源，或功能 app 没有具体动作 |
 | `APP_NAME_COLLIDES_LOCATION` | app 名与地点显示名碰撞 |
 | `GOODS_BINDING_MISSING`、`GOODS_BINDING_SIDE_EXCLUSIVE`、`GOODS_BINDING_DANGLING` | 商品容器缺失、两侧同时绑定、类型没有实际地点 |
-| `CONTENT_CONTAINER_MISSING`、`CONTENT_CONTAINER_SIDE_EXCLUSIVE`、`CONTENT_BINDING_DANGLING` | 内容容器缺失、两侧同时绑定、类型没有实际地点 |
-| `CONTENT_SERIES_INVALID` | 同系列容器不同或集号重复 |
+| `CONTENT_CONTAINER_MISSING`、`CONTENT_CONTAINER_SIDE_EXCLUSIVE` | 内容容器缺失、两侧同时绑定 |
+| `CONTENT_BINDING_DANGLING` | 内容写的地点类型没有任何登记地点声明，顶层绑定与内容前提的 `location_kinds` 都算；原因 `A content names a location kind that no registered location declares.`，前提悬空时详情为 `<content_id> prerequisite names <kind>.` |
+| `CONTENT_PREREQUISITE_INVALID` | 内容前提写在绑定到地点类型的内容上，或 `location_kinds` 为空且没写 `opens`；原因 `A content prerequisite must belong to an app content and declare location kinds, opening hours, or both.`，详情分别是 `<content_id> is a location content.` 与 `<content_id> declares neither location kinds nor opening hours.` |
+| `CONTENT_SERIES_INVALID` | 同系列容器不同、集号重复，或各集的内容前提不完全相同；原因 `Episodes of a series must share one container binding and one prerequisite and have unique episode numbers.`，前提不同时详情为 `<series.title> episodes declare different prerequisites.` |
 | `CONTENT_SUMMARY_TOO_LONG`、`CONTENT_SOURCE_URL_MISSING` | 摘要超过 200 字符或真实来源缺少 URL |
 | `CALLBACK_STATE_UNREGISTERED`、`CALLBACK_FOOTPRINT_EMPTY`、`CALLBACK_NOTIFY_MISMATCH` | 回调状态未知、足迹为空、提醒与效果不配对 |
 | `MAP_DISTANCE_CONTRADICTED` | 某条声明边的两端经其他声明边有一条严格更短的路线，详情指出行号、声明值、更短的路线和它的总长 |
@@ -133,7 +140,17 @@ app、地点显示名、商品名分别在所属文件唯一。app 名不得与�
 完整形状为 `{weekly: {mon..sun: [[HH:MM, HH:MM], ...]}, exceptions: {YYYY-MM-DD: [...]}}`。
 `weekly` 必填，`exceptions` 可省略；缺失星期关闭，特殊日期完全替换该日每周时段，空数组表示关闭。
 时段按开始时间升序、不重叠、使用半开区间；`24:00` 只作为结束，跨午夜拆到两日。
-地点的 `is_open` 接收已换算到运行时区的本地时刻，购买和互动资格由模拟引擎调用。
+
+营业时段对象 `OpeningHours`（`{weekly, exceptions}`）的求值、校验和文字写法各只有一份，地点行的 `opens` 与内容前提的 `opens` 共用。
+
+| 归属 | 规则 |
+| --- | --- |
+| `OpeningHours.opening_intervals(本地日期)` | 日期的 ISO 写法出现在 `exceptions` 里时返回该日声明的时段，整日替换，可以为空；否则返回 `weekly` 中该星期的时段，没写的星期为空 |
+| `OpeningHours.is_open(本地时刻)` | 把已换算到运行时区的本地时刻的小时和分钟折成当日分钟数，秒不参与；存在某个时段使「起点 ≤ 分钟数 < 终点」即为真，`24:00` 按 1440 计。09:59:59 算在 `08:00–10:00` 内，10:00:00 不算 |
+| `Location.opening_intervals`、`Location.is_open` | 只处理「没写 `opens` 即全天」，其余委托给 `OpeningHours`；购买报价、受理、工具层和评估仍调用地点的这两个接口 |
+| `require_declared_schedule` | 显式 `null` 的拒绝，挂在地点行与内容前提两个 `opens` 字段上，详情统一为 `A declared opening schedule must be an object.` |
+| `catalog.admission` 的时段校验 | 星期名、规范日期与时刻、有序不重叠，对地点行与内容前提的 `opens` 各调用一次 |
+| `life.readable.interval_phrases` | 每个时段写成 `HH:MM–HH:MM`（中间是 U+2013）；工具层地点行用「、」连接，内容前提的拒绝原因用 `, ` 连接 |
 
 <a name="resource-engine-加权连通图与路线"></a>
 ## 加权连通图与路线
@@ -245,6 +262,19 @@ app 必填 `app_id`、`name`、`role`。功能 app 必须声明非空 `actions`�
 绑定到地点类型的内容，不属于系列时的 `title` 和系列的 `series.title` 是人物要写的名称，系列各集的 `title` 不是；
 绑定到 app 的内容标题不是可写的名称，人物只写 app 名。
 目录提供按集号排序的系列索引；推荐、进度、连续消费和恢复由模拟引擎处理，不由推送资格决定。
+
+绑定到 app 的内容可以另写前提 `prerequisite`，声明这条内容只有人在某类地点、或当地时间落在某些时段内才能开始。
+省略表示没有前提，随时随地能开始；「没有前提」只有省略一种写法，显式 `null` 拒绝。前提对象只有两个成员，其他键拒绝。
+
+| 成员 | 类型 | 约束 | 含义 |
+| --- | --- | --- | --- |
+| `location_kinds` | 字符串数组 | 省略与 `[]` 等价；每项非空白，无重复并按字符串升序；每项须与至少一个登记地点的 `kind` 逐字相等，不做归一 | 人的停留地点属于其中一类时才能开始；为空表示不限地点 |
+| `opens` | 营业时段对象 | 形状与地点行的 `opens` 完全相同，用同一套校验；省略表示不限时间，显式 `null` 拒绝 | 当地时间落在这些时段内才能开始 |
+
+两个成员至少写一项，两项都写时都要满足。`opens` 里一个时段都没有是合法写法，表示这条内容永远不能开始。
+内容行顶层的 `location_kinds` 把内容绑定到地点，是地点内容，没有 app 记录；前提里的同名成员只是 app 内容的开始条件，内容仍由 `app_ids` 绑定。写了顶层 `location_kinds` 的行不能写前提，地点内容也没有可用时段字段。
+同一系列各集的前提必须完全相同：都不写，或解析后的 `location_kinds` 与 `opens` 逐项相等，键的先后、`exceptions` 省略与写成空对象不算差异。目录不为前提建索引；前提的判定、筛选和拒绝归模拟引擎。
+同时卖商品的 app 每条内容都带前提时，前提都不满足它就打不开，登记不拦。
 候选投影见[人物的候选与呈现](06-agent.md)。
 
 <a name="resource-engine-地点供给和价格"></a>
@@ -299,6 +329,6 @@ app 侧只出现在 app 商品索引，不虚构店铺。任何类别都可绑�
 ## 验证边界
 
 目录单元测试消费清单和它登记的 JSONL，核对字节身份、严格行定位、对象引用、清单检查的次序与错误优先级，
-并验证全量供给索引、内容系列、营业安排、回调登记、声明的距离和运行种子地图；
+并验证全量供给索引、内容系列、营业安排、内容前提的登记、回调登记、声明的距离和运行种子地图；
 带可选文件的情形由测试在夹具副本上构造并刷新清单。
 环境加载再检查人物名称与冻结身份；动作、交易、实际消费、回调效果和恢复由对应集成及系统测试证明。
