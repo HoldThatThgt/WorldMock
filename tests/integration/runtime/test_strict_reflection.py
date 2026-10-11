@@ -423,13 +423,15 @@ def _evening(persona, config) -> None:
     config["stop_time"] = datetime.fromisoformat("2026-01-08T20:00:00+08:00")
 
 
-async def _waking_decision(engine_factory, tmp_path, *replies) -> SimpleNamespace:
+async def _waking_decision(engine_factory, tmp_path, *replies, note: str | None = "这一晚歇得很踏实。") -> SimpleNamespace:
     """真实引擎上先写下一条记忆、再睡完一夜，开出当天第一次睡醒的那一轮决策，并备好真实 LifeEnv 与直接导入的
-    LifeAgent；就寝反思按给定的脚本作答。"""
+    LifeAgent；就寝反思按给定的脚本作答。note 为 None 时人物睡前什么都没写下：睡醒时没有可反思的记录，
+    这一步在取观察之前不调用模型。"""
     engine = engine_factory(mutate=_evening)
     stage_day_plan(engine, submitted=True)
     run = await host_run(engine, tmp_path / "people" / "agent_0001")
-    await run.rest_and_note("这一晚歇得很踏实。")
+    if note is not None:
+        await run.rest_and_note(note)
     slept = await run.sleep(480)
     run.model.reflection_replies = [lambda episodes, reply=reply: reply(episodes[0]["id"]) for reply in replies]
     decision = await run.open()

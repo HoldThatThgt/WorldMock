@@ -172,7 +172,7 @@ async def test_tool_service_failure_on_the_real_engine_is_logged_and_raised_with
     TOOL_SERVICE_FAILED 反馈，原因是注入的异常对象；库里只多出观察、decision_started 与一对模型请求与响应，没有
     action_requested，也没有 memory_updated。"""
     _fixed_context_window(monkeypatch)
-    run = await _waking_decision(engine_factory, tmp_path)
+    run = await _waking_decision(engine_factory, tmp_path, note=None)
     injected = OSError("environment actor unavailable")
 
     async def fail(call):
@@ -205,7 +205,7 @@ async def test_model_service_failure_on_the_real_engine_is_logged_once_and_rerai
     该次模型证据以 failure 阶段记下 MODEL_SERVICE_FAILED；库里只多出观察、decision_started、模型请求与这条失败证据，
     没有世界请求，也没有 memory_updated。"""
     _fixed_context_window(monkeypatch)
-    run = await _waking_decision(engine_factory, tmp_path)
+    run = await _waking_decision(engine_factory, tmp_path, note=None)
     injected = OSError("model transport unavailable")
 
     async def fail(**request):
@@ -246,7 +246,7 @@ async def test_tool_service_failure_of_any_exception_type_is_logged_and_raised_w
     TOOL_SERVICE_FAILED 反馈，原因是注入的异常对象（没有把原异常原样漏出去）；库里只多出观察、decision_started 与一对
     模型请求与响应，没有 action_requested，也没有 memory_updated。"""
     _fixed_context_window(monkeypatch)
-    run = await _waking_decision(engine_factory, tmp_path)
+    run = await _waking_decision(engine_factory, tmp_path, note=None)
     assert not isinstance(injected, (OSError, RuntimeError))
 
     async def fail(call):
@@ -290,7 +290,7 @@ async def test_evidence_write_failure_of_the_footprint_store_is_raised_with_its_
     之前已写入的事件。"""
     _fixed_context_window(monkeypatch)
     model_calls, kept = _EVIDENCE_FAILURES[failure_phase]
-    run = await _waking_decision(engine_factory, tmp_path)
+    run = await _waking_decision(engine_factory, tmp_path, note=None)
     injected = sqlite3.OperationalError("database is locked")
     record, call, requests = run.environment.record_model_exchange, run.model.call, []
 
