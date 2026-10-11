@@ -28,6 +28,11 @@ flowchart LR
 出行、睡眠和地点 interact 占 `first`，购买和内容 app 的 interact 占 `second`，占用与此不符的活动由世界状态拒绝。
 睡眠活动的私有数据记录 `declared_duration_seconds`（人物写的时长，600 到 43200 秒）和 `oversleep_seconds`。
 购买订单的 pending 状态允许尚未付款，只有实际付款才有 paid_at；取消订单永不收货。
+商品履约记录的付款字段按订单取值：同一次购买里 `app_id` 相同的记录是一张订单，`payment_app_id`、`payment_duration_seconds`、
+`payment_started_at`、`payment_ended_at` 在同一张订单的记录上相同。`payment_app_id` 为 null 表示直付；
+`payment_duration_seconds` 是 0 或 10 至 20，只有 `app_id` 与 `payment_app_id` 都为 null 的到店直付为 0，
+这时两个付款时刻恒为 null；其余订单在付款段真实开始、真实走完时各写一次。
+`paid_at` 在一次购买的全部记录上同时写入，等于购买完成的时刻；到店记录的 `expected_at` 是购买开始时刻加实际购买时长。
 内容共享进度以人物与内容身份保存，报告不新增进度。
 
 ## 输入与模型身份
