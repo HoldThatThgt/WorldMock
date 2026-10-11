@@ -160,6 +160,7 @@ flowchart LR
 | 支付段时长 | `payment-duration:{action_id}:{payment_order_key}`，每张订单十至二十整数秒，在内容 app 里直付也抽；只有到店订单抽到直付时为零，不抽取 |
 | 购买功能 app | `function-app:{action_id}:{payment_order_key}`，每张订单抽一次，排序候选与唯一 null 等概率选择 |
 | 出行功能 app | `function-app:{activity_id}`，候选是绑定了这次出行方式的功能 app 按身份升序，等概率选择，不增加 null；没有候选就没有导航记录 |
+| 导航回到前台 | `navigation-return:{travel_activity_id}:{side_activity_id}`，路上一项槽位 2 活动停止执行时抽一位，抽到 1 导航回到前台；每项槽位 2 活动一个键，没有导航候选的出行不抽 |
 | 下单 app | 店铺商品用 `order-app:{store_id}:{local_date}`，先确定店铺，同一家店同一本地日的商品抽到同一个 app；绑定在 app 上的商品用 `order-app:{goods_id}:courier:{local_date}` |
 | 快递天数 | `courier-days:{goods_id}:{app_id}:{local_date}`，二、三、四、五天等概率 |
 | 快递费 | `courier-fee:{goods_id}:{app_id}`，零或五百分等概率，跨日期稳定 |
@@ -183,6 +184,7 @@ flowchart LR
 同一键同一绝对秒一次，夏令时不同绝对秒分别登记。天气使用 `weather-{local_date}`，
 起始日只初始化事实；日历使用 `calendar-{local_date}`。到达排程按一趟配送登记：
 一趟配送是同一个配送组里预计到达时刻相同的已付款外卖或快递记录，身份是 `delivery-{这一趟里 order_id 最小的记录}`，按字符串比较。
+每趟配送另有一条发货通知排程，身份是 `shipped-{order_id}`，取同一条记录；排程序号先分给各趟的发货排程，再分给各趟的到达排程。
 
 回调受理锚点为 `{action_id}:0`，一条动作只开始一项活动；按日动作效果用 `{origin_action_id}:{local_date}`；
 预排事件使用其 `scheduled_id`；推进唤醒类别用 `wake:{agent_id}:{current_time}`；

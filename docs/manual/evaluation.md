@@ -138,7 +138,7 @@ WorldMock 直接使用真实请求和活动中的动作：出行、购买、睡�
 
 `--worldmock` 指向 `worldmock export` 生成的**已完成运行的足迹导出目录**，其中包含
 `manifest.json`、认证检查点及 `events.jsonl`、`activities.jsonl`、`verified-experiences.jsonl`、
-`purchases.jsonl`、`app-usage.jsonl` 五类正文。当前版本与字段以
+`purchases.jsonl`、`app-usage.jsonl`、`location-stays.jsonl` 六类正文。当前版本与字段以
 [状态与序列化](../design/09-io-formats.md)及[记录引擎](../design/05-recording-engine.md)为准，
 冻结清单的 environment_identity 必须与实际环境和规则身份一致。
 评估要求 `experiment_completed: true`，检查点位于窗口终点，并验证实际导出内容。
