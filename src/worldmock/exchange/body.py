@@ -14,8 +14,6 @@ class BodyConstants:
 
     #: 能量池上限，单位千卡。
     maximum_energy_kcal: int = 2400
-    #: 每小时基础代谢千卡。
-    basal_kcal_per_hour: int = 65
     #: 开始饥饿的能量阈值。
     hunger_threshold_kcal: int = 800
     #: 紧急饥饿的能量阈值。
@@ -25,10 +23,6 @@ class BodyConstants:
         "sleep": 0.95, "walk": 3.5, "drive": 1.5, "take_taxi": 1.5, "take_bus": 1.5,
         "purchase": 1.0, "idle": 1.0, "light": 1.5, "moderate": 2.0, "heavy": 5.0,
     }))
-    #: 每清醒小时增加的睡眠债小时。
-    awake_sleep_debt_per_hour: int = 1
-    #: 每睡眠小时消除的睡眠债小时。
-    sleep_recovery_per_hour: int = 2
     #: 每清醒小时增加的放松需要。
     relaxation_need_per_awake_hour: float = 0.08
     #: 睡眠债小时对应的食品利用比例曲线。

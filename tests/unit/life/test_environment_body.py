@@ -3,6 +3,7 @@ import math
 import tomllib
 from pathlib import Path
 import pytest
+from worldmock.exchange.operators import evaluate_goods_receipt
 from worldmock.input_models import PersonaConfig
 from worldmock.life.body import (ActivityFactors, BoundaryClock, apply_discomfort_pulse, apply_food,
     apply_relaxation_change, initial_body, last_flows, next_shared_body_boundary_seconds, settle_shared_body)
@@ -27,6 +28,10 @@ def test_awake_growth_is_added_once_across_both_slots(body_inputs):
     assert result.after.social_need == pytest.approx(body.social_need + 0.06)
     assert result.basal_energy_kcal == 65
     assert result.extra_energy_kcal == 2.5 * 65
+    raw = tomllib.loads(Path('tests/fixtures/dataset-environment/persona.toml').read_text(encoding='utf-8'))
+    heavier = assemble_body_config(PersonaConfig.model_validate({**raw, 'body': {**raw['body'], 'mass_kg': 70.0}}))
+    other = settle_shared_body(body, activities, 3600, heavier)
+    assert (other.basal_energy_kcal, other.extra_energy_kcal) == (70, 2.5 * 70)
 
 def test_two_content_effects_are_independent_actual_time(body_inputs):
     config, body = body_inputs
@@ -77,6 +82,20 @@ def test_food_uses_actual_sleep_deficit_and_existing_energy_cap(body_inputs):
     assert result.food_efficiency == pytest.approx(0.9)
     assert result.after.energy_kcal == 2400
     assert result.after.relaxation_need == body.relaxation_need
+
+def test_received_meal_and_snack_yield_their_fixed_energy_and_the_pool_stops_at_its_cap(body_inputs):
+    """欠觉不超过 8 小时时一件食品实得 540、一件零食实得 180；能量 1500 连收两件食品，第二件只能加到 2400。"""
+    config, body = body_inputs
+    meal, snack = evaluate_goods_receipt('meal', 1), evaluate_goods_receipt('snack', 1)
+    body = body.model_copy(update={'energy_kcal': 1000.0})
+    assert apply_food(body, meal, config).after.energy_kcal - body.energy_kcal == 540
+    assert apply_food(body, snack, config).after.energy_kcal - body.energy_kcal == 180
+    last_flows()
+    first = apply_food(body.model_copy(update={'energy_kcal': 1500.0}), meal, config)
+    second = apply_food(first.after, meal, config)
+    assert (first.after.energy_kcal, second.after.energy_kcal) == (2040, 2400)
+    assert second.food_energy_kcal == 540
+    assert [flow.amount for flow in last_flows() if flow.resource == 'energy_kcal'] == [540, 360]
 
 def test_discomfort_and_rejection_modify_only_relaxation(body_inputs):
     _, body = body_inputs

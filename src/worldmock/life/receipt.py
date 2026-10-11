@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from worldmock.errors import BusinessRuleError, PreconditionError
 from worldmock.exchange.body import RESOURCE_METAS
+from worldmock.exchange.operators import evaluate_goods_receipt
 from worldmock.footprints.models import EventDraft
 from worldmock.life.callbacks import reset_on_receipt
 from worldmock.life.models import ActivityKind, DeliveryState, FulfillmentKind, WorldState, active_activities
@@ -67,7 +68,8 @@ def _receipt_effect(body, order: DeliveryState, context) -> tuple:
     """@brief 食品按真实睡眠不足效率补能；饮料和商品只缓解放松需要。"""
     if order.category in {"snack", "meal"}:
         return _food_effect(body, order, context)
-    applied = min(0.1, body.relaxation_need)
+    provided = evaluate_goods_receipt(order.category, order.quantity)
+    applied = min(provided, body.relaxation_need)
     flows = []
     changed = body.model_copy(deep=True)
     if applied:
@@ -78,14 +80,14 @@ def _receipt_effect(body, order: DeliveryState, context) -> tuple:
         changed = body.model_copy(update={"relaxation_need": settled[("relaxation_need", owner)]}, deep=True)
         flows = [{"resource": entry.resource, "owner": owner, "direction": entry.direction,
                   "amount": entry.amount, "cause": entry.cause}]
-    return changed, {"provided": 0.1, "applied": applied, "efficiency": None, "resource_flows": flows}
+    return changed, {"provided": provided, "applied": applied, "efficiency": None, "resource_flows": flows}
 
 
 def _food_effect(body, order: DeliveryState, context) -> tuple:
     """@brief 收货函数取走自身食品分录，不让它落到之后的身体事件。"""
     from worldmock.life.body import apply_food, last_flows
 
-    provided = 200 if order.category == "snack" else 600
+    provided = evaluate_goods_receipt(order.category, order.quantity)
     settlement = apply_food(body, provided, context.body)
     flows = [{"resource": entry.resource, "owner": f"agent:{order.agent_id}", "direction": entry.direction,
               "amount": entry.amount, "cause": entry.cause} for entry in last_flows()]

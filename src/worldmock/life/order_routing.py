@@ -2,6 +2,7 @@
 
 import json
 
+from worldmock.exchange.operators import delivery_fee_fen
 from worldmock.life.purchase_offers import Offer
 
 
@@ -20,5 +21,5 @@ def group_offers(offers: tuple[Offer, ...]) -> dict[str, tuple[Offer, ...]]:
 
 
 def group_shipping_fen(offers: tuple[Offer, ...]) -> int:
-    """@brief 到店零运费；其他组只在任意商品收费时收一次 500 分。"""
-    return 500 if any(row.delivery_fee_fen for row in offers) else 0
+    """@brief 到店零运费；其他组只在任意商品收费时收一次固定配送费。"""
+    return delivery_fee_fen() if any(row.delivery_fee_fen for row in offers) else 0
