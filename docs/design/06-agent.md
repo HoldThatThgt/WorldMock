@@ -107,6 +107,12 @@ h 小于 0.25 写「现在不欠觉」，大于 12 写「现在睡，12 小时�
 | 刚结束待收尾 | 每条 interact 行都不可用，原因是先收尾 | 工具层的活动目标行，带 conclude_activity |
 | 被本人暂停的活动占着 | 该单元的行不可用，原因点名那项暂停的活动；其他单元的行不受影响 | 待办层 `paused_activities`，带 report_status（恢复）与 conclude_activity |
 
+活动目标行里每个控制工具各带 `available` 与 `reason`，和受理用同一套判定，说明与拒绝原因一字不差。
+进行中的活动离计划结束不足 180 秒时，它的 pause_activity 一行为不可用，`reason` 是
+`The activity <活动名> ends in under three minutes and cannot be paused.`，conclude_activity 一行不受影响；
+恰好还剩 180 秒仍可暂停，整段不足 180 秒的活动从开始就不可暂停，规则见[模拟引擎](04-simulation-engine.md)。
+人物从这一行知道这条限制，系统层不为它新增句子。
+
 内容 app 全部列出。app 的内容可以带前提，这一行的可用性、时长和推送说明都只在此刻合格的内容里算，合格内容与前提的判定见[模拟引擎](04-simulation-engine.md)。
 
 | 内容 app 的情形 | `available` 与 `reason` | `duration` | `note` |
