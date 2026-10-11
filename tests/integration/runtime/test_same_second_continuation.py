@@ -36,6 +36,7 @@ from agentsociety2.society import DirectToolCall  # noqa: E402
 from custom.agents.life_agent import LifeAgent  # noqa: E402
 from worldmock.agents.life_continuation import _overlay, _view as _seen, layer_changes, send_check  # noqa: E402
 from custom.envs.life_env import LifeEnv  # noqa: E402
+from scripts import inspect_run  # noqa: E402
 from tests.integration.runtime_fixtures import current_run_identity, write_agent_workspace  # noqa: E402
 from tests.integration.runtime.test_life_agent_protocol import (_OBSERVED_AT, _ModelResponse, _conclude_args,  # noqa: E402
                                                         _memory, _stored_memories, _view)
@@ -608,6 +609,49 @@ async def test_a_start_group_is_continued_with_one_tool_message_per_call(_engine
     assert sorted(item.origin_action_id for item in control.context.state.activities.values()) == [
         "decision-group-1:action:0001", "decision-group-1:action:0002"]
     assert control.scheduling_state().ready_agent_ids == ()
+
+
+def _chain_report(engine: LifeEngine) -> tuple[list[dict], dict]:
+    """运行检查工具只读打开这次运行的 SQLite，返回续接对比里各决策的链字段和全运行合计。"""
+    store = engine.context.store
+    point = store.last_event_seq
+    with inspect_run._connect(store.run_dir) as conn:
+        report = inspect_run.continuation_report(conn)
+    assert store.last_event_seq == point
+    rows = [{key: row[key] for key in ("decision_id", "same_second_follow_up", "chain_position", "chain_intact")}
+            for row in report["decisions"]]
+    return rows, report["summary"]
+
+
+@pytest.mark.asyncio
+async def test_the_continuation_report_reads_a_chain_through_a_start_group_as_intact(_engine_factory) -> None:
+    """同一秒三次决策：修订今日计划（链首），整组被拒的开始组（续接修订，带一条 tool 消息），开始等待（续接开始组，
+    带两条 tool 消息）。运行检查工具从这次运行的 SQLite 读回：链位置依次是 0、1、2，后两次链完整，没有断链，最长链三次。
+    对照：把落库的续接请求里开始组的两条 tool 消息对调，或只留一条，同一份读数就判为断链。"""
+    engine = _engine_factory()
+    stage_day_plan(engine)
+    environment = _environment(engine)
+    await _single(environment, "plan", _plan_reply())
+    calls = [("call-main", MAIN_TOOL, _WAIT), ("call-side", SIDE_TOOL, side_arguments("purchase", "纸巾"))]
+    _, [grouped], _ = await _single(environment, "group", [_GroupReply(calls, "歇着顺手买包纸巾。")])
+    assert engine.context.state.activities == {} and [item["role"] for item in grouped["messages"][2:]] == [
+        "assistant", "tool"]
+    _, [request], _ = await _single(environment, "wait", _wait_reply())
+    assert [item["role"] for item in request["messages"][len(grouped["messages"]):]] == ["assistant", "tool", "tool"]
+    rows, summary = _chain_report(engine)
+    assert rows == [
+        {"decision_id": "decision-plan-1", "same_second_follow_up": False, "chain_position": 0, "chain_intact": None},
+        {"decision_id": "decision-group-1", "same_second_follow_up": True, "chain_position": 1, "chain_intact": True},
+        {"decision_id": "decision-wait-1", "same_second_follow_up": True, "chain_position": 2, "chain_intact": True}]
+    assert (summary["decisions"], summary["continued"], summary["broken_chains"], summary["longest_chain"]) == (
+        3, 2, 0, 3)
+    with inspect_run._connect(engine.context.store.run_dir) as conn:
+        decisions = inspect_run._decisions(conn)
+    for tamper in (lambda tools: tools[::-1], lambda tools: tools[:1], lambda tools: [*tools, tools[-1]]):
+        broken = copy.deepcopy(decisions)
+        messages = broken[2]["calls"][0][0]["data"]["request"]["messages"]
+        messages[-2:] = tamper(messages[-2:])
+        assert [row["chain_intact"] for row in inspect_run._chain_rows(broken)] == [None, True, False]
 
 
 def _tool_payload(request: dict) -> dict:
