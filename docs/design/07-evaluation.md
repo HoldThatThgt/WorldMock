@@ -48,9 +48,10 @@ flowchart LR
 协议参数、名称和活动控制纠错单列为 `other_rejections`。缺少动作身份或拒绝码时证据不完整，
 受阻门禁为未知并不通过，不能把缺证据或已删除的约束当成零。
 
-工作输入从冻结环境的 `persona.toml`、`config.toml` 和覆盖后的结构化人物卡打包。
+工作输入从冻结环境的 `persona.toml` 和 `config.toml` 打包，不读人物工作区。
 `AgentWorkday` 保存工作安排、住处、实际工作地点以及下班和到家窗口。
-下班和到家窗口取卡片里未取整的值，换成当天的时刻时截到整秒。
+下班和到家窗口取 `persona.toml` 的 `leave_work_window` 与 `arrive_home_window` 原值，没有写的那一项偏离为空；
+小时数按当天零点加上这么多小时换成时刻并截到整秒，所以大于 24 的小时数落在次日。
 报告保留 `shift_seconds`、`at_workplace_seconds`、`break_seconds`、`declared_exception_seconds`、
 `absence_seconds`、`early_leave_seconds`，不从内容、应用或地点推断工作活动。
 作息偏离只比较真实离开工作地点、到家和睡眠时刻，不读取日计划。

@@ -2,7 +2,8 @@
 
 ## 单一状态归属
 
-完整环境由不可变输入对象承载，世界由唯一已提交 WorldState 承载。运行状态结构版本为 13，运行清单结构版本为 5。
+完整环境由不可变输入对象承载，世界由唯一已提交 WorldState 承载。运行状态结构版本为 13，运行清单结构版本为 5，
+`persona.toml` 的 `schema_version` 为 2，`config.toml` 的为 1。
 不接受旧结构、兼容字段、迁移和 fallback；所有当前模型拒绝未知字段，原始 JSONL/TOML 输入规则归
 [配置](08-configuration.md)与[资源引擎](03-resource-engine.md)。
 
@@ -47,8 +48,14 @@ flowchart LR
 
 五项环境身份是 environment_id、environment_version、rules_version、catalog_content_sha256、map_sha256。
 原始两份 TOML 分别保存摘要，生成地图按规范 JSON 加 LF 冻结。
+运行清单的顶层字段是 `schema_version`、`run_id`、`source_group_id`、`environment_identity`、`environment_assets`、
+`persona_sha256`、`config_sha256`、`agent_ids`、`code_sha256`、`git_commit`、`git_dirty`、`model_identity`、
+`stage_model_identity`、`model_metadata`、`input_warnings`、`persona_habit_responses` 与 `window`。
+清单不保存由人物卡片换算出的数值：社交需要每小时增长在冻结的 `persona.toml` 里，世界创建时直接读它。
+人物卡片的两份派生物（结构化卡片与卡片文本）保存在人物工作区 `AGENT.json` 的 `profile` 里，
+`AGENT.json` 的结构号是 1；卡片由 `persona.toml` 直接构造，没有单独的编译产物文件和结构号，见[人物](06-agent.md)。
 发布目录可以含声明距离的 map.jsonl，但不含生成的地图；冻结的目录素材跟随目录清单的文件表。
-模型身份保存实际服务、请求模型、实际元数据与来源、上下文声明、两种重试预算、校验预算、
+模型身份保存实际服务、请求模型、实际元数据与来源、上下文声明、两种重试预算、反思与日计划两项校验预算、
 阶段生成参数与回合上限。api_key_env 只是输入中的凭据变量名称；凭据正文绝不序列化。
 
 ## 事件与检查点
