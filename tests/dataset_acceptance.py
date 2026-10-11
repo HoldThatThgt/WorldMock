@@ -88,6 +88,13 @@ MUTATIONS = (
         "if struct != persona_card_struct(persona_card(persona)):", "if struct is None:",
         ("tests/integration/runtime/test_persona_profile.py"
          "::test_restored_card_must_equal_the_card_built_from_the_frozen_persona",)),
+    SourceMutation("relationship_channel_closed_set_restored", "worldmock.input_models::Relationship",
+        "channels: list[NonBlankText]", 'channels: list[Literal["电话", "微信", "见面"]]',
+        ("tests/unit/test_environment_inputs.py::test_relationship_channels_take_any_words_the_dataset_writes",)),
+    SourceMutation("blank_relationship_channel_accepted", "worldmock.input_models::Relationship",
+        "channels: list[NonBlankText]", "channels: list[str]",
+        ("tests/unit/test_environment_inputs.py"
+         "::test_table_format_and_formula_ranges_are_rejected_with_the_field_named",)),
     SourceMutation("previous_run_config_version_accepted", "worldmock.input_models::RunConfig",
         "schema_version: Literal[2]", "schema_version: Literal[1, 2]",
         ("tests/unit/test_environment_inputs.py"

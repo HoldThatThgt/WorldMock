@@ -324,8 +324,12 @@ def test_off_grid_rhythm_values_load_unchanged(environment):
      "relationships.0.intimacy: Input should be greater than or equal to 0"),
     (lambda doc: doc["relationships"][0].update(intimacy=31),
      "relationships.0.intimacy: Input should be less than or equal to 30"),
-    (lambda doc: doc["relationships"][1].update(channels=["微信", "短信"]),
-     "relationships.1.channels.1: Input should be '电话', '微信' or '见面'"),
+    (lambda doc: doc["relationships"][1].update(channels=["微信", " "]),
+     "relationships.1.channels.1: String should match pattern '\\S'"),
+    (lambda doc: doc["relationships"][1].update(channels=[""]),
+     "relationships.1.channels.0: String should match pattern '\\S'"),
+    (lambda doc: doc["relationships"][1].update(channels=["微信", 3]),
+     "relationships.1.channels.1: Input should be a valid string"),
     (lambda doc: doc["relationships"][0].update(channels=[]),
      "relationships.0.channels: List should have at least 1 item after validation, not 0"),
     (lambda doc: doc["relationships"][0].update(channels=["电话", "微信", "见面", "电话"]),
@@ -347,8 +351,33 @@ def test_off_grid_rhythm_values_load_unchanged(environment):
      "social_need_growth_per_hour: Input should be less than or equal to 0.1"),
 ])
 def test_table_format_and_formula_ranges_are_rejected_with_the_field_named(environment, mutate, reason):
-    """保留的检查只有表的格式与计算要用的范围：类型、渠道闭集、数值范围、条数与字数上限；原因先写出错的字段。"""
+    """保留的检查只有表的格式与计算要用的范围：类型、数值范围、条数与字数上限；联系渠道只要求是一到三项非空白文字。
+    原因先写出错的字段。"""
     assert rejected(environment, mutate) == ("persona.toml", "PERSONA_INVALID", reason)
+
+
+@pytest.mark.parametrize("first,second", [
+    (["飞书", "邮件", "飞书"], ["写信"]),
+    (["短信"], ["Slack", "Zoom 视频", "当面聊"]),
+    (["电话", "微信", "见面"], ["电话"]),
+])
+def test_relationship_channels_take_any_words_the_dataset_writes(environment, first, second):
+    """联系渠道不设闭集：数据集写的任何非空白文字都通过完整环境加载和纯校验，一到三项，重复的词也不去重；
+    人设表、卡片和卡片文本里都是写的那几个词。"""
+    def mutate(document):
+        document["relationships"][0]["channels"] = first
+        document["relationships"][1]["channels"] = second
+
+    edit_persona(environment, mutate)
+    assert validate_environment(environment, metadata_loader=metadata) == {
+        "valid": True, "environment_id": "artificial-test", "environment_version": "3"}
+    loaded = load_environment(environment, metadata_loader=metadata).persona
+    assert [list(item.channels) for item in loaded.relationships] == [first, second]
+    card = persona_card(loaded)
+    assert [list(item.channels) for item in card.relationships] == [first, second]
+    text = render_card(card)
+    assert f"母亲（家人，很亲近，{'、'.join(first)}联系）" in text
+    assert f"老周（老友，较亲近，{'、'.join(second)}联系）" in text
 
 
 @pytest.mark.parametrize("field,key,limit", [("relationships", "name_or_appellation", 4), ("habits", "trigger", 5)])

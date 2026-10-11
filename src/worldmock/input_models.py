@@ -18,8 +18,6 @@ _LOGGER = logging.getLogger(__name__)
 LEGACY_TEMPLATE_FIELDS = frozenset({
     "occupation", "routine_preference", "consumption_preference", "risk_preference",
 })
-#: 关系的联系渠道闭集。
-RELATIONSHIP_CHANNELS = ("电话", "微信", "见面")
 
 
 class InputModel(DeepFrozenModel):
@@ -99,8 +97,8 @@ def _hour_window(window: list[float]) -> list[float]:
 
 #: 时段：自午夜起的小时数 [起点, 终点]，越过午夜的时刻写成大于 24 的小时数。
 HourWindow = Annotated[list[float], AfterValidator(_hour_window)]
-#: 口味数组里的一项：非空白文字。
-TasteEntry = Annotated[str, Field(pattern=r"\S")]
+#: 口味数组与联系渠道数组里的一项：非空白文字，用词由数据集决定。
+NonBlankText = Annotated[str, Field(pattern=r"\S")]
 
 
 class Identity(InputModel):
@@ -119,12 +117,15 @@ class Situation(InputModel):
 
 
 class Relationship(InputModel):
-    """@brief 人物卡片的一条关系：姓名或称谓、角色、亲密度（0 到 30）与一到三个联系渠道。"""
+    """@brief 人物卡片的一条关系：姓名或称谓、角色、亲密度（0 到 30）与一到三个联系渠道。
+
+    渠道的用词不设闭集，每项只要求非空白；卡片文本把关系写成「渠道、渠道联系」，所以至少一项，至多三项是提示容量的条数上限。
+    """
 
     name_or_appellation: str = Field(min_length=1, max_length=12)
     role: str = Field(min_length=1, max_length=12)
     intimacy: int = Field(ge=0, le=30)
-    channels: list[Literal[RELATIONSHIP_CHANNELS]] = Field(min_length=1, max_length=3)
+    channels: list[NonBlankText] = Field(min_length=1, max_length=3)
 
 
 class HabitDeclaration(InputModel):
@@ -138,9 +139,9 @@ class HabitDeclaration(InputModel):
 class Tastes(InputModel):
     """@brief 人物卡片的口味：内容题材、饮食喜好、常用媒介，三个数组都可以为空。"""
 
-    content_genres: list[TasteEntry] = Field(max_length=6)
-    food_preferences: list[TasteEntry] = Field(max_length=6)
-    media: list[TasteEntry] = Field(max_length=4)
+    content_genres: list[NonBlankText] = Field(max_length=6)
+    food_preferences: list[NonBlankText] = Field(max_length=6)
+    media: list[NonBlankText] = Field(max_length=4)
 
 
 class PersonaConfig(InputModel):

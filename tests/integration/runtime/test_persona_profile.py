@@ -84,6 +84,30 @@ def test_frozen_persona_identity_reaches_the_native_agent_prompt_as_the_persona_
         assert stale not in user
 
 
+def test_relationship_channels_reach_the_persona_layer_as_the_dataset_wrote_them(tmp_path):
+    """@brief 联系渠道不设闭集：数据集写「飞书」「邮件」「写信」这样的词，新建运行的人设层和卡片文本里就是这几个词，
+    重复的词不去重，工作区里的结构化卡片通过恢复核对。"""
+    from tests.life.environment_inputs import copy_environment
+    from tests.life.persona_inputs import edit_persona
+    from worldmock.agents.life_persona import persona_layer
+    from worldmock.runtime import _validate_persona_card_struct
+
+    def mutate(document):
+        document["relationships"][0]["channels"] = ["飞书", "邮件", "飞书"]
+        document["relationships"][1]["channels"] = ["写信"]
+
+    root = copy_environment(tmp_path / "channels-environment")
+    edit_persona(root, mutate)
+    loaded = _loaded(root)
+    profile = creation_inputs(loaded)[0][0]["profile"]
+    persona = persona_layer(profile, loaded.persona.name, {"relationships": [], "preferences": []})
+    assert [(row["person"], row["channels"]) for row in persona["relationships"]] == [
+        ("母亲", ["飞书", "邮件", "飞书"]), ("老周", ["写信"])]
+    assert "母亲（家人，很亲近，飞书、邮件、飞书联系）" in profile["persona_card"]
+    assert "老周（老友，较亲近，写信联系）" in profile["persona_card"]
+    _validate_persona_card_struct(profile, loaded.persona)
+
+
 @pytest.mark.parametrize('field', ('occupation', 'routine_preference',
                                    'consumption_preference', 'risk_preference'))
 def test_deleted_template_fields_stay_out_of_documents(field):
