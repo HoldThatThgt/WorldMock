@@ -155,6 +155,7 @@ flowchart LR
 | --- | --- |
 | 地图 | `map`，抽取六十四位整数作地图种子；同一个地图种子用于随机树、额外边抽取和边长，声明边不消耗随机数 |
 | 天气 | `weather:{local_date}` |
+| 睡过头 | `oversleep:{action_id}`，`action_id` 是开始这段睡眠的那条动作；只在到点时刻往回 24 小时的睡眠合计不足四小时时取流，先抽一位，抽中再抽二十至六十的整数分钟，两端都能取到；每段睡眠只抽一次 |
 | 购买总时长 | `purchase-duration:{action_id}`，六十至三百整数秒，一次请求只抽一次 |
 | 支付段时长 | `payment-duration:{action_id}:{group_key}`，每个非空支付 app 组十至二十整数秒；空支付 app 不抽取 |
 | 购买功能 app | `function-app:{action_id}:{group_key}`，排序候选与唯一 null 等概率选择 |
