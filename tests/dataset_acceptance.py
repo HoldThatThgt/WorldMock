@@ -39,6 +39,11 @@ MUTATIONS = (
         "if not prerequisite_unmet(item, stay, moment)", "if True",
         ("tests/integration/scheduling/test_environment_schedule.py"
          "::test_hourly_push_never_selects_content_whose_prerequisite_is_unmet",)),
+    SourceMutation("push_on_the_road_counts_the_origin", "worldmock.life.app_push::_push_candidates",
+        "stay, candidates = present_location(state, agent_id), {}",
+        "stay, candidates = state.agents[agent_id].location_id, {}",
+        ("tests/unit/life/test_content_and_commerce_boundaries.py"
+         "::test_content_that_needs_a_place_is_no_push_candidate_on_the_road",)),
     SourceMutation("same_round_departure_judged_on_the_road", "worldmock.life.start_group::StartGroups._start_all",
         "changed = self._start(changed, item, stay_location_id)",
         "changed = self._start(changed, item, admission.present_location(changed, agent_id))",

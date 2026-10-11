@@ -22,17 +22,23 @@ from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 from tests.life.prerequisite_inputs import (CLOCK, CLOCK_PREREQUISITE, app_content, dingtalk_environment, moment,
     weekday_hours)
 
-def world_at(root, when=None, location_id='home'):
-    """给定环境的最小真实世界：人物在指定时刻停留在指定地点；location_id 为 None 时人在去办公室的路上。"""
+def world_at(root, when=None, location_id='home', origin_id='home'):
+    """给定环境的最小真实世界：人物在指定时刻停留在指定地点。
+
+    location_id 为 None 时人在路上：从 origin_id 出发去办公室，从办公室出发则回家；照引擎出发时的做法，
+    人物记录的地点仍是出发地，只有当前会话是一段路。
+    """
     inputs = load_environment(root, metadata_loader=fixture_metadata)
     config = assemble_body_config(inputs.persona)
     body = initial_body(config, 8.0, inputs.persona, 0.06)
     start = int(inputs.config.start_time.timestamp()) if when is None else when
-    agent = AgentState(agent_id=1,name='林舟',location_id=location_id or 'home',balance_account_id='agent:1',
+    agent = AgentState(agent_id=1,name='林舟',location_id=location_id or origin_id,balance_account_id='agent:1',
         body=body,body_settled_at=start,next_decision_at=start)
     if location_id is None:
-        session = SessionState(session_id='stay',agent_id=1,kind=SessionKind.TRANSIT,origin_id='home',
-            destination_id='office',status=SessionStatus.ACTIVE,started_at=start,name='去办公室的路上')
+        destination_id = 'home' if origin_id == 'office' else 'office'
+        session = SessionState(session_id='stay',agent_id=1,kind=SessionKind.TRANSIT,origin_id=origin_id,
+            destination_id=destination_id,status=SessionStatus.ACTIVE,started_at=start,
+            name=f'去{inputs.catalog.locations[destination_id].display_name}的路上')
     else:
         session = SessionState(session_id='stay',agent_id=1,kind=SessionKind.STAY,location_id=location_id,
             status=SessionStatus.ACTIVE,started_at=start,name=inputs.catalog.locations[location_id].display_name)

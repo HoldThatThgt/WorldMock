@@ -398,6 +398,23 @@ def test_prerequisite_registration_failures_carry_their_code_and_detail(director
         assert failure.message == "A content names a location kind that no registered location declares."
 
 
+@pytest.mark.parametrize("content_id,prerequisite,code,detail", [
+    ("c-rest", {}, "CONTENT_PREREQUISITE_INVALID", "c-rest is a location content."),
+    ("c-rest", {"location_kinds": ["home", "home"]}, "CONTENT_PREREQUISITE_INVALID", "c-rest is a location content."),
+    ("c-article", {"location_kinds": ["school", "school"]}, "ENVIRONMENT_ID_DUPLICATE", None),
+    ("c-article", {"location_kinds": ["school", "home"]}, KIND_INVALID, None),
+    ("c-article", {"location_kinds": ["school"], "opens": {"weekly": {"monday": []}}}, "CONTENT_BINDING_DANGLING",
+     "c-article prerequisite names school."),
+], ids=["location-content-before-neither", "location-content-before-duplicate", "duplicate-before-dangling",
+        "unsorted-before-dangling", "dangling-before-opening-hours"])
+def test_prerequisite_checks_run_in_the_declared_order(directory, content_id, prerequisite, code, detail):
+    """一个前提同时违反两条规则时报排在前面的那条：写在地点内容上、两项都没写、location_kinds 的重复与排序、
+    location_kinds 悬空、opens 的时段写法。两项都没写的前提没有可查的成员，只可能与「写在地点内容上」同时出现。"""
+    set_prerequisite(directory, content_id, prerequisite)
+    failure = refused(directory)
+    assert (failure.code, failure.detail) == (code, detail)
+
+
 def test_top_level_dangling_kind_shares_the_reason_without_a_prerequisite_detail(directory):
     change_rows(directory, "content-catalog.jsonl", "c-rest", {"location_kinds": ["school"]})
     failure = refused(directory)

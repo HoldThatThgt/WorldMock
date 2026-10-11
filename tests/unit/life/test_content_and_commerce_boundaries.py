@@ -228,10 +228,10 @@ EPISODES = tuple(app_content(f"dingtalk-week-{number}", f"周会第{number}段",
                              series={"title": "周会", "episode": number}) for number in (1, 2, 3))
 
 
-def quiet_world(tmp_path, contents, when, location_id):
-    """钉钉带给定内容、其他 app 的内容都不可推送的最小真实世界。"""
+def quiet_world(tmp_path, contents, when, location_id, origin_id="home"):
+    """钉钉带给定内容、其他 app 的内容都不可推送的最小真实世界；location_id 为 None 时人在从 origin_id 出发的路上。"""
     root = silence_other_pushes(dingtalk_environment(tmp_path / "input", *contents))
-    return world_at(root, moment(*when), location_id)
+    return world_at(root, moment(*when), location_id, origin_id)
 
 
 def push(context, state):
@@ -243,10 +243,9 @@ def push(context, state):
 @pytest.mark.parametrize("when,location_id,pushed", [
     ((12, 9, 0), "office", "dingtalk-morning"),
     ((12, 9, 0), "home", None),
-    ((12, 9, 0), None, None),
     ((12, 10, 0), "office", None),
     ((17, 9, 0), "office", None),
-], ids=["office-in-hours", "home", "on-the-road", "hours-over", "saturday"])
+], ids=["office-in-hours", "home", "hours-over", "saturday"])
 def test_push_candidates_are_the_pushable_contents_eligible_at_that_second(tmp_path, when, location_id, pushed):
     """推送候选只含此刻合格且标了 pushable 的内容；没写前提但不可推送的公告从不是候选。"""
     context, state = quiet_world(tmp_path, (MORNING, NOTICE), when, location_id)
@@ -259,6 +258,20 @@ def test_push_candidates_are_the_pushable_contents_eligible_at_that_second(tmp_p
     assert changed.sessions["stay"].app_pushes["dingtalk"].status == "pending"
     assert changed.random_state == state.random_state
     validate_app_pushes(changed, context.catalog)
+
+
+@pytest.mark.parametrize("origin_id,destination_id", [("home", "office"), ("office", "home")],
+                         ids=["towards-the-office", "after-leaving-the-office"])
+def test_content_that_needs_a_place_is_no_push_candidate_on_the_road(tmp_path, origin_id, destination_id):
+    """人在路上既不算在目的地也不算在出发地：周一 09:00 去办公室的路上，或刚离开办公室（人物记录的地点仍是办公室），
+    只在办公室能开始的晨会纪要都不是候选。"""
+    context, state = quiet_world(tmp_path, (MORNING, NOTICE), (12, 9, 0), None, origin_id)
+    road = state.sessions["stay"]
+    assert (road.kind, road.origin_id, road.destination_id) == (SessionKind.TRANSIT, origin_id, destination_id)
+    assert state.agents[1].location_id == origin_id
+    changed, data = push(context, state)
+    assert data == {"kind": "app_push", "pushed": False, "session_id": "stay"}
+    assert changed is state and not road.app_pushes
 
 
 @pytest.mark.parametrize("hour,pushed", [(18, True), (16, False)])

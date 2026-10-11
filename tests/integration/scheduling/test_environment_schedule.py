@@ -116,6 +116,25 @@ def test_hourly_push_never_selects_content_whose_prerequisite_is_unmet(engine_fa
     assert not stay(engine).app_pushes
 
 
+def test_person_who_left_the_office_is_on_the_road_for_the_push(engine_factory, tmp_path):
+    """08:55 从办公室步行回家，09:00 人在路上：既不算在出发地也不算在目的地，只在办公室、此刻在时段内的晨会纪要
+    不是候选，全部 app 都没有候选。"""
+    engine = engine_factory(push_environment(tmp_path), mutate=example_window(at_office=True))
+    stage_moment(engine, moment(12, 8, 55))
+    _, departure = act(engine, "leave", travel("家", "步行"))
+    assert departure.status == "in_progress", departure.error_code
+    assert engine.context.state.activities[departure.activity_id].planned_end_at > moment(12, 9)
+    reach(engine, moment(12, 9))
+    road = stay(engine)
+    assert (road.kind, road.origin_id, road.destination_id) == ("transit", "office", "home")
+    # 出发后人物记录的地点仍是出发地，推送看的是停留会话而不是它
+    assert engine.context.state.agents[1].location_id == "office"
+    assert [(row.occurred_at, row.data) for row in pushes(engine)] == [
+        (moment(12, 9), {"kind": "app_push", "pushed": False, "scheduled_id": "push-1-2026-10-12T09",
+                         "session_id": road.session_id})]
+    assert not road.app_pushes
+
+
 def test_arrival_exactly_on_the_hour_counts_as_present_for_the_push(engine_factory, tmp_path):
     """恰在 09:00:00 到达办公室：推送取这一秒活动结算之后的停留会话，带地点前提的晨会纪要已经是候选。"""
     root = push_environment(tmp_path)
