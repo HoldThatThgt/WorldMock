@@ -10,6 +10,8 @@ src/worldmock/agents/life_feedback.py）；三个控制工具请求级的个人�
 （worldmock.life.errands.change_issues）、读同一份冻结观察的两类私有事务绑定，问题并入同一次纠错
 （docs/design/04-simulation-engine.md ）。宿主不写入事务，事务变更也不是记忆写入点。思考用尽输出上限的截断回合丢弃并
 纠错，随后以关闭思考、强制工具调用的请求重试一次（7.2，src/worldmock/agents/life_truncation.py）。
+每个本地日第一次睡醒的那一步，在取观察之前先做记忆巩固与就寝反思并登记，再做当天的第一次决策
+（docs/design/06-agent.md「宿主模型协议」）；一次决策恰有一份观察。
 """
 
 from __future__ import annotations
@@ -272,7 +274,8 @@ class LifeAgent(PersonAgent):
         return "A typed life simulation whose visible facts arrive through LifeEnv.observe."
 
     async def step(self, tick: int, t: datetime) -> str:
-        """@brief 保留人物决策失败的完整异常链，便于定位真实服务故障。"""
+        """@brief 记下本步的决策跨度供反思阶段写记忆，并保留人物决策失败的完整异常链，便于定位真实服务故障。"""
+        self._life_tick = tick
         try:
             return await super().step(tick, t)
         except Exception:
@@ -280,10 +283,41 @@ class LifeAgent(PersonAgent):
             raise
 
     async def _observe_environment(self) -> dict[str, Any]:
-        """@brief 使用 runner 绑定上下文直接读取 LifeEnv。"""
+        """@brief 使用 runner 绑定上下文直接读取 LifeEnv：当天第一次睡醒时先做就寝反思并登记，再取本次决策唯一的一份观察。
+
+        AS2 的人物步骤先跑决策循环、后做记忆收尾；「先反思、再做当天第一次决策」由这里实现
+        （docs/design/06-agent.md「宿主模型协议」）：环境只读方法 due_reflection 返回日期时进入反思阶段，反思阶段不取观察。
+        """
         if self._env is None:
             raise RuntimeError("Environment is not initialized")
-        return await self._env.observe(self.require_decision_context())
+        context = self.require_decision_context()
+        if await self._env.due_reflection(context) is not None:
+            await self._wake_reflection(context)
+        return await self._env.observe(context)
+
+    async def _wake_reflection(self, context: Any) -> None:
+        """@brief 反思阶段：记忆巩固与就寝反思用独立的调用序号，写出了感想就以空的来源观察登记记忆更新。"""
+        store = self._memory_runtime.store
+        if store is None:
+            return
+        self._life_reflection_calls = 0
+        try:
+            outcome = await self._memory_runtime.wake_reflection(
+                tick=self._life_tick, t=self._current_time, step_count=self._step_count)
+        finally:
+            self._life_reflection_calls = None
+        evidence = memory_update_evidence(context, store, outcome)
+        if evidence is not None:
+            await self._env.record_memory_update(evidence)
+
+    def _memory_call_id(self) -> str:
+        """@brief 记忆调用的身份：反思阶段为 {decision_id}:reflection:{序号四位}:attempt:1，序号从 0001 起，
+        不占用也不重置决策的模型回合计数；步尾的记忆调用沿用决策的模型调用序号。"""
+        calls = getattr(self, "_life_reflection_calls", None)
+        if calls is None:
+            return self._next_model_call_id(1)
+        self._life_reflection_calls = calls + 1
+        return f"{self.require_decision_context().decision_id}:reflection:{calls + 1:04d}:attempt:1"
 
     def build_react_tool_schemas(self, *, readonly: bool) -> list[dict[str, Any]]:
         """@brief 整次运行不变的原生工具；只有本次决策只剩最后一个回合或截断重试时去掉记忆查询工具。
@@ -355,7 +389,7 @@ class LifeAgent(PersonAgent):
                    "extra_body": {"thinking": {"type": "disabled"}}}
         request = fit_request(request, identity["model_metadata"])
         context = getattr(self, "_decision_context", None)
-        call_id = self._next_model_call_id(1)
+        call_id = self._memory_call_id()
         await self._record_model_evidence(ModelCallEvidence(context, call_id, "request", 1, request))
         try:
             response = await self._dispatcher.call(**request)
@@ -391,12 +425,6 @@ class LifeAgent(PersonAgent):
             persona, memory = self._life_budget.layers
             return readonly_messages(persona, memory, request.question)
         return [system_message(False), user_message(self._life_budget.layers)]
-
-    def memory_sleep_boundary(self) -> bool:
-        """@brief 只以冻结观察中刚按计划结束的本人睡眠事实判定反思边界。"""
-        from worldmock.life.memory_evidence import observation_ended_sleep
-
-        return observation_ended_sleep(getattr(self, "_life_observation", {}))
 
     def prepare_react_loop(self, request: ReactLoopRequest) -> None:
         """@brief 重置当前决策动作计数，并冻结本轮观察给出的层、私有绑定与工具面。"""
@@ -449,8 +477,8 @@ class LifeAgent(PersonAgent):
         self._life_observation_event_id = observation_event_id
 
     async def _record_memory_update(self, outcome: MemoryStepOutcome) -> None:
-        """@brief 登记本步已落盘的记忆（覆写 AS2 同名方法，锁定提交不改）：就寝反思的快照条目另带来源 reflection，
-        环境据此给反思找归属日期（docs/design/06-agent.md「零点、反思与未了结」）。"""
+        """@brief 登记步尾已落盘的记忆（覆写 AS2 同名方法，锁定提交不改）：证据绑定本次决策的冻结观察；
+        就寝反思在取观察之前另行登记（docs/design/05-recording-engine.md「事件与来源」）。"""
         context = getattr(self, "_decision_context", None)
         store = self._memory_runtime.store
         if context is None or store is None:

@@ -13,7 +13,7 @@ from worldmock.footprints.models import EventDraft
 from worldmock.input_models import ModelMetadata
 from worldmock.life.errand_state import ErrandState
 from worldmock.life import errands, memory_layer, progress_layer
-from worldmock.life.memory_evidence import memory_write_points, observation_ended_sleep
+from worldmock.life.memory_evidence import memory_write_points
 from worldmock.life.models import ActivityKind, ActivityStatus
 from worldmock.life.prompt_schemas import validate_layer
 from worldmock.life.result_projection import public_result
@@ -113,32 +113,38 @@ def test_real_receipt_completes_errand_without_order_or_self_report_credit():
     assert actual[0].caused_by == [receipt.event_id]
 
 
-def test_startup_wake_reason_never_substitutes_for_completed_sleep_evidence():
-    assert not observation_ended_sleep({"current_time": 100, "wake_reasons": ["session_open"]})
-    observation = SimpleNamespace(data={"current_time": 100, "wake_reasons": ["session_open"]})
+def test_step_tail_write_points_are_only_registered_conclusions():
+    """步尾登记的写入点只可能是 activity_conclusion：写了条目而没有带记忆的收尾请求就是没有来源；
+    就寝反思不在这里推导。"""
     with pytest.raises(ProtocolError, match="no registered write point"):
-        memory_write_points([], "decision", observation, True)
+        memory_write_points([], "decision", True)
+    assert memory_write_points([], "decision", False) == []
+    item = {"activity_name": "休息", "summary": "收尾。", "views": [],
+            "memories": [{"type": "routine", "text": "歇好了。", "importance": 0.3, "keywords": []}]}
+    concluded = SimpleNamespace(decision_id="decision", data={
+        "tool_name": "conclude_activity", "request": {"items": [item], "errands": []}})
+    assert memory_write_points([concluded], "decision", True) == ["activity_conclusion"]
+    with pytest.raises(ProtocolError, match="no registered write point"):
+        memory_write_points([concluded], "another-decision", True)
 
 
-@pytest.mark.parametrize("status,time", [("active", 100), ("cancelled", 100), ("completed", 99)])
-def test_reflection_rejects_uncompleted_or_old_sleep(status, time):
-    assert not observation_ended_sleep({"current_time": 100,
-        "ended_sleep": {"kind": "sleep", "status": status, "ended_at": time}})
-
-
-def test_completed_sleep_at_the_current_decision_is_a_reflection_write_point():
-    observation = SimpleNamespace(data={"current_time": 100,
-        "ended_sleep": {"kind": "sleep", "status": "completed", "ended_at": 100}})
-    assert memory_write_points([], "decision", observation, True) == ["reflection"]
-
-
-def test_saved_reflection_requires_real_world_sleep_ending(inputs):
+def test_saved_reflection_is_filed_by_its_recorded_date_and_needs_one(inputs):
+    """记忆层只读反思登记自带的归属日期；写入点含 reflection 而没有日期的登记被拒绝。"""
     ctx = layer_context(inputs)
-    reflection = SimpleNamespace(occurred_at=100,
-        data={"trigger": ["reflection"], "episodes": [{"source": "reflection", "text": "今天的观察"}]})
-    build = SimpleNamespace(context=ctx, cached=SimpleNamespace(events={"memory_updated": [reflection]}))
-    with pytest.raises(IntegrityError, match="no ended sleep"):
-        memory_layer._reflections(build)
+    episodes = [{"source": "reflection", "text": "今天的观察"}]
+    dated = SimpleNamespace(occurred_at=100, data={"trigger": ["reflection"], "episodes": episodes,
+                                                   "reflection": {"date": "2026-01-04", "sleep_activity_id": "s"}})
+    build = SimpleNamespace(context=ctx, cached=SimpleNamespace(events={"memory_updated": [dated]}))
+    assert memory_layer._reflections(build) == [("2026-01-04", "今天的观察")]
+    for filed in (None, {}, {"sleep_activity_id": "s"}, "2026-01-04"):
+        undated = SimpleNamespace(occurred_at=100, data={"trigger": ["reflection"], "episodes": episodes,
+                                                         "reflection": filed})
+        build = SimpleNamespace(context=ctx, cached=SimpleNamespace(events={"memory_updated": [undated]}))
+        with pytest.raises(IntegrityError, match="Bedtime reflection has no filing date"):
+            memory_layer._reflections(build)
+    tail = SimpleNamespace(occurred_at=100, data={"trigger": [], "episodes": [], "reflection": None})
+    build = SimpleNamespace(context=ctx, cached=SimpleNamespace(events={"memory_updated": [tail]}))
+    assert memory_layer._reflections(build) == []
 
 
 def test_partial_content_requires_real_positive_progress():

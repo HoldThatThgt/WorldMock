@@ -142,6 +142,10 @@ class LifeEnv(EnvBase):
         """@brief 返回严格人物视图并追加只读观察证据。"""
         return self._require_engine().observe(context)
 
+    async def due_reflection(self, context: Any) -> dict | None:
+        """@brief 只读：人物取观察之前询问此刻该不该先做就寝反思，返回空或归属日期与所属睡眠。"""
+        return self._require_engine().due_reflection(context)
+
     async def submit_action(self, call: Any):
         """@brief 登记宿主绑定的有类型生活动作。"""
         engine = self._require_engine()

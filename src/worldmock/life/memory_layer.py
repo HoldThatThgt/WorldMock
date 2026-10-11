@@ -26,8 +26,6 @@ from worldmock.life.tool_layer import LayerContext
 
 #: 记忆层 JSON 的字符上限（新常量，docs/design/06-agent.md「窗口」）。
 MEMORY_WINDOW_CHARS = 8000
-#: 反思归属日期：睡眠开始时刻前推的秒数（裁决 #34）。
-REFLECTION_SHIFT_SECONDS = 6 * 3600
 #: 派生记忆层读取的本人事件类型。
 _EVENT_TYPES = ("action_requested", "action_result", "environment_event", "memory_updated")
 
@@ -144,11 +142,6 @@ def noted_label(layer: dict, name: str, text: str) -> str | None:
     labels = {name, START_SUFFIX.sub("", name, count=1)}
     return next((note["activity"] for entry in (*layer["earlier_days"], *layer["earlier_today"])
                  for note in entry["self_notes"] if note["activity"] in labels and note["text"] == text), None)
-
-
-def reflection_date(sleep_started_at: int, timezone_name: str) -> str:
-    """@brief 就寝反思的归属日期：睡眠开始时刻前推 6 小时的本地日期（23:00 与次日 01:00 入睡都归前一晚，14:00 小睡归当日）。"""
-    return local_date(sleep_started_at - REFLECTION_SHIFT_SECONDS, timezone_name)
 
 
 def _build(context: LayerContext, store: FootprintStore) -> _Build:
@@ -304,19 +297,16 @@ def _labels(names: list[str]) -> dict[str, str]:
 
 
 def _reflections(build: _Build) -> list[tuple[str, str]]:
-    """@brief 就寝反思归属当轮刚按计划结束的睡眠；旧睡眠不能为新反思提供依据。"""
-    context, rows = build.context, []
-    from worldmock.life.sleep import ended_sleep_at
-
+    """@brief 就寝反思的感想与归属日期：只读反思登记自带的 reflection.date，不回查睡眠活动。"""
+    rows = []
     for event in build.cached.events["memory_updated"]:
-        entries = [item for item in event.data.get("episodes", []) if item.get("source") == "reflection"]
-        if not entries or "reflection" not in event.data.get("trigger", []):
-            continue
-        sleep = ended_sleep_at(context.state, context.agent_id, event.occurred_at)
-        if sleep is None:
-            logging.error("Bedtime reflection has no ended sleep")
-            raise IntegrityError("Bedtime reflection has no ended sleep")
-        rows.extend((reflection_date(sleep.started_at, context.config.timezone), item["text"]) for item in entries)
+        filed = event.data.get("reflection")
+        dated = isinstance(filed, dict) and isinstance(filed.get("date"), str)
+        if "reflection" in event.data.get("trigger", []) and not dated:
+            logging.error("Bedtime reflection has no filing date")
+            raise IntegrityError("Bedtime reflection has no filing date")
+        if dated:
+            rows.extend((filed["date"], item["text"]) for item in event.data["episodes"])
     return rows
 
 

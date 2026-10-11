@@ -826,6 +826,11 @@ class _StepEnvironment(_Environment):
         self.checkpoints = []
         self.observed_contexts = []
 
+    async def due_reflection(self, context: DecisionContext) -> dict | None:
+        """这一步不是当天第一次睡醒：取观察之前不做就寝反思。"""
+        assert context.agent_id == 7
+        return None
+
     async def observe(self, context: DecisionContext) -> dict:
         """返回带稳定来源事件身份的当前人物观察（一项进行中的等待）。"""
         assert context.agent_id == 7
@@ -1618,14 +1623,12 @@ async def test_memory_persistence_failure_aborts_society_before_commit(
 
 
 class _WakingStepEnvironment(_StepEnvironment):
-    """醒来那一轮的观察：唤醒原因含 wake_from_sleep，人物步骤在收尾记忆落盘之后做主观归纳与就寝反思。"""
+    """当天第一次睡醒的那一轮：环境回答该做就寝反思，人物步骤在取观察之前做主观归纳与就寝反思。"""
 
-    async def observe(self, context: DecisionContext) -> dict:
-        """在一项进行中等待的观察上写入醒来的唤醒原因。"""
-        data = await super().observe(context)
-        data["wake_reasons"] = ["wake_from_sleep"]
-        data["ended_sleep"] = {"kind": "sleep", "status": "completed", "ended_at": data["current_time"]}
-        return data
+    async def due_reflection(self, context: DecisionContext) -> dict | None:
+        """这一步是当天第一次睡醒：给出归属日期与所属睡眠。"""
+        assert context.agent_id == 7 and self.observed_contexts == []
+        return {"date": "2026-01-04", "sleep_activity_id": "sleep-1"}
 
 
 #: 就寝反思四次不合合同的响应里，最后一次的英文校验错误（正文超过一千字符）。
@@ -1633,8 +1636,8 @@ _LAST_REFLECTION_ERROR = "insights.0.insight: Value error, memory text exceeds 1
 
 
 class _InvalidReflectionDispatcher:
-    """行动请求答一次带记忆的收尾，主观归纳答一句话，其后的就寝反思四次都不合合同：自由文本、别的工具、未知引用、
-    正文超长。校验重试有上限，脚本用尽后再被调用即失败。"""
+    """主观归纳答一句话，其后的就寝反思四次都不合合同：自由文本、别的工具、未知引用、正文超长。
+    校验重试有上限，脚本用尽后再被调用即失败；这一步到不了行动请求。"""
 
     model_name = "deepseek-flash"
 
@@ -1643,8 +1646,6 @@ class _InvalidReflectionDispatcher:
         oversized = json.dumps({"insights": [{"insight": "想" * 1001, "refs": ["m_unknown"]}]}, ensure_ascii=False)
         self.requests: list[dict] = []
         self.responses = [
-            _ModelResponse("call-action", "conclude_activity",
-                           json.dumps(_conclude_args(_WAIT), ensure_ascii=False)),
             _TextResponse("我想把作息稳住。"),
             _TextResponse('[{"insight":"我想休息。","refs":["m_unknown"]}]'),
             _ModelResponse("call-other", "memory_recent", '{"limit":1}'),
@@ -1662,16 +1663,19 @@ class _InvalidReflectionDispatcher:
 
 @pytest.mark.asyncio
 async def test_reflection_contract_failure_aborts_society_before_commit(monkeypatch, tmp_path) -> None:
-    """就寝反思的输出重试耗尽是运行故障（docs/design/10-runtime.md 「失败」）：反思发生在本步世界请求已登记、
-    收尾记忆已写入人物工作区之后；首次之外三次重试都不合合同时，runner 失败，Society 保存故障并中止本轮——不结算、
-    不建检查点、没有 memory_updated，故障原因带最后一次校验错误原文。
+    """就寝反思的输出重试耗尽是运行故障（docs/design/06-agent.md「宿主模型协议」）：反思发生在当天第一次睡醒、
+    取观察之前；首次之外三次重试都不合合同时，runner 失败，Society 保存故障并中止本轮——不取观察、不登记世界请求、
+    不结算、不建检查点、没有 memory_updated，故障原因带最后一次校验错误原文。
 
-    证据相位为行动一对、主观归纳一对、反思四对；反思的每次请求都由 AS2 记忆调度关闭思考、只带 submit_reflection。
-    没有任何洞见写入，也没有降级为空反思，工作区里只有先前落盘的收尾记忆。"""
+    证据相位为主观归纳一对、反思四对；反思的每次请求都由 AS2 记忆调度关闭思考、只带 submit_reflection，调用身份用独立
+    的 reflection 序号。没有任何洞见写入，也没有降级为空反思，工作区里只有此前落盘的收尾记忆。"""
     workspace = tmp_path / "as2" / "agents" / "agent_0007"
     environment = _WakingStepEnvironment()
     dispatcher = _InvalidReflectionDispatcher()
     _create_step_workspace(workspace)
+    WorldMockMemoryStore(workspace, agent_id=7).append_episodes(
+        [{**_memory(), "source": "activity_conclusion", "epistemic_status": "subjective"}],
+        tick=60, t=environment.current_time, step_count=1)
     project_root = Path(__file__).resolve().parents[3]
     monkeypatch.setenv("WORKSPACE_PATH", str(project_root))
 
@@ -1694,18 +1698,19 @@ async def test_reflection_contract_failure_aborts_society_before_commit(monkeypa
     with pytest.raises(RuntimeError, match="Agent decision failed"):
         await society.run()
 
-    assert dispatcher.responses == [] and len(dispatcher.requests) == 6
-    assert len(environment.calls) == 1
-    assert [item.phase for item in environment.evidence] == ["request", "response"] * 6
+    assert dispatcher.responses == [] and len(dispatcher.requests) == 5
+    assert environment.calls == [] and environment.observed_contexts == []
+    assert [item.phase for item in environment.evidence] == ["request", "response"] * 5
+    assert [item.call_id.split(":")[-4:-2] for item in environment.evidence if item.phase == "request"] == [
+        ["reflection", f"{index:04d}"] for index in range(1, 6)]
     sent = [item.request for item in environment.evidence if item.phase == "request"]
     offered = [[tool["function"]["name"] for tool in request.get("tools", [])] for request in sent]
-    assert offered[0][:2] == [MAIN_TOOL, SIDE_TOOL] and offered[1] == []
-    assert offered[2:] == [["submit_reflection"]] * 4
-    for request in sent[2:]:
+    assert offered[0] == [] and offered[1:] == [["submit_reflection"]] * 4
+    for request in sent[1:]:
         assert request["extra_body"] == {"thinking": {"type": "disabled"}}
         assert request["tool_choice"] == "required" and request["max_retries"] == 0
-        assert request["messages"][:2] == sent[2]["messages"]
-    assert [len(request["messages"]) for request in sent[2:]] == [2, 3, 3, 3]
+        assert request["messages"][:2] == sent[1]["messages"]
+    assert [len(request["messages"]) for request in sent[1:]] == [2, 3, 3, 3]
     assert environment.memory_updates == []
     assert environment.commits == []
     assert environment.checkpoints == []
@@ -1776,21 +1781,16 @@ async def test_decision_failure_is_logged_once_and_reraised_unchanged(
     assert environment.commits == [] and environment.aborts == [] and environment.failures == []
 
 
-def test_memory_sleep_boundary_follows_engine_wake_signal() -> None:
-    """就寝后第一个边界（wake_from_sleep）驱动记忆巩固与反思。"""
+def test_step_tail_sleep_boundary_hook_is_not_overridden_and_is_always_false() -> None:
+    """LifeAgent 不再覆写 AS2 的取值钩子：锁定的调用传给步尾的 sleep_boundary 恒为假，就寝反思不由步尾触发。"""
+    from agentsociety2.agent import PersonAgent
+
+    assert "memory_sleep_boundary" not in vars(LifeAgent)
+    assert LifeAgent.memory_sleep_boundary is PersonAgent.memory_sleep_boundary
     agent = LifeAgent()
     agent._profile = _frozen_profile()
-    request = ReactLoopRequest(
-        0, _context().observed_at, _observations())
-    agent.prepare_react_loop(request)
+    agent.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, _observations()))
     assert agent.memory_sleep_boundary() is False
-
-    waking = _observations()
-    waking[0]["data"]["wake_reasons"] = ["wake_from_sleep"]
-    waking[0]["data"]["ended_sleep"] = {"kind": "sleep", "status": "completed", "ended_at": _NOW_EPOCH}
-    agent.prepare_react_loop(
-        ReactLoopRequest(0, _context().observed_at, waking))
-    assert agent.memory_sleep_boundary() is True
 
 
 def test_home_identity_never_enters_messages_and_a_layer_carrying_it_is_rejected() -> None:

@@ -75,7 +75,7 @@ class ReflectionInsight(ToolRequestModel):
 
 
 class ReflectionRequest(ToolRequestModel):
-    """@brief 就寝边界的一至五条主观洞见；条目 Schema 内联，不产生引用定义。"""
+    """@brief 就寝反思的一至五条主观洞见；条目 Schema 内联，不产生引用定义。"""
 
     insights: Annotated[list[ReflectionInsight], WithJsonSchema(
         {"type": "array", "items": ReflectionInsight.model_json_schema(mode="validation")})]

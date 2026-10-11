@@ -854,18 +854,19 @@ class _DayModel:
 
 
 class _DayEnvironment(_StepEnvironment):
-    """一日里的决策观察：两项进行中的活动可以带记忆结束；已有当日计划；醒来那一轮的唤醒原因含 wake_from_sleep。"""
+    """一日里的决策观察：两项进行中的活动可以带记忆结束；已有当日计划；woke 为真的那一轮是当天第一次睡醒。"""
 
     def __init__(self) -> None:
         super().__init__()
-        self.wake_reasons: list[str] = []
+        self.woke = False
+
+    async def due_reflection(self, context: DecisionContext) -> dict | None:
+        """当天第一次睡醒的那一轮给出归属日期，其余为空。"""
+        return {"date": "2026-01-04", "sleep_activity_id": "sleep-1"} if self.woke else None
 
     async def observe(self, context: DecisionContext) -> dict:
-        """在一项进行中等待的观察上再加一项进行中的工作，并写入本轮唤醒原因。"""
+        """在一项进行中等待的观察上再加一项进行中的工作。"""
         data = _with_activities(await super().observe(context), (_WORK, PHASE_ACTIVE))
-        data["wake_reasons"] = list(self.wake_reasons)
-        if "wake_from_sleep" in self.wake_reasons:
-            data["ended_sleep"] = {"kind": "sleep", "status": "completed", "ended_at": data["current_time"]}
         data["todo_layer"]["day_plan"] = {"date": "2026-01-05", "goals": []}
         return data
 
@@ -873,6 +874,7 @@ class _DayEnvironment(_StepEnvironment):
 @pytest.mark.asyncio
 async def test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime_reflection(tmp_path) -> None:
     """就寝反思之后，经结束活动写满 10 条、重要度合计 2.0（低于 3.0）时恰好触发一次巩固；此前的反思条目不计入。
+    反思在当天第一次睡醒那一步取观察之前做，随它的巩固原因是 daily reflection，登记不绑定观察。
 
     巩固载荷每条只有 {type, text, time}，不带条目身份（第七章「finish 并入 conclude_activity」「发给模型的内容不含内部身份」）。
     """
@@ -882,11 +884,11 @@ async def test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime
     environment, model = _DayEnvironment(), _DayModel()
     agent = await LifeAgent.from_workspace(workspace, _service(environment, model))
     texts = iter(_CONCLUSION_MEMORIES)
-    days = ((["wake_from_sleep"], ((_WAIT, 1),)), ([], ((_WORK, 4), (_WAIT, 4))), ([], ((_WORK, 2),)),
-            ([], ((_WAIT, 1),)))
+    days = ((False, ((_WAIT, 1),)), (True, ((_WORK, 4), (_WAIT, 4))), (False, ((_WORK, 2),)),
+            (False, ((_WAIT, 1),)))
     unconsolidated_after_step = []
-    for index, (wake, groups) in enumerate(days, start=1):
-        environment.wake_reasons = wake
+    for index, (woke, groups) in enumerate(days, start=1):
+        environment.woke = woke
         chunks = [list(islice(texts, count)) for _, count in groups]
         memories = [[_memory(text, kind=kind, importance=0.2) for kind, text in chunk if kind not in _SUBJECTS]
                     for chunk in chunks]
@@ -897,9 +899,17 @@ async def test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime
         assert await agent.step(0, _OBSERVED_AT) == "conclude_activity registered"
         unconsolidated_after_step.append(agent._memory_runtime.store.unconsolidated())
 
-    assert [update.consolidated for update in environment.memory_updates] == [True, False, True, False]
+    assert [update.consolidated for update in environment.memory_updates] == [False, True, False, True, False]
+    assert [update.observation_event_id is None for update in environment.memory_updates] == [
+        False, True, False, False, False]
+    reflected = environment.memory_updates[1]
+    assert reflected.operation == "append_episodes" and reflected.verified_event_ids == ()
+    assert reflected.memory_before_sha256 == reflected.memory_sha256
+    assert {item.get("source") for item in reflected.episodes} == {"reflection"}
+    assert not [item for update in environment.memory_updates if update is not reflected
+                for item in update.episodes if "source" in item]
     assert model.reflections == 1
-    assert [payload["reason"] for payload in model.consolidations] == ["sleep boundary", "pending episode threshold"]
+    assert [payload["reason"] for payload in model.consolidations] == ["daily reflection", "pending episode threshold"]
     after_eight = unconsolidated_after_step[1]
     reflections = [item for item in after_eight if item["source"] == "reflection"]
     assert len(after_eight) == 13 and len(reflections) == 5
@@ -913,4 +923,4 @@ async def test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime
     assert len(counted) == 10
     assert sum(importance[item["text"]] for item in counted) == pytest.approx(2.0)
     assert Counter(item["source"] for item in stored) == {"activity_conclusion": 12, "reflection": 5}
-    assert [len(update.created_episode_ids) for update in environment.memory_updates] == [6, 8, 2, 1]
+    assert [len(update.created_episode_ids) for update in environment.memory_updates] == [1, 5, 8, 2, 1]
