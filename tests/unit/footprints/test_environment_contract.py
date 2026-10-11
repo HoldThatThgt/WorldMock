@@ -40,7 +40,7 @@ def test_directory_browse_has_real_app_use_without_content_or_wait_evidence():
 
 def test_system_app_touch_and_payment_notification_are_point_facts_with_exact_fields():
     touch = _event(1, "environment_event", {"kind": "app_touch", "app_id": "navigation",
-                    "action": "walk", "step": "navigation", "rule_id": None}, visibility="system",
+                    "action": "travel", "step": "navigation", "rule_id": None}, visibility="system",
                    cause=["request-result"])
     notification = _event(2, "environment_event", {"kind": "payment_notification", "app_id": "payment",
                            "amount_fen": 1234, "order_ids": ["order"], "title": "支付成功", "summary": "商品 12.34 元"},

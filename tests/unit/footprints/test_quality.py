@@ -832,7 +832,7 @@ def _timeline_events(place, lifestyle, subject):
              "apps": [{"app_id": "platform", "name": lifestyle}]}
     return [
         _event(1, "observation", occurred_at=100, agent_id=1, data=names),
-        _progress(2, {"activity_id": "a-go", "kind": "travel", "status": "completed", "travel_mode": "walking", "destination_id": "loc-x"},
+        _progress(2, {"activity_id": "a-go", "kind": "travel", "status": "completed", "travel_method_id": "walking", "destination_id": "loc-x"},
                   100, 200),
         _progress(3, {"activity_id": "a-life", "kind": "interact",
                      "data": {"action": "interact", "app_id": "platform", "content_id": None}}, 200, 300),

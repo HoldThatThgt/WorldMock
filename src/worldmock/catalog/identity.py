@@ -21,7 +21,7 @@ REQUIRED_CATALOG_FILES = frozenset({
     "app-catalog.jsonl", "content-catalog.jsonl", "location.jsonl", "merchant-catalog.jsonl",
 })
 #: 可以不存在的目录 JSONL；存在就必须登记，不存在等于零行。
-OPTIONAL_CATALOG_FILES = frozenset({"callbacks.jsonl", "map.jsonl"})
+OPTIONAL_CATALOG_FILES = frozenset({"callbacks.jsonl", "map.jsonl", "travel-method.jsonl"})
 
 
 @dataclass(frozen=True)

@@ -12,9 +12,10 @@ from pydantic import ValidationError
 
 from worldmock.evaluation.errors import EvaluationError
 from worldmock.evaluation.models import JsonObject, PublicEvidence
+from worldmock.exchange.constants import WALKING_TRAVEL_METHOD_ID
 from worldmock.footprints.models import Event
 from worldmock.life.action_contract import (ACTIVITY_ACTIONS, MAIN_ACTIVITY_ACTIONS, SIDE_ACTIVITY_ACTIONS,
-                                             START_TOOLS, TRAVEL_ACTION_NAMES, TRAVEL_ACTIONS)
+                                             START_TOOLS)
 from worldmock.footprints.app_usage import validate_activity_prefix
 from worldmock.errors import IntegrityError
 
@@ -256,20 +257,10 @@ def _start_shapes(tool_name: str, request: Mapping[str, Any], related: Sequence[
     if action not in (MAIN_ACTIVITY_ACTIONS if main else SIDE_ACTIVITY_ACTIONS):
         raise EvaluationError("invalid_input", "Start request action is outside the current closed set")
     activity = _related_activity(related, 0)
-    name = _travel_action(request, activity) if action == "travel" else action
-    shape = _start_shape(name, related, activity)
+    shape = _start_shape(action, related, activity)
     if shape is None:
         return ()
-    return (_Action(tool_name, request, shape, name, activity_key=_string(activity.get("activity_id"))),)
-
-
-def _travel_action(request: Mapping[str, Any], activity: Mapping[str, Any]) -> str:
-    """@brief 出行的公开类别取实际活动记下的出行动作；没有活动的被拒请求按固定出行方式名称对应，对不上时归为 travel。"""
-    recorded = _mapping(activity.get("data")).get("action")
-    if recorded in TRAVEL_ACTIONS:
-        return recorded
-    names = {name: action for action, name in TRAVEL_ACTION_NAMES.items()}
-    return names.get(request["detail"], "travel")
+    return (_Action(tool_name, request, shape, action, activity_key=_string(activity.get("activity_id"))),)
 
 
 def _start_shape(action: str, related: Sequence[Event], activity: Mapping[str, Any]) -> _Shape | None:
@@ -281,7 +272,7 @@ def _start_shape(action: str, related: Sequence[Event], activity: Mapping[str, A
     if action == "sleep":
         return None
     trip = _string(_mapping(activity.get("data")).get("trip_id"))
-    return _Shape(action, "travel", "route", trip, _travel_mode(activity.get("travel_mode")))
+    return _Shape(action, "travel", "route", trip, _travel_mode(activity.get("travel_method_id")))
 
 
 def _control_actions(tool_name: str, request: Mapping[str, Any], related: Sequence[Event],
@@ -312,7 +303,8 @@ def _activity_shape(row: Mapping[str, Any]) -> _Shape | None:
     data = _mapping(row.get("data"))
     action = worldmock_activity_action(kind or "", data)
     if kind == "travel":
-        return _Shape(action, "travel", "route", _string(data.get("trip_id")), _travel_mode(row.get("travel_mode")))
+        return _Shape(action, "travel", "route", _string(data.get("trip_id")),
+                      _travel_mode(row.get("travel_method_id")))
     if kind != "interact":
         return None
     content = _string(data.get("content_id"))
@@ -326,7 +318,7 @@ def _world_result(event: Event, action: _Action) -> list[PublicEvidence]:
     if action.action_name == "purchase":
         return _purchase_result(event, action)
     rows = [_from_event(event, action.shape, _result_state(event, action))]
-    if action.action_name in TRAVEL_ACTIONS and _account_changes(event, action):
+    if action.action_name == "travel" and _account_changes(event, action):
         shape = _Shape(action.shape.action, "pay", "route", action.shape.object_key, action.shape.attributes)
         rows.append(_from_event(event, shape, "paid"))
     return rows
@@ -490,10 +482,9 @@ def _fulfillment(value: Any) -> JsonObject:
     return {"fulfillment_mode": value} if value in {"delivery", "pickup", "station_pickup"} else {}
 
 
-def _travel_mode(value: Any) -> JsonObject:
-    """@brief 盲评只归并真实交通方式，内部仍区分打车与公共交通。"""
-    public = {"walking": "walking", "driving": "driving", "taxi": "driving", "bus": "transit"}.get(value)
-    return {"travel_mode": public} if public is not None else {}
+def _travel_mode(travel_method_id: Any) -> JsonObject:
+    """@brief 只归类引擎自带的步行；数据集定义的出行方式不带类别，身份起成 driving、bus、taxi 也一样。"""
+    return {"travel_mode": "walking"} if travel_method_id == WALKING_TRAVEL_METHOD_ID else {}
 
 
 def worldmock_activity_action(activity_type: str, data: Any) -> str:
@@ -503,10 +494,9 @@ def worldmock_activity_action(activity_type: str, data: Any) -> str:
     if activity_type not in {"sleep", "travel", "interact", "purchase"}:
         raise EvaluationError("invalid_input", "Activity type is outside the current closed set")
     action = _mapping(data).get("action")
-    if action not in ACTIVITY_ACTIONS and action not in TRAVEL_ACTIONS:
+    if action not in ACTIVITY_ACTIONS:
         raise EvaluationError("invalid_input", "Activity requires its actual action")
-    valid = action in TRAVEL_ACTIONS if activity_type == "travel" else action == activity_type
-    if not valid:
+    if action != activity_type:
         raise EvaluationError("invalid_input", "Activity action disagrees with its kind")
     return action
 

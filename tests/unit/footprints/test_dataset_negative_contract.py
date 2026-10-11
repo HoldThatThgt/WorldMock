@@ -100,17 +100,19 @@ def test_frozen_environment_rejects_manifest_identity_mismatch(engine_factory, c
 
 CALLBACK_ROW = b'{"cap":3,"initial":1,"reset_on_goods":[],"state":"stock"}\n'
 MAP_ROW = b'{"a":"home","b":"office","length_m":12600}\n'
+METHOD_ROW = ('{"exertion":"light","name":"骑车","price_per_km_fen":0,"speed_meters_per_second":4,'
+              '"start_price_fen":0,"travel_method_id":"bike"}\n').encode("utf-8")
 FIXED_ASSETS = {"persona.toml", "config.toml", "map.json", "catalog/manifest.json"}
 REQUIRED_ASSETS = {"catalog/app-catalog.jsonl", "catalog/content-catalog.jsonl", "catalog/location.jsonl",
                    "catalog/merchant-catalog.jsonl"}
 
 
 def _engine_with(engine_factory, tmp_path, files):
-    """在夹具副本里放入可选文件并刷新清单，再由真实引擎冻结这份环境。"""
-    from tests.life.environment_inputs import copy_environment
+    """在只有必需文件的夹具副本里放入可选文件并刷新清单，再由真实引擎冻结这份环境。"""
+    from tests.life.environment_inputs import copy_environment, walking_only
     from worldmock.catalog.identity import refresh_manifest_identity
 
-    root = copy_environment(tmp_path / "optional-input")
+    root = walking_only(copy_environment(tmp_path / "optional-input"))
     for name, content in files.items():
         (root / "catalog" / name).write_bytes(content)
     refresh_manifest_identity(root / "catalog")
@@ -129,8 +131,11 @@ def _put(store, frozen, name, content):
 
 @pytest.mark.parametrize("files", [{}, {"callbacks.jsonl": b""}, {"callbacks.jsonl": CALLBACK_ROW},
                                    {"map.jsonl": b""}, {"map.jsonl": MAP_ROW},
-                                   {"callbacks.jsonl": CALLBACK_ROW, "map.jsonl": MAP_ROW}],
-                         ids=["required-only", "empty-callbacks", "callbacks", "empty-map", "map", "both"])
+                                   {"travel-method.jsonl": b""}, {"travel-method.jsonl": METHOD_ROW},
+                                   {"callbacks.jsonl": CALLBACK_ROW, "map.jsonl": MAP_ROW,
+                                    "travel-method.jsonl": METHOD_ROW}],
+                         ids=["required-only", "empty-callbacks", "callbacks", "empty-map", "map", "empty-methods",
+                              "methods", "all-three"])
 def test_frozen_asset_names_follow_the_frozen_manifest_file_table(engine_factory, tmp_path, files):
     """冻结素材恰为四个固定名字加清单登记的每个目录文件；带与不带可选文件都通过冻结核对。"""
     engine = _engine_with(engine_factory, tmp_path, files)
@@ -154,7 +159,7 @@ def test_frozen_asset_set_must_equal_the_frozen_manifest(engine_factory, tmp_pat
     if case == "extra_optional":
         _put(store, frozen, "catalog/callbacks.jsonl", b"")
     elif case == "extra_unknown":
-        _put(store, frozen, "catalog/travel-method.jsonl", b"")
+        _put(store, frozen, "catalog/travel_method.jsonl", b"")
     else:
         frozen["environment_assets"].pop({
             "missing_required": "catalog/location.jsonl", "missing_optional": "catalog/map.jsonl",
@@ -174,9 +179,9 @@ def test_frozen_manifest_file_table_must_stay_inside_the_catalog_closure(engine_
         manifest["files"] = [entry for entry in manifest["files"] if entry["path"] != "location.jsonl"]
         frozen["environment_assets"].pop("catalog/location.jsonl")
     else:
-        empty = {"path": "travel-method.jsonl", "sha256": hashlib.sha256(b"").hexdigest(), "size_bytes": 0}
+        empty = {"path": "travel_method.jsonl", "sha256": hashlib.sha256(b"").hexdigest(), "size_bytes": 0}
         manifest["files"] = sorted([*manifest["files"], empty], key=lambda entry: entry["path"])
-        _put(store, frozen, "catalog/travel-method.jsonl", b"")
+        _put(store, frozen, "catalog/travel_method.jsonl", b"")
     _put(store, frozen, "catalog/manifest.json", json.dumps(manifest).encode())
     with pytest.raises(IntegrityError, match="^Frozen catalog file set is invalid$"):
         validate_frozen_environment(store.run_dir, frozen, [], [])
@@ -201,3 +206,58 @@ def test_changed_frozen_catalog_byte_is_caught_by_file_identity_or_catalog_diges
     expected = "Frozen catalog content digest is invalid" if republished else "Frozen catalog file identity is invalid"
     with pytest.raises(IntegrityError, match=f"^{expected}$"):
         validate_frozen_environment(store.run_dir, frozen, [], [])
+
+
+def _exported(activity_id, kind, method):
+    """导出活动行里冻结环境核对要读的字段：身份、种类、出行方式与动作。"""
+    return {"activity_id": activity_id, "activity_type": kind, "travel_method_id": method, "data": {"action": kind}}
+
+
+def _touch(app_id, step, action, activity_id="trip", rule_id=None):
+    """一条自动 app 触点事件在导出里的形状：导航触点挂在出行活动上，支付触点挂在购买活动上。"""
+    return {"event_type": "environment_event", "activity_id": activity_id,
+            "data": {"kind": "app_touch", "app_id": app_id, "action": action, "step": step, "rule_id": rule_id}}
+
+
+@pytest.mark.parametrize("method,accepted", [("walking", True), ("bike", True), ("row", False), (None, False)])
+def test_frozen_navigation_touch_must_use_an_app_bound_to_the_trips_travel_method(
+        engine_factory, tmp_path, method, accepted):
+    """冻结环境核对自动导航触点：它的 app 是功能 app，并且绑定了那趟出行所用的出行方式；
+    绑了别的方式、出行活动没有出行方式都不通过。"""
+    from tests.life.environment_inputs import copy_environment, replace_travel_methods, travel_method_row
+
+    root = replace_travel_methods(copy_environment(tmp_path / "navigation"), [
+        travel_method_row("bike", "自行车", 4.5), travel_method_row("row", "划船", 2)], ("bike", "walking"))
+    store = engine_factory(root).context.store
+    activities = [_exported("trip", "travel", method)]
+    events = [_touch("amap", "navigation", "travel")]
+    if accepted:
+        validate_frozen_environment(store.run_dir, store.manifest, activities, events)
+    else:
+        with pytest.raises(IntegrityError, match="^Automatic app touch disagrees with its frozen function app$"):
+            validate_frozen_environment(store.run_dir, store.manifest, activities, events)
+
+
+@pytest.mark.parametrize("event,message", [
+    (_touch("alipay", "payment", "purchase", "buy"), None),
+    (_touch("amap", "payment", "purchase", "buy"), "Automatic app touch disagrees with its frozen function app"),
+    (_touch("alipay", "navigation", "travel"), "Automatic app touch disagrees with its frozen function app"),
+    (_touch("bilibili", "navigation", "travel"), "Automatic app touch disagrees with its frozen function app"),
+    (_touch("ghost", "navigation", "travel"), "System app event references an unregistered frozen app"),
+    (_touch("bilibili", "browse", "travel", rule_id="callback-rule"), None),
+    ({"event_type": "environment_event", "activity_id": None,
+      "data": {"kind": "payment_notification", "app_id": "wechat"}}, None),
+    ({"event_type": "environment_event", "activity_id": None,
+      "data": {"kind": "payment_notification", "app_id": "amap"}},
+     "Payment notification disagrees with its frozen function app"),
+])
+def test_frozen_app_sources_match_the_purchase_and_travel_method_bindings(engine_factory, event, message):
+    """自动支付触点和支付通知的 app 绑定了购买；只绑定出行方式的导航 app 不是支付 app，只绑定购买的支付 app 不是导航 app；
+    回调足迹链的触点不按绑定核对。"""
+    store = engine_factory().context.store
+    activities = [_exported("trip", "travel", "walking"), _exported("buy", "purchase", None)]
+    if message is None:
+        validate_frozen_environment(store.run_dir, store.manifest, activities, [event])
+    else:
+        with pytest.raises(IntegrityError, match=f"^{message}$"):
+            validate_frozen_environment(store.run_dir, store.manifest, activities, [event])

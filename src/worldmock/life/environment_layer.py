@@ -2,7 +2,8 @@
 
 from worldmock.life import sessions
 from worldmock.life.models import ActivityKind, SessionKind
-from worldmock.life.readable import iso_time, TRAVEL_WAYS
+from worldmock.life.readable import iso_time
+from worldmock.life.travel_methods import travel_method
 from worldmock.life.weather import current_weather, WEATHER_LABELS
 
 _BODY_KEYS = ("appetite", "sleepiness", "relaxation", "social")
@@ -24,7 +25,7 @@ def _location(context) -> dict:
                       if context.state.activities[key].kind == ActivityKind.TRAVEL)
         destination = context.catalog.locations[travel.destination_id].display_name
         return {"session_kind": "transit", "name": f"去{destination}的路上",
-                "travel_mode": TRAVEL_WAYS[travel.travel_mode.value]}
+                "travel_method": travel_method(context.catalog, travel.travel_method_id).name}
     return {"session_kind": "stay", "name": context.catalog.locations[agent.location_id].display_name}
 
 

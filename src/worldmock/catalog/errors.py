@@ -20,8 +20,9 @@ REGISTRATION_REASONS = {
     "GOODS_BINDING_SIDE_EXCLUSIVE": "A goods item must be bound either to store kinds or apps, not both.",
     "GOODS_BINDING_DANGLING": "A goods item is bound to a kind that no registered location declares.",
     "APP_ROLE_BINDING_INVALID":
-        "Only function apps may bind actions, and only content apps may be referenced by locations, goods or contents.",
-    "APP_UNBOUND": "An app must have content or a concrete action binding for its role.",
+        "Only function apps may bind actions or travel methods, "
+        "and only content apps may be referenced by locations, goods or contents.",
+    "APP_UNBOUND": "An app must have content, or an action or travel method binding, for its role.",
     "APP_NAME_COLLIDES_LOCATION": "An app name must differ from every place name.",
     "CONTENT_CONTAINER_MISSING": "A content must be bound to at least one app or at least one location kind.",
     "CONTENT_CONTAINER_SIDE_EXCLUSIVE": "A content must be bound either to apps or to location kinds, not both.",

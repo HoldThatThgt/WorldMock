@@ -34,7 +34,8 @@ def validate_frozen_environment(root: Path, frozen: dict, activities: list[dict]
     _validate_catalog_digest(inputs, manifest)
     apps = {row["app_id"]: row for row in _rows(inputs["catalog/app-catalog.jsonl"])}
     contents = _rows(inputs["catalog/content-catalog.jsonl"])
-    _validate_app_sources(events, apps)
+    methods = {row["activity_id"]: row["travel_method_id"] for row in activities}
+    _validate_app_sources(events, apps, methods)
     _validate_browse(activities, apps, contents)
 
 
@@ -98,8 +99,11 @@ def _validate_catalog_digest(inputs: dict, manifest: dict) -> None:
         _invalid("Frozen catalog content digest is invalid")
 
 
-def _validate_app_sources(events: list[dict], apps: dict) -> None:
-    """@brief 系统应用事实匹配冻结真实应用，自动功能触点匹配声明具体动作。"""
+def _validate_app_sources(events: list[dict], apps: dict, methods: dict) -> None:
+    """@brief 系统应用事实匹配冻结真实应用：自动导航触点的 app 绑定了那趟出行的出行方式，自动支付触点的 app 绑定了购买。
+
+    :param methods: 活动身份到它保存的出行方式身份（非出行活动为 None）。
+    """
     for event in events:
         data = event["data"]
         if event["event_type"] != "environment_event" or data.get("kind") not in {
@@ -109,8 +113,12 @@ def _validate_app_sources(events: list[dict], apps: dict) -> None:
         if app is None:
             _invalid("System app event references an unregistered frozen app")
         if data["kind"] == "app_touch" and data["rule_id"] is None:
-            if app["role"] != "function" or data["action"] not in app["actions"]:
+            if data["step"] == "navigation":
+                bound = methods.get(event.get("activity_id")) in app.get("travel_method_ids", ())
+            else:
+                bound = data["action"] in app.get("actions", ())
+            if app["role"] != "function" or not bound:
                 _invalid("Automatic app touch disagrees with its frozen function app")
         if data["kind"] == "payment_notification" and (app["role"] != "function"
-                or "purchase" not in app["actions"]):
+                or "purchase" not in app.get("actions", ())):
             _invalid("Payment notification disagrees with its frozen function app")

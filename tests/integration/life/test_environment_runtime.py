@@ -49,23 +49,31 @@ def test_public_layers_validate_and_contain_four_felt_signals(engine_factory):
     assert data["known_activity_actions"] == ["travel", "purchase", "sleep", "interact"]
 
 
-@pytest.mark.parametrize("method,action,mode", [
-    ("步行", "walk", "walking"), ("驾车", "drive", "driving"), ("打车", "take_taxi", "taxi"),
-    ("公共交通", "take_bus", "bus")], ids=["walk", "drive", "take_taxi", "take_bus"])
-def test_each_travel_action_uses_complete_path_actual_departure_fare_and_arrival(engine_factory, method, action, mode):
+@pytest.mark.parametrize("method,identity,seconds,fare,exertion", [
+    ("步行", "walking", 1919, 0, "walking"), ("驾车", "driving", 329, 500, "light"),
+    ("打车", "taxi", 329, 1400, "light"), ("公共交通", "bus", 461, 200, "light")],
+    ids=["walking", "driving", "taxi", "bus"])
+def test_each_travel_method_uses_complete_path_actual_departure_fare_and_arrival(
+        engine_factory, method, identity, seconds, fare, exertion):
+    """夹具的家到公司是 1,957 米、当天小雨（系数 0.85）：四种出行方式的用时按各自速度乘天气系数上取整，车费取较大值。"""
     engine = engine_factory()
+    action = identity
+    assert engine.context.state.weather_by_date == {"2026-01-05": "light_rain"}
     _, result = act(engine, f"trip-{action}", travel("公司", method))
     assert result.status == "in_progress", result.error_code
     assert result.activity_id == f"activity-action-trip-{action}"
     activity = engine.context.state.activities[result.activity_id]
-    # 出行活动记下所选方式对应的固定出行动作与行程方式
-    assert activity.data["action"] == action and activity.travel_mode == mode
+    # 出行只有 travel 一个动作：活动保存所选出行方式的身份、它的代谢当量键，行程身份以出行方式身份结尾
+    assert activity.data["action"] == "travel" and activity.travel_method_id == identity
+    assert (activity.kind, activity.data["exertion"]) == ("travel", exertion)
+    assert activity.data["trip_id"] == f"home->office:{identity}"
+    assert activity.name.startswith(f"{method}前往公司（")
     assert activity.resource_claims == {"first"}
     assert activity.data["path"][0] == "home" and activity.data["path"][-1] == "office"
-    assert activity.data["distance_meters"] == engine.context.catalog.shortest_m("home", "office")
+    assert activity.data["distance_meters"] == engine.context.catalog.shortest_m("home", "office") == 1957
+    assert activity.planned_duration_seconds == seconds
     paid = 200000 - engine.context.state.accounts["agent:1"]
-    assert paid >= 0 and engine.context.state.accounts["external:scenario"] == -200000 + paid
-    assert paid == 0 if action == "walk" else paid > 0
+    assert paid == fare and engine.context.state.accounts["external:scenario"] == -200000 + paid
     reach(engine, activity.planned_end_at)
     final = engine.context.state.activities[result.activity_id]
     assert final.status == "completed" and final.ended_at == activity.planned_end_at
@@ -99,7 +107,8 @@ def test_sleep_ignores_every_intermediate_external_boundary_and_freezes_needs(en
     assert "planned_end" in engine.context.state.agents[1].pending_wake_reasons
 
 
-@pytest.mark.parametrize("action", ["wait", "chat", "Sleep", "travel_to", "collect_parcel", "walk", "take_bus"])
+@pytest.mark.parametrize("action", ["wait", "chat", "Sleep", "travel_to", "collect_parcel", "walk", "drive",
+                                    "take_taxi", "take_bus"])
 def test_retired_and_unknown_actions_leave_no_partial_activity_and_write_feedback(engine_factory, action):
     engine = engine_factory()
     # 宿主之外直接登记的请求：类型是请求模型而动作在枚举之外，环境用同一个请求模型复核后按请求形状拒绝
@@ -133,7 +142,8 @@ def test_two_slot_group_starts_travel_and_app_interaction_atomically(engine_fact
     assert set(activities) == {item.activity_id for item in results}
     trip, media = (activities[item.activity_id] for item in results)
     # 出行由 start_main_activity 放进槽位 1，内容 app 由 start_side_activity 放进槽位 2，两项同一时刻开始
-    assert (trip.kind, trip.data["action"], trip.resource_claims) == ("travel", "walk", {"first"})
+    assert (trip.kind, trip.data["action"], trip.resource_claims) == ("travel", "travel", {"first"})
+    assert trip.travel_method_id == "walking"
     assert (media.kind, media.data["app_id"], media.resource_claims) == ("interact", "bilibili", {"second"})
     assert trip.started_at == media.started_at == started_at
     assert trip.status == media.status == "active"
@@ -387,3 +397,40 @@ def test_trip_record_and_arrival_event_carry_the_declared_distance(engine_factor
     recorded = [row for row in events(engine) if row.activity_id == result.activity_id
                 and isinstance(row.data.get("activity"), dict)]
     assert recorded and all(row.data["activity"]["data"]["distance_meters"] == 12600 for row in recorded)
+
+
+#: 四个体力档位各一种的数据集出行方式，都免费。
+GRADED_METHODS = [("cable", "缆车", 3, 0, 0, "idle"), ("ebike", "电动车", 6.5, 0, 0, "light"),
+                  ("bike", "自行车", 4.5, 0, 0, "moderate"), ("row", "划船", 2, 0, 0, "heavy")]
+
+
+@pytest.mark.parametrize("method,app,met", [
+    ("步行", None, 3.5), ("缆车", None, 1.0), ("电动车", None, 1.5), ("自行车", None, 2.0), ("划船", None, 5.0),
+    ("步行", "哔哩哔哩", 3.5), ("缆车", "哔哩哔哩", 1.5), ("自行车", "Keep", 5.0), ("划船", "Keep", 5.0)])
+def test_travel_energy_follows_the_methods_exertion_and_the_higher_parallel_activity(
+        engine_factory, tmp_path, method, app, met):
+    """出行期间已提交的身体结算按该出行方式档位的代谢当量算额外消耗，步行按 3.5；
+    路上同时用内容 app 时取两者里较高的代谢当量（哔哩哔哩的内容是 light，Keep 的慢跑是 heavy），基础代谢只扣一次。"""
+    from tests.life.environment_inputs import copy_environment, replace_travel_methods, travel_method_row
+
+    root = replace_travel_methods(copy_environment(tmp_path / "graded"),
+                                  [travel_method_row(*row) for row in GRADED_METHODS], ("walking",))
+    engine = engine_factory(root)
+    if app is None:
+        _, trip = act(engine, "trip", travel("公司", method))
+        started = [trip]
+    else:
+        _, started = act_group(engine, "trip", travel("公司", method), use_app(app))
+    assert [item.status for item in started] == ["in_progress"] * len(started), [item.error_code for item in started]
+    identities = {item.activity_id for item in started}
+    # 推进到第一次决策机会或其中一项活动结束为止，这段时间里组内的活动都在进行
+    while not engine.scheduling_state().ready_agent_ids and all(
+            engine.context.state.activities[key].status == "active" for key in identities):
+        advance_next(engine)
+    settlements = [row.data["body_settlement"] for row in events(engine, "environment_event")
+                   if row.data.get("kind") == "body_settlement" and set(row.data["activity_ids"]) == identities]
+    assert settlements and sum(row["duration_seconds"] for row in settlements) > 0
+    for row in settlements:
+        hours = row["duration_seconds"] / 3600
+        assert row["basal_energy_kcal"] == pytest.approx(65 * hours)
+        assert row["extra_energy_kcal"] == pytest.approx((met - 1) * 65 * hours)

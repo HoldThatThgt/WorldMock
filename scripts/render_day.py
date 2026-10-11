@@ -3,7 +3,7 @@
 
 同一 activity_id 的连续 activity_progress 合并为一行（起止与总时长），
 静默边界产生的分段折叠不单列；活动目标按真实内容标题与名称索引解析为地名、
-内容标题与 app 名称；种类名取 worldmock.life.readable 的中文种类表
+内容标题、app 名称与出行方式名称；种类名取 worldmock.life.readable 的中文种类表
 （单一来源），解析不到名称时只写中文种类名：时间线里不出现英文种类名与内部标识
 （docs/design/05-recording-engine.md）。按 agent_id 与冻结清单的场景时区
 的模拟日期过滤。同库同参数输出逐字节相同；name_index 与 day_rows 也接受已排序的事件正文，
@@ -30,10 +30,11 @@ if str(_SOURCE_ROOT) not in sys.path:
 
 from worldmock.footprints.timeline_labels import local_day_bounds  # noqa: E402
 from worldmock.footprints.intervals import valid_interval  # noqa: E402
-from worldmock.life.readable import ACTIVITY_KIND_LABELS, TRAVEL_WAYS  # noqa: E402
+from worldmock.exchange.constants import WALKING_TRAVEL_METHOD_ID, WALKING_TRAVEL_METHOD_NAME  # noqa: E402
+from worldmock.life.readable import ACTIVITY_KIND_LABELS  # noqa: E402
 
-#: 名称索引的类别：商品、地点、应用与实际内容。
-NAME_KINDS = ("goods", "locations", "apps", "contents")
+#: 名称索引的类别：商品、地点、应用、实际内容与出行方式。
+NAME_KINDS = ("goods", "locations", "apps", "contents", "travel_methods")
 #: 种类表之外的活动种类的中文名。
 _UNKNOWN_KIND_LABEL = "活动"
 
@@ -131,15 +132,20 @@ def _absorb_observation(names: dict, data: dict) -> None:
     for category, (identity, label) in fields.items():
         for row in _dict_rows(data.get(category)):
             _remember(names[category], row.get(identity), row.get(label))
+    # 出行方式的名称取观察里记下的冻结目录绑定：每条出行动作行带出行方式身份与它的名称。
+    for binding in _dict_rows(data.get("catalog_bindings")):
+        for action in _dict_rows(binding.get("actions")):
+            _remember(names["travel_methods"], action.get("travel_method_id"), action.get("detail"))
 
 
 def name_index(bodies: Iterable[dict]) -> dict:
     """@brief 从 observation/action_result 事件正文（按 event_seq）建立确定性的名称索引。
 
     同一标识先出现者胜，名称是世界静态事实，与过滤人物无关；其他事件类型忽略。
-    解析不到名称时，标签只写中文种类名。
+    解析不到名称时，标签只写中文种类名。引擎自带的步行不依赖观察，始终写「步行」。
     """
     names: dict = {kind: {} for kind in NAME_KINDS}
+    names["travel_methods"][WALKING_TRAVEL_METHOD_ID] = WALKING_TRAVEL_METHOD_NAME
     for body in bodies:
         if body.get("event_type") in ("observation", "action_result") and isinstance(body.get("data"), dict):
             _absorb_observation(names, body["data"])
@@ -152,8 +158,8 @@ def _snapshot_data(snapshot: dict) -> dict:
 
 
 def _travel_label(snapshot: dict, names: dict) -> str:
-    """@brief 出行标签：方式加目的地地名，地名解析不到时只写方式。"""
-    mode = TRAVEL_WAYS.get(str(snapshot.get("travel_mode")), ACTIVITY_KIND_LABELS["travel"])
+    """@brief 出行标签：出行方式名称加目的地地名；方式名称解析不到时写中文种类名，地名解析不到时只写方式。"""
+    mode = names.get("travel_methods", {}).get(snapshot.get("travel_method_id"), ACTIVITY_KIND_LABELS["travel"])
     destination = names["locations"].get(snapshot.get("destination_id"))
     return f"{mode}去{destination}" if destination else mode
 

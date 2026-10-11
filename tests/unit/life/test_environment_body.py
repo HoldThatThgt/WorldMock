@@ -114,3 +114,33 @@ def test_negative_actual_duration_is_rejected(body_inputs):
     config, body = body_inputs
     with pytest.raises(ValueError, match='cannot be negative'):
         settle_shared_body(body, (), -1, config)
+
+
+@pytest.mark.parametrize("exertion,met", [("walking", 3.5), ("idle", 1.0), ("light", 1.5), ("moderate", 2.0),
+                                          ("heavy", 5.0)])
+def test_travel_burns_energy_by_the_exertion_key_frozen_at_departure(body_inputs, exertion, met):
+    """出行与 interact 一样读受理时写下的代谢当量键：自带的步行是 walking（3.5），数据集的方式是它声明的体力档位；
+    与并行活动同时进行时取较高的代谢当量，基础代谢只扣一次。"""
+    from types import SimpleNamespace
+
+    from worldmock.life.activities import activity_factors
+
+    config, body = body_inputs
+    trip = SimpleNamespace(kind=ActivityKind.TRAVEL, data={"action": "travel", "exertion": exertion})
+    factors = activity_factors(trip, None, config)
+    assert factors == ActivityFactors(met)
+    alone = settle_shared_body(body, ((ActivityKind.TRAVEL, factors),), 3600, config)
+    assert (alone.basal_energy_kcal, alone.extra_energy_kcal) == (65, (met - 1) * 65)
+    for level, other in (("idle", 1.0), ("light", 1.5), ("moderate", 2.0), ("heavy", 5.0)):
+        media = SimpleNamespace(kind=ActivityKind.INTERACT, data={"action": "interact", "exertion": level})
+        pair = ((ActivityKind.TRAVEL, factors), (ActivityKind.INTERACT, activity_factors(media, None, config)))
+        both = settle_shared_body(body, pair, 3600, config)
+        assert (both.basal_energy_kcal, both.extra_energy_kcal) == (65, (max(met, other) - 1) * 65)
+
+
+def test_activity_met_table_has_walking_and_the_four_exertion_levels_but_no_fixed_vehicles(body_inputs):
+    """身体常量表里出行只剩自带步行的 walking 一个键，驾车、打车、公共交通三行与旧的 walk 键都已删除。"""
+    config, _ = body_inputs
+    assert dict(config.activity_met) == {"sleep": 0.95, "walking": 3.5, "purchase": 1.0, "idle": 1.0, "light": 1.5,
+                                         "moderate": 2.0, "heavy": 5.0}
+    assert not {"walk", "drive", "take_taxi", "take_bus", "travel"} & set(config.activity_met)

@@ -104,7 +104,7 @@ def test_interact_at_another_location_only_yields_action_not_offered(book):
     assert item["expected"] == "An action offered by this object is required."
     assert item["why"] == "The known object 公司 does not support the written action."
     assert [candidate["arguments"] for candidate in item["candidates"]] == [
-        {"action": "travel", "target": "公司", "detail": detail} for detail in ("步行", "驾车", "打车")]
+        {"action": "travel", "target": "公司", "detail": detail} for detail in ("步行", "公共交通", "驾车")]
     assert all(candidate["tool"] == MAIN_TOOL for candidate in item["candidates"])
 
 
@@ -137,7 +137,7 @@ def test_unknown_detail_lists_every_row_name_and_ranks_near_rows(book):
     assert unit["why"] == "家 offers no interact option named 测试睡觉; changing spelling cannot create one."
     assert sorted(candidate["arguments"]["detail"] for candidate in unit["candidates"]) == ["测试休息", "测试闲聊"]
     method = _single(resolve_start(book, MAIN_TOOL, travel("公司", "骑车")))
-    assert method["allowed_values"] == ["步行", "驾车", "打车", "公共交通"] and method["candidates"] == []
+    assert method["allowed_values"] == ["步行", "公共交通", "驾车", "打车"] and method["candidates"] == []
     assert method["why"] == "公司 offers no travel option named 骑车; changing spelling cannot create one."
 
 

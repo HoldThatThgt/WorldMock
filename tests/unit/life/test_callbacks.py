@@ -52,20 +52,29 @@ def prepared(world, rules, initial=3, cap=3):
     return catalog_with(inputs, rules, initial, cap), state
 
 
-def cause(key="drive"):
-    return CallbackCause("action", key, 1, "actual-source", "accepted-action:0")
+def cause(method="driving"):
+    """一次出行受理的触发原因，带着这次出行的出行方式。"""
+    return CallbackCause("action", "travel", 1, "actual-source", "accepted-action:0", method)
+
+
+def trip(method="driving", origin="accepted-action"):
+    """一项出行活动里回调结算要读的事实：动作、出行方式、受理事件与原动作。"""
+    return SimpleNamespace(agent_id=1, origin_action_id=origin, travel_method_id=method,
+                           data={"action": "travel", "accepted_event_id": "actual-source"})
 
 
 def delta_rule(once=False):
     effect = {"type": "state_delta", "state": "driving_days", "delta": -1}
     if once:
         effect["once_per"] = "local_day"
-    return rule("drive-day", {"class": "action", "key": "drive"}, effect)
+    return rule("drive-day", {"class": "action", "key": "travel", "travel_method_id": "driving"}, effect)
 
 
 def test_only_matching_action_applies_and_preserves_actual_cause(world):
     catalog, state = prepared(world, [delta_rule()])
-    assert not evaluate_callbacks(state, catalog, cause("walk")).drafts
+    assert not evaluate_callbacks(state, catalog, cause("walking")).drafts
+    assert not evaluate_callbacks(state, catalog, cause("taxi")).drafts
+    assert not evaluate_callbacks(state, catalog, CallbackCause("action", "purchase", 1, "actual-source", "a:0")).drafts
     outcome = evaluate_callbacks(state, catalog, cause())
     assert outcome.state.agents[1].callback_states == {"driving_days": 2}
     assert outcome.drafts[0].caused_by == ["actual-source"]
@@ -76,7 +85,7 @@ def test_only_matching_action_applies_and_preserves_actual_cause(world):
 
 @pytest.mark.parametrize("initial,delta,expected", [(0, -2, 0), (2, 10, 3), (2, -10, 0), (1, 1, 2)])
 def test_state_delta_clamps_without_blocking_action(world, initial, delta, expected):
-    declared = rule("delta", {"class": "action", "key": "drive"},
+    declared = rule("delta", {"class": "action", "key": "travel", "travel_method_id": "driving"},
                     {"type": "state_delta", "state": "driving_days", "delta": delta})
     catalog, state = prepared(world, [declared], initial=initial)
     outcome = evaluate_callbacks(state, catalog, cause())
@@ -87,8 +96,7 @@ def test_state_delta_clamps_without_blocking_action(world, initial, delta, expec
 def test_local_day_delta_waits_for_positive_actual_time(world):
     catalog, state = prepared(world, [delta_rule(True)])
     assert evaluate_callbacks(state, catalog, cause()).state.agents[1].callback_states["driving_days"] == 3
-    activity = SimpleNamespace(agent_id=1, origin_action_id="accepted-action",
-                               data={"action": "drive", "accepted_event_id": "actual-source"})
+    activity = trip()
     assert not settle_callback_dates(state, catalog, activity, (state.current_time, state.current_time)).drafts
     outcome = settle_callback_dates(state, catalog, activity, (state.current_time, state.current_time + 1))
     assert outcome.state.agents[1].callback_states["driving_days"] == 2
@@ -103,10 +111,43 @@ def test_actual_half_open_midnight_interval(world, end, expected):
     catalog, state = prepared(world, [delta_rule(True)])
     start = int(datetime.fromisoformat("2026-01-05T23:59:59+08:00").timestamp())
     stop = int(datetime.fromisoformat(end).timestamp())
-    activity = SimpleNamespace(agent_id=1, origin_action_id="actual-trip",
-                               data={"action": "drive", "accepted_event_id": "actual-source"})
-    outcome = settle_callback_dates(state, catalog, activity, (start, stop))
+    outcome = settle_callback_dates(state, catalog, trip(origin="actual-trip"), (start, stop))
     assert outcome.state.agents[1].callback_states["driving_days"] == expected
+
+
+def test_travel_rule_fires_only_for_its_own_travel_method(world):
+    """一条规则只订阅一种出行方式：键都是 travel，方式不同就不触发；订阅步行的规则只被步行触发。"""
+    walking = rule("walk-day", {"class": "action", "key": "travel", "travel_method_id": "walking"},
+                   {"type": "state_delta", "state": "driving_days", "delta": 1})
+    catalog, state = prepared(world, [delta_rule(), walking], initial=1)
+    driven = evaluate_callbacks(state, catalog, cause("driving"))
+    assert [draft.data["rule_id"] for draft in driven.drafts] == ["drive-day"]
+    assert driven.state.agents[1].callback_states == {"driving_days": 0}
+    walked = evaluate_callbacks(state, catalog, cause("walking"))
+    assert [draft.data["rule_id"] for draft in walked.drafts] == ["walk-day"]
+    assert walked.state.agents[1].callback_states == {"driving_days": 2}
+    for other in ("bus", "taxi", None):
+        outcome = evaluate_callbacks(state, catalog, cause(other))
+        assert outcome.drafts == [] and outcome.state.agents[1].callback_states == {"driving_days": 1}
+
+
+def test_local_day_delta_settles_only_for_trips_by_the_subscribed_travel_method(world):
+    """按本地日限次的增量在出行实际结算时执行，匹配条件相同：别的出行方式结算多久都不执行，也不占用当天的名额。"""
+    catalog, state = prepared(world, [delta_rule(True)])
+    interval = (state.current_time, state.current_time + 3600)
+    for other in ("walking", "bus", "taxi"):
+        outcome = settle_callback_dates(state, catalog, trip(other), interval)
+        assert outcome.drafts == [] and outcome.state.agents[1].callback_states == {"driving_days": 3}
+        assert outcome.state.agents[1].callback_once_keys == set()
+    purchase = SimpleNamespace(agent_id=1, origin_action_id="buy", travel_method_id=None,
+                               data={"action": "purchase", "accepted_event_id": "actual-source"})
+    assert settle_callback_dates(state, catalog, purchase, interval).drafts == []
+    driven = settle_callback_dates(state, catalog, trip("driving"), interval)
+    assert driven.state.agents[1].callback_states == {"driving_days": 2}
+    assert len(driven.state.agents[1].callback_once_keys) == 1 and len(driven.drafts) == 1
+    assert driven.drafts[0].caused_by == ["actual-source"]
+    cause_of_effect = driven.causes[driven.drafts[0].event_id]
+    assert (cause_of_effect.key, cause_of_effect.travel_method_id) == ("travel", "driving")
 
 
 def test_receipt_resets_to_cap_without_clearing_daily_identity(world):
@@ -125,7 +166,7 @@ def test_receipt_resets_to_cap_without_clearing_daily_identity(world):
 @pytest.mark.parametrize("direction,amount,paid", [("expense", 500, True), ("expense", 200001, False),
                                                  ("income", 500000, True)])
 def test_transfer_is_full_or_unpaid_and_conserves_accounts(world, direction, amount, paid):
-    declared = rule("transfer", {"class": "action", "key": "drive"},
+    declared = rule("transfer", {"class": "action", "key": "travel", "travel_method_id": "driving"},
                     {"type": "transfer", "direction": direction, "amount_fen": amount})
     catalog, state = prepared(world, [declared])
     outcome = evaluate_callbacks(state, catalog, cause())
@@ -140,11 +181,11 @@ def test_transfer_is_full_or_unpaid_and_conserves_accounts(world, direction, amo
 
 
 def test_visible_hint_uses_only_trigger_net_decrease_once(world):
-    rules = [rule("expense", {"class": "action", "key": "drive"},
+    rules = [rule("expense", {"class": "action", "key": "travel", "travel_method_id": "driving"},
                   {"type": "transfer", "direction": "expense", "amount_fen": 700}),
-             rule("income", {"class": "action", "key": "drive"},
+             rule("income", {"class": "action", "key": "travel", "travel_method_id": "driving"},
                   {"type": "transfer", "direction": "income", "amount_fen": 200}),
-             rule("trace", {"class": "action", "key": "drive"},
+             rule("trace", {"class": "action", "key": "travel", "travel_method_id": "driving"},
                   {"type": "footprint_chain", "steps": [{"kind": "payment", "app_pool": ["alipay"],
                                                           "pick": "random"}]}, {"visible": True})]
     catalog, state = prepared(world, rules)
@@ -171,7 +212,7 @@ def test_threshold_edge_fires_once_and_does_not_cascade(world):
 
 
 def test_reminder_is_silent_daily_and_contains_no_content_identity(world):
-    declared = rule("reminder", {"class": "action", "key": "drive"},
+    declared = rule("reminder", {"class": "action", "key": "travel", "travel_method_id": "driving"},
                     {"type": "state_delta", "state": "driving_days", "delta": -1},
                     {"when": {"state": "driving_days", "below": 2}, "channel": "app_push",
                      "app_id": "wechat", "text": "记得购买燃油"})
@@ -185,7 +226,7 @@ def test_reminder_is_silent_daily_and_contains_no_content_identity(world):
 
 @pytest.mark.parametrize("seconds", [-3600, 60, 14 * 3600])
 def test_reminder_outside_awake_push_hour_does_not_consume_the_local_date(world, seconds):
-    declared = rule("reminder", {"class": "action", "key": "drive"},
+    declared = rule("reminder", {"class": "action", "key": "travel", "travel_method_id": "driving"},
                     {"type": "state_delta", "state": "driving_days", "delta": -1},
                     {"when": {"state": "driving_days", "below": 2}, "channel": "app_push",
                      "app_id": "wechat", "text": "记得购买燃油"})

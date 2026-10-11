@@ -606,7 +606,7 @@ def _require_activity_fields(row: JsonObject, line_number: int) -> None:
         "ended_at", "elapsed_seconds", "boundary_type", "interruption_reason", "resource_claims",
         "last_settled_at", "planned_duration_seconds",
         "media_position_seconds", "route_progress_meters", "next_interaction_at",
-        "destination_id", "travel_mode", "data", "source_event_ids",
+        "destination_id", "travel_method_id", "data", "source_event_ids",
     }
     missing = sorted(required - row.keys())
     if missing:

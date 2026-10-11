@@ -230,7 +230,8 @@ def test_graph_travel_result_projects_trip_identity_and_full_path(engine_factory
     evidence = worldmock_public_evidence(events(engine), [])
     route = [row for row in evidence if row.object_type == "route"]
     assert {row.state for row in route} == {"requested", "started", "paid"}
-    assert {row.action for row in route} == {"drive"}
+    assert {row.action for row in route} == {"travel"}
+    assert all(row.attributes == {} for row in route)
     assert {row.object_key for row in route} == {snapshot["data"]["trip_id"]}
     assert not any(key in json.dumps(snapshot) for key in ("longitude", "latitude", "coordinate", "trajectory"))
 

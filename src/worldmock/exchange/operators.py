@@ -1,15 +1,14 @@
 """@brief 使用固定规则和精确 Decimal 舍入的六个交换算子。"""
 
 import math
-from decimal import Decimal, MAX_EMAX, MIN_EMIN, ROUND_CEILING, localcontext
+from decimal import Decimal, MAX_EMAX, MIN_EMIN, localcontext
 from typing import Any
 
 from worldmock.base_models import require_finite_number
 from worldmock.errors import reject_value
 from worldmock.exchange.constants import (
-    DELIVERY_FEE_FEN, DELIVERY_METERS_PER_SECOND, DELIVERY_PREP_SECONDS, DRIVING_FARE_FEN_PER_METER,
-    DRIVING_FARE_MINIMUM_FEN, DRIVING_METERS_PER_SECOND, GOODS_ENERGY_KCAL, GOODS_RELAXATION_RELIEF,
-    WALKING_METERS_PER_SECOND,
+    DELIVERY_FEE_FEN, DELIVERY_METERS_PER_SECOND, DELIVERY_PREP_SECONDS, GOODS_ENERGY_KCAL,
+    GOODS_RELAXATION_RELIEF,
 )
 from worldmock.exchange.types import GoodsCategory
 
@@ -33,26 +32,32 @@ def evaluate_goods_receipt(category: GoodsCategory | str, quantity: int) -> int 
     return GOODS_RELAXATION_RELIEF
 
 
-def evaluate_travel_fare(mode: str, distance_m: int | float) -> int:
-    """@brief 四种方式按固定规则计算整数车费，与天气无关。"""
-    _speed(mode)
-    distance = _non_negative(distance_m, "distance_m")
-    if mode == "walking":
-        return 0
-    if mode == "bus":
-        return 200
-    minimum, rate = (1400, Decimal("0.3")) if mode == "taxi" else (500, Decimal("0.2"))
-    amount = max(Decimal(minimum), _multiply_exact((distance, rate)))
-    return int(amount.to_integral_value(rounding=ROUND_CEILING))
+def evaluate_travel_fare(start_price_fen: int, price_per_km_fen: int, distance_m: int) -> int:
+    """@brief 车费取起步价与按公里计价（向上取整到分）的较大值，全程整数运算，与天气无关。
+
+    :param start_price_fen: 出行方式的起步价，分。
+    :param price_per_km_fen: 出行方式的每公里价格，分。
+    :param distance_m: 最短路的整数米数。
+    """
+    amounts = (("start_price_fen", start_price_fen), ("price_per_km_fen", price_per_km_fen), ("distance_m", distance_m))
+    for label, value in amounts:
+        if type(value) is not int or value < 0:
+            reject_value(f"{label} must be a non-negative integer")
+    return max(start_price_fen, (price_per_km_fen * distance_m + 999) // 1000)
 
 
-def travel_seconds(mode: str, distance_m: int | float, weather_factor: float = 1.0) -> int:
-    """@brief 四种出行都按受理时真实天气系数向上取整。"""
+def travel_seconds(speed_meters_per_second: int | float, distance_m: int | float, weather_factor: float = 1.0) -> int:
+    """@brief 任何出行方式都按它的基础速度乘受理时的天气系数计时，十进制精确相乘后向上取整。
+
+    :param speed_meters_per_second: 出行方式的基础速度；整数原样取，小数取它的最短十进制写法。
+    """
     factor = _non_negative(weather_factor, "weather_factor")
     if factor <= 0:
         reject_value("weather_factor must be positive")
-    speed = _multiply_exact((_speed(mode), factor))
-    return _ceil_ratio(_non_negative(distance_m, "distance_m"), speed)
+    speed = _non_negative(speed_meters_per_second, "speed_meters_per_second")
+    if speed <= 0:
+        reject_value("speed_meters_per_second must be positive")
+    return _ceil_ratio(_non_negative(distance_m, "distance_m"), _multiply_exact((speed, factor)))
 
 
 def delivery_seconds(distance_m: int | float) -> int:
@@ -87,14 +92,3 @@ def _ceil_ratio(distance: Decimal, speed: Decimal) -> int:
     speed_numerator, speed_denominator = speed.as_integer_ratio()
     top, bottom = numerator * speed_denominator, denominator * speed_numerator
     return (top + bottom - 1) // bottom
-
-
-def _speed(mode: str) -> Decimal:
-    """@brief 固定四种方式的基础速度，不从数据集接受系数。"""
-    if mode == "walking":
-        return Decimal(str(WALKING_METERS_PER_SECOND))
-    if mode in {"driving", "taxi"}:
-        return Decimal(str(DRIVING_METERS_PER_SECOND))
-    if mode == "bus":
-        return Decimal("5")
-    reject_value("Travel mode is outside the fixed set")

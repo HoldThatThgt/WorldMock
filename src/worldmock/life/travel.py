@@ -6,11 +6,13 @@ from dataclasses import dataclass
 import logging
 
 from worldmock.catalog.graph import Graph
-from worldmock.errors import BusinessRuleError, IntegrityError, reject_value
+from worldmock.catalog.models import Catalog
+from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.exchange.constants import TRAVEL_MAX_SECONDS
 from worldmock.exchange.operators import evaluate_travel_fare, travel_seconds
-from worldmock.life.models import ActivityState, AgentState, TravelMode, WorldState
+from worldmock.life.models import ActivityState, AgentState, WorldState
 from worldmock.life.settlement import settle_money_transfer
+from worldmock.life.travel_methods import Method, travel_method
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,7 +25,7 @@ class Trip:
     path: tuple[str, ...]
     #: 最短路的整数米数。
     distance_meters: int
-    #: 按方式速度向上取整的计划秒数。
+    #: 按出行方式的速度与天气系数向上取整的计划秒数。
     duration_seconds: int
     #: 出发时支付的整数分数。
     fare_fen: int
@@ -39,27 +41,27 @@ class Trip:
         return self.path[-1]
 
 
-def plan_trip(graph: Graph, origin: str, destination: str, mode: TravelMode | str,
+def plan_trip(graph: Graph, origin: str, destination: str, method: Method,
               weather_factor: float = 1.0) -> Trip:
-    """@brief 从完整图计算唯一路径，计时与计费只消费系统算子。"""
-    try:
-        selected = TravelMode(mode)
-    except ValueError:
-        reject_value("Travel mode is outside the fixed set")
+    """@brief 从完整图计算唯一路径，用时与车费按所选出行方式的速度和价格由系统算子给出。
+
+    天气系数对自带的步行和数据集定义的全部方式生效；车费与天气无关。
+    """
     path = graph.path(origin, destination)
     meters = graph.distance_meters(origin, destination)
-    duration = travel_seconds(selected.value, meters, weather_factor)
+    duration = travel_seconds(method.speed_meters_per_second, meters, weather_factor)
     if not 1 <= duration <= TRAVEL_MAX_SECONDS:
         logging.error("Travel route duration is outside the supported interval")
         raise BusinessRuleError("ROUTE_DURATION_INVALID")
-    return Trip(f"{origin}->{destination}:{selected.value}", path, meters,
-                duration, evaluate_travel_fare(selected.value, meters))
+    fare = evaluate_travel_fare(method.start_price_fen, method.price_per_km_fen, meters)
+    return Trip(f"{origin}->{destination}:{method.travel_method_id}", path, meters, duration, fare)
 
 
-def travel_activity_data(trip: Trip, weather_factor: float) -> dict:
-    """@brief 活动与事件持有完整图路径、米数和行程身份，禁止旧路线身份。"""
+def travel_activity_data(trip: Trip, method: Method, weather_factor: float) -> dict:
+    """@brief 活动与事件持有完整图路径、米数、行程身份、受理时的天气系数与出行方式的代谢当量键。"""
     return {"trip_id": trip.trip_id, "path": list(trip.path), "distance_meters": trip.distance_meters,
-            "origin_id": trip.origin_id, "destination_id": trip.destination_id, "weather_factor": weather_factor}
+            "origin_id": trip.origin_id, "destination_id": trip.destination_id, "weather_factor": weather_factor,
+            "exertion": method.exertion}
 
 
 def pay_travel_fare(state: WorldState, agent_id: int, trip: Trip) -> tuple[WorldState, dict]:
@@ -87,11 +89,13 @@ def update_travel(activity: ActivityState, trip: Trip, agent: AgentState) -> tup
     return changed, arrived
 
 
-def persisted_trip(graph: Graph, activity: ActivityState) -> Trip:
-    """@brief 恢复与推进按活动原始起点重算同一行程，完整身份和路径必须匹配。"""
-    trip = plan_trip(graph, activity.location_id, activity.destination_id, activity.travel_mode,
+def persisted_trip(catalog: Catalog, activity: ActivityState) -> Trip:
+    """@brief 恢复与推进按活动原始起点和同一出行方式重算同一行程，完整身份、路径和代谢当量键必须匹配。"""
+    method = travel_method(catalog, activity.travel_method_id)
+    trip = plan_trip(catalog.graph, activity.location_id, activity.destination_id, method,
                      activity.data["weather_factor"])
     if (activity.data.get("trip_id") != trip.trip_id or tuple(activity.data.get("path", ())) != trip.path
+            or activity.data.get("exertion") != method.exertion
             or activity.data.get("distance_meters") != trip.distance_meters
             or activity.data.get("origin_id") != trip.origin_id
             or activity.data.get("destination_id") != trip.destination_id

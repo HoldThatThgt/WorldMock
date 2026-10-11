@@ -81,10 +81,12 @@ def test_platform_browse_restore_requires_its_actual_zero_effect_snapshot(engine
 
 @pytest.mark.parametrize("field,value", [
     ("trip_id", "unknown"), ("path", ["home", "office"]), ("distance_meters", 1),
-    ("origin_id", "office"), ("destination_id", "home"),
+    ("origin_id", "office"), ("destination_id", "home"), ("exertion", "light"), ("exertion", None),
+    ("weather_factor", 0.5),
 ])
 def test_frozen_travel_must_match_original_graph_route(engine_factory, field, value):
     engine, state, activity = started(engine_factory, travel("公司"))
+    assert activity.data["exertion"] == "walking"
     if field == "path" and activity.data[field] == value:
         value = list(reversed(value))
     activity.data[field] = value
@@ -92,10 +94,22 @@ def test_frozen_travel_must_match_original_graph_route(engine_factory, field, va
         validate_activity_targets(state, engine.context.catalog, engine.context.persona)
 
 
+@pytest.mark.parametrize("departed,persisted", [("步行", "driving"), ("步行", "boat"), ("步行", None), ("步行", "步行"),
+                                                ("驾车", "taxi"), ("驾车", "walking"), ("打车", "driving")])
+def test_frozen_travel_must_keep_the_travel_method_it_departed_with(engine_factory, departed, persisted):
+    """恢复时按活动保存的出行方式身份重算行程：换成别的方式、没登记的身份、名称或空值，行程身份或用时对不上就拒绝；
+    速度和档位都相同的驾车与打车也不能互换，因为行程身份带着出行方式身份。"""
+    engine, state, activity = started(engine_factory, travel("公司", departed))
+    validate_activity_targets(state, engine.context.catalog, engine.context.persona)
+    activity.travel_method_id = persisted
+    with pytest.raises(IntegrityError, match="Persisted activity target is invalid"):
+        validate_activity_targets(state, engine.context.catalog, engine.context.persona)
+
+
 def callback_input(tmp_path):
     root = copy_environment(tmp_path / "input")
     state = {"state": "stock", "initial": 3, "cap": 3, "reset_on_goods": []}
-    rule = {"rule_id": "daily", "trigger": {"class": "action", "key": "drive"},
+    rule = {"rule_id": "daily", "trigger": {"class": "action", "key": "travel", "travel_method_id": "driving"},
             "effect": {"type": "state_delta", "state": "stock", "delta": -1, "once_per": "local_day"},
             "notify": {"when": {"state": "stock", "below": 1}, "channel": "app_push",
                        "app_id": "bilibili", "text": "库存不足"}}

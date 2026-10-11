@@ -8,7 +8,7 @@ from worldmock.errors import IntegrityError
 import logging
 import re
 from worldmock.life.action_contract import (ACTIVITY_ACTIONS, MAIN_ACTIVITY_ACTIONS, SIDE_ACTIVITY_ACTIONS,
-                                             START_TOOLS, TRAVEL_ACTIONS, activity_slot)
+                                             START_TOOLS, activity_slot)
 from worldmock.life.sleep_plan import parse_sleep_minutes
 from datetime import date
 from enum import StrEnum
@@ -180,15 +180,6 @@ class FulfillmentKind(StrEnum):
     STATION_PICKUP = "station_pickup"
 
 
-class TravelMode(StrEnum):
-    """@brief 冻结路线支持的出行方式。"""
-
-    WALKING = "walking"
-    DRIVING = "driving"
-    TAXI = "taxi"
-    BUS = "bus"
-
-
 
 
 
@@ -355,7 +346,8 @@ class ActivityState(StrictModel):
     route_progress_meters: float = Field(default=0, ge=0)
     next_interaction_at: int | None = Field(default=None, ge=0)
     destination_id: str | None = None
-    travel_mode: TravelMode | None = None
+    # 出行活动所用出行方式的身份（自带的步行是 walking，其余是数据集的身份）；其他活动为空。
+    travel_method_id: str | None = None
     resource_claims: set[str] = Field(default_factory=set)
     origin_action_id: str = Field(min_length=1)
     origin_decision_id: str = Field(min_length=1)
@@ -650,7 +642,7 @@ def _validate_session_collection(state: WorldState) -> None:
 def _expected_activity_claims(activity: ActivityState) -> set[str]:
     """@brief 两个槽位的占用只从真实动作与所用内容 app 恢复，不从环境加载。"""
     action = activity.data.get("action")
-    if action not in ACTIVITY_ACTIONS and action not in TRAVEL_ACTIONS:
+    if action not in ACTIVITY_ACTIONS:
         _LOGGER.error("Activity action is missing or unknown")
         raise ValueError("Activity action is missing or unknown")
     return {activity_slot(action, activity.data.get("app_id"))}

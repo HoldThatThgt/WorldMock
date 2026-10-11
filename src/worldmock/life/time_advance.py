@@ -313,7 +313,7 @@ class TimeAdvanceCoordinator:
         drafts=[]
         content=None
         if activity.kind==ActivityKind.TRAVEL:
-            trip=persisted_trip(self.context.catalog.graph,activity)
+            trip=persisted_trip(self.context.catalog,activity)
             changed,agent=update_travel(activity,trip,state.agents[activity.agent_id])
             record_arrival(changed,agent)
             state.activities[activity.activity_id],state.agents[agent.agent_id]=changed,agent

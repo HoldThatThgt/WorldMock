@@ -355,3 +355,18 @@ def test_packet_one_is_rejected_before_standalone_review_ingestion(evaluation_fi
     packet = dict(material.packets[0], schema_version="blind-review-packet-1")
     with pytest.raises(EvaluationError, match="blind review packet schema is invalid"):
         review_module._validate_packet(packet, material.index["packets"][0], material.index, scenario)
+
+
+@pytest.mark.parametrize("value,accepted", [
+    ("walking", True), ("driving", True), ("transit", True), (None, True),
+    ("taxi", False), ("bus", False), ("bike", False), ("步行", False), ("Walking", False)])
+def test_blind_review_travel_mode_closed_set_keeps_exactly_three_words(value, accepted):
+    """盲评的出行方式公开闭集保持 walking、driving、transit 三个词；数据集出行方式的身份或名称不是其中的值。"""
+    row = {"at": "2026-01-05T09:00:00+08:00", "object_type": "route", "interaction": "travel", "travel_mode": value}
+    timeline = {"activities": [], "public_evidence": [row]}
+    fields = {"route": ["interaction", "travel_mode"]}
+    if accepted:
+        review_module._validate_candidate_timeline(timeline, fields)
+    else:
+        with pytest.raises(EvaluationError, match="^blind review public evidence value is outside the closed set$"):
+            review_module._validate_candidate_timeline(timeline, fields)
