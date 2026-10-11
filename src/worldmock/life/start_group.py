@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 
@@ -25,12 +26,13 @@ from worldmock.life.engine_context import EngineContext
 from worldmock.life.error_contract import HOST_NAME_CODES, bind_report, host_defaults, items_fix
 from worldmock.life.guidance import Refusal, refusal_for_code, refusal_from_error
 from worldmock.life.interact import InteractivityRuntime
-from worldmock.life.models import (ActionResult, ActionStatus, ActivityKind, PendingAction, REQUEST_MODELS,
-                                   TravelMode, WorldState)
+from worldmock.life.models import (ActionResult, ActionStatus, ActivityKind, ActivityStatus, PendingAction,
+                                   REQUEST_MODELS, TravelMode, WorldState)
 from worldmock.life.name_resolution import name_book, resolution_data, resolve_start
 from worldmock.life.object_labels import resolve_name
 from worldmock.life.purchase_offers import app_goods
 from worldmock.life.request_errors import argument_report
+from worldmock.life.sleep_plan import assumed_sleep, oversleep_seconds, sleep_seconds_in_window
 from worldmock.life.storefront_runtime import StorefrontRuntime
 from worldmock.life.travel import pay_travel_fare, travel_activity_data
 from worldmock.life.weather import current_weather_factor
@@ -200,14 +202,30 @@ class StartGroups:
         if action == "travel":
             return self._start_travel(state, pending, rows[0])
         if action == "sleep":
-            seconds = rows[0]["minutes"] * 60
-            data = {"declared_duration_seconds": seconds, "oversleep_seconds": 0}
-            return self._named(state, pending, ActivityStartParams(action, seconds, data=data), ACTION_LABELS[action])
+            return self._start_sleep(state, pending, rows[0]["minutes"] * 60)
         if action == "purchase":
             return self.storefront.prepare_purchase(state, pending, item.call.goods_ids)[0]
         changed, _, drafts = InteractivityRuntime(self.context).start(state, pending, rows[0])
         self.event_drafts.extend(drafts)
         return changed
+
+    def _start_sleep(self, state: WorldState, pending: PendingAction, declared: int) -> WorldState:
+        """@brief 受理睡眠时定下唯一的计划结束：写的时长加多睡的时长；多睡的时长每段睡眠只在这里抽一次。"""
+        slept = sleep_seconds_in_window(state.current_time, declared, self._earlier_sleeps(state, pending.agent_id))
+        extra = oversleep_seconds(slept, state.random_state, pending.action_id)
+        data = {"declared_duration_seconds": declared, "oversleep_seconds": extra}
+        params = ActivityStartParams("sleep", declared + extra, data=data)
+        return self._named(state, pending, params, ACTION_LABELS["sleep"])
+
+    def _earlier_sleeps(self, state: WorldState, agent_id: int) -> list[tuple[int, int]]:
+        """@brief 此前各段睡眠的起止：运行开始前的假定睡眠（与身体初值同一假设），加上本人已完成的睡眠。"""
+        config, persona = self.context.config, self.context.persona
+        local = config.start_time.astimezone(ZoneInfo(config.timezone))
+        assumed = assumed_sleep(int(config.start_time.timestamp()), local.hour + local.minute / 60,
+                                persona.chronotype_midsleep, persona.sleep_need_hours)
+        return [assumed, *((item.started_at, item.ended_at) for item in state.activities.values()
+                           if item.agent_id == agent_id and item.kind == ActivityKind.SLEEP
+                           and item.status == ActivityStatus.COMPLETED)]
 
     def _start_travel(self, state: WorldState, pending: PendingAction, row: dict) -> WorldState:
         """@brief 受理行程冻结天气、路线和车费，出发时只付款一次。"""
