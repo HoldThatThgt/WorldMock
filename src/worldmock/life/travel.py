@@ -7,6 +7,7 @@ import logging
 
 from worldmock.catalog.graph import Graph
 from worldmock.errors import BusinessRuleError, IntegrityError, reject_value
+from worldmock.exchange.constants import TRAVEL_MAX_SECONDS
 from worldmock.exchange.operators import evaluate_travel_fare, travel_seconds
 from worldmock.life.models import ActivityState, AgentState, TravelMode, WorldState
 from worldmock.life.settlement import settle_money_transfer
@@ -48,7 +49,7 @@ def plan_trip(graph: Graph, origin: str, destination: str, mode: TravelMode | st
     path = graph.path(origin, destination)
     meters = graph.distance_meters(origin, destination)
     duration = travel_seconds(selected.value, meters, weather_factor)
-    if not 1 <= duration <= 86400:
+    if not 1 <= duration <= TRAVEL_MAX_SECONDS:
         logging.error("Travel route duration is outside the supported interval")
         raise BusinessRuleError("ROUTE_DURATION_INVALID")
     return Trip(f"{origin}->{destination}:{selected.value}", path, meters,

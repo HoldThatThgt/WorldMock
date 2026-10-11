@@ -4,7 +4,7 @@ from decimal import Decimal
 
 
 
-RULES_VERSION = 3
+RULES_VERSION = 4
 WALKING_METERS_PER_SECOND = 1.2
 DRIVING_METERS_PER_SECOND = 7.0
 DRIVING_FARE_MINIMUM_FEN = 500
@@ -14,6 +14,10 @@ DELIVERY_PREP_SECONDS = 600
 DELIVERY_FEE_FEN = 500
 MAP_MIN_NODES = 2
 MAP_EDGE_LENGTH_M = (200, 2000)
+#: 任何一次出行的用时上限，也是地图上任意两地在最差天气下必须走得到的时限。
+TRAVEL_MAX_SECONDS = 86400
+#: 固定等概率天气及其对全部出行方式的速度系数。
+WEATHER_FACTORS = {"sunny": 1.0, "cloudy": 1.0, "light_rain": 0.85, "heavy_rain": 0.7, "snow": 0.6}
 PUSH_HOURS_LOCAL = range(8, 22)
 PUSH_SUMMARY_MAX_CHARS = 200
 def MAP_EXTRA_EDGES(node_count: int) -> int:

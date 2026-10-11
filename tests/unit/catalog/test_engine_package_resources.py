@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from worldmock.catalog.identity import REQUIRED_CATALOG_FILES
+from worldmock.catalog.identity import OPTIONAL_CATALOG_FILES, REQUIRED_CATALOG_FILES
 from worldmock.catalog.loader import load_catalog
 
 
@@ -15,13 +15,15 @@ PACKAGED_FILES = tuple(path.relative_to(ROOT / "src/worldmock/data") for path in
                       if path.is_file() and "__pycache__" not in path.parts)
 
 
-def test_catalog_has_only_five_object_files_and_no_engine_rule_copies(catalog_dir):
-    """目录只保留五个作者文件，地图与固定规则不进入发布清单。"""
+def test_catalog_has_four_required_files_two_optional_names_and_no_engine_rule_copies(catalog_dir):
+    """目录必需四个作者文件，回调和距离声明可以不放；生成的地图与固定规则不进入发布清单。"""
     catalog = load_catalog(catalog_dir, 7)
     assert REQUIRED_CATALOG_FILES == {
-        "app-catalog.jsonl", "callbacks.jsonl", "content-catalog.jsonl", "location.jsonl", "merchant-catalog.jsonl"}
-    assert len(catalog.manifest.files) == 5
+        "app-catalog.jsonl", "content-catalog.jsonl", "location.jsonl", "merchant-catalog.jsonl"}
+    assert OPTIONAL_CATALOG_FILES == {"callbacks.jsonl", "map.jsonl"}
+    assert {entry.path for entry in catalog.manifest.files} == REQUIRED_CATALOG_FILES
     assert {path.name for path in catalog_dir.iterdir()} == REQUIRED_CATALOG_FILES | {"manifest.json"}
+    assert catalog.callback_states == {} and catalog.callback_rules == {}
     assert catalog.apps_by_action["walk"] == ("amap",)
     assert catalog.apps_by_action["purchase"] == ("alipay", "wechat")
 

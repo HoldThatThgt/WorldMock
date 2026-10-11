@@ -3,10 +3,9 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from worldmock.exchange.constants import WEATHER_FACTORS
 from worldmock.life.randomness import random_stream
 
-#: 固定等概率天气及其对全部出行方式的速度系数。
-WEATHER_FACTORS = {"sunny": 1.0, "cloudy": 1.0, "light_rain": 0.85, "heavy_rain": 0.7, "snow": 0.6}
 #: 人物所见天气名称只来自实际世界天气。
 WEATHER_LABELS = {"sunny": "晴", "cloudy": "多云", "light_rain": "小雨", "heavy_rain": "大雨", "snow": "雪"}
 

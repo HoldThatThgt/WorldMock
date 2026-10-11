@@ -90,7 +90,7 @@ def test_validate_real_command_reads_current_inputs_without_writing_assets(publi
     result = _command("validate", "--environment", published_environment)
     assert result.returncode == 0, result.stdout + result.stderr
     assert json.loads(result.stdout) == {"valid": True, "environment_id": "artificial-test",
-                                        "environment_version": "2"}
+                                        "environment_version": "3"}
     assert before == {path.relative_to(published_environment): path.read_bytes()
                       for path in published_environment.rglob("*") if path.is_file()}
 

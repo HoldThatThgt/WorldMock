@@ -34,6 +34,14 @@ async def test_native_environment_manifest_contains_full_declared_service_identi
     try:
         manifest = env.engine.context.store.manifest
         assert manifest["schema_version"] == 5
+        listed = [entry.path for entry in frozen.catalog.manifest.files]
+        assert listed == ["app-catalog.jsonl", "content-catalog.jsonl", "location.jsonl", "merchant-catalog.jsonl"]
+        assert set(manifest["environment_assets"]) == {
+            "persona.toml", "config.toml", "catalog/manifest.json", "map.json", *(f"catalog/{name}" for name in listed)}
+        assert manifest["environment_identity"] == {
+            "environment_id": "artificial-test", "environment_version": "3", "rules_version": 4,
+            "catalog_content_sha256": frozen.catalog.manifest.catalog_content_sha256,
+            "map_sha256": frozen.catalog.map_sha256}
         assert manifest["model_metadata"] == frozen.model_metadata.model_dump(mode="json")
         assert manifest["stage_model_identity"] == stage_model_identity(frozen.config.model, frozen.model_metadata)
         assert "api_key_env" not in manifest["stage_model_identity"]

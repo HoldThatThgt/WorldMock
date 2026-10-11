@@ -41,7 +41,7 @@ def test_full_inputs_are_loaded_without_writes(environment):
 
 def test_valid_environment_result_has_only_public_identity(environment):
     assert validate_environment(environment, metadata_loader=metadata) == {
-        "valid": True, "environment_id": "artificial-test", "environment_version": "2",
+        "valid": True, "environment_id": "artificial-test", "environment_version": "3",
     }
 
 

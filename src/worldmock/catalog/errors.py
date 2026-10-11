@@ -7,7 +7,7 @@ REGISTRATION_REASONS = {
     "RULES_VERSION_MISMATCH": "The environment was published for a different rules version.",
     "ENVIRONMENT_STALE_FILE": "The environment contains an entry outside its declared package.",
     "ENVIRONMENT_LINE_INVALID": "A catalog JSONL line is not exactly one JSON object.",
-    "ENVIRONMENT_FILE_UNLISTED": "The manifest does not list a required catalog file.",
+    "ENVIRONMENT_FILE_UNLISTED": "The manifest does not list a catalog file that is required or present.",
     "ENVIRONMENT_IDENTITY_MISMATCH": "A catalog file does not match the identity recorded in the manifest.",
     "ENVIRONMENT_ID_DUPLICATE": "An identifier or display name is declared twice in one catalog file.",
     "ENVIRONMENT_REF_UNKNOWN": "A binding refers to an object that is not registered.",
@@ -36,6 +36,9 @@ REGISTRATION_REASONS = {
     "MAP_TOO_SMALL": "The map needs at least two places.",
     "MAP_EDGE_INVALID": "The map has an edge that is not a sorted positive link between two registered places.",
     "MAP_DISCONNECTED": "The map is not connected.",
+    "MAP_DISTANCE_CONTRADICTED": "A declared distance is longer than a route through other declared distances.",
+    "MAP_ROUTE_TOO_LONG":
+        "Two places are farther apart than the slowest travel method can cover in one day in the worst weather.",
 }
 
 
