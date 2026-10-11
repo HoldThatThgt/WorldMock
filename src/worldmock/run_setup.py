@@ -98,7 +98,8 @@ def stage_model_identity(config: ModelConfig, metadata: ModelMetadata,
 
 
 def runtime_code_sha256(project_root: Path) -> str:
-    """@brief 哈希全部生产 Python 源码、根依赖锁定文件与实际导入的 AS2 包（docs/design/06-agent.md「宿主模型协议」）。
+    """@brief 哈希 src 与 custom 下全部 Python 源码、根目录两份依赖文件与实际导入的 AS2 包（docs/design/09-io-formats.md
+    「输入与模型身份」）；src 下其他类型的文件不进代码身份。
 
     AS2 文件以 agentsociety2/<相对路径> 为标签，与安装位置无关；AS2 未通过锁定核对时拒绝给出代码身份。
     """
@@ -106,9 +107,6 @@ def runtime_code_sha256(project_root: Path) -> str:
     files = [(path.relative_to(root).as_posix(), path)
              for directory in (root / "src", root / "custom") for path in directory.rglob("*.py")]
     files.extend((name, root / name) for name in ("pyproject.toml", "uv.lock"))
-    files.extend((path.relative_to(root).as_posix(), path)
-                 for path in (root / "src/worldmock/data").rglob("*")
-                 if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".py")
     return _labeled_sha256([*files, *require_locked_as2()])
 
 

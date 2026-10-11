@@ -84,6 +84,32 @@ def test_runtime_code_identity_is_deterministic(monkeypatch, tmp_path, tmp_path_
     assert first == second
 
 
+def test_code_identity_covers_production_python_and_the_two_dependency_files_only(
+        monkeypatch, tmp_path, tmp_path_factory) -> None:
+    """引擎自己的代码身份是 src 与 custom 下的全部 Python 源码加根目录的 pyproject.toml 与 uv.lock：改其中任何一份的字节、
+    或在任一目录里新增一份 Python 源码都改变 code_sha256；src 下其他类型的文件不进代码身份，引擎包里没有数据目录。"""
+    from worldmock.run_setup import runtime_code_sha256
+
+    project = write_project(tmp_path / "project")
+    use_fake_as2(monkeypatch, tmp_path_factory.mktemp("as2-site"))
+    seen = {runtime_code_sha256(project)}
+    for relative in ("src/worldmock/probe.py", "custom/agents/life_agent.py", "pyproject.toml", "uv.lock",
+                     "src/worldmock/life/added.py", "custom/envs/added.py"):
+        path = project / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes((path.read_bytes() if path.exists() else b"") + b"# changed\n")
+        changed = runtime_code_sha256(project)
+        assert changed not in seen, relative
+        seen.add(changed)
+    for relative in ("src/worldmock/data/rules.toml", "src/worldmock/data/tables/extra.json", "src/worldmock/notes.md",
+                     "custom/agents/prompt.txt"):
+        path = project / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"limit = 1\n")
+        assert runtime_code_sha256(project) == changed, relative
+    assert not (ROOT / "src/worldmock/data").exists()
+
+
 def test_code_identity_covers_every_imported_as2_file_except_pycache(
         monkeypatch, tmp_path, tmp_path_factory) -> None:
     """AS2 包内任一文件（含非 Python 文件与新增文件）字节变化都改变 code_sha256，__pycache__ 不计入；
