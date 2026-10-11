@@ -7,12 +7,14 @@ from worldmock.exchange.body import BODY_CONSTANTS, RESOURCE_METAS
 
 
 def test_fixed_travel_delivery_map_and_push_constants():
-    assert c.RULES_VERSION == 3
+    assert c.RULES_VERSION == 4
     assert (c.WALKING_METERS_PER_SECOND, c.DRIVING_METERS_PER_SECOND) == (1.2, 7.0)
     assert (c.DRIVING_FARE_MINIMUM_FEN, c.DRIVING_FARE_FEN_PER_METER) == (500, Decimal("0.2"))
     assert (c.DELIVERY_METERS_PER_SECOND, c.DELIVERY_PREP_SECONDS, c.DELIVERY_FEE_FEN) == (5.0, 600, 500)
     assert (c.MAP_MIN_NODES, c.MAP_EDGE_LENGTH_M) == (2, (200, 2000))
     assert (c.MAP_EXTRA_EDGES(2), c.MAP_EXTRA_EDGES(3), c.MAP_EXTRA_EDGES(7)) == (0, 1, 3)
+    assert c.TRAVEL_MAX_SECONDS == 86400
+    assert c.WEATHER_FACTORS == {"sunny": 1.0, "cloudy": 1.0, "light_rain": 0.85, "heavy_rain": 0.7, "snow": 0.6}
     assert tuple(c.PUSH_HOURS_LOCAL) == tuple(range(8, 22))
     assert c.PUSH_SUMMARY_MAX_CHARS == 200
 

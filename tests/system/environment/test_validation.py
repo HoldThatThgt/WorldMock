@@ -59,7 +59,7 @@ def test_even_republished_jsonl_rejects_blank_lines(published_environment):
     assert any(row["path"] == "catalog" for row in report(published_environment))
 
 
-@pytest.mark.parametrize("missing", ["persona.toml", "config.toml", "catalog/callbacks.jsonl"])
+@pytest.mark.parametrize("missing", ["persona.toml", "config.toml", "catalog/location.jsonl", "catalog/manifest.json"])
 def test_each_required_source_is_mandatory(published_environment, missing):
     (published_environment / missing).unlink()
     assert report(published_environment)
@@ -82,3 +82,102 @@ def test_authoritative_metadata_failure_is_a_configuration_error(published_envir
     errors = report(published_environment)
     assert any(row["path"] == "config.toml" and row["code"] == "RUN_CONFIG_INVALID"
                and "model context metadata is unavailable" in row["reason"] for row in errors)
+
+
+CALLBACK_ROW = b'{"cap":3,"initial":1,"reset_on_goods":[],"state":"stock"}\n'
+MAP_ROW = b'{"a":"home","b":"office","length_m":12600}\n'
+
+
+def accepted(root):
+    result = _command("validate", "--environment", root)
+    assert result.returncode == 0, result.stdout + result.stderr
+    return json.loads(result.stdout)
+
+
+def catalog_error(root, code):
+    """@brief 登记失败的 reason 是固定英文原因后接详情，返回这条错误供逐字核对。"""
+    rows = [row for row in report(root) if row["code"] == code]
+    assert rows and all(row["path"] == "catalog" for row in rows), rows
+    return rows[0]
+
+
+@pytest.mark.parametrize("files", [{}, {"callbacks.jsonl": b"", "map.jsonl": b""},
+                                   {"callbacks.jsonl": CALLBACK_ROW, "map.jsonl": MAP_ROW}],
+                         ids=["four-required-files", "empty-optional-files", "all-catalog-files"])
+def test_package_with_or_without_optional_catalog_files_is_valid(published_environment, files):
+    """@brief 没有 callbacks.jsonl 的夹具通过；两个可选文件放空或放内容并刷新清单后同样通过。"""
+    catalog = published_environment / "catalog"
+    assert sorted(path.name for path in catalog.iterdir()) == [
+        "app-catalog.jsonl", "content-catalog.jsonl", "location.jsonl", "manifest.json", "merchant-catalog.jsonl"]
+    for name, content in files.items():
+        (catalog / name).write_bytes(content)
+    refresh_manifest_identity(catalog)
+    assert accepted(published_environment) == {"valid": True, "environment_id": "artificial-test",
+                                              "environment_version": "3"}
+
+
+@pytest.mark.parametrize("change,code,reason", [
+    ({"rules_version": 3}, "RULES_VERSION_MISMATCH", "The environment was published for a different rules version."),
+    ({"rules_version": 3, "format_version": 3}, "RULES_VERSION_MISMATCH",
+     "The environment was published for a different rules version."),
+])
+def test_package_published_for_the_previous_rules_version_is_refused(published_environment, change, code, reason):
+    """@brief 规则版本是 3 的夹具副本：输出 {path, code, reason}，非零退出，原因没有详情时只有固定原因。"""
+    path = published_environment / "catalog/manifest.json"
+    path.write_bytes(json.dumps({**json.loads(path.read_bytes()), **change}, separators=(",", ":")).encode() + b"\n")
+    assert report(published_environment) == [{"path": "catalog", "code": code, "reason": reason}]
+
+
+def test_previous_manifest_format_is_refused_after_the_rules_version_matches(published_environment):
+    path = published_environment / "catalog/manifest.json"
+    manifest = {**json.loads(path.read_bytes()), "format_version": 3}
+    path.write_bytes(json.dumps(manifest, separators=(",", ":")).encode() + b"\n")
+    error = catalog_error(published_environment, "ENVIRONMENT_KIND_INVALID")
+    assert error["reason"].startswith("A declared kind is outside the fixed set. ") and "format_version" in error["reason"]
+
+
+@pytest.mark.parametrize("name", ["travel-method.jsonl", "travel_method.jsonl", "callback.jsonl", "map.json"])
+def test_catalog_entry_outside_the_closed_set_reports_its_actual_path(published_environment, name):
+    """@brief 闭集外的文件名报 ENVIRONMENT_STALE_FILE，reason 带着实际路径。"""
+    extra = published_environment / "catalog" / name
+    extra.write_bytes(b"")
+    error = catalog_error(published_environment, "ENVIRONMENT_STALE_FILE")
+    assert error["reason"] == f"The environment contains an entry outside its declared package. {extra}"
+
+
+@pytest.mark.parametrize("name", ["callbacks.jsonl", "map.jsonl"])
+def test_optional_file_placed_without_refreshing_the_manifest_reports_its_name(published_environment, name):
+    (published_environment / "catalog" / name).write_bytes(b"")
+    error = catalog_error(published_environment, "ENVIRONMENT_FILE_UNLISTED")
+    assert error["reason"] == f"The manifest does not list a catalog file that is required or present. {name}"
+    refresh_manifest_identity(published_environment / "catalog")
+    assert accepted(published_environment)["valid"] is True
+
+
+def test_contradicting_declared_distances_report_the_shorter_route(published_environment):
+    rows = (MAP_ROW + b'{"a":"home","b":"park","length_m":3000}\n' + b'{"a":"office","b":"park","length_m":4000}\n')
+    (published_environment / "catalog/map.jsonl").write_bytes(rows)
+    refresh_manifest_identity(published_environment / "catalog")
+    assert report(published_environment) == [{
+        "path": "catalog", "code": "MAP_DISTANCE_CONTRADICTED",
+        "reason": "A declared distance is longer than a route through other declared distances. "
+                  "map.jsonl:1 home-office declares 12600 m but home -> park -> office is 7000 m."}]
+
+
+def test_declared_distance_row_error_reports_its_line(published_environment):
+    (published_environment / "catalog/map.jsonl").write_bytes(MAP_ROW + b'{"a":"home","b":"school","length_m":5}\n')
+    refresh_manifest_identity(published_environment / "catalog")
+    assert report(published_environment) == [{
+        "path": "catalog", "code": "ENVIRONMENT_REF_UNKNOWN",
+        "reason": "A binding refers to an object that is not registered. map.jsonl:2 Unknown location_id: school."}]
+
+
+def test_declared_distance_beyond_one_day_reports_the_farthest_pair(published_environment):
+    """@brief 超限只在带种子生成地图时发现：家到公司 70,000 米，最远的一对是各自一侧挂得最远的两个地点。"""
+    (published_environment / "catalog/map.jsonl").write_bytes(MAP_ROW.replace(b"12600", b"70000"))
+    refresh_manifest_identity(published_environment / "catalog")
+    assert report(published_environment) == [{
+        "path": "catalog", "code": "MAP_ROUTE_TOO_LONG",
+        "reason": "Two places are farther apart than the slowest travel method can cover in one day in the worst "
+                  "weather. cafe -> park is 74517 m, which takes 103496 s at 1.2 m/s in the worst weather; "
+                  "the limit is 86400 s."}]

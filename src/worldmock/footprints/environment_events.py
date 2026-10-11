@@ -3,8 +3,8 @@
 import logging
 from datetime import date
 
+from worldmock.exchange.constants import WEATHER_FACTORS
 from worldmock.footprints.callback_contract import StateDeltaResult, StateResetResult, TransferResult
-from worldmock.life.weather import WEATHER_FACTORS
 
 RETIRED_KINDS = {
     "alarm_ring", "message_arrival", "mail_arrival", "model_npc_reply_pending", "model_npc_reply",

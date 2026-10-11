@@ -158,3 +158,14 @@ def read_export(directory):
     manifest = json.loads((directory / "manifest.json").read_bytes())
     events = [json.loads(line) for line in (directory / "events.jsonl").read_bytes().splitlines()]
     return manifest, events
+
+
+@pytest.mark.parametrize("rules_version", [3, 5, "4", True])
+def test_export_frozen_under_another_rules_version_is_rejected_before_consumption(real_export, rules_version):
+    """@brief 冻结运行清单里的规则版本不是当前规则版本时，导出在读取工件之前被拒绝。"""
+    manifest, _ = read_export(real_export)
+    assert manifest["frozen_run_manifest"]["environment_identity"]["rules_version"] == 4
+    manifest["frozen_run_manifest"]["environment_identity"]["rules_version"] = rules_version
+    (real_export / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(IntegrityError, match="^Export frozen run manifest or environment identity is invalid$"):
+        validate_export(real_export)

@@ -30,7 +30,8 @@ flowchart LR
 ## 输入与模型身份
 
 五项环境身份是 environment_id、environment_version、rules_version、catalog_content_sha256、map_sha256。
-原始两份 TOML 分别保存摘要，生成地图按规范 JSON 加 LF 冻结。发布目录不包含地图文件。
+原始两份 TOML 分别保存摘要，生成地图按规范 JSON 加 LF 冻结。
+发布目录可以含声明距离的 map.jsonl，但不含生成的地图；冻结的目录素材跟随目录清单的文件表。
 模型身份保存实际服务、请求模型、实际元数据与来源、上下文声明、两种重试预算、校验预算、
 阶段生成参数与回合上限。api_key_env 只是输入中的凭据变量名称；凭据正文绝不序列化。
 

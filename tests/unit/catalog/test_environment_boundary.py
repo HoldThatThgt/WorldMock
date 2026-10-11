@@ -1,5 +1,6 @@
 """@brief 新环境包两层闭集检查的真实文件拒绝行为。"""
 
+from itertools import combinations
 from pathlib import Path
 
 import pytest
@@ -9,9 +10,9 @@ from worldmock.catalog.errors import RegistrationError
 
 
 CATALOG_FILES = (
-    "manifest.json", "app-catalog.jsonl", "callbacks.jsonl", "content-catalog.jsonl",
-    "location.jsonl", "merchant-catalog.jsonl",
+    "manifest.json", "app-catalog.jsonl", "content-catalog.jsonl", "location.jsonl", "merchant-catalog.jsonl",
 )
+OPTIONAL_FILES = ("callbacks.jsonl", "map.jsonl")
 
 
 @pytest.fixture
@@ -31,8 +32,18 @@ def test_environment_boundary_accepts_exact_entries_without_parsing_them(environ
     validate_environment_entries(environment_root)
 
 
+@pytest.mark.parametrize("present", [subset for size in range(len(OPTIONAL_FILES) + 1)
+                                     for subset in combinations(OPTIONAL_FILES, size)])
+def test_environment_boundary_accepts_any_subset_of_optional_catalog_files(environment_root, present):
+    """@brief 可选文件放与不放都在闭集内，闭集检查不要求它们存在。"""
+    for name in present:
+        (environment_root / "catalog" / name).write_bytes(b"")
+    validate_environment_entries(environment_root)
+
+
 @pytest.mark.parametrize("relative", [
     "README.md", "sources", "corpora", "scenarios", "catalog/map.json", "catalog/actions.jsonl",
+    "catalog/travel-method.jsonl", "catalog/travel_method.jsonl", "catalog/callback.jsonl", "catalog/map.jsonl.bak",
     "catalog/location-type.jsonl", "catalog/item_callback.py", "catalog/persona.toml", "catalog/config.toml",
     "catalog/apps.json", "catalog/locations.json", "catalog/goods.json", "catalog/actions.json",
     "catalog/contents.json",
