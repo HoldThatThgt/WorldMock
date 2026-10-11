@@ -317,6 +317,32 @@ def test_skipped_phase_boundary_is_a_run_fault_and_completion_needs_the_finished
         commerce.complete_purchase(state, activity)
 
 
+def test_completion_needs_the_finished_payment_phase_of_an_order_paid_inside_its_content_app(environment):
+    """没有登记支付 app 时订单在下单的内容 app 里直付：支付 app 为空，付款仍占 10 至 20 秒。
+    判据是付款时长大于 0，所以这个付款段没有走完就到完成同样是运行故障，不扣款也不改记录。"""
+    catalog = environment.catalog
+    inputs = replace(environment, catalog=replace(catalog, apps_by_action=MappingProxyType({
+        key: value for key, value in catalog.apps_by_action.items() if key != "purchase"})))
+    commerce = runtime(inputs)
+    accepted, running = commerce.prepare_purchase(world(inputs), pending(), ("online-notebook",))
+    (order,) = activity_orders(accepted, running)
+    assert (order.app_id, order.payment_app_id) == ("bilibili", None)
+    assert 10 <= order.payment_duration_seconds <= 20 and order.payment_ended_at is None
+    state, activity = finish(accepted, running)
+    before = state.model_dump(mode="json")
+    with pytest.raises(IntegrityError, match="^Purchase completion requires actual payment operation evidence$"):
+        commerce.complete_purchase(state, activity)
+    assert state.model_dump(mode="json") == before
+    assert state.accounts == {"agent:1": 200000, "external:scenario": -200000}
+    assert activity_orders(state, activity) == (order,) and order.paid_at is None and order.status == "pending"
+    state, activity = finish(operate_phases(accepted, running), running)
+    paid, events = commerce.complete_purchase(state, activity)
+    assert [event.data["kind"] for event in events] == ["purchase_payment"]
+    (settled,) = activity_orders(paid, activity)
+    assert (settled.payment_ended_at, settled.paid_at) == (activity.planned_end_at, activity.planned_end_at)
+    assert paid.accounts["agent:1"] == 200000 - settled.total_price_fen
+
+
 def paid_purchase(environment, goods, location="home"):
     """经真实受理、付款段和完成结算得到已付款世界、购买活动与当次事件。"""
     commerce = runtime(environment)

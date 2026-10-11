@@ -126,6 +126,51 @@ def test_order_restore_rejects_payment_fields_that_no_order_can_carry(engine_fac
     assert _decode(DeliveryState, direct).payment_duration_seconds == 0
 
 
+@pytest.mark.parametrize("field", ["payment_app_id", "payment_duration_seconds", "payment_started_at",
+                                   "payment_ended_at"])
+def test_world_restore_rejects_records_of_one_order_that_disagree_on_its_payment(engine_factory, field):
+    """同一张订单的两条记录各自都合法，付款字段却不一致：世界状态在恢复时和写入前都被拒绝。"""
+    engine = engine_factory()
+    _, started = act(engine, "purchase", purchase("牛肉面", "柠檬茶"))
+    assert started.status == "in_progress"
+    state = engine.context.state
+    first, second = (state.deliveries[key] for key in state.activities[started.activity_id].data["order_ids"])
+    assert first.app_id == second.app_id == "meituan" and first.payment_started_at is None
+    assert all(getattr(first, name) == getattr(second, name) for name in (
+        "payment_app_id", "payment_duration_seconds", "payment_started_at", "payment_ended_at"))
+    payload = state.model_dump(mode="json")
+    assert _decode(WorldState, payload).model_dump(mode="json") == payload
+    other = {"payment_app_id": "wechat" if second.payment_app_id == "alipay" else "alipay",
+             "payment_duration_seconds": 11 if second.payment_duration_seconds == 10 else 10,
+             "payment_started_at": second.created_at, "payment_ended_at": second.created_at}[field]
+    payload["deliveries"][second.order_id][field] = other
+    assert _decode(DeliveryState, payload["deliveries"][second.order_id]).order_id == second.order_id
+    with pytest.raises(ValidationError, match="Records of one order disagree on its payment fields"):
+        _decode(WorldState, payload)
+    corrupted = state.model_copy(deep=True)
+    corrupted.deliveries[second.order_id] = second.model_copy(update={field: other})
+    with pytest.raises(IntegrityError, match="Records of one order disagree on its payment fields"):
+        validated_payload(corrupted)
+
+
+def test_world_restore_rejects_a_purchase_activity_that_lists_an_unknown_record(engine_factory):
+    """订单由购买活动列出的记录得出：列出的记录不在世界里时，世界状态在恢复时和写入前都被拒绝。"""
+    engine = engine_factory()
+    _, started = act(engine, "purchase", purchase("牛肉面", "柠檬茶"))
+    assert started.status == "in_progress"
+    state = engine.context.state
+    kept, dropped = state.activities[started.activity_id].data["order_ids"]
+    payload = state.model_dump(mode="json")
+    del payload["deliveries"][dropped]
+    with pytest.raises(ValidationError, match="Purchase activity refers to an unknown order record"):
+        _decode(WorldState, payload)
+    corrupted = state.model_copy(deep=True)
+    del corrupted.deliveries[dropped]
+    assert list(corrupted.deliveries) == [kept]
+    with pytest.raises(IntegrityError, match="Purchase activity refers to an unknown order record"):
+        validated_payload(corrupted)
+
+
 @pytest.mark.parametrize("case,message", [("clock", "exceeds experiment end"),
     ("identity", "mapping identity"), ("body", "ahead of world time")])
 def test_world_restore_rejects_identity_and_time_contradictions(engine_factory, case, message):

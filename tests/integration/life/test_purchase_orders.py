@@ -368,6 +368,37 @@ def test_payments_longer_than_the_drawn_duration_stretch_the_purchase_and_start_
         row.data["amount_fen"] for row in payments)
 
 
+def test_store_record_of_a_purchase_stretched_by_payments_is_handed_over_at_the_actual_end(engine_factory, tmp_path):
+    """人在便利店，一次买店里的纸巾和十二个内容 app 上各一件：付款合计撑长了购买。到店记录预计到手的时刻是
+    购买开始时刻加实际购买时长，不是加抽到的时长；它在那一秒付款并当场收货。"""
+    root, names = with_many_shops(tmp_path)
+    engine = engine_factory(environment_root=root, mutate=at_store)
+    label = squeezed_label(engine, floor=10 * len(names))
+    _, result = act(engine, label, purchase("纸巾", *names))
+    assert result.status == "in_progress", result.error_code
+    activity = engine.context.state.activities[result.activity_id]
+    by_key = payment_orders(tuple(records(engine, result)))
+    assert list(by_key) == [f'["shop-{number:02d}"]' for number in range(1, 13)] + ["[null]"]
+    (tissue,) = by_key["[null]"]
+    assert (tissue.goods_id, tissue.fulfillment.value, tissue.app_id) == ("tissue", "pickup", None)
+    total = sum(rows[0].payment_duration_seconds for rows in by_key.values())
+    drawn = drawn_duration(engine, result)
+    assert drawn < 120 <= total == activity.planned_duration_seconds
+    assert tissue.expected_at == activity.planned_end_at == activity.started_at + total
+    assert tissue.expected_at > activity.started_at + drawn
+    finish_activity(engine, result, label)
+    assert engine.context.state.activities[result.activity_id].status == "completed"
+    assert not [row for row in events(engine) if row.event_type == "run_failed"]
+    handed = engine.context.state.deliveries[tissue.order_id]
+    assert (handed.status, handed.expected_at, handed.paid_at, handed.received_at) == (
+        "delivered", activity.planned_end_at, activity.planned_end_at, activity.planned_end_at)
+    (payment,) = [row for row in business_events(engine, "purchase_payment")
+                  if row.data["order_ids"] == [tissue.order_id]]
+    (received,) = business_events(engine, "goods_received")
+    assert received.data["order_id"] == tissue.order_id and received.caused_by == [payment.event_id]
+    assert payment.occurred_at == received.occurred_at == activity.planned_end_at
+
+
 def assert_cut_short(engine, result, now):
     """购买被提前结束或截止截断：全部记录取消；走完的付款段两端都在，正在进行的只有开始时刻，没开始的都为空。"""
     activity = engine.context.state.activities[result.activity_id]

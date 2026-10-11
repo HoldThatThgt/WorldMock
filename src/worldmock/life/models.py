@@ -587,7 +587,7 @@ class WorldState(StrictModel):
 
     @model_validator(mode="after")
     def validate_world(self) -> "WorldState":
-        """@brief 核对时钟、账户、库存与人物活动集合。"""
+        """@brief 核对时钟、账户、库存、人物活动集合，以及各张订单的记录付款字段一致。"""
         if self.current_time > self.end_time:
             raise ValueError("world current time exceeds experiment end")
         expected = {f"agent:{agent_id}" for agent_id in self.agents} | {"external:scenario"}
@@ -605,6 +605,7 @@ class WorldState(StrictModel):
                 raise ValueError("agent body settlement is ahead of world time")
         _validate_activity_collection(self)
         _validate_session_collection(self)
+        _validate_order_collection(self)
         return self
 
 
@@ -672,6 +673,27 @@ def _validate_session_collection(state: WorldState) -> None:
            for session_id in activity.session_ids):
         _LOGGER.error("An activity refers to an unknown session")
         raise ValueError("an activity refers to an unknown session")
+
+
+def _validate_order_collection(state: WorldState) -> None:
+    """@brief 恢复时拒绝购买活动列出未知的商品履约记录，或同一张订单的记录付款字段不一致。
+
+    订单是一次购买里 app_id 相同的全部记录：它们的支付 app、付款时长和付款段的真实起止必须相同。
+    """
+    for activity in state.activities.values():
+        if activity.kind != ActivityKind.PURCHASE:
+            continue
+        payments: dict[str | None, tuple] = {}
+        for identity in activity.data.get("order_ids", ()):
+            order = state.deliveries.get(identity)
+            if order is None:
+                _LOGGER.error("Purchase activity refers to an unknown order record")
+                raise ValueError("Purchase activity refers to an unknown order record")
+            payment = (order.payment_app_id, order.payment_duration_seconds,
+                       order.payment_started_at, order.payment_ended_at)
+            if payments.setdefault(order.app_id, payment) != payment:
+                _LOGGER.error("Records of one order disagree on its payment fields")
+                raise ValueError("Records of one order disagree on its payment fields")
 
 
 def _expected_activity_claims(activity: ActivityState) -> set[str]:
