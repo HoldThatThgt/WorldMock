@@ -24,7 +24,6 @@ from worldmock.profile.models import (
     Relationship,
     Tastes,
     TimeWindow,
-    value_on_grid,
 )
 from worldmock.profile.textgen import count_hanzi, render_card
 
@@ -52,13 +51,6 @@ def test_hour_text_distinguishes_half_grid_points():
 # ---------------------------------------------------------------------------
 # models.py
 # ---------------------------------------------------------------------------
-
-
-def test_value_on_grid_rejects_out_of_range_and_off_grid_values():
-    assert value_on_grid(24.5, 0.0, 24.0, 0.5) is False
-    assert value_on_grid(float("nan"), 0.0, 24.0, 0.5) is False
-    assert value_on_grid(7.25, 0.0, 24.0, 0.5) is False
-    assert value_on_grid(7.5, 0.0, 24.0, 0.5) is True
 
 
 def test_relationship_rejects_blank_channels():
@@ -135,7 +127,7 @@ def test_compile_persona_uses_explicit_config_and_reports_agreement_warnings():
     config = load_mapping_config()
     compiled = compile_persona(persona(), persona_sha256="a" * 64, extraction=_extraction(card), config=config)
     assert compiled.card == card
-    assert compiled.schema_version == 4
+    assert compiled.schema_version == 5
     low_agreement = SimpleNamespace(card=card,
                                     big_five=compiled.big_five, runs=3, agreement=0.5,
                                     per_field={"coping": 0.5}, warning=True,

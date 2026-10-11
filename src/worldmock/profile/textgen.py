@@ -50,40 +50,27 @@ def render_card(card: PersonaCard) -> str:
     return text
 
 
-def _hour_text(hour: float) -> str:
-    """@brief 小时数 → 中文时刻：7.0→"7点"、7.5→"7点半"（0.5 格点保证确定性）。"""
-    whole = int(hour)
-    return f"{whole}点半" if abs(hour - whole - 0.5) < 1e-9 else f"{whole}点"
-
-
-def _window_text(window: TimeWindow) -> str:
-    """@brief 窗口 → "7点到7点半"；跨午夜终点（>24）按次日小时表述。"""
-    end = window.end_hour - 24.0 if window.end_hour > 24.0 else window.end_hour
-    return f"{_hour_text(window.start_hour)}到{_hour_text(end)}"
-
-
-#: 整点后的分钟数 → 中文说法（刻钟与半点；睡眠中点在 0.25 小时格点上，docs/design/06-agent.md「人设层」）。
+#: 一天的分钟数：时刻先取整到分钟，再对一天取模。
+MINUTES_PER_DAY = 1440
+#: 整点后的分钟数 → 中文说法（刻钟与半点；其余分钟写「N分」）。
 _MINUTE_WORDS = {0: "", 15: "一刻", 30: "半", 45: "三刻"}
 
 
 def hour_text(hour: float) -> str:
-    """@brief 人设层用的小时数 → 中文时刻：7.0→"7点"、7.25→"7点一刻"、7.5→"7点半"、7.75→"7点三刻"，其余分钟写「N分」
-    （render_card 仍用 _hour_text，卡片文本不变）。"""
-    minutes = round(hour * 60)
+    """@brief 小时数 → 写到分钟的中文时刻，人设层与卡片文本共用。
+
+    先取整到分钟（恰在两个整数正中时取偶数），再对一天取模：7.0→"7点"、7.25→"7点一刻"、7.5→"7点半"、
+    7.75→"7点三刻"、12.1→"12点6分"；23.9999 与 24.0 都写成"0点"，25.0 写成"1点"。
+    """
+    minutes = round(hour * 60) % MINUTES_PER_DAY
     whole, minute = divmod(minutes, 60)
     word = _MINUTE_WORDS.get(minute, f"{minute}分")
     return f"{whole}点{word}"
 
 
 def window_text(window: TimeWindow) -> str:
-    """@brief 人设层用的窗口 → "7点到7点半"；两端都按钟面表述：到达或越过午夜（≥24）的一端按次日小时写
-    （25→"1点"、24→"0点"；render_card 仍用 _window_text，卡片文本不变）。"""
-    return f"{hour_text(_clock_hour(window.start_hour))}到{hour_text(_clock_hour(window.end_hour))}"
-
-
-def _clock_hour(hour: float) -> float:
-    """@brief 自午夜起的小时数 → 钟面小时：≥24 的减去 24（窗口上限 30 小时，至多跨一次午夜）。"""
-    return hour - 24.0 if hour >= 24.0 else hour
+    """@brief 时段 → "<起点>到<终点>"，两端都按钟面写到分钟（25→"1点"、24→"0点"），人设层与卡片文本共用。"""
+    return f"{hour_text(window.start_hour)}到{hour_text(window.end_hour)}"
 
 
 def _identity_line(card: PersonaCard) -> str:
@@ -122,20 +109,20 @@ def _relationship_line(card: PersonaCard) -> str:
 
 
 def _rhythm_line(card: PersonaCard) -> str:
-    """@brief 作息行：时间锚点、睡眠中点与睡眠需要；下班、到家锚点各自非空时按此顺序各追加一个分句
-    （「；下班<窗口>」「；到家<窗口>」），都为 null 时与原作息行逐字节相同（docs/design/06-agent.md#agent-下班与到家锚点 ）。"""
+    """@brief 作息行：时间锚点、睡眠中点与睡眠需要，时刻写到分钟；下班、到家锚点各自非空时按此顺序各追加一个分句
+    （「；下班<窗口>」「；到家<窗口>」），都为 null 时没有这两个分句（docs/design/06-agent.md「人物身份与画像」）。"""
     anchors = card.time_anchors
     work = (("下班", anchors.leave_work), ("到家", anchors.arrive_home))
-    clauses = "".join(f"；{label}{_window_text(window)}" for label, window in work if window is not None)
-    return (f"约{_window_text(anchors.wake)}起床、{_window_text(anchors.leave_home)}出门；"
-            f"午餐{_window_text(anchors.lunch)}、晚餐{_window_text(anchors.dinner)}；"
-            f"就寝{_window_text(anchors.bedtime)}，睡眠中点约{_hour_text(card.chronotype_midsleep)}，"
+    clauses = "".join(f"；{label}{window_text(window)}" for label, window in work if window is not None)
+    return (f"约{window_text(anchors.wake)}起床、{window_text(anchors.leave_home)}出门；"
+            f"午餐{window_text(anchors.lunch)}、晚餐{window_text(anchors.dinner)}；"
+            f"就寝{window_text(anchors.bedtime)}，睡眠中点约{hour_text(card.chronotype_midsleep)}，"
             f"需睡{card.sleep_need_hours:g}小时{clauses}。")
 
 
 def _habit_item(habit: HabitSignature) -> str:
     """@brief 单条习惯签名：trigger→response（窗口）。"""
-    return f"{habit.trigger}→{habit.response}（{_window_text(habit.time_window)}）"
+    return f"{habit.trigger}→{habit.response}（{window_text(habit.time_window)}）"
 
 
 def _habit_line(card: PersonaCard) -> str:

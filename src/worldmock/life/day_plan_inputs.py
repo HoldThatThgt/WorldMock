@@ -114,7 +114,8 @@ def _persona(context: Any, agent_id: int) -> dict[str, Any]:
 
 
 def _hours(window: tuple[float, float] | None) -> str | None:
-    """@brief 自午夜起的小时数窗口写成「HH:MM–HH:MM」（末端可跨午夜）。"""
+    """@brief 自午夜起的小时数窗口写成「HH:MM–HH:MM」（末端可跨午夜）；声明值不取整，分钟的取整规则与人设层的
+    时刻写法相同，两处显示同一分钟。"""
     if window is None:
         return None
     parts = []

@@ -76,6 +76,32 @@ def test_persona_location_reference_uses_exact_registered_display_names(publishe
                for row in report(published_environment))
 
 
+@pytest.mark.parametrize("declared,reason", [
+    (b"lunch_window = [18.0, 19.0]\ndinner_window = [12.0, 13.0]\n",
+     "lunch_window must end before dinner_window starts"),
+    (b"bedtime_window = [22.0, 23.0]\nleave_work_window = [23.0, 23.5]\n",
+     "leave_work_window must not start after bedtime_window"),
+    (b"bedtime_window = [9.0, 10.0]\nlunch_window = [12.0, 13.0]\n",
+     "bedtime_window must not start before lunch_window"),
+])
+def test_contradictory_persona_rhythm_is_reported_with_its_verbatim_reason(published_environment, declared, reason):
+    """@brief 自相矛盾的作息声明让 validate 非零退出，输出里是 persona.toml、PERSONA_INVALID 和逐字的英文原因。"""
+    path = published_environment / "persona.toml"
+    assert path.read_bytes().count(b"\n[body]\n") == 1
+    path.write_bytes(path.read_bytes().replace(b"\n[body]\n", b"\n" + declared + b"\n[body]\n"))
+    assert report(published_environment) == [{"path": "persona.toml", "code": "PERSONA_INVALID", "reason": reason}]
+
+
+def test_after_midnight_bedtime_with_dinner_passes_validation(published_environment):
+    """@brief 就寝起点在午夜之后的人物可以同时声明晚饭和就寝，不在格点上的声明值照常通过。"""
+    path = published_environment / "persona.toml"
+    declared = b"dinner_window = [19.0, 20.0]\nbedtime_window = [1.0, 1.5]\narrive_home_window = [18.25, 18.75]\n"
+    path.write_bytes(path.read_bytes().replace(b"\n[body]\n", b"\n" + declared + b"\n[body]\n"))
+    result = _command("validate", "--environment", published_environment)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["valid"] is True
+
+
 def test_authoritative_metadata_failure_is_a_configuration_error(published_environment):
     path = published_environment / "config.toml"
     path.write_bytes(path.read_bytes().replace(b'requested_model = "test-model"', b'requested_model = "missing"'))

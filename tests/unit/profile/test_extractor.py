@@ -504,3 +504,24 @@ def test_demotion_notes_are_read_only_on_the_extraction_result():
     assert [(item["loc"], item["type"]) for item in error.value.errors()] == [
         (("demotion_notes",), "frozen_instance")]
     assert result.demotion_notes == _BOTH_DEMOTED[:1]
+
+
+def test_model_read_values_are_still_rounded_at_the_extraction_entry():
+    """@brief 模型读出的值照旧在抽取入口取整：时段到半小时（不到半小时的向外取整），睡眠中点与睡眠需要到一刻钟，
+    习惯的时段也在半小时上；卡片模型不再检查格点之后，格点只由这里保证。"""
+    payload = json.loads(make_payload())
+    payload["time_anchors"]["lunch"] = "12:06-12:12"
+    payload["chronotype_midsleep"] = "04:10"
+    payload["sleep_need_hours"] = 7.6
+    payload["habits"] = [{"trigger": "午饭后", "response": "散步", "time_window": "12:40-13:10"},
+                         {"trigger": "睡前", "response": "读几页小说", "time_window": "22:20-22:25"}]
+    session = ScriptedClient([Response(content=json.dumps(payload, ensure_ascii=False))])
+
+    card = extracted("午饭只用几分钟", n_runs=1, client=session).card
+
+    assert (card.time_anchors.lunch.start_hour, card.time_anchors.lunch.end_hour) == (12.0, 12.5)
+    assert (card.chronotype_midsleep, card.sleep_need_hours) == (4.25, 7.5)
+    assert [(habit.time_window.start_hour, habit.time_window.end_hour) for habit in card.habits] == [
+        (12.5, 13.0), (22.0, 22.5)]
+    windows = [getattr(card.time_anchors, name) for name in ("wake", "leave_home", "lunch", "dinner", "bedtime")]
+    assert all((value * 2).is_integer() for window in windows for value in (window.start_hour, window.end_hour))

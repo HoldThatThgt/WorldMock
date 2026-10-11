@@ -46,18 +46,25 @@ def test_work_schedule_has_canonical_weekdays_dates_and_one_daily_shift(tmp_path
         parse_persona_file(root / "persona.toml")
 
 
-@pytest.mark.parametrize("values", [
-    {"leave_work_window": [19.0, 20.0], "arrive_home_window": [18.0, 19.0]},
-    {"dinner_window": [19.0, 20.0], "bedtime_window": [19.5, 25.0]},
-    {"lunch_window": [12.0]}, {"dinner_window": [12.0, 12.0]},
-    {"lunch_window": [1.0, 15.0]}, {"bedtime_window": [23.0, 31.0]},
-    {"lunch_window": [float("nan"), 13.0]},
+@pytest.mark.parametrize("values,reason", [
+    ({"leave_work_window": [19.0, 20.0], "arrive_home_window": [18.0, 19.0]},
+     "leave_work_window must not start after arrive_home_window"),
+    ({"dinner_window": [19.0, 20.0], "bedtime_window": [19.5, 25.0]}, "bedtime_window must not overlap dinner window"),
+    ({"lunch_window": [12.0, 13.5], "dinner_window": [13.0, 14.0]},
+     "lunch_window must end before dinner_window starts"),
+    ({"lunch_window": [12.0]}, "lunch_window must contain two finite hours"),
+    ({"dinner_window": [12.0, 12.0]}, "dinner_window must satisfy 0 <= start < end <= 24"),
+    ({"lunch_window": [1.0, 15.0]}, "lunch_window span must not exceed 12 hours"),
+    ({"bedtime_window": [23.0, 31.0]}, "bedtime_window must satisfy 0 <= start < end <= 30"),
+    ({"lunch_window": [float("nan"), 13.0]}, "lunch_window must contain two finite hours"),
 ])
-def test_personal_windows_are_finite_ordered_and_do_not_conflict(tmp_path, values):
+def test_personal_windows_are_finite_ordered_and_do_not_conflict(tmp_path, values, reason):
+    """作息时段自身的形状与互相矛盾的声明在纯准入阶段被拒绝，英文原因随 PERSONA_INVALID 原样返回。"""
     root = copy_environment(tmp_path / "input")
     write_input(root, "persona.toml", values)
-    with pytest.raises(EnvironmentInputError, match="Persona file validation failed"):
+    with pytest.raises(EnvironmentInputError) as caught:
         parse_persona_file(root / "persona.toml")
+    assert (caught.value.path, caught.value.code, caught.value.reason) == ("persona.toml", "PERSONA_INVALID", reason)
 
 
 @pytest.mark.parametrize("field", ["occupation", "routine_preference", "consumption_preference", "risk_preference"])

@@ -8,6 +8,7 @@ import tomllib
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
 from tests.profile.conftest import make_card, make_window
 from worldmock.errors import IntegrityError
@@ -163,21 +164,59 @@ def test_only_explicitly_declared_fields_are_overridden() -> None:
     assert apply_persona_rhythm(card, _agent(lunch_window=None)).card is card
 
 
-def test_values_are_quantised_to_the_card_grid() -> None:
-    """按卡片格点量化：中点与睡眠需要 0.25 小时（23.9 点写成 0 点），窗口 0.5 小时；量化后与卡片相同的字段不算覆盖。"""
+def test_declared_values_are_written_to_the_card_unrounded() -> None:
+    """声明值原样进卡片：睡眠中点 23.9、睡眠需要 7.6 与不在半小时上的午餐、晚餐都不取整；每个确实改变的字段记一条覆盖，
+    警告里的声明值与写入值相同；再写一次声明卡片不变。"""
     card = make_card()
     agent = _agent(chronotype_midsleep=23.9, sleep_need_hours=7.6, lunch_window=(12.2, 13.8),
                    dinner_window=(18.6, 19.6))
 
     result = apply_persona_rhythm(card, agent)
 
-    assert result.card.chronotype_midsleep == 0.0 and result.card.sleep_need_hours == 7.5
-    lunch = result.card.time_anchors.lunch
-    assert (lunch.start_hour, lunch.end_hour) == (12.0, 14.0)
-    assert result.card.time_anchors.dinner == card.time_anchors.dinner
-    assert [item["details"]["field"] for item in result.warnings] == ["chronotype_midsleep", "lunch_window"]
-    assert result.warnings[1]["details"]["persona_value"] == [12.2, 13.8]
-    assert result.warnings[1]["details"]["applied_value"] == [12.0, 14.0]
+    assert result.card.chronotype_midsleep == 23.9 and result.card.sleep_need_hours == 7.6
+    lunch, dinner = result.card.time_anchors.lunch, result.card.time_anchors.dinner
+    assert (lunch.start_hour, lunch.end_hour) == (12.2, 13.8)
+    assert (dinner.start_hour, dinner.end_hour) == (18.6, 19.6)
+    assert [(item["code"], item["details"]["field"]) for item in result.warnings] == [
+        ("CARD_FIELD_OVERRIDDEN", "chronotype_midsleep"), ("CARD_FIELD_OVERRIDDEN", "sleep_need_hours"),
+        ("CARD_FIELD_OVERRIDDEN", "lunch_window"), ("CARD_FIELD_OVERRIDDEN", "dinner_window")]
+    assert result.warnings[1]["details"] == {"field": "sleep_need_hours", "card_value": 7.5,
+                                             "persona_value": 7.6, "applied_value": 7.6}
+    assert result.warnings[2]["details"] == {"field": "lunch_window", "card_value": [12.0, 13.0],
+                                             "persona_value": [12.2, 13.8], "applied_value": [12.2, 13.8]}
+    again = apply_persona_rhythm(result.card, agent)
+    assert again.card == result.card and again.warnings == ()
+
+
+def test_declared_quarter_hour_windows_land_in_the_card_unrounded() -> None:
+    """到家 18:15–18:45 与午饭 11:45–12:45 原样落进卡片，不取整到半小时（今天的 18:00–19:00 不再出现）。"""
+    result = apply_persona_rhythm(make_card(), _agent(arrive_home_window=(18.25, 18.75),
+                                                      lunch_window=(11.75, 12.75)))
+
+    anchors = result.card.time_anchors
+    assert (anchors.arrive_home.start_hour, anchors.arrive_home.end_hour) == (18.25, 18.75)
+    assert (anchors.lunch.start_hour, anchors.lunch.end_hour) == (11.75, 12.75)
+    assert [item["details"]["applied_value"] for item in result.warnings] == [[11.75, 12.75], [18.25, 18.75]]
+
+
+@pytest.mark.parametrize(("declared", "slot", "stored"), [
+    ({"arrive_home_window": (18.25, 18.75)}, "arrive_home", (18.25, 18.75)),
+    ({"lunch_window": (11.75, 12.75)}, "lunch", (11.75, 12.75)),
+    ({"lunch_window": (12.1, 12.2)}, "lunch", (12.1, 12.2)),
+    ({"bedtime_window": (23.5, 24.5)}, "bedtime", (23.5, 24.5)),
+    ({"bedtime_window": (0.5, 1.5)}, "bedtime", (24.5, 25.5)),
+    ({"sleep_need_hours": 7.6}, "sleep_need_hours", 7.6),
+    ({"chronotype_midsleep": 4.1}, "chronotype_midsleep", 4.1),
+])
+def test_each_declared_rhythm_value_is_stored_as_declared(declared, slot, stored) -> None:
+    """规格的对照表逐行：卡片里存的就是声明值；只有就寝起点小于前面的时间时按次日存（加 24，钟面时刻相同）。
+    没有任何声明因为不在格点上被放弃，冲突原因只剩 anchor_order。"""
+    result = apply_persona_rhythm(make_card(), _agent(**declared))
+
+    value = getattr(result.card, slot) if isinstance(stored, float) else getattr(result.card.time_anchors, slot)
+    assert (value if isinstance(stored, float) else (value.start_hour, value.end_hour)) == stored
+    assert _codes(list(result.warnings)) == ["CARD_FIELD_OVERRIDDEN"]
+    assert apply_persona_rhythm(result.card, _agent(**declared)).card == result.card
 
 
 def test_out_of_order_window_keeps_the_card_value_and_records_a_conflict() -> None:
@@ -195,6 +234,14 @@ def test_out_of_order_window_keeps_the_card_value_and_records_a_conflict() -> No
     assert result.warnings[0]["details"] == {"field": "lunch_window", "card_value": [12.0, 13.0],
                                              "persona_value": [6.0, 6.5], "reason": "anchor_order"}
     TimeAnchors.model_validate(result.card.time_anchors.model_dump())
+    before_departure = apply_persona_rhythm(card, _agent(lunch_window=(7.0, 8.0)))
+    assert before_departure.card is card
+    assert [item["details"] for item in before_departure.warnings] == [
+        {"field": "lunch_window", "card_value": [12.0, 13.0], "persona_value": [7.0, 8.0], "reason": "anchor_order"}]
+    assert before_departure.warnings[0]["message"] == (
+        "Persona lunch_window [7, 8] conflicts with card anchor order: wake, departure, lunch, dinner and bedtime "
+        "must be nondecreasing; work departure cannot precede departure, home arrival cannot precede either "
+        "departure, and both must not follow bedtime; keeping card value [12, 13].")
 
 
 def test_windows_that_only_fit_together_are_both_applied_and_the_result_is_a_fixed_point() -> None:
@@ -214,14 +261,21 @@ def test_windows_that_only_fit_together_are_both_applied_and_the_result_is_a_fix
     assert apply_persona_rhythm(conflicted.card, _agent(lunch_window=(6.0, 6.5))).card == conflicted.card
 
 
-def test_unrepresentable_and_after_midnight_windows() -> None:
-    """量化后退化的窗口（12:06–12:12 → 12:00–12:00）写不成卡片窗口，记冲突并保留卡片值；凌晨的就寝窗口经回绕归一读作次日。"""
+def test_narrow_and_after_midnight_windows() -> None:
+    """不到半小时的窗口（12:06–12:12）原样落进卡片并记一条覆盖，不再因格点被放弃；凌晨的就寝窗口经回绕归一读作次日。"""
     card = make_card()
 
     narrow = apply_persona_rhythm(card, _agent(lunch_window=(12.1, 12.2)))
     late = apply_persona_rhythm(card, _agent(bedtime_window=(0.5, 5.0)))
 
-    assert narrow.card is card and narrow.warnings[0]["details"]["reason"] == "window_off_grid"
+    lunch = narrow.card.time_anchors.lunch
+    assert (lunch.start_hour, lunch.end_hour) == (12.1, 12.2)
+    assert [(item["code"], item["details"]) for item in narrow.warnings] == [
+        ("CARD_FIELD_OVERRIDDEN", {"field": "lunch_window", "card_value": [12.0, 13.0],
+                                   "persona_value": [12.1, 12.2], "applied_value": [12.1, 12.2]})]
+    assert narrow.warnings[0]["message"] == (
+        "Persona lunch_window overrides the extracted card value: card [12, 13], "
+        "persona [12.1, 12.2], applied [12.1, 12.2].")
     bedtime = late.card.time_anchors.bedtime
     assert (bedtime.start_hour, bedtime.end_hour) == (24.5, 29.0)
     assert late.warnings[0]["details"]["applied_value"] == [24.5, 29.0]
@@ -319,45 +373,34 @@ def test_work_windows_declared_together_land_together_and_the_result_is_a_fixed_
     assert repeated.card == conflicted.card and _codes(list(repeated.warnings)) == ["CARD_FIELD_CONFLICT"]
 
 
-def test_an_unrepresentable_work_window_is_a_conflict_on_a_null_slot() -> None:
-    """量化后退化的下班窗口（18:06–18:12 → 18:00–18:00）写不成卡片窗口：null 槽保持 null，记 window_off_grid 冲突、
-    card_value 为 null，正文写 null；同时声明的到家照常落下。"""
+def test_a_narrow_work_window_lands_on_a_null_slot() -> None:
+    """不到半小时的下班窗口（18:06–18:12）原样落进 null 槽并记一条覆盖，card_value 为 null；同时声明的到家照常落下。
+    没有任何警告的原因是已删除的 window_off_grid。"""
     card = make_card()
 
     result = apply_persona_rhythm(card, _agent(leave_work_window=(18.1, 18.2), arrive_home_window=(19.0, 19.5)))
 
-    assert _slots(result.card) == (None, [19.0, 19.5])
-    assert result.warnings[0]["details"] == {"field": "leave_work_window", "card_value": None,
-                                             "persona_value": [18.1, 18.2], "reason": "window_off_grid"}
-    assert result.warnings[0]["message"].endswith("keeping card value null.")
-    assert [(item["code"], item["details"]["field"]) for item in result.warnings[1:]] == [
-        ("CARD_FIELD_OVERRIDDEN", "arrive_home_window")]
+    assert _slots(result.card) == ([18.1, 18.2], [19.0, 19.5])
+    assert [(item["code"], item["details"]) for item in result.warnings] == [
+        ("CARD_FIELD_OVERRIDDEN", {"field": "leave_work_window", "card_value": None,
+                                   "persona_value": [18.1, 18.2], "applied_value": [18.1, 18.2]}),
+        ("CARD_FIELD_OVERRIDDEN", {"field": "arrive_home_window", "card_value": None,
+                                   "persona_value": [19.0, 19.5], "applied_value": [19.0, 19.5]})]
+    assert all("reason" not in item["details"] for item in result.warnings)
 
 
-def test_windows_that_each_fit_alone_but_not_together_land_in_slot_order() -> None:
-    """落槽顺序为午餐、下班、到家、晚餐、就寝（接口合同「人设作息覆盖」，规格 4.2 一体适用于新槽）：两个声明的窗口各自都放得
-    进卡片、合起来放不下时，顺序在前的槽落下，在后的槽保留卡片值并记冲突——下班 22:00 与就寝 21:00 同时声明，下班落下、
-    冲突记在 bedtime_window；午餐 17:00 与晚餐 13:00 同时声明，午餐落下、冲突记在 dinner_window。结果是不动点。"""
+def test_declarations_that_cannot_share_a_card_are_rejected_before_any_override() -> None:
+    """两个声明值各自都放得进卡片、合起来放不下的组合在加载人设时就被拒绝，不再由落槽顺序决定谁被挤掉：下班 22:00 与
+    就寝 21:00、午餐 17:00 与晚餐 13:00 都建不出人设；单独声明其中任何一个照常覆盖。"""
     card = make_card()
-    agent = _agent(leave_work_window=(22.0, 22.5), bedtime_window=(21.0, 22.0))
     for alone in (_agent(leave_work_window=(22.0, 22.5)), _agent(bedtime_window=(21.0, 22.0)),
                   _agent(lunch_window=(17.0, 18.0)), _agent(dinner_window=(13.0, 14.0))):
         assert _codes(list(apply_persona_rhythm(card, alone).warnings)) == ["CARD_FIELD_OVERRIDDEN"]
 
-    result = apply_persona_rhythm(card, agent)
-    meals = apply_persona_rhythm(card, _agent(lunch_window=(17.0, 18.0), dinner_window=(13.0, 14.0)))
-
-    assert _slots(result.card) == ([22.0, 22.5], None)
-    assert result.card.time_anchors.bedtime == card.time_anchors.bedtime
-    assert [(item["code"], item["details"]["field"]) for item in result.warnings] == [
-        ("CARD_FIELD_CONFLICT", "bedtime_window"), ("CARD_FIELD_OVERRIDDEN", "leave_work_window")]
-    assert result.warnings[0]["details"] == {"field": "bedtime_window", "card_value": [23.0, 24.0],
-                                             "persona_value": [21.0, 22.0], "reason": "anchor_order"}
-    assert apply_persona_rhythm(result.card, agent).card == result.card
-    assert (meals.card.time_anchors.lunch, meals.card.time_anchors.dinner) == (make_window(17.0, 18.0),
-                                                                               card.time_anchors.dinner)
-    assert [(item["code"], item["details"]["field"]) for item in meals.warnings] == [
-        ("CARD_FIELD_CONFLICT", "dinner_window"), ("CARD_FIELD_OVERRIDDEN", "lunch_window")]
+    with pytest.raises(ValidationError, match="leave_work_window must not start after bedtime_window"):
+        _agent(leave_work_window=(22.0, 22.5), bedtime_window=(21.0, 22.0))
+    with pytest.raises(ValidationError, match="lunch_window must end before dinner_window starts"):
+        _agent(lunch_window=(17.0, 18.0), dinner_window=(13.0, 14.0))
 
 
 def test_a_conflicting_persona_leave_work_keeps_the_non_null_card_slot_and_the_card_arrive_home() -> None:

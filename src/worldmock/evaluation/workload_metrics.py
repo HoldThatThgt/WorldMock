@@ -115,7 +115,8 @@ def workday_reports(events: list[dict[str, Any]], timezone: str, inputs: Workday
 
 
 def _card_window(card: Mapping[str, Any] | None, name: str) -> tuple[float, float] | None:
-    """@brief 结构化卡片 time_anchors 里一个锚点的（起, 止）小时；没有卡片或锚点为 null 时为 None。"""
+    """@brief 结构化卡片 time_anchors 里一个锚点的（起, 止）小时，原样取卡片里未取整的值；没有卡片或锚点为 null 时
+    为 None。"""
     window = None if card is None else card["time_anchors"][name]
     return None if window is None else (float(window["start_hour"]), float(window["end_hour"]))
 
