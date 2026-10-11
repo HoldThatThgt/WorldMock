@@ -220,9 +220,9 @@ class ModelConfig(InputModel):
 
 
 class RunConfig(InputModel):
-    """@brief 一次单人运行的时区、时间、唯一种子、节律与模型配置。"""
+    """@brief 一次单人运行的时区、时间、唯一种子、节律与模型配置；结构版本是 2，写其他值的文件直接拒绝。"""
 
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     seed: int
     timezone: str = Field(min_length=1)
     start_time: datetime

@@ -112,7 +112,13 @@ def _persona_reason(error: ValidationError) -> str:
 
 
 def _config_reason(error: ValidationError) -> str:
-    """@brief 运行窗口与上下文的明确失败保留规定的英文原因。"""
+    """@brief 结构版本、运行窗口与上下文的明确失败保留规定的英文原因，其余失败用统一原因。
+
+    结构版本的原因与人设表同形：没有写是「schema_version is required」，写了其他值是「schema_version: <英文说明>」。
+    """
+    for item in error.errors():
+        if item["loc"] == ("schema_version",):
+            return "schema_version is required" if item["type"] == "missing" else f"schema_version: {item['msg']}"
     reasons = (
         "start_time must be timezone-aware", "stop_time must be timezone-aware",
         "start_time and stop_time must fall on whole hours", "run time interval or timezone is invalid",

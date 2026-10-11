@@ -22,7 +22,7 @@ def report(root):
 def test_independent_invalid_sources_are_all_reported(published_environment):
     root = published_environment
     (root / "persona.toml").write_bytes(b"schema_version = 1\n")
-    (root / "config.toml").write_bytes(b"schema_version = 1\n")
+    (root / "config.toml").write_bytes(b"schema_version = 2\n")
     (root / "catalog/app-catalog.jsonl").write_bytes(b"[]\n")
     errors = report(root)
     assert {row["path"] for row in errors} == {"catalog", "persona.toml", "config.toml"}
@@ -41,7 +41,7 @@ def test_obsolete_catalog_files_are_rejected(published_environment, relative):
     ("persona.toml", b"\xef\xbb\xbfschema_version = 1\n", "PERSONA_INVALID"),
     ("persona.toml", b"schema_version = 1\r\n", "PERSONA_INVALID"),
     ("config.toml", b"\xff\n", "RUN_CONFIG_INVALID"),
-    ("config.toml", b"schema_version = 1", "RUN_CONFIG_INVALID"),
+    ("config.toml", b"schema_version = 2", "RUN_CONFIG_INVALID"),
 ])
 def test_toml_raw_format_errors_are_public(published_environment, relative, payload, code):
     (published_environment / relative).write_bytes(payload)
@@ -152,6 +152,22 @@ def test_persona_table_failures_are_reported_with_the_field_named(published_envi
     assert path.read_bytes().count(original) == 1
     path.write_bytes(path.read_bytes().replace(original, replacement))
     assert report(published_environment) == [{"path": "persona.toml", "code": "PERSONA_INVALID", "reason": reason}]
+
+
+@pytest.mark.parametrize("original,replacement,reason", [
+    (b"schema_version = 2\n", b"schema_version = 1\n", "schema_version: Input should be 2"),
+    (b"schema_version = 2\n", b"", "schema_version is required"),
+    (b"context_window = 262144\n", b"context_window = 262144\npersona_validation_max_retries = 3\n",
+     "Run config validation failed"),
+])
+def test_config_of_the_previous_structure_is_rejected_by_validate(published_environment, original, replacement,
+                                                                  reason):
+    """@brief config.toml 的结构版本是 2：还写着上一版的 1、不写这一行，或者 [model] 里还留着已删除的人物卡片校验预算，
+    validate 都非零退出，输出里是 config.toml、RUN_CONFIG_INVALID 和英文原因。"""
+    path = published_environment / "config.toml"
+    assert path.read_bytes().count(original) == 1
+    path.write_bytes(path.read_bytes().replace(original, replacement))
+    assert report(published_environment) == [{"path": "config.toml", "code": "RUN_CONFIG_INVALID", "reason": reason}]
 
 
 def test_windows_without_any_plausible_order_pass_validation(published_environment):

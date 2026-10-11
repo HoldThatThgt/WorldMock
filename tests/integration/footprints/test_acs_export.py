@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from datetime import timedelta
+import hashlib
 import json
 
 import pytest
@@ -76,7 +77,7 @@ def test_actual_purchase_content_and_current_artifacts_are_authenticated(real_ex
     ("extra_artifact", "Export artifact set is invalid"),
 ])
 def test_retired_schema_is_rejected_before_consumption(real_export, version, reason):
-    """上一版导出清单（4）、上一版世界状态结构（12）、上一版运行清单，以及没有地点停留的五份工件集合，各自在读取前
+    """上一版导出清单（4）、上一版世界状态结构（12）、上一版运行清单（5），以及没有地点停留的五份工件集合，各自在读取前
     被拒绝，原因各是各的。"""
     manifest, _ = read_export(real_export)
     if version == "export":
@@ -88,9 +89,29 @@ def test_retired_schema_is_rejected_before_consumption(real_export, version, rea
     elif version == "extra_artifact":
         manifest["artifacts"]["navigation"] = dict(manifest["artifacts"]["location_stays"])
     else:
-        manifest["frozen_run_manifest"]["schema_version"] = 4
+        assert manifest["frozen_run_manifest"]["schema_version"] == 6
+        manifest["frozen_run_manifest"]["schema_version"] = 5
     (real_export / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(IntegrityError, match=f"^{reason}$"):
+        validate_export(real_export)
+
+
+def test_quality_report_carrying_the_previous_structure_number_is_rejected(real_export):
+    """质量报告的结构号是 8：把导出里的报告改回上一版的 7，并把清单里它的长度与摘要重写成与新字节一致，
+    认证按事件重算整份报告后仍然拒绝；只改报告不改清单时先被字节摘要拦下。"""
+    from worldmock.footprints.models import canonical_json
+
+    manifest, _ = read_export(real_export)
+    path = real_export / "quality.json"
+    quality = json.loads(path.read_bytes())
+    assert quality["schema_version"] == 8
+    retired = canonical_json({**quality, "schema_version": 7})
+    path.write_bytes(retired)
+    with pytest.raises(IntegrityError, match="^Export quality report bytes do not match its manifest$"):
+        validate_export(real_export)
+    manifest["quality_report"].update(size_bytes=len(retired), sha256=hashlib.sha256(retired).hexdigest())
+    write_manifest(real_export, manifest)
+    with pytest.raises(IntegrityError, match="^Export quality report disagrees with authoritative events$"):
         validate_export(real_export)
 
 

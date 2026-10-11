@@ -32,7 +32,7 @@ def _case(root: Path):
         (root / relative).mkdir(parents=True)
     frozen = inputs()
     assets = _freeze_environment(frozen, AssetStore(root / "run/assets"))
-    manifest = _bytes({"schema_version": 5, "persona_sha256": frozen.persona_sha256,
+    manifest = _bytes({"schema_version": 6, "persona_sha256": frozen.persona_sha256,
                        "config_sha256": frozen.config_sha256, "environment_identity": environment_identity(frozen),
                        "environment_assets": assets, "run_id": "day-test"})
     (root / "run/manifest.json").write_bytes(manifest)

@@ -55,8 +55,9 @@ _PRICING = {
 def build_quality_report(events: list[Event], activities: list[dict], manifest: dict) -> dict:
     """@brief 汇总完成、异常、内容、效率、记忆、模型用量、实测加速比、当日目标、个人事务与收尾记忆、运行输入警告与输出截断。
 
-    报告结构 7：个人事务与工作安排规格的两个只报告分组 errand_metrics、conclusion_memories 紧随 day_plan_metrics
-    （docs/design/05-recording-engine.md）；三者读同一份事件字典，按事件模型的 JSON 形状只构造一次。
+    报告结构 8（docs/design/05-recording-engine.md「完整导出认证」）：input_warnings.code_counts 的键恰为运行输入警告码
+    闭集的两个值。两个只报告分组 errand_metrics、conclusion_memories 紧随 day_plan_metrics；三者读同一份事件字典，
+    按事件模型的 JSON 形状只构造一次。
 
     @param events 已经认证且按 event_seq 排序的完整事件。
     @param activities 已经认证的活动终态视图。
@@ -67,7 +68,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
     _validate_inputs(events, activities, manifest)
     rows = [{**event.model_dump(mode="json"), "code_sha256": manifest.get("code_sha256")} for event in events]
     return {
-        "schema_version": 7,
+        "schema_version": 8,
         "run_id": manifest["run_id"],
         "source_group_id": manifest["source_group_id"],
         "event_range": {
@@ -838,7 +839,7 @@ def _input_warning_quality(manifest: dict) -> dict:
     """@brief 运行输入警告（docs/design/08-configuration.md「校验与输入冻结」）：按警告码闭集、按人物统计清单冻结的
     input_warnings。
 
-    清单没有记录警告（引擎直驱为 null，或清单版本 2 之前的运行没有这个键）时计数为 null，不记为零；闭集外的码单列。
+    清单没有记录警告（引擎直驱时为 null）时计数为 null，不记为零；闭集外的码单列。
     只报告，不放行。
     """
     frozen = manifest.get("input_warnings")

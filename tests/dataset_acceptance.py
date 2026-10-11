@@ -88,6 +88,14 @@ MUTATIONS = (
         "if struct != persona_card_struct(persona_card(persona)):", "if struct is None:",
         ("tests/integration/runtime/test_persona_profile.py"
          "::test_restored_card_must_equal_the_card_built_from_the_frozen_persona",)),
+    SourceMutation("previous_run_config_version_accepted", "worldmock.input_models::RunConfig",
+        "schema_version: Literal[2]", "schema_version: Literal[1, 2]",
+        ("tests/unit/test_environment_inputs.py"
+         "::test_config_schema_version_other_than_two_is_rejected_without_an_old_format_reader",)),
+    SourceMutation("previous_run_manifest_version_accepted", "worldmock.life.run_identity::require_environment_identity",
+        'manifest.get("schema_version") == RUN_MANIFEST_SCHEMA_VERSION', 'manifest.get("schema_version") in (5, 6)',
+        ("tests/integration/runtime/test_environment_identity.py"
+         "::test_run_whose_stored_manifest_carries_the_previous_structure_number_cannot_be_opened",)),
     SourceMutation("clock_text_without_day_wrap", "worldmock.profile.textgen::hour_text",
         "round(hour * 60) % MINUTES_PER_DAY", "round(hour * 60)",
         ("tests/unit/profile/test_textgen.py::test_hour_text_rounds_to_the_minute_then_wraps_around_the_day",)),

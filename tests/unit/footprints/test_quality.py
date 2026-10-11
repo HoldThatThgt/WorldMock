@@ -613,7 +613,7 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
     report = build_quality_report(events, [], _manifest())
     rhythm = report["decision_rhythm"]
 
-    assert report["schema_version"] == 7
+    assert report["schema_version"] == 8
     assert "decision_budget_exhausted_events" not in rhythm
     assert rhythm["body_settlement_events"] == 4
     assert rhythm["boundaries_with_decision_field"] == 3
@@ -630,7 +630,7 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
 
 def test_report_sections_are_the_documented_grouping_without_a_language_count():
     """报告的分组恰是记录引擎设计「质量报告」登记的十八组（docs/design/05-recording-engine.md），顺序相同，另有版本与
-    运行身份；报告结构为 4，登记的版本句也写 4：个人事务与工作安排规格的两个新组 errand_metrics、conclusion_memories
+    运行身份；报告结构为 8：个人事务与工作安排规格的两个新组 errand_metrics、conclusion_memories
     在报告与登记句里都紧随 day_plan_metrics（docs/design/01-architecture.md），没有任何事务事件与收尾记忆时两组
     都为 null。其中没有语言计数：一日运行保真裁决 D18 不作语言要求，人物写的正文、总结与记忆用中文还是英文不在报告里
     计数（docs/design/06-agent.md），一日运行保真新增的五节是输入警告、时间线标签、联系人回复守卫、名称类
@@ -643,7 +643,7 @@ def test_report_sections_are_the_documented_grouping_without_a_language_count():
     assert documented[plan:plan + 3] == ["day_plan_metrics", "errand_metrics", "conclusion_memories"]
     assert list(report)[3:] == documented
     assert set(report) == {"schema_version", "run_id", "source_group_id", *documented}
-    assert report["schema_version"] == 7
+    assert report["schema_version"] == 8
     assert (report["errand_metrics"], report["conclusion_memories"]) == (None, None)
     assert [key for key in report if any(word in key for word in ("language", "english", "chinese"))] == []
 

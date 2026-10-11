@@ -9,12 +9,14 @@ from typing import Any
 
 from worldmock.errors import IntegrityError
 from worldmock.environment import EnvironmentInputs, environment_identity
+from worldmock.life.models import RUN_MANIFEST_SCHEMA_VERSION
 
 
 def require_environment_identity(manifest: dict[str, Any], inputs: EnvironmentInputs) -> None:
-    """@brief 在读取已有运行状态前核对目录、人物、配置与权威模型容量。"""
+    """@brief 在读取已有运行状态前核对运行清单结构版本、目录、人物、配置与权威模型容量。"""
     expected = environment_identity(inputs)
-    valid = (manifest.get("schema_version") == 5 and manifest.get("environment_identity") == expected
+    valid = (manifest.get("schema_version") == RUN_MANIFEST_SCHEMA_VERSION
+             and manifest.get("environment_identity") == expected
              and manifest.get("persona_sha256") == inputs.persona_sha256
              and manifest.get("config_sha256") == inputs.config_sha256
              and manifest.get("model_metadata") == inputs.model_metadata.model_dump(mode="json"))

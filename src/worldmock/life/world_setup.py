@@ -14,7 +14,8 @@ from worldmock.footprints.assets import AssetStore
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
 from worldmock.input_warnings import frozen_input_warnings
-from worldmock.life.models import AgentState, RunIdentity, WorldState, WORLD_SCHEMA_VERSION
+from worldmock.life.models import (AgentState, RunIdentity, WorldState, RUN_MANIFEST_SCHEMA_VERSION,
+                                   WORLD_SCHEMA_VERSION)
 from worldmock.life.models import validated_payload
 from worldmock.life.run_identity import open_environment_validated_store
 from worldmock.life.stay_records import run_start_event
@@ -84,7 +85,8 @@ def _run_manifest(inputs: EnvironmentInputs, identity: RunIdentity, stages: dict
                   options: dict, assets: dict[str, dict]) -> dict:
     """@brief 目录、人物与配置各自保持身份，清单不再含场景文档身份。"""
     return {
-        "schema_version": 5, "run_id": identity.run_id, "source_group_id": identity.source_group_id,
+        "schema_version": RUN_MANIFEST_SCHEMA_VERSION, "run_id": identity.run_id,
+        "source_group_id": identity.source_group_id,
         "environment_identity": environment_identity(inputs), "environment_assets": assets,
         "persona_sha256": inputs.persona_sha256, "config_sha256": inputs.config_sha256,
         "agent_ids": list(identity.agent_ids), "code_sha256": identity.code_sha256,

@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 from worldmock.errors import IntegrityError
 from worldmock.exchange.constants import RULES_VERSION
-from worldmock.life.models import WORLD_SCHEMA_VERSION
+from worldmock.life.models import RUN_MANIFEST_SCHEMA_VERSION, WORLD_SCHEMA_VERSION
 from worldmock.footprints.ledger import validate_account_history
 from worldmock.footprints.models import AssetRef, Checkpoint, Event, canonical_json
 from worldmock.footprints.app_usage import project_app_usage, validate_activity_prefix
@@ -205,7 +205,8 @@ def _validate_run_identity(frozen: dict) -> None:
     """@brief 在读取工件和启动下游前验证当前运行清单及五字段环境身份。"""
     identity = frozen.get("environment_identity")
     fields = {"environment_id", "environment_version", "rules_version", "catalog_content_sha256", "map_sha256"}
-    valid = frozen.get("schema_version") == 5 and isinstance(identity, dict) and set(identity) == fields
+    valid = (frozen.get("schema_version") == RUN_MANIFEST_SCHEMA_VERSION and isinstance(identity, dict)
+             and set(identity) == fields)
     valid = (valid and all(isinstance(frozen.get(key), str)
                           and re.fullmatch(r"[a-f0-9]{64}", frozen[key])
                           for key in ("persona_sha256", "config_sha256"))

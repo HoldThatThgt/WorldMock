@@ -50,7 +50,7 @@ def test_valid_environment_result_has_only_public_identity(environment):
 
 def test_independent_invalid_inputs_are_all_reported(environment):
     (environment / "persona.toml").write_bytes(b"schema_version = 2\n")
-    (environment / "config.toml").write_bytes(b"schema_version = 1\n")
+    (environment / "config.toml").write_bytes(b"schema_version = 2\n")
     (environment / "catalog/app-catalog.jsonl").write_bytes(b"[]\n")
     result = validate_environment(environment, metadata_loader=metadata)
     assert result["valid"] is False
@@ -167,12 +167,44 @@ def test_schema_version_one_is_rejected_without_an_old_format_reader(environment
         "valid": False, "errors": [{"path": "persona.toml", "code": "PERSONA_INVALID", "reason": reason}]}
 
 
-def test_run_configuration_no_longer_has_a_persona_validation_budget():
-    """画像输出校验重试随模型抽取一起删除：config.toml 的 [model] 里再写这个键就是未知字段。"""
+def config_rejected(environment, original: bytes, replacement: bytes):
+    """把夹具 config.toml 里恰好出现一次的一行换掉后，真实运行配置解析给出的（文件, 登记码, 英文原因）。"""
+    path = environment / "config.toml"
+    content = path.read_bytes()
+    assert content.count(original) == 1
+    path.write_bytes(content.replace(original, replacement))
+    with pytest.raises(EnvironmentInputError) as caught:
+        parse_run_config_file(path)
+    return caught.value.path, caught.value.code, caught.value.reason
+
+
+@pytest.mark.parametrize("written", [b"1", b"3", b"0", b'"2"', b"2.5", b"true"])
+def test_config_schema_version_other_than_two_is_rejected_without_an_old_format_reader(environment, written):
+    """config.toml 的结构版本是 2：写上一版的 1、没见过的 3，或者写成字符串、小数、布尔值的文件都被严格字面量拒绝，
+    原因写出这个字段；纯校验给出同一条 {path, code, reason}。夹具写的 2 可以加载。"""
+    assert parse_run_config_file(environment / "config.toml")[0].schema_version == 2
+    reason = "schema_version: Input should be 2"
+    assert config_rejected(environment, b"schema_version = 2\n", b"schema_version = " + written + b"\n") == (
+        "config.toml", "RUN_CONFIG_INVALID", reason)
+    assert validate_environment(environment, metadata_loader=metadata) == {
+        "valid": False, "errors": [{"path": "config.toml", "code": "RUN_CONFIG_INVALID", "reason": reason}]}
+
+
+def test_config_without_a_schema_version_is_rejected_and_names_the_field(environment):
+    """config.toml 的结构版本没有缺省值：整行不写时原因是这个字段必填。"""
+    assert config_rejected(environment, b"schema_version = 2\n", b"") == (
+        "config.toml", "RUN_CONFIG_INVALID", "schema_version is required")
+
+
+def test_run_configuration_no_longer_has_a_persona_validation_budget(environment):
+    """画像输出校验重试随模型抽取一起删除：config.toml 的 [model] 里再写这个键就是未知字段，文件被拒绝。"""
     payload = tomllib.loads((SOURCE / "config.toml").read_text(encoding="utf-8"))["model"]
     assert "persona_validation_max_retries" not in ModelConfig.model_fields
     with pytest.raises(ValidationError):
         ModelConfig.model_validate({**payload, "persona_validation_max_retries": 2})
+    budget = b"context_window = 262144\n"
+    assert config_rejected(environment, budget, budget + b"persona_validation_max_retries = 3\n") == (
+        "config.toml", "RUN_CONFIG_INVALID", "Run config validation failed")
 
 
 @pytest.mark.parametrize("field", REQUIRED_PERSONA_FIELDS)
