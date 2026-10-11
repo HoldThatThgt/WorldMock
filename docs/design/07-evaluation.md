@@ -77,7 +77,8 @@ WorldMock 累计秒数必须与认证推进区间一致，暂停空档不能算�
 WorldMock 只接受当前认证导出；先校验全部事件前缀，再投影活动。
 包含退役活动种类时统一报 `Activity snapshot uses a retired activity kind`，
 其他不在当前闭集中的种类报 `Activity type is outside the current closed set`。
-七个具体动作直接取请求与活动的 `action`，不从旧方式或内容标题反解。
+公开动作类别直接取请求与活动的 `action`：购买、睡眠和 interact 取请求所写的动作；
+出行取活动记下的出行动作，被拒而没有活动的出行请求按所写的出行方式名称对应。不从内容标题反解。
 外部适配保留其真实设备信息与原始事件来源，不补造 WorldMock 设备字段。
 
 <a name="evaluation-证据事件-publicevidence"></a>

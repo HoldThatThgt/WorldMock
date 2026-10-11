@@ -106,7 +106,8 @@ PY
 <a name="evaluation-修改类别映射和公开参照"></a>
 ## 修改类别映射和公开参照
 
-WorldMock 直接使用真实请求和活动中的七个动作，公开证据保留实际内容、应用、路线和订单对象。
+WorldMock 直接使用真实请求和活动中的动作：购买、睡眠和 interact 取请求所写的动作，出行取活动记下的出行动作；
+公开证据保留实际内容、应用、路线和订单对象。
 内容没有评估类别，报告不把工作、娱乐或社交标签套到 WorldMock 活动。
 `category_mappings` 仅保留 `labelkit_sequence_class` 与 `labelkit_pattern` 两组外部 LabelKit 类别映射。
 

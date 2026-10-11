@@ -23,6 +23,8 @@ python -m worldmock profile check --persona D:/datasets/my-world/persona.toml
 午饭、晚饭、下班、到家、就寝五个时段，加上睡眠中点 `chronotype_midsleep` 和每日睡眠需要 `sleep_need_hours`，
 都写成自午夜起的小时数，18.25 就是 18:15。时间照实填，不必对齐半小时或一刻钟：声明什么，人物卡片里就存什么，
 人设层、零点计划、身体和评估读到同一个值，显示写到分钟。
+`sleep_need_hours` 不决定人物睡多久，只用来算欠的觉；每晚实际睡得比它短，欠的觉会逐日累加，
+见[理解固定世界规则](rules.md)。
 
 ```toml
 chronotype_midsleep = 4.1
