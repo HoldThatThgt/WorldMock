@@ -45,6 +45,8 @@ OWNERS = {'base_models.py': ('StrictModel',
                            'DELIVERY_METERS_PER_SECOND',
                            'DELIVERY_PREP_SECONDS',
                            'DELIVERY_FEE_FEN',
+                           'GOODS_ENERGY_KCAL',
+                           'GOODS_RELAXATION_RELIEF',
                            'MAP_MIN_NODES',
                            'MAP_EDGE_LENGTH_M',
                            'MAP_EXTRA_EDGES',
@@ -69,7 +71,7 @@ OWNERS = {'base_models.py': ('StrictModel',
                        'SummarySource',
                        'ContentSeries'),
  'catalog/loader.py': ('load_catalog',),
- 'input_models.py': ('LEGACY_TEMPLATE_FIELDS',),
+ 'input_models.py': ('LEGACY_TEMPLATE_FIELDS', 'BEDTIME_HORIZON_HOURS'),
  'life/action_contract.py': ('ACTIVITY_ACTIONS',
                              'FIRST_SLOT_ACTIONS',
                              'TRAVEL_ACTIONS',
@@ -177,7 +179,10 @@ def test_copied_rule_table_fails_even_after_renaming(tmp_path):
 
 @pytest.mark.parametrize('source', ['def canonical_json(value):\n return value\n',
                                     'class CurvePoint:\n pass\n',
-                                    'SUBJECTIVE_TYPES = frozenset({"invented"})\n'])
+                                    'SUBJECTIVE_TYPES = frozenset({"invented"})\n',
+                                    'GOODS_ENERGY_KCAL = {"snack": 210, "meal": 610}\n',
+                                    'GOODS_RELAXATION_RELIEF = 0.2\n',
+                                    'BEDTIME_HORIZON_HOURS = 30\n'])
 def test_wrong_shared_rule_owner_fails(tmp_path, source):
     _sample(tmp_path, 'custom/wrong.py', source)
     assert any('wrong owner' in item for item in single_source_violations(tmp_path))
