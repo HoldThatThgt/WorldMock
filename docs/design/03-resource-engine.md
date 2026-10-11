@@ -59,18 +59,23 @@ JSONL 按真实 UTF-8 字节和 LF 逐行解析。零字节表示零行；末尾
 
 身份行和引用列表按身份字符串升序且无重复；名称比较经 `channel_key` 去全部空白并忽略大小写。
 app、地点显示名、商品名分别在所属文件唯一。app 名不得与任何地点显示名相同；
-人物实际可见的地点、商品、内容 app 名称唯一性由环境加载器检查，内容标题不参与名称解析。
+人物实际可见的地点、商品、内容 app 名称唯一性由环境加载器检查。
+地点内容的单元名是人物要写的名称：同一个地点类型下，独立内容的 `title` 与系列的 `series.title` 合在一起比较，不得重复。
+同一系列的各集属于同一单元；不同地点类型之间可以重名，也不要求与商品、app、地点的名称不同。
+这项检查按文件行序逐行进行，排在该行的容器、引用、摘要、来源和系列检查之后。
+绑定到 app 的内容标题不参与名称解析，也不检查唯一。
 
 | 拒绝码 | 登记边界 |
 | --- | --- |
 | `ENVIRONMENT_STALE_FILE` | 环境根、目录或清单存在闭集外条目，详情指出实际路径 |
 | `ENVIRONMENT_FILE_UNLISTED` | 清单缺少必需 JSONL |
 | `ENVIRONMENT_IDENTITY_MISMATCH` | 安全文件边界失败，或实际文件表、字节摘要和清单不一致 |
-| `ENVIRONMENT_ID_DUPLICATE` | 身份、名称或引用列表重复 |
+| `ENVIRONMENT_ID_DUPLICATE` | 身份、名称或引用列表重复；同一地点类型下单元名重复时详情为 `content-catalog.jsonl:<先登记一行的行号> and content-catalog.jsonl:<当前行的行号> give location kind <类型> the same activity name <先登记的单元名>.` |
 | `ENVIRONMENT_REF_UNKNOWN` | app、商品等对象引用未登记 |
 | `ENVIRONMENT_KIND_INVALID` | 未知字段、非法闭集值、坏字符串或布尔、未排序列表、非法营业安排 |
 | `ENVIRONMENT_NUMBER_INVALID` | 严格整数类型或范围不符 |
 | `HOME_LOCATION_REQUIRED` | 没有显式住宿地点，或人物住处未解析到住宿地点 |
+| `HOME_NOT_SLEEPABLE` | 人物住处没有标 `sleepable`；原因 `The persona home must be marked sleepable.`，详情 `persona.home_location` |
 | `PARCEL_STATION_REQUIRED` | app 侧商品需要驿站但未登记，或驿站类型没有地点内容 |
 | `APP_ROLE_BINDING_INVALID` | 内容 app 声明动作，或地点、商品、内容、提醒引用功能 app |
 | `APP_UNBOUND` | 内容 app 没有有效内容来源，或功能 app 没有具体动作 |
@@ -88,7 +93,11 @@ app、地点显示名、商品名分别在所属文件唯一。app 名不得与�
 每行声明一个实际地点，必填 `location_id`、`name`、`kind`、`app_ids`。`kind` 是非空白严格字符串，
 与商品 `store_kinds`、内容 `location_kinds` 逐字符相等匹配，不按名称归一或旧类型推断资格。
 可选 `branch_label` 缺省为 null；显示名为名称，或「名称（分店标签）」。同名分店必须提供不同标签。
-可选严格布尔 `is_home`、`accepts_parcels` 缺省 false，资格只按标记判断。
+可选严格布尔 `is_home`、`accepts_parcels`、`sleepable` 缺省 false，资格只按标记判断；
+写 null、数字或字符串按字段类型错误拒绝。
+`sleepable` 表示人物停留在这个地点时能否开始睡眠，与 `is_home` 互不推导；`is_home` 仍只表示住处。
+人物自己的家必须标 `sleepable`：环境加载器在人物住处解析到住宿地点之后检查这一个地点，引擎不替数据集补标，
+目录里其他住宿地点不查，只做目录登记校验、不读人设时也不查。
 目录至少有一个住宿地点；驿站类型必须有地点内容。全部地点参与供给、名称检查、出行和寻路。
 
 `opens` 缺省表示全天营业；显式声明必须是对象，不能是 null。
@@ -141,6 +150,8 @@ app 必填 `app_id`、`name`、`role`。功能 app 必须声明非空 `actions`�
 
 内容恰有 `app_ids` 或 `location_kinds` 一侧非空，可以绑定多个同侧容器。
 可选 `series` 为 null 或 `{title, episode}`；系列按标题识别，各集容器必须完全相同，正整数集号不得重复。
+绑定到地点类型的内容，不属于系列时的 `title` 和系列的 `series.title` 是人物要写的名称，系列各集的 `title` 不是；
+绑定到 app 的内容标题不是可写的名称，人物只写 app 名。
 目录提供按集号排序的系列索引；推荐、进度、连续消费和恢复由模拟引擎处理，不由推送资格决定。
 候选投影见[人物的候选与呈现](06-agent.md)。
 
@@ -183,6 +194,8 @@ app 侧只出现在 app 商品索引，不虚构店铺。任何类别都可绑�
 | 可见提示 | `{visible: 严格布尔}`，只配足迹链 |
 | 状态提醒 | `{when: {state, below}, channel: app_push, app_id, text}`，只配状态增量；必须引用内容 app |
 
+动作触发按受理的开始调用求值，每条调用一次：出行调用的键是所选出行方式对应的具体出行动作，
+其余调用的键是调用的 `action`；一次购买无论几件只触发一次。
 状态和提醒阈值是 `1..cap` 的严格整数。月度日号是 `1..31`，时刻为规范有效的 `HH:MM`。
 足迹 app 池非空且按身份升序无重复，允许功能 app；不存在空值候选。
 事件键为 `delivery_arrival`、`app_push`、`calendar_flag`、`weather`，或

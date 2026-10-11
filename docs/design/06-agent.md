@@ -27,16 +27,66 @@ flowchart LR
 
 ## 提示与工具
 
-人物每次读取已提交世界的七层提示：系统、人设、身体、进度、待办、环境、记忆。
-地点行只显示 location_id 与 name 的私有绑定，不显示地点类型；工具展示完整显示名和当前实际动作。
+人物每次读取已提交世界的七层提示：系统层、工具层、人设层、记忆层、待办层、环境层、进度层。
+地点行只显示 location_id 与 name 的私有绑定，不显示地点类型；工具层展示完整显示名和当前实际动作。
 功能 app 不成为人物可选择对象，自动系统触点不进入本人记忆。
 
-环境工具为 start_activity、report_status、pause_activity、conclude_activity、revise_day_plan、
-recall_task_summary；query_world 是只读环境查询。原生宿主的记忆查询独立保留。
-最后回合和截断后的那次纠正沿用已有去查询规则，原生 tool_calls 是唯一可执行模型输出。
-人物请求不提供运行种子、截止时间、凭据、付款 app 或系统参数。
+生活决策的原生工具共十一个，开始工具的参数、槽位与受理见[模拟引擎](04-simulation-engine.md)。
 
-身体层使用[交换引擎](02-exchange-engine.md)的饥饿、困倦、放松需要与社交需要四项体感。
+| 工具 | 数量 | 成员 |
+| --- | --- | --- |
+| 请求工具 | 七个 | start_main_activity、start_side_activity、recall_task_summary、report_status、pause_activity、conclude_activity、revise_day_plan |
+| 记忆查询 | 三个 | memory_recent、memory_search、memory_time_range |
+| 环境查询 | 一个 | query_world |
+
+世界请求是请求工具里除 recall_task_summary 外的六个；recall_task_summary、记忆查询和 query_world 只读。
+一次回复的工具调用只有三种合法形状，其余组合整批以 `TOOL_CALL_REQUIRED` 纠错，不登记任何世界请求。
+
+| 批次形状 | 内容 |
+| --- | --- |
+| 只读查询 | 全部是只读工具，个数不限 |
+| 一个世界请求 | 恰好一个调用 |
+| 开始组 | 恰好两个调用，start_main_activity 与 start_side_activity 各一个，先后不限 |
+
+同一个开始工具两次、开始工具与控制工具同批、世界请求与只读查询同批都不合法。
+两条开始调用各自校验参数和名称，全部问题合并成一次纠错；全部通过后按回复中的先后依次登记，
+`action_id` 为 `{decision_id}:action:{序号:04d}`，登记完本次决策结束。
+最后回合和截断后的那次纠正沿用已有去查询规则，只开放世界请求，两个开始工具都在其中；
+原生 tool_calls 是唯一可执行模型输出。人物请求不提供运行种子、截止时间、凭据、付款 app 或系统参数。
+
+系统层用规则条目写明每次决策怎样结束、两个开始工具各填什么、名称要写完整、在地点做哪件事由人物点名、
+两个槽位各放什么、睡眠怎样写以及暂停的活动怎样恢复；规则文字只在系统层写一次，工具说明只写用途与参数格式。
+
+工具层动作行固定八个字段，键序 `action, detail, available, reason, price, duration, quantity, note`，
+紧凑渲染省略 `null`。`detail` 是调用里要照写的名称：出行行是出行方式名称，购买行和内容 app 行为 `null`，
+地点上的 interact 行与 sleep 行见下表。
+每行的 `available` 与 `reason` 和受理用同一套检查，对只含这一行的一组求值，说明与拒绝原因一字不差。
+人物停留在某个地点时，该地点的目标行下为每个内容单元列一条 interact 行，完整列出，不轮转、不截断，按单元键升序；
+地点标了 `sleepable` 时 sleep 行排在其后。人在路上时不列任何地点的 interact 行，其他地点只列出行，
+query_world 查到的也是如此；没有单元的地点没有 interact 行。
+
+| 动作行 | `detail` | `duration` | `note` |
+| --- | --- | --- | --- |
+| 地点 interact | 单元名原文 | 此刻开始会做多久：没做完的内容是剩余时长，系列是下一集的时长 | 系列写「第 N 集，共 M 集」，没做完写「上次没做完，接着做」，两者都有以「；」相连，都没有为 `null` |
+| sleep | `null` | `null` | 睡前提示 |
+
+睡前提示按观察时刻欠的觉 h 小时生成，只给半小时一档的时长，不给原值，睡多久由人物自己写。
+h 小于 0.25 写「现在不欠觉」，大于 12 写「现在睡，12 小时以上才能补满」；其余取 `floor(h × 2 + 0.5)` 个半小时，
+一个写「现在睡，约半小时能补满」，多个写「现在睡，约 X 小时能补满」。提示只取决于身体，这一行此刻不可用时照样显示。
+
+| 在地点做的一件事 | 工具层该单元的行 | 另外出现在 |
+| --- | --- | --- |
+| 没做过，或做完过 | 可用 | 无 |
+| 上次没做完且已收尾 | 可用，`duration` 为剩余时长，`note` 含「上次没做完，接着做」 | 无 |
+| 正在做 | 当前地点的每条 interact 行都不可用，原因是槽位 1 被占 | 工具层的活动目标行，带 report_status、pause_activity、conclude_activity |
+| 刚结束待收尾 | 每条 interact 行都不可用，原因是先收尾 | 工具层的活动目标行，带 conclude_activity |
+| 被本人暂停的活动占着 | 该单元的行不可用，原因点名那项暂停的活动；其他单元的行不受影响 | 待办层 `paused_activities`，带 report_status（恢复）与 conclude_activity |
+
+同秒续接在上一决策以一个世界请求或一个开始组结束时成链。链对象的 `tool_results` 按调用次序保存一条或两条
+`{tool_call_id, result}`，宿主为每个 `tool_call_id` 各追加一条 tool 消息，`changes` 与 `events` 只写在最后一条上。
+重建的 assistant 消息带两个 `tool_calls` 时必须是两个开始工具各一个，并与登记的两条动作按次序同名，否则断链。
+
+环境层的身体感觉使用[交换引擎](02-exchange-engine.md)的饥饿、困倦、放松需要与社交需要四项体感。
 环境天气直接来自世界事实，模型只能据此叙述，不能写入天气；不使用关键词过滤或第二个模型判定天气真伪。
 
 ## 进度、待办与记忆

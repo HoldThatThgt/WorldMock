@@ -45,10 +45,23 @@ flowchart LR
 
 ## 检查工具交互
 
-人物使用七个具体动作，并在 start_activity 中填写 action 与 target。
+人物用两个开始工具开始活动，每个参数都要写。start_main_activity 开始出行、在当前地点做一件事或睡觉，
+start_side_activity 开始购买或使用一个内容 app；要同时开始两项，就在同一次回复里两个工具各调用一次。
+
+```text
+start_main_activity  {"action": "travel",   "target": "公司", "detail": "驾车"}
+start_main_activity  {"action": "interact", "target": "家",   "detail": "测试休息"}
+start_main_activity  {"action": "sleep",    "target": "470",  "detail": null}
+start_side_activity  {"action": "purchase", "target": ["牛肉面", "柠檬茶", "柠檬茶"]}
+start_side_activity  {"action": "interact", "target": ["哔哩哔哩"]}
+```
+
+出行的 detail 写步行、驾车、打车或公共交通；在地点做事的 detail 照工具层当前地点下列出的名称写。
+睡眠的 target 写 10 到 720 的分钟数，只写数字，detail 写 null。购买逐份写商品名，同一个名称写两次就是两份。
+例子里的地点、内容、商品和 app 名称取自所用的环境数据集。
 query_world 使用 action 查询当下实际地点、营业时段、路线或商品；查询不推进时间。
-内容由环境选择，功能 app 由环境执行，人物按真实活动名称报告、暂停与结束。
-工具字段、名称解析、活动槽与提醒规则见[模拟引擎](../design/04-simulation-engine.md)。
+用内容 app 时看到什么由环境选择，功能 app 由环境执行，人物按真实活动名称报告、暂停与结束。
+工具字段、名称解析、槽位与提醒规则见[模拟引擎](../design/04-simulation-engine.md)。
 实际模型请求和事件可在运行查看器中核对，人物可见范围见[人物设计](../design/06-agent.md)。
 
 ## 从检查点创建分支
