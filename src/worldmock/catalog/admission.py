@@ -171,7 +171,7 @@ def _check_goods(rows, apps, kinds) -> None:
 
 
 def _check_contents(rows, apps, kinds) -> None:
-    """@brief 内容容器、摘要、来源和系列符合独立登记规则；同一地点类型下可点名的单元名唯一。"""
+    """@brief 内容容器、摘要、来源、前提和系列符合独立登记规则；同一地点类型下可点名的单元名唯一。"""
     series, episodes, units = {}, set(), {}
     for number, content in enumerate(rows["contents"], start=1):
         if not content.app_ids and not content.location_kinds:
@@ -184,14 +184,44 @@ def _check_contents(rows, apps, kinds) -> None:
             raise RegistrationError("CONTENT_SUMMARY_TOO_LONG")
         if content.summary_source.kind == "real" and not content.summary_source.url:
             raise RegistrationError("CONTENT_SOURCE_URL_MISSING")
+        _check_prerequisite(content, kinds)
         if content.series is not None:
-            title, episode = content.series.title, content.series.episode
-            binding = (content.app_ids, content.location_kinds)
-            if (title in series and series[title] != binding) or (title, episode) in episodes:
-                raise RegistrationError("CONTENT_SERIES_INVALID")
-            series[title] = binding
-            episodes.add((title, episode))
+            _check_series(series, episodes, content)
         _check_unit_name(units, content, number)
+
+
+def _check_prerequisite(content, kinds) -> None:
+    """@brief 内容前提只能写在 app 内容上并至少声明地点类型或时段之一；地点类型有序、无重复并指向登记地点。"""
+    prerequisite = content.prerequisite
+    if prerequisite is None:
+        return
+    if content.location_kinds:
+        raise RegistrationError("CONTENT_PREREQUISITE_INVALID", f"{content.content_id} is a location content.")
+    if not prerequisite.location_kinds and prerequisite.opens is None:
+        raise RegistrationError("CONTENT_PREREQUISITE_INVALID",
+                                f"{content.content_id} declares neither location kinds nor opening hours.")
+    _check_order(prerequisite.location_kinds)
+    for kind in prerequisite.location_kinds:
+        if kind not in kinds:
+            raise RegistrationError("CONTENT_BINDING_DANGLING", f"{content.content_id} prerequisite names {kind}.")
+    if prerequisite.opens is not None:
+        _check_opening_hours(prerequisite.opens)
+
+
+def _check_series(series: dict, episodes: set, content) -> None:
+    """@brief 同一系列各集的容器绑定与内容前提必须完全相同，集号不得重复。
+
+    :param series: 系列名到先登记那一集的（容器绑定，内容前提）。
+    :param episodes: 已登记的（系列名，集号）。
+    """
+    title, episode = content.series.title, content.series.episode
+    binding = (content.app_ids, content.location_kinds)
+    first = series.setdefault(title, (binding, content.prerequisite))
+    if first[0] != binding or (title, episode) in episodes:
+        raise RegistrationError("CONTENT_SERIES_INVALID")
+    if first[1] != content.prerequisite:
+        raise RegistrationError("CONTENT_SERIES_INVALID", f"{title} episodes declare different prerequisites.")
+    episodes.add((title, episode))
 
 
 def _check_unit_name(units: dict, content, number: int) -> None:

@@ -1,11 +1,12 @@
 """@brief 动作开始、同系列接续与推送共享的只读内容推荐。"""
 from __future__ import annotations
-import logging
 from dataclasses import dataclass
+from datetime import datetime
 from math import ceil
 from random import Random
+from zoneinfo import ZoneInfo
 from worldmock.catalog.models import Catalog, Content
-from worldmock.errors import BusinessRuleError
+from worldmock.life.content_prerequisite import prerequisite_unmet
 from worldmock.life.models import ActivityKind, ActivityStatus, AgentState, WorldState
 from worldmock.life.sessions import current_session
 
@@ -16,14 +17,19 @@ class ContentRequest:
     agent_id: int
     #: 已登记的内容 app 身份。
     app_id: str
+    #: 判定内容前提所用的停留地点；人在路上时为空。
+    stay_location_id: str | None
     #: 开始或接续的活动；生成推送时为空。
     activity_id: str | None = None
     #: 接续时刚完成的内容。
     previous_content_id: str | None = None
 
 def eligible_contents(catalog: Catalog, state: WorldState, request: ContentRequest) -> tuple[Content, ...]:
-    """@brief 内容 app 的候选只来自它自己绑定的内容，不再过滤工作指派或类别。"""
-    return tuple(catalog.contents[key] for key in sorted(catalog.contents_by_app.get(request.app_id, ())))
+    """@brief 合格内容：这个 app 绑定的内容里此刻满足前提的那些，按内容身份升序；筛选不抽随机数。"""
+    stay = None if request.stay_location_id is None else catalog.locations[request.stay_location_id]
+    moment = datetime.fromtimestamp(state.current_time, ZoneInfo(state.timezone))
+    contents = (catalog.contents[key] for key in sorted(catalog.contents_by_app.get(request.app_id, ())))
+    return tuple(item for item in contents if not prerequisite_unmet(item, stay, moment))
 
 def select_content(catalog: Catalog, state: WorldState, request: ContentRequest,
                    stream: Random) -> tuple[Content, str | None]:
@@ -32,11 +38,8 @@ def select_content(catalog: Catalog, state: WorldState, request: ContentRequest,
 
 def select_from_contents(contents: tuple[Content, ...], state: WorldState, request: ContentRequest,
                          stream: Random) -> tuple[Content, str | None]:
-    """@brief 推送钉住、最近未完、已开始系列、未看单元、最低轮数依次优先。"""
-    if not contents:
-        logging.error("Content pool is exhausted")
-        raise BusinessRuleError("CONTENT_EXHAUSTED")
-    pinned = (_pinned_content(contents, state, request)
+    """@brief 推送钉住、最近未完、已开始系列、未看单元、最低轮数依次优先；候选是非空的合格内容。"""
+    pinned = (pinned_push_content(contents, state, request)
               if request.activity_id is not None and request.previous_content_id is None else None)
     if pinned is not None:
         return pinned
@@ -57,16 +60,17 @@ def select_from_contents(contents: tuple[Content, ...], state: WorldState, reque
     representatives = sorted((representative(unit, agent) for unit in candidates), key=lambda item: item.content_id)
     return representatives[stream.randrange(len(representatives))], None
 
-def content_duration_range(inputs, state: WorldState, agent_id: int, app_id: str) -> tuple[int, int] | None:
-    """@brief 内容 app 的查询不抽样，优先显示推送或未完成余量，否则显示全长范围。"""
-    catalog = inputs.catalog
-    request = ContentRequest(agent_id, app_id)
+def content_duration_range(catalog: Catalog, state: WorldState, request: ContentRequest) -> tuple[int, int] | None:
+    """@brief 内容 app 的查询不抽样：没有登记内容的 app 是声明的浏览时长；登记了内容的只在合格内容里算，优先推送或
+    未完成余量，否则全长范围；内容此刻都不合格时为 None，不读浏览时长。"""
+    if not catalog.contents_by_app.get(request.app_id):
+        duration = catalog.apps[request.app_id].browse_duration_seconds
+        return duration, duration
     contents = eligible_contents(catalog, state, request)
     if not contents:
-        duration = catalog.apps[app_id].browse_duration_seconds
-        return None if duration is None else (duration, duration)
-    agent = state.agents[agent_id]
-    pinned = _pinned_content(contents, state, request)
+        return None
+    agent = state.agents[request.agent_id]
+    pinned = pinned_push_content(contents, state, request)
     item = pinned[0] if pinned is not None else _unfinished_content(
         _exclude_reserved(content_units(contents), state, request), agent)
     if item is not None:
@@ -75,9 +79,12 @@ def content_duration_range(inputs, state: WorldState, agent_id: int, app_id: str
     durations = tuple(item.duration_seconds for item in contents)
     return min(durations), max(durations)
 
-def _pinned_content(contents: tuple[Content, ...], state: WorldState,
-                    request: ContentRequest) -> tuple[Content, str] | None:
-    """@brief 读取当前会话中同应用同动作且未释放的推送，不改变其状态。"""
+def pinned_push_content(contents: tuple[Content, ...], state: WorldState,
+                        request: ContentRequest) -> tuple[Content, str] | None:
+    """@brief 此刻打开会钉住的推送内容：当前会话里这个 app 有未释放的推送，并且它指向的内容在合格内容里；不改状态。
+
+    :param contents: 这个 app 此刻的合格内容。
+    """
     session = current_session(state, request.agent_id)
     push = None if session is None else session.app_pushes.get(request.app_id)
     if push is None or push.status == "released":

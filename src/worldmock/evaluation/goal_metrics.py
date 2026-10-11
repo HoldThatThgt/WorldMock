@@ -10,10 +10,10 @@ from zoneinfo import ZoneInfo
 
 
 UNREPORTED_CODE_KEY = "code_sha256_unreported"
-#: 真实世界的营业、资金、履约与内容可用性约束；协议和活动控制纠错另计。
+#: 真实世界的营业、资金、履约与 app 内容前提约束；协议和活动控制纠错另计。
 EXTERNAL_CONSTRAINT_ERROR_CODES = frozenset({
     "LOCATION_CLOSED", "INSUFFICIENT_FUNDS", "INSUFFICIENT_TRAVEL_FUNDS",
-    "DELIVERY_NOT_DUE", "PARCEL_NOT_READY", "CONTENT_EXHAUSTED",
+    "DELIVERY_NOT_DUE", "PARCEL_NOT_READY", "CONTENT_PREREQUISITE_UNMET",
 })
 _TERMINAL_STATUSES = {"completed", "rejected", "cancelled", "failed"}
 

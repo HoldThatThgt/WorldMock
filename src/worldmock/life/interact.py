@@ -22,16 +22,20 @@ class InteractivityRuntime:
     #: 唯一引擎上下文。
     context: object
 
-    def start(self, state: WorldState, pending, row) -> tuple[WorldState, ActivityState, list[EventDraft]]:
-        """@brief 整组已准入后开始一项 interact：内容 app 由引擎推荐一次内容并打开真实钉住推送，地点按人物点名的
-        单元开始。
+    def start(self, state: WorldState, pending, row,
+              stay_location_id: str | None) -> tuple[WorldState, ActivityState, list[EventDraft]]:
+        """@brief 整组已准入后开始一项 interact：内容 app 由引擎在合格内容里推荐一次并打开真实钉住推送，地点按人物
+        点名的单元开始。
 
         :param row: 名称解析出的绑定行（内容 app，或带单元动作行 selected_action 的当前地点）。
+        :param stay_location_id: 本轮请求生效之前的停留地点，内容前提按它筛选；与出发同组时是出发地，路上为 None。
         """
         agent = state.agents[pending.agent_id]
         origin = _activity_origin(state, pending)
         if row["kind"] == "app":
-            label, duration, data = self._app_plan(state, agent, row["object_id"], f"activity-{origin.action_id}")
+            request = ContentRequest(agent.agent_id, row["object_id"], stay_location_id,
+                                     f"activity-{origin.action_id}")
+            label, duration, data = self._app_plan(state, agent, request)
         else:
             label, duration, data = self._unit_plan(agent, row["selected_action"])
         params = ActivityStartParams("interact", duration, data=data)
@@ -44,13 +48,15 @@ class InteractivityRuntime:
             changed, _ = open_app_push(changed, agent.agent_id, data["app_id"], data["content_id"])
         return self._collect(changed, activity, row)
 
-    def _app_plan(self, state: WorldState, agent, app_id: str, identity: str) -> tuple[str, int, dict]:
-        """@brief 内容 app 的活动名、计划时长与活动数据：纯目录浏览读声明时长，否则抽取一次内容并从共享位置继续。"""
-        app = self.context.catalog.apps[app_id]
-        if app.browse_duration_seconds is not None:
+    def _app_plan(self, state: WorldState, agent, request: ContentRequest) -> tuple[str, int, dict]:
+        """@brief 内容 app 的活动名、计划时长与活动数据：没有登记内容的 app 是纯目录浏览、读声明时长，否则在合格
+        内容里抽取一次并从共享位置继续。"""
+        app_id, catalog = request.app_id, self.context.catalog
+        app = catalog.apps[app_id]
+        if not catalog.contents_by_app[app_id]:
             return app.name, app.browse_duration_seconds, _browse_data(app_id)
-        content, pinned = select_content(self.context.catalog, state, ContentRequest(agent.agent_id, app_id, identity),
-                                         random_stream(state.random_state, f"{identity}:0"))
+        content, pinned = select_content(catalog, state, request,
+                                         random_stream(state.random_state, f"{request.activity_id}:0"))
         progress = agent.content_progress.get(content.content_id)
         position = 0.0 if progress is None else progress.position_seconds
         return app.name, _remaining(content, position), _content_data(content, app_id, position, pinned)

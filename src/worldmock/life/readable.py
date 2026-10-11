@@ -60,6 +60,14 @@ def duration_phrase(seconds: float) -> str:
     return f"约 {round(seconds / 1800) / 2:g} 小时"
 
 
+def interval_phrases(intervals) -> list[str]:
+    """@brief 营业时段的唯一文字写法：每个时段写成「HH:MM–HH:MM」（中间是 U+2013），连接词由调用方决定。
+
+    :param intervals: 当天的时段，每个是（开始，结束）两个 HH:MM 文字。
+    """
+    return [f"{start}–{end}" for start, end in intervals]
+
+
 def _decimal(value: float) -> str:
     """@brief 至多两位小数、去掉末尾的零的数字写法。"""
     text = f"{value:.2f}".rstrip("0").rstrip(".")

@@ -63,7 +63,7 @@ _DEFAULT_REASONS = {
     'PLAN_REMIND_TIME_INVALID': 'The reminder must be after now and before the next local midnight.',
     'PLAN_GOALS_INVALID': 'The revised plan must preserve unique intents and contain at most eight goals.',
     'OBSERVATION_NOT_FOUND': 'The decision has no unique frozen observation.',
-    'CONTENT_EXHAUSTED': 'Nothing is left to do for this action.',
+    'CONTENT_PREREQUISITE_UNMET': 'No content of this app can start at the current place and time.',
     'PARCEL_NOT_READY': 'No parcels are ready for you at this station.',
 }
 
@@ -89,7 +89,7 @@ _DEFAULT_NEXT_STEPS = {
     'SAME_MOMENT_ACTION_RESTRICTED': 'Choose an action offered in this stage.',
     'ACTION_REQUEST_INVALID': 'Choose a known object and an offered action.',
     'SUPPLY_NOT_FOUND': 'Choose a known product or candidate request.',
-    'CONTENT_EXHAUSTED': 'Choose another action.',
+    'CONTENT_PREREQUISITE_UNMET': 'Choose another action.',
 }
 
 #: 原样进入公开结果的可读建议：逐项明细（带可照填候选）、名称归一与附带说明（都不含内部身份）。

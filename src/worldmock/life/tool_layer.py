@@ -10,13 +10,14 @@ from zoneinfo import ZoneInfo
 from worldmock.errors import BusinessRuleError
 from worldmock.life import activity_control, admission, same_moment
 from worldmock.life.action_contract import START_TOOLS, start_tool
-from worldmock.life.content_select import content_duration_range
+from worldmock.life.content_select import (ContentRequest, content_duration_range, eligible_contents,
+                                           pinned_push_content)
 from worldmock.life.felt import sleep_debt_phrase
 from worldmock.life.guidance import Refusal
 from worldmock.life.location_activities import unit_facts
 from worldmock.life.models import ActivityStatus
 from worldmock.life.purchase_offers import quote_goods
-from worldmock.life.readable import duration_phrase, money_phrase
+from worldmock.life.readable import duration_phrase, interval_phrases, money_phrase
 from worldmock.life.travel_methods import travel_method
 
 
@@ -128,7 +129,7 @@ def _binding_target(context: LayerContext, row: dict) -> dict:
         location = context.catalog.locations[row["object_id"]]
         local = datetime.fromtimestamp(context.state.current_time, ZoneInfo(context.config.timezone))
         intervals = location.opening_intervals(local.date())
-        state = "全天营业" if location.opens is None else "、".join(f"{start}–{end}" for start, end in intervals) or "今日休息"
+        state = "全天营业" if location.opens is None else "、".join(interval_phrases(intervals)) or "今日休息"
     return {"name": row["object"], "kind": kind, "phase": None, "state": state,
             "actions": [_action_row(context, row, action) for action in row["actions"]], "tools": []}
 
@@ -146,13 +147,22 @@ def _action_row(context: LayerContext, row: dict, action: dict) -> dict:
     elif row["kind"] == "location":
         facts.update(unit_facts([context.catalog.contents[key] for key in action["content_ids"]], agent))
     else:
-        duration = content_duration_range(context.inputs, context.state, context.agent_id, row["object_id"])
-        if duration is not None:
-            facts["duration"] = duration_phrase(duration[0]) if duration[0] == duration[1] else (
-                f"{duration_phrase(duration[0])}–{duration_phrase(duration[1])}")
-        facts["note"] = _push_note(context, row)
+        facts.update(_app_facts(context, row))
     return {"action": name, "detail": action["detail"], **availability(context, _start_candidate(row, action)),
             **facts}
+
+
+def _app_facts(context: LayerContext, row: dict) -> dict:
+    """@brief 内容 app 行的时长与推送说明都只在此刻合格的内容里算；此刻打开会钉住某条推送时才写「有推送」。"""
+    request = ContentRequest(context.agent_id, row["object_id"],
+                             admission.present_location(context.state, context.agent_id))
+    duration = content_duration_range(context.catalog, context.state, request)
+    pinned = pinned_push_content(eligible_contents(context.catalog, context.state, request), context.state, request)
+    phrase = None
+    if duration is not None:
+        phrase = duration_phrase(duration[0]) if duration[0] == duration[1] else (
+            f"{duration_phrase(duration[0])}–{duration_phrase(duration[1])}")
+    return {"duration": phrase, "note": None if pinned is None else f"有推送：《{pinned[0].title}》"}
 
 
 def _travel_facts(context: LayerContext, row: dict, action: dict) -> dict:
@@ -174,15 +184,6 @@ def _purchase_facts(context: LayerContext, row: dict) -> dict:
     except BusinessRuleError as error:
         logging.error("Purchase preview is unavailable: %s", error)
     return {"price": money_phrase(goods.price_fen), "duration": "1–5 分钟", "quantity": "1 件", "note": note}
-
-
-def _push_note(context: LayerContext, row: dict) -> str | None:
-    """@brief 推送只展示当前 app 的真实标题。"""
-    from worldmock.life.sessions import current_session
-
-    session = current_session(context.state, context.agent_id)
-    push = None if session is None else session.app_pushes.get(row["object_id"])
-    return None if push is None else f"有推送：《{context.catalog.contents[push.content_id].title}》"
 
 
 def _activity_target(context: LayerContext, activity) -> dict:
