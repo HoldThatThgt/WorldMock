@@ -402,10 +402,15 @@ def test_accepted_trip_over_the_declared_distance_takes_the_documented_time_in_e
 
 @pytest.mark.parametrize("cafe_m,noodle_m,store,goods,seconds", [
     (4500, 13400, "cafe", "柠檬茶", 1500), (13400, 4500, "noodle-1", "柠檬茶", 1500),
-    (4500, 13400, "noodle-1", "牛肉面", 3280)])
+    (4500, 13400, "noodle-1", "牛肉面", 3280),
+    (4504, 4501, "noodle-1", "柠檬茶", 1501), (4501, 4504, "cafe", "柠檬茶", 1501),
+    (4500, 4500, "cafe", "柠檬茶", 1500)])
 def test_delivery_store_and_expected_arrival_follow_the_declared_distances(
         engine_factory, tmp_path, cafe_m, noodle_m, store, goods, seconds):
-    """外卖从声明距离最近的店送出，时长是备餐 600 秒加距离除以 5 米每秒，不乘天气系数。"""
+    """外卖从声明距离最近的店送出，时长是备餐 600 秒加距离除以 5 米每秒，不乘天气系数。
+
+    两家店只差 3 米、折算到同一秒送达时仍取距离更短的一家；距离相同才取较小的地点身份。
+    """
     def at_office(persona, config):
         persona["initial_location"] = "公司"
 

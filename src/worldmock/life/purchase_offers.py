@@ -98,8 +98,9 @@ def quote_goods(inputs, state: WorldState, agent_id: int, goods_id: str) -> Offe
                      and inputs.catalog.locations[key].is_open(local))
     if not eligible:
         _require_store(inputs, state, agent_id, stores)
+    # 同价时取离收货地点最近的店，同距取较小的店铺身份；配送时长随距离只增不减，最近的店也最早送达。
     store = min(eligible, key=lambda key: (goods.price_fen + delivery_fee_fen(),
-                state.current_time + delivery_seconds(inputs.catalog.shortest_m(key, here)), key))
+                inputs.catalog.shortest_m(key, here), key))
     return _delivery_offer(inputs, state, goods, store, here)
 
 

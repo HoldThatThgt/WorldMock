@@ -89,7 +89,8 @@ def test_local_goods_choose_present_store_and_no_shipping(environment):
     assert offer.delivery_fee_fen == 0
 
 
-def test_delivery_chooses_lowest_price_then_arrival_then_identity(environment):
+def test_delivery_chooses_lowest_price_then_distance_then_identity(environment):
+    """同一商品各店同价，外卖取离收货地点最近的店，同距取较小的店铺身份；预计到达随这家店的距离而定。"""
     state = world(environment)
     offer = quote_goods(environment, state, 1, "lemon-tea")
     stores = [key for key, goods in environment.catalog.goods_by_store.items()
