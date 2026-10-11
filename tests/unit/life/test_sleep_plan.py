@@ -1,4 +1,4 @@
-"""睡眠请求里分钟数的解析、睡前提示的文字边界、过去 24 小时的睡眠合计、运行开始前的假定睡眠与睡过头的抽取。"""
+"""睡眠请求里分钟数的解析、睡前提示的文字边界、开始睡之前 24 小时的睡眠合计、运行开始前的假定睡眠与睡过头的抽取。"""
 
 import hashlib
 import tomllib
@@ -78,52 +78,68 @@ def test_pre_sleep_hint_never_shows_the_raw_body_value(hours):
     assert str(hours) not in phrase and "欠觉 " not in phrase and "sleep_deficit" not in phrase
 
 
-def test_a_sleep_wholly_inside_the_window_counts_in_full_and_several_add_up():
-    """整段落在窗口内的睡眠全长计入，多段相加，刚写的这一觉整段算在内。"""
+def test_sleeps_wholly_inside_the_window_count_in_full_and_the_sleep_being_started_does_not_count():
+    """窗口是这一觉开始的时刻往回 24 小时：整段落在窗口内的睡眠全长计入，多段相加；刚开始的这一觉不在其中，
+    此前没有睡眠时合计就是 0。"""
     now = _at(9, "13:00")
-    assert sleep_seconds_in_window(now, 60 * 60, []) == 3600
-    assert sleep_seconds_in_window(now, 60 * 60, [_span(9, "00:10", "08:00")]) == 3600 + 28200
-    assert sleep_seconds_in_window(now, 60 * 60, [_span(9, "00:10", "08:00"), _span(8, "15:00", "15:30")]) == 33600
+    assert sleep_seconds_in_window(now, []) == 0
+    assert sleep_seconds_in_window(now, [_span(9, "00:10", "08:00")]) == 28200
+    assert sleep_seconds_in_window(now, [_span(9, "00:10", "08:00"), _span(8, "15:00", "15:30")]) == 30000
+    assert sleep_seconds_in_window(now, [_span(9, "12:00", "13:00")]) == 3600
 
 
 def test_a_sleep_across_the_window_start_counts_only_the_part_inside():
-    """早于窗口开始入睡的睡眠只计落在窗口内的那一截；整段在窗口之前的计 0。"""
+    """早于窗口开始入睡的睡眠只计落在窗口内的那一截；恰在窗口起点结束或整段在窗口之前的计 0。"""
     now = _at(9, "01:00")
-    assert sleep_seconds_in_window(now, 180 * 60, [_span(8, "00:10", "08:00")]) == 180 * 60 + 4 * _HOUR
-    assert sleep_seconds_in_window(now, 180 * 60, [_span(7, "23:00", "03:59")]) == 180 * 60
-    assert sleep_seconds_in_window(now, 180 * 60, [_span(8, "01:00", "04:00")]) == 180 * 60
-    assert sleep_seconds_in_window(now, 180 * 60, [_span(8, "01:00", "04:01")]) == 180 * 60 + 60
+    assert sleep_seconds_in_window(now, [_span(8, "00:10", "08:00")]) == 7 * _HOUR
+    assert sleep_seconds_in_window(now, [_span(7, "23:00", "01:01")]) == 60
+    assert sleep_seconds_in_window(now, [_span(7, "23:00", "01:00")]) == 0
+    assert sleep_seconds_in_window(now, [_span(7, "00:10", "08:00")]) == 0
+    assert sleep_seconds_in_window(now, [_span(8, "00:10", "08:00"), _span(7, "23:00", "00:05")]) == 7 * _HOUR
 
 
-#: 提案睡眠例子表的八行：到点前的睡眠、开始时刻、写的分钟数、合计秒数、是否可能睡过头。
-_PROPOSAL_ROWS = [
-    ("lin_yue_night", [_span(8, "00:10", "08:00")], _at(9, "00:10"), 470, 28200, False),
-    ("lin_yue_office_nap", [_span(9, "00:10", "08:00")], _at(9, "13:00"), 60, 31800, False),
-    ("lin_yue_evening_nap", [_span(9, "00:10", "08:00")], _at(9, "18:00"), 30, 30000, False),
-    ("li_haoran_night", [_span(8, "01:00", "07:30")], _at(9, "01:00"), 390, 23400, False),
-    ("short_night_after_a_normal_night", [_span(8, "00:10", "08:00")], _at(9, "01:00"), 180, 25200, False),
-    ("second_short_night_in_a_row", [_span(8, "01:00", "04:00")], _at(9, "01:00"), 180, 10800, True),
-    ("all_nighter_then_three_hours", [_span(8, "00:10", "08:00")], _at(9, "08:00"), 180, 10800, True),
-    ("three_hour_night_then_noon_nap", [_span(9, "03:00", "06:00")], _at(9, "12:00"), 30, 12600, True),
+#: 人物平时 00:10 睡到 08:00；8 日是照常的一夜。
+_NORMAL_NIGHT = _span(8, "00:10", "08:00")
+#: 裁决的例子逐行：此前的睡眠、这一觉的开始时刻、写的分钟数、开始时刻往回 24 小时的合计秒数、按时醒的时刻、是否可能
+#: 睡过头。
+_RULING_ROWS = [
+    ("normal_night", [_NORMAL_NIGHT], _at(9, "00:10"), 470, 28200, _at(9, "08:00"), False),
+    ("office_nap", [_span(9, "00:10", "08:00")], _at(9, "13:00"), 60, 28200, _at(9, "14:00"), False),
+    ("short_night_after_a_normal_night", [_NORMAL_NIGHT], _at(9, "01:00"), 180, 25200, _at(9, "04:00"), False),
+    ("office_nap_after_the_short_night", [_NORMAL_NIGHT, _span(9, "01:00", "04:00")], _at(9, "13:00"), 60, 10800,
+     _at(9, "14:00"), True),
+    ("full_night_after_the_short_night", [_NORMAL_NIGHT, _span(9, "01:00", "04:00")], _at(10, "00:10"), 470, 10800,
+     _at(10, "08:00"), True),
+    ("twelve_hours_after_the_short_night", [_NORMAL_NIGHT, _span(9, "01:00", "04:00")], _at(9, "20:00"), 720, 10800,
+     _at(10, "08:00"), True),
+    ("all_nighter_until_eight", [_NORMAL_NIGHT], _at(9, "08:00"), 180, 0, _at(9, "11:00"), True),
+    ("noon_nap_after_a_three_hour_night", [_NORMAL_NIGHT, _span(9, "03:00", "06:00")], _at(9, "12:00"), 30, 10800,
+     _at(9, "12:30"), True),
+    ("noon_nap_after_a_four_hour_night", [_NORMAL_NIGHT, _span(9, "02:00", "06:00")], _at(9, "12:00"), 30, 14400,
+     _at(9, "12:30"), False),
 ]
 
 
-@pytest.mark.parametrize("earlier,now,minutes,total,may_oversleep",
-                         [row[1:] for row in _PROPOSAL_ROWS], ids=[row[0] for row in _PROPOSAL_ROWS])
-def test_proposal_sleep_examples_give_the_stated_totals_and_outcomes(earlier, now, minutes, total, may_oversleep):
-    """提案例子表的八行：合计与表中一致；满 4 小时的无论哪次请求都按时醒，不足的约一半按时、其余多睡 20 到 60 分钟。"""
-    assert sleep_seconds_in_window(now, minutes * 60, earlier) == total
-    drawn = [oversleep_seconds(total, _STATE, f"action-{index}") for index in range(200)]
+@pytest.mark.parametrize("earlier,now,minutes,total,on_time,may_oversleep",
+                         [row[1:] for row in _RULING_ROWS], ids=[row[0] for row in _RULING_ROWS])
+def test_ruling_sleep_examples_give_the_stated_totals_and_outcomes(earlier, now, minutes, total, on_time,
+                                                                   may_oversleep):
+    """裁决的例子逐行：合计只数这一觉开始之前的 24 小时，与写了多久无关。满 4 小时的无论哪次请求都在写的时长到点时醒；
+    不足的约一半到点醒、其余再睡 20 到 60 的整数分钟，写满 470 或 720 分钟的一觉也一样。"""
+    assert sleep_seconds_in_window(now, earlier) == total
+    assert now + minutes * 60 == on_time
+    woke = [now + minutes * 60 + oversleep_seconds(total, _STATE, f"action-{index}") for index in range(200)]
     if not may_oversleep:
-        assert set(drawn) == {0}
+        assert set(woke) == {on_time}
         return
-    late = [value for value in drawn if value]
+    late = [moment - on_time for moment in woke if moment != on_time]
     assert 60 < len(late) < 140 and all(1200 <= value <= 3600 and value % 60 == 0 for value in late)
     assert {1200, 3600} <= {oversleep_seconds(total, _STATE, f"edge-{index}") for index in range(4000)}
 
 
 def test_exactly_four_hours_wakes_on_time_without_touching_the_random_stream(monkeypatch):
-    """合计恰好 14400 秒不取随机流，14399 秒才取；窗口内没有别的睡眠时 00:00 睡 240 分钟按时醒。"""
+    """合计恰好 14400 秒不取随机流，14399 秒才取：此前只睡了 02:00 到 06:00 的人中午再睡按时醒；照常睡过一夜的人在
+    04:00 开始睡时窗口里恰好还剩 4 小时，晚一分钟就不足。"""
     taken = []
 
     def recording(random_state: str, key: str):
@@ -132,11 +148,27 @@ def test_exactly_four_hours_wakes_on_time_without_touching_the_random_stream(mon
         return random_stream(random_state, key)
 
     monkeypatch.setattr(sleep_plan, "random_stream", recording)
-    assert sleep_seconds_in_window(_at(9, "00:00"), 240 * 60, []) == 14400
+    assert sleep_seconds_in_window(_at(9, "12:00"), [_span(9, "02:00", "06:00")]) == 14400
+    assert sleep_seconds_in_window(_at(9, "04:00"), [_NORMAL_NIGHT]) == 14400
+    assert sleep_seconds_in_window(_at(9, "04:01"), [_NORMAL_NIGHT]) == 14340
     assert oversleep_seconds(14400, _STATE, "action-a") == 0 and oversleep_seconds(86400, _STATE, "action-a") == 0
     assert taken == []
     oversleep_seconds(14399, _STATE, "action-a")
     assert taken == ["oversleep:action-a"]
+    oversleep_seconds(14340, _STATE, "action-b")
+    assert taken == ["oversleep:action-a", "oversleep:action-b"]
+
+
+def test_a_sleep_declared_at_twelve_hours_can_run_over_and_never_passes_thirteen():
+    """12 小时只限制人物写的数：写满 720 分钟的一觉在此前睡得不足 4 小时时照样可能多睡，加上多睡的那段最长 780 分钟，
+    两端都能取到；此前睡满 4 小时时写多长都恰好睡到写的时长。"""
+    declared = sleep_plan.SLEEP_MINUTES_MAX * 60
+    short = sleep_seconds_in_window(_at(9, "20:00"), [_span(9, "01:00", "04:00")])
+    lengths = {declared + oversleep_seconds(short, _STATE, f"long-{index}") for index in range(4000)}
+    assert min(lengths) == 720 * 60 and max(lengths) == 780 * 60
+    assert {740 * 60, 780 * 60} <= lengths and all(value % 60 == 0 for value in lengths)
+    rested = sleep_seconds_in_window(_at(9, "20:00"), [_span(9, "00:10", "08:00")])
+    assert {declared + oversleep_seconds(rested, _STATE, f"long-{index}") for index in range(4000)} == {declared}
 
 
 def test_oversleep_draw_is_reproducible_and_keyed_on_the_run_seed_and_the_action():
@@ -171,11 +203,16 @@ def test_assumed_sleep_before_the_run_ends_at_the_habitual_wake_time_used_for_th
 
 
 def test_the_first_day_nap_counts_the_assumed_sleep_and_wakes_on_time():
-    """规格的例子：睡眠中点 4.0、每日睡眠需要 8 小时、周一 08:00 开始；13:00 午睡 60 分钟合计 9 小时，按时醒。
-    不计假定睡眠时这次午睡只数到自己那一小时；假定睡眠只有这一段，一天以后的窗口里不再有它。"""
+    """睡眠中点 4.0、每日睡眠需要 8 小时、周一 08:00 开始：13:00 午睡时往回 24 小时里有运行开始前的假定睡眠 8 小时，
+    按时醒；不计假定睡眠时这次午睡之前一秒都没睡过。假定睡眠只有这一段：窗口伸到运行开始之前时只计它落在窗口内的
+    那一截，第二天 04:00 起不足 4 小时，08:00 以后的窗口里不再有它。"""
     assumed = assumed_sleep(_at(5, "08:00"), 8.0, 4.0, 8.0)
-    total = sleep_seconds_in_window(_at(5, "13:00"), 3600, [assumed])
-    assert total == 9 * _HOUR
+    total = sleep_seconds_in_window(_at(5, "13:00"), [assumed])
+    assert total == 8 * _HOUR
     assert {oversleep_seconds(total, _STATE, f"nap-{index}") for index in range(50)} == {0}
-    assert sleep_seconds_in_window(_at(5, "13:00"), 3600, []) == 3600
-    assert sleep_seconds_in_window(_at(6, "09:00"), 1800, [assumed]) == 1800
+    assert sleep_seconds_in_window(_at(5, "13:00"), []) == 0
+    assert sleep_seconds_in_window(_at(5, "08:00"), [assumed]) == 8 * _HOUR
+    assert sleep_seconds_in_window(_at(6, "03:00"), [assumed]) == 5 * _HOUR
+    assert sleep_seconds_in_window(_at(6, "04:00"), [assumed]) == 4 * _HOUR
+    assert sleep_seconds_in_window(_at(6, "04:30"), [assumed]) == 12600
+    assert sleep_seconds_in_window(_at(6, "08:00"), [assumed]) == sleep_seconds_in_window(_at(6, "09:00"), [assumed]) == 0

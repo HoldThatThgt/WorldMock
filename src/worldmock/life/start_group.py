@@ -215,8 +215,11 @@ class StartGroups:
         return changed
 
     def _start_sleep(self, state: WorldState, pending: PendingAction, declared: int) -> WorldState:
-        """@brief 受理睡眠时定下唯一的计划结束：写的时长加多睡的时长；多睡的时长每段睡眠只在这里抽一次。"""
-        slept = sleep_seconds_in_window(state.current_time, declared, self._earlier_sleeps(state, pending.agent_id))
+        """@brief 受理睡眠时定下唯一的计划结束：写的时长加多睡的时长；多睡的时长每段睡眠只在这里抽一次。
+
+        会不会睡过头按开始睡的这一刻往回 24 小时的睡眠合计判定，刚开始的这一觉不算，写多长都不影响。
+        """
+        slept = sleep_seconds_in_window(state.current_time, self._earlier_sleeps(state, pending.agent_id))
         extra = oversleep_seconds(slept, state.random_state, pending.action_id)
         data = {"declared_duration_seconds": declared, "oversleep_seconds": extra}
         params = ActivityStartParams("sleep", declared + extra, data=data)
