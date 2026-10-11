@@ -135,9 +135,9 @@ def test_one_purchase_of_several_goods_triggers_its_action_callback_once(engine_
     """回调的动作触发按开始调用求值：一次购买无论几件只触发一次，原因回链这条调用自己的受理结果。"""
     rules = [{"rule_id": "buy", "trigger": {"class": "action", "key": "purchase"},
               "effect": {"type": "state_delta", "state": "stock", "delta": -1}},
-             {"rule_id": "ride", "trigger": {"class": "action", "key": "drive"},
+             {"rule_id": "ride", "trigger": {"class": "action", "key": "travel", "travel_method_id": "driving"},
               "effect": {"type": "transfer", "direction": "expense", "amount_fen": 30}},
-             {"rule_id": "stroll", "trigger": {"class": "action", "key": "walk"},
+             {"rule_id": "stroll", "trigger": {"class": "action", "key": "travel", "travel_method_id": "walking"},
               "effect": {"type": "state_delta", "state": "stock", "delta": -1}}]
     engine = engine_factory(environment_root=_callback_environment(tmp_path, rules))
     _, (trip, basket) = act_group(engine, "pair", travel("公司", "驾车"), purchase("薯片", "薯片", "柠檬茶", "牛肉面"))

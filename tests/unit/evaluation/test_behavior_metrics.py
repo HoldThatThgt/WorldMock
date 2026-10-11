@@ -62,7 +62,7 @@ def _progress(
     if kind == "interact":
         snapshot["data"] = {"action": "interact", "content_id": "test-topic"}
     if kind == "travel":
-        snapshot["data"] = {"action": "walk"}
+        snapshot["data"] = {"action": "travel"}
     snapshot.update(snapshot_extra or {})
     data = {"interval_start": start, "interval_end": end, "activity": snapshot}
     data.update(data_extra or {})

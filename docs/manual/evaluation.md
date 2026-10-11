@@ -106,8 +106,11 @@ PY
 <a name="evaluation-修改类别映射和公开参照"></a>
 ## 修改类别映射和公开参照
 
-WorldMock 直接使用真实请求和活动中的动作：购买、睡眠和 interact 取请求所写的动作，出行取活动记下的出行动作；
+WorldMock 直接使用真实请求和活动中的动作：出行、购买、睡眠和 interact 都取请求所写的动作，出行一律是 travel；
 公开证据保留实际内容、应用、路线和订单对象。
+盲评里的「出行方式」只在人物步行时标成 walking。数据集定义的出行方式都不带类别，
+即使作者把它的身份起成 driving、bus、taxi 也一样，评估不按名字猜。
+所以只开车或坐车出行的人物，盲评里这一栏不会显示；写盲评结论时要注明它不反映数据集定义的出行方式。
 内容没有评估类别，报告不把工作、娱乐或社交标签套到 WorldMock 活动。
 `category_mappings` 仅保留 `labelkit_sequence_class` 与 `labelkit_pattern` 两组外部 LabelKit 类别映射。
 

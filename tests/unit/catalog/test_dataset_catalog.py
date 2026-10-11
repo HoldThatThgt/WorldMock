@@ -70,11 +70,13 @@ def test_catalog_indexes_expand_exact_kinds_and_keep_app_goods_separate():
     assert catalog.goods_by_app["bilibili"] == ("online-notebook",)
     assert all("online-notebook" not in items for items in catalog.goods_by_store.values())
     assert catalog.contents_by_location_kind["parcel_station"] == ("parcel-service",)
-    assert catalog.apps_by_action["purchase"] == ("alipay", "wechat")
-    for action in ("walk", "drive", "take_taxi", "take_bus"):
-        assert catalog.apps_by_action[action] == ("amap",)
-    assert catalog.apps_by_action["sleep"] == ()
-    assert catalog.apps_by_action["interact"] == ()
+    assert dict(catalog.apps_by_action) == {"purchase": ("alipay", "wechat")}
+    assert list(catalog.apps_by_travel_method.items()) == [
+        ("walking", ("amap",)), ("bus", ("amap",)), ("driving", ("amap",)), ("taxi", ("amap",))]
+    assert [(row.travel_method_id, row.name, row.speed_meters_per_second, row.start_price_fen,
+             row.price_per_km_fen, row.exertion) for row in catalog.travel_methods.values()] == [
+        ("bus", "公共交通", 5, 200, 0, "light"), ("driving", "驾车", 7, 500, 200, "light"),
+        ("taxi", "打车", 7, 1400, 300, "light")]
     assert catalog.contents_by_app["eleme"] == ()
     assert catalog.stores_by_app["eleme"]
     assert any(len(items) >= 2 for items in catalog.contents_by_series.values())
@@ -143,13 +145,17 @@ def test_callback_registration_loads_typed_states_rules_transfer_and_alias(catal
     write_callbacks(catalog_directory, STATE,
         {"rule_id": "charge", "trigger": {"class": "time", "key": "monthly", "day": 31, "time": "09:00"},
          "effect": {"type": "transfer", "direction": "expense", "amount_fen": 100}},
-        {"rule_id": "drive", "trigger": {"class": "action", "key": "drive"},
-         "effect": {"type": "state_delta", "state": "fuel", "delta": -1, "once_per": "local_day"}})
+        {"rule_id": "drive", "trigger": {"class": "action", "key": "travel", "travel_method_id": "driving"},
+         "effect": {"type": "state_delta", "state": "fuel", "delta": -1, "once_per": "local_day"}},
+        {"rule_id": "nap", "trigger": {"class": "action", "key": "sleep"},
+         "effect": {"type": "transfer", "direction": "income", "amount_fen": 1}})
     catalog = load_catalog(catalog_directory, 7)
     assert catalog.callback_states["fuel"].cap == 3
     assert catalog.callback_rules["charge"].effect.direction == "expense"
     assert catalog.callback_rules["drive"].trigger.trigger_class == "action"
-    assert catalog.callback_rules["drive"].model_dump(mode="json")["trigger"]["class"] == "action"
+    assert catalog.callback_rules["drive"].model_dump(mode="json")["trigger"] == {
+        "class": "action", "key": "travel", "travel_method_id": "driving"}
+    assert catalog.callback_rules["nap"].model_dump(mode="json")["trigger"] == {"class": "action", "key": "sleep"}
 
 
 @pytest.mark.parametrize("effect,code", [
@@ -167,7 +173,7 @@ def test_callback_registration_loads_typed_states_rules_transfer_and_alias(catal
 ])
 def test_callback_effects_refuse_invalid_state_number_pool_and_retired_account(catalog_directory, effect, code):
     write_callbacks(catalog_directory, STATE,
-        {"rule_id": "rule", "trigger": {"class": "action", "key": "drive"}, "effect": effect})
+        {"rule_id": "rule", "trigger": {"class": "action", "key": "purchase"}, "effect": effect})
     assert_refused(catalog_directory, code)
 
 

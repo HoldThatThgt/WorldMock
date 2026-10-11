@@ -405,7 +405,7 @@ class DecisionCoordinator:
                           balance_before: int) -> list[EventDraft]:
         """@brief 每条受理的开始调用求值一次动作回调并回链它自己的受理结果；先主调用、后副调用，与登记先后无关。
 
-        触发的键取这条调用开始的活动记下的动作（出行为所选方式对应的出行动作）；一次购买无论几件只触发一次。
+        触发的键取这条调用开始的活动记下的动作，出行的触发原因另带这次出行的出行方式；一次购买无论几件只触发一次。
         主调用的净减少提示包含已收的车费，同组副调用按主调用之后的余额计算。
         """
         if any(pending.tool_name not in START_TOOLS for pending in group):
@@ -415,8 +415,9 @@ class DecisionCoordinator:
         drafts, before = [], balance_before
         ordered = sorted(zip(group, results, strict=True), key=lambda pair: START_TOOLS.index(pair[0].tool_name))
         for pending, result in ordered:
-            key = state.activities[result.activity_id].data["action"]
-            cause = CallbackCause("action", key, pending.agent_id, result.event_id, f"{pending.action_id}:0")
+            started = state.activities[result.activity_id]
+            cause = CallbackCause("action", started.data["action"], pending.agent_id, result.event_id,
+                                  f"{pending.action_id}:0", started.travel_method_id)
             outcome = evaluate_callbacks(state, self.context.catalog, cause, balance_before=before)
             state.agents, state.accounts = outcome.state.agents, outcome.state.accounts
             drafts.extend(outcome.drafts)
@@ -445,7 +446,7 @@ class DecisionCoordinator:
         return drafts
 
     def _navigation_drafts(self, state: WorldState, pending: PendingAction, source_event_id: str) -> list[EventDraft]:
-        """@brief 每项实际出行按稳定活动键自动选择功能应用，仅写瞬时导航足迹。"""
+        """@brief 每项实际出行按稳定活动键从绑定了这次出行方式的功能 app 里选一个，仅写瞬时导航足迹；没有绑定就不写。"""
         from worldmock.life.randomness import random_stream
 
         drafts = []
@@ -453,7 +454,7 @@ class DecisionCoordinator:
                       and item.kind == ActivityKind.TRAVEL]
         for activity in activities:
             action = activity.data["action"]
-            candidates = self.context.catalog.apps_by_action.get(action, ())
+            candidates = self.context.catalog.apps_by_travel_method.get(activity.travel_method_id, ())
             if candidates:
                 app_id = random_stream(state.random_state, f"function-app:{activity.activity_id}").choice(candidates)
                 drafts.append(EventDraft(event_type="environment_event", occurred_at=state.current_time,

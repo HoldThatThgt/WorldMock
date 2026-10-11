@@ -15,7 +15,7 @@ from worldmock.catalog.identity import (
 from worldmock.catalog.models import CatalogManifest, MapGraph, WEEKDAYS, channel_key
 from worldmock.exchange.constants import (
     MAP_MIN_NODES, PUSH_SUMMARY_MAX_CHARS, RULES_VERSION, TRAVEL_MAX_SECONDS, WALKING_METERS_PER_SECOND,
-    WEATHER_FACTORS,
+    WALKING_TRAVEL_METHOD_ID, WALKING_TRAVEL_METHOD_NAME, WEATHER_FACTORS,
 )
 from worldmock.exchange.operators import travel_seconds
 
@@ -107,11 +107,12 @@ def validate_registration(rows: dict) -> None:
                 raise RegistrationError("ENVIRONMENT_ID_DUPLICATE")
     apps = {app.app_id: app for app in rows["apps"]}
     kinds = {place.kind for place in rows["locations"]}
+    methods = _check_travel_methods(rows["travel_methods"])
     _check_locations(rows, apps)
     _check_goods(rows, apps, kinds)
     _check_contents(rows, apps, kinds)
-    _check_apps(rows, apps)
-    _check_callbacks(rows, apps)
+    _check_apps(rows, methods)
+    _check_callbacks(rows, apps, methods)
     _check_map_edges(rows["map_edges"], [place.location_id for place in rows["locations"]])
 
 
@@ -209,21 +210,62 @@ def _check_unit_name(units: dict, content, number: int) -> None:
                 f"give location kind {kind} the same activity name {first_name}.")
 
 
-def _check_apps(rows, apps) -> None:
-    """@brief 角色与动作互斥，纯目录 app 使用数据集浏览时长。"""
+def _check_travel_methods(methods) -> frozenset[str]:
+    """@brief 出行方式依次核对保留身份、身份重复、行次序、保留名称和名称重复，返回可引用的全部身份（含步行）。"""
+    identities, names = {}, {}
+    for number, method in enumerate(methods, start=1):
+        if method.travel_method_id == WALKING_TRAVEL_METHOD_ID:
+            _reject_travel_method("ENVIRONMENT_ID_DUPLICATE", number,
+                                  f"uses the reserved identity {WALKING_TRAVEL_METHOD_ID}.")
+    for number, method in enumerate(methods, start=1):
+        first = identities.setdefault(method.travel_method_id, number)
+        if first != number:
+            _reject_travel_method("ENVIRONMENT_ID_DUPLICATE", first, f"and travel-method.jsonl:{number} "
+                                  f"share the identity {method.travel_method_id}.")
+    for number in range(2, len(methods) + 1):
+        if methods[number - 2].travel_method_id > methods[number - 1].travel_method_id:
+            _reject_travel_method("ENVIRONMENT_KIND_INVALID", number,
+                                  "Travel method rows must be sorted by travel_method_id.")
+    for number, method in enumerate(methods, start=1):
+        if channel_key(method.name) == channel_key(WALKING_TRAVEL_METHOD_NAME):
+            _reject_travel_method("ENVIRONMENT_ID_DUPLICATE", number,
+                                  f"uses the built-in name {WALKING_TRAVEL_METHOD_NAME}.")
+    for number, method in enumerate(methods, start=1):
+        first, name = names.setdefault(channel_key(method.name), (number, method.name))
+        if first != number:
+            _reject_travel_method("ENVIRONMENT_ID_DUPLICATE", first,
+                                  f"and travel-method.jsonl:{number} share the name {name}.")
+    return frozenset({WALKING_TRAVEL_METHOD_ID, *identities})
+
+
+def _reject_travel_method(code: str, number: int, detail: str) -> NoReturn:
+    """@brief 出行方式的登记失败详情一律以文件名和行号开头。"""
+    raise RegistrationError(code, f"travel-method.jsonl:{number} {detail}")
+
+
+def _check_method_reference(source: str, value: str, methods: frozenset[str]) -> None:
+    """@brief app 行与回调规则只可引用登记的出行方式或自带的步行，详情带引用所在的文件与行号。"""
+    if value not in methods:
+        raise RegistrationError("ENVIRONMENT_REF_UNKNOWN", f"{source} Unknown travel_method_id: {value}.")
+
+
+def _check_apps(rows, methods: frozenset[str]) -> None:
+    """@brief 功能 app 至少有购买或出行方式一种绑定，内容 app 不得携带绑定；纯目录 app 使用数据集浏览时长。"""
     names = {channel_key(p.display_name) for p in rows["locations"]}
-    function_actions = {"walk", "drive", "take_taxi", "take_bus", "purchase"}
-    for app in apps.values():
+    for number, app in enumerate(rows["apps"], start=1):
         if channel_key(app.name) in names:
             raise RegistrationError("APP_NAME_COLLIDES_LOCATION")
         if app.role == "function":
-            if not app.actions:
+            if not app.actions and not app.travel_method_ids:
                 raise RegistrationError("APP_UNBOUND")
-            _check_bindings(app.actions, function_actions, "ENVIRONMENT_KIND_INVALID")
+            _check_order(app.actions)
+            _check_order(app.travel_method_ids)
+            for value in app.travel_method_ids:
+                _check_method_reference(f"app-catalog.jsonl:{number}", value, methods)
             if "browse_duration_seconds" in app.model_fields_set:
                 raise RegistrationError("ENVIRONMENT_KIND_INVALID")
             continue
-        if "actions" in app.model_fields_set:
+        if {"actions", "travel_method_ids"} & app.model_fields_set:
             raise RegistrationError("APP_ROLE_BINDING_INVALID")
         explicit = any(app.app_id in c.app_ids for c in rows["contents"])
         directory = any(app.app_id in g.app_ids for g in rows["goods"]) or any(
@@ -236,16 +278,18 @@ def _check_apps(rows, apps) -> None:
             raise RegistrationError("ENVIRONMENT_KIND_INVALID")
 
 
-def _check_callbacks(rows, apps) -> None:
-    """@brief 状态、商品、触发阈值、足迹池与提醒效果严格对应。"""
+def _check_callbacks(rows, apps, methods: frozenset[str]) -> None:
+    """@brief 状态、商品、触发阈值、出行方式引用、足迹池与提醒效果严格对应。"""
     states = {state.state: state for state in rows["callback_states"]}
     goods = {item.goods_id for item in rows["goods"]}
     for state in states.values():
         if not 0 <= state.initial <= state.cap:
             raise RegistrationError("ENVIRONMENT_NUMBER_INVALID")
         _check_bindings(state.reset_on_goods, goods)
-    for rule in rows["callback_rules"]:
+    for number, rule in enumerate(rows["callback_rules"], start=len(states) + 1):
         trigger, effect = rule.trigger, rule.effect
+        if trigger.trigger_class == "action" and trigger.key == "travel":
+            _check_method_reference(f"callbacks.jsonl:{number}", trigger.travel_method_id, methods)
         if trigger.trigger_class == "state":
             _check_state_threshold(trigger.key, trigger.below, states)
         if trigger.trigger_class == "time" and trigger.key == "monthly":
@@ -319,19 +363,23 @@ def _check_declared_distances(edges, location_ids) -> None:
                             f"{edge.a}-{edge.b} declares {edge.length_m} m but {route} is {meters} m.")
 
 
-def validate_route_limit(nodes: tuple[str, ...], graph: Graph) -> None:
-    """@brief 生成后的地图上最远的一对地点，步行在最差天气下必须一天之内走到。"""
+def validate_route_limit(nodes: tuple[str, ...], graph: Graph, travel_methods) -> None:
+    """@brief 生成后的地图上最远的一对地点，最慢的出行方式在最差天气下必须一天之内走到。
+
+    :param travel_methods: 数据集定义的出行方式行；最慢速度取自带步行与各行速度中最小的一个。
+    """
     farthest = None
     for origin in nodes:
         for destination, (meters, _) in graph.shortest_paths(origin).items():
             if origin < destination and (farthest is None or meters > farthest[0]):
                 farthest = (meters, origin, destination)
     meters, origin, destination = farthest
-    seconds = travel_seconds("walking", meters, min(WEATHER_FACTORS.values()))
+    slowest = min((WALKING_METERS_PER_SECOND, *(method.speed_meters_per_second for method in travel_methods)))
+    seconds = travel_seconds(slowest, meters, min(WEATHER_FACTORS.values()))
     if seconds > TRAVEL_MAX_SECONDS:
         raise RegistrationError(
             "MAP_ROUTE_TOO_LONG",
-            f"{origin} -> {destination} is {meters} m, which takes {seconds} s at {WALKING_METERS_PER_SECOND} m/s "
+            f"{origin} -> {destination} is {meters} m, which takes {seconds} s at {slowest} m/s "
             f"in the worst weather; the limit is {TRAVEL_MAX_SECONDS} s.")
 
 

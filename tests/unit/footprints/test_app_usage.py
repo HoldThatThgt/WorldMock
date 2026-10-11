@@ -45,7 +45,7 @@ def _push(sequence, identity="push", app="bilibili", session="stay", content="lo
 def _travel(*, session="transit", completed=False):
     """@brief 出行是独立活动，使用真实出发地、目的地和路上会话身份。"""
     return ActivityState(activity_id="commute", agent_id=1, kind="travel", location_id="home",
-                         destination_id="office", travel_mode="walking", started_at=START,
+                         destination_id="office", travel_method_id="walking", started_at=START,
                          status="completed" if completed else "active", last_settled_at=START,
                          elapsed_seconds=0, ended_at=START + 300 if completed else None,
                          planned_end_at=START + 300, planned_duration_seconds=300,

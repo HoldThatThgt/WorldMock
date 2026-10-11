@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Annotated, Literal, Mapping
 
 from pydantic import Field, StrictBool, StrictInt, field_validator
 
-from worldmock.base_models import DeepFrozenModel
+from worldmock.base_models import DeepFrozenModel, require_finite_number
 from worldmock.catalog.graph import Graph
 from worldmock.errors import reject_value
 from worldmock.exchange.types import GoodsCategory
@@ -20,7 +20,8 @@ if TYPE_CHECKING:
 PositiveInteger = Annotated[StrictInt, Field(gt=0)]
 NonNegativeInteger = Annotated[StrictInt, Field(ge=0)]
 NonEmptyString = Annotated[str, Field(strict=True, pattern=r"\S")]
-ConcreteAction = Literal["walk", "drive", "take_taxi", "take_bus", "purchase", "interact", "sleep"]
+#: 功能 app 的动作绑定只有购买；出行绑定写在 travel_method_ids。
+FunctionAction = Literal["purchase"]
 Exertion = Literal["idle", "light", "moderate", "heavy"]
 ReliefLevel = Literal["none", "low", "medium", "high"]
 OpeningIntervals = tuple[tuple[NonEmptyString, NonEmptyString], ...]
@@ -52,13 +53,33 @@ class CatalogManifest(DeepFrozenModel):
 
 
 class App(DeepFrozenModel):
-    """@brief 内容浏览入口或功能 app 的具体动作绑定。"""
+    """@brief 内容浏览入口，或功能 app 的购买绑定与出行方式绑定。"""
 
     app_id: NonEmptyString
     name: NonEmptyString
     role: Literal["content", "function"]
-    actions: tuple[ConcreteAction, ...] = ()
+    actions: tuple[FunctionAction, ...] = ()
+    travel_method_ids: tuple[NonEmptyString, ...] = ()
     browse_duration_seconds: Annotated[StrictInt, Field(ge=60)] | None = None
+
+
+class TravelMethod(DeepFrozenModel):
+    """@brief 数据集定义的一种出行方式：身份、名称、基础速度、起步价、每公里价格与体力档位。"""
+
+    travel_method_id: NonEmptyString
+    name: NonEmptyString
+    speed_meters_per_second: int | float
+    start_price_fen: NonNegativeInteger
+    price_per_km_fen: NonNegativeInteger
+    exertion: Exertion
+
+    @field_validator("speed_meters_per_second", mode="before")
+    @classmethod
+    def require_positive_speed(cls, value):
+        """@brief 基础速度是大于 0 的有限 JSON 数值，整数与小数原样保留，布尔和字符串不接受。"""
+        if require_finite_number(value, "speed_meters_per_second") <= 0:
+            reject_value("speed_meters_per_second must be greater than 0.")
+        return value
 
 
 class OpeningHours(DeepFrozenModel):
@@ -208,8 +229,12 @@ class Catalog:
     contents_by_location_kind: Mapping[str, tuple[str, ...]]
     #: 按集号排序的系列内容。
     contents_by_series: Mapping[str, tuple[str, ...]]
-    #: 具体动作的功能 app 候选。
+    #: 数据集定义的出行方式身份索引，不含引擎自带的步行。
+    travel_methods: Mapping[str, TravelMethod]
+    #: 绑定购买的功能 app 候选，只有 purchase 一个键。
     apps_by_action: Mapping[str, tuple[str, ...]]
+    #: 各出行方式（walking 与每个数据集身份）绑定的功能 app，按身份升序。
+    apps_by_travel_method: Mapping[str, tuple[str, ...]]
     #: 通用状态声明。
     callback_states: Mapping[str, CallbackState]
     #: 回调规则声明。

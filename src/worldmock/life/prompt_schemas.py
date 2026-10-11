@@ -191,7 +191,7 @@ ENVIRONMENT_LAYER_SCHEMA: dict[str, Any] = {
         "layer": {"const": "环境层"}, "observed_at": _TIME,
         "body": _object({key: {"enum": list(levels)} for key, levels in BODY_LEVELS.items()}),
         "location": _object({"session_kind": {"enum": ["stay", "transit"]}, "name": _TEXT,
-                             "travel_mode": _TEXT}, optional=("travel_mode",)),
+                             "travel_method": _TEXT}, optional=("travel_method",)),
         "weather": {"enum": ["晴", "多云", "小雨", "大雨", "雪"]},
         "duty": {"oneOf": [{"type": "null"}, _DUTY]},
     }),

@@ -32,10 +32,10 @@ def agent():
 def activity(identity, action, status=ActivityStatus.ACTIVE, app_id="media-app"):
     """手工活动：interact 缺省用内容 app（占槽位 2），app_id 为 None 时是在地点做事（占槽位 1）。"""
     kinds = {"sleep": ActivityKind.SLEEP, "interact": ActivityKind.INTERACT,
-             "purchase": ActivityKind.PURCHASE, "walk": ActivityKind.TRAVEL}
+             "purchase": ActivityKind.PURCHASE, "travel": ActivityKind.TRAVEL}
     terminal = status == ActivityStatus.COMPLETED
     data = {"action": action, **({"app_id": app_id} if action == "interact" else {})}
-    first = action in {"sleep", "walk"} or (action == "interact" and app_id is None)
+    first = action in {"sleep", "travel"} or (action == "interact" and app_id is None)
     return ActivityState(
         activity_id=identity, agent_id=1, location_id="home", kind=kinds[action], status=status,
         started_at=0, ended_at=100 if terminal else None, planned_end_at=100 if terminal else 200,
@@ -100,7 +100,7 @@ def test_repeated_purchase_name_is_two_portions_not_a_rejection():
 
 def test_two_slots_and_pending_conclusion_occupancy():
     """在地点做事占槽位 1，用内容 app 与购买占槽位 2；同槽位的两项进行中或待收尾活动不能并存。"""
-    world([activity("walk", "walk"), activity("media", "interact")])
+    world([activity("walk", "travel"), activity("media", "interact")])
     world([activity("old", "interact", ActivityStatus.PAUSED), activity("buy", "purchase")])
     world([activity("stay", "interact", app_id=None), activity("media", "interact")])
     world([activity("stay", "interact", app_id=None), activity("buy", "purchase")])
@@ -109,7 +109,7 @@ def test_two_slots_and_pending_conclusion_occupancy():
     with pytest.raises(ValidationError, match="same resource"):
         world([activity("old", "interact", ActivityStatus.COMPLETED), activity("buy", "purchase")])
     with pytest.raises(ValidationError, match="same resource"):
-        world([activity("walk", "walk"), activity("stay", "interact", app_id=None)])
+        world([activity("walk", "travel"), activity("stay", "interact", app_id=None)])
     with pytest.raises(ValidationError, match="disagree with the registry"):
         world([activity("stay", "interact", app_id=None).model_copy(update={"resource_claims": {"second"}})])
 

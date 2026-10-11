@@ -18,6 +18,7 @@ from worldmock.life.guidance import Refusal, default_reason, refusal_for_code, r
 from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus, FulfillmentKind, WorldState
 from worldmock.life.sessions import current_session
 from worldmock.life.travel import Trip, plan_trip
+from worldmock.life.travel_methods import travel_method
 from worldmock.life.weather import current_weather_factor
 
 _LOGGER = logging.getLogger(__name__)
@@ -95,9 +96,9 @@ def group_refusal(context: Context, calls: Sequence[Call]) -> Blocked | None:
 
 def planned_trip(context: Context, row: Mapping[str, Any]) -> Trip:
     """@brief 出行行按出发前的地点、所选出行方式与当前天气形成同源行程报价。"""
-    origin = context.state.agents[context.agent_id].location_id
-    return plan_trip(context.inputs.catalog.graph, origin, row["object_id"],
-                     row["selected_action"]["travel_method_id"], current_weather_factor(context.state))
+    origin, catalog = context.state.agents[context.agent_id].location_id, context.inputs.catalog
+    method = travel_method(catalog, row["selected_action"]["travel_method_id"])
+    return plan_trip(catalog.graph, origin, row["object_id"], method, current_weather_factor(context.state))
 
 
 def _occupant(context: Context, slot: str) -> ActivityState | None:

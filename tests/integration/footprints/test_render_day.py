@@ -106,7 +106,7 @@ def test_interleaved_activities_keep_separate_rows(tmp_path):
 
 def test_parallel_interleaved_progress_merges_each_activity_independently(tmp_path):
     """并行结算按同秒 A/B/A/B 交错时，时间线各显示一条完整持续活动。"""
-    travel = _snapshot("walk", "travel", travel_mode="walking", destination_id="office")
+    travel = _snapshot("walk", "travel", travel_method_id="walking", destination_id="office")
     watch = _snapshot("watch", "interact", content_title="播客节目",
                       data={"action": "interact", "app_id": None, "content_id": "podcast-topic"})
     events = [
@@ -121,13 +121,44 @@ def test_parallel_interleaved_progress_merges_each_activity_independently(tmp_pa
     assert "| 07:00–07:30 | 互动《播客节目》 | 30 分钟 | 2 |" in markdown
 
 
+def _travel_binding(name, location_id, *methods):
+    """观察里一个目的地的私有绑定行：每种出行方式一条动作行，带出行方式身份与它的名称。"""
+    return {"object": name, "kind": "location", "object_id": location_id, "actions": [
+        {"action": "travel", "detail": label, "note": None, "travel_method_id": identity}
+        for identity, label in methods]}
+
+
+def test_travel_rows_show_the_dataset_name_of_the_travel_method(tmp_path):
+    """出行行写出行方式的名称：自带的步行不依赖观察，数据集定义的方式取观察里记下的冻结目录名称；
+    没有记下名称的身份只写中文种类名，不漏出身份，也不再有引擎自带的「乘出租车」「乘公交车」。"""
+    observation = _observation({
+        "locations": [{"location_id": "office", "name": "公司"}, {"location_id": "home", "name": "家"}],
+        "catalog_bindings": [_travel_binding("公司", "office", ("walking", "步行"), ("bus", "公共交通"),
+                                             ("taxi", "打车"), ("ferry-line-2", "二号线轮渡"))]})
+    trips = [("walking", "office"), ("bus", "home"), ("taxi", "office"), ("ferry-line-2", "home"),
+             ("unrecorded-method", "office")]
+    events = [observation] + [
+        _progress(f"trip-{index}", _snapshot(f"trip-{index}", "travel", destination_id=destination,
+                                             travel_method_id=method, data={"action": "travel"}),
+                  _at(7 + index, 0), _at(7 + index, 10)) for index, (method, destination) in enumerate(trips)]
+    markdown = _render(_build_store(tmp_path, events), 1)
+    labels = [line.split(" | ")[1] for line in markdown.splitlines()[4:]]
+    assert labels == ["步行去公司", "公共交通去家", "打车去公司", "二号线轮渡去家", "出行去公司"]
+    assert all(value not in markdown for value in ("乘出租车", "乘公交车", "ferry-line-2", "unrecorded-method"))
+    assert not [(label, found) for label in labels for found in label_findings(label)]
+    # 没有任何观察时步行照样写「步行」
+    alone = _render(_build_store(tmp_path / "alone", [events[1]]), 1)
+    assert "| 07:00–07:10 | 步行 | 10 分钟 | 1 |" in alone
+
+
 def test_resolves_names_instead_of_identifiers(tmp_path):
-    """地名、动作、app和内容均由当前观察索引解析，不渲染退役进食或读邮件活动。"""
+    """地名、出行方式、app和内容均由当前观察索引解析，不渲染退役进食或读邮件活动。"""
     observation = _observation({
         "locations": [{"location_id": "office", "name": "公司"}],
         "apps": [{"app_id": "bili", "name": "哔哩哔哩"}],
-        "contents": [{"content_id": "drama", "title": "测试剧集"}]})
-    travel = _snapshot("go", "travel", destination_id="office", travel_mode="driving")
+        "contents": [{"content_id": "drama", "title": "测试剧集"}],
+        "catalog_bindings": [_travel_binding("公司", "office", ("walking", "步行"), ("driving", "驾车"))]})
+    travel = _snapshot("go", "travel", destination_id="office", travel_method_id="driving")
     watch = _snapshot("watch", "interact", data={"action": "interact", "app_id": "bili", "content_id": "drama"})
     events = [observation, _progress("go", travel, _at(7, 0), _at(7, 5)),
               _progress("watch", watch, _at(19, 13), _at(19, 53))]
@@ -146,7 +177,7 @@ def test_resolves_names_from_seven_layer_observation_evidence_keys(tmp_path):
         "apps": [{"app_id": "bili", "name": "哔哩哔哩"}],
         "contents": [{"content_id": "course", "title": "测试课程"}]})
     events = [observation,
-        _progress("go", _snapshot("go", "travel", destination_id="office", travel_mode="walking"),
+        _progress("go", _snapshot("go", "travel", destination_id="office", travel_method_id="walking"),
                   _at(7, 0), _at(7, 5)),
         _progress("course", _snapshot("course", "interact", data={"action": "interact", "app_id": "bili",
             "content_id": "course"}), _at(19, 13), _at(19, 53)),
@@ -164,7 +195,7 @@ def test_unresolvable_targets_show_only_the_chinese_kind_name(tmp_path):
     kinds = [kind.value for kind in ActivityKind]
     events = [_observation({})]
     for index, kind in enumerate(kinds):
-        snapshot = _snapshot(f"act-{kind}", kind, travel_mode="teleport", destination_id="loc-x",
+        snapshot = _snapshot(f"act-{kind}", kind, travel_method_id="teleport", destination_id="loc-x",
                              data={"action": "interact", "app_id": None, "content_id": "unresolved-content"})
         events.append(_progress(f"act-{kind}", snapshot, _at(8, index * 2), _at(8, index * 2 + 1)))
     events.append(_progress("odd", _snapshot("odd", "levitate"), _at(9, 0), _at(9, 5)))

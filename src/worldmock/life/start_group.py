@@ -16,7 +16,7 @@ from pydantic import ValidationError
 from worldmock.errors import BusinessRuleError, PreconditionError
 from worldmock.footprints.models import EventDraft
 from worldmock.life import activity_control, admission, same_moment, sessions
-from worldmock.life.action_contract import ACTION_LABELS, START_TOOLS, TRAVEL_ACTION_MODES, TRAVEL_ACTION_NAMES
+from worldmock.life.action_contract import ACTION_LABELS, START_TOOLS
 from worldmock.life.action_evidence import activity_orders, start_orders
 from worldmock.life.activities import ActivityStartParams, schedule_feedback, start_activity
 from worldmock.life.activity_titles import activity_snapshot, title_index
@@ -26,21 +26,20 @@ from worldmock.life.error_contract import HOST_NAME_CODES, bind_report, host_def
 from worldmock.life.guidance import Refusal, refusal_for_code, refusal_from_error
 from worldmock.life.interact import InteractivityRuntime
 from worldmock.life.models import (ActionResult, ActionStatus, ActivityKind, PendingAction, REQUEST_MODELS,
-                                   TravelMode, WorldState)
+                                   WorldState)
 from worldmock.life.name_resolution import name_book, resolution_data, resolve_start
 from worldmock.life.object_labels import resolve_name
 from worldmock.life.purchase_offers import app_goods
 from worldmock.life.request_errors import argument_report
 from worldmock.life.storefront_runtime import StorefrontRuntime
 from worldmock.life.travel import pay_travel_fare, travel_activity_data
+from worldmock.life.travel_methods import travel_method
 from worldmock.life.weather import current_weather_factor
 from worldmock.life.world_ops import _activity_origin, _put_activity, place_names
 
 _LOGGER = logging.getLogger(__name__)
 #: 开始组有两条调用时追加在原因后的一句（前面一个空格）。
 GROUP_REJECTION_SUFFIX = " Neither start request was started."
-#: 出行方式身份到固定出行动作。
-_METHOD_ACTIONS = {method: action for action, method in TRAVEL_ACTION_MODES.items()}
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,16 +209,15 @@ class StartGroups:
         return changed
 
     def _start_travel(self, state: WorldState, pending: PendingAction, row: dict) -> WorldState:
-        """@brief 受理行程冻结天气、路线和车费，出发时只付款一次。"""
-        method = row["selected_action"]["travel_method_id"]
-        action, factor = _METHOD_ACTIONS[method], current_weather_factor(state)
+        """@brief 受理行程冻结出行方式、天气、路线和车费，出发时只付款一次；活动名用出行方式的名称。"""
+        method = travel_method(self.context.catalog, row["selected_action"]["travel_method_id"])
         places = place_names(self.context.catalog)
         trip = admission.planned_trip(admission.Context(state, pending.agent_id, places, {}, self.context.inputs), row)
         changed, receipt = pay_travel_fare(state, pending.agent_id, trip)
-        params = ActivityStartParams(action, trip.duration_seconds, row["object_id"], TravelMode(method),
-                                     travel_activity_data(trip, factor))
+        data = travel_activity_data(trip, method, current_weather_factor(state))
+        params = ActivityStartParams("travel", trip.duration_seconds, row["object_id"], method.travel_method_id, data)
         self.resource_changes[pending.action_id] = dict(receipt["resource_changes"])
-        return self._named(changed, pending, params, f"{TRAVEL_ACTION_NAMES[action]}前往{row['object']}")
+        return self._named(changed, pending, params, f"{method.name}前往{row['object']}")
 
     def _named(self, state: WorldState, pending: PendingAction, params: ActivityStartParams,
                label: str) -> WorldState:

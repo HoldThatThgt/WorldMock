@@ -40,14 +40,14 @@ def _mass_body(mass_kg):
 #: 每小时（基础代谢, 额外消耗）千卡：睡眠、空闲、light、moderate、heavy、步行，体重 55、65、70 公斤。
 HOURLY_BURN = {
     55.0: {"sleep": (55, 0), "idle": (55, 0), "light": (55, 27.5), "moderate": (55, 55), "heavy": (55, 220),
-           "walk": (55, 137.5)},
+           "walking": (55, 137.5)},
     65.0: {"sleep": (65, 0), "idle": (65, 0), "light": (65, 32.5), "moderate": (65, 65), "heavy": (65, 260),
-           "walk": (65, 162.5)},
+           "walking": (65, 162.5)},
     70.0: {"sleep": (70, 0), "idle": (70, 0), "light": (70, 35), "moderate": (70, 70), "heavy": (70, 280),
-           "walk": (70, 175)},
+           "walking": (70, 175)},
 }
 STATE_KINDS = {"sleep": ActivityKind.SLEEP, "idle": ActivityKind.INTERACT, "light": ActivityKind.INTERACT,
-               "moderate": ActivityKind.INTERACT, "heavy": ActivityKind.INTERACT, "walk": ActivityKind.TRAVEL}
+               "moderate": ActivityKind.INTERACT, "heavy": ActivityKind.INTERACT, "walking": ActivityKind.TRAVEL}
 
 
 @pytest.mark.parametrize("mass_kg", sorted(HOURLY_BURN))
@@ -73,7 +73,7 @@ def test_hourly_basal_cost_is_the_body_mass_and_extra_cost_is_only_the_excess(ma
 def test_reference_day_burn_follows_the_body_mass(mass_kg, basal, extra, total):
     """参考日（睡 8 小时、空闲 5 小时、light 9.5 小时、moderate 1 小时、步行半小时）的基础、额外与合计消耗。"""
     config, _ = _mass_body(mass_kg)
-    day = (("sleep", 8.0), ("idle", 5.0), ("light", 9.5), ("moderate", 1.0), ("walk", 0.5))
+    day = (("sleep", 8.0), ("idle", 5.0), ("light", 9.5), ("moderate", 1.0), ("walking", 0.5))
     rates = [(hours, hourly_burn(config, config.activity_met[state])) for state, hours in day]
     assert sum(hours * rate[0] for hours, rate in rates) == basal
     assert sum(hours * rate[1] for hours, rate in rates) == extra

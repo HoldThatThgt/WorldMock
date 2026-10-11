@@ -95,3 +95,75 @@ async def test_deleted_start_activity_reply_is_refused_as_a_tool_that_is_not_off
         "allowed_values": offered, "expected": "A tool offered in this round is required.",
         "why": "The tool is not offered in this round.", "candidates": []}]
     assert results[0].status == "in_progress"
+
+
+def _dataset_methods(tmp_path):
+    """夹具副本换成两种自定的出行方式：电动车（light）与划船（heavy），导航 app 只绑定步行。"""
+    from tests.life.environment_inputs import copy_environment, replace_travel_methods, travel_method_row
+
+    return replace_travel_methods(copy_environment(tmp_path / "methods"), [
+        travel_method_row("ebike", "电动车", 6.5, 150, 80, "light"), travel_method_row("row", "划船", 2, 0, 0, "heavy"),
+    ], ("walking",))
+
+
+@pytest.mark.asyncio
+async def test_dataset_travel_method_name_is_the_one_wording_from_the_prompt_to_the_arrival(engine_factory, tmp_path):
+    """真实宿主：提示里的紧凑工具层还原后与完整工具层逐值相同，全部目的地的出行行落在同一组；人物照工具层写的出行方式
+    名称就是活动名、环境层路上的位置和到达句里的那个名称。"""
+    from tests.life.conftest import context
+    from tests.life.environment_runtime import finish_activity
+    from worldmock.footprints.experiences import recent_verified_experiences
+    from worldmock.life.prompt_schemas import validate_layer
+    from worldmock.life.settled_text import experience_sentence
+    from worldmock.life.tool_groups import expand_tool_layer
+    from worldmock.life.tool_layer import LayerContext
+
+    engine = engine_factory(_dataset_methods(tmp_path))
+    stage_day_plan(engine, submitted=True)
+    observed, requests, answer, results = await decide(engine, "ride", [
+        ToolResponse(MAIN_TOOL, main_arguments("travel", "公司", "电动车"))])
+    assert answer == "start_main_activity registered" and results[0].status == "in_progress"
+    prompt = json.loads(requests[0]["messages"][1]["content"])[0]
+    assert expand_tool_layer(prompt) == observed["tool_layer"]
+    [group] = [row for row in prompt["groups"] if row["action"] == "travel"]
+    assert group["kind"] == "location" and len(group["targets"]) == 7 * 3
+    assert [row["detail"] for row in group["targets"][:3]] == ["步行", "电动车", "划船"]
+    assert [row["note"] for row in group["targets"][:3]] == ["费力", "轻松", "费力"]
+    assert "travel_method_id" not in requests[0]["messages"][1]["content"]
+    assert "ebike" not in requests[0]["messages"][1]["content"]
+    trip = engine.context.state.activities[results[0].activity_id]
+    assert trip.name.startswith("电动车前往公司（") and trip.travel_method_id == "ebike"
+    on_the_way = engine.observe(context(engine, "on-the-way"))
+    validate_layer(on_the_way["environment_layer"])
+    assert on_the_way["environment_layer"]["location"] == {
+        "session_kind": "transit", "name": "去公司的路上", "travel_method": "电动车"}
+    finish_activity(engine, results[0], "ride")
+    names = {"activities": {key: row.name for key, row in engine.context.state.activities.items()}, "sessions": {}}
+    arrivals = [fact for fact in recent_verified_experiences(engine.context.store, 1, engine.context.store.last_event_seq)
+                if fact["kind"] == "arrived"]
+    assert [experience_sentence(LayerContext(engine.context, 1, names, []), fact)[6:] for fact in arrivals] == [
+        "电动车到了公司"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("detail,code", [("骑车", "NAME_NOT_FOUND"), ("ebike", "NAME_NOT_FOUND"), (None, "ARGUMENTS_INVALID")])
+async def test_host_corrects_a_travel_detail_that_names_no_method_and_never_defaults_to_walking(
+        engine_factory, tmp_path, detail, code):
+    """宿主与环境共用同一个解析函数：出行方式写错、写成身份或不写，宿主当场纠错、不登记世界请求；
+    模型改写成列出的名称后才出发，走的就是它写的那种方式。"""
+    engine = engine_factory(_dataset_methods(tmp_path))
+    stage_day_plan(engine, submitted=True)
+    wrong = {"action": "travel", "target": "公司", "detail": detail}
+    _, requests, _, results = await decide(engine, "corrected", [
+        ToolResponse(MAIN_TOOL, wrong), ToolResponse(MAIN_TOOL, main_arguments("travel", "公司", "划船"), "call-valid")])
+    feedback = json.loads(requests[1]["messages"][-1]["content"])
+    assert feedback["error_code"] == code
+    [item] = feedback["items"]
+    assert item["path"][-1] == "detail" and item["written"] == detail
+    assert item["allowed_values"] == ([] if detail is None else ["步行", "电动车", "划船"])
+    events = engine.context.store.read_events(engine.context.store.last_event_seq)
+    registered = [event.data["request"] for event in events if event.event_type == "action_requested"]
+    assert registered == [main_arguments("travel", "公司", "划船")]
+    assert results[0].status == "in_progress"
+    [trip] = engine.context.state.activities.values()
+    assert (trip.travel_method_id, trip.data["exertion"]) == ("row", "heavy") and trip.name.startswith("划船前往公司（")

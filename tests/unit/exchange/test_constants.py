@@ -1,6 +1,5 @@
 """系统规则与身体常数由当前行为合同冻结。"""
 
-from decimal import Decimal
 import pytest
 from worldmock.exchange import constants as c
 from worldmock.exchange.body import BODY_CONSTANTS, RESOURCE_METAS
@@ -8,8 +7,8 @@ from worldmock.exchange.body import BODY_CONSTANTS, RESOURCE_METAS
 
 def test_fixed_travel_delivery_map_and_push_constants():
     assert c.RULES_VERSION == 4
-    assert (c.WALKING_METERS_PER_SECOND, c.DRIVING_METERS_PER_SECOND) == (1.2, 7.0)
-    assert (c.DRIVING_FARE_MINIMUM_FEN, c.DRIVING_FARE_FEN_PER_METER) == (500, Decimal("0.2"))
+    assert (c.WALKING_TRAVEL_METHOD_ID, c.WALKING_TRAVEL_METHOD_NAME, c.WALKING_METERS_PER_SECOND) == (
+        "walking", "步行", 1.2)
     assert (c.DELIVERY_METERS_PER_SECOND, c.DELIVERY_PREP_SECONDS, c.DELIVERY_FEE_FEN) == (5.0, 600, 500)
     assert dict(c.GOODS_ENERGY_KCAL) == {"snack": 200, "meal": 600}
     assert c.GOODS_RELAXATION_RELIEF == 0.10
@@ -33,8 +32,7 @@ def test_body_constant_rules_have_all_actual_actions_and_four_resources():
         assert not hasattr(body, deleted)
     assert body.relaxation_need_per_awake_hour == 0.08
     assert dict(body.activity_met) == {
-        "sleep": 0.95, "walk": 3.5, "drive": 1.5, "take_taxi": 1.5, "take_bus": 1.5,
-        "purchase": 1.0, "idle": 1.0, "light": 1.5, "moderate": 2.0, "heavy": 5.0}
+        "sleep": 0.95, "walking": 3.5, "purchase": 1.0, "idle": 1.0, "light": 1.5, "moderate": 2.0, "heavy": 5.0}
     assert set(RESOURCE_METAS) == {
         "money_fen", "energy_kcal", "sleep_deficit_hours", "relaxation_need", "social_need"}
     assert RESOURCE_METAS["money_fen"].conservation == "closed"
@@ -43,6 +41,7 @@ def test_body_constant_rules_have_all_actual_actions_and_four_resources():
 
 
 @pytest.mark.parametrize("retired", ["FUEL_DRIVING_DAYS", "GOODS_RECEIPT_EFFECTS", "CATEGORY_MET",
-                                     "MOOD_PULSES", "ENTERTAINMENT_RELIEF_PER_HOUR"])
+                                     "MOOD_PULSES", "ENTERTAINMENT_RELIEF_PER_HOUR", "DRIVING_METERS_PER_SECOND",
+                                     "DRIVING_FARE_MINIMUM_FEN", "DRIVING_FARE_FEN_PER_METER"])
 def test_obsolete_physiology_and_category_inference_is_deleted(retired):
     assert not hasattr(c, retired)

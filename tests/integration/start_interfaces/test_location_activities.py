@@ -79,22 +79,27 @@ def test_current_location_lists_every_unit_then_sleep_with_eight_keys(engine_fac
     assert "content_ids" not in json.dumps(observed["tool_layer"], ensure_ascii=False)
 
 
-def test_other_locations_only_offer_travel_by_each_fixed_method(engine_factory):
-    """别的地点只有出行各方式的行（步行、驾车、打车、公共交通），看不到那里能做什么；query_world 查到的相同。"""
+def test_other_locations_only_offer_travel_by_each_travel_method(engine_factory):
+    """别的地点只有出行各方式的行（步行在前，夹具的公共交通、驾车、打车按身份升序），看不到那里能做什么；
+    query_world 按动作筛选 travel 返回各方式的行。"""
     engine = engine_factory()
     observed = engine.observe(context(engine, "look"))
     office = _target(observed, "公司")
     assert [(row["action"], row["detail"]) for row in office["actions"]] == [
-        ("travel", "步行"), ("travel", "驾车"), ("travel", "打车"), ("travel", "公共交通")]
-    assert [(row["price"], row["duration"], row["note"]) for row in office["actions"]] == [
-        ("0 元", "约 32 分钟", "费力"), ("5 元", "约 5 分钟", "轻松"), ("14 元", "约 5 分钟", "轻松"),
-        ("2 元", "约 8 分钟", "轻松")]
+        ("travel", "步行"), ("travel", "公共交通"), ("travel", "驾车"), ("travel", "打车")]
+    assert [(row["price"], row["duration"], row["quantity"], row["note"]) for row in office["actions"]] == [
+        ("0 元", "约 32 分钟", None, "费力"), ("2 元", "约 8 分钟", None, "轻松"),
+        ("5 元", "约 5 分钟", None, "轻松"), ("14 元", "约 5 分钟", None, "轻松")]
     locations = [row for row in observed["tool_layer"]["targets"] if row["kind"] == "location" and row["name"] != "家"]
     assert locations and all({row["action"] for row in target["actions"]} == {"travel"} for target in locations)
     request = QueryWorldRequest(name="公司", action=None, category=None, available_only=False, offset=0)
     match = query_world(observed, request)["matches"][0]
-    assert [row["detail"] for row in match["actions"]] == ["步行", "驾车", "打车", "公共交通"]
+    assert [row["detail"] for row in match["actions"]] == ["步行", "公共交通", "驾车", "打车"]
     assert all(row["action"] == "travel" for row in match["actions"])
+    travelling = QueryWorldRequest(name=None, action="travel", category=None, available_only=False, offset=0)
+    by_action = query_world(observed, travelling)["matches"]
+    assert {row["name"] for row in by_action} == {row["name"] for row in locations}
+    assert all([item["detail"] for item in row["actions"]] == ["步行", "公共交通", "驾车", "打车"] for row in by_action)
     only = QueryWorldRequest(name=None, action="interact", category=None, available_only=False, offset=0)
     names = {row["name"] for row in query_world(observed, only)["matches"]}
     assert "家" in names and "公司" not in names and "快递驿站" not in names

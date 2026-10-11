@@ -156,13 +156,13 @@ def test_monthly_schedule_uses_existing_local_times_and_both_distinct_fold_insta
 ])
 def test_daily_action_callback_counts_actual_dates_across_short_and_long_dst_days(inputs, start, stop):
     declaration = CallbackState(state="driving_days", initial=3, cap=3, reset_on_goods=())
-    daily = callback("drive-day", {"class": "action", "key": "drive"},
+    daily = callback("drive-day", {"class": "action", "key": "travel", "travel_method_id": "driving"},
                      {"type": "state_delta", "state": "driving_days", "delta": -1, "once_per": "local_day"})
     current = configured(inputs, start, stop, [daily])
     current = replace(current, catalog=replace(current.catalog, callback_states={"driving_days": declaration}))
     state = _initial_state(current, "dst", WorldDynamics(social_need_growth_per_hour=0.06))
-    activity = SimpleNamespace(agent_id=1, origin_action_id="actual-trip",
-                               data={"action": "drive", "accepted_event_id": "accepted-trip"})
+    activity = SimpleNamespace(agent_id=1, origin_action_id="actual-trip", travel_method_id="driving",
+                               data={"action": "travel", "accepted_event_id": "accepted-trip"})
     first, end = int(current.config.start_time.timestamp()), int(current.config.stop_time.timestamp())
     result = settle_callback_dates(state, current.catalog, activity, (first, end))
     assert result.state.agents[1].callback_states["driving_days"] == 2

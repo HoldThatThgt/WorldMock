@@ -29,18 +29,19 @@ flowchart LR
 | 文件 | 是否必需 | 登记内容 | 不存在时 |
 | --- | --- | --- | --- |
 | `manifest.json` | 必需 | `format_version: 4`、环境身份和版本、`rules_version: 4`、每个存在的目录 JSONL 的路径、摘要和字节数，以及 `catalog_content_sha256` | 加载失败 |
-| `app-catalog.jsonl` | 必需 | app 身份、名称、角色，以及功能动作或纯目录浏览时长 | 加载失败 |
+| `app-catalog.jsonl` | 必需 | app 身份、名称、角色，以及功能 app 的购买绑定与出行方式绑定或纯目录浏览时长 | 加载失败 |
 | `location.jsonl` | 必需 | 全部实际地点、显示名、自由类型、内容 app、住宿和驿站资格、营业安排 | 加载失败 |
 | `merchant-catalog.jsonl` | 必需 | 商品身份、名称、四类商品、固定价格、地点类型或内容 app 绑定 | 加载失败 |
 | `content-catalog.jsonl` | 必需 | 内容身份、标题、时长、体力消耗、推送资格、心理缓解档位、摘要与容器 | 加载失败 |
 | `callbacks.jsonl` | 可选 | 状态声明和触发规则 | 没有状态，没有规则 |
 | `map.jsonl` | 可选 | 声明的两地距离 | 没有声明，地图全部随机生成 |
+| `travel-method.jsonl` | 可选 | 数据集定义的出行方式 | 只有引擎自带的步行 |
 
 规则版本 `RULES_VERSION` 是 4，目录格式 `format_version` 是 4；这两个号只在本节维护。
-四个必需文件名是 `catalog.identity` 的 `REQUIRED_CATALOG_FILES`，两个可选文件名是 `OPTIONAL_CATALOG_FILES`，其余模块只引用这两个常量。
+四个必需文件名是 `catalog.identity` 的 `REQUIRED_CATALOG_FILES`，三个可选文件名是 `OPTIONAL_CATALOG_FILES`，其余模块只引用这两个常量。
 可选文件「存在」指 `catalog/` 下有这个名字的目录条目，不论类型；存在的条目必须是普通文件，链接和目录由安全文件边界拒绝。
 可选文件允许零字节。零字节表示零行，加载出的目录、地图和运行行为与文件不存在完全相同；两者只在清单文件表和目录摘要上不同。
-文件名一律用连字符，`travel-method.jsonl`、`map.json`、`callback.jsonl` 等其他名字都是包外条目。
+文件名一律用连字符，`travel_method.jsonl`、`map.json`、`callback.jsonl` 等其他名字都是包外条目。
 
 不发布生成的地图；`map.jsonl` 只声明距离。没有目录动作、地点实例数量、环境规则副本、脚本或运输时长。
 未知字段不忽略、不翻译；旧格式直接拒绝。
@@ -69,6 +70,7 @@ JSONL 按真实 UTF-8 字节和 LF 逐行解析。零字节表示零行；末尾
 
 身份行和引用列表按身份字符串升序且无重复；名称比较经 `channel_key` 去全部空白并忽略大小写。
 app、地点显示名、商品名分别在所属文件唯一。app 名不得与任何地点显示名相同；
+出行方式的名称在全部出行方式（含自带的「步行」）之间唯一，不与其他对象的名称比较；
 人物实际可见的地点、商品、内容 app 名称唯一性由环境加载器检查。
 地点内容的单元名是人物要写的名称：同一个地点类型下，独立内容的 `title` 与系列的 `series.title` 合在一起比较，不得重复。
 同一系列的各集属于同一单元；不同地点类型之间可以重名，也不要求与商品、app、地点的名称不同。
@@ -96,16 +98,16 @@ app、地点显示名、商品名分别在所属文件唯一。app 名不得与�
 | `ENVIRONMENT_STALE_FILE` | 环境根、目录或清单存在闭集外条目，详情指出实际路径 |
 | `ENVIRONMENT_FILE_UNLISTED` | 清单缺少必需 JSONL，或存在的可选文件未登记；详情是没有登记的文件名 |
 | `ENVIRONMENT_IDENTITY_MISMATCH` | 安全文件边界失败，或实际文件表、字节摘要和清单不一致 |
-| `ENVIRONMENT_LINE_INVALID` | 某行不是恰好一个 JSON 对象，含 `map.jsonl` 的行 |
-| `ENVIRONMENT_ID_DUPLICATE` | 身份、名称或引用列表重复；`map.jsonl` 同一对地点出现两行；同一地点类型下单元名重复时详情为 `content-catalog.jsonl:<先登记一行的行号> and content-catalog.jsonl:<当前行的行号> give location kind <类型> the same activity name <先登记的单元名>.` |
-| `ENVIRONMENT_REF_UNKNOWN` | app、商品等对象引用未登记；`map.jsonl` 的端点不是登记地点 |
-| `ENVIRONMENT_KIND_INVALID` | 未知字段、非法闭集值、坏字符串或布尔、未排序列表、非法营业安排；`map.jsonl` 的端点不满足 `a < b` 或行未排序 |
-| `ENVIRONMENT_NUMBER_INVALID` | 严格整数类型或范围不符；`map.jsonl` 的 `length_m` 缺失、不是严格整数或小于 1 |
+| `ENVIRONMENT_LINE_INVALID` | 某行不是恰好一个 JSON 对象，含 `map.jsonl` 与 `travel-method.jsonl` 的行 |
+| `ENVIRONMENT_ID_DUPLICATE` | 身份、名称或引用列表重复；`map.jsonl` 同一对地点出现两行；出行方式的身份或名称重复、使用保留身份 `walking` 或自带名称「步行」；同一地点类型下单元名重复时详情为 `content-catalog.jsonl:<先登记一行的行号> and content-catalog.jsonl:<当前行的行号> give location kind <类型> the same activity name <先登记的单元名>.` |
+| `ENVIRONMENT_REF_UNKNOWN` | app、商品等对象引用未登记；`map.jsonl` 的端点不是登记地点；功能 app 或回调规则引用的出行方式既没有登记、也不是 `walking` |
+| `ENVIRONMENT_KIND_INVALID` | 未知字段、非法闭集值、坏字符串或布尔、未排序列表、非法营业安排；`map.jsonl` 的端点不满足 `a < b` 或行未排序；`travel-method.jsonl` 的行未按身份升序；功能 app 的 `actions` 出现 `purchase` 以外的值；回调的出行触发缺少 `travel_method_id`，或其他动作触发带了它 |
+| `ENVIRONMENT_NUMBER_INVALID` | 严格整数类型或范围不符；`map.jsonl` 的 `length_m` 缺失、不是严格整数或小于 1；出行方式的速度不是大于 0 的有限数值，或两个价格不是不小于 0 的严格整数 |
 | `HOME_LOCATION_REQUIRED` | 没有显式住宿地点，或人物住处未解析到住宿地点 |
 | `HOME_NOT_SLEEPABLE` | 人物住处没有标 `sleepable`；原因 `The persona home must be marked sleepable.`，详情 `persona.home_location` |
 | `PARCEL_STATION_REQUIRED` | app 侧商品需要驿站但未登记，或驿站类型没有地点内容 |
-| `APP_ROLE_BINDING_INVALID` | 内容 app 声明动作，或地点、商品、内容、提醒引用功能 app |
-| `APP_UNBOUND` | 内容 app 没有有效内容来源，或功能 app 没有具体动作 |
+| `APP_ROLE_BINDING_INVALID` | 内容 app 带有 `actions` 或 `travel_method_ids` 字段（空数组也算），或地点、商品、内容、提醒引用功能 app；原因 `Only function apps may bind actions or travel methods, and only content apps may be referenced by locations, goods or contents.` |
+| `APP_UNBOUND` | 内容 app 没有有效内容来源，或功能 app 的 `actions` 与 `travel_method_ids` 都为空；原因 `An app must have content, or an action or travel method binding, for its role.` |
 | `APP_NAME_COLLIDES_LOCATION` | app 名与地点显示名碰撞 |
 | `GOODS_BINDING_MISSING`、`GOODS_BINDING_SIDE_EXCLUSIVE`、`GOODS_BINDING_DANGLING` | 商品容器缺失、两侧同时绑定、类型没有实际地点 |
 | `CONTENT_CONTAINER_MISSING`、`CONTENT_CONTAINER_SIDE_EXCLUSIVE`、`CONTENT_BINDING_DANGLING` | 内容容器缺失、两侧同时绑定、类型没有实际地点 |
@@ -113,7 +115,7 @@ app、地点显示名、商品名分别在所属文件唯一。app 名不得与�
 | `CONTENT_SUMMARY_TOO_LONG`、`CONTENT_SOURCE_URL_MISSING` | 摘要超过 200 字符或真实来源缺少 URL |
 | `CALLBACK_STATE_UNREGISTERED`、`CALLBACK_FOOTPRINT_EMPTY`、`CALLBACK_NOTIFY_MISMATCH` | 回调状态未知、足迹为空、提醒与效果不配对 |
 | `MAP_DISTANCE_CONTRADICTED` | 某条声明边的两端经其他声明边有一条严格更短的路线，详情指出行号、声明值、更短的路线和它的总长 |
-| `MAP_ROUTE_TOO_LONG` | 生成后的地图上，最远的一对地点步行在最差天气下走不到一天之内；需要种子，纯校验不做 |
+| `MAP_ROUTE_TOO_LONG` | 生成后的地图上，最远的一对地点用最慢的出行方式在最差天气下走不到一天之内；需要种子，纯校验不做 |
 | `MAP_TOO_SMALL`、`MAP_EDGE_INVALID`、`MAP_DISCONNECTED` | 内存地图节点不足、边非法或不连通 |
 
 <a name="resource-engine-图与地点关系准入"></a>
@@ -191,16 +193,63 @@ flowchart TD
 额外边在总长恰好相等时保留，这时 `Graph.path` 可能返回经过中间地点的那条等长路线，用时和车费不受影响。
 
 连通边和额外边的长度是 200 到 2000 米的整数（`MAP_EDGE_LENGTH_M`）；声明边是不小于 1 米的整数，不设 2000 米上限。
-一天上限是对生成后的整张图做的唯一一处检查：取图上最短距离最大的一对地点（距离相同时取 `(a, b)` 最小的一对），
-用出行用时算子按步行速度和天气系数表里最小的系数算用时，大于 `TRAVEL_MAX_SECONDS`（86,400 秒）就报 `MAP_ROUTE_TOO_LONG`。
-这等于任意两地的最短距离不超过 62,208 米。检查需要生成后的地图，所以只在带种子的加载里做，纯校验不做。
+一天上限是对生成后的整张图做的唯一一处检查，保证运行中任何一次出行的用时都不超过 `TRAVEL_MAX_SECONDS`（86,400 秒）：
+取最慢速度（自带步行的 1.2 米/秒与 `travel-method.jsonl` 各行速度中最小的一个）和天气系数表里最小的系数，
+再取图上最短距离最大的一对地点（距离相同时取 `(a, b)` 最小的一对），用出行用时算子算用时，大于上限就报 `MAP_ROUTE_TOO_LONG`。
+只有步行，或数据集定义的方式都不比步行慢时，这等于任意两地的最短距离不超过 62,208 米；
+数据集定义了更慢的方式时上限按它算，例如 0.5 米/秒对应 25,920 米。
+检查需要生成后的地图，所以只在带种子的加载里做，纯校验不做。
 
 `map_sha256` 是整张生成结果的摘要：对 `{"edges": [{"a", "b", "length_m"}, …], "nodes": […]}` 的规范 JSON 加一个 LF 求 SHA-256，
-声明边与随机边一视同仁。它取决于地点身份集合、声明边的值和运行种子，不取决于 `map.jsonl` 的行内空白和键序。
+声明边与随机边一视同仁。它取决于地点身份集合、声明边的值和运行种子，不取决于 `travel-method.jsonl`，也不取决于 `map.jsonl` 的行内空白和键序。
 没有 `map.jsonl` 或文件零行时声明边为空：随机树的边全部保留，额外边一条也不丢，生成的边和 `map_sha256` 只由地点集合和种子决定。
 地图只在内存维护，生成结果不写进环境包。
 `Graph` 保留确定性最短路。住处最近驿站先比较最短距离，同距取较小地点身份。
-出行方式、天气、时长和车费见[模拟引擎](04-simulation-engine.md)。
+出行方式的登记见下一节，天气、用时和车费的公式见[交换引擎](02-exchange-engine.md)。
+
+<a name="resource-engine-出行方式"></a>
+## 出行方式
+
+引擎只自带步行；步行以外的出行方式由数据集在可选文件 `travel-method.jsonl` 里定义，每行一种。
+没有这个文件（或文件零行）的环境包里人物只能步行。
+
+| 字段 | 约束 | 含义 |
+| --- | --- | --- |
+| `travel_method_id` | 非空白字符串；文件内唯一；行按它升序；不得为保留身份 `walking` | 出行方式的身份，app 行和回调规则用它引用 |
+| `name` | 非空白字符串；在全部出行方式（含自带的「步行」）之间经 `channel_key` 比较后唯一 | 人物看到并写进 `detail` 的名称 |
+| `speed_meters_per_second` | 有限且大于 0 的 JSON 数值，整数或小数都可以；布尔和字符串不接受 | 基础速度，米/秒 |
+| `start_price_fen` | 不小于 0 的严格整数 | 起步价，分 |
+| `price_per_km_fen` | 不小于 0 的严格整数 | 每公里价格，分 |
+| `exertion` | `idle`、`light`、`moderate`、`heavy` 之一 | 体力档位，与内容行的 `exertion` 同一闭集 |
+
+六个字段都没有缺省值，其他键拒绝，文件可以零行。两个价格都写 0 就是免费的方式。
+名称不要求与地点、商品、app 的名称不同，因为它只在 `detail` 里解析。
+
+自带的步行由引擎维护，不写在文件里，任何环境包都有。
+
+| 事实 | 固定值 |
+| --- | --- |
+| 身份 | `walking`（保留，数据集的行不得使用） |
+| 名称 | 「步行」（数据集的行不得重名） |
+| 速度 | 1.2 米/秒 |
+| 车费 | 0 |
+| 代谢当量 | 3.5 |
+
+app 行和回调规则可以像引用数据集的方式一样引用 `walking`。
+行解析之后依次检查：保留身份、身份重复、行按身份升序、保留名称、名称重复；先遇到的先报，详情以
+`travel-method.jsonl:<行号>` 开头。
+
+| 登记码 | 何时报 | 英文详情 |
+| --- | --- | --- |
+| `ENVIRONMENT_LINE_INVALID` | 某行不是恰好一个 JSON 对象；行里写 `Infinity`、`NaN` | `travel-method.jsonl:<行号>` 开头 |
+| `ENVIRONMENT_KIND_INVALID` | 未知键；`travel_method_id`、`name` 缺失或不是非空白字符串；`exertion` 缺失或不在四个档位内；行未按 `travel_method_id` 升序 | 模型错误原文，或 `Travel method rows must be sorted by travel_method_id.` |
+| `ENVIRONMENT_NUMBER_INVALID` | 速度缺失、不是数值、不是有限数（含溢出成无穷大的写法，如 `1e999`）或不大于 0；两个价格缺失、不是严格整数或小于 0 | 模型错误原文 |
+| `ENVIRONMENT_ID_DUPLICATE` | `travel_method_id` 重复或写成 `walking`；两行名称相同；名称与「步行」相同 | `travel-method.jsonl:<行号> and travel-method.jsonl:<行号> share the identity <值>.`；`travel-method.jsonl:<行号> uses the reserved identity walking.`；`travel-method.jsonl:<行号> and travel-method.jsonl:<行号> share the name <名称>.`；`travel-method.jsonl:<行号> uses the built-in name 步行.` |
+| `ENVIRONMENT_REF_UNKNOWN` | app 行的 `travel_method_ids` 或回调规则的 `travel_method_id` 指向既不在文件里、也不是 `walking` 的身份 | `<文件名>:<行号> Unknown travel_method_id: <值>.` |
+
+速度极慢的方式不在这里拒绝，由「加权连通图与路线」的一天上限统一把关。
+用时与车费的公式、天气系数和体力档位对应的代谢当量归[交换引擎](02-exchange-engine.md)；
+目录另建索引 `apps_by_travel_method`，键为 `walking` 和每个数据集身份，值为绑定它的功能 app 身份升序元组。
 
 <a name="resource-engine-环境发布身份"></a>
 ## 环境发布身份
@@ -226,8 +275,20 @@ flowchart TD
 <a name="resource-engine-地点发现与候选呈现"></a>
 ## app、内容与候选呈现
 
-app 必填 `app_id`、`name`、`role`。功能 app 必须声明非空 `actions`，只可绑定
-`walk`、`drive`、`take_taxi`、`take_bus`、`purchase`；内容 app 不得携带 `actions`，即使空数组也拒绝。
+app 必填 `app_id`、`name`、`role`。功能 app 是 `role` 为 `function`、由引擎代为选用的 app，它的绑定分成两个字段。
+
+| 字段 | 约束 | 含义 |
+| --- | --- | --- |
+| `actions` | 功能 app 可选，缺省为空；元素只能是 `purchase`；升序、无重复 | 绑定购买，作为支付 app 候选 |
+| `travel_method_ids` | 功能 app 可选，缺省为空；每项是 `travel-method.jsonl` 里的 `travel_method_id` 或 `walking`；按身份升序、无重复 | 绑定这些出行方式，作为导航 app 候选 |
+
+```json
+{"app_id": "amap", "name": "高德地图", "role": "function", "travel_method_ids": ["bus", "driving", "taxi", "walking"]}
+```
+
+功能 app 的两个数组至少有一个非空，都为空报 `APP_UNBOUND`；`actions` 里出现 `purchase` 以外的值（包括 `travel` 和已删除的出行动作名）报 `ENVIRONMENT_KIND_INVALID`。
+内容 app 不得携带这两个字段，即使空数组也以 `APP_ROLE_BINDING_INVALID` 拒绝。
+目录索引 `apps_by_action` 只保留 `purchase` 一个键，`apps_by_travel_method` 见「出行方式」。
 只有内容 app 可以被地点、商品、内容、阈值提醒引用。功能 app 的自动选择和足迹由模拟引擎处理。
 
 内容 app 至少承载一条显式内容，或供应 app 侧商品，或由实际供应商品的地点绑定。
@@ -276,7 +337,7 @@ app 侧只出现在 app 商品索引，不虚构店铺。任何类别都可绑�
 
 | 对象 | 完整形状 |
 | --- | --- |
-| 动作触发 | `{class: action, key: 七个具体动作之一}` |
+| 动作触发 | `{class: action, key: purchase / interact / sleep}`；出行为 `{class: action, key: travel, travel_method_id}` |
 | 时间触发 | `{class: time, key: hourly / daily / run_start / run_stop}`；月度为 `{class: time, key: monthly, day, time}` |
 | 状态触发 | `{class: state, key: 登记状态名, below: 阈值}` |
 | 事件触发 | `{class: event, key}`，仅合格预排事件或静态唤醒类别 |
@@ -286,8 +347,15 @@ app 侧只出现在 app 商品索引，不虚构店铺。任何类别都可绑�
 | 可见提示 | `{visible: 严格布尔}`，只配足迹链 |
 | 状态提醒 | `{when: {state, below}, channel: app_push, app_id, text}`，只配状态增量；必须引用内容 app |
 
-动作触发按受理的开始调用求值，每条调用一次：出行调用的键是所选出行方式对应的具体出行动作，
-其余调用的键是调用的 `action`；一次购买无论几件只触发一次。
+动作触发按受理的开始调用求值，每条调用一次，键是调用的 `action`；一次购买无论几件只触发一次。
+`key` 为 `travel` 时必须带 `travel_method_id`（文件里的身份或 `walking`），其他 `key` 不得出现这个字段，两种写错都报 `ENVIRONMENT_KIND_INVALID`，指向未登记的身份报 `ENVIRONMENT_REF_UNKNOWN`；已删除的出行动作名不再是合法的 `key`。
+一条规则只订阅一种出行方式，不提供「任意方式」的写法：出行受理成功时触发原因带上这次出行的 `travel_method_id`，规则的 `key` 与方式都相同才匹配；带 `once_per: local_day` 的增量仍按出行活动实际结算的本地日期执行，匹配条件相同。
+
+```json
+{"rule_id": "fuel-daily", "trigger": {"class": "action", "key": "travel", "travel_method_id": "driving"},
+ "effect": {"type": "state_delta", "state": "fuel", "delta": -1, "once_per": "local_day"}}
+```
+
 状态和提醒阈值是 `1..cap` 的严格整数。月度日号是 `1..31`，时刻为规范有效的 `HH:MM`。
 足迹 app 池非空且按身份升序无重复，允许功能 app；不存在空值候选。
 事件键为 `delivery_arrival`、`app_push`、`calendar_flag`、`weather`，或
@@ -299,6 +367,6 @@ app 侧只出现在 app 商品索引，不虚构店铺。任何类别都可绑�
 ## 验证边界
 
 目录单元测试消费清单和它登记的 JSONL，核对字节身份、严格行定位、对象引用、清单检查的次序与错误优先级，
-并验证全量供给索引、内容系列、营业安排、回调登记、声明的距离和运行种子地图；
-带可选文件的情形由测试在夹具副本上构造并刷新清单。
+并验证全量供给索引、内容系列、营业安排、回调登记、声明的距离、出行方式和运行种子地图；
+测试夹具只放出行方式一个可选文件，其余带可选文件或只有步行的情形由测试在夹具副本上构造并刷新清单。
 环境加载再检查人物名称与冻结身份；动作、交易、实际消费、回调效果和恢复由对应集成及系统测试证明。

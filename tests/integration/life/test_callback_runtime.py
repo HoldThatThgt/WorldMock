@@ -37,7 +37,7 @@ def test_run_start_is_once_and_does_not_trigger_startup_wake_subscription(engine
 
 
 def test_action_daily_limit_waits_for_actual_time_and_is_persisted(engine_factory, tmp_path):
-    rules = [rule("drive-day", {"class": "action", "key": "drive"},
+    rules = [rule("drive-day", {"class": "action", "key": "travel", "travel_method_id": "driving"},
                   {"type": "state_delta", "state": "driving_stock", "delta": -1, "once_per": "local_day"})]
     engine = engine_factory(callback_environment(tmp_path, rules))
     _, started = act(engine, "drive", travel("公司", "驾车"))
@@ -69,7 +69,7 @@ def test_unpaid_callback_expense_does_not_block_accepted_activity(engine_factory
 
 
 def test_threshold_fires_from_original_effect_once_without_cascading(engine_factory, tmp_path):
-    rules = [rule("drive-stock", {"class": "action", "key": "drive"},
+    rules = [rule("drive-stock", {"class": "action", "key": "travel", "travel_method_id": "driving"},
                   {"type": "state_delta", "state": "driving_stock", "delta": -3}),
              rule("stock-fee", {"class": "state", "key": "driving_stock", "below": 1},
                   {"type": "transfer", "direction": "expense", "amount_fen": 100})]
@@ -113,3 +113,96 @@ def test_normal_stop_is_once_after_real_activity_settlement(engine_factory, tmp_
     assert engine.context.state.accounts == {"agent:1": 200500, "external:scenario": -200500}
     assert engine.context.state.run_stop_callbacks_applied is True
     assert engine.scheduling_state().next_event_at is None
+
+
+@pytest.mark.parametrize("method,fired", [("打车", []), ("公共交通", []), ("驾车", ["drive-fee"]),
+                                          ("步行", ["walk-stock"])])
+def test_travel_callback_fires_only_for_trips_by_the_subscribed_travel_method(engine_factory, tmp_path, method, fired):
+    """回调按出行方式的身份触发：一条规则订阅一种方式，速度和价格与驾车相同的打车不触发驾车的规则。"""
+    rules = [rule("drive-fee", {"class": "action", "key": "travel", "travel_method_id": "driving"},
+                  {"type": "transfer", "direction": "expense", "amount_fen": 30}),
+             rule("walk-stock", {"class": "action", "key": "travel", "travel_method_id": "walking"},
+                  {"type": "state_delta", "state": "driving_stock", "delta": -1})]
+    engine = engine_factory(callback_environment(tmp_path, rules))
+    _, result = act(engine, "trip", travel("公司", method))
+    assert result.status == "in_progress", result.error_code
+    effects = changes(engine)
+    assert [row.data["rule_id"] for row in effects] == fired
+    assert engine.context.state.agents[1].callback_states == {"driving_stock": 2 if fired == ["walk-stock"] else 3}
+    accepted = next(row for row in events(engine, "action_result") if row.action_id == "action-trip")
+    assert all(row.caused_by == [accepted.event_id] for row in effects)
+    advance_next(engine)
+    assert [row.data["rule_id"] for row in changes(engine)] == fired
+
+
+def test_daily_travel_callback_settles_only_on_days_with_a_trip_by_its_travel_method(engine_factory, tmp_path):
+    """按本地日限次的出行增量只在订阅的出行方式实际走过时执行：打车去、驾车回，只有驾车那一趟结算时扣一次。"""
+    rules = [rule("drive-day", {"class": "action", "key": "travel", "travel_method_id": "driving"},
+                  {"type": "state_delta", "state": "driving_stock", "delta": -1, "once_per": "local_day"})]
+    engine = engine_factory(callback_environment(tmp_path, rules))
+    _, taxi = act(engine, "taxi", travel("公司", "打车"))
+    assert taxi.status == "in_progress", taxi.error_code
+    finish_activity(engine, taxi, "taxi")
+    assert engine.context.state.agents[1].callback_states == {"driving_stock": 3}
+    assert engine.context.state.agents[1].callback_once_keys == set() and changes(engine) == []
+    _, drive = act(engine, "drive-back", travel("家", "驾车"))
+    assert drive.status == "in_progress", drive.error_code
+    finish_activity(engine, drive, "drive-back")
+    assert engine.context.state.agents[1].callback_states == {"driving_stock": 2}
+    assert engine.context.state.agents[1].callback_once_keys == {"drive-day:2026-01-05"}
+    [effect] = changes(engine)
+    source = next(row for row in events(engine) if row.event_id == effect.caused_by[0])
+    assert source.action_id == "action-drive-back" and source.event_type == "action_result"
+
+
+def _navigation_world(root):
+    """三个导航 app 各绑定不同的出行方式：步行只有高德，自行车只有百度，驾车三个都有，轮渡没有 app 绑定。"""
+    from tests.life.environment_inputs import catalog_rows, travel_method_row
+
+    write_catalog_rows(root, "travel-method.jsonl", [
+        travel_method_row("bike", "自行车", 4.5), travel_method_row("driving", "驾车", 7, 500, 200),
+        travel_method_row("ferry", "轮渡", 3)])
+    rows = catalog_rows(root, "app-catalog.jsonl")
+    next(row for row in rows if row["app_id"] == "amap")["travel_method_ids"] = ["driving", "walking"]
+    rows.append({"app_id": "baidu-map", "name": "百度地图", "role": "function", "travel_method_ids": ["bike", "driving"]})
+    rows.append({"app_id": "didi", "name": "滴滴出行", "role": "function", "travel_method_ids": ["driving"]})
+    write_catalog_rows(root, "app-catalog.jsonl", sorted(rows, key=lambda row: row["app_id"]))
+    return root
+
+
+def _navigation(engine):
+    return [row for row in events(engine, "environment_event")
+            if row.data.get("kind") == "app_touch" and row.data["step"] == "navigation"]
+
+
+@pytest.mark.parametrize("method,identity,candidates", [
+    ("步行", "walking", ("amap",)), ("自行车", "bike", ("baidu-map",)),
+    ("驾车", "driving", ("amap", "baidu-map", "didi")), ("轮渡", "ferry", ())])
+def test_navigation_app_is_chosen_only_among_apps_bound_to_the_trips_travel_method(
+        engine_factory, tmp_path, method, identity, candidates):
+    """导航 app 只从绑定了这次出行方式的功能 app 里等概率选一个；同一种子得到同一个；没有绑定就没有导航记录。"""
+    from worldmock.life.randomness import random_stream
+
+    chosen, seeds = [], (range(1, 7) if len(candidates) > 1 else (1,))
+    for seed in seeds:
+        for attempt in ("first", "second"):
+            root = _navigation_world(copy_environment(tmp_path / f"{seed}-{attempt}"))
+            engine = engine_factory(root, mutate=lambda persona, config, seed=seed: config.update(seed=seed))
+            assert engine.context.catalog.apps_by_travel_method[identity] == candidates
+            _, result = act(engine, "trip", travel("公司", method))
+            assert result.status == "in_progress", result.error_code
+            touches = _navigation(engine)
+            if not candidates:
+                assert touches == []
+                continue
+            [touch] = touches
+            assert touch.data == {"kind": "app_touch", "app_id": touch.data["app_id"], "action": "travel",
+                                  "step": "navigation", "rule_id": None}
+            assert touch.activity_id == result.activity_id and touch.visibility == "system"
+            stream = random_stream(engine.context.state.random_state, f"function-app:{result.activity_id}")
+            assert touch.data["app_id"] == stream.choice(candidates)
+            chosen.append((seed, touch.data["app_id"]))
+    # 每个种子两次运行选到同一个 app；候选不止一个时，不同种子选到的不总是同一个
+    assert len(set(chosen)) == (len(seeds) if candidates else 0)
+    distinct = {app for _, app in chosen}
+    assert distinct <= set(candidates) and (len(candidates) < 2 or len(distinct) > 1)

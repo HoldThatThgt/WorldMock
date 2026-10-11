@@ -92,6 +92,18 @@ MUTATIONS = (
         "match = object_labels.resolve_name(next((entry.detail for entry in options if item.detail in entry.aliases),"
         " item.detail), [option.detail for option in options])",
         ("tests/integration/start_interfaces/test_location_activities.py::test_episode_title_and_unknown_detail_are_corrected_without_substitution",)),
+    SourceMutation("travel_fare_adds_start_price_to_distance_price",
+        "worldmock.exchange.operators::evaluate_travel_fare",
+        "return max(start_price_fen, (price_per_km_fen * distance_m + 999) // 1000)",
+        "return start_price_fen + (price_per_km_fen * distance_m + 999) // 1000",
+        ("tests/unit/exchange/test_environment_travel.py"
+         "::test_fare_is_the_larger_of_the_start_price_and_the_per_kilometre_price_rounded_up",)),
+    SourceMutation("weather_factor_skips_dataset_travel_methods", "worldmock.life.travel::plan_trip",
+        "duration = travel_seconds(method.speed_meters_per_second, meters, weather_factor)",
+        "duration = travel_seconds(method.speed_meters_per_second, meters,"
+        ' weather_factor if method.exertion == "walking" else 1.0)',
+        ("tests/unit/exchange/test_environment_travel.py"
+         "::test_every_weather_factor_slows_dataset_defined_methods_and_walking_alike",)),
     SourceMutation("unrecorded_account_change", "worldmock.footprints.ledger::validate_account_transition",
         "if any(current[key] - previous[key] != changes[key] for key in current):", "if False:",
         ("tests/unit/footprints/test_ledger.py::test_missing_or_false_ledger_cannot_commit_changed_accounts",)),

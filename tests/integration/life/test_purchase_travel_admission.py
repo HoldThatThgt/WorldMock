@@ -6,17 +6,18 @@ from tests.life.conftest import advance_next, conclude_request, do_at, purchase,
 from tests.life.environment_runtime import act, act_group, events, reach
 from worldmock.catalog.graph import Graph
 from worldmock.catalog.models import MapEdge, MapGraph
-from worldmock.errors import BusinessRuleError
+from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life.basket import quoted_basket
 from worldmock.life.guidance import rejection_guidance
 from worldmock.life.purchase_offers import quote_goods
 from worldmock.life.travel import pay_travel_fare, plan_trip
+from worldmock.life.travel_methods import WALKING, travel_method
 from worldmock.life.weather import current_weather_factor
 
 #: 开始组有两条调用时追加在拒绝原因后的一句。
 NEITHER = " Neither start request was started."
-#: 四种固定出行方式的名称，按工具层的行序。
-METHODS = ["步行", "驾车", "打车", "公共交通"]
+#: 夹具的出行方式名称，按工具层的行序：自带的步行在前，其余按出行方式身份（bus、driving、taxi）升序。
+METHODS = ["步行", "公共交通", "驾车", "打车"]
 
 
 def _configure(persona, config):
@@ -55,7 +56,8 @@ def _with_budget(engine_factory, difference):
     state = probe.context.state
     quote = quote_goods(probe.context.inputs, state, 1, "online-notebook")
     _, total = quoted_basket(probe.context.inputs, state, 1, ("online-notebook",))
-    trip = plan_trip(probe.context.catalog.graph, "home", "office", "taxi", current_weather_factor(state))
+    catalog = probe.context.catalog
+    trip = plan_trip(catalog.graph, "home", "office", travel_method(catalog, "taxi"), current_weather_factor(state))
     engine = engine_factory(mutate=lambda persona, config: persona.update(
         initial_balance_fen=total + trip.fare_fen + difference))
     assert quote_goods(engine.context.inputs, engine.context.state, 1, "online-notebook") == quote
@@ -79,7 +81,7 @@ def _assert_rollback(engine, before):
         assert not [event for event in _business(engine, kind) if event.state_version_after > before.version]
 
 
-@pytest.mark.parametrize("method", METHODS, ids=["walk", "drive", "take_taxi", "take_bus"])
+@pytest.mark.parametrize("method", METHODS, ids=["walking", "bus", "driving", "taxi"])
 @pytest.mark.parametrize("reverse", [False, True])
 def test_local_purchase_and_departure_reject_the_whole_request(engine_factory, method, reverse):
     engine = engine_factory(mutate=_at_store)
@@ -247,14 +249,13 @@ def test_existing_location_content_occupies_the_first_slot_but_app_content_can_d
         assert engine.context.state.activities[started.activity_id].status == "active"
 
 
-@pytest.mark.parametrize("mode", ["walk", "flying"])
-def test_trip_plan_rejects_action_names_and_unknown_modes_without_changing_the_graph(loaded_catalog, mode, caplog):
-    graph = loaded_catalog.graph
-    before = graph.shortest_paths("home")
-    with pytest.raises(ValueError, match="Travel mode is outside the fixed set"):
-        plan_trip(graph, "home", "office", mode)
-    assert graph.shortest_paths("home") == before
-    assert "Travel mode is outside the fixed set" in caplog.text
+@pytest.mark.parametrize("identity", ["walk", "drive", "flying", "步行", "驾车", "", None])
+def test_travel_method_lookup_knows_only_walking_and_registered_identities(loaded_catalog, identity, caplog):
+    """出行方式只按身份查：旧动作名、名称和没登记的身份都不是出行方式，不落回步行。"""
+    assert [travel_method(loaded_catalog, key).name for key in ("walking", "bus", "driving", "taxi")] == METHODS
+    with pytest.raises(IntegrityError, match="^Travel method is not registered$"):
+        travel_method(loaded_catalog, identity)
+    assert "Travel method is not registered" in caplog.text
 
 
 def test_same_place_is_not_a_positive_duration_trip(loaded_catalog, caplog):
@@ -262,7 +263,7 @@ def test_same_place_is_not_a_positive_duration_trip(loaded_catalog, caplog):
     assert graph.path("home", "home") == ("home",)
     assert graph.distance_meters("home", "home") == 0
     with pytest.raises(BusinessRuleError, match="^ROUTE_DURATION_INVALID$") as failure:
-        plan_trip(graph, "home", "home", "walking")
+        plan_trip(graph, "home", "home", WALKING)
     assert rejection_guidance(failure.value)["reason"] == "The route duration exceeds the maximum travel duration."
     assert "Travel route duration is outside the supported interval" in caplog.text
 
@@ -276,20 +277,21 @@ def test_snow_trip_accepts_one_day_and_rejects_the_next_longer_published_path(la
     assert graph.path(nodes[0], nodes[-1]) == nodes
     assert graph.distance_meters(nodes[0], nodes[-1]) == 62000 + last_length
     if accepted:
-        trip = plan_trip(graph, nodes[0], nodes[-1], "walking", 0.6)
+        trip = plan_trip(graph, nodes[0], nodes[-1], WALKING, 0.6)
         assert trip.path == nodes and trip.distance_meters == 62208
         assert trip.duration_seconds == 86400 and trip.fare_fen == 0
         assert trip.origin_id == nodes[0] and trip.destination_id == nodes[-1]
     else:
         with pytest.raises(BusinessRuleError, match="^ROUTE_DURATION_INVALID$"):
-            plan_trip(graph, nodes[0], nodes[-1], "walking", 0.6)
+            plan_trip(graph, nodes[0], nodes[-1], WALKING, 0.6)
         assert "Travel route duration is outside the supported interval" in caplog.text
 
 
 def test_fare_shortfall_preserves_the_actual_world_and_produces_the_declared_refusal(engine_factory, caplog):
     engine = engine_factory(mutate=lambda persona, config: persona.update(initial_balance_fen=199))
     state = engine.context.state
-    trip = plan_trip(engine.context.catalog.graph, "home", "office", "bus", current_weather_factor(state))
+    catalog = engine.context.catalog
+    trip = plan_trip(catalog.graph, "home", "office", travel_method(catalog, "bus"), current_weather_factor(state))
     assert trip.fare_fen == 200
     before = state.model_dump(mode="json")
     event_seq = engine.context.store.last_event_seq
@@ -308,8 +310,9 @@ def test_departure_fare_receipt_uses_the_exact_world_accounts_and_zero_sum_trans
     engine = engine_factory(mutate=lambda persona, config: persona.update(initial_balance_fen=balance))
     state = engine.context.state
     before = state.model_dump(mode="json")
-    trip = plan_trip(engine.context.catalog.graph, "home", "office", mode, current_weather_factor(state))
-    assert trip.fare_fen == fare
+    catalog = engine.context.catalog
+    trip = plan_trip(catalog.graph, "home", "office", travel_method(catalog, mode), current_weather_factor(state))
+    assert trip.fare_fen == fare and trip.trip_id == f"home->office:{mode}"
     changed, receipt = pay_travel_fare(state, 1, trip)
     assert changed.accounts == {"agent:1": 0, "external:scenario": 0}
     assert sum(changed.accounts.values()) == sum(state.accounts.values())
@@ -355,7 +358,8 @@ def test_tool_layer_quotes_the_declared_distance_for_every_travel_method(engine_
     state, graph = engine.context.state, engine.context.catalog.graph
     assert state.weather_by_date == {"2026-01-05": "light_rain"} and current_weather_factor(state) == 0.85
     assert graph.distance_meters("home", "office") == 12600 and graph.path("home", "office") == ("home", "office")
-    trips = {mode: plan_trip(graph, "home", "office", mode, 0.85) for mode in ("walking", "driving", "taxi", "bus")}
+    trips = {mode: plan_trip(graph, "home", "office", travel_method(engine.context.catalog, mode), 0.85)
+             for mode in ("walking", "driving", "taxi", "bus")}
     assert {mode: (trip.duration_seconds, trip.fare_fen) for mode, trip in trips.items()} == {
         "walking": (12353, 0), "driving": (2118, 2520), "taxi": (2118, 3780), "bus": (2965, 200)}
     observed, result = act(engine, "declared-drive", travel("公司", "驾车"))
@@ -416,3 +420,275 @@ def test_delivery_store_and_expected_arrival_follow_the_declared_distances(
     order = next(iter(engine.context.state.deliveries.values()))
     assert (order.store_id, order.destination_id) == (store, "office")
     assert order.expected_at - state.current_time == seconds
+
+
+#: 一套与夹具不同的数据集出行方式：身份次序、名称、速度、价格和体力档位都各不相同。
+CUSTOM_METHODS = [("rocket", "火箭", 50, 30_000_000, 0, "heavy"), ("bike", "自行车", 4.5, 0, 0, "moderate"),
+                  ("cable", "缆车", 3, 300, 100, "idle"), ("ebike", "电动车", 6.5, 150, 80, "light")]
+FARE_REASON = "The caller's available balance is below the route fare."
+
+
+def _custom_world(tmp_path, methods=CUSTOM_METHODS, navigation=("bike", "walking")):
+    """夹具副本换成自定的出行方式；家到公司仍是 1,957 米，首日小雨（系数 0.85）。"""
+    from tests.life.environment_inputs import copy_environment, replace_travel_methods, travel_method_row
+
+    return replace_travel_methods(copy_environment(tmp_path / "methods-input"),
+                                  [travel_method_row(*row) for row in methods], navigation)
+
+
+def _detail_item(result):
+    """环境复核出的唯一一条 detail 名称明细。"""
+    assert result.status == "rejected" and result.error_code == "ACTION_REQUEST_INVALID"
+    [item] = result.data["items"]
+    assert item["path"] == ["tool_calls", 0, "function", "arguments", "detail"]
+    return item
+
+
+def test_world_without_the_travel_method_file_offers_only_walking(engine_factory, tmp_path):
+    """没有 travel-method.jsonl 的环境包里每个目的地只有步行一行；写别的方式被拒并列出步行，引擎不替人物按步行走。"""
+    from tests.life.environment_inputs import copy_environment, walking_only
+
+    engine = engine_factory(walking_only(copy_environment(tmp_path / "walking-only")))
+    assert dict(engine.context.catalog.travel_methods) == {}
+    observed, refused = act(engine, "drive", travel("公司", "驾车"))
+    others = [row for row in observed["tool_layer"]["targets"] if row["kind"] == "location" and row["name"] != "家"]
+    assert len(others) == 7
+    for target in others:
+        assert [(row["action"], row["detail"], row["price"], row["quantity"], row["note"], row["available"])
+                for row in target["actions"]] == [("travel", "步行", "0 元", None, "费力", True)]
+    item = _detail_item(refused)
+    assert (item["error_code"], item["written"], item["allowed_values"]) == ("NAME_NOT_FOUND", "驾车", ["步行"])
+    assert item["why"] == "公司 offers no travel option named 驾车; changing spelling cannot create one."
+    assert not engine.context.state.activities and engine.context.state.agents[1].location_id == "home"
+    _, walked = act(engine, "walk", travel("公司", "步行"))
+    assert walked.status == "in_progress", walked.error_code
+    assert engine.context.state.activities[walked.activity_id].travel_method_id == "walking"
+
+
+def test_every_destination_lists_walking_first_then_dataset_methods_by_identity(engine_factory, tmp_path):
+    """每个目的地列出全部出行方式：步行在前，其余按出行方式身份升序；车费、按当刻天气的用时和轻松或费力
+    与受理结果同源，余额不够付车费的方式照样列出并标为不可用。"""
+    engine = engine_factory(_custom_world(tmp_path))
+    assert current_weather_factor(engine.context.state) == 0.85
+    observed, result = act(engine, "ride", travel("公司", "电动车"))
+    targets = [row for row in observed["tool_layer"]["targets"] if row["kind"] == "location" and row["name"] != "家"]
+    assert len(targets) == 7
+    for target in targets:
+        assert [(row["action"], row["detail"], row["quantity"]) for row in target["actions"]] == [
+            ("travel", name, None) for name in ("步行", "自行车", "缆车", "电动车", "火箭")]
+        assert [row["note"] for row in target["actions"]] == ["费力", "费力", "轻松", "轻松", "费力"]
+        assert [row["available"] for row in target["actions"]] == [True, True, True, True, False]
+        assert target["actions"][-1]["reason"] == FARE_REASON
+    assert {name: (row["price"], row["duration"]) for name, row in travel_rows(observed, "公司").items()} == {
+        "步行": ("0 元", "约 32 分钟"), "自行车": ("0 元", "约 9 分钟"), "缆车": ("3 元", "约 13 分钟"),
+        "电动车": ("1.57 元", "约 6 分钟"), "火箭": ("300000 元", "不到 1 分钟")}
+    binding = next(row for row in observed["catalog_bindings"] if row["object"] == "公司")
+    assert [(row["detail"], row["travel_method_id"]) for row in binding["actions"]] == [
+        ("步行", "walking"), ("自行车", "bike"), ("缆车", "cable"), ("电动车", "ebike"), ("火箭", "rocket")]
+    assert "travel_method_id" not in str(observed["tool_layer"])
+    # 受理的行程就是那一行的报价：1,957 米、每秒 6.5 米乘 0.85 是 355 秒，车费取 150 与 157 中较大的一个
+    assert result.status == "in_progress", result.error_code
+    trip = engine.context.state.activities[result.activity_id]
+    assert (trip.travel_method_id, trip.planned_duration_seconds, trip.data["exertion"]) == ("ebike", 355, "light")
+    assert trip.data["trip_id"] == "home->office:ebike" and trip.name.startswith("电动车前往公司（")
+    assert engine.context.state.accounts["agent:1"] == 200000 - 157
+
+
+def test_unaffordable_travel_method_is_refused_with_the_reason_shown_on_its_row(engine_factory, tmp_path):
+    """余额不够付车费的方式以工具层那一行写着的同一句原因拒绝；余额不动，也不改走别的方式。"""
+    engine = engine_factory(_custom_world(tmp_path))
+    observed, result = act(engine, "launch", travel("公司", "火箭"))
+    row = travel_rows(observed, "公司")["火箭"]
+    assert (row["available"], row["reason"]) == (False, FARE_REASON)
+    assert result.status == "rejected" and result.error_code == "INSUFFICIENT_TRAVEL_FUNDS"
+    assert result.message == FARE_REASON and result.data["fix"] is None and result.data["next_step"] is None
+    assert not engine.context.state.activities and engine.context.state.accounts["agent:1"] == 200000
+
+
+@pytest.mark.parametrize("written,candidates", [("骑车", []), ("电动", ["电动车"]), ("自行车出行", ["自行车"]),
+                                                ("walking", []), ("ebike", [])])
+def test_travel_detail_naming_no_method_is_corrected_with_copyable_calls_and_never_walks(
+        engine_factory, tmp_path, written, candidates):
+    """detail 写错或只写得接近：这次出行不开始，允许值是该目的地下全部出行方式名称（按行序），候选是可以照抄的
+    完整调用；出行方式的身份不是名称；引擎不默认步行，也不替人物换成相近的方式。"""
+    engine = engine_factory(_custom_world(tmp_path))
+    _, result = act(engine, "wrong", travel("公司", written))
+    item = _detail_item(result)
+    assert (item["error_code"], item["written"]) == ("NAME_NOT_FOUND", written)
+    assert item["allowed_values"] == ["步行", "自行车", "缆车", "电动车", "火箭"]
+    assert item["expected"] == "A detail name listed for this object and action is required."
+    assert item["why"] == f"公司 offers no travel option named {written}; changing spelling cannot create one."
+    assert [(row["tool"], row["arguments"]) for row in item["candidates"]] == [
+        ("start_main_activity", {"action": "travel", "target": "公司", "detail": name}) for name in candidates]
+    assert result.data["reason"] == item["why"]
+    assert not engine.context.state.activities and engine.context.state.accounts["agent:1"] == 200000
+    assert engine.context.state.agents[1].location_id == "home"
+
+
+def test_missing_travel_detail_is_refused_by_the_request_model_without_walking(engine_factory, tmp_path):
+    """detail 为 null：请求模型的交叉约束拒绝，到不了名称解析，没有允许值和候选；不按步行出发。"""
+    from worldmock.life.models import StartMainActivityRequest
+
+    engine = engine_factory(_custom_world(tmp_path))
+    request = StartMainActivityRequest.model_construct(action="travel", target="公司", detail=None)
+    _, result = act(engine, "no-detail", request)
+    item = _detail_item(result)
+    assert item["why"] == "detail is required when action is travel"
+    assert (item["written"], item["allowed_values"], item["candidates"]) == (None, [], [])
+    assert not engine.context.state.activities and engine.context.state.accounts["agent:1"] == 200000
+
+
+def test_travel_detail_resolves_through_lossless_normalisation_and_records_the_change(engine_factory, tmp_path):
+    """detail 先精确匹配，再按全半角、括号、空白的无损归一匹配，唯一才受理；写法实际变化时记入 details.resolved。"""
+    methods = [("car", "专车[A]", 7, 500, 200, "light"), ("ebike", "电动车", 6.5, 150, 80, "light")]
+    engine = engine_factory(_custom_world(tmp_path, methods, ("walking",)))
+    _, result = act(engine, "spaced", travel("公司", " 电 动 车 "))
+    assert result.status == "in_progress", result.error_code
+    assert result.data["resolved"] == [{"written": " 电 动 车 ", "as": "电动车"}]
+    assert engine.context.state.activities[result.activity_id].travel_method_id == "ebike"
+    exact = engine_factory(_custom_world(tmp_path / "exact", methods, ("walking",)))
+    _, plain = act(exact, "exact", travel("公司", "专车[A]"))
+    assert plain.status == "in_progress" and "resolved" not in plain.data
+    bracket = engine_factory(_custom_world(tmp_path / "bracket", methods, ("walking",)))
+    _, folded = act(bracket, "bracket", travel("公司", "专车【Ａ】"))
+    assert folded.status == "in_progress" and folded.data["resolved"] == [{"written": "专车【Ａ】", "as": "专车[A]"}]
+    assert bracket.context.state.activities[folded.activity_id].travel_method_id == "car"
+
+
+def test_travel_detail_matching_two_methods_after_normalisation_is_ambiguous(engine_factory, tmp_path):
+    """归一后对应两种出行方式：NAME_AMBIGUOUS，候选是这两种方式各自的完整调用；照写其中一个名称则受理。"""
+    methods = [("a", "专车[A]", 7, 500, 200, "light"), ("b", "专车【A】", 9, 900, 300, "light")]
+    engine = engine_factory(_custom_world(tmp_path, methods, ("walking",)))
+    _, result = act(engine, "ambiguous", travel("公司", "专车(A)"))
+    item = _detail_item(result)
+    assert (item["error_code"], item["allowed_values"]) == ("NAME_AMBIGUOUS", ["步行", "专车[A]", "专车【A】"])
+    assert item["expected"] == "One unambiguous complete detail name is required."
+    assert item["why"] == "The name 专车(A) identifies several options of 公司."
+    assert [row["arguments"]["detail"] for row in item["candidates"]] == ["专车[A]", "专车【A】"]
+    assert not engine.context.state.activities
+    _, exact = act(engine, "exact", travel("公司", "专车【A】"))
+    assert exact.status == "in_progress", exact.error_code
+    assert engine.context.state.activities[exact.activity_id].travel_method_id == "b"
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_departure_with_a_purchase_checks_the_balance_against_the_chosen_methods_fare(
+        engine_factory, tmp_path, reverse):
+    """出发与购买同轮：余额核对用所选出行方式的车费。余额正好够「货款加运费加缆车 3 元」时，缆车能走而贵一分的方式不能。"""
+    probe = engine_factory(_custom_world(tmp_path / "probe"))
+    _, total = quoted_basket(probe.context.inputs, probe.context.state, 1, ("online-notebook",))
+    methods = [*CUSTOM_METHODS[1:], ("dearer", "专线", 3, 301, 0, "idle")]
+
+    def budget(persona, config):
+        persona["initial_balance_fen"] = total + 300
+
+    engine = engine_factory(_custom_world(tmp_path / "world", methods), mutate=budget)
+    before = engine.context.state.model_copy(deep=True)
+    requests = [travel("公司", "专线"), purchase("平台笔记本")]
+    _, refused = act_group(engine, "dearer", *(reversed(requests) if reverse else requests))
+    assert [item.error_code for item in refused] == ["INSUFFICIENT_FUNDS", "INSUFFICIENT_FUNDS"]
+    _assert_rollback(engine, before)
+    departure, bought = _group(engine, "cable", "缆车", "平台笔记本", reverse)
+    assert departure.status == bought.status == "in_progress", (departure.error_code, bought.error_code)
+    assert engine.context.state.accounts["agent:1"] == total
+    assert engine.context.state.activities[departure.activity_id].travel_method_id == "cable"
+
+
+@pytest.mark.parametrize("methods", [CUSTOM_METHODS, [("driving", "驾车", 7, 500, 200, "light")], None],
+                         ids=["no-driving-method", "driving-method", "walking-only"])
+def test_delivery_trip_identity_ends_with_delivery_whatever_travel_methods_exist(engine_factory, tmp_path, methods):
+    """外卖商品履约记录的 trip_id 是「店铺->收货地:delivery」：后缀不是出行方式身份，
+    数据集有没有身份为 driving 的出行方式、甚至没有出行方式文件都一样。"""
+    from tests.life.environment_inputs import copy_environment, walking_only
+
+    root = (walking_only(copy_environment(tmp_path / "bare")) if methods is None
+            else _custom_world(tmp_path, methods, ("walking",)))
+    engine = engine_factory(root)
+    quote = quote_goods(engine.context.inputs, engine.context.state, 1, "lemon-tea")
+    assert (quote.fulfillment, quote.trip_id) == ("delivery", f"{quote.store_id}->home:delivery")
+    _, bought = act(engine, "tea", purchase("柠檬茶"))
+    assert bought.status == "in_progress", bought.error_code
+    [order] = engine.context.state.deliveries.values()
+    assert order.trip_id == f"{order.store_id}->home:delivery" and order.trip_id.endswith(":delivery")
+    assert [row["trip_id"] for row in bought.data["orders"]] == [order.trip_id]
+
+
+def test_accepted_trip_stays_frozen_through_a_weather_change_and_a_reopened_run(engine_factory, tmp_path):
+    """晴天 23:00 受理的 12,600 米步行冻结 10,500 秒；零点后变成雪天，行程不改写，新的报价按雪天算；
+    关掉运行再打开，冻结的行程按同一出行方式和原天气核对通过，仍在原定时刻到达。"""
+    import hashlib
+    from datetime import datetime
+
+    from tests.life.conftest import context
+    from tests.life.environment_runtime import settle_decision
+    from worldmock.exchange.constants import WEATHER_FACTORS
+    from worldmock.life.engine import LifeEngine
+    from worldmock.life.randomness import random_stream
+
+    def weather(seed, day):
+        state = hashlib.sha256(f"random:{seed}".encode()).hexdigest()
+        return random_stream(state, f"weather:{day}").choice(tuple(WEATHER_FACTORS))
+
+    seed = next(value for value in range(2000)
+                if (weather(value, "2026-01-05"), weather(value, "2026-01-06")) == ("sunny", "snow"))
+
+    def late(persona, config):
+        config["seed"] = seed
+        config["start_time"] = datetime.fromisoformat("2026-01-05T23:00:00+08:00")
+        config["stop_time"] = datetime.fromisoformat("2026-01-06T23:00:00+08:00")
+
+    engine = engine_factory(_declared_world(tmp_path, ("home", "office", 12600)), mutate=late)
+    observed, result = act(engine, "night-walk", travel("公司", "步行"))
+    assert travel_rows(observed, "公司")["步行"]["duration"] == "约 3 小时"
+    assert result.status == "in_progress", result.error_code
+    started = engine.context.state.activities[result.activity_id]
+    assert (started.planned_duration_seconds, started.data["weather_factor"]) == (10500, 1.0)
+    midnight = int(datetime.fromisoformat("2026-01-06T00:00:00+08:00").timestamp())
+    while engine.context.state.current_time <= midnight:
+        if engine.scheduling_state().ready_agent_ids:
+            settle_decision(engine, f"night-{engine.context.state.current_time}")
+        else:
+            advance_next(engine)
+    state = engine.context.state
+    assert midnight < state.current_time < started.planned_end_at
+    assert state.weather_by_date["2026-01-06"] == "snow" and current_weather_factor(state) == 0.6
+    frozen = state.activities[result.activity_id]
+    assert frozen.status == "active" and frozen.planned_end_at == started.planned_end_at
+    assert frozen.planned_duration_seconds == 10500 and frozen.data == started.data
+    # 零点之后的报价按雪天重算，已受理的行程不跟着变
+    _next_decision(engine)
+    quote = engine.observe(context(engine, "after-midnight"))
+    assert travel_rows(quote, "公司")["步行"]["duration"] == "约 5 小时"
+    before_close = engine.context.state.activities[result.activity_id]
+    inputs, run_dir = engine.context.inputs, engine.context.store.run_dir
+    engine.close()
+    reopened = LifeEngine.open(inputs, run_dir)
+    try:
+        assert reopened.context.state.activities[result.activity_id] == before_close
+        assert before_close.planned_end_at == started.planned_end_at
+        reach(reopened, started.planned_end_at)
+        final = reopened.context.state.activities[result.activity_id]
+        assert final.status == "completed" and final.ended_at - final.started_at == 10500
+        assert reopened.context.state.agents[1].location_id == "office"
+    finally:
+        reopened.close()
+
+
+def test_fixture_methods_over_the_declared_commute_on_a_sunny_day_read_as_documented(engine_factory, tmp_path):
+    """家到公司声明 12,600 米、晴：「公司」一行下依次是步行、公共交通、驾车、打车，车费、用时与轻松或费力
+    就是设计正文里的那张表；受理的驾车行程是 1,800 秒、2,520 分。"""
+    seed = _seed_with_weather("sunny")
+    engine = engine_factory(_declared_world(tmp_path, ("home", "office", 12600)),
+                            mutate=lambda persona, config: config.update(seed=seed))
+    observed, result = act(engine, "sunny-drive", travel("公司", "驾车"))
+    rows = [row for row in next(target for target in observed["tool_layer"]["targets"]
+                                if target["name"] == "公司")["actions"]]
+    assert [(row["action"], row["detail"], row["price"], row["duration"], row["quantity"], row["note"])
+            for row in rows] == [
+        ("travel", "步行", "0 元", "约 3 小时", None, "费力"), ("travel", "公共交通", "2 元", "约 42 分钟", None, "轻松"),
+        ("travel", "驾车", "25.2 元", "约 30 分钟", None, "轻松"), ("travel", "打车", "37.8 元", "约 30 分钟", None, "轻松")]
+    assert all(row["available"] is True and row["reason"] is None for row in rows)
+    assert result.status == "in_progress", result.error_code
+    trip = engine.context.state.activities[result.activity_id]
+    assert (trip.planned_duration_seconds, trip.data["trip_id"]) == (1800, "home->office:driving")
+    assert engine.context.state.accounts["agent:1"] == 200000 - 2520

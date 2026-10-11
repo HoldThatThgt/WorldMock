@@ -77,8 +77,8 @@ WorldMock 累计秒数必须与认证推进区间一致，暂停空档不能算�
 WorldMock 只接受当前认证导出；先校验全部事件前缀，再投影活动。
 包含退役活动种类时统一报 `Activity snapshot uses a retired activity kind`，
 其他不在当前闭集中的种类报 `Activity type is outside the current closed set`。
-公开动作类别直接取请求与活动的 `action`：购买、睡眠和 interact 取请求所写的动作；
-出行取活动记下的出行动作，被拒而没有活动的出行请求按所写的出行方式名称对应。不从内容标题反解。
+公开动作类别直接取请求与活动的 `action`：出行、购买、睡眠和 interact 都取请求所写的动作，出行一律是 `travel`。不从内容标题反解，也不读数据集的出行方式行。
+评估读取的活动导出行必备字段含 `travel_method_id`。
 外部适配保留其真实设备信息与原始事件来源，不补造 WorldMock 设备字段。
 
 <a name="evaluation-证据事件-publicevidence"></a>
@@ -86,8 +86,8 @@ WorldMock 只接受当前认证导出；先校验全部事件前缀，再投影�
 
 | 实际事实 | 公开证据 |
 | --- | --- |
-| 四种出行动作 | 实际动作、`travel`、真实 `trip_id` 对应的路线对象 |
-| 出行方式 | 步行与驾车保留，公共交通投影为 `transit`，打车投影为 `driving` |
+| 出行 | 动作 `travel`、真实 `trip_id` 对应的路线对象 |
+| 出行方式 | 只有自带的步行（`travel_method_id` 为 `walking`）输出 `travel_mode: walking`；数据集定义的方式一律不归类、不输出这个属性，身份恰为 `driving`、`bus`、`taxi` 的行也一样 |
 | 内容交互 | `interact` 与真实内容对象；消费与完成只取真实正向推进 |
 | 纯目录浏览 | `interact` 与实际应用对象，不伪造内容对象 |
 | 活动控制 | 报告、暂停、结束只取实际控制结果和状态 |
@@ -95,6 +95,8 @@ WorldMock 只接受当前认证导出；先校验全部事件前缀，再投影�
 | 付款 | 只认真实 `purchase_payment`；银行卡直付同样保留 |
 | 到站、送达与收货 | 真实订单、到站或收货事实，各自独立 |
 
+盲评的 `travel_mode` 公开闭集保持 `walking`、`driving`、`transit`，对照数据一侧的投影不变。
+这一栏仍要两边各至少有一次带方式的出行才显示；只用数据集方式出行的人物这一栏不会显示，盲评结论须注明它不反映数据集定义的出行方式。
 睡眠开始、系统足迹、消费推送、回调效果和余额提示不增加公开点事实。
 删除 WorldMock 通话、聊天、人物对象、邮件与工作指派映射；公开闭集不含 `call`、`chat`、`person`。
 `goods_category` 只允许商品目录的四类。

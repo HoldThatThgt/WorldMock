@@ -59,7 +59,7 @@ async def test_new_run_freezes_complete_inputs_and_mandatory_compiled_card(tmp_p
         assert manifest["model_metadata"] == frozen.model_metadata.model_dump(mode="json")
         assert set(manifest["environment_assets"]) == {"persona.toml", "config.toml", "catalog/manifest.json",
             "catalog/app-catalog.jsonl", "catalog/location.jsonl", "catalog/merchant-catalog.jsonl",
-            "catalog/content-catalog.jsonl", "map.json"}
+            "catalog/content-catalog.jsonl", "catalog/travel-method.jsonl", "map.json"}
         assert "scenario_sha256" not in manifest and "scenario_path" not in prepared.env_kwargs
         assert set(env.engine.context.state.agents) == {1}
         assert set(env.engine.context.state.accounts) == {"agent:1", "external:scenario"}

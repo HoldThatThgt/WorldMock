@@ -10,6 +10,7 @@ import pytest
 
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.frozen_inputs import FrozenInputs, assert_deeply_immutable, input_digest, object_digest
+from tests.life.environment_inputs import walking_only
 from worldmock.catalog.identity import refresh_manifest_identity
 from worldmock.catalog.mapgen import map_bytes
 from worldmock.errors import IntegrityError
@@ -26,7 +27,7 @@ def copied_environment(tmp_path):
 
 @pytest.mark.parametrize("relative", ["persona.toml", "config.toml", "catalog/manifest.json",
     "catalog/app-catalog.jsonl", "catalog/location.jsonl", "catalog/merchant-catalog.jsonl", "catalog/content-catalog.jsonl",
-    "catalog/callbacks.jsonl", "catalog/map.jsonl"])
+    "catalog/callbacks.jsonl", "catalog/map.jsonl", "catalog/travel-method.jsonl"])
 def test_cache_key_covers_every_actual_input_byte(copied_environment, relative):
     (copied_environment / "catalog/callbacks.jsonl").write_bytes(b"")
     (copied_environment / "catalog/map.jsonl").write_bytes(b"")
@@ -44,12 +45,17 @@ def test_cache_key_covers_names_and_file_set(copied_environment):
     assert len({before, added, input_digest(copied_environment)}) == 3
 
 
-@pytest.mark.parametrize("files", [{}, {"callbacks.jsonl": b""}, {"map.jsonl": b""},
-                                   {"callbacks.jsonl": b"", "map.jsonl": MAP_ROW}],
-                         ids=["required-only", "empty-callbacks", "empty-map", "both"])
+METHOD_ROW = ('{"exertion":"light","name":"骑车","price_per_km_fen":0,"speed_meters_per_second":4,'
+              '"start_price_fen":0,"travel_method_id":"bike"}\n').encode("utf-8")
+
+
+@pytest.mark.parametrize("files", [{}, {"callbacks.jsonl": b""}, {"map.jsonl": b""}, {"travel-method.jsonl": b""},
+                                   {"callbacks.jsonl": b"", "map.jsonl": MAP_ROW, "travel-method.jsonl": METHOD_ROW}],
+                         ids=["required-only", "empty-callbacks", "empty-map", "empty-methods", "all-three"])
 def test_new_run_freezes_exactly_the_listed_catalog_files_and_the_generated_map(
         copied_environment, engine_factory, files):
     """新建运行冻结的素材恰为两份 TOML、清单、清单登记的每个目录文件，加生成的 map.json。"""
+    walking_only(copied_environment)
     for name, content in files.items():
         (copied_environment / "catalog" / name).write_bytes(content)
     refresh_manifest_identity(copied_environment / "catalog")

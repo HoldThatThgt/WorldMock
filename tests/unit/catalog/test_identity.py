@@ -6,6 +6,7 @@ import shutil
 
 import pytest
 
+from tests.life.environment_inputs import walking_only
 from worldmock.catalog.errors import RegistrationError
 from worldmock.catalog.identity import (
     OPTIONAL_CATALOG_FILES, REQUIRED_CATALOG_FILES, compute_catalog_identity, refresh_manifest_identity,
@@ -47,12 +48,17 @@ def test_identity_is_independent_of_machine_directory(catalog_dir, tmp_path):
 
 
 def test_identity_frames_exactly_the_present_catalog_files(catalog_dir):
-    """没有可选文件时只有四帧加清单帧；放入一个可选文件后多一帧和一项文件表记录。"""
-    assert (catalog_dir / "manifest.json").exists() and not any(
-        (catalog_dir / name).exists() for name in OPTIONAL_CATALOG_FILES)
+    """夹具是四个必需文件加出行方式共五帧；没有可选文件时只有四帧加清单帧；放入一个可选文件后多一帧和一项文件表记录。"""
+    present = {name for name in OPTIONAL_CATALOG_FILES if (catalog_dir / name).exists()}
+    assert (catalog_dir / "manifest.json").exists() and present == {"travel-method.jsonl"}
+    files, digest = _framed_digest(catalog_dir, REQUIRED_CATALOG_FILES | present)
+    identity = compute_catalog_identity(catalog_dir)
+    assert len(files) == 5 and [entry.model_dump(mode="json") for entry in identity.files] == files
+    assert identity.catalog_content_sha256 == digest == _manifest(catalog_dir)["catalog_content_sha256"]
+    walking_only(catalog_dir.parent)
     files, digest = _framed_digest(catalog_dir, REQUIRED_CATALOG_FILES)
     identity = compute_catalog_identity(catalog_dir)
-    assert [entry.model_dump(mode="json") for entry in identity.files] == files
+    assert len(files) == 4 and [entry.model_dump(mode="json") for entry in identity.files] == files
     assert identity.catalog_content_sha256 == digest == _manifest(catalog_dir)["catalog_content_sha256"]
     (catalog_dir / "map.jsonl").write_bytes(MAP_ROW)
     files, digest = _framed_digest(catalog_dir, REQUIRED_CATALOG_FILES | {"map.jsonl"})
@@ -65,7 +71,8 @@ def test_identity_frames_exactly_the_present_catalog_files(catalog_dir):
 
 @pytest.mark.parametrize("name", sorted(OPTIONAL_CATALOG_FILES))
 def test_absent_and_empty_optional_file_load_the_same_world_under_different_identity(catalog_dir, tmp_path, name):
-    """不放与放一个零字节文件：文件表和摘要不同，登记出的对象、回调和地图相同。"""
+    """不放与放一个零字节文件：文件表和摘要不同，登记出的对象、回调、出行方式和地图相同。"""
+    walking_only(catalog_dir.parent)
     with_empty = tmp_path / "with-empty"
     shutil.copytree(catalog_dir, with_empty)
     (with_empty / name).write_bytes(b"")
@@ -76,9 +83,11 @@ def test_absent_and_empty_optional_file_load_the_same_world_under_different_iden
     assert name not in [entry.path for entry in absent.manifest.files]
     assert len(empty.manifest.files) == len(absent.manifest.files) + 1
     assert empty.manifest.catalog_content_sha256 != absent.manifest.catalog_content_sha256
-    for field in ("apps", "locations", "goods", "contents", "callback_states", "callback_rules"):
+    for field in ("apps", "locations", "goods", "contents", "callback_states", "callback_rules", "travel_methods",
+                  "apps_by_travel_method"):
         assert dict(getattr(empty, field)) == dict(getattr(absent, field))
-    assert empty.callback_states == {} and empty.callback_rules == {}
+    assert empty.callback_states == {} and empty.callback_rules == {} and empty.travel_methods == {}
+    assert dict(empty.apps_by_travel_method) == {"walking": ("amap",)}
     assert (empty.map_data, empty.map_sha256) == (absent.map_data, absent.map_sha256)
 
 
@@ -91,7 +100,7 @@ def test_refresh_registers_new_optional_files_and_removes_deleted_ones(catalog_d
     registered = _manifest(catalog_dir)
     assert [entry["path"] for entry in registered["files"]] == [
         "app-catalog.jsonl", "callbacks.jsonl", "content-catalog.jsonl", "location.jsonl", "map.jsonl",
-        "merchant-catalog.jsonl"]
+        "merchant-catalog.jsonl", "travel-method.jsonl"]
     assert (catalog_dir / "manifest.json").read_bytes() == canonical_json(registered) + b"\n"
     assert load_catalog(catalog_dir, 7).shortest_m("home", "office") == 12600
     (catalog_dir / "map.jsonl").unlink()

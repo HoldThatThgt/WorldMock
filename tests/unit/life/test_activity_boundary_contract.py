@@ -11,7 +11,6 @@ from worldmock.life.activities import (
 from worldmock.life.body import BodySettlement
 from worldmock.life.models import (
     ActionReceipt, ActivityChange, ActivityStatus, ChangeActivityRequest, PendingAction, SameMomentStage, StoredAction,
-    TravelMode,
 )
 
 MAIN_TOOL, SIDE_TOOL = "start_main_activity", "start_side_activity"
@@ -19,8 +18,8 @@ MAIN_TOOL, SIDE_TOOL = "start_main_activity", "start_side_activity"
 
 def _activity(engine, action="interact"):
     data = {"exertion": "idle"} if action == "interact" else {}
-    params = (ActivityStartParams(action, 600, "office", TravelMode.WALKING, data)
-              if action == "walk" else ActivityStartParams(action, 600, data=data))
+    params = (ActivityStartParams(action, 600, "office", "walking", {"exertion": "walking"})
+              if action == "travel" else ActivityStartParams(action, 600, data=data))
     return create_activity(engine.context.state.agents[1], params,
         engine.context.state.current_time, ActivityOrigin("origin", "decision", "request"), engine.context.body)[1]
 
@@ -91,7 +90,7 @@ def test_slot_feedback_describes_real_occupants_and_distinguishes_pauseability(e
     engine = engine_factory()
     state = engine.context.state.model_copy(deep=True)
     app = _activity(engine).model_copy(update={"name": "内容活动"})
-    travel = _activity(engine, "walk").model_copy(update={"activity_id": "travel", "name": "步行"})
+    travel = _activity(engine, "travel").model_copy(update={"activity_id": "travel", "name": "步行"})
     state.activities = {app.activity_id: app}
     one = activity_control.slot_refusal(state, 1, 2, {})
     assert one.code == "SESSION_LIMIT_EXCEEDED" and "Only one" in one.reason
@@ -198,14 +197,14 @@ def test_malformed_wire_mutation_is_rejected_without_partial_dispatch(engine_fac
 
 @pytest.mark.parametrize("action,seconds,accepted", [
     ("interact", 1, True), ("interact", 30, True), ("interact", 0, False),
-    ("sleep", 59, False), ("sleep", 60, True), ("purchase", 59, False), ("walk", 1, True), ("walk", 0, False)])
+    ("sleep", 59, False), ("sleep", 60, True), ("purchase", 59, False), ("travel", 1, True), ("travel", 0, False)])
 def test_shortest_planned_duration_depends_on_how_the_duration_is_derived(engine_factory, action, seconds, accepted):
     """出行与内容活动的时长由路线、内容时长与共享进度派生，至少一秒即可开始（没做完的内容只剩几十秒时照样接着做）；
     睡眠与购买至少一分钟。"""
     engine = engine_factory()
     data = {"exertion": "idle"} if action == "interact" else {}
-    params = (ActivityStartParams(action, seconds, "office", TravelMode.WALKING, data) if action == "walk"
-              else ActivityStartParams(action, seconds, data=data))
+    params = (ActivityStartParams(action, seconds, "office", "walking", {"exertion": "walking"})
+              if action == "travel" else ActivityStartParams(action, seconds, data=data))
     arguments = (engine.context.state.agents[1], params, engine.context.state.current_time,
                  ActivityOrigin("origin", "decision", "request"), engine.context.body)
     if accepted:

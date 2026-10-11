@@ -1,15 +1,14 @@
 """@brief 由规则版本绑定的固定仿真常数。"""
 
-from decimal import Decimal
 from types import MappingProxyType
 
 
 
 RULES_VERSION = 4
+#: 引擎自带的步行：保留的身份与名称，数据集的出行方式行不得使用；其余出行方式的数值都来自数据集。
+WALKING_TRAVEL_METHOD_ID = "walking"
+WALKING_TRAVEL_METHOD_NAME = "步行"
 WALKING_METERS_PER_SECOND = 1.2
-DRIVING_METERS_PER_SECOND = 7.0
-DRIVING_FARE_MINIMUM_FEN = 500
-DRIVING_FARE_FEN_PER_METER = Decimal("0.2")
 DELIVERY_METERS_PER_SECOND = 5.0
 DELIVERY_PREP_SECONDS = 600
 DELIVERY_FEE_FEN = 500

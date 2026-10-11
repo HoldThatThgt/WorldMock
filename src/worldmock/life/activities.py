@@ -10,7 +10,7 @@ from worldmock.life.action_contract import activity_slot
 from worldmock.life.body import ActivityFactors, BodySettlement
 from worldmock.life.body_config import BodyConfig
 from worldmock.life.models import (
-    ActivityChange, ActivityKind, ActivityState, ActivityStatus, AgentState, ChangeActivityRequest, TravelMode,
+    ActivityChange, ActivityKind, ActivityState, ActivityStatus, AgentState, ChangeActivityRequest,
 )
 
 
@@ -18,14 +18,14 @@ from worldmock.life.models import (
 class ActivityStartParams:
     """@brief 引擎由已准入的对象生成的参数，不向人物暴露。"""
 
-    #: 活动 data.action 记下的动作：出行为四个出行动作之一，其余为动作本身。
+    #: 活动 data.action 记下的动作，四个生活动作之一。
     action: str
     #: 引擎已经确定的实际计划时长。
     planned_duration_seconds: int
     #: 出行目的地点身份。
     destination_id: str | None = None
-    #: 出行方式的冻结值。
-    travel_mode: TravelMode | None = None
+    #: 出行所用出行方式的身份，受理时冻结；其他活动为空。
+    travel_method_id: str | None = None
     #: 已确定的对象、内容或报价事实。
     data: dict = field(default_factory=dict)
 
@@ -59,19 +59,17 @@ class ActivityOrigin:
 def start_activity(agent: AgentState, request: ActivityStartParams, now: int,
                    origin: ActivityOrigin, config: BodyConfig) -> tuple[AgentState, ActivityState]:
     """@brief 按已派生时长开始一项活动；一条动作只开始一项活动，槽位由动作与所用内容 app 给出。"""
-    travel = request.travel_mode is not None
     # 出行与内容活动的时长由路线、登记的内容时长和共享进度派生，没做完的内容只剩几十秒时照样能接着做。
-    derived = travel or request.action == "interact"
+    derived = request.action in ("travel", "interact")
     if request.planned_duration_seconds < (1 if derived else 60):
         logging.error("Activity duration is too short")
         raise BusinessRuleError("ACTIVITY_TOO_SHORT")
-    kind = ActivityKind.TRAVEL if travel else ActivityKind(request.action)
     activity = ActivityState(
         activity_id=f"activity-{origin.action_id}", agent_id=agent.agent_id,
-        location_id=agent.location_id, kind=kind, status=ActivityStatus.ACTIVE,
+        location_id=agent.location_id, kind=ActivityKind(request.action), status=ActivityStatus.ACTIVE,
         started_at=now, planned_end_at=now + request.planned_duration_seconds, last_settled_at=now,
         elapsed_seconds=0, planned_duration_seconds=request.planned_duration_seconds,
-        destination_id=request.destination_id, travel_mode=request.travel_mode,
+        destination_id=request.destination_id, travel_method_id=request.travel_method_id,
         resource_claims={activity_slot(request.action, request.data.get("app_id"))},
         origin_action_id=origin.action_id,
         origin_decision_id=origin.decision_id, origin_request_event_id=origin.request_event_id,
@@ -152,8 +150,9 @@ def shared_activity_factors(activity: ActivityState, agent: AgentState, config: 
 
 
 def activity_factors(activity: ActivityState, agent: AgentState, config: BodyConfig) -> ActivityFactors:
-    """@brief 只读取固定动作和真实内容声明，不从标题推断效果。"""
-    key = activity.data["exertion"] if activity.kind == ActivityKind.INTERACT else activity.data["action"]
+    """@brief 出行与 interact 读受理时写下的代谢当量键，其余读动作；不从标题推断效果。"""
+    graded = activity.kind in (ActivityKind.INTERACT, ActivityKind.TRAVEL)
+    key = activity.data["exertion"] if graded else activity.data["action"]
     return ActivityFactors(config.activity_met[key], activity.data.get("relaxation_relief_per_hour", 0.0),
                            activity.data.get("social_relief_per_hour", 0.0))
 

@@ -35,7 +35,8 @@ async def test_native_environment_manifest_contains_full_declared_service_identi
         manifest = env.engine.context.store.manifest
         assert manifest["schema_version"] == 5
         listed = [entry.path for entry in frozen.catalog.manifest.files]
-        assert listed == ["app-catalog.jsonl", "content-catalog.jsonl", "location.jsonl", "merchant-catalog.jsonl"]
+        assert listed == ["app-catalog.jsonl", "content-catalog.jsonl", "location.jsonl", "merchant-catalog.jsonl",
+                          "travel-method.jsonl"]
         assert set(manifest["environment_assets"]) == {
             "persona.toml", "config.toml", "catalog/manifest.json", "map.json", *(f"catalog/{name}" for name in listed)}
         assert manifest["environment_identity"] == {

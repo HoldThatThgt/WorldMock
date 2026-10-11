@@ -127,7 +127,7 @@ def test_running_location_interaction_blocks_every_first_slot_start(call):
 
 
 def test_running_travel_blocks_a_first_slot_start_and_cannot_be_paused():
-    state = occupied(running("walk", ActivityKind.TRAVEL, "first"))
+    state = occupied(running("travel", ActivityKind.TRAVEL, "first"))
     assert refusal(state, [place_call()]) == Blocked(conflict("first", "Conclude"), (MAIN_TOOL,))
 
 

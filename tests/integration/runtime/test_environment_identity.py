@@ -73,18 +73,33 @@ CALLBACK_ROWS = (
     b'{"effect":{"amount_fen":100,"direction":"income","type":"transfer"},"rule_id":"hourly-income",'
     b'"trigger":{"class":"time","key":"hourly"}}\n')
 MAP_ROW = b'{"a":"home","b":"office","length_m":12600}\n'
+METHODS = "travel-method.jsonl"
 
 
 def _environment(root, files):
-    """夹具副本里的可选文件恰为给定的这些，清单按生产发布入口刷新。"""
+    """夹具副本里的回调与距离声明恰为给定的这些，清单按生产发布入口刷新。
+
+    出行方式文件缺省保留夹具的三行；files 里把它写成 None 表示不放、写成字节表示换成这些字节。
+    不放或放零行时夹具的三种方式都没有登记，导航 app 改为只绑定自带的步行。
+    """
+    from tests.life.environment_inputs import catalog_rows, write_catalog_rows
     from worldmock.catalog.identity import refresh_manifest_identity
 
     if not root.exists():
         shutil.copytree(inputs().root, root)
+    for name in (METHODS, "app-catalog.jsonl"):
+        shutil.copyfile(inputs().root / "catalog" / name, root / "catalog" / name)
     for name in ("callbacks.jsonl", "map.jsonl"):
         (root / "catalog" / name).unlink(missing_ok=True)
     for name, content in files.items():
-        (root / "catalog" / name).write_bytes(content)
+        if content is None:
+            (root / "catalog" / name).unlink()
+        else:
+            (root / "catalog" / name).write_bytes(content)
+    if not files.get(METHODS, True):
+        rows = catalog_rows(root, "app-catalog.jsonl")
+        next(row for row in rows if row["app_id"] == "amap")["travel_method_ids"] = ["walking"]
+        write_catalog_rows(root, "app-catalog.jsonl", rows)
     refresh_manifest_identity(root / "catalog")
     return root
 
@@ -101,10 +116,10 @@ def test_parent_run_published_under_another_environment_identity_cannot_be_opene
         require_environment_identity(manifest, engine.context.inputs)
 
 
-@pytest.mark.parametrize("files", [{}, {"callbacks.jsonl": CALLBACK_ROWS}, {"map.jsonl": MAP_ROW},
+@pytest.mark.parametrize("files", [{METHODS: None}, {}, {"callbacks.jsonl": CALLBACK_ROWS}, {"map.jsonl": MAP_ROW},
                                    {"callbacks.jsonl": CALLBACK_ROWS, "map.jsonl": MAP_ROW},
-                                   {"callbacks.jsonl": b"", "map.jsonl": b""}],
-                         ids=["required-only", "callbacks", "map", "both", "both-empty"])
+                                   {"callbacks.jsonl": b"", "map.jsonl": b"", METHODS: b""}],
+                         ids=["required-only", "fixture-methods", "callbacks", "map", "all-three", "all-three-empty"])
 def test_complete_run_with_any_optional_files_passes_export_certification(engine_factory, tmp_path, files):
     """带与不带各可选文件的运行都走完新建、检查点和导出，冻结素材跟随清单并通过导出自查。"""
     from tests.footprints.recording import recorded_engine
@@ -116,10 +131,13 @@ def test_complete_run_with_any_optional_files_passes_export_certification(engine
     export_run(engine.context.store, point.last_event_seq, tmp_path / "export")
     manifest, events, _ = validate_export(tmp_path / "export")
     frozen = manifest["frozen_run_manifest"]
+    present = {name for name, content in {METHODS: b"fixture", **files}.items() if content is not None}
     assert set(frozen["environment_assets"]) == {
         "persona.toml", "config.toml", "map.json", "catalog/manifest.json", "catalog/app-catalog.jsonl",
         "catalog/content-catalog.jsonl", "catalog/location.jsonl", "catalog/merchant-catalog.jsonl",
-    } | {f"catalog/{name}" for name in files}
+    } | {f"catalog/{name}" for name in present}
+    assert set(engine.context.catalog.travel_methods) == (
+        {"bus", "driving", "taxi"} if files.get(METHODS, True) else set())
     assert frozen["environment_identity"] == environment_identity(engine.context.inputs)
     effects = [row for row in events if row["data"].get("kind") == "callback_effect"]
     assert bool(effects) == (files.get("callbacks.jsonl") == CALLBACK_ROWS)
@@ -133,9 +151,21 @@ def test_complete_run_with_any_optional_files_passes_export_certification(engine
     ({"callbacks.jsonl": b""}, {"callbacks.jsonl": CALLBACK_ROWS}),
     ({"map.jsonl": MAP_ROW}, {"map.jsonl": MAP_ROW.replace(b"12600", b"12601")}),
     ({"map.jsonl": MAP_ROW}, {"map.jsonl": MAP_ROW.replace(b":12600", b": 12600")}),
+    ({METHODS: None}, {METHODS: b""}),
+    ({METHODS: b""}, {METHODS: None}),
+    ({}, {METHODS: None}),
+    ({}, {METHODS: "price"}),
+    ({}, {METHODS: "whitespace"}),
 ], ids=["add-empty-callbacks", "add-empty-map", "remove-callbacks", "remove-map", "change-callbacks",
-        "change-distance", "change-map-whitespace"])
+        "change-distance", "change-map-whitespace", "add-empty-methods", "remove-empty-methods", "remove-methods",
+        "change-method-price", "change-method-whitespace"])
 def test_adding_removing_or_changing_an_optional_file_refuses_the_old_run(engine_factory, tmp_path, before, after):
+    fixture = (inputs().root / "catalog" / METHODS).read_bytes()
+    changed_rows = {"price": fixture.replace(b'"start_price_fen":500', b'"start_price_fen":501'),
+                    "whitespace": fixture.replace(b'"travel_method_id":"taxi"', b'"travel_method_id": "taxi"')}
+    if after.get(METHODS) in changed_rows:
+        after = {METHODS: changed_rows[after[METHODS]]}
+        assert after[METHODS] != fixture and len(after[METHODS].splitlines()) == 3
     root = _environment(tmp_path / "input", before)
     engine = engine_factory(root)
     run_dir, original = engine.context.store.run_dir, engine.context.store.state

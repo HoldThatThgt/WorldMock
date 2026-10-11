@@ -83,10 +83,10 @@ class _Events:
         """一次出行，分成两个进度区间；到达时最后一个快照的 data.arrival 写到达处。返回（首个，最后一个）进度事件。"""
         origin, destination = route
         snapshot = {"activity_id": f"trip-{agent_id}-{len(self.rows)}", "kind": "travel", "started_at": start,
-                    "location_id": origin, "destination_id": destination, "data": {"action": "walk"}}
+                    "location_id": origin, "destination_id": destination, "data": {"action": "travel"}}
         middle = (start + end) // 2
         first = self.progress(agent_id, (start, middle), snapshot)
-        last_snapshot = dict(snapshot, data={"action": "walk", **({"arrival": {"location_id": destination}} if arrived else {})})
+        last_snapshot = dict(snapshot, data={"action": "travel", **({"arrival": {"location_id": destination}} if arrived else {})})
         return first, self.progress(agent_id, (middle, end), last_snapshot)
 
     def work(self, agent_id, start, end):

@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from tests.life.environment_inputs import catalog_rows, travel_method_row, walking_only, write_catalog_rows
 from tests.system.cli.test_cli import _command, published_environment
 from worldmock.catalog.identity import refresh_manifest_identity
 
@@ -183,17 +184,28 @@ def catalog_error(root, code):
     return rows[0]
 
 
-@pytest.mark.parametrize("files", [{}, {"callbacks.jsonl": b"", "map.jsonl": b""},
-                                   {"callbacks.jsonl": CALLBACK_ROW, "map.jsonl": MAP_ROW}],
-                         ids=["four-required-files", "empty-optional-files", "all-catalog-files"])
+METHOD_ROW = ('{"exertion":"light","name":"骑车","price_per_km_fen":0,"speed_meters_per_second":4,'
+              '"start_price_fen":0,"travel_method_id":"bike"}\n').encode("utf-8")
+
+
+@pytest.mark.parametrize("files", [
+    {}, {"callbacks.jsonl": b"", "map.jsonl": b"", "travel-method.jsonl": b""},
+    {"callbacks.jsonl": CALLBACK_ROW, "map.jsonl": MAP_ROW, "travel-method.jsonl": METHOD_ROW}],
+    ids=["four-required-files", "empty-optional-files", "all-seven-catalog-files"])
 def test_package_with_or_without_optional_catalog_files_is_valid(published_environment, files):
-    """@brief 没有 callbacks.jsonl 的夹具通过；两个可选文件放空或放内容并刷新清单后同样通过。"""
+    """@brief 夹具是清单加五个文件；只有四个必需文件的环境包通过，三个可选文件放空或放内容并刷新清单后同样通过。"""
     catalog = published_environment / "catalog"
     assert sorted(path.name for path in catalog.iterdir()) == [
-        "app-catalog.jsonl", "content-catalog.jsonl", "location.jsonl", "manifest.json", "merchant-catalog.jsonl"]
+        "app-catalog.jsonl", "content-catalog.jsonl", "location.jsonl", "manifest.json", "merchant-catalog.jsonl",
+        "travel-method.jsonl"]
+    assert accepted(published_environment)["valid"] is True
+    walking_only(published_environment)
     for name, content in files.items():
         (catalog / name).write_bytes(content)
     refresh_manifest_identity(catalog)
+    assert sorted(path.name for path in catalog.iterdir()) == sorted([
+        "app-catalog.jsonl", "content-catalog.jsonl", "location.jsonl", "manifest.json", "merchant-catalog.jsonl",
+        *files])
     assert accepted(published_environment) == {"valid": True, "environment_id": "artificial-test",
                                               "environment_version": "3"}
 
@@ -218,7 +230,7 @@ def test_previous_manifest_format_is_refused_after_the_rules_version_matches(pub
     assert error["reason"].startswith("A declared kind is outside the fixed set. ") and "format_version" in error["reason"]
 
 
-@pytest.mark.parametrize("name", ["travel-method.jsonl", "travel_method.jsonl", "callback.jsonl", "map.json"])
+@pytest.mark.parametrize("name", ["travel-methods.jsonl", "travel_method.jsonl", "callback.jsonl", "map.json"])
 def test_catalog_entry_outside_the_closed_set_reports_its_actual_path(published_environment, name):
     """@brief 闭集外的文件名报 ENVIRONMENT_STALE_FILE，reason 带着实际路径。"""
     extra = published_environment / "catalog" / name
@@ -227,13 +239,101 @@ def test_catalog_entry_outside_the_closed_set_reports_its_actual_path(published_
     assert error["reason"] == f"The environment contains an entry outside its declared package. {extra}"
 
 
-@pytest.mark.parametrize("name", ["callbacks.jsonl", "map.jsonl"])
+@pytest.mark.parametrize("name", ["callbacks.jsonl", "map.jsonl", "travel-method.jsonl"])
 def test_optional_file_placed_without_refreshing_the_manifest_reports_its_name(published_environment, name):
+    walking_only(published_environment)
     (published_environment / "catalog" / name).write_bytes(b"")
     error = catalog_error(published_environment, "ENVIRONMENT_FILE_UNLISTED")
     assert error["reason"] == f"The manifest does not list a catalog file that is required or present. {name}"
     refresh_manifest_identity(published_environment / "catalog")
     assert accepted(published_environment)["valid"] is True
+
+
+@pytest.mark.parametrize("rows,code,reason", [
+    ([travel_method_row("bike", "骑车", 4), travel_method_row("car", " 骑 车 ", 9)], "ENVIRONMENT_ID_DUPLICATE",
+     "An identifier or display name is declared twice in one catalog file. "
+     "travel-method.jsonl:1 and travel-method.jsonl:2 share the name 骑车."),
+    ([travel_method_row("bike", "步行", 4)], "ENVIRONMENT_ID_DUPLICATE",
+     "An identifier or display name is declared twice in one catalog file. "
+     "travel-method.jsonl:1 uses the built-in name 步行."),
+    ([travel_method_row("bike", "骑车", 4), travel_method_row("walking", "散步", 1)], "ENVIRONMENT_ID_DUPLICATE",
+     "An identifier or display name is declared twice in one catalog file. "
+     "travel-method.jsonl:2 uses the reserved identity walking."),
+    ([travel_method_row("bike", "骑车", 4), travel_method_row("bike", "单车", 5)], "ENVIRONMENT_ID_DUPLICATE",
+     "An identifier or display name is declared twice in one catalog file. "
+     "travel-method.jsonl:1 and travel-method.jsonl:2 share the identity bike."),
+    ([travel_method_row("car", "开车", 9), travel_method_row("bike", "骑车", 4)], "ENVIRONMENT_KIND_INVALID",
+     "A declared kind is outside the fixed set. "
+     "travel-method.jsonl:2 Travel method rows must be sorted by travel_method_id."),
+])
+def test_travel_method_registration_failures_report_their_lines(published_environment, rows, code, reason):
+    """@brief 出行方式重名、使用自带名称或保留身份、身份重复、未排序：validate 非零退出，只报这一条，reason 带行号。"""
+    walking_only(published_environment)
+    write_catalog_rows(published_environment, "travel-method.jsonl", rows)
+    assert report(published_environment) == [{"path": "catalog", "code": code, "reason": reason}]
+
+
+def test_travel_method_row_number_error_reports_its_line(published_environment):
+    """@brief 速度不大于 0 的出行方式行：数值登记码，reason 以固定原因后接文件名和行号开头。"""
+    walking_only(published_environment)
+    write_catalog_rows(published_environment, "travel-method.jsonl", [
+        travel_method_row("bike", "骑车", 4), travel_method_row("car", "开车", 0)])
+    error = catalog_error(published_environment, "ENVIRONMENT_NUMBER_INVALID")
+    assert error["reason"].startswith("A declared number is outside its allowed domain. travel-method.jsonl:2 ")
+    assert "speed_meters_per_second must be greater than 0." in error["reason"]
+
+
+def test_function_app_referring_to_an_unregistered_travel_method_reports_its_line(published_environment):
+    """@brief 删掉出行方式文件后，高德地图仍绑定夹具的三种方式：报未登记引用，reason 指出 app 行号与第一个身份。"""
+    (published_environment / "catalog/travel-method.jsonl").unlink()
+    refresh_manifest_identity(published_environment / "catalog")
+    assert report(published_environment) == [{
+        "path": "catalog", "code": "ENVIRONMENT_REF_UNKNOWN",
+        "reason": "A binding refers to an object that is not registered. "
+                  "app-catalog.jsonl:2 Unknown travel_method_id: bus."}]
+
+
+@pytest.mark.parametrize("trigger,code,reason", [
+    ({"class": "action", "key": "travel", "travel_method_id": "boat"}, "ENVIRONMENT_REF_UNKNOWN",
+     "A binding refers to an object that is not registered. callbacks.jsonl:2 Unknown travel_method_id: boat."),
+    ({"class": "action", "key": "drive"}, "ENVIRONMENT_KIND_INVALID", None),
+    ({"class": "action", "key": "travel"}, "ENVIRONMENT_KIND_INVALID", None),
+])
+def test_callback_travel_trigger_failures_report_their_lines(published_environment, trigger, code, reason):
+    """@brief 回调的出行触发指向未登记的出行方式、写旧出行动作名或不带出行方式：各报规定的登记码，reason 带行号。"""
+    write_catalog_rows(published_environment, "callbacks.jsonl", [
+        {"state": "stock", "initial": 1, "cap": 3, "reset_on_goods": []},
+        {"rule_id": "rule", "trigger": trigger, "effect": {"type": "state_delta", "state": "stock", "delta": -1}}])
+    error = catalog_error(published_environment, code)
+    if reason is None:
+        assert error["reason"].startswith("A declared kind is outside the fixed set. callbacks.jsonl:2 ")
+    else:
+        assert error["reason"] == reason
+
+
+def test_function_app_binding_a_retired_travel_action_is_refused(published_environment):
+    """@brief 功能 app 的 actions 里写旧出行动作名：版本号正确不构成放行，报种类错误并指出 app 行号。"""
+    rows = catalog_rows(published_environment, "app-catalog.jsonl")
+    amap = next(row for row in rows if row["app_id"] == "amap")
+    amap.pop("travel_method_ids")
+    amap["actions"] = ["drive", "take_bus", "take_taxi", "walk"]
+    write_catalog_rows(published_environment, "app-catalog.jsonl", rows)
+    error = catalog_error(published_environment, "ENVIRONMENT_KIND_INVALID")
+    assert error["reason"].startswith("A declared kind is outside the fixed set. app-catalog.jsonl:2 ")
+
+
+def test_dataset_method_slower_than_walking_tightens_the_day_limit(published_environment):
+    """@brief 数据集定义了每秒 0.5 米的方式：家到公司声明 30,000 米时步行走得到而它走不到，validate 报最远的一对。"""
+    write_catalog_rows(published_environment, "travel-method.jsonl", [travel_method_row("crawl", "挪步", 0.5)])
+    rows = catalog_rows(published_environment, "app-catalog.jsonl")
+    next(row for row in rows if row["app_id"] == "amap")["travel_method_ids"] = ["crawl", "walking"]
+    write_catalog_rows(published_environment, "app-catalog.jsonl", rows)
+    (published_environment / "catalog/map.jsonl").write_bytes(MAP_ROW.replace(b"12600", b"30000"))
+    refresh_manifest_identity(published_environment / "catalog")
+    error = catalog_error(published_environment, "MAP_ROUTE_TOO_LONG")
+    assert error["reason"].startswith(
+        "Two places are farther apart than the slowest travel method can cover in one day in the worst weather. ")
+    assert " s at 0.5 m/s in the worst weather; the limit is 86400 s." in error["reason"]
 
 
 def test_contradicting_declared_distances_report_the_shorter_route(published_environment):

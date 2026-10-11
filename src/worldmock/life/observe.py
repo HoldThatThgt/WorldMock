@@ -6,8 +6,7 @@ from dataclasses import replace
 from worldmock.footprints.experiences import recent_verified_experiences
 from worldmock.life import activity_control, admission, callable_index, discovery, errands, felt, memory_layer
 from worldmock.life import progress_layer, projection, rotation, sessions
-from worldmock.life.action_contract import (ACTIVITY_ACTIONS, TRAVEL_ACTION_MODES, TRAVEL_ACTION_NAMES,
-                                             TRAVEL_ACTIONS, binding_action)
+from worldmock.life.action_contract import ACTIVITY_ACTIONS, binding_action
 from worldmock.life.location_activities import location_units, unit_binding
 from worldmock.life.presentation import subtype_of, tiebreak_digest
 from worldmock.life.environment_layer import environment_layer
@@ -15,6 +14,7 @@ from worldmock.life.models import ActivityStatus, SameMomentPresentation
 from worldmock.life.sleep import ended_sleep_at
 from worldmock.life.todo_layer import todo_layer, visible_goals
 from worldmock.life.tool_layer import LayerContext, annotated_bindings, tool_layer, with_bindings
+from worldmock.life.travel_methods import travel_methods
 from worldmock.life.world_query import attach_world_query
 
 
@@ -60,16 +60,17 @@ class ObservationBuilder:
         return len(self.context.catalog.locations)
 
     def _catalog_bindings(self, agent) -> list[dict]:
-        """@brief 地点全量绑定与内容 app：别处的地点只有出行各方式的动作行；人物停留的地点逐单元列出能点名的事，
-        标了可睡时再列睡眠；人在路上时不列任何地点的做事与睡眠。"""
+        """@brief 地点全量绑定与内容 app：别处的地点每种出行方式一条动作行（步行在前，其余按身份升序）；
+        人物停留的地点逐单元列出能点名的事，标了可睡时再列睡眠；人在路上时不列任何地点的做事与睡眠。"""
         locations = sorted(self.context.catalog.locations.values(), key=lambda row: row.location_id)
         locations.sort(key=lambda row: row.location_id == agent.location_id)
         stay = admission.present_location(self.context.state, agent.agent_id)
+        travel = [{**binding_action("travel", method.name), "travel_method_id": method.travel_method_id}
+                  for method in travel_methods(self.context.catalog)]
         result = []
         for location in locations:
             if location.location_id != agent.location_id:
-                actions = [{**binding_action("travel", TRAVEL_ACTION_NAMES[action]),
-                            "travel_method_id": TRAVEL_ACTION_MODES[action]} for action in TRAVEL_ACTIONS]
+                actions = [dict(row) for row in travel]
             elif location.location_id == stay:
                 actions = [unit_binding(unit) for unit in location_units(self.context.catalog, location.kind)]
                 actions.extend([binding_action("sleep")] if location.sleepable else [])

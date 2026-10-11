@@ -26,7 +26,7 @@ from worldmock.run_setup import stage_model_identity
 
 def _callback_rows():
     return [{"state": "driving_days", "initial": 2, "cap": 3, "reset_on_goods": ["tissue"]},
-        {"rule_id": "driving", "trigger": {"class": "action", "key": "drive"},
+        {"rule_id": "driving", "trigger": {"class": "action", "key": "travel", "travel_method_id": "driving"},
          "effect": {"type": "state_delta", "state": "driving_days", "delta": -1, "once_per": "local_day"}},
         {"rule_id": "hourly-income", "trigger": {"class": "time", "key": "hourly"},
          "effect": {"type": "transfer", "direction": "income", "amount_fen": 100}},

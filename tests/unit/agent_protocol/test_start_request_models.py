@@ -55,14 +55,14 @@ def test_action_closed_sets_and_start_tools_are_declared_once():
 @pytest.mark.parametrize("action,app_id,slot", [
     ("travel", None, "first"), ("sleep", None, "first"), ("interact", None, "first"),
     ("purchase", None, "second"), ("interact", "bilibili", "second"),
-    ("walk", None, "first"), ("drive", None, "first"), ("take_taxi", None, "first"), ("take_bus", None, "first"),
 ])
 def test_slot_is_given_by_the_action_and_the_content_app(action, app_id, slot):
-    """出行、睡眠和在地点做事占槽位 1，购买和用内容 app 占槽位 2；四个固定出行动作仍记在出行活动上。"""
+    """出行、睡眠和在地点做事占槽位 1，购买和用内容 app 占槽位 2；出行只有 travel 一个动作。"""
     assert activity_slot(action, app_id) == slot
 
 
-@pytest.mark.parametrize("action", ["wait", "do", "travel_to", "Sleep", "interact ", ""])
+@pytest.mark.parametrize("action", ["wait", "do", "travel_to", "Sleep", "interact ", "", "walk", "drive", "take_taxi",
+                                    "take_bus", "walking", "driving"])
 def test_unknown_action_cannot_acquire_a_slot(action):
     with pytest.raises(ValueError, match="Unknown activity action"):
         activity_slot(action, None)

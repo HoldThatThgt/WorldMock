@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from pydantic import ConfigDict, Field, StrictBool, StrictInt, field_validator
 
 from worldmock.base_models import DeepFrozenModel
-from worldmock.catalog.models import ConcreteAction, NonEmptyString, NonNegativeInteger, PositiveInteger
+from worldmock.catalog.models import NonEmptyString, NonNegativeInteger, PositiveInteger
 from worldmock.errors import reject_value
 
 
@@ -25,10 +25,18 @@ class CallbackTrigger(DeepFrozenModel):
 
 
 class ActionTrigger(CallbackTrigger):
-    """@brief 成功受理一个具体动作。"""
+    """@brief 成功受理一条出行以外的开始调用。"""
 
     trigger_class: Literal["action"] = Field(alias="class")
-    key: ConcreteAction
+    key: Literal["purchase", "interact", "sleep"]
+
+
+class TravelTrigger(CallbackTrigger):
+    """@brief 成功受理一次用指定出行方式的出行；一条规则只订阅一种方式。"""
+
+    trigger_class: Literal["action"] = Field(alias="class")
+    key: Literal["travel"]
+    travel_method_id: NonEmptyString
 
 
 class TimeTrigger(CallbackTrigger):
@@ -127,7 +135,7 @@ class StateReminder(DeepFrozenModel):
     text: NonEmptyString
 
 
-Trigger = ActionTrigger | TimeTrigger | MonthlyTrigger | StateTrigger | EventTrigger
+Trigger = ActionTrigger | TravelTrigger | TimeTrigger | MonthlyTrigger | StateTrigger | EventTrigger
 Effect = Annotated[StateDelta | FootprintChain | MoneyTransfer, Field(discriminator="type")]
 
 

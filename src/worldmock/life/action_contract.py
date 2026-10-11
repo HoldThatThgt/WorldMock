@@ -10,12 +10,6 @@ MAIN_ACTIVITY_ACTIONS = ("travel", "interact", "sleep")
 SIDE_ACTIVITY_ACTIONS = ("purchase", "interact")
 #: 两个开始工具，按此顺序进入 REQUEST_MODELS。
 START_TOOLS = ("start_main_activity", "start_side_activity")
-#: 四个固定出行动作：出行活动的 data.action、回调动作触发与功能 app 绑定仍按它们区分出行方式。
-TRAVEL_ACTIONS = ("walk", "drive", "take_taxi", "take_bus")
-#: 出行动作与实际行程方式使用明确的一对一映射。
-TRAVEL_ACTION_MODES = {"walk": "walking", "drive": "driving", "take_taxi": "taxi", "take_bus": "bus"}
-#: 出行动作的固定中文名：travel 的 detail 按它解析到四种固定方式，出行活动名也用它。
-TRAVEL_ACTION_NAMES = {"walk": "步行", "drive": "驾车", "take_taxi": "打车", "take_bus": "公共交通"}
 #: 动作在人物可见内容中的固定中文标签；出行的说法来自出行方式名称。
 ACTION_LABELS = {"purchase": "购买", "sleep": "睡觉", "interact": "进行"}
 
@@ -23,10 +17,10 @@ ACTION_LABELS = {"purchase": "购买", "sleep": "睡觉", "interact": "进行"}
 def activity_slot(action: str, app_id: str | None) -> str:
     """@brief 活动占用的槽位：出行、睡眠和在地点做事占槽位 1，购买和用内容 app 占槽位 2。
 
-    :param action: 活动 data.action 记下的动作：出行为 travel 或四个出行动作之一，其余为动作本身。
+    :param action: 活动 data.action 记下的动作，四个生活动作之一。
     :param app_id: interact 活动所用的内容 app；在地点做事时为 None。
     """
-    main = action == "travel" or action in TRAVEL_ACTIONS or action == "sleep"
+    main = action in ("travel", "sleep")
     if main or action == "purchase":
         return "first" if main else "second"
     if action == "interact":

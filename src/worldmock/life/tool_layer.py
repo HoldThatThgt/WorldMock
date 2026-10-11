@@ -17,6 +17,7 @@ from worldmock.life.location_activities import unit_facts
 from worldmock.life.models import ActivityStatus
 from worldmock.life.purchase_offers import quote_goods
 from worldmock.life.readable import duration_phrase, money_phrase
+from worldmock.life.travel_methods import travel_method
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,10 +156,10 @@ def _action_row(context: LayerContext, row: dict, action: dict) -> dict:
 
 
 def _travel_facts(context: LayerContext, row: dict, action: dict) -> dict:
-    """@brief 出行行的车费、按当前天气算出的用时与体力说明：步行费力，其余轻松。"""
+    """@brief 出行行的车费、按当前天气算出的用时与所选出行方式的体力说法（轻松或费力）。"""
     trip = admission.planned_trip(_admission_context(context), {**row, "selected_action": action})
     return {"price": money_phrase(trip.fare_fen), "duration": duration_phrase(trip.duration_seconds),
-            "note": "费力" if action["travel_method_id"] == "walking" else "轻松"}
+            "note": travel_method(context.catalog, action["travel_method_id"]).effort}
 
 
 def _purchase_facts(context: LayerContext, row: dict) -> dict:

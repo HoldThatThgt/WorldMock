@@ -126,7 +126,7 @@ def _delivery_offer(inputs, state: WorldState, goods, store: str, here: str) -> 
     app = _order_app(state, goods.goods_id, store, catalog.apps_by_store[store])
     return Offer(goods.goods_id, store, app, here, state.current_time + delivery_seconds(meters),
                  "delivery", delivery_fee_fen(), here, catalog.graph.path(store, here),
-                 f"{store}->{here}:driving", meters, DELIVERY_PREP_SECONDS)
+                 f"{store}->{here}:delivery", meters, DELIVERY_PREP_SECONDS)
 
 
 def _courier_offer(inputs, state: WorldState, goods) -> Offer:

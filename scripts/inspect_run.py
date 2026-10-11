@@ -317,10 +317,10 @@ def meal_count(conn: sqlite3.Connection) -> int:
 
 
 def walking_share(conn: sqlite3.Connection) -> dict:
-    """@brief 步行占比：步行出行时长 / 全部出行时长；观察的路线从未出现步行（只有驾车）时 available 为 False。"""
+    """@brief 步行占比：自带步行的出行时长 / 全部出行时长；观察的路线从未出现步行时 available 为 False。"""
     seconds: Counter = Counter()
     for mode, start, end in _select(conn, "activity_progress",
-                                     "json_extract(body, '$.data.activity.travel_mode'), "
+                                     "json_extract(body, '$.data.activity.travel_method_id'), "
                                      "json_extract(body, '$.data.interval_start'), "
                                      "json_extract(body, '$.data.interval_end')"):
         if mode is not None and _valid_interval(start, end):
@@ -376,7 +376,7 @@ def rerun_lines(metrics: dict) -> list[str]:
         + ("无结算记录" if row["energy_kcal"] is None else f"{row['energy_kcal']:.1f} kcal")
         + ("" if row["ate"] else "（当日无进食）") for row in metrics["lowest_energy_before_meal"])
     if not walking["available"]:
-        walk = "不适用（只有驾车）"
+        walk = "不适用（没有步行）"
     elif not walking["travel_seconds"]:
         walk = "不适用（无出行）"
     else:

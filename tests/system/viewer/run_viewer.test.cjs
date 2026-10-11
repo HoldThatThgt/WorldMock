@@ -471,18 +471,41 @@ test('graph travel shows recorded origin destination and every path place', t =>
   const view = viewer([
     event('observation', {locations:ids.map((location_id, index) => ({location_id, name:names[index]}))}),
     activity('action_accepted', 'commute', {kind:'travel', location_id:'home', destination_id:'office',
-      travel_mode:'walking', data}),
+      travel_method_id:'walking', data}),
     activity('activity_progress', 'commute', {kind:'travel', location_id:'home', destination_id:'office',
-      travel_mode:'walking', data}),
+      travel_method_id:'walking', data}),
   ]);
   t.after(() => view.close());
-  const path = '张江公寓 → 人工智能研发中心 · 路径：张江公寓 → 社区便利店 → 人工智能研发中心';
+  // 自带的步行不依赖观察里的绑定，出行行在路线前写出行方式名称
+  const path = '步行 · 张江公寓 → 人工智能研发中心 · 路径：张江公寓 → 社区便利店 → 人工智能研发中心';
   assert.deepEqual(targets(view.activities()), [path]);
   for (const sequence of [2, 3]) {
     assert.ok(view.summary(sequence).includes(path));
-    assert.doesNotMatch(view.summary(sequence), /home|shop|office|3274/);
+    assert.doesNotMatch(view.summary(sequence), /home|shop|office|3274|walking/);
   }
   assert.deepEqual(view.errors, []);
+});
+
+test('travel shows the dataset name of its travel method from the recorded catalog bindings', t => {
+  const methods = [['walking', '步行'], ['bus', '公共交通'], ['ferry-line-2', '二号线轮渡']];
+  const binding = {object: '公司', kind: 'location', object_id: 'office', actions: methods.map(
+    ([travel_method_id, detail]) => ({action: 'travel', detail, note: null, travel_method_id}))};
+  const trip = (id, travel_method_id) => ({kind: 'travel', destination_id: 'office', travel_method_id,
+    data: {action: 'travel'}});
+  const view = viewer([
+    event('observation', {locations: [{location_id: 'office', name: '公司'}], catalog_bindings: [binding]}),
+    activity('action_accepted', 'by-bus', trip('by-bus', 'bus')),
+    activity('action_accepted', 'by-ferry', trip('by-ferry', 'ferry-line-2')),
+    activity('action_accepted', 'on-foot', trip('on-foot', 'walking')),
+    activity('action_accepted', 'unrecorded', trip('unrecorded', 'hovercraft')),
+  ]);
+  t.after(() => view.close());
+  // 名称取本次运行记录的冻结目录绑定；没有记下名称的身份显式报告缺失，不猜测也不显示引擎自带的旧说法
+  assert.deepEqual(targets(view.activities()), [
+    '公共交通 · → 公司', '二号线轮渡 · → 公司', '步行 · → 公司', '名称缺失（hovercraft） · → 公司']);
+  assert.equal(view.summary(2), '已受理 · 出行 · 公共交通 · → 公司 · 计划 10分');
+  assert.doesNotMatch(view.activities(), /乘公交车|乘出租车|ferry-line-2|"bus"/);
+  assert.deepEqual(view.errors, ['Missing recorded object name: hovercraft']);
 });
 
 test('goods actions apps and contents remain named after later sparse observations', t => {
@@ -1410,7 +1433,7 @@ test('money uses authoritative envelope changes once and allows signed external 
 
 test('an aggregate acceptance keeps both actual travel and interaction activities', t => {
   const travel={activity_id:'travel',kind:'travel',started_at:epoch,status:'active',elapsed_seconds:0,
-    destination_id:'store',data:{action:'walk'}};
+    destination_id:'store',travel_method_id:'walking',data:{action:'travel'}};
   const interaction={activity_id:'browse',kind:'interact',started_at:epoch,status:'active',elapsed_seconds:0,
     data:{action:'interact',app_id:'meituan',content_id:null}};
   const view=viewer([
@@ -1418,7 +1441,8 @@ test('an aggregate acceptance keeps both actual travel and interaction activitie
     event('action_accepted',{data:{activities:[travel,interaction]}}),
   ]);
   t.after(()=>view.close());
-  assert.deepEqual(targets(view.activities()),['→ 四季便利','美团']);
+  // 聚合受理里的出行活动同样带出行方式身份，活动行在目的地前写出行方式名称
+  assert.deepEqual(targets(view.activities()),['步行 · → 四季便利','美团']);
   assert.deepEqual(view.errors,[]);
 });
 

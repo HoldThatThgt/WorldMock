@@ -27,6 +27,7 @@ flowchart LR
 活动的 `resource_claims` 保存它占的槽位，取值保持 `first`（槽位 1）与 `second`（槽位 2）：
 出行、睡眠和地点 interact 占 `first`，购买和内容 app 的 interact 占 `second`，占用与此不符的活动由世界状态拒绝。
 睡眠活动的私有数据记录 `declared_duration_seconds`（人物写的时长，600 到 43200 秒）和 `oversleep_seconds`。
+出行活动保存所用出行方式的 `travel_method_id`（自带的步行是 `walking`，其余是数据集的身份），其他活动为空；出行活动的动作是 `travel`，私有数据的 `exertion` 记录受理时取的代谢当量键。
 购买订单的 pending 状态允许尚未付款，只有实际付款才有 paid_at；取消订单永不收货。
 内容共享进度以人物与内容身份保存，报告不新增进度。
 

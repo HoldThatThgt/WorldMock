@@ -6,6 +6,7 @@ import sys
 import pytest
 
 from tests.data_paths import CATALOG_ROOT
+from tests.life.environment_inputs import travel_method_row, walking_only, write_catalog_rows
 from worldmock.catalog.errors import RegistrationError
 from worldmock.catalog.identity import refresh_manifest_identity
 from worldmock.catalog.loader import load_catalog, validate_catalog_files
@@ -37,11 +38,18 @@ MAP_ROW = b'{"a":"home","b":"office","length_m":12600}\n'
 FIXTURE_MAP_SHA256 = "017bbcfedf78e142ac0310242e504655142c92796fb8395c8ccc4a11a3afedf5"
 
 
+METHOD_ROW = ('{"exertion":"moderate","name":"骑车","price_per_km_fen":0,"speed_meters_per_second":4.5,'
+              '"start_price_fen":150,"travel_method_id":"bike"}\n').encode("utf-8")
+
+
 @pytest.mark.parametrize("callbacks", [None, b"", CALLBACK_ROW], ids=["no-callbacks", "empty-callbacks", "callbacks"])
 @pytest.mark.parametrize("distances", [None, b"", MAP_ROW], ids=["no-map", "empty-map", "map"])
-def test_each_optional_file_loads_absent_empty_or_with_rows(catalog_dir, callbacks, distances):
-    """可选文件不存在、零字节、有内容三种情形都能加载和纯校验；不存在与零字节得到同一个世界。"""
-    for name, content in (("callbacks.jsonl", callbacks), ("map.jsonl", distances)):
+@pytest.mark.parametrize("methods", [None, b"", METHOD_ROW], ids=["no-methods", "empty-methods", "methods"])
+def test_each_optional_file_loads_absent_empty_or_with_rows(catalog_dir, callbacks, distances, methods):
+    """三个可选文件各自不存在、零字节、有内容都能加载和纯校验；不存在与零字节得到同一个世界。"""
+    walking_only(catalog_dir.parent)
+    files = (("callbacks.jsonl", callbacks), ("map.jsonl", distances), ("travel-method.jsonl", methods))
+    for name, content in files:
         if content is not None:
             (catalog_dir / name).write_bytes(content)
     refresh_manifest_identity(catalog_dir)
@@ -49,9 +57,11 @@ def test_each_optional_file_loads_absent_empty_or_with_rows(catalog_dir, callbac
     catalog = load_catalog(catalog_dir, 7)
     assert [entry.path for entry in catalog.manifest.files] == sorted(
         {"app-catalog.jsonl", "content-catalog.jsonl", "location.jsonl", "merchant-catalog.jsonl"}
-        | ({"callbacks.jsonl"} if callbacks is not None else set())
-        | ({"map.jsonl"} if distances is not None else set()))
+        | {name for name, content in files if content is not None})
     assert set(catalog.callback_states) == ({"stock"} if callbacks else set())
+    assert [(row.travel_method_id, row.speed_meters_per_second) for row in catalog.travel_methods.values()] == (
+        [("bike", 4.5)] if methods else [])
+    assert dict(catalog.apps_by_travel_method) == {"walking": ("amap",), **({"bike": ()} if methods else {})}
     if distances:
         assert catalog.shortest_m("home", "office") == 12600 and catalog.map_sha256 != FIXTURE_MAP_SHA256
     else:
@@ -79,7 +89,7 @@ def small_catalog(directory, location_ids, declared=None):
 def test_farthest_pair_may_take_exactly_one_day_of_walking_in_snow(tmp_path):
     catalog = load_catalog(small_catalog(tmp_path / "catalog", ["home", "office"], [("home", "office", 62208)]), 7)
     assert [(edge.a, edge.b, edge.length_m) for edge in catalog.map_data.edges] == [("home", "office", 62208)]
-    assert travel_seconds("walking", 62208, 0.6) == 86400
+    assert travel_seconds(1.2, 62208, 0.6) == 86400
 
 
 @pytest.mark.parametrize("meters,seconds", [(62209, 86402), (70000, 97223)])
@@ -105,6 +115,41 @@ def test_two_legal_declarations_in_a_row_are_refused_for_the_farthest_pair(tmp_p
     assert (failure.value.code, failure.value.detail) == (
         "MAP_ROUTE_TOO_LONG",
         "a -> d is 80000 m, which takes 111112 s at 1.2 m/s in the worst weather; the limit is 86400 s.")
+
+
+def slow_catalog(directory, meters, *methods):
+    """两个地点、一条声明边，再加数据集定义的出行方式行。"""
+    directory.parent.mkdir()
+    small_catalog(directory, ["home", "office"], [("home", "office", meters)])
+    write_catalog_rows(directory.parent, "travel-method.jsonl", list(methods))
+    return directory
+
+
+def test_day_limit_follows_the_slowest_dataset_defined_travel_method(tmp_path):
+    """数据集定义了每秒 0.5 米的方式时，任意两地的上限从 62,208 米变成 25,920 米；纯校验不做这项检查。"""
+    crawl, fast = travel_method_row("crawl", "挪步", 0.5), travel_method_row("fast", "快车", 30)
+    catalog = load_catalog(slow_catalog(tmp_path / "at-limit" / "catalog", 25920, crawl, fast), 7)
+    assert catalog.shortest_m("home", "office") == 25920 and travel_seconds(0.5, 25920, 0.6) == 86400
+    directory = slow_catalog(tmp_path / "beyond" / "catalog", 25921, crawl, fast)
+    validate_catalog_files(directory)
+    with pytest.raises(RegistrationError) as failure:
+        load_catalog(directory, 7)
+    assert str(failure.value) == (
+        "MAP_ROUTE_TOO_LONG: Two places are farther apart than the slowest travel method can cover in one day "
+        "in the worst weather. home -> office is 25921 m, which takes 86404 s at 0.5 m/s "
+        "in the worst weather; the limit is 86400 s.")
+
+
+def test_day_limit_stays_at_walking_when_every_dataset_method_is_faster(tmp_path):
+    """数据集定义的方式都不比步行慢时，上限仍按步行的每秒 1.2 米算。"""
+    fast = travel_method_row("fast", "快车", 30)
+    assert load_catalog(slow_catalog(tmp_path / "at-limit" / "catalog", 62208, fast), 7).shortest_m(
+        "home", "office") == 62208
+    with pytest.raises(RegistrationError) as failure:
+        load_catalog(slow_catalog(tmp_path / "beyond" / "catalog", 62209, fast), 7)
+    assert (failure.value.code, failure.value.detail) == (
+        "MAP_ROUTE_TOO_LONG",
+        "home -> office is 62209 m, which takes 86402 s at 1.2 m/s in the worst weather; the limit is 86400 s.")
 
 
 def test_equally_far_pairs_report_the_smallest_pair(tmp_path):
