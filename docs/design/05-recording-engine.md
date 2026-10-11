@@ -135,7 +135,11 @@ catalog/map.jsonl 是数据集声明的距离，按原字节冻结；map.json �
 导出清单的结构号是 5。`artifacts` 的键恰为 `events`、`activities`、`verified_experiences`、`purchases`、`app_usage`、`location_stays`，
 每个值是 `{path, rows, sha256}`，`location_stays` 的 `path` 是 `location-stays.jsonl`；
 结构号不符报 `Export manifest is not a committed supported version`，键集不符报 `Export artifact set is invalid`。
-app 的开关、订单通知和地点停留只进事件与这些工件，质量报告的结构和内容不变。
+app 的开关、订单通知和地点停留只进事件与这些工件，不进质量报告。
+质量报告 `quality.json` 的结构号是 8。它的 `input_warnings.code_counts` 的键恰为运行输入警告码闭集的两个值
+`CONTENT_EMPTY_WITH_MEDIA_TASTES` 与 `LOCATION_NAME_SUSPICIOUS`（见[配置](08-configuration.md)「校验与输入冻结」），
+闭集之外的码只计入 `unrecognized_code_counts`。导出认证按已认证的事件重算整份质量报告并逐值比较，
+结构号或任何一个键与当前代码算出的不同，都报 `Export quality report disagrees with authoritative events`。
 完整运行要求正常运行终态和成功最终共同检查点；时钟到达终点不能单独宣称完整。
 活动保留全部实际来源，来源身份去重；活动时长来自正秒结算，暂停不计入。
 

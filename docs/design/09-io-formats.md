@@ -2,10 +2,13 @@
 
 ## 单一状态归属
 
-完整环境由不可变输入对象承载，世界由唯一已提交 WorldState 承载。运行状态结构版本为 13，运行清单结构版本为 5，
-`persona.toml` 的 `schema_version` 为 2，`config.toml` 的为 1。
+完整环境由不可变输入对象承载，世界由唯一已提交 WorldState 承载。运行状态结构版本为 13，运行清单结构版本为 6，
+`persona.toml` 与 `config.toml` 的 `schema_version` 都为 2。
 不接受旧结构、兼容字段、迁移和 fallback；所有当前模型拒绝未知字段，原始 JSONL/TOML 输入规则归
 [配置](08-configuration.md)与[资源引擎](03-resource-engine.md)。
+一个结构号只守一种结构：字段集合、取值闭集或可接受的取值域变了才升号，只有取值变了不升号。
+运行清单结构版本不是 6 的运行不能打开、恢复或重放，报 `Runtime environment identity mismatch`；
+导出里冻结的运行清单不是 6 时，导出认证报 `Export frozen run manifest or environment identity is invalid`。
 
 ```mermaid
 flowchart LR
@@ -52,6 +55,8 @@ flowchart LR
 `persona_sha256`、`config_sha256`、`agent_ids`、`code_sha256`、`git_commit`、`git_dirty`、`model_identity`、
 `stage_model_identity`、`model_metadata`、`input_warnings`、`persona_habit_responses` 与 `window`；恢复与重放分支另带分支来源字段。
 清单不保存由人物卡片换算出的数值：社交需要每小时增长在冻结的 `persona.toml` 里，世界创建时直接读它。
+`code_sha256` 覆盖 `src/` 与 `custom/` 下的全部 Python 源码、根目录的 `pyproject.toml` 与 `uv.lock`，以及实际导入的
+AgentSociety2 包；引擎包里没有 Python 源码以外的规则文件，`src/` 下其他类型的文件不进代码身份。
 人物卡片的两份派生物（结构化卡片与卡片文本）保存在人物工作区 `AGENT.json` 的 `profile` 里，
 `AGENT.json` 的结构号是 1；卡片由 `persona.toml` 直接构造，没有单独的编译产物文件和结构号，见[人物](06-agent.md)。
 发布目录可以含声明距离的 map.jsonl，但不含生成的地图；冻结的目录素材跟随目录清单的文件表。

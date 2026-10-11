@@ -18,7 +18,7 @@ flowchart LR
     World --> Run[构造人物卡片并创建运行]
 ```
 
-`persona.toml` 使用 `schema_version = 2`，`config.toml` 使用 `schema_version = 1`，写其他值的文件直接拒绝，
+`persona.toml` 与 `config.toml` 都使用 `schema_version = 2`，写其他值的文件直接拒绝，
 没有读取旧格式的分支；两份文件都是 UTF-8 无 BOM、只用 LF。
 文件、编码、解析、类型、未知字段、范围与卡片文本超长的失败在创建世界和运行资产前拒绝。
 输入按原字节冻结 SHA-256，不规范化后计算。纯加载不请求生成模型、不创建资产。
@@ -48,7 +48,7 @@ flowchart LR
 | `coping` | 必填 | 压力时做什么，1 到 60 个字符 |
 | `identity` | 必填 | 表：`age` 严格整数 16 到 100，`occupation` 1 到 20 个字符，`living_arrangement` 1 到 30 个字符 |
 | `situation` | 必填 | 表：`busy_this_week`、`cares_about` 各 1 到 60 个字符 |
-| `relationships` | 必填 | 数组，0 到 4 项；每项 `name_or_appellation`、`role` 各 1 到 12 个字符，`intimacy` 严格整数 0 到 30，`channels` 是 1 到 3 个渠道 |
+| `relationships` | 必填 | 数组，0 到 4 项；每项 `name_or_appellation`、`role` 各 1 到 12 个字符，`intimacy` 严格整数 0 到 30，`channels` 是 1 到 3 项非空白文字 |
 | `habits` | 必填 | 数组，0 到 5 项；每项 `trigger` 1 到 30 个字符，`response` 1 到 40 个字符，`time_window` 是时段 |
 | `tastes` | 必填 | 表：`content_genres` 至多 6 项，`food_preferences` 至多 6 项，`media` 至多 4 项，每项是非空白文字 |
 | `body` | 必填 | `mass_kg`、`initial_energy_kcal`、`initial_sleep_debt_hours`；有限合法初值，能量不超过系统上限 |
@@ -58,9 +58,11 @@ flowchart LR
 每个时段只检查一条：恰好两个有限数，起点小于终点。越过午夜的时刻可以写成大于 24 的小时数，
 人物看到的是钟面时刻（24.5 显示为 0 点半）。时段之间不做任何先后或重叠检查，也没有 24 小时或 30 小时的上界和跨度上限：
 `bedtime_window = [5.0, 7.0]`、早于或压着晚饭的就寝、`leave_work_window = [25.0, 25.5]` 都能加载，并照写的样子显示给人物。
-`channels` 的取值闭集是「电话」「微信」「见面」。数组可以为空的只有 `relationships`、`habits` 和 `tastes` 的三个数组，空数组也必须写出来。
+`channels` 写平时怎样联系这个人，例如「电话」「微信」「见面」；用词由数据集决定，引擎不设闭集，每项只要求是非空白文字，
+重复的词也原样保留。关系在卡片文本里写成「渠道、渠道联系」，所以至少写一项；至多三项是提示容量依赖的条数上限。
+数组可以为空的只有 `relationships`、`habits` 和 `tastes` 的三个数组，空数组也必须写出来。
 
-保留的检查只有表的格式和计算要用的：类型、必填、渠道闭集、数值范围（睡眠中点、睡眠需要、社交需要增长是公式的定义域，
+保留的检查只有表的格式和计算要用的：类型、必填、数值范围（睡眠中点、睡眠需要、社交需要增长是公式的定义域，
 亲密度是分档的定义域，年龄限在 16 到 100）、提示容量依赖的条数与字数上限和卡片文本的 600 汉字上限，以及时段的那一条。
 条数与字数上限各管一个字段，合起来仍可能超过 600 汉字，口味数组里的词也没有单独的字数上限；
 所以加载时用整张表构造一次卡片文本并数汉字，超过 600 就拒绝。这一步是纯计算，不调用模型，
@@ -98,6 +100,7 @@ flowchart LR
 
 | 字段 | 规则 |
 | --- | --- |
+| `schema_version` | 必填，严格整数 `2`；写其他值以 `RUN_CONFIG_INVALID` 拒绝，原因是 `schema_version: Input should be 2`，没有写时原因是 `schema_version is required` |
 | `seed` | 唯一严格整数种子，不限整数范围；所有随机流由它派生 |
 | `timezone` | 有效 IANA 时区 |
 | `start_time`、`stop_time` | TOML 原生带偏移日期时间；按自身偏移整点，偏移与时区一致，停止晚于开始 |
@@ -130,6 +133,8 @@ flowchart LR
 | `reflection_validation_max_retries` | 默认 `3`，严格整数 `0–5`，反思输出校验重试 |
 | `day_plan_validation_max_retries` | 默认 `3`，严格整数 `0–5`，日计划输出校验重试 |
 
+`[model]` 的键只有上表这些：人物卡片不经模型，没有给它用的校验预算，写 `persona_validation_max_retries` 就是未知字段，
+与其他未知字段一样以 `RUN_CONFIG_INVALID` 拒绝。
 凭据值不进入文件、清单、提示或日志。两类服务重试由同一个 dispatcher 循环计数，
 每次失败只消耗一类预算，总尝试至多 `1 + max_retries + transport_max_retries`；
 底层隐式重试关闭，鉴权与参数错误立即失败。输出纠正是新的逻辑请求，各自受同一预算约束。

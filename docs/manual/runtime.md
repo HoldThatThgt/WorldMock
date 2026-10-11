@@ -26,6 +26,8 @@ run 不接受 --scenario；不读取固定供应商私密文件，不使用默�
 ## 编写 config.toml
 
 在环境根的 config.toml 声明时间、唯一种子、活动结算、重估与进度播报节奏、商品呈现轮转、日历及 model 表。
+顶层先写 `schema_version = 2`；写其他值的文件被 `worldmock validate` 以 `RUN_CONFIG_INVALID` 拒绝，原因是 `schema_version: Input should be 2`。
+model 表里没有 `persona_validation_max_retries`：人物卡片由 persona.toml 直接填写，写了这个键的文件同样被拒绝。
 完整字段、重试预算、回合上限和合法范围见[配置设计](../design/08-configuration.md)。
 工作安排和每日差异在[人物](personas.md#personas-编写-persona-toml)声明。
 
