@@ -473,12 +473,12 @@ class DecisionCoordinator:
     def _round_schedule(
         self, state: WorldState, agent, rejection: str | None, rhythm_next=None, free: bool = False
     ) -> tuple[int, list[str], SameMomentStage]:
-        """@brief 按同刻阶梯安排本轮之后的下一次决策（docs/design/04-simulation-engine.md规则 2–4、7）。
+        """@brief 按同刻阶梯安排本轮之后的下一次决策（docs/design/04-simulation-engine.md）。
 
         六轮耗尽仍需再决策时，随本动作结果记录真实预算故障，提交后停止，时间不推进。
 
         :param rejection: 本轮业务拒绝的错误码（重放按存档结果），受理时为 None。
-        :param free: 本轮的拒绝是免计的名称类拒绝（docs/design/04-simulation-engine.md ，不计同刻轮数）。
+        :param free: 本轮的拒绝是免计的名称类拒绝（docs/design/04-simulation-engine.md，不计同刻轮数）。
         """
         now = state.current_time
 
@@ -503,7 +503,7 @@ class DecisionCoordinator:
         self, state: WorldState, pending: PendingAction, error: BusinessRuleError
     ) -> tuple[WorldState, ActionResult]:
         """@brief 业务拒绝计入同刻轮数与连续拒绝；未达上限同一秒再决策，服务拒绝脉冲每人每秒至多一次；名称类拒绝每人每秒
-        前两次不计同刻轮数、不施加脉冲（docs/design/04-simulation-engine.md ）。
+        前两次不计同刻轮数、不施加脉冲（docs/design/04-simulation-engine.md）。
         same_moment.rejection_counts 控制计数；结果 message 就是公开原因 reason，data 带 reason、fix、next_step 与逐项明细。"""
         counted = same_moment.rejection_counts(state, pending.agent_id, str(error))
         agent = state.agents[pending.agent_id]

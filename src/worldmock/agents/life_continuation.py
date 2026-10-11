@@ -1,4 +1,4 @@
-"""@brief 同秒续接的宿主侧：把环境交来的续接链组装成本次决策的起始消息（docs/design/06-agent.md「同秒续接」）。
+"""@brief 同秒续接的宿主侧：把环境交来的续接链组装成本次决策的起始消息（docs/design/06-agent.md「提示与工具」）。
 
 消息 = 上一决策末次请求的全部消息（system、链首快照 user、此前各原生回合）＋ 上一决策的最终 assistant（reasoning_content、
 content、tool_calls）＋ 对应其每个世界请求 tool_call_id 的各一条 tool 消息（开始组两条，changes 与 events 只写在最后一条上）。

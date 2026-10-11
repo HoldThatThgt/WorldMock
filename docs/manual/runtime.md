@@ -12,10 +12,10 @@ python scripts/bootstrap.py --profile release
 
 ```powershell
 $env:WORLDMOCK_API_KEY = 'your-key'
-python -m worldmock validate --environment D:/datasets/my-world
-python -m worldmock run --environment D:/datasets/my-world --output .work/runs/my-world
-python -m worldmock status --run-dir .work/runs/my-world
-python -m worldmock export --run-dir .work/runs/my-world --output .work/exports/my-world
+worldmock validate --environment D:/datasets/my-world
+worldmock run --environment D:/datasets/my-world --output .work/runs/my-world
+worldmock status --run-dir .work/runs/my-world
+worldmock export --run-dir .work/runs/my-world --output .work/exports/my-world
 ```
 
 完整验证先核对全部输入和实际模型元数据，失败时按所属路径与英文原因修正。
@@ -70,8 +70,8 @@ query_world 使用 action 查询当下实际地点、营业时段、路线或商
 新输出目录不能覆盖父运行。
 
 ```powershell
-python -m worldmock resume --environment D:/datasets/my-world --parent .work/runs/my-world --checkpoint CHECKPOINT_ID --output .work/runs/resumed
-python -m worldmock replay --environment D:/datasets/my-world --parent .work/runs/my-world --checkpoint CHECKPOINT_ID --intervention .work/intervention.json --output .work/runs/replay
+worldmock resume --environment D:/datasets/my-world --parent .work/runs/my-world --checkpoint CHECKPOINT_ID --output .work/runs/resumed
+worldmock replay --environment D:/datasets/my-world --parent .work/runs/my-world --checkpoint CHECKPOINT_ID --intervention .work/intervention.json --output .work/runs/replay
 ```
 
 检查点身份从实际运行记录读取，不猜测身份。只读历史查询使用冻结事实；恢复生成调用核验完整模型身份和实际元数据。

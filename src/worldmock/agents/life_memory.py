@@ -75,7 +75,7 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
         """@brief 记忆上下文只给最近条目窗口与文件路径，不给主观归纳；生活决策提示由七层组成，不读这里的条目与摘要
         （记忆层由环境派生，阈值巩固的摘要不进提示，裁决 #36）。
 
-        recent_limit 为 0 时返回空列表：AS2 存储会把 0 改回 8 条（docs/design/06-agent.md「零条最近记忆失效」）。
+        recent_limit 为 0 时返回空列表：AS2 存储会把 0 改回 8 条（docs/design/06-agent.md）。
         """
         store = self.store
         if store is None:
@@ -158,7 +158,7 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
         """@brief 就寝反思经唯一严格工具提交：没有可反思的记忆时不调用模型，校验通过的洞见才交给 AS2 存储。
 
         输出不合合同且重试耗尽时由 _validated_reflection 抛出运行故障：此前不写入任何洞见，也不返回空列表冒充空反思
-        （docs/design/06-agent.md ）。
+        （docs/design/06-agent.md）。
         """
         store = self._require_store()
         episodes = await asyncio.to_thread(self._reflection_episodes, store)

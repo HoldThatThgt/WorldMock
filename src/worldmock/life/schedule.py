@@ -97,7 +97,7 @@ def clock_epoch(clock: str | None, now: int, timezone_name: str) -> int | None:
     """@brief 把场景本地 HH:MM 换算为 now 所在本地日的绝对时刻；None 原样返回。
 
     提醒时刻 remind_time（None 表示不设提醒，docs/design/04-simulation-engine.md）与大致时刻 around_time
-    （None 表示不限时刻，docs/design/04-simulation-engine.md ）共用这一换算。
+    （None 表示不限时刻，docs/design/04-simulation-engine.md）共用这一换算。
     """
     if clock is None:
         return None
@@ -118,7 +118,7 @@ class RemindTimeInvalid(ValueError):
 def registered_goals(goals: Sequence[Any], now: int, timezone_name: str) -> tuple["PlanGoal", ...]:
     """@brief 以 now 登记请求目标（intent_kind、goal、remind_time、around_time），提醒与大致时刻换算为该本地日的绝对时刻。
 
-    大致时刻不像提醒：不要求晚于登记时刻，也不触发决策（docs/design/04-simulation-engine.md ）。
+    大致时刻不像提醒：不要求晚于登记时刻，也不触发决策（docs/design/04-simulation-engine.md）。
     """
     return tuple(PlanGoal(intent_kind=goal.intent_kind, goal=goal.goal, registered_at=now,
                           remind_at=clock_epoch(goal.remind_time, now, timezone_name),
@@ -317,7 +317,7 @@ def day_plan_expired(plan: DayPlan, now: int) -> bool:
 
 
 def expired_plan_agent_ids(state: Any) -> tuple[int, ...]:
-    """@brief 枚举 day_plan 已跨日残留的人物编号（引擎跨日边界归零用，docs/design/06-agent.md「当日目标」）。
+    """@brief 枚举 day_plan 已跨日残留的人物编号（引擎跨日边界归零用，docs/design/06-agent.md「进度、待办与记忆」）。
 
     @param state 世界状态（只读 agents 与 current_time 两字段；鸭子类型避免
                  与人物状态模型的环依赖）

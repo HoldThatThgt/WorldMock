@@ -9,8 +9,8 @@
 不要添加旧 occupation、routine_preference、consumption_preference、risk_preference 或多人 agents 数组。
 
 ```powershell
-python -m worldmock profile compile --persona D:/datasets/my-world/persona.toml --out .work/persona.json
-python -m worldmock profile check --persona D:/datasets/my-world/persona.toml
+worldmock profile compile --persona D:/datasets/my-world/persona.toml --out .work/persona.json
+worldmock profile check --persona D:/datasets/my-world/persona.toml
 ```
 
 画像命令同时读取同目录 config.toml 的模型配置与实际服务元数据。编译执行三次独立抽取并保存共识卡片，

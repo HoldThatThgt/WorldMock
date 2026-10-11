@@ -28,13 +28,13 @@ from worldmock.life.schedule import (DayPlan, RemindTimeInvalid, day_end_seconds
 
 #: 零点计划请求与响应的用途标记；交付窗口、决策 token 统计与行为指标的决策请求按它排除。
 PLAN_DAY_PURPOSE = "plan_day"
-#: 零点计划的生成上限（docs/design/06-agent.md「生成参数」）。
+#: 零点计划的生成上限（docs/design/06-agent.md「宿主模型协议」）。
 PLAN_DAY_MAX_TOKENS = 8000
 #: 提交当日目标清单的唯一工具名。
 PLAN_DAY_TOOL = "submit_day_plan"
 #: 输入中人物收尾自述的标注（与观察中的自述同一说法）。
 SELF_REPORT_NOTE = "你自己记下的，未经核验"
-#: 零点计划的中文模板（docs/design/06-agent.md「请求组成」）。
+#: 零点计划的中文模板（docs/design/06-agent.md「提示与工具」）。
 PLAN_DAY_PROMPT = """
 根据一个人的真实档案与背景、当天工作安排、已核验经历、已结算动作结果、明确为主观的收尾记录、
 未完成个人事务、本人在途订单以及上一天的目标，为他写今天的目标清单。

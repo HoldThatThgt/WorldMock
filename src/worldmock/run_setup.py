@@ -97,7 +97,7 @@ def stage_model_identity(config: ModelConfig, metadata: ModelMetadata,
 
 
 def runtime_code_sha256(project_root: Path) -> str:
-    """@brief 哈希全部生产 Python 源码、根依赖锁定文件与实际导入的 AS2 包（docs/design/06-agent.md「模型身份」）。
+    """@brief 哈希全部生产 Python 源码、根依赖锁定文件与实际导入的 AS2 包（docs/design/06-agent.md「宿主模型协议」）。
 
     AS2 文件以 agentsociety2/<相对路径> 为标签，与安装位置无关；AS2 未通过锁定核对时拒绝给出代码身份。
     """

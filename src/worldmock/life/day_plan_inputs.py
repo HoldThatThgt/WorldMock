@@ -97,7 +97,7 @@ def _review_window(now: int, timezone_name: str, midnight_boundary: bool) -> _Wi
 
 def _persona(context: Any, agent_id: int) -> dict[str, Any]:
     """@brief 场景声明的人物档案与背景原文（不读工作区里编译过的卡片）：下班、到家时段只取场景字段、未声明省略，只来自
-    卡片的下班与到家时刻不进这里（docs/design/06-agent.md#agent-场景作息覆盖 ）。"""
+    卡片的下班与到家时刻不进这里（docs/design/06-agent.md「人物身份与画像」）。"""
     config = context.persona
     fields = {
         "名字": config.name,

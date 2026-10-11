@@ -39,7 +39,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def purpose_only_schema(purpose: str | None = None) -> Callable[[dict[str, Any]], None]:
-    """@brief 模型可见参数 Schema 的 description 只写用途（docs/design/06-agent.md「删除与去重」）。
+    """@brief 模型可见参数 Schema 的 description 只写用途（docs/design/06-agent.md「提示与工具」）。
 
     去掉类 docstring 派生的开发说明（规则只在系统层写一次，数量上限由 Schema 与本地校验执行），purpose 非空时写这一句；
     工具参数对象本身不写说明，用途只在工具的 description。用作 ConfigDict 的 json_schema_extra。
@@ -79,7 +79,7 @@ class RunIdentity(FrozenModel):
     """@brief 由 runtime 显式分配并与场景交叉验证的运行身份。
 
     git_commit 与 git_dirty 记录启动时的检出状态，非 Git 检出时二者为 null；只记录，不参与恢复比对
-    （docs/design/06-agent.md「模型身份」）。
+    （docs/design/06-agent.md「宿主模型协议」）。
     """
 
     run_id: str = Field(min_length=1)
@@ -211,7 +211,7 @@ class ContentProgress(StrictModel):
 
 
 class SessionStatus(StrEnum):
-    """@brief 地点会话的生命周期状态闭集（docs/design/09-io-formats.md 「世界与人物状态格式」）。"""
+    """@brief 地点会话的生命周期状态闭集（docs/design/09-io-formats.md「世界、人物与活动」）。"""
 
     ACTIVE = "active"
     ENDED = "ended"
@@ -248,7 +248,7 @@ class SessionState(StrictModel):
     :param activity_ids: 归入本会话的活动（暂停的活动回到开始地点时归入那里的新会话）。
     :param name: 人物可读名称，停留「<地点>（<M月D日> HH:MM 起）」，路上「去<目的地>的路上（…起）」；结束后不改名。
     :param opened_by_action_id: 由决策引起的切换（出发、途中结束出行）记下引起切换的动作身份，进度层以该动作结果的
-        事件序号为下界；运行开始与到达为 None，下界取开始时刻（docs/design/06-agent.md「进度层」）。
+        事件序号为下界；运行开始与到达为 None，下界取开始时刻（docs/design/06-agent.md「进度、待办与记忆」）。
     """
 
     session_id: str = Field(min_length=1)
@@ -282,11 +282,11 @@ class SessionState(StrictModel):
 
 
 class SameMomentStage(StrEnum):
-    """@brief 同刻受限轮阶段闭集（docs/design/04-simulation-engine.md「规则」3 与「实现约定」）。
+    """@brief 同刻受限轮阶段闭集（docs/design/04-simulation-engine.md「原子性与恢复」）。
 
     未达同刻上限时为 open；达到上限后每个受限轮只开放一类动作，阶段依赖上一受限轮的结果，时钟推进复位为 open。
     暂停的活动不占槽位，阶梯不按槽位分流：resume_or_conclude 与 conclude_only 留在闭集中，
-    现行阶梯不进入它们（docs/design/04-simulation-engine.md R2）。
+    现行阶梯不进入它们（docs/design/04-simulation-engine.md）。
     """
 
     OPEN = "open"
@@ -368,11 +368,11 @@ class ActivityState(StrictModel):
     boundary_type: str | None = None
     interruption_reason: str | None = None
     data: dict[str, Any] = Field(default_factory=dict)
-    # 生命周期（docs/design/04-simulation-engine.md「活动的生命周期」）：终态且 concluded_at 为空即待收尾；
+    # 生命周期（docs/design/04-simulation-engine.md「动作、名称与并行」）：终态且 concluded_at 为空即待收尾；
     # report_anchor_at 为播报锚点（开始、恢复与对该活动播报时写入）；session_ids 为先后所属的地点会话。
     concluded_at: int | None = Field(default=None, ge=0)
     report_anchor_at: int | None = Field(default=None, ge=0)
-    # 暂停时刻（docs/design/06-agent.md「待办层」）：暂停时写入、恢复时清空，待办层按它排序。
+    # 暂停时刻（docs/design/06-agent.md「进度、待办与记忆」）：暂停时写入、恢复时清空，待办层按它排序。
     paused_at: int | None = Field(default=None, ge=0)
     session_ids: list[str] = Field(default_factory=list)
     name: str = ""
@@ -551,7 +551,7 @@ class DecisionRoundState(StrictModel):
 
 
 class SameMomentPresentation(StrictModel):
-    """@brief 一个人物本秒的呈现暂存（docs/design/04-simulation-engine.md「同一秒内的呈现与「刚才」」）。
+    """@brief 一个人物本秒的呈现暂存（docs/design/04-simulation-engine.md「原子性与恢复」）。
 
     stamps 为本秒各轮实际呈现的对象到时刻映射，时钟推进时才并入 presentation_state。
     """
@@ -562,7 +562,7 @@ class SameMomentPresentation(StrictModel):
 class WorldState(StrictModel):
     """@brief 提交到 FootprintStore 的完整世界状态。"""
 
-    # 结构版本必填（无缺省）：旧检查点缺该字段即拒绝加载（docs/design/06-agent.md「产品行为」）。
+    # 结构版本必填（无缺省）：旧检查点缺该字段即拒绝加载（docs/design/09-io-formats.md「单一状态归属」）。
     schema_version: Literal[WORLD_SCHEMA_VERSION]
     version: int = Field(ge=0)
     current_time: int = Field(ge=0)
@@ -578,7 +578,7 @@ class WorldState(StrictModel):
     deliveries: dict[str, DeliveryState] = Field(default_factory=dict)
     pending_events: list[ScheduledEvent] = Field(default_factory=list)
     processed_actions: dict[str, StoredAction] = Field(default_factory=dict)
-    #: 呈现派生量（docs/design/06-agent.md「派生量字段」）：按（人物, 对象标识）记录上次呈现
+    #: 呈现派生量（docs/design/09-io-formats.md「世界、人物与活动」）：按（人物, 对象标识）记录上次呈现
     #: 时刻（UTC 纪元秒），是曝光轮转的判据，不含任何偏好推断。
     presentation_state: dict[int, dict[str, int]] = Field(default_factory=dict)
     #: 按人物暂存的本秒呈现留痕：同一秒各轮沿用该秒首轮的呈现窗口，时钟推进时逐人并入 presentation_state 并清空。
@@ -742,7 +742,7 @@ class ChangeActivityRequest(FrozenModel):
 class PlanGoalInput(FrozenModel):
     """@brief 当日目标条目：意图、目标文字与两个必填可空的场景本地 HH:MM——remind_time（要在那一刻被提醒时填写，
     否则为 null）与 around_time（打算在几点前后做，docs/design/04-simulation-engine.md
-     ；不提醒、不要求晚于登记时刻）。"""
+    ；不提醒、不要求晚于登记时刻）。"""
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema(
         "今日计划的一个目标：意图、目标文字、提醒时刻与大致时刻。"))
@@ -765,7 +765,7 @@ def _validate_plan_goals(goals: Sequence[PlanGoalInput], model_name: str) -> Seq
     """@brief 零点计划与修订两个入口共用的清单校验：条数超限与重复意图在同一次校验里一并报告。
 
     条数超过八条定位在 goals 本身（原值为提交的各条目）；每个重复的意图同时定位首次出现与其后每次出现的条目
-    （goals[i].intent_kind，原值为该意图），按下标升序。不因超限提前返回（docs/design/04-simulation-engine.md ）。
+    （goals[i].intent_kind，原值为该意图），按下标升序。不因超限提前返回（docs/design/04-simulation-engine.md）。
 
     :param goals: 已逐条通过条目校验的目标清单。
     :param model_name: 发起校验的请求模型名，作为校验错误的标题。
@@ -918,7 +918,7 @@ def _validate_summary(summary: str) -> str:
 
 #: HH:MM 钟点的 Schema 格式（与当日目标的 remind_time 同名同形）。
 _CLOCK_PATTERN = r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
-#: 个人事务变更的交叉约束（docs/design/04-simulation-engine.md 「每条变更」）：按变更种类必须非空的键与必须为 null 的键；
+#: 个人事务变更的交叉约束（docs/design/04-simulation-engine.md「唤醒、日计划与个人事务」）：按变更种类必须非空的键与必须为 null 的键；
 #: 其余键（新增的 memo、remind_time，更新的 memo、remind_time）可空。
 _ERRAND_REQUIRED = {"新增": ("item", "quantity"), "更新": (), "取消": ("reason",)}
 _ERRAND_NULL = {"新增": ("reason",), "更新": ("item", "quantity", "reason"),
@@ -1033,10 +1033,10 @@ _PROGRESS_ITEMS_SCHEMA = {"type": "array", "items": ActivityProgressItem.model_j
 
 class ReportStatusRequest(ToolRequestModel):
     """@brief 逐项播报进行中活动的人物自述；点名暂停的活动即在其开始地点恢复它（docs/design/04-simulation-engine.md
-    第六章：一项一个对象）。
+    ：一项一个对象）。
 
     :param items: 本次播报的一至两项，每项写活动名与进展自述。
-    :param errands: 请求级的个人事务变更，零至四条（docs/design/04-simulation-engine.md ）。
+    :param errands: 请求级的个人事务变更，零至四条（docs/design/04-simulation-engine.md）。
     """
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema())
@@ -1061,7 +1061,7 @@ class PauseActivityRequest(ToolRequestModel):
     """@brief 逐项写下人物自述并暂停所选进行中活动；暂停让出槽位，恢复要有空槽位，路上的活动不能暂停（一项一个对象）。
 
     :param items: 本次暂停的一至两项，每项写活动名与进展自述。
-    :param errands: 请求级的个人事务变更，零至四条（docs/design/04-simulation-engine.md ）。
+    :param errands: 请求级的个人事务变更，零至四条（docs/design/04-simulation-engine.md）。
     """
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema())
@@ -1083,7 +1083,7 @@ class PauseActivityRequest(ToolRequestModel):
 
 
 #: 一次 conclude_activity 写入的记忆与看法合计上限、单条文字字符上限与关键词个数上限（docs/design/04-simulation-engine.md
-#: 第七章「finish 并入 conclude_activity」；DeepSeek strict 禁 maxItems/maxLength，由本地校验兜住）。
+#: ；DeepSeek strict 禁 maxItems/maxLength，由本地校验兜住）。
 CONCLUSION_MEMORIES_MAX = 8
 MEMORY_TEXT_MAX_CHARS = 1000
 MEMORY_KEYWORDS_MAX = 12
@@ -1094,7 +1094,7 @@ _MEMORY_HEX_IDENTITY = re.compile(r"[0-9a-fA-F]{8,}")
 def validate_memory_text(text: str) -> str:
     """@brief 进入主观记忆的文字的共用校验：不超过 1000 字符且不含八位以上十六进制身份。
 
-    收尾记忆、看法与就寝反思的洞见三处共用这一个函数（docs/design/06-agent.md ），不区分条目来源。
+    收尾记忆、看法与就寝反思的洞见三处共用这一个函数（docs/design/06-agent.md），不区分条目来源。
 
     :param text: 模型写下的一条记忆文字。
     :returns: 通过校验的原文。
@@ -1143,7 +1143,7 @@ class ConclusionMemory(ToolRequestModel):
 
 class ConclusionView(ToolRequestModel):
     """@brief 结束活动时写下的一条看法（relationship，对某人）或偏好（preference，对某物）；about 写对象，宿主写入记忆时
-    作为 subject 存储（请求里叫 about、存储里叫 subject，指同一件事，接口合同「记忆字段」）。"""
+    作为 subject 存储（请求里叫 about、存储里叫 subject，指同一件事，docs/design/00-overview.md「数据质量原则」）。"""
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema("一条看法或偏好：类型、对象、文字、重要程度与关键词。"))
     type: Literal["relationship", "preference"] = Field(
@@ -1194,7 +1194,7 @@ class ConcludeActivityRequest(ToolRequestModel):
     （docs/design/04-simulation-engine.md）。
 
     :param items: 本次结束的一至两项；全部项的 memories 与 views 合计不超过八条。
-    :param errands: 请求级的个人事务变更，零至四条（docs/design/04-simulation-engine.md ）。
+    :param errands: 请求级的个人事务变更，零至四条（docs/design/04-simulation-engine.md）。
     """
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema())
@@ -1256,7 +1256,7 @@ def rejection_reason_text(error: Exception) -> str:
     """@brief 拒绝的英文日志文本：业务错误码加完整链式底层原因，只清除十六进制身份。
 
     只写进运行日志，不进入结果：拒绝结果的 message 与 details 取 life.guidance 生成的公开原因
-    （docs/design/04-simulation-engine.md「错误合同」），链式底层异常（骨架校验等）可能是请求模型的校验转储。
+    （docs/design/04-simulation-engine.md「动作、名称与并行」），链式底层异常（骨架校验等）可能是请求模型的校验转储。
     """
     reason = str(error)
     cause = error.__cause__

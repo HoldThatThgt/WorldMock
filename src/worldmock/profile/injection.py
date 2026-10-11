@@ -1,4 +1,4 @@
-"""@brief 运行输入警告与人设作息覆盖：注入即核对（docs/design/06-agent.md 、2.1、8.1）。
+"""@brief 运行输入警告与人设作息覆盖：注入即核对（docs/design/06-agent.md）。
 
 纯函数模块：只按显式输入计算，不读文件、不调模型、不改输入。新建运行（run_setup.creation_inputs）与 validate 调用同一组
 函数，警告冻结进运行清单 input_warnings、计入质量报告 input_warnings 一节并逐条写一条 ops 警告；运行路径永不因警告失败，
@@ -227,7 +227,7 @@ def coverage_warnings(agent_id: int, report: PersonaCoverageReport) -> list[dict
 def agreement_warnings(agent_id: int, compiler_warnings: Sequence[str]) -> list[dict[str, Any]]:
     """@brief PERSONA_AGREEMENT_LOW：逐条透传画像编译留下的警告（一致性偏低的字段、下班与到家锚点的降级说明等）。
 
-    该码泛指画像编译留下的警告，消息不预设原因（docs/design/06-agent.md#agent-下班与到家锚点 ）。
+    该码泛指画像编译留下的警告，消息不预设原因（docs/design/06-agent.md「人物身份与画像」）。
     @return details 键：compiler_warning（编译产物 warnings 中的原文）
     """
     return [_warning("PERSONA_AGREEMENT_LOW", agent_id, f"Persona compilation warning: {text}.", compiler_warning=text)

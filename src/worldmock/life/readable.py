@@ -1,6 +1,6 @@
 """@brief 七层提示共用的人读短语与中文种类表：带时区的时刻、本地日期、钟点、时长、金额、份数与个数。
 
-依据 docs/design/06-agent.md「通用格式」：时刻字段用带时区的 ISO 8601（秒精度、场景时区）；
+依据 docs/design/06-agent.md「提示与工具」：时刻字段用带时区的 ISO 8601（秒精度、场景时区）；
 短语里的时刻用场景本地 HH:MM，跨日时加「M月D日」；数量、价格与时长写成人读短语（「约 12 分钟」「32 元」
 「0.25 份」），不给原始秒数或以分为单位的整数。数字与单位之间留一个空格。各层构建器、公开结果与 settled 句
 都从这里取短语，全仓只有这一套口径。
@@ -85,7 +85,7 @@ def portion_phrase(quantity: float) -> str:
 
 
 def count_phrase(count: int) -> str:
-    """@brief 个数写成「90 个」（工具层可调用索引的品类计数，docs/design/04-simulation-engine.md ）。"""
+    """@brief 个数写成「90 个」（工具层可调用索引的品类计数，docs/design/04-simulation-engine.md）。"""
     return f"{count} 个"
 
 

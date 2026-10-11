@@ -27,7 +27,7 @@ _LEGACY_ACTIONS = {
     "navigation": ("travel", "travel", "route"),
 }
 #: 结果活动种类只取现行四类，环境动作类别由快照保存。
-#: 活动控制工具 -> 公开交互动词（docs/design/04-simulation-engine.md「人物工具与管理接口」），按请求
+#: 活动控制工具 -> 公开交互动词（docs/design/04-simulation-engine.md「动作、名称与并行」），按请求
 #: items[] 逐活动投影。
 _SESSION_CONTROL_TOOLS = {
     "report_status": "report",
