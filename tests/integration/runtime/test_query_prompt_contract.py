@@ -7,8 +7,8 @@ import pytest
 from pydantic import ValidationError
 
 from tests.integration.runtime.current_contract_fixtures import inputs
-from tests.life.conftest import advance_until_ready, context, stage_day_plan, start_activity
-from tests.life.environment_runtime import act
+from tests.life.conftest import advance_until_ready, context, stage_day_plan, travel, use_app
+from tests.life.environment_runtime import act, act_group
 from worldmock.life import prompt_capacity
 from worldmock.life.activity_control import PHASE_PENDING
 from worldmock.life.prompt_schemas import validate_layer
@@ -53,7 +53,7 @@ def test_query_schema_and_declared_filter_errors_are_reported_together():
 def test_actual_active_tools_roundtrip_losslessly_and_repeated_groups_do_not_duplicate_actions(engine_factory):
     engine = engine_factory()
     stage_day_plan(engine)
-    _, started = act(engine, "active", start_activity("interact", "抖音"))
+    _, started = act(engine, "active", use_app("抖音"))
     observed = engine.observe(context(engine, "active-tools"))
     original = copy.deepcopy(observed["tool_layer"])
     grouped = compact_tool_layer(original)
@@ -71,22 +71,29 @@ def test_actual_active_tools_roundtrip_losslessly_and_repeated_groups_do_not_dup
 
 
 def test_real_full_slots_and_pending_conclusion_use_the_same_tool_refusal(engine_factory):
+    """两个槽位都被占时每一行的不可用原因点名该槽位的占用者；有活动待收尾时每一行的原因与真实开始请求得到的拒绝
+    原因一字不差。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    from worldmock.life.models import StartActivityRequest
-    request = StartActivityRequest(items=[{"action": "interact", "target": "抖音"},
-                                         {"action": "walk", "target": "公司"}])
-    _, accepted = act(engine, "both-slots", request)
-    assert accepted.status == "in_progress"
+    _, accepted = act_group(engine, "both-slots", use_app("抖音"), travel("公司"))
+    assert [result.status for result in accepted] == ["in_progress", "in_progress"]
+    watching, walking = (engine.context.state.activities[result.activity_id].name for result in accepted)
     full = engine.observe(context(engine, "slots-full"))
-    home = next(row for row in full["tool_layer"]["targets"] if row["name"] == "家")
-    assert all(not row["available"] for row in home["actions"])
-    assert all(row["reason"] for row in home["actions"])
+    rows = {kind: [row for target in full["tool_layer"]["targets"] if target["kind"] == kind
+                   for row in target["actions"]] for kind in ("location", "product", "app")}
+    assert all(rows.values()) and not any(row["available"] for group in rows.values() for row in group)
+    assert {row["action"] for row in rows["location"]} == {"travel"}
+    assert {row["reason"] for row in rows["location"]} == {f"The first activity slot is occupied by {walking}."}
+    assert {row["reason"] for row in rows["product"] + rows["app"]} == {
+        f"The second activity slot is occupied by {watching}."}
     assert advance_until_ready(engine)
     pending = engine.observe(context(engine, "completion"))
-    assert any(row["phase"] == PHASE_PENDING for row in pending["tool_layer"]["targets"])
-    assert all(not row["available"] for target in pending["tool_layer"]["targets"]
-               for row in target["actions"])
+    assert [row["name"] for row in pending["tool_layer"]["targets"] if row["phase"] == PHASE_PENDING] == [watching]
+    waiting = [row for target in pending["tool_layer"]["targets"] for row in target["actions"]]
+    assert waiting and all(not row["available"] for row in waiting)
+    _, refused = act(engine, "completion-start", use_app("哔哩哔哩"))
+    assert refused.error_code == "ACTIVITY_CONCLUSION_REQUIRED"
+    assert {row["reason"] for row in waiting} == {refused.message}
 
 
 @pytest.mark.parametrize("reserve", [None, 0, -1, True, 32769])

@@ -24,10 +24,18 @@ def test_actual_basket_preserves_payment_goods_and_receipt_ownership(engine_fact
 
 
 def test_real_purchase_attempt_is_one_current_action(engine_factory):
-    engine, _ = recorded_engine(engine_factory, content=False)
+    """一条 start_side_activity 购买调用（数组里几份商品都算）是一次尝试；同一工具的内容 app 调用不是购买尝试。"""
+    engine, _ = recorded_engine(engine_factory)
     events = [row.model_dump(mode="json") for row in engine.context.store.read_events(
         engine.context.store.last_event_seq)]
     attempts = [row for row in project_purchase_facts(events) if row["fact_kind"] == "order_attempt"]
     assert len(attempts) == 1
     assert attempts[0]["action"] == "purchase" and attempts[0]["status"] == "in_progress"
     assert attempts[0]["error_code"] is None
+    requested = {row["event_id"]: row for row in events if row["event_type"] == "action_requested"}
+    source = requested[attempts[0]["request_event_id"]]
+    assert source["action_id"] == attempts[0]["action_id"] == "action-recorded-basket"
+    assert source["data"]["tool_name"] == "start_side_activity"
+    assert source["data"]["request"] == {"action": "purchase", "target": ["柠檬茶", "纸巾"]}
+    side = [row["data"]["request"] for row in requested.values() if row["data"]["tool_name"] == "start_side_activity"]
+    assert {"action": "interact", "target": ["哔哩哔哩"]} in side and len(side) >= 2

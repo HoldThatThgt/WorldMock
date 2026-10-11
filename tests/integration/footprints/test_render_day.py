@@ -245,17 +245,21 @@ def test_cli_writes_timeline_file(tmp_path, capsys):
     assert capsys.readouterr().out.startswith("wrote ")
 
 
-def test_inspect_run_brief_reads_start_activity_request_and_result():
-    """请求显示可读对象、动词与方式；已结算结果用状态和业务反馈表达。"""
+def test_inspect_run_brief_reads_start_requests_and_result():
+    """两个开始工具的请求各显示工具名与完整参数；已结算结果用状态和业务反馈表达。"""
     module = _load_script("inspect_run")
-    requested = module._brief({"event_type": "action_requested",
-                               "data": {"tool_name": "start_activity",
-                                        "request": {"items": [{"action": "sleep", "target": "家"}]}}})
-    assert requested.startswith('start_activity {"items": [{"action": "sleep", "target": "家"')
+    main = module._brief({"event_type": "action_requested",
+                          "data": {"tool_name": "start_main_activity",
+                                   "request": {"action": "sleep", "target": "450", "detail": None}}})
+    assert main == 'start_main_activity {"action": "sleep", "target": "450", "detail": null}'
+    side = module._brief({"event_type": "action_requested",
+                          "data": {"tool_name": "start_side_activity",
+                                   "request": {"action": "purchase", "target": ["牛肉面", "薯片"]}}})
+    assert side == 'start_side_activity {"action": "purchase", "target": ["牛肉面", "薯片"]}'
     accepted = module._brief({"event_type": "action_result",
-                              "data": {"status": "in_progress", "error_code": None,
-                                       "message": "Activity started", "data": {"activity": {"kind": "sleep"}}}})
-    assert '"status": "in_progress"' in accepted
+                              "data": {"status": "in_progress", "error_code": None, "message": "Activities started",
+                                       "data": {"activities": [{"kind": "sleep"}], "orders": []}}})
+    assert '"status": "in_progress"' in accepted and '"message": "Activities started"' in accepted
     rejected = module._brief({"event_type": "action_result",
                               "data": {"status": "rejected", "error_code": "MERCHANT_CLOSED",
                                        "message": "Merchant closed", "data": {}}})

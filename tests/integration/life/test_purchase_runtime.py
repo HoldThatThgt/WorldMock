@@ -4,11 +4,10 @@ from datetime import timedelta
 
 import pytest
 
-from tests.life.conftest import advance_next, conclude_request, errand_add, report_request, start_activity
+from tests.life.conftest import advance_next, conclude_request, errand_add, purchase, report_request, use_app
 from tests.life.current_world import stage_moment
 from tests.life.environment_inputs import copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, events, finish_activity, reach
-from worldmock.life.models import StartActivityRequest
 
 
 def at_store(persona, config):
@@ -19,17 +18,19 @@ def business_events(engine, kind):
     return [row for row in events(engine, "environment_event") if row.data.get("kind") == kind]
 
 
-def purchase(*names):
-    return StartActivityRequest(items=[{"action": "purchase", "target": name} for name in names])
-
-
 def test_local_basket_pays_once_at_completion_and_receives_each_actual_item(engine_factory):
     engine = engine_factory(mutate=at_store)
     _, result = act(engine, "basket", purchase("柠檬茶", "纸巾"))
     assert result.status == "in_progress", result.error_code
+    assert result.activity_id == "activity-action-basket-purchase"
     activity = engine.context.state.activities[result.activity_id]
     orders = list(engine.context.state.deliveries.values())
     assert len(orders) == 2 and len(engine.context.state.activities) == 1
+    # 一份一条商品履约记录，序号按配送组、组内按商品身份升序补零到四位；结果只带这条动作创建的记录
+    assert {order.order_id: (order.goods_id, order.quantity) for order in orders} == {
+        "order-action-basket-0001": ("lemon-tea", 1), "order-action-basket-0002": ("tissue", 1)}
+    assert [row["order_id"] for row in result.data["orders"]] == sorted(order.order_id for order in orders)
+    assert activity.name.startswith("购买柠檬茶、纸巾（")
     assert activity.resource_claims == {"second"}
     assert len({order.group_key for order in orders}) == 1
     assert engine.context.state.accounts["agent:1"] == 200000
@@ -103,6 +104,11 @@ def test_actual_purchase_completion_rechecks_total_after_a_declared_callback(eng
     engine = engine_factory(root, mutate=at_store)
     _, result = act(engine, "unaffordable-end", purchase("柠檬茶", "纸巾"))
     assert result.status == "in_progress"
+    # 一次购买写了两件商品，购买动作回调只触发一次，并回链这条动作的受理结果
+    effects = business_events(engine, "callback_effect")
+    assert [(row.data["rule_id"], row.data["status"]) for row in effects] == [("purchase-expense", "paid")]
+    accepted = next(row for row in events(engine, "action_result") if row.action_id == result.action_id)
+    assert effects[0].caused_by == [accepted.event_id]
     assert engine.context.state.accounts["agent:1"] == 1
     activity = engine.context.state.activities[result.activity_id]
     reach(engine, activity.planned_end_at)
@@ -118,7 +124,7 @@ def test_errand_completion_waits_for_real_receipt_and_counts_actual_units(engine
         at_store(persona, config)
         config["progress_report_interval_seconds"] = 60
     engine = engine_factory(mutate=mutate)
-    _, browsing = act(engine, "browse", start_activity("interact", "美团"))
+    _, browsing = act(engine, "browse", use_app("美团"))
     while not engine.scheduling_state().ready_agent_ids:
         advance_next(engine)
     name = engine.context.state.activities[browsing.activity_id].name

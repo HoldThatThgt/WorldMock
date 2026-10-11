@@ -9,15 +9,16 @@ import pytest
 
 from agentsociety2.society import DirectToolCall
 from tests.life.conftest import (
-    advance_next, conclude_request, context, pause_request, report_request, stage_day_plan, start_activity,
+    MAIN_TOOL, advance_next, conclude_request, context, pause_request, report_request, sleep, stage_day_plan,
+    tool_of, travel, use_app,
 )
 from worldmock.errors import ProtocolError
-from worldmock.life.models import StartActivityRequest
+from worldmock.life.models import StartMainActivityRequest
 from worldmock.life.prompt_schemas import validate_layer
 from worldmock.life.world_query import QueryWorldRequest
 
 
-from tests.life.environment_runtime import act, events, reach
+from tests.life.environment_runtime import act, act_group, events, reach
 from tests.life.environment_runtime import finish_activity
 
 
@@ -45,18 +46,20 @@ def test_public_layers_validate_and_contain_four_felt_signals(engine_factory):
     assert data["environment_layer"]["location"]["name"] == "家"
     assert all(isinstance(value, str) for value in data["environment_layer"]["body"].values())
     assert not any(row["kind"] == "person" for row in data["tool_layer"]["targets"])
-    assert set(data["known_activity_actions"]) == {
-        "walk", "drive", "take_taxi", "take_bus", "purchase", "sleep", "interact"}
+    assert data["known_activity_actions"] == ["travel", "purchase", "sleep", "interact"]
 
 
-@pytest.mark.parametrize("action,mode", [
-    ("walk", "walking"), ("drive", "driving"), ("take_taxi", "taxi"), ("take_bus", "bus")])
-def test_each_travel_action_uses_complete_path_actual_departure_fare_and_arrival(engine_factory, action, mode):
+@pytest.mark.parametrize("method,action,mode", [
+    ("步行", "walk", "walking"), ("驾车", "drive", "driving"), ("打车", "take_taxi", "taxi"),
+    ("公共交通", "take_bus", "bus")], ids=["walk", "drive", "take_taxi", "take_bus"])
+def test_each_travel_action_uses_complete_path_actual_departure_fare_and_arrival(engine_factory, method, action, mode):
     engine = engine_factory()
-    _, result = act(engine, f"trip-{action}", start_activity(action, "公司"))
+    _, result = act(engine, f"trip-{action}", travel("公司", method))
     assert result.status == "in_progress", result.error_code
+    assert result.activity_id == f"activity-action-trip-{action}"
     activity = engine.context.state.activities[result.activity_id]
-    assert activity.travel_mode == mode
+    # 出行活动记下所选方式对应的固定出行动作与行程方式
+    assert activity.data["action"] == action and activity.travel_mode == mode
     assert activity.resource_claims == {"first"}
     assert activity.data["path"][0] == "home" and activity.data["path"][-1] == "office"
     assert activity.data["distance_meters"] == engine.context.catalog.shortest_m("home", "office")
@@ -75,10 +78,12 @@ def test_each_travel_action_uses_complete_path_actual_departure_fare_and_arrival
 
 def test_sleep_ignores_every_intermediate_external_boundary_and_freezes_needs(engine_factory):
     engine = engine_factory()
-    _, result = act(engine, "sleep", start_activity("sleep", "家"))
+    _, result = act(engine, "sleep", sleep())
     assert result.status == "in_progress", result.error_code
     before = engine.context.state.agents[1].body.model_copy(deep=True)
     activity = engine.context.state.activities[result.activity_id]
+    assert activity.resource_claims == {"first"}
+    assert activity.planned_duration_seconds == activity.data["declared_duration_seconds"] == 450 * 60
     boundaries = 0
     while engine.context.state.current_time < activity.planned_end_at:
         advance_next(engine)
@@ -94,12 +99,18 @@ def test_sleep_ignores_every_intermediate_external_boundary_and_freezes_needs(en
     assert "planned_end" in engine.context.state.agents[1].pending_wake_reasons
 
 
-@pytest.mark.parametrize("action", ["wait", "chat", "Sleep", "travel_to", "collect_parcel"])
+@pytest.mark.parametrize("action", ["wait", "chat", "Sleep", "travel_to", "collect_parcel", "walk", "take_bus"])
 def test_retired_and_unknown_actions_leave_no_partial_activity_and_write_feedback(engine_factory, action):
     engine = engine_factory()
-    _, result = act(engine, f"bad-{action}", start_activity(action, "家"))
-    assert result.status == "rejected"
-    assert result.data["items"][0]["error_code"] == "ACTION_NOT_OFFERED"
+    # 宿主之外直接登记的请求：类型是请求模型而动作在枚举之外，环境用同一个请求模型复核后按请求形状拒绝
+    request = StartMainActivityRequest.model_construct(action=action, target="家", detail="测试休息")
+    _, result = act(engine, f"bad-{action}", request)
+    assert result.status == "rejected" and result.error_code == "ACTION_REQUEST_INVALID"
+    assert result.message == "The value is outside the declared allowed values."
+    assert result.data["fix"] == "Correct every reported parameter."
+    [item] = result.data["items"]
+    assert item["path"] == ["tool_calls", 0, "function", "arguments", "action"]
+    assert item["written"] == action and item["allowed_values"] == ["travel", "interact", "sleep"]
     assert not engine.context.state.activities
     assert engine.context.state.accounts["agent:1"] == 200000
     assert engine.context.state.agents[1].body.relaxation_need == pytest.approx(0.25)
@@ -107,43 +118,94 @@ def test_retired_and_unknown_actions_leave_no_partial_activity_and_write_feedbac
 
 
 def test_two_slot_group_starts_travel_and_app_interaction_atomically(engine_factory):
+    # 单独出发时世界里只有这一项活动，它占哪个槽位只取决于槽位规则：出行占槽位 1，槽位 2 留给同组的副活动
+    alone = engine_factory()
+    _, departed = act(alone, "alone", travel("公司"))
+    assert departed.status == "in_progress", departed.error_code
+    assert alone.context.state.activities[departed.activity_id].resource_claims == {"first"}
+    # 同一决策里两个开始工具各登记一条：整组核验后两项活动同一时刻开始，各占一个槽位
     engine = engine_factory()
-    request = StartActivityRequest(items=[{"action": "walk", "target": "公司"},
-                                          {"action": "interact", "target": "哔哩哔哩"}])
-    _, result = act(engine, "parallel", request)
-    assert result.status == "in_progress", result.error_code
-    activities = list(engine.context.state.activities.values())
-    assert len(activities) == 2
-    assert {next(iter(item.resource_claims)) for item in activities} == {"first", "second"}
-    assert len({item.started_at for item in activities}) == 1
+    started_at = engine.context.state.current_time
+    _, results = act_group(engine, "parallel", travel("公司"), use_app("哔哩哔哩"))
+    assert [item.status for item in results] == ["in_progress", "in_progress"], [item.error_code for item in results]
+    assert [item.activity_id for item in results] == ["activity-action-parallel-1", "activity-action-parallel-2"]
+    activities = engine.context.state.activities
+    assert set(activities) == {item.activity_id for item in results}
+    trip, media = (activities[item.activity_id] for item in results)
+    # 出行由 start_main_activity 放进槽位 1，内容 app 由 start_side_activity 放进槽位 2，两项同一时刻开始
+    assert (trip.kind, trip.data["action"], trip.resource_claims) == ("travel", "walk", {"first"})
+    assert (media.kind, media.data["app_id"], media.resource_claims) == ("interact", "bilibili", {"second"})
+    assert trip.started_at == media.started_at == started_at
+    assert trip.status == media.status == "active"
+    assert (trip.origin_action_id, media.origin_action_id) == ("action-parallel-1", "action-parallel-2")
+    for item in results:
+        assert item.message == "Activities started"
+        assert [row["activity_id"] for row in item.data["activities"]] == [item.activity_id]
     before = engine.context.state.agents[1].body
     advance_next(engine)
     now = engine.context.state.current_time
     after = engine.context.state.agents[1].body
-    hours = (now - activities[0].started_at) / 3600
+    hours = (now - trip.started_at) / 3600
     assert after.social_need == pytest.approx(before.social_need + 0.06 * hours)
-    relief = activities[1].data["relaxation_relief_per_hour"]
+    relief = media.data["relaxation_relief_per_hour"]
     assert after.relaxation_need == pytest.approx(max(0, before.relaxation_need + (0.08 - relief) * hours))
 
 
-@pytest.mark.parametrize("items", [
-    [{"action": "interact", "target": "哔哩哔哩"}, {"action": "interact", "target": "抖音"}],
-    [{"action": "walk", "target": "公司"}, {"action": "take_bus", "target": "五里公园"}],
-    [{"action": "sleep", "target": "家"}, {"action": "interact", "target": "哔哩哔哩"}],
-    [{"action": "walk", "target": "公司"}, {"action": "interact", "target": "不存在"}],
-])
-def test_invalid_group_rejects_all_items_before_occupancy_or_funds_change(engine_factory, items):
+@pytest.mark.parametrize("main,side,refusal,paths", [
+    (sleep, lambda: use_app("哔哩哔哩"),
+     ("RESOURCE_CONFLICT", "Sleep requires the second activity slot to be empty.",
+      "Submit start_main_activity alone to sleep."),
+     [["tool_calls", 0, "function", "arguments", "target"], ["tool_calls", 1, "function", "arguments", "target"]]),
+    (lambda: travel("公司"), lambda: use_app("不存在"),
+     ("ACTION_REQUEST_INVALID",
+      "No known object named 不存在 supports this action; changing spelling cannot create an object.",
+      "Use an exact known name or a candidate."),
+     [["tool_calls", 1, "function", "arguments", "target", 0]]),
+], ids=["sleep-with-app", "travel-with-unknown-app"])
+def test_invalid_group_rejects_all_items_before_occupancy_or_funds_change(engine_factory, main, side, refusal, paths):
     engine = engine_factory()
-    _, result = act(engine, "invalid-group", StartActivityRequest(items=items))
-    assert result.status == "rejected"
+    random_state = engine.context.state.random_state
+    _, results = act_group(engine, "invalid-group", main(), side())
+    # 整组只给一份拒绝：两条动作的结果内容相同，原因带追加句，明细只落在负责的调用上
+    code, reason, fix = refusal
+    assert [item.status for item in results] == ["rejected", "rejected"]
+    assert [item.error_code for item in results] == [code, code]
+    assert results[0].message == results[1].message == reason + " Neither start request was started."
+    assert results[0].data == results[1].data and results[0].data["fix"] == fix
+    assert [item["path"] for item in results[0].data["items"]] == paths
+    assert len(events(engine, "action_rejected")) == 2
     assert not engine.context.state.activities
     assert not engine.context.state.deliveries
     assert engine.context.state.accounts == {"agent:1": 200000, "external:scenario": -200000}
+    assert engine.context.state.random_state == random_state
+
+
+@pytest.mark.parametrize("first,second", [
+    (lambda: use_app("哔哩哔哩"), lambda: use_app("抖音")),
+    (lambda: travel("公司"), lambda: travel("五里公园", "公共交通")),
+], ids=["two-side-calls", "two-main-calls"])
+def test_same_start_tool_twice_in_one_decision_is_a_protocol_fault_and_starts_nothing(engine_factory, first, second):
+    engine = engine_factory()
+    decision = context(engine, "same-tool")
+    engine.begin_decision_round([decision])
+    engine.observe(decision)
+    request = first()
+    engine.submit_action(DirectToolCall(decision, "action-same-tool-1", tool_of(request), request))
+    # 同一槽位的两项不再能写进一个请求：同一个开始工具在一个决策里登记第二次是协议故障，不是业务拒绝
+    request = second()
+    with pytest.raises(ProtocolError, match="Agent already submitted its decision round action"):
+        engine.submit_action(DirectToolCall(decision, "action-same-tool-2", tool_of(request), request))
+    engine.abort_decision_round("same-tool", "expected fault")
+    assert not engine.context.state.activities
+    assert not engine.context.state.deliveries
+    assert engine.context.state.accounts == {"agent:1": 200000, "external:scenario": -200000}
+    assert set(engine.context.state.processed_actions) == {"action-same-tool-1"}
+    assert engine.context.state.processed_actions["action-same-tool-1"].result["status"] == "failed"
 
 
 def test_pause_resume_and_conclude_keep_actual_shared_content_progress(engine_factory):
     engine = engine_factory(mutate=lambda persona, config: config.update(progress_report_interval_seconds=60))
-    _, result = act(engine, "media", start_activity("interact", "Keep"))
+    _, result = act(engine, "media", use_app("Keep"))
     activity_id = result.activity_id
     activity = engine.context.state.activities[activity_id]
     while not engine.scheduling_state().ready_agent_ids:
@@ -187,14 +249,14 @@ def test_query_keeps_world_random_state_and_occupancy_unchanged(engine_factory):
 
 def test_action_id_replay_is_idempotent_and_parameter_conflict_is_protocol_error(engine_factory):
     engine = engine_factory()
-    request = start_activity("interact", "美团")
+    request = use_app("美团")
     _, result = act(engine, "stable", request, action_id="same-action")
     reach(engine, engine.context.state.activities[result.activity_id].planned_end_at)
     original = engine.context.state.model_dump(mode="json")
     decision = context(engine, "replay")
     engine.begin_decision_round([decision])
     engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, "same-action", "start_activity", request))
+    engine.submit_action(DirectToolCall(decision, "same-action", tool_of(request), request))
     replay = engine.commit_decision_round("replay")[0]
     assert replay.status == "completed"
     assert len(engine.context.state.activities) == len(original["activities"]) == 1
@@ -202,7 +264,7 @@ def test_action_id_replay_is_idempotent_and_parameter_conflict_is_protocol_error
     engine.begin_decision_round([decision])
     engine.observe(decision)
     with pytest.raises(ProtocolError, match="different parameters"):
-        engine.submit_action(DirectToolCall(decision, "same-action", "start_activity", start_activity("interact", "家")))
+        engine.submit_action(DirectToolCall(decision, "same-action", tool_of(request), use_app("哔哩哔哩")))
     engine.abort_decision_round("conflict", "expected conflict")
 
 
@@ -210,10 +272,10 @@ def test_same_second_six_rejections_stop_without_advancing_clock(engine_factory)
     engine = engine_factory()
     now = engine.context.state.current_time
     for index in range(5):
-        _, result = act(engine, f"reject-{index}", start_activity("interact", "Missing"))
+        _, result = act(engine, f"reject-{index}", use_app("Missing"))
         assert result.status == "rejected"
     with pytest.raises(ProtocolError, match="decision_budget_exhausted"):
-        act(engine, "reject-final", start_activity("interact", "Missing"))
+        act(engine, "reject-final", use_app("Missing"))
     assert engine.context.state.current_time == now
     with pytest.raises(ProtocolError, match="decision_budget_exhausted"):
         engine.scheduling_state()
@@ -225,7 +287,7 @@ def test_abort_and_stale_context_never_execute_the_uncommitted_action(engine_fac
     decision = context(engine, "abort")
     engine.begin_decision_round([decision])
     engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, "never-run", "start_activity", start_activity("sleep", "家")))
+    engine.submit_action(DirectToolCall(decision, "never-run", MAIN_TOOL, sleep()))
     engine.abort_decision_round("abort", "test failure")
     assert not engine.context.state.activities
     assert engine.context.state.processed_actions["never-run"].result["status"] == "failed"
@@ -245,13 +307,13 @@ def test_wrong_observed_time_cannot_read_world(engine_factory):
 
 def test_paused_interaction_requires_its_actual_start_location_to_resume(engine_factory):
     engine = engine_factory(mutate=lambda persona, config: config.update(progress_report_interval_seconds=60))
-    _, result = act(engine, "original-media", start_activity("interact", "Keep"))
+    _, result = act(engine, "original-media", use_app("Keep"))
     while not engine.scheduling_state().ready_agent_ids:
         advance_next(engine)
     media = engine.context.state.activities[result.activity_id]
     _, paused = act(engine, "pause-before-trip", pause_request(media.name), "pause_activity")
     assert paused.status == "completed"
-    _, trip = act(engine, "away", start_activity("walk", "公司"))
+    _, trip = act(engine, "away", travel("公司"))
     finish_activity(engine, trip, "away")
     before = engine.context.state.agents[1].content_progress[media.data["content_id"]]
     _, refused = act(engine, "wrong-location", report_request(media.name), "report_status")
@@ -262,13 +324,13 @@ def test_paused_interaction_requires_its_actual_start_location_to_resume(engine_
 
 def test_completed_interaction_keeps_its_slot_until_actual_conclusion(engine_factory):
     engine = engine_factory()
-    _, result = act(engine, "finished-browse", start_activity("interact", "美团"))
+    _, result = act(engine, "finished-browse", use_app("美团"))
     activity = engine.context.state.activities[result.activity_id]
     reach(engine, activity.planned_end_at)
-    _, refused = act(engine, "pending-blocks", start_activity("interact", "Keep"))
+    _, refused = act(engine, "pending-blocks", use_app("Keep"))
     assert refused.status == "rejected" and refused.error_code == "ACTIVITY_CONCLUSION_REQUIRED"
     assert len(engine.context.state.activities) == 1
     _, concluded = act(engine, "release-slot", conclude_request(activity.name), "conclude_activity")
     assert concluded.status == "completed"
-    _, next_activity = act(engine, "new-media", start_activity("interact", "Keep"))
+    _, next_activity = act(engine, "new-media", use_app("Keep"))
     assert next_activity.status == "in_progress"

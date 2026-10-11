@@ -13,15 +13,14 @@ from tests.dayrun_baseline import day_baseline_signature, deterministic_day_runt
 from tests.frozen_inputs import fixture_metadata
 from tests.integration.runtime.current_contract_fixtures import compiled_persona
 from tests.integration.runtime_fixtures import current_run_identity, write_agent_workspace
-from tests.life.conftest import stage_day_plan, start_activity, start_arguments
-from tests.life.environment_runtime import act, finish_activity, run_to_end
+from tests.life.conftest import do_at, purchase, sleep, stage_day_plan, travel, use_app
+from tests.life.environment_runtime import act, act_group, finish_activity, run_to_end
 from worldmock.catalog.identity import refresh_manifest_identity
 from worldmock.environment import environment_identity, load_environment
 from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.export import export_run
 from worldmock.footprints.validation import validate_export
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import StartActivityRequest
 from worldmock.run_setup import stage_model_identity
 
 
@@ -55,25 +54,33 @@ def _environment(case: Path, kind: str):
     return load_environment(destination, metadata_loader=fixture_metadata)
 
 
-def _activity_day(engine):
-    _, basket = act(engine, "basket", start_activity("purchase", "牛肉面", "薯片"))
-    assert basket.status == "in_progress"
-    finish_activity(engine, basket, "basket")
-    request = StartActivityRequest.model_validate(start_arguments(["公司", "哔哩哔哩"], ["walk", "interact"]))
-    _, paired = act(engine, "travel-media", request)
-    assert paired.status == "in_progress"
+def _finish_active(engine, label):
+    """把此刻进行中的活动逐项推进到真实终局并收尾：先结束得早的，再结束得晚的。"""
     active = [activity for activity in engine.context.state.activities.values() if activity.status == "active"]
-    for activity in sorted(active, key=lambda item: item.kind == "interact"):
-        finish_activity(engine, SimpleNamespace(activity_id=activity.activity_id), activity.kind.value)
+    for activity in sorted(active, key=lambda item: (item.planned_end_at, item.activity_id)):
+        finish_activity(engine, SimpleNamespace(activity_id=activity.activity_id), f"{label}-{activity.kind.value}")
+
+
+def _activity_day(engine):
+    """同一轮在家点名休息并买一份牛肉面、两份薯片；同一轮驾车去公司并打开哔哩哔哩；在公司睡 60 分钟。"""
+    _, home = act_group(engine, "home-basket", do_at("家", "测试休息"), purchase("牛肉面", "薯片", "薯片"))
+    assert [item.status for item in home] == ["in_progress", "in_progress"]
+    _finish_active(engine, "home")
+    _, paired = act_group(engine, "travel-media", travel("公司", "驾车"), use_app("哔哩哔哩"))
+    assert [item.status for item in paired] == ["in_progress", "in_progress"]
+    _finish_active(engine, "trip")
+    _, nap = act(engine, "office-nap", sleep(60))
+    assert nap.status == "in_progress"
+    finish_activity(engine, nap, "office-nap")
 
 
 def _callback_day(engine):
-    _, drive = act(engine, "drive", start_activity("drive", "四季便利"))
+    _, drive = act(engine, "drive", travel("四季便利", "驾车"))
     assert drive.status == "in_progress"
     finish_activity(engine, drive, "drive")
-    _, purchase = act(engine, "reset-purchase", start_activity("purchase", "纸巾", "饭团"))
-    assert purchase.status == "in_progress"
-    finish_activity(engine, purchase, "reset-purchase")
+    _, bought = act(engine, "reset-purchase", purchase("纸巾", "饭团"))
+    assert bought.status == "in_progress"
+    finish_activity(engine, bought, "reset-purchase")
     assert engine.context.state.agents[1].callback_states["driving_days"] == 3
 
 

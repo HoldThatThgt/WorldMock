@@ -94,6 +94,74 @@ test('the current tool layer contains only the seven actual actions with lossles
   }
 });
 
+/** @brief 生活决策系统层的人物角色原文，取自提示的唯一来源 LIFE_SYSTEM_LAYER，不抄查看器里的那一份。 */
+const LIFE_ROLE = /LIFE_SYSTEM_LAYER[^=]*= \{\s*"layer": "系统层",\s*"role": "([^"]+)"/.exec(
+  read('src/worldmock/agents/life_prompt.py'))[1];
+
+/** @brief 现行工具层在提示里的紧凑分组（由真实引擎的观察照抄）：出行每个目的地每种方式一行、在地点做事每个内容单元
+ * 一行，都带 detail；睡眠、购买与用内容 app 的动作行没有 detail。驾车一行按余额不足写成不可用。 */
+const START_TOOL_LAYER = {layer: '工具层', groups: [
+  {kind: 'location', action: 'travel', shared: {state: '全天营业'}, targets: [
+    {name: '公司', detail: '步行', available: true, price: '0 元', duration: '约 32 分钟', note: '费力'},
+    {name: '公司', detail: '驾车', available: false, reason: "The caller's available balance is below the route fare.",
+      price: '5 元', duration: '约 5 分钟', note: '轻松'},
+    {name: '公司', detail: '打车', available: true, price: '14 元', duration: '约 5 分钟', note: '轻松'},
+    {name: '公司', detail: '公共交通', available: true, price: '2 元', duration: '约 8 分钟', note: '轻松'}]},
+  {kind: 'location', action: 'interact', shared: {state: '全天营业', available: true}, targets: [
+    {name: '家', detail: '测试闲聊', duration: '约 10 分钟'},
+    {name: '家', detail: '测试休息', duration: '约 15 分钟'}]},
+  {kind: 'location', action: 'sleep', shared: {state: '全天营业', available: true, note: '现在不欠觉'},
+    targets: [{name: '家'}]},
+  {kind: 'product', action: 'purchase', shared: {duration: '1–5 分钟', quantity: '1 件'}, targets: [
+    {name: '柠檬茶', available: true, price: '12 元', note: '运费5 元，预计01月05日 08:18到达'}]},
+  {kind: 'app', action: 'interact', shared: {available: true}, targets: [
+    {name: '哔哩哔哩', duration: '约 5 分钟–约 40 分钟'}]},
+], callable_index: {}};
+
+/** @brief 不读录制夹具，按七层合同内联构造一个现行行动请求：系统层、六个用户层与含两个开始工具的工具数组。 */
+function inlineRequest(toolLayer) {
+  const userLayers = [toolLayer, ...LAYER_NAMES.slice(1).map(layer => ({layer}))];
+  return {model: 'test-model', messages: [
+    {role: 'system', content: JSON.stringify({layer: '系统层', role: LIFE_ROLE, rules: []})},
+    {role: 'user', content: JSON.stringify(userLayers)}],
+  tools: ['start_main_activity', 'start_side_activity', 'conclude_activity'].map(
+    name => ({type: 'function', function: {name}}))};
+}
+
+test('tool layer drill-down names the detail of travel and location rows between the action and the availability', () => {
+  const {api, errors} = parser();
+  const original = inlineRequest(START_TOOL_LAYER);
+  const parsed = api.parseRequest(event(original));
+  assert.equal(parsed.stage, 'action');
+  assert.equal(parsed.warnings.length, 0);
+  assert.deepEqual(plain(messageBlocks(parsed).map(block => block.key)), LAYER_KEYS);
+  assert.equal(messageBlocks(parsed).map(block => block.text).join(''), original.messages[1].content);
+  const tool = parsed.blocks.find(block => block.key === 'tool');
+  const items = plain(api.drillItems(tool));
+  // 每个分组行先给目标一项，再给它的动作一项：带 detail 的行写「目标 · 动作 · detail · 可用性」，没有 detail 的行不留空位。
+  assert.deepEqual(items.map(item => item.label), [
+    '公司（location）', '公司 · travel · 步行 · 可用',
+    '公司（location）', "公司 · travel · 驾车 · 不可用：The caller's available balance is below the route fare.",
+    '公司（location）', '公司 · travel · 打车 · 可用',
+    '公司（location）', '公司 · travel · 公共交通 · 可用',
+    '家（location）', '家 · interact · 测试闲聊 · 可用',
+    '家（location）', '家 · interact · 测试休息 · 可用',
+    '家（location）', '家 · sleep · 可用',
+    '柠檬茶（product）', '柠檬茶 · purchase · 可用',
+    '哔哩哔哩（app）', '哔哩哔哩 · interact · 可用',
+  ]);
+  // 同一目的地的四行出行只靠 detail 区分；下钻正文无损：动作在前，其后是分组共有字段、本行字段与类别。
+  const text = label => JSON.parse(items.find(item => item.label === label).text);
+  assert.deepEqual(text('公司 · travel · 公共交通 · 可用'), {action: 'travel', state: '全天营业', name: '公司',
+    detail: '公共交通', available: true, price: '2 元', duration: '约 8 分钟', note: '轻松', kind: 'location'});
+  assert.deepEqual(text('家 · interact · 测试休息 · 可用'), {action: 'interact', state: '全天营业', available: true,
+    name: '家', detail: '测试休息', duration: '约 15 分钟', kind: 'location'});
+  assert.deepEqual(text('家 · sleep · 可用'), {action: 'sleep', state: '全天营业', available: true,
+    note: '现在不欠觉', name: '家', kind: 'location'});
+  for (const item of items) assert.doesNotMatch(item.label, /undefined|null| ·  · /);
+  assert.equal(errors.length, 0);
+});
+
 test('current progress records keep source facts and mark self notes unverified', () => {
   const {api} = parser();
   const values = layers();

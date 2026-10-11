@@ -3,7 +3,7 @@
 import json
 from datetime import timedelta
 
-from tests.life.conftest import advance_next, pause_request, report_request, start_activity
+from tests.life.conftest import advance_next, pause_request, report_request, travel, use_app
 from tests.life.environment_runtime import act, finish_activity, run_to_end
 from worldmock.footprints.export import export_run
 from worldmock.footprints.validation import validate_export
@@ -14,7 +14,7 @@ def test_actual_pause_and_resume_export_only_running_intervals(engine_factory, t
         config["stop_time"] = config["start_time"] + timedelta(hours=2)
         config["progress_report_interval_seconds"] = 60
     engine = engine_factory(mutate=setup)
-    _, started = act(engine, "media", start_activity("interact", "哔哩哔哩"))
+    _, started = act(engine, "media", use_app("哔哩哔哩"))
     assert started.status == "in_progress"
     while not engine.scheduling_state().ready_agent_ids:
         advance_next(engine)
@@ -22,9 +22,9 @@ def test_actual_pause_and_resume_export_only_running_intervals(engine_factory, t
     paused_at = engine.context.state.current_time
     _, paused = act(engine, "pause", pause_request(media.name), "pause_activity")
     assert paused.status == "completed"
-    _, away = act(engine, "away", start_activity("walk", "公司"))
+    _, away = act(engine, "away", travel("公司"))
     finish_activity(engine, away, "away")
-    _, home = act(engine, "home", start_activity("walk", "家"))
+    _, home = act(engine, "home", travel("家"))
     finish_activity(engine, home, "home")
     resumed_at = engine.context.state.current_time
     assert resumed_at > paused_at

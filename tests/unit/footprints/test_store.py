@@ -59,9 +59,9 @@ def test_agent_event_queries_respect_type_person_and_exclusive_boundary(store):
 
 
 def test_action_request_cutoff_counts_only_thinking_requests_with_the_action_tools(store):
-    """行动请求只看结构：不带 purpose、thinking 开启、原生 tools 含 start_activity；零点计划、没有工具或未开思考的
-    请求都不算，提示文本不参与判定（docs/design/06-agent.md 第二章「单一行动阶段」）。"""
-    def request(agent_id: int = 1, *, thinking: str = 'enabled', tools=('start_activity',), **data) -> EventDraft:
+    """行动请求只看结构：不带 purpose、thinking 开启、原生 tools 含 start_main_activity；零点计划、没有该工具（只有
+    start_side_activity 也不算）或未开思考的请求都不算，提示文本不参与判定（docs/design/06-agent.md 第二章「单一行动阶段」）。"""
+    def request(agent_id: int = 1, *, thinking: str = 'enabled', tools=('start_main_activity',), **data) -> EventDraft:
         body = {'messages': [{'role': 'user', 'content': '{"progress_layer": {}}'}],
                 'extra_body': {'thinking': {'type': thinking}},
                 'tools': [{'type': 'function', 'function': {'name': name}} for name in tools]}
@@ -72,10 +72,11 @@ def test_action_request_cutoff_counts_only_thinking_requests_with_the_action_too
                                request(purpose='plan_day', call_id='plan-day'),
                                request(thinking='disabled'),
                                request(tools=('answer_question',)),
-                               request(2, tools=('observe', 'start_activity'))])
+                               request(tools=('start_side_activity',)),
+                               request(2, tools=('observe', 'start_main_activity', 'start_side_activity'))])
 
     assert store.last_agent_action_request_seq(1) == 1
-    assert store.last_agent_action_request_seq(2) == 5
+    assert store.last_agent_action_request_seq(2) == 6
     assert store.last_agent_action_request_seq(3) == 0
 
 

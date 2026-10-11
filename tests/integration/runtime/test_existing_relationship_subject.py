@@ -3,7 +3,7 @@
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 
 from tests.integration.runtime.current_contract_fixtures import environment, person, ScriptedModel
-from tests.life.conftest import advance_until_ready, context, start_activity
+from tests.life.conftest import advance_until_ready, context, do_at, use_app
 from tests.life.environment_runtime import act
 from worldmock.agents.life_feedback import feedback_report
 from worldmock.life.models import ConcludeActivityRequest
@@ -11,7 +11,7 @@ from worldmock.life.models import ConcludeActivityRequest
 
 def test_host_accepts_card_or_existing_relationship_and_rejects_unknown_subject(engine_factory):
     engine = engine_factory()
-    _, prior = act(engine, "prior-content", start_activity("interact", "家"))
+    _, prior = act(engine, "prior-content", do_at("家", "测试休息"))
     assert prior.status == "in_progress"
     old_name = engine.context.state.activities[prior.activity_id].name
     advance_until_ready(engine)
@@ -20,7 +20,7 @@ def test_host_accepts_card_or_existing_relationship_and_rejects_unknown_subject(
         "text": "他很可靠。", "importance": 0.5, "keywords": ["关系"]}]}], "errands": []})
     _, concluded = act(engine, "prior-view", request, "conclude_activity")
     assert concluded.status == "completed"
-    _, result = act(engine, "real-content", start_activity("interact", "哔哩哔哩"))
+    _, result = act(engine, "real-content", use_app("哔哩哔哩"))
     assert result.status == "in_progress"
     decision = context(engine, "conclusion-boundary")
     env = environment(engine)

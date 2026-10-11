@@ -17,7 +17,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/bet
 from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig
 from agentsociety2.agent.base.react import MemoryUpdateEvidence
 from tests.life.conftest import (
-    advance_until_ready, conclude_request, stage_day_plan, start_activity, submit_round,
+    advance_until_ready, conclude_request, stage_day_plan, submit_round, use_app,
 )
 from custom.agents.life_agent import _conclusion_memories
 from worldmock.agents.life_memory import WorldMockMemoryRuntime, render_memory_view
@@ -157,7 +157,7 @@ async def test_actual_app_progress_is_written_to_verified_memory_with_source_and
     """真实 app 足迹进入启用的 AS2 记忆存储；应用、内容与实际区间位置不靠人物自述补齐。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    _, results = submit_round(engine, {1: ("start_activity", start_activity("interact", "抖音"))},
+    _, results = submit_round(engine, {1: ("start_side_activity", use_app("抖音"))},
                               "memory-app")
     started = results[0]
     assert started.status == "in_progress"

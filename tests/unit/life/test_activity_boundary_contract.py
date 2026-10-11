@@ -10,8 +10,11 @@ from worldmock.life.activities import (
 )
 from worldmock.life.body import BodySettlement
 from worldmock.life.models import (
-    ActivityChange, ActivityStatus, ChangeActivityRequest, PendingAction, SameMomentStage, StoredAction, TravelMode,
+    ActionReceipt, ActivityChange, ActivityStatus, ChangeActivityRequest, PendingAction, SameMomentStage, StoredAction,
+    TravelMode,
 )
+
+MAIN_TOOL, SIDE_TOOL = "start_main_activity", "start_side_activity"
 
 
 def _activity(engine, action="interact"):
@@ -132,10 +135,20 @@ def test_same_second_name_feedback_is_free_twice_and_service_pulse_is_not_repeat
     engine = engine_factory()
     state = engine.context.state.model_copy(deep=True)
     assert same_moment.rejection_pulse(state, 1, "NAME_NOT_FOUND") is None
-    for index in range(3):
-        state.processed_actions[str(index)] = StoredAction(action_id=str(index), tool_name="start_activity",
-            request_sha256="a" * 64, receipt={}, result={"agent_id": 1, "occurred_at": state.current_time,
+
+    def rejected(decision: str, action: str, tool: str = MAIN_TOOL) -> None:
+        """登记一条本秒已结算的名称类拒绝；同一决策的两条开始动作属于同一组。"""
+        receipt = ActionReceipt(action_id=action, round_id="round", decision_id=decision, request_sha256="a" * 64)
+        state.processed_actions[action] = StoredAction(action_id=action, tool_name=tool, request_sha256="a" * 64,
+            receipt=receipt.model_dump(mode="json"), result={"agent_id": 1, "occurred_at": state.current_time,
                 "status": "rejected", "error_code": "NAME_NOT_FOUND"})
+
+    rejected("decision-0", "0")
+    rejected("decision-1", "1-main")
+    rejected("decision-1", "1-side", SIDE_TOOL)
+    assert same_moment.latest_rejection_code(state, 1) is None
+    assert same_moment.rejection_pulse(state, 1, "NAME_NOT_FOUND") == same_moment.SERVICE_REFUSED
+    rejected("decision-2", "2")
     assert same_moment.latest_rejection_code(state, 1) == "NAME_NOT_FOUND"
     assert same_moment.rejection_pulse(state, 1, "ACTION_REQUEST_INVALID") is None
     agent = state.agents[1].model_copy(update={"same_moment_rounds": 3})
@@ -162,11 +175,22 @@ def test_malformed_wire_mutation_is_rejected_without_partial_dispatch(engine_fac
     engine = engine_factory()
     state = engine.context.state
     before = state.model_dump(mode="json")
-    pending = PendingAction(run_id=state.run_id, round_id="invalid", decision_id="invalid", action_id="invalid",
-        agent_id=1, observed_at=state.current_time, world_state_version=state.version, order=0,
-        tool_name="start_activity", request={"items": [{"action": "interact", "target": "家", "way": "work"}]},
-        request_sha256="a" * 64, requested_event_id="request")
-    with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID"):
-        engine.actions.dispatch(state, pending)
-    assert state.model_dump(mode="json") == before
-    assert not state.activities
+
+    def pending(action_id: str, tool: str, request: dict) -> PendingAction:
+        """同一决策里登记的一条开始动作。"""
+        return PendingAction(run_id=state.run_id, round_id="invalid", decision_id="invalid", action_id=action_id,
+            agent_id=1, observed_at=state.current_time, world_state_version=state.version, order=0,
+            tool_name=tool, request=request, request_sha256="a" * 64, requested_event_id="request")
+
+    main = {"action": "interact", "target": "家", "detail": "测试休息"}
+    side = {"action": "interact", "target": ["哔哩哔哩"]}
+    groups = ([pending("main", MAIN_TOOL, {**main, "way": "work"})],
+              [pending("retired", MAIN_TOOL, {"items": [{"action": "interact", "target": "家"}]})],
+              [pending("main", MAIN_TOOL, main), pending("side", SIDE_TOOL, {**side, "way": "work"})],
+              [pending("side", SIDE_TOOL, {**side, "way": "work"}), pending("main", MAIN_TOOL, main)],
+              [pending("retired-tool", "start_activity", main)])
+    for group in groups:
+        with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID"):
+            engine.actions.dispatch(state, group)
+        assert state.model_dump(mode="json") == before
+        assert not state.activities

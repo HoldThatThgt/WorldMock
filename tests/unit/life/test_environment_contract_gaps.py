@@ -10,7 +10,7 @@ import pytest
 
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.frozen_inputs import fixture_metadata
-from tests.life.conftest import start_activity
+from tests.life.conftest import do_at, purchase, travel
 from tests.life.environment_runtime import act, reach
 from worldmock.catalog.callback_models import CallbackRule, CallbackState
 from worldmock.catalog.identity import refresh_manifest_identity
@@ -49,7 +49,7 @@ def test_initial_hunger_bills_only_the_awake_time_beyond_two_hours(engine_factor
 
     engine = engine_factory(mutate=mutate)
     started = engine.context.state.current_time
-    _, result = act(engine, "hungry-work", start_activity("interact", "公司"))
+    _, result = act(engine, "hungry-work", do_at("公司", "季度销售数据整理"))
     assert result.status == "in_progress"
     reach(engine, started + 3 * 3600)
     assert engine.context.state.agents[1].body.relaxation_need == pytest.approx(0.34)
@@ -71,7 +71,7 @@ def test_closed_local_store_is_observable_and_refuses_purchase_without_world_fai
                                        encoding="utf-8", newline="\n")
     engine = engine_factory(environment_root=root)
     before = dict(engine.context.state.accounts)
-    _, result = act(engine, "closed-purchase", start_activity("purchase", "饭团"))
+    _, result = act(engine, "closed-purchase", purchase("饭团"))
     assert result.status == "rejected"
     assert result.error_code == "LOCATION_CLOSED"
     assert result.message == "The location is closed at the current time."
@@ -81,7 +81,7 @@ def test_closed_local_store_is_observable_and_refuses_purchase_without_world_fai
 @pytest.mark.parametrize("navigation", [None, "amap"])
 def test_restore_rejects_retired_navigation_app_activity_field(engine_factory, navigation):
     engine = engine_factory()
-    _, result = act(engine, "valid-walk", start_activity("walk", "公司"))
+    _, result = act(engine, "valid-walk", travel("公司"))
     assert result.status == "in_progress"
     state = engine.context.state.model_copy(deep=True)
     state.activities[result.activity_id].data["navigation_app_id"] = navigation

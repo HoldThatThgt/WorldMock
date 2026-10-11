@@ -138,25 +138,8 @@ def _action(event_seq: int, decision_id: str, tool_name: str,
     return event
 
 
-def _start(event_seq: int, decision_id: str, action_id: str, way: str, target: str) -> dict[str, Any]:
-    """@brief 构造一项当前 start_activity 请求，以明确目标和方式提供真实请求形状。"""
-    request = {"items": [{"target": target, "way": way, "app": None, "to": None, "pay_app": None}],
-               "answering": None}
-    return _action(event_seq, decision_id, "start_activity", request, action_id)
-
-
-def _accepted(event_seq: int, decision_id: str, action_id: str, *kinds: str) -> dict[str, Any]:
-    """@brief 构造 action_accepted 事件：一项时带 activity 快照，两项时带 data.activities（与引擎受理事件同形）。"""
-    snapshots = [{"activity_id": f"{action_id}-{index}", "kind": kind} for index, kind in enumerate(kinds)]
-    data: dict[str, Any] = {"status": "in_progress", "data": {}}
-    if len(snapshots) == 1:
-        data["activity"] = snapshots[0]
-    else:
-        data["data"] = {"activities": snapshots}
-    event = _event("action_accepted", _clock(0, 8, event_seq), data=data, decision_id=decision_id,
-                   event_seq=event_seq)
-    event["action_id"] = action_id
-    return event
+#: 行动请求开放的世界请求工具（两个开始工具与一个控制工具，只填函数名）。
+DECISION_TOOLS = ("start_main_activity", "start_side_activity", "conclude_activity")
 
 
 def _memory(episodes: list[dict[str, str]], *, event_seq: int = 90) -> dict[str, Any]:
@@ -327,12 +310,12 @@ def _with_tools(event: dict[str, Any], *names: str) -> dict[str, Any]:
 def test_reflection_requests_and_their_retries_are_not_decision_requests() -> None:
     """@brief 就寝反思的请求只带 submit_reflection、不带 purpose（docs/design/10-runtime.md ）：两个人物各有
     一次校验重试，附回消息逐字相同、分处两条（人物，秒）续接链，也不进观察重复门禁与决策 token 中位数；工具中有
-    start_activity 的行动请求与不带工具的记忆巩固照计。"""
+    start_main_activity 的行动请求与不带工具的记忆巩固照计。"""
     correction = ('{"INSTRUCTION":"Return a complete new submit_reflection tool call using the unchanged schema.",'
                   '"PREVIOUS_INVALID_RESPONSE":[],'
                   '"VALIDATION_ERROR":"response must contain exactly one submit_reflection tool call"}')
     events = [
-        _with_tools(_model_request(1, "act-1", ["观察 1"]), "start_activity", "conclude_activity"),
+        _with_tools(_model_request(1, "act-1", ["观察 1"]), *DECISION_TOOLS),
         _model_response(2, "act-1", 100),
         _model_request(3, "consolidate-1", ["记忆归纳 1"]),
         _model_response(4, "consolidate-1", 300),
@@ -355,22 +338,24 @@ def test_reflection_requests_and_their_retries_are_not_decision_requests() -> No
     assert (median["value"], median["sample_size"]) == (200, 2)
 
 
-def test_tool_requests_without_start_activity_are_not_decision_requests() -> None:
-    """@brief 带工具的请求只在工具中有 start_activity 时才是人物决策请求（docs/design/10-runtime.md 「身份与
+def test_tool_requests_without_start_main_activity_are_not_decision_requests() -> None:
+    """@brief 带工具的请求只在工具中有 start_main_activity 时才是人物决策请求（docs/design/10-runtime.md 「身份与
     判定」、docs/design/07-evaluation.md「2.1 协议门禁」「2.2 报告项」），不是「只要不是就寝反思就算」：只读问答的请求不带
     purpose，工具是三个记忆查询与 finish（末回合只剩 finish）。它们的 user 文本即便与另一秒的行动请求逐字相同、prompt
-    token 很大，也不进观察重复门禁与决策 token 中位数。"""
+    token 很大，也不进观察重复门禁与决策 token 中位数。只开放已删除的 start_activity 的请求同样不算。"""
     events = [
-        _with_tools(_model_request(1, "act-1", ["观察 1"]), "start_activity", "conclude_activity"),
+        _with_tools(_model_request(1, "act-1", ["观察 1"]), *DECISION_TOOLS),
         _model_response(2, "act-1", 100),
         _with_tools(_model_request(3, "ask-1", ["观察 1"]),
                     "memory_recent", "memory_search", "memory_time_range", "finish"),
         _model_response(4, "ask-1", 20000),
         _with_tools(_model_request(5, "ask-2", ["观察 1"]), "finish"),
         _model_response(6, "ask-2", 30000),
+        _with_tools(_model_request(7, "retired-1", ["观察 1"]), "start_activity", "conclude_activity"),
+        _model_response(8, "retired-1", 40000),
     ]
     requests = [event for event in events if event["event_type"] == "model_request"]
-    assert len({event["occurred_at"] for event in requests}) == 3
+    assert len({event["occurred_at"] for event in requests}) == 4
     assert not any(event["data"].get("purpose") for event in requests)
 
     report = _report(events)
@@ -500,8 +485,7 @@ def test_sleep_report_rejects_missing_or_invalid_progress_end(end, caplog):
 
 def test_meal_diversity_simpson_and_repetition_anchors() -> None:
     """@brief Simpson {a:2,c:1}=5/9；饮料、购买请求和非食品均不产生进食样本。"""
-    events = [_action(50, "d1", "start_activity", {"items": [
-        {"action": "purchase", "target": "幻影商品"}]})]
+    events = [_action(50, "d1", "start_side_activity", {"action": "purchase", "target": ["幻影商品"]})]
     for seq, product, category in ((1, "a", "meal"), (2, "a", "meal"), (3, "b", "drink"),
                                    (4, "c", "snack"), (5, "d", "goods")):
         events.extend(_receipt_events(seq, product, _clock(0, 8, seq), category))

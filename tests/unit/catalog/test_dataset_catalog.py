@@ -51,6 +51,7 @@ def test_new_fixture_loads_complete_world_and_seeded_memory_map():
     assert len(catalog.goods) == 7
     assert len(catalog.contents) == 15
     assert catalog.locations["home"].is_home
+    assert {key for key, place in catalog.locations.items() if place.sleepable} == {"home", "office"}
     assert catalog.locations["office"].display_name == "公司"
     assert catalog.nearest_parcel_station("home") == "parcel-station"
     state = hashlib.sha256(b"random:7").hexdigest()

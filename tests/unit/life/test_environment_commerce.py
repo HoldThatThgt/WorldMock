@@ -12,9 +12,12 @@ from worldmock.catalog.models import Goods, Location, OpeningHours
 from worldmock.environment import load_environment
 from worldmock.errors import BusinessRuleError, IntegrityError, PreconditionError
 from worldmock.input_models import ModelMetadata
+from worldmock.life.action_contract import binding_action
+from worldmock.life.admission import Blocked, Call, Context, group_refusal
 from worldmock.life.basket import activity_orders, quoted_basket
 from worldmock.life.body_config import assemble_body_config
 from worldmock.life.commerce import deliver_order
+from worldmock.life.guidance import refusal_for_code
 from worldmock.life.models import ActivityStatus, AgentState, BodyState, WorldState, WORLD_SCHEMA_VERSION
 from worldmock.life.parcel import collect_parcels
 from worldmock.life.purchase_offers import quote_goods
@@ -135,19 +138,47 @@ def test_request_freezes_preview_does_not_pay_or_generate_receipt(environment):
     assert restored.activities[activity.activity_id].planned_duration_seconds == activity.planned_duration_seconds
 
 
-@pytest.mark.parametrize("goods", [("lemon-tea", "lemon-tea"), ()])
-def test_duplicate_or_empty_basket_is_rejected_atomically(environment, goods):
+@pytest.mark.parametrize("goods,label,total", [
+    (("lemon-tea", "lemon-tea"), "购买柠檬茶×2（", 2400),
+    (("playing-cards", "lemon-tea", "rice-ball", "lemon-tea", "lemon-tea"), "购买柠檬茶×3、扑克牌、饭团（", 6100),
+])
+def test_repeated_goods_are_separate_portions_of_one_purchase_activity(environment, goods, label, total):
+    """同一商品写几次就是几份、份数不设上限：每份一条履约记录，记录按配送组再按商品身份编号，活动名把同一商品合写。"""
     state = world(environment, "store")
-    with pytest.raises(BusinessRuleError):
-        runtime(environment).prepare_purchase(state, pending(), goods)
+    assert quoted_basket(environment, state, 1, goods)[1] == total
+    changed, activity = runtime(environment).prepare_purchase(state, pending(), goods)
+    orders = activity_orders(changed, activity)
+    assert [order.order_id for order in orders] == [f"order-buy-{index:04d}" for index in range(1, len(goods) + 1)]
+    assert [order.goods_id for order in orders] == sorted(goods)
+    assert all(order.quantity == 1 and order.status == "pending" for order in orders)
+    assert activity.activity_id == "activity-buy-purchase" and activity.name.startswith(label)
+    assert list(changed.activities) == [activity.activity_id] and changed.accounts == state.accounts
     assert not state.deliveries and not state.activities
 
 
+def _basket_refusal(environment, state, goods):
+    """整组核验里只有这一条购买调用时的结论（槽位、对象条件与余额同一入口）。"""
+    names = {key: row.display_name for key, row in environment.catalog.locations.items()}
+    rows = tuple({"object": environment.catalog.goods[key].name, "kind": "supply", "object_id": key,
+                  "selected_action": binding_action("purchase")} for key in goods)
+    return group_refusal(Context(state, 1, names, {}, environment), [Call("start_side_activity", "purchase", rows)])
+
+
 def test_basket_precheck_merges_delivery_fee_once(environment):
-    groups, total = quoted_basket(environment, world(environment, "cafe"), 1, ("lemon-tea", "playing-cards"))
+    """报价合并运费但不核对余额；余额由整组核验按合并后的总价核对一次。"""
+    goods = ("lemon-tea", "playing-cards")
+    groups, total = quoted_basket(environment, world(environment, "cafe"), 1, goods)
     assert len(groups) == 1 and total == 2700
-    with pytest.raises(BusinessRuleError, match="INSUFFICIENT_FUNDS"):
-        quoted_basket(environment, world(environment, "cafe", balance=2699), 1, ("lemon-tea", "playing-cards"))
+    assert quoted_basket(environment, world(environment, "cafe", balance=2699), 1, goods)[1] == 2700
+    assert _basket_refusal(environment, world(environment, "cafe", balance=2700), goods) is None
+    assert _basket_refusal(environment, world(environment, "cafe", balance=2699), goods) == Blocked(
+        refusal_for_code("INSUFFICIENT_FUNDS"), ("start_side_activity",))
+    remote = ("lemon-tea", "online-notebook")
+    fee_groups, fee_total = quoted_basket(environment, world(environment), 1, remote)
+    assert fee_total == 2400 + 500 * sum(any(row.delivery_fee_fen for row in rows) for rows in fee_groups.values())
+    assert _basket_refusal(environment, world(environment, balance=fee_total), remote) is None
+    assert _basket_refusal(environment, world(environment, balance=fee_total - 1), remote) == Blocked(
+        refusal_for_code("INSUFFICIENT_FUNDS"), ("start_side_activity",))
 
 
 def test_normal_completion_pays_all_groups_and_receives_local_goods_once(environment):

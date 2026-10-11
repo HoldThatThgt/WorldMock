@@ -6,10 +6,10 @@ from datetime import timedelta
 import pytest
 
 from tests.life.conftest import (
-    advance_until_ready, conclude_request, context, pause_request, report_request, start_activity,
+    advance_until_ready, conclude_request, context, do_at, pause_request, report_request, travel, use_app,
 )
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
-from tests.life.environment_runtime import act, events, run_to_end
+from tests.life.environment_runtime import act, act_group, events, run_to_end
 from worldmock.errors import IntegrityError
 from worldmock.footprints.app_usage import activity_snapshots
 from worldmock.footprints.export import export_run, write_jsonl
@@ -37,7 +37,7 @@ def test_start_remaining_time_and_same_source_resume_keep_actual_full_content_du
         config["activity_feedback_seconds"] = 60
         config["progress_report_interval_seconds"] = 60
     engine = engine_factory(mutate=frequent_feedback)
-    _, result = act(engine, "first-content", start_activity("interact", "哔哩哔哩"))
+    _, result = act(engine, "first-content", use_app("哔哩哔哩"))
     assert result.status == "in_progress"
     activity = engine.context.state.activities[result.activity_id]
     content = engine.context.catalog.contents[activity.data["content_id"]]
@@ -58,7 +58,7 @@ def test_start_remaining_time_and_same_source_resume_keep_actual_full_content_du
     _, ended = act(engine, "end-original", conclude_request(activity.name), "conclude_activity")
     assert ended.status == "completed"
     partial = engine.context.state.agents[1].content_progress[content.content_id].position_seconds
-    _, restarted = act(engine, "new-same-source", start_activity("interact", "哔哩哔哩"))
+    _, restarted = act(engine, "new-same-source", use_app("哔哩哔哩"))
     assert restarted.status == "in_progress"
     next_activity = engine.context.state.activities[restarted.activity_id]
     assert next_activity.activity_id != activity.activity_id and next_activity.data["content_id"] == content.content_id
@@ -80,7 +80,7 @@ def test_content_platform_returns_same_origin_goods_quotes_and_unavailable_close
                   "price_fen": 1200, "app_ids": ["bilibili"]})
     write_catalog_rows(root, "merchant-catalog.jsonl", sorted(goods, key=lambda row: row["goods_id"]))
     engine = engine_factory(root)
-    _, result = act(engine, "content-with-goods", start_activity("interact", "哔哩哔哩"))
+    _, result = act(engine, "content-with-goods", use_app("哔哩哔哩"))
     assert result.status == "in_progress"
     details = public_result(result.model_dump(mode="json"), engine.context.inputs)["details"]
     assert "content" in details
@@ -97,12 +97,11 @@ def test_content_platform_returns_same_origin_goods_quotes_and_unavailable_close
 
 
 def test_parallel_travel_platform_catalog_uses_actual_departed_presence(engine_factory):
-    from worldmock.life.models import StartActivityRequest
     engine = engine_factory()
-    request = StartActivityRequest(items=[{"action": "walk", "target": "公司"},
-                                         {"action": "interact", "target": "美团"}])
-    _, result = act(engine, "depart-and-browse", request)
-    assert result.status == "in_progress"
+    # 出发与浏览同组开始：出行那条动作的结果不带目录，浏览那条动作的结果按出发后的在场写商品可用性
+    _, (departure, result) = act_group(engine, "depart-and-browse", travel("公司"), use_app("美团"))
+    assert departure.status == result.status == "in_progress", (departure.error_code, result.error_code)
+    assert "goods" not in departure.data
     details = public_result(result.model_dump(mode="json"), engine.context.inputs)["details"]
     tea = next(row for row in details["goods"] if row["name"] == "柠檬茶")
     assert tea["available"] is False
@@ -113,10 +112,18 @@ def test_parallel_travel_platform_catalog_uses_actual_departed_presence(engine_f
 @pytest.mark.parametrize("target", ["哔哩哔哩", "家", "美团"])
 def test_current_started_activity_public_result_and_complete_export(engine_factory, tmp_path, target):
     engine = engine_factory(mutate=short_window)
-    observed, result = act(engine, "current-start", start_activity("interact", target))
+    # 在家做的事由人物点名内容单元，内容 app 的内容由环境选择
+    request = do_at("家", "测试休息") if target == "家" else use_app(target)
+    observed, result = act(engine, "current-start", request)
     assert result.status == "in_progress", result.error_code
     activity = engine.context.state.activities[result.activity_id]
     inputs, data = engine.context.inputs, activity.data
+    # 在地点做事占槽位 1、内容就是点名的单元并写进活动名；用内容 app 占槽位 2
+    if target == "家":
+        assert (data["content_id"], data["app_id"], activity.resource_claims) == ("c-rest", None, {"first"})
+        assert activity.name.startswith("进行测试休息（")
+    else:
+        assert data["app_id"] is not None and activity.resource_claims == {"second"}
     details = public_result(result.model_dump(mode="json"), inputs)["details"]
     assert details["planned"] == [{"name": activity.name,
                                    "duration": duration_phrase(activity.planned_duration_seconds)}]
@@ -167,7 +174,7 @@ def test_current_started_activity_public_result_and_complete_export(engine_facto
 @pytest.mark.parametrize("shape", ["accepted", "plural", "terminal_nested", "progress"])
 def test_complete_export_rejects_retired_activity_title_in_every_real_snapshot(engine_factory, tmp_path, shape):
     engine = engine_factory(mutate=short_window)
-    _, result = act(engine, "actual-content", start_activity("interact", "家"))
+    _, result = act(engine, "actual-content", do_at("家", "测试休息"))
     assert result.status == "in_progress"
     run_to_end(engine)
     asset = engine.context.store.assets.put_json({"completed": True}, {"kind": "test_agent_snapshot"})

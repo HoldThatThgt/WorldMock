@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from tests.integration.runtime_fixtures import current_run_identity
-from tests.life.conftest import start_activity
+from tests.life.conftest import do_at, purchase
 from tests.life.environment_runtime import act
 from worldmock.errors import IntegrityError
 from worldmock.life.models import (
@@ -55,7 +55,7 @@ def test_session_restore_rejects_impossible_place_or_end_time(engine_factory, ch
 ])
 def test_activity_restore_rejects_contradictory_progress_and_lifecycle(engine_factory, case, message):
     engine = engine_factory()
-    _, result = act(engine, "activity", start_activity("interact", "家"))
+    _, result = act(engine, "activity", do_at("家", "测试休息"))
     payload = engine.context.state.activities[result.activity_id].model_dump(mode="json")
     if case == "end-with-active":
         payload["ended_at"] = payload["started_at"]
@@ -81,7 +81,7 @@ def test_activity_restore_rejects_contradictory_progress_and_lifecycle(engine_fa
 ])
 def test_order_restore_rejects_unpaid_and_time_reversed_receipts(engine_factory, case, message):
     engine = engine_factory()
-    _, started = act(engine, "purchase", start_activity("purchase", "牛肉面"))
+    _, started = act(engine, "purchase", purchase("牛肉面"))
     assert started.status == "in_progress"
     payload = next(iter(engine.context.state.deliveries.values())).model_dump(mode="json")
     now = payload["created_at"]

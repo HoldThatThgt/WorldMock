@@ -3,7 +3,7 @@
 import json
 
 from tests.footprints.recording import short_window
-from tests.life.conftest import advance_next, conclude_request, errand_add, start_activity
+from tests.life.conftest import advance_next, conclude_request, errand_add, purchase, use_app
 from tests.life.environment_runtime import act, finish_activity, run_to_end
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import Event
@@ -16,14 +16,14 @@ def test_errand_completion_recertifies_actual_received_goods(engine_factory, tmp
         short_window(persona, config)
         config["progress_report_interval_seconds"] = 60
     engine = engine_factory(mutate=setup)
-    _, browse = act(engine, "note-browse", start_activity("interact", "美团"))
+    _, browse = act(engine, "note-browse", use_app("美团"))
     while not engine.scheduling_state().ready_agent_ids:
         advance_next(engine)
     activity = engine.context.state.activities[browse.activity_id]
     _, noted = act(engine, "note", conclude_request(activity.name, errands=[errand_add("买纸巾", "纸巾")]),
                    "conclude_activity")
     assert noted.status == "completed"
-    _, bought = act(engine, "buy", start_activity("purchase", "纸巾"))
+    _, bought = act(engine, "buy", purchase("纸巾"))
     assert engine.context.state.agents[1].errands
     finish_activity(engine, bought, "buy")
     assert engine.context.state.agents[1].errands == {}

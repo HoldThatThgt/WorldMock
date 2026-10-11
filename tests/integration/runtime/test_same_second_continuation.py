@@ -1,8 +1,10 @@
 """同秒续接的验收（docs/design/06-agent.md 第二章「同秒续接」、第四章第 0 步、第七章「清单」）。
 
 真实 LifeEngine、LifeEnv 与 SQLite 上，脚本化模型经真实 LifeAgent 决策：同一秒的后续决策原样续接上一决策末次请求的
-全部消息，追加上一决策的 assistant（原样带思考）与一条 tool 消息 {result, changes, events}；他人同秒发来的消息在整个
-请求中只出现一次；时间推进后请求只有两条消息、不带此前的思考；出发后同秒、反事实分支、缺思考、证据缺失时断链；
+全部消息，追加上一决策的 assistant（原样带思考）与一条 tool 消息 {result, changes, events}；上一决策以开始组（两个开始
+工具各一次）结束时 assistant 带两个 tool_calls，按调用次序各追加一条 tool 消息，changes 与 events 只写在最后一条上；
+他人同秒发来的消息在整个请求中只出现一次；时间推进后请求只有两条消息、不带此前的思考；出发后同秒、反事实分支、缺思考、
+证据缺失、调用与登记不按次序同名时断链；
 从中秒检查点普通恢复与不中断运行的请求相同；开关关闭时每次决策首个请求恰好两条消息；开关冻结进清单与人物配置，
 恢复继承、不能覆盖；预算达到阈值时先结束续接再浓缩。
 """
@@ -38,7 +40,9 @@ from tests.integration.runtime_fixtures import current_run_identity, write_agent
 from tests.integration.runtime.test_life_agent_protocol import (_OBSERVED_AT, _ModelResponse, _conclude_args,  # noqa: E402
                                                         _memory, _stored_memories, _view)
 from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
-from tests.life.conftest import (advance_next, advance_until_ready, context, errand_add, errand_cancel, errand_update, pending_names, stage_day_plan, start_activity, start_arguments)  # noqa: F401
+from tests.life.conftest import (MAIN_TOOL, SIDE_TOOL, advance_next, advance_until_ready, context, do_at,  # noqa: F401
+                                 errand_add, errand_cancel, errand_update, layer_start, main_arguments, pending_names,
+                                 progress_calls, side_arguments, stage_day_plan, tool_of, use_app)
 from tests.life.work_schedule_fixtures import declare  # noqa: E402
 from worldmock.life.readable import iso_time  # noqa: E402
 from worldmock.errors import IntegrityError  # noqa: E402
@@ -52,7 +56,10 @@ ROOT = Path(__file__).resolve().parents[3]
 SCENARIO = ENVIRONMENT_ROOT
 #: 上一决策修订今日计划（瞬时请求，人物同一秒再决策）；思考里提到咖啡。
 _PLAN = {"goals": [{"intent_kind": "休息", "goal": "下午喝杯咖啡", "remind_time": None, "around_time": None}]}
-_WAIT = start_arguments(["家"], ["interact"])
+#: 在家点名歇一刻钟：start_main_activity 的完整参数（夹具里家的内容单元「测试休息」，900 秒）。
+_WAIT = main_arguments("interact", "家", "测试休息")
+#: 家里没有的一件事：名称解析找不到这个 detail，宿主以 NAME_NOT_FOUND 纠错，环境以 ACTION_REQUEST_INVALID 拒绝。
+_UNKNOWN = main_arguments("interact", "家", "不存在的对象")
 _THINK_PLAN = "上午有点困，先把下午喝咖啡写进计划。"
 _THINK_WAIT = "计划写好了，先歇一会儿。"
 _NOTE = "先把计划写上。"
@@ -85,6 +92,26 @@ def _reply(call_id: str, tool: str, arguments: dict, reasoning: str | None, cont
     """一次模型响应：思考、回复正文与一个工具调用。"""
     return _ModelResponse(call_id, tool, json.dumps(arguments, ensure_ascii=False),
                           reasoning_content=reasoning, content=content)
+
+
+class _GroupReply:
+    """一次模型响应：思考、回复正文与同一次回复里的几个工具调用（开始组是两个开始工具各一个）。"""
+
+    def __init__(self, calls: list[tuple[str, str, dict]], reasoning: str | None, content: str = "") -> None:
+        self._calls = [(call_id, tool, json.dumps(arguments, ensure_ascii=False)) for call_id, tool, arguments in calls]
+        self._reasoning, self._content = reasoning, content
+        tool_calls = [SimpleNamespace(id=call_id, type="function", function=SimpleNamespace(name=tool, arguments=text))
+                      for call_id, tool, text in self._calls]
+        message = SimpleNamespace(tool_calls=tool_calls, content=content, reasoning_content=reasoning)
+        self.choices = [SimpleNamespace(message=message)]
+
+    def model_dump(self, *, mode: str) -> dict:
+        """提供商形状的回复（与单个调用的响应同形，tool_calls 按回复里的先后列出）。"""
+        assert mode == "json"
+        calls = [{"id": call_id, "type": "function", "function": {"name": tool, "arguments": text}}
+                 for call_id, tool, text in self._calls]
+        return {"choices": [{"message": {"content": self._content, "tool_calls": calls,
+                                         "reasoning_content": self._reasoning}}]}
 
 
 def _person(environment: LifeEnv, ctx, dispatcher: _Script) -> LifeAgent:
@@ -137,7 +164,7 @@ def _plan_reply(reasoning: str | None = _THINK_PLAN) -> list:
 
 def _wait_reply(call_id: str = "call-wait", reasoning: str | None = _THINK_WAIT) -> list:
     """开始等待的一次响应。"""
-    return [_reply(call_id, "start_activity", _WAIT, reasoning)]
+    return [_reply(call_id, MAIN_TOOL, _WAIT, reasoning)]
 
 
 def _stored_observation(engine: LifeEngine, observation: dict):
@@ -189,7 +216,8 @@ async def test_the_continued_request_starts_with_the_previous_request_byte_for_b
     assert not any(field in tool["content"] for field in receipt_fields)
     assert request["messages"][1] == previous["messages"][1]
     assert request["tools"] == previous["tools"]
-    assert observation["continuation"]["tool_call_id"] == "call-plan"
+    assert observation["continuation"]["tool_results"] == [{"tool_call_id": "call-plan", "result": record["result"]}]
+    assert not {"tool_call_id", "result"} & set(observation["continuation"])
     assert "continuation" not in _stored_observation(engine, observation).data
     planned = engine.context.store.read_agent_events("observation", 1)[-2]
     assert planned.decision_id == "decision-plan-1" and not _session_changed(engine.context.store, engine.context.state, 1, planned)
@@ -279,7 +307,7 @@ async def test_after_time_advances_the_request_has_no_native_turns_or_earlier_th
     progress = json.loads(request["messages"][1]["content"])[5]
     assert progress == observation["progress_layer"]
     calls = {row["tool"]: row for row in progress["events"] if row["type"] == "tool_call"}
-    assert calls["revise_day_plan"]["self_note"] == _NOTE and "start_activity" in calls
+    assert calls["revise_day_plan"]["self_note"] == _NOTE and MAIN_TOOL in calls
 
 
 
@@ -356,30 +384,37 @@ async def test_missing_model_evidence_breaks_the_chain(_engine_factory) -> None:
     ctx = context(engine, "direct")
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
-    engine.submit_action(DirectToolCall(ctx, "action-direct", "start_activity", start_activity("interact", "不存在的对象")))
+    engine.submit_action(DirectToolCall(ctx, "action-direct", MAIN_TOOL, do_at("家", "不存在的对象")))
     assert engine.commit_decision_round("direct")[0].status == "rejected"
     observation, [request], _ = await _single(_environment(engine), "wait", _wait_reply())
     assert observation["continuation"] is None and len(request["messages"]) == 2
 
 
-_CALL = {"id": "call-direct", "type": "function", "function": {"name": "start_activity", "arguments": "{}"}}
+_CALL = {"id": "call-direct", "type": "function", "function": {"name": MAIN_TOOL, "arguments": "{}"}}
+#: 同一次回复里的另一个开始工具调用（与 _CALL 组成开始组）。
+_SIDE_CALL = {"id": "call-side", "type": "function", "function": {"name": SIDE_TOOL, "arguments": "{}"}}
+#: 登记的世界请求：只有一条主调用，或开始组的两条（按登记先后）。
+_ONE, _GROUP, _SIDE_FIRST = (MAIN_TOOL,), (MAIN_TOOL, SIDE_TOOL), (SIDE_TOOL, MAIN_TOOL)
 
 
-def _recorded_decision(engine: LifeEngine, messages: list[dict], response: dict | None) -> None:
-    """一次带手写模型证据的单人决策：行动请求与响应落库（response 为 None 时只有请求），登记一个被业务拒绝的世界请求
-    （人物同一秒再决策）。"""
+def _recorded_decision(engine: LifeEngine, messages: list[dict], response: dict | None,
+                       registered: tuple[str, ...] = _ONE) -> None:
+    """一次带手写模型证据的单人决策：行动请求与响应落库（response 为 None 时只有请求），按 registered 的先后登记世界请求
+    （一条主调用，或开始组的两条）。主调用点名家里没有的一件事，整个决策被业务拒绝（人物同一秒再决策）。"""
     from agentsociety2.agent.base import ModelCallEvidence
 
     ctx = context(engine, "recorded")
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
     request = {"model": "test-model", "messages": messages, "extra_body": {"thinking": {"type": "enabled"}},
-               "tools": [{"type": "function", "function": {"name": "start_activity"}}]}
+               "tools": [{"type": "function", "function": {"name": MAIN_TOOL}}]}
     call_id = f"{ctx.decision_id}:model:0001:attempt:1"
     engine.record_model_exchange(ModelCallEvidence(ctx, call_id, "request", 1, request))
     if response is not None:
         engine.record_model_exchange(ModelCallEvidence(ctx, call_id, "response", 1, request, response=response))
-    engine.submit_action(DirectToolCall(ctx, "action-recorded", "start_activity", start_activity("interact", "不存在的对象")))
+    requests = {MAIN_TOOL: do_at("家", "不存在的对象"), SIDE_TOOL: use_app("哔哩哔哩")}
+    for index, tool in enumerate(registered, start=1):
+        engine.submit_action(DirectToolCall(ctx, f"action-recorded-{index}", tool, requests[tool]))
     assert engine.commit_decision_round("recorded")[0].status == "rejected"
 
 
@@ -400,31 +435,47 @@ _EARLIER = [{"role": "assistant", "content": None, "tool_calls": [{**_CALL, "id"
             {"role": "tool", "tool_call_id": "call-memory", "content": "{\"episodes\":[]}"}]
 
 
-@pytest.mark.parametrize(("messages", "response", "continued"), [
-    (_BASE, _answer([_CALL]), True),
-    ([*_BASE, {**_EARLIER[0], "reasoning_content": "先查记忆。"}, _EARLIER[1]], _answer([_CALL]), True),
-    ([*_BASE, *_EARLIER], _answer([_CALL]), False),
-    (_BASE, _answer([_CALL, {**_CALL, "id": "call-second"}]), False),
-    (_BASE, _answer([{**_CALL, "function": {"name": "memory_recent", "arguments": "{}"}}]), False),
-    (_BASE, _answer([{**_CALL, "function": {"name": "send_message", "arguments": "{}"}}]), False),
-    (_BASE, _answer([_CALL], reasoning=""), False),
+@pytest.mark.parametrize(("messages", "response", "registered", "continued"), [
+    (_BASE, _answer([_CALL]), _ONE, True),
+    ([*_BASE, {**_EARLIER[0], "reasoning_content": "先查记忆。"}, _EARLIER[1]], _answer([_CALL]), _ONE, True),
+    ([*_BASE, *_EARLIER], _answer([_CALL]), _ONE, False),
+    (_BASE, _answer([_CALL, {**_CALL, "id": "call-second"}]), _ONE, False),
+    (_BASE, _answer([{**_CALL, "function": {"name": "memory_recent", "arguments": "{}"}}]), _ONE, False),
+    (_BASE, _answer([{**_CALL, "function": {"name": "send_message", "arguments": "{}"}}]), _ONE, False),
+    (_BASE, _answer([_CALL], reasoning=""), _ONE, False),
+    (_BASE, _answer([_CALL, _SIDE_CALL]), _GROUP, True),
+    (_BASE, _answer([_SIDE_CALL, _CALL]), _SIDE_FIRST, True),
+    (_BASE, _answer([_SIDE_CALL, _CALL]), _GROUP, False),
+    (_BASE, _answer([_CALL, _SIDE_CALL]), _ONE, False),
+    (_BASE, _answer([_CALL]), _GROUP, False),
+    (_BASE, _answer([_SIDE_CALL]), _ONE, False),
+    (_BASE, _answer([_CALL, _SIDE_CALL], reasoning=""), _GROUP, False),
 ])
-def test_recorded_evidence_decides_whether_the_chain_holds(_engine_factory, messages, response, continued) -> None:
-    """链由模型证据判定：末次请求中此前的 assistant 缺思考、最终响应不是恰好一个世界请求、调用的工具与登记不符或
-    思考为空都断链；证据齐全（含带思考的记忆查询回合）时续接，且消息按发送键序重建。"""
+def test_recorded_evidence_decides_whether_the_chain_holds(_engine_factory, messages, response, registered,
+                                                           continued) -> None:
+    """链由模型证据判定：末次请求中此前的 assistant 缺思考、最终响应不是一个世界请求或一个开始组（同一个开始工具两次、
+    只读查询）、调用的工具与登记的 action_requested 不按次序同名（先后颠倒、回复两条只登记一条、回复一条登记两条、工具
+    不同）或思考为空都断链；证据齐全（含带思考的记忆查询回合、两个开始工具各一个的开始组）时续接，消息按发送键序重建，
+    tool_results 按调用次序每个世界请求一条，各带自己的 tool_call_id 与公开结果。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    _recorded_decision(engine, messages, response)
+    _recorded_decision(engine, messages, response, registered)
     chain = _next_chain(engine)
     assert (chain is not None) is continued
     if continued:
-        assert chain["messages"] == messages and chain["tool_call_id"] == "call-direct"
+        calls = response["choices"][0]["message"]["tool_calls"]
+        assert chain["messages"] == messages
+        assert [item["tool_call_id"] for item in chain["tool_results"]] == [call["id"] for call in calls]
+        assert all(list(item) == ["tool_call_id", "result"] and item["result"]["status"] == "rejected"
+                   for item in chain["tool_results"])
+        assert not {"tool_call_id", "result"} & set(chain)
         assert [list(item) for item in chain["messages"]] == [list(item) for item in messages]
         assert list(chain["assistant"]) == ["role", "content", "tool_calls", "reasoning_content"]
+        assert [call["function"]["name"] for call in chain["assistant"]["tool_calls"]] == list(registered)
 
 
 def test_a_decision_that_registered_no_world_request_does_not_continue(_engine_factory) -> None:
-    """上一决策没有以恰好一个世界请求结束（有模型证据、未登记即中止）：同一秒下一次决策不续接。"""
+    """上一决策没有以一个世界请求或一个开始组结束（有模型证据、未登记即中止）：同一秒下一次决策不续接。"""
     from agentsociety2.agent.base import ModelCallEvidence
 
     engine = _engine_factory()
@@ -433,7 +484,7 @@ def test_a_decision_that_registered_no_world_request_does_not_continue(_engine_f
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
     request = {"model": "test-model", "messages": _BASE, "extra_body": {"thinking": {"type": "enabled"}},
-               "tools": [{"type": "function", "function": {"name": "start_activity"}}]}
+               "tools": [{"type": "function", "function": {"name": MAIN_TOOL}}]}
     call_id = f"{ctx.decision_id}:model:0001:attempt:1"
     engine.record_model_exchange(ModelCallEvidence(ctx, call_id, "request", 1, request))
     engine.record_model_exchange(ModelCallEvidence(ctx, call_id, "response", 1, request, response=_answer([_CALL])))
@@ -495,12 +546,68 @@ async def test_a_rejected_request_continues_with_the_rejection_reason(_engine_fa
 
 
 def _unavailable(observation: dict) -> list:
-    """一次必被业务拒绝的响应：开始工具层第一个标为不可用的动作。"""
+    """一次必被业务拒绝的响应：开始工具层第一个标为不可用的动作（照它所在的行写对应开始工具的调用）。"""
     row = next(row for row in observation["tool_layer"]["targets"] for action in row["actions"]
                if not action["available"])
     action = next(action for action in row["actions"] if not action["available"])
-    arguments = start_arguments([row["name"]], [action["action"]])
-    return [_reply("call-refused", "start_activity", arguments, "试试看。")]
+    request = layer_start(observation, row["name"], action["action"], action["detail"])
+    return [_reply("call-refused", tool_of(request), request.model_dump(mode="json"), "试试看。")]
+
+
+#: 贴着「有点想放松」档界（0.3）的起始放松需要：一次服务拒绝的情绪代价（+0.05）就让放松分级从「不闷」变一档。
+_NEAR_RELAXATION_BAND = 0.28
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("order", [(MAIN_TOOL, SIDE_TOOL), (SIDE_TOOL, MAIN_TOOL)], ids=["main_first", "side_first"])
+async def test_a_start_group_is_continued_with_one_tool_message_per_call(_engine_factory, order) -> None:
+    """同一次回复里两个开始工具各调用一次：宿主放行这一批，按回复里的先后登记两条动作（:0001、:0002，self_note 只记在
+    第一条上）。环境整组拒绝（在家歇一会儿成立，纸巾要到店才能买，两项都不开始），人物同一秒再决策。下一次请求在上一请求
+    的全部消息之后是带两个 tool_calls 的 assistant 与两条 tool 消息：按调用次序各对应一个 tool_call_id，result 是各自动作的
+    公开结果（与进度层该动作的记录同一投影），changes 只写在最后一条上（拒绝的情绪代价让放松分级变了一档）。对照组：整组
+    受理时两条动作各开始一项活动，人物有进行中活动、同一秒不再决策，所以同一秒的续接只出现在整组被拒之后。"""
+    engine = _engine_factory(mutate=lambda persona, config: persona.update(
+        initial_relaxation_need=_NEAR_RELAXATION_BAND))
+    stage_day_plan(engine)
+    environment = _environment(engine)
+    arguments = {MAIN_TOOL: _WAIT, SIDE_TOOL: side_arguments("purchase", "纸巾")}
+    calls = [(f"call-{tool}", tool, arguments[tool]) for tool in order]
+    head, [previous], starter = await _single(environment, "group", [
+        _GroupReply(calls, "歇着顺手买包纸巾。", " 两件事一起。 ")])
+    registered = engine.context.store.read_agent_events("action_requested", 1)
+    assert [(event.action_id, event.data["tool_name"], event.data["request"], event.data["self_note"])
+            for event in registered] == [
+        ("decision-group-1:action:0001", order[0], arguments[order[0]], "两件事一起。"),
+        ("decision-group-1:action:0002", order[1], arguments[order[1]], None)]
+    assert engine.context.state.activities == {} and engine.scheduling_state().ready_agent_ids == (1,)
+    observation, [request], _ = await _single(environment, "wait", _wait_reply())
+    prefix = previous["messages"]
+    assert json.dumps(request["messages"][:len(prefix)], ensure_ascii=False) == json.dumps(prefix, ensure_ascii=False)
+    assistant, *tools = request["messages"][len(prefix):]
+    assert assistant == starter._react_messages[-1] and assistant["reasoning_content"] == "歇着顺手买包纸巾。"
+    assert [(call["id"], call["function"]["name"]) for call in assistant["tool_calls"]] == [
+        (call_id, tool) for call_id, tool, _ in calls]
+    assert [(item["role"], item["tool_call_id"]) for item in tools] == [("tool", call_id) for call_id, _, _ in calls]
+    records = progress_calls(observation)
+    assert [(row["tool"], row["arguments"]) for row in records] == [(tool, arguments[tool]) for tool in order]
+    payloads = [json.loads(item["content"]) for item in tools]
+    assert [payload["result"] for payload in payloads] == [row["result"] for row in records]
+    assert all(payload["result"]["status"] == "rejected"
+               and payload["result"]["message"].endswith(" Neither start request was started.") for payload in payloads)
+    assert [list(payload) for payload in payloads] == [["result"], ["result", "changes"]]
+    assert head["environment_layer"]["body"]["relaxation"] == "不闷"
+    assert observation["environment_layer"]["body"]["relaxation"] == "有点想放松"
+    assert payloads[1]["changes"] == {"body": observation["environment_layer"]["body"]}
+    assert observation["continuation"]["tool_results"] == [
+        {"tool_call_id": call_id, "result": row["result"]} for (call_id, _, _), row in zip(calls, records, strict=True)]
+    control = _engine_factory()
+    stage_day_plan(control)
+    accepted = {MAIN_TOOL: _WAIT, SIDE_TOOL: side_arguments("interact", "哔哩哔哩")}
+    await _single(_environment(control), "group", [_GroupReply(
+        [(f"call-{tool}", tool, accepted[tool]) for tool in order], "歇着刷会儿视频。")])
+    assert sorted(item.origin_action_id for item in control.context.state.activities.values()) == [
+        "decision-group-1:action:0001", "decision-group-1:action:0002"]
+    assert control.scheduling_state().ready_agent_ids == ()
 
 
 def _tool_payload(request: dict) -> dict:
@@ -538,10 +645,9 @@ async def test_a_decision_with_memory_and_correction_turns_is_continued_byte_for
     stage_day_plan(engine)
     environment = _environment(engine)
     workspace = tmp_path / "agent_0001"
-    bad = start_arguments(["不存在的对象"], ["interact"])
     person, first = await _workspace_person(environment, workspace, [
         _reply("call-memory", "memory_recent", {"limit": 5}, "先翻翻记忆。"),
-        _reply("call-bad", "start_activity", bad, "那就先等一会儿。"), *_plan_reply()])
+        _reply("call-bad", MAIN_TOOL, _UNKNOWN, "那就先等一会儿。"), *_plan_reply()])
     person._memory_runtime.store.append_episodes(
         _stored_memories(_conclude_args("散步（1月4日 19:00 起）", memories=[[_memory("散步时想好了喝咖啡。")]])),
         tick=0, t=_OBSERVED_AT, step_count=1)
@@ -554,7 +660,7 @@ async def test_a_decision_with_memory_and_correction_turns_is_continued_byte_for
     assert json.loads(last["messages"][5]["content"])["error_code"] == "NAME_NOT_FOUND"
 
     person, second = await _workspace_person(environment, workspace, _wait_reply())
-    assert await _step(environment, person, "wait") == "start_activity registered"
+    assert await _step(environment, person, "wait") == f"{MAIN_TOOL} registered"
     [request] = second.requests
     size = len(last["messages"])
     assert json.dumps(request["messages"][:size], ensure_ascii=False) == json.dumps(last["messages"],
@@ -656,7 +762,7 @@ async def test_the_pre_send_check_fails_when_the_current_decision_lacks_thinking
     await _single(environment, "plan", _plan_reply())
     ctx = context(engine, "wait")
     engine.begin_decision_round([ctx])
-    bad = _reply("call-bad", "start_activity", start_arguments(["不存在的对象"], ["interact"]), None)
+    bad = _reply("call-bad", MAIN_TOOL, _UNKNOWN, None)
     with pytest.raises(RuntimeError, match="current decision is missing reasoning_content"):
         await _decide(environment, ctx, [bad, *_wait_reply()])
 
@@ -737,8 +843,7 @@ async def test_budget_step_zero_starts_the_decision_from_a_fresh_snapshot_for_ev
         return original(request)
 
     monkeypatch.setattr(prompt_capacity, "request_token_count", count)
-    bad = _reply("call-bad", "start_activity", start_arguments(["不存在的对象"], ["interact"]),
-                 "先试一个。")
+    bad = _reply("call-bad", MAIN_TOOL, _UNKNOWN, "先试一个。")
     observation, requests, _ = await _single(environment, "wait", [bad, *_wait_reply()])
     assert observation["continuation"] is not None and len(requests) == 2
     for request in requests:
@@ -776,7 +881,8 @@ async def test_switch_off_every_decisions_first_request_has_exactly_two_messages
 
 def test_continuation_messages_read_earlier_changes_and_skip_memory_and_feedback_tool_messages() -> None:
     """宿主组装：链中此前的续接 tool 消息的 changes 叠加到链首快照上，记忆查询与协议纠错的 tool 消息不算改动；
-    新 tool 消息只写相对叠加结果的改动。"""
+    新 tool 消息只写相对叠加结果的改动。tool_results 有两条（开始组）时每个 tool_call_id 各一条 tool 消息、按调用次序，
+    changes 与 events 只写在最后一条上，前一条只有 result。"""
     from worldmock.agents.life_continuation import continuation_messages
 
     def layers(state: str, body: str) -> list[dict]:
@@ -801,12 +907,24 @@ def test_continuation_messages_read_earlier_changes_and_skip_memory_and_feedback
         {"role": "tool", "tool_call_id": "call-earlier", "content": json.dumps(earlier, ensure_ascii=False)}],
         "assistant": {"role": "assistant", "content": "", "tool_calls": [{**call, "id": "call-last"}],
                       "reasoning_content": "再报"},
-        "tool_call_id": "call-last", "result": {"status": "completed"}, "events": []}
+        "tool_results": [{"tool_call_id": "call-last", "result": {"status": "completed"}}], "events": []}
+    changes = {"targets": {"updated": [{"name": "店", "state": "打烊", "kind": "location", "actions": [],
+                                        "tools": [], "phase": None}]}}
     messages = continuation_messages(chain, layers("打烊", "有点饿"))
-    assert messages[:9] == [*chain["messages"], chain["assistant"]]
-    assert json.loads(messages[-1]["content"]) == {"result": {"status": "completed"},
-                                                   "changes": {"targets": {"updated": [{"name": "店", "state": "打烊", "kind": "location", "actions": [],
-                                                                                   "tools": [], "phase": None}]}}}
+    assert messages[:9] == [*chain["messages"], chain["assistant"]] and len(messages) == 10
+    assert (messages[-1]["role"], messages[-1]["tool_call_id"]) == ("tool", "call-last")
+    assert json.loads(messages[-1]["content"]) == {"result": {"status": "completed"}, "changes": changes}
+    main, side = {"status": "in_progress", "message": "main"}, {"status": "in_progress", "message": "side"}
+    arrived = {"occurred_at": "2026-01-05T08:00:00+08:00", "type": "delivery", "text": "外卖到了"}
+    pair = {**chain["assistant"], "tool_calls": [{**_CALL, "id": "call-main"}, _SIDE_CALL]}
+    group = {**chain, "assistant": pair, "events": [arrived], "tool_results": [
+        {"tool_call_id": "call-main", "result": main}, {"tool_call_id": "call-side", "result": side}]}
+    started = continuation_messages(group, layers("打烊", "有点饿"))
+    assert started[:9] == [*chain["messages"], pair] and len(started) == 11
+    assert [(item["role"], item["tool_call_id"]) for item in started[9:]] == [("tool", "call-main"),
+                                                                              ("tool", "call-side")]
+    assert json.loads(started[9]["content"]) == {"result": main}
+    assert json.loads(started[10]["content"]) == {"result": side, "changes": changes, "events": [arrived]}
     assert continuation_messages(None, layers("打烊", "有点饿")) is None
 
 

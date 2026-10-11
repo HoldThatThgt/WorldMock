@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from tests.integration.runtime_fixtures import write_agent_workspace
-from tests.life.conftest import context, stage_day_plan, start_activity
+from tests.life.conftest import context, do_at, stage_day_plan
 from tests.life.environment_runtime import act, events
 from worldmock.errors import ProtocolError
 from worldmock.footprints.checkpoint import restore_branch, snapshot_directory
@@ -45,7 +45,7 @@ def test_invalid_counterfactual_sources_and_timing_leave_balances_and_evidence_u
         if case == "round":
             branch.begin_decision_round([context(branch, "child-round")])
         elif case == "decision":
-            _, started = act(branch, "child-start", start_activity("interact", "家"))
+            _, started = act(branch, "child-start", do_at("家", "测试休息"))
             assert started.status == "in_progress"
         before = branch.context.state.model_dump(mode="json")
         sequence = branch.context.store.last_event_seq

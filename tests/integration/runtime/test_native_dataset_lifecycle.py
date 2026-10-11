@@ -9,7 +9,7 @@ import tomlkit
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.frozen_inputs import fixture_metadata
 from tests.integration.runtime.current_contract_fixtures import ROOT, compiled_persona, inputs, metadata_service, ToolResponse
-from tests.life.conftest import StubPlanDayClient
+from tests.life.conftest import MAIN_TOOL, StubPlanDayClient, main_arguments
 from worldmock.environment import load_environment
 from worldmock.footprints.store import FootprintStore
 from worldmock.life.models import CounterfactualIntervention
@@ -34,8 +34,7 @@ class CurrentDecisionModel:
         if active:
             return ToolResponse("report_status", {"items": [{"activity_name": name, "summary": "继续聊天。"}
                 for name in active], "errands": []}, f"call-{len(self.requests)}")
-        return ToolResponse("start_activity", {"items": [{"action": "interact", "target": "家"}]},
-                            f"call-{len(self.requests)}")
+        return ToolResponse(MAIN_TOOL, main_arguments("interact", "家", "测试闲聊"), f"call-{len(self.requests)}")
 
 
 @pytest.fixture

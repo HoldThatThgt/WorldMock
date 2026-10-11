@@ -24,11 +24,23 @@ def real_export(engine_factory, tmp_path):
 def test_actual_purchase_content_and_current_artifacts_are_authenticated(real_export):
     manifest, events, activities = validate_export(real_export)
     assert manifest["schema_version"] == 4
-    assert manifest["checkpoint"]["state"]["schema_version"] == 12
+    assert manifest["checkpoint"]["state"]["schema_version"] == 13
     assert set(manifest["artifacts"]) == {"events", "activities", "verified_experiences", "purchases", "app_usage"}
     assert {row["activity_type"] for row in activities} >= {"purchase", "interact"}
     receipts = [row for row in events if row["data"].get("kind") == "goods_received"]
     assert len(receipts) == 2 and all(row["agent_id"] == 1 and row["resource_changes"] == {} for row in receipts)
+    # 购买尝试只认 start_side_activity 的 purchase 请求，一次请求一行：两份商品的一次购买是一行，用 app 的那次不算。
+    side = [row for row in events if row["event_type"] == "action_requested"
+            and row["data"]["tool_name"] == "start_side_activity"]
+    assert [(row["action_id"], row["data"]["request"]) for row in side] == [
+        ("action-recorded-basket", {"action": "purchase", "target": ["柠檬茶", "纸巾"]}),
+        ("action-recorded-content", {"action": "interact", "target": ["哔哩哔哩"]})]
+    bought = [json.loads(line) for line in (real_export / "purchases.jsonl").read_bytes().splitlines()]
+    attempts = [row for row in bought if row["fact_kind"] == "order_attempt"]
+    assert [(row["action_id"], row["request_event_id"], row["action"], row["status"], row["error_code"])
+            for row in attempts] == [("action-recorded-basket", side[0]["event_id"], "purchase", "in_progress", None)]
+    assert {row["action_id"] for row in bought if row["fact_kind"] == "purchase"} == {"action-recorded-basket"}
+    assert len([row for row in bought if row["fact_kind"] == "purchase"]) == 2
     facts = [json.loads(line) for line in (real_export / "app-usage.jsonl").read_bytes().splitlines()]
     consumed = [row for row in facts if row["fact_kind"] == "content_consumed"]
     assert consumed and all(row["app_id"] == "bilibili" for row in consumed)
@@ -36,17 +48,22 @@ def test_actual_purchase_content_and_current_artifacts_are_authenticated(real_ex
     assert all(len(row["source_event_ids"]) == len(set(row["source_event_ids"])) for row in activities)
 
 
-@pytest.mark.parametrize("version", ["export", "world", "run"])
-def test_retired_schema_is_rejected_before_consumption(real_export, version):
+@pytest.mark.parametrize("version,reason", [
+    ("export", "Export manifest is not a committed supported version"),
+    ("world", "Export checkpoint world schema does not match the current code"),
+    ("run", "Export frozen run manifest or environment identity is invalid"),
+])
+def test_retired_schema_is_rejected_before_consumption(real_export, version, reason):
+    """上一版导出清单、上一版世界状态结构（12）与上一版运行清单各自在读取前被拒绝，原因各是各的。"""
     manifest, _ = read_export(real_export)
     if version == "export":
         manifest["schema_version"] = 3
     elif version == "world":
-        manifest["checkpoint"]["state"]["schema_version"] = 11
+        manifest["checkpoint"]["state"]["schema_version"] = 12
     else:
         manifest["frozen_run_manifest"]["schema_version"] = 4
     (real_export / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    with pytest.raises(IntegrityError, match="supported version|world schema|frozen run manifest"):
+    with pytest.raises(IntegrityError, match=f"^{reason}$"):
         validate_export(real_export)
 
 

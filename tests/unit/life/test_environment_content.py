@@ -8,6 +8,7 @@ from worldmock.life.body import ActivityFactors, initial_body
 from worldmock.life.body_config import assemble_body_config
 from worldmock.life.content_select import ContentRequest, content_duration_range, eligible_contents, select_content
 from worldmock.life.interact import InteractivityRuntime, _content_data
+from worldmock.life.location_activities import location_units
 from worldmock.life.models import (AgentState, AppPush, ContentProgress, SessionKind, SessionState, SessionStatus,
     WorldState, WORLD_SCHEMA_VERSION, ActivityStatus)
 from worldmock.environment import load_environment
@@ -32,13 +33,17 @@ def context_state():
     return context,state
 
 def test_app_and_location_pools_are_disjoint(context_state):
+    """内容 app 的候选只来自它自己绑定的内容；地点的内容是人物点名的单元，不进任何 app 的候选，也不经推荐入口。"""
     context,state=context_state
-    app = eligible_contents(context.catalog,state,ContentRequest(1,'app','bilibili'))
-    place = eligible_contents(context.catalog,state,ContentRequest(1,'location',state.agents[1].location_id))
-    assert app and place
+    home=context.catalog.locations[state.agents[1].location_id]
+    app = eligible_contents(context.catalog,state,ContentRequest(1,'bilibili'))
+    place = [item for unit in location_units(context.catalog,home.kind) for item in unit.contents]
+    assert {c.content_id for c in place} == {'c-chat','c-rest'}
+    assert app and all('bilibili' in c.app_ids for c in app)
     assert not {c.content_id for c in app} & {c.content_id for c in place}
-    other=next(key for key in context.catalog.locations if key!=state.agents[1].location_id)
-    assert eligible_contents(context.catalog,state,ContentRequest(1,'location',other))==()
+    for location in context.catalog.locations.values():
+        assert eligible_contents(context.catalog,state,ContentRequest(1,location.location_id))==()
+    assert location_units(context.catalog,'park')==()
 
 def test_recent_shared_partial_content_has_priority_without_query_randomness(context_state):
     context,state=context_state
@@ -47,8 +52,8 @@ def test_recent_shared_partial_content_has_priority_without_query_randomness(con
         last_consumed_at=state.current_time)
     state.agents[1].content_progress[content.content_id]=progress
     before=state.random_state
-    assert content_duration_range(context.inputs,state,1,'app','bilibili')==(1680,1680)
-    selected,pin=select_content(context.catalog,state,ContentRequest(1,'app','bilibili'),Random(7))
+    assert content_duration_range(context.inputs,state,1,'bilibili')==(1680,1680)
+    selected,pin=select_content(context.catalog,state,ContentRequest(1,'bilibili'),Random(7))
     assert selected.content_id=='c-course' and pin is None
     assert state.random_state==before
 
@@ -56,9 +61,12 @@ def test_current_app_push_pins_start_but_not_other_containers(context_state):
     context,state=context_state
     push=AppPush(push_id='push',content_id='c-drama-2',issued_at=state.current_time,status='pending')
     state.sessions['stay'].app_pushes['bilibili']=push
-    selected,pin=select_content(context.catalog,state,ContentRequest(1,'app','bilibili','activity'),Random(7))
+    selected,pin=select_content(context.catalog,state,ContentRequest(1,'bilibili','activity'),Random(7))
     assert selected.content_id=='c-drama-2' and pin=='push'
-    assert content_duration_range(context.inputs,state,1,'app','bilibili')==(1800,1800)
+    assert content_duration_range(context.inputs,state,1,'bilibili')==(1800,1800)
+    other,other_pin=select_content(context.catalog,state,ContentRequest(1,'douyin','other-activity'),Random(7))
+    assert other_pin is None and 'douyin' in other.app_ids
+    assert content_duration_range(context.inputs,state,1,'douyin')==(90,2400)
     validate_app_pushes(state,context.catalog)
 
 def test_series_continues_same_binding_and_stops_after_last_episode(context_state):

@@ -20,17 +20,18 @@ from pydantic import ValidationError
 from custom.agents.life_agent import LifeAgent, MemorySearchRequest
 from worldmock.agents.life_prompt import TOOL_DESCRIPTIONS
 from tests.integration.runtime.test_life_agent_protocol import (
-    _OBSERVED_AT, _WORK_ACTION, _WAIT, _add_objects, _memory, _observations, _offer, _visible_object, _with_activities,
+    _OBSERVED_AT, _REST, _WAIT, _WAIT_CHOICE, _WORK_ACTION, _WORK_CHOICE, _add_objects, _memory, _observations, _offer,
+    _visible_object, _with_activities,
 )
 from tests.integration.runtime.current_contract_fixtures import profile
 from worldmock.life.activity_control import PHASE_ACTIVE
 from worldmock.life.models import REQUEST_MODELS, deepseek_strict_schema
-from tests.life.conftest import start_arguments
+from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, main_arguments, side_arguments
 
 
 _UNSUPPORTED_KEYS = {"oneOf", "minLength", "maxLength", "minItems", "maxItems", "default"}
-#: 稳定工具面的八件人物动作工具；当日计划由零点后台任务 plan_day 生成，不是人物工具（时间与能量规格第四章）。
-_ACTION_TOOLS = {"start_activity", "recall_task_summary", "report_status", "pause_activity",
+#: 稳定工具面的七件请求工具（两个开始工具在前）；当日计划由零点后台任务 plan_day 生成，不是人物工具（时间与能量规格第四章）。
+_ACTION_TOOLS = {"start_main_activity", "start_side_activity", "recall_task_summary", "report_status", "pause_activity",
                  "conclude_activity", "revise_day_plan"}
 
 
@@ -90,8 +91,8 @@ def _properties(schema: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
 
 
 def test_all_action_tools_use_closed_strict_schemas_from_one_model() -> None:
-    """全部八件动作工具采用同一请求模型，身份与执行参数不进工具面。"""
-    assert set(REQUEST_MODELS) == _ACTION_TOOLS
+    """全部七件请求工具采用同一请求模型，身份与执行参数不进工具面。"""
+    assert set(REQUEST_MODELS) == _ACTION_TOOLS and list(REQUEST_MODELS)[:2] == [MAIN_TOOL, SIDE_TOOL]
     for name, model in REQUEST_MODELS.items():
         function = _function(name)
         schema = function["parameters"]
@@ -109,29 +110,44 @@ def _host_error(tool: str, arguments: dict) -> str:
     return _prepared_agent().validate_react_decisions([ReactDecision("", tool, arguments, "")], False)
 
 
-def test_start_activity_uses_readable_frozen_objects_and_paired_actions() -> None:
-    """每项只写具体动作和完整目标，旧字段由严格模型拒绝。"""
-    schema = _function("start_activity")["parameters"]
-    assert schema == deepseek_strict_schema(REQUEST_MODELS["start_activity"])
-    assert set(schema["properties"]) == {"items"}
-    assert schema["required"] == ["items"]
-    item = schema["properties"]["items"]["items"]
-    assert set(item["properties"]) == set(item["required"]) == {"target", "action"}
-    assert all("enum" not in item["properties"][field] for field in ("target", "action"))
-    assert "$ref" not in json.dumps(schema) and "$defs" not in json.dumps(schema)
-    valid = start_arguments(["自己家", _WORK_ACTION], ["interact", "interact"])
-    assert list(Draft202012Validator(schema).iter_errors(valid)) == []
-    REQUEST_MODELS["start_activity"].model_validate(valid)
-    assert _host_error("start_activity", valid) == ""
-    error = _host_error("start_activity", start_arguments(["internal:task:1"], ["interact"]))
-    assert error.report.error_code == "NAME_NOT_FOUND" and error.report.items[0].written == "internal:task:1"
-    for action in ("wait", "invented_action"):
-        error = _host_error("start_activity", start_arguments(["自己家"], [action]))
-        assert error.report.error_code == "ACTION_NOT_OFFERED" and error.report.items[0].path[-1] == "action"
-    for deleted in ({"targets": ["自己"], "actions": ["interact"]}, {**valid, "actions": ["interact"]}):
-        assert list(Draft202012Validator(schema).iter_errors(deleted))
-        with pytest.raises(ValidationError):
-            REQUEST_MODELS["start_activity"].model_validate(deleted)
+def test_start_tools_declare_the_model_schema_and_take_readable_frozen_names() -> None:
+    """模型本轮可见的两个开始工具声明就是各自请求模型的 DeepSeek strict Schema，对象名与 detail 不做逐轮枚举；宿主按
+    本轮私有绑定核对名称：照工具层写的完整名称通过（两个工具同批即开始组），私有身份当名称写、已知对象不提供所写动作、
+    闭集之外的 action 与旧的 items 形状都在分派前被拒。"""
+    for tool, valid in ((MAIN_TOOL, _WAIT_CHOICE), (SIDE_TOOL, _WORK_CHOICE)):
+        function = _function(tool)
+        schema = function["parameters"]
+        assert schema == deepseek_strict_schema(REQUEST_MODELS[tool])
+        assert function["description"] == TOOL_DESCRIPTIONS[tool] and "description" not in schema
+        assert list(schema["properties"]) == schema["required"] == list(valid)
+        assert all("enum" not in json.dumps(schema["properties"][field]) for field in valid if field != "action")
+        assert "$ref" not in json.dumps(schema) and "$defs" not in json.dumps(schema)
+        assert list(Draft202012Validator(schema).iter_errors(valid)) == []
+        REQUEST_MODELS[tool].model_validate(valid)
+        assert _host_error(tool, valid) == ""
+        retired = {"items": [{"action": "interact", "target": "自己家"}]}
+        assert list(Draft202012Validator(schema).iter_errors(retired))
+        assert _host_error(tool, retired).report.error_code == "ARGUMENTS_INVALID"
+    group = [ReactDecision("", MAIN_TOOL, _WAIT_CHOICE, ""), ReactDecision("", SIDE_TOOL, _WORK_CHOICE, "")]
+    assert _prepared_agent().validate_react_decisions(group, False) == ""
+    private = [(MAIN_TOOL, main_arguments("interact", "internal:task:1", _REST), ("target",), "internal:task:1"),
+               (MAIN_TOOL, main_arguments("interact", "自己家", "rest-visible"), ("detail",), "rest-visible"),
+               (SIDE_TOOL, side_arguments("interact", "work-visible"), ("target", 0), "work-visible")]
+    for tool, arguments, path, written in private:
+        [item] = _host_error(tool, arguments).report.items
+        assert (item.error_code, item.path[4:], item.written) == ("NAME_NOT_FOUND", path, written)
+    unsupported = {MAIN_TOOL: (main_arguments("travel", "自己家", "步行"), ("interact", "sleep")),
+                   SIDE_TOOL: (side_arguments("purchase", _WORK_ACTION), ("interact",))}
+    for tool, (arguments, offered) in unsupported.items():
+        [item] = _host_error(tool, arguments).report.items
+        assert (item.error_code, item.path[4:], item.written) == ("ACTION_NOT_OFFERED", ("action",), arguments["action"])
+        assert item.allowed_values == offered
+    for tool, allowed in ((MAIN_TOOL, ("travel", "interact", "sleep")), (SIDE_TOOL, ("purchase", "interact"))):
+        valid = _WAIT_CHOICE if tool == MAIN_TOOL else _WORK_CHOICE
+        for action in ("wait", "walk", "invented_action"):
+            [item] = _host_error(tool, {**valid, "action": action}).report.items
+            assert (item.error_code, item.path[4:], item.written) == ("ARGUMENTS_INVALID", ("action",), action)
+            assert item.allowed_values == allowed
 
 
 @pytest.mark.parametrize("name", ["report_status", "pause_activity", "conclude_activity"])
@@ -229,8 +245,8 @@ def test_control_tool_fields_carry_format_and_source_descriptions(name: str) -> 
 def test_recall_uses_readable_activity_name_and_retired_world_tools_are_absent() -> None:
     """回看绑定真实活动名称，旧消息、工作提交与闹钟工具不再提供。"""
     names = {entry["function"]["name"] for entry in _prepared_agent().build_react_tool_schemas(readonly=False)}
-    assert {"submit_work", "send_message", "set_alarm", "finish"}.isdisjoint(names)
-    assert len(names) == 10
+    assert {"start_activity", "submit_work", "send_message", "set_alarm", "finish"}.isdisjoint(names)
+    assert len(names) == 11 and {MAIN_TOOL, SIDE_TOOL} <= names
     recall = _function("recall_task_summary")["parameters"]
     assert set(recall["properties"]) == {"task_name"}
     for name in (_WAIT,):

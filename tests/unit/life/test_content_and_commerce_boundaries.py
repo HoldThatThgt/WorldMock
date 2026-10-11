@@ -10,15 +10,24 @@ from tests.unit.life.test_environment_commerce import (
     environment, finish, operate_payments, pending, runtime, world,
 )
 from worldmock.errors import BusinessRuleError, IntegrityError, PreconditionError
+from worldmock.life.action_contract import binding_action
 from worldmock.life.app_push import issue_app_push, open_app_push, release_app_pushes, validate_app_pushes
 from worldmock.life.basket import activity_orders
 from worldmock.life.commerce import deliver_order
 from worldmock.life.content_select import ContentRequest, select_from_contents
 from worldmock.life.interact import InteractivityRuntime
+from worldmock.life.location_activities import location_units, unit_binding
 from worldmock.life.models import AppPush, ContentProgress
 from worldmock.life.parcel import require_ready_parcels
 from worldmock.life.purchase_offers import quote_goods
 from worldmock.life.receipt import settle_receipt
+
+
+def app_row(context, app_id):
+    """内容 app 的绑定行（与观察的私有绑定同形），选中它唯一的 interact 行。"""
+    action = binding_action("interact")
+    return {"object": context.catalog.apps[app_id].name, "kind": "app", "object_id": app_id,
+            "actions": [action], "selected_action": action}
 
 
 def issued(context_state):
@@ -66,8 +75,8 @@ def test_matching_push_opens_once_and_completion_release_prevents_reopening(cont
 
 def test_actual_interaction_starts_the_pinned_content_and_opens_its_current_push(context_state):
     context, state, data = issued(context_state)
-    changed, activity, drafts = InteractivityRuntime(context).start(state, pending(), "app", data["app_id"])
-    assert activity.data["content_id"] == data["content_id"]
+    changed, activity, drafts = InteractivityRuntime(context).start(state, pending(), app_row(context, data["app_id"]))
+    assert activity.data["content_id"] == data["content_id"] and activity.resource_claims == {"second"}
     assert activity.data["pinned_by_push_id"] == data["push_id"]
     assert changed.sessions["stay"].app_pushes[data["app_id"]].status == "opened" and drafts == []
     assert state.sessions["stay"].app_pushes[data["app_id"]].status == "pending"
@@ -76,14 +85,31 @@ def test_actual_interaction_starts_the_pinned_content_and_opens_its_current_push
 def test_browse_resume_keeps_the_same_activity_and_unknown_content_resume_is_rejected(context_state):
     context, state = context_state
     interactivity = InteractivityRuntime(context)
-    changed, activity, _ = interactivity.start(state, pending(), "app", "meituan")
+    changed, activity, _ = interactivity.start(state, pending(), app_row(context, "meituan"))
     assert activity.data["content_id"] is None and interactivity.resume(changed, activity) is changed
-    content_state, content_activity, _ = interactivity.start(state, pending(), "app", "bilibili")
+    content_state, content_activity, _ = interactivity.start(state, pending(), app_row(context, "bilibili"))
     broken = content_activity.model_copy(update={"data": {**content_activity.data, "content_id": "unknown"}})
     before = content_state.model_dump(mode="json")
     with pytest.raises(IntegrityError, match="Persisted activity target is invalid"):
         interactivity.resume(content_state, broken)
     assert content_state.model_dump(mode="json") == before
+
+
+@pytest.mark.parametrize("name,content_id,seconds", [("测试休息", "c-rest", 900), ("测试闲聊", "c-chat", 600)])
+def test_named_location_unit_starts_exactly_that_content_in_the_first_slot(context_state, name, content_id, seconds):
+    """在地点做事由人物点名单元：开始的就是这个单元的内容，引擎不替人物在地点的内容里挑选。"""
+    context, state = context_state
+    home = context.catalog.locations[state.agents[1].location_id]
+    unit = next(unit for unit in location_units(context.catalog, home.kind) if unit.name == name)
+    action = unit_binding(unit)
+    row = {"object": home.display_name, "kind": "location", "object_id": home.location_id,
+           "actions": [action], "selected_action": action}
+    changed, activity, drafts = InteractivityRuntime(context).start(state, pending(), row)
+    assert (activity.data["content_id"], activity.data["app_id"]) == (content_id, None)
+    assert activity.data["pinned_by_push_id"] is None and activity.data["draw_index"] == 0
+    assert activity.planned_duration_seconds == seconds and activity.resource_claims == {"first"}
+    assert activity.name.startswith(f"进行{name}（") and activity.activity_id == "activity-buy"
+    assert drafts == [] and changed.random_state == state.random_state and not state.activities
 
 
 def test_started_series_precedes_unseen_independent_content_without_random_redraw(context_state):
@@ -93,7 +119,7 @@ def test_started_series_precedes_unseen_independent_content_without_random_redra
     contents = tuple(context.catalog.contents[key] for key in ("c-course", "c-drama-1", "c-drama-2", "c-drama-3"))
     stream = Random(7)
     before = stream.getstate()
-    selected, pin = select_from_contents(contents, state, ContentRequest(1, "app", "bilibili"), stream)
+    selected, pin = select_from_contents(contents, state, ContentRequest(1, "bilibili"), stream)
     assert selected.content_id == "c-drama-2" and pin is None
     assert stream.getstate() == before
 
@@ -101,7 +127,7 @@ def test_started_series_precedes_unseen_independent_content_without_random_redra
 def test_empty_content_pool_is_explicit_exhaustion(context_state):
     _, state = context_state
     with pytest.raises(BusinessRuleError, match="CONTENT_EXHAUSTED"):
-        select_from_contents((), state, ContentRequest(1, "app", "bilibili"), Random(7))
+        select_from_contents((), state, ContentRequest(1, "bilibili"), Random(7))
 
 
 def test_unknown_goods_and_orders_never_change_resources(environment):

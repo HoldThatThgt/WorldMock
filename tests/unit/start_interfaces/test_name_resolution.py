@@ -1,0 +1,187 @@
+"""开始调用的名称解析：五种结果的码、路径与文字，候选是新工具的完整调用，睡眠只读分钟数。"""
+
+from __future__ import annotations
+
+import pytest
+
+from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, context, do_at, purchase, sleep, travel, use_app
+from worldmock.life.action_contract import binding_action
+from worldmock.life.name_resolution import NameBook, Option, Target, name_book, resolve_start
+
+_OBJECT_EXPECTED = "A known object name in the selected action's category is required."
+_DETAIL_EXPECTED = "A detail name listed for this object and action is required."
+
+
+@pytest.fixture
+def book(engine_factory) -> NameBook:
+    """夹具环境运行开始时（人在家）真实冻结观察上的名称簿。"""
+    engine = engine_factory()
+    return name_book(engine.observe(context(engine, "names")))
+
+
+def _option(action: str, detail: str | None = None, blocked: str | None = None, duration: str | None = None,
+            aliases: tuple[str, ...] = ()) -> Option:
+    """手写的一条动作行（用于夹具里造不出的重名情形）。"""
+    return Option(action, detail, blocked, duration, aliases, {**binding_action(action, detail), "note": blocked})
+
+
+def _target(label: str, kind: str, *options: Option) -> Target:
+    """手写的一个对象及其动作行。"""
+    row = {"object": label, "kind": kind, "object_id": f"id-{label}", "actions": [dict(item.row) for item in options]}
+    return Target(label, kind, f"id-{label}", options, True, row)
+
+
+def _single(outcome) -> dict:
+    """唯一一条名称失败的完整明细。"""
+    assert outcome.rows == () and len(outcome.failures) == 1
+    failure = outcome.failures[0]
+    assert failure.sentence == failure.detail == failure.item.why
+    return failure.item.payload()
+
+
+def test_resolved_main_call_selects_the_named_row_of_the_object(book):
+    """出行解析到目的地的那条出行方式行，在地点做事解析到当前地点的那个单元行。"""
+    outcome = resolve_start(book, MAIN_TOOL, travel("公司", "驾车"))
+    row = outcome.rows[0]
+    assert outcome.failures == () and outcome.resolved == ()
+    assert (row["object"], row["kind"], row["object_id"]) == ("公司", "location", "office")
+    assert row["selected_action"]["detail"] == "驾车" and row["selected_action"]["travel_method_id"] == "driving"
+    unit = resolve_start(book, MAIN_TOOL, do_at("家", "测试休息")).rows[0]
+    assert unit["object_id"] == "home" and unit["selected_action"]["content_ids"] == ["c-rest"]
+    assert unit["selected_action"]["episode_titles"] == []
+
+
+def test_side_call_expands_one_item_per_array_element_and_keeps_repeats(book):
+    """副工具的 target 每个元素一项，购买的重复元素各自成项；未展示的名称交给指名商品入口。"""
+    outcome = resolve_start(book, SIDE_TOOL, purchase("牛肉面", "柠檬茶", "柠檬茶", "平台笔记本"))
+    assert outcome.failures == ()
+    assert [row["object"] for row in outcome.rows] == ["牛肉面", "柠檬茶", "柠檬茶", "平台笔记本"]
+    assert [row["object_id"] for row in outcome.rows] == ["beef-noodles", "lemon-tea", "lemon-tea", None]
+    assert outcome.rows[3]["kind"] == "named_supply"
+    app = resolve_start(book, SIDE_TOOL, use_app("哔哩哔哩")).rows
+    assert [(row["object_id"], row["kind"]) for row in app] == [("bilibili", "app")]
+
+
+def test_unknown_object_reports_name_not_found_with_complete_call_candidates(book):
+    """对象名找不到：主工具定位 target，副工具定位数组里的那一项；候选是近名对象可以照抄的完整调用。"""
+    main = _single(resolve_start(book, MAIN_TOOL, travel("公司大楼", "驾车")))
+    assert main["error_code"] == "NAME_NOT_FOUND" and main["path"][-1:] == ["target"]
+    assert main["written"] == "公司大楼" and main["allowed_values"] == [] and main["expected"] == _OBJECT_EXPECTED
+    assert main["why"] == ("No known object named 公司大楼 supports this action; "
+                           "changing spelling cannot create an object.")
+    assert main["candidates"] == [{"tool": MAIN_TOOL, "note": "约 5 分钟",
+                                   "arguments": {"action": "travel", "target": "公司", "detail": "驾车"}}]
+    side = _single(resolve_start(book, SIDE_TOOL, use_app("哔哩")))
+    assert side["error_code"] == "NAME_NOT_FOUND" and side["path"][-2:] == ["target", 0]
+    assert [item["arguments"] for item in side["candidates"]] == [{"action": "interact", "target": ["哔哩哔哩"]}]
+    assert all(item["tool"] == SIDE_TOOL for item in side["candidates"])
+
+
+def test_ambiguous_object_lists_each_match_as_a_candidate():
+    """归一后对应多个对象：NAME_AMBIGUOUS，候选是各匹配对象；购买候选只替换数组里出错的那个元素。"""
+    walk = _option("travel", "步行", duration="约 9 分钟")
+    places = NameBook((_target("三杯 咖啡", "location", walk), _target("三杯  咖啡", "location", walk)), "家", "家")
+    item = _single(resolve_start(places, MAIN_TOOL, travel("三杯咖啡", "步行")))
+    assert item["error_code"] == "NAME_AMBIGUOUS" and item["path"][-1:] == ["target"]
+    assert item["expected"] == "One unambiguous complete object name is required."
+    assert item["why"] == "The name 三杯咖啡 identifies several known objects."
+    assert [candidate["arguments"]["target"] for candidate in item["candidates"]] == ["三杯 咖啡", "三杯  咖啡"]
+    buy = _option("purchase")
+    goods = NameBook((_target("柠檬 茶", "supply", buy), _target("柠檬  茶", "supply", buy)), "家", "家")
+    item = _single(resolve_start(goods, SIDE_TOOL, purchase("牛肉面", "柠檬茶", "薯片")))
+    assert item["error_code"] == "NAME_AMBIGUOUS" and item["path"][-2:] == ["target", 1]
+    assert [candidate["arguments"] for candidate in item["candidates"]] == [
+        {"action": "purchase", "target": ["牛肉面", "柠檬 茶", "薯片"]},
+        {"action": "purchase", "target": ["牛肉面", "柠檬  茶", "薯片"]}]
+    assert all(candidate["tool"] == SIDE_TOOL for candidate in item["candidates"])
+
+
+def test_interact_at_another_location_only_yields_action_not_offered(book):
+    """对不是当前地点的地点写 interact：该地点此刻只提供出行，候选是去那里的完整出行调用。"""
+    item = _single(resolve_start(book, MAIN_TOOL, do_at("公司", "季度销售数据整理")))
+    assert item["error_code"] == "ACTION_NOT_OFFERED" and item["path"][-1:] == ["action"]
+    assert item["written"] == "interact" and item["allowed_values"] == ["travel"]
+    assert item["expected"] == "An action offered by this object is required."
+    assert item["why"] == "The known object 公司 does not support the written action."
+    assert [candidate["arguments"] for candidate in item["candidates"]] == [
+        {"action": "travel", "target": "公司", "detail": detail} for detail in ("步行", "驾车", "打车")]
+    assert all(candidate["tool"] == MAIN_TOOL for candidate in item["candidates"])
+
+
+def test_travel_to_the_current_location_only_yields_action_not_offered(book):
+    """把当前地点写成出行目的地：当前地点的行没有出行；睡眠行不成候选，因为引擎不替人物定时长。"""
+    item = _single(resolve_start(book, MAIN_TOOL, travel("家", "步行")))
+    assert item["error_code"] == "ACTION_NOT_OFFERED" and item["allowed_values"] == ["interact", "sleep"]
+    assert [candidate["arguments"] for candidate in item["candidates"]] == [
+        {"action": "interact", "target": "家", "detail": "测试闲聊"},
+        {"action": "interact", "target": "家", "detail": "测试休息"}]
+    assert [candidate["note"] for candidate in item["candidates"]] == ["约 10 分钟", "约 15 分钟"]
+
+
+def test_object_of_the_other_tool_offers_nothing_here_and_points_to_its_own_tool(book):
+    """地点写进副工具、内容 app 写进购买：本工具下允许的动作可以为空，候选属于另一个工具或另一个动作。"""
+    place = _single(resolve_start(book, SIDE_TOOL, use_app("家")))
+    assert place["error_code"] == "ACTION_NOT_OFFERED" and place["allowed_values"] == []
+    assert {candidate["tool"] for candidate in place["candidates"]} == {MAIN_TOOL}
+    app = _single(resolve_start(book, SIDE_TOOL, purchase("牛肉面", "哔哩哔哩")))
+    assert app["error_code"] == "ACTION_NOT_OFFERED" and app["allowed_values"] == ["interact"]
+    assert app["candidates"][0]["arguments"] == {"action": "interact", "target": ["哔哩哔哩"]}
+
+
+def test_unknown_detail_lists_every_row_name_and_ranks_near_rows(book):
+    """detail 找不到：allowed_values 是该对象该动作全部行的 detail（按行序），顶层原因等于明细的 why。"""
+    unit = _single(resolve_start(book, MAIN_TOOL, do_at("家", "测试睡觉")))
+    assert unit["error_code"] == "NAME_NOT_FOUND" and unit["path"][-1:] == ["detail"]
+    assert unit["written"] == "测试睡觉" and unit["allowed_values"] == ["测试闲聊", "测试休息"]
+    assert unit["expected"] == _DETAIL_EXPECTED
+    assert unit["why"] == "家 offers no interact option named 测试睡觉; changing spelling cannot create one."
+    assert sorted(candidate["arguments"]["detail"] for candidate in unit["candidates"]) == ["测试休息", "测试闲聊"]
+    method = _single(resolve_start(book, MAIN_TOOL, travel("公司", "骑车")))
+    assert method["allowed_values"] == ["步行", "驾车", "打车", "公共交通"] and method["candidates"] == []
+    assert method["why"] == "公司 offers no travel option named 骑车; changing spelling cannot create one."
+
+
+def test_episode_title_is_not_a_name_and_ranks_its_series_first():
+    """写了某一集的标题：不受理；所属系列凭各集标题排在候选最前，别的单元不进候选。"""
+    series = _option("interact", "工作日晚饭", duration="约 20 分钟", aliases=("备菜", "吃饭", "洗碗"))
+    home = _target("家", "location", series, _option("interact", "洗漱"), _option("interact", "睡前准备"))
+    item = _single(resolve_start(NameBook((home,), "家", "家"), MAIN_TOOL, do_at("家", "备菜")))
+    assert item["error_code"] == "NAME_NOT_FOUND" and item["path"][-1:] == ["detail"]
+    assert item["allowed_values"] == ["工作日晚饭", "洗漱", "睡前准备"]
+    assert item["why"] == "家 offers no interact option named 备菜; changing spelling cannot create one."
+    assert item["candidates"] == [{"tool": MAIN_TOOL, "note": "约 20 分钟",
+                                   "arguments": {"action": "interact", "target": "家", "detail": "工作日晚饭"}}]
+
+
+def test_ambiguous_detail_lists_the_matching_rows():
+    """归一后对应多个单元：NAME_AMBIGUOUS，allowed_values 仍是全部单元名，候选是这些单元。"""
+    home = _target("家", "location", _option("interact", "晚 饭"), _option("interact", "晚  饭"),
+                   _option("interact", "洗漱"))
+    item = _single(resolve_start(NameBook((home,), "家", "家"), MAIN_TOOL, do_at("家", "晚饭")))
+    assert item["error_code"] == "NAME_AMBIGUOUS" and item["path"][-1:] == ["detail"]
+    assert item["allowed_values"] == ["晚 饭", "晚  饭", "洗漱"]
+    assert item["expected"] == "One unambiguous complete detail name is required."
+    assert item["why"] == "The name 晚饭 identifies several options of 家."
+    assert [candidate["arguments"]["detail"] for candidate in item["candidates"]] == ["晚 饭", "晚  饭"]
+
+
+def test_lossless_normalization_is_recorded_for_object_and_detail(book):
+    """全半角与空白的无损归一受理，并把所写与解析结果各记一条；「住处」指向本人住处。"""
+    outcome = resolve_start(book, MAIN_TOOL, travel("公 司", "驾 车"))
+    assert outcome.failures == () and outcome.rows[0]["selected_action"]["detail"] == "驾车"
+    assert outcome.resolved == ({"written": "公 司", "as": "公司"}, {"written": "驾 车", "as": "驾车"})
+    home = resolve_start(book, MAIN_TOOL, do_at("住处", "测试休息"))
+    assert home.failures == () and home.resolved == ({"written": "住处", "as": "家"},)
+    goods = resolve_start(book, SIDE_TOOL, purchase("牛 肉 面"))
+    assert goods.resolved == ({"written": "牛 肉 面", "as": "牛肉面"},)
+
+
+@pytest.mark.parametrize("written,minutes,record", [
+    ("470", 470, ()), ("４７０", 470, ({"written": "４７０", "as": "470"},)), ("060", 60, ({"written": "060", "as": "60"},)),
+])
+def test_sleep_resolves_without_any_binding_row(written, minutes, record):
+    """睡眠不查名称：没有 sleep 行的地点、甚至一个对象都没有时，分钟数合格就成立，能不能睡由受理判定。"""
+    outcome = resolve_start(NameBook((), None, None), MAIN_TOOL, sleep(written))
+    assert outcome.failures == () and outcome.resolved == record
+    assert [row["minutes"] for row in outcome.rows] == [minutes]
+    assert outcome.rows[0]["object_id"] is None and outcome.rows[0]["kind"] == "sleep"

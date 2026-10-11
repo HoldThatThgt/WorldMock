@@ -1,7 +1,7 @@
 """个人事务仅出现在待办与回执，收尾记忆保持主观内容。"""
 import json
 import pytest
-from tests.life.conftest import stage_day_plan, start_activity, errand_add, context, advance_until_ready
+from tests.life.conftest import stage_day_plan, do_at, errand_add, context, advance_until_ready
 from tests.life.environment_runtime import act
 from tests.integration.runtime.current_contract_fixtures import environment
 from tests.integration.runtime.test_same_second_continuation import _workspace_person, _step, _reply
@@ -10,7 +10,7 @@ from tests.integration.runtime.test_same_second_continuation import _workspace_p
 async def test_errand_arguments_never_become_memory_or_progress_parameters(engine_factory, tmp_path):
     engine = engine_factory()
     stage_day_plan(engine)
-    _, started = act(engine, "chat", start_activity("interact", "家"))
+    _, started = act(engine, "chat", do_at("家", "测试闲聊"))
     assert advance_until_ready(engine)
     name = engine.context.state.activities[started.activity_id].name
     env = environment(engine)
