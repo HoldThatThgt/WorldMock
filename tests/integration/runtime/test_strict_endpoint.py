@@ -12,7 +12,7 @@ def test_current_identity_freezes_actual_endpoint_and_separate_retry_budgets():
     assert identity["base_url"] == frozen.config.model.base_url
     assert identity["requested_model"] == frozen.config.model.requested_model
     assert identity["max_retries"] == 0 and identity["transport_max_retries"] == 3
-    assert identity["persona_validation_max_retries"] == 2
+    assert "persona_validation_max_retries" not in identity
     assert identity["reflection_validation_max_retries"] == identity["day_plan_validation_max_retries"] == 3
     assert identity["model_metadata"] == frozen.model_metadata.model_dump(mode="json")
     assert "api_key_env" not in identity

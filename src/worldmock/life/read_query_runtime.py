@@ -1,11 +1,12 @@
-"""@brief 在原生 AS2 生命周期中承载生活环境的冻结只读查询（docs/design/10-runtime.md ）。
+"""@brief 在原生 AS2 生命周期中承载生活环境的只读通道（docs/design/10-runtime.md「原生模型与工具」）。
 
-这是锁定 AS2 提交上的 Life 扩展：不 monkey patch、不改 AS2、不做多版本兼容。两个子类各只新增 read_query 一个方法，
-运行装配（worldmock.runtime._build_society）以它们建立环境 actor 与代理；装配 AS2 原类时回看任务到不了环境。
+这是锁定 AS2 提交上的 Life 扩展：不 monkey patch、不改 AS2、不做多版本兼容。两个子类各只新增两个只读方法：
+read_query 回答冻结观察上的只读查询，due_reflection 回答取观察之前该不该先做就寝反思。
+运行装配（worldmock.runtime._build_society）以它们建立环境 actor 与代理；装配 AS2 原类时这两个调用到不了环境。
 对 AS2 三个私有成员的依赖是随锁定提交验证的耦合点，升级 fork 时逐项复核：
-1. DirectEnvActor._router：环境 actor 构造时建立的直接路由（LifeEnvActor.read_query 经它取环境）；
-2. DirectRouter._environment()：取得唯一实现完整直接调用合同的环境（LifeEnvActor.read_query 调用）；
-3. EnvRouterProxy._actor：代理持有的 Ray actor 句柄（LifeEnvProxy.read_query 经它发起远端调用）。
+1. DirectEnvActor._router：环境 actor 构造时建立的直接路由（LifeEnvActor 的两个方法经它取环境）；
+2. DirectRouter._environment()：取得唯一实现完整直接调用合同的环境（LifeEnvActor 的两个方法调用）；
+3. EnvRouterProxy._actor：代理持有的 Ray actor 句柄（LifeEnvProxy 的两个方法经它发起远端调用）。
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from agentsociety2.env.env_router_proxy import EnvRouterProxy
 
 
 class LifeEnvActor(DirectEnvActor):
-    """@brief 为生活环境提供跨进程只读查询服务；相对 AS2 的 DirectEnvActor 只新增 read_query。"""
+    """@brief 为生活环境提供跨进程只读服务；相对 AS2 的 DirectEnvActor 只新增 read_query 与 due_reflection。"""
 
     async def read_query(self, context: Any, tool: str, request: Any) -> dict:
         """@brief 将查询交给当前唯一生活环境，不经过世界动作结算。
@@ -27,9 +28,14 @@ class LifeEnvActor(DirectEnvActor):
         """
         return await self._router._environment().read_query(context, tool, request)
 
+    async def due_reflection(self, context: Any) -> dict | None:
+        """@brief 把「此刻该不该先做就寝反思」交给当前唯一生活环境判定，不写事件、不改世界。"""
+        return await self._router._environment().due_reflection(context)
+
 
 class LifeEnvProxy(EnvRouterProxy):
-    """@brief 将人物只读查询送到拥有世界状态的生活环境进程；相对 AS2 的 EnvRouterProxy 只新增 read_query。"""
+    """@brief 将人物的只读调用送到拥有世界状态的生活环境进程；相对 AS2 的 EnvRouterProxy 只新增 read_query 与
+    due_reflection。"""
 
     async def read_query(self, context: Any, tool: str, request: Any) -> dict:
         """@brief 等待远端的真实查询结果并返回结果对象，不把对象引用交给调用方。
@@ -37,6 +43,10 @@ class LifeEnvProxy(EnvRouterProxy):
         耦合点：EnvRouterProxy._actor（AS2 私有成员，随锁定提交验证）。
         """
         return await self._actor.read_query.remote(context, tool, request)
+
+    async def due_reflection(self, context: Any) -> dict | None:
+        """@brief 等待远端的判定结果并返回结果对象：空，或就寝反思的归属日期与所属睡眠。"""
+        return await self._actor.due_reflection.remote(context)
 
 
 def life_env_actor_class() -> Any:

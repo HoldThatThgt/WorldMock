@@ -12,8 +12,10 @@ from pydantic import ValidationError
 
 from worldmock.evaluation.errors import EvaluationError
 from worldmock.evaluation.models import JsonObject, PublicEvidence
+from worldmock.exchange.constants import WALKING_TRAVEL_METHOD_ID
 from worldmock.footprints.models import Event
-from worldmock.life.action_contract import ACTIVITY_ACTIONS, TRAVEL_ACTIONS
+from worldmock.life.action_contract import (ACTIVITY_ACTIONS, MAIN_ACTIVITY_ACTIONS, SIDE_ACTIVITY_ACTIONS,
+                                             START_TOOLS)
 from worldmock.footprints.app_usage import validate_activity_prefix
 from worldmock.errors import IntegrityError
 
@@ -25,15 +27,13 @@ _LEGACY_ACTIONS = {
     "navigation": ("travel", "travel", "route"),
 }
 #: 结果活动种类只取现行四类，环境动作类别由快照保存。
-#: 活动控制工具 -> 公开交互动词（docs/design/04-simulation-engine.md「人物工具与管理接口」），按请求
+#: 活动控制工具 -> 公开交互动词（docs/design/04-simulation-engine.md「动作、名称与并行」），按请求
 #: items[] 逐活动投影。
 _SESSION_CONTROL_TOOLS = {
     "report_status": "report",
     "pause_activity": "pause",
     "conclude_activity": "conclude",
 }
-#: 公开终态取自活动快照的启动动作；其余动作以动作自身终态为准。
-_ACTIVITY_BACKED_ACTIONS = frozenset(ACTIVITY_ACTIONS)
 _RESULT_STATES = {
     "accepted": "started",
     "in_progress": "started",
@@ -74,7 +74,7 @@ class _Action:
     action_name: str | None = None
     index: int = 0
     activity_status: str | None = None
-    #: 该项实际开始的活动身份（start_activity 逐项；没有活动或未知时为 None，按位置对应）。
+    #: 这条开始调用实际开始的活动身份（没有活动或未知时为 None，按位置对应）。
     activity_key: str | None = None
 
 
@@ -235,8 +235,8 @@ def _world_actions(events: Sequence[Event],
             continue
         tool_name = _string(requested.data.get("tool_name"))
         request = _mapping(requested.data.get("request"))
-        if tool_name == "start_activity":
-            selected = _start_shapes(request, related)
+        if tool_name in START_TOOLS:
+            selected = _start_shapes(tool_name, request, related)
         elif tool_name in _SESSION_CONTROL_TOOLS:
             selected = _control_actions(tool_name, request, related, activities)
         else:
@@ -248,38 +248,31 @@ def _world_actions(events: Sequence[Event],
 
 
 
-def _start_shapes(request: Mapping[str, Any], related: Sequence[Event]) -> tuple[_Action, ...]:
-    """@brief 请求逐项直接读取七个具体动作，不从名称或方式反解。"""
-    items = request.get("items")
-    if not isinstance(items, list) or not items:
-        raise EvaluationError("invalid_input", "Start activity requires current action items")
-    selected = []
-    for index, item in enumerate(items):
-        if not isinstance(item, dict) or set(item) != {"action", "target"}:
-            raise EvaluationError("invalid_input", "Start activity item schema is invalid")
-        action = item["action"]
-        if action not in ACTIVITY_ACTIONS:
-            raise EvaluationError("invalid_input", "Start activity action is outside the current closed set")
-        shape = _start_shape(action, related, index)
-        if shape is not None:
-            key = _string(_related_activity(related, index).get("activity_id"))
-            selected.append(_Action("start_activity", request, shape, action, index, activity_key=key))
-    return tuple(selected)
+def _start_shapes(tool_name: str, request: Mapping[str, Any], related: Sequence[Event]) -> tuple[_Action, ...]:
+    """@brief 一条开始调用恰好开始一项活动：动作直接读两个开始工具各自的参数，不从名称反解。"""
+    main = tool_name == START_TOOLS[0]
+    if set(request) != ({"action", "target", "detail"} if main else {"action", "target"}):
+        raise EvaluationError("invalid_input", "Start request arguments are outside the current contract")
+    action = request["action"]
+    if action not in (MAIN_ACTIVITY_ACTIONS if main else SIDE_ACTIVITY_ACTIONS):
+        raise EvaluationError("invalid_input", "Start request action is outside the current closed set")
+    activity = _related_activity(related, 0)
+    shape = _start_shape(action, related, activity)
+    if shape is None:
+        return ()
+    return (_Action(tool_name, request, shape, action, activity_key=_string(activity.get("activity_id"))),)
 
 
-
-
-def _start_shape(action: str, related: Sequence[Event], index: int) -> _Shape | None:
+def _start_shape(action: str, related: Sequence[Event], activity: Mapping[str, Any]) -> _Shape | None:
     """@brief 实际快照提供对象，睡眠沿用不生成开始点事实的规则。"""
-    activity = _related_activity(related, index)
-    if action in TRAVEL_ACTIONS:
-        trip = _string(_mapping(activity.get("data")).get("trip_id"))
-        return _Shape(action, "travel", "route", trip, _travel_mode(activity.get("travel_mode")))
-    if action == "interact" and activity:
-        return _activity_shape(activity)
+    if action == "interact":
+        return _activity_shape(activity) if activity else None
     if action == "purchase":
-        return _Shape(action, "order", "order", _order_key(related, index), {})
-    return None
+        return _Shape(action, "order", "order", _order_key(related), {})
+    if action == "sleep":
+        return None
+    trip = _string(_mapping(activity.get("data")).get("trip_id"))
+    return _Shape(action, "travel", "route", trip, _travel_mode(activity.get("travel_method_id")))
 
 
 def _control_actions(tool_name: str, request: Mapping[str, Any], related: Sequence[Event],
@@ -310,7 +303,8 @@ def _activity_shape(row: Mapping[str, Any]) -> _Shape | None:
     data = _mapping(row.get("data"))
     action = worldmock_activity_action(kind or "", data)
     if kind == "travel":
-        return _Shape(action, "travel", "route", _string(data.get("trip_id")), _travel_mode(row.get("travel_mode")))
+        return _Shape(action, "travel", "route", _string(data.get("trip_id")),
+                      _travel_mode(row.get("travel_method_id")))
     if kind != "interact":
         return None
     content = _string(data.get("content_id"))
@@ -324,7 +318,7 @@ def _world_result(event: Event, action: _Action) -> list[PublicEvidence]:
     if action.action_name == "purchase":
         return _purchase_result(event, action)
     rows = [_from_event(event, action.shape, _result_state(event, action))]
-    if action.action_name in TRAVEL_ACTIONS and _account_changes(event, action):
+    if action.action_name == "travel" and _account_changes(event, action):
         shape = _Shape(action.shape.action, "pay", "route", action.shape.object_key, action.shape.attributes)
         rows.append(_from_event(event, shape, "paid"))
     return rows
@@ -363,7 +357,7 @@ def _result_state(event: Event, action: _Action) -> str | None:
     started = _start_action(action)
     activity = (_activity_with_identity(event.data, action.activity_key) if action.activity_key is not None
                 else _result_activity_at(event.data, action.index))
-    if started in _ACTIVITY_BACKED_ACTIONS:
+    if started is not None:
         status = _ACTIVITY_RESULT_STATES.get(activity.get("status"))
     return status
 
@@ -488,10 +482,9 @@ def _fulfillment(value: Any) -> JsonObject:
     return {"fulfillment_mode": value} if value in {"delivery", "pickup", "station_pickup"} else {}
 
 
-def _travel_mode(value: Any) -> JsonObject:
-    """@brief 盲评只归并真实交通方式，内部仍区分打车与公共交通。"""
-    public = {"walking": "walking", "driving": "driving", "taxi": "driving", "bus": "transit"}.get(value)
-    return {"travel_mode": public} if public is not None else {}
+def _travel_mode(travel_method_id: Any) -> JsonObject:
+    """@brief 只归类引擎自带的步行；数据集定义的出行方式不带类别，身份起成 driving、bus、taxi 也一样。"""
+    return {"travel_mode": "walking"} if travel_method_id == WALKING_TRAVEL_METHOD_ID else {}
 
 
 def worldmock_activity_action(activity_type: str, data: Any) -> str:
@@ -503,8 +496,7 @@ def worldmock_activity_action(activity_type: str, data: Any) -> str:
     action = _mapping(data).get("action")
     if action not in ACTIVITY_ACTIONS:
         raise EvaluationError("invalid_input", "Activity requires its actual action")
-    valid = action in TRAVEL_ACTIONS if activity_type == "travel" else action == activity_type
-    if not valid:
+    if action != activity_type:
         raise EvaluationError("invalid_input", "Activity action disagrees with its kind")
     return action
 

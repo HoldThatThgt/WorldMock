@@ -13,12 +13,12 @@ from worldmock.footprints.models import EventDraft
 from worldmock.input_models import ModelMetadata
 from worldmock.life.errand_state import ErrandState
 from worldmock.life import errands, memory_layer, progress_layer
-from worldmock.life.memory_evidence import memory_write_points, observation_ended_sleep
+from worldmock.life.memory_evidence import memory_write_points
 from worldmock.life.models import ActivityKind, ActivityStatus
 from worldmock.life.prompt_schemas import validate_layer
 from worldmock.life.result_projection import public_result
 from worldmock.life.schedule import DayPlan, PlanGoal, revise_day_plan
-from worldmock.life.settled_text import app_progress, experience_sentence, purchase_sentence
+from worldmock.life.settled_text import app_progress, experience_sentence, purchase_sentence, record_lines
 
 
 @pytest.fixture
@@ -81,6 +81,7 @@ def test_sleep_keeps_overdue_errand_pending_until_real_awake_boundary():
 
 
 @pytest.mark.parametrize("kind", ["purchase_payment", "payment_notification", "callback_effect", "app_touch",
+                                  "app_foreground", "order_notification", "location_entered", "location_left",
                                   "message_arrival", "mail_arrival", "work_content_completed"])
 def test_progress_excludes_system_and_retired_facts(inputs, kind):
     ctx = layer_context(inputs)
@@ -113,32 +114,38 @@ def test_real_receipt_completes_errand_without_order_or_self_report_credit():
     assert actual[0].caused_by == [receipt.event_id]
 
 
-def test_startup_wake_reason_never_substitutes_for_completed_sleep_evidence():
-    assert not observation_ended_sleep({"current_time": 100, "wake_reasons": ["session_open"]})
-    observation = SimpleNamespace(data={"current_time": 100, "wake_reasons": ["session_open"]})
+def test_step_tail_write_points_are_only_registered_conclusions():
+    """步尾登记的写入点只可能是 activity_conclusion：写了条目而没有带记忆的收尾请求就是没有来源；
+    就寝反思不在这里推导。"""
     with pytest.raises(ProtocolError, match="no registered write point"):
-        memory_write_points([], "decision", observation, True)
+        memory_write_points([], "decision", True)
+    assert memory_write_points([], "decision", False) == []
+    item = {"activity_name": "休息", "summary": "收尾。", "views": [],
+            "memories": [{"type": "routine", "text": "歇好了。", "importance": 0.3, "keywords": []}]}
+    concluded = SimpleNamespace(decision_id="decision", data={
+        "tool_name": "conclude_activity", "request": {"items": [item], "errands": []}})
+    assert memory_write_points([concluded], "decision", True) == ["activity_conclusion"]
+    with pytest.raises(ProtocolError, match="no registered write point"):
+        memory_write_points([concluded], "another-decision", True)
 
 
-@pytest.mark.parametrize("status,time", [("active", 100), ("cancelled", 100), ("completed", 99)])
-def test_reflection_rejects_uncompleted_or_old_sleep(status, time):
-    assert not observation_ended_sleep({"current_time": 100,
-        "ended_sleep": {"kind": "sleep", "status": status, "ended_at": time}})
-
-
-def test_completed_sleep_at_the_current_decision_is_a_reflection_write_point():
-    observation = SimpleNamespace(data={"current_time": 100,
-        "ended_sleep": {"kind": "sleep", "status": "completed", "ended_at": 100}})
-    assert memory_write_points([], "decision", observation, True) == ["reflection"]
-
-
-def test_saved_reflection_requires_real_world_sleep_ending(inputs):
+def test_saved_reflection_is_filed_by_its_recorded_date_and_needs_one(inputs):
+    """记忆层只读反思登记自带的归属日期；写入点含 reflection 而没有日期的登记被拒绝。"""
     ctx = layer_context(inputs)
-    reflection = SimpleNamespace(occurred_at=100,
-        data={"trigger": ["reflection"], "episodes": [{"source": "reflection", "text": "今天的观察"}]})
-    build = SimpleNamespace(context=ctx, cached=SimpleNamespace(events={"memory_updated": [reflection]}))
-    with pytest.raises(IntegrityError, match="no ended sleep"):
-        memory_layer._reflections(build)
+    episodes = [{"source": "reflection", "text": "今天的观察"}]
+    dated = SimpleNamespace(occurred_at=100, data={"trigger": ["reflection"], "episodes": episodes,
+                                                   "reflection": {"date": "2026-01-04", "sleep_activity_id": "s"}})
+    build = SimpleNamespace(context=ctx, cached=SimpleNamespace(events={"memory_updated": [dated]}))
+    assert memory_layer._reflections(build) == [("2026-01-04", "今天的观察")]
+    for filed in (None, {}, {"sleep_activity_id": "s"}, "2026-01-04"):
+        undated = SimpleNamespace(occurred_at=100, data={"trigger": ["reflection"], "episodes": episodes,
+                                                         "reflection": filed})
+        build = SimpleNamespace(context=ctx, cached=SimpleNamespace(events={"memory_updated": [undated]}))
+        with pytest.raises(IntegrityError, match="Bedtime reflection has no filing date"):
+            memory_layer._reflections(build)
+    tail = SimpleNamespace(occurred_at=100, data={"trigger": [], "episodes": [], "reflection": None})
+    build = SimpleNamespace(context=ctx, cached=SimpleNamespace(events={"memory_updated": [tail]}))
+    assert memory_layer._reflections(build) == []
 
 
 def test_partial_content_requires_real_positive_progress():
@@ -175,6 +182,33 @@ def test_unpaid_order_is_a_quote_without_a_payment_claim(inputs):
                     "destination_id": "home", "expected_at": 200}]}}, inputs)
     assert "price" in result["details"]["purchases"][0]
     assert "paid" not in result["details"]["purchases"][0]
+
+
+def test_parcel_collected_at_the_station_is_carried_as_evidence_but_not_reported_as_a_purchase(inputs):
+    bought = {"goods_id": "tissue", "quantity": 1, "paid_at": None, "total_price_fen": 600, "status": "pending",
+              "destination_id": "store", "expected_at": 200, "fulfillment": "pickup"}
+    collected = {"goods_id": "online-notebook", "quantity": 1, "paid_at": 60, "total_price_fen": 1200,
+                 "status": "delivered", "destination_id": "parcel-station", "expected_at": 90,
+                 "fulfillment": "station_pickup"}
+
+    def started(*orders):
+        return {"occurred_at": 100, "status": "in_progress", "message": "Activities started",
+                "data": {"activities": [], "orders": list(orders)}}
+
+    def lines(result):
+        record = {"occurred_at": "1970-01-01T08:01:40+08:00", "type": "tool_call", "tool": "start_side_activity"}
+        return record_lines(layer_context(inputs), record, [SimpleNamespace(event_type="action_result", data=result)])
+
+    assert "purchases" not in public_result(started(collected), inputs)["details"]
+    assert lines(started(collected)) == []
+    mixed = public_result(started(bought, collected), inputs)["details"]["purchases"]
+    assert [row["product"] for row in mixed] == ["纸巾"]
+    in_transit = {**collected, "status": "pending"}
+    assert [row["product"] for row in public_result(started(in_transit), inputs)["details"]["purchases"]] == ["平台笔记本"]
+    (sentence,) = lines(started(in_transit))
+    assert "买了平台笔记本" in sentence and "快递驿站" in sentence
+    local = {**bought, "paid_at": 100, "status": "delivered"}
+    assert len(lines(started(local, collected))) == 1 and "买了纸巾" in lines(started(local, collected))[0]
 
 
 @pytest.mark.parametrize("retired,value", [("progressed_at", 100), ("progress_activity_id", "activity"),

@@ -10,14 +10,16 @@ from worldmock.life.activities import (
 )
 from worldmock.life.body import BodySettlement
 from worldmock.life.models import (
-    ActivityChange, ActivityStatus, ChangeActivityRequest, PendingAction, SameMomentStage, StoredAction, TravelMode,
+    ActionReceipt, ActivityChange, ActivityStatus, ChangeActivityRequest, PendingAction, SameMomentStage, StoredAction,
 )
+
+MAIN_TOOL, SIDE_TOOL = "start_main_activity", "start_side_activity"
 
 
 def _activity(engine, action="interact"):
     data = {"exertion": "idle"} if action == "interact" else {}
-    params = (ActivityStartParams(action, 600, "office", TravelMode.WALKING, data)
-              if action == "walk" else ActivityStartParams(action, 600, data=data))
+    params = (ActivityStartParams(action, 600, "office", "walking", {"exertion": "walking"})
+              if action == "travel" else ActivityStartParams(action, 600, data=data))
     return create_activity(engine.context.state.agents[1], params,
         engine.context.state.current_time, ActivityOrigin("origin", "decision", "request"), engine.context.body)[1]
 
@@ -88,7 +90,7 @@ def test_slot_feedback_describes_real_occupants_and_distinguishes_pauseability(e
     engine = engine_factory()
     state = engine.context.state.model_copy(deep=True)
     app = _activity(engine).model_copy(update={"name": "内容活动"})
-    travel = _activity(engine, "walk").model_copy(update={"activity_id": "travel", "name": "步行"})
+    travel = _activity(engine, "travel").model_copy(update={"activity_id": "travel", "name": "步行"})
     state.activities = {app.activity_id: app}
     one = activity_control.slot_refusal(state, 1, 2, {})
     assert one.code == "SESSION_LIMIT_EXCEEDED" and "Only one" in one.reason
@@ -132,10 +134,20 @@ def test_same_second_name_feedback_is_free_twice_and_service_pulse_is_not_repeat
     engine = engine_factory()
     state = engine.context.state.model_copy(deep=True)
     assert same_moment.rejection_pulse(state, 1, "NAME_NOT_FOUND") is None
-    for index in range(3):
-        state.processed_actions[str(index)] = StoredAction(action_id=str(index), tool_name="start_activity",
-            request_sha256="a" * 64, receipt={}, result={"agent_id": 1, "occurred_at": state.current_time,
+
+    def rejected(decision: str, action: str, tool: str = MAIN_TOOL) -> None:
+        """登记一条本秒已结算的名称类拒绝；同一决策的两条开始动作属于同一组。"""
+        receipt = ActionReceipt(action_id=action, round_id="round", decision_id=decision, request_sha256="a" * 64)
+        state.processed_actions[action] = StoredAction(action_id=action, tool_name=tool, request_sha256="a" * 64,
+            receipt=receipt.model_dump(mode="json"), result={"agent_id": 1, "occurred_at": state.current_time,
                 "status": "rejected", "error_code": "NAME_NOT_FOUND"})
+
+    rejected("decision-0", "0")
+    rejected("decision-1", "1-main")
+    rejected("decision-1", "1-side", SIDE_TOOL)
+    assert same_moment.latest_rejection_code(state, 1) is None
+    assert same_moment.rejection_pulse(state, 1, "NAME_NOT_FOUND") == same_moment.SERVICE_REFUSED
+    rejected("decision-2", "2")
     assert same_moment.latest_rejection_code(state, 1) == "NAME_NOT_FOUND"
     assert same_moment.rejection_pulse(state, 1, "ACTION_REQUEST_INVALID") is None
     agent = state.agents[1].model_copy(update={"same_moment_rounds": 3})
@@ -162,11 +174,59 @@ def test_malformed_wire_mutation_is_rejected_without_partial_dispatch(engine_fac
     engine = engine_factory()
     state = engine.context.state
     before = state.model_dump(mode="json")
-    pending = PendingAction(run_id=state.run_id, round_id="invalid", decision_id="invalid", action_id="invalid",
-        agent_id=1, observed_at=state.current_time, world_state_version=state.version, order=0,
-        tool_name="start_activity", request={"items": [{"action": "interact", "target": "家", "way": "work"}]},
-        request_sha256="a" * 64, requested_event_id="request")
-    with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID"):
-        engine.actions.dispatch(state, pending)
-    assert state.model_dump(mode="json") == before
-    assert not state.activities
+
+    def pending(action_id: str, tool: str, request: dict) -> PendingAction:
+        """同一决策里登记的一条开始动作。"""
+        return PendingAction(run_id=state.run_id, round_id="invalid", decision_id="invalid", action_id=action_id,
+            agent_id=1, observed_at=state.current_time, world_state_version=state.version, order=0,
+            tool_name=tool, request=request, request_sha256="a" * 64, requested_event_id="request")
+
+    main = {"action": "interact", "target": "家", "detail": "测试休息"}
+    side = {"action": "interact", "target": ["哔哩哔哩"]}
+    groups = ([pending("main", MAIN_TOOL, {**main, "way": "work"})],
+              [pending("retired", MAIN_TOOL, {"items": [{"action": "interact", "target": "家"}]})],
+              [pending("main", MAIN_TOOL, main), pending("side", SIDE_TOOL, {**side, "way": "work"})],
+              [pending("side", SIDE_TOOL, {**side, "way": "work"}), pending("main", MAIN_TOOL, main)],
+              [pending("retired-tool", "start_activity", main)])
+    for group in groups:
+        with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID"):
+            engine.actions.dispatch(state, group)
+        assert state.model_dump(mode="json") == before
+        assert not state.activities
+
+
+@pytest.mark.parametrize("action,seconds,accepted", [
+    ("interact", 1, True), ("interact", 30, True), ("interact", 0, False),
+    ("sleep", 59, False), ("sleep", 60, True), ("purchase", 59, False), ("travel", 1, True), ("travel", 0, False)])
+def test_shortest_planned_duration_depends_on_how_the_duration_is_derived(engine_factory, action, seconds, accepted):
+    """出行与内容活动的时长由路线、内容时长与共享进度派生，至少一秒即可开始（没做完的内容只剩几十秒时照样接着做）；
+    睡眠与购买至少一分钟。"""
+    engine = engine_factory()
+    data = {"exertion": "idle"} if action == "interact" else {}
+    params = (ActivityStartParams(action, seconds, "office", "walking", {"exertion": "walking"})
+              if action == "travel" else ActivityStartParams(action, seconds, data=data))
+    arguments = (engine.context.state.agents[1], params, engine.context.state.current_time,
+                 ActivityOrigin("origin", "decision", "request"), engine.context.body)
+    if accepted:
+        assert create_activity(*arguments)[1].planned_duration_seconds == seconds
+    else:
+        with pytest.raises(BusinessRuleError, match="ACTIVITY_TOO_SHORT"):
+            create_activity(*arguments)
+
+
+def test_paused_activity_is_cancelled_at_any_later_time_while_an_active_one_needs_its_boundary(engine_factory):
+    """暂停中的活动没有进行中的结算区间，之后任何时刻都可以结束；进行中的活动仍须结算到当前边界才能结束。"""
+    engine = engine_factory()
+    state = engine.context.state
+    agent, activity = state.agents[1], _activity(engine)
+    later = state.current_time + 600
+    paused = activity.model_copy(update={"status": ActivityStatus.PAUSED, "paused_at": state.current_time})
+    cancel = ChangeActivityRequest(activity_id=activity.activity_id, operation=ActivityChange.CANCEL)
+    _, ended = change_activity(agent, paused, cancel, later, 60)
+    assert (ended.status, ended.ended_at, ended.interruption_reason) == (
+        ActivityStatus.CANCELLED, later, "agent_cancelled")
+    with pytest.raises(BusinessRuleError, match="ACTIVITY_FEEDBACK_NOT_DUE"):
+        change_activity(agent, activity, cancel, later, 60)
+    pause = ChangeActivityRequest(activity_id=activity.activity_id, operation=ActivityChange.PAUSE)
+    with pytest.raises(BusinessRuleError, match="ACTIVITY_FEEDBACK_NOT_DUE"):
+        change_activity(agent, paused, pause, later, 60)

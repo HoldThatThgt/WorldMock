@@ -1,48 +1,65 @@
-"""@brief 购买受理只冻结订单，所有付款组在正常完成时原子结算。"""
+"""@brief 购买受理只冻结商品履约记录与各张订单的付款抽取，所有订单在正常完成时原子结算。"""
 
 from __future__ import annotations
 
-from worldmock.errors import BusinessRuleError
 from worldmock.life.models import DeliveryState, FulfillmentKind, ScheduledEvent, WorldState
-from worldmock.life.order_routing import group_offers, group_shipping_fen
+from worldmock.life.order_notices import shipping_schedule
+from worldmock.life.order_routing import group_offers, group_shipping_fen, payment_order_key, payment_orders
 from worldmock.life.purchase_offers import quote_goods
 from worldmock.life.randomness import random_stream
 from worldmock.scheduling.events import ScheduledKind
 
 
 def quoted_basket(inputs, state: WorldState, agent_id: int, goods_ids: tuple[str, ...]) -> tuple[dict, int]:
-    """@brief 整次请求核对重复商品和合并后总价，不改变世界或资金。"""
-    if not 1 <= len(goods_ids) <= 2:
-        raise BusinessRuleError("ORDER_ITEM_COUNT_OUT_OF_RANGE")
-    if len(set(goods_ids)) != len(goods_ids):
-        raise BusinessRuleError("ORDER_DUPLICATE_ITEM")
+    """@brief 逐份报价并按配送组合并运费，返回配送组与整次总价；同一商品写几次就是几份，件数不设上限。
+
+    不改变世界或资金；余额由整组核验与购买结束时的付款各核对一次。
+    """
     offers = tuple(quote_goods(inputs, state, agent_id, key) for key in goods_ids)
     groups = group_offers(offers)
     total = sum(inputs.catalog.goods[row.goods_id].price_fen for row in offers)
     total += sum(group_shipping_fen(rows) for rows in groups.values())
-    if state.accounts[state.agents[agent_id].balance_account_id] < total:
-        raise BusinessRuleError("INSUFFICIENT_FUNDS")
     return groups, total
 
 
-def build_orders(context, state: WorldState, pending, groups: dict) -> tuple[DeliveryState, ...]:
-    """@brief 每组一次选择支付 app 与操作时长，商品行保存真实冻结履约。"""
-    orders = []
+def order_payment(context, state: WorldState, action_id: str, app_id: str | None) -> tuple[str | None, int]:
+    """@brief 一张订单只抽一次付款方式和付款时长，订单里有几件商品都一样。
+
+    付款方式的候选是绑定了 purchase 的功能 app 按身份升序、末尾加一个 null：抽到 null 是直付。
+    付款占 10 至 20 秒，在下单的内容 app 里直付也占这段时间；只有到店订单抽到直付时为 0，不抽时长。
+
+    :param app_id: 这张订单下单的内容 app；到店订单为空。
+    :return: （支付 app 或空, 付款时长秒数）。
+    """
+    key = payment_order_key(app_id)
     candidates = [*sorted(context.catalog.apps_by_action.get("purchase", ())), None]
-    for key, offers in groups.items():
-        app = random_stream(state.random_state, f"function-app:{pending.action_id}:{key}").choice(candidates)
-        seconds = (0 if app is None else
-                   random_stream(state.random_state, f"payment-duration:{pending.action_id}:{key}").randint(10, 20))
-        fee = group_shipping_fen(offers)
-        for index, offer in enumerate(offers):
-            order_id = f"order-{pending.action_id}-{len(orders) + 1}"
+    app = random_stream(state.random_state, f"function-app:{action_id}:{key}").choice(candidates)
+    if app is None and app_id is None:
+        return None, 0
+    return app, random_stream(state.random_state, f"payment-duration:{action_id}:{key}").randint(10, 20)
+
+
+def build_orders(context, state: WorldState, pending, groups: dict) -> tuple[DeliveryState, ...]:
+    """@brief 按订单键升序每张订单抽一次付款，再按配送组键升序、组内按商品身份升序生成商品履约记录。
+
+    每个配送组的第一条记录承担整组运费；同一张订单的记录带着相同的支付 app 与付款时长。
+    """
+    offers = tuple(offer for rows in groups.values() for offer in rows)
+    payments = {key: order_payment(context, state, pending.action_id, rows[0].app_id)
+                for key, rows in payment_orders(offers).items()}
+    orders = []
+    for key, rows in groups.items():
+        app, seconds = payments[payment_order_key(rows[0].app_id)]
+        fee = group_shipping_fen(rows)
+        for index, offer in enumerate(rows):
+            order_id = f"order-{pending.action_id}-{len(orders) + 1:04d}"
             orders.append(_order(context, offer, (pending.agent_id, order_id, state.current_time),
                                  (key, app, seconds, fee if index == 0 else 0)))
     return tuple(orders)
 
 
 def _order(context, offer, identity: tuple, payment: tuple) -> DeliveryState:
-    """@brief 一件商品保存付款组、实际渠道与未付款状态。"""
+    """@brief 一件商品保存配送组、所属订单的付款抽取、实际渠道与未付款状态。"""
     agent_id, order_id, created_at = identity
     key, app, seconds, fee = payment
     goods = context.catalog.goods[offer.goods_id]
@@ -60,28 +77,26 @@ def activity_orders(state: WorldState, activity) -> tuple[DeliveryState, ...]:
     return tuple(state.deliveries[key] for key in activity.data["order_ids"])
 
 
-def order_groups(orders: tuple[DeliveryState, ...]) -> dict[str, tuple[DeliveryState, ...]]:
-    """@brief 按受理冻结的规范合单键稳定返回全部商品履约记录。"""
-    groups = {}
-    for order in sorted(orders, key=lambda item: item.order_id):
-        groups.setdefault(order.group_key, []).append(order)
-    return {key: tuple(groups[key]) for key in sorted(groups)}
+def delivery_events(state: WorldState, orders: tuple[DeliveryState, ...],
+                    payments: dict[str, str]) -> tuple[ScheduledEvent, ...]:
+    """@brief 已付款的外卖和快递按一趟配送各排一条发货通知和一条到达，起因都是这一趟所属订单的付款事件。
 
-
-def delivery_events(state: WorldState, orders: tuple[DeliveryState, ...], cause: str) -> tuple[ScheduledEvent, ...]:
-    """@brief 只有已付款远程订单排程；原预计到达与购买结果因果不重算。"""
+    一趟配送是同一个配送组里预计到达时刻相同的记录；各趟按预计到达时刻、配送组键升序排列，
+    到达的到期时刻取预计到达与付款时刻中较晚的一个。排程序号从现有最大序号加一开始，先按趟的顺序分给各趟的
+    发货通知排程，再按同样的顺序分给各趟的到达排程，所以同一秒到期时发货通知先于到达处理。
+    payments 给出每条已付款记录所属订单的付款事件身份。
+    """
     grouped = {}
     for order in orders:
-        if order.fulfillment == FulfillmentKind.PICKUP:
-            continue
-        key = (order.expected_at, order.fulfillment, order.destination_id)
-        grouped.setdefault(key, []).append(order)
+        if order.paid_at is not None and order.fulfillment != FulfillmentKind.PICKUP:
+            grouped.setdefault((order.expected_at, order.group_key), []).append(order)
+    trips = [sorted(grouped[key], key=lambda order: order.order_id) for key in sorted(grouped)]
     first = max((item.sequence for item in state.pending_events), default=0) + 1
-    result = []
-    for index, key in enumerate(sorted(grouped)):
-        selected = sorted(grouped[key], key=lambda order: order.order_id)
-        result.append(ScheduledEvent(scheduled_id=f"delivery-{selected[0].order_id}",
-            kind=ScheduledKind.DELIVERY_ARRIVAL, due_at=selected[0].expected_at, sequence=first + index,
-            agent_id=selected[0].agent_id, data={"order_ids": [order.order_id for order in selected]},
-            caused_by=[cause]))
-    return tuple(result)
+    shipped = [shipping_schedule(trip, first + index, payments[trip[0].order_id])
+               for index, trip in enumerate(trips)]
+    arrivals = [ScheduledEvent(scheduled_id=f"delivery-{trip[0].order_id}",
+        kind=ScheduledKind.DELIVERY_ARRIVAL, due_at=max(trip[0].expected_at, trip[0].paid_at),
+        sequence=first + len(trips) + index, agent_id=trip[0].agent_id,
+        data={"order_ids": [order.order_id for order in trip]}, caused_by=[payments[trip[0].order_id]])
+        for index, trip in enumerate(trips)]
+    return (*shipped, *arrivals)

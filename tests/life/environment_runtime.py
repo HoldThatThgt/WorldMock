@@ -2,17 +2,42 @@
 
 from agentsociety2.society import DirectToolCall
 from tests.life.conftest import (
-    advance_next, conclude_request, context, pause_request, report_request, start_activity,
+    advance_next, conclude_request, context, report_request, sleep, tool_of, travel,
 )
 
 
-def act(engine, label, request, tool="start_activity", action_id=None):
-    """从当前观察登记一项真实请求并原子结算。"""
+def act(engine, label, request, tool=None, action_id=None):
+    """从当前观察登记一项真实请求并原子结算；工具名缺省由请求模型给出。"""
     decision = context(engine, label)
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, action_id or f"action-{label}", tool, request))
+    engine.submit_action(DirectToolCall(decision, action_id or f"action-{label}", tool or tool_of(request), request))
     return observed, engine.commit_decision_round(label)[0]
+
+
+def act_group(engine, label, *requests):
+    """同一决策里按给定先后登记一个开始组（两个开始工具各一条）并整组结算。
+
+    返回观察与各动作的最终存档结果（按登记次序）；环境向框架只返回第一条动作的结果，两条结果都已落库。
+    """
+    decision = context(engine, label)
+    engine.begin_decision_round([decision])
+    observed = engine.observe(decision)
+    identities = [f"action-{label}-{index}" for index, _ in enumerate(requests, start=1)]
+    for identity, request in zip(identities, requests, strict=True):
+        engine.submit_action(DirectToolCall(decision, identity, tool_of(request), request))
+    returned = engine.commit_decision_round(label)
+    assert [item.action_id for item in returned] == identities[:1]
+    results = [action_result(engine, identity) for identity in identities]
+    return observed, results
+
+
+def action_result(engine, action_id):
+    """一条动作第一次写下的结果事件（受理或拒绝那一刻）的结果对象。"""
+    from worldmock.life.models import ActionResult
+
+    row = next(event for event in events(engine, "action_result") if event.action_id == action_id)
+    return ActionResult.model_validate({key: row.data[key] for key in ActionResult.model_fields if key in row.data})
 
 
 def events(engine, kind=None):
@@ -22,7 +47,7 @@ def events(engine, kind=None):
 
 
 def settle_decision(engine, label):
-    """按本轮实际活动完成收尾、播报，或选择真实家中睡眠。"""
+    """按本轮实际活动完成收尾、播报；没有活动时在本人的家睡一夜，不在家就步行回家。"""
     state = engine.context.state
     pending = [item.name for item in state.activities.values()
                if item.status not in {"active", "paused"} and item.concluded_at is None]
@@ -33,8 +58,8 @@ def settle_decision(engine, label):
         return act(engine, label, report_request(*active), "report_status")
     person = state.agents[1]
     home = engine.context.catalog.locations[engine.context.inputs.home_location_id].display_name
-    return act(engine, label, start_activity("sleep" if person.location_id == engine.context.inputs.home_location_id
-        else "walk", home))
+    at_home = person.location_id == engine.context.inputs.home_location_id
+    return act(engine, label, sleep() if at_home else travel(home))
 
 
 def reach(engine, target):

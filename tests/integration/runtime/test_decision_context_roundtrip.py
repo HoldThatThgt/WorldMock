@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
-from tests.life.conftest import (advance_next, context, pending_names, stage_day_plan, start_arguments)  # noqa: F401
+from tests.life.conftest import (advance_next, context, main_arguments, pending_names, stage_day_plan)  # noqa: F401
 from tests.integration.runtime.test_life_agent_protocol import _ModelResponse
 from agentsociety2.agent.base import ReactLoopRequest
 from custom.agents.life_agent import LifeAgent
@@ -77,8 +77,8 @@ async def _decide(environment, ctx, choose):
 
 
 def _wait(observation: dict) -> tuple[str, dict]:
-    """对「自己」选择 interact：等待，开始一段等待。"""
-    return "start_activity", start_arguments(["家"], ["interact"])
+    """在家点名「测试休息」：start_main_activity 的 interact，开始一段休息。"""
+    return "start_main_activity", main_arguments("interact", "家", "测试休息")
 
 
 def _conclude_just_ended(observation: dict) -> tuple[str, dict]:

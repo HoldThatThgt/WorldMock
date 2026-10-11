@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from tests.integration.runtime_fixtures import current_run_identity
-from tests.life.conftest import start_activity
+from tests.life.conftest import do_at, purchase
 from tests.life.environment_runtime import act
 from worldmock.errors import IntegrityError
 from worldmock.life.models import (
@@ -55,7 +55,7 @@ def test_session_restore_rejects_impossible_place_or_end_time(engine_factory, ch
 ])
 def test_activity_restore_rejects_contradictory_progress_and_lifecycle(engine_factory, case, message):
     engine = engine_factory()
-    _, result = act(engine, "activity", start_activity("interact", "家"))
+    _, result = act(engine, "activity", do_at("家", "测试休息"))
     payload = engine.context.state.activities[result.activity_id].model_dump(mode="json")
     if case == "end-with-active":
         payload["ended_at"] = payload["started_at"]
@@ -81,7 +81,7 @@ def test_activity_restore_rejects_contradictory_progress_and_lifecycle(engine_fa
 ])
 def test_order_restore_rejects_unpaid_and_time_reversed_receipts(engine_factory, case, message):
     engine = engine_factory()
-    _, started = act(engine, "purchase", start_activity("purchase", "牛肉面"))
+    _, started = act(engine, "purchase", purchase("牛肉面"))
     assert started.status == "in_progress"
     payload = next(iter(engine.context.state.deliveries.values())).model_dump(mode="json")
     now = payload["created_at"]
@@ -98,6 +98,77 @@ def test_order_restore_rejects_unpaid_and_time_reversed_receipts(engine_factory,
         payload.update(status="ready_for_pickup", received_at=None, fulfillment="delivery")
     with pytest.raises(ValidationError, match=message):
         _decode(DeliveryState, payload)
+
+
+@pytest.mark.parametrize("change,message", [
+    ({"payment_duration_seconds": 0}, "payment duration disagrees with its payment method"),
+    ({"payment_duration_seconds": 9}, "payment duration disagrees with its payment method"),
+    ({"payment_app_id": None, "payment_duration_seconds": 0}, "payment duration disagrees with its payment method"),
+    ({"app_id": None, "payment_app_id": None}, "payment duration disagrees with its payment method"),
+    ({"app_id": None, "payment_app_id": "alipay", "payment_duration_seconds": 0},
+     "payment duration disagrees with its payment method"),
+    ({"app_id": None, "payment_app_id": None, "payment_duration_seconds": 0, "payment_started_at": 5},
+     "without a payment phase carries payment times"),
+    ({"app_id": None, "payment_app_id": None, "payment_duration_seconds": 0, "payment_ended_at": 5},
+     "without a payment phase carries payment times"),
+])
+def test_order_restore_rejects_payment_fields_that_no_order_can_carry(engine_factory, change, message):
+    """付款时长为 0 只属于到店直付，其余订单是 10 至 20 秒；没有付款段的记录不带付款时刻。"""
+    engine = engine_factory()
+    _, started = act(engine, "purchase", purchase("牛肉面"))
+    assert started.status == "in_progress"
+    payload = next(iter(engine.context.state.deliveries.values())).model_dump(mode="json")
+    assert payload["app_id"] == "meituan" and 10 <= payload["payment_duration_seconds"] <= 20
+    assert _decode(DeliveryState, payload).model_dump(mode="json") == payload
+    with pytest.raises(ValidationError, match=message):
+        _decode(DeliveryState, {**payload, **change})
+    direct = {**payload, "app_id": None, "payment_app_id": None, "payment_duration_seconds": 0}
+    assert _decode(DeliveryState, direct).payment_duration_seconds == 0
+
+
+@pytest.mark.parametrize("field", ["payment_app_id", "payment_duration_seconds", "payment_started_at",
+                                   "payment_ended_at"])
+def test_world_restore_rejects_records_of_one_order_that_disagree_on_its_payment(engine_factory, field):
+    """同一张订单的两条记录各自都合法，付款字段却不一致：世界状态在恢复时和写入前都被拒绝。"""
+    engine = engine_factory()
+    _, started = act(engine, "purchase", purchase("牛肉面", "柠檬茶"))
+    assert started.status == "in_progress"
+    state = engine.context.state
+    first, second = (state.deliveries[key] for key in state.activities[started.activity_id].data["order_ids"])
+    assert first.app_id == second.app_id == "meituan" and first.payment_started_at is None
+    assert all(getattr(first, name) == getattr(second, name) for name in (
+        "payment_app_id", "payment_duration_seconds", "payment_started_at", "payment_ended_at"))
+    payload = state.model_dump(mode="json")
+    assert _decode(WorldState, payload).model_dump(mode="json") == payload
+    other = {"payment_app_id": "wechat" if second.payment_app_id == "alipay" else "alipay",
+             "payment_duration_seconds": 11 if second.payment_duration_seconds == 10 else 10,
+             "payment_started_at": second.created_at, "payment_ended_at": second.created_at}[field]
+    payload["deliveries"][second.order_id][field] = other
+    assert _decode(DeliveryState, payload["deliveries"][second.order_id]).order_id == second.order_id
+    with pytest.raises(ValidationError, match="Records of one order disagree on its payment fields"):
+        _decode(WorldState, payload)
+    corrupted = state.model_copy(deep=True)
+    corrupted.deliveries[second.order_id] = second.model_copy(update={field: other})
+    with pytest.raises(IntegrityError, match="Records of one order disagree on its payment fields"):
+        validated_payload(corrupted)
+
+
+def test_world_restore_rejects_a_purchase_activity_that_lists_an_unknown_record(engine_factory):
+    """订单由购买活动列出的记录得出：列出的记录不在世界里时，世界状态在恢复时和写入前都被拒绝。"""
+    engine = engine_factory()
+    _, started = act(engine, "purchase", purchase("牛肉面", "柠檬茶"))
+    assert started.status == "in_progress"
+    state = engine.context.state
+    kept, dropped = state.activities[started.activity_id].data["order_ids"]
+    payload = state.model_dump(mode="json")
+    del payload["deliveries"][dropped]
+    with pytest.raises(ValidationError, match="Purchase activity refers to an unknown order record"):
+        _decode(WorldState, payload)
+    corrupted = state.model_copy(deep=True)
+    del corrupted.deliveries[dropped]
+    assert list(corrupted.deliveries) == [kept]
+    with pytest.raises(IntegrityError, match="Purchase activity refers to an unknown order record"):
+        validated_payload(corrupted)
 
 
 @pytest.mark.parametrize("case,message", [("clock", "exceeds experiment end"),

@@ -21,11 +21,12 @@ from worldmock.life.models import CounterfactualIntervention, REQUEST_MODELS, Ru
 from worldmock.life.world_query import QueryWorldRequest, query_world, validate_world_query
 from worldmock.status import write_status
 
-#: 稳定工具面（docs/design/04-simulation-engine.md「人物工具与管理接口」）：环境侧必须恰好受理七个工具；
+#: 稳定工具面（docs/design/06-agent.md「提示与工具」）：环境侧必须恰好受理七个请求工具与 query_world；
 #: 零点计划 plan_day 是运行时后台任务，不是人物工具（docs/design/04-simulation-engine.md）。
 _STABLE_TOOL_SURFACE = frozenset(
     {
-        "start_activity",
+        "start_main_activity",
+        "start_side_activity",
         "recall_task_summary",
         "report_status",
         "pause_activity",
@@ -50,9 +51,9 @@ class LifeEnv(EnvBase):
         """@brief 注册扫描可无参数构造；实际 init 必须具有完整路径。
 
         create_options 是新建运行的附加输入：input_warnings（运行输入警告，
-        冻结进清单；docs/design/04-simulation-engine.md ）、persona_habit_responses（人设层习惯签名的反应文本，
-        冻结进清单，候选排序的相关度；5.1）与 same_second_continuation
-        （同秒续接开关，缺省开，冻结进清单 stages.action；docs/design/06-agent.md「同秒续接」）。
+        冻结进清单；docs/design/08-configuration.md「校验与输入冻结」）、persona_habit_responses（人设层习惯签名的
+        反应文本，冻结进清单）与 same_second_continuation
+        （同秒续接开关，缺省开，冻结进清单 stages.action；docs/design/04-simulation-engine.md「世界与请求」）。
         """
         super().__init__()
         self.environment_root = Path(environment_root).resolve() if environment_root else None
@@ -75,7 +76,7 @@ class LifeEnv(EnvBase):
         """@brief 校验起始时钟并创建或明确打开运行；普通恢复在首次决策之前补齐缺失的当日计划。
 
         锁定的 AS2 在恢复模式不形成初始检查点、首轮决策又先于推进，从计划尚未生成的检查点普通恢复时，
-        零点计划只能在这里执行（docs/design/04-simulation-engine.md「执行位置」）；此调用早于 AS2 登记
+        零点计划只能在这里执行（docs/design/04-simulation-engine.md「唤醒、日计划与个人事务」）；此调用早于 AS2 登记
         运行故障的范围，任务异常先经 engine.fail_run 登记再抛出。反事实分支在干预检查点之后执行。
         """
         await super().init(start_datetime)
@@ -140,6 +141,10 @@ class LifeEnv(EnvBase):
     async def observe(self, context: Any) -> dict:
         """@brief 返回严格人物视图并追加只读观察证据。"""
         return self._require_engine().observe(context)
+
+    async def due_reflection(self, context: Any) -> dict | None:
+        """@brief 只读：人物取观察之前询问此刻该不该先做就寝反思，返回空或归属日期与所属睡眠。"""
+        return self._require_engine().due_reflection(context)
 
     async def submit_action(self, call: Any):
         """@brief 登记宿主绑定的有类型生活动作。"""

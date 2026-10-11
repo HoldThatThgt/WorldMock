@@ -21,9 +21,19 @@ OWNERS = {'base_models.py': ('StrictModel',
  'corpora/manifest.py': ('safe_file', 'relative_declaration'),
  'footprints/intervals.py': ('valid_interval', 'is_body_settlement', 'body_settlements'),
  'footprints/timeline_labels.py': ('window_days', 'local_day_bounds', 'split_local_days'),
- 'life/models.py': ('validated_payload',),
+ 'life/models.py': ('validated_payload', 'active_side_activities', 'NavigationForeground',
+                    'RUN_MANIFEST_SCHEMA_VERSION'),
+ 'life/navigation_foreground.py': ('settle_navigation', 'navigation_app', 'foreground_event'),
+ 'life/stay_records.py': ('stay_events', 'run_start_event'),
+ 'life/order_notices.py': ('goods_names', 'goods_text', 'shipping_delay_seconds', 'shipping_schedule',
+                           'ORDER_PLACED', 'ORDER_SHIPPED', 'ORDER_DELIVERED', 'ORDER_TITLES',
+                           'PAYMENT_SUCCEEDED'),
+ 'footprints/location_stays.py': ('project_location_stays', 'validate_location_stays'),
+ 'footprints/export.py': ('EXPORT_SCHEMA_VERSION', 'EXPORT_ARTIFACTS'),
+ 'footprints/environment_events.py': ('ENTRY_KIND_CAUSES',),
  'life/travel.py': ('plan_trip',),
- 'life/readable.py': ('ACTIVITY_KIND_LABELS', 'ACTIVITY_DOING_LABELS'),
+ 'life/travel_methods.py': ('travel_methods', 'travel_method', 'WALKING'),
+ 'life/readable.py': ('ACTIVITY_KIND_LABELS', 'ACTIVITY_DOING_LABELS', 'interval_phrases'),
  'life/memory_evidence.py': ('SUBJECTIVE_TYPES',
                              'SUBJECTIVE_SNAPSHOT_FIELDS',
                              'MEMORY_WRITE_POINTS',
@@ -38,16 +48,19 @@ OWNERS = {'base_models.py': ('StrictModel',
  'resources/models.py': ('AMOUNT_TYPES', 'Conservation'),
  'exchange/types.py': ('GoodsCategory', 'GOODS_CATEGORY_LABELS'),
  'exchange/constants.py': ('RULES_VERSION',
+                           'WALKING_TRAVEL_METHOD_ID',
+                           'WALKING_TRAVEL_METHOD_NAME',
                            'WALKING_METERS_PER_SECOND',
-                           'DRIVING_METERS_PER_SECOND',
-                           'DRIVING_FARE_MINIMUM_FEN',
-                           'DRIVING_FARE_FEN_PER_METER',
                            'DELIVERY_METERS_PER_SECOND',
                            'DELIVERY_PREP_SECONDS',
                            'DELIVERY_FEE_FEN',
+                           'GOODS_ENERGY_KCAL',
+                           'GOODS_RELAXATION_RELIEF',
                            'MAP_MIN_NODES',
                            'MAP_EDGE_LENGTH_M',
                            'MAP_EXTRA_EDGES',
+                           'TRAVEL_MAX_SECONDS',
+                           'WEATHER_FACTORS',
                            'PUSH_HOURS_LOCAL',
                            'PUSH_SUMMARY_MAX_CHARS'),
  'exchange/body.py': ('BodyConstants', 'BODY_CONSTANTS', 'RESOURCE_METAS'),
@@ -58,6 +71,7 @@ OWNERS = {'base_models.py': ('StrictModel',
                            'delivery_seconds',
                            'delivery_fee_fen'),
  'catalog/errors.py': ('RegistrationError', 'REGISTRATION_REASONS'),
+ 'catalog/identity.py': ('REQUIRED_CATALOG_FILES', 'OPTIONAL_CATALOG_FILES'),
  'catalog/models.py': ('Catalog',
                        'CatalogManifest',
                        'MapGraph',
@@ -66,14 +80,33 @@ OWNERS = {'base_models.py': ('StrictModel',
                        'Goods',
                        'Content',
                        'Location',
+                       'TravelMethod',
                        'SummarySource',
-                       'ContentSeries'),
+                       'ContentSeries',
+                       'OpeningHours',
+                       'ContentPrerequisite',
+                       'require_declared_schedule'),
  'catalog/loader.py': ('load_catalog',),
- 'input_models.py': ('LEGACY_TEMPLATE_FIELDS',),
+ 'input_models.py': ('LEGACY_TEMPLATE_FIELDS', 'HourWindow', 'NonBlankText', 'Identity', 'Situation',
+                     'Relationship', 'HabitDeclaration', 'Tastes'),
+ 'input_warnings.py': ('INPUT_WARNING_CODES', 'InputWarning', 'frozen_input_warnings'),
+ 'profile/models.py': ('PersonaCard', 'persona_card', 'persona_card_struct'),
  'life/action_contract.py': ('ACTIVITY_ACTIONS',
-                             'FIRST_SLOT_ACTIONS',
-                             'TRAVEL_ACTIONS',
-                             'TRAVEL_ACTION_MODES')}
+                             'MAIN_ACTIVITY_ACTIONS',
+                             'SIDE_ACTIVITY_ACTIONS',
+                             'START_TOOLS',
+                             'ACTION_LABELS',
+                             'activity_slot',
+                             'start_tool'),
+ 'life/sleep_plan.py': ('parse_sleep_minutes', 'SLEEP_MINUTES_MIN', 'SLEEP_MINUTES_MAX', 'SLEEP_MINUTES_REASON',
+                        'SLEEP_WINDOW_SECONDS', 'OVERSLEEP_THRESHOLD_SECONDS', 'OVERSLEEP_MINUTES_MIN',
+                        'OVERSLEEP_MINUTES_MAX', 'assumed_sleep', 'sleep_seconds_in_window', 'oversleep_seconds'),
+ 'evaluation/behavior_metrics.py': ('BEDTIME_MIN_SECONDS', 'BEDTIME_DAY_START_MINUTES'),
+ 'life/location_activities.py': ('location_units', 'next_content', 'unit_facts', 'held_refusal'),
+ 'life/content_prerequisite.py': ('prerequisite_unmet', 'app_prerequisite_refusal'),
+ 'life/content_select.py': ('eligible_contents', 'pinned_push_content'),
+ 'life/start_group.py': ('GROUP_REJECTION_SUFFIX', 'group_rejection', 'frozen_observation'),
+ 'life/activity_control.py': ('pausable', 'PAUSE_MIN_REMAINING_SECONDS')}
 # 语义排除仅限普通 logger、Python 类型声明、不同类作用域的薄协议钩子与导入绑定。
 SEMANTIC_EXCLUSIONS = ('module logger', 'Python type declaration', 'thin decorated protocol hook', 'import binding')
 
@@ -154,12 +187,12 @@ def test_production_shared_rules_have_one_owner_and_no_business_clones():
 
 
 def test_observation_offers_only_current_actions_without_retired_resource_gate(engine_factory):
-    """@brief 真实观察只提供七种动作，活动工具不附加退役资源门。"""
+    """@brief 真实观察只提供四个现行动作，活动工具不附加退役资源门。"""
     engine = engine_factory()
     from tests.life.conftest import context
 
     data = engine.observe(context(engine, "actions"))
-    assert data["known_activity_actions"] == ["walk", "drive", "take_taxi", "take_bus", "purchase", "sleep", "interact"]
+    assert data["known_activity_actions"] == ["travel", "purchase", "sleep", "interact"]
     assert not {"affordance_contract", "game_boundary", "energy_projection"} & data.keys()
 
 
@@ -177,7 +210,24 @@ def test_copied_rule_table_fails_even_after_renaming(tmp_path):
 
 @pytest.mark.parametrize('source', ['def canonical_json(value):\n return value\n',
                                     'class CurvePoint:\n pass\n',
-                                    'SUBJECTIVE_TYPES = frozenset({"invented"})\n'])
+                                    'SUBJECTIVE_TYPES = frozenset({"invented"})\n',
+                                    'GOODS_ENERGY_KCAL = {"snack": 210, "meal": 610}\n',
+                                    'GOODS_RELAXATION_RELIEF = 0.2\n',
+                                    'NonBlankText = str\n',
+                                    'RUN_MANIFEST_SCHEMA_VERSION = 5\n',
+                                    'def persona_card(persona):\n return None\n',
+                                    'INPUT_WARNING_CODES = ("CARD_FIELD_CONFLICT",)\n',
+                                    'WALKING_TRAVEL_METHOD_NAME = "散步"\n',
+                                    'WALKING = None\n',
+                                    'def travel_methods(catalog):\n return ()\n',
+                                    'OVERSLEEP_THRESHOLD_SECONDS = 18000\n',
+                                    'PAUSE_MIN_REMAINING_SECONDS = 120\n',
+                                    'def pausable(state, activity):\n return True\n',
+                                    'BEDTIME_MIN_SECONDS = 7200\n',
+                                    'EXPORT_SCHEMA_VERSION = 4\n',
+                                    'ORDER_TITLES = frozenset({"订单已取消"})\n',
+                                    'def shipping_delay_seconds(interval):\n return interval // 2\n',
+                                    'def active_side_activities(state, agent_id):\n return ()\n'])
 def test_wrong_shared_rule_owner_fails(tmp_path, source):
     _sample(tmp_path, 'custom/wrong.py', source)
     assert any('wrong owner' in item for item in single_source_violations(tmp_path))

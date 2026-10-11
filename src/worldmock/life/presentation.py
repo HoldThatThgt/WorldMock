@@ -43,7 +43,7 @@ def stage_presentation(state: WorldState, pending: dict[int, SameMomentPresentat
 
     观察边界不允许同版本改状态（`store._validate_state` 只允许同版本追加事件），因此观察先把留痕
     记在引擎内存，随本轮提交按人物写入 `same_moment_presentation`；同一秒已有暂存的人物合并对象时刻，
-    保留该秒首轮置顶的浏览结果（docs/design/04-simulation-engine.md「同一秒内的呈现与「刚才」」）。
+    保留该秒首轮置顶的浏览结果（docs/design/04-simulation-engine.md「原子性与恢复」）。
 
     @param state 本轮提交的世界状态。
     @param pending 本轮观察产生的人物→呈现暂存；空字典表示没有留痕。

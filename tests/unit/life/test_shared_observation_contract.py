@@ -1,19 +1,19 @@
 """当前观察的结构、冻结身份、查询纠错和已核验经历投影。"""
 
 from copy import deepcopy
-from datetime import datetime
 
 import pytest
 from pydantic import ValidationError
 
-from tests.life.conftest import advance_until_ready, conclude_request, context, errand_add, start_activity
+from tests.life.conftest import (
+    MAIN_TOOL, SIDE_TOOL, advance_until_ready, conclude_request, context, do_at, errand_add, travel,
+)
 from tests.life.environment_runtime import act, reach
 from worldmock.errors import IntegrityError
 from worldmock.life.continuation import continuation_enabled
 from worldmock.life.control_items import control_errands, control_items
 from worldmock.life.decision_start import is_action_request
 from worldmock.life.error_contract import ErrorItem, ErrorReport, bind_report, host_defaults
-from worldmock.life.memory_layer import reflection_date
 from worldmock.life.name_resolution import lookup, name_book, resolution_data
 from worldmock.life.progress_layer import order_label, session_bound
 from worldmock.life.prompt_capacity import prompt_token_count, request_token_count
@@ -59,10 +59,25 @@ def test_batch_feedback_rebinds_existing_tool_paths_without_losing_parameter_pos
     assert report.items[0].path[1] == 0
 
 
+def _thinking_request(*tools, **extra):
+    """开了思考、带给定原生工具的模型请求体。"""
+    return {"extra_body": {"thinking": {"type": "enabled"}},
+            "tools": [{"type": "function", "function": {"name": name}} for name in tools], **extra}
+
+
 @pytest.mark.parametrize("payload", [None, [], {"purpose": "plan_day"},
-    {"extra_body": {"thinking": {"type": "enabled"}}, "tools": None}])
+    {"extra_body": {"thinking": {"type": "enabled"}}, "tools": None},
+    _thinking_request(SIDE_TOOL, "report_status"), _thinking_request("start_activity"),
+    _thinking_request(MAIN_TOOL, SIDE_TOOL, purpose="plan_day"),
+    {**_thinking_request(MAIN_TOOL), "extra_body": {"thinking": {"type": "disabled"}}}])
 def test_only_actual_action_model_requests_start_decision_evidence(payload):
     assert is_action_request(payload) is False
+
+
+def test_action_model_request_is_recognised_by_the_main_start_tool():
+    """行动请求按原生 tools 里的 start_main_activity 识别，与存储侧的判定同义。"""
+    assert is_action_request(_thinking_request("query_world", MAIN_TOOL, SIDE_TOOL)) is True
+    assert is_action_request(_thinking_request(MAIN_TOOL)) is True
 
 
 @pytest.mark.parametrize("field", ["persona_sha256", "config_sha256", "run_id"])
@@ -82,12 +97,6 @@ def test_context_rejects_identity_drift_before_any_runtime_projection(engine_fac
 def test_unknown_host_code_cannot_be_rendered_as_an_invented_contract():
     with pytest.raises(ValueError, match="unknown host error"):
         host_defaults("REMOVED_WORK_TOOL")
-
-
-@pytest.mark.parametrize("clock,day", [("2026-01-05T01:00:00+08:00", "2026-01-04"),
-                                      ("2026-01-05T14:00:00+08:00", "2026-01-05")])
-def test_reflection_date_is_tied_to_the_actual_local_sleep_start(clock, day):
-    assert reflection_date(int(datetime.fromisoformat(clock).timestamp()), "Asia/Shanghai") == day
 
 
 def test_full_catalog_names_remain_callable_when_outside_the_current_window(engine_factory):
@@ -146,7 +155,7 @@ def test_goal_reminder_marks_only_due_goals_and_never_delivers_twice(engine_fact
 
 def test_delivery_and_actual_experience_sentences_retain_goods_times_and_travel_mode(engine_factory):
     engine = engine_factory()
-    _, trip = act(engine, "trip", start_activity("walk", "公司"))
+    _, trip = act(engine, "trip", travel("公司"))
     reach(engine, engine.context.state.activities[trip.activity_id].planned_end_at)
     layer = _context(engine)
     now = engine.context.state.current_time
@@ -169,15 +178,16 @@ def test_delivery_and_actual_experience_sentences_retain_goods_times_and_travel_
 
 def test_content_sentence_requires_authenticated_progress_and_stage_feedback_uses_same_contract(engine_factory):
     engine = engine_factory()
-    _, started = act(engine, "content", start_activity("interact", "家"))
+    _, started = act(engine, "content", do_at("家", "测试休息"))
     layer = _context(engine)
     assert layer.body is engine.context.body
     with pytest.raises(IntegrityError, match="authenticated progress evidence"):
         activity_sentence(layer, engine.context.state.activities[started.activity_id])
     agent = engine.context.state.agents[1]
     engine.context.state.agents[1] = agent.model_copy(update={"same_moment_stage": SameMomentStage.CONCLUDE_PENDING})
-    refusal = refusal_for(layer, Candidate("start_activity", action={"action": "interact"}))
-    assert refusal.code == "SAME_MOMENT_ACTION_RESTRICTED"
+    for tool in (MAIN_TOOL, SIDE_TOOL):
+        refusal = refusal_for(layer, Candidate(tool, action={"action": "interact"}))
+        assert refusal.code == "SAME_MOMENT_ACTION_RESTRICTED"
 
 
 def test_compact_groups_reject_conflicting_metadata_for_the_same_full_name(engine_factory):
@@ -211,7 +221,7 @@ def test_query_offset_larger_than_actual_result_reports_the_observed_bound(engin
 
 def test_actual_conclusion_views_update_persona_without_duplicate_memory_prose(engine_factory):
     engine = engine_factory()
-    _, started = act(engine, "view-content", start_activity("interact", "家"))
+    _, started = act(engine, "view-content", do_at("家", "测试休息"))
     assert advance_until_ready(engine)
     activity = engine.context.state.activities[started.activity_id]
     views = [[{"type": "preference", "about": "纸巾", "text": "喜欢柔软的纸巾。", "importance": 0.5,

@@ -1,4 +1,4 @@
-"""@brief 个人事务与收尾记忆的只报告指标（docs/design/05-recording-engine.md 、3.4 第 3 项）。
+"""@brief 个人事务与收尾记忆的只报告指标（docs/design/05-recording-engine.md）。
 
 质量报告的两个顶层分组 errand_metrics 与 conclusion_memories 都只读同批已认证事件（与 day_plan_metrics 同一份事件字典），
 可逐值重算，全部只报告：不参与任何完成判定与门禁，也不把人物写下的文字当作已发生事实的依据。
@@ -18,6 +18,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from worldmock.life.action_evidence import placed_orders
 from worldmock.life.control_items import control_items
 from worldmock.life.errand_state import (
     CANCELLED_KIND,
@@ -60,7 +61,7 @@ class _Errand:
 
 
 def errand_metrics(events: Sequence[Mapping[str, Any]], timezone: str) -> dict[str, int] | None:
-    """@brief 质量报告的 errand_metrics 分组（docs/design/05-recording-engine.md ）。
+    """@brief 质量报告的 errand_metrics 分组（docs/design/05-recording-engine.md）。
 
     - registered_count：有新增事件的不同事务数，是办成、取消、截止时未完成与跨夜四项的分母；
     - completed_count、cancelled_count、open_at_cutoff_count：按终态分（三者之和恒等于分母）；
@@ -99,7 +100,7 @@ def errand_metrics(events: Sequence[Mapping[str, Any]], timezone: str) -> dict[s
 
 
 def conclusion_memories(events: Sequence[Mapping[str, Any]]) -> dict[str, int] | None:
-    """@brief 质量报告的 conclusion_memories 分组（docs/design/05-recording-engine.md 、3.4 第 3 项）
+    """@brief 质量报告的 conclusion_memories 分组（docs/design/05-recording-engine.md）
     ：对自述文字本身的
     计数，只报告。
 
@@ -197,9 +198,8 @@ def _accepted_products(events: Sequence[Mapping[str, Any]]) -> dict[int, list[tu
 
 
 def _referred(data: Mapping[str, Any]) -> frozenset[str]:
-    """@brief 一次受理的购买所指向的商品，直接读取其订单；在途订单也表示购买已受理。"""
-    payload = data.get("data") or {}
-    return frozenset(order["goods_id"] for order in payload.get("orders", []))
+    """@brief 一次受理的购买所指向的商品，直接读取它下的订单；在途订单也表示购买已受理，在驿站领取的包裹不是购买。"""
+    return frozenset(order["goods_id"] for order in placed_orders(data.get("data") or {}))
 
 
 def _acted(life: _Errand, accepted: Sequence[tuple[int, int, frozenset[str]]], timezone: str) -> bool:

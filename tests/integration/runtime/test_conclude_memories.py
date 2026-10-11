@@ -1,5 +1,6 @@
 from tests.integration.runtime.current_contract_fixtures import profile as current_profile
-"""一轮决策恰好一个世界请求；记忆只经 conclude_activity 写入、来源由系统登记；发给人物模型的内容不含内部身份；
+"""一轮决策以一个世界请求（或两个开始工具各一次的开始组）结束；记忆只经 conclude_activity 写入、来源由系统登记；
+发给人物模型的内容不含内部身份；
 阈值巩固只计结束活动写入的条目。
 
 对应 docs/design/04-simulation-engine.md 第七章「finish 并入 conclude_activity」「发给模型的内容不含内部身份」与验收台账
@@ -60,7 +61,7 @@ from tests.integration.runtime.test_life_agent_protocol import (
 from tests.integration.runtime.test_verified_memory import _runtime
 from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
 from tests.life.conftest import (
-    activity_name, advance_until_ready, context, errand_add, stage_day_plan, start_activity,
+    MAIN_TOOL, SIDE_TOOL, activity_name, advance_until_ready, context, do_at, errand_add, stage_day_plan, use_app,
     pause_request, report_request,
 )  # noqa: F401
 from worldmock.errors import IntegrityError
@@ -86,10 +87,10 @@ def _observed(*activities: tuple[str, str]) -> list[dict]:
 
 
 def _action_requests(requests: list[dict]) -> list[dict]:
-    """行动阶段的请求：工具中有 start_activity（docs/design/10-runtime.md 「身份与判定」）；不带工具的记忆
+    """行动阶段的请求：工具中有 start_main_activity（docs/design/10-runtime.md 「身份与判定」）；不带工具的记忆
     巩固与只带 submit_reflection 的就寝反思都不算。"""
     return [request for request in requests
-            if "start_activity" in {item["function"]["name"] for item in request.get("tools") or []}]
+            if MAIN_TOOL in {item["function"]["name"] for item in request.get("tools") or []}]
 
 
 def _tool_names(requests: list[dict]) -> list[set[str]]:
@@ -139,7 +140,7 @@ async def test_registered_world_request_ends_the_decision_and_memory_queries_do_
         _ModelResponse("call-finish", "finish", json.dumps({"memories": []})),
         _ModelResponse("call-memory-2", "memory_recent", '{"limit":1}'),
         _ModelResponse("call-conclude", "conclude_activity", json.dumps(conclusion, ensure_ascii=False)),
-        _ModelResponse("call-never-requested", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False)),
+        _ModelResponse("call-never-requested", MAIN_TOOL, json.dumps(_WAIT_CHOICE, ensure_ascii=False)),
     ])
     environment = _Environment()
     agent = LifeAgent()
@@ -169,7 +170,7 @@ async def test_conclusion_memories_flatten_by_task_with_system_source() -> None:
     third = _memory("等人的时候心里有点急。", kind="conflict", importance=0.3)
     conclusion = _conclude_args(_WORK, _WAIT, memories=[[first, second], [third]], views=[[taste], []])
     written = []
-    for tool, arguments in (("conclude_activity", conclusion), ("start_activity", _WAIT_CHOICE)):
+    for tool, arguments in (("conclude_activity", conclusion), (MAIN_TOOL, _WAIT_CHOICE)):
         dispatcher = _GroundedCorrectionDispatcher(responses=[
             _ModelResponse("call-action", tool, json.dumps(arguments, ensure_ascii=False))])
         agent = LifeAgent()
@@ -434,25 +435,27 @@ def _environment(engine) -> LifeEnv:
 
 
 def _engine_with_pending_wait(engine_factory) -> tuple[Any, LifeEnv, str]:
-    """真实引擎：人物开始一段等待并推进到等待到点，等待成为刚结束、待收尾，人物在同一秒获得决策。"""
+    """真实引擎：人物在家点名歇一刻钟（夹具单元「测试休息」，900 秒）并推进到这段等待到点，等待成为刚结束、待收尾，
+    人物在同一秒获得决策。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    started = _settle(engine, "wait", "start_activity", start_activity("interact", "家"))
+    started = _settle(engine, "wait", MAIN_TOOL, do_at("家", "测试休息"))
     assert advance_until_ready(engine)
     assert engine.context.state.activities[started.activity_id].status.value == "completed"
     return engine, _environment(engine), started.activity_id
 
 
 def _engine_with_paused_app_and_pending_wait(engine) -> tuple[Any, LifeEnv, str, str]:
-    """真实引擎：人物看了五分钟内容后暂停，接着等待到点；此刻有暂停的观看与刚结束、待收尾的等待（只有后者占名额）。"""
+    """真实引擎：人物用抖音看了五分钟内容后暂停（槽位 2 让出），接着在家点名歇一会儿（槽位 1）直到到点；此刻有暂停的观看
+    与刚结束、待收尾的等待（只有后者占槽位）。"""
     stage_day_plan(engine)
-    watch = _settle(engine, "open-app", "start_activity", start_activity("interact", "抖音"))
+    watch = _settle(engine, "open-app", SIDE_TOOL, use_app("抖音"))
     assert watch.status.value == "in_progress"
     assert advance_until_ready(engine)
     watch_name = activity_name(engine, watch.activity_id)
     paused = _settle(engine, "pause", "pause_activity", pause_request(watch_name, summary="先停一下。"))
     assert paused.status.value == "completed"
-    wait = _settle(engine, "wait", "start_activity", start_activity("interact", "家"))
+    wait = _settle(engine, "wait", MAIN_TOOL, do_at("家", "测试休息"))
     for index in range(16):
         assert advance_until_ready(engine)
         if engine.context.state.activities[wait.activity_id].status.value == "completed":
@@ -787,11 +790,14 @@ async def test_readonly_finish_batched_with_another_tool_is_rejected() -> None:
     assert answer == "我记得昨天等过人。"
     assert agent._memory_runtime.calls == []
     assert environment.calls == []
-    assert _response_errors(environment) == ["TOOL_CALL_REQUIRED: Submit exactly one world request, or a batch containing only read queries.", None]
+    reason = ("Submit one world request, start_main_activity together with start_side_activity, "
+              "or a batch containing only read queries.")
+    assert _response_errors(environment) == [f"TOOL_CALL_REQUIRED: {reason}", None]
     feedback = [json.loads(message["content"]) for message in dispatcher.requests[1]["messages"]
                 if message.get("role") == "tool"]
-    assert [(item["error_code"], item["reason"]) for item in feedback] == [
-        ("TOOL_CALL_REQUIRED", "Submit exactly one world request, or a batch containing only read queries.")] * 2
+    assert [(item["error_code"], item["reason"], item["fix"]) for item in feedback] == [
+        ("TOOL_CALL_REQUIRED", reason,
+         "Submit one world request, the two start tools together, or only read queries.")] * 2
 
 
 #: 结束活动写下的主观记忆（类型各异、正文互不相似，避免按相似度合并）。
@@ -828,7 +834,7 @@ class _DayModel:
 
     async def call(self, **request):
         """按工具分流：工具唯一为 submit_reflection 的是就寝反思，以这一个工具调用作答（五条洞见都引用输入里的第一条
-        记忆）；工具中有 start_activity 的是行动请求，取下一条收尾；不带工具的是阈值巩固。"""
+        记忆）；工具中有 start_main_activity 的是行动请求，取下一条收尾；不带工具的是阈值巩固。"""
         names = [item["function"]["name"] for item in request.get("tools", [])]
         user = request["messages"][-1]["content"]
         if names == ["submit_reflection"]:
@@ -838,7 +844,7 @@ class _DayModel:
             insights = [{"insight": text, "refs": [cited]} for text in _INSIGHTS]
             return _ModelResponse(f"reflection-{self.reflections}", "submit_reflection",
                                   json.dumps({"insights": insights}, ensure_ascii=False))
-        if "start_activity" in names:
+        if MAIN_TOOL in names:
             arguments = self.conclusions.pop(0)
             return _ModelResponse(f"call-{len(self.conclusions)}", "conclude_activity",
                                   json.dumps(arguments, ensure_ascii=False))
@@ -848,18 +854,19 @@ class _DayModel:
 
 
 class _DayEnvironment(_StepEnvironment):
-    """一日里的决策观察：两项进行中的活动可以带记忆结束；已有当日计划；醒来那一轮的唤醒原因含 wake_from_sleep。"""
+    """一日里的决策观察：两项进行中的活动可以带记忆结束；已有当日计划；woke 为真的那一轮是当天第一次睡醒。"""
 
     def __init__(self) -> None:
         super().__init__()
-        self.wake_reasons: list[str] = []
+        self.woke = False
+
+    async def due_reflection(self, context: DecisionContext) -> dict | None:
+        """当天第一次睡醒的那一轮给出归属日期，其余为空。"""
+        return {"date": "2026-01-04", "sleep_activity_id": "sleep-1"} if self.woke else None
 
     async def observe(self, context: DecisionContext) -> dict:
-        """在一项进行中等待的观察上再加一项进行中的工作，并写入本轮唤醒原因。"""
+        """在一项进行中等待的观察上再加一项进行中的工作。"""
         data = _with_activities(await super().observe(context), (_WORK, PHASE_ACTIVE))
-        data["wake_reasons"] = list(self.wake_reasons)
-        if "wake_from_sleep" in self.wake_reasons:
-            data["ended_sleep"] = {"kind": "sleep", "status": "completed", "ended_at": data["current_time"]}
         data["todo_layer"]["day_plan"] = {"date": "2026-01-05", "goals": []}
         return data
 
@@ -867,6 +874,7 @@ class _DayEnvironment(_StepEnvironment):
 @pytest.mark.asyncio
 async def test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime_reflection(tmp_path) -> None:
     """就寝反思之后，经结束活动写满 10 条、重要度合计 2.0（低于 3.0）时恰好触发一次巩固；此前的反思条目不计入。
+    反思在当天第一次睡醒那一步取观察之前做，随它的巩固原因是 daily reflection，登记不绑定观察。
 
     巩固载荷每条只有 {type, text, time}，不带条目身份（第七章「finish 并入 conclude_activity」「发给模型的内容不含内部身份」）。
     """
@@ -876,11 +884,11 @@ async def test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime
     environment, model = _DayEnvironment(), _DayModel()
     agent = await LifeAgent.from_workspace(workspace, _service(environment, model))
     texts = iter(_CONCLUSION_MEMORIES)
-    days = ((["wake_from_sleep"], ((_WAIT, 1),)), ([], ((_WORK, 4), (_WAIT, 4))), ([], ((_WORK, 2),)),
-            ([], ((_WAIT, 1),)))
+    days = ((False, ((_WAIT, 1),)), (True, ((_WORK, 4), (_WAIT, 4))), (False, ((_WORK, 2),)),
+            (False, ((_WAIT, 1),)))
     unconsolidated_after_step = []
-    for index, (wake, groups) in enumerate(days, start=1):
-        environment.wake_reasons = wake
+    for index, (woke, groups) in enumerate(days, start=1):
+        environment.woke = woke
         chunks = [list(islice(texts, count)) for _, count in groups]
         memories = [[_memory(text, kind=kind, importance=0.2) for kind, text in chunk if kind not in _SUBJECTS]
                     for chunk in chunks]
@@ -891,9 +899,17 @@ async def test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime
         assert await agent.step(0, _OBSERVED_AT) == "conclude_activity registered"
         unconsolidated_after_step.append(agent._memory_runtime.store.unconsolidated())
 
-    assert [update.consolidated for update in environment.memory_updates] == [True, False, True, False]
+    assert [update.consolidated for update in environment.memory_updates] == [False, True, False, True, False]
+    assert [update.observation_event_id is None for update in environment.memory_updates] == [
+        False, True, False, False, False]
+    reflected = environment.memory_updates[1]
+    assert reflected.operation == "append_episodes" and reflected.verified_event_ids == ()
+    assert reflected.memory_before_sha256 == reflected.memory_sha256
+    assert {item.get("source") for item in reflected.episodes} == {"reflection"}
+    assert not [item for update in environment.memory_updates if update is not reflected
+                for item in update.episodes if "source" in item]
     assert model.reflections == 1
-    assert [payload["reason"] for payload in model.consolidations] == ["sleep boundary", "pending episode threshold"]
+    assert [payload["reason"] for payload in model.consolidations] == ["daily reflection", "pending episode threshold"]
     after_eight = unconsolidated_after_step[1]
     reflections = [item for item in after_eight if item["source"] == "reflection"]
     assert len(after_eight) == 13 and len(reflections) == 5
@@ -907,4 +923,4 @@ async def test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime
     assert len(counted) == 10
     assert sum(importance[item["text"]] for item in counted) == pytest.approx(2.0)
     assert Counter(item["source"] for item in stored) == {"activity_conclusion": 12, "reflection": 5}
-    assert [len(update.created_episode_ids) for update in environment.memory_updates] == [6, 8, 2, 1]
+    assert [len(update.created_episode_ids) for update in environment.memory_updates] == [1, 5, 8, 2, 1]

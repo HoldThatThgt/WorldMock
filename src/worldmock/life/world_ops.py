@@ -27,11 +27,10 @@ def _put_activity(state: WorldState, agent, activity) -> WorldState:
 
 
 def _activity_origin(state: WorldState, pending: PendingAction) -> ActivityOrigin:
-    """@brief 同一模型动作内给每条活动分配独立身份，保留共同的原动作归因。"""
+    """@brief 一条动作只开始一项活动，活动保留这条动作、决策与请求事件的归因。"""
     from worldmock.life.activities import ActivityOrigin
 
-    ordinal = 1 + sum(item.origin_action_id == pending.action_id for item in state.activities.values())
-    return ActivityOrigin(pending.action_id, pending.decision_id, pending.requested_event_id, ordinal)
+    return ActivityOrigin(pending.action_id, pending.decision_id, pending.requested_event_id)
 
 
 def _put_agent(state: WorldState, agent) -> WorldState:
@@ -60,7 +59,7 @@ def _body_settlement_data(settlement) -> dict:
 
 def _resource_flows_data(agent_id: int, occurred_at: int) -> list[dict[str, Any]]:
     """@brief
-    取走本区间身体结算分录并重盖主体与时间后校验序列化（docs/design/05-recording-engine.md「事件正文与资源证据」）。
+    取走本区间身体结算分录并重盖主体与时间后校验序列化（docs/design/05-recording-engine.md「事件与来源」）。
 
     body 结算函数以占位 owner 与零时间戳缓冲分录；引擎按事件归属重盖为
     agent:{id} 与事件模拟时间，序列化为 {resource, owner, direction, amount,

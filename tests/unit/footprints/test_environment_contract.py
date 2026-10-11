@@ -38,19 +38,35 @@ def test_directory_browse_has_real_app_use_without_content_or_wait_evidence():
     assert project_verified_experiences(events, agent_id=1, cutoff_seq=2) == []
 
 
-def test_system_app_touch_and_payment_notification_are_point_facts_with_exact_fields():
-    touch = _event(1, "environment_event", {"kind": "app_touch", "app_id": "navigation",
-                    "action": "walk", "step": "navigation", "rule_id": None}, visibility="system",
+def test_callback_touch_and_the_two_notifications_are_point_facts_with_exact_fields():
+    touch = _event(1, "environment_event", {"kind": "app_touch", "app_id": "maps",
+                    "action": "travel", "step": "browse", "rule_id": "fuel-rule"}, visibility="system",
                    cause=["request-result"])
     notification = _event(2, "environment_event", {"kind": "payment_notification", "app_id": "payment",
                            "amount_fen": 1234, "order_ids": ["order"], "title": "支付成功", "summary": "商品 12.34 元"},
                           visibility="system", cause=["payment-event"])
-    facts = project_app_usage([touch.model_dump(), notification.model_dump()])
+    placed = _event(3, "environment_event", {"kind": "order_notification", "app_id": "ordering",
+                     "order_ids": ["order"], "title": "订单已下单", "summary": "已下单：商品"},
+                    visibility="system", cause=["payment-event"])
+    facts = project_app_usage([touch.model_dump(), notification.model_dump(), placed.model_dump()])
     common = {"fact_kind", "agent_id", "activity_id", "app_id", "source_event_id", "occurred_at"}
+    assert [row["fact_kind"] for row in facts] == ["app_touch", "payment_notification", "order_notification"]
     assert set(facts[0]) == common
     assert set(facts[1]) == common | {"amount_fen", "order_ids", "title", "summary"}
+    assert set(facts[2]) == common | {"order_ids", "title", "summary"}
     assert all(row["activity_id"] is None for row in facts)
-    assert project_verified_experiences([touch, notification], agent_id=1, cutoff_seq=2) == []
+    assert project_verified_experiences([touch, notification, placed], agent_id=1, cutoff_seq=3) == []
+
+
+@pytest.mark.parametrize("step,rule_id", [("navigation", None), ("payment", None), ("navigation", "fuel-rule"),
+                                          ("browse", ""), ("browse", 7)])
+def test_app_touch_is_only_a_callback_footprint_and_the_automatic_touches_are_refused(step, rule_id):
+    """出发和进入付款不再写时间点：没有回调规则身份的触点，以及步骤是导航的触点，都按来源不符拒绝。"""
+    touch = _event(1, "environment_event", {"kind": "app_touch", "app_id": "maps", "action": "travel",
+                                            "step": step, "rule_id": rule_id}, visibility="system",
+                   cause=["request-result"])
+    with pytest.raises(IntegrityError, match="^App touch step disagrees with its source$"):
+        project_app_usage([touch.model_dump()])
 
 
 @pytest.mark.parametrize("retired", ["wait", "action", "eat", "work", "chat"])
@@ -85,26 +101,103 @@ def test_ledger_uses_envelope_and_rejects_retired_embedded_money():
         validate_account_transition(before, after, [], False)
 
 
-def _paid_group_events():
-    order = {"order_id": "order", "group_key": "group", "agent_id": 1, "paid_at": 110,
+def _paid_order_events(purchase="purchase", identity="order", first=1, at=110):
+    order = {"order_id": identity, "group_key": "group", "app_id": "ordering", "agent_id": 1, "paid_at": at,
              "payment_app_id": "payment", "total_price_fen": 1000}
-    start = _event(1, "action_result", {"status": "in_progress", "data": {"activities": [
-                   {"activity_id": "purchase", "kind": "purchase"}]}})
-    progress = _event(2, "activity_progress", {"activity": {"activity_id": "purchase", "kind": "purchase",
-                     "status": "completed", "ended_at": 110}}, at=110)
-    payment = _event(3, "environment_event", {"kind": "purchase_payment", "activity_id": "purchase",
-                    "order_ids": ["order"], "amount_fen": 1000}, at=110, visibility="system",
+    activity = {"activity_id": purchase, "kind": "purchase", "data": {"order_ids": [identity]}}
+    start = _event(first, "action_result", {"status": "in_progress", "data": {"activities": [
+                   {"activity_id": purchase, "kind": "purchase"}]}})
+    progress = _event(first + 1, "activity_progress", {"activity": {"activity_id": purchase, "kind": "purchase",
+                     "status": "completed", "ended_at": at}}, at=at)
+    payment = _event(first + 2, "environment_event", {"kind": "purchase_payment", "activity_id": purchase,
+                    "order_ids": [identity], "amount_fen": 1000}, at=at, visibility="system",
                    cause=[start.event_id], changes={"account:agent:1": -1000, "account:external:scenario": 1000})
-    notification = _event(4, "environment_event", {"kind": "payment_notification", "app_id": "payment",
-                          "amount_fen": 1000, "order_ids": ["order"], "title": "支付成功", "summary": "商品 10.00 元"},
-                         at=110, visibility="system", cause=[payment.event_id])
+    notification = _event(first + 3, "environment_event", {"kind": "payment_notification", "app_id": "payment",
+                          "amount_fen": 1000, "order_ids": [identity], "title": "支付成功",
+                          "summary": "商品 10.00 元"}, at=at, visibility="system", cause=[payment.event_id])
     payment = payment.model_copy(update={"state_version_after": progress.state_version_after})
     notification = notification.model_copy(update={"state_version_after": progress.state_version_after})
-    return {"deliveries": {"order": order}}, [row.model_dump() for row in (start, progress, payment, notification)]
+    state = {"deliveries": {identity: order}, "activities": {purchase: activity}}
+    return state, [row.model_dump() for row in (start, progress, payment, notification)]
 
 
-def test_payment_group_requires_actual_completion_and_exact_single_notification():
-    state, events = _paid_group_events()
+def _two_purchases_on_one_route():
+    state, events = _paid_order_events()
+    later, again = _paid_order_events("purchase-again", "order-again", first=5, at=120)
+    merged = {key: {**state[key], **later[key]} for key in state}
+    assert len({(order["group_key"], order["app_id"]) for order in merged["deliveries"].values()}) == 1
+    return merged, events + again
+
+
+def test_payments_on_the_same_route_and_ordering_app_are_counted_per_purchase_activity():
+    state, events = _two_purchases_on_one_route()
+    _payment_invariants(events, state, {event["event_id"]: event for event in events})
+
+
+@pytest.mark.parametrize("fault,message", [
+    ("missing_payment", "Purchase order payment count disagrees with actual payment"),
+    ("other_purchase", "Purchase payment disagrees with its actual order"),
+    ("partial_payment", "Purchase order has partial payment"),
+])
+def test_each_purchase_activity_requires_its_own_complete_order_payment(fault, message):
+    state, events = _two_purchases_on_one_route()
+    if fault == "missing_payment":
+        del events[6:]
+    elif fault == "other_purchase":
+        events[6]["data"]["activity_id"] = "purchase"
+    else:
+        extra = {**state["deliveries"]["order-again"], "order_id": "order-unpaid", "paid_at": None,
+                 "group_key": "another-group"}
+        state["deliveries"]["order-unpaid"] = extra
+        state["activities"]["purchase-again"]["data"]["order_ids"].append("order-unpaid")
+    with pytest.raises(IntegrityError, match=f"^{message}$"):
+        _payment_invariants(events, state, {event["event_id"]: event for event in events})
+
+
+def _one_order_over_two_delivery_groups():
+    """同一个下单 app 上两家店：两条记录分属两个配送组，是一张订单，一条付款事件列出两条记录。"""
+    state, events = _paid_order_events()
+    state["deliveries"]["order-b"] = {**state["deliveries"]["order"], "order_id": "order-b",
+                                      "group_key": "another-group", "total_price_fen": 700}
+    state["activities"]["purchase"]["data"]["order_ids"].append("order-b")
+    for event in events[2:]:
+        event["data"].update(order_ids=["order", "order-b"], amount_fen=1700)
+    events[2]["resource_changes"] = {"account:agent:1": -1700, "account:external:scenario": 1700}
+    return state, events
+
+
+def test_one_order_spanning_two_delivery_groups_is_paid_by_exactly_one_payment():
+    state, events = _one_order_over_two_delivery_groups()
+    _payment_invariants(events, state, {event["event_id"]: event for event in events})
+
+
+@pytest.mark.parametrize("fault,message", [
+    ("payment_per_group", "Purchase order payment count disagrees with actual payment"),
+    ("one_group_only", "Purchase payment disagrees with its actual order"),
+    ("other_app", "Purchase payment disagrees with its actual order"),
+])
+def test_payment_must_cover_the_whole_order_and_not_one_delivery_group(fault, message):
+    state, events = _one_order_over_two_delivery_groups()
+    if fault == "payment_per_group":
+        second = {**events[2], "event_id": "event-extra", "data": {**events[2]["data"], "order_ids": ["order-b"]}}
+        events.insert(3, second)
+    elif fault == "one_group_only":
+        events[2]["data"]["order_ids"] = ["order"]
+    else:
+        state["deliveries"]["order-b"]["app_id"] = "another-ordering-app"
+    with pytest.raises(IntegrityError, match=f"^{message}$"):
+        _payment_invariants(events, state, {event["event_id"]: event for event in events})
+
+
+def test_store_records_without_an_ordering_app_form_one_order_per_purchase():
+    state, events = _one_order_over_two_delivery_groups()
+    for order in state["deliveries"].values():
+        order["app_id"] = None
+    _payment_invariants(events, state, {event["event_id"]: event for event in events})
+
+
+def test_paid_order_requires_actual_completion_and_exact_single_notification():
+    state, events = _paid_order_events()
     sources = {event["event_id"]: event for event in events}
     _payment_invariants(events, state, sources)
     with pytest.raises(IntegrityError, match="Payment notification count"):
@@ -114,11 +207,26 @@ def test_payment_group_requires_actual_completion_and_exact_single_notification(
         _payment_invariants(events, state, sources)
 
 
-def test_bank_payment_keeps_money_evidence_without_app_notification():
-    state, events = _paid_group_events()
-    state["deliveries"]["order"]["payment_app_id"] = None
+def test_direct_payment_at_the_store_keeps_money_evidence_without_any_notification():
+    state, events = _paid_order_events()
+    state["deliveries"]["order"].update(payment_app_id=None, app_id=None)
+    sources = {event["event_id"]: event for event in events}
+    with pytest.raises(IntegrityError, match="^Payment notification count disagrees with actual payment$"):
+        _payment_invariants(events, state, sources)
     events.pop()
     _payment_invariants(events, state, {event["event_id"]: event for event in events})
+
+
+def test_direct_payment_inside_the_content_app_is_notified_by_that_ordering_app():
+    state, events = _paid_order_events()
+    state["deliveries"]["order"]["payment_app_id"] = None
+    sources = {event["event_id"]: event for event in events}
+    with pytest.raises(IntegrityError, match="^Payment notification disagrees with its actual purchase payment$"):
+        _payment_invariants(events, state, sources)
+    events[-1]["data"]["app_id"] = "ordering"
+    _payment_invariants(events, state, sources)
+    with pytest.raises(IntegrityError, match="^Payment notification count disagrees with actual payment$"):
+        _payment_invariants(events[:-1], state, sources)
 
 
 def test_wake_categories_count_each_category_once_per_real_boundary():

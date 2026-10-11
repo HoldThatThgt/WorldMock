@@ -32,7 +32,7 @@ def test_read_only_tools_cannot_enter_action_dispatch(engine_factory, caplog, to
     )
     caplog.clear()
     with caplog.at_level(logging.ERROR), pytest.raises(BusinessRuleError, match="^ACTION_REQUEST_INVALID$"):
-        engine.actions.dispatch(state, pending)
+        engine.actions.dispatch(state, [pending])
 
     assert any(record.levelno == logging.ERROR for record in caplog.records)
     assert all(record.getMessage().isascii() for record in caplog.records)

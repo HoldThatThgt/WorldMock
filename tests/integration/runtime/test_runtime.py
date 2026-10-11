@@ -40,7 +40,7 @@ from worldmock.footprints.store import FootprintStore
 from worldmock.life.models import CounterfactualIntervention
 from worldmock.runtime import CounterfactualRequest, ResumeRequest, RunRequest, _build_society, _execute, _intervention_sha256, _prepare_new_run, _require_run_shell, _restore_branch, replay_world, resume_world, run_world
 from worldmock.validation import validate_environment
-from tests.integration.runtime.current_contract_fixtures import inputs, metadata_service, compiled_persona
+from tests.integration.runtime.current_contract_fixtures import inputs, metadata_service
 
 ROOT = Path(__file__).resolve().parents[3]
 SCENARIO = ENVIRONMENT_ROOT
@@ -82,6 +82,32 @@ def test_runtime_code_identity_is_deterministic(monkeypatch, tmp_path, tmp_path_
 
     assert len(first) == 64
     assert first == second
+
+
+def test_code_identity_covers_production_python_and_the_two_dependency_files_only(
+        monkeypatch, tmp_path, tmp_path_factory) -> None:
+    """引擎自己的代码身份是 src 与 custom 下的全部 Python 源码加根目录的 pyproject.toml 与 uv.lock：改其中任何一份的字节、
+    或在任一目录里新增一份 Python 源码都改变 code_sha256；src 下其他类型的文件不进代码身份，引擎包里没有数据目录。"""
+    from worldmock.run_setup import runtime_code_sha256
+
+    project = write_project(tmp_path / "project")
+    use_fake_as2(monkeypatch, tmp_path_factory.mktemp("as2-site"))
+    seen = {runtime_code_sha256(project)}
+    for relative in ("src/worldmock/probe.py", "custom/agents/life_agent.py", "pyproject.toml", "uv.lock",
+                     "src/worldmock/life/added.py", "custom/envs/added.py"):
+        path = project / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes((path.read_bytes() if path.exists() else b"") + b"# changed\n")
+        changed = runtime_code_sha256(project)
+        assert changed not in seen, relative
+        seen.add(changed)
+    for relative in ("src/worldmock/data/rules.toml", "src/worldmock/data/tables/extra.json", "src/worldmock/notes.md",
+                     "custom/agents/prompt.txt"):
+        path = project / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"limit = 1\n")
+        assert runtime_code_sha256(project) == changed, relative
+    assert not (ROOT / "src/worldmock/data").exists()
 
 
 def test_code_identity_covers_every_imported_as2_file_except_pycache(
@@ -288,9 +314,6 @@ async def test_run_manifest_records_git_commit_and_dirty_flag(monkeypatch, tmp_p
     from custom.envs.life_env import LifeEnv
 
     metadata_service(monkeypatch)
-    async def compile_card(*arguments):
-        return compiled_persona(inputs())
-    monkeypatch.setattr(__import__("worldmock.run_setup", fromlist=["_compile_persona"]), "_compile_persona", compile_card)
     use_fake_as2(monkeypatch, tmp_path_factory.mktemp("as2-site"))
     _hermetic_git(monkeypatch, tmp_path_factory)
     checkout, head = _committed_project(tmp_path_factory.mktemp("checkout"))
@@ -300,7 +323,7 @@ async def test_run_manifest_records_git_commit_and_dirty_flag(monkeypatch, tmp_p
     manifests = []
     for project, run_dir in ((checkout, tmp_path / "git-run"), (plain, tmp_path / "plain-run")):
         prepared = _prepare_new_run(RunRequest(project, SCENARIO, run_dir, "identity", "identity"))
-        await runtime_module._society_specs(prepared)
+        runtime_module._society_specs(prepared)
         env = LifeEnv(**prepared.env_kwargs)
         await env.init(prepared.start_time)
         try:

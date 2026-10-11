@@ -1,34 +1,27 @@
-"""当前动作槽位、身体变化、餐时体感与睡眠参数的实际边界。"""
+"""身体变化、餐时体感与睡眠参数的实际边界。"""
 
 import math
+import tomllib
 
 import pytest
-from pydantic import ValidationError
 
+from tests.data_paths import ENVIRONMENT_ROOT
 from tests.unit.life.test_environment_body import body_inputs
-from worldmock.life.action_contract import activity_slot
-from worldmock.life.body import apply_discomfort_pulse, apply_relaxation_change, last_flows
-from worldmock.life.felt import (
-    MealWindows, changed_felt_levels, compute_appetite, meal_window_bonus, sleepiness_level,
+from worldmock.input_models import PersonaConfig
+from worldmock.life.body import (
+    ActivityFactors, BoundaryClock, apply_discomfort_pulse, apply_relaxation_change, initial_body, last_flows,
+    next_shared_body_boundary_seconds, settle_shared_body,
 )
+from worldmock.life.body_config import assemble_body_config
+from worldmock.life.felt import (
+    MealWindows, appetite_level, changed_felt_levels, compute_appetite, in_clock_window, meal_window_bonus,
+    sleepiness_level,
+)
+from worldmock.life.models import ActivityKind
 from worldmock.life.sleep import (
     EfficiencyCurvePoint, SleepinessGrade, initial_sleep_pressure, interpolate_efficiency,
     sleepiness_grade, validate_efficiency_curve,
 )
-
-
-@pytest.mark.parametrize("action,slot", [
-    ("walk", "first"), ("drive", "first"), ("take_taxi", "first"), ("take_bus", "first"),
-    ("sleep", "first"), ("purchase", "second"), ("interact", "second"),
-])
-def test_each_current_action_has_its_fixed_slot(action, slot):
-    assert activity_slot(action) == slot
-
-
-@pytest.mark.parametrize("action", ["wait", "do", "travel_to", "Sleep", "interact "])
-def test_retired_or_noncanonical_action_cannot_acquire_a_slot(action):
-    with pytest.raises(ValueError, match="Unknown activity action"):
-        activity_slot(action)
 
 
 @pytest.mark.parametrize("amount", [math.nan, math.inf, -math.inf])
@@ -51,19 +44,36 @@ def test_invalid_discomfort_duration_cannot_create_a_relaxation_pulse(body_input
     assert "Discomfort hours must be finite and nonnegative" in caplog.text
 
 
+@pytest.mark.parametrize("window,inside,outside", [
+    ((12, 13), (12, 12.999), (11.999, 13, 0)),
+    ((23.5, 24.5), (23.5, 23.999, 0, 0.499), (23.499, 0.5, 12)),
+    ((25, 26), (1, 1.999), (0.999, 2, 23.5)),
+    ((23, 24), (23, 23.999), (22.999, 0)),
+    ((-1, 0.5), (23, 23.999, 0, 0.499), (22.999, 0.5)),
+    ((48.5, 49), (0.5, 0.999), (0.499, 1)),
+    ((6, 20.5), (6, 12, 20.499), (5.999, 20.5, 23)),
+    ((0, 24), (0, 12, 23.999), ()),
+    ((22, 47), (22, 3, 21.999, 0), ()),
+])
 @pytest.mark.parametrize("name", ["lunch", "dinner"])
-@pytest.mark.parametrize("window", [(-0.01, 1), (1, 1), (2, 1), (23, 24.01)])
-def test_meal_windows_reject_empty_backward_or_out_of_day_intervals(name, window, caplog):
-    with pytest.raises(ValidationError, match=f"{name} window must satisfy"):
-        MealWindows(**{name: window})
-    assert "Felt input is invalid" in caplog.text
+def test_meal_windows_are_read_on_the_clock_without_any_range_rule(name, window, inside, outside):
+    """饭点时段按钟面读：两端各对 24 取模，取模后起点不小于终点的时段跨过午夜，跨度达到 24 小时全天命中；
+    含起点不含终点。时段没有 0 到 24 的范围检查，写成大于 24 或小于 0 的小时数都照此判断。"""
+    windows = MealWindows(**{name: window})
+    assert getattr(windows, name) == window
+    assert all(in_clock_window(hour, window) for hour in inside)
+    assert not any(in_clock_window(hour, window) for hour in outside)
+    assert [meal_window_bonus(hour, windows) for hour in inside] == [0.15] * len(inside)
+    assert [meal_window_bonus(hour, windows) for hour in outside] == [0] * len(outside)
 
 
-@pytest.mark.parametrize("dinner", [(12.5, 14), (12, 13), (11, 14)])
-def test_overlapping_meal_windows_cannot_double_count_a_meal_bonus(dinner, caplog):
-    with pytest.raises(ValidationError, match="dinner window must not overlap lunch window"):
-        MealWindows(lunch=(12, 13), dinner=dinner)
-    assert "Felt input is invalid" in caplog.text
+@pytest.mark.parametrize("dinner", [(12.5, 14), (12, 13), (11, 14), (36.5, 38)])
+def test_overlapping_meal_windows_load_and_never_double_count_a_meal_bonus(dinner):
+    """午饭与晚饭可以重叠：重叠处只加一次 0.15，只落在其中一个时段里也是 0.15，都不在时为 0。"""
+    windows = MealWindows(lunch=(12, 13), dinner=dinner)
+    assert meal_window_bonus(12.75, windows) == 0.15
+    assert meal_window_bonus(13.5, windows) == (0.15 if in_clock_window(13.5, dinner) else 0)
+    assert meal_window_bonus(9, windows) == 0
 
 
 @pytest.mark.parametrize("hour,expected", [
@@ -163,3 +173,48 @@ def test_valid_efficiency_curve_interpolates_actual_nodes_and_keeps_boundary_fac
     assert interpolate_efficiency(points, 12) == pytest.approx(0.875)
     assert interpolate_efficiency(points, -1) == 0.9
     assert interpolate_efficiency(points, 25) == 0.8
+
+
+def _mass_inputs(mass_kg, hour):
+    """夹具人设只换体重，经真实人设模型装配身体结算视图与给定钟点的初始身体。"""
+    raw = tomllib.loads((ENVIRONMENT_ROOT / "persona.toml").read_text(encoding="utf-8"))
+    persona = PersonaConfig.model_validate({**raw, "body": {**raw["body"], "mass_kg": mass_kg}})
+    config = assemble_body_config(persona)
+    body = initial_body(config, hour, persona)
+    last_flows()
+    return config, body
+
+
+@pytest.mark.parametrize("mass_kg,seconds", [(55.0, 12810), (65.0, 8114), (70.0, 6229)])
+def test_first_hunger_after_waking_comes_earlier_for_a_heavier_body(mass_kg, seconds):
+    """0 点带着 1800 千卡入睡、8 点起床后一直做 light 的事、没有声明饭点：第一次「有点想吃」的时刻随体重变，
+    55 公斤 11:33:30、65 公斤 10:15:14（与修订前相同）、70 公斤 09:43:49。两项需要置于顶档，只留饥饿这一个边界。"""
+    config, body = _mass_inputs(mass_kg, 0.0)
+    slept = settle_shared_body(body, ((ActivityKind.SLEEP, ActivityFactors(0.95)),), 8 * 3600, config).after
+    last_flows()
+    assert slept.energy_kcal == 1800 - 8 * mass_kg
+    awake = slept.model_copy(update={"relaxation_need": 1.0, "social_need": 1.0})
+    light = ((ActivityKind.INTERACT, ActivityFactors(config.activity_met["light"])),)
+
+    boundary = next_shared_body_boundary_seconds(awake, light, config, BoundaryClock(8.0))
+
+    def level(elapsed):
+        energy = awake.energy_kcal - elapsed / 3600 * 1.5 * mass_kg
+        return appetite_level(compute_appetite(energy, 8.0 + elapsed / 3600), energy, 400)
+
+    assert boundary == seconds
+    assert (level(seconds - 1), level(seconds)) == ("不饿", "有点想吃")
+
+
+@pytest.mark.parametrize("mass_kg,seconds", [(55.0, 13091), (65.0, 11077), (70.0, 10286)])
+def test_idle_drop_below_the_hunger_threshold_follows_the_body_mass(mass_kg, seconds):
+    """空闲时从 1000 千卡到第一次严格低于 800 千卡：55 公斤 13,091 秒、65 公斤 11,077 秒、70 公斤 10,286 秒。
+    人物处在声明的饭点时段里（饥饿分级在此之前不变）、两项需要在顶档，下一个身体边界就是这一刻。"""
+    config, body = _mass_inputs(mass_kg, 6.0)
+    body = body.model_copy(update={"energy_kcal": 1000.0, "relaxation_need": 1.0, "social_need": 1.0})
+    clock = BoundaryClock(6.0, MealWindows(lunch=(6.0, 12.0)))
+
+    boundary = next_shared_body_boundary_seconds(body, (), config, clock)
+
+    assert boundary == seconds
+    assert 1000.0 - mass_kg * seconds / 3600 < 800 <= 1000.0 - mass_kg * (seconds - 1) / 3600

@@ -35,7 +35,7 @@ class WakeTrigger:
     name: str
     #: 回调订阅的完整分类名称。
     category: str
-    #: 是否允许在睡眠边界提供决策。
+    #: 人物睡着时这一行能否提供决策，即能否叫醒睡着的人。
     can_wake_sleep: bool
 
 
@@ -97,7 +97,7 @@ def clock_epoch(clock: str | None, now: int, timezone_name: str) -> int | None:
     """@brief 把场景本地 HH:MM 换算为 now 所在本地日的绝对时刻；None 原样返回。
 
     提醒时刻 remind_time（None 表示不设提醒，docs/design/04-simulation-engine.md）与大致时刻 around_time
-    （None 表示不限时刻，docs/design/04-simulation-engine.md ）共用这一换算。
+    （None 表示不限时刻，docs/design/04-simulation-engine.md）共用这一换算。
     """
     if clock is None:
         return None
@@ -118,7 +118,7 @@ class RemindTimeInvalid(ValueError):
 def registered_goals(goals: Sequence[Any], now: int, timezone_name: str) -> tuple["PlanGoal", ...]:
     """@brief 以 now 登记请求目标（intent_kind、goal、remind_time、around_time），提醒与大致时刻换算为该本地日的绝对时刻。
 
-    大致时刻不像提醒：不要求晚于登记时刻，也不触发决策（docs/design/04-simulation-engine.md ）。
+    大致时刻不像提醒：不要求晚于登记时刻，也不触发决策（docs/design/04-simulation-engine.md）。
     """
     return tuple(PlanGoal(intent_kind=goal.intent_kind, goal=goal.goal, registered_at=now,
                           remind_at=clock_epoch(goal.remind_time, now, timezone_name),
@@ -233,11 +233,15 @@ def reconsideration_interval(query: WakeSnapshot | NextDecisionQuery) -> int:
 
 
 def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
-    """@brief 从统一条件表按声明次序输出命中，睡眠只准自己的结束边界。"""
+    """@brief 从统一条件表按声明次序输出命中：醒着时命中的都保留，睡着时只保留表里 can_wake_sleep 的行。
+
+    睡着时 planned_end 一行还要求结束的是睡眠本身，所以睡眠只在自己的计划结束时结束。
+    """
     elapsed = (snapshot.last_decision_time is not None and
                snapshot.now - snapshot.last_decision_time >= snapshot.reconsideration_interval_seconds)
+    ended = snapshot.planned_end is not None and snapshot.now >= snapshot.planned_end
     hits = {
-        "planned_end": snapshot.planned_end is not None and snapshot.now >= snapshot.planned_end,
+        "planned_end": ended and (snapshot.planned_end_is_sleep or not snapshot.is_asleep),
         "felt_band_change": snapshot.felt_bands_now != snapshot.felt_bands_at_last_decision,
         "delivery_arrival": snapshot.delivery_arrived,
         "reconsideration_interval": elapsed,
@@ -249,8 +253,8 @@ def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
         "duty_boundary": snapshot.duty_boundary,
         "app_push": snapshot.app_push_arrived,
     }
-    reasons = [trigger.name for trigger in WAKE_TRIGGERS if hits[trigger.name]
-               and (not snapshot.is_asleep or trigger.name == "planned_end" and snapshot.planned_end_is_sleep)]
+    reasons = [trigger.name for trigger in WAKE_TRIGGERS
+               if hits[trigger.name] and (trigger.can_wake_sleep or not snapshot.is_asleep)]
     return WakeVerdict(decision_offered=bool(reasons), wake_reasons=reasons)
 
 
@@ -313,7 +317,7 @@ def day_plan_expired(plan: DayPlan, now: int) -> bool:
 
 
 def expired_plan_agent_ids(state: Any) -> tuple[int, ...]:
-    """@brief 枚举 day_plan 已跨日残留的人物编号（引擎跨日边界归零用，docs/design/06-agent.md「当日目标」）。
+    """@brief 枚举 day_plan 已跨日残留的人物编号（引擎跨日边界归零用，docs/design/06-agent.md「进度、待办与记忆」）。
 
     @param state 世界状态（只读 agents 与 current_time 两字段；鸭子类型避免
                  与人物状态模型的环依赖）

@@ -9,7 +9,7 @@ WorldMock 使用锁定并维护的 AgentSociety2 原生 Society、LifeAgent 与 
 ```mermaid
 flowchart LR
     Inputs[完整环境纯加载] --> Config[配置原生客户端]
-    Config --> Profile[画像抽取与编译]
+    Config --> Profile[由 persona.toml 构造人物卡片]
     Profile --> Society[原生 Society]
     Society --> Agent[LifeAgent 原生模型协议]
     Agent --> Environment[LifeEnv 原生工具接口]
@@ -23,19 +23,33 @@ flowchart LR
 
 ## 运行与恢复
 
-run 创建单人世界与人物工作区，初始化原生时钟、环境与画像后推进实际决策边界。
+run 创建单人世界与人物工作区，初始化原生时钟、环境与人物卡片后推进实际决策边界。
+人物卡片由 persona.toml 直接构造，新建运行不为它发任何模型请求。
 resume 从父共同检查点恢复到新分支，复制完整人物快照及冻结环境，保留活动选择、进度、订单和回调幂等标记。
 replay 从同一认证检查点构造干预分支，沿用冻结模型与输入身份；只读历史查询不访问生成服务。
 
 用户通过 `--environment` 显式指定完整环境根，删除 `--scenario` 生活运行输入和地图生成命令。
-环境验证、画像、导出、状态查询与评估分别使用所属公开入口；评估自己的 scenario 配置文件与生活运行输入无关。
+环境验证、导出、状态查询与评估分别使用所属公开入口；评估自己的 scenario 配置文件与生活运行输入无关。
+命令是 `validate`、`run`、`resume`、`replay`、`status`、`export`、`evaluate`，没有 `profile` 子命令：
+人物卡片没有编译、一致性检查或覆盖率检查这几步，`worldmock validate` 检查 persona.toml 的每个字段，
+也检查由它构造的卡片文本不超过 600 汉字，见[人物](06-agent.md)；通过 `validate` 的人设表不会在 run 构造卡片时被拒绝。
 失败记录英文诊断，实际存在的输出目录才写失败状态；输入拒绝不能留下假的运行资产或成功回执。
 
 ## 原生模型与工具
 
-人物工具形状、七层提示、最后回合查询控制、原生 tool_calls 纠错和截断纠正归[人物](06-agent.md)。
-LifeEnv 再次核验请求、人物身份、已提交版本和观察时刻。原生 Society 的当前时钟接口与生活绝对时钟一致，
+十一个原生工具的清单、批次形状、七层提示、最后回合查询控制、原生 tool_calls 纠错和截断纠正归[人物](06-agent.md)，
+两个开始工具 start_main_activity、start_side_activity 的参数与受理归[模拟引擎](04-simulation-engine.md)。
+工具定义指纹覆盖全部十一个原生工具。
+LifeEnv 再次核验请求、人物身份、已提交版本和观察时刻。环境为每条开始调用登记一条动作，一个决策至多两条，
+两条结果都落库；AgentSociety2 的决策轮核对要求环境对每个人物恰好返回一条结果，
+所以环境只向框架返回该决策第一条动作的结果，AS2 补丁不改。原生 Society 的当前时钟接口与生活绝对时钟一致，
 只读查询不代替模型活动、不消耗世界随机流。
+
+Life 扩展通道在锁定的 AgentSociety2 之上只加只读方法，环境代理、环境 actor 子类、LifeEnv 与生活引擎各有一个同名的薄转发，
+AS2 补丁不改。通道上有两个方法：`read_query` 回答冻结观察上的只读查询；`due_reflection` 以本次决策的上下文为参，
+先做上下文校验并要求决策轮已开启，返回空或 `{"date": "YYYY-MM-DD", "sleep_activity_id": "..."}`，
+不写事件、不改世界。AS2 的人物步骤是先跑决策循环、后做记忆收尾；「先反思、再做当天第一次决策」在宿主一侧实现：
+LifeAgent 在取观察之前调用 `due_reflection`，判定与登记见[人物](06-agent.md)和[记录引擎](05-recording-engine.md)。
 
 ## 安装与工程放行
 

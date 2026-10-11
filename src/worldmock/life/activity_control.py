@@ -1,4 +1,4 @@
-"""@brief 活动的固定名额、生命周期、客观进度与控制工具共享准入。"""
+"""@brief 活动的固定槽位、生命周期、客观进度与控制工具共享准入。"""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from worldmock.life.activities import at_decision_boundary
 from worldmock.life.activity_titles import TitleIndex
 from worldmock.life.error_contract import ErrorItem, items_fix
 from worldmock.life.guidance import Refusal, items_refusal, refusal_for_code
-from worldmock.life.action_evidence import (_origin_terminal_draft, _origin_terminal_result,
+from worldmock.life.action_evidence import (_activity_terminal_draft, _activity_terminal_result,
                                             _terminal_action_records)
 from worldmock.life.models import (CONCLUDABLE_TERMINAL_STATUSES, ActivityKind, ActivityState, ActivityStatus,
                                    PendingAction, WorldState, active_activities)
@@ -26,8 +26,10 @@ from worldmock.life.sessions import at_stay, moment_label, on_road
 if TYPE_CHECKING:
     from worldmock.life.admission import Context
 
-#: 每人活动名额（常量，不设场景参数）。
+#: 每人活动槽位数（常量，不设场景参数）。
 SLOT_LIMIT = 2
+#: 进行中的活动离计划结束不足这么多秒时不能暂停，只能结束或等它做完；恰好还剩这么多秒可以暂停。
+PAUSE_MIN_REMAINING_SECONDS = 180
 #: 活动阶段的人读说法：进行中、已暂停、刚结束（待收尾）、已收尾、已结束（实验截止截断）。
 PHASE_ACTIVE, PHASE_PAUSED, PHASE_PENDING, PHASE_CONCLUDED, PHASE_ENDED = (
     "进行中", "已暂停", "刚结束", "已收尾", "已结束")
@@ -61,12 +63,12 @@ def pending_conclusions(state: WorldState, agent_id: int) -> tuple[ActivityState
 
 
 def slot_activities(state: WorldState, agent_id: int) -> tuple[ActivityState, ...]:
-    """@brief 占名额的活动：进行中与待收尾（暂停的不占）。"""
+    """@brief 占槽位的活动：进行中与待收尾（暂停的不占）。"""
     return _agent_activities(state, agent_id, occupies_slot)
 
 
 def occupies_slot(activity: ActivityState) -> bool:
-    """@brief 活动是否占一个名额：进行中或待收尾；暂停的活动不占名额。"""
+    """@brief 活动是否占一个槽位：进行中或待收尾；暂停的活动不占槽位。"""
     return activity.status == ActivityStatus.ACTIVE or is_pending_conclusion(activity)
 
 
@@ -76,15 +78,17 @@ def concludable(activity: ActivityState) -> bool:
 
 
 def pausable(state: WorldState, activity: ActivityState) -> bool:
-    """@brief 活动能否暂停（与 pause_activity 的判定同源）：进行中的交互活动。
+    """@brief 活动能否暂停的唯一判定：进行中的交互活动，并且离计划结束不少于 PAUSE_MIN_REMAINING_SECONDS。
 
-    决策边界只关乎暂停的时机，不在此判定；名额超限的下一步据此决定写不写「暂停」。
+    暂停的受理、工具层 pause_activity 一行的可用性与原因、同槽位占用与槽位超限的下一步写不写「暂停」都读它。
+    计划结束取活动此刻的计划结束（系列是正在做的这一集）；决策边界只关乎暂停的时机，不在此判定。
     """
-    return activity.status == ActivityStatus.ACTIVE and activity.kind == ActivityKind.INTERACT
+    return (activity.status == ActivityStatus.ACTIVE and activity.kind == ActivityKind.INTERACT
+            and activity.planned_end_at - state.current_time >= PAUSE_MIN_REMAINING_SECONDS)
 
 
 def free_slots(state: WorldState, agent_id: int) -> int:
-    """@brief 人物剩余的活动名额。"""
+    """@brief 人物剩余的活动槽位。"""
     return SLOT_LIMIT - len(slot_activities(state, agent_id))
 
 
@@ -109,23 +113,34 @@ def activity_name(label: str, object_name: str, epoch: int, timezone_name: str) 
     return f"{label}{object_name}（{moment_label(epoch, timezone_name)} 起）"
 
 
+def oversleep_phrase(activity: ActivityState) -> str:
+    """@brief 睡过头的说法「比打算的多睡了 N 分钟」：只有已完成且多睡了的睡眠才有，其余为空串。"""
+    if activity.kind != ActivityKind.SLEEP or activity.status != ActivityStatus.COMPLETED:
+        return ""
+    seconds = activity.data["oversleep_seconds"]
+    return f"比打算的多睡了 {seconds // 60} 分钟" if seconds > 0 else ""
+
+
 def objective_progress(activity: ActivityState) -> str:
-    """@brief 活动客观进度写已做时长，进行或暂停中的活动另写剩余时长。"""
+    """@brief 活动客观进度写已做时长，进行或暂停中的活动另写剩余时长，睡过头的睡眠另写多睡了多久。"""
     parts = [f"已做{duration_phrase(activity.elapsed_seconds)}"]
     if activity.status in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}:
         remaining = max(0, activity.planned_duration_seconds - activity.elapsed_seconds)
         parts.append(f"还剩{duration_phrase(remaining)}")
+    overslept = oversleep_phrase(activity)
+    if overslept:
+        parts.append(overslept)
     return "，".join(parts)
 
 
 def ending_phrase(activity: ActivityState) -> str:
-    """@brief 已结束活动的终局说法：到达、按计划结束、提前结束或失败（工具层刚结束的状态与 settled 句共用）。"""
+    """@brief 已结束活动的终局说法：到达、按计划结束、睡过头、提前结束或失败（工具层刚结束的状态与 settled 句共用）。"""
     if activity.status == ActivityStatus.FAILED:
         return "失败"
     if activity.kind == ActivityKind.TRAVEL and activity.status == ActivityStatus.COMPLETED:
         return "到达"
     if activity.status == ActivityStatus.COMPLETED and activity.boundary_type == "planned_end":
-        return "按计划结束"
+        return oversleep_phrase(activity) or "按计划结束"
     return "提前结束"
 
 
@@ -156,7 +171,7 @@ def with_note(activity: ActivityState, summary: str, now: int, anchor: bool = Fa
 
 
 def concluded(activity: ActivityState, summary: str, now: int) -> ActivityState:
-    """@brief 收尾：写入总结自述并置 concluded_at（待收尾的活动由此释放名额）；终态不变。"""
+    """@brief 收尾：写入总结自述并置 concluded_at（待收尾的活动由此释放槽位）；终态不变。"""
     return with_note(activity, summary, now).model_copy(update={"concluded_at": now}, deep=True)
 
 
@@ -176,12 +191,12 @@ def activity_name_refusal(written: Sequence[str], visible: Sequence[str]) -> Ref
     """@brief 控制工具（播报、暂停、结束）逐项所写的活动名在本轮可见的活动名中按统一名称解析（精确或无损归一后唯一，
     object_labels.resolve_name，与宿主本地校验同一函数）；解析不出的各项合并成的一次拒绝，都唯一解析时为 None。
 
-    名称类失败逐项报全部（docs/design/04-simulation-engine.md  第 5 条、第四章）：找不到的明细码为 NAME_NOT_FOUND，
+    名称类失败逐项报全部（docs/design/04-simulation-engine.md）：找不到的明细码为 NAME_NOT_FOUND，
     原因
     列出最接近的几个活动名；归一后（如没写开始时刻）对应不止一项的为 NAME_AMBIGUOUS，原因列出它们。明细的参数名为
-    activity_name、原文照录，不带候选（可照填的候选是 start_activity 形状的请求），与宿主纠错中活动名的明细相同；原因逐项写
+    activity_name、原文照录，不带候选（可照填的候选是开始工具的完整调用），与宿主纠错中活动名的明细相同；原因逐项写
     「第 N 项「原文」：…」（guidance.items_refusal），改法按码各写一句。宿主已在本轮纠正这些名称，这里只防绕过宿主的请求，
-    所以顶层码与 start_activity 的防御拒绝（session_actions._unresolved_start）一样取 ACTION_REQUEST_INVALID，下一步取该码的
+    所以顶层码与开始组名称问题的防御拒绝（start_group）一样取 ACTION_REQUEST_INVALID，下一步取该码的
     默认做法：它不在名称类拒绝码闭集（error_contract.NAME_REJECTION_CODES）中，照常计入同刻轮数、照常施加情绪脉冲。
 
     :param written: 请求逐项所写的活动名，按请求中的先后。
@@ -231,8 +246,8 @@ def control_refusal(context: Context, tool: str, activity: ActivityState) -> Ref
     """@brief 控制工具点名一项活动时第一条不成立的准入，成立时为 None；受理与工具层、待办层的可用性共用它。
 
     report_status：只接受进行中或暂停的活动；暂停的活动只在实际开始地点恢复。
-    恢复要有空名额且与进行中活动的占用不能冲突（按这个顺序）。
-    pause_activity：只暂停进行中的活动；只有进行中的交互活动可以暂停；须在活动的决策边界。
+    恢复要有空槽位且与进行中活动的占用不能冲突（按这个顺序）。
+    pause_activity：只暂停进行中的活动；只有离计划结束不少于三分钟的进行中交互活动可以暂停；须在活动的决策边界。
     conclude_activity：只结束能结束的活动（进行中、暂停中或待收尾）；有别的待收尾活动时先收尾；进行中的活动须在决策边界
     。
 
@@ -247,7 +262,7 @@ def control_refusal(context: Context, tool: str, activity: ActivityState) -> Ref
 
 
 def _report_refusal(context: Context, activity: ActivityState) -> Refusal | None:
-    """@brief 播报与恢复按状态、实际开始地点、空名额与恢复后的占用依次核验。"""
+    """@brief 播报与恢复按状态、实际开始地点、空槽位与恢复后的占用依次核验。"""
     if activity.status not in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}:
         return refusal_for_code("ACTION_REQUEST_INVALID")
     if activity.status == ActivityStatus.ACTIVE:
@@ -261,18 +276,18 @@ def _report_refusal(context: Context, activity: ActivityState) -> Refusal | None
     refusal = slot_refusal(context.state, activity.agent_id, 1, context.activity_names)
     if refusal is not None:
         return refusal
-    blocking = [item.name for item in active_activities(context.state, activity.agent_id)
+    blocking = [item for item in active_activities(context.state, activity.agent_id)
                 if item.activity_id != activity.activity_id and item.resource_claims & activity.resource_claims]
     if blocking:
-        listed = "、".join(blocking)
+        listed = "、".join(item.name for item in blocking)
+        step = "Conclude or pause" if all(pausable(context.state, item) for item in blocking) else "Conclude"
         return Refusal("RESOURCE_CONFLICT", f"This activity conflicts with the running activities {listed}.",
-                       f"Conclude or pause {listed} first.",
-                       ("resource_claims",))
+                       f"{step} {listed} first.", ("resource_claims",))
     return None
 
 
 def _pause_refusal(context: Context, activity: ActivityState) -> Refusal | None:
-    """@brief 暂停：能暂停（进行中的交互活动，pausable），并在决策边界。"""
+    """@brief 暂停：能暂停（离计划结束不少于三分钟的进行中交互活动，pausable），并在决策边界。"""
     if not pausable(context.state, activity):
         return _unpausable_refusal(context, activity)
     if not at_decision_boundary(activity, context.state.current_time):
@@ -281,11 +296,15 @@ def _pause_refusal(context: Context, activity: ActivityState) -> Refusal | None:
 
 
 def _unpausable_refusal(context: Context, activity: ActivityState) -> Refusal:
-    """@brief 不能暂停的活动按第一条不成立的条件拒绝：不是进行中的交互活动。"""
+    """@brief 不能暂停的活动按第一条不成立的条件拒绝：不在进行中；是交互活动而离计划结束不足三分钟；其余种类。"""
     if activity.status != ActivityStatus.ACTIVE:
         return refusal_for_code("ACTION_REQUEST_INVALID")
+    name = context.activity_names.get(activity.activity_id, activity.name)
+    if activity.kind == ActivityKind.INTERACT:
+        return Refusal("ACTIVITY_PAUSE_UNAVAILABLE",
+                       f"The activity {name} ends in under three minutes and cannot be paused.",
+                       f"Conclude {name} or let it finish.", fix="Conclude this activity or let it finish instead.")
     if on_road(context.state, activity):
-        name = context.activity_names.get(activity.activity_id, activity.name)
         return Refusal("ACTIVITY_PAUSE_UNAVAILABLE", f"The activity {name} cannot be paused while travelling.",
                        f"Conclude {name}.")
     return refusal_for_code("ACTIVITY_PAUSE_UNAVAILABLE")
@@ -306,12 +325,12 @@ def _conclude_refusal(context: Context, activity: ActivityState) -> Refusal | No
 
 
 def slot_refusal(state: WorldState, agent_id: int, needed: int, names: Mapping[str, str]) -> Refusal | None:
-    """@brief 名额判定（开始、出行与恢复暂停的活动共用）：需要的名额多于空名额时以 SESSION_LIMIT_EXCEEDED 拒绝，够用时为 None。
+    """@brief 槽位判定（开始、出行与恢复暂停的活动共用）：需要的槽位多于空槽位时以 SESSION_LIMIT_EXCEEDED 拒绝，够用时为 None。
 
-    原因点名占名额的活动（进行中与待收尾）：只剩一个名额时说明只剩一个，名额占满时说明两个都被占着；下一步按被点名
-    活动能否暂停写（docs/design/04-simulation-engine.md R3）。
+    原因点名占槽位的活动（进行中与待收尾）：只剩一个槽位时说明只剩一个，槽位占满时说明两个都被占着；下一步按被点名
+    活动能否暂停写（docs/design/04-simulation-engine.md）。
 
-    :param needed: 恢复所需的活动名额。
+    :param needed: 恢复所需的活动槽位。
     :param names: 活动身份→本轮可读名称。
     """
     free = free_slots(state, agent_id)
@@ -325,7 +344,7 @@ def slot_refusal(state: WorldState, agent_id: int, needed: int, names: Mapping[s
 
 
 def _slot_next_step(state: WorldState, occupying: Sequence[ActivityState], names: Mapping[str, str]) -> str:
-    """@brief 名额超限的下一步：都能暂停时写结束或暂停其中一项，都不能时只写结束，混合时暂停只点名能暂停的。"""
+    """@brief 槽位超限的下一步：都能暂停时写结束或暂停其中一项，都不能时只写结束，混合时暂停只点名能暂停的。"""
     listed = _listed(occupying, names)
     can_pause = [item for item in occupying if pausable(state, item)]
     if len(can_pause) == len(occupying):
@@ -342,9 +361,9 @@ def _listed(activities: Iterable[ActivityState], names: Mapping[str, str]) -> st
 
 def record_changes(before: WorldState, after: WorldState, pending: PendingAction,
                    context: RecordContext) -> tuple[WorldState, list[EventDraft]]:
-    """@brief 本次控制改变的每项活动写一条 environment_event；原始动作全部子活动终结时写一次终态；控制请求里每条被受理
+    """@brief 本次控制改变的每项活动写一条 environment_event；活动终结时给开始它的动作写一次终态；控制请求里每条被受理
     的个人事务变更各写一条事务事件（errands.request_drafts，只在这条成功分支生成，docs/design/04-simulation-engine.md
-    「原子性」）。"""
+    「唤醒、日计划与个人事务」）。"""
     drafts = _lifecycle_drafts(before, after, pending, context.snapshot)
     changed, terminal = _terminal_records(before, after, pending.requested_event_id, context.index)
     return changed, drafts + terminal + errands.request_drafts(before, after, pending)
@@ -354,7 +373,7 @@ def truncation_record(activity: ActivityState, snapshot: dict, now: int) -> Even
     """@brief 实验截止截断的一项活动（此前进行中或暂停）写一条带截断快照的 environment_event。
 
     同源两项的聚合终态不带快照，暂停的活动此前只有暂停时的快照；逐项写截断快照，导出的活动才与最终检查点逐项一致
-    （docs/design/04-simulation-engine.md「活动」）。原因回链开始该活动的请求事件。
+    （docs/design/04-simulation-engine.md）。原因回链开始该活动的请求事件。
 
     :param snapshot: 截断后的活动权威快照（引擎的活动快照投影）。
     """
@@ -386,18 +405,15 @@ def _lifecycle_drafts(before: WorldState, after: WorldState, pending: PendingAct
 
 def _terminal_records(before: WorldState, after: WorldState, request_event_id: str,
                       index: TitleIndex) -> tuple[WorldState, list[EventDraft]]:
-    """@brief 本次新终结的活动：其原始动作的全部子活动都终结时更新 processed_actions 并写一次终态。"""
+    """@brief 本次新终结的活动：各自更新开始它的那条动作在 processed_actions 里的结果并写一次终态。"""
     newly = [item for key, item in sorted(after.activities.items()) if item.status in _TERMINAL_STATUSES
              and key in before.activities and before.activities[key].status not in _TERMINAL_STATUSES]
     drafts = []
-    for origin in dict.fromkeys(item.origin_action_id for item in newly):
-        activity = next(item for item in newly if item.origin_action_id == origin)
-        result = _origin_terminal_result(after, activity, after.current_time, index)
-        if result is None:
-            continue
+    for activity in newly:
+        result = _activity_terminal_result(after, activity, after.current_time, index)
         after = after.model_copy(update={"processed_actions": _terminal_action_records(after, result)})
-        drafts.append(_origin_terminal_draft(after, activity, after.current_time, [request_event_id],
-                                             index))
+        drafts.append(_activity_terminal_draft(after, activity, after.current_time, [request_event_id],
+                                               index))
     return after, drafts
 
 

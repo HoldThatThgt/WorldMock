@@ -252,7 +252,7 @@ const S = {
   memFiles: {},          // agentId -> {memoryMd, episodes:[]}
   runManifest: null,     // {path, frozen, manifest}：随库提供的本运行冻结清单（frozen 表示取自导出清单）
   ignoredManifests: 0,   // 随库提供、却不是本库所属运行清单的 manifest.json 个数
-  nameIdx: null,         // {locations:Map, targets:Map} 来自本次运行记录
+  nameIdx: null,         // {locations:Map, targets:Map, methods:Map} 来自本次运行记录
   missingNames: new Set(), // 已报告名称缺失的对象
   reminded: new Map(),   // 「人物@时刻」-> [{seq,name}]：事务提醒事件，供唤醒原因写事务名称
   fmt: null, tzOff: 28800,
@@ -316,7 +316,8 @@ const TYPE_LABELS = {
   run_ended:'结束', run_failed:'运行失败',
 };
 const KIND_LABELS = {sleep:'睡眠', travel:'出行', interact:'互动', purchase:'购买'};
-const TOOL_LABELS = {start_activity:'开始活动', query_world:'查询世界', recall_task_summary:'回看任务',
+const TOOL_LABELS = {start_main_activity:'开始槽位 1 的活动', start_side_activity:'开始槽位 2 的活动',
+  query_world:'查询世界', recall_task_summary:'回看任务',
   report_status:'播报进展', pause_activity:'暂停活动', conclude_activity:'结束活动', revise_day_plan:'调整当日目标'};
 const STATUS_LABELS = { active:'进行中', completed:'已完成', in_progress:'进行中', rejected:'被拒绝', cancelled:'已取消' };
 const BND_LABELS = { planned_end:'按计划结束', feedback:'反馈中断',
@@ -325,6 +326,8 @@ const BND_LABELS = { planned_end:'按计划结束', feedback:'反馈中断',
 const ENVK_LABELS = { initial_funds_injected:'初始资金注入', time_trigger:'时间触发', weather:'天气',
   callback_effect:'回调效果', callback_reminder:'状态提醒', app_touch:'应用操作',
   purchase_payment:'购买付款', payment_notification:'消费通知',
+  app_foreground:'app 前台区间', order_notification:'订单通知',
+  location_entered:'进入地点', location_left:'离开地点',
   delivery_arrival:'配送到达', app_push:'app 推送',
   goods_received:'商品收货',
   day_plan_generated:'零点计划生成', activity_concluded:'活动收尾', activity_paused:'活动暂停',
@@ -347,8 +350,7 @@ const MEMORY_TYPE_LABELS = {
   commitment:'承诺', preference:'偏好', resolution:'决定',
 };
 const ACCT_LABELS = {'external:scenario':'外部账户'};
-const ACTION_LABELS = {walk:'步行', drive:'驾车', take_taxi:'打车', take_bus:'公共交通',
-  purchase:'购买', sleep:'睡觉', interact:'进行'};
+const ACTION_LABELS = {travel:'出行', purchase:'购买', sleep:'睡觉', interact:'进行'};
 const typeLabel = t => TYPE_LABELS[t]||t;
 const bndLabel = b => BND_LABELS[b]||b;
 const envkLabel = k => ENVK_LABELS[k]||k;
@@ -366,6 +368,8 @@ const acctLabel = a => {
   if (m) return agentName(+m[1]);
   return ACCT_LABELS[a]||a;
 };
+/** @brief 出行方式身份关联到本次运行记录的冻结目录名称；活动没有记录出行方式时为空。 */
+const methodLabel = id => id==null||id===''?'':recordedName(S.nameIdx?.methods, String(id));
 /** @brief 按当前活动种类显示中文标签，不从内部身份推断内容类别。 */
 function actTypeLabel(kind, target){
   return kindLabel(kind);
@@ -465,7 +469,8 @@ function collectNames(rows, names){
 
 /** @brief 用 SQLite 投影构建名称索引，不加载模型请求或事件全文。 */
 function buildNameIndex(){
-  const locations = new Map(), targets = new Map();
+  /* 引擎自带的步行不依赖观察；数据集定义的出行方式取观察里冻结目录绑定的出行动作行。 */
+  const locations = new Map(), targets = new Map(), methods = new Map([['walking', '步行']]);
   const sources = [
     ['locations', 'location_id', 'name', locations],
     ['goods', 'goods_id', 'name', targets],
@@ -489,7 +494,14 @@ function buildNameIndex(){
     FROM events e, json_each(e.body,'$.data.errand_item_bindings') item
     WHERE json_extract(e.body,'$.event_type')='observation'
     GROUP BY id, label ORDER BY MIN(e.event_seq), id, label`), targets);
-  S.nameIdx = {locations, targets};
+  supplementNames(q(`SELECT method AS id, name AS label FROM (
+    SELECT json_extract(action.value,'$.travel_method_id') AS method,
+      json_extract(action.value,'$.detail') AS name, MIN(e.event_seq) AS first
+    FROM events e, json_each(e.body,'$.data.catalog_bindings') item, json_each(item.value,'$.actions') action
+    WHERE json_extract(e.body,'$.event_type')='observation'
+      AND json_extract(action.value,'$.travel_method_id') IS NOT NULL
+    GROUP BY method, name) ORDER BY first, method, name`), methods);
+  S.nameIdx = {locations, targets, methods};
 }
 
 /** @brief 只补缺的名称来源：对象已有名称时不动，没有时取最先记录的有效名称（非空且不同于对象编号）。 */
@@ -545,11 +557,12 @@ function buildIndex(){
   });
   typeQuery('action_accepted', ['$.activity_id','$.data.activity.kind','$.data.activity.planned_duration_seconds',
                                 '$.data.activity.data.action','$.data.activity.destination_id',
-                                '$.data.activity.data.origin_id',
+                                '$.data.activity.travel_method_id','$.data.activity.data.origin_id',
                                 '$.data.activity.data.path','$.data.activity.data.app_id',
                                 '$.data.activity.data.content_id','$.data.activity.content_title','$.data.data.activities'], r=>{
     S.summaries.set(r.seq,{aid:r['$.activity_id'],kind:r['$.data.activity.kind'],dur:r['$.data.activity.planned_duration_seconds'],
       tg:r['$.data.activity.data.action'],dest:r['$.data.activity.destination_id'],
+      method:r['$.data.activity.travel_method_id'],
       appId:r['$.data.activity.data.app_id'],contentId:r['$.data.activity.data.content_id'],
       content:r['$.data.activity.content_title'],origin:r['$.data.activity.data.origin_id'],
       path:parseJArr(r['$.data.activity.data.path']||'[]'),
@@ -567,7 +580,7 @@ function buildIndex(){
   typeQuery('activity_progress', ['$.activity_id','$.data.activity.kind','$.data.activity.status','$.data.activity.started_at',
                                   '$.data.activity.ended_at','$.data.activity.planned_end_at','$.data.activity.elapsed_seconds',
                                   '$.data.activity.boundary_type','$.data.activity.data.action',
-                                  '$.data.activity.destination_id',
+                                  '$.data.activity.destination_id','$.data.activity.travel_method_id',
                                   '$.data.activity.data.origin_id','$.data.activity.data.path',
                                   '$.data.interval_start','$.data.interval_end','$.data.activity.data.app_id',
                                   '$.data.activity.data.content_id','$.data.activity.content_title'],
@@ -576,7 +589,7 @@ function buildIndex(){
       start:r['$.data.activity.started_at'],end:r['$.data.activity.ended_at'],
       pend:r['$.data.activity.planned_end_at'],elapsed:r['$.data.activity.elapsed_seconds'],
       bnd:r['$.data.activity.boundary_type'],tg:r['$.data.activity.data.action'],
-      dest:r['$.data.activity.destination_id'],
+      dest:r['$.data.activity.destination_id'],method:r['$.data.activity.travel_method_id'],
       appId:r['$.data.activity.data.app_id'],contentId:r['$.data.activity.data.content_id'],
       content:r['$.data.activity.content_title'],origin:r['$.data.activity.data.origin_id'],
       path:parseJArr(r['$.data.activity.data.path']||'[]'),
@@ -703,8 +716,11 @@ function readableReq(tool, reqRaw){
   catch(error){ console.error('Invalid action request JSON:', error); return ''; }
   if (!req || typeof req!=='object') return '';
   switch (tool){
-    case 'start_activity':
-      return (req.items||[]).map(item=>`${item.target} · ${ACTION_LABELS[item.action]||item.action}`).join('；');
+    case 'start_main_activity':
+      if (req.action==='sleep') return `${ACTION_LABELS.sleep} · ${req.target} 分钟`;
+      return `${req.target} · ${ACTION_LABELS[req.action]||req.action} · ${req.detail??''}`;
+    case 'start_side_activity':
+      return `${ACTION_LABELS[req.action]||req.action} · ${(Array.isArray(req.target)?req.target:[]).join('、')}`;
     case 'query_world':
       return `${req.name||req.category||req.action||''} · 偏移 ${req.offset}`;
     case 'recall_task_summary':
@@ -792,7 +808,8 @@ function buildActivities(){
     const recorded = [summary, ...(summary.activities||[]).map(activity=>({
       aid:activity.activity_id, kind:activity.kind, start:activity.started_at, end:activity.ended_at,
       status:activity.status, elapsed:activity.elapsed_seconds, tg:activity.data?.action,
-      dest:activity.destination_id, content:activity.content_title, appId:activity.data?.app_id,
+      dest:activity.destination_id, method:activity.travel_method_id,
+      content:activity.content_title, appId:activity.data?.app_id,
       contentId:activity.data?.content_id, origin:activity.data?.origin_id, path:activity.data?.path,
     }))];
     for (const s of recorded){
@@ -809,6 +826,7 @@ function buildActivities(){
     if (s.elapsed!=null) a.elapsed = Math.max(a.elapsed, s.elapsed);
     if (a.tg==null && s.tg!=null && s.tg!=='') a.tg = s.tg;
     if (a.dest==null && s.dest!=null && s.dest!=='') a.dest = s.dest;
+    if (a.method==null && s.method!=null && s.method!=='') a.method = s.method;
     a.appId=s.appId; a.contentId=s.contentId;
     if (s.origin!=null) a.origin = s.origin;
     if (s.path?.length) a.path = s.path;
@@ -1142,15 +1160,16 @@ function toggleDetail(row, seq){
 
 /* ---------- 活动表格（替代甘特图） ---------- */
 const AT = { sortKey:'start', sortDir:1, page:0, pageSize:50, filtered:[] };
-/** @brief 内容显示实际 content_title，纯目录浏览显示真实应用，出行显示目的地。 */
+/** @brief 内容显示实际 content_title，纯目录浏览显示真实应用，出行显示出行方式名称与目的地。 */
 function actTargetText(a){
   if (a.kind==='interact') return a.contentId ? targetLabel(a.contentId, a.content) : (
     a.appId ? targetLabel(a.appId) : '—');
+  const way = a.kind==='travel' ? methodLabel(a.method) : '';
+  let route = a.dest ? `→ ${locLabel(a.dest)}` : '';
   if (a.kind==='travel' && a.origin && a.path?.length){
-    return `${locLabel(a.origin)} → ${locLabel(a.dest)} · 路径：${a.path.map(locLabel).join(' → ')}`;
+    route = `${locLabel(a.origin)} → ${locLabel(a.dest)} · 路径：${a.path.map(locLabel).join(' → ')}`;
   }
-  if (a.dest) return `→ ${locLabel(a.dest)}`;
-  return '—';
+  return [way, route].filter(Boolean).join(' · ') || '—';
 }
 /** @brief 按同一时间轴绘制人物的活动泳道，条块只取已结算区间。 */
 function renderActivityLanes(activities){

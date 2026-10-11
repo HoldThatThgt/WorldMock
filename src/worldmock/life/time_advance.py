@@ -23,7 +23,8 @@ from worldmock.life import (
     same_moment,
     sessions,
 )
-from worldmock.life.action_evidence import _origin_terminal_draft, _origin_terminal_result, _terminal_action_records
+from worldmock.life.action_evidence import (_activity_terminal_draft, _activity_terminal_result,
+                                            _terminal_action_records)
 from worldmock.life.activities import (
     ActivityAdvance,
     advance_activity_shared,
@@ -51,7 +52,10 @@ from worldmock.life.rhythm import (
 )
 from worldmock.life.schedule import DayPlan, expired_plan_agent_ids
 from worldmock.life.models import validated_payload
+from worldmock.life.navigation_foreground import settle_navigation
 from worldmock.life.presentation import flush_presentation, stage_presentation
+from worldmock.life.purchase_phases import advance_phases, foreground_events, phase_boundaries
+from worldmock.life.stay_records import stay_events
 from worldmock.life.travel import persisted_trip, record_arrival, update_travel
 from worldmock.scheduling.effects import process_scheduled_events
 
@@ -129,12 +133,14 @@ class TimeAdvanceCoordinator:
         return results
 
     def _commit_advance(self, staged: WorldState, drafts: list[EventDraft]) -> None:
-        """@brief 所有效果完成后比对阈值一次，提交唯一新世界。"""
+        """@brief 所有效果完成后比对阈值一次，再比较提交前后的世界写导航、购买前台区间与停留进出，提交唯一新世界。"""
         from worldmock.life.callbacks import compare_callback_states
 
         outcome = compare_callback_states(self.context.state, staged, self.context.catalog, drafts,
                                           self.context.callback_causes)
-        staged, drafts = outcome.state, [*drafts, *outcome.drafts]
+        staged, navigation = settle_navigation(self.context.state, outcome.state, self.context.catalog)
+        drafts = [*drafts, *outcome.drafts, *navigation, *foreground_events(self.context.state, staged),
+                  *stay_events(self.context.state, staged, drafts)]
         staged.version = self.context.state.version + 1
         self.context.store.commit(validated_payload(staged), drafts)
         self.context.state = staged
@@ -181,7 +187,7 @@ class TimeAdvanceCoordinator:
         return self.midnight is not None
 
     def decide_midnight_rhythm(self) -> None:
-        """@brief 零点节律入口（docs/design/04-simulation-engine.md「运行时机」）：零点计划提交之后只执行判定段。
+        """@brief 零点节律入口（docs/design/04-simulation-engine.md「唤醒、日计划与个人事务」）：零点计划提交之后只执行判定段。
 
         判定该秒的唤醒原因与 next_decision_at（在手承诺按新计划计，新计划的提醒进入候选），写共同身体结算的唤醒字段，
         并与活动反馈对齐一次提交；心理需要只由同一实际消费区间结算。
@@ -264,7 +270,7 @@ class TimeAdvanceCoordinator:
         advanced=advance_activity_shared(activity,state.agents[activity.agent_id],target,settlement)
         state.agents[activity.agent_id]=advanced.agent
         state.activities[activity.activity_id]=advanced.activity
-        effects,content=self._apply_activity_effect(state,advanced.activity,target)
+        effects,content=self._apply_activity_effect(state,advanced.activity,target,activity.last_settled_at)
         from worldmock.life.callbacks import settle_callback_dates
 
         outcome=settle_callback_dates(state,self.context.catalog,activity,(activity.last_settled_at,target))
@@ -289,7 +295,7 @@ class TimeAdvanceCoordinator:
         return [draft,*effects],self._terminal_for_progress(state,changed,target)
 
     def _terminal_for_progress(self, state: WorldState, activity, target: int):
-        """@brief 原动作的所有活动均终结后写一次聚合结算。"""
+        """@brief 活动终结后给开始它的那条动作写一次终态。"""
         if activity.status not in {
             ActivityStatus.COMPLETED,
             ActivityStatus.CANCELLED,
@@ -300,32 +306,29 @@ class TimeAdvanceCoordinator:
         if activity.origin_action_id not in state.processed_actions:
             raise ProtocolError("Activity origin action is missing from processed actions")
         index = title_index(self.context.catalog)
-        result = _origin_terminal_result(state, activity, target, index)
-        if result is None:
-            return None
+        result = _activity_terminal_result(state, activity, target, index)
         state.processed_actions = _terminal_action_records(state, result)
         return (
             result,
-            _origin_terminal_draft(state, activity, target, [], index),
+            _activity_terminal_draft(state, activity, target, [], index),
         )
 
-    def _apply_activity_effect(self,state:WorldState,activity,target:int)->tuple[list[EventDraft], dict | None]:
-        """@brief 真实推进后结算路线、购买付款和内容，读取各模块唯一状态。"""
+    def _apply_activity_effect(self,state:WorldState,activity,target:int,
+                               since:int)->tuple[list[EventDraft], dict | None]:
+        """@brief 真实推进后结算路线、购买的段边界与付款、内容，读取各模块唯一状态；since 是这项活动上一次结算到的时刻。"""
         drafts=[]
         content=None
         if activity.kind==ActivityKind.TRAVEL:
-            trip=persisted_trip(self.context.catalog.graph,activity)
+            trip=persisted_trip(self.context.catalog,activity)
             changed,agent=update_travel(activity,trip,state.agents[activity.agent_id])
             record_arrival(changed,agent)
             state.activities[activity.activity_id],state.agents[agent.agent_id]=changed,agent
         elif activity.kind==ActivityKind.PURCHASE:
             from worldmock.life.storefront_runtime import StorefrontRuntime
 
-            runtime=StorefrontRuntime(self.context)
-            changed,payment=runtime.advance_payment(state,activity)
-            drafts.extend(payment)
+            changed=advance_phases(state,activity,since)
             if activity.status==ActivityStatus.COMPLETED:
-                changed,completion=runtime.complete_purchase(changed,activity)
+                changed,completion=StorefrontRuntime(self.context).complete_purchase(changed,activity)
                 drafts.extend(completion)
             state.agents,state.accounts,state.deliveries=changed.agents,changed.accounts,changed.deliveries
             state.activities,state.pending_events=changed.activities,changed.pending_events
@@ -361,7 +364,7 @@ class TimeAdvanceCoordinator:
         return (state, drafts, arrivals)
 
     def _truncate(self, state: WorldState, now: int) -> list[EventDraft]:
-        """@brief 在实验终点截断仍进行或暂停的活动并保留实际进度：逐项写截断快照，原始动作全部终结时写一次终态。"""
+        """@brief 在实验终点截断仍进行或暂停的活动并保留实际进度：逐项写截断快照，并给开始它的动作写一次终态。"""
         drafts = []
         for activity_id, activity in state.activities.items():
             if activity.status not in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}:
@@ -380,12 +383,9 @@ class TimeAdvanceCoordinator:
                 )
             )
             index = title_index(self.context.catalog)
-            result = _origin_terminal_result(state, activity, now, index)
-            if result is not None:
-                state.processed_actions = _terminal_action_records(state, result)
-                drafts.append(
-                    _origin_terminal_draft(state, activity, now, [], index)
-                )
+            result = _activity_terminal_result(state, activity, now, index)
+            state.processed_actions = _terminal_action_records(state, result)
+            drafts.append(_activity_terminal_draft(state, activity, now, [], index))
         return drafts
 
     def _ready(self, agent_id: int) -> bool:
@@ -400,7 +400,7 @@ class TimeAdvanceCoordinator:
     def _next_epoch(self) -> int:
         """@brief 选择严格晚于当前时刻的最近活动、后台或节律边界，含场景本地零点与未触发的提醒（第四章），以及清醒人物
         的班次与休息时段起止：直接取生成器给出的严格晚于当前的时刻，睡眠中的人物不计入
-        （docs/design/04-simulation-engine.md ）。"""
+        （docs/design/04-simulation-engine.md）。"""
         candidates = [
             self.context.state.end_time,
             *reminders.boundary_candidates(self.context.state, self.context.config.timezone),
@@ -421,9 +421,7 @@ class TimeAdvanceCoordinator:
                 continue
             candidates.append(activity.planned_end_at)
             if activity.kind == ActivityKind.PURCHASE:
-                from worldmock.life.storefront_runtime import StorefrontRuntime
-
-                candidates.extend(StorefrontRuntime(self.context).payment_boundaries(self.context.state, activity))
+                candidates.extend(phase_boundaries(self.context.state, activity))
             if activity.next_interaction_at and activity.next_interaction_at > self.context.state.current_time:
                 candidates.append(activity.next_interaction_at)
         for agent_id in self.context.state.agents:

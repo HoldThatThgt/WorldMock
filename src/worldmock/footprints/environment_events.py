@@ -3,14 +3,16 @@
 import logging
 from datetime import date
 
+from worldmock.exchange.constants import WEATHER_FACTORS
 from worldmock.footprints.callback_contract import StateDeltaResult, StateResetResult, TransferResult
-from worldmock.life.weather import WEATHER_FACTORS
 
 RETIRED_KINDS = {
     "alarm_ring", "message_arrival", "mail_arrival", "model_npc_reply_pending", "model_npc_reply",
     "work_content_completed", "bill_due", "payroll", "goal_progressed",
 }
 TIME_KEYS = {"run_start", "run_stop", "hourly", "daily", "monthly"}
+#: 一段停留怎样开始，以及各自要求的起因个数：运行开始时已在这里的那一段没有起因。
+ENTRY_KIND_CAUSES = {"run_start": 0, "arrival": 1, "travel_ended_early": 1}
 
 
 def validate_environment_event(event) -> None:
@@ -33,6 +35,20 @@ def validate_environment_event(event) -> None:
                 or event.visibility != "agent" or event.resource_changes
                 or any(not _text(data[key]) for key in ("rule_id", "app_id", "text"))):
             _invalid("Callback reminder fields or source are invalid")
+    elif kind in {"location_entered", "location_left"}:
+        _location_stay(event)
+
+
+def _location_stay(event) -> None:
+    """@brief 停留进出是无资金变更的系统可见环境事实：字段闭集，属于一个人物，起因个数随进入方式而定，离开恰一个。"""
+    data = event.data
+    entered = data["kind"] == "location_entered"
+    fields = {"kind", "session_id", "location_id", "entry_kind"} if entered else {"kind", "session_id", "location_id"}
+    causes = ENTRY_KIND_CAUSES.get(data.get("entry_kind")) if entered else 1
+    if (set(data) != fields or event.source_kind != "environment" or event.visibility != "system"
+            or event.resource_changes or event.agent_id is None or causes is None
+            or len(event.caused_by) != causes or not _text(data["session_id"]) or not _text(data["location_id"])):
+        _invalid("Location stay event fields or source are invalid")
 
 
 def _callback_effect(event) -> None:

@@ -1,7 +1,8 @@
-"""@brief 同秒续接的宿主侧：把环境交来的续接链组装成本次决策的起始消息（docs/design/06-agent.md「同秒续接」）。
+"""@brief 同秒续接的宿主侧：把环境交来的续接链组装成本次决策的起始消息（docs/design/06-agent.md「提示与工具」）。
 
 消息 = 上一决策末次请求的全部消息（system、链首快照 user、此前各原生回合）＋ 上一决策的最终 assistant（reasoning_content、
-content、tool_calls）＋ 一条对应其世界请求 tool_call_id 的 tool 消息。tool 消息是紧凑 JSON {result, changes, events}，空键
+content、tool_calls）＋ 对应其每个世界请求 tool_call_id 的各一条 tool 消息（开始组两条，changes 与 events 只写在最后一条上）。
+tool 消息是紧凑 JSON {result, changes, events}，空键
 省略：changes 相对于模型当前所见（链首快照依次叠加此前各 tool 消息的 changes）给出工具层目标的 updated 与 removed、
 待办层暂停活动与个人事务（按名称）的 added 与 removed、今日计划与身体感受的整体替换、人设层关系与偏好的更新项，以最新
 为准。记忆层与所在地点在链内不变（它们只随时间推进或 session 切换而变，两者都会断链）。原生 tools 不因续接改变。
@@ -70,8 +71,10 @@ def continuation_messages(chain: Mapping[str, Any] | None, layers: Sequence[dict
     applied = [changes for changes in (_earlier_changes(item) for item in messages[2:] if item.get("role") == "tool")
                if changes is not None]
     changes = layer_changes(json.loads(messages[1]["content"]), applied, layers)
-    return [*messages, dict(chain["assistant"]),
-            tool_message(chain["tool_call_id"], chain["result"], changes, list(chain["events"]))]
+    results = list(chain["tool_results"])
+    earlier = [tool_message(item["tool_call_id"], item["result"], {}, []) for item in results[:-1]]
+    last = tool_message(results[-1]["tool_call_id"], results[-1]["result"], changes, list(chain["events"]))
+    return [*messages, dict(chain["assistant"]), *earlier, last]
 
 
 def send_check(messages: list[dict], budget: ProgressBudget) -> ProgressBudget:

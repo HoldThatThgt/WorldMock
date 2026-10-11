@@ -9,6 +9,7 @@ from worldmock.life.activities import ActivityStartParams, start_activity, sched
 from worldmock.life.activity_control import activity_name
 from worldmock.life.app_push import open_app_push, release_app_pushes
 from worldmock.life.content_select import ContentRequest, select_content
+from worldmock.life.location_activities import next_content
 from worldmock.life.models import ActivityState, ActivityStatus, ContentProgress, WorldState
 from worldmock.life.randomness import random_stream
 from worldmock.life.world_ops import _activity_origin, _put_activity
@@ -21,44 +22,60 @@ class InteractivityRuntime:
     #: 唯一引擎上下文。
     context: object
 
-    def start(self, state: WorldState, pending, target_kind: str,
-              target_id: str) -> tuple[WorldState, ActivityState, list[EventDraft]]:
-        """@brief 整组已准入后推荐一次内容，并打开真实钉住推送。"""
+    def start(self, state: WorldState, pending, row,
+              stay_location_id: str | None) -> tuple[WorldState, ActivityState, list[EventDraft]]:
+        """@brief 整组已准入后开始一项 interact：内容 app 由引擎在合格内容里推荐一次并打开真实钉住推送，地点按人物
+        点名的单元开始。
+
+        :param row: 名称解析出的绑定行（内容 app，或带单元动作行 selected_action 的当前地点）。
+        :param stay_location_id: 本轮请求生效之前的停留地点，内容前提按它筛选；与出发同组时是出发地，路上为 None。
+        """
         agent = state.agents[pending.agent_id]
         origin = _activity_origin(state, pending)
-        suffix = f":{origin.activity_ordinal:04d}" if origin.activity_ordinal > 1 else ""
-        identity = f"activity-{origin.action_id}{suffix}"
-        request = ContentRequest(agent.agent_id, target_kind, target_id, identity)
-        app_id = target_id if target_kind == "app" else None
-        app = None if app_id is None else self.context.catalog.apps[app_id]
-        if app is not None and app.browse_duration_seconds is not None:
-            duration, data = app.browse_duration_seconds, _browse_data(app_id)
+        if row["kind"] == "app":
+            request = ContentRequest(agent.agent_id, row["object_id"], stay_location_id,
+                                     f"activity-{origin.action_id}")
+            label, duration, data = self._app_plan(state, agent, request)
         else:
-            content, pinned = select_content(self.context.catalog, state, request,
-                random_stream(state.random_state, f"{identity}:0"))
-            progress = agent.content_progress.get(content.content_id)
-            position = 0.0 if progress is None else progress.position_seconds
-            duration, data = _remaining(content, position), _content_data(content, app_id, position, pinned)
+            label, duration, data = self._unit_plan(agent, row["selected_action"])
         params = ActivityStartParams("interact", duration, data=data)
         agent, activity = start_activity(agent, params, state.current_time, origin, self.context.body)
-        label = app.name if app is not None else self.context.catalog.locations[target_id].display_name
         activity = activity.model_copy(update={"name": activity_name("进行", label, state.current_time,
             state.timezone), "media_position_seconds": data.get("start_position_seconds", 0.0)}, deep=True)
         activity = schedule_feedback(activity, state.current_time, self.context.config.activity_feedback_seconds)
         changed = _put_activity(state, agent, activity)
         if data.get("pinned_by_push_id") is not None:
-            changed, _ = open_app_push(changed, agent.agent_id, app_id, data["content_id"])
-        return self._collect(changed, activity, target_kind, target_id)
+            changed, _ = open_app_push(changed, agent.agent_id, data["app_id"], data["content_id"])
+        return self._collect(changed, activity, row)
 
-    def _collect(self, state: WorldState, activity: ActivityState,
-                 target_kind: str, target_id: str) -> tuple:
-        """@brief 驿站收货与真实地点内容在同次受理中完成。"""
-        place = self.context.catalog.locations.get(target_id) if target_kind == "location" else None
+    def _app_plan(self, state: WorldState, agent, request: ContentRequest) -> tuple[str, int, dict]:
+        """@brief 内容 app 的活动名、计划时长与活动数据：没有登记内容的 app 是纯目录浏览、读声明时长，否则在合格
+        内容里抽取一次并从共享位置继续。"""
+        app_id, catalog = request.app_id, self.context.catalog
+        app = catalog.apps[app_id]
+        if not catalog.contents_by_app[app_id]:
+            return app.name, app.browse_duration_seconds, _browse_data(app_id)
+        content, pinned = select_content(catalog, state, request,
+                                         random_stream(state.random_state, f"{request.activity_id}:0"))
+        progress = agent.content_progress.get(content.content_id)
+        position = 0.0 if progress is None else progress.position_seconds
+        return app.name, _remaining(content, position), _content_data(content, app_id, position, pinned)
+
+    def _unit_plan(self, agent, action: dict) -> tuple[str, int, dict]:
+        """@brief 地点单元的活动名、计划时长与活动数据：活动名用单元名，从单元的下一条内容的共享位置开始，不抽随机数。"""
+        contents = [self.context.catalog.contents[key] for key in action["content_ids"]]
+        content, position = next_content(contents, agent)
+        return action["detail"], _remaining(content, position), _content_data(content, None, position, None)
+
+    def _collect(self, state: WorldState, activity: ActivityState, row) -> tuple:
+        """@brief 驿站收货与人物点名的地点单元在同次受理中完成。"""
+        place = self.context.catalog.locations.get(row["object_id"]) if row["kind"] == "location" else None
         if place is None or not place.accepts_parcels:
             return state, activity, []
         from worldmock.life.storefront_runtime import StorefrontRuntime
 
-        changed, receipts = StorefrontRuntime(self.context).collect_parcels(state, activity.agent_id, target_id)
+        changed, receipts = StorefrontRuntime(self.context).collect_parcels(state, activity.agent_id,
+                                                                           place.location_id)
         return changed, activity, receipts
 
     def advance(self, state: WorldState, activity: ActivityState, target: int) -> tuple[WorldState, dict | None]:

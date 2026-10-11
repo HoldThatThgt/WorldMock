@@ -17,7 +17,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/bet
 from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig
 from agentsociety2.agent.base.react import MemoryUpdateEvidence
 from tests.life.conftest import (
-    advance_until_ready, conclude_request, stage_day_plan, start_activity, submit_round,
+    advance_until_ready, conclude_request, stage_day_plan, submit_round, use_app,
 )
 from custom.agents.life_agent import _conclusion_memories
 from worldmock.agents.life_memory import WorldMockMemoryRuntime, render_memory_view
@@ -74,6 +74,8 @@ async def test_memory_runtime_without_a_workspace_does_not_claim_a_persisted_upd
     assert cold.build_context() == {}
     outcome = await cold.after_step(tick=60, t=_TIME, step_count=1, finish_memories=[])
     assert outcome.created_episodes == () and outcome.merged_episodes == ()
+    reflected = await cold.wake_reflection(tick=60, t=_TIME, step_count=1)
+    assert (reflected.created_episodes, reflected.merged_episodes, reflected.memory_before_sha256) == ((), (), None)
     assert cold.store is None
 
 
@@ -157,7 +159,7 @@ async def test_actual_app_progress_is_written_to_verified_memory_with_source_and
     """真实 app 足迹进入启用的 AS2 记忆存储；应用、内容与实际区间位置不靠人物自述补齐。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    _, results = submit_round(engine, {1: ("start_activity", start_activity("interact", "抖音"))},
+    _, results = submit_round(engine, {1: ("start_side_activity", use_app("抖音"))},
                               "memory-app")
     started = results[0]
     assert started.status == "in_progress"
@@ -187,8 +189,9 @@ def _sha256(path):
 
 @pytest.mark.asyncio
 async def test_sleep_reflection_is_subjective_and_its_id_is_reported(tmp_path):
-    """就寝边界先做主观归纳、再经唯一严格工具 submit_reflection 提交反思（docs/design/10-runtime.md ）：请求只带
-    这一个工具并强制调用，洞见固定为主观的 reflection 条目（重要度 0.8、无关键词、来源 reflection），其身份随本步结果报告。"""
+    """睡醒的反思阶段先做主观归纳、再经唯一严格工具 submit_reflection 提交反思（docs/design/06-agent.md「宿主模型协议」）：
+    请求只带这一个工具并强制调用，洞见固定为主观的 reflection 条目（重要度 0.8、无关键词、来源 reflection），
+    其身份随反思阶段的结果报告；这个阶段不重写 MEMORY.md，结果不绑定观察。"""
     holder = {}
 
     async def dispatch(**request):
@@ -209,22 +212,75 @@ async def test_sleep_reflection_is_subjective_and_its_id_is_reported(tmp_path):
 
     runtime, owner = _runtime(tmp_path, dispatch)
     holder["runtime"] = runtime
-    outcome = await runtime.after_step(
+    tail = await runtime.after_step(
         tick=60, t=_TIME, step_count=1, finish_memories=_concluded("想多联系朋友", "relationship", 0.6, about="朋友"),
         sleep_boundary=True)
+    assert holder.get("calls", 0) == 0 and tail.consolidated is False
+    (conclusion,) = tail.created_episodes
+    assert conclusion["source"] == "activity_conclusion" and conclusion["type"] == "relationship"
+    view = _sha256(runtime.store.memory_md_path)
+    outcome = await runtime.wake_reflection(tick=60, t=_TIME, step_count=2)
     assert holder["calls"] == 2
-    assert len(outcome.created_episodes) == 2
-    reflection = next(item for item in outcome.created_episodes if item["type"] == "reflection")
+    (reflection,) = outcome.created_episodes
     assert reflection["epistemic_status"] == "subjective"
     assert reflection["source"] == "reflection"
     assert reflection["text"] == "我更珍惜这段关系"
     assert reflection["importance"] == 0.8 and reflection["keywords"] == []
-    conclusion = next(item for item in outcome.created_episodes if item["type"] == "relationship")
-    assert conclusion["source"] == "activity_conclusion"
-    assert outcome.consolidated is True
+    assert outcome.merged_episodes == () and outcome.consolidated is True
+    assert (outcome.observation_event_id, outcome.verified_event_ids) == (None, ())
+    assert outcome.memory_before_sha256 == view == _sha256(runtime.store.memory_md_path)
     assert runtime.store.read_subjective_summary() == "我想和朋友保持联系。"
     assert "subject" not in conclusion and "about" not in conclusion
     assert "我想和朋友保持联系" not in json.dumps(runtime.build_context(), ensure_ascii=False)
+
+
+@pytest.mark.asyncio
+async def test_insight_absorbed_by_the_person_s_own_similar_note_is_not_reported_as_a_reflection(tmp_path):
+    """人物收尾时自己写过一条 reflection 类型的记录，睡醒的感想与它高度相似时被存储并进那条记录：反思阶段的结果里
+    没有来源不是就寝反思的条目，也就没有可登记的感想；存储里没有新增条目。"""
+    noted = "我想把和朋友的联系放在心上。"
+
+    async def dispatch(**request):
+        if "tools" not in request:
+            return _response("我想和朋友保持联系。")
+        identity = runtime.store.iter_episodes()[0]["id"]
+        function = SimpleNamespace(name="submit_reflection", arguments=json.dumps(
+            {"insights": [{"insight": noted, "refs": [identity]}]}, ensure_ascii=False))
+        message = SimpleNamespace(content=None, tool_calls=[SimpleNamespace(function=function)])
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+    runtime, _ = _runtime(tmp_path, dispatch)
+    await runtime.after_step(tick=60, t=_TIME, step_count=1, finish_memories=_concluded(noted, "reflection", 0.4))
+    outcome = await runtime.wake_reflection(tick=60, t=_TIME, step_count=2)
+    assert outcome.created_episodes == () and outcome.merged_episodes == ()
+    (stored,) = runtime.store.iter_episodes()
+    assert (stored["source"], stored["text"], stored["merge_count"]) == ("activity_conclusion", noted, 2)
+
+
+@pytest.mark.asyncio
+async def test_conclusion_memory_absorbed_by_an_earlier_insight_is_not_reported_by_the_step_tail(tmp_path):
+    """反过来：睡醒时写下的感想还在，人物随后收尾时写了一条高度相似的 reflection 类型记忆，存储把它并进那条感想：
+    步尾的结果里没有来源为就寝反思的条目，收尾登记不会夹带感想。"""
+    insight = "我想把和朋友的联系放在心上。"
+
+    async def dispatch(**request):
+        if "tools" not in request:
+            return _response("我想和朋友保持联系。")
+        identity = runtime.store.iter_episodes()[0]["id"]
+        function = SimpleNamespace(name="submit_reflection", arguments=json.dumps(
+            {"insights": [{"insight": insight, "refs": [identity]}]}, ensure_ascii=False))
+        message = SimpleNamespace(content=None, tool_calls=[SimpleNamespace(function=function)])
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+    runtime, _ = _runtime(tmp_path, dispatch)
+    await runtime.after_step(tick=60, t=_TIME, step_count=1, finish_memories=_concluded("今天想早点休息", "routine", 0.2))
+    woke = await runtime.wake_reflection(tick=60, t=_TIME, step_count=2)
+    assert [item["source"] for item in woke.created_episodes] == ["reflection"]
+    tail = await runtime.after_step(tick=60, t=_TIME, step_count=2,
+                                    finish_memories=_concluded(insight, "reflection", 0.4))
+    assert tail.created_episodes == () and tail.merged_episodes == ()
+    stored = runtime.store.iter_episodes()
+    assert [(item["source"], item["merge_count"]) for item in stored] == [("activity_conclusion", 1), ("reflection", 2)]
 
 
 @pytest.mark.asyncio

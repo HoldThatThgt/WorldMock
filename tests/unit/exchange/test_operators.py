@@ -12,8 +12,8 @@ from worldmock.exchange.operators import (
 
 
 @pytest.mark.parametrize("category,quantity,expected", [
-    ("meal", 1, 600), ("meal", 3, 1800), ("snack", 2, 400), ("drink", 4, 0.10),
-    ("goods", 1, 0.10), ("goods", 5, 0.10),
+    ("meal", 1, 600), ("meal", 3, 1800), ("snack", 1, 200), ("snack", 2, 400), ("drink", 1, 0.10),
+    ("drink", 4, 0.10), ("goods", 1, 0.10), ("goods", 5, 0.10),
 ])
 def test_goods_receipt_has_quantity_only_for_food(category, quantity, expected):
     """@brief 食品热量乘数量，非食品每条订单行只结算一次固定效果。"""
@@ -21,26 +21,26 @@ def test_goods_receipt_has_quantity_only_for_food(category, quantity, expected):
 
 
 def test_travel_and_delivery_round_up_with_fare_minimum():
-    """@brief 非整除距离上取整，步行免费，驾车有固定最低车费。"""
-    assert travel_seconds("walking", 1) == 1
-    assert travel_seconds("walking", 121) == 101
-    assert travel_seconds("driving", 8) == 2
+    """@brief 非整除距离上取整，两个价格都为零的方式免费，起步价是最低车费。"""
+    assert travel_seconds(1.2, 1) == 1
+    assert travel_seconds(1.2, 121) == 101
+    assert travel_seconds(7, 8) == 2
     assert delivery_seconds(6) == 602
     assert delivery_seconds(0) == 600
     assert delivery_fee_fen() == 500
-    assert evaluate_travel_fare("walking", 7000) == 0
-    assert evaluate_travel_fare("driving", 1) == 500
-    assert evaluate_travel_fare("driving", 2501) == 501
+    assert evaluate_travel_fare(0, 0, 7000) == 0
+    assert evaluate_travel_fare(500, 200, 1) == 500
+    assert evaluate_travel_fare(500, 200, 2501) == 501
     assert evaluate_purchase(2800, 3) == 8400
 
 
 def test_decimal_precision_does_not_change_settlement():
     """@brief 调用方低精度 Decimal 上下文不能改变金额、收货与时长。"""
     with localcontext(prec=2):
-        assert evaluate_travel_fare("driving", 12345.67) == 2470
+        assert evaluate_travel_fare(500, 200, 12346) == 2470
         assert evaluate_goods_receipt("meal", 1234567) == 740740200
         assert evaluate_goods_receipt("goods", 1234567) == 0.10
-        assert travel_seconds("walking", 12000.01) == 10001
+        assert travel_seconds(1.2, 12000.01) == 10001
         assert delivery_seconds(5000.01) == 1601
 
 
@@ -61,11 +61,14 @@ def test_receipt_requires_positive_integer_quantity(quantity, caplog):
 
 
 def test_invalid_modes_categories_and_purchase_inputs_are_rejected(caplog):
-    """@brief 未登记类别和方式以及非正整数购买被明确拒绝。"""
+    """@brief 未登记类别、按名字写的出行方式以及非正整数购买被明确拒绝。"""
     with pytest.raises(ValueError, match="Goods category is outside the fixed set"):
         evaluate_goods_receipt("dessert", 1)
-    with pytest.raises(ValueError):
-        travel_seconds("flying", 10)
+    for retired in ("walking", "driving", "flying"):
+        with pytest.raises(ValueError, match="speed_meters_per_second must be a JSON number"):
+            travel_seconds(retired, 10)
+        with pytest.raises(ValueError, match="start_price_fen must be a non-negative integer"):
+            evaluate_travel_fare(retired, 10, 10)
     for price, quantity in [(True, 1), (0, 1), (10, 0), (10, 1.5)]:
         with pytest.raises(ValueError):
             evaluate_purchase(price, quantity)
@@ -73,10 +76,10 @@ def test_invalid_modes_categories_and_purchase_inputs_are_rejected(caplog):
 
 
 def test_fixed_operators_keep_existing_decimal_settlement_results():
-    """@brief 购买与驾车金额逐值保持原有精确舍入结果。"""
+    """@brief 购买金额逐值保持精确结果；每公里 200 分、起步 500 分的车费按整数米向上取整到分。"""
     for price, count, expected in ((1, 1, 1), (800, 3, 2400), (123456789, 98765, 12193209765585)):
         assert evaluate_purchase(price, count) == expected
-    for distance, expected in ((0, 500), (1, 500), (2499.9, 500), (2500, 500),
-                               (2500.01, 501), (12345.67, 2470)):
-        assert evaluate_travel_fare("driving", distance) == expected
+    for distance, expected in ((0, 500), (1, 500), (2499, 500), (2500, 500), (2501, 501), (12346, 2470)):
+        assert evaluate_travel_fare(500, 200, distance) == expected
     assert not hasattr(operators, "evaluate_food_energy")
+    assert not hasattr(operators, "_speed")

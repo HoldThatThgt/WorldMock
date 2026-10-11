@@ -96,8 +96,8 @@ def _review_window(now: int, timezone_name: str, midnight_boundary: bool) -> _Wi
 
 
 def _persona(context: Any, agent_id: int) -> dict[str, Any]:
-    """@brief 场景声明的人物档案与背景原文（不读工作区里编译过的卡片）：下班、到家时段只取场景字段、未声明省略，只来自
-    卡片的下班与到家时刻不进这里（docs/design/06-agent.md#agent-场景作息覆盖 ）。"""
+    """@brief 人设表里的人物档案与背景原文：午饭、晚饭、就寝时段必填所以总在，健康习惯、社交风格与下班、到家时段
+    没有写时省略（docs/design/06-agent.md「人物身份与画像」）。"""
     config = context.persona
     fields = {
         "名字": config.name,
@@ -114,7 +114,8 @@ def _persona(context: Any, agent_id: int) -> dict[str, Any]:
 
 
 def _hours(window: tuple[float, float] | None) -> str | None:
-    """@brief 自午夜起的小时数窗口写成「HH:MM–HH:MM」（末端可跨午夜）。"""
+    """@brief 自午夜起的小时数窗口写成「HH:MM–HH:MM」（按钟面读，大于 24 的小时数对一天取模）；人设表的值不取整，
+    分钟的取整规则与人设层的时刻写法相同，两处显示同一分钟。"""
     if window is None:
         return None
     parts = []

@@ -248,8 +248,6 @@ def _write_canonical(root: Path, scenario: dict[str, Any], run_id: str, hour: in
     from tests.frozen_inputs import fixture_metadata
     from worldmock.life.engine import LifeEngine
     from tests.integration.runtime_fixtures import current_run_identity
-    from worldmock.profile.mapper import map_world_dynamics
-    from worldmock.profile.models import BigFiveProfile
 
     environment = root.with_name(root.name + "-environment")
     shutil.copytree(ENVIRONMENT_ROOT, environment)
@@ -270,12 +268,9 @@ def _write_canonical(root: Path, scenario: dict[str, Any], run_id: str, hour: in
     refresh_manifest_identity(environment / "catalog")
     inputs = load_environment(environment, metadata_loader=fixture_metadata)
     identity = current_run_identity(inputs, run_id)
-    dynamics = map_world_dynamics(BigFiveProfile(openness=4, conscientiousness=4, extraversion=4,
-        agreeableness=4, neuroticism=4)).model_dump(mode="json")
     from worldmock.run_setup import stage_model_identity
     stages = stage_model_identity(inputs.config.model, inputs.model_metadata, same_second_continuation=False)
-    engine = LifeEngine.create(inputs, root.with_name(root.name + "-source"), identity, stages,
-                              {"world_dynamics": dynamics})
+    engine = LifeEngine.create(inputs, root.with_name(root.name + "-source"), identity, stages, {})
     try:
         _complete_engine(engine, activity_type)
         ref = engine.context.store.assets.put_json({"test": "actual engine"}, {"kind": "test_agent"})
@@ -288,7 +283,8 @@ def _write_canonical(root: Path, scenario: dict[str, Any], run_id: str, hour: in
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest["schema_version"] = 1
         for name, path in (("verified_experiences", "verified-experiences.jsonl"),
-                           ("purchases", "purchases.jsonl"), ("app_usage", "app-usage.jsonl")):
+                           ("purchases", "purchases.jsonl"), ("app_usage", "app-usage.jsonl"),
+                           ("location_stays", "location-stays.jsonl")):
             manifest["artifacts"].pop(name)
             (root / path).unlink()
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -318,7 +314,8 @@ def _complete_engine(engine, activity_type):
 def _engine_decision(engine, count, activity_type):
     from agentsociety2.society import DecisionContext, DirectToolCall
     from worldmock.life.activity_control import pending_conclusions
-    from worldmock.life.models import active_activities, ConcludeActivityRequest, ReportStatusRequest, StartActivityRequest
+    from tests.life.conftest import sleep, tool_of, use_app
+    from worldmock.life.models import active_activities, ConcludeActivityRequest, ReportStatusRequest
     agent_id = engine.context.persona.agent_id
     state = engine.context.state
     at = datetime.fromtimestamp(state.current_time, ZoneInfo(state.timezone))
@@ -336,9 +333,9 @@ def _engine_decision(engine, count, activity_type):
         request = ReportStatusRequest(items=[{"activity_name": item.name, "summary": "继续测试消费。"}
             for item in active], errands=[])
     else:
-        tool = "start_activity"
-        request = StartActivityRequest(items=[{"action": activity_type,
-            "target": "家" if activity_type == "sleep" else "抖音"}])
+        assert activity_type in {"sleep", "interact"}, activity_type
+        request = sleep() if activity_type == "sleep" else use_app("抖音")
+        tool = tool_of(request)
     engine.submit_action(DirectToolCall(context, f"action-{count}", tool, request))
     results = engine.commit_decision_round(context.round_id)
     assert all(row.error_code is None for row in results), results
@@ -367,7 +364,7 @@ def _world_activity(run_id: str, sequence: int, start: datetime,
         "route_progress_meters": 0,
         "next_interaction_at": None,
         "destination_id": None,
-        "travel_mode": None,
+        "travel_method_id": None,
         "resource_claims": ["first"] if activity_type in {"travel", "sleep"} else ["second"],
         "boundary_type": "planned_end",
         "interruption_reason": None,

@@ -1,4 +1,4 @@
-"""@brief 班次与休息时段起止的唤醒事实（docs/design/04-simulation-engine.md ）。
+"""@brief 班次与休息时段起止的唤醒事实（docs/design/04-simulation-engine.md）。
 
 起止时刻由人物在场景里声明的工作安排（经 world_ops.agent_config 取得）与世界时钟直接求值，不存交付状态：日期例外
 优先于每周声明（work_schedule.shift_on），区间半开，按当地墙钟换算（work_schedule.shift_span、break_spans：夏令时
@@ -24,7 +24,7 @@ def duty_edges(inputs: Any, agent_id: int, moment: int) -> Iterator[tuple[int, s
     """@brief 生成器：moment 所在当地日的前一日、当日与次日里，该人物班次与休息时段的起止（时刻, 成员）。
 
     扫描前一日使前一日写到 1440 的止点在当地零点上可见，扫描次日使次日 00:00 的起点在零点之前就进入候选
-    （docs/design/04-simulation-engine.md ）。按日期、班次开始、各休息时段、班次结束的次序产出，
+    （docs/design/04-simulation-engine.md）。按日期、班次开始、各休息时段、班次结束的次序产出，
     同一时刻可以出现多次；没有工作安排或三天都不当班时什么都不产出。
 
     @param inputs 完整环境输入（读 timezone 与唯一人物声明）
@@ -50,7 +50,7 @@ def duty_edges(inputs: Any, agent_id: int, moment: int) -> Iterator[tuple[int, s
 
 def edges_at(inputs: Any, agent_id: int, now: int) -> frozenset[str]:
     """@brief 恰在 now 这一秒成立的起止成员（唤醒判定的输入）：同一秒重合的多个起止各记一次，并列的次序由
-    schedule.evaluate_wake_reasons 按声明次序给出（docs/design/04-simulation-engine.md ）。
+    schedule.evaluate_wake_reasons 按声明次序给出（docs/design/04-simulation-engine.md）。
 
     @param inputs 完整环境输入
     @param agent_id 人物身份
@@ -61,7 +61,7 @@ def edges_at(inputs: Any, agent_id: int, now: int) -> frozenset[str]:
 
 def edge_times_after(inputs: Any, agent_id: int, now: int) -> tuple[int, ...]:
     """@brief 严格晚于 now 的起止时刻（升序去重）：下一次决策机会与下一时钟边界的候选，本边界已判定的起止不重复计
-    （docs/design/04-simulation-engine.md ）。
+    （docs/design/04-simulation-engine.md）。
 
     @param inputs 完整环境输入
     @param agent_id 人物身份

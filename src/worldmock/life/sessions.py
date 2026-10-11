@@ -1,14 +1,14 @@
 """@brief 地点会话：一段地点停留或两地之间的一段路，由系统随出发与到达开始和结束。
 
-依据 docs/design/04-simulation-engine.md「三层结构」「会话与活动的字段」：
+依据 docs/design/04-simulation-engine.md：
 - 运行开始时按初始地点开始首个停留会话；
 - 出发（出行被受理）时结束当前停留会话，开始去目的地的路上会话；同一请求开始的活动都归入路上会话；
-- 到达或提前结束出行时结束路上会话，在人物此刻地点开始停留会话；第二槽活动保持各自生命周期；
+- 到达或提前结束出行时结束路上会话，在人物此刻地点开始停留会话；槽位 2 的活动保持各自生命周期；
 - 暂停的活动属于它的开始地点，回到该地点时归入那里的新停留会话；
 - 实验截止时所有会话结束。
 
-会话的开始与结束只写入世界状态（随共同检查点保存），不写事件，也不新增事件类型。本模块的函数都返回新的世界状态，
-不就地改动传入状态；引擎只接线。
+会话的开始与结束写入世界状态（随共同检查点保存）；停留会话两端的进出事件由 stay_records 在世界提交之前比较
+提交前后的会话写出。本模块的函数都返回新的世界状态，不就地改动传入状态；引擎只接线。
 """
 
 from __future__ import annotations
@@ -86,7 +86,7 @@ def begin_transit(state: WorldState, agent_id: int, destination_id: str,
 
 def end_transit(state: WorldState, agent_id: int, place_names: dict[str, str],
                 opened_by_action_id: str | None = None) -> WorldState:
-    """@brief 到达或提前结束出行后开始停留会话，第二槽活动保持各自生命周期。"""
+    """@brief 到达或提前结束出行后开始停留会话，槽位 2 的活动保持各自生命周期。"""
     session = current_session(state, agent_id)
     if session is None or session.kind != SessionKind.TRANSIT:
         return state

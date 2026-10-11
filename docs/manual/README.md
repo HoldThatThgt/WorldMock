@@ -3,7 +3,8 @@
 一份完整环境描述一个世界、一个人物和一次运行。先准备[世界素材](resources.md#resources-设计环境数据集)、
 [人物](personas.md#personas-编写-persona-toml)与[运行配置](runtime.md#runtime-编写-config-toml)，
 再按照[运行手册](runtime.md)验证和启动。
-环境根只有 catalog/、persona.toml、config.toml，不放场景文件、README、地图或额外素材目录。
+环境根只有 catalog/、persona.toml、config.toml，不放场景文件、README、生成的地图或额外素材目录。
+catalog/ 里清单和四个 JSONL 必须有，callbacks.jsonl、map.jsonl 与 travel-method.jsonl 按需放置，不放等于零行。
 
 ```mermaid
 flowchart LR

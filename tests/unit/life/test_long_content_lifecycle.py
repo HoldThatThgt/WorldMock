@@ -5,7 +5,7 @@ import json
 import shutil
 
 from tests.data_paths import ENVIRONMENT_ROOT
-from tests.life.conftest import pause_request, report_request, stage_day_plan, start_activity
+from tests.life.conftest import pause_request, report_request, sleep, stage_day_plan, use_app
 from tests.life.environment_runtime import act, events, finish_activity, reach
 from worldmock.catalog.identity import refresh_manifest_identity
 
@@ -37,7 +37,7 @@ def test_long_content_stays_active_after_one_day_and_completes_only_at_its_real_
     duration = 90000
     engine = long_content_engine(engine_factory, tmp_path, duration)
     started_at = engine.context.state.current_time
-    _, started = act(engine, "long-content", start_activity("interact", engine.context.catalog.apps["keep"].name))
+    _, started = act(engine, "long-content", use_app(engine.context.catalog.apps["keep"].name))
     assert started.status == "in_progress"
     activity_id = started.activity_id
     assert engine.context.state.activities[activity_id].planned_duration_seconds == duration
@@ -63,13 +63,13 @@ def test_pause_and_resume_keep_the_full_long_content_remainder_without_counting_
     duration = 172861
     engine = long_content_engine(engine_factory, tmp_path, duration)
     started_at = engine.context.state.current_time
-    _, started = act(engine, "long-resume", start_activity("interact", engine.context.catalog.apps["keep"].name))
+    _, started = act(engine, "long-resume", use_app(engine.context.catalog.apps["keep"].name))
     assert started.status == "in_progress"
     reach(engine, started_at + 1800)
     activity = engine.context.state.activities[started.activity_id]
     _, paused = act(engine, "pause-long", pause_request(activity.name), "pause_activity")
     assert paused.status == "completed"
-    _, sleeping = act(engine, "sleep-while-paused", start_activity("sleep", "家"))
+    _, sleeping = act(engine, "sleep-while-paused", sleep())
     assert sleeping.status == "in_progress"
     finish_activity(engine, sleeping, "sleep-finished")
     paused_activity = engine.context.state.activities[started.activity_id]

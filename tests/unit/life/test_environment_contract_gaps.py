@@ -10,7 +10,7 @@ import pytest
 
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.frozen_inputs import fixture_metadata
-from tests.life.conftest import start_activity
+from tests.life.conftest import do_at, purchase, travel
 from tests.life.environment_runtime import act, reach
 from worldmock.catalog.callback_models import CallbackRule, CallbackState
 from worldmock.catalog.identity import refresh_manifest_identity
@@ -21,7 +21,6 @@ from worldmock.life.activity_validation import validate_activity_targets
 from worldmock.life.callbacks import settle_callback_dates
 from worldmock.life.rhythm import RhythmBoundary, settle_engine_rhythm
 from worldmock.life.world_setup import _initial_state
-from worldmock.profile.models import WorldDynamics
 from worldmock.scheduling.compile import compile_schedule
 
 
@@ -49,7 +48,7 @@ def test_initial_hunger_bills_only_the_awake_time_beyond_two_hours(engine_factor
 
     engine = engine_factory(mutate=mutate)
     started = engine.context.state.current_time
-    _, result = act(engine, "hungry-work", start_activity("interact", "公司"))
+    _, result = act(engine, "hungry-work", do_at("公司", "季度销售数据整理"))
     assert result.status == "in_progress"
     reach(engine, started + 3 * 3600)
     assert engine.context.state.agents[1].body.relaxation_need == pytest.approx(0.34)
@@ -71,7 +70,7 @@ def test_closed_local_store_is_observable_and_refuses_purchase_without_world_fai
                                        encoding="utf-8", newline="\n")
     engine = engine_factory(environment_root=root)
     before = dict(engine.context.state.accounts)
-    _, result = act(engine, "closed-purchase", start_activity("purchase", "饭团"))
+    _, result = act(engine, "closed-purchase", purchase("饭团"))
     assert result.status == "rejected"
     assert result.error_code == "LOCATION_CLOSED"
     assert result.message == "The location is closed at the current time."
@@ -81,7 +80,7 @@ def test_closed_local_store_is_observable_and_refuses_purchase_without_world_fai
 @pytest.mark.parametrize("navigation", [None, "amap"])
 def test_restore_rejects_retired_navigation_app_activity_field(engine_factory, navigation):
     engine = engine_factory()
-    _, result = act(engine, "valid-walk", start_activity("walk", "公司"))
+    _, result = act(engine, "valid-walk", travel("公司"))
     assert result.status == "in_progress"
     state = engine.context.state.model_copy(deep=True)
     state.activities[result.activity_id].data["navigation_app_id"] = navigation
@@ -90,7 +89,7 @@ def test_restore_rejects_retired_navigation_app_activity_field(engine_factory, n
 
 
 def test_relief_at_interval_end_still_bills_the_preceding_actual_discomfort(inputs):
-    state = _initial_state(inputs, "discomfort", WorldDynamics(social_need_growth_per_hour=0.06))
+    state = _initial_state(inputs, "discomfort")
     now = state.current_time
     person = state.agents[1]
     person.body = person.body.model_copy(update={"energy_kcal": 0.0, "sleep_pressure": 0.0})
@@ -156,13 +155,13 @@ def test_monthly_schedule_uses_existing_local_times_and_both_distinct_fold_insta
 ])
 def test_daily_action_callback_counts_actual_dates_across_short_and_long_dst_days(inputs, start, stop):
     declaration = CallbackState(state="driving_days", initial=3, cap=3, reset_on_goods=())
-    daily = callback("drive-day", {"class": "action", "key": "drive"},
+    daily = callback("drive-day", {"class": "action", "key": "travel", "travel_method_id": "driving"},
                      {"type": "state_delta", "state": "driving_days", "delta": -1, "once_per": "local_day"})
     current = configured(inputs, start, stop, [daily])
     current = replace(current, catalog=replace(current.catalog, callback_states={"driving_days": declaration}))
-    state = _initial_state(current, "dst", WorldDynamics(social_need_growth_per_hour=0.06))
-    activity = SimpleNamespace(agent_id=1, origin_action_id="actual-trip",
-                               data={"action": "drive", "accepted_event_id": "accepted-trip"})
+    state = _initial_state(current, "dst")
+    activity = SimpleNamespace(agent_id=1, origin_action_id="actual-trip", travel_method_id="driving",
+                               data={"action": "travel", "accepted_event_id": "accepted-trip"})
     first, end = int(current.config.start_time.timestamp()), int(current.config.stop_time.timestamp())
     result = settle_callback_dates(state, current.catalog, activity, (first, end))
     assert result.state.agents[1].callback_states["driving_days"] == 2

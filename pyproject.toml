@@ -47,9 +47,6 @@ agentsociety2 = { path = "vendor/agentsociety2/packages/agentsociety2", editable
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.setuptools.package-data]
-"worldmock.data" = ["*.toml"]
-
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]
 testpaths = ["tests"]

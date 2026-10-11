@@ -4,17 +4,18 @@ from copy import deepcopy
 
 import pytest
 
-from tests.life.conftest import start_activity
+from tests.life.conftest import advance_next, travel, use_app
 from tests.life.environment_inputs import copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act
 from worldmock.errors import IntegrityError
 from worldmock.life.activity_validation import validate_activity_targets
 from worldmock.life.callbacks import validate_callback_states
+from worldmock.life.travel import persisted_trip
 
 
-def started(engine_factory, target="哔哩哔哩", action="interact"):
+def started(engine_factory, request=None):
     engine = engine_factory()
-    _, result = act(engine, "actual-start", start_activity(action, target))
+    _, result = act(engine, "actual-start", request or use_app("哔哩哔哩"))
     assert result.status == "in_progress"
     state = engine.context.state.model_copy(deep=True)
     return engine, state, state.activities[result.activity_id]
@@ -73,7 +74,7 @@ def test_completed_segments_remain_valid_only_at_the_actual_content_end(engine_f
     ("relaxation_relief_per_hour", 0.1), ("social_relief_per_hour", 0.1),
 ])
 def test_platform_browse_restore_requires_its_actual_zero_effect_snapshot(engine_factory, field, value):
-    engine, state, activity = started(engine_factory, "美团")
+    engine, state, activity = started(engine_factory, use_app("美团"))
     activity.data[field] = value
     with pytest.raises(IntegrityError, match="Persisted activity target is invalid"):
         validate_activity_targets(state, engine.context.catalog, engine.context.persona)
@@ -81,10 +82,12 @@ def test_platform_browse_restore_requires_its_actual_zero_effect_snapshot(engine
 
 @pytest.mark.parametrize("field,value", [
     ("trip_id", "unknown"), ("path", ["home", "office"]), ("distance_meters", 1),
-    ("origin_id", "office"), ("destination_id", "home"),
+    ("origin_id", "office"), ("destination_id", "home"), ("exertion", "light"), ("exertion", None),
+    ("weather_factor", 0.5),
 ])
 def test_frozen_travel_must_match_original_graph_route(engine_factory, field, value):
-    engine, state, activity = started(engine_factory, "公司", "walk")
+    engine, state, activity = started(engine_factory, travel("公司"))
+    assert activity.data["exertion"] == "walking"
     if field == "path" and activity.data[field] == value:
         value = list(reversed(value))
     activity.data[field] = value
@@ -92,10 +95,57 @@ def test_frozen_travel_must_match_original_graph_route(engine_factory, field, va
         validate_activity_targets(state, engine.context.catalog, engine.context.persona)
 
 
+@pytest.mark.parametrize("departed,persisted", [("步行", "driving"), ("步行", "boat"), ("步行", None), ("步行", "步行"),
+                                                ("驾车", "taxi"), ("驾车", "walking"), ("打车", "driving")])
+def test_frozen_travel_must_keep_the_travel_method_it_departed_with(engine_factory, departed, persisted):
+    """恢复时按活动保存的出行方式身份重算行程：换成别的方式、没登记的身份、名称或空值，行程身份或用时对不上就拒绝；
+    速度和档位都相同的驾车与打车也不能互换，因为行程身份带着出行方式身份。"""
+    engine, state, activity = started(engine_factory, travel("公司", departed))
+    validate_activity_targets(state, engine.context.catalog, engine.context.persona)
+    activity.travel_method_id = persisted
+    with pytest.raises(IntegrityError, match="Persisted activity target is invalid"):
+        validate_activity_targets(state, engine.context.catalog, engine.context.persona)
+
+
+TRAVEL_PLAN_FAULT = "^Persisted travel plan does not match the published graph$"
+
+
+def test_frozen_trip_recomputes_to_the_plan_accepted_at_departure(engine_factory):
+    """受理时冻结的行程按同一出行方式和同一天气系数重算，得到出发时的同一份计划：行程身份、路径、米数、用时和已付的车费。"""
+    engine = engine_factory()
+    payer = engine.context.state.agents[1].balance_account_id
+    balance = engine.context.state.accounts[payer]
+    _, result = act(engine, "drive", travel("公司", "驾车"))
+    assert result.status == "in_progress", result.error_code
+    activity = engine.context.state.activities[result.activity_id]
+    trip = persisted_trip(engine.context.catalog, activity)
+    assert (trip.trip_id, trip.origin_id, trip.destination_id) == ("home->office:driving", "home", "office")
+    assert (list(trip.path), trip.distance_meters) == (activity.data["path"], activity.data["distance_meters"])
+    assert trip.duration_seconds == activity.planned_duration_seconds
+    assert trip.fare_fen == balance - engine.context.state.accounts[payer] > 0
+
+
+@pytest.mark.parametrize("tamper", [
+    pytest.param(lambda activity: setattr(activity, "travel_method_id", "taxi"), id="travel-method"),
+    pytest.param(lambda activity: activity.data.update(exertion="walking"), id="exertion"),
+])
+def test_tampered_frozen_trip_stops_with_the_published_graph_fault(engine_factory, tamper):
+    """驾车出发后把保存的出行方式身份换成打车，或把代谢当量键换成步行的：重算核对报规定的故障原文；
+    引擎推进这趟行程时同样以这条故障停下，不照改过的状态继续走。"""
+    engine, _, activity = started(engine_factory, travel("公司", "驾车"))
+    assert (activity.travel_method_id, activity.data["exertion"]) == ("driving", "light")
+    tamper(activity)
+    with pytest.raises(IntegrityError, match=TRAVEL_PLAN_FAULT):
+        persisted_trip(engine.context.catalog, activity)
+    tamper(engine.context.state.activities[activity.activity_id])
+    with pytest.raises(IntegrityError, match=TRAVEL_PLAN_FAULT):
+        advance_next(engine)
+
+
 def callback_input(tmp_path):
     root = copy_environment(tmp_path / "input")
     state = {"state": "stock", "initial": 3, "cap": 3, "reset_on_goods": []}
-    rule = {"rule_id": "daily", "trigger": {"class": "action", "key": "drive"},
+    rule = {"rule_id": "daily", "trigger": {"class": "action", "key": "travel", "travel_method_id": "driving"},
             "effect": {"type": "state_delta", "state": "stock", "delta": -1, "once_per": "local_day"},
             "notify": {"when": {"state": "stock", "below": 1}, "channel": "app_push",
                        "app_id": "bilibili", "text": "库存不足"}}

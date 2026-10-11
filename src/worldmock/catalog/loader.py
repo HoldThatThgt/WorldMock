@@ -11,32 +11,37 @@ from typing import NoReturn, TypeVar
 from pydantic import ValidationError
 
 from worldmock.base_models import DeepFrozenModel
-from worldmock.catalog.admission import validate_manifest, validate_map, validate_registration
+from worldmock.catalog.admission import validate_manifest, validate_map, validate_registration, validate_route_limit
 from worldmock.catalog.callback_models import (
     ActionTrigger, CallbackRule, CallbackState, EventTrigger, MonthlyTrigger, StateReminder, StateTrigger,
-    TimeTrigger, VisibleHint,
+    TimeTrigger, TravelTrigger, VisibleHint,
 )
 from worldmock.catalog.errors import RegistrationError
 from worldmock.catalog.graph import Graph
 from worldmock.catalog.identity import read_catalog_file, read_manifest_payload
 from worldmock.catalog.mapgen import generate_map, map_bytes
-from worldmock.catalog.models import App, Catalog, CatalogManifest, Content, Goods, Location
+from worldmock.catalog.models import (
+    App, Catalog, CatalogManifest, Content, Goods, Location, MapEdge, MapGraph, TravelMethod,
+)
 from worldmock.errors import reject_value
-from worldmock.exchange.constants import RULES_VERSION
+from worldmock.exchange.constants import RULES_VERSION, WALKING_TRAVEL_METHOD_ID
 from worldmock.life.randomness import random_stream
 
 _Model = TypeVar("_Model", bound=DeepFrozenModel)
 
 
 def load_catalog(catalog_dir: Path | str, seed: int) -> Catalog:
-    """@brief 读取五个严格 JSONL，统一核对引用后用唯一种子生成内存地图。"""
+    """@brief 读取登记的严格 JSONL，统一核对引用后用声明的距离和唯一种子生成内存地图。"""
     directory, manifest, rows = _registered_catalog(catalog_dir)
     if type(seed) is not int:
         raise RegistrationError("ENVIRONMENT_NUMBER_INVALID", "The environment seed must be a strict integer.")
     state = hashlib.sha256(f"random:{seed}".encode()).hexdigest()
-    graph = generate_map([row.location_id for row in rows["locations"]], random_stream(state, "map").getrandbits(64))
-    validate_map(graph, {row.location_id for row in rows["locations"]})
-    return _catalog_view(directory, manifest, rows, graph)
+    locations = [row.location_id for row in rows["locations"]]
+    published = generate_map(locations, random_stream(state, "map").getrandbits(64), rows["map_edges"])
+    validate_map(published, set(locations))
+    graph = Graph(published)
+    validate_route_limit(published.nodes, graph, rows["travel_methods"])
+    return _catalog_view(directory, manifest, rows, published, graph)
 
 
 def validate_catalog_files(catalog_dir: Path | str) -> None:
@@ -55,13 +60,16 @@ def _registered_catalog(catalog_dir: Path | str) -> tuple[Path, CatalogManifest,
         raise RegistrationError("RULES_VERSION_MISMATCH")
     manifest = parse_catalog_model(payload, CatalogManifest)
     validate_manifest(directory, manifest)
+    listed = {entry.path for entry in manifest.files}
     rows = {
         "apps": read_catalog_rows(directory, "app-catalog.jsonl", App),
         "locations": read_catalog_rows(directory, "location.jsonl", Location),
         "goods": read_catalog_rows(directory, "merchant-catalog.jsonl", Goods),
         "contents": read_catalog_rows(directory, "content-catalog.jsonl", Content),
+        "map_edges": _optional_rows(directory, "map.jsonl", listed, MapEdge),
+        "travel_methods": _optional_rows(directory, "travel-method.jsonl", listed, TravelMethod),
     }
-    rows.update(_read_callbacks(directory))
+    rows.update(_read_callbacks(_optional_file(directory, "callbacks.jsonl", listed)))
     validate_registration(rows)
     return directory, manifest, rows
 
@@ -73,7 +81,8 @@ def parse_catalog_model(payload: object, model: type[_Model]) -> _Model:
     except ValidationError as error:
         failures = error.errors(include_url=False)
         numeric = {"price_fen", "duration_seconds", "length_m", "size_bytes", "seed", "episode",
-                   "browse_duration_seconds", "initial", "cap", "delta", "below", "amount_fen", "day"}
+                   "browse_duration_seconds", "initial", "cap", "delta", "below", "amount_fen", "day",
+                   "speed_meters_per_second", "start_price_fen", "price_per_km_fen"}
         if any(failure["type"] == "extra_forbidden" for failure in failures):
             code = "ENVIRONMENT_KIND_INVALID"
         elif any(failure["loc"] and failure["loc"][-1] in numeric for failure in failures):
@@ -128,10 +137,20 @@ def _reject_json_constant(value: str) -> NoReturn:
     reject_value(f"Catalog JSON must not contain the non-JSON number {value}.")
 
 
-def _read_callbacks(directory: Path) -> dict:
+def _optional_file(directory: Path, relative: str, listed: set[str]) -> bytes:
+    """@brief 可选文件只在清单登记时读取；没有登记就是不存在，按零行处理。"""
+    return read_catalog_file(directory, relative) if relative in listed else b""
+
+
+def _optional_rows(directory: Path, relative: str, listed: set[str], model: type[_Model]) -> tuple[_Model, ...]:
+    """@brief 可选文件的严格行：没有登记时为零行，行失败详情带真实文件名与行号。"""
+    return parse_catalog_lines(_optional_file(directory, relative, listed), relative, model)
+
+
+def _read_callbacks(content: bytes) -> dict:
     """@brief 按状态与规则的唯一判别字段解析，不让其他形状错误掩盖数字错误。"""
     states, rules, rule_started = [], [], False
-    objects = parse_catalog_objects(read_catalog_file(directory, "callbacks.jsonl"), "callbacks.jsonl")
+    objects = parse_catalog_objects(content, "callbacks.jsonl")
     for number, payload in enumerate(objects, start=1):
         try:
             if ("state" in payload) == ("rule_id" in payload):
@@ -156,6 +175,8 @@ def _parse_rule(payload: dict) -> CallbackRule:
         raise RegistrationError("ENVIRONMENT_KIND_INVALID")
     kind = trigger.get("class")
     model = {"action": ActionTrigger, "state": StateTrigger, "event": EventTrigger}.get(kind)
+    if kind == "action" and trigger.get("key") == "travel":
+        model = TravelTrigger
     if kind == "time":
         model = MonthlyTrigger if trigger.get("key") == "monthly" else TimeTrigger
     if model is None:
@@ -169,13 +190,13 @@ def _parse_rule(payload: dict) -> CallbackRule:
     return parse_catalog_model(value, CallbackRule)
 
 
-def _catalog_view(directory: Path, manifest: CatalogManifest, rows: dict, graph) -> Catalog:
+def _catalog_view(directory: Path, manifest: CatalogManifest, rows: dict, published: MapGraph, graph: Graph) -> Catalog:
     """@brief 登记后一次建立只读对象、地图与各类绑定索引。"""
     indexed = {name: MappingProxyType({getattr(row, key): row for row in rows[name]}) for name, key in (
         ("apps", "app_id"), ("locations", "location_id"), ("goods", "goods_id"), ("contents", "content_id"),
-        ("callback_states", "state"), ("callback_rules", "rule_id"))}
-    return Catalog(manifest=manifest, source_dir=directory, map_data=graph,
-                   map_sha256=hashlib.sha256(map_bytes(graph)).hexdigest(), graph=Graph(graph),
+        ("travel_methods", "travel_method_id"), ("callback_states", "state"), ("callback_rules", "rule_id"))}
+    return Catalog(manifest=manifest, source_dir=directory, map_data=published,
+                   map_sha256=hashlib.sha256(map_bytes(published)).hexdigest(), graph=graph,
                    **indexed, **_indexes(rows))
 
 
@@ -191,9 +212,10 @@ def _indexes(rows: dict) -> dict:
         "contents_by_app": {a.app_id: tuple(c.content_id for c in contents if a.app_id in c.app_ids) for a in apps},
         "contents_by_location_kind": {
             kind: tuple(c.content_id for c in contents if kind in c.location_kinds) for kind in kinds},
-        "apps_by_action": {
-            key: tuple(a.app_id for a in apps if key in a.actions)
-            for key in ("drive", "interact", "purchase", "sleep", "take_bus", "take_taxi", "walk")},
+        "apps_by_action": {"purchase": tuple(a.app_id for a in apps if "purchase" in a.actions)},
+        "apps_by_travel_method": {
+            key: tuple(a.app_id for a in apps if key in a.travel_method_ids)
+            for key in (WALKING_TRAVEL_METHOD_ID, *(method.travel_method_id for method in rows["travel_methods"]))},
         "contents_by_series": {
             title: tuple(c.content_id for c in sorted(
                 (c for c in contents if c.series is not None and c.series.title == title),

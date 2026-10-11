@@ -9,8 +9,9 @@ from pathlib import Path
 from agentsociety2.agent.base import MemoryUpdateEvidence, ModelCallEvidence
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import (advance_until_ready, conclude_request, context, pending_names, stage_day_plan,
-                                 start_activity, submit_round, start_request)
+from tests.life.conftest import (advance_until_ready, conclude_request, context, pending_names, purchase,
+                                 stage_day_plan, submit_round, travel, use_app)
+from tests.life.environment_runtime import act, act_group
 from worldmock.life.engine import LifeEngine
 from worldmock.opslog import OPS_COMPONENTS, OPS_LEVELS, OpsLogger
 
@@ -79,3 +80,23 @@ def test_opslog_writer_appends_across_instances(tmp_path: Path) -> None:
     second.close()
     lines = (tmp_path / "logs" / "ops-19700101.jsonl").read_text(encoding="utf-8").splitlines()
     assert [json.loads(line)["code"] for line in lines] == ["RUN_STARTED", "RUN_ENDED"]
+
+
+def test_opslog_component_follows_each_start_call(engine_factory) -> None:
+    """操作日志的组件按调用判定：出行记在 travel，购买记在 commerce，其余（这里是用内容 app）记在 engine；
+    开始组的两条动作各写一条，带各自的动作身份与工具名。"""
+    engine = engine_factory()
+    _, refused = act(engine, "ops-app", use_app("不存在"))
+    assert refused.status == "rejected" and refused.error_code == "ACTION_REQUEST_INVALID"
+    _, started = act_group(engine, "ops-group", travel("公司"), purchase("平台笔记本"))
+    assert [item.status for item in started] == ["in_progress", "in_progress"]
+    records = [record for record in _records(engine) if record["code"] in {"ACTION_ACCEPTED", "ACTION_REJECTED"}]
+    assert [(record["code"], record["component"], record["level"], record["action_id"], record["tool_name"])
+            for record in records] == [
+        ("ACTION_REJECTED", "engine", "error", "action-ops-app", "start_side_activity"),
+        ("ACTION_ACCEPTED", "travel", "info", "action-ops-group-1", "start_main_activity"),
+        ("ACTION_ACCEPTED", "commerce", "info", "action-ops-group-2", "start_side_activity")]
+    assert records[0]["error_code"] == "ACTION_REQUEST_INVALID"
+    assert all("error_code" not in record for record in records[1:])
+    assert {record["component"] for record in records} <= OPS_COMPONENTS
+    assert len({record["decision_id"] for record in records[1:]}) == 1

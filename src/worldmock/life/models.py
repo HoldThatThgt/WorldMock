@@ -7,8 +7,9 @@ from worldmock.base_models import StrictModel, FrozenModel
 from worldmock.errors import IntegrityError
 import logging
 import re
-import unicodedata
-from worldmock.life.action_contract import ACTIVITY_ACTIONS, ActivityAction, activity_slot
+from worldmock.life.action_contract import (ACTIVITY_ACTIONS, MAIN_ACTIVITY_ACTIONS, SIDE_ACTIVITY_ACTIONS,
+                                             START_TOOLS, activity_slot)
+from worldmock.life.sleep_plan import parse_sleep_minutes
 from datetime import date
 from enum import StrEnum
 from collections.abc import Callable, Sequence
@@ -24,13 +25,11 @@ from worldmock.life.schedule import MAX_PLAN_GOALS, PLAN_GOAL_MAX_CHARS, DayPlan
 # 世界状态以调度基础层的预排事件模型保存未来边界。
 from worldmock.scheduling.events import ScheduledEvent
 
-#: 世界状态结构版本：版本不符的检查点与导出直接拒绝，不迁移；版本 6 引入三级结构（Task→Session→Activity）与
-#: WorldState.sessions；版本 7（docs/design/04-simulation-engine.md「仍须修复」）起活动快照 location_id
-#: 固定为开始地点；
-#: 版本 8（docs/design/06-agent.md「版本」）新增 SessionState.opened_by_action_id 与
-#: ActivityState.paused_at，观察改为七层数据；版本 9（docs/design/04-simulation-engine.md ）新增只存未完成个人事务的
-#: AgentState.errands。
-WORLD_SCHEMA_VERSION = 12
+#: 世界状态结构版本：版本不符的检查点与导出直接拒绝，不迁移。
+WORLD_SCHEMA_VERSION = 13
+#: 运行清单结构版本：顶层字段集合或 stage_model_identity 的键集变了才升；版本不符的运行不能打开、恢复或重放，
+#: 导出认证同样拒绝，不迁移。
+RUN_MANIFEST_SCHEMA_VERSION = 6
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,7 +42,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def purpose_only_schema(purpose: str | None = None) -> Callable[[dict[str, Any]], None]:
-    """@brief 模型可见参数 Schema 的 description 只写用途（docs/design/06-agent.md「删除与去重」）。
+    """@brief 模型可见参数 Schema 的 description 只写用途（docs/design/06-agent.md「提示与工具」）。
 
     去掉类 docstring 派生的开发说明（规则只在系统层写一次，数量上限由 Schema 与本地校验执行），purpose 非空时写这一句；
     工具参数对象本身不写说明，用途只在工具的 description。用作 ConfigDict 的 json_schema_extra。
@@ -83,7 +82,7 @@ class RunIdentity(FrozenModel):
     """@brief 由 runtime 显式分配并与场景交叉验证的运行身份。
 
     git_commit 与 git_dirty 记录启动时的检出状态，非 Git 检出时二者为 null；只记录，不参与恢复比对
-    （docs/design/06-agent.md「模型身份」）。
+    （docs/design/06-agent.md「宿主模型协议」）。
     """
 
     run_id: str = Field(min_length=1)
@@ -184,15 +183,6 @@ class FulfillmentKind(StrEnum):
     STATION_PICKUP = "station_pickup"
 
 
-class TravelMode(StrEnum):
-    """@brief 冻结路线支持的出行方式。"""
-
-    WALKING = "walking"
-    DRIVING = "driving"
-    TAXI = "taxi"
-    BUS = "bus"
-
-
 
 
 
@@ -224,7 +214,7 @@ class ContentProgress(StrictModel):
 
 
 class SessionStatus(StrEnum):
-    """@brief 地点会话的生命周期状态闭集（docs/design/09-io-formats.md 「世界与人物状态格式」）。"""
+    """@brief 地点会话的生命周期状态闭集（docs/design/09-io-formats.md「世界、人物与活动」）。"""
 
     ACTIVE = "active"
     ENDED = "ended"
@@ -261,7 +251,7 @@ class SessionState(StrictModel):
     :param activity_ids: 归入本会话的活动（暂停的活动回到开始地点时归入那里的新会话）。
     :param name: 人物可读名称，停留「<地点>（<M月D日> HH:MM 起）」，路上「去<目的地>的路上（…起）」；结束后不改名。
     :param opened_by_action_id: 由决策引起的切换（出发、途中结束出行）记下引起切换的动作身份，进度层以该动作结果的
-        事件序号为下界；运行开始与到达为 None，下界取开始时刻（docs/design/06-agent.md「进度层」）。
+        事件序号为下界；运行开始与到达为 None，下界取开始时刻（docs/design/06-agent.md「进度、待办与记忆」）。
     """
 
     session_id: str = Field(min_length=1)
@@ -295,12 +285,11 @@ class SessionState(StrictModel):
 
 
 class SameMomentStage(StrEnum):
-    """@brief 同刻受限轮阶段闭集（docs/design/04-simulation-engine.md「规则」3 与「实现约定」）。
+    """@brief 同刻受限轮阶段闭集（docs/design/04-simulation-engine.md「原子性与恢复」）。
 
     未达同刻上限时为 open；达到上限后每个受限轮只开放一类动作，阶段依赖上一受限轮的结果，时钟推进复位为 open。
-    暂停的活动不占名额以后，阶梯不再按名额分流：resume_or_conclude 与 conclude_only 留在闭集中（世界结构版本仍为 9），
-    现行阶梯不再进入它们（docs/design/04-simulation-engine.md R2）。
-    只开放等待的阶段随世界结构版本 8 删除（docs/design/06-agent.md「失败后强制等待与跨决策预算」）。
+    暂停的活动不占槽位，阶梯不按槽位分流：resume_or_conclude 与 conclude_only 留在闭集中，
+    现行阶梯不进入它们（docs/design/04-simulation-engine.md）。
     """
 
     OPEN = "open"
@@ -308,6 +297,17 @@ class SameMomentStage(StrEnum):
     START_OR_RESUME = "start_or_resume"
     RESUME_OR_CONCLUDE = "resume_or_conclude"
     CONCLUDE_ONLY = "conclude_only"
+
+
+class NavigationForeground(StrictModel):
+    """@brief 导航 app 正在前台的那一段：所属的出行、这趟出行选定的导航 app 和这一段回到前台的时刻。"""
+
+    #: 所属出行：该人物一项进行中的出行活动。
+    activity_id: str = Field(min_length=1)
+    #: 这趟出行选定的导航 app。
+    app_id: str = Field(min_length=1)
+    #: 这一段回到前台的时刻：不早于出行开始，不晚于当前时刻。
+    opened_at: int = Field(ge=0)
 
 
 class AgentState(StrictModel):
@@ -334,6 +334,8 @@ class AgentState(StrictModel):
     callback_states: dict[str, int] = Field(default_factory=dict)
     callback_once_keys: set[str] = Field(default_factory=set)
     callback_reminder_days: dict[str, str] = Field(default_factory=dict)
+    #: 导航正在前台的那一段；空表示不在前台。它不放进出行活动的私有数据，活动快照是人物可见的。
+    navigation_foreground: NavigationForeground | None = None
 
     @field_serializer("plan_submitted_dates", "callback_once_keys", when_used="json")
     def serialize_agent_sets(self, value: set[str]) -> list[str]:
@@ -360,7 +362,8 @@ class ActivityState(StrictModel):
     route_progress_meters: float = Field(default=0, ge=0)
     next_interaction_at: int | None = Field(default=None, ge=0)
     destination_id: str | None = None
-    travel_mode: TravelMode | None = None
+    # 出行活动所用出行方式的身份（自带的步行是 walking，其余是数据集的身份）；其他活动为空。
+    travel_method_id: str | None = None
     resource_claims: set[str] = Field(default_factory=set)
     origin_action_id: str = Field(min_length=1)
     origin_decision_id: str = Field(min_length=1)
@@ -368,11 +371,11 @@ class ActivityState(StrictModel):
     boundary_type: str | None = None
     interruption_reason: str | None = None
     data: dict[str, Any] = Field(default_factory=dict)
-    # 生命周期（docs/design/04-simulation-engine.md「活动的生命周期」）：终态且 concluded_at 为空即待收尾；
+    # 生命周期（docs/design/04-simulation-engine.md「动作、名称与并行」）：终态且 concluded_at 为空即待收尾；
     # report_anchor_at 为播报锚点（开始、恢复与对该活动播报时写入）；session_ids 为先后所属的地点会话。
     concluded_at: int | None = Field(default=None, ge=0)
     report_anchor_at: int | None = Field(default=None, ge=0)
-    # 暂停时刻（docs/design/06-agent.md「待办层」）：暂停时写入、恢复时清空，待办层按它排序。
+    # 暂停时刻（docs/design/06-agent.md「进度、待办与记忆」）：暂停时写入、恢复时清空，待办层按它排序。
     paused_at: int | None = Field(default=None, ge=0)
     session_ids: list[str] = Field(default_factory=list)
     name: str = ""
@@ -427,28 +430,41 @@ def _validate_task_reference(kind: SessionTaskKind, reference: str | None, inten
 
 
 class DeliveryState(StrictModel):
-    """@brief 一件商品的待支付订单、配送与恰好一次收货状态。"""
+    """@brief 商品履约记录：一份商品一条，保存它的配送组、所属订单的付款、配送与恰好一次收货状态。
+
+    一次购买里 app_id 相同的记录是一张订单，付款字段（payment_app_id、payment_duration_seconds、
+    payment_started_at、payment_ended_at）在同一张订单的记录上取值相同；group_key 相同的记录是一个配送组。
+    """
 
     order_id: str = Field(min_length=1)
     agent_id: int = Field(gt=0)
     goods_id: str = Field(min_length=1)
     category: GoodsCategory
     store_id: str | None
+    #: 下单的内容 app；到店当场买为空。同一次购买里取值相同的记录是一张订单。
     app_id: str | None
+    #: 这张订单抽到的支付 app；空表示直付。
     payment_app_id: str | None
+    #: 配送组的键，运费按它合并。
     group_key: str = Field(min_length=1)
+    #: 这张订单的付款时长：app_id 与 payment_app_id 都为空的到店直付为 0，其余为 10 至 20 秒。
     payment_duration_seconds: int = Field(strict=True, ge=0, le=20)
+    #: 付款段真实开始的时刻；付款时长为 0 的订单恒为空。
     payment_started_at: int | None = Field(default=None, ge=0)
+    #: 付款段真实走完的时刻；付款时长为 0 的订单恒为空，被截断的付款段也为空。
     payment_ended_at: int | None = Field(default=None, ge=0)
     quantity: int = Field(strict=True, ge=1, le=1)
     unit_price_fen: int = Field(gt=0)
+    #: 运费：每个配送组的第一条记录承担整组运费，其余为 0。
     delivery_fee_fen: int = Field(ge=0)
     total_price_fen: int = Field(ge=0)
     destination_id: str = Field(min_length=1)
     delivery_address_id: str = Field(min_length=1)
     fulfillment: FulfillmentKind
     created_at: int = Field(ge=0)
+    #: 真实扣款时刻：一次购买的全部记录同时写入，等于购买完成的时刻。
     paid_at: int | None = Field(default=None, ge=0)
+    #: 预计到手或到达的时刻：到店记录是购买开始时刻加实际购买时长，外卖和快递是受理时冻结的预计到达。
     expected_at: int = Field(ge=0)
     arrived_at: int | None = Field(default=None, ge=0)
     received_at: int | None = Field(default=None, ge=0)
@@ -457,6 +473,20 @@ class DeliveryState(StrictModel):
     trip_id: str | None
     distance_meters: int = Field(ge=0)
     prep_seconds: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_payment_phase(self) -> "DeliveryState":
+        """@brief 付款时长为 0 只属于到店直付，其余订单为 10 至 20 秒；没有付款段的记录不带付款时刻。"""
+        seconds = self.payment_duration_seconds
+        direct_at_store = self.app_id is None and self.payment_app_id is None
+        valid = seconds == 0 if direct_at_store else 10 <= seconds <= 20
+        if not valid:
+            _LOGGER.error("Order payment duration disagrees with its payment method")
+            raise ValueError("Order payment duration disagrees with its payment method")
+        if seconds == 0 and (self.payment_started_at is not None or self.payment_ended_at is not None):
+            _LOGGER.error("Order without a payment phase carries payment times")
+            raise ValueError("Order without a payment phase carries payment times")
+        return self
 
     @model_validator(mode="after")
     def validate_receipt_time(self) -> "DeliveryState":
@@ -524,7 +554,7 @@ class DecisionRoundState(StrictModel):
 
 
 class SameMomentPresentation(StrictModel):
-    """@brief 一个人物本秒的呈现暂存（docs/design/04-simulation-engine.md「同一秒内的呈现与「刚才」」）。
+    """@brief 一个人物本秒的呈现暂存（docs/design/04-simulation-engine.md「原子性与恢复」）。
 
     stamps 为本秒各轮实际呈现的对象到时刻映射，时钟推进时才并入 presentation_state。
     """
@@ -535,7 +565,7 @@ class SameMomentPresentation(StrictModel):
 class WorldState(StrictModel):
     """@brief 提交到 FootprintStore 的完整世界状态。"""
 
-    # 结构版本必填（无缺省）：旧检查点缺该字段即拒绝加载（docs/design/06-agent.md「产品行为」）。
+    # 结构版本必填（无缺省）：旧检查点缺该字段即拒绝加载（docs/design/09-io-formats.md「单一状态归属」）。
     schema_version: Literal[WORLD_SCHEMA_VERSION]
     version: int = Field(ge=0)
     current_time: int = Field(ge=0)
@@ -551,7 +581,7 @@ class WorldState(StrictModel):
     deliveries: dict[str, DeliveryState] = Field(default_factory=dict)
     pending_events: list[ScheduledEvent] = Field(default_factory=list)
     processed_actions: dict[str, StoredAction] = Field(default_factory=dict)
-    #: 呈现派生量（docs/design/06-agent.md「派生量字段」）：按（人物, 对象标识）记录上次呈现
+    #: 呈现派生量（docs/design/09-io-formats.md「世界、人物与活动」）：按（人物, 对象标识）记录上次呈现
     #: 时刻（UTC 纪元秒），是曝光轮转的判据，不含任何偏好推断。
     presentation_state: dict[int, dict[str, int]] = Field(default_factory=dict)
     #: 按人物暂存的本秒呈现留痕：同一秒各轮沿用该秒首轮的呈现窗口，时钟推进时逐人并入 presentation_state 并清空。
@@ -565,7 +595,7 @@ class WorldState(StrictModel):
 
     @model_validator(mode="after")
     def validate_world(self) -> "WorldState":
-        """@brief 核对时钟、账户、库存与人物活动集合。"""
+        """@brief 核对时钟、账户、库存、人物活动集合，以及各张订单的记录付款字段一致。"""
         if self.current_time > self.end_time:
             raise ValueError("world current time exceeds experiment end")
         expected = {f"agent:{agent_id}" for agent_id in self.agents} | {"external:scenario"}
@@ -583,6 +613,8 @@ class WorldState(StrictModel):
                 raise ValueError("agent body settlement is ahead of world time")
         _validate_activity_collection(self)
         _validate_session_collection(self)
+        _validate_order_collection(self)
+        _validate_navigation_foreground(self)
         return self
 
 
@@ -591,6 +623,27 @@ def active_activities(state: WorldState, agent_id: int) -> tuple[ActivityState, 
     return tuple(sorted((activity for activity in state.activities.values()
                          if activity.agent_id == agent_id and activity.status == ActivityStatus.ACTIVE),
                         key=lambda activity: (activity.started_at, activity.activity_id)))
+
+
+def active_side_activities(state: WorldState, agent_id: int) -> tuple[ActivityState, ...]:
+    """@brief 人物进行中的槽位 2 活动：状态为进行中、占槽位 2 的购买或用 app。导航在不在前台只看它。"""
+    return tuple(activity for activity in active_activities(state, agent_id)
+                 if "second" in activity.resource_claims)
+
+
+def _validate_navigation_foreground(state: WorldState) -> None:
+    """@brief 导航在前台时，所指的必须是该人物进行中的出行，打开时刻在出行开始与当前时刻之间，且没有进行中的槽位 2 活动。"""
+    for agent_id, agent in state.agents.items():
+        foreground = agent.navigation_foreground
+        if foreground is None:
+            continue
+        trip = state.activities.get(foreground.activity_id)
+        travelling = (trip is not None and trip.agent_id == agent_id and trip.kind == ActivityKind.TRAVEL
+                      and trip.status == ActivityStatus.ACTIVE)
+        if (not travelling or not trip.started_at <= foreground.opened_at <= state.current_time
+                or active_side_activities(state, agent_id)):
+            _LOGGER.error("Navigation foreground disagrees with active activities")
+            raise ValueError("navigation foreground disagrees with active activities")
 
 
 def _validate_activity_collection(state: WorldState) -> None:
@@ -652,13 +705,34 @@ def _validate_session_collection(state: WorldState) -> None:
         raise ValueError("an activity refers to an unknown session")
 
 
+def _validate_order_collection(state: WorldState) -> None:
+    """@brief 恢复时拒绝购买活动列出未知的商品履约记录，或同一张订单的记录付款字段不一致。
+
+    订单是一次购买里 app_id 相同的全部记录：它们的支付 app、付款时长和付款段的真实起止必须相同。
+    """
+    for activity in state.activities.values():
+        if activity.kind != ActivityKind.PURCHASE:
+            continue
+        payments: dict[str | None, tuple] = {}
+        for identity in activity.data.get("order_ids", ()):
+            order = state.deliveries.get(identity)
+            if order is None:
+                _LOGGER.error("Purchase activity refers to an unknown order record")
+                raise ValueError("Purchase activity refers to an unknown order record")
+            payment = (order.payment_app_id, order.payment_duration_seconds,
+                       order.payment_started_at, order.payment_ended_at)
+            if payments.setdefault(order.app_id, payment) != payment:
+                _LOGGER.error("Records of one order disagree on its payment fields")
+                raise ValueError("Records of one order disagree on its payment fields")
+
+
 def _expected_activity_claims(activity: ActivityState) -> set[str]:
-    """@brief 两个固定名额的占用只从真实动作恢复，不从环境加载。"""
+    """@brief 两个槽位的占用只从真实动作与所用内容 app 恢复，不从环境加载。"""
     action = activity.data.get("action")
     if action not in ACTIVITY_ACTIONS:
         _LOGGER.error("Activity action is missing or unknown")
         raise ValueError("Activity action is missing or unknown")
-    return {activity_slot(action)}
+    return {activity_slot(action, activity.data.get("app_id"))}
 
 
 class ChangeActivityRequest(FrozenModel):
@@ -671,7 +745,7 @@ class ChangeActivityRequest(FrozenModel):
 class PlanGoalInput(FrozenModel):
     """@brief 当日目标条目：意图、目标文字与两个必填可空的场景本地 HH:MM——remind_time（要在那一刻被提醒时填写，
     否则为 null）与 around_time（打算在几点前后做，docs/design/04-simulation-engine.md
-     ；不提醒、不要求晚于登记时刻）。"""
+    ；不提醒、不要求晚于登记时刻）。"""
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema(
         "今日计划的一个目标：意图、目标文字、提醒时刻与大致时刻。"))
@@ -694,7 +768,7 @@ def _validate_plan_goals(goals: Sequence[PlanGoalInput], model_name: str) -> Seq
     """@brief 零点计划与修订两个入口共用的清单校验：条数超限与重复意图在同一次校验里一并报告。
 
     条数超过八条定位在 goals 本身（原值为提交的各条目）；每个重复的意图同时定位首次出现与其后每次出现的条目
-    （goals[i].intent_kind，原值为该意图），按下标升序。不因超限提前返回（docs/design/04-simulation-engine.md ）。
+    （goals[i].intent_kind，原值为该意图），按下标升序。不因超限提前返回（docs/design/04-simulation-engine.md）。
 
     :param goals: 已逐条通过条目校验的目标清单。
     :param model_name: 发起校验的请求模型名，作为校验错误的标题。
@@ -751,31 +825,62 @@ class ReviseDayPlanRequest(ToolRequestModel):
         return _validate_plan_goals(goals, cls.__name__)
 
 
-class ActivityRequestItem(ToolRequestModel):
-    """@brief 人物只声明动作与显示名称目标。"""
+def _cross_errors(model_name: str, problems: list[tuple[str, Any, str]]) -> ValidationError:
+    """@brief 把交叉约束的各条违背写成逐字段定位的校验错误：（字段，所写原值，英文原因）各一条。"""
+    _LOGGER.error("Start request violates its cross-field constraints")
+    return ValidationError.from_exception_data(model_name, [
+        {"type": "value_error", "loc": (field,), "input": written, "ctx": {"error": ValueError(reason)}}
+        for field, written, reason in problems])
 
-    action: str = Field(pattern=r"\S")
-    target: str = Field(pattern=r"\S")
+
+class StartMainActivityRequest(ToolRequestModel):
+    """@brief 开始一项占槽位 1 的活动：出行、在当前地点做一件事，或睡觉。"""
+
+    action: Literal[MAIN_ACTIVITY_ACTIONS] = Field(
+        description="做什么：travel 出行，interact 在当前地点做一件事，sleep 睡觉。")
+    target: str = Field(pattern=r"\S", description=(
+        "travel 写目的地地点的完整名称；interact 写当前所在地点的完整名称；sleep 写要睡的分钟数，只写数字，例如 470。"))
+    detail: Annotated[str, Field(pattern=r"\S")] | None = Field(description=(
+        "travel 写出行方式的名称，照工具层该目的地下列出的写；interact 写要做的那件事的名称，"
+        "照工具层当前地点下列出的写；sleep 写 null。"))
+
+    @model_validator(mode="after")
+    def validate_action_arguments(self) -> "StartMainActivityRequest":
+        """@brief 出行与做事必须写 detail；睡眠的 target 是 10 到 720 的分钟数、detail 必须为 null，各条违背各报一条。"""
+        problems: list[tuple[str, Any, str]] = []
+        if self.action != "sleep":
+            if self.detail is None:
+                problems.append(("detail", None, f"detail is required when action is {self.action}"))
+        else:
+            try:
+                parse_sleep_minutes(self.target)
+            except ValueError as error:
+                problems.append(("target", self.target, str(error)))
+            if self.detail is not None:
+                problems.append(("detail", self.detail, "detail must be null when action is sleep"))
+        if problems:
+            raise _cross_errors(type(self).__name__, problems)
+        return self
 
 
-class StartActivityRequest(ToolRequestModel):
-    """@brief 一至两项不同目标原子受理，所有自动选择由环境负责。"""
+class StartSideActivityRequest(ToolRequestModel):
+    """@brief 开始一项占槽位 2 的活动：购买商品，或使用一个内容 app。"""
 
-    items: Annotated[list[ActivityRequestItem], WithJsonSchema(
-        {"type": "array", "items": ActivityRequestItem.model_json_schema(mode="validation")})]
+    action: Literal[SIDE_ACTIVITY_ACTIONS] = Field(description="做什么：purchase 购买商品，interact 使用内容 app。")
+    target: list[Annotated[str, Field(pattern=r"\S")]] = Field(description=(
+        "名称数组。purchase 逐份写商品的完整名称，同一个名称写两次就是两份；interact 只写一个内容 app 的完整名称。"))
 
-    @field_validator("items")
-    @classmethod
-    def validate_items(cls, items: list[ActivityRequestItem]) -> list[ActivityRequestItem]:
-        """@brief 批次不得超过两项，同一显示名称标准化后不可重复。"""
-        if not 1 <= len(items) <= 2:
-            _LOGGER.error("Start activity requires one or two items")
-            raise ValueError("Start activity requires one or two items")
-        targets = ["".join(unicodedata.normalize("NFKC", item.target).split()) for item in items]
-        if len(set(targets)) != len(targets):
-            _LOGGER.error("Start activity repeats a target")
-            raise ValueError("Start activity repeats a target")
-        return items
+    @model_validator(mode="after")
+    def validate_target_count(self) -> "StartSideActivityRequest":
+        """@brief 名称数组至少一项；用内容 app 时恰好一项；购买不设上限并允许同名重复。每条违背各报一条。"""
+        problems = []
+        if not self.target:
+            problems.append(("target", self.target, "target requires at least one name"))
+        if self.action == "interact" and len(self.target) != 1:
+            problems.append(("target", self.target, "target takes exactly one app name when action is interact"))
+        if problems:
+            raise _cross_errors(type(self).__name__, problems)
+        return self
 
 
 class RecallTaskSummaryRequest(ToolRequestModel):
@@ -816,7 +921,7 @@ def _validate_summary(summary: str) -> str:
 
 #: HH:MM 钟点的 Schema 格式（与当日目标的 remind_time 同名同形）。
 _CLOCK_PATTERN = r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
-#: 个人事务变更的交叉约束（docs/design/04-simulation-engine.md 「每条变更」）：按变更种类必须非空的键与必须为 null 的键；
+#: 个人事务变更的交叉约束（docs/design/04-simulation-engine.md「唤醒、日计划与个人事务」）：按变更种类必须非空的键与必须为 null 的键；
 #: 其余键（新增的 memo、remind_time，更新的 memo、remind_time）可空。
 _ERRAND_REQUIRED = {"新增": ("item", "quantity"), "更新": (), "取消": ("reason",)}
 _ERRAND_NULL = {"新增": ("reason",), "更新": ("item", "quantity", "reason"),
@@ -931,10 +1036,10 @@ _PROGRESS_ITEMS_SCHEMA = {"type": "array", "items": ActivityProgressItem.model_j
 
 class ReportStatusRequest(ToolRequestModel):
     """@brief 逐项播报进行中活动的人物自述；点名暂停的活动即在其开始地点恢复它（docs/design/04-simulation-engine.md
-    第六章：一项一个对象）。
+    ：一项一个对象）。
 
     :param items: 本次播报的一至两项，每项写活动名与进展自述。
-    :param errands: 请求级的个人事务变更，零至四条（docs/design/04-simulation-engine.md ）。
+    :param errands: 请求级的个人事务变更，零至四条（docs/design/04-simulation-engine.md）。
     """
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema())
@@ -956,10 +1061,10 @@ class ReportStatusRequest(ToolRequestModel):
 
 
 class PauseActivityRequest(ToolRequestModel):
-    """@brief 逐项写下人物自述并暂停所选进行中活动；暂停让出名额，恢复要有空名额，路上的活动不能暂停（一项一个对象）。
+    """@brief 逐项写下人物自述并暂停所选进行中活动；暂停让出槽位，恢复要有空槽位，路上的活动不能暂停（一项一个对象）。
 
     :param items: 本次暂停的一至两项，每项写活动名与进展自述。
-    :param errands: 请求级的个人事务变更，零至四条（docs/design/04-simulation-engine.md ）。
+    :param errands: 请求级的个人事务变更，零至四条（docs/design/04-simulation-engine.md）。
     """
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema())
@@ -981,7 +1086,7 @@ class PauseActivityRequest(ToolRequestModel):
 
 
 #: 一次 conclude_activity 写入的记忆与看法合计上限、单条文字字符上限与关键词个数上限（docs/design/04-simulation-engine.md
-#: 第七章「finish 并入 conclude_activity」；DeepSeek strict 禁 maxItems/maxLength，由本地校验兜住）。
+#: ；DeepSeek strict 禁 maxItems/maxLength，由本地校验兜住）。
 CONCLUSION_MEMORIES_MAX = 8
 MEMORY_TEXT_MAX_CHARS = 1000
 MEMORY_KEYWORDS_MAX = 12
@@ -992,7 +1097,7 @@ _MEMORY_HEX_IDENTITY = re.compile(r"[0-9a-fA-F]{8,}")
 def validate_memory_text(text: str) -> str:
     """@brief 进入主观记忆的文字的共用校验：不超过 1000 字符且不含八位以上十六进制身份。
 
-    收尾记忆、看法与就寝反思的洞见三处共用这一个函数（docs/design/06-agent.md ），不区分条目来源。
+    收尾记忆、看法与就寝反思的洞见三处共用这一个函数（docs/design/06-agent.md），不区分条目来源。
 
     :param text: 模型写下的一条记忆文字。
     :returns: 通过校验的原文。
@@ -1041,7 +1146,7 @@ class ConclusionMemory(ToolRequestModel):
 
 class ConclusionView(ToolRequestModel):
     """@brief 结束活动时写下的一条看法（relationship，对某人）或偏好（preference，对某物）；about 写对象，宿主写入记忆时
-    作为 subject 存储（请求里叫 about、存储里叫 subject，指同一件事，接口合同「记忆字段」）。"""
+    作为 subject 存储（请求里叫 about、存储里叫 subject，指同一件事，docs/design/00-overview.md「数据质量原则」）。"""
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema("一条看法或偏好：类型、对象、文字、重要程度与关键词。"))
     type: Literal["relationship", "preference"] = Field(
@@ -1088,11 +1193,11 @@ class ActivityConclusionItem(ToolRequestModel):
 
 
 class ConcludeActivityRequest(ToolRequestModel):
-    """@brief 逐项写下总结、记忆与看法并结束所选活动（进行中、暂停中或刚结束待收尾），进行中与待收尾的结束后释放名额；一项一个对象
+    """@brief 逐项写下总结、记忆与看法并结束所选活动（进行中、暂停中或刚结束待收尾），进行中与待收尾的结束后释放槽位；一项一个对象
     （docs/design/04-simulation-engine.md）。
 
     :param items: 本次结束的一至两项；全部项的 memories 与 views 合计不超过八条。
-    :param errands: 请求级的个人事务变更，零至四条（docs/design/04-simulation-engine.md ）。
+    :param errands: 请求级的个人事务变更，零至四条（docs/design/04-simulation-engine.md）。
     """
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema())
@@ -1120,7 +1225,7 @@ class ConcludeActivityRequest(ToolRequestModel):
 
 
 ActionRequest = Annotated[
-    StartActivityRequest | RecallTaskSummaryRequest |
+    StartMainActivityRequest | StartSideActivityRequest | RecallTaskSummaryRequest |
     ReportStatusRequest | PauseActivityRequest | ConcludeActivityRequest |
     ReviseDayPlanRequest,
     Field(union_mode="left_to_right"),
@@ -1154,7 +1259,7 @@ def rejection_reason_text(error: Exception) -> str:
     """@brief 拒绝的英文日志文本：业务错误码加完整链式底层原因，只清除十六进制身份。
 
     只写进运行日志，不进入结果：拒绝结果的 message 与 details 取 life.guidance 生成的公开原因
-    （docs/design/04-simulation-engine.md「错误合同」），链式底层异常（骨架校验等）可能是请求模型的校验转储。
+    （docs/design/04-simulation-engine.md「动作、名称与并行」），链式底层异常（骨架校验等）可能是请求模型的校验转储。
     """
     reason = str(error)
     cause = error.__cause__
@@ -1165,7 +1270,7 @@ def rejection_reason_text(error: Exception) -> str:
 
 
 REQUEST_MODELS: dict[str, type[FrozenModel]] = {
-    "start_activity": StartActivityRequest,
+    **dict(zip(START_TOOLS, (StartMainActivityRequest, StartSideActivityRequest), strict=True)),
     "recall_task_summary": RecallTaskSummaryRequest,
     "report_status": ReportStatusRequest,
     "pause_activity": PauseActivityRequest,

@@ -100,7 +100,7 @@ def _tool_records(context: LayerContext, store: FootprintStore, lower: int) -> l
     """@brief 本 session 的世界请求：每个 action_requested 连同其最新结果（即时结果另作来源）与 self_note。
 
     开始活动的请求在活动结束后带终态结果：浏览得到的商品名、到达等事实只在终态结果里，唯一出现原则要求它们写在该调用的
-    结果上（docs/design/06-agent.md「唯一出现原则」「进度层」）；活动目标的 state 只写终局说法与客观进度。
+    结果上（docs/design/06-agent.md「进度、待办与记忆」）；活动目标的 state 只写终局说法与客观进度。
     """
     requests = store.read_agent_events("action_requested", context.agent_id, after=lower)
     results = store.read_agent_events("action_result", context.agent_id, after=lower)
@@ -189,7 +189,7 @@ def _world_records(context: LayerContext, store: FootprintStore, lower: int) -> 
 
 
 def _errand_record(context: LayerContext, event: Event) -> _Record:
-    """@brief 个人事务事件派生的记录（docs/design/04-simulation-engine.md ）：errand_reminded 为
+    """@brief 个人事务事件派生的记录（docs/design/04-simulation-engine.md）：errand_reminded 为
     errand_reminder（提醒到点），
     errand_completed 为 errand_completed（环境确认办成），都只写事务名；来源是该事件，计入观察的进度来源。"""
     record = {"occurred_at": iso_time(event.occurred_at, context.config.timezone),
@@ -268,30 +268,43 @@ def _protected(context: LayerContext, item: _Record, request: tuple[int, int | N
 
 
 def rejected_today(context: LayerContext, store: FootprintStore) -> list[dict]:
-    """@brief 当日真实拒绝由持久证据派生，跨会话保留且不写检查点或人物记忆。"""
+    """@brief 当日真实拒绝由持久证据派生，跨会话保留且不写检查点或人物记忆。
+
+    同一决策的两条开始动作被拒时内容相同，只统计一次。
+    """
     day = local_date(context.state.current_time, context.config.timezone)
-    events = [event for kind in ("model_response", "action_rejected", "action_accepted", "action_requested")
-              for event in store.read_agent_events(kind, context.agent_id)
-              if event.occurred_at <= context.state.current_time
-              and local_date(event.occurred_at, context.config.timezone) == day]
-    requests = {event.action_id: event for event in events if event.event_type == "action_requested"}
+    events = sorted((event for kind in ("model_response", "action_rejected", "action_accepted", "action_requested")
+                     for event in store.read_agent_events(kind, context.agent_id)
+                     if event.occurred_at <= context.state.current_time
+                     and local_date(event.occurred_at, context.config.timezone) == day),
+                    key=lambda item: item.event_seq)
+    requests = [event for event in events if event.event_type == "action_requested"]
     rows: dict[tuple, dict] = {}
-    for event in sorted(events, key=lambda item: item.event_seq):
+    rejected: set[str] = set()
+    for event in events:
         if event.event_type == "action_accepted" and not event.data.get("reused"):
-            _memo_accept(rows, event, requests.get(event.action_id))
+            _memo_accept(rows, event, next((item for item in requests if item.action_id == event.action_id), None))
             continue
         if event.event_type not in {"model_response", "action_rejected"} or event.data.get("reused"):
             continue
+        registered = []
+        if event.event_type == "action_rejected":
+            if event.decision_id in rejected:
+                continue
+            rejected.add(event.decision_id)
+            registered = [item for item in requests if item.decision_id == event.decision_id]
         report = (event.data.get("protocol_feedback") if event.event_type == "model_response" else event.data)
         if isinstance(report, dict) and report.get("error_code"):
-            request = requests.get(event.action_id)
-            _memo_reject(rows, event, report, request, context.config.timezone)
+            _memo_reject(rows, event, report, registered, context.config.timezone)
     latest = sorted(rows.values(), key=lambda item: item["sequence"], reverse=True)[:8]
     return [{key: row[key] for key in ("written", "why", "times", "last", "accepted_as")} for row in latest]
 
 
-def _memo_reject(rows: dict, event: Event, report: dict, request: Event | None, zone: str) -> None:
-    """@brief 同一持久拒绝内重复位置只计一次，同位置同写法跨请求累加。"""
+def _memo_reject(rows: dict, event: Event, report: dict, registered: list[Event], zone: str) -> None:
+    """@brief 同一持久拒绝内重复位置只计一次，同位置同写法跨请求累加。
+
+    :param registered: 环境拒绝所属决策已登记的动作请求（按登记次序）；协议拒绝为空。
+    """
     items = report.get("items") or [{"path": ["tool_calls"], "written": None,
                                     "why": report.get("reason") or report["error_code"]}]
     seen = set()
@@ -303,18 +316,18 @@ def _memo_reject(rows: dict, event: Event, report: dict, request: Event | None, 
             continue
         seen.add(key)
         prior = rows.get(key)
-        rows[key] = {"path": path, "tool": _memo_tool(event, request, path), "written": written,
+        rows[key] = {"path": path, "tool": _memo_tool(event, registered, path), "written": written,
                      "why": str(item.get("why") or report.get("reason") or report["error_code"])[:60],
                      "times": 1 if prior is None else prior["times"] + 1,
                      "last": iso_time(event.occurred_at, zone), "accepted_as": None, "sequence": event.event_seq}
 
 
-def _memo_tool(event: Event, request: Event | None, path: tuple) -> str | None:
-    """@brief 取得真实请求工具，协议拒绝从原始工具调用取得。"""
-    if request is not None:
-        return request.data.get("tool_name")
-    calls = _tool_calls(event)
+def _memo_tool(event: Event, registered: list[Event], path: tuple) -> str | None:
+    """@brief 取得真实请求工具：环境拒绝取明细路径里调用位置对应的那条已登记动作，协议拒绝从原始工具调用取得。"""
     index = path[1] if len(path) > 1 and path[0] == "tool_calls" and isinstance(path[1], int) else 0
+    if registered:
+        return registered[min(index, len(registered) - 1)].data.get("tool_name")
+    calls = _tool_calls(event)
     return calls[index].get("function", {}).get("name") if index < len(calls) else None
 
 

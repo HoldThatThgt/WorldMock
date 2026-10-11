@@ -86,11 +86,11 @@ def _position_is_valid(position, duration_seconds: int) -> bool:
     return type(position) in {int, float} and math.isfinite(position) and 0 <= position <= duration_seconds
 
 def _travel_target_is_valid(activity, catalog) -> bool:
-    """@brief 自动导航只绑定原具体动作；冻结行程不随之后天气重新规划。"""
+    """@brief 冻结行程按原出行方式和原天气核对，不随之后天气重新规划。"""
     if "navigation_app_id" in activity.data:
         return False
     try:
-        persisted_trip(catalog.graph, activity)
+        persisted_trip(catalog, activity)
     except (IntegrityError, KeyError, ValueError):
         logging.error("Persisted travel plan does not match its catalog")
         return False

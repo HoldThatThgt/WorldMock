@@ -31,6 +31,8 @@ class CallbackCause:
     source_event_id: str
     #: 不使用事件随机身份的确定性锚点。
     anchor: str
+    #: 出行动作触发所用的出行方式身份；其他触发为空。
+    travel_method_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -106,12 +108,20 @@ def evaluate_callbacks(state: WorldState, catalog, cause: CallbackCause,
 def _matches(rule, cause: CallbackCause, state: WorldState) -> bool:
     """@brief 月度规则在共用时间事实之后仍核对自身日期与时刻。"""
     trigger = rule.trigger
-    if trigger.trigger_class != cause.trigger_class or trigger.key != cause.key:
+    if not _subscribes(trigger, cause):
         return False
     if cause.trigger_class == "time" and cause.key == "monthly":
         local = datetime.fromtimestamp(state.current_time, ZoneInfo(state.timezone))
         return local.day == trigger.day and local.strftime("%H:%M") == trigger.time
     return True
+
+
+def _subscribes(trigger, cause: CallbackCause) -> bool:
+    """@brief 触发类与键都相同才订阅；出行触发只订阅一种出行方式，方式也相同才匹配。"""
+    if trigger.trigger_class != cause.trigger_class or trigger.key != cause.key:
+        return False
+    travel = cause.trigger_class == "action" and cause.key == "travel"
+    return not travel or trigger.travel_method_id == cause.travel_method_id
 
 
 def _apply_rule(state: WorldState, catalog, rule, cause: CallbackCause) -> CallbackOutcome:
@@ -201,22 +211,22 @@ def _put_agent(state: WorldState, agent) -> WorldState:
 
 
 def settle_callback_dates(state: WorldState, catalog, activity, interval: tuple[int, int]) -> CallbackOutcome:
-    """@brief 按实际半开区间中的本地日期执行一次增量，不按受理日或固定日秒数。"""
+    """@brief 按实际半开区间中的本地日期执行一次增量，不按受理日或固定日秒数；出行只触发订阅了同一出行方式的规则。"""
     start, end = interval
     if end <= start:
         return CallbackOutcome(state, [])
     drafts, causes = [], {}
     for local_date in _interval_dates(start, end, state.timezone):
+        cause = CallbackCause("action", activity.data["action"], activity.agent_id, activity.data["accepted_event_id"],
+                              f"{activity.origin_action_id}:{local_date}", activity.travel_method_id)
         for rule in sorted(catalog.callback_rules.values(), key=lambda value: value.rule_id):
-            if (rule.trigger.trigger_class != "action" or rule.trigger.key != activity.data["action"]
-                    or not isinstance(rule.effect, StateDelta) or rule.effect.once_per != "local_day"):
+            if (not _subscribes(rule.trigger, cause) or not isinstance(rule.effect, StateDelta)
+                    or rule.effect.once_per != "local_day"):
                 continue
             agent = state.agents[activity.agent_id]
             once = f"{rule.rule_id}:{local_date}"
             if once in agent.callback_once_keys:
                 continue
-            cause = CallbackCause("action", rule.trigger.key, activity.agent_id,
-            activity.data["accepted_event_id"], f"{activity.origin_action_id}:{local_date}")
             outcome = _apply_daily_delta(state, catalog, rule, cause, local_date)
             state, drafts = outcome.state, [*drafts, *outcome.drafts]
             causes.update(outcome.causes)

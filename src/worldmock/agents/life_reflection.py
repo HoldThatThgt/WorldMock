@@ -1,6 +1,6 @@
 """@brief 就寝反思的严格工具通道：文案、唯一工具的 Schema、本地校验与校验重试的附回消息。
 
-就寝反思的模型调用只带 submit_reflection 一个严格工具（docs/design/10-runtime.md ）：响应须恰好一次该工具的
+就寝反思的模型调用只带 submit_reflection 一个严格工具（docs/design/10-runtime.md）：响应须恰好一次该工具的
 调用，message.content 不读取；条数、引用与正文都在本地校验，不合合同时抛 ReflectionOutputError，由记忆运行时
 （src/worldmock/agents/life_memory.py）附回英文错误做有界重试。文案、Schema 与重试次数是本模块的常量，只由 code_sha256 绑定：
 submit_reflection 不属于人物工具面，不进 tool_schema_sha256，文案不进 prompt_sha256。
@@ -75,7 +75,7 @@ class ReflectionInsight(ToolRequestModel):
 
 
 class ReflectionRequest(ToolRequestModel):
-    """@brief 就寝边界的一至五条主观洞见；条目 Schema 内联，不产生引用定义。"""
+    """@brief 就寝反思的一至五条主观洞见；条目 Schema 内联，不产生引用定义。"""
 
     insights: Annotated[list[ReflectionInsight], WithJsonSchema(
         {"type": "array", "items": ReflectionInsight.model_json_schema(mode="validation")})]

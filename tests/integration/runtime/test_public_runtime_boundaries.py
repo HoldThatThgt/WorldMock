@@ -18,17 +18,17 @@ from worldmock.agents.life_persona import persona_layer, readonly_layers, write_
 from worldmock.errors import EnvironmentInputError, IntegrityError, ProtocolError
 from worldmock.life.narration import RenderBudgetExceededError
 from worldmock.model_endpoint import credential_value, load_model_metadata, model_context_length
-from worldmock.run_setup import input_warnings, validate_manifest_stage_identity, validate_stage_model_identity
+from worldmock.run_setup import validate_manifest_stage_identity, validate_stage_model_identity
 from worldmock.runtime import CounterfactualRequest, PlanDayClient, ResumeRequest, RunRequest
 from worldmock.runtime import run_world, resume_world, replay_world
 from worldmock.life.models import CounterfactualIntervention
 
 
 @pytest.mark.parametrize("value", [None, "", "  ", 17])
-def test_persona_text_requires_the_compiled_card(value):
-    with pytest.raises(IntegrityError, match="Compiled persona card text is required"):
+def test_persona_text_requires_the_card_text(value):
+    with pytest.raises(IntegrityError, match="Persona card text is required"):
         persona_card_text({"persona_card": value}, "林舟")
-    assert persona_card_text({"persona_card": "  已编译的人物卡片  "}, "林舟") == "已编译的人物卡片"
+    assert persona_card_text({"persona_card": "  人物卡片文本  "}, "林舟") == "人物卡片文本"
 
 
 def test_persona_layer_rejects_actual_overlong_card_without_truncation():
@@ -40,13 +40,13 @@ def test_persona_layer_rejects_actual_overlong_card_without_truncation():
     assert prepared == original
 
 
-def test_readonly_prompt_uses_saved_snapshot_and_requires_compiled_persona(tmp_path):
+def test_readonly_prompt_uses_saved_snapshot_and_requires_the_persona_card(tmp_path):
     prepared = profile()
     initial, memory = readonly_layers(None, prepared, "林舟")
     assert initial["identity"]["name"] == "林舟"
     write_prompt_snapshot(tmp_path, initial, memory)
     assert readonly_layers(tmp_path, {}, "不同的姓名") == (initial, memory)
-    with pytest.raises(IntegrityError, match="Compiled persona card structure is required"):
+    with pytest.raises(IntegrityError, match="Persona card structure is required"):
         readonly_layers(tmp_path / "without-snapshot", {}, "林舟")
 
 
@@ -65,11 +65,6 @@ def test_continuation_tool_message_preserves_actual_events_and_omits_empty_chang
 def test_manifest_stage_identity_requires_the_current_actual_stage(manifest, reason):
     with pytest.raises(IntegrityError, match=reason):
         validate_manifest_stage_identity(manifest)
-
-
-def test_warnings_cannot_be_generated_without_the_compiled_persona():
-    with pytest.raises(IntegrityError, match="Compiled persona card is missing"):
-        input_warnings(inputs(), {})
 
 
 @pytest.mark.parametrize("field,value", [

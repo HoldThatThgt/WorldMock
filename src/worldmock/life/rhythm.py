@@ -12,6 +12,7 @@ from worldmock.life.models import ActivityKind, ActivityStatus, WorldState, acti
 from worldmock.life.projection import felt_values
 from worldmock.life.schedule import NextDecisionQuery, WakeSnapshot, evaluate_wake_reasons, next_decision_time
 from worldmock.life.world_ops import _put_activity, _resource_flows_data, meal_windows_by_agent
+from worldmock.scheduling.events import ScheduledKind
 
 HUNGRY_BANDS = frozenset({"饿", "很饿", "饿得难受", felt.APPETITE_STARVING_LEVEL})
 SLEEPY_BANDS = frozenset({"困", "很困", "撑不住"})
@@ -90,19 +91,19 @@ def _settle_discomfort(agent, levels: dict[str, str], now: int, interval_start: 
                                     "discomfort_pulse_hours": chargeable if continuing else 0.0}, deep=True)
 
 def _wake_snapshot(context, state: WorldState, agent, boundary: RhythmBoundary) -> WakeSnapshot:
-    """@brief 只由真实完成、到达和当前会话提供唤醒事实。"""
+    """@brief 只由真实完成、到达和睡醒提供唤醒事实；session_open 就是本人有一段睡眠恰在本边界完成。"""
     now = state.current_time
     completed = [item for item in state.activities.values() if item.agent_id == agent.agent_id
                  and is_pending_conclusion(item) and item.ended_at == now]
     activities = active_activities(state, agent.agent_id)
     flags = boundary.arrivals.get(agent.agent_id, set())
-    return WakeSnapshot(now=now, planned_end=now if completed else None,
-        planned_end_is_sleep=any(item.kind == ActivityKind.SLEEP for item in completed),
+    woke = any(item.kind == ActivityKind.SLEEP for item in completed)
+    return WakeSnapshot(now=now, planned_end=now if completed else None, planned_end_is_sleep=woke,
         felt_bands_now=_felt_levels(context, state, agent),
         felt_bands_at_last_decision=agent.felt_bands_at_last_decision,
         delivery_arrived="delivery_arrival" in flags, last_decision_time=agent.last_decision_time,
         reconsideration_interval_seconds=context.config.reconsideration_interval_seconds,
-        session_open="session_open" in flags, progress_report_due=_progress_report_due(
+        session_open=woke, progress_report_due=_progress_report_due(
             agent, state, context.config.progress_report_interval_seconds), no_active_activity=not activities,
         reminder_due=reminders.reminder_due(agent, now) or bool(errands.reminders_due(agent, now)),
         duty_boundary=bool(duty_edges.edges_at(context.inputs, agent.agent_id, now)),
@@ -142,7 +143,8 @@ def next_decision_at(context, state: WorldState, agent) -> int:
         planned_end=min((item.planned_end_at for item in activities), default=None),
         felt_band_crossing_times=() if seconds is None else (state.current_time + seconds,),
         scheduled_arrival_times=tuple(item.due_at for item in state.pending_events
-                                     if item.agent_id == agent.agent_id), last_decision_time=agent.last_decision_time,
+                                     if item.agent_id == agent.agent_id and item.kind != ScheduledKind.ORDER_SHIPPED),
+        last_decision_time=agent.last_decision_time,
         reconsideration_interval_seconds=context.config.reconsideration_interval_seconds,
         next_progress_report_at=_next_progress_report_at(agent, state, context.config.progress_report_interval_seconds),
         reminder_times=(*reminders.reminder_times(agent, state.current_time),

@@ -1,5 +1,7 @@
 import json
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -404,19 +406,90 @@ def test_non_memory_tool_json_error_is_counted_without_memory_warning():
     assert memory["problems"] == [{"code": "memory_protocol_error", "event_id": "event-1", "agent_id": 1}]
 
 
-def test_conclusion_and_reflection_in_one_step_are_each_matched_to_their_registration():
-    """@brief 同一边界真实睡眠终态和控制请求分别证明反思与收尾写入点。"""
-    ended = _event(1, "activity_progress", occurred_at=102, agent_id=1, activity_id="sleep",
-                   data={"activity": {"kind": "sleep", "status": "completed", "agent_id": 1, "ended_at": 102}})
-    events = [ended,
-        _event(2, "observation", occurred_at=102, agent_id=1, decision_id="woke",
-               data={"verified_experiences": [], "progress_event_ids": [ended.event_id]}),
-        _concluded(3, "woke", _memory("睡得不太踏实。")),
-        _event(4, "memory_updated", agent_id=1, decision_id="woke",
-               data=_memory_update("m1", "event-2", "woke", ("activity_conclusion", "reflection")))]
+#: 周二 2026-01-06 08:00（上海）：一夜睡醒的那一刻。
+_WOKE = int(datetime(2026, 1, 6, 8, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp())
+
+
+def _wake(sequence, at=_WOKE, activity_id="night", status="completed"):
+    """环境写下的睡眠终局进度：快照是在 at 结束的已完成睡眠（status 不是 completed 时没有结束时刻）。"""
+    snapshot = {"kind": "sleep", "status": status, "agent_id": 1, "ended_at": at if status == "completed" else None}
+    return _event(sequence, "activity_progress", occurred_at=at, agent_id=1, activity_id=activity_id,
+                  data={"activity": snapshot})
+
+
+def _reflected(sequence, identity="r1", *, at=_WOKE, date="2026-01-05", decision_id="woke", **changes):
+    """取观察之前的就寝反思登记：来源观察为空，写入点恰为 reflection，带归属日期与所属睡眠。"""
+    data = {**_memory_update(identity, None, decision_id, ("reflection",)), "memory_sha256": "a" * 64,
+            "episodes": [{"id": identity, "type": "reflection", "text": "想早点睡。",
+                          "epistemic_status": "subjective", "source": "reflection"}],
+            "reflection": {"date": date, "sleep_activity_id": "night"}, **changes}
+    return _event(sequence, "memory_updated", occurred_at=at, agent_id=1, decision_id=decision_id, data=data)
+
+
+def _observed(sequence, at=_WOKE, decision_id="woke"):
+    """一次决策的冻结观察，事实窗口为空。"""
+    return _event(sequence, "observation", occurred_at=at, agent_id=1, decision_id=decision_id,
+                  data={"verified_experiences": []})
+
+
+def _memory_problems(events):
+    """质量报告的记忆来源问题（码与事件）。"""
     memory = build_quality_report(events, [], _manifest())["memory_references"]
-    assert memory == {"memory_update_events": 1, "persisted_episode_ids": 1, "write_points_checked": 2,
+    return [(item["code"], item["event_id"]) for item in memory["problems"]]
+
+
+def test_reflection_before_the_observation_and_conclusion_after_it_are_each_matched():
+    """@brief 睡醒那一步的两条登记各有来源：反思登记排在观察之前、对应当天第一次睡醒并记在前一天名下，
+    不核对事实窗口；步尾登记对应同一决策的 conclude_activity 与观察。"""
+    events = [_wake(1), _reflected(2), _observed(3), _concluded(4, "woke", _memory("睡得不太踏实。")),
+              _event(5, "memory_updated", occurred_at=_WOKE, agent_id=1, decision_id="woke",
+                     data={**_memory_update("m1", "event-3", "woke"), "reflection": None})]
+    events[3] = events[3].model_copy(update={"occurred_at": _WOKE})
+    memory = build_quality_report(events, [], _manifest())["memory_references"]
+    assert memory == {"memory_update_events": 2, "persisted_episode_ids": 2, "write_points_checked": 2,
                       "problem_count": 0, "problems": []}
+
+
+@pytest.mark.parametrize("case", ["no_wake", "wake_at_another_time", "sleep_not_completed", "later_wake_of_the_day",
+                                  "filed_under_today", "filed_two_days_back", "after_the_observation"])
+def test_reflection_registration_without_its_first_wake_up_of_the_day_has_no_source(case):
+    """就寝反思登记只凭事件独立重算：找不到对应的睡醒、不是当天第一次睡醒、日期不是前一天、排在本决策的观察之后，
+    各记一条 memory_update_without_source。"""
+    events = {
+        "no_wake": [_reflected(1)],
+        "wake_at_another_time": [_wake(1, _WOKE - 60), _reflected(2)],
+        "sleep_not_completed": [_wake(1, status="active"), _reflected(2)],
+        "later_wake_of_the_day": [_wake(1, _WOKE - 5 * 3600, "first"), _wake(2), _reflected(3)],
+        "filed_under_today": [_wake(1), _reflected(2, date="2026-01-06")],
+        "filed_two_days_back": [_wake(1), _reflected(2, date="2026-01-04")],
+        "after_the_observation": [_wake(1), _observed(2), _reflected(3)],
+    }[case]
+    assert _memory_problems(events) == [("memory_update_without_source", events[-1].event_id)]
+
+
+def test_second_reflection_registration_at_the_same_moment_has_no_source():
+    """同一人物同一时刻只能有一条反思登记：第二条记一条 memory_update_without_source，第一条不报。"""
+    events = [_wake(1), _reflected(2, "r1"), _reflected(3, "r2"), _observed(4)]
+    assert _memory_problems(events) == [("memory_update_without_source", "event-3")]
+
+
+def test_a_wake_up_just_before_local_midnight_does_not_take_the_next_day_s_reflection():
+    """本地日按运行清单的窗口时区分：前一天 23:59 的睡醒与当天 08:00 的睡醒不在同一天，后者仍是当天第一次。"""
+    events = [_wake(1, _WOKE - 8 * 3600 - 60, "evening"), _wake(2), _reflected(3), _observed(4)]
+    assert _memory_problems(events) == []
+    same_day = [_wake(1, _WOKE - 8 * 3600, "midnight"), _wake(2), _reflected(3), _observed(4)]
+    assert _memory_problems(same_day) == [("memory_update_without_source", "event-3")]
+
+
+@pytest.mark.parametrize("change", [
+    {"observation_event_id": "event-9"}, {"reflection": {"date": "2026-01-05"}},
+    {"reflection": {"date": "", "sleep_activity_id": "night"}}, {"reflection": "2026-01-05"},
+    {"reflection": {"date": "2026-01-05", "sleep_activity_id": "night", "extra": 1}},
+])
+def test_reflection_registration_with_a_malformed_binding_is_an_invalid_memory_update(change):
+    """反思登记的来源观察必须为空，归属恰含日期与所属睡眠两个非空字符串；否则整条记为 invalid_memory_update。"""
+    events = [_wake(1), _reflected(2, **change), _observed(3)]
+    assert _memory_problems(events) == [("invalid_memory_update", "event-2")]
 
 
 @pytest.mark.parametrize("wake_reasons,registered,trigger", [
@@ -540,7 +613,7 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
     report = build_quality_report(events, [], _manifest())
     rhythm = report["decision_rhythm"]
 
-    assert report["schema_version"] == 7
+    assert report["schema_version"] == 8
     assert "decision_budget_exhausted_events" not in rhythm
     assert rhythm["body_settlement_events"] == 4
     assert rhythm["boundaries_with_decision_field"] == 3
@@ -557,7 +630,7 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
 
 def test_report_sections_are_the_documented_grouping_without_a_language_count():
     """报告的分组恰是记录引擎设计「质量报告」登记的十八组（docs/design/05-recording-engine.md），顺序相同，另有版本与
-    运行身份；报告结构为 4，登记的版本句也写 4：个人事务与工作安排规格的两个新组 errand_metrics、conclusion_memories
+    运行身份；报告结构为 8：个人事务与工作安排规格的两个新组 errand_metrics、conclusion_memories
     在报告与登记句里都紧随 day_plan_metrics（docs/design/01-architecture.md），没有任何事务事件与收尾记忆时两组
     都为 null。其中没有语言计数：一日运行保真裁决 D18 不作语言要求，人物写的正文、总结与记忆用中文还是英文不在报告里
     计数（docs/design/06-agent.md），一日运行保真新增的五节是输入警告、时间线标签、联系人回复守卫、名称类
@@ -570,7 +643,7 @@ def test_report_sections_are_the_documented_grouping_without_a_language_count():
     assert documented[plan:plan + 3] == ["day_plan_metrics", "errand_metrics", "conclusion_memories"]
     assert list(report)[3:] == documented
     assert set(report) == {"schema_version", "run_id", "source_group_id", *documented}
-    assert report["schema_version"] == 7
+    assert report["schema_version"] == 8
     assert (report["errand_metrics"], report["conclusion_memories"]) == (None, None)
     assert [key for key in report if any(word in key for word in ("language", "english", "chinese"))] == []
 
@@ -676,23 +749,29 @@ def test_invalid_quality_inputs_are_rejected(events):
 
 
 def test_input_warnings_section_counts_the_frozen_manifest_warnings():
-    """input_warnings 一节（docs/design/04-simulation-engine.md、九）：按警告码闭集与人物统计清单冻结的警告，场景级警告
-    另计；清单没有记录（引擎直驱为 null，或旧清单没有这个键）时计数为 null 而不是 0；只报告，不放行。"""
-    from worldmock.profile.injection import INPUT_WARNING_CODES, agreement_warnings
+    """input_warnings 一节（docs/design/08-configuration.md「校验与输入冻结」）：按警告码闭集与人物统计清单冻结的警告，
+    场景级警告另计；闭集之外的码（包括随人物卡片编译删除的那些）单列；清单没有记录（引擎直驱为 null，或旧清单没有这个键）
+    时计数为 null 而不是 0；只报告，不放行。"""
+    from worldmock.input_warnings import INPUT_WARNING_CODES
+
+    def personal(agent_id):
+        return {"code": "CONTENT_EMPTY_WITH_MEDIA_TASTES", "agent_id": agent_id, "message": "没有绑定内容",
+                "details": {"media": ["短视频"], "habits": []}}
 
     scenario_level = {"code": "LOCATION_NAME_SUSPICIOUS", "agent_id": None, "message": "显示名带坐标",
                       "details": {"location_id": "poi", "name": "全家（31.2, 121.5）", "patterns": ["coordinates"]}}
-    warnings = [*agreement_warnings(1, ("c",)), *agreement_warnings(2, ("a", "b")), scenario_level]
+    deleted = {"code": "CARD_FIELD_CONFLICT", "agent_id": 2, "message": "旧清单里的警告", "details": {}}
+    warnings = [personal(1), personal(2), deleted, scenario_level]
     events = [_event(1, "run_ended", occurred_at=200)]
 
     section = build_quality_report(events, [], {**_manifest(end=200), "input_warnings": warnings})["input_warnings"]
 
-    expected_codes = dict.fromkeys(INPUT_WARNING_CODES, 0)
-    expected_codes.update(PERSONA_AGREEMENT_LOW=3, LOCATION_NAME_SUSPICIOUS=1)
+    assert INPUT_WARNING_CODES == ("CONTENT_EMPTY_WITH_MEDIA_TASTES", "LOCATION_NAME_SUSPICIOUS")
     assert section["recorded"] is True and section["warning_count"] == 4
-    assert section["code_counts"] == expected_codes and list(section["code_counts"]) == list(INPUT_WARNING_CODES)
+    assert section["code_counts"] == {"CONTENT_EMPTY_WITH_MEDIA_TASTES": 2, "LOCATION_NAME_SUSPICIOUS": 1}
+    assert list(section["code_counts"]) == list(INPUT_WARNING_CODES)
     assert section["agent_counts"] == {"1": 1, "2": 2} and section["scenario_warning_count"] == 1
-    assert section["unrecognized_code_counts"] == {}
+    assert section["unrecognized_code_counts"] == {"CARD_FIELD_CONFLICT": 1}
     for manifest in (_manifest(end=200), {**_manifest(end=200), "input_warnings": None}):
         missing = build_quality_report(events, [], manifest)["input_warnings"]
         assert missing["recorded"] is False
@@ -807,15 +886,10 @@ def test_quality_report_is_deterministic_for_the_same_authenticated_input():
 
 @pytest.mark.parametrize("source,codes", [("reflection", []), ("activity_conclusion", ["invalid_memory_update"])])
 def test_bedtime_reflection_snapshot_may_carry_its_source(source, codes):
-    """@brief 反思来源来自同一决策边界的睡眠终态，不依赖唤醒名称。"""
-    update = {**_memory_update("r1", "event-2", "decision", trigger=("reflection",)),
-              "episodes": [{"id": "r1", "type": "reflection", "text": "睡前有点困", "epistemic_status": "subjective",
-                            "source": source}]}
-    ended = _event(1, "activity_progress", occurred_at=102, agent_id=1, activity_id="sleep",
-                   data={"activity": {"kind": "sleep", "status": "completed", "agent_id": 1, "ended_at": 102}})
-    events = [ended, _event(2, "observation", agent_id=1, decision_id="decision",
-                         data={"verified_experiences": [], "progress_event_ids": [ended.event_id]}),
-              _event(3, "memory_updated", agent_id=1, decision_id="decision", data=update)]
+    """@brief 反思登记的快照带来源 reflection；别的来源写法不是合法的主观快照。"""
+    snapshot = {"id": "r1", "type": "reflection", "text": "睡前有点困", "epistemic_status": "subjective",
+                "source": source}
+    events = [_wake(1), _reflected(2, episodes=[snapshot]), _observed(3)]
     memory = build_quality_report(events, [], _manifest())["memory_references"]
     assert [item["code"] for item in memory["problems"]] == codes
 
@@ -832,7 +906,7 @@ def _timeline_events(place, lifestyle, subject):
              "apps": [{"app_id": "platform", "name": lifestyle}]}
     return [
         _event(1, "observation", occurred_at=100, agent_id=1, data=names),
-        _progress(2, {"activity_id": "a-go", "kind": "travel", "status": "completed", "travel_mode": "walking", "destination_id": "loc-x"},
+        _progress(2, {"activity_id": "a-go", "kind": "travel", "status": "completed", "travel_method_id": "walking", "destination_id": "loc-x"},
                   100, 200),
         _progress(3, {"activity_id": "a-life", "kind": "interact",
                      "data": {"action": "interact", "app_id": "platform", "content_id": None}}, 200, 300),

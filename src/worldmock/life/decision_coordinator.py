@@ -13,6 +13,7 @@ import logging
 from worldmock.errors import BusinessRuleError, PreconditionError, ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life import activity_control, day_planning, errands, same_moment
+from worldmock.life.action_contract import START_TOOLS
 from worldmock.life.action_evidence import _pending_causes, _remember_action, _result_draft, _result_event_data
 from worldmock.life.guidance import rejection_guidance
 from worldmock.life.business_feedback import business_feedback
@@ -27,7 +28,6 @@ from worldmock.life.models import (
     ActionReceipt,
     ActionResult,
     ActionStatus,
-    ActivityKind,
     DecisionRoundState,
     PendingAction,
     REQUEST_MODELS,
@@ -37,9 +37,12 @@ from worldmock.life.models import (
     WorldState,
     active_activities,
 )
+from worldmock.life.navigation_foreground import settle_navigation
 from worldmock.life.observe import ObservationBuilder
+from worldmock.life.purchase_phases import foreground_events
 from worldmock.life.rhythm import consume_progress_report_opportunity, next_decision_at
 from worldmock.life.session_actions import ActionHandlers
+from worldmock.life.stay_records import stay_events
 from worldmock.life.models import validated_payload
 from worldmock.life.presentation import stage_presentation
 
@@ -100,7 +103,8 @@ class DecisionCoordinator:
     def _queue_action(self, call: "DirectToolCall", request_sha: str, reused: bool) -> ActionReceipt:
         """@brief 追加请求证据并加入当前轮，重放动作仍不再次执行。
 
-        action_requested.data.self_note 取本决策最近一次已落库模型响应的正文（去空白；空或缺失为 null）。
+        action_requested.data.self_note 取本决策最近一次已落库模型响应的正文（去空白；空或缺失为 null），只记在本决策的
+        第一条动作上；开始组的第二条为 null。
         """
         receipt = ActionReceipt(
             action_id=call.action_id,
@@ -108,6 +112,7 @@ class DecisionCoordinator:
             decision_id=call.context.decision_id,
             request_sha256=request_sha,
         )
+        first = all(item.decision_id != call.context.decision_id for item in self.round.pending_actions)
         start = pop_decision_start(self.pending_decision_starts, call.context.agent_id, self.context.state.current_time)
         draft = EventDraft(
             event_type="action_requested",
@@ -121,7 +126,7 @@ class DecisionCoordinator:
                 "request": call.request.model_dump(mode="json"),
                 "request_sha256": request_sha,
                 "reused": reused,
-                "self_note": self._decision_self_note(call.context),
+                "self_note": self._decision_self_note(call.context) if first else None,
             },
         )
         event = self.context.store.commit(
@@ -145,7 +150,11 @@ class DecisionCoordinator:
         return receipt
 
     def commit_decision_round(self, round_id: str) -> list[ActionResult]:
-        """@brief 完整轮次按冻结顺序结算，一次提交当前世界与结果。"""
+        """@brief 完整轮次按冻结顺序结算，一次提交当前世界与结果；每个决策只返回它第一条动作的结果。
+
+        一个决策可以登记两条开始动作：两条结果都落库，返回值仍是每个决策一条，与框架核对的决策上下文条数一致。
+        提交之前比较提交前后的世界一次：导航在不在前台、购买里截断的前台区间和停留进出事件都由此得出。
+        """
         current = self.require_round(round_id)
         if {item.agent_id for item in current.pending_actions} != set(current.expected_agent_ids):
             logging.error("Decision round is incomplete")
@@ -153,20 +162,23 @@ class DecisionCoordinator:
         staged = stage_presentation(self.context.state, self.observations.pending_presentation).model_copy(deep=True)
         drafts = flush_decision_starts(self.pending_decision_starts, self.context.state.current_time)
         results = []
-        for pending in sorted(current.pending_actions, key=lambda item: item.order):
-            staged, result, action_drafts = self._resolve(staged, pending)
-            self._ops_action(pending, result)
-            results.append(result)
+        for group in _decision_groups(current.pending_actions):
+            staged, settled, action_drafts = self._resolve(staged, group)
+            for pending, result in zip(group, settled, strict=True):
+                self._ops_action(pending, result)
+                if not pending.reused:
+                    staged = _remember_action(staged, pending, result)
+            results.append(settled[0])
             drafts.extend(action_drafts)
-            if not pending.reused:
-                staged = _remember_action(staged, pending, result)
         staged, settled = errands.settle(staged, drafts)
         drafts.extend(settled)
         from worldmock.life.callbacks import compare_callback_states
 
         outcome = compare_callback_states(self.context.state, staged, self.context.catalog, drafts,
                                           self.context.callback_causes)
-        staged, drafts = outcome.state, [*drafts, *outcome.drafts]
+        staged, navigation = settle_navigation(self.context.state, outcome.state, self.context.catalog)
+        drafts = [*drafts, *outcome.drafts, *navigation, *foreground_events(self.context.state, staged),
+                  *stay_events(self.context.state, staged, drafts)]
         staged = self.observations._snapshot_decision_references(staged, list(current.expected_agent_ids))
         staged.version = self.context.state.version + 1
         failed = any(draft.data.get("kind") == same_moment.BUDGET_EXHAUSTED_KIND for draft in drafts)
@@ -197,11 +209,9 @@ class DecisionCoordinator:
         )
 
     def _ops_action(self, pending: PendingAction, result: ActionResult) -> None:
-        """@brief 日志组件直接读取请求中七个固定动作名称。"""
-        actions = [row["action"] for row in pending.request.get("items", []) if "action" in row]
-        components = {"commerce" if action == "purchase" else "travel" if action in
-                      {"walk", "drive", "take_taxi", "take_bus"} else "engine" for action in actions}
-        component = next(iter(components)) if len(components) == 1 else "engine"
+        """@brief 日志组件按调用判定：购买为 commerce，出行为 travel，其余为 engine。"""
+        action = pending.request.get("action")
+        component = "commerce" if action == "purchase" else "travel" if action == "travel" else "engine"
         accepted = result.status in {ActionStatus.ACCEPTED, ActionStatus.IN_PROGRESS, ActionStatus.COMPLETED}
         self.context.ops.log(result.occurred_at, component, "info" if accepted else "error",
             {"code": "ACTION_ACCEPTED" if accepted else "ACTION_REJECTED",
@@ -275,7 +285,7 @@ class DecisionCoordinator:
         if call.context.round_id != self.round.round_id:
             raise ProtocolError("Direct tool call belongs to another decision round")
         owned = [item for item in self.round.pending_actions if item.agent_id == call.context.agent_id]
-        if owned and all((item.action_id != call.action_id for item in owned)):
+        if owned and all((item.action_id != call.action_id for item in owned)) and not _start_pair(owned, call):
             raise ProtocolError("Agent already submitted its decision round action")
         expected = REQUEST_MODELS.get(call.tool_name)
         if expected is None or type(call.request) is not expected:
@@ -310,16 +320,34 @@ class DecisionCoordinator:
             raise ProtocolError("Decision round is not open")
         return self.round
 
-    def _resolve(self, state: WorldState, pending: PendingAction) -> tuple[WorldState, ActionResult, list[EventDraft]]:
-        """@brief 将一个有类型请求结算为业务成功或稳定拒绝。"""
-        if pending.reused:
-            return self._reused_result(state, pending)
+    def _resolve(self, state: WorldState,
+                 group: list[PendingAction]) -> tuple[WorldState, list[ActionResult], list[EventDraft]]:
+        """@brief 将一个决策登记的动作（一条，或一个开始组的两条）结算为业务成功或同一份稳定拒绝。
+
+        重放：一组的动作要么都已有存档结果、要么都没有；一条有一条没有属于协议故障。
+        """
+        replayed = {pending.reused for pending in group}
+        if replayed == {True}:
+            return self._reused_results(state, group)
+        if len(replayed) != 1:
+            logging.error("Start group replay is inconsistent")
+            raise ProtocolError("Start group replay is inconsistent")
         try:
-            (changed, result) = self.actions.dispatch(state, pending)
-            changed = self._consume_report_opportunity(state, changed, pending.agent_id)
-            changed = self._after_success(changed, pending.agent_id, pending.tool_name)
-            (changed, records) = activity_control.record_changes(state, changed, pending, self.actions.record_context)
-            index = title_index(self.context.catalog)
+            (changed, results) = self.actions.dispatch(state, group)
+            return self._accept_results(state, changed, group, results)
+        except BusinessRuleError as error:
+            return self._reject_results(state, group, error)
+
+    def _accept_results(self, state: WorldState, changed: WorldState, group: list[PendingAction],
+                        results: list[ActionResult]) -> tuple[WorldState, list[ActionResult], list[EventDraft]]:
+        """@brief 受理的每条动作各写受理与结果事件；同刻轮数、播报机会与同刻唤醒回调按组各做一次。"""
+        first = group[0]
+        changed = self._consume_report_opportunity(state, changed, first.agent_id)
+        changed = self._after_success(changed, first.agent_id, first.tool_name)
+        (changed, records) = activity_control.record_changes(state, changed, first, self.actions.record_context)
+        index = title_index(self.context.catalog)
+        drafts, result_drafts = [], []
+        for pending, result in zip(group, results, strict=True):
             accepted = EventDraft(
                 event_type="action_accepted", occurred_at=state.current_time,
                 agent_id=pending.agent_id,
@@ -331,68 +359,75 @@ class DecisionCoordinator:
             )
             result_draft = _result_draft(pending, result, "action_result")
             result_draft = result_draft.model_copy(
-                update={"resource_changes":dict(self.actions.pending_resource_changes)})
-            self.actions.pending_resource_changes.clear()
-            new_ids = {event.scheduled_id for event in state.pending_events}
-            changed.pending_events = [event.model_copy(update={"caused_by": [result_draft.event_id]})
-                if event.scheduled_id not in new_ids and event.kind.value == "delivery_arrival"
-                else event for event in changed.pending_events]
-            drafts = [accepted, result_draft, *records]
+                update={"resource_changes": self.actions.resource_changes.pop(pending.action_id, {})})
             for activity in changed.activities.values():
                 if activity.origin_action_id == pending.action_id:
                     activity.data["accepted_event_id"] = result_draft.event_id
-            drafts.extend(self._action_callbacks(changed, pending, result_draft,
-                state.accounts[state.agents[pending.agent_id].balance_account_id]))
-            drafts.extend(draft.model_copy(update={"caused_by": [result_draft.event_id]})
-                if draft.data.get("kind") == "goods_received" and not draft.caused_by else draft
-                for draft in self.actions.drain_drafts())
-            drafts.extend(self._same_moment_callbacks(changed, pending, result_draft))
-            return (changed, result, drafts)
-        except BusinessRuleError as error:
-            return self._reject_result(state, pending, error)
+            drafts.extend((accepted, result_draft))
+            result_drafts.append(result_draft)
+        result_draft = result_drafts[0]
+        drafts.extend(records)
+        drafts.extend(self._action_callbacks(changed, group, result_drafts,
+            state.accounts[state.agents[first.agent_id].balance_account_id]))
+        received = next((draft for pending, draft in zip(group, result_drafts, strict=True)
+                         if pending.tool_name == START_TOOLS[0]), result_draft)
+        drafts.extend(draft.model_copy(update={"caused_by": [received.event_id]})
+            if draft.data.get("kind") == "goods_received" and not draft.caused_by else draft
+            for draft in self.actions.drain_drafts())
+        drafts.extend(self._same_moment_callbacks(changed, first, result_draft))
+        return (changed, results, drafts)
 
-    def _reject_result(self, state: WorldState, pending: PendingAction,
-                       error: BusinessRuleError) -> tuple[WorldState, ActionResult, list[EventDraft]]:
-        """@brief 业务拒绝回滚领域转换，只保存拒绝和真实同刻后续触发。"""
-        self.actions.pending_resource_changes.clear()
+    def _reject_results(self, state: WorldState, group: list[PendingAction],
+                        error: BusinessRuleError) -> tuple[WorldState, list[ActionResult], list[EventDraft]]:
+        """@brief 业务拒绝回滚领域转换；同一决策的每条动作写内容相同的拒绝，计数与真实同刻后续触发按组各做一次。"""
+        self.actions.resource_changes.clear()
         self.actions.drain_drafts()
-        consumed = self._consume_report_opportunity(state, state, pending.agent_id)
-        (changed, result) = self._after_rejection(consumed, pending, error)
-        agent = changed.agents[pending.agent_id]
-        activity = next(iter(active_activities(changed, agent.agent_id)), None)
-        data = {"error_code": str(error), **result.data}
+        first = group[0]
+        consumed = self._consume_report_opportunity(state, state, first.agent_id)
+        (changed, rejected) = self._after_rejection(consumed, first, error)
+        activity = next(iter(active_activities(changed, first.agent_id)), None)
+        data = {"error_code": str(error), **rejected.data}
         if activity is not None:
             data["activity"] = activity_snapshot(activity, title_index(self.context.catalog))
-        rejected = EventDraft(
-            event_type="action_rejected", occurred_at=state.current_time,
-            agent_id=pending.agent_id,
-            decision_id=pending.decision_id, action_id=pending.action_id,
-            activity_id=activity.activity_id if activity else None,
-            caused_by=_pending_causes(pending),
-            data=data,
-        )
-        result_draft = _result_draft(pending, result, "action_result")
-        drafts = [rejected, result_draft]
+        results = [rejected.model_copy(update={"action_id": pending.action_id}) for pending in group]
+        drafts = []
+        for pending, result in zip(group, results, strict=True):
+            drafts.append(EventDraft(
+                event_type="action_rejected", occurred_at=state.current_time,
+                agent_id=pending.agent_id,
+                decision_id=pending.decision_id, action_id=pending.action_id,
+                activity_id=activity.activity_id if activity else None,
+                caused_by=_pending_causes(pending),
+                data=dict(data),
+            ))
+            drafts.append(_result_draft(pending, result, "action_result"))
+        first_result = drafts[1]
         drafts.extend(self.actions.drain_drafts())
-        drafts.extend(self._same_moment_callbacks(changed, pending, result_draft))
-        return (changed, result, drafts)
+        drafts.extend(self._same_moment_callbacks(changed, first, first_result))
+        return (changed, results, drafts)
 
-    def _action_callbacks(self, state: WorldState, pending: PendingAction, result: EventDraft,
+    def _action_callbacks(self, state: WorldState, group: list[PendingAction], results: list[EventDraft],
                           balance_before: int) -> list[EventDraft]:
-        """@brief 成功开始后按实际请求项触发回调，并回链真实动作结果。"""
-        if pending.tool_name != "start_activity":
+        """@brief 每条受理的开始调用求值一次动作回调并回链它自己的受理结果；先主调用、后副调用，与登记先后无关。
+
+        触发的键取这条调用开始的活动记下的动作，出行的触发原因另带这次出行的出行方式；一次购买无论几件只触发一次。
+        主调用的净减少提示包含已收的车费，同组副调用按主调用之后的余额计算。
+        """
+        if any(pending.tool_name not in START_TOOLS for pending in group):
             return []
         from worldmock.life.callbacks import CallbackCause, evaluate_callbacks
 
-        drafts = []
-        for index, item in enumerate(pending.request["items"]):
-            cause = CallbackCause("action", item["action"], pending.agent_id, result.event_id,
-                                  f"{pending.action_id}:{index}")
-            outcome = evaluate_callbacks(state, self.context.catalog, cause, balance_before=balance_before)
+        drafts, before = [], balance_before
+        ordered = sorted(zip(group, results, strict=True), key=lambda pair: START_TOOLS.index(pair[0].tool_name))
+        for pending, result in ordered:
+            started = state.activities[result.activity_id]
+            cause = CallbackCause("action", started.data["action"], pending.agent_id, result.event_id,
+                                  f"{pending.action_id}:0", started.travel_method_id)
+            outcome = evaluate_callbacks(state, self.context.catalog, cause, balance_before=before)
             state.agents, state.accounts = outcome.state.agents, outcome.state.accounts
             drafts.extend(outcome.drafts)
             self.context.callback_causes.update(outcome.causes)
-        drafts.extend(self._navigation_drafts(state, pending, result.event_id))
+            before = None
         return drafts
 
     def _same_moment_callbacks(self, state: WorldState, pending: PendingAction,
@@ -412,25 +447,6 @@ class DecisionCoordinator:
             state.agents, state.accounts = outcome.state.agents, outcome.state.accounts
             self.context.callback_causes.update(outcome.causes)
             drafts.extend(outcome.drafts)
-        return drafts
-
-    def _navigation_drafts(self, state: WorldState, pending: PendingAction, source_event_id: str) -> list[EventDraft]:
-        """@brief 每项实际出行按稳定活动键自动选择功能应用，仅写瞬时导航足迹。"""
-        from worldmock.life.randomness import random_stream
-
-        drafts = []
-        activities = [item for item in state.activities.values() if item.origin_action_id == pending.action_id
-                      and item.kind == ActivityKind.TRAVEL]
-        for activity in activities:
-            action = activity.data["action"]
-            candidates = self.context.catalog.apps_by_action.get(action, ())
-            if candidates:
-                app_id = random_stream(state.random_state, f"function-app:{activity.activity_id}").choice(candidates)
-                drafts.append(EventDraft(event_type="environment_event", occurred_at=state.current_time,
-                    agent_id=pending.agent_id, action_id=pending.action_id, activity_id=activity.activity_id,
-                    visibility="system", source_kind="environment", caused_by=[source_event_id],
-                    data={"kind":"app_touch", "app_id":app_id, "action":action,
-                          "step":"navigation", "rule_id":None}))
         return drafts
 
     def _consume_report_opportunity(self, before: WorldState, changed: WorldState, agent_id: int) -> WorldState:
@@ -457,12 +473,12 @@ class DecisionCoordinator:
     def _round_schedule(
         self, state: WorldState, agent, rejection: str | None, rhythm_next=None, free: bool = False
     ) -> tuple[int, list[str], SameMomentStage]:
-        """@brief 按同刻阶梯安排本轮之后的下一次决策（docs/design/04-simulation-engine.md规则 2–4、7）。
+        """@brief 按同刻阶梯安排本轮之后的下一次决策（docs/design/04-simulation-engine.md）。
 
         六轮耗尽仍需再决策时，随本动作结果记录真实预算故障，提交后停止，时间不推进。
 
         :param rejection: 本轮业务拒绝的错误码（重放按存档结果），受理时为 None。
-        :param free: 本轮的拒绝是免计的名称类拒绝（docs/design/04-simulation-engine.md ，不计同刻轮数）。
+        :param free: 本轮的拒绝是免计的名称类拒绝（docs/design/04-simulation-engine.md，不计同刻轮数）。
         """
         now = state.current_time
 
@@ -487,7 +503,7 @@ class DecisionCoordinator:
         self, state: WorldState, pending: PendingAction, error: BusinessRuleError
     ) -> tuple[WorldState, ActionResult]:
         """@brief 业务拒绝计入同刻轮数与连续拒绝；未达上限同一秒再决策，服务拒绝脉冲每人每秒至多一次；名称类拒绝每人每秒
-        前两次不计同刻轮数、不施加脉冲（docs/design/04-simulation-engine.md ）。
+        前两次不计同刻轮数、不施加脉冲（docs/design/04-simulation-engine.md）。
         same_moment.rejection_counts 控制计数；结果 message 就是公开原因 reason，data 带 reason、fix、next_step 与逐项明细。"""
         counted = same_moment.rejection_counts(state, pending.agent_id, str(error))
         agent = state.agents[pending.agent_id]
@@ -528,44 +544,22 @@ class DecisionCoordinator:
         )
         return (changed, result)
 
-    def _reused_result(
-        self, state: WorldState, pending: PendingAction
-    ) -> tuple[WorldState, ActionResult, list[EventDraft]]:
-        """@brief 返回持久终态结果并只记录本次重放证据；重放计入同刻轮数，按存档结果排期，不重做领域动作与脉冲（规则 9）。"""
-        stored = state.processed_actions[pending.action_id]
-        result = ActionResult.model_validate(stored.result)
-        accepted_statuses = {ActionStatus.ACCEPTED, ActionStatus.IN_PROGRESS, ActionStatus.COMPLETED}
-        event_type = "action_accepted" if result.status in accepted_statuses else "action_rejected"
-        data = result.model_dump(mode="json")
-        data["reused"] = True
-        first = EventDraft(
-            event_type=event_type,
-            occurred_at=state.current_time,
-            agent_id=pending.agent_id,
-            decision_id=pending.decision_id,
-            action_id=pending.action_id,
-            activity_id=result.activity_id,
-            caused_by=[pending.requested_event_id],
-            data=data,
-        )
-        second = EventDraft(
-            event_type="action_result",
-            occurred_at=state.current_time,
-            agent_id=pending.agent_id,
-            decision_id=pending.decision_id,
-            action_id=pending.action_id,
-            activity_id=result.activity_id,
-            caused_by=[pending.requested_event_id],
-            data=data,
-        )
-        agent = same_moment.count_round(state.agents[pending.agent_id])
-        rejection = result.error_code if result.status == ActionStatus.REJECTED else None
+    def _reused_results(
+        self, state: WorldState, group: list[PendingAction]
+    ) -> tuple[WorldState, list[ActionResult], list[EventDraft]]:
+        """@brief 返回持久终态结果并只记录本次重放证据；重放计入同刻轮数（一组只加一次），按存档结果排期，
+        不重做领域动作与脉冲（规则 9）。"""
+        results = [ActionResult.model_validate(state.processed_actions[pending.action_id].result) for pending in group]
+        drafts = [draft for pending, result in zip(group, results, strict=True)
+                  for draft in _replay_drafts(state, pending, result)]
+        agent = same_moment.count_round(state.agents[group[0].agent_id])
+        rejection = results[0].error_code if results[0].status == ActionStatus.REJECTED else None
         (next_at, reasons, stage) = self._round_schedule(state, agent, rejection)
         agent = agent.model_copy(
             update={"next_decision_at": next_at, "pending_wake_reasons": reasons, "same_moment_stage": stage}, deep=True
         )
         changed = _put_agent(state, agent)
-        return (changed, result, [first, second, *self.actions.drain_drafts()])
+        return (changed, results, [*drafts, *self.actions.drain_drafts()])
 
     def _decision_self_note(self, context: "DecisionContext") -> str | None:
         """@brief 本决策最近一次已落库模型响应（phase=response）的正文，作为世界请求的 self_note；没有则为 None。
@@ -579,3 +573,30 @@ class DecisionCoordinator:
             if event.decision_id == context.decision_id and event.data.get("phase") == "response"
         ]
         return response_self_note(responses[-1].data.get("response")) if responses else None
+
+
+def _decision_groups(actions: list[PendingAction]) -> list[list[PendingAction]]:
+    """@brief 已登记动作按决策分组：组按人物的冻结次序排列，组内保持登记次序。"""
+    groups: dict[str, list[PendingAction]] = {}
+    for pending in sorted(actions, key=lambda item: item.order):
+        groups.setdefault(pending.decision_id, []).append(pending)
+    return list(groups.values())
+
+
+def _start_pair(owned: list[PendingAction], call: "DirectToolCall") -> bool:
+    """@brief 同一人物本轮的第二条登记只在与已有的恰好一条组成开始组时接受：同一决策、两个开始工具各一个。"""
+    return (len(owned) == 1 and owned[0].decision_id == call.context.decision_id
+            and {owned[0].tool_name, call.tool_name} == set(START_TOOLS))
+
+
+def _replay_drafts(state: WorldState, pending: PendingAction, result: ActionResult) -> list[EventDraft]:
+    """@brief 一条重放动作的两条证据事件：按存档结果的受理或拒绝，以及带 reused 标记的结果。"""
+    accepted_statuses = {ActionStatus.ACCEPTED, ActionStatus.IN_PROGRESS, ActionStatus.COMPLETED}
+    data = result.model_dump(mode="json")
+    data["reused"] = True
+    shared = {"occurred_at": state.current_time, "agent_id": pending.agent_id, "decision_id": pending.decision_id,
+              "action_id": pending.action_id, "activity_id": result.activity_id,
+              "caused_by": [pending.requested_event_id]}
+    kind = "action_accepted" if result.status in accepted_statuses else "action_rejected"
+    return [EventDraft(event_type=kind, data=data, **shared),
+            EventDraft(event_type="action_result", data=dict(data), **shared)]

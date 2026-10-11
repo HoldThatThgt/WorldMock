@@ -8,6 +8,7 @@ from pydantic import Field, StrictInt
 from worldmock.base_models import DeepFrozenModel
 from worldmock.catalog.errors import RegistrationError
 from worldmock.catalog.loader import parse_catalog_lines, read_catalog_rows
+from worldmock.catalog.models import MapEdge, TravelMethod
 
 
 class CatalogRow(DeepFrozenModel):
@@ -124,3 +125,116 @@ def test_jsonl_read_rejects_missing_file(tmp_path):
     """@brief 缺失目录文件使用文件边界错误。"""
     with pytest.raises(RegistrationError, match="ENVIRONMENT_IDENTITY_MISMATCH"):
         read_catalog_rows(tmp_path, "content-catalog.jsonl", CatalogRow)
+
+
+def test_map_rows_parse_into_the_strict_edge_model_in_file_order():
+    """@brief 声明边只有三个字段，键序与行内空白不影响解析出的值，零字节就是零行。"""
+    content = b'{"a":"cafe","b":"office","length_m":4500}\n { "length_m": 12600, "b": "office", "a": "home" } \n'
+    rows = parse_catalog_lines(content, "map.jsonl", MapEdge)
+    assert [(row.a, row.b, row.length_m) for row in rows] == [("cafe", "office", 4500), ("home", "office", 12600)]
+    assert parse_catalog_lines(b"", "map.jsonl", MapEdge) == ()
+
+
+@pytest.mark.parametrize("line,code", [
+    (b'{"a":"home","b":"office","length_m":5,"note":"x"}', "ENVIRONMENT_KIND_INVALID"),
+    (b'{"a":"home","b":"office","length_m":0,"note":"x"}', "ENVIRONMENT_KIND_INVALID"),
+    (b'{"a":1,"b":"office","length_m":5}', "ENVIRONMENT_KIND_INVALID"),
+    (b'{"a":"home","b":" ","length_m":5}', "ENVIRONMENT_KIND_INVALID"),
+    (b'{"a":"home","length_m":5}', "ENVIRONMENT_KIND_INVALID"),
+    (b'{"a":"home","b":"office","length_m":0}', "ENVIRONMENT_NUMBER_INVALID"),
+    (b'{"a":"home","b":"office","length_m":-3}', "ENVIRONMENT_NUMBER_INVALID"),
+    (b'{"a":"home","b":"office","length_m":true}', "ENVIRONMENT_NUMBER_INVALID"),
+    (b'{"a":"home","b":"office","length_m":1.5}', "ENVIRONMENT_NUMBER_INVALID"),
+    (b'{"a":"home","b":"office","length_m":12600.0}', "ENVIRONMENT_NUMBER_INVALID"),
+    (b'{"a":"home","b":"office","length_m":"5"}', "ENVIRONMENT_NUMBER_INVALID"),
+    (b'{"a":"home","b":"office","length_m":null}', "ENVIRONMENT_NUMBER_INVALID"),
+    (b'{"a":"home","b":"office"}', "ENVIRONMENT_NUMBER_INVALID"),
+    (b'["home","office",5]', "ENVIRONMENT_LINE_INVALID"),
+    (b'{"a":"home","b":"office","length_m":5} {}', "ENVIRONMENT_LINE_INVALID"),
+    (b"", "ENVIRONMENT_LINE_INVALID"),
+])
+def test_map_row_errors_carry_the_fixed_code_file_and_line(line, code):
+    """@brief 未知键、坏端点和坏长度各用规定的登记码，详情以 map.jsonl 和行号开头。"""
+    content = b'{"a":"cafe","b":"home","length_m":900}\n' + line + b"\n"
+    with pytest.raises(RegistrationError) as captured:
+        parse_catalog_lines(content, "map.jsonl", MapEdge)
+    assert captured.value.code == code
+    assert captured.value.detail.startswith("map.jsonl:2")
+
+
+def test_map_row_accepts_one_metre_and_distances_beyond_the_random_edge_range():
+    """@brief 声明边的下限是 1 米，不设 2000 米上限。"""
+    content = b'{"a":"a","b":"b","length_m":1}\n{"a":"a","b":"c","length_m":62208}\n'
+    assert [row.length_m for row in parse_catalog_lines(content, "map.jsonl", MapEdge)] == [1, 62208]
+
+
+BIKE = ('{"exertion":"moderate","name":"骑车","price_per_km_fen":120,"speed_meters_per_second":4.5,'
+        '"start_price_fen":150,"travel_method_id":"bike"}').encode("utf-8")
+_METHOD_FIELDS = {"travel_method_id": '"car"', "name": '"开车"', "speed_meters_per_second": "7",
+                  "start_price_fen": "500", "price_per_km_fen": "200", "exertion": '"light"'}
+
+
+def _method(**changes) -> bytes:
+    """@brief 在一行合法出行方式上改写字段的 JSON 原文，值为 None 表示删去这个键，写成一行 JSON 文本。"""
+    row = {**_METHOD_FIELDS, **changes}
+    return ("{" + ",".join(f'"{key}":{value}' for key, value in row.items() if value is not None) + "}").encode("utf-8")
+
+
+def test_travel_method_rows_keep_integer_and_decimal_speeds_as_written():
+    """@brief 六个字段的出行方式行：整数速度保持整数、小数速度保持小数，两个价格可以为零，零字节就是零行。"""
+    free = _method(travel_method_id='"free"', name='"摆渡"', start_price_fen="0", price_per_km_fen="0")
+    rows = parse_catalog_lines(BIKE + b"\n" + _method() + b"\n" + free + b"\n", "travel-method.jsonl", TravelMethod)
+    assert [(row.travel_method_id, row.name, row.speed_meters_per_second, row.start_price_fen, row.price_per_km_fen,
+             row.exertion) for row in rows] == [
+        ("bike", "骑车", 4.5, 150, 120, "moderate"), ("car", "开车", 7, 500, 200, "light"),
+        ("free", "摆渡", 7, 0, 0, "light")]
+    assert [type(row.speed_meters_per_second) for row in rows] == [float, int, int]
+    assert parse_catalog_lines(b"", "travel-method.jsonl", TravelMethod) == ()
+    decimal = parse_catalog_lines(_method(speed_meters_per_second="7.0"), "travel-method.jsonl", TravelMethod)[0]
+    assert type(decimal.speed_meters_per_second) is float and decimal.speed_meters_per_second == 7.0
+
+
+@pytest.mark.parametrize("line,code", [
+    (_method(note='"x"'), "ENVIRONMENT_KIND_INVALID"),
+    (_method(speed_meters_per_second="0", note='"x"'), "ENVIRONMENT_KIND_INVALID"),
+    (_method(travel_method_id=None), "ENVIRONMENT_KIND_INVALID"),
+    (_method(travel_method_id='" "'), "ENVIRONMENT_KIND_INVALID"),
+    (_method(travel_method_id="7"), "ENVIRONMENT_KIND_INVALID"),
+    (_method(name=None), "ENVIRONMENT_KIND_INVALID"),
+    (_method(name='""'), "ENVIRONMENT_KIND_INVALID"),
+    (_method(name="null"), "ENVIRONMENT_KIND_INVALID"),
+    (_method(exertion=None), "ENVIRONMENT_KIND_INVALID"),
+    (_method(exertion='"walking"'), "ENVIRONMENT_KIND_INVALID"),
+    (_method(exertion='"Light"'), "ENVIRONMENT_KIND_INVALID"),
+    (_method(exertion="null"), "ENVIRONMENT_KIND_INVALID"),
+    (_method(speed_meters_per_second=None), "ENVIRONMENT_NUMBER_INVALID"),
+    (_method(speed_meters_per_second="0"), "ENVIRONMENT_NUMBER_INVALID"),
+    (_method(speed_meters_per_second="0.0"), "ENVIRONMENT_NUMBER_INVALID"),
+    (_method(speed_meters_per_second="-1.2"), "ENVIRONMENT_NUMBER_INVALID"),
+    (_method(speed_meters_per_second="true"), "ENVIRONMENT_NUMBER_INVALID"),
+    (_method(speed_meters_per_second='"7"'), "ENVIRONMENT_NUMBER_INVALID"),
+    (_method(speed_meters_per_second="null"), "ENVIRONMENT_NUMBER_INVALID"),
+    (_method(speed_meters_per_second="1e999"), "ENVIRONMENT_NUMBER_INVALID"),
+    (_method(speed_meters_per_second="-1e999"), "ENVIRONMENT_NUMBER_INVALID"),
+    (_method(speed_meters_per_second="Infinity"), "ENVIRONMENT_LINE_INVALID"),
+    (_method(speed_meters_per_second="-Infinity"), "ENVIRONMENT_LINE_INVALID"),
+    (_method(speed_meters_per_second="NaN"), "ENVIRONMENT_LINE_INVALID"),
+    (_method(start_price_fen=None), "ENVIRONMENT_NUMBER_INVALID"),
+    (_method(start_price_fen="-1"), "ENVIRONMENT_NUMBER_INVALID"),
+    (_method(start_price_fen="2.5"), "ENVIRONMENT_NUMBER_INVALID"),
+    (_method(start_price_fen="500.0"), "ENVIRONMENT_NUMBER_INVALID"),
+    (_method(start_price_fen="true"), "ENVIRONMENT_NUMBER_INVALID"),
+    (_method(start_price_fen='"500"'), "ENVIRONMENT_NUMBER_INVALID"),
+    (_method(price_per_km_fen=None), "ENVIRONMENT_NUMBER_INVALID"),
+    (_method(price_per_km_fen="-200"), "ENVIRONMENT_NUMBER_INVALID"),
+    (_method(price_per_km_fen="0.5"), "ENVIRONMENT_NUMBER_INVALID"),
+    (_method(price_per_km_fen="false"), "ENVIRONMENT_NUMBER_INVALID"),
+    (b'["car",7,500,200,"light"]', "ENVIRONMENT_LINE_INVALID"),
+    (b"", "ENVIRONMENT_LINE_INVALID"),
+])
+def test_travel_method_row_errors_carry_the_fixed_code_file_and_line(line, code):
+    """@brief 未知键、缺字段、坏速度、坏价格和坏档位各用规定的登记码，详情以 travel-method.jsonl 和行号开头。"""
+    with pytest.raises(RegistrationError) as captured:
+        parse_catalog_lines(BIKE + b"\n" + line + b"\n", "travel-method.jsonl", TravelMethod)
+    assert captured.value.code == code
+    assert captured.value.detail.startswith("travel-method.jsonl:2")

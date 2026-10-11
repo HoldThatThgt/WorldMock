@@ -186,8 +186,8 @@ class FootprintStore:
     def last_agent_action_request_seq(self, agent_id: int) -> int:
         """@brief 最近一次行动请求的事件序号（没有时为 0）。
 
-        行动请求的唯一判定（docs/design/06-agent.md「单一行动阶段」）：不带 purpose、thinking 开启、
-        原生 tools 含 start_activity 的 model_request；零点计划、工作评审与只读问答都不算。不读提示文本。
+        行动请求的唯一判定（docs/design/06-agent.md「宿主模型协议」）：不带 purpose、thinking 开启、
+        原生 tools 含 start_main_activity 的 model_request；零点计划、工作评审与只读问答都不算。不读提示文本。
         """
         row = self.connection.execute("""
             SELECT max(event_seq) FROM events WHERE json_extract(body,'$.agent_id')=?
@@ -195,7 +195,7 @@ class FootprintStore:
             AND json_extract(body,'$.data.purpose') IS NULL
             AND json_extract(body,'$.data.request.extra_body.thinking.type')='enabled'
             AND EXISTS (SELECT 1 FROM json_each(body,'$.data.request.tools')
-                        WHERE json_extract(value,'$.function.name')='start_activity')
+                        WHERE json_extract(value,'$.function.name')='start_main_activity')
         """, (agent_id,)).fetchone()
         return row[0] if row[0] is not None else 0
 
@@ -211,7 +211,7 @@ class FootprintStore:
         return row[0] if row is not None else 0
 
     def commit_last_seq(self, event_seq: int) -> int:
-        """@brief event_seq 所在提交的末事件序号（docs/design/06-agent.md「归属」）。
+        """@brief event_seq 所在提交的末事件序号（docs/design/06-agent.md）。
 
         一次提交的事件在同一事务内连续分配序号，共享 state_version_before 与 state_version_after；推进版本的提交之后
         同版本追加的观察与模型证据版本对不同（before 等于 after），不属于该提交。只从 event_seq 向后读到提交结束。

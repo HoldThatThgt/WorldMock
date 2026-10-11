@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from worldmock.resources.models import DRAIN_DIRECTION, SOURCE_DIRECTION
 
 #: 活动/结算事件 data
-#: 内登记资源流水的保留字段名（docs/design/05-recording-engine.md「事件正文与资源证据」统一证据格式）。
+#: 内登记资源流水的保留字段名（docs/design/05-recording-engine.md「事件与来源」统一证据格式）。
 #: 取值为分录字典列表：{resource, owner, direction, amount, cause}——direction 取
 #: source/drain，amount 为有限正数，cause 引用触发动作/规则；时间戳与主体身份
 #: 由所在足迹事件自身（occurred_at/agent_id）承载，不在流水字典内重复。
@@ -25,17 +25,17 @@ RESOURCE_FLOWS_FIELD = "resource_flows"
 
 _FLOW_DICT_KEYS = frozenset({"resource", "owner", "direction", "amount", "cause"})
 
-#: 决策节律增量字段（docs/design/04-simulation-engine.md「决策节律：结算边界与唤醒条件分离」）
+#: 决策节律增量字段（docs/design/04-simulation-engine.md「唤醒、日计划与个人事务」）
 #: ：activity_progress.data 声明该结算边界是否
 #: 向人物提供了决策机会。静默边界（decision_offered=false）不调用模型、不产生
 #: decision_started 等决策事件；共同身体结算明确记录是否提供决策。
 DECISION_OFFERED_FIELD = "decision_offered"
 
-#: 决策节律增量字段（docs/design/04-simulation-engine.md「决策节律：结算边界与唤醒条件分离」）
+#: 决策节律增量字段（docs/design/04-simulation-engine.md「唤醒、日计划与个人事务」）
 #: ：提供决策的边界记录实际命中的全部唤醒原因。
 WAKE_REASONS_FIELD = "wake_reasons"
 
-#: decision_started.data 的闭集（docs/design/06-agent.md「单一行动阶段」、第七章「事件」）。
+#: decision_started.data 的闭集（docs/design/06-agent.md「宿主模型协议」）。
 DECISION_STARTED_FIELDS = frozenset({"round_id", "round_order", "world_state_version", WAKE_REASONS_FIELD})
 #: 已退役的决策自述名（decision_started 字段与清单阶段键）：带它的事件与清单以英文错误拒绝。
 RETIRED_DECISION_STATEMENT = "decision_statement"

@@ -3,6 +3,7 @@ import math
 import tomllib
 from pathlib import Path
 import pytest
+from worldmock.exchange.operators import evaluate_goods_receipt
 from worldmock.input_models import PersonaConfig
 from worldmock.life.body import (ActivityFactors, BoundaryClock, apply_discomfort_pulse, apply_food,
     apply_relaxation_change, initial_body, last_flows, next_shared_body_boundary_seconds, settle_shared_body)
@@ -15,7 +16,7 @@ def body_inputs():
     raw = tomllib.loads(Path('tests/fixtures/dataset-environment/persona.toml').read_text(encoding='utf-8'))
     persona = PersonaConfig.model_validate(raw)
     config = assemble_body_config(persona)
-    body = initial_body(config, 8.0, persona, 0.06)
+    body = initial_body(config, 8.0, persona)
     last_flows()
     return config, body
 
@@ -27,6 +28,10 @@ def test_awake_growth_is_added_once_across_both_slots(body_inputs):
     assert result.after.social_need == pytest.approx(body.social_need + 0.06)
     assert result.basal_energy_kcal == 65
     assert result.extra_energy_kcal == 2.5 * 65
+    raw = tomllib.loads(Path('tests/fixtures/dataset-environment/persona.toml').read_text(encoding='utf-8'))
+    heavier = assemble_body_config(PersonaConfig.model_validate({**raw, 'body': {**raw['body'], 'mass_kg': 70.0}}))
+    other = settle_shared_body(body, activities, 3600, heavier)
+    assert (other.basal_energy_kcal, other.extra_energy_kcal) == (70, 2.5 * 70)
 
 def test_two_content_effects_are_independent_actual_time(body_inputs):
     config, body = body_inputs
@@ -45,6 +50,21 @@ def test_sleep_freezes_both_needs_and_recovers_sleep_deficit(body_inputs):
     assert result.after.sleep_pressure < body.sleep_pressure
     assert next_shared_body_boundary_seconds(body, ((ActivityKind.SLEEP, ActivityFactors(0.95)),),
         config, BoundaryClock(8.0)) is None
+
+def test_sleep_debt_recovers_by_the_time_actually_slept_including_the_extra_part(body_inputs):
+    """欠的觉每睡 1 小时补 1 小时，按实际睡的时长算：写 170 分钟又多睡 27 分钟，补回的是 197 分钟；
+    多睡的那段与写的那段分开结算和一次结算相同，补到 0 为止。"""
+    config, body = body_inputs
+    body = body.model_copy(update={'sleep_deficit_hours': 5.0})
+    asleep = ((ActivityKind.SLEEP, ActivityFactors(0.95)),)
+    whole = settle_shared_body(body, asleep, 10200 + 1620, config).after
+    assert whole.sleep_deficit_hours == pytest.approx(5.0 - 11820 / 3600)
+    declared = settle_shared_body(body, asleep, 10200, config).after
+    assert declared.sleep_deficit_hours == pytest.approx(5.0 - 10200 / 3600)
+    extra = settle_shared_body(declared, asleep, 1620, config).after
+    assert extra.sleep_deficit_hours == pytest.approx(whole.sleep_deficit_hours)
+    assert extra.sleep_pressure < declared.sleep_pressure < body.sleep_pressure
+    assert settle_shared_body(body, asleep, 13 * 3600, config).after.sleep_deficit_hours == 0.0
 
 def test_no_active_effects_pure_browse_and_purchase_have_only_growth(body_inputs):
     config, body = body_inputs
@@ -78,6 +98,20 @@ def test_food_uses_actual_sleep_deficit_and_existing_energy_cap(body_inputs):
     assert result.after.energy_kcal == 2400
     assert result.after.relaxation_need == body.relaxation_need
 
+def test_received_meal_and_snack_yield_their_fixed_energy_and_the_pool_stops_at_its_cap(body_inputs):
+    """欠觉不超过 8 小时时一件食品实得 540、一件零食实得 180；能量 1500 连收两件食品，第二件只能加到 2400。"""
+    config, body = body_inputs
+    meal, snack = evaluate_goods_receipt('meal', 1), evaluate_goods_receipt('snack', 1)
+    body = body.model_copy(update={'energy_kcal': 1000.0})
+    assert apply_food(body, meal, config).after.energy_kcal - body.energy_kcal == 540
+    assert apply_food(body, snack, config).after.energy_kcal - body.energy_kcal == 180
+    last_flows()
+    first = apply_food(body.model_copy(update={'energy_kcal': 1500.0}), meal, config)
+    second = apply_food(first.after, meal, config)
+    assert (first.after.energy_kcal, second.after.energy_kcal) == (2040, 2400)
+    assert second.food_energy_kcal == 540
+    assert [flow.amount for flow in last_flows() if flow.resource == 'energy_kcal'] == [540, 360]
+
 def test_discomfort_and_rejection_modify_only_relaxation(body_inputs):
     _, body = body_inputs
     assert apply_discomfort_pulse(body, 0.5).relaxation_need == pytest.approx(0.25)
@@ -95,3 +129,33 @@ def test_negative_actual_duration_is_rejected(body_inputs):
     config, body = body_inputs
     with pytest.raises(ValueError, match='cannot be negative'):
         settle_shared_body(body, (), -1, config)
+
+
+@pytest.mark.parametrize("exertion,met", [("walking", 3.5), ("idle", 1.0), ("light", 1.5), ("moderate", 2.0),
+                                          ("heavy", 5.0)])
+def test_travel_burns_energy_by_the_exertion_key_frozen_at_departure(body_inputs, exertion, met):
+    """出行与 interact 一样读受理时写下的代谢当量键：自带的步行是 walking（3.5），数据集的方式是它声明的体力档位；
+    与并行活动同时进行时取较高的代谢当量，基础代谢只扣一次。"""
+    from types import SimpleNamespace
+
+    from worldmock.life.activities import activity_factors
+
+    config, body = body_inputs
+    trip = SimpleNamespace(kind=ActivityKind.TRAVEL, data={"action": "travel", "exertion": exertion})
+    factors = activity_factors(trip, None, config)
+    assert factors == ActivityFactors(met)
+    alone = settle_shared_body(body, ((ActivityKind.TRAVEL, factors),), 3600, config)
+    assert (alone.basal_energy_kcal, alone.extra_energy_kcal) == (65, (met - 1) * 65)
+    for level, other in (("idle", 1.0), ("light", 1.5), ("moderate", 2.0), ("heavy", 5.0)):
+        media = SimpleNamespace(kind=ActivityKind.INTERACT, data={"action": "interact", "exertion": level})
+        pair = ((ActivityKind.TRAVEL, factors), (ActivityKind.INTERACT, activity_factors(media, None, config)))
+        both = settle_shared_body(body, pair, 3600, config)
+        assert (both.basal_energy_kcal, both.extra_energy_kcal) == (65, (max(met, other) - 1) * 65)
+
+
+def test_activity_met_table_has_walking_and_the_four_exertion_levels_but_no_fixed_vehicles(body_inputs):
+    """身体常量表里出行只剩自带步行的 walking 一个键，驾车、打车、公共交通三行与旧的 walk 键都已删除。"""
+    config, _ = body_inputs
+    assert dict(config.activity_met) == {"sleep": 0.95, "walking": 3.5, "purchase": 1.0, "idle": 1.0, "light": 1.5,
+                                         "moderate": 2.0, "heavy": 5.0}
+    assert not {"walk", "drive", "take_taxi", "take_bus", "travel"} & set(config.activity_met)

@@ -11,4 +11,4 @@ def persona_card_text(profile: Mapping[str, Any], name: str | None) -> str:
     card = profile.get("persona_card")
     if isinstance(card, str) and card.strip():
         return card.strip()
-    raise IntegrityError("Compiled persona card text is required")
+    raise IntegrityError("Persona card text is required")

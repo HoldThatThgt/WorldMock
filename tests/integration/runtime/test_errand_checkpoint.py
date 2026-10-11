@@ -1,5 +1,5 @@
 """共同检查点保存真实个人事务，分支观察不重复登记事务。"""
-from tests.life.conftest import stage_day_plan, start_activity, conclude_request, errand_add, context, advance_until_ready
+from tests.life.conftest import stage_day_plan, do_at, conclude_request, errand_add, context, advance_until_ready
 from tests.life.environment_runtime import act
 from worldmock.footprints.checkpoint import restore_branch
 from worldmock.life.engine import LifeEngine
@@ -10,7 +10,7 @@ from worldmock.footprints.checkpoint import snapshot_directory
 def test_checkpoint_restores_identical_errands_and_todo_without_renoting(engine_factory, tmp_path):
     engine = engine_factory()
     stage_day_plan(engine)
-    _, started = act(engine, "chat", start_activity("interact", "家"))
+    _, started = act(engine, "chat", do_at("家", "测试闲聊"))
     assert advance_until_ready(engine)
     name = engine.context.state.activities[started.activity_id].name
     _, result = act(engine, "note", conclude_request(name, errands=[

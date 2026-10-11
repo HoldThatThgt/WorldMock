@@ -4,15 +4,16 @@ from copy import deepcopy
 from dataclasses import replace
 
 from worldmock.footprints.experiences import recent_verified_experiences
-from worldmock.life import activity_control, callable_index, discovery, errands, felt, memory_layer, projection
-from worldmock.life import progress_layer, rotation, sessions
-from worldmock.life.action_contract import ACTIVITY_ACTIONS, TRAVEL_ACTIONS, binding_action
+from worldmock.life import activity_control, admission, callable_index, discovery, errands, felt, memory_layer
+from worldmock.life import progress_layer, projection, rotation, sessions
+from worldmock.life.action_contract import ACTIVITY_ACTIONS, binding_action
+from worldmock.life.location_activities import location_units, unit_binding
 from worldmock.life.presentation import subtype_of, tiebreak_digest
 from worldmock.life.environment_layer import environment_layer
 from worldmock.life.models import ActivityStatus, SameMomentPresentation
-from worldmock.life.sleep import ended_sleep_at
 from worldmock.life.todo_layer import todo_layer, visible_goals
 from worldmock.life.tool_layer import LayerContext, annotated_bindings, tool_layer, with_bindings
+from worldmock.life.travel_methods import travel_methods
 from worldmock.life.world_query import attach_world_query
 
 
@@ -58,20 +59,24 @@ class ObservationBuilder:
         return len(self.context.catalog.locations)
 
     def _catalog_bindings(self, agent) -> list[dict]:
-        """@brief 地点全量绑定、当前地点交互、本人住处睡眠和内容 app。"""
+        """@brief 地点全量绑定与内容 app：别处的地点每种出行方式一条动作行（步行在前，其余按身份升序）；
+        人物停留的地点逐单元列出能点名的事，标了可睡时再列睡眠；人在路上时不列任何地点的做事与睡眠。"""
         locations = sorted(self.context.catalog.locations.values(), key=lambda row: row.location_id)
         locations.sort(key=lambda row: row.location_id == agent.location_id)
+        stay = admission.present_location(self.context.state, agent.agent_id)
+        travel = [{**binding_action("travel", method.name), "travel_method_id": method.travel_method_id}
+                  for method in travel_methods(self.context.catalog)]
         result = []
         for location in locations:
-            actions = list(TRAVEL_ACTIONS) if location.location_id != agent.location_id else []
-            actions = [action for action in ACTIVITY_ACTIONS if action in actions]
-            if location.location_id == agent.location_id and (
-                    location.kind in self.context.catalog.contents_by_location_kind or location.accepts_parcels):
-                actions.append("interact")
-            if location.location_id == agent.location_id == self.context.inputs.home_location_id:
-                actions.append("sleep")
+            if location.location_id != agent.location_id:
+                actions = [dict(row) for row in travel]
+            elif location.location_id == stay:
+                actions = [unit_binding(unit) for unit in location_units(self.context.catalog, location.kind)]
+                actions.extend([binding_action("sleep")] if location.sleepable else [])
+            else:
+                actions = []
             result.append({"object": location.display_name, "kind": "location", "object_id": location.location_id,
-                           "actions": [binding_action(action) for action in actions]})
+                           "actions": actions})
         result.extend({"object": app.name, "kind": "app", "object_id": app.app_id,
                        "actions": [binding_action("interact")]}
                       for _, app in sorted(self.context.catalog.apps.items()) if app.role == "content")
@@ -115,10 +120,8 @@ class ObservationBuilder:
                 **errands.bindings(agent, self.context.catalog.goods)}
 
     def _evidence(self, agent) -> dict:
-        """@brief 刚结束睡眠与已核验经历只作为宿主证据。"""
-        ended = ended_sleep_at(self.context.state, agent.agent_id, self.context.state.current_time)
-        return {"ended_sleep": None if ended is None else ended.model_dump(mode="json"),
-                "verified_experiences": recent_verified_experiences(
+        """@brief 已核验经历、唤醒原因与进行中的活动只作为宿主证据。"""
+        return {"verified_experiences": recent_verified_experiences(
                     self.context.store, agent.agent_id, self.context.store.last_event_seq),
                 "wake_reasons": list(agent.pending_wake_reasons),
                 "same_moment_stage": agent.same_moment_stage.value,

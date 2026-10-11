@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 from tests.engine_fixture import engine_factory  # noqa: F401
 from tests.life.conftest import (activity_name, advance_next, conclude_request, context,
-                                 report_request, start_activity)
+                                 MAIN_TOOL, SIDE_TOOL, report_request, travel, use_app)
 from agentsociety2.society import DirectToolCall
 from worldmock.life.models import ActivityStatus, active_activities
 from worldmock.life.activity_control import pending_conclusions
@@ -83,10 +83,10 @@ class _Events:
         """一次出行，分成两个进度区间；到达时最后一个快照的 data.arrival 写到达处。返回（首个，最后一个）进度事件。"""
         origin, destination = route
         snapshot = {"activity_id": f"trip-{agent_id}-{len(self.rows)}", "kind": "travel", "started_at": start,
-                    "location_id": origin, "destination_id": destination, "data": {"action": "walk"}}
+                    "location_id": origin, "destination_id": destination, "data": {"action": "travel"}}
         middle = (start + end) // 2
         first = self.progress(agent_id, (start, middle), snapshot)
-        last_snapshot = dict(snapshot, data={"action": "walk", **({"arrival": {"location_id": destination}} if arrived else {})})
+        last_snapshot = dict(snapshot, data={"action": "travel", **({"arrival": {"location_id": destination}} if arrived else {})})
         return first, self.progress(agent_id, (middle, end), last_snapshot)
 
     def work(self, agent_id, start, end):
@@ -276,6 +276,41 @@ def test_people_without_a_schedule_have_null_leave_items_and_still_report_arriva
         "evidence_event_ids": {"left_workplace": None, "arrived_home": home["event_id"]}}]
 
 
+def _leave_deviation(window: tuple[float, float], day: int, clock: str) -> float:
+    """下班窗口为 window 的人物在第 day 天 clock 从办公室出发回家，返回这次离开对下班窗口的偏离分钟。"""
+    events = _Events()
+    events.body(1, _at(0, "07:00"), _at(2, "12:00"))
+    events.trip(1, _at(0, "08:30"), _at(0, "08:50"), ("home", "office"))
+    left = _at(day, clock)
+    events.trip(1, left, left + 1200, ("office", "home"))
+    days = _reports(events, {1: _agent(_schedule(), leave=window)})["routine_deviation"]["agents"]["1"]["days"]
+    [row] = [item for item in days if item["left_workplace_at"] is not None]
+    assert row["date"] == f"2026-01-{5 + day:02d}"
+    return row["leave_vs_window_minutes"]
+
+
+def test_windows_are_read_on_the_clock_against_the_nearest_occurrence() -> None:
+    """下班、到家窗口按钟面读，与离开或到家最近的那一次窗口比较。写成 [25.0, 25.5] 的窗口是每天 01:00–01:30：凌晨
+    01:10 离开偏离为 0，01:40 离开晚 10 分钟，前一晚 23:50 离开早 70 分钟，都不是相差一整天的数。[23.0, 23.5] 的窗口，
+    次日 00:30 才走比前一晚那一次晚 60 分钟；写成负数的 [-1.0, -0.5] 和多写一整天的 [47.0, 47.5] 是同一个
+    23:00–23:30，[-23.0, -22.5] 是同一个 01:00–01:30。与前后两次窗口一样近时取较早的一次：对 12:00–12:30，
+    次日 00:15 离开记晚 705 分钟。"""
+    after_midnight = (25.0, 25.5)
+    assert _leave_deviation(after_midnight, 1, "01:10") == 0.0
+    assert _leave_deviation(after_midnight, 1, "01:40") == 10.0
+    assert _leave_deviation(after_midnight, 0, "23:50") == -70.0
+    assert _leave_deviation((1.0, 1.5), 1, "01:40") == 10.0
+    assert _leave_deviation((-23.0, -22.5), 0, "23:50") == -70.0
+    assert _leave_deviation((23.0, 23.5), 1, "00:30") == 60.0
+    assert _leave_deviation((23.0, 23.5), 0, "22:15") == -45.0
+    assert _leave_deviation((-1.0, -0.5), 0, "23:10") == 0.0
+    assert _leave_deviation((-1.0, -0.5), 1, "00:30") == 60.0
+    assert _leave_deviation((47.0, 47.5), 1, "00:30") == 60.0
+    assert _leave_deviation((12.0, 12.5), 1, "00:15") == 705.0
+    assert _leave_deviation((12.0, 12.5), 1, "00:16") == -704.0
+    assert _leave_deviation((12.0, 12.5), 1, "00:14") == 704.0
+
+
 def _keys(value: Any) -> set[str]:
     """嵌套字典与列表里出现的全部键。"""
     if isinstance(value, dict):
@@ -297,9 +332,12 @@ def test_routine_deviation_uses_none_of_the_removed_plan_deviation_names() -> No
 
 def test_workday_inputs_use_resolved_persona_places_and_config(frozen_inputs):
     """当前冻结环境直接提供唯一人物与已解析地点，不从旧场景推断。"""
-    document = frozen_inputs.record(ENVIRONMENT_ROOT)["inputs"]
-    card = {"time_anchors": {"leave_work": {"start_hour": 18.0, "end_hour": 18.5}, "arrive_home": None}}
-    inputs = workday_inputs(document, {1: card})
+    from dataclasses import replace
+    from tests.life.persona_inputs import persona_with
+
+    frozen = frozen_inputs.record(ENVIRONMENT_ROOT)["inputs"]
+    document = replace(frozen, persona=persona_with(leave_work_window=(18.0, 18.5)))
+    inputs = workday_inputs(document)
     assert inputs.report_interval_seconds == document.config.progress_report_interval_seconds
     assert set(inputs.agents) == {document.persona.agent_id}
     first = inputs.agents[1]
@@ -307,7 +345,7 @@ def test_workday_inputs_use_resolved_persona_places_and_config(frozen_inputs):
     assert (first.home_location_id, first.workplace_location_id, first.initial_location_id) == (
         document.home_location_id, document.workplace_location_id, document.initial_location_id)
     assert (first.leave_work_window, first.arrive_home_window) == ((18.0, 18.5), None)
-    assert workday_inputs(document, {}).agents[1].leave_work_window is None
+    assert workday_inputs(frozen).agents[1].leave_work_window is None
 
 
 def _workday_run(persona, config):
@@ -347,7 +385,7 @@ def _drive(engine, name, done):
                 tool, request = "report_status", report_request(
                     *(activity_name(engine, item.activity_id) for item in running), summary="继续。")
             else:
-                tool, request = "start_activity", start_activity("interact", "抖音")
+                tool, request = SIDE_TOOL, use_app("抖音")
             result = _decide(engine, f"{name}-{index}", tool, request)
             assert result.status in {"completed", "in_progress"}, result.error_code
         else:
@@ -364,7 +402,7 @@ def _decide_at(engine, moment):
 
 def _start_work(engine, name):
     """在工作地点使用真实应用；出勤报告不推断工作语义。"""
-    result = _decide(engine, name, "start_activity", start_activity("interact", "抖音"))
+    result = _decide(engine, name, SIDE_TOOL, use_app("抖音"))
     assert result.status == "in_progress", result.error_code
     return result
 
@@ -379,7 +417,7 @@ def test_a_real_run_leaving_on_duty_is_recomputed_as_early_leave(engine_factory)
     engine.register_day_plan(1, PlanDayRequest(goals=()), [], [])
     departure = _leave_on_duty_at_three(engine)
     events = [event.model_dump(mode="json") for event in engine.context.store.read_events(engine.context.store.last_event_seq)]
-    inputs = workday_inputs(engine.context.inputs, {1: None})
+    inputs = workday_inputs(engine.context.inputs)
     [group] = behavior_metrics_report(events, workday=inputs).values()
     reports = group["reports"]
     row = reports["workload"]["agents"]["1"]
@@ -403,8 +441,7 @@ def _leave_on_duty_at_three(engine) -> None:
     home = _place(engine, "home")
     _decide_at(engine, _clock("08:00:00"))
     _empty_handed(engine, "stop-waiting")
-    assert _decide(engine, "commute", "start_activity",
-                   start_activity("walk", office)).status == "in_progress"
+    assert _decide(engine, "commute", MAIN_TOOL, travel(office)).status == "in_progress"
     _drive(engine, "to-office", lambda: engine.context.state.agents[1].location_id == "office")
     assert engine.context.state.current_time < _clock("09:00:00")
     _empty_handed(engine, "arrived")
@@ -412,8 +449,7 @@ def _leave_on_duty_at_three(engine) -> None:
     _decide_at(engine, _clock("15:00:00"))
     _empty_handed(engine, "stop-work")
     departure = engine.context.state.current_time
-    assert _decide(engine, "leave", "start_activity",
-                   start_activity("walk", home)).status == "in_progress"
+    assert _decide(engine, "leave", MAIN_TOOL, travel(home)).status == "in_progress"
     _decide_at(engine, _clock("18:30:00"))
     return departure
 
@@ -440,9 +476,8 @@ def _place(engine, location_id: str) -> str:
 
 
 def _walk_to(engine, name: str, location_id: str) -> None:
-    """此刻空手，经真实 start_activity 步行去 location_id，驱动到到达并收尾到达的那一程。"""
-    assert _decide(engine, name, "start_activity",
-                   start_activity("walk", _place(engine, location_id))).status == "in_progress"
+    """此刻空手，经真实 start_main_activity 步行去 location_id，驱动到到达并收尾到达的那一程。"""
+    assert _decide(engine, name, MAIN_TOOL, travel(_place(engine, location_id))).status == "in_progress"
     _drive(engine, f"to-{name}", lambda: engine.context.state.agents[1].location_id == location_id)
     _empty_handed(engine, f"arrived-{name}")
 
@@ -452,7 +487,7 @@ def _walk_to(engine, name: str, location_id: str) -> None:
 def _recomputed(engine) -> dict:
     """从 SQLite 读回全部事件，用运行自己的场景文档打包输入（没有卡片），经 behavior_metrics_report 重算 reports。"""
     events = [event.model_dump(mode="json") for event in engine.context.store.read_events(engine.context.store.last_event_seq)]
-    [group] = behavior_metrics_report(events, workday=workday_inputs(engine.context.inputs, {1: None})).values()
+    [group] = behavior_metrics_report(events, workday=workday_inputs(engine.context.inputs)).values()
     return group["reports"]
 
 
@@ -569,8 +604,7 @@ def test_a_real_trip_given_up_on_the_way_keeps_the_person_at_the_workplace(engin
     engine.register_day_plan(1, PlanDayRequest(goals=()), [], [])
     _decide_at(engine, _clock("08:00:00"))
     _empty_handed(engine, "stop-waiting")
-    assert _decide(engine, "commute", "start_activity",
-                   start_activity("walk", _place(engine, "office"))).status == "in_progress"
+    assert _decide(engine, "commute", MAIN_TOOL, travel(_place(engine, "office"))).status == "in_progress"
     _drive(engine, "to-office", lambda: engine.context.state.agents[1].location_id == "office")
     assert engine.context.state.current_time < _clock("09:00:00")
     _empty_handed(engine, "arrived")
@@ -578,8 +612,7 @@ def test_a_real_trip_given_up_on_the_way_keeps_the_person_at_the_workplace(engin
     _decide_at(engine, _clock("15:00:00"))
     _empty_handed(engine, "stop-work")
     departure = engine.context.state.current_time
-    assert _decide(engine, "leave", "start_activity",
-                   start_activity("walk", _place(engine, "home"))).status == "in_progress"
+    assert _decide(engine, "leave", MAIN_TOOL, travel(_place(engine, "home"))).status == "in_progress"
     _decide_at(engine, departure + 600)
     assert engine.context.state.agents[1].location_id == "office"
     away_seconds = engine.context.state.current_time - departure
@@ -635,7 +668,8 @@ def test_left_workplace_is_the_last_departure_and_arrival_home_the_first_one_aft
 def test_arrival_home_without_a_departure_is_the_last_one_of_that_local_day() -> None:
     """@brief 当天没有离开工作地点时取当天最后一次到家，「当天」是那个本地日。人物 2 没有工作安排，周一 13:00、20:00
     两次到家，周二 21:30 到家：每天各取当天最后一次（周一 20:00，不是 13:00，也不是周二的 21:30）。人物 3 周一 18:00
-    下班去酒吧、周二 01:00 才到家：周一的到家为 null；周二按日期例外不当班，取当天的 01:00。"""
+    下班去酒吧、周二 01:00 才到家：周一的到家为 null；周二按日期例外不当班，取当天的 01:00，它离前一晚那一次到家窗口
+    （18:30–19:00）最近，记晚 360 分钟，不是比周二晚上的窗口早十七个半小时。"""
     events = _Events()
     events.body(2, _at(0, "07:00"), _at(1, "22:00"))
     events.trip(2, _at(0, "11:00"), _at(0, "11:20"), ("home", "shop"))
@@ -659,7 +693,7 @@ def test_arrival_home_without_a_departure_is_the_last_one_of_that_local_day() ->
     assert agents["3"]["days"] == [
         _day_row("2026-01-05", ("2026-01-05T18:00:00+08:00", 0.0, 0.0, bar["event_id"]), (None, None, None),
                  (False, False)),
-        _day_row("2026-01-06", nowhere, ("2026-01-06T01:00:00+08:00", -1050.0, late["event_id"]), unknown)]
+        _day_row("2026-01-06", nowhere, ("2026-01-06T01:00:00+08:00", 360.0, late["event_id"]), unknown)]
 
 
 def test_leave_deviation_uses_the_declared_shift_end_when_the_run_is_cut_short() -> None:

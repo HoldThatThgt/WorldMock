@@ -1,4 +1,4 @@
-"""@brief 七项原生操作的 CLI 边界只有完整环境与明确的人设文件。"""
+"""@brief 七项原生操作的 CLI 边界只有完整环境；人物卡片没有自己的命令。"""
 
 import pytest
 
@@ -11,17 +11,17 @@ def test_current_commands_require_their_explicit_inputs():
     assert str(validated.environment) == "environment"
     run = parser.parse_args(["run", "--environment", "environment", "--output", "run"])
     assert run.same_second_continuation == "on"
-    compiled = parser.parse_args(["profile", "compile", "--persona", "persona.toml"])
-    assert str(compiled.persona) == "persona.toml"
+    commands = next(action for action in parser._actions if action.dest == "command")
+    assert set(commands.choices) == {"validate", "run", "resume", "replay", "status", "export", "evaluate"}
 
 
 @pytest.mark.parametrize("arguments", [
     ["category"], ["environment", "generate-map"], ["validate"],
     ["validate", "--environment", "env", "--scenario", "old.json"],
     ["run", "--scenario", "old.json", "--output", "run"],
-    ["profile", "compile", "--text", "story"],
     ["resume", "--environment", "env", "--output", "run"],
-    ["profile", "validate", "--scenario", "old.json"],
+    ["profile"], ["profile", "compile", "--persona", "persona.toml"],
+    ["profile", "check", "--persona", "persona.toml"], ["profile", "validate", "--environment", "env"],
 ])
 def test_removed_commands_and_incomplete_inputs_are_rejected(arguments):
     with pytest.raises(SystemExit) as captured:

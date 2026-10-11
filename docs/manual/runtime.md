@@ -12,10 +12,10 @@ python scripts/bootstrap.py --profile release
 
 ```powershell
 $env:WORLDMOCK_API_KEY = 'your-key'
-python -m worldmock validate --environment D:/datasets/my-world
-python -m worldmock run --environment D:/datasets/my-world --output .work/runs/my-world
-python -m worldmock status --run-dir .work/runs/my-world
-python -m worldmock export --run-dir .work/runs/my-world --output .work/exports/my-world
+worldmock validate --environment D:/datasets/my-world
+worldmock run --environment D:/datasets/my-world --output .work/runs/my-world
+worldmock status --run-dir .work/runs/my-world
+worldmock export --run-dir .work/runs/my-world --output .work/exports/my-world
 ```
 
 完整验证先核对全部输入和实际模型元数据，失败时按所属路径与英文原因修正。
@@ -26,6 +26,8 @@ run 不接受 --scenario；不读取固定供应商私密文件，不使用默�
 ## 编写 config.toml
 
 在环境根的 config.toml 声明时间、唯一种子、活动结算、重估与进度播报节奏、商品呈现轮转、日历及 model 表。
+顶层先写 `schema_version = 2`；写其他值的文件被 `worldmock validate` 以 `RUN_CONFIG_INVALID` 拒绝，原因是 `schema_version: Input should be 2`。
+model 表里没有 `persona_validation_max_retries`：人物卡片由 persona.toml 直接填写，写了这个键的文件同样被拒绝。
 完整字段、重试预算、回合上限和合法范围见[配置设计](../design/08-configuration.md)。
 工作安排和每日差异在[人物](personas.md#personas-编写-persona-toml)声明。
 
@@ -45,10 +47,23 @@ flowchart LR
 
 ## 检查工具交互
 
-人物使用七个具体动作，并在 start_activity 中填写 action 与 target。
+人物用两个开始工具开始活动，每个参数都要写。start_main_activity 开始出行、在当前地点做一件事或睡觉，
+start_side_activity 开始购买或使用一个内容 app；要同时开始两项，就在同一次回复里两个工具各调用一次。
+
+```text
+start_main_activity  {"action": "travel",   "target": "公司", "detail": "驾车"}
+start_main_activity  {"action": "interact", "target": "家",   "detail": "测试休息"}
+start_main_activity  {"action": "sleep",    "target": "470",  "detail": null}
+start_side_activity  {"action": "purchase", "target": ["牛肉面", "柠檬茶", "柠檬茶"]}
+start_side_activity  {"action": "interact", "target": ["哔哩哔哩"]}
+```
+
+出行的 detail 照工具层该目的地下列出的出行方式名称写（步行，以及数据集定义的方式）；在地点做事的 detail 照工具层当前地点下列出的名称写。
+睡眠的 target 写 10 到 720 的分钟数，只写数字，detail 写 null。购买逐份写商品名，同一个名称写两次就是两份。
+例子里的地点、内容、商品和 app 名称取自所用的环境数据集。
 query_world 使用 action 查询当下实际地点、营业时段、路线或商品；查询不推进时间。
-内容由环境选择，功能 app 由环境执行，人物按真实活动名称报告、暂停与结束。
-工具字段、名称解析、活动槽与提醒规则见[模拟引擎](../design/04-simulation-engine.md)。
+用内容 app 时看到什么由环境选择，功能 app 由环境执行，人物按真实活动名称报告、暂停与结束。
+工具字段、名称解析、槽位与提醒规则见[模拟引擎](../design/04-simulation-engine.md)。
 实际模型请求和事件可在运行查看器中核对，人物可见范围见[人物设计](../design/06-agent.md)。
 
 ## 从检查点创建分支
@@ -57,8 +72,8 @@ query_world 使用 action 查询当下实际地点、营业时段、路线或商
 新输出目录不能覆盖父运行。
 
 ```powershell
-python -m worldmock resume --environment D:/datasets/my-world --parent .work/runs/my-world --checkpoint CHECKPOINT_ID --output .work/runs/resumed
-python -m worldmock replay --environment D:/datasets/my-world --parent .work/runs/my-world --checkpoint CHECKPOINT_ID --intervention .work/intervention.json --output .work/runs/replay
+worldmock resume --environment D:/datasets/my-world --parent .work/runs/my-world --checkpoint CHECKPOINT_ID --output .work/runs/resumed
+worldmock replay --environment D:/datasets/my-world --parent .work/runs/my-world --checkpoint CHECKPOINT_ID --intervention .work/intervention.json --output .work/runs/replay
 ```
 
 检查点身份从实际运行记录读取，不猜测身份。只读历史查询使用冻结事实；恢复生成调用核验完整模型身份和实际元数据。

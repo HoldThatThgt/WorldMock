@@ -31,14 +31,15 @@ from tests.integration.life_host_fixtures import TruncatedResponse  # noqa: E402
 from tests.integration.runtime.test_same_second_continuation import (_PLAN, _decide, _environment,  # noqa: E402
                                                              _plan_reply, _reply, _single, _wait_reply)
 from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
-from tests.life.conftest import (advance_next, context, stage_day_plan, start_arguments)  # noqa: F401
+from tests.life.conftest import (MAIN_TOOL, advance_next, context, main_arguments, stage_day_plan)  # noqa: F401
 from worldmock.footprints.export import export_run  # noqa: E402
 from worldmock.life import prompt_capacity  # noqa: E402
 from worldmock.life.models import REQUEST_MODELS  # noqa: E402
 
 #: 截断回合的思考（每次不同，用来确认它不进入任何后续请求）。
 _SPIRALS = ("先想想要不要回家，家里没有吃的，外卖要等，还是先去楼下……", "再算一遍：回家要四十分钟，楼下那家没有菜单……")
-_WAIT = start_arguments(["家"], ["interact"])
+#: 在家点名歇一会儿：start_main_activity 的完整参数（夹具里家的内容单元「测试休息」）。
+_WAIT = main_arguments("interact", "家", "测试休息")
 _MEMORY_TOOLS = {"memory_recent", "memory_search", "memory_time_range"}
 #: 截断纠错回给模型的正文（第四章结构，登记的原因与改法）。
 _TRUNCATION_FEEDBACK = json.loads(TRUNCATION_CONTENT)
@@ -73,7 +74,7 @@ class _Finished:
     def __init__(self, finish_reason: str, content: str, arguments: str | None = None) -> None:
         self._finish, self._content, self._arguments = finish_reason, content, arguments
         calls = None if arguments is None else [SimpleNamespace(
-            id="call-cut", type="function", function=SimpleNamespace(name="start_activity", arguments=arguments))]
+            id="call-cut", type="function", function=SimpleNamespace(name=MAIN_TOOL, arguments=arguments))]
         message = SimpleNamespace(content=content, tool_calls=calls, reasoning_content=self._REASONING)
         self.choices = [SimpleNamespace(finish_reason=finish_reason, index=0, message=message)]
 
@@ -81,7 +82,7 @@ class _Finished:
         """提供商形状的回复。"""
         assert mode == "json"
         calls = None if self._arguments is None else [{"id": "call-cut", "type": "function", "function": {
-            "name": "start_activity", "arguments": self._arguments}}]
+            "name": MAIN_TOOL, "arguments": self._arguments}}]
         message = {"role": "assistant", "content": self._content, "tool_calls": calls,
                    "reasoning_content": self._REASONING}
         return {"model": "deepseek-flash", "choices": [{"finish_reason": self._finish, "index": 0, "message": message}]}
@@ -137,7 +138,7 @@ async def test_a_truncated_turn_is_dropped_and_retried_once_without_thinking(_en
     stage_day_plan(engine)
     environment = _environment(engine)
     _, requests, _ = await _single(environment, "spiral", [
-        TruncatedResponse(_SPIRALS[0]), _reply("call-wait", "start_activity", _WAIT, None, "先歇一会儿。")])
+        TruncatedResponse(_SPIRALS[0]), _reply("call-wait", MAIN_TOOL, _WAIT, None, "先歇一会儿。")])
     first, retry = requests
     assert [_is_retry(item) for item in requests] == [False, True]
     assert _tools(first) == set(REQUEST_MODELS) | {"query_world"} | _MEMORY_TOOLS and _tools(retry) == set(REQUEST_MODELS) - {"recall_task_summary"}
@@ -150,7 +151,8 @@ async def test_a_truncated_turn_is_dropped_and_retried_once_without_thinking(_en
     assert truncated.data["response"]["choices"][0]["message"]["reasoning_content"] == _SPIRALS[0]
     [registered] = [event for event in engine.context.store.read_agent_events("action_requested", 1)
                     if event.decision_id == "decision-spiral-1"]
-    assert registered.data["tool_name"] == "start_activity" and registered.data["self_note"] == "先歇一会儿。"
+    assert registered.data["tool_name"] == MAIN_TOOL and registered.data["self_note"] == "先歇一会儿。"
+    assert (registered.action_id, registered.data["request"]) == ("decision-spiral-1:action:0001", _WAIT)
     assert engine.context.store.read_agent_events("action_result", 1)[-1].data["error_code"] is None
     assert [event.decision_id for event in engine.context.store.read_agent_events("decision_started", 1)].count(
         "decision-spiral-1") == 1
@@ -161,7 +163,7 @@ async def test_a_truncated_turn_is_dropped_and_retried_once_without_thinking(_en
     pytest.param(_Finished("length", "我先想想要不要回家，家里没有吃的，外卖要等……"), "TOOL_CALL_REQUIRED",
                  id="length_with_text"),
     pytest.param(_Finished("stop", ""), "TOOL_CALL_REQUIRED", id="empty_stop"),
-    pytest.param(_Finished("length", "", '{"targets": ["自己"], "actions": ["inter'), "ARGUMENTS_NOT_JSON",
+    pytest.param(_Finished("length", "", '{"action": "interact", "target": "家", "detail": "测试'), "ARGUMENTS_NOT_JSON",
                  id="length_with_cut_tool_call"),
     pytest.param(_NoChoices(), "TOOL_CALL_REQUIRED", id="no_choices"),
 ])
@@ -186,7 +188,7 @@ async def test_identical_corrections_replace_each_other_across_consecutive_trunc
     engine = _engine_factory()
     stage_day_plan(engine)
     responses = [TruncatedResponse(_SPIRALS[0]), _TextOnly(), TruncatedResponse(_SPIRALS[1]),
-                 _reply("call-wait", "start_activity", _WAIT, None)]
+                 _reply("call-wait", MAIN_TOOL, _WAIT, None)]
     _, requests, _ = await _single(_environment(engine), "twice", responses)
     assert [_is_retry(item) for item in requests] == [False, True, False, True]
     assert [_corrections(item) for item in requests] == [
@@ -263,7 +265,7 @@ async def test_a_world_request_from_the_retry_ends_the_decision_and_breaks_the_s
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(("retried", "code", "named"), [
-    pytest.param(("call-bad", "start_activity", start_arguments(["不存在的对象"], ["interact"])),
+    pytest.param(("call-bad", MAIN_TOOL, main_arguments("interact", "家", "不存在的对象")),
                  "NAME_NOT_FOUND", "不存在的对象", id="misspelled_name"),
     pytest.param(("call-memory", "memory_recent", {"limit": 3}), "TOOL_CALL_REQUIRED", "memory_recent",
                  id="memory_query"),
@@ -295,7 +297,7 @@ async def test_a_rejected_retry_turn_is_dropped_so_a_continued_decision_keeps_ev
     assert call_id not in json.dumps(last, ensure_ascii=False)
     [registered] = [event for event in engine.context.store.read_agent_events("action_requested", 1)
                     if event.decision_id == "decision-wait-1"]
-    assert registered.data["tool_name"] == "start_activity"
+    assert registered.data["tool_name"] == MAIN_TOOL
 
 
 @pytest.mark.asyncio
@@ -349,7 +351,7 @@ async def test_the_exported_quality_report_counts_the_truncations_the_run_record
     await _single(environment, "plan", [TruncatedResponse(_SPIRALS[0], 8001),
                                         _reply("call-plan", "revise_day_plan", _PLAN, None)])
     await _single(environment, "wait", [TruncatedResponse(_SPIRALS[1]), _TextOnly(), TruncatedResponse(_SPIRALS[0]),
-                                        _reply("call-wait", "start_activity", _WAIT, None)])
+                                        _reply("call-wait", MAIN_TOOL, _WAIT, None)])
     advance_next(engine)
     export = tmp_path / "export"
     export_run(engine.context.store, engine.context.store.last_event_seq, export)
@@ -365,4 +367,4 @@ async def test_the_exported_quality_report_counts_the_truncations_the_run_record
         "responses_missing_output_tokens": 0, "responses_missing_reasoning_tokens": 0,
         "method": quality["truncations"]["method"]}
     assert quality["truncations"]["wasted_output_tokens"] == 24001 == quality["truncations"]["reasoning_tokens"]
-    assert quality["schema_version"] == 7
+    assert quality["schema_version"] == 8

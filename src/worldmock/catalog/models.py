@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Annotated, Literal, Mapping
 
 from pydantic import Field, StrictBool, StrictInt, field_validator
 
-from worldmock.base_models import DeepFrozenModel
+from worldmock.base_models import DeepFrozenModel, require_finite_number
 from worldmock.catalog.graph import Graph
 from worldmock.errors import reject_value
 from worldmock.exchange.types import GoodsCategory
@@ -20,7 +20,8 @@ if TYPE_CHECKING:
 PositiveInteger = Annotated[StrictInt, Field(gt=0)]
 NonNegativeInteger = Annotated[StrictInt, Field(ge=0)]
 NonEmptyString = Annotated[str, Field(strict=True, pattern=r"\S")]
-ConcreteAction = Literal["walk", "drive", "take_taxi", "take_bus", "purchase", "interact", "sleep"]
+#: 功能 app 的动作绑定只有购买；出行绑定写在 travel_method_ids。
+FunctionAction = Literal["purchase"]
 Exertion = Literal["idle", "light", "moderate", "heavy"]
 ReliefLevel = Literal["none", "low", "medium", "high"]
 OpeningIntervals = tuple[tuple[NonEmptyString, NonEmptyString], ...]
@@ -43,7 +44,7 @@ class CatalogFile(DeepFrozenModel):
 class CatalogManifest(DeepFrozenModel):
     """@brief 目录版本、规则版本和完整文件集合的发布身份。"""
 
-    format_version: Literal[3]
+    format_version: Literal[4]
     environment_id: NonEmptyString
     environment_version: NonEmptyString
     rules_version: StrictInt
@@ -52,24 +53,68 @@ class CatalogManifest(DeepFrozenModel):
 
 
 class App(DeepFrozenModel):
-    """@brief 内容浏览入口或功能 app 的具体动作绑定。"""
+    """@brief 内容浏览入口，或功能 app 的购买绑定与出行方式绑定。"""
 
     app_id: NonEmptyString
     name: NonEmptyString
     role: Literal["content", "function"]
-    actions: tuple[ConcreteAction, ...] = ()
+    actions: tuple[FunctionAction, ...] = ()
+    travel_method_ids: tuple[NonEmptyString, ...] = ()
     browse_duration_seconds: Annotated[StrictInt, Field(ge=60)] | None = None
 
 
+class TravelMethod(DeepFrozenModel):
+    """@brief 数据集定义的一种出行方式：身份、名称、基础速度、起步价、每公里价格与体力档位。"""
+
+    travel_method_id: NonEmptyString
+    name: NonEmptyString
+    speed_meters_per_second: int | float
+    start_price_fen: NonNegativeInteger
+    price_per_km_fen: NonNegativeInteger
+    exertion: Exertion
+
+    @field_validator("speed_meters_per_second", mode="before")
+    @classmethod
+    def require_positive_speed(cls, value):
+        """@brief 基础速度是大于 0 的有限 JSON 数值，整数与小数原样保留，布尔和字符串不接受。"""
+        if require_finite_number(value, "speed_meters_per_second") <= 0:
+            reject_value("speed_meters_per_second must be greater than 0.")
+        return value
+
+
+def require_declared_schedule(value):
+    """@brief 显式营业时段声明必须是对象；地点行与内容前提共用，缺省才表示不限时段。"""
+    if value is None:
+        reject_value("A declared opening schedule must be an object.")
+    return value
+
+
 class OpeningHours(DeepFrozenModel):
-    """@brief 每周营业时段与按日期替换的特殊营业时段。"""
+    """@brief 每周营业时段与按日期替换的特殊营业时段；地点行与内容前提共用它的求值。"""
 
     weekly: dict[str, OpeningIntervals]
     exceptions: dict[str, OpeningIntervals] = Field(default_factory=dict)
 
+    def opening_intervals(self, local_date: date) -> OpeningIntervals:
+        """@brief 特殊日期整日替换（可以为空），否则取该星期的时段，没写的星期为空。"""
+        key = local_date.isoformat()
+        if key in self.exceptions:
+            return self.exceptions[key]
+        return self.weekly.get(WEEKDAYS[local_date.weekday()], ())
+
+    def is_open(self, local_moment: datetime) -> bool:
+        """@brief 按已经换算为运行时区的本地时刻检查半开时段：秒不参与，24:00 按 1440 分钟计。"""
+        minute = local_moment.hour * 60 + local_moment.minute
+        for starts, ends in self.opening_intervals(local_moment.date()):
+            start = int(starts[:2]) * 60 + int(starts[3:])
+            end = int(ends[:2]) * 60 + int(ends[3:])
+            if start <= minute < end:
+                return True
+        return False
+
 
 class Location(DeepFrozenModel):
-    """@brief 显式地点、住宿与驿站资格以及内容 app 绑定。"""
+    """@brief 显式地点、住宿、驿站与可睡资格以及内容 app 绑定。"""
 
     location_id: NonEmptyString
     name: NonEmptyString
@@ -78,15 +123,11 @@ class Location(DeepFrozenModel):
     app_ids: tuple[NonEmptyString, ...]
     is_home: StrictBool = False
     accepts_parcels: StrictBool = False
+    sleepable: StrictBool = False
     opens: OpeningHours | None = None
 
-    @field_validator("opens", mode="before")
-    @classmethod
-    def require_declared_schedule(cls, value):
-        """@brief 显式营业声明必须是对象，缺省才表示全天营业。"""
-        if value is None:
-            reject_value("A declared location opening schedule must be an object.")
-        return value
+    #: 显式营业声明必须是对象，缺省才表示全天营业。
+    _declared_schedule = field_validator("opens", mode="before")(require_declared_schedule)
 
     @property
     def display_name(self) -> str:
@@ -94,23 +135,12 @@ class Location(DeepFrozenModel):
         return self.name if self.branch_label is None else f"{self.name}（{self.branch_label}）"
 
     def opening_intervals(self, local_date: date) -> OpeningIntervals:
-        """@brief 特殊日期覆盖整日，未声明的星期关闭；缺省全天营业。"""
-        if self.opens is None:
-            return (("00:00", "24:00"),)
-        key = local_date.isoformat()
-        if key in self.opens.exceptions:
-            return self.opens.exceptions[key]
-        return self.opens.weekly.get(WEEKDAYS[local_date.weekday()], ())
+        """@brief 没写营业时段即全天，其余取营业时段对象当天的时段。"""
+        return (("00:00", "24:00"),) if self.opens is None else self.opens.opening_intervals(local_date)
 
     def is_open(self, local_moment: datetime) -> bool:
-        """@brief 按已经换算为运行时区的本地时刻检查半开营业时段。"""
-        minute = local_moment.hour * 60 + local_moment.minute
-        for starts, ends in self.opening_intervals(local_moment.date()):
-            start = int(starts[:2]) * 60 + int(starts[3:])
-            end = int(ends[:2]) * 60 + int(ends[3:])
-            if start <= minute < end:
-                return True
-        return False
+        """@brief 没写营业时段即全天营业，其余由营业时段对象按本地时刻判断。"""
+        return self.opens is None or self.opens.is_open(local_moment)
 
 
 class Goods(DeepFrozenModel):
@@ -139,8 +169,25 @@ class ContentSeries(DeepFrozenModel):
     episode: PositiveInteger
 
 
+def require_declared_prerequisite(value):
+    """@brief 显式内容前提必须是对象；没有前提只有省略这一种写法。"""
+    if value is None:
+        reject_value("A declared content prerequisite must be an object.")
+    return value
+
+
+class ContentPrerequisite(DeepFrozenModel):
+    """@brief app 内容能开始的地点类型与时段条件；两项都写时都要满足。"""
+
+    location_kinds: tuple[NonEmptyString, ...] = ()
+    opens: OpeningHours | None = None
+
+    #: 显式时段声明必须是对象，缺省才表示不限时间。
+    _declared_schedule = field_validator("opens", mode="before")(require_declared_schedule)
+
+
 class Content(DeepFrozenModel):
-    """@brief 内容容器、实际时长、体力消耗与独立心理缓解档位。"""
+    """@brief 内容容器、实际时长、体力消耗与独立心理缓解档位，以及 app 内容的可选前提。"""
 
     content_id: NonEmptyString
     title: NonEmptyString
@@ -154,6 +201,10 @@ class Content(DeepFrozenModel):
     app_ids: tuple[NonEmptyString, ...] = ()
     location_kinds: tuple[NonEmptyString, ...] = ()
     series: ContentSeries | None = None
+    prerequisite: ContentPrerequisite | None = None
+
+    #: 显式内容前提必须是对象，缺省才表示没有前提。
+    _declared_prerequisite = field_validator("prerequisite", mode="before")(require_declared_prerequisite)
 
 
 class MapEdge(DeepFrozenModel):
@@ -207,8 +258,12 @@ class Catalog:
     contents_by_location_kind: Mapping[str, tuple[str, ...]]
     #: 按集号排序的系列内容。
     contents_by_series: Mapping[str, tuple[str, ...]]
-    #: 具体动作的功能 app 候选。
+    #: 数据集定义的出行方式身份索引，不含引擎自带的步行。
+    travel_methods: Mapping[str, TravelMethod]
+    #: 绑定购买的功能 app 候选，只有 purchase 一个键。
     apps_by_action: Mapping[str, tuple[str, ...]]
+    #: 各出行方式（walking 与每个数据集身份）绑定的功能 app，按身份升序。
+    apps_by_travel_method: Mapping[str, tuple[str, ...]]
     #: 通用状态声明。
     callback_states: Mapping[str, CallbackState]
     #: 回调规则声明。

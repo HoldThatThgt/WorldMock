@@ -42,7 +42,6 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--run-dir", type=Path, required=True)
     export.add_argument("--cutoff", type=int)
     export.add_argument("--output", type=Path, required=True)
-    _profile_arguments(commands)
     _evaluation_arguments(commands)
     return parser
 
@@ -56,20 +55,6 @@ def _evaluation_arguments(commands) -> None:
     evaluate.add_argument("--output", type=Path, required=True)
     evaluate.add_argument("--reviews", type=Path, nargs="*")
     evaluate.add_argument("--human-reference", type=Path)
-
-
-def _profile_arguments(commands) -> None:
-    """@brief 画像仅从严格人设文件编译，覆盖检查使用完整环境。"""
-    profile = commands.add_parser("profile", help="compile and validate persona cards")
-    operations = profile.add_subparsers(dest="profile_command", required=True)
-    for name in ("compile", "check"):
-        operation = operations.add_parser(name, help="compile persona" if name == "compile" else "check consistency")
-        operation.add_argument("--persona", type=Path, required=True)
-        if name == "compile":
-            operation.add_argument("--out", type=Path)
-    validate = operations.add_parser("validate", help="validate persona coverage against the environment")
-    validate.add_argument("--environment", type=Path, required=True)
-    validate.add_argument("--coverage-out", type=Path)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -102,79 +87,7 @@ def _dispatch(arguments) -> dict:
     if command == "validate":
         from worldmock.validation import validate_environment
         return validate_environment(arguments.environment)
-    if command == "profile":
-        return _profile_command(arguments)
     return _evaluate_command(arguments)
-
-
-def _profile_command(arguments) -> dict:
-    """@brief 编译和一致性检查共用已校验人设与同根模型配置。"""
-    if arguments.profile_command == "validate":
-        from worldmock.validation import validate_persona_coverage
-        return validate_persona_coverage(arguments.environment, coverage_out=arguments.coverage_out)
-    compiled = asyncio.run(_compile_profile(arguments.persona, arguments.profile_command == "check"))
-    if arguments.profile_command == "check":
-        return _profile_check_report(compiled)
-    from worldmock.profile.textgen import render_card
-
-    result = compiled[0].model_dump(mode="json")
-    result["persona_card_text"] = render_card(compiled[0].card)
-    if arguments.out is not None:
-        atomic_write(arguments.out, (json.dumps(result, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
-        return {"written": str(arguments.out), "warnings": result["warnings"]}
-    return result
-
-
-async def _compile_profile(persona_path: Path, check: bool) -> list:
-    """@brief 权威容量与凭据核验后进行独立编译，不接受纯文本入口。"""
-    from worldmock import run_setup
-    from worldmock.environment import parse_persona_file, parse_run_config_file
-    from worldmock.model_endpoint import load_model_metadata
-
-    path = Path(persona_path).absolute()
-    persona, persona_sha256 = parse_persona_file(path)
-    config, _ = parse_run_config_file(path.parent / "config.toml")
-    metadata = load_model_metadata(config.model)
-    run_setup._configure_process(Path(__file__).resolve().parents[2], config.model)
-    count = 3 if check else 1
-    return [await run_setup._compile_persona(persona, config.model, metadata, persona_sha256) for _ in range(count)]
-
-
-def _profile_check_report(compiles: list) -> dict:
-    """@brief check：三次独立编译，卡片与大五众数占比均需 ≥2/3。"""
-    from worldmock.profile.models import BIG_FIVE_DIMENSIONS
-    from worldmock.profile.textgen import render_card
-
-    card_hits = _mode_share([json.dumps(json.loads(compiled.card.model_dump_json()),
-                                        ensure_ascii=False, sort_keys=True)
-                             for compiled in compiles])
-    mode_hits: dict[str, float] = {}
-    for dimension in BIG_FIVE_DIMENSIONS:
-        scores = [compiled.big_five.model_dump()[dimension] for compiled in compiles]
-        mode_hits[dimension] = _mode_share(scores)
-    failed = [dimension for dimension, rate in mode_hits.items() if rate < 2 / 3]
-    report = {
-        "card_mode_hit": card_hits,
-        "big_five_mode_hit": mode_hits,
-        "cards": [json.loads(compiled.card.model_dump_json()) for compiled in compiles],
-        "persona_card_texts": [render_card(compiled.card) for compiled in compiles],
-    }
-    if card_hits < 2 / 3 or failed:
-        raise IntegrityError(
-            f"PROFILE_CHECK_FAILED: card_mode_hit={card_hits}, "
-            f"dimensions below 2/3 mode hit: {failed}. Summary: "
-            + json.dumps({key: report[key] for key in ("card_mode_hit", "big_five_mode_hit")},
-                         ensure_ascii=False))
-    return report
-
-
-def _mode_share(values: list) -> float:
-    """@brief 众数占比 = 最频繁值次数 / 样本数（确定性）。"""
-    counts: dict[str, int] = {}
-    for value in values:
-        key = value if isinstance(value, str) else json.dumps(value, sort_keys=True)
-        counts[key] = counts.get(key, 0) + 1
-    return max(counts.values()) / len(values)
 
 
 def _run_command(arguments) -> dict:

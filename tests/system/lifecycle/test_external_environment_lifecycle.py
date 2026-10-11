@@ -7,8 +7,9 @@ import pytest
 
 from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 from tests.integration.runtime_fixtures import write_agent_workspace
-from tests.life.conftest import advance_next, stage_day_plan, start_activity
-from tests.life.environment_runtime import act, finish_activity, run_to_end
+from tests.life.conftest import advance_next, stage_day_plan, use_app
+from tests.life.environment_runtime import act, events, finish_activity, run_to_end
+from tests.life.prerequisite_inputs import dingtalk_environment, example_window, moment
 from worldmock.catalog.identity import refresh_manifest_identity
 from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.export import export_run
@@ -51,7 +52,7 @@ def test_external_content_survives_real_start_reopen_and_authenticated_export(
     root = _content_environment(tmp_path / "environment", title, duration)
     engine = engine_factory(root)
     stage_day_plan(engine)
-    _, started = act(engine, "content-start", start_activity("interact", "哔哩哔哩"))
+    _, started = act(engine, "content-start", use_app("哔哩哔哩"))
     assert started.status == "in_progress"
     activity = engine.context.state.activities[started.activity_id]
     assert activity.kind == "interact" and activity.data["content_id"] == "c-article"
@@ -88,3 +89,37 @@ def test_external_environments_keep_content_and_persona_independent(engine_facto
     first.context.state.agents[1].body.relaxation_need = 0.9
     assert second.context.state.agents[1].body.relaxation_need == 0.2
     assert first.context.store.manifest["environment_identity"] != second.context.store.manifest["environment_identity"]
+
+
+def test_complete_day_with_a_prerequisite_content_reaches_the_stop_time_and_exports(engine_factory, tmp_path):
+    """带前提的完整日：夹具副本加钉钉打卡，人物周一 08:00 在办公室打卡，中途关闭恢复，跑到声明的截止时刻，
+    导出通过认证。"""
+    root = dingtalk_environment(tmp_path / "environment")
+    engine = engine_factory(root, mutate=example_window(days=1, at_office=True))
+    _, started = act(engine, "clock-in", use_app("钉钉"))
+    assert started.status == "in_progress", started.error_code
+    activity = engine.context.state.activities[started.activity_id]
+    assert (activity.data["app_id"], activity.data["content_id"]) == ("dingtalk", "dingtalk-clock")
+    saved = engine.context.state.model_dump(mode="json")
+    run, inputs = engine.context.store.run_dir, engine.context.inputs
+    engine.close()
+    reopened = LifeEngine.open(inputs, run)
+    try:
+        assert reopened.context.state.model_dump(mode="json") == saved
+        assert reopened.context.catalog.contents["dingtalk-clock"].prerequisite.location_kinds == ("office",)
+        finish_activity(reopened, started, "clock-in")
+        final = reopened.context.state.activities[started.activity_id]
+        assert final.status == "completed" and final.ended_at == moment(12, 8, 1)
+        checkpoint = _complete_run(reopened, tmp_path / "completed")
+        state = reopened.context.state
+        assert state.current_time == state.end_time == moment(13, 8)
+        assert events(reopened, "run_ended") and not events(reopened, "run_failed")
+        export_run(reopened.context.store, checkpoint.last_event_seq, tmp_path / "export")
+        manifest, exported_events, activities = validate_export(tmp_path / "export")
+        assert manifest["experiment_completed"] is True
+        exported = next(row for row in activities if row["activity_id"] == started.activity_id)
+        assert exported["status"] == "completed" and exported["data"]["content_id"] == "dingtalk-clock"
+        assert any(row["event_type"] == "activity_progress" and row["activity_id"] == started.activity_id
+                   and row["data"]["content"]["completed"] for row in exported_events)
+    finally:
+        reopened.close()

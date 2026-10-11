@@ -17,8 +17,7 @@ rerun 只读计算 docs/design/05-recording-engine.md 「调试工具」的运�
 continuation 只读给出 docs/design/05-recording-engine.md的逐决策指标与合计（JSON）；--baseline 先核对
 两份清单（同一提交、同一环境输入、同一模型身份），不可比即拒绝比较。
 workday 只读打印 docs/design/05-recording-engine.md 的 {run_id, workload, routine_deviation, notes}（JSON，只报告）：
-班次、住处与播报间隔取自 --environment 完整输入（原文字节身份须等于运行清单，否则拒绝、不打印），
-作息窗口取自运行目录里人物工作区的结构化卡片。
+班次、住处、播报间隔与下班、到家窗口都取自 --environment 完整输入（原文字节身份须等于运行清单，否则拒绝、不打印）。
 queries 只读给出 docs/design/05-recording-engine.md「调试工具」的八个键（JSON），口径取已落库的模型工具交换证据，
 只报告，不作门禁。
 """
@@ -116,7 +115,7 @@ def _brief(r: dict) -> str:
     if t == "action_rejected":
         return f"{d.get('tool_name','?')} → {d.get('error_code','?')}"
     if t == "environment_event":
-        return f"{d.get('kind')} {d.get('scheduled_id','')}"
+        return _environment_brief(d)
     if t == "activity_progress":
         act = d.get("activity", {})
         content = f"《{act['content_title']}》" if act.get("content_title") else ""
@@ -126,6 +125,18 @@ def _brief(r: dict) -> str:
     if "resource_changes" in d and d["resource_changes"]:
         return json.dumps(d["resource_changes"], ensure_ascii=False)[:100]
     return json.dumps({k: v for k, v in d.items() if k not in ("request", "response")}, ensure_ascii=False)[:90]
+
+
+def _environment_brief(d: dict) -> str:
+    """@brief 环境事件的一行摘要：前台区间写 app、步骤与起止，通知写发送的 app 与标题，停留进出写地点。"""
+    kind = d.get("kind")
+    if kind == "app_foreground":
+        return f"{kind} {d['app_id']} {d['step']} {_t(d['interval_start'])} → {_t(d['interval_end'])}"
+    if kind in ("order_notification", "payment_notification"):
+        return f"{kind} {d['app_id']} {d['title']} {' '.join(d['order_ids'])}"
+    if kind in ("location_entered", "location_left"):
+        return f"{kind} {d['location_id']} {d.get('entry_kind', '')}".rstrip()
+    return f"{kind} {d.get('scheduled_id','')}"
 
 
 def cmd_event(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
@@ -317,10 +328,10 @@ def meal_count(conn: sqlite3.Connection) -> int:
 
 
 def walking_share(conn: sqlite3.Connection) -> dict:
-    """@brief 步行占比：步行出行时长 / 全部出行时长；观察的路线从未出现步行（只有驾车）时 available 为 False。"""
+    """@brief 步行占比：自带步行的出行时长 / 全部出行时长；观察的路线从未出现步行时 available 为 False。"""
     seconds: Counter = Counter()
     for mode, start, end in _select(conn, "activity_progress",
-                                     "json_extract(body, '$.data.activity.travel_mode'), "
+                                     "json_extract(body, '$.data.activity.travel_method_id'), "
                                      "json_extract(body, '$.data.interval_start'), "
                                      "json_extract(body, '$.data.interval_end')"):
         if mode is not None and _valid_interval(start, end):
@@ -376,7 +387,7 @@ def rerun_lines(metrics: dict) -> list[str]:
         + ("无结算记录" if row["energy_kcal"] is None else f"{row['energy_kcal']:.1f} kcal")
         + ("" if row["ate"] else "（当日无进食）") for row in metrics["lowest_energy_before_meal"])
     if not walking["available"]:
-        walk = "不适用（只有驾车）"
+        walk = "不适用（没有步行）"
     elif not walking["travel_seconds"]:
         walk = "不适用（无出行）"
     else:
@@ -414,7 +425,7 @@ RUN_IDENTITY_KEYS = frozenset({"run_id", "source_group_id", "source_run_ids"})
 _ACTION_REQUEST = ("json_extract(body,'$.event_type')='model_request' AND json_extract(body,'$.data.purpose') IS NULL "
                    "AND json_extract(body,'$.data.request.extra_body.thinking.type')='enabled' AND EXISTS "
                    "(SELECT 1 FROM json_each(body,'$.data.request.tools') "
-                   "WHERE json_extract(value,'$.function.name')='start_activity')")
+                   "WHERE json_extract(value,'$.function.name')='start_main_activity')")
 
 
 def _message(response: dict | None) -> dict:
@@ -485,29 +496,34 @@ def _decision_metrics(decision: dict, topics: tuple[str, ...]) -> dict:
 
 
 def _assistant_matches(message: dict, response: dict | None) -> bool:
-    """@brief 续接中的 assistant 与上一决策最终响应的思考、正文和工具调用相同。"""
+    """@brief 续接中的 assistant 与上一决策最终响应的思考、正文和工具调用相同；工具调用是一个，或两个开始工具各一个。"""
+    from worldmock.life.action_contract import START_TOOLS
+
     final = _message(response)
     calls = [(call.get("id"), (call.get("function") or {}).get("name"), (call.get("function") or {}).get("arguments"))
              for call in final.get("tool_calls") or []]
     sent = [(call.get("id"), call["function"]["name"], call["function"]["arguments"])
             for call in message.get("tool_calls") or []]
+    names = [name for _, name, _ in sent]
     return (message.get("reasoning_content") == final.get("reasoning_content") and bool(final.get("reasoning_content"))
-            and message.get("content") == final.get("content") and sent == calls and len(sent) == 1)
+            and message.get("content") == final.get("content") and sent == calls
+            and (len(names) == 1 or sorted(names) == sorted(START_TOOLS)))
 
 
 def _chain_intact(previous: dict, decision: dict) -> bool:
-    """@brief 链完整：同人物同秒；首个请求 = 上一决策末次请求的全部消息 + 其最终 assistant + 一条同调用身份的 tool 消息；
-    其中每个 assistant 都带思考。"""
+    """@brief 链完整：同人物同秒；首个请求 = 上一决策末次请求的全部消息 + 其最终 assistant + 按调用次序对应其每个工具
+    调用身份的各一条 tool 消息（一个世界请求一条，开始组两条）；其中每个 assistant 都带思考。"""
     last_request, last_terminal = previous["calls"][-1]
     before = last_request["data"]["request"]["messages"]
     first = decision["calls"][0][0]["data"]["request"]["messages"]
     size = len(before)
-    if len(first) != size + 2 or first[:size] != before or previous["occurred_at"] != decision["occurred_at"]:
+    if len(first) <= size or first[:size] != before or previous["occurred_at"] != decision["occurred_at"]:
         return False
-    if not _assistant_matches(first[size], (last_terminal or {}).get("data", {}).get("response")):
+    assistant, tools = first[size], first[size + 1:]
+    if not _assistant_matches(assistant, (last_terminal or {}).get("data", {}).get("response")):
         return False
-    tool = first[size + 1]
-    return (tool.get("role") == "tool" and tool.get("tool_call_id") == first[size]["tool_calls"][0]["id"]
+    answered = [(item.get("role"), item.get("tool_call_id")) for item in tools]
+    return (answered == [("tool", call["id"]) for call in assistant["tool_calls"]]
             and all(item.get("reasoning_content") for item in first if item.get("role") == "assistant"))
 
 
@@ -660,25 +676,8 @@ def cmd_continuation(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
 
-#: 运行工作区里没有结构化卡片的人物的说明（与行为评估的报告说明同为中文）。
-MISSING_CARD_NOTE = "人物 {agent_id} 的运行工作区没有结构化卡片，作息窗口按 null 计"
-
-
-def _workspace_cards(run_dir: Path, agent_ids: list[int]) -> tuple[dict[int, dict | None], list[str]]:
-    """@brief 各人物运行工作区 AGENT.json 的结构化卡片（profile.persona_card_struct）；文件或键缺失时为 None 并写一条说明。"""
-    cards: dict[int, dict | None] = {}
-    notes: list[str] = []
-    for agent_id in agent_ids:
-        path = run_dir / "as2" / "agents" / f"agent_{agent_id:04d}" / "AGENT.json"
-        profile = (json.loads(path.read_text(encoding="utf-8")).get("profile") or {}) if path.is_file() else {}
-        cards[agent_id] = profile.get("persona_card_struct")
-        if cards[agent_id] is None:
-            notes.append(MISSING_CARD_NOTE.format(agent_id=agent_id))
-    return cards, notes
-
-
 def cmd_workday(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
-    """@brief 工作安排取已核对两份原文身份的完整环境，卡片取实际运行工作区。"""
+    """@brief 工作安排与下班、到家窗口取已核对两份原文身份的完整环境，不读人物工作区。"""
     from worldmock.environment import load_environment
     from worldmock.evaluation.workload_metrics import workday_inputs, workday_reports
 
@@ -687,9 +686,7 @@ def cmd_workday(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     if (inputs.persona_sha256 != manifest["persona_sha256"]
             or inputs.config_sha256 != manifest["config_sha256"]):
         raise SystemExit("Environment inputs do not match the run manifest")
-    cards, notes = _workspace_cards(a.run_dir, [inputs.persona.agent_id])
-    report = workday_reports(_rows(conn), inputs.config.timezone, workday_inputs(inputs, cards))
-    report["notes"] = [*report["notes"], *notes]
+    report = workday_reports(_rows(conn), inputs.config.timezone, workday_inputs(inputs))
     print(json.dumps({"run_id": manifest["run_id"], **report}, ensure_ascii=False, indent=2))
 
 
@@ -697,7 +694,7 @@ def cmd_workday(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
 QUERY_REPORT_KEYS = ("run_id", "calls", "failures", "returned_chars", "filtered_calls", "empty_after_filter",
                      "model_calls_to_purchase", "reflection_retries")
 #: 被计量的查询工具；决策循环请求开放的世界请求工具；就寝反思唯一的严格工具。
-QUERY_TOOL, DECISION_TOOL, REFLECTION_TOOL = "query_world", "start_activity", "submit_reflection"
+QUERY_TOOL, DECISION_TOOL, REFLECTION_TOOL = "query_world", "start_main_activity", "submit_reflection"
 #: 就寝反思原始请求的消息条数（AS2 的 system 与 user 两条）；校验重试在其后附一条 user 附回消息，不逐次累积。
 REFLECTION_ORIGINAL_MESSAGES = 2
 #: 模型响应（phase=response）第一条选择里名为 query_world 的工具调用：（响应序号，人物，决策，起因请求，调用身份，参数）。
@@ -785,7 +782,7 @@ def _calls_to_purchase(calls: list[dict], requests: list[tuple], purchases: list
     """@brief 从首次查询到购买结算的模型调用数。
 
     取全运行第一个 query_world 调用：其人物 A 与产生该响应的请求 R；取 A 在 R 之后的第一笔购买结算；计 A 在 R（含）
-    到该结算（不含）之间开放了 start_activity 的模型请求（决策循环的请求，含协议纠错与截断重试；就寝反思、零点计划与
+    到该结算（不含）之间开放了 start_main_activity 的模型请求（决策循环的请求，含协议纠错与截断重试；就寝反思、零点计划与
     工作验收不算）。没有查询、找不到 R 或其后没有 A 的购买结算时为 None。
     """
     if not calls:

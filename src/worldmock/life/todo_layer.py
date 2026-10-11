@@ -58,7 +58,7 @@ def visible_goals(state: WorldState, agent_id: int) -> tuple[PlanGoal, ...] | No
 
 def _day_plan(context: LayerContext) -> dict | None:
     """@brief 今日计划：计划日期与各目标的意图、文字、提醒时刻（HH:MM 或 null）与大致时刻（HH:MM 或
-    null，docs/design/04-simulation-engine.md ）；没有或已过期时为 null。"""
+    null，docs/design/04-simulation-engine.md）；没有或已过期时为 null。"""
     goals = visible_goals(context.state, context.agent_id)
     if goals is None:
         return None

@@ -51,6 +51,7 @@ def test_new_fixture_loads_complete_world_and_seeded_memory_map():
     assert len(catalog.goods) == 7
     assert len(catalog.contents) == 15
     assert catalog.locations["home"].is_home
+    assert {key for key, place in catalog.locations.items() if place.sleepable} == {"home", "office"}
     assert catalog.locations["office"].display_name == "公司"
     assert catalog.nearest_parcel_station("home") == "parcel-station"
     state = hashlib.sha256(b"random:7").hexdigest()
@@ -69,11 +70,13 @@ def test_catalog_indexes_expand_exact_kinds_and_keep_app_goods_separate():
     assert catalog.goods_by_app["bilibili"] == ("online-notebook",)
     assert all("online-notebook" not in items for items in catalog.goods_by_store.values())
     assert catalog.contents_by_location_kind["parcel_station"] == ("parcel-service",)
-    assert catalog.apps_by_action["purchase"] == ("alipay", "wechat")
-    for action in ("walk", "drive", "take_taxi", "take_bus"):
-        assert catalog.apps_by_action[action] == ("amap",)
-    assert catalog.apps_by_action["sleep"] == ()
-    assert catalog.apps_by_action["interact"] == ()
+    assert dict(catalog.apps_by_action) == {"purchase": ("alipay", "wechat")}
+    assert list(catalog.apps_by_travel_method.items()) == [
+        ("walking", ("amap",)), ("bus", ("amap",)), ("driving", ("amap",)), ("taxi", ("amap",))]
+    assert [(row.travel_method_id, row.name, row.speed_meters_per_second, row.start_price_fen,
+             row.price_per_km_fen, row.exertion) for row in catalog.travel_methods.values()] == [
+        ("bus", "公共交通", 5, 200, 0, "light"), ("driving", "驾车", 7, 500, 200, "light"),
+        ("taxi", "打车", 7, 1400, 300, "light")]
     assert catalog.contents_by_app["eleme"] == ()
     assert catalog.stores_by_app["eleme"]
     assert any(len(items) >= 2 for items in catalog.contents_by_series.values())
@@ -142,13 +145,17 @@ def test_callback_registration_loads_typed_states_rules_transfer_and_alias(catal
     write_callbacks(catalog_directory, STATE,
         {"rule_id": "charge", "trigger": {"class": "time", "key": "monthly", "day": 31, "time": "09:00"},
          "effect": {"type": "transfer", "direction": "expense", "amount_fen": 100}},
-        {"rule_id": "drive", "trigger": {"class": "action", "key": "drive"},
-         "effect": {"type": "state_delta", "state": "fuel", "delta": -1, "once_per": "local_day"}})
+        {"rule_id": "drive", "trigger": {"class": "action", "key": "travel", "travel_method_id": "driving"},
+         "effect": {"type": "state_delta", "state": "fuel", "delta": -1, "once_per": "local_day"}},
+        {"rule_id": "nap", "trigger": {"class": "action", "key": "sleep"},
+         "effect": {"type": "transfer", "direction": "income", "amount_fen": 1}})
     catalog = load_catalog(catalog_directory, 7)
     assert catalog.callback_states["fuel"].cap == 3
     assert catalog.callback_rules["charge"].effect.direction == "expense"
     assert catalog.callback_rules["drive"].trigger.trigger_class == "action"
-    assert catalog.callback_rules["drive"].model_dump(mode="json")["trigger"]["class"] == "action"
+    assert catalog.callback_rules["drive"].model_dump(mode="json")["trigger"] == {
+        "class": "action", "key": "travel", "travel_method_id": "driving"}
+    assert catalog.callback_rules["nap"].model_dump(mode="json")["trigger"] == {"class": "action", "key": "sleep"}
 
 
 @pytest.mark.parametrize("effect,code", [
@@ -166,7 +173,7 @@ def test_callback_registration_loads_typed_states_rules_transfer_and_alias(catal
 ])
 def test_callback_effects_refuse_invalid_state_number_pool_and_retired_account(catalog_directory, effect, code):
     write_callbacks(catalog_directory, STATE,
-        {"rule_id": "rule", "trigger": {"class": "action", "key": "drive"}, "effect": effect})
+        {"rule_id": "rule", "trigger": {"class": "action", "key": "purchase"}, "effect": effect})
     assert_refused(catalog_directory, code)
 
 
@@ -175,3 +182,82 @@ def test_callback_state_rows_must_precede_rules(catalog_directory):
         {"rule_id": "rule", "trigger": {"class": "time", "key": "run_start"},
          "effect": {"type": "transfer", "direction": "income", "amount_fen": 1}}, STATE)
     assert_refused(catalog_directory, "ENVIRONMENT_KIND_INVALID")
+
+
+PREREQUISITE_HOURS = {"weekly": {"mon": [["08:00", "10:00"], ["17:00", "24:00"]]},
+                      "exceptions": {"2026-10-19": [], "2026-10-20": [["12:00", "13:00"]]}}
+
+
+def set_prerequisites(directory, **prerequisites):
+    """给夹具副本里指定内容写上前提（键是 content_id 里的连字符换成下划线），刷新清单。"""
+    wanted = {key.replace("_", "-"): value for key, value in prerequisites.items()}
+
+    def change(rows):
+        for row in rows:
+            if row["content_id"] in wanted:
+                row["prerequisite"] = wanted[row["content_id"]]
+    replace_rows(directory, "content-catalog.jsonl", change)
+
+
+def test_legal_prerequisite_rows_load_with_their_parsed_values(catalog_directory):
+    """只写地点、只写时段、两项都写、省略四种合法写法都能加载；location_kinds 省略与空数组等价。"""
+    set_prerequisites(catalog_directory, c_article={"location_kinds": ["home", "office"]},
+                      c_course={"opens": PREREQUISITE_HOURS},
+                      c_image={"location_kinds": ["office"], "opens": {"weekly": {}}},
+                      c_live={"location_kinds": [], "opens": PREREQUISITE_HOURS})
+    contents = load_catalog(catalog_directory, 7).contents
+    validate_catalog_files(catalog_directory)
+    place_only, time_only, both = (contents[key].prerequisite for key in ("c-article", "c-course", "c-image"))
+    assert place_only.location_kinds == ("home", "office") and place_only.opens is None
+    assert time_only.location_kinds == () and time_only.opens.weekly["mon"] == (("08:00", "10:00"), ("17:00", "24:00"))
+    assert time_only.opens.exceptions == {"2026-10-19": (), "2026-10-20": (("12:00", "13:00"),)}
+    assert both.location_kinds == ("office",) and both.opens.weekly == {} and both.opens.exceptions == {}
+    assert contents["c-live"].prerequisite == time_only
+    assert contents["c-long"].prerequisite is None
+    assert all(item.prerequisite is None for item in load_catalog(FIXTURE, 7).contents.values())
+
+
+def test_opening_hours_object_evaluates_half_open_local_intervals_for_locations_and_prerequisites(catalog_directory):
+    """营业时段的求值只在 OpeningHours 上：含头不含尾、24:00 结束、没写的星期关闭、特殊日期整日替换（含空数组）；
+    地点行写同一份时段时，地点的两个接口给出同样的结果。"""
+    set_prerequisites(catalog_directory, c_course={"opens": PREREQUISITE_HOURS})
+    replace_rows(catalog_directory, "location.jsonl", lambda rows: rows[0].update(opens=PREREQUISITE_HOURS))
+    catalog = load_catalog(catalog_directory, 7)
+    hours, place = catalog.contents["c-course"].prerequisite.opens, catalog.locations["cafe"]
+    expected = [
+        (datetime(2026, 10, 12, 7, 59, 59), False), (datetime(2026, 10, 12, 8), True),
+        (datetime(2026, 10, 12, 9, 59, 59), True), (datetime(2026, 10, 12, 10), False),
+        (datetime(2026, 10, 12, 17), True), (datetime(2026, 10, 12, 23, 59, 59), True),
+        (datetime(2026, 10, 13, 0), False), (datetime(2026, 10, 13, 9), False),
+        (datetime(2026, 10, 19, 9), False), (datetime(2026, 10, 20, 9), False),
+        (datetime(2026, 10, 20, 12), True), (datetime(2026, 10, 20, 13), False),
+    ]
+    for moment, opened in expected:
+        assert hours.is_open(moment) is opened, moment
+        assert place.is_open(moment) is opened, moment
+    for day, intervals in ((12, (("08:00", "10:00"), ("17:00", "24:00"))), (13, ()), (19, ()),
+                           (20, (("12:00", "13:00"),))):
+        assert hours.opening_intervals(datetime(2026, 10, day).date()) == intervals
+        assert place.opening_intervals(datetime(2026, 10, day).date()) == intervals
+
+
+def test_location_without_declared_hours_is_open_all_day(catalog_directory):
+    place = load_catalog(catalog_directory, 7).locations["cafe"]
+    assert place.opens is None
+    assert place.opening_intervals(datetime(2026, 10, 13).date()) == (("00:00", "24:00"),)
+    assert place.is_open(datetime(2026, 10, 13, 0)) and place.is_open(datetime(2026, 10, 13, 23, 59, 59))
+
+
+def test_null_opening_schedule_is_refused_with_one_sentence_for_locations_and_prerequisites(catalog_directory, tmp_path):
+    """地点行与内容前提的 opens 写 null 是同一个前置校验，详情是同一句。"""
+    sentence = "A declared opening schedule must be an object."
+    other = tmp_path / "other"
+    shutil.copytree(FIXTURE, other)
+    replace_rows(catalog_directory, "location.jsonl", lambda rows: rows[0].update(opens=None))
+    set_prerequisites(other, c_article={"location_kinds": ["office"], "opens": None})
+    for directory, line in ((catalog_directory, "location.jsonl:1 "), (other, "content-catalog.jsonl:1 ")):
+        with pytest.raises(RegistrationError) as captured:
+            load_catalog(directory, 7)
+        assert captured.value.code == "ENVIRONMENT_KIND_INVALID"
+        assert captured.value.detail.startswith(line) and sentence in captured.value.detail
+        assert "location opening schedule" not in captured.value.detail

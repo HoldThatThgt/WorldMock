@@ -105,7 +105,7 @@ def _order_attempts(events: list[dict]) -> list[dict]:
 def _order_action(event: dict) -> str | None:
     """@brief 只把未重放的当前购买请求归为尝试，不解析已退役方式。"""
     data = event["data"]
-    if (event["event_type"] != "action_requested" or data.get("tool_name") != "start_activity"
+    if (event["event_type"] != "action_requested" or data.get("tool_name") != "start_side_activity"
             or data.get("reused")):
         return None
-    return "purchase" if any(item["action"] == "purchase" for item in data["request"]["items"]) else None
+    return "purchase" if data["request"]["action"] == "purchase" else None

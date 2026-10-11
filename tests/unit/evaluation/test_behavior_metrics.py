@@ -7,6 +7,8 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from worldmock.evaluation.behavior_metrics import (
+    BEDTIME_DAY_START_MINUTES,
+    BEDTIME_MIN_SECONDS,
     UNREPORTED_CODE_KEY,
     behavior_metrics_report,
 )
@@ -62,7 +64,7 @@ def _progress(
     if kind == "interact":
         snapshot["data"] = {"action": "interact", "content_id": "test-topic"}
     if kind == "travel":
-        snapshot["data"] = {"action": "walk"}
+        snapshot["data"] = {"action": "travel"}
     snapshot.update(snapshot_extra or {})
     data = {"interval_start": start, "interval_end": end, "activity": snapshot}
     data.update(data_extra or {})
@@ -138,25 +140,8 @@ def _action(event_seq: int, decision_id: str, tool_name: str,
     return event
 
 
-def _start(event_seq: int, decision_id: str, action_id: str, way: str, target: str) -> dict[str, Any]:
-    """@brief 构造一项当前 start_activity 请求，以明确目标和方式提供真实请求形状。"""
-    request = {"items": [{"target": target, "way": way, "app": None, "to": None, "pay_app": None}],
-               "answering": None}
-    return _action(event_seq, decision_id, "start_activity", request, action_id)
-
-
-def _accepted(event_seq: int, decision_id: str, action_id: str, *kinds: str) -> dict[str, Any]:
-    """@brief 构造 action_accepted 事件：一项时带 activity 快照，两项时带 data.activities（与引擎受理事件同形）。"""
-    snapshots = [{"activity_id": f"{action_id}-{index}", "kind": kind} for index, kind in enumerate(kinds)]
-    data: dict[str, Any] = {"status": "in_progress", "data": {}}
-    if len(snapshots) == 1:
-        data["activity"] = snapshots[0]
-    else:
-        data["data"] = {"activities": snapshots}
-    event = _event("action_accepted", _clock(0, 8, event_seq), data=data, decision_id=decision_id,
-                   event_seq=event_seq)
-    event["action_id"] = action_id
-    return event
+#: 行动请求开放的世界请求工具（两个开始工具与一个控制工具，只填函数名）。
+DECISION_TOOLS = ("start_main_activity", "start_side_activity", "conclude_activity")
 
 
 def _memory(episodes: list[dict[str, str]], *, event_seq: int = 90) -> dict[str, Any]:
@@ -327,12 +312,12 @@ def _with_tools(event: dict[str, Any], *names: str) -> dict[str, Any]:
 def test_reflection_requests_and_their_retries_are_not_decision_requests() -> None:
     """@brief 就寝反思的请求只带 submit_reflection、不带 purpose（docs/design/10-runtime.md ）：两个人物各有
     一次校验重试，附回消息逐字相同、分处两条（人物，秒）续接链，也不进观察重复门禁与决策 token 中位数；工具中有
-    start_activity 的行动请求与不带工具的记忆巩固照计。"""
+    start_main_activity 的行动请求与不带工具的记忆巩固照计。"""
     correction = ('{"INSTRUCTION":"Return a complete new submit_reflection tool call using the unchanged schema.",'
                   '"PREVIOUS_INVALID_RESPONSE":[],'
                   '"VALIDATION_ERROR":"response must contain exactly one submit_reflection tool call"}')
     events = [
-        _with_tools(_model_request(1, "act-1", ["观察 1"]), "start_activity", "conclude_activity"),
+        _with_tools(_model_request(1, "act-1", ["观察 1"]), *DECISION_TOOLS),
         _model_response(2, "act-1", 100),
         _model_request(3, "consolidate-1", ["记忆归纳 1"]),
         _model_response(4, "consolidate-1", 300),
@@ -355,22 +340,24 @@ def test_reflection_requests_and_their_retries_are_not_decision_requests() -> No
     assert (median["value"], median["sample_size"]) == (200, 2)
 
 
-def test_tool_requests_without_start_activity_are_not_decision_requests() -> None:
-    """@brief 带工具的请求只在工具中有 start_activity 时才是人物决策请求（docs/design/10-runtime.md 「身份与
+def test_tool_requests_without_start_main_activity_are_not_decision_requests() -> None:
+    """@brief 带工具的请求只在工具中有 start_main_activity 时才是人物决策请求（docs/design/10-runtime.md 「身份与
     判定」、docs/design/07-evaluation.md「2.1 协议门禁」「2.2 报告项」），不是「只要不是就寝反思就算」：只读问答的请求不带
     purpose，工具是三个记忆查询与 finish（末回合只剩 finish）。它们的 user 文本即便与另一秒的行动请求逐字相同、prompt
-    token 很大，也不进观察重复门禁与决策 token 中位数。"""
+    token 很大，也不进观察重复门禁与决策 token 中位数。只开放已删除的 start_activity 的请求同样不算。"""
     events = [
-        _with_tools(_model_request(1, "act-1", ["观察 1"]), "start_activity", "conclude_activity"),
+        _with_tools(_model_request(1, "act-1", ["观察 1"]), *DECISION_TOOLS),
         _model_response(2, "act-1", 100),
         _with_tools(_model_request(3, "ask-1", ["观察 1"]),
                     "memory_recent", "memory_search", "memory_time_range", "finish"),
         _model_response(4, "ask-1", 20000),
         _with_tools(_model_request(5, "ask-2", ["观察 1"]), "finish"),
         _model_response(6, "ask-2", 30000),
+        _with_tools(_model_request(7, "retired-1", ["观察 1"]), "start_activity", "conclude_activity"),
+        _model_response(8, "retired-1", 40000),
     ]
     requests = [event for event in events if event["event_type"] == "model_request"]
-    assert len({event["occurred_at"] for event in requests}) == 3
+    assert len({event["occurred_at"] for event in requests}) == 4
     assert not any(event["data"].get("purpose") for event in requests)
 
     report = _report(events)
@@ -471,17 +458,120 @@ def test_parallel_activity_time_does_not_double_person_elapsed_or_fake_content()
 
 
 def test_sleep_schedule_from_sleep_intervals() -> None:
-    """@brief 就寝 23:00、起床 07:00、时长 8 小时由 sleep 区间直接得到。"""
+    """@brief 就寝 23:00、起床 07:00、时长 8 小时由 sleep 区间直接得到，这一段记为就寝；没有小睡。"""
     events = [_progress(1, _clock(0, 23), _clock(1, 7), "sleep", activity_id="sleep-1",
-                        snapshot_extra={"started_at": _clock(0, 23), "ended_at": _clock(1, 7)})]
+                        snapshot_extra={"started_at": _clock(0, 23), "ended_at": _clock(1, 7),
+                                        "status": "completed"})]
     schedule = _report(events)["reports"]["sleep_schedule"]
     assert schedule["sessions"] == [{
         "agent_id": "1", "bed_time": "23:00", "rise_time": "07:00", "duration_hours": 8.0,
-        "started_at": _clock(0, 23), "ended_at": _clock(1, 7),
+        "started_at": _clock(0, 23), "ended_at": _clock(1, 7), "category": "bedtime",
     }]
-    assert schedule["summary"]["median_bed_minutes_of_day"] == 23 * 60
-    assert schedule["summary"]["median_rise_minutes_of_day"] == 7 * 60
-    assert schedule["summary"]["mean_duration_hours"] == 8.0
+    assert schedule["summary"] == {"median_bed_minutes_of_day": 23 * 60, "median_rise_minutes_of_day": 7 * 60,
+                                   "mean_duration_hours": 8.0, "session_count": 1}
+    assert schedule["naps"] == {"count": 0, "mean_duration_hours": None}
+
+
+def _slept(seq: int, start: int, seconds: int, *, status: str = "completed", agent_id: int = 1) -> dict[str, Any]:
+    """@brief 一段从 start 起实际睡了 seconds 秒的睡眠的终局进度事件；status 不是 completed 时是还没睡醒的那一段。"""
+    extra = {"started_at": start, "status": status}
+    if status == "completed":
+        extra["ended_at"] = start + seconds
+    return _progress(seq, start, start + seconds, "sleep", activity_id=f"sleep-{agent_id}-{seq}", agent_id=agent_id,
+                     snapshot_extra=extra)
+
+
+def _nights(clocks: list[tuple[int, int, int]], minutes: int = 470) -> dict[str, Any]:
+    """@brief 各晚（第几天, 时, 分）入睡、各睡 minutes 分钟的睡眠报告。"""
+    events = [_slept(index + 1, _clock(day, hour, minute), minutes * 60)
+              for index, (day, hour, minute) in enumerate(clocks)]
+    return _report(events)["reports"]["sleep_schedule"]
+
+
+def test_bedtime_needs_one_hundred_eighty_minutes_and_shorter_sleep_is_a_nap() -> None:
+    """@brief 179 分 59 秒是小睡，180 分钟整是就寝；写 120 分钟又多睡 60 分钟（实际 180 分钟）是就寝；
+    小睡单列次数与平均时长，不进就寝的统计。"""
+    assert BEDTIME_MIN_SECONDS == 10800
+    events = [_slept(1, _clock(0, 13), 10799), _slept(2, _clock(1, 1), 10800),
+              _slept(3, _clock(2, 14), 120 * 60 + 60 * 60), _slept(4, _clock(3, 13), 1800)]
+    schedule = _report(events)["reports"]["sleep_schedule"]
+    assert [row["category"] for row in schedule["sessions"]] == ["nap", "bedtime", "bedtime", "nap"]
+    assert schedule["summary"]["session_count"] == 2 and schedule["summary"]["mean_duration_hours"] == 3.0
+    assert schedule["summary"]["median_rise_minutes_of_day"] == (4 * 60 + 17 * 60) / 2
+    assert schedule["naps"] == {"count": 2, "mean_duration_hours": round((10799 + 1800) / 2 / 3600, 4)}
+
+
+def test_unfinished_sleep_counts_on_neither_side() -> None:
+    """@brief 23:00 入睡、运行在 00:00 结束时还没睡醒的那一段记为 unfinished：照样列在 sessions 里，就寝与小睡都不计。"""
+    events = [_slept(1, _clock(0, 0, 10), 470 * 60), _slept(2, _clock(0, 23), 3600, status="truncated"),
+              _slept(3, _clock(1, 2), 9 * 3600, status="active", agent_id=2)]
+    report = _report(events)
+    schedule = report["reports"]["sleep_schedule"]
+    assert [row["category"] for row in schedule["sessions"]] == ["bedtime", "unfinished", "unfinished"]
+    assert schedule["summary"]["session_count"] == 1 and schedule["naps"]["count"] == 0
+    assert schedule["summary"]["mean_duration_hours"] == round(470 / 60, 4)
+    assert not [note for note in report["notes"] if "180 分钟" in note]
+
+
+def test_sleep_without_any_bedtime_has_no_summary_and_says_so() -> None:
+    """@brief 有睡眠但没有睡满 180 分钟的：summary 为空并写规定说明；一段有效睡眠都没有时沿用原有说明，小睡次数为 0
+    时平均时长为空。"""
+    naps = _report([_slept(1, _clock(0, 13), 3600), _slept(2, _clock(1, 13), 1800)])
+    schedule = naps["reports"]["sleep_schedule"]
+    assert schedule["summary"] is None and schedule["naps"] == {"count": 2, "mean_duration_hours": 0.75}
+    assert "没有睡满 180 分钟的睡眠，就寝与起床时刻无法计算" in naps["notes"]
+    only_unfinished = _report([_slept(1, _clock(0, 23), 3600, status="truncated")])
+    assert only_unfinished["reports"]["sleep_schedule"]["summary"] is None
+    assert "没有睡满 180 分钟的睡眠，就寝与起床时刻无法计算" in only_unfinished["notes"]
+    empty = _report([_event("run_ended", _clock(0, 23))])
+    assert empty["reports"]["sleep_schedule"] == {"sessions": [], "summary": None,
+                                                  "naps": {"count": 0, "mean_duration_hours": None}}
+    assert "无有效 sleep 活动区间，就寝与起床时刻无法计算" in empty["notes"]
+    assert "没有睡满 180 分钟的睡眠，就寝与起床时刻无法计算" not in empty["notes"]
+
+
+@pytest.mark.parametrize("clocks,median", [
+    ([(0, 23, 50), (2, 0, 10), (2, 23, 40), (4, 0, 20)], 0),
+    ([(0, 23, 0), (2, 3, 0)], 60),
+    ([(0, 5, 50), (1, 6, 10)], 1080),
+    ([(0, 23, 50), (2, 0, 10), (3, 0, 30)], 10),
+    ([(0, 0, 10), (1, 0, 10), (2, 0, 10)], 10),
+    ([(0, 23, 0), (1, 23, 0)], 23 * 60),
+    ([(0, 9, 0), (1, 9, 0)], 9 * 60),
+], ids=["around_midnight", "eleven_and_three", "either_side_of_six", "three_nights", "ten_past_midnight",
+        "eleven_every_night", "night_shift"])
+def test_bedtime_median_starts_the_day_at_six_in_the_morning(clocks, median) -> None:
+    """@brief 就寝时刻的中位数以 06:00 为一天的起点：零点两侧的四晚算出 00:00 而不是 12:00；
+    就寝落在 06:00 两侧的两晚算出 18:00（已知后果）。"""
+    assert BEDTIME_DAY_START_MINUTES == 360
+    assert _nights(clocks)["summary"]["median_bed_minutes_of_day"] == median
+
+
+def test_rise_median_is_not_shifted() -> None:
+    """@brief 起床时刻的中位数直接取自本地零点起的分钟：23:50 与 00:10 起床的两晚算出 12:00，不随就寝的平移改变。"""
+    schedule = _nights([(0, 15, 50), (1, 16, 10)], minutes=480)
+    assert schedule["summary"]["median_rise_minutes_of_day"] == (23 * 60 + 50 + 10) / 2
+    assert schedule["summary"]["median_bed_minutes_of_day"] == 16 * 60
+
+
+def test_twelve_weeks_of_nights_and_workday_naps_report_bedtimes_and_naps_apart() -> None:
+    """@brief 林悦 12 周：84 夜 00:10 到 08:00，60 个工作日各午睡 13:00 到 14:00。就寝 00:10、起床 08:00、
+    平均 7.8333 小时、84 段；小睡 60 次、平均 1 小时。只看周一到周五每天午睡的一周同样如此。"""
+    events, seq = [], 0
+    for day in range(84):
+        seq += 1
+        events.append(_slept(seq, _clock(0, 0, 10) + day * 86400, 470 * 60))
+        if day % 7 < 5:
+            seq += 1
+            events.append(_slept(seq, _clock(0, 13) + day * 86400, 3600))
+    schedule = _report(events)["reports"]["sleep_schedule"]
+    assert schedule["summary"] == {"median_bed_minutes_of_day": 10, "median_rise_minutes_of_day": 480,
+                                   "mean_duration_hours": 7.8333, "session_count": 84}
+    assert schedule["naps"] == {"count": 60, "mean_duration_hours": 1.0}
+    week = _report(events[:10])["reports"]["sleep_schedule"]
+    assert week["summary"] == {"median_bed_minutes_of_day": 10, "median_rise_minutes_of_day": 480,
+                               "mean_duration_hours": 7.8333, "session_count": 5}
+    assert week["naps"] == {"count": 5, "mean_duration_hours": 1.0}
 
 
 @pytest.mark.parametrize("end", [None, "1767618000", True])
@@ -500,8 +590,7 @@ def test_sleep_report_rejects_missing_or_invalid_progress_end(end, caplog):
 
 def test_meal_diversity_simpson_and_repetition_anchors() -> None:
     """@brief Simpson {a:2,c:1}=5/9；饮料、购买请求和非食品均不产生进食样本。"""
-    events = [_action(50, "d1", "start_activity", {"items": [
-        {"action": "purchase", "target": "幻影商品"}]})]
+    events = [_action(50, "d1", "start_side_activity", {"action": "purchase", "target": ["幻影商品"]})]
     for seq, product, category in ((1, "a", "meal"), (2, "a", "meal"), (3, "b", "drink"),
                                    (4, "c", "snack"), (5, "d", "goods")):
         events.extend(_receipt_events(seq, product, _clock(0, 8, seq), category))
@@ -585,7 +674,7 @@ def test_missing_metric_evidence_is_reported_unknown_and_gates_fail_closed() -> 
         _event("run_ended", _clock(0, 23), data={"reason": "window_end"}),
     ]
     report = _report(events)
-    assert report["schema_version"] == "behavior-metrics-3"
+    assert report["schema_version"] == "behavior-metrics-4"
     assert report["gates"]["observation_repetition"]["pass"] is True
     for key in ("silent_boundary_ratio", "memory_repetition_ratio", "memory_md_identity_residue"):
         assert report["gates"][key]["value"] is None

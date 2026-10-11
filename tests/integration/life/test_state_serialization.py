@@ -40,7 +40,7 @@ def _world_state() -> WorldState:
         last_settled_at=1,
         elapsed_seconds=0,
         planned_duration_seconds=9,
-        resource_claims={"second"},
+        resource_claims={"first"},
         origin_action_id="action-1",
         origin_decision_id="decision-1",
         origin_request_event_id="request-1",
@@ -177,3 +177,19 @@ def test_readonly_commit_is_identical_across_python_hash_seeds(tmp_path: Path) -
 
     assert first_payload == second_payload
     assert _set_arrays(json.loads(first_payload)) == _set_arrays(state)
+
+
+def test_world_state_schema_is_thirteen_and_the_previous_version_is_refused() -> None:
+    """世界状态结构版本是 13；结构号 12 的世界状态由严格字面量拒绝，不迁移、不读取。"""
+    import pytest
+    from pydantic import ValidationError
+
+    assert WORLD_SCHEMA_VERSION == 13
+    payload = _world_state().model_dump(mode="json")
+    assert WorldState.model_validate(payload).schema_version == 13
+    for retired in (12, "13", None):
+        with pytest.raises(ValidationError, match="schema_version"):
+            WorldState.model_validate({**payload, "schema_version": retired})
+    missing = {key: value for key, value in payload.items() if key != "schema_version"}
+    with pytest.raises(ValidationError, match="schema_version"):
+        WorldState.model_validate(missing)

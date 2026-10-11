@@ -8,7 +8,8 @@ from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from worldmock.errors import BusinessRuleError, PreconditionError
-from worldmock.exchange.operators import delivery_seconds
+from worldmock.exchange.constants import DELIVERY_PREP_SECONDS
+from worldmock.exchange.operators import delivery_fee_fen, delivery_seconds
 from worldmock.life.models import ActivityKind, WorldState, active_activities
 from worldmock.life.randomness import random_stream
 from worldmock.life.guidance import rejection_guidance
@@ -97,8 +98,9 @@ def quote_goods(inputs, state: WorldState, agent_id: int, goods_id: str) -> Offe
                      and inputs.catalog.locations[key].is_open(local))
     if not eligible:
         _require_store(inputs, state, agent_id, stores)
-    store = min(eligible, key=lambda key: (goods.price_fen + 500,
-                state.current_time + delivery_seconds(inputs.catalog.shortest_m(key, here)), key))
+    # 同价时取离收货地点最近的店，同距取较小的店铺身份；配送时长随距离只增不减，最近的店也最早送达。
+    store = min(eligible, key=lambda key: (goods.price_fen + delivery_fee_fen(),
+                inputs.catalog.shortest_m(key, here), key))
     return _delivery_offer(inputs, state, goods, store, here)
 
 
@@ -111,10 +113,13 @@ def _require_store(inputs, state: WorldState, agent_id: int, stores: tuple[str, 
                             public_reason=f"Purchase requires presence at {name} while it is open.")
 
 
-def _order_app(state: WorldState, goods_id: str, source: str, apps: tuple[str, ...]) -> str:
-    """@brief 下单渠道只依赖商品、店铺或快递标记、本地日期。"""
+def _order_app(state: WorldState, source: str, apps: tuple[str, ...]) -> str:
+    """@brief 下单渠道只依赖抽取来源与本地日期：店铺商品的来源是店铺，快递类商品的来源是商品加快递标记。
+
+    同一家店同一本地日的商品因此总抽到同一个下单 app，一家店在一次购买里只有一个配送组、一份运费。
+    """
     local_date = datetime.fromtimestamp(state.current_time, ZoneInfo(state.timezone)).date().isoformat()
-    key = f"order-app:{goods_id}:{source}:{local_date}"
+    key = f"order-app:{source}:{local_date}"
     return random_stream(state.random_state, key).choice(sorted(apps))
 
 
@@ -122,20 +127,20 @@ def _delivery_offer(inputs, state: WorldState, goods, store: str, here: str) -> 
     """@brief 外卖保留完整图路线，不因距离长而改为快递。"""
     catalog = inputs.catalog
     meters = catalog.shortest_m(store, here)
-    app = _order_app(state, goods.goods_id, store, catalog.apps_by_store[store])
+    app = _order_app(state, store, catalog.apps_by_store[store])
     return Offer(goods.goods_id, store, app, here, state.current_time + delivery_seconds(meters),
-                 "delivery", 500, here, catalog.graph.path(store, here),
-                 f"{store}->{here}:driving", meters, 600)
+                 "delivery", delivery_fee_fen(), here, catalog.graph.path(store, here),
+                 f"{store}->{here}:delivery", meters, DELIVERY_PREP_SECONDS)
 
 
 def _courier_offer(inputs, state: WorldState, goods) -> Offer:
     """@brief 快递按本地日期边界到站；费用不随日期或查看次数改变。"""
-    app = _order_app(state, goods.goods_id, "courier", goods.app_ids)
+    app = _order_app(state, f"{goods.goods_id}:courier", goods.app_ids)
     local = datetime.fromtimestamp(state.current_time, ZoneInfo(state.timezone))
     days_key = f"courier-days:{goods.goods_id}:{app}:{local.date().isoformat()}"
     days = random_stream(state.random_state, days_key).choice((2, 3, 4, 5))
     arrival = datetime.combine(local.date() + timedelta(days=days), time.min, local.tzinfo)
-    fee = random_stream(state.random_state, f"courier-fee:{goods.goods_id}:{app}").choice((0, 500))
+    fee = random_stream(state.random_state, f"courier-fee:{goods.goods_id}:{app}").choice((0, delivery_fee_fen()))
     station = inputs.catalog.nearest_parcel_station(inputs.home_location_id)
     return Offer(goods.goods_id, None, app, station, int(arrival.timestamp()), "station_pickup", fee,
                  inputs.home_location_id, (station,), None, 0, 0)

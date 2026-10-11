@@ -81,8 +81,8 @@ const ViewerContext = {};
     },
     tools: {
       label: '工具定义', source: 'custom/agents/life_agent.py · 原生工具；src/worldmock/agents/life_prompt.py · TOOL_DESCRIPTIONS',
-      fill: '五个世界请求工具、两个世界查询工具（query_world、recall_task_summary）与三个记忆查询工具，'
-        + '严格参数结构，整次运行字节相同。',
+      fill: '六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）、两个世界查询工具（query_world、recall_task_summary）'
+        + '与三个记忆查询工具，共十一个，严格参数结构，整次运行字节相同。',
       steps: [
         ['稳定工具面', '不再按观察绑定枚举，名称在宿主本地按私有绑定校验。'],
         ['最后回合', '只剩最后一个回合时与输出截断后的那次重试时去掉全部查询工具（世界查询与记忆查询），只留世界请求工具。'],
@@ -102,7 +102,8 @@ const ViewerContext = {};
     continuation: {
       label: '同秒续接',
       source: 'src/worldmock/life/continuation.py · same_second_chain；src/worldmock/agents/life_continuation.py · continuation_messages',
-      fill: '同一秒的后续决策原样续接上一决策末次请求的全部消息，再追加上一决策的 assistant 与一条 tool 消息 {result, changes, events}。',
+      fill: '同一秒的后续决策原样续接上一决策末次请求的全部消息，再追加上一决策的 assistant，并为它的每个世界请求各追加一条 tool 消息'
+        + ' {result, changes, events}：一个世界请求一条，开始组两条，changes 与 events 只写在最后一条上。',
       steps: [
         ['识别', '一次决策的首个请求多于两条消息即判为续接。'],
         ['来源决策', '前序 assistant 按 tool_call 身份匹配到产生它的决策。'],
@@ -111,10 +112,10 @@ const ViewerContext = {};
     },
     reflection: {
       label: '睡醒反思',
-      source: 'src/worldmock/agents/life_memory.py · after_step；src/worldmock/agents/life_reflection.py；agentsociety2/agent/memory_runtime.py',
-      fill: '睡眠完成后的睡醒边界触发，输入当前时刻与最近三十条记忆，不含人物卡片。',
+      source: 'src/worldmock/agents/life_memory.py · wake_reflection；src/worldmock/agents/life_reflection.py；custom/agents/life_agent.py · _observe_environment',
+      fill: '每个本地日第一次睡醒、取观察之前触发，输入当前时刻与最近三十条记忆，不含人物卡片。',
       steps: [
-        ['睡醒边界', '先检查主观归纳，再进行反思；没有已有记忆时不调用反思模型。'],
+        ['当天第一次睡醒', '有未归纳的记录时先做一次主观归纳，再进行反思；没有已有记忆时不调用反思模型。'],
         ['新增条目', '经唯一严格工具 submit_reflection 提交一至五条带原记忆引用的主观反思，重要度为 0.8，进入持久记忆。'],
         ['校验重试', '输出不合合同时附回英文校验错误重新请求，首次之外至多三次；仍不合合同即运行故障，不写入任何反思。'],
         ['后续归纳', '反思不计入归纳触发阈值，但属于后续归纳可读取的未归纳内容。'],
@@ -340,7 +341,8 @@ const ViewerContext = {};
         items.push({label:`${target.name}（${target.kind}）`, text:JSON.stringify(target, null, 2)});
         if (group.action !== null) {
           const action = {action:group.action, ...target};
-          items.push({label:`${target.name} · ${group.action} · ${availability(target)}`,
+          const named = target.detail == null ? group.action : `${group.action} · ${target.detail}`;
+          items.push({label:`${target.name} · ${named} · ${availability(target)}`,
             text:JSON.stringify(action, null, 2)});
         }
         for (const row of Array.isArray(target.tools) ? target.tools : []) {

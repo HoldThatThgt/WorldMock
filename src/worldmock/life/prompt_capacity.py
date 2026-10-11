@@ -8,7 +8,7 @@
 并以容量故障停止，不静默删减。
 
 工具层的可调用索引 callable_index 在 user 消息里，照样计入整次请求的容量计数（阈值与浓缩步骤不变），也从不被浓缩或删减；
-它不计入单次呈现上限（docs/design/04-simulation-engine.md ）。容量故障的分层记录另单列它的 token 用量。
+它不计入单次呈现上限（docs/design/04-simulation-engine.md）。容量故障的分层记录另单列它的 token 用量。
 """
 
 from __future__ import annotations

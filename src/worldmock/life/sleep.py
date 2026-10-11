@@ -41,7 +41,7 @@ DEFAULT_CHRONOTYPE_MIDSLEEP_H = 4.0
 SLEEPINESS_CLIP_MAX = 1.2
 
 #: 困意分级边界（experiment_assumption：与 felt.SLEEPINESS_BANDS 同一组档界，由测试锁定一致；KSS 等价刻度的标定见
-#: 该表注释与 docs/design/04-simulation-engine.md ），区间左闭右开：
+#: 该表注释与 docs/design/04-simulation-engine.md），区间左闭右开：
 #: <0.80 清醒、0.80–0.93 有点乏、0.93–1.07 困、1.07–1.18 很困、>=1.18 撑不住。
 GRADE_TIRED_MIN = 0.80
 GRADE_SLEEPY_MIN = 0.93
@@ -60,15 +60,6 @@ DEFICIT_RECOVERY_PER_SLEEP_H = 1.0
 
 #: 睡眠不足账上下限（experiment_assumption：规格冻结钳制区间 [0, 24]）。
 SLEEP_DEFICIT_MAX_H = 24.0
-
-
-def ended_sleep_at(state, agent_id: int, moment: int):
-    """@brief 返回本决策点刚完成的本人睡眠；首次运行不制造结束事实。"""
-    from worldmock.life.models import ActivityKind, ActivityStatus
-
-    return next((item for item in state.activities.values()
-                 if item.agent_id == agent_id and item.kind == ActivityKind.SLEEP
-                 and item.status == ActivityStatus.COMPLETED and item.ended_at == moment), None)
 
 
 class SleepinessGrade(StrEnum):

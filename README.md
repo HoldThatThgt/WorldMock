@@ -68,11 +68,12 @@ Windows 可用 `py -3.12`，其他系统可用 `python3.12`。`--wheelhouse` 指
 ## 实验与数据
 
 环境根只含 catalog/、persona.toml 与 config.toml，描述一个世界、一个人物和一次运行。
-目录使用清单及五份 JSONL；地图由唯一运行种子在内存生成，发布包不包含 map.json。
+目录使用清单、四份必需 JSONL 和按需放置的可选 JSONL（回调声明 callbacks.jsonl、两地距离声明 map.jsonl、出行方式 travel-method.jsonl）；
+地图由声明的距离和唯一运行种子在内存生成，发布包不包含生成的 map.json。
 完整格式和实际模型服务要求见[用户手册](docs/manual/README.md)。
 
 运行输出位于 `runs/`。事件数据库、素材、模型证据和共同检查点保留实际来源，恢复使用新的目录并保留父运行。
-导出清单列出事件、活动、已核验经历、购买和 app 使用五类工件。
+导出清单列出事件、活动、已核验经历、购买、app 使用和地点停留六类工件。
 
 <a name="readme-命令"></a>
 ## 命令

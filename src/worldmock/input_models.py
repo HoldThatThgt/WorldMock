@@ -5,10 +5,10 @@ from __future__ import annotations
 import logging
 import math
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import AfterValidator, ConfigDict, Field, model_validator
 
 from worldmock.base_models import DeepFrozenModel
 
@@ -88,13 +88,72 @@ def _canonical_date(value: str) -> bool:
         return False
 
 
-class PersonaConfig(InputModel):
-    """@brief 唯一人物的身份、生活事实、位置与初始资源。"""
+def _hour_window(window: list[float]) -> list[float]:
+    """@brief 时段只检查一条：恰好两个有限的小时数，起点小于终点；不检查范围、跨度或与其他时段的关系。"""
+    if len(window) != 2 or any(not math.isfinite(value) for value in window) or not window[0] < window[1]:
+        _invalid("must be two finite hours with start < end")
+    return window
 
-    schema_version: Literal[1]
+
+#: 时段：自午夜起的小时数 [起点, 终点]，越过午夜的时刻写成大于 24 的小时数。
+HourWindow = Annotated[list[float], AfterValidator(_hour_window)]
+#: 口味数组与联系渠道数组里的一项：非空白文字，用词由数据集决定。
+NonBlankText = Annotated[str, Field(pattern=r"\S")]
+
+
+class Identity(InputModel):
+    """@brief 人物卡片的身份：年龄、职业、居住方式。"""
+
+    age: int = Field(ge=16, le=100)
+    occupation: str = Field(min_length=1, max_length=20)
+    living_arrangement: str = Field(min_length=1, max_length=30)
+
+
+class Situation(InputModel):
+    """@brief 人物卡片的当下处境：本周在忙什么、在意什么。"""
+
+    busy_this_week: str = Field(min_length=1, max_length=60)
+    cares_about: str = Field(min_length=1, max_length=60)
+
+
+class Relationship(InputModel):
+    """@brief 人物卡片的一条关系：姓名或称谓、角色、亲密度（0 到 30）与一到三个联系渠道。
+
+    渠道的用词不设闭集，每项只要求非空白；卡片文本把关系写成「渠道、渠道联系」，所以至少一项，至多三项是提示容量的条数上限。
+    """
+
+    name_or_appellation: str = Field(min_length=1, max_length=12)
+    role: str = Field(min_length=1, max_length=12)
+    intimacy: int = Field(ge=0, le=30)
+    channels: list[NonBlankText] = Field(min_length=1, max_length=3)
+
+
+class HabitDeclaration(InputModel):
+    """@brief 人设表里的一条习惯签名：情境、反应与写成两个小时数的时段。"""
+
+    trigger: str = Field(min_length=1, max_length=30)
+    response: str = Field(min_length=1, max_length=40)
+    time_window: HourWindow
+
+
+class Tastes(InputModel):
+    """@brief 人物卡片的口味：内容题材、饮食喜好、常用媒介，三个数组都可以为空。"""
+
+    content_genres: list[NonBlankText] = Field(max_length=6)
+    food_preferences: list[NonBlankText] = Field(max_length=6)
+    media: list[NonBlankText] = Field(max_length=4)
+
+
+class PersonaConfig(InputModel):
+    """@brief 唯一人物的人设表：位置与初始资源、工作安排，以及由数据集直接填写的完整人物卡片。
+
+    卡片字段没有缺省值；下班、到家两个时段不写表示没有固定时刻。时段之间不做任何先后或重叠检查。
+    """
+
+    schema_version: Literal[2]
     agent_id: int = Field(gt=0)
     name: str = Field(min_length=1, pattern=r"\S")
-    background_story: str
+    background_story: str = Field(min_length=1)
     health_habits: str | None = None
     social_style: str | None = None
     home_location: str = Field(min_length=1, pattern=r"\S")
@@ -102,49 +161,24 @@ class PersonaConfig(InputModel):
     initial_balance_fen: int = Field(ge=0)
     initial_relaxation_need: float = Field(ge=0, le=1, allow_inf_nan=False)
     initial_social_need: float = Field(ge=0, le=1, allow_inf_nan=False)
+    social_need_growth_per_hour: float = Field(ge=0.02, le=0.10, allow_inf_nan=False)
     body: BodyInitialConfig
     work_schedule: WorkSchedule | None = None
-    chronotype_midsleep: float = Field(default=4.0, ge=0, lt=24, allow_inf_nan=False)
-    sleep_need_hours: float = Field(default=7.5, ge=7, le=9, allow_inf_nan=False)
-    lunch_window: list[float] | None = None
-    dinner_window: list[float] | None = None
-    leave_work_window: list[float] | None = None
-    arrive_home_window: list[float] | None = None
-    bedtime_window: list[float] | None = None
-
-    @field_validator("background_story")
-    @classmethod
-    def validate_story(cls, value: str) -> str:
-        """@brief 正文去掉首尾空白后至少一百字符。"""
-        if len(value.strip()) < 100:
-            _invalid("background_story must contain at least 100 characters")
-        return value
-
-    @model_validator(mode="after")
-    def validate_windows(self) -> PersonaConfig:
-        """@brief 人物作息保留日内窗口与跨午夜就寝的现行范围。"""
-        names = ("lunch_window", "dinner_window", "leave_work_window", "arrive_home_window", "bedtime_window")
-        for name in names:
-            window = getattr(self, name)
-            if window is not None:
-                _check_window(name, window)
-        if self.leave_work_window and self.arrive_home_window:
-            if self.leave_work_window[0] > self.arrive_home_window[0]:
-                _invalid("leave_work_window must not start after arrive_home_window")
-        if self.dinner_window and self.bedtime_window and self.bedtime_window[0] < self.dinner_window[1]:
-            _invalid("bedtime_window must not overlap dinner window")
-        return self
-
-
-def _check_window(name: str, window: list[float]) -> None:
-    """@brief 检查有限两端点、日内起点和窗口跨度。"""
-    maximum = 30 if name == "bedtime_window" else 24
-    if len(window) != 2 or any(not math.isfinite(value) for value in window):
-        _invalid(f"{name} must contain two finite hours")
-    if not 0 <= window[0] < 24 or not window[0] < window[1] <= maximum:
-        _invalid(f"{name} must satisfy 0 <= start < end <= {maximum}")
-    if window[1] - window[0] > 12:
-        _invalid(f"{name} span must not exceed 12 hours")
+    chronotype_midsleep: float = Field(ge=0, lt=24, allow_inf_nan=False)
+    sleep_need_hours: float = Field(ge=7, le=9, allow_inf_nan=False)
+    wake_window: HourWindow
+    leave_home_window: HourWindow
+    lunch_window: HourWindow
+    dinner_window: HourWindow
+    bedtime_window: HourWindow
+    leave_work_window: HourWindow | None = None
+    arrive_home_window: HourWindow | None = None
+    identity: Identity
+    situation: Situation
+    relationships: list[Relationship] = Field(max_length=4)
+    habits: list[HabitDeclaration] = Field(max_length=5)
+    tastes: Tastes
+    coping: str = Field(min_length=1, max_length=60)
 
 
 class CalendarConfig(InputModel):
@@ -182,15 +216,14 @@ class ModelConfig(InputModel):
     max_retries: int = Field(default=0, ge=0, le=10)
     transport_max_retries: int = Field(default=3, ge=0, le=10)
     max_react_turns: int = Field(default=16, ge=1, le=64)
-    persona_validation_max_retries: int = Field(default=2, ge=0, le=5)
     reflection_validation_max_retries: int = Field(default=3, ge=0, le=5)
     day_plan_validation_max_retries: int = Field(default=3, ge=0, le=5)
 
 
 class RunConfig(InputModel):
-    """@brief 一次单人运行的时区、时间、唯一种子、节律与模型配置。"""
+    """@brief 一次单人运行的时区、时间、唯一种子、节律与模型配置；结构版本是 2，写其他值的文件直接拒绝。"""
 
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     seed: int
     timezone: str = Field(min_length=1)
     start_time: datetime

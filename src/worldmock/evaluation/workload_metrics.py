@@ -6,7 +6,7 @@ from worldmock.footprints.timeline_labels import window_days, local_day_bounds
 from worldmock.footprints.intervals import valid_interval, body_settlements
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 from worldmock.life.work_schedule import break_spans, shift_on, shift_span
@@ -33,7 +33,7 @@ _Spans = list[tuple[int, int]]
 
 @dataclass(frozen=True, slots=True)
 class AgentWorkday:
-    """@brief 一个人物的评估输入：工作安排、住处和覆盖后的下班、到家窗口。"""
+    """@brief 一个人物的评估输入：工作安排、住处和人设表写的下班、到家窗口（没有写的为 None）。"""
 
     work_schedule: WorkSchedule | None
     home_location_id: str
@@ -75,13 +75,12 @@ class _Timeline:
     sleep: tuple[tuple[int, int], ...]
 
 
-def workday_inputs(inputs: EnvironmentInputs, cards: Mapping[int, Mapping[str, Any] | None]) -> WorkdayInputs:
-    """@brief 人设提供班次和地点，配置提供播报间隔；卡片提供实际作息窗口。"""
+def workday_inputs(inputs: EnvironmentInputs) -> WorkdayInputs:
+    """@brief 人设表提供班次、地点与下班、到家窗口的原值，配置提供播报间隔；不读人物工作区。"""
     persona = inputs.persona
-    card = cards.get(persona.agent_id)
     agent = AgentWorkday(
         persona.work_schedule, inputs.home_location_id, inputs.workplace_location_id, inputs.initial_location_id,
-        _card_window(card, "leave_work"), _card_window(card, "arrive_home"))
+        _window(persona.leave_work_window), _window(persona.arrive_home_window))
     return WorkdayInputs({persona.agent_id: agent}, inputs.config.progress_report_interval_seconds)
 
 
@@ -114,10 +113,9 @@ def workday_reports(events: list[dict[str, Any]], timezone: str, inputs: Workday
             "notes": notes}
 
 
-def _card_window(card: Mapping[str, Any] | None, name: str) -> tuple[float, float] | None:
-    """@brief 结构化卡片 time_anchors 里一个锚点的（起, 止）小时；没有卡片或锚点为 null 时为 None。"""
-    window = None if card is None else card["time_anchors"][name]
-    return None if window is None else (float(window["start_hour"]), float(window["end_hour"]))
+def _window(window: Sequence[float] | None) -> tuple[float, float] | None:
+    """@brief 人设表的 [起点, 终点] 取成（起, 止）小时，原值不取整；没有写时为 None。"""
+    return None if window is None else (float(window[0]), float(window[1]))
 
 
 def _agent_ids(events: list[dict[str, Any]], inputs: WorkdayInputs) -> list[int]:
@@ -308,14 +306,23 @@ def _minutes(delta: int) -> float:
 
 def _window_minutes(epoch: int | None, window: tuple[float, float] | None, day: date,
                     zone: ZoneInfo) -> float | None:
-    """@brief 时刻相对窗口（当天的钟点，闭区间）的偏离分钟：早于起点为负，晚于终点为正，窗口内为 0；任一为空时 None。"""
+    """@brief 时刻相对窗口的偏离分钟：窗口按钟面读，取 day 的前一天、当天、次日三次窗口里离时刻最近的一次，
+    一样近时取较早的一次；早于起点为负，晚于终点为正，窗口内为 0；任一为空时 None。"""
     if epoch is None or window is None:
         return None
+    seconds = [_occurrence_seconds(epoch, window, day + timedelta(days=offset), zone) for offset in (-1, 0, 1)]
+    return _minutes(min(seconds, key=abs))
+
+
+def _occurrence_seconds(epoch: int, window: tuple[float, float], day: date, zone: ZoneInfo) -> int:
+    """@brief 时刻相对 day 那一次窗口（闭区间）的偏离秒数：起点减去整数个 24 小时落进当天的钟面，终点减去同样多的
+    小时，换成时刻时截到整秒。"""
     midnight = datetime.combine(day, datetime.min.time(), zone)
-    start, end = (int((midnight + timedelta(hours=hour)).timestamp()) for hour in window)
+    whole_days = 24 * (window[0] // 24)
+    start, end = (int((midnight + timedelta(hours=hour - whole_days)).timestamp()) for hour in window)
     if epoch < start:
-        return _minutes(epoch - start)
-    return _minutes(epoch - end) if epoch > end else 0.0
+        return epoch - start
+    return epoch - end if epoch > end else 0
 
 
 def _asleep(timeline: _Timeline, instant: int) -> bool | None:

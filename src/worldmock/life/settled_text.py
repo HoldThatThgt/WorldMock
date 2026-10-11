@@ -11,9 +11,11 @@ from typing import Any
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import Event
 from worldmock.life import activity_control
-from worldmock.life.models import ActivityKind, ActivityState, TravelMode
+from worldmock.life.action_evidence import placed_orders
+from worldmock.life.models import ActivityKind, ActivityState
 from worldmock.life.readable import clock_phrase, duration_phrase, iso_time, money_phrase, portion_phrase
 from worldmock.life.tool_layer import LayerContext
+from worldmock.life.travel_methods import travel_method
 
 #: 成功的结果状态：只有这些结果写 settled 句。
 SETTLED_STATUSES = frozenset({"completed", "in_progress"})
@@ -117,12 +119,11 @@ def purchase_sentence(context: LayerContext, order: dict[str, Any]) -> str:
 
 
 def experience_sentence(context: LayerContext, fact: dict[str, Any]) -> str:
-    """@brief 已核验经历只写实际到达、本人收货或内容消费。"""
+    """@brief 已核验经历只写实际到达、本人收货或内容消费；到达句用所走出行方式的名称。"""
     now, zone = context.state.current_time, context.config.timezone
     if fact["kind"] == "arrived":
         travel = context.state.activities[fact["activity_id"]]
-        mode = {TravelMode.WALKING: "步行", TravelMode.DRIVING: "驾车",
-                TravelMode.TAXI: "打车", TravelMode.BUS: "乘公共交通"}[travel.travel_mode]
+        mode = travel_method(context.catalog, travel.travel_method_id).name
         place = context.catalog.locations[fact["location_id"]].display_name
         denied = "，但没能进去" if fact["access_status"] == "denied" else ""
         return f"{clock_phrase(fact['occurred_at'], now, zone)} {mode}到了{place}{denied}"
@@ -195,7 +196,7 @@ def _tool_lines(context: LayerContext, record: dict, sources: list[Event], facts
             activity_sentence(context, context.state.activities[activity_id], facts.pauses.get(activity_id, ()),
                               facts.app_progress)
             for activity_id in payload.get("activity_ids", []) if activity_id in facts.endings]
-    lines = [purchase_sentence(context, order) for order in payload.get("orders", [])
+    lines = [purchase_sentence(context, order) for order in placed_orders(payload)
              if order.get("paid_at") is not None]
     return lines
 

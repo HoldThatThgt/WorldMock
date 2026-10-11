@@ -79,6 +79,17 @@ def _settle_ledger(body: BodyState, changes: dict[str, float], config: BodyConfi
     _flow_buffer.extend(entries)
     return body.model_copy(update={name: final[(name, BODY_FLOW_OWNER)] for name in changes}, deep=True)
 
+def hourly_burn(config: BodyConfig, met: float) -> tuple[float, float]:
+    """@brief 每小时基础代谢等于体重千克数，额外消耗只算代谢当量超出静坐的部分。
+
+    @param config 含人物体重的身体结算视图
+    @param met 共同区间内进行中活动的最大代谢当量，没有活动时为 1.0
+    @return (每小时基础代谢千卡, 每小时额外消耗千卡)
+    """
+    basal_rate = config.mass_kg
+    extra_rate = max(met - 1, 0) * config.mass_kg
+    return basal_rate, extra_rate
+
 def settle_body(body: BodyState, kind: ActivityKind, seconds: int, config: BodyConfig,
                 factors: ActivityFactors | None = None) -> BodySettlement:
     """@brief 单活动复用共同结算路径，不重复自然增长。"""
@@ -98,8 +109,9 @@ def settle_shared_body(body: BodyState, activities: tuple[tuple[ActivityKind, Ac
     hours = seconds / 3600
     sleeping = any(kind == ActivityKind.SLEEP for kind, _ in activities)
     met = max((factors.met for _, factors in activities), default=1.0)
-    basal = config.basal_kcal_per_hour * hours
-    extra = max(met - 1, 0) * config.mass_kg * hours
+    basal_rate, extra_rate = hourly_burn(config, met)
+    basal = basal_rate * hours
+    extra = extra_rate * hours
     deficit = (sleep.deficit_after_sleep(body.sleep_deficit_hours, hours) if sleeping else
                sleep.deficit_after_awake(body.sleep_deficit_hours, hours, body.sleep_need_hours))
     changes = {ENERGY_RESOURCE: -min(basal + extra, body.energy_kcal),
@@ -152,9 +164,8 @@ def apply_discomfort_pulse(body: BodyState, billed_hours: float) -> BodyState:
         raise ValueError("discomfort hours must be finite and nonnegative")
     return apply_relaxation_change(body, 0.10 * billed_hours)
 
-def initial_body(config: BodyConfig, hour_of_day: float, persona: PersonaConfig,
-                 social_need_growth_per_hour: float) -> BodyState:
-    """@brief 从真实人设初值与惯常起床时刻构造身体，不预置活动。"""
+def initial_body(config: BodyConfig, hour_of_day: float, persona: PersonaConfig) -> BodyState:
+    """@brief 从人设表的初值、睡眠节律、社交需要增长与惯常起床时刻构造身体，不预置活动。"""
     wake_hour = (persona.chronotype_midsleep + persona.sleep_need_hours / 2) % 24
     awake_hours = (hour_of_day - wake_hour) % 24
     at_wake = sleep.initial_sleep_pressure(wake_hour, persona.sleep_need_hours, persona.chronotype_midsleep)
@@ -163,7 +174,7 @@ def initial_body(config: BodyConfig, hour_of_day: float, persona: PersonaConfig,
                      sleep_deficit_hours=min(24.0, persona.body.initial_sleep_debt_hours),
                      sleep_need_hours=persona.sleep_need_hours, chronotype_midsleep=persona.chronotype_midsleep,
                      social_need=persona.initial_social_need, relaxation_need=persona.initial_relaxation_need,
-                     social_need_growth_per_hour=social_need_growth_per_hour)
+                     social_need_growth_per_hour=persona.social_need_growth_per_hour)
 
 def next_shared_body_boundary_seconds(body: BodyState,
                                       activities: tuple[tuple[ActivityKind, ActivityFactors], ...],
@@ -198,7 +209,8 @@ class _FeltProjection:
     @property
     def burn_per_hour(self) -> float:
         """@brief 最大强度只叠加一次基础代谢。"""
-        return self.config.basal_kcal_per_hour + max(self.factors.met - 1, 0) * self.config.mass_kg
+        basal_rate, extra_rate = hourly_burn(self.config, self.factors.met)
+        return basal_rate + extra_rate
 
     def hour_after(self, seconds: int) -> float:
         """@brief 距当前秒数后的本地小时。"""
@@ -221,7 +233,7 @@ def _first_band_change(level_at: Callable[[int], str], breakpoints: Sequence[int
 
     breakpoints 是分级可能跳变的时刻（距现在的整秒）：跳变前一秒与跳变那一秒也作步点，二分区间不跨跳变，
     跳变之前刚发生、又被跳变抵消的跨档也能扫到。升档、降档都算变化；扫描范围内分级不变时没有候选
-    （docs/design/04-simulation-engine.md「节律」）。
+    （docs/design/04-simulation-engine.md「唤醒、日计划与个人事务」）。
     """
     current = level_at(0)
     previous = 0

@@ -1,20 +1,23 @@
-"""公开引擎创建只接受从真实输入派生的模型身份与阶段预算，拒绝时不产生运行文件。"""
+"""公开引擎创建只接受从真实输入派生的模型身份与阶段预算，拒绝时不产生运行文件。
+
+恢复同样核对：父运行冻结的提示指纹、工具指纹或代码身份与当前不同时按原文拒绝，不留下新运行目录。
+"""
 
 import copy
 import logging
 
 import pytest
 
-from tests.integration.runtime.current_contract_fixtures import inputs
+from tests.data_paths import ENVIRONMENT_ROOT
+from tests.integration.as2_fixtures import write_project
+from tests.integration.runtime.current_contract_fixtures import ROOT, inputs
+from tests.integration.runtime.test_runtime_inputs_contract import prepared_parent
 from tests.integration.runtime_fixtures import current_run_identity
+from worldmock.agents import life_prompt
 from worldmock.errors import IntegrityError
 from worldmock.life.engine import LifeEngine
-from worldmock.profile.models import WorldDynamics
 from worldmock.run_setup import _model_identity, stage_model_identity
-
-
-def _dynamics():
-    return {"world_dynamics": WorldDynamics(social_need_growth_per_hour=0.06).model_dump(mode="json")}
+from worldmock.runtime import ResumeRequest, _prepare_resume
 
 
 def _foreign_stages(frozen, change):
@@ -39,7 +42,7 @@ def _foreign_stages(frozen, change):
 
 @pytest.mark.parametrize("change", [
     "requested_model", "base_url", "context_window", "max_output_tokens", "max_retries",
-    "transport_max_retries", "max_react_turns", "persona_validation_max_retries",
+    "transport_max_retries", "max_react_turns",
     "reflection_validation_max_retries", "day_plan_validation_max_retries",
 ])
 def test_creation_rejects_self_consistent_foreign_stage_identity_without_writing(frozen_inputs, tmp_path, caplog, change):
@@ -50,7 +53,7 @@ def test_creation_rejects_self_consistent_foreign_stage_identity_without_writing
     untouched = copy.deepcopy(stages)
     destination = tmp_path / "rejected-run"
     with caplog.at_level(logging.ERROR), pytest.raises(IntegrityError, match="Stage model identity disagrees"):
-        LifeEngine.create(frozen, destination, identity, stages, _dynamics())
+        LifeEngine.create(frozen, destination, identity, stages, {})
     assert not destination.exists()
     assert stages == untouched
     assert "Stage model identity disagrees with environment inputs" in caplog.text
@@ -69,7 +72,7 @@ def test_creation_rejects_foreign_run_model_identity_without_writing(tmp_path, c
     stages = stage_model_identity(frozen.config.model, frozen.model_metadata)
     destination = tmp_path / "rejected-run"
     with caplog.at_level(logging.ERROR), pytest.raises(IntegrityError, match="Run model identity disagrees"):
-        LifeEngine.create(frozen, destination, identity, stages, _dynamics())
+        LifeEngine.create(frozen, destination, identity, stages, {})
     assert not destination.exists()
     assert "Run model identity disagrees with environment inputs" in caplog.text
 
@@ -80,7 +83,7 @@ def test_creation_accepts_actual_config_metadata_and_explicit_continuation(tmp_p
     frozen = inputs()
     identity = current_run_identity(frozen, "actual-model")
     stages = stage_model_identity(frozen.config.model, frozen.model_metadata, continuation)
-    engine = LifeEngine.create(frozen, tmp_path / "actual-run", identity, stages, _dynamics())
+    engine = LifeEngine.create(frozen, tmp_path / "actual-run", identity, stages, {})
     try:
         manifest = engine.context.store.manifest
         assert manifest["model_identity"] == _model_identity(frozen.config.model).model_dump(mode="json")
@@ -92,17 +95,6 @@ def test_creation_accepts_actual_config_metadata_and_explicit_continuation(tmp_p
         engine.close()
 
 
-def test_creation_requires_compiled_dynamics_before_writing_any_files(tmp_path, caplog):
-    """合法身份也不能绕过必需的真实画像动力学，不创建半份运行。"""
-    frozen = inputs()
-    destination = tmp_path / "missing-dynamics"
-    with caplog.at_level(logging.ERROR), pytest.raises(IntegrityError, match="Compiled persona dynamics are required"):
-        LifeEngine.create(frozen, destination, current_run_identity(frozen, "missing-dynamics"),
-                          stage_model_identity(frozen.config.model, frozen.model_metadata), {})
-    assert not destination.exists()
-    assert "Compiled persona dynamics are required" in caplog.text
-
-
 def test_creation_rejects_a_foreign_agent_before_writing_any_files(tmp_path, caplog):
     """模型身份合法仍须匹配实际唯一人物，拒绝不能产生运行目录。"""
     frozen = inputs()
@@ -110,6 +102,60 @@ def test_creation_rejects_a_foreign_agent_before_writing_any_files(tmp_path, cap
     destination = tmp_path / "foreign-agent"
     with caplog.at_level(logging.ERROR), pytest.raises(IntegrityError, match="Run identity disagrees"):
         LifeEngine.create(frozen, destination, identity,
-                          stage_model_identity(frozen.config.model, frozen.model_metadata), _dynamics())
+                          stage_model_identity(frozen.config.model, frozen.model_metadata), {})
     assert not destination.exists()
     assert "Run identity disagrees with environment inputs" in caplog.text
+
+
+def _edit_tool_description(monkeypatch):
+    """改一个原生工具的用途说明：工具 Schema 随之改变。"""
+    name = "start_main_activity"
+    monkeypatch.setitem(life_prompt.TOOL_DESCRIPTIONS, name, life_prompt.TOOL_DESCRIPTIONS[name] + "改过一句。")
+
+
+def _edit_system_rule(monkeypatch):
+    """改系统层的一条规则：提示随之改变。"""
+    first, *others = life_prompt.LIFE_SYSTEM_LAYER["rules"]
+    monkeypatch.setitem(life_prompt.LIFE_SYSTEM_LAYER, "rules", [first + "改过一句。", *others])
+
+
+@pytest.mark.parametrize("edit,fingerprint", [
+    pytest.param(_edit_tool_description, "tool_schema_sha256", id="tool-description"),
+    pytest.param(_edit_system_rule, "prompt_sha256", id="system-layer-rule"),
+])
+async def test_resume_rejects_a_changed_prompt_or_tool_fingerprint_without_writing(
+        tmp_path, monkeypatch, caplog, edit, fingerprint):
+    """父运行按当前提示与工具建好并存下检查点；此后系统层的一条规则或一个工具的用途说明变了，
+    当前模型身份只在对应的那一个指纹上与父清单不同：恢复按原文拒绝，不留下新运行目录。"""
+    frozen, parent, env, checkpoint = await prepared_parent(tmp_path, monkeypatch)
+    recorded = dict(env.engine.context.store.manifest["model_identity"])
+    await env.close()
+    assert recorded == _model_identity(frozen.config.model).model_dump(mode="json")
+    edit(monkeypatch)
+    current = _model_identity(frozen.config.model).model_dump(mode="json")
+    assert {key for key in current if current[key] != recorded[key]} == {fingerprint}
+    child = tmp_path / "child"
+    with caplog.at_level(logging.ERROR), pytest.raises(
+            IntegrityError, match=r"^Checkpoint model identity differs from the current LifeAgent contract$"):
+        _prepare_resume(ResumeRequest(ROOT, ENVIRONMENT_ROOT, parent.run_dir, checkpoint.checkpoint_id, child))
+    assert not child.exists()
+    assert "Checkpoint model identity differs from the current contract" in caplog.text
+
+
+async def test_resume_rejects_a_different_code_identity_without_writing(tmp_path, monkeypatch, caplog):
+    """提示与工具都没有变、工程根里的生产源码不是父运行那一份：恢复报代码身份不符，不留下新运行目录。
+
+    对照：同一个检查点用父运行的工程根可以恢复。
+    """
+    _, parent, env, checkpoint = await prepared_parent(tmp_path, monkeypatch)
+    await env.close()
+    other = write_project(tmp_path / "other-project")
+    refused = tmp_path / "refused"
+    with caplog.at_level(logging.ERROR), pytest.raises(
+            IntegrityError, match=r"^Checkpoint code identity differs from the current runtime$"):
+        _prepare_resume(ResumeRequest(other, ENVIRONMENT_ROOT, parent.run_dir, checkpoint.checkpoint_id, refused))
+    assert not refused.exists()
+    assert "Checkpoint code identity differs from the current runtime" in caplog.text
+    accepted = _prepare_resume(ResumeRequest(ROOT, ENVIRONMENT_ROOT, parent.run_dir, checkpoint.checkpoint_id,
+                                             tmp_path / "child"))
+    assert accepted.run_dir == (tmp_path / "child").resolve() and accepted.run_dir.exists()

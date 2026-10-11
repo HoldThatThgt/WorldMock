@@ -18,8 +18,8 @@ ARGUMENT_ROOT = ("tool_calls", 0, "function", "arguments")
 _HOST_DEFAULTS = {
     'ARGUMENTS_NOT_JSON': ('Tool arguments are not a complete JSON object.', 'Submit a complete JSON object.'),
     'ARGUMENTS_INVALID': ('Tool arguments violate the request contract.', 'Correct every reported parameter.'),
-    'TOOL_CALL_REQUIRED': ('The tool call batch is invalid.', 'Submit one world request or only read queries.'),
-    'TOO_MANY_TARGETS': ('The activity request exceeds its item limit.', 'Submit one or two activity items.'),
+    'TOOL_CALL_REQUIRED': ('The tool call batch is invalid.',
+        'Submit one world request, the two start tools together, or only read queries.'),
     'NAME_NOT_FOUND': ('The name does not identify a known object.', 'Use an exact known name or a candidate.'),
     'NAME_AMBIGUOUS': ('The name identifies several known objects.', 'Use a complete candidate name.'),
     'ACTION_NOT_OFFERED': ('The object does not support this action.', "Use one of the object's offered actions."),

@@ -32,7 +32,7 @@ import worldmock.runtime as runtime_module
 from agentsociety2.agent.base import ModelCallEvidence, MemoryUpdateEvidence
 from agentsociety2.society import DecisionContext, DirectToolCall, SocietyCheckpointRequest
 from custom.envs.life_env import LifeEnv
-from tests.life.conftest import StubPlanDayClient, start_request
+from tests.life.conftest import MAIN_TOOL, StubPlanDayClient, do_at
 from worldmock.errors import ProtocolError
 from worldmock.life.models import (
     CounterfactualIntervention,
@@ -41,8 +41,6 @@ from worldmock.life.models import (
 )
 from tests.integration.runtime.current_contract_fixtures import inputs, metadata_service
 from tests.integration.runtime_fixtures import current_run_identity
-from worldmock.profile.mapper import map_world_dynamics
-from worldmock.profile.models import BigFiveProfile
 
 _SCENARIO = ENVIRONMENT_ROOT
 
@@ -57,11 +55,6 @@ def _identity(frozen, tag: str) -> RunIdentity:
     return current_run_identity(frozen, f"envcov-{tag}")
 
 
-def _options():
-    scores = BigFiveProfile(openness=4, conscientiousness=4, extraversion=4, agreeableness=4, neuroticism=4)
-    return {"world_dynamics": map_world_dynamics(scores).model_dump(mode="json")}
-
-
 def _start(frozen) -> datetime:
     """完整环境的明确起始时刻。"""
     return frozen.config.start_time
@@ -72,9 +65,7 @@ async def _new_env(tmp_path: Path, tag: str) -> LifeEnv:
     scenario = inputs()
     env = LifeEnv(environment_root=str(_SCENARIO),
                   run_dir=str(tmp_path / f"run-{tag}"),
-                  run_identity=_identity(scenario, tag).model_dump(mode="json"),
-        create_options={"world_dynamics": map_world_dynamics(BigFiveProfile(openness=4, conscientiousness=4,
-            extraversion=4, agreeableness=4, neuroticism=4)).model_dump(mode="json")})
+                  run_identity=_identity(scenario, tag).model_dump(mode="json"))
     await env.init(_start(scenario))
     return env
 
@@ -129,7 +120,7 @@ async def test_init_requires_paths_identity_and_fresh_state(tmp_path) -> None:
 
     disagree = LifeEnv(environment_root=str(_SCENARIO),
                        run_dir=str(tmp_path / "disagree"),
-                       run_identity=_identity(scenario, "disagree").model_dump(mode="json"), create_options=_options())
+                       run_identity=_identity(scenario, "disagree").model_dump(mode="json"))
     with pytest.raises(ProtocolError, match="start time disagrees"):
         await disagree.init(_start(scenario) + timedelta(seconds=60))
     assert disagree.engine is None  # 引擎已关闭并置空
@@ -158,7 +149,7 @@ async def test_registered_tool_surface_fails_closed(tmp_path, monkeypatch) -> No
                         life_env_module._STABLE_TOOL_SURFACE | {"ghost_tool"})
     drifted = LifeEnv(environment_root=str(_SCENARIO),
                       run_dir=str(tmp_path / "drift-env"),
-                      run_identity=_identity(scenario, "drift").model_dump(mode="json"), create_options=_options())
+                      run_identity=_identity(scenario, "drift").model_dump(mode="json"))
     with pytest.raises(ProtocolError, match="disagrees with the stable tool surface"):
         await drifted.init(_start(scenario))
     if drifted.engine is not None:
@@ -167,10 +158,10 @@ async def test_registered_tool_surface_fails_closed(tmp_path, monkeypatch) -> No
     monkeypatch.undo()
     metadata_service(monkeypatch)
     monkeypatch.setattr(life_env_module, "life_action_tool_names",
-                        lambda: frozenset({"start_activity"}))
+                        lambda: life_env_module._STABLE_TOOL_SURFACE - {"start_side_activity"})
     mismatch = LifeEnv(environment_root=str(_SCENARIO),
                        run_dir=str(tmp_path / "mismatch-env"),
-                       run_identity=_identity(scenario, "mismatch").model_dump(mode="json"), create_options=_options())
+                       run_identity=_identity(scenario, "mismatch").model_dump(mode="json"))
     with pytest.raises(ProtocolError, match="disagrees with the LifeAgent action tool set"):
         await mismatch.init(_start(scenario))
     if mismatch.engine is not None:
@@ -214,8 +205,7 @@ async def test_full_round_drives_engine_interfaces(tmp_path, monkeypatch) -> Non
         await env.record_model_exchange(evidence)
 
         receipt = await env.submit_action(DirectToolCall(
-            contexts[-1], "action-round-1", "start_activity",
-            start_request(targets=["家"], actions=["interact"])))
+            contexts[-1], "action-round-1", MAIN_TOOL, do_at("家", "测试休息")))
         assert receipt.action_id == "action-round-1"
         results = await env.commit_decision_round("round-1")
         assert [item.action_id for item in results] == ["action-round-1"]
@@ -225,7 +215,7 @@ async def test_full_round_drives_engine_interfaces(tmp_path, monkeypatch) -> Non
         files = {"memory_before_sha256": "a" * 64, "memory_sha256": "b" * 64, "episodes_sha256": "c" * 64,
                  "state_sha256": "d" * 64, "consolidated": False,
                  "observation_event_id": data["observation_event_id"], "verified_event_ids": ()}
-        # 开始等待不是记忆写入点（时间与能量规格第七章：只在结束活动与就寝反思时写记忆）：写入条目按协议违约拒绝，
+        # 开始在家休息不是记忆写入点（时间与能量规格第七章：只在结束活动与就寝反思时写记忆）：写入条目按协议违约拒绝，
         # 只刷新摘要照常留证，写入点列表为空。
         with pytest.raises(ProtocolError, match="Memory update evidence is invalid"):
             await env.record_memory_update(MemoryUpdateEvidence(
@@ -268,9 +258,7 @@ async def test_full_round_drives_engine_interfaces(tmp_path, monkeypatch) -> Non
             await env.begin_decision_round(tuple(contexts))
             for context in reversed(contexts):
                 await env.submit_action(DirectToolCall(
-                    context, f"action-{round_id}-{context.agent_id}",
-                    "start_activity",
-                    start_request(targets=["家"], actions=["interact"])))
+                    context, f"action-{round_id}-{context.agent_id}", MAIN_TOOL, do_at("家", "测试休息")))
             await env.commit_decision_round(round_id)
             state = await env.scheduling_state()
             guard += 1

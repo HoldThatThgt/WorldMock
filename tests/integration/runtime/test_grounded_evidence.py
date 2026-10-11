@@ -17,9 +17,10 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from agentsociety2.agent.base import ModelCallEvidence, ReactLoopRequest
 from custom.agents.life_agent import LifeAgent
 from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
-from tests.life.conftest import (context, stage_day_plan)  # noqa: F401
+from tests.life.conftest import (MAIN_TOOL, SIDE_TOOL, context, stage_day_plan)  # noqa: F401
 from worldmock.footprints.models import canonical_json
 from worldmock.footprints.store import FootprintStore
+from worldmock.life.action_contract import MAIN_ACTIVITY_ACTIONS, SIDE_ACTIVITY_ACTIONS
 from worldmock.run_setup import runtime_code_sha256
 from tests.integration.as2_fixtures import use_fake_as2
 
@@ -81,6 +82,21 @@ class _EngineEvidenceEnvironment:
         self.engine.record_model_exchange(exchange)
 
 
+def _start_fields(tools: list[dict]) -> dict[str, dict]:
+    """两个开始工具各自的参数属性；已删除的 start_activity 不在原生工具里。"""
+    fields = {item["function"]["name"]: item["function"]["parameters"]["properties"] for item in tools}
+    assert "start_activity" not in fields
+    return {name: fields[name] for name in (MAIN_TOOL, SIDE_TOOL)}
+
+
+def _assert_names_are_not_enumerated(fields: dict[str, dict]) -> None:
+    """名称参数（target 与 detail）不带逐轮枚举；action 的枚举只是固定的动作闭集。"""
+    assert fields[MAIN_TOOL]["action"]["enum"] == list(MAIN_ACTIVITY_ACTIONS)
+    assert fields[SIDE_TOOL]["action"]["enum"] == list(SIDE_ACTIVITY_ACTIONS)
+    names = [fields[MAIN_TOOL]["target"], fields[MAIN_TOOL]["detail"], fields[SIDE_TOOL]["target"]]
+    assert "enum" not in json.dumps(names, ensure_ascii=False)
+
+
 def _prepared_tools(data, observed_at):
     """用明确首观察生成实际原生工具声明。"""
     agent = LifeAgent()
@@ -101,12 +117,10 @@ def test_model_request_persists_exact_grounded_tools(_engine_factory):  # noqa: 
     agent._model_name = "test-model"
     wire = agent._model_request([{"role": "user", "content": "Choose a visible activity."}], tools)
     expected = canonical_json(wire)
-    start = next(item for item in tools if item["function"]["name"] == "start_activity")
-    fields = start["function"]["parameters"]["properties"]
-    assert set(fields) == {"items"}
-    assert set(fields["items"]["items"]["properties"]) == {"target", "action"}
-    for field in ("target", "action"):
-        assert "enum" not in fields["items"]["items"]["properties"][field]
+    fields = _start_fields(tools)
+    assert set(fields[MAIN_TOOL]) == {"action", "target", "detail"}
+    assert set(fields[SIDE_TOOL]) == {"action", "target"}
+    _assert_names_are_not_enumerated(fields)
     engine.record_model_exchange(ModelCallEvidence(ctx, "grounded-call", "request", 1, wire))
     cutoff = engine.context.store.last_event_seq
     directory = engine.context.store.run_dir
@@ -208,8 +222,7 @@ def test_grounded_tool_uses_unique_readable_names_without_internal_ids(_engine_f
     engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)
     _, tools = _prepared_tools(observation, ctx.observed_at)
-    start = next(item for item in tools if item["function"]["name"] == "start_activity")
-    assert "enum" not in start["function"]["parameters"]["properties"]["items"]["items"]["properties"]["target"]
+    _assert_names_are_not_enumerated(_start_fields(tools))
     public = [row["name"] for row in observation["tool_layer"]["targets"]]
     private = [row["object_id"] for row in observation["interaction_bindings"]]
 

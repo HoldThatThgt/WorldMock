@@ -1,4 +1,4 @@
-"""@brief 预排事件的封闭类型与载荷模型（docs/design/04-simulation-engine.md「预排事件」）。
+"""@brief 预排事件的封闭类型与载荷模型（docs/design/04-simulation-engine.md「唤醒、日计划与个人事务」）。
 
 本模块是 ScheduledKind/ScheduledEvent 的权威定义处，直接使用共享严格模型基类，
 不依赖生活领域模块。
@@ -17,6 +17,7 @@ class ScheduledKind(StrEnum):
     """@brief 环境自主到期事件的封闭类型。"""
 
     DELIVERY_ARRIVAL = "delivery_arrival"
+    ORDER_SHIPPED = "order_shipped"
     CALENDAR_FLAG = "calendar_flag"
     APP_PUSH = "app_push"
     TIME_TRIGGER = "time_trigger"
@@ -33,5 +34,5 @@ class ScheduledEvent(StrictModel):
     sequence: int = Field(ge=0)
     agent_id: int | None = Field(default=None, gt=0)
     data: dict[str, Any] = Field(default_factory=dict)
-    #: 动作创建的排期引用同次提交的真实结果事件；静态场景排期可为空。
+    #: 到达排期与发货通知排期引用同次提交里付清这一趟配送的付款事件；静态场景排期可为空。
     caused_by: list[str] = Field(default_factory=list)

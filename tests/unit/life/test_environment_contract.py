@@ -5,18 +5,17 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from worldmock.life.action_contract import ACTIVITY_ACTIONS
+from worldmock.life.action_contract import ACTIVITY_ACTIONS, MAIN_ACTIVITY_ACTIONS, SIDE_ACTIVITY_ACTIONS
 from worldmock.life.models import (
     ActivityKind, ActivityState, ActivityStatus, AgentState, BodyState, ModelIdentity,
-    StartActivityRequest, WorldState, WORLD_SCHEMA_VERSION,
+    StartMainActivityRequest, StartSideActivityRequest, WorldState, WORLD_SCHEMA_VERSION,
 )
+from worldmock.life import schedule
 from worldmock.life.same_moment import RoundOutcome, budget_exhausted, round_wake_reasons
 from worldmock.life.schedule import (
-    NextDecisionQuery, WAKE_TRIGGERS, WakeSnapshot, evaluate_wake_reasons,
+    NextDecisionQuery, WAKE_TRIGGERS, WakeSnapshot, WakeTrigger, evaluate_wake_reasons,
     next_decision_time, wake_categories,
 )
-from worldmock.profile.mapper import map_world_dynamics
-from worldmock.profile.models import BigFiveProfile, WorldDynamics
 
 
 def agent():
@@ -29,17 +28,19 @@ def agent():
     )
 
 
-def activity(identity, action, status=ActivityStatus.ACTIVE):
+def activity(identity, action, status=ActivityStatus.ACTIVE, app_id="media-app"):
+    """手工活动：interact 缺省用内容 app（占槽位 2），app_id 为 None 时是在地点做事（占槽位 1）。"""
     kinds = {"sleep": ActivityKind.SLEEP, "interact": ActivityKind.INTERACT,
-             "purchase": ActivityKind.PURCHASE, "walk": ActivityKind.TRAVEL}
+             "purchase": ActivityKind.PURCHASE, "travel": ActivityKind.TRAVEL}
     terminal = status == ActivityStatus.COMPLETED
-    first = action in {"sleep", "walk"}
+    data = {"action": action, **({"app_id": app_id} if action == "interact" else {})}
+    first = action in {"sleep", "travel"} or (action == "interact" and app_id is None)
     return ActivityState(
         activity_id=identity, agent_id=1, location_id="home", kind=kinds[action], status=status,
         started_at=0, ended_at=100 if terminal else None, planned_end_at=100 if terminal else 200,
         last_settled_at=100, elapsed_seconds=100, planned_duration_seconds=100 if terminal else 200,
         resource_claims={"first" if first else "second"}, origin_action_id="a", origin_decision_id="d",
-        origin_request_event_id="e", data={"action": action},
+        origin_request_event_id="e", data=data,
     )
 
 
@@ -53,41 +54,63 @@ def world(activities=(), **changes):
     return WorldState.model_validate({**payload, **changes})
 
 
-def test_action_contract_and_normalization():
-    assert ACTIVITY_ACTIONS == ("walk", "drive", "take_taxi", "take_bus", "purchase", "sleep", "interact")
-    request = StartActivityRequest.model_validate({"items": [{"action": " ｓｌｅｅｐ ", "target": "Home"}]})
-    assert request.items[0].action == " ｓｌｅｅｐ "
-    assert set(request.model_dump()["items"][0]) == {"action", "target"}
+_MAIN_SLEEP = {"action": "sleep", "target": "450", "detail": None}
+_SIDE_PURCHASE = {"action": "purchase", "target": ["Food"]}
+_START_MODELS = ((StartMainActivityRequest, _MAIN_SLEEP), (StartSideActivityRequest, _SIDE_PURCHASE))
 
 
-@pytest.mark.parametrize("extra", [{"way": "sleep"}, {"app": None}, {"to": None}, {"pay_app": None}])
+def test_action_contract_and_request_shapes():
+    """四个动作分属两个开始工具；请求只带声明的键，所写名称原样保留。"""
+    assert ACTIVITY_ACTIONS == ("travel", "purchase", "sleep", "interact")
+    assert MAIN_ACTIVITY_ACTIONS == ("travel", "interact", "sleep")
+    assert SIDE_ACTIVITY_ACTIONS == ("purchase", "interact")
+    main = StartMainActivityRequest.model_validate({"action": "travel", "target": " Ｈｏｍｅ ", "detail": "步行"})
+    assert main.model_dump() == {"action": "travel", "target": " Ｈｏｍｅ ", "detail": "步行"}
+    assert StartSideActivityRequest.model_validate(_SIDE_PURCHASE).model_dump() == _SIDE_PURCHASE
+
+
+@pytest.mark.parametrize("extra", [{"way": "sleep"}, {"app": None}, {"to": None}, {"pay_app": None},
+                                   {"items": [{"action": "sleep", "target": "Home"}]}])
 def test_retired_request_fields_are_rejected(extra):
-    with pytest.raises(ValidationError):
-        StartActivityRequest.model_validate({"items": [{"action": "sleep", "target": "Home", **extra}]})
+    """旧字段与旧的 items 形状在两个开始工具上都是多余字段。"""
+    for model, valid in _START_MODELS:
+        model.model_validate(valid)
+        with pytest.raises(ValidationError) as caught:
+            model.model_validate({**valid, **extra})
+        assert [(error["type"], error["loc"]) for error in caught.value.errors()] == [
+            ("extra_forbidden", (next(iter(extra)),))]
 
 
-@pytest.mark.parametrize("action", ["wait", "Sleep", "action", "chat"])
-def test_unknown_or_wrong_case_action_reaches_shared_name_resolution(action):
-    from worldmock.life.name_resolution import NameBook, resolve_start
+@pytest.mark.parametrize("action", ["wait", "Sleep", " ｓｌｅｅｐ ", "action", "chat", "walk", "take_taxi"])
+def test_unknown_or_wrong_case_action_is_refused_by_the_request_model(action):
+    """动作不再作名称归一：闭集之外的写法（大小写、全角、旧出行动作）在请求模型处就被拒，到不了名称解析。"""
+    for model, valid in _START_MODELS:
+        with pytest.raises(ValidationError) as caught:
+            model.model_validate({**valid, "action": action})
+        assert [(error["type"], error["loc"], error["input"]) for error in caught.value.errors()] == [
+            ("literal_error", ("action",), action)]
 
-    request = StartActivityRequest.model_validate({"items": [{"action": action, "target": "Home"}]})
-    outcome = resolve_start(NameBook(()), request)
-    assert outcome.failures[0].item.error_code == "ACTION_NOT_OFFERED"
 
-
-def test_duplicate_normalized_target_is_atomic_rejection():
-    with pytest.raises(ValidationError):
-        StartActivityRequest.model_validate({"items": [
-            {"action": "purchase", "target": "Food"}, {"action": "purchase", "target": "Ｆｏｏｄ"}]})
+def test_repeated_purchase_name_is_two_portions_not_a_rejection():
+    """同一个名称（含归一后相同的写法）写两次不再被拒：每个元素是一份，所写原样保留。"""
+    request = StartSideActivityRequest.model_validate({"action": "purchase", "target": ["Food", "Ｆｏｏｄ", "Food"]})
+    assert request.target == ["Food", "Ｆｏｏｄ", "Food"]
 
 
 def test_two_slots_and_pending_conclusion_occupancy():
-    world([activity("walk", "walk"), activity("media", "interact")])
+    """在地点做事占槽位 1，用内容 app 与购买占槽位 2；同槽位的两项进行中或待收尾活动不能并存。"""
+    world([activity("walk", "travel"), activity("media", "interact")])
     world([activity("old", "interact", ActivityStatus.PAUSED), activity("buy", "purchase")])
+    world([activity("stay", "interact", app_id=None), activity("media", "interact")])
+    world([activity("stay", "interact", app_id=None), activity("buy", "purchase")])
     with pytest.raises(ValidationError, match="same resource"):
         world([activity("media", "interact"), activity("buy", "purchase")])
     with pytest.raises(ValidationError, match="same resource"):
         world([activity("old", "interact", ActivityStatus.COMPLETED), activity("buy", "purchase")])
+    with pytest.raises(ValidationError, match="same resource"):
+        world([activity("walk", "travel"), activity("stay", "interact", app_id=None)])
+    with pytest.raises(ValidationError, match="disagree with the registry"):
+        world([activity("stay", "interact", app_id=None).model_copy(update={"resource_claims": {"second"}})])
 
 
 def test_sleep_requires_empty_second_slot():
@@ -125,10 +148,68 @@ def test_exact_wake_names_and_category_order():
         wake_categories(["alarm_ring"])
 
 
+#: 唤醒表的名称、类别与能否叫醒睡着的人，独立写出，不从被测的表生成。
+_WAKE_TABLE = [
+    ("planned_end", "time_boundary", True), ("felt_band_change", "state_change", False),
+    ("delivery_arrival", "event_arrival", False), ("reconsideration_interval", "time_boundary", False),
+    ("rejection_feedback", "outcome_feedback", False), ("session_open", "time_boundary", True),
+    ("progress_report_due", "time_boundary", False), ("no_active_activity", "time_boundary", False),
+    ("reminder_due", "reminder_due", False), ("duty_boundary", "duty_boundary", False),
+    ("app_push", "reminder_due", False),
+]
+
+
+def _everything(**changes):
+    """除 rejection_feedback 外每个原因都命中的边界。"""
+    fields = dict(now=100, planned_end=100, planned_end_is_sleep=True, felt_bands_now={"social_need": "high"},
+                  delivery_arrived=True, last_decision_time=0, reconsideration_interval_seconds=1,
+                  session_open=True, progress_report_due=True, no_active_activity=True, reminder_due=True,
+                  duty_boundary=True, app_push_arrived=True, is_asleep=True)
+    return WakeSnapshot(**{**fields, **changes})
+
+
+def test_wake_table_rows_categories_and_sleep_column_are_the_declared_ones():
+    """唤醒表的行集合、类别、行序与 can_wake_sleep 一列逐行相符。"""
+    assert [(row.name, row.category, row.can_wake_sleep) for row in WAKE_TRIGGERS] == _WAKE_TABLE
+
+
+def test_a_sleeper_is_only_offered_the_rows_that_can_wake_sleep():
+    """睡着时只放行表里能叫醒睡着的人的行；同一个边界人物醒着时命中的都保留。"""
+    assert evaluate_wake_reasons(_everything()).wake_reasons == ["planned_end", "session_open"]
+    assert evaluate_wake_reasons(_everything(is_asleep=False)).wake_reasons == [
+        "planned_end", "felt_band_change", "delivery_arrival", "reconsideration_interval", "session_open",
+        "progress_report_due", "no_active_activity", "reminder_due", "duty_boundary", "app_push"]
+    silent = _everything(planned_end=None, planned_end_is_sleep=False, session_open=False)
+    assert evaluate_wake_reasons(silent).wake_reasons == []
+    assert evaluate_wake_reasons(silent).decision_offered is False
+
+
+def test_planned_end_of_something_other_than_the_sleep_does_not_wake_a_sleeper():
+    """睡着时结束的不是睡眠本身，planned_end 一行不放行；人物醒着时别的活动结束照常放行。"""
+    other = _everything(planned_end_is_sleep=False, session_open=False)
+    assert evaluate_wake_reasons(other).wake_reasons == []
+    assert "planned_end" in evaluate_wake_reasons(other.model_copy(update={"is_asleep": False})).wake_reasons
+    assert evaluate_wake_reasons(_everything(planned_end=101)).wake_reasons == ["session_open"]
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("reminder_due", ["planned_end", "session_open", "reminder_due"]),
+    ("delivery_arrival", ["planned_end", "delivery_arrival", "session_open"]),
+    ("session_open", ["planned_end"]),
+    ("planned_end", ["session_open"]),
+])
+def test_changing_the_sleep_column_of_a_row_changes_who_is_let_through(monkeypatch, name, expected):
+    """睡着时放行谁读的是表里的 can_wake_sleep：把某一行的这一列改掉，结果随之改变。"""
+    changed = tuple(WakeTrigger(row.name, row.category, not row.can_wake_sleep) if row.name == name else row
+                    for row in WAKE_TRIGGERS)
+    monkeypatch.setattr(schedule, "WAKE_TRIGGERS", changed)
+    assert evaluate_wake_reasons(_everything()).wake_reasons == expected
+
+
 def test_sleep_ignores_all_external_wake_conditions():
     snapshot = WakeSnapshot(now=100, planned_end=100, planned_end_is_sleep=False,
                             felt_bands_now={"social_need": "high"}, delivery_arrived=True,
-                            last_decision_time=0, reconsideration_interval_seconds=1, session_open=True,
+                            last_decision_time=0, reconsideration_interval_seconds=1, session_open=False,
                             progress_report_due=True, no_active_activity=True, reminder_due=True,
                             duty_boundary=True, app_push_arrived=True, is_asleep=True)
     assert evaluate_wake_reasons(snapshot).wake_reasons == []
@@ -155,12 +236,19 @@ def test_exact_six_round_budget(rounds, active, pending, exhausted):
     assert budget_exhausted(RoundOutcome(100, person, active, False, pending)) is exhausted
 
 
-@pytest.mark.parametrize("score,expected", [(1, 0.02), (4, 0.06), (7, 0.10)])
-def test_social_growth_mapping_is_the_only_world_dynamics(score, expected):
-    traits = BigFiveProfile(openness=4, conscientiousness=4, extraversion=score, agreeableness=4, neuroticism=4)
-    assert map_world_dynamics(traits).model_dump() == {"social_need_growth_per_hour": expected}
-    with pytest.raises(ValidationError):
-        WorldDynamics.model_validate({"social_need_growth_per_hour": expected, "mood_halflife_minutes": 45.0})
+@pytest.mark.parametrize("growth", [0.02, 0.06, 0.10])
+def test_social_growth_is_the_value_written_in_the_persona_table(growth):
+    """社交需要每小时增长直接取人设表的值，身体初值原样带着它；0.02 到 0.10 之外的值在加载时被拒绝。"""
+    from tests.life.persona_inputs import persona_document, persona_with
+    from worldmock.input_models import PersonaConfig
+    from worldmock.life.body import initial_body
+    from worldmock.life.body_config import assemble_body_config
+
+    persona = persona_with(social_need_growth_per_hour=growth)
+    assert initial_body(assemble_body_config(persona), 8.0, persona).social_need_growth_per_hour == growth
+    for outside in (0.019, 0.101):
+        with pytest.raises(ValidationError):
+            PersonaConfig.model_validate(persona_document(social_need_growth_per_hour=outside))
 
 
 def test_model_identity_accepts_configured_endpoint_and_budgets():

@@ -106,7 +106,11 @@ PY
 <a name="evaluation-修改类别映射和公开参照"></a>
 ## 修改类别映射和公开参照
 
-WorldMock 直接使用真实请求和活动中的七个动作，公开证据保留实际内容、应用、路线和订单对象。
+WorldMock 直接使用真实请求和活动中的动作：出行、购买、睡眠和 interact 都取请求所写的动作，出行一律是 travel；
+公开证据保留实际内容、应用、路线和订单对象。
+盲评里的「出行方式」只在人物步行时标成 walking。数据集定义的出行方式都不带类别，
+即使作者把它的身份起成 driving、bus、taxi 也一样，评估不按名字猜。
+所以只开车或坐车出行的人物，盲评里这一栏不会显示；写盲评结论时要注明它不反映数据集定义的出行方式。
 内容没有评估类别，报告不把工作、娱乐或社交标签套到 WorldMock 活动。
 `category_mappings` 仅保留 `labelkit_sequence_class` 与 `labelkit_pattern` 两组外部 LabelKit 类别映射。
 
@@ -134,7 +138,7 @@ WorldMock 直接使用真实请求和活动中的七个动作，公开证据保�
 
 `--worldmock` 指向 `worldmock export` 生成的**已完成运行的足迹导出目录**，其中包含
 `manifest.json`、认证检查点及 `events.jsonl`、`activities.jsonl`、`verified-experiences.jsonl`、
-`purchases.jsonl`、`app-usage.jsonl` 五类正文。当前版本与字段以
+`purchases.jsonl`、`app-usage.jsonl`、`location-stays.jsonl` 六类正文。当前版本与字段以
 [状态与序列化](../design/09-io-formats.md)及[记录引擎](../design/05-recording-engine.md)为准，
 冻结清单的 environment_identity 必须与实际环境和规则身份一致。
 评估要求 `experiment_completed: true`，检查点位于窗口终点，并验证实际导出内容。
@@ -355,5 +359,21 @@ worldmock evaluate --output evaluations/my-comparison --reviews \
 | 评审条目不全或槽重复 | 三个包分别评审，所有条目、所有维度都有判断，会话标识互异 |
 | 评审材料不可判断却填了偏好 | 根据包中 `judgeability` 改为真实的 `unjudgeable` 判断 |
 | 准备目录出现意外文件或哈希变化 | 收据放到外部目录；不要编辑已冻结的准备文件 |
+
+<a name="evaluation-读行为报告里的睡眠统计"></a>
+## 读行为报告里的睡眠统计
+
+行为报告的标识是 `behavior-metrics-4`。它的 `sleep_schedule` 把每段睡眠分成三类，写在 `sessions[].category`：
+
+| 类别 | 含义 | 怎样统计 |
+|---|---|---|
+| `bedtime` | 实际睡满 180 分钟的睡眠，多睡的那段算在内 | 进 `summary`：就寝与起床时刻的中位数、平均时长、段数 |
+| `nap` | 已结束而不满 180 分钟的睡眠 | 进 `naps`：次数与平均时长 |
+| `unfinished` | 运行结束时还没睡醒的那一段 | 两边都不计 |
+
+不到 3 小时的夜间睡眠算小睡，那一夜没有就寝时刻；下午补觉睡满 3 小时算一次就寝。
+没有任何就寝睡眠时 `summary` 为 `null`，报告说明里写「没有睡满 180 分钟的睡眠，就寝与起床时刻无法计算」。
+就寝时刻的中位数以早上 6 点为一天的分界来算，零点前后就寝的夜晚不再被算成中午；
+代价是在 6 点前后入睡的人会算出偏离很远的时刻，例如 05:50 和 06:10 各一晚算成 18:00。起床时刻的中位数照常按零点起算。
 
 评估依据和完整结果边界见[评估设计](../design/07-evaluation.md)。

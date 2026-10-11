@@ -15,23 +15,22 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
-from pydantic import ValidationError
-
 from worldmock.errors import IntegrityError, ProtocolError
 
 if TYPE_CHECKING:
     from worldmock.footprints.store import FootprintStore
     from worldmock.life.models import CounterfactualIntervention, RunIdentity
     from worldmock.environment import EnvironmentInputs
+    from worldmock.input_models import PersonaConfig
 
 logger = logging.getLogger(__name__)
 
 #: 自述、工具纠错与结束共享的有限回合预算。
 
-#: 工作验收阶段参数（docs/design/06-agent.md「两阶段决策」：独立工作验收保持
+#: 工作验收阶段参数（独立工作验收保持
 #: disabled/required）。
 #: 运行身份覆盖的 AS2 导入包名；包目录由 importlib.util.find_spec 按实际导入解析
-#: （docs/design/06-agent.md「模型身份」）。
+#: （docs/design/06-agent.md「宿主模型协议」）。
 @dataclass(frozen=True, slots=True)
 class RunRequest:
     """@brief 新建正式运行所需的完整输入。
@@ -42,7 +41,7 @@ class RunRequest:
     :param run_id: 调用方分配的稳定运行身份。
     :param source_group_id: 首次运行的来源组身份，必须等于 run_id。
     :param same_second_continuation: 同秒续接开关（缺省开），冻结进清单 stages.action 与人物配置；
-        恢复与重放继承父清单的值（docs/design/06-agent.md「同秒续接」）。
+        恢复与重放继承父清单的值（docs/design/04-simulation-engine.md「世界与请求」）。
     """
 
     project_root: Path
@@ -228,7 +227,7 @@ def _run_identity(request: RunRequest, inputs: EnvironmentInputs) -> RunIdentity
 
 def _prepare_resume(request: ResumeRequest,
                     intervention: CounterfactualIntervention | None = None) -> _PreparedRun:
-    """@brief 校验三个输入身份后原子恢复工作区与世界，不重编画像。"""
+    """@brief 校验三个输入身份后原子恢复工作区与世界，人物卡片沿用工作区里冻结的那一份。"""
     from worldmock.environment import load_environment
     from worldmock.footprints.store import FootprintStore
     from worldmock.life.continuation import continuation_enabled
@@ -325,10 +324,10 @@ def _restore_branch(
     parent: FootprintStore,
     checkpoint: Any,
     destination: Path,
-    branch_metadata: dict[str, str] | None = None,
-    inputs: EnvironmentInputs | None = None,
+    branch_metadata: dict[str, str] | None,
+    inputs: EnvironmentInputs,
 ) -> tuple[dict, dict]:
-    """@brief 在外层临时目录恢复数据库和人物，完整后才发布子目录；给出场景时另核对结构化卡片与场景作息一致。"""
+    """@brief 在外层临时目录恢复数据库和人物，完整后才发布子目录；人物的结构化卡片须与冻结的人设表一致。"""
     from worldmock.footprints.checkpoint import restore_branch
     from worldmock.footprints.store import FootprintStore
 
@@ -364,15 +363,13 @@ def _transfer_status_shell(destination: Path, staged_run: Path) -> None:
     destination.rmdir()
 
 
-def _restore_agents(checkpoint: Any, child: FootprintStore, run_dir: Path,
-                    inputs: EnvironmentInputs | None = None) -> None:
+def _restore_agents(checkpoint: Any, child: FootprintStore, run_dir: Path, inputs: EnvironmentInputs) -> None:
     """@brief 从同一权威检查点恢复清单中的全部人物工作区；人物配置的续接开关须与清单一致，
-    给出场景时结构化卡片的作息须与场景显式声明的作息一致。"""
+    结构化卡片须与用冻结的人设表重新构造出的卡片相等。"""
     from worldmock.footprints.checkpoint import restore_directory
     from worldmock.life.continuation import continuation_enabled
 
     agent_ids = tuple(sorted(int(item) for item in child.manifest["agent_ids"]))
-    configs = {inputs.persona.agent_id: inputs.persona} if inputs is not None else {}
     for agent_id in agent_ids:
         reference = checkpoint.snapshots.get(f"agent:{agent_id}")
         if reference is None:
@@ -380,11 +377,11 @@ def _restore_agents(checkpoint: Any, child: FootprintStore, run_dir: Path,
         destination = run_dir / "as2" / "agents" / f"agent_{agent_id:04d}"
         restore_directory(reference, child.assets, destination)
         _validate_agent_workspace(destination, agent_id, continuation_enabled(child.manifest),
-                                  configs.get(agent_id), child.manifest["stage_model_identity"])
+                                  inputs.persona, child.manifest["stage_model_identity"])
 
 
 def _validate_agent_workspace(workspace: Path, agent_id: int, continuation: bool,
-                              agent_config: Any, model_identity: dict) -> None:
+                              persona: PersonaConfig, model_identity: dict) -> None:
     """@brief 发布恢复分支前严格验证人物身份、配置、冻结的续接开关（与父清单相同）、结构化卡片和已用记忆。"""
     from worldmock import run_setup
 
@@ -413,7 +410,7 @@ def _validate_agent_workspace(workspace: Path, agent_id: int, continuation: bool
     if profile.get("model_identity") != model_identity:
         logger.error("Restored LifeAgent model configuration differs from the parent manifest")
         raise IntegrityError("Restored LifeAgent model configuration must match the parent manifest")
-    _validate_persona_card_struct(agent.get("profile"), agent_config)
+    _validate_persona_card_struct(profile, persona)
     if (type(config.get("max_react_turns")) is not int
             or config["max_react_turns"] != model_identity["max_react_turns"]):
         logger.error("Restored LifeAgent ReAct budget differs from the frozen runtime budget")
@@ -427,30 +424,20 @@ def _validate_agent_workspace(workspace: Path, agent_id: int, continuation: bool
             raise IntegrityError("Restored agent memory is invalid") from exc
 
 
-def _validate_persona_card_struct(profile: Any, agent_config: Any = None) -> None:
-    """@brief 恢复时严格校验必填的冻结结构化卡片与人物作息。
+def _validate_persona_card_struct(profile: Any, persona: PersonaConfig) -> None:
+    """@brief 恢复时核对冻结的结构化卡片：必须与用冻结的人设表重新构造出的卡片逐值相等。
 
-    新建运行保存的是经场景作息覆盖后的卡片（docs/design/06-agent.md ），覆盖是不动点：给出场景人物声明时，
-    对恢复的卡片再覆盖一次必须不改任何值，否则说明卡片作息与场景显式声明的作息不一致。
+    卡片是人设表的直接构造（docs/design/06-agent.md「人物身份与画像」），所以缺失、损坏或被改过的卡片都表现为不相等。
     """
-    from worldmock.profile.injection import apply_persona_rhythm
-    from worldmock.profile.models import PersonaCardStruct
+    from worldmock.profile.models import persona_card, persona_card_struct
 
     if isinstance(profile, dict) and "taste_weights" in profile:
         logger.error("Restored persona profile contains retired taste weights")
         raise IntegrityError("Restored persona profile contains retired taste weights")
     struct = profile.get("persona_card_struct") if isinstance(profile, dict) else None
-    if struct is None:
-        logger.error("Restored persona card structure is invalid")
-        raise IntegrityError("Restored persona card structure is invalid")
-    try:
-        card = PersonaCardStruct.model_validate(struct)
-    except ValidationError as exc:
-        logger.error("Restored persona card structure is invalid")
-        raise IntegrityError("Restored persona card structure is invalid") from exc
-    if agent_config is not None and apply_persona_rhythm(card, agent_config).card != card:
-        logger.error("Restored persona card rhythm disagrees with the scenario-declared rhythm")
-        raise IntegrityError("Restored persona card rhythm disagrees with the scenario-declared rhythm")
+    if struct != persona_card_struct(persona_card(persona)):
+        logger.error("Restored persona card differs from persona.toml")
+        raise IntegrityError("Restored persona card differs from persona.toml")
 
 
 async def _execute(prepared: _PreparedRun) -> RunResult:
@@ -534,7 +521,7 @@ async def _build_society(prepared: _PreparedRun) -> tuple[Any, Any]:
 
     _require_custom_modules(prepared.project_root)
     clients = {role: build_client_for_role(role) for role in ("coder", "default")}
-    specs = await _society_specs(prepared)
+    specs = _society_specs(prepared)
     spec = DirectEnvActorSpec(
         ("LifeEnv",), {"LifeEnv": prepared.env_kwargs}, str(prepared.run_dir),
         str(prepared.project_root), clients,
@@ -554,21 +541,17 @@ async def _build_society(prepared: _PreparedRun) -> tuple[Any, Any]:
         raise
 
 
-async def _society_specs(prepared: _PreparedRun) -> tuple[dict[str, Any], ...]:
-    """@brief 新建编译唯一卡片，恢复读取已验证工作区，不制造替代画像。"""
+def _society_specs(prepared: _PreparedRun) -> tuple[dict[str, Any], ...]:
+    """@brief 新建时由人设表构造唯一卡片，恢复读取已验证工作区；两条路径都不为人物卡片调用模型。"""
     from worldmock import run_setup
     from worldmock.opslog import OpsLogger
 
     if prepared.workspace_mode != "create":
         return _restored_specs(prepared)
     inputs = prepared.inputs
-    result = await run_setup._compile_persona(
-        inputs.persona, inputs.config.model, inputs.model_metadata, inputs.persona_sha256)
-    compiled = {inputs.persona.agent_id: result}
-    specs, warnings = run_setup.creation_inputs(inputs, compiled, prepared.same_second_continuation)
+    specs, warnings = run_setup.creation_inputs(inputs, prepared.same_second_continuation)
     options = prepared.env_kwargs["create_options"]
-    options.update(input_warnings=warnings, persona_habit_responses=habit_responses(specs),
-                   world_dynamics=result.world_dynamics.model_dump(mode="json"))
+    options.update(input_warnings=warnings, persona_habit_responses=habit_responses(specs))
     writer = OpsLogger(prepared.run_dir, inputs.config.timezone)
     try:
         for warning in warnings:
@@ -596,9 +579,9 @@ def _restored_specs(prepared: _PreparedRun) -> tuple[dict[str, Any], ...]:
 
 
 def habit_responses(specs: tuple[dict[str, Any], ...]) -> dict[int, list[str]]:
-    """@brief 人设层习惯签名的反应文本（人物编号 → 文本，按卡片顺序）：取工作区输入里经场景作息覆盖后的结构化卡片，
-    没有卡片的人物不出现；经 create_options 冻结进运行清单 persona_habit_responses，引擎排序候选时据此给相关度
-    （docs/design/04-simulation-engine.md ）。"""
+    """@brief 人设层习惯签名的反应文本（人物编号 → 文本，按卡片顺序）：取工作区输入里由人设表构造的结构化卡片，
+    没有卡片的人物不出现；经 create_options 冻结进运行清单 persona_habit_responses
+    （docs/design/09-io-formats.md「输入与模型身份」）。"""
     return {spec["id"]: [habit["response"] for habit in spec["profile"]["persona_card_struct"]["habits"]]
             for spec in specs if "persona_card_struct" in spec["profile"]}
 
@@ -632,7 +615,7 @@ class PlanDayClient(IndependentModelClient):
 
 
 async def settle_pending_day_plans(engine: Any, client: Any | None = None) -> list[dict]:
-    """@brief 零点计划后台任务（docs/design/04-simulation-engine.md「执行位置」）：为缺当日计划的人物生成当日计划。
+    """@brief 零点计划后台任务（docs/design/04-simulation-engine.md「唤醒、日计划与个人事务」）：为缺当日计划的人物生成当日计划。
 
     LifeEnv 在零点推进之后、启动检查点之后与普通恢复的 init 中 await 它。不经 LifeAgent，
     不读写人物工作区与记忆运行时，不产生 observation、decision_started、memory_updated。按
