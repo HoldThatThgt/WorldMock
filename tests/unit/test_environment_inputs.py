@@ -305,9 +305,8 @@ def test_off_grid_rhythm_values_load_unchanged(environment):
 
 
 @pytest.mark.parametrize("mutate,reason", [
-    (lambda doc: doc["identity"].update(age=15), "identity.age: Input should be greater than or equal to 16"),
-    (lambda doc: doc["identity"].update(age=101), "identity.age: Input should be less than or equal to 100"),
     (lambda doc: doc["identity"].update(age="32"), "identity.age: Input should be a valid integer"),
+    (lambda doc: doc["identity"].update(age=32.0), "identity.age: Input should be a valid integer"),
     (lambda doc: doc["identity"].update(occupation="长" * 21),
      "identity.occupation: String should have at most 20 characters"),
     (lambda doc: doc["identity"].update(living_arrangement="住" * 31),
@@ -354,6 +353,18 @@ def test_table_format_and_formula_ranges_are_rejected_with_the_field_named(envir
     """保留的检查只有表的格式与计算要用的范围：类型、数值范围、条数与字数上限；联系渠道只要求是一到三项非空白文字。
     原因先写出错的字段。"""
     assert rejected(environment, mutate) == ("persona.toml", "PERSONA_INVALID", reason)
+
+
+@pytest.mark.parametrize("age", [15, 16, 100, 101, 0, 130])
+def test_age_takes_any_integer_the_dataset_writes(environment, age):
+    """年龄不进任何计算，只要求是整数：16 以下、100 以上的写法都通过完整环境加载和纯校验，
+    人设表、卡片和卡片文本里都是写的那个数。"""
+    edit_persona(environment, lambda document: document["identity"].update(age=age))
+    assert validate_environment(environment, metadata_loader=metadata)["valid"] is True
+    loaded = load_environment(environment, metadata_loader=metadata).persona
+    assert loaded.identity.age == age
+    card = persona_card(loaded)
+    assert card.identity.age == age and f"产品经理，{age}岁，" in render_card(card)
 
 
 @pytest.mark.parametrize("first,second", [

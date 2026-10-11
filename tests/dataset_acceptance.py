@@ -95,6 +95,9 @@ MUTATIONS = (
         "channels: list[NonBlankText]", "channels: list[str]",
         ("tests/unit/test_environment_inputs.py"
          "::test_table_format_and_formula_ranges_are_rejected_with_the_field_named",)),
+    SourceMutation("age_plausibility_range_restored", "worldmock.input_models::Identity",
+        "age: int", "age: int = Field(ge=16, le=100)",
+        ("tests/unit/test_environment_inputs.py::test_age_takes_any_integer_the_dataset_writes",)),
     SourceMutation("previous_run_config_version_accepted", "worldmock.input_models::RunConfig",
         "schema_version: Literal[2]", "schema_version: Literal[1, 2]",
         ("tests/unit/test_environment_inputs.py"
