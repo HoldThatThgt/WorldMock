@@ -333,10 +333,6 @@ class DecisionCoordinator:
             result_draft = result_draft.model_copy(
                 update={"resource_changes":dict(self.actions.pending_resource_changes)})
             self.actions.pending_resource_changes.clear()
-            new_ids = {event.scheduled_id for event in state.pending_events}
-            changed.pending_events = [event.model_copy(update={"caused_by": [result_draft.event_id]})
-                if event.scheduled_id not in new_ids and event.kind.value == "delivery_arrival"
-                else event for event in changed.pending_events]
             drafts = [accepted, result_draft, *records]
             for activity in changed.activities.values():
                 if activity.origin_action_id == pending.action_id:

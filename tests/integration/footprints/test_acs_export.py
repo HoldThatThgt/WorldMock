@@ -6,10 +6,12 @@ import json
 
 import pytest
 
-from tests.footprints.recording import recorded_engine
+from tests.footprints.recording import recorded_engine, short_window
+from tests.life.environment_runtime import act, finish_activity, run_to_end
 from worldmock.errors import IntegrityError
 from worldmock.footprints.export import export_run
 from worldmock.footprints.validation import validate_export
+from worldmock.life.models import StartActivityRequest
 
 
 @pytest.fixture
@@ -94,6 +96,26 @@ def test_rehashed_projection_cannot_disagree_with_actual_events(real_export, art
     (real_export / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(IntegrityError, match="disagree"):
         validate_export(real_export)
+
+
+def test_two_purchases_on_the_same_route_export_with_one_payment_per_purchase(engine_factory, tmp_path):
+    engine = engine_factory(mutate=short_window)
+    for label, goods in (("first-visit", "柠檬茶"), ("second-visit", "纸巾")):
+        _, result = act(engine, label, StartActivityRequest(items=[{"action": "purchase", "target": goods}]))
+        assert result.status == "in_progress", result.error_code
+        finish_activity(engine, result, label)
+    first, second = sorted(engine.context.state.deliveries.values(), key=lambda order: order.created_at)
+    assert first.created_at < second.created_at and first.group_key == second.group_key
+    assert all((order.store_id, order.destination_id, order.app_id, order.fulfillment)
+               == ("store", "store", None, "pickup") for order in (first, second))
+    run_to_end(engine)
+    snapshot = engine.context.store.assets.put_json({"completed": True}, {"kind": "test_agent_snapshot"})
+    point = engine.checkpoint({"agent:1": snapshot})
+    export_run(engine.context.store, point.last_event_seq, tmp_path / "same-route")
+    _, exported, _ = validate_export(tmp_path / "same-route")
+    payments = [row["data"] for row in exported if row["data"].get("kind") == "purchase_payment"]
+    assert [row["order_ids"] for row in payments] == [[first.order_id], [second.order_id]]
+    assert len({row["activity_id"] for row in payments}) == 2
 
 
 def write_rows(directory, manifest, name, rows):

@@ -33,5 +33,5 @@ class ScheduledEvent(StrictModel):
     sequence: int = Field(ge=0)
     agent_id: int | None = Field(default=None, gt=0)
     data: dict[str, Any] = Field(default_factory=dict)
-    #: 动作创建的排期引用同次提交的真实结果事件；静态场景排期可为空。
+    #: 到达排期引用同次提交里付清这一趟配送的付款事件；静态场景排期可为空。
     caused_by: list[str] = Field(default_factory=list)

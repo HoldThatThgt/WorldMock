@@ -68,20 +68,24 @@ def order_groups(orders: tuple[DeliveryState, ...]) -> dict[str, tuple[DeliveryS
     return {key: tuple(groups[key]) for key in sorted(groups)}
 
 
-def delivery_events(state: WorldState, orders: tuple[DeliveryState, ...], cause: str) -> tuple[ScheduledEvent, ...]:
-    """@brief 只有已付款远程订单排程；原预计到达与购买结果因果不重算。"""
-    grouped = {}
+def delivery_events(state: WorldState, orders: tuple[DeliveryState, ...],
+                    payments: dict[str, str]) -> tuple[ScheduledEvent, ...]:
+    """@brief 已付款的外卖和快递按一趟配送各排一条到达，起因是付清这一趟的付款事件。
+
+    一趟配送是同一个配送组里预计到达时刻相同的记录；各趟按预计到达时刻、配送组键升序取排程序号，
+    到期时刻不早于付款时刻。payments 给出每条已付款记录所属付款事件的身份。
+    """
+    trips = {}
     for order in orders:
-        if order.fulfillment == FulfillmentKind.PICKUP:
-            continue
-        key = (order.expected_at, order.fulfillment, order.destination_id)
-        grouped.setdefault(key, []).append(order)
+        if order.paid_at is not None and order.fulfillment != FulfillmentKind.PICKUP:
+            trips.setdefault((order.expected_at, order.group_key), []).append(order)
     first = max((item.sequence for item in state.pending_events), default=0) + 1
     result = []
-    for index, key in enumerate(sorted(grouped)):
-        selected = sorted(grouped[key], key=lambda order: order.order_id)
-        result.append(ScheduledEvent(scheduled_id=f"delivery-{selected[0].order_id}",
-            kind=ScheduledKind.DELIVERY_ARRIVAL, due_at=selected[0].expected_at, sequence=first + index,
-            agent_id=selected[0].agent_id, data={"order_ids": [order.order_id for order in selected]},
-            caused_by=[cause]))
+    for index, key in enumerate(sorted(trips)):
+        selected = sorted(trips[key], key=lambda order: order.order_id)
+        head = selected[0]
+        result.append(ScheduledEvent(scheduled_id=f"delivery-{head.order_id}",
+            kind=ScheduledKind.DELIVERY_ARRIVAL, due_at=max(head.expected_at, head.paid_at),
+            sequence=first + index, agent_id=head.agent_id,
+            data={"order_ids": [order.order_id for order in selected]}, caused_by=[payments[head.order_id]]))
     return tuple(result)
