@@ -81,6 +81,7 @@ def test_sleep_keeps_overdue_errand_pending_until_real_awake_boundary():
 
 
 @pytest.mark.parametrize("kind", ["purchase_payment", "payment_notification", "callback_effect", "app_touch",
+                                  "app_foreground", "order_notification", "location_entered", "location_left",
                                   "message_arrival", "mail_arrival", "work_content_completed"])
 def test_progress_excludes_system_and_retired_facts(inputs, kind):
     ctx = layer_context(inputs)

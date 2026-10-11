@@ -267,3 +267,17 @@ def test_time_schedule_excludes_start_and_includes_stop(world):
     assert rows[0].due_at == start + 3600
     assert rows[-1].due_at == end
     assert len({event.scheduled_id for event in rows}) == len(rows)
+
+
+@pytest.mark.parametrize("key", ["order_shipped", "order_notification", "payment_notification", "app_foreground",
+                                 "location_entered", "location_left"])
+def test_phone_records_cannot_be_subscribed_by_a_callback_rule(key):
+    """发货通知排程、订单通知、app 前台区间和停留进出都不在事件触发的闭集里，登记这样的规则被拒绝。"""
+    from pydantic import ValidationError
+
+    effect = {"type": "transfer", "direction": "income", "amount_fen": 100}
+    CallbackRule.model_validate({"rule_id": "arrival", "trigger": {"class": "event", "key": "delivery_arrival"},
+                                 "effect": effect})
+    with pytest.raises(ValidationError):
+        CallbackRule.model_validate({"rule_id": "phone", "trigger": {"class": "event", "key": key}, "effect": effect})
+

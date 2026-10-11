@@ -35,7 +35,8 @@ def validate_frozen_environment(root: Path, frozen: dict, activities: list[dict]
     apps = {row["app_id"]: row for row in _rows(inputs["catalog/app-catalog.jsonl"])}
     contents = _rows(inputs["catalog/content-catalog.jsonl"])
     methods = {row["activity_id"]: row["travel_method_id"] for row in activities}
-    _validate_app_sources(events, apps, methods)
+    rules = {row["rule_id"] for row in _rows(inputs.get("catalog/callbacks.jsonl", b"")) if "rule_id" in row}
+    _validate_app_sources(events, apps, methods, rules)
     _validate_browse(activities, apps, contents)
 
 
@@ -99,26 +100,35 @@ def _validate_catalog_digest(inputs: dict, manifest: dict) -> None:
         _invalid("Frozen catalog content digest is invalid")
 
 
-def _validate_app_sources(events: list[dict], apps: dict, methods: dict) -> None:
-    """@brief 系统应用事实匹配冻结真实应用：自动导航触点的 app 绑定了那趟出行的出行方式，自动支付触点的 app 绑定了购买。
+def _validate_app_sources(events: list[dict], apps: dict, methods: dict, rules: set[str]) -> None:
+    """@brief 系统应用事实匹配冻结真实应用的角色与绑定，回调足迹匹配冻结的回调规则。
+
+    导航的 app 是绑定了那趟出行的出行方式的功能 app，下单的 app 是内容 app，支付的 app 是绑定了购买的功能 app
+    或内容 app（直付）；「支付成功」的 app 同支付，订单通知的 app 是内容 app；回调足迹的规则身份是冻结的
+    callbacks.jsonl 里登记的规则，没有冻结这份文件时不得有回调足迹。
 
     :param methods: 活动身份到它保存的出行方式身份（非出行活动为 None）。
+    :param rules: 冻结的回调规则身份；没有冻结 callbacks.jsonl 时为空。
     """
     for event in events:
         data = event["data"]
         if event["event_type"] != "environment_event" or data.get("kind") not in {
-                "app_touch", "payment_notification", "app_push"} or "app_id" not in data:
+                "app_touch", "app_foreground", "payment_notification", "order_notification",
+                "app_push"} or "app_id" not in data:
             continue
         app = apps.get(data["app_id"])
         if app is None:
             _invalid("System app event references an unregistered frozen app")
-        if data["kind"] == "app_touch" and data["rule_id"] is None:
-            if data["step"] == "navigation":
-                bound = methods.get(event.get("activity_id")) in app.get("travel_method_ids", ())
-            else:
-                bound = data["action"] in app.get("actions", ())
-            if app["role"] != "function" or not bound:
-                _invalid("Automatic app touch disagrees with its frozen function app")
-        if data["kind"] == "payment_notification" and (app["role"] != "function"
-                or "purchase" not in app.get("actions", ())):
-            _invalid("Payment notification disagrees with its frozen function app")
+        if data["kind"] == "app_touch" and data["rule_id"] not in rules:
+            _invalid("App touch step disagrees with its source")
+        content = app["role"] == "content"
+        pays = content or app["role"] == "function" and "purchase" in app.get("actions", ())
+        if data["kind"] == "app_foreground":
+            navigates = (app["role"] == "function"
+                         and methods.get(event.get("activity_id")) in app.get("travel_method_ids", ()))
+            if not {"navigation": navigates, "ordering": content, "payment": pays}[data["step"]]:
+                _invalid("Foreground app disagrees with its frozen app role or binding")
+        if data["kind"] == "payment_notification" and not pays:
+            _invalid("Payment notification disagrees with its frozen app")
+        if data["kind"] == "order_notification" and not content:
+            _invalid("Order notification disagrees with its frozen content app")

@@ -237,7 +237,7 @@ def test_no_candidate_push_rejects_wrong_source_visibility_or_delivery_shape(alt
         project_app_usage([row])
 
 
-@pytest.mark.parametrize("event_type", ["action_accepted", "action_result", "environment_event"])
+@pytest.mark.parametrize("event_type", ["action_accepted", "action_rejected", "action_result", "environment_event"])
 @pytest.mark.parametrize("kind", ["app", "travel"])
 @pytest.mark.parametrize("source_kind,visibility", [("model", "agent"), ("environment", "system"),
                                                    ("environment", "evaluation")])
@@ -251,6 +251,25 @@ def test_snapshot_bearing_events_reject_private_or_model_sources(event_type, kin
         project_app_usage([_push(1, session="transit"), row])
     with pytest.raises(IntegrityError, match="agent-visible environment events"):
         app_usage_quality([_push(1, session="transit"), row], "UTC")
+
+
+def test_refusal_carrying_the_running_app_snapshot_adds_no_interval_open_or_expiry():
+    """@brief 活动进行中被拒绝的请求带着那项活动的快照：投影照常读它，不加区间、不记打开、不让推送失效。"""
+    running = _app(pin="push")
+    accepted = _event(2, "action_accepted", {"activity": running}, activity_id="phone")
+    refusal = _event(4, "action_rejected", {"error_code": "RESOURCE_CONFLICT", "activity": running},
+                     activity_id="phone")
+    settled = _progress(3, running)
+    with_refusal = project_app_usage([_push(1), accepted, settled, refusal])
+    without = project_app_usage([_push(1), accepted, settled])
+    (used,) = [row for row in with_refusal if row["fact_kind"] == "app_use"]
+    assert used["segments"] == [{"started_at": START, "ended_at": START + 300}]
+    assert used["source_event_id"] == refusal["event_id"]
+    assert [row for row in with_refusal if row["fact_kind"] != "app_use"] == [
+        row for row in without if row["fact_kind"] != "app_use"]
+    assert [row["fact_kind"] for row in with_refusal].count("push_opened") == 1
+    quality = app_usage_quality([_push(1), accepted, settled, refusal], "UTC")["app_pushes"]
+    assert (quality["opened_in_session"], quality["expired_with_session"]) == (1, 0)
 
 
 @pytest.mark.parametrize("event_type", ["model_response", "observation"])

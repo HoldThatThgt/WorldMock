@@ -5,8 +5,8 @@ import argparse
 import pytest
 
 from scripts import inspect_run
-from tests.life.conftest import advance_next, sleep, travel, use_app
-from tests.life.environment_runtime import act, events, finish_activity
+from tests.life.conftest import advance_next, purchase, sleep, travel, use_app
+from tests.life.environment_runtime import act, events, finish_activity, reach
 
 
 @pytest.mark.parametrize("request_factory,kind,has_content", [
@@ -103,3 +103,31 @@ async def test_query_report_counts_the_decision_requests_that_offer_start_main_a
     assert [(row["decision_id"], len(row["calls"])) for row in decisions] == [("decision-shop-1", 2)]
     assert all(terminal is not None for _, terminal in decisions[0]["calls"])
     assert store.last_event_seq == point
+
+
+def test_inspector_event_lines_spell_out_the_phone_records(engine_factory, capsys):
+    """真实引擎买一份外卖并等到送达：事件流里前台区间写 app、步骤与起止，通知写发送的 app 与标题，停留写地点；
+    其余环境事件的写法不变。"""
+    engine = engine_factory()
+    _, bought = act(engine, "inspect-order", purchase("牛肉面"))
+    assert bought.status == "in_progress", bought.error_code
+    finish_activity(engine, bought, "inspect-order")
+    (order,) = engine.context.state.deliveries.values()
+    reach(engine, order.expected_at)
+    store = engine.context.store
+    with inspect_run._connect(store.run_dir) as conn:
+        inspect_run.cmd_events(conn, argparse.Namespace(type="environment_event", agent=1, tail=0, full=False))
+    lines = capsys.readouterr().out.splitlines()
+    activity = engine.context.state.activities[bought.activity_id]
+    paying = activity.planned_end_at - order.payment_duration_seconds
+    span = f"{inspect_run._t(activity.started_at)} → {inspect_run._t(paying)}"
+    assert [line for line in lines if "app_foreground" in line][0].endswith(f"app_foreground meituan ordering {span}")
+    sender = order.payment_app_id or "meituan"
+    for expected in (f"order_notification meituan 订单已下单 {order.order_id}",
+                     f"payment_notification {sender} 支付成功 {order.order_id}",
+                     f"order_notification meituan 订单已发货 {order.order_id}",
+                     f"order_notification meituan 订单已送达 {order.order_id}",
+                     "location_entered home run_start"):
+        assert [line for line in lines if line.endswith(expected)], expected
+    assert any(line.endswith(f"delivery_arrival delivery-{order.order_id}") for line in lines)
+    assert inspect_run._environment_brief({"kind": "location_left", "location_id": "home"}) == "location_left home"

@@ -21,7 +21,15 @@ OWNERS = {'base_models.py': ('StrictModel',
  'corpora/manifest.py': ('safe_file', 'relative_declaration'),
  'footprints/intervals.py': ('valid_interval', 'is_body_settlement', 'body_settlements'),
  'footprints/timeline_labels.py': ('window_days', 'local_day_bounds', 'split_local_days'),
- 'life/models.py': ('validated_payload',),
+ 'life/models.py': ('validated_payload', 'active_side_activities', 'NavigationForeground'),
+ 'life/navigation_foreground.py': ('settle_navigation', 'navigation_app', 'foreground_event'),
+ 'life/stay_records.py': ('stay_events', 'run_start_event'),
+ 'life/order_notices.py': ('goods_names', 'goods_text', 'shipping_delay_seconds', 'shipping_schedule',
+                           'ORDER_PLACED', 'ORDER_SHIPPED', 'ORDER_DELIVERED', 'ORDER_TITLES',
+                           'PAYMENT_SUCCEEDED'),
+ 'footprints/location_stays.py': ('project_location_stays', 'validate_location_stays'),
+ 'footprints/export.py': ('EXPORT_SCHEMA_VERSION', 'EXPORT_ARTIFACTS'),
+ 'footprints/environment_events.py': ('ENTRY_KIND_CAUSES',),
  'life/travel.py': ('plan_trip',),
  'life/travel_methods.py': ('travel_methods', 'travel_method', 'WALKING'),
  'life/readable.py': ('ACTIVITY_KIND_LABELS', 'ACTIVITY_DOING_LABELS', 'interval_phrases'),
@@ -205,7 +213,11 @@ def test_copied_rule_table_fails_even_after_renaming(tmp_path):
                                     'WALKING = None\n',
                                     'def travel_methods(catalog):\n return ()\n',
                                     'OVERSLEEP_THRESHOLD_SECONDS = 18000\n',
-                                    'BEDTIME_MIN_SECONDS = 7200\n'])
+                                    'BEDTIME_MIN_SECONDS = 7200\n',
+                                    'EXPORT_SCHEMA_VERSION = 4\n',
+                                    'ORDER_TITLES = frozenset({"订单已取消"})\n',
+                                    'def shipping_delay_seconds(interval):\n return interval // 2\n',
+                                    'def active_side_activities(state, agent_id):\n return ()\n'])
 def test_wrong_shared_rule_owner_fails(tmp_path, source):
     _sample(tmp_path, 'custom/wrong.py', source)
     assert any('wrong owner' in item for item in single_source_violations(tmp_path))

@@ -288,7 +288,8 @@ def _write_canonical(root: Path, scenario: dict[str, Any], run_id: str, hour: in
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest["schema_version"] = 1
         for name, path in (("verified_experiences", "verified-experiences.jsonl"),
-                           ("purchases", "purchases.jsonl"), ("app_usage", "app-usage.jsonl")):
+                           ("purchases", "purchases.jsonl"), ("app_usage", "app-usage.jsonl"),
+                           ("location_stays", "location-stays.jsonl")):
             manifest["artifacts"].pop(name)
             (root / path).unlink()
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")

@@ -116,7 +116,7 @@ def _brief(r: dict) -> str:
     if t == "action_rejected":
         return f"{d.get('tool_name','?')} → {d.get('error_code','?')}"
     if t == "environment_event":
-        return f"{d.get('kind')} {d.get('scheduled_id','')}"
+        return _environment_brief(d)
     if t == "activity_progress":
         act = d.get("activity", {})
         content = f"《{act['content_title']}》" if act.get("content_title") else ""
@@ -126,6 +126,18 @@ def _brief(r: dict) -> str:
     if "resource_changes" in d and d["resource_changes"]:
         return json.dumps(d["resource_changes"], ensure_ascii=False)[:100]
     return json.dumps({k: v for k, v in d.items() if k not in ("request", "response")}, ensure_ascii=False)[:90]
+
+
+def _environment_brief(d: dict) -> str:
+    """@brief 环境事件的一行摘要：前台区间写 app、步骤与起止，通知写发送的 app 与标题，停留进出写地点。"""
+    kind = d.get("kind")
+    if kind == "app_foreground":
+        return f"{kind} {d['app_id']} {d['step']} {_t(d['interval_start'])} → {_t(d['interval_end'])}"
+    if kind in ("order_notification", "payment_notification"):
+        return f"{kind} {d['app_id']} {d['title']} {' '.join(d['order_ids'])}"
+    if kind in ("location_entered", "location_left"):
+        return f"{kind} {d['location_id']} {d.get('entry_kind', '')}".rstrip()
+    return f"{kind} {d.get('scheduled_id','')}"
 
 
 def cmd_event(conn: sqlite3.Connection, a: argparse.Namespace) -> None:

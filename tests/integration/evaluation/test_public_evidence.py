@@ -133,10 +133,24 @@ def test_real_start_group_projects_each_action_with_its_own_activity(engine_fact
     assert len(evidence) == 4
 
 
-@pytest.mark.parametrize("kind", ["app_touch", "payment_notification", "balance_decreased"])
+@pytest.mark.parametrize("kind", ["app_touch", "payment_notification", "balance_decreased", "app_foreground",
+                                  "order_notification"])
 def test_system_and_removed_subsystem_events_do_not_create_public_behavior(kind):
     event = parse_world_event(_public_event(1, "environment_event", {"kind": kind}))
     assert worldmock_public_evidence([event], []) == ()
+
+
+@pytest.mark.parametrize("data", [
+    {"kind": "location_entered", "session_id": "session-1-0003", "location_id": "office", "entry_kind": "arrival"},
+    {"kind": "location_left", "session_id": "session-1-0001", "location_id": "home"}])
+def test_stay_records_do_not_create_public_behavior(data):
+    from worldmock.footprints.models import Event
+
+    row = Event(run_id="public-test-run", event_seq=1, event_id="stay-event", event_type="environment_event",
+                occurred_at=1767571200, recorded_at="2026-01-05T00:00:00+00:00", wall_elapsed_ms=1,
+                state_version_before=0, state_version_after=1, agent_id=1, visibility="system",
+                caused_by=["cause"], data=data).model_dump(mode="json")
+    assert worldmock_public_evidence([parse_world_event(row)], []) == ()
 
 
 def test_purchase_payments_are_only_real_independent_facts_even_without_payment_app():

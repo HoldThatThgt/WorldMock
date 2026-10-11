@@ -14,7 +14,8 @@ from worldmock.life.basket import activity_orders, build_orders, order_payment, 
 from worldmock.life.order_routing import payment_order_key, payment_orders
 from worldmock.life.purchase_offers import quote_goods
 from worldmock.life.purchase_phases import (
-    ORDERING, PAYMENT, OrderPayment, PurchasePhase, activity_phases, order_payments, purchase_seconds, split_phases,
+    ORDERING, PAYMENT, OrderPayment, PurchasePhase, activity_phases, foreground_events, order_payments,
+    purchase_seconds, split_phases,
 )
 from worldmock.life.randomness import random_stream
 
@@ -301,3 +302,108 @@ def test_accepted_purchase_freezes_the_phases_its_records_and_duration_describe(
     local = next(order for order in orders if order.app_id is None)
     assert local.expected_at == state.current_time + duration == activity.planned_end_at
     assert all(order.payment_started_at is None and order.payment_ended_at is None for order in orders)
+
+
+def accepted_purchase(inputs, goods, location="home", random_state="commerce-tests"):
+    """受理一次购买：返回带着受理结果身份的世界与购买活动（受理结果身份由决策协调在同一次提交里写进活动）。"""
+    state, activity = runtime(inputs).prepare_purchase(world(inputs, location, random_state=random_state),
+                                                      pending(), goods)
+    activity = activity.model_copy(update={"data": {**activity.data, "accepted_event_id": "accepted-result"}})
+    return state.model_copy(update={"activities": {activity.activity_id: activity}}), activity
+
+
+def at_moment(state, activity, now, status="active"):
+    """世界走到 now：购买结算到这一刻，状态缺省仍在进行。"""
+    moved = activity.model_copy(update={
+        "last_settled_at": now, "elapsed_seconds": now - activity.started_at, "status": status,
+        "ended_at": None if status == "active" else now})
+    person = state.agents[1].model_copy(update={"body_settled_at": now})
+    return state.model_copy(update={"current_time": now, "agents": {1: person},
+                                    "activities": {activity.activity_id: moved}})
+
+
+def written(events):
+    return [(event.occurred_at, event.data["app_id"], event.data["step"], event.data["interval_start"],
+             event.data["interval_end"]) for event in events]
+
+
+def test_each_phase_with_an_app_in_front_writes_one_interval_the_second_it_ends(environment):
+    """一次从三杯咖啡、一心面馆各买一件再加一件快递：逐边界推进，每个段在结束那一秒各写一条，不多不少。"""
+    accepted, activity = accepted_purchase(environment, ("beef-noodles", "online-notebook"))
+    phases = activity_phases(accepted, activity)
+    assert {phase.step for phase in phases} == {ORDERING, PAYMENT} and len(phases) == 4
+    assert foreground_events(accepted, accepted) == []
+    before, seen = accepted, []
+    for boundary in sorted({phase.ended_at for phase in phases}):
+        status = "completed" if boundary == activity.planned_end_at else "active"
+        after = at_moment(accepted, activity, boundary, status)
+        events = foreground_events(before, after)
+        seen.extend(written(events))
+        assert all((event.visibility, event.source_kind, event.activity_id, event.caused_by, event.agent_id)
+                   == ("system", "environment", activity.activity_id, ["accepted-result"], 1) for event in events)
+        # 同一秒随后的决策轮提交不再写一遍。
+        assert foreground_events(after, after) == []
+        before = after
+    assert seen == [(phase.ended_at, phase.app_id, phase.step, phase.started_at, phase.ended_at) for phase in phases]
+
+
+def test_concluding_the_purchase_early_cuts_the_running_phase_and_keeps_the_finished_ones(environment):
+    accepted, activity = accepted_purchase(environment, ("beef-noodles", "online-notebook"))
+    first, second = activity_phases(accepted, activity)[:2]
+    inside = at_moment(accepted, activity, second.started_at + 3)
+    assert written(foreground_events(at_moment(accepted, activity, first.ended_at), inside)) == []
+    stopped = at_moment(accepted, activity, second.started_at + 3, "cancelled")
+    assert written(foreground_events(inside, stopped)) == [
+        (second.started_at + 3, second.app_id, second.step, second.started_at, second.started_at + 3)]
+    # 恰在一个段结束的那一秒结束购买：这一段已由走到这一秒的那次提交写出，下一段长度为 0，不写。
+    boundary = at_moment(accepted, activity, first.ended_at)
+    assert written(foreground_events(accepted, boundary)) == [
+        (first.ended_at, first.app_id, first.step, first.started_at, first.ended_at)]
+    assert foreground_events(boundary, at_moment(accepted, activity, first.ended_at, "cancelled")) == []
+    # 受理的那一秒就结束：没有任何区间。
+    assert foreground_events(accepted, at_moment(accepted, activity, activity.started_at, "cancelled")) == []
+
+
+def test_run_cutoff_inside_a_phase_writes_the_cut_interval_in_the_same_commit(environment):
+    accepted, activity = accepted_purchase(environment, ("beef-noodles",))
+    ordering, paying = activity_phases(accepted, activity)
+    cutoff = paying.started_at + 4
+    truncated = at_moment(accepted, activity, cutoff, "truncated")
+    assert written(foreground_events(at_moment(accepted, activity, paying.started_at), truncated)) == [
+        (cutoff, paying.app_id, PAYMENT, paying.started_at, cutoff)]
+    # 截止恰在下单段结束、付款段开始的那一秒：只有走完的下单段。
+    edge = at_moment(accepted, activity, ordering.ended_at, "truncated")
+    assert written(foreground_events(accepted, edge)) == [
+        (ordering.ended_at, ordering.app_id, ORDERING, ordering.started_at, ordering.ended_at)]
+
+
+def test_purchase_that_fails_for_funds_keeps_every_interval_because_all_phases_have_run(environment):
+    accepted, activity = accepted_purchase(environment, ("beef-noodles",))
+    ordering, paying = activity_phases(accepted, activity)
+    failed = at_moment(accepted, activity, activity.planned_end_at, "failed")
+    assert written(foreground_events(at_moment(accepted, activity, paying.started_at), failed)) == [
+        (paying.ended_at, paying.app_id, PAYMENT, paying.started_at, paying.ended_at)]
+
+
+@pytest.mark.parametrize("direct", [True, False])
+def test_store_purchase_has_no_ordering_interval_and_no_interval_at_all_when_paid_directly(environment, direct):
+    seeds = (f"payment-{index}" for index in range(64))
+    accepted, activity = next(
+        (state, item) for state, item in (accepted_purchase(environment, ("tissue",), "store", seed) for seed in seeds)
+        if (activity_orders(state, item)[0].payment_app_id is None) is direct)
+    (order,) = activity_orders(accepted, activity)
+    done = at_moment(accepted, activity, activity.planned_end_at, "completed")
+    events = written(foreground_events(accepted, done))
+    if direct:
+        assert order.payment_duration_seconds == 0 and events == []
+        return
+    started = activity.planned_end_at - order.payment_duration_seconds
+    assert events == [(activity.planned_end_at, order.payment_app_id, PAYMENT, started, activity.planned_end_at)]
+
+
+def test_foreground_events_ignore_everything_that_is_not_a_running_purchase(environment):
+    accepted, activity = accepted_purchase(environment, ("beef-noodles",))
+    done = at_moment(accepted, activity, activity.planned_end_at, "completed")
+    # 已经结束的购买在之后的提交里不再写任何区间。
+    later = done.model_copy(update={"current_time": activity.planned_end_at + 60})
+    assert foreground_events(done, later) == []

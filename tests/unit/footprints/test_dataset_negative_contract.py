@@ -213,16 +213,28 @@ def _exported(activity_id, kind, method):
     return {"activity_id": activity_id, "activity_type": kind, "travel_method_id": method, "data": {"action": kind}}
 
 
-def _touch(app_id, step, action, activity_id="trip", rule_id=None):
-    """一条自动 app 触点事件在导出里的形状：导航触点挂在出行活动上，支付触点挂在购买活动上。"""
+def _foreground(app_id, step, activity_id="trip"):
+    """一条前台区间事件在导出里的形状：导航挂在出行活动上，下单和支付挂在购买活动上。"""
     return {"event_type": "environment_event", "activity_id": activity_id,
-            "data": {"kind": "app_touch", "app_id": app_id, "action": action, "step": step, "rule_id": rule_id}}
+            "data": {"kind": "app_foreground", "app_id": app_id, "step": step, "interval_start": 0,
+                     "interval_end": 60}}
+
+
+def _notice(kind, app_id):
+    """一条支付通知或订单通知在导出里的形状。"""
+    return {"event_type": "environment_event", "activity_id": None, "data": {"kind": kind, "app_id": app_id}}
+
+
+def _touch(rule_id, app_id="bilibili"):
+    """一条回调足迹在导出里的形状。"""
+    return {"event_type": "environment_event", "activity_id": None,
+            "data": {"kind": "app_touch", "app_id": app_id, "action": "travel", "step": "browse", "rule_id": rule_id}}
 
 
 @pytest.mark.parametrize("method,accepted", [("walking", True), ("bike", True), ("row", False), (None, False)])
-def test_frozen_navigation_touch_must_use_an_app_bound_to_the_trips_travel_method(
+def test_frozen_navigation_interval_must_use_an_app_bound_to_the_trips_travel_method(
         engine_factory, tmp_path, method, accepted):
-    """冻结环境核对自动导航触点：它的 app 是功能 app，并且绑定了那趟出行所用的出行方式；
+    """冻结环境核对导航的前台区间：它的 app 是功能 app，并且绑定了那趟出行所用的出行方式；
     绑了别的方式、出行活动没有出行方式都不通过。"""
     from tests.life.environment_inputs import copy_environment, replace_travel_methods, travel_method_row
 
@@ -230,30 +242,41 @@ def test_frozen_navigation_touch_must_use_an_app_bound_to_the_trips_travel_metho
         travel_method_row("bike", "自行车", 4.5), travel_method_row("row", "划船", 2)], ("bike", "walking"))
     store = engine_factory(root).context.store
     activities = [_exported("trip", "travel", method)]
-    events = [_touch("amap", "navigation", "travel")]
+    events = [_foreground("amap", "navigation")]
     if accepted:
         validate_frozen_environment(store.run_dir, store.manifest, activities, events)
     else:
-        with pytest.raises(IntegrityError, match="^Automatic app touch disagrees with its frozen function app$"):
+        with pytest.raises(IntegrityError, match="^Foreground app disagrees with its frozen app role or binding$"):
             validate_frozen_environment(store.run_dir, store.manifest, activities, events)
 
 
+FOREGROUND_MISMATCH = "Foreground app disagrees with its frozen app role or binding"
+
+
 @pytest.mark.parametrize("event,message", [
-    (_touch("alipay", "payment", "purchase", "buy"), None),
-    (_touch("amap", "payment", "purchase", "buy"), "Automatic app touch disagrees with its frozen function app"),
-    (_touch("alipay", "navigation", "travel"), "Automatic app touch disagrees with its frozen function app"),
-    (_touch("bilibili", "navigation", "travel"), "Automatic app touch disagrees with its frozen function app"),
-    (_touch("ghost", "navigation", "travel"), "System app event references an unregistered frozen app"),
-    (_touch("bilibili", "browse", "travel", rule_id="callback-rule"), None),
-    ({"event_type": "environment_event", "activity_id": None,
-      "data": {"kind": "payment_notification", "app_id": "wechat"}}, None),
-    ({"event_type": "environment_event", "activity_id": None,
-      "data": {"kind": "payment_notification", "app_id": "amap"}},
-     "Payment notification disagrees with its frozen function app"),
+    (_foreground("alipay", "payment", "buy"), None),
+    (_foreground("bilibili", "payment", "buy"), None),
+    (_foreground("bilibili", "ordering", "buy"), None),
+    (_foreground("amap", "payment", "buy"), FOREGROUND_MISMATCH),
+    (_foreground("alipay", "ordering", "buy"), FOREGROUND_MISMATCH),
+    (_foreground("amap", "ordering", "buy"), FOREGROUND_MISMATCH),
+    (_foreground("alipay", "navigation"), FOREGROUND_MISMATCH),
+    (_foreground("bilibili", "navigation"), FOREGROUND_MISMATCH),
+    (_foreground("amap", "navigation", "buy"), FOREGROUND_MISMATCH),
+    (_foreground("ghost", "navigation"), "System app event references an unregistered frozen app"),
+    (_touch("callback-rule"), "App touch step disagrees with its source"),
+    (_notice("payment_notification", "wechat"), None),
+    (_notice("payment_notification", "bilibili"), None),
+    (_notice("payment_notification", "amap"), "Payment notification disagrees with its frozen app"),
+    (_notice("payment_notification", "ghost"), "System app event references an unregistered frozen app"),
+    (_notice("order_notification", "bilibili"), None),
+    (_notice("order_notification", "alipay"), "Order notification disagrees with its frozen content app"),
+    (_notice("order_notification", "amap"), "Order notification disagrees with its frozen content app"),
 ])
-def test_frozen_app_sources_match_the_purchase_and_travel_method_bindings(engine_factory, event, message):
-    """自动支付触点和支付通知的 app 绑定了购买；只绑定出行方式的导航 app 不是支付 app，只绑定购买的支付 app 不是导航 app；
-    回调足迹链的触点不按绑定核对。"""
+def test_frozen_app_sources_match_the_role_and_binding_of_each_record(engine_factory, event, message):
+    """支付的 app 是绑定了购买的功能 app，或者直付时的内容 app；下单和订单通知的 app 只能是内容 app；
+    只绑定出行方式的导航 app 不是支付 app，只绑定购买的支付 app 不是导航 app；
+    这份夹具没有 callbacks.jsonl，所以任何回调足迹都没有来源。"""
     store = engine_factory().context.store
     activities = [_exported("trip", "travel", "walking"), _exported("buy", "purchase", None)]
     if message is None:
@@ -261,3 +284,28 @@ def test_frozen_app_sources_match_the_purchase_and_travel_method_bindings(engine
     else:
         with pytest.raises(IntegrityError, match=f"^{message}$"):
             validate_frozen_environment(store.run_dir, store.manifest, activities, [event])
+
+
+@pytest.mark.parametrize("event,message", [
+    (_touch("drive-trace"), None),
+    (_touch("another-rule"), "App touch step disagrees with its source"),
+    (_touch("driving_stock"), "App touch step disagrees with its source"),
+    (_touch("drive-trace", "ghost"), "System app event references an unregistered frozen app"),
+])
+def test_frozen_callback_footprint_must_name_a_rule_of_the_frozen_callbacks(engine_factory, tmp_path, event, message):
+    """回调足迹的规则身份是冻结的 callbacks.jsonl 里登记的规则：没有登记的名字和同一文件里状态的名字都不是；
+    足迹的 app 同样必须已登记。"""
+    from tests.life.environment_inputs import copy_environment, write_catalog_rows
+
+    root = copy_environment(tmp_path / "callbacks")
+    write_catalog_rows(root, "callbacks.jsonl", [
+        {"state": "driving_stock", "initial": 3, "cap": 3, "reset_on_goods": ["tissue"]},
+        {"rule_id": "drive-trace", "trigger": {"class": "action", "key": "travel", "travel_method_id": "driving"},
+         "effect": {"type": "footprint_chain", "steps": [
+             {"kind": "browse", "app_pool": ["bilibili"], "pick": "random"}]}}])
+    store = engine_factory(root).context.store
+    if message is None:
+        validate_frozen_environment(store.run_dir, store.manifest, [], [event])
+    else:
+        with pytest.raises(IntegrityError, match=f"^{message}$"):
+            validate_frozen_environment(store.run_dir, store.manifest, [], [event])

@@ -2,17 +2,10 @@
 
 import pytest
 
-from tests.integration.runtime_fixtures import write_agent_workspace
+from tests.integration.runtime_fixtures import BRANCH_BALANCE, branch_of
 from tests.life.conftest import purchase, stage_day_plan
 from tests.life.environment_runtime import act, events, reach
-from worldmock.footprints.checkpoint import restore_branch, snapshot_directory
-from worldmock.life.engine import LifeEngine
-from worldmock.life.models import CounterfactualIntervention
 from worldmock.life.purchase_phases import PAYMENT, activity_phases
-from worldmock.life.world_ops import _request_sha
-
-#: 分支里人物的余额改成这个数；它不改变已经冻结的付款抽取。
-BRANCH_BALANCE = 123456
 
 
 def at_store(persona, config):
@@ -29,23 +22,6 @@ def frozen_fields(engine, activity):
     return {key: (order.app_id, order.payment_app_id, order.payment_duration_seconds, order.payment_started_at,
                   order.payment_ended_at, order.paid_at, order.expected_at)
             for key in activity.data["order_ids"] for order in (engine.context.state.deliveries[key],)}
-
-
-def branch_of(parent, tmp_path, kind, source):
-    """从父运行的共同检查点开出恢复分支，或带一项余额干预的重放分支。"""
-    workspace = write_agent_workspace(tmp_path / "agent")
-    checkpoint = parent.checkpoint({"agent:1": snapshot_directory(workspace, parent.context.store.assets)})
-    intervention = CounterfactualIntervention(kind="set_balance_fen", agent_id=1, balance_fen=BRANCH_BALANCE,
-                                              hypothesis="余额改变不影响已经冻结的付款。", source_event_ids=(source,))
-    metadata = None if kind == "resume" else {
-        "branch_kind": "counterfactual",
-        "intervention_sha256": _request_sha("counterfactual_intervention", intervention)}
-    restore_branch(parent.context.store, checkpoint.checkpoint_id, tmp_path / "branch",
-                   *(() if metadata is None else (metadata,))).close()
-    child = LifeEngine.open(parent.context.inputs, tmp_path / "branch")
-    if kind == "replay":
-        child.apply_counterfactual(intervention)
-    return child
 
 
 @pytest.mark.parametrize("kind", ["resume", "replay"])

@@ -28,7 +28,6 @@ from worldmock.life.models import (
     ActionReceipt,
     ActionResult,
     ActionStatus,
-    ActivityKind,
     DecisionRoundState,
     PendingAction,
     REQUEST_MODELS,
@@ -38,9 +37,12 @@ from worldmock.life.models import (
     WorldState,
     active_activities,
 )
+from worldmock.life.navigation_foreground import settle_navigation
 from worldmock.life.observe import ObservationBuilder
+from worldmock.life.purchase_phases import foreground_events
 from worldmock.life.rhythm import consume_progress_report_opportunity, next_decision_at
 from worldmock.life.session_actions import ActionHandlers
+from worldmock.life.stay_records import stay_events
 from worldmock.life.models import validated_payload
 from worldmock.life.presentation import stage_presentation
 
@@ -151,6 +153,7 @@ class DecisionCoordinator:
         """@brief 完整轮次按冻结顺序结算，一次提交当前世界与结果；每个决策只返回它第一条动作的结果。
 
         一个决策可以登记两条开始动作：两条结果都落库，返回值仍是每个决策一条，与框架核对的决策上下文条数一致。
+        提交之前比较提交前后的世界一次：导航在不在前台、购买里截断的前台区间和停留进出事件都由此得出。
         """
         current = self.require_round(round_id)
         if {item.agent_id for item in current.pending_actions} != set(current.expected_agent_ids):
@@ -173,7 +176,9 @@ class DecisionCoordinator:
 
         outcome = compare_callback_states(self.context.state, staged, self.context.catalog, drafts,
                                           self.context.callback_causes)
-        staged, drafts = outcome.state, [*drafts, *outcome.drafts]
+        staged, navigation = settle_navigation(self.context.state, outcome.state, self.context.catalog)
+        drafts = [*drafts, *outcome.drafts, *navigation, *foreground_events(self.context.state, staged),
+                  *stay_events(self.context.state, staged, drafts)]
         staged = self.observations._snapshot_decision_references(staged, list(current.expected_agent_ids))
         staged.version = self.context.state.version + 1
         failed = any(draft.data.get("kind") == same_moment.BUDGET_EXHAUSTED_KIND for draft in drafts)
@@ -422,7 +427,6 @@ class DecisionCoordinator:
             state.agents, state.accounts = outcome.state.agents, outcome.state.accounts
             drafts.extend(outcome.drafts)
             self.context.callback_causes.update(outcome.causes)
-            drafts.extend(self._navigation_drafts(state, pending, result.event_id))
             before = None
         return drafts
 
@@ -443,25 +447,6 @@ class DecisionCoordinator:
             state.agents, state.accounts = outcome.state.agents, outcome.state.accounts
             self.context.callback_causes.update(outcome.causes)
             drafts.extend(outcome.drafts)
-        return drafts
-
-    def _navigation_drafts(self, state: WorldState, pending: PendingAction, source_event_id: str) -> list[EventDraft]:
-        """@brief 每项实际出行按稳定活动键从绑定了这次出行方式的功能 app 里选一个，仅写瞬时导航足迹；没有绑定就不写。"""
-        from worldmock.life.randomness import random_stream
-
-        drafts = []
-        activities = [item for item in state.activities.values() if item.origin_action_id == pending.action_id
-                      and item.kind == ActivityKind.TRAVEL]
-        for activity in activities:
-            action = activity.data["action"]
-            candidates = self.context.catalog.apps_by_travel_method.get(activity.travel_method_id, ())
-            if candidates:
-                app_id = random_stream(state.random_state, f"function-app:{activity.activity_id}").choice(candidates)
-                drafts.append(EventDraft(event_type="environment_event", occurred_at=state.current_time,
-                    agent_id=pending.agent_id, action_id=pending.action_id, activity_id=activity.activity_id,
-                    visibility="system", source_kind="environment", caused_by=[source_event_id],
-                    data={"kind":"app_touch", "app_id":app_id, "action":action,
-                          "step":"navigation", "rule_id":None}))
         return drafts
 
     def _consume_report_opportunity(self, before: WorldState, changed: WorldState, agent_id: int) -> WorldState:

@@ -19,10 +19,17 @@ from worldmock.footprints.app_usage import (
     activity_snapshots, append_activity_segment, project_app_usage, validate_activity_prefix,
 )
 from worldmock.footprints.experiences import project_verified_experiences
+from worldmock.footprints.location_stays import project_location_stays
 from worldmock.footprints.models import AssetRef, Event, canonical_json
 from worldmock.footprints.purchases import project_purchase_facts
 from worldmock.footprints.quality import build_quality_report
 from worldmock.footprints.store import FootprintStore
+
+#: 导出清单的结构号：工件是六份，含地点停留；结构号不符的导出直接拒绝，不迁移。
+EXPORT_SCHEMA_VERSION = 5
+#: 导出清单 artifacts 的键集。
+EXPORT_ARTIFACTS = frozenset({"events", "activities", "verified_experiences", "purchases", "app_usage",
+                              "location_stays"})
 
 
 def write_jsonl(path: Path, records: list[dict]) -> dict:
@@ -54,18 +61,18 @@ def export_run(store: FootprintStore, cutoff: int, destination: Path) -> dict:
 
 
 def _write_export(store: FootprintStore, events: list[Event], stage: Path) -> dict:
-    """@brief 固定主文件、活动视图和全部外部素材，并绑定原始运行身份。"""
+    """@brief 固定六份主文件（事件、活动、已核验经历、购买、app 使用、地点停留）和全部外部素材，并绑定原始运行身份。"""
     activities = reconstruct_activities(events)
     manifest = _export_identity(store.manifest, events)
+    rows = [event.model_dump() for event in events]
     manifest["artifacts"] = {
-        "events": write_jsonl(stage / "events.jsonl", [event.model_dump() for event in events]),
+        "events": write_jsonl(stage / "events.jsonl", rows),
         "activities": write_jsonl(stage / "activities.jsonl", activities),
         "verified_experiences": write_jsonl(
             stage / "verified-experiences.jsonl", _verified_experience_rows(store.manifest["agent_ids"], events)),
-        "purchases": write_jsonl(
-            stage / "purchases.jsonl", project_purchase_facts([event.model_dump() for event in events])),
-        "app_usage": write_jsonl(stage / "app-usage.jsonl",
-                                 project_app_usage([event.model_dump() for event in events])),
+        "purchases": write_jsonl(stage / "purchases.jsonl", project_purchase_facts(rows)),
+        "app_usage": write_jsonl(stage / "app-usage.jsonl", project_app_usage(rows)),
+        "location_stays": write_jsonl(stage / "location-stays.jsonl", project_location_stays(rows)),
     }
     references = {}
     for value in store.manifest["environment_assets"].values():
@@ -140,7 +147,7 @@ def _export_identity(run: dict, events: list[Event]) -> dict:
              and events[-1].event_type == "checkpoint_created" and events[-1].event_seq > ended[0].event_seq)
     failed = any(event.event_type == "run_failed" for event in events)
     complete = end.timestamp() == run["window"]["end"] and saved and not failed
-    return {"schema_version": 4, "committed": True, "run_id": run["run_id"],
+    return {"schema_version": EXPORT_SCHEMA_VERSION, "committed": True, "run_id": run["run_id"],
             "source_group_id": run["source_group_id"],
             "source_run_ids": sorted({event.run_id for event in events}),
             "cutoff_event_seq": events[-1].event_seq, "experiment_completed": complete,

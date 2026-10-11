@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from collections import Counter
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -11,6 +10,7 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.basket import activity_orders, build_orders, delivery_events, quoted_basket
 from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus, FulfillmentKind, WorldState
+from worldmock.life.order_notices import goods_names, payment_notice, placed_notice
 from worldmock.life.order_routing import payment_orders
 from worldmock.life.parcel import collect_parcels
 from worldmock.life.purchase_phases import advance_phases, order_payments, purchase_seconds
@@ -45,7 +45,7 @@ class StorefrontRuntime:
         return advance_phases(changed, activity, state.current_time), activity
 
     def complete_purchase(self, state: WorldState, activity: ActivityState) -> tuple:
-        """@brief 先核对整次总价，再在同次提交中按订单键升序逐张结算，并把各张订单付款事件的身份交给到达排程。"""
+        """@brief 先核对整次总价，再在同次提交中按订单键升序逐张结算，并把各张订单付款事件的身份交给发货与到达排程。"""
         orders = activity_orders(state, activity)
         if all(order.paid_at is not None for order in orders) or all(order.status == "cancelled" for order in orders):
             return state, []
@@ -100,7 +100,8 @@ class StorefrontRuntime:
     def _pay_order(self, state: WorldState, activity: ActivityState, orders: tuple, cause: str) -> tuple:
         """@brief 一张订单的付款事实承载唯一账户变化：金额是这张订单的货款加它名下各配送组的运费。
 
-        抽到支付 app 的订单随后写一条支付通知；到店订单的记录逐条当秒收货。通知和收货都引用这条付款事实。
+        带下单 app 的订单随后写「订单已下单」，支付 app 与下单 app 不全为空的订单再写「支付成功」；到店订单的记录
+        逐条当秒收货。通知和收货都引用这条付款事实。
         """
         amount = sum(order.total_price_fen for order in orders)
         owner = state.agents[activity.agent_id].balance_account_id
@@ -114,8 +115,10 @@ class StorefrontRuntime:
                   "order_ids": order_ids, "amount_fen": amount},
             resource_changes={f"account:{owner}": -amount, "account:external:scenario": amount})
         events = [paid]
-        if orders[0].payment_app_id is not None:
-            events.append(_payment_notification(self.context, changed, orders, paid))
+        if orders[0].app_id is not None:
+            events.append(placed_notice(orders, paid, self.context.catalog))
+        if orders[0].app_id is not None or orders[0].payment_app_id is not None:
+            events.append(payment_notice(orders, paid, self.context.catalog))
         if orders[0].fulfillment == FulfillmentKind.PICKUP:
             for order in orders:
                 outcome = settle_receipt(changed, self.context, order.order_id)
@@ -127,16 +130,9 @@ class StorefrontRuntime:
         return changed, events
 
 
-def _goods_names(orders: tuple, catalog) -> list[str]:
-    """@brief 活动名里的商品名列表：按商品身份升序，同一商品的几份合写成「名称×N」。"""
-    counts = Counter(order.goods_id for order in orders)
-    return [catalog.goods[key].name if count == 1 else f"{catalog.goods[key].name}×{count}"
-            for key, count in sorted(counts.items())]
-
-
 def _purchase_activity(state: WorldState, pending, orders: tuple, duration: int, catalog) -> ActivityState:
     """@brief 同请求全部商品组成一个占槽位 2 的活动，计划时长是含付款的实际购买时长。"""
-    goods = _goods_names(orders, catalog)
+    goods = goods_names(orders, catalog)
     moment = datetime.fromtimestamp(state.current_time, ZoneInfo(state.timezone))
     data = {"action": "purchase", "order_ids": [order.order_id for order in orders], "exertion": "idle",
             "relaxation_relief": "none", "social_relief": "none",
@@ -155,13 +151,3 @@ def _update_orders(state: WorldState, orders: tuple, values: dict) -> WorldState
     changed = {order.order_id: order.model_copy(update=values, deep=True) for order in orders}
     return state.model_copy(update={"deliveries": {**state.deliveries, **changed}}, deep=True)
 
-
-def _payment_notification(context, state: WorldState, orders: tuple, paid: EventDraft) -> EventDraft:
-    """@brief 一张订单的消费文字只读取真实金额和商品名称，通知自身不再次转账。"""
-    names = [context.catalog.goods[order.goods_id].name for order in sorted(orders, key=lambda row: row.goods_id)]
-    amount = paid.data["amount_fen"]
-    return EventDraft(event_type="environment_event", occurred_at=state.current_time, agent_id=orders[0].agent_id,
-        caused_by=[paid.event_id], visibility="system", data={"kind": "payment_notification",
-            "app_id": orders[0].payment_app_id, "amount_fen": amount,
-            "order_ids": paid.data["order_ids"], "title": "支付成功",
-            "summary": f"已消费 {amount / 100:.2f} 元，购买{'、'.join(names)}"})

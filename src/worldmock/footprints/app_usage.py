@@ -1,4 +1,4 @@
-"""@brief 只从实际应用快照和推送投影七种数字使用事实。"""
+"""@brief 只从实际应用快照、前台区间事件、通知和推送投影八种数字使用事实。"""
 
 from __future__ import annotations
 
@@ -11,6 +11,27 @@ from zoneinfo import ZoneInfo
 
 from worldmock.errors import IntegrityError
 from worldmock.life.action_contract import ACTIVITY_ACTIONS
+from worldmock.life.order_notices import ORDER_TITLES, PAYMENT_SUCCEEDED
+
+#: 可以带活动快照的事件：受理、拒绝、结果、进度和环境事件。拒绝带的是被拒那一刻仍在进行的那项活动，世界没有变。
+_SNAPSHOT_EVENT_TYPES = frozenset({"action_accepted", "action_rejected", "action_result", "environment_event",
+                                   "activity_progress"})
+#: 系统可见的 app 事件各自的字段闭集。
+_SYSTEM_FIELDS = {
+    "app_touch": {"kind", "app_id", "action", "step", "rule_id"},
+    "app_foreground": {"kind", "app_id", "step", "interval_start", "interval_end"},
+    "purchase_payment": {"kind", "activity_id", "order_ids", "amount_fen"},
+    "payment_notification": {"kind", "app_id", "amount_fen", "order_ids", "title", "summary"},
+    "order_notification": {"kind", "app_id", "order_ids", "title", "summary"},
+}
+#: 进入 app 事实的系统点事件及各自另带的字段；回调足迹只有发生时刻。
+_POINT_FACT_FIELDS = {
+    "app_touch": (),
+    "payment_notification": ("amount_fen", "order_ids", "title", "summary"),
+    "order_notification": ("order_ids", "title", "summary"),
+}
+#: 前台区间的三种步骤：导航、下单、支付。
+_FOREGROUND_STEPS = frozenset({"navigation", "ordering", "payment"})
 
 
 @dataclass
@@ -31,20 +52,38 @@ class _Projection:
     opened: set[str] = field(default_factory=set)
     released: set[str] = field(default_factory=set)
     expired: set[str] = field(default_factory=set)
+    #: 每项活动最后一份快照的状态；引擎代为使用的 app 行取所属活动的状态。
+    statuses: dict[str, str] = field(default_factory=dict)
+    #: 引擎代为使用的 app：按（活动，app）累计的前台区间、人物与最后一条来源事件。
+    foreground: dict[tuple[str, str], dict] = field(default_factory=dict)
+    #: 各 app_use 行第一条来源事件的事件身份，键是人物点名使用的活动身份或（活动，app）。
+    first_sources: dict[object, str] = field(default_factory=dict)
 
 
 def project_app_usage(events: list[dict]) -> list[dict]:
-    """@brief 持续应用活动输出实际区间，系统触点及支付通知只取独立事件。"""
+    """@brief app 使用行在前、按各行第一条来源事件的先后排列，其余事实按事件先后跟在后面。
+
+    人物点名使用的 app 输出活动的实际执行区间；引擎代为使用的 app（导航、下单、支付）同一活动、同一 app 一行，
+    区间是全部前台区间合并的结果，状态取所属活动的最后状态。
+    """
     projection = _project(events)
-    uses = [{**_common("app_use", activity["agent_id"], _app_binding(activity), source),
-             "activity_id": activity["activity_id"], "status": activity["status"],
-             "segments": projection.segments.get(activity["activity_id"], [])}
-            for activity, source in projection.activities.values()]
-    return uses + projection.facts
+    uses = {identity: {**_common("app_use", activity["agent_id"], _app_binding(activity), source),
+                       "activity_id": identity, "status": activity["status"],
+                       "segments": projection.segments.get(identity, [])}
+            for identity, (activity, source) in projection.activities.items()}
+    for (activity_id, app_id), row in projection.foreground.items():
+        if activity_id not in projection.statuses:
+            _invalid_source("Automatic app use disagrees with its foreground events")
+        uses[activity_id, app_id] = {**_common("app_use", row["agent_id"], app_id, row["source"]),
+                                     "activity_id": activity_id, "status": projection.statuses[activity_id],
+                                     "segments": row["segments"]}
+    order = {event["event_id"]: position for position, event in enumerate(events)}
+    ranked = sorted(uses, key=lambda key: order[projection.first_sources[key]])
+    return [uses[key] for key in ranked] + projection.facts
 
 
 def _common(kind: str, agent_id: int, app_id: str, source: str) -> dict:
-    """@brief 七种应用事实共用五个字段，不复制系统动作及步骤信息。"""
+    """@brief 八种应用事实共用五个字段，不复制系统动作及步骤信息。"""
     return {"fact_kind": kind, "agent_id": agent_id, "activity_id": None,
             "app_id": app_id, "source_event_id": source}
 
@@ -67,11 +106,15 @@ def validate_activity_prefix(events: list[dict]) -> None:
             _invalid_source("Activity snapshot contains a retired title field")
 
 
-def append_activity_segment(segments: list[dict], event: dict) -> None:
-    """@brief 应用与活动导出共享区间合并，暂停时间不进入执行区间。"""
+def append_activity_segment(segments: list[dict], event: dict,
+                            reason: str = "Activity progress interval is invalid") -> None:
+    """@brief 应用与活动导出共享区间合并：首尾相接的并成一段，暂停时间不进入执行区间；前台区间用同一合并。
+
+    :param reason: 区间不为正、越过事件时刻或倒退时报的英文原因。
+    """
     start, end = event["data"]["interval_start"], event["data"]["interval_end"]
     if end <= start or end > event["occurred_at"] or (segments and start < segments[-1]["ended_at"]):
-        _invalid_source("Activity progress interval is invalid")
+        _invalid_source(reason)
     if segments and start == segments[-1]["ended_at"]:
         segments[-1]["ended_at"] = end
     else:
@@ -95,11 +138,14 @@ def _visit(event: dict, projection: _Projection, ended: set[str]) -> None:
     """@brief 活动、内容和会话全部取真实事件，不解释人物自述。"""
     validate_app_event_source(event)
     data = event["data"]
-    if event["event_type"] == "environment_event" and data.get("kind") in {"app_touch", "payment_notification"}:
+    if event["event_type"] == "environment_event" and data.get("kind") in _POINT_FACT_FIELDS:
         _system_fact(event, projection)
+    if event["event_type"] == "environment_event" and data.get("kind") == "app_foreground":
+        _foreground(event, projection)
     if event["event_type"] == "environment_event" and data.get("kind") == "app_push" and "push_id" in data:
         _delivered(event, projection)
     for activity in activity_snapshots(data):
+        projection.statuses[activity.get("activity_id")] = activity.get("status")
         sessions = activity.get("session_ids", [])
         if event["event_type"] == "action_accepted" and sessions:
             _change_session(projection, activity["agent_id"], sessions[-1])
@@ -121,7 +167,7 @@ def validate_app_event_source(event: dict) -> None:
             _invalid_source("Run end must be a system-visible environment event")
     snapshots = activity_snapshots(data)
     if snapshots:
-        if (event["event_type"] not in {"action_accepted", "action_result", "environment_event", "activity_progress"}
+        if (event["event_type"] not in _SNAPSHOT_EVENT_TYPES
                 or event.get("source_kind") != "environment" or event.get("visibility") != "agent"):
             _invalid_source("Activity snapshots must come from agent-visible environment events")
         if any(row["kind"] not in {"sleep", "travel", "interact", "purchase"} for row in snapshots):
@@ -141,7 +187,7 @@ def validate_app_event_source(event: dict) -> None:
     if event["event_type"] == "environment_event":
         if data.get("kind") == "app_push":
             _validate_push_source(event)
-        elif data.get("kind") in {"app_touch", "payment_notification", "purchase_payment"}:
+        elif data.get("kind") in _SYSTEM_FIELDS:
             _validate_system_source(event)
 
 
@@ -229,47 +275,78 @@ def _app_snapshot(event: dict, activity: dict, projection: _Projection) -> None:
             consumed_pin = old.get("pinned_by_push_id") if old.get("content_id") == consumed["content_id"] else None
             projection.facts.append(_content_fact(event, activity, consumed_pin))
     projection.activities[identity] = activity, event["event_id"]
+    projection.first_sources.setdefault(identity, event["event_id"])
 
 
 def _validate_system_source(event: dict) -> None:
-    """@brief 自动触点、支付和通知使用封闭系统载荷，必须引用真实原因。"""
+    """@brief 回调足迹、前台区间、付款和通知使用封闭系统载荷，必须引用恰一条真实原因。"""
     data = event["data"]
-    fields = {
-        "app_touch": {"kind", "app_id", "action", "step", "rule_id"},
-        "purchase_payment": {"kind", "activity_id", "order_ids", "amount_fen"},
-        "payment_notification": {"kind", "app_id", "amount_fen", "order_ids", "title", "summary"},
-    }
-    if set(data) != fields[data["kind"]]:
+    if set(data) != _SYSTEM_FIELDS[data["kind"]]:
         _invalid_source("System app event fields are outside the current contract")
     if event.get("source_kind") != "environment" or event.get("visibility") != "system":
         _invalid_source("System app event must be a system-visible environment event")
     if len(event.get("caused_by", [])) != 1:
         _invalid_source("System app event requires one actual cause event")
     if data["kind"] == "app_touch":
-        if data["action"] is not None and data["action"] not in ACTIVITY_ACTIONS:
-            _invalid_source("App touch action is invalid")
-        allowed = {"navigation", "payment"} if data["rule_id"] is None else {"browse", "payment"}
-        if data["step"] not in allowed:
-            _invalid_source("App touch step disagrees with its source")
+        _validate_callback_touch(data)
+    elif data["kind"] == "app_foreground":
+        _validate_foreground(event)
     else:
-        order_ids = data["order_ids"]
-        if (not isinstance(order_ids, list) or not order_ids or order_ids != sorted(set(order_ids))
-                or any(not isinstance(identity, str) or not identity for identity in order_ids)
-                or type(data["amount_fen"]) is not int or data["amount_fen"] <= 0):
-            _invalid_source("Purchase payment order group or amount is invalid")
-    if data["kind"] == "payment_notification" and (data["title"] != "支付成功"
-            or not isinstance(data["summary"], str) or not data["summary"]):
-        _invalid_source("Payment notification text is invalid")
+        _validate_order_event(data)
     if "app_id" in data and (not isinstance(data["app_id"], str) or not data["app_id"]):
         _invalid_source("System app event requires an actual app identity")
 
 
-def _system_fact(event: dict, projection: _Projection) -> None:
-    """@brief 系统触点和通知没有活动身份，不进入人物公开经历。"""
+def _validate_callback_touch(data: dict) -> None:
+    """@brief app 时间点只剩回调足迹：带着回调规则的身份，步骤只有浏览或付款；出行和付款不再写自动时间点。"""
+    if data["action"] is not None and data["action"] not in ACTIVITY_ACTIONS:
+        _invalid_source("App touch action is invalid")
+    if not isinstance(data["rule_id"], str) or not data["rule_id"] or data["step"] not in {"browse", "payment"}:
+        _invalid_source("App touch step disagrees with its source")
+
+
+def _validate_foreground(event: dict) -> None:
+    """@brief 前台区间属于一项活动，步骤在闭集内，区间为正并结束于事件时刻。"""
     data = event["data"]
-    fields = () if data["kind"] == "app_touch" else ("amount_fen", "order_ids", "title", "summary")
+    start, end = data["interval_start"], data["interval_end"]
+    if not isinstance(event.get("activity_id"), str) or not event["activity_id"]:
+        _invalid_source("System app event fields are outside the current contract")
+    if (data["step"] not in _FOREGROUND_STEPS or type(start) is not int or type(end) is not int
+            or start >= end or end != event["occurred_at"]):
+        _invalid_source("App foreground step or interval is invalid")
+
+
+def _validate_order_event(data: dict) -> None:
+    """@brief 付款与两类通知都列出非空、升序、不重复的记录身份；金额为正整数，标题与正文各在自己的闭集内。"""
+    order_ids = data["order_ids"]
+    listed = (isinstance(order_ids, list) and bool(order_ids) and order_ids == sorted(set(order_ids))
+              and all(isinstance(identity, str) and identity for identity in order_ids))
+    written = isinstance(data.get("summary"), str) and bool(data["summary"])
+    if data["kind"] == "order_notification":
+        if not listed or data["title"] not in ORDER_TITLES or not written:
+            _invalid_source("Order notification text or order set is invalid")
+        return
+    if not listed or type(data["amount_fen"]) is not int or data["amount_fen"] <= 0:
+        _invalid_source("Purchase payment order group or amount is invalid")
+    if data["kind"] == "payment_notification" and (data["title"] != PAYMENT_SUCCEEDED or not written):
+        _invalid_source("Payment notification text is invalid")
+
+
+def _system_fact(event: dict, projection: _Projection) -> None:
+    """@brief 回调足迹和通知没有活动身份，不进入人物公开经历。"""
+    data = event["data"]
     projection.facts.append({**_common(data["kind"], event["agent_id"], data["app_id"], event["event_id"]),
-                             "occurred_at": event["occurred_at"], **{key: data[key] for key in fields}})
+                             "occurred_at": event["occurred_at"],
+                             **{key: data[key] for key in _POINT_FACT_FIELDS[data["kind"]]}})
+
+
+def _foreground(event: dict, projection: _Projection) -> None:
+    """@brief 引擎代为使用的 app：同一活动、同一 app 的前台区间按时间累计，首尾相接的并成一段。"""
+    key = event["activity_id"], event["data"]["app_id"]
+    row = projection.foreground.setdefault(key, {"agent_id": event["agent_id"], "segments": []})
+    append_activity_segment(row["segments"], event, "App foreground step or interval is invalid")
+    row["source"] = event["event_id"]
+    projection.first_sources.setdefault(key, event["event_id"])
 
 
 def _content_fact(event: dict, activity: dict, push_id: str | None) -> dict:

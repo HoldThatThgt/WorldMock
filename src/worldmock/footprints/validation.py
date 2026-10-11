@@ -1,7 +1,8 @@
 """@brief 在生产消费者入口认证完整足迹导出及全部来源。"""
 
 from __future__ import annotations
-from worldmock.footprints.export import _verified_experience_rows, reconstruct_activities
+from worldmock.footprints.export import (EXPORT_ARTIFACTS, EXPORT_SCHEMA_VERSION, _verified_experience_rows,
+                                         reconstruct_activities)
 
 from worldmock.footprints.models import sha256_json
 import hashlib
@@ -22,6 +23,7 @@ from worldmock.footprints.purchases import project_purchase_facts
 from worldmock.footprints.quality import build_quality_report
 from worldmock.footprints.invariants import validate_footprint_facts
 from worldmock.footprints.frozen_environment import validate_frozen_environment
+from worldmock.footprints.location_stays import project_location_stays, validate_location_stays
 
 
 def validate_export(directory: Path) -> tuple[dict, list[dict], list[dict]]:
@@ -35,6 +37,7 @@ def validate_export(directory: Path) -> tuple[dict, list[dict], list[dict]]:
         root, manifest["artifacts"]["verified_experiences"], "verified-experiences.jsonl")
     purchases = _read_artifact(root, manifest["artifacts"]["purchases"], "purchases.jsonl")
     app_usage = _read_artifact(root, manifest["artifacts"]["app_usage"], "app-usage.jsonl")
+    stays = _read_artifact(root, manifest["artifacts"]["location_stays"], "location-stays.jsonl")
     indexed = _read_artifact(root, manifest["asset_index"], "asset-index.jsonl")
     validate_activity_prefix(events)
     records = [Event.model_validate(row, strict=True) for row in events]
@@ -52,8 +55,12 @@ def validate_export(directory: Path) -> tuple[dict, list[dict], list[dict]]:
     if project_app_usage(events) != app_usage:
         logging.error("Export app usage facts disagree with committed events")
         raise IntegrityError("Export app usage facts disagree with committed events")
+    if project_location_stays(events) != stays:
+        logging.error("Export location stays disagree with committed events")
+        raise IntegrityError("Export location stays disagree with committed events")
     validate_frozen_environment(root, manifest["frozen_run_manifest"], activities, events)
     validate_footprint_facts(events, activities, purchases, app_usage, checkpoint.state)
+    validate_location_stays(stays, events, activities, checkpoint.state, manifest["frozen_run_manifest"]["window"])
     _validate_quality(root, manifest, records, activities)
     return manifest, events, activities
 
@@ -75,7 +82,7 @@ def _validate_quality(root: Path, manifest: dict, events: list[Event], activitie
 
 def _validate_identity(manifest: dict) -> None:
     """@brief 冻结运行、覆盖范围和提交状态必须与正式清单相符。"""
-    if manifest.get("schema_version") != 4 or manifest.get("committed") is not True:
+    if manifest.get("schema_version") != EXPORT_SCHEMA_VERSION or manifest.get("committed") is not True:
         raise IntegrityError("Export manifest is not a committed supported version")
     if manifest.get("experiment_completed") is not True:
         raise IntegrityError("Production delivery requires a completed experiment")
@@ -99,7 +106,7 @@ def _validate_identity(manifest: dict) -> None:
         cursor = datetime.combine(cursor.date() + timedelta(days=1), datetime.min.time(), zone)
     if manifest["daily_coverage"] != days:
         raise IntegrityError("Export day coverage is inconsistent")
-    if set(manifest["artifacts"]) != {"events", "activities", "verified_experiences", "purchases", "app_usage"}:
+    if set(manifest["artifacts"]) != EXPORT_ARTIFACTS:
         raise IntegrityError("Export artifact set is invalid")
 
 

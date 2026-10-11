@@ -80,7 +80,8 @@ def test_retired_background_events_are_rejected(kind):
 
 
 def test_current_background_event_kinds_are_exact():
-    assert set(ScheduledKind) == {"delivery_arrival", "calendar_flag", "app_push", "time_trigger", "weather"}
+    assert set(ScheduledKind) == {"delivery_arrival", "order_shipped", "calendar_flag", "app_push", "time_trigger",
+                                  "weather"}
 
 
 MORNING = app_content("dingtalk-morning", "晨会纪要",

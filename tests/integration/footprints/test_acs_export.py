@@ -2,12 +2,12 @@
 
 from copy import deepcopy
 from datetime import timedelta
-import hashlib
 import json
 
 import pytest
 
-from tests.footprints.recording import recorded_engine, short_window
+from tests.footprints.recording import (artifact_rows, final_checkpoint, read_export, recorded_engine, reproject,
+                                        short_window, write_manifest, write_rows)
 from tests.life.conftest import purchase
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, finish_activity, run_to_end
@@ -27,9 +27,19 @@ def real_export(engine_factory, tmp_path):
 
 def test_actual_purchase_content_and_current_artifacts_are_authenticated(real_export):
     manifest, events, activities = validate_export(real_export)
-    assert manifest["schema_version"] == 4
+    assert manifest["schema_version"] == 5
     assert manifest["checkpoint"]["state"]["schema_version"] == 13
-    assert set(manifest["artifacts"]) == {"events", "activities", "verified_experiences", "purchases", "app_usage"}
+    assert {name: row["path"] for name, row in manifest["artifacts"].items()} == {
+        "events": "events.jsonl", "activities": "activities.jsonl",
+        "verified_experiences": "verified-experiences.jsonl", "purchases": "purchases.jsonl",
+        "app_usage": "app-usage.jsonl", "location_stays": "location-stays.jsonl"}
+    assert all(set(row) == {"path", "rows", "sha256"} for row in manifest["artifacts"].values())
+    # 地点停留每段一行：运行开始时已在便利店的那一段排最前；截止时还在的那一段没有离开时刻。
+    stays = artifact_rows(real_export, "location_stays")
+    assert (stays[0]["location_id"], stays[0]["entry_kind"]) == ("store", "run_start")
+    assert (stays[-1]["left_at"], stays[-1]["leave_source_event_id"]) == (None, None)
+    assert all(row["left_at"] is not None for row in stays[:-1])
+    assert manifest["artifacts"]["location_stays"]["rows"] == len(stays)
     assert {row["activity_type"] for row in activities} >= {"purchase", "interact"}
     receipts = [row for row in events if row["data"].get("kind") == "goods_received"]
     assert len(receipts) == 2 and all(row["agent_id"] == 1 and row["resource_changes"] == {} for row in receipts)
@@ -39,16 +49,22 @@ def test_actual_purchase_content_and_current_artifacts_are_authenticated(real_ex
     assert [(row["action_id"], row["data"]["request"]) for row in side] == [
         ("action-recorded-basket", {"action": "purchase", "target": ["柠檬茶", "纸巾"]}),
         ("action-recorded-content", {"action": "interact", "target": ["哔哩哔哩"]})]
-    bought = [json.loads(line) for line in (real_export / "purchases.jsonl").read_bytes().splitlines()]
+    bought = artifact_rows(real_export, "purchases")
     attempts = [row for row in bought if row["fact_kind"] == "order_attempt"]
     assert [(row["action_id"], row["request_event_id"], row["action"], row["status"], row["error_code"])
             for row in attempts] == [("action-recorded-basket", side[0]["event_id"], "purchase", "in_progress", None)]
     assert {row["action_id"] for row in bought if row["fact_kind"] == "purchase"} == {"action-recorded-basket"}
     assert len([row for row in bought if row["fact_kind"] == "purchase"]) == 2
-    facts = [json.loads(line) for line in (real_export / "app-usage.jsonl").read_bytes().splitlines()]
+    facts = artifact_rows(real_export, "app_usage")
     consumed = [row for row in facts if row["fact_kind"] == "content_consumed"]
     assert consumed and all(row["app_id"] == "bilibili" for row in consumed)
-    assert len({row["activity_id"] for row in facts if row["fact_kind"] == "app_use"}) == 1
+    by_type = {row["activity_id"]: row["activity_type"] for row in activities}
+    used = [row for row in facts if row["fact_kind"] == "app_use"]
+    assert [by_type[row["activity_id"]] for row in used if row["app_id"] == "bilibili"] == ["interact"]
+    # 其余 app 使用行都是引擎代为使用的：到店购买只可能有支付 app 的付款区间（到店订单没有下单 app），
+    # 之后走回家的那趟出行是导航。
+    others = {(by_type[row["activity_id"]], row["app_id"]) for row in used if row["app_id"] != "bilibili"}
+    assert others <= {("purchase", "alipay"), ("purchase", "wechat"), ("travel", "amap")}
     assert all(len(row["source_event_ids"]) == len(set(row["source_event_ids"])) for row in activities)
 
 
@@ -56,14 +72,21 @@ def test_actual_purchase_content_and_current_artifacts_are_authenticated(real_ex
     ("export", "Export manifest is not a committed supported version"),
     ("world", "Export checkpoint world schema does not match the current code"),
     ("run", "Export frozen run manifest or environment identity is invalid"),
+    ("five_artifacts", "Export artifact set is invalid"),
+    ("extra_artifact", "Export artifact set is invalid"),
 ])
 def test_retired_schema_is_rejected_before_consumption(real_export, version, reason):
-    """上一版导出清单、上一版世界状态结构（12）与上一版运行清单各自在读取前被拒绝，原因各是各的。"""
+    """上一版导出清单（4）、上一版世界状态结构（12）、上一版运行清单，以及没有地点停留的五份工件集合，各自在读取前
+    被拒绝，原因各是各的。"""
     manifest, _ = read_export(real_export)
     if version == "export":
-        manifest["schema_version"] = 3
+        manifest["schema_version"] = 4
     elif version == "world":
         manifest["checkpoint"]["state"]["schema_version"] = 12
+    elif version == "five_artifacts":
+        del manifest["artifacts"]["location_stays"]
+    elif version == "extra_artifact":
+        manifest["artifacts"]["navigation"] = dict(manifest["artifacts"]["location_stays"])
     else:
         manifest["frozen_run_manifest"]["schema_version"] = 4
     (real_export / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
@@ -108,13 +131,29 @@ def test_rehashed_sources_and_projections_cannot_invent_real_behavior(real_expor
         validate_export(real_export)
 
 
-@pytest.mark.parametrize("artifact", ["activities", "verified_experiences", "purchases", "app_usage"])
+@pytest.mark.parametrize("artifact", ["activities", "verified_experiences", "purchases", "app_usage",
+                                      "location_stays"])
 def test_rehashed_projection_cannot_disagree_with_actual_events(real_export, artifact):
     manifest, _ = read_export(real_export)
     write_rows(real_export, manifest, artifact, [{"invented": True}])
     (real_export / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(IntegrityError, match="disagree"):
         validate_export(real_export)
+
+
+def test_location_stays_artifact_is_compared_with_the_projection_of_the_events(engine_factory, tmp_path):
+    """一小时里什么都没买的运行：人物从便利店走回家，停留工件两行；删掉后一行并重新签名，认证按停留工件与事件不符拒绝。"""
+    engine, point = recorded_engine(engine_factory, purchases=False, content=False)
+    directory = tmp_path / "quiet-hour"
+    export_run(engine.context.store, point.last_event_seq, directory)
+    validate_export(directory)
+    manifest, _ = read_export(directory)
+    stays = artifact_rows(directory, "location_stays")
+    assert [(row["location_id"], row["entry_kind"]) for row in stays] == [("store", "run_start"), ("home", "arrival")]
+    write_rows(directory, manifest, "location_stays", stays[:1])
+    write_manifest(directory, manifest)
+    with pytest.raises(IntegrityError, match="^Export location stays disagree with committed events$"):
+        validate_export(directory)
 
 
 def test_two_purchases_on_the_same_route_export_with_one_payment_per_purchase(engine_factory, tmp_path):
@@ -128,8 +167,7 @@ def test_two_purchases_on_the_same_route_export_with_one_payment_per_purchase(en
     assert all((order.store_id, order.destination_id, order.app_id, order.fulfillment)
                == ("store", "store", None, "pickup") for order in (first, second))
     run_to_end(engine)
-    snapshot = engine.context.store.assets.put_json({"completed": True}, {"kind": "test_agent_snapshot"})
-    point = engine.checkpoint({"agent:1": snapshot})
+    point = final_checkpoint(engine)
     export_run(engine.context.store, point.last_event_seq, tmp_path / "same-route")
     _, exported, _ = validate_export(tmp_path / "same-route")
     payments = [row["data"] for row in exported if row["data"].get("kind") == "purchase_payment"]
@@ -155,8 +193,7 @@ def test_one_order_over_two_delivery_groups_exports_with_a_single_payment(engine
     assert len({order.group_key for order in orders}) == 2 and {order.app_id for order in orders} == {"meituan"}
     run_to_end(engine)
     assert {order.status for order in engine.context.state.deliveries.values()} == {"delivered"}
-    snapshot = engine.context.store.assets.put_json({"completed": True}, {"kind": "test_agent_snapshot"})
-    point = engine.checkpoint({"agent:1": snapshot})
+    point = final_checkpoint(engine)
     export_run(engine.context.store, point.last_event_seq, tmp_path / "one-order")
     _, exported, _ = validate_export(tmp_path / "one-order")
     (payment,) = [row for row in exported if row["data"].get("kind") == "purchase_payment"]
@@ -169,48 +206,6 @@ def test_one_order_over_two_delivery_groups_exports_with_a_single_payment(engine
     with pytest.raises(IntegrityError, match="^Purchase payment disagrees with its actual order$"):
         reproject(tmp_path / "one-order", manifest, exported)
         validate_export(tmp_path / "one-order")
-
-
-def write_rows(directory, manifest, name, rows):
-    """@brief 改写被测导出文件并刷新真实字节摘要和行数，不用损坏哈希代替行为认证。"""
-    from worldmock.footprints.models import canonical_json
-    descriptor = manifest["artifacts"][name]
-    raw = b"".join(canonical_json(row) + b"\n" for row in rows)
-    (directory / descriptor["path"]).write_bytes(raw)
-    descriptor.update(sha256=hashlib.sha256(raw).hexdigest(), rows=len(rows))
-
-
-def reproject(directory, manifest, events):
-    """@brief 五份工件和质量全部按被污染后的事件重算，失败只能来自实际语义约束。"""
-    from worldmock.footprints.app_usage import project_app_usage
-    from worldmock.footprints.export import _verified_experience_rows, reconstruct_activities
-    from worldmock.footprints.models import Event, canonical_json, sha256_json
-    from worldmock.footprints.purchases import project_purchase_facts
-    from worldmock.footprints.quality import build_quality_report
-    records = [Event.model_validate(event) for event in events]
-    activities = reconstruct_activities(records)
-    write_rows(directory, manifest, "events", events)
-    write_rows(directory, manifest, "activities", activities)
-    write_rows(directory, manifest, "verified_experiences",
-               _verified_experience_rows(manifest["frozen_run_manifest"]["agent_ids"], records))
-    write_rows(directory, manifest, "purchases", project_purchase_facts(events))
-    write_rows(directory, manifest, "app_usage", project_app_usage(events))
-    quality = canonical_json(build_quality_report(records, activities, manifest["frozen_run_manifest"])) + b"\n"
-    (directory / "quality.json").write_bytes(quality)
-    manifest["quality_report"].update(size_bytes=len(quality), sha256=hashlib.sha256(quality).hexdigest())
-    checkpoint = manifest["checkpoint"]
-    checkpoint["last_event_seq"] = manifest["cutoff_event_seq"] = len(events)
-    checkpoint["record_sha256"] = sha256_json({key: value for key, value in checkpoint.items()
-                                               if key != "record_sha256"})
-    (directory / "manifest.json").write_bytes(canonical_json(manifest) + b"\n")
-    return activities
-
-
-def read_export(directory):
-    """@brief 原始证据是已认证过的当前真实运行导出。"""
-    manifest = json.loads((directory / "manifest.json").read_bytes())
-    events = [json.loads(line) for line in (directory / "events.jsonl").read_bytes().splitlines()]
-    return manifest, events
 
 
 @pytest.mark.parametrize("rules_version", [3, 5, "4", True])

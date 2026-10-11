@@ -12,6 +12,7 @@ from worldmock.life.models import ActivityKind, ActivityStatus, WorldState, acti
 from worldmock.life.projection import felt_values
 from worldmock.life.schedule import NextDecisionQuery, WakeSnapshot, evaluate_wake_reasons, next_decision_time
 from worldmock.life.world_ops import _put_activity, _resource_flows_data, meal_windows_by_agent
+from worldmock.scheduling.events import ScheduledKind
 
 HUNGRY_BANDS = frozenset({"饿", "很饿", "饿得难受", felt.APPETITE_STARVING_LEVEL})
 SLEEPY_BANDS = frozenset({"困", "很困", "撑不住"})
@@ -142,7 +143,8 @@ def next_decision_at(context, state: WorldState, agent) -> int:
         planned_end=min((item.planned_end_at for item in activities), default=None),
         felt_band_crossing_times=() if seconds is None else (state.current_time + seconds,),
         scheduled_arrival_times=tuple(item.due_at for item in state.pending_events
-                                     if item.agent_id == agent.agent_id), last_decision_time=agent.last_decision_time,
+                                     if item.agent_id == agent.agent_id and item.kind != ScheduledKind.ORDER_SHIPPED),
+        last_decision_time=agent.last_decision_time,
         reconsideration_interval_seconds=context.config.reconsideration_interval_seconds,
         next_progress_report_at=_next_progress_report_at(agent, state, context.config.progress_report_interval_seconds),
         reminder_times=(*reminders.reminder_times(agent, state.current_time),

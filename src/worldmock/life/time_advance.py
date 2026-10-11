@@ -52,8 +52,10 @@ from worldmock.life.rhythm import (
 )
 from worldmock.life.schedule import DayPlan, expired_plan_agent_ids
 from worldmock.life.models import validated_payload
+from worldmock.life.navigation_foreground import settle_navigation
 from worldmock.life.presentation import flush_presentation, stage_presentation
-from worldmock.life.purchase_phases import advance_phases, phase_boundaries
+from worldmock.life.purchase_phases import advance_phases, foreground_events, phase_boundaries
+from worldmock.life.stay_records import stay_events
 from worldmock.life.travel import persisted_trip, record_arrival, update_travel
 from worldmock.scheduling.effects import process_scheduled_events
 
@@ -131,12 +133,14 @@ class TimeAdvanceCoordinator:
         return results
 
     def _commit_advance(self, staged: WorldState, drafts: list[EventDraft]) -> None:
-        """@brief 所有效果完成后比对阈值一次，提交唯一新世界。"""
+        """@brief 所有效果完成后比对阈值一次，再比较提交前后的世界写导航、购买前台区间与停留进出，提交唯一新世界。"""
         from worldmock.life.callbacks import compare_callback_states
 
         outcome = compare_callback_states(self.context.state, staged, self.context.catalog, drafts,
                                           self.context.callback_causes)
-        staged, drafts = outcome.state, [*drafts, *outcome.drafts]
+        staged, navigation = settle_navigation(self.context.state, outcome.state, self.context.catalog)
+        drafts = [*drafts, *outcome.drafts, *navigation, *foreground_events(self.context.state, staged),
+                  *stay_events(self.context.state, staged, drafts)]
         staged.version = self.context.state.version + 1
         self.context.store.commit(validated_payload(staged), drafts)
         self.context.state = staged
