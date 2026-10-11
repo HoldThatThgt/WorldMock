@@ -63,33 +63,47 @@ function layers(kind = 'action') {
   return JSON.parse(fixture[kind].messages[1].content);
 }
 
-test('genuine current requests have seven layers and ten offered tools', () => {
+test('genuine current requests have seven layers and eleven offered tools', () => {
   const {api, errors} = parser();
   const parsed = api.parseRequest(event());
   assert.equal(parsed.stage, 'action');
   assert.deepEqual(plain(messageBlocks(parsed).map(block => block.key)), LAYER_KEYS);
   assert.equal(messageBlocks(parsed).map(block => block.text).join(''), request().messages[1].content);
   assert.deepEqual(layers().map(layer => layer.layer), LAYER_NAMES);
-  assert.equal(fixture.action.tools.length, 10);
+  // 现行工具面：六个世界请求（两个开始工具在前）、两个世界查询与三个记忆查询，没有已删除的 start_activity。
+  assert.deepEqual(fixture.action.tools.map(tool => tool.function.name), [
+    'start_main_activity', 'start_side_activity', 'report_status', 'pause_activity', 'conclude_activity',
+    'revise_day_plan', 'recall_task_summary', 'query_world', 'memory_recent', 'memory_search', 'memory_time_range']);
+  assert.equal(fixture.action.tools.length, 11);
   assert.deepEqual(fixture.continuation.tools, fixture.action.tools);
   assert.deepEqual(fixture.continuation.messages.slice(0, 2), fixture.action.messages);
   assert.equal(parsed.warnings.length, 0);
   assert.equal(errors.length, 0);
 });
 
-test('the current tool layer contains only the seven actual actions with lossless target drills', () => {
+test('the current tool layer contains only the four actual actions with lossless target drills', () => {
   const {api} = parser();
   const parsed = api.parseRequest(event());
   const tool = parsed.blocks.find(block => block.key === 'tool');
   const groups = tool.value.groups;
   assert.deepEqual([...new Set(groups.map(group => group.action).filter(Boolean))].sort(),
-    ['drive', 'interact', 'purchase', 'sleep', 'take_bus', 'take_taxi', 'walk']);
+    ['interact', 'purchase', 'sleep', 'travel']);
+  // 出行只有 travel 一个动作：同一目的地每种出行方式一行，靠 detail 区分，每个目的地的方式集合相同。
+  const methods = new Map();
+  for (const group of groups.filter(group => group.action === 'travel')) for (const entry of group.targets) {
+    methods.set(entry.name, [...(methods.get(entry.name) ?? []), entry.detail]);
+  }
+  assert.ok(methods.has('公司'));
+  for (const details of methods.values()) assert.deepEqual([...details].sort(), ['公共交通', '打车', '步行', '驾车']);
   const items = plain(api.drillItems(tool));
   for (const group of groups) for (const entry of group.targets) {
     const merged = {...group.shared, ...entry, kind:group.kind};
     assert.ok(items.some(item => item.text === JSON.stringify(merged, null, 2)));
-    if (group.action !== null) assert.ok(items.some(item => item.label.startsWith(
-      `${entry.name} · ${group.action} · `)));
+    // 带 detail 的行（出行、在地点做事）标签写「目标 · 动作 · detail · 可用性」，没有 detail 的行不留空位。
+    const named = entry.detail == null ? group.action : `${group.action} · ${entry.detail}`;
+    const state = merged.available ? '可用' : `不可用：${merged.reason}`;
+    if (group.action !== null) assert.ok(items.some(item => item.label === `${entry.name} · ${named} · ${state}`),
+      `${entry.name} · ${named} · ${state}`);
     assert.equal(Object.hasOwn(group, 'way'), false);
   }
 });

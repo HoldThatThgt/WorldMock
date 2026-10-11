@@ -315,13 +315,24 @@ test('context drills into current tools and real-shaped progress self notes', ()
     app.get('button:message:1:tool').onclick();
     const options = app.get('#ctx-item').innerHTML;
     assert.ok(options.includes('美团（app）'));
-    assert.ok(options.includes('interact'));
+    assert.ok(options.includes('美团 · interact · 可用'));
+    // 录制的工具层里出行只有 travel 一个动作，同一目的地的各行靠出行方式的名称区分；四个旧出行动作不再出现。
+    for (const method of ['步行', '公共交通', '驾车', '打车']) {
+      assert.ok(options.includes(`公司 · travel · ${method} · 可用`), method);
+    }
+    assert.ok(options.includes('家 · interact · 测试休息 · 可用'));
+    assert.ok(options.includes('家 · sleep · 可用'));
+    assert.doesNotMatch(options, / · (walk|drive|take_bus|take_taxi) · /);
     assert.ok(!options.includes('：进行'));
     app.get('button:message:1:progress').onclick();
     assert.ok(app.get('#ctx-item').innerHTML.includes('self_note（未经核验）'));
     app.get('#ctx-item').onchange({target:{value:'0'}});
     assert.ok(app.get('#ctx-body').innerHTML.includes('先浏览。'));
-    // 工具定义块的说明按现行工具面计数：六个世界请求、两个世界查询、三个记忆查询，共十一个。
+    // 工具定义块的说明按现行工具面计数：六个世界请求、两个世界查询、三个记忆查询，共十一个；录制的请求正是这十一个。
+    assert.equal(request.tools.length, 11);
+    assert.deepEqual(request.tools.slice(0, 2).map(tool => tool.function.name),
+      ['start_main_activity', 'start_side_activity']);
+    assert.ok(!request.tools.some(tool => tool.function.name === 'start_activity'));
     app.get('button:tools').onclick();
     const filled = app.get('#ctx-body').innerHTML;
     assert.ok(filled.includes('六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）、' +
