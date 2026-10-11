@@ -44,6 +44,7 @@ callbacks.jsonl 写回调声明，map.jsonl 写两地的距离，travel-method.j
 ```json
 {"exertion":"light","name":"公共交通","price_per_km_fen":0,"speed_meters_per_second":5,"start_price_fen":200,"travel_method_id":"bus"}
 {"exertion":"light","name":"驾车","price_per_km_fen":200,"speed_meters_per_second":7,"start_price_fen":500,"travel_method_id":"driving"}
+{"exertion":"light","name":"打车","price_per_km_fen":300,"speed_meters_per_second":7,"start_price_fen":1400,"travel_method_id":"taxi"}
 ```
 
 - 六个字段都要写。行按 travel_method_id 升序，身份不能重复，也不能叫 walking。

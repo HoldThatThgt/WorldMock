@@ -192,6 +192,12 @@ test('a decision first request with extra messages is a continuation matched to 
     app.run('ContextView.select(3)');
     assert.ok(app.get('#ctx-body').innerHTML.includes('同秒续接：本决策首个请求多于两条消息'));
     assert.ok(app.get('#ctx-body').innerHTML.includes('续接 · assistant · 来源决策'));
+    // 选中续接的 assistant 块：说明写每个世界请求各一条 tool 消息，开始组两条，changes 与 events 只在最后一条上。
+    app.get('button:message:2:message').onclick();
+    const filled = app.get('#ctx-body').innerHTML;
+    assert.ok(filled.includes('为它的每个世界请求各追加一条 tool 消息'), filled);
+    assert.ok(filled.includes('一个世界请求一条，开始组两条，changes 与 events 只写在最后一条上。'));
+    assert.ok(!filled.includes('与一条 tool 消息'));
     app.run('ContextView.select(1)');
     const output = app.get('#ctx-body').innerHTML;
     assert.ok(output.includes('本次思考原文') && output.includes('上一决策的思考。'));
@@ -301,7 +307,7 @@ test('context drills into current tools and real-shaped progress self notes', ()
   const request = contextRequest();
   const values = JSON.parse(request.messages[1].content);
   values[5].events = [{occurred_at:'2026-01-05T08:00:00+08:00', type:'tool_call',
-    tool:'start_activity', result:{status:'completed'}, self_note:'先浏览。'}];
+    tool:'start_side_activity', result:{status:'completed'}, self_note:'先浏览。'}];
   request.messages[1].content = JSON.stringify(values);
   const app = viewer([contextEvent('current', request)]);
   try {
@@ -315,6 +321,12 @@ test('context drills into current tools and real-shaped progress self notes', ()
     assert.ok(app.get('#ctx-item').innerHTML.includes('self_note（未经核验）'));
     app.get('#ctx-item').onchange({target:{value:'0'}});
     assert.ok(app.get('#ctx-body').innerHTML.includes('先浏览。'));
+    // 工具定义块的说明按现行工具面计数：六个世界请求、两个世界查询、三个记忆查询，共十一个。
+    app.get('button:tools').onclick();
+    const filled = app.get('#ctx-body').innerHTML;
+    assert.ok(filled.includes('六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）、' +
+      '两个世界查询工具（query_world、recall_task_summary）与三个记忆查询工具，共十一个，'), filled);
+    assert.ok(!filled.includes('五个世界请求工具'));
   } finally { app.close(); }
 });
 

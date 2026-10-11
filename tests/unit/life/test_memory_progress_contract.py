@@ -196,7 +196,7 @@ def test_parcel_collected_at_the_station_is_carried_as_evidence_but_not_reported
                 "data": {"activities": [], "orders": list(orders)}}
 
     def lines(result):
-        record = {"occurred_at": "1970-01-01T08:01:40+08:00", "type": "tool_call", "tool": "start_activity"}
+        record = {"occurred_at": "1970-01-01T08:01:40+08:00", "type": "tool_call", "tool": "start_side_activity"}
         return record_lines(layer_context(inputs), record, [SimpleNamespace(event_type="action_result", data=result)])
 
     assert "purchases" not in public_result(started(collected), inputs)["details"]

@@ -81,8 +81,8 @@ const ViewerContext = {};
     },
     tools: {
       label: '工具定义', source: 'custom/agents/life_agent.py · 原生工具；src/worldmock/agents/life_prompt.py · TOOL_DESCRIPTIONS',
-      fill: '五个世界请求工具、两个世界查询工具（query_world、recall_task_summary）与三个记忆查询工具，'
-        + '严格参数结构，整次运行字节相同。',
+      fill: '六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）、两个世界查询工具（query_world、recall_task_summary）'
+        + '与三个记忆查询工具，共十一个，严格参数结构，整次运行字节相同。',
       steps: [
         ['稳定工具面', '不再按观察绑定枚举，名称在宿主本地按私有绑定校验。'],
         ['最后回合', '只剩最后一个回合时与输出截断后的那次重试时去掉全部查询工具（世界查询与记忆查询），只留世界请求工具。'],
@@ -102,7 +102,8 @@ const ViewerContext = {};
     continuation: {
       label: '同秒续接',
       source: 'src/worldmock/life/continuation.py · same_second_chain；src/worldmock/agents/life_continuation.py · continuation_messages',
-      fill: '同一秒的后续决策原样续接上一决策末次请求的全部消息，再追加上一决策的 assistant 与一条 tool 消息 {result, changes, events}。',
+      fill: '同一秒的后续决策原样续接上一决策末次请求的全部消息，再追加上一决策的 assistant，并为它的每个世界请求各追加一条 tool 消息'
+        + ' {result, changes, events}：一个世界请求一条，开始组两条，changes 与 events 只写在最后一条上。',
       steps: [
         ['识别', '一次决策的首个请求多于两条消息即判为续接。'],
         ['来源决策', '前序 assistant 按 tool_call 身份匹配到产生它的决策。'],

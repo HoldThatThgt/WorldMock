@@ -497,29 +497,34 @@ def _decision_metrics(decision: dict, topics: tuple[str, ...]) -> dict:
 
 
 def _assistant_matches(message: dict, response: dict | None) -> bool:
-    """@brief 续接中的 assistant 与上一决策最终响应的思考、正文和工具调用相同。"""
+    """@brief 续接中的 assistant 与上一决策最终响应的思考、正文和工具调用相同；工具调用是一个，或两个开始工具各一个。"""
+    from worldmock.life.action_contract import START_TOOLS
+
     final = _message(response)
     calls = [(call.get("id"), (call.get("function") or {}).get("name"), (call.get("function") or {}).get("arguments"))
              for call in final.get("tool_calls") or []]
     sent = [(call.get("id"), call["function"]["name"], call["function"]["arguments"])
             for call in message.get("tool_calls") or []]
+    names = [name for _, name, _ in sent]
     return (message.get("reasoning_content") == final.get("reasoning_content") and bool(final.get("reasoning_content"))
-            and message.get("content") == final.get("content") and sent == calls and len(sent) == 1)
+            and message.get("content") == final.get("content") and sent == calls
+            and (len(names) == 1 or sorted(names) == sorted(START_TOOLS)))
 
 
 def _chain_intact(previous: dict, decision: dict) -> bool:
-    """@brief 链完整：同人物同秒；首个请求 = 上一决策末次请求的全部消息 + 其最终 assistant + 一条同调用身份的 tool 消息；
-    其中每个 assistant 都带思考。"""
+    """@brief 链完整：同人物同秒；首个请求 = 上一决策末次请求的全部消息 + 其最终 assistant + 按调用次序对应其每个工具
+    调用身份的各一条 tool 消息（一个世界请求一条，开始组两条）；其中每个 assistant 都带思考。"""
     last_request, last_terminal = previous["calls"][-1]
     before = last_request["data"]["request"]["messages"]
     first = decision["calls"][0][0]["data"]["request"]["messages"]
     size = len(before)
-    if len(first) != size + 2 or first[:size] != before or previous["occurred_at"] != decision["occurred_at"]:
+    if len(first) <= size or first[:size] != before or previous["occurred_at"] != decision["occurred_at"]:
         return False
-    if not _assistant_matches(first[size], (last_terminal or {}).get("data", {}).get("response")):
+    assistant, tools = first[size], first[size + 1:]
+    if not _assistant_matches(assistant, (last_terminal or {}).get("data", {}).get("response")):
         return False
-    tool = first[size + 1]
-    return (tool.get("role") == "tool" and tool.get("tool_call_id") == first[size]["tool_calls"][0]["id"]
+    answered = [(item.get("role"), item.get("tool_call_id")) for item in tools]
+    return (answered == [("tool", call["id"]) for call in assistant["tool_calls"]]
             and all(item.get("reasoning_content") for item in first if item.get("role") == "assistant"))
 
 
