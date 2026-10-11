@@ -17,8 +17,7 @@ rerun 只读计算 docs/design/05-recording-engine.md 「调试工具」的运�
 continuation 只读给出 docs/design/05-recording-engine.md的逐决策指标与合计（JSON）；--baseline 先核对
 两份清单（同一提交、同一环境输入、同一模型身份），不可比即拒绝比较。
 workday 只读打印 docs/design/05-recording-engine.md 的 {run_id, workload, routine_deviation, notes}（JSON，只报告）：
-班次、住处与播报间隔取自 --environment 完整输入（原文字节身份须等于运行清单，否则拒绝、不打印），
-作息窗口取自运行目录里人物工作区的结构化卡片。
+班次、住处、播报间隔与下班、到家窗口都取自 --environment 完整输入（原文字节身份须等于运行清单，否则拒绝、不打印）。
 queries 只读给出 docs/design/05-recording-engine.md「调试工具」的八个键（JSON），口径取已落库的模型工具交换证据，
 只报告，不作门禁。
 """
@@ -672,25 +671,8 @@ def cmd_continuation(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
 
-#: 运行工作区里没有结构化卡片的人物的说明（与行为评估的报告说明同为中文）。
-MISSING_CARD_NOTE = "人物 {agent_id} 的运行工作区没有结构化卡片，作息窗口按 null 计"
-
-
-def _workspace_cards(run_dir: Path, agent_ids: list[int]) -> tuple[dict[int, dict | None], list[str]]:
-    """@brief 各人物运行工作区 AGENT.json 的结构化卡片（profile.persona_card_struct）；文件或键缺失时为 None 并写一条说明。"""
-    cards: dict[int, dict | None] = {}
-    notes: list[str] = []
-    for agent_id in agent_ids:
-        path = run_dir / "as2" / "agents" / f"agent_{agent_id:04d}" / "AGENT.json"
-        profile = (json.loads(path.read_text(encoding="utf-8")).get("profile") or {}) if path.is_file() else {}
-        cards[agent_id] = profile.get("persona_card_struct")
-        if cards[agent_id] is None:
-            notes.append(MISSING_CARD_NOTE.format(agent_id=agent_id))
-    return cards, notes
-
-
 def cmd_workday(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
-    """@brief 工作安排取已核对两份原文身份的完整环境，卡片取实际运行工作区。"""
+    """@brief 工作安排与下班、到家窗口取已核对两份原文身份的完整环境，不读人物工作区。"""
     from worldmock.environment import load_environment
     from worldmock.evaluation.workload_metrics import workday_inputs, workday_reports
 
@@ -699,9 +681,7 @@ def cmd_workday(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     if (inputs.persona_sha256 != manifest["persona_sha256"]
             or inputs.config_sha256 != manifest["config_sha256"]):
         raise SystemExit("Environment inputs do not match the run manifest")
-    cards, notes = _workspace_cards(a.run_dir, [inputs.persona.agent_id])
-    report = workday_reports(_rows(conn), inputs.config.timezone, workday_inputs(inputs, cards))
-    report["notes"] = [*report["notes"], *notes]
+    report = workday_reports(_rows(conn), inputs.config.timezone, workday_inputs(inputs))
     print(json.dumps({"run_id": manifest["run_id"], **report}, ensure_ascii=False, indent=2))
 
 

@@ -12,7 +12,8 @@ from typing import Any
 
 from worldmock.environment import EnvironmentInputs
 from worldmock.errors import IntegrityError
-from worldmock.input_models import ModelConfig, ModelMetadata, PersonaConfig
+from worldmock.input_models import ModelConfig, ModelMetadata
+from worldmock.input_warnings import content_empty_warnings, location_name_warnings
 from worldmock.life.models import ModelIdentity
 from worldmock.model_endpoint import credential_value
 
@@ -189,19 +190,14 @@ def _git_output(project_root: Path, *arguments: str) -> bytes | None:
     return result.stdout if result.returncode == 0 else None
 
 
-def creation_inputs(inputs: EnvironmentInputs, compiled: Mapping[int, Any],
+def creation_inputs(inputs: EnvironmentInputs,
                     same_second_continuation: bool = True) -> tuple[tuple[dict[str, Any], ...], list[dict]]:
-    """@brief 使用已编译的唯一人物卡生成原生工作区及真实目录输入警告。"""
-    persona = inputs.persona
-    card, notes = _compiled_parts(compiled.get(persona.agent_id))
-    if card is None:
-        logger.error("Compiled persona card is missing for agent %s", persona.agent_id)
-        raise IntegrityError("Compiled persona card is missing")
-    from worldmock.profile.injection import apply_persona_rhythm
-    from worldmock.profile.models import persona_card_struct
+    """@brief 由人设表直接构造唯一人物卡片，生成原生工作区输入及真实目录输入警告；不调用模型。"""
+    from worldmock.profile.models import persona_card, persona_card_struct
     from worldmock.profile.textgen import render_card
 
-    card = apply_persona_rhythm(card, persona).card
+    persona = inputs.persona
+    card = persona_card(persona)
     profile = persona.model_dump(mode="json")
     profile.update({"id": persona.agent_id, "same_second_continuation": same_second_continuation,
                     "persona_card": render_card(card), "persona_card_struct": persona_card_struct(card),
@@ -211,47 +207,12 @@ def creation_inputs(inputs: EnvironmentInputs, compiled: Mapping[int, Any],
               "max_react_turns": inputs.config.model.max_react_turns, "disabled_skill_ids": [],
               "default_activated_skill_ids": []}
     specs = ({"id": persona.agent_id, "profile": profile, "config": config},)
-    return specs, input_warnings(inputs, compiled)
+    return specs, input_warnings(inputs)
 
 
-def input_warnings(inputs: EnvironmentInputs, compiled: Mapping[int, Any]) -> list[dict[str, Any]]:
-    """@brief 按真实目录计算人物覆盖、内容、作息、一致性和地点名称警告。"""
-    from worldmock.profile import injection
-    from worldmock.profile.coverage import validate_coverage
-    from worldmock.profile.coverage_targets import build_coverage_targets
-
-    persona = inputs.persona
-    card, notes = _compiled_parts(compiled.get(persona.agent_id))
-    if card is None:
-        logger.error("Compiled persona card is missing")
-        raise IntegrityError("Compiled persona card is missing")
-    targets = build_coverage_targets(inputs)
-    return [*injection.content_empty_warnings(persona.agent_id, card, inputs.catalog),
-            *injection.coverage_warnings(persona.agent_id, validate_coverage(card, targets)),
-            *injection.apply_persona_rhythm(card, persona).warnings,
-            *injection.agreement_warnings(persona.agent_id, notes),
-            *injection.location_name_warnings(inputs.catalog)]
-
-
-async def _compile_persona(persona: PersonaConfig, config: ModelConfig,
-                           metadata: ModelMetadata, persona_sha256: str) -> Any:
-    """@brief 在同一原生 dispatcher 执行三次独立画像抽取，再映射实际世界动力学。"""
-    from worldmock.profile.compile import compile_persona
-    from worldmock.profile.extractor import extract_persona
-
-    extraction = await extract_persona(persona.background_story, config, metadata)
-    return compile_persona(persona, extraction=extraction, persona_sha256=persona_sha256)
-
-
-def _compiled_parts(result: Any) -> tuple[Any | None, tuple[str, ...]]:
-    """@brief 取编译卡片与警告；测试可直接注入经过模型校验的卡片。"""
-    from worldmock.profile.models import PersonaCard
-
-    if result is None:
-        return None, ()
-    if isinstance(result, PersonaCard):
-        return result, ()
-    return result.card, tuple(result.warnings)
+def input_warnings(inputs: EnvironmentInputs) -> list[dict[str, Any]]:
+    """@brief 按真实目录计算两种运行输入警告：没有绑定内容而人物写了媒体口味，地点显示名可疑。"""
+    return [*content_empty_warnings(inputs.persona, inputs.catalog), *location_name_warnings(inputs.catalog)]
 
 
 RETIRED_STAGE_IDENTITY_KEY = "two_stage_model_identity"

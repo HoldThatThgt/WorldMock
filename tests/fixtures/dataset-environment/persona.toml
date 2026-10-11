@@ -1,4 +1,4 @@
-schema_version = 1
+schema_version = 2
 agent_id = 1
 name = "林舟"
 background_story = "林舟是一名住在社区里的普通办公职员，每个工作日去公司完成自己的事务。他喜欢吃清淡的家常饭，偶尔买零食和饮料，愿意步行去附近的公园，也会在休息时阅读、看电影或听音乐。平时消费比较谨慎，重要的事情会记下来，困倦时愿意按自己的节律休息，不把一时的想法当作已经完成的事情。"
@@ -7,8 +7,51 @@ initial_location = "家"
 initial_balance_fen = 200000
 initial_relaxation_need = 0.2
 initial_social_need = 0.2
+social_need_growth_per_hour = 0.06
 chronotype_midsleep = 4.0
 sleep_need_hours = 7.5
+wake_window = [7.0, 7.5]
+leave_home_window = [8.0, 8.5]
+lunch_window = [12.0, 13.0]
+dinner_window = [18.5, 19.5]
+bedtime_window = [23.0, 24.0]
+coping = "拼高达模型"
+
+[identity]
+age = 32
+occupation = "产品经理"
+living_arrangement = "与伴侣合租两居室"
+
+[situation]
+busy_this_week = "新版上线收尾"
+cares_about = "父母的体检结果"
+
+[[relationships]]
+name_or_appellation = "母亲"
+role = "家人"
+intimacy = 25
+channels = ["电话", "微信"]
+
+[[relationships]]
+name_or_appellation = "老周"
+role = "老友"
+intimacy = 18
+channels = ["微信", "见面"]
+
+[[habits]]
+trigger = "下班到家"
+response = "公园慢跑半小时"
+time_window = [19.0, 20.0]
+
+[[habits]]
+trigger = "睡前"
+response = "读几页小说"
+time_window = [22.5, 23.0]
+
+[tastes]
+content_genres = ["悬疑", "纪录片"]
+food_preferences = ["川菜", "面食"]
+media = ["长视频", "短视频"]
 
 [body]
 mass_kg = 65.0

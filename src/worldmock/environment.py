@@ -36,7 +36,7 @@ class EnvironmentInputs:
 
 
 def parse_persona_file(path: Path | str) -> tuple[PersonaConfig, str]:
-    """@brief 从唯一人设文件读取原字节身份并严格检查正文与初值。"""
+    """@brief 从唯一人设文件读取原字节身份并严格检查人设表的每个字段，不调用模型。"""
     payload, digest = _read_toml(Path(path), "Persona", "PERSONA_INVALID")
     legacy = LEGACY_TEMPLATE_FIELDS.intersection(payload)
     if legacy:
@@ -76,16 +76,21 @@ def _read_toml(path: Path, label: str, code: str) -> tuple[dict, str]:
 
 
 def _persona_reason(error: ValidationError) -> str:
-    """@brief 人物的明确初值与正文失败使用规定原因；模型级的取值错误（作息声明自相矛盾）原样返回英文原因。"""
-    if "background_story must contain at least 100 characters" in str(error):
-        return "background_story must contain at least 100 characters"
-    for item in error.errors():
-        if item["loc"] == () and item["type"] == "value_error":
-            return str(item["ctx"]["error"])
-    if any(item["loc"] == ("body", "initial_energy_kcal") and item["type"] == "less_than_equal"
-           for item in error.errors()):
+    """@brief 人设表的拒绝原因：只报告第一处，先写出错字段的点分路径；初始能量超上限沿用规定原因。
+
+    缺少必填字段写「<字段> is required」，未知字段写「<字段> is not a persona.toml field」，
+    其余写「<字段>: <英文说明>」，说明取校验器自己的原文或类型与范围检查的英文消息。
+    """
+    item = error.errors()[0]
+    field = ".".join(str(part) for part in item["loc"])
+    if item["loc"] == ("body", "initial_energy_kcal") and item["type"] == "less_than_equal":
         return "initial energy exceeds maximum energy"
-    return "Persona file validation failed"
+    if item["type"] == "missing":
+        return f"{field} is required"
+    if item["type"] == "extra_forbidden":
+        return f"{field} is not a persona.toml field"
+    detail = item["ctx"]["error"] if item["type"] == "value_error" else item["msg"]
+    return f"{field}: {detail}"
 
 
 def _config_reason(error: ValidationError) -> str:

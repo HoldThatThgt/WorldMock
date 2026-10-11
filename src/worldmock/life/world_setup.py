@@ -13,21 +13,21 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.assets import AssetStore
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
+from worldmock.input_warnings import frozen_input_warnings
 from worldmock.life.models import AgentState, RunIdentity, WorldState, WORLD_SCHEMA_VERSION
 from worldmock.life.models import validated_payload
 from worldmock.life.run_identity import open_environment_validated_store
 from worldmock.life.stay_records import run_start_event
-from worldmock.profile.models import WorldDynamics
 
 
-def _initial_state(inputs: EnvironmentInputs, run_id: str, dynamics: WorldDynamics) -> WorldState:
+def _initial_state(inputs: EnvironmentInputs, run_id: str) -> WorldState:
     """@brief 无隐式活动地初始化唯一人物、签名账户与目录回调状态。"""
     from worldmock.life import sessions
 
     start = int(inputs.config.start_time.timestamp())
     persona = inputs.persona
     account_id = f"agent:{persona.agent_id}"
-    agent = _initial_agent(inputs, dynamics, start)
+    agent = _initial_agent(inputs, start)
     state = WorldState(
         schema_version=WORLD_SCHEMA_VERSION, version=0, current_time=start,
         end_time=int(inputs.config.stop_time.timestamp()), run_id=run_id, timezone=inputs.config.timezone,
@@ -45,8 +45,8 @@ def _initial_state(inputs: EnvironmentInputs, run_id: str, dynamics: WorldDynami
     return sessions.open_stay(state, persona.agent_id, names)
 
 
-def _initial_agent(inputs: EnvironmentInputs, dynamics: WorldDynamics, start: int) -> AgentState:
-    """@brief 身体初值来自人设，社交增长率来自实际编译画像，不提供缺省替代。"""
+def _initial_agent(inputs: EnvironmentInputs, start: int) -> AgentState:
+    """@brief 身体初值、睡眠节律与社交增长率都来自人设表，不提供缺省替代。"""
     from datetime import datetime
 
     persona = inputs.persona
@@ -55,7 +55,7 @@ def _initial_agent(inputs: EnvironmentInputs, dynamics: WorldDynamics, start: in
     from worldmock.life.body import initial_body
     from worldmock.life.body_config import assemble_body_config
 
-    body = initial_body(assemble_body_config(persona), hour, persona, dynamics.social_need_growth_per_hour)
+    body = initial_body(assemble_body_config(persona), hour, persona)
     return AgentState(
         agent_id=persona.agent_id, name=persona.name, location_id=inputs.initial_location_id,
         balance_account_id=f"agent:{persona.agent_id}", body=body, body_settled_at=start,
@@ -83,7 +83,6 @@ def _freeze_environment(inputs: EnvironmentInputs, assets: AssetStore) -> dict[s
 def _run_manifest(inputs: EnvironmentInputs, identity: RunIdentity, stages: dict,
                   options: dict, assets: dict[str, dict]) -> dict:
     """@brief 目录、人物与配置各自保持身份，清单不再含场景文档身份。"""
-    from worldmock.profile.injection import frozen_input_warnings
     return {
         "schema_version": 5, "run_id": identity.run_id, "source_group_id": identity.source_group_id,
         "environment_identity": environment_identity(inputs), "environment_assets": assets,
@@ -92,7 +91,6 @@ def _run_manifest(inputs: EnvironmentInputs, identity: RunIdentity, stages: dict
         "git_commit": identity.git_commit, "git_dirty": identity.git_dirty,
         "model_identity": identity.model_identity.model_dump(mode="json"), "stage_model_identity": stages,
         "model_metadata": inputs.model_metadata.model_dump(mode="json"),
-        "world_dynamics": options["world_dynamics"],
         "input_warnings": frozen_input_warnings(options.get("input_warnings")),
         "persona_habit_responses": options.get("persona_habit_responses"),
         "window": {"start": int(inputs.config.start_time.timestamp()),
@@ -117,11 +115,7 @@ def create_world(environment: EnvironmentInputs | Path, run_dir: Path, identity:
     inputs = environment if isinstance(environment, EnvironmentInputs) else load_environment(environment)
     _validate_run_identity(inputs, identity)
     _validate_creation_model(inputs, identity, stage_identity)
-    if "world_dynamics" not in options:
-        logging.error("Compiled persona dynamics are required to create a world")
-        raise IntegrityError("Compiled persona dynamics are required to create a world")
-    dynamics = WorldDynamics.model_validate(options["world_dynamics"])
-    state = _initial_state(inputs, identity.run_id, dynamics)
+    state = _initial_state(inputs, identity.run_id)
     from worldmock.scheduling.compile import compile_schedule
 
     state.pending_events = compile_schedule(inputs)

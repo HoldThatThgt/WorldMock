@@ -6,7 +6,7 @@ from worldmock.footprints.timeline_labels import window_days, local_day_bounds
 from worldmock.footprints.intervals import valid_interval, body_settlements
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 from worldmock.life.work_schedule import break_spans, shift_on, shift_span
@@ -33,7 +33,7 @@ _Spans = list[tuple[int, int]]
 
 @dataclass(frozen=True, slots=True)
 class AgentWorkday:
-    """@brief 一个人物的评估输入：工作安排、住处和覆盖后的下班、到家窗口。"""
+    """@brief 一个人物的评估输入：工作安排、住处和人设表写的下班、到家窗口（没有写的为 None）。"""
 
     work_schedule: WorkSchedule | None
     home_location_id: str
@@ -75,13 +75,12 @@ class _Timeline:
     sleep: tuple[tuple[int, int], ...]
 
 
-def workday_inputs(inputs: EnvironmentInputs, cards: Mapping[int, Mapping[str, Any] | None]) -> WorkdayInputs:
-    """@brief 人设提供班次和地点，配置提供播报间隔；卡片提供实际作息窗口。"""
+def workday_inputs(inputs: EnvironmentInputs) -> WorkdayInputs:
+    """@brief 人设表提供班次、地点与下班、到家窗口的原值，配置提供播报间隔；不读人物工作区。"""
     persona = inputs.persona
-    card = cards.get(persona.agent_id)
     agent = AgentWorkday(
         persona.work_schedule, inputs.home_location_id, inputs.workplace_location_id, inputs.initial_location_id,
-        _card_window(card, "leave_work"), _card_window(card, "arrive_home"))
+        _window(persona.leave_work_window), _window(persona.arrive_home_window))
     return WorkdayInputs({persona.agent_id: agent}, inputs.config.progress_report_interval_seconds)
 
 
@@ -114,11 +113,9 @@ def workday_reports(events: list[dict[str, Any]], timezone: str, inputs: Workday
             "notes": notes}
 
 
-def _card_window(card: Mapping[str, Any] | None, name: str) -> tuple[float, float] | None:
-    """@brief 结构化卡片 time_anchors 里一个锚点的（起, 止）小时，原样取卡片里未取整的值；没有卡片或锚点为 null 时
-    为 None。"""
-    window = None if card is None else card["time_anchors"][name]
-    return None if window is None else (float(window["start_hour"]), float(window["end_hour"]))
+def _window(window: Sequence[float] | None) -> tuple[float, float] | None:
+    """@brief 人设表的 [起点, 终点] 取成（起, 止）小时，原值不取整；没有写时为 None。"""
+    return None if window is None else (float(window[0]), float(window[1]))
 
 
 def _agent_ids(events: list[dict[str, Any]], inputs: WorkdayInputs) -> list[int]:
