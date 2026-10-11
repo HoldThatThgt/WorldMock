@@ -119,6 +119,8 @@ async def test_task_recall_crosses_real_ray_without_world_mutation(engine_factor
         assert driver == staged.expected
         worker = await worker_side.remote(proxy, staged.frozen, staged.request)
         assert type(worker) is dict and worker == staged.expected
+        # 同一条通道上的另一个只读方法：没有睡醒的这一刻，跨进程的判定结果是空，不写事件。
+        assert await proxy.due_reflection(staged.frozen) is None
         await proxy.close()
     finally:
         if actor is not None:
