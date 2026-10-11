@@ -53,6 +53,7 @@ from worldmock.life.rhythm import (
 from worldmock.life.schedule import DayPlan, expired_plan_agent_ids
 from worldmock.life.models import validated_payload
 from worldmock.life.presentation import flush_presentation, stage_presentation
+from worldmock.life.purchase_phases import advance_phases, phase_boundaries
 from worldmock.life.travel import persisted_trip, record_arrival, update_travel
 from worldmock.scheduling.effects import process_scheduled_events
 
@@ -265,7 +266,7 @@ class TimeAdvanceCoordinator:
         advanced=advance_activity_shared(activity,state.agents[activity.agent_id],target,settlement)
         state.agents[activity.agent_id]=advanced.agent
         state.activities[activity.activity_id]=advanced.activity
-        effects,content=self._apply_activity_effect(state,advanced.activity,target)
+        effects,content=self._apply_activity_effect(state,advanced.activity,target,activity.last_settled_at)
         from worldmock.life.callbacks import settle_callback_dates
 
         outcome=settle_callback_dates(state,self.context.catalog,activity,(activity.last_settled_at,target))
@@ -308,8 +309,9 @@ class TimeAdvanceCoordinator:
             _activity_terminal_draft(state, activity, target, [], index),
         )
 
-    def _apply_activity_effect(self,state:WorldState,activity,target:int)->tuple[list[EventDraft], dict | None]:
-        """@brief 真实推进后结算路线、购买付款和内容，读取各模块唯一状态。"""
+    def _apply_activity_effect(self,state:WorldState,activity,target:int,
+                               since:int)->tuple[list[EventDraft], dict | None]:
+        """@brief 真实推进后结算路线、购买的段边界与付款、内容，读取各模块唯一状态；since 是这项活动上一次结算到的时刻。"""
         drafts=[]
         content=None
         if activity.kind==ActivityKind.TRAVEL:
@@ -320,11 +322,9 @@ class TimeAdvanceCoordinator:
         elif activity.kind==ActivityKind.PURCHASE:
             from worldmock.life.storefront_runtime import StorefrontRuntime
 
-            runtime=StorefrontRuntime(self.context)
-            changed,payment=runtime.advance_payment(state,activity)
-            drafts.extend(payment)
+            changed=advance_phases(state,activity,since)
             if activity.status==ActivityStatus.COMPLETED:
-                changed,completion=runtime.complete_purchase(changed,activity)
+                changed,completion=StorefrontRuntime(self.context).complete_purchase(changed,activity)
                 drafts.extend(completion)
             state.agents,state.accounts,state.deliveries=changed.agents,changed.accounts,changed.deliveries
             state.activities,state.pending_events=changed.activities,changed.pending_events
@@ -417,9 +417,7 @@ class TimeAdvanceCoordinator:
                 continue
             candidates.append(activity.planned_end_at)
             if activity.kind == ActivityKind.PURCHASE:
-                from worldmock.life.storefront_runtime import StorefrontRuntime
-
-                candidates.extend(StorefrontRuntime(self.context).payment_boundaries(self.context.state, activity))
+                candidates.extend(phase_boundaries(self.context.state, activity))
             if activity.next_interaction_at and activity.next_interaction_at > self.context.state.current_time:
                 candidates.append(activity.next_interaction_at)
         for agent_id in self.context.state.agents:

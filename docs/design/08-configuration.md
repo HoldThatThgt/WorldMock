@@ -156,11 +156,11 @@ flowchart LR
 | 地图 | `map`，抽取六十四位整数作地图种子；同一个地图种子用于随机树、额外边抽取和边长，声明边不消耗随机数 |
 | 天气 | `weather:{local_date}` |
 | 睡过头 | `oversleep:{action_id}`，`action_id` 是开始这段睡眠的那条动作；只在到点时刻往回 24 小时的睡眠合计不足四小时时取流，先抽一位，抽中再抽二十至六十的整数分钟，两端都能取到；每段睡眠只抽一次 |
-| 购买总时长 | `purchase-duration:{action_id}`，六十至三百整数秒，一次请求只抽一次 |
-| 支付段时长 | `payment-duration:{action_id}:{group_key}`，每个非空支付 app 组十至二十整数秒；空支付 app 不抽取 |
-| 购买功能 app | `function-app:{action_id}:{group_key}`，排序候选与唯一 null 等概率选择 |
+| 购买总时长 | `purchase-duration:{action_id}`，六十至三百整数秒，一次请求只抽一次；实际购买时长取它与各张订单付款时长合计中较大的一个 |
+| 支付段时长 | `payment-duration:{action_id}:{payment_order_key}`，每张订单十至二十整数秒，在内容 app 里直付也抽；只有到店订单抽到直付时为零，不抽取 |
+| 购买功能 app | `function-app:{action_id}:{payment_order_key}`，每张订单抽一次，排序候选与唯一 null 等概率选择 |
 | 出行功能 app | `function-app:{activity_id}`，候选是绑定了这次出行方式的功能 app 按身份升序，等概率选择，不增加 null；没有候选就没有导航记录 |
-| 下单 app | `order-app:{goods_id}:{store_id_or_courier}:{local_date}`，店铺侧先确定店铺，app 商品使用 `courier` |
+| 下单 app | 店铺商品用 `order-app:{store_id}:{local_date}`，先确定店铺，同一家店同一本地日的商品抽到同一个 app；绑定在 app 上的商品用 `order-app:{goods_id}:courier:{local_date}` |
 | 快递天数 | `courier-days:{goods_id}:{app_id}:{local_date}`，二、三、四、五天等概率 |
 | 快递费 | `courier-fee:{goods_id}:{app_id}`，零或五百分等概率，跨日期稳定 |
 | 内容选择 | `{activity_id}:{draw_index}`，只用于内容 app；在地点点名内容单元不抽随机数 |
@@ -171,14 +171,18 @@ flowchart LR
 | 盲评交换 | `review-swap:{slot}:{item_id}`，抽取一位 |
 | 盲评掩码 | `review-mask:{reviewer_slot}`，抽取二百五十六位，以大端序写三十二字节 |
 
-`group_key` 是 `[store_id,destination_id,app_id,fulfillment]` 的规范 JSON，不新增整篮订单身份。
+`group_key` 是 `[store_id,destination_id,app_id,fulfillment]` 的规范 JSON，是配送组的键，运费按它合并。
+`payment_order_key` 是 `[app_id]` 的规范 JSON，序列化方式与 `group_key` 相同，是订单的键，付款按它抽取和结算：
+带下单 app 的订单形如 `["meituan"]`，到店订单是 `[null]`；订单一律按这个字符串升序处理，`[null]` 排在所有带下单 app 的订单之后。
+订单不新增持久字段，也不新增身份，由购买活动列出的商品履约记录和记录上的 `app_id` 得出。
 预览只使用已知商品、店铺、app 与日期，不提前分配动作身份；受理冻结同一报价，恢复不得重抽。
 商家选择按 `(总价款和配送费, 到达时刻, 店铺身份)` 取最小值，不随机选择远程店铺。
 同组全部商品配送策略为零才免配送费，否则整组只收五百分。
 
 普通推送事件身份为 `push-{agent_id}-{local_date}T{HH}`；时间事件为 `time-{key}-{due_at}`，
 同一键同一绝对秒一次，夏令时不同绝对秒分别登记。天气使用 `weather-{local_date}`，
-起始日只初始化事实；日历使用 `calendar-{local_date}`；配送组使用首件既有订单的 `delivery-{order_id}`。
+起始日只初始化事实；日历使用 `calendar-{local_date}`。到达排程按一趟配送登记：
+一趟配送是同一个配送组里预计到达时刻相同的已付款外卖或快递记录，身份是 `delivery-{这一趟里 order_id 最小的记录}`，按字符串比较。
 
 回调受理锚点为 `{action_id}:0`，一条动作只开始一项活动；按日动作效果用 `{origin_action_id}:{local_date}`；
 预排事件使用其 `scheduled_id`；推进唤醒类别用 `wake:{agent_id}:{current_time}`；

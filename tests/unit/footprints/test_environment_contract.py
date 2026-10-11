@@ -85,8 +85,8 @@ def test_ledger_uses_envelope_and_rejects_retired_embedded_money():
         validate_account_transition(before, after, [], False)
 
 
-def _paid_group_events(purchase="purchase", identity="order", first=1, at=110):
-    order = {"order_id": identity, "group_key": "group", "agent_id": 1, "paid_at": at,
+def _paid_order_events(purchase="purchase", identity="order", first=1, at=110):
+    order = {"order_id": identity, "group_key": "group", "app_id": "ordering", "agent_id": 1, "paid_at": at,
              "payment_app_id": "payment", "total_price_fen": 1000}
     activity = {"activity_id": purchase, "kind": "purchase", "data": {"order_ids": [identity]}}
     start = _event(first, "action_result", {"status": "in_progress", "data": {"activities": [
@@ -106,39 +106,82 @@ def _paid_group_events(purchase="purchase", identity="order", first=1, at=110):
 
 
 def _two_purchases_on_one_route():
-    state, events = _paid_group_events()
-    later, again = _paid_group_events("purchase-again", "order-again", first=5, at=120)
+    state, events = _paid_order_events()
+    later, again = _paid_order_events("purchase-again", "order-again", first=5, at=120)
     merged = {key: {**state[key], **later[key]} for key in state}
-    assert len({order["group_key"] for order in merged["deliveries"].values()}) == 1
+    assert len({(order["group_key"], order["app_id"]) for order in merged["deliveries"].values()}) == 1
     return merged, events + again
 
 
-def test_payments_sharing_a_delivery_group_key_are_counted_per_purchase_activity():
+def test_payments_on_the_same_route_and_ordering_app_are_counted_per_purchase_activity():
     state, events = _two_purchases_on_one_route()
     _payment_invariants(events, state, {event["event_id"]: event for event in events})
 
 
 @pytest.mark.parametrize("fault,message", [
-    ("missing_payment", "Purchase group payment count disagrees with actual payment"),
-    ("other_purchase", "Purchase payment disagrees with its actual order group"),
-    ("partial_payment", "Purchase group has partial payment"),
+    ("missing_payment", "Purchase order payment count disagrees with actual payment"),
+    ("other_purchase", "Purchase payment disagrees with its actual order"),
+    ("partial_payment", "Purchase order has partial payment"),
 ])
-def test_each_purchase_activity_requires_its_own_complete_group_payment(fault, message):
+def test_each_purchase_activity_requires_its_own_complete_order_payment(fault, message):
     state, events = _two_purchases_on_one_route()
     if fault == "missing_payment":
         del events[6:]
     elif fault == "other_purchase":
         events[6]["data"]["activity_id"] = "purchase"
     else:
-        extra = {**state["deliveries"]["order-again"], "order_id": "order-unpaid", "paid_at": None}
+        extra = {**state["deliveries"]["order-again"], "order_id": "order-unpaid", "paid_at": None,
+                 "group_key": "another-group"}
         state["deliveries"]["order-unpaid"] = extra
         state["activities"]["purchase-again"]["data"]["order_ids"].append("order-unpaid")
-    with pytest.raises(IntegrityError, match=message):
+    with pytest.raises(IntegrityError, match=f"^{message}$"):
         _payment_invariants(events, state, {event["event_id"]: event for event in events})
 
 
-def test_payment_group_requires_actual_completion_and_exact_single_notification():
-    state, events = _paid_group_events()
+def _one_order_over_two_delivery_groups():
+    """同一个下单 app 上两家店：两条记录分属两个配送组，是一张订单，一条付款事件列出两条记录。"""
+    state, events = _paid_order_events()
+    state["deliveries"]["order-b"] = {**state["deliveries"]["order"], "order_id": "order-b",
+                                      "group_key": "another-group", "total_price_fen": 700}
+    state["activities"]["purchase"]["data"]["order_ids"].append("order-b")
+    for event in events[2:]:
+        event["data"].update(order_ids=["order", "order-b"], amount_fen=1700)
+    events[2]["resource_changes"] = {"account:agent:1": -1700, "account:external:scenario": 1700}
+    return state, events
+
+
+def test_one_order_spanning_two_delivery_groups_is_paid_by_exactly_one_payment():
+    state, events = _one_order_over_two_delivery_groups()
+    _payment_invariants(events, state, {event["event_id"]: event for event in events})
+
+
+@pytest.mark.parametrize("fault,message", [
+    ("payment_per_group", "Purchase order payment count disagrees with actual payment"),
+    ("one_group_only", "Purchase payment disagrees with its actual order"),
+    ("other_app", "Purchase payment disagrees with its actual order"),
+])
+def test_payment_must_cover_the_whole_order_and_not_one_delivery_group(fault, message):
+    state, events = _one_order_over_two_delivery_groups()
+    if fault == "payment_per_group":
+        second = {**events[2], "event_id": "event-extra", "data": {**events[2]["data"], "order_ids": ["order-b"]}}
+        events.insert(3, second)
+    elif fault == "one_group_only":
+        events[2]["data"]["order_ids"] = ["order"]
+    else:
+        state["deliveries"]["order-b"]["app_id"] = "another-ordering-app"
+    with pytest.raises(IntegrityError, match=f"^{message}$"):
+        _payment_invariants(events, state, {event["event_id"]: event for event in events})
+
+
+def test_store_records_without_an_ordering_app_form_one_order_per_purchase():
+    state, events = _one_order_over_two_delivery_groups()
+    for order in state["deliveries"].values():
+        order["app_id"] = None
+    _payment_invariants(events, state, {event["event_id"]: event for event in events})
+
+
+def test_paid_order_requires_actual_completion_and_exact_single_notification():
+    state, events = _paid_order_events()
     sources = {event["event_id"]: event for event in events}
     _payment_invariants(events, state, sources)
     with pytest.raises(IntegrityError, match="Payment notification count"):
@@ -149,7 +192,7 @@ def test_payment_group_requires_actual_completion_and_exact_single_notification(
 
 
 def test_bank_payment_keeps_money_evidence_without_app_notification():
-    state, events = _paid_group_events()
+    state, events = _paid_order_events()
     state["deliveries"]["order"]["payment_app_id"] = None
     events.pop()
     _payment_invariants(events, state, {event["event_id"]: event for event in events})

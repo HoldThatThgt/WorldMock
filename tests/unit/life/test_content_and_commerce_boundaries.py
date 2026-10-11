@@ -10,7 +10,7 @@ from tests.life.prerequisite_inputs import (
 )
 from tests.unit.life.test_environment_content import NOTICE, context_state, dingtalk_world, world_at
 from tests.unit.life.test_environment_commerce import (
-    environment, finish, operate_payments, pending, runtime, world,
+    environment, finish, operate_phases, pending, runtime, world,
 )
 from worldmock.errors import BusinessRuleError, IntegrityError, PreconditionError
 from worldmock.life.action_contract import binding_action
@@ -25,6 +25,7 @@ from worldmock.life.models import (
 )
 from worldmock.life.parcel import require_ready_parcels
 from worldmock.life.purchase_offers import quote_goods
+from worldmock.life.purchase_phases import PAYMENT, activity_phases, advance_phases
 from worldmock.life.receipt import settle_receipt
 
 
@@ -145,7 +146,7 @@ def test_unknown_goods_and_orders_never_change_resources(environment):
 def test_paid_courier_rejects_early_arrival_and_repeated_station_arrival_is_identity(environment):
     commerce = runtime(environment)
     state, activity = commerce.prepare_purchase(world(environment), pending(), ("online-notebook",))
-    state, _ = operate_payments(commerce, state, activity)
+    state = operate_phases(state, activity)
     state, activity = finish(state, activity)
     state, _ = commerce.complete_purchase(state, activity)
     order = activity_orders(state, activity)[0]
@@ -162,7 +163,7 @@ def test_paid_courier_rejects_early_arrival_and_repeated_station_arrival_is_iden
 def test_paid_takeout_is_received_at_actual_arrival_with_exactly_one_goods_effect(environment):
     commerce = runtime(environment)
     state, activity = commerce.prepare_purchase(world(environment), pending(), ("lemon-tea",))
-    state, _ = operate_payments(commerce, state, activity)
+    state = operate_phases(state, activity)
     state, activity = finish(state, activity)
     state, _ = commerce.complete_purchase(state, activity)
     order = activity_orders(state, activity)[0]
@@ -177,37 +178,40 @@ def test_paid_takeout_is_received_at_actual_arrival_with_exactly_one_goods_effec
     assert duplicate.state is received.state and duplicate.receipts == ()
 
 
-def test_partially_paid_purchase_is_rejected_before_other_group_is_charged(environment):
+def test_partially_paid_purchase_is_rejected_before_any_order_is_charged(environment):
     commerce = runtime(environment)
     state, activity = commerce.prepare_purchase(world(environment, "store"), pending(),
                                                 ("lemon-tea", "online-notebook"))
     first = activity_orders(state, activity)[0]
     state.deliveries[first.order_id] = first.model_copy(update={"paid_at": state.current_time})
     before = state.model_dump(mode="json")
-    with pytest.raises(IntegrityError, match="partially paid groups"):
+    with pytest.raises(IntegrityError, match="^Purchase contains partially paid orders$"):
         commerce.complete_purchase(state, activity)
     assert state.model_dump(mode="json") == before
 
 
-def test_skipped_payment_end_rejects_without_backdating_notification(environment):
+def test_skipped_payment_end_is_a_run_fault_that_leaves_the_orders_untouched(environment):
     commerce = runtime(environment)
     state, activity = commerce.prepare_purchase(world(environment, "store", random_state="payment-0"),
                                                 pending(), ("lemon-tea", "online-notebook"))
-    start, end = commerce.payment_boundaries(state, activity)[:2]
-    started = state.model_copy(update={"current_time": start}, deep=True)
-    started, touches = commerce.advance_payment(started, activity)
-    assert len(touches) == 1
-    skipped = started.model_copy(update={"current_time": end + 1}, deep=True)
+    phase = next(item for item in activity_phases(state, activity) if item.step == PAYMENT)
+    assert phase.started_at > state.current_time
+    started = advance_phases(state.model_copy(update={"current_time": phase.started_at}, deep=True), activity,
+                             state.current_time)
+    paying = [order for order in started.deliveries.values() if order.payment_started_at is not None]
+    assert paying and all((order.payment_started_at, order.payment_ended_at) == (phase.started_at, None)
+                          for order in paying)
+    skipped = started.model_copy(update={"current_time": phase.ended_at + 1}, deep=True)
     before = skipped.model_dump(mode="json")
-    with pytest.raises(IntegrityError, match="end boundary was skipped"):
-        commerce.advance_payment(skipped, activity)
+    with pytest.raises(IntegrityError, match="^Purchase phase boundary was skipped$"):
+        advance_phases(skipped, activity, phase.started_at)
     assert skipped.model_dump(mode="json") == before
 
 
 def test_parcel_collection_requires_real_station_then_receives_all_once(environment):
     commerce = runtime(environment)
     state, activity = commerce.prepare_purchase(world(environment), pending(), ("online-notebook",))
-    state, _ = operate_payments(commerce, state, activity)
+    state = operate_phases(state, activity)
     state, activity = finish(state, activity)
     state, _ = commerce.complete_purchase(state, activity)
     order = activity_orders(state, activity)[0]

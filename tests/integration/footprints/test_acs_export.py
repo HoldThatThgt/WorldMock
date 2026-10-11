@@ -1,6 +1,7 @@
 """真实购买、互动及冻结输入导出的完整来源认证。"""
 
 from copy import deepcopy
+from datetime import timedelta
 import hashlib
 import json
 
@@ -8,6 +9,7 @@ import pytest
 
 from tests.footprints.recording import recorded_engine, short_window
 from tests.life.conftest import purchase
+from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, finish_activity, run_to_end
 from worldmock.errors import IntegrityError
 from worldmock.footprints.export import export_run
@@ -133,6 +135,40 @@ def test_two_purchases_on_the_same_route_export_with_one_payment_per_purchase(en
     payments = [row["data"] for row in exported if row["data"].get("kind") == "purchase_payment"]
     assert [row["order_ids"] for row in payments] == [[first.order_id], [second.order_id]]
     assert len({row["activity_id"] for row in payments}) == 2
+
+
+def test_one_order_over_two_delivery_groups_exports_with_a_single_payment(engine_factory, tmp_path):
+    """同一个内容 app 上两家店的外卖是一张订单：导出自查按订单归组，一条付款事件列出两个配送组的记录即通过。"""
+    root = copy_environment(tmp_path / "one-app")
+    goods = catalog_rows(root, "merchant-catalog.jsonl")
+    next(row for row in goods if row["goods_id"] == "lemon-tea")["store_kinds"] = ["cafe"]
+    write_catalog_rows(root, "merchant-catalog.jsonl", goods)
+    places = {row["location_id"]: row for row in catalog_rows(root, "location.jsonl")}
+    places["cafe"]["app_ids"], places["store"]["app_ids"] = ["meituan"], ["eleme"]
+    write_catalog_rows(root, "location.jsonl", list(places.values()))
+    engine = engine_factory(environment_root=root, mutate=lambda persona, config: config.update(
+        stop_time=config["start_time"] + timedelta(hours=1)))
+    _, result = act(engine, "two-stores", purchase("牛肉面", "柠檬茶"))
+    assert result.status == "in_progress", result.error_code
+    finish_activity(engine, result, "two-stores")
+    orders = sorted(engine.context.state.deliveries.values(), key=lambda order: order.order_id)
+    assert len({order.group_key for order in orders}) == 2 and {order.app_id for order in orders} == {"meituan"}
+    run_to_end(engine)
+    assert {order.status for order in engine.context.state.deliveries.values()} == {"delivered"}
+    snapshot = engine.context.store.assets.put_json({"completed": True}, {"kind": "test_agent_snapshot"})
+    point = engine.checkpoint({"agent:1": snapshot})
+    export_run(engine.context.store, point.last_event_seq, tmp_path / "one-order")
+    _, exported, _ = validate_export(tmp_path / "one-order")
+    (payment,) = [row for row in exported if row["data"].get("kind") == "purchase_payment"]
+    assert payment["data"]["order_ids"] == [order.order_id for order in orders]
+    assert payment["data"]["amount_fen"] == sum(order.total_price_fen for order in orders) == 5000
+    arrivals = [row for row in exported if row["data"].get("kind") == "delivery_arrival"]
+    assert len(arrivals) == 2 and all(row["caused_by"] == [payment["event_id"]] for row in arrivals)
+    payment["data"]["order_ids"] = [orders[0].order_id]
+    manifest, _ = read_export(tmp_path / "one-order")
+    with pytest.raises(IntegrityError, match="^Purchase payment disagrees with its actual order$"):
+        reproject(tmp_path / "one-order", manifest, exported)
+        validate_export(tmp_path / "one-order")
 
 
 def write_rows(directory, manifest, name, rows):

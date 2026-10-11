@@ -47,15 +47,23 @@ def test_local_basket_pays_once_at_completion_and_receives_each_actual_item(engi
     assert len(business_events(engine, "goods_received")) == 2
     assert all(order.paid_at == activity.planned_end_at and order.received_at == activity.planned_end_at
                and order.status == "delivered" for order in engine.context.state.deliveries.values())
+    # 两条到店记录是一张到店订单：同一种付款方式、同一段付款时间；进入付款不再另写自动 app 触点
+    assert len({(order.payment_app_id, order.payment_duration_seconds) for order in orders}) == 1
     notifications = business_events(engine, "payment_notification")
-    touches = business_events(engine, "app_touch")
+    assert business_events(engine, "app_touch") == []
+    final = list(engine.context.state.deliveries.values())
     if orders[0].payment_app_id is None:
-        assert notifications == [] and touches == []
+        assert notifications == []
+        assert all((order.payment_duration_seconds, order.payment_started_at, order.payment_ended_at)
+                   == (0, None, None) for order in final)
     else:
-        assert len(notifications) == len(touches) == 1
+        assert len(notifications) == 1
         assert notifications[0].caused_by == [payment[0].event_id]
-        assert touches[0].occurred_at < payment[0].occurred_at
         assert notifications[0].data["amount_fen"] == 1800
+        seconds = orders[0].payment_duration_seconds
+        assert 10 <= seconds <= 20
+        assert all((order.payment_started_at, order.payment_ended_at)
+                   == (activity.planned_end_at - seconds, activity.planned_end_at) for order in final)
     _, concluded = act(engine, "basket-concluded", conclude_request(activity.name), "conclude_activity")
     assert concluded.status == "completed"
     assert engine.context.state.accounts["agent:1"] == 198200
