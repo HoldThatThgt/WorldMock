@@ -43,9 +43,32 @@ def test_invalid_work_shift_cannot_be_loaded(tmp_path, shift):
 def test_work_schedule_has_canonical_weekdays_dates_and_one_daily_shift(tmp_path, schedule):
     root = copy_environment(tmp_path / "input")
     write_input(root, "persona.toml", {"work_schedule": schedule})
-    with pytest.raises(EnvironmentInputError, match=r"^work_schedule(\.exceptions\.2026-01-05\.\S+)?: ") as caught:
+    with pytest.raises(EnvironmentInputError, match=r"^work_schedule: ") as caught:
         parse_persona_file(root / "persona.toml")
     assert (caught.value.path, caught.value.code) == ("persona.toml", "PERSONA_INVALID")
+
+
+@pytest.mark.parametrize("shift,reason", [
+    ({"starts": 600, "ends": 500, "breaks": []},
+     "work_schedule.exceptions.2026-01-05: work shift must satisfy 0 <= starts < ends <= 1440"),
+    ({"starts": 600, "ends": 900, "breaks": [[590, 700]]},
+     "work_schedule.exceptions.2026-01-05: work shift breaks must lie within the shift"),
+    ({"starts": 600, "breaks": []}, "work_schedule.exceptions.2026-01-05.ends is required"),
+    ({"starts": "nine", "ends": 700, "breaks": []},
+     "work_schedule.exceptions.2026-01-05.starts: Input should be a valid integer"),
+    ({"starts": 600, "ends": 700, "breaks": [], "overtime": True},
+     "work_schedule.exceptions.2026-01-05.overtime is not a persona.toml field"),
+    ("rest", "work_schedule.exceptions.2026-01-05: Input should be a valid dictionary or instance of WorkShift"),
+])
+def test_a_bad_shift_in_a_date_exception_is_named_by_its_date_without_validator_tags(tmp_path, shift, reason):
+    """日期例外里的班次出错时，原因的路径写到那个日期或班次里的字段为止：只由字段名、表的键和数组下标组成，
+    不带校验库内部的联合分支与校验器标记。"""
+    root = copy_environment(tmp_path / "input")
+    write_input(root, "persona.toml", {"work_schedule": {"workplace": "公司", "weekly": {},
+                                                         "exceptions": {"2026-01-05": shift}}})
+    with pytest.raises(EnvironmentInputError) as caught:
+        parse_persona_file(root / "persona.toml")
+    assert (caught.value.path, caught.value.code, caught.value.reason) == ("persona.toml", "PERSONA_INVALID", reason)
 
 
 @pytest.mark.parametrize("values,reason", [

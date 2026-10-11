@@ -12,6 +12,7 @@ from worldmock.environment import EnvironmentInputError, load_environment, parse
 from worldmock.input_models import ModelConfig, ModelMetadata, PersonaConfig, RunConfig
 from worldmock.model_endpoint import parse_model_metadata
 from worldmock.profile.models import persona_card
+from worldmock.profile.textgen import count_hanzi, render_card
 from worldmock.validation import validate_environment
 
 
@@ -277,6 +278,18 @@ def test_off_grid_rhythm_values_load_unchanged(environment):
     (lambda doc: doc["identity"].update(age="32"), "identity.age: Input should be a valid integer"),
     (lambda doc: doc["identity"].update(occupation="长" * 21),
      "identity.occupation: String should have at most 20 characters"),
+    (lambda doc: doc["identity"].update(living_arrangement="住" * 31),
+     "identity.living_arrangement: String should have at most 30 characters"),
+    (lambda doc: doc["situation"].update(busy_this_week="忙" * 61),
+     "situation.busy_this_week: String should have at most 60 characters"),
+    (lambda doc: doc["situation"].update(cares_about="想" * 61),
+     "situation.cares_about: String should have at most 60 characters"),
+    (lambda doc: doc["relationships"][1].update(name_or_appellation="名" * 13),
+     "relationships.1.name_or_appellation: String should have at most 12 characters"),
+    (lambda doc: doc["relationships"][0].update(role="亲" * 13),
+     "relationships.0.role: String should have at most 12 characters"),
+    (lambda doc: doc["relationships"][0].update(intimacy=-1),
+     "relationships.0.intimacy: Input should be greater than or equal to 0"),
     (lambda doc: doc["relationships"][0].update(intimacy=31),
      "relationships.0.intimacy: Input should be less than or equal to 30"),
     (lambda doc: doc["relationships"][1].update(channels=["微信", "短信"]),
@@ -291,6 +304,10 @@ def test_off_grid_rhythm_values_load_unchanged(environment):
      "tastes.media: List should have at most 4 items after validation, not 5"),
     (lambda doc: doc["tastes"].update(content_genres=[f"题材{index}" for index in range(7)]),
      "tastes.content_genres: List should have at most 6 items after validation, not 7"),
+    (lambda doc: doc["tastes"].update(food_preferences=[f"菜{index}" for index in range(7)]),
+     "tastes.food_preferences: List should have at most 6 items after validation, not 7"),
+    (lambda doc: doc["habits"][1].update(trigger="时" * 31),
+     "habits.1.trigger: String should have at most 30 characters"),
     (lambda doc: doc["habits"][0].update(response="做" * 41),
      "habits.0.response: String should have at most 40 characters"),
     (lambda doc: doc.update(sleep_need_hours=6.5), "sleep_need_hours: Input should be greater than or equal to 7"),
@@ -315,6 +332,40 @@ def test_relationship_and_habit_counts_are_capped_for_the_prompt_budget(environm
     assert rejected(environment, rows(limit + 1))[2] == (
         f"{field}: List should have at most {limit} items after validation, not {limit + 1}")
     assert getattr(parse_persona_file(declare(environment, **{field: []}))[0], field) == ()
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda doc: doc["identity"].update(occupation="长" * 20, living_arrangement="住" * 30),
+    lambda doc: doc["situation"].update(busy_this_week="忙" * 60, cares_about="想" * 60),
+    lambda doc: doc["relationships"][0].update(name_or_appellation="名" * 12, role="亲" * 12, intimacy=0),
+    lambda doc: doc["habits"][0].update(trigger="时" * 30, response="做" * 40),
+    lambda doc: doc["tastes"].update(food_preferences=[f"菜{index}" for index in range(6)]),
+    lambda doc: doc.update(coping="压" * 60),
+])
+def test_values_exactly_at_a_length_or_count_limit_load(environment, mutate):
+    """字数、条数和亲密度正好写到上限或下限的人设表可以加载：上限本身不被拒绝。"""
+    assert parse_persona_file(edit_persona(environment, mutate))[0].schema_version == 2
+
+
+def _crowded(document, last_response: int) -> None:
+    """每一栏都在各自上限之内的人设表：五条习惯、四个关系都写满，最后一条习惯的反应写 last_response 个字。"""
+    document["habits"] = [{"trigger": "情" * 30, "response": "做" * 40, "time_window": [19.0, 20.0]}
+                          for _ in range(5)]
+    document["habits"][-1]["response"] = "做" * last_response
+    document["relationships"] = [{"name_or_appellation": name * 12, "role": "友" * 12, "intimacy": 25,
+                                  "channels": ["电话", "微信", "见面"]} for name in "甲乙丙丁"]
+
+
+def test_card_text_over_600_hanzi_is_rejected_at_load_although_every_field_is_within_its_limit(environment):
+    """条数与字数上限各管一个字段，合起来仍可能超过卡片文本的 600 汉字：正好 600 汉字的人设表可以加载，601 汉字的在加载
+    时以 PERSONA_INVALID 拒绝并写出汉字数，纯校验给出同一条，不必等到新建运行。"""
+    loaded = parse_persona_file(edit_persona(environment, lambda document: _crowded(document, 25)))[0]
+    assert count_hanzi(render_card(persona_card(loaded))) == 600
+    reason = "persona card render exceeds budget: 601 hanzi > 600 (input-side problem, not truncated)"
+    assert rejected(environment, lambda document: _crowded(document, 26)) == (
+        "persona.toml", "PERSONA_INVALID", reason)
+    assert validate_environment(environment, metadata_loader=metadata) == {
+        "valid": False, "errors": [{"path": "persona.toml", "code": "PERSONA_INVALID", "reason": reason}]}
 
 
 def test_taste_duplicates_are_kept_as_written(environment):

@@ -306,14 +306,23 @@ def _minutes(delta: int) -> float:
 
 def _window_minutes(epoch: int | None, window: tuple[float, float] | None, day: date,
                     zone: ZoneInfo) -> float | None:
-    """@brief 时刻相对窗口（当天的钟点，闭区间）的偏离分钟：早于起点为负，晚于终点为正，窗口内为 0；任一为空时 None。"""
+    """@brief 时刻相对窗口的偏离分钟：窗口按钟面读，取 day 的前一天、当天、次日三次窗口里离时刻最近的一次，
+    一样近时取较早的一次；早于起点为负，晚于终点为正，窗口内为 0；任一为空时 None。"""
     if epoch is None or window is None:
         return None
+    seconds = [_occurrence_seconds(epoch, window, day + timedelta(days=offset), zone) for offset in (-1, 0, 1)]
+    return _minutes(min(seconds, key=abs))
+
+
+def _occurrence_seconds(epoch: int, window: tuple[float, float], day: date, zone: ZoneInfo) -> int:
+    """@brief 时刻相对 day 那一次窗口（闭区间）的偏离秒数：起点减去整数个 24 小时落进当天的钟面，终点减去同样多的
+    小时，换成时刻时截到整秒。"""
     midnight = datetime.combine(day, datetime.min.time(), zone)
-    start, end = (int((midnight + timedelta(hours=hour)).timestamp()) for hour in window)
+    whole_days = 24 * (window[0] // 24)
+    start, end = (int((midnight + timedelta(hours=hour - whole_days)).timestamp()) for hour in window)
     if epoch < start:
-        return _minutes(epoch - start)
-    return _minutes(epoch - end) if epoch > end else 0.0
+        return epoch - start
+    return epoch - end if epoch > end else 0
 
 
 def _asleep(timeline: _Timeline, instant: int) -> bool | None:

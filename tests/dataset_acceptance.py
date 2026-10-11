@@ -64,6 +64,18 @@ MUTATIONS = (
         "or not window[0] < window[1]", "or False",
         ("tests/unit/test_environment_inputs.py"
          "::test_every_window_needs_two_finite_hours_with_start_before_end",)),
+    SourceMutation("card_text_budget_unchecked_at_load", "worldmock.environment::_require_card_text_within_budget",
+        "render_card(persona_card(persona))", "persona_card(persona)",
+        ("tests/unit/test_environment_inputs.py"
+         "::test_card_text_over_600_hanzi_is_rejected_at_load_although_every_field_is_within_its_limit",)),
+    SourceMutation("evaluation_window_read_off_the_clock", "worldmock.evaluation.workload_metrics::_occurrence_seconds",
+        "whole_days = 24 * (window[0] // 24)", "whole_days = 0.0",
+        ("tests/integration/evaluation/test_workload_metrics.py"
+         "::test_windows_are_read_on_the_clock_against_the_nearest_occurrence",)),
+    SourceMutation("evaluation_window_only_on_the_event_day", "worldmock.evaluation.workload_metrics::_window_minutes",
+        "for offset in (-1, 0, 1)", "for offset in (0,)",
+        ("tests/integration/evaluation/test_workload_metrics.py"
+         "::test_windows_are_read_on_the_clock_against_the_nearest_occurrence",)),
     SourceMutation("card_window_rounded_to_half_hour", "worldmock.profile.models::_window",
         "TimeWindow(start_hour=window[0], end_hour=window[1])",
         "TimeWindow(start_hour=round(window[0] * 2) / 2, end_hour=round(window[1] * 2) / 2)",

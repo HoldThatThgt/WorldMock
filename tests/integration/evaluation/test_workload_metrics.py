@@ -276,6 +276,41 @@ def test_people_without_a_schedule_have_null_leave_items_and_still_report_arriva
         "evidence_event_ids": {"left_workplace": None, "arrived_home": home["event_id"]}}]
 
 
+def _leave_deviation(window: tuple[float, float], day: int, clock: str) -> float:
+    """下班窗口为 window 的人物在第 day 天 clock 从办公室出发回家，返回这次离开对下班窗口的偏离分钟。"""
+    events = _Events()
+    events.body(1, _at(0, "07:00"), _at(2, "12:00"))
+    events.trip(1, _at(0, "08:30"), _at(0, "08:50"), ("home", "office"))
+    left = _at(day, clock)
+    events.trip(1, left, left + 1200, ("office", "home"))
+    days = _reports(events, {1: _agent(_schedule(), leave=window)})["routine_deviation"]["agents"]["1"]["days"]
+    [row] = [item for item in days if item["left_workplace_at"] is not None]
+    assert row["date"] == f"2026-01-{5 + day:02d}"
+    return row["leave_vs_window_minutes"]
+
+
+def test_windows_are_read_on_the_clock_against_the_nearest_occurrence() -> None:
+    """下班、到家窗口按钟面读，与离开或到家最近的那一次窗口比较。写成 [25.0, 25.5] 的窗口是每天 01:00–01:30：凌晨
+    01:10 离开偏离为 0，01:40 离开晚 10 分钟，前一晚 23:50 离开早 70 分钟，都不是相差一整天的数。[23.0, 23.5] 的窗口，
+    次日 00:30 才走比前一晚那一次晚 60 分钟；写成负数的 [-1.0, -0.5] 和多写一整天的 [47.0, 47.5] 是同一个
+    23:00–23:30，[-23.0, -22.5] 是同一个 01:00–01:30。与前后两次窗口一样近时取较早的一次：对 12:00–12:30，
+    次日 00:15 离开记晚 705 分钟。"""
+    after_midnight = (25.0, 25.5)
+    assert _leave_deviation(after_midnight, 1, "01:10") == 0.0
+    assert _leave_deviation(after_midnight, 1, "01:40") == 10.0
+    assert _leave_deviation(after_midnight, 0, "23:50") == -70.0
+    assert _leave_deviation((1.0, 1.5), 1, "01:40") == 10.0
+    assert _leave_deviation((-23.0, -22.5), 0, "23:50") == -70.0
+    assert _leave_deviation((23.0, 23.5), 1, "00:30") == 60.0
+    assert _leave_deviation((23.0, 23.5), 0, "22:15") == -45.0
+    assert _leave_deviation((-1.0, -0.5), 0, "23:10") == 0.0
+    assert _leave_deviation((-1.0, -0.5), 1, "00:30") == 60.0
+    assert _leave_deviation((47.0, 47.5), 1, "00:30") == 60.0
+    assert _leave_deviation((12.0, 12.5), 1, "00:15") == 705.0
+    assert _leave_deviation((12.0, 12.5), 1, "00:16") == -704.0
+    assert _leave_deviation((12.0, 12.5), 1, "00:14") == 704.0
+
+
 def _keys(value: Any) -> set[str]:
     """嵌套字典与列表里出现的全部键。"""
     if isinstance(value, dict):
@@ -633,7 +668,8 @@ def test_left_workplace_is_the_last_departure_and_arrival_home_the_first_one_aft
 def test_arrival_home_without_a_departure_is_the_last_one_of_that_local_day() -> None:
     """@brief 当天没有离开工作地点时取当天最后一次到家，「当天」是那个本地日。人物 2 没有工作安排，周一 13:00、20:00
     两次到家，周二 21:30 到家：每天各取当天最后一次（周一 20:00，不是 13:00，也不是周二的 21:30）。人物 3 周一 18:00
-    下班去酒吧、周二 01:00 才到家：周一的到家为 null；周二按日期例外不当班，取当天的 01:00。"""
+    下班去酒吧、周二 01:00 才到家：周一的到家为 null；周二按日期例外不当班，取当天的 01:00，它离前一晚那一次到家窗口
+    （18:30–19:00）最近，记晚 360 分钟，不是比周二晚上的窗口早十七个半小时。"""
     events = _Events()
     events.body(2, _at(0, "07:00"), _at(1, "22:00"))
     events.trip(2, _at(0, "11:00"), _at(0, "11:20"), ("home", "shop"))
@@ -657,7 +693,7 @@ def test_arrival_home_without_a_departure_is_the_last_one_of_that_local_day() ->
     assert agents["3"]["days"] == [
         _day_row("2026-01-05", ("2026-01-05T18:00:00+08:00", 0.0, 0.0, bar["event_id"]), (None, None, None),
                  (False, False)),
-        _day_row("2026-01-06", nowhere, ("2026-01-06T01:00:00+08:00", -1050.0, late["event_id"]), unknown)]
+        _day_row("2026-01-06", nowhere, ("2026-01-06T01:00:00+08:00", 360.0, late["event_id"]), unknown)]
 
 
 def test_leave_deviation_uses_the_declared_shift_end_when_the_run_is_cut_short() -> None:

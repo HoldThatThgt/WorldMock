@@ -220,7 +220,8 @@ async def test_new_run_makes_no_model_request_for_the_persona_and_shows_the_tabl
         tmp_path, native_runtime, monkeypatch):
     """@brief 人设层这一处：真实新建运行里第一次决策发给模型的人设层，就是 persona.toml 里写的作息、身份、习惯、口味和
     应对方式。新建运行不为人物卡片调用模型：独立模型客户端一旦被构造或调用就让运行失败，落库的模型请求只有零点计划和
-    人物自己的决策；工作区里的卡片、清单的习惯反应文本都来自人设表，运行能从检查点恢复。"""
+    人物自己的决策；落库的零点计划请求里午饭、到家、就寝时段是人设表写的同一分钟；工作区里的卡片、清单的习惯反应文本
+    都来自人设表，运行能从检查点恢复。"""
     from tests.integration.runtime.current_contract_fixtures import ROOT
     from worldmock import model_endpoint
     from worldmock.profile.models import persona_card, persona_card_struct
@@ -247,6 +248,8 @@ async def test_new_run_makes_no_model_request_for_the_persona_and_shows_the_tabl
     requests = [event for event in run["events"] if event.event_type == "model_request"]
     assert requests and requests[0].data.get("purpose") == "plan_day"
     assert all(event.data.get("purpose") == "plan_day" or event.decision_id for event in requests)
+    for window in ("11:45–12:45", "18:00–18:30", "18:15–18:45", "19:00–20:00", "23:30–00:30"):
+        assert window in run["plan"]
     first = run["models"][0].requests[0]
     assert {"start_main_activity", "start_side_activity"} <= {tool["function"]["name"] for tool in first["tools"]}
 
@@ -337,7 +340,8 @@ def test_body_reads_meal_windows_sleep_rhythm_and_social_growth_from_the_persona
 
 def test_evaluation_reads_the_work_windows_from_the_persona_table(tmp_path):
     """@brief 评估这一处：下班、到家窗口是 persona.toml 的原值（到家 18:15–18:45），18:50 到家记晚 5 分钟、18:05 到家
-    记早 10 分钟；没有写这两个时段的夹具人物偏离为空。"""
+    记早 10 分钟；没有写这两个时段的夹具人物偏离为空。写成大于 24 的时段按钟面读，与人设层显示的时刻相同：
+    下班 [25.0, 25.5]、到家 [25.75, 26.25] 的人物凌晨 01:10 离开、01:50 到家都准时，前一晚 23:50 离开记早 70 分钟。"""
     from tests.integration.evaluation.test_workload_metrics import CODE, ZONE, _Events, _at
     from worldmock.evaluation.behavior_metrics import behavior_metrics_report
     from worldmock.evaluation.workload_metrics import workday_inputs
@@ -358,16 +362,55 @@ def test_evaluation_reads_the_work_windows_from_the_persona_table(tmp_path):
     assert (fixture.agents[1].leave_work_window, fixture.agents[1].arrive_home_window) == (None, None)
     assert deviation(fixture, "18:50") is None
 
+    def night(left: tuple[int, str], arrived: tuple[int, str]):
+        events = _Events()
+        events.body(1, _at(0, "07:00"), _at(1, "06:00"))
+        events.trip(1, _at(0, "16:20"), _at(0, "16:50"), ("home", "office"))
+        events.trip(1, _at(*left), _at(*arrived), ("office", "home"))
+        reports = behavior_metrics_report(events.rows, timezone=ZONE, workday=late)[CODE]["reports"]
+        days = reports["routine_deviation"]["agents"]["1"]["days"]
+        return [(row["left_workplace_at"], row["leave_vs_window_minutes"], row["arrive_home_vs_window_minutes"])
+                for row in days]
 
-def test_a_table_whose_card_text_exceeds_the_budget_loads_but_fails_when_the_card_is_built(tmp_path):
-    """@brief 600 汉字预算仍在构造卡片时检查：口味里写成长句的人设表通过加载，新建运行的工作区输入如实报错，不截断。"""
-    from worldmock.profile.textgen import RenderBudgetExceededError
+    root = _declared_environment(tmp_path / "night", leave_work_window=(25.0, 25.5),
+                                 arrive_home_window=(25.75, 26.25))
+    late = workday_inputs(_loaded(root))
+    layer = _persona_rhythm(_loaded(root))
+    assert (layer["leave_work"], layer["arrive_home"]) == ("1点到1点半", "1点三刻到2点一刻")
+    assert night((1, "01:10"), (1, "01:50")) == [(None, None, None), ("2026-01-06T01:10:00+08:00", 0.0, 0.0)]
+    assert night((0, "23:50"), (1, "00:20")) == [("2026-01-05T23:50:00+08:00", -70.0, None), (None, None, -85.0)]
+
+
+def _persona_rhythm(loaded) -> dict:
+    """由加载好的环境经真实工作区输入构造的人设层作息。"""
+    from worldmock.agents.life_persona import persona_layer
+
+    profile = creation_inputs(loaded)[0][0]["profile"]
+    return persona_layer(profile, loaded.persona.name, {"relationships": [], "preferences": []})["rhythm"]
+
+
+@pytest.mark.asyncio
+async def test_a_table_whose_card_text_exceeds_the_budget_is_refused_before_a_run_is_created(tmp_path):
+    """@brief 600 汉字预算在加载人设表时检查，不截断：口味里写成长句的人设表被完整环境加载、纯校验和新建运行以同一条
+    PERSONA_INVALID 拒绝，原因写出实际的汉字数；新建运行在创建运行目录之前就停下。"""
+    from tests.frozen_inputs import fixture_metadata
+    from tests.integration.runtime.current_contract_fixtures import ROOT
+    from worldmock.errors import EnvironmentInputError
+    from worldmock.runtime import RunRequest, run_world
+    from worldmock.validation import validate_environment
 
     long_tastes = {"content_genres": ["纪" * 300, "录" * 300], "food_preferences": ["川菜"], "media": ["长视频"]}
-    declared = _declared_inputs(tmp_path, tastes=long_tastes)
-    assert declared.persona.tastes.content_genres == ("纪" * 300, "录" * 300)
-    with pytest.raises(RenderBudgetExceededError, match="input-side problem, not truncated"):
-        creation_inputs(declared)
+    root = _declared_environment(tmp_path, tastes=long_tastes)
+    reason = "persona card render exceeds budget: 751 hanzi > 600 (input-side problem, not truncated)"
+    with pytest.raises(EnvironmentInputError) as caught:
+        _loaded(root)
+    assert (caught.value.path, caught.value.code, caught.value.reason) == ("persona.toml", "PERSONA_INVALID", reason)
+    assert validate_environment(root, metadata_loader=fixture_metadata) == {
+        "valid": False, "errors": [{"path": "persona.toml", "code": "PERSONA_INVALID", "reason": reason}]}
+    with pytest.raises(EnvironmentInputError) as refused:
+        await run_world(RunRequest(ROOT, root, tmp_path / "over-budget", "over-budget", "over-budget"))
+    assert (refused.value.code, refused.value.reason) == ("PERSONA_INVALID", reason)
+    assert not (tmp_path / "over-budget").exists()
 
 
 @pytest.mark.parametrize("declared,layer,plan", [
