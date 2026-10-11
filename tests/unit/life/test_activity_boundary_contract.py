@@ -194,3 +194,40 @@ def test_malformed_wire_mutation_is_rejected_without_partial_dispatch(engine_fac
             engine.actions.dispatch(state, group)
         assert state.model_dump(mode="json") == before
         assert not state.activities
+
+
+@pytest.mark.parametrize("action,seconds,accepted", [
+    ("interact", 1, True), ("interact", 30, True), ("interact", 0, False),
+    ("sleep", 59, False), ("sleep", 60, True), ("purchase", 59, False), ("walk", 1, True), ("walk", 0, False)])
+def test_shortest_planned_duration_depends_on_how_the_duration_is_derived(engine_factory, action, seconds, accepted):
+    """出行与内容活动的时长由路线、内容时长与共享进度派生，至少一秒即可开始（没做完的内容只剩几十秒时照样接着做）；
+    睡眠与购买至少一分钟。"""
+    engine = engine_factory()
+    data = {"exertion": "idle"} if action == "interact" else {}
+    params = (ActivityStartParams(action, seconds, "office", TravelMode.WALKING, data) if action == "walk"
+              else ActivityStartParams(action, seconds, data=data))
+    arguments = (engine.context.state.agents[1], params, engine.context.state.current_time,
+                 ActivityOrigin("origin", "decision", "request"), engine.context.body)
+    if accepted:
+        assert create_activity(*arguments)[1].planned_duration_seconds == seconds
+    else:
+        with pytest.raises(BusinessRuleError, match="ACTIVITY_TOO_SHORT"):
+            create_activity(*arguments)
+
+
+def test_paused_activity_is_cancelled_at_any_later_time_while_an_active_one_needs_its_boundary(engine_factory):
+    """暂停中的活动没有进行中的结算区间，之后任何时刻都可以结束；进行中的活动仍须结算到当前边界才能结束。"""
+    engine = engine_factory()
+    state = engine.context.state
+    agent, activity = state.agents[1], _activity(engine)
+    later = state.current_time + 600
+    paused = activity.model_copy(update={"status": ActivityStatus.PAUSED, "paused_at": state.current_time})
+    cancel = ChangeActivityRequest(activity_id=activity.activity_id, operation=ActivityChange.CANCEL)
+    _, ended = change_activity(agent, paused, cancel, later, 60)
+    assert (ended.status, ended.ended_at, ended.interruption_reason) == (
+        ActivityStatus.CANCELLED, later, "agent_cancelled")
+    with pytest.raises(BusinessRuleError, match="ACTIVITY_FEEDBACK_NOT_DUE"):
+        change_activity(agent, activity, cancel, later, 60)
+    pause = ChangeActivityRequest(activity_id=activity.activity_id, operation=ActivityChange.PAUSE)
+    with pytest.raises(BusinessRuleError, match="ACTIVITY_FEEDBACK_NOT_DUE"):
+        change_activity(agent, paused, pause, later, 60)

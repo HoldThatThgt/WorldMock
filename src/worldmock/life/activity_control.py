@@ -14,7 +14,7 @@ from worldmock.life.activities import at_decision_boundary
 from worldmock.life.activity_titles import TitleIndex
 from worldmock.life.error_contract import ErrorItem, items_fix
 from worldmock.life.guidance import Refusal, items_refusal, refusal_for_code
-from worldmock.life.action_evidence import (_origin_terminal_draft, _origin_terminal_result,
+from worldmock.life.action_evidence import (_activity_terminal_draft, _activity_terminal_result,
                                             _terminal_action_records)
 from worldmock.life.models import (CONCLUDABLE_TERMINAL_STATUSES, ActivityKind, ActivityState, ActivityStatus,
                                    PendingAction, WorldState, active_activities)
@@ -342,7 +342,7 @@ def _listed(activities: Iterable[ActivityState], names: Mapping[str, str]) -> st
 
 def record_changes(before: WorldState, after: WorldState, pending: PendingAction,
                    context: RecordContext) -> tuple[WorldState, list[EventDraft]]:
-    """@brief 本次控制改变的每项活动写一条 environment_event；原始动作全部子活动终结时写一次终态；控制请求里每条被受理
+    """@brief 本次控制改变的每项活动写一条 environment_event；活动终结时给开始它的动作写一次终态；控制请求里每条被受理
     的个人事务变更各写一条事务事件（errands.request_drafts，只在这条成功分支生成，docs/design/04-simulation-engine.md
     「原子性」）。"""
     drafts = _lifecycle_drafts(before, after, pending, context.snapshot)
@@ -386,18 +386,15 @@ def _lifecycle_drafts(before: WorldState, after: WorldState, pending: PendingAct
 
 def _terminal_records(before: WorldState, after: WorldState, request_event_id: str,
                       index: TitleIndex) -> tuple[WorldState, list[EventDraft]]:
-    """@brief 本次新终结的活动：其原始动作的全部子活动都终结时更新 processed_actions 并写一次终态。"""
+    """@brief 本次新终结的活动：各自更新开始它的那条动作在 processed_actions 里的结果并写一次终态。"""
     newly = [item for key, item in sorted(after.activities.items()) if item.status in _TERMINAL_STATUSES
              and key in before.activities and before.activities[key].status not in _TERMINAL_STATUSES]
     drafts = []
-    for origin in dict.fromkeys(item.origin_action_id for item in newly):
-        activity = next(item for item in newly if item.origin_action_id == origin)
-        result = _origin_terminal_result(after, activity, after.current_time, index)
-        if result is None:
-            continue
+    for activity in newly:
+        result = _activity_terminal_result(after, activity, after.current_time, index)
         after = after.model_copy(update={"processed_actions": _terminal_action_records(after, result)})
-        drafts.append(_origin_terminal_draft(after, activity, after.current_time, [request_event_id],
-                                             index))
+        drafts.append(_activity_terminal_draft(after, activity, after.current_time, [request_event_id],
+                                               index))
     return after, drafts
 
 

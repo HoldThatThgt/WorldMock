@@ -181,22 +181,37 @@ def _until_free(engine):
         settle_decision(engine, f"free-{counter}-{engine.context.state.current_time}")
 
 
-def test_station_offers_nothing_while_no_parcel_is_ready(engine_factory):
+def _two_unit_station(tmp_path):
+    """夹具副本：快递驿站多绑定一个五分钟的单元「驿站等候」，用来证明点名哪个单元都一样取件。"""
+    root = copy_environment(tmp_path / "station")
+    rows = catalog_rows(root, "content-catalog.jsonl")
+    service = next(row for row in rows if row["content_id"] == "parcel-service")
+    rows.append({**service, "content_id": "parcel-wait", "duration_seconds": 300, "title": "驿站等候"})
+    write_catalog_rows(root, "content-catalog.jsonl", sorted(rows, key=lambda row: row["content_id"]))
+    return root
+
+
+def test_station_offers_nothing_while_no_parcel_is_ready(engine_factory, tmp_path):
     """收件地点没有到站包裹时，那里的任何一件事都以 PARCEL_NOT_READY 拒绝，工具层各行同样标注。"""
-    engine = engine_factory()
+    engine = engine_factory(_two_unit_station(tmp_path))
     _to_station(engine)
-    observed, result = act(engine, "pickup", do_at("快递驿站", "驿站取件"))
-    assert result.status == "rejected" and result.error_code == "PARCEL_NOT_READY"
-    assert result.message == "No parcels are ready for you at this station."
-    assert result.data["unmet"] == ["parcel_ready"] and result.data["fix"] is None
-    station = next(row for row in observed["tool_layer"]["targets"] if row["name"] == "快递驿站")
-    assert [(row["action"], row["detail"], row["available"], row["reason"]) for row in station["actions"]] == [
-        ("interact", "驿站取件", False, "No parcels are ready for you at this station.")]
+    reason = "No parcels are ready for you at this station."
+    for unit in ("驿站取件", "驿站等候"):
+        observed, result = act(engine, f"pickup-{unit}", do_at("快递驿站", unit))
+        assert result.status == "rejected" and result.error_code == "PARCEL_NOT_READY"
+        assert result.message == reason
+        assert result.data["unmet"] == ["parcel_ready"] and result.data["fix"] is None
+        station = next(row for row in observed["tool_layer"]["targets"] if row["name"] == "快递驿站")
+        assert [(row["action"], row["detail"], row["available"], row["reason"])
+                for row in station["actions"]] == [
+            ("interact", "驿站取件", False, reason), ("interact", "驿站等候", False, reason)]
+    assert all(item.kind.value == "travel" for item in engine.context.state.activities.values())
 
 
-def test_naming_a_unit_at_the_station_collects_every_ready_parcel(engine_factory):
-    """有到站包裹时点名驿站的单元：一次领完并开始该单元，收货事件回链这条受理结果，结果带领取后的快照。"""
-    engine = engine_factory(mutate=_parcel_environment)
+def test_naming_a_unit_at_the_station_collects_every_ready_parcel(engine_factory, tmp_path):
+    """有到站包裹时点名驿站的任一单元（这里点名第二个）：一次领完并开始该单元，收货事件回链这条受理结果，
+    结果带领取后的快照。"""
+    engine = engine_factory(_two_unit_station(tmp_path), mutate=_parcel_environment)
     _, bought = act(engine, "notebook", purchase("平台笔记本", "平台笔记本"))
     assert bought.status == "in_progress", bought.error_code
     finish_activity(engine, bought, "notebook")
@@ -207,13 +222,14 @@ def test_naming_a_unit_at_the_station_collects_every_ready_parcel(engine_factory
     _until_free(engine)
     assert {engine.context.state.deliveries[order.order_id].status for order in parcels} == {"ready_for_pickup"}
     _to_station(engine)
-    observed, pickup = act(engine, "pickup", do_at("快递驿站", "驿站取件"))
+    observed, pickup = act(engine, "pickup", do_at("快递驿站", "驿站等候"))
     assert pickup.status == "in_progress", pickup.error_code
     station = next(row for row in observed["tool_layer"]["targets"] if row["name"] == "快递驿站")
-    assert station["actions"][0]["available"] is True and station["actions"][0]["duration"] == "约 3 分钟"
+    assert [(row["detail"], row["available"], row["duration"]) for row in station["actions"]] == [
+        ("驿站取件", True, "约 3 分钟"), ("驿站等候", True, "约 5 分钟")]
     activity = engine.context.state.activities[pickup.activity_id]
-    assert activity.name.startswith("进行驿站取件（") and activity.data["content_id"] == "parcel-service"
-    assert activity.planned_duration_seconds == 180 and activity.resource_claims == {"first"}
+    assert activity.name.startswith("进行驿站等候（") and activity.data["content_id"] == "parcel-wait"
+    assert activity.planned_duration_seconds == 300 and activity.resource_claims == {"first"}
     assert {engine.context.state.deliveries[order.order_id].status for order in parcels} == {"delivered"}
     snapshots = action_result(engine, "action-pickup").data["orders"]
     assert [row["order_id"] for row in snapshots] == [order.order_id for order in parcels]

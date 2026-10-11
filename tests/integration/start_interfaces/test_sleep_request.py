@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from tests.frozen_inputs import fixture_metadata
+from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
 from tests.life.conftest import (
-    MAIN_TOOL, advance_next, advance_until_ready, conclude_request, context, do_at, sleep, travel, use_app,
+    MAIN_TOOL, advance_next, advance_until_ready, conclude_request, context, do_at, main_arguments, sleep,
+    stage_day_plan, travel, use_app,
 )
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, events, finish_activity
@@ -252,3 +255,37 @@ def test_sleep_requires_slot_two_and_leaves_the_world_unchanged_when_refused(eng
         finish_activity(engine, video, "video")
     _, result = act(engine, "sleep", sleep(60))
     assert result.status == "in_progress", result.error_code
+
+
+@pytest.mark.asyncio
+async def test_host_corrects_a_malformed_sleep_request_with_the_environment_items_and_no_round(engine_factory):
+    """宿主与环境对同一份坏睡眠请求（分钟数带单位、detail 非空）给出相同的两条明细；宿主在本次决策内纠错，
+    不登记世界请求、不计同刻轮数，改正后只登记那一条合法请求。"""
+    bad = {"action": "sleep", "target": "8h", "detail": "家"}
+    engine = engine_factory()
+    stage_day_plan(engine, submitted=True)
+    _, requests, _, results = await decide(engine, "nap", [
+        ToolResponse(MAIN_TOOL, bad), ToolResponse(MAIN_TOOL, main_arguments("sleep", "60"), "call-valid")])
+    message = requests[1]["messages"][-1]
+    assert message["role"] == "tool"
+    feedback = json.loads(message["content"])
+    whys = [SLEEP_MINUTES_REASON, "detail must be null when action is sleep"]
+    assert feedback["error_code"] == "ARGUMENTS_INVALID" and feedback["reason"] == "; ".join(whys)
+    assert feedback["fix"] == "Correct every reported parameter." and feedback["unmet"] == []
+    assert [(item["path"], item["written"], item["why"], item["allowed_values"], item["candidates"])
+            for item in feedback["items"]] == [
+        (["tool_calls", 0, "function", "arguments", "target"], "8h", whys[0], [], []),
+        (["tool_calls", 0, "function", "arguments", "detail"], "家", whys[1], [], [])]
+    assert results[0].status == "in_progress", results[0].error_code
+    registered = [row.data["request"] for row in events(engine, "action_requested")]
+    assert registered == [main_arguments("sleep", "60")] and not events(engine, "action_rejected")
+    assert engine.context.state.agents[1].same_moment_rounds == 1
+    bypass = engine_factory()
+    _, refused = act(bypass, "bypass", StartMainActivityRequest.model_construct(**bad), MAIN_TOOL)
+    assert refused.status == "rejected" and refused.error_code == "ACTION_REQUEST_INVALID"
+    assert refused.data["reason"] == feedback["reason"] and refused.data["fix"] == feedback["fix"]
+    shared = ("path", "written", "why", "expected", "allowed_values", "candidates")
+    assert [{key: item[key] for key in shared} for item in refused.data["items"]] == [
+        {key: item[key] for key in shared} for item in feedback["items"]]
+    assert ({item["error_code"] for item in feedback["items"]}, {item["error_code"] for item in refused.data["items"]}) == (
+        {"ARGUMENTS_INVALID"}, {"ACTION_REQUEST_INVALID"})

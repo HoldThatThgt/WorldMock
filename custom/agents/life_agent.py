@@ -487,7 +487,7 @@ class LifeAgent(PersonAgent):
         if model is None:
             item = ErrorItem(("tool_calls", 0, "function", "name"), decision.action, "TOOL_CALL_REQUIRED",
                              tuple(self._life_request_models), "A tool offered in this round is required.",
-                             "The requested tool is not offered in this round.")
+                             "The tool is not offered in this round.")
             return host_feedback(host_report("TOOL_CALL_REQUIRED", items=(item,)), item.why)
         try:
             validated = _validate_request(model, decision.args)

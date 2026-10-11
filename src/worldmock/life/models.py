@@ -294,9 +294,8 @@ class SameMomentStage(StrEnum):
     """@brief 同刻受限轮阶段闭集（docs/design/04-simulation-engine.md「规则」3 与「实现约定」）。
 
     未达同刻上限时为 open；达到上限后每个受限轮只开放一类动作，阶段依赖上一受限轮的结果，时钟推进复位为 open。
-    暂停的活动不占槽位以后，阶梯不再按槽位分流：resume_or_conclude 与 conclude_only 留在闭集中（世界结构版本仍为 9），
-    现行阶梯不再进入它们（docs/design/04-simulation-engine.md R2）。
-    只开放等待的阶段随世界结构版本 8 删除（docs/design/06-agent.md「失败后强制等待与跨决策预算」）。
+    暂停的活动不占槽位，阶梯不按槽位分流：resume_or_conclude 与 conclude_only 留在闭集中，
+    现行阶梯不进入它们（docs/design/04-simulation-engine.md R2）。
     """
 
     OPEN = "open"
@@ -794,12 +793,14 @@ class StartSideActivityRequest(ToolRequestModel):
 
     @model_validator(mode="after")
     def validate_target_count(self) -> "StartSideActivityRequest":
-        """@brief 名称数组至少一项；用内容 app 时恰好一项；购买不设上限并允许同名重复。"""
+        """@brief 名称数组至少一项；用内容 app 时恰好一项；购买不设上限并允许同名重复。每条违背各报一条。"""
+        problems = []
         if not self.target:
-            raise _cross_errors(type(self).__name__, [("target", self.target, "target requires at least one name")])
+            problems.append(("target", self.target, "target requires at least one name"))
         if self.action == "interact" and len(self.target) != 1:
-            raise _cross_errors(type(self).__name__, [
-                ("target", self.target, "target takes exactly one app name when action is interact")])
+            problems.append(("target", self.target, "target takes exactly one app name when action is interact"))
+        if problems:
+            raise _cross_errors(type(self).__name__, problems)
         return self
 
 

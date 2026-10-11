@@ -172,7 +172,9 @@ def test_main_cross_constraints_report_one_item_per_violation(arguments, expecte
 
 @pytest.mark.parametrize("arguments,expected", [
     ({"action": "purchase", "target": []}, [(("target",), [], (), "target requires at least one name")]),
-    ({"action": "interact", "target": []}, [(("target",), [], (), "target requires at least one name")]),
+    ({"action": "interact", "target": []},
+     [(("target",), [], (), "target requires at least one name"),
+      (("target",), [], (), "target takes exactly one app name when action is interact")]),
     ({"action": "interact", "target": ["哔哩哔哩", "抖音"]},
      [(("target",), ["哔哩哔哩", "抖音"], (), "target takes exactly one app name when action is interact")]),
     ({"action": "purchase", "target": "牛肉面"}, [(("target",), "牛肉面", (), "A JSON array is required.")]),

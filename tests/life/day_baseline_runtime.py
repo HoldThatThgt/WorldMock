@@ -62,13 +62,17 @@ def _finish_active(engine, label):
 
 
 def _activity_day(engine):
-    """同一轮在家点名休息并买一份牛肉面、两份薯片；同一轮驾车去公司并打开哔哩哔哩；在公司睡 60 分钟。"""
+    """同一轮在家点名休息并买一份牛肉面、两份薯片；同一轮驾车去公司并打开哔哩哔哩；在公司点名「季度销售数据整理」
+    并做完；在公司睡 60 分钟。"""
     _, home = act_group(engine, "home-basket", do_at("家", "测试休息"), purchase("牛肉面", "薯片", "薯片"))
     assert [item.status for item in home] == ["in_progress", "in_progress"]
     _finish_active(engine, "home")
     _, paired = act_group(engine, "travel-media", travel("公司", "驾车"), use_app("哔哩哔哩"))
     assert [item.status for item in paired] == ["in_progress", "in_progress"]
     _finish_active(engine, "trip")
+    _, work = act(engine, "office-work", do_at("公司", "季度销售数据整理"))
+    assert work.status == "in_progress"
+    finish_activity(engine, work, "office-work")
     _, nap = act(engine, "office-nap", sleep(60))
     assert nap.status == "in_progress"
     finish_activity(engine, nap, "office-nap")

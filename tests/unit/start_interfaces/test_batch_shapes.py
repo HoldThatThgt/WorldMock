@@ -71,14 +71,17 @@ def test_both_start_calls_are_validated_and_reported_at_their_real_positions():
 
 
 def test_request_model_errors_of_both_calls_join_one_correction():
-    """detail 为 null 到不了名称解析：由请求模型拒绝，明细不带允许值与候选，改法是改正每个报告的参数。"""
+    """detail 为 null 到不了名称解析：由请求模型拒绝，明细不带允许值与候选，改法是改正每个报告的参数；
+    用内容 app 而名称数组为空同时违背两条交叉约束，两条都报。"""
     main = (MAIN_TOOL, {"action": "interact", "target": "自己家", "detail": None})
     side = (SIDE_TOOL, {"action": "interact", "target": []})
     report = _feedback(main, side)[0].report.payload()
     assert report["error_code"] == "ARGUMENTS_INVALID" and report["fix"] == "Correct every reported parameter."
+    target = ["tool_calls", 1, "function", "arguments", "target"]
     assert [(item["path"], item["why"], item["allowed_values"], item["candidates"]) for item in report["items"]] == [
         (["tool_calls", 0, "function", "arguments", "detail"], "detail is required when action is interact", [], []),
-        (["tool_calls", 1, "function", "arguments", "target"], "target requires at least one name", [], [])]
+        (target, "target requires at least one name", [], []),
+        (target, "target takes exactly one app name when action is interact", [], [])]
 
 
 def test_retired_start_tool_is_refused_as_a_tool_not_offered():
@@ -89,4 +92,4 @@ def test_retired_start_tool_is_refused_as_a_tool_not_offered():
     named = [item for item in report["items"] if item["path"][-1] == "name"]
     assert named and named[0]["written"] == "start_activity"
     assert "start_activity" not in named[0]["allowed_values"]
-    assert named[0]["why"] in {"The tool is not offered in this round.", "The requested tool is not offered in this round."}
+    assert named[0]["why"] == "The tool is not offered in this round."

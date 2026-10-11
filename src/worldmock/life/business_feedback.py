@@ -32,11 +32,7 @@ def call_items(calls: Sequence[tuple[int, Any]], code: str, reason: str) -> tupl
 def _affected_fields(request: dict, code: str) -> list[tuple[str | int, ...]]:
     """@brief 依据工具实际结构和业务条件定位，不暴露内部价格、身份或时长。"""
     if isinstance(request.get("items"), list):
-        paths = []
-        for index, item in enumerate(request["items"]):
-            field = "target" if "target" in item else "activity_name"
-            paths.append(("items", index, field))
-        return paths
+        return [("items", index, "activity_name") for index in range(len(request["items"]))]
     return [("task_name" if "task_name" in request else "goals",)]
 
 

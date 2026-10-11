@@ -21,20 +21,22 @@ def _requests(case: Path) -> list[tuple[str, dict]]:
 
 
 def test_activity_day_names_units_buys_portions_and_sleeps_at_the_office(monkeypatch, tmp_path):
-    """活动日：同一轮在家点名休息并买一份牛肉面、两份薯片；同一轮驾车去公司并打开哔哩哔哩；在公司睡 60 分钟；
+    """活动日：同一轮在家点名休息并买一份牛肉面、两份薯片；同一轮驾车去公司并打开哔哩哔哩；在公司点名
+    「季度销售数据整理」并做完；在公司睡 60 分钟；
     之后步行回家、夜里睡 450 分钟直到截止。运行到达截止、无失败事件、导出通过认证（由录制入口断言）。"""
     case = tmp_path / "activity"
     recorded = record_complete_day(monkeypatch, case, PROJECT, "activity")
     assert set(recorded) == {"persona_sha256", "config_sha256", "environment_identity", "seed", "summary"}
     assert recorded["seed"] == 20260105
     starts = _requests(case)
-    assert starts[:5] == [
+    assert starts[:6] == [
         ("start_main_activity", {"action": "interact", "target": "家", "detail": "测试休息"}),
         ("start_side_activity", {"action": "purchase", "target": ["牛肉面", "薯片", "薯片"]}),
         ("start_main_activity", {"action": "travel", "target": "公司", "detail": "驾车"}),
         ("start_side_activity", {"action": "interact", "target": ["哔哩哔哩"]}),
+        ("start_main_activity", {"action": "interact", "target": "公司", "detail": "季度销售数据整理"}),
         ("start_main_activity", {"action": "sleep", "target": "60", "detail": None})]
-    later = starts[5:]
+    later = starts[6:]
     assert later[0] == ("start_main_activity", {"action": "travel", "target": "家", "detail": "步行"})
     assert {tool for tool, _ in later} == {"start_main_activity"}
     assert {"action": "sleep", "target": "450", "detail": None} in [request for _, request in later]

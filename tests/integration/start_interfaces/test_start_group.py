@@ -451,3 +451,20 @@ def test_start_without_a_frozen_observation_is_not_settled(engine_factory):
     with pytest.raises(BusinessRuleError, match="OBSERVATION_NOT_FOUND"):
         engine.commit_decision_round("blind")
     assert not engine.context.state.activities
+
+
+def test_rejected_start_group_is_remembered_once_and_corrected_only_on_its_own_tool(engine_factory):
+    """被拒的开始组在进度层 rejected_today 里每条负责的调用一行，同一决策的两条拒绝只计一次；之后受理副工具的一条
+    调用，只有明细路径指向副调用的那一行记下改正后的写法。"""
+    engine = engine_factory()
+    _, (main, side) = act_group(engine, "sleepy", sleep(60), use_app("哔哩哔哩"))
+    assert (main.status, side.status) == ("rejected", "rejected")
+    observed, video = act(engine, "video", use_app("抖音"))
+    reason = "Sleep requires the second activity slot to be empty."
+    remembered = sorted(observed["progress_layer"]["rejected_today"], key=lambda row: str(row["written"]))
+    assert [(row["written"], row["why"], row["times"], row["accepted_as"]) for row in remembered] == [
+        ("60", reason, 1, None), (["哔哩哔哩"], reason, 1, None)]
+    assert video.status == "in_progress", video.error_code
+    later = engine.observe(context(engine, "later"))["progress_layer"]["rejected_today"]
+    corrected = {str(row["written"]): (row["times"], row["accepted_as"]) for row in later}
+    assert corrected == {"60": (1, None), str(["哔哩哔哩"]): (1, ["抖音"])}
