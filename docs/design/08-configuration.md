@@ -37,8 +37,36 @@ flowchart LR
 | `initial_relaxation_need`、`initial_social_need` | 必填有限数，范围 `[0,1]` |
 | `body` | 必填 `mass_kg`、`initial_energy_kcal`、`initial_sleep_debt_hours`；有限合法初值，能量不超过系统上限 |
 | `work_schedule` | 可省略；`workplace` 为完整地点显示名，`weekly` 为班次，`exceptions` 为日期覆盖 |
-| `chronotype_midsleep`、`sleep_need_hours` | 保留人物作息覆盖与现行取值范围 |
-| 午晚餐、下班、到家、就寝窗口 | 保留现行人物作息窗口；显式声明覆盖画像抽取值 |
+| 七个作息值 | 可省略；见下表，声明什么卡片里就存什么，不取整 |
+
+七个作息值都写成自午夜起的小时数，18.25 就是 18:15；取值不要求落在任何格点上，也不要求是整分钟。
+
+| 字段 | 类型 | 约束 | 含义 |
+| --- | --- | --- | --- |
+| `lunch_window`、`dinner_window` | 两个浮点数的数组，依次是起点、终点 | 两端有限；`0 ≤ 起点 < 终点 ≤ 24`；终点减起点不超过 12 | 午饭、晚饭时段，含起点不含终点 |
+| `leave_work_window`、`arrive_home_window` | 同上 | 同上 | 下班、到家时段 |
+| `bedtime_window` | 同上 | 两端有限；`0 ≤ 起点 < 24`；`起点 < 终点 ≤ 30`；终点减起点不超过 12 | 开始就寝的时段；终点大于 24 表示越过午夜 |
+| `chronotype_midsleep` | 浮点数，缺省 4.0 | 有限数，`0 ≤ 值 < 24` | 自由日的睡眠中点 |
+| `sleep_need_hours` | 浮点数，缺省 7.5 | 有限数，`7 ≤ 值 ≤ 9` | 每天需要睡多久 |
+
+两个声明值不可能同时写进卡片时，加载 `persona.toml` 就拒绝，不调用模型、不创建运行资产。
+`bedtime_window` 的起点小于 6 时读作次日凌晨，比较时加 24，否则按当日读；6 是就寝时段上界 30 减 24。
+先按午饭、晚饭、下班、到家、就寝的次序检查每个时段自身的形状，再按下表的次序检查成对关系，只报告第一条不成立的。
+
+| 次序 | 同时声明了 | 必须满足 | 英文原因 |
+| --- | --- | --- | --- |
+| 1 | 下班、到家 | 下班起点 ≤ 到家起点 | `leave_work_window must not start after arrive_home_window` |
+| 2 | 晚饭、就寝 | 就寝起点（次日读法）≥ 晚饭终点 | `bedtime_window must not overlap dinner window` |
+| 3 | 午饭、晚饭 | 午饭终点 ≤ 晚饭起点 | `lunch_window must end before dinner_window starts` |
+| 4 | 午饭、就寝 | 午饭起点 ≤ 就寝起点（次日读法） | `bedtime_window must not start before lunch_window` |
+| 5 | 下班、就寝 | 下班起点 ≤ 就寝起点（次日读法） | `leave_work_window must not start after bedtime_window` |
+| 6 | 到家、就寝 | 到家起点 ≤ 就寝起点（次日读法） | `arrive_home_window must not start after bedtime_window` |
+
+单个时段形状的原因是 `<字段名> must contain two finite hours`、`<字段名> must satisfy 0 <= start < end <= <24 或 30>`、
+`<字段名> span must not exceed 12 hours`。这些原因和上表的原因随 `PERSONA_INVALID` 原样返回，
+`path` 为 `persona.toml`；没有改法字段，作者照原因改其中一个时段。
+没有声明的值照旧：人设层和评估用模型读出的值，零点计划不显示这一项，身体对睡眠中点和睡眠需要用缺省值、对饭点没有加成。
+声明值怎样写进卡片和怎样显示归[人物](06-agent.md)「人物身份与画像」。
 
 人物不声明联系人、邮件、账单、工资、工作内容指派、车辆归属、专用燃油初值或种子。
 删除 `entertainment_need` 与 `mood_valence` 的两套心理初值；身体结算与体感规则归交换引擎。
