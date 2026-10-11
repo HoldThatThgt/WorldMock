@@ -334,3 +334,145 @@ def test_optional_name_occupied_by_a_directory_is_an_identity_mismatch(directory
     with pytest.raises(RegistrationError) as failure:
         refresh_manifest_identity(directory)
     assert failure.value.code == "ENVIRONMENT_IDENTITY_MISMATCH"
+
+
+KIND_INVALID = "ENVIRONMENT_KIND_INVALID"
+PREREQUISITE_REASON = ("A content prerequisite must belong to an app content and declare location kinds, "
+                       "opening hours, or both.")
+
+
+def set_prerequisite(directory, content_id, prerequisite, **fields):
+    change_rows(directory, "content-catalog.jsonl", content_id, {"prerequisite": prerequisite, **fields})
+
+
+@pytest.mark.parametrize("prerequisite,detail", [
+    (None, "A declared content prerequisite must be an object."),
+    ("office", "prerequisite\n"),
+    (["office"], "prerequisite\n"),
+    ({"location_kinds": ["office"], "place": "office"}, "prerequisite.place\n"),
+    ({"location_kinds": "office"}, "prerequisite.location_kinds\n"),
+    ({"location_kinds": ["office", " "]}, "prerequisite.location_kinds.1\n"),
+    ({"location_kinds": ["office"], "opens": None}, "A declared opening schedule must be an object."),
+    ({"opens": {}}, "prerequisite.opens.weekly\n"),
+    ({"opens": [["08:00", "10:00"]]}, "prerequisite.opens\n"),
+], ids=["null", "string", "array", "unknown-key", "kinds-not-array", "blank-kind", "null-opens", "opens-shape",
+        "opens-not-object"])
+def test_prerequisite_shape_errors_are_reported_on_their_content_line(directory, prerequisite, detail):
+    """行解析阶段：前提及其成员的形状由严格行模型检查，详情以文件名和行号开头。"""
+    set_prerequisite(directory, "c-article", prerequisite)
+    failure = refused(directory)
+    assert failure.code == KIND_INVALID
+    assert failure.detail.startswith("content-catalog.jsonl:1 ") and detail in failure.detail
+
+
+@pytest.mark.parametrize("content_id,prerequisite,code,detail", [
+    ("c-rest", {"location_kinds": ["home"]}, "CONTENT_PREREQUISITE_INVALID", "c-rest is a location content."),
+    ("c-article", {}, "CONTENT_PREREQUISITE_INVALID", "c-article declares neither location kinds nor opening hours."),
+    ("c-article", {"location_kinds": []}, "CONTENT_PREREQUISITE_INVALID",
+     "c-article declares neither location kinds nor opening hours."),
+    ("c-article", {"location_kinds": ["office", "office"]}, "ENVIRONMENT_ID_DUPLICATE", None),
+    ("c-article", {"location_kinds": ["office", "home"]}, KIND_INVALID, None),
+    ("c-article", {"location_kinds": ["Office"]}, "CONTENT_BINDING_DANGLING", "c-article prerequisite names Office."),
+    ("c-article", {"location_kinds": ["home", "school"]}, "CONTENT_BINDING_DANGLING",
+     "c-article prerequisite names school."),
+    ("c-article", {"opens": {"weekly": {"monday": []}}}, KIND_INVALID, "Opening weekdays must use mon through sun."),
+    ("c-article", {"opens": {"weekly": {}, "exceptions": {"next monday": []}}}, KIND_INVALID,
+     "Opening exceptions must use ISO dates."),
+    ("c-article", {"opens": {"weekly": {}, "exceptions": {"20261012": []}}}, KIND_INVALID,
+     "Opening exceptions must use canonical ISO dates."),
+    ("c-article", {"opens": {"weekly": {"mon": [["09:00", "12:00"], ["11:00", "13:00"]]}}}, KIND_INVALID,
+     "Opening intervals must be sorted and disjoint."),
+    ("c-article", {"opens": {"weekly": {"mon": [["9:00", "10:00"]]}}}, KIND_INVALID,
+     "Time must use a valid HH:MM value."),
+], ids=["location-content", "empty-object", "empty-kinds-without-opens", "duplicate-kinds", "unsorted-kinds",
+        "dangling-kind", "second-kind-dangling", "weekday-name", "exception-not-a-date", "exception-not-canonical",
+        "intervals-overlap", "time-not-hhmm"])
+def test_prerequisite_registration_failures_carry_their_code_and_detail(directory, content_id, prerequisite, code,
+                                                                       detail):
+    set_prerequisite(directory, content_id, prerequisite)
+    failure = refused(directory)
+    assert (failure.code, failure.detail) == (code, detail)
+    if code == "CONTENT_PREREQUISITE_INVALID":
+        assert failure.message == PREREQUISITE_REASON
+    if code == "CONTENT_BINDING_DANGLING":
+        assert failure.message == "A content names a location kind that no registered location declares."
+
+
+def test_top_level_dangling_kind_shares_the_reason_without_a_prerequisite_detail(directory):
+    change_rows(directory, "content-catalog.jsonl", "c-rest", {"location_kinds": ["school"]})
+    failure = refused(directory)
+    assert (failure.code, failure.detail) == ("CONTENT_BINDING_DANGLING", None)
+    assert failure.message == "A content names a location kind that no registered location declares."
+
+
+@pytest.mark.parametrize("update,code", [
+    ({"app_ids": [], "location_kinds": []}, "CONTENT_CONTAINER_MISSING"),
+    ({"location_kinds": ["home"]}, "CONTENT_CONTAINER_SIDE_EXCLUSIVE"),
+    ({"app_ids": ["amap"]}, "APP_ROLE_BINDING_INVALID"),
+    ({"summary": "x" * 501}, "CONTENT_SUMMARY_TOO_LONG"),
+    ({"summary_source": {"kind": "real", "url": None, "notice": None}}, "CONTENT_SOURCE_URL_MISSING"),
+])
+def test_container_reference_summary_and_source_checks_precede_the_prerequisite(directory, update, code):
+    """容器缺失、两侧互斥、引用、摘要和来源都先于前提：同一行同时带着一个不成立的前提，报的仍是前面的检查。"""
+    set_prerequisite(directory, "c-article", {}, **update)
+    assert refused(directory).code == code
+
+
+def test_prerequisite_check_precedes_the_series_check(directory):
+    """同一行的前提不成立、集号又与前一集重复：先报前提。"""
+    set_prerequisite(directory, "c-drama-2", {}, series={"episode": 1, "title": "测试剧集"})
+    failure = refused(directory)
+    assert (failure.code, failure.detail) == ("CONTENT_PREREQUISITE_INVALID",
+                                              "c-drama-2 declares neither location kinds nor opening hours.")
+
+
+SERIES_HOURS = {"weekly": {"mon": [["08:00", "10:00"]], "tue": [["08:00", "10:00"]]}}
+
+
+@pytest.mark.parametrize("first,second", [
+    ({"location_kinds": ["office"]}, None),
+    (None, {"location_kinds": ["office"]}),
+    ({"location_kinds": ["office"]}, {"location_kinds": ["home"]}),
+    ({"location_kinds": ["office"], "opens": SERIES_HOURS}, {"location_kinds": ["office"]}),
+    ({"opens": SERIES_HOURS}, {"opens": {"weekly": {"mon": [["08:00", "10:00"]]}}}),
+    ({"opens": SERIES_HOURS}, {"opens": {**SERIES_HOURS, "exceptions": {"2026-10-12": []}}}),
+], ids=["second-omits", "first-omits", "kinds-differ", "opens-missing", "weekly-differs", "exceptions-differ"])
+def test_series_episodes_with_different_prerequisites_are_refused(directory, first, second):
+    rows = catalog_rows(directory.parent, "content-catalog.jsonl")
+    for content_id, prerequisite in (("c-drama-1", first), ("c-drama-2", second), ("c-drama-3", first)):
+        if prerequisite is not None:
+            next(row for row in rows if row["content_id"] == content_id)["prerequisite"] = prerequisite
+    write_catalog_rows(directory.parent, "content-catalog.jsonl", rows)
+    failure = refused(directory)
+    assert (failure.code, failure.detail) == ("CONTENT_SERIES_INVALID",
+                                              "测试剧集 episodes declare different prerequisites.")
+    assert failure.message == ("Episodes of a series must share one container binding and one prerequisite "
+                               "and have unique episode numbers.")
+
+
+def test_series_episodes_with_the_same_prerequisite_in_another_spelling_load(directory):
+    """键的先后不同、location_kinds 省略与空数组、exceptions 省略与写成空对象都不算差异。"""
+    spellings = {
+        "c-drama-1": {"location_kinds": [], "opens": SERIES_HOURS},
+        "c-drama-2": {"opens": {"exceptions": {}, "weekly": dict(reversed(SERIES_HOURS["weekly"].items()))}},
+        "c-drama-3": {"opens": {"weekly": SERIES_HOURS["weekly"], "exceptions": {}}, "location_kinds": []},
+    }
+    rows = catalog_rows(directory.parent, "content-catalog.jsonl")
+    path = directory / "content-catalog.jsonl"
+    for row in rows:
+        if row["content_id"] in spellings:
+            row["prerequisite"] = spellings[row["content_id"]]
+    path.write_bytes(b"".join(json.dumps(row, ensure_ascii=False).encode("utf-8") + b"\n" for row in rows))
+    refresh_manifest_identity(directory)
+    assert '"exceptions": {}, "weekly": {"tue"' in path.read_text(encoding="utf-8")
+    contents = load_catalog(directory, 7).contents
+    assert contents["c-drama-1"].prerequisite == contents["c-drama-2"].prerequisite == contents["c-drama-3"].prerequisite
+    assert contents["c-drama-1"].prerequisite.opens.weekly["tue"] == (("08:00", "10:00"),)
+
+
+def test_series_binding_and_episode_number_checks_still_have_no_detail(directory):
+    change_rows(directory, "content-catalog.jsonl", "c-drama-2", {"app_ids": ["douyin"]})
+    assert (refused(directory).code, refused(directory).detail) == ("CONTENT_SERIES_INVALID", None)
+    change_rows(directory, "content-catalog.jsonl", "c-drama-2",
+                {"app_ids": ["bilibili"], "series": {"episode": 1, "title": "测试剧集"}})
+    assert (refused(directory).code, refused(directory).detail) == ("CONTENT_SERIES_INVALID", None)

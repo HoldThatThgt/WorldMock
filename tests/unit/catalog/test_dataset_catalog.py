@@ -176,3 +176,82 @@ def test_callback_state_rows_must_precede_rules(catalog_directory):
         {"rule_id": "rule", "trigger": {"class": "time", "key": "run_start"},
          "effect": {"type": "transfer", "direction": "income", "amount_fen": 1}}, STATE)
     assert_refused(catalog_directory, "ENVIRONMENT_KIND_INVALID")
+
+
+PREREQUISITE_HOURS = {"weekly": {"mon": [["08:00", "10:00"], ["17:00", "24:00"]]},
+                      "exceptions": {"2026-10-19": [], "2026-10-20": [["12:00", "13:00"]]}}
+
+
+def set_prerequisites(directory, **prerequisites):
+    """给夹具副本里指定内容写上前提（键是 content_id 里的连字符换成下划线），刷新清单。"""
+    wanted = {key.replace("_", "-"): value for key, value in prerequisites.items()}
+
+    def change(rows):
+        for row in rows:
+            if row["content_id"] in wanted:
+                row["prerequisite"] = wanted[row["content_id"]]
+    replace_rows(directory, "content-catalog.jsonl", change)
+
+
+def test_legal_prerequisite_rows_load_with_their_parsed_values(catalog_directory):
+    """只写地点、只写时段、两项都写、省略四种合法写法都能加载；location_kinds 省略与空数组等价。"""
+    set_prerequisites(catalog_directory, c_article={"location_kinds": ["home", "office"]},
+                      c_course={"opens": PREREQUISITE_HOURS},
+                      c_image={"location_kinds": ["office"], "opens": {"weekly": {}}},
+                      c_live={"location_kinds": [], "opens": PREREQUISITE_HOURS})
+    contents = load_catalog(catalog_directory, 7).contents
+    validate_catalog_files(catalog_directory)
+    place_only, time_only, both = (contents[key].prerequisite for key in ("c-article", "c-course", "c-image"))
+    assert place_only.location_kinds == ("home", "office") and place_only.opens is None
+    assert time_only.location_kinds == () and time_only.opens.weekly["mon"] == (("08:00", "10:00"), ("17:00", "24:00"))
+    assert time_only.opens.exceptions == {"2026-10-19": (), "2026-10-20": (("12:00", "13:00"),)}
+    assert both.location_kinds == ("office",) and both.opens.weekly == {} and both.opens.exceptions == {}
+    assert contents["c-live"].prerequisite == time_only
+    assert contents["c-long"].prerequisite is None
+    assert all(item.prerequisite is None for item in load_catalog(FIXTURE, 7).contents.values())
+
+
+def test_opening_hours_object_evaluates_half_open_local_intervals_for_locations_and_prerequisites(catalog_directory):
+    """营业时段的求值只在 OpeningHours 上：含头不含尾、24:00 结束、没写的星期关闭、特殊日期整日替换（含空数组）；
+    地点行写同一份时段时，地点的两个接口给出同样的结果。"""
+    set_prerequisites(catalog_directory, c_course={"opens": PREREQUISITE_HOURS})
+    replace_rows(catalog_directory, "location.jsonl", lambda rows: rows[0].update(opens=PREREQUISITE_HOURS))
+    catalog = load_catalog(catalog_directory, 7)
+    hours, place = catalog.contents["c-course"].prerequisite.opens, catalog.locations["cafe"]
+    expected = [
+        (datetime(2026, 10, 12, 7, 59, 59), False), (datetime(2026, 10, 12, 8), True),
+        (datetime(2026, 10, 12, 9, 59, 59), True), (datetime(2026, 10, 12, 10), False),
+        (datetime(2026, 10, 12, 17), True), (datetime(2026, 10, 12, 23, 59, 59), True),
+        (datetime(2026, 10, 13, 0), False), (datetime(2026, 10, 13, 9), False),
+        (datetime(2026, 10, 19, 9), False), (datetime(2026, 10, 20, 9), False),
+        (datetime(2026, 10, 20, 12), True), (datetime(2026, 10, 20, 13), False),
+    ]
+    for moment, opened in expected:
+        assert hours.is_open(moment) is opened, moment
+        assert place.is_open(moment) is opened, moment
+    for day, intervals in ((12, (("08:00", "10:00"), ("17:00", "24:00"))), (13, ()), (19, ()),
+                           (20, (("12:00", "13:00"),))):
+        assert hours.opening_intervals(datetime(2026, 10, day).date()) == intervals
+        assert place.opening_intervals(datetime(2026, 10, day).date()) == intervals
+
+
+def test_location_without_declared_hours_is_open_all_day(catalog_directory):
+    place = load_catalog(catalog_directory, 7).locations["cafe"]
+    assert place.opens is None
+    assert place.opening_intervals(datetime(2026, 10, 13).date()) == (("00:00", "24:00"),)
+    assert place.is_open(datetime(2026, 10, 13, 0)) and place.is_open(datetime(2026, 10, 13, 23, 59, 59))
+
+
+def test_null_opening_schedule_is_refused_with_one_sentence_for_locations_and_prerequisites(catalog_directory, tmp_path):
+    """地点行与内容前提的 opens 写 null 是同一个前置校验，详情是同一句。"""
+    sentence = "A declared opening schedule must be an object."
+    other = tmp_path / "other"
+    shutil.copytree(FIXTURE, other)
+    replace_rows(catalog_directory, "location.jsonl", lambda rows: rows[0].update(opens=None))
+    set_prerequisites(other, c_article={"location_kinds": ["office"], "opens": None})
+    for directory, line in ((catalog_directory, "location.jsonl:1 "), (other, "content-catalog.jsonl:1 ")):
+        with pytest.raises(RegistrationError) as captured:
+            load_catalog(directory, 7)
+        assert captured.value.code == "ENVIRONMENT_KIND_INVALID"
+        assert captured.value.detail.startswith(line) and sentence in captured.value.detail
+        assert "location opening schedule" not in captured.value.detail

@@ -61,11 +61,35 @@ class App(DeepFrozenModel):
     browse_duration_seconds: Annotated[StrictInt, Field(ge=60)] | None = None
 
 
+def require_declared_schedule(value):
+    """@brief 显式营业时段声明必须是对象；地点行与内容前提共用，缺省才表示不限时段。"""
+    if value is None:
+        reject_value("A declared opening schedule must be an object.")
+    return value
+
+
 class OpeningHours(DeepFrozenModel):
-    """@brief 每周营业时段与按日期替换的特殊营业时段。"""
+    """@brief 每周营业时段与按日期替换的特殊营业时段；地点行与内容前提共用它的求值。"""
 
     weekly: dict[str, OpeningIntervals]
     exceptions: dict[str, OpeningIntervals] = Field(default_factory=dict)
+
+    def opening_intervals(self, local_date: date) -> OpeningIntervals:
+        """@brief 特殊日期整日替换（可以为空），否则取该星期的时段，没写的星期为空。"""
+        key = local_date.isoformat()
+        if key in self.exceptions:
+            return self.exceptions[key]
+        return self.weekly.get(WEEKDAYS[local_date.weekday()], ())
+
+    def is_open(self, local_moment: datetime) -> bool:
+        """@brief 按已经换算为运行时区的本地时刻检查半开时段：秒不参与，24:00 按 1440 分钟计。"""
+        minute = local_moment.hour * 60 + local_moment.minute
+        for starts, ends in self.opening_intervals(local_moment.date()):
+            start = int(starts[:2]) * 60 + int(starts[3:])
+            end = int(ends[:2]) * 60 + int(ends[3:])
+            if start <= minute < end:
+                return True
+        return False
 
 
 class Location(DeepFrozenModel):
@@ -81,13 +105,8 @@ class Location(DeepFrozenModel):
     sleepable: StrictBool = False
     opens: OpeningHours | None = None
 
-    @field_validator("opens", mode="before")
-    @classmethod
-    def require_declared_schedule(cls, value):
-        """@brief 显式营业声明必须是对象，缺省才表示全天营业。"""
-        if value is None:
-            reject_value("A declared location opening schedule must be an object.")
-        return value
+    #: 显式营业声明必须是对象，缺省才表示全天营业。
+    _declared_schedule = field_validator("opens", mode="before")(require_declared_schedule)
 
     @property
     def display_name(self) -> str:
@@ -95,23 +114,12 @@ class Location(DeepFrozenModel):
         return self.name if self.branch_label is None else f"{self.name}（{self.branch_label}）"
 
     def opening_intervals(self, local_date: date) -> OpeningIntervals:
-        """@brief 特殊日期覆盖整日，未声明的星期关闭；缺省全天营业。"""
-        if self.opens is None:
-            return (("00:00", "24:00"),)
-        key = local_date.isoformat()
-        if key in self.opens.exceptions:
-            return self.opens.exceptions[key]
-        return self.opens.weekly.get(WEEKDAYS[local_date.weekday()], ())
+        """@brief 没写营业时段即全天，其余取营业时段对象当天的时段。"""
+        return (("00:00", "24:00"),) if self.opens is None else self.opens.opening_intervals(local_date)
 
     def is_open(self, local_moment: datetime) -> bool:
-        """@brief 按已经换算为运行时区的本地时刻检查半开营业时段。"""
-        minute = local_moment.hour * 60 + local_moment.minute
-        for starts, ends in self.opening_intervals(local_moment.date()):
-            start = int(starts[:2]) * 60 + int(starts[3:])
-            end = int(ends[:2]) * 60 + int(ends[3:])
-            if start <= minute < end:
-                return True
-        return False
+        """@brief 没写营业时段即全天营业，其余由营业时段对象按本地时刻判断。"""
+        return self.opens is None or self.opens.is_open(local_moment)
 
 
 class Goods(DeepFrozenModel):
@@ -140,8 +148,25 @@ class ContentSeries(DeepFrozenModel):
     episode: PositiveInteger
 
 
+def require_declared_prerequisite(value):
+    """@brief 显式内容前提必须是对象；没有前提只有省略这一种写法。"""
+    if value is None:
+        reject_value("A declared content prerequisite must be an object.")
+    return value
+
+
+class ContentPrerequisite(DeepFrozenModel):
+    """@brief app 内容能开始的地点类型与时段条件；两项都写时都要满足。"""
+
+    location_kinds: tuple[NonEmptyString, ...] = ()
+    opens: OpeningHours | None = None
+
+    #: 显式时段声明必须是对象，缺省才表示不限时间。
+    _declared_schedule = field_validator("opens", mode="before")(require_declared_schedule)
+
+
 class Content(DeepFrozenModel):
-    """@brief 内容容器、实际时长、体力消耗与独立心理缓解档位。"""
+    """@brief 内容容器、实际时长、体力消耗与独立心理缓解档位，以及 app 内容的可选前提。"""
 
     content_id: NonEmptyString
     title: NonEmptyString
@@ -155,6 +180,10 @@ class Content(DeepFrozenModel):
     app_ids: tuple[NonEmptyString, ...] = ()
     location_kinds: tuple[NonEmptyString, ...] = ()
     series: ContentSeries | None = None
+    prerequisite: ContentPrerequisite | None = None
+
+    #: 显式内容前提必须是对象，缺省才表示没有前提。
+    _declared_prerequisite = field_validator("prerequisite", mode="before")(require_declared_prerequisite)
 
 
 class MapEdge(DeepFrozenModel):

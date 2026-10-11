@@ -25,9 +25,11 @@ REGISTRATION_REASONS = {
     "APP_NAME_COLLIDES_LOCATION": "An app name must differ from every place name.",
     "CONTENT_CONTAINER_MISSING": "A content must be bound to at least one app or at least one location kind.",
     "CONTENT_CONTAINER_SIDE_EXCLUSIVE": "A content must be bound either to apps or to location kinds, not both.",
-    "CONTENT_BINDING_DANGLING": "A content is bound to a location kind that no registered location declares.",
+    "CONTENT_BINDING_DANGLING": "A content names a location kind that no registered location declares.",
+    "CONTENT_PREREQUISITE_INVALID":
+        "A content prerequisite must belong to an app content and declare location kinds, opening hours, or both.",
     "CONTENT_SERIES_INVALID":
-        "Episodes of a series must share one container binding and have unique episode numbers.",
+        "Episodes of a series must share one container binding and one prerequisite and have unique episode numbers.",
     "CONTENT_SUMMARY_TOO_LONG": "A content summary exceeds the registration limit.",
     "CONTENT_SOURCE_URL_MISSING": "A real summary must record its source url.",
     "CALLBACK_STATE_UNREGISTERED": "A callback rule refers to a state that the environment does not register.",

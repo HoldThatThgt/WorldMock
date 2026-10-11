@@ -165,7 +165,7 @@ def test_terminal_action_replay_does_not_turn_cancelled_activity_into_rejection(
 
 @pytest.mark.parametrize("code", [
     "LOCATION_CLOSED", "INSUFFICIENT_FUNDS", "INSUFFICIENT_TRAVEL_FUNDS",
-    "DELIVERY_NOT_DUE", "PARCEL_NOT_READY", "CONTENT_EXHAUSTED",
+    "DELIVERY_NOT_DUE", "PARCEL_NOT_READY", "CONTENT_PREREQUISITE_UNMET",
 ])
 def test_actual_world_constraint_is_counted_once_and_fails_the_block_gate(code):
     events = [event(1, "action_rejected", clock(), {"error_code": code}, action_id="blocked"),
@@ -265,3 +265,21 @@ def test_terminal_rejections_and_activity_failures_have_distinct_public_counts(s
         "source_event_ids":["e1"] if rejected else []}
     assert metrics["external_constraints"]["observed_action_acceptance_rate"] == int(not rejected)
     assert metrics["gates"]["external_constraint_block_count"]["pass"] is True
+
+
+def test_real_unmet_content_prerequisite_is_one_external_block(engine_factory, tmp_path):
+    """人在家打开只在办公室能开始的钉钉：真实拒绝计入外部约束，同一动作的拒绝与结果只计一次。"""
+    from tests.life.conftest import use_app
+    from tests.life.environment_runtime import act
+    from tests.life.prerequisite_inputs import dingtalk_environment, example_window
+
+    engine = engine_factory(dingtalk_environment(tmp_path / "input"), mutate=example_window())
+    _, result = act(engine, "clock-at-home", use_app("钉钉"))
+    assert result.status == "rejected" and result.error_code == "CONTENT_PREREQUISITE_UNMET"
+    events = [row.model_dump(mode="json") for row in engine.context.store.read_events(
+        engine.context.store.last_event_seq)]
+    metrics = day_plan_metrics(events, engine.context.config.timezone)[UNREPORTED_CODE_KEY]
+    assert metrics["external_constraints"]["block_count"] == 1
+    assert metrics["external_constraints"]["by_error_code"] == {"CONTENT_PREREQUISITE_UNMET": 1}
+    assert metrics["external_constraints"]["other_rejections"]["count"] == 0
+    assert metrics["gates"]["external_constraint_block_count"]["pass"] is False

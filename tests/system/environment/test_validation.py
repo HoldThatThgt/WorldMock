@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from tests.life.prerequisite_inputs import CLOCK, CLOCK_PREREQUISITE
 from tests.system.cli.test_cli import _command, published_environment
 from worldmock.catalog.identity import refresh_manifest_identity
 
@@ -263,3 +264,42 @@ def test_declared_distance_beyond_one_day_reports_the_farthest_pair(published_en
         "reason": "Two places are farther apart than the slowest travel method can cover in one day in the worst "
                   "weather. cafe -> park is 74517 m, which takes 103496 s at 1.2 m/s in the worst weather; "
                   "the limit is 86400 s."}]
+
+
+def with_dingtalk(root, content):
+    """@brief 夹具副本加入内容 app 钉钉和它的一条内容，两份目录文件都按身份升序写回并刷新清单。"""
+    republish_rows(root, "app-catalog.jsonl", lambda rows: sorted(
+        [*rows, {"app_id": "dingtalk", "name": "钉钉", "role": "content"}], key=lambda row: row["app_id"]))
+    republish_rows(root, "content-catalog.jsonl", lambda rows: sorted(
+        [*rows, content], key=lambda row: row["content_id"]))
+
+
+def test_package_with_a_legal_content_prerequisite_is_valid(published_environment):
+    """@brief 钉钉里一条只在办公室、只在工作日上下班时段能开始的打卡：validate 通过。"""
+    with_dingtalk(published_environment, CLOCK)
+    assert CLOCK["prerequisite"] == CLOCK_PREREQUISITE and CLOCK_PREREQUISITE["location_kinds"] == ["office"]
+    assert accepted(published_environment)["valid"] is True
+
+
+def test_prerequisite_written_on_a_location_content_is_a_registration_failure(published_environment):
+    """@brief 前提只能写在 app 内容上：写在绑定到地点类型的内容上，validate 非零退出并报出登记码与详情。"""
+    def gate(rows):
+        rest = next(row for row in rows if row["content_id"] == "c-rest")
+        assert rest["location_kinds"] == ["home"] and "app_ids" not in rest
+        rest["prerequisite"] = {"location_kinds": ["home"]}
+        return rows
+
+    republish_rows(published_environment, "content-catalog.jsonl", gate)
+    assert report(published_environment) == [{
+        "path": "catalog", "code": "CONTENT_PREREQUISITE_INVALID",
+        "reason": "A content prerequisite must belong to an app content and declare location kinds, opening hours, "
+                  "or both. c-rest is a location content."}]
+
+
+def test_prerequisite_naming_an_unregistered_location_kind_is_a_registration_failure(published_environment):
+    """@brief 前提的地点类型要与某个登记地点的类型逐字相等：没有地点声明的类型以悬空绑定的登记码拒绝。"""
+    with_dingtalk(published_environment, {**CLOCK, "prerequisite": {"location_kinds": ["factory"]}})
+    assert report(published_environment) == [{
+        "path": "catalog", "code": "CONTENT_BINDING_DANGLING",
+        "reason": "A content names a location kind that no registered location declares. "
+                  "dingtalk-clock prerequisite names factory."}]

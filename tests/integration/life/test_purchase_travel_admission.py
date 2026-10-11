@@ -2,8 +2,12 @@
 
 import pytest
 
-from tests.life.conftest import advance_next, conclude_request, do_at, purchase, travel, travel_rows, use_app
-from tests.life.environment_runtime import act, act_group, events, reach
+from tests.life.conftest import (
+    advance_next, conclude_request, do_at, purchase, target_actions, travel, travel_rows, use_app,
+)
+from tests.life.current_world import stage_moment
+from tests.life.environment_runtime import act, act_group, events, finish_activity, reach
+from tests.life.prerequisite_inputs import CLOCK, OFFICE, app_content, dingtalk_environment, example_window, moment
 from worldmock.catalog.graph import Graph
 from worldmock.catalog.models import MapEdge, MapGraph
 from worldmock.errors import BusinessRuleError
@@ -416,3 +420,76 @@ def test_delivery_store_and_expected_arrival_follow_the_declared_distances(
     order = next(iter(engine.context.state.deliveries.values()))
     assert (order.store_id, order.destination_id) == (store, "office")
     assert order.expected_at - state.current_time == seconds
+
+
+NOTICE = app_content("dingtalk-notice", "公告")
+
+
+def _dingtalk(engine_factory, tmp_path, *contents):
+    """钉钉例子的真实引擎：夹具副本加钉钉与给定内容（缺省只有打卡），运行从 10 月 12 日（周一）08:00 开始。"""
+    return engine_factory(dingtalk_environment(tmp_path / "input", *contents), mutate=example_window())
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_clock_out_and_departure_in_one_round_judge_the_prerequisite_at_the_origin(engine_factory, tmp_path, reverse):
+    """17:35 在办公室同一轮里打卡并出发：前提按出发前的停留地点判定，两项一起受理；打卡在路上做到 17:36:00 完成，
+    不因离开而中断。"""
+    engine = _dingtalk(engine_factory, tmp_path)
+    stage_moment(engine, moment(12, 17, 35), "office")
+    requests = [travel("家", "驾车"), use_app("钉钉")]
+    observed, results = act_group(engine, "leave", *(reversed(requests) if reverse else requests))
+    departure, clock = reversed(results) if reverse else results
+    assert target_actions(observed, "钉钉")["interact"]["available"] is True
+    assert departure.status == clock.status == "in_progress", (departure.error_code, clock.error_code)
+    state = engine.context.state
+    trip, activity = state.activities[departure.activity_id], state.activities[clock.activity_id]
+    road = next(session for session in state.sessions.values() if session.status == "active")
+    assert road.kind == "transit" and (road.origin_id, road.destination_id) == ("office", "home")
+    assert set(road.activity_ids) == {trip.activity_id, activity.activity_id}
+    assert (activity.data["content_id"], activity.location_id) == ("dingtalk-clock", "office")
+    assert (activity.started_at, activity.planned_end_at) == (moment(12, 17, 35), moment(12, 17, 36))
+    assert trip.planned_end_at > moment(12, 17, 36)
+    reach(engine, moment(12, 17, 36))
+    state = engine.context.state
+    assert state.activities[clock.activity_id].status == "completed"
+    assert state.activities[clock.activity_id].ended_at == moment(12, 17, 36)
+    assert state.activities[departure.activity_id].status == "active"
+    assert state.agents[1].content_progress["dingtalk-clock"].completed_rounds == 1
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_departure_toward_the_office_with_clock_in_rejects_the_whole_group(engine_factory, tmp_path, reverse):
+    """08:10 在家同一轮出发去办公室并打开钉钉：目的地不参与判断，整组被拒；没有出行活动、没有车费、会话不变。"""
+    engine = _dingtalk(engine_factory, tmp_path)
+    stage_moment(engine, moment(12, 8, 10), "home")
+    before = engine.context.state.model_copy(deep=True)
+    requests = [travel(OFFICE, "驾车"), use_app("钉钉")]
+    observed, results = act_group(engine, "arrive-and-clock", *(reversed(requests) if reverse else requests))
+    reason = f"Nothing in 钉钉 can start here now: it requires presence at {OFFICE}."
+    assert target_actions(observed, "钉钉")["interact"]["reason"] == reason
+    assert travel_rows(observed, OFFICE)["驾车"]["available"] is True
+    departure, clock = reversed(results) if reverse else results
+    assert departure.status == clock.status == "rejected"
+    assert departure.error_code == clock.error_code == "CONTENT_PREREQUISITE_UNMET"
+    assert departure.message == clock.message == reason + NEITHER
+    assert departure.data == clock.data
+    assert (clock.data["next_step"], clock.data["fix"], clock.data["unmet"]) == (
+        f"Go to {OFFICE}.", None, ["content_location"])
+    assert clock.data["items"] == [_target_item(0 if reverse else 1, ["钉钉"], "CONTENT_PREREQUISITE_UNMET", reason)]
+    _assert_rollback(engine, before)
+    assert engine.context.state.activities == {} and engine.context.state.accounts["agent:1"] == 200000
+
+
+def test_same_round_departure_selects_among_the_contents_eligible_at_the_origin(engine_factory, tmp_path):
+    """出发的同一轮里挑内容仍用出发前的停留地点筛选：公告早上在家已经做完一轮，下班时在办公室同组出发并打开钉钉，
+    合格内容是打卡和公告，没做过的打卡优先；按出发后的在路上筛，就只剩公告。"""
+    engine = _dingtalk(engine_factory, tmp_path, CLOCK, NOTICE)
+    stage_moment(engine, moment(12, 8, 10), "home")
+    _, morning = act(engine, "notice", use_app("钉钉"))
+    assert engine.context.state.activities[morning.activity_id].data["content_id"] == "dingtalk-notice"
+    finish_activity(engine, morning, "notice")
+    assert engine.context.state.agents[1].content_progress["dingtalk-notice"].completed_rounds == 1
+    stage_moment(engine, moment(12, 17, 35), "office")
+    _, (departure, clock) = act_group(engine, "leave", travel("家", "驾车"), use_app("钉钉"))
+    assert departure.status == clock.status == "in_progress", (departure.error_code, clock.error_code)
+    assert engine.context.state.activities[clock.activity_id].data["content_id"] == "dingtalk-clock"

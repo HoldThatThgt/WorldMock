@@ -9,8 +9,13 @@ import pytest
 
 from agentsociety2.society import DirectToolCall
 from tests.life.conftest import (
-    MAIN_TOOL, advance_next, conclude_request, context, pause_request, purchase, report_request, sleep,
-    stage_day_plan, tool_of, travel, use_app,
+    MAIN_TOOL, advance_next, advance_until_ready, conclude_request, context, pause_request, purchase, report_request,
+    sleep,
+    stage_day_plan, target_actions, tool_of, travel, use_app,
+)
+from tests.life.current_world import stage_moment
+from tests.life.prerequisite_inputs import (
+    OFFICE, app_content, dingtalk_environment, example_window, moment, weekday_hours,
 )
 from worldmock.errors import ProtocolError
 from worldmock.life.models import StartMainActivityRequest
@@ -387,3 +392,57 @@ def test_trip_record_and_arrival_event_carry_the_declared_distance(engine_factor
     recorded = [row for row in events(engine) if row.activity_id == result.activity_id
                 and isinstance(row.data.get("activity"), dict)]
     assert recorded and all(row.data["activity"]["data"]["distance_meters"] == 12600 for row in recorded)
+
+
+def _on_the_road_home(engine_factory, tmp_path, *contents):
+    """17:35 从办公室步行回家，推进到路上的第一次决策机会（每 60 秒一次播报）：此刻人物在路上、没有待收尾的活动。"""
+    engine = engine_factory(dingtalk_environment(tmp_path / "input", *contents),
+                            mutate=example_window(progress_report_interval_seconds=60))
+    stage_moment(engine, moment(12, 17, 35), "office")
+    _, departure = act(engine, "leave", travel("家", "步行"))
+    assert departure.status == "in_progress", departure.error_code
+    assert advance_until_ready(engine)
+    state = engine.context.state
+    assert state.activities[departure.activity_id].status == "active"
+    assert moment(12, 17, 35) < state.current_time < moment(12, 18)
+    assert [session.kind for session in state.sessions.values() if session.status == "active"] == ["transit"]
+    return engine, departure
+
+
+def test_person_on_the_road_cannot_open_an_app_whose_content_needs_a_place(engine_factory, tmp_path):
+    """已经在路上的人物没有停留地点，既不算在出发地也不算在目的地：带地点前提的钉钉不可用，提交被同一句原因拒绝。"""
+    engine, departure = _on_the_road_home(engine_factory, tmp_path)
+    before = engine.context.state.model_copy(deep=True)
+    observed, refused = act(engine, "on-the-road", use_app("钉钉"))
+    reason = f"Nothing in 钉钉 can start here now: it requires presence at {OFFICE}."
+    row = target_actions(observed, "钉钉")["interact"]
+    assert (row["available"], row["reason"], row["duration"], row["note"]) == (False, reason, None, None)
+    assert refused.status == "rejected" and refused.error_code == "CONTENT_PREREQUISITE_UNMET"
+    assert refused.message == reason and refused.data["unmet"] == ["content_location"]
+    assert refused.data["next_step"] == f"Go to {OFFICE}."
+    after = engine.context.state
+    assert after.sessions == before.sessions and after.accounts == before.accounts
+    assert after.random_state == before.random_state
+    assert set(after.activities) == {departure.activity_id}
+    assert after.activities[departure.activity_id].status == "active"
+
+
+@pytest.mark.parametrize("hours,accepted", [(("17:00", "20:00"), True), (("08:00", "10:00"), False)])
+def test_time_only_app_content_follows_the_clock_on_the_road(engine_factory, tmp_path, hours, accepted):
+    """只带时段前提的内容在路上照常按时刻判定：时段开着就能开始，不在时段内就不能，原因里没有地点。"""
+    reminder = app_content("dingtalk-reminder", "日报提醒", {"opens": weekday_hours(hours)})
+    engine, _ = _on_the_road_home(engine_factory, tmp_path, reminder)
+    now = engine.context.state.current_time
+    observed, result = act(engine, "on-the-road", use_app("钉钉"))
+    row = target_actions(observed, "钉钉")["interact"]
+    if accepted:
+        assert (row["available"], row["reason"], row["duration"]) == (True, None, "约 1 分钟")
+        assert result.status == "in_progress", result.error_code
+        activity = engine.context.state.activities[result.activity_id]
+        assert activity.data["content_id"] == "dingtalk-reminder" and activity.started_at == now
+        return
+    reason = "Nothing in 钉钉 can start now: it is available 08:00–10:00 today."
+    assert (row["available"], row["reason"]) == (False, reason)
+    assert result.status == "rejected" and result.error_code == "CONTENT_PREREQUISITE_UNMET"
+    assert result.message == reason and result.data["unmet"] == ["content_time"]
+    assert result.data["next_step"] == "Choose another action."

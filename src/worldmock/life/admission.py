@@ -13,7 +13,7 @@ from worldmock.errors import BusinessRuleError
 from worldmock.life import activity_control, location_activities
 from worldmock.life.action_contract import START_TOOLS, activity_slot
 from worldmock.life.basket import quoted_basket
-from worldmock.life.content_select import content_duration_range
+from worldmock.life.content_prerequisite import app_prerequisite_refusal
 from worldmock.life.guidance import Refusal, default_reason, refusal_for_code, refusal_from_error
 from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus, FulfillmentKind, WorldState
 from worldmock.life.sessions import current_session
@@ -206,15 +206,17 @@ def _sleep_place_refusal(context: Context) -> Refusal | None:
 
 
 def _side_refusal(context: Context, main: Call | None, side: Call | None) -> Blocked | None:
-    """@brief 副调用的对象条件：购买按逐份报价与出发同组的限制判定，内容 app 须有可开始的内容或目录浏览。"""
+    """@brief 副调用的对象条件：购买按逐份报价与出发同组的限制判定；登记了内容的 app 此刻须有合格内容，
+    停留地点取请求前的世界，所以与出发同组时按出发地判定。"""
     if side is None:
         return None
     if side.action == "purchase":
         refusal = _purchase_refusal(context, main, side)
-    elif content_duration_range(context.inputs, context.state, context.agent_id, side.rows[0]["object_id"]) is None:
-        refusal = refusal_for_code("CONTENT_EXHAUSTED")
     else:
-        refusal = None
+        catalog = context.inputs.catalog
+        stay = present_location(context.state, context.agent_id)
+        refusal = app_prerequisite_refusal(catalog, side.rows[0]["object_id"],
+                                           None if stay is None else catalog.locations[stay], _local_moment(context))
     return None if refusal is None else Blocked(refusal, (side.tool,))
 
 

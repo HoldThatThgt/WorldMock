@@ -177,25 +177,31 @@ class StartGroups:
         return replace(item, call=replace(item.call, rows=tuple(rows)))
 
     def _start_all(self, state: WorldState, started: list[_Started]) -> tuple[WorldState, list[ActionResult]]:
-        """@brief 派发次序固定，与两条调用在回复里的先后无关：出发先结束停留会话、开始路上会话，再开始副调用的
-        活动，再开始主调用的活动，最后把新活动归入当前会话。出行的车费在此刻支付，购买只冻结商品履约记录。"""
+        """@brief 派发次序固定，与两条调用在回复里的先后无关：先取一次出发前的停留地点留给副调用，出发再结束停留
+        会话、开始路上会话，再开始副调用的活动，再开始主调用的活动，最后把新活动归入当前会话。出行的车费在此刻
+        支付，购买只冻结商品履约记录。"""
         main = next((item for item in started if item.call.tool == START_TOOLS[0]), None)
         side = next((item for item in started if item.call.tool == START_TOOLS[1]), None)
         agent_id, changed = started[0].pending.agent_id, state
+        # 带地点前提的 app 内容按出发前的停留地点筛选，不因为同组的出行已开路上会话而被筛掉。
+        stay_location_id = admission.present_location(state, agent_id)
         if main is not None and main.call.action == "travel":
             changed = sessions.begin_transit(changed, agent_id, main.call.rows[0]["object_id"],
                                              place_names(self.context.catalog),
                                              opened_by_action_id=main.pending.action_id)
         for item in (side, main):
             if item is not None:
-                changed = self._start(changed, item)
+                changed = self._start(changed, item, stay_location_id)
         created = [key for key in changed.activities if key not in state.activities]
         session = sessions.current_session(changed, agent_id)
         changed = sessions.assign(changed, session.session_id, created)
         return changed, [self._result(state, changed, item) for item in started]
 
-    def _start(self, state: WorldState, item: _Started) -> WorldState:
-        """@brief 一条调用恰好开始一项活动：出行、睡眠、购买或 interact。"""
+    def _start(self, state: WorldState, item: _Started, stay_location_id: str | None) -> WorldState:
+        """@brief 一条调用恰好开始一项活动：出行、睡眠、购买或 interact。
+
+        :param stay_location_id: 本轮请求生效之前的停留地点，app 内容的前提按它筛选。
+        """
         action, pending, rows = item.call.action, item.pending, item.call.rows
         if action == "travel":
             return self._start_travel(state, pending, rows[0])
@@ -205,7 +211,7 @@ class StartGroups:
             return self._named(state, pending, ActivityStartParams(action, seconds, data=data), ACTION_LABELS[action])
         if action == "purchase":
             return self.storefront.prepare_purchase(state, pending, item.call.goods_ids)[0]
-        changed, _, drafts = InteractivityRuntime(self.context).start(state, pending, rows[0])
+        changed, _, drafts = InteractivityRuntime(self.context).start(state, pending, rows[0], stay_location_id)
         self.event_drafts.extend(drafts)
         return changed
 
