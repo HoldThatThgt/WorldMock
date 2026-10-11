@@ -1,6 +1,7 @@
 """含导航、外卖、快递、到店购买和用 app 的一天：导出六份工件并通过认证，改写任何一条手机记录都被拒绝。"""
 
 from copy import deepcopy
+from datetime import timedelta
 import json
 import shutil
 
@@ -10,6 +11,7 @@ from tests.engine_fixture import engine_factory_at
 from tests.footprints.recording import (artifact_rows, export_completed, read_export, reproject, write_manifest,
                                         write_rows)
 from tests.life.conftest import advance_until_ready, purchase, sleep, travel, use_app
+from tests.life.environment_inputs import copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, finish_activity
 from tests.life.phone_records import (label_where, moment, paying_label, phone_environment, phone_window,
                                       purchase_draws, returning_label)
@@ -363,3 +365,36 @@ def test_rewritten_stay_events_are_refused(exported, fault, reason):
             validate_export(exported)
         return
     rejected(exported, reason, events)
+
+
+def two_hours(persona, config):
+    """两小时的完整运行。"""
+    config["stop_time"] = config["start_time"] + timedelta(hours=2)
+
+
+def test_callback_footprint_must_name_a_rule_of_the_frozen_callbacks(engine_factory, tmp_path):
+    """回调足迹的规则身份是冻结的 callbacks.jsonl 里登记的规则：真实运行里足迹链写下的两个时间点通过认证；
+    把规则身份改成没有登记的名字，或改成同一文件里一个状态的名字，重新投影并签名后都被拒绝。"""
+    root = copy_environment(tmp_path / "input")
+    steps = [{"kind": "browse", "app_pool": ["bilibili"], "pick": "random"},
+             {"kind": "payment", "app_pool": ["alipay"], "pick": "random"}]
+    write_catalog_rows(root, "callbacks.jsonl", [
+        {"state": "driving_stock", "initial": 3, "cap": 3, "reset_on_goods": ["tissue"]},
+        {"rule_id": "drive-trace", "trigger": {"class": "action", "key": "travel", "travel_method_id": "driving"},
+         "effect": {"type": "footprint_chain", "steps": steps}}])
+    engine = engine_factory(root, mutate=two_hours)
+    _, trip = act(engine, "drive", travel("公司", "驾车"))
+    assert trip.status == "in_progress", trip.error_code
+    export_completed(engine, tmp_path / "export")
+    touches = [row for row in artifact_rows(tmp_path / "export", "app_usage") if row["fact_kind"] == "app_touch"]
+    assert [(row["app_id"], row["occurred_at"], row["activity_id"]) for row in touches] == [
+        ("bilibili", trip.occurred_at, None), ("alipay", trip.occurred_at, None)]
+    _, events = read_export(tmp_path / "export")
+    assert [(row["data"]["rule_id"], row["data"]["step"]) for row in of_kind(events, "app_touch")] == [
+        ("drive-trace", "browse"), ("drive-trace", "payment")]
+    for position, name in enumerate(("another-rule", "driving_stock")):
+        rewritten = tmp_path / f"rewritten-{position}"
+        shutil.copytree(tmp_path / "export", rewritten)
+        _, events = read_export(rewritten)
+        of_kind(events, "app_touch")[-1]["data"]["rule_id"] = name
+        rejected(rewritten, "App touch step disagrees with its source", events)

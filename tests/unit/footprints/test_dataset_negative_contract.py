@@ -225,6 +225,12 @@ def _notice(kind, app_id):
     return {"event_type": "environment_event", "activity_id": None, "data": {"kind": kind, "app_id": app_id}}
 
 
+def _touch(rule_id, app_id="bilibili"):
+    """一条回调足迹在导出里的形状。"""
+    return {"event_type": "environment_event", "activity_id": None,
+            "data": {"kind": "app_touch", "app_id": app_id, "action": "travel", "step": "browse", "rule_id": rule_id}}
+
+
 @pytest.mark.parametrize("method,accepted", [("walking", True), ("bike", True), ("row", False), (None, False)])
 def test_frozen_navigation_interval_must_use_an_app_bound_to_the_trips_travel_method(
         engine_factory, tmp_path, method, accepted):
@@ -258,9 +264,7 @@ FOREGROUND_MISMATCH = "Foreground app disagrees with its frozen app role or bind
     (_foreground("bilibili", "navigation"), FOREGROUND_MISMATCH),
     (_foreground("amap", "navigation", "buy"), FOREGROUND_MISMATCH),
     (_foreground("ghost", "navigation"), "System app event references an unregistered frozen app"),
-    ({"event_type": "environment_event", "activity_id": None,
-      "data": {"kind": "app_touch", "app_id": "bilibili", "action": "travel", "step": "browse",
-               "rule_id": "callback-rule"}}, None),
+    (_touch("callback-rule"), "App touch step disagrees with its source"),
     (_notice("payment_notification", "wechat"), None),
     (_notice("payment_notification", "bilibili"), None),
     (_notice("payment_notification", "amap"), "Payment notification disagrees with its frozen app"),
@@ -271,7 +275,8 @@ FOREGROUND_MISMATCH = "Foreground app disagrees with its frozen app role or bind
 ])
 def test_frozen_app_sources_match_the_role_and_binding_of_each_record(engine_factory, event, message):
     """支付的 app 是绑定了购买的功能 app，或者直付时的内容 app；下单和订单通知的 app 只能是内容 app；
-    只绑定出行方式的导航 app 不是支付 app，只绑定购买的支付 app 不是导航 app；回调足迹的 app 不按绑定核对。"""
+    只绑定出行方式的导航 app 不是支付 app，只绑定购买的支付 app 不是导航 app；
+    这份夹具没有 callbacks.jsonl，所以任何回调足迹都没有来源。"""
     store = engine_factory().context.store
     activities = [_exported("trip", "travel", "walking"), _exported("buy", "purchase", None)]
     if message is None:
@@ -279,3 +284,28 @@ def test_frozen_app_sources_match_the_role_and_binding_of_each_record(engine_fac
     else:
         with pytest.raises(IntegrityError, match=f"^{message}$"):
             validate_frozen_environment(store.run_dir, store.manifest, activities, [event])
+
+
+@pytest.mark.parametrize("event,message", [
+    (_touch("drive-trace"), None),
+    (_touch("another-rule"), "App touch step disagrees with its source"),
+    (_touch("driving_stock"), "App touch step disagrees with its source"),
+    (_touch("drive-trace", "ghost"), "System app event references an unregistered frozen app"),
+])
+def test_frozen_callback_footprint_must_name_a_rule_of_the_frozen_callbacks(engine_factory, tmp_path, event, message):
+    """回调足迹的规则身份是冻结的 callbacks.jsonl 里登记的规则：没有登记的名字和同一文件里状态的名字都不是；
+    足迹的 app 同样必须已登记。"""
+    from tests.life.environment_inputs import copy_environment, write_catalog_rows
+
+    root = copy_environment(tmp_path / "callbacks")
+    write_catalog_rows(root, "callbacks.jsonl", [
+        {"state": "driving_stock", "initial": 3, "cap": 3, "reset_on_goods": ["tissue"]},
+        {"rule_id": "drive-trace", "trigger": {"class": "action", "key": "travel", "travel_method_id": "driving"},
+         "effect": {"type": "footprint_chain", "steps": [
+             {"kind": "browse", "app_pool": ["bilibili"], "pick": "random"}]}}])
+    store = engine_factory(root).context.store
+    if message is None:
+        validate_frozen_environment(store.run_dir, store.manifest, [], [event])
+    else:
+        with pytest.raises(IntegrityError, match=f"^{message}$"):
+            validate_frozen_environment(store.run_dir, store.manifest, [], [event])
