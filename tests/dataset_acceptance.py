@@ -94,18 +94,29 @@ MUTATIONS = (
         ("tests/integration/start_interfaces/test_sleep_request.py::test_sleeping_sixty_minutes_at_the_sleepable_office",)),
     SourceMutation("oversleep_threshold_reversed", "worldmock.life.sleep_plan::oversleep_seconds",
         "if window_seconds >= OVERSLEEP_THRESHOLD_SECONDS:", "if window_seconds < OVERSLEEP_THRESHOLD_SECONDS:",
-        ("tests/unit/life/test_sleep_plan.py::test_proposal_sleep_examples_give_the_stated_totals_and_outcomes",)),
+        ("tests/unit/life/test_sleep_plan.py::test_ruling_sleep_examples_give_the_stated_totals_and_outcomes",)),
     SourceMutation("oversleep_threshold_inclusive", "worldmock.life.sleep_plan::oversleep_seconds",
         "if window_seconds >= OVERSLEEP_THRESHOLD_SECONDS:", "if window_seconds > OVERSLEEP_THRESHOLD_SECONDS:",
         ("tests/unit/life/test_sleep_plan.py"
          "::test_exactly_four_hours_wakes_on_time_without_touching_the_random_stream",)),
-    SourceMutation("sleep_window_excludes_this_sleep", "worldmock.life.sleep_plan::sleep_seconds_in_window",
-        "return declared_seconds + earlier", "return earlier",
-        ("tests/unit/life/test_sleep_plan.py"
-         "::test_a_sleep_wholly_inside_the_window_counts_in_full_and_several_add_up",)),
+    SourceMutation("oversleep_window_ends_at_the_wake_up_time", "worldmock.life.start_group::StartGroups._start_sleep",
+        "sleep_seconds_in_window(state.current_time, ", "sleep_seconds_in_window(state.current_time + declared, ",
+        ("tests/integration/life/test_sleep_runtime.py"
+         "::test_a_normal_night_is_judged_from_the_moment_it_starts_and_wakes_on_time",)),
+    SourceMutation("oversleep_counts_the_sleep_being_started", "worldmock.life.start_group::StartGroups._start_sleep",
+        "slept = sleep_seconds_in_window(", "slept = declared + sleep_seconds_in_window(",
+        ("tests/integration/life/test_sleep_runtime.py"
+         "::test_a_sleep_declared_at_twelve_hours_oversleeps_after_a_day_with_one_hour_of_sleep",)),
     SourceMutation("sleep_window_start_not_clipped", "worldmock.life.sleep_plan::sleep_seconds_in_window",
         "max(0, ended_at - max(started_at, window_start))", "max(0, ended_at - started_at)",
         ("tests/unit/life/test_sleep_plan.py::test_a_sleep_across_the_window_start_counts_only_the_part_inside",)),
+    SourceMutation("pause_allowed_in_the_last_three_minutes", "worldmock.life.activity_control::pausable",
+        "and activity.planned_end_at - state.current_time >= PAUSE_MIN_REMAINING_SECONDS)", "and True)",
+        ("tests/integration/life/test_pause_limit.py"
+         "::test_pause_with_179_seconds_left_is_refused_changes_nothing_and_conclude_succeeds",)),
+    SourceMutation("pause_refused_with_exactly_three_minutes_left", "worldmock.life.activity_control::pausable",
+        "state.current_time >= PAUSE_MIN_REMAINING_SECONDS", "state.current_time > PAUSE_MIN_REMAINING_SECONDS",
+        ("tests/integration/life/test_pause_limit.py::test_pause_with_exactly_180_seconds_left_succeeds",)),
     SourceMutation("oversleep_key_without_action", "worldmock.life.sleep_plan::oversleep_seconds",
         'f"oversleep:{action_id}"', '"oversleep:"',
         ("tests/unit/life/test_sleep_plan.py"

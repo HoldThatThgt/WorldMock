@@ -1,4 +1,4 @@
-"""@brief 睡眠请求的纯函数：所写分钟数的解析、过去 24 小时的睡眠合计、运行开始前的假定睡眠与睡过头的抽取。
+"""@brief 睡眠请求的纯函数：所写分钟数的解析、开始睡之前 24 小时的睡眠合计、运行开始前的假定睡眠与睡过头的抽取。
 
 宿主与环境共用，不引用世界模型；输入是时刻、时长与区间，随机流只由运行的随机态和动作身份派生。
 """
@@ -12,7 +12,7 @@ from worldmock.life.randomness import random_stream
 #: 人物可以写的睡眠分钟数下限与上限。
 SLEEP_MINUTES_MIN = 10
 SLEEP_MINUTES_MAX = 720
-#: 「过去 24 小时」的窗口长度：从到点时刻往回数的秒数。
+#: 「过去 24 小时」的窗口长度：从这一觉开始的时刻往回数的秒数。
 SLEEP_WINDOW_SECONDS = 86400
 #: 窗口内的睡眠合计不足这么多秒才可能睡过头；恰好这么多按时醒。
 OVERSLEEP_THRESHOLD_SECONDS = 14400
@@ -60,22 +60,23 @@ def assumed_sleep(run_start: int, start_hour: float, midsleep_hour: float, sleep
     return ended_at - round(sleep_need_hours * 3600), ended_at
 
 
-def sleep_seconds_in_window(now: int, declared_seconds: int, sleeps: Iterable[tuple[int, int]]) -> int:
-    """@brief 到点时刻往回 24 小时里睡了多少秒：刚写的这一觉整段算在内，此前的睡眠只计落在窗口内的那一截。
+def sleep_seconds_in_window(now: int, sleeps: Iterable[tuple[int, int]]) -> int:
+    """@brief 这一觉开始的时刻往回 24 小时里睡了多少秒：刚开始的这一觉不算，此前的睡眠只计落在窗口内的那一截。
 
-    :param now: 受理时刻，也就是这一觉的开始时刻。
-    :param declared_seconds: 人物写的时长；这一觉最长 12 小时，整段都在窗口内。
+    会不会睡过头按开始睡的那一刻判定，与这一觉写了多久无关，所以这里不接收写的时长。
+
+    :param now: 受理时刻，也就是这一觉的开始时刻；窗口在这一刻结束。
     :param sleeps: 此前各段睡眠的（开始时刻, 结束时刻）：本人已完成的睡眠与运行开始前的假定睡眠。
     """
-    window_start = now + declared_seconds - SLEEP_WINDOW_SECONDS
-    earlier = sum(max(0, ended_at - max(started_at, window_start)) for started_at, ended_at in sleeps)
-    return declared_seconds + earlier
+    window_start = now - SLEEP_WINDOW_SECONDS
+    return sum(max(0, ended_at - max(started_at, window_start)) for started_at, ended_at in sleeps)
 
 
 def oversleep_seconds(window_seconds: int, random_state: str, action_id: str) -> int:
     """@brief 多睡的秒数：窗口内的合计不足 4 小时才取随机流，先抽一位，抽中再抽 20 到 60 的整数分钟。
 
     每段睡眠只调用一次；随机键只含运行的随机态和开始这段睡眠的动作身份，重算得到同一结果。
+    写的时长不参与判定，写满 12 小时的一觉也可能多睡，一段睡眠最长 780 分钟。
 
     :param window_seconds: sleep_seconds_in_window 的结果。
     :param random_state: 运行的随机态。

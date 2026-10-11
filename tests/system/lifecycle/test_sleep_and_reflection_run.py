@@ -65,9 +65,9 @@ def _checkpoint(engine, root):
 
 
 def _short_night_office_nap_and_long_sleep(engine, checkpoint_root=None):
-    """家里一觉写 170 分钟并睡过头；驾车去公司后在办公室午睡 60 分钟；回家再睡 480 分钟。给了目录时在第一觉的
-    中途提交一个共同检查点并返回它。"""
-    _, late = act(engine, "late", sleep(170), action_id=_LATE_ACTION)
+    """家里一觉写 220 分钟并睡过头，实际睡了 4 小时 07 分；驾车去公司后在办公室午睡 60 分钟；回家再睡 480 分钟。
+    后两觉开始时往回 24 小时都已睡满 4 小时，按时醒。给了目录时在第一觉的中途提交一个共同检查点并返回它。"""
+    _, late = act(engine, "late", sleep(220), action_id=_LATE_ACTION)
     assert late.status == "in_progress", late.error_code
     for _ in range(3):
         advance_next(engine)
@@ -92,7 +92,7 @@ def test_oversleep_survives_a_mid_sleep_checkpoint_and_a_rerun_draws_the_same_ex
     start = engine.context.state.current_time
     saved = _short_night_office_nap_and_long_sleep(engine, tmp_path / "mid-sleep")
     first, nap, long = _sleeps(engine)
-    assert first == ("home", 10200, 1620, start, start + 11820, "completed")
+    assert first == ("home", 13200, 1620, start, start + 14820, "completed")
     assert nap[:3] == ("office", 3600, 0) and nap[4] - nap[3] == 3600
     assert long[:3] == ("home", 28800, 0) and long[4] - long[3] == 28800
 
@@ -101,7 +101,7 @@ def test_oversleep_survives_a_mid_sleep_checkpoint_and_a_rerun_draws_the_same_ex
     try:
         (asleep,) = [item for item in resumed.context.state.activities.values() if item.kind == "sleep"]
         assert asleep.status == "active" and asleep.data["oversleep_seconds"] == 1620
-        assert asleep.planned_end_at == start + 11820
+        assert asleep.planned_end_at == start + 14820
         while resumed.context.state.activities[asleep.activity_id].status == "active":
             assert resumed.scheduling_state().ready_agent_ids == ()
             advance_next(resumed)
