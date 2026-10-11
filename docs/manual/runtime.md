@@ -56,7 +56,7 @@ start_side_activity  {"action": "purchase", "target": ["牛肉面", "柠檬茶",
 start_side_activity  {"action": "interact", "target": ["哔哩哔哩"]}
 ```
 
-出行的 detail 写步行、驾车、打车或公共交通；在地点做事的 detail 照工具层当前地点下列出的名称写。
+出行的 detail 照工具层该目的地下列出的出行方式名称写（步行，以及数据集定义的方式）；在地点做事的 detail 照工具层当前地点下列出的名称写。
 睡眠的 target 写 10 到 720 的分钟数，只写数字，detail 写 null。购买逐份写商品名，同一个名称写两次就是两份。
 例子里的地点、内容、商品和 app 名称取自所用的环境数据集。
 query_world 使用 action 查询当下实际地点、营业时段、路线或商品；查询不推进时间。

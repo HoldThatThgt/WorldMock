@@ -158,7 +158,7 @@ flowchart LR
 | 购买总时长 | `purchase-duration:{action_id}`，六十至三百整数秒，一次请求只抽一次 |
 | 支付段时长 | `payment-duration:{action_id}:{group_key}`，每个非空支付 app 组十至二十整数秒；空支付 app 不抽取 |
 | 购买功能 app | `function-app:{action_id}:{group_key}`，排序候选与唯一 null 等概率选择 |
-| 出行功能 app | `function-app:{activity_id}`，排序候选等概率选择，不增加 null |
+| 出行功能 app | `function-app:{activity_id}`，候选是绑定了这次出行方式的功能 app 按身份升序，等概率选择，不增加 null；没有候选就没有导航记录 |
 | 下单 app | `order-app:{goods_id}:{store_id_or_courier}:{local_date}`，店铺侧先确定店铺，app 商品使用 `courier` |
 | 快递天数 | `courier-days:{goods_id}:{app_id}:{local_date}`，二、三、四、五天等概率 |
 | 快递费 | `courier-fee:{goods_id}:{app_id}`，零或五百分等概率，跨日期稳定 |

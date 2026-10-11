@@ -68,7 +68,7 @@ Windows 可用 `py -3.12`，其他系统可用 `python3.12`。`--wheelhouse` 指
 ## 实验与数据
 
 环境根只含 catalog/、persona.toml 与 config.toml，描述一个世界、一个人物和一次运行。
-目录使用清单、四份必需 JSONL 和按需放置的可选 JSONL（回调声明 callbacks.jsonl、两地距离声明 map.jsonl）；
+目录使用清单、四份必需 JSONL 和按需放置的可选 JSONL（回调声明 callbacks.jsonl、两地距离声明 map.jsonl、出行方式 travel-method.jsonl）；
 地图由声明的距离和唯一运行种子在内存生成，发布包不包含生成的 map.json。
 完整格式和实际模型服务要求见[用户手册](docs/manual/README.md)。
 

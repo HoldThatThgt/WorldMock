@@ -76,6 +76,11 @@ flowchart LR
 工具层动作行固定八个字段，键序 `action, detail, available, reason, price, duration, quantity, note`，
 紧凑渲染省略 `null`。`detail` 是调用里要照写的名称：出行行是出行方式名称，购买行和内容 app 行为 `null`，
 地点上的 interact 行与 sleep 行见下表。
+其他地点（目的地）的目标行下每种出行方式一行，`action` 恒为 `travel`：自带的步行在前，其余按 `travel_method_id` 升序，每个目的地列出全部方式，不轮转、不截断。
+出行行的 `price` 是车费的人读写法（免费写「0 元」），`duration` 是按当刻天气算出的用时，`quantity` 为 `null`，`note` 是「轻松」或「费力」；余额不够付车费的方式照样列出并标为不可用。
+私有绑定的出行行另带 `travel_method_id`，不进入公开工具层；紧凑渲染的分组键仍是目标类别与动作，全部目的地的出行行落在同一组里，还原后与完整工具层逐值相同。
+query_world 按动作筛选 `travel` 时返回各方式的行，不新增按出行方式的筛选键。
+同一个出行方式名称用于工具层的 `detail`、活动名、环境层路上的位置（键 `travel_method`）和到达句「<时刻> <出行方式名称>到了<地点显示名>」；步行写「步行」，其余写数据集起的名称。
 每行的 `available` 与 `reason` 和受理用同一套检查，对只含这一行的一组求值，说明与拒绝原因一字不差。
 人物停留在某个地点时，该地点的目标行下为每个内容单元列一条 interact 行，完整列出，不轮转、不截断，按单元键升序；
 地点标了 `sleepable` 时 sleep 行排在其后。人在路上时不列任何地点的 interact 行，其他地点只列出行，
