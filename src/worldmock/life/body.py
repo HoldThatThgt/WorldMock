@@ -79,6 +79,17 @@ def _settle_ledger(body: BodyState, changes: dict[str, float], config: BodyConfi
     _flow_buffer.extend(entries)
     return body.model_copy(update={name: final[(name, BODY_FLOW_OWNER)] for name in changes}, deep=True)
 
+def hourly_burn(config: BodyConfig, met: float) -> tuple[float, float]:
+    """@brief 每小时基础代谢等于体重千克数，额外消耗只算代谢当量超出静坐的部分。
+
+    @param config 含人物体重的身体结算视图
+    @param met 共同区间内进行中活动的最大代谢当量，没有活动时为 1.0
+    @return (每小时基础代谢千卡, 每小时额外消耗千卡)
+    """
+    basal_rate = config.mass_kg
+    extra_rate = max(met - 1, 0) * config.mass_kg
+    return basal_rate, extra_rate
+
 def settle_body(body: BodyState, kind: ActivityKind, seconds: int, config: BodyConfig,
                 factors: ActivityFactors | None = None) -> BodySettlement:
     """@brief 单活动复用共同结算路径，不重复自然增长。"""
@@ -98,8 +109,9 @@ def settle_shared_body(body: BodyState, activities: tuple[tuple[ActivityKind, Ac
     hours = seconds / 3600
     sleeping = any(kind == ActivityKind.SLEEP for kind, _ in activities)
     met = max((factors.met for _, factors in activities), default=1.0)
-    basal = config.basal_kcal_per_hour * hours
-    extra = max(met - 1, 0) * config.mass_kg * hours
+    basal_rate, extra_rate = hourly_burn(config, met)
+    basal = basal_rate * hours
+    extra = extra_rate * hours
     deficit = (sleep.deficit_after_sleep(body.sleep_deficit_hours, hours) if sleeping else
                sleep.deficit_after_awake(body.sleep_deficit_hours, hours, body.sleep_need_hours))
     changes = {ENERGY_RESOURCE: -min(basal + extra, body.energy_kcal),
@@ -198,7 +210,8 @@ class _FeltProjection:
     @property
     def burn_per_hour(self) -> float:
         """@brief 最大强度只叠加一次基础代谢。"""
-        return self.config.basal_kcal_per_hour + max(self.factors.met - 1, 0) * self.config.mass_kg
+        basal_rate, extra_rate = hourly_burn(self.config, self.factors.met)
+        return basal_rate + extra_rate
 
     def hour_after(self, seconds: int) -> float:
         """@brief 距当前秒数后的本地小时。"""

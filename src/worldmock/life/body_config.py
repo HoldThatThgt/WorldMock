@@ -15,8 +15,6 @@ class BodyConfig:
     mass_kg: float
     #: 身体能量上限，单位千卡。
     maximum_energy_kcal: int
-    #: 每小时基础代谢，单位千卡。
-    basal_kcal_per_hour: int
     #: 普通饥饿阈值，单位千卡。
     hunger_threshold_kcal: int
     #: 紧急饥饿阈值，单位千卡。
@@ -30,7 +28,6 @@ class BodyConfig:
 def assemble_body_config(persona: PersonaConfig) -> BodyConfig:
     """@brief 用已校验的人物质量与不可变系统常数形成结算视图。"""
     constants = BODY_CONSTANTS
-    return BodyConfig(persona.body.mass_kg, constants.maximum_energy_kcal,
-                      constants.basal_kcal_per_hour, constants.hunger_threshold_kcal,
+    return BodyConfig(persona.body.mass_kg, constants.maximum_energy_kcal, constants.hunger_threshold_kcal,
                       constants.emergency_threshold_kcal, constants.relaxation_need_per_awake_hour,
                       constants.activity_met)

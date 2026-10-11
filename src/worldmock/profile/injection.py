@@ -6,8 +6,8 @@ validate 在覆盖率低于 80% 时照旧失败（裁决 D4）。
 
 每条警告的形状固定为 {code, agent_id, message, details}：code 取警告码闭集 INPUT_WARNING_CODES；agent_id 为人物编号，
 人设级警告（地点显示名）为 null；message 是给数据集维护者看的一句说明；details 的键按警告码固定（见各函数）。
-人设作息覆盖（apply_persona_rhythm，裁决 D16）：人设显式声明的作息字段覆盖卡片抽取值，未声明的字段仍取卡片值；
-字段为七项、窗口槽为五个（docs/design/06-agent.md#agent-人设作息覆盖  增下班、到家），新槽的卡片值可以是 null。
+人设作息覆盖（apply_persona_rhythm）：人设显式声明的作息字段原样写进卡片、不取整，未声明的字段仍取卡片值；
+字段为七项、窗口槽为五个，下班、到家槽的卡片值可以是 null（docs/design/06-agent.md「人物身份与画像」）。
 """
 
 from __future__ import annotations
@@ -21,14 +21,7 @@ from pydantic import Field, ValidationError
 
 from worldmock.errors import IntegrityError
 from worldmock.profile.coverage import COVERAGE_THRESHOLD, PersonaCoverageReport
-from worldmock.profile.models import (
-    SLEEP_NEED_MAX_H,
-    SLEEP_NEED_MIN_H,
-    PersonaCard,
-    TimeAnchors,
-    TimeWindow,
-    quantize,
-)
+from worldmock.profile.models import PersonaCard, TimeAnchors, TimeWindow
 
 #: 运行输入警告码闭集（按规格 1.3 与 8.1 的登记顺序）。
 InputWarningCode = Literal[
@@ -87,14 +80,13 @@ def frozen_input_warnings(value: Iterable[Mapping[str, Any]] | None) -> list[dic
 
 
 def apply_persona_rhythm(card: PersonaCard, agent: Any) -> RhythmOverride:
-    """@brief 人设显式声明的作息字段覆盖卡片抽取值（规格 2.1，裁决 D16：人设优先）。
+    """@brief 人设显式声明的作息字段原样写进卡片（人设优先，声明什么卡片里就存什么）。
 
     只覆盖 agent.model_fields_set 与七个作息字段的交集中值非空的字段——覆盖必须在原始加载的人设人物上做，经过
-    dump/validate 往返的对象会把全部字段记为已设。取值按卡片格点量化（中点与睡眠需要 0.25 小时，窗口 0.5 小时）；
-    窗口经 TimeAnchors 回绕归一、validate_order 与下班到家的顺序约束重建锚点，按落槽顺序反复尝试直到没有槽能再落下，
-    落不下的槽保留卡片值（下班、到家槽的卡片值可以是 null）并记 CARD_FIELD_CONFLICT；每处实际改变卡片值的覆盖记
-    CARD_FIELD_OVERRIDDEN。不降级任何卡片锚点（docs/design/06-agent.md#agent-人设作息覆盖 ）。结果是不动点：对结果再覆盖一次
-    卡片不变。
+    dump/validate 往返的对象会把全部字段记为已设。声明值不取整：睡眠中点、睡眠需要原样作为卡片值，窗口原样做成
+    时段对象；窗口经 TimeAnchors 回绕归一、validate_order 与下班到家的顺序约束重建锚点，按落槽顺序反复尝试直到没有槽
+    能再落下，落不下的槽保留卡片值（下班、到家槽的卡片值可以是 null）并记 CARD_FIELD_CONFLICT；每处实际改变卡片值的
+    覆盖记 CARD_FIELD_OVERRIDDEN。不降级任何卡片锚点。结果是不动点：对结果再覆盖一次卡片不变，恢复运行时据此核对。
 
     @param card 画像编译的卡片（或恢复时的结构化卡片 PersonaCardStruct）
     @param agent 人设人物声明（带可靠的 model_fields_set）
@@ -111,37 +103,30 @@ def apply_persona_rhythm(card: PersonaCard, agent: Any) -> RhythmOverride:
 
 
 def _hour_overrides(card: PersonaCard, agent: Any, declared: set[str]) -> tuple[dict[str, Any], list[dict]]:
-    """@brief 睡眠中点（0.25 小时格点，24 点即 0 点）与睡眠需要（0.25 小时格点，7–9 小时）的覆盖。"""
+    """@brief 睡眠中点与睡眠需要的覆盖：声明值原样作为卡片值，与卡片原值不同时记一条覆盖。"""
     updates: dict[str, Any] = {}
     warnings: list[dict] = []
     for name in ("chronotype_midsleep", "sleep_need_hours"):
         if name not in declared:
             continue
-        raw = float(getattr(agent, name))
-        value = (quantize(raw, 0.0, 24.0, 0.25) % 24.0 if name == "chronotype_midsleep"
-                 else quantize(raw, SLEEP_NEED_MIN_H, SLEEP_NEED_MAX_H, 0.25))
+        value = float(getattr(agent, name))
         before = getattr(card, name)
         if value != before:
             updates[name] = value
-            warnings.append(_overridden(agent.agent_id, name, (before, raw, value)))
+            warnings.append(_overridden(agent.agent_id, name, (before, value, value)))
     return updates, warnings
 
 
 def _window_overrides(card: PersonaCard, agent: Any, declared: set[str]) -> tuple[TimeAnchors, list[dict]]:
-    """@brief 午餐、下班、到家、晚餐、就寝窗口的覆盖：反复按落槽顺序落槽直到不动点，剩下的槽记冲突（卡片值可为 null），
-    改变了值的槽记覆盖。"""
+    """@brief 午餐、下班、到家、晚餐、就寝窗口的覆盖：声明值原样做成时段对象，反复按落槽顺序落槽直到不动点，
+    剩下的槽记冲突（卡片值可为 null），改变了值的槽记覆盖。"""
     anchors = card.time_anchors
     pending: dict[str, tuple[str, TimeWindow]] = {}
     warnings: list[dict] = []
     for field, slot in _WINDOW_SLOTS.items():
-        if field not in declared:
-            continue
-        raw = tuple(float(item) for item in getattr(agent, field))
-        target = _window_target(raw)
-        if target is None:
-            warnings.append(_conflict(agent.agent_id, field, (getattr(anchors, slot), raw), "window_off_grid"))
-        else:
-            pending[slot] = (field, target)
+        if field in declared:
+            start, end = (float(item) for item in getattr(agent, field))
+            pending[slot] = (field, TimeWindow(start_hour=start, end_hour=end))
     progressed = True
     while progressed:
         progressed = False
@@ -152,22 +137,13 @@ def _window_overrides(card: PersonaCard, agent: Any, declared: set[str]) -> tupl
                 del pending[slot]
     for slot, (field, _) in pending.items():
         raw = tuple(float(item) for item in getattr(agent, field))
-        warnings.append(_conflict(agent.agent_id, field, (getattr(anchors, slot), raw), "anchor_order"))
+        warnings.append(_conflict(agent.agent_id, field, (getattr(anchors, slot), raw)))
     for field, slot in _WINDOW_SLOTS.items():
         before, after = getattr(card.time_anchors, slot), getattr(anchors, slot)
         if field in declared and before != after:
             raw = tuple(float(item) for item in getattr(agent, field))
             warnings.append(_overridden(agent.agent_id, field, (_window_value(before), raw, _window_value(after))))
     return anchors, warnings
-
-
-def _window_target(raw: tuple[float, ...]) -> TimeWindow | None:
-    """@brief 人设窗口量化到 0.5 小时格点；量化后退化或越界、写不成卡片窗口时为 None。"""
-    start, end = (quantize(value, 0.0, 30.0, 0.5) for value in raw)
-    try:
-        return TimeWindow(start_hour=start, end_hour=end)
-    except ValidationError:
-        return None
 
 
 def _with_slot(anchors: TimeAnchors, slot: str, window: TimeWindow) -> TimeAnchors | None:
@@ -198,18 +174,18 @@ def _overridden(agent_id: int, field: str, values: tuple[Any, Any, Any]) -> dict
                     field=field, card_value=card_value, persona_value=declared, applied_value=applied)
 
 
-def _conflict(agent_id: int, field: str, values: tuple[TimeWindow | None, tuple[float, ...]], reason: str) -> dict:
-    """@brief CARD_FIELD_CONFLICT：人设窗口落不进卡片锚点（顺序冲突或写不成 0.5 小时格点窗口），保留卡片值；
+def _conflict(agent_id: int, field: str, values: tuple[TimeWindow | None, tuple[float, ...]]) -> dict:
+    """@brief CARD_FIELD_CONFLICT：人设窗口与模型读出的时间排不进同一天（原因固定为 anchor_order），保留卡片值；
     下班、到家槽的卡片值可以是 null（details.card_value 为 null，正文写 null）。"""
     kept, persona_value = values
     why = ("conflicts with card anchor order: wake, departure, lunch, dinner and bedtime must be nondecreasing; "
            "work departure cannot precede departure, home arrival cannot precede either departure, "
-           "and both must not follow bedtime" if reason == "anchor_order"
-           else "is not a valid window after quantization to a half-hour grid")
+           "and both must not follow bedtime")
     return _warning("CARD_FIELD_CONFLICT", agent_id,
                     f"Persona {field} {_json_text(list(persona_value))} {why}; "
                     f"keeping card value {_json_text(_window_value(kept))}.",
-                    field=field, card_value=_window_value(kept), persona_value=list(persona_value), reason=reason)
+                    field=field, card_value=_window_value(kept), persona_value=list(persona_value),
+                    reason="anchor_order")
 
 
 def content_empty_warnings(agent_id: int, card: PersonaCard | None, catalog: Any) -> list[dict[str, Any]]:

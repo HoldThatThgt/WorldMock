@@ -18,6 +18,8 @@ _LOGGER = logging.getLogger(__name__)
 LEGACY_TEMPLATE_FIELDS = frozenset({
     "occupation", "routine_preference", "consumption_preference", "risk_preference",
 })
+#: 就寝时段的上界（次日 06:00）；起点小于它减 24 时读作次日凌晨。
+BEDTIME_HORIZON_HOURS = 30
 
 
 class InputModel(DeepFrozenModel):
@@ -122,29 +124,51 @@ class PersonaConfig(InputModel):
 
     @model_validator(mode="after")
     def validate_windows(self) -> PersonaConfig:
-        """@brief 人物作息保留日内窗口与跨午夜就寝的现行范围。"""
+        """@brief 先按午饭、晚饭、下班、到家、就寝检查每个时段自身的形状，再检查声明值之间的成对关系。"""
         names = ("lunch_window", "dinner_window", "leave_work_window", "arrive_home_window", "bedtime_window")
         for name in names:
             window = getattr(self, name)
             if window is not None:
                 _check_window(name, window)
-        if self.leave_work_window and self.arrive_home_window:
-            if self.leave_work_window[0] > self.arrive_home_window[0]:
-                _invalid("leave_work_window must not start after arrive_home_window")
-        if self.dinner_window and self.bedtime_window and self.bedtime_window[0] < self.dinner_window[1]:
-            _invalid("bedtime_window must not overlap dinner window")
+        _check_window_pairs(self)
         return self
 
 
 def _check_window(name: str, window: list[float]) -> None:
     """@brief 检查有限两端点、日内起点和窗口跨度。"""
-    maximum = 30 if name == "bedtime_window" else 24
+    maximum = BEDTIME_HORIZON_HOURS if name == "bedtime_window" else 24
     if len(window) != 2 or any(not math.isfinite(value) for value in window):
         _invalid(f"{name} must contain two finite hours")
     if not 0 <= window[0] < 24 or not window[0] < window[1] <= maximum:
         _invalid(f"{name} must satisfy 0 <= start < end <= {maximum}")
     if window[1] - window[0] > 12:
         _invalid(f"{name} span must not exceed 12 hours")
+
+
+def _check_window_pairs(persona: PersonaConfig) -> None:
+    """@brief 两个声明值不可能同时写进卡片时拒绝；次序固定，只报告第一条不成立的。"""
+    lunch, dinner = persona.lunch_window, persona.dinner_window
+    leave_work, arrive_home = persona.leave_work_window, persona.arrive_home_window
+    bedtime = _bedtime_start(persona.bedtime_window)
+    if leave_work and arrive_home and leave_work[0] > arrive_home[0]:
+        _invalid("leave_work_window must not start after arrive_home_window")
+    if dinner and bedtime is not None and bedtime < dinner[1]:
+        _invalid("bedtime_window must not overlap dinner window")
+    if lunch and dinner and lunch[1] > dinner[0]:
+        _invalid("lunch_window must end before dinner_window starts")
+    if lunch and bedtime is not None and lunch[0] > bedtime:
+        _invalid("bedtime_window must not start before lunch_window")
+    if leave_work and bedtime is not None and leave_work[0] > bedtime:
+        _invalid("leave_work_window must not start after bedtime_window")
+    if arrive_home and bedtime is not None and arrive_home[0] > bedtime:
+        _invalid("arrive_home_window must not start after bedtime_window")
+
+
+def _bedtime_start(window: list[float] | None) -> float | None:
+    """@brief 就寝起点的次日读法：起点落在午夜到就寝上界之间时读作次日凌晨，比较时加 24；没有声明为 None。"""
+    if window is None:
+        return None
+    return window[0] + 24 if window[0] < BEDTIME_HORIZON_HOURS - 24 else window[0]
 
 
 class CalendarConfig(InputModel):

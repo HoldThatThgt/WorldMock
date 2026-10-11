@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from worldmock.profile.models import (
     BIG_FIVE_DIMENSIONS,
     LEGACY_TEMPLATE_FIELDS,
+    PROMPT_VERSION,
     SCHEMA_VERSION,
     BigFiveProfile,
     PersonaCard,
@@ -47,15 +48,26 @@ def test_card_round_trips_through_json():
     assert PersonaCard.model_validate_json(card.model_dump_json()) == card
 
 
-def test_time_window_grid_and_span():
-    with pytest.raises(ValidationError, match="off the 0.5-hour grid"):
-        TimeWindow(start_hour=7.1, end_hour=8.0)
+def test_time_window_accepts_off_grid_hours_and_keeps_shape_and_span_checks():
+    """@brief 时段对象不再检查格点：12.1 到 12.2 原样保存；起点不小于终点、跨度超过 12 小时与越界仍被拒绝。"""
+    narrow = TimeWindow(start_hour=12.1, end_hour=12.2)
+    assert (narrow.start_hour, narrow.end_hour) == (12.1, 12.2)
+    assert TimeWindow(start_hour=18.3333, end_hour=29.9).end_hour == 29.9
+    with pytest.raises(ValidationError, match="start < end"):
+        TimeWindow(start_hour=12.2, end_hour=12.1)
     with pytest.raises(ValidationError, match="start < end"):
         TimeWindow(start_hour=8.0, end_hour=8.0)
     with pytest.raises(ValidationError, match="exceeds 12h"):
         TimeWindow(start_hour=6.0, end_hour=20.0)
     with pytest.raises(ValidationError):
         TimeWindow(start_hour=30.0, end_hour=30.5)
+    with pytest.raises(ValidationError):
+        TimeWindow(start_hour=29.5, end_hour=30.1)
+    with pytest.raises(ValidationError):
+        TimeWindow(start_hour=-0.1, end_hour=1.0)
+    for start, end in ((float("nan"), 13.0), (12.0, float("nan")), (12.0, float("inf"))):
+        with pytest.raises(ValidationError):
+            TimeWindow(start_hour=start, end_hour=end)
     assert (TimeWindow(start_hour=24.0, end_hour=25.0).start_hour) == 24.0
 
 
@@ -301,12 +313,19 @@ def test_the_midnight_bound_holds_for_any_bedtime_and_an_out_of_order_anchor_kee
 
 
 def test_sleep_need_and_chronotype_bounds():
+    """@brief 卡片接受不在一刻钟格点上的睡眠中点 4.1 与睡眠需要 7.6，仍拒绝越界的值；抽取入口的取整函数不变。"""
     assert make_card().sleep_need_hours == 7.5
-    for bad in (6.5, 9.25, 8.3):
+    off_grid = make_card(chronotype_midsleep=4.1, sleep_need_hours=7.6)
+    assert (off_grid.chronotype_midsleep, off_grid.sleep_need_hours) == (4.1, 7.6)
+    assert PersonaCard.model_validate_json(off_grid.model_dump_json()) == off_grid
+    for bad in (6.5, 6.99, 9.01, 9.25):
         with pytest.raises(ValidationError):
             make_card(sleep_need_hours=bad)
+    for bad in (-0.1, 24.0, 24.5, float("nan")):
+        with pytest.raises(ValidationError):
+            make_card(chronotype_midsleep=bad)
     with pytest.raises(ValidationError):
-        make_card(chronotype_midsleep=4.1)  # off the 0.25 grid
+        make_card(sleep_need_hours=float("nan"))
     assert quantize(8.3, 7.0, 9.0, 0.25) == 8.25
 
 
@@ -343,10 +362,11 @@ def test_big_five_bounds():
 
 
 def test_legacy_contract_constants():
-    """@brief 旧合同明确删除：四个模板字段、schema v1。"""
+    """@brief 旧合同明确删除：四个模板字段；卡片结构号 5，抽取提示版本不变。"""
     assert LEGACY_TEMPLATE_FIELDS == frozenset({
         "occupation", "routine_preference", "consumption_preference", "risk_preference"})
-    assert SCHEMA_VERSION == 4
+    assert SCHEMA_VERSION == 5
+    assert PROMPT_VERSION == "card-v4"
     assert BIG_FIVE_DIMENSIONS == ("openness", "conscientiousness", "extraversion",
                                    "agreeableness", "neuroticism")
 

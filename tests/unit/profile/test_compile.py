@@ -1,6 +1,7 @@
 """@brief 严格人设、共识结果与社交增长映射形成唯一画像。"""
 
 import pytest
+from pydantic import ValidationError
 
 from tests.profile.conftest import make_payload
 from tests.profile.model_fixture import Response, ScriptedClient, extracted, persona
@@ -21,7 +22,7 @@ def test_compiled_contract_contains_card_traits_current_dynamics_and_input_ident
     assert isinstance(compiled, CompiledPersona)
     result = compiled.model_dump()
     assert set(result) == {"schema_version", "card", "big_five", "world_dynamics", "source", "warnings"}
-    assert result["schema_version"] == 4
+    assert result["schema_version"] == 5
     assert result["card"]["identity"]["occupation"] == "产品经理"
     assert result["world_dynamics"] == {"social_need_growth_per_hour": 0.09}
     assert compiled.source.background_story_sha256 == "a" * 64
@@ -29,6 +30,15 @@ def test_compiled_contract_contains_card_traits_current_dynamics_and_input_ident
     assert compiled.source.prompt_version == "card-v4"
     assert compiled.source.consensus.runs == 3
     assert compiled.warnings == ()
+
+
+def test_compiled_result_with_the_previous_schema_version_is_rejected():
+    """@brief 结构号写 4 的编译结果被严格模型拒绝，不读取旧卡片；写 5 的同一份结果通过。"""
+    payload = compile_payloads([make_payload()] * 3).model_dump(mode="json")
+    assert CompiledPersona.model_validate(payload).schema_version == 5
+    with pytest.raises(ValidationError) as error:
+        CompiledPersona.model_validate({**payload, "schema_version": 4})
+    assert [(item["loc"], item["type"]) for item in error.value.errors()] == [(("schema_version",), "literal_error")]
 
 
 def test_same_inputs_produce_identical_compiled_bytes():

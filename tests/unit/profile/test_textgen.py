@@ -14,9 +14,12 @@ from worldmock.profile.models import (
     Tastes,
     TimeAnchors,
 )
+from worldmock.agents.life_persona import persona_layer
+from worldmock.profile.models import persona_card_struct
 from worldmock.profile.textgen import (
     RenderBudgetExceededError,
     count_hanzi,
+    hour_text,
     render_card,
     window_text,
 )
@@ -71,7 +74,7 @@ def test_render_carries_card_content():
     text = render_card(card)
     assert "产品经理" in text and "32岁" in text
     assert "母亲" in text and "很亲近" in text
-    assert "7点" in text and "12点到13点" in text and "23点到24点" in text
+    assert "7点" in text and "12点到13点" in text and "23点到0点" in text
     assert "下班到家→公园慢跑半小时" in text
     assert "悬疑" in text and "川菜" in text
     assert "压力时拼高达模型" in text
@@ -101,19 +104,18 @@ def test_cross_midnight_bedtime_renders_as_next_day():
 _IDENTITY = ("产品经理，32岁，与伴侣合租两居室。\n本周在忙新版上线收尾；在意父母的体检结果。\n"
              "亲近的人：母亲（家人，很亲近，电话、微信联系）、老周（老友，较亲近，微信、见面联系）。\n")
 _TAIL = "口味：爱看悬疑、纪录片；喜欢吃川菜、面食；常用长视频、短视频。\n压力时拼高达模型。"
-#: c3b24da 的 render_card 对三类卡片的输出（由 `git show c3b24da:src/worldmock/profile/textgen.py` 算出后写死）：
-#: 刻钟睡眠中点仍写整点、半点窗口、午夜后开始的窗口仍写「24点半」「25点」。
+#: 卡片文本对三类卡片的输出：时刻写到分钟，刻钟睡眠中点写「三刻」「一刻」，午夜及其后的时刻按钟面写「0点」「1点」。
 _EXPECTED_RENDERED_CARDS = {
     "quarter_hour": _IDENTITY + (
-        "约7点到7点半起床、8点到8点半出门；午餐12点到13点、晚餐18点半到19点半；就寝23点到24点，睡眠中点约3点，"
+        "约7点到7点半起床、8点到8点半出门；午餐12点到13点、晚餐18点半到19点半；就寝23点到0点，睡眠中点约3点三刻，"
         "需睡7.5小时。\n习惯：午饭后→散步一刻钟（12点半到13点）。\n") + _TAIL,
     "half_hour": _IDENTITY + (
         "约6点半到7点半起床、8点半到9点出门；午餐11点半到12点半、晚餐18点半到19点半；就寝22点半到23点半，"
         "睡眠中点约3点半，需睡7.5小时。\n"
         "习惯：下班到家→公园慢跑半小时（19点到20点）；睡前→读几页小说（22点半到23点）。\n") + _TAIL,
     "after_midnight": _IDENTITY + (
-        "约8点到8点半起床、9点到9点半出门；午餐12点到13点、晚餐19点到20点；就寝24点半到1点半，睡眠中点约5点，"
-        "需睡7.5小时。\n习惯：睡不着→刷短视频（25点到2点）；睡前→读几页小说（23点半到24点）。\n") + _TAIL,
+        "约8点到8点半起床、9点到9点半出门；午餐12点到13点、晚餐19点到20点；就寝0点半到1点半，睡眠中点约5点一刻，"
+        "需睡7.5小时。\n习惯：睡不着→刷短视频（1点到2点）；睡前→读几页小说（23点半到0点）。\n") + _TAIL,
 }
 
 
@@ -134,11 +136,42 @@ def _golden_card(kind: str):
 
 
 @pytest.mark.parametrize("kind", sorted(_EXPECTED_RENDERED_CARDS))
-def test_render_card_preserves_current_clock_and_window_text(kind):
-    """@brief render_card 不动（docs/design/06-agent.md「人设层」）：刻钟、半点与
-    午夜后开始的窗口渲染出的卡片文本与当前可读卡片合同逐字节相同；刻钟与钟面写法只属于人设层的 hour_text / window_text。"""
+def test_render_card_writes_clock_and_window_text_to_the_minute(kind):
+    """@brief 卡片文本与人设层共用同一套时刻写法：刻钟、半点与午夜后开始的窗口都按钟面写到分钟。"""
     card = _golden_card(kind)
     assert render_card(card) == _EXPECTED_RENDERED_CARDS[kind]
+
+
+@pytest.mark.parametrize(("hour", "text"), [
+    (4.25, "4点一刻"), (12.1, "12点6分"), (18.3333, "18点20分"), (23.9999, "0点"), (24.0, "0点"), (25.0, "1点"),
+    (4.1, "4点6分"), (18.25, "18点一刻"), (18.75, "18点三刻"), (0.5, "0点半"), (7.0, "7点"),
+])
+def test_hour_text_rounds_to_the_minute_then_wraps_around_the_day(hour, text):
+    """@brief 时刻写法：先取整到分钟，再对一天取模；0 分不加，15、30、45 分写一刻、半、三刻，其余写「N分」。"""
+    assert hour_text(hour) == text
+
+
+def test_card_text_and_persona_layer_write_the_same_window_text():
+    """@brief 同一张卡片（声明值不在格点上）在卡片文本与人设层里写出相同的时段、睡眠中点与睡眠需要。"""
+    card = make_card(chronotype_midsleep=4.1, sleep_need_hours=7.6, time_anchors=TimeAnchors(
+        wake=make_window(7.0, 7.5), leave_home=make_window(8.0, 8.5), lunch=make_window(12.1, 12.2),
+        dinner=make_window(19.0, 20.0), bedtime=make_window(24.5, 25.5),
+        leave_work=make_window(18.0, 18.5), arrive_home=make_window(18.25, 18.75)))
+
+    text = render_card(card)
+    rhythm = persona_layer({"persona_card_struct": persona_card_struct(card)}, "林舟",
+                           {"relationships": [], "preferences": []})["rhythm"]
+
+    assert rhythm == {
+        "wake": "7点到7点半", "leave_home": "8点到8点半", "lunch": "12点6分到12点12分",
+        "leave_work": "18点到18点半", "arrive_home": "18点一刻到18点三刻", "dinner": "19点到20点",
+        "bedtime": "0点半到1点半", "sleep_midpoint": "4点6分", "sleep_need": "7.6 小时"}
+    assert text.splitlines()[3] == (
+        "约7点到7点半起床、8点到8点半出门；午餐12点6分到12点12分、晚餐19点到20点；就寝0点半到1点半，"
+        "睡眠中点约4点6分，需睡7.6小时；下班18点到18点半；到家18点一刻到18点三刻。")
+    for name in ("wake", "leave_home", "lunch", "leave_work", "arrive_home", "dinner", "bedtime"):
+        assert rhythm[name] in text
+    assert "需睡8小时" in render_card(make_card(sleep_need_hours=8.0))
 
 
 def _with_work_anchors(card, leave_work, arrive_home):
@@ -187,8 +220,7 @@ def test_the_arrive_home_clause_counts_towards_the_budget_alone_and_with_the_lea
 
 
 def test_window_ends_at_or_after_midnight_render_as_clock_hours():
-    """@brief 两端都按钟面写：到达或越过午夜（≥24）的一端按次日小时写，午夜后才开始的窗口也不写成「25点」
-    （docs/design/06-agent.md「人设层」：作息为可读短语）。"""
+    """@brief 两端都按钟面写：到达或越过午夜（≥24）的一端按次日小时写，午夜后才开始的窗口也不写成「25点」。"""
     assert window_text(make_window(25.0, 26.0)) == "1点到2点"
     assert window_text(make_window(24.0, 25.5)) == "0点到1点半"
     assert window_text(make_window(22.0, 24.0)) == "22点到0点"
