@@ -395,8 +395,9 @@ def test_inspect_run_brief_reads_start_requests_and_result():
     assert main == 'start_main_activity {"action": "sleep", "target": "450", "detail": null}'
     side = inspect_run._brief({"event_type": "action_requested", "resource_changes": {},
                                "data": {"tool_name": "start_side_activity",
-                                        "request": {"action": "purchase", "target": ["牛肉面", "薯片"]}}}, display)
-    assert side == 'start_side_activity {"action": "purchase", "target": ["牛肉面", "薯片"]}'
+                                        "request": {"action": "purchase", "target": ["牛肉面", "薯片"],
+                                                    "prefer": None}}}, display)
+    assert side == 'start_side_activity {"action": "purchase", "target": ["牛肉面", "薯片"], "prefer": null}'
     accepted = inspect_run._brief({"event_type": "action_result", "resource_changes": {},
                                    "data": {"status": "in_progress", "error_code": None,
                                             "message": "Activities started",

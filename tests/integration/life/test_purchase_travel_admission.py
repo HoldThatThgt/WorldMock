@@ -58,13 +58,13 @@ def _next_decision(engine):
 def _with_budget(engine_factory, difference):
     probe = engine_factory()
     state = probe.context.state
-    quote = quote_goods(probe.context.inputs, state, 1, "online-notebook")
-    _, total = quoted_basket(probe.context.inputs, state, 1, ("online-notebook",))
+    quote = quote_goods(probe.context.inputs, state, 1, "online-notebook", None)
+    _, total = quoted_basket(probe.context.inputs, state, 1, ("online-notebook",), None)
     catalog = probe.context.catalog
     trip = plan_trip(catalog.graph, "home", "office", travel_method(catalog, "taxi"), current_weather_factor(state))
     engine = engine_factory(mutate=lambda persona, config: persona.update(
         initial_balance_fen=total + trip.fare_fen + difference))
-    assert quote_goods(engine.context.inputs, engine.context.state, 1, "online-notebook") == quote
+    assert quote_goods(engine.context.inputs, engine.context.state, 1, "online-notebook", None) == quote
     return engine, quote, total, trip
 
 
@@ -179,7 +179,7 @@ def test_exact_combined_budget_pays_fare_then_frozen_courier_quote_at_completion
 def test_delivery_and_departure_preserve_the_real_initial_quote_and_destination(engine_factory, reverse):
     engine = engine_factory()
     state = engine.context.state
-    quote = quote_goods(engine.context.inputs, state, 1, "lemon-tea")
+    quote = quote_goods(engine.context.inputs, state, 1, "lemon-tea", None)
     departure, bought = _group(engine, "delivery-departure", "步行", "柠檬茶", reverse)
     assert departure.status == bought.status == "in_progress", (departure.error_code, bought.error_code)
     # 与出发同组的外卖按出发前的停留地点报价，收货地点就是出发地
@@ -420,7 +420,7 @@ def test_delivery_store_and_expected_arrival_follow_the_declared_distances(
     assert current_weather_factor(state) == 0.85
     assert (catalog.shortest_m("cafe", "office"), catalog.shortest_m("noodle-1", "office")) == (cafe_m, noodle_m)
     goods_id = next(key for key, item in catalog.goods.items() if item.name == goods)
-    quote = quote_goods(engine.context.inputs, state, 1, goods_id)
+    quote = quote_goods(engine.context.inputs, state, 1, goods_id, None)
     assert (quote.store_id, quote.destination_id, quote.fulfillment) == (store, "office", "delivery")
     assert quote.distance_meters == catalog.shortest_m(store, "office")
     assert quote.expected_at - state.current_time == seconds == 600 + -(-quote.distance_meters // 5)
@@ -585,7 +585,7 @@ def test_departure_with_a_purchase_checks_the_balance_against_the_chosen_methods
         engine_factory, tmp_path, reverse):
     """出发与购买同轮：余额核对用所选出行方式的车费。余额正好够「货款加运费加缆车 3 元」时，缆车能走而贵一分的方式不能。"""
     probe = engine_factory(_custom_world(tmp_path / "probe"))
-    _, total = quoted_basket(probe.context.inputs, probe.context.state, 1, ("online-notebook",))
+    _, total = quoted_basket(probe.context.inputs, probe.context.state, 1, ("online-notebook",), None)
     methods = [*CUSTOM_METHODS[1:], ("dearer", "专线", 3, 301, 0, "idle")]
 
     def budget(persona, config):
@@ -613,7 +613,7 @@ def test_delivery_trip_identity_ends_with_delivery_whatever_travel_methods_exist
     root = (walking_only(copy_environment(tmp_path / "bare")) if methods is None
             else _custom_world(tmp_path, methods, ("walking",)))
     engine = engine_factory(root)
-    quote = quote_goods(engine.context.inputs, engine.context.state, 1, "lemon-tea")
+    quote = quote_goods(engine.context.inputs, engine.context.state, 1, "lemon-tea", None)
     assert (quote.fulfillment, quote.trip_id) == ("delivery", f"{quote.store_id}->home:delivery")
     _, bought = act(engine, "tea", purchase("柠檬茶"))
     assert bought.status == "in_progress", bought.error_code

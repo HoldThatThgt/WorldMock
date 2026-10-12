@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import subprocess
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -54,10 +55,16 @@ def _configure_process(project_root: Path, config: ModelConfig) -> None:
 
 
 def _prepend_pythonpath(root: Path) -> None:
-    """@brief 让 Ray worker 从当前精确 checkout 导入 custom 与 worldmock。"""
+    """@brief 让本进程与 Ray 工作进程都从当前精确检出导入 custom 与 worldmock。
+
+    工作进程读 PYTHONPATH，项目根与 src 排在最前；本进程只补项目根：不在 sys.path 时插到下标 0，已在其中时不动、
+    不挪位置，重复调用不重复插入。src 不加，worldmock 此时已经导入。
+    """
     current = [item for item in os.environ.get("PYTHONPATH", "").split(os.pathsep) if item]
     required = [str(root), str(root / "src")]
     os.environ["PYTHONPATH"] = os.pathsep.join(dict.fromkeys([*required, *current]))
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
 
 
 def _require_loaded_config(config: ModelConfig) -> None:

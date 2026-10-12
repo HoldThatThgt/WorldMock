@@ -316,7 +316,7 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
     assert all(function["strict"] is True for function in functions.values())
     closed = copy.deepcopy({name: functions[name] for name in (MAIN_TOOL, SIDE_TOOL, "report_status")})
     for tool, fields, actions in ((MAIN_TOOL, ["action", "target", "detail"], ["travel", "interact", "sleep"]),
-                                  (SIDE_TOOL, ["action", "target"], ["purchase", "interact"])):
+                                  (SIDE_TOOL, ["action", "target", "prefer"], ["purchase", "interact"])):
         parameters = closed[tool]["parameters"]
         assert {"agent_id", "decision_id", "action_id"}.isdisjoint(parameters["properties"])
         assert list(parameters["properties"]) == parameters["required"] == fields
@@ -680,9 +680,9 @@ class _MultipleModelResponse:
 
 
 def _assert_action_wire(request: dict) -> None:
-    """核对行动请求的生成参数：思考开启、tool_choice=auto、8000 上限、不重试、不发 reasoning_effort、全部严格。"""
+    """核对行动请求的生成参数：思考开启、tool_choice=auto、16000 上限、不重试、不发 reasoning_effort、全部严格。"""
     assert request["tool_choice"] == "auto"
-    assert request["max_tokens"] == 8000
+    assert request["max_tokens"] == 16000
     assert request["max_retries"] == 0
     assert "reasoning_effort" not in request and "temperature" not in request
     assert request["extra_body"] == {"thinking": {"type": "enabled"}}

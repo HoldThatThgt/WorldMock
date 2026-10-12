@@ -41,9 +41,10 @@ _PARAMETER_MODELS = {**REQUEST_MODELS, "memory_recent": MemoryRecentRequest, "me
 MAIN_TOOL, SIDE_TOOL = START_TOOLS
 #: 用途句里放行的拉丁字母单词：只有副工具写「内容 app」。
 _PURPOSE_WORDS = {SIDE_TOOL: frozenset({"app"})}
-#: 字段说明里放行的拉丁字母单词：该工具 action 的取值，主工具另有 detail 要写的 null，副工具另有「内容 app」。
+#: 字段说明里放行的拉丁字母单词：该工具 action 的取值，主工具另有 detail 要写的 null，副工具另有「内容 app」与
+#: prefer 要写的 null。不放 prefer 这类键名。
 _FIELD_WORDS = {MAIN_TOOL: frozenset({*MAIN_ACTIVITY_ACTIONS, "null"}),
-                SIDE_TOOL: frozenset({*SIDE_ACTIVITY_ACTIONS, "app"})}
+                SIDE_TOOL: frozenset({*SIDE_ACTIVITY_ACTIONS, "app", "null"})}
 #: 字段说明的句数：都是一句，只有副工具的 target 先用一句说明它是名称数组。
 _FIELD_SENTENCES = {f"{SIDE_TOOL}.properties.target": 2}
 
@@ -94,7 +95,7 @@ def test_description_scan_has_teeth() -> None:
             assert _violations(base + poison, widest)
     assert _violations(TOOL_DESCRIPTIONS[SIDE_TOOL]) == ["app"]
     assert _violations("sleep 写 null。") == ["sleep", "null"]
-    assert _violations("sleep 写 null。", _FIELD_WORDS[SIDE_TOOL]) == ["sleep", "null"]
+    assert _violations("sleep 写 null。", _FIELD_WORDS[SIDE_TOOL]) == ["sleep"]
     assert _violations("purchase 逐份写商品的完整名称，或使用内容 app。", _FIELD_WORDS[MAIN_TOOL]) == ["purchase", "app"]
     for action in ("walk", "drive", "take_taxi", "take_bus"):
         assert _violations(f"{action} 写目的地地点的完整名称。", widest)

@@ -8,10 +8,11 @@ if TYPE_CHECKING:
 from worldmock.life.world_ops import _failure_draft
 from worldmock.life.world_ops import _put_agent
 from worldmock.life.world_ops import _request_sha
+from worldmock.life.world_ops import _resource_flows_data
 
 import logging
 from worldmock.errors import BusinessRuleError, PreconditionError, ProtocolError
-from worldmock.footprints.models import EventDraft
+from worldmock.footprints.models import RESOURCE_FLOWS_FIELD, EventDraft
 from worldmock.life import activity_control, day_planning, errands, same_moment
 from worldmock.life.action_contract import START_TOOLS
 from worldmock.life.action_evidence import _pending_causes, _remember_action, _result_draft, _result_event_data
@@ -379,12 +380,17 @@ class DecisionCoordinator:
 
     def _reject_results(self, state: WorldState, group: list[PendingAction],
                         error: BusinessRuleError) -> tuple[WorldState, list[ActionResult], list[EventDraft]]:
-        """@brief 业务拒绝回滚领域转换；同一决策的每条动作写内容相同的拒绝，计数与真实同刻后续触发按组各做一次。"""
+        """@brief 业务拒绝回滚领域转换；同一决策的每条动作写内容相同的拒绝，计数与真实同刻后续触发按组各做一次。
+
+        拒绝脉冲施加之后立刻从身体分录缓冲取走，写在这组第一条 action_result 事件正文顶层的 resource_flows 上，不进
+        ActionResult；没有施加脉冲时不写这个键（docs/design/05-recording-engine.md「事件与来源」）。
+        """
         self.actions.resource_changes.clear()
         self.actions.drain_drafts()
         first = group[0]
         consumed = self._consume_report_opportunity(state, state, first.agent_id)
         (changed, rejected) = self._after_rejection(consumed, first, error)
+        flows = _resource_flows_data(first.agent_id, state.current_time)
         activity = next(iter(active_activities(changed, first.agent_id)), None)
         data = {"error_code": str(error), **rejected.data}
         if activity is not None:
@@ -402,6 +408,8 @@ class DecisionCoordinator:
             ))
             drafts.append(_result_draft(pending, result, "action_result"))
         first_result = drafts[1]
+        if flows:
+            first_result.data[RESOURCE_FLOWS_FIELD] = flows
         drafts.extend(self.actions.drain_drafts())
         drafts.extend(self._same_moment_callbacks(changed, first, first_result))
         return (changed, results, drafts)

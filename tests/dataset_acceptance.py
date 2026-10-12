@@ -89,10 +89,10 @@ MUTATIONS = (
         ("tests/integration/runtime/test_persona_profile.py"
          "::test_restored_card_must_equal_the_card_built_from_the_frozen_persona",)),
     SourceMutation("relationship_channel_closed_set_restored", "worldmock.input_models::Relationship",
-        "channels: list[NonBlankText]", 'channels: list[Literal["电话", "微信", "见面"]]',
+        "channels: Array[NonBlankText]", 'channels: Array[Literal["电话", "微信", "见面"]]',
         ("tests/unit/test_environment_inputs.py::test_relationship_channels_take_any_words_the_dataset_writes",)),
     SourceMutation("blank_relationship_channel_accepted", "worldmock.input_models::Relationship",
-        "channels: list[NonBlankText]", "channels: list[str]",
+        "channels: Array[NonBlankText]", "channels: Array[str]",
         ("tests/unit/test_environment_inputs.py"
          "::test_table_format_and_formula_ranges_are_rejected_with_the_field_named",)),
     SourceMutation("age_plausibility_range_restored", "worldmock.input_models::Identity",
@@ -303,6 +303,121 @@ MUTATIONS = (
     SourceMutation("result_details_schema_refuses_query", "worldmock.life.prompt_schemas::_RESULT_DETAILS",
         '"query": _QUERY,', "",
         ("tests/unit/life/test_result_contents.py::test_result_details_schema_accepts_every_listed_key",)),
+    SourceMutation("prefer_gets_a_default", "worldmock.life.models::StartSideActivityRequest",
+        'prefer: Annotated[str, Field(pattern=r"\\S")] | None = Field(',
+        'prefer: Annotated[str, Field(pattern=r"\\S")] | None = Field(default=None,',
+        ("tests/unit/agent_protocol/test_start_request_models.py"
+         "::test_every_parameter_is_required_and_extra_keys_are_refused",)),
+    SourceMutation("opening_an_app_accepts_a_prefer",
+        "worldmock.life.models::StartSideActivityRequest.validate_action_arguments",
+        'if self.action == "interact" and self.prefer is not None:', "if False:",
+        ("tests/unit/agent_protocol/test_start_request_models.py::test_opening_an_app_requires_a_null_prefer",)),
+    SourceMutation("prefer_matched_only_verbatim", "worldmock.life.order_apps::preferred_app_id",
+        "return names.get(object_labels.resolve_name(written, list(names)).name)", "return names.get(written)",
+        ("tests/integration/start_interfaces/test_purchase_prefer.py"
+         "::test_normalised_prefer_counts_without_a_resolution_record",)),
+    SourceMutation("delivery_store_ignores_the_preferred_app", "worldmock.life.purchase_offers::quote_goods",
+        "store = min(preferred or eligible,", "store = min(eligible,",
+        ("tests/integration/start_interfaces/test_purchase_prefer.py"
+         "::test_usable_prefer_may_move_the_order_to_a_farther_store",)),
+    SourceMutation("unusable_prefer_refuses_the_purchase", "worldmock.life.purchase_offers::quote_goods",
+        "if not eligible:", "if not eligible or prefer is not None and not preferred:",
+        ("tests/integration/start_interfaces/test_purchase_prefer.py"
+         "::test_each_goods_routes_on_its_own_under_one_prefer",)),
+    SourceMutation("prefer_turns_a_local_purchase_into_delivery", "worldmock.life.purchase_offers::quote_goods",
+        "if here in stores:", "if here in stores and prefer is None:",
+        ("tests/integration/start_interfaces/test_purchase_prefer.py"
+         "::test_buyer_standing_in_a_selling_store_buys_there_whatever_prefer",)),
+    SourceMutation("courier_goods_ignore_the_preferred_app", "worldmock.life.purchase_offers::quote_goods",
+        "goods.app_ids, prefer))", "goods.app_ids, None))",
+        ("tests/integration/start_interfaces/test_purchase_prefer.py"
+         "::test_courier_goods_use_the_preferred_app_when_registered_on_them",)),
+    SourceMutation("several_goods_drop_the_prefer", "worldmock.life.basket::quoted_basket",
+        "offers = tuple(quote_goods(inputs, state, agent_id, key, prefer) for key in goods_ids)",
+        "offers = tuple(quote_goods(inputs, state, agent_id, key, prefer if len(set(goods_ids)) == 1 else None)"
+        " for key in goods_ids)",
+        ("tests/integration/start_interfaces/test_purchase_prefer.py"
+         "::test_each_goods_routes_on_its_own_under_one_prefer",)),
+    SourceMutation("purchase_row_without_channel", "worldmock.life.result_projection::_purchase",
+        '"channel": "到店" if order["app_id"] is None else inputs.catalog.apps[order["app_id"]].name,', "",
+        ("tests/integration/start_interfaces/test_purchase_prefer.py"
+         "::test_purchase_result_names_the_actual_channel_in_both_results",
+         "tests/unit/life/test_memory_progress_contract.py"
+         "::test_purchase_fact_names_the_ordering_app_but_not_the_payment_app_or_account")),
+    SourceMutation("side_candidate_without_prefer", "worldmock.life.name_resolution::call_candidate",
+        '"target": names, "prefer": prefer}', '"target": names}',
+        ("tests/unit/start_interfaces/test_name_resolution.py::test_side_tool_candidates_always_carry_prefer",
+         "tests/integration/start_interfaces/test_purchase_prefer.py::test_copied_candidate_is_accepted_as_written")),
+    SourceMutation("concluded_location_activity_keeps_its_position",
+        "worldmock.life.session_actions::ActionHandlers._change",
+        "if located and request.operation == ActivityChange.CANCEL:", "if False:",
+        ("tests/integration/start_interfaces/test_location_activities.py"
+         "::test_concluded_unit_starts_again_at_full_length",)),
+    SourceMutation("concluding_a_series_counts_only_the_current_episode",
+        "worldmock.life.location_activities::unit_done",
+        "ids = (content_id,) if content.series is None else catalog.contents_by_series[content.series.title]",
+        "ids = (content_id,)",
+        ("tests/integration/start_interfaces/test_location_activities.py"
+         "::test_concluding_a_series_counts_the_whole_unit_and_the_next_start_is_episode_one",
+         "tests/unit/start_interfaces/test_location_units.py"
+         "::test_unit_done_raises_every_content_behind_to_the_next_round")),
+    SourceMutation("terminal_result_lists_no_contents", "worldmock.life.result_projection::_details",
+        'details["contents"] = contents', "pass",
+        ("tests/integration/life/test_result_contents.py::test_finished_app_use_lists_what_was_watched",)),
+    SourceMutation("contents_list_only_the_current_content", "worldmock.life.result_projection::_done_contents",
+        'for item in data["played"]]', 'for item in data["played"][-1:]]',
+        ("tests/integration/life/test_result_contents.py::test_finished_app_series_lists_every_episode_in_order",)),
+    SourceMutation("no_record_carried_into_a_later_segment", "worldmock.life.progress_layer::_tool_records",
+        "return _session_calls(context, requests, results) + _carried_calls(context, store, requests, results)",
+        "return _session_calls(context, requests, results)",
+        ("tests/integration/life/test_carried_records.py"
+         "::test_app_use_started_with_departure_is_recorded_on_the_road",)),
+    SourceMutation("process_configured_after_the_model_identity", "worldmock.runtime::_prepare_new_run",
+        "run_setup._configure_process(request.project_root, inputs.config.model)\n"
+        "    identity = _run_identity(request, inputs)",
+        "identity = _run_identity(request, inputs)\n"
+        "    run_setup._configure_process(request.project_root, inputs.config.model)",
+        ("tests/integration/runtime/test_runtime_inputs_contract.py"
+         "::test_new_run_configures_the_process_after_the_environment_and_before_the_model_identity",)),
+    SourceMutation("truncation_content_built_through_the_logging_feedback",
+        "worldmock.agents.life_truncation::TRUNCATION_CONTENT",
+        "TRUNCATION_CONTENT = report_content(_truncation_report())",
+        "TRUNCATION_CONTENT = report_content(truncation_feedback().report)",
+        ("tests/unit/agents/test_truncation_feedback.py"
+         "::test_reimporting_the_truncation_module_writes_no_error_log_and_keeps_the_fixed_content",)),
+    SourceMutation("status_manifest_read_with_the_default_encoding", "worldmock.status::read_status",
+        'manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))',
+        'manifest = json.loads((root / "manifest.json").read_text())',
+        ("tests/unit/footprints/test_status.py"
+         "::test_status_reads_the_three_run_files_as_utf8_without_the_default_encoding",)),
+    SourceMutation("receipt_token_stats_not_from_persisted_responses", "worldmock.cli::_run_command",
+        'receipt["token_stats"] = observed_model_usage(output)', 'receipt["token_stats"] = []',
+        ("tests/integration/runtime/test_native_dataset_lifecycle.py"
+         "::test_receipts_count_every_persisted_model_response_including_the_day_plan",)),
+    SourceMutation("body_settlement_after_takes_the_final_body", "worldmock.life.rhythm::settle_engine_rhythm",
+        "changed.agents[agent_id] = agent",
+        'changed.agents[agent_id] = agent; record.data["body_settlement"]["after"] = agent.body.model_dump(mode="json")',
+        ("tests/integration/life/test_body_settlement_records.py"
+         "::test_delivery_received_in_the_settled_second_stays_out_of_the_body_settlement",)),
+    SourceMutation("rejection_pulse_flows_left_in_the_buffer",
+        "worldmock.life.decision_coordinator::DecisionCoordinator._reject_results",
+        "flows = _resource_flows_data(first.agent_id, state.current_time)", "flows = []",
+        ("tests/integration/life/test_body_settlement_records.py"
+         "::test_rejection_pulse_flows_are_written_on_the_first_action_result_and_not_carried_forward",)),
+    SourceMutation("food_receipt_applied_by_subtraction", "worldmock.life.receipt::_food_effect",
+        "applied = sum((entry.amount for entry in entries), 0.0)",
+        "applied = settlement.after.energy_kcal - body.energy_kcal",
+        ("tests/integration/life/test_constant_table_runtime.py"
+         "::test_food_receipt_applied_is_the_registered_flow_amount",)),
+    SourceMutation("work_shift_breaks_declared_as_a_list", "worldmock.input_models::WorkShift",
+        "breaks: Array[Array[int]]", "breaks: list[list[int]]",
+        ("tests/unit/test_environment_inputs.py"
+         "::test_persona_and_config_serialize_without_warnings_and_keep_arrays_as_written",)),
+    SourceMutation("action_output_budget_back_to_eight_thousand", "custom.agents.life_agent::ACTION_MAX_TOKENS",
+        "ACTION_MAX_TOKENS = 16000", "ACTION_MAX_TOKENS = 8000",
+        ("tests/unit/runtime/test_model_identity.py::test_tampered_identity_is_rejected",
+         "tests/integration/runtime/test_life_agent_protocol.py"
+         "::test_reasoning_content_is_persisted_in_model_response_evidence")),
     SourceMutation("app_use_wording_drops_the_app_name", "worldmock.footprints.display_wording::_interact_phrase",
         "return f\"使用{display_name(names, 'app', app_id)}{_titles(names, played)}\"",
         "return f\"使用{_titles(names, played)}\"",

@@ -8,6 +8,6 @@ def main_request(action, target, detail=None):
     return StartMainActivityRequest.model_validate({"action": action, "target": target, "detail": detail})
 
 
-def side_request(action, *targets):
-    """@brief start_side_activity：购买逐份写商品名，使用内容 app 只写一个 app 名。"""
-    return StartSideActivityRequest.model_validate({"action": action, "target": list(targets)})
+def side_request(action, *targets, prefer=None):
+    """@brief start_side_activity：购买逐份写商品名，使用内容 app 只写一个 app 名；prefer 缺省为 null。"""
+    return StartSideActivityRequest.model_validate({"action": action, "target": list(targets), "prefer": prefer})

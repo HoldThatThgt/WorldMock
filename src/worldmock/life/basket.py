@@ -10,12 +10,16 @@ from worldmock.life.randomness import random_stream
 from worldmock.scheduling.events import ScheduledKind
 
 
-def quoted_basket(inputs, state: WorldState, agent_id: int, goods_ids: tuple[str, ...]) -> tuple[dict, int]:
+def quoted_basket(inputs, state: WorldState, agent_id: int, goods_ids: tuple[str, ...],
+                  prefer: str | None) -> tuple[dict, int]:
     """@brief 逐份报价并按配送组合并运费，返回配送组与整次总价；同一商品写几次就是几份，件数不设上限。
 
-    不改变世界或资金；余额由整组核验与购买结束时的付款各核对一次。
+    每一份带着同一个意向各自定路线：能走意向 app 的走它，不能的另选。不改变世界或资金；余额由整组核验与
+    购买结束时的付款各核对一次。
+
+    :param prefer: 这条购买调用已认出的意向 app 身份；没有意向时为 None。
     """
-    offers = tuple(quote_goods(inputs, state, agent_id, key) for key in goods_ids)
+    offers = tuple(quote_goods(inputs, state, agent_id, key, prefer) for key in goods_ids)
     groups = group_offers(offers)
     total = sum(inputs.catalog.goods[row.goods_id].price_fen for row in offers)
     total += sum(group_shipping_fen(rows) for rows in groups.values())

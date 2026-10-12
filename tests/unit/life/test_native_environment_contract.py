@@ -75,7 +75,7 @@ def test_request_schema_closes_the_action_set_of_each_start_tool():
     with pytest.raises(ValidationError):
         StartMainActivityRequest.model_validate({"action": "purchase", "target": "家", "detail": None})
     with pytest.raises(ValidationError):
-        StartSideActivityRequest.model_validate({"action": "travel", "target": ["家"]})
+        StartSideActivityRequest.model_validate({"action": "travel", "target": ["家"], "prefer": None})
 
 
 def test_renderer_allows_four_felt_labels_and_rejects_numeric_body_state():
@@ -92,7 +92,8 @@ def test_exact_known_object_wrong_action_returns_complete_new_request():
     assert error.error_code == "ACTION_NOT_OFFERED"
     assert (error.path, error.written, error.allowed_values) == (("action",), "purchase", ("interact",))
     assert [candidate.payload() for candidate in error.candidates] == [
-        {"tool": "start_side_activity", "arguments": {"action": "interact", "target": ["视频平台"]}, "note": None}]
+        {"tool": "start_side_activity", "arguments": {"action": "interact", "target": ["视频平台"], "prefer": None},
+         "note": None}]
 
 
 def test_branch_base_name_does_not_select_an_instance_or_an_unlisted_near_candidate():

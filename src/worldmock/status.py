@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +12,8 @@ from zoneinfo import ZoneInfo
 from worldmock.errors import IntegrityError
 from worldmock.footprints.assets import atomic_write
 from worldmock.footprints.models import canonical_json
+
+logger = logging.getLogger(__name__)
 
 
 def write_status(run_dir: Path, status: str, phase: str, error_type: str | None = None) -> None:
@@ -23,12 +26,10 @@ def write_status(run_dir: Path, status: str, phase: str, error_type: str | None 
 
 
 def read_status(run_dir: Path) -> dict:
-    """@brief 使用 SQLite 只读连接查询提交状态，模型调用数量与行为数量分开。"""
+    """@brief 使用 SQLite 只读连接查询提交状态，模型调用数量与行为数量分开；运行目录的 JSON 文件一律按 UTF-8 读。"""
     root = run_dir.resolve()
-    database = root / "footprints.sqlite"
-    if not database.is_file():
-        raise IntegrityError("Run database does not exist")
-    manifest = json.loads((root / "manifest.json").read_text())
+    database = _run_database(root)
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     connection = sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True)
     try:
         connection.execute("BEGIN")
@@ -42,9 +43,11 @@ def read_status(run_dir: Path) -> dict:
                   "current_time": datetime.fromtimestamp(state["current_time"],
                                                          ZoneInfo(manifest["window"]["timezone"])).isoformat(),
                   "active_activities": active, "event_counts": counts, "recent_checkpoints": points}
-        result["runtime"] = json.loads((root / "status.json").read_text()) if (root / "status.json").exists() else None
-        receipt_path = root / "result.json"
-        result["token_stats"] = json.loads(receipt_path.read_text())["token_stats"] if receipt_path.exists() else None
+        status_path, receipt_path = root / "status.json", root / "result.json"
+        result["runtime"] = (json.loads(status_path.read_text(encoding="utf-8"))
+                             if status_path.exists() else None)
+        result["token_stats"] = (json.loads(receipt_path.read_text(encoding="utf-8"))["token_stats"]
+                                 if receipt_path.exists() else None)
         result["observed_model_usage"] = _observed_usage(connection)
         result["people"] = _people_status(connection, state)
         result["wall_time"] = _wall_time(connection, result["runtime"])
@@ -53,8 +56,32 @@ def read_status(run_dir: Path) -> dict:
         connection.close()
 
 
+def observed_model_usage(run_dir: Path) -> list[dict]:
+    """@brief 从运行库里已落盘的模型响应按模型累计用量，运行回执的 token_stats 与 status 共用这一个来源。
+
+    :param run_dir: 运行目录；只读打开其中的 footprints.sqlite，用完关闭。
+    :returns: 每个模型一行，按模型名升序（无模型名的排最前）；没有响应时为空数组。
+    :raises IntegrityError: 运行目录里没有数据库。
+    """
+    database = _run_database(run_dir.resolve())
+    connection = sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True)
+    try:
+        return _observed_usage(connection)
+    finally:
+        connection.close()
+
+
+def _run_database(root: Path) -> Path:
+    """@brief 运行目录里的数据库路径；不存在时写英文错误日志并拒绝。"""
+    database = root / "footprints.sqlite"
+    if not database.is_file():
+        logger.error("Run database does not exist: %s", root)
+        raise IntegrityError("Run database does not exist")
+    return database
+
+
 def _observed_usage(connection: sqlite3.Connection) -> list[dict]:
-    """@brief 直接累计已保存提供商响应中的用量；未知响应不伪装成零 token。"""
+    """@brief 直接累计已保存提供商响应中的用量，按模型名排出确定的行序；未知响应不伪装成零 token。"""
     rows = connection.execute("""
         SELECT json_extract(body,'$.data.response.model'), count(*),
         count(json_extract(body,'$.data.response.usage.prompt_tokens')),
@@ -64,6 +91,7 @@ def _observed_usage(connection: sqlite3.Connection) -> list[dict]:
         FROM events WHERE json_extract(body,'$.event_type')='model_response'
         AND json_extract(body,'$.data.phase')='response'
         GROUP BY json_extract(body,'$.data.response.model')
+        ORDER BY json_extract(body,'$.data.response.model')
     """)
     return [{"model": model, "responses": count, "responses_with_usage": known,
              "input_tokens": input_tokens, "output_tokens": output_tokens, "total_tokens": total}

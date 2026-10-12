@@ -50,7 +50,7 @@ def business(engine, kind: str) -> list[dict]:
 def delivered_order(engine, label: str) -> dict:
     """在家同一次购买牛肉面和薯片（同一家店的一个外卖配送组），返回报价、订单、付款与平台明细。"""
     context = engine.context
-    quote = quote_goods(context.inputs, context.state, 1, "beef-noodles")
+    quote = quote_goods(context.inputs, context.state, 1, "beef-noodles", None)
     listed = {row["name"]: row for row in app_goods(context.inputs, context.state, 1, "meituan")}
     started = context.state.current_time
     _, ordered = act(engine, label, purchase("牛肉面", "薯片"))
@@ -85,9 +85,9 @@ def test_unreplaced_delivery_quote_shipping_and_arrival_are_unchanged(engine_fac
     assert {key: (item.delivery_fee_fen, item.total_price_fen, item.prep_seconds) for key, item in orders.items()} == {
         "beef-noodles": (500, 3300, 600), "chips": (0, 800, 600)}
     assert [row["amount_fen"] for row in order["payments"]] == [2800 + 800 + 500]
-    assert quote_goods(engine.context.inputs, engine.context.state, 1, "online-notebook").delivery_fee_fen == 0
+    assert quote_goods(engine.context.inputs, engine.context.state, 1, "online-notebook", None).delivery_fee_fen == 0
     charged = engine_factory(mutate=courier_charged)
-    assert quote_goods(charged.context.inputs, charged.context.state, 1, "online-notebook").delivery_fee_fen == 500
+    assert quote_goods(charged.context.inputs, charged.context.state, 1, "online-notebook", None).delivery_fee_fen == 500
 
 
 def test_delivery_fee_follows_the_constant_table(engine_factory, monkeypatch):
@@ -102,8 +102,8 @@ def test_delivery_fee_follows_the_constant_table(engine_factory, monkeypatch):
         "beef-noodles": (700, 3500), "chips": (0, 800)}
     assert [row["amount_fen"] for row in order["payments"]] == [2800 + 800 + 700]
     assert engine.context.state.accounts["agent:1"] == 200000 - 4300
-    assert quote_goods(engine.context.inputs, engine.context.state, 1, "online-notebook").delivery_fee_fen == 0
-    assert quote_goods(charged.context.inputs, charged.context.state, 1, "online-notebook").delivery_fee_fen == 700
+    assert quote_goods(engine.context.inputs, engine.context.state, 1, "online-notebook", None).delivery_fee_fen == 0
+    assert quote_goods(charged.context.inputs, charged.context.state, 1, "online-notebook", None).delivery_fee_fen == 700
 
 
 def test_delivery_preparation_time_follows_the_constant_table(engine_factory, monkeypatch):
@@ -127,9 +127,42 @@ def test_unreplaced_receipts_keep_their_energy_and_relief(engine_factory):
     rows = received(engine, ("饭团", "薯片"), ("柠檬茶",))
     assert {key: (row["provided"], row["efficiency"]) for key, row in rows.items()} == {
         "meal": (600, 0.9), "snack": (200, 0.9), "drink": (0.1, None)}
-    assert (rows["meal"]["applied"], rows["snack"]["applied"]) == (pytest.approx(540), pytest.approx(180))
+    assert (rows["meal"]["applied"], rows["snack"]["applied"]) == (540.0, 180.0)
     assert rows["drink"]["applied"] == 0.1
     assert [flow["amount"] for flow in rows["drink"]["resource_flows"]] == [0.1]
+
+
+def test_food_receipt_applied_is_the_registered_flow_amount(engine_factory):
+    """初始能量 987.65 的人物在家买一份食品外卖：收货的 applied 恰是 540.0，等于同一事件登记的分录数额之和，不是补能前后
+    两个浮点数相减。两数相减偏不偏随送达时的能量而定，所以换几次决策身份各走一遍，其中至少一次两数相减不等于 540。"""
+    def low_energy(persona, config):
+        persona["body"]["initial_energy_kcal"] = 987.65
+
+    subtracted = []
+    for label in ("noodles", "order", "pair"):
+        engine = engine_factory(mutate=low_energy)
+        _, ordered = act(engine, label, purchase("牛肉面"))
+        assert ordered.status == "in_progress", ordered.error_code
+        [order] = engine.context.state.deliveries.values()
+        reach(engine, order.expected_at)
+        [row] = business(engine, "goods_received")
+        assert row["applied"] == 540.0
+        assert row["applied"] == sum(flow["amount"] for flow in row["resource_flows"])
+        [settled] = [item for item in business(engine, "body_settlement")
+                     if item["interval_end"] == order.expected_at]
+        energy = settled["body_settlement"]["after"]["energy_kcal"]
+        subtracted.append((energy + 540.0) - energy)
+    assert any(value != 540.0 for value in subtracted)
+
+
+def test_food_receipt_at_the_energy_cap_applies_nothing_and_registers_no_flow(engine_factory):
+    """初始能量 2400 的人物到店一次买饭团和薯片：同一秒里后结算的那一件实得为 0，applied 是 0.0 且没有分录。"""
+    engine = engine_factory(mutate=at_store(2400.0))
+    received(engine, ("饭团", "薯片"))
+    first, later = business(engine, "goods_received")
+    assert first["applied"] > 0 and first["applied"] == sum(flow["amount"] for flow in first["resource_flows"])
+    assert (later["applied"], later["resource_flows"]) == (0.0, [])
+    assert type(later["applied"]) is float
 
 
 def test_goods_energy_follows_the_constant_table(engine_factory, monkeypatch):
