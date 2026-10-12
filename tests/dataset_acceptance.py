@@ -89,10 +89,10 @@ MUTATIONS = (
         ("tests/integration/runtime/test_persona_profile.py"
          "::test_restored_card_must_equal_the_card_built_from_the_frozen_persona",)),
     SourceMutation("relationship_channel_closed_set_restored", "worldmock.input_models::Relationship",
-        "channels: list[NonBlankText]", 'channels: list[Literal["电话", "微信", "见面"]]',
+        "channels: Array[NonBlankText]", 'channels: Array[Literal["电话", "微信", "见面"]]',
         ("tests/unit/test_environment_inputs.py::test_relationship_channels_take_any_words_the_dataset_writes",)),
     SourceMutation("blank_relationship_channel_accepted", "worldmock.input_models::Relationship",
-        "channels: list[NonBlankText]", "channels: list[str]",
+        "channels: Array[NonBlankText]", "channels: Array[str]",
         ("tests/unit/test_environment_inputs.py"
          "::test_table_format_and_formula_ranges_are_rejected_with_the_field_named",)),
     SourceMutation("age_plausibility_range_restored", "worldmock.input_models::Identity",
@@ -340,4 +340,8 @@ MUTATIONS = (
         "applied = settlement.after.energy_kcal - body.energy_kcal",
         ("tests/integration/life/test_constant_table_runtime.py"
          "::test_food_receipt_applied_is_the_registered_flow_amount",)),
+    SourceMutation("work_shift_breaks_declared_as_a_list", "worldmock.input_models::WorkShift",
+        "breaks: Array[Array[int]]", "breaks: list[list[int]]",
+        ("tests/unit/test_environment_inputs.py"
+         "::test_persona_and_config_serialize_without_warnings_and_keep_arrays_as_written",)),
 )
