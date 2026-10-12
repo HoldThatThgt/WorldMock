@@ -303,6 +303,75 @@ MUTATIONS = (
     SourceMutation("result_details_schema_refuses_query", "worldmock.life.prompt_schemas::_RESULT_DETAILS",
         '"query": _QUERY,', "",
         ("tests/unit/life/test_result_contents.py::test_result_details_schema_accepts_every_listed_key",)),
+    SourceMutation("prefer_gets_a_default", "worldmock.life.models::StartSideActivityRequest",
+        'prefer: Annotated[str, Field(pattern=r"\\S")] | None = Field(',
+        'prefer: Annotated[str, Field(pattern=r"\\S")] | None = Field(default=None,',
+        ("tests/unit/agent_protocol/test_start_request_models.py"
+         "::test_every_parameter_is_required_and_extra_keys_are_refused",)),
+    SourceMutation("opening_an_app_accepts_a_prefer",
+        "worldmock.life.models::StartSideActivityRequest.validate_action_arguments",
+        'if self.action == "interact" and self.prefer is not None:', "if False:",
+        ("tests/unit/agent_protocol/test_start_request_models.py::test_opening_an_app_requires_a_null_prefer",)),
+    SourceMutation("prefer_matched_only_verbatim", "worldmock.life.order_apps::preferred_app_id",
+        "return names.get(object_labels.resolve_name(written, list(names)).name)", "return names.get(written)",
+        ("tests/integration/start_interfaces/test_purchase_prefer.py"
+         "::test_normalised_prefer_counts_without_a_resolution_record",)),
+    SourceMutation("delivery_store_ignores_the_preferred_app", "worldmock.life.purchase_offers::quote_goods",
+        "store = min(preferred or eligible,", "store = min(eligible,",
+        ("tests/integration/start_interfaces/test_purchase_prefer.py"
+         "::test_usable_prefer_may_move_the_order_to_a_farther_store",)),
+    SourceMutation("unusable_prefer_refuses_the_purchase", "worldmock.life.purchase_offers::quote_goods",
+        "if not eligible:", "if not eligible or prefer is not None and not preferred:",
+        ("tests/integration/start_interfaces/test_purchase_prefer.py"
+         "::test_each_goods_routes_on_its_own_under_one_prefer",)),
+    SourceMutation("prefer_turns_a_local_purchase_into_delivery", "worldmock.life.purchase_offers::quote_goods",
+        "if here in stores:", "if here in stores and prefer is None:",
+        ("tests/integration/start_interfaces/test_purchase_prefer.py"
+         "::test_buyer_standing_in_a_selling_store_buys_there_whatever_prefer",)),
+    SourceMutation("courier_goods_ignore_the_preferred_app", "worldmock.life.purchase_offers::quote_goods",
+        "goods.app_ids, prefer))", "goods.app_ids, None))",
+        ("tests/integration/start_interfaces/test_purchase_prefer.py"
+         "::test_courier_goods_use_the_preferred_app_when_registered_on_them",)),
+    SourceMutation("several_goods_drop_the_prefer", "worldmock.life.basket::quoted_basket",
+        "offers = tuple(quote_goods(inputs, state, agent_id, key, prefer) for key in goods_ids)",
+        "offers = tuple(quote_goods(inputs, state, agent_id, key, prefer if len(set(goods_ids)) == 1 else None)"
+        " for key in goods_ids)",
+        ("tests/integration/start_interfaces/test_purchase_prefer.py"
+         "::test_each_goods_routes_on_its_own_under_one_prefer",)),
+    SourceMutation("purchase_row_without_channel", "worldmock.life.result_projection::_purchase",
+        '"channel": "到店" if order["app_id"] is None else inputs.catalog.apps[order["app_id"]].name,', "",
+        ("tests/integration/start_interfaces/test_purchase_prefer.py"
+         "::test_purchase_result_names_the_actual_channel_in_both_results",
+         "tests/unit/life/test_memory_progress_contract.py"
+         "::test_purchase_fact_names_the_ordering_app_but_not_the_payment_app_or_account")),
+    SourceMutation("side_candidate_without_prefer", "worldmock.life.name_resolution::call_candidate",
+        '"target": names, "prefer": prefer}', '"target": names}',
+        ("tests/unit/start_interfaces/test_name_resolution.py::test_side_tool_candidates_always_carry_prefer",
+         "tests/integration/start_interfaces/test_purchase_prefer.py::test_copied_candidate_is_accepted_as_written")),
+    SourceMutation("concluded_location_activity_keeps_its_position",
+        "worldmock.life.session_actions::ActionHandlers._change",
+        "if located and request.operation == ActivityChange.CANCEL:", "if False:",
+        ("tests/integration/start_interfaces/test_location_activities.py"
+         "::test_concluded_unit_starts_again_at_full_length",)),
+    SourceMutation("concluding_a_series_counts_only_the_current_episode",
+        "worldmock.life.location_activities::unit_done",
+        "ids = (content_id,) if content.series is None else catalog.contents_by_series[content.series.title]",
+        "ids = (content_id,)",
+        ("tests/integration/start_interfaces/test_location_activities.py"
+         "::test_concluding_a_series_counts_the_whole_unit_and_the_next_start_is_episode_one",
+         "tests/unit/start_interfaces/test_location_units.py"
+         "::test_unit_done_raises_every_content_behind_to_the_next_round")),
+    SourceMutation("terminal_result_lists_no_contents", "worldmock.life.result_projection::_details",
+        'details["contents"] = contents', "pass",
+        ("tests/integration/life/test_result_contents.py::test_finished_app_use_lists_what_was_watched",)),
+    SourceMutation("contents_list_only_the_current_content", "worldmock.life.result_projection::_done_contents",
+        'for item in data["played"]]', 'for item in data["played"][-1:]]',
+        ("tests/integration/life/test_result_contents.py::test_finished_app_series_lists_every_episode_in_order",)),
+    SourceMutation("no_record_carried_into_a_later_segment", "worldmock.life.progress_layer::_tool_records",
+        "return _session_calls(context, requests, results) + _carried_calls(context, store, requests, results)",
+        "return _session_calls(context, requests, results)",
+        ("tests/integration/life/test_carried_records.py"
+         "::test_app_use_started_with_departure_is_recorded_on_the_road",)),
     SourceMutation("process_configured_after_the_model_identity", "worldmock.runtime::_prepare_new_run",
         "run_setup._configure_process(request.project_root, inputs.config.model)\n"
         "    identity = _run_identity(request, inputs)",

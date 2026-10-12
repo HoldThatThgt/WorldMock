@@ -374,12 +374,16 @@ def test_phone_records_never_reach_any_prompt_layer(engine_factory, tmp_path):
     reach(engine, DELIVERED)
     assert len(phone_events(engine, "app_foreground")) == 2 and len(notices(engine)) == 4
     system, before, observed = user_prompt(engine, "before-records")
-    # 进度层和记忆层讲的是人物自己做的事和真实收货；支付 app、通知标题和记录种类都不出现。
+    # 进度层和记忆层讲的是人物自己做的事和真实收货；支付 app、通知标题和记录种类都不出现。下单 app 的名称作为购买结果
+    # 的事实（channel）出现在进度层。
     for layer in ("progress_layer", "memory_layer", "todo_layer", "environment_layer"):
         text = str(observed[layer])
         assert not [word for word in ("支付宝", "高德地图", "订单已下单", "支付成功", "订单已发货", "订单已送达",
                                       "app_foreground", "order_notification", "location_entered") if word in text]
     assert "冰美式" in str(observed["progress_layer"])
+    purchases = [row for record in observed["progress_layer"]["events"] if record.get("tool") == "start_side_activity"
+                 for row in record["result"]["details"]["purchases"]]
+    assert [(row["product"], row["channel"]) for row in purchases] == [("冰美式", "瑞幸咖啡")]
     # 同一世界再写入四种记录各一条：人物的各层提示逐字节不变。
     state, now = engine.context.state, engine.context.state.current_time
     cause = phone_events(engine, "purchase_payment")[0].event_id
@@ -395,3 +399,30 @@ def test_phone_records_never_reach_any_prompt_layer(engine_factory, tmp_path):
         EventDraft(**shared, data={"kind": "location_entered", "session_id": "session-1-0009",
                                    "location_id": "office", "entry_kind": "arrival"})])
     assert user_prompt(engine, "after-records")[:2] == (system, before)
+
+
+def test_phone_records_and_export_follow_the_ordering_app_written_in_prefer(engine_factory, tmp_path):
+    """人在家经 prefer 写的饿了么买柠檬茶，做完并送达：下单段前台区间的 app、「订单已下单」「订单已发货」「订单已送达」
+    的发送方都是饿了么；导出认证通过，purchases.jsonl 的字段集与今天相同，下单 app 是实际的饿了么。"""
+    from tests.footprints.recording import artifact_rows, export_completed
+
+    def one_hour(persona, config):
+        config["stop_time"] = config["start_time"] + timedelta(hours=1)
+
+    engine = engine_factory(mutate=one_hour)
+    _, bought = act(engine, "tea", purchase("柠檬茶", prefer="饿了么"))
+    assert bought.status == "in_progress", bought.error_code
+    (order,) = engine.context.state.deliveries.values()
+    assert (order.store_id, order.app_id) == ("cafe", "eleme")
+    finish_activity(engine, bought, "tea")
+    reach(engine, order.expected_at)
+    assert [row[0] for row in foreground(engine, bought.activity_id) if row[1] == "ordering"] == ["eleme"]
+    senders = {title: app for _, title, app, _ in notices(engine)}
+    assert {title: senders[title] for title in ("订单已下单", "订单已发货", "订单已送达")} == {
+        "订单已下单": "eleme", "订单已发货": "eleme", "订单已送达": "eleme"}
+    export_completed(engine, tmp_path / "export")
+    (row,) = [row for row in artifact_rows(tmp_path / "export", "purchases") if row["fact_kind"] == "purchase"]
+    assert set(row) == {"fact_kind", "agent_id", "order_id", "goods_id", "category", "store_id", "app_id",
+                        "payment_app_id", "unit_price_fen", "delivery_fee_fen", "quantity", "total_price_fen",
+                        "fulfillment", "created_at", "action_id", "source_event_id"}
+    assert (row["store_id"], row["app_id"], row["goods_id"]) == ("cafe", "eleme", "lemon-tea")

@@ -1,7 +1,8 @@
-"""@brief 在地点按名称做一件事：内容单元的列出与排序、下一条内容、动作行的时长与说明、单元被占的拒绝。
+"""@brief 在地点按名称做一件事：内容单元的列出与排序、下一条内容、动作行的时长与说明、被结束时记为做完一轮、单元被占的拒绝。
 
 一条不属于系列的内容自成一个单元，同一系列的各集合成一个单元；单元名是人物写进 detail 的名称。做哪个单元由人物点名，
-单元内从哪一条、哪个位置开始由共享进度决定，不抽随机数。
+单元内从哪一条、哪个位置开始由共享进度决定，不抽随机数。人物用 conclude_activity 结束这件事时整个单元记为做完一轮，
+只有暂停才保留位置（docs/design/04-simulation-engine.md「出行、内容与查询」）。
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from worldmock.catalog.models import Catalog, Content
 from worldmock.life.action_contract import binding_action
 from worldmock.life.content_select import content_units, representative
 from worldmock.life.guidance import Refusal
-from worldmock.life.models import ActivityKind, ActivityStatus, AgentState, WorldState
+from worldmock.life.models import ActivityKind, ActivityStatus, AgentState, ContentProgress, WorldState
 from worldmock.life.readable import duration_phrase
 
 
@@ -68,6 +69,31 @@ def unit_facts(contents: Sequence[Content], agent: AgentState) -> dict:
         notes.append("上次没做完，接着做")
     return {"duration": duration_phrase(ceil(content.duration_seconds - position)),
             "note": "；".join(notes) or None}
+
+
+def unit_done(agent: AgentState, catalog: Catalog, content_id: str, now: int) -> AgentState:
+    """@brief 在地点做的事被人物结束：这条内容所在的单元记为做完一轮，下次点名从头做起（系列从第一集）。
+
+    单元是人物能点名的一件事：独立内容是它自己，系列是目录索引 contents_by_series 里同名的全部各集。目标轮数取这条
+    内容已完成的轮数加一（没有进度记录按 0 算）；单元里轮数低于目标的各条位置归零、轮数置为目标轮数，此前没有进度
+    记录的新建一条、last_consumed_at 取 now，已有记录保留原值；轮数已不低于目标的不动。
+
+    :param content_id: 被结束的活动此刻的当前内容（活动数据的 content_id）。
+    :param now: 结束的时刻。
+    :returns: 共享进度更新后的人物状态副本。
+    """
+    content = catalog.contents[content_id]
+    ids = (content_id,) if content.series is None else catalog.contents_by_series[content.series.title]
+    current = agent.content_progress.get(content_id)
+    target = (0 if current is None else current.completed_rounds) + 1
+    progress = dict(agent.content_progress)
+    for key in ids:
+        known = progress.get(key)
+        if known is None or known.completed_rounds < target:
+            consumed = now if known is None else known.last_consumed_at
+            progress[key] = ContentProgress(content_id=key, position_seconds=0.0, completed_rounds=target,
+                                            last_consumed_at=consumed)
+    return agent.model_copy(update={"content_progress": progress}, deep=True)
 
 
 def held_refusal(state: WorldState, agent_id: int, action: Mapping,

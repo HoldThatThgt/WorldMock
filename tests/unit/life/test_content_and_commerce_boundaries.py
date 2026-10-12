@@ -135,7 +135,7 @@ def test_unknown_goods_and_orders_never_change_resources(environment):
     state, commerce = world(environment), runtime(environment)
     before = state.model_dump(mode="json")
     with pytest.raises(BusinessRuleError, match="SUPPLY_NOT_FOUND"):
-        quote_goods(environment, state, 1, "unknown")
+        quote_goods(environment, state, 1, "unknown", None)
     with pytest.raises(BusinessRuleError, match="ORDER_NOT_FOUND"):
         deliver_order(state, commerce.context, "unknown")
     with pytest.raises(BusinessRuleError, match="ORDER_NOT_FOUND"):
@@ -145,7 +145,7 @@ def test_unknown_goods_and_orders_never_change_resources(environment):
 
 def test_paid_courier_rejects_early_arrival_and_repeated_station_arrival_is_identity(environment):
     commerce = runtime(environment)
-    state, activity = commerce.prepare_purchase(world(environment), pending(), ("online-notebook",))
+    state, activity = commerce.prepare_purchase(world(environment), pending(), ("online-notebook",), None)
     state = operate_phases(state, activity)
     state, activity = finish(state, activity)
     state, _ = commerce.complete_purchase(state, activity)
@@ -162,7 +162,7 @@ def test_paid_courier_rejects_early_arrival_and_repeated_station_arrival_is_iden
 
 def test_paid_takeout_is_received_at_actual_arrival_with_exactly_one_goods_effect(environment):
     commerce = runtime(environment)
-    state, activity = commerce.prepare_purchase(world(environment), pending(), ("lemon-tea",))
+    state, activity = commerce.prepare_purchase(world(environment), pending(), ("lemon-tea",), None)
     state = operate_phases(state, activity)
     state, activity = finish(state, activity)
     state, _ = commerce.complete_purchase(state, activity)
@@ -181,7 +181,7 @@ def test_paid_takeout_is_received_at_actual_arrival_with_exactly_one_goods_effec
 def test_partially_paid_purchase_is_rejected_before_any_order_is_charged(environment):
     commerce = runtime(environment)
     state, activity = commerce.prepare_purchase(world(environment, "store"), pending(),
-                                                ("lemon-tea", "online-notebook"))
+                                                ("lemon-tea", "online-notebook"), None)
     first = activity_orders(state, activity)[0]
     state.deliveries[first.order_id] = first.model_copy(update={"paid_at": state.current_time})
     before = state.model_dump(mode="json")
@@ -193,7 +193,7 @@ def test_partially_paid_purchase_is_rejected_before_any_order_is_charged(environ
 def test_skipped_payment_end_is_a_run_fault_that_leaves_the_orders_untouched(environment):
     commerce = runtime(environment)
     state, activity = commerce.prepare_purchase(world(environment, "store", random_state="payment-0"),
-                                                pending(), ("lemon-tea", "online-notebook"))
+                                                pending(), ("lemon-tea", "online-notebook"), None)
     phase = next(item for item in activity_phases(state, activity) if item.step == PAYMENT)
     assert phase.started_at > state.current_time
     started = advance_phases(state.model_copy(update={"current_time": phase.started_at}, deep=True), activity,
@@ -210,7 +210,7 @@ def test_skipped_payment_end_is_a_run_fault_that_leaves_the_orders_untouched(env
 
 def test_parcel_collection_requires_real_station_then_receives_all_once(environment):
     commerce = runtime(environment)
-    state, activity = commerce.prepare_purchase(world(environment), pending(), ("online-notebook",))
+    state, activity = commerce.prepare_purchase(world(environment), pending(), ("online-notebook",), None)
     state = operate_phases(state, activity)
     state, activity = finish(state, activity)
     state, _ = commerce.complete_purchase(state, activity)

@@ -106,6 +106,7 @@ _CALLABLE_INDEX = _object({
     "query_categories": {"type": "array", "items": _object({"category": _TEXT,
                           "count": {"type": "integer", "minimum": 0},
                           "examples": {"type": "array", "maxItems": MAX_EXAMPLES, "items": _TEXT}})},
+    "prefer_apps": {"type": "array", "uniqueItems": True, "items": _TEXT},
 })
 
 TOOL_LAYER_SCHEMA: dict[str, Any] = {

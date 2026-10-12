@@ -1,4 +1,4 @@
-"""在地点做什么由人物点名：工具层逐单元列出、点名开始与系列接续、暂停恢复与单元占用、并行与不抽随机数。"""
+"""在地点做什么由人物点名：工具层逐单元列出、点名开始与系列接续、暂停恢复与单元占用、结束算做完、并行与不抽随机数。"""
 
 from __future__ import annotations
 
@@ -12,7 +12,10 @@ from tests.life.conftest import (
     purchase, report_request, sleep, stage_day_plan, travel, use_app,
 )
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
-from tests.life.environment_runtime import act, act_group, events, finish_activity, reach
+from tests.footprints.recording import export_completed
+from tests.life.environment_runtime import (
+    act, act_group, events, finish_activity, one_hour, one_hour_every_five_minutes, reach, run_to_end,
+)
 from worldmock.life.models import StartMainActivityRequest
 from worldmock.life.prompt_schemas import validate_layer
 from worldmock.life.randomness import random_stream
@@ -165,6 +168,7 @@ def test_start_result_shows_the_content_that_actually_started(engine_factory):
     assert content == {"app": None, "title": "测试休息", "summary": "测试休息的测试用合成摘要。",
                        "duration": "约 15 分钟", "pushed": False}
     assert record["result"]["details"]["planned"] == [{"name": "进行测试休息（1月5日 08:00 起）", "duration": "约 15 分钟"}]
+    assert "contents" not in record["result"]["details"]
 
 
 def test_naming_draws_no_random_number_and_same_seed_selects_the_same_content(engine_factory):
@@ -209,34 +213,34 @@ def test_series_starts_at_its_representative_and_continues_to_the_end(engine_fac
     progress = engine.context.state.agents[1].content_progress
     assert {key: progress[key].completed_rounds for key in ("d-1-prep", "d-2-eat", "d-3-wash")} == {
         "d-1-prep": 1, "d-2-eat": 1, "d-3-wash": 1}
+    record = progress_calls(engine.observe(context(engine, "done")), "start_main_activity")[0]
+    assert record["result"]["details"]["contents"] == [
+        {"title": title, "summary": f"{title}的测试用合成摘要。", "duration": duration, "finished": True}
+        for title, duration in (("备菜", "约 20 分钟"), ("吃饭", "约 25 分钟"), ("洗碗", "约 10 分钟"))]
 
 
-def test_series_resumes_the_unfinished_episode_then_starts_a_new_round(engine_factory, dinner_environment):
-    """中途结束后再点名，从没做完的一集的原位置继续；整个系列做完后再点名开始新一轮。"""
+def test_concluding_a_series_counts_the_whole_unit_and_the_next_start_is_episode_one(engine_factory,
+                                                                                    dinner_environment):
+    """第二集做到一半时结束：整个系列记为做完一轮，三集都是位置 0、轮数 1；工具层这一行是第一集的全长与「第 1 集，
+    共 3 集」，再点名从第一集开头做起。"""
     engine = engine_factory(environment_root=dinner_environment, mutate=_attentive)
     _, first = act(engine, "dinner", do_at("家", "工作日晚饭"))
     start = engine.context.state.current_time
     _decide_until(engine, start + 1800)
-    name = engine.context.state.activities[first.activity_id].name
-    _, ended = act(engine, "stop", conclude_request(name), "conclude_activity")
-    assert ended.status == "completed"
+    activity = engine.context.state.activities[first.activity_id]
+    assert activity.data["content_id"] == "d-2-eat" and activity.media_position_seconds == 600
+    _, ended = act(engine, "stop", conclude_request(activity.name), "conclude_activity")
+    assert ended.status == "completed", ended.error_code
     progress = engine.context.state.agents[1].content_progress
-    assert progress["d-1-prep"].completed_rounds == 1 and progress["d-2-eat"].position_seconds == 600
-    observed, again = act(engine, "resume", do_at("家", "工作日晚饭"))
+    episodes = ("d-1-prep", "d-2-eat", "d-3-wash")
+    assert {key: (row.position_seconds, row.completed_rounds) for key, row in progress.items()
+            if key in episodes} == {key: (0.0, 1) for key in episodes}
+    observed, again = act(engine, "again", do_at("家", "工作日晚饭"))
     row = next(item for item in _target(observed, "家")["actions"] if item["detail"] == "工作日晚饭")
-    assert (row["duration"], row["note"]) == ("约 15 分钟", "第 2 集，共 3 集；上次没做完，接着做")
-    resumed = engine.context.state.activities[again.activity_id]
-    assert resumed.data["content_id"] == "d-2-eat" and resumed.data["start_position_seconds"] == 600
-    assert resumed.planned_duration_seconds == 900 and again.data["activities"][0]["content_title"] == "吃饭"
-    finished = finish_activity(engine, again, "resume")
-    assert finished is not None
-    done = engine.context.state.activities[again.activity_id]
-    assert done.status == "completed" and done.elapsed_seconds == 1500
-    assert [item["content_id"] for item in done.data["played"]] == ["d-2-eat", "d-3-wash"]
-    observed, round_two = act(engine, "new-round", do_at("家", "工作日晚饭"))
-    row = next(item for item in _target(observed, "家")["actions"] if item["detail"] == "工作日晚饭")
-    assert (row["duration"], row["note"]) == ("约 20 分钟", "第 1 集，共 3 集")
-    assert engine.context.state.activities[round_two.activity_id].data["content_id"] == "d-1-prep"
+    assert (row["available"], row["duration"], row["note"]) == (True, "约 20 分钟", "第 1 集，共 3 集")
+    restarted = engine.context.state.activities[again.activity_id]
+    assert restarted.data["content_id"] == "d-1-prep" and restarted.data["start_position_seconds"] == 0.0
+    assert restarted.planned_duration_seconds == 1200 and again.data["activities"][0]["content_title"] == "备菜"
 
 
 def test_episode_title_and_unknown_detail_are_corrected_without_substitution(engine_factory, dinner_environment):
@@ -371,9 +375,9 @@ def _host_feedback(requests: list[dict]) -> dict:
 
 
 @pytest.mark.parametrize("elsewhere", [False, True], ids=["later-at-home", "elsewhere"])
-def test_paused_unit_is_concluded_later_and_then_continues_from_its_position(engine_factory, elsewhere):
-    """暂停的地点活动之后在原地或在别处都可以用 conclude_activity 结束；结束后它占着的单元可以再点名，
-    从上次的位置接着做。"""
+def test_paused_unit_concluded_later_counts_as_done_and_starts_from_the_beginning(engine_factory, elsewhere):
+    """暂停在 300 秒处的地点活动，之后在原地或在别处用 conclude_activity 结束：这件事记为做完一轮，它占着的单元
+    可以再点名，从头做起、计划全长。"""
     engine = engine_factory(mutate=_attentive)
     _, rest = act(engine, "rest", do_at("家", "测试休息"))
     assert advance_until_ready(engine)
@@ -381,6 +385,7 @@ def test_paused_unit_is_concluded_later_and_then_continues_from_its_position(eng
     _, paused = act(engine, "pause", pause_request(name), "pause_activity")
     assert paused.status == "completed"
     paused_at = engine.context.state.current_time
+    assert engine.context.state.agents[1].content_progress["c-rest"].position_seconds == 300
     _, other = act(engine, "other", travel("五里公园", "驾车") if elsewhere else do_at("家", "测试闲聊"))
     assert other.status == "in_progress", other.error_code
     finish_activity(engine, other, "other")
@@ -394,48 +399,148 @@ def test_paused_unit_is_concluded_later_and_then_continues_from_its_position(eng
     closed = engine.context.state.activities[rest.activity_id]
     assert closed.status == "cancelled" and closed.concluded_at == engine.context.state.current_time
     assert closed.elapsed_seconds == 300
+    progress = engine.context.state.agents[1].content_progress["c-rest"]
+    assert (progress.position_seconds, progress.completed_rounds) == (0.0, 1)
     if elsewhere:
         _, back = act(engine, "back", travel("家", "驾车"))
         assert back.status == "in_progress", back.error_code
         finish_activity(engine, back, "back")
     observed, again = act(engine, "again", do_at("家", "测试休息"))
     unit = next(row for row in _target(observed, "家")["actions"] if row["detail"] == "测试休息")
-    assert (unit["available"], unit["reason"], unit["duration"], unit["note"]) == (
-        True, None, "约 10 分钟", "上次没做完，接着做")
+    assert (unit["available"], unit["reason"], unit["duration"], unit["note"]) == (True, None, "约 15 分钟", None)
     assert again.status == "in_progress", again.error_code
-    resumed = engine.context.state.activities[again.activity_id]
-    assert resumed.activity_id != rest.activity_id and resumed.data["content_id"] == "c-rest"
-    assert resumed.data["start_position_seconds"] == 300 and resumed.planned_duration_seconds == 600
+    restarted = engine.context.state.activities[again.activity_id]
+    assert restarted.activity_id != rest.activity_id and restarted.data["content_id"] == "c-rest"
+    assert restarted.data["start_position_seconds"] == 0.0 and restarted.planned_duration_seconds == 900
 
 
-def test_unit_with_under_a_minute_left_starts_for_the_remainder_and_completes_the_round(engine_factory):
-    """一件事只剩不到一分钟时：工具层照剩余时长列为可用，点名就从原位置接着做完这一轮，之后再点名是新的一轮。"""
-    def near_the_end(persona, config):
-        config["reconsideration_interval_seconds"] = 570
+def _resting_five_minutes(engine_factory, mutate=_attentive):
+    """在家点名「测试休息」，推进到开始后五分钟的那次决策机会；返回引擎与开始结果。"""
+    engine = engine_factory(mutate=mutate)
+    _, rest = act(engine, "rest", do_at("家", "测试休息"))
+    assert rest.status == "in_progress", rest.error_code
+    assert advance_until_ready(engine)
+    assert engine.context.state.activities[rest.activity_id].elapsed_seconds == 300
+    return engine, rest
 
-    engine = engine_factory(mutate=near_the_end)
-    _, chat = act(engine, "chat", do_at("家", "测试闲聊"))
-    assert chat.status == "in_progress" and advance_until_ready(engine)
-    name = engine.context.state.activities[chat.activity_id].name
-    _, stopped = act(engine, "stop", conclude_request(name), "conclude_activity")
-    assert stopped.status == "completed", stopped.error_code
-    assert engine.context.state.agents[1].content_progress["c-chat"].position_seconds == 570
-    observed, again = act(engine, "again", do_at("家", "测试闲聊"))
-    unit = next(row for row in _target(observed, "家")["actions"] if row["detail"] == "测试闲聊")
-    assert (unit["available"], unit["reason"], unit["duration"], unit["note"]) == (
-        True, None, "不到 1 分钟", "上次没做完，接着做")
+
+def test_concluded_unit_starts_again_at_full_length(engine_factory):
+    """「测试休息」做 5 分钟后结束：共享进度位置 0、轮数 1；工具层这一行可用、全长「约 15 分钟」、没有说明；再点名
+    从头开始，计划 900 秒。"""
+    engine, rest = _resting_five_minutes(engine_factory)
+    name = engine.context.state.activities[rest.activity_id].name
+    _, ended = act(engine, "stop", conclude_request(name), "conclude_activity")
+    assert ended.status == "completed", ended.error_code
+    progress = engine.context.state.agents[1].content_progress["c-rest"]
+    assert (progress.position_seconds, progress.completed_rounds) == (0.0, 1)
+    observed, again = act(engine, "again", do_at("家", "测试休息"))
+    unit = next(row for row in _target(observed, "家")["actions"] if row["detail"] == "测试休息")
+    assert (unit["available"], unit["reason"], unit["duration"], unit["note"]) == (True, None, "约 15 分钟", None)
     assert again.status == "in_progress", again.error_code
-    activity = engine.context.state.activities[again.activity_id]
-    assert activity.planned_duration_seconds == 30 and activity.data["start_position_seconds"] == 570
-    reach(engine, activity.planned_end_at)
-    done = engine.context.state.activities[again.activity_id]
-    assert done.status == "completed" and done.elapsed_seconds == 30
-    progress = engine.context.state.agents[1].content_progress["c-chat"]
-    assert (progress.completed_rounds, progress.position_seconds) == (1, 0)
-    finish_activity(engine, again, "again")
-    fresh, _ = act(engine, "new-round", do_at("家", "测试闲聊"))
-    unit = next(row for row in _target(fresh, "家")["actions"] if row["detail"] == "测试闲聊")
-    assert (unit["duration"], unit["note"]) == ("约 10 分钟", None)
+    restarted = engine.context.state.activities[again.activity_id]
+    assert restarted.data["start_position_seconds"] == 0.0 and restarted.planned_duration_seconds == 900
+
+
+def test_concluding_a_finished_activity_does_not_add_a_round(engine_factory):
+    """自然做完时轮数是 1；人物来收尾之后仍是 1，位置仍是 0。"""
+    engine = engine_factory()
+    start = engine.context.state.current_time
+    _, rest = act(engine, "rest", do_at("家", "测试休息"))
+    reach(engine, start + 900)
+    done = engine.context.state.activities[rest.activity_id]
+    assert done.status == "completed" and done.concluded_at is None
+    assert engine.context.state.agents[1].content_progress["c-rest"].completed_rounds == 1
+    _, concluded = act(engine, "conclude", conclude_request(done.name), "conclude_activity")
+    assert concluded.status == "completed", concluded.error_code
+    assert concluded.data["outcome"] == [{"activity": done.name, "outcome": "完成"}]
+    progress = engine.context.state.agents[1].content_progress["c-rest"]
+    assert (progress.position_seconds, progress.completed_rounds) == (0.0, 1)
+
+
+def test_run_cut_off_keeps_location_progress(engine_factory):
+    """运行截止时做到一半的地点活动被截断：共享进度原样留着，位置是做到的秒数、轮数 0。"""
+    engine = engine_factory(mutate=one_hour)
+    _, trip = act(engine, "commute", travel("公司", "驾车"))
+    finish_activity(engine, trip, "commute")
+    _, work = act(engine, "work", do_at("公司", "季度销售数据整理"))
+    assert work.status == "in_progress", work.error_code
+    run_to_end(engine)
+    activity = engine.context.state.activities[work.activity_id]
+    assert activity.status == "truncated" and 0 < activity.elapsed_seconds < 32400
+    progress = engine.context.state.agents[1].content_progress["topic-sales"]
+    assert (progress.position_seconds, progress.completed_rounds) == (float(activity.elapsed_seconds), 0)
+
+
+def test_concluded_location_activity_stays_cancelled_and_writes_no_extra_event(engine_factory):
+    """被结束的地点活动仍是取消：状态 cancelled、interruption_reason agent_cancelled，收尾结果的终局是「提前结束」；
+    这次提交里这项活动的事件恰是一条 activity_concluded 和一条第二条结果，不写 activity_progress。"""
+    engine, rest = _resting_five_minutes(engine_factory)
+    name = engine.context.state.activities[rest.activity_id].name
+    before = engine.context.store.last_event_seq
+    _, ended = act(engine, "stop", conclude_request(name), "conclude_activity")
+    assert ended.status == "completed" and ended.data["outcome"] == [{"activity": name, "outcome": "提前结束"}]
+    closed = engine.context.state.activities[rest.activity_id]
+    assert (closed.status, closed.boundary_type, closed.interruption_reason) == (
+        "cancelled", "cancelled", "agent_cancelled")
+    own = [row for row in events(engine) if row.event_seq > before and row.activity_id == rest.activity_id]
+    assert [(row.event_type, row.data.get("kind"), row.data.get("status")) for row in own] == [
+        ("environment_event", "activity_concluded", None), ("action_result", None, "cancelled")]
+    assert own[1].action_id == rest.action_id and own[1].data["message"] == "Activity cancelled"
+
+
+@pytest.mark.parametrize("request_builder,unfinished", [
+    (lambda: do_at("家", "测试休息"), False), (lambda: use_app("Keep"), True)], ids=["location", "app"])
+def test_memory_sentence_keeps_the_unfinished_half_only_for_app_content(engine_factory, request_builder, unfinished):
+    """做 5 分钟后结束、离开这一段：记忆层里在地点做的事的结束句以「提前结束」收尾，用内容 app 的结束句带
+    「（《测试慢跑》未完）」。"""
+    engine = engine_factory(mutate=_attentive)
+    _, started = act(engine, "started", request_builder())
+    assert started.status == "in_progress", started.error_code
+    assert advance_until_ready(engine)
+    name = engine.context.state.activities[started.activity_id].name
+    _, ended = act(engine, "stop", conclude_request(name), "conclude_activity")
+    assert ended.status == "completed", ended.error_code
+    _, trip = act(engine, "leave", travel("五里公园", "驾车"))
+    assert trip.status == "in_progress", trip.error_code
+    memory = engine.observe(context(engine, "road"))["memory_layer"]
+    (sentence,) = [line for entry in memory["earlier_today"] for line in entry["settled"] if line.startswith(name)]
+    if unfinished:
+        assert sentence.endswith("，提前结束，（《测试慢跑》未完）")
+    else:
+        assert sentence.endswith("，提前结束") and "未完" not in sentence
+
+
+def test_long_office_content_concluded_midway_starts_again_at_full_length(engine_factory):
+    """办公室九小时的「季度销售数据整理」做一段后结束：再点名是从头的 32400 秒。"""
+    engine = engine_factory(mutate=_attentive)
+    _, trip = act(engine, "commute", travel("公司", "驾车"))
+    finish_activity(engine, trip, "commute")
+    _, work = act(engine, "work", do_at("公司", "季度销售数据整理"))
+    assert work.status == "in_progress", work.error_code
+    assert engine.context.state.activities[work.activity_id].planned_duration_seconds == 32400
+    assert advance_until_ready(engine)
+    name = engine.context.state.activities[work.activity_id].name
+    _, ended = act(engine, "stop", conclude_request(name), "conclude_activity")
+    assert ended.status == "completed", ended.error_code
+    _, again = act(engine, "again", do_at("公司", "季度销售数据整理"))
+    assert again.status == "in_progress", again.error_code
+    restarted = engine.context.state.activities[again.activity_id]
+    assert restarted.data["start_position_seconds"] == 0.0 and restarted.planned_duration_seconds == 32400
+
+
+def test_export_certifies_a_run_with_a_concluded_location_activity(engine_factory, tmp_path):
+    """结束地点活动、再点名、跑到截止：检查点、导出与认证通过；再点名之后的进度事件算重复，content_contact 的
+    repeat_watch 不小于 1。"""
+    engine, rest = _resting_five_minutes(engine_factory, one_hour_every_five_minutes)
+    name = engine.context.state.activities[rest.activity_id].name
+    _, ended = act(engine, "stop", conclude_request(name), "conclude_activity")
+    assert ended.status == "completed", ended.error_code
+    _, again = act(engine, "again", do_at("家", "测试休息"))
+    assert again.status == "in_progress", again.error_code
+    directory = tmp_path / "export"
+    export_completed(engine, directory)
+    quality = json.loads((directory / "quality.json").read_bytes())
+    assert quality["content_contact"]["repeat_watch"] >= 1
 
 
 @pytest.mark.asyncio

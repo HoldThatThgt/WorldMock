@@ -93,7 +93,7 @@ def test_content_platform_returns_same_origin_goods_quotes_and_unavailable_close
     rows = details["goods"]
     assert len({row["name"] for row in rows}) == len(rows)
     supplied = next(row for row in rows if row["name"] == "视频学习书")
-    offer = quote_goods(engine.context.inputs, engine.context.state, 1, "streamer-book")
+    offer = quote_goods(engine.context.inputs, engine.context.state, 1, "streamer-book", None)
     assert supplied == {"name": "视频学习书", "price": "12 元", "delivery_fee": money_phrase(offer.delivery_fee_fen),
                        "expected_at": iso_time(offer.expected_at, engine.context.state.timezone),
                        "available": True, "reason": None}
@@ -141,7 +141,7 @@ def test_current_started_activity_public_result_and_complete_export(engine_facto
         identities = set(catalog.goods_by_app[data["app_id"]])
         identities.update(key for store in catalog.stores_by_app[data["app_id"]]
                           for key in catalog.goods_by_store[store])
-        quotes = {key: quote_goods(inputs, engine.context.state, 1, key) for key in identities}
+        quotes = {key: quote_goods(inputs, engine.context.state, 1, key, None) for key in identities}
         assert details["goods"] == [{"name": catalog.goods[key].name,
             "price": money_phrase(catalog.goods[key].price_fen),
             "delivery_fee": money_phrase(quotes[key].delivery_fee_fen),
@@ -158,6 +158,18 @@ def test_current_started_activity_public_result_and_complete_export(engine_facto
     controls = engine.observe(context(engine, "control-observation"))["activity_bindings"]
     assert controls and all(row["title"] is None for row in controls)
     run_to_end(engine)
+    # 真实做完时写下的第二条结果：有内容的活动带 contents，第一行是开始的那条内容；没有内容的不带
+    (terminal,) = [event for event in events(engine, "action_result")
+                   if event.action_id == result.action_id and event.data["status"] != "in_progress"]
+    assert (terminal.data["status"], terminal.data["message"]) == ("completed", "Activity completed")
+    finished = public_result(terminal.data, inputs)["details"]
+    if content_id is None:
+        assert "contents" not in finished
+    else:
+        started = inputs.catalog.contents[content_id]
+        assert finished["contents"][0] == {"title": started.title, "summary": started.summary,
+                                           "duration": duration_phrase(started.duration_seconds), "finished": True}
+        assert all(list(row) == ["title", "summary", "duration", "finished"] for row in finished["contents"])
     rows = [event.model_dump(mode="json") for event in events(engine)]
     actual = list(snapshots(rows))
     assert actual and all("title" not in row for row in actual)

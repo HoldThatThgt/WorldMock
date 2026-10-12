@@ -316,7 +316,7 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
     assert all(function["strict"] is True for function in functions.values())
     closed = copy.deepcopy({name: functions[name] for name in (MAIN_TOOL, SIDE_TOOL, "report_status")})
     for tool, fields, actions in ((MAIN_TOOL, ["action", "target", "detail"], ["travel", "interact", "sleep"]),
-                                  (SIDE_TOOL, ["action", "target"], ["purchase", "interact"])):
+                                  (SIDE_TOOL, ["action", "target", "prefer"], ["purchase", "interact"])):
         parameters = closed[tool]["parameters"]
         assert {"agent_id", "decision_id", "action_id"}.isdisjoint(parameters["properties"])
         assert list(parameters["properties"]) == parameters["required"] == fields
