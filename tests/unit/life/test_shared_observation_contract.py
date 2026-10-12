@@ -18,6 +18,7 @@ from worldmock.life.name_resolution import lookup, name_book, resolution_data
 from worldmock.life.progress_layer import order_label, session_bound
 from worldmock.life.prompt_capacity import prompt_token_count, request_token_count
 from worldmock.life.prompt_schemas import validate_layer
+from worldmock.life.readable import clock_phrase
 from worldmock.life.reminders import mark_reminded, reminder_due
 from worldmock.life.schedule import DayPlan, PlanGoal
 from worldmock.life.settled_text import activity_sentence, experience_sentence, record_lines
@@ -164,8 +165,13 @@ def test_delivery_and_actual_experience_sentences_retain_goods_times_and_travel_
     assert "步行到了公司，但没能进去" in experience_sentence(layer, actual)
     receipt = {"kind": "received", "goods_id": "tissue", "quantity": 1, "occurred_at": now}
     assert "收到纸巾 1 份" in experience_sentence(layer, receipt)
-    played = {"kind": "played", "content_id": "c-article", "interval_start": now, "interval_end": now + 60}
-    assert engine.context.catalog.contents["c-article"].title in experience_sentence(layer, played)
+    played = {"kind": "played", "content_id": "c-article", "app_id": "bilibili", "activity_id": trip.activity_id,
+              "interval_start": now, "interval_end": now + 60}
+    zone = engine.context.config.timezone
+    span = f"{clock_phrase(now, now, zone)}–{clock_phrase(now + 60, now, zone)}"
+    assert experience_sentence(layer, played) == f"{span} 使用哔哩哔哩《测试文章》"
+    resting = {**played, "content_id": "c-rest", "app_id": None}
+    assert experience_sentence(layer, resting) == f"{span} 在家：测试休息"
     with pytest.raises(IntegrityError, match="Unsupported verified experience"):
         experience_sentence(layer, {"kind": "invented"})
     label = order_label({"goods_id": "tissue", "quantity": 1, "created_at": now}, {"tissue": "纸巾"},
