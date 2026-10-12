@@ -24,6 +24,10 @@ NonEmptyString = Annotated[str, Field(strict=True, pattern=r"\S")]
 FunctionAction = Literal["purchase"]
 Exertion = Literal["idle", "light", "moderate", "heavy"]
 ReliefLevel = Literal["none", "low", "medium", "high"]
+#: 完成效果补能的档位，与同名商品类别同热量。
+FoodTier = Literal["snack", "meal"]
+#: 完成效果一次缓解的档位，与内容行顶层同名的缓解档位同一套，不收 none。
+ReliefTier = Literal["low", "medium", "high"]
 OpeningIntervals = tuple[tuple[NonEmptyString, NonEmptyString], ...]
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
@@ -186,8 +190,41 @@ class ContentPrerequisite(DeepFrozenModel):
     _declared_schedule = field_validator("opens", mode="before")(require_declared_schedule)
 
 
+def require_declared_tier(value):
+    """@brief 显式完成效果成员必须是档位名；没有这项效果只有省略这一种写法。"""
+    if value is None:
+        reject_value("A declared completion effect tier must be a tier name.")
+    return value
+
+
+class CompletionEffects(DeepFrozenModel):
+    """@brief 地点内容做完时结算一次的效果：补能与两项需要的一次缓解，成员只写档位名。"""
+
+    food: FoodTier | None = None
+    relaxation_relief: ReliefTier | None = None
+    social_relief: ReliefTier | None = None
+
+    #: 成员写成 null 拒绝，省略才表示没有这项效果。
+    _declared_tiers = field_validator("food", "relaxation_relief", "social_relief", mode="before")(
+        require_declared_tier)
+
+
+def require_declared_state(value):
+    """@brief 显式凭的状态必须是状态名；不凭状态只有省略这一种写法。"""
+    if value is None:
+        reject_value("A declared consumed state must be a state name.")
+    return value
+
+
+def require_declared_effects(value):
+    """@brief 显式完成效果必须是对象；做完没有效果只有省略这一种写法。"""
+    if value is None:
+        reject_value("A declared completion effect must be an object.")
+    return value
+
+
 class Content(DeepFrozenModel):
-    """@brief 内容容器、实际时长、体力消耗与独立心理缓解档位，以及 app 内容的可选前提。"""
+    """@brief 内容容器、实际时长、体力消耗与独立心理缓解档位，app 内容的可选前提，地点内容凭的状态与完成效果。"""
 
     content_id: NonEmptyString
     title: NonEmptyString
@@ -202,9 +239,15 @@ class Content(DeepFrozenModel):
     location_kinds: tuple[NonEmptyString, ...] = ()
     series: ContentSeries | None = None
     prerequisite: ContentPrerequisite | None = None
+    consumes_state: NonEmptyString | None = None
+    completion_effects: CompletionEffects | None = None
 
     #: 显式内容前提必须是对象，缺省才表示没有前提。
     _declared_prerequisite = field_validator("prerequisite", mode="before")(require_declared_prerequisite)
+    #: 显式凭的状态必须是状态名，缺省才表示不凭状态。
+    _declared_state = field_validator("consumes_state", mode="before")(require_declared_state)
+    #: 显式完成效果必须是对象，缺省才表示做完没有效果。
+    _declared_effects = field_validator("completion_effects", mode="before")(require_declared_effects)
 
 
 class MapEdge(DeepFrozenModel):

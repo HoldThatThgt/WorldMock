@@ -110,7 +110,7 @@ def validate_registration(rows: dict) -> None:
     methods = _check_travel_methods(rows["travel_methods"])
     _check_locations(rows, apps)
     _check_goods(rows, apps, kinds)
-    _check_contents(rows, apps, kinds)
+    _check_contents(rows, apps, kinds, frozenset(row.state for row in rows["callback_states"]))
     _check_apps(rows, methods)
     _check_callbacks(rows, apps, methods)
     _check_map_edges(rows["map_edges"], [place.location_id for place in rows["locations"]])
@@ -170,8 +170,11 @@ def _check_goods(rows, apps, kinds) -> None:
         _check_bindings(goods.store_kinds, kinds, "GOODS_BINDING_DANGLING")
 
 
-def _check_contents(rows, apps, kinds) -> None:
-    """@brief 内容容器、摘要、来源、前提和系列符合独立登记规则；同一地点类型下可点名的单元名唯一。"""
+def _check_contents(rows, apps, kinds, states: frozenset[str]) -> None:
+    """@brief 内容容器、摘要、来源、前提、凭的状态与完成效果、系列符合独立登记规则；同一地点类型下可点名的单元名唯一。
+
+    :param states: 登记的全部状态名；没有 callbacks.jsonl 时为空集。
+    """
     series, episodes, units = {}, set(), {}
     for number, content in enumerate(rows["contents"], start=1):
         if not content.app_ids and not content.location_kinds:
@@ -185,6 +188,7 @@ def _check_contents(rows, apps, kinds) -> None:
         if content.summary_source.kind == "real" and not content.summary_source.url:
             raise RegistrationError("CONTENT_SOURCE_URL_MISSING")
         _check_prerequisite(content, kinds)
+        _check_location_declarations(content, states)
         if content.series is not None:
             _check_series(series, episodes, content)
         _check_unit_name(units, content, number)
@@ -208,19 +212,35 @@ def _check_prerequisite(content, kinds) -> None:
         _check_opening_hours(prerequisite.opens)
 
 
-def _check_series(series: dict, episodes: set, content) -> None:
-    """@brief 同一系列各集的容器绑定与内容前提必须完全相同，集号不得重复。
+def _check_location_declarations(content, states: frozenset[str]) -> None:
+    """@brief 凭的状态与完成效果只属于地点内容；完成效果至少声明一个成员；凭的状态必须是登记的状态名。"""
+    if content.app_ids and (content.consumes_state is not None or content.completion_effects is not None):
+        raise RegistrationError("ENVIRONMENT_KIND_INVALID", f"{content.content_id} is an app content; "
+                                "consumes_state and completion_effects belong to location contents.")
+    # 成员写成 null 已被行模型拒绝，所以没有显式写出的成员就是三个成员都省略。
+    if content.completion_effects is not None and not content.completion_effects.model_fields_set:
+        raise RegistrationError("ENVIRONMENT_KIND_INVALID",
+                                f"{content.content_id} declares an empty completion_effects.")
+    if content.consumes_state is not None and content.consumes_state not in states:
+        raise RegistrationError("ENVIRONMENT_REF_UNKNOWN",
+                                f"{content.content_id} consumes_state names {content.consumes_state}.")
 
-    :param series: 系列名到先登记那一集的（容器绑定，内容前提）。
+
+def _check_series(series: dict, episodes: set, content) -> None:
+    """@brief 同一系列各集的容器绑定、内容前提与凭的状态必须完全相同，集号不得重复；完成效果各集各写。
+
+    :param series: 系列名到先登记那一集的（容器绑定，内容前提，凭的状态）。
     :param episodes: 已登记的（系列名，集号）。
     """
     title, episode = content.series.title, content.series.episode
     binding = (content.app_ids, content.location_kinds)
-    first = series.setdefault(title, (binding, content.prerequisite))
+    first = series.setdefault(title, (binding, content.prerequisite, content.consumes_state))
     if first[0] != binding or (title, episode) in episodes:
         raise RegistrationError("CONTENT_SERIES_INVALID")
     if first[1] != content.prerequisite:
         raise RegistrationError("CONTENT_SERIES_INVALID", f"{title} episodes declare different prerequisites.")
+    if first[2] != content.consumes_state:
+        raise RegistrationError("CONTENT_SERIES_INVALID", f"{title} episodes declare different consumed states.")
     episodes.add((title, episode))
 
 

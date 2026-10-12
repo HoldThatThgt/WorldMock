@@ -303,4 +303,19 @@ MUTATIONS = (
     SourceMutation("result_details_schema_refuses_query", "worldmock.life.prompt_schemas::_RESULT_DETAILS",
         '"query": _QUERY,', "",
         ("tests/unit/life/test_result_contents.py::test_result_details_schema_accepts_every_listed_key",)),
+    SourceMutation("app_content_completion_effects_accepted",
+        "worldmock.catalog.admission::_check_location_declarations",
+        "if content.app_ids and (content.consumes_state is not None or content.completion_effects is not None):",
+        "if False:",
+        ("tests/unit/catalog/test_location_content_declarations.py"
+         "::test_app_content_may_not_declare_consumed_state_or_completion_effects",)),
+    SourceMutation("unregistered_consumed_state_accepted",
+        "worldmock.catalog.admission::_check_location_declarations",
+        "if content.consumes_state is not None and content.consumes_state not in states:", "if False:",
+        ("tests/unit/catalog/test_location_content_declarations.py"
+         "::test_consumed_state_must_name_a_registered_state",)),
+    SourceMutation("series_consumed_states_may_differ", "worldmock.catalog.admission::_check_series",
+        "if first[2] != content.consumes_state:", "if False:",
+        ("tests/unit/catalog/test_location_content_declarations.py"
+         "::test_series_episodes_must_share_the_consumed_state",)),
 )
