@@ -1,4 +1,4 @@
-"""@brief 只读已冻结素材认证目录浏览，外部原始输入不参与导出。"""
+"""@brief 只读已冻结素材认证目录浏览，并从冻结的目录取显示名称；外部原始输入不参与导出。"""
 
 from __future__ import annotations
 
@@ -8,11 +8,29 @@ import logging
 from pathlib import Path
 
 from worldmock.catalog.identity import OPTIONAL_CATALOG_FILES, REQUIRED_CATALOG_FILES, _update_frame
+from worldmock.catalog.loader import parse_catalog_lines
+from worldmock.catalog.models import App, Content, Goods, Location, TravelMethod
 from worldmock.errors import IntegrityError
+from worldmock.footprints.display_wording import DisplayNames, display_names
 from worldmock.footprints.models import AssetRef, canonical_json
 
 #: 冻结素材里不随目录清单变化的四个名字。
 FIXED_ENVIRONMENT_ASSETS = frozenset({"persona.toml", "config.toml", "map.json", "catalog/manifest.json"})
+#: 显示名称读的五份目录与各自的行模型，次序即 display_names 的入参次序；出行方式文件可选。
+_NAME_CATALOGS = (("app-catalog.jsonl", App), ("content-catalog.jsonl", Content), ("location.jsonl", Location),
+                  ("merchant-catalog.jsonl", Goods), ("travel-method.jsonl", TravelMethod))
+
+
+def frozen_display_names(root: Path, frozen: dict) -> DisplayNames:
+    """@brief 从运行目录或导出目录的冻结素材建显示名称表，与导出认证同一套读取与登记时同一套行模型。
+
+    @param root 运行目录或导出目录，素材在其 assets/<sha256>。
+    @param frozen 运行清单（导出时是 frozen_run_manifest），取 environment_assets。
+    @throws IntegrityError 素材缺失、字节或集合与清单不符，或某一行不合当前的行模型（带文件名与行号）。
+    """
+    inputs, _ = _frozen_inputs(root, frozen["environment_assets"])
+    rows = [parse_catalog_lines(inputs.get(f"catalog/{name}", b""), name, model) for name, model in _NAME_CATALOGS]
+    return display_names(*rows)
 
 
 def validate_frozen_environment(root: Path, frozen: dict, activities: list[dict], events: list[dict]) -> None:
