@@ -64,8 +64,9 @@ from worldmock.life.world_query import QueryWorldRequest, query_argument_report,
 #: 行动阶段思考开关与工具选择（思考模式拒收 required，真实探针见规格）。
 ACTION_THINKING = {"thinking": {"type": "enabled"}}
 ACTION_TOOL_CHOICE = "auto"
-#: 行动阶段明确预留的最大输出，用于发送前完整上下文计数。
-ACTION_MAX_TOKENS = 8000
+#: 每次决策的输出上限，思考与回答共用；实际发出的是它与服务输出上限中较小的一个，只读问答、截断后的重试与记忆调用
+#: 用同一个数，也是发送前完整上下文计数预留的输出（docs/design/06-agent.md「宿主模型协议」）。
+ACTION_MAX_TOKENS = 16000
 
 #: 结束活动时写入的记忆来源（系统按写入点固定，与 memory_updated.data.trigger 同一组取值）。
 _CONCLUSION_MEMORY_SOURCE = "activity_conclusion"

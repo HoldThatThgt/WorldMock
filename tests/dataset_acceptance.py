@@ -89,10 +89,10 @@ MUTATIONS = (
         ("tests/integration/runtime/test_persona_profile.py"
          "::test_restored_card_must_equal_the_card_built_from_the_frozen_persona",)),
     SourceMutation("relationship_channel_closed_set_restored", "worldmock.input_models::Relationship",
-        "channels: list[NonBlankText]", 'channels: list[Literal["电话", "微信", "见面"]]',
+        "channels: Array[NonBlankText]", 'channels: Array[Literal["电话", "微信", "见面"]]',
         ("tests/unit/test_environment_inputs.py::test_relationship_channels_take_any_words_the_dataset_writes",)),
     SourceMutation("blank_relationship_channel_accepted", "worldmock.input_models::Relationship",
-        "channels: list[NonBlankText]", "channels: list[str]",
+        "channels: Array[NonBlankText]", "channels: Array[str]",
         ("tests/unit/test_environment_inputs.py"
          "::test_table_format_and_formula_ranges_are_rejected_with_the_field_named",)),
     SourceMutation("age_plausibility_range_restored", "worldmock.input_models::Identity",
@@ -372,4 +372,50 @@ MUTATIONS = (
         "return _session_calls(context, requests, results)",
         ("tests/integration/life/test_carried_records.py"
          "::test_app_use_started_with_departure_is_recorded_on_the_road",)),
+    SourceMutation("process_configured_after_the_model_identity", "worldmock.runtime::_prepare_new_run",
+        "run_setup._configure_process(request.project_root, inputs.config.model)\n"
+        "    identity = _run_identity(request, inputs)",
+        "identity = _run_identity(request, inputs)\n"
+        "    run_setup._configure_process(request.project_root, inputs.config.model)",
+        ("tests/integration/runtime/test_runtime_inputs_contract.py"
+         "::test_new_run_configures_the_process_after_the_environment_and_before_the_model_identity",)),
+    SourceMutation("truncation_content_built_through_the_logging_feedback",
+        "worldmock.agents.life_truncation::TRUNCATION_CONTENT",
+        "TRUNCATION_CONTENT = report_content(_truncation_report())",
+        "TRUNCATION_CONTENT = report_content(truncation_feedback().report)",
+        ("tests/unit/agents/test_truncation_feedback.py"
+         "::test_reimporting_the_truncation_module_writes_no_error_log_and_keeps_the_fixed_content",)),
+    SourceMutation("status_manifest_read_with_the_default_encoding", "worldmock.status::read_status",
+        'manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))',
+        'manifest = json.loads((root / "manifest.json").read_text())',
+        ("tests/unit/footprints/test_status.py"
+         "::test_status_reads_the_three_run_files_as_utf8_without_the_default_encoding",)),
+    SourceMutation("receipt_token_stats_not_from_persisted_responses", "worldmock.cli::_run_command",
+        'receipt["token_stats"] = observed_model_usage(output)', 'receipt["token_stats"] = []',
+        ("tests/integration/runtime/test_native_dataset_lifecycle.py"
+         "::test_receipts_count_every_persisted_model_response_including_the_day_plan",)),
+    SourceMutation("body_settlement_after_takes_the_final_body", "worldmock.life.rhythm::settle_engine_rhythm",
+        "changed.agents[agent_id] = agent",
+        'changed.agents[agent_id] = agent; record.data["body_settlement"]["after"] = agent.body.model_dump(mode="json")',
+        ("tests/integration/life/test_body_settlement_records.py"
+         "::test_delivery_received_in_the_settled_second_stays_out_of_the_body_settlement",)),
+    SourceMutation("rejection_pulse_flows_left_in_the_buffer",
+        "worldmock.life.decision_coordinator::DecisionCoordinator._reject_results",
+        "flows = _resource_flows_data(first.agent_id, state.current_time)", "flows = []",
+        ("tests/integration/life/test_body_settlement_records.py"
+         "::test_rejection_pulse_flows_are_written_on_the_first_action_result_and_not_carried_forward",)),
+    SourceMutation("food_receipt_applied_by_subtraction", "worldmock.life.receipt::_food_effect",
+        "applied = sum((entry.amount for entry in entries), 0.0)",
+        "applied = settlement.after.energy_kcal - body.energy_kcal",
+        ("tests/integration/life/test_constant_table_runtime.py"
+         "::test_food_receipt_applied_is_the_registered_flow_amount",)),
+    SourceMutation("work_shift_breaks_declared_as_a_list", "worldmock.input_models::WorkShift",
+        "breaks: Array[Array[int]]", "breaks: list[list[int]]",
+        ("tests/unit/test_environment_inputs.py"
+         "::test_persona_and_config_serialize_without_warnings_and_keep_arrays_as_written",)),
+    SourceMutation("action_output_budget_back_to_eight_thousand", "custom.agents.life_agent::ACTION_MAX_TOKENS",
+        "ACTION_MAX_TOKENS = 16000", "ACTION_MAX_TOKENS = 8000",
+        ("tests/unit/runtime/test_model_identity.py::test_tampered_identity_is_rejected",
+         "tests/integration/runtime/test_life_agent_protocol.py"
+         "::test_reasoning_content_is_persisted_in_model_response_evidence")),
 )

@@ -42,6 +42,42 @@ def test_full_inputs_are_loaded_without_writes(environment):
     assert after == before
 
 
+#: 人设表里写成 TOML 数组的字段（时段、关系、习惯、口味），工作区输入里逐值等于原文。
+_PERSONA_ARRAYS = ("wake_window", "leave_home_window", "lunch_window", "dinner_window", "bedtime_window",
+                   "relationships", "habits", "tastes")
+
+
+def test_persona_and_config_serialize_without_warnings_and_keep_arrays_as_written(environment):
+    """警告升成错误后，序列化人设表、运行配置并构造人物工作区输入都不抛；数组仍冻结成元组，工作区里是 JSON 数组。"""
+    import warnings
+
+    from worldmock.run_setup import creation_inputs
+
+    loaded = load_environment(environment, metadata_loader=metadata)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        loaded.persona.model_dump(mode="json")
+        loaded.config.model_dump(mode="json")
+        creation_inputs(loaded)
+    assert [str(item.message) for item in caught] == []
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        loaded.persona.model_dump(mode="json")
+        loaded.config.model_dump(mode="json")
+        specs, _ = creation_inputs(loaded)
+    persona = loaded.persona
+    assert type(persona.lunch_window) is tuple and type(persona.relationships) is tuple
+    assert type(persona.relationships[0].channels) is tuple and type(persona.tastes.media) is tuple
+    assert type(persona.work_schedule.weekly["0"].breaks) is tuple
+    assert type(persona.work_schedule.weekly["0"].breaks[0]) is tuple
+    assert type(loaded.config.calendar.spring_festival_dates) is tuple
+    written = tomllib.loads((environment / "persona.toml").read_text(encoding="utf-8"))
+    profile = specs[0]["profile"]
+    assert {key: profile[key] for key in _PERSONA_ARRAYS} == {key: written[key] for key in _PERSONA_ARRAYS}
+    assert profile["work_schedule"]["weekly"] == written["work_schedule"]["weekly"]
+    assert type(profile["relationships"]) is list and type(profile["work_schedule"]["weekly"]["0"]["breaks"][0]) is list
+
+
 def test_valid_environment_result_has_only_public_identity(environment):
     assert validate_environment(environment, metadata_loader=metadata) == {
         "valid": True, "environment_id": "artificial-test", "environment_version": "4",
@@ -330,17 +366,17 @@ def test_off_grid_rhythm_values_load_unchanged(environment):
     (lambda doc: doc["relationships"][1].update(channels=["微信", 3]),
      "relationships.1.channels.1: Input should be a valid string"),
     (lambda doc: doc["relationships"][0].update(channels=[]),
-     "relationships.0.channels: List should have at least 1 item after validation, not 0"),
+     "relationships.0.channels: Tuple should have at least 1 item after validation, not 0"),
     (lambda doc: doc["relationships"][0].update(channels=["电话", "微信", "见面", "电话"]),
-     "relationships.0.channels: List should have at most 3 items after validation, not 4"),
+     "relationships.0.channels: Tuple should have at most 3 items after validation, not 4"),
     (lambda doc: doc["tastes"].update(media=["长视频", " "]),
      "tastes.media.1: String should match pattern '\\S'"),
     (lambda doc: doc["tastes"].update(media=[f"媒介{index}" for index in range(5)]),
-     "tastes.media: List should have at most 4 items after validation, not 5"),
+     "tastes.media: Tuple should have at most 4 items after validation, not 5"),
     (lambda doc: doc["tastes"].update(content_genres=[f"题材{index}" for index in range(7)]),
-     "tastes.content_genres: List should have at most 6 items after validation, not 7"),
+     "tastes.content_genres: Tuple should have at most 6 items after validation, not 7"),
     (lambda doc: doc["tastes"].update(food_preferences=[f"菜{index}" for index in range(7)]),
-     "tastes.food_preferences: List should have at most 6 items after validation, not 7"),
+     "tastes.food_preferences: Tuple should have at most 6 items after validation, not 7"),
     (lambda doc: doc["habits"][1].update(trigger="时" * 31),
      "habits.1.trigger: String should have at most 30 characters"),
     (lambda doc: doc["habits"][0].update(response="做" * 41),
@@ -402,7 +438,7 @@ def test_relationship_and_habit_counts_are_capped_for_the_prompt_budget(environm
 
     assert len(getattr(parse_persona_file(edit_persona(environment, rows(limit)))[0], field)) == limit
     assert rejected(environment, rows(limit + 1))[2] == (
-        f"{field}: List should have at most {limit} items after validation, not {limit + 1}")
+        f"{field}: Tuple should have at most {limit} items after validation, not {limit + 1}")
     assert getattr(parse_persona_file(declare(environment, **{field: []}))[0], field) == ()
 
 
