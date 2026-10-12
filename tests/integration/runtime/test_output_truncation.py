@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from types import SimpleNamespace
 
@@ -130,15 +131,20 @@ def _decision_responses(engine, decision_id: str) -> list:
 
 
 @pytest.mark.asyncio
-async def test_a_truncated_turn_is_dropped_and_retried_once_without_thinking(_engine_factory) -> None:
+async def test_a_truncated_turn_is_dropped_and_retried_once_without_thinking(_engine_factory, caplog) -> None:
     """截断回合不进入后续请求：重试请求的消息是首个请求的两条消息加一条截断纠错（第四章结构，原因与改法是登记的说法），
     其中没有截断回合的思考；重试关闭思考、tool_choice=required、max_tokens 仍为 8000，只开放世界请求工具；重试给出的
-    世界请求照常登记与结算，回复正文成为 self_note；证据里截断回合的协议错误串以 OUTPUT_TRUNCATED 开头，决策开始只写一次。"""
+    世界请求照常登记与结算，回复正文成为 self_note；证据里截断回合的协议错误串以 OUTPUT_TRUNCATED 开头，决策开始只写一次；
+    这次截断回合期间恰好写一条「输出被截断」的错误日志。"""
     engine = _engine_factory()
     stage_day_plan(engine)
     environment = _environment(engine)
-    _, requests, _ = await _single(environment, "spiral", [
-        TruncatedResponse(_SPIRALS[0]), _reply("call-wait", MAIN_TOOL, _WAIT, None, "先歇一会儿。")])
+    with caplog.at_level(logging.ERROR):
+        _, requests, _ = await _single(environment, "spiral", [
+            TruncatedResponse(_SPIRALS[0]), _reply("call-wait", MAIN_TOOL, _WAIT, None, "先歇一会儿。")])
+    assert [record.getMessage() for record in caplog.records
+            if record.getMessage().startswith("Life tool protocol rejected: OUTPUT_TRUNCATED")] == [
+        f"Life tool protocol rejected: OUTPUT_TRUNCATED: {TRUNCATION_DETAIL}"]
     first, retry = requests
     assert [_is_retry(item) for item in requests] == [False, True]
     assert _tools(first) == set(REQUEST_MODELS) | {"query_world"} | _MEMORY_TOOLS and _tools(retry) == set(REQUEST_MODELS) - {"recall_task_summary"}

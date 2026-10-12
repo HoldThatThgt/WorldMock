@@ -310,4 +310,10 @@ MUTATIONS = (
         "    run_setup._configure_process(request.project_root, inputs.config.model)",
         ("tests/integration/runtime/test_runtime_inputs_contract.py"
          "::test_new_run_configures_the_process_after_the_environment_and_before_the_model_identity",)),
+    SourceMutation("truncation_content_built_through_the_logging_feedback",
+        "worldmock.agents.life_truncation::TRUNCATION_CONTENT",
+        "TRUNCATION_CONTENT = report_content(_truncation_report())",
+        "TRUNCATION_CONTENT = report_content(truncation_feedback().report)",
+        ("tests/unit/agents/test_truncation_feedback.py"
+         "::test_reimporting_the_truncation_module_writes_no_error_log_and_keeps_the_fixed_content",)),
 )
