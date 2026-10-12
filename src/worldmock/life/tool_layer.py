@@ -173,11 +173,11 @@ def _travel_facts(context: LayerContext, row: dict, action: dict) -> dict:
 
 
 def _purchase_facts(context: LayerContext, row: dict) -> dict:
-    """@brief 查询只计算稳定报价，不抽取未来购买过程时长。"""
+    """@brief 查询只计算稳定报价，不抽取未来购买过程时长；按没有意向的路线预览，实际以购买结果为准。"""
     goods = context.catalog.goods[row["goods_id"]]
     note = None
     try:
-        offer = quote_goods(context.inputs, context.state, context.agent_id, goods.goods_id)
+        offer = quote_goods(context.inputs, context.state, context.agent_id, goods.goods_id, None)
         arrival = datetime.fromtimestamp(offer.expected_at, ZoneInfo(context.config.timezone))
         if offer.fulfillment != "pickup":
             note = f"运费{money_phrase(offer.delivery_fee_fen)}，预计{arrival:%m月%d日 %H:%M}到达"

@@ -266,7 +266,7 @@ def test_bypassing_the_host_gets_the_shared_error_shape(engine_factory):
     """绕过宿主直接提交的错误请求：形状问题与名称问题各合并成一次 ACTION_REQUEST_INVALID，路径带真实调用位置。"""
     engine = engine_factory()
     bad_main = StartMainActivityRequest.model_construct(action="travel", target="公司", detail=None)
-    bad_side = StartSideActivityRequest.model_construct(action="interact", target=["哔哩哔哩", "抖音"])
+    bad_side = StartSideActivityRequest.model_construct(action="interact", target=["哔哩哔哩", "抖音"], prefer=None)
     _, (main, side) = act_group(engine, "shape", bad_main, bad_side)
     assert main.error_code == side.error_code == "ACTION_REQUEST_INVALID" and main.data == side.data
     assert main.data["fix"] == "Correct every reported parameter."

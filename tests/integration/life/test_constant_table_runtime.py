@@ -50,7 +50,7 @@ def business(engine, kind: str) -> list[dict]:
 def delivered_order(engine, label: str) -> dict:
     """在家同一次购买牛肉面和薯片（同一家店的一个外卖配送组），返回报价、订单、付款与平台明细。"""
     context = engine.context
-    quote = quote_goods(context.inputs, context.state, 1, "beef-noodles")
+    quote = quote_goods(context.inputs, context.state, 1, "beef-noodles", None)
     listed = {row["name"]: row for row in app_goods(context.inputs, context.state, 1, "meituan")}
     started = context.state.current_time
     _, ordered = act(engine, label, purchase("牛肉面", "薯片"))
@@ -85,9 +85,9 @@ def test_unreplaced_delivery_quote_shipping_and_arrival_are_unchanged(engine_fac
     assert {key: (item.delivery_fee_fen, item.total_price_fen, item.prep_seconds) for key, item in orders.items()} == {
         "beef-noodles": (500, 3300, 600), "chips": (0, 800, 600)}
     assert [row["amount_fen"] for row in order["payments"]] == [2800 + 800 + 500]
-    assert quote_goods(engine.context.inputs, engine.context.state, 1, "online-notebook").delivery_fee_fen == 0
+    assert quote_goods(engine.context.inputs, engine.context.state, 1, "online-notebook", None).delivery_fee_fen == 0
     charged = engine_factory(mutate=courier_charged)
-    assert quote_goods(charged.context.inputs, charged.context.state, 1, "online-notebook").delivery_fee_fen == 500
+    assert quote_goods(charged.context.inputs, charged.context.state, 1, "online-notebook", None).delivery_fee_fen == 500
 
 
 def test_delivery_fee_follows_the_constant_table(engine_factory, monkeypatch):
@@ -102,8 +102,8 @@ def test_delivery_fee_follows_the_constant_table(engine_factory, monkeypatch):
         "beef-noodles": (700, 3500), "chips": (0, 800)}
     assert [row["amount_fen"] for row in order["payments"]] == [2800 + 800 + 700]
     assert engine.context.state.accounts["agent:1"] == 200000 - 4300
-    assert quote_goods(engine.context.inputs, engine.context.state, 1, "online-notebook").delivery_fee_fen == 0
-    assert quote_goods(charged.context.inputs, charged.context.state, 1, "online-notebook").delivery_fee_fen == 700
+    assert quote_goods(engine.context.inputs, engine.context.state, 1, "online-notebook", None).delivery_fee_fen == 0
+    assert quote_goods(charged.context.inputs, charged.context.state, 1, "online-notebook", None).delivery_fee_fen == 700
 
 
 def test_delivery_preparation_time_follows_the_constant_table(engine_factory, monkeypatch):

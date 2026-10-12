@@ -48,8 +48,8 @@ def test_actual_purchase_content_and_current_artifacts_are_authenticated(real_ex
     side = [row for row in events if row["event_type"] == "action_requested"
             and row["data"]["tool_name"] == "start_side_activity"]
     assert [(row["action_id"], row["data"]["request"]) for row in side] == [
-        ("action-recorded-basket", {"action": "purchase", "target": ["柠檬茶", "纸巾"]}),
-        ("action-recorded-content", {"action": "interact", "target": ["哔哩哔哩"]})]
+        ("action-recorded-basket", {"action": "purchase", "target": ["柠檬茶", "纸巾"], "prefer": None}),
+        ("action-recorded-content", {"action": "interact", "target": ["哔哩哔哩"], "prefer": None})]
     bought = artifact_rows(real_export, "purchases")
     attempts = [row for row in bought if row["fact_kind"] == "order_attempt"]
     assert [(row["action_id"], row["request_event_id"], row["action"], row["status"], row["error_code"])

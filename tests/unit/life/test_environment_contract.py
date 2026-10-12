@@ -56,7 +56,7 @@ def world(activities=(), **changes):
 
 
 _MAIN_SLEEP = {"action": "sleep", "target": "450", "detail": None}
-_SIDE_PURCHASE = {"action": "purchase", "target": ["Food"]}
+_SIDE_PURCHASE = {"action": "purchase", "target": ["Food"], "prefer": None}
 _START_MODELS = ((StartMainActivityRequest, _MAIN_SLEEP), (StartSideActivityRequest, _SIDE_PURCHASE))
 
 
@@ -94,7 +94,8 @@ def test_unknown_or_wrong_case_action_is_refused_by_the_request_model(action):
 
 def test_repeated_purchase_name_is_two_portions_not_a_rejection():
     """同一个名称（含归一后相同的写法）写两次不再被拒：每个元素是一份，所写原样保留。"""
-    request = StartSideActivityRequest.model_validate({"action": "purchase", "target": ["Food", "Ｆｏｏｄ", "Food"]})
+    request = StartSideActivityRequest.model_validate(
+        {"action": "purchase", "target": ["Food", "Ｆｏｏｄ", "Food"], "prefer": None})
     assert request.target == ["Food", "Ｆｏｏｄ", "Food"]
 
 

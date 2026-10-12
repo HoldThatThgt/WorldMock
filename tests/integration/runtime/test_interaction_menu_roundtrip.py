@@ -29,4 +29,4 @@ async def test_native_request_uses_current_location_availability_and_stable_tool
     assert len(request["tools"]) == 10
     assert [tool["function"]["name"] for tool in request["tools"][:2]] == [MAIN_TOOL, SIDE_TOOL]
     assert set(request["tools"][0]["function"]["parameters"]["properties"]) == {"action", "target", "detail"}
-    assert set(request["tools"][1]["function"]["parameters"]["properties"]) == {"action", "target"}
+    assert set(request["tools"][1]["function"]["parameters"]["properties"]) == {"action", "target", "prefer"}

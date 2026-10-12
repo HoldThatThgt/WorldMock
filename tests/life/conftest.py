@@ -253,9 +253,9 @@ def main_arguments(action: str, target: str, detail: str | None = None) -> dict:
     return {"action": action, "target": target, "detail": detail}
 
 
-def side_arguments(action: str, *targets: str) -> dict:
-    """@brief start_side_activity 的完整参数：target 始终是名称数组。"""
-    return {"action": action, "target": list(targets)}
+def side_arguments(action: str, *targets: str, prefer: str | None = None) -> dict:
+    """@brief start_side_activity 的完整参数：三个键都出现，target 始终是名称数组，prefer 缺省为 null。"""
+    return {"action": action, "target": list(targets), "prefer": prefer}
 
 
 def travel(target: str, method: str = "步行"):
@@ -279,15 +279,15 @@ def sleep(minutes: int | str = NIGHT_SLEEP_MINUTES):
     return StartMainActivityRequest.model_validate(main_arguments("sleep", str(minutes)))
 
 
-def purchase(*goods: str):
-    """@brief 购买请求：一份一项，同一个名称写两次就是两份。"""
+def purchase(*goods: str, prefer: str | None = None):
+    """@brief 购买请求：一份一项，同一个名称写两次就是两份；prefer 是想用来下单的 app 名称原文，缺省为 null。"""
     from worldmock.life.models import StartSideActivityRequest
 
-    return StartSideActivityRequest.model_validate(side_arguments("purchase", *goods))
+    return StartSideActivityRequest.model_validate(side_arguments("purchase", *goods, prefer=prefer))
 
 
 def use_app(app: str):
-    """@brief 使用一个内容 app 的请求。"""
+    """@brief 使用一个内容 app 的请求：prefer 为 null。"""
     from worldmock.life.models import StartSideActivityRequest
 
     return StartSideActivityRequest.model_validate(side_arguments("interact", app))

@@ -56,7 +56,7 @@ def test_retired_items_shape_is_refused_by_both_start_tools(engine_factory, tool
     retired = {"items": [{"action": "interact", "target": "抖音"}]}
     error = agent.validate_react_decisions([ReactDecision("", tool, retired, "")], False)
     assert error.report.error_code == "ARGUMENTS_INVALID"
-    required = ["action", "target", "detail"] if tool == MAIN_TOOL else ["action", "target"]
+    required = ["action", "target", "detail"] if tool == MAIN_TOOL else ["action", "target", "prefer"]
     assert [item.path[4:] for item in error.report.items] == [*((field,) for field in required), ("items",)]
 
 
@@ -92,7 +92,8 @@ def test_tool_schema_has_current_shape_and_no_per_round_names(engine_factory):
     assert "start_activity" not in functions and list(functions)[:2] == [MAIN_TOOL, SIDE_TOOL]
     main, side = (functions[tool]["parameters"]["properties"] for tool in (MAIN_TOOL, SIDE_TOOL))
     assert list(main) == list(StartMainActivityRequest.model_fields) == ["action", "target", "detail"]
-    assert list(side) == list(StartSideActivityRequest.model_fields) == ["action", "target"]
+    assert list(side) == list(StartSideActivityRequest.model_fields) == ["action", "target", "prefer"]
+    assert functions[SIDE_TOOL]["parameters"]["required"] == ["action", "target", "prefer"]
     assert main["action"]["enum"] == ["travel", "interact", "sleep"]
     assert side["action"]["enum"] == ["purchase", "interact"]
     assert all("enum" not in json.dumps(fields[key]) for fields in (main, side) for key in fields if key != "action")
