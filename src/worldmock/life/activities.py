@@ -123,7 +123,7 @@ def advance_activity_shared(activity: ActivityState, agent: AgentState, now: int
     elapsed = activity.elapsed_seconds + seconds
     completed = elapsed >= activity.planned_duration_seconds
     updates = {"last_settled_at": stop, "elapsed_seconds": elapsed}
-    if activity.kind == ActivityKind.INTERACT and activity.data.get("content_id") is not None:
+    if activity.kind == ActivityKind.INTERACT:
         updates["media_position_seconds"] = activity.media_position_seconds + seconds
     if completed:
         updates.update(status=ActivityStatus.COMPLETED, boundary_type="planned_end", ended_at=stop,

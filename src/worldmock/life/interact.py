@@ -49,12 +49,9 @@ class InteractivityRuntime:
         return self._collect(changed, activity, row)
 
     def _app_plan(self, state: WorldState, agent, request: ContentRequest) -> tuple[str, int, dict]:
-        """@brief 内容 app 的活动名、计划时长与活动数据：没有登记内容的 app 是纯目录浏览、读声明时长，否则在合格
-        内容里抽取一次并从共享位置继续。"""
+        """@brief 内容 app 的活动名、计划时长与活动数据：在合格内容里抽取一次并从共享位置继续。"""
         app_id, catalog = request.app_id, self.context.catalog
         app = catalog.apps[app_id]
-        if not catalog.contents_by_app[app_id]:
-            return app.name, app.browse_duration_seconds, _browse_data(app_id)
         content, pinned = select_content(catalog, state, request,
                                          random_stream(state.random_state, f"{request.activity_id}:0"))
         progress = agent.content_progress.get(content.content_id)
@@ -81,8 +78,6 @@ class InteractivityRuntime:
     def advance(self, state: WorldState, activity: ActivityState, target: int) -> tuple[WorldState, dict | None]:
         """@brief 泛型游标已推进后保存实际内容区间，不再另加心理效果。"""
         content_id = activity.data["content_id"]
-        if content_id is None:
-            return state, None
         content = self.context.catalog.contents[content_id]
         changed = state.model_copy(deep=True)
         agent = changed.agents[activity.agent_id]
@@ -137,8 +132,6 @@ class InteractivityRuntime:
     def resume(self, state: WorldState, activity: ActivityState) -> WorldState:
         """@brief 恢复实际共享位置，不抽取另一条内容。"""
         content_id = activity.data["content_id"]
-        if content_id is None:
-            return state
         content = self.context.catalog.contents.get(content_id)
         if content is None:
             logging.error("Persisted activity target is invalid")
@@ -162,8 +155,3 @@ def _content_data(content, app_id: str | None, position: float, pinned: str | No
         "pinned_by_push_id": pinned, "draw_index": 0, "played": [], "exertion": content.exertion,
         "relaxation_relief_per_hour": RELIEF_PER_HOUR[content.relaxation_relief],
         "social_relief_per_hour": RELIEF_PER_HOUR[content.social_relief]}
-
-def _browse_data(app_id: str) -> dict:
-    """@brief 纯目录浏览没有共享内容游标、推送绑定或心理效果。"""
-    return {"app_id": app_id, "content_id": None, "exertion": "idle",
-        "relaxation_relief_per_hour": 0.0, "social_relief_per_hour": 0.0}

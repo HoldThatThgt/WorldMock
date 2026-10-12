@@ -66,7 +66,7 @@ def test_sleep_debt_recovers_by_the_time_actually_slept_including_the_extra_part
     assert extra.sleep_pressure < declared.sleep_pressure < body.sleep_pressure
     assert settle_shared_body(body, asleep, 13 * 3600, config).after.sleep_deficit_hours == 0.0
 
-def test_no_active_effects_pure_browse_and_purchase_have_only_growth(body_inputs):
+def test_no_active_effects_relief_free_interaction_and_purchase_have_only_growth(body_inputs):
     config, body = body_inputs
     for activities in ((), ((ActivityKind.PURCHASE, ActivityFactors(1.0)),),
                        ((ActivityKind.INTERACT, ActivityFactors(1.0)),)):

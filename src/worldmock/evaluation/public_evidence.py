@@ -298,7 +298,7 @@ def _control_actions(tool_name: str, request: Mapping[str, Any], related: Sequen
 
 
 def _activity_shape(row: Mapping[str, Any]) -> _Shape | None:
-    """@brief 内容交互使用真实内容，目录浏览使用真实应用，不推断设备或语义类别。"""
+    """@brief 内容交互的对象恒为真实内容，不推断设备或语义类别。"""
     kind = _string(row.get("activity_type")) or _string(row.get("kind"))
     data = _mapping(row.get("data"))
     action = worldmock_activity_action(kind or "", data)
@@ -307,8 +307,7 @@ def _activity_shape(row: Mapping[str, Any]) -> _Shape | None:
                       _travel_mode(row.get("travel_method_id")))
     if kind != "interact":
         return None
-    content = _string(data.get("content_id"))
-    return _Shape(action, "interact", "content" if content else "app", content or _string(data.get("app_id")), {})
+    return _Shape(action, "interact", "content", _string(data.get("content_id")), {})
 
 
 

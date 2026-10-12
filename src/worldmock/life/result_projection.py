@@ -43,19 +43,16 @@ def _details(result: dict[str, Any], inputs: EnvironmentInputs) -> dict[str, Any
 
 
 def _interact_details(activities: list[dict], inputs: EnvironmentInputs) -> dict:
-    """@brief 开始结果展示实际内容，纯目录浏览展示真实应用供应商品。"""
+    """@brief 开始结果展示实际开始的那条内容。"""
     activity = next((row for row in activities if row.get("kind") == "interact"), None)
     if activity is None:
         return {}
     data, catalog = activity["data"], inputs.catalog
-    app_id, content_id = data["app_id"], data["content_id"]
-    app = None if app_id is None else catalog.apps[app_id].name
-    if content_id is not None:
-        content = catalog.contents[content_id]
-        return {"content": {"app": app, "title": content.title, "summary": content.summary,
-                            "duration": duration_phrase(content.duration_seconds),
-                            "pushed": data["pinned_by_push_id"] is not None}}
-    return {"app": app, "duration": duration_phrase(catalog.apps[app_id].browse_duration_seconds)}
+    app = None if data["app_id"] is None else catalog.apps[data["app_id"]].name
+    content = catalog.contents[data["content_id"]]
+    return {"content": {"app": app, "title": content.title, "summary": content.summary,
+                        "duration": duration_phrase(content.duration_seconds),
+                        "pushed": data["pinned_by_push_id"] is not None}}
 
 
 def _activity_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:

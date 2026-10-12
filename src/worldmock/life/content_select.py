@@ -117,7 +117,6 @@ def _exclude_reserved(units: tuple[tuple[Content, ...], ...], state: WorldState,
         activity.data["content_id"] for activity in state.activities.values()
         if activity.agent_id == request.agent_id and activity.activity_id != request.activity_id
         and activity.kind == ActivityKind.INTERACT and activity.status in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}
-        and activity.data["content_id"] is not None
     }
     session = current_session(state, request.agent_id)
     if session is not None:

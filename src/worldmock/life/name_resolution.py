@@ -11,6 +11,8 @@ from worldmock.life.sleep_plan import parse_sleep_minutes
 
 _Entry = TypeVar("_Entry")
 MAIN_TOOL, SIDE_TOOL = START_TOOLS
+#: 只用于下单和查询的 app 在名称簿里的对象类型：没有内部身份、没有动作行、不当近名候选，只为退回时认得它。
+ORDER_APP_KIND = "order_app"
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,7 +44,7 @@ class Target:
 
 @dataclass(frozen=True, slots=True)
 class NameBook:
-    """@brief 本轮绑定和完整地点、内容 app 名称。"""
+    """@brief 本轮绑定、完整地点与能打开的 app 名称，以及只用于下单和查询的 app 名称（order_app 对象）。"""
     targets: tuple[Target, ...]
     home: str | None = None
     here: str | None = None
@@ -141,13 +143,20 @@ def near_names(written: str, names: Iterable[str], limit: int = MAX_CANDIDATES) 
 
 
 def name_book(observation: Mapping[str, Any]) -> NameBook:
-    """@brief 未展示地点和内容 app 可按名调用，功能 app 永不补入。"""
+    """@brief 未展示地点和能打开的 app 可按名调用，功能 app 永不补入。
+
+    两步绑定之后，按工具层 prefer_apps 的次序把还没有同名 app 对象的名称登记成 order_app 对象，排在最后；
+    只与 app 对象比，名称一字不差才算已经能打开。这些对象只为把写错位置的 app 名退回给人物。
+    """
     public = {row["name"]: row for row in observation["tool_layer"]["targets"]}
     targets = [_target(row, public.get(row["object"]), True) for row in observation["interaction_bindings"]]
     labels = {target.label for target in targets}
     for row in observation["catalog_bindings"]:
         if row["object"] not in labels:
             targets.append(_target(row, None, False))
+    opened = {target.label for target in targets if target.kind == "app"}
+    targets.extend(Target(name, ORDER_APP_KIND, None, (), False) for name in
+                   observation["tool_layer"]["callable_index"]["prefer_apps"] if name not in opened)
     places = {row["location_id"]: row["name"] for row in observation["locations"]}
     return NameBook(tuple(targets), places[observation["home_location_id"]], places[observation["location_id"]])
 
@@ -187,10 +196,11 @@ def resolve_start(book: NameBook, tool: str, request: Any) -> StartOutcome:
 
 
 def _kinds(item: StartItem) -> frozenset[str]:
-    """@brief 各动作允许的对象类型：主工具只认地点，购买只认商品，副工具的 interact 只认内容 app。"""
+    """@brief 各动作规整时允许的对象类型：主工具只认地点；购买认商品，副工具的 interact 认能打开的 app，
+    两者都另认 order_app，好把写进 target 的只用于下单和查询的 app 退回。"""
     if item.tool == MAIN_TOOL:
         return frozenset({"location"})
-    return frozenset({"supply"}) if item.action == "purchase" else frozenset({"app"})
+    return frozenset({"supply" if item.action == "purchase" else "app", ORDER_APP_KIND})
 
 
 def _resolve_item(book: NameBook, item: StartItem) -> tuple:
@@ -207,6 +217,8 @@ def _resolve_item(book: NameBook, item: StartItem) -> tuple:
             return named_supply_row(item.target), None, ()
         return None, _unknown_object(book, item), ()
     target = matches[0]
+    if target.kind == ORDER_APP_KIND:
+        return None, _order_app_failure(target, item), ()
     options = tuple(option for option in target.options
                     if option.action == item.action and start_tool(target.kind, option.action) == item.tool)
     if not options:
@@ -306,6 +318,19 @@ def _unsupported(target: Target, item: StartItem) -> Failure:
     candidates = tuple(call_candidate(target, option, item) for option in usable)
     error = ErrorItem(("action",), item.action, "ACTION_NOT_OFFERED", offered,
                       "An action offered by this object is required.", why, candidates)
+    return Failure(error, why, why)
+
+
+def _order_app_failure(target: Target, item: StartItem) -> Failure:
+    """@brief 名称唯一对上只用于下单和查询的 app：定位到所写动作，没有允许值和候选，原因里写登记的全名供照抄进 prefer。
+
+    三种副工具动作与主工具共用同一句 why 与 expected。
+    """
+    why = (f"Write {target.label} in prefer of purchase or query, not in target: "
+           "this app only takes orders and has no content to open.")
+    error = ErrorItem(("action",), item.action, "ACTION_NOT_OFFERED", (),
+                      "A target that the written action accepts is required; an app that only takes orders is "
+                      "written in prefer.", why, ())
     return Failure(error, why, why)
 
 

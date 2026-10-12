@@ -368,4 +368,16 @@ MUTATIONS = (
         '"target": names, "prefer": prefer}', '"target": names}',
         ("tests/unit/start_interfaces/test_name_resolution.py::test_side_tool_candidates_always_carry_prefer",
          "tests/integration/start_interfaces/test_purchase_prefer.py::test_copied_candidate_is_accepted_as_written")),
+    SourceMutation("content_less_app_listed_as_target", "worldmock.life.observe::ObservationBuilder._catalog_bindings",
+        'if app.role == "content" and catalog.contents_by_app[app.app_id])', 'if app.role == "content")',
+        ("tests/integration/life/test_app_opening.py"
+         "::test_order_only_apps_are_not_targets_and_appear_only_in_prefer_apps",)),
+    SourceMutation("openable_app_also_booked_as_order_app", "worldmock.life.name_resolution::name_book",
+        'observation["tool_layer"]["callable_index"]["prefer_apps"] if name not in opened)',
+        'observation["tool_layer"]["callable_index"]["prefer_apps"])',
+        ("tests/integration/life/test_app_opening.py::test_app_with_content_and_goods_opens_and_still_sells",)),
+    SourceMutation("order_app_in_target_gets_the_generic_refusal", "worldmock.life.name_resolution::_resolve_item",
+        "if target.kind == ORDER_APP_KIND:", "if False:",
+        ("tests/unit/start_interfaces/test_name_resolution.py"
+         "::test_order_only_app_in_target_is_refused_with_the_prefer_sentence",)),
 )

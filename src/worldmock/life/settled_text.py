@@ -79,8 +79,6 @@ def activity_sentence(context: LayerContext, activity: ActivityState,
 
 def _content_sentence(context: LayerContext, activity: ActivityState, advanced_content_id: str | None) -> str:
     """@brief 只写真正完成的内容及确有推进的未完内容，活动名已包含动作和应用。"""
-    if activity.data["content_id"] is None:
-        return ""
     titles = "".join(f"《{context.catalog.contents[row['content_id']].title}》" for row in activity.data["played"])
     current = context.catalog.contents[activity.data["content_id"]]
     partial = advanced_content_id == current.content_id

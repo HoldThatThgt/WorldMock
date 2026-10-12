@@ -1,4 +1,4 @@
-"""真实开始结果与完整导出只使用当前内容、浏览和活动快照合同。"""
+"""真实开始结果与完整导出只使用当前内容和活动快照合同。"""
 
 import json
 from datetime import timedelta
@@ -6,12 +6,11 @@ from datetime import timedelta
 import pytest
 
 from tests.life.conftest import (
-    advance_until_ready, conclude_request, context, do_at, pause_request, report_request, target_actions, travel,
-    use_app,
+    advance_until_ready, conclude_request, context, do_at, pause_request, report_request, target_actions, use_app,
 )
 from tests.life.current_world import stage_moment
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
-from tests.life.environment_runtime import act, act_group, events, finish_activity, run_to_end
+from tests.life.environment_runtime import act, events, finish_activity, run_to_end
 from tests.life.prerequisite_inputs import (
     CLOCK_PREREQUISITE, OFFICE, app_content, dingtalk_environment, example_window, moment, weekday_hours,
 )
@@ -102,20 +101,7 @@ def test_content_platform_returns_same_origin_goods_quotes_and_unavailable_close
     assert closed["delivery_fee"] is None and closed["expected_at"] is None
 
 
-def test_parallel_travel_platform_catalog_uses_actual_departed_presence(engine_factory):
-    engine = engine_factory()
-    # 出发与浏览同组开始：出行那条动作的结果不带目录，浏览那条动作的结果按出发后的在场写商品可用性
-    _, (departure, result) = act_group(engine, "depart-and-browse", travel("公司"), use_app("美团"))
-    assert departure.status == result.status == "in_progress", (departure.error_code, result.error_code)
-    assert "goods" not in departure.data
-    details = public_result(result.model_dump(mode="json"), engine.context.inputs)["details"]
-    tea = next(row for row in details["goods"] if row["name"] == "柠檬茶")
-    assert tea["available"] is False
-    assert tea["delivery_fee"] is None and tea["expected_at"] is None
-    assert "after arriving" in tea["reason"]
-
-
-@pytest.mark.parametrize("target", ["哔哩哔哩", "家", "美团"])
+@pytest.mark.parametrize("target", ["哔哩哔哩", "家"])
 def test_current_started_activity_public_result_and_complete_export(engine_factory, tmp_path, target):
     engine = engine_factory(mutate=short_window)
     # 在家做的事由人物点名内容单元，内容 app 的内容由环境选择
@@ -133,26 +119,10 @@ def test_current_started_activity_public_result_and_complete_export(engine_facto
     details = public_result(result.model_dump(mode="json"), inputs)["details"]
     assert details["planned"] == [{"name": activity.name,
                                    "duration": duration_phrase(activity.planned_duration_seconds)}]
-    content_id = data["content_id"]
-    if content_id is None:
-        assert "content" not in details
-        assert details["app"] == "美团" and details["duration"] == duration_phrase(600)
-        catalog = inputs.catalog
-        identities = set(catalog.goods_by_app[data["app_id"]])
-        identities.update(key for store in catalog.stores_by_app[data["app_id"]]
-                          for key in catalog.goods_by_store[store])
-        quotes = {key: quote_goods(inputs, engine.context.state, 1, key, None) for key in identities}
-        assert details["goods"] == [{"name": catalog.goods[key].name,
-            "price": money_phrase(catalog.goods[key].price_fen),
-            "delivery_fee": money_phrase(quotes[key].delivery_fee_fen),
-            "expected_at": iso_time(quotes[key].expected_at, inputs.config.timezone),
-            "available": True, "reason": None} for key in sorted(identities)]
-        assert details["goods"]
-    else:
-        content = inputs.catalog.contents[content_id]
-        assert details["content"] == {"app": target if data["app_id"] else None,
-            "title": content.title, "summary": content.summary,
-            "duration": duration_phrase(content.duration_seconds), "pushed": False}
+    content = inputs.catalog.contents[data["content_id"]]
+    assert details["content"] == {"app": target if data["app_id"] else None,
+        "title": content.title, "summary": content.summary,
+        "duration": duration_phrase(content.duration_seconds), "pushed": False}
     assert "content" not in public_result({"occurred_at": result.occurred_at, "status": "completed",
         "message": "Completed", "data": result.data}, inputs)["details"]
     controls = engine.observe(context(engine, "control-observation"))["activity_bindings"]
@@ -246,7 +216,7 @@ def app_row(reason=None, duration=None, note=None):
 def test_clock_in_refusal_repeats_the_tool_layer_reason_and_changes_nothing(
         engine_factory, tmp_path, when, location, reason, next_step, unmet):
     """登记了内容的 app 此刻没有合格内容：工具层这一行的 reason 与提交后的拒绝一字不差；拒绝不改世界、内容进度、
-    推送状态和随机状态，不产生活动，也不退成没有 content_id 的目录浏览，同刻轮数加一。"""
+    推送状态和随机状态，不产生活动，同刻轮数加一。"""
     engine = dingtalk_engine(engine_factory, tmp_path, start_day=when[0])
     stage_moment(engine, moment(*when), location)
     before = engine.context.state.model_copy(deep=True)
