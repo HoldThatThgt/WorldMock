@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -121,14 +122,21 @@ async def _no_dispatchers():
 
 
 def test_prepend_pythonpath_is_idempotent(tmp_path, monkeypatch):
-    """PYTHONPATH 前插保持唯一且幂等。"""
+    """PYTHONPATH 前插保持唯一且幂等；项目根进本进程 sys.path 的最前，只出现一次，src 不加；
+    项目根本来就在 sys.path 中间时位置不变。"""
     monkeypatch.setenv("PYTHONPATH", f"/already{os.pathsep}/present")
+    monkeypatch.setattr(sys, "path", list(sys.path))
     _prepend_pythonpath(tmp_path)
     once = os.environ["PYTHONPATH"]
     _prepend_pythonpath(tmp_path)
     assert os.environ["PYTHONPATH"] == once
     assert once.split(os.pathsep)[:2] == [str(tmp_path), str(tmp_path / "src")]
     assert once.endswith("/present")
+    assert sys.path[0] == str(tmp_path) and sys.path.count(str(tmp_path)) == 1
+    assert str(tmp_path / "src") not in sys.path
+    monkeypatch.setattr(sys, "path", ["first", str(tmp_path), "last"])
+    _prepend_pythonpath(tmp_path)
+    assert sys.path == ["first", str(tmp_path), "last"]
 
 
 # ---------------------------------------------------------------------------

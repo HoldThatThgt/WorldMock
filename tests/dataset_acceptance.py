@@ -303,4 +303,11 @@ MUTATIONS = (
     SourceMutation("result_details_schema_refuses_query", "worldmock.life.prompt_schemas::_RESULT_DETAILS",
         '"query": _QUERY,', "",
         ("tests/unit/life/test_result_contents.py::test_result_details_schema_accepts_every_listed_key",)),
+    SourceMutation("process_configured_after_the_model_identity", "worldmock.runtime::_prepare_new_run",
+        "run_setup._configure_process(request.project_root, inputs.config.model)\n"
+        "    identity = _run_identity(request, inputs)",
+        "identity = _run_identity(request, inputs)\n"
+        "    run_setup._configure_process(request.project_root, inputs.config.model)",
+        ("tests/integration/runtime/test_runtime_inputs_contract.py"
+         "::test_new_run_configures_the_process_after_the_environment_and_before_the_model_identity",)),
 )

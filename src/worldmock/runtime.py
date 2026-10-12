@@ -132,11 +132,8 @@ async def run_world(request: RunRequest) -> RunResult:
     :param request: 新运行完整输入。
     :returns: 已确认结束时间与模型用量。
     """
-    from worldmock import run_setup
-
     try:
         prepared = _prepare_new_run(request)
-        run_setup._configure_process(request.project_root, prepared.inputs.config.model)
         return await _execute(prepared)
     except Exception:
         logger.exception("WorldMock run failed")
@@ -149,11 +146,8 @@ async def resume_world(request: ResumeRequest) -> RunResult:
     :param request: 恢复分支完整输入。
     :returns: 子分支已确认结束时间与模型用量。
     """
-    from worldmock import run_setup
-
     try:
         prepared = _prepare_resume(request)
-        run_setup._configure_process(request.project_root, prepared.inputs.config.model)
         return await _execute(prepared)
     except Exception:
         logger.exception("WorldMock resume failed")
@@ -166,11 +160,8 @@ async def replay_world(request: CounterfactualRequest) -> RunResult:
     :param request: 严格恢复输入和一次封闭干预。
     :returns: 子分支已确认结束时间与模型用量。
     """
-    from worldmock import run_setup
-
     try:
         prepared = _prepare_resume(request.base, request.intervention)
-        run_setup._configure_process(request.base.project_root, prepared.inputs.config.model)
         return await _execute(prepared)
     except Exception:
         logger.exception("WorldMock counterfactual replay failed")
@@ -186,7 +177,11 @@ async def replay_world(request: CounterfactualRequest) -> RunResult:
 
 
 def _prepare_new_run(request: RunRequest) -> _PreparedRun:
-    """@brief 完整环境纯准入后形成唯一人物与新世界参数。"""
+    """@brief 完整环境纯准入后配置进程，再冻结运行身份，形成唯一人物与新世界参数。
+
+    进程配置排在读完环境之后、读模型身份之前（读身份才导入 custom 与 AgentSociety2），失败时不留下运行目录
+    （docs/design/10-runtime.md「实际框架边界」）。
+    """
     from worldmock import run_setup
     from worldmock.environment import load_environment
 
@@ -197,6 +192,7 @@ def _prepare_new_run(request: RunRequest) -> _PreparedRun:
         raise ValueError("A fresh run requires matching run_id and source_group_id")
     root = Path(request.environment_root).absolute()
     inputs = load_environment(root)
+    run_setup._configure_process(request.project_root, inputs.config.model)
     identity = _run_identity(request, inputs)
     kwargs = {"environment_root": str(root), "run_dir": str(run_dir),
               "run_identity": identity.model_dump(mode="json"), "open_existing": False,
@@ -227,7 +223,12 @@ def _run_identity(request: RunRequest, inputs: EnvironmentInputs) -> RunIdentity
 
 def _prepare_resume(request: ResumeRequest,
                     intervention: CounterfactualIntervention | None = None) -> _PreparedRun:
-    """@brief 校验三个输入身份后原子恢复工作区与世界，人物卡片沿用工作区里冻结的那一份。"""
+    """@brief 校验三个输入身份后原子恢复工作区与世界，人物卡片沿用工作区里冻结的那一份。
+
+    取到检查点并校验过检查点世界之后、核对运行身份之前配置进程：父库或检查点不存在仍先于进程配置报出，
+    配置失败时不建分支目录（docs/design/10-runtime.md「实际框架边界」）。
+    """
+    from worldmock import run_setup
     from worldmock.environment import load_environment
     from worldmock.footprints.store import FootprintStore
     from worldmock.life.continuation import continuation_enabled
@@ -244,6 +245,7 @@ def _prepare_resume(request: ResumeRequest,
     try:
         checkpoint = parent.get_checkpoint(request.checkpoint_id)
         WorldState.model_validate(checkpoint.state)
+        run_setup._configure_process(request.project_root, inputs.config.model)
         _require_runtime_identity(parent.manifest, Path(request.project_root), inputs)
         require_environment_identity(parent.manifest, inputs)
         manifest, state = _restore_branch(parent, checkpoint, destination, metadata, inputs)

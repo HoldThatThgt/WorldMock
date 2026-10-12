@@ -8,7 +8,8 @@ import pytest
 import tomlkit
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.frozen_inputs import fixture_metadata
-from tests.integration.runtime.current_contract_fixtures import ROOT, inputs, metadata_service, ToolResponse
+from tests.integration.runtime.current_contract_fixtures import (ROOT, ToolResponse, aligned_process, inputs,
+                                                              metadata_service)
 from tests.life.conftest import MAIN_TOOL, StubPlanDayClient, main_arguments
 from worldmock.environment import load_environment
 from worldmock.footprints.store import FootprintStore
@@ -43,7 +44,6 @@ def native_runtime(tmp_path, monkeypatch):
     import agentsociety2.society.society as society_module
     from agentsociety2.agent.runner import _step_agent_batch_async, _create_direct_agents_batch_async
     from agentsociety2.config import llm_dispatcher
-    from agentsociety2.config.config import Config
     from agentsociety2.society import AgentSociety, AgentSocietyConfig
     from custom.envs.life_env import LifeEnv
 
@@ -55,17 +55,7 @@ def native_runtime(tmp_path, monkeypatch):
     path.write_text(tomlkit.dumps(document), encoding="utf-8", newline="\n")
     frozen = load_environment(root, metadata_loader=fixture_metadata)
     metadata_service(monkeypatch, frozen)
-    for name in ("LLM_API_BASE", "CODER_LLM_API_BASE"):
-        monkeypatch.setattr(Config, name, frozen.config.model.base_url)
-    for name in ("LLM_MODEL", "CODER_LLM_MODEL"):
-        monkeypatch.setattr(Config, name, frozen.config.model.requested_model)
-    monkeypatch.setattr(Config, "EMBEDDING_MODEL", "")
-    import os
-    for name in ("WORKSPACE_PATH", "AGENTSOCIETY_LLM_API_KEY", "AGENTSOCIETY_LLM_API_BASE", "AGENTSOCIETY_LLM_MODEL",
-                 "AGENTSOCIETY_CODER_LLM_API_KEY", "AGENTSOCIETY_CODER_LLM_API_BASE", "AGENTSOCIETY_CODER_LLM_MODEL",
-                 "AGENTSOCIETY_EMBEDDING_MODEL", "LITELLM_LOCAL_MODEL_COST_MAP", "AGENTSOCIETY_LLM_REQUEST_TIMEOUT",
-                 "MEM0_TELEMETRY", "ANONYMIZED_TELEMETRY", "PYTHONPATH"):
-        monkeypatch.setenv(name, os.environ.get(name, ""))
+    aligned_process(monkeypatch, frozen)
     models = []
 
     async def initialize():
@@ -94,10 +84,21 @@ def native_runtime(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("branch", [None, "resume", "counterfactual"])
-async def test_native_dataset_run_resume_and_replay_finish_with_real_frozen_workspaces(tmp_path, native_runtime, branch):
+async def test_native_dataset_run_resume_and_replay_finish_with_real_frozen_workspaces(
+        tmp_path, native_runtime, monkeypatch, branch):
+    from worldmock import run_setup
+
     root, frozen, models = native_runtime
+    configure, configured = run_setup._configure_process, []
+
+    def counted(*args):
+        configured.append(args)
+        return configure(*args)
+
+    monkeypatch.setattr(run_setup, "_configure_process", counted)
     result = await run_world(RunRequest(ROOT, root, tmp_path / "parent", "native-parent", "native-parent"))
     assert result.current_time == frozen.config.stop_time
+    assert len(configured) == 1
     store = FootprintStore(result.run_dir)
     try:
         events = store.read_events(store.last_event_seq)
@@ -127,6 +128,7 @@ async def test_native_dataset_run_resume_and_replay_finish_with_real_frozen_work
     restored = (await resume_world(request) if branch == "resume"
                 else await replay_world(CounterfactualRequest(request, intervention)))
     assert restored.current_time == frozen.config.stop_time
+    assert len(configured) == 2
     child_store = FootprintStore(restored.run_dir)
     try:
         events = child_store.read_events(child_store.last_event_seq)
