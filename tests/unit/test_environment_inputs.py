@@ -54,6 +54,12 @@ def test_persona_and_config_serialize_without_warnings_and_keep_arrays_as_writte
     from worldmock.run_setup import creation_inputs
 
     loaded = load_environment(environment, metadata_loader=metadata)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        loaded.persona.model_dump(mode="json")
+        loaded.config.model_dump(mode="json")
+        creation_inputs(loaded)
+    assert [str(item.message) for item in caught] == []
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         loaded.persona.model_dump(mode="json")
