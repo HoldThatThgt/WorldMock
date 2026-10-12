@@ -344,4 +344,9 @@ MUTATIONS = (
         "breaks: Array[Array[int]]", "breaks: list[list[int]]",
         ("tests/unit/test_environment_inputs.py"
          "::test_persona_and_config_serialize_without_warnings_and_keep_arrays_as_written",)),
+    SourceMutation("action_output_budget_back_to_eight_thousand", "custom.agents.life_agent::ACTION_MAX_TOKENS",
+        "ACTION_MAX_TOKENS = 16000", "ACTION_MAX_TOKENS = 8000",
+        ("tests/unit/runtime/test_model_identity.py::test_tampered_identity_is_rejected",
+         "tests/integration/runtime/test_life_agent_protocol.py"
+         "::test_reasoning_content_is_persisted_in_model_response_evidence")),
 )

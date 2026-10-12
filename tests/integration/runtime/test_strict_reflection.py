@@ -460,12 +460,16 @@ def _reflection_exchanges(run: SimpleNamespace) -> tuple[list, list]:
 
 def _assert_reflection_request_events(run: SimpleNamespace, requests: list) -> None:
     """留证的反思请求：思考关闭、强制调用、不带 purpose、不是行动请求，调用身份用独立的 reflection 序号；
-    它们都排在这次决策的观察之前。"""
+    它们都排在这次决策的观察之前。记忆调用与决策用同一个输出上限：夹具元数据的输出上限是 32768，
+    留证的每条就寝反思请求与脚本模型收到的每条记忆巩固请求都是 16000。"""
     observed = _decision_events(run, "observation")
+    consolidations = run.model.of("consolidation")
+    assert consolidations and all(request["max_tokens"] == 16000 for request in consolidations)
     for event in requests:
         request = event.data["request"]
         assert request["extra_body"] == {"thinking": {"type": "disabled"}}
         assert request["tool_choice"] == "required" and request["max_retries"] == 0
+        assert request["max_tokens"] == 16000
         assert not event.data.get("purpose") and "purpose" not in request
         assert is_action_request(request) is False
         assert ":reflection:" in event.data["call_id"]
