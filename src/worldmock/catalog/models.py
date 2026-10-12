@@ -44,7 +44,7 @@ class CatalogFile(DeepFrozenModel):
 class CatalogManifest(DeepFrozenModel):
     """@brief 目录版本、规则版本和完整文件集合的发布身份。"""
 
-    format_version: Literal[4]
+    format_version: Literal[5]
     environment_id: NonEmptyString
     environment_version: NonEmptyString
     rules_version: StrictInt

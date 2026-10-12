@@ -6,7 +6,7 @@ from worldmock.exchange.body import BODY_CONSTANTS, RESOURCE_METAS
 
 
 def test_fixed_travel_delivery_map_and_push_constants():
-    assert c.RULES_VERSION == 4
+    assert c.RULES_VERSION == 5
     assert (c.WALKING_TRAVEL_METHOD_ID, c.WALKING_TRAVEL_METHOD_NAME, c.WALKING_METERS_PER_SECOND) == (
         "walking", "步行", 1.2)
     assert (c.DELIVERY_METERS_PER_SECOND, c.DELIVERY_PREP_SECONDS, c.DELIVERY_FEE_FEN) == (5.0, 600, 500)

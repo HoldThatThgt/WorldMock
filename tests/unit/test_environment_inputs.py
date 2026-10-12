@@ -44,7 +44,7 @@ def test_full_inputs_are_loaded_without_writes(environment):
 
 def test_valid_environment_result_has_only_public_identity(environment):
     assert validate_environment(environment, metadata_loader=metadata) == {
-        "valid": True, "environment_id": "artificial-test", "environment_version": "3",
+        "valid": True, "environment_id": "artificial-test", "environment_version": "4",
     }
 
 
@@ -381,7 +381,7 @@ def test_relationship_channels_take_any_words_the_dataset_writes(environment, fi
 
     edit_persona(environment, mutate)
     assert validate_environment(environment, metadata_loader=metadata) == {
-        "valid": True, "environment_id": "artificial-test", "environment_version": "3"}
+        "valid": True, "environment_id": "artificial-test", "environment_version": "4"}
     loaded = load_environment(environment, metadata_loader=metadata).persona
     assert [list(item.channels) for item in loaded.relationships] == [first, second]
     card = persona_card(loaded)

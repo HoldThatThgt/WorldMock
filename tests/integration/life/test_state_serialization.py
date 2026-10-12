@@ -179,15 +179,15 @@ def test_readonly_commit_is_identical_across_python_hash_seeds(tmp_path: Path) -
     assert _set_arrays(json.loads(first_payload)) == _set_arrays(state)
 
 
-def test_world_state_schema_is_thirteen_and_the_previous_version_is_refused() -> None:
-    """世界状态结构版本是 13；结构号 12 的世界状态由严格字面量拒绝，不迁移、不读取。"""
+def test_world_state_schema_is_fourteen_and_the_previous_version_is_refused() -> None:
+    """世界状态结构版本是 14；结构号 13 的世界状态由严格字面量拒绝，不迁移、不读取。"""
     import pytest
     from pydantic import ValidationError
 
-    assert WORLD_SCHEMA_VERSION == 13
+    assert WORLD_SCHEMA_VERSION == 14
     payload = _world_state().model_dump(mode="json")
-    assert WorldState.model_validate(payload).schema_version == 13
-    for retired in (12, "13", None):
+    assert WorldState.model_validate(payload).schema_version == 14
+    for retired in (13, "14", None):
         with pytest.raises(ValidationError, match="schema_version"):
             WorldState.model_validate({**payload, "schema_version": retired})
     missing = {key: value for key, value in payload.items() if key != "schema_version"}

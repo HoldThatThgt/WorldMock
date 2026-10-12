@@ -285,4 +285,19 @@ MUTATIONS = (
         "if project_location_stays(events) != stays:", "if False:",
         ("tests/integration/footprints/test_acs_export.py"
          "::test_location_stays_artifact_is_compared_with_the_projection_of_the_events",)),
+    SourceMutation("rules_version_still_four", "worldmock.exchange.constants::RULES_VERSION",
+        "RULES_VERSION = 5", "RULES_VERSION = 4",
+        ("tests/unit/exchange/test_constants.py::test_fixed_travel_delivery_map_and_push_constants",)),
+    SourceMutation("catalog_format_version_still_four", "worldmock.catalog.models::CatalogManifest",
+        "format_version: Literal[5]", "format_version: Literal[4]",
+        ("tests/unit/catalog/test_manifest_version.py"
+         "::test_otherwise_complete_package_with_an_old_version_number_is_refused",)),
+    SourceMutation("world_schema_version_still_thirteen", "worldmock.life.models::WORLD_SCHEMA_VERSION",
+        "WORLD_SCHEMA_VERSION = 14", "WORLD_SCHEMA_VERSION = 13",
+        ("tests/integration/life/test_state_serialization.py"
+         "::test_world_state_schema_is_fourteen_and_the_previous_version_is_refused",)),
+    SourceMutation("export_schema_version_still_five", "worldmock.footprints.export::EXPORT_SCHEMA_VERSION",
+        "EXPORT_SCHEMA_VERSION = 6", "EXPORT_SCHEMA_VERSION = 5",
+        ("tests/integration/footprints/test_acs_export.py"
+         "::test_actual_purchase_content_and_current_artifacts_are_authenticated",)),
 )
