@@ -119,7 +119,7 @@ def test_model_request_persists_exact_grounded_tools(_engine_factory):  # noqa: 
     expected = canonical_json(wire)
     fields = _start_fields(tools)
     assert set(fields[MAIN_TOOL]) == {"action", "target", "detail"}
-    assert set(fields[SIDE_TOOL]) == {"action", "target"}
+    assert set(fields[SIDE_TOOL]) == {"action", "target", "prefer"}
     _assert_names_are_not_enumerated(fields)
     engine.record_model_exchange(ModelCallEvidence(ctx, "grounded-call", "request", 1, wire))
     cutoff = engine.context.store.last_event_seq

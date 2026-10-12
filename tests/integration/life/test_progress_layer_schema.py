@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from tests.life.conftest import (
-    SIDE_TOOL, advance_until_ready, conclude_request, context, do_at, progress_calls, travel, use_app,
+    SIDE_TOOL, advance_until_ready, conclude_request, context, do_at, progress_calls, purchase, travel, use_app,
 )
 from tests.life.environment_runtime import act, act_group, every_five_minutes, until_ended
 from worldmock.life.prompt_schemas import validate_layer
@@ -72,12 +72,27 @@ def _carried_record_finished(engine_factory) -> dict:
     return observed
 
 
+def _purchase_in_progress(engine_factory) -> dict:
+    """经饿了么买柠檬茶，购买进行中：人在家写饿了么，订单从三杯咖啡经饿了么下出；受理后立即观察，这条请求的结果是
+    带购买明细的第一条，明细一行的 channel 是「饿了么」。"""
+    engine = engine_factory()
+    _, accepted = act(engine, "tea", purchase("柠檬茶", prefer="饿了么"))
+    assert accepted.status == "in_progress", accepted.error_code
+    assert engine.context.state.activities[accepted.activity_id].status == "active"
+    observed = engine.observe(context(engine, "during"))
+    result = progress_calls(observed, "start_side_activity")[0]["result"]
+    assert result["status"] == "in_progress"
+    assert [row["channel"] for row in result["details"]["purchases"]] == ["饿了么"]
+    return observed
+
+
 @pytest.mark.parametrize("situation", [
     pytest.param(_location_activity_in_progress, id="location-activity-in-progress"),
     pytest.param(_location_activity_finished, id="location-activity-finished"),
     pytest.param(_app_use_finished, id="app-use-finished"),
     pytest.param(_location_activity_ended_early, id="location-activity-ended-early"),
     pytest.param(_carried_record_finished, id="carried-record-finished"),
+    pytest.param(_purchase_in_progress, id="purchase-in-progress"),
 ])
 def test_real_progress_layer_passes_layer_validation(engine_factory, situation):
     """走真实引擎到给定情形后，观察里的进度层通过层校验。"""

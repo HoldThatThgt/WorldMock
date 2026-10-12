@@ -51,6 +51,8 @@ class Call:
     action: str
     #: 解析出的绑定行，各带 selected_action：主工具一行，副工具每个名称一行。
     rows: tuple[Mapping[str, Any], ...]
+    #: 这条购买调用从 prefer 认出的意向 app 身份；没有意向、主工具的调用与工具层的单行预览都为 None。
+    prefer: str | None = None
 
     @property
     def slot(self) -> str:
@@ -232,7 +234,7 @@ def _side_refusal(context: Context, main: Call | None, side: Call | None) -> Blo
 def _purchase_refusal(context: Context, main: Call | None, side: Call) -> Refusal | None:
     """@brief 购买：逐份报价的拒绝按数组次序取第一条；同组出发时报价里不能有到店购买。"""
     try:
-        groups, _ = quoted_basket(context.inputs, context.state, context.agent_id, side.goods_ids)
+        groups, _ = quoted_basket(context.inputs, context.state, context.agent_id, side.goods_ids, side.prefer)
     except BusinessRuleError as error:
         _LOGGER.error("Purchase quote was refused: %s", error)
         return refusal_from_error(error)
@@ -244,10 +246,14 @@ def _purchase_refusal(context: Context, main: Call | None, side: Call) -> Refusa
 
 
 def _funds_refusal(context: Context, main: Call | None, side: Call | None) -> Blocked | None:
-    """@brief 余额：全部货款加各配送组的运费再加同组出行的车费；没有同组购买时只核对车费。"""
+    """@brief 余额：全部货款加各配送组的运费再加同组出行的车费；没有同组购买时只核对车费。
+
+    货款与运费按带意向的路线算：意向让商品分到两家店、多出一份运费而余额不够时整组拒绝，不为余额放弃意向。
+    """
     fare = planned_trip(context, main.rows[0]).fare_fen if main is not None and main.action == "travel" else 0
     purchases = side is not None and side.action == "purchase"
-    goods = quoted_basket(context.inputs, context.state, context.agent_id, side.goods_ids)[1] if purchases else 0
+    goods = quoted_basket(context.inputs, context.state, context.agent_id, side.goods_ids,
+                          side.prefer)[1] if purchases else 0
     account = context.state.agents[context.agent_id].balance_account_id
     if context.state.accounts[account] >= fare + goods:
         return None

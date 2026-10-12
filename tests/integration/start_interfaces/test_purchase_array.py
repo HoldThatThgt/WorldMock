@@ -50,10 +50,10 @@ def test_same_name_twice_buys_two_portions_in_one_delivery_group(engine_factory)
     finish_activity(engine, result, "basket")
     assert engine.context.state.accounts["agent:1"] == 200000 - 5700
     record = progress_calls(engine.observe(context(engine, "after")), "start_side_activity")[0]
-    assert record["arguments"] == {"action": "purchase", "target": ["牛肉面", "柠檬茶", "柠檬茶"]}
+    assert record["arguments"] == {"action": "purchase", "target": ["牛肉面", "柠檬茶", "柠檬茶"], "prefer": None}
     purchases = record["result"]["details"]["purchases"]
-    assert [(row["product"], row["quantity"]) for row in purchases] == [
-        ("牛肉面", "1 份"), ("柠檬茶", "1 份"), ("柠檬茶", "1 份")]
+    assert [(row["product"], row["quantity"], row["channel"]) for row in purchases] == [
+        ("牛肉面", "1 份", "美团"), ("柠檬茶", "1 份", "美团"), ("柠檬茶", "1 份", "美团")]
 
 
 def test_more_than_ten_portions_are_accepted_with_four_digit_order_numbers(engine_factory):

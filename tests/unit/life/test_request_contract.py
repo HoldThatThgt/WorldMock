@@ -10,7 +10,7 @@ from worldmock.life.models import (
 )
 
 _MAIN = {"action": "interact", "target": "家", "detail": "测试休息"}
-_SIDE = {"action": "purchase", "target": ["牛肉面"]}
+_SIDE = {"action": "purchase", "target": ["牛肉面"], "prefer": None}
 
 
 @pytest.mark.parametrize("old", ["way", "app", "to", "pay_app", "planned_duration_seconds", "content_id", "items"])
@@ -26,14 +26,15 @@ def test_side_target_takes_at_least_one_name_and_exactly_one_app(count):
     """名称数组不能为空；用内容 app 恰好一项；购买不设上限，同名可以重复。"""
     names = [str(index) for index in range(count)]
     with pytest.raises(ValidationError):
-        StartSideActivityRequest(action="interact", target=names)
+        StartSideActivityRequest(action="interact", target=names, prefer=None)
     if count == 0:
         with pytest.raises(ValidationError):
-            StartSideActivityRequest(action="purchase", target=names)
+            StartSideActivityRequest(action="purchase", target=names, prefer=None)
     else:
-        assert StartSideActivityRequest(action="purchase", target=names).target == names
-        assert StartSideActivityRequest(action="purchase", target=["同一件"] * count).target == ["同一件"] * count
-    assert StartSideActivityRequest(action="interact", target=["哔哩哔哩"]).target == ["哔哩哔哩"]
+        assert StartSideActivityRequest(action="purchase", target=names, prefer=None).target == names
+        assert StartSideActivityRequest(action="purchase", target=["同一件"] * count,
+                                        prefer=None).target == ["同一件"] * count
+    assert StartSideActivityRequest(action="interact", target=["哔哩哔哩"], prefer=None).target == ["哔哩哔哩"]
 
 
 @pytest.mark.parametrize("bad", [None, True, 1, [], {}, "", "  "])

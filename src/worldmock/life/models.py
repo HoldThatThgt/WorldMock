@@ -869,15 +869,21 @@ class StartSideActivityRequest(ToolRequestModel):
     action: Literal[SIDE_ACTIVITY_ACTIONS] = Field(description="做什么：purchase 购买商品，interact 使用内容 app。")
     target: list[Annotated[str, Field(pattern=r"\S")]] = Field(description=(
         "名称数组。purchase 逐份写商品的完整名称，同一个名称写两次就是两份；interact 只写一个内容 app 的完整名称。"))
+    #: 想用来下单的 app 名称原文，必填、没有缺省值；没有想法写 null（模型的工具格式不允许可省略的字段）。
+    prefer: Annotated[str, Field(pattern=r"\S")] | None = Field(
+        description="purchase 写想用来下单的内容 app 的完整名称，没有想法写 null；interact 写 null。")
 
     @model_validator(mode="after")
-    def validate_target_count(self) -> "StartSideActivityRequest":
-        """@brief 名称数组至少一项；用内容 app 时恰好一项；购买不设上限并允许同名重复。每条违背各报一条。"""
-        problems = []
+    def validate_action_arguments(self) -> "StartSideActivityRequest":
+        """@brief 名称数组至少一项；用内容 app 时恰好一项且 prefer 必须为 null；购买不设上限并允许同名重复。
+        每条违背各报一条。"""
+        problems: list[tuple[str, Any, str]] = []
         if not self.target:
             problems.append(("target", self.target, "target requires at least one name"))
         if self.action == "interact" and len(self.target) != 1:
             problems.append(("target", self.target, "target takes exactly one app name when action is interact"))
+        if self.action == "interact" and self.prefer is not None:
+            problems.append(("prefer", self.prefer, "prefer must be null when action is interact"))
         if problems:
             raise _cross_errors(type(self).__name__, problems)
         return self

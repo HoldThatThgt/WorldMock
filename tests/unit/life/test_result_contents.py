@@ -42,7 +42,7 @@ def _layer(details: dict) -> dict:
     result = {"occurred_at": _AT, "status": "completed", "error_code": None, "message": "Activity completed",
               "details": details}
     record = {"occurred_at": _AT, "type": "tool_call", "tool": "start_side_activity",
-              "arguments": {"action": "interact", "target": ["Keep"]}, "result": result}
+              "arguments": {"action": "interact", "target": ["Keep"], "prefer": None}, "result": result}
     return {"layer": "进度层", "session_started_at": _AT, "rejected_today": [], "events": [record]}
 
 

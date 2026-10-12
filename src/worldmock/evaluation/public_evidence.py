@@ -251,7 +251,7 @@ def _world_actions(events: Sequence[Event],
 def _start_shapes(tool_name: str, request: Mapping[str, Any], related: Sequence[Event]) -> tuple[_Action, ...]:
     """@brief 一条开始调用恰好开始一项活动：动作直接读两个开始工具各自的参数，不从名称反解。"""
     main = tool_name == START_TOOLS[0]
-    if set(request) != ({"action", "target", "detail"} if main else {"action", "target"}):
+    if set(request) != ({"action", "target", "detail"} if main else {"action", "target", "prefer"}):
         raise EvaluationError("invalid_input", "Start request arguments are outside the current contract")
     action = request["action"]
     if action not in (MAIN_ACTIVITY_ACTIONS if main else SIDE_ACTIVITY_ACTIONS):

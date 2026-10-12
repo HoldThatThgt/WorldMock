@@ -1,4 +1,4 @@
-"""@brief 把实际动作结果投影成人物可见事实，不公开内部状态或自动渠道。
+"""@brief 把实际动作结果投影成人物可见事实，不公开内部状态；购买写明下单 app 或到店，支付 app 仍不公开。
 
 环境对一条开始请求先后写两条结果，进度层只显示最新的一条（docs/design/06-agent.md「进度、待办与记忆」）：
 受理时的第一条带 planned 与开始的那条内容 content（购买另带报价）；活动终结时的第二条带做过的内容 contents、
@@ -95,9 +95,13 @@ def _activity_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _purchase(order: dict[str, Any], inputs: EnvironmentInputs) -> dict[str, Any]:
-    """@brief 商品、报价或实际付款、冻结送达地点和时刻，不含应用、账户与身份。"""
+    """@brief 商品、份数、渠道、冻结送达地点和时刻、报价或实际付款；写明下单 app 或到店，不含支付 app、账户与身份。
+
+    渠道取自商品履约记录上的下单 app，不取人物写的 prefer：经 app 下单的是它的完整名称，到店购买是「到店」。
+    """
     row = {"product": inputs.catalog.goods[order["goods_id"]].name,
            "quantity": portion_phrase(order["quantity"]),
+           "channel": "到店" if order["app_id"] is None else inputs.catalog.apps[order["app_id"]].name,
            "destination": inputs.catalog.locations[order["destination_id"]].display_name,
            "expected_at": iso_time(order["expected_at"], inputs.config.timezone)}
     row["paid" if order["paid_at"] is not None else "price"] = money_phrase(order["total_price_fen"])

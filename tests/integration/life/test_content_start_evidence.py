@@ -93,7 +93,7 @@ def test_content_platform_returns_same_origin_goods_quotes_and_unavailable_close
     rows = details["goods"]
     assert len({row["name"] for row in rows}) == len(rows)
     supplied = next(row for row in rows if row["name"] == "视频学习书")
-    offer = quote_goods(engine.context.inputs, engine.context.state, 1, "streamer-book")
+    offer = quote_goods(engine.context.inputs, engine.context.state, 1, "streamer-book", None)
     assert supplied == {"name": "视频学习书", "price": "12 元", "delivery_fee": money_phrase(offer.delivery_fee_fen),
                        "expected_at": iso_time(offer.expected_at, engine.context.state.timezone),
                        "available": True, "reason": None}
@@ -141,7 +141,7 @@ def test_current_started_activity_public_result_and_complete_export(engine_facto
         identities = set(catalog.goods_by_app[data["app_id"]])
         identities.update(key for store in catalog.stores_by_app[data["app_id"]]
                           for key in catalog.goods_by_store[store])
-        quotes = {key: quote_goods(inputs, engine.context.state, 1, key) for key in identities}
+        quotes = {key: quote_goods(inputs, engine.context.state, 1, key, None) for key in identities}
         assert details["goods"] == [{"name": catalog.goods[key].name,
             "price": money_phrase(catalog.goods[key].price_fen),
             "delivery_fee": money_phrase(quotes[key].delivery_fee_fen),
