@@ -18,7 +18,7 @@ from worldmock.life.models import (
 class ActivityStartParams:
     """@brief 引擎由已准入的对象生成的参数，不向人物暴露。"""
 
-    #: 活动 data.action 记下的动作，四个生活动作之一。
+    #: 活动 data.action 记下的动作，五个生活动作之一。
     action: str
     #: 引擎已经确定的实际计划时长。
     planned_duration_seconds: int

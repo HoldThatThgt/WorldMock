@@ -103,9 +103,6 @@ _INDEX_CATEGORY = _object({"category": _TEXT, "count": {"type": "string", "patte
 #: 工具层的可调用索引（docs/design/04-simulation-engine.md）：只有名称、品类与计数，不带动作与条件。
 _CALLABLE_INDEX = _object({
     "goods": {"type": "array", "items": _INDEX_CATEGORY},
-    "query_categories": {"type": "array", "items": _object({"category": _TEXT,
-                          "count": {"type": "integer", "minimum": 0},
-                          "examples": {"type": "array", "maxItems": MAX_EXAMPLES, "items": _TEXT}})},
 })
 
 TOOL_LAYER_SCHEMA: dict[str, Any] = {

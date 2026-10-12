@@ -39,7 +39,7 @@ def test_three_legal_batch_shapes_pass(calls):
     """全部是只读查询；恰好一个世界请求；两个开始工具各一次，先后不限。"""
     feedback, offered = _feedback(*calls)
     assert feedback == ""
-    assert offered[:2] == [MAIN_TOOL, SIDE_TOOL] and len(offered) == 11 and "start_activity" not in offered
+    assert offered[:2] == [MAIN_TOOL, SIDE_TOOL] and len(offered) == 10 and "start_activity" not in offered
 
 
 @pytest.mark.parametrize("calls", [
@@ -55,6 +55,27 @@ def test_other_combinations_are_refused_as_one_batch_with_verbatim_text(calls):
     assert item == {"path": ["tool_calls"], "written": [name for name, _ in calls], "error_code": "TOOL_CALL_REQUIRED",
                     "allowed_values": offered, "expected": _REASON,
                     "why": "The call combination violates atomic batch rules.", "candidates": []}
+
+
+@pytest.mark.parametrize("position", [0, 1])
+def test_removed_query_world_next_to_a_valid_call_fails_the_whole_batch(position):
+    """已删除的 query_world 与一条合法的开始请求同批：整批以 TOOL_CALL_REQUIRED 纠错，它不是只读查询，批次形状不合法，
+    另有一条明细指向 query_world 那一条的工具名；允许值是本回合开放的工具（不含 query_world），合法的那一条也不执行。"""
+    removed = ("query_world", {"name": "抖音", "action": None, "category": None, "available_only": False, "offset": 0})
+    calls = [_MAIN]
+    calls.insert(position, removed)
+    feedback, offered = _feedback(*calls)
+    assert feedback != "" and "query_world" not in offered
+    report = feedback.report.payload()
+    assert report["error_code"] == "TOOL_CALL_REQUIRED"
+    assert report["items"] == [{
+        "path": ["tool_calls"], "written": [name for name, _ in calls], "error_code": "TOOL_CALL_REQUIRED",
+        "allowed_values": offered, "expected": _REASON, "why": "The call combination violates atomic batch rules.",
+        "candidates": []}, {
+        "path": ["tool_calls", position, "function", "name"], "written": "query_world",
+        "error_code": "TOOL_CALL_REQUIRED", "allowed_values": offered,
+        "expected": "A tool offered in this round is required.", "why": "The tool is not offered in this round.",
+        "candidates": []}]
 
 
 def test_both_start_calls_are_validated_and_reported_at_their_real_positions():

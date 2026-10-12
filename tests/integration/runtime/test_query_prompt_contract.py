@@ -1,10 +1,9 @@
-"""真实冻结观察的查询、无损分组与完整提示容量合同。"""
+"""真实冻结观察的无损分组与完整提示容量合同。"""
 
 import copy
 import json
 
 import pytest
-from pydantic import ValidationError
 
 from tests.integration.runtime.current_contract_fixtures import inputs
 from tests.life.conftest import advance_until_ready, context, stage_day_plan, travel, use_app
@@ -13,41 +12,6 @@ from worldmock.life import prompt_capacity
 from worldmock.life.activity_control import PHASE_PENDING
 from worldmock.life.prompt_schemas import validate_layer
 from worldmock.life.tool_groups import compact, compact_render, compact_tool_layer, expand_tool_layer
-from worldmock.life.world_query import QueryWorldRequest, query_argument_report, query_world, validate_world_query
-
-
-def query(**values):
-    return QueryWorldRequest(name="家", action=None, category=None, available_only=False, offset=0, **values)
-
-
-def test_real_query_returns_an_intersection_and_allows_the_result_end(engine_factory):
-    engine = engine_factory()
-    observed = engine.observe(context(engine, "read-query"))
-    original = copy.deepcopy(observed)
-    requested = query()
-    assert validate_world_query(observed, requested) is None
-    result = query_world(observed, requested)
-    assert [item["name"] for item in result["matches"]] == ["家"]
-    assert result["total_count"] == 1 and result["next_offset"] is None
-    end = requested.model_copy(update={"offset": result["total_count"]})
-    assert validate_world_query(observed, end) is None
-    assert query_world(observed, end) == {"matches": [], "total_count": 1, "next_offset": None}
-    empty = requested.model_copy(update={"action": "purchase"})
-    assert validate_world_query(observed, empty) is None
-    assert query_world(observed, empty) == {"matches": [], "total_count": 0, "next_offset": None}
-    result["matches"][0]["name"] = "改写结果"
-    assert observed == original
-
-
-def test_query_schema_and_declared_filter_errors_are_reported_together():
-    payload = {"name": "家", "action": "removed-action", "category": "removed-category",
-               "available_only": False, "offset": "zero"}
-    with pytest.raises(ValidationError) as caught:
-        QueryWorldRequest(**payload)
-    report = query_argument_report({}, caught.value, payload)
-    assert report.error_code == "ARGUMENTS_INVALID"
-    assert [item.path for item in report.items] == [("offset",), ("action",), ("category",)]
-    assert all(item.error_code == "ARGUMENTS_INVALID" for item in report.items)
 
 
 def test_actual_active_tools_roundtrip_losslessly_and_repeated_groups_do_not_duplicate_actions(engine_factory):

@@ -141,6 +141,7 @@ class ActivityKind(StrEnum):
     TRAVEL = "travel"
     INTERACT = "interact"
     PURCHASE = "purchase"
+    QUERY = "query"
 
 
 class ActivityStatus(StrEnum):
@@ -626,7 +627,7 @@ def active_activities(state: WorldState, agent_id: int) -> tuple[ActivityState, 
 
 
 def active_side_activities(state: WorldState, agent_id: int) -> tuple[ActivityState, ...]:
-    """@brief 人物进行中的槽位 2 活动：状态为进行中、占槽位 2 的购买或用 app。导航在不在前台只看它。"""
+    """@brief 人物进行中的槽位 2 活动：状态为进行中、占槽位 2 的购买、查询或用 app。导航在不在前台只看它。"""
     return tuple(activity for activity in active_activities(state, agent_id)
                  if "second" in activity.resource_claims)
 

@@ -141,7 +141,7 @@ async def test_a_truncated_turn_is_dropped_and_retried_once_without_thinking(_en
         TruncatedResponse(_SPIRALS[0]), _reply("call-wait", MAIN_TOOL, _WAIT, None, "先歇一会儿。")])
     first, retry = requests
     assert [_is_retry(item) for item in requests] == [False, True]
-    assert _tools(first) == set(REQUEST_MODELS) | {"query_world"} | _MEMORY_TOOLS and _tools(retry) == set(REQUEST_MODELS) - {"recall_task_summary"}
+    assert _tools(first) == set(REQUEST_MODELS) | _MEMORY_TOOLS and _tools(retry) == set(REQUEST_MODELS) - {"recall_task_summary"}
     assert retry["messages"][:2] == first["messages"] and len(retry["messages"]) == 3
     feedback = retry["messages"][2]
     assert feedback["role"] == "user" and json.loads(feedback["content"]) == _TRUNCATION_FEEDBACK
@@ -176,7 +176,7 @@ async def test_only_a_reply_that_ran_out_while_thinking_is_a_truncation(_engine_
     _, requests, _ = await _single(_environment(engine), "not-truncated", [reply, *_wait_reply()])
     assert [_is_retry(item) for item in requests] == [False, False]
     assert json.loads(requests[1]["messages"][-1]["content"])["error_code"] == code
-    assert _tools(requests[1]) == set(REQUEST_MODELS) | {"query_world"} | _MEMORY_TOOLS
+    assert _tools(requests[1]) == set(REQUEST_MODELS) | _MEMORY_TOOLS
     first, answered = _decision_responses(engine, "decision-not-truncated-1")
     assert not first.data["error"].startswith("OUTPUT_TRUNCATED") and answered.data["error"] is None
 
@@ -212,7 +212,7 @@ async def test_a_retry_that_is_truncated_again_is_not_retried_again(_engine_fact
     _, requests, _ = await _single(_environment(engine), "again", responses)
     assert [_is_retry(item) for item in requests] == [False, True, False]
     assert [_corrections(item) for item in requests] == [[], ["OUTPUT_TRUNCATED"], ["OUTPUT_TRUNCATED"]]
-    assert _tools(requests[2]) == set(REQUEST_MODELS) | {"query_world"} | _MEMORY_TOOLS
+    assert _tools(requests[2]) == set(REQUEST_MODELS) | _MEMORY_TOOLS
     assert requests[2]["messages"] == requests[1]["messages"]
 
 
@@ -236,7 +236,7 @@ async def test_a_retry_still_without_a_tool_call_follows_the_turn_budget(_engine
     feedback = [json.loads(item["content"]) for item in requests[3]["messages"]
                 if item["role"] == "user" and item["content"].startswith('{"error_code"')]
     assert feedback[-2]["items"][0]["allowed_values"] != feedback[-1]["items"][0]["allowed_values"]
-    assert _tools(requests[2]) == set(REQUEST_MODELS) | {"query_world"} | _MEMORY_TOOLS and _tools(requests[3]) == set(REQUEST_MODELS) - {"recall_task_summary"}
+    assert _tools(requests[2]) == set(REQUEST_MODELS) | _MEMORY_TOOLS and _tools(requests[3]) == set(REQUEST_MODELS) - {"recall_task_summary"}
     assert [event for event in engine.context.store.read_agent_events("action_requested", 1)
             if event.decision_id == "decision-exhausted-1"] == []
 

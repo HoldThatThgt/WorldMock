@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from worldmock.errors import IntegrityError
 from worldmock.footprints.app_usage import _app_binding
 from worldmock.footprints.purchases import event_orders, orders_by_id
+from worldmock.life.action_contract import APP_BOUND_ACTIONS
 from worldmock.life.models import DeliveryState
 from worldmock.life.order_notices import ORDER_DELIVERED, ORDER_PLACED, ORDER_SHIPPED, shipping_delay_seconds
 from worldmock.life.order_routing import payment_order_key
@@ -54,7 +55,7 @@ def validate_footprint_facts(events: list[dict], activities: list[dict], purchas
 
 
 def _app_invariants(rows: list[dict], activities: dict[str, dict]) -> None:
-    """@brief 所有应用行都来自带真实应用身份的活动、引擎代为使用 app 的出行或购买，或真实推送。"""
+    """@brief 所有应用行都来自带真实应用身份、自带 app 的活动（内容 app 的使用或查询）、引擎代为使用 app 的出行或购买，或真实推送。"""
     for row in rows:
         kind = row["fact_kind"]
         if kind not in _APP_FIELDS or set(row) != _COMMON_APP | _APP_FIELDS[kind]:
@@ -69,7 +70,7 @@ def _app_invariants(rows: list[dict], activities: dict[str, dict]) -> None:
         if kind == "app_use" and activity is not None and activity["activity_type"] in _AUTOMATIC_ACTIVITY_TYPES:
             continue
         binding = None if activity is None else _app_binding(activity)
-        if binding is None or activity["activity_type"] != "interact":
+        if binding is None or activity["activity_type"] not in APP_BOUND_ACTIONS:
             raise IntegrityError("App usage activity has no actual app identity")
         if kind.startswith("push_"):
             continue

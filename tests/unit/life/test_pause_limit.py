@@ -62,9 +62,10 @@ def test_paused_and_ended_interactions_are_not_pausable_however_much_time_is_lef
 
 @pytest.mark.parametrize("action,kind,slot", [("travel", ActivityKind.TRAVEL, "first"),
                                               ("sleep", ActivityKind.SLEEP, "first"),
-                                              ("purchase", ActivityKind.PURCHASE, "second")])
-def test_travel_sleep_and_purchase_are_never_pausable(action, kind, slot):
-    """出行、睡眠和购买不能暂停，拒绝仍是该码的通用说法，与剩余时间无关。"""
+                                              ("purchase", ActivityKind.PURCHASE, "second"),
+                                              ("query", ActivityKind.QUERY, "second")])
+def test_travel_sleep_purchase_and_query_are_never_pausable(action, kind, slot):
+    """出行、睡眠、购买和查询不能暂停，拒绝仍是该码的通用说法，与剩余时间无关。"""
     activity = running(action, kind, slot)
     assert activity.planned_end_at - 100 == 900
     assert activity_control.pausable(occupied(activity), activity) is False

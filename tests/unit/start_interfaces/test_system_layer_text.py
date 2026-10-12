@@ -74,7 +74,7 @@ def test_retired_wording_is_gone_from_the_system_layer_and_tool_descriptions():
                     "内容由环境选择，标题不是动作目标"):
         assert retired not in text
     assert set(TOOL_DESCRIPTIONS) == {
-        "start_main_activity", "start_side_activity", "query_world", "recall_task_summary", "report_status",
+        "start_main_activity", "start_side_activity", "recall_task_summary", "report_status",
         "pause_activity", "conclude_activity", "revise_day_plan", "memory_recent", "memory_search",
         "memory_time_range", "finish"}
 

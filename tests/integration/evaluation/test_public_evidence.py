@@ -181,7 +181,7 @@ def test_retired_activity_kind_is_rejected_before_object_inference(kind):
 
 
 @pytest.mark.parametrize("kind,action", [("interact", "interact"), ("purchase", "purchase"),
-    ("sleep", "sleep"), ("travel", "travel")])
+    ("sleep", "sleep"), ("travel", "travel"), ("query", "query")])
 def test_activity_action_is_taken_directly_from_the_current_closed_contract(kind, action):
     assert worldmock_activity_action(kind, {"action": action}) == action
     with pytest.raises(EvaluationError, match="actual action"):
@@ -271,6 +271,7 @@ def test_public_projection_rejects_start_arguments_outside_the_current_contract(
 
 @pytest.mark.parametrize("tool,request_body", [
     pytest.param(MAIN_TOOL, main_arguments("purchase", "对象"), id="main-purchase"),
+    pytest.param(MAIN_TOOL, main_arguments("query", "柠檬茶"), id="main-query"),
     pytest.param(MAIN_TOOL, main_arguments("walk", "公司", "步行"), id="main-retired-walk"),
     pytest.param(MAIN_TOOL, main_arguments("wait", "自己"), id="main-retired-wait"),
     pytest.param(SIDE_TOOL, side_arguments("sleep", "450"), id="side-sleep"),

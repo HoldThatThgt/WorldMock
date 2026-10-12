@@ -1,15 +1,15 @@
-"""仅四个现行动作可登记为私有绑定的动作行，指名商品绑定只允许实际购买。"""
+"""仅五个现行动作可登记为私有绑定的动作行，指名商品绑定只允许实际购买。"""
 import pytest
 from worldmock.life.action_contract import ACTIVITY_ACTIONS, START_TOOLS, binding_action, start_tool
 from worldmock.life.name_resolution import named_supply_row, sleep_row
 
 
-@pytest.mark.parametrize("action", ["travel", "purchase", "sleep", "interact"])
+@pytest.mark.parametrize("action", ["travel", "purchase", "sleep", "interact", "query"])
 def test_binding_row_carries_action_detail_and_note(action):
     """动作行恒有动作、detail 与不可用备注三个键；detail 是调用里要写的名称。"""
     assert binding_action(action) == {"action": action, "detail": None, "note": None}
     assert binding_action(action, "步行") == {"action": action, "detail": "步行", "note": None}
-    assert set(ACTIVITY_ACTIONS) == {"travel", "purchase", "sleep", "interact"}
+    assert set(ACTIVITY_ACTIONS) == {"travel", "purchase", "sleep", "interact", "query"}
 
 
 @pytest.mark.parametrize("action", ["walk", "drive", "take_taxi", "take_bus", "wait", "do", "travel_to", "call", ""])

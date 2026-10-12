@@ -77,7 +77,6 @@ READONLY_SYSTEM_LAYER: dict[str, Any] = {
 TOOL_DESCRIPTIONS: dict[str, str] = {
     "start_main_activity": "开始一项占槽位 1 的活动：出行、在当前地点做一件事，或睡觉。",
     "start_side_activity": "开始一项占槽位 2 的活动：购买商品，或使用一个内容 app。",
-    "query_world": "按对象名称、具体动作或商品品类查询世界，可只看此刻能做的，按返回的偏移量翻页。",
     "recall_task_summary": "按名称回看一项任务、目标或活动的进展，不改变世界。",
     "report_status": "按活动名写下一两项活动的进展或恢复暂停活动，并写下个人事务的变更。",
     "pause_activity": "按活动名暂停一两项进行中的活动并写下进展与个人事务的变更。",

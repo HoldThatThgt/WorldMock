@@ -154,8 +154,9 @@ def test_travel_burns_energy_by_the_exertion_key_frozen_at_departure(body_inputs
 
 
 def test_activity_met_table_has_walking_and_the_four_exertion_levels_but_no_fixed_vehicles(body_inputs):
-    """身体常量表里出行只剩自带步行的 walking 一个键，驾车、打车、公共交通三行与旧的 walk 键都已删除。"""
+    """身体常量表里出行只剩自带步行的 walking 一个键，驾车、打车、公共交通三行与旧的 walk 键都已删除；查询按自己的
+    query 键取 1.0，恰八项、次序如表。"""
     config, _ = body_inputs
-    assert dict(config.activity_met) == {"sleep": 0.95, "walking": 3.5, "purchase": 1.0, "idle": 1.0, "light": 1.5,
-                                         "moderate": 2.0, "heavy": 5.0}
+    assert list(config.activity_met.items()) == [("sleep", 0.95), ("walking", 3.5), ("purchase", 1.0), ("query", 1.0),
+                                                 ("idle", 1.0), ("light", 1.5), ("moderate", 2.0), ("heavy", 5.0)]
     assert not {"walk", "drive", "take_taxi", "take_bus", "travel"} & set(config.activity_met)

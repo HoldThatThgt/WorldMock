@@ -58,7 +58,6 @@ from worldmock.life.models import (ActionReceipt, ConcludeActivityRequest, REQUE
 from worldmock.life.name_resolution import name_book, near_names, resolve_start
 from worldmock.life.object_labels import resolve_name
 from worldmock.life.prompt_capacity import ProgressBudget, compare_usage, fit_request
-from worldmock.life.world_query import QueryWorldRequest, query_argument_report, query_world, validate_world_query
 
 
 #: 行动阶段思考开关与工具选择（思考模式拒收 required，真实探针见规格）。
@@ -157,16 +156,14 @@ _MEMORY_TOOL_MODELS: dict[str, type[BaseModel]] = {
     "memory_time_range": MemoryTimeRangeRequest,
 }
 
-#: 生活决策的工具面：七个请求工具（REQUEST_MODELS 顺序，两个开始工具在前）、三个记忆查询与 query_world，共十一个；
+#: 生活决策的工具面：七个请求工具（REQUEST_MODELS 顺序，两个开始工具在前）与三个记忆查询，共十个；
 #: 没有 finish。当日计划由零点后台任务生成，不是人物工具（docs/design/04-simulation-engine.md）。
 _TOOL_MODELS: dict[str, type[BaseModel]] = {
     **REQUEST_MODELS,
     **_MEMORY_TOOL_MODELS,
-    "query_world": QueryWorldRequest,
 }
 
-_QUERY_TOOL_MODELS = {"recall_task_summary": REQUEST_MODELS["recall_task_summary"],
-                      "query_world": QueryWorldRequest, **_MEMORY_TOOL_MODELS}
+_QUERY_TOOL_MODELS = {"recall_task_summary": REQUEST_MODELS["recall_task_summary"], **_MEMORY_TOOL_MODELS}
 _WORLD_TOOL_MODELS = {name: model for name, model in REQUEST_MODELS.items() if name != "recall_task_summary"}
 
 _MEMORY_RUNTIME_ACTIONS = {
@@ -322,7 +319,7 @@ class LifeAgent(PersonAgent):
     def build_react_tool_schemas(self, *, readonly: bool) -> list[dict[str, Any]]:
         """@brief 整次运行不变的原生工具；只有本次决策只剩最后一个回合或截断重试时去掉记忆查询工具。
 
-        生活决策为七个请求工具、记忆查询与 query_world（没有 finish），只读问答为记忆查询与 finish；参数不带逐轮名称枚举。
+        生活决策为七个请求工具与三个记忆查询，共十个（没有 finish），只读问答为记忆查询与 finish；参数不带逐轮名称枚举。
         """
         models = self._request_tool_models(readonly)
         self._life_request_models = models
@@ -443,7 +440,6 @@ class LifeAgent(PersonAgent):
 
     def _prepare_life_action_state(self, data: dict[str, Any]) -> None:
         """@brief 从冻结观察组装六层和本地校验所用的私有绑定名称；有续接链时注入本次决策的起始消息。"""
-        self._life_observation = data
         self._prepare_verified_experiences(data)
         self._life_wake_reasons = frozenset(_visible_wake_reasons(data))
         views = _persona_views(data)
@@ -509,8 +505,7 @@ class LifeAgent(PersonAgent):
 
 
     def _decision_error(self, decision: ReactDecision) -> str:
-        """@brief 结构严格类型校验后按冻结观察验证工具的完整语义；查询的请求模型错误与按冻结观察仍可独立判定的筛选错误
-        同批报告。"""
+        """@brief 结构严格类型校验后按冻结观察验证工具的完整语义；本回合没有开放的工具名当场按 TOOL_CALL_REQUIRED 纠错。"""
         model = self._life_request_models.get(decision.action)
         if model is None:
             item = ErrorItem(("tool_calls", 0, "function", "name"), decision.action, "TOOL_CALL_REQUIRED",
@@ -520,13 +515,7 @@ class LifeAgent(PersonAgent):
         try:
             validated = _validate_request(model, decision.args)
         except ValidationError as error:
-            if decision.action == "query_world":
-                report = query_argument_report(self._life_observation, error, decision.args)
-                return host_feedback(report, "Invalid query_world arguments.")
             return argument_feedback(decision.action, error, model, decision.args)
-        if decision.action == "query_world":
-            report = validate_world_query(self._life_observation, validated)
-            return host_feedback(report, report.reason) if report else ""
         return self._prepared_action_error(decision.action, validated)
 
 
@@ -582,9 +571,6 @@ class LifeAgent(PersonAgent):
             if readonly:
                 raise RuntimeError("Life actions are disabled in readonly mode")
             return await self._submit_life_action(action, args)
-        if action == "query_world":
-            data = query_world(self._life_observation, _validate_request(QueryWorldRequest, args))
-            return ReactToolResult(True, json.dumps(data, ensure_ascii=False), data)
         if action == "recall_task_summary":
             if self._env is None:
                 raise RuntimeError("Environment is not initialized")

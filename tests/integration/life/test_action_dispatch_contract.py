@@ -1,4 +1,4 @@
-"""@brief 只读工具误入真实动作派发时立即拒绝，不建立任何世界转换。"""
+"""@brief 只读工具或已删除的工具误入真实动作派发时立即拒绝，不建立任何世界转换。"""
 
 from __future__ import annotations
 
@@ -16,7 +16,8 @@ from worldmock.life.models import PendingAction
     pytest.param("recall_task_summary", {"task_name": "工作：测试任务"}, id="recall_task_summary"),
 ])
 def test_read_only_tools_cannot_enter_action_dispatch(engine_factory, caplog, tool_name, arguments) -> None:
-    """@brief 真实动作派发拒绝只读工具，记录英文错误，内存世界、持久世界与完整事件流均保持原样。"""
+    """@brief 真实动作派发拒绝只读工具与已删除的工具（query_world 已是不认识的工具名），记录英文错误，内存世界、持久世界与完整
+    事件流均保持原样。"""
     engine = engine_factory()
     state = engine.context.state
     store = engine.context.store

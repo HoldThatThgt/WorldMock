@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from worldmock.agents.life_prompt import TOOL_DESCRIPTIONS
 from worldmock.life.action_contract import (
-    ACTIVITY_ACTIONS, MAIN_ACTIVITY_ACTIONS, SIDE_ACTIVITY_ACTIONS, START_TOOLS, activity_slot,
+    ACTIVITY_ACTIONS, APP_BOUND_ACTIONS, MAIN_ACTIVITY_ACTIONS, SIDE_ACTIVITY_ACTIONS, START_TOOLS, activity_slot,
 )
 from worldmock.life.models import (
     REQUEST_MODELS, StartMainActivityRequest, StartSideActivityRequest, deepseek_strict_schema,
@@ -40,8 +40,10 @@ def _report(model, tool: str, arguments) -> list[tuple]:
 
 
 def test_action_closed_sets_and_start_tools_are_declared_once():
-    """动作闭集、两个工具的枚举与工具次序只在动作合同声明，两个开始工具按此顺序排在请求模型最前。"""
-    assert ACTIVITY_ACTIONS == ("travel", "purchase", "sleep", "interact")
+    """动作闭集（新动作加在末尾）、两个工具的枚举、自带 app 的活动与工具次序只在动作合同声明，两个开始工具按此顺序
+    排在请求模型最前。"""
+    assert ACTIVITY_ACTIONS == ("travel", "purchase", "sleep", "interact", "query")
+    assert APP_BOUND_ACTIONS == ("interact", "query")
     assert MAIN_ACTIVITY_ACTIONS == ("travel", "interact", "sleep")
     assert SIDE_ACTIVITY_ACTIONS == ("purchase", "interact")
     assert START_TOOLS == ("start_main_activity", "start_side_activity")
@@ -54,10 +56,12 @@ def test_action_closed_sets_and_start_tools_are_declared_once():
 
 @pytest.mark.parametrize("action,app_id,slot", [
     ("travel", None, "first"), ("sleep", None, "first"), ("interact", None, "first"),
-    ("purchase", None, "second"), ("interact", "bilibili", "second"),
+    ("purchase", None, "second"), ("interact", "bilibili", "second"), ("query", None, "second"),
+    ("query", "meituan", "second"),
 ])
 def test_slot_is_given_by_the_action_and_the_content_app(action, app_id, slot):
-    """出行、睡眠和在地点做事占槽位 1，购买和用内容 app 占槽位 2；出行只有 travel 一个动作。"""
+    """出行、睡眠和在地点做事占槽位 1，购买、查询和用内容 app 占槽位 2，查询不论有没有 app 都占槽位 2；
+    出行只有 travel 一个动作。"""
     assert activity_slot(action, app_id) == slot
 
 

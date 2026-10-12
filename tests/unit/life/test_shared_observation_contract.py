@@ -3,7 +3,6 @@
 from copy import deepcopy
 
 import pytest
-from pydantic import ValidationError
 
 from tests.life.conftest import (
     MAIN_TOOL, SIDE_TOOL, advance_until_ready, conclude_request, context, do_at, errand_add, travel,
@@ -24,7 +23,6 @@ from worldmock.life.settled_text import activity_sentence, experience_sentence, 
 from worldmock.life.tool_groups import compact_tool_layer, expand_tool_layer
 from worldmock.life.tool_layer import Candidate, LayerContext, refusal_for
 from worldmock.life.models import SameMomentStage
-from worldmock.life.world_query import QueryWorldRequest, query_argument_report, validate_world_query
 
 
 def _context(engine):
@@ -76,7 +74,7 @@ def test_only_actual_action_model_requests_start_decision_evidence(payload):
 
 def test_action_model_request_is_recognised_by_the_main_start_tool():
     """行动请求按原生 tools 里的 start_main_activity 识别，与存储侧的判定同义。"""
-    assert is_action_request(_thinking_request("query_world", MAIN_TOOL, SIDE_TOOL)) is True
+    assert is_action_request(_thinking_request("recall_task_summary", MAIN_TOOL, SIDE_TOOL)) is True
     assert is_action_request(_thinking_request(MAIN_TOOL)) is True
 
 
@@ -199,24 +197,6 @@ def test_compact_groups_reject_conflicting_metadata_for_the_same_full_name(engin
     compact["groups"].append(group)
     with pytest.raises(IntegrityError, match="conflicting target metadata"):
         expand_tool_layer(compact)
-
-
-@pytest.mark.parametrize("bad", [{"name": " "}, {"name": None, "action": None, "category": None}])
-def test_query_requires_an_actual_nonblank_filter_and_reports_all_bad_fields(bad):
-    payload = {"name": "家", "action": None, "category": None, "available_only": False, "offset": 0, **bad}
-    with pytest.raises(ValidationError) as caught:
-        QueryWorldRequest(**payload)
-    report = query_argument_report({}, caught.value, payload)
-    assert report.items and report.error_code == "ARGUMENTS_INVALID"
-
-
-def test_query_offset_larger_than_actual_result_reports_the_observed_bound(engine_factory):
-    engine = engine_factory()
-    observed = engine.observe(context(engine, "offset"))
-    query = QueryWorldRequest(name="家", action=None, category=None, available_only=False, offset=999)
-    rejected = validate_world_query(observed, query)
-    assert rejected.items[0].path == ("offset",)
-    assert "0.." in rejected.items[0].expected
 
 
 def test_actual_conclusion_views_update_persona_without_duplicate_memory_prose(engine_factory):

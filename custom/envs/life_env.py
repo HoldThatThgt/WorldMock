@@ -6,6 +6,7 @@ from worldmock.runtime import settle_pending_day_plans
 from custom.agents.life_agent import life_action_tool_names
 from worldmock.environment import load_environment
 
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -18,10 +19,9 @@ from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.life.engine import LifeEngine
 from worldmock.life.guidance import rejection_guidance
 from worldmock.life.models import CounterfactualIntervention, REQUEST_MODELS, RunIdentity
-from worldmock.life.world_query import QueryWorldRequest, query_world, validate_world_query
 from worldmock.status import write_status
 
-#: 稳定工具面（docs/design/06-agent.md「提示与工具」）：环境侧必须恰好受理七个请求工具与 query_world；
+#: 稳定工具面（docs/design/06-agent.md「提示与工具」）：环境侧必须恰好受理七个请求工具；
 #: 零点计划 plan_day 是运行时后台任务，不是人物工具（docs/design/04-simulation-engine.md）。
 _STABLE_TOOL_SURFACE = frozenset(
     {
@@ -32,7 +32,6 @@ _STABLE_TOOL_SURFACE = frozenset(
         "pause_activity",
         "conclude_activity",
         "revise_day_plan",
-        "query_world",
     }
 )
 
@@ -122,7 +121,7 @@ class LifeEnv(EnvBase):
         init 时 fail-closed，而不是运行中 KeyError。
         """
 
-        registered = frozenset(REQUEST_MODELS) | {"query_world"}
+        registered = frozenset(REQUEST_MODELS)
         drift = registered ^ _STABLE_TOOL_SURFACE
         if drift:
             raise ProtocolError(
@@ -152,12 +151,12 @@ class LifeEnv(EnvBase):
         return engine.submit_action(call)
 
     async def read_query(self, context: Any, tool: str, request: Any) -> dict:
-        """@brief 对已冻结观察即时只读派发，不产生世界动作、进度事件或人物记忆。"""
+        """@brief 对已冻结观察即时回答回看任务，不产生世界动作、进度事件或人物记忆；别的工具名一律是协议错误。"""
         engine = self._require_engine()
         engine.decisions.validate_context(context)
         engine.decisions.require_round(context.round_id)
-        expected = QueryWorldRequest if tool == "query_world" else REQUEST_MODELS.get(tool)
-        if tool not in {"query_world", "recall_task_summary"} or type(request) is not expected:
+        if tool != "recall_task_summary" or type(request) is not REQUEST_MODELS["recall_task_summary"]:
+            logging.error("Read query tool and request type do not match: %s", tool)
             raise ProtocolError("Read query tool and request type do not match")
         events = engine.context.store.read_agent_events("observation", context.agent_id)
         rows = [
@@ -168,9 +167,6 @@ class LifeEnv(EnvBase):
         if len(rows) != 1:
             raise ProtocolError("Read query requires one frozen decision observation")
         observed = rows[0].data
-        if tool == "query_world":
-            error = validate_world_query(observed, request)
-            return error.payload() if error else query_world(observed, request)
         try:
             return engine.read_task_summary(context.agent_id, request, observed)
         except BusinessRuleError as error:

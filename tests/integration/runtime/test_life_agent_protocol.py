@@ -65,7 +65,7 @@ _MEMORY_TOOL_NAMES = {
 
 #: 生活决策整次运行都开放的六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）。
 _BASE_ACTION_NAMES = set(REQUEST_MODELS) - {"recall_task_summary"}
-_READ_QUERY_NAMES = _MEMORY_TOOL_NAMES | {"query_world", "recall_task_summary"}
+_READ_QUERY_NAMES = _MEMORY_TOOL_NAMES | {"recall_task_summary"}
 
 #: 真实注册表构造的观察合同冻结块（与引擎 observe 输出同一来源）。
 
@@ -193,7 +193,7 @@ def _layers() -> dict:
     """环境构建的五层与看法偏好：在家停留，暂无活动与计划，本段停留尚无记录。"""
     return {
         "tool_layer": {"layer": "工具层", "targets": copy.deepcopy([_SELF_OBJECT[0], _WORK_OBJECT[0]]),
-                       "callable_index": {"navigation_apps":[],"payment_apps":[],"goods":[],"query_categories":[]}},
+                       "callable_index": {"navigation_apps":[],"payment_apps":[],"goods":[]}},
         "todo_layer": {"layer": "待办层", "paused_activities": [], "errands": [], "day_plan": None},
         "environment_layer": {"layer": "环境层", "observed_at": _NOW_ISO, "body": dict(_BODY),
                               "location": {"session_kind": "stay", "name": "自己家", "place_type": "住宅",
@@ -356,8 +356,8 @@ def test_session_names_are_not_recall_names() -> None:
 
 def test_life_tool_schema_fingerprint_is_the_person_tool_surface_without_the_reflection_tool(monkeypatch) -> None:
     """工具指纹只绑定人物工具面（docs/design/10-runtime.md 「身份与判定」与 6.4：submit_reflection 不属于人物
-    工具面，不进 tool_schema_sha256）：指纹恰为生活决策实际开放的十一个原生工具（请求模型的登记顺序，其后是三个记忆查询与
-    query_world）与注册表摘要组成的规范 JSON 的 SHA-256，其中没有 submit_reflection；就寝反思工具的说明与 Schema 改动
+    工具面，不进 tool_schema_sha256）：指纹恰为生活决策实际开放的十个原生工具（请求模型的登记顺序，其后是三个记忆查询）
+    与注册表摘要组成的规范 JSON 的 SHA-256，其中没有 submit_reflection；就寝反思工具的说明与 Schema 改动
     之后指纹不变。"""
     import hashlib
 
@@ -366,9 +366,9 @@ def test_life_tool_schema_fingerprint_is_the_person_tool_surface_without_the_ref
 
     original = life_tool_schema_sha256()
     offered = _functions(_prepared())
-    assert len(offered) == 11 and set(offered) == _BASE_ACTION_NAMES | _READ_QUERY_NAMES
+    assert len(offered) == 10 and set(offered) == _BASE_ACTION_NAMES | _READ_QUERY_NAMES
     assert "submit_reflection" not in offered
-    order = [*REQUEST_MODELS, "memory_recent", "memory_search", "memory_time_range", "query_world"]
+    order = [*REQUEST_MODELS, "memory_recent", "memory_search", "memory_time_range"]
     assert order[:2] == [MAIN_TOOL, SIDE_TOOL]
     assert sorted(order) == sorted(offered)
     encoded = json.dumps({"tool_schemas": [{"type": "function", "function": offered[name]} for name in order]},
@@ -388,10 +388,10 @@ def test_plan_day_is_no_person_tool_and_revision_carries_remind_time() -> None:
     与 around_time（docs/design/04-simulation-engine.md ）。"""
     from custom.envs.life_env import _STABLE_TOOL_SURFACE
 
-    assert len(_STABLE_TOOL_SURFACE) == 8 and "plan_day" not in _STABLE_TOOL_SURFACE
+    assert len(_STABLE_TOOL_SURFACE) == 7 and "plan_day" not in _STABLE_TOOL_SURFACE
     assert len(REQUEST_MODELS) == 7 and {MAIN_TOOL, SIDE_TOOL} <= _STABLE_TOOL_SURFACE
     assert "start_activity" not in _STABLE_TOOL_SURFACE
-    assert life_action_tool_names() == frozenset(REQUEST_MODELS) | {"query_world"} == _STABLE_TOOL_SURFACE
+    assert life_action_tool_names() == frozenset(REQUEST_MODELS) == _STABLE_TOOL_SURFACE
     waking = _observations()
     waking[0]["data"]["wake_reasons"] = ["run_start", "wake_from_sleep"]
     planned = _observations()

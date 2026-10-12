@@ -14,7 +14,6 @@ from worldmock.life.models import ActivityStatus, SameMomentPresentation
 from worldmock.life.todo_layer import todo_layer, visible_goals
 from worldmock.life.tool_layer import LayerContext, annotated_bindings, tool_layer, with_bindings
 from worldmock.life.travel_methods import travel_methods
-from worldmock.life.world_query import attach_world_query
 
 
 class ObservationBuilder:
@@ -38,7 +37,7 @@ class ObservationBuilder:
         body = self._body(agent)
         memory = memory_layer.memory_view(layer, self.context.store)
         view = progress_layer.progress_view(layer, self.context.store, memory.facts)
-        data = {"agent_id": agent.agent_id, "current_time": self.context.state.current_time,
+        return {"agent_id": agent.agent_id, "current_time": self.context.state.current_time,
                 "location_id": agent.location_id, "home_location_id": self.context.inputs.home_location_id,
                 "body": body, "balance_fen": self.context.state.accounts[agent.balance_account_id],
                 "interaction_bindings": layer.bindings, "catalog_bindings": catalog_bindings,
@@ -51,8 +50,6 @@ class ObservationBuilder:
                 "progress_layer": view.layer, "progress_meta": view.meta,
                 "progress_event_ids": view.event_ids, "known_activity_actions": list(ACTIVITY_ACTIONS),
                 **self._name_bindings(agent, layer.names, memory.note_labels), **self._evidence(agent)}
-        attach_world_query(data, layer)
-        return data
 
     def _location_count(self) -> int:
         """@brief 地点行完整呈现，不参加商品窗口轮转。"""

@@ -22,7 +22,6 @@ from worldmock.footprints.validation import validate_export
 from worldmock.life.readable import duration_phrase, iso_time, money_phrase
 from worldmock.life.purchase_offers import quote_goods
 from worldmock.life.result_projection import public_result
-from worldmock.life.world_query import QueryWorldRequest, query_world
 
 
 def short_window(persona, config):
@@ -267,11 +266,6 @@ def test_clock_in_refusal_repeats_the_tool_layer_reason_and_changes_nothing(
     assert (result.data["same_moment_round"], after.agents[1].same_moment_rounds) == (1, 1)
     assert before.agents[1].same_moment_rounds == 0
     assert not events(engine, "action_accepted") and not events(engine, "activity_progress")
-    # query_world 查到的是同一行
-    queried = query_world(observed, QueryWorldRequest(name="钉钉", action=None, category=None, available_only=False,
-                                                      offset=0))
-    assert [row["actions"] for row in queried["matches"] if row["name"] == "钉钉"] == [
-        [{"action": "interact", "available": False, "reason": reason}]]
 
 
 @pytest.mark.parametrize("when,ended", [((12, 8, 55, 0), (12, 8, 56, 0)), ((12, 9, 59, 59), (12, 10, 0, 59)),

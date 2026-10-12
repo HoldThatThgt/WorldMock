@@ -26,7 +26,7 @@ _LEGACY_ACTIONS = {
     "grocery_purchase": ("purchase", "order", "order"),
     "navigation": ("travel", "travel", "route"),
 }
-#: 结果活动种类只取现行四类，环境动作类别由快照保存。
+#: 结果活动种类只取现行五类，环境动作类别由快照保存。
 #: 活动控制工具 -> 公开交互动词（docs/design/04-simulation-engine.md「动作、名称与并行」），按请求
 #: items[] 逐活动投影。
 _SESSION_CONTROL_TOOLS = {
@@ -491,7 +491,7 @@ def worldmock_activity_action(activity_type: str, data: Any) -> str:
     """@brief 当前活动只读取真实启动动作，退役种类优先拒绝。"""
     if activity_type in {"wait", "action"}:
         raise EvaluationError("invalid_input", "Activity snapshot uses a retired activity kind")
-    if activity_type not in {"sleep", "travel", "interact", "purchase"}:
+    if activity_type not in ACTIVITY_ACTIONS:
         raise EvaluationError("invalid_input", "Activity type is outside the current closed set")
     action = _mapping(data).get("action")
     if action not in ACTIVITY_ACTIONS:

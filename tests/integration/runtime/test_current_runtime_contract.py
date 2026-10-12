@@ -80,20 +80,48 @@ async def test_same_second_continuation_preserves_previous_model_wire(engine_fac
 
 @pytest.mark.asyncio
 async def test_deleted_start_activity_reply_is_refused_as_a_tool_that_is_not_offered(engine_factory):
-    """模型回复里调用已删除的 start_activity：宿主按本回合未提供的工具纠错，明细逐字，允许值是开放的十一个工具。"""
+    """模型回复里调用已删除的 start_activity：宿主按本回合未提供的工具纠错，明细逐字，允许值是开放的十个工具。"""
     engine = engine_factory()
     stage_day_plan(engine, submitted=True)
     _, requests, _, results = await decide(engine, "retired", [
         ToolResponse("start_activity", {"items": [{"action": "interact", "target": "家"}]}),
         ToolResponse(MAIN_TOOL, _REST, "call-valid")])
     offered = [tool["function"]["name"] for tool in requests[0]["tools"]]
-    assert len(offered) == 11 and offered[:2] == [MAIN_TOOL, SIDE_TOOL] and "start_activity" not in offered
+    assert len(offered) == 10 and offered[:2] == [MAIN_TOOL, SIDE_TOOL] and "start_activity" not in offered
     feedback = json.loads(requests[1]["messages"][-1]["content"])
     assert feedback["error_code"] == "TOOL_CALL_REQUIRED"
     assert feedback["items"] == [{
         "path": ["tool_calls", 0, "function", "name"], "written": "start_activity", "error_code": "TOOL_CALL_REQUIRED",
         "allowed_values": offered, "expected": "A tool offered in this round is required.",
         "why": "The tool is not offered in this round.", "candidates": []}]
+    assert results[0].status == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_removed_query_world_reply_is_refused_as_a_tool_that_is_not_offered(engine_factory):
+    """模型凭旧习惯调用已删除的 query_world：宿主沿用未提供工具的纠错，回执逐字；这条调用不登记世界请求，下一回合的
+    合法开始请求照常受理。"""
+    engine = engine_factory()
+    stage_day_plan(engine, submitted=True)
+    _, requests, _, results = await decide(engine, "removed-query", [
+        ToolResponse("query_world", {"name": "抖音", "action": None, "category": None, "available_only": False,
+                                     "offset": 0}),
+        ToolResponse(MAIN_TOOL, _REST, "call-valid")])
+    offered = [tool["function"]["name"] for tool in requests[0]["tools"]]
+    assert offered == ["start_main_activity", "start_side_activity", "report_status", "pause_activity",
+                       "conclude_activity", "revise_day_plan", "recall_task_summary", "memory_recent",
+                       "memory_search", "memory_time_range"]
+    assert json.loads(requests[1]["messages"][-1]["content"]) == {
+        "error_code": "TOOL_CALL_REQUIRED", "reason": "The tool call batch is invalid.",
+        "fix": "Submit one world request, the two start tools together, or only read queries.",
+        "items": [{"path": ["tool_calls", 0, "function", "name"], "written": "query_world",
+                   "error_code": "TOOL_CALL_REQUIRED", "allowed_values": offered,
+                   "expected": "A tool offered in this round is required.",
+                   "why": "The tool is not offered in this round.", "candidates": []}],
+        "unmet": [], "instruction": "No world action was registered. Correct the reported parameters and submit again."}
+    requested = [event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
+                 if event.event_type == "action_requested"]
+    assert [event.data["tool_name"] for event in requested] == [MAIN_TOOL]
     assert results[0].status == "in_progress"
 
 

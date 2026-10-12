@@ -10,7 +10,7 @@ import json
 async def test_native_request_uses_current_location_availability_and_stable_tools(engine_factory, initial, units,
                                                                                  sleepable):
     """当前地点的行只有可点名的事与睡觉（没有出行），别的地点只有各出行方式的行（步行在前，其余按出行方式身份升序）；
-    十一个原生工具的声明不随地点改变。"""
+    十个原生工具的声明不随地点改变。"""
     engine = engine_factory(mutate=lambda persona, config: persona.update(initial_location=initial))
     stage_day_plan(engine)
     observed, [request], _, [result] = await decide(engine, "location", [
@@ -26,7 +26,7 @@ async def test_native_request_uses_current_location_availability_and_stable_tool
         ("travel", method) for method in ("步行", "公共交通", "驾车", "打车")] for target in elsewhere)
     assert all(list(row) == ["action", "detail", "available", "reason", "price", "duration", "quantity", "note"]
                for target in tools["targets"] for row in target["actions"])
-    assert len(request["tools"]) == 11
+    assert len(request["tools"]) == 10
     assert [tool["function"]["name"] for tool in request["tools"][:2]] == [MAIN_TOOL, SIDE_TOOL]
     assert set(request["tools"][0]["function"]["parameters"]["properties"]) == {"action", "target", "detail"}
     assert set(request["tools"][1]["function"]["parameters"]["properties"]) == {"action", "target"}

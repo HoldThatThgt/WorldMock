@@ -273,3 +273,21 @@ def test_actual_progress_segments_exclude_the_paused_gap(evaluation_fixture):
     assert (activity.ended_at - activity.started_at).total_seconds() == 10800
     assert activity.duration_seconds == 7200
     assert activity.action == "interact"
+
+
+@pytest.mark.parametrize("app_id,channel,duration_kind,domains", [
+    ("meituan", "digital_interaction", "world_internet_session", ("internet_use",)),
+    (None, "physical_activity", "world_activity", ()),
+], ids=["with-app", "without-app"])
+def test_query_with_an_app_is_a_digital_interaction_and_without_one_a_physical_activity(
+        evaluation_fixture, app_id, channel, duration_kind, domains):
+    """查询是自带 app 的活动：带 app 的查询那几分钟算在手机上，是数字交互；没有 app 的查询是现实活动。"""
+    scenario = load_scenario(evaluation_fixture.scenario_path)
+    delivery = VerifiedDelivery("world-run", "worldmock:world-run", scenario.window, Path("events"),
+                                Path("activities"), {}, {}, ("world-run",))
+    row, _ = _world_activity("world-run", 1, scenario.window.start + timedelta(hours=9), "query")
+    row["data"] = {"action": "query", "app_id": app_id}
+    activity = _adapt_world_activity(row, 1, delivery, scenario)
+    assert activity.action == "query"
+    assert (activity.channels, activity.duration_kind, activity.official_domains) == ((channel,), duration_kind,
+                                                                                      domains)

@@ -1,7 +1,7 @@
 """@brief 在原生 AS2 生命周期中承载生活环境的只读通道（docs/design/10-runtime.md「原生模型与工具」）。
 
 这是锁定 AS2 提交上的 Life 扩展：不 monkey patch、不改 AS2、不做多版本兼容。两个子类各只新增两个只读方法：
-read_query 回答冻结观察上的只读查询，due_reflection 回答取观察之前该不该先做就寝反思。
+read_query 在冻结观察上回答回看任务，due_reflection 回答取观察之前该不该先做就寝反思。
 运行装配（worldmock.runtime._build_society）以它们建立环境 actor 与代理；装配 AS2 原类时这两个调用到不了环境。
 对 AS2 三个私有成员的依赖是随锁定提交验证的耦合点，升级 fork 时逐项复核：
 1. DirectEnvActor._router：环境 actor 构造时建立的直接路由（LifeEnvActor 的两个方法经它取环境）；
@@ -21,7 +21,7 @@ class LifeEnvActor(DirectEnvActor):
     """@brief 为生活环境提供跨进程只读服务；相对 AS2 的 DirectEnvActor 只新增 read_query 与 due_reflection。"""
 
     async def read_query(self, context: Any, tool: str, request: Any) -> dict:
-        """@brief 将查询交给当前唯一生活环境，不经过世界动作结算。
+        """@brief 将回看任务交给当前唯一生活环境，不经过世界动作结算。
 
         耦合点：DirectEnvActor._router 与 DirectRouter._environment()（AS2 私有成员，随锁定提交验证）。
         工具与请求类型不符、找不到唯一观察由环境以协议违约抛出；回看的业务拒绝是返回值里的错误结构。
@@ -38,7 +38,7 @@ class LifeEnvProxy(EnvRouterProxy):
     due_reflection。"""
 
     async def read_query(self, context: Any, tool: str, request: Any) -> dict:
-        """@brief 等待远端的真实查询结果并返回结果对象，不把对象引用交给调用方。
+        """@brief 等待远端回看任务的真实结果并返回结果对象，不把对象引用交给调用方。
 
         耦合点：EnvRouterProxy._actor（AS2 私有成员，随锁定提交验证）。
         """

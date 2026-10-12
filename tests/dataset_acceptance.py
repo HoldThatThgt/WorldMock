@@ -303,4 +303,18 @@ MUTATIONS = (
     SourceMutation("result_details_schema_refuses_query", "worldmock.life.prompt_schemas::_RESULT_DETAILS",
         '"query": _QUERY,', "",
         ("tests/unit/life/test_result_contents.py::test_result_details_schema_accepts_every_listed_key",)),
+    SourceMutation("read_query_channel_ignores_the_tool_name", "custom.envs.life_env::LifeEnv.read_query",
+        'if tool != "recall_task_summary" or type(request) is not REQUEST_MODELS["recall_task_summary"]:',
+        'if type(request) is not REQUEST_MODELS["recall_task_summary"]:',
+        ("tests/integration/runtime/test_read_query_runtime.py::test_read_query_answers_only_task_recall",)),
+    SourceMutation("query_takes_the_first_slot", "worldmock.life.action_contract::activity_slot",
+        'main = action in ("travel", "sleep")', 'main = action in ("travel", "sleep", "query")',
+        ("tests/unit/agent_protocol/test_start_request_models.py"
+         "::test_slot_is_given_by_the_action_and_the_content_app",)),
+    SourceMutation("query_with_an_app_is_not_a_digital_interaction",
+        "worldmock.evaluation.adapters::_adapt_world_activity",
+        'digital = activity_type in APP_BOUND_ACTIONS and row["data"].get("app_id") is not None',
+        'digital = activity_type == "interact" and row["data"].get("app_id") is not None',
+        ("tests/integration/evaluation/test_adapters.py"
+         "::test_query_with_an_app_is_a_digital_interaction_and_without_one_a_physical_activity",)),
 )

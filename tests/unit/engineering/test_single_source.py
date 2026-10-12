@@ -94,6 +94,7 @@ OWNERS = {'base_models.py': ('StrictModel',
  'life/action_contract.py': ('ACTIVITY_ACTIONS',
                              'MAIN_ACTIVITY_ACTIONS',
                              'SIDE_ACTIVITY_ACTIONS',
+                             'APP_BOUND_ACTIONS',
                              'START_TOOLS',
                              'ACTION_LABELS',
                              'activity_slot',
@@ -187,12 +188,12 @@ def test_production_shared_rules_have_one_owner_and_no_business_clones():
 
 
 def test_observation_offers_only_current_actions_without_retired_resource_gate(engine_factory):
-    """@brief 真实观察只提供四个现行动作，活动工具不附加退役资源门。"""
+    """@brief 真实观察只提供五个现行动作，活动工具不附加退役资源门。"""
     engine = engine_factory()
     from tests.life.conftest import context
 
     data = engine.observe(context(engine, "actions"))
-    assert data["known_activity_actions"] == ["travel", "purchase", "sleep", "interact"]
+    assert data["known_activity_actions"] == ["travel", "purchase", "sleep", "interact", "query"]
     assert not {"affordance_contract", "game_boundary", "energy_projection"} & data.keys()
 
 

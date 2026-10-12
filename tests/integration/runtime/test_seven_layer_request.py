@@ -10,10 +10,14 @@ from worldmock.life.prompt_schemas import validate_layer
 from custom.agents.life_agent import life_tool_schema_sha256
 from worldmock.footprints.models import canonical_json
 
-#: 生活决策的十一个原生工具：七个请求工具（两个开始工具在前）、三个记忆查询与 query_world。
+#: 生活决策的十个原生工具，按计算工具指纹的次序：七个请求工具（两个开始工具在前）与三个记忆查询。
 _NATIVE_TOOLS = ("start_main_activity", "start_side_activity", "recall_task_summary", "report_status",
                  "pause_activity", "conclude_activity", "revise_day_plan", "memory_recent", "memory_search",
-                 "memory_time_range", "query_world")
+                 "memory_time_range")
+#: 每次模型请求的 tools 数组次序：六个世界请求、回看任务与三个记忆查询。
+_REQUEST_ORDER = ("start_main_activity", "start_side_activity", "report_status", "pause_activity",
+                  "conclude_activity", "revise_day_plan", "recall_task_summary", "memory_recent", "memory_search",
+                  "memory_time_range")
 
 
 @pytest.mark.asyncio
@@ -31,8 +35,8 @@ async def test_current_host_request_has_one_system_layer_and_six_user_layers(eng
     from worldmock.life.tool_groups import expand_tool_layer
     assert expand_tool_layer(layers[0]) == observation["tool_layer"]
     assert request["transport_max_retries"] == 3
-    assert len(request["tools"]) == 11
-    assert {row["function"]["name"] for row in request["tools"]} == set(_NATIVE_TOOLS)
+    assert len(request["tools"]) == 10
+    assert tuple(row["function"]["name"] for row in request["tools"]) == _REQUEST_ORDER
     from custom.agents.life_agent import _TOOL_MODELS
     assert tuple(_TOOL_MODELS) == _NATIVE_TOOLS
     schemas = {row["function"]["name"]: row for row in request["tools"]}
@@ -41,12 +45,12 @@ async def test_current_host_request_has_one_system_layer_and_six_user_layers(eng
 
 
 @pytest.mark.parametrize("tool", _NATIVE_TOOLS)
-def test_tool_identity_covers_each_of_the_eleven_native_tool_descriptions(monkeypatch, tool):
-    """工具指纹恰好覆盖十一个原生工具：改动其中任何一个的用途句都改变工具指纹，提示指纹不变；复原后两个指纹都能重算
+def test_tool_identity_covers_each_of_the_ten_native_tool_descriptions(monkeypatch, tool):
+    """工具指纹恰好覆盖十个原生工具：改动其中任何一个的用途句都改变工具指纹，提示指纹不变；复原后两个指纹都能重算
     回原值。"""
     from custom.agents import life_agent
     from worldmock.agents import life_prompt
-    assert len(life_agent._TOOL_MODELS) == 11 and tool in life_agent._TOOL_MODELS
+    assert len(life_agent._TOOL_MODELS) == 10 and tool in life_agent._TOOL_MODELS
     tools, prompt = life_tool_schema_sha256(), life_prompt_sha256()
     assert life_agent.TOOL_DESCRIPTIONS is life_prompt.TOOL_DESCRIPTIONS
     with monkeypatch.context() as patch:
@@ -57,7 +61,7 @@ def test_tool_identity_covers_each_of_the_eleven_native_tool_descriptions(monkey
 
 
 def test_tool_identity_ignores_tools_outside_the_native_surface(monkeypatch):
-    """只读问答的 finish 不在十一个原生工具之内：改它的用途句不改变工具指纹。"""
+    """只读问答的 finish 不在十个原生工具之内：改它的用途句不改变工具指纹。"""
     from worldmock.agents import life_prompt
     assert "finish" in life_prompt.TOOL_DESCRIPTIONS and "finish" not in _NATIVE_TOOLS
     original = life_tool_schema_sha256()
