@@ -4,28 +4,21 @@
 from __future__ import annotations
 
 import json
-from datetime import timedelta
 
 import pytest
 
 from tests.footprints.recording import export_completed
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
 from tests.life.conftest import (
-    SIDE_TOOL, advance_next, advance_until_ready, conclude_request, context, do_at, pause_request, progress_calls,
-    purchase, report_request, side_arguments, stage_day_plan, travel, use_app,
+    SIDE_TOOL, advance_until_ready, conclude_request, do_at, pause_request, progress_calls, purchase, report_request,
+    side_arguments, stage_day_plan, travel, use_app,
 )
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
-from tests.life.environment_runtime import act, act_group, events, finish_activity, settle_decision
-
-
-def _attentive(persona, config):
-    """每五分钟到一次重估间隔：路上和做事中途都有决策机会。"""
-    config["reconsideration_interval_seconds"] = 300
-
-
-def _observe(engine, label: str) -> dict:
-    """人物此刻的一次观察（只读，不登记请求）。"""
-    return engine.observe(context(engine, f"{label}-{engine.context.state.current_time}"))
+from tests.life.environment_runtime import (
+    act, act_group, events, every_five_minutes, finish_activity, observe_only, one_hour_every_five_minutes,
+    until_ended,
+)
+from worldmock.life import sessions
 
 
 def _keep(observed: dict) -> list[dict]:
@@ -39,19 +32,8 @@ def _rest(observed: dict) -> list[dict]:
             if row["arguments"] == {"action": "interact", "target": "家", "detail": "测试休息"}]
 
 
-def _until_ended(engine, activity_id: str) -> None:
-    """推进到这项活动终结，其间的决策机会只播报进行中的活动、给别的已结束活动收尾；不替这项活动收尾。"""
-    while engine.context.state.activities[activity_id].status == "active":
-        if engine.scheduling_state().ready_agent_ids:
-            settle_decision(engine, f"settle-{engine.context.state.current_time}")
-        else:
-            advance_next(engine)
-
-
 def _on_road(engine) -> bool:
     """人物此刻的这一段是一段路。"""
-    from worldmock.life import sessions
-
     return sessions.current_session(engine.context.state, 1).kind == "transit"
 
 
@@ -66,7 +48,7 @@ def _first_result(record: dict) -> None:
     assert result["details"]["content"]["title"] == "测试慢跑" and result["details"]["planned"]
 
 
-def _departed_with_keep(engine_factory, method: str = "步行", mutate=_attentive):
+def _departed_with_keep(engine_factory, method: str = "步行", mutate=every_five_minutes):
     """在家同一次回复里出发去公司并打开 Keep；返回引擎与（出行，Keep）两个开始结果。"""
     engine = engine_factory(mutate=mutate)
     _, (trip, keep) = act_group(engine, "depart", travel("公司", method), use_app("Keep"))
@@ -79,7 +61,7 @@ def test_app_use_started_with_departure_is_recorded_on_the_road(engine_factory):
     第一条，没有 self_note。"""
     engine, _, _ = _departed_with_keep(engine_factory)
     assert advance_until_ready(engine) and _on_road(engine)
-    observed = _observe(engine, "road")
+    observed = observe_only(engine, "road")
     records = _keep(observed)
     assert len(records) == 1, observed["progress_layer"]["events"]
     assert records[0]["arguments"]["action"] == "interact" and "self_note" not in records[0]
@@ -88,14 +70,14 @@ def test_app_use_started_with_departure_is_recorded_on_the_road(engine_factory):
 
 def test_app_use_started_before_departure_is_recorded_on_the_road(engine_factory):
     """出发之前就在用的 app，下一次决策出发：路上的进度层有这条记录，结果是第一条。"""
-    engine = engine_factory(mutate=_attentive)
+    engine = engine_factory(mutate=every_five_minutes)
     _, keep = act(engine, "keep", use_app("Keep"))
     assert keep.status == "in_progress", keep.error_code
     assert advance_until_ready(engine)
     _, trip = act(engine, "leave", travel("公司", "步行"))
     assert trip.status == "in_progress", trip.error_code
     assert advance_until_ready(engine) and _on_road(engine)
-    (record,) = _keep(_observe(engine, "road"))
+    (record,) = _keep(observe_only(engine, "road"))
     _first_result(record)
 
 
@@ -105,10 +87,10 @@ def test_app_use_still_running_on_arrival_is_recorded_in_the_new_stay(engine_fac
     finish_activity(engine, trip, "commute")
     assert engine.context.state.agents[1].location_id == "office" and not _on_road(engine)
     assert engine.context.state.activities[keep.activity_id].status == "active"
-    (record,) = _keep(_observe(engine, "arrived"))
+    (record,) = _keep(observe_only(engine, "arrived"))
     _first_result(record)
-    _until_ended(engine, keep.activity_id)
-    (done,) = _keep(_observe(engine, "done"))
+    until_ended(engine, keep.activity_id)
+    (done,) = _keep(observe_only(engine, "done"))
     assert done["occurred_at"] == record["occurred_at"]
     assert done["result"]["status"] == "completed" and done["result"]["details"] == {"contents": [_RUN_DONE]}
 
@@ -123,16 +105,16 @@ def test_app_use_still_running_after_the_trip_is_ended_midway_is_recorded_in_the
     assert ended.status == "completed", ended.error_code
     assert engine.context.state.agents[1].location_id == "home" and not _on_road(engine)
     assert engine.context.state.activities[keep.activity_id].status == "active"
-    (record,) = _keep(_observe(engine, "back-home"))
+    (record,) = _keep(observe_only(engine, "back-home"))
     _first_result(record)
-    _until_ended(engine, keep.activity_id)
-    (done,) = _keep(_observe(engine, "done"))
+    until_ended(engine, keep.activity_id)
+    (done,) = _keep(observe_only(engine, "done"))
     assert done["result"]["details"] == {"contents": [_RUN_DONE]}
 
 
 def _paused_rest(engine_factory):
     """在家点名「测试休息」，做 5 分钟后暂停；返回引擎、开始结果与活动名。"""
-    engine = engine_factory(mutate=_attentive)
+    engine = engine_factory(mutate=every_five_minutes)
     _, rest = act(engine, "rest", do_at("家", "测试休息"))
     assert rest.status == "in_progress", rest.error_code
     assert advance_until_ready(engine)
@@ -160,13 +142,13 @@ def test_location_activity_resumed_in_a_later_stay_is_recorded_there(engine_fact
     engine, rest, name = _paused_rest(engine_factory)
     _go(engine, "五里公园", "out")
     _go(engine, "家", "back")
-    assert not _rest(_observe(engine, "before-resume"))
+    assert not _rest(observe_only(engine, "before-resume"))
     _, resumed = act(engine, "resume", report_request(name), "report_status")
     assert resumed.status == "completed", resumed.error_code
-    (record,) = _rest(_observe(engine, "resumed"))
+    (record,) = _rest(observe_only(engine, "resumed"))
     assert record["result"]["status"] == "in_progress" and record["result"]["details"]["content"]["title"] == "测试休息"
-    _until_ended(engine, rest.activity_id)
-    (done,) = _rest(_observe(engine, "done"))
+    until_ended(engine, rest.activity_id)
+    (done,) = _rest(observe_only(engine, "done"))
     assert done["result"]["status"] == "completed"
     assert done["result"]["details"]["contents"] == [
         {"title": "测试休息", "summary": "测试休息的测试用合成摘要。", "duration": "约 15 分钟", "finished": True}]
@@ -176,10 +158,10 @@ def test_paused_activity_concluded_elsewhere_is_recorded_where_it_ended(engine_f
     """暂停的地点活动在别处被结束：结束它的那一段里有开始请求的记录，结果是 cancelled 的第二条，带 contents。"""
     engine, rest, name = _paused_rest(engine_factory)
     _go(engine, "五里公园", "out")
-    assert not _rest(_observe(engine, "at-park"))
+    assert not _rest(observe_only(engine, "at-park"))
     _, ended = act(engine, "conclude", conclude_request(name), "conclude_activity")
     assert ended.status == "completed", ended.error_code
-    (record,) = _rest(_observe(engine, "ended"))
+    (record,) = _rest(observe_only(engine, "ended"))
     assert (record["result"]["status"], record["result"]["message"]) == ("cancelled", "Activity cancelled")
     assert record["result"]["details"] == {"contents": [
         {"title": "测试休息", "summary": "测试休息的测试用合成摘要。", "duration": "约 15 分钟", "finished": False}]}
@@ -189,11 +171,11 @@ def test_carried_record_shows_contents_after_finishing_on_the_road(engine_factor
     """步行去公司（约 32 分钟）的路上放完 Keep（20 分钟）：同一条带入的记录从第一条结果换成带 contents 的第二条。"""
     engine, _, keep = _departed_with_keep(engine_factory)
     assert advance_until_ready(engine) and _on_road(engine)
-    (record,) = _keep(_observe(engine, "road"))
+    (record,) = _keep(observe_only(engine, "road"))
     _first_result(record)
-    _until_ended(engine, keep.activity_id)
+    until_ended(engine, keep.activity_id)
     assert _on_road(engine)
-    (done,) = _keep(_observe(engine, "finished-on-road"))
+    (done,) = _keep(observe_only(engine, "finished-on-road"))
     assert (done["occurred_at"], done["arguments"]) == (record["occurred_at"], record["arguments"])
     assert (done["result"]["status"], done["result"]["message"]) == ("completed", "Activity completed")
     assert done["result"]["details"] == {"contents": [_RUN_DONE]}
@@ -210,7 +192,7 @@ def _with_text(response: ToolResponse, text: str) -> ToolResponse:
 async def test_carried_record_has_no_self_note(engine_factory):
     """经真实宿主：一次决策只打开 Keep，回复带正文，这条 action_requested 有自述，出发前的观察里这条记录带 self_note；
     下一次决策出发，路上带入的同一条记录没有 self_note。"""
-    engine = engine_factory(mutate=_attentive)
+    engine = engine_factory(mutate=every_five_minutes)
     stage_day_plan(engine, submitted=True)
     note = "先刷一会儿 Keep。"
     _, _, _, results = await decide(engine, "keep", [_with_text(
@@ -219,23 +201,23 @@ async def test_carried_record_has_no_self_note(engine_factory):
     requested = events(engine, "action_requested")[-1]
     assert requested.action_id == results[0].action_id and requested.data["self_note"] == note
     assert advance_until_ready(engine)
-    (home,) = _keep(_observe(engine, "home"))
+    (home,) = _keep(observe_only(engine, "home"))
     assert home["self_note"] == note
     _, trip = act(engine, "leave", travel("公司", "步行"))
     assert trip.status == "in_progress", trip.error_code
     assert advance_until_ready(engine) and _on_road(engine)
-    (record,) = _keep(_observe(engine, "road"))
+    (record,) = _keep(observe_only(engine, "road"))
     assert "self_note" not in record and record["arguments"] == home["arguments"]
 
 
 def test_departure_and_purchase_records_are_not_carried(engine_factory):
     """出发加快递购买的开始组：路上的进度层没有这两条开始请求的记录；付款后的购买句照旧在记忆层出发地那一段。"""
-    engine = engine_factory(mutate=_attentive)
+    engine = engine_factory(mutate=every_five_minutes)
     _, (trip, bought) = act_group(engine, "depart-and-buy", travel("公司", "步行"), purchase("平台笔记本"))
     assert (trip.status, bought.status) == ("in_progress", "in_progress"), (trip.error_code, bought.error_code)
-    _until_ended(engine, bought.activity_id)
+    until_ended(engine, bought.activity_id)
     assert _on_road(engine) and engine.context.state.activities[bought.activity_id].status == "completed"
-    observed = _observe(engine, "road")
+    observed = observe_only(engine, "road")
     assert not progress_calls(observed, "start_main_activity") and not progress_calls(observed, SIDE_TOOL)
     (home,) = observed["memory_layer"]["earlier_today"]
     assert [line for line in home["settled"] if "买了平台笔记本 1 份" in line], home["settled"]
@@ -247,23 +229,23 @@ def test_paused_activity_is_not_carried_until_resumed(engine_factory, case):
     开始请求的记录离开进度层，暂停请求的记录在，待办层有它；再恢复后记录重新出现。"""
     engine, rest, name = _paused_rest(engine_factory)
     _go(engine, "五里公园", "out")
-    away = _observe(engine, "away")
+    away = observe_only(engine, "away")
     assert not _rest(away) and _paused_rows(away) == [name]
     if case == "paused-in-an-earlier-stay":
         return
     _go(engine, "家", "back")
     _, resumed = act(engine, "resume", report_request(name), "report_status")
     assert resumed.status == "completed", resumed.error_code
-    assert _rest(_observe(engine, "resumed"))
+    assert _rest(observe_only(engine, "resumed"))
     assert advance_until_ready(engine)
     _, paused = act(engine, "pause-again", pause_request(name), "pause_activity")
     assert paused.status == "completed", paused.error_code
-    held = _observe(engine, "held")
+    held = observe_only(engine, "held")
     assert not _rest(held) and _paused_rows(held) == [name]
     assert progress_calls(held, "pause_activity")
     _, again = act(engine, "resume-again", report_request(name), "report_status")
     assert again.status == "completed", again.error_code
-    (record,) = _rest(_observe(engine, "resumed-again"))
+    (record,) = _rest(observe_only(engine, "resumed-again"))
     assert record["result"]["status"] == "in_progress"
 
 
@@ -294,7 +276,7 @@ def test_activity_finishing_at_the_arrival_second_is_told_by_the_memory_layer(en
     assert advance_until_ready(engine)
     assert engine.context.state.agents[1].location_id == "office"
     assert engine.context.state.activities[keep.activity_id].status == "completed"
-    observed = _observe(engine, "arrived")
+    observed = observe_only(engine, "arrived")
     assert not _keep(observed) and not _on_road(engine)
     name = engine.context.state.activities[keep.activity_id].name
     (road,) = observed["memory_layer"]["earlier_today"][-1:]
@@ -308,25 +290,19 @@ def _stored_observation(engine, observed: dict):
                 if event.event_id == observed["observation_event_id"])
 
 
-def _one_hour(persona, config):
-    """一小时的运行，每五分钟到一次重估间隔。"""
-    config["stop_time"] = config["start_time"] + timedelta(hours=1)
-    config["reconsideration_interval_seconds"] = 300
-
-
 def test_carried_record_sources_resolve_and_the_export_certifies(engine_factory, tmp_path):
     """路上观察事件的 progress_event_ids 含带入记录的请求与第一条结果，放完后再含第二条；跑到截止导出，认证通过，
     质量报告没有 invalid_observed_result_reference。"""
-    engine, _, keep = _departed_with_keep(engine_factory, mutate=_one_hour)
+    engine, _, keep = _departed_with_keep(engine_factory, mutate=one_hour_every_five_minutes)
     activity = engine.context.state.activities[keep.activity_id]
     request, first = activity.origin_request_event_id, activity.data["accepted_event_id"]
     assert advance_until_ready(engine) and _on_road(engine)
-    sources = _stored_observation(engine, _observe(engine, "road")).data["progress_event_ids"]
+    sources = _stored_observation(engine, observe_only(engine, "road")).data["progress_event_ids"]
     assert {request, first} <= set(sources)
-    _until_ended(engine, keep.activity_id)
+    until_ended(engine, keep.activity_id)
     second = [row.event_id for row in events(engine, "action_result") if row.action_id == keep.action_id][-1]
     assert second != first
-    sources = _stored_observation(engine, _observe(engine, "finished")).data["progress_event_ids"]
+    sources = _stored_observation(engine, observe_only(engine, "finished")).data["progress_event_ids"]
     assert {request, first, second} <= set(sources)
     directory = tmp_path / "export"
     export_completed(engine, directory)
@@ -343,7 +319,7 @@ def test_carried_record_sorts_first(engine_factory):
     name = engine.context.state.activities[trip.activity_id].name
     _, reported = act(engine, "report", report_request(name), "report_status")
     assert reported.status == "completed", reported.error_code
-    layer = _observe(engine, "road")["progress_layer"]
+    layer = observe_only(engine, "road")["progress_layer"]
     first, second = layer["events"][:2]
     assert first["tool"] == SIDE_TOOL and first["arguments"]["target"] == ["Keep"]
     assert first["occurred_at"] <= layer["session_started_at"] and second["tool"] == "report_status"

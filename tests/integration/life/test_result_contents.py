@@ -3,38 +3,18 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
-
 import pytest
 
 from tests.integration.start_interfaces.test_location_activities import dinner_environment  # noqa: F401
 from tests.life.conftest import (
-    SIDE_TOOL, advance_next, advance_until_ready, conclude_request, context, do_at, pause_request, progress_calls,
-    purchase, travel, use_app,
+    SIDE_TOOL, advance_until_ready, conclude_request, do_at, pause_request, progress_calls, purchase, travel, use_app,
 )
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
-from tests.life.environment_runtime import act, events, finish_activity, reach, run_to_end, settle_decision
+from tests.life.environment_runtime import (
+    act, events, every_five_minutes, finish_activity, observe_only, one_hour, reach, run_to_end, until_ended,
+)
 from worldmock.life.readable import duration_phrase
 from worldmock.life.result_projection import public_result
-
-
-def _attentive(persona, config):
-    """每五分钟到一次重估间隔：人物在一件事做到一半时就有决策机会。"""
-    config["reconsideration_interval_seconds"] = 300
-
-
-def _observe(engine, label: str) -> dict:
-    """人物此刻的一次观察（只读，不登记请求）。"""
-    return engine.observe(context(engine, f"{label}-{engine.context.state.current_time}"))
-
-
-def _until_ended(engine, activity_id: str) -> None:
-    """推进到这项活动终结，其间的决策机会只播报进行中的活动；不替这项活动收尾。"""
-    while engine.context.state.activities[activity_id].status == "active":
-        if engine.scheduling_state().ready_agent_ids:
-            settle_decision(engine, f"settle-{engine.context.state.current_time}")
-        else:
-            advance_next(engine)
 
 
 def _row(title: str, duration: str, finished: bool) -> dict:
@@ -54,12 +34,12 @@ def test_purchase_record_shows_the_latest_result(engine_factory):
     engine = engine_factory()
     _, bought = act(engine, "basket", purchase("薯片", "柠檬茶"))
     assert bought.status == "in_progress", bought.error_code
-    (during,) = progress_calls(_observe(engine, "during"), SIDE_TOOL)
+    (during,) = progress_calls(observe_only(engine, "during"), SIDE_TOOL)
     quoted = during["result"]["details"]["purchases"]
     assert during["result"]["status"] == "in_progress" and quoted
     assert all("price" in row and "paid" not in row for row in quoted)
-    _until_ended(engine, bought.activity_id)
-    (after,) = progress_calls(_observe(engine, "after"), SIDE_TOOL)
+    until_ended(engine, bought.activity_id)
+    (after,) = progress_calls(observe_only(engine, "after"), SIDE_TOOL)
     paid = after["result"]["details"]["purchases"]
     assert after["result"]["status"] == "completed" and after["occurred_at"] == during["occurred_at"]
     assert [row["product"] for row in paid] == [row["product"] for row in quoted]
@@ -72,8 +52,8 @@ def test_finished_app_use_lists_what_was_watched(engine_factory):
     engine = engine_factory()
     _, used = act(engine, "keep", use_app("Keep"))
     assert used.status == "in_progress", used.error_code
-    _until_ended(engine, used.activity_id)
-    (record,) = progress_calls(_observe(engine, "done"), SIDE_TOOL)
+    until_ended(engine, used.activity_id)
+    (record,) = progress_calls(observe_only(engine, "done"), SIDE_TOOL)
     content = engine.context.catalog.contents["c-run"]
     expected = {"contents": [{"title": content.title, "summary": content.summary,
                               "duration": duration_phrase(content.duration_seconds), "finished": True}]}
@@ -82,7 +62,7 @@ def test_finished_app_use_lists_what_was_watched(engine_factory):
     name = engine.context.state.activities[used.activity_id].name
     _, concluded = act(engine, "conclude", conclude_request(name), "conclude_activity")
     assert concluded.status == "completed", concluded.error_code
-    (kept,) = progress_calls(_observe(engine, "concluded"), SIDE_TOOL)
+    (kept,) = progress_calls(observe_only(engine, "concluded"), SIDE_TOOL)
     assert kept == record
 
 
@@ -104,10 +84,10 @@ def test_finished_app_series_lists_every_episode_in_order(engine_factory, drama_
     engine = engine_factory(drama_only_bilibili)
     _, used = act(engine, "drama", use_app("哔哩哔哩"))
     assert used.status == "in_progress", used.error_code
-    _until_ended(engine, used.activity_id)
+    until_ended(engine, used.activity_id)
     done = engine.context.state.activities[used.activity_id]
     assert done.status == "completed" and len(done.data["played"]) == 3
-    (record,) = progress_calls(_observe(engine, "done"), SIDE_TOOL)
+    (record,) = progress_calls(observe_only(engine, "done"), SIDE_TOOL)
     assert record["result"]["details"]["contents"] == [
         _row(f"测试剧集第{number}集", "约 30 分钟", True) for number in ("一", "二", "三")]
 
@@ -115,14 +95,14 @@ def test_finished_app_series_lists_every_episode_in_order(engine_factory, drama_
 def test_ended_activity_lists_finished_items_then_the_unfinished_one(engine_factory, dinner_environment):
     """「工作日晚饭」做到第二集一半时结束：两行，做到头的《备菜》在前、没做到头的《吃饭》在后；第二行的 duration
     是这一集的全长「约 25 分钟」，不是已做的时长。"""
-    engine = engine_factory(environment_root=dinner_environment, mutate=_attentive)
+    engine = engine_factory(environment_root=dinner_environment, mutate=every_five_minutes)
     _, dinner = act(engine, "dinner", do_at("家", "工作日晚饭"))
     start = engine.context.state.current_time
     reach(engine, start + 1800)
     name = engine.context.state.activities[dinner.activity_id].name
     _, ended = act(engine, "stop", conclude_request(name), "conclude_activity")
     assert ended.status == "completed", ended.error_code
-    result = _dinner_record(_observe(engine, "ended"))["result"]
+    result = _dinner_record(observe_only(engine, "ended"))["result"]
     assert (result["status"], result["message"]) == ("cancelled", "Activity cancelled")
     assert result["details"] == {"contents": [_row("备菜", "约 20 分钟", True), _row("吃饭", "约 25 分钟", False)]}
 
@@ -143,7 +123,7 @@ def test_series_ended_at_an_episode_boundary_lists_only_finished_episodes(engine
     assert activity.data["content_id"] == "d-2-eat" and activity.media_position_seconds == 0
     _, ended = act(engine, "stop", conclude_request(activity.name), "conclude_activity")
     assert ended.status == "completed", ended.error_code
-    assert _dinner_record(_observe(engine, "ended"))["result"]["details"] == {
+    assert _dinner_record(observe_only(engine, "ended"))["result"]["details"] == {
         "contents": [_row("备菜", "约 20 分钟", True)]}
     progress = engine.context.state.agents[1].content_progress
     assert {key: (row.position_seconds, row.completed_rounds) for key, row in progress.items()} == {
@@ -152,7 +132,7 @@ def test_series_ended_at_an_episode_boundary_lists_only_finished_episodes(engine
 
 def test_paused_then_ended_activity_lists_what_was_done_before_the_pause(engine_factory):
     """「测试休息」做 5 分钟后暂停，做完另一件事后再结束它：一行《测试休息》，finished 为假。"""
-    engine = engine_factory(mutate=_attentive)
+    engine = engine_factory(mutate=every_five_minutes)
     _, rest = act(engine, "rest", do_at("家", "测试休息"))
     assert advance_until_ready(engine)
     name = engine.context.state.activities[rest.activity_id].name
@@ -162,15 +142,10 @@ def test_paused_then_ended_activity_lists_what_was_done_before_the_pause(engine_
     finish_activity(engine, chat, "chat")
     _, ended = act(engine, "stop", conclude_request(name), "conclude_activity")
     assert ended.status == "completed", ended.error_code
-    (record,) = [row for row in progress_calls(_observe(engine, "ended"), "start_main_activity")
+    (record,) = [row for row in progress_calls(observe_only(engine, "ended"), "start_main_activity")
                  if row["arguments"]["detail"] == "测试休息"]
     assert record["result"]["status"] == "cancelled"
     assert record["result"]["details"] == {"contents": [_row("测试休息", "约 15 分钟", False)]}
-
-
-def _one_hour(persona, config):
-    """一小时的运行（运行窗口必须落在整点上）。"""
-    config["stop_time"] = config["start_time"] + timedelta(hours=1)
 
 
 def _second_results(engine, action_id: str) -> list:
@@ -182,7 +157,7 @@ def _second_results(engine, action_id: str) -> list:
 def test_activity_cut_off_at_run_end_lists_what_was_done(engine_factory):
     """在公司做九小时的「季度销售数据整理」，一小时的运行跑到截止：对落库的第二条 action_result 投影，状态 cancelled、
     Activity truncated at experiment end，contents 列出做到一半的这一条。"""
-    engine = engine_factory(mutate=_one_hour)
+    engine = engine_factory(mutate=one_hour)
     _, trip = act(engine, "commute", travel("公司", "驾车"))
     finish_activity(engine, trip, "commute")
     _, work = act(engine, "work", do_at("公司", "季度销售数据整理"))
@@ -199,7 +174,7 @@ def test_terminal_result_event_carries_no_contents_of_its_own(engine_factory):
     做投影得到 contents。"""
     engine = engine_factory()
     _, used = act(engine, "keep", use_app("Keep"))
-    _until_ended(engine, used.activity_id)
+    until_ended(engine, used.activity_id)
     (terminal,) = _second_results(engine, used.action_id)
     assert set(terminal.data["data"]) == {"activity", "orders"} and "contents" not in terminal.data
     details = public_result(terminal.data, engine.context.inputs)["details"]

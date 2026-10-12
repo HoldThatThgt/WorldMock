@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from datetime import timedelta
 
 import pytest
 
@@ -14,7 +13,9 @@ from tests.life.conftest import (
 )
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.footprints.recording import export_completed
-from tests.life.environment_runtime import act, act_group, events, finish_activity, reach, run_to_end
+from tests.life.environment_runtime import (
+    act, act_group, events, finish_activity, one_hour, one_hour_every_five_minutes, reach, run_to_end,
+)
 from worldmock.life.models import StartMainActivityRequest
 from worldmock.life.prompt_schemas import validate_layer
 from worldmock.life.randomness import random_stream
@@ -456,14 +457,9 @@ def test_concluding_a_finished_activity_does_not_add_a_round(engine_factory):
     assert (progress.position_seconds, progress.completed_rounds) == (0.0, 1)
 
 
-def _one_hour(persona, config):
-    """运行只有一小时（运行窗口必须落在整点上）。"""
-    config["stop_time"] = config["start_time"] + timedelta(hours=1)
-
-
 def test_run_cut_off_keeps_location_progress(engine_factory):
     """运行截止时做到一半的地点活动被截断：共享进度原样留着，位置是做到的秒数、轮数 0。"""
-    engine = engine_factory(mutate=_one_hour)
+    engine = engine_factory(mutate=one_hour)
     _, trip = act(engine, "commute", travel("公司", "驾车"))
     finish_activity(engine, trip, "commute")
     _, work = act(engine, "work", do_at("公司", "季度销售数据整理"))
@@ -532,16 +528,10 @@ def test_long_office_content_concluded_midway_starts_again_at_full_length(engine
     assert restarted.data["start_position_seconds"] == 0.0 and restarted.planned_duration_seconds == 32400
 
 
-def _short_and_attentive(persona, config):
-    """一小时的运行，每五分钟到一次重估间隔。"""
-    config["stop_time"] = config["start_time"] + timedelta(hours=1)
-    config["reconsideration_interval_seconds"] = 300
-
-
 def test_export_certifies_a_run_with_a_concluded_location_activity(engine_factory, tmp_path):
     """结束地点活动、再点名、跑到截止：检查点、导出与认证通过；再点名之后的进度事件算重复，content_contact 的
     repeat_watch 不小于 1。"""
-    engine, rest = _resting_five_minutes(engine_factory, _short_and_attentive)
+    engine, rest = _resting_five_minutes(engine_factory, one_hour_every_five_minutes)
     name = engine.context.state.activities[rest.activity_id].name
     _, ended = act(engine, "stop", conclude_request(name), "conclude_activity")
     assert ended.status == "completed", ended.error_code

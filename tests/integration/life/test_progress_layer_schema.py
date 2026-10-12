@@ -6,20 +6,15 @@ from __future__ import annotations
 import pytest
 
 from tests.life.conftest import (
-    SIDE_TOOL, advance_next, advance_until_ready, conclude_request, context, do_at, progress_calls, travel, use_app,
+    SIDE_TOOL, advance_until_ready, conclude_request, context, do_at, progress_calls, travel, use_app,
 )
-from tests.life.environment_runtime import act, act_group, settle_decision
+from tests.life.environment_runtime import act, act_group, every_five_minutes, until_ended
 from worldmock.life.prompt_schemas import validate_layer
-
-
-def _attentive(persona, config):
-    """每五分钟到一次重估间隔：人物在一件事做到一半时就有决策机会。"""
-    config["reconsideration_interval_seconds"] = 300
 
 
 def _location_activity_in_progress(engine_factory) -> dict:
     """在地点做事进行中：点名「测试休息」，第一次重估时观察；这条请求的结果是带 content 的第一条。"""
-    engine = engine_factory(mutate=_attentive)
+    engine = engine_factory(mutate=every_five_minutes)
     act(engine, "named", do_at("家", "测试休息"))
     assert advance_until_ready(engine)
     observed = engine.observe(context(engine, "during"))
@@ -28,20 +23,11 @@ def _location_activity_in_progress(engine_factory) -> dict:
     return observed
 
 
-def _until_ended(engine, activity_id: str) -> None:
-    """推进到这项活动终结，其间的决策机会只播报进行中的活动；不替这项活动收尾。"""
-    while engine.context.state.activities[activity_id].status == "active":
-        if engine.scheduling_state().ready_agent_ids:
-            settle_decision(engine, f"settle-{engine.context.state.current_time}")
-        else:
-            advance_next(engine)
-
-
 def _location_activity_finished(engine_factory) -> dict:
     """在地点做事做完：「测试休息」放完后观察；这条请求的结果是带 contents 的第二条。"""
     engine = engine_factory()
     _, rest = act(engine, "named", do_at("家", "测试休息"))
-    _until_ended(engine, rest.activity_id)
+    until_ended(engine, rest.activity_id)
     observed = engine.observe(context(engine, "done"))
     result = progress_calls(observed, "start_main_activity")[0]["result"]
     assert result["status"] == "completed" and "contents" in result["details"]
@@ -52,7 +38,7 @@ def _app_use_finished(engine_factory) -> dict:
     """用内容 app 做完：Keep 放完后观察；这条请求的结果是带 contents 的第二条。"""
     engine = engine_factory()
     _, used = act(engine, "keep", use_app("Keep"))
-    _until_ended(engine, used.activity_id)
+    until_ended(engine, used.activity_id)
     observed = engine.observe(context(engine, "done"))
     result = progress_calls(observed, SIDE_TOOL)[0]["result"]
     assert result["status"] == "completed" and "contents" in result["details"]
@@ -61,7 +47,7 @@ def _app_use_finished(engine_factory) -> dict:
 
 def _location_activity_ended_early(engine_factory) -> dict:
     """在地点做事被提前结束：「测试休息」做 5 分钟后用 conclude_activity 结束，观察里有 cancelled 的第二条结果与收尾记录。"""
-    engine = engine_factory(mutate=_attentive)
+    engine = engine_factory(mutate=every_five_minutes)
     _, rest = act(engine, "named", do_at("家", "测试休息"))
     assert advance_until_ready(engine)
     name = engine.context.state.activities[rest.activity_id].name
@@ -76,9 +62,9 @@ def _location_activity_ended_early(engine_factory) -> dict:
 def _carried_record_finished(engine_factory) -> dict:
     """带入的记录（活动已做完）：出发步行去公司并打开 Keep，Keep 在路上放完后观察；路上带入的记录是带 contents 的
     第二条。"""
-    engine = engine_factory(mutate=_attentive)
+    engine = engine_factory(mutate=every_five_minutes)
     _, (_, used) = act_group(engine, "depart", travel("公司", "步行"), use_app("Keep"))
-    _until_ended(engine, used.activity_id)
+    until_ended(engine, used.activity_id)
     observed = engine.observe(context(engine, "road"))
     (record,) = progress_calls(observed, SIDE_TOOL)
     assert record["result"]["status"] == "completed" and "contents" in record["result"]["details"]
