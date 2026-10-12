@@ -142,7 +142,7 @@ def test_start_tools_declare_the_model_schema_and_take_readable_frozen_names() -
         [item] = _host_error(tool, arguments).report.items
         assert (item.error_code, item.path[4:], item.written) == ("ACTION_NOT_OFFERED", ("action",), arguments["action"])
         assert item.allowed_values == offered
-    for tool, allowed in ((MAIN_TOOL, ("travel", "interact", "sleep")), (SIDE_TOOL, ("purchase", "interact"))):
+    for tool, allowed in ((MAIN_TOOL, ("travel", "interact", "sleep")), (SIDE_TOOL, ("purchase", "interact", "query"))):
         valid = _WAIT_CHOICE if tool == MAIN_TOOL else _WORK_CHOICE
         for action in ("wait", "walk", "invented_action"):
             [item] = _host_error(tool, {**valid, "action": action}).report.items

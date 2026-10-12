@@ -27,9 +27,12 @@ _SIDE_VALID = (
     {"action": "purchase", "target": ["牛肉面", "柠檬茶", "柠檬茶"], "prefer": None},
     {"action": "purchase", "target": ["冰美式咖啡"], "prefer": "瑞幸咖啡"},
     {"action": "interact", "target": ["哔哩哔哩"], "prefer": None},
+    {"action": "query", "target": ["食品", "柠檬茶"], "prefer": "美团"},
+    {"action": "query", "target": ["零食"], "prefer": None},
 )
 #: 副工具 prefer 字段的说明原文。
-_PREFER_DESCRIPTION = "purchase 写想用来下单的内容 app 的完整名称，没有想法写 null；interact 写 null。"
+_PREFER_DESCRIPTION = ("purchase 写想用来下单的内容 app 的完整名称，query 写想在其中查询的内容 app 的完整名称，"
+                       "没有想法写 null；interact 写 null。")
 
 
 def _report(model, tool: str, arguments) -> list[tuple]:
@@ -48,7 +51,7 @@ def test_action_closed_sets_and_start_tools_are_declared_once():
     assert ACTIVITY_ACTIONS == ("travel", "purchase", "sleep", "interact", "query")
     assert APP_BOUND_ACTIONS == ("interact", "query")
     assert MAIN_ACTIVITY_ACTIONS == ("travel", "interact", "sleep")
-    assert SIDE_ACTIVITY_ACTIONS == ("purchase", "interact")
+    assert SIDE_ACTIVITY_ACTIONS == ("purchase", "interact", "query")
     assert START_TOOLS == ("start_main_activity", "start_side_activity")
     assert list(REQUEST_MODELS) == [*START_TOOLS, "recall_task_summary", "report_status", "pause_activity",
                                     "conclude_activity", "revise_day_plan"]
@@ -83,11 +86,13 @@ def test_main_request_accepts_the_three_declared_shapes(arguments):
 
 @pytest.mark.parametrize("arguments", _SIDE_VALID)
 def test_side_request_accepts_arrays_and_repeated_names(arguments):
-    """购买不设上限并允许同名重复：同一个名称写两次就是两份；prefer 写名称和写 null 都通过，原文照存。"""
+    """购买与查询不设上限并允许同名重复：同一个名称写两次就是两份；prefer 写名称和写 null 都通过，原文照存。"""
     request = StartSideActivityRequest.model_validate(arguments)
     assert request.model_dump(mode="json") == arguments
     many = {"action": "purchase", "target": ["薯片"] * 12, "prefer": None}
     assert StartSideActivityRequest.model_validate(many).target == ["薯片"] * 12
+    queried = {"action": "query", "target": ["零食", "薯片", "零食"] * 7, "prefer": None}
+    assert len(StartSideActivityRequest.model_validate(queried).target) == 21
 
 
 def test_both_models_generate_closed_strict_schemas_with_verbatim_descriptions():
@@ -103,7 +108,7 @@ def test_both_models_generate_closed_strict_schemas_with_verbatim_descriptions()
     assert main["properties"]["target"]["type"] == "string" and main["properties"]["target"]["pattern"] == r"\S"
     assert main["properties"]["detail"]["anyOf"] == [{"pattern": r"\S", "type": "string"}, {"type": "null"}]
     assert list(side["properties"]) == side["required"] == ["action", "target", "prefer"]
-    assert side["properties"]["action"]["enum"] == ["purchase", "interact"]
+    assert side["properties"]["action"]["enum"] == ["purchase", "interact", "query"]
     assert side["properties"]["target"]["type"] == "array"
     assert side["properties"]["target"]["items"] == {"pattern": r"\S", "type": "string"}
     assert side["properties"]["prefer"]["anyOf"] == [{"pattern": r"\S", "type": "string"}, {"type": "null"}]
@@ -116,9 +121,10 @@ def test_both_models_generate_closed_strict_schemas_with_verbatim_descriptions()
     assert main["properties"]["detail"]["description"] == (
         "travel 写出行方式的名称，照工具层该目的地下列出的写；interact 写要做的那件事的名称，"
         "照工具层当前地点下列出的写；sleep 写 null。")
-    assert side["properties"]["action"]["description"] == "做什么：purchase 购买商品，interact 使用内容 app。"
+    assert side["properties"]["action"]["description"] == "做什么：purchase 购买商品，interact 使用内容 app，query 查询商品。"
     assert side["properties"]["target"]["description"] == (
-        "名称数组。purchase 逐份写商品的完整名称，同一个名称写两次就是两份；interact 只写一个内容 app 的完整名称。")
+        "名称数组。purchase 逐份写商品的完整名称，同一个名称写两次就是两份；interact 只写一个内容 app 的完整名称；"
+        "query 写商品的完整名称或商品类别的名称。")
     assert side["properties"]["prefer"]["description"] == _PREFER_DESCRIPTION
     for arguments in _MAIN_VALID:
         assert list(Draft202012Validator(main).iter_errors(arguments)) == []
@@ -150,7 +156,7 @@ def _allowed(model, field: str) -> tuple:
 
 @pytest.mark.parametrize("model,tool,valid,allowed", [
     (StartMainActivityRequest, "start_main_activity", _MAIN_VALID[0], ("travel", "interact", "sleep")),
-    (StartSideActivityRequest, "start_side_activity", _SIDE_VALID[0], ("purchase", "interact")),
+    (StartSideActivityRequest, "start_side_activity", _SIDE_VALID[0], ("purchase", "interact", "query")),
 ])
 @pytest.mark.parametrize("action", ["walk", "drive", "take_taxi", "take_bus", "Travel", "wait"])
 def test_action_outside_the_enum_is_refused_with_all_allowed_values(model, tool, valid, allowed, action):
@@ -183,6 +189,8 @@ def test_main_cross_constraints_report_one_item_per_violation(arguments, expecte
 @pytest.mark.parametrize("arguments,expected", [
     ({"action": "purchase", "target": [], "prefer": None},
      [(("target",), [], (), "target requires at least one name")]),
+    ({"action": "query", "target": [], "prefer": "美团"},
+     [(("target",), [], (), "target requires at least one name")]),
     ({"action": "interact", "target": [], "prefer": None},
      [(("target",), [], (), "target requires at least one name"),
       (("target",), [], (), "target takes exactly one app name when action is interact")]),
@@ -196,7 +204,8 @@ def test_main_cross_constraints_report_one_item_per_violation(arguments, expecte
      [(("target", 1), 2, (), "A JSON string is required.")]),
 ])
 def test_side_target_is_always_a_non_empty_array_and_one_app(arguments, expected):
-    """名称数组至少一项；用内容 app 时恰好一项；项数由本地校验执行，严格 Schema 不带长度约束。"""
+    """名称数组至少一项，查询的空数组同样定位到 target；用内容 app 时恰好一项；项数由本地校验执行，严格 Schema
+    不带长度约束。"""
     assert _report(StartSideActivityRequest, "start_side_activity", arguments) == expected
     schema = deepseek_strict_schema(StartSideActivityRequest)
     assert "minItems" not in json.dumps(schema) and "maxItems" not in json.dumps(schema)

@@ -28,7 +28,7 @@ async def test_real_agent_registers_current_action_and_persists_complete_wire(en
     assert schemas[MAIN_TOOL]["required"] == list(schemas[MAIN_TOOL]["properties"]) == ["action", "target", "detail"]
     assert schemas[MAIN_TOOL]["properties"]["action"]["enum"] == ["travel", "interact", "sleep"]
     assert schemas[SIDE_TOOL]["required"] == list(schemas[SIDE_TOOL]["properties"]) == ["action", "target", "prefer"]
-    assert schemas[SIDE_TOOL]["properties"]["action"]["enum"] == ["purchase", "interact"]
+    assert schemas[SIDE_TOOL]["properties"]["action"]["enum"] == ["purchase", "interact", "query"]
     assert schemas[SIDE_TOOL]["properties"]["target"]["type"] == "array"
     assert set(observed["environment_layer"]["body"]) == {"appetite", "sleepiness", "relaxation", "social"}
     events = engine.context.store.read_events(engine.context.store.last_event_seq)

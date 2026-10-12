@@ -64,7 +64,7 @@ def test_action_contract_and_request_shapes():
     """五个动作分属两个开始工具；请求只带声明的键，所写名称原样保留。"""
     assert ACTIVITY_ACTIONS == ("travel", "purchase", "sleep", "interact", "query")
     assert MAIN_ACTIVITY_ACTIONS == ("travel", "interact", "sleep")
-    assert SIDE_ACTIVITY_ACTIONS == ("purchase", "interact")
+    assert SIDE_ACTIVITY_ACTIONS == ("purchase", "interact", "query")
     main = StartMainActivityRequest.model_validate({"action": "travel", "target": " Ｈｏｍｅ ", "detail": "步行"})
     assert main.model_dump() == {"action": "travel", "target": " Ｈｏｍｅ ", "detail": "步行"}
     assert StartSideActivityRequest.model_validate(_SIDE_PURCHASE).model_dump() == _SIDE_PURCHASE

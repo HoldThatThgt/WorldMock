@@ -298,7 +298,8 @@ def test_public_projection_rejects_start_arguments_outside_the_current_contract(
     pytest.param(SIDE_TOOL, side_arguments("drive", "公司"), id="side-retired-drive"),
 ])
 def test_public_projection_rejects_start_action_outside_the_tool_closed_set(tool, request_body):
-    """动作只认各工具自己的枚举：主工具是 travel、interact、sleep，副工具是 purchase、interact；旧的四个出行动作不认。"""
+    """动作只认各工具自己的枚举：主工具是 travel、interact、sleep，副工具是 purchase、interact、query；主工具写 query
+    与旧的四个出行动作都不认。"""
     row = _public_event(1, "action_requested", {"tool_name": tool, "request": request_body}, "invalid-action")
     with pytest.raises(EvaluationError, match="^Start request action is outside the current closed set$") as error:
         worldmock_public_evidence([parse_world_event(row)], [])

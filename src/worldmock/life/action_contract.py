@@ -7,7 +7,7 @@ ACTIVITY_ACTIONS = ("travel", "purchase", "sleep", "interact", "query")
 #: start_main_activity 的 action 枚举，开始占槽位 1 的活动。
 MAIN_ACTIVITY_ACTIONS = ("travel", "interact", "sleep")
 #: start_side_activity 的 action 枚举，开始占槽位 2 的活动。
-SIDE_ACTIVITY_ACTIONS = ("purchase", "interact")
+SIDE_ACTIVITY_ACTIONS = ("purchase", "interact", "query")
 #: 自带 app 的活动：私有数据里有 app_id 的活动（人物点名使用的内容 app 与查询所在的 app）。
 APP_BOUND_ACTIONS = ("interact", "query")
 #: 两个开始工具，按此顺序进入 REQUEST_MODELS。

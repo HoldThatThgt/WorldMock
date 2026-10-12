@@ -4,9 +4,11 @@
 不指路任何观察字段（名称一律取自工具层与待办层，参数不带逐轮枚举）。参数 Schema 里的说明同样只写用途：不带开发文档、
 规则、错误码与数量上限的说法（上限由 Schema 与本地校验执行），参数对象本身不写说明（用途只在工具 description）。
 
-两个开始工具的用途句与字段说明逐字出自规格（docs/dev/environment-contract-revision/SPEC-environment-contract-revision.md
-「活动接口与槽位」）：字段说明逐个写出该工具 action 的取值（主工具另写 null），副工具写「内容 app」，副工具的 target
-先用一句说明它是名称数组。门禁只对这几处放行这几个词与这一句，其余说明照旧不得出现拉丁字母单词、只写一句。
+两个开始工具的用途句与字段说明逐字出自规格（docs/dev/first-real-day-run/spec/10-persona-rules.md「工具用途句」
+「副工具三个参数的字段说明」）：字段说明逐个写出该工具 action 的取值（主工具是 travel、interact、sleep，副工具是
+purchase、interact、query），主工具另写 null，副工具另写「内容 app」与 prefer 要写的 null，副工具的 target 先用
+一句说明它是名称数组。放行的动作取值读两个动作常量，不放 prefer、apps 这类键名。门禁只对这几处放行这几个词与这一句，
+其余说明照旧不得出现拉丁字母单词、只写一句。
 """
 
 from __future__ import annotations
@@ -39,8 +41,8 @@ _PARAMETER_MODELS = {**REQUEST_MODELS, "memory_recent": MemoryRecentRequest, "me
 MAIN_TOOL, SIDE_TOOL = START_TOOLS
 #: 用途句里放行的拉丁字母单词：只有副工具写「内容 app」。
 _PURPOSE_WORDS = {SIDE_TOOL: frozenset({"app"})}
-#: 字段说明里放行的拉丁字母单词：该工具 action 的取值，主工具另有 detail 要写的 null，副工具另有「内容 app」与
-#: prefer 要写的 null。不放 prefer 这类键名。
+#: 字段说明里放行的拉丁字母单词：该工具 action 的取值（副工具是 purchase、interact、query），主工具另有 detail 要写的
+#: null，副工具另有「内容 app」与 prefer 要写的 null。不放 prefer、apps 这类键名。
 _FIELD_WORDS = {MAIN_TOOL: frozenset({*MAIN_ACTIVITY_ACTIONS, "null"}),
                 SIDE_TOOL: frozenset({*SIDE_ACTIVITY_ACTIONS, "app", "null"})}
 #: 字段说明的句数：都是一句，只有副工具的 target 先用一句说明它是名称数组。

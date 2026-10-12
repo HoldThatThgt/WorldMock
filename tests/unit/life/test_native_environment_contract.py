@@ -68,7 +68,7 @@ def test_request_schema_closes_the_action_set_of_each_start_tool():
     main = StartMainActivityRequest.model_json_schema()["properties"]["action"]
     side = StartSideActivityRequest.model_json_schema()["properties"]["action"]
     assert (main["enum"], main["type"]) == (["travel", "interact", "sleep"], "string")
-    assert (side["enum"], side["type"]) == (["purchase", "interact"], "string")
+    assert (side["enum"], side["type"]) == (["purchase", "interact", "query"], "string")
     with pytest.raises(ValidationError):
         StartMainActivityRequest.model_validate({"action": "purchase", "target": "家", "detail": None})
     with pytest.raises(ValidationError):
