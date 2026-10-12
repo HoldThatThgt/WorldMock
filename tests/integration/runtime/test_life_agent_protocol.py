@@ -681,9 +681,9 @@ class _MultipleModelResponse:
 
 
 def _assert_action_wire(request: dict) -> None:
-    """核对行动请求的生成参数：思考开启、tool_choice=auto、8000 上限、不重试、不发 reasoning_effort、全部严格。"""
+    """核对行动请求的生成参数：思考开启、tool_choice=auto、16000 上限、不重试、不发 reasoning_effort、全部严格。"""
     assert request["tool_choice"] == "auto"
-    assert request["max_tokens"] == 8000
+    assert request["max_tokens"] == 16000
     assert request["max_retries"] == 0
     assert "reasoning_effort" not in request and "temperature" not in request
     assert request["extra_body"] == {"thinking": {"type": "enabled"}}

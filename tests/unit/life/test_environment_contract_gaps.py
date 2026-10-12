@@ -16,6 +16,7 @@ from worldmock.catalog.callback_models import CallbackRule, CallbackState
 from worldmock.catalog.identity import refresh_manifest_identity
 from worldmock.environment import load_environment
 from worldmock.errors import IntegrityError
+from worldmock.footprints.models import EventDraft
 from worldmock.input_models import RunConfig
 from worldmock.life.activity_validation import validate_activity_targets
 from worldmock.life.callbacks import settle_callback_dates
@@ -100,8 +101,17 @@ def test_relief_at_interval_end_still_bills_the_preceding_actual_discomfort(inpu
     staged.agents[1].body.energy_kcal = 1800.0
     context = SimpleNamespace(state=state, persona=inputs.persona, config=inputs.config,
                               body=engine_body(inputs))
-    result = settle_engine_rhythm(context, staged, RhythmBoundary(staged.current_time, 900, {}, []))
+    settled = staged.agents[1].body.model_dump(mode="json")
+    record = EventDraft(event_type="environment_event", occurred_at=staged.current_time, agent_id=1,
+                        data={"kind": "body_settlement", "interval_start": now, "interval_end": staged.current_time,
+                              "activity_ids": [], "resource_flows": [],
+                              "body_settlement": {"before": dict(settled), "after": dict(settled)}})
+    result = settle_engine_rhythm(context, staged, RhythmBoundary(staged.current_time, 900, {}, [record]))
     assert result.agents[1].body.relaxation_need == pytest.approx(person.body.relaxation_need + 0.025)
+    assert record.data["body_settlement"]["after"]["relaxation_need"] == pytest.approx(
+        settled["relaxation_need"] + 0.025)
+    assert [(flow["resource"], flow["direction"], flow["cause"]) for flow in record.data["resource_flows"]] == [
+        ("relaxation_need", "source", "relaxation:event")]
     assert result.agents[1].discomfort_started_at is None
     assert result.agents[1].discomfort_pulse_hours == 0.0
 

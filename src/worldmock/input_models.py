@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import math
 from datetime import date, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import AfterValidator, ConfigDict, Field, model_validator
@@ -18,6 +18,11 @@ _LOGGER = logging.getLogger(__name__)
 LEGACY_TEMPLATE_FIELDS = frozenset({
     "occupation", "routine_preference", "consumption_preference", "risk_preference",
 })
+
+
+_Item = TypeVar("_Item")
+#: 数组：TOML 数组读入后冻结成元组；容器这一层不按严格模式（TOML 解析出来的是 list），元素仍按严格模式校验。
+Array = Annotated[tuple[_Item, ...], Field(strict=False)]
 
 
 class InputModel(DeepFrozenModel):
@@ -45,7 +50,7 @@ class WorkShift(InputModel):
 
     starts: int = Field(ge=0, lt=1440)
     ends: int = Field(gt=0, le=1440)
-    breaks: list[list[int]]
+    breaks: Array[Array[int]]
 
     @model_validator(mode="after")
     def validate_shift(self) -> WorkShift:
@@ -64,7 +69,7 @@ class WorkSchedule(InputModel):
 
     workplace: str = Field(min_length=1, pattern=r"\S")
     weekly: dict[str, WorkShift]
-    exceptions: dict[str, WorkShift | list[WorkShift]] = Field(default_factory=dict)
+    exceptions: dict[str, WorkShift | Array[WorkShift]] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_schedule(self) -> WorkSchedule:
@@ -88,7 +93,7 @@ def _canonical_date(value: str) -> bool:
         return False
 
 
-def _hour_window(window: list[float]) -> list[float]:
+def _hour_window(window: tuple[float, ...]) -> tuple[float, ...]:
     """@brief 时段只检查一条：恰好两个有限的小时数，起点小于终点；不检查范围、跨度或与其他时段的关系。"""
     if len(window) != 2 or any(not math.isfinite(value) for value in window) or not window[0] < window[1]:
         _invalid("must be two finite hours with start < end")
@@ -96,7 +101,7 @@ def _hour_window(window: list[float]) -> list[float]:
 
 
 #: 时段：自午夜起的小时数 [起点, 终点]，越过午夜的时刻写成大于 24 的小时数。
-HourWindow = Annotated[list[float], AfterValidator(_hour_window)]
+HourWindow = Annotated[tuple[float, ...], Field(strict=False), AfterValidator(_hour_window)]
 #: 口味数组与联系渠道数组里的一项：非空白文字，用词由数据集决定。
 NonBlankText = Annotated[str, Field(pattern=r"\S")]
 
@@ -125,7 +130,7 @@ class Relationship(InputModel):
     name_or_appellation: str = Field(min_length=1, max_length=12)
     role: str = Field(min_length=1, max_length=12)
     intimacy: int = Field(ge=0, le=30)
-    channels: list[NonBlankText] = Field(min_length=1, max_length=3)
+    channels: Array[NonBlankText] = Field(min_length=1, max_length=3)
 
 
 class HabitDeclaration(InputModel):
@@ -139,9 +144,9 @@ class HabitDeclaration(InputModel):
 class Tastes(InputModel):
     """@brief 人物卡片的口味：内容题材、饮食喜好、常用媒介，三个数组都可以为空。"""
 
-    content_genres: list[NonBlankText] = Field(max_length=6)
-    food_preferences: list[NonBlankText] = Field(max_length=6)
-    media: list[NonBlankText] = Field(max_length=4)
+    content_genres: Array[NonBlankText] = Field(max_length=6)
+    food_preferences: Array[NonBlankText] = Field(max_length=6)
+    media: Array[NonBlankText] = Field(max_length=4)
 
 
 class PersonaConfig(InputModel):
@@ -175,8 +180,8 @@ class PersonaConfig(InputModel):
     arrive_home_window: HourWindow | None = None
     identity: Identity
     situation: Situation
-    relationships: list[Relationship] = Field(max_length=4)
-    habits: list[HabitDeclaration] = Field(max_length=5)
+    relationships: Array[Relationship] = Field(max_length=4)
+    habits: Array[HabitDeclaration] = Field(max_length=5)
     tastes: Tastes
     coping: str = Field(min_length=1, max_length=60)
 
@@ -184,9 +189,9 @@ class PersonaConfig(InputModel):
 class CalendarConfig(InputModel):
     """@brief 运行日历沿用特殊日期和排班核对事实。"""
 
-    spring_festival_dates: list[str]
-    makeup_work_dates: list[str]
-    overtime_opportunity_dates: list[str]
+    spring_festival_dates: Array[str]
+    makeup_work_dates: Array[str]
+    overtime_opportunity_dates: Array[str]
     sick_leave_date: str
     personal_leave_date: str
     social_dinner_date: str

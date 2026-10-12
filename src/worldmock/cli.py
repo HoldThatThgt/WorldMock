@@ -14,7 +14,7 @@ from uuid import uuid4
 from worldmock.errors import IntegrityError
 from worldmock.footprints.assets import atomic_write
 from worldmock.footprints.models import canonical_json
-from worldmock.status import read_status, write_status
+from worldmock.status import observed_model_usage, read_status, write_status
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -91,7 +91,8 @@ def _dispatch(arguments) -> dict:
 
 
 def _run_command(arguments) -> dict:
-    """@brief 新建或恢复都使用真实 AS2 入口，只在完整返回后标记完成。"""
+    """@brief 新建或恢复都使用真实 AS2 入口，只在完整返回后标记完成；回执的 token_stats 由运行库里已落盘的模型响应
+    累计（此时环境进程与 Ray 都已关闭）。"""
     from worldmock.runtime import ResumeRequest, RunRequest, resume_world, run_world
 
     root, output = arguments.project_root.resolve(), arguments.output.resolve()
@@ -109,6 +110,7 @@ def _run_command(arguments) -> dict:
             result = (_run_replay(request, arguments.intervention) if arguments.command == "replay"
                       else asyncio.run(resume_world(request)))
         receipt = json.loads(json.dumps(dataclasses.asdict(result), default=str))
+        receipt["token_stats"] = observed_model_usage(output)
         atomic_write(output / "result.json", canonical_json(receipt))
         write_status(output, "completed", "stopped")
         return receipt
@@ -120,11 +122,11 @@ def _run_command(arguments) -> dict:
 
 
 def _run_replay(base_request, intervention_path: Path):
-    """@brief 显式读取严格世界条件干预，实际重演始终创建独立运行。"""
+    """@brief 按 UTF-8 显式读取严格世界条件干预，实际重演始终创建独立运行。"""
     from worldmock.life.models import CounterfactualIntervention
     from worldmock.runtime import CounterfactualRequest, replay_world
 
-    intervention = CounterfactualIntervention.model_validate_json(intervention_path.read_text())
+    intervention = CounterfactualIntervention.model_validate_json(intervention_path.read_text(encoding="utf-8"))
     return asyncio.run(replay_world(CounterfactualRequest(base_request, intervention)))
 
 

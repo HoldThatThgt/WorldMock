@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import copy
 import json
+import os
+import sys
 from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
@@ -42,6 +44,31 @@ def metadata_service(monkeypatch, frozen=None):
     monkeypatch.setenv(frozen.config.model.api_key_env, "offline-runtime-test-secret")
     monkeypatch.setattr(requests, "get", get)
     return calls
+
+
+#: 进程配置写入的十二个环境变量，加上它前置项目根的 PYTHONPATH。
+PROCESS_VARIABLES = ("WORKSPACE_PATH", "AGENTSOCIETY_LLM_API_KEY", "AGENTSOCIETY_LLM_API_BASE", "AGENTSOCIETY_LLM_MODEL",
+                     "AGENTSOCIETY_CODER_LLM_API_KEY", "AGENTSOCIETY_CODER_LLM_API_BASE",
+                     "AGENTSOCIETY_CODER_LLM_MODEL", "AGENTSOCIETY_EMBEDDING_MODEL", "LITELLM_LOCAL_MODEL_COST_MAP",
+                     "AGENTSOCIETY_LLM_REQUEST_TIMEOUT", "MEM0_TELEMETRY", "ANONYMIZED_TELEMETRY", "PYTHONPATH")
+
+
+def aligned_process(monkeypatch, frozen):
+    """@brief 让直接调用准备函数的进程内用例走真实的进程配置。
+
+    pytest 进程里 AgentSociety2 早已按 conftest 的值加载：把已加载的配置对上这份环境的端点与模型，
+    并用 monkeypatch 隔离进程配置会写的环境变量与 sys.path（假项目根会被插到最前，不隔离会污染之后的导入）。
+    """
+    from agentsociety2.config.config import Config
+
+    for name in ("LLM_API_BASE", "CODER_LLM_API_BASE"):
+        monkeypatch.setattr(Config, name, frozen.config.model.base_url)
+    for name in ("LLM_MODEL", "CODER_LLM_MODEL"):
+        monkeypatch.setattr(Config, name, frozen.config.model.requested_model)
+    monkeypatch.setattr(Config, "EMBEDDING_MODEL", "")
+    for name in PROCESS_VARIABLES:
+        monkeypatch.setenv(name, os.environ.get(name, ""))
+    monkeypatch.setattr(sys, "path", list(sys.path))
 
 
 class ToolResponse:

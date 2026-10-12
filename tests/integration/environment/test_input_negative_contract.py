@@ -71,13 +71,42 @@ def test_a_bad_shift_in_a_date_exception_is_named_by_its_date_without_validator_
     assert (caught.value.path, caught.value.code, caught.value.reason) == ("persona.toml", "PERSONA_INVALID", reason)
 
 
+@pytest.mark.parametrize("exception", [
+    {"starts": 600, "ends": 900, "breaks": [[700, 720], [800, 810]]},
+    [],
+])
+def test_nested_arrays_and_the_union_branch_load_from_toml_arrays(tmp_path, exception):
+    """带 breaks 的班次，以及 exceptions 里写一个班次或写空数组，都能从 TOML 数组读入，读回的数组是元组。"""
+    root = copy_environment(tmp_path / "input")
+    shift = {"starts": 540, "ends": 1080, "breaks": [[720, 780]]}
+    write_input(root, "persona.toml", {"work_schedule": {"workplace": "公司", "weekly": {"0": shift},
+                                                         "exceptions": {"2026-01-05": exception}}})
+    persona = parse_persona_file(root / "persona.toml")[0]
+    schedule = persona.work_schedule
+    assert schedule.weekly["0"].breaks == ((720, 780),)
+    loaded = schedule.exceptions["2026-01-05"]
+    assert loaded == () if exception == [] else loaded.breaks == ((700, 720), (800, 810))
+
+
+@pytest.mark.parametrize("value", ["1", True, 1.0])
+def test_integer_arrays_still_take_only_strict_integers(tmp_path, value):
+    """容器一层不按严格模式，元素仍按严格模式校验：整数数组里写 "1"、true、1.0 照旧被拒。"""
+    root = copy_environment(tmp_path / "input")
+    shift = {"starts": 540, "ends": 1080, "breaks": [[720, value]]}
+    write_input(root, "persona.toml", {"work_schedule": {"workplace": "公司", "weekly": {"0": shift}}})
+    with pytest.raises(EnvironmentInputError) as caught:
+        parse_persona_file(root / "persona.toml")
+    assert (caught.value.path, caught.value.code) == ("persona.toml", "PERSONA_INVALID")
+    assert caught.value.reason == "work_schedule.weekly.0.breaks.0.1: Input should be a valid integer"
+
+
 @pytest.mark.parametrize("values,reason", [
     ({"lunch_window": [12.0]}, "lunch_window: must be two finite hours with start < end"),
     ({"dinner_window": [12.0, 12.0]}, "dinner_window: must be two finite hours with start < end"),
     ({"bedtime_window": [24.0, 23.0]}, "bedtime_window: must be two finite hours with start < end"),
     ({"lunch_window": [float("nan"), 13.0]}, "lunch_window: must be two finite hours with start < end"),
     ({"wake_window": [7.0, float("inf")]}, "wake_window: must be two finite hours with start < end"),
-    ({"leave_home_window": "08:00-08:30"}, "leave_home_window: Input should be a valid list"),
+    ({"leave_home_window": "08:00-08:30"}, "leave_home_window: Input should be a valid tuple"),
 ])
 def test_personal_windows_need_two_finite_hours_in_order(tmp_path, values, reason):
     """每个时段只有形状这一条检查，不成立时在纯准入阶段被拒绝，英文原因随 PERSONA_INVALID 返回并写出字段。"""

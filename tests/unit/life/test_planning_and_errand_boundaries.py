@@ -48,6 +48,14 @@ def test_plan_capacity_removes_oldest_real_experience_and_preserves_other_input(
     assert sentences[0].startswith("这是已经核验的旧经历") and request["max_tokens"] == 1000
 
 
+def test_plan_day_keeps_its_own_eight_thousand_output_budget():
+    """零点日计划用自己的 8000 输出上限，思考关闭；不随决策的 16000 改变。"""
+    frozen = inputs()
+    request = prepare_plan_day({"已核验经历": []}, frozen.config.model.requested_model)
+    assert request["max_tokens"] == 8000
+    assert request["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
 def test_plan_capacity_cannot_trim_fixed_input_when_no_experiences_remain():
     frozen = inputs()
     metadata = ModelMetadata(requested_model=frozen.config.model.requested_model,

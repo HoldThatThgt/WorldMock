@@ -48,6 +48,7 @@ def test_stage_identity_freezes_actual_capacity_and_all_validation_budgets():
 
 @pytest.mark.parametrize("change", [
     lambda row: row["stages"]["action"].update(max_tokens=4000),
+    lambda row: row["stages"]["action"].update(max_tokens=8000),
     lambda row: row.update(reasoning_effort="high"),
     lambda row: row.update(strict=False),
     lambda row: row.update(api_key_env="SECRET"),
@@ -62,6 +63,21 @@ def test_tampered_identity_is_rejected(change):
     identity = copy.deepcopy(stage_model_identity(frozen.config.model, frozen.model_metadata))
     change(identity)
     with pytest.raises(IntegrityError):
+        validate_stage_model_identity(identity)
+
+
+def test_action_budget_is_sixteen_thousand_capped_by_the_service_and_an_old_budget_is_refused():
+    """决策的输出上限是 16000 与服务输出上限中较小的一个；服务上限 8192 时冻结 8192；冻结身份写着旧的 8000 时
+    以身份不一致拒绝。"""
+    frozen = inputs()
+    assert frozen.model_metadata.max_output_tokens == 32768
+    identity = stage_model_identity(frozen.config.model, frozen.model_metadata)
+    assert identity["stages"]["action"]["max_tokens"] == 16000
+    capped = stage_model_identity(frozen.config.model,
+                                  frozen.model_metadata.model_copy(update={"max_output_tokens": 8192}))
+    assert capped["stages"]["action"]["max_tokens"] == 8192
+    identity["stages"]["action"]["max_tokens"] = 8000
+    with pytest.raises(IntegrityError, match="^Stage model identity is inconsistent$"):
         validate_stage_model_identity(identity)
 
 

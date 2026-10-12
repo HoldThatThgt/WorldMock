@@ -97,6 +97,14 @@ def test_current_started_activity_public_result_and_complete_export(engine_facto
     controls = engine.observe(context(engine, "control-observation"))["activity_bindings"]
     assert controls and all(row["title"] is None for row in controls)
     run_to_end(engine)
+    # 真实做完时写下的第二条结果带 contents，第一行是开始的那条内容
+    (terminal,) = [event for event in events(engine, "action_result")
+                   if event.action_id == result.action_id and event.data["status"] != "in_progress"]
+    assert (terminal.data["status"], terminal.data["message"]) == ("completed", "Activity completed")
+    finished = public_result(terminal.data, inputs)["details"]
+    assert finished["contents"][0] == {"title": content.title, "summary": content.summary,
+                                       "duration": duration_phrase(content.duration_seconds), "finished": True}
+    assert all(list(row) == ["title", "summary", "duration", "finished"] for row in finished["contents"])
     rows = [event.model_dump(mode="json") for event in events(engine)]
     actual = list(snapshots(rows))
     assert actual and all("title" not in row for row in actual)
