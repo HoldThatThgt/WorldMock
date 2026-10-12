@@ -104,7 +104,7 @@ def test_both_models_generate_closed_strict_schemas_with_verbatim_descriptions()
     assert side["properties"]["target"]["type"] == "array"
     assert side["properties"]["target"]["items"] == {"pattern": r"\S", "type": "string"}
     assert TOOL_DESCRIPTIONS["start_main_activity"] == "开始一项占槽位 1 的活动：出行、在当前地点做一件事，或睡觉。"
-    assert TOOL_DESCRIPTIONS["start_side_activity"] == "开始一项占槽位 2 的活动：购买商品，或使用一个内容 app。"
+    assert TOOL_DESCRIPTIONS["start_side_activity"] == "开始一项占槽位 2 的活动：购买商品、查询商品，或使用一个内容 app。"
     assert main["properties"]["action"]["description"] == "做什么：travel 出行，interact 在当前地点做一件事，sleep 睡觉。"
     assert main["properties"]["target"]["description"] == (
         "travel 写目的地地点的完整名称；interact 写当前所在地点的完整名称；sleep 写要睡的分钟数，只写数字，例如 470。")

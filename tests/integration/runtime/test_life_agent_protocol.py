@@ -414,7 +414,7 @@ def test_plan_day_is_no_person_tool_and_revision_carries_remind_time() -> None:
 
 def test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages() -> None:
     """起居规则只在系统层 rules 写一次：生活决策的每个请求都带同一份系统层；只读问答用自己的系统层；「怎样过一天」已删。
-    同时进行的两个槽位只在第 8 条说一次，睡着后何时再请决策只在睡眠那一条说一次（docs/design/04-simulation-engine.md）。"""
+    同时进行的两个槽位只在讲槽位的一条（rules[9]）说一次，睡着后何时再请决策只在睡眠那一条说一次（docs/design/04-simulation-engine.md）。"""
     agent = _prepared()
     request = ReactLoopRequest(0, _context().observed_at, _observations())
     agent.prepare_react_loop(request)
@@ -429,7 +429,7 @@ def test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages() -> 
     for sentence in ("同时最多两项活动", "睡着后到你写的时长才会再请你决策", "商品实际收到时自动吃掉或用掉",
                      "只是自己的想法，不能改变身体、资金、内容进度或订单结果", "工作安排由环境给出"):
         assert sum(sentence in rule for rule in rules) == 1
-    assert "同时最多两项活动，槽位 1 和槽位 2 各放一项" in rules[7]
+    assert "同时最多两项活动，槽位 1 和槽位 2 各放一项" in rules[9]
     assert all("名额" not in rule and "睡够了" not in rule for rule in rules)
     assert sum("不保存库存" in rule for rule in rules) == 1
     for system in (action_system, readonly_system):
