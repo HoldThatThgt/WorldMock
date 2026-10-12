@@ -10,7 +10,7 @@ from worldmock.life.readable import duration_phrase, iso_time, money_phrase, por
 
 #: 以下载荷已经由各所属行为构造为人物可见名称与文字。
 _PASSTHROUGH_DETAILS = ("recall", "reason", "next_step", "fix", "items", "outcome", "resolved", "notes",
-                        "errands", "goods")
+                        "errands")
 
 
 def public_result(result: dict[str, Any], inputs: EnvironmentInputs) -> dict[str, Any]:

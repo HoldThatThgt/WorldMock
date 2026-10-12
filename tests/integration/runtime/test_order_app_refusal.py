@@ -12,8 +12,9 @@ import pytest
 
 from tests.integration.life.test_app_opening import OFFERED_FIX, order_app_item, order_app_why
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
-from tests.life.conftest import SIDE_TOOL, side_arguments, stage_day_plan
+from tests.life.conftest import SIDE_TOOL, context, side_arguments, stage_day_plan
 from worldmock.life.error_contract import ERROR_KEYS
+from worldmock.life.prompt_schemas import validate_layer
 
 OPEN_MEITUAN = side_arguments("interact", "美团")
 OPEN_KEEP = side_arguments("interact", "Keep")
@@ -55,6 +56,18 @@ async def test_host_corrects_opening_an_order_only_app_without_registering_a_req
     plain, _, _ = await _open_keep_after(engine_factory)
     assert engine.context.state.agents[1].same_moment_rounds == plain.context.state.agents[1].same_moment_rounds
     assert engine.context.state.current_time == before
+
+
+@pytest.mark.asyncio
+async def test_rejected_today_keeps_the_actionable_half(engine_factory):
+    """同样两次回复之后再观察：进度层备忘有一行，written 是 interact，why 是那一句的前 60 个字符（可照做的半句完整
+    留下）；整层通过层校验。"""
+    engine, _, _ = await _open_keep_after(engine_factory, OPEN_MEITUAN)
+    observed = engine.observe(context(engine, "after"))
+    rows = observed["progress_layer"]["rejected_today"]
+    assert [(row["written"], row["why"]) for row in rows] == [
+        ("interact", "Write 美团 in prefer of purchase or query, not in target: this")]
+    validate_layer(observed["progress_layer"])
 
 
 @pytest.mark.asyncio

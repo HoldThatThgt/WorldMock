@@ -9,7 +9,6 @@ from tests.life.conftest import (
     advance_until_ready, conclude_request, context, do_at, pause_request, report_request, target_actions, use_app,
 )
 from tests.life.current_world import stage_moment
-from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, events, finish_activity, run_to_end
 from tests.life.prerequisite_inputs import (
     CLOCK_PREREQUISITE, OFFICE, app_content, dingtalk_environment, example_window, moment, weekday_hours,
@@ -18,8 +17,7 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.app_usage import activity_snapshots
 from worldmock.footprints.export import export_run, write_jsonl
 from worldmock.footprints.validation import validate_export
-from worldmock.life.readable import duration_phrase, iso_time, money_phrase
-from worldmock.life.purchase_offers import quote_goods
+from worldmock.life.readable import duration_phrase
 from worldmock.life.result_projection import public_result
 from worldmock.life.world_query import QueryWorldRequest, query_world
 
@@ -70,35 +68,6 @@ def test_start_remaining_time_and_same_source_resume_keep_actual_full_content_du
     details = public_result(restarted.model_dump(mode="json"), engine.context.inputs)["details"]
     assert details["planned"][0]["duration"] == duration_phrase(content.duration_seconds - partial)
     assert details["content"]["duration"] == duration_phrase(content.duration_seconds)
-
-
-def test_content_platform_returns_same_origin_goods_quotes_and_unavailable_closed_goods(engine_factory, tmp_path):
-    root = copy_environment(tmp_path / "input")
-    places = catalog_rows(root, "location.jsonl")
-    for row in places:
-        if row["kind"] == "restaurant":
-            row["app_ids"] = sorted({*row["app_ids"], "bilibili"})
-            row["opens"] = {"weekly": {}, "exceptions": {}}
-    write_catalog_rows(root, "location.jsonl", places)
-    goods = catalog_rows(root, "merchant-catalog.jsonl")
-    goods.append({"goods_id": "streamer-book", "name": "视频学习书", "category": "goods",
-                  "price_fen": 1200, "app_ids": ["bilibili"]})
-    write_catalog_rows(root, "merchant-catalog.jsonl", sorted(goods, key=lambda row: row["goods_id"]))
-    engine = engine_factory(root)
-    _, result = act(engine, "content-with-goods", use_app("哔哩哔哩"))
-    assert result.status == "in_progress"
-    details = public_result(result.model_dump(mode="json"), engine.context.inputs)["details"]
-    assert "content" in details
-    rows = details["goods"]
-    assert len({row["name"] for row in rows}) == len(rows)
-    supplied = next(row for row in rows if row["name"] == "视频学习书")
-    offer = quote_goods(engine.context.inputs, engine.context.state, 1, "streamer-book", None)
-    assert supplied == {"name": "视频学习书", "price": "12 元", "delivery_fee": money_phrase(offer.delivery_fee_fen),
-                       "expected_at": iso_time(offer.expected_at, engine.context.state.timezone),
-                       "available": True, "reason": None}
-    closed = next(row for row in rows if row["name"] == "牛肉面")
-    assert closed["available"] is False and "while it is open" in closed["reason"]
-    assert closed["delivery_fee"] is None and closed["expected_at"] is None
 
 
 @pytest.mark.parametrize("target", ["哔哩哔哩", "家"])

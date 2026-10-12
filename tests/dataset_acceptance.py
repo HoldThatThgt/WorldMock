@@ -380,4 +380,9 @@ MUTATIONS = (
         "if target.kind == ORDER_APP_KIND:", "if False:",
         ("tests/unit/start_interfaces/test_name_resolution.py"
          "::test_order_only_app_in_target_is_refused_with_the_prefer_sentence",)),
+    SourceMutation("opened_app_result_lists_goods", "worldmock.life.start_group::StartGroups._result",
+        'data = {"activities": [activity_snapshot(activity, title_index(self.context.catalog))], "orders": orders}',
+        'data = {"activities": [activity_snapshot(activity, title_index(self.context.catalog))], "orders": orders,'
+        ' "goods": []}',
+        ("tests/integration/life/test_app_opening.py::test_opening_an_app_returns_content_only",)),
 )

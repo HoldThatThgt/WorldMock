@@ -47,6 +47,19 @@ def app_lists(observed: dict) -> tuple[list[str], list[str]]:
     return targets, observed["tool_layer"]["callable_index"]["prefer_apps"]
 
 
+def test_opening_an_app_returns_content_only(engine_factory):
+    """打开既有内容又卖平台笔记本的哔哩哔哩：受理结果的数据只有活动与订单，公开明细恰为 planned 与 content，
+    从存储读回的这条 action_result 正文里也没有 goods。"""
+    engine = engine_factory()
+    _, result = act(engine, "open", use_app("哔哩哔哩"))
+    assert result.status == "in_progress", result.error_code
+    assert set(result.data) == {"activities", "orders"}
+    details = public_result(result.model_dump(mode="json"), engine.context.inputs)["details"]
+    assert set(details) == {"planned", "content"}
+    [stored] = [row for row in events(engine, "action_result") if row.action_id == result.action_id]
+    assert "goods" not in stored.data and set(stored.data["data"]) == {"activities", "orders"}
+
+
 def test_app_with_content_and_goods_opens_and_still_sells(engine_factory):
     """哔哩哔哩照常打开、只看内容，占槽位 2，活动数据是带内容的那一组键；它既是 app 目标又在 prefer_apps，名称簿里
     这个名字只有一个 app 对象；用完之后它卖的平台笔记本仍能按名购买，订单的下单 app 是它。"""
