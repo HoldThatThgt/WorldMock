@@ -19,6 +19,7 @@ worldmock export --run-dir .work/runs/my-world --output .work/exports/my-world
 ```
 
 完整验证先核对全部输入和实际模型元数据，失败时按所属路径与英文原因修正。
+这些命令可以在任何目录执行，不需要设置 `AGENTSOCIETY_*` 或 `PYTHONPATH`，只需要 model.api_key_env 指的那个变量。
 run 不接受 --scenario；不读取固定供应商私密文件，不使用默认模型或另一份目录路径。
 凭据正文不写进输入包、运行清单或报告。
 
@@ -32,7 +33,7 @@ model 表里没有 `persona_validation_max_retries`：人物卡片由 persona.to
 工作安排和每日差异在[人物](personas.md#personas-编写-persona-toml)声明。
 
 start_time 与 stop_time 使用带偏移的 TOML 原生日期时间，按自身偏移整点并与 timezone 一致。
-stop_time 必须晚于开始时刻。唯一整数 seed 控制地图、天气、内容、功能 app、购买时长与推送。
+stop_time 必须晚于开始时刻。唯一整数 seed 控制地图、天气、内容、功能 app、购买时长、查询时长、查询所在的 app 与推送。
 
 model 声明实际 OpenAI 兼容服务、base_url、requested_model、api_key_env、metadata_url 与 context_window。
 api_key_env 填进程环境变量的名称。实际服务必须返回唯一匹配模型的上下文容量与输出上限；
@@ -48,23 +49,29 @@ flowchart LR
 ## 检查工具交互
 
 人物用两个开始工具开始活动，每个参数都要写。start_main_activity 开始出行、在当前地点做一件事或睡觉，
-start_side_activity 开始购买或使用一个内容 app；要同时开始两项，就在同一次回复里两个工具各调用一次。
+start_side_activity 开始购买、查询或使用一个内容 app；要同时开始两项，就在同一次回复里两个工具各调用一次。
 
 ```text
 start_main_activity  {"action": "travel",   "target": "公司", "detail": "驾车"}
 start_main_activity  {"action": "interact", "target": "家",   "detail": "测试休息"}
 start_main_activity  {"action": "sleep",    "target": "470",  "detail": null}
-start_side_activity  {"action": "purchase", "target": ["牛肉面", "柠檬茶", "柠檬茶"]}
-start_side_activity  {"action": "interact", "target": ["哔哩哔哩"]}
+start_side_activity  {"action": "purchase", "target": ["牛肉面", "柠檬茶", "柠檬茶"], "prefer": "美团"}
+start_side_activity  {"action": "query",    "target": ["食品"], "prefer": null}
+start_side_activity  {"action": "interact", "target": ["哔哩哔哩"], "prefer": null}
 ```
 
 出行的 detail 照工具层该目的地下列出的出行方式名称写（步行，以及数据集定义的方式）；在地点做事的 detail 照工具层当前地点下列出的名称写。
 睡眠的 target 写 10 到 720 的分钟数，只写数字，detail 写 null。购买逐份写商品名，同一个名称写两次就是两份。
+购买和查询的 prefer 写想用的 app 的完整名称，照工具层 prefer_apps 列出的写，没有想法写 null；使用内容 app 时 prefer 写 null。
+查询的 target 写商品名或类别名（零食、食品、饮料、商品）。
 例子里的地点、内容、商品和 app 名称取自所用的环境数据集。
-query_world 使用 action 查询当下实际地点、营业时段、路线或商品；查询不推进时间。
+查询占槽位 2，要 5 到 10 分钟，不能暂停，答案在查询做完时写进这次请求的结果。
+没有当场作答、不花时间的世界查询工具；记忆查询和回看任务仍然当场完成。
 用内容 app 时看到什么由环境选择，功能 app 由环境执行，人物按真实活动名称报告、暂停与结束。
 工具字段、名称解析、槽位与提醒规则见[模拟引擎](../design/04-simulation-engine.md)。
-实际模型请求和事件可在运行查看器中核对，人物可见范围见[人物设计](../design/06-agent.md)。
+实际模型请求和事件可在运行查看器（tools/run-viewer.html）中核对：把整个运行目录或导出目录拖进去，对象名称取自其中冻结的环境目录；
+只拖 footprints.sqlite 一个文件时对象名称显示为「名称缺失」。分发查看器时带上同目录的全部 run-viewer 脚本和样式文件。
+人物可见范围见[人物设计](../design/06-agent.md)。
 
 ## 从检查点创建分支
 
