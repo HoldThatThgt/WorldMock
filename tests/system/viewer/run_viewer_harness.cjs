@@ -150,6 +150,7 @@ async function viewer(events, {world = {}, catalog = CASES.catalog, files, direc
     },
     window: {addEventListener() {}},
     console: {error: (...args) => errors.push(args.map(String).join(' '))},
+    IntersectionObserver: class { observe() {} disconnect() {} },
     setTimeout, clearTimeout, requestAnimationFrame() {},
   });
   for (const script of scripts) vm.runInContext(script, context, {filename: 'run-viewer.html'});

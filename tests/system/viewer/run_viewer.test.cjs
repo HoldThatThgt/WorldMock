@@ -1223,7 +1223,6 @@ test('reloading another database drops the previous run manifest and its warning
   assert.equal(view.state.runManifest, null);
 });
 
-
 test('money uses authoritative envelope changes once and allows signed external balances', async t => {
   const view=await viewer([
     event('action_result',{status:'in_progress',data:{orders:[{goods_id:'milk',total_price_fen:100}]}}),
@@ -1551,4 +1550,374 @@ test('phone records name their app and what happened', async t => {
   // 查看器会打开别的版本的运行：三个之外的步骤照原值显示。
   assert.equal(view.summary(CASES.phone.length + 1), '世界事件 · app 前台 · 美团 · waiting');
   assert.deepEqual(view.errors, []);
+});
+
+/* ---------- 查看器里的连续使用：同一个 app 首尾相接的几次使用 ---------- */
+
+/** @brief 2026 年 9 月某日（缺省 28 日）当地 clock 时刻的整数秒。 */
+const at = (clock, day = '28') => Date.parse(`2026-09-${day}T${clock}+08:00`) / 1000;
+
+/** @brief 一次 app 使用：开始它的受理事件和一条进度事件，区间从 start 到 end，正文带这一段放过的内容（没有内容时
+ *  不带）。时刻都显式给出。 */
+function appUse(id, appId, contentId, start, end, {agent = 1, status = 'completed'} = {}) {
+  const snapshot = fields => ({activity_id: id, kind: 'interact', location_id: 'home', started_at: start,
+    planned_duration_seconds: end - start, data: {action: 'interact', app_id: appId, content_id: contentId},
+    ...fields});
+  const content = contentId === null ? {} : {content: {content_id: contentId, app_id: appId,
+    completed: status === 'completed'}};
+  return [
+    event('action_accepted', {status: 'in_progress', activity: snapshot({status: 'active', elapsed_seconds: 0})},
+      {activity_id: id, agent_id: agent, occurred_at: start}),
+    event('activity_progress', {activity: snapshot({status, elapsed_seconds: end - start}),
+      interval_start: start, interval_end: end, ...content}, {activity_id: id, agent_id: agent, occurred_at: end}),
+  ];
+}
+
+/** @brief 一次暂停过的 app 使用：受理事件与两条进度事件，两个区间之间是暂停，放的是同一条内容。 */
+function pausedUse(id, appId, contentId, [start, pause], [resume, end]) {
+  const [accepted] = appUse(id, appId, contentId, start, end);
+  const progress = (from, to, status) => event('activity_progress', {activity: {...accepted.data.activity, status,
+    elapsed_seconds: to - from}, interval_start: from, interval_end: to,
+  content: {content_id: contentId, app_id: appId, completed: status === 'completed'}},
+  {activity_id: id, agent_id: 1, occurred_at: to});
+  return [accepted, progress(start, pause, 'paused'), progress(resume, end, 'completed')];
+}
+
+/** @brief 那一晚的十二次使用：活动身份、app、内容身份、起、止（起止读自 issue 13 那次运行的数据库）。 */
+const NIGHT = [
+  ['b1', 'bilibili', 'n-walk-gear', '19:52:00', '19:53:30'],
+  ['b2', 'bilibili', 'n-rain-gear', '20:00:00', '20:02:30'],
+  ['b3', 'bilibili', 'n-puzzle', '20:19:33', '20:22:03'],
+  ['b4', 'bilibili', 'content-long-video-cooking-002', '20:22:03', '20:42:03'],
+  ['b5', 'bilibili', 'n-family-photo', '20:42:03', '20:43:33'],
+  ['m1', 'netease', 'n-evening-songs', '20:43:33', '21:23:33'],
+  ['b6', 'bilibili', 'n-iced-americano', '21:23:33', '21:26:03'],
+  ['b7', 'bilibili', 'n-desk-photo', '21:26:03', '21:28:03'],
+  ['b8', 'bilibili', 'content-long-video-nature-009', '21:28:03', '21:58:03'],
+  ['w1', 'wechat', 'n-reading-corner', '21:58:03', '21:59:33'],
+  ['w2', 'wechat', 'n-packing-list', '21:59:33', '22:01:03'],
+  ['b9', 'bilibili', 'n-helmet-check', '22:51:03', '22:52:33'],
+];
+/** @brief 那一晚的三个 app 和十二条内容经假运行目录里的冻结目录喂入；两条长内容和网易云音乐那一条的标题是自拟的。 */
+const NIGHT_CATALOG = {
+  apps: [{app_id: 'bilibili', name: '哔哩哔哩'}, {app_id: 'netease', name: '网易云音乐'}, {app_id: 'wechat', name: '微信'}],
+  contents: Object.entries({'n-walk-gear': '散步装备准备', 'n-rain-gear': '雨天出门准备', 'n-puzzle': '拼图边框练习',
+    'content-long-video-cooking-002': '回家做饭长视频', 'n-family-photo': '家庭合照挑选', 'n-evening-songs': '晚间歌单',
+    'n-iced-americano': '冰美式制作小记', 'n-desk-photo': '桌面物品拍摄', 'content-long-video-nature-009': '自然风光长视频',
+    'n-reading-corner': '亲子阅读角', 'n-packing-list': '旅行行李清单', 'n-helmet-check': '骑行头盔检查'})
+    .map(([content_id, title]) => ({content_id, title})),
+  goods: [], locations: [{location_id: 'home', name: '淀山湖大道东渡悦来城公寓'}],
+};
+/** @brief 那一晚的全部事件：每次使用一条受理事件、一条进度事件。 */
+const nightEvents = () => NIGHT.flatMap(([id, app, content, start, end]) =>
+  appUse(id, app, content, at(start), at(end)));
+/** @brief 那一晚活动表各行的「连续使用」标记。 */
+const NIGHT_MARKS = ['—', '—',
+  ...[1, 2, 3].map(index => `09/28 20:19–09/28 20:43 · 第 ${index} 段，共 3 段`), '—',
+  ...[1, 2, 3].map(index => `09/28 21:23–09/28 21:58 · 第 ${index} 段，共 3 段`),
+  ...[1, 2].map(index => `09/28 21:58–09/28 22:01 · 第 ${index} 段，共 2 段`), '—'];
+/** @brief 那一晚各次使用的受理行里「接续」写的时刻（按使用的次序，不是后续段的为空）。 */
+const NIGHT_CONTINUES = [null, null, null, '09/28 20:19', '09/28 20:19', null, null, '09/28 21:23', '09/28 21:23',
+  null, '09/28 21:58', null];
+
+/** @brief 活动表各行的最后一格（「连续使用」标记栏）。 */
+const marks = markup => tableRows(markup, 'act-table').map(cells => cells.at(-1));
+
+/** @brief 全部受理行的摘要，按事件序号。 */
+const acceptances = view => [...view.state.events].filter(entry => entry.type === 'action_accepted')
+  .map(entry => entry.sum);
+
+test('touching uses of one app are drawn as one lane block labelled with every item in order', async t => {
+  const view = await viewer(nightEvents(), {catalog: NIGHT_CATALOG});
+  t.after(() => view.close());
+  const markup = view.activities();
+  const drawn = lanes(markup);
+  // 十二次使用画成七行、七个条块，自上而下按开始时刻；并成一行的标签把各段放过的内容依次列出。
+  assert.deepEqual(drawn.map(lane => lane.label), [
+    '使用哔哩哔哩《散步装备准备》', '使用哔哩哔哩《雨天出门准备》',
+    '使用哔哩哔哩《拼图边框练习》《回家做饭长视频》《家庭合照挑选》', '使用网易云音乐《晚间歌单》',
+    '使用哔哩哔哩《冰美式制作小记》《桌面物品拍摄》《自然风光长视频》', '使用微信《亲子阅读角》《旅行行李清单》',
+    '使用哔哩哔哩《骑行头盔检查》']);
+  assert.deepEqual(drawn.map(lane => lane.bars.length), [1, 1, 1, 1, 1, 1, 1]);
+  const {t0, t1} = view.state;
+  const span = Math.max(1, t1 - t0);
+  const [puzzle] = drawn[2].bars;
+  assert.equal(puzzle.left, String((at('20:19:33') - t0) / span * 100));
+  assert.equal(puzzle.width, String((at('20:43:33') - at('20:19:33')) / span * 100));
+  assert.equal(puzzle.title, '2026/09/28 20:19:33–2026/09/28 20:43:33 · ' +
+    '使用哔哩哔哩《拼图边框练习》《回家做饭长视频》《家庭合照挑选》 · 连续使用，共 3 段');
+  assert.equal(drawn[4].bars[0].title, '2026/09/28 21:23:33–2026/09/28 21:58:03 · ' +
+    '使用哔哩哔哩《冰美式制作小记》《桌面物品拍摄》《自然风光长视频》 · 连续使用，共 3 段');
+  assert.equal(drawn[5].bars[0].title, '2026/09/28 21:58:03–2026/09/28 22:01:03 · ' +
+    '使用微信《亲子阅读角》《旅行行李清单》 · 连续使用，共 2 段');
+  assert.ok(markup.includes('<div class="hint">同一时间轴上的条块表示实际执行区间；空白表示尚无结算记录。' +
+    '同一个 app 首尾相接的几次使用画在同一行，连成一个条块。</div>'));
+  assert.deepEqual(view.errors, []);
+});
+
+test('a gap, an overlap or a different app ends a continuous use', async t => {
+  const view = await viewer(nightEvents(), {catalog: NIGHT_CATALOG});
+  t.after(() => view.close());
+  const drawn = lanes(view.activities());
+  // 19:52:00 和 20:00:00 两次隔了 390 秒，各自一行，标签和悬停文字里没有「连续使用」。
+  assert.deepEqual(drawn.slice(0, 2).map(lane => lane.bars[0].title), [
+    '2026/09/28 19:52:00–2026/09/28 19:53:30 · 使用哔哩哔哩《散步装备准备》',
+    '2026/09/28 20:00:00–2026/09/28 20:02:30 · 使用哔哩哔哩《雨天出门准备》']);
+  // 哔哩哔哩 20:43:33 结束、网易云音乐同一秒开始：两个 app 各在各的行；21:23:33 和 21:58:03 两处同理。
+  assert.equal(drawn[3].bars[0].title, '2026/09/28 20:43:33–2026/09/28 21:23:33 · 使用网易云音乐《晚间歌单》');
+  assert.ok(drawn[2].bars[0].title.startsWith('2026/09/28 20:19:33–2026/09/28 20:43:33 · '));
+  assert.ok(drawn[4].bars[0].title.startsWith('2026/09/28 21:23:33–2026/09/28 21:58:03 · '));
+  assert.ok(drawn[5].bars[0].title.startsWith('2026/09/28 21:58:03–2026/09/28 22:01:03 · '));
+  // 同一个 app 相隔恰好 1 秒的两次、区间重叠 1 秒的两次：都是两行、两个条块，标记栏都是「—」。
+  const apart = await viewer([
+    ...appUse('gap-1', 'douyin', 'c-short', at('10:00:00'), at('10:02:00')),
+    ...appUse('gap-2', 'douyin', 'c-short-2', at('10:02:01'), at('10:03:31')),
+    ...appUse('overlap-1', 'douyin', 'c-short', at('12:00:00'), at('12:02:00')),
+    ...appUse('overlap-2', 'douyin', 'c-short-2', at('12:01:59'), at('12:03:29')),
+  ]);
+  t.after(() => apart.close());
+  const markup = apart.activities();
+  assert.deepEqual(lanes(markup).map(lane => lane.bars.length), [1, 1, 1, 1]);
+  assert.ok(lanes(markup).every(lane => !lane.bars[0].title.includes('连续使用')));
+  assert.deepEqual(marks(markup), ['—', '—', '—', '—']);
+  assert.ok(!acceptances(apart).some(text => text.includes('接续')));
+  assert.deepEqual(apart.errors, []);
+});
+
+test('only app uses of one person join, never location activities, purchases, queries, phone foreground records or other people', async t => {
+  const snapshot = (id, kind, start, end, data) => ({activity_id: id, kind, location_id: 'home', status: 'active',
+    started_at: start, planned_duration_seconds: end - start, elapsed_seconds: 0, data});
+  /** 一项手写的活动：受理事件与一条区间为正的进度事件。 */
+  const handWritten = (id, kind, start, end, data) => [
+    event('action_accepted', {status: 'in_progress', activity: snapshot(id, kind, start, end, data)},
+      {activity_id: id, occurred_at: start}),
+    event('activity_progress', {activity: {...snapshot(id, kind, start, end, data), status: 'completed'},
+      interval_start: start, interval_end: end}, {activity_id: id, occurred_at: end})];
+  const notebook = {order_id: 'order-notebook', goods_id: 'online-notebook', app_id: 'bilibili', total_price_fen: 1200,
+    payment_app_id: 'bilibili'};
+  const view = await viewer([
+    // 同一秒相接的两项在地点做的事。
+    ...appUse('rest', null, 'c-rest', at('19:00:00'), at('19:15:00')),
+    ...appUse('chat', null, 'c-chat', at('19:15:00'), at('19:25:00')),
+    // 一次哔哩哔哩使用后紧接一次经哔哩哔哩下单的购买。
+    ...appUse('watch-1', 'bilibili', 'c-article', at('20:00:00'), at('20:01:00')),
+    ...handWritten('buy', 'purchase', at('20:01:00'), at('20:02:00'),
+      {action: 'purchase', order_ids: ['order-notebook']}),
+    event('action_result', {status: 'completed', data: {orders: [notebook]}}, {occurred_at: at('20:02:00')}),
+    // 一项种类为 query、带同一个 app_id 的活动，同一秒接着一次哔哩哔哩使用。
+    ...handWritten('look', 'query', at('20:02:00'), at('20:03:00'), {action: 'query', app_id: 'bilibili'}),
+    ...appUse('watch-2', 'bilibili', 'c-image', at('20:03:00'), at('20:04:00')),
+    // 一条同一 app 的 app 前台世界事件把两次使用之间的空档补满。
+    event('environment_event', {kind: 'app_foreground', app_id: 'bilibili', step: 'ordering',
+      interval_start: at('20:04:00'), interval_end: at('20:05:00')},
+      {occurred_at: at('20:05:00'), visibility: 'system'}),
+    ...appUse('watch-3', 'bilibili', 'c-course', at('20:05:00'), at('20:06:00')),
+    // 另一个人物在同一秒接着用同一个 app。
+    ...appUse('other-person', 'bilibili', 'c-long', at('20:06:00'), at('20:07:00'), {agent: 2}),
+  ]);
+  t.after(() => view.close());
+  const markup = view.activities();
+  const drawn = lanes(markup);
+  assert.equal(drawn.length, view.state.acts.length);
+  assert.equal(drawn.length, 8);
+  assert.ok(drawn.every(lane => lane.bars.every(bar => !bar.title.includes('连续使用'))));
+  assert.deepEqual(marks(markup), Array(8).fill('—'));
+  assert.ok(!view.state.events.some(entry => entry.sum.includes('接续')));
+});
+
+test('the activity table keeps one row per activity and marks its place in the continuous use', async t => {
+  const view = await viewer(nightEvents(), {catalog: NIGHT_CATALOG});
+  t.after(() => view.close());
+  const markup = view.activities();
+  const rows = tableRows(markup, 'act-table');
+  assert.equal(rows.length, 12);
+  // 表头最后一格是「连续使用」，不能点、不带排序标记。
+  assert.ok(markup.includes('<th>目标</th><th>结束</th><th class="num">实际时长</th><th>连续使用</th></tr></thead>'));
+  assert.deepEqual(rows.map(cells => cells.at(-1)), NIGHT_MARKS);
+  // 第四格仍是每次使用自己的写法。
+  assert.deepEqual(rows.map(cells => cells[3]), NIGHT.map(([, app, content]) =>
+    `使用${NIGHT_CATALOG.apps.find(row => row.app_id === app).name}` +
+    `《${NIGHT_CATALOG.contents.find(row => row.content_id === content).title}》`));
+  assert.ok(markup.includes('共 12 段活动 · 点击表头排序'));
+  assert.ok(view.overview().includes('<span class="k">接受</span><span class="v" style="color:var(--ok)">12</span>'));
+});
+
+test('the acceptance of a later use names the continuous use it continues', async t => {
+  const events = nightEvents();
+  // 给 20:22:03 那次再加一条序号更大、带着同一项活动的受理事件（重放时带 reused 的那一种）。
+  const reused = {...events[6], data: {...events[6].data, reused: true}, occurred_at: at('22:53:00')};
+  const view = await viewer([...events, reused], {catalog: NIGHT_CATALOG});
+  t.after(() => view.close());
+  const texts = acceptances(view);
+  NIGHT_CONTINUES.forEach((start, index) => {
+    if (start) assert.ok(texts[index].endsWith(` · 接续 ${start} 起的连续使用`), texts[index]);
+    else assert.ok(!texts[index].includes('接续'), texts[index]);
+  });
+  assert.equal(texts[2], '已受理 · 使用哔哩哔哩《拼图边框练习》 · 计划 2分');
+  assert.equal(texts[4], '已受理 · 使用哔哩哔哩《家庭合照挑选》 · 计划 1分 · 接续 09/28 20:19 起的连续使用');
+  assert.equal(texts[5], '已受理 · 使用网易云音乐《晚间歌单》 · 计划 40分');
+  assert.equal(texts[10], '已受理 · 使用微信《旅行行李清单》 · 计划 1分 · 接续 09/28 21:58 起的连续使用');
+  // 后加的那条受理事件不加半句；全部活动段行都没有这半句。
+  assert.equal(texts[12], '已受理 · 使用哔哩哔哩《回家做饭长视频》 · 计划 20分');
+  assert.ok(view.state.events.filter(entry => entry.type === 'activity_progress')
+    .every(entry => !entry.sum.includes('接续')));
+  // 在时间线里搜「连续使用」能找出全部后续各段的受理行。
+  assert.equal(view.state.events.filter(entry => entry.sum.includes('连续使用')).length, 5);
+});
+
+test('a paused and resumed use keeps its own row and two blocks', async t => {
+  const view = await viewer(pausedUse('long', 'bilibili', 'c-long', [at('21:00:00'), at('21:08:00')],
+    [at('21:30:00'), at('21:50:00')]));
+  t.after(() => view.close());
+  const markup = view.activities();
+  const drawn = lanes(markup);
+  assert.deepEqual(drawn.map(lane => lane.label), ['使用哔哩哔哩《测试长视频》']);
+  assert.deepEqual(drawn[0].bars.map(bar => bar.title), [
+    '2026/09/28 21:00:00–2026/09/28 21:08:00 · 使用哔哩哔哩《测试长视频》',
+    '2026/09/28 21:30:00–2026/09/28 21:50:00 · 使用哔哩哔哩《测试长视频》']);
+  assert.deepEqual(marks(markup), ['—']);
+  assert.deepEqual(view.errors, []);
+});
+
+test('a use of the same app that fills a pause joins both halves', async t => {
+  /** 21:00 打开哔哩哔哩，21:08 暂停；同一秒再打开哔哩哔哩，21:10:30 放完；resume 时恢复先开的那次，21:22:30 放完。 */
+  const fill = resume => {
+    const [accepted, before, after] = pausedUse('first', 'bilibili', 'c-long', [at('21:00:00'), at('21:08:00')],
+      [resume, at('21:22:30')]);
+    return [accepted, before, ...appUse('second', 'bilibili', 'c-image', at('21:08:00'), at('21:10:30')), after];
+  };
+  const view = await viewer(fill(at('21:10:30')));
+  t.after(() => view.close());
+  const markup = view.activities();
+  const drawn = lanes(markup);
+  assert.equal(drawn.length, 1);
+  assert.equal(drawn[0].label, '使用哔哩哔哩《测试长视频》《测试图文》《测试长视频》');
+  assert.deepEqual(drawn[0].bars.map(bar => bar.title), ['2026/09/28 21:00:00–2026/09/28 21:22:30 · ' +
+    '使用哔哩哔哩《测试长视频》《测试图文》《测试长视频》 · 连续使用，共 3 段']);
+  assert.deepEqual(marks(markup), ['09/28 21:00–09/28 21:22 · 第 1、3 段，共 3 段',
+    '09/28 21:00–09/28 21:22 · 第 2 段，共 3 段']);
+  const texts = acceptances(view);
+  assert.ok(!texts[0].includes('接续'));
+  assert.ok(texts[1].endsWith(' · 接续 09/28 21:00 起的连续使用'));
+  // 恢复晚了一秒：先开那次的前半段和后开的那次连成 2 段，后半段自成一条；两项活动仍画在同一行，行里两个条块。
+  const late = await viewer(fill(at('21:10:31')));
+  t.after(() => late.close());
+  const lateMarkup = late.activities();
+  const lateLanes = lanes(lateMarkup);
+  assert.equal(lateLanes.length, 1);
+  assert.deepEqual(lateLanes[0].bars.map(bar => bar.title), [
+    '2026/09/28 21:00:00–2026/09/28 21:10:30 · 使用哔哩哔哩《测试长视频》《测试图文》 · 连续使用，共 2 段',
+    '2026/09/28 21:10:31–2026/09/28 21:22:30 · 使用哔哩哔哩《测试长视频》']);
+  assert.deepEqual(marks(lateMarkup), ['09/28 21:00–09/28 21:10 · 第 1 段，共 2 段',
+    '09/28 21:00–09/28 21:10 · 第 2 段，共 2 段']);
+});
+
+test('a paused use that touches another use on each side is marked with both continuous uses', async t => {
+  const [accepted, before, after] = pausedUse('first', 'bilibili', 'c-long', [at('21:00:00'), at('21:08:00')],
+    [at('21:38:00'), at('21:50:00')]);
+  const view = await viewer([accepted, before,
+    ...appUse('middle', 'bilibili', 'c-image', at('21:08:00'), at('21:10:30')),
+    ...appUse('later', 'bilibili', 'c-article', at('21:30:00'), at('21:38:00')), after]);
+  t.after(() => view.close());
+  const markup = view.activities();
+  const drawn = lanes(markup);
+  assert.equal(drawn.length, 1);
+  assert.deepEqual(drawn[0].bars.map(bar => bar.title), [
+    '2026/09/28 21:00:00–2026/09/28 21:10:30 · 使用哔哩哔哩《测试长视频》《测试图文》 · 连续使用，共 2 段',
+    '2026/09/28 21:30:00–2026/09/28 21:50:00 · 使用哔哩哔哩《测试文章》《测试长视频》 · 连续使用，共 2 段']);
+  assert.deepEqual(marks(markup), [
+    '09/28 21:00–09/28 21:10 · 第 1 段，共 2 段；09/28 21:30–09/28 21:50 · 第 2 段，共 2 段',
+    '09/28 21:00–09/28 21:10 · 第 2 段，共 2 段', '09/28 21:30–09/28 21:50 · 第 1 段，共 2 段']);
+  assert.deepEqual(acceptances(view).map(text => text.includes('接续')), [false, true, false]);
+});
+
+test('midnight, time zone, paging, sorting and timeline filters never cut a continuous use', async t => {
+  const events = [
+    ...appUse('before', 'bilibili', 'c-article', at('23:58:00'), at('00:00:30', '29')),
+    ...appUse('after', 'bilibili', 'c-image', at('00:00:30', '29'), at('00:03:00', '29')),
+    event('observation', {}, {occurred_at: at('01:00:00', '29')}),
+  ];
+  const view = await viewer(events);
+  t.after(() => view.close());
+  const pair = [1, 2].map(index => `09/28 23:58–09/29 00:03 · 第 ${index} 段，共 2 段`);
+  const markup = view.activities();
+  assert.deepEqual(lanes(markup).map(lane => lane.bars.length), [1]);
+  assert.deepEqual(marks(markup), pair);
+  // 每页一行：两页各一行，标记不变。
+  view.run('AT.pageSize = 1');
+  assert.deepEqual(marks(view.activities()), [pair[0]]);
+  view.get('#at-next').onclick();
+  assert.deepEqual(marks(view.get('#act-body').innerHTML), [pair[1]]);
+  // 按活动类型倒序排：标记跟着各自的行。
+  view.run("AT.pageSize = 50; AT.page = 0; AT.sortKey = 'kind'; AT.sortDir = -1");
+  const sorted = tableRows(view.activities(), 'act-table');
+  assert.deepEqual(sorted.map(cells => [cells[3], cells.at(-1)]), [
+    ['使用哔哩哔哩《测试图文》', pair[1]], ['使用哔哩哔哩《测试文章》', pair[0]]]);
+  // 时间线的起点设到零点：筛出的后一次受理行仍写整条连续使用的起点。
+  view.run('renderTimeline()');
+  view.get('#tl-r0').oninput({target: {value: String(at('00:00:00', '29'))}});
+  const shown = [...view.run('TL.filtered.map(entry => entry.sum)')];
+  assert.deepEqual(shown.filter(text => text.startsWith('已受理')),
+    ['已受理 · 使用哔哩哔哩《测试图文》 · 计划 2分 · 接续 09/28 23:58 起的连续使用']);
+  // 世界状态的时区换成东京：标记和半句里的时刻都晚一小时。
+  const tokyo = await viewer(events, {world: {timezone: 'Asia/Tokyo'}});
+  t.after(() => tokyo.close());
+  assert.deepEqual(marks(tokyo.activities()),
+    [1, 2].map(index => `09/29 00:58–09/29 01:03 · 第 ${index} 段，共 2 段`));
+  assert.ok(acceptances(tokyo)[1].endsWith(' · 接续 09/29 00:58 起的连续使用'));
+});
+
+test('a use cut by the run end keeps the uses that touch it', async t => {
+  const done = appUse('done', 'bilibili', 'c-article', at('20:00:00'), at('20:01:00'));
+  const [accepted, progress] = appUse('cut', 'bilibili', 'c-long', at('20:01:00'), at('20:01:30'), {status: 'active'});
+  // 后一次只有一条进度事件、状态仍是进行中：连成一条，终点是最后一次结算的时刻。
+  const view = await viewer([...done, accepted, progress]);
+  t.after(() => view.close());
+  const markup = view.activities();
+  assert.deepEqual(lanes(markup).map(lane => lane.bars.map(bar => bar.title)), [[
+    '2026/09/28 20:00:00–2026/09/28 20:01:30 · 使用哔哩哔哩《测试文章》《测试长视频》 · 连续使用，共 2 段']]);
+  assert.deepEqual(marks(markup), [1, 2].map(index => `09/28 20:00–09/28 20:01 · 第 ${index} 段，共 2 段`));
+  // 后一次受理之后没有任何进度事件：它没有执行段，前一次标记栏是「—」，后一次受理行不加半句。
+  const pending = await viewer([...done, accepted]);
+  t.after(() => pending.close());
+  assert.deepEqual(marks(pending.activities()), ['—', '—']);
+  assert.ok(!acceptances(pending)[1].includes('接续'));
+});
+
+test('an item continued in the next use is written once in the label of the continuous use', async t => {
+  const view = await viewer([
+    // 看到一半被结束，同一秒再打开接着放同一条内容，放完后同一秒又打开看另一条。
+    ...appUse('first', 'bilibili', 'c-long', at('20:00:00'), at('20:20:00'), {status: 'cancelled'}),
+    ...appUse('again', 'bilibili', 'c-long', at('20:20:00'), at('20:40:00')),
+    ...appUse('other', 'bilibili', 'c-image', at('20:40:00'), at('20:45:00')),
+    // 两次没有内容的同 app 使用相接（内容轨道并入之前仍会产生）。
+    ...appUse('browse-1', 'meituan', null, at('21:00:00'), at('21:10:00')),
+    ...appUse('browse-2', 'meituan', null, at('21:10:00'), at('21:20:00')),
+  ]);
+  t.after(() => view.close());
+  const drawn = lanes(view.activities());
+  assert.equal(drawn[0].label, '使用哔哩哔哩《测试长视频》《测试图文》');
+  assert.deepEqual(drawn[0].bars.map(bar => bar.title), ['2026/09/28 20:00:00–2026/09/28 20:45:00 · ' +
+    '使用哔哩哔哩《测试长视频》《测试图文》 · 连续使用，共 3 段']);
+  assert.deepEqual(drawn.map(lane => lane.bars.length), [1, 1]);
+  // 过渡写法的断言（收尾时随没有内容的 app 使用一起删去）：成串不看内容，标签是「使用<app 名>」。
+  assert.equal(drawn[1].bars[0].title, '2026/09/28 21:00:00–2026/09/28 21:20:00 · 使用美团 · 连续使用，共 2 段');
+});
+
+test('continuous uses are found without the frozen catalog', async t => {
+  const view = await viewer(nightEvents(), {files: []});
+  t.after(() => view.close());
+  const markup = view.activities();
+  const drawn = lanes(markup);
+  // 条块、标记和「接续」只用身份和时刻，照样算出；标签里的名称显示缺失。
+  assert.deepEqual(drawn.map(lane => lane.bars.length), [1, 1, 1, 1, 1, 1, 1]);
+  assert.deepEqual(marks(markup), NIGHT_MARKS);
+  NIGHT_CONTINUES.forEach((start, index) => assert.equal(acceptances(view)[index].includes('接续'), Boolean(start)));
+  assert.equal(drawn[2].label, '使用名称缺失（bilibili）《名称缺失（n-puzzle）》' +
+    '《名称缺失（content-long-video-cooking-002）》《名称缺失（n-family-photo）》');
+  const missing = view.errors.filter(error => error.startsWith('Missing recorded object name: '));
+  const identities = [...new Set(NIGHT.flatMap(([, app, content]) => [app, content]))];
+  assert.deepEqual([...missing].sort(), identities.map(identity => `Missing recorded object name: ${identity}`).sort());
+  assert.deepEqual(view.errors.filter(error => !missing.includes(error)),
+    ['Frozen catalog is unavailable: no run manifest for this database']);
 });

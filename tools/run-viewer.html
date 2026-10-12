@@ -250,6 +250,7 @@ const S = {
   world: null,
   obs: [],               // {seq,t,agent,bal,en,sl,et}
   acts: [],              // 合并后的活动段
+  uses: null,            // ViewerWording.continuousUses 的结果：同一 app 首尾相接的连续使用与两张索引
   orders: new Map(),     // 订单身份 -> 商品履约记录 {goods_id, app_id}，取自动作结果
   memFiles: {},          // agentId -> {memoryMd, episodes:[]}
   runManifest: null,     // {path, frozen, manifest}：随库提供的本运行冻结清单（frozen 表示取自导出清单）
@@ -592,7 +593,7 @@ function buildIndex(log){
   try{ S.tzOff = tzOffsetSec(S.tz, S.t0||Math.floor(Date.now()/1000)); }catch(e){ S.tzOff = 28800; }
 }
 
-/** @brief 读完运行文件之后：合并活动，最后一次生成各行摘要文字。 */
+/** @brief 读完运行文件之后：合并活动，算出同一 app 的连续使用，最后一次生成各行摘要文字（受理行要读连续使用）。 */
 function summarize(log){
   buildActivities();
   buildReminders();
@@ -698,7 +699,8 @@ function makeSummary(e){
     case 'action_requested': return `请求 ${toolLabel(s.tool)} · ${readableReq(s.tool, s.req)}` +
       (s.note ? ` · self_note（未经核验）：${s.note}` : '');
     case 'action_accepted':
-      return `已受理 · ${eventPhrase(s, ' · ')} · 计划 ${fmtDur(s.dur)}`;
+      return `已受理 · ${eventPhrase(s, ' · ')} · 计划 ${fmtDur(s.dur)}` +
+        ViewerWording.continuationNote(e.seq, S.uses, fmtHM);
     case 'action_rejected':
       return `被拒绝 · ${s.err||'—'} · 同刻第 ${s.smr??'?'} 轮` +
         (s.smmax!=null?`（上限 ${s.smmax}）`:'');
@@ -757,8 +759,8 @@ const snapshotSummary = activity => ({aid:activity.activity_id, kind:activity.ki
   dest:activity.destination_id, method:activity.travel_method_id, appId:activity.data?.app_id,
   contentId:activity.data?.content_id, location:activity.location_id, orderIds:activity.data?.order_ids,
   origin:activity.data?.origin_id, path:activity.data?.path});
-/** @brief 把一条事件里的一项活动并进合并后的活动：最新状态、写法要读的身份、按序号累积的内容身份；区间为正的进度事件
- *  记结算区间。 */
+/** @brief 把一条事件里的一项活动并进合并后的活动：最新状态、写法要读的身份、按序号累积的内容身份、第一条受理事件的
+ *  序号；区间为正的进度事件记结算区间与执行段的起、止、序号和内容身份（供连续使用）。 */
 function absorbActivity(a, s, e){
   if (s.start!=null && s.start < a.start) a.start = s.start;
   if (s.end!=null) a.end = Math.max(a.end??0, s.end);
@@ -772,11 +774,16 @@ function absorbActivity(a, s, e){
   a.kind = s.kind; a.appId = s.appId;
   if (s.origin!=null) a.origin = s.origin;
   if (s.path?.length) a.path = s.path;
-  a.contents.push(ViewerWording.eventContentId(s.played, s.contentId));
-  if (e.type==='activity_progress' && s.from!=null && s.to>s.from) a.intervals.push([s.from,s.to]);
+  const content = ViewerWording.eventContentId(s.played, s.contentId);
+  a.contents.push(content);
+  if (e.type==='action_accepted' && a.acceptSeq==null) a.acceptSeq = e.seq;
+  if (e.type==='activity_progress' && s.from!=null && s.to>s.from){
+    a.intervals.push([s.from,s.to]);
+    a.progress.push({start:s.from, end:s.to, seq:e.seq, content});
+  }
 }
 
-/* 活动段合并：同一 activity_id 取最新状态（受理与进展按真实 activity_id 归并） */
+/* 活动段合并：同一 activity_id 取最新状态（受理与进展按真实 activity_id 归并）；末尾算出同一 app 的连续使用 */
 function buildActivities(){
   const map = new Map();
   for (const e of S.events){
@@ -787,7 +794,8 @@ function buildActivities(){
       if (!s.kind) continue;
       const aid = s.aid || `(accepted@${e.seq})`;
       if (!map.has(aid)) map.set(aid, {aid, agent:e.agent, kind:s.kind, start:s.start??e.t, end:null,
-        status:'active', elapsed:0, tg:null, dest:null, location:null, orderIds:[], contents:[], intervals:[]});
+        status:'active', elapsed:0, tg:null, dest:null, location:null, orderIds:[], contents:[], acceptSeq:null,
+        intervals:[], progress:[]});
       absorbActivity(map.get(aid), s, e);
     }
   }
@@ -798,6 +806,7 @@ function buildActivities(){
     if (a.end < a.start) a.end = a.start;
   }
   S.acts = [...map.values()].sort((x,y)=> x.agent-y.agent || x.start-y.start);
+  S.uses = ViewerWording.continuousUses(S.acts);
 }
 
 /* 懒加载事件全文（FIFO 缓存） */
@@ -1146,11 +1155,15 @@ function laneBar(start, end, kind, text){
   return `<span class="act-lane-bar" style="left:${left}%;width:${width}%;background:${kindColor(kind)}"
           title="${esc(fmtT(start)+'–'+fmtT(end)+' · '+text)}"></span>`;
 }
-/** @brief 泳道的一行：每个执行段一个条块，标签是写法（出行、睡眠照原格式「种类 目标」）。 */
-function laneRow(one){
-  const label = WORDED_KINDS.has(one.kind) ? actTargetText(one)
-    : `${actTypeLabel(one.kind,one.tg)} ${actTargetText(one)}`.trim();
-  const bars = one.intervals.map(([start,end])=>laneBar(start, end, one.kind, label));
+/** @brief 泳道的一行：独自一行的活动每个执行段一个条块，标签是写法（出行、睡眠照原格式「种类 目标」）；同一个 app
+ *  首尾相接的几次使用并成的一行每条连续使用一个条块，标签与悬停文字由 ViewerWording 的连续使用写出。 */
+function laneRow(row){
+  const one = row.activities[0], wording = ViewerWording.continuousUseLabel;
+  const label = row.joined ? wording(row.uses.flatMap(use=>use.segments))
+    : WORDED_KINDS.has(one.kind) ? actTargetText(one) : `${actTypeLabel(one.kind,one.tg)} ${actTargetText(one)}`.trim();
+  const bars = row.joined ? row.uses.map(use=>laneBar(use.start, use.end, 'interact', wording(use.segments) +
+      (use.segments.length>1 ? ` · 连续使用，共 ${use.segments.length} 段` : '')))
+    : one.intervals.map(([start,end])=>laneBar(start, end, one.kind, label));
   return `<div class="act-lane"><div class="act-lane-label" title="${esc(label)}">${esc(label)}</div>
         <div class="act-lane-track">${bars.join('')}</div></div>`;
 }
@@ -1160,9 +1173,9 @@ function renderActivityLanes(activities){
   const ticks = [0,.25,.5,.75,1].map(f=>`<span>${fmtHM(S.t0+span*f)}</span>`).join('');
   const agents = [...new Set(activities.map(a=>a.agent))];
   const groups = agents.map(agent=>`<h3>${esc(agentName(agent))}</h3>` +
-    activities.filter(a=>a.agent===agent).sort((a,b)=>a.start-b.start).map(laneRow).join('')).join('');
+    ViewerWording.useLaneRows(activities.filter(a=>a.agent===agent), S.uses).map(laneRow).join('')).join('');
   return `<div class="card act-lanes"><div class="act-lanes-inner">
-    <div class="hint">同一时间轴上的条块表示实际执行区间；空白表示尚无结算记录。</div>
+    <div class="hint">同一时间轴上的条块表示实际执行区间；空白表示尚无结算记录。同一个 app 首尾相接的几次使用画在同一行，连成一个条块。</div>
     <div class="act-lane-axis">${ticks}</div>${groups}</div></div>`;
 }
 /** @brief 地点会话（一段停留或一段路）只存于世界状态，按开始时刻列出其名称、种类与所含活动。 */
@@ -1215,7 +1228,7 @@ function renderActivities(){
   <div class="card" style="padding:0 0 0 0">
     <table class="act-table">
       <thead><tr>${th('start','开始')}${th('agent','人物')}${th('kind','活动类型')}
-        <th>目标</th><th>结束</th><th class="num">实际时长</th></tr></thead>
+        <th>目标</th><th>结束</th><th class="num">实际时长</th><th>连续使用</th></tr></thead>
       <tbody>
       ${view.map(a=>`<tr>
         <td style="white-space:nowrap;font-family:var(--mono);font-size:12px">${fmtHM(a.start)}</td>
@@ -1223,7 +1236,8 @@ function renderActivities(){
         <td><span class="act-kind" style="background:${kindColor(a.kind)}33;color:${kindColor(a.kind)}">${esc(actTypeLabel(a.kind,a.tg))}</span></td>
         <td>${esc(actTargetText(a))}</td>
         <td style="white-space:nowrap;font-family:var(--mono);font-size:12px">${fmtHM(a.end)}</td>
-        <td class="num">${a.actualSeconds?fmtDur(a.actualSeconds):'—'}</td></tr>`).join('')}
+        <td class="num">${a.actualSeconds?fmtDur(a.actualSeconds):'—'}</td>
+        <td>${esc(ViewerWording.continuousUseMark(a, S.uses, fmtHM))}</td></tr>`).join('')}
       </tbody>
     </table>
     <div class="pager">
@@ -1768,7 +1782,7 @@ function bindDnd(){
     if (S.db) S.db.close();
     S.db=null; S.events=[]; S.summaries=new Map(); S.typeCounts={}; S.obs=[]; S.acts=[];
     S.memFiles={}; S.bodyCache=new Map(); S.world=null; S.runId='';
-    S.runManifest=null; S.ignoredManifests=0; S.orders=new Map(); S.catalogMissing=[];
+    S.runManifest=null; S.ignoredManifests=0; S.orders=new Map(); S.uses=null; S.catalogMissing=[];
     ViewerWording.reset(); S.missingNames=new Set(); S.reminded=new Map(); S.day=null;
     AT.page=0; AT.sortKey='start'; AT.sortDir=1;
     TL.inited=false; TL.types=new Set(); TL.kw=''; TL.rendered=0;

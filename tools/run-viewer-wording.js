@@ -1,8 +1,8 @@
 'use strict';
 
 /** @brief 查看器的显示写法：src/worldmock/footprints/display_wording.py 的镜像，两份实现由
- *  tests/fixtures/display-wording-cases.json 约束。名称只取本库运行清单登记的冻结目录文件
- *  （docs/design/05-recording-engine.md「显示写法与检查工具」）。查看器是容错的阅读工具，
+ *  tests/fixtures/display-wording-cases.json 约束。名称只取本库运行清单登记的冻结目录文件；另算出查看器独有的
+ *  同一 app 连续使用（docs/design/05-recording-engine.md「显示写法与检查工具」）。查看器是容错的阅读工具，
  *  取不到名称时显示「名称缺失（身份）」并写英文错误，不像 Python 一侧那样报运行故障。 */
 const ViewerWording = {};
 {
@@ -215,6 +215,139 @@ const ViewerWording = {};
     return `${PHONE_LABELS[data.kind]} · ${name('app', data.app_id)} · ${detail}`;
   }
 
+  /** @brief 一项活动的执行段：区间为正的进度事件（{start, end, seq, content}）的结算区间，首尾相接或重叠的并成一段，
+   *  与页面 mergeIntervals 同一规则。每段记下活动身份、app、第一条受理事件的序号、起、止、段里第一条进度事件的序号和
+   *  按序号排列的内容身份。 */
+  function executionSegments(activity) {
+    const merged = [];
+    for (const record of [...activity.progress].sort((x, y) => x.start - y.start || x.seq - y.seq)) {
+      const last = merged[merged.length - 1];
+      if (last && record.start <= last.end) {
+        last.end = Math.max(last.end, record.end);
+        last.records.push(record);
+      } else {
+        merged.push({start: record.start, end: record.end, records: [record]});
+      }
+    }
+    return merged.map(({start, end, records}) => {
+      records.sort((x, y) => x.seq - y.seq);
+      return {aid: activity.aid, appId: activity.appId, acceptSeq: activity.acceptSeq ?? null, start, end,
+        seq: records[0].seq, contentIds: records.map(record => record.content)};
+    });
+  }
+
+  /** @brief 两张索引。按活动身份：它所在的各条连续使用与自己在其中的段号（从 1 数，按先后）。按受理事件序号：一项
+   *  活动的第一个执行段不是所在连续使用的第一段时，它第一条受理事件的序号到那一条连续使用。 */
+  function useIndexes(uses) {
+    const byActivity = new Map(), byAcceptance = new Map(), first = new Map();
+    for (const use of uses) {
+      use.segments.forEach((segment, index) => {
+        if (!byActivity.has(segment.aid)) byActivity.set(segment.aid, []);
+        const places = byActivity.get(segment.aid);
+        const place = places.find(entry => entry.use === use);
+        if (place) place.indexes.push(index + 1);
+        else places.push({use, indexes: [index + 1]});
+        const earliest = first.get(segment.aid);
+        if (!earliest || segment.start < earliest.segment.start) first.set(segment.aid, {segment, use, index});
+      });
+    }
+    for (const {segment, use, index} of first.values()) {
+      if (index > 0 && segment.acceptSeq !== null && !byAcceptance.has(segment.acceptSeq)) {
+        byAcceptance.set(segment.acceptSeq, use);
+      }
+    }
+    return {byActivity, byAcceptance};
+  }
+
+  /** @brief 由合并后的活动（带 aid、agent、kind、appId、acceptSeq 与区间为正的进度事件 progress）求全部连续使用：
+   *  同一人物、同一 app 的 app 使用（种类 interact、appId 不为空）的执行段按开始、结束、段里第一条进度事件的序号排好，
+   *  后一段开始的那一秒等于前一段结束的那一秒（原样比较，没有容差，重叠也不连）就接上，否则另起一条。返回各条连续
+   *  使用 {agent, appId, start, end, segments}，以及按活动身份和按受理事件序号查的两张索引。 */
+  function continuousUses(activities) {
+    const groups = new Map();
+    for (const activity of activities) {
+      if (activity.kind !== 'interact' || activity.appId == null) continue;
+      const key = JSON.stringify([activity.agent, activity.appId]);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(...executionSegments(activity));
+    }
+    const uses = [];
+    for (const [key, segments] of groups) {
+      const [agent, appId] = JSON.parse(key);
+      let use = null;
+      for (const segment of segments.sort((x, y) => x.start - y.start || x.end - y.end || x.seq - y.seq)) {
+        if (!use || segment.start !== use.end) {
+          use = {agent, appId, start: segment.start, end: segment.end, segments: []};
+          uses.push(use);
+        }
+        use.segments.push(segment);
+        use.end = segment.end;
+      }
+    }
+    return {uses, ...useIndexes(uses)};
+  }
+
+  /** @brief 经连续使用与这项活动连在一起的全部活动身份（含它自己），连带可以传递；只有一段的连续使用只含它自己的一段，
+   *  不会连进别的活动。 */
+  function joinedWith(aid, uses) {
+    const found = new Set([aid]), queue = [aid];
+    while (queue.length) {
+      for (const {use} of uses.byActivity.get(queue.pop()) ?? []) {
+        for (const segment of use.segments) {
+          if (found.has(segment.aid)) continue;
+          found.add(segment.aid);
+          queue.push(segment.aid);
+        }
+      }
+    }
+    return found;
+  }
+
+  /** @brief 把传入的活动分成泳道的行：有执行段同属一条两段及以上连续使用的 app 使用画在同一行（连带可以传递），其余
+   *  每项活动自成一行。每行给出画在一起的活动（照传入的次序）、行里的各条连续使用（按开始时刻，只有一段的也在）、
+   *  行的最早开始时刻和是否并成；各行按最早开始时刻排，并列时保持传入的相对次序。 */
+  function useLaneRows(activities, uses) {
+    const rowOf = new Map(), rows = [];
+    for (const activity of activities) {
+      if (!rowOf.has(activity.aid)) {
+        const row = {members: joinedWith(activity.aid, uses), activities: [], start: Infinity};
+        for (const aid of row.members) rowOf.set(aid, row);
+        rows.push(row);
+      }
+      const row = rowOf.get(activity.aid);
+      row.activities.push(activity);
+      row.start = Math.min(row.start, activity.start);
+    }
+    return rows.map(({members, activities: drawn, start}) => {
+      const touched = new Set([...members].flatMap(aid => (uses.byActivity.get(aid) ?? []).map(place => place.use)));
+      const lane = [...touched].sort((x, y) => x.start - y.start);
+      return {activities: drawn, uses: lane, start, joined: lane.some(use => use.segments.length > 1)};
+    }).sort((x, y) => x.start - y.start);
+  }
+
+  /** @brief 若干段（按先后）的写法：把各段的内容身份接起来，连同只带 kind 与 data.app_id 的快照交给活动的写法，
+   *  相邻的同一条内容在那里只写一次。 */
+  function continuousUseLabel(segments) {
+    return activityPhrase({kind: 'interact', data: {app_id: segments[0].appId}},
+      segments.flatMap(segment => segment.contentIds), new Map());
+  }
+
+  /** @brief 活动表「连续使用」一格：这项活动所在的每条两段及以上的连续使用写「<起>–<止> · 第 <i> 段，共 <n> 段」，
+   *  同一条里占几段时段号以「、」相连，分属几条时按先后以「；」相连；没有可写的返回「—」。formatTime 是页面的时刻格式。 */
+  function continuousUseMark(activity, uses, formatTime) {
+    const marks = (uses.byActivity.get(activity.aid) ?? []).filter(({use}) => use.segments.length > 1)
+      .map(({use, indexes}) => `${formatTime(use.start)}–${formatTime(use.end)} · ` +
+        `第 ${indexes.join('、')} 段，共 ${use.segments.length} 段`);
+    return marks.length ? marks.join('；') : '—';
+  }
+
+  /** @brief 受理行末尾的半句「 · 接续 <整条的开始> 起的连续使用」：只给开始一次 app 使用、而这次使用的第一个执行段不是
+   *  所在连续使用第一段的那条受理事件（带着这项活动的受理事件里序号最小的那一条）；其余返回空串。 */
+  function continuationNote(sequence, uses, formatTime) {
+    const use = uses.byAcceptance.get(sequence);
+    return use ? ` · 接续 ${formatTime(use.start)} 起的连续使用` : '';
+  }
+
   Object.assign(ViewerWording, {loadCatalog, reset, namesFrom, name, eventContentId, activityPhrase, orderChannel,
-    isPhone, phonePhrase});
+    isPhone, phonePhrase, continuousUses, useLaneRows, continuousUseLabel, continuousUseMark, continuationNote});
 }
