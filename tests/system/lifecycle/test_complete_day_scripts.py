@@ -35,9 +35,9 @@ def test_activity_day_names_units_buys_portions_and_sleeps_at_the_office(monkeyp
     starts = _requests(case)
     assert starts[:6] == [
         ("start_main_activity", {"action": "interact", "target": "家", "detail": "测试休息"}),
-        ("start_side_activity", {"action": "purchase", "target": ["牛肉面", "薯片", "薯片"]}),
+        ("start_side_activity", {"action": "purchase", "target": ["牛肉面", "薯片", "薯片"], "prefer": None}),
         ("start_main_activity", {"action": "travel", "target": "公司", "detail": "驾车"}),
-        ("start_side_activity", {"action": "interact", "target": ["哔哩哔哩"]}),
+        ("start_side_activity", {"action": "interact", "target": ["哔哩哔哩"], "prefer": None}),
         ("start_main_activity", {"action": "interact", "target": "公司", "detail": "季度销售数据整理"}),
         ("start_main_activity", {"action": "sleep", "target": "60", "detail": None})]
     later = starts[6:]
@@ -86,4 +86,4 @@ def test_callback_day_drives_to_the_store_and_restores_the_state(monkeypatch, tm
     starts = _requests(case)
     assert starts[:2] == [
         ("start_main_activity", {"action": "travel", "target": "四季便利", "detail": "驾车"}),
-        ("start_side_activity", {"action": "purchase", "target": ["纸巾", "饭团"]})]
+        ("start_side_activity", {"action": "purchase", "target": ["纸巾", "饭团"], "prefer": None})]

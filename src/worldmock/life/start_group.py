@@ -30,6 +30,7 @@ from worldmock.life.models import (ActionResult, ActionStatus, ActivityKind, Act
                                    REQUEST_MODELS, WorldState)
 from worldmock.life.name_resolution import name_book, resolution_data, resolve_start
 from worldmock.life.object_labels import resolve_name
+from worldmock.life.order_apps import preferred_app_id
 from worldmock.life.purchase_offers import app_goods
 from worldmock.life.request_errors import argument_report
 from worldmock.life.sleep_plan import assumed_sleep, oversleep_seconds, sleep_seconds_in_window
@@ -145,13 +146,17 @@ class StartGroups:
         return requests
 
     def _resolved(self, group: Sequence[PendingAction], requests: list, observation: dict) -> list[_Started]:
-        """@brief 与宿主共用同一份冻结观察上的名称解析，全部名称问题合并成一次 ACTION_REQUEST_INVALID。"""
+        """@brief 与宿主共用同一份冻结观察上的名称解析，全部名称问题合并成一次 ACTION_REQUEST_INVALID。
+
+        购买调用在这里从冻结目录认一次意向 app，记在调用上，整组核验与受理读同一个值；prefer 不参加名称解析。
+        """
         book, started, items = name_book(observation), [], []
         for index, (pending, request) in enumerate(zip(group, requests, strict=True)):
             outcome = resolve_start(book, pending.tool_name, request)
             root = ("tool_calls", index, "function", "arguments")
             items.extend(replace(failure.item, path=(*root, *failure.item.path)) for failure in outcome.failures)
-            call = admission.Call(pending.tool_name, request.action, outcome.rows)
+            prefer = preferred_app_id(self.context.catalog, request.prefer) if request.action == "purchase" else None
+            call = admission.Call(pending.tool_name, request.action, outcome.rows, prefer)
             started.append(_Started(index, pending, call, outcome.resolved))
         if items:
             _LOGGER.error("Start request names are invalid")
@@ -209,7 +214,7 @@ class StartGroups:
         if action == "sleep":
             return self._start_sleep(state, pending, rows[0]["minutes"] * 60)
         if action == "purchase":
-            return self.storefront.prepare_purchase(state, pending, item.call.goods_ids)[0]
+            return self.storefront.prepare_purchase(state, pending, item.call.goods_ids, item.call.prefer)[0]
         changed, _, drafts = InteractivityRuntime(self.context).start(state, pending, rows[0], stay_location_id)
         self.event_drafts.extend(drafts)
         return changed

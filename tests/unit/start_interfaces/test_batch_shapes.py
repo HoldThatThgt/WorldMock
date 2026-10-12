@@ -74,7 +74,7 @@ def test_request_model_errors_of_both_calls_join_one_correction():
     """detail 为 null 到不了名称解析：由请求模型拒绝，明细不带允许值与候选，改法是改正每个报告的参数；
     用内容 app 而名称数组为空同时违背两条交叉约束，两条都报。"""
     main = (MAIN_TOOL, {"action": "interact", "target": "自己家", "detail": None})
-    side = (SIDE_TOOL, {"action": "interact", "target": []})
+    side = (SIDE_TOOL, {"action": "interact", "target": [], "prefer": None})
     report = _feedback(main, side)[0].report.payload()
     assert report["error_code"] == "ARGUMENTS_INVALID" and report["fix"] == "Correct every reported parameter."
     target = ["tool_calls", 1, "function", "arguments", "target"]

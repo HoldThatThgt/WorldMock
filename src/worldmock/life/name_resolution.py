@@ -67,6 +67,8 @@ class StartItem:
     index: int | None = None
     #: 副工具所写的完整数组，购买候选替换出错元素时其余元素照写。
     written: tuple[str, ...] = ()
+    #: 副工具 prefer 所写的原文，购买候选照抄；主工具的解析项与没有写意向时为 None。
+    prefer: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,11 +167,15 @@ def selection_row(target: Target, option: Option) -> dict:
 
 
 def start_items(tool: str, request: Any) -> tuple[StartItem, ...]:
-    """@brief 把调用展开成解析项：主工具一项，副工具的 target 每个元素一项（购买的重复元素各自成项）。"""
+    """@brief 把调用展开成解析项：主工具一项，副工具的 target 每个元素一项（购买的重复元素各自成项）。
+
+    副工具的每一项都带着 prefer 原文，只供候选照抄；prefer 不参加名称解析。
+    """
     if tool == MAIN_TOOL:
         return (StartItem(tool, request.action, request.target, request.detail),)
     written = tuple(request.target)
-    return tuple(StartItem(tool, request.action, name, None, index, written) for index, name in enumerate(written))
+    return tuple(StartItem(tool, request.action, name, None, index, written, request.prefer)
+                 for index, name in enumerate(written))
 
 
 def resolve_start(book: NameBook, tool: str, request: Any) -> StartOutcome:
@@ -227,14 +233,19 @@ def _target_path(item: StartItem) -> tuple:
 
 
 def call_candidate(target: Target, option: Option, item: StartItem) -> Candidate:
-    """@brief 对象的一条动作行写成可以照抄提交的完整调用；购买候选只替换所写数组里出错的那个元素。"""
+    """@brief 对象的一条动作行写成可以照抄提交的完整调用；购买候选只替换所写数组里出错的那个元素。
+
+    副工具的候选恒为 action、target、prefer 三个键：购买候选的 prefer 照被退回的请求所写原样带上（主工具的调用和
+    打开 app 没有写过意向，就是 None），打开 app 的候选恒为 None。
+    """
     note = option.blocked or option.duration
     if target.kind == "location":
         return Candidate(MAIN_TOOL, {"action": option.action, "target": target.label, "detail": option.detail}, note)
     names = [target.label]
     if item.index is not None and item.action == option.action == "purchase":
         names = [target.label if position == item.index else name for position, name in enumerate(item.written)]
-    return Candidate(SIDE_TOOL, {"action": option.action, "target": names}, note)
+    prefer = item.prefer if option.action == "purchase" else None
+    return Candidate(SIDE_TOOL, {"action": option.action, "target": names, "prefer": prefer}, note)
 
 
 def _pick(target: Target, item: StartItem) -> Option | None:

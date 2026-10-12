@@ -36,6 +36,6 @@ def test_real_purchase_attempt_is_one_current_action(engine_factory):
     source = requested[attempts[0]["request_event_id"]]
     assert source["action_id"] == attempts[0]["action_id"] == "action-recorded-basket"
     assert source["data"]["tool_name"] == "start_side_activity"
-    assert source["data"]["request"] == {"action": "purchase", "target": ["柠檬茶", "纸巾"]}
+    assert source["data"]["request"] == {"action": "purchase", "target": ["柠檬茶", "纸巾"], "prefer": None}
     side = [row["data"]["request"] for row in requested.values() if row["data"]["tool_name"] == "start_side_activity"]
-    assert {"action": "interact", "target": ["哔哩哔哩"]} in side and len(side) >= 2
+    assert {"action": "interact", "target": ["哔哩哔哩"], "prefer": None} in side and len(side) >= 2
