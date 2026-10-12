@@ -300,4 +300,7 @@ MUTATIONS = (
         "EXPORT_SCHEMA_VERSION = 6", "EXPORT_SCHEMA_VERSION = 5",
         ("tests/integration/footprints/test_acs_export.py"
          "::test_actual_purchase_content_and_current_artifacts_are_authenticated",)),
+    SourceMutation("result_details_schema_refuses_query", "worldmock.life.prompt_schemas::_RESULT_DETAILS",
+        '"query": _QUERY,', "",
+        ("tests/unit/life/test_result_contents.py::test_result_details_schema_accepts_every_listed_key",)),
 )
