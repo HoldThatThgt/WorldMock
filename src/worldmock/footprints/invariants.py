@@ -67,6 +67,7 @@ def _body_settlements(events: list[dict]) -> None:
 
     主体是 agent:<本事件人物>，初值取 before 的四项；本事件的全部分录照记录次序整批交给账本，不先按资源筛；四项各对账一次，
     期末取 after 的同名项，容差 1e-9。重放越界、分录的资源不在四项之内、分录的主体不是这位人物，都与期末不等同样不成立。
+    分录本身不成形（主体为空、方向不是 source 或 drain）时分录构造报 ValueError，同样换成这一句。
     """
     ledger = ResourceLedger([RESOURCE_METAS[name] for name in _BODY_RESOURCES])
     for event in events:
@@ -79,7 +80,7 @@ def _body_settlements(events: list[dict]) -> None:
                                  event["occurred_at"]) for flow in event["data"]["resource_flows"]]
             for name in _BODY_RESOURCES:
                 audit_level_flows(ledger, name, initial, entries, {owner: settlement["after"][name]})
-        except ResourceLedgerError as error:
+        except (ResourceLedgerError, ValueError) as error:
             _LOGGER.error(_BODY_SETTLEMENT_ERROR)
             raise IntegrityError(_BODY_SETTLEMENT_ERROR) from error
 

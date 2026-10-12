@@ -67,7 +67,8 @@ def test_recomputed_fact_integrity_rejects_false_receipts_and_intervals(facts, f
         validate_footprint_facts(events, activities, purchases, apps, state)
 
 
-@pytest.mark.parametrize("fault", ["after_changed", "extra_energy_flow", "foreign_resource_flow", "other_owner_flow"])
+@pytest.mark.parametrize("fault", ["after_changed", "extra_energy_flow", "foreign_resource_flow", "other_owner_flow",
+                                   "blank_owner_flow", "unknown_direction_flow"])
 def test_body_settlement_after_state_must_follow_its_own_flows(facts, caplog, fault):
     events, activities, purchases, apps, state = deepcopy(facts)
     record = next(event for event in events if event["event_type"] == "environment_event"
@@ -81,8 +82,12 @@ def test_body_settlement_after_state_must_follow_its_own_flows(facts, caplog, fa
     elif fault == "foreign_resource_flow":
         data["resource_flows"].append({"resource": "money_fen", "owner": owner, "direction": "source",
                                        "amount": 1, "cause": "settle:shared:money_fen"})
-    else:
+    elif fault == "other_owner_flow":
         data["resource_flows"][0]["owner"] = "agent:2"
+    elif fault == "blank_owner_flow":
+        data["resource_flows"][0]["owner"] = ""
+    else:
+        data["resource_flows"][0]["direction"] = "sink"
     message = "Body settlement after-state disagrees with its own resource flows"
     with caplog.at_level(logging.ERROR), pytest.raises(IntegrityError, match=f"^{message}$"):
         validate_footprint_facts(events, activities, purchases, apps, state)
