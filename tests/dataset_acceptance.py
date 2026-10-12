@@ -303,6 +303,11 @@ MUTATIONS = (
     SourceMutation("result_details_schema_refuses_query", "worldmock.life.prompt_schemas::_RESULT_DETAILS",
         '"query": _QUERY,', "",
         ("tests/unit/life/test_result_contents.py::test_result_details_schema_accepts_every_listed_key",)),
+    SourceMutation("app_row_accepts_browse_duration", "worldmock.catalog.models::App",
+        "travel_method_ids: tuple[NonEmptyString, ...] = ()",
+        "travel_method_ids: tuple[NonEmptyString, ...] = ()\n    browse_duration_seconds: StrictInt | None = None",
+        ("tests/unit/catalog/test_dataset_negative_contract.py"
+         "::test_registration_enforces_actual_roles_and_exclusive_bindings",)),
     SourceMutation("app_content_completion_effects_accepted",
         "worldmock.catalog.admission::_check_location_declarations",
         "if content.app_ids and (content.consumes_state is not None or content.completion_effects is not None):",

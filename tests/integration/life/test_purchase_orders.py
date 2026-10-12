@@ -79,8 +79,7 @@ def with_many_shops(tmp_path, count=12):
     root = copy_environment(tmp_path / "shops")
     apps, goods = catalog_rows(root, "app-catalog.jsonl"), catalog_rows(root, "merchant-catalog.jsonl")
     for number in range(1, count + 1):
-        apps.append({"app_id": f"shop-{number:02d}", "browse_duration_seconds": 600,
-                     "name": f"测试商城{number:02d}", "role": "content"})
+        apps.append({"app_id": f"shop-{number:02d}", "name": f"测试商城{number:02d}", "role": "content"})
         goods.append({"app_ids": [f"shop-{number:02d}"], "category": "goods", "goods_id": f"shop-item-{number:02d}",
                       "name": f"商城货品{number:02d}", "price_fen": 100})
     write_catalog_rows(root, "app-catalog.jsonl", sorted(apps, key=lambda row: row["app_id"]))

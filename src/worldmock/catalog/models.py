@@ -57,14 +57,13 @@ class CatalogManifest(DeepFrozenModel):
 
 
 class App(DeepFrozenModel):
-    """@brief 内容浏览入口，或功能 app 的购买绑定与出行方式绑定。"""
+    """@brief 内容 app，或功能 app 的购买绑定与出行方式绑定。"""
 
     app_id: NonEmptyString
     name: NonEmptyString
     role: Literal["content", "function"]
     actions: tuple[FunctionAction, ...] = ()
     travel_method_ids: tuple[NonEmptyString, ...] = ()
-    browse_duration_seconds: Annotated[StrictInt, Field(ge=60)] | None = None
 
 
 class TravelMethod(DeepFrozenModel):

@@ -300,7 +300,7 @@ def _check_method_reference(source: str, value: str, methods: frozenset[str]) ->
 
 
 def _check_apps(rows, methods: frozenset[str]) -> None:
-    """@brief 功能 app 至少有购买或出行方式一种绑定，内容 app 不得携带绑定；纯目录 app 使用数据集浏览时长。"""
+    """@brief 功能 app 至少有购买或出行方式一种绑定，内容 app 不得携带绑定且至少有内容或接单。"""
     names = {channel_key(p.display_name) for p in rows["locations"]}
     for number, app in enumerate(rows["apps"], start=1):
         if channel_key(app.name) in names:
@@ -312,8 +312,6 @@ def _check_apps(rows, methods: frozenset[str]) -> None:
             _check_order(app.travel_method_ids)
             for value in app.travel_method_ids:
                 _check_method_reference(f"app-catalog.jsonl:{number}", value, methods)
-            if "browse_duration_seconds" in app.model_fields_set:
-                raise RegistrationError("ENVIRONMENT_KIND_INVALID")
             continue
         if {"actions", "travel_method_ids"} & app.model_fields_set:
             raise RegistrationError("APP_ROLE_BINDING_INVALID")
@@ -322,10 +320,6 @@ def _check_apps(rows, methods: frozenset[str]) -> None:
             app.app_id in p.app_ids and any(p.kind in g.store_kinds for g in rows["goods"]) for p in rows["locations"])
         if not explicit and not directory:
             raise RegistrationError("APP_UNBOUND")
-        if not explicit and app.browse_duration_seconds is None:
-            raise RegistrationError("ENVIRONMENT_NUMBER_INVALID")
-        if explicit and "browse_duration_seconds" in app.model_fields_set:
-            raise RegistrationError("ENVIRONMENT_KIND_INVALID")
 
 
 def _check_callbacks(rows, apps, methods: frozenset[str]) -> None:

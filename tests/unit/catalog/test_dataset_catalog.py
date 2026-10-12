@@ -44,6 +44,21 @@ def assert_refused(directory, code):
     assert captured.value.code == code
 
 
+def test_content_less_ordering_app_is_registered_without_any_duration(catalog_directory):
+    """没有内容、只接单的内容 app 一行只写身份、名称和角色就能登记；去掉它唯一的接单绑定后没有任何绑定。"""
+    catalog = load_catalog(catalog_directory, 7)
+    assert catalog.contents_by_app["eleme"] == ()
+    assert catalog.stores_by_app["eleme"]
+    assert catalog.apps["eleme"].model_fields_set == {"app_id", "name", "role"}
+
+    def unbind(rows):
+        cafe = next(row for row in rows if row["location_id"] == "cafe")
+        cafe["app_ids"] = [key for key in cafe["app_ids"] if key != "eleme"]
+
+    replace_rows(catalog_directory, "location.jsonl", unbind)
+    assert_refused(catalog_directory, "APP_UNBOUND")
+
+
 def test_new_fixture_loads_complete_world_and_seeded_memory_map():
     catalog = load_catalog(FIXTURE, 7)
     assert len(catalog.locations) == 8

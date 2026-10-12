@@ -12,7 +12,7 @@ from worldmock.catalog.admission import validate_manifest, validate_map
 from worldmock.catalog.errors import RegistrationError
 from worldmock.catalog.identity import read_manifest_payload, refresh_manifest_identity
 from worldmock.catalog.loader import load_catalog, validate_catalog_files
-from worldmock.catalog.models import MapGraph
+from worldmock.catalog.models import App, MapGraph
 from worldmock.footprints.models import canonical_json
 
 
@@ -74,12 +74,25 @@ def change_rows(directory, filename, identity, update):
     ("app-catalog.jsonl", "bilibili", {"travel_method_ids": []}, "APP_ROLE_BINDING_INVALID"),
     ("app-catalog.jsonl", "bilibili", {"travel_method_ids": ["walking"]}, "APP_ROLE_BINDING_INVALID"),
     ("app-catalog.jsonl", "bilibili", {"browse_duration_seconds": 60}, "ENVIRONMENT_KIND_INVALID"),
+    ("app-catalog.jsonl", "eleme", {"browse_duration_seconds": 60}, "ENVIRONMENT_KIND_INVALID"),
 ])
 def test_registration_enforces_actual_roles_and_exclusive_bindings(directory, filename, identity, update, code):
     change_rows(directory, filename, identity, update)
     with pytest.raises(RegistrationError) as failure:
         load_catalog(directory, 7)
     assert failure.value.code == code
+
+
+def test_removed_browse_duration_is_refused_as_an_unknown_field_with_its_line(directory):
+    """已删除的浏览时长对没有内容的内容 app 也只是一个未知字段：行模型拒绝，详情指到那一行并带模型原文。"""
+    assert "browse_duration_seconds" not in App.model_fields
+    change_rows(directory, "app-catalog.jsonl", "eleme", {"browse_duration_seconds": 60})
+    failure = refused(directory)
+    assert (failure.code, failure.message) == ("ENVIRONMENT_KIND_INVALID", "A declared kind is outside the fixed set.")
+    assert failure.detail.startswith("app-catalog.jsonl:5 1 validation error for App\n")
+    lines = failure.detail.splitlines()
+    assert lines[1] == "browse_duration_seconds"
+    assert "Extra inputs are not permitted" in lines[2]
 
 
 def test_app_binding_refusals_keep_their_rewritten_fixed_reasons(directory):
