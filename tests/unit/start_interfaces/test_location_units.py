@@ -1,4 +1,4 @@
-"""地点内容单元：同类地点下单元名唯一的登记检查、单元的排序键、下一条内容与动作行的时长和说明。"""
+"""地点内容单元：同类地点下单元名唯一的登记检查、单元的排序键、下一条内容与动作行的时长和说明、被结束时记为做完一轮。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,9 @@ from tests.life.environment_inputs import catalog_rows, copy_environment, write_
 from worldmock.catalog.errors import RegistrationError
 from worldmock.catalog.loader import load_catalog, validate_catalog_files
 from worldmock.catalog.models import Location
-from worldmock.life.location_activities import held_refusal, location_units, next_content, unit_binding, unit_facts
+from worldmock.life.location_activities import (
+    held_refusal, location_units, next_content, unit_binding, unit_done, unit_facts,
+)
 from worldmock.life.models import ContentProgress
 
 _SOURCE = {"kind": "synthetic", "notice": "测试用合成摘要", "url": None}
@@ -136,7 +138,7 @@ def test_units_are_listed_completely_in_unit_key_order(tmp_path):
 ])
 def test_series_starts_at_the_lowest_episode_with_the_fewest_rounds(tmp_path, person, progress, content_id,
                                                                     position, facts):
-    """没做过从第一集开始，做到一半从原位置接着做，整个系列做完后从第一集开始新的一轮。"""
+    """没做过从第一集开始，位置大于零（被暂停的活动占着时）从原位置接着做，整个系列做完后从第一集开始新的一轮。"""
     catalog = load_catalog(_catalog_dir(tmp_path, _DINNER), 7)
     contents = location_units(catalog, "home")[0].contents
     content, at = next_content(contents, person(progress))
@@ -150,11 +152,44 @@ def test_series_starts_at_the_lowest_episode_with_the_fewest_rounds(tmp_path, pe
     ({"e-wash": (120.5, 0)}, {"duration": "约 3 分钟", "note": "上次没做完，接着做"}),
 ])
 def test_standalone_unit_shows_remaining_time_and_the_resume_note(tmp_path, person, progress, facts):
-    """独立内容：没做过或做完过没有说明；没做完时时长是剩余时长（向上取整到秒）并写接着做。"""
+    """独立内容：没做过或做完过没有说明；位置大于零（被暂停的活动占着时）时长是剩余时长（向上取整到秒）并写接着做。"""
     catalog = load_catalog(_catalog_dir(tmp_path, _DINNER), 7)
     contents = location_units(catalog, "home")[1].contents
     assert unit_facts(contents, person(progress)) == facts
     assert next_content(contents, person(progress))[0].content_id == "e-wash"
+
+
+#: 结束的时刻：新建的进度记录以它为 last_consumed_at（person 夹具里已有记录的 last_consumed_at 都是 1）。
+_ENDED_AT = 1767576600
+
+
+@pytest.mark.parametrize("content_id,progress,expected", [
+    ("e-wash", {}, {"e-wash": (0.0, 1, _ENDED_AT)}),
+    ("e-wash", {"e-wash": (120.5, 0)}, {"e-wash": (0.0, 1, 1)}),
+    ("e-wash", {"e-wash": (60.0, 2), "f-bed": (300.0, 0)}, {"e-wash": (0.0, 3, 1), "f-bed": (300.0, 0, 1)}),
+    ("d-1-prep", {"d-1-prep": (900.0, 0)},
+     {"d-1-prep": (0.0, 1, 1), "d-2-eat": (0.0, 1, _ENDED_AT), "d-3-wash": (0.0, 1, _ENDED_AT)}),
+    ("d-2-eat", {"d-1-prep": (0.0, 1), "d-2-eat": (600.0, 0)},
+     {"d-1-prep": (0.0, 1, 1), "d-2-eat": (0.0, 1, 1), "d-3-wash": (0.0, 1, _ENDED_AT)}),
+    ("d-2-eat", {"d-1-prep": (0.0, 1)},
+     {"d-1-prep": (0.0, 1, 1), "d-2-eat": (0.0, 1, _ENDED_AT), "d-3-wash": (0.0, 1, _ENDED_AT)}),
+    ("d-2-eat", {"d-1-prep": (0.0, 3), "d-2-eat": (300.0, 1)},
+     {"d-1-prep": (0.0, 3, 1), "d-2-eat": (0.0, 2, 1), "d-3-wash": (0.0, 2, _ENDED_AT)}),
+], ids=["standalone-without-a-record", "standalone-half-done", "standalone-later-round-leaves-other-units",
+        "series-at-episode-one", "series-at-episode-two", "series-just-moved-to-episode-two",
+        "series-episode-ahead-is-untouched"])
+def test_unit_done_raises_every_content_behind_to_the_next_round(tmp_path, person, content_id, progress, expected):
+    """被结束的这条内容的轮数加一是目标轮数；单元里轮数低于它的各条位置归零、轮数置为目标轮数（系列各集一并拉齐），
+    已不低于目标的不动；新建的记录 last_consumed_at 取结束的时刻，已有记录保留原值；别的单元不受影响。"""
+    catalog = load_catalog(_catalog_dir(tmp_path, _DINNER), 7)
+    before = person(progress)
+    after = unit_done(before, catalog, content_id, _ENDED_AT)
+    assert {key: (row.position_seconds, row.completed_rounds, row.last_consumed_at)
+            for key, row in after.content_progress.items()} == expected
+    assert before.content_progress == person(progress).content_progress
+    contents = next(unit for unit in location_units(catalog, "home") if content_id in
+                    [item.content_id for item in unit.contents]).contents
+    assert next_content(contents, after)[1] == 0.0
 
 
 def test_location_sleepable_is_a_strict_boolean_that_defaults_to_false():

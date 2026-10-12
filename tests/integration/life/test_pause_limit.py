@@ -8,8 +8,8 @@ import pytest
 
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
 from tests.life.conftest import (
-    advance_next, advance_until_ready, conclude_request, context, do_at, last_result, pause_request, purchase, sleep,
-    stage_day_plan, target_actions, target_tools, tool_targets, travel, use_app,
+    advance_until_ready, conclude_request, context, do_at, last_result, pause_request, purchase, sleep, stage_day_plan,
+    target_actions, target_tools, travel, use_app,
 )
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, events, finish_activity
@@ -209,28 +209,6 @@ def test_a_sixty_second_content_is_never_pausable(engine_factory, tmp_path):
     assert concluded.status == "completed", concluded.error_code
     done = engine.context.state.activities[used.activity_id]
     assert done.status == "completed" and done.ended_at == start + 60 and done.concluded_at == start + 60
-
-
-def test_a_remainder_under_a_minute_left_by_concluding_can_still_be_named_and_finished(engine_factory):
-    """人物在一件事还剩 50 秒时结束它：没做完的那一截下次点名照样开始并做完，只是这一截从头到尾都不能暂停。"""
-    engine, activity_id, name = _resting(engine_factory, 50)
-    _, refused = act(engine, "pause", pause_request(name), "pause_activity")
-    assert refused.status == "rejected" and refused.message == _reason(name)
-    _, concluded = act(engine, "conclude", conclude_request(name), "conclude_activity")
-    assert concluded.status == "completed", concluded.error_code
-    assert engine.context.state.agents[1].content_progress["c-rest"].position_seconds == _REST_SECONDS - 50
-    observed, again = act(engine, "again", do_at("家", "测试休息"))
-    row = next(item for item in tool_targets(observed)["家"]["actions"] if item["detail"] == "测试休息")
-    assert (row["available"], row["duration"], row["note"]) == (True, "不到 1 分钟", "上次没做完，接着做")
-    assert again.status == "in_progress", again.error_code
-    rest = engine.context.state.activities[again.activity_id]
-    assert rest.planned_duration_seconds == 50 and rest.activity_id != activity_id
-    assert activity_control.pausable(engine.context.state, rest) is False
-    while engine.context.state.activities[again.activity_id].status == "active":
-        advance_next(engine)
-    finished = engine.context.state.activities[again.activity_id]
-    assert finished.status == "completed" and finished.elapsed_seconds == 50
-    assert engine.context.state.agents[1].content_progress["c-rest"].completed_rounds == 1
 
 
 @pytest.mark.asyncio

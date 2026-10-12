@@ -303,4 +303,17 @@ MUTATIONS = (
     SourceMutation("result_details_schema_refuses_query", "worldmock.life.prompt_schemas::_RESULT_DETAILS",
         '"query": _QUERY,', "",
         ("tests/unit/life/test_result_contents.py::test_result_details_schema_accepts_every_listed_key",)),
+    SourceMutation("concluded_location_activity_keeps_its_position",
+        "worldmock.life.session_actions::ActionHandlers._change",
+        "if located and request.operation == ActivityChange.CANCEL:", "if False:",
+        ("tests/integration/start_interfaces/test_location_activities.py"
+         "::test_concluded_unit_starts_again_at_full_length",)),
+    SourceMutation("concluding_a_series_counts_only_the_current_episode",
+        "worldmock.life.location_activities::unit_done",
+        "ids = (content_id,) if content.series is None else catalog.contents_by_series[content.series.title]",
+        "ids = (content_id,)",
+        ("tests/integration/start_interfaces/test_location_activities.py"
+         "::test_concluding_a_series_counts_the_whole_unit_and_the_next_start_is_episode_one",
+         "tests/unit/start_interfaces/test_location_units.py"
+         "::test_unit_done_raises_every_content_behind_to_the_next_round")),
 )
