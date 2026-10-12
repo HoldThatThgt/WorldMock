@@ -60,10 +60,7 @@ def next_content(contents: Sequence[Content], agent: AgentState) -> tuple[Conten
 
 
 def unit_facts(contents: Sequence[Content], agent: AgentState) -> dict:
-    """@brief 工具层单元行的时长与说明：此刻开始会做多久；系列写第几集，位置大于零时写接着做。
-
-    被结束的事已记为做完一轮、位置归零，所以「上次没做完，接着做」只出现在被暂停的活动占着的那件事上。
-    """
+    """@brief 工具层单元行的时长与说明：此刻开始会做多久；系列写第几集，上次没做完时写接着做。"""
     content, position = next_content(contents, agent)
     notes = []
     if content.series is not None:

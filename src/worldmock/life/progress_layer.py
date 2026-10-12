@@ -1,7 +1,7 @@
-"""@brief 当前停留或路程的有序记录，只从真实人物可见事件和已交付提醒派生。
+"""@brief 当前停留或路程的有序记录，只从真实人物可见事件和已交付提醒派生；只读本段下界之后的事件，带入的记录例外。
 
-记录只读本段下界之后的事件，例外是带入的记录：用内容 app 或在地点做事的开始请求，在这项活动仍在进行或在其中结束的
-每一段里都有记录（docs/design/06-agent.md「进度、待办与记忆」）。
+带入的记录：用内容 app 或在地点做事的开始请求，在这项活动仍在进行或在其中结束的每一段里都有记录，请求与第一条结果
+按事件身份读出，来源早于本段下界（docs/design/06-agent.md「进度、待办与记忆」）。
 """
 
 from __future__ import annotations
@@ -79,7 +79,8 @@ def progress_view(context: LayerContext, store: FootprintStore, facts: ActivityF
 
 
 def records_after(context: LayerContext, store: FootprintStore, after_seq: int) -> list[tuple[dict, list[str]]]:
-    """@brief 当前 session 中来源事件序号都大于 after_seq 的事件记录及其来源身份（推导记录没有来源，不在其中）。"""
+    """@brief 当前 session 中来源事件序号都大于 after_seq 的事件记录及其来源身份（推导记录没有来源，不在其中；带入的记录
+    请求早于下界，也不在其中）。"""
     bound = session_bound(store, context.state, context.agent_id)
     return [(item.record, [event.event_id for event in item.sources])
             for item in _session_records(context, store, bound)
@@ -87,7 +88,8 @@ def records_after(context: LayerContext, store: FootprintStore, after_seq: int) 
 
 
 def _session_records(context: LayerContext, store: FootprintStore, bound: tuple[int, int]) -> list[_Record]:
-    """@brief 当前 session 的全部记录（事件序号在下界之后），按发生时刻、推导优先、最小来源序号排序。"""
+    """@brief 当前 session 的全部记录：下界之后的事件派生的记录，另加请求与第一条结果早于下界的带入记录；按发生时刻、
+    推导优先、最小来源序号排序（带入的记录因此排在最前）。"""
     started_at, lower = bound
     records = _tool_records(context, store, lower)
     records += _world_records(context, store, lower)
