@@ -209,7 +209,7 @@ class StartGroups:
         if action == "sleep":
             return self._start_sleep(state, pending, rows[0]["minutes"] * 60)
         if action == "purchase":
-            return self.storefront.prepare_purchase(state, pending, item.call.goods_ids)[0]
+            return self.storefront.prepare_purchase(state, pending, item.call.goods_ids, item.call.prefer)[0]
         changed, _, drafts = InteractivityRuntime(self.context).start(state, pending, rows[0], stay_location_id)
         self.event_drafts.extend(drafts)
         return changed

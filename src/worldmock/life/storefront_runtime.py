@@ -26,13 +26,16 @@ class StorefrontRuntime:
         """@brief 绑定唯一环境与足迹存储。"""
         self.context = context
 
-    def prepare_purchase(self, state: WorldState, pending, goods_ids: tuple[str, ...]) -> tuple:
+    def prepare_purchase(self, state: WorldState, pending, goods_ids: tuple[str, ...], prefer: str | None) -> tuple:
         """@brief 受理只创建一个购买活动及未付款的商品履约记录，不产生账户变化。
 
         购买时长只抽一次，实际时长把各张订单的付款包在里面；到店记录预计在购买结束时到手。
         第一个付款段恰好从购买开始那一秒起时，它的开始时刻在这同一次提交里写到订单上。
+        意向只在这里用一次：路线冻结在商品履约记录上，之后付款、通知、送达与恢复都只读记录。
+
+        :param prefer: 这条购买调用已认出的意向 app 身份；没有意向时为 None。
         """
-        groups, _ = quoted_basket(self.context.inputs, state, pending.agent_id, tuple(goods_ids))
+        groups, _ = quoted_basket(self.context.inputs, state, pending.agent_id, tuple(goods_ids), prefer)
         orders = build_orders(self.context, state, pending, groups)
         drawn = random_stream(state.random_state, f"purchase-duration:{pending.action_id}").randint(60, 300)
         duration = purchase_seconds(drawn, order_payments(orders))
