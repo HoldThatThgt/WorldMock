@@ -354,7 +354,6 @@ async def test_execute_applies_counterfactual_before_running(monkeypatch, tmp_pa
     class Society:
         current_time = None
         step_count = 0
-        token_stats = {}
 
         async def init(self):
             calls.append("init")

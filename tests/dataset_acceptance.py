@@ -316,4 +316,13 @@ MUTATIONS = (
         "TRUNCATION_CONTENT = report_content(truncation_feedback().report)",
         ("tests/unit/agents/test_truncation_feedback.py"
          "::test_reimporting_the_truncation_module_writes_no_error_log_and_keeps_the_fixed_content",)),
+    SourceMutation("status_manifest_read_with_the_default_encoding", "worldmock.status::read_status",
+        'manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))',
+        'manifest = json.loads((root / "manifest.json").read_text())',
+        ("tests/unit/footprints/test_status.py"
+         "::test_status_reads_the_three_run_files_as_utf8_without_the_default_encoding",)),
+    SourceMutation("receipt_token_stats_not_from_persisted_responses", "worldmock.cli::_run_command",
+        'receipt["token_stats"] = observed_model_usage(output)', 'receipt["token_stats"] = []',
+        ("tests/integration/runtime/test_native_dataset_lifecycle.py"
+         "::test_receipts_count_every_persisted_model_response_including_the_day_plan",)),
 )

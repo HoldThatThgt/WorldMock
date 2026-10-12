@@ -79,7 +79,6 @@ class _Society:
 
     current_time = datetime(2026, 1, 5, tzinfo=ZoneInfo("UTC"))
     step_count = 1
-    token_stats = {"deepseek-flash": {"calls": 1, "input": 10, "output": 5}}
 
     def __init__(self, fail_run=None, fail_close=None):
         self.calls = []
@@ -455,6 +454,28 @@ def test_read_status_decision_boundaries(tmp_path):
 # ---------------------------------------------------------------------------
 # cli 命令出口
 # ---------------------------------------------------------------------------
+
+
+def test_replay_reads_its_intervention_file_as_utf8(tmp_path, monkeypatch, caplog):
+    """进程内经真实命令入口重放：带中文假设的干预文件按 UTF-8 读，期间没有依赖系统默认编码的文本读取；
+    凭据未设置时环境加载失败，日志里是环境的拒绝原因。"""
+    from tests.text_encoding import default_encoding_reads
+    from worldmock.cli import main
+
+    intervention = tmp_path / "intervention.json"
+    intervention.write_text(json.dumps({"kind": "set_balance_fen", "agent_id": 1, "balance_fen": 100,
+                                        "hypothesis": "余额变了，花钱的选择也会变。",
+                                        "source_event_ids": ["observation-source"]}, ensure_ascii=False),
+                            encoding="utf-8")
+    monkeypatch.delenv("WORLDMOCK_TEST_API_KEY", raising=False)
+    calls = default_encoding_reads(monkeypatch)
+    with caplog.at_level(logging.ERROR):
+        code = main(["replay", "--environment", str(ENVIRONMENT_ROOT), "--output", str(tmp_path / "child"),
+                     "--parent", str(tmp_path / "parent"), "--checkpoint", "checkpoint",
+                     "--intervention", str(intervention)])
+    assert code == 1 and calls == []
+    assert "model context metadata is unavailable" in caplog.text
+    assert not (tmp_path / "child").exists()
 
 
 

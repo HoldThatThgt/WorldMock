@@ -138,3 +138,60 @@ async def test_native_dataset_run_resume_and_replay_finish_with_real_frozen_work
         assert not any(event.event_type == "run_failed" for event in events)
     finally:
         child_store.close()
+
+
+def _persisted_responses(run_dir, until=None):
+    """运行库里已落盘的模型响应（phase=response）条数；until 给出时只数序号不晚于它的。"""
+    store = FootprintStore(run_dir)
+    try:
+        events = store.read_events(store.last_event_seq if until is None else until)
+    finally:
+        store.close()
+    return sum(event.event_type == "model_response" and event.data.get("phase") == "response" for event in events)
+
+
+def _shared_checkpoint(run_dir):
+    """父运行第一次观察之后的第一个共同检查点事件，以及那次观察的事件身份。"""
+    store = FootprintStore(run_dir)
+    try:
+        events = store.read_events(store.last_event_seq)
+    finally:
+        store.close()
+    observed = next(event for event in events if event.event_type == "observation")
+    return observed.event_id, next(event for event in events if event.event_type == "checkpoint_created"
+                                   and event.event_seq > observed.event_seq)
+
+
+def test_receipts_count_every_persisted_model_response_including_the_day_plan(tmp_path, native_runtime):
+    """经真实命令入口跑完：回执的 token_stats 等于 status 的实测用量，含零点日计划桩的用量；
+    从检查点恢复与重放的回执覆盖分支库整段历史，含继承自父运行的响应。"""
+    from worldmock.cli import main
+    from worldmock.status import read_status
+
+    root, _, _ = native_runtime
+    parent = tmp_path / "parent"
+    assert main(["--project-root", str(ROOT), "run", "--environment", str(root), "--output", str(parent)]) == 0
+    receipt = json.loads((parent / "result.json").read_text(encoding="utf-8"))["token_stats"]
+    assert receipt == read_status(parent)["observed_model_usage"] == read_status(parent)["token_stats"]
+    rows = {row["model"]: row for row in receipt}
+    assert list(rows) == [None, "test-model"]
+    plan, decisions = rows["test-model"], rows[None]
+    assert plan["responses"] > 0
+    assert (plan["input_tokens"], plan["output_tokens"], plan["total_tokens"]) == tuple(
+        value * plan["responses_with_usage"] for value in (30, 9, 39))
+    assert decisions["responses"] > 0 and decisions["responses_with_usage"] == 0
+    assert (decisions["input_tokens"], decisions["output_tokens"], decisions["total_tokens"]) == (None, None, None)
+    observation, point = _shared_checkpoint(parent)
+    inherited = _persisted_responses(parent, point.event_seq)
+    assert inherited > 0
+    intervention = tmp_path / "intervention.json"
+    intervention.write_text(json.dumps({"kind": "set_balance_fen", "agent_id": 1, "balance_fen": 123456,
+                                        "hypothesis": "Different funds change spending choices.",
+                                        "source_event_ids": [observation]}), encoding="utf-8")
+    for command, extra in (("resume", []), ("replay", ["--intervention", str(intervention)])):
+        child = tmp_path / command
+        assert main(["--project-root", str(ROOT), command, "--environment", str(root), "--output", str(child),
+                     "--parent", str(parent), "--checkpoint", point.data["checkpoint_id"], *extra]) == 0
+        branch = json.loads((child / "result.json").read_text(encoding="utf-8"))["token_stats"]
+        assert branch == read_status(child)["observed_model_usage"]
+        assert sum(row["responses"] for row in branch) == _persisted_responses(child) >= inherited

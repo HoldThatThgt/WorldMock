@@ -99,14 +99,12 @@ class RunResult:
     :param run_dir: 唯一运行目录。
     :param current_time: 已确认的最终模拟时间。
     :param step_count: 本进程完成的 Society 推进次数。
-    :param token_stats: 按模型汇总的 calls/input/output。
     """
 
     run_id: str
     run_dir: Path
     current_time: datetime
     step_count: int
-    token_stats: dict[str, dict[str, int]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,7 +128,7 @@ async def run_world(request: RunRequest) -> RunResult:
     """@brief 新建并运行到场景排他结束时间。
 
     :param request: 新运行完整输入。
-    :returns: 已确认结束时间与模型用量。
+    :returns: 已确认结束时间与推进次数。
     """
     try:
         prepared = _prepare_new_run(request)
@@ -144,7 +142,7 @@ async def resume_world(request: ResumeRequest) -> RunResult:
     """@brief 从 SQLite 共同检查点创建分支并运行到结束。
 
     :param request: 恢复分支完整输入。
-    :returns: 子分支已确认结束时间与模型用量。
+    :returns: 子分支已确认结束时间与推进次数。
     """
     try:
         prepared = _prepare_resume(request)
@@ -158,7 +156,7 @@ async def replay_world(request: CounterfactualRequest) -> RunResult:
     """@brief 从共同检查点建立分支、应用世界条件干预并重新运行。
 
     :param request: 严格恢复输入和一次封闭干预。
-    :returns: 子分支已确认结束时间与模型用量。
+    :returns: 子分支已确认结束时间与推进次数。
     """
     try:
         prepared = _prepare_resume(request.base, request.intervention)
@@ -467,10 +465,7 @@ async def _execute(prepared: _PreparedRun) -> RunResult:
         _ops_log(prepared.run_dir, prepared.inputs.config.timezone, society.current_time,
                  {"code": "RUN_ENDED", "detail": "Run finished", "run_id": prepared.run_id,
                   "steps": society.step_count})
-        return RunResult(
-            prepared.run_id, prepared.run_dir, society.current_time,
-            society.step_count, society.token_stats,
-        )
+        return RunResult(prepared.run_id, prepared.run_dir, society.current_time, society.step_count)
     except BaseException as error:
         failure = error
         _ops_crash_log(prepared, society, error)
