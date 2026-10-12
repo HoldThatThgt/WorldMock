@@ -322,4 +322,9 @@ MUTATIONS = (
     SourceMutation("contents_list_only_the_current_content", "worldmock.life.result_projection::_done_contents",
         'for item in data["played"]]', 'for item in data["played"][-1:]]',
         ("tests/integration/life/test_result_contents.py::test_finished_app_series_lists_every_episode_in_order",)),
+    SourceMutation("no_record_carried_into_a_later_segment", "worldmock.life.progress_layer::_tool_records",
+        "return _session_calls(context, requests, results) + _carried_calls(context, store, requests, results)",
+        "return _session_calls(context, requests, results)",
+        ("tests/integration/life/test_carried_records.py"
+         "::test_app_use_started_with_departure_is_recorded_on_the_road",)),
 )

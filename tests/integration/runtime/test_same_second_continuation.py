@@ -42,7 +42,8 @@ from tests.integration.runtime.test_life_agent_protocol import (_OBSERVED_AT, _M
 from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
 from tests.life.conftest import (MAIN_TOOL, SIDE_TOOL, advance_next, advance_until_ready, context, do_at,  # noqa: F401
                                  errand_add, errand_cancel, errand_update, layer_start, main_arguments, pending_names,
-                                 progress_calls, side_arguments, stage_day_plan, tool_of, use_app)
+                                 progress_calls, side_arguments, stage_day_plan, tool_of, travel, use_app)
+from tests.life.environment_runtime import act_group  # noqa: E402
 from tests.life.work_schedule_fixtures import declare  # noqa: E402
 from worldmock.life.readable import iso_time  # noqa: E402
 from worldmock.errors import IntegrityError  # noqa: E402
@@ -552,6 +553,34 @@ def _unavailable(observation: dict) -> list:
     action = next(action for action in row["actions"] if not action["available"])
     request = layer_start(observation, row["name"], action["action"], action["detail"])
     return [_reply("call-refused", tool_of(request), request.model_dump(mode="json"), "试试看。")]
+
+
+def _every_five_minutes(persona, config) -> None:
+    """每五分钟到一次重估间隔：人物在路上就有决策机会。"""
+    config["reconsideration_interval_seconds"] = 300
+
+
+@pytest.mark.asyncio
+async def test_a_carried_record_is_not_repeated_in_the_continuation(_engine_factory) -> None:
+    """出发并打开 Keep，路上的一次决策被业务拒绝后同一秒再决策：续接链成立，tool_results 只有被拒的那一条；带入的
+    Keep 记录在本段进度层里，但不在续接链的 events 里（它的来源早于上一次观察）。"""
+    engine = _engine_factory(mutate=_every_five_minutes)
+    stage_day_plan(engine)
+    _, (trip, keep) = act_group(engine, "depart", travel("公司", "步行"), use_app("Keep"))
+    assert (trip.status, keep.status) == ("in_progress", "in_progress"), (trip.error_code, keep.error_code)
+    assert advance_until_ready(engine)
+    environment = _environment(engine)
+    refused, _, _ = await _single(environment, "refused", _unavailable)
+    assert [row["arguments"]["target"] for row in progress_calls(refused, SIDE_TOOL)] == [["Keep"]]
+    ctx = context(engine, "next")
+    engine.begin_decision_round([ctx])
+    observation = engine.observe(ctx)
+    chain = observation["continuation"]
+    assert chain is not None
+    [result] = chain["tool_results"]
+    assert result["tool_call_id"] == "call-refused" and result["result"]["status"] == "rejected"
+    assert [row["arguments"]["target"] for row in progress_calls(observation, SIDE_TOOL)] == [["Keep"]]
+    assert not any(row.get("tool") == SIDE_TOOL or row["type"] == "tool_call" for row in chain["events"])
 
 
 #: 贴着「有点想放松」档界（0.3）的起始放松需要：一次服务拒绝的情绪代价（+0.05）就让放松分级从「不闷」变一档。
