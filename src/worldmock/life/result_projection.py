@@ -9,13 +9,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from worldmock.catalog.models import Content
 from worldmock.environment import EnvironmentInputs
 from worldmock.life.action_evidence import placed_orders
 from worldmock.life.readable import duration_phrase, iso_time, money_phrase, portion_phrase
 
-#: 活动终结时写下的第二条结果的状态：只有这些结果带 contents。
-_TERMINAL_STATUSES = frozenset({"completed", "cancelled", "failed"})
 #: 以下载荷已经由各所属行为构造为人物可见名称与文字。
 _PASSTHROUGH_DETAILS = ("recall", "reason", "next_step", "fix", "items", "outcome", "resolved", "notes",
                         "errands", "goods")
@@ -42,7 +39,8 @@ def _details(result: dict[str, Any], inputs: EnvironmentInputs) -> dict[str, Any
         details["planned"] = [{"name": item["name"], "duration": duration_phrase(item["planned_duration_seconds"])}
                               for item in _activity_rows(payload)]
         details.update(_interact_details(_activity_rows(payload), inputs))
-    contents = _done_contents(_activity_rows(payload), inputs) if result["status"] in _TERMINAL_STATUSES else []
+    terminal = result["status"] in ("completed", "cancelled", "failed")
+    contents = _done_contents(_activity_rows(payload), inputs) if terminal else []
     if contents:
         details["contents"] = contents
     if payload.get("resumed"):
@@ -82,17 +80,13 @@ def _done_contents(activities: list[dict], inputs: EnvironmentInputs) -> list[di
     activity = next((row for row in activities if row.get("kind") == "interact"), None)
     if activity is None or activity["data"]["content_id"] is None:
         return []
-    data, catalog = activity["data"], inputs.catalog
-    rows = [_content_row(catalog.contents[item["content_id"]], True) for item in data["played"]]
+    data, contents = activity["data"], inputs.catalog.contents
+    done = [(item["content_id"], True) for item in data["played"]]
     if activity["status"] != "completed" and activity["media_position_seconds"] > data["start_position_seconds"]:
-        rows.append(_content_row(catalog.contents[data["content_id"]], False))
-    return rows
-
-
-def _content_row(content: Content, finished: bool) -> dict:
-    """@brief contents 的一行：标题、简介、登记的全长，以及在这项活动里有没有做到头。"""
-    return {"title": content.title, "summary": content.summary, "duration": duration_phrase(content.duration_seconds),
-            "finished": finished}
+        done.append((data["content_id"], False))
+    return [{"title": contents[key].title, "summary": contents[key].summary,
+             "duration": duration_phrase(contents[key].duration_seconds), "finished": finished}
+            for key, finished in done]
 
 
 def _activity_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
