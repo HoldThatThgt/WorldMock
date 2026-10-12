@@ -138,7 +138,8 @@ def test_units_are_listed_completely_in_unit_key_order(tmp_path):
 ])
 def test_series_starts_at_the_lowest_episode_with_the_fewest_rounds(tmp_path, person, progress, content_id,
                                                                     position, facts):
-    """没做过从第一集开始，位置大于零（被暂停的活动占着时）从原位置接着做，整个系列做完后从第一集开始新的一轮。"""
+    """没做过从第一集开始，位置大于零（正在做，或被暂停的活动占着）从原位置接着做，整个系列做完后从第一集开始新的
+    一轮。"""
     catalog = load_catalog(_catalog_dir(tmp_path, _DINNER), 7)
     contents = location_units(catalog, "home")[0].contents
     content, at = next_content(contents, person(progress))
@@ -152,7 +153,8 @@ def test_series_starts_at_the_lowest_episode_with_the_fewest_rounds(tmp_path, pe
     ({"e-wash": (120.5, 0)}, {"duration": "约 3 分钟", "note": "上次没做完，接着做"}),
 ])
 def test_standalone_unit_shows_remaining_time_and_the_resume_note(tmp_path, person, progress, facts):
-    """独立内容：没做过或做完过没有说明；位置大于零（被暂停的活动占着时）时长是剩余时长（向上取整到秒）并写接着做。"""
+    """独立内容：没做过或做完过没有说明；位置大于零（正在做，或被暂停的活动占着）时长是剩余时长（向上取整到秒）并写
+    接着做。"""
     catalog = load_catalog(_catalog_dir(tmp_path, _DINNER), 7)
     contents = location_units(catalog, "home")[1].contents
     assert unit_facts(contents, person(progress)) == facts
@@ -173,8 +175,8 @@ _ENDED_AT = 1767576600
      {"d-1-prep": (0.0, 1, 1), "d-2-eat": (0.0, 1, 1), "d-3-wash": (0.0, 1, _ENDED_AT)}),
     ("d-2-eat", {"d-1-prep": (0.0, 1)},
      {"d-1-prep": (0.0, 1, 1), "d-2-eat": (0.0, 1, _ENDED_AT), "d-3-wash": (0.0, 1, _ENDED_AT)}),
-    ("d-2-eat", {"d-1-prep": (0.0, 3), "d-2-eat": (300.0, 1)},
-     {"d-1-prep": (0.0, 3, 1), "d-2-eat": (0.0, 2, 1), "d-3-wash": (0.0, 2, _ENDED_AT)}),
+    ("d-2-eat", {"d-1-prep": (450.0, 3), "d-2-eat": (300.0, 1)},
+     {"d-1-prep": (450.0, 3, 1), "d-2-eat": (0.0, 2, 1), "d-3-wash": (0.0, 2, _ENDED_AT)}),
 ], ids=["standalone-without-a-record", "standalone-half-done", "standalone-later-round-leaves-other-units",
         "series-at-episode-one", "series-at-episode-two", "series-just-moved-to-episode-two",
         "series-episode-ahead-is-untouched"])

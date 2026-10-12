@@ -148,4 +148,3 @@ def test_public_result_contents_follow_the_snapshot(frozen_inputs, result, expec
         assert details == {"contents": expected}
         assert all(list(row) == ["title", "summary", "duration", "finished"] for row in details["contents"])
         validate_layer(_layer(details))
-

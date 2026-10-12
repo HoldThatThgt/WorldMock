@@ -158,9 +158,10 @@ def test_current_started_activity_public_result_and_complete_export(engine_facto
     controls = engine.observe(context(engine, "control-observation"))["activity_bindings"]
     assert controls and all(row["title"] is None for row in controls)
     run_to_end(engine)
-    # 真实做完（或被截止截断）时写下的第二条结果：有内容的活动带 contents，第一行是开始的那条内容；没有内容的不带
+    # 真实做完时写下的第二条结果：有内容的活动带 contents，第一行是开始的那条内容；没有内容的不带
     (terminal,) = [event for event in events(engine, "action_result")
                    if event.action_id == result.action_id and event.data["status"] != "in_progress"]
+    assert (terminal.data["status"], terminal.data["message"]) == ("completed", "Activity completed")
     finished = public_result(terminal.data, inputs)["details"]
     if content_id is None:
         assert "contents" not in finished
