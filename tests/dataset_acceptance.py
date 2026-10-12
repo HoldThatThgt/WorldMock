@@ -348,4 +348,28 @@ MUTATIONS = (
         '"target": names, "prefer": prefer}', '"target": names}',
         ("tests/unit/start_interfaces/test_name_resolution.py::test_side_tool_candidates_always_carry_prefer",
          "tests/integration/start_interfaces/test_purchase_prefer.py::test_copied_candidate_is_accepted_as_written")),
+    SourceMutation("concluded_location_activity_keeps_its_position",
+        "worldmock.life.session_actions::ActionHandlers._change",
+        "if located and request.operation == ActivityChange.CANCEL:", "if False:",
+        ("tests/integration/start_interfaces/test_location_activities.py"
+         "::test_concluded_unit_starts_again_at_full_length",)),
+    SourceMutation("concluding_a_series_counts_only_the_current_episode",
+        "worldmock.life.location_activities::unit_done",
+        "ids = (content_id,) if content.series is None else catalog.contents_by_series[content.series.title]",
+        "ids = (content_id,)",
+        ("tests/integration/start_interfaces/test_location_activities.py"
+         "::test_concluding_a_series_counts_the_whole_unit_and_the_next_start_is_episode_one",
+         "tests/unit/start_interfaces/test_location_units.py"
+         "::test_unit_done_raises_every_content_behind_to_the_next_round")),
+    SourceMutation("terminal_result_lists_no_contents", "worldmock.life.result_projection::_details",
+        'details["contents"] = contents', "pass",
+        ("tests/integration/life/test_result_contents.py::test_finished_app_use_lists_what_was_watched",)),
+    SourceMutation("contents_list_only_the_current_content", "worldmock.life.result_projection::_done_contents",
+        'for item in data["played"]]', 'for item in data["played"][-1:]]',
+        ("tests/integration/life/test_result_contents.py::test_finished_app_series_lists_every_episode_in_order",)),
+    SourceMutation("no_record_carried_into_a_later_segment", "worldmock.life.progress_layer::_tool_records",
+        "return _session_calls(context, requests, results) + _carried_calls(context, store, requests, results)",
+        "return _session_calls(context, requests, results)",
+        ("tests/integration/life/test_carried_records.py"
+         "::test_app_use_started_with_departure_is_recorded_on_the_road",)),
 )

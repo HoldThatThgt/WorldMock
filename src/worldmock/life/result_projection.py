@@ -1,4 +1,9 @@
-"""@brief 把实际动作结果投影成人物可见事实，不公开内部状态；购买写明下单 app 或到店，支付 app 仍不公开。"""
+"""@brief 把实际动作结果投影成人物可见事实，不公开内部状态；购买写明下单 app 或到店，支付 app 仍不公开。
+
+环境对一条开始请求先后写两条结果，进度层只显示最新的一条（docs/design/06-agent.md「进度、待办与记忆」）：
+受理时的第一条带 planned 与开始的那条内容 content（购买另带报价）；活动终结时的第二条带做过的内容 contents、
+付款后的订单或到达。明细在投影时由结果事件里的活动快照和冻结目录算出，事件本身不带这些键。
+"""
 
 from __future__ import annotations
 
@@ -21,7 +26,10 @@ def public_result(result: dict[str, Any], inputs: EnvironmentInputs) -> dict[str
 
 
 def _details(result: dict[str, Any], inputs: EnvironmentInputs) -> dict[str, Any]:
-    """@brief 这条动作下的订单、计划时长与到达由实际快照派生，系统足迹和在驿站领取的包裹不进入购买明细。"""
+    """@brief 这条动作下的订单、计划时长、做过的内容与到达由实际快照派生，系统足迹和在驿站领取的包裹不进入购买明细。
+
+    进行中的第一条结果写 planned 与 content；终态（completed、cancelled、failed）结果里 interact 活动的快照写 contents。
+    """
     payload = result.get("data") or {}
     details = {key: payload[key] for key in _PASSTHROUGH_DETAILS if key in payload}
     orders = placed_orders(payload)
@@ -31,6 +39,10 @@ def _details(result: dict[str, Any], inputs: EnvironmentInputs) -> dict[str, Any
         details["planned"] = [{"name": item["name"], "duration": duration_phrase(item["planned_duration_seconds"])}
                               for item in _activity_rows(payload)]
         details.update(_interact_details(_activity_rows(payload), inputs))
+    terminal = result["status"] in ("completed", "cancelled", "failed")
+    contents = _done_contents(_activity_rows(payload), inputs) if terminal else []
+    if contents:
+        details["contents"] = contents
     if payload.get("resumed"):
         details["planned"] = [{"name": item["name"], "duration": duration_phrase(item["planned_duration_seconds"])}
                               for item in payload["resumed"]]
@@ -56,6 +68,25 @@ def _interact_details(activities: list[dict], inputs: EnvironmentInputs) -> dict
                             "duration": duration_phrase(content.duration_seconds),
                             "pushed": data["pinned_by_push_id"] is not None}}
     return {"app": app, "duration": duration_phrase(catalog.apps[app_id].browse_duration_seconds)}
+
+
+def _done_contents(activities: list[dict], inputs: EnvironmentInputs) -> list[dict]:
+    """@brief 终态结果里这项 interact 活动放过或做过的内容，按做的先后各一行 {title, summary, duration, finished}。
+
+    先是快照 played 的各项（做到末尾，finished 为真）；快照状态不是 completed 且当前这条在这项活动里确有推进
+    （media_position_seconds 大于 start_position_seconds）时再加当前这条，finished 为假。duration 是这条内容登记的全长。
+    没有 interact 活动、或活动没有内容（纯目录浏览）时为空。
+    """
+    activity = next((row for row in activities if row.get("kind") == "interact"), None)
+    if activity is None or activity["data"]["content_id"] is None:
+        return []
+    data, contents = activity["data"], inputs.catalog.contents
+    done = [(item["content_id"], True) for item in data["played"]]
+    if activity["status"] != "completed" and activity["media_position_seconds"] > data["start_position_seconds"]:
+        done.append((data["content_id"], False))
+    return [{"title": contents[key].title, "summary": contents[key].summary,
+             "duration": duration_phrase(contents[key].duration_seconds), "finished": finished}
+            for key, finished in done]
 
 
 def _activity_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:

@@ -1,4 +1,8 @@
-"""@brief 当前停留或路程的有序记录，只从真实人物可见事件和已交付提醒派生。"""
+"""@brief 当前停留或路程的有序记录，只从真实人物可见事件和已交付提醒派生；只读本段下界之后的事件，带入的记录例外。
+
+带入的记录：用内容 app 或在地点做事的开始请求，在这项活动仍在进行或在其中结束的每一段里都有记录，请求与第一条结果
+按事件身份读出，来源早于本段下界（docs/design/06-agent.md「进度、待办与记忆」）。
+"""
 
 from __future__ import annotations
 
@@ -13,7 +17,7 @@ from worldmock.footprints.store import FootprintStore
 from worldmock.life import schedule, sessions
 from worldmock.life.control_items import CONTROL_TOOLS, control_request
 from worldmock.life.errand_state import COMPLETED_KIND, REMINDED_KIND
-from worldmock.life.models import WorldState
+from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus, WorldState
 from worldmock.life.readable import clock_phrase, iso_time, local_date, money_phrase, portion_phrase
 from worldmock.life.result_projection import public_result
 from worldmock.life.session_bounds import session_lower
@@ -75,7 +79,8 @@ def progress_view(context: LayerContext, store: FootprintStore, facts: ActivityF
 
 
 def records_after(context: LayerContext, store: FootprintStore, after_seq: int) -> list[tuple[dict, list[str]]]:
-    """@brief 当前 session 中来源事件序号都大于 after_seq 的事件记录及其来源身份（推导记录没有来源，不在其中）。"""
+    """@brief 当前 session 中来源事件序号都大于 after_seq 的事件记录及其来源身份（推导记录没有来源，不在其中；带入的记录
+    请求早于下界，也不在其中）。"""
     bound = session_bound(store, context.state, context.agent_id)
     return [(item.record, [event.event_id for event in item.sources])
             for item in _session_records(context, store, bound)
@@ -83,7 +88,8 @@ def records_after(context: LayerContext, store: FootprintStore, after_seq: int) 
 
 
 def _session_records(context: LayerContext, store: FootprintStore, bound: tuple[int, int]) -> list[_Record]:
-    """@brief 当前 session 的全部记录（事件序号在下界之后），按发生时刻、推导优先、最小来源序号排序。"""
+    """@brief 当前 session 的全部记录：下界之后的事件派生的记录，另加请求与第一条结果早于下界的带入记录；按发生时刻、
+    推导优先、最小来源序号排序（带入的记录因此排在最前）。"""
     started_at, lower = bound
     records = _tool_records(context, store, lower)
     records += _world_records(context, store, lower)
@@ -97,13 +103,19 @@ def _event_key(occurred_at: int, sources: list[Event]) -> tuple:
 
 
 def _tool_records(context: LayerContext, store: FootprintStore, lower: int) -> list[_Record]:
-    """@brief 本 session 的世界请求：每个 action_requested 连同其最新结果（即时结果另作来源）与 self_note。
+    """@brief 本段的世界请求记录与带入的记录：每条记录的 result 取这条请求最新的一条结果。
 
-    开始活动的请求在活动结束后带终态结果：浏览得到的商品名、到达等事实只在终态结果里，唯一出现原则要求它们写在该调用的
-    结果上（docs/design/06-agent.md「进度、待办与记忆」）；活动目标的 state 只写终局说法与客观进度。
+    开始活动的请求在活动结束后显示第二条结果：做过的内容 contents、付款后的订单、到达都写在第二条上，第一条的
+    planned、content 与报价随之不再显示（docs/design/06-agent.md「进度、待办与记忆」）；活动目标的 state 只写终局说法与
+    客观进度。开始请求在更早的段里、活动在本段仍在进行或在本段结束的用内容 app 或在地点做事，另带入一条记录。
     """
     requests = store.read_agent_events("action_requested", context.agent_id, after=lower)
     results = store.read_agent_events("action_result", context.agent_id, after=lower)
+    return _session_calls(context, requests, results) + _carried_calls(context, store, requests, results)
+
+
+def _session_calls(context: LayerContext, requests: list[Event], results: list[Event]) -> list[_Record]:
+    """@brief 本段的每个 action_requested 连同它在本段的结果（第一条与最新一条作来源）与 self_note；没有结果的不出记录。"""
     records: list[_Record] = []
     for index, request in enumerate(requests):
         later = next((item.event_seq for item in requests[index + 1:] if item.action_id == request.action_id), None)
@@ -111,27 +123,51 @@ def _tool_records(context: LayerContext, store: FootprintStore, lower: int) -> l
                and event.event_seq > request.event_seq and (later is None or event.event_seq < later)]
         if not own:
             continue
-        sources = [request, own[0]] + ([own[-1]] if len(own) > 1 else [])
-        records.append(_Record(_tool_record(context, request, own), tuple(sources),
-                               _event_key(request.occurred_at, sources), _order_ids(own)))
+        record = _tool_record(context, request, own[-1])
+        if request.data.get("self_note"):
+            record["self_note"] = request.data["self_note"]
+        records.append(_call_record(record, request, own))
     return records
 
 
-def _tool_record(context: LayerContext, request: Event, results: list[Event]) -> dict:
-    """@brief tool_call 记录：工具、参数（conclude_activity 略去看法与偏好）、最新结果与可选的 self_note。
+def _carried_calls(context: LayerContext, store: FootprintStore, requests: list[Event],
+                   results: list[Event]) -> list[_Record]:
+    """@brief 带入的记录：开始请求与第一条结果按事件身份读出，结果取本段里的第二条，没有就取第一条；不带 self_note。
 
-    开始活动的请求其后的终态结果不带当时的订单，公开结果的 purchases 取即时结果的订单。
+    只读当前世界与本段已经读出的事件，不为它扩大读取范围、不扫描下界之前的事件。
     """
+    records: list[_Record] = []
+    for activity in _carried_activities(context, requests, results):
+        request = store.read_event(activity.origin_request_event_id)
+        own = [store.read_event(activity.data["accepted_event_id"]),
+               *(event for event in results if event.action_id == activity.origin_action_id)]
+        records.append(_call_record(_tool_record(context, request, own[-1]), request, own))
+    return records
+
+
+def _carried_activities(context: LayerContext, requests: list[Event], results: list[Event]) -> list[ActivityState]:
+    """@brief 要带入本段的活动：本人的 interact 活动，本段下界之后没有开始它的请求，而它此刻进行中，或本段里有它的
+    结果（更早的请求在后面的段里只可能再得到一条结果，即第二条）。暂停着的活动只在待办层，不带入。"""
+    asked = {event.action_id for event in requests}
+    ended = {event.action_id for event in results}
+    return [activity for _, activity in sorted(context.state.activities.items())
+            if activity.agent_id == context.agent_id and activity.kind == ActivityKind.INTERACT
+            and activity.origin_action_id not in asked
+            and (activity.status == ActivityStatus.ACTIVE or activity.origin_action_id in ended)]
+
+
+def _call_record(record: dict, request: Event, own: list[Event]) -> _Record:
+    """@brief 一条 tool_call 记录连同来源（请求、第一条与最新一条结果）、排序键与关联订单。"""
+    sources = [request, own[0]] + ([own[-1]] if len(own) > 1 else [])
+    return _Record(record, tuple(sources), _event_key(request.occurred_at, sources), _order_ids(own))
+
+
+def _tool_record(context: LayerContext, request: Event, result: Event) -> dict:
+    """@brief tool_call 记录：发生时刻、工具、参数（conclude_activity 略去看法与偏好）与 result，result 取最新一条结果。"""
     data = request.data
-    result = public_result(results[-1].data, context.inputs)
-    first = public_result(results[0].data, context.inputs)
-    if "purchases" in first["details"] and "purchases" not in result["details"]:
-        result["details"] = {"purchases": first["details"]["purchases"], **result["details"]}
-    record = {"occurred_at": iso_time(request.occurred_at, context.config.timezone), "type": "tool_call",
-              "tool": data["tool_name"], "arguments": _arguments(data["tool_name"], data["request"]), "result": result}
-    if data.get("self_note"):
-        record["self_note"] = data["self_note"]
-    return record
+    return {"occurred_at": iso_time(request.occurred_at, context.config.timezone), "type": "tool_call",
+            "tool": data["tool_name"], "arguments": _arguments(data["tool_name"], data["request"]),
+            "result": public_result(result.data, context.inputs)}
 
 
 def _arguments(tool: str, request: dict) -> dict:
