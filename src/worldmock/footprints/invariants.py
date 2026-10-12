@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 
 from pydantic import ValidationError
 
 from worldmock.errors import IntegrityError
+from worldmock.exchange.body import RESOURCE_METAS
 from worldmock.footprints.app_usage import _app_binding
 from worldmock.footprints.purchases import event_orders, orders_by_id
 from worldmock.life.models import DeliveryState
 from worldmock.life.order_notices import ORDER_DELIVERED, ORDER_PLACED, ORDER_SHIPPED, shipping_delay_seconds
 from worldmock.life.order_routing import payment_order_key
+from worldmock.resources import FlowEntry, ResourceLedger, ResourceLedgerError, audit_level_flows
 
+_LOGGER = logging.getLogger(__name__)
 
 _COMMON_APP = {"fact_kind", "agent_id", "activity_id", "app_id", "source_event_id"}
 _APP_FIELDS = {
@@ -28,6 +32,9 @@ _APP_FIELDS = {
 }
 #: 引擎代为使用 app 的活动种类：导航属于出行，下单和支付属于购买。
 _AUTOMATIC_ACTIVITY_TYPES = frozenset({"travel", "purchase"})
+#: 身体结算记录自查的四项身体资源；账本取它们的固定定义。
+_BODY_RESOURCES = ("energy_kcal", "sleep_deficit_hours", "relaxation_need", "social_need")
+_BODY_SETTLEMENT_ERROR = "Body settlement after-state disagrees with its own resource flows"
 
 
 def validate_footprint_facts(events: list[dict], activities: list[dict], purchases: list[dict],
@@ -51,6 +58,30 @@ def validate_footprint_facts(events: list[dict], activities: list[dict], purchas
     _purchase_intervals(by_activity, foreground, state.get("deliveries", {}))
     _payment_invariants(events, state, sources)
     _order_notifications(events, state)
+    _body_settlements(events)
+
+
+def _body_settlements(events: list[dict]) -> None:
+    """@brief 每条身体结算记录的「结算后」等于「结算前」逐项加减本事件的分录（docs/design/05-recording-engine.md
+    「完整导出认证」）。
+
+    主体是 agent:<本事件人物>，初值取 before 的四项；本事件的全部分录照记录次序整批交给账本，不先按资源筛；四项各对账一次，
+    期末取 after 的同名项，容差 1e-9。重放越界、分录的资源不在四项之内、分录的主体不是这位人物，都与期末不等同样不成立。
+    """
+    ledger = ResourceLedger([RESOURCE_METAS[name] for name in _BODY_RESOURCES])
+    for event in events:
+        if event["event_type"] != "environment_event" or event["data"].get("kind") != "body_settlement":
+            continue
+        owner, settlement = f"agent:{event['agent_id']}", event["data"]["body_settlement"]
+        initial = {(name, owner): settlement["before"][name] for name in _BODY_RESOURCES}
+        try:
+            entries = [FlowEntry(flow["resource"], flow["owner"], flow["direction"], flow["amount"], flow["cause"],
+                                 event["occurred_at"]) for flow in event["data"]["resource_flows"]]
+            for name in _BODY_RESOURCES:
+                audit_level_flows(ledger, name, initial, entries, {owner: settlement["after"][name]})
+        except ResourceLedgerError as error:
+            _LOGGER.error(_BODY_SETTLEMENT_ERROR)
+            raise IntegrityError(_BODY_SETTLEMENT_ERROR) from error
 
 
 def _app_invariants(rows: list[dict], activities: dict[str, dict]) -> None:

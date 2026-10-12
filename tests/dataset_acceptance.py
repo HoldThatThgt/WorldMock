@@ -325,4 +325,19 @@ MUTATIONS = (
         'receipt["token_stats"] = observed_model_usage(output)', 'receipt["token_stats"] = []',
         ("tests/integration/runtime/test_native_dataset_lifecycle.py"
          "::test_receipts_count_every_persisted_model_response_including_the_day_plan",)),
+    SourceMutation("body_settlement_after_takes_the_final_body", "worldmock.life.rhythm::settle_engine_rhythm",
+        "changed.agents[agent_id] = agent",
+        'changed.agents[agent_id] = agent; record.data["body_settlement"]["after"] = agent.body.model_dump(mode="json")',
+        ("tests/integration/life/test_body_settlement_records.py"
+         "::test_delivery_received_in_the_settled_second_stays_out_of_the_body_settlement",)),
+    SourceMutation("rejection_pulse_flows_left_in_the_buffer",
+        "worldmock.life.decision_coordinator::DecisionCoordinator._reject_results",
+        "flows = _resource_flows_data(first.agent_id, state.current_time)", "flows = []",
+        ("tests/integration/life/test_body_settlement_records.py"
+         "::test_rejection_pulse_flows_are_written_on_the_first_action_result_and_not_carried_forward",)),
+    SourceMutation("food_receipt_applied_by_subtraction", "worldmock.life.receipt::_food_effect",
+        "applied = sum((entry.amount for entry in entries), 0.0)",
+        "applied = settlement.after.energy_kcal - body.energy_kcal",
+        ("tests/integration/life/test_constant_table_runtime.py"
+         "::test_food_receipt_applied_is_the_registered_flow_amount",)),
 )
