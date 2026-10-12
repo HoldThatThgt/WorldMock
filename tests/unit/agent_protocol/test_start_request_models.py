@@ -28,7 +28,7 @@ _SIDE_VALID = (
     {"action": "purchase", "target": ["冰美式咖啡"], "prefer": "瑞幸咖啡"},
     {"action": "interact", "target": ["哔哩哔哩"], "prefer": None},
 )
-#: prefer 字段的说明：购买轨道落下的过渡句，不含 query。
+#: 副工具 prefer 字段的说明原文。
 _PREFER_DESCRIPTION = "purchase 写想用来下单的内容 app 的完整名称，没有想法写 null；interact 写 null。"
 
 
