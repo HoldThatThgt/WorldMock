@@ -167,6 +167,7 @@ def test_start_result_shows_the_content_that_actually_started(engine_factory):
     assert content == {"app": None, "title": "测试休息", "summary": "测试休息的测试用合成摘要。",
                        "duration": "约 15 分钟", "pushed": False}
     assert record["result"]["details"]["planned"] == [{"name": "进行测试休息（1月5日 08:00 起）", "duration": "约 15 分钟"}]
+    assert "contents" not in record["result"]["details"]
 
 
 def test_naming_draws_no_random_number_and_same_seed_selects_the_same_content(engine_factory):
@@ -211,6 +212,10 @@ def test_series_starts_at_its_representative_and_continues_to_the_end(engine_fac
     progress = engine.context.state.agents[1].content_progress
     assert {key: progress[key].completed_rounds for key in ("d-1-prep", "d-2-eat", "d-3-wash")} == {
         "d-1-prep": 1, "d-2-eat": 1, "d-3-wash": 1}
+    record = progress_calls(engine.observe(context(engine, "done")), "start_main_activity")[0]
+    assert record["result"]["details"]["contents"] == [
+        {"title": title, "summary": f"{title}的测试用合成摘要。", "duration": duration, "finished": True}
+        for title, duration in (("备菜", "约 20 分钟"), ("吃饭", "约 25 分钟"), ("洗碗", "约 10 分钟"))]
 
 
 def test_concluding_a_series_counts_the_whole_unit_and_the_next_start_is_episode_one(engine_factory,

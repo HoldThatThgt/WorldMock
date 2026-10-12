@@ -316,4 +316,10 @@ MUTATIONS = (
          "::test_concluding_a_series_counts_the_whole_unit_and_the_next_start_is_episode_one",
          "tests/unit/start_interfaces/test_location_units.py"
          "::test_unit_done_raises_every_content_behind_to_the_next_round")),
+    SourceMutation("terminal_result_lists_no_contents", "worldmock.life.result_projection::_details",
+        'details["contents"] = contents', "pass",
+        ("tests/integration/life/test_result_contents.py::test_finished_app_use_lists_what_was_watched",)),
+    SourceMutation("contents_list_only_the_current_content", "worldmock.life.result_projection::_done_contents",
+        'for item in data["played"]]', 'for item in data["played"][-1:]]',
+        ("tests/integration/life/test_result_contents.py::test_finished_app_series_lists_every_episode_in_order",)),
 )
