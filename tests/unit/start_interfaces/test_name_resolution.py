@@ -6,6 +6,7 @@ import pytest
 
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, context, do_at, purchase, sleep, travel, use_app
 from worldmock.life.action_contract import binding_action
+from worldmock.life.models import StartSideActivityRequest
 from worldmock.life.name_resolution import NameBook, Option, Target, name_book, resolve_start
 
 _OBJECT_EXPECTED = "A known object name in the selected action's category is required."
@@ -73,12 +74,14 @@ def test_unknown_object_reports_name_not_found_with_complete_call_candidates(boo
                                    "arguments": {"action": "travel", "target": "公司", "detail": "驾车"}}]
     side = _single(resolve_start(book, SIDE_TOOL, use_app("哔哩")))
     assert side["error_code"] == "NAME_NOT_FOUND" and side["path"][-2:] == ["target", 0]
-    assert [item["arguments"] for item in side["candidates"]] == [{"action": "interact", "target": ["哔哩哔哩"]}]
+    assert [item["arguments"] for item in side["candidates"]] == [
+        {"action": "interact", "target": ["哔哩哔哩"], "prefer": None}]
     assert all(item["tool"] == SIDE_TOOL for item in side["candidates"])
 
 
 def test_ambiguous_object_lists_each_match_as_a_candidate():
-    """归一后对应多个对象：NAME_AMBIGUOUS，候选是各匹配对象；购买候选只替换数组里出错的那个元素。"""
+    """归一后对应多个对象：NAME_AMBIGUOUS，候选是各匹配对象；购买候选只替换数组里出错的那个元素，prefer 照人物所写
+    的原样带上，包括认不出的写法和 null。"""
     walk = _option("travel", "步行", duration="约 9 分钟")
     places = NameBook((_target("三杯 咖啡", "location", walk), _target("三杯  咖啡", "location", walk)), "家", "家")
     item = _single(resolve_start(places, MAIN_TOOL, travel("三杯咖啡", "步行")))
@@ -88,12 +91,13 @@ def test_ambiguous_object_lists_each_match_as_a_candidate():
     assert [candidate["arguments"]["target"] for candidate in item["candidates"]] == ["三杯 咖啡", "三杯  咖啡"]
     buy = _option("purchase")
     goods = NameBook((_target("柠檬 茶", "supply", buy), _target("柠檬  茶", "supply", buy)), "家", "家")
-    item = _single(resolve_start(goods, SIDE_TOOL, purchase("牛肉面", "柠檬茶", "薯片")))
-    assert item["error_code"] == "NAME_AMBIGUOUS" and item["path"][-2:] == ["target", 1]
-    assert [candidate["arguments"] for candidate in item["candidates"]] == [
-        {"action": "purchase", "target": ["牛肉面", "柠檬 茶", "薯片"]},
-        {"action": "purchase", "target": ["牛肉面", "柠檬  茶", "薯片"]}]
-    assert all(candidate["tool"] == SIDE_TOOL for candidate in item["candidates"])
+    for prefer in ("饿了么", "饿 了 么", "美团外卖", None):
+        item = _single(resolve_start(goods, SIDE_TOOL, purchase("牛肉面", "柠檬茶", "薯片", prefer=prefer)))
+        assert item["error_code"] == "NAME_AMBIGUOUS" and item["path"][-2:] == ["target", 1]
+        assert [candidate["arguments"] for candidate in item["candidates"]] == [
+            {"action": "purchase", "target": ["牛肉面", "柠檬 茶", "薯片"], "prefer": prefer},
+            {"action": "purchase", "target": ["牛肉面", "柠檬  茶", "薯片"], "prefer": prefer}]
+        assert all(candidate["tool"] == SIDE_TOOL for candidate in item["candidates"])
 
 
 def test_interact_at_another_location_only_yields_action_not_offered(book):
@@ -125,7 +129,31 @@ def test_object_of_the_other_tool_offers_nothing_here_and_points_to_its_own_tool
     assert {candidate["tool"] for candidate in place["candidates"]} == {MAIN_TOOL}
     app = _single(resolve_start(book, SIDE_TOOL, purchase("牛肉面", "哔哩哔哩")))
     assert app["error_code"] == "ACTION_NOT_OFFERED" and app["allowed_values"] == ["interact"]
-    assert app["candidates"][0]["arguments"] == {"action": "interact", "target": ["哔哩哔哩"]}
+    assert app["candidates"][0]["arguments"] == {"action": "interact", "target": ["哔哩哔哩"], "prefer": None}
+
+
+def test_side_tool_candidates_always_carry_prefer(book):
+    """副工具的候选恒为 action、target、prefer 三个键并能通过请求模型：购买候选照抄被退回的购买所写的 prefer；
+    购买写了 app 名、打开 app 写了商品名或近名、主工具写了商品名，候选的 prefer 都是 null。"""
+    cases = [
+        (SIDE_TOOL, purchase("牛肉面", "哔哩哔哩", prefer="饿了么"),
+         [{"action": "interact", "target": ["哔哩哔哩"], "prefer": None}]),
+        (SIDE_TOOL, use_app("柠檬茶"), [{"action": "purchase", "target": ["柠檬茶"], "prefer": None}]),
+        (SIDE_TOOL, use_app("哔哩"), [{"action": "interact", "target": ["哔哩哔哩"], "prefer": None}]),
+        (MAIN_TOOL, do_at("柠檬茶", "测试休息"), [{"action": "purchase", "target": ["柠檬茶"], "prefer": None}]),
+    ]
+    for tool, request, expected in cases:
+        item = _single(resolve_start(book, tool, request))
+        side = [candidate["arguments"] for candidate in item["candidates"] if candidate["tool"] == SIDE_TOOL]
+        assert side == expected, request
+    buy = _option("purchase")
+    goods = NameBook((_target("柠檬 茶", "supply", buy), _target("柠檬  茶", "supply", buy)), "家", "家")
+    item = _single(resolve_start(goods, SIDE_TOOL, purchase("柠檬茶", prefer="不存在的 app")))
+    candidates = [candidate["arguments"] for candidate in item["candidates"]]
+    assert [arguments["prefer"] for arguments in candidates] == ["不存在的 app", "不存在的 app"]
+    for arguments in candidates + [row for _, _, rows in cases for row in rows]:
+        assert list(arguments) == ["action", "target", "prefer"]
+        assert StartSideActivityRequest.model_validate(arguments).model_dump(mode="json") == arguments
 
 
 def test_unknown_detail_lists_every_row_name_and_ranks_near_rows(book):

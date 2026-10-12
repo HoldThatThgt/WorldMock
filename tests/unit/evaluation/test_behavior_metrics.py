@@ -590,7 +590,8 @@ def test_sleep_report_rejects_missing_or_invalid_progress_end(end, caplog):
 
 def test_meal_diversity_simpson_and_repetition_anchors() -> None:
     """@brief Simpson {a:2,c:1}=5/9；饮料、购买请求和非食品均不产生进食样本。"""
-    events = [_action(50, "d1", "start_side_activity", {"action": "purchase", "target": ["幻影商品"]})]
+    events = [_action(50, "d1", "start_side_activity",
+                      {"action": "purchase", "target": ["幻影商品"], "prefer": None})]
     for seq, product, category in ((1, "a", "meal"), (2, "a", "meal"), (3, "b", "drink"),
                                    (4, "c", "snack"), (5, "d", "goods")):
         events.extend(_receipt_events(seq, product, _clock(0, 8, seq), category))

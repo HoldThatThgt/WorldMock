@@ -489,7 +489,7 @@ def test_one_courier_delivery_group_with_two_arrival_days_arrives_in_two_trips(e
     write_catalog_rows(root, "merchant-catalog.jsonl", sorted(goods, key=lambda row: row["goods_id"]))
     engine = engine_factory(environment_root=root, mutate=lambda persona, config: config.update(
         stop_time=config["start_time"] + timedelta(days=6)))
-    days = {key: quote_goods(engine.context.inputs, engine.context.state, 1, key).expected_at for key in names}
+    days = {key: quote_goods(engine.context.inputs, engine.context.state, 1, key, None).expected_at for key in names}
     early = min(days, key=lambda key: (days[key], key))
     late = min((key for key in days if days[key] != days[early]), key=lambda key: (days[key], key))
     _, result = act(engine, "parcels", purchase(names[late], names[early]))
