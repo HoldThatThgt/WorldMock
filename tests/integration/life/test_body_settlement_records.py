@@ -97,8 +97,15 @@ def test_discomfort_pulse_is_recorded_on_its_own_body_settlement(engine_factory)
     assert engine.context.state.agents[1].body.relaxation_need == pytest.approx(after, abs=1e-12)
 
 
-def test_discomfort_pulse_is_billed_against_the_settled_body_not_the_received_drink(engine_factory):
-    engine = engine_factory(mutate=hungry_at_work(0.98))
+@pytest.mark.parametrize("relaxation,clipped", [
+    # 下单前上班与此前的脉冲已把放松需要推到上限：记账之后 S 就是 1.0，脉冲为 0、不记分录。
+    pytest.param(0.98, False, id="settled-at-the-cap"),
+    # 上班与此前的脉冲在送达那一秒前把放松需要抬高约 0.27：S 约 0.993，这一段的整份脉冲约 0.017 被封顶截到约 0.007。
+    pytest.param(0.72, True, id="pulse-clipped-at-the-cap"),
+])
+def test_discomfort_pulse_is_billed_against_the_settled_body_not_the_received_drink(engine_factory, relaxation,
+                                                                                    clipped):
+    engine = engine_factory(mutate=hungry_at_work(relaxation))
     started = engine.context.state.current_time
     _, result = act(engine, "hungry-work", do_at("公司", "季度销售数据整理"))
     assert result.status == "in_progress", result.error_code
@@ -114,8 +121,10 @@ def test_discomfort_pulse_is_billed_against_the_settled_body_not_the_received_dr
                  for flow in flows if flow["resource"] == "relaxation_need" and flow["cause"] != PULSE)
     pulse = sum(flow["amount"] for flow in flows if flow["cause"] == PULSE)
     settled_before_pulse = settled.data["body_settlement"]["before"]["relaxation_need"] + shared
+    hours = (settled.data["interval_end"] - settled.data["interval_start"]) / 3600
     assert pulse == pytest.approx(1.0 - settled_before_pulse, abs=1e-12)
-    assert (PULSE in causes(settled)) is (pulse > 0)
+    assert (pulse > 0) is clipped and (PULSE in causes(settled)) is clipped
+    assert pulse < 0.10 * hours
     assert settled.data["body_settlement"]["after"]["relaxation_need"] == pytest.approx(1.0)
     relieved = settled_before_pulse - received.data["applied"]
     assert received.data["applied"] == 0.1
