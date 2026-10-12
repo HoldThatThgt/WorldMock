@@ -108,6 +108,14 @@ def _next_decision(engine):
         advance_next(engine)
 
 
+def _on_the_road(engine):
+    """从家出发去公司，推进到路上的下一次决策机会，返回出行的受理结果。"""
+    _, departure = act(engine, "departure", travel("公司"))
+    assert departure.status == "in_progress"
+    _next_decision(engine)
+    return departure
+
+
 def _host(engine):
     """真实宿主：准备好本轮观察的 LifeAgent，用它的严格校验判断请求形状。"""
     stage_day_plan(engine)
@@ -168,17 +176,21 @@ def test_prefer_that_names_no_order_app_is_silently_ignored(engine_factory, writ
 
 
 def test_normalised_prefer_counts_without_a_resolution_record(engine_factory):
-    """「饿 了 么」规整后对上饿了么：与写「饿了么」得到同一条记录，结果里不记规整；商品名照旧记规整。"""
+    """「饿 了 么」规整后对上饿了么：与写「饿了么」得到同一条记录，受理结果的 details 里不记规整；商品名照旧记规整，
+    resolved 里只有商品名那一条。"""
     routes = []
     for written in ("饿了么", "饿 了 么"):
         engine = engine_factory()
         result = _bought(engine, "tea", "柠檬茶", prefer=written)
         assert "resolved" not in result.data
+        assert "resolved" not in _side_record(engine, "during")["result"]["details"]
         routes.append(_routes(engine, result))
     assert routes == [[("lemon-tea", "cafe", "eleme", FAR)]] * 2
     engine = engine_factory()
     result = _bought(engine, "spaced", "柠 檬 茶", prefer="饿 了 么")
     assert result.data["resolved"] == [{"written": "柠 檬 茶", "as": "柠檬茶"}]
+    details = _side_record(engine, "during")["result"]["details"]
+    assert details["resolved"] == [{"written": "柠 檬 茶", "as": "柠檬茶"}]
     assert _routes(engine, result) == [("lemon-tea", "cafe", "eleme", FAR)]
 
 
@@ -233,9 +245,7 @@ def test_preferred_app_store_must_be_open_now(engine_factory, tmp_path):
 def test_prefer_neither_creates_nor_removes_refusals(engine_factory, tmp_path):
     """带着用得上的饿了么：人在路上买店铺商品照旧被拒；两家能外卖的店都打烊时照旧点出最近一家有售的地点。"""
     engine = engine_factory(mutate=_attentive)
-    _, departure = act(engine, "departure", travel("公司"))
-    assert departure.status == "in_progress"
-    _next_decision(engine)
+    _on_the_road(engine)
     _, on_road = act(engine, "on-road", purchase("柠檬茶", prefer="饿了么"))
     assert (on_road.status, on_road.error_code) == ("rejected", "ACTIVITY_PRECONDITION_UNMET")
     assert on_road.message == "Place the order after arriving at a location."
@@ -281,7 +291,8 @@ def _courier(state, app_id) -> tuple[int, int]:
 
 def test_courier_goods_use_the_preferred_app_when_registered_on_them(engine_factory, tmp_path):
     """平台笔记本登记哔哩哔哩和美团：写当天没抽到的那个，记录上就是它，到站和运费按它的键取；写不在其内的饿了么或
-    null 时与按商品和日期抽的相同；人在路上同样成立。"""
+    null 时与按商品和日期抽的相同；人在路上三种写法同样成立。购买进行中和做完后，结果的 channel 都是记录上下单 app
+    的完整名称。"""
     def change(relative, row):
         if row["goods_id"] == "online-notebook":
             row["app_ids"] = ["bilibili", "meituan"]
@@ -292,16 +303,19 @@ def test_courier_goods_use_the_preferred_app_when_registered_on_them(engine_fact
         ["bilibili", "meituan"])
     (other,) = {"bilibili", "meituan"} - {drawn}
     for prefer, expected in ((APP_NAMES[other], other), ("饿了么", drawn), (None, drawn)):
+        route = (expected, "station_pickup", *_courier(state, expected))
         engine = engine_factory(root)
-        (order,) = _orders(engine, _bought(engine, "book", "平台笔记本", prefer=prefer))
-        assert (order.app_id, order.fulfillment) == (expected, "station_pickup")
-        assert (order.expected_at, order.delivery_fee_fen) == _courier(state, expected)
-    engine = engine_factory(root, mutate=_attentive)
-    _, departure = act(engine, "departure", travel("公司"))
-    assert departure.status == "in_progress"
-    _next_decision(engine)
-    (order,) = _orders(engine, _bought(engine, "on-road", "平台笔记本", prefer=APP_NAMES[other]))
-    assert order.app_id == other and engine.context.state.activities[departure.activity_id].status == "active"
+        result = _bought(engine, "book", "平台笔记本", prefer=prefer)
+        (order,) = _orders(engine, result)
+        assert (order.app_id, order.fulfillment, order.expected_at, order.delivery_fee_fen) == route
+        assert _channels(engine, "during") == [("平台笔记本", APP_NAMES[expected], False)]
+        finish_activity(engine, result, "book")
+        assert _channels(engine, "after") == [("平台笔记本", APP_NAMES[expected], True)]
+        road = engine_factory(root, mutate=_attentive)
+        departure = _on_the_road(road)
+        (order,) = _orders(road, _bought(road, "on-road", "平台笔记本", prefer=prefer))
+        assert (order.app_id, order.fulfillment, order.expected_at, order.delivery_fee_fen) == route
+        assert road.context.state.activities[departure.activity_id].status == "active"
 
 
 def test_each_goods_routes_on_its_own_under_one_prefer(engine_factory):
