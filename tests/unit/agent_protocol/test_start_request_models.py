@@ -24,9 +24,12 @@ _MAIN_VALID = (
     {"action": "sleep", "target": "470", "detail": None},
 )
 _SIDE_VALID = (
-    {"action": "purchase", "target": ["牛肉面", "柠檬茶", "柠檬茶"]},
-    {"action": "interact", "target": ["哔哩哔哩"]},
+    {"action": "purchase", "target": ["牛肉面", "柠檬茶", "柠檬茶"], "prefer": None},
+    {"action": "purchase", "target": ["冰美式咖啡"], "prefer": "瑞幸咖啡"},
+    {"action": "interact", "target": ["哔哩哔哩"], "prefer": None},
 )
+#: prefer 字段的说明：购买轨道落下的过渡句，不含 query。
+_PREFER_DESCRIPTION = "purchase 写想用来下单的内容 app 的完整名称，没有想法写 null；interact 写 null。"
 
 
 def _report(model, tool: str, arguments) -> list[tuple]:
@@ -76,10 +79,10 @@ def test_main_request_accepts_the_three_declared_shapes(arguments):
 
 @pytest.mark.parametrize("arguments", _SIDE_VALID)
 def test_side_request_accepts_arrays_and_repeated_names(arguments):
-    """购买不设上限并允许同名重复：同一个名称写两次就是两份。"""
+    """购买不设上限并允许同名重复：同一个名称写两次就是两份；prefer 写名称和写 null 都通过，原文照存。"""
     request = StartSideActivityRequest.model_validate(arguments)
     assert request.model_dump(mode="json") == arguments
-    many = {"action": "purchase", "target": ["薯片"] * 12}
+    many = {"action": "purchase", "target": ["薯片"] * 12, "prefer": None}
     assert StartSideActivityRequest.model_validate(many).target == ["薯片"] * 12
 
 
@@ -95,10 +98,12 @@ def test_both_models_generate_closed_strict_schemas_with_verbatim_descriptions()
     assert main["properties"]["action"]["enum"] == ["travel", "interact", "sleep"]
     assert main["properties"]["target"]["type"] == "string" and main["properties"]["target"]["pattern"] == r"\S"
     assert main["properties"]["detail"]["anyOf"] == [{"pattern": r"\S", "type": "string"}, {"type": "null"}]
-    assert list(side["properties"]) == ["action", "target"]
+    assert list(side["properties"]) == side["required"] == ["action", "target", "prefer"]
     assert side["properties"]["action"]["enum"] == ["purchase", "interact"]
     assert side["properties"]["target"]["type"] == "array"
     assert side["properties"]["target"]["items"] == {"pattern": r"\S", "type": "string"}
+    assert side["properties"]["prefer"]["anyOf"] == [{"pattern": r"\S", "type": "string"}, {"type": "null"}]
+    assert side["properties"]["prefer"]["anyOf"] == main["properties"]["detail"]["anyOf"]
     assert TOOL_DESCRIPTIONS["start_main_activity"] == "开始一项占槽位 1 的活动：出行、在当前地点做一件事，或睡觉。"
     assert TOOL_DESCRIPTIONS["start_side_activity"] == "开始一项占槽位 2 的活动：购买商品，或使用一个内容 app。"
     assert main["properties"]["action"]["description"] == "做什么：travel 出行，interact 在当前地点做一件事，sleep 睡觉。"
@@ -110,6 +115,7 @@ def test_both_models_generate_closed_strict_schemas_with_verbatim_descriptions()
     assert side["properties"]["action"]["description"] == "做什么：purchase 购买商品，interact 使用内容 app。"
     assert side["properties"]["target"]["description"] == (
         "名称数组。purchase 逐份写商品的完整名称，同一个名称写两次就是两份；interact 只写一个内容 app 的完整名称。")
+    assert side["properties"]["prefer"]["description"] == _PREFER_DESCRIPTION
     for arguments in _MAIN_VALID:
         assert list(Draft202012Validator(main).iter_errors(arguments)) == []
     for arguments in _SIDE_VALID:
@@ -171,16 +177,19 @@ def test_main_cross_constraints_report_one_item_per_violation(arguments, expecte
 
 
 @pytest.mark.parametrize("arguments,expected", [
-    ({"action": "purchase", "target": []}, [(("target",), [], (), "target requires at least one name")]),
-    ({"action": "interact", "target": []},
+    ({"action": "purchase", "target": [], "prefer": None},
+     [(("target",), [], (), "target requires at least one name")]),
+    ({"action": "interact", "target": [], "prefer": None},
      [(("target",), [], (), "target requires at least one name"),
       (("target",), [], (), "target takes exactly one app name when action is interact")]),
-    ({"action": "interact", "target": ["哔哩哔哩", "抖音"]},
+    ({"action": "interact", "target": ["哔哩哔哩", "抖音"], "prefer": None},
      [(("target",), ["哔哩哔哩", "抖音"], (), "target takes exactly one app name when action is interact")]),
-    ({"action": "purchase", "target": "牛肉面"}, [(("target",), "牛肉面", (), "A JSON array is required.")]),
-    ({"action": "purchase", "target": ["牛肉面", " "]},
+    ({"action": "purchase", "target": "牛肉面", "prefer": None},
+     [(("target",), "牛肉面", (), "A JSON array is required.")]),
+    ({"action": "purchase", "target": ["牛肉面", " "], "prefer": None},
      [(("target", 1), " ", (), "A non-blank string matching the declared format is required.")]),
-    ({"action": "purchase", "target": ["牛肉面", 2]}, [(("target", 1), 2, (), "A JSON string is required.")]),
+    ({"action": "purchase", "target": ["牛肉面", 2], "prefer": None},
+     [(("target", 1), 2, (), "A JSON string is required.")]),
 ])
 def test_side_target_is_always_a_non_empty_array_and_one_app(arguments, expected):
     """名称数组至少一项；用内容 app 时恰好一项；项数由本地校验执行，严格 Schema 不带长度约束。"""
@@ -194,3 +203,33 @@ def test_numeric_minutes_must_be_written_as_text():
     assert _report(StartMainActivityRequest, "start_main_activity",
                    {"action": "sleep", "target": 470, "detail": None}) == [
         (("target",), 470, (), "A JSON string is required.")]
+
+
+@pytest.mark.parametrize("arguments,expected", [
+    ({"action": "purchase", "target": ["柠檬茶"]}, [(("prefer",), None, (), "This required field was omitted.")]),
+    ({"action": "purchase", "target": ["柠檬茶"], "prefer": ""},
+     [(("prefer",), "", (), "A non-blank string matching the declared format is required.")]),
+    ({"action": "purchase", "target": ["柠檬茶"], "prefer": " \u3000"},
+     [(("prefer",), " \u3000", (), "A non-blank string matching the declared format is required.")]),
+    ({"action": "purchase", "target": ["柠檬茶"], "prefer": 3}, [(("prefer",), 3, (), "A JSON string is required.")]),
+    ({"action": "purchase", "target": ["柠檬茶"], "prefer": ["饿了么"]},
+     [(("prefer",), ["饿了么"], (), "A JSON string is required.")]),
+])
+def test_prefer_is_required_and_is_a_non_blank_string_or_null(arguments, expected):
+    """prefer 没有缺省值：没写、空白、不是字符串也不是 null 各报规格里的那一句，定位 prefer，允许值为空。"""
+    assert _report(StartSideActivityRequest, "start_side_activity", arguments) == expected
+
+
+@pytest.mark.parametrize("arguments,expected", [
+    ({"action": "interact", "target": ["哔哩哔哩"], "prefer": "饿了么"},
+     [(("prefer",), "饿了么", (), "prefer must be null when action is interact")]),
+    ({"action": "interact", "target": ["哔哩哔哩"], "prefer": "哔哩哔哩"},
+     [(("prefer",), "哔哩哔哩", (), "prefer must be null when action is interact")]),
+    ({"action": "interact", "target": ["哔哩哔哩", "抖音"], "prefer": "抖音"},
+     [(("target",), ["哔哩哔哩", "抖音"], (), "target takes exactly one app name when action is interact"),
+      (("prefer",), "抖音", (), "prefer must be null when action is interact")]),
+])
+def test_opening_an_app_requires_a_null_prefer(arguments, expected):
+    """打开 app 时 prefer 必须为 null：报 prefer must be null when action is interact，written 是所写原值；
+    同时写了两个 app 名时两条违背一次报全。"""
+    assert _report(StartSideActivityRequest, "start_side_activity", arguments) == expected

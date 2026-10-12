@@ -219,6 +219,21 @@ def test_actual_system_callback_effect_does_not_create_public_behavior():
     assert worldmock_public_evidence([event], []) == ()
 
 
+@pytest.mark.parametrize("prefer", [None, "饿了么", "不存在的 app"])
+def test_side_request_with_prefer_projects_the_actual_order(prefer):
+    """副工具的参数键集是 action、target、prefer 三个：带 prefer 的购买请求正常投影，对象是实际订单，所写的 prefer
+    不进公开证据。"""
+    rows = [_public_event(1, "action_requested", {"tool_name": SIDE_TOOL, "request": side_arguments(
+        "purchase", "实际商品", prefer=prefer)}, "purchase-action"),
+        _public_event(2, "action_result", {"status": "in_progress", "data": {"orders": [
+            {"order_id": "actual-order", "status": "pending", "fulfillment": "delivery"}]}}, "purchase-action")]
+    evidence = worldmock_public_evidence([parse_world_event(row) for row in rows], [])
+    assert {(row.action, row.interaction, row.object_key, row.state) for row in evidence} == {
+        ("purchase", "order", "actual-order", "requested"), ("purchase", "order", "actual-order", "pending")}
+    if prefer is not None:
+        assert prefer not in json.dumps([row.field_values() for row in evidence], ensure_ascii=False)
+
+
 @pytest.mark.parametrize("status", ["pending", "cancelled", "failed", "delivered"])
 def test_order_snapshots_do_not_imply_payment_or_receipt(status):
     """接受、取消、失败和配送状态只有实际订单点事实，没有推断付款或收货。"""
@@ -259,10 +274,14 @@ def test_public_content_progress_requires_actual_positive_position(before, after
     pytest.param(MAIN_TOOL, {}, id="main-empty"),
     pytest.param(SIDE_TOOL, {"items": [{"action": "purchase", "target": "对象"}]}, id="side-retired-items"),
     pytest.param(SIDE_TOOL, {"action": "purchase", "target": ["对象"], "detail": None}, id="side-extra-detail"),
-    pytest.param(SIDE_TOOL, {"action": "purchase"}, id="side-target-missing"),
+    pytest.param(SIDE_TOOL, {"action": "purchase", "target": ["对象"]}, id="side-prefer-missing"),
+    pytest.param(SIDE_TOOL, {"action": "purchase", "target": ["对象"], "prefer": None, "app": "饿了么"},
+                 id="side-extra-key"),
+    pytest.param(SIDE_TOOL, {"action": "purchase", "prefer": None}, id="side-target-missing"),
 ])
 def test_public_projection_rejects_start_arguments_outside_the_current_contract(tool, request_body):
-    """两个开始工具各自的参数键集合是闭集：少键、多键和已删除的 items 形状都不读。"""
+    """两个开始工具各自的参数键集合是闭集：主工具 action、target、detail，副工具 action、target、prefer；少键（含没写
+    prefer 的两键副工具请求）、多键和已删除的 items 形状都不读。"""
     row = _public_event(1, "action_requested", {"tool_name": tool, "request": request_body}, "invalid-action")
     with pytest.raises(EvaluationError, match="^Start request arguments are outside the current contract$") as error:
         worldmock_public_evidence([parse_world_event(row)], [])
