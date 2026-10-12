@@ -228,6 +228,17 @@ class FootprintStore:
             (event_seq, *row)).fetchone()
         return following[0] - 1 if following is not None else self.last_event_seq
 
+    def read_event(self, event_id: str) -> Event:
+        """@brief 按事件身份读取一条已提交事件（events.event_id 有唯一索引），不扫描其余事件。
+
+        :raises IntegrityError: 库里没有这个身份（Event does not exist）。
+        """
+        row = self.connection.execute("SELECT body FROM events WHERE event_id=?", (event_id,)).fetchone()
+        if row is None:
+            logging.error("Event %s does not exist", event_id)
+            raise IntegrityError("Event does not exist")
+        return Event.model_validate_json(row[0])
+
     def read_agent_events(self, event_type: EventType, agent_id: int, after: int = 0) -> list[Event]:
         """@brief 只读取指定人物在已知边界之后的同类事件，避免反复解码原始模型调用。"""
         if after < 0 or after > self.last_event_seq:
