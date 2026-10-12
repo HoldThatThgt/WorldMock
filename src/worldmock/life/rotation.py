@@ -1,5 +1,5 @@
 """@brief 曝光轮转：按每个对象的「上次呈现时刻」给分区内最久未呈现的对象留固定名额（docs/design/04-simulation-engine.md
-「出行、内容与目录浏览」，docs/design/04-simulation-engine.md）。
+「出行、内容与查询」，docs/design/04-simulation-engine.md）。
 
 本模块是**纯函数模块**：不写世界状态、不做 IO、不调模型。它同时是「呈现顺序与名额」
 的唯一实现处，只读输入、只回结果——`last_presented_at` 的落库由引擎侧承担
