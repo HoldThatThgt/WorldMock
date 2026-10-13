@@ -24,28 +24,58 @@ def _requests(case: Path) -> list[tuple[str, dict]]:
             if body["event_type"] == "action_requested" and body["data"]["tool_name"].startswith("start_")]
 
 
+def _concluded_names(case: Path) -> list[str]:
+    """运行落库的全部 conclude_activity 请求点到的活动名，按事件次序。"""
+    with sqlite3.connect(case / "run" / "footprints.sqlite") as connection:
+        rows = connection.execute("SELECT body FROM events ORDER BY event_seq").fetchall()
+    bodies = [json.loads(row[0]) for row in rows]
+    return [item["activity_name"] for body in bodies
+            if body["event_type"] == "action_requested" and body["data"]["tool_name"] == "conclude_activity"
+            for item in body["data"]["request"]["items"]]
+
+
 def test_activity_day_names_units_buys_portions_and_sleeps_at_the_office(monkeypatch, tmp_path):
-    """活动日：同一轮在家点名休息并买一份牛肉面、两份薯片；同一轮驾车去公司并打开哔哩哔哩；在公司点名
-    「季度销售数据整理」并做完；在公司睡 60 分钟；
+    """活动日：同一轮在家点名休息并买一份牛肉面、两份薯片（prefer 写「饿了么」）；查询「柠檬茶」（prefer 为 null），
+    做完不收尾；同一轮驾车去公司并打开哔哩哔哩；在公司点名「季度销售数据整理」并做完；在公司睡 60 分钟；
     之后步行回家、夜里睡 450 分钟直到截止。运行到达截止、无失败事件、导出通过认证（由录制入口断言）。"""
     case = tmp_path / "activity"
     recorded = record_complete_day(monkeypatch, case, PROJECT, "activity")
     assert set(recorded) == {"persona_sha256", "config_sha256", "environment_identity", "seed", "summary"}
     assert recorded["seed"] == 20260105
     starts = _requests(case)
-    assert starts[:6] == [
+    assert starts[:7] == [
         ("start_main_activity", {"action": "interact", "target": "家", "detail": "测试休息"}),
-        ("start_side_activity", {"action": "purchase", "target": ["牛肉面", "薯片", "薯片"], "prefer": None}),
+        ("start_side_activity", {"action": "purchase", "target": ["牛肉面", "薯片", "薯片"], "prefer": "饿了么"}),
+        ("start_side_activity", {"action": "query", "target": ["柠檬茶"], "prefer": None}),
         ("start_main_activity", {"action": "travel", "target": "公司", "detail": "驾车"}),
         ("start_side_activity", {"action": "interact", "target": ["哔哩哔哩"], "prefer": None}),
         ("start_main_activity", {"action": "interact", "target": "公司", "detail": "季度销售数据整理"}),
         ("start_main_activity", {"action": "sleep", "target": "60", "detail": None})]
-    later = starts[6:]
+    assert all(set(request) == {"action", "target", "prefer"}
+               for tool, request in starts if tool == "start_side_activity")
+    later = starts[7:]
     assert later[0] == ("start_main_activity", {"action": "travel", "target": "家", "detail": "步行"})
     assert {tool for tool, _ in later} == {"start_main_activity"}
     assert {"action": "sleep", "target": "450", "detail": None} in [request for _, request in later]
     assert not any(tool == "start_activity" for tool, _ in starts)
+    _assert_preferred_orders_and_a_self_ending_query(case)
     _assert_six_artifacts_with_phone_records(case / "export", tmp_path)
+
+
+def _assert_preferred_orders_and_a_self_ending_query(case: Path) -> None:
+    """prefer 写「饿了么」让订单换了店：薯片经饿了么从三杯咖啡来，牛肉面另选到一心面馆的美团，一次购买两张订单；
+    那次查询做完即结束，运行里没有任何一条 conclude_activity 点到它。"""
+    export = case / "export"
+    bought = [row for row in artifact_rows(export, "purchases")
+              if row["fact_kind"] == "purchase" and row["action_id"] == "action-home-basket-2"]
+    assert {(row["goods_id"], row["app_id"], row["store_id"]) for row in bought} == {
+        ("chips", "eleme", "cafe"), ("beef-noodles", "meituan", "noodle-1")}
+    placed = [row for row in artifact_rows(export, "app_usage")
+              if row["fact_kind"] == "order_notification" and row["title"] == "订单已下单"]
+    assert sorted(row["app_id"] for row in placed) == ["eleme", "meituan"]
+    queries = [row for row in artifact_rows(export, "activities") if row["activity_type"] == "query"]
+    assert [row["status"] for row in queries] == ["completed"]
+    assert queries[0]["name"] not in _concluded_names(case)
 
 
 def _assert_six_artifacts_with_phone_records(export: Path, scratch: Path) -> None:
@@ -56,9 +86,10 @@ def _assert_six_artifacts_with_phone_records(export: Path, scratch: Path) -> Non
                                           "location_stays"}
     usage, stays = artifact_rows(export, "app_usage"), artifact_rows(export, "location_stays")
     kinds = {row["activity_id"]: row["activity_type"] for row in artifact_rows(export, "activities")}
-    # app 使用行既有人物点名使用的（interact），也有引擎代为使用的导航（travel）和下单、支付（purchase）。
+    # app 使用行既有人物点名使用的（interact），也有引擎代为使用的导航（travel）、下单与支付（purchase）和查询那几分钟
+    # 所在的 app（query）。
     assert {kinds[row["activity_id"]] for row in usage if row["fact_kind"] == "app_use"} == {
-        "interact", "travel", "purchase"}
+        "interact", "travel", "purchase", "query"}
     assert {row["title"] for row in usage if row["fact_kind"] == "order_notification"} == {
         "订单已下单", "订单已发货", "订单已送达"}
     assert not [row for row in usage if row["fact_kind"] == "app_touch"]
@@ -79,7 +110,8 @@ def _assert_six_artifacts_with_phone_records(export: Path, scratch: Path) -> Non
 
 
 def test_callback_day_drives_to_the_store_and_restores_the_state(monkeypatch, tmp_path):
-    """回调日：驾车去四季便利，在店里购买纸巾和饭团，driving_days 回到 3（由脚本断言），运行到达截止并导出。"""
+    """回调日：驾车去四季便利，在店里购买纸巾和饭团（prefer 为 null，到店买，没有下单 app），driving_days 回到 3
+    （由脚本断言），运行到达截止并导出。"""
     case = tmp_path / "callback"
     recorded = record_complete_day(monkeypatch, case, PROJECT, "callback")
     assert recorded["seed"] == 20260106
@@ -87,3 +119,7 @@ def test_callback_day_drives_to_the_store_and_restores_the_state(monkeypatch, tm
     assert starts[:2] == [
         ("start_main_activity", {"action": "travel", "target": "四季便利", "detail": "驾车"}),
         ("start_side_activity", {"action": "purchase", "target": ["纸巾", "饭团"], "prefer": None})]
+    bought = [row for row in artifact_rows(case / "export", "purchases")
+              if row["fact_kind"] == "purchase" and row["action_id"] == "action-reset-purchase"]
+    assert {(row["goods_id"], row["app_id"], row["store_id"]) for row in bought} == {
+        ("tissue", None, "store"), ("rice-ball", None, "store")}

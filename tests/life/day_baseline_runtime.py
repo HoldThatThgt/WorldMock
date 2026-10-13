@@ -12,7 +12,7 @@ from tests.data_paths import ENVIRONMENT_ROOT
 from tests.dayrun_baseline import day_baseline_signature, deterministic_day_runtime
 from tests.frozen_inputs import fixture_metadata
 from tests.integration.runtime_fixtures import current_run_identity, write_agent_workspace
-from tests.life.conftest import do_at, purchase, sleep, stage_day_plan, travel, use_app
+from tests.life.conftest import do_at, purchase, query, sleep, stage_day_plan, travel, use_app
 from tests.life.environment_runtime import act, act_group, finish_activity, run_to_end
 from worldmock.catalog.identity import refresh_manifest_identity
 from worldmock.environment import environment_identity, load_environment
@@ -61,11 +61,17 @@ def _finish_active(engine, label):
 
 
 def _activity_day(engine):
-    """同一轮在家点名休息并买一份牛肉面、两份薯片；同一轮驾车去公司并打开哔哩哔哩；在公司点名「季度销售数据整理」
-    并做完；在公司睡 60 分钟。"""
-    _, home = act_group(engine, "home-basket", do_at("家", "测试休息"), purchase("牛肉面", "薯片", "薯片"))
+    """同一轮在家点名休息并买一份牛肉面、两份薯片（prefer 写「饿了么」：薯片经饿了么从三杯咖啡来，牛肉面另选到
+    一心面馆的美团）；查询「柠檬茶」（prefer 为 null），推进到做完，不为它收尾；同一轮驾车去公司并打开哔哩哔哩；
+    在公司点名「季度销售数据整理」并做完；在公司睡 60 分钟。"""
+    _, home = act_group(engine, "home-basket", do_at("家", "测试休息"),
+                        purchase("牛肉面", "薯片", "薯片", prefer="饿了么"))
     assert [item.status for item in home] == ["in_progress", "in_progress"]
     _finish_active(engine, "home")
+    _, asked = act(engine, "home-query", query("柠檬茶"))
+    assert asked.status == "in_progress"
+    finish_activity(engine, asked, "home-query")
+    # 查询自己结束：做完即写下 concluded_at，不待收尾，下一组开始不被挡住。
     _, paired = act_group(engine, "travel-media", travel("公司", "驾车"), use_app("哔哩哔哩"))
     assert [item.status for item in paired] == ["in_progress", "in_progress"]
     _finish_active(engine, "trip")
@@ -78,6 +84,7 @@ def _activity_day(engine):
 
 
 def _callback_day(engine):
+    """驾车去四季便利；在店里购买纸巾和饭团（prefer 为 null，人在卖这两件商品的地点，到店买）；driving_days 回到 3。"""
     _, drive = act(engine, "drive", travel("四季便利", "驾车"))
     assert drive.status == "in_progress"
     finish_activity(engine, drive, "drive")
