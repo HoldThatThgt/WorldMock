@@ -25,7 +25,7 @@ const ViewerWording = {};
   const PHONE_LABELS = {app_foreground: 'app 前台', order_notification: '订单通知', payment_notification: '消费通知'};
   /* 没有专门写法的种类写的种类名：worldmock.life.readable.ACTIVITY_KIND_LABELS 的镜像。 */
   const ACTIVITY_KIND_LABELS = {sleep: '睡觉', travel: '出行', interact: '互动', purchase: '购买', query: '查询'};
-  /* 商品类别的中文名：worldmock.exchange.types.GOODS_CATEGORY_LABELS 的镜像，查询写类别时用；表外的类别照原值显示。 */
+  /* 商品类别的中文名：worldmock.exchange.types.GOODS_CATEGORY_LABELS 的镜像，查询写类别时用。 */
   const CATEGORY_LABELS = {snack: '零食', meal: '食品', drink: '饮料', goods: '商品'};
   /* 查看器各行里写统一写法的种类；出行、睡眠照原格式，没有专门写法的种类在目标处是「—」。 */
   const WORDED_KINDS = new Set(['interact', 'purchase', 'query']);
@@ -199,9 +199,9 @@ const ViewerWording = {};
   /** @brief 查询写「查询<名称列表>」：data.targets 各项按所写次序以「、」相连，商品写商品名、类别写中文类别名；
    *  这几分钟有 app 在前台（data.app_id 不为空）时再加「（<app 名>）」。 */
   function queryPhrase(snapshot) {
-    const items = (snapshot.data?.targets ?? []).map(item => item.kind === 'category'
-      ? CATEGORY_LABELS[item.category] ?? item.category : name('goods', item.goods_id)).join('、');
-    const appId = snapshot.data?.app_id;
+    const items = snapshot.data.targets.map(item => item.kind === 'category'
+      ? CATEGORY_LABELS[item.category] : name('goods', item.goods_id)).join('、');
+    const appId = snapshot.data.app_id;
     return appId == null ? `查询${items}` : `查询${items}（${name('app', appId)}）`;
   }
 
