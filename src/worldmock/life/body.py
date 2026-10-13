@@ -145,6 +145,22 @@ def apply_food(body: BodyState, calories: float, config: BodyConfig) -> BodySett
     after = _settle_ledger(body, {ENERGY_RESOURCE: actual}, config)
     return BodySettlement(body.model_copy(deep=True), after, 0, 0, 0, gained, efficiency)
 
+def food_intake(body: BodyState, calories: float, config: BodyConfig) -> tuple[BodyState, dict, tuple[FlowEntry, ...]]:
+    """@brief 食品进账的唯一实现：食品收货与地点内容完成效果的 food 都经它结算，生产代码里只有它调用 apply_food。
+
+    补能后立即取走这一笔自己的分录，不留在模块级缓冲里被同一秒后面的结算卷走；applied 取这批分录登记的数额之和，
+    不用补能前后两数相减，到能量上限时没有分录、applied 为 0.0（docs/design/05-recording-engine.md「事件与来源」）。
+    @param body 进账前的身体
+    @param calories 这一笔的热量（商品类别的收货热量）
+    @param config 身体配置，给出能量上限
+    @return (进账后的身体, {provided, applied, efficiency}, 这一笔缓冲里的原始分录：零条或一条)
+    """
+    settlement = apply_food(body, calories, config)
+    entries = last_flows()
+    applied = sum((entry.amount for entry in entries), 0.0)
+    return settlement.after, {"provided": calories, "applied": applied,
+                              "efficiency": settlement.food_efficiency}, entries
+
 def apply_relaxation_change(body: BodyState, amount: float) -> BodyState:
     """@brief 真实拒绝和收货改变统一放松需要，不产生情绪量。"""
     if not math.isfinite(amount):

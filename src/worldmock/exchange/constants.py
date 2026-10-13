@@ -16,6 +16,8 @@ DELIVERY_FEE_FEN = 500
 GOODS_ENERGY_KCAL = MappingProxyType({"snack": 200, "meal": 600})
 #: 饮料与商品每次实际收货减少的放松需要。
 GOODS_RELAXATION_RELIEF = 0.10
+#: 内容缓解档位每实际小时减少的放松或社交需要；地点内容完成效果的一次缓解等于同一档一小时的量。
+RELIEF_PER_HOUR = {"none": 0.0, "low": 0.10, "medium": 0.30, "high": 0.50}
 MAP_MIN_NODES = 2
 MAP_EDGE_LENGTH_M = (200, 2000)
 #: 任何一次出行的用时上限，也是地图上任意两地在最差天气下必须走得到的时限。

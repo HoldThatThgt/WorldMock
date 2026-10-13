@@ -4,17 +4,17 @@ import logging
 import math
 from dataclasses import dataclass
 from worldmock.errors import BusinessRuleError, IntegrityError
-from worldmock.footprints.models import EventDraft
+from worldmock.exchange.constants import RELIEF_PER_HOUR
+from worldmock.footprints.models import EventDraft, validate_resource_flows
 from worldmock.life.activities import ActivityStartParams, start_activity, schedule_feedback
 from worldmock.life.activity_control import activity_name
 from worldmock.life.app_push import open_app_push, release_app_pushes
+from worldmock.life.completion_effects import settle_completion_effects
 from worldmock.life.content_select import ContentRequest, select_content
 from worldmock.life.location_activities import next_content
 from worldmock.life.models import ActivityState, ActivityStatus, ContentProgress, WorldState
 from worldmock.life.randomness import random_stream
-from worldmock.life.world_ops import _activity_origin, _put_activity
-
-RELIEF_PER_HOUR = {"none": 0.0, "low": 0.10, "medium": 0.30, "high": 0.50}
+from worldmock.life.world_ops import _activity_origin, _put_activity, _put_agent
 
 @dataclass(frozen=True)
 class InteractivityRuntime:
@@ -95,12 +95,36 @@ class InteractivityRuntime:
         changed.agents[activity.agent_id] = agent
         evidence = {"content_id": content_id, "app_id": activity.data["app_id"],
             "position_before_seconds": before, "position_after_seconds": after,
-            "completed": completed, "completed_rounds_after": progress.completed_rounds}
+            "completed": completed, "completed_rounds_after": progress.completed_rounds, "completion_effects": None}
         if completed:
             changed = release_app_pushes(changed, agent.agent_id, content_id)
             activity = self._complete_content(changed, activity, content, progress.completed_rounds)
             changed.activities[activity.activity_id] = activity
         return changed, evidence
+
+    def settle_completion(self, state: WorldState, activity: ActivityState,
+                          evidence: dict | None) -> tuple[WorldState, dict | None, list[dict]]:
+        """@brief 刚做完的地点内容写了 completion_effects 时，在这一秒共同身体结算之后结算一次完成效果。
+
+        读冻结目录里 evidence 指的那条内容（系列是刚做完的那一集，不是接下来那一集）；evidence 为空、completed 不为真
+        或这条内容没有声明时原样返回。结算的身体写回人物，证据写进内容证据的 completion_effects，分录已由结算自己取走，
+        盖上人物身份后返回，由时间推进排在这条 activity_progress 的 resource_flows 最前
+        （docs/design/04-simulation-engine.md「出行、内容与查询」）。
+
+        :param evidence: advance 返回的内容证据。
+        :returns: （世界，内容证据，分录字典列表）。
+        """
+        if evidence is None or not evidence["completed"]:
+            return state, evidence, []
+        effects = self.context.catalog.contents[evidence["content_id"]].completion_effects
+        if effects is None:
+            return state, evidence, []
+        agent = state.agents[activity.agent_id]
+        body, settled, entries = settle_completion_effects(agent.body, effects, self.context.body)
+        changed = _put_agent(state, agent.model_copy(update={"body": body}, deep=True))
+        flows = [{"resource": entry.resource, "owner": f"agent:{agent.agent_id}", "direction": entry.direction,
+                  "amount": entry.amount, "cause": entry.cause} for entry in entries]
+        return changed, {**evidence, "completion_effects": settled}, validate_resource_flows(flows)
 
     def _complete_content(self, state: WorldState, activity: ActivityState, content, rounds: int) -> ActivityState:
         """@brief 独立内容立即停止；同系列仅按集号接续下一条未完成集。"""

@@ -59,16 +59,40 @@ def next_content(contents: Sequence[Content], agent: AgentState) -> tuple[Conten
     return content, 0.0 if progress is None else progress.position_seconds
 
 
+#: 完成效果 food 的两个档位在工具层 note 里的说法，次序即说法的先后。
+FOOD_PHRASES = (("meal", "供一餐"), ("snack", "供一份零食"))
+
+
 def unit_facts(contents: Sequence[Content], agent: AgentState) -> dict:
-    """@brief 工具层单元行的时长与说明：此刻开始会做多久；系列写第几集，上次没做完时写接着做。"""
+    """@brief 工具层单元行的时长与说明：此刻开始会做多久；说法按第几集、接着做、供一餐、供一份零食的先后以「；」相连。
+
+    系列写第几集，上次没做完时写接着做；供餐的说法读各条内容的 completion_effects.food，与做到第几集无关
+    （docs/design/06-agent.md「提示与工具」）。
+    """
     content, position = next_content(contents, agent)
     notes = []
     if content.series is not None:
         notes.append(f"第 {content.series.episode} 集，共 {len(contents)} 集")
     if position > 0:
         notes.append("上次没做完，接着做")
+    notes.extend(_food_notes(contents))
     return {"duration": duration_phrase(ceil(content.duration_seconds - position)),
             "note": "；".join(notes) or None}
+
+
+def _food_notes(contents: Sequence[Content]) -> list[str]:
+    """@brief 供餐的说法：独立的一件事写「供一餐」或「供一份零食」；系列写「第 K 集供一餐」，K 是 food 为该档位的
+    全部集号，升序，以「、」相连。没有 food 的单元没有这两种说法。"""
+    notes = []
+    for tier, phrase in FOOD_PHRASES:
+        served = [item for item in contents if item.completion_effects is not None
+                  and item.completion_effects.food == tier]
+        if served and contents[0].series is None:
+            notes.append(phrase)
+        elif served:
+            episodes = "、".join(str(item.series.episode) for item in sorted(served, key=lambda row: row.series.episode))
+            notes.append(f"第 {episodes} 集{phrase}")
+    return notes
 
 
 def unit_done(agent: AgentState, catalog: Catalog, content_id: str, now: int) -> AgentState:

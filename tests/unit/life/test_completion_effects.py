@@ -6,24 +6,14 @@ from pathlib import Path
 import pytest
 
 from worldmock.catalog.models import CompletionEffects
-from worldmock.exchange.constants import GOODS_ENERGY_KCAL
+from worldmock.exchange.constants import GOODS_ENERGY_KCAL, RELIEF_PER_HOUR
 from worldmock.input_models import PersonaConfig
-from worldmock.life.body import apply_food, initial_body, last_flows
+from worldmock.life.body import initial_body, last_flows
 from worldmock.life.body_config import assemble_body_config
 from worldmock.life.completion_effects import COMPLETION_CAUSE, settle_completion_effects
-from worldmock.life.interact import RELIEF_PER_HOUR
 from worldmock.life.sleep import food_utilization_efficiency
 
 PERSONA = Path("tests/fixtures/dataset-environment/persona.toml")
-
-
-def food_intake(body, calories, config):
-    """测试用的食品进账：调 apply_food、取走这一笔自己的分录，实得取分录数额之和。"""
-    settlement = apply_food(body, calories, config)
-    entries = last_flows()
-    applied = sum((entry.amount for entry in entries), 0.0)
-    return settlement.after, {"provided": calories, "applied": applied,
-                              "efficiency": settlement.food_efficiency}, entries
 
 
 @pytest.fixture
@@ -37,7 +27,7 @@ def body_inputs():
 
 
 def settle(body, config, **members):
-    return settle_completion_effects(body, CompletionEffects(**members), config, food_intake)
+    return settle_completion_effects(body, CompletionEffects(**members), config)
 
 
 @pytest.mark.parametrize("tier", ["snack", "meal"])

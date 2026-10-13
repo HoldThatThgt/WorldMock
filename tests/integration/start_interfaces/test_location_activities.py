@@ -11,10 +11,10 @@ from tests.life.conftest import (
     MAIN_TOOL, advance_until_ready, conclude_request, context, do_at, main_arguments, pause_request, progress_calls,
     purchase, report_request, sleep, stage_day_plan, travel, use_app,
 )
-from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
+from tests.life.environment_inputs import catalog_rows, copy_environment, meal_environment, write_catalog_rows
 from tests.footprints.recording import export_completed
 from tests.life.environment_runtime import (
-    act, act_group, events, finish_activity, one_hour, one_hour_every_five_minutes, reach, run_to_end,
+    act, act_group, events, finish_activity, observe_only, one_hour, one_hour_every_five_minutes, reach, run_to_end,
 )
 from worldmock.life.models import StartMainActivityRequest
 from worldmock.life.prompt_schemas import validate_layer
@@ -122,6 +122,34 @@ def test_compact_rendering_groups_units_and_round_trips(engine_factory):
          "targets": [{"name": "家"}]}]
     assert expand_tool_layer(compact)["targets"] == layer["targets"]
     validate_layer(compact)
+
+
+def _unit_note(observed: dict, unit: str) -> str | None:
+    """观察里「家」下这件事那一行的 note。"""
+    return next(row for row in _target(observed, "家")["actions"] if row["detail"] == unit)["note"]
+
+
+def test_tool_layer_notes_say_which_unit_or_episode_provides_a_meal(engine_factory, tmp_path):
+    """meal_environment 上观察「家」：「测试休息」一行写「供一餐」，「做晚饭」一行写「第 1 集，共 3 集；第 2 集供一餐」；
+    系列做到第三集时这一行以「第 3 集，共 3 集」开头、以「第 2 集供一餐」结尾，第三集已有进度时中间多一句「上次没做完，
+    接着做」。工具层通过层校验，紧凑渲染能还原。"""
+    engine = engine_factory(meal_environment(tmp_path / "meal"), mutate=_attentive)
+    observed, dinner = act(engine, "dinner", do_at("家", "做晚饭"))
+    assert (_unit_note(observed, "测试休息"), _unit_note(observed, "做晚饭")) == ("供一餐", "第 1 集，共 3 集；第 2 集供一餐")
+    assert _unit_note(observed, "测试闲聊") is None
+    start = engine.context.state.current_time
+    _decide_until(engine, start + 3300)
+    assert engine.context.state.activities[dinner.activity_id].data["content_id"] == "dinner-3-wash"
+    switched = observe_only(engine, "washing")
+    assert _unit_note(switched, "做晚饭") == "第 3 集，共 3 集；第 2 集供一餐"
+    _decide_until(engine, start + 3600)
+    washing = observe_only(engine, "washing")
+    assert _unit_note(washing, "做晚饭") == "第 3 集，共 3 集；上次没做完，接着做；第 2 集供一餐"
+    for layer in (observed["tool_layer"], washing["tool_layer"]):
+        validate_layer(layer)
+        compact = compact_tool_layer(layer)
+        validate_layer(compact)
+        assert expand_tool_layer(compact)["targets"] == layer["targets"]
 
 
 def test_no_location_offers_interact_or_sleep_while_on_the_road(engine_factory):

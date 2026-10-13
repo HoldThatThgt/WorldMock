@@ -7,8 +7,10 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from itertools import groupby
+from typing import get_args
 from zoneinfo import ZoneInfo
 
+from worldmock.catalog.models import FoodTier, ReliefTier
 from worldmock.errors import IntegrityError
 from worldmock.life.action_contract import ACTIVITY_ACTIONS
 from worldmock.life.order_notices import ORDER_TITLES, PAYMENT_SUCCEEDED
@@ -32,6 +34,13 @@ _POINT_FACT_FIELDS = {
 }
 #: 前台区间的三种步骤：导航、下单、支付。
 _FOREGROUND_STEPS = frozenset({"navigation", "ordering", "payment"})
+#: 内容证据 data.content 的字段闭集。
+_CONTENT_FIELDS = frozenset({"content_id", "app_id", "position_before_seconds", "position_after_seconds",
+                             "completed", "completed_rounds_after", "completion_effects"})
+#: 完成效果三个成员各自的证据键与档位表（docs/design/05-recording-engine.md「事件与来源」）。
+_COMPLETION_MEMBERS = {"food": (frozenset({"tier", "provided", "applied", "efficiency"}), get_args(FoodTier)),
+                       "relaxation_relief": (frozenset({"tier", "provided", "applied"}), get_args(ReliefTier)),
+                       "social_relief": (frozenset({"tier", "provided", "applied"}), get_args(ReliefTier))}
 
 
 @dataclass
@@ -178,17 +187,33 @@ def validate_app_event_source(event: dict) -> None:
         if event.get("source_kind") != "environment" or event.get("visibility") != "agent":
             _invalid_source("Activity progress must be an agent-visible environment event")
         if "content" in data:
-            fields = {"content_id", "app_id", "position_before_seconds", "position_after_seconds",
-                      "completed", "completed_rounds_after"}
-            if data["activity"]["kind"] != "interact" or set(data["content"]) != fields:
+            if data["activity"]["kind"] != "interact" or set(data["content"]) != _CONTENT_FIELDS:
                 _invalid_source("Content consumption must use the current interact content contract")
             if data["content"]["app_id"] != data["activity"]["data"]["app_id"]:
                 _invalid_source("Content consumption app disagrees with its actual action")
+            _validate_completion_effects(data["content"])
     if event["event_type"] == "environment_event":
         if data.get("kind") == "app_push":
             _validate_push_source(event)
         elif data.get("kind") in _SYSTEM_FIELDS:
             _validate_system_source(event)
+
+
+def _validate_completion_effects(content: dict) -> None:
+    """@brief 完成效果证据为 null，或是只出现在做完的地点内容上、恰含三个成员的对象；每个非空成员的键恰如合同、
+    tier 在该成员的档位表内。不成立是运行故障。"""
+    effects = content["completion_effects"]
+    if effects is None:
+        return
+    if (not isinstance(effects, dict) or set(effects) != set(_COMPLETION_MEMBERS) or not content["completed"]
+            or content["app_id"] is not None
+            or not all(_completion_member(effects[name], *_COMPLETION_MEMBERS[name]) for name in _COMPLETION_MEMBERS)):
+        _invalid_source("Activity completion effects must use the current location completion contract")
+
+
+def _completion_member(evidence, keys: frozenset[str], tiers: tuple[str, ...]) -> bool:
+    """@brief 一个成员的证据：没有声明为 null；声明了是键恰为 keys、tier 在 tiers 之内的对象。"""
+    return evidence is None or (isinstance(evidence, dict) and set(evidence) == keys and evidence["tier"] in tiers)
 
 
 def _validate_push_source(event: dict) -> None:

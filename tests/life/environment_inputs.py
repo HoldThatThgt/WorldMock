@@ -49,3 +49,30 @@ def replace_travel_methods(root, methods, navigation):
     next(row for row in rows if row["app_id"] == "amap")["travel_method_ids"] = sorted(navigation)
     write_catalog_rows(root, "app-catalog.jsonl", rows)
     return root
+
+
+#: 「做晚饭」三集：内容身份、集号、标题、时长（秒）、体力档位；只有《吃晚饭》供一餐。
+DINNER_EPISODES = (("dinner-1-cook", 1, "备菜做饭", 1800, "light"), ("dinner-2-eat", 2, "吃晚饭", 1500, "idle"),
+                   ("dinner-3-wash", 3, "洗碗收拾厨房", 900, "light"))
+
+
+def meal_environment(destination):
+    """样例环境的副本：「测试休息」（c-rest）做完供一餐，家多一个三集系列「做晚饭」，只有《吃晚饭》供一餐。
+
+    各集照地点系列的写法：绑定到家，不推送，两项缓解都是 none，合成摘要；全部行按内容身份升序写回并刷新清单。
+    个别用例要的别的变体在这份副本上再改一行。返回副本的根目录。
+    """
+    root = copy_environment(destination)
+    rows = catalog_rows(root, "content-catalog.jsonl")
+    next(row for row in rows if row["content_id"] == "c-rest")["completion_effects"] = {"food": "meal"}
+    for content_id, episode, title, seconds, exertion in DINNER_EPISODES:
+        row = {"content_id": content_id, "duration_seconds": seconds, "exertion": exertion,
+               "location_kinds": ["home"], "pushable": False, "relaxation_relief": "none",
+               "series": {"episode": episode, "title": "做晚饭"}, "social_relief": "none",
+               "summary": f"{title}的测试用合成摘要。",
+               "summary_source": {"kind": "synthetic", "notice": "测试用合成摘要", "url": None}, "title": title}
+        if content_id == "dinner-2-eat":
+            row["completion_effects"] = {"food": "meal"}
+        rows.append(row)
+    write_catalog_rows(root, "content-catalog.jsonl", sorted(rows, key=lambda row: row["content_id"]))
+    return root

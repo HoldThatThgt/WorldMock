@@ -7,8 +7,9 @@ from types import MappingProxyType
 
 import pytest
 
-from tests.life.conftest import purchase, target_actions
-from tests.life.environment_runtime import act, events, finish_activity, reach
+from tests.life.conftest import do_at, purchase, target_actions
+from tests.life.environment_inputs import meal_environment
+from tests.life.environment_runtime import act, events, finish_activity, reach, until_ended
 from worldmock.exchange import constants
 from worldmock.life.purchase_offers import quote_goods
 
@@ -173,6 +174,21 @@ def test_goods_energy_follows_the_constant_table(engine_factory, monkeypatch):
     rows = received(engine, ("饭团", "薯片"))
     assert (rows["meal"]["provided"], rows["snack"]["provided"]) == (650, 250)
     assert (rows["meal"]["applied"], rows["snack"]["applied"]) == (pytest.approx(585), pytest.approx(225))
+
+
+def test_location_meal_energy_follows_the_constant_table(engine_factory, monkeypatch, tmp_path):
+    """把 GOODS_ENERGY_KCAL 的 meal 换成 650：在地点做完供一餐的「测试休息」，完成效果证据的 provided 是 650，实得是
+    650 的九成。"""
+    def hungry(persona, config):
+        persona["body"]["initial_energy_kcal"] = 1000.0
+
+    engine = engine_factory(meal_environment(tmp_path / "meal"), mutate=hungry)
+    replace_constant(monkeypatch, "GOODS_ENERGY_KCAL", MappingProxyType({"snack": 250, "meal": 650}))
+    _, rest = act(engine, "rest", do_at("家", "测试休息"))
+    until_ended(engine, rest.activity_id)
+    [done] = [row for row in events(engine, "activity_progress") if row.data.get("content", {}).get("completed")]
+    food = done.data["content"]["completion_effects"]["food"]
+    assert (food["provided"], food["applied"]) == (650, pytest.approx(585))
 
 
 def test_goods_relaxation_relief_follows_the_constant_table(engine_factory, monkeypatch):

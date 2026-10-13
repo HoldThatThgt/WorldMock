@@ -270,7 +270,7 @@ class TimeAdvanceCoordinator:
         advanced=advance_activity_shared(activity,state.agents[activity.agent_id],target,settlement)
         state.agents[activity.agent_id]=advanced.agent
         state.activities[activity.activity_id]=advanced.activity
-        effects,content=self._apply_activity_effect(state,advanced.activity,target,activity.last_settled_at)
+        effects,merged=self._apply_activity_effect(state,advanced.activity,target,activity.last_settled_at)
         from worldmock.life.callbacks import settle_callback_dates
 
         outcome=settle_callback_dates(state,self.context.catalog,activity,(activity.last_settled_at,target))
@@ -284,9 +284,8 @@ class TimeAdvanceCoordinator:
         data={"interval_start":activity.last_settled_at,"interval_end":target,
               "activity":activity_snapshot(changed,title_index(self.context.catalog)),
               "body_settlement_event_id":body_event_id}
-        if content is not None:
-            data["content"] = content
-        flows=_resource_flows_data(activity.agent_id,target)
+        flows=[*merged.pop(RESOURCE_FLOWS_FIELD,[]),*_resource_flows_data(activity.agent_id,target)]
+        data.update(merged)
         if flows:
             data[RESOURCE_FLOWS_FIELD]=flows
         draft=EventDraft(event_type="activity_progress",occurred_at=target,agent_id=activity.agent_id,
@@ -314,10 +313,12 @@ class TimeAdvanceCoordinator:
         )
 
     def _apply_activity_effect(self,state:WorldState,activity,target:int,
-                               since:int)->tuple[list[EventDraft], dict | None]:
-        """@brief 真实推进后结算路线、购买的段边界与付款、内容，读取各模块唯一状态；since 是这项活动上一次结算到的时刻。"""
+                               since:int)->tuple[list[EventDraft], dict]:
+        """@brief 真实推进后结算路线、购买的段边界与付款、内容与完成效果，读取各模块唯一状态；since 是这项活动上一次结算
+        到的时刻。返回（草稿，要并进这条 activity_progress 事件 data 的键）：键只有内容证据 content 与完成效果的分录
+        resource_flows，没有的不出现。"""
         drafts=[]
-        content=None
+        merged={}
         if activity.kind==ActivityKind.TRAVEL:
             trip=persisted_trip(self.context.catalog,activity)
             changed,agent=update_travel(activity,trip,state.agents[activity.agent_id])
@@ -335,13 +336,16 @@ class TimeAdvanceCoordinator:
         elif activity.kind==ActivityKind.INTERACT:
             from worldmock.life.interact import InteractivityRuntime
 
-            changed,content=InteractivityRuntime(self.context).advance(state,activity,target)
+            runtime=InteractivityRuntime(self.context)
+            changed,content=runtime.advance(state,activity,target)
+            changed,content,flows=runtime.settle_completion(changed,activity,content)
             state.agents,state.activities,state.sessions=changed.agents,changed.activities,changed.sessions
+            merged={key:value for key,value in (("content",content),(RESOURCE_FLOWS_FIELD,flows)) if value}
         changed=state.activities[activity.activity_id]
         if changed.status==ActivityStatus.ACTIVE and changed.next_interaction_at==target:
             state.activities[activity.activity_id]=schedule_feedback(changed,target,
                 self.context.config.activity_feedback_seconds)
-        return drafts,content
+        return drafts,merged
 
 
     def _process_scheduled(

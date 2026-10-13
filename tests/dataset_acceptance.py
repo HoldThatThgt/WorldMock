@@ -418,13 +418,14 @@ MUTATIONS = (
         "changed.agents[agent_id] = agent",
         'changed.agents[agent_id] = agent; record.data["body_settlement"]["after"] = agent.body.model_dump(mode="json")',
         ("tests/integration/life/test_body_settlement_records.py"
-         "::test_delivery_received_in_the_settled_second_stays_out_of_the_body_settlement",)),
+         "::test_delivery_received_in_the_settled_second_stays_out_of_the_body_settlement",
+         "tests/integration/life/test_location_meal.py::test_the_evidence_sits_on_the_finishing_progress_event")),
     SourceMutation("rejection_pulse_flows_left_in_the_buffer",
         "worldmock.life.decision_coordinator::DecisionCoordinator._reject_results",
         "flows = _resource_flows_data(first.agent_id, state.current_time)", "flows = []",
         ("tests/integration/life/test_body_settlement_records.py"
          "::test_rejection_pulse_flows_are_written_on_the_first_action_result_and_not_carried_forward",)),
-    SourceMutation("food_receipt_applied_by_subtraction", "worldmock.life.receipt::_food_effect",
+    SourceMutation("food_receipt_applied_by_subtraction", "worldmock.life.body::food_intake",
         "applied = sum((entry.amount for entry in entries), 0.0)",
         "applied = settlement.after.energy_kcal - body.energy_kcal",
         ("tests/integration/life/test_constant_table_runtime.py"
@@ -455,4 +456,20 @@ MUTATIONS = (
         'data = {"activities": [activity_snapshot(activity, title_index(self.context.catalog))], "orders": orders,'
         ' "goods": []}',
         ("tests/integration/life/test_app_opening.py::test_opening_an_app_returns_content_only",)),
+    SourceMutation("completion_effects_not_settled_when_completed",
+        "worldmock.life.interact::InteractivityRuntime.settle_completion",
+        "if effects is None:", "if True:",
+        ("tests/integration/life/test_location_meal.py::test_finishing_a_meal_unit_adds_one_food_in_that_second",
+         "tests/integration/life/test_location_meal.py::test_resuming_a_paused_meal_settles_it_once_at_the_finish",
+         "tests/integration/life/test_location_meal.py::test_doing_it_again_settles_again_within_the_cap")),
+    SourceMutation("completion_effects_settled_before_the_content_finishes",
+        "worldmock.life.interact::InteractivityRuntime.settle_completion",
+        'if evidence is None or not evidence["completed"]:', "if evidence is None:",
+        ("tests/integration/life/test_location_meal.py::test_finishing_a_meal_unit_adds_one_food_in_that_second",
+         "tests/integration/life/test_location_meal.py::test_ending_early_settles_no_completion_effects")),
+    SourceMutation("tool_layer_omits_the_meal_note", "worldmock.life.location_activities::unit_facts",
+        "notes.extend(_food_notes(contents))",
+        'notes.extend(note for note in _food_notes(contents) if "供一餐" not in note)',
+        ("tests/unit/start_interfaces/test_location_units.py"
+         "::test_tool_layer_note_names_the_food_each_unit_provides",)),
 )

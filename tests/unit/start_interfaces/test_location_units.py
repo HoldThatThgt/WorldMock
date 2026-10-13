@@ -161,6 +161,43 @@ def test_standalone_unit_shows_remaining_time_and_the_resume_note(tmp_path, pers
     assert next_content(contents, person(progress))[0].content_id == "e-wash"
 
 
+def _fed(row: dict, **effects) -> dict:
+    """给一行地点内容写上完成效果。"""
+    return {**row, "completion_effects": effects}
+
+
+#: 「做晚饭」三集只有第二集供一餐；「四集晚饭」第二、四集供一餐；「下午茶」第二集供一餐、第三集供一份零食；
+#: 两条独立内容分别供一餐和一份零食，「散步」只声明了一次缓解。
+_FED = (_episode("d-1-prep", "备菜", 1, 1200), _fed(_episode("d-2-eat", "吃饭", 2, 1500), food="meal"),
+        _episode("d-3-wash", "洗碗", 3, 600),
+        _episode("k-1", "第一集", 1, 600, "四集晚饭"), _fed(_episode("k-2", "第二集", 2, 600, "四集晚饭"), food="meal"),
+        _episode("k-3", "第三集", 3, 600, "四集晚饭"), _fed(_episode("k-4", "第四集", 4, 600, "四集晚饭"), food="meal"),
+        _episode("t-1", "泡茶", 1, 600, "下午茶"), _fed(_episode("t-2", "吃点心", 2, 600, "下午茶"), food="meal"),
+        _fed(_episode("t-3", "水果", 3, 600, "下午茶"), food="snack", social_relief="low"),
+        _fed(_content("m-lunch", "吃午饭", 1800), food="meal"),
+        _fed(_content("n-snack", "吃零食", 300), food="snack", relaxation_relief="high"),
+        _fed(_content("p-walk", "散步", 300), relaxation_relief="low", social_relief="medium"))
+
+
+@pytest.mark.parametrize("unit,progress,note", [
+    ("吃午饭", {}, "供一餐"),
+    ("吃午饭", {"m-lunch": (600.0, 0)}, "上次没做完，接着做；供一餐"),
+    ("吃零食", {}, "供一份零食"),
+    ("散步", {}, None),
+    ("工作日晚饭", {}, "第 1 集，共 3 集；第 2 集供一餐"),
+    ("工作日晚饭", {"d-1-prep": (0.0, 1), "d-2-eat": (600.0, 0)}, "第 2 集，共 3 集；上次没做完，接着做；第 2 集供一餐"),
+    ("工作日晚饭", {"d-1-prep": (0.0, 1), "d-2-eat": (0.0, 1)}, "第 3 集，共 3 集；第 2 集供一餐"),
+    ("四集晚饭", {}, "第 1 集，共 4 集；第 2、4 集供一餐"),
+    ("下午茶", {}, "第 1 集，共 3 集；第 2 集供一餐；第 3 集供一份零食"),
+])
+def test_tool_layer_note_names_the_food_each_unit_provides(tmp_path, person, unit, progress, note):
+    """独立的一件事 food 为 meal 写「供一餐」、为 snack 写「供一份零食」；系列写全部这样的集号，升序以「、」相连，不随做到
+    第几集而变；说法按第几集、接着做、供一餐、供一份零食的先后以「；」相连；只声明缓解的单元不写。"""
+    catalog = load_catalog(_catalog_dir(tmp_path, _FED), 7)
+    contents = next(item for item in location_units(catalog, "home") if item.name == unit).contents
+    assert unit_facts(contents, person(progress))["note"] == note
+
+
 #: 结束的时刻：新建的进度记录以它为 last_consumed_at（person 夹具里已有记录的 last_consumed_at 都是 1）。
 _ENDED_AT = 1767576600
 
