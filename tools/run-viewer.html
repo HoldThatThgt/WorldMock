@@ -372,10 +372,6 @@ const acctLabel = a => {
 };
 /** @brief 出行方式身份的名称，取自冻结的环境目录；活动没有记录出行方式时为空。 */
 const methodLabel = id => id==null||id===''?'':ViewerWording.name('travel_method', String(id));
-/** @brief 按当前活动种类显示中文标签，不从内部身份推断内容类别。 */
-function actTypeLabel(kind, target){
-  return kindLabel(kind);
-}
 
 /* 个人事务没有有效名称时的缺失提示：事务内部身份不进时间线，括号里写对象种类而不写编号 */
 const ERRAND_NAME_MISSING = '名称缺失（个人事务）';
@@ -723,7 +719,7 @@ function makeSummary(e){
 /** @brief 一条事件里活动的写法：互动、购买与查询写统一写法（只列这条事件指向的内容），出行、睡眠等照原格式「种类 目标」。 */
 function eventPhrase(s, separator){
   return ViewerWording.targetPhrase(s, [ViewerWording.eventContentId(s.played, s.contentId)], S.orders)
-    ?? `${actTypeLabel(s.kind, s.tg)}${s.tg||s.dest||s.appId? separator+actTargetText(s):''}`;
+    ?? `${kindLabel(s.kind)}${s.tg||s.dest||s.appId? separator+actTargetText(s):''}`;
 }
 /** @brief 动作结果行：每条商品履约记录一段「 · 订单 <商品> ¥<金额>」接渠道，有支付 app 再接「 · 支付 <名称>」。 */
 function resultText(s){
@@ -1157,7 +1153,7 @@ function laneBar(start, end, kind, text){
 function laneRow(row){
   const one = row.activities[0];
   const label = row.joined ? row.label : ViewerWording.targetPhrase(one, one.contents, S.orders)
-    ?? `${actTypeLabel(one.kind,one.tg)} ${actTargetText(one)}`.trim();
+    ?? `${kindLabel(one.kind)} ${actTargetText(one)}`.trim();
   const bars = row.joined ? row.bars.map(bar=>laneBar(bar.start, bar.end, 'interact', bar.text))
     : one.intervals.map(([start,end])=>laneBar(start, end, one.kind, label));
   return `<div class="act-lane"><div class="act-lane-label" title="${esc(label)}">${esc(label)}</div>
@@ -1198,7 +1194,7 @@ function renderSessions(agent){
 /** @brief 活动表的一行：开始、人物、活动类型、目标、结束、实际时长和末尾的「连续使用」标记栏。 */
 function activityRow(a){
   const mono = 'white-space:nowrap;font-family:var(--mono);font-size:12px', color = kindColor(a.kind);
-  const kind = esc(actTypeLabel(a.kind,a.tg));
+  const kind = esc(kindLabel(a.kind));
   return `<tr><td style="${mono}">${fmtHM(a.start)}</td>
     <td style="white-space:nowrap"><span class="tl-agent ${agentCls(a.agent)}">${esc(agentName(a.agent))}</span></td>
     <td><span class="act-kind" style="background:${color}33;color:${color}">${kind}</span></td>
@@ -1230,7 +1226,7 @@ function renderActivities(){
   const sorters = {
     start: (x,y)=> x.start-y.start,
     agent: (x,y)=> x.agent-y.agent || x.start-y.start,
-    kind:  (x,y)=> actTypeLabel(x.kind,x.tg).localeCompare(actTypeLabel(y.kind,y.tg),'zh') || x.start-y.start,
+    kind:  (x,y)=> kindLabel(x.kind).localeCompare(kindLabel(y.kind),'zh') || x.start-y.start,
   };
   AT.filtered.sort(sorters[AT.sortKey]||sorters.start);
   if (AT.sortDir<0) AT.filtered.reverse();
@@ -1241,7 +1237,7 @@ function renderActivities(){
     `<th data-sk="${k}" class="${extra||''}">${label}${arrow(k)}</th>`;
   el.innerHTML = `
   ${renderActivityLanes(AT.filtered)}
-  <div class="legend" style="margin-bottom:10px">${kinds.map(k=>`<span><span class="sw" style="background:${kindColor(k)}"></span>${esc(actTypeLabel(k,null))}</span>`).join('')}
+  <div class="legend" style="margin-bottom:10px">${kinds.map(k=>`<span><span class="sw" style="background:${kindColor(k)}"></span>${esc(kindLabel(k))}</span>`).join('')}
     <span style="margin-left:auto;color:var(--fg-faint)">共 ${AT.filtered.length} 段活动 · 点击表头排序</span></div>
   <div class="card" style="padding:0 0 0 0">
     <table class="act-table">
