@@ -337,6 +337,9 @@ const ENVK_LABELS = { initial_funds_injected:'初始资金注入', time_trigger:
   activity_resumed:'活动恢复', activity_truncated:'活动截断',
   errand_registered:'事务记下', errand_updated:'事务更新', errand_cancelled:'事务取消',
   errand_progressed:'事务进展', errand_completed:'事务办成', errand_reminded:'事务提醒' };
+/* 回调效果（kind 为 callback_effect）按效果类型 data.type 另写的说法：凭状态的地点内容开始时把状态减 1 的 consume_on_start；
+   别的效果类型只写「回调效果」 */
+const CALLBACK_EFFECT_LABELS = { consume_on_start:'开始时用掉' };
 /* 六种个人事务事件（environment_event 的 kind）：载荷 data.errand 是事务快照，摘要写其中的事务名称与商品 */
 const ERRAND_KINDS = new Set(['errand_registered', 'errand_updated', 'errand_cancelled', 'errand_progressed',
   'errand_completed', 'errand_reminded']);
@@ -556,8 +559,9 @@ function buildIndex(log){
   typeQuery('environment_event', ['$.data.kind','$.resource_changes','$.data.activity.name',
                                   '$.data.day_plan.goals','$.data.errand.name','$.data.errand.product_id',
                                   '$.data.errand.errand_id','$.data.app','$.data.title','$.data.action',
-                                  '$.data.summary','$.data.content_id','$.data.app_id','$.data.step'], r=>{
-    S.summaries.set(r.seq,{ekind:r['$.data.kind'],rc:r['$.resource_changes'],
+                                  '$.data.summary','$.data.content_id','$.data.app_id','$.data.step',
+                                  '$.data.type'], r=>{
+    S.summaries.set(r.seq,{ekind:r['$.data.kind'],rc:r['$.resource_changes'],effect:r['$.data.type'],
       aname:r['$.data.activity.name'],goals:r['$.data.day_plan.goals'],
       errand:errandName(r['$.data.errand.name'], r['$.data.errand.errand_id']),
       product:r['$.data.errand.product_id'],app:r['$.data.app'],content:r['$.data.title'],
@@ -733,11 +737,13 @@ function resultText(s){
   }).join('');
   return `结果 ${statusLabel(s.status)}${s.msg?' · '+s.msg:''}${s.err?' · '+s.err:''}${ord}`;
 }
-/** @brief 世界事件行：三种手机事件写它们的写法（带 app 名与步骤或标题），其余写种类、活动名、计划、事务与 app 推送。 */
+/** @brief 世界事件行：三种手机事件写它们的写法（带 app 名与步骤或标题），其余写种类、回调效果的类型说法、活动名、计划、
+ *  事务与 app 推送。 */
 function environmentText(e, s){
   if (ViewerWording.isPhone(s.ekind))
     return `世界事件 · ${ViewerWording.phonePhrase({kind:s.ekind, app_id:s.appId, step:s.step, title:s.content})}`;
-  return `世界事件 · ${envkLabel(s.ekind)||'—'}${s.aname?' · '+s.aname:''}` +
+  const effect = s.ekind==='callback_effect' ? CALLBACK_EFFECT_LABELS[s.effect] : undefined;
+  return `世界事件 · ${envkLabel(s.ekind)||'—'}${effect?' · '+effect:''}${s.aname?' · '+s.aname:''}` +
     (s.ekind==='day_plan_generated'?dayPlanText(s.goals):'') + errandText(e.seq, s) +
     (s.ekind==='app_push' && s.app ? ` · ${s.app} · 《${s.content}》 · ${s.summary}` : '');
 }

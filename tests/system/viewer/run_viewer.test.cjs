@@ -434,6 +434,19 @@ test('goods receipt and alarm events use the current environment labels', async 
   assert.deepEqual(view.errors, []);
 });
 
+test('a state used up when a location content starts is labelled by its effect type', async t => {
+  const view = await viewer([
+    event('environment_event', {kind: 'callback_effect', type: 'consume_on_start', rule_id: null,
+      state: 'groceries', content_id: 'cook', before: 1, after: 0}, {visibility: 'system'}),
+    event('environment_event', {kind: 'callback_effect', type: 'state_delta', rule_id: 'fuel-daily',
+      state: 'fuel', delta: -1, before: 3, after: 2}, {visibility: 'system'}),
+  ]);
+  t.after(() => view.close());
+  assert.equal(view.summary(1), '世界事件 · 回调效果 · 开始时用掉');
+  assert.equal(view.summary(2), '世界事件 · 回调效果');
+  assert.deepEqual(view.errors, []);
+});
+
 test('phone records written by the engine use their own environment labels', async t => {
   const view = await viewer([
     event('environment_event', {kind: 'app_foreground', app_id: 'amap', step: 'navigation',
