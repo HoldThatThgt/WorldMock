@@ -12,7 +12,7 @@ from tests.unit.life.test_environment_commerce import environment, pending, runt
 from worldmock.life import basket
 from worldmock.life.basket import activity_orders, build_orders, order_payment, quoted_basket
 from worldmock.life.order_routing import payment_order_key, payment_orders
-from worldmock.life.purchase_offers import quote_goods
+from worldmock.life.purchase_offers import order_app, quote_goods
 from worldmock.life.purchase_phases import (
     ORDERING, PAYMENT, OrderPayment, PurchasePhase, activity_phases, foreground_events, order_payments,
     purchase_seconds, split_phases,
@@ -61,7 +61,7 @@ def test_payment_order_key_is_the_canonical_app_list_and_the_store_order_sorts_l
 
 def test_two_goods_from_one_store_on_one_app_are_one_order_in_one_delivery_group(environment):
     state = world(environment)
-    groups, total = quoted_basket(environment, state, 1, ("beef-noodles", "lemon-tea"))
+    groups, total = quoted_basket(environment, state, 1, ("beef-noodles", "lemon-tea"), None)
     (offers,) = groups.values()
     assert {(offer.store_id, offer.app_id) for offer in offers} == {("noodle-1", "meituan")}
     assert list(payment_orders(offers)) == ['["meituan"]'] and total == 2800 + 1200 + 500
@@ -74,7 +74,7 @@ def test_two_stores_on_one_app_are_one_order_with_two_delivery_groups_and_two_fe
     inputs = cafe_only(environment, "lemon-tea")
     inputs = catalog_with(inputs, apps_by_store={**inputs.catalog.apps_by_store, "cafe": ("meituan",)})
     state = world(inputs)
-    groups, total = quoted_basket(inputs, state, 1, ("beef-noodles", "lemon-tea", "lemon-tea"))
+    groups, total = quoted_basket(inputs, state, 1, ("beef-noodles", "lemon-tea", "lemon-tea"), None)
     assert len(groups) == 2 and total == 2800 + 1200 * 2 + 500 * 2
     orders = build_orders(runtime(inputs).context, state, pending(), groups)
     assert {order.store_id for order in orders} == {"cafe", "noodle-1"}
@@ -94,23 +94,37 @@ def test_ordering_app_is_drawn_once_per_store_and_local_date(environment, random
     state = world(inputs, random_state=random_state)
     assert inputs.catalog.apps_by_store["cafe"] == ("eleme", "meituan")
     expected = random_stream(random_state, f"order-app:cafe:{local_date(state)}").choice(["eleme", "meituan"])
-    offers = [quote_goods(inputs, state, 1, key) for key in goods]
+    offers = [quote_goods(inputs, state, 1, key, None) for key in goods]
     assert {(offer.store_id, offer.app_id) for offer in offers} == {("cafe", expected)}
-    groups, total = quoted_basket(inputs, state, 1, goods)
+    groups, total = quoted_basket(inputs, state, 1, goods, None)
     assert len(groups) == 1 and total == 800 + 1200 + 1500 + 500
     orders = build_orders(runtime(inputs).context, state, pending(), groups)
     assert list(payment_orders(orders)) == [payment_order_key(expected)]
     assert [order.delivery_fee_fen for order in orders] == [500, 0, 0]
     tomorrow = state.model_copy(update={"current_time": state.current_time + 86400})
     again = random_stream(random_state, f"order-app:cafe:{local_date(tomorrow)}").choice(["eleme", "meituan"])
-    assert {quote_goods(inputs, tomorrow, 1, key).app_id for key in goods} == {again}
+    assert {quote_goods(inputs, tomorrow, 1, key, None).app_id for key in goods} == {again}
 
 
 def test_both_apps_of_a_store_are_drawn_across_runs(environment):
     inputs = cafe_only(environment, "lemon-tea")
-    apps = {quote_goods(inputs, world(inputs, random_state=f"order-app-{index}"), 1, "lemon-tea").app_id
+    apps = {quote_goods(inputs, world(inputs, random_state=f"order-app-{index}"), 1, "lemon-tea", None).app_id
             for index in range(16)}
     assert apps == {"eleme", "meituan"}
+
+
+def test_order_app_returns_the_preferred_app_within_the_apps_and_otherwise_draws(environment):
+    """十六个随机态下：意向在给定的 app 之内时总返回意向，不抽；不在其内或为 None 时等于按
+    order-app:{source}:{local_date} 在给定的 app 里抽到的那个。店铺与快递两种来源相同。"""
+    drawn_apps = set()
+    for index in range(16):
+        state = world(environment, random_state=f"order-app-{index}")
+        for source, apps in (("cafe", ("eleme", "meituan")), ("online-notebook:courier", ("bilibili", "meituan"))):
+            drawn = random_stream(state.random_state, f"order-app:{source}:{local_date(state)}").choice(sorted(apps))
+            drawn_apps.add((source, drawn))
+            assert [order_app(state, source, apps, prefer) for prefer in apps] == list(apps)
+            assert {order_app(state, source, apps, prefer) for prefer in (None, "keep", "douyin")} == {drawn}
+    assert len(drawn_apps) == 4
 
 
 @pytest.mark.parametrize("random_state", [f"courier-{index}" for index in range(8)])
@@ -124,7 +138,7 @@ def test_courier_goods_keep_drawing_their_ordering_app_per_goods(environment, ra
     state = world(inputs, random_state=random_state)
     for goods_id in ("online-notebook", "online-planner"):
         key = f"order-app:{goods_id}:courier:{local_date(state)}"
-        offer = quote_goods(inputs, state, 1, goods_id)
+        offer = quote_goods(inputs, state, 1, goods_id, None)
         assert offer.app_id == random_stream(random_state, key).choice(list(bound))
         assert (offer.store_id, offer.fulfillment, offer.destination_id) == (None, "station_pickup", "parcel-station")
 
@@ -138,7 +152,7 @@ def test_courier_goods_bound_to_the_same_apps_draw_independently_of_each_other(e
     pairs = set()
     for index in range(48):
         state = world(inputs, random_state=f"courier-{index}")
-        pairs.add(tuple(quote_goods(inputs, state, 1, key).app_id for key in ("online-notebook", "online-planner")))
+        pairs.add(tuple(quote_goods(inputs, state, 1, key, None).app_id for key in ("online-notebook", "online-planner")))
     assert pairs == set(product(bound, repeat=2))
 
 
@@ -286,7 +300,7 @@ def test_phases_never_overlap_and_tile_the_purchase_when_an_app_order_exists(app
 def test_accepted_purchase_freezes_the_phases_its_records_and_duration_describe(environment, random_state):
     """受理后的段只由活动的开始时刻、计划时长和记录上的付款抽取算出：到店订单加一张快递订单。"""
     state = world(environment, "store", random_state=random_state)
-    changed, activity = runtime(environment).prepare_purchase(state, pending(), ("lemon-tea", "online-notebook"))
+    changed, activity = runtime(environment).prepare_purchase(state, pending(), ("lemon-tea", "online-notebook"), None)
     orders = activity_orders(changed, activity)
     payments = order_payments(orders)
     assert [(row.order_key, row.app_id) for row in payments] == [('["bilibili"]', "bilibili"), ("[null]", None)]
@@ -307,7 +321,7 @@ def test_accepted_purchase_freezes_the_phases_its_records_and_duration_describe(
 def accepted_purchase(inputs, goods, location="home", random_state="commerce-tests"):
     """受理一次购买：返回带着受理结果身份的世界与购买活动（受理结果身份由决策协调在同一次提交里写进活动）。"""
     state, activity = runtime(inputs).prepare_purchase(world(inputs, location, random_state=random_state),
-                                                      pending(), goods)
+                                                      pending(), goods, None)
     activity = activity.model_copy(update={"data": {**activity.data, "accepted_event_id": "accepted-result"}})
     return state.model_copy(update={"activities": {activity.activity_id: activity}}), activity
 

@@ -182,7 +182,7 @@ def test_malformed_wire_mutation_is_rejected_without_partial_dispatch(engine_fac
             tool_name=tool, request=request, request_sha256="a" * 64, requested_event_id="request")
 
     main = {"action": "interact", "target": "家", "detail": "测试休息"}
-    side = {"action": "interact", "target": ["哔哩哔哩"]}
+    side = {"action": "interact", "target": ["哔哩哔哩"], "prefer": None}
     groups = ([pending("main", MAIN_TOOL, {**main, "way": "work"})],
               [pending("retired", MAIN_TOOL, {"items": [{"action": "interact", "target": "家"}]})],
               [pending("main", MAIN_TOOL, main), pending("side", SIDE_TOOL, {**side, "way": "work"})],

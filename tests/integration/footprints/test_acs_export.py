@@ -28,8 +28,8 @@ def real_export(engine_factory, tmp_path):
 
 def test_actual_purchase_content_and_current_artifacts_are_authenticated(real_export):
     manifest, events, activities = validate_export(real_export)
-    assert manifest["schema_version"] == 5
-    assert manifest["checkpoint"]["state"]["schema_version"] == 13
+    assert manifest["schema_version"] == 6
+    assert manifest["checkpoint"]["state"]["schema_version"] == 14
     assert {name: row["path"] for name, row in manifest["artifacts"].items()} == {
         "events": "events.jsonl", "activities": "activities.jsonl",
         "verified_experiences": "verified-experiences.jsonl", "purchases": "purchases.jsonl",
@@ -48,8 +48,8 @@ def test_actual_purchase_content_and_current_artifacts_are_authenticated(real_ex
     side = [row for row in events if row["event_type"] == "action_requested"
             and row["data"]["tool_name"] == "start_side_activity"]
     assert [(row["action_id"], row["data"]["request"]) for row in side] == [
-        ("action-recorded-basket", {"action": "purchase", "target": ["柠檬茶", "纸巾"]}),
-        ("action-recorded-content", {"action": "interact", "target": ["哔哩哔哩"]})]
+        ("action-recorded-basket", {"action": "purchase", "target": ["柠檬茶", "纸巾"], "prefer": None}),
+        ("action-recorded-content", {"action": "interact", "target": ["哔哩哔哩"], "prefer": None})]
     bought = artifact_rows(real_export, "purchases")
     attempts = [row for row in bought if row["fact_kind"] == "order_attempt"]
     assert [(row["action_id"], row["request_event_id"], row["action"], row["status"], row["error_code"])
@@ -77,13 +77,13 @@ def test_actual_purchase_content_and_current_artifacts_are_authenticated(real_ex
     ("extra_artifact", "Export artifact set is invalid"),
 ])
 def test_retired_schema_is_rejected_before_consumption(real_export, version, reason):
-    """上一版导出清单（4）、上一版世界状态结构（12）、上一版运行清单（5），以及没有地点停留的五份工件集合，各自在读取前
+    """上一版导出清单（5）、上一版世界状态结构（13）、上一版运行清单（5），以及没有地点停留的五份工件集合，各自在读取前
     被拒绝，原因各是各的。"""
     manifest, _ = read_export(real_export)
     if version == "export":
-        manifest["schema_version"] = 4
+        manifest["schema_version"] = 5
     elif version == "world":
-        manifest["checkpoint"]["state"]["schema_version"] = 12
+        manifest["checkpoint"]["state"]["schema_version"] = 13
     elif version == "five_artifacts":
         del manifest["artifacts"]["location_stays"]
     elif version == "extra_artifact":
@@ -229,11 +229,11 @@ def test_one_order_over_two_delivery_groups_exports_with_a_single_payment(engine
         validate_export(tmp_path / "one-order")
 
 
-@pytest.mark.parametrize("rules_version", [3, 5, "4", True])
+@pytest.mark.parametrize("rules_version", [4, 6, "5", True])
 def test_export_frozen_under_another_rules_version_is_rejected_before_consumption(real_export, rules_version):
     """@brief 冻结运行清单里的规则版本不是当前规则版本时，导出在读取工件之前被拒绝。"""
     manifest, _ = read_export(real_export)
-    assert manifest["frozen_run_manifest"]["environment_identity"]["rules_version"] == 4
+    assert manifest["frozen_run_manifest"]["environment_identity"]["rules_version"] == 5
     manifest["frozen_run_manifest"]["environment_identity"]["rules_version"] = rules_version
     (real_export / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(IntegrityError, match="^Export frozen run manifest or environment identity is invalid$"):

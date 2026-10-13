@@ -179,17 +179,47 @@ def test_readonly_commit_is_identical_across_python_hash_seeds(tmp_path: Path) -
     assert _set_arrays(json.loads(first_payload)) == _set_arrays(state)
 
 
-def test_world_state_schema_is_thirteen_and_the_previous_version_is_refused() -> None:
-    """世界状态结构版本是 13；结构号 12 的世界状态由严格字面量拒绝，不迁移、不读取。"""
+def test_world_state_schema_is_fourteen_and_the_previous_version_is_refused() -> None:
+    """世界状态结构版本是 14；结构号 13 的世界状态由严格字面量拒绝，不迁移、不读取。"""
     import pytest
     from pydantic import ValidationError
 
-    assert WORLD_SCHEMA_VERSION == 13
+    assert WORLD_SCHEMA_VERSION == 14
     payload = _world_state().model_dump(mode="json")
-    assert WorldState.model_validate(payload).schema_version == 13
-    for retired in (12, "13", None):
+    assert WorldState.model_validate(payload).schema_version == 14
+    for retired in (13, "14", None):
         with pytest.raises(ValidationError, match="schema_version"):
             WorldState.model_validate({**payload, "schema_version": retired})
     missing = {key: value for key, value in payload.items() if key != "schema_version"}
     with pytest.raises(ValidationError, match="schema_version"):
         WorldState.model_validate(missing)
+
+
+def test_world_state_with_a_running_query_round_trips(engine_factory, tmp_path: Path) -> None:
+    """真实引擎开始一次查询后写共同检查点：恢复出的世界里查询活动逐值相等（种类、槽位、data.app_id 都在），世界状态能
+    写入能读回；重开的引擎把它做完时时长与 app 不重抽，答案与不中断的父运行逐值相同（docs/design/09-io-formats.md）。"""
+    from tests.integration.runtime_fixtures import branch_of
+    from tests.life.conftest import advance_next, query
+    from tests.life.environment_runtime import act
+
+    parent = engine_factory()
+    observed, result = act(parent, "query", query("零食", "柠檬茶"))
+    assert result.status == "in_progress", result.error_code
+    running = parent.context.state.activities[result.activity_id]
+    assert (running.kind, running.resource_claims) == ("query", {"second"})
+    assert running.data["app_id"] in {"eleme", "meituan"}
+    payload = parent.context.state.model_dump(mode="json")
+    assert WorldState.model_validate(payload).model_dump(mode="json") == payload
+    child = branch_of(parent, tmp_path, "resume", observed["observation_event_id"])
+    try:
+        restored = child.context.state.activities[result.activity_id]
+        assert restored == running and "app_id" in restored.data
+        for engine in (parent, child):
+            while engine.context.state.activities[result.activity_id].status == "active":
+                advance_next(engine)
+        done, again = (engine.context.state.activities[result.activity_id] for engine in (parent, child))
+        assert (again.planned_duration_seconds, again.data["app_id"]) == (
+            running.planned_duration_seconds, running.data["app_id"])
+        assert again.data["answer"] == done.data["answer"] and done.data["answer"]["rows"]
+    finally:
+        child.close()

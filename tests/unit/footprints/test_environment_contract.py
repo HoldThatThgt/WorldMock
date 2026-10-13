@@ -26,16 +26,16 @@ def _activity(kind="interact", *, content=None):
             "session_ids": ["session"]}
 
 
-def test_directory_browse_has_real_app_use_without_content_or_wait_evidence():
-    activity = _activity()
+@pytest.mark.parametrize("content", [None, "content"])
+def test_interact_progress_without_content_evidence_is_rejected(content):
+    """每一项 interact 都有内容：一条没有内容证据的 interact 进度（快照里有没有内容身份都一样）不被跳过，已核验经历的
+    投影以 Playback progress has no app content evidence 报运行故障。"""
+    activity = _activity(content=content)
     events = [_event(1, "action_accepted", {"activity": activity}),
               _event(2, "activity_progress", {"activity": activity, "interval_start": 100,
                                                "interval_end": 110}, at=110)]
-    facts = project_app_usage([event.model_dump() for event in events])
-    assert facts == [{"fact_kind": "app_use", "agent_id": 1, "activity_id": "activity", "app_id": "app",
-                      "source_event_id": "event-2", "status": "active",
-                      "segments": [{"started_at": 100, "ended_at": 110}]}]
-    assert project_verified_experiences(events, agent_id=1, cutoff_seq=2) == []
+    with pytest.raises(IntegrityError, match="^Playback progress has no app content evidence$"):
+        project_verified_experiences(events, agent_id=1, cutoff_seq=2)
 
 
 def test_callback_touch_and_the_two_notifications_are_point_facts_with_exact_fields():
@@ -69,16 +69,36 @@ def test_app_touch_is_only_a_callback_footprint_and_the_automatic_touches_are_re
         project_app_usage([touch.model_dump()])
 
 
+@pytest.mark.parametrize("app_id", ["meituan", None])
+def test_query_snapshot_is_admitted_by_every_downstream_projection(app_id):
+    """种类为 query 的快照经 app 使用投影（受理与进度两处种类闭集）、活动重建和已核验经历投影都不被拒：带 app 的查询
+    恰一行 app_use，区间等于执行区间；没有 app 的查询没有 app 使用的行；查询没有已核验经历。"""
+    from worldmock.footprints.export import reconstruct_activities
+    query = {**_activity("query"), "data": {"action": "query", "app_id": app_id}}
+    events = [_event(1, "action_accepted", {"activity": query}),
+              _event(2, "activity_progress", {"activity": {**query, "elapsed_seconds": 10}, "interval_start": 100,
+                                               "interval_end": 110}, at=110)]
+    events = [event.model_copy(update={"activity_id": "activity"}) for event in events]
+    segments = [{"started_at": 100, "ended_at": 110}]
+    expected = [{"fact_kind": "app_use", "agent_id": 1, "activity_id": "activity", "app_id": app_id,
+                 "source_event_id": "event-2", "status": "active", "segments": segments}] if app_id else []
+    assert project_app_usage([event.model_dump() for event in events]) == expected
+    [record] = reconstruct_activities(events)
+    assert (record["activity_type"], record["data"], record["segments"]) == ("query", query["data"], segments)
+    assert project_verified_experiences(events, agent_id=1, cutoff_seq=2) == []
+
+
 @pytest.mark.parametrize("retired", ["wait", "action", "eat", "work", "chat"])
 def test_retired_activity_is_rejected_before_any_downstream_projection(retired):
     from worldmock.footprints.export import reconstruct_activities
     from worldmock.footprints.quality import build_quality_report
+    from tests.footprints.display_fixtures import sample_display_names
     event = _event(1, "activity_progress", {"activity": _activity(retired)})
     message = "Activity snapshot uses a retired activity kind"
     for project in (lambda: project_app_usage([event.model_dump()]),
                     lambda: reconstruct_activities([event]),
                     lambda: project_verified_experiences([event], agent_id=1, cutoff_seq=1),
-                    lambda: build_quality_report([event], [], {})):
+                    lambda: build_quality_report([event], [], {}, sample_display_names())):
         with pytest.raises(IntegrityError, match=message):
             project()
 
@@ -241,12 +261,3 @@ def test_wake_categories_count_each_category_once_per_real_boundary():
     assert result["wake_reason_counts"]["planned_end"] == 1
     assert "boundaries_missing_decision_field" not in result
     assert "decision_budget_exhausted_events" not in result
-
-
-@pytest.mark.parametrize("contents,seconds", [([{"app_ids": ["app"]}], 60), ([], 120)])
-def test_directory_browse_rejects_explicit_content_or_wrong_declared_duration(contents, seconds):
-    from worldmock.footprints.frozen_environment import _validate_browse
-    activity = {"activity_type": "interact", "data": {"app_id": "app", "content_id": None},
-                "planned_duration_seconds": seconds}
-    with pytest.raises(IntegrityError, match="Directory browse disagrees"):
-        _validate_browse([activity], {"app": {"browse_duration_seconds": 60}}, contents)

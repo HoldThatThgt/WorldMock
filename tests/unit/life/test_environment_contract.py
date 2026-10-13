@@ -29,11 +29,12 @@ def agent():
 
 
 def activity(identity, action, status=ActivityStatus.ACTIVE, app_id="media-app"):
-    """手工活动：interact 缺省用内容 app（占槽位 2），app_id 为 None 时是在地点做事（占槽位 1）。"""
+    """手工活动：interact 缺省用内容 app（占槽位 2），app_id 为 None 时是在地点做事（占槽位 1）；查询带 app_id，
+    不论有没有 app 都占槽位 2。"""
     kinds = {"sleep": ActivityKind.SLEEP, "interact": ActivityKind.INTERACT,
-             "purchase": ActivityKind.PURCHASE, "travel": ActivityKind.TRAVEL}
+             "purchase": ActivityKind.PURCHASE, "travel": ActivityKind.TRAVEL, "query": ActivityKind.QUERY}
     terminal = status == ActivityStatus.COMPLETED
-    data = {"action": action, **({"app_id": app_id} if action == "interact" else {})}
+    data = {"action": action, **({"app_id": app_id} if action in {"interact", "query"} else {})}
     first = action in {"sleep", "travel"} or (action == "interact" and app_id is None)
     return ActivityState(
         activity_id=identity, agent_id=1, location_id="home", kind=kinds[action], status=status,
@@ -55,15 +56,15 @@ def world(activities=(), **changes):
 
 
 _MAIN_SLEEP = {"action": "sleep", "target": "450", "detail": None}
-_SIDE_PURCHASE = {"action": "purchase", "target": ["Food"]}
+_SIDE_PURCHASE = {"action": "purchase", "target": ["Food"], "prefer": None}
 _START_MODELS = ((StartMainActivityRequest, _MAIN_SLEEP), (StartSideActivityRequest, _SIDE_PURCHASE))
 
 
 def test_action_contract_and_request_shapes():
-    """四个动作分属两个开始工具；请求只带声明的键，所写名称原样保留。"""
-    assert ACTIVITY_ACTIONS == ("travel", "purchase", "sleep", "interact")
+    """五个动作分属两个开始工具；请求只带声明的键，所写名称原样保留。"""
+    assert ACTIVITY_ACTIONS == ("travel", "purchase", "sleep", "interact", "query")
     assert MAIN_ACTIVITY_ACTIONS == ("travel", "interact", "sleep")
-    assert SIDE_ACTIVITY_ACTIONS == ("purchase", "interact")
+    assert SIDE_ACTIVITY_ACTIONS == ("purchase", "interact", "query")
     main = StartMainActivityRequest.model_validate({"action": "travel", "target": " Ｈｏｍｅ ", "detail": "步行"})
     assert main.model_dump() == {"action": "travel", "target": " Ｈｏｍｅ ", "detail": "步行"}
     assert StartSideActivityRequest.model_validate(_SIDE_PURCHASE).model_dump() == _SIDE_PURCHASE
@@ -93,16 +94,27 @@ def test_unknown_or_wrong_case_action_is_refused_by_the_request_model(action):
 
 def test_repeated_purchase_name_is_two_portions_not_a_rejection():
     """同一个名称（含归一后相同的写法）写两次不再被拒：每个元素是一份，所写原样保留。"""
-    request = StartSideActivityRequest.model_validate({"action": "purchase", "target": ["Food", "Ｆｏｏｄ", "Food"]})
+    request = StartSideActivityRequest.model_validate(
+        {"action": "purchase", "target": ["Food", "Ｆｏｏｄ", "Food"], "prefer": None})
     assert request.target == ["Food", "Ｆｏｏｄ", "Food"]
 
 
 def test_two_slots_and_pending_conclusion_occupancy():
-    """在地点做事占槽位 1，用内容 app 与购买占槽位 2；同槽位的两项进行中或待收尾活动不能并存。"""
+    """在地点做事占槽位 1，用内容 app、购买与查询占槽位 2；同槽位的两项进行中或待收尾活动不能并存；
+    活动的 data.action 不在五个动作之内时拒绝。"""
     world([activity("walk", "travel"), activity("media", "interact")])
     world([activity("old", "interact", ActivityStatus.PAUSED), activity("buy", "purchase")])
     world([activity("stay", "interact", app_id=None), activity("media", "interact")])
     world([activity("stay", "interact", app_id=None), activity("buy", "purchase")])
+    world([activity("stay", "interact", app_id=None), activity("look", "query", app_id=None)])
+    world([activity("stay", "interact", app_id=None), activity("look", "query", app_id="meituan")])
+    with pytest.raises(ValidationError, match="world activity resource claims disagree with the registry"):
+        world([activity("look", "query").model_copy(update={"resource_claims": {"first"}})])
+    with pytest.raises(ValidationError, match="world active activities claim the same resource"):
+        world([activity("look", "query"), activity("buy", "purchase")])
+    unknown = activity("look", "query")
+    with pytest.raises(ValidationError, match="Activity action is missing or unknown"):
+        world([unknown.model_copy(update={"data": {**unknown.data, "action": "lookup"}})])
     with pytest.raises(ValidationError, match="same resource"):
         world([activity("media", "interact"), activity("buy", "purchase")])
     with pytest.raises(ValidationError, match="same resource"):
@@ -116,6 +128,8 @@ def test_two_slots_and_pending_conclusion_occupancy():
 def test_sleep_requires_empty_second_slot():
     with pytest.raises(ValidationError, match="second activity slot"):
         world([activity("sleep", "sleep"), activity("buy", "purchase")])
+    with pytest.raises(ValidationError, match="Sleep requires the second activity slot to be empty"):
+        world([activity("sleep", "sleep"), activity("look", "query")])
     world([activity("sleep", "sleep"), activity("media", "interact", ActivityStatus.PAUSED)])
 
 

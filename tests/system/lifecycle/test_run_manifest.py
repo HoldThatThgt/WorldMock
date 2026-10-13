@@ -39,7 +39,7 @@ async def test_native_environment_manifest_contains_full_declared_service_identi
         assert set(manifest["environment_assets"]) == {
             "persona.toml", "config.toml", "catalog/manifest.json", "map.json", *(f"catalog/{name}" for name in listed)}
         assert manifest["environment_identity"] == {
-            "environment_id": "artificial-test", "environment_version": "3", "rules_version": 4,
+            "environment_id": "artificial-test", "environment_version": "4", "rules_version": 5,
             "catalog_content_sha256": frozen.catalog.manifest.catalog_content_sha256,
             "map_sha256": frozen.catalog.map_sha256}
         assert manifest["model_metadata"] == frozen.model_metadata.model_dump(mode="json")

@@ -119,7 +119,7 @@ flowchart LR
 <a name="configuration-模型配置"></a>
 ## 模型配置与凭据
 
-模型身份与调用预算集中于 `[model]`，不由不可覆盖源码常量决定。
+模型身份、重试预算与回合上限集中于 `[model]`；每次调用的输出上限是引擎固定值，不在 `[model]` 里，见[人物](06-agent.md)「宿主模型协议」。
 
 | 字段 | 必填或默认、范围 |
 | --- | --- |
@@ -185,9 +185,11 @@ flowchart LR
 | 购买功能 app | `function-app:{action_id}:{payment_order_key}`，每张订单抽一次，排序候选与唯一 null 等概率选择 |
 | 出行功能 app | `function-app:{activity_id}`，候选是绑定了这次出行方式的功能 app 按身份升序，等概率选择，不增加 null；没有候选就没有导航记录 |
 | 导航回到前台 | `navigation-return:{travel_activity_id}:{side_activity_id}`，路上一项槽位 2 活动停止执行时抽一位，抽到 1 导航回到前台；每项槽位 2 活动一个键，没有导航候选的出行不抽 |
-| 下单 app | 店铺商品用 `order-app:{store_id}:{local_date}`，先确定店铺，同一家店同一本地日的商品抽到同一个 app；绑定在 app 上的商品用 `order-app:{goods_id}:courier:{local_date}` |
-| 快递天数 | `courier-days:{goods_id}:{app_id}:{local_date}`，二、三、四、五天等概率 |
-| 快递费 | `courier-fee:{goods_id}:{app_id}`，零或五百分等概率，跨日期稳定 |
+| 下单 app | 只在人物的意向用不上时取。店铺商品选中的店没有登记意向 app 时用 `order-app:{store_id}:{local_date}`，同一家店同一本地日抽到同一个 app；绑定在 app 上的商品在意向 app 不在商品登记的 app 之内时用 `order-app:{goods_id}:courier:{local_date}`。意向用得上时下单 app 就是意向 app，不抽取 |
+| 快递天数 | `courier-days:{goods_id}:{app_id}:{local_date}`，二、三、四、五天等概率；`app_id` 是最终的下单 app，意向用得上时就是意向 app |
+| 快递费 | `courier-fee:{goods_id}:{app_id}`，零或五百分等概率，跨日期稳定；`app_id` 是最终的下单 app，意向用得上时就是意向 app |
+| 查询时长 | `query-duration:{action_id}`，`action_id` 是开始这次查询的那条动作；三百至六百整数秒，两端都能取到，受理时抽一次，恢复和重放读活动上的值 |
+| 查询所在的 app | `query-app:{action_id}`；只在 `prefer` 用不上、且有下单 app 卖所查商品至少一件时取流，候选按 `app_id` 升序，等概率取一个；`prefer` 用得上或没有候选时不抽 |
 | 内容选择 | `{activity_id}:{draw_index}`，只用于内容 app；在地点点名内容单元不抽随机数 |
 | 回调链 | `callback:{rule_id}:{anchor}:{step_index}`，步骤下标从零开始 |
 | 指标自举 | `bootstrap-metric:{name}`，抽取六十四位整数供 NumPy |
@@ -200,9 +202,10 @@ flowchart LR
 `payment_order_key` 是 `[app_id]` 的规范 JSON，序列化方式与 `group_key` 相同，是订单的键，付款按它抽取和结算：
 带下单 app 的订单形如 `["meituan"]`，到店订单是 `[null]`；订单一律按这个字符串升序处理，`[null]` 排在所有带下单 app 的订单之后。
 订单不新增持久字段，也不新增身份，由购买活动列出的商品履约记录和记录上的 `app_id` 得出。
-预览只使用已知商品、店铺、app 与日期，不提前分配动作身份；受理冻结同一报价，恢复不得重抽。
+预览按没有意向的路线计算，只使用已知商品、店铺、app 与日期，不提前分配动作身份；受理按请求里的意向报价并冻结，可以与预览不同，恢复不得重抽。
 商家选择按 `(总价款和配送费, 店铺到收货地点的最短距离, 店铺身份)` 取最小值，不随机选择远程店铺：
 同价时选最近的店，同距取较小的店铺身份；配送时长随距离只增不减，最近的店也最早送达，两家店折算到同一秒送达时仍选距离更短的一家。
+意向用得上时，取最小值的范围先限定为登记了意向 app 的营业店铺，可以因此换到更远的店；完整的判断次序见[模拟引擎](04-simulation-engine.md)「购买、付款与收货」。
 同组全部商品配送策略为零才免配送费，否则整组只收五百分。
 
 普通推送事件身份为 `push-{agent_id}-{local_date}T{HH}`；时间事件为 `time-{key}-{due_at}`，
@@ -211,7 +214,7 @@ flowchart LR
 一趟配送是同一个配送组里预计到达时刻相同的已付款外卖或快递记录，身份是 `delivery-{这一趟里 order_id 最小的记录}`，按字符串比较。
 每趟配送另有一条发货通知排程，身份是 `shipped-{order_id}`，取同一条记录；排程序号先分给各趟的发货排程，再分给各趟的到达排程。
 
-回调受理锚点为 `{action_id}:0`，一条动作只开始一项活动；按日动作效果用 `{origin_action_id}:{local_date}`；
+回调受理锚点为 `{action_id}:0`，一条动作只开始一项活动；凭状态的地点内容开始时减 1 用 `{action_id}:consume`，与受理锚点区分；按日动作效果用 `{origin_action_id}:{local_date}`；
 预排事件使用其 `scheduled_id`；推进唤醒类别用 `wake:{agent_id}:{current_time}`；
 同刻唤醒类别用 `wake:{action_id}`，开始组取第一条动作的身份。阈值触发沿用造成越阈的锚点，不触发级联。
 回调效果与资金账本原因均为 `callback:{rule_id}:{anchor}`，`caused_by` 必须指向真实触发事件。

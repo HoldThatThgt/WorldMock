@@ -42,7 +42,8 @@ from tests.integration.runtime.test_life_agent_protocol import (_OBSERVED_AT, _M
 from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
 from tests.life.conftest import (MAIN_TOOL, SIDE_TOOL, advance_next, advance_until_ready, context, do_at,  # noqa: F401
                                  errand_add, errand_cancel, errand_update, layer_start, main_arguments, pending_names,
-                                 progress_calls, side_arguments, stage_day_plan, tool_of, use_app)
+                                 progress_calls, side_arguments, stage_day_plan, tool_of, travel, use_app)
+from tests.life.environment_runtime import act_group, events, every_five_minutes  # noqa: E402
 from tests.life.work_schedule_fixtures import declare  # noqa: E402
 from worldmock.life.readable import iso_time  # noqa: E402
 from worldmock.errors import IntegrityError  # noqa: E402
@@ -51,6 +52,8 @@ from worldmock.life.continuation import _session_changed  # noqa: E402
 from worldmock.life.engine import LifeEngine  # noqa: E402
 from worldmock.life.models import CounterfactualIntervention, ModelIdentity, RunIdentity  # noqa: E402
 from worldmock.life.prompt_capacity import ProgressBudget, fit_request  # noqa: E402
+from worldmock.life.progress_layer import records_after  # noqa: E402
+from worldmock.life.tool_layer import LayerContext  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
 SCENARIO = ENVIRONMENT_ROOT
@@ -554,6 +557,38 @@ def _unavailable(observation: dict) -> list:
     return [_reply("call-refused", tool_of(request), request.model_dump(mode="json"), "试试看。")]
 
 
+@pytest.mark.asyncio
+async def test_a_carried_record_is_not_repeated_in_the_continuation(_engine_factory) -> None:
+    """出发并打开 Keep，路上的一次决策被业务拒绝后同一秒再决策：续接链成立，tool_results 只有被拒的那一条；带入的
+    Keep 记录在本段进度层里，但续接链取材的记录（来源全部晚于上一次观察）里只有被拒的那条请求、没有它，续接链的
+    events 里也没有它。"""
+    engine = _engine_factory(mutate=every_five_minutes)
+    stage_day_plan(engine)
+    _, (trip, keep) = act_group(engine, "depart", travel("公司", "步行"), use_app("Keep"))
+    assert (trip.status, keep.status) == ("in_progress", "in_progress"), (trip.error_code, keep.error_code)
+    assert advance_until_ready(engine)
+    environment = _environment(engine)
+    refused, _, _ = await _single(environment, "refused", _unavailable)
+    assert [row["arguments"]["target"] for row in progress_calls(refused, SIDE_TOOL)] == [["Keep"]]
+    ctx = context(engine, "next")
+    engine.begin_decision_round([ctx])
+    observation = engine.observe(ctx)
+    chain = observation["continuation"]
+    assert chain is not None
+    [result] = chain["tool_results"]
+    assert result["tool_call_id"] == "call-refused" and result["result"]["status"] == "rejected"
+    assert [row["arguments"]["target"] for row in progress_calls(observation, SIDE_TOOL)] == [["Keep"]]
+    assert not any(row.get("tool") == SIDE_TOOL or row["type"] == "tool_call" for row in chain["events"])
+    (request,) = [event for event in events(engine, "action_requested") if event.decision_id == "decision-refused-1"]
+    (previous,) = [event for event in events(engine, "observation") if event.decision_id == "decision-refused-1"]
+    names = {"activities": {key: row.name for key, row in engine.context.state.activities.items()}, "sessions": {}}
+    after = records_after(LayerContext(engine.context, 1, names, []), engine.context.store, previous.event_seq)
+    calls = [sources for record, sources in after if record["type"] == "tool_call"]
+    assert len(calls) == 1 and calls[0][0] == request.event_id
+    carried = engine.context.state.activities[keep.activity_id].origin_request_event_id
+    assert not [sources for _, sources in after if carried in sources]
+
+
 #: 贴着「有点想放松」档界（0.3）的起始放松需要：一次服务拒绝的情绪代价（+0.05）就让放松分级从「不闷」变一档。
 _NEAR_RELAXATION_BAND = 0.28
 
@@ -927,7 +962,7 @@ def test_continuation_messages_read_earlier_changes_and_skip_memory_and_feedback
 
     def layers(state: str, body: str) -> list[dict]:
         return [{"layer": "工具层", "targets": [{"name": "店", "kind": "location", "state": state,
-                                                   "actions": [], "tools": []}], "callable_index": {"query_categories": []}},
+                                                   "actions": [], "tools": []}], "callable_index": {}},
                 {"layer": "人设层", "relationships": [], "preferences": []}, {"layer": "记忆层"},
                 {"layer": "待办层", "paused_activities": [], "errands": [], "day_plan": None},
                 {"layer": "环境层", "body": {"appetite": body}}, {"layer": "进度层"}]
@@ -972,7 +1007,7 @@ def test_layer_changes_overlay_earlier_changes_and_keep_the_latest() -> None:
     """changes 相对于模型所见：链首快照依次叠加此前各 changes，以最新为准；没有改动的键不写。"""
     def layers(targets, paused, plan, body, views):
         return [{"layer": "工具层", "targets": [{**row, "kind": "location", "actions": [], "tools": []}
-                                                   for row in targets], "callable_index": {"query_categories": []}}, {"layer": "人设层", "relationships": views, "preferences": []},
+                                                   for row in targets], "callable_index": {}}, {"layer": "人设层", "relationships": views, "preferences": []},
                 {"layer": "记忆层"}, {"layer": "待办层", "paused_activities": paused, "errands": [], "day_plan": plan},
                 {"layer": "环境层", "body": body}, {"layer": "进度层"}]
 
@@ -995,7 +1030,7 @@ def test_layer_changes_report_errand_rows_added_changed_and_removed() -> None:
     完整行（此刻顺序），removed 是已不在待办层的名称（办成或取消）；相对模型所见，此前 changes 已移除或已写入的不再重报；
     errands 写在 paused_activities 之后、day_plan 之前；没有改动不写。"""
     def layers(paused, errands, plan):
-        return [{"layer": "工具层", "targets": [], "callable_index": {"query_categories": []}},
+        return [{"layer": "工具层", "targets": [], "callable_index": {}},
                 {"layer": "人设层", "relationships": [], "preferences": []}, {"layer": "记忆层"},
                 {"layer": "待办层", "paused_activities": paused, "errands": errands, "day_plan": plan},
                 {"layer": "环境层", "body": {"appetite": "不饿"}}, {"layer": "进度层"}]

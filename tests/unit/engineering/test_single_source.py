@@ -21,9 +21,12 @@ OWNERS = {'base_models.py': ('StrictModel',
  'corpora/manifest.py': ('safe_file', 'relative_declaration'),
  'footprints/intervals.py': ('valid_interval', 'is_body_settlement', 'body_settlements'),
  'footprints/timeline_labels.py': ('window_days', 'local_day_bounds', 'split_local_days'),
+ 'footprints/display_wording.py': ('DisplayNames', 'display_names', 'goods_items', 'event_content_id',
+                                   'activity_phrase', 'phone_phrase'),
  'life/models.py': ('validated_payload', 'active_side_activities', 'NavigationForeground',
                     'RUN_MANIFEST_SCHEMA_VERSION'),
  'life/navigation_foreground.py': ('settle_navigation', 'navigation_app', 'foreground_event'),
+ 'life/order_apps.py': ('order_app_ids', 'preferred_app_id', 'selling_app_ids'),
  'life/stay_records.py': ('stay_events', 'run_start_event'),
  'life/order_notices.py': ('goods_names', 'goods_text', 'shipping_delay_seconds', 'shipping_schedule',
                            'ORDER_PLACED', 'ORDER_SHIPPED', 'ORDER_DELIVERED', 'ORDER_TITLES',
@@ -94,6 +97,7 @@ OWNERS = {'base_models.py': ('StrictModel',
  'life/action_contract.py': ('ACTIVITY_ACTIONS',
                              'MAIN_ACTIVITY_ACTIONS',
                              'SIDE_ACTIVITY_ACTIONS',
+                             'APP_BOUND_ACTIONS',
                              'START_TOOLS',
                              'ACTION_LABELS',
                              'activity_slot',
@@ -187,12 +191,12 @@ def test_production_shared_rules_have_one_owner_and_no_business_clones():
 
 
 def test_observation_offers_only_current_actions_without_retired_resource_gate(engine_factory):
-    """@brief 真实观察只提供四个现行动作，活动工具不附加退役资源门。"""
+    """@brief 真实观察只提供五个现行动作，活动工具不附加退役资源门。"""
     engine = engine_factory()
     from tests.life.conftest import context
 
     data = engine.observe(context(engine, "actions"))
-    assert data["known_activity_actions"] == ["travel", "purchase", "sleep", "interact"]
+    assert data["known_activity_actions"] == ["travel", "purchase", "sleep", "interact", "query"]
     assert not {"affordance_contract", "game_boundary", "energy_projection"} & data.keys()
 
 

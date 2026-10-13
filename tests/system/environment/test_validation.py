@@ -244,16 +244,16 @@ def test_package_with_or_without_optional_catalog_files_is_valid(published_envir
         "app-catalog.jsonl", "content-catalog.jsonl", "location.jsonl", "manifest.json", "merchant-catalog.jsonl",
         *files])
     assert accepted(published_environment) == {"valid": True, "environment_id": "artificial-test",
-                                              "environment_version": "3"}
+                                              "environment_version": "4"}
 
 
 @pytest.mark.parametrize("change,code,reason", [
-    ({"rules_version": 3}, "RULES_VERSION_MISMATCH", "The environment was published for a different rules version."),
-    ({"rules_version": 3, "format_version": 3}, "RULES_VERSION_MISMATCH",
+    ({"rules_version": 4}, "RULES_VERSION_MISMATCH", "The environment was published for a different rules version."),
+    ({"rules_version": 4, "format_version": 4}, "RULES_VERSION_MISMATCH",
      "The environment was published for a different rules version."),
 ])
 def test_package_published_for_the_previous_rules_version_is_refused(published_environment, change, code, reason):
-    """@brief 规则版本是 3 的夹具副本：输出 {path, code, reason}，非零退出，原因没有详情时只有固定原因。"""
+    """@brief 规则版本是 4 的夹具副本：输出 {path, code, reason}，非零退出，原因没有详情时只有固定原因。"""
     path = published_environment / "catalog/manifest.json"
     path.write_bytes(json.dumps({**json.loads(path.read_bytes()), **change}, separators=(",", ":")).encode() + b"\n")
     assert report(published_environment) == [{"path": "catalog", "code": code, "reason": reason}]
@@ -261,7 +261,7 @@ def test_package_published_for_the_previous_rules_version_is_refused(published_e
 
 def test_previous_manifest_format_is_refused_after_the_rules_version_matches(published_environment):
     path = published_environment / "catalog/manifest.json"
-    manifest = {**json.loads(path.read_bytes()), "format_version": 3}
+    manifest = {**json.loads(path.read_bytes()), "format_version": 4}
     path.write_bytes(json.dumps(manifest, separators=(",", ":")).encode() + b"\n")
     error = catalog_error(published_environment, "ENVIRONMENT_KIND_INVALID")
     assert error["reason"].startswith("A declared kind is outside the fixed set. ") and "format_version" in error["reason"]

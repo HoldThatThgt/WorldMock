@@ -26,7 +26,7 @@ from worldmock.life.schedule import MAX_PLAN_GOALS, PLAN_GOAL_MAX_CHARS, DayPlan
 from worldmock.scheduling.events import ScheduledEvent
 
 #: 世界状态结构版本：版本不符的检查点与导出直接拒绝，不迁移。
-WORLD_SCHEMA_VERSION = 13
+WORLD_SCHEMA_VERSION = 14
 #: 运行清单结构版本：顶层字段集合或 stage_model_identity 的键集变了才升；版本不符的运行不能打开、恢复或重放，
 #: 导出认证同样拒绝，不迁移。
 RUN_MANIFEST_SCHEMA_VERSION = 6
@@ -141,6 +141,7 @@ class ActivityKind(StrEnum):
     TRAVEL = "travel"
     INTERACT = "interact"
     PURCHASE = "purchase"
+    QUERY = "query"
 
 
 class ActivityStatus(StrEnum):
@@ -626,7 +627,7 @@ def active_activities(state: WorldState, agent_id: int) -> tuple[ActivityState, 
 
 
 def active_side_activities(state: WorldState, agent_id: int) -> tuple[ActivityState, ...]:
-    """@brief 人物进行中的槽位 2 活动：状态为进行中、占槽位 2 的购买或用 app。导航在不在前台只看它。"""
+    """@brief 人物进行中的槽位 2 活动：状态为进行中、占槽位 2 的购买、查询或用 app。导航在不在前台只看它。"""
     return tuple(activity for activity in active_activities(state, agent_id)
                  if "second" in activity.resource_claims)
 
@@ -864,20 +865,29 @@ class StartMainActivityRequest(ToolRequestModel):
 
 
 class StartSideActivityRequest(ToolRequestModel):
-    """@brief 开始一项占槽位 2 的活动：购买商品，或使用一个内容 app。"""
+    """@brief 开始一项占槽位 2 的活动：购买商品、查询商品，或使用一个内容 app。"""
 
-    action: Literal[SIDE_ACTIVITY_ACTIONS] = Field(description="做什么：purchase 购买商品，interact 使用内容 app。")
+    action: Literal[SIDE_ACTIVITY_ACTIONS] = Field(
+        description="做什么：purchase 购买商品，interact 使用内容 app，query 查询商品。")
     target: list[Annotated[str, Field(pattern=r"\S")]] = Field(description=(
-        "名称数组。purchase 逐份写商品的完整名称，同一个名称写两次就是两份；interact 只写一个内容 app 的完整名称。"))
+        "名称数组。purchase 逐份写商品的完整名称，同一个名称写两次就是两份；interact 只写一个内容 app 的完整名称；"
+        "query 写商品的完整名称或商品类别的名称。"))
+    #: 想用来下单或在其中查询的 app 名称原文，必填、没有缺省值；没有想法写 null（模型的工具格式不允许可省略的字段）。
+    prefer: Annotated[str, Field(pattern=r"\S")] | None = Field(
+        description="purchase 写想用来下单的内容 app 的完整名称，query 写想在其中查询的内容 app 的完整名称，"
+                    "没有想法写 null；interact 写 null。")
 
     @model_validator(mode="after")
-    def validate_target_count(self) -> "StartSideActivityRequest":
-        """@brief 名称数组至少一项；用内容 app 时恰好一项；购买不设上限并允许同名重复。每条违背各报一条。"""
-        problems = []
+    def validate_action_arguments(self) -> "StartSideActivityRequest":
+        """@brief 名称数组至少一项；用内容 app 时恰好一项且 prefer 必须为 null；购买与查询不设上限并允许同名重复。
+        每条违背各报一条。"""
+        problems: list[tuple[str, Any, str]] = []
         if not self.target:
             problems.append(("target", self.target, "target requires at least one name"))
         if self.action == "interact" and len(self.target) != 1:
             problems.append(("target", self.target, "target takes exactly one app name when action is interact"))
+        if self.action == "interact" and self.prefer is not None:
+            problems.append(("prefer", self.prefer, "prefer must be null when action is interact"))
         if problems:
             raise _cross_errors(type(self).__name__, problems)
         return self

@@ -26,7 +26,7 @@ _LEGACY_ACTIONS = {
     "grocery_purchase": ("purchase", "order", "order"),
     "navigation": ("travel", "travel", "route"),
 }
-#: 结果活动种类只取现行四类，环境动作类别由快照保存。
+#: 结果活动种类只取现行五类，环境动作类别由快照保存。
 #: 活动控制工具 -> 公开交互动词（docs/design/04-simulation-engine.md「动作、名称与并行」），按请求
 #: items[] 逐活动投影。
 _SESSION_CONTROL_TOOLS = {
@@ -251,7 +251,7 @@ def _world_actions(events: Sequence[Event],
 def _start_shapes(tool_name: str, request: Mapping[str, Any], related: Sequence[Event]) -> tuple[_Action, ...]:
     """@brief 一条开始调用恰好开始一项活动：动作直接读两个开始工具各自的参数，不从名称反解。"""
     main = tool_name == START_TOOLS[0]
-    if set(request) != ({"action", "target", "detail"} if main else {"action", "target"}):
+    if set(request) != ({"action", "target", "detail"} if main else {"action", "target", "prefer"}):
         raise EvaluationError("invalid_input", "Start request arguments are outside the current contract")
     action = request["action"]
     if action not in (MAIN_ACTIVITY_ACTIONS if main else SIDE_ACTIVITY_ACTIONS):
@@ -264,12 +264,14 @@ def _start_shapes(tool_name: str, request: Mapping[str, Any], related: Sequence[
 
 
 def _start_shape(action: str, related: Sequence[Event], activity: Mapping[str, Any]) -> _Shape | None:
-    """@brief 实际快照提供对象，睡眠沿用不生成开始点事实的规则。"""
+    """@brief 实际快照提供对象，睡眠与查询沿用不生成开始点事实的规则。"""
     if action == "interact":
         return _activity_shape(activity) if activity else None
     if action == "purchase":
         return _Shape(action, "order", "order", _order_key(related), {})
     if action == "sleep":
+        return None
+    if action == "query":
         return None
     trip = _string(_mapping(activity.get("data")).get("trip_id"))
     return _Shape(action, "travel", "route", trip, _travel_mode(activity.get("travel_method_id")))
@@ -298,7 +300,7 @@ def _control_actions(tool_name: str, request: Mapping[str, Any], related: Sequen
 
 
 def _activity_shape(row: Mapping[str, Any]) -> _Shape | None:
-    """@brief 内容交互使用真实内容，目录浏览使用真实应用，不推断设备或语义类别。"""
+    """@brief 内容交互的对象恒为真实内容，不推断设备或语义类别。"""
     kind = _string(row.get("activity_type")) or _string(row.get("kind"))
     data = _mapping(row.get("data"))
     action = worldmock_activity_action(kind or "", data)
@@ -307,8 +309,7 @@ def _activity_shape(row: Mapping[str, Any]) -> _Shape | None:
                       _travel_mode(row.get("travel_method_id")))
     if kind != "interact":
         return None
-    content = _string(data.get("content_id"))
-    return _Shape(action, "interact", "content" if content else "app", content or _string(data.get("app_id")), {})
+    return _Shape(action, "interact", "content", _string(data.get("content_id")), {})
 
 
 
@@ -491,7 +492,7 @@ def worldmock_activity_action(activity_type: str, data: Any) -> str:
     """@brief 当前活动只读取真实启动动作，退役种类优先拒绝。"""
     if activity_type in {"wait", "action"}:
         raise EvaluationError("invalid_input", "Activity snapshot uses a retired activity kind")
-    if activity_type not in {"sleep", "travel", "interact", "purchase"}:
+    if activity_type not in ACTIVITY_ACTIONS:
         raise EvaluationError("invalid_input", "Activity type is outside the current closed set")
     action = _mapping(data).get("action")
     if action not in ACTIVITY_ACTIONS:

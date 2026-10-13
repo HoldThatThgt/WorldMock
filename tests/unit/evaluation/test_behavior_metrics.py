@@ -590,7 +590,8 @@ def test_sleep_report_rejects_missing_or_invalid_progress_end(end, caplog):
 
 def test_meal_diversity_simpson_and_repetition_anchors() -> None:
     """@brief Simpson {a:2,c:1}=5/9；饮料、购买请求和非食品均不产生进食样本。"""
-    events = [_action(50, "d1", "start_side_activity", {"action": "purchase", "target": ["幻影商品"]})]
+    events = [_action(50, "d1", "start_side_activity",
+                      {"action": "purchase", "target": ["幻影商品"], "prefer": None})]
     for seq, product, category in ((1, "a", "meal"), (2, "a", "meal"), (3, "b", "drink"),
                                    (4, "c", "snack"), (5, "d", "goods")):
         events.extend(_receipt_events(seq, product, _clock(0, 8, seq), category))
@@ -746,11 +747,9 @@ def test_all_true_content_advances_count_without_a_content_category():
     content = {"content_id": "actual-topic", "app_id": None,
                "position_before_seconds": 0, "position_after_seconds": 300}
     played = _progress(1, start, start + 300, "interact", data_extra={"content": content})
-    browser = _progress(2, start + 300, start + 600, "interact",
-                        snapshot_extra={"data": {"app_id": "store", "content_id": None}})
     stationary = _progress(3, start + 600, start + 900, "interact",
                            data_extra={"content": {**content, "position_after_seconds": 0}})
-    assert _report([played, browser, stationary])["reports"]["content_contact_minutes"]["total_minutes"] == 5
+    assert _report([played, stationary])["reports"]["content_contact_minutes"]["total_minutes"] == 5
 
 
 def test_drinks_only_produce_no_food_samples():

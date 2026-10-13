@@ -132,10 +132,10 @@ def test_errand_completion_waits_for_real_receipt_and_counts_actual_units(engine
         at_store(persona, config)
         config["progress_report_interval_seconds"] = 60
     engine = engine_factory(mutate=mutate)
-    _, browsing = act(engine, "browse", use_app("美团"))
+    _, using = act(engine, "keep", use_app("Keep"))
     while not engine.scheduling_state().ready_agent_ids:
         advance_next(engine)
-    name = engine.context.state.activities[browsing.activity_id].name
+    name = engine.context.state.activities[using.activity_id].name
     _, added = act(engine, "remember", conclude_request(name, errands=[errand_add("买纸巾", "纸巾", 2)]),
                    "conclude_activity")
     assert added.status == "completed", added.error_code

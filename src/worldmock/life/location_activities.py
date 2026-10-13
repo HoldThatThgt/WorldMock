@@ -1,7 +1,10 @@
-"""@brief 在地点按名称做一件事：内容单元的列出与排序、下一条内容、动作行的时长与说明、单元被占的拒绝。
+"""@brief 在地点按名称做一件事：内容单元的列出与排序、下一条内容、动作行的时长与说明、被结束时记为做完一轮、单元被占与
+未开放的拒绝。
 
 一条不属于系列的内容自成一个单元，同一系列的各集合成一个单元；单元名是人物写进 detail 的名称。做哪个单元由人物点名，
-单元内从哪一条、哪个位置开始由共享进度决定，不抽随机数。
+单元内从哪一条、哪个位置开始由共享进度决定，不抽随机数。人物用 conclude_activity 结束这件事时整个单元记为做完一轮，
+只有暂停才保留位置。内容写了 consumes_state 的单元凭状态，本人这个回调状态小于 1 时未开放：不列在工具层，照写名称
+由受理拒绝（docs/design/04-simulation-engine.md「出行、内容与查询」）。
 """
 
 from __future__ import annotations
@@ -14,7 +17,7 @@ from worldmock.catalog.models import Catalog, Content
 from worldmock.life.action_contract import binding_action
 from worldmock.life.content_select import content_units, representative
 from worldmock.life.guidance import Refusal
-from worldmock.life.models import ActivityKind, ActivityStatus, AgentState, WorldState
+from worldmock.life.models import ActivityKind, ActivityStatus, AgentState, ContentProgress, WorldState
 from worldmock.life.readable import duration_phrase
 
 
@@ -44,11 +47,40 @@ def location_units(catalog: Catalog, location_kind: str) -> tuple[Unit, ...]:
     return tuple(sorted(units, key=lambda unit: unit.key))
 
 
-def unit_binding(unit: Unit) -> dict:
-    """@brief 单元在私有绑定里的动作行：detail 是单元名，另带内容身份与各集标题两个不进提示的键。"""
+def unit_binding(unit: Unit, locked: bool) -> dict:
+    """@brief 单元在私有绑定里的动作行：detail 是单元名，另带内容身份、各集标题与是否未开放三个不进提示的键。
+
+    :param locked: 这个单元此刻对本人未开放（unit_locked）；未开放的行不列在工具层，名称解析仍认得它。
+    """
     titles = [] if unit.contents[0].series is None else [item.title for item in unit.contents]
     return {**binding_action("interact", unit.name), "content_ids": [item.content_id for item in unit.contents],
-            "episode_titles": titles}
+            "episode_titles": titles, "locked": locked}
+
+
+def unit_locked(contents: Sequence[Content], agent: AgentState) -> bool:
+    """@brief 凭状态的单元未开放：内容写了 consumes_state（系列各集写的相同，登记时已核过，取第一条）而本人这个回调状态
+    此刻小于 1。开放与否只看本人此刻的状态值，与这个单元是否被暂停的活动占着无关。"""
+    state = contents[0].consumes_state
+    return state is not None and agent.callback_states[state] < 1
+
+
+def locked_refusal(catalog: Catalog, agent: AgentState, action: Mapping) -> Refusal | None:
+    """@brief 未开放：单元凭状态而本人这个状态小于 1 时拒绝，否则为 None；受理与工具层（经同一套准入）共用它。
+
+    原因写单元名；状态的 reset_on_goods 非空时再写收到哪些商品能开放它，商品名按 goods_id 升序以 or 相连。
+    这是世界条件造成的拒绝，没有下一步与改法；未满足条件是 callback_state。
+
+    :param action: 单元在私有绑定里的动作行（detail 与 content_ids）。
+    """
+    contents = [catalog.contents[key] for key in action["content_ids"]]
+    if not unit_locked(contents, agent):
+        return None
+    goods = sorted(catalog.callback_states[contents[0].consumes_state].reset_on_goods)
+    reason = f"{action['detail']} is not available now."
+    if goods:
+        names = " or ".join(catalog.goods[key].name for key in goods)
+        reason = f"{action['detail']} is not available now; receiving {names} makes it available."
+    return Refusal("ACTIVITY_PRECONDITION_UNMET", reason, unmet=("callback_state",))
 
 
 def next_content(contents: Sequence[Content], agent: AgentState) -> tuple[Content, float]:
@@ -58,16 +90,65 @@ def next_content(contents: Sequence[Content], agent: AgentState) -> tuple[Conten
     return content, 0.0 if progress is None else progress.position_seconds
 
 
+#: 完成效果 food 的两个档位在工具层 note 里的说法，次序即说法的先后。
+FOOD_PHRASES = (("meal", "供一餐"), ("snack", "供一份零食"))
+
+
 def unit_facts(contents: Sequence[Content], agent: AgentState) -> dict:
-    """@brief 工具层单元行的时长与说明：此刻开始会做多久；系列写第几集，上次没做完时写接着做。"""
+    """@brief 工具层单元行的时长与说明：此刻开始会做多久；说法按第几集、接着做、供一餐、供一份零食的先后以「；」相连。
+
+    系列写第几集，上次没做完时写接着做；供餐的说法读各条内容的 completion_effects.food，与做到第几集无关
+    （docs/design/06-agent.md「提示与工具」）。
+    """
     content, position = next_content(contents, agent)
     notes = []
     if content.series is not None:
         notes.append(f"第 {content.series.episode} 集，共 {len(contents)} 集")
     if position > 0:
         notes.append("上次没做完，接着做")
+    notes.extend(_food_notes(contents))
     return {"duration": duration_phrase(ceil(content.duration_seconds - position)),
             "note": "；".join(notes) or None}
+
+
+def _food_notes(contents: Sequence[Content]) -> list[str]:
+    """@brief 供餐的说法：独立的一件事写「供一餐」或「供一份零食」；系列写「第 K 集供一餐」，K 是 food 为该档位的
+    全部集号，升序，以「、」相连。没有 food 的单元没有这两种说法。"""
+    notes = []
+    for tier, phrase in FOOD_PHRASES:
+        served = [item for item in contents if item.completion_effects is not None
+                  and item.completion_effects.food == tier]
+        if served and contents[0].series is None:
+            notes.append(phrase)
+        elif served:
+            episodes = "、".join(str(item.series.episode) for item in sorted(served, key=lambda row: row.series.episode))
+            notes.append(f"第 {episodes} 集{phrase}")
+    return notes
+
+
+def unit_done(agent: AgentState, catalog: Catalog, content_id: str, now: int) -> AgentState:
+    """@brief 在地点做的事被人物结束：这条内容所在的单元记为做完一轮，下次点名从头做起（系列从第一集）。
+
+    单元是人物能点名的一件事：独立内容是它自己，系列是目录索引 contents_by_series 里同名的全部各集。目标轮数取这条
+    内容已完成的轮数加一（没有进度记录按 0 算）；单元里轮数低于目标的各条位置归零、轮数置为目标轮数，此前没有进度
+    记录的新建一条、last_consumed_at 取 now，已有记录保留原值；轮数已不低于目标的不动。
+
+    :param content_id: 被结束的活动此刻的当前内容（活动数据的 content_id）。
+    :param now: 结束的时刻。
+    :returns: 共享进度更新后的人物状态副本。
+    """
+    content = catalog.contents[content_id]
+    ids = (content_id,) if content.series is None else catalog.contents_by_series[content.series.title]
+    current = agent.content_progress.get(content_id)
+    target = (0 if current is None else current.completed_rounds) + 1
+    progress = dict(agent.content_progress)
+    for key in ids:
+        known = progress.get(key)
+        if known is None or known.completed_rounds < target:
+            consumed = now if known is None else known.last_consumed_at
+            progress[key] = ContentProgress(content_id=key, position_seconds=0.0, completed_rounds=target,
+                                            last_consumed_at=consumed)
+    return agent.model_copy(update={"content_progress": progress}, deep=True)
 
 
 def held_refusal(state: WorldState, agent_id: int, action: Mapping,

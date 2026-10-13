@@ -34,4 +34,4 @@ def test_frozen_baseline_keeps_its_seed_generated_map_and_current_environment_id
     assert frozen["seed"] == seed
     assert identity["map_sha256"] == map_sha256
     assert (identity["environment_id"], identity["environment_version"], identity["rules_version"]) == (
-        "artificial-test", "3", 4)
+        "artificial-test", "4", 5)

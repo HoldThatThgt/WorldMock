@@ -1,4 +1,4 @@
-"""地点内容单元：同类地点下单元名唯一的登记检查、单元的排序键、下一条内容与动作行的时长和说明。"""
+"""地点内容单元：同类地点下单元名唯一的登记检查、单元的排序键、下一条内容与动作行的时长和说明、被结束时记为做完一轮。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,9 @@ from tests.life.environment_inputs import catalog_rows, copy_environment, write_
 from worldmock.catalog.errors import RegistrationError
 from worldmock.catalog.loader import load_catalog, validate_catalog_files
 from worldmock.catalog.models import Location
-from worldmock.life.location_activities import held_refusal, location_units, next_content, unit_binding, unit_facts
+from worldmock.life.location_activities import (
+    held_refusal, location_units, next_content, unit_binding, unit_done, unit_facts,
+)
 from worldmock.life.models import ContentProgress
 
 _SOURCE = {"kind": "synthetic", "notice": "测试用合成摘要", "url": None}
@@ -117,11 +119,11 @@ def test_units_are_listed_completely_in_unit_key_order(tmp_path):
     assert [item.content_id for item in units[4].contents] == ["z-a", "m-b"]
     assert location_units(catalog, "park") == () and location_units(catalog, "不存在") == ()
     assert [unit.name for unit in location_units(catalog, "office")] == ["季度销售数据整理"]
-    assert unit_binding(units[0]) == {
+    assert unit_binding(units[0], False) == {
         "action": "interact", "detail": "工作日晚饭", "note": None,
-        "content_ids": ["d-1-prep", "d-2-eat", "d-3-wash"], "episode_titles": ["备菜", "吃饭", "洗碗"]}
-    assert unit_binding(units[1]) == {"action": "interact", "detail": "洗漱", "note": None,
-                                      "content_ids": ["e-wash"], "episode_titles": []}
+        "content_ids": ["d-1-prep", "d-2-eat", "d-3-wash"], "episode_titles": ["备菜", "吃饭", "洗碗"], "locked": False}
+    assert unit_binding(units[1], True) == {"action": "interact", "detail": "洗漱", "note": None,
+                                            "content_ids": ["e-wash"], "episode_titles": [], "locked": True}
 
 
 @pytest.mark.parametrize("progress,content_id,position,facts", [
@@ -136,7 +138,8 @@ def test_units_are_listed_completely_in_unit_key_order(tmp_path):
 ])
 def test_series_starts_at_the_lowest_episode_with_the_fewest_rounds(tmp_path, person, progress, content_id,
                                                                     position, facts):
-    """没做过从第一集开始，做到一半从原位置接着做，整个系列做完后从第一集开始新的一轮。"""
+    """没做过从第一集开始，位置大于零（正在做，或被暂停的活动占着）从原位置接着做，整个系列做完后从第一集开始新的
+    一轮。"""
     catalog = load_catalog(_catalog_dir(tmp_path, _DINNER), 7)
     contents = location_units(catalog, "home")[0].contents
     content, at = next_content(contents, person(progress))
@@ -150,11 +153,82 @@ def test_series_starts_at_the_lowest_episode_with_the_fewest_rounds(tmp_path, pe
     ({"e-wash": (120.5, 0)}, {"duration": "约 3 分钟", "note": "上次没做完，接着做"}),
 ])
 def test_standalone_unit_shows_remaining_time_and_the_resume_note(tmp_path, person, progress, facts):
-    """独立内容：没做过或做完过没有说明；没做完时时长是剩余时长（向上取整到秒）并写接着做。"""
+    """独立内容：没做过或做完过没有说明；位置大于零（正在做，或被暂停的活动占着）时长是剩余时长（向上取整到秒）并写
+    接着做。"""
     catalog = load_catalog(_catalog_dir(tmp_path, _DINNER), 7)
     contents = location_units(catalog, "home")[1].contents
     assert unit_facts(contents, person(progress)) == facts
     assert next_content(contents, person(progress))[0].content_id == "e-wash"
+
+
+def _fed(row: dict, **effects) -> dict:
+    """给一行地点内容写上完成效果。"""
+    return {**row, "completion_effects": effects}
+
+
+#: 「做晚饭」三集只有第二集供一餐；「四集晚饭」第二、四集供一餐；「下午茶」第二集供一餐、第三集供一份零食；
+#: 两条独立内容分别供一餐和一份零食，「散步」只声明了一次缓解。
+_FED = (_episode("d-1-prep", "备菜", 1, 1200), _fed(_episode("d-2-eat", "吃饭", 2, 1500), food="meal"),
+        _episode("d-3-wash", "洗碗", 3, 600),
+        _episode("k-1", "第一集", 1, 600, "四集晚饭"), _fed(_episode("k-2", "第二集", 2, 600, "四集晚饭"), food="meal"),
+        _episode("k-3", "第三集", 3, 600, "四集晚饭"), _fed(_episode("k-4", "第四集", 4, 600, "四集晚饭"), food="meal"),
+        _episode("t-1", "泡茶", 1, 600, "下午茶"), _fed(_episode("t-2", "吃点心", 2, 600, "下午茶"), food="meal"),
+        _fed(_episode("t-3", "水果", 3, 600, "下午茶"), food="snack", social_relief="low"),
+        _fed(_content("m-lunch", "吃午饭", 1800), food="meal"),
+        _fed(_content("n-snack", "吃零食", 300), food="snack", relaxation_relief="high"),
+        _fed(_content("p-walk", "散步", 300), relaxation_relief="low", social_relief="medium"))
+
+
+@pytest.mark.parametrize("unit,progress,note", [
+    ("吃午饭", {}, "供一餐"),
+    ("吃午饭", {"m-lunch": (600.0, 0)}, "上次没做完，接着做；供一餐"),
+    ("吃零食", {}, "供一份零食"),
+    ("散步", {}, None),
+    ("工作日晚饭", {}, "第 1 集，共 3 集；第 2 集供一餐"),
+    ("工作日晚饭", {"d-1-prep": (0.0, 1), "d-2-eat": (600.0, 0)}, "第 2 集，共 3 集；上次没做完，接着做；第 2 集供一餐"),
+    ("工作日晚饭", {"d-1-prep": (0.0, 1), "d-2-eat": (0.0, 1)}, "第 3 集，共 3 集；第 2 集供一餐"),
+    ("四集晚饭", {}, "第 1 集，共 4 集；第 2、4 集供一餐"),
+    ("下午茶", {}, "第 1 集，共 3 集；第 2 集供一餐；第 3 集供一份零食"),
+])
+def test_tool_layer_note_names_the_food_each_unit_provides(tmp_path, person, unit, progress, note):
+    """独立的一件事 food 为 meal 写「供一餐」、为 snack 写「供一份零食」；系列写全部这样的集号，升序以「、」相连，不随做到
+    第几集而变；说法按第几集、接着做、供一餐、供一份零食的先后以「；」相连；只声明缓解的单元不写。"""
+    catalog = load_catalog(_catalog_dir(tmp_path, _FED), 7)
+    contents = next(item for item in location_units(catalog, "home") if item.name == unit).contents
+    assert unit_facts(contents, person(progress))["note"] == note
+
+
+#: 结束的时刻：新建的进度记录以它为 last_consumed_at（person 夹具里已有记录的 last_consumed_at 都是 1）。
+_ENDED_AT = 1767576600
+
+
+@pytest.mark.parametrize("content_id,progress,expected", [
+    ("e-wash", {}, {"e-wash": (0.0, 1, _ENDED_AT)}),
+    ("e-wash", {"e-wash": (120.5, 0)}, {"e-wash": (0.0, 1, 1)}),
+    ("e-wash", {"e-wash": (60.0, 2), "f-bed": (300.0, 0)}, {"e-wash": (0.0, 3, 1), "f-bed": (300.0, 0, 1)}),
+    ("d-1-prep", {"d-1-prep": (900.0, 0)},
+     {"d-1-prep": (0.0, 1, 1), "d-2-eat": (0.0, 1, _ENDED_AT), "d-3-wash": (0.0, 1, _ENDED_AT)}),
+    ("d-2-eat", {"d-1-prep": (0.0, 1), "d-2-eat": (600.0, 0)},
+     {"d-1-prep": (0.0, 1, 1), "d-2-eat": (0.0, 1, 1), "d-3-wash": (0.0, 1, _ENDED_AT)}),
+    ("d-2-eat", {"d-1-prep": (0.0, 1)},
+     {"d-1-prep": (0.0, 1, 1), "d-2-eat": (0.0, 1, _ENDED_AT), "d-3-wash": (0.0, 1, _ENDED_AT)}),
+    ("d-2-eat", {"d-1-prep": (450.0, 3), "d-2-eat": (300.0, 1)},
+     {"d-1-prep": (450.0, 3, 1), "d-2-eat": (0.0, 2, 1), "d-3-wash": (0.0, 2, _ENDED_AT)}),
+], ids=["standalone-without-a-record", "standalone-half-done", "standalone-later-round-leaves-other-units",
+        "series-at-episode-one", "series-at-episode-two", "series-just-moved-to-episode-two",
+        "series-episode-ahead-is-untouched"])
+def test_unit_done_raises_every_content_behind_to_the_next_round(tmp_path, person, content_id, progress, expected):
+    """被结束的这条内容的轮数加一是目标轮数；单元里轮数低于它的各条位置归零、轮数置为目标轮数（系列各集一并拉齐），
+    已不低于目标的不动；新建的记录 last_consumed_at 取结束的时刻，已有记录保留原值；别的单元不受影响。"""
+    catalog = load_catalog(_catalog_dir(tmp_path, _DINNER), 7)
+    before = person(progress)
+    after = unit_done(before, catalog, content_id, _ENDED_AT)
+    assert {key: (row.position_seconds, row.completed_rounds, row.last_consumed_at)
+            for key, row in after.content_progress.items()} == expected
+    assert before.content_progress == person(progress).content_progress
+    contents = next(unit for unit in location_units(catalog, "home") if content_id in
+                    [item.content_id for item in unit.contents]).contents
+    assert next_content(contents, after)[1] == 0.0
 
 
 def test_location_sleepable_is_a_strict_boolean_that_defaults_to_false():
@@ -171,5 +245,5 @@ def test_location_sleepable_is_a_strict_boolean_that_defaults_to_false():
 def test_held_refusal_ignores_units_without_a_paused_activity(engine_factory):
     """没有暂停中的活动占着时，任何单元都没有被占的拒绝。"""
     engine = engine_factory()
-    unit = unit_binding(location_units(engine.context.catalog, "home")[0])
+    unit = unit_binding(location_units(engine.context.catalog, "home")[0], False)
     assert held_refusal(engine.context.state, 1, unit, {}) is None

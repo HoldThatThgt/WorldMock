@@ -12,7 +12,7 @@ from worldmock.catalog.admission import validate_manifest, validate_map
 from worldmock.catalog.errors import RegistrationError
 from worldmock.catalog.identity import read_manifest_payload, refresh_manifest_identity
 from worldmock.catalog.loader import load_catalog, validate_catalog_files
-from worldmock.catalog.models import MapGraph
+from worldmock.catalog.models import App, MapGraph
 from worldmock.footprints.models import canonical_json
 
 
@@ -74,12 +74,25 @@ def change_rows(directory, filename, identity, update):
     ("app-catalog.jsonl", "bilibili", {"travel_method_ids": []}, "APP_ROLE_BINDING_INVALID"),
     ("app-catalog.jsonl", "bilibili", {"travel_method_ids": ["walking"]}, "APP_ROLE_BINDING_INVALID"),
     ("app-catalog.jsonl", "bilibili", {"browse_duration_seconds": 60}, "ENVIRONMENT_KIND_INVALID"),
+    ("app-catalog.jsonl", "eleme", {"browse_duration_seconds": 60}, "ENVIRONMENT_KIND_INVALID"),
 ])
 def test_registration_enforces_actual_roles_and_exclusive_bindings(directory, filename, identity, update, code):
     change_rows(directory, filename, identity, update)
     with pytest.raises(RegistrationError) as failure:
         load_catalog(directory, 7)
     assert failure.value.code == code
+
+
+def test_removed_browse_duration_is_refused_as_an_unknown_field_with_its_line(directory):
+    """已删除的浏览时长对没有内容的内容 app 也只是一个未知字段：行模型拒绝，详情指到那一行并带模型原文。"""
+    assert "browse_duration_seconds" not in App.model_fields
+    change_rows(directory, "app-catalog.jsonl", "eleme", {"browse_duration_seconds": 60})
+    failure = refused(directory)
+    assert (failure.code, failure.message) == ("ENVIRONMENT_KIND_INVALID", "A declared kind is outside the fixed set.")
+    assert failure.detail.startswith("app-catalog.jsonl:5 1 validation error for App\n")
+    lines = failure.detail.splitlines()
+    assert lines[1] == "browse_duration_seconds"
+    assert "Extra inputs are not permitted" in lines[2]
 
 
 def test_app_binding_refusals_keep_their_rewritten_fixed_reasons(directory):
@@ -201,7 +214,7 @@ def test_manifest_reader_rejects_noncanonical_or_nonobject_document(directory, p
 
 @pytest.mark.parametrize("change,code", [
     ({"rules_version": 0}, "RULES_VERSION_MISMATCH"),
-    ({"rules_version": 3}, "RULES_VERSION_MISMATCH"),
+    ({"rules_version": 4}, "RULES_VERSION_MISMATCH"),
     ({"files": ()}, "ENVIRONMENT_FILE_UNLISTED"),
 ])
 def test_manifest_validator_checks_version_and_complete_file_table(directory, change, code):
@@ -395,9 +408,9 @@ def test_manifest_checks_report_the_earliest_failing_step(directory, changes, co
         if "unsorted" in changes:
             payload["files"].reverse()
         if "bad_shape" in changes:
-            payload["format_version"] = 3
+            payload["format_version"] = 4
         if "old_rules" in changes:
-            payload["rules_version"] = 3
+            payload["rules_version"] = 4
 
     if "stale_entry" in changes:
         (directory / "notes.txt").write_bytes(b"")
@@ -521,6 +534,7 @@ def test_absent_and_empty_travel_method_file_both_leave_only_walking(bare):
     ({"class": "action", "key": "walk"}, "ENVIRONMENT_KIND_INVALID", None),
     ({"class": "action", "key": "take_taxi"}, "ENVIRONMENT_KIND_INVALID", None),
     ({"class": "action", "key": "take_bus"}, "ENVIRONMENT_KIND_INVALID", None),
+    ({"class": "action", "key": "query"}, "ENVIRONMENT_KIND_INVALID", None),
     ({"class": "action", "key": "drive", "travel_method_id": "driving"}, "ENVIRONMENT_KIND_INVALID", None),
     ({"class": "action", "key": "travel", "travel_method_id": "boat"}, "ENVIRONMENT_REF_UNKNOWN",
      "callbacks.jsonl:2 Unknown travel_method_id: boat."),
@@ -528,7 +542,8 @@ def test_absent_and_empty_travel_method_file_both_leave_only_walking(bare):
      "callbacks.jsonl:2 Unknown travel_method_id: 驾车."),
 ])
 def test_callback_travel_trigger_names_exactly_one_registered_travel_method(directory, trigger, code, detail):
-    """出行触发必须带出行方式，其他动作触发不得带；旧出行动作名不再是合法的键；未登记的身份指出文件、行号和值。"""
+    """出行触发必须带出行方式，其他动作触发不得带；旧出行动作名和查询（query）都不是合法的键；未登记的身份指出文件、行号
+    和值。"""
     write_catalog_rows(directory.parent, "callbacks.jsonl", [
         {"state": "stock", "initial": 1, "cap": 3, "reset_on_goods": []},
         {"rule_id": "rule", "trigger": trigger, "effect": {"type": "state_delta", "state": "stock", "delta": -1}}])

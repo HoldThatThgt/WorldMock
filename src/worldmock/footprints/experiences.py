@@ -161,8 +161,6 @@ def _project_event(event: Event) -> list[dict[str, Any]]:
         _invalid("Activity progress has no activity snapshot")
     kind = activity.get("kind")
     if kind == "interact":
-        if activity.get("data", {}).get("content_id") is None:
-            return []
         row = _played(event, activity)
         return [row] if row is not None else []
     if kind == "travel":

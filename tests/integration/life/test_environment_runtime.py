@@ -20,7 +20,6 @@ from tests.life.prerequisite_inputs import (
 from worldmock.errors import ProtocolError
 from worldmock.life.models import StartMainActivityRequest
 from worldmock.life.prompt_schemas import validate_layer
-from worldmock.life.world_query import QueryWorldRequest
 
 
 from tests.life.environment_runtime import act, act_group, events, reach
@@ -51,7 +50,7 @@ def test_public_layers_validate_and_contain_four_felt_signals(engine_factory):
     assert data["environment_layer"]["location"]["name"] == "家"
     assert all(isinstance(value, str) for value in data["environment_layer"]["body"].values())
     assert not any(row["kind"] == "person" for row in data["tool_layer"]["targets"])
-    assert data["known_activity_actions"] == ["travel", "purchase", "sleep", "interact"]
+    assert data["known_activity_actions"] == ["travel", "purchase", "sleep", "interact", "query"]
 
 
 @pytest.mark.parametrize("method,identity,seconds,fare,exertion", [
@@ -251,20 +250,21 @@ def test_pause_resume_and_conclude_keep_actual_shared_content_progress(engine_fa
                     "activity_paused", "activity_resumed", "activity_concluded"]
 
 
-def test_query_keeps_world_random_state_and_occupancy_unchanged(engine_factory):
+def test_observation_carries_no_world_query_keys(engine_factory):
+    """真实观察不再带查询的两个私有键；工具层的可调用索引没有 query_categories，goods 仍列出样例环境的四个类别；
+    工具层通过 Schema。"""
     engine = engine_factory()
-    observed = engine.observe(context(engine, "query-preview"))
-    before = engine.context.state.model_dump(mode="json")
-    request = QueryWorldRequest(name=None, action="interact", category=None, available_only=False, offset=0)
-    from worldmock.life.world_query import query_world
-    response = query_world(observed, request)
-    assert response["total_count"] > 0
-    assert engine.context.state.model_dump(mode="json") == before
+    observed = engine.observe(context(engine, "no-world-query"))
+    assert "world_query_bindings" not in observed and "world_query_page_size" not in observed
+    index = observed["tool_layer"]["callable_index"]
+    assert "query_categories" not in index
+    assert {row["category"] for row in index["goods"]} == {"零食", "食品", "饮料", "商品"}
+    validate_layer(observed["tool_layer"])
 
 
 def test_action_id_replay_is_idempotent_and_parameter_conflict_is_protocol_error(engine_factory):
     engine = engine_factory()
-    request = use_app("美团")
+    request = use_app("Keep")
     _, result = act(engine, "stable", request, action_id="same-action")
     reach(engine, engine.context.state.activities[result.activity_id].planned_end_at)
     original = engine.context.state.model_dump(mode="json")
@@ -339,7 +339,7 @@ def test_paused_interaction_requires_its_actual_start_location_to_resume(engine_
 
 def test_completed_interaction_keeps_its_slot_until_actual_conclusion(engine_factory):
     engine = engine_factory()
-    _, result = act(engine, "finished-browse", use_app("美团"))
+    _, result = act(engine, "finished-keep", use_app("Keep"))
     activity = engine.context.state.activities[result.activity_id]
     reach(engine, activity.planned_end_at)
     _, refused = act(engine, "pending-blocks", use_app("Keep"))

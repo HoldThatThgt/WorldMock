@@ -2,7 +2,7 @@
 
 import pytest
 
-from tests.life.conftest import advance_next, sleep, travel
+from tests.life.conftest import advance_next, query, sleep, travel
 from tests.life.environment_inputs import copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, events, finish_activity, run_to_end
 
@@ -213,3 +213,22 @@ def test_navigation_app_is_chosen_only_among_apps_bound_to_the_trips_travel_meth
     assert len(set(chosen)) == (len(seeds) if candidates else 0)
     distinct = {app for _, app in chosen}
     assert distinct <= set(candidates) and (len(candidates) < 2 or len(distinct) > 1)
+
+
+def test_accepted_query_fires_no_action_callback(engine_factory, tmp_path):
+    """环境里登记订阅购买、interact、睡眠的三条动作规则：真实受理一次查询并走到做完，没有任何回调效果事件，回调状态、
+    按日去重键与余额都不变（受理时以查询的动作 query 求值一次，没有规则能订阅它）。"""
+    rules = [rule(f"on-{key}", {"class": "action", "key": key},
+                  {"type": "state_delta", "state": "driving_stock", "delta": -1})
+             for key in ("purchase", "interact", "sleep")]
+    engine = engine_factory(callback_environment(tmp_path, rules))
+    accounts = dict(engine.context.state.accounts)
+    _, asked = act(engine, "ask", query("柠檬茶"))
+    assert asked.status == "in_progress"
+    activity = asked.activity_id
+    while engine.context.state.activities[activity].status == "active":
+        advance_next(engine)
+    assert engine.context.state.activities[activity].status == "completed"
+    person = engine.context.state.agents[1]
+    assert (person.callback_states, person.callback_once_keys) == ({"driving_stock": 3}, set())
+    assert engine.context.state.accounts == accounts and changes(engine) == []

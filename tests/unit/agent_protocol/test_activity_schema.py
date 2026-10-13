@@ -142,7 +142,7 @@ def test_start_tools_declare_the_model_schema_and_take_readable_frozen_names() -
         [item] = _host_error(tool, arguments).report.items
         assert (item.error_code, item.path[4:], item.written) == ("ACTION_NOT_OFFERED", ("action",), arguments["action"])
         assert item.allowed_values == offered
-    for tool, allowed in ((MAIN_TOOL, ("travel", "interact", "sleep")), (SIDE_TOOL, ("purchase", "interact"))):
+    for tool, allowed in ((MAIN_TOOL, ("travel", "interact", "sleep")), (SIDE_TOOL, ("purchase", "interact", "query"))):
         valid = _WAIT_CHOICE if tool == MAIN_TOOL else _WORK_CHOICE
         for action in ("wait", "walk", "invented_action"):
             [item] = _host_error(tool, {**valid, "action": action}).report.items
@@ -246,7 +246,7 @@ def test_recall_uses_readable_activity_name_and_retired_world_tools_are_absent()
     """回看绑定真实活动名称，旧消息、工作提交与闹钟工具不再提供。"""
     names = {entry["function"]["name"] for entry in _prepared_agent().build_react_tool_schemas(readonly=False)}
     assert {"start_activity", "submit_work", "send_message", "set_alarm", "finish"}.isdisjoint(names)
-    assert len(names) == 11 and {MAIN_TOOL, SIDE_TOOL} <= names
+    assert len(names) == 10 and {MAIN_TOOL, SIDE_TOOL} <= names
     recall = _function("recall_task_summary")["parameters"]
     assert set(recall["properties"]) == {"task_name"}
     for name in (_WAIT,):

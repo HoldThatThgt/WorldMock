@@ -4,7 +4,8 @@ import logging
 from datetime import date
 
 from worldmock.exchange.constants import WEATHER_FACTORS
-from worldmock.footprints.callback_contract import StateDeltaResult, StateResetResult, TransferResult
+from worldmock.footprints.callback_contract import (ConsumeOnStartResult, StateDeltaResult, StateResetResult,
+                                                  TransferResult)
 
 RETIRED_KINDS = {
     "alarm_ring", "message_arrival", "mail_arrival", "model_npc_reply_pending", "model_npc_reply",
@@ -52,8 +53,9 @@ def _location_stay(event) -> None:
 
 
 def _callback_effect(event) -> None:
-    """@brief 三种效果正文来自同一模型，且只有真实环境触发可产生。"""
-    contracts = {"state_delta": StateDeltaResult, "reset_to_cap": StateResetResult, "transfer": TransferResult}
+    """@brief 四种效果正文来自同一模型，且只有真实环境触发可产生；三种状态效果不改账户。"""
+    contracts = {"state_delta": StateDeltaResult, "reset_to_cap": StateResetResult,
+                 "consume_on_start": ConsumeOnStartResult, "transfer": TransferResult}
     contract = contracts.get(event.data.get("type"))
     if contract is None:
         _invalid("Callback effect type is invalid")

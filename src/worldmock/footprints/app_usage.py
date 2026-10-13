@@ -1,4 +1,7 @@
-"""@brief 只从实际应用快照、前台区间事件、通知和推送投影八种数字使用事实。"""
+"""@brief 只从实际应用快照、前台区间事件、通知和推送投影八种数字使用事实。
+
+应用快照来自自带 app 的活动：人物点名使用的内容 app 与查询所在的 app。
+"""
 
 from __future__ import annotations
 
@@ -7,10 +10,12 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from itertools import groupby
+from typing import get_args
 from zoneinfo import ZoneInfo
 
+from worldmock.catalog.models import FoodTier, ReliefTier
 from worldmock.errors import IntegrityError
-from worldmock.life.action_contract import ACTIVITY_ACTIONS
+from worldmock.life.action_contract import ACTIVITY_ACTIONS, APP_BOUND_ACTIONS
 from worldmock.life.order_notices import ORDER_TITLES, PAYMENT_SUCCEEDED
 
 #: 可以带活动快照的事件：受理、拒绝、结果、进度和环境事件。拒绝带的是被拒那一刻仍在进行的那项活动，世界没有变。
@@ -32,6 +37,13 @@ _POINT_FACT_FIELDS = {
 }
 #: 前台区间的三种步骤：导航、下单、支付。
 _FOREGROUND_STEPS = frozenset({"navigation", "ordering", "payment"})
+#: 内容证据 data.content 的字段闭集。
+_CONTENT_FIELDS = frozenset({"content_id", "app_id", "position_before_seconds", "position_after_seconds",
+                             "completed", "completed_rounds_after", "completion_effects"})
+#: 完成效果三个成员各自的证据键与档位表（docs/design/05-recording-engine.md「事件与来源」）。
+_COMPLETION_MEMBERS = {"food": (frozenset({"tier", "provided", "applied", "efficiency"}), get_args(FoodTier)),
+                       "relaxation_relief": (frozenset({"tier", "provided", "applied"}), get_args(ReliefTier)),
+                       "social_relief": (frozenset({"tier", "provided", "applied"}), get_args(ReliefTier))}
 
 
 @dataclass
@@ -56,14 +68,14 @@ class _Projection:
     statuses: dict[str, str] = field(default_factory=dict)
     #: 引擎代为使用的 app：按（活动，app）累计的前台区间、人物与最后一条来源事件。
     foreground: dict[tuple[str, str], dict] = field(default_factory=dict)
-    #: 各 app_use 行第一条来源事件的事件身份，键是人物点名使用的活动身份或（活动，app）。
+    #: 各 app_use 行第一条来源事件的事件身份，键是自带 app 的活动身份或（活动，app）。
     first_sources: dict[object, str] = field(default_factory=dict)
 
 
 def project_app_usage(events: list[dict]) -> list[dict]:
     """@brief app 使用行在前、按各行第一条来源事件的先后排列，其余事实按事件先后跟在后面。
 
-    人物点名使用的 app 输出活动的实际执行区间；引擎代为使用的 app（导航、下单、支付）同一活动、同一 app 一行，
+    自带 app 的活动（人物点名使用的内容 app、查询所在的 app）输出活动的实际执行区间；引擎代为使用的 app（导航、下单、支付）同一活动、同一 app 一行，
     区间是全部前台区间合并的结果，状态取所属活动的最后状态。
     """
     projection = _project(events)
@@ -89,7 +101,7 @@ def _common(kind: str, agent_id: int, app_id: str, source: str) -> dict:
 
 
 def _app_binding(activity: dict) -> str | None:
-    """@brief 只有真实交互活动的应用身份形成持续使用。"""
+    """@brief 自带 app 的活动（内容 app 的使用与查询）的应用身份；没有 app 时为 None，不形成持续使用。"""
     return activity.get("data", {}).get("app_id")
 
 
@@ -100,7 +112,7 @@ def validate_activity_prefix(events: list[dict]) -> None:
         nested = event["data"].get("data", {}).get("activity")
         if isinstance(nested, dict):
             rows.append(nested)
-        if any(row.get("kind") not in {"sleep", "travel", "interact", "purchase"} for row in rows):
+        if any(row.get("kind") not in ACTIVITY_ACTIONS for row in rows):
             _invalid_source("Activity snapshot uses a retired activity kind")
         if any("title" in row for row in rows):
             _invalid_source("Activity snapshot contains a retired title field")
@@ -149,7 +161,7 @@ def _visit(event: dict, projection: _Projection, ended: set[str]) -> None:
         sessions = activity.get("session_ids", [])
         if event["event_type"] == "action_accepted" and sessions:
             _change_session(projection, activity["agent_id"], sessions[-1])
-        if activity["kind"] == "interact" and _app_binding(activity) is not None:
+        if activity["kind"] in APP_BOUND_ACTIONS and _app_binding(activity) is not None:
             _app_snapshot(event, activity, projection)
         if event["event_type"] == "activity_progress" and data.get("content", {}).get("completed"):
             _release_completed(event, activity, projection)
@@ -170,7 +182,7 @@ def validate_app_event_source(event: dict) -> None:
         if (event["event_type"] not in _SNAPSHOT_EVENT_TYPES
                 or event.get("source_kind") != "environment" or event.get("visibility") != "agent"):
             _invalid_source("Activity snapshots must come from agent-visible environment events")
-        if any(row["kind"] not in {"sleep", "travel", "interact", "purchase"} for row in snapshots):
+        if any(row["kind"] not in ACTIVITY_ACTIONS for row in snapshots):
             _invalid_source("Activity snapshot uses a retired activity kind")
         if any(row["agent_id"] != event["agent_id"] for row in snapshots):
             _invalid_source("Activity snapshot owner disagrees with its source event")
@@ -178,17 +190,33 @@ def validate_app_event_source(event: dict) -> None:
         if event.get("source_kind") != "environment" or event.get("visibility") != "agent":
             _invalid_source("Activity progress must be an agent-visible environment event")
         if "content" in data:
-            fields = {"content_id", "app_id", "position_before_seconds", "position_after_seconds",
-                      "completed", "completed_rounds_after"}
-            if data["activity"]["kind"] != "interact" or set(data["content"]) != fields:
+            if data["activity"]["kind"] != "interact" or set(data["content"]) != _CONTENT_FIELDS:
                 _invalid_source("Content consumption must use the current interact content contract")
             if data["content"]["app_id"] != data["activity"]["data"]["app_id"]:
                 _invalid_source("Content consumption app disagrees with its actual action")
+            _validate_completion_effects(data["content"])
     if event["event_type"] == "environment_event":
         if data.get("kind") == "app_push":
             _validate_push_source(event)
         elif data.get("kind") in _SYSTEM_FIELDS:
             _validate_system_source(event)
+
+
+def _validate_completion_effects(content: dict) -> None:
+    """@brief 完成效果证据为 null，或是只出现在做完的地点内容上、恰含三个成员的对象；每个非空成员的键恰如合同、
+    tier 在该成员的档位表内。不成立是运行故障。"""
+    effects = content["completion_effects"]
+    if effects is None:
+        return
+    if (not isinstance(effects, dict) or set(effects) != set(_COMPLETION_MEMBERS) or not content["completed"]
+            or content["app_id"] is not None
+            or not all(_completion_member(effects[name], *_COMPLETION_MEMBERS[name]) for name in _COMPLETION_MEMBERS)):
+        _invalid_source("Activity completion effects must use the current location completion contract")
+
+
+def _completion_member(evidence, keys: frozenset[str], tiers: tuple[str, ...]) -> bool:
+    """@brief 一个成员的证据：没有声明为 null；声明了是键恰为 keys、tier 在 tiers 之内的对象。"""
+    return evidence is None or (isinstance(evidence, dict) and set(evidence) == keys and evidence["tier"] in tiers)
 
 
 def _validate_push_source(event: dict) -> None:

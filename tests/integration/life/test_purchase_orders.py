@@ -79,8 +79,7 @@ def with_many_shops(tmp_path, count=12):
     root = copy_environment(tmp_path / "shops")
     apps, goods = catalog_rows(root, "app-catalog.jsonl"), catalog_rows(root, "merchant-catalog.jsonl")
     for number in range(1, count + 1):
-        apps.append({"app_id": f"shop-{number:02d}", "browse_duration_seconds": 600,
-                     "name": f"测试商城{number:02d}", "role": "content"})
+        apps.append({"app_id": f"shop-{number:02d}", "name": f"测试商城{number:02d}", "role": "content"})
         goods.append({"app_ids": [f"shop-{number:02d}"], "category": "goods", "goods_id": f"shop-item-{number:02d}",
                       "name": f"商城货品{number:02d}", "price_fen": 100})
     write_catalog_rows(root, "app-catalog.jsonl", sorted(apps, key=lambda row: row["app_id"]))
@@ -490,7 +489,7 @@ def test_one_courier_delivery_group_with_two_arrival_days_arrives_in_two_trips(e
     write_catalog_rows(root, "merchant-catalog.jsonl", sorted(goods, key=lambda row: row["goods_id"]))
     engine = engine_factory(environment_root=root, mutate=lambda persona, config: config.update(
         stop_time=config["start_time"] + timedelta(days=6)))
-    days = {key: quote_goods(engine.context.inputs, engine.context.state, 1, key).expected_at for key in names}
+    days = {key: quote_goods(engine.context.inputs, engine.context.state, 1, key, None).expected_at for key in names}
     early = min(days, key=lambda key: (days[key], key))
     late = min((key for key in days if days[key] != days[early]), key=lambda key: (days[key], key))
     _, result = act(engine, "parcels", purchase(names[late], names[early]))

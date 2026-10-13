@@ -81,7 +81,7 @@ def small_catalog(directory, location_ids, declared=None):
             canonical_json({"a": a, "b": b, "length_m": meters}) + b"\n" for a, b, meters in declared))
     (directory / "manifest.json").write_bytes(canonical_json({
         "catalog_content_sha256": "0" * 64, "environment_id": "map-limit", "environment_version": "1",
-        "files": [], "format_version": 4, "rules_version": 4}) + b"\n")
+        "files": [], "format_version": 5, "rules_version": 5}) + b"\n")
     refresh_manifest_identity(directory)
     return directory
 

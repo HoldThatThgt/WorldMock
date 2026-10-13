@@ -51,6 +51,8 @@ class Call:
     action: str
     #: 解析出的绑定行，各带 selected_action：主工具一行，副工具每个名称一行。
     rows: tuple[Mapping[str, Any], ...]
+    #: 这条购买或查询调用从 prefer 认出的意向 app 身份；没有意向、主工具的调用、打开 app 与工具层的单行预览都为 None。
+    prefer: str | None = None
 
     @property
     def slot(self) -> str:
@@ -165,13 +167,11 @@ def _main_refusal(context: Context, main: Call | None, side: Call | None) -> Blo
 
 
 def _travel_refusal(context: Context, row: Mapping[str, Any]) -> Refusal | None:
-    """@brief 出行：进行中的到店购买要先结束；路线时长超出范围按路线拒绝。"""
+    """@brief 出行：进行中的查询与进行中的到店购买要先结束；路线时长超出范围按路线拒绝。"""
     state = context.state
     local = next((activity for activity in state.activities.values()
                   if activity.agent_id == context.agent_id and activity.status == ActivityStatus.ACTIVE
-                  and activity.kind == ActivityKind.PURCHASE
-                  and any(state.deliveries[key].fulfillment == FulfillmentKind.PICKUP
-                          for key in activity.data["order_ids"])), None)
+                  and _keeps_here(state, activity)), None)
     if local is not None:
         name = _name(context, local)
         return Refusal("ACTIVITY_PRECONDITION_UNMET", f"Conclude {name} before departure.", f"Conclude {name}.",
@@ -184,13 +184,24 @@ def _travel_refusal(context: Context, row: Mapping[str, Any]) -> Refusal | None:
     return None
 
 
+def _keeps_here(state: WorldState, activity: ActivityState) -> bool:
+    """@brief 这项活动要人留在原地做完：查询，或含到店购买的购买。"""
+    if activity.kind == ActivityKind.QUERY:
+        return True
+    return activity.kind == ActivityKind.PURCHASE and any(
+        state.deliveries[key].fulfillment == FulfillmentKind.PICKUP for key in activity.data["order_ids"])
+
+
 def _local_moment(context: Context) -> datetime:
     """@brief 当前时刻换算到运行时区的本地时刻，营业时段按它判定。"""
     return datetime.fromtimestamp(context.state.current_time, ZoneInfo(context.inputs.config.timezone))
 
 
 def _location_refusal(context: Context, row: Mapping[str, Any]) -> Refusal | None:
-    """@brief 在地点做事按营业、取件、单元被占的次序判定，第一条不成立的给出拒绝。"""
+    """@brief 在地点做事按营业、取件、单元被占、未开放的次序判定，第一条不成立的给出拒绝。
+
+    单元被占排在未开放之前：照写一件已暂停的事得到先恢复的原因，而不是没开放。
+    """
     location = context.inputs.catalog.locations[row["object_id"]]
     if not location.is_open(_local_moment(context)):
         return refusal_for_code("LOCATION_CLOSED")
@@ -198,8 +209,12 @@ def _location_refusal(context: Context, row: Mapping[str, Any]) -> Refusal | Non
                 and order.status == "ready_for_pickup" for order in context.state.deliveries.values())
     if location.accepts_parcels and not ready:
         return Refusal("PARCEL_NOT_READY", default_reason("PARCEL_NOT_READY"), unmet=("parcel_ready",))
-    return location_activities.held_refusal(context.state, context.agent_id, row["selected_action"],
+    held = location_activities.held_refusal(context.state, context.agent_id, row["selected_action"],
                                             context.activity_names)
+    if held is not None:
+        return held
+    agent = context.state.agents[context.agent_id]
+    return location_activities.locked_refusal(context.inputs.catalog, agent, row["selected_action"])
 
 
 def _sleep_place_refusal(context: Context) -> Refusal | None:
@@ -215,24 +230,36 @@ def _sleep_place_refusal(context: Context) -> Refusal | None:
 
 
 def _side_refusal(context: Context, main: Call | None, side: Call | None) -> Blocked | None:
-    """@brief 副调用的对象条件：购买按逐份报价与出发同组的限制判定；登记了内容的 app 此刻须有合格内容，
-    停留地点取请求前的世界，所以与出发同组时按出发地判定。"""
+    """@brief 副调用的对象条件，每个动作各走自己的一支：购买、用内容 app、查询。"""
     if side is None:
         return None
-    if side.action == "purchase":
-        refusal = _purchase_refusal(context, main, side)
-    else:
-        catalog = context.inputs.catalog
-        stay = present_location(context.state, context.agent_id)
-        refusal = app_prerequisite_refusal(catalog, side.rows[0]["object_id"],
-                                           None if stay is None else catalog.locations[stay], _local_moment(context))
+    refusal = _SIDE_CHECKS[side.action](context, main, side)
     return None if refusal is None else Blocked(refusal, (side.tool,))
+
+
+def _app_refusal(context: Context, main: Call | None, side: Call) -> Refusal | None:
+    """@brief 用内容 app：登记了内容的 app 此刻须有合格内容；停留地点取请求前的世界，与出发同组时按出发地判定。"""
+    catalog = context.inputs.catalog
+    stay = present_location(context.state, context.agent_id)
+    return app_prerequisite_refusal(catalog, side.rows[0]["object_id"],
+                                    None if stay is None else catalog.locations[stay], _local_moment(context))
+
+
+def _query_refusal(context: Context, main: Call | None, side: Call) -> Refusal | None:
+    """@brief 查询：人在路上（没有停留会话）不能查询，也不能与出发在同一次回复里开始。"""
+    if present_location(context.state, context.agent_id) is None:
+        return Refusal("ACTIVITY_PRECONDITION_UNMET", "A query cannot start while travelling.",
+                       "Start the query after arriving at a location.", ("stay_location",))
+    if main is not None and main.action == "travel":
+        return Refusal("ACTIVITY_PRECONDITION_UNMET", "A query cannot start with departure.",
+                       "Finish or conclude the query before leaving.", ("stay_location",))
+    return None
 
 
 def _purchase_refusal(context: Context, main: Call | None, side: Call) -> Refusal | None:
     """@brief 购买：逐份报价的拒绝按数组次序取第一条；同组出发时报价里不能有到店购买。"""
     try:
-        groups, _ = quoted_basket(context.inputs, context.state, context.agent_id, side.goods_ids)
+        groups, _ = quoted_basket(context.inputs, context.state, context.agent_id, side.goods_ids, side.prefer)
     except BusinessRuleError as error:
         _LOGGER.error("Purchase quote was refused: %s", error)
         return refusal_from_error(error)
@@ -243,11 +270,19 @@ def _purchase_refusal(context: Context, main: Call | None, side: Call) -> Refusa
     return None
 
 
+#: 副调用对象条件的分支：每个副工具动作一支，没有兜底。
+_SIDE_CHECKS = {"purchase": _purchase_refusal, "interact": _app_refusal, "query": _query_refusal}
+
+
 def _funds_refusal(context: Context, main: Call | None, side: Call | None) -> Blocked | None:
-    """@brief 余额：全部货款加各配送组的运费再加同组出行的车费；没有同组购买时只核对车费。"""
+    """@brief 余额：全部货款加各配送组的运费再加同组出行的车费；没有同组购买时只核对车费。
+
+    货款与运费按带意向的路线算：意向让商品分到两家店、多出一份运费而余额不够时整组拒绝，不为余额放弃意向。
+    """
     fare = planned_trip(context, main.rows[0]).fare_fen if main is not None and main.action == "travel" else 0
     purchases = side is not None and side.action == "purchase"
-    goods = quoted_basket(context.inputs, context.state, context.agent_id, side.goods_ids)[1] if purchases else 0
+    goods = quoted_basket(context.inputs, context.state, context.agent_id, side.goods_ids,
+                          side.prefer)[1] if purchases else 0
     account = context.state.agents[context.agent_id].balance_account_id
     if context.state.accounts[account] >= fare + goods:
         return None

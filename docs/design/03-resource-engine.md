@@ -28,16 +28,16 @@ flowchart LR
 
 | 文件 | 是否必需 | 登记内容 | 不存在时 |
 | --- | --- | --- | --- |
-| `manifest.json` | 必需 | `format_version: 4`、环境身份和版本、`rules_version: 4`、每个存在的目录 JSONL 的路径、摘要和字节数，以及 `catalog_content_sha256` | 加载失败 |
-| `app-catalog.jsonl` | 必需 | app 身份、名称、角色，以及功能 app 的购买绑定与出行方式绑定或纯目录浏览时长 | 加载失败 |
+| `manifest.json` | 必需 | `format_version: 5`、环境身份和版本、`rules_version: 5`、每个存在的目录 JSONL 的路径、摘要和字节数，以及 `catalog_content_sha256` | 加载失败 |
+| `app-catalog.jsonl` | 必需 | app 身份、名称、角色，以及功能 app 的购买绑定与出行方式绑定 | 加载失败 |
 | `location.jsonl` | 必需 | 全部实际地点、显示名、自由类型、内容 app、住宿和驿站资格、营业安排 | 加载失败 |
 | `merchant-catalog.jsonl` | 必需 | 商品身份、名称、四类商品、固定价格、地点类型或内容 app 绑定 | 加载失败 |
-| `content-catalog.jsonl` | 必需 | 内容身份、标题、时长、体力消耗、推送资格、心理缓解档位、摘要与容器；绑定到 app 的内容可以另写前提 `prerequisite` | 加载失败 |
+| `content-catalog.jsonl` | 必需 | 内容身份、标题、时长、体力消耗、推送资格、心理缓解档位、摘要与容器；绑定到 app 的内容可以另写前提 `prerequisite`；绑定到地点类型的内容可以另写凭状态 `consumes_state` 与完成效果 `completion_effects` | 加载失败 |
 | `callbacks.jsonl` | 可选 | 状态声明和触发规则 | 没有状态，没有规则 |
 | `map.jsonl` | 可选 | 声明的两地距离 | 没有声明，地图全部随机生成 |
 | `travel-method.jsonl` | 可选 | 数据集定义的出行方式 | 只有引擎自带的步行 |
 
-规则版本 `RULES_VERSION` 是 4，目录格式 `format_version` 是 4；这两个号只在本节维护。
+规则版本 `RULES_VERSION` 是 5，目录格式 `format_version` 是 5；这两个号只在本节维护。
 四个必需文件名是 `catalog.identity` 的 `REQUIRED_CATALOG_FILES`，三个可选文件名是 `OPTIONAL_CATALOG_FILES`，其余模块只引用这两个常量。
 可选文件「存在」指 `catalog/` 下有这个名字的目录条目，不论类型；存在的条目必须是普通文件，链接和目录由安全文件边界拒绝。
 可选文件允许零字节。零字节表示零行，加载出的目录、地图和运行行为与文件不存在完全相同；两者只在清单文件表和目录摘要上不同。
@@ -82,6 +82,19 @@ app、地点显示名、商品名分别在所属文件唯一。app 名不得与�
 写在地点内容上、两个成员都没写、`location_kinds` 的重复与排序、`location_kinds` 悬空、`opens` 的时段写法。
 同一系列各集的前提是否相同属于系列检查。
 
+地点内容的凭状态 `consumes_state` 与完成效果 `completion_effects` 同样分两步。行解析时由严格行模型检查形状：
+两个字段或完成效果的成员写成 `null`、类型不对、`consumes_state` 空白、`completion_effects` 不是对象或含未知成员、成员不是所属档位表里的档位名，
+都在行解析时拒绝，早于全部登记核对，失败详情以 `content-catalog.jsonl:<行号>` 开头。登记核对用 `callbacks.jsonl` 登记的全部状态名，没有这个文件时为空集；
+它排在内容前提的核对之后、系列检查之前，按下面的次序先遇到的先报：
+
+| 次序 | 检查 | 登记码 | 详情 |
+| --- | --- | --- | --- |
+| 1 | 写了 `consumes_state` 或 `completion_effects`，而这是 app 内容（`app_ids` 非空） | `ENVIRONMENT_KIND_INVALID` | `<content_id> is an app content; consumes_state and completion_effects belong to location contents.` |
+| 2 | `completion_effects` 三个成员都省略 | `ENVIRONMENT_KIND_INVALID` | `<content_id> declares an empty completion_effects.` |
+| 3 | `consumes_state` 不是登记的状态名 | `ENVIRONMENT_REF_UNKNOWN` | `<content_id> consumes_state names <状态名>.` |
+
+同一系列各集的 `consumes_state` 是否相同属于系列检查，排在各集前提是否相同的核对之后。
+
 清单检查按下面的次序进行，先遇到的先报：
 
 | 次序 | 检查 | 登记码 |
@@ -105,8 +118,8 @@ app、地点显示名、商品名分别在所属文件唯一。app 名不得与�
 | `ENVIRONMENT_IDENTITY_MISMATCH` | 安全文件边界失败，或实际文件表、字节摘要和清单不一致 |
 | `ENVIRONMENT_LINE_INVALID` | 某行不是恰好一个 JSON 对象，含 `map.jsonl` 与 `travel-method.jsonl` 的行 |
 | `ENVIRONMENT_ID_DUPLICATE` | 身份、名称或引用列表重复，含内容前提的 `location_kinds`；`map.jsonl` 同一对地点出现两行；出行方式的身份或名称重复、使用保留身份 `walking` 或自带名称「步行」；同一地点类型下单元名重复时详情为 `content-catalog.jsonl:<先登记一行的行号> and content-catalog.jsonl:<当前行的行号> give location kind <类型> the same activity name <先登记的单元名>.` |
-| `ENVIRONMENT_REF_UNKNOWN` | app、商品等对象引用未登记；`map.jsonl` 的端点不是登记地点；功能 app 或回调规则引用的出行方式既没有登记、也不是 `walking` |
-| `ENVIRONMENT_KIND_INVALID` | 未知字段、非法闭集值、坏字符串或布尔、未排序列表、非法营业时段；`map.jsonl` 的端点不满足 `a < b` 或行未排序；`travel-method.jsonl` 的行未按身份升序；功能 app 的 `actions` 出现 `purchase` 以外的值；回调的出行触发缺少 `travel_method_id`，或其他动作触发带了它。内容前提写成 `null`、不是对象或含未知键，`location_kinds` 不是字符串数组、有空白项或未按升序，前提的 `opens` 写成 `null`、形状不符或时段写法不合法，都属于这一项；两种 `null` 的详情分别是 `A declared content prerequisite must be an object.` 与 `A declared opening schedule must be an object.`，后一句地点行与内容前提共用 |
+| `ENVIRONMENT_REF_UNKNOWN` | app、商品等对象引用未登记；`map.jsonl` 的端点不是登记地点；功能 app 或回调规则引用的出行方式既没有登记、也不是 `walking`；地点内容的 `consumes_state` 不是登记的状态 |
+| `ENVIRONMENT_KIND_INVALID` | 未知字段、非法闭集值、坏字符串或布尔、未排序列表、非法营业时段；`map.jsonl` 的端点不满足 `a < b` 或行未排序；`travel-method.jsonl` 的行未按身份升序；功能 app 的 `actions` 出现 `purchase` 以外的值；回调的出行触发缺少 `travel_method_id`，或其他动作触发带了它。内容前提写成 `null`、不是对象或含未知键，`location_kinds` 不是字符串数组、有空白项或未按升序，前提的 `opens` 写成 `null`、形状不符或时段写法不合法，都属于这一项；两种 `null` 的详情分别是 `A declared content prerequisite must be an object.` 与 `A declared opening schedule must be an object.`，后一句地点行与内容前提共用。app 行写了已删除的 `browse_duration_seconds` 按未知字段处理，详情以 `app-catalog.jsonl:<行号>` 开头、含字段名和 `Extra inputs are not permitted`。app 内容写了 `consumes_state` 或 `completion_effects`；`consumes_state` 类型不对、空白或写成 `null`；`completion_effects` 不是对象、写成 `null`、为空、有未知成员，或成员的档位不在表内（含 `none`、数字和 `null`），都属于这一项；三种 `null` 的详情分别带 `A declared consumed state must be a state name.`、`A declared completion effect must be an object.` 与 `A declared completion effect tier must be a tier name.`，登记核对的两句详情见上文的次序表 |
 | `ENVIRONMENT_NUMBER_INVALID` | 严格整数类型或范围不符；`map.jsonl` 的 `length_m` 缺失、不是严格整数或小于 1；出行方式的速度不是大于 0 的有限数值，或两个价格不是不小于 0 的严格整数 |
 | `HOME_LOCATION_REQUIRED` | 没有显式住宿地点，或人物住处未解析到住宿地点 |
 | `HOME_NOT_SLEEPABLE` | 人物住处没有标 `sleepable`；原因 `The persona home must be marked sleepable.`，详情 `persona.home_location` |
@@ -118,7 +131,7 @@ app、地点显示名、商品名分别在所属文件唯一。app 名不得与�
 | `CONTENT_CONTAINER_MISSING`、`CONTENT_CONTAINER_SIDE_EXCLUSIVE` | 内容容器缺失、两侧同时绑定 |
 | `CONTENT_BINDING_DANGLING` | 内容写的地点类型没有任何登记地点声明，顶层绑定与内容前提的 `location_kinds` 都算；原因 `A content names a location kind that no registered location declares.`，前提悬空时详情为 `<content_id> prerequisite names <kind>.` |
 | `CONTENT_PREREQUISITE_INVALID` | 内容前提写在绑定到地点类型的内容上，或 `location_kinds` 为空且没写 `opens`；原因 `A content prerequisite must belong to an app content and declare location kinds, opening hours, or both.`，详情分别是 `<content_id> is a location content.` 与 `<content_id> declares neither location kinds nor opening hours.` |
-| `CONTENT_SERIES_INVALID` | 同系列容器不同、集号重复，或各集的内容前提不完全相同；原因 `Episodes of a series must share one container binding and one prerequisite and have unique episode numbers.`，前提不同时详情为 `<series.title> episodes declare different prerequisites.` |
+| `CONTENT_SERIES_INVALID` | 同系列容器不同、集号重复，各集的内容前提不完全相同，或各集的 `consumes_state` 不同；原因 `Episodes of a series must share one container binding and one prerequisite and have unique episode numbers.`，前提不同时详情为 `<series.title> episodes declare different prerequisites.`，`consumes_state` 不同时详情为 `<series.title> episodes declare different consumed states.` |
 | `CONTENT_SUMMARY_TOO_LONG`、`CONTENT_SOURCE_URL_MISSING` | 摘要超过 200 字符或真实来源缺少 URL |
 | `CALLBACK_STATE_UNREGISTERED`、`CALLBACK_FOOTPRINT_EMPTY`、`CALLBACK_NOTIFY_MISMATCH` | 回调状态未知、足迹为空、提醒与效果不配对 |
 | `MAP_DISTANCE_CONTRADICTED` | 某条声明边的两端经其他声明边有一条严格更短的路线，详情指出行号、声明值、更短的路线和它的总长 |
@@ -309,8 +322,9 @@ app 必填 `app_id`、`name`、`role`。功能 app 是 `role` 为 `function`、�
 只有内容 app 可以被地点、商品、内容、阈值提醒引用。功能 app 的自动选择和足迹由模拟引擎处理。
 
 内容 app 至少承载一条显式内容，或供应 app 侧商品，或由实际供应商品的地点绑定。
-没有显式内容的纯目录 app 必须提供严格整数 `browse_duration_seconds >= 60`；
-有显式内容的 app 和功能 app 不得声明浏览时长。纯目录浏览不伪造内容身份或标题。
+满足后两条之一的内容 app 能接单，叫下单 app：人物购买和查询时可以把它的名称写进 `prefer`。
+app 行只有 `app_id`、`name`、`role` 和功能 app 的两个绑定字段，没有任何时长字段。
+没有登记内容的内容 app 仍是合法登记，它一定是下单 app，只用于下单和查询，不能被单独打开，见[模拟引擎](04-simulation-engine.md)「动作、名称与并行」。
 
 内容必填身份、标题、`exertion`、`pushable`、`relaxation_relief`、`social_relief`、摘要、来源和时长。
 体力消耗档为 `idle`、`light`、`moderate`、`heavy`；两个心理缓解档独立取 `none`、`low`、`medium`、`high`，
@@ -318,8 +332,35 @@ app 必填 `app_id`、`name`、`role`。功能 app 是 `role` 为 `function`、�
 `pushable` 是严格布尔，时长是至少 60 秒的严格整数，摘要至多 200 字符。
 来源完整形状为 `{kind, url, notice}`，真实来源必须有非空 URL。
 
+绑定到地点类型的内容可以另写两个可选字段，绑定到 app 的内容不得写；两个字段互不要求。
+
+| 字段 | 类型 | 约束 | 含义 |
+| --- | --- | --- | --- |
+| `consumes_state` | 字符串 | 非空白；须是 `callbacks.jsonl` 登记的一个状态名；省略表示不凭状态，显式 `null` 拒绝 | 这件事只在人物的这个状态不小于 1 时列出和开始，开始时这个状态减 1 |
+| `completion_effects` | 对象 | 至少声明一个成员；省略表示做完没有效果，显式 `null` 拒绝 | 这条内容做完时结算一次的效果 |
+
+只写 `consumes_state` 是「开放一次、做完没有效果」的事，只写 `completion_effects` 是「随时能做、做完有效果」的事。
+一个状态可以被多条内容写进 `consumes_state`，开放后人物做其中任何一件都用掉它。
+登记不拦三种写法：被凭的状态 `cap` 为 0 时这件事永远不会开放；`reset_on_goods` 为空的状态也可以被凭，这样的事只靠 `initial` 或回调的状态增量开放；
+不检查 `reset_on_goods` 里商品的类别。
+
+`completion_effects` 只有下面三个成员，其他键拒绝。成员的值只写档位名，不写数值；每个成员都可以省略，省略就是没有这项效果；
+成员写成 `null` 拒绝，档位 `none` 不收，「没有」只有省略一种写法。
+
+| 成员 | 档位 | 做完时的效果 |
+| --- | --- | --- |
+| `food` | `snack`、`meal` | 补的能量与收到一件同名类别的商品相同，数额、利用率与上限见[交换引擎](02-exchange-engine.md)「收货与费用」 |
+| `relaxation_relief` | `low`、`medium`、`high` | 放松需要一次减少这一档缓解一小时的量，见[交换引擎](02-exchange-engine.md)「放松与社交需要」 |
+| `social_relief` | `low`、`medium`、`high` | 社交需要一次减少这一档缓解一小时的量，同上 |
+
+档位名在整个系统里只有一种含义：`food` 的档位与商品类别同名同热量；两项缓解的档位与内容行顶层的同名字段同一套。
+内容行顶层的 `exertion`、`relaxation_relief`、`social_relief` 不变，仍按实际做了多久结算；完成效果另外结算，与它们相加。
+引擎不看标题：没有声明 `food` 的事做完不补能量，名称像吃饭也一样。
+目录不为两个字段新建索引；单元的列出、受理、开始时减 1 和完成效果的结算归模拟引擎，见[模拟引擎](04-simulation-engine.md)「出行、内容与查询」。
+
 内容恰有 `app_ids` 或 `location_kinds` 一侧非空，可以绑定多个同侧容器。
 可选 `series` 为 null 或 `{title, episode}`；系列按标题识别，各集容器必须完全相同，正整数集号不得重复。
+同一系列各集的 `consumes_state` 必须相同（都不写，或写同一个状态名）；`completion_effects` 每集各写各的，不要求相同，一个系列可以有几集声明 `food`。
 绑定到地点类型的内容，不属于系列时的 `title` 和系列的 `series.title` 是人物要写的名称，系列各集的 `title` 不是；
 绑定到 app 的内容标题不是可写的名称，人物只写 app 名。
 目录提供按集号排序的系列索引；推荐、进度、连续消费和恢复由模拟引擎处理，不由推送资格决定。
@@ -335,7 +376,7 @@ app 必填 `app_id`、`name`、`role`。功能 app 是 `role` 为 `function`、�
 两个成员至少写一项，两项都写时都要满足。`opens` 里一个时段都没有是合法写法，表示这条内容永远不能开始。
 内容行顶层的 `location_kinds` 把内容绑定到地点，是地点内容，没有 app 记录；前提里的同名成员只是 app 内容的开始条件，内容仍由 `app_ids` 绑定。写了顶层 `location_kinds` 的行不能写前提，地点内容也没有可用时段字段。
 同一系列各集的前提必须完全相同：都不写，或解析后的 `location_kinds` 与 `opens` 逐项相等，键的先后、`exceptions` 省略与写成空对象不算差异。目录不为前提建索引；前提的判定、筛选和拒绝归模拟引擎。
-同时卖商品的 app 每条内容都带前提时，前提都不满足它就打不开，登记不拦。
+同时卖商品的 app 每条内容都带前提时，前提都不满足它就打不开，登记不拦。它卖的商品照常可以查询和购买。
 候选投影见[人物的候选与呈现](06-agent.md)。
 
 <a name="resource-engine-地点供给和价格"></a>
@@ -359,12 +400,15 @@ app 侧只出现在 app 商品索引，不虚构店铺。任何类别都可绑�
 目录只登记商品固定单价；外卖和快递费用、组合订单、报价选择、付款与收货归模拟引擎。
 付款按下单的内容 app 分订单，配送和运费仍按店铺算：一家店在一次购买里只有一个下单 app、一个配送组、一份运费，
 同一个内容 app 上点了两家店就是两趟配送、两份运费。数据集作者不需要为此改任何目录文件。
+地点行的 `app_ids` 决定哪些店能兑现人物在 `prefer` 里写的下单 app，规则见[模拟引擎](04-simulation-engine.md)「购买、付款与收货」。
 购买收款方为 `external:scenario`，目录不声明商家账户或资金账户标签。
 
 ## 声明式回调
 
 状态行恰为 `{state, initial, cap, reset_on_goods}`，初值和上限为严格整数，`0 <= initial <= cap`。
 商品重置列表可为空，引用实际商品。状态行在前按状态名升序，规则行在后按规则身份升序。
+状态除了被回调效果和收货重置改变，还被凭它的地点内容在开始时减 1：字段 `consumes_state` 见「app、内容与候选呈现」，
+减 1 的时刻与证据见[模拟引擎](04-simulation-engine.md)「出行、内容与查询」。
 规则恰为 `{rule_id, trigger, effect}`，仅可额外声明 `notify`。状态和规则分别唯一。
 
 | 对象 | 完整形状 |
@@ -381,6 +425,7 @@ app 侧只出现在 app 商品索引，不虚构店铺。任何类别都可绑�
 
 动作触发按受理的开始调用求值，每条调用一次，键是调用的 `action`；一次购买无论几件只触发一次。
 `key` 为 `travel` 时必须带 `travel_method_id`（文件里的身份或 `walking`），其他 `key` 不得出现这个字段，两种写错都报 `ENVIRONMENT_KIND_INVALID`，指向未登记的身份报 `ENVIRONMENT_REF_UNKNOWN`；已删除的出行动作名不再是合法的 `key`。
+动作触发的 `key` 只有 `purchase`、`interact`、`sleep` 三个值，出行另用带 `travel_method_id` 的写法。查询（`query`）不是合法的 `key`，写了报 `ENVIRONMENT_KIND_INVALID`；受理查询不触发任何动作回调。
 一条规则只订阅一种出行方式，不提供「任意方式」的写法：出行受理成功时触发原因带上这次出行的 `travel_method_id`，规则的 `key` 与方式都相同才匹配；带 `once_per: local_day` 的增量仍按出行活动实际结算的本地日期执行，匹配条件相同。
 
 ```json
@@ -399,6 +444,6 @@ app 侧只出现在 app 商品索引，不虚构店铺。任何类别都可绑�
 ## 验证边界
 
 目录单元测试消费清单和它登记的 JSONL，核对字节身份、严格行定位、对象引用、清单检查的次序与错误优先级，
-并验证全量供给索引、内容系列、营业安排、内容前提的登记、回调登记、声明的距离、出行方式和运行种子地图；
+并验证全量供给索引、内容系列、营业安排、内容前提的登记、凭状态与完成效果的登记、app 行已删字段的拒绝、回调登记、声明的距离、出行方式和运行种子地图；
 测试夹具只放出行方式一个可选文件，其余带可选文件或只有步行的情形由测试在夹具副本上构造并刷新清单。
 环境加载再检查人物名称与冻结身份；动作、交易、实际消费、回调效果和恢复由对应集成及系统测试证明。

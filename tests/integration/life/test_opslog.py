@@ -9,7 +9,7 @@ from pathlib import Path
 from agentsociety2.agent.base import MemoryUpdateEvidence, ModelCallEvidence
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import (advance_until_ready, conclude_request, context, pending_names, purchase,
+from tests.life.conftest import (advance_until_ready, conclude_request, context, pending_names, purchase, query,
                                  stage_day_plan, submit_round, travel, use_app)
 from tests.life.environment_runtime import act, act_group
 from worldmock.life.engine import LifeEngine
@@ -83,7 +83,7 @@ def test_opslog_writer_appends_across_instances(tmp_path: Path) -> None:
 
 
 def test_opslog_component_follows_each_start_call(engine_factory) -> None:
-    """操作日志的组件按调用判定：出行记在 travel，购买记在 commerce，其余（这里是用内容 app）记在 engine；
+    """操作日志的组件按调用判定：出行记在 travel，购买记在 commerce，其余（这里是用内容 app 与查询）记在 engine；
     开始组的两条动作各写一条，带各自的动作身份与工具名。"""
     engine = engine_factory()
     _, refused = act(engine, "ops-app", use_app("不存在"))
@@ -100,3 +100,9 @@ def test_opslog_component_follows_each_start_call(engine_factory) -> None:
     assert all("error_code" not in record for record in records[1:])
     assert {record["component"] for record in records} <= OPS_COMPONENTS
     assert len({record["decision_id"] for record in records[1:]}) == 1
+    asking = engine_factory()
+    _, asked = act(asking, "ops-query", query("柠檬茶"))
+    assert asked.status == "in_progress"
+    [accepted] = [record for record in _records(asking) if record["code"] == "ACTION_ACCEPTED"]
+    assert (accepted["component"], accepted["action_id"], accepted["tool_name"]) == (
+        "engine", "action-ops-query", "start_side_activity")

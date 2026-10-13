@@ -122,7 +122,7 @@ def tool_layer(context: LayerContext, index: dict) -> dict:
 
 
 def _binding_target(context: LayerContext, row: dict) -> dict:
-    """@brief 公共行不带内部身份、类别推断、app 路由或支付渠道。"""
+    """@brief 公共行不带内部身份、类别推断、app 路由或支付渠道；凭状态而未开放的单元（私有绑定 locked 为真）不列出。"""
     kind = "product" if row["kind"] == "supply" else row["kind"]
     state = None
     if row["kind"] == "location":
@@ -131,7 +131,8 @@ def _binding_target(context: LayerContext, row: dict) -> dict:
         intervals = location.opening_intervals(local.date())
         state = "全天营业" if location.opens is None else "、".join(interval_phrases(intervals)) or "今日休息"
     return {"name": row["object"], "kind": kind, "phase": None, "state": state,
-            "actions": [_action_row(context, row, action) for action in row["actions"]], "tools": []}
+            "actions": [_action_row(context, row, action) for action in row["actions"] if not action.get("locked")],
+            "tools": []}
 
 
 def _action_row(context: LayerContext, row: dict, action: dict) -> dict:
@@ -173,11 +174,11 @@ def _travel_facts(context: LayerContext, row: dict, action: dict) -> dict:
 
 
 def _purchase_facts(context: LayerContext, row: dict) -> dict:
-    """@brief 查询只计算稳定报价，不抽取未来购买过程时长。"""
+    """@brief 查询只计算稳定报价，不抽取未来购买过程时长；按没有意向的路线预览，实际以购买结果为准。"""
     goods = context.catalog.goods[row["goods_id"]]
     note = None
     try:
-        offer = quote_goods(context.inputs, context.state, context.agent_id, goods.goods_id)
+        offer = quote_goods(context.inputs, context.state, context.agent_id, goods.goods_id, None)
         arrival = datetime.fromtimestamp(offer.expected_at, ZoneInfo(context.config.timezone))
         if offer.fulfillment != "pickup":
             note = f"运费{money_phrase(offer.delivery_fee_fen)}，预计{arrival:%m月%d日 %H:%M}到达"

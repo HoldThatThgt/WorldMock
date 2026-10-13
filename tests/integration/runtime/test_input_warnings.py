@@ -4,7 +4,7 @@ import json
 import pytest
 
 from tests.frozen_inputs import fixture_metadata
-from tests.integration.runtime.current_contract_fixtures import ROOT, inputs, metadata_service
+from tests.integration.runtime.current_contract_fixtures import ROOT, aligned_process, inputs, metadata_service
 from tests.life.conftest import advance_next, do_at, stage_day_plan
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act
@@ -17,13 +17,12 @@ SUSPICIOUS_NAME = "五里公园（31.2, 121.5）"
 
 
 def _warned_environment(tmp_path):
-    """夹具环境的副本：去掉全部 app 内容（只有内容的 app 一并去掉，还卖商品的哔哩哔哩改成纯目录 app），
+    """夹具环境的副本：去掉全部 app 内容（只有内容的 app 一并去掉，还卖商品的哔哩哔哩只剩接单），
     再给公园起一个带坐标的显示名，按生产入口刷新清单。"""
     root = copy_environment(tmp_path / "warned-environment")
     contents = [row for row in catalog_rows(root, "content-catalog.jsonl") if not row.get("app_ids")]
     write_catalog_rows(root, "content-catalog.jsonl", contents)
     apps = [row for row in catalog_rows(root, "app-catalog.jsonl") if row["app_id"] not in {"douyin", "keep"}]
-    next(row for row in apps if row["app_id"] == "bilibili")["browse_duration_seconds"] = 600
     write_catalog_rows(root, "app-catalog.jsonl", apps)
     locations = catalog_rows(root, "location.jsonl")
     next(row for row in locations if row["location_id"] == "park")["name"] = SUSPICIOUS_NAME
@@ -68,7 +67,9 @@ def test_new_run_writes_each_input_warning_to_the_manifest_options_and_the_opera
     from worldmock.runtime import RunRequest, _prepare_new_run, _society_specs
 
     root = _warned_environment(tmp_path)
-    metadata_service(monkeypatch, load_environment(root, metadata_loader=fixture_metadata))
+    frozen = load_environment(root, metadata_loader=fixture_metadata)
+    metadata_service(monkeypatch, frozen)
+    aligned_process(monkeypatch, frozen)
     prepared = _prepare_new_run(RunRequest(ROOT, root, tmp_path / "run", "warned", "warned"))
     specs = _society_specs(prepared)
     options = prepared.env_kwargs["create_options"]

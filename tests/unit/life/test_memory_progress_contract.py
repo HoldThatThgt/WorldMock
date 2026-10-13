@@ -159,37 +159,47 @@ def test_partial_content_requires_real_positive_progress():
     assert app_progress([progress(10, 20, True)], {"activity": "content"}) == {}
 
 
-def test_purchase_fact_hides_automatic_app_and_account_details(inputs):
+def test_purchase_fact_names_the_ordering_app_but_not_the_payment_app_or_account(inputs):
+    """购买明细一行写明下单 app 的完整名称（channel），到店写「到店」，键的次序固定；支付 app 的名称、账户与配送组键
+    不出现。记忆层与零点计划读到的购买句不写渠道。"""
     goods_id = next(iter(inputs.catalog.goods))
     order = {"goods_id": goods_id, "quantity": 1, "created_at": 100, "paid_at": 150,
              "total_price_fen": 1234, "destination_id": "home", "expected_at": 200,
-             "fulfillment": "delivery", "app_id": "private-auto-order-app",
-             "payment_app_id": "private-payment-app", "group_key": "private-group"}
+             "fulfillment": "delivery", "app_id": "eleme",
+             "payment_app_id": "alipay", "group_key": "private-group"}
     ctx = layer_context(inputs)
     sentence = purchase_sentence(ctx, order)
     assert "买了" in sentence and "12.34 元" in sentence
-    assert "private" not in sentence
+    assert "饿了么" not in sentence and "eleme" not in sentence and "支付宝" not in sentence
     result = public_result({"occurred_at": 150, "status": "completed", "message": "Purchased",
         "data": {"orders": [order], "resource_changes": {"account:agent:1": -1234}}}, inputs)
-    assert set(result["details"]["purchases"][0]) == {"product", "quantity", "paid", "destination", "expected_at"}
-    assert "private" not in str(result) and "account" not in str(result)
+    (row,) = result["details"]["purchases"]
+    assert list(row) == ["product", "quantity", "channel", "destination", "expected_at", "paid"]
+    assert row["channel"] == "饿了么"
+    for hidden in ("支付宝", "alipay", "eleme", "private", "account", "agent:1"):
+        assert hidden not in str(result), hidden
+    local = {**order, "app_id": None, "fulfillment": "pickup", "destination_id": "store"}
+    assert public_result({"occurred_at": 150, "status": "completed", "message": "Purchased",
+        "data": {"orders": [local]}}, inputs)["details"]["purchases"][0]["channel"] == "到店"
+    assert "到店" not in purchase_sentence(ctx, local)
 
 
 def test_unpaid_order_is_a_quote_without_a_payment_claim(inputs):
     goods_id = next(iter(inputs.catalog.goods))
     result = public_result({"occurred_at": 100, "status": "in_progress", "message": "Accepted", "data": {
         "orders": [{"goods_id": goods_id, "quantity": 1, "paid_at": None, "total_price_fen": 100,
-                    "destination_id": "home", "expected_at": 200}]}}, inputs)
+                    "destination_id": "home", "expected_at": 200, "app_id": "meituan"}]}}, inputs)
     assert "price" in result["details"]["purchases"][0]
     assert "paid" not in result["details"]["purchases"][0]
+    assert result["details"]["purchases"][0]["channel"] == "美团"
 
 
 def test_parcel_collected_at_the_station_is_carried_as_evidence_but_not_reported_as_a_purchase(inputs):
     bought = {"goods_id": "tissue", "quantity": 1, "paid_at": None, "total_price_fen": 600, "status": "pending",
-              "destination_id": "store", "expected_at": 200, "fulfillment": "pickup"}
+              "destination_id": "store", "expected_at": 200, "fulfillment": "pickup", "app_id": None}
     collected = {"goods_id": "online-notebook", "quantity": 1, "paid_at": 60, "total_price_fen": 1200,
                  "status": "delivered", "destination_id": "parcel-station", "expected_at": 90,
-                 "fulfillment": "station_pickup"}
+                 "fulfillment": "station_pickup", "app_id": "bilibili"}
 
     def started(*orders):
         return {"occurred_at": 100, "status": "in_progress", "message": "Activities started",

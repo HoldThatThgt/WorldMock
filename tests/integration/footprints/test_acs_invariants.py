@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 import json
+import logging
 
 import pytest
 
@@ -64,3 +65,30 @@ def test_recomputed_fact_integrity_rejects_false_receipts_and_intervals(facts, f
         use["device"] = "phone"
     with pytest.raises(IntegrityError):
         validate_footprint_facts(events, activities, purchases, apps, state)
+
+
+@pytest.mark.parametrize("fault", ["after_changed", "extra_energy_flow", "foreign_resource_flow", "other_owner_flow",
+                                   "blank_owner_flow", "unknown_direction_flow"])
+def test_body_settlement_after_state_must_follow_its_own_flows(facts, caplog, fault):
+    events, activities, purchases, apps, state = deepcopy(facts)
+    record = next(event for event in events if event["event_type"] == "environment_event"
+                  and event["data"].get("kind") == "body_settlement" and event["data"]["resource_flows"])
+    data, owner = record["data"], f"agent:{record['agent_id']}"
+    if fault == "after_changed":
+        data["body_settlement"]["after"]["energy_kcal"] -= 1.0
+    elif fault == "extra_energy_flow":
+        data["resource_flows"].append({"resource": "energy_kcal", "owner": owner, "direction": "drain",
+                                       "amount": 1.0, "cause": "settle:shared:energy_kcal"})
+    elif fault == "foreign_resource_flow":
+        data["resource_flows"].append({"resource": "money_fen", "owner": owner, "direction": "source",
+                                       "amount": 1, "cause": "settle:shared:money_fen"})
+    elif fault == "other_owner_flow":
+        data["resource_flows"][0]["owner"] = "agent:2"
+    elif fault == "blank_owner_flow":
+        data["resource_flows"][0]["owner"] = ""
+    else:
+        data["resource_flows"][0]["direction"] = "sink"
+    message = "Body settlement after-state disagrees with its own resource flows"
+    with caplog.at_level(logging.ERROR), pytest.raises(IntegrityError, match=f"^{message}$"):
+        validate_footprint_facts(events, activities, purchases, apps, state)
+    assert message in caplog.text

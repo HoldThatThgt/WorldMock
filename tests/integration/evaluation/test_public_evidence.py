@@ -35,11 +35,12 @@ def action_events(action="interact", content="real-content", app="real-app", met
 
 @pytest.mark.parametrize("content,app,object_type,key", [
     pytest.param("real-content", "real-app", "content", "real-content", id="app-content"),
-    pytest.param(None, "real-app", "app", "real-app", id="app-browse"),
+    pytest.param(None, "real-app", "content", None, id="app-without-content"),
     pytest.param("real-content", None, "content", "real-content", id="location-unit"),
 ])
 def test_interaction_reads_actual_object_and_never_infers_category_or_device(content, app, object_type, key):
-    """用内容 app（副工具）与在地点做事（主工具）都只读活动快照里的实际对象，请求里写的名称不进公开证据。"""
+    """用内容 app（副工具）与在地点做事（主工具）都只读活动快照里的实际对象，请求里写的名称不进公开证据；对象类型恒为
+    content，快照里没有内容身份时对象身份为空，不拿 app 身份顶替。"""
     rows = worldmock_public_evidence(action_events(content=content, app=app), [])
     assert [(row.action, row.interaction, row.object_type, row.object_key, row.state) for row in rows] == [
         ("interact", "interact", object_type, key, "requested"),
@@ -181,7 +182,7 @@ def test_retired_activity_kind_is_rejected_before_object_inference(kind):
 
 
 @pytest.mark.parametrize("kind,action", [("interact", "interact"), ("purchase", "purchase"),
-    ("sleep", "sleep"), ("travel", "travel")])
+    ("sleep", "sleep"), ("travel", "travel"), ("query", "query")])
 def test_activity_action_is_taken_directly_from_the_current_closed_contract(kind, action):
     assert worldmock_activity_action(kind, {"action": action}) == action
     with pytest.raises(EvaluationError, match="actual action"):
@@ -217,6 +218,21 @@ def test_actual_system_callback_effect_does_not_create_public_behavior():
             "kind": "callback_effect", "type": "state_delta", "rule_id": "actual-rule",
             "state": "energy", "delta": -1, "before": 100, "after": 99}})
     assert worldmock_public_evidence([event], []) == ()
+
+
+@pytest.mark.parametrize("prefer", [None, "饿了么", "不存在的 app"])
+def test_side_request_with_prefer_projects_the_actual_order(prefer):
+    """副工具的参数键集是 action、target、prefer 三个：带 prefer 的购买请求正常投影，对象是实际订单，所写的 prefer
+    不进公开证据。"""
+    rows = [_public_event(1, "action_requested", {"tool_name": SIDE_TOOL, "request": side_arguments(
+        "purchase", "实际商品", prefer=prefer)}, "purchase-action"),
+        _public_event(2, "action_result", {"status": "in_progress", "data": {"orders": [
+            {"order_id": "actual-order", "status": "pending", "fulfillment": "delivery"}]}}, "purchase-action")]
+    evidence = worldmock_public_evidence([parse_world_event(row) for row in rows], [])
+    assert {(row.action, row.interaction, row.object_key, row.state) for row in evidence} == {
+        ("purchase", "order", "actual-order", "requested"), ("purchase", "order", "actual-order", "pending")}
+    if prefer is not None:
+        assert prefer not in json.dumps([row.field_values() for row in evidence], ensure_ascii=False)
 
 
 @pytest.mark.parametrize("status", ["pending", "cancelled", "failed", "delivered"])
@@ -259,10 +275,14 @@ def test_public_content_progress_requires_actual_positive_position(before, after
     pytest.param(MAIN_TOOL, {}, id="main-empty"),
     pytest.param(SIDE_TOOL, {"items": [{"action": "purchase", "target": "对象"}]}, id="side-retired-items"),
     pytest.param(SIDE_TOOL, {"action": "purchase", "target": ["对象"], "detail": None}, id="side-extra-detail"),
-    pytest.param(SIDE_TOOL, {"action": "purchase"}, id="side-target-missing"),
+    pytest.param(SIDE_TOOL, {"action": "purchase", "target": ["对象"]}, id="side-prefer-missing"),
+    pytest.param(SIDE_TOOL, {"action": "purchase", "target": ["对象"], "prefer": None, "app": "饿了么"},
+                 id="side-extra-key"),
+    pytest.param(SIDE_TOOL, {"action": "purchase", "prefer": None}, id="side-target-missing"),
 ])
 def test_public_projection_rejects_start_arguments_outside_the_current_contract(tool, request_body):
-    """两个开始工具各自的参数键集合是闭集：少键、多键和已删除的 items 形状都不读。"""
+    """两个开始工具各自的参数键集合是闭集：主工具 action、target、detail，副工具 action、target、prefer；少键（含没写
+    prefer 的两键副工具请求）、多键和已删除的 items 形状都不读。"""
     row = _public_event(1, "action_requested", {"tool_name": tool, "request": request_body}, "invalid-action")
     with pytest.raises(EvaluationError, match="^Start request arguments are outside the current contract$") as error:
         worldmock_public_evidence([parse_world_event(row)], [])
@@ -271,6 +291,7 @@ def test_public_projection_rejects_start_arguments_outside_the_current_contract(
 
 @pytest.mark.parametrize("tool,request_body", [
     pytest.param(MAIN_TOOL, main_arguments("purchase", "对象"), id="main-purchase"),
+    pytest.param(MAIN_TOOL, main_arguments("query", "柠檬茶"), id="main-query"),
     pytest.param(MAIN_TOOL, main_arguments("walk", "公司", "步行"), id="main-retired-walk"),
     pytest.param(MAIN_TOOL, main_arguments("wait", "自己"), id="main-retired-wait"),
     pytest.param(SIDE_TOOL, side_arguments("sleep", "450"), id="side-sleep"),
@@ -278,7 +299,8 @@ def test_public_projection_rejects_start_arguments_outside_the_current_contract(
     pytest.param(SIDE_TOOL, side_arguments("drive", "公司"), id="side-retired-drive"),
 ])
 def test_public_projection_rejects_start_action_outside_the_tool_closed_set(tool, request_body):
-    """动作只认各工具自己的枚举：主工具是 travel、interact、sleep，副工具是 purchase、interact；旧的四个出行动作不认。"""
+    """动作只认各工具自己的枚举：主工具是 travel、interact、sleep，副工具是 purchase、interact、query；主工具写 query
+    与旧的四个出行动作都不认。"""
     row = _public_event(1, "action_requested", {"tool_name": tool, "request": request_body}, "invalid-action")
     with pytest.raises(EvaluationError, match="^Start request action is outside the current closed set$") as error:
         worldmock_public_evidence([parse_world_event(row)], [])
@@ -288,4 +310,40 @@ def test_public_projection_rejects_start_action_outside_the_tool_closed_set(tool
 def test_public_projection_rejects_retired_activity_before_reading_other_fields():
     row = _public_event(1, "activity_progress", {"activity": {"kind": "work"}})
     with pytest.raises(EvaluationError, match="retired activity"):
+        worldmock_public_evidence([parse_world_event(row)], [])
+
+
+def test_query_request_acceptance_and_ending_produce_no_public_point_fact(engine_factory):
+    """真实事件里一次做完的查询、一次被 conclude_activity 提前结束的查询（期间还有点名它的播报）：公开证据里没有任何一条
+    的来源事件属于这些请求；主工具请求里写 query 仍报 Start request action is outside the current closed set。"""
+    from tests.life.conftest import advance_next, advance_until_ready, conclude_request, query
+    from tests.life.environment_runtime import act, events, settle_decision
+    from worldmock.life.models import PlanDayRequest
+
+    def attentive(persona, config):
+        config["reconsideration_interval_seconds"] = 60
+
+    engine = engine_factory(mutate=attentive)
+    engine.register_day_plan(1, PlanDayRequest(goals=()), [], [])
+    _, done = act(engine, "done", query("柠檬茶"))
+    while engine.context.state.activities[done.activity_id].status == "active":
+        if engine.scheduling_state().ready_agent_ids:
+            settle_decision(engine, f"report-{engine.context.state.current_time}")
+        else:
+            advance_next(engine)
+    _, stopped = act(engine, "stopped", query("零食"))
+    assert advance_until_ready(engine)
+    name = engine.context.state.activities[stopped.activity_id].name
+    _, concluded = act(engine, "conclude", conclude_request(name), "conclude_activity")
+    assert (done.status, stopped.status, concluded.status) == ("in_progress", "in_progress", "completed")
+    recorded = events(engine)
+    owner = {row.event_id: row.action_id for row in recorded}
+    related = {row.action_id for row in recorded if row.event_type == "action_requested"
+               and (row.data["request"].get("action") == "query" or row.data["tool_name"] != SIDE_TOOL)}
+    evidence = worldmock_public_evidence(recorded, [])
+    assert [row for row in evidence if {owner[identity] for identity in row.source_event_ids} & related] == []
+    assert {"action-done", "action-stopped", "action-conclude"} <= related
+    row = _public_event(1, "action_requested", {"tool_name": MAIN_TOOL, "request": main_arguments("query", "柠檬茶")},
+                        "main-query")
+    with pytest.raises(EvaluationError, match="^Start request action is outside the current closed set$"):
         worldmock_public_evidence([parse_world_event(row)], [])

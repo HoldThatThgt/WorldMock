@@ -11,15 +11,14 @@
   python3 scripts/inspect_run.py <run_dir> rerun
   python3 scripts/inspect_run.py <run_dir> continuation [--topic 话题 ...] [--baseline <run_dir>]
   python3 scripts/inspect_run.py <run_dir> workday --environment <环境目录>
-  python3 scripts/inspect_run.py <run_dir> queries
 
-rerun 只读计算 docs/design/05-recording-engine.md 「调试工具」的运行指标，只报告，不作门禁。
+时刻一律按运行清单的 window.timezone 显示；events 里活动与手机事件的写法取 worldmock.footprints.display_wording，
+名称取这次运行冻结的环境目录（docs/design/05-recording-engine.md「显示写法与检查工具」）。
+rerun 只读计算 docs/design/05-recording-engine.md「显示写法与检查工具」的运行指标，只报告，不作门禁。
 continuation 只读给出 docs/design/05-recording-engine.md的逐决策指标与合计（JSON）；--baseline 先核对
 两份清单（同一提交、同一环境输入、同一模型身份），不可比即拒绝比较。
 workday 只读打印 docs/design/05-recording-engine.md 的 {run_id, workload, routine_deviation, notes}（JSON，只报告）：
 班次、住处、播报间隔与下班、到家窗口都取自 --environment 完整输入（原文字节身份须等于运行清单，否则拒绝、不打印）。
-queries 只读给出 docs/design/05-recording-engine.md「调试工具」的八个键（JSON），口径取已落库的模型工具交换证据，
-只报告，不作门禁。
 """
 from __future__ import annotations
 
@@ -28,6 +27,7 @@ import json
 import sqlite3
 import sys
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -35,6 +35,11 @@ from zoneinfo import ZoneInfo
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from worldmock.footprints.display_wording import (  # noqa: E402
+    DisplayNames, activity_phrase, event_content_id, phone_phrase,
+)
+from worldmock.footprints.frozen_environment import frozen_display_names  # noqa: E402
+from worldmock.footprints.purchases import orders_by_id  # noqa: E402
 from worldmock.life.felt import APETITE_BASE_LEVEL, APPETITE_BANDS, APPETITE_STARVING_LEVEL  # noqa: E402
 
 #: 饥饿分级由轻到重（与体感分级同源）：「最低饥饿分级」取观察中出现过的最重一档。
@@ -43,6 +48,22 @@ APPETITE_ORDER = (APETITE_BASE_LEVEL, *(label for _, label in APPETITE_BANDS), A
 PROGRESS_REPORT_REASON = "progress_report_due"
 #: 「零点计划是否含早于 08:30 的提醒」的界限（场景本地时刻，时与分）。
 EARLY_REMINDER = (8, 30)
+#: 活动行写活动名而不写写法的两种活动。
+NAMED_KINDS = frozenset({"travel", "sleep"})
+#: 写法后跟订单身份的两种手机通知。
+NOTICE_KINDS = frozenset({"order_notification", "payment_notification"})
+
+
+@dataclass(frozen=True)
+class Display:
+    """@brief events 一行摘要读的只读显示上下文。"""
+
+    #: 这次运行冻结的环境目录给出的显示名称。
+    names: DisplayNames
+    #: 全库订单身份到商品履约记录，不受事件筛选的影响。
+    orders: dict
+    #: 运行清单的场景时区。
+    zone: ZoneInfo
 
 
 def _connect(run_dir: Path) -> sqlite3.Connection:
@@ -62,16 +83,29 @@ def _rows(conn: sqlite3.Connection, where: str = "", args: tuple = ()) -> list[d
     return [dict(json.loads(b), seq=s) for s, b in conn.execute(sql, args)]
 
 
-def _t(epoch: int) -> str:
-    """@brief 事件时间转可读时刻。"""
-    return datetime.fromtimestamp(epoch).strftime("%m-%d %H:%M:%S")
+def _t(epoch: int, zone: ZoneInfo) -> str:
+    """@brief 事件时间按运行时区转可读时刻，与运行这条命令的电脑的时区无关。"""
+    return datetime.fromtimestamp(epoch, zone).strftime("%m-%d %H:%M:%S")
+
+
+def _zone(run_dir: Path) -> ZoneInfo:
+    """@brief 运行清单 window.timezone 给出的场景时区。"""
+    return ZoneInfo(_manifest(run_dir)["window"]["timezone"])
+
+
+def display_context(conn: sqlite3.Connection, run_dir: Path) -> Display:
+    """@brief 读一次冻结名称与全库订单记录，取运行时区；名称取不到时照运行故障失败。"""
+    manifest = _manifest(run_dir)
+    results = _rows(conn, "json_extract(body,'$.event_type')='action_result'")
+    return Display(frozen_display_names(run_dir, manifest), orders_by_id(results),
+                   ZoneInfo(manifest["window"]["timezone"]))
 
 
 def cmd_summary(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
-    """@brief 打印运行摘要。"""
+    """@brief 打印运行摘要；运行目录里的两份 JSON 一律按 UTF-8 读。"""
     rows = _rows(conn)
-    manifest = json.loads((a.run_dir / "manifest.json").read_text())
-    status = json.loads((a.run_dir / "status.json").read_text())
+    manifest = _manifest(a.run_dir)
+    status = json.loads((a.run_dir / "status.json").read_text(encoding="utf-8"))
     print(f"run_id     : {manifest.get('run_id')}")
     print(f"状态       : {status.get('status')} ({status.get('phase')})")
     print(f"事件总数   : {len(rows)}")
@@ -83,7 +117,8 @@ def cmd_summary(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
 
 
 def cmd_events(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
-    """@brief 打印事件流（一行一事件，可过滤）。"""
+    """@brief 打印事件流（一行一事件，可过滤）；名称与订单记录在筛选之前读一次。"""
+    display = display_context(conn, a.run_dir)
     where, args = [], []
     if a.type:
         where.append("json_extract(body,'$.event_type')=?")
@@ -99,41 +134,48 @@ def cmd_events(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
         if a.full:
             print(json.dumps(r, ensure_ascii=False, indent=1))
             continue
-        brief = _brief(r)
-        print(f"[{r['seq']:>5}] {_t(r['occurred_at'])} {agent} {r['event_type']:20s} {brief}")
+        brief = _brief(r, display)
+        print(f"[{r['seq']:>5}] {_t(r['occurred_at'], display.zone)} {agent} {r['event_type']:20s} {brief}")
 
 
-def _brief(r: dict) -> str:
-    """@brief 按事件类型提取一行摘要。"""
-    d = r.get("data", {})
+def _brief(r: dict, display: Display) -> str:
+    """@brief 按事件类型提取一行摘要；受理、拒绝、记忆、请求四种行直接取当前格式的键，缺键照 KeyError 失败。"""
+    d = r["data"]
     t = r["event_type"]
     if t == "action_requested":
-        payload = d.get("request", d.get("arguments", ""))
-        return f"{d.get('tool_name') or d.get('kind','?')} {json.dumps(payload, ensure_ascii=False)[:80]}"
+        return f"{d['tool_name']} {json.dumps(d['request'], ensure_ascii=False)[:80]}"
     if t == "action_accepted":
-        return f"{d.get('tool_name') or d.get('kind','?')}"
+        phrase = _activity_brief(d, display) if "activity" in d else d["message"]
+        return f"{phrase} → {d['status']}"
     if t == "action_rejected":
-        return f"{d.get('tool_name','?')} → {d.get('error_code','?')}"
+        return f"{d['error_code']}: {d['reason']}"
     if t == "environment_event":
-        return _environment_brief(d)
+        return _environment_brief(d, display)
     if t == "activity_progress":
-        act = d.get("activity", {})
-        content = f"《{act['content_title']}》" if act.get("content_title") else ""
-        return f"{act['name']}{content} → {act['status']}"
+        return f"{_activity_brief(d, display)} → {d['activity']['status']}"
     if t == "memory_updated":
-        return f"{len(d.get('episode_ids', []))} 条"
-    if "resource_changes" in d and d["resource_changes"]:
-        return json.dumps(d["resource_changes"], ensure_ascii=False)[:100]
+        return f"{len(d['episodes'])} 条"
+    if r["resource_changes"]:
+        return json.dumps(r["resource_changes"], ensure_ascii=False)[:100]
     return json.dumps({k: v for k, v in d.items() if k not in ("request", "response")}, ensure_ascii=False)[:90]
 
 
-def _environment_brief(d: dict) -> str:
-    """@brief 环境事件的一行摘要：前台区间写 app、步骤与起止，通知写发送的 app 与标题，停留进出写地点。"""
+def _activity_brief(d: dict, display: Display) -> str:
+    """@brief 受理或进度事件里的活动：出行和睡眠写活动名，其余写这条事件指向的那一条内容的写法。"""
+    snapshot = d["activity"]
+    if snapshot["kind"] in NAMED_KINDS:
+        return snapshot["name"]
+    return activity_phrase(display.names, snapshot, [event_content_id(d)], display.orders)
+
+
+def _environment_brief(d: dict, display: Display) -> str:
+    """@brief 环境事件的一行摘要：三种手机事件写写法再跟起止或订单身份，停留进出写地点。"""
     kind = d.get("kind")
     if kind == "app_foreground":
-        return f"{kind} {d['app_id']} {d['step']} {_t(d['interval_start'])} → {_t(d['interval_end'])}"
-    if kind in ("order_notification", "payment_notification"):
-        return f"{kind} {d['app_id']} {d['title']} {' '.join(d['order_ids'])}"
+        span = f"{_t(d['interval_start'], display.zone)} → {_t(d['interval_end'], display.zone)}"
+        return f"{phone_phrase(display.names, d)} {span}"
+    if kind in NOTICE_KINDS:
+        return f"{phone_phrase(display.names, d)} {' '.join(d['order_ids'])}"
     if kind in ("location_entered", "location_left"):
         return f"{kind} {d['location_id']} {d.get('entry_kind', '')}".rstrip()
     return f"{kind} {d.get('scheduled_id','')}"
@@ -147,12 +189,14 @@ def cmd_event(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
 
 def cmd_money(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     """@brief 打印全部资金流水与期末余额。"""
+    zone = _zone(a.run_dir)
     balances: dict[str, int] = {}
     for r in _rows(conn, "json_extract(body,'$.resource_changes') IS NOT NULL"):
         changes = r["resource_changes"]
         if not changes:
             continue
-        print(f"[{r['seq']:>5}] {_t(r['occurred_at'])} {r['event_type']:18s} {json.dumps(changes, ensure_ascii=False)}")
+        print(f"[{r['seq']:>5}] {_t(r['occurred_at'], zone)} {r['event_type']:18s} "
+              f"{json.dumps(changes, ensure_ascii=False)}")
         for acct, delta in changes.items():
             balances[acct] = balances.get(acct, 0) + delta
     print("── 期末余额 ──")
@@ -162,6 +206,7 @@ def cmd_money(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
 
 def cmd_body(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     """@brief 打印身体轨迹（时间/能量/睡眠不足账/饥饿与困意分级），读观察事件的 body.values 与 body.levels。"""
+    zone = _zone(a.run_dir)
     where = "json_extract(body,'$.event_type')='observation'"
     args: tuple = ()
     if a.agent is not None:
@@ -176,18 +221,20 @@ def cmd_body(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
         if cur == prev or cur[0] is None:
             continue
         prev = cur
-        print(f"[{r['seq']:>5}] {_t(r['occurred_at'])} a{r['agent_id']}  能量={cur[0]:>7.1f}  "
+        print(f"[{r['seq']:>5}] {_t(r['occurred_at'], zone)} a{r['agent_id']}  能量={cur[0]:>7.1f}  "
               f"睡眠不足={cur[1]:>5.2f}h  饥饿={cur[2]}  困意={cur[3]}")
 
 
 def cmd_flows(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     """@brief 打印资源流水分录。"""
+    zone = _zone(a.run_dir)
     rows = _rows(conn, "json_extract(body,'$.data.resource_flows') IS NOT NULL")
     if a.tail:
         rows = rows[-a.tail:]
     for r in rows:
         for f in r["data"]["resource_flows"]:
-            print(f"[{r['seq']:>5}] {_t(r['occurred_at'])} a{r['agent_id']}  {f['resource']:>18s} {f['direction']:>6s} {f['amount']:>10.2f}  {f['cause']}")
+            print(f"[{r['seq']:>5}] {_t(r['occurred_at'], zone)} a{r['agent_id']}  {f['resource']:>18s} "
+                  f"{f['direction']:>6s} {f['amount']:>10.2f}  {f['cause']}")
 
 
 def _select(conn: sqlite3.Connection, event_type: str, columns: str, kind: str | None = None) -> list[tuple]:
@@ -304,15 +351,26 @@ def _energy_points(conn: sqlite3.Connection, zone: ZoneInfo) -> dict[tuple[int, 
     return points
 
 
-def lowest_energy_before_meal(conn: sqlite3.Connection, zone: ZoneInfo) -> list[dict]:
-    """@brief 首次进食前最低能量：每人每个本地日第一次进食正进度之前，共同身体结算的最低 energy_kcal。
+def _location_meals(conn: sqlite3.Connection) -> list[tuple[int, int]]:
+    """@brief 在地点吃的一餐：data.content.completion_effects.food 不为 null 的 activity_progress（两个档位都算），
+    每条一项，返回人物身份与事件时刻。"""
+    rows = _select(conn, "activity_progress",
+                   "json_extract(body, '$.agent_id'), json_extract(body, '$.occurred_at'), "
+                   "json_extract(body, '$.data.content.completion_effects.food')")
+    return [(agent, moment) for agent, moment, food in rows if food is not None]
 
+
+def lowest_energy_before_meal(conn: sqlite3.Connection, zone: ZoneInfo) -> list[dict]:
+    """@brief 首次进食前最低能量：每人每个本地日第一次进食之前，共同身体结算的最低 energy_kcal。
+
+    与进食次数读同一组进食时刻：食品收货与在地点吃的一餐（_location_meals），当天最早的一次取两者中较早的那个。
     当日没有进食时取全日最低并标 ate=False；进食前没有结算记录时 energy_kcal 为 None。
     """
     first_meal: dict[tuple[int, str], int] = {}
-    for agent, _, start in food_receipts(conn):
-        key = (agent, _local_date(start, zone))
-        first_meal[key] = min(first_meal.get(key, start), start)
+    meals = [(agent, moment) for agent, _, moment in food_receipts(conn)] + _location_meals(conn)
+    for agent, moment in meals:
+        key = (agent, _local_date(moment, zone))
+        first_meal[key] = min(first_meal.get(key, moment), moment)
     report = []
     for (agent, date), points in sorted(_energy_points(conn, zone).items()):
         limit = first_meal.get((agent, date))
@@ -323,12 +381,12 @@ def lowest_energy_before_meal(conn: sqlite3.Connection, zone: ZoneInfo) -> list[
 
 
 def meal_count(conn: sqlite3.Connection) -> int:
-    """@brief 进食次数：有进食正进度的活动数（同一活动的多段进展只计一次）。"""
-    return len({(agent, activity_id) for agent, activity_id, _ in food_receipts(conn)})
+    """@brief 进食次数：本人零食、食品、饮料收货的不同订单数，加上在地点吃的一餐的条数（每条计一次）。"""
+    return len({(agent, order_id) for agent, order_id, _ in food_receipts(conn)}) + len(_location_meals(conn))
 
 
 def walking_share(conn: sqlite3.Connection) -> dict:
-    """@brief 步行占比：自带步行的出行时长 / 全部出行时长；观察的路线从未出现步行时 available 为 False。"""
+    """@brief 步行占比：自带步行的出行时长 / 全部出行时长；没有步行秒数时 available 为 False。"""
     seconds: Counter = Counter()
     for mode, start, end in _select(conn, "activity_progress",
                                      "json_extract(body, '$.data.activity.travel_method_id'), "
@@ -336,12 +394,8 @@ def walking_share(conn: sqlite3.Connection) -> dict:
                                      "json_extract(body, '$.data.interval_end')"):
         if mode is not None and _valid_interval(start, end):
             seconds[mode] += end - start
-    modes = {mode for (mode,) in conn.execute(
-        "SELECT DISTINCT json_extract(route.value, '$.mode') "
-        "FROM events, json_each(events.body, '$.data.routes') route "
-        "WHERE json_extract(events.body, '$.event_type') = 'observation'")}
     return {"walking_seconds": seconds["walking"], "travel_seconds": sum(seconds.values()),
-            "available": "walking" in modes or seconds["walking"] > 0}
+            "available": seconds["walking"] > 0}
 
 
 def early_reminders(conn: sqlite3.Connection, zone: ZoneInfo) -> list[dict]:
@@ -417,7 +471,7 @@ def cmd_rerun(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     print("\n".join(rerun_lines(rerun_metrics(conn))))
 
 
-#: 续接对比的缺省话题（docs/design/05-recording-engine.md「调试工具」中的续接对比示例）。
+#: 续接对比的缺省话题（docs/design/05-recording-engine.md「显示写法与检查工具」中的续接对比示例）。
 DEFAULT_TOPICS = ("咖啡",)
 #: 两臂清单比较时允许不同的运行身份键；其余键（去掉续接开关）必须相同。
 RUN_IDENTITY_KEYS = frozenset({"run_id", "source_group_id", "source_run_ids"})
@@ -690,144 +744,6 @@ def cmd_workday(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     print(json.dumps({"run_id": manifest["run_id"], **report}, ensure_ascii=False, indent=2))
 
 
-#: queries 子命令按此顺序打印的键（docs/design/05-recording-engine.md「调试工具」）。
-QUERY_REPORT_KEYS = ("run_id", "calls", "failures", "returned_chars", "filtered_calls", "empty_after_filter",
-                     "model_calls_to_purchase", "reflection_retries")
-#: 被计量的查询工具；决策循环请求开放的世界请求工具；就寝反思唯一的严格工具。
-QUERY_TOOL, DECISION_TOOL, REFLECTION_TOOL = "query_world", "start_main_activity", "submit_reflection"
-#: 就寝反思原始请求的消息条数（AS2 的 system 与 user 两条）；校验重试在其后附一条 user 附回消息，不逐次累积。
-REFLECTION_ORIGINAL_MESSAGES = 2
-#: 模型响应（phase=response）第一条选择里名为 query_world 的工具调用：（响应序号，人物，决策，起因请求，调用身份，参数）。
-_QUERY_CALLS = (
-    "SELECT e.event_seq, json_extract(e.body,'$.agent_id'), json_extract(e.body,'$.decision_id'), "
-    "json_extract(e.body,'$.caused_by[0]'), json_extract(c.value,'$.id'), json_extract(c.value,'$.function.arguments') "
-    "FROM events e, json_each(e.body,'$.data.response.choices[0].message.tool_calls') c "
-    "WHERE json_extract(e.body,'$.event_type')='model_response' AND json_extract(e.body,'$.data.phase')='response' "
-    f"AND json_extract(c.value,'$.function.name')='{QUERY_TOOL}' ORDER BY e.event_seq, c.key")
-#: 模型请求消息里的 tool 消息：（请求序号，决策，调用身份，正文）。
-_TOOL_MESSAGES = (
-    "SELECT e.event_seq, json_extract(e.body,'$.decision_id'), json_extract(m.value,'$.tool_call_id'), "
-    "json_extract(m.value,'$.content') FROM events e, json_each(e.body,'$.data.request.messages') m "
-    "WHERE json_extract(e.body,'$.event_type')='model_request' AND json_extract(m.value,'$.role')='tool' "
-    "ORDER BY e.event_seq, m.key")
-#: 全部模型请求：（序号，事件身份，人物，消息条数，实际开放的工具名 JSON 数组）。
-_MODEL_REQUESTS = (
-    "SELECT e.event_seq, e.event_id, json_extract(e.body,'$.agent_id'), "
-    "json_array_length(e.body,'$.data.request.messages'), "
-    "(SELECT json_group_array(json_extract(t.value,'$.function.name')) "
-    "FROM json_each(e.body,'$.data.request.tools') t) "
-    "FROM events e WHERE json_extract(e.body,'$.event_type')='model_request' ORDER BY e.event_seq")
-
-
-def _json_object(text: object) -> dict | None:
-    """@brief 文本解析为 JSON 对象；不是字符串、不是合法 JSON 或解析结果不是对象时为 None。"""
-    if not isinstance(text, str):
-        return None
-    try:
-        value = json.loads(text)
-    except json.JSONDecodeError:
-        return None
-    return value if isinstance(value, dict) else None
-
-
-def _query_calls(conn: sqlite3.Connection) -> list[dict]:
-    """@brief 全部 query_world 调用，按响应事件序号与调用位置排列；参数解析为对象（解析不了时为 None）。"""
-    return [{"seq": seq, "agent_id": agent, "decision_id": decision, "cause": cause, "id": call_id,
-             "arguments": _json_object(arguments)}
-            for seq, agent, decision, cause, call_id, arguments in conn.execute(_QUERY_CALLS)]
-
-
-def _tool_answers(conn: sqlite3.Connection) -> dict[tuple, list[tuple[int, str]]]:
-    """@brief （决策身份，调用身份）→ 带该调用身份的 tool 消息所在请求的（事件序号，正文），按序号升序。"""
-    answers: dict[tuple, list[tuple[int, str]]] = defaultdict(list)
-    for seq, decision, call_id, content in conn.execute(_TOOL_MESSAGES):
-        answers[(decision, call_id)].append((seq, content))
-    return answers
-
-
-def _query_page(call: dict, answers: dict[tuple, list[tuple[int, str]]]) -> tuple[dict, str] | None:
-    """@brief 一次查询调用的结果页：同一决策里晚于该响应、最先带同一调用身份的 tool 消息。
-
-    正文解析为带 matches 的 JSON 对象时返回（页，正文）；整批被拒（正文是协议纠错）或从未得到回答时为 None，即失败。
-    """
-    content = next((text for seq, text in answers.get((call["decision_id"], call["id"]), []) if seq > call["seq"]),
-                   None)
-    page = _json_object(content)
-    return (page, content) if page is not None and "matches" in page else None
-
-
-def _query_filtered(arguments: dict | None) -> bool:
-    """@brief 查询明确应用或仅看当前可用对象时计入筛选调用；解析不了的参数不计。"""
-    return isinstance(arguments, dict) and (arguments.get("app") is not None
-                                            or arguments.get("available_only") is True)
-
-
-def _model_requests(conn: sqlite3.Connection) -> list[tuple[int, str, int, int | None, list]]:
-    """@brief 全部模型请求的（事件序号，事件身份，人物，消息条数，实际开放的工具名），按序号升序。"""
-    return [(seq, event_id, agent, count, json.loads(names))
-            for seq, event_id, agent, count, names in conn.execute(_MODEL_REQUESTS)]
-
-
-def _purchase_settlements(conn: sqlite3.Connection) -> list[tuple[int, int]]:
-    """@brief 购买结算：每笔订单首次出现的动作结果的（事件序号，下单人物），与续接对比的重复下单同一投影。"""
-    from worldmock.footprints.purchases import project_purchase_facts
-
-    events = _rows(conn, "json_extract(body,'$.event_type') IN ('action_result','action_requested')")
-    sequence = {row["event_id"]: row["seq"] for row in events}
-    return [(sequence[fact["source_event_id"]], fact["agent_id"]) for fact in project_purchase_facts(events)
-            if fact["fact_kind"] == "purchase"]
-
-
-def _calls_to_purchase(calls: list[dict], requests: list[tuple], purchases: list[tuple[int, int]]) -> int | None:
-    """@brief 从首次查询到购买结算的模型调用数。
-
-    取全运行第一个 query_world 调用：其人物 A 与产生该响应的请求 R；取 A 在 R 之后的第一笔购买结算；计 A 在 R（含）
-    到该结算（不含）之间开放了 start_main_activity 的模型请求（决策循环的请求，含协议纠错与截断重试；就寝反思、零点计划与
-    工作验收不算）。没有查询、找不到 R 或其后没有 A 的购买结算时为 None。
-    """
-    if not calls:
-        return None
-    agent = calls[0]["agent_id"]
-    start = next((seq for seq, event_id, *_ in requests if event_id == calls[0]["cause"]), None)
-    if start is None:
-        return None
-    end = min((seq for seq, buyer in purchases if buyer == agent and seq > start), default=None)
-    if end is None:
-        return None
-    return sum(owner == agent and start <= seq < end and DECISION_TOOL in tools
-               for seq, _, owner, _, tools in requests)
-
-
-def _reflection_retries(requests: list[tuple]) -> int:
-    """@brief 反思校验重试次数：工具只有 submit_reflection 且带附回消息（多于原始两条消息）的模型请求数。"""
-    return sum(tools == [REFLECTION_TOOL] and (count or 0) > REFLECTION_ORIGINAL_MESSAGES
-               for _, _, _, count, tools in requests)
-
-
-def query_cost_report(conn: sqlite3.Connection, run_id: str | None) -> dict:
-    """@brief 查询成本（只报告，docs/design/05-recording-engine.md），键序即 QUERY_REPORT_KEYS。
-
-    调用数是模型响应里 query_world 的工具调用数；有结果页的调用算成功，其余（整批被拒、从未回答）是失败；返回字符数
-    只计成功调用结果页的正文；带筛选的调用与筛选后为空（成功且 total_count 为 0）按 _query_filtered 判定。
-    """
-    calls = _query_calls(conn)
-    answers = _tool_answers(conn)
-    answered = [(call, found) for call in calls if (found := _query_page(call, answers)) is not None]
-    requests = _model_requests(conn)
-    return {"run_id": run_id, "calls": len(calls), "failures": len(calls) - len(answered),
-            "returned_chars": sum(len(content) for _, (_, content) in answered),
-            "filtered_calls": sum(_query_filtered(call["arguments"]) for call in calls),
-            "empty_after_filter": sum(_query_filtered(call["arguments"]) and page.get("total_count") == 0
-                                      for call, (page, _) in answered),
-            "model_calls_to_purchase": _calls_to_purchase(calls, requests, _purchase_settlements(conn)),
-            "reflection_retries": _reflection_retries(requests)}
-
-
-def cmd_queries(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
-    """@brief 打印查询成本（JSON，只报告，不作门禁）；运行身份取运行清单。"""
-    print(json.dumps(query_cost_report(conn, _manifest(a.run_dir).get("run_id")), ensure_ascii=False, indent=2))
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="只读浏览运行足迹")
     parser.add_argument("run_dir", type=Path)
@@ -850,9 +766,8 @@ if __name__ == "__main__":
     pc.add_argument("--baseline", type=Path)
     pw = sub.add_parser("workday")
     pw.add_argument("--environment", type=Path, required=True)
-    sub.add_parser("queries")
     args = parser.parse_args()
     conn = _connect(args.run_dir)
     {"summary": cmd_summary, "events": cmd_events, "event": cmd_event, "money": cmd_money, "body": cmd_body,
      "flows": cmd_flows, "rerun": cmd_rerun, "continuation": cmd_continuation,
-     "workday": cmd_workday, "queries": cmd_queries}[args.cmd](conn, args)
+     "workday": cmd_workday}[args.cmd](conn, args)

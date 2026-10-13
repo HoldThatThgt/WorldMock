@@ -108,6 +108,18 @@ def test_commit_last_seq_groups_one_versioned_commit_without_later_same_version_
         store.commit_last_seq(7)
 
 
+def test_read_event_returns_the_event_and_rejects_an_unknown_identity(store, caplog):
+    """按身份读单条事件：读到的就是写入的那一条；库里没有这个身份时写英文错误日志并抛 IntegrityError。"""
+    saved = store.commit({'version': 1, 'current_time': 110, 'balance': 50}, [
+        EventDraft(event_type='action_requested', occurred_at=110, agent_id=1, data={'tool_name': 'probe'}),
+        EventDraft(event_type='action_result', occurred_at=110, agent_id=1, data={'status': 'completed'})])
+    assert [store.read_event(event.event_id) for event in saved] == saved
+    with pytest.raises(IntegrityError) as failure:
+        store.read_event('event-unknown')
+    assert str(failure.value) == 'Event does not exist'
+    assert 'Event event-unknown does not exist' in [record.getMessage() for record in caplog.records]
+
+
 def test_world_change_without_any_event_cannot_be_committed(store):
     with pytest.raises(IntegrityError):
         store.commit({'version': 1, 'current_time': 200, 'balance': 900}, [])

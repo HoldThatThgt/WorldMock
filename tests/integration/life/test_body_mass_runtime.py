@@ -6,6 +6,10 @@ import pytest
 
 from tests.life.conftest import advance_next, context, sleep, use_app
 from tests.life.environment_runtime import act, events, finish_activity
+from tests.life.prerequisite_inputs import app_content, dingtalk_environment
+
+#: 钉钉副本上一条 600 秒、静坐强度、没有缓解的内容。
+IDLE_CONTENT = app_content("dingtalk-idle", "静坐阅读", duration_seconds=600)
 
 
 def _body(mass_kg: float, energy_kcal: float | None = None):
@@ -31,14 +35,15 @@ def _energy_drain(data: dict) -> list[float]:
 
 
 @pytest.mark.parametrize("mass_kg", [55.0, 65.0, 70.0])
-def test_committed_body_settlements_charge_the_body_mass_per_hour(engine_factory, mass_kg):
-    """一段静坐强度的目录浏览和一段睡眠：每条已提交的 body_settlement 的基础代谢等于体重乘小时数、额外消耗为 0，
-    能量分录等于基础加额外；睡眠不折减基础代谢。65 公斤夹具人物的数值就是修订前的每小时 65 千卡。"""
-    engine = engine_factory(mutate=_body(mass_kg))
+def test_committed_body_settlements_charge_the_body_mass_per_hour(engine_factory, tmp_path, mass_kg):
+    """钉钉副本上一段静坐强度、恰 600 秒的内容和一段睡眠：每条已提交的 body_settlement 的基础代谢等于体重乘小时数、
+    额外消耗为 0，能量分录等于基础加额外；睡眠不折减基础代谢。65 公斤夹具人物的数值就是修订前的每小时 65 千卡。"""
+    engine = engine_factory(dingtalk_environment(tmp_path / "input", IDLE_CONTENT), mutate=_body(mass_kg))
     assert engine.context.body.mass_kg == mass_kg
-    _, browsing = act(engine, "browse", use_app("美团"))
+    _, browsing = act(engine, "idle", use_app("钉钉"))
     assert browsing.status == "in_progress", browsing.error_code
-    finish_activity(engine, browsing, "browse")
+    assert engine.context.state.activities[browsing.activity_id].data["content_id"] == "dingtalk-idle"
+    finish_activity(engine, browsing, "idle")
     _, sleeping = act(engine, "sleep", sleep())
     assert sleeping.status == "in_progress", sleeping.error_code
     night = engine.context.state.activities[sleeping.activity_id]

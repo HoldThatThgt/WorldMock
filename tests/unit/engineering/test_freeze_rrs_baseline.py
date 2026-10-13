@@ -18,8 +18,8 @@ ROOT = Path(__file__).resolve().parents[3]
 def _candidate():
     """@brief 构造当前候选形状，完整日的实际生成由独立整日入口验证。"""
     return {"persona_sha256": "a" * 64, "config_sha256": "f" * 64, "seed": 20260106,
-            "environment_identity": {"environment_id": "artificial-test", "environment_version": "3",
-                                     "rules_version": 4, "catalog_content_sha256": "1" * 64,
+            "environment_identity": {"environment_id": "artificial-test", "environment_version": "4",
+                                     "rules_version": 5, "catalog_content_sha256": "1" * 64,
                                      "map_sha256": "2" * 64},
             "summary": {"artifacts": {"events.jsonl": "b" * 64},
                         "checkpoints_sha256": "c" * 64, "run_assets": [["d" * 64, 12]]}}
@@ -103,7 +103,7 @@ def test_invalid_current_candidate_is_rejected_before_publication(tmp_path, capl
     elif change == "partial_environment":
         second["environment_identity"].pop("map_sha256")
     elif change == "old_rules":
-        first["environment_identity"]["rules_version"] = second["environment_identity"]["rules_version"] = 3
+        first["environment_identity"]["rules_version"] = second["environment_identity"]["rules_version"] = 4
     else:
         second["environment_identity"]["rules_version"] = True
     paths = _paths(tmp_path, first, second)

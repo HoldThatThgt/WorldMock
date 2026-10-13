@@ -28,6 +28,7 @@ from worldmock.footprints.ledger import (
     validate_account_transition,
 )
 from worldmock.footprints.models import AssetRef, Event, EventDraft, canonical_json
+from tests.footprints.display_fixtures import freeze_environment, sample_display_names
 from worldmock.footprints.quality import build_quality_report
 from worldmock.footprints.store import FootprintStore
 from worldmock.footprints.validation import validate_export
@@ -91,12 +92,13 @@ def _usage(**extra):
 
 
 def _run_report(events, activities, manifest):
-    return build_quality_report(events, activities, manifest)
+    return build_quality_report(events, activities, manifest, sample_display_names())
 
 
 def _make_store(tmp_path, agent_ids=(1,)):
+    """一个只有冻结样例环境素材的运行目录：导出写时间线与质量报告时从这些素材取名称。"""
     manifest = {"run_id": "run", "source_group_id": "run", "agent_ids": list(agent_ids),
-                "environment_assets": {},
+                "environment_assets": freeze_environment(tmp_path / "run"),
                 "window": {"start": 100, "end": 300, "timezone": "UTC"}}
     return FootprintStore.create(tmp_path / "run", manifest,
                                  {"version": 0, "current_time": 100})
@@ -154,18 +156,18 @@ def _rehash_checkpoint(manifest):
 def test_quality_report_rejects_invalid_manifest_shapes(manifest):
     events = [_event(1, "run_ended", occurred_at=200)]
     with pytest.raises(IntegrityError):
-        build_quality_report(events, [], manifest)
+        build_quality_report(events, [], manifest, sample_display_names())
 
 
 def test_quality_report_rejects_invalid_activity_identities():
     events = [_event(1, "run_ended", occurred_at=200)]
     with pytest.raises(IntegrityError):
-        build_quality_report(events, [{"activity_id": ""}], _manifest(end=200))
+        build_quality_report(events, [{"activity_id": ""}], _manifest(end=200), sample_display_names())
     with pytest.raises(IntegrityError):
-        build_quality_report(events, [{"agent_id": 1}], _manifest(end=200))
+        build_quality_report(events, [{"agent_id": 1}], _manifest(end=200), sample_display_names())
     duplicate = [_activity("same", "work", 1), _activity("same", "work", 2)]
     with pytest.raises(IntegrityError):
-        build_quality_report(events, duplicate, _manifest(end=200))
+        build_quality_report(events, duplicate, _manifest(end=200), sample_display_names())
 
 
 def test_action_result_status_buckets_report_missing_and_unrecognized():
@@ -299,7 +301,7 @@ def test_model_usage_reports_cost_breakdown_rejections_and_pending_calls():
 
 def test_acceleration_rejects_events_before_window_and_reports_zero_wall_time():
     with pytest.raises(IntegrityError, match="precede the run window"):
-        build_quality_report([_event(1, "run_ended", occurred_at=99)], [], _manifest())
+        build_quality_report([_event(1, "run_ended", occurred_at=99)], [], _manifest(), sample_display_names())
     events = [_event(1, "run_ended", occurred_at=200, wall_ms=0)]
     acceleration = _run_report(events, [], _manifest(end=200))["acceleration"]
     assert acceleration["available"] is False

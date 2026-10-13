@@ -11,14 +11,14 @@ from tests.life.conftest import SIDE_TOOL, side_arguments, stage_day_plan
 
 
 async def _recorded_viewer_requests(factory):
-    """@brief 真实人物先修订计划，再通过同秒续接开始平台浏览。"""
+    """@brief 真实人物先修订计划，再通过同秒续接打开哔哩哔哩（prefer 为 null）。"""
     engine = factory()
     stage_day_plan(engine, submitted=True)
     first = await decide(engine, "viewer-plan", [ToolResponse("revise_day_plan", {
-        "goals": [{"intent_kind": "休息", "goal": "浏览一下美团", "remind_time": None,
+        "goals": [{"intent_kind": "休息", "goal": "看一会儿哔哩哔哩", "remind_time": None,
                    "around_time": None}]}, call_id="viewer-plan")])
     second = await decide(engine, "viewer-browse", [ToolResponse(SIDE_TOOL,
-        side_arguments("interact", "美团"), call_id="viewer-browse")])
+        side_arguments("interact", "哔哩哔哩"), call_id="viewer-browse")])
     return {"action": first[1][0], "continuation": second[1][0]}, engine
 
 
@@ -32,14 +32,15 @@ async def test_viewer_fixture_is_recorded_from_the_current_host(_engine_factory)
     assert recorded["action"]["tools"] == requests["action"]["tools"]
     assert recorded["continuation"]["messages"][:2] == recorded["action"]["messages"]
     assert requests["continuation"]["messages"][:2] == requests["action"]["messages"]
-    # 录制样例里的工具清单：十一个工具各出现一次，含两个开始工具，不含已删除的 start_activity。
+    # 录制样例里的工具清单：十个工具各出现一次，含两个开始工具，不含已删除的 query_world 与 start_activity。
     listed = [tool["function"]["name"] for tool in recorded["action"]["tools"]]
     names = set(listed)
-    assert len(listed) == len(names) == 11
+    assert len(listed) == len(names) == 10
     assert {"start_main_activity", "start_side_activity", "report_status", "pause_activity", "conclude_activity",
-            "revise_day_plan", "query_world", "recall_task_summary"} <= names
-    assert names.isdisjoint({"start_activity", "set_alarm", "send_message", "submit_work"})
+            "revise_day_plan", "recall_task_summary"} <= names
+    assert names.isdisjoint({"query_world", "start_activity", "set_alarm", "send_message", "submit_work"})
     events = engine.context.store.read_events(engine.context.store.last_event_seq)
     assert not any(event.event_type == "action_rejected" for event in events)
     activity = next(iter(engine.context.state.activities.values()))
-    assert activity.kind.value == "interact" and activity.data["content_id"] is None
+    assert activity.kind.value == "interact" and activity.data["app_id"] == "bilibili"
+    assert activity.data["content_id"]

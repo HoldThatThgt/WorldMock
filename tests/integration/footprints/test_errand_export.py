@@ -7,6 +7,7 @@ from tests.life.conftest import advance_next, conclude_request, errand_add, purc
 from tests.life.environment_runtime import act, finish_activity, run_to_end
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import Event
+from tests.footprints.display_fixtures import sample_display_names
 from worldmock.footprints.quality import build_quality_report
 from worldmock.footprints.validation import validate_export
 
@@ -16,10 +17,10 @@ def test_errand_completion_recertifies_actual_received_goods(engine_factory, tmp
         short_window(persona, config)
         config["progress_report_interval_seconds"] = 60
     engine = engine_factory(mutate=setup)
-    _, browse = act(engine, "note-browse", use_app("美团"))
+    _, using = act(engine, "note-keep", use_app("Keep"))
     while not engine.scheduling_state().ready_agent_ids:
         advance_next(engine)
-    activity = engine.context.state.activities[browse.activity_id]
+    activity = engine.context.state.activities[using.activity_id]
     _, noted = act(engine, "note", conclude_request(activity.name, errands=[errand_add("买纸巾", "纸巾")]),
                    "conclude_activity")
     assert noted.status == "completed"
@@ -35,7 +36,7 @@ def test_errand_completion_recertifies_actual_received_goods(engine_factory, tmp
     manifest, rows, activities = validate_export(destination)
     quality = json.loads((destination / "quality.json").read_bytes())
     assert quality == build_quality_report([Event.model_validate(row) for row in rows], activities,
-                                          manifest["frozen_run_manifest"])
+                                          manifest["frozen_run_manifest"], sample_display_names())
     assert quality["errand_metrics"]["registered_count"] == quality["errand_metrics"]["completed_count"] == 1
     assert quality["errand_metrics"]["completed_without_evidence_count"] == 0
     assert not any(row["event_type"] == "memory_updated" for row in rows)

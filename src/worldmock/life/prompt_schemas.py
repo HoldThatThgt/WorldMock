@@ -27,6 +27,8 @@ _DATE = {"type": "string", "pattern": r"^\d{4}-\d{2}-\d{2}$"}
 _TEXT = {"type": "string", "minLength": 1}
 _NULLABLE_TEXT = {"type": ["string", "null"], "minLength": 1}
 _LINES = {"type": "array", "items": _TEXT}
+#: 内容简介：可以为空，至多 200 字；推送记录与结果明细里的内容共用这一种写法。
+_SUMMARY = {"type": "string", "maxLength": 200}
 
 #: 工具层目标类别闭集，只含当前真实目标。
 TARGET_KINDS = ("location", "product", "app", "activity")
@@ -49,13 +51,18 @@ def _object(properties: dict[str, Any], optional: tuple[str, ...] = ()) -> dict[
             "required": [key for key in properties if key not in optional]}
 
 
-def _availability(extra: dict[str, Any]) -> dict[str, Any]:
-    """@brief 带 available 与 reason 的对象：可用时 reason 为 null，不可用时 reason 是非空原因。"""
-    schema = _object({**extra, "available": {"type": "boolean"}, "reason": _NULLABLE_TEXT})
-    schema["if"] = {"properties": {"available": {"const": True}}}
+def _reason_unless(schema: dict[str, Any], condition: dict[str, Any]) -> dict[str, Any]:
+    """@brief 给带 reason 键的封闭对象加条件：满足 condition 时 reason 为 null，否则 reason 是非空原因。"""
+    schema["if"] = {"properties": condition}
     schema["then"] = {"properties": {"reason": {"type": "null"}}}
     schema["else"] = {"properties": {"reason": _TEXT}}
     return schema
+
+
+def _availability(extra: dict[str, Any]) -> dict[str, Any]:
+    """@brief 带 available 与 reason 的对象：可用时 reason 为 null，不可用时 reason 是非空原因。"""
+    return _reason_unless(_object({**extra, "available": {"type": "boolean"}, "reason": _NULLABLE_TEXT}),
+                          {"available": {"const": True}})
 
 
 def _tool_action(tools: tuple[str, ...]) -> dict[str, Any]:
@@ -96,9 +103,7 @@ _INDEX_CATEGORY = _object({"category": _TEXT, "count": {"type": "string", "patte
 #: 工具层的可调用索引（docs/design/04-simulation-engine.md）：只有名称、品类与计数，不带动作与条件。
 _CALLABLE_INDEX = _object({
     "goods": {"type": "array", "items": _INDEX_CATEGORY},
-    "query_categories": {"type": "array", "items": _object({"category": _TEXT,
-                          "count": {"type": "integer", "minimum": 0},
-                          "examples": {"type": "array", "maxItems": MAX_EXAMPLES, "items": _TEXT}})},
+    "prefer_apps": {"type": "array", "uniqueItems": True, "items": _TEXT},
 })
 
 TOOL_LAYER_SCHEMA: dict[str, Any] = {
@@ -197,13 +202,36 @@ ENVIRONMENT_LAYER_SCHEMA: dict[str, Any] = {
     }),
 }
 
-_PURCHASE = _object({"product": _TEXT, "quantity": _TEXT, "destination": _TEXT,
+#: 购买明细的一行：channel 是下单 app 的全名或「到店」；没有付款的配 price，付了款的配 paid。
+_PURCHASE = _object({"product": _TEXT, "quantity": _TEXT, "channel": _TEXT, "destination": _TEXT,
                      "expected_at": _TIME, "paid": _TEXT, "price": _TEXT}, optional=("paid", "price"))
 _PURCHASE["oneOf"] = [{"required": ["paid"], "not": {"required": ["price"]}},
                        {"required": ["price"], "not": {"required": ["paid"]}}]
+#: 第一条结果里实际开始的那条内容；在地点做的事 app 为 null。
+_CONTENT = _object({"app": _NULLABLE_TEXT, "title": _TEXT, "summary": _SUMMARY, "duration": _TEXT,
+                    "pushed": {"type": "boolean"}})
+#: 第二条结果里做过的各条内容，至少一行；finished 表示这条做到了头。
+_CONTENTS = {"type": "array", "minItems": 1, "items": _object({
+    "title": _TEXT, "summary": _SUMMARY, "duration": _TEXT, "finished": {"type": "boolean"}})}
+#: 查询答案的一行：九个键都出现；可以下单时 reason 为 null，不可下单时是非空原因。
+_QUERY_ROW = _reason_unless(_object({
+    "product": _TEXT, "route": {"enum": ["到店", "外卖", "快递", None]}, "store": _NULLABLE_TEXT,
+    "apps": {"type": "array", "uniqueItems": True, "items": _TEXT}, "price": _TEXT,
+    "delivery_fee": _NULLABLE_TEXT, "expected_at": {**_TIME, "type": ["string", "null"]},
+    "now": {"enum": ["可以下单", "不可下单"]}, "reason": _NULLABLE_TEXT}), {"now": {"const": "可以下单"}})
+#: 查完的答案：app 为 null 时一定列出全部途径；没列出的件数为 0 时不写 omitted。
+_QUERY_ANSWERED = _object({
+    "app": _NULLABLE_TEXT, "scope": {"enum": ["只列经这个 app 能买的", "列出全部途径"]},
+    "rows": {"type": "array", "items": _QUERY_ROW},
+    "omitted": {"type": "string", "pattern": r"^还有 [1-9][0-9]* 件没列$"}}, optional=("omitted",))
+_QUERY_ANSWERED["if"] = {"properties": {"app": {"type": "null"}}}
+_QUERY_ANSWERED["then"] = {"properties": {"scope": {"const": "列出全部途径"}}}
+#: 查询的第二条结果：查完的答案，或提前结束、被截断时的「没有查完」。
+_QUERY = {"oneOf": [_QUERY_ANSWERED, _object({"app": _NULLABLE_TEXT, "state": {"const": "没有查完"}})]}
 _RESULT_DETAILS = _object({
     "purchases": {"type": "array", "items": _PURCHASE},
     "planned": {"type": "array", "items": _object({"name": _TEXT, "duration": _TEXT})},
+    "content": _CONTENT, "contents": _CONTENTS, "query": _QUERY,
     "arrival": _object({"place": _TEXT, "access": {"enum": ["进入", "没能进去"]}}),
     "recall": {"type": "object"}, "reason": _TEXT, "next_step": _TEXT, "fix": _TEXT,
     "items": {"type": "array", "items": {"type": "object"}},
@@ -211,8 +239,8 @@ _RESULT_DETAILS = _object({
     "resolved": {"type": "array", "items": {"type": "object"}},
     "notes": {"type": "array", "items": _TEXT},
     "errands": {"type": "array", "items": _object({"errand": _TEXT, "change": _TEXT})},
-}, optional=("purchases", "planned", "arrival", "recall", "reason", "next_step", "fix", "items", "outcome",
-             "resolved", "notes", "errands"))
+}, optional=("purchases", "planned", "content", "contents", "query", "arrival", "recall", "reason", "next_step",
+             "fix", "items", "outcome", "resolved", "notes", "errands"))
 _RESULT = _object({"occurred_at": _TIME, "status": {"enum": list(ACTION_STATUSES)},
                    "error_code": _NULLABLE_TEXT, "message": _TEXT, "details": _RESULT_DETAILS})
 
@@ -235,8 +263,7 @@ PROGRESS_LAYER_SCHEMA: dict[str, Any] = {
                     optional=("self_note",)),
             _record("delivery", {"order": _TEXT, "status": {"enum": ["pending", "ready_for_pickup", "delivered"]},
                                  "message": _TEXT}),
-            _record("app_push", {"app": _TEXT, "title": _TEXT,
-                                  "summary": {"type": "string", "maxLength": 200}}),
+            _record("app_push", {"app": _TEXT, "title": _TEXT, "summary": _SUMMARY}),
             _record("callback_reminder", {"app": _TEXT, "text": _TEXT}),
             _record("balance_decreased", {"message": _TEXT}),
             _record("plan_reminder", {"goal": _TEXT}),

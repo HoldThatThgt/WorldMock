@@ -16,11 +16,13 @@ flowchart LR
     Export --> Evaluation[行为评估]
 ```
 
+查看器读的是运行目录或导出目录里的数据库、运行清单和冻结的目录素材，见「显示写法与检查工具」。
+
 ## 事件与来源
 
 事件信封携带运行、顺序、时间、人物、动作和活动身份，以及 `resource_changes`。
 资金变化只允许信封字段，删除 data 内的重复账本。付款与收入支出必须引用真实两个账户并守恒。
-当前活动种类只有 sleep、travel、interact、purchase。拒绝旧等待、工作、社交、消息与旧 app 活动快照。
+当前活动种类只有 sleep、travel、interact、purchase、query。拒绝旧等待、工作、社交、消息与旧 app 活动快照。
 活动快照只出现在环境写下、人物可见的事件里：受理、拒绝、动作结果、活动进度和环境事件。
 人物有活动在进行时被业务拒绝，拒绝事件带着那一刻仍在进行的那项活动的快照；世界没有变，
 导出把它当作这项活动的一个真实来源，不因此增加执行区间、内容消费或推送转换。
@@ -29,8 +31,30 @@ callback_effect、callback_reminder、time_trigger、weather 使用闭合字段�
 效果包含一项实际触发原因和完整类型化结果；收入支出方向与信封资金变化一致，未支付结果没有资金变化。
 独立时间事实不能伪装成上游事件的附加效果，天气条件与速度系数必须来自固定世界天气表。
 
+状态效果有三种正文：回调规则的增量 `state_delta`、收货把状态置为上限的 `reset_to_cap`，以及凭状态的地点内容开始时把状态减 1 的 `consume_on_start`。
+`consume_on_start` 的 `data` 恰为 `{kind, type, rule_id, state, content_id, before, after}`：`kind` 为 `callback_effect`，`type` 为 `consume_on_start`，
+`rule_id` 为 null，`state` 是状态名，`content_id` 是开始的那条内容，`before`、`after` 是减 1 前后的值，都不小于 0。
+信封与另外两种状态效果相同：`environment_event`，来源 `environment`，可见性 `system`，`resource_changes` 为空，`caused_by` 恰一项，
+是开始这件事的那次调用的受理 `action_result`。什么时候减见[模拟引擎](04-simulation-engine.md)「出行、内容与查询」。
+
 唤醒原因写在共同身体结算、`decision_started` 和观察里，取值是[模拟引擎](04-simulation-engine.md)唤醒表里的名称。
 每次睡醒的原因列表同时含 `planned_end` 与 `session_open`，质量报告和行为评估按原因名的计数各加一。
+
+共同身体结算写成 `body_settlement`，带「结算前」`before`、「结算后」`after` 和这一笔的分录 `resource_flows`。对能量、睡眠不足、放松需要、社交需要四项，「结算后」等于「结算前」加上本记录该项的全部 `source` 分录、减去全部 `drain` 分录。这条记录上只有两类分录：共同结算的分录，和这次推进的不适脉冲。不适脉冲对着共同结算之后的身体计算，世界里加的是分录登记的同一个数额。同一秒的收货（到店购买完成、外卖送达、驿站取件）和地点内容的完成效果不进这条记录，只记在各自的事件上。`goods_received` 的 `applied` 等于该事件登记的分录数额之和，不用前后两个数相减；没有分录时是 `0.0`。业务拒绝带来的放松脉冲，分录记在这组拒绝的第一条 `action_result` 事件正文顶层的 `resource_flows` 上，`action_rejected` 不带；没有施加脉冲时不写这个键。
+
+地点内容的完成效果（`completion_effects`，见[资源引擎](03-resource-engine.md)「app、内容与候选呈现」）证据记在这条内容做完的那条 `activity_progress` 上，不新增事件种类：
+内容证据 `data.content` 的字段闭集含 `completion_effects`。这次推进没有做完内容、做完的内容没写 `completion_effects` 或是 app 内容时，它为 null；
+做完了一条写了 `completion_effects` 的地点内容时，它是恰含 `food`、`relaxation_relief`、`social_relief` 三个键的对象，没有声明的成员为 null。
+
+| 成员 | 证据 |
+| --- | --- |
+| `food` | `{tier, provided, applied, efficiency}`：`tier` 是档位名；`provided` 是档位的热量（整数）；`applied` 是这一笔实际登记的补能数额，到上限时为 0；`efficiency` 是这一笔用的食品利用率 |
+| `relaxation_relief`、`social_relief` | `{tier, provided, applied}`：`provided` 是档位的量；`applied` 是实际减少的量，需要已为 0 时为 0 |
+
+`applied` 一律取登记的分录数额，不用结算前后的值相减。每个实得不为 0 的成员一条分录，按 `food`、`relaxation_relief`、`social_relief` 的次序排在这条事件 `resource_flows` 的最前：
+`food` 是 `energy_kcal` 的 `source`，`cause` 为 `settle:shared:energy_kcal`；两项缓解是 `relaxation_need`、`social_need` 的 `drain`，`cause` 为 `content:completion`。
+下面任何一条不成立都是运行故障，先写英文错误日志，再抛 `IntegrityError("Activity completion effects must use the current location completion contract")`：
+值为 null 或对象；为对象时键恰为三个成员、`data.content.completed` 为真、`data.content.app_id` 为 null；每个非空成员的键恰如上表、`tier` 在该成员的档位表内。
 
 `memory_updated` 登记人物工作区已落盘的记忆，所有登记用同一组键：`operation`、`created_episode_ids`、
 `merged_episode_ids`、`episodes`、四个文件身份、`consolidated`、`observation_event_id`、`verified_event_ids`、
@@ -53,7 +77,9 @@ callback_effect、callback_reminder、time_trigger、weather 使用闭合字段�
 手机上的三类事由引擎写成四种环境事件：app 的开和关、进出地点、订单通知。
 它们都是 `environment_event`，来源是环境，可见性是 `system`，不带资金变化，事件类型的闭集不变。
 人物看不到它们：不进任何提示层、记忆、零点计划和就寝反思的输入，不能被回调规则订阅，不产生公开评估证据；
-它们也不是决策机会，不新增唤醒原因，不改人物的下一次决策时刻。恢复和重放读已提交的事件，不重写、不重抽。
+它们也不是决策机会，不新增唤醒原因，不改人物的下一次决策时刻。
+人物从购买结果的 `channel` 读到实际的下单 app，从查询的答案读到是在哪个 app 里查的；来源是商品履约记录和查询活动，不是这四种事件。
+恢复和重放读已提交的事件，不重写、不重抽。
 
 | `data.kind` | `data` 恰为 | 何时写 | 起因 |
 | --- | --- | --- | --- |
@@ -82,23 +108,23 @@ callback_effect、callback_reminder、time_trigger、weather 使用闭合字段�
 
 | `fact_kind` | 另带字段 | 来源 |
 | --- | --- | --- |
-| `app_use` | `segments`、`status` | 人物点名使用 app 的活动；引擎代为使用的 app 的 `app_foreground` 事件 |
+| `app_use` | `segments`、`status` | 自带 app 的活动（人物点名使用的内容 app，和查询所在的 app）；引擎代为打开的 app 的 `app_foreground` 事件 |
 | `content_consumed` | 内容身份、结算区间、位置、是否完成、推送身份 | 实际内容结算 |
 | `push_delivered`、`push_opened`、`push_released` | 推送身份、内容身份、会话身份、时刻 | 推送的送达与实际转换 |
 | `app_touch` | `occurred_at` | 回调规则 `footprint_chain` 的足迹；出行和付款不再写自动时间点 |
 | `payment_notification` | `occurred_at`、`amount_fen`、`order_ids`、`title`、`summary` | `payment_notification` 事件 |
 | `order_notification` | `occurred_at`、`order_ids`、`title`、`summary` | `order_notification` 事件；`activity_id` 为 null |
 
-`app_use` 是 app 真实在前台的区间，分两种来源。人物点名使用的 app，区间是这项 interact 活动的正秒结算。
-引擎代为使用的 app（导航、下单的内容 app、支付 app）由 `app_foreground` 投影：同一活动、同一 app 一行，字段与人物点名使用的行完全相同；
+`app_use` 是 app 真实在前台的区间，分两种来源。自带 app 的活动，活动数据里有 `app_id`：人物点名使用的内容 app，区间是这项 interact 活动的正秒结算；
+查询所在的 app，区间是这项 query 活动的执行区间，`app_id` 为空的查询没有 `app_use` 行，查询不写 `app_foreground`。
+引擎代为打开的 app（导航、购买时下单的内容 app、支付 app；下单的内容 app 可以是人物在 `prefer` 里写的那个）由 `app_foreground` 投影：同一活动、同一 app 一行，字段与人物点名使用的行完全相同；
 `segments` 是这一对活动与 app 的全部前台区间，按时间升序，首尾相接的并成一段；`status` 是所属活动在导出截止时的状态；
 `source_event_id` 是最后一条贡献区间的 `app_foreground` 事件。
-下游区分两种来源看 `activity_id` 在 `activities.jsonl` 里的 `activity_type`：`interact` 是人物点名使用，`travel` 是导航，`purchase` 是下单或付款。
+下游区分两种来源看 `activity_id` 在 `activities.jsonl` 里的 `activity_type`：`interact` 是人物点名使用，`query` 是查询所在的 app，`travel` 是导航，`purchase` 是下单或付款。
 `app_use` 行排在文件最前，按各行第一条来源事件的先后排列；其后是其余事实，按事件先后。
 app_touch、payment_notification 和 order_notification 是系统点事实，不拥有播放、停留或复看时长。
 「支付成功」由抽到的支付 app 发；抽到直付时由下单的内容 app 发，到店且直付不发。三种订单通知都由下单的内容 app 发。
 内容消费使用实际内容结算区间和当前内容身份，不能使用活动起止墙钟差计算，暂停时间不计入。
-纯目录浏览只有真实 app 使用，未关联内容；使用冻结 app 内容索引与声明时长认证。
 
 `location-stays.jsonl` 每段停留一行，由 `location_entered` 与 `location_left` 按 `session_id` 配对投影，按进入事件的先后排列。
 
@@ -113,9 +139,255 @@ app_touch、payment_notification 和 order_notification 是系统点事实，不
 | `enter_source_event_id` | 一条 `location_entered` 事件 | 进入的来源 |
 | `leave_source_event_id` | 一条 `location_left` 事件，`left_at` 为 null 时为 null | 离开的来源 |
 
-购买投影保存实际订单商品、门店、平台、付款 app、数量、价格与履约事实。
-付款、到站与收货分开；收到的经历只能来自已提交的本人真实收货事件。
-原始显示名由冻结输入与观察证据解析，人物日时间线使用实际动作与内容名称。
+购买投影保存实际订单商品、门店、平台、付款 app、数量、价格与履约事实。人物写的 `prefer` 原文只在 `action_requested` 事件的请求里，购买工件不为它加字段。
+付款、到站与收货分开；收到的经历只能来自已提交的本人真实收货事件。地点内容的完成效果（含 `food` 补的能量）不是收货，不进购买投影，也不是「收到」这种已核验经历。
+对象的显示名一律取自这次运行冻结的环境目录，不从观察记录里取；日时间线的写法见「显示写法与检查工具」。
+
+## 显示写法与检查工具
+
+查看器、导出的一天时间线、`scripts/inspect_run.py`、人物零点做计划时读到的「已核验经历」句，四处用同一套写法；
+质量报告 `timeline_labels` 检查的是一天时间线的各行，跟着一天时间线走。写法是说明一项活动或一条手机事件是什么的那几个字，
+不含时刻、状态和时长，这些由各处另写。Python 一侧的使用方都调用同一处实现，查看器是它的镜像。
+
+### 写法总表
+
+尖括号里是从冻结的环境目录取到的名称；「·」两侧各有一个半角空格；括号、冒号、分号、顿号都是全角；「×」是乘号。
+「样例环境」指 `tests/fixtures/dataset-environment/`。
+
+| 情形 | 格式 | 例子 | 样例环境的例子 |
+| --- | --- | --- | --- |
+| 用 app 看到一条内容 | 使用<app 名>《<标题>》 | 使用哔哩哔哩《散步装备准备》 | 使用哔哩哔哩《测试文章》 |
+| 一次使用里连着看了几条 | 使用<app 名>《<标题一>》《<标题二>》…… | —（查看器泳道把首尾相接的几次使用并成一行时也用这个格式，见下文「查看器里的连续使用」） | 使用哔哩哔哩《测试剧集第一集》《测试剧集第二集》 |
+| 在地点做一件独立的事 | 在<地点显示名>：<单元名> | 在淀山湖大道东渡悦来城公寓：早上洗漱 | 在家：测试休息 |
+| 在地点做一个系列 | 在<地点显示名>：<系列名>《<集一>》《<集二>》…… | 在淀山湖大道东渡悦来城公寓：做晚饭《备菜做饭》《吃晚饭》《洗碗收拾厨房》 | 样例环境没有地点系列，测试在副本上加 |
+| 购买，一张经 app 下单的订单 | 购买<商品列表>（经<app 名>下单） | 购买冰美式咖啡（经瑞幸咖啡下单） | 购买牛肉面（经美团下单） |
+| 购买，到店 | 购买<商品列表>（到店） | 购买冰美式咖啡（到店） | 购买饭团、纸巾（到店） |
+| 购买，一次分成几张订单 | 购买<第一张的商品列表>（……）；<第二张的商品列表>（……） | 购买冰美式咖啡（经瑞幸咖啡下单）；薯片（到店）（示意） | 购买牛肉面（经美团下单）；纸巾（到店） |
+| 查询，有 app 在前台 | 查询<名称列表>（<app 名>） | 查询冰美式咖啡（瑞幸咖啡） | 查询食品（美团） |
+| 查询，没有 app | 查询<名称列表> | — | 查询纸巾 |
+| app 前台区间 | app 前台 · <app 名> · <步骤> | app 前台 · 淘宝闪购 · 下单 | app 前台 · 高德地图 · 导航 |
+| 订单通知 | 订单通知 · <app 名> · <标题> | 订单通知 · 淘宝闪购 · 订单已送达 | 订单通知 · 美团 · 订单已下单 |
+| 消费通知 | 消费通知 · <app 名> · 支付成功 | 消费通知 · 支付宝 · 支付成功 | 消费通知 · 微信 · 支付成功 |
+| 出行 | <出行方式名>去<地点显示名> | — | 驾车去公司 |
+| 睡眠 | 睡觉 | — | 睡觉 |
+
+选哪一行看活动快照的 `kind` 和 `data.app_id`；在地点做的事再看这一行第一条内容的目录行：
+
+```mermaid
+flowchart TD
+    A["一项活动的快照"] --> B{"kind"}
+    B -->|"interact"| C{"data.app_id 为空吗"}
+    C -->|"不为空"| D["使用 app 的写法"]
+    C -->|"为空"| E{"这一行第一条内容的目录行有 series 吗"}
+    E -->|"没有"| F["在地点做独立的事"]
+    E -->|"有"| G["在地点做一个系列"]
+    B -->|"purchase"| H["按 data.order_ids 找订单记录，按订单分段"]
+    B -->|"query"| I["查询的写法"]
+    B -->|"travel"| J["出行"]
+    B -->|"其余种类"| K{"在中文种类表里吗"}
+    K -->|"在"| L["写表里的种类名：睡眠是「睡觉」"]
+    K -->|"不在"| M["运行故障"]
+```
+
+没有专门写法的种类，写中文种类表 `ACTIVITY_KIND_LABELS` 里的种类名；不在这张表里的种类是运行故障。
+
+### 各情形的细则
+
+**标题怎样列。**
+
+- 标题一律按内容身份 `content_id` 到冻结的环境目录里取，不读快照里随带的 `content_title`。
+- 一条事件指向哪条内容：进度事件 `activity_progress` 的正文带着 `data.content` 时，取其中的 `content_id`，也就是这一段里真正放过或做过的那一条；
+  事件没有这一项时（受理事件都没有），取活动快照的 `data.content_id`。一集做到头的那条进度事件，快照已经换成下一集，所以不能一律读快照。
+- 一行覆盖几条事件，就按事件的先后把它们指向的内容依次列出，每条一个书名号，书名号之间不加任何字符；相邻两条是同一条内容（`content_id` 相同）时只写一次。
+- 没看完、没做完的也照列，不标「未完」，不设条数上限。一行覆盖哪些事件，四处各不相同，见「四处各自怎样写」。
+
+**在地点做的事。**
+
+- 地点取活动快照的 `location_id`，也就是开始这件事时所在的地点，写它的显示名：`name`，有 `branch_label` 时是「`name`（`branch_label`）」。
+- 单元名是人物点名时写的名称：独立内容是它的标题，不再重复写书名号；系列是系列名（内容行的 `series.title`），先写系列名，再列这一行覆盖的各集，只覆盖一集时是「在家：做晚饭《吃晚饭》」。
+- 是不是系列，看这一行第一条内容的目录行有没有 `series`；一项在地点做的活动里的各条内容同属一个单元。app 里的系列不写系列名，只列各集标题。
+
+**购买。**
+
+- 商品和渠道都取订单记录：按快照的 `data.order_ids` 找到这次购买的各条商品履约记录，读其中的 `goods_id` 和 `app_id`。不读人物在请求里写的 `prefer`，也不读活动名。
+- 订单是一次购买里下单 app 相同的全部商品履约记录，到店买的记录合成一张到店订单。按订单分段：带下单 app 的订单按 `app_id` 升序，到店订单排在最后；
+  段与段之间用「；」，「购买」两个字只在最前面写一次。同一个下单 app 上点了两家店仍是一张订单、一段。
+- 段内的商品按 `goods_id` 升序，同一件商品买了几份合写成「名称×份数」，各项以「、」相连，与订单通知正文同一写法。
+- 渠道：`app_id` 不为空写「（经<app 名>下单）」，为空写「（到店）」。只在 app 里卖的快递商品有下单 app，同样写「经<app 名>下单」。
+- 余额不足而失败、被提前结束的购买照写同一句，状态由各处另写。
+
+**查询。**
+
+- 名称列表取查询活动私有数据的 `targets`（见[状态与序列化](09-io-formats.md)「世界、人物与活动」），按所写次序、已去重：商品项按 `goods_id` 写商品名，
+  类别项写类别的中文名「零食」「食品」「饮料」「商品」，各项以「、」相连，不再排序。
+- 查询活动的 `data.app_id` 不为空时在后面加「（<app 名>）」，为空时不写括号。
+- 查询期间的 app 前台由这项查询活动自己带着，不是一条手机事件，没有「app 前台 · …… · 查询」这样的行，app 只出现在查询这一行里。
+
+**手机事件。**
+
+| 记录 | 写法 | 取值 |
+| --- | --- | --- |
+| `app_foreground` | app 前台 · <app 名> · <步骤> | 步骤的中文名：`navigation`「导航」、`ordering`「下单」、`payment`「付款」，闭集只有这三个 |
+| `order_notification` | 订单通知 · <app 名> · <标题> | 标题取事件自带的 `title`：「订单已下单」「订单已发货」「订单已送达」 |
+| `payment_notification` | 消费通知 · <app 名> · <标题> | 标题取事件自带的 `title`，恒为「支付成功」 |
+
+app 名按事件的 `app_id` 取；功能 app 也在冻结的 app 目录里，所以取得到。直付时消费通知由下单的内容 app 发，写的就是它的名称。
+查看器遇到这三个之外的步骤照原值显示，Python 一侧不为它另设分支。
+
+**出行和睡眠。** 出行按快照的 `travel_method_id` 和 `destination_id` 取名，引擎自带的步行固定是 `walking`「步行」；睡眠写中文种类表里的「睡觉」。
+
+### 四处各自怎样写
+
+| 哪里 | 用到写法的行 | 一行覆盖哪些事件 | 写法前后还写什么 |
+| --- | --- | --- | --- |
+| 导出的一天时间线，以及质量报告 `timeline_labels` 检查的行 | 每行的「活动」一栏 | 同一活动首尾相接的结算段合成一行，覆盖这些段的进度事件。时间线不读受理事件。活动暂停后再恢复是两行，各列各的 | 起止、总时长、段数三栏 |
+| `scripts/inspect_run.py` 的 `events` | `activity_progress` 行、`action_accepted` 行里的活动；`environment_event` 里的三种手机事件 | 一条事件，只有它指向的那一条内容 | 见下文「检查工具」 |
+| 人物零点做计划时读到的「已核验经历」 | 内容经历句 | 一条内容推进经历，只有那一条内容（经历的 `content_id` 取自进度事件的 `data.content`） | 「<起>–<止> <写法>」，句子见[人物](06-agent.md)「进度、待办与记忆」 |
+| 查看器 | 活动表的「目标」列、活动泳道的标签；时间线的「已受理」「活动段」行；「世界事件」行里的三种手机事件；「结果」行的订单段 | 活动表和泳道：一项活动的全部受理事件与进度事件，按事件序号；泳道里几次使用并成的一行，覆盖这一行各个执行段的进度事件。时间线的行：一条事件 | 见下文「查看器」 |
+
+一段不间断、不跨零点的活动，时间线的行和查看器的活动表写出的是同一句。暂停后恢复、或跨过零点的活动，时间线分成几行、各列各的，查看器的活动表按活动只有一行，把各段的内容列全；
+受理之后一秒都没有推进就结束的活动，时间线没有这一行，查看器的活动表仍写出受理时选中的那一条。
+
+经历句交给写法的快照只有三项：`kind` 是 `interact`，`location_id` 是这项活动的地点，`data.app_id` 是经历的 `app_id`；内容序列只有经历的 `content_id` 一条。
+一条内容被结算边界切成几段仍是几句，系列逐集一句。
+
+### 名称的唯一来源
+
+名称只有一个来源：这次运行冻结的环境目录。任何一处都不从观察记录里取名称。
+
+| 素材名（`environment_assets` 的键） | 读哪些字段 | 得到什么 |
+| --- | --- | --- |
+| `catalog/app-catalog.jsonl` | `app_id`、`name` | 全部 app 的名称，内容 app 和功能 app 都在 |
+| `catalog/content-catalog.jsonl` | `content_id`、`title`、`series.title` | 标题；单元名（有 `series` 取 `series.title`，否则等于标题） |
+| `catalog/merchant-catalog.jsonl` | `goods_id`、`name` | 商品名 |
+| `catalog/location.jsonl` | `location_id`、`name`、`branch_label` | 地点显示名 |
+| `catalog/travel-method.jsonl`（可选，环境没有这份文件时清单里没有这个键） | `travel_method_id`、`name` | 出行方式名；步行不在文件里，固定为 `walking`「步行」 |
+
+| 使用方 | 清单 | 素材 |
+| --- | --- | --- |
+| `scripts/render_day.py` 的命令行、`scripts/inspect_run.py` | 数据库所在运行目录的 `manifest.json` | 同一目录的 `assets/<sha256>` |
+| 导出写时间线和质量报告 | 足迹库持有的运行清单 | 运行目录的 `assets/<sha256>` |
+| 导出认证重算质量报告 | 导出清单的 `frozen_run_manifest` | 导出目录的 `assets/<sha256>`：导出复制了全部环境素材，只凭导出目录就能重算 |
+| 零点计划的经历句 | 不回读文件 | 运行中的引擎用内存里的目录，它与冻结的素材是同一份字节 |
+| 查看器 | 同一次拖入或选择的文件里、属于本库的运行清单（运行目录的 `manifest.json`，或导出清单里的 `frozen_run_manifest`） | 同一次拖入的 `assets/<sha256>` 文件 |
+
+Python 一侧读冻结素材时沿用导出认证的读取：先核对素材名集合，再逐个按摘要定位并复核字节数与摘要，然后用登记环境时的同一套严格行模型解析各行。
+
+### 取不到名称
+
+Python 一侧的使用方都是要出结论的工具或人物的输入，取不到名称就是运行损坏，一律抛 `IntegrityError`，下表三句新的英文先写同文的错误日志；
+查看器是容错的阅读工具，标出缺失。
+
+| 情形 | Python 一侧 | 查看器 |
+| --- | --- | --- |
+| 身份不在冻结的环境目录里 | `Displayed object is not registered in the frozen environment: <kind> <identity>`，`<kind>` 是 `app`、`content`、`goods`、`location`、`travel_method` 之一 | 显示成「名称缺失（<身份>）」，同一个身份只写一次 `console.error('Missing recorded object name:', <身份>)` |
+| 清单登记的素材文件不存在 | `Frozen environment asset is missing` | `console.error('Frozen catalog file is missing:', <素材名>)`，这一份目录按缺失处理；`environment_assets` 里没有四份必需目录之一的素材名时同样写这一句 |
+| 素材的字节与清单不符 | `Frozen environment asset identity is invalid` | 只核对字节数：`console.error('Frozen catalog file size disagrees with the run manifest:', <素材名>)`，按缺失处理 |
+| 素材名集合与清单不符 | `Frozen environment asset set is invalid`、`Frozen catalog file set is invalid` | 不检查 |
+| 某一行不是合法的 JSON 对象，或不合当前的行模型 | 登记环境时的同一句英文原因，带文件名和行号 | 只要求每行能解析成 JSON 对象：`console.error('Frozen catalog file is unreadable:', <素材名>)`，按缺失处理；多出来的字段不管 |
+| 没有属于本库的运行清单 | 不适用：这几个工具都从运行目录或导出目录的清单起步 | `console.error('Frozen catalog is unavailable: no run manifest for this database')` 一次，全部名称缺失 |
+| 购买活动的 `order_ids` 在订单记录里找不到 | `Purchase activity has no recorded order: <order_id>` | 这张订单的位置显示「名称缺失（<order_id>）」 |
+| 活动种类没有专门的写法，也不在中文种类表里 | `Unsupported activity kind for display: <kind>` | 没有专门写法的种类在目标处一律显示「—」；类型列写种类标签，表里没有的写原值 |
+
+Python 一侧取不到名称时：`render_day.py` 的命令行不写出时间线文件；导出不发布；导出认证失败；`inspect_run.py` 以该错误退出；零点计划是运行故障，运行停下并保留已确认的部分。
+
+### 查看器
+
+查看器不做认证。它这样读运行目录：
+
+- 遍历拖入的目录时，把直接位于名为 `assets` 的目录下的文件按文件名记下句柄，不读内容；顶层选中或拖入的、文件名恰为 64 位十六进制摘要的文件也记下。
+  同一个文件名记到两次时取先遇到的那个。文件选择框不限扩展名，素材文件没有扩展名。
+- 认定本库的运行清单后，取 `environment_assets` 里上表五个素材名的 `sha256` 和 `size_bytes`，在同一次拖入的文件里找到 `assets/<sha256>`，
+  核对字节数等于 `size_bytes`，读成文本后逐行解析成 JSON 对象。不在浏览器里重算摘要，不接受另外拖入的环境数据集目录。
+- 只拖 `footprints.sqlite` 一个文件时，app、内容、商品、地点、出行方式的名称全部显示为缺失；活动名、事务名、地点会话名是事件和世界状态自己带的文字，不受影响。
+- 加载次序固定：打开数据库建索引；认定运行清单，读目录文件建名称表；合并活动并算出连续使用；最后生成各行摘要文字，只算一次。换一个数据库时，名称表、订单表和缺失记录一起清空。
+
+种类标签「互动」「购买」「查询」「出行」「睡眠」留在活动表的「活动类型」列、图例和排序里；写法放在「目标」列、时间线和泳道。
+
+| 位置 | 写什么 |
+| --- | --- |
+| 时间线「已受理」行 | 「已受理 · <写法> · 计划 <时长>」，例如「已受理 · 使用哔哩哔哩《散步装备准备》 · 计划 1分」 |
+| 时间线「活动段」行 | 「活动段 · <写法> · <状态> · 已进行 <时长>」 |
+| 活动泳道的标签、活动表的「目标」 | 写法 |
+| 「结果」行的订单段 | 每条记录「 · 订单 <商品> ¥<金额>（经<app 名>下单）」或「（到店）」，有支付 app 再接「 · 支付 <名称>」 |
+| 「世界事件」行 | 「世界事件 · <手机事件的写法>」 |
+| 出行、睡眠的各行 | 照原格式，名称从目录取 |
+| 地点会话表的成员 | 活动名 |
+
+互动、购买、查询三种在时间线的受理行和活动段行里直接写写法，不再写「种类 · 目标」。
+
+开始副活动的动作请求行写「<动作> · <名称、名称>」，`prefer` 不为 null 时在后面加「 · 想用 <人物所写的原文>」；它显示的是人物写的原文，实际渠道看受理行和结果行。
+`interact` 在请求行里按工具取词：槽位 1 的开始工具写「做」，槽位 2 的开始工具写「使用」。「上下文」画面里工具层下钻的标签用同一张中文动作表：
+`interact` 在 `app` 分组下是「使用」、在 `location` 分组下是「做」，`travel` 是「出行」，`sleep` 是「睡觉」，`purchase` 是「购买」，`query` 是「查询」（工具层没有查询的行，只用于动作请求行）；
+目标类别、下钻正文和「整层原文」保持原始 JSON。
+
+拖放区说明写「对象名称取自这次运行冻结的环境目录：拖入整个 run 目录或导出目录才读得到，只拖数据库时显示为「名称缺失」。」
+有任何一份必需的目录文件没有读到时，总览在「运行输入警告」卡片旁显示一张标题为「对象名称」的卡片，正文是
+「未读到这次运行冻结的环境目录（缺 <素材名，以「、」相连>），对象名称显示为「名称缺失（身份）」。请把整个 run 目录或导出目录拖入：其中的 manifest.json 与 assets 目录都要在。」
+目录文件都读到时不显示这张卡片。
+
+### 查看器里的连续使用
+
+人物放完一条内容、同一秒又打开同一个 app 时，手机前台没有断过，库里却是几项活动。查看器把这样的几次使用连起来显示。
+
+- app 使用是种类为 `interact`、`data.app_id` 不为空的活动；在地点做的事、购买、查询、出行、睡眠和引擎代为打开的 app 前台都不参加。
+- 执行段是一项活动真正在执行的一段时间：区间为正的进度事件的结算区间，同一项活动里首尾相接的并成一段，暂停留下空档。
+- 连续使用是同一个人物、同一个 app 的 app 使用的若干执行段，一个接一个，后一段开始的那一秒正是前一段结束的那一秒，取尽可能长的一串；每个执行段恰好属于一条连续使用，不与别的段相接的执行段自成一条。
+  两个整数秒原样比较，没有容差：隔一秒、两段重叠、换了 app 都不连；不同人物各算各的。
+- 加载时对全库算一次：同一人物、同一 app 的执行段按开始时刻排好，并列时按结束时刻，再按这一段第一条进度事件的序号，从前往后逐段看；之后筛选、排序、翻页都不重算。
+  跨零点仍是一条；运行在使用途中截止时，最后一段到最后一次结算为止。只有一段的连续使用照上文的写法显示。
+
+两段及以上的连续使用在查看器三处这样写：
+
+| 位置 | 写什么 |
+| --- | --- |
+| 活动泳道 | 有执行段同属一条两段及以上连续使用的几项 app 使用画在同一行，连带可以传递；行里每条连续使用一个条块，从它的开始画到它的结束。行的标签把这一行全部执行段放过的内容按先后接在 app 名之后：「使用<app 名>《标题》《标题》……」，相邻的同一条只写一次。条块的悬停文字是「<起>–<止> · <这一条连续使用的写法>」，两段及以上的再加「 · 连续使用，共 <n> 段」。行的位置按行里各项活动最早的开始时刻。其余 app 使用仍是自己一行、每个执行段一个条块。泳道上方的提示是「同一时间轴上的条块表示实际执行区间；空白表示尚无结算记录。同一个 app 首尾相接的几次使用画在同一行，连成一个条块。」 |
+| 活动表 | 仍是每项活动一行，末尾多一列「连续使用」，不能点，不参加排序。这项活动有执行段属于一条两段及以上的连续使用时写「<整条的开始>–<整条的结束> · 第 <i> 段，共 <n> 段」，时刻是月/日 时:分，例如「09/28 20:19–09/28 20:43 · 第 1 段，共 3 段」；在同一条里占了几段时段号以「、」相连，例如「第 1、3 段，共 3 段」；执行段分属两条时两条都写，按先后以「；」相连，自成一条的那一段不写。其余活动这一格是「—」 |
+| 时间线 | 一次 app 使用的第一个执行段不是所在连续使用的第一段时，开始它的那条受理行（带着这项活动的受理事件里序号最小的那一条）末尾加「 · 接续 <整条的开始> 起的连续使用」，时刻是月/日 时:分，例如「已受理 · 使用哔哩哔哩《家庭合照挑选》 · 计划 1分 · 接续 09/28 20:19 起的连续使用」。其余各行都不加字 |
+
+只在查看器里合并：连续使用在显示时算出，不写进数据库和导出；导出里每次使用仍是自己的一行 `app_use`，同一个 app 首尾相接的行不合并，
+导出的一天时间线和 `inspect_run.py` 不因它变化。查看器里其余数到或列出 app 使用的地方（活动数、分页、排序、图例、加载日志、行动统计、地点会话表、「一天」画面、「世界事件」里的 app 前台）都不变。
+
+### 检查工具
+
+`scripts/inspect_run.py <运行目录> <子命令>` 只读一次运行，有九个子命令：
+
+| 子命令 | 打印什么 |
+| --- | --- |
+| `summary` | 运行身份、状态与各类事件的条数 |
+| `events [--type] [--agent] [--tail] [--full]` | 一行一事件的事件流，可按类型和人物过滤；`--full` 打印全文 |
+| `event <序号>` | 一条事件的全文 |
+| `money` | 全部资金流水与期末余额 |
+| `body [--agent]` | 观察里的身体轨迹：能量、睡眠不足、饥饿与困意分级 |
+| `flows [--tail]` | 事件正文 `resource_flows` 里的分录 |
+| `rerun` | 真实复验的八项指标，只报告，不作门禁 |
+| `continuation [--topic] [--baseline <运行目录>]` | 逐决策的续接指标与合计（JSON）；`--baseline` 先核对两份清单，不可比即拒绝比较 |
+| `workday --environment <环境目录>` | 工作量与作息偏离（JSON）；班次、住处、播报间隔与下班、到家时段取自完整环境输入，原文字节身份须等于运行清单 |
+
+时刻一律按运行清单的 `window.timezone` 显示，格式是 `%m-%d %H:%M:%S`，与运行这条命令的电脑的时区无关；`events` 里前台区间的起止用同一个时区。
+
+`events` 每行的前半段是「`[序号] 时刻 a人物 事件类型`」，后半段是摘要；「活动短语」是上文的写法，出行和睡眠写活动名：
+
+| 事件 | 摘要 | 例 |
+| --- | --- | --- |
+| `action_accepted`，事件带活动快照 | `<活动短语> → <status>` | `使用哔哩哔哩《散步装备准备》 → in_progress`；`购买冰美式咖啡（经瑞幸咖啡下单） → in_progress` |
+| `action_accepted`，事件不带活动快照（例如修订当日计划） | `<message> → <status>` | `Day plan revised → completed` |
+| `action_rejected` | `<error_code>: <reason>`，原样不截断 | `ACTIVITY_PRECONDITION_UNMET: Place the order after arriving at a location.` |
+| `memory_updated` | `<episodes 的条数> 条` | `2 条` |
+| `action_requested` | `<tool_name> <request 的 JSON，前 80 个字符>` | |
+| `activity_progress` | `<活动短语> → <status>` | |
+| 三种手机事件 | 写法后照次序跟上起止或订单身份 | 「app 前台 · 美团 · 下单 <起> → <止>」「订单通知 · 美团 · 订单已下单 <order_ids，以空格相连>」「消费通知 · 支付宝 · 支付成功 <order_ids>」 |
+| 其余事件类型 | 信封上的 `resource_changes` 非空时是它的 JSON（前 100 个字符），否则是正文 JSON（去掉 `request`、`response` 两个键，前 90 个字符） | 付了车费的出行受理结果显示资金变化 |
+
+受理、拒绝、记忆、请求四种行直接取所列的键，不设回退；键不存在说明事件不是当前格式，照 `KeyError` 失败。停留进出的行写种类、地点与进入方式。
+
+`rerun` 的「进食次数」在本人零食、食品、饮料收货的不同订单数上，加上 `data.content.completion_effects.food` 不为 null 的 `activity_progress` 事件条数，每条计一次，两个档位都算；
+「首次进食前最低能量」与它读同一组进食时刻：每人每个本地日最早的一次进食，取收货与这些事件中较早的那个，事件取 `occurred_at`。
+
+`scripts/render_day.py` 写出的时间线文件是 UTF-8、LF，在任何平台上与导出里同名的时间线逐字节相同。
+
+`render_day.py` 和 `inspect_run.py events` 用严格的行模型解析冻结的目录，读不了冻结的 app 目录里还带着已删除字段的旧运行：当前的行模型按未知字段拒绝这样的行，
+不为旧运行留读取分支；查看器只要求目录文件每行是 JSON 对象，仍打得开这些运行。
 
 ## 冻结输入、检查点与分支
 
@@ -132,7 +404,7 @@ catalog/map.jsonl 是数据集声明的距离，按原字节冻结；map.json �
 ## 完整导出认证
 
 导出固定事件截止、摘要素材、活动、app 使用、购买、已核验经历、地点停留、日时间线及质量报告。
-导出清单的结构号是 5。`artifacts` 的键恰为 `events`、`activities`、`verified_experiences`、`purchases`、`app_usage`、`location_stays`，
+导出清单的结构号是 6。`artifacts` 的键恰为 `events`、`activities`、`verified_experiences`、`purchases`、`app_usage`、`location_stays`，
 每个值是 `{path, rows, sha256}`，`location_stays` 的 `path` 是 `location-stays.jsonl`；
 结构号不符报 `Export manifest is not a committed supported version`，键集不符报 `Export artifact set is invalid`。
 app 的开关、订单通知和地点停留只进事件与这些工件，不进质量报告。
@@ -157,9 +429,9 @@ app 的开关、订单通知和地点停留只进事件与这些工件，不进�
 | 前台事件与订单通知的来源 | 字段闭集、系统可见、恰一个起因；前台区间为正且结束于事件时刻；通知的标题、正文和记录集合合法 | `System app event fields are outside the current contract`、`App foreground step or interval is invalid`、`Order notification text or order set is invalid` |
 | 停留事件的来源 | 字段闭集、系统可见、起因个数与 `entry_kind` 相符 | `Location stay event fields or source are invalid` |
 | 自动 `app_use` | 所属活动是出行或购买；`segments` 等于该活动该 app 全部前台区间合并的结果，每段落在所属活动真实执行的区间之内；`status` 等于所属活动的状态 | `Automatic app use disagrees with its foreground events` |
-| 导航区间 | 所属活动是出行，步骤全为 `navigation`，一趟出行只有一个导航 app；不越出这趟出行，不与同一人物任何购买或用 app 的活动的执行区间重叠 | `Navigation app use overlaps a side activity or leaves its trip` |
+| 导航区间 | 所属活动是出行，步骤全为 `navigation`，一趟出行只有一个导航 app；不越出这趟出行，不与同一人物任何购买、查询或用 app 的活动的执行区间重叠 | `Navigation app use overlaps a side activity or leaves its trip` |
 | 下单与支付区间 | 所属活动是购买；下单区间的 app 是该购买某张订单的下单 app，且全部早于第一个付款段；每张付款时长大于 0 的订单，付款段 10 至 20 秒，按订单键的顺序排在购买末尾、互不重叠，订单上的付款起止与对应的支付前台区间一致，购买被截断时区间止于购买结束 | `Purchase app use disagrees with its order phases` |
-| 同一时刻只有一个 app 在前台 | 同一人物全部 `app_use` 区间互不重叠、长度为正，导航、下单、支付与人物点名使用的 app 一起查 | `App use intervals overlap or have no positive duration` |
+| 同一时刻只有一个 app 在前台 | 同一人物全部 `app_use` 区间互不重叠、长度为正，导航、下单、支付、查询所在的 app 与人物点名使用的 app 一起查 | `App use intervals overlap or have no positive duration` |
 | 「支付成功」 | 每张已付款订单，支付 app 与下单 app 不全为空时恰一条；发送的 app 是支付 app，直付时是下单 app；金额、记录集合、时刻与起因和这张订单的付款事件一致 | `Payment notification count disagrees with actual payment`、`Payment notification disagrees with its actual purchase payment` |
 | 订单已下单 | 每张带下单 app 的已付款订单恰一条，时刻等于付款时刻，app、记录集合与起因和这张订单一致；未付款的订单没有 | `Order notification count disagrees with actual payment, shipment or delivery`、`Order notification disagrees with its actual order event` |
 | 订单已发货 | 每趟已付款的配送至多一条；发货时刻不晚于导出里最后一条事件的时刻时恰一条；时刻等于付款时刻加「到达排程的到期时刻减付款时刻」的十分之一，向上取整到秒 | 同上两句 |
@@ -169,7 +441,8 @@ app 的开关、订单通知和地点停留只进事件与这些工件，不进�
 | 停留的先后 | 恰一行 `run_start` 且是第一行，进入时刻等于运行开始；各行按时间先后互不重叠，只有最后一行的离开时刻可以为 null | `Location stays overlap or are out of order` |
 | 停留与出行 | 每个 `arrival` 对应一趟走完的出行：到达时刻、目的地相同，前一行的离开时刻和地点等于这趟出行的开始时刻和出发地；每个 `travel_ended_early` 的地点等于前一行的地点；每次离开对应一次被受理的出发 | `Location stay disagrees with its actual travel` |
 | 停留与最终检查点 | 各行与检查点世界状态里的停留会话逐一对应：身份、地点、开始时刻相同；离开时刻非空时等于会话的结束时刻，为 null 的那一行对应结束于运行截止的会话 | `Location stays disagree with the final checkpoint` |
+| 身体结算 | 每条 `body_settlement` 的「结算后」等于「结算前」逐项加减本事件的分录，只看能量、睡眠不足、放松需要、社交需要四项，容差 1e-9；越过上下界、四项之外的分录、别的主体的分录都算不成立 | `Body settlement after-state disagrees with its own resource flows` |
 
 `app_touch` 只剩回调足迹：`rule_id` 是冻结的 `catalog/callbacks.jsonl` 里登记的一条回调规则的身份，`step` 只取 `browse` 或 `payment`；
 没有冻结这份文件的运行不得有 `app_touch`。规则身份没有登记、或步骤不在这两个值之内，都报 `App touch step disagrees with its source`。
-坏素材或投影拒绝发布，已有正确导出不被半成品覆盖。查看器与评估同样先认证输入。
+坏素材或投影拒绝发布，已有正确导出不被半成品覆盖。评估同样先认证输入。查看器不做认证，它怎样读运行目录和冻结的目录素材见「显示写法与检查工具」。

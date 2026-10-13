@@ -4,9 +4,11 @@
 不指路任何观察字段（名称一律取自工具层与待办层，参数不带逐轮枚举）。参数 Schema 里的说明同样只写用途：不带开发文档、
 规则、错误码与数量上限的说法（上限由 Schema 与本地校验执行），参数对象本身不写说明（用途只在工具 description）。
 
-两个开始工具的用途句与字段说明逐字出自规格（docs/dev/environment-contract-revision/SPEC-environment-contract-revision.md
-「活动接口与槽位」）：字段说明逐个写出该工具 action 的取值（主工具另写 null），副工具写「内容 app」，副工具的 target
-先用一句说明它是名称数组。门禁只对这几处放行这几个词与这一句，其余说明照旧不得出现拉丁字母单词、只写一句。
+两个开始工具的用途句与字段说明逐字出自规格（docs/dev/first-real-day-run/spec/10-persona-rules.md「工具用途句」
+「副工具三个参数的字段说明」）：字段说明逐个写出该工具 action 的取值（主工具是 travel、interact、sleep，副工具是
+purchase、interact、query），主工具另写 null，副工具另写「内容 app」与 prefer 要写的 null，副工具的 target 先用
+一句说明它是名称数组。放行的动作取值读两个动作常量，不放 prefer、apps 这类键名。门禁只对这几处放行这几个词与这一句，
+其余说明照旧不得出现拉丁字母单词、只写一句。
 """
 
 from __future__ import annotations
@@ -23,7 +25,6 @@ from worldmock.life.action_contract import MAIN_ACTIVITY_ACTIONS, SIDE_ACTIVITY_
 from worldmock.life.control_items import CONTROL_TOOLS  # noqa: E402
 from worldmock.life.models import REQUEST_MODELS, deepseek_strict_schema  # noqa: E402
 from worldmock.life.narration import FORBIDDEN_OBSERVATION_KEYS  # noqa: E402
-from worldmock.life.world_query import QueryWorldRequest  # noqa: E402
 
 #: 字段引用形状：`名称.字段`、`名称[].字段`、`名称[0].字段`。
 _FIELD_REFERENCE = re.compile(
@@ -34,16 +35,16 @@ _PROTOCOL_PHRASES = ("exactly one", "only tool call", "registering", "registered
                      "reason")
 #: 规则、上限与校验的说法（旧参数说明来自请求模型的开发 docstring）：出现在任何说明里即违规。
 _RULE_PHRASES = ("不超过", "至多", "合计", "名额", "拒绝", "必填", "照填", "由系统", "不合法", "释放")
-#: 发给模型的全部原生工具参数模型，包含世界查询、记忆查询与只读结束。
+#: 发给模型的全部原生工具参数模型，包含回看任务、记忆查询与只读结束。
 _PARAMETER_MODELS = {**REQUEST_MODELS, "memory_recent": MemoryRecentRequest, "memory_search": MemorySearchRequest,
-                     "memory_time_range": MemoryTimeRangeRequest, "query_world": QueryWorldRequest,
-                     "finish": ReadonlyFinishRequest}
+                     "memory_time_range": MemoryTimeRangeRequest, "finish": ReadonlyFinishRequest}
 MAIN_TOOL, SIDE_TOOL = START_TOOLS
 #: 用途句里放行的拉丁字母单词：只有副工具写「内容 app」。
 _PURPOSE_WORDS = {SIDE_TOOL: frozenset({"app"})}
-#: 字段说明里放行的拉丁字母单词：该工具 action 的取值，主工具另有 detail 要写的 null，副工具另有「内容 app」。
+#: 字段说明里放行的拉丁字母单词：该工具 action 的取值（副工具是 purchase、interact、query），主工具另有 detail 要写的
+#: null，副工具另有「内容 app」与 prefer 要写的 null。不放 prefer、apps 这类键名。
 _FIELD_WORDS = {MAIN_TOOL: frozenset({*MAIN_ACTIVITY_ACTIONS, "null"}),
-                SIDE_TOOL: frozenset({*SIDE_ACTIVITY_ACTIONS, "app"})}
+                SIDE_TOOL: frozenset({*SIDE_ACTIVITY_ACTIONS, "app", "null"})}
 #: 字段说明的句数：都是一句，只有副工具的 target 先用一句说明它是名称数组。
 _FIELD_SENTENCES = {f"{SIDE_TOOL}.properties.target": 2}
 
@@ -94,8 +95,9 @@ def test_description_scan_has_teeth() -> None:
             assert _violations(base + poison, widest)
     assert _violations(TOOL_DESCRIPTIONS[SIDE_TOOL]) == ["app"]
     assert _violations("sleep 写 null。") == ["sleep", "null"]
-    assert _violations("sleep 写 null。", _FIELD_WORDS[SIDE_TOOL]) == ["sleep", "null"]
+    assert _violations("sleep 写 null。", _FIELD_WORDS[SIDE_TOOL]) == ["sleep"]
     assert _violations("purchase 逐份写商品的完整名称，或使用内容 app。", _FIELD_WORDS[MAIN_TOOL]) == ["purchase", "app"]
+    assert _violations("query 查询商品。", _FIELD_WORDS[MAIN_TOOL]) == ["query"]
     for action in ("walk", "drive", "take_taxi", "take_bus"):
         assert _violations(f"{action} 写目的地地点的完整名称。", widest)
 
@@ -159,22 +161,3 @@ def test_control_tool_descriptions_explain_activity_and_errand_purposes() -> Non
     assert set(fields) == set(purposes)
     for name, words in purposes.items():
         assert all(word in fields[name]["description"] for word in words)
-
-
-def test_query_world_purpose_describes_filters_and_changes_only_the_tool_fingerprint(monkeypatch) -> None:
-    """@brief 查询用途覆盖筛选与翻页；更改描述仅改变工具指纹，严格参数保持六个必填键。"""
-    from custom.agents.life_agent import life_tool_schema_sha256
-    from worldmock.agents.life_prompt import life_prompt_sha256
-
-    sentence = TOOL_DESCRIPTIONS["query_world"]
-    assert all(word in sentence for word in ("名称", "具体动作", "商品品类", "此刻能做", "偏移量", "翻页"))
-    assert not _violations(sentence)
-    tools, prompt = life_tool_schema_sha256(), life_prompt_sha256()
-    monkeypatch.setitem(TOOL_DESCRIPTIONS, "query_world", "按已知名称、具体动作或商品品类查询世界，按返回的偏移量翻页。")
-    assert life_tool_schema_sha256() != tools and life_prompt_sha256() == prompt
-    schema = deepseek_strict_schema(QueryWorldRequest)
-    assert schema["required"] == ["name", "action", "category", "available_only", "offset"]
-    assert list(schema["properties"]) == schema["required"]
-    assert schema["properties"]["action"]["anyOf"] == [{"type": "string"}, {"type": "null"}]
-    assert schema["properties"]["available_only"]["type"] == "boolean"
-    assert _descriptions(schema, "query_world") == []

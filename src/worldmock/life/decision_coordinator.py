@@ -8,10 +8,11 @@ if TYPE_CHECKING:
 from worldmock.life.world_ops import _failure_draft
 from worldmock.life.world_ops import _put_agent
 from worldmock.life.world_ops import _request_sha
+from worldmock.life.world_ops import _resource_flows_data
 
 import logging
 from worldmock.errors import BusinessRuleError, PreconditionError, ProtocolError
-from worldmock.footprints.models import EventDraft
+from worldmock.footprints.models import RESOURCE_FLOWS_FIELD, EventDraft
 from worldmock.life import activity_control, day_planning, errands, same_moment
 from worldmock.life.action_contract import START_TOOLS
 from worldmock.life.action_evidence import _pending_causes, _remember_action, _result_draft, _result_event_data
@@ -278,7 +279,7 @@ class DecisionCoordinator:
 
         if not isinstance(call, DirectToolCall) or self.round is None:
             raise ProtocolError("Direct tool call requires an open decision round")
-        if call.tool_name in {"query_world", "recall_task_summary"}:
+        if call.tool_name == "recall_task_summary":
             logging.error("Read-only query cannot be registered as a world action: %s", call.tool_name)
             raise ProtocolError("Read-only queries must use the immediate query channel")
         self.validate_context(call.context)
@@ -371,20 +372,50 @@ class DecisionCoordinator:
             state.accounts[state.agents[first.agent_id].balance_account_id]))
         received = next((draft for pending, draft in zip(group, result_drafts, strict=True)
                          if pending.tool_name == START_TOOLS[0]), result_draft)
-        drafts.extend(draft.model_copy(update={"caused_by": [received.event_id]})
-            if draft.data.get("kind") == "goods_received" and not draft.caused_by else draft
-            for draft in self.actions.drain_drafts())
+        drafts.extend(self._start_effects(received))
         drafts.extend(self._same_moment_callbacks(changed, first, result_draft))
         return (changed, results, drafts)
 
+    def _start_effects(self, received: EventDraft) -> list[EventDraft]:
+        """@brief 开始组暂存的草稿改指主调用的受理结果：驿站取件的收货还没有起因；凭状态的内容开始时减 1 的
+        consume_on_start 先回链请求事件，改指之后另为阈值规则登记回调原因。收货重置状态的草稿已有自己的起因，原样保留。
+
+        :param received: 主调用（在地点做事、取件和减 1 都只发生在主调用里）的 action_result 草稿。
+        """
+        drafts = []
+        for draft in self.actions.drain_drafts():
+            if draft.data.get("kind") == "goods_received" and not draft.caused_by:
+                draft = draft.model_copy(update={"caused_by": [received.event_id]})
+            elif draft.data.get("type") == "consume_on_start":
+                draft = self._consumed_on_start(draft, received)
+            drafts.append(draft)
+        return drafts
+
+    def _consumed_on_start(self, draft: EventDraft, received: EventDraft) -> EventDraft:
+        """@brief 开始时减 1 的草稿改指这次开始调用的受理结果，并把回调原因
+        CallbackCause("action", "interact", 人物, 受理结果, "<action_id>:consume") 登记进 context.callback_causes：
+        提交前比较状态越过阈值、以这条效果为来源时沿用它的锚点，锚点以 :consume 结尾，与动作回调的 <action_id>:0 区分
+        （docs/design/04-simulation-engine.md「回调事务」）。"""
+        from worldmock.life.callbacks import CallbackCause
+
+        cause = CallbackCause("action", "interact", draft.agent_id, received.event_id,
+                              f"{received.action_id}:consume")
+        self.context.callback_causes[draft.event_id] = cause
+        return draft.model_copy(update={"caused_by": [cause.source_event_id]})
+
     def _reject_results(self, state: WorldState, group: list[PendingAction],
                         error: BusinessRuleError) -> tuple[WorldState, list[ActionResult], list[EventDraft]]:
-        """@brief 业务拒绝回滚领域转换；同一决策的每条动作写内容相同的拒绝，计数与真实同刻后续触发按组各做一次。"""
+        """@brief 业务拒绝回滚领域转换；同一决策的每条动作写内容相同的拒绝，计数与真实同刻后续触发按组各做一次。
+
+        拒绝脉冲施加之后立刻从身体分录缓冲取走，写在这组第一条 action_result 事件正文顶层的 resource_flows 上，不进
+        ActionResult；没有施加脉冲时不写这个键（docs/design/05-recording-engine.md「事件与来源」）。
+        """
         self.actions.resource_changes.clear()
         self.actions.drain_drafts()
         first = group[0]
         consumed = self._consume_report_opportunity(state, state, first.agent_id)
         (changed, rejected) = self._after_rejection(consumed, first, error)
+        flows = _resource_flows_data(first.agent_id, state.current_time)
         activity = next(iter(active_activities(changed, first.agent_id)), None)
         data = {"error_code": str(error), **rejected.data}
         if activity is not None:
@@ -402,6 +433,8 @@ class DecisionCoordinator:
             ))
             drafts.append(_result_draft(pending, result, "action_result"))
         first_result = drafts[1]
+        if flows:
+            first_result.data[RESOURCE_FLOWS_FIELD] = flows
         drafts.extend(self.actions.drain_drafts())
         drafts.extend(self._same_moment_callbacks(changed, first, first_result))
         return (changed, results, drafts)

@@ -1,6 +1,4 @@
-"""冻结名称、只读查询、紧凑渲染与真实服务容量的产品行为。"""
-
-from copy import deepcopy
+"""冻结名称、紧凑渲染与真实服务容量的产品行为。"""
 
 import pytest
 from pydantic import ValidationError
@@ -12,7 +10,6 @@ from worldmock.life.models import StartMainActivityRequest, StartSideActivityReq
 from worldmock.life.narration import ForbiddenObservationFieldError, render_layer_json
 from worldmock.life.prompt_capacity import fit_request
 from worldmock.life.tool_groups import compact_tool_layer, expand_tool_layer
-from worldmock.life.world_query import QueryWorldRequest, query_world, validate_world_query
 
 MAIN_TOOL, SIDE_TOOL = START_TOOLS
 
@@ -46,8 +43,8 @@ def test_each_concrete_action_resolves_only_to_its_declared_target(tool, kind, w
 
 
 def test_sleep_resolves_to_its_minutes_without_any_named_object():
-    """四个动作里只有睡眠不查名称：没有任何对象时分钟数合格就解析成功，只带分钟数。"""
-    assert ACTIVITY_ACTIONS == ("travel", "purchase", "sleep", "interact")
+    """五个动作里只有睡眠不查名称：没有任何对象时分钟数合格就解析成功，只带分钟数。"""
+    assert ACTIVITY_ACTIONS == ("travel", "purchase", "sleep", "interact", "query")
     outcome = resolve_start(NameBook(()), MAIN_TOOL, main_request("sleep", "450"))
     assert outcome.failures == () and outcome.rows == (sleep_row(450),)
 
@@ -71,11 +68,11 @@ def test_request_schema_closes_the_action_set_of_each_start_tool():
     main = StartMainActivityRequest.model_json_schema()["properties"]["action"]
     side = StartSideActivityRequest.model_json_schema()["properties"]["action"]
     assert (main["enum"], main["type"]) == (["travel", "interact", "sleep"], "string")
-    assert (side["enum"], side["type"]) == (["purchase", "interact"], "string")
+    assert (side["enum"], side["type"]) == (["purchase", "interact", "query"], "string")
     with pytest.raises(ValidationError):
         StartMainActivityRequest.model_validate({"action": "purchase", "target": "家", "detail": None})
     with pytest.raises(ValidationError):
-        StartSideActivityRequest.model_validate({"action": "travel", "target": ["家"]})
+        StartSideActivityRequest.model_validate({"action": "travel", "target": ["家"], "prefer": None})
 
 
 def test_renderer_allows_four_felt_labels_and_rejects_numeric_body_state():
@@ -92,7 +89,8 @@ def test_exact_known_object_wrong_action_returns_complete_new_request():
     assert error.error_code == "ACTION_NOT_OFFERED"
     assert (error.path, error.written, error.allowed_values) == (("action",), "purchase", ("interact",))
     assert [candidate.payload() for candidate in error.candidates] == [
-        {"tool": "start_side_activity", "arguments": {"action": "interact", "target": ["视频平台"]}, "note": None}]
+        {"tool": "start_side_activity", "arguments": {"action": "interact", "target": ["视频平台"], "prefer": None},
+         "note": None}]
 
 
 def test_branch_base_name_does_not_select_an_instance_or_an_unlisted_near_candidate():
@@ -112,43 +110,11 @@ def action_row(action="purchase", available=True):
             "price": None, "duration": "1–5 分钟", "quantity": "1 件", "note": None}
 
 
-def query_observation():
-    match = {"name": "饼干", "kind": "product", "phase": None, "state": None,
-             "actions": [action_row()], "tools": []}
-    app = {"name": "视频平台", "kind": "app", "phase": None, "state": None,
-           "actions": [action_row("interact")], "tools": []}
-    return {"world_query_bindings": [
-        {"identity": "goods", "aliases": ["饼干"], "category": "零食", "match": match},
-        {"identity": "app", "aliases": ["视频平台"], "category": None, "match": app}],
-        "world_query_page_size": 1}
-
-
-def test_query_category_action_and_name_are_intersected_without_content_category_inference():
-    observed = query_observation()
-    filtered = QueryWorldRequest(name="视频平台", action="interact", category="零食",
-                                 available_only=True, offset=0)
-    assert validate_world_query(observed, filtered) is None
-    assert query_world(observed, filtered) == {"matches": [], "total_count": 0, "next_offset": None}
-    old_category = filtered.model_copy(update={"category": "娱乐"})
-    assert validate_world_query(observed, old_category).items[0].path == ("category",)
-
-
-def test_query_is_readonly_and_rejects_retired_filter_keys():
-    observed = query_observation()
-    before = deepcopy(observed)
-    values = {"name": None, "action": "purchase", "category": "零食", "available_only": False, "offset": 0}
-    response = query_world(observed, QueryWorldRequest(**values))
-    response["matches"][0]["name"] = "changed"
-    assert observed == before
-    for old in ("app", "way"):
-        with pytest.raises(ValidationError):
-            QueryWorldRequest(**values, **{old: None})
-
-
 def test_compact_groups_conserve_false_zero_and_all_new_action_fields():
-    target_row = query_observation()["world_query_bindings"][0]["match"]
+    target_row = {"name": "饼干", "kind": "product", "phase": None, "state": None,
+                  "actions": [action_row()], "tools": []}
     target_row["actions"][0].update(available=False, reason="Closed.", price="0 元")
-    layer = {"layer": "工具层", "targets": [target_row], "callable_index": {"goods": [], "query_categories": []}}
+    layer = {"layer": "工具层", "targets": [target_row], "callable_index": {"goods": []}}
     grouped = compact_tool_layer(layer)
     assert "way" not in grouped["groups"][0]
     assert expand_tool_layer(grouped) == layer

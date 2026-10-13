@@ -19,6 +19,7 @@ from worldmock.life.control_items import control_errands, control_items
 from worldmock.life.engine_context import EngineContext
 from worldmock.life.error_contract import ErrorItem
 from worldmock.life.guidance import Refusal
+from worldmock.life.location_activities import unit_done
 from worldmock.life.models import (
     ActionResult, ActionStatus, ActivityChange, ActivityKind, ActivityState, ActivityStatus,
     ChangeActivityRequest, ConcludeActivityRequest, PauseActivityRequest, PendingAction,
@@ -77,14 +78,14 @@ class ActionHandlers:
     def _conclude_activity(
         self, state: WorldState, pending: PendingAction, request: ConcludeActivityRequest
     ) -> tuple[WorldState, ActionResult]:
-        """@brief 结束所选活动（进行中、暂停中或待收尾）并写下总结；进行中与待收尾的由此释放槽位；途中结束出行时路上的其他
-        活动随之结束。
+        """@brief 结束所选活动（进行中、暂停中或待收尾）并写下总结；进行中与待收尾的由此释放槽位；途中结束出行只结束
+        这段路、回到出发地开始新的停留，槽位 2 的活动照常进行。
 
-        进行中或暂停的活动先取消（agent_cancelled）再收尾；待收尾活动不改终态，只写总结并置 concluded_at。
+        进行中或暂停的活动先取消（agent_cancelled）再收尾；在地点做的事被这样结束即记为做完一轮（见 _change），
+        活动状态与终局说法仍是取消与「提前结束」。待收尾活动不改终态，只写总结并置 concluded_at。
         有待收尾活动而本次没有点名任何一项时以 ACTIVITY_CONCLUSION_REQUIRED 拒绝。记忆由宿主写入，环境只校验形状，
-        并在结果中登记私有来源 memory_sources。结果的 outcome 逐项写实际终局，
-        未完成的浏览写未取得浏览结果（docs/design/06-agent.md）。请求级的事务变更在活动名
-        解析后复核、在结束与收尾之后应用，回执登记为 errands；其后的任何拒绝都使事务变更一并不生效。
+        并在结果中登记私有来源 memory_sources。结果的 outcome 逐项写实际终局：完成、提前结束或失败（docs/design/06-agent.md）。
+        请求级的事务变更在活动名解析后复核、在结束与收尾之后应用，回执登记为 errands；其后的任何拒绝都使事务变更一并不生效。
         """
         items = control_items("conclude_activity", request)
         (written, summaries) = ([item.activity_name for item in items], [item.summary for item in items])
@@ -417,10 +418,14 @@ class ActionHandlers:
 
     def _change(self, state: WorldState, pending: PendingAction,
                 request: ChangeActivityRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 当前边界上明确变更活动，购买取消不付款。"""
+        """@brief 当前边界上明确变更活动：取消购买不付款；取消在地点做的事（进行中或暂停中）即把这件事所在的单元记为
+        做完一轮（location_activities.unit_done），不另记事件；用内容 app 的取消不动共享进度。"""
         current = state.activities[request.activity_id]
         agent, activity = change_activity(state.agents[pending.agent_id], current, request,
                                           state.current_time, self.context.config.activity_feedback_seconds)
+        located = current.kind == ActivityKind.INTERACT and current.data["app_id"] is None
+        if located and request.operation == ActivityChange.CANCEL:
+            agent = unit_done(agent, self.context.catalog, current.data["content_id"], state.current_time)
         changed = _put_activity(state, agent, activity)
         if current.kind == ActivityKind.PURCHASE and request.operation == ActivityChange.CANCEL:
             changed = self.storefront.cancel_purchase(changed, activity)

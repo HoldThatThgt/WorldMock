@@ -209,7 +209,7 @@ _USE_APP = side_arguments("interact", "抖音")
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("tool,wrong,code,allowed", [
-    (SIDE_TOOL, {**_USE_APP, "action": "wait"}, "ARGUMENTS_INVALID", ["purchase", "interact"]),
+    (SIDE_TOOL, {**_USE_APP, "action": "wait"}, "ARGUMENTS_INVALID", ["purchase", "interact", "query"]),
     (SIDE_TOOL, side_arguments("purchase", "抖音"), "ACTION_NOT_OFFERED", ["interact"]),
     (MAIN_TOOL, main_arguments("interact", "抖音", "测试休息"), "ACTION_NOT_OFFERED", []),
 ])

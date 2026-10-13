@@ -1,7 +1,7 @@
 """商品报价、购买时间与付款收货的当前行为验证。"""
 
 from dataclasses import replace
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 import json
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
@@ -23,8 +23,9 @@ from worldmock.life.models import ActivityStatus, AgentState, BodyState, WorldSt
 from worldmock.life.order_notices import (delivered_notices, goods_names, goods_text, shipped_notice,
                                           shipping_delay_seconds)
 from worldmock.life.parcel import collect_parcels
-from worldmock.life.purchase_offers import quote_goods
+from worldmock.life.purchase_offers import courier_offer, delivery_offer, quote_goods
 from worldmock.life.purchase_phases import advance_phases, phase_boundaries
+from worldmock.life.randomness import random_stream
 from worldmock.life.receipt import settle_receipt
 from worldmock.life.storefront_runtime import StorefrontRuntime
 
@@ -84,7 +85,7 @@ def operate_phases(state, activity):
 
 def test_local_goods_choose_present_store_and_no_shipping(environment):
     state = world(environment, "store")
-    offer = quote_goods(environment, state, 1, "lemon-tea")
+    offer = quote_goods(environment, state, 1, "lemon-tea", None)
     assert (offer.store_id, offer.app_id, offer.destination_id, offer.fulfillment) == ("store", None, "store", "pickup")
     assert offer.delivery_fee_fen == 0
 
@@ -92,7 +93,7 @@ def test_local_goods_choose_present_store_and_no_shipping(environment):
 def test_delivery_chooses_lowest_price_then_distance_then_identity(environment):
     """同一商品各店同价，外卖取离收货地点最近的店，同距取较小的店铺身份；预计到达随这家店的距离而定。"""
     state = world(environment)
-    offer = quote_goods(environment, state, 1, "lemon-tea")
+    offer = quote_goods(environment, state, 1, "lemon-tea", None)
     stores = [key for key, goods in environment.catalog.goods_by_store.items()
               if "lemon-tea" in goods and environment.catalog.apps_by_store[key]]
     expected = min(stores, key=lambda key: (environment.catalog.shortest_m(key, "home"), key))
@@ -101,24 +102,55 @@ def test_delivery_chooses_lowest_price_then_distance_then_identity(environment):
     assert offer.expected_at == state.current_time + 600 + (offer.distance_meters + 4) // 5
 
 
+def test_routes_are_fixed_first_and_quoted_by_the_split_offer_functions(environment):
+    """先定路线、后报价：对 quote_goods 选中的（店，app）直接调 delivery_offer 得到同一份报价；对没被选中的较远的店
+    调用，得到那家店的距离和预计送达，app 原样写进报价；courier_offer 对商品登记的每个 app 各按自己的两个键给出
+    到站日和运费；到店报价没有 app。"""
+    state = world(environment)
+    goods = environment.catalog.goods["lemon-tea"]
+    chosen = quote_goods(environment, state, 1, "lemon-tea", None)
+    assert (chosen.store_id, chosen.app_id) == ("noodle-1", "meituan")
+    assert delivery_offer(environment, state, goods, (chosen.store_id, chosen.app_id), "home") == chosen
+    far = delivery_offer(environment, state, goods, ("cafe", "eleme"), "home")
+    meters = environment.catalog.shortest_m("cafe", "home")
+    assert meters > chosen.distance_meters
+    assert (far.store_id, far.app_id, far.distance_meters, far.destination_id) == ("cafe", "eleme", meters, "home")
+    assert far.expected_at == state.current_time + 600 + -(-meters // 5)
+    assert (far.fulfillment, far.delivery_fee_fen, far.trip_id) == ("delivery", 500, "cafe->home:delivery")
+    notebook = environment.catalog.goods["online-notebook"].model_copy(update={"app_ids": ("bilibili", "meituan")})
+    zone = ZoneInfo(state.timezone)
+    day = datetime.fromtimestamp(state.current_time, zone).date()
+    offers = {}
+    for app in notebook.app_ids:
+        offer = offers[app] = courier_offer(environment, state, notebook, app)
+        days = random_stream(state.random_state, f"courier-days:online-notebook:{app}:{day.isoformat()}").choice(
+            (2, 3, 4, 5))
+        fee = random_stream(state.random_state, f"courier-fee:online-notebook:{app}").choice((0, 500))
+        assert offer.app_id == app and offer.delivery_fee_fen == fee
+        assert offer.expected_at == int(datetime.combine(day + timedelta(days=days), time.min, zone).timestamp())
+        assert (offer.store_id, offer.fulfillment, offer.destination_id) == (None, "station_pickup", "parcel-station")
+    pickup = quote_goods(environment, world(environment, "store"), 1, "lemon-tea", "eleme")
+    assert (pickup.fulfillment, pickup.store_id, pickup.app_id) == ("pickup", "store", None)
+
+
 def test_closed_present_store_does_not_change_to_delivery(environment):
     catalog = environment.catalog
     closed = catalog.locations["store"].model_copy(update={"opens": OpeningHours(weekly={})})
     inputs = replace(environment, catalog=replace(catalog, locations=MappingProxyType({**catalog.locations,
                                                                                    "store": closed})))
     with pytest.raises(BusinessRuleError, match="LOCATION_CLOSED"):
-        quote_goods(inputs, world(inputs, "store"), 1, "lemon-tea")
+        quote_goods(inputs, world(inputs, "store"), 1, "lemon-tea", None)
 
 
 def test_no_remote_channel_requires_real_store(environment):
     with pytest.raises(PreconditionError, match="ACTIVITY_PRECONDITION_UNMET"):
-        quote_goods(environment, world(environment), 1, "tissue")
+        quote_goods(environment, world(environment), 1, "tissue", None)
 
 
 def test_preview_courier_is_stable_local_midnight_and_has_no_route(environment):
     state = world(environment)
-    offer = quote_goods(environment, state, 1, "online-notebook")
-    assert offer == quote_goods(environment, state, 1, "online-notebook")
+    offer = quote_goods(environment, state, 1, "online-notebook", None)
+    assert offer == quote_goods(environment, state, 1, "online-notebook", None)
     arrival = datetime.fromtimestamp(offer.expected_at, ZoneInfo(state.timezone))
     created = datetime.fromtimestamp(state.current_time, ZoneInfo(state.timezone))
     assert arrival.time() == time.min
@@ -130,8 +162,8 @@ def test_preview_courier_is_stable_local_midnight_and_has_no_route(environment):
 
 def test_request_freezes_preview_does_not_pay_or_generate_receipt(environment):
     state = world(environment)
-    preview = quote_goods(environment, state, 1, "online-notebook")
-    changed, activity = runtime(environment).prepare_purchase(state, pending(), ("online-notebook",))
+    preview = quote_goods(environment, state, 1, "online-notebook", None)
+    changed, activity = runtime(environment).prepare_purchase(state, pending(), ("online-notebook",), None)
     order = activity_orders(changed, activity)[0]
     assert changed.accounts == state.accounts and state.deliveries == {}
     assert order.expected_at == preview.expected_at and order.app_id == preview.app_id
@@ -151,8 +183,8 @@ def test_request_freezes_preview_does_not_pay_or_generate_receipt(environment):
 def test_repeated_goods_are_separate_portions_of_one_purchase_activity(environment, goods, label, total):
     """同一商品写几次就是几份、份数不设上限：每份一条履约记录，记录按配送组再按商品身份编号，活动名把同一商品合写。"""
     state = world(environment, "store")
-    assert quoted_basket(environment, state, 1, goods)[1] == total
-    changed, activity = runtime(environment).prepare_purchase(state, pending(), goods)
+    assert quoted_basket(environment, state, 1, goods, None)[1] == total
+    changed, activity = runtime(environment).prepare_purchase(state, pending(), goods, None)
     orders = activity_orders(changed, activity)
     assert [order.order_id for order in orders] == [f"order-buy-{index:04d}" for index in range(1, len(goods) + 1)]
     assert [order.order_id for order in orders] == sorted(order.order_id for order in orders)
@@ -174,14 +206,14 @@ def _basket_refusal(environment, state, goods):
 def test_basket_precheck_merges_delivery_fee_once(environment):
     """报价合并运费但不核对余额；余额由整组核验按合并后的总价核对一次。"""
     goods = ("lemon-tea", "playing-cards")
-    groups, total = quoted_basket(environment, world(environment, "cafe"), 1, goods)
+    groups, total = quoted_basket(environment, world(environment, "cafe"), 1, goods, None)
     assert len(groups) == 1 and total == 2700
-    assert quoted_basket(environment, world(environment, "cafe", balance=2699), 1, goods)[1] == 2700
+    assert quoted_basket(environment, world(environment, "cafe", balance=2699), 1, goods, None)[1] == 2700
     assert _basket_refusal(environment, world(environment, "cafe", balance=2700), goods) is None
     assert _basket_refusal(environment, world(environment, "cafe", balance=2699), goods) == Blocked(
         refusal_for_code("INSUFFICIENT_FUNDS"), ("start_side_activity",))
     remote = ("lemon-tea", "online-notebook")
-    fee_groups, fee_total = quoted_basket(environment, world(environment), 1, remote)
+    fee_groups, fee_total = quoted_basket(environment, world(environment), 1, remote, None)
     assert fee_total == 2400 + 500 * sum(any(row.delivery_fee_fen for row in rows) for rows in fee_groups.values())
     assert _basket_refusal(environment, world(environment, balance=fee_total), remote) is None
     assert _basket_refusal(environment, world(environment, balance=fee_total - 1), remote) == Blocked(
@@ -191,7 +223,7 @@ def test_basket_precheck_merges_delivery_fee_once(environment):
 def test_normal_completion_pays_the_local_order_and_receives_its_goods_once(environment):
     commerce = runtime(environment)
     state, activity = commerce.prepare_purchase(world(environment, "store"), pending(),
-                                               ("lemon-tea", "playing-cards"))
+                                               ("lemon-tea", "playing-cards"), None)
     state = operate_phases(state, activity)
     state, activity = finish(state, activity)
     changed, events = commerce.complete_purchase(state, activity)
@@ -214,7 +246,7 @@ def test_normal_completion_pays_the_local_order_and_receives_its_goods_once(envi
 def test_completion_insufficient_funds_cancels_entire_purchase_without_charge(environment):
     commerce = runtime(environment)
     state, activity = commerce.prepare_purchase(world(environment, "store"), pending(),
-                                               ("lemon-tea", "online-notebook"))
+                                               ("lemon-tea", "online-notebook"), None)
     state = operate_phases(state, activity)
     state, activity = finish(state, activity)
     state = state.model_copy(update={"accounts": {"agent:1": 0, "external:scenario": 0}}, deep=True)
@@ -227,7 +259,7 @@ def test_completion_insufficient_funds_cancels_entire_purchase_without_charge(en
 
 def test_cancel_before_completion_never_pays_schedules_or_receives(environment):
     commerce = runtime(environment)
-    state, activity = commerce.prepare_purchase(world(environment, "store"), pending(), ("lemon-tea",))
+    state, activity = commerce.prepare_purchase(world(environment, "store"), pending(), ("lemon-tea",), None)
     changed = commerce.cancel_purchase(state, activity)
     assert changed.accounts == state.accounts and not changed.pending_events
     assert next(iter(changed.deliveries.values())).status == "cancelled"
@@ -236,7 +268,7 @@ def test_cancel_before_completion_never_pays_schedules_or_receives(environment):
 
 def test_courier_arrival_only_ready_then_collect_all_and_no_double_effect(environment):
     commerce = runtime(environment)
-    state, activity = commerce.prepare_purchase(world(environment), pending(), ("online-notebook",))
+    state, activity = commerce.prepare_purchase(world(environment), pending(), ("online-notebook",), None)
     state = operate_phases(state, activity)
     state, activity = finish(state, activity)
     state, _ = commerce.complete_purchase(state, activity)
@@ -256,7 +288,7 @@ def test_courier_arrival_only_ready_then_collect_all_and_no_double_effect(enviro
 
 def test_unpaid_order_cannot_be_delivered_or_received(environment):
     commerce = runtime(environment)
-    state, activity = commerce.prepare_purchase(world(environment), pending(), ("online-notebook",))
+    state, activity = commerce.prepare_purchase(world(environment), pending(), ("online-notebook",), None)
     order = activity_orders(state, activity)[0]
     with pytest.raises(BusinessRuleError, match="ORDER_NOT_PAID"):
         deliver_order(state, commerce.context, order.order_id)
@@ -271,7 +303,7 @@ def test_payment_phases_and_notifications_follow_each_order_and_its_selected_app
     到店订单只在抽到支付 app 时有「支付成功」。"""
     commerce = runtime(environment)
     initial = world(environment, "store", random_state=random_state)
-    state, activity = commerce.prepare_purchase(initial, pending(), ("lemon-tea", "online-notebook"))
+    state, activity = commerce.prepare_purchase(initial, pending(), ("lemon-tea", "online-notebook"), None)
     since = state.current_time
     for moment in phase_boundaries(state, activity):
         state = advance_phases(state.model_copy(update={"current_time": moment}, deep=True), activity, since)
@@ -319,7 +351,7 @@ def test_payment_phases_and_notifications_follow_each_order_and_its_selected_app
 def test_skipped_phase_boundary_is_a_run_fault_and_completion_needs_the_finished_payment(environment):
     commerce = runtime(environment)
     state, activity = commerce.prepare_purchase(world(environment, "store", random_state="payment-0"),
-                                               pending(), ("lemon-tea", "online-notebook"))
+                                               pending(), ("lemon-tea", "online-notebook"), None)
     assert phase_boundaries(state, activity)
     state, activity = finish(state, activity)
     with pytest.raises(IntegrityError, match="^Purchase phase boundary was skipped$"):
@@ -335,7 +367,7 @@ def test_completion_needs_the_finished_payment_phase_of_an_order_paid_inside_its
     inputs = replace(environment, catalog=replace(catalog, apps_by_action=MappingProxyType({
         key: value for key, value in catalog.apps_by_action.items() if key != "purchase"})))
     commerce = runtime(inputs)
-    accepted, running = commerce.prepare_purchase(world(inputs), pending(), ("online-notebook",))
+    accepted, running = commerce.prepare_purchase(world(inputs), pending(), ("online-notebook",), None)
     (order,) = activity_orders(accepted, running)
     assert (order.app_id, order.payment_app_id) == ("bilibili", None)
     assert 10 <= order.payment_duration_seconds <= 20 and order.payment_ended_at is None
@@ -358,7 +390,7 @@ def test_completion_needs_the_finished_payment_phase_of_an_order_paid_inside_its
 def paid_purchase(environment, goods, location="home"):
     """经真实受理、付款段和完成结算得到已付款世界、购买活动与当次事件。"""
     commerce = runtime(environment)
-    state, activity = commerce.prepare_purchase(world(environment, location), pending(), goods)
+    state, activity = commerce.prepare_purchase(world(environment, location), pending(), goods, None)
     state = operate_phases(state, activity)
     state, activity = finish(state, activity)
     state, events = commerce.complete_purchase(state, activity)

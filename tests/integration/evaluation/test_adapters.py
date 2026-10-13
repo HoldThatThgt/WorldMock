@@ -273,3 +273,22 @@ def test_actual_progress_segments_exclude_the_paused_gap(evaluation_fixture):
     assert (activity.ended_at - activity.started_at).total_seconds() == 10800
     assert activity.duration_seconds == 7200
     assert activity.action == "interact"
+
+
+def test_query_with_an_app_is_a_digital_interaction_and_without_one_a_physical_activity(evaluation_fixture, tmp_path):
+    """查询是自带 app 的活动。真实引擎做过两次查询的导出经认证与适配：查柠檬茶时环境抽了一个卖它的 app，那几分钟
+    算在手机上，是数字交互；纸巾没有任何 app 卖，那次查询手机上没有 app，是现实活动。"""
+    root = tmp_path / "query-export"
+    _write_canonical(root, json.loads(evaluation_fixture.scenario_path.read_text(encoding="utf-8")), "query-run", 9,
+                     activity_type="query")
+    exported = [json.loads(line) for line in (root / "activities.jsonl").read_text(encoding="utf-8").splitlines()]
+    apps = {row["activity_id"]: row["data"]["app_id"] for row in exported if row["activity_type"] == "query"}
+    [with_app] = [key for key, app in apps.items() if app is not None]
+    [without_app] = [key for key, app in apps.items() if app is None]
+    view = adapt_worldmock(root, load_scenario(evaluation_fixture.scenario_path))
+    adapted = {item.activity_id: (item.action, item.channels, item.duration_kind, item.official_domains)
+               for item in view.activities if item.activity_id in apps}
+    assert adapted == {
+        with_app: ("query", ("digital_interaction",), "world_internet_session", ("internet_use",)),
+        without_app: ("query", ("physical_activity",), "world_activity", ()),
+    }
