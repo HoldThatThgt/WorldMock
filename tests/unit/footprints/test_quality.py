@@ -11,6 +11,8 @@ from worldmock.footprints.models import (
     WAKE_REASONS_FIELD,
     Event,
 )
+from tests.footprints.display_fixtures import sample_catalog_rows, sample_display_names
+from worldmock.footprints.display_wording import display_names
 from worldmock.footprints.quality import build_quality_report
 from worldmock.life.error_contract import ErrorItem, ErrorReport
 
@@ -100,12 +102,13 @@ def _activity(identity, kind, elapsed, status="completed", **fields):
 
 
 def _content_event(sequence, *, before=0, after=300, completed=False, rounds=0, app_id="bilibili",
-                   content="long", agent_id=1, category="entertainment", action_id="recommend"):
-    """@brief 内容接触来自当前 ACTION 和完整真实内容结算区间。"""
+                   content="c-long", agent_id=1, category="entertainment", action_id="recommend",
+                   location_id="home"):
+    """@brief 内容接触来自当前 ACTION 和完整真实内容结算区间；内容与 app 取样例环境里登记的身份。"""
     start = 100 + (rounds - int(completed)) * 600 + before
     end = start + after - before
     activity = {"activity_id": f"phone-{sequence}", "agent_id": agent_id, "kind": "interact",
-                "started_at": start, "ended_at": None, "status": "active", "session_ids": [],
+                "location_id": location_id, "started_at": start, "ended_at": None, "status": "active", "session_ids": [],
                 "data": {"action": "interact", "app_id": app_id,
                          "content_id": content, "pinned_by_push_id": None}}
     return _event(sequence, "activity_progress", occurred_at=end, agent_id=agent_id,
@@ -152,7 +155,7 @@ def test_quality_report_covers_run_behavior_usage_cost_and_speedup():
         _activity("meal-1", "consume", 50, "truncated", interruption_reason="cutoff"),
     ]
 
-    report = build_quality_report(events, activities, _manifest())
+    report = build_quality_report(events, activities, _manifest(), sample_display_names())
 
     assert report["run_outcome"]["status"] == "completed"
     assert report["actions"]["result_status_counts"]["rejected"] == 1
@@ -182,8 +185,8 @@ def test_repeat_watch_counts_completed_rounds():
     finished = _content_event(1, after=600, completed=True, rounds=1)
     activities = [_activity("app-1", "use_app", 600, target_id="bilibili"),
                   _activity("app-2", "use_app", 300, target_id="bilibili")]
-    resumed_report = build_quality_report([first, resumed], activities, _manifest())["content_contact"]
-    restarted_report = build_quality_report([finished, restarted], activities, _manifest())["content_contact"]
+    resumed_report = build_quality_report([first, resumed], activities, _manifest(), sample_display_names())["content_contact"]
+    restarted_report = build_quality_report([finished, restarted], activities, _manifest(), sample_display_names())["content_contact"]
     assert resumed_report["by_app"] == restarted_report["by_app"] == {"bilibili": 2}
     assert resumed_report["repeat_watch"] == 0
     assert restarted_report["repeat_watch"] == 1
@@ -198,7 +201,7 @@ def test_missing_measurements_remain_unknown_instead_of_becoming_zero():
     activities = [_activity("app-known", "use_app", 20, target_id="bilibili"),
                   _activity("app-missing", "use_app", None, target_id="bilibili")]
 
-    report = build_quality_report(events, activities, _manifest(end=200))
+    report = build_quality_report(events, activities, _manifest(end=200), sample_display_names())
 
     contact = report["content_contact"]
     assert contact == {"by_app": {}, "repeat_watch": 0, "repeat_seconds_share": None}
@@ -222,7 +225,7 @@ def test_model_usage_counts_plan_day_and_lists_it_by_purpose():
               _event(4, "model_response", data=plan),
               _event(5, "run_ended", occurred_at=200)]
 
-    usage = build_quality_report(events, [], _manifest(end=200))["model_usage"]
+    usage = build_quality_report(events, [], _manifest(end=200), sample_display_names())["model_usage"]
 
     assert usage["request_events"] == 2 and usage["provider_responses"] == 2
     assert usage["token_usage"]["complete_tokens"]["total_tokens"] == 240
@@ -248,7 +251,7 @@ def test_plan_day_response_naming_memories_is_no_memory_problem():
 
     def problems(data):
         event = _event(1, "model_response", agent_id=1, data=data)
-        return build_quality_report([event], [], _manifest())["memory_references"]["problems"]
+        return build_quality_report([event], [], _manifest(), sample_display_names())["memory_references"]["problems"]
 
     assert problems(plan) == []
     assert problems(decision) == [{"code": "memory_protocol_error", "event_id": "event-1", "agent_id": 1}]
@@ -261,7 +264,7 @@ def test_actual_unpriced_model_keeps_tokens_but_does_not_invent_cost():
               _event(2, "model_response", data=response),
               _event(3, "run_ended", occurred_at=200)]
 
-    usage = build_quality_report(events, [], _manifest(end=200))["model_usage"]
+    usage = build_quality_report(events, [], _manifest(end=200), sample_display_names())["model_usage"]
 
     assert usage["token_usage"]["known_tokens"]["total_tokens"] == 120
     assert usage["estimated_cost"]["complete_estimate_usd"] is None
@@ -279,7 +282,7 @@ def test_transport_failure_marks_tokens_and_cost_unknown():
         _event(3, "run_failed", occurred_at=200, data={"error": "timeout"}),
     ]
 
-    usage = build_quality_report(events, [], _manifest(end=200))["model_usage"]
+    usage = build_quality_report(events, [], _manifest(end=200), sample_display_names())["model_usage"]
 
     assert usage["transport_or_terminal_failures"] == 1
     assert usage["token_usage"]["calls_without_provider_response"] == 1
@@ -300,7 +303,7 @@ def test_cost_band_uses_request_time_when_response_crosses_boundary():
         _event(3, "run_ended", occurred_at=200),
     ]
 
-    usage = build_quality_report(events, [], _manifest(end=200))["model_usage"]
+    usage = build_quality_report(events, [], _manifest(end=200), sample_display_names())["model_usage"]
 
     assert usage["estimated_cost"]["complete_estimate_usd"] == 0.00004224
 
@@ -316,7 +319,7 @@ def test_memory_quality_reports_conclusion_without_memory_update():
               _concluded(6, "decision", _memory()),
               _event(7, "run_ended", occurred_at=200)]
 
-    memory = build_quality_report(events, [], _manifest(end=200))["memory_references"]
+    memory = build_quality_report(events, [], _manifest(end=200), sample_display_names())["memory_references"]
 
     assert memory == {"memory_update_events": 0, "persisted_episode_ids": 0, "write_points_checked": 0,
                       "problem_count": 1, "problems": [
@@ -343,7 +346,7 @@ def test_memory_quality_reads_current_control_items_and_structured_errors():
     events += [_event(len(events) + 1, "model_response", agent_id=1, decision_id="protocol", data=views_error),
                _event(len(events) + 2, "run_ended", occurred_at=200)]
 
-    memory = build_quality_report(events, [], _manifest(end=200))["memory_references"]
+    memory = build_quality_report(events, [], _manifest(end=200), sample_display_names())["memory_references"]
 
     assert memory["problems"] == [
         *({"code": "memory_protocol_error", "event_id": f"event-{len(requests) + 1}", "agent_id": 1},),
@@ -365,7 +368,7 @@ def test_a_conclusion_that_only_changes_errands_is_no_memory_write_point():
               for index, (label, request) in enumerate(requests.items())]
     events.append(_event(len(events) + 1, "run_ended", occurred_at=200))
 
-    memory = build_quality_report(events, [], _manifest(end=200))["memory_references"]
+    memory = build_quality_report(events, [], _manifest(end=200), sample_display_names())["memory_references"]
 
     assert memory["problems"] == [{"code": "conclusion_without_memory_update", "event_id": "event-2", "agent_id": 1}]
 
@@ -380,7 +383,7 @@ def test_a_replayed_conclusion_recorded_without_errands_is_an_integrity_fault():
         events = [_event(1, "action_requested", agent_id=1, decision_id="decision", action_id="action",
                          data={"tool_name": "conclude_activity", "reused": True, "request": request}),
                   _event(2, "run_ended", occurred_at=200)]
-        return build_quality_report(events, [], _manifest(end=200))
+        return build_quality_report(events, [], _manifest(end=200), sample_display_names())
 
     current = _conclusion()
     assert report(current)["memory_references"]["problem_count"] == 0
@@ -395,7 +398,7 @@ def test_non_memory_tool_json_error_is_counted_without_memory_warning():
     function = response["response"]["choices"][0]["message"]["tool_calls"][0]["function"]
     function.update(name="report_status", arguments="{invalid json")
     event = _event(1, "model_response", agent_id=1, decision_id="decision", data=response)
-    quality = build_quality_report([event], [], _manifest())
+    quality = build_quality_report([event], [], _manifest(), sample_display_names())
     assert quality["model_usage"]["protocol_error_responses"] == 1
     assert quality["memory_references"]["problem_count"] == 0
 
@@ -403,7 +406,7 @@ def test_non_memory_tool_json_error_is_counted_without_memory_warning():
     oversized["error"] = "invalid conclude_activity arguments: memories exceed eight entries in total"
     oversized["protocol_feedback"] = _feedback()
     event = _event(1, "model_response", agent_id=1, decision_id="decision", data=oversized)
-    memory = build_quality_report([event], [], _manifest())["memory_references"]
+    memory = build_quality_report([event], [], _manifest(), sample_display_names())["memory_references"]
     assert memory["problems"] == [{"code": "memory_protocol_error", "event_id": "event-1", "agent_id": 1}]
 
 
@@ -435,7 +438,7 @@ def _observed(sequence, at=_WOKE, decision_id="woke"):
 
 def _memory_problems(events):
     """质量报告的记忆来源问题（码与事件）。"""
-    memory = build_quality_report(events, [], _manifest())["memory_references"]
+    memory = build_quality_report(events, [], _manifest(), sample_display_names())["memory_references"]
     return [(item["code"], item["event_id"]) for item in memory["problems"]]
 
 
@@ -446,7 +449,7 @@ def test_reflection_before_the_observation_and_conclusion_after_it_are_each_matc
               _event(5, "memory_updated", occurred_at=_WOKE, agent_id=1, decision_id="woke",
                      data={**_memory_update("m1", "event-3", "woke"), "reflection": None})]
     events[3] = events[3].model_copy(update={"occurred_at": _WOKE})
-    memory = build_quality_report(events, [], _manifest())["memory_references"]
+    memory = build_quality_report(events, [], _manifest(), sample_display_names())["memory_references"]
     assert memory == {"memory_update_events": 2, "persisted_episode_ids": 2, "write_points_checked": 2,
                       "problem_count": 0, "problems": []}
 
@@ -506,7 +509,7 @@ def test_memory_update_whose_write_point_has_no_registration_has_no_source(wake_
               *([_concluded(2, "decision", _memory())] if registered else []),
               _event(3, "memory_updated", agent_id=1, decision_id="decision",
                      data=_memory_update("m1", "event-1", "decision", trigger))]
-    memory = build_quality_report(events, [], _manifest())["memory_references"]
+    memory = build_quality_report(events, [], _manifest(), sample_display_names())["memory_references"]
     assert memory["write_points_checked"] == len(trigger)
     assert memory["problems"] == [{"code": "memory_update_without_source", "event_id": "event-3", "agent_id": 1}]
 
@@ -522,7 +525,7 @@ def test_malformed_trigger_or_decision_is_an_invalid_memory_update(change):
               _concluded(2, "decision", _memory()),
               _event(3, "memory_updated", agent_id=1, decision_id="decision",
                      data={**_memory_update("m1", "event-1", "decision"), **change})]
-    memory = build_quality_report(events, [], _manifest())["memory_references"]
+    memory = build_quality_report(events, [], _manifest(), sample_display_names())["memory_references"]
     assert memory["memory_update_events"] == 0
     assert [item["code"] for item in memory["problems"]] == [
         "invalid_memory_update", "conclusion_without_memory_update"]
@@ -534,7 +537,7 @@ def test_memory_update_must_carry_its_observation_fact_window():
               _concluded(2, "decision", _memory()),
               _event(3, "memory_updated", agent_id=1, decision_id="decision",
                      data=_memory_update("m1", "event-absent", "decision"))]
-    memory = build_quality_report(events, [], _manifest())["memory_references"]
+    memory = build_quality_report(events, [], _manifest(), sample_display_names())["memory_references"]
     assert [item["code"] for item in memory["problems"]] == ["invalid_memory_update_source_window"]
 
 
@@ -553,7 +556,7 @@ def test_merged_memory_identity_is_not_reported_as_a_duplicate():
         _event(8, 'memory_updated', agent_id=1, decision_id='second',
                data={**merged, 'observation_event_id': 'event-5'}),
     ]
-    memory = build_quality_report(events, [], _manifest())['memory_references']
+    memory = build_quality_report(events, [], _manifest(), sample_display_names())['memory_references']
     assert memory['persisted_episode_ids'] == 1
     assert memory['problems'] == []
 
@@ -566,7 +569,7 @@ def test_valid_looking_observed_fact_must_equal_its_committed_source():
               "quantity": 2}
     observation = _event(2, "observation", agent_id=1, decision_id="decision",
                          data={"verified_experiences": [forged]})
-    quality = build_quality_report([source, observation], [], _manifest())["memory_references"]
+    quality = build_quality_report([source, observation], [], _manifest(), sample_display_names())["memory_references"]
     assert [item["code"] for item in quality["problems"]] == ["invalid_verified_experience_source"]
 
 
@@ -588,7 +591,7 @@ def test_progress_sources_must_be_this_persons_prior_events(source, valid):
         events.insert(0 if sequence == 1 else 1, _event(sequence, source['event_type'], **fields))
     events.append(_event(4, 'model_response', agent_id=1, decision_id='current',
                          data=_tool_response('call', _usage())))
-    memory = build_quality_report(events, [], _manifest())['memory_references']
+    memory = build_quality_report(events, [], _manifest(), sample_display_names())['memory_references']
     assert [item['code'] for item in memory['problems']] == ([] if valid else ['invalid_observed_result_reference'])
 
 
@@ -611,7 +614,7 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
         _event(8, "run_ended", occurred_at=1100),
     ]
 
-    report = build_quality_report(events, [], _manifest())
+    report = build_quality_report(events, [], _manifest(), sample_display_names())
     rhythm = report["decision_rhythm"]
 
     assert report["schema_version"] == 8
@@ -636,7 +639,7 @@ def test_report_sections_are_the_documented_grouping_without_a_language_count():
     都为 null。其中没有语言计数：一日运行保真裁决 D18 不作语言要求，人物写的正文、总结与记忆用中文还是英文不在报告里
     计数（docs/design/06-agent.md），一日运行保真新增的五节是输入警告、时间线标签、联系人回复守卫、名称类
     拒绝与截断。"""
-    report = build_quality_report([_event(1, "run_ended", occurred_at=200)], [], _manifest(end=200))
+    report = build_quality_report([_event(1, "run_ended", occurred_at=200)], [], _manifest(end=200), sample_display_names())
     documented = ['event_range', 'run_outcome', 'actions', 'activities', 'content_contact', 'app_pushes', 'conversion_efficiency', 'decision_rhythm', 'memory_references', 'model_usage', 'acceleration', 'day_plan_metrics', 'errand_metrics', 'conclusion_memories', 'input_warnings', 'timeline_labels', 'name_rejections', 'truncations']
     assert len(documented) == len(set(documented)) == 18
     assert documented[-4:] == ["input_warnings", "timeline_labels", "name_rejections", "truncations"]
@@ -669,7 +672,7 @@ def test_decision_rhythm_counts_same_moment_rounds():
         _event(7, "run_ended", occurred_at=1100),
     ]
 
-    rhythm = build_quality_report(events, [], _manifest())["decision_rhythm"]
+    rhythm = build_quality_report(events, [], _manifest(), sample_display_names())["decision_rhythm"]
 
     assert rhythm["same_moment_round_counts"] == {"1": 2, "3": 1}
     assert rhythm["decision_started_events"] == 5
@@ -680,7 +683,7 @@ def test_decision_rhythm_counts_same_moment_rounds():
     assert rhythm["unrecognized_wake_reason_counts"] == {}
 
     foreign = events[:-1] + [started(7, 2, later, ["mystery"]), _event(8, "run_ended", occurred_at=1100)]
-    rhythm = build_quality_report(foreign, [], _manifest())["decision_rhythm"]
+    rhythm = build_quality_report(foreign, [], _manifest(), sample_display_names())["decision_rhythm"]
     assert rhythm["same_moment_round_counts"] == {"1": 3, "3": 1}
     assert rhythm["unrecognized_decision_started_wake_reason_counts"] == {"mystery": 1}
 
@@ -699,7 +702,7 @@ def test_errand_reminder_due_is_a_known_wake_reason():
         _event(5, "run_ended", occurred_at=1100),
     ]
 
-    rhythm = build_quality_report(events, [], _manifest())["decision_rhythm"]
+    rhythm = build_quality_report(events, [], _manifest(), sample_display_names())["decision_rhythm"]
 
     assert rhythm["wake_reason_counts"] == {"reminder_due": 2}
     assert rhythm["decision_started_wake_reason_counts"] == {"reminder_due": 2}
@@ -713,7 +716,7 @@ def test_decision_rhythm_reports_zero_coverage_for_legacy_event_sets():
               _event(2, "decision_started", agent_id=1, decision_id="decision-1", data=_started()),
               _event(3, "run_ended", occurred_at=1100)]
 
-    rhythm = build_quality_report(events, [], _manifest())["decision_rhythm"]
+    rhythm = build_quality_report(events, [], _manifest(), sample_display_names())["decision_rhythm"]
 
     assert rhythm["silent_boundaries"] == 0
     assert rhythm["offered_boundaries"] == 0
@@ -729,7 +732,7 @@ def test_acceleration_sums_observed_wall_time_across_restore_branches():
     events = [_event(1, "observation", occurred_at=100, run_id="parent", wall_ms=2_000),
               _event(2, "run_ended", occurred_at=200, run_id="run", wall_ms=3_000)]
 
-    acceleration = build_quality_report(events, [], _manifest(end=200))["acceleration"]
+    acceleration = build_quality_report(events, [], _manifest(end=200), sample_display_names())["acceleration"]
 
     assert acceleration == {
         "simulated_seconds": 100, "observed_wall_seconds": 5.0, "speedup": 20.0,
@@ -746,7 +749,7 @@ def test_acceleration_sums_observed_wall_time_across_restore_branches():
 ])
 def test_invalid_quality_inputs_are_rejected(events):
     with pytest.raises(IntegrityError):
-        build_quality_report(events, [], _manifest())
+        build_quality_report(events, [], _manifest(), sample_display_names())
 
 
 def test_input_warnings_section_counts_the_frozen_manifest_warnings():
@@ -765,7 +768,7 @@ def test_input_warnings_section_counts_the_frozen_manifest_warnings():
     warnings = [personal(1), personal(2), deleted, scenario_level]
     events = [_event(1, "run_ended", occurred_at=200)]
 
-    section = build_quality_report(events, [], {**_manifest(end=200), "input_warnings": warnings})["input_warnings"]
+    section = build_quality_report(events, [], {**_manifest(end=200), "input_warnings": warnings}, sample_display_names())["input_warnings"]
 
     assert INPUT_WARNING_CODES == ("CONTENT_EMPTY_WITH_MEDIA_TASTES", "LOCATION_NAME_SUSPICIOUS")
     assert section["recorded"] is True and section["warning_count"] == 4
@@ -774,10 +777,10 @@ def test_input_warnings_section_counts_the_frozen_manifest_warnings():
     assert section["agent_counts"] == {"1": 1, "2": 2} and section["scenario_warning_count"] == 1
     assert section["unrecognized_code_counts"] == {"CARD_FIELD_CONFLICT": 1}
     for manifest in (_manifest(end=200), {**_manifest(end=200), "input_warnings": None}):
-        missing = build_quality_report(events, [], manifest)["input_warnings"]
+        missing = build_quality_report(events, [], manifest, sample_display_names())["input_warnings"]
         assert missing["recorded"] is False
         assert missing["warning_count"] is None and missing["code_counts"] is None
-    empty = build_quality_report(events, [], {**_manifest(end=200), "input_warnings": []})["input_warnings"]
+    empty = build_quality_report(events, [], {**_manifest(end=200), "input_warnings": []}, sample_display_names())["input_warnings"]
     assert empty["warning_count"] == 0 and set(empty["code_counts"].values()) == {0}
 
 
@@ -826,7 +829,7 @@ def test_truncations_count_length_responses_with_their_output_and_reasoning_toke
                data={"phase": "failure", "call_id": "call-4", "attempt": 1, "error": "TimeoutError()"}),
     ]
 
-    report = build_quality_report(events, [], _manifest(end=200))
+    report = build_quality_report(events, [], _manifest(end=200), sample_display_names())
 
     section = report["truncations"]
     assert section == {"truncated_responses": 3, "purpose_counts": {"decision": 2, "plan_day": 1},
@@ -847,12 +850,12 @@ def test_truncation_tokens_missing_from_a_response_stay_unknown_instead_of_zero(
         _event(4, "model_response", agent_id=1, decision_id="d1", data=_truncated_response("call-2", no_details)),
     ]
 
-    section = build_quality_report(events, [], _manifest(end=200))["truncations"]
+    section = build_quality_report(events, [], _manifest(end=200), sample_display_names())["truncations"]
 
     assert section["truncated_responses"] == 2
     assert (section["wasted_output_tokens"], section["reasoning_tokens"]) == (None, None)
     assert (section["responses_missing_output_tokens"], section["responses_missing_reasoning_tokens"]) == (1, 2)
-    none = build_quality_report([_event(1, "run_ended", occurred_at=200)], [], _manifest(end=200))["truncations"]
+    none = build_quality_report([_event(1, "run_ended", occurred_at=200)], [], _manifest(end=200), sample_display_names())["truncations"]
     assert (none["truncated_responses"], none["purpose_counts"], none["wasted_output_tokens"],
             none["reasoning_tokens"]) == (0, {}, 0, 0)
 
@@ -866,7 +869,7 @@ def test_truncations_match_the_recorded_day_runs(label, count, tokens):
     run = _TRUNCATION_RUNS[label]
     events = [Event.model_validate(row) for row in run["events"]]
 
-    section = build_quality_report(events, [], {"run_id": run["run_id"], "source_group_id": run["run_id"], "work_content_ids": {}, "window": run["window"]})["truncations"]
+    section = build_quality_report(events, [], {"run_id": run["run_id"], "source_group_id": run["run_id"], "work_content_ids": {}, "window": run["window"]}, sample_display_names())["truncations"]
 
     assert section["truncated_responses"] == run["summary"]["truncated_responses"] == count < len(events)
     assert section["purpose_counts"] == {"decision": count}
@@ -878,8 +881,8 @@ def test_truncations_match_the_recorded_day_runs(label, count, tokens):
 def test_quality_report_is_deterministic_for_the_same_authenticated_input():
     events = [_event(1, "run_ended", occurred_at=200)]
 
-    first = build_quality_report(events, [], _manifest(end=200))
-    second = build_quality_report(events, [], _manifest(end=200))
+    first = build_quality_report(events, [], _manifest(end=200), sample_display_names())
+    second = build_quality_report(events, [], _manifest(end=200), sample_display_names())
 
     assert first == second
     json.dumps(first, ensure_ascii=False, sort_keys=True, allow_nan=False)
@@ -891,56 +894,71 @@ def test_bedtime_reflection_snapshot_may_carry_its_source(source, codes):
     snapshot = {"id": "r1", "type": "reflection", "text": "睡前有点困", "epistemic_status": "subjective",
                 "source": source}
     events = [_wake(1), _reflected(2, episodes=[snapshot]), _observed(3)]
-    memory = build_quality_report(events, [], _manifest())["memory_references"]
+    memory = build_quality_report(events, [], _manifest(), sample_display_names())["memory_references"]
     assert [item["code"] for item in memory["problems"]] == codes
 
 
 def _progress(sequence, snapshot, start, end):
     """人物 1 一段活动进度：结算区间 [start, end) 与活动快照。"""
     return _event(sequence, "activity_progress", occurred_at=end, agent_id=1, activity_id=snapshot["activity_id"],
-                  data={"activity": {"agent_id": 1, **snapshot}, "interval_start": start, "interval_end": end})
+                  data={"activity": {"agent_id": 1, "location_id": "home", "data": {}, **snapshot},
+                        "interval_start": start, "interval_end": end})
 
 
-def _timeline_events(place, lifestyle, subject):
-    """一条名称观察加四段真实活动区间，作品标题与应用名遵守不同标签检查规则。"""
-    names = {"locations": [{"location_id": "loc-x", "name": place}],
-             "apps": [{"app_id": "platform", "name": lifestyle}]}
+def _timeline_names(place, lifestyle, subject, title):
+    """目录里的名称由入参给：一个地点、一个只用来打开的 app，以及一个带一条内容的阅读 app（内容标题在书名号里，不检查）。
+    名称表照目录行经 display_names 建出：在样例环境的行上照抄一行、换掉身份与名称。"""
+    apps, contents, locations, goods, methods = sample_catalog_rows()
+    app, location = apps[0], locations[0]
+    content = next(row for row in contents if row.series is None)
+    return display_names(
+        [*apps, app.model_copy(update={"app_id": "platform", "name": lifestyle}),
+         app.model_copy(update={"app_id": "reader", "name": "阅读"})],
+        [*contents, content.model_copy(update={"content_id": subject, "title": title})],
+        [*locations, location.model_copy(update={"location_id": "loc-x", "name": place, "branch_label": None})],
+        goods, methods)
+
+
+def _timeline_events(subject):
+    """四段真实活动区间：步行去那个地点、打开那个 app（没有内容的过渡写法）、在阅读 app 里看一条内容、睡觉。"""
     return [
-        _event(1, "observation", occurred_at=100, agent_id=1, data=names),
-        _progress(2, {"activity_id": "a-go", "kind": "travel", "status": "completed", "travel_method_id": "walking", "destination_id": "loc-x"},
-                  100, 200),
+        _progress(2, {"activity_id": "a-go", "kind": "travel", "status": "completed", "travel_method_id": "walking",
+                      "destination_id": "loc-x"}, 100, 200),
         _progress(3, {"activity_id": "a-life", "kind": "interact",
-                     "data": {"action": "interact", "app_id": "platform", "content_id": None}}, 200, 300),
-        _progress(4, {"activity_id": "a-content", "kind": "interact", "content_title": subject,
-                     "data": {"action": "interact", "app_id": None, "content_id": "topic"}}, 300, 400),
+                      "data": {"action": "interact", "app_id": "platform", "content_id": None}}, 200, 300),
+        _progress(4, {"activity_id": "a-content", "kind": "interact",
+                      "data": {"action": "interact", "app_id": "reader", "content_id": subject}}, 300, 400),
         _progress(5, {"activity_id": "a-wait", "kind": "sleep"}, 400, 500),
     ]
+
+
+def _labels_report(place, lifestyle, title):
+    """同批事件经唯一的渲染器投影后的时间线标签检查；名称由入参给。"""
+    names = _timeline_names(place, lifestyle, "topic", title)
+    return build_quality_report(_timeline_events("topic"), [], _manifest(), names)["timeline_labels"]
 
 
 def test_timeline_labels_count_english_kind_names_and_internal_ids_in_the_rendered_timeline():
     """时间线标签检查（docs/design/10-runtime.md）：用唯一的时间线渲染器投影同批事件，标签里恰为英文种类名的
     片段与内部标识形态的片段各计一项；书名号与引号里的作品标题、邮件主题不查；名称都是中文时两项为零。"""
-    crafted = build_quality_report(_timeline_events("poi-node-11991340957", "interact", "work"), [],
-                                   _manifest())["timeline_labels"]
+    crafted = _labels_report("poi-node-11991340957", "interact", "work")
     assert (crafted["rows_checked"], crafted["english_kind_names"], crafted["internal_ids"]) == (4, 1, 1)
     assert [(item["agent_id"], item["date"], item["interval"], item["label"], item["item"], item["text"])
             for item in crafted["findings"]] == [
         (1, "1970-01-01", "08:01–08:03", "步行去poi-node-11991340957", "internal_id", "poi-node-11991340957"),
         (1, "1970-01-01", "08:03–08:05", "使用interact", "english_kind_name", "interact")]
-    clean = build_quality_report(_timeline_events("中山公园", "瑜伽", "周报"), [], _manifest())["timeline_labels"]
+    clean = _labels_report("中山公园", "瑜伽", "周报")
     assert clean == {"rows_checked": 4, "english_kind_names": 0, "internal_ids": 0, "findings": []}
 
 
 def test_timeline_labels_count_hexadecimal_and_hash_identifiers_as_internal_ids():
-    """内部标识形态还包括十二位以上的十六进制串与 # 加六位十六进制（docs/design/10-runtime.md）：地名与活动名里
+    """内部标识形态还包括十二位以上的十六进制串与 # 加六位十六进制（docs/design/10-runtime.md）：地名与 app 名里
     漏出的这两种形态经唯一的渲染器投影后各计一项内部标识；十一位的十六进制串与 # 加五位不是标识形态，不计。"""
-    crafted = build_quality_report(_timeline_events("便利店#a1b2c3", "3e71a031bb3d", "周报"), [],
-                                   _manifest())["timeline_labels"]
+    crafted = _labels_report("便利店#a1b2c3", "3e71a031bb3d", "周报")
     assert (crafted["english_kind_names"], crafted["internal_ids"]) == (0, 2)
     assert [(item["label"], item["item"], item["text"]) for item in crafted["findings"]] == [
         ("步行去便利店#a1b2c3", "internal_id", "#a1b2c3"), ("使用3e71a031bb3d", "internal_id", "3e71a031bb3d")]
-    near = build_quality_report(_timeline_events("便利店#a1b2c", "3e71a031bb3", "周报"), [],
-                                _manifest())["timeline_labels"]
+    near = _labels_report("便利店#a1b2c", "3e71a031bb3", "周报")
     assert (near["english_kind_names"], near["internal_ids"], near["findings"]) == (0, 0, [])
 
 
@@ -979,7 +997,7 @@ def test_name_rejections_are_counted_apart_from_other_protocol_errors():
         _rejected(10, "ACTION_REQUEST_INVALID", 500), _rejected(11, "TASK_NOT_FOUND", 500),
         _rejected(12, "SUPPLY_NOT_FOUND", 600), _rejected(13, "SUPPLY_NOT_FOUND", 600, reused=True),
     ]
-    report = build_quality_report(events, [], _manifest(end=1100))["name_rejections"]
+    report = build_quality_report(events, [], _manifest(end=1100), sample_display_names())["name_rejections"]
     assert (report["host_protocol_errors"], report["other_protocol_errors"]) == (3, 3)
     assert report["host_codes"] == {"NAME_AMBIGUOUS": 0, "NAME_NOT_FOUND": 1, "SUBJECT_NOT_KNOWN": 1,
                                      "ACTION_NOT_OFFERED": 1}
@@ -998,7 +1016,7 @@ def test_protocol_quality_uses_structured_evidence_without_log_inference():
     raw["error"] = "NAME_NOT_FOUND: memories is only a log string"
     events = [_event(1, "model_response", agent_id=1, data=response),
               _event(2, "model_response", agent_id=1, data=raw)]
-    report = build_quality_report(events, [], _manifest())
+    report = build_quality_report(events, [], _manifest(), sample_display_names())
     assert report["name_rejections"]["host_protocol_errors"] == 0
     assert report["name_rejections"]["other_protocol_codes"] == {"ARGUMENTS_NOT_JSON": 1}
     assert report["memory_references"]["problem_count"] == 0
@@ -1006,9 +1024,11 @@ def test_protocol_quality_uses_structured_evidence_without_log_inference():
 
 def test_work_progress_does_not_create_conversion_efficiency():
     """@brief 工作进度只留下真实秒数，质量报告转换效率只记录食物热量利用。"""
-    events = [_content_event(1, after=10, app_id=None, content="sales", category="work_study", action_id="work")]
+    events = [_content_event(1, after=10, app_id=None, content="topic-sales", category="work_study",
+                             action_id="work", location_id="office")]
     activity = _activity("phone-1", "action", 10, "active", data={"category": "work_study"})
-    report = build_quality_report(events, [activity], {**_manifest(), "work_content_ids": {"1": ["sales"]}})
+    report = build_quality_report(events, [activity], {**_manifest(), "work_content_ids": {"1": ["topic-sales"]}},
+                                  sample_display_names())
     assert set(report["conversion_efficiency"]) == {"food", "method"}
     assert report["conversion_efficiency"]["food"]["weighted_mean"] is None
 
@@ -1017,7 +1037,7 @@ def test_work_progress_does_not_create_conversion_efficiency():
 def test_drink_receipt_does_not_count_as_calorie_conversion():
     events = [_event(1, "environment_event", agent_id=1,
                      data={"kind": "goods_received", "category": "drink", "provided": 400, "applied": 300})]
-    report = build_quality_report(events, [], _manifest())
+    report = build_quality_report(events, [], _manifest(), sample_display_names())
     assert report["conversion_efficiency"]["food"]["sample_count"] == 0
     assert report["conversion_efficiency"]["food"]["unavailable_or_incomplete_reason"] == "no_food_receipt"
     assert not {"work_topics", "contact_reply_guard"} & report.keys()
@@ -1029,5 +1049,5 @@ def test_old_wake_name_does_not_prove_reflection_without_sleep_completion():
                      data={"verified_experiences": [], "wake_reasons": ["session_open"]}),
               _event(2, "memory_updated", agent_id=1, decision_id="decision",
                      data=_memory_update("r1", "event-1", "decision", trigger=("reflection",)))]
-    problems = build_quality_report(events, [], _manifest())["memory_references"]["problems"]
+    problems = build_quality_report(events, [], _manifest(), sample_display_names())["memory_references"]["problems"]
     assert [item["code"] for item in problems] == ["memory_update_without_source"]

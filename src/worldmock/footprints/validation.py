@@ -22,7 +22,7 @@ from worldmock.footprints.app_usage import project_app_usage, validate_activity_
 from worldmock.footprints.purchases import project_purchase_facts
 from worldmock.footprints.quality import build_quality_report
 from worldmock.footprints.invariants import validate_footprint_facts
-from worldmock.footprints.frozen_environment import validate_frozen_environment
+from worldmock.footprints.frozen_environment import frozen_display_names, validate_frozen_environment
 from worldmock.footprints.location_stays import project_location_stays, validate_location_stays
 
 
@@ -66,7 +66,7 @@ def validate_export(directory: Path) -> tuple[dict, list[dict], list[dict]]:
 
 
 def _validate_quality(root: Path, manifest: dict, events: list[Event], activities: list[dict]) -> None:
-    """@brief 质量报告必须绑定真实字节，并能从同一冻结事件完整重算。"""
+    """@brief 质量报告必须绑定真实字节，并能从同一冻结事件与导出目录里冻结的环境目录完整重算。"""
     descriptor = manifest.get("quality_report", {})
     path = root / "quality.json"
     if descriptor.get("path") != path.name or path.is_symlink() or not path.is_file():
@@ -75,7 +75,8 @@ def _validate_quality(root: Path, manifest: dict, events: list[Event], activitie
     if (len(raw) != descriptor.get("size_bytes")
             or hashlib.sha256(raw).hexdigest() != descriptor.get("sha256")):
         raise IntegrityError("Export quality report bytes do not match its manifest")
-    expected = build_quality_report(events, activities, manifest["frozen_run_manifest"])
+    names = frozen_display_names(root, manifest["frozen_run_manifest"])
+    expected = build_quality_report(events, activities, manifest["frozen_run_manifest"], names)
     if json.loads(raw) != expected:
         raise IntegrityError("Export quality report disagrees with authoritative events")
 

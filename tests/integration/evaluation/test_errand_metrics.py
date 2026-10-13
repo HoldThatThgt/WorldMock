@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 from worldmock.evaluation.errand_metrics import conclusion_memories, errand_metrics
 from worldmock.footprints.models import Event
+from tests.footprints.display_fixtures import sample_display_names
 from worldmock.footprints.quality import build_quality_report
 from worldmock.life.errand_state import (AGENT_VISIBLE_KINDS, CANCELLED_KIND, COMPLETED_KIND, PROGRESSED_KIND,
                                          REGISTERED_KIND, REMINDED_KIND, UPDATED_KIND, ErrandState)
@@ -116,7 +117,8 @@ def _report(log: _Log) -> dict:
     """同一批事件经 build_quality_report 得到的报告（运行窗口覆盖全部事件）。"""
     events = [Event.model_validate(row) for row in log.events]
     window = {"start": events[0].occurred_at - 60, "end": events[-1].occurred_at + 60, "timezone": _ZONE}
-    return build_quality_report(events, [], {"run_id": "run", "source_group_id": "run", "work_content_ids": {}, "window": window})
+    manifest = {"run_id": "run", "source_group_id": "run", "work_content_ids": {}, "window": window}
+    return build_quality_report(events, [], manifest, sample_display_names())
 
 
 def test_counts_follow_their_definitions_and_the_identity_holds() -> None:

@@ -7,6 +7,7 @@ from tests.life.conftest import advance_next, conclude_request, errand_add, purc
 from tests.life.environment_runtime import act, finish_activity, run_to_end
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import Event
+from tests.footprints.display_fixtures import sample_display_names
 from worldmock.footprints.quality import build_quality_report
 from worldmock.footprints.validation import validate_export
 
@@ -35,7 +36,7 @@ def test_errand_completion_recertifies_actual_received_goods(engine_factory, tmp
     manifest, rows, activities = validate_export(destination)
     quality = json.loads((destination / "quality.json").read_bytes())
     assert quality == build_quality_report([Event.model_validate(row) for row in rows], activities,
-                                          manifest["frozen_run_manifest"])
+                                          manifest["frozen_run_manifest"], sample_display_names())
     assert quality["errand_metrics"]["registered_count"] == quality["errand_metrics"]["completed_count"] == 1
     assert quality["errand_metrics"]["completed_without_evidence_count"] == 0
     assert not any(row["event_type"] == "memory_updated" for row in rows)

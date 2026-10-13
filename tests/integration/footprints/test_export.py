@@ -38,16 +38,26 @@ def test_corrupt_source_asset_never_publishes_export(engine_factory, tmp_path):
 
 
 def test_timeline_and_quality_are_hash_bound_projections_of_actual_run(engine_factory, tmp_path):
+    """导出的时间线写出 app 名、内容标题、商品名与下单渠道；质量报告检查的正是这些行、零发现，结构号仍是 8；
+    认证时从导出目录里冻结的环境目录取名称重算，通过。"""
     engine, point = recorded_engine(engine_factory)
     directory = tmp_path / "export"
     manifest = export_run(engine.context.store, point.last_event_seq, directory)
     quality = json.loads((directory / "quality.json").read_bytes())
+    assert quality["schema_version"] == 8
     assert quality["activities"]["person_elapsed_seconds_by_agent"]["1"] == 3600
     assert manifest["quality_report"]["sha256"] == hashlib.sha256((directory / "quality.json").read_bytes()).hexdigest()
+    rows = []
     for descriptor in manifest["timeline"]:
         content = (directory / descriptor["path"]).read_bytes()
         assert len(content) == descriptor["size_bytes"] and hashlib.sha256(content).hexdigest() == descriptor["sha256"]
-        assert any(entry.title in content.decode("utf-8") for entry in engine.context.catalog.contents.values())
+        rows.extend(line for line in content.decode("utf-8").splitlines()[4:] if line.startswith("| "))
+    text = "\n".join(rows)
+    assert "使用哔哩哔哩《" in text and any(entry.title in text for entry in engine.context.catalog.contents.values())
+    assert "| 购买柠檬茶、纸巾（到店） |" in text
+    labels = quality["timeline_labels"]
+    assert (labels["rows_checked"], labels["english_kind_names"], labels["internal_ids"]) == (len(rows), 0, 0)
+    assert validate_export(directory)[0] == manifest
     verified = [json.loads(line) for line in (directory / "verified-experiences.jsonl").read_bytes().splitlines()]
     assert {row["kind"] for row in verified} >= {"received", "played"}
     assert all(row["kind"] != "waited" for row in verified)
