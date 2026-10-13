@@ -306,7 +306,7 @@ const TYPE_COLORS = {
   memory_updated:'#d2a8ff', checkpoint_created:'#768390', environment_event:'#ff7b72',
   run_ended:'#ffa657',
 };
-const KIND_COLORS = {interact:'#3fae8c', sleep:'#8a7fd8', travel:'#d0a03f', purchase:'#6e7681'};
+const KIND_COLORS = {interact:'#3fae8c', sleep:'#8a7fd8', travel:'#d0a03f', purchase:'#6e7681', query:'#5b8def'};
 const typeColor = t => TYPE_COLORS[t]||'#768390';
 const kindColor = k => KIND_COLORS[k]||'#768390';
 
@@ -318,7 +318,7 @@ const TYPE_LABELS = {
   memory_updated:'记忆', checkpoint_created:'存档', environment_event:'世界事件',
   run_ended:'结束', run_failed:'运行失败',
 };
-const KIND_LABELS = {sleep:'睡眠', travel:'出行', interact:'互动', purchase:'购买'};
+const KIND_LABELS = {sleep:'睡眠', travel:'出行', interact:'互动', purchase:'购买', query:'查询'};
 const TOOL_LABELS = {start_main_activity:'开始槽位 1 的活动', start_side_activity:'开始槽位 2 的活动',
   query_world:'查询世界', recall_task_summary:'回看任务',
   report_status:'播报进展', pause_activity:'暂停活动', conclude_activity:'结束活动', revise_day_plan:'调整当日目标'};
@@ -497,13 +497,14 @@ function buildIndex(log){
                                 '$.data.activity.travel_method_id','$.data.activity.data.origin_id',
                                 '$.data.activity.data.path','$.data.activity.data.app_id',
                                 '$.data.activity.data.content_id','$.data.activity.location_id',
-                                '$.data.activity.data.order_ids','$.data.data.activities'], r=>{
+                                '$.data.activity.data.order_ids','$.data.data.activities',
+                                '$.data.activity.data.targets'], r=>{
     S.summaries.set(r.seq,{aid:r['$.activity_id'],kind:r['$.data.activity.kind'],dur:r['$.data.activity.planned_duration_seconds'],
       tg:r['$.data.activity.data.action'],dest:r['$.data.activity.destination_id'],
       method:r['$.data.activity.travel_method_id'],origin:r['$.data.activity.data.origin_id'],
       appId:r['$.data.activity.data.app_id'],contentId:r['$.data.activity.data.content_id'],
       location:r['$.data.activity.location_id'],orderIds:parseJArr(r['$.data.activity.data.order_ids']||'[]'),
-      path:parseJArr(r['$.data.activity.data.path']||'[]'),
+      path:parseJArr(r['$.data.activity.data.path']||'[]'),targets:parseJArr(r['$.data.activity.data.targets']||'[]'),
       activities:parseJArr(r['$.data.data.activities']||'[]')});
   });
   typeQuery('action_rejected', ['$.data.error_code','$.data.same_moment_round',
@@ -522,7 +523,8 @@ function buildIndex(log){
                                   '$.data.activity.data.origin_id','$.data.activity.data.path',
                                   '$.data.interval_start','$.data.interval_end','$.data.activity.data.app_id',
                                   '$.data.activity.data.content_id','$.data.content.content_id',
-                                  '$.data.activity.location_id','$.data.activity.data.order_ids'],
+                                  '$.data.activity.location_id','$.data.activity.data.order_ids',
+                                  '$.data.activity.data.targets'],
   r=>{
     S.summaries.set(r.seq,{aid:r['$.activity_id'],kind:r['$.data.activity.kind'],status:r['$.data.activity.status'],
       start:r['$.data.activity.started_at'],end:r['$.data.activity.ended_at'],
@@ -532,7 +534,7 @@ function buildIndex(log){
       appId:r['$.data.activity.data.app_id'],contentId:r['$.data.activity.data.content_id'],
       played:r['$.data.content.content_id'],location:r['$.data.activity.location_id'],
       orderIds:parseJArr(r['$.data.activity.data.order_ids']||'[]'),origin:r['$.data.activity.data.origin_id'],
-      path:parseJArr(r['$.data.activity.data.path']||'[]'),
+      path:parseJArr(r['$.data.activity.data.path']||'[]'),targets:parseJArr(r['$.data.activity.data.targets']||'[]'),
       from:r['$.data.interval_start'],to:r['$.data.interval_end']});
   });
   typeQuery('model_request', ['$.data.request.model','$.data.attempt','$.data.purpose'], r=>{
@@ -719,7 +721,7 @@ function makeSummary(e){
   }
 }
 
-/** @brief 一条事件里活动的写法：互动与购买写统一写法（只列这条事件指向的内容），出行、睡眠等照原格式「种类 目标」。 */
+/** @brief 一条事件里活动的写法：互动、购买与查询写统一写法（只列这条事件指向的内容），出行、睡眠等照原格式「种类 目标」。 */
 function eventPhrase(s, separator){
   return ViewerWording.targetPhrase(s, [ViewerWording.eventContentId(s.played, s.contentId)], S.orders)
     ?? `${actTypeLabel(s.kind, s.tg)}${s.tg||s.dest||s.appId? separator+actTargetText(s):''}`;
@@ -757,7 +759,7 @@ const snapshotSummary = activity => ({aid:activity.activity_id, kind:activity.ki
   end:activity.ended_at, status:activity.status, elapsed:activity.elapsed_seconds, tg:activity.data?.action,
   dest:activity.destination_id, method:activity.travel_method_id, appId:activity.data?.app_id,
   contentId:activity.data?.content_id, location:activity.location_id, orderIds:activity.data?.order_ids,
-  origin:activity.data?.origin_id, path:activity.data?.path});
+  origin:activity.data?.origin_id, path:activity.data?.path, targets:activity.data?.targets});
 /** @brief 把一条事件里的一项活动并进合并后的活动：最新状态、写法要读的身份、按序号累积的内容身份、第一条受理事件的
  *  序号；区间为正的进度事件记结算区间与执行段的起、止、序号和内容身份（供连续使用）。 */
 function absorbActivity(a, s, e){
@@ -770,6 +772,7 @@ function absorbActivity(a, s, e){
   if (a.method==null && s.method!=null && s.method!=='') a.method = s.method;
   if (a.location==null && s.location!=null) a.location = s.location;
   if (s.orderIds?.length) a.orderIds = s.orderIds;
+  if (s.targets?.length) a.targets = s.targets;
   a.kind = s.kind; a.appId = s.appId;
   if (s.origin!=null) a.origin = s.origin;
   if (s.path?.length) a.path = s.path;
@@ -1132,8 +1135,8 @@ function toggleDetail(row, seq){
 
 /* ---------- 活动表格（替代甘特图） ---------- */
 const AT = { sortKey:'start', sortDir:1, page:0, pageSize:50, filtered:[] };
-/** @brief 活动表「目标」：互动与购买是这项活动全部受理与进度事件（按序号）的统一写法；出行写出行方式名称、目的地与
- *  路径；其余种类（睡眠和没有专门写法的种类）显示「—」。 */
+/** @brief 活动表「目标」：互动、购买与查询是这项活动全部受理与进度事件（按序号）的统一写法；出行写出行方式名称、
+ *  目的地与路径；其余种类（睡眠和没有专门写法的种类）显示「—」。 */
 function actTargetText(a){
   const phrase = ViewerWording.targetPhrase(a, a.contents, S.orders);
   if (phrase != null) return phrase;

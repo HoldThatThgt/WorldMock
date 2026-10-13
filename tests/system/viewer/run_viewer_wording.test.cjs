@@ -59,3 +59,15 @@ test('the events of one activity written into SQLite give the activity table tar
   assert.deepEqual(targets(view.activities()), CASES.events.map(item => item.text));
   assert.deepEqual(view.errors, []);
 });
+
+test('app use without content has no wording', async () => {
+  // 带 app 而内容身份为空的互动：空的内容身份与别的身份一样去查名称，显示「名称缺失（null）」并恰好写一次英文错误，
+  // 不写成只有 app 名的「使用美团」。
+  const {api, errors} = wording();
+  assert.deepEqual([...await loadCaseCatalog(api)], []);
+  const snapshot = {kind: 'interact', location_id: 'home',
+    data: {action: 'interact', app_id: 'meituan', content_id: null}};
+  assert.equal(api.activityPhrase(snapshot, [api.eventContentId(undefined, snapshot.data.content_id)], new Map()),
+    '使用美团《名称缺失（null）》');
+  assert.deepEqual(errors, ['Missing recorded object name: null']);
+});
