@@ -57,6 +57,20 @@ def is_pending_conclusion(activity: ActivityState) -> bool:
     return activity.status in CONCLUDABLE_TERMINAL_STATUSES and activity.concluded_at is None
 
 
+def finished_at(activity: ActivityState, now: int) -> bool:
+    """@brief 活动是否在这一秒做完、要请人物决策：待收尾且结束于这一秒，或是结束于这一秒、已完成的查询。
+
+    查询做完自己结束、不经待收尾，所以要单列；种类判断只写在这里，唤醒一侧只调用它。
+
+    :param activity: 人物的一项活动。
+    :param now: 当前时钟边界。
+    """
+    if activity.ended_at != now:
+        return False
+    return is_pending_conclusion(activity) or (activity.kind == ActivityKind.QUERY
+                                               and activity.status == ActivityStatus.COMPLETED)
+
+
 def pending_conclusions(state: WorldState, agent_id: int) -> tuple[ActivityState, ...]:
     """@brief 人物全部待收尾活动，按开始时刻与身份稳定排序。"""
     return _agent_activities(state, agent_id, is_pending_conclusion)

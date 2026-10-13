@@ -51,7 +51,7 @@ class Call:
     action: str
     #: 解析出的绑定行，各带 selected_action：主工具一行，副工具每个名称一行。
     rows: tuple[Mapping[str, Any], ...]
-    #: 这条购买调用从 prefer 认出的意向 app 身份；没有意向、主工具的调用与工具层的单行预览都为 None。
+    #: 这条购买或查询调用从 prefer 认出的意向 app 身份；没有意向、主工具的调用、打开 app 与工具层的单行预览都为 None。
     prefer: str | None = None
 
     @property
@@ -167,13 +167,11 @@ def _main_refusal(context: Context, main: Call | None, side: Call | None) -> Blo
 
 
 def _travel_refusal(context: Context, row: Mapping[str, Any]) -> Refusal | None:
-    """@brief 出行：进行中的到店购买要先结束；路线时长超出范围按路线拒绝。"""
+    """@brief 出行：进行中的查询与进行中的到店购买要先结束；路线时长超出范围按路线拒绝。"""
     state = context.state
     local = next((activity for activity in state.activities.values()
                   if activity.agent_id == context.agent_id and activity.status == ActivityStatus.ACTIVE
-                  and activity.kind == ActivityKind.PURCHASE
-                  and any(state.deliveries[key].fulfillment == FulfillmentKind.PICKUP
-                          for key in activity.data["order_ids"])), None)
+                  and _keeps_here(state, activity)), None)
     if local is not None:
         name = _name(context, local)
         return Refusal("ACTIVITY_PRECONDITION_UNMET", f"Conclude {name} before departure.", f"Conclude {name}.",
@@ -184,6 +182,14 @@ def _travel_refusal(context: Context, row: Mapping[str, Any]) -> Refusal | None:
         _LOGGER.error("Travel route was refused: %s", error)
         return refusal_from_error(error)
     return None
+
+
+def _keeps_here(state: WorldState, activity: ActivityState) -> bool:
+    """@brief 这项活动要人留在原地做完：查询，或含到店购买的购买。"""
+    if activity.kind == ActivityKind.QUERY:
+        return True
+    return activity.kind == ActivityKind.PURCHASE and any(
+        state.deliveries[key].fulfillment == FulfillmentKind.PICKUP for key in activity.data["order_ids"])
 
 
 def _local_moment(context: Context) -> datetime:
@@ -217,18 +223,30 @@ def _sleep_place_refusal(context: Context) -> Refusal | None:
 
 
 def _side_refusal(context: Context, main: Call | None, side: Call | None) -> Blocked | None:
-    """@brief 副调用的对象条件：购买按逐份报价与出发同组的限制判定；登记了内容的 app 此刻须有合格内容，
-    停留地点取请求前的世界，所以与出发同组时按出发地判定。"""
+    """@brief 副调用的对象条件，每个动作各走自己的一支：购买、用内容 app、查询。"""
     if side is None:
         return None
-    if side.action == "purchase":
-        refusal = _purchase_refusal(context, main, side)
-    else:
-        catalog = context.inputs.catalog
-        stay = present_location(context.state, context.agent_id)
-        refusal = app_prerequisite_refusal(catalog, side.rows[0]["object_id"],
-                                           None if stay is None else catalog.locations[stay], _local_moment(context))
+    refusal = _SIDE_CHECKS[side.action](context, main, side)
     return None if refusal is None else Blocked(refusal, (side.tool,))
+
+
+def _app_refusal(context: Context, main: Call | None, side: Call) -> Refusal | None:
+    """@brief 用内容 app：登记了内容的 app 此刻须有合格内容；停留地点取请求前的世界，与出发同组时按出发地判定。"""
+    catalog = context.inputs.catalog
+    stay = present_location(context.state, context.agent_id)
+    return app_prerequisite_refusal(catalog, side.rows[0]["object_id"],
+                                    None if stay is None else catalog.locations[stay], _local_moment(context))
+
+
+def _query_refusal(context: Context, main: Call | None, side: Call) -> Refusal | None:
+    """@brief 查询：人在路上（没有停留会话）不能查询，也不能与出发在同一次回复里开始。"""
+    if present_location(context.state, context.agent_id) is None:
+        return Refusal("ACTIVITY_PRECONDITION_UNMET", "A query cannot start while travelling.",
+                       "Start the query after arriving at a location.", ("stay_location",))
+    if main is not None and main.action == "travel":
+        return Refusal("ACTIVITY_PRECONDITION_UNMET", "A query cannot start with departure.",
+                       "Finish or conclude the query before leaving.", ("stay_location",))
+    return None
 
 
 def _purchase_refusal(context: Context, main: Call | None, side: Call) -> Refusal | None:
@@ -243,6 +261,10 @@ def _purchase_refusal(context: Context, main: Call | None, side: Call) -> Refusa
         return Refusal("ACTIVITY_PRECONDITION_UNMET", "A local purchase cannot start with departure.",
                        "Complete or conclude the local purchase before leaving.")
     return None
+
+
+#: 副调用对象条件的分支：每个副工具动作一支，没有兜底。
+_SIDE_CHECKS = {"purchase": _purchase_refusal, "interact": _app_refusal, "query": _query_refusal}
 
 
 def _funds_refusal(context: Context, main: Call | None, side: Call | None) -> Blocked | None:

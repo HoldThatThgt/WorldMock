@@ -3,11 +3,16 @@ validate_layer。"""
 
 from __future__ import annotations
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
 import pytest
 
 from tests.life.conftest import (
-    SIDE_TOOL, advance_until_ready, conclude_request, context, do_at, progress_calls, purchase, travel, use_app,
+    SIDE_TOOL, advance_next, advance_until_ready, conclude_request, context, do_at, progress_calls, purchase, query,
+    travel, use_app,
 )
+from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, act_group, every_five_minutes, until_ended
 from worldmock.life.prompt_schemas import validate_layer
 
@@ -86,6 +91,47 @@ def _purchase_in_progress(engine_factory) -> dict:
     return observed
 
 
+def _answered_query(engine_factory) -> dict:
+    """查完的查询：副本里零食加到 23 件，人在三杯咖啡查询「零食」「柠檬茶」；做完那一秒观察，这条请求的结果是带答案的
+    第二条，答案里有可以下单的行、不可下单的行和「还有 N 件没列」。
+
+    各组参数共用「只收 engine_factory」这一种调用，所以副本建在一个临时目录里：工厂带着 mutate 建引擎时把它再复制进
+    自己的目录，建完就可以删。"""
+    def at_cafe(persona, config):
+        persona["initial_location"] = "三杯咖啡"
+
+    with TemporaryDirectory() as scratch:
+        root = copy_environment(Path(scratch) / "snacks")
+        rows = catalog_rows(root, "merchant-catalog.jsonl")
+        rows.extend({"category": "snack", "goods_id": f"snack-{index:02d}", "name": f"零食{index:02d}",
+                     "price_fen": 500, "store_kinds": ["restaurant" if index % 2 else "convenience_store"]}
+                    for index in range(22))
+        write_catalog_rows(root, "merchant-catalog.jsonl", sorted(rows, key=lambda row: row["goods_id"]))
+        engine = engine_factory(root, mutate=at_cafe)
+    _, result = act(engine, "answered", query("零食", "柠檬茶"))
+    while engine.context.state.activities[result.activity_id].status == "active":
+        advance_next(engine)
+    observed = engine.observe(context(engine, "answered-read"))
+    answer = progress_calls(observed, SIDE_TOOL)[0]["result"]["details"]["query"]
+    assert {row["now"] for row in answer["rows"]} == {"可以下单", "不可下单"} and answer["omitted"]
+    return observed
+
+
+def _unfinished_query(engine_factory) -> dict:
+    """没有查完的查询：每 60 秒一次重估，查询进行中用 conclude_activity 结束它；结果是「没有查完」的第二条。"""
+    def attentive(persona, config):
+        config["reconsideration_interval_seconds"] = 60
+
+    engine = engine_factory(mutate=attentive)
+    _, result = act(engine, "unfinished", query("柠檬茶"))
+    assert advance_until_ready(engine)
+    name = engine.context.state.activities[result.activity_id].name
+    act(engine, "stop", conclude_request(name), "conclude_activity")
+    observed = engine.observe(context(engine, "unfinished-read"))
+    assert progress_calls(observed, SIDE_TOOL)[0]["result"]["details"]["query"]["state"] == "没有查完"
+    return observed
+
+
 @pytest.mark.parametrize("situation", [
     pytest.param(_location_activity_in_progress, id="location-activity-in-progress"),
     pytest.param(_location_activity_finished, id="location-activity-finished"),
@@ -93,6 +139,8 @@ def _purchase_in_progress(engine_factory) -> dict:
     pytest.param(_location_activity_ended_early, id="location-activity-ended-early"),
     pytest.param(_carried_record_finished, id="carried-record-finished"),
     pytest.param(_purchase_in_progress, id="purchase-in-progress"),
+    pytest.param(_answered_query, id="answered-query"),
+    pytest.param(_unfinished_query, id="unfinished-query"),
 ])
 def test_real_progress_layer_passes_layer_validation(engine_factory, situation):
     """走真实引擎到给定情形后，观察里的进度层通过层校验。"""

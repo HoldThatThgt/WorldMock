@@ -15,6 +15,7 @@ from worldmock.evaluation.errors import EvaluationError
 from worldmock.errors import IntegrityError
 from worldmock.footprints.app_usage import validate_app_event_source
 from worldmock.footprints.models import Event
+from worldmock.life.action_contract import APP_BOUND_ACTIONS
 from worldmock.evaluation.io import read_jsonl
 from worldmock.evaluation.models import (
     ActivitySession,
@@ -75,7 +76,8 @@ _WORLD_SOURCE_CHANNELS = {
     "run_ended": "lifecycle",
     "run_failed": "lifecycle",
 }
-#: 数字交互只按实际活动类型判定，主题工作、应用使用与读信沿用同一评估通道。
+#: 数字交互只按实际活动类型与 app 判定：自带 app 的活动（内容 app 的使用、查询）带 app 时才算，
+#: 主题工作、应用使用与读信沿用同一评估通道。
 _RIGHT_BOUNDARY_EVENTS = {
     "checkpoint_created", "run_ended", "run_failed", "activity_progress", "action_result", "environment_event",
 }
@@ -574,7 +576,7 @@ def _adapt_world_activity(
     _validate_planned_end(row, started, line_number)
     action = worldmock_activity_action(activity_type, row.get("data"))
     resources = _string_list(row.get("resource_claims"), f"activity line {line_number} resource_claims")
-    digital = activity_type == "interact" and row["data"].get("app_id") is not None
+    digital = activity_type in APP_BOUND_ACTIONS and row["data"].get("app_id") is not None
     channels = ("digital_interaction",) if digital else ("physical_activity",)
     duration_kind = "world_internet_session" if digital else "world_activity"
     domains: set[str] = set()

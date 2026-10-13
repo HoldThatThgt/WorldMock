@@ -11,6 +11,7 @@ from typing import Any
 
 from worldmock.environment import EnvironmentInputs
 from worldmock.life.action_evidence import placed_orders
+from worldmock.life.query_answer import query_details
 from worldmock.life.readable import duration_phrase, iso_time, money_phrase, portion_phrase
 
 #: 以下载荷已经由各所属行为构造为人物可见名称与文字。
@@ -28,7 +29,8 @@ def public_result(result: dict[str, Any], inputs: EnvironmentInputs) -> dict[str
 def _details(result: dict[str, Any], inputs: EnvironmentInputs) -> dict[str, Any]:
     """@brief 这条动作下的订单、计划时长、做过的内容与到达由实际快照派生，系统足迹和在驿站领取的包裹不进入购买明细。
 
-    进行中的第一条结果写 planned 与 content；终态（completed、cancelled、failed）结果里 interact 活动的快照写 contents。
+    进行中的第一条结果写 planned 与 content；终态（completed、cancelled、failed）结果里 interact 活动的快照写 contents，
+    查询的快照投影 query：有答案的是查完的形状，没有的是「没有查完」。
     """
     payload = result.get("data") or {}
     details = {key: payload[key] for key in _PASSTHROUGH_DETAILS if key in payload}
@@ -46,6 +48,9 @@ def _details(result: dict[str, Any], inputs: EnvironmentInputs) -> dict[str, Any
     if payload.get("resumed"):
         details["planned"] = [{"name": item["name"], "duration": duration_phrase(item["planned_duration_seconds"])}
                               for item in payload["resumed"]]
+    snapshot = payload.get("activity")
+    if snapshot is not None and snapshot["kind"] == "query":
+        details["query"] = query_details(snapshot, inputs)
     arrivals = [item["data"]["arrival"] for item in _activity_rows(payload) if item["data"].get("arrival")]
     if arrivals:
         row = arrivals[0]

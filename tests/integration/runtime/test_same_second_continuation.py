@@ -962,7 +962,7 @@ def test_continuation_messages_read_earlier_changes_and_skip_memory_and_feedback
 
     def layers(state: str, body: str) -> list[dict]:
         return [{"layer": "工具层", "targets": [{"name": "店", "kind": "location", "state": state,
-                                                   "actions": [], "tools": []}], "callable_index": {"query_categories": []}},
+                                                   "actions": [], "tools": []}], "callable_index": {}},
                 {"layer": "人设层", "relationships": [], "preferences": []}, {"layer": "记忆层"},
                 {"layer": "待办层", "paused_activities": [], "errands": [], "day_plan": None},
                 {"layer": "环境层", "body": {"appetite": body}}, {"layer": "进度层"}]
@@ -1007,7 +1007,7 @@ def test_layer_changes_overlay_earlier_changes_and_keep_the_latest() -> None:
     """changes 相对于模型所见：链首快照依次叠加此前各 changes，以最新为准；没有改动的键不写。"""
     def layers(targets, paused, plan, body, views):
         return [{"layer": "工具层", "targets": [{**row, "kind": "location", "actions": [], "tools": []}
-                                                   for row in targets], "callable_index": {"query_categories": []}}, {"layer": "人设层", "relationships": views, "preferences": []},
+                                                   for row in targets], "callable_index": {}}, {"layer": "人设层", "relationships": views, "preferences": []},
                 {"layer": "记忆层"}, {"layer": "待办层", "paused_activities": paused, "errands": [], "day_plan": plan},
                 {"layer": "环境层", "body": body}, {"layer": "进度层"}]
 
@@ -1030,7 +1030,7 @@ def test_layer_changes_report_errand_rows_added_changed_and_removed() -> None:
     完整行（此刻顺序），removed 是已不在待办层的名称（办成或取消）；相对模型所见，此前 changes 已移除或已写入的不再重报；
     errands 写在 paused_activities 之后、day_plan 之前；没有改动不写。"""
     def layers(paused, errands, plan):
-        return [{"layer": "工具层", "targets": [], "callable_index": {"query_categories": []}},
+        return [{"layer": "工具层", "targets": [], "callable_index": {}},
                 {"layer": "人设层", "relationships": [], "preferences": []}, {"layer": "记忆层"},
                 {"layer": "待办层", "paused_activities": paused, "errands": errands, "day_plan": plan},
                 {"layer": "环境层", "body": {"appetite": "不饿"}}, {"layer": "进度层"}]

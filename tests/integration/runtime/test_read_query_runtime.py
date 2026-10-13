@@ -32,10 +32,9 @@ from tests.life.conftest import (advance_next, context, sleep, stage_day_plan)  
 from tests.life.environment_runtime import act
 from worldmock.errors import ProtocolError
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import RecallTaskSummaryRequest
+from worldmock.life.models import RecallTaskSummaryRequest, ReviseDayPlanRequest
 from worldmock.life.read_query_runtime import LifeEnvActor, LifeEnvProxy, life_env_actor_class
 from worldmock.life.schedule import PlanGoal
-from worldmock.life.world_query import QueryWorldRequest, query_world
 
 ROOT = Path(__file__).resolve().parents[3]
 SCENARIO = ENVIRONMENT_ROOT
@@ -130,10 +129,11 @@ async def test_task_recall_crosses_real_ray_without_world_mutation(engine_factor
 
 
 @pytest.mark.asyncio
-async def test_unwrapped_actor_read_query_equals_direct_environment_call(engine_factory, monkeypatch, published_environment):
-    """主进程内直接构造 LifeEnvActor（不经 ray.remote）：read_query 把查询交给它持有的唯一生活环境，两个工具的结果
-    都等于环境直调；回看被业务拒绝时返回错误结构而不抛出；工具与请求类型不符、找不到唯一观察是协议违约；
-    查询不写事件、不改世界状态。"""
+async def test_unwrapped_actor_read_query_equals_direct_environment_call(
+        engine_factory, monkeypatch, published_environment, caplog):
+    """主进程内直接构造 LifeEnvActor（不经 ray.remote）：read_query 把回看任务交给它持有的唯一生活环境，结果等于
+    环境直调；回看被业务拒绝时返回错误结构而不抛出；工具与请求类型不符、找不到唯一观察是协议违约，抛出前先写英文错误日志；
+    回看不写事件、不改世界状态。"""
     monkeypatch.setenv('WORKSPACE_PATH', str(ROOT))
     monkeypatch.setenv("WORLDMOCK_TEST_API_KEY", "test-only-key")
     staged = await _staged_recall(engine_factory, published_environment)
@@ -145,7 +145,8 @@ async def test_unwrapped_actor_read_query_equals_direct_environment_call(engine_
         await actor.begin_decision_round((staged.frozen,))
         with pytest.raises(ProtocolError, match='Read query requires one frozen decision observation'):
             await actor.read_query(staged.frozen, 'recall_task_summary', staged.request)
-        observed = await actor.observe(staged.frozen)
+        assert 'Read query requires one frozen decision observation, found 0' in caplog.text
+        await actor.observe(staged.frozen)
         engine = environment.engine
         before, sequence = engine.context.state.model_dump_json(), engine.context.store.last_event_seq
 
@@ -153,21 +154,14 @@ async def test_unwrapped_actor_read_query_equals_direct_environment_call(engine_
         assert type(recalled) is dict and recalled == staged.expected
         assert recalled == await environment.read_query(staged.frozen, 'recall_task_summary', staged.request)
 
-        category = observed['tool_layer']['callable_index']['query_categories'][0]['category']
-        query = QueryWorldRequest(**{'name': None, 'action': None, 'category': category,
-                                     'available_only': False, 'offset': 0})
-        page = await actor.read_query(staged.frozen, 'query_world', query)
-        assert page['matches'] and page == query_world(observed, query)
-        assert page == await environment.read_query(staged.frozen, 'query_world', query)
-
         unknown = RecallTaskSummaryRequest(task_name='并不存在的任务')
         refused = await actor.read_query(staged.frozen, 'recall_task_summary', unknown)
         assert set(refused) == _ERROR_KEYS and refused['error_code'] == 'TASK_NOT_FOUND'
         assert refused['items'][0]['written'] == '并不存在的任务' and refused['unmet'] == []
         assert refused == await environment.read_query(staged.frozen, 'recall_task_summary', unknown)
 
-        for tool, request in (('query_world', staged.request), ('recall_task_summary', query),
-                              ('memory_recent', staged.request)):
+        for tool, request in (('query_world', staged.request), ('memory_recent', staged.request),
+                              ('recall_task_summary', ReviseDayPlanRequest(goals=[]))):
             with pytest.raises(ProtocolError, match='Read query tool and request type do not match'):
                 await actor.read_query(staged.frozen, tool, request)
 
@@ -176,6 +170,30 @@ async def test_unwrapped_actor_read_query_equals_direct_environment_call(engine_
     finally:
         await actor.close()
     _assert_world_untouched(staged)
+
+
+@pytest.mark.asyncio
+async def test_read_query_answers_only_task_recall(engine_factory):
+    """直接导入并构造 LifeEnv：只读通道只回答回看任务。工具名写已删除的 query_world 或记忆查询、或工具名对而请求类型
+    不对，都是协议违约，原文相同；回看任务照常返回。全程不写事件、不改世界状态。"""
+    engine = engine_factory()
+    stage_day_plan(engine, goals=(PlanGoal(intent_kind='休息', goal='歇一歇',
+                                         registered_at=engine.context.state.current_time),))
+    frozen = context(engine, 'recall-only')
+    engine.begin_decision_round([frozen])
+    observed = engine.observe(frozen)
+    recall = RecallTaskSummaryRequest(task_name=observed['goal_bindings'][0]['task_name'])
+    environment = LifeEnv()
+    environment.engine = engine
+    before, sequence = engine.context.state.model_dump_json(), engine.context.store.last_event_seq
+    for tool, request in (('query_world', recall), ('memory_recent', recall),
+                          ('recall_task_summary', ReviseDayPlanRequest(goals=[]))):
+        with pytest.raises(ProtocolError, match='^Read query tool and request type do not match$'):
+            await environment.read_query(frozen, tool, request)
+    recalled = await environment.read_query(frozen, 'recall_task_summary', recall)
+    assert recalled['recall']['kind'] == 'goal'
+    assert engine.context.state.model_dump_json() == before
+    assert engine.context.store.last_event_seq == sequence
 
 
 def test_life_env_actor_class_fixes_single_concurrency_without_parameters(monkeypatch):
