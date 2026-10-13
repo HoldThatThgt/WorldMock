@@ -398,17 +398,20 @@ def _route_modes(view: DatasetView, modes: tuple[str | None, ...]) -> tuple[Publ
 
 
 def test_blind_review_packet_lists_a_query_as_an_activity_row(evaluation_fixture, tmp_path):
-    """真实引擎做过一次查询的导出：盲评包的活动行里有 action 为 query 的一行，区间等于导出里这项查询的真实执行区间；
-    盲评包标识仍是 blind-review-packet-2。"""
+    """真实引擎做过查询的导出：盲评包的活动行里有 action 为 query 的一行，区间等于导出里这项查询的真实执行区间；
+    盲评包标识仍是 blind-review-packet-2。导出里另有一次没有 app 的查询，它是现实活动，而这份夹具两侧共同的渠道
+    只有数字交互，时间线只列共同渠道里的活动，所以活动行里只有带 app 的那一次。"""
     root = tmp_path / "query-export"
     _write_canonical(root, json.loads(evaluation_fixture.scenario_path.read_text(encoding="utf-8")), "query-run", 9,
                      activity_type="query")
     [row] = [item for item in (json.loads(line) for line in (root / "activities.jsonl").read_text(
-        encoding="utf-8").splitlines()) if item["activity_type"] == "query"]
+        encoding="utf-8").splitlines()) if item["activity_type"] == "query" and item["data"]["app_id"] is not None]
     scenario = load_scenario(evaluation_fixture.scenario_path)
     left = adapt_labelkit(evaluation_fixture.labelkit_root, scenario)
     right = adapt_worldmock(root, scenario)
-    material = create_review_material(left, right, shared_support(left, right), scenario)
+    support = shared_support(left, right)
+    assert support["shared_channels"] == ["digital_interaction"]
+    material = create_review_material(left, right, support, scenario)
     assert {packet["schema_version"] for packet in material.packets} == {"blind-review-packet-2"}
     timeline = [item for packet in material.packets for entry in packet["items"] for side in ("left", "right")
                 for item in entry[side]["activities"] if item["action"] == "query"]

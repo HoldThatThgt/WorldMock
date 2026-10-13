@@ -341,11 +341,16 @@ def _engine_decision(engine, count, activity_type):
     assert all(row.error_code is None for row in results), results
 
 
+#: 「query」导出里依次做的两次查询：柠檬茶有 app 卖，环境从中抽一个；纸巾没有任何 app 卖，手机上没有 app。
+_QUERIED = ("柠檬茶", "纸巾")
+
+
 def _idle_request(state, activity_type):
-    """没有活动时开始的那一项：睡觉、打开抖音，或先查询一次柠檬茶、之后睡觉。"""
+    """没有活动时开始的那一项：睡觉、打开抖音，或先依次查询柠檬茶与纸巾、之后睡觉。"""
     from tests.life.conftest import query, sleep, use_app
-    if activity_type == "query" and not any(item.kind == "query" for item in state.activities.values()):
-        return query("柠檬茶")
+    done = sum(item.kind == "query" for item in state.activities.values())
+    if activity_type == "query" and done < len(_QUERIED):
+        return query(_QUERIED[done])
     return use_app("抖音") if activity_type == "interact" else sleep()
 
 
