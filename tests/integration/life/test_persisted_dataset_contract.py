@@ -8,7 +8,7 @@ from tests.life.conftest import advance_next, travel, use_app
 from tests.life.environment_inputs import copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act
 from worldmock.errors import IntegrityError
-from worldmock.life.activity_validation import validate_activity_targets
+from worldmock.life.activity_validation import _CONTENT_FIELDS, validate_activity_targets
 from worldmock.life.callbacks import validate_callback_states
 from worldmock.life.travel import persisted_trip
 
@@ -69,13 +69,18 @@ def test_completed_segments_remain_valid_only_at_the_actual_content_end(engine_f
     assert activity.data["played"][0]["to_position"] == engine.context.catalog.contents["c-course"].duration_seconds
 
 
-@pytest.mark.parametrize("field,value", [
-    ("draw_index", 0), ("app_id", "bilibili"), ("exertion", "light"),
-    ("relaxation_relief_per_hour", 0.1), ("social_relief_per_hour", 0.1),
-])
-def test_platform_browse_restore_requires_its_actual_zero_effect_snapshot(engine_factory, field, value):
-    engine, state, activity = started(engine_factory, use_app("美团"))
-    activity.data[field] = value
+@pytest.mark.parametrize("shape", ["content-fields", "retired-seven-keys"])
+def test_interact_without_content_is_rejected_at_restore(engine_factory, shape):
+    """每一项 interact 都有内容：真实开始一项 app 使用后，把快照改成没有内容的两种形状（带内容时的键集而 content_id
+    为空；已退役的七个键），恢复时都以 Persisted activity target is invalid 拒绝。"""
+    engine, state, activity = started(engine_factory)
+    assert set(activity.data) == _CONTENT_FIELDS
+    if shape == "content-fields":
+        activity.data["content_id"] = None
+    else:
+        activity.data = {"action": "interact", "app_id": "bilibili", "content_id": None, "exertion": "idle",
+                         "relaxation_relief_per_hour": 0.0, "social_relief_per_hour": 0.0,
+                         "accepted_event_id": activity.data["accepted_event_id"]}
     with pytest.raises(IntegrityError, match="Persisted activity target is invalid"):
         validate_activity_targets(state, engine.context.catalog, engine.context.persona)
 

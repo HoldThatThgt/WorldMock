@@ -318,25 +318,20 @@ def test_filter_keeps_the_order_and_random_draws_of_an_app_without_prerequisites
     assert streams[0] != Random(seed).getstate()
 
 
-def test_duration_range_counts_only_eligible_contents_and_never_falls_back_to_browsing(tmp_path):
+def test_duration_range_counts_only_eligible_contents(tmp_path):
     context, state = dingtalk_world(tmp_path, (CLOCK, LUNCH, NOTICE))
     catalog = context.catalog
     assert content_duration_range(catalog, state, ContentRequest(1, "dingtalk", "office")) == (60, 300)
     assert content_duration_range(catalog, state, ContentRequest(1, "dingtalk", "home")) == (300, 300)
-    # 没有登记内容的 app 是声明的浏览时长
-    assert content_duration_range(catalog, state, ContentRequest(1, "meituan", None)) == (600, 600)
+    # 没有登记内容的 app 没有合格内容，没有时长
+    assert content_duration_range(catalog, state, ContentRequest(1, "meituan", None)) is None
 
 
-def test_app_whose_contents_are_all_ineligible_has_no_duration_and_does_not_read_a_browse_duration(tmp_path):
+def test_app_whose_contents_are_all_ineligible_has_no_duration(tmp_path):
     context, state = dingtalk_world(tmp_path, location_id="home")
     request = ContentRequest(1, "dingtalk", "home")
     assert eligible_contents(context.catalog, state, request) == ()
     assert content_duration_range(context.catalog, state, request) is None
-    # 即使目录对象上带着一个浏览时长（登记不允许这样写），登记了内容的 app 也不读它
-    app = context.catalog.apps["dingtalk"].model_copy(update={"browse_duration_seconds": 600})
-    browsing = replace(context.catalog, apps={**context.catalog.apps, "dingtalk": app})
-    assert content_duration_range(browsing, state, request) is None
-    assert content_duration_range(browsing, state, replace(request, stay_location_id="office")) == (60, 60)
 
 
 def test_pushed_content_is_pinned_only_while_it_is_eligible(tmp_path):

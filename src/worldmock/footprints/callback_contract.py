@@ -33,6 +33,19 @@ class StateResetResult(StrictModel):
     after: int = Field(ge=0)
 
 
+class ConsumeOnStartResult(StrictModel):
+    """@brief 凭状态的地点内容开始时把本人这个状态减 1：before、after 是减 1 前后的值。"""
+
+    model_config = ConfigDict(strict=True)
+    kind: Literal["callback_effect"] = "callback_effect"
+    type: Literal["consume_on_start"] = "consume_on_start"
+    rule_id: None = None
+    state: str = Field(min_length=1)
+    content_id: str = Field(min_length=1)
+    before: int = Field(ge=0)
+    after: int = Field(ge=0)
+
+
 class TransferResult(StrictModel):
     """@brief 固定两账户之间的实际付款或未付结果。"""
 

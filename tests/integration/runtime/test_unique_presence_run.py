@@ -8,7 +8,7 @@ from worldmock.life.tool_groups import expand_tool_layer
 
 PRIVATE_KEYS = {"activity_id", "content_id", "app_id", "location_id", "goods_id", "session_id",
                 "order_id", "object_id", "interaction_bindings",
-                "travel_method_id", "content_ids", "episode_titles"}
+                "travel_method_id", "content_ids", "episode_titles", "locked"}
 
 def assert_public(value):
     if isinstance(value, dict):
@@ -47,7 +47,7 @@ async def test_actual_query_and_start_requests_keep_facts_public_and_names_uniqu
     assert observed["interaction_bindings"]
     private = [action for row in observed["interaction_bindings"] for action in row.get("actions", [])]
     assert any("travel_method_id" in action for action in private)
-    assert any("content_ids" in action and "episode_titles" in action for action in private)
+    assert any("content_ids" in action and "episode_titles" in action and "locked" in action for action in private)
 
 @pytest.mark.asyncio
 async def test_progress_and_conclusion_requests_preserve_public_activity_name(engine_factory):

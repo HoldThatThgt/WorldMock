@@ -344,7 +344,7 @@ def _early_minutes(
 
 
 def _content_contact_minutes(events: list[dict[str, Any]]) -> dict[str, Any]:
-    """@brief 只计真实前进的媒体位置，不把等待或浏览目录算内容接触。"""
+    """@brief 只计真实前进的媒体位置，不把等待算内容接触。"""
     per_agent: dict[str, float] = {}
     for event in _activity_progress_events(events):
         content = event.get("data", {}).get("content")

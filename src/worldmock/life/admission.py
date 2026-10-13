@@ -198,7 +198,10 @@ def _local_moment(context: Context) -> datetime:
 
 
 def _location_refusal(context: Context, row: Mapping[str, Any]) -> Refusal | None:
-    """@brief 在地点做事按营业、取件、单元被占的次序判定，第一条不成立的给出拒绝。"""
+    """@brief 在地点做事按营业、取件、单元被占、未开放的次序判定，第一条不成立的给出拒绝。
+
+    单元被占排在未开放之前：照写一件已暂停的事得到先恢复的原因，而不是没开放。
+    """
     location = context.inputs.catalog.locations[row["object_id"]]
     if not location.is_open(_local_moment(context)):
         return refusal_for_code("LOCATION_CLOSED")
@@ -206,8 +209,12 @@ def _location_refusal(context: Context, row: Mapping[str, Any]) -> Refusal | Non
                 and order.status == "ready_for_pickup" for order in context.state.deliveries.values())
     if location.accepts_parcels and not ready:
         return Refusal("PARCEL_NOT_READY", default_reason("PARCEL_NOT_READY"), unmet=("parcel_ready",))
-    return location_activities.held_refusal(context.state, context.agent_id, row["selected_action"],
+    held = location_activities.held_refusal(context.state, context.agent_id, row["selected_action"],
                                             context.activity_names)
+    if held is not None:
+        return held
+    agent = context.state.agents[context.agent_id]
+    return location_activities.locked_refusal(context.inputs.catalog, agent, row["selected_action"])
 
 
 def _sleep_place_refusal(context: Context) -> Refusal | None:

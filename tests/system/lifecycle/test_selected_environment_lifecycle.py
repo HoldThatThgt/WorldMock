@@ -22,7 +22,7 @@ def test_selected_environment_runs_relocates_and_exports_its_actual_input(engine
     stage_day_plan(engine)
     original_inputs = engine.context.inputs
     original_identity = engine.context.store.manifest["environment_identity"]
-    _, started = act(engine, "selected-start", use_app("美团"))
+    _, started = act(engine, "selected-start", use_app("Keep"))
     assert started.status == "in_progress"
     advance_next(engine)
     _snapshot_current(engine, tmp_path / "partial")

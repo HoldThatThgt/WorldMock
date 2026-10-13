@@ -16,7 +16,7 @@ from worldmock.life.readable import duration_phrase, iso_time, money_phrase, por
 
 #: 以下载荷已经由各所属行为构造为人物可见名称与文字。
 _PASSTHROUGH_DETAILS = ("recall", "reason", "next_step", "fix", "items", "outcome", "resolved", "notes",
-                        "errands", "goods")
+                        "errands")
 
 
 def public_result(result: dict[str, Any], inputs: EnvironmentInputs) -> dict[str, Any]:
@@ -60,19 +60,16 @@ def _details(result: dict[str, Any], inputs: EnvironmentInputs) -> dict[str, Any
 
 
 def _interact_details(activities: list[dict], inputs: EnvironmentInputs) -> dict:
-    """@brief 开始结果展示实际内容，纯目录浏览展示真实应用供应商品。"""
+    """@brief 开始结果展示实际开始的那条内容。"""
     activity = next((row for row in activities if row.get("kind") == "interact"), None)
     if activity is None:
         return {}
     data, catalog = activity["data"], inputs.catalog
-    app_id, content_id = data["app_id"], data["content_id"]
-    app = None if app_id is None else catalog.apps[app_id].name
-    if content_id is not None:
-        content = catalog.contents[content_id]
-        return {"content": {"app": app, "title": content.title, "summary": content.summary,
-                            "duration": duration_phrase(content.duration_seconds),
-                            "pushed": data["pinned_by_push_id"] is not None}}
-    return {"app": app, "duration": duration_phrase(catalog.apps[app_id].browse_duration_seconds)}
+    app = None if data["app_id"] is None else catalog.apps[data["app_id"]].name
+    content = catalog.contents[data["content_id"]]
+    return {"content": {"app": app, "title": content.title, "summary": content.summary,
+                        "duration": duration_phrase(content.duration_seconds),
+                        "pushed": data["pinned_by_push_id"] is not None}}
 
 
 def _done_contents(activities: list[dict], inputs: EnvironmentInputs) -> list[dict]:
@@ -80,10 +77,10 @@ def _done_contents(activities: list[dict], inputs: EnvironmentInputs) -> list[di
 
     先是快照 played 的各项（做到末尾，finished 为真）；快照状态不是 completed 且当前这条在这项活动里确有推进
     （media_position_seconds 大于 start_position_seconds）时再加当前这条，finished 为假。duration 是这条内容登记的全长。
-    没有 interact 活动、或活动没有内容（纯目录浏览）时为空。
+    没有 interact 活动时为空；每一项 interact 活动都有内容。
     """
     activity = next((row for row in activities if row.get("kind") == "interact"), None)
-    if activity is None or activity["data"]["content_id"] is None:
+    if activity is None:
         return []
     data, contents = activity["data"], inputs.catalog.contents
     done = [(item["content_id"], True) for item in data["played"]]

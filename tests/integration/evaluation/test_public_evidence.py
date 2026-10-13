@@ -35,11 +35,12 @@ def action_events(action="interact", content="real-content", app="real-app", met
 
 @pytest.mark.parametrize("content,app,object_type,key", [
     pytest.param("real-content", "real-app", "content", "real-content", id="app-content"),
-    pytest.param(None, "real-app", "app", "real-app", id="app-browse"),
+    pytest.param(None, "real-app", "content", None, id="app-without-content"),
     pytest.param("real-content", None, "content", "real-content", id="location-unit"),
 ])
 def test_interaction_reads_actual_object_and_never_infers_category_or_device(content, app, object_type, key):
-    """用内容 app（副工具）与在地点做事（主工具）都只读活动快照里的实际对象，请求里写的名称不进公开证据。"""
+    """用内容 app（副工具）与在地点做事（主工具）都只读活动快照里的实际对象，请求里写的名称不进公开证据；对象类型恒为
+    content，快照里没有内容身份时对象身份为空，不拿 app 身份顶替。"""
     rows = worldmock_public_evidence(action_events(content=content, app=app), [])
     assert [(row.action, row.interaction, row.object_type, row.object_key, row.state) for row in rows] == [
         ("interact", "interact", object_type, key, "requested"),

@@ -5,9 +5,9 @@
       {"app_id": "amap", "name": "高德地图", "role": "function", "travel_method_ids": ["bus", "driving", "taxi", "walking"]},
       {"app_id": "bilibili", "name": "哔哩哔哩", "role": "content"},
       {"app_id": "douyin", "name": "抖音", "role": "content"},
-      {"app_id": "eleme", "browse_duration_seconds": 600, "name": "饿了么", "role": "content"},
+      {"app_id": "eleme", "name": "饿了么", "role": "content"},
       {"app_id": "keep", "name": "Keep", "role": "content"},
-      {"app_id": "meituan", "browse_duration_seconds": 600, "name": "美团", "role": "content"},
+      {"app_id": "meituan", "name": "美团", "role": "content"},
       {"actions": ["purchase"], "app_id": "wechat", "name": "微信", "role": "function"}
     ],
     "contents": [

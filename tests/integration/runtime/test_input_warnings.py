@@ -17,13 +17,12 @@ SUSPICIOUS_NAME = "五里公园（31.2, 121.5）"
 
 
 def _warned_environment(tmp_path):
-    """夹具环境的副本：去掉全部 app 内容（只有内容的 app 一并去掉，还卖商品的哔哩哔哩改成纯目录 app），
+    """夹具环境的副本：去掉全部 app 内容（只有内容的 app 一并去掉，还卖商品的哔哩哔哩只剩接单），
     再给公园起一个带坐标的显示名，按生产入口刷新清单。"""
     root = copy_environment(tmp_path / "warned-environment")
     contents = [row for row in catalog_rows(root, "content-catalog.jsonl") if not row.get("app_ids")]
     write_catalog_rows(root, "content-catalog.jsonl", contents)
     apps = [row for row in catalog_rows(root, "app-catalog.jsonl") if row["app_id"] not in {"douyin", "keep"}]
-    next(row for row in apps if row["app_id"] == "bilibili")["browse_duration_seconds"] = 600
     write_catalog_rows(root, "app-catalog.jsonl", apps)
     locations = catalog_rows(root, "location.jsonl")
     next(row for row in locations if row["location_id"] == "park")["name"] = SUSPICIOUS_NAME

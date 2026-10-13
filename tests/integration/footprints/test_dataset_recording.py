@@ -18,28 +18,30 @@ from worldmock.footprints.validation import validate_export
 @pytest.fixture
 def completed_engine(engine_factory):
     engine = engine_factory()
-    _, started = act(engine, "browse", use_app("美团"))
+    _, started = act(engine, "keep", use_app("Keep"))
     assert started.status == "in_progress"
-    finish_activity(engine, started, "browse")
+    finish_activity(engine, started, "keep")
     run_to_end(engine)
     snapshot = engine.context.store.assets.put_json({"completed": True}, {"kind": "test_agent_snapshot"})
     point = engine.checkpoint({"agent:1": snapshot})
     return engine, point
 
 
-def test_complete_run_exports_authenticated_browse_and_frozen_inputs(completed_engine, tmp_path):
+def test_complete_run_exports_authenticated_app_use_and_frozen_inputs(completed_engine, tmp_path):
+    """打开 Keep 的完整运行导出后通过认证：每个 interact 都有内容身份，这项活动既有 app_use 行也有 content_consumed 行。"""
     store = completed_engine[0].context.store
     output = tmp_path / "export"
     export_run(store, store.last_event_seq, output)
     manifest, _, activities = validate_export(output)
     assert manifest["experiment_completed"] is True
     assert all(len(row["source_event_ids"]) == len(set(row["source_event_ids"])) for row in activities)
-    browse = next(row for row in activities if row["activity_type"] == "interact")
-    assert browse["data"]["content_id"] is None
+    interactions = [row for row in activities if row["activity_type"] == "interact"]
+    assert interactions and all(row["data"]["content_id"] is not None for row in interactions)
+    keep = next(row for row in interactions if row["data"]["app_id"] == "keep")
     usage = [json.loads(row) for row in (output / "app-usage.jsonl").read_text(encoding="utf-8").splitlines()]
-    assert any(row["fact_kind"] == "app_use" and row["activity_id"] == browse["activity_id"] for row in usage)
-    assert not any(row["fact_kind"] == "content_consumed" and row["activity_id"] == browse["activity_id"]
-                   for row in usage)
+    assert any(row["fact_kind"] == "app_use" and row["activity_id"] == keep["activity_id"] for row in usage)
+    assert any(row["fact_kind"] == "content_consumed" and row["activity_id"] == keep["activity_id"]
+               for row in usage)
     for reference in store.manifest["environment_assets"].values():
         assert (output / "assets" / reference["sha256"]).read_bytes() == store.assets.read(AssetRef.model_validate(reference))
 

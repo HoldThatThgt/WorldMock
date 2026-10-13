@@ -9,8 +9,6 @@ from worldmock.life.travel import persisted_trip
 
 _CONTENT_FIELDS = {"action", "app_id", "content_id", "start_position_seconds", "pinned_by_push_id", "accepted_event_id",
                    "draw_index", "played", "exertion", "relaxation_relief_per_hour", "social_relief_per_hour"}
-_BROWSE_FIELDS = {"action", "app_id", "content_id", "exertion", "relaxation_relief_per_hour",
-                  "social_relief_per_hour", "accepted_event_id"}
 
 def validate_activity_targets(state: WorldState, catalog, persona) -> None:
     """@brief 所有持久活动必须属于唯一人物和同一冻结目录，不接受退役字段。"""
@@ -37,10 +35,6 @@ def _target_is_valid(activity, catalog, persona) -> bool:
     app = catalog.apps.get(data["app_id"]) if isinstance(data["app_id"], str) else None
     if data["app_id"] is not None and (app is None or app.role != "content"):
         return False
-    if data["content_id"] is None:
-        return (set(data) == _BROWSE_FIELDS and app is not None and app.browse_duration_seconds is not None
-                and data["exertion"] == "idle" and data["relaxation_relief_per_hour"] == 0
-                and data["social_relief_per_hour"] == 0)
     content = catalog.contents.get(data["content_id"])
     if set(data) != _CONTENT_FIELDS or not _content_binding(content, activity, catalog):
         return False

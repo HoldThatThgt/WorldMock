@@ -12,6 +12,8 @@ from worldmock.life.sleep_plan import parse_sleep_minutes
 
 _Entry = TypeVar("_Entry")
 MAIN_TOOL, SIDE_TOOL = START_TOOLS
+#: 只用于下单和查询的 app 在名称簿里的对象类型：没有内部身份、没有动作行、不当近名候选，只为退回时认得它。
+ORDER_APP_KIND = "order_app"
 #: 副工具各动作允许的对象类型：购买与查询认商品，interact 认内容 app。
 _SIDE_KINDS = {"purchase": "supply", "interact": "app", "query": "supply"}
 
@@ -45,7 +47,7 @@ class Target:
 
 @dataclass(frozen=True, slots=True)
 class NameBook:
-    """@brief 本轮绑定和完整地点、内容 app 名称。"""
+    """@brief 本轮绑定、完整地点与能打开的 app 名称，以及只用于下单和查询的 app 名称（order_app 对象）。"""
     targets: tuple[Target, ...]
     home: str | None = None
     here: str | None = None
@@ -151,13 +153,20 @@ def near_names(written: str, names: Iterable[str], limit: int = MAX_CANDIDATES) 
 
 
 def name_book(observation: Mapping[str, Any]) -> NameBook:
-    """@brief 未展示地点和内容 app 可按名调用，功能 app 永不补入。"""
+    """@brief 未展示地点和能打开的 app 可按名调用，功能 app 永不补入。
+
+    两步绑定之后，按工具层 prefer_apps 的次序把还没有同名 app 对象的名称登记成 order_app 对象，排在最后；
+    只与 app 对象比，名称一字不差才算已经能打开。这些对象只为把写错位置的 app 名退回给人物。
+    """
     public = {row["name"]: row for row in observation["tool_layer"]["targets"]}
     targets = [_target(row, public.get(row["object"]), True) for row in observation["interaction_bindings"]]
     labels = {target.label for target in targets}
     for row in observation["catalog_bindings"]:
         if row["object"] not in labels:
             targets.append(_target(row, None, False))
+    opened = {target.label for target in targets if target.kind == "app"}
+    targets.extend(Target(name, ORDER_APP_KIND, None, (), False) for name in
+                   observation["tool_layer"]["callable_index"]["prefer_apps"] if name not in opened)
     places = {row["location_id"]: row["name"] for row in observation["locations"]}
     return NameBook(tuple(targets), places[observation["home_location_id"]], places[observation["location_id"]])
 
@@ -169,6 +178,12 @@ def _target(row: Mapping, public: Mapping | None, listed: bool) -> Target:
                            facts.get((item["action"], item["detail"]), {}).get("duration"),
                            tuple(item.get("episode_titles", ())), item) for item in row["actions"])
     return Target(row["object"], row["kind"], row["object_id"], options, listed, row)
+
+
+def _listed(options: Iterable[Option]) -> list[Option]:
+    """@brief 列出的动作行：凭状态而未开放的单元行（私有绑定 locked 为真）不列在工具层，照写能解析到它、交给受理拒绝，
+    但它不进候选，也不算这个对象这个动作列出的名称（docs/design/04-simulation-engine.md「出行、内容与查询」）。"""
+    return [option for option in options if option.row.get("locked") is not True]
 
 
 def selection_row(target: Target, option: Option) -> dict:
@@ -197,10 +212,11 @@ def resolve_start(book: NameBook, tool: str, request: Any) -> StartOutcome:
 
 
 def _kinds(item: StartItem) -> frozenset[str]:
-    """@brief 各动作允许的对象类型：主工具只认地点；副工具按动作各取一种，购买与查询只认商品，interact 只认内容 app。"""
+    """@brief 各动作规整时允许的对象类型：主工具只认地点；副工具按动作各取一种（购买与查询认商品，interact 认能打开的
+    app），三种都另认 order_app，好把写进 target 的只用于下单和查询的 app 退回。"""
     if item.tool == MAIN_TOOL:
         return frozenset({"location"})
-    return frozenset({_SIDE_KINDS[item.action]})
+    return frozenset({_SIDE_KINDS[item.action], ORDER_APP_KIND})
 
 
 def _resolve_item(book: NameBook, item: StartItem) -> tuple:
@@ -219,6 +235,8 @@ def _resolve_item(book: NameBook, item: StartItem) -> tuple:
             return named_supply_row(item.target, item.action), None, ()
         return None, _unknown_object(book, item), ()
     target = matches[0]
+    if target.kind == ORDER_APP_KIND:
+        return None, _order_app_failure(target, item), ()
     options = tuple(option for option in target.options
                     if option.action == item.action and start_tool(target.kind, option.action) == item.tool)
     if not options:
@@ -230,8 +248,10 @@ def _resolve_item(book: NameBook, item: StartItem) -> tuple:
 
 
 def _resolve_query(book: NameBook, item: StartItem) -> tuple:
-    """@brief 查询的一项按次序认：先在四个类别名里规整后唯一对上（类别优先）；再在本轮展示的商品里逐级规整匹配一次，
-    唯一对上就是这件商品，对上多件给 NAME_AMBIGUOUS 与查询候选；其余交给环境在全量商品里找。地点和内容 app 不参加。
+    """@brief 查询的一项按次序认：先在四个类别名里规整后唯一对上（类别优先）；再把本轮展示的商品和只用于下单和查询的
+    app（order_app 对象）放在一起逐级规整匹配一次：唯一对上商品就是这件商品，唯一对上 order_app 给与打开、购买同一条
+    退回，对上多个给 NAME_AMBIGUOUS 与查询候选（order_app 不出候选）；其余交给环境在全量商品里找。地点和能打开的 app
+    不参加。
 
     类别名或展示的商品名规整后与所写不同时记一条归一。
     """
@@ -246,6 +266,8 @@ def _resolve_query(book: NameBook, item: StartItem) -> tuple:
     if not matches:
         return named_supply_row(item.target, item.action), None, ()
     target = matches[0]
+    if target.kind == ORDER_APP_KIND:
+        return None, _order_app_failure(target, item), ()
     records = () if target.label == item.target else ({"written": item.target, "as": target.label},)
     return {**target.row, "selected_action": binding_action(item.action)}, None, records
 
@@ -288,9 +310,9 @@ def call_candidate(target: Target, option: Option, item: StartItem) -> Candidate
 def _pick(target: Target, item: StartItem) -> Option | None:
     """@brief 候选对象上要照抄的动作行：优先所写动作里 detail 唯一对上的一行，否则此刻可行的第一行。
 
-    睡眠行不成候选：它的 target 是分钟数，引擎不替人物定时长。
+    睡眠行不成候选：它的 target 是分钟数，引擎不替人物定时长；未开放的单元行不列出，同样不成候选。
     """
-    usable = [option for option in target.options if option.action != "sleep"]
+    usable = [option for option in _listed(target.options) if option.action != "sleep"]
     same = [option for option in usable if option.action == item.action]
     named = [option for option in same if option.detail is not None]
     if named and item.detail is not None:
@@ -335,36 +357,52 @@ def _ambiguous_object(matches: Sequence[Target], item: StartItem) -> Failure:
 
 
 def _unsupported(target: Target, item: StartItem) -> Failure:
-    """@brief 已知对象在这个工具下不提供所写动作：给出它提供的动作与可提交的完整调用（可以属于另一个工具）。"""
+    """@brief 已知对象在这个工具下不提供所写动作：给出它提供的动作与可提交的完整调用（可以属于另一个工具）；
+    候选不含睡眠行和未开放的单元行。"""
     why = f"The known object {target.label} does not support the written action."
     offered = tuple(dict.fromkeys(option.action for option in target.options
                                   if start_tool(target.kind, option.action) == item.tool))
-    usable = [option for option in target.options if option.action != "sleep"][:MAX_CANDIDATES]
+    usable = [option for option in _listed(target.options) if option.action != "sleep"][:MAX_CANDIDATES]
     candidates = tuple(call_candidate(target, option, item) for option in usable)
     error = ErrorItem(("action",), item.action, "ACTION_NOT_OFFERED", offered,
                       "An action offered by this object is required.", why, candidates)
     return Failure(error, why, why)
 
 
+def _order_app_failure(target: Target, item: StartItem) -> Failure:
+    """@brief 名称唯一对上只用于下单和查询的 app：定位到所写动作，没有允许值和候选，原因里写登记的全名供照抄进 prefer。
+
+    三种副工具动作与主工具共用同一句 why 与 expected。
+    """
+    why = (f"Write {target.label} in prefer of purchase or query, not in target: "
+           "this app only takes orders and has no content to open.")
+    error = ErrorItem(("action",), item.action, "ACTION_NOT_OFFERED", (),
+                      "A target that the written action accepts is required; an app that only takes orders is "
+                      "written in prefer.", why, ())
+    return Failure(error, why, why)
+
+
 def _detail_failure(target: Target, options: tuple[Option, ...], item: StartItem,
                     matches: tuple[str, ...]) -> Failure:
-    """@brief detail 找不到或有歧义：allowed_values 是该对象该动作全部行的 detail，候选是近名行或各匹配行。
+    """@brief detail 找不到或有歧义：allowed_values 是该对象该动作列出的全部行的 detail，候选是列出的近名行或各匹配行；
+    未开放的单元行不列出，两者都不含它，即使它与所写的名称最接近。
 
     近名排序用的名称是行的 detail 加它的别名（系列各集标题），所以写了某一集的标题时所属系列排在最前。
     """
+    listed = _listed(options)
     if matches:
         why = f"The name {item.detail} identifies several options of {target.label}."
         code, expected = "NAME_AMBIGUOUS", "One unambiguous complete detail name is required."
-        chosen = [option for option in options if option.detail in matches][:MAX_CANDIDATES]
+        chosen = [option for option in listed if option.detail in matches][:MAX_CANDIDATES]
     else:
         why = (f"{target.label} offers no {item.action} option named {item.detail}; "
                "changing spelling cannot create one.")
         code, expected = "NAME_NOT_FOUND", "A detail name listed for this object and action is required."
-        chosen = rank(object_labels.bare_name(item.detail), options,
+        chosen = rank(object_labels.bare_name(item.detail), listed,
                       lambda option: tuple(object_labels.bare_name(name) for name in (option.detail, *option.aliases)),
                       lambda option: option.blocked is None)
     candidates = tuple(call_candidate(target, option, item) for option in chosen)
-    error = ErrorItem(("detail",), item.detail, code, tuple(option.detail for option in options),
+    error = ErrorItem(("detail",), item.detail, code, tuple(option.detail for option in listed),
                       expected, why, candidates)
     return Failure(error, why, why)
 

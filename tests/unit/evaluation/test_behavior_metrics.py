@@ -747,11 +747,9 @@ def test_all_true_content_advances_count_without_a_content_category():
     content = {"content_id": "actual-topic", "app_id": None,
                "position_before_seconds": 0, "position_after_seconds": 300}
     played = _progress(1, start, start + 300, "interact", data_extra={"content": content})
-    browser = _progress(2, start + 300, start + 600, "interact",
-                        snapshot_extra={"data": {"app_id": "store", "content_id": None}})
     stationary = _progress(3, start + 600, start + 900, "interact",
                            data_extra={"content": {**content, "position_after_seconds": 0}})
-    assert _report([played, browser, stationary])["reports"]["content_contact_minutes"]["total_minutes"] == 5
+    assert _report([played, stationary])["reports"]["content_contact_minutes"]["total_minutes"] == 5
 
 
 def test_drinks_only_produce_no_food_samples():

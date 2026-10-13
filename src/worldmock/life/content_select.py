@@ -61,11 +61,8 @@ def select_from_contents(contents: tuple[Content, ...], state: WorldState, reque
     return representatives[stream.randrange(len(representatives))], None
 
 def content_duration_range(catalog: Catalog, state: WorldState, request: ContentRequest) -> tuple[int, int] | None:
-    """@brief 内容 app 的查询不抽样：没有登记内容的 app 是声明的浏览时长；登记了内容的只在合格内容里算，优先推送或
-    未完成余量，否则全长范围；内容此刻都不合格时为 None，不读浏览时长。"""
-    if not catalog.contents_by_app.get(request.app_id):
-        duration = catalog.apps[request.app_id].browse_duration_seconds
-        return duration, duration
+    """@brief 内容 app 的查询不抽样：只在合格内容里算，优先推送或未完成余量，否则全长范围；内容此刻都不合格
+    （没有登记内容的 app 也是这样）时为 None。"""
     contents = eligible_contents(catalog, state, request)
     if not contents:
         return None
@@ -120,7 +117,6 @@ def _exclude_reserved(units: tuple[tuple[Content, ...], ...], state: WorldState,
         activity.data["content_id"] for activity in state.activities.values()
         if activity.agent_id == request.agent_id and activity.activity_id != request.activity_id
         and activity.kind == ActivityKind.INTERACT and activity.status in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}
-        and activity.data["content_id"] is not None
     }
     session = current_session(state, request.agent_id)
     if session is not None:

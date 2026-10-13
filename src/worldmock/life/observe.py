@@ -7,7 +7,7 @@ from worldmock.footprints.experiences import recent_verified_experiences
 from worldmock.life import activity_control, admission, callable_index, discovery, errands, felt, memory_layer
 from worldmock.life import progress_layer, projection, rotation, sessions
 from worldmock.life.action_contract import ACTIVITY_ACTIONS, binding_action
-from worldmock.life.location_activities import location_units, unit_binding
+from worldmock.life.location_activities import location_units, unit_binding, unit_locked
 from worldmock.life.presentation import subtype_of, tiebreak_digest
 from worldmock.life.environment_layer import environment_layer
 from worldmock.life.models import ActivityStatus, SameMomentPresentation
@@ -56,8 +56,12 @@ class ObservationBuilder:
         return len(self.context.catalog.locations)
 
     def _catalog_bindings(self, agent) -> list[dict]:
-        """@brief 地点全量绑定与内容 app：别处的地点每种出行方式一条动作行（步行在前，其余按身份升序）；
-        人物停留的地点逐单元列出能点名的事，标了可睡时再列睡眠；人在路上时不列任何地点的做事与睡眠。"""
+        """@brief 地点全量绑定与能打开的 app：别处的地点每种出行方式一条动作行（步行在前，其余按身份升序）；
+        人物停留的地点逐单元列出能点名的事，标了可睡时再列睡眠；人在路上时不列任何地点的做事与睡眠。
+        每个单元都在私有绑定里，按本人此刻的回调状态写 locked：凭状态而未开放的为真，工具层跳过这样的行。
+
+        能打开的 app 是登记了内容的内容 app，按 app_id 升序各一行 interact；没有登记内容、只用于下单和查询的
+        内容 app 不在其中，只出现在工具层的 prefer_apps 里。"""
         locations = sorted(self.context.catalog.locations.values(), key=lambda row: row.location_id)
         locations.sort(key=lambda row: row.location_id == agent.location_id)
         stay = admission.present_location(self.context.state, agent.agent_id)
@@ -68,15 +72,18 @@ class ObservationBuilder:
             if location.location_id != agent.location_id:
                 actions = [dict(row) for row in travel]
             elif location.location_id == stay:
-                actions = [unit_binding(unit) for unit in location_units(self.context.catalog, location.kind)]
+                actions = [unit_binding(unit, unit_locked(unit.contents, agent))
+                           for unit in location_units(self.context.catalog, location.kind)]
                 actions.extend([binding_action("sleep")] if location.sleepable else [])
             else:
                 actions = []
             result.append({"object": location.display_name, "kind": "location", "object_id": location.location_id,
                            "actions": actions})
+        catalog = self.context.catalog
         result.extend({"object": app.name, "kind": "app", "object_id": app.app_id,
                        "actions": [binding_action("interact")]}
-                      for _, app in sorted(self.context.catalog.apps.items()) if app.role == "content")
+                      for _, app in sorted(catalog.apps.items())
+                      if app.role == "content" and catalog.contents_by_app[app.app_id])
         return result
 
     def _product_window(self, agent, bindings: list[dict]) -> list[dict]:

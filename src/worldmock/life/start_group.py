@@ -31,7 +31,6 @@ from worldmock.life.models import (ActionResult, ActionStatus, ActivityKind, Act
 from worldmock.life.name_resolution import name_book, resolution_data, resolve_start
 from worldmock.life.object_labels import resolve_name
 from worldmock.life.order_apps import preferred_app_id
-from worldmock.life.purchase_offers import app_goods
 from worldmock.life.query_activity import goods_not_found, start_query
 from worldmock.life.request_errors import argument_report
 from worldmock.life.sleep_plan import assumed_sleep, oversleep_seconds, sleep_seconds_in_window
@@ -284,8 +283,6 @@ class StartGroups:
         # 只有在地点做事的那条动作会在驿站取件；同组的副调用不带主调用领取的记录。
         orders = start_orders(before, changed, [activity]) if located else activity_orders(changed, [activity])
         data = {"activities": [activity_snapshot(activity, title_index(self.context.catalog))], "orders": orders}
-        if app_id is not None:
-            data["goods"] = app_goods(self.context.inputs, changed, pending.agent_id, app_id)
         return ActionResult(action_id=pending.action_id, agent_id=pending.agent_id, status=ActionStatus.IN_PROGRESS,
                             occurred_at=before.current_time, activity_id=activity.activity_id,
                             message="Activities started", data=resolution_data(data, item.resolved, ()))

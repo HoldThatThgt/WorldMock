@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from worldmock.footprints.app_usage import app_usage_quality, project_app_usage
+from worldmock.footprints.app_usage import app_usage_quality, project_app_usage, validate_app_event_source
 from worldmock.footprints.models import Event
 from worldmock.errors import IntegrityError
 from worldmock.life.models import ActivityState
@@ -61,7 +61,7 @@ def _progress(sequence, activity, *, before=0, after=300, completed=False, round
     return _event(sequence, "activity_progress", {"activity":activity, "interval_start":start,
                   "interval_end":end, "content":{"content_id":content, "app_id":activity["data"]["app_id"],
                   "position_before_seconds":before, "position_after_seconds":after,
-                  "completed":completed, "completed_rounds_after":rounds}},
+                  "completed":completed, "completed_rounds_after":rounds, "completion_effects":None}},
                   at=end, version=version, activity_id=activity["activity_id"])
 
 
@@ -307,3 +307,77 @@ def test_push_expiry_rejects_forged_run_end_provenance(source_kind, visibility, 
         with pytest.raises(IntegrityError, match="Run end must be a system-visible environment event"):
             project([_push(1), row])
     assert "Run end must be a system-visible environment event" in caplog.text
+
+
+#: 完成效果证据的形状检查只有这一句英文错误。
+COMPLETION_ERROR = "Activity completion effects must use the current location completion contract"
+#: 一份合法的完成效果证据：补能与放松缓解声明了，社交缓解没有声明。
+_EFFECTS = {"food": {"tier": "meal", "provided": 600, "applied": 540.0, "efficiency": 0.9},
+            "relaxation_relief": {"tier": "medium", "provided": 0.3, "applied": 0.25}, "social_relief": None}
+
+
+def _completed_here(effects, *, completed=True, app_id=None):
+    """@brief 在家做完「测试休息」的那条 activity_progress，内容证据带给定的完成效果；app_id 非空时是 app 内容。"""
+    row = _progress(1, _app(app_id=app_id, content="c-rest"), completed=completed, rounds=int(completed),
+                    content="c-rest")
+    row["data"]["content"]["completion_effects"] = effects
+    return row
+
+
+def _changed(path, value):
+    """@brief 合法证据的一份副本，把 path 指的那一处换成 value；value 为 KeyError 时删掉那个键。"""
+    effects = {name: None if member is None else dict(member) for name, member in _EFFECTS.items()}
+    target = effects
+    for key in path[:-1]:
+        target = target[key]
+    if value is KeyError:
+        del target[path[-1]]
+    else:
+        target[path[-1]] = value
+    return effects
+
+
+#: 只声明了社交缓解、需要已为 0 的证据。
+_SOCIAL_ONLY = {"food": None, "relaxation_relief": None,
+                "social_relief": {"tier": "low", "provided": 0.1, "applied": 0.0}}
+
+
+@pytest.mark.parametrize("effects", [None, _EFFECTS, _SOCIAL_ONLY],
+                         ids=["no-settlement", "food-and-relaxation", "social-only"])
+def test_completion_effects_evidence_of_the_current_contract_passes(effects):
+    """@brief null，或恰含三个成员、只出现在做完的地点内容上、成员键与档位都合规的对象，都通过；null 也可以出现在没做完的
+    内容和 app 内容上。"""
+    validate_app_event_source(_completed_here(effects))
+    if effects is None:
+        validate_app_event_source(_completed_here(None, completed=False))
+        validate_app_event_source(_completed_here(None, app_id="bilibili"))
+
+
+@pytest.mark.parametrize("row", [
+    pytest.param(_completed_here(["food"]), id="not-an-object"),
+    pytest.param(_completed_here(_changed(("social_relief",), KeyError)), id="member-key-missing"),
+    pytest.param(_completed_here({**_EFFECTS, "mood": None}), id="extra-member-key"),
+    pytest.param(_completed_here(_EFFECTS, completed=False), id="content-not-completed"),
+    pytest.param(_completed_here(_EFFECTS, app_id="bilibili"), id="app-content"),
+    pytest.param(_completed_here(_changed(("food", "content_id"), "c-rest")), id="member-evidence-extra-key"),
+    pytest.param(_completed_here(_changed(("food", "efficiency"), KeyError)), id="member-evidence-key-missing"),
+    pytest.param(_completed_here(_changed(("relaxation_relief", "efficiency"), 0.9)), id="relief-with-efficiency"),
+    pytest.param(_completed_here(_changed(("food", "tier"), "dinner")), id="food-tier-outside-its-table"),
+    pytest.param(_completed_here(_changed(("food", "tier"), "medium")), id="food-with-a-relief-tier"),
+    pytest.param(_completed_here(_changed(("relaxation_relief", "tier"), "none")), id="relief-tier-none"),
+    pytest.param(_completed_here(_changed(("social_relief",), 0.3)), id="member-not-an-object"),
+])
+def test_completion_effects_evidence_outside_the_contract_is_an_integrity_failure(row, caplog):
+    """@brief 不是 null 或对象、成员键不恰为三个、没做完或是 app 内容、成员证据的键不对、tier 不在该成员的档位表内：
+    都以同一句英文错误报运行故障，并先写错误日志。"""
+    with pytest.raises(IntegrityError) as failure:
+        validate_app_event_source(row)
+    assert str(failure.value) == COMPLETION_ERROR and COMPLETION_ERROR in caplog.text
+
+
+def test_content_evidence_without_the_completion_effects_key_is_outside_the_contract():
+    """@brief 内容证据的字段闭集含 completion_effects：少了这个键是旧形状，报内容证据的那一句。"""
+    row = _completed_here(None)
+    del row["data"]["content"]["completion_effects"]
+    with pytest.raises(IntegrityError, match="Content consumption must use the current interact content contract"):
+        validate_app_event_source(row)

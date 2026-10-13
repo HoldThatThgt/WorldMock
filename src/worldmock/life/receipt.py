@@ -84,18 +84,15 @@ def _receipt_effect(body, order: DeliveryState, context) -> tuple:
 
 
 def _food_effect(body, order: DeliveryState, context) -> tuple:
-    """@brief 收货函数先取走自身食品分录，不让它落到之后的身体事件；applied 取这批分录登记的数额之和，不用补能前后两数
-    相减，实得为 0 时没有分录、applied 为 0.0（docs/design/05-recording-engine.md「事件与来源」）。"""
-    from worldmock.life.body import apply_food, last_flows
+    """@brief 食品收货经唯一的食品进账函数 food_intake 结算，它自己取走这一笔的分录、applied 取登记的数额之和；
+    这里只给分录盖上人物身份、拼出 resource_flows（docs/design/05-recording-engine.md「事件与来源」）。"""
+    from worldmock.life.body import food_intake
 
     provided = evaluate_goods_receipt(order.category, order.quantity)
-    settlement = apply_food(body, provided, context.body)
-    entries = last_flows()
-    applied = sum((entry.amount for entry in entries), 0.0)
+    changed, intake, entries = food_intake(body, provided, context.body)
     flows = [{"resource": entry.resource, "owner": f"agent:{order.agent_id}", "direction": entry.direction,
               "amount": entry.amount, "cause": entry.cause} for entry in entries]
-    return settlement.after, {"provided": provided, "applied": applied,
-                              "efficiency": settlement.food_efficiency, "resource_flows": flows}
+    return changed, {**intake, "resource_flows": flows}
 
 
 def _receipt_data(state: WorldState, order: DeliveryState, evidence: dict) -> dict:

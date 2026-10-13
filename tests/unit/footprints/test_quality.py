@@ -116,7 +116,8 @@ def _content_event(sequence, *, before=0, after=300, completed=False, rounds=0, 
                         "interval_start": start, "interval_end": end,
                         "content": {"content_id": content, "app_id": app_id,
                                     "position_before_seconds": before, "position_after_seconds": after,
-                                    "completed": completed, "completed_rounds_after": rounds}})
+                                    "completed": completed, "completed_rounds_after": rounds,
+                                    "completion_effects": None}})
 
 
 def test_quality_report_covers_run_behavior_usage_cost_and_speedup():

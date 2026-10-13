@@ -103,7 +103,7 @@ def phone_environment(destination, clip_seconds=540):
     root = copy_environment(destination)
     # 饿了么原先只绑定在三杯咖啡上；咖啡店改成只绑瑞幸咖啡之后它没有任何绑定，一并去掉。
     apps = [row for row in catalog_rows(root, "app-catalog.jsonl") if row["app_id"] != "eleme"]
-    apps.append({"app_id": "luckin", "browse_duration_seconds": 600, "name": "瑞幸咖啡", "role": "content"})
+    apps.append({"app_id": "luckin", "name": "瑞幸咖啡", "role": "content"})
     write_catalog_rows(root, "app-catalog.jsonl", sorted(apps, key=lambda row: row["app_id"]))
     places = catalog_rows(root, "location.jsonl")
     next(row for row in places if row["location_id"] == "cafe")["app_ids"] = ["luckin"]
