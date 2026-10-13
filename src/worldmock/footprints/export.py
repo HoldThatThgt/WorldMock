@@ -18,7 +18,9 @@ from worldmock.footprints.assets import atomic_write
 from worldmock.footprints.app_usage import (
     activity_snapshots, append_activity_segment, project_app_usage, validate_activity_prefix,
 )
+from worldmock.footprints.display_wording import DisplayNames
 from worldmock.footprints.experiences import project_verified_experiences
+from worldmock.footprints.frozen_environment import frozen_display_names
 from worldmock.footprints.location_stays import project_location_stays
 from worldmock.footprints.models import AssetRef, Event, canonical_json
 from worldmock.footprints.purchases import project_purchase_facts
@@ -62,6 +64,8 @@ def export_run(store: FootprintStore, cutoff: int, destination: Path) -> dict:
 
 def _write_export(store: FootprintStore, events: list[Event], stage: Path) -> dict:
     """@brief 固定六份主文件（事件、活动、已核验经历、购买、app 使用、地点停留）和全部外部素材，并绑定原始运行身份。"""
+    # 显示名称在复制素材之前从运行目录冻结的环境目录取一次，质量报告与时间线投影共用这一张表。
+    names = frozen_display_names(store.run_dir, store.manifest)
     activities = reconstruct_activities(events)
     manifest = _export_identity(store.manifest, events)
     rows = [event.model_dump() for event in events]
@@ -93,11 +97,11 @@ def _write_export(store: FootprintStore, events: list[Event], stage: Path) -> di
             references[reference.sha256] = reference.model_dump()
     manifest["asset_index"] = write_jsonl(stage / "asset-index.jsonl", list(references.values()))
     manifest["frozen_run_manifest"] = store.manifest
-    quality = canonical_json(build_quality_report(events, activities, store.manifest))
+    quality = canonical_json(build_quality_report(events, activities, store.manifest, names))
     atomic_write(stage / "quality.json", quality)
     manifest["quality_report"] = {"path": "quality.json", "size_bytes": len(quality),
                                   "sha256": hashlib.sha256(quality).hexdigest()}
-    manifest["timeline"] = _write_timeline_projections(store, stage, manifest["daily_coverage"])
+    manifest["timeline"] = _write_timeline_projections(store, stage, manifest["daily_coverage"], names)
     return manifest
 
 
@@ -110,11 +114,11 @@ def _verified_experience_rows(agent_ids: list[int], events: list[Event]) -> list
                                           item.get("goods_id", "")))
 
 
-def _write_timeline_projections(store: FootprintStore, stage: Path,
-                                days: list[str]) -> list[dict]:
+def _write_timeline_projections(store: FootprintStore, stage: Path, days: list[str],
+                                names: DisplayNames) -> list[dict]:
     """@brief 生成确定性时间线投影 timeline/<agent>-<date>.md 并哈希绑定。
 
-    投影调用 scripts/render_day.py 的渲染函数（单一实现，不重复）；
+    投影调用 scripts/render_day.py 的渲染函数（单一实现，不重复），名称取运行目录里冻结的环境目录；
     每个人物每个覆盖日一个文件，列入导出清单（sha256 + 字节数）。
     """
     module = timeline_labels._load_render_day()
@@ -122,7 +126,7 @@ def _write_timeline_projections(store: FootprintStore, stage: Path,
     for agent_id in sorted(int(item) for item in store.manifest["agent_ids"]):
         for day in days:
             markdown = module.render_day_markdown(
-                store.connection, agent_id, date.fromisoformat(day), store.manifest["window"]["timezone"])
+                store.connection, agent_id, date.fromisoformat(day), store.manifest["window"]["timezone"], names)
             payload = markdown.encode("utf-8")
             relative = f"timeline/{agent_id}-{day}.md"
             atomic_write(stage / relative, payload)

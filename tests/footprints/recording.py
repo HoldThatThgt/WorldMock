@@ -75,6 +75,7 @@ def reproject(directory, manifest, events):
     """@brief 六份工件和质量全部按被污染后的事件重算并重新签名，失败只能来自实际语义约束。"""
     from worldmock.footprints.app_usage import project_app_usage
     from worldmock.footprints.export import _verified_experience_rows, reconstruct_activities
+    from worldmock.footprints.frozen_environment import frozen_display_names
     from worldmock.footprints.location_stays import project_location_stays
     from worldmock.footprints.models import Event, canonical_json, sha256_json
     from worldmock.footprints.purchases import project_purchase_facts
@@ -88,7 +89,8 @@ def reproject(directory, manifest, events):
     write_rows(directory, manifest, "purchases", project_purchase_facts(events))
     write_rows(directory, manifest, "app_usage", project_app_usage(events))
     write_rows(directory, manifest, "location_stays", project_location_stays(events))
-    quality = canonical_json(build_quality_report(records, activities, manifest["frozen_run_manifest"])) + b"\n"
+    names = frozen_display_names(directory, manifest["frozen_run_manifest"])
+    quality = canonical_json(build_quality_report(records, activities, manifest["frozen_run_manifest"], names)) + b"\n"
     (directory / "quality.json").write_bytes(quality)
     manifest["quality_report"].update(size_bytes=len(quality), sha256=hashlib.sha256(quality).hexdigest())
     checkpoint = manifest["checkpoint"]

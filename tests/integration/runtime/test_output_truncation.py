@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from types import SimpleNamespace
 
@@ -102,7 +103,7 @@ class _NoChoices:
 
 def _is_retry(request: dict) -> bool:
     """请求是截断重试：关闭思考、tool_choice=required；另核对两类请求共有的参数不变。"""
-    assert request["max_tokens"] == 8000 and request["max_retries"] == 0
+    assert request["max_tokens"] == 16000 and request["max_retries"] == 0
     assert "reasoning_effort" not in request and "temperature" not in request
     assert all(item["function"]["strict"] is True for item in request["tools"])
     retry = (request["extra_body"], request["tool_choice"]) == ({"thinking": {"type": "disabled"}}, "required")
@@ -130,15 +131,20 @@ def _decision_responses(engine, decision_id: str) -> list:
 
 
 @pytest.mark.asyncio
-async def test_a_truncated_turn_is_dropped_and_retried_once_without_thinking(_engine_factory) -> None:
+async def test_a_truncated_turn_is_dropped_and_retried_once_without_thinking(_engine_factory, caplog) -> None:
     """截断回合不进入后续请求：重试请求的消息是首个请求的两条消息加一条截断纠错（第四章结构，原因与改法是登记的说法），
-    其中没有截断回合的思考；重试关闭思考、tool_choice=required、max_tokens 仍为 8000，只开放世界请求工具；重试给出的
-    世界请求照常登记与结算，回复正文成为 self_note；证据里截断回合的协议错误串以 OUTPUT_TRUNCATED 开头，决策开始只写一次。"""
+    其中没有截断回合的思考；重试关闭思考、tool_choice=required、max_tokens 仍为 16000，只开放世界请求工具；重试给出的
+    世界请求照常登记与结算，回复正文成为 self_note；证据里截断回合的协议错误串以 OUTPUT_TRUNCATED 开头，决策开始只写一次；
+    这次截断回合期间恰好写一条「输出被截断」的错误日志。"""
     engine = _engine_factory()
     stage_day_plan(engine)
     environment = _environment(engine)
-    _, requests, _ = await _single(environment, "spiral", [
-        TruncatedResponse(_SPIRALS[0]), _reply("call-wait", MAIN_TOOL, _WAIT, None, "先歇一会儿。")])
+    with caplog.at_level(logging.ERROR):
+        _, requests, _ = await _single(environment, "spiral", [
+            TruncatedResponse(_SPIRALS[0]), _reply("call-wait", MAIN_TOOL, _WAIT, None, "先歇一会儿。")])
+    assert [record.getMessage() for record in caplog.records
+            if record.getMessage().startswith("Life tool protocol rejected: OUTPUT_TRUNCATED")] == [
+        f"Life tool protocol rejected: OUTPUT_TRUNCATED: {TRUNCATION_DETAIL}"]
     first, retry = requests
     assert [_is_retry(item) for item in requests] == [False, True]
     assert _tools(first) == set(REQUEST_MODELS) | _MEMORY_TOOLS and _tools(retry) == set(REQUEST_MODELS) - {"recall_task_summary"}
@@ -319,7 +325,7 @@ async def test_a_truncation_in_a_continued_decision_leaves_the_chain_prefix_unto
 
 @pytest.mark.asyncio
 async def test_readonly_questions_keep_their_parameters_and_a_truncated_answer_is_retried_with_finish_only() -> None:
-    """只读问答与行动经同一请求入口：没有截断时只读请求的参数不变（开启思考、tool_choice=auto、8000）；只读回答被截断时
+    """只读问答与行动经同一请求入口：没有截断时只读请求的参数不变（开启思考、tool_choice=auto、16000）；只读回答被截断时
     按状态同样重试一次，关闭思考、tool_choice=required，只开放 finish。"""
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("call-memory", "memory_recent", '{"limit":1}'),

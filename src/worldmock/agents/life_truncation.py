@@ -19,8 +19,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from worldmock.agents.life_feedback import HostFeedback, feedback_content, host_feedback
-from worldmock.life.error_contract import ErrorItem, host_report
+from worldmock.agents.life_feedback import HostFeedback, host_feedback, report_content
+from worldmock.life.error_contract import ErrorItem, ErrorReport, host_report
 
 #: 截断重试的思考开关与工具选择（docs/design/06-agent.md「宿主模型协议」；思考模式拒收 required，关闭思考后可用，真实探针见规格 7.2）。
 RETRY_THINKING = {"thinking": {"type": "disabled"}}
@@ -40,16 +40,21 @@ def truncated(response: Any) -> bool:
             and not getattr(message, "tool_calls", None))
 
 
-def truncation_feedback() -> HostFeedback:
-    """@brief 截断回合的纠错：OUTPUT_TRUNCATED 取登记的原因与改法，证据文字带英文说明。"""
+def _truncation_report() -> ErrorReport:
+    """@brief 截断回合的错误结构：OUTPUT_TRUNCATED 取登记的原因与改法；只构造结构，不写日志。"""
     item = ErrorItem(("tool_calls",), None, "OUTPUT_TRUNCATED",
                      expected="One complete world request is required after the truncated output.",
                      why=TRUNCATION_DETAIL)
-    return host_feedback(host_report("OUTPUT_TRUNCATED", items=(item,)), TRUNCATION_DETAIL)
+    return host_report("OUTPUT_TRUNCATED", items=(item,))
 
 
-#: 截断纠错回给模型的正文（固定），用来判定消息历史是否以它结尾。
-TRUNCATION_CONTENT = feedback_content(truncation_feedback())
+def truncation_feedback() -> HostFeedback:
+    """@brief 真实截断回合的纠错：经 host_feedback 写一条错误日志，证据文字带英文说明。"""
+    return host_feedback(_truncation_report(), TRUNCATION_DETAIL)
+
+
+#: 截断纠错回给模型的正文（固定），用来判定消息历史是否以它结尾；由错误结构直接生成，导入时不写日志。
+TRUNCATION_CONTENT = report_content(_truncation_report())
 
 
 def thinking_enabled(request: Mapping[str, Any]) -> bool:

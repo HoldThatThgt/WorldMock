@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 from worldmock.errors import IntegrityError
 from worldmock.evaluation.errand_metrics import conclusion_memories, errand_metrics
 from worldmock.evaluation.goal_metrics import day_plan_metrics
+from worldmock.footprints.display_wording import DisplayNames
 from worldmock.footprints.experiences import project_verified_experiences, validate_verified_experiences
 from worldmock.footprints.app_usage import app_usage_quality, validate_activity_prefix
 from worldmock.footprints.models import (
@@ -52,7 +53,7 @@ _PRICING = {
 }
 
 
-def build_quality_report(events: list[Event], activities: list[dict], manifest: dict) -> dict:
+def build_quality_report(events: list[Event], activities: list[dict], manifest: dict, names: DisplayNames) -> dict:
     """@brief 汇总完成、异常、内容、效率、记忆、模型用量、实测加速比、当日目标、个人事务与收尾记忆、运行输入警告与输出截断。
 
     报告结构 8（docs/design/05-recording-engine.md「完整导出认证」）：input_warnings.code_counts 的键恰为运行输入警告码
@@ -62,6 +63,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
     @param events 已经认证且按 event_seq 排序的完整事件。
     @param activities 已经认证的活动终态视图。
     @param manifest 对应运行的冻结清单。
+    @param names 这次运行冻结的环境目录给出的显示名称，交给时间线标签检查。
     @return 可规范序列化且不把缺失测量记为零的质量报告。
     """
     validate_activity_prefix([event.model_dump(mode="json") for event in events])
@@ -90,7 +92,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
         "errand_metrics": errand_metrics(rows, manifest["window"]["timezone"]),
         "conclusion_memories": conclusion_memories(rows),
         "input_warnings": _input_warning_quality(manifest),
-        "timeline_labels": timeline_label_report(events, manifest),
+        "timeline_labels": timeline_label_report(events, manifest, names),
         "name_rejections": _name_rejection_quality(events),
         "truncations": _truncation_quality(events),
     }

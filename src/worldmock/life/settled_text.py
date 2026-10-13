@@ -9,6 +9,7 @@ import logging
 from typing import Any
 
 from worldmock.errors import IntegrityError
+from worldmock.footprints.display_wording import activity_phrase, display_names
 from worldmock.footprints.models import Event
 from worldmock.life import activity_control
 from worldmock.life.action_evidence import placed_orders
@@ -78,12 +79,15 @@ def activity_sentence(context: LayerContext, activity: ActivityState,
 
 
 def _content_sentence(context: LayerContext, activity: ActivityState, advanced_content_id: str | None) -> str:
-    """@brief 只写真正完成的内容及确有推进的未完内容，活动名已包含动作和应用。"""
+    """@brief 只写真正完成的内容，用内容 app 时再写确有推进的未完内容，活动名已包含动作和应用。
+
+    在地点做的事（app_id 为空）不写「（《某某》未完）」半句：被结束即记为做完一轮，截断之后也没有提示再读它。
+    """
     if activity.data["content_id"] is None:
         return ""
     titles = "".join(f"《{context.catalog.contents[row['content_id']].title}》" for row in activity.data["played"])
     current = context.catalog.contents[activity.data["content_id"]]
-    partial = advanced_content_id == current.content_id
+    partial = activity.data["app_id"] is not None and advanced_content_id == current.content_id
     return titles + (f"（《{current.title}》未完）" if partial else "")
 
 
@@ -119,7 +123,11 @@ def purchase_sentence(context: LayerContext, order: dict[str, Any]) -> str:
 
 
 def experience_sentence(context: LayerContext, fact: dict[str, Any]) -> str:
-    """@brief 已核验经历只写实际到达、本人收货或内容消费；到达句用所走出行方式的名称。"""
+    """@brief 已核验经历只写实际到达、本人收货或内容消费；到达句用所走出行方式的名称。
+
+    内容经历句的写法与一天时间线相同（docs/design/05-recording-engine.md「显示写法与检查工具」）：名称取引擎内存里的
+    目录，交给写法的快照只有种类、这项活动的地点和经历的 app，内容只有经历的这一条。
+    """
     now, zone = context.state.current_time, context.config.timezone
     if fact["kind"] == "arrived":
         travel = context.state.activities[fact["activity_id"]]
@@ -134,8 +142,12 @@ def experience_sentence(context: LayerContext, fact: dict[str, Any]) -> str:
         logging.error("Unsupported verified experience kind")
         raise IntegrityError("Unsupported verified experience kind")
     span = f"{clock_phrase(fact['interval_start'], now, zone)}–{clock_phrase(fact['interval_end'], now, zone)}"
-    content = context.catalog.contents[fact["content_id"]]
-    return f"{span} 进行《{content.title}》"
+    catalog = context.catalog
+    names = display_names(catalog.apps.values(), catalog.contents.values(), catalog.locations.values(),
+                          catalog.goods.values(), catalog.travel_methods.values())
+    snapshot = {"kind": "interact", "location_id": context.state.activities[fact["activity_id"]].location_id,
+                "data": {"app_id": fact["app_id"]}}
+    return f"{span} {activity_phrase(names, snapshot, [fact['content_id']], {})}"
 
 
 def activity_endings(events: Iterable[Event]) -> dict[str, Event]:

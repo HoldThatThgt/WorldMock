@@ -1,4 +1,6 @@
-"""当前冻结环境的真实提交与逐边界推进帮助函数。"""
+"""当前冻结环境的真实提交、逐边界推进与只读观察的帮助函数，以及几种常用的运行配置。"""
+
+from datetime import timedelta
 
 from agentsociety2.society import DirectToolCall
 from tests.life.conftest import (
@@ -103,3 +105,33 @@ def run_to_end(engine):
             assert engine.scheduling_state().next_event_at is not None
             advance_next(engine)
     return events(engine)
+
+
+def until_ended(engine, activity_id):
+    """推进到这项活动终结：其间的决策机会只播报进行中的活动、给别的已结束活动收尾，不替这项活动收尾。"""
+    while engine.context.state.activities[activity_id].status == "active":
+        if engine.scheduling_state().ready_agent_ids:
+            settle_decision(engine, f"settle-{engine.context.state.current_time}")
+        else:
+            advance_next(engine)
+
+
+def observe_only(engine, label):
+    """人物此刻的一次观察（只读，不登记请求）；轮次身份带上此刻，同一标签可以在不同时刻重复使用。"""
+    return engine.observe(context(engine, f"{label}-{engine.context.state.current_time}"))
+
+
+def every_five_minutes(persona, config):
+    """运行配置：每五分钟到一次重估间隔，人物在路上、在一件事做到一半时都有决策机会。"""
+    config["reconsideration_interval_seconds"] = 300
+
+
+def one_hour(persona, config):
+    """运行配置：一小时的运行（运行窗口必须落在整点上）。"""
+    config["stop_time"] = config["start_time"] + timedelta(hours=1)
+
+
+def one_hour_every_five_minutes(persona, config):
+    """运行配置：一小时的运行，每五分钟到一次重估间隔。"""
+    one_hour(persona, config)
+    every_five_minutes(persona, config)

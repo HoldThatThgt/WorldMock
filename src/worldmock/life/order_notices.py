@@ -7,8 +7,7 @@
 
 from __future__ import annotations
 
-from collections import Counter
-
+from worldmock.footprints.display_wording import goods_items
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import DeliveryState, WorldState
 from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
@@ -23,10 +22,8 @@ PAYMENT_SUCCEEDED = "支付成功"
 
 
 def goods_names(orders, catalog) -> list[str]:
-    """@brief 商品名列表的各项：按商品身份升序，同一商品的几份合写成「名称×份数」。"""
-    counts = Counter(order.goods_id for order in orders)
-    return [catalog.goods[key].name if count == 1 else f"{catalog.goods[key].name}×{count}"
-            for key, count in sorted(counts.items())]
+    """@brief 商品名列表的各项：规则在显示写法的 goods_items，名称取引擎内存里的目录。"""
+    return goods_items((order.goods_id for order in orders), lambda key: catalog.goods[key].name)
 
 
 def goods_text(orders, catalog) -> str:

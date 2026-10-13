@@ -4,7 +4,7 @@ import json
 import pytest
 
 from tests.frozen_inputs import fixture_metadata
-from tests.integration.runtime.current_contract_fixtures import ROOT, inputs, metadata_service
+from tests.integration.runtime.current_contract_fixtures import ROOT, aligned_process, inputs, metadata_service
 from tests.life.conftest import advance_next, do_at, stage_day_plan
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act
@@ -68,7 +68,9 @@ def test_new_run_writes_each_input_warning_to_the_manifest_options_and_the_opera
     from worldmock.runtime import RunRequest, _prepare_new_run, _society_specs
 
     root = _warned_environment(tmp_path)
-    metadata_service(monkeypatch, load_environment(root, metadata_loader=fixture_metadata))
+    frozen = load_environment(root, metadata_loader=fixture_metadata)
+    metadata_service(monkeypatch, frozen)
+    aligned_process(monkeypatch, frozen)
     prepared = _prepare_new_run(RunRequest(ROOT, root, tmp_path / "run", "warned", "warned"))
     specs = _society_specs(prepared)
     options = prepared.env_kwargs["create_options"]

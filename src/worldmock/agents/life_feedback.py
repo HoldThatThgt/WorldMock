@@ -64,6 +64,11 @@ def feedback_report(error: str) -> ErrorReport:
     return error.report
 
 
+def report_content(report: ErrorReport) -> str:
+    """@brief 由错误结构直接编出模型收到的纠错正文：完整五字段错误加固定英文修正指示；不写日志。"""
+    return json.dumps({**report.payload(), "instruction": FEEDBACK_INSTRUCTION}, ensure_ascii=False)
+
+
 def feedback_content(error: str) -> str:
     """@brief 模型收到完整五字段错误和固定英文修正指示。"""
-    return json.dumps({**feedback_report(error).payload(), "instruction": FEEDBACK_INSTRUCTION}, ensure_ascii=False)
+    return report_content(feedback_report(error))

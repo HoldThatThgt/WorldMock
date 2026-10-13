@@ -51,25 +51,24 @@ def _felt_levels(context, state, agent) -> dict[str, str]:
         felt.EnergyReading(agent.body.energy_kcal, context.body.emergency_threshold_kcal))
 
 def settle_engine_rhythm(context, staged: WorldState, boundary: RhythmBoundary) -> WorldState:
-    """@brief 只结算实际清醒不适，不重复已经结算的社交和放松自然增长。"""
+    """@brief 只结算实际清醒不适，不重复已经结算的社交和放松自然增长。
+
+    每次推进每位人物恰有一条身体结算记录，脉冲直接对着这条记录算并落在它上面；记录的「结算后」只反映这一笔自己的增减，
+    同一秒的收货不进这条记录（docs/design/05-recording-engine.md「事件与来源」）。睡眠区间不施加脉冲，只清计时。
+    """
     changed = staged.model_copy(deep=True)
     for agent_id, agent in staged.agents.items():
-        asleep_interval = any(draft.data.get("kind") == "body_settlement" and draft.agent_id == agent_id
-            and any(staged.activities[key].kind == ActivityKind.SLEEP for key in draft.data["activity_ids"])
-            for draft in boundary.drafts)
-        if asleep_interval:
+        [record] = [draft for draft in boundary.drafts
+                    if draft.agent_id == agent_id and draft.data.get("kind") == "body_settlement"]
+        if any(staged.activities[key].kind == ActivityKind.SLEEP for key in record.data["activity_ids"]):
             agent = agent.model_copy(update={"discomfort_started_at": None, "discomfort_pulse_hours": 0.0}, deep=True)
         else:
             previous = context.state.agents[agent_id]
             before = _felt_levels(context, context.state, previous)
-            agent = _settle_discomfort(agent, _felt_levels(context, staged, agent), boundary.target,
-                                      boundary.target - boundary.interval, _has_discomfort(before))
+            agent, hours = _discomfort_clock(agent, _felt_levels(context, staged, agent), boundary.target,
+                                             boundary.target - boundary.interval, _has_discomfort(before))
+            agent = _apply_discomfort_pulse(agent, record, hours, boundary.target)
         changed.agents[agent_id] = agent
-        flows = _resource_flows_data(agent_id, boundary.target)
-        for draft in boundary.drafts:
-            if draft.agent_id == agent_id and draft.data.get("kind") == "body_settlement":
-                draft.data["body_settlement"]["after"] = agent.body.model_dump(mode="json")
-                draft.data["resource_flows"].extend(flows)
     return changed
 
 def _has_discomfort(levels: dict[str, str]) -> bool:
@@ -77,18 +76,40 @@ def _has_discomfort(levels: dict[str, str]) -> bool:
     return levels["appetite"] in HUNGRY_BANDS or levels["sleepiness"] in SLEEPY_BANDS
 
 
-def _settle_discomfort(agent, levels: dict[str, str], now: int, interval_start: int, was_discomfort: bool):
-    """@brief 先结算实际不适区间，再在缓解边界清除计时，初始不适从真实起点算起。"""
+def _discomfort_clock(agent, levels: dict[str, str], now: int, interval_start: int,
+                      was_discomfort: bool) -> tuple:
+    """@brief 结算实际不适区间的计时：初始不适从真实起点算起，缓解边界清除计时。
+
+    :returns: （计时字段已更新、身体未动的人物，这次推进新增的计费小时数）。
+    """
     started = agent.discomfort_started_at
     billed = agent.discomfort_pulse_hours
     if not was_discomfort or started is None:
         started, billed = (interval_start if was_discomfort else now), 0.0
     chargeable = max(0.0, (now - started) / 3600 - 2.0) if was_discomfort else 0.0
-    new_charge = max(0.0, chargeable - billed)
-    body = apply_discomfort_pulse(agent.body, new_charge) if new_charge else agent.body
     continuing = _has_discomfort(levels)
-    return agent.model_copy(update={"body": body, "discomfort_started_at": started if continuing else None,
-                                    "discomfort_pulse_hours": chargeable if continuing else 0.0}, deep=True)
+    clocked = agent.model_copy(update={"discomfort_started_at": started if continuing else None,
+                                       "discomfort_pulse_hours": chargeable if continuing else 0.0}, deep=True)
+    return clocked, max(0.0, chargeable - billed)
+
+
+def _apply_discomfort_pulse(agent, record: EventDraft, hours: float, target: int):
+    """@brief 把不适脉冲施加到共同结算后的身体并写回这条身体结算记录。
+
+    数额对着记录「结算后」的放松需要 S 算：min(1.0, S + 0.10 × 小时数) − S；为 0 时不记分录、身体不变。否则记录的
+    「结算后」写 S 加这个数额、分录追加到记录上，世界里这位人物此刻的放松需要（已含同一秒收货的缓解）加分录登记的同一个数额。
+    """
+    if not hours:
+        return agent
+    after = record.data["body_settlement"]["after"]
+    pulsed = apply_discomfort_pulse(agent.body.model_copy(update={"relaxation_need": after["relaxation_need"]}), hours)
+    flows = _resource_flows_data(agent.agent_id, target)
+    if not flows:
+        return agent
+    after["relaxation_need"] = pulsed.relaxation_need
+    record.data["resource_flows"].extend(flows)
+    relieved = agent.body.relaxation_need + sum(flow["amount"] for flow in flows)
+    return agent.model_copy(update={"body": agent.body.model_copy(update={"relaxation_need": relieved})}, deep=True)
 
 def _wake_snapshot(context, state: WorldState, agent, boundary: RhythmBoundary) -> WakeSnapshot:
     """@brief 只由真实完成、到达和睡醒提供唤醒事实；本边界做完的活动由 activity_control.finished_at 判定（含做完自己结束

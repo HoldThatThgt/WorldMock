@@ -92,12 +92,13 @@ def test_query_snapshot_is_admitted_by_every_downstream_projection(app_id):
 def test_retired_activity_is_rejected_before_any_downstream_projection(retired):
     from worldmock.footprints.export import reconstruct_activities
     from worldmock.footprints.quality import build_quality_report
+    from tests.footprints.display_fixtures import sample_display_names
     event = _event(1, "activity_progress", {"activity": _activity(retired)})
     message = "Activity snapshot uses a retired activity kind"
     for project in (lambda: project_app_usage([event.model_dump()]),
                     lambda: reconstruct_activities([event]),
                     lambda: project_verified_experiences([event], agent_id=1, cutoff_seq=1),
-                    lambda: build_quality_report([event], [], {})):
+                    lambda: build_quality_report([event], [], {}, sample_display_names())):
         with pytest.raises(IntegrityError, match=message):
             project()
 
