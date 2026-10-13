@@ -25,6 +25,13 @@ def catalog_rows(root, name):
     return [json.loads(line) for line in (root / "catalog" / name).read_text(encoding="utf-8").splitlines()]
 
 
+def set_content(root, content_id, **fields):
+    """在副本里改一条内容的几个字段并刷新清单。"""
+    rows = catalog_rows(root, "content-catalog.jsonl")
+    next(row for row in rows if row["content_id"] == content_id).update(fields)
+    write_catalog_rows(root, "content-catalog.jsonl", rows)
+
+
 def walking_only(root):
     """去掉数据集定义的出行方式：删除 travel-method.jsonl，导航 app 只绑定引擎自带的步行，并按生产入口刷新清单。"""
     (root / "catalog" / "travel-method.jsonl").unlink()
@@ -74,5 +81,28 @@ def meal_environment(destination):
         if content_id == "dinner-2-eat":
             row["completion_effects"] = {"food": "meal"}
         rows.append(row)
+    write_catalog_rows(root, "content-catalog.jsonl", sorted(rows, key=lambda row: row["content_id"]))
+    return root
+
+
+#: 回调状态「家里的食材」的名称。
+GROCERIES = "groceries"
+
+
+def grocery_environment(destination, initial=0, cap=1, goods=("playing-cards",)):
+    """样例环境的副本：登记回调状态 groceries（初值 initial、上限 cap，收到 goods 里的商品时置为上限），家多一件凭它的
+    「做饭」（cook，一小时，轻体力，放松缓解 low，做完供一餐），照手册「买菜做饭」的例子行。
+
+    goods 缺省是扑克牌：类别是 goods，三杯咖啡有卖，在家下单走外卖。个别用例要的别的变体在这份副本上再改几行。
+    返回副本的根目录。
+    """
+    root = copy_environment(destination)
+    write_catalog_rows(root, "callbacks.jsonl", [
+        {"state": GROCERIES, "initial": initial, "cap": cap, "reset_on_goods": sorted(goods)}])
+    rows = catalog_rows(root, "content-catalog.jsonl")
+    rows.append({"completion_effects": {"food": "meal"}, "consumes_state": GROCERIES, "content_id": "cook",
+                 "duration_seconds": 3600, "exertion": "light", "location_kinds": ["home"], "pushable": False,
+                 "relaxation_relief": "low", "social_relief": "none", "summary": "用买来的食材做一顿饭，吃完收拾。",
+                 "summary_source": {"kind": "synthetic", "notice": "数据集作者编写", "url": None}, "title": "做饭"})
     write_catalog_rows(root, "content-catalog.jsonl", sorted(rows, key=lambda row: row["content_id"]))
     return root

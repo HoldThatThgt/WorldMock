@@ -14,7 +14,7 @@ from tests.life.conftest import (
     advance_next, advance_until_ready, conclude_request, context, do_at, pause_request, purchase, report_request,
     stage_errands,
 )
-from tests.life.environment_inputs import catalog_rows, meal_environment, write_catalog_rows
+from tests.life.environment_inputs import catalog_rows, meal_environment, set_content, write_catalog_rows
 from tests.life.environment_runtime import (
     act, act_group, events, every_five_minutes, one_hour, reach, until_ended,
 )
@@ -49,13 +49,6 @@ def body(energy=None, deficit=None, *more):
         for item in more:
             item(persona, config)
     return mutate
-
-
-def set_content(root, content_id, **fields):
-    """在副本里改一条内容的几个字段并刷新清单。"""
-    rows = catalog_rows(root, "content-catalog.jsonl")
-    next(row for row in rows if row["content_id"] == content_id).update(fields)
-    write_catalog_rows(root, "content-catalog.jsonl", rows)
 
 
 def progress_rows(engine, activity_id=None):
