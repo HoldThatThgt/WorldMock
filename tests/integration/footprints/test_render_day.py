@@ -267,7 +267,7 @@ def test_purchase_row_is_split_by_order_with_its_channel(engine_factory, tmp_pat
 
 def test_purchase_row_reports_the_actual_channel_when_prefer_cannot_be_used(engine_factory, tmp_path):
     """渠道不取 prefer：牛肉面只有一心面馆能送、那家店没上饿了么，写「饿了么」时订单落在美团；写一个不存在的「美团外卖」时
-    环境另选。两行都写订单记录上的下单 app，不出现人物所写的名称。"""
+    环境另选（柠檬茶有两个下单 app 在卖，选到哪个都可以）。两行都写订单记录上的下单 app，不出现各自请求里所写的名称。"""
     engine = engine_factory()
     for label, goods, prefer in (("noodles", "牛肉面", "饿了么"), ("tea", "柠檬茶", "美团外卖")):
         _, bought = act(engine, label, purchase(goods, prefer=prefer))
@@ -278,7 +278,8 @@ def test_purchase_row_reports_the_actual_channel_when_prefer_cannot_be_used(engi
     labels = _labels(engine, tmp_path / "out", "购买")
     assert labels == ["购买牛肉面（经美团下单）",
                       f"购买柠檬茶（经{engine.context.catalog.apps[apps['lemon-tea']].name}下单）"]
-    assert not [label for label in labels if "饿了么" in label or "美团外卖" in label]
+    noodles, tea = labels
+    assert "饿了么" not in noodles and "美团外卖" not in tea
 
 
 def test_query_row_names_what_was_looked_up_and_the_app(engine_factory, tmp_path, capsys):
