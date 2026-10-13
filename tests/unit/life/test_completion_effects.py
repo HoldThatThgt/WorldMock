@@ -6,11 +6,12 @@ from pathlib import Path
 import pytest
 
 from worldmock.catalog.models import CompletionEffects
-from worldmock.exchange.constants import GOODS_ENERGY_KCAL, RELIEF_PER_HOUR
+from worldmock.exchange.constants import GOODS_ENERGY_KCAL
 from worldmock.input_models import PersonaConfig
 from worldmock.life.body import initial_body, last_flows
 from worldmock.life.body_config import assemble_body_config
 from worldmock.life.completion_effects import COMPLETION_CAUSE, settle_completion_effects
+from worldmock.life.interact import RELIEF_PER_HOUR
 from worldmock.life.sleep import food_utilization_efficiency
 
 PERSONA = Path("tests/fixtures/dataset-environment/persona.toml")
@@ -27,7 +28,7 @@ def body_inputs():
 
 
 def settle(body, config, **members):
-    return settle_completion_effects(body, CompletionEffects(**members), config)
+    return settle_completion_effects(body, CompletionEffects(**members), config, RELIEF_PER_HOUR)
 
 
 @pytest.mark.parametrize("tier", ["snack", "meal"])

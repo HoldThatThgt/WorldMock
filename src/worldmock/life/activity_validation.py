@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import math
 from worldmock.errors import IntegrityError
-from worldmock.exchange.constants import RELIEF_PER_HOUR
+from worldmock.life.interact import RELIEF_PER_HOUR
 from worldmock.life.models import ActivityKind, WorldState
 from worldmock.life.travel import persisted_trip
 

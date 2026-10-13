@@ -4,7 +4,6 @@ import logging
 import math
 from dataclasses import dataclass
 from worldmock.errors import BusinessRuleError, IntegrityError
-from worldmock.exchange.constants import RELIEF_PER_HOUR
 from worldmock.footprints.callback_contract import ConsumeOnStartResult
 from worldmock.footprints.models import EventDraft, validate_resource_flows
 from worldmock.life.activities import ActivityStartParams, start_activity, schedule_feedback
@@ -16,6 +15,10 @@ from worldmock.life.location_activities import next_content
 from worldmock.life.models import ActivityState, ActivityStatus, ContentProgress, WorldState
 from worldmock.life.randomness import random_stream
 from worldmock.life.world_ops import _activity_origin, _put_activity, _put_agent
+
+#: 内容缓解档位每实际小时减少的放松或社交需要；地点内容完成效果的一次缓解等于同一档一小时的量，
+#: 由 settle_completion 原样交给完成效果结算。
+RELIEF_PER_HOUR = {"none": 0.0, "low": 0.10, "medium": 0.30, "high": 0.50}
 
 @dataclass(frozen=True)
 class InteractivityRuntime:
@@ -149,7 +152,7 @@ class InteractivityRuntime:
         if effects is None:
             return state, evidence, []
         agent = state.agents[activity.agent_id]
-        body, settled, entries = settle_completion_effects(agent.body, effects, self.context.body)
+        body, settled, entries = settle_completion_effects(agent.body, effects, self.context.body, RELIEF_PER_HOUR)
         changed = _put_agent(state, agent.model_copy(update={"body": body}, deep=True))
         flows = [{"resource": entry.resource, "owner": f"agent:{agent.agent_id}", "direction": entry.direction,
                   "amount": entry.amount, "cause": entry.cause} for entry in entries]
