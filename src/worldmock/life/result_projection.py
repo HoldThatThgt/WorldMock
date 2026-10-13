@@ -72,10 +72,10 @@ def _done_contents(activities: list[dict], inputs: EnvironmentInputs) -> list[di
 
     先是快照 played 的各项（做到末尾，finished 为真）；快照状态不是 completed 且当前这条在这项活动里确有推进
     （media_position_seconds 大于 start_position_seconds）时再加当前这条，finished 为假。duration 是这条内容登记的全长。
-    没有 interact 活动、或活动没有内容（纯目录浏览）时为空。
+    没有 interact 活动时为空；每一项 interact 活动都有内容。
     """
     activity = next((row for row in activities if row.get("kind") == "interact"), None)
-    if activity is None or activity["data"]["content_id"] is None:
+    if activity is None:
         return []
     data, contents = activity["data"], inputs.catalog.contents
     done = [(item["content_id"], True) for item in data["played"]]
