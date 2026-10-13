@@ -182,7 +182,7 @@ async def test_empty_interactive_layer_decision_continues_without_failure() -> N
     assert unseen["path"] == ["tool_calls", 0, "function", "arguments", "target"]
     offered = {item["function"]["name"]: item["function"] for item in dispatcher.requests[0]["tools"]}
     assert json.dumps(offered) == json.dumps(_functions(_prepared()))
-    for tool, actions in ((MAIN_TOOL, ["travel", "interact", "sleep"]), (SIDE_TOOL, ["purchase", "interact"])):
+    for tool, actions in ((MAIN_TOOL, ["travel", "interact", "sleep"]), (SIDE_TOOL, ["purchase", "interact", "query"])):
         properties = offered[tool]["parameters"]["properties"]
         assert properties["action"]["enum"] == actions
         assert all("enum" not in json.dumps(properties[field]) for field in properties if field != "action")

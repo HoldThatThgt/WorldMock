@@ -20,7 +20,7 @@ class BodyConstants:
     emergency_threshold_kcal: int = 400
     #: 活动键对应的固定代谢当量：出行取自带步行的 walking 或数据集出行方式声明的体力档位。
     activity_met: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({
-        "sleep": 0.95, "walking": 3.5, "purchase": 1.0,
+        "sleep": 0.95, "walking": 3.5, "purchase": 1.0, "query": 1.0,
         "idle": 1.0, "light": 1.5, "moderate": 2.0, "heavy": 5.0,
     }))
     #: 每清醒小时增加的放松需要。

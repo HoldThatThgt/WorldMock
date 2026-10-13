@@ -78,6 +78,23 @@ def test_only_typed_mutations_can_enter_the_real_action_queue(engine_factory, to
     assert not engine.decisions.round.pending_actions
 
 
+@pytest.mark.parametrize("tool,message", [
+    ("query_world", "^Direct tool call request type does not match its tool$"),
+    ("recall_task_summary", "^Read-only queries must use the immediate query channel$"),
+])
+def test_removed_query_world_cannot_be_registered_as_a_world_action(engine_factory, tool, message):
+    """已删除的 query_world 落到「工具名没有对应的请求模型」，回看任务仍走只读通道；两种都不写事件、不入队。"""
+    engine = engine_factory()
+    frozen = context(engine, "removed")
+    engine.begin_decision_round([frozen])
+    engine.observe(frozen)
+    sequence = engine.context.store.last_event_seq
+    with pytest.raises(ProtocolError, match=message):
+        engine.submit_action(DirectToolCall(frozen, "removed-action", tool, RecallTaskSummaryRequest(task_name="家")))
+    assert engine.context.store.last_event_seq == sequence
+    assert not engine.decisions.round.pending_actions
+
+
 def test_duplicate_submission_reuses_receipt_and_commits_one_actual_activity(engine_factory):
     engine = engine_factory()
     frozen = context(engine, "duplicate")

@@ -248,13 +248,13 @@ async def test_start_tool_descriptions_say_purpose_only_and_conditions_stay_in_t
     descriptions = {tool["function"]["name"]: tool["function"]["description"] for tool in request["tools"]}
     assert "start_activity" not in descriptions
     for tool, words in ((MAIN_TOOL, ("槽位 1", "出行", "在当前地点做一件事", "睡觉")),
-                        (SIDE_TOOL, ("槽位 2", "购买商品", "内容 app"))):
+                        (SIDE_TOOL, ("槽位 2", "购买商品", "查询商品", "内容 app"))):
         assert descriptions[tool] == life_prompt.TOOL_DESCRIPTIONS[tool]
         assert all(word in descriptions[tool] for word in words)
         assert "reason" not in descriptions[tool] and "available" not in descriptions[tool]
     rules = json.loads(request["messages"][0]["content"])["rules"]
     assert [rule for rule in rules if "reason" in rule] == [
-        "工具层 available 为 false 的动作仍可提交，会按 reason 拒绝；先照原因处理。查询只读，不推进时间。"]
+        "工具层 available 为 false 的动作仍可提交，会按 reason 拒绝；先照原因处理。查询记忆和回看任务当场完成，不推进时间。"]
     task = next(target for target in expand_tool_layer(json.loads(request["messages"][1]["content"])[0])["targets"]
                 if target["name"] == "整理会议纪要")
     [work] = task["actions"]

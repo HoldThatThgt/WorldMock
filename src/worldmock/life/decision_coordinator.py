@@ -279,7 +279,7 @@ class DecisionCoordinator:
 
         if not isinstance(call, DirectToolCall) or self.round is None:
             raise ProtocolError("Direct tool call requires an open decision round")
-        if call.tool_name in {"query_world", "recall_task_summary"}:
+        if call.tool_name == "recall_task_summary":
             logging.error("Read-only query cannot be registered as a world action: %s", call.tool_name)
             raise ProtocolError("Read-only queries must use the immediate query channel")
         self.validate_context(call.context)

@@ -962,6 +962,14 @@ def test_timeline_labels_count_hexadecimal_and_hash_identifiers_as_internal_ids(
     assert (near["english_kind_names"], near["internal_ids"], near["findings"]) == (0, 0, [])
 
 
+def test_timeline_label_that_leaks_the_english_query_kind_is_counted():
+    """查询是第五种活动：时间线标签里漏出的英文 query 与其余四种的英文种类名一样计一项。"""
+    report = build_quality_report(_timeline_events("中山公园", "query", "周报"), [], _manifest())["timeline_labels"]
+    assert (report["english_kind_names"], report["internal_ids"]) == (1, 0)
+    assert [(item["label"], item["item"], item["text"]) for item in report["findings"]] == [
+        ("使用query", "english_kind_name", "query")]
+
+
 
 
 def _protocol_error(sequence, call_id, code, purpose=None):

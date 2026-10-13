@@ -534,6 +534,7 @@ def test_absent_and_empty_travel_method_file_both_leave_only_walking(bare):
     ({"class": "action", "key": "walk"}, "ENVIRONMENT_KIND_INVALID", None),
     ({"class": "action", "key": "take_taxi"}, "ENVIRONMENT_KIND_INVALID", None),
     ({"class": "action", "key": "take_bus"}, "ENVIRONMENT_KIND_INVALID", None),
+    ({"class": "action", "key": "query"}, "ENVIRONMENT_KIND_INVALID", None),
     ({"class": "action", "key": "drive", "travel_method_id": "driving"}, "ENVIRONMENT_KIND_INVALID", None),
     ({"class": "action", "key": "travel", "travel_method_id": "boat"}, "ENVIRONMENT_REF_UNKNOWN",
      "callbacks.jsonl:2 Unknown travel_method_id: boat."),
@@ -541,7 +542,8 @@ def test_absent_and_empty_travel_method_file_both_leave_only_walking(bare):
      "callbacks.jsonl:2 Unknown travel_method_id: 驾车."),
 ])
 def test_callback_travel_trigger_names_exactly_one_registered_travel_method(directory, trigger, code, detail):
-    """出行触发必须带出行方式，其他动作触发不得带；旧出行动作名不再是合法的键；未登记的身份指出文件、行号和值。"""
+    """出行触发必须带出行方式，其他动作触发不得带；旧出行动作名和查询（query）都不是合法的键；未登记的身份指出文件、行号
+    和值。"""
     write_catalog_rows(directory.parent, "callbacks.jsonl", [
         {"state": "stock", "initial": 1, "cap": 3, "reset_on_goods": []},
         {"rule_id": "rule", "trigger": trigger, "effect": {"type": "state_delta", "state": "stock", "delta": -1}}])

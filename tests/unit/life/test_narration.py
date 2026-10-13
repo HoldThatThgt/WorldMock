@@ -24,8 +24,7 @@ from worldmock.life.narration import (
 #: 观察私有证据与私有绑定：只给宿主与读者，绝不渲染进提示。
 _PRIVATE_KEYS = ("interaction_bindings", "goal_bindings", "activity_bindings", "session_bindings",
                  "persona_views", "progress_meta", "progress_event_ids",
-                 "continuation", "errand_bindings", "errand_item_bindings", "world_query_bindings",
-                 "world_query_page_size")
+                 "continuation", "errand_bindings", "errand_item_bindings")
 
 
 class TestFieldBlacklist:
@@ -116,11 +115,11 @@ class TestRenderLayerJson:
     def test_layer_arrays_render_in_the_given_order(self) -> None:
         """user 的层数组按给定层序渲染，同一输入逐字节相同。"""
         layers = [{"layer": "工具层", "targets": [], "callable_index": {
-            "goods": [], "navigation_apps": [], "payment_apps": [], "query_categories": []}},
+            "goods": [], "navigation_apps": [], "payment_apps": []}},
                   {"layer": "人设层", "habits": []}]
         assert render_layer_json(layers) == (
             '[{"layer":"工具层","groups":[],"callable_index":'
-            '{"goods":[],"navigation_apps":[],"payment_apps":[],"query_categories":[]}},{"layer":"人设层","habits":[]}]')
+            '{"goods":[],"navigation_apps":[],"payment_apps":[]}},{"layer":"人设层","habits":[]}]')
         assert render_layer_json(layers) == render_layer_json(json.loads(render_layer_json(layers)))
 
     def test_rejects_blacklist_before_render(self) -> None:
@@ -171,7 +170,7 @@ _FORBIDDEN_KEYS = frozenset({
     'reference_assessments', 'reference_id', 'resource_changes', 'session_bindings',
     'session_id', 'sleep_deficit_hours', 'sleep_need_hours', 'sleep_pressure',
     'source_event_id', 'store_id', 'task_id', 'trip_id',
-    'world_query_bindings', 'world_query_page_size', 'world_state_version',
+    'world_state_version',
 })
 
 
@@ -184,7 +183,7 @@ class TestForbiddenKeys:
         """@brief 独立列出的私有字段经实际渲染入口逐键拒绝，不从实现常量生成测试输入。"""
         keys = _FORBIDDEN_KEYS
         assert len(keys) >= 55
-        assert {"home_location_id", "world_query_page_size", "location_id", "errand_id", "goods_id", "app_id",
+        assert {"home_location_id", "location_id", "errand_id", "goods_id", "app_id",
                 "payment_app_id", "interaction_bindings"} <= keys
         assert keys <= FORBIDDEN_OBSERVATION_KEYS, sorted(keys - FORBIDDEN_OBSERVATION_KEYS)
         for key in sorted(keys):
@@ -192,6 +191,14 @@ class TestForbiddenKeys:
                 enforce_field_blacklist({key: "leak"})
             with pytest.raises(ForbiddenObservationFieldError, match=re.escape(key)):
                 render_layer_json([{"layer": "环境层", "location": {"name": "自己家", key: "leak"}}])
+
+    @pytest.mark.parametrize("removed", ["world_query_bindings", "world_query_page_size"])
+    def test_removed_world_query_keys_are_no_longer_forbidden(self, removed: str) -> None:
+        """@brief 已删除的查询私有键不再是禁键：经禁键检查与真实渲染入口都照常通过。"""
+        assert removed not in FORBIDDEN_OBSERVATION_KEYS
+        enforce_field_blacklist({removed: "value"})
+        layer = {"layer": "环境层", "location": {"name": "自己家", removed: "value"}}
+        assert json.loads(render_layer_json([layer])) == [layer]
 
     def test_home_identity_cannot_enter_any_layer(self) -> None:
         """@brief 本人住处的地点身份（「家」「住处」按它解析，只留在观察顶层）混进环境层或工具层目标即被拒绝，路径写到
