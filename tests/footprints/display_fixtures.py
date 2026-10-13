@@ -10,16 +10,23 @@ from tests.data_paths import ENVIRONMENT_ROOT
 
 
 @lru_cache(maxsize=1)
-def sample_display_names():
-    """@brief 样例环境五份目录经登记时的严格行模型建出的显示名称。"""
+def sample_catalog_rows():
+    """@brief 样例环境五份目录经登记时的严格行模型读出的行，次序即 display_names 的入参次序。"""
     from worldmock.catalog.loader import read_catalog_rows
     from worldmock.catalog.models import App, Content, Goods, Location, TravelMethod
-    from worldmock.footprints.display_wording import display_names
 
     directory = ENVIRONMENT_ROOT / "catalog"
-    return display_names(*(read_catalog_rows(directory, name, model) for name, model in (
+    return tuple(tuple(read_catalog_rows(directory, name, model)) for name, model in (
         ("app-catalog.jsonl", App), ("content-catalog.jsonl", Content), ("location.jsonl", Location),
-        ("merchant-catalog.jsonl", Goods), ("travel-method.jsonl", TravelMethod))))
+        ("merchant-catalog.jsonl", Goods), ("travel-method.jsonl", TravelMethod)))
+
+
+@lru_cache(maxsize=1)
+def sample_display_names():
+    """@brief 样例环境五份目录建出的显示名称。"""
+    from worldmock.footprints.display_wording import display_names
+
+    return display_names(*sample_catalog_rows())
 
 
 def freeze_environment(run_dir: Path, root: Path = ENVIRONMENT_ROOT, replaced: dict | None = None) -> dict:

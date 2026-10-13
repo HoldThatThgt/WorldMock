@@ -11,8 +11,8 @@ from worldmock.footprints.models import (
     WAKE_REASONS_FIELD,
     Event,
 )
-from tests.footprints.display_fixtures import sample_display_names
-from worldmock.footprints.display_wording import ContentName, DisplayNames
+from tests.footprints.display_fixtures import sample_catalog_rows, sample_display_names
+from worldmock.footprints.display_wording import display_names
 from worldmock.footprints.quality import build_quality_report
 from worldmock.life.error_contract import ErrorItem, ErrorReport
 
@@ -904,12 +904,18 @@ def _progress(sequence, snapshot, start, end):
                         "interval_start": start, "interval_end": end})
 
 
-def _timeline_names(place, lifestyle):
-    """目录里的名称由入参给：一个地点、一个只用来打开的 app，以及一个带一条内容的阅读 app（内容标题在书名号里，不检查）。"""
-    names = sample_display_names()
-    return DisplayNames(apps={**names.apps, "platform": lifestyle, "reader": "阅读"}, contents=names.contents,
-                        goods=names.goods, locations={**names.locations, "loc-x": place},
-                        travel_methods=names.travel_methods)
+def _timeline_names(place, lifestyle, subject, title):
+    """目录里的名称由入参给：一个地点、一个只用来打开的 app，以及一个带一条内容的阅读 app（内容标题在书名号里，不检查）。
+    名称表照目录行经 display_names 建出：在样例环境的行上照抄一行、换掉身份与名称。"""
+    apps, contents, locations, goods, methods = sample_catalog_rows()
+    app, location = apps[0], locations[0]
+    content = next(row for row in contents if row.series is None)
+    return display_names(
+        [*apps, app.model_copy(update={"app_id": "platform", "name": lifestyle}),
+         app.model_copy(update={"app_id": "reader", "name": "阅读"})],
+        [*contents, content.model_copy(update={"content_id": subject, "title": title})],
+        [*locations, location.model_copy(update={"location_id": "loc-x", "name": place, "branch_label": None})],
+        goods, methods)
 
 
 def _timeline_events(subject):
@@ -925,15 +931,9 @@ def _timeline_events(subject):
     ]
 
 
-def _subject_names(names, subject, title):
-    """给阅读 app 那条内容登记标题。"""
-    return DisplayNames(apps=names.apps, contents={**names.contents, subject: ContentName(title, title, False)},
-                        goods=names.goods, locations=names.locations, travel_methods=names.travel_methods)
-
-
 def _labels_report(place, lifestyle, title):
     """同批事件经唯一的渲染器投影后的时间线标签检查；名称由入参给。"""
-    names = _subject_names(_timeline_names(place, lifestyle), "topic", title)
+    names = _timeline_names(place, lifestyle, "topic", title)
     return build_quality_report(_timeline_events("topic"), [], _manifest(), names)["timeline_labels"]
 
 
