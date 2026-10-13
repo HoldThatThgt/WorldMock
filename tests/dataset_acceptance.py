@@ -418,4 +418,39 @@ MUTATIONS = (
         ("tests/unit/runtime/test_model_identity.py::test_tampered_identity_is_rejected",
          "tests/integration/runtime/test_life_agent_protocol.py"
          "::test_reasoning_content_is_persisted_in_model_response_evidence")),
+    SourceMutation("app_use_wording_drops_the_app_name", "worldmock.footprints.display_wording::_interact_phrase",
+        'return f"使用{app}{_titles(names, content_ids)}"', 'return f"使用{_titles(names, content_ids)}"',
+        ("tests/integration/footprints/test_render_day.py::test_app_use_row_names_the_app_and_every_item_in_order",
+         "tests/unit/footprints/test_display_wording.py"
+         "::test_shared_cases_give_the_same_names_and_wording_as_the_viewer")),
+    SourceMutation("event_content_read_from_the_snapshot_only", "worldmock.footprints.display_wording::event_content_id",
+        "if content is not None:", "if False:",
+        ("tests/integration/footprints/test_render_day.py"
+         "::test_rows_list_what_was_played_not_the_next_item_in_the_snapshot",
+         "tests/unit/footprints/test_display_wording.py"
+         "::test_shared_cases_give_the_same_names_and_wording_as_the_viewer")),
+    SourceMutation("location_wording_drops_the_place", "worldmock.footprints.display_wording::_interact_phrase",
+        'return f"在{place}：{first.unit}"', "return first.unit",
+        ("tests/integration/footprints/test_render_day.py"
+         "::test_location_rows_name_the_place_the_unit_and_the_series_episodes",)),
+    SourceMutation("store_order_written_as_ordered_through_an_app",
+        "worldmock.footprints.display_wording::_purchase_phrase",
+        'grouped.setdefault(orders[order_id]["app_id"], [])',
+        'grouped.setdefault(orders[order_id]["app_id"] or orders[order_id]["payment_app_id"], [])',
+        ("tests/integration/footprints/test_render_day.py::test_purchase_row_is_split_by_order_with_its_channel",)),
+    SourceMutation("experience_sentence_without_the_app_name", "worldmock.life.settled_text::experience_sentence",
+        "return f\"{span} {activity_phrase(names, snapshot, [fact['content_id']], {})}\"",
+        "return f\"{span} 进行《{catalog.contents[fact['content_id']].title}》\"",
+        ("tests/integration/life/test_planning_and_errand_evidence.py"
+         "::test_plan_inputs_word_app_use_and_location_activities_like_the_timeline",)),
+    SourceMutation("inspector_clock_ignores_the_run_timezone", "scripts.inspect_run::_t",
+        'return datetime.fromtimestamp(epoch, zone).strftime("%m-%d %H:%M:%S")',
+        'return datetime.fromtimestamp(epoch).strftime("%m-%d %H:%M:%S")',
+        ("tests/integration/footprints/test_inspect_current_activity.py"
+         "::test_inspector_clocks_follow_the_run_timezone",)),
+    SourceMutation("accepted_line_reads_the_tool_name", "scripts.inspect_run::_brief",
+        'phrase = _activity_brief(d, display) if "activity" in d else d["message"]',
+        'phrase = d.get("tool_name", "?")',
+        ("tests/integration/footprints/test_inspect_current_activity.py"
+         "::test_inspector_accepted_and_rejected_lines_read_the_current_fields",)),
 )

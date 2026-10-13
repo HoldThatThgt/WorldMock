@@ -96,11 +96,13 @@ test('the current tool layer contains only the four actual actions with lossless
   assert.ok(methods.has('公司'));
   for (const details of methods.values()) assert.deepEqual([...details].sort(), ['公共交通', '打车', '步行', '驾车']);
   const items = plain(api.drillItems(tool));
+  const words = {travel: '出行', sleep: '睡觉', purchase: '购买'};
   for (const group of groups) for (const entry of group.targets) {
     const merged = {...group.shared, ...entry, kind:group.kind};
     assert.ok(items.some(item => item.text === JSON.stringify(merged, null, 2)));
-    // 带 detail 的行（出行、在地点做事）标签写「目标 · 动作 · detail · 可用性」，没有 detail 的行不留空位。
-    const named = entry.detail == null ? group.action : `${group.action} · ${entry.detail}`;
+    // 带 detail 的行（出行、在地点做事）标签写「目标 · 动作的中文名 · detail · 可用性」，没有 detail 的行不留空位。
+    const word = group.action === 'interact' ? {app: '使用', location: '做'}[group.kind] : words[group.action];
+    const named = entry.detail == null ? word : `${word} · ${entry.detail}`;
     const state = merged.available ? '可用' : `不可用：${merged.reason}`;
     if (group.action !== null) assert.ok(items.some(item => item.label === `${entry.name} · ${named} · ${state}`),
       `${entry.name} · ${named} · ${state}`);
@@ -142,7 +144,7 @@ function inlineRequest(toolLayer) {
     name => ({type: 'function', function: {name}}))};
 }
 
-test('tool layer drill-down names the detail of travel and location rows between the action and the availability', () => {
+test('tool layer drill-down writes action names in Chinese and keeps categories and raw JSON', () => {
   const {api, errors} = parser();
   const original = inlineRequest(START_TOOL_LAYER);
   const parsed = api.parseRequest(event(original));
@@ -152,27 +154,39 @@ test('tool layer drill-down names the detail of travel and location rows between
   assert.equal(messageBlocks(parsed).map(block => block.text).join(''), original.messages[1].content);
   const tool = parsed.blocks.find(block => block.key === 'tool');
   const items = plain(api.drillItems(tool));
-  // 每个分组行先给目标一项，再给它的动作一项：带 detail 的行写「目标 · 动作 · detail · 可用性」，没有 detail 的行不留空位。
+  // 每个分组行先给目标一项（类别保持原文），再给它的动作一项：动作名换成中文，interact 在 location 下是「做」、在 app 下是
+  // 「使用」；带 detail 的行写「目标 · 动作 · detail · 可用性」，没有 detail 的行不留空位。
   assert.deepEqual(items.map(item => item.label), [
-    '公司（location）', '公司 · travel · 步行 · 可用',
-    '公司（location）', "公司 · travel · 驾车 · 不可用：The caller's available balance is below the route fare.",
-    '公司（location）', '公司 · travel · 打车 · 可用',
-    '公司（location）', '公司 · travel · 公共交通 · 可用',
-    '家（location）', '家 · interact · 测试闲聊 · 可用',
-    '家（location）', '家 · interact · 测试休息 · 可用',
-    '家（location）', '家 · sleep · 可用',
-    '柠檬茶（product）', '柠檬茶 · purchase · 可用',
-    '哔哩哔哩（app）', '哔哩哔哩 · interact · 可用',
+    '公司（location）', '公司 · 出行 · 步行 · 可用',
+    '公司（location）', "公司 · 出行 · 驾车 · 不可用：The caller's available balance is below the route fare.",
+    '公司（location）', '公司 · 出行 · 打车 · 可用',
+    '公司（location）', '公司 · 出行 · 公共交通 · 可用',
+    '家（location）', '家 · 做 · 测试闲聊 · 可用',
+    '家（location）', '家 · 做 · 测试休息 · 可用',
+    '家（location）', '家 · 睡觉 · 可用',
+    '柠檬茶（product）', '柠檬茶 · 购买 · 可用',
+    '哔哩哔哩（app）', '哔哩哔哩 · 使用 · 可用',
   ]);
-  // 同一目的地的四行出行只靠 detail 区分；下钻正文无损：动作在前，其后是分组共有字段、本行字段与类别。
+  // 同一目的地的四行出行只靠 detail 区分；下钻正文无损：原始 JSON，动作在前（英文原值），其后是分组共有字段、本行字段与类别。
   const text = label => JSON.parse(items.find(item => item.label === label).text);
-  assert.deepEqual(text('公司 · travel · 公共交通 · 可用'), {action: 'travel', state: '全天营业', name: '公司',
+  assert.deepEqual(text('公司 · 出行 · 公共交通 · 可用'), {action: 'travel', state: '全天营业', name: '公司',
     detail: '公共交通', available: true, price: '2 元', duration: '约 8 分钟', note: '轻松', kind: 'location'});
-  assert.deepEqual(text('家 · interact · 测试休息 · 可用'), {action: 'interact', state: '全天营业', available: true,
+  assert.deepEqual(text('家 · 做 · 测试休息 · 可用'), {action: 'interact', state: '全天营业', available: true,
     name: '家', detail: '测试休息', duration: '约 15 分钟', kind: 'location'});
-  assert.deepEqual(text('家 · sleep · 可用'), {action: 'sleep', state: '全天营业', available: true,
+  assert.deepEqual(text('家 · 睡觉 · 可用'), {action: 'sleep', state: '全天营业', available: true,
     note: '现在不欠觉', name: '家', kind: 'location'});
-  for (const item of items) assert.doesNotMatch(item.label, /undefined|null| ·  · /);
+  assert.deepEqual(text('哔哩哔哩 · 使用 · 可用'), {action: 'interact', available: true, name: '哔哩哔哩',
+    duration: '约 5 分钟–约 40 分钟', kind: 'app'});
+  assert.deepEqual(text('公司（location）'), {state: '全天营业', name: '公司', detail: '步行', available: true,
+    price: '0 元', duration: '约 32 分钟', note: '费力', kind: 'location'});
+  for (const item of items) {
+    assert.doesNotMatch(item.label, /undefined|null| ·  · | · (interact|travel|sleep|purchase) · /);
+  }
+  // 动作的中文表只有这一张：页面的动作请求行经 ViewerContext 用同一个取词函数，表里没有的动作照原值。
+  const pairs = [['interact', 'app'], ['interact', 'location'], ['travel', 'location'], ['sleep', 'location'],
+    ['purchase', 'product'], ['purchase', 'app'], ['unknown', 'app']];
+  assert.deepEqual(pairs.map(([action, kind]) => api.actionWord(action, kind)),
+    ['使用', '做', '出行', '睡觉', '购买', '购买', 'unknown']);
   assert.equal(errors.length, 0);
 });
 

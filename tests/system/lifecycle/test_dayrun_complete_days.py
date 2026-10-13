@@ -29,8 +29,9 @@ def test_complete_days_reach_declared_stop_without_failure(engine_factory, tmp_p
 
 def test_day_timeline_of_a_real_day_names_what_each_start_tool_started(engine_factory, tmp_path):
     """完整自然日的真实运行只用两个开始工具开始活动：在家休息并同时刷哔哩哔哩（一个开始组）、买两份柠檬茶、驾车去公司，
-    之后步行回家睡到截止。日时间线经 scripts/render_day.py 的命令行入口从运行的 SQLite 投影：每项活动一行中文标签，
-    同组开始的两项活动各占一行、同一时刻起；出行写实际方式与目的地，在地点做的事写所点名的单元名。"""
+    之后步行回家睡到截止。日时间线经 scripts/render_day.py 的命令行入口从运行的 SQLite 投影：每项活动一行统一写法，
+    同组开始的两项活动各占一行、同一时刻起；在地点做的事写「在<地点>：<单元名>」，用 app 写 app 名与看过的各条内容，
+    购买写商品与订单记录上的下单 app，出行写实际方式与目的地，睡眠写「睡觉」。"""
     def one_day(persona, config):
         config["stop_time"] = config["start_time"] + timedelta(days=1)
 
@@ -62,9 +63,13 @@ def test_day_timeline_of_a_real_day_names_what_each_start_tool_started(engine_fa
     assert lines[:4] == ["# 人物 1 · 2026-01-05 周一", "", "| 起止 | 活动 | 总时长 | 段数 |", "| --- | --- | --- | --- |"]
     rows = [line.strip("| ").split(" | ") for line in lines[4:]]
     labels = [row[1] for row in rows]
-    watched = engine.context.catalog.contents[engine.context.state.activities[watch.activity_id].data["content_id"]]
-    assert "bilibili" in watched.app_ids
-    assert labels[:5] == ["互动《测试休息》", f"互动《{watched.title}》", "购买", "驾车去公司", "步行去家"]
+    catalog = engine.context.catalog
+    played = engine.context.state.activities[watch.activity_id].data["played"]
+    titles = "".join(f"《{catalog.contents[row['content_id']].title}》" for row in played)
+    assert titles and all("bilibili" in catalog.contents[row["content_id"]].app_ids for row in played)
+    [ordering] = {catalog.apps[order.app_id].name for order in engine.context.state.deliveries.values()}
+    assert labels[:5] == ["在家：测试休息", f"使用哔哩哔哩{titles}", f"购买柠檬茶×2（经{ordering}下单）", "驾车去公司",
+                          "步行去家"]
     assert labels[5:] and set(labels[5:]) == {"睡觉"}
     # 同组开始的两项活动同一时刻起；在地点做的事照所点名单元的登记时长（900 秒）结束。
     assert rows[0][0] == "08:00–08:15" and rows[0][2] == "15 分钟"

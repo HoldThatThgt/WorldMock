@@ -327,12 +327,24 @@ const ViewerContext = {};
       continuation: sources !== null};
   }
 
+  /* 动作的中文名，查看器只有这一张：工具层下钻的标签和页面的动作请求行都用它。interact 按所在分组的类别取词，
+   * 用内容 app（类别 app）是「使用」，在地点做事（类别 location）是「做」。 */
+  const ACTION_WORDS = {interact: {app: '使用', location: '做'}, travel: '出行', sleep: '睡觉', purchase: '购买'};
+
+  /** @brief 动作在某个目标类别下的中文名；表里没有的动作或类别照原值显示。 */
+  function actionWord(action, kind) {
+    const word = ACTION_WORDS[action];
+    if (word === undefined) return action;
+    return typeof word === 'string' ? word : (word[kind] ?? action);
+  }
+
   /** @brief 可用性短语：可用，或「不可用：」加环境给出的原因原文。 */
   function availability(row) {
     return row?.available ? '可用' : `不可用：${row?.reason ?? ''}`;
   }
 
-  /** @brief 工具层下钻：每个目标一项，其后逐个列出该目标的动作与工具及可用性。 */
+  /** @brief 工具层下钻：每个目标一项，其后逐个列出该目标的动作（按分组的类别写中文名）与工具及可用性；
+   * 目标类别、工具名和下钻正文保持原文。 */
   function toolItems(layer) {
     const items = [];
     for (const group of Array.isArray(layer?.groups) ? layer.groups : []) {
@@ -341,7 +353,8 @@ const ViewerContext = {};
         items.push({label:`${target.name}（${target.kind}）`, text:JSON.stringify(target, null, 2)});
         if (group.action !== null) {
           const action = {action:group.action, ...target};
-          const named = target.detail == null ? group.action : `${group.action} · ${target.detail}`;
+          const word = actionWord(group.action, group.kind);
+          const named = target.detail == null ? word : `${word} · ${target.detail}`;
           items.push({label:`${target.name} · ${named} · ${availability(target)}`,
             text:JSON.stringify(action, null, 2)});
         }
@@ -394,5 +407,5 @@ const ViewerContext = {};
     return changes;
   }
 
-  Object.assign(ViewerContext, {parseRequest, prefixCallIds, classify, compare, drillItems, rules});
+  Object.assign(ViewerContext, {parseRequest, prefixCallIds, classify, compare, drillItems, actionWord, rules});
 }

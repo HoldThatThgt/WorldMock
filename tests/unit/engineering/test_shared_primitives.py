@@ -22,6 +22,7 @@ from worldmock.errors import IntegrityError, ProtocolError, reject_value
 from worldmock.evaluation import behavior_metrics, goal_metrics, workload_metrics
 from worldmock.footprints import assets
 from worldmock.footprints.timeline_labels import _load_render_day
+from tests.footprints.display_fixtures import sample_display_names
 from worldmock.footprints.intervals import body_settlements, valid_interval
 from worldmock.footprints.models import Event, canonical_json, is_sha256, sha256_json
 from worldmock.footprints.timeline_labels import local_day_bounds, split_local_days, timeline_label_report, window_days
@@ -297,12 +298,13 @@ def test_renderer_and_label_report_use_manifest_timezone_and_real_local_day(zone
     assert split_local_days(start, end, zone) == [(day, start, end)]
     event = _body(start, end).model_copy(update={'event_type': 'activity_progress', 'occurred_at': end,
         'activity_id': 'activity', 'data': {'interval_start': start, 'interval_end': end,
-                                           'activity': {'activity_id': 'activity', 'kind': 'sleep', 'status': 'active'}}})
+                                           'activity': {'activity_id': 'activity', 'kind': 'sleep', 'status': 'active',
+                                                        'location_id': 'home', 'data': {}}}})
     renderer = _load_render_day()
-    rows = renderer.day_rows([event.model_dump(mode='json')], {}, day, zone)
+    rows = renderer.day_rows([event.model_dump(mode='json')], {}, sample_display_names(), day, zone)
     assert rows[0]['interval'] == '00:00–00:00'
-    assert rows[0]['duration'] == f'{length//3600} 小时'
-    assert timeline_label_report([event], {'window': window})['rows_checked'] == 1
+    assert rows[0]['duration'] == f'{length//3600} 小时' and rows[0]['label'] == '睡觉'
+    assert timeline_label_report([event], {'window': window}, sample_display_names())['rows_checked'] == 1
     zone_info = __import__('zoneinfo').ZoneInfo(zone)
     body = _body(start, end).model_dump()
     agent = workload_metrics.AgentWorkday(None, 'home', None, 'home', None, None)
