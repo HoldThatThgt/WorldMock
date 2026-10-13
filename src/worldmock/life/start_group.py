@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 
-from worldmock.errors import BusinessRuleError, PreconditionError, ProtocolError
+from worldmock.errors import BusinessRuleError, PreconditionError
 from worldmock.footprints.models import EventDraft
 from worldmock.life import activity_control, admission, same_moment, sessions
 from worldmock.life.action_contract import ACTION_LABELS, START_TOOLS
@@ -211,21 +211,24 @@ class StartGroups:
     def _start(self, state: WorldState, item: _Started, stay_location_id: str | None) -> WorldState:
         """@brief 一条调用恰好开始一项活动，五个动作各走自己的一支：出行、睡眠、购买、查询或 interact。
 
+        按动作查表，没有兜底的一支：两个开始工具的动作都是请求模型里的闭集，与整组核验、名称解析按动作查表一致。
+
         :param stay_location_id: 本轮请求生效之前的停留地点，app 内容的前提按它筛选。
         """
-        action, pending, rows = item.call.action, item.pending, item.call.rows
-        if action == "travel":
-            return self._start_travel(state, pending, rows[0])
-        if action == "sleep":
-            return self._start_sleep(state, pending, rows[0]["minutes"] * 60)
-        if action == "purchase":
-            return self.storefront.prepare_purchase(state, pending, item.call.goods_ids, item.call.prefer)[0]
-        if action == "query":
-            return start_query(self.context, state, pending, item.call)
-        if action != "interact":
-            _LOGGER.error("Start action has no start branch: %s", action)
-            raise ProtocolError("Start action has no start branch")
-        changed, _, drafts = InteractivityRuntime(self.context).start(state, pending, rows[0], stay_location_id)
+        pending, call = item.pending, item.call
+        starts = {
+            "travel": lambda: self._start_travel(state, pending, call.rows[0]),
+            "sleep": lambda: self._start_sleep(state, pending, call.rows[0]["minutes"] * 60),
+            "purchase": lambda: self.storefront.prepare_purchase(state, pending, call.goods_ids, call.prefer)[0],
+            "query": lambda: start_query(self.context, state, pending, call),
+            "interact": lambda: self._start_interact(state, pending, call.rows[0], stay_location_id),
+        }
+        return starts[call.action]()
+
+    def _start_interact(self, state: WorldState, pending: PendingAction, row: dict,
+                        stay_location_id: str | None) -> WorldState:
+        """@brief 开始一次 interact（用内容 app 或在地点做一件事），并收下它要写的事件草稿。"""
+        changed, _, drafts = InteractivityRuntime(self.context).start(state, pending, row, stay_location_id)
         self.event_drafts.extend(drafts)
         return changed
 
