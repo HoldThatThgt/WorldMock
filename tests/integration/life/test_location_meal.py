@@ -303,13 +303,15 @@ def _end_dinner_at(seconds):
     return end
 
 
-@pytest.mark.parametrize("end", [_end_rest_midway, _end_rest_at_once, _end_rest_after_pausing, _end_dinner_at(600),
-                                 _end_dinner_at(2400)],
+@pytest.mark.parametrize("end,elapsed", [(_end_rest_midway, True), (_end_rest_at_once, False),
+                                         (_end_rest_after_pausing, True), (_end_dinner_at(600), True),
+                                         (_end_dinner_at(2400), True)],
                          ids=["rest-midway", "rest-ended-in-its-first-second", "rest-paused-then-ended",
                               "dinner-while-cooking", "dinner-while-eating"])
-def test_ending_early_settles_no_completion_effects(engine_factory, tmp_path, end):
+def test_ending_early_settles_no_completion_effects(engine_factory, tmp_path, end, elapsed):
     """做到一半结束、开始的同一秒就结束、暂停后再结束、系列在《备菜做饭》里结束、《吃晚饭》做到一半结束（被结束的一集
-    不供餐）：都没有完成效果，能量从不进账；被结束的这件事仍按「结束就算做完」记进度，整个单元的轮数是 1。"""
+    不供餐）：都没有完成效果，能量从不进账，时间走过的只有消耗、一秒没走的原样不变；被结束的这件事仍按「结束就算做完」
+    记进度，整个单元的轮数是 1。"""
     engine = meal_engine(engine_factory, tmp_path, body(1000.0, None, every_five_minutes))
     activity, name = end(engine)
     _, concluded = act(engine, "end", conclude_request(name), "conclude_activity")
@@ -318,7 +320,7 @@ def test_ending_early_settles_no_completion_effects(engine_factory, tmp_path, en
     assert fed(engine) == [] and not any(energy_sources(row) for row in progress_rows(engine))
     assert all(row.data["content"]["completion_effects"] is None for row in progress_rows(engine, activity.activity_id)
                if "content" in row.data)
-    assert energy_now(engine) <= 1000.0
+    assert (energy_now(engine) < 1000.0) if elapsed else (energy_now(engine) == 1000.0)
     progress = engine.context.state.agents[1].content_progress
     unit = ("c-rest",) if name.startswith("进行测试休息") else ("dinner-1-cook", "dinner-2-eat", "dinner-3-wash")
     assert {key: (progress[key].position_seconds, progress[key].completed_rounds) for key in unit} == {
