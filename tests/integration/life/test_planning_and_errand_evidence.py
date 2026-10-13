@@ -8,8 +8,8 @@ from datetime import timedelta
 import pytest
 
 from tests.life.conftest import (
-    advance_until_ready, conclude_request, do_at, errand_cancel, errand_update, plan_day_response, settle_day_plans,
-    stage_errands, travel, use_app,
+    advance_until_ready, conclude_request, do_at, errand_cancel, errand_update, plan_day_response, purchase,
+    settle_day_plans, stage_errands, travel, use_app,
 )
 from tests.life.environment_inputs import copy_environment
 from tests.life.environment_runtime import act, events, finish_activity, settle_decision
@@ -17,6 +17,7 @@ from tests.life.prerequisite_inputs import add_rows
 from tests.unit.life.test_planning_and_errand_boundaries import note
 from worldmock.errors import ProtocolError
 from worldmock.life.day_plan_inputs import plan_inputs
+from worldmock.life.readable import clock_phrase
 from worldmock.runtime import settle_pending_day_plans
 
 #: 经历句开头的起止：「HH:MM–HH:MM」，跨日时各带「M月D日 」。
@@ -36,15 +37,32 @@ def _dinner_environment(tmp_path):
 
 
 def _lived_day(engine):
-    """真实引擎在家用一次哔哩哔哩、做一次「测试休息」和一次「做晚饭」系列，各自做到头并收尾；返回用 app 看过的标题。"""
+    """真实引擎在家用一次哔哩哔哩、做一次「测试休息」和一次「做晚饭」系列，各自做到头并收尾；再步行去四季便利，在店里
+    买一包纸巾当场拿到。返回用 app 看过的标题。"""
     _, watched = act(engine, "watch", use_app("哔哩哔哩"))
     finish_activity(engine, watched, "watch")
     for label, unit in (("rest", "测试休息"), ("dinner", "做晚饭")):
         _, started = act(engine, label, do_at("家", unit))
         assert started.status == "in_progress", started.error_code
         finish_activity(engine, started, label)
+    for label, request in (("trip", travel("四季便利")), ("tissue", purchase("纸巾"))):
+        _, started = act(engine, label, request)
+        assert started.status == "in_progress", started.error_code
+        finish_activity(engine, started, label)
     played = engine.context.state.activities[watched.activity_id].data["played"]
     return {engine.context.catalog.contents[row["content_id"]].title for row in played}
+
+
+def _arrival_and_receipt(engine):
+    """这一天唯一的到达与收货照改动之前的写法应写成的两句：「<时刻> 步行到了四季便利」（进不去时接「，但没能进去」）与
+    「<时刻> 收到纸巾 1 份」。"""
+    now, zone = engine.context.state.current_time, engine.context.config.timezone
+    [arrived] = [row for row in events(engine, "activity_progress")
+                 if "arrival" in row.data["activity"]["data"] and row.data["activity"]["status"] == "completed"]
+    [received] = [row for row in events(engine, "environment_event") if row.data.get("kind") == "goods_received"]
+    denied = "，但没能进去" if arrived.data["activity"]["data"]["arrival"]["access_status"] == "denied" else ""
+    return [f"{clock_phrase(arrived.occurred_at, now, zone)} 步行到了四季便利{denied}",
+            f"{clock_phrase(received.occurred_at, now, zone)} 收到纸巾 1 份"]
 
 
 def _content_tails(sentences):
@@ -147,10 +165,13 @@ async def test_invalid_reminder_uses_only_its_validation_budget_and_retains_corr
 
 def test_plan_inputs_word_app_use_and_location_activities_like_the_timeline(engine_factory, tmp_path):
     """用完 app、在地点做完一件事和一个系列之后，零点计划读到的内容经历句是「<起>–<止> 使用哔哩哔哩《……》」「<起>–<止>
-    在家：测试休息」「<起>–<止> 在家：做晚饭《<集>》」，系列逐集一句；不再写「进行《……》」。"""
+    在家：测试休息」「<起>–<止> 在家：做晚饭《<集>》」，系列逐集一句；不再写「进行《……》」。同一天的到达句与收货句
+    照旧。"""
     engine = engine_factory(environment_root=_dinner_environment(tmp_path))
     titles = _lived_day(engine)
     planned = plan_inputs(engine.context, engine.observations, engine.midnight_rhythm_pending, 1)
+    sentences = [sentence for sentence, _ in planned.experiences]
+    assert [sentence for sentence in sentences if "到了" in sentence or "收到" in sentence] == _arrival_and_receipt(engine)
     tails = _content_tails([sentence for sentence, _ in planned.experiences])
     watched = [tail for tail in tails if tail.startswith("使用")]
     assert watched and {tail.removeprefix("使用哔哩哔哩《").removesuffix("》") for tail in watched} == titles
