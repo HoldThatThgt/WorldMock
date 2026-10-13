@@ -14,11 +14,9 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from scripts import inspect_run
-from tests.integration.runtime.current_contract_fixtures import environment
-from tests.integration.runtime.test_same_second_continuation import _reply, _step, _workspace_person
-from tests.life.conftest import (
-    advance_next, advance_until_ready, do_at, purchase, sleep, stage_day_plan, travel, use_app,
-)
+from tests.integration.reflection_fixtures import host_run
+from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
+from tests.life.conftest import advance_next, do_at, purchase, sleep, stage_day_plan, travel, use_app
 from tests.life.environment_runtime import act, events, finish_activity, reach
 from worldmock.status import write_status
 
@@ -204,23 +202,15 @@ def test_inspector_accepted_and_rejected_lines_read_the_current_fields(engine_fa
 
 @pytest.mark.asyncio
 async def test_inspector_plan_revision_and_memory_lines(engine_factory, capsys, tmp_path):
-    """经真实宿主修订一次当日计划、结束一项活动并写出记忆：不带活动快照的受理行是「Day plan revised → completed」；
-    记忆行的条数等于事件 episodes 的条数，且不为 0。"""
+    """经真实宿主流程修订一次当日计划（current_contract_fixtures 的 decide），再由启用记忆的真实人物在家做一次「测试休息」、
+    收尾时写下一条记忆（reflection_fixtures 的 host_run）：不带活动快照的受理行是「Day plan revised → completed」；记忆行
+    的条数等于事件 episodes 的条数，且不为 0。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    env = environment(engine)
-    agent, _ = await _workspace_person(env, tmp_path / "agent", [
-        _reply("plan", "revise_day_plan", {"goals": []}, "今天不用列目标。")])
-    await _step(env, agent, "plan")
-    _, chat = act(engine, "chat", do_at("家", "测试闲聊"))
-    assert advance_until_ready(engine)
-    name = engine.context.state.activities[chat.activity_id].name
-    memory = {"type": "reflection", "text": "聊天让我心情轻松。", "importance": 0.3, "keywords": ["聊天"]}
-    conclusion = {"items": [{"activity_name": name, "summary": "聊完了。", "memories": [memory], "views": []}],
-                  "errands": []}
-    agent, _ = await _workspace_person(env, tmp_path / "agent", [
-        _reply("conclude", "conclude_activity", conclusion, "聊完了，记一笔。")])
-    await _step(env, agent, "concluded")
+    _, _, answer, _ = await decide(engine, "plan", [ToolResponse("revise_day_plan", {"goals": []})])
+    assert answer == "revise_day_plan registered"
+    person = await host_run(engine, tmp_path / "agent")
+    await person.rest_and_note("休息让我心情轻松。")
     lines = _events(engine, capsys)
     [revised] = [row for row in events(engine, "action_accepted") if row.data.get("message") == "Day plan revised"]
     assert _line(lines, revised.event_seq).endswith("action_accepted      Day plan revised → completed")
@@ -299,7 +289,7 @@ def test_inspector_summary_reads_the_run_files_as_utf8(engine_factory, capsys, m
 
 def test_queries_is_no_longer_a_subcommand(engine_factory):
     """子进程运行 scripts/inspect_run.py <运行目录> queries：退出码 2，标准错误含 invalid choice: 'queries'；
-    同一运行目录的 summary 在「没写编码的文本读取即失败」的解释器开关下退出码 0。"""
+    同一运行目录的 summary 退出码 0。"""
     engine = engine_factory()
     run_dir = engine.context.store.run_dir
     write_status(run_dir, "running", "deciding")
@@ -308,8 +298,7 @@ def test_queries_is_no_longer_a_subcommand(engine_factory):
     refused = subprocess.run([sys.executable, script, str(run_dir), "queries"], capture_output=True, text=True,
                              encoding="utf-8", env=child, check=False)
     assert refused.returncode == 2 and "invalid choice: 'queries'" in refused.stderr
-    strict = [sys.executable, "-X", "warn_default_encoding", "-W", "error::EncodingWarning"]
-    summary = subprocess.run([*strict, script, str(run_dir), "summary"], capture_output=True, text=True,
+    summary = subprocess.run([sys.executable, script, str(run_dir), "summary"], capture_output=True, text=True,
                              encoding="utf-8", env=child, check=False)
     assert summary.returncode == 0, summary.stderr
     assert engine.context.store.manifest["run_id"] in summary.stdout

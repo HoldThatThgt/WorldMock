@@ -18,7 +18,7 @@ from tests.system.cli.test_cli import published_environment  # noqa: F401
 from worldmock.environment import load_environment
 from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.runtime import RunRequest, _prepare_new_run, _society_specs
-from worldmock.status import read_status
+from worldmock.status import read_status, write_status
 
 ROOT = Path(__file__).resolve().parents[3]
 #: 夹具 config.toml 的 model.api_key_env 指的变量与发布服务认的凭据。
@@ -48,6 +48,8 @@ runtime._execute = execute
 raise SystemExit(main())
 """
 _PLAIN_ENTRY = "from worldmock.cli import main; raise SystemExit(main())"
+#: 入口：照脚本路径运行仓库 scripts/ 下的一个脚本，第一个参数是脚本路径，其余原样交给它的命令行。
+_SCRIPT_ENTRY = "import runpy, sys; runpy.run_path(sys.argv.pop(1), run_name='__main__')"
 #: 干净进程里不该出现的四种启动故障。
 _STARTUP_FAILURES = ("No module named 'custom'", "AGENTSOCIETY_LLM_API_KEY is required",
                      "imported before the required model configuration", "OUTPUT_TRUNCATED")
@@ -135,6 +137,20 @@ async def test_status_reads_a_run_directory_with_a_chinese_manifest_without_the_
     result = _clean(_PLAIN_ENTRY, "status", "--run-dir", parent, cwd=tmp_path, flags=_ENCODING_FLAGS)
     assert result.returncode == 0, result.stdout + result.stderr
     assert json.loads(result.stdout)["run_id"] == "clean-parent"
+
+
+@pytest.mark.asyncio
+async def test_inspect_run_summary_reads_a_run_directory_without_the_default_encoding(
+        published_environment, tmp_path, monkeypatch):
+    """同一开关下 scripts/inspect_run.py <运行目录> summary 退出码 0：清单与状态两份 JSON 都按 UTF-8 读。"""
+    parent = tmp_path / "parent"
+    await _parent_with_checkpoint(published_environment, parent, monkeypatch)
+    write_status(parent, "running", "deciding")
+    assert any(byte > 127 for byte in (parent / "manifest.json").read_bytes())
+    result = _clean(_SCRIPT_ENTRY, ROOT / "scripts" / "inspect_run.py", parent, "summary", cwd=tmp_path,
+                    flags=_ENCODING_FLAGS)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.splitlines()[:2] == ["run_id     : clean-parent", "状态       : running (deciding)"]
 
 
 def test_replay_reads_its_intervention_file_without_the_default_encoding(published_environment, tmp_path):
