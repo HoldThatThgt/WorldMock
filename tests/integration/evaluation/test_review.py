@@ -4,12 +4,13 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 import pytest
 
-from tests.evaluation.conftest import make_evaluation_fixture, make_review_records
+from tests.evaluation.conftest import _write_canonical, make_evaluation_fixture, make_review_records
 import worldmock.evaluation.review as review_module
 from worldmock.evaluation.adapters import adapt_labelkit, adapt_worldmock
 from worldmock.evaluation.errors import EvaluationError
@@ -394,3 +395,24 @@ def _route_modes(view: DatasetView, modes: tuple[str | None, ...]) -> tuple[Publ
         )
         for index, mode in enumerate(modes)
     )
+
+
+def test_blind_review_packet_lists_a_query_as_an_activity_row(evaluation_fixture, tmp_path):
+    """真实引擎做过一次查询的导出：盲评包的活动行里有 action 为 query 的一行，区间等于导出里这项查询的真实执行区间；
+    盲评包标识仍是 blind-review-packet-2。"""
+    root = tmp_path / "query-export"
+    _write_canonical(root, json.loads(evaluation_fixture.scenario_path.read_text(encoding="utf-8")), "query-run", 9,
+                     activity_type="query")
+    [row] = [item for item in (json.loads(line) for line in (root / "activities.jsonl").read_text(
+        encoding="utf-8").splitlines()) if item["activity_type"] == "query"]
+    scenario = load_scenario(evaluation_fixture.scenario_path)
+    left = adapt_labelkit(evaluation_fixture.labelkit_root, scenario)
+    right = adapt_worldmock(root, scenario)
+    material = create_review_material(left, right, shared_support(left, right), scenario)
+    assert {packet["schema_version"] for packet in material.packets} == {"blind-review-packet-2"}
+    timeline = [item for packet in material.packets for entry in packet["items"] for side in ("left", "right")
+                for item in entry[side]["activities"] if item["action"] == "query"]
+    zone = ZoneInfo(scenario.window.timezone)
+    [segment] = row["segments"]
+    interval = tuple(datetime.fromtimestamp(segment[key], zone).isoformat() for key in ("started_at", "ended_at"))
+    assert timeline and {(item["start"], item["end"], item["status"]) for item in timeline} == {(*interval, "completed")}
