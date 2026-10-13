@@ -169,11 +169,8 @@ def _activity_brief(d: dict, display: Display) -> str:
 
 
 def _environment_brief(d: dict, display: Display) -> str:
-    """@brief 环境事件的一行摘要：三种手机事件写写法再跟起止或订单身份，停留进出写地点；回调效果里凭状态的地点内容
-    开始时用掉状态的那一种在种类后写效果类型 consume_on_start。"""
+    """@brief 环境事件的一行摘要：三种手机事件写写法再跟起止或订单身份，停留进出写地点。"""
     kind = d.get("kind")
-    if kind == "callback_effect" and d["type"] == "consume_on_start":
-        return f"{kind} {d['type']}"
     if kind == "app_foreground":
         span = f"{_t(d['interval_start'], display.zone)} → {_t(d['interval_end'], display.zone)}"
         return f"{phone_phrase(display.names, d)} {span}"
