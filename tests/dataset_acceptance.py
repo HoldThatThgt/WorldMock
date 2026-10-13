@@ -419,8 +419,7 @@ MUTATIONS = (
          "tests/integration/runtime/test_life_agent_protocol.py"
          "::test_reasoning_content_is_persisted_in_model_response_evidence")),
     SourceMutation("app_use_wording_drops_the_app_name", "worldmock.footprints.display_wording::_interact_phrase",
-        "return f\"使用{display_name(names, 'app', app_id)}{_titles(names, played)}\"",
-        "return f\"使用{_titles(names, played)}\"",
+        'return f"使用{app}{_titles(names, content_ids)}"', 'return f"使用{_titles(names, content_ids)}"',
         ("tests/integration/footprints/test_render_day.py::test_app_use_row_names_the_app_and_every_item_in_order",
          "tests/unit/footprints/test_display_wording.py"
          "::test_shared_cases_give_the_same_names_and_wording_as_the_viewer")),
@@ -436,7 +435,8 @@ MUTATIONS = (
          "::test_location_rows_name_the_place_the_unit_and_the_series_episodes",)),
     SourceMutation("store_order_written_as_ordered_through_an_app",
         "worldmock.footprints.display_wording::_purchase_phrase",
-        'channel = "（到店）" if app_id is None', 'channel = "（经到店下单）" if app_id is None',
+        'grouped.setdefault(orders[order_id]["app_id"], [])',
+        'grouped.setdefault(orders[order_id]["app_id"] or orders[order_id]["payment_app_id"], [])',
         ("tests/integration/footprints/test_render_day.py::test_purchase_row_is_split_by_order_with_its_channel",)),
     SourceMutation("experience_sentence_without_the_app_name", "worldmock.life.settled_text::experience_sentence",
         "return f\"{span} {activity_phrase(names, snapshot, [fact['content_id']], {})}\"",

@@ -260,6 +260,8 @@ def test_purchase_row_is_split_by_order_with_its_channel(engine_factory, tmp_pat
         finish_activity(engine, bought, label)
     assert {(order.goods_id, order.app_id) for order in engine.context.state.deliveries.values()} == {
         ("tissue", None), ("rice-ball", None), ("beef-noodles", "meituan")}
+    # 到店订单也经付款 app 付款：渠道只看订单记录的下单 app，付款 app 不进渠道。
+    assert all(order.payment_app_id is not None for order in engine.context.state.deliveries.values())
     assert _labels(engine, tmp_path / "store", "购买") == ["购买饭团、纸巾（到店）", "购买牛肉面（经美团下单）；纸巾（到店）"]
 
 

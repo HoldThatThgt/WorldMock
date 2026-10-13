@@ -151,9 +151,10 @@ def _interact_phrase(names: DisplayNames, snapshot: Mapping[str, Any], content_i
     """@brief 用 app 写「使用<app 名>《标题》……」；在地点做事写「在<地点>：<单元名>」，系列再列各集。"""
     app_id = snapshot["data"]["app_id"]
     if app_id is not None:
-        # 过渡写法：内容轨道并入之前，没有内容的 app 使用仍会产生，空的内容身份跳过不写（收尾时删去）。
-        played = [key for key in content_ids if key is not None]
-        return f"使用{display_name(names, 'app', app_id)}{_titles(names, played)}"
+        app = display_name(names, "app", app_id)
+        # 过渡写法：内容轨道并入之前，没有内容的 app 使用仍会产生，空的内容身份跳过不写（收尾时删去这一行）。
+        content_ids = [key for key in content_ids if key is not None]
+        return f"使用{app}{_titles(names, content_ids)}"
     place = display_name(names, "location", snapshot["location_id"])
     first = display_name(names, "content", content_ids[0])
     if not first.series:
