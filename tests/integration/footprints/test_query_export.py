@@ -192,10 +192,13 @@ def test_query_leaves_no_foreground_event_order_attempt_experience_or_content_co
 
 
 def test_query_line_of_the_timeline_is_chinese(query_export):
-    """导出的时间线里查询那一行以「查询」开头、不含英文 query；质量报告的英文种类名计数为 0。"""
+    """导出的时间线里四项查询各一行，「活动」一栏以「查询」开头；全文不含英文 query；质量报告的英文种类名计数为 0。"""
     directory = query_export["directory"]
     text = "".join(path.read_text(encoding="utf-8") for path in sorted((directory / "timeline").glob("*.md")))
-    assert "查询" in text and "query" not in text
+    rows = [line.split(" | ") for line in text.splitlines() if line.startswith("| ") and not line.startswith("| 起止")
+            and not line.startswith("| ---")]
+    assert len([cells for cells in rows if cells[1].startswith("查询")]) == 4
+    assert "query" not in text
     quality = json.loads((directory / "quality.json").read_bytes())
     assert quality["timeline_labels"]["english_kind_names"] == 0
 
