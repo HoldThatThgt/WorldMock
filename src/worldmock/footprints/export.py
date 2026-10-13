@@ -64,6 +64,8 @@ def export_run(store: FootprintStore, cutoff: int, destination: Path) -> dict:
 
 def _write_export(store: FootprintStore, events: list[Event], stage: Path) -> dict:
     """@brief 固定六份主文件（事件、活动、已核验经历、购买、app 使用、地点停留）和全部外部素材，并绑定原始运行身份。"""
+    # 显示名称在复制素材之前从运行目录冻结的环境目录取一次，质量报告与时间线投影共用这一张表。
+    names = frozen_display_names(store.run_dir, store.manifest)
     activities = reconstruct_activities(events)
     manifest = _export_identity(store.manifest, events)
     rows = [event.model_dump() for event in events]
@@ -95,7 +97,6 @@ def _write_export(store: FootprintStore, events: list[Event], stage: Path) -> di
             references[reference.sha256] = reference.model_dump()
     manifest["asset_index"] = write_jsonl(stage / "asset-index.jsonl", list(references.values()))
     manifest["frozen_run_manifest"] = store.manifest
-    names = frozen_display_names(store.run_dir, store.manifest)
     quality = canonical_json(build_quality_report(events, activities, store.manifest, names))
     atomic_write(stage / "quality.json", quality)
     manifest["quality_report"] = {"path": "quality.json", "size_bytes": len(quality),

@@ -91,8 +91,8 @@ def test_function_app_names_are_read_and_observation_names_are_never_used(engine
 
 @pytest.mark.parametrize("damage", ["missing", "altered"])
 def test_missing_or_altered_frozen_catalog_fails_every_python_reader(engine_factory, tmp_path, capsys, damage):
-    """删掉或改动运行目录里一份冻结的目录素材：命令行时间线抛 IntegrityError 且不写文件，导出不发布，events 抛错；
-    改动导出目录里的同一份素材：导出认证失败。"""
+    """删掉或改动运行目录里一份冻结的目录素材：命令行时间线、导出和 events 都在读冻结名称时抛 IntegrityError，时间线
+    不写文件，导出不发布；改动导出目录里的同一份素材：导出认证在逐个复核素材字节时失败。"""
     engine = engine_factory(mutate=short_window)
     _, bought = act(engine, "basket", purchase("柠檬茶"))
     finish_activity(engine, bought, "basket")
@@ -103,7 +103,7 @@ def test_missing_or_altered_frozen_catalog_fails_every_python_reader(engine_fact
     tampered = tmp_path / "tampered"
     shutil.copytree(export, tampered)
     (tampered / "assets" / reference).write_bytes(b"{}\n")
-    with pytest.raises(IntegrityError):
+    with pytest.raises(IntegrityError, match="Export source asset content is invalid"):
         validate_export(tampered)
     asset = store.run_dir / "assets" / reference
     asset.unlink() if damage == "missing" else asset.write_bytes(b"{}\n")
@@ -112,7 +112,8 @@ def test_missing_or_altered_frozen_catalog_fails_every_python_reader(engine_fact
         render_day.main([str(store.run_dir / "footprints.sqlite"), "--agent", "1", "--date", "2026-01-05",
                          "--out", str(out)])
     assert not out.exists()
-    with pytest.raises(IntegrityError):
+    # 导出先读冻结名称再复制素材：错误来自冻结名称的读取，而不是复制素材时的完整性检查。
+    with pytest.raises(IntegrityError, match="Frozen environment asset"):
         export_run(store, store.last_event_seq, tmp_path / "second-export")
     assert not (tmp_path / "second-export").exists()
     with inspect_run._connect(store.run_dir) as conn, pytest.raises(IntegrityError, match="Frozen environment asset"):
