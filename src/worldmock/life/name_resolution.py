@@ -170,6 +170,12 @@ def _target(row: Mapping, public: Mapping | None, listed: bool) -> Target:
     return Target(row["object"], row["kind"], row["object_id"], options, listed, row)
 
 
+def _listed(options: Iterable[Option]) -> list[Option]:
+    """@brief 列出的动作行：凭状态而未开放的单元行（私有绑定 locked 为真）不列在工具层，照写能解析到它、交给受理拒绝，
+    但它不进候选，也不算这个对象这个动作列出的名称（docs/design/04-simulation-engine.md「出行、内容与查询」）。"""
+    return [option for option in options if option.row.get("locked") is not True]
+
+
 def selection_row(target: Target, option: Option) -> dict:
     """@brief 选中实际提供的那条动作行，不增加旧路由字段。"""
     return {**target.row, "selected_action": dict(option.row)}
@@ -263,9 +269,9 @@ def call_candidate(target: Target, option: Option, item: StartItem) -> Candidate
 def _pick(target: Target, item: StartItem) -> Option | None:
     """@brief 候选对象上要照抄的动作行：优先所写动作里 detail 唯一对上的一行，否则此刻可行的第一行。
 
-    睡眠行不成候选：它的 target 是分钟数，引擎不替人物定时长。
+    睡眠行不成候选：它的 target 是分钟数，引擎不替人物定时长；未开放的单元行不列出，同样不成候选。
     """
-    usable = [option for option in target.options if option.action != "sleep"]
+    usable = [option for option in _listed(target.options) if option.action != "sleep"]
     same = [option for option in usable if option.action == item.action]
     named = [option for option in same if option.detail is not None]
     if named and item.detail is not None:
@@ -310,11 +316,12 @@ def _ambiguous_object(matches: Sequence[Target], item: StartItem) -> Failure:
 
 
 def _unsupported(target: Target, item: StartItem) -> Failure:
-    """@brief 已知对象在这个工具下不提供所写动作：给出它提供的动作与可提交的完整调用（可以属于另一个工具）。"""
+    """@brief 已知对象在这个工具下不提供所写动作：给出它提供的动作与可提交的完整调用（可以属于另一个工具）；
+    候选不含睡眠行和未开放的单元行。"""
     why = f"The known object {target.label} does not support the written action."
     offered = tuple(dict.fromkeys(option.action for option in target.options
                                   if start_tool(target.kind, option.action) == item.tool))
-    usable = [option for option in target.options if option.action != "sleep"][:MAX_CANDIDATES]
+    usable = [option for option in _listed(target.options) if option.action != "sleep"][:MAX_CANDIDATES]
     candidates = tuple(call_candidate(target, option, item) for option in usable)
     error = ErrorItem(("action",), item.action, "ACTION_NOT_OFFERED", offered,
                       "An action offered by this object is required.", why, candidates)
@@ -336,23 +343,25 @@ def _order_app_failure(target: Target, item: StartItem) -> Failure:
 
 def _detail_failure(target: Target, options: tuple[Option, ...], item: StartItem,
                     matches: tuple[str, ...]) -> Failure:
-    """@brief detail 找不到或有歧义：allowed_values 是该对象该动作全部行的 detail，候选是近名行或各匹配行。
+    """@brief detail 找不到或有歧义：allowed_values 是该对象该动作列出的全部行的 detail，候选是列出的近名行或各匹配行；
+    未开放的单元行不列出，两者都不含它，即使它与所写的名称最接近。
 
     近名排序用的名称是行的 detail 加它的别名（系列各集标题），所以写了某一集的标题时所属系列排在最前。
     """
+    listed = _listed(options)
     if matches:
         why = f"The name {item.detail} identifies several options of {target.label}."
         code, expected = "NAME_AMBIGUOUS", "One unambiguous complete detail name is required."
-        chosen = [option for option in options if option.detail in matches][:MAX_CANDIDATES]
+        chosen = [option for option in listed if option.detail in matches][:MAX_CANDIDATES]
     else:
         why = (f"{target.label} offers no {item.action} option named {item.detail}; "
                "changing spelling cannot create one.")
         code, expected = "NAME_NOT_FOUND", "A detail name listed for this object and action is required."
-        chosen = rank(object_labels.bare_name(item.detail), options,
+        chosen = rank(object_labels.bare_name(item.detail), listed,
                       lambda option: tuple(object_labels.bare_name(name) for name in (option.detail, *option.aliases)),
                       lambda option: option.blocked is None)
     candidates = tuple(call_candidate(target, option, item) for option in chosen)
-    error = ErrorItem(("detail",), item.detail, code, tuple(option.detail for option in options),
+    error = ErrorItem(("detail",), item.detail, code, tuple(option.detail for option in listed),
                       expected, why, candidates)
     return Failure(error, why, why)
 

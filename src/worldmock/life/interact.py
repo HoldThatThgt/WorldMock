@@ -5,6 +5,7 @@ import math
 from dataclasses import dataclass
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.exchange.constants import RELIEF_PER_HOUR
+from worldmock.footprints.callback_contract import ConsumeOnStartResult
 from worldmock.footprints.models import EventDraft, validate_resource_flows
 from worldmock.life.activities import ActivityStartParams, start_activity, schedule_feedback
 from worldmock.life.activity_control import activity_name
@@ -25,10 +26,11 @@ class InteractivityRuntime:
     def start(self, state: WorldState, pending, row,
               stay_location_id: str | None) -> tuple[WorldState, ActivityState, list[EventDraft]]:
         """@brief 整组已准入后开始一项 interact：内容 app 由引擎在合格内容里推荐一次并打开真实钉住推送，地点按人物
-        点名的单元开始。
+        点名的单元开始。活动放进世界之后先在驿站取件，再为凭状态的单元把本人这个状态减 1。
 
         :param row: 名称解析出的绑定行（内容 app，或带单元动作行 selected_action 的当前地点）。
         :param stay_location_id: 本轮请求生效之前的停留地点，内容前提按它筛选；与出发同组时是出发地，路上为 None。
+        :returns: （世界，活动，取件的收货草稿与减 1 的 consume_on_start 草稿）。
         """
         agent = state.agents[pending.agent_id]
         origin = _activity_origin(state, pending)
@@ -46,7 +48,9 @@ class InteractivityRuntime:
         changed = _put_activity(state, agent, activity)
         if data.get("pinned_by_push_id") is not None:
             changed, _ = open_app_push(changed, agent.agent_id, data["app_id"], data["content_id"])
-        return self._collect(changed, activity, row)
+        changed, activity, receipts = self._collect(changed, activity, row)
+        changed, consumed = self._consume(changed, activity)
+        return changed, activity, [*receipts, *consumed]
 
     def _app_plan(self, state: WorldState, agent, request: ContentRequest) -> tuple[str, int, dict]:
         """@brief 内容 app 的活动名、计划时长与活动数据：在合格内容里抽取一次并从共享位置继续。"""
@@ -74,6 +78,31 @@ class InteractivityRuntime:
         changed, receipts = StorefrontRuntime(self.context).collect_parcels(state, activity.agent_id,
                                                                            place.location_id)
         return changed, activity, receipts
+
+    def _consume(self, state: WorldState, activity: ActivityState) -> tuple[WorldState, list[EventDraft]]:
+        """@brief 凭状态的地点内容开始时把本人这个回调状态减 1，写一条 consume_on_start 草稿；不凭状态的原样返回。
+
+        受理已保证减之前不小于 1，不钳位；减后小于 0 是运行故障。只在开始时调用：恢复暂停的活动、系列自动接下一集、
+        提前结束与运行截止都不经过这里。回调效果的草稿构造时就要恰一个起因，所以先回链这次开始调用的请求事件，
+        受理时由决策协调改指主调用的受理结果（docs/design/04-simulation-engine.md「出行、内容与查询」）。
+        """
+        content = self.context.catalog.contents[activity.data["content_id"]]
+        if content.consumes_state is None:
+            return state, []
+        agent = state.agents[activity.agent_id]
+        before = agent.callback_states[content.consumes_state]
+        after = before - 1
+        if after < 0:
+            logging.error("Consumed state fell below zero")
+            raise IntegrityError("Consumed state fell below zero")
+        agent = agent.model_copy(update={"callback_states": {**agent.callback_states, content.consumes_state: after}},
+                                 deep=True)
+        payload = ConsumeOnStartResult(state=content.consumes_state, content_id=content.content_id,
+                                       before=before, after=after)
+        draft = EventDraft(event_type="environment_event", occurred_at=state.current_time, agent_id=agent.agent_id,
+                           source_kind="environment", visibility="system",
+                           caused_by=[activity.origin_request_event_id], data=payload.model_dump(mode="json"))
+        return _put_agent(state, agent), [draft]
 
     def advance(self, state: WorldState, activity: ActivityState, target: int) -> tuple[WorldState, dict | None]:
         """@brief 泛型游标已推进后保存实际内容区间，不再另加心理效果。"""

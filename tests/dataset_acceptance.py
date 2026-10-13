@@ -472,4 +472,42 @@ MUTATIONS = (
         'notes.extend(note for note in _food_notes(contents) if "供一餐" not in note)',
         ("tests/unit/start_interfaces/test_location_units.py"
          "::test_tool_layer_note_names_the_food_each_unit_provides",)),
+    SourceMutation("locked_unit_listed_in_the_tool_layer", "worldmock.life.tool_layer::_binding_target",
+        'for action in row["actions"] if not action.get("locked")]', 'for action in row["actions"]]',
+        ("tests/unit/start_interfaces/test_grocery_units.py"
+         "::test_a_locked_unit_is_left_out_of_the_tool_layer_but_kept_in_the_private_bindings",
+         "tests/integration/life/test_grocery_cooking.py"
+         "::test_received_groceries_open_cooking_and_starting_it_uses_them")),
+    SourceMutation("locked_unit_starts", "worldmock.life.admission::_location_refusal",
+        'return location_activities.locked_refusal(context.inputs.catalog, agent, row["selected_action"])',
+        "return None",
+        ("tests/unit/start_interfaces/test_grocery_units.py"
+         "::test_a_locked_unit_is_refused_with_the_goods_that_open_it",
+         "tests/unit/start_interfaces/test_grocery_units.py"
+         "::test_a_locked_unit_is_left_out_of_the_tool_layer_but_kept_in_the_private_bindings")),
+    SourceMutation("start_does_not_consume_the_state", "worldmock.life.interact::InteractivityRuntime.start",
+        "changed, consumed = self._consume(changed, activity)", "consumed = []",
+        ("tests/integration/life/test_grocery_cooking.py"
+         "::test_received_groceries_open_cooking_and_starting_it_uses_them",
+         "tests/integration/life/test_grocery_cooking.py::test_two_receipts_still_open_cooking_once")),
+    SourceMutation("resume_consumes_the_state_again", "worldmock.life.interact::InteractivityRuntime.resume",
+        'return state.model_copy(update={"activities": {**state.activities, activity.activity_id: result}}, deep=True)',
+        'return self._consume(state.model_copy(update={"activities": {**state.activities, activity.activity_id: '
+        'result}}, deep=True), result)[0]',
+        ("tests/integration/life/test_grocery_cooking.py"
+         "::test_resuming_a_paused_cook_uses_no_more_groceries",)),
+    SourceMutation("locked_unit_offered_as_a_candidate", "worldmock.life.name_resolution::_listed",
+        'return [option for option in options if option.row.get("locked") is not True]', "return list(options)",
+        ("tests/unit/start_interfaces/test_grocery_units.py::test_a_misspelt_name_never_offers_a_locked_unit",
+         "tests/unit/start_interfaces/test_grocery_units.py"
+         "::test_an_action_the_place_does_not_offer_lists_no_locked_unit",
+         "tests/unit/start_interfaces/test_grocery_units.py"
+         "::test_a_near_object_candidate_never_copies_a_locked_unit")),
+    SourceMutation("consume_on_start_cause_not_repointed",
+        "worldmock.life.decision_coordinator::DecisionCoordinator._consumed_on_start",
+        'return draft.model_copy(update={"caused_by": [cause.source_event_id]})', "return draft",
+        ("tests/integration/life/test_grocery_cooking.py"
+         "::test_received_groceries_open_cooking_and_starting_it_uses_them",
+         "tests/integration/life/test_grocery_cooking.py"
+         "::test_using_up_the_groceries_fires_the_threshold_rule_once")),
 )

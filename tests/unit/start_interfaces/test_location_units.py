@@ -119,11 +119,11 @@ def test_units_are_listed_completely_in_unit_key_order(tmp_path):
     assert [item.content_id for item in units[4].contents] == ["z-a", "m-b"]
     assert location_units(catalog, "park") == () and location_units(catalog, "不存在") == ()
     assert [unit.name for unit in location_units(catalog, "office")] == ["季度销售数据整理"]
-    assert unit_binding(units[0]) == {
+    assert unit_binding(units[0], False) == {
         "action": "interact", "detail": "工作日晚饭", "note": None,
-        "content_ids": ["d-1-prep", "d-2-eat", "d-3-wash"], "episode_titles": ["备菜", "吃饭", "洗碗"]}
-    assert unit_binding(units[1]) == {"action": "interact", "detail": "洗漱", "note": None,
-                                      "content_ids": ["e-wash"], "episode_titles": []}
+        "content_ids": ["d-1-prep", "d-2-eat", "d-3-wash"], "episode_titles": ["备菜", "吃饭", "洗碗"], "locked": False}
+    assert unit_binding(units[1], True) == {"action": "interact", "detail": "洗漱", "note": None,
+                                            "content_ids": ["e-wash"], "episode_titles": [], "locked": True}
 
 
 @pytest.mark.parametrize("progress,content_id,position,facts", [
@@ -245,5 +245,5 @@ def test_location_sleepable_is_a_strict_boolean_that_defaults_to_false():
 def test_held_refusal_ignores_units_without_a_paused_activity(engine_factory):
     """没有暂停中的活动占着时，任何单元都没有被占的拒绝。"""
     engine = engine_factory()
-    unit = unit_binding(location_units(engine.context.catalog, "home")[0])
+    unit = unit_binding(location_units(engine.context.catalog, "home")[0], False)
     assert held_refusal(engine.context.state, 1, unit, {}) is None

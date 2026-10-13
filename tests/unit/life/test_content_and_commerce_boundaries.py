@@ -109,7 +109,7 @@ def test_named_location_unit_starts_exactly_that_content_in_the_first_slot(conte
     context, state = context_state
     home = context.catalog.locations[state.agents[1].location_id]
     unit = next(unit for unit in location_units(context.catalog, home.kind) if unit.name == name)
-    action = unit_binding(unit)
+    action = unit_binding(unit, False)
     row = {"object": home.display_name, "kind": "location", "object_id": home.location_id,
            "actions": [action], "selected_action": action}
     changed, activity, drafts = InteractivityRuntime(context).start(state, pending(), row, home.location_id)

@@ -372,11 +372,36 @@ class DecisionCoordinator:
             state.accounts[state.agents[first.agent_id].balance_account_id]))
         received = next((draft for pending, draft in zip(group, result_drafts, strict=True)
                          if pending.tool_name == START_TOOLS[0]), result_draft)
-        drafts.extend(draft.model_copy(update={"caused_by": [received.event_id]})
-            if draft.data.get("kind") == "goods_received" and not draft.caused_by else draft
-            for draft in self.actions.drain_drafts())
+        drafts.extend(self._start_effects(received))
         drafts.extend(self._same_moment_callbacks(changed, first, result_draft))
         return (changed, results, drafts)
+
+    def _start_effects(self, received: EventDraft) -> list[EventDraft]:
+        """@brief 开始组暂存的草稿改指主调用的受理结果：驿站取件的收货还没有起因；凭状态的内容开始时减 1 的
+        consume_on_start 先回链请求事件，改指之后另为阈值规则登记回调原因。收货重置状态的草稿已有自己的起因，原样保留。
+
+        :param received: 主调用（在地点做事、取件和减 1 都只发生在主调用里）的 action_result 草稿。
+        """
+        drafts = []
+        for draft in self.actions.drain_drafts():
+            if draft.data.get("kind") == "goods_received" and not draft.caused_by:
+                draft = draft.model_copy(update={"caused_by": [received.event_id]})
+            elif draft.data.get("type") == "consume_on_start":
+                draft = self._consumed_on_start(draft, received)
+            drafts.append(draft)
+        return drafts
+
+    def _consumed_on_start(self, draft: EventDraft, received: EventDraft) -> EventDraft:
+        """@brief 开始时减 1 的草稿改指这次开始调用的受理结果，并把回调原因
+        CallbackCause("action", "interact", 人物, 受理结果, "<action_id>:consume") 登记进 context.callback_causes：
+        提交前比较状态越过阈值、以这条效果为来源时沿用它的锚点，锚点以 :consume 结尾，与动作回调的 <action_id>:0 区分
+        （docs/design/04-simulation-engine.md「回调事务」）。"""
+        from worldmock.life.callbacks import CallbackCause
+
+        cause = CallbackCause("action", "interact", draft.agent_id, received.event_id,
+                              f"{received.action_id}:consume")
+        self.context.callback_causes[draft.event_id] = cause
+        return draft.model_copy(update={"caused_by": [cause.source_event_id]})
 
     def _reject_results(self, state: WorldState, group: list[PendingAction],
                         error: BusinessRuleError) -> tuple[WorldState, list[ActionResult], list[EventDraft]]:
