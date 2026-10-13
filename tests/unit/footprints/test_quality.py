@@ -970,8 +970,6 @@ def test_timeline_label_that_leaks_the_english_query_kind_is_counted():
         ("使用query", "english_kind_name", "query")]
 
 
-
-
 def _protocol_error(sequence, call_id, code, purpose=None):
     """一次带结构化协议错误证据的模型终态响应。"""
     response = _tool_response(call_id, _usage())
