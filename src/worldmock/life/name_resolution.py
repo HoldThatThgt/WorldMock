@@ -213,11 +213,9 @@ def resolve_start(book: NameBook, tool: str, request: Any) -> StartOutcome:
 
 def _kinds(item: StartItem) -> frozenset[str]:
     """@brief 各动作规整时允许的对象类型：主工具只认地点；副工具按动作各取一种（购买与查询认商品，interact 认能打开的
-    app），购买与 interact 另认 order_app，好把写进 target 的只用于下单和查询的 app 退回。"""
+    app），三种都另认 order_app，好把写进 target 的只用于下单和查询的 app 退回。"""
     if item.tool == MAIN_TOOL:
         return frozenset({"location"})
-    if item.action == "query":
-        return frozenset({_SIDE_KINDS[item.action]})
     return frozenset({_SIDE_KINDS[item.action], ORDER_APP_KIND})
 
 
@@ -250,8 +248,10 @@ def _resolve_item(book: NameBook, item: StartItem) -> tuple:
 
 
 def _resolve_query(book: NameBook, item: StartItem) -> tuple:
-    """@brief 查询的一项按次序认：先在四个类别名里规整后唯一对上（类别优先）；再在本轮展示的商品里逐级规整匹配一次，
-    唯一对上就是这件商品，对上多件给 NAME_AMBIGUOUS 与查询候选；其余交给环境在全量商品里找。地点和内容 app 不参加。
+    """@brief 查询的一项按次序认：先在四个类别名里规整后唯一对上（类别优先）；再把本轮展示的商品和只用于下单和查询的
+    app（order_app 对象）放在一起逐级规整匹配一次：唯一对上商品就是这件商品，唯一对上 order_app 给与打开、购买同一条
+    退回，对上多个给 NAME_AMBIGUOUS 与查询候选（order_app 不出候选）；其余交给环境在全量商品里找。地点和能打开的 app
+    不参加。
 
     类别名或展示的商品名规整后与所写不同时记一条归一。
     """
@@ -266,6 +266,8 @@ def _resolve_query(book: NameBook, item: StartItem) -> tuple:
     if not matches:
         return named_supply_row(item.target, item.action), None, ()
     target = matches[0]
+    if target.kind == ORDER_APP_KIND:
+        return None, _order_app_failure(target, item), ()
     records = () if target.label == item.target else ({"written": item.target, "as": target.label},)
     return {**target.row, "selected_action": binding_action(item.action)}, None, records
 

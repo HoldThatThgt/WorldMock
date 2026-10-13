@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from tests.life.conftest import context, purchase, target_actions, tool_targets, travel, use_app
+from tests.life.conftest import context, purchase, query, target_actions, tool_targets, travel, use_app
 from tests.life.current_world import stage_moment
 from tests.life.environment_runtime import act, act_group, events, finish_activity, reach
 from tests.life.phone_records import foreground, moment, paying_label, phone_environment, phone_window
@@ -123,6 +123,23 @@ def test_purchase_naming_an_order_only_app_buys_nothing(engine_factory):
     assert engine.context.state.deliveries == {} and engine.context.state.activities == {}
     assert engine.context.state.accounts["agent:1"] == balance
     assert not [row for row in events(engine, "environment_event") if row.data.get("kind") == "goods_received"]
+
+
+def test_query_naming_an_order_only_app_starts_no_query(engine_factory):
+    """经副工具查询「美团」、再查询「零食」「美团」，prefer 都是 null：两次都整条退回，明细恰一条、written 是 query，
+    不是找不到商品的 SUPPLY_NOT_FOUND；零食那一项也不查。没有查询活动，时刻不动。"""
+    engine = engine_factory()
+    before, refused = engine.context.state.current_time, []
+    for label, request in (("look", query("美团")), ("look-snacks", query("零食", "美团"))):
+        _, result = act(engine, label, request)
+        refused.append(result.action_id)
+        assert (result.status, result.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
+        assert result.data["items"] == [order_app_item("美团", "query")]
+        assert result.data["reason"] == result.message == order_app_why("美团")
+        assert result.data["fix"] == OFFERED_FIX
+    state = engine.context.state
+    assert state.activities == {} and state.current_time == before
+    assert [row.action_id for row in events(engine, "action_rejected")] == refused
 
 
 def test_departure_with_an_order_only_app_starts_neither(engine_factory):
