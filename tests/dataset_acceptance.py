@@ -499,7 +499,9 @@ MUTATIONS = (
         'return self._consume(state.model_copy(update={"activities": {**state.activities, activity.activity_id: '
         'result}}, deep=True), result)[0]',
         ("tests/integration/life/test_grocery_cooking.py"
-         "::test_resuming_a_paused_cook_uses_no_more_groceries",)),
+         "::test_resuming_a_paused_cook_uses_no_more_groceries",
+         "tests/integration/life/test_grocery_cooking.py"
+         "::test_resuming_a_paused_cook_is_not_refused_while_the_groceries_are_used")),
     SourceMutation("locked_unit_offered_as_a_candidate", "worldmock.life.name_resolution::_listed",
         'return [option for option in options if option.row.get("locked") is not True]', "return list(options)",
         ("tests/unit/start_interfaces/test_grocery_units.py::test_a_misspelt_name_never_offers_a_locked_unit",

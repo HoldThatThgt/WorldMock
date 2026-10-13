@@ -188,16 +188,22 @@ def test_a_refused_group_leaves_the_groceries_untouched(engine_factory, tmp_path
     assert groceries(engine) == 0 and len(effects(engine, "consume_on_start")) == 1
 
 
-def test_resuming_a_paused_cook_uses_no_more_groceries(engine_factory, tmp_path):
-    """开始后暂停：状态 0 时「做饭」不列出；暂停期间又收到食材，它照旧列出但被暂停的活动占着；恢复不减、不被拒绝，
-    做完照常结算一次完成效果，状态仍是 1。"""
-    engine = grocery_engine(engine_factory, tmp_path, every_five_minutes, initial=1)
+def paused_cook(engine):
+    """初始有食材时开始「做饭」、做一会儿再暂停；此时状态是 0，「做饭」不列出。返回开始结果与本人活动名。"""
     started = cook(engine)
     assert advance_until_ready(engine)
     name = engine.context.state.activities[started.activity_id].name
     _, paused = act(engine, "pause", pause_request(name), "pause_activity")
     assert paused.status == "completed", paused.error_code
     assert groceries(engine) == 0 and "做饭" not in home_units(engine, "paused")
+    return started, name
+
+
+def test_resuming_a_paused_cook_uses_no_more_groceries(engine_factory, tmp_path):
+    """开始后暂停：状态 0 时「做饭」不列出；暂停期间又收到食材，它照旧列出但被暂停的活动占着；恢复不减、不被拒绝，
+    做完照常结算一次完成效果，状态仍是 1。"""
+    engine = grocery_engine(engine_factory, tmp_path, every_five_minutes, initial=1)
+    started, name = paused_cook(engine)
     receive(engine, "扑克牌")
     held = home_units(engine, "reopened")["做饭"]
     assert groceries(engine) == 1 and (held["available"], held["reason"]) == (
@@ -208,6 +214,20 @@ def test_resuming_a_paused_cook_uses_no_more_groceries(engine_factory, tmp_path)
     assert groceries(engine) == 1 and len(effects(engine, "consume_on_start")) == 1
     until_ended(engine, started.activity_id)
     assert len(fed(engine)) == 1 and groceries(engine) == 1 and len(effects(engine, "consume_on_start")) == 1
+
+
+def test_resuming_a_paused_cook_is_not_refused_while_the_groceries_are_used(engine_factory, tmp_path):
+    """开始后暂停、之后没再收到食材：状态是 0、「做饭」未开放，恢复照样受理而不以未开放拒绝，也不减；活动回到进行中，
+    做完照常结算一次完成效果，状态仍是 0。"""
+    engine = grocery_engine(engine_factory, tmp_path, every_five_minutes, initial=1)
+    started, name = paused_cook(engine)
+    _, resumed = act(engine, "resume", report_request(name), "report_status")
+    assert resumed.status == "completed", resumed.error_code
+    assert engine.context.state.activities[started.activity_id].status == "active"
+    assert groceries(engine) == 0 and len(effects(engine, "consume_on_start")) == 1
+    until_ended(engine, started.activity_id)
+    [meal] = fed(engine)
+    assert meal.activity_id == started.activity_id and groceries(engine) == 0
 
 
 def test_ending_early_keeps_the_groceries_used_and_the_next_cook_starts_over(engine_factory, tmp_path):
