@@ -188,7 +188,7 @@ test('context navigation, stage filter and all rule paths are available through 
       ['environment', 'duty 由场景工作安排与世界时钟求值，今日计划改不了它'],
       ['progress', '事务提醒到点（errand_reminder）与环境确认办成（errand_completed）两种记录只写事务名称，' +
         '由人物可见的事务事件派生；二者不迁入记忆层。'],
-      ['tools', '去掉全部查询工具（世界查询与记忆查询），只留世界请求工具']]) {
+      ['tools', '去掉全部只读工具（回看任务与记忆查询），只留世界请求工具']]) {
       app.get('#ctx-rule').onchange({target: {value: rule}});
       assert.ok(app.get('#ctx-body').innerHTML.includes(sentence), sentence);
     }
@@ -212,9 +212,11 @@ test('context drills into current tools and real-shaped progress self notes', as
     app.context();
     app.get('button:message:1:tool').onclick();
     const options = app.get('#ctx-item').innerHTML;
-    // 目标类别保持原文，动作名换成中文：用内容 app 是「使用」，在地点做事是「做」。
-    assert.ok(options.includes('美团（app）'));
-    assert.ok(options.includes('美团 · 使用 · 可用'));
+    // 目标类别保持原文，动作名换成中文：用内容 app 是「使用」，在地点做事是「做」。没有内容的购物 app（美团）只用于下单和
+    // 查询，不再是 app 目标行。
+    assert.ok(options.includes('哔哩哔哩（app）'));
+    assert.ok(options.includes('哔哩哔哩 · 使用 · 可用'));
+    assert.ok(!options.includes('美团（app）'));
     // 录制的工具层里出行只有 travel 一个动作，同一目的地的各行靠出行方式的名称区分；四个旧出行动作不再出现。
     for (const method of ['步行', '公共交通', '驾车', '打车']) {
       assert.ok(options.includes(`公司 · 出行 · ${method} · 可用`), method);
@@ -227,16 +229,17 @@ test('context drills into current tools and real-shaped progress self notes', as
     assert.ok(app.get('#ctx-item').innerHTML.includes('self_note（未经核验）'));
     app.get('#ctx-item').onchange({target:{value:'0'}});
     assert.ok(app.get('#ctx-body').innerHTML.includes('先浏览。'));
-    // 工具定义块的说明按现行工具面计数：六个世界请求、两个世界查询、三个记忆查询，共十一个；录制的请求正是这十一个。
-    assert.equal(request.tools.length, 11);
+    // 工具定义块的说明按现行工具面计数：六个世界请求、一个回看工具、三个记忆查询，共十个；录制的请求正是这十个。
+    assert.equal(request.tools.length, 10);
+    assert.ok(!request.tools.some(tool => tool.function.name === 'query_world'));
     assert.deepEqual(request.tools.slice(0, 2).map(tool => tool.function.name),
       ['start_main_activity', 'start_side_activity']);
     assert.ok(!request.tools.some(tool => tool.function.name === 'start_activity'));
     app.get('button:tools').onclick();
     const filled = app.get('#ctx-body').innerHTML;
     assert.ok(filled.includes('六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）、' +
-      '两个世界查询工具（query_world、recall_task_summary）与三个记忆查询工具，共十一个，'), filled);
-    assert.ok(!filled.includes('五个世界请求工具'));
+      '一个回看工具（recall_task_summary）与三个记忆查询工具，共十个，严格参数结构，整次运行字节相同。'), filled);
+    assert.ok(!filled.includes('五个世界请求工具') && !filled.includes('query_world') && !filled.includes('十一'));
   } finally { app.close(); }
 });
 
@@ -311,13 +314,14 @@ test('context comparison keeps the slicing note when only the previous input was
 
 test('action request summaries show self_note as unverified only when the reply had text', async t => {
   const view = await viewer([
-    event('action_requested', {tool_name: 'start_side_activity', request: {action: 'interact', target: ['美团']},
+    event('action_requested', {tool_name: 'start_side_activity',
+      request: {action: 'interact', target: ['哔哩哔哩'], prefer: null},
       request_sha256: 'f'.repeat(64), reused: false, self_note: '先歇一会儿，再去买菜。'}),
     event('action_requested', {tool_name: 'start_main_activity', request: {action: 'sleep', target: '450', detail: null},
       request_sha256: 'e'.repeat(64), reused: false, self_note: null}),
   ]);
   t.after(() => view.close());
-  assert.equal(view.summary(1), '请求 开始槽位 2 的活动 · 使用 · 美团 · self_note（未经核验）：先歇一会儿，再去买菜。');
+  assert.equal(view.summary(1), '请求 开始槽位 2 的活动 · 使用 · 哔哩哔哩 · self_note（未经核验）：先歇一会儿，再去买菜。');
   assert.equal(view.summary(2), '请求 开始槽位 1 的活动 · 睡觉 · 450 分钟');
   assert.deepEqual(view.errors, []);
 });
@@ -335,9 +339,9 @@ function mainRequest(action, target, detail = null) {
   return event('action_requested', {tool_name: 'start_main_activity', request: {action, target, detail}});
 }
 
-/** @brief 构造 start_side_activity 请求：target 恒为名称数组，购买一份写一项。 */
-function sideRequest(action, ...target) {
-  return event('action_requested', {tool_name: 'start_side_activity', request: {action, target}});
+/** @brief 构造 start_side_activity 请求：三个键都出现，target 恒为名称数组（购买一份写一项），prefer 缺省为 null。 */
+function sideRequest(action, target, prefer = null) {
+  return event('action_requested', {tool_name: 'start_side_activity', request: {action, target, prefer}});
 }
 
 /** @brief 只换掉用例文件目录里某几组行的目录（其余组照用例文件）。 */
@@ -495,8 +499,8 @@ test('progress-only activity titles name both activity rows and request summarie
 
 test('the two start tools display their own arguments: place, action and detail, or action and the named objects', async t => {
   const view = await viewer([
-    sideRequest('purchase', '菜饭', '菜饭', '柠檬茶'),
-    sideRequest('interact', '美团'),
+    sideRequest('purchase', ['菜饭', '菜饭', '柠檬茶']),
+    sideRequest('interact', ['哔哩哔哩']),
     mainRequest('travel', '张江公寓', '驾车'),
     mainRequest('interact', '张江公寓', '测试休息'),
     mainRequest('sleep', '450'),
@@ -504,7 +508,7 @@ test('the two start tools display their own arguments: place, action and detail,
   t.after(() => view.close());
   // 副工具：动作在前，名称数组照所写顺序以顿号相连，同名写两次就是两份；用内容 app 的动作写「使用」。
   assert.equal(view.summary(1), '请求 开始槽位 2 的活动 · 购买 · 菜饭、菜饭、柠檬茶');
-  assert.equal(view.summary(2), '请求 开始槽位 2 的活动 · 使用 · 美团');
+  assert.equal(view.summary(2), '请求 开始槽位 2 的活动 · 使用 · 哔哩哔哩');
   // 主工具：地点名、动作、detail（出行方式名称或内容单元名）；在地点做事写「做」；睡眠只写分钟数。
   assert.equal(view.summary(3), '请求 开始槽位 1 的活动 · 张江公寓 · 出行 · 驾车');
   assert.equal(view.summary(4), '请求 开始槽位 1 的活动 · 张江公寓 · 做 · 测试休息');
@@ -544,6 +548,32 @@ test('readableReq reads the two start tools directly and keeps no branch for the
   assert.equal(view.run('TOOL_LABELS.start_activity'), undefined);
   assert.equal(readable('start_activity', {items: [{action: 'walk', target: '公司'}]}), '');
   assert.equal(view.summary(1), '请求 start_activity · ');
+  assert.deepEqual(view.errors, []);
+});
+
+test('start requests show prefer and the query action', async t => {
+  const view = await viewer([
+    sideRequest('purchase', ['冰美式咖啡'], '瑞幸咖啡'),
+    sideRequest('purchase', ['牛肉面']),
+    sideRequest('query', ['食品'], '美团外卖'),
+    sideRequest('query', ['纸巾', '零食']),
+    sideRequest('interact', ['哔哩哔哩']),
+    event('action_requested', {tool_name: 'query_world', request: {action: 'search', category: 'meal', offset: 0}}),
+  ]);
+  t.after(() => view.close());
+  // prefer 不为 null 时在名称后写「 · 想用 <人物所写的原文>」（样例环境登记的是「美团」，写「美团外卖」也照原文），null 时不写。
+  assert.equal(view.summary(1), '请求 开始槽位 2 的活动 · 购买 · 冰美式咖啡 · 想用 瑞幸咖啡');
+  assert.equal(view.summary(2), '请求 开始槽位 2 的活动 · 购买 · 牛肉面');
+  // 查询的动作名取「上下文」画面的同一张中文表。
+  assert.equal(view.summary(3), '请求 开始槽位 2 的活动 · 查询 · 食品 · 想用 美团外卖');
+  assert.equal(view.summary(4), '请求 开始槽位 2 的活动 · 查询 · 纸巾、零食');
+  assert.equal(view.summary(5), '请求 开始槽位 2 的活动 · 使用 · 哔哩哔哩');
+  assert.equal(view.run("ViewerContext.actionWord('query', 'app')"), '查询');
+  // 已删除的 query_world 没有中文名也没有请求摘要分支：工具名原样显示，请求内容不被解读。
+  assert.equal(view.run('TOOL_LABELS.query_world'), undefined);
+  assert.equal(view.run("readableReq('query_world', {action: 'search', category: 'meal', offset: 0})"), '');
+  assert.equal(view.summary(6), '请求 query_world · ');
+  for (const sequence of [1, 2, 3, 4, 5]) assert.doesNotMatch(view.summary(sequence), /null|undefined|query|prefer/);
   assert.deepEqual(view.errors, []);
 });
 
@@ -821,8 +851,8 @@ test('a control request that is not in the current shape fails the timeline inde
     view.close();
   }
   // 其他工具的请求不带 errands，照常显示。
-  const other = await viewer([sideRequest('interact', '美团')]);
-  assert.equal(other.summary(1), '请求 开始槽位 2 的活动 · 使用 · 美团');
+  const other = await viewer([sideRequest('interact', ['哔哩哔哩'])]);
+  assert.equal(other.summary(1), '请求 开始槽位 2 的活动 · 使用 · 哔哩哔哩');
   other.close();
 });
 

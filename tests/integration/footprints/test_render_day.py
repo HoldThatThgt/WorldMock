@@ -265,6 +265,22 @@ def test_purchase_row_is_split_by_order_with_its_channel(engine_factory, tmp_pat
     assert _labels(engine, tmp_path / "store", "购买") == ["购买饭团、纸巾（到店）", "购买牛肉面（经美团下单）；纸巾（到店）"]
 
 
+def test_purchase_row_reports_the_actual_channel_when_prefer_cannot_be_used(engine_factory, tmp_path):
+    """渠道不取 prefer：牛肉面只有一心面馆能送、那家店没上饿了么，写「饿了么」时订单落在美团；写一个不存在的「美团外卖」时
+    环境另选。两行都写订单记录上的下单 app，不出现人物所写的名称。"""
+    engine = engine_factory()
+    for label, goods, prefer in (("noodles", "牛肉面", "饿了么"), ("tea", "柠檬茶", "美团外卖")):
+        _, bought = act(engine, label, purchase(goods, prefer=prefer))
+        assert bought.status == "in_progress", bought.error_code
+        finish_activity(engine, bought, label)
+    apps = {order.goods_id: order.app_id for order in engine.context.state.deliveries.values()}
+    assert apps["beef-noodles"] == "meituan" and apps["lemon-tea"] is not None
+    labels = _labels(engine, tmp_path / "out", "购买")
+    assert labels == ["购买牛肉面（经美团下单）",
+                      f"购买柠檬茶（经{engine.context.catalog.apps[apps['lemon-tea']].name}下单）"]
+    assert not [label for label in labels if "饿了么" in label or "美团外卖" in label]
+
+
 def test_query_row_names_what_was_looked_up_and_the_app(engine_factory, tmp_path, capsys):
     """真实引擎做完一次带 app 的查询和一次没有 app 的查询：时间线各一行，名称按所写次序（类别写中文类别名），
     带 app 的加「（<app 名>）」，没有 app 的不加括号，标签检查零发现；inspect_run 的活动进度行写同一句。"""

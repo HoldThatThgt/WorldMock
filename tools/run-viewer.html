@@ -320,7 +320,7 @@ const TYPE_LABELS = {
 };
 const KIND_LABELS = {sleep:'睡眠', travel:'出行', interact:'互动', purchase:'购买', query:'查询'};
 const TOOL_LABELS = {start_main_activity:'开始槽位 1 的活动', start_side_activity:'开始槽位 2 的活动',
-  query_world:'查询世界', recall_task_summary:'回看任务',
+  recall_task_summary:'回看任务',
   report_status:'播报进展', pause_activity:'暂停活动', conclude_activity:'结束活动', revise_day_plan:'调整当日目标'};
 const STATUS_LABELS = { active:'进行中', completed:'已完成', in_progress:'进行中', rejected:'被拒绝', cancelled:'已取消' };
 const BND_LABELS = { planned_end:'按计划结束', feedback:'反馈中断',
@@ -665,9 +665,8 @@ function readableReq(tool, reqRaw){
       if (req.action==='sleep') return `${ViewerContext.actionWord('sleep', 'location')} · ${req.target} 分钟`;
       return `${req.target} · ${ViewerContext.actionWord(req.action, 'location')} · ${req.detail??''}`;
     case 'start_side_activity':
-      return `${ViewerContext.actionWord(req.action, 'app')} · ${(Array.isArray(req.target)?req.target:[]).join('、')}`;
-    case 'query_world':
-      return `${req.name||req.category||req.action||''} · 偏移 ${req.offset}`;
+      return `${ViewerContext.actionWord(req.action, 'app')} · ${(Array.isArray(req.target)?req.target:[]).join('、')}`
+        + (req.prefer!=null ? ` · 想用 ${req.prefer}` : '');
     case 'recall_task_summary':
       return req.task_name||'';
     case 'report_status':
