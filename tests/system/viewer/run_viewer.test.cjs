@@ -282,6 +282,12 @@ test('context drills into an inline current tool layer and lists travel methods 
     select.onchange();
     assert.deepEqual(JSON.parse(app.get('#ctx-raw').textContent), {action: 'travel', state: '全天营业', available: true,
       name: '公司', detail: '公共交通', price: '2 元', duration: '约 8 分钟', note: '轻松', kind: 'location'});
+    // 工具定义块的「填入」说明是现行工具面的定稿，不读录制样例：一个回看工具与三个记忆查询，共十个，没有世界查询工具。
+    app.get('button:tools').onclick();
+    const filled = app.get('#ctx-body').innerHTML;
+    assert.ok(filled.includes('<dt>填入</dt><dd>六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）、' +
+      '一个回看工具（recall_task_summary）与三个记忆查询工具，共十个，严格参数结构，整次运行字节相同。</dd>'), filled);
+    assert.doesNotMatch(filled, /query_world|世界查询|十一/);
     assert.deepEqual(app.errors, []);
   } finally { app.close(); }
 });
