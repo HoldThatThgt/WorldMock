@@ -293,6 +293,13 @@ def use_app(app: str):
     return StartSideActivityRequest.model_validate(side_arguments("interact", app))
 
 
+def query(*targets: str, prefer: str | None = None):
+    """@brief 查询请求：商品的完整名称或商品类别名，可以混写；prefer 是想在其中查询的 app 名称原文，缺省为 null。"""
+    from worldmock.life.models import StartSideActivityRequest
+
+    return StartSideActivityRequest.model_validate(side_arguments("query", *targets, prefer=prefer))
+
+
 def tool_of(request) -> str:
     """@brief 请求模型对应的世界请求工具名。"""
     from worldmock.life.models import REQUEST_MODELS

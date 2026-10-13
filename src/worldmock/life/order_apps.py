@@ -8,17 +8,31 @@ from __future__ import annotations
 from worldmock.life import object_labels
 
 
+def selling_app_ids(catalog, goods_ids) -> tuple[str, ...]:
+    """@brief 卖这组商品里至少一件的下单 app，按 app_id 升序；「哪个 app 卖哪件商品」的唯一判据。
+
+    一个 app 卖一件商品按冻结目录的登记算，不看此刻营业：商品的 app_ids 里有这个 app；或者有一个地点，
+    它的类型在商品的 store_kinds 里，并且它登记了这个 app。
+
+    :param catalog: 这次运行冻结的环境目录。
+    :param goods_ids: 一组商品身份。
+    :return: 卖其中至少一件的 app 身份，按 app_id 升序。
+    """
+    wanted = frozenset(goods_ids)
+    return tuple(key for key in sorted(catalog.apps) if wanted.intersection(catalog.goods_by_app[key])
+                 or any(wanted.intersection(catalog.goods_by_store[store]) for store in catalog.stores_by_app[key]))
+
+
 def order_app_ids(catalog) -> tuple[str, ...]:
     """@brief 全部下单 app 的身份，按 app_id 升序。
 
-    下单 app 是能接单的内容 app：它直接登记了商品，或者登记它的地点里至少有一个确实卖商品。
+    下单 app 是能接单的内容 app：它直接登记了商品，或者登记它的地点里至少有一个确实卖商品，即卖目录里至少一件商品。
     功能 app 与只有内容、不卖东西的内容 app 都不是。
 
     :param catalog: 这次运行冻结的环境目录。
     :return: 下单 app 的身份，按 app_id 升序。
     """
-    return tuple(key for key in sorted(catalog.apps) if catalog.goods_by_app[key]
-                 or any(catalog.goods_by_store[store] for store in catalog.stores_by_app[key]))
+    return selling_app_ids(catalog, catalog.goods)
 
 
 def preferred_app_id(catalog, written: str | None) -> str | None:

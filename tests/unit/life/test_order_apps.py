@@ -7,7 +7,7 @@ import pytest
 from tests.data_paths import CATALOG_ROOT
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from worldmock.catalog.loader import load_catalog
-from worldmock.life.order_apps import order_app_ids, preferred_app_id
+from worldmock.life.order_apps import order_app_ids, preferred_app_id, selling_app_ids
 
 
 def _catalog(root):
@@ -35,6 +35,19 @@ def test_fixture_order_apps_are_the_content_apps_that_take_orders():
     """哔哩哔哩直接卖商品，饿了么和美团被卖商品的店登记；抖音、Keep 只有内容，支付宝、微信、高德地图是功能 app。"""
     catalog = load_catalog(CATALOG_ROOT, 7)
     assert order_app_ids(catalog) == ("bilibili", "eleme", "meituan")
+
+
+@pytest.mark.parametrize("goods_ids,expected", [
+    (("lemon-tea",), ("eleme", "meituan")), (("beef-noodles",), ("meituan",)), (("online-notebook",), ("bilibili",)),
+    (("lemon-tea", "online-notebook"), ("bilibili", "eleme", "meituan")), (("tissue",), ()), ((), ()),
+    (("tissue", "rice-ball"), ()),
+])
+def test_selling_apps_follow_the_catalog_registration(goods_ids, expected):
+    """卖一组商品里至少一件的下单 app：商品登记了它，或类型对得上的地点登记了它；按 app_id 升序。只有没登记 app 的
+    四季便利卖的纸巾和饭团没有 app 卖。下单 app 就是卖目录里至少一件商品的 app。"""
+    catalog = load_catalog(CATALOG_ROOT, 7)
+    assert selling_app_ids(catalog, goods_ids) == expected
+    assert order_app_ids(catalog) == selling_app_ids(catalog, catalog.goods)
 
 
 @pytest.mark.parametrize("written,expected", [

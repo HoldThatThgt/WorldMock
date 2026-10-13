@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from worldmock.footprints.models import EventDraft, validate_decision_rhythm
 from worldmock.life import duty_edges, errands, felt, reminders
 from worldmock.life.activities import shared_activity_factors, schedule_feedback
-from worldmock.life.activity_control import is_pending_conclusion
+from worldmock.life.activity_control import finished_at
 from worldmock.life.body import BoundaryClock, apply_discomfort_pulse, next_shared_body_boundary_seconds
 from worldmock.life.models import ActivityKind, ActivityStatus, WorldState, active_activities
 from worldmock.life.projection import felt_values
@@ -91,10 +91,11 @@ def _settle_discomfort(agent, levels: dict[str, str], now: int, interval_start: 
                                     "discomfort_pulse_hours": chargeable if continuing else 0.0}, deep=True)
 
 def _wake_snapshot(context, state: WorldState, agent, boundary: RhythmBoundary) -> WakeSnapshot:
-    """@brief 只由真实完成、到达和睡醒提供唤醒事实；session_open 就是本人有一段睡眠恰在本边界完成。"""
+    """@brief 只由真实完成、到达和睡醒提供唤醒事实；本边界做完的活动由 activity_control.finished_at 判定（含做完自己结束
+    的查询）；session_open 就是本人有一段睡眠恰在本边界完成。"""
     now = state.current_time
     completed = [item for item in state.activities.values() if item.agent_id == agent.agent_id
-                 and is_pending_conclusion(item) and item.ended_at == now]
+                 and finished_at(item, now)]
     activities = active_activities(state, agent.agent_id)
     flags = boundary.arrivals.get(agent.agent_id, set())
     woke = any(item.kind == ActivityKind.SLEEP for item in completed)

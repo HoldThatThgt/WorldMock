@@ -264,12 +264,14 @@ def _start_shapes(tool_name: str, request: Mapping[str, Any], related: Sequence[
 
 
 def _start_shape(action: str, related: Sequence[Event], activity: Mapping[str, Any]) -> _Shape | None:
-    """@brief 实际快照提供对象，睡眠沿用不生成开始点事实的规则。"""
+    """@brief 实际快照提供对象，睡眠与查询沿用不生成开始点事实的规则。"""
     if action == "interact":
         return _activity_shape(activity) if activity else None
     if action == "purchase":
         return _Shape(action, "order", "order", _order_key(related), {})
     if action == "sleep":
+        return None
+    if action == "query":
         return None
     trip = _string(_mapping(activity.get("data")).get("trip_id"))
     return _Shape(action, "travel", "route", trip, _travel_mode(activity.get("travel_method_id")))

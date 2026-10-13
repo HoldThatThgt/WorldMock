@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 
-from worldmock.errors import BusinessRuleError, PreconditionError
+from worldmock.errors import BusinessRuleError, PreconditionError, ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life import activity_control, admission, same_moment, sessions
 from worldmock.life.action_contract import ACTION_LABELS, START_TOOLS
@@ -32,6 +32,7 @@ from worldmock.life.name_resolution import name_book, resolution_data, resolve_s
 from worldmock.life.object_labels import resolve_name
 from worldmock.life.order_apps import preferred_app_id
 from worldmock.life.purchase_offers import app_goods
+from worldmock.life.query_activity import goods_not_found, start_query
 from worldmock.life.request_errors import argument_report
 from worldmock.life.sleep_plan import assumed_sleep, oversleep_seconds, sleep_seconds_in_window
 from worldmock.life.storefront_runtime import StorefrontRuntime
@@ -148,14 +149,15 @@ class StartGroups:
     def _resolved(self, group: Sequence[PendingAction], requests: list, observation: dict) -> list[_Started]:
         """@brief 与宿主共用同一份冻结观察上的名称解析，全部名称问题合并成一次 ACTION_REQUEST_INVALID。
 
-        购买调用在这里从冻结目录认一次意向 app，记在调用上，整组核验与受理读同一个值；prefer 不参加名称解析。
+        购买与查询调用在这里从冻结目录认一次意向 app，记在调用上，整组核验与受理读同一个值；prefer 不参加名称解析。
         """
         book, started, items = name_book(observation), [], []
         for index, (pending, request) in enumerate(zip(group, requests, strict=True)):
             outcome = resolve_start(book, pending.tool_name, request)
             root = ("tool_calls", index, "function", "arguments")
             items.extend(replace(failure.item, path=(*root, *failure.item.path)) for failure in outcome.failures)
-            prefer = preferred_app_id(self.context.catalog, request.prefer) if request.action == "purchase" else None
+            ordering = request.action in ("purchase", "query")
+            prefer = preferred_app_id(self.context.catalog, request.prefer) if ordering else None
             call = admission.Call(pending.tool_name, request.action, outcome.rows, prefer)
             started.append(_Started(index, pending, call, outcome.resolved))
         if items:
@@ -167,17 +169,20 @@ class StartGroups:
         return started
 
     def _named_goods(self, item: _Started) -> _Started:
-        """@brief 指名商品：购买数组里未展示的名称在全量商品中找唯一商品，找不到即 SUPPLY_NOT_FOUND。"""
-        if item.call.action != "purchase":
+        """@brief 指名商品：购买与查询数组里未展示的名称在全量商品中找唯一商品，查询的类别行跳过；按数组次序第一项找不到
+        时购买得 SUPPLY_NOT_FOUND 的默认说法，查询得列出四个类别名、定位到数组那一项的拒绝。"""
+        if item.call.action not in ("purchase", "query"):
             return item
         goods, rows = tuple(self.context.catalog.goods.values()), []
-        for row in item.call.rows:
-            if row["object_id"] is None:
+        for position, row in enumerate(item.call.rows):
+            if row["kind"] == "named_supply":
                 canonical = resolve_name(row["object"], [entry.name for entry in goods]).name
                 found = [entry for entry in goods if entry.name == canonical]
                 if len(found) != 1:
                     _LOGGER.error("Named goods are unknown or ambiguous")
-                    raise _Refused(refusal_for_code("SUPPLY_NOT_FOUND"), (item.index,))
+                    refusal = (goods_not_found(item.index, position, row["object"]) if item.call.action == "query"
+                               else refusal_for_code("SUPPLY_NOT_FOUND"))
+                    raise _Refused(refusal, (item.index,))
                 row = {**row, "object_id": found[0].goods_id}
             rows.append(row)
         return replace(item, call=replace(item.call, rows=tuple(rows)))
@@ -204,7 +209,7 @@ class StartGroups:
         return changed, [self._result(state, changed, item) for item in started]
 
     def _start(self, state: WorldState, item: _Started, stay_location_id: str | None) -> WorldState:
-        """@brief 一条调用恰好开始一项活动：出行、睡眠、购买或 interact。
+        """@brief 一条调用恰好开始一项活动，五个动作各走自己的一支：出行、睡眠、购买、查询或 interact。
 
         :param stay_location_id: 本轮请求生效之前的停留地点，app 内容的前提按它筛选。
         """
@@ -215,6 +220,11 @@ class StartGroups:
             return self._start_sleep(state, pending, rows[0]["minutes"] * 60)
         if action == "purchase":
             return self.storefront.prepare_purchase(state, pending, item.call.goods_ids, item.call.prefer)[0]
+        if action == "query":
+            return start_query(self.context, state, pending, item.call)
+        if action != "interact":
+            _LOGGER.error("Start action has no start branch: %s", action)
+            raise ProtocolError("Start action has no start branch")
         changed, _, drafts = InteractivityRuntime(self.context).start(state, pending, rows[0], stay_location_id)
         self.event_drafts.extend(drafts)
         return changed

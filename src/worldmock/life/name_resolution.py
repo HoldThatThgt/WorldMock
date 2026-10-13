@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, TypeVar
+from worldmock.exchange.types import GOODS_CATEGORY_LABELS
 from worldmock.life import object_labels
 from worldmock.life.action_contract import START_TOOLS, binding_action, start_tool
 from worldmock.life.error_contract import MAX_CANDIDATES, Candidate, ErrorItem
@@ -11,6 +12,8 @@ from worldmock.life.sleep_plan import parse_sleep_minutes
 
 _Entry = TypeVar("_Entry")
 MAIN_TOOL, SIDE_TOOL = START_TOOLS
+#: 副工具各动作允许的对象类型：购买与查询认商品，interact 认内容 app。
+_SIDE_KINDS = {"purchase": "supply", "interact": "app", "query": "supply"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,11 +82,18 @@ class StartOutcome:
     resolved: tuple[dict, ...] = ()
 
 
-def named_supply_row(name: str) -> dict:
-    """@brief 未展示商品交给唯一指名商品解析入口。"""
-    action = binding_action("purchase")
+def named_supply_row(name: str, action: str) -> dict:
+    """@brief 未展示商品交给唯一指名商品解析入口；行上带着所写的动作（购买或查询）。"""
+    binding = binding_action(action)
     return {"object": name, "kind": "named_supply", "object_id": None,
-            "actions": [action], "selected_action": action}
+            "actions": [binding], "selected_action": binding}
+
+
+def category_row(category: str) -> dict:
+    """@brief 查询写的一个商品类别：类别键与中文名，不经绑定行。"""
+    binding = binding_action("query")
+    return {"object": GOODS_CATEGORY_LABELS[category], "kind": "category", "object_id": None, "category": category,
+            "actions": [binding], "selected_action": binding}
 
 
 def sleep_row(minutes: int) -> dict:
@@ -187,10 +197,10 @@ def resolve_start(book: NameBook, tool: str, request: Any) -> StartOutcome:
 
 
 def _kinds(item: StartItem) -> frozenset[str]:
-    """@brief 各动作允许的对象类型：主工具只认地点，购买只认商品，副工具的 interact 只认内容 app。"""
+    """@brief 各动作允许的对象类型：主工具只认地点；副工具按动作各取一种，购买与查询只认商品，interact 只认内容 app。"""
     if item.tool == MAIN_TOOL:
         return frozenset({"location"})
-    return frozenset({"supply"}) if item.action == "purchase" else frozenset({"app"})
+    return frozenset({_SIDE_KINDS[item.action]})
 
 
 def _resolve_item(book: NameBook, item: StartItem) -> tuple:
@@ -199,12 +209,14 @@ def _resolve_item(book: NameBook, item: StartItem) -> tuple:
         minutes = parse_sleep_minutes(item.target)
         records = () if str(minutes) == item.target else ({"written": item.target, "as": str(minutes)},)
         return sleep_row(minutes), None, records
+    if item.action == "query":
+        return _resolve_query(book, item)
     matches = lookup(item.target, book.targets, _kinds(item), book.home)
     if len(matches) > 1:
         return None, _ambiguous_object(matches, item), ()
     if not matches:
         if item.action == "purchase":
-            return named_supply_row(item.target), None, ()
+            return named_supply_row(item.target, item.action), None, ()
         return None, _unknown_object(book, item), ()
     target = matches[0]
     options = tuple(option for option in target.options
@@ -215,6 +227,27 @@ def _resolve_item(book: NameBook, item: StartItem) -> tuple:
     if item.tool != MAIN_TOOL:
         return selection_row(target, options[0]), None, records
     return _resolve_detail(target, options, item, records)
+
+
+def _resolve_query(book: NameBook, item: StartItem) -> tuple:
+    """@brief 查询的一项按次序认：先在四个类别名里规整后唯一对上（类别优先）；再在本轮展示的商品里逐级规整匹配一次，
+    唯一对上就是这件商品，对上多件给 NAME_AMBIGUOUS 与查询候选；其余交给环境在全量商品里找。地点和内容 app 不参加。
+
+    类别名或展示的商品名规整后与所写不同时记一条归一。
+    """
+    category = object_labels.resolve_name(item.target, GOODS_CATEGORY_LABELS.values())
+    if category.name is not None:
+        key = next(key for key, label in GOODS_CATEGORY_LABELS.items() if label == category.name)
+        records = () if category.name == item.target else ({"written": item.target, "as": category.name},)
+        return category_row(key), None, records
+    matches = lookup(item.target, tuple(target for target in book.targets if target.kind in _kinds(item)))
+    if len(matches) > 1:
+        return None, _ambiguous_object(matches, item), ()
+    if not matches:
+        return named_supply_row(item.target, item.action), None, ()
+    target = matches[0]
+    records = () if target.label == item.target else ({"written": item.target, "as": target.label},)
+    return {**target.row, "selected_action": binding_action(item.action)}, None, records
 
 
 def _resolve_detail(target: Target, options: tuple[Option, ...], item: StartItem, records: tuple) -> tuple:
@@ -236,8 +269,12 @@ def call_candidate(target: Target, option: Option, item: StartItem) -> Candidate
     """@brief 对象的一条动作行写成可以照抄提交的完整调用；购买候选只替换所写数组里出错的那个元素。
 
     副工具的候选恒为 action、target、prefer 三个键：购买候选的 prefer 照被退回的请求所写原样带上（主工具的调用和
-    打开 app 没有写过意向，就是 None），打开 app 的候选恒为 None。
+    打开 app 没有写过意向，就是 None），打开 app 的候选恒为 None。查询的候选是查询调用：只替换出错的那一项，prefer 照
+    所写原样带上，note 为 None（查询在工具层没有动作行，没有可用性与时长可写）。
     """
+    if item.action == "query":
+        written = [target.label if position == item.index else name for position, name in enumerate(item.written)]
+        return Candidate(SIDE_TOOL, {"action": "query", "target": written, "prefer": item.prefer}, None)
     note = option.blocked or option.duration
     if target.kind == "location":
         return Candidate(MAIN_TOOL, {"action": option.action, "target": target.label, "detail": option.detail}, note)

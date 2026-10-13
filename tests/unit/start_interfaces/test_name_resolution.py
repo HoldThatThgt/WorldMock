@@ -1,10 +1,10 @@
-"""开始调用的名称解析：五种结果的码、路径与文字，候选是新工具的完整调用，睡眠只读分钟数。"""
+"""开始调用的名称解析：五种结果的码、路径与文字，候选是新工具的完整调用，睡眠只读分钟数，查询认类别名与商品名。"""
 
 from __future__ import annotations
 
 import pytest
 
-from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, context, do_at, purchase, sleep, travel, use_app
+from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, context, do_at, purchase, query, sleep, travel, use_app
 from worldmock.life.action_contract import binding_action
 from worldmock.life.models import StartSideActivityRequest
 from worldmock.life.name_resolution import NameBook, Option, Target, name_book, resolve_start
@@ -213,3 +213,36 @@ def test_sleep_resolves_without_any_binding_row(written, minutes, record):
     assert outcome.failures == () and outcome.resolved == record
     assert [row["minutes"] for row in outcome.rows] == [minutes]
     assert outcome.rows[0]["object_id"] is None and outcome.rows[0]["kind"] == "sleep"
+
+
+def test_query_items_resolve_categories_first_then_shown_goods_then_hand_over_the_rest(book):
+    """查询的每一项：类别名规整后唯一对上就是类别（记一条归一）；展示的商品按逐级规整匹配；地点名、内容 app 名与
+    不存在的名称都交给环境的指名商品入口，行上带着所写的动作 query。"""
+    outcome = resolve_start(book, SIDE_TOOL, query(" 零 食", "牛 肉 面", "家", "哔哩哔哩", "不存在"))
+    assert outcome.failures == ()
+    assert outcome.resolved == ({"written": " 零 食", "as": "零食"}, {"written": "牛 肉 面", "as": "牛肉面"})
+    category, goods, *rest = outcome.rows
+    assert (category["kind"], category["category"], category["object"]) == ("category", "snack", "零食")
+    assert (goods["kind"], goods["object_id"]) == ("supply", "beef-noodles")
+    assert [(row["kind"], row["object"]) for row in rest] == [
+        ("named_supply", "家"), ("named_supply", "哔哩哔哩"), ("named_supply", "不存在")]
+    assert {row["selected_action"]["action"] for row in outcome.rows} == {"query"}
+
+
+def test_query_name_matching_several_goods_offers_query_candidates():
+    """查询写的名称对上多件展示的商品：NAME_AMBIGUOUS；候选是三个键齐全的查询调用，只替换出错的那一项、其余照写，
+    prefer 照所写原样带上，note 为 null，至多三条，每条都能通过请求模型。"""
+    buy = _option("purchase", blocked="Purchase requires presence.", duration="1–5 分钟")
+    goods = NameBook(tuple(_target(label, "supply", buy) for label in ("柠檬 茶", "柠檬  茶", "柠 檬茶", "柠檬茶 ")),
+                     "家", "家")
+    for prefer in ("美团", "美 团", None):
+        item = _single(resolve_start(goods, SIDE_TOOL, query("食品", "柠檬茶", "薯片", prefer=prefer)))
+        assert item["error_code"] == "NAME_AMBIGUOUS" and item["path"][-2:] == ["target", 1]
+        assert item["why"] == "The name 柠檬茶 identifies several known objects."
+        assert item["candidates"] == [
+            {"tool": SIDE_TOOL, "note": None, "arguments": {"action": "query", "target": ["食品", label, "薯片"],
+                                                            "prefer": prefer}}
+            for label in ("柠檬 茶", "柠檬  茶", "柠 檬茶")]
+        for candidate in item["candidates"]:
+            arguments = candidate["arguments"]
+            assert StartSideActivityRequest.model_validate(arguments).model_dump(mode="json") == arguments
