@@ -3,6 +3,10 @@
 规则见 docs/design/04-simulation-engine.md「出行、内容与查询」，机器形式见 docs/design/09-io-formats.md「世界、人物与
 活动」，人物读到的形状见 docs/design/06-agent.md「进度、待办与记忆」。途径的三个中文名与原因的六句文字只在这里定义。
 外卖与快递的运费、预计送达直接取购买的报价函数，不另算一份。
+
+「所查商品」的展开 queried_goods 也定义在这里，而不是规格文件表写的 life/query_activity.py：答案限定在意向 app 时
+类别只展开这个 app 卖的商品，答案要用它；而 query_activity 的 complete_query 要调用这里的 query_answer，放在那边会成环。
+受理时选 app 不限定，答案限定时多传意向 app，所以它比文件表多一个缺省为 None 的 app_id。
 """
 
 from __future__ import annotations
@@ -56,6 +60,9 @@ class _Moment:
 
 def queried_goods(catalog, targets: Sequence[Mapping[str, Any]], app_id: str | None = None) -> tuple[str, ...]:
     """@brief 所查商品：指名的商品加各类别下的全部商品（类别下只在 app 里卖的商品也算），按 goods_id 升序去重。
+
+    受理时 query_activity 不带 app_id 调用它选 app；做完时答案限定在意向 app 就带上 app_id。放在这里不放在
+    query_activity 的原因见模块说明。
 
     :param catalog: 冻结目录。
     :param targets: 查询活动数据里认出的各项（商品或类别）。
