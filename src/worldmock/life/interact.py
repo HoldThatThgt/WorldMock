@@ -4,16 +4,20 @@ import logging
 import math
 from dataclasses import dataclass
 from worldmock.errors import BusinessRuleError, IntegrityError
-from worldmock.footprints.models import EventDraft
+from worldmock.footprints.callback_contract import ConsumeOnStartResult
+from worldmock.footprints.models import EventDraft, validate_resource_flows
 from worldmock.life.activities import ActivityStartParams, start_activity, schedule_feedback
 from worldmock.life.activity_control import activity_name
 from worldmock.life.app_push import open_app_push, release_app_pushes
+from worldmock.life.completion_effects import settle_completion_effects
 from worldmock.life.content_select import ContentRequest, select_content
 from worldmock.life.location_activities import next_content
 from worldmock.life.models import ActivityState, ActivityStatus, ContentProgress, WorldState
 from worldmock.life.randomness import random_stream
-from worldmock.life.world_ops import _activity_origin, _put_activity
+from worldmock.life.world_ops import _activity_origin, _put_activity, _put_agent
 
+#: 内容缓解档位每实际小时减少的放松或社交需要；地点内容完成效果的一次缓解等于同一档一小时的量，
+#: 由 settle_completion 原样交给完成效果结算。
 RELIEF_PER_HOUR = {"none": 0.0, "low": 0.10, "medium": 0.30, "high": 0.50}
 
 @dataclass(frozen=True)
@@ -25,10 +29,11 @@ class InteractivityRuntime:
     def start(self, state: WorldState, pending, row,
               stay_location_id: str | None) -> tuple[WorldState, ActivityState, list[EventDraft]]:
         """@brief 整组已准入后开始一项 interact：内容 app 由引擎在合格内容里推荐一次并打开真实钉住推送，地点按人物
-        点名的单元开始。
+        点名的单元开始。活动放进世界之后先在驿站取件，再为凭状态的单元把本人这个状态减 1。
 
         :param row: 名称解析出的绑定行（内容 app，或带单元动作行 selected_action 的当前地点）。
         :param stay_location_id: 本轮请求生效之前的停留地点，内容前提按它筛选；与出发同组时是出发地，路上为 None。
+        :returns: （世界，活动，取件的收货草稿与减 1 的 consume_on_start 草稿）。
         """
         agent = state.agents[pending.agent_id]
         origin = _activity_origin(state, pending)
@@ -46,15 +51,14 @@ class InteractivityRuntime:
         changed = _put_activity(state, agent, activity)
         if data.get("pinned_by_push_id") is not None:
             changed, _ = open_app_push(changed, agent.agent_id, data["app_id"], data["content_id"])
-        return self._collect(changed, activity, row)
+        changed, activity, receipts = self._collect(changed, activity, row)
+        changed, consumed = self._consume(changed, activity)
+        return changed, activity, [*receipts, *consumed]
 
     def _app_plan(self, state: WorldState, agent, request: ContentRequest) -> tuple[str, int, dict]:
-        """@brief 内容 app 的活动名、计划时长与活动数据：没有登记内容的 app 是纯目录浏览、读声明时长，否则在合格
-        内容里抽取一次并从共享位置继续。"""
+        """@brief 内容 app 的活动名、计划时长与活动数据：在合格内容里抽取一次并从共享位置继续。"""
         app_id, catalog = request.app_id, self.context.catalog
         app = catalog.apps[app_id]
-        if not catalog.contents_by_app[app_id]:
-            return app.name, app.browse_duration_seconds, _browse_data(app_id)
         content, pinned = select_content(catalog, state, request,
                                          random_stream(state.random_state, f"{request.activity_id}:0"))
         progress = agent.content_progress.get(content.content_id)
@@ -78,11 +82,34 @@ class InteractivityRuntime:
                                                                            place.location_id)
         return changed, activity, receipts
 
+    def _consume(self, state: WorldState, activity: ActivityState) -> tuple[WorldState, list[EventDraft]]:
+        """@brief 凭状态的地点内容开始时把本人这个回调状态减 1，写一条 consume_on_start 草稿；不凭状态的原样返回。
+
+        受理已保证减之前不小于 1，不钳位；减后小于 0 是运行故障。只在开始时调用：恢复暂停的活动、系列自动接下一集、
+        提前结束与运行截止都不经过这里。回调效果的草稿构造时就要恰一个起因，所以先回链这次开始调用的请求事件，
+        受理时由决策协调改指主调用的受理结果（docs/design/04-simulation-engine.md「出行、内容与查询」）。
+        """
+        content = self.context.catalog.contents[activity.data["content_id"]]
+        if content.consumes_state is None:
+            return state, []
+        agent = state.agents[activity.agent_id]
+        before = agent.callback_states[content.consumes_state]
+        after = before - 1
+        if after < 0:
+            logging.error("Consumed state fell below zero")
+            raise IntegrityError("Consumed state fell below zero")
+        agent = agent.model_copy(update={"callback_states": {**agent.callback_states, content.consumes_state: after}},
+                                 deep=True)
+        payload = ConsumeOnStartResult(state=content.consumes_state, content_id=content.content_id,
+                                       before=before, after=after)
+        draft = EventDraft(event_type="environment_event", occurred_at=state.current_time, agent_id=agent.agent_id,
+                           source_kind="environment", visibility="system",
+                           caused_by=[activity.origin_request_event_id], data=payload.model_dump(mode="json"))
+        return _put_agent(state, agent), [draft]
+
     def advance(self, state: WorldState, activity: ActivityState, target: int) -> tuple[WorldState, dict | None]:
         """@brief 泛型游标已推进后保存实际内容区间，不再另加心理效果。"""
         content_id = activity.data["content_id"]
-        if content_id is None:
-            return state, None
         content = self.context.catalog.contents[content_id]
         changed = state.model_copy(deep=True)
         agent = changed.agents[activity.agent_id]
@@ -100,12 +127,36 @@ class InteractivityRuntime:
         changed.agents[activity.agent_id] = agent
         evidence = {"content_id": content_id, "app_id": activity.data["app_id"],
             "position_before_seconds": before, "position_after_seconds": after,
-            "completed": completed, "completed_rounds_after": progress.completed_rounds}
+            "completed": completed, "completed_rounds_after": progress.completed_rounds, "completion_effects": None}
         if completed:
             changed = release_app_pushes(changed, agent.agent_id, content_id)
             activity = self._complete_content(changed, activity, content, progress.completed_rounds)
             changed.activities[activity.activity_id] = activity
         return changed, evidence
+
+    def settle_completion(self, state: WorldState, activity: ActivityState,
+                          evidence: dict | None) -> tuple[WorldState, dict | None, list[dict]]:
+        """@brief 刚做完的地点内容写了 completion_effects 时，在这一秒共同身体结算之后结算一次完成效果。
+
+        读冻结目录里 evidence 指的那条内容（系列是刚做完的那一集，不是接下来那一集）；evidence 为空、completed 不为真
+        或这条内容没有声明时原样返回。结算的身体写回人物，证据写进内容证据的 completion_effects，分录已由结算自己取走，
+        盖上人物身份后返回，由时间推进排在这条 activity_progress 的 resource_flows 最前
+        （docs/design/04-simulation-engine.md「出行、内容与查询」）。
+
+        :param evidence: advance 返回的内容证据。
+        :returns: （世界，内容证据，分录字典列表）。
+        """
+        if evidence is None or not evidence["completed"]:
+            return state, evidence, []
+        effects = self.context.catalog.contents[evidence["content_id"]].completion_effects
+        if effects is None:
+            return state, evidence, []
+        agent = state.agents[activity.agent_id]
+        body, settled, entries = settle_completion_effects(agent.body, effects, self.context.body, RELIEF_PER_HOUR)
+        changed = _put_agent(state, agent.model_copy(update={"body": body}, deep=True))
+        flows = [{"resource": entry.resource, "owner": f"agent:{agent.agent_id}", "direction": entry.direction,
+                  "amount": entry.amount, "cause": entry.cause} for entry in entries]
+        return changed, {**evidence, "completion_effects": settled}, validate_resource_flows(flows)
 
     def _complete_content(self, state: WorldState, activity: ActivityState, content, rounds: int) -> ActivityState:
         """@brief 独立内容立即停止；同系列仅按集号接续下一条未完成集。"""
@@ -137,8 +188,6 @@ class InteractivityRuntime:
     def resume(self, state: WorldState, activity: ActivityState) -> WorldState:
         """@brief 恢复实际共享位置，不抽取另一条内容。"""
         content_id = activity.data["content_id"]
-        if content_id is None:
-            return state
         content = self.context.catalog.contents.get(content_id)
         if content is None:
             logging.error("Persisted activity target is invalid")
@@ -162,8 +211,3 @@ def _content_data(content, app_id: str | None, position: float, pinned: str | No
         "pinned_by_push_id": pinned, "draw_index": 0, "played": [], "exertion": content.exertion,
         "relaxation_relief_per_hour": RELIEF_PER_HOUR[content.relaxation_relief],
         "social_relief_per_hour": RELIEF_PER_HOUR[content.social_relief]}
-
-def _browse_data(app_id: str) -> dict:
-    """@brief 纯目录浏览没有共享内容游标、推送绑定或心理效果。"""
-    return {"app_id": app_id, "content_id": None, "exertion": "idle",
-        "relaxation_relief_per_hour": 0.0, "social_relief_per_hour": 0.0}

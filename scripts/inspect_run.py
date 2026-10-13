@@ -351,15 +351,26 @@ def _energy_points(conn: sqlite3.Connection, zone: ZoneInfo) -> dict[tuple[int, 
     return points
 
 
-def lowest_energy_before_meal(conn: sqlite3.Connection, zone: ZoneInfo) -> list[dict]:
-    """@brief 首次进食前最低能量：每人每个本地日第一次进食正进度之前，共同身体结算的最低 energy_kcal。
+def _location_meals(conn: sqlite3.Connection) -> list[tuple[int, int]]:
+    """@brief 在地点吃的一餐：data.content.completion_effects.food 不为 null 的 activity_progress（两个档位都算），
+    每条一项，返回人物身份与事件时刻。"""
+    rows = _select(conn, "activity_progress",
+                   "json_extract(body, '$.agent_id'), json_extract(body, '$.occurred_at'), "
+                   "json_extract(body, '$.data.content.completion_effects.food')")
+    return [(agent, moment) for agent, moment, food in rows if food is not None]
 
+
+def lowest_energy_before_meal(conn: sqlite3.Connection, zone: ZoneInfo) -> list[dict]:
+    """@brief 首次进食前最低能量：每人每个本地日第一次进食之前，共同身体结算的最低 energy_kcal。
+
+    与进食次数读同一组进食时刻：食品收货与在地点吃的一餐（_location_meals），当天最早的一次取两者中较早的那个。
     当日没有进食时取全日最低并标 ate=False；进食前没有结算记录时 energy_kcal 为 None。
     """
     first_meal: dict[tuple[int, str], int] = {}
-    for agent, _, start in food_receipts(conn):
-        key = (agent, _local_date(start, zone))
-        first_meal[key] = min(first_meal.get(key, start), start)
+    meals = [(agent, moment) for agent, _, moment in food_receipts(conn)] + _location_meals(conn)
+    for agent, moment in meals:
+        key = (agent, _local_date(moment, zone))
+        first_meal[key] = min(first_meal.get(key, moment), moment)
     report = []
     for (agent, date), points in sorted(_energy_points(conn, zone).items()):
         limit = first_meal.get((agent, date))
@@ -370,8 +381,8 @@ def lowest_energy_before_meal(conn: sqlite3.Connection, zone: ZoneInfo) -> list[
 
 
 def meal_count(conn: sqlite3.Connection) -> int:
-    """@brief 进食次数：有进食正进度的活动数（同一活动的多段进展只计一次）。"""
-    return len({(agent, activity_id) for agent, activity_id, _ in food_receipts(conn)})
+    """@brief 进食次数：本人零食、食品、饮料收货的不同订单数，加上在地点吃的一餐的条数（每条计一次）。"""
+    return len({(agent, order_id) for agent, order_id, _ in food_receipts(conn)}) + len(_location_meals(conn))
 
 
 def walking_share(conn: sqlite3.Connection) -> dict:

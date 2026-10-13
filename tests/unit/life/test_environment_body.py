@@ -6,7 +6,8 @@ import pytest
 from worldmock.exchange.operators import evaluate_goods_receipt
 from worldmock.input_models import PersonaConfig
 from worldmock.life.body import (ActivityFactors, BoundaryClock, apply_discomfort_pulse, apply_food,
-    apply_relaxation_change, initial_body, last_flows, next_shared_body_boundary_seconds, settle_shared_body)
+    apply_relaxation_change, food_intake, initial_body, last_flows, next_shared_body_boundary_seconds,
+    settle_shared_body)
 from worldmock.life.body_config import assemble_body_config
 from worldmock.life.felt import EnergyReading, MealWindows, summarize_felt_levels
 from worldmock.life.models import ActivityKind
@@ -66,7 +67,7 @@ def test_sleep_debt_recovers_by_the_time_actually_slept_including_the_extra_part
     assert extra.sleep_pressure < declared.sleep_pressure < body.sleep_pressure
     assert settle_shared_body(body, asleep, 13 * 3600, config).after.sleep_deficit_hours == 0.0
 
-def test_no_active_effects_pure_browse_and_purchase_have_only_growth(body_inputs):
+def test_no_active_effects_relief_free_interaction_and_purchase_have_only_growth(body_inputs):
     config, body = body_inputs
     for activities in ((), ((ActivityKind.PURCHASE, ActivityFactors(1.0)),),
                        ((ActivityKind.INTERACT, ActivityFactors(1.0)),)):
@@ -111,6 +112,29 @@ def test_received_meal_and_snack_yield_their_fixed_energy_and_the_pool_stops_at_
     assert (first.after.energy_kcal, second.after.energy_kcal) == (2040, 2400)
     assert second.food_energy_kcal == 540
     assert [flow.amount for flow in last_flows() if flow.resource == 'energy_kcal'] == [540, 360]
+
+def test_food_intake_returns_the_body_the_registered_amount_and_its_own_flows(body_inputs):
+    """食品进账只有 food_intake 一份实现：返回的身体、{provided, applied, efficiency} 与这一笔分录互相一致，applied 是
+    分录数额之和，调用后缓冲里不剩这一笔；欠觉 16 小时的利用率 0.85，进到能量上限为止。"""
+    config, body = body_inputs
+    hungry = body.model_copy(update={'energy_kcal': 2100.0, 'sleep_deficit_hours': 16.0})
+    changed, intake, entries = food_intake(hungry, 600, config)
+    assert intake == {'provided': 600, 'applied': sum(entry.amount for entry in entries), 'efficiency': 0.85}
+    assert [(entry.resource, entry.direction, entry.cause) for entry in entries] == [
+        ('energy_kcal', 'source', 'settle:shared:energy_kcal')]
+    assert intake['applied'] == pytest.approx(300.0) and changed.energy_kcal == pytest.approx(2400.0)
+    assert changed.model_copy(update={'energy_kcal': hungry.energy_kcal}) == hungry
+    assert last_flows() == ()
+
+
+def test_food_intake_at_the_energy_cap_applies_zero_without_flows(body_inputs):
+    """能量已到上限：applied 是 0.0（浮点），没有分录，身体不变，缓冲里没有东西。"""
+    config, body = body_inputs
+    full = body.model_copy(update={'energy_kcal': config.maximum_energy_kcal})
+    changed, intake, entries = food_intake(full, 200, config)
+    assert (intake, entries, changed) == ({'provided': 200, 'applied': 0.0, 'efficiency': 0.9}, (), full)
+    assert type(intake['applied']) is float and last_flows() == ()
+
 
 def test_discomfort_and_rejection_modify_only_relaxation(body_inputs):
     _, body = body_inputs

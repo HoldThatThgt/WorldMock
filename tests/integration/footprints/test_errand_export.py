@@ -17,10 +17,10 @@ def test_errand_completion_recertifies_actual_received_goods(engine_factory, tmp
         short_window(persona, config)
         config["progress_report_interval_seconds"] = 60
     engine = engine_factory(mutate=setup)
-    _, browse = act(engine, "note-browse", use_app("美团"))
+    _, using = act(engine, "note-keep", use_app("Keep"))
     while not engine.scheduling_state().ready_agent_ids:
         advance_next(engine)
-    activity = engine.context.state.activities[browse.activity_id]
+    activity = engine.context.state.activities[using.activity_id]
     _, noted = act(engine, "note", conclude_request(activity.name, errands=[errand_add("买纸巾", "纸巾")]),
                    "conclude_activity")
     assert noted.status == "completed"

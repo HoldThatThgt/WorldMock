@@ -83,8 +83,6 @@ def _content_sentence(context: LayerContext, activity: ActivityState, advanced_c
 
     在地点做的事（app_id 为空）不写「（《某某》未完）」半句：被结束即记为做完一轮，截断之后也没有提示再读它。
     """
-    if activity.data["content_id"] is None:
-        return ""
     titles = "".join(f"《{context.catalog.contents[row['content_id']].title}》" for row in activity.data["played"])
     current = context.catalog.contents[activity.data["content_id"]]
     partial = activity.data["app_id"] is not None and advanced_content_id == current.content_id

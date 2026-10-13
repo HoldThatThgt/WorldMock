@@ -122,7 +122,7 @@ def tool_layer(context: LayerContext, index: dict) -> dict:
 
 
 def _binding_target(context: LayerContext, row: dict) -> dict:
-    """@brief 公共行不带内部身份、类别推断、app 路由或支付渠道。"""
+    """@brief 公共行不带内部身份、类别推断、app 路由或支付渠道；凭状态而未开放的单元（私有绑定 locked 为真）不列出。"""
     kind = "product" if row["kind"] == "supply" else row["kind"]
     state = None
     if row["kind"] == "location":
@@ -131,7 +131,8 @@ def _binding_target(context: LayerContext, row: dict) -> dict:
         intervals = location.opening_intervals(local.date())
         state = "全天营业" if location.opens is None else "、".join(interval_phrases(intervals)) or "今日休息"
     return {"name": row["object"], "kind": kind, "phase": None, "state": state,
-            "actions": [_action_row(context, row, action) for action in row["actions"]], "tools": []}
+            "actions": [_action_row(context, row, action) for action in row["actions"] if not action.get("locked")],
+            "tools": []}
 
 
 def _action_row(context: LayerContext, row: dict, action: dict) -> dict:

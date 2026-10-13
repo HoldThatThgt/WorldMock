@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import logging
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -12,8 +11,6 @@ from worldmock.exchange.constants import DELIVERY_PREP_SECONDS
 from worldmock.exchange.operators import delivery_fee_fen, delivery_seconds
 from worldmock.life.models import ActivityKind, WorldState, active_activities
 from worldmock.life.randomness import random_stream
-from worldmock.life.guidance import rejection_guidance
-from worldmock.life.readable import iso_time, money_phrase
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,36 +49,13 @@ def present_location(state: WorldState, agent_id: int) -> str | None:
     return None if travelling else state.agents[agent_id].location_id
 
 
-def app_goods(inputs, state: WorldState, agent_id: int, app_id: str) -> list[dict]:
-    """@brief 平台开始明细冻结直接供应与绑定店铺商品的同源真实履约报价。"""
-    catalog = inputs.catalog
-    identities = set(catalog.goods_by_app[app_id])
-    identities.update(identity for store in catalog.stores_by_app[app_id]
-                      for identity in catalog.goods_by_store[store])
-    rows = []
-    for identity in sorted(identities):
-        goods = catalog.goods[identity]
-        row = {"name": goods.name, "price": money_phrase(goods.price_fen), "delivery_fee": None,
-               "expected_at": None, "available": False, "reason": None}
-        try:
-            offer = quote_goods(inputs, state, agent_id, identity, None)
-        except BusinessRuleError as error:
-            logging.error("Platform product quote is unavailable: %s", error)
-            row["reason"] = rejection_guidance(error)["reason"]
-        else:
-            row.update(delivery_fee=money_phrase(offer.delivery_fee_fen),
-                       expected_at=iso_time(offer.expected_at, state.timezone), available=True)
-        rows.append(row)
-    return rows
-
-
 def quote_goods(inputs, state: WorldState, agent_id: int, goods_id: str, prefer: str | None) -> Offer:
     """@brief 按绑定侧与真实现场定一件商品的路线并报价，不消费未来请求身份。
 
     判断次序：快递类商品、人停在卖它的地点（到店）、人在路上、外卖。意向只改变外卖从哪些店里选和下单 app
     是抽的还是意向 app；到店与三种拒绝都不看意向。
 
-    :param prefer: 已认出的意向 app 身份；没有意向时为 None（工具层预览与打开 app 的清单都写 None）。
+    :param prefer: 已认出的意向 app 身份；没有意向时为 None（工具层预览写 None）。
     """
     goods = inputs.catalog.goods.get(goods_id)
     if goods is None:

@@ -81,7 +81,7 @@ def parse_catalog_model(payload: object, model: type[_Model]) -> _Model:
     except ValidationError as error:
         failures = error.errors(include_url=False)
         numeric = {"price_fen", "duration_seconds", "length_m", "size_bytes", "seed", "episode",
-                   "browse_duration_seconds", "initial", "cap", "delta", "below", "amount_fen", "day",
+                   "initial", "cap", "delta", "below", "amount_fen", "day",
                    "speed_meters_per_second", "start_price_fen", "price_per_km_fen"}
         if any(failure["type"] == "extra_forbidden" for failure in failures):
             code = "ENVIRONMENT_KIND_INVALID"

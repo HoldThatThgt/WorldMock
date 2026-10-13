@@ -193,7 +193,7 @@ def _layers() -> dict:
     """环境构建的五层与看法偏好：在家停留，暂无活动与计划，本段停留尚无记录。"""
     return {
         "tool_layer": {"layer": "工具层", "targets": copy.deepcopy([_SELF_OBJECT[0], _WORK_OBJECT[0]]),
-                       "callable_index": {"navigation_apps":[],"payment_apps":[],"goods":[]}},
+                       "callable_index": {"navigation_apps":[],"payment_apps":[],"goods":[],"prefer_apps":[]}},
         "todo_layer": {"layer": "待办层", "paused_activities": [], "errands": [], "day_plan": None},
         "environment_layer": {"layer": "环境层", "observed_at": _NOW_ISO, "body": dict(_BODY),
                               "location": {"session_kind": "stay", "name": "自己家", "place_type": "住宅",
@@ -1443,7 +1443,7 @@ async def test_native_memory_update_records_real_subjective_merge_without_duplic
         event_type="activity_progress", occurred_at=_NOW_EPOCH,
         agent_id=7, activity_id="wait-activity",
         data={"interval_start": _NOW_EPOCH - 60, "interval_end": _NOW_EPOCH,
-              "activity": {"activity_id": "wait-activity", "kind": "interact"}},
+              "activity": {"activity_id": "wait-activity", "kind": "sleep"}},
     )])[0]
     facts = project_verified_experiences([source], agent_id=7, cutoff_seq=source.event_seq)
     footprint.close()

@@ -307,6 +307,26 @@ MUTATIONS = (
          "::test_real_progress_layer_passes_layer_validation[answered-query]",
          "tests/integration/life/test_progress_layer_schema.py"
          "::test_real_progress_layer_passes_layer_validation[unfinished-query]")),
+    SourceMutation("app_row_accepts_browse_duration", "worldmock.catalog.models::App",
+        "travel_method_ids: tuple[NonEmptyString, ...] = ()",
+        "travel_method_ids: tuple[NonEmptyString, ...] = ()\n    browse_duration_seconds: StrictInt | None = None",
+        ("tests/unit/catalog/test_dataset_negative_contract.py"
+         "::test_registration_enforces_actual_roles_and_exclusive_bindings",)),
+    SourceMutation("app_content_completion_effects_accepted",
+        "worldmock.catalog.admission::_check_location_declarations",
+        "if content.app_ids and (content.consumes_state is not None or content.completion_effects is not None):",
+        "if False:",
+        ("tests/unit/catalog/test_location_content_declarations.py"
+         "::test_app_content_may_not_declare_consumed_state_or_completion_effects",)),
+    SourceMutation("unregistered_consumed_state_accepted",
+        "worldmock.catalog.admission::_check_location_declarations",
+        "if content.consumes_state is not None and content.consumes_state not in states:", "if False:",
+        ("tests/unit/catalog/test_location_content_declarations.py"
+         "::test_consumed_state_must_name_a_registered_state",)),
+    SourceMutation("series_consumed_states_may_differ", "worldmock.catalog.admission::_check_series",
+        "if first[2] != content.consumes_state:", "if False:",
+        ("tests/unit/catalog/test_location_content_declarations.py"
+         "::test_series_episodes_must_share_the_consumed_state",)),
     SourceMutation("prefer_gets_a_default", "worldmock.life.models::StartSideActivityRequest",
         'prefer: Annotated[str, Field(pattern=r"\\S")] | None = Field(',
         'prefer: Annotated[str, Field(pattern=r"\\S")] | None = Field(default=None,',
@@ -402,13 +422,14 @@ MUTATIONS = (
         "changed.agents[agent_id] = agent",
         'changed.agents[agent_id] = agent; record.data["body_settlement"]["after"] = agent.body.model_dump(mode="json")',
         ("tests/integration/life/test_body_settlement_records.py"
-         "::test_delivery_received_in_the_settled_second_stays_out_of_the_body_settlement",)),
+         "::test_delivery_received_in_the_settled_second_stays_out_of_the_body_settlement",
+         "tests/integration/life/test_location_meal.py::test_the_evidence_sits_on_the_finishing_progress_event")),
     SourceMutation("rejection_pulse_flows_left_in_the_buffer",
         "worldmock.life.decision_coordinator::DecisionCoordinator._reject_results",
         "flows = _resource_flows_data(first.agent_id, state.current_time)", "flows = []",
         ("tests/integration/life/test_body_settlement_records.py"
          "::test_rejection_pulse_flows_are_written_on_the_first_action_result_and_not_carried_forward",)),
-    SourceMutation("food_receipt_applied_by_subtraction", "worldmock.life.receipt::_food_effect",
+    SourceMutation("food_receipt_applied_by_subtraction", "worldmock.life.body::food_intake",
         "applied = sum((entry.amount for entry in entries), 0.0)",
         "applied = settlement.after.energy_kcal - body.energy_kcal",
         ("tests/integration/life/test_constant_table_runtime.py"
@@ -422,6 +443,79 @@ MUTATIONS = (
         ("tests/unit/runtime/test_model_identity.py::test_tampered_identity_is_rejected",
          "tests/integration/runtime/test_life_agent_protocol.py"
          "::test_reasoning_content_is_persisted_in_model_response_evidence")),
+    SourceMutation("content_less_app_listed_as_target", "worldmock.life.observe::ObservationBuilder._catalog_bindings",
+        'if app.role == "content" and catalog.contents_by_app[app.app_id])', 'if app.role == "content")',
+        ("tests/integration/life/test_app_opening.py"
+         "::test_order_only_apps_are_not_targets_and_appear_only_in_prefer_apps",)),
+    SourceMutation("openable_app_also_booked_as_order_app", "worldmock.life.name_resolution::name_book",
+        'observation["tool_layer"]["callable_index"]["prefer_apps"] if name not in opened)',
+        'observation["tool_layer"]["callable_index"]["prefer_apps"])',
+        ("tests/integration/life/test_app_opening.py::test_app_with_content_and_goods_opens_and_still_sells",)),
+    SourceMutation("order_app_in_target_gets_the_generic_refusal", "worldmock.life.name_resolution::_resolve_item",
+        "if target.kind == ORDER_APP_KIND:", "if False:",
+        ("tests/unit/start_interfaces/test_name_resolution.py"
+         "::test_order_only_app_in_target_is_refused_with_the_prefer_sentence",)),
+    SourceMutation("opened_app_result_lists_goods", "worldmock.life.start_group::StartGroups._result",
+        'data = {"activities": [activity_snapshot(activity, title_index(self.context.catalog))], "orders": orders}',
+        'data = {"activities": [activity_snapshot(activity, title_index(self.context.catalog))], "orders": orders,'
+        ' "goods": []}',
+        ("tests/integration/life/test_app_opening.py::test_opening_an_app_returns_content_only",)),
+    SourceMutation("completion_effects_not_settled_when_completed",
+        "worldmock.life.interact::InteractivityRuntime.settle_completion",
+        "if effects is None:", "if True:",
+        ("tests/integration/life/test_location_meal.py::test_finishing_a_meal_unit_adds_one_food_in_that_second",
+         "tests/integration/life/test_location_meal.py::test_resuming_a_paused_meal_settles_it_once_at_the_finish",
+         "tests/integration/life/test_location_meal.py::test_doing_it_again_settles_again_within_the_cap")),
+    SourceMutation("completion_effects_settled_before_the_content_finishes",
+        "worldmock.life.interact::InteractivityRuntime.settle_completion",
+        'if evidence is None or not evidence["completed"]:', "if evidence is None:",
+        ("tests/integration/life/test_location_meal.py::test_finishing_a_meal_unit_adds_one_food_in_that_second",
+         "tests/integration/life/test_location_meal.py::test_ending_early_settles_no_completion_effects")),
+    SourceMutation("tool_layer_omits_the_meal_note", "worldmock.life.location_activities::unit_facts",
+        "notes.extend(_food_notes(contents))",
+        'notes.extend(note for note in _food_notes(contents) if "供一餐" not in note)',
+        ("tests/unit/start_interfaces/test_location_units.py"
+         "::test_tool_layer_note_names_the_food_each_unit_provides",)),
+    SourceMutation("locked_unit_listed_in_the_tool_layer", "worldmock.life.tool_layer::_binding_target",
+        'for action in row["actions"] if not action.get("locked")]', 'for action in row["actions"]]',
+        ("tests/unit/start_interfaces/test_grocery_units.py"
+         "::test_a_locked_unit_is_left_out_of_the_tool_layer_but_kept_in_the_private_bindings",
+         "tests/integration/life/test_grocery_cooking.py"
+         "::test_received_groceries_open_cooking_and_starting_it_uses_them")),
+    SourceMutation("locked_unit_starts", "worldmock.life.admission::_location_refusal",
+        'return location_activities.locked_refusal(context.inputs.catalog, agent, row["selected_action"])',
+        "return None",
+        ("tests/unit/start_interfaces/test_grocery_units.py"
+         "::test_a_locked_unit_is_refused_with_the_goods_that_open_it",
+         "tests/unit/start_interfaces/test_grocery_units.py"
+         "::test_a_locked_unit_is_left_out_of_the_tool_layer_but_kept_in_the_private_bindings")),
+    SourceMutation("start_does_not_consume_the_state", "worldmock.life.interact::InteractivityRuntime.start",
+        "changed, consumed = self._consume(changed, activity)", "consumed = []",
+        ("tests/integration/life/test_grocery_cooking.py"
+         "::test_received_groceries_open_cooking_and_starting_it_uses_them",
+         "tests/integration/life/test_grocery_cooking.py::test_two_receipts_still_open_cooking_once")),
+    SourceMutation("resume_consumes_the_state_again", "worldmock.life.interact::InteractivityRuntime.resume",
+        'return state.model_copy(update={"activities": {**state.activities, activity.activity_id: result}}, deep=True)',
+        'return self._consume(state.model_copy(update={"activities": {**state.activities, activity.activity_id: '
+        'result}}, deep=True), result)[0]',
+        ("tests/integration/life/test_grocery_cooking.py"
+         "::test_resuming_a_paused_cook_uses_no_more_groceries",
+         "tests/integration/life/test_grocery_cooking.py"
+         "::test_resuming_a_paused_cook_is_not_refused_while_the_groceries_are_used")),
+    SourceMutation("locked_unit_offered_as_a_candidate", "worldmock.life.name_resolution::_listed",
+        'return [option for option in options if option.row.get("locked") is not True]', "return list(options)",
+        ("tests/unit/start_interfaces/test_grocery_units.py::test_a_misspelt_name_never_offers_a_locked_unit",
+         "tests/unit/start_interfaces/test_grocery_units.py"
+         "::test_an_action_the_place_does_not_offer_lists_no_locked_unit",
+         "tests/unit/start_interfaces/test_grocery_units.py"
+         "::test_a_near_object_candidate_never_copies_a_locked_unit")),
+    SourceMutation("consume_on_start_cause_not_repointed",
+        "worldmock.life.decision_coordinator::DecisionCoordinator._consumed_on_start",
+        'return draft.model_copy(update={"caused_by": [cause.source_event_id]})', "return draft",
+        ("tests/integration/life/test_grocery_cooking.py"
+         "::test_received_groceries_open_cooking_and_starting_it_uses_them",
+         "tests/integration/life/test_grocery_cooking.py"
+         "::test_using_up_the_groceries_fires_the_threshold_rule_once")),
     SourceMutation("app_use_wording_drops_the_app_name", "worldmock.footprints.display_wording::_interact_phrase",
         'return f"使用{app}{_titles(names, content_ids)}"', 'return f"使用{_titles(names, content_ids)}"',
         ("tests/integration/footprints/test_render_day.py::test_app_use_row_names_the_app_and_every_item_in_order",

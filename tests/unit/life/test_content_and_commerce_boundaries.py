@@ -89,13 +89,14 @@ def test_actual_interaction_starts_the_pinned_content_and_opens_its_current_push
     assert state.sessions["stay"].app_pushes[data["app_id"]].status == "pending"
 
 
-def test_browse_resume_keeps_the_same_activity_and_unknown_content_resume_is_rejected(context_state):
+@pytest.mark.parametrize("content_id", [None, "unknown"])
+def test_resume_rejects_an_activity_without_content_or_with_unknown_content(context_state, content_id):
+    """每一项 interact 都有内容：用哔哩哔哩真实开始的活动把内容身份改成空或不存在的内容，恢复执行都以
+    Persisted activity target is invalid 拒绝，世界状态不变。"""
     context, state = context_state
     interactivity = InteractivityRuntime(context)
-    changed, activity, _ = interactivity.start(state, pending(), app_row(context, "meituan"), "home")
-    assert activity.data["content_id"] is None and interactivity.resume(changed, activity) is changed
     content_state, content_activity, _ = interactivity.start(state, pending(), app_row(context, "bilibili"), "home")
-    broken = content_activity.model_copy(update={"data": {**content_activity.data, "content_id": "unknown"}})
+    broken = content_activity.model_copy(update={"data": {**content_activity.data, "content_id": content_id}})
     before = content_state.model_dump(mode="json")
     with pytest.raises(IntegrityError, match="Persisted activity target is invalid"):
         interactivity.resume(content_state, broken)
@@ -108,7 +109,7 @@ def test_named_location_unit_starts_exactly_that_content_in_the_first_slot(conte
     context, state = context_state
     home = context.catalog.locations[state.agents[1].location_id]
     unit = next(unit for unit in location_units(context.catalog, home.kind) if unit.name == name)
-    action = unit_binding(unit)
+    action = unit_binding(unit, False)
     row = {"object": home.display_name, "kind": "location", "object_id": home.location_id,
            "actions": [action], "selected_action": action}
     changed, activity, drafts = InteractivityRuntime(context).start(state, pending(), row, home.location_id)

@@ -15,7 +15,7 @@ class DiscoveryContext:
 
 
 def product_rows(context: DiscoveryContext) -> tuple[dict, ...]:
-    """@brief 地点侧商品为完整查询集合，app 侧商品留在真实交互目录中。"""
+    """@brief 地点侧商品为完整查询集合，app 侧商品只在查询与按名购买时出现。"""
     return tuple({"goods_id": goods.goods_id, "name": goods.name, "category": goods.category,
                   "price_fen": goods.price_fen}
                  for _, goods in sorted(context.inputs.catalog.goods.items()) if goods.store_kinds)

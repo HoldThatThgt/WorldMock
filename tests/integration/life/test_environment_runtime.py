@@ -264,7 +264,7 @@ def test_observation_carries_no_world_query_keys(engine_factory):
 
 def test_action_id_replay_is_idempotent_and_parameter_conflict_is_protocol_error(engine_factory):
     engine = engine_factory()
-    request = use_app("美团")
+    request = use_app("Keep")
     _, result = act(engine, "stable", request, action_id="same-action")
     reach(engine, engine.context.state.activities[result.activity_id].planned_end_at)
     original = engine.context.state.model_dump(mode="json")
@@ -339,7 +339,7 @@ def test_paused_interaction_requires_its_actual_start_location_to_resume(engine_
 
 def test_completed_interaction_keeps_its_slot_until_actual_conclusion(engine_factory):
     engine = engine_factory()
-    _, result = act(engine, "finished-browse", use_app("美团"))
+    _, result = act(engine, "finished-keep", use_app("Keep"))
     activity = engine.context.state.activities[result.activity_id]
     reach(engine, activity.planned_end_at)
     _, refused = act(engine, "pending-blocks", use_app("Keep"))
