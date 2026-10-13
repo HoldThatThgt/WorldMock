@@ -129,9 +129,10 @@ async def test_task_recall_crosses_real_ray_without_world_mutation(engine_factor
 
 
 @pytest.mark.asyncio
-async def test_unwrapped_actor_read_query_equals_direct_environment_call(engine_factory, monkeypatch, published_environment):
+async def test_unwrapped_actor_read_query_equals_direct_environment_call(
+        engine_factory, monkeypatch, published_environment, caplog):
     """主进程内直接构造 LifeEnvActor（不经 ray.remote）：read_query 把回看任务交给它持有的唯一生活环境，结果等于
-    环境直调；回看被业务拒绝时返回错误结构而不抛出；工具与请求类型不符、找不到唯一观察是协议违约；
+    环境直调；回看被业务拒绝时返回错误结构而不抛出；工具与请求类型不符、找不到唯一观察是协议违约，抛出前先写英文错误日志；
     回看不写事件、不改世界状态。"""
     monkeypatch.setenv('WORKSPACE_PATH', str(ROOT))
     monkeypatch.setenv("WORLDMOCK_TEST_API_KEY", "test-only-key")
@@ -144,6 +145,7 @@ async def test_unwrapped_actor_read_query_equals_direct_environment_call(engine_
         await actor.begin_decision_round((staged.frozen,))
         with pytest.raises(ProtocolError, match='Read query requires one frozen decision observation'):
             await actor.read_query(staged.frozen, 'recall_task_summary', staged.request)
+        assert 'Read query requires one frozen decision observation, found 0' in caplog.text
         await actor.observe(staged.frozen)
         engine = environment.engine
         before, sequence = engine.context.state.model_dump_json(), engine.context.store.last_event_seq

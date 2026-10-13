@@ -165,6 +165,7 @@ class LifeEnv(EnvBase):
             if event.decision_id == context.decision_id and event.occurred_at == int(context.observed_at.timestamp())
         ]
         if len(rows) != 1:
+            logging.error("Read query requires one frozen decision observation, found %d", len(rows))
             raise ProtocolError("Read query requires one frozen decision observation")
         observed = rows[0].data
         try:
