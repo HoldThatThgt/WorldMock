@@ -95,7 +95,7 @@ def test_tool_schema_has_current_shape_and_no_per_round_names(engine_factory):
     assert list(side) == list(StartSideActivityRequest.model_fields) == ["action", "target", "prefer"]
     assert functions[SIDE_TOOL]["parameters"]["required"] == ["action", "target", "prefer"]
     assert main["action"]["enum"] == ["travel", "interact", "sleep"]
-    assert side["action"]["enum"] == ["purchase", "interact"]
+    assert side["action"]["enum"] == ["purchase", "interact", "query"]
     assert all("enum" not in json.dumps(fields[key]) for fields in (main, side) for key in fields if key != "action")
     start = json.dumps([functions[MAIN_TOOL], functions[SIDE_TOOL]], ensure_ascii=False)
     names = set(tool_targets(observed)) | {"测试闲聊", "测试休息", "步行", "驾车", "打车", "公共交通"}

@@ -141,6 +141,7 @@ class ActivityKind(StrEnum):
     TRAVEL = "travel"
     INTERACT = "interact"
     PURCHASE = "purchase"
+    QUERY = "query"
 
 
 class ActivityStatus(StrEnum):
@@ -626,7 +627,7 @@ def active_activities(state: WorldState, agent_id: int) -> tuple[ActivityState, 
 
 
 def active_side_activities(state: WorldState, agent_id: int) -> tuple[ActivityState, ...]:
-    """@brief 人物进行中的槽位 2 活动：状态为进行中、占槽位 2 的购买或用 app。导航在不在前台只看它。"""
+    """@brief 人物进行中的槽位 2 活动：状态为进行中、占槽位 2 的购买、查询或用 app。导航在不在前台只看它。"""
     return tuple(activity for activity in active_activities(state, agent_id)
                  if "second" in activity.resource_claims)
 
@@ -864,18 +865,21 @@ class StartMainActivityRequest(ToolRequestModel):
 
 
 class StartSideActivityRequest(ToolRequestModel):
-    """@brief 开始一项占槽位 2 的活动：购买商品，或使用一个内容 app。"""
+    """@brief 开始一项占槽位 2 的活动：购买商品、查询商品，或使用一个内容 app。"""
 
-    action: Literal[SIDE_ACTIVITY_ACTIONS] = Field(description="做什么：purchase 购买商品，interact 使用内容 app。")
+    action: Literal[SIDE_ACTIVITY_ACTIONS] = Field(
+        description="做什么：purchase 购买商品，interact 使用内容 app，query 查询商品。")
     target: list[Annotated[str, Field(pattern=r"\S")]] = Field(description=(
-        "名称数组。purchase 逐份写商品的完整名称，同一个名称写两次就是两份；interact 只写一个内容 app 的完整名称。"))
-    #: 想用来下单的 app 名称原文，必填、没有缺省值；没有想法写 null（模型的工具格式不允许可省略的字段）。
+        "名称数组。purchase 逐份写商品的完整名称，同一个名称写两次就是两份；interact 只写一个内容 app 的完整名称；"
+        "query 写商品的完整名称或商品类别的名称。"))
+    #: 想用来下单或在其中查询的 app 名称原文，必填、没有缺省值；没有想法写 null（模型的工具格式不允许可省略的字段）。
     prefer: Annotated[str, Field(pattern=r"\S")] | None = Field(
-        description="purchase 写想用来下单的内容 app 的完整名称，没有想法写 null；interact 写 null。")
+        description="purchase 写想用来下单的内容 app 的完整名称，query 写想在其中查询的内容 app 的完整名称，"
+                    "没有想法写 null；interact 写 null。")
 
     @model_validator(mode="after")
     def validate_action_arguments(self) -> "StartSideActivityRequest":
-        """@brief 名称数组至少一项；用内容 app 时恰好一项且 prefer 必须为 null；购买不设上限并允许同名重复。
+        """@brief 名称数组至少一项；用内容 app 时恰好一项且 prefer 必须为 null；购买与查询不设上限并允许同名重复。
         每条违背各报一条。"""
         problems: list[tuple[str, Any, str]] = []
         if not self.target:

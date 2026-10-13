@@ -32,7 +32,8 @@ def test_body_constant_rules_have_all_actual_actions_and_four_resources():
         assert not hasattr(body, deleted)
     assert body.relaxation_need_per_awake_hour == 0.08
     assert dict(body.activity_met) == {
-        "sleep": 0.95, "walking": 3.5, "purchase": 1.0, "idle": 1.0, "light": 1.5, "moderate": 2.0, "heavy": 5.0}
+        "sleep": 0.95, "walking": 3.5, "purchase": 1.0, "query": 1.0, "idle": 1.0, "light": 1.5, "moderate": 2.0,
+        "heavy": 5.0}
     assert set(RESOURCE_METAS) == {
         "money_fen", "energy_kcal", "sleep_deficit_hours", "relaxation_need", "social_need"}
     assert RESOURCE_METAS["money_fen"].conservation == "closed"

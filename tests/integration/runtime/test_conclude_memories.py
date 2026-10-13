@@ -110,7 +110,7 @@ def _decision(tool: str, arguments: dict) -> ReactDecision:
 
 @pytest.mark.parametrize("stage", [item.value for item in SameMomentStage])
 def test_life_tool_surface_never_offers_finish(stage: str) -> None:
-    """每个同刻阶段的生活决策工具面都是同样的八个人物工具与记忆查询，没有 finish；只读问答另有只答复的 finish。"""
+    """每个同刻阶段的生活决策工具面都是同样的七个请求工具与记忆查询，没有 finish；只读问答另有只答复的 finish。"""
     observations = _observed((_WORK, PHASE_ACTIVE), (_WAIT, PHASE_PENDING))
     observations[0]["data"]["same_moment_stage"] = stage
     agent = LifeAgent()
@@ -120,8 +120,8 @@ def test_life_tool_surface_never_offers_finish(stage: str) -> None:
     names = {item["function"]["name"] for item in agent.build_react_tool_schemas(readonly=False)}
 
     assert "finish" not in names
-    assert names - _MEMORY_TOOL_NAMES == set(REQUEST_MODELS) | {"query_world"}
-    assert life_action_tool_names() == frozenset(REQUEST_MODELS) | {"query_world"}
+    assert names - _MEMORY_TOOL_NAMES == set(REQUEST_MODELS)
+    assert life_action_tool_names() == frozenset(REQUEST_MODELS)
     readonly = LifeAgent()
     readonly._profile = current_profile()
     readonly.prepare_react_loop(ReactLoopRequest(0, _OBSERVED_AT, [], "今天过得怎么样？", True))

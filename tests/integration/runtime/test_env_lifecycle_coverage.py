@@ -37,6 +37,7 @@ from worldmock.errors import ProtocolError
 from worldmock.life.models import (
     CounterfactualIntervention,
     ModelIdentity,
+    REQUEST_MODELS,
     RunIdentity,
 )
 from tests.integration.runtime.current_contract_fixtures import inputs, metadata_service
@@ -143,14 +144,19 @@ async def test_open_existing_restores_prior_run(tmp_path) -> None:
 
 
 async def test_registered_tool_surface_fails_closed(tmp_path, monkeypatch) -> None:
-    """环境或人物侧登记工具面漂移都在 init 时失败，不留给运行中 KeyError。"""
+    """两侧工具面恰为七个请求工具；环境一侧多出一个名字、人物一侧多出已删除的 query_world，都在 init 时失败，
+    不留给运行中 KeyError。"""
+    surface = life_env_module._STABLE_TOOL_SURFACE
+    assert surface == frozenset(REQUEST_MODELS) == life_agent_module.life_action_tool_names()
+    assert len(surface) == 7
     scenario = inputs()
     monkeypatch.setattr(life_env_module, "_STABLE_TOOL_SURFACE",
                         life_env_module._STABLE_TOOL_SURFACE | {"ghost_tool"})
     drifted = LifeEnv(environment_root=str(_SCENARIO),
                       run_dir=str(tmp_path / "drift-env"),
                       run_identity=_identity(scenario, "drift").model_dump(mode="json"))
-    with pytest.raises(ProtocolError, match="disagrees with the stable tool surface"):
+    with pytest.raises(ProtocolError, match=r"^LifeEnv registered tool surface disagrees with the stable tool surface: "
+                                            r"\['ghost_tool'\]$"):
         await drifted.init(_start(scenario))
     if drifted.engine is not None:
         drifted.engine.close()
@@ -158,11 +164,11 @@ async def test_registered_tool_surface_fails_closed(tmp_path, monkeypatch) -> No
     monkeypatch.undo()
     metadata_service(monkeypatch)
     monkeypatch.setattr(life_env_module, "life_action_tool_names",
-                        lambda: life_env_module._STABLE_TOOL_SURFACE - {"start_side_activity"})
+                        lambda: life_env_module._STABLE_TOOL_SURFACE | {"query_world"})
     mismatch = LifeEnv(environment_root=str(_SCENARIO),
                        run_dir=str(tmp_path / "mismatch-env"),
                        run_identity=_identity(scenario, "mismatch").model_dump(mode="json"))
-    with pytest.raises(ProtocolError, match="disagrees with the LifeAgent action tool set"):
+    with pytest.raises(ProtocolError, match="^LifeEnv tool surface disagrees with the LifeAgent action tool set$"):
         await mismatch.init(_start(scenario))
     if mismatch.engine is not None:
         mismatch.engine.close()

@@ -11,7 +11,7 @@ def test_real_goods_targets_validate_against_the_production_tool_layer_schema(en
     engine = engine_factory()
     observed = engine.observe(context(engine, "catalog"))
     validate_layer(observed["tool_layer"])
-    assert any(row["match"]["kind"] == "product" for row in observed["world_query_bindings"])
+    assert any(row["kind"] == "product" for row in observed["tool_layer"]["targets"])
     assert all(row["kind"] in {"location", "app", "product", "activity"} for row in observed["tool_layer"]["targets"])
 
 
