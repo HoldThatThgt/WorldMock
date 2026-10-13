@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from scripts import inspect_run, render_day
 from tests.footprints.display_fixtures import freeze_environment, sample_display_names
 from tests.life.conftest import (
-    advance_next, conclude_request, do_at, pause_request, purchase, report_request, travel, use_app,
+    advance_next, conclude_request, do_at, pause_request, purchase, query, report_request, travel, use_app,
 )
 from tests.life.environment_inputs import (
     catalog_rows, copy_environment, replace_travel_methods, travel_method_row, write_catalog_rows,
@@ -263,6 +263,47 @@ def test_purchase_row_is_split_by_order_with_its_channel(engine_factory, tmp_pat
     # 到店订单也经付款 app 付款：渠道只看订单记录的下单 app，付款 app 不进渠道。
     assert all(order.payment_app_id is not None for order in engine.context.state.deliveries.values())
     assert _labels(engine, tmp_path / "store", "购买") == ["购买饭团、纸巾（到店）", "购买牛肉面（经美团下单）；纸巾（到店）"]
+
+
+def test_purchase_row_reports_the_actual_channel_when_prefer_cannot_be_used(engine_factory, tmp_path):
+    """渠道不取 prefer：牛肉面只有一心面馆能送、那家店没上饿了么，写「饿了么」时订单落在美团；写一个不存在的「美团外卖」时
+    环境另选（柠檬茶有两个下单 app 在卖，选到哪个都可以）。两行都写订单记录上的下单 app，不出现各自请求里所写的名称。"""
+    engine = engine_factory()
+    for label, goods, prefer in (("noodles", "牛肉面", "饿了么"), ("tea", "柠檬茶", "美团外卖")):
+        _, bought = act(engine, label, purchase(goods, prefer=prefer))
+        assert bought.status == "in_progress", bought.error_code
+        finish_activity(engine, bought, label)
+    apps = {order.goods_id: order.app_id for order in engine.context.state.deliveries.values()}
+    assert apps["beef-noodles"] == "meituan" and apps["lemon-tea"] is not None
+    labels = _labels(engine, tmp_path / "out", "购买")
+    assert labels == ["购买牛肉面（经美团下单）",
+                      f"购买柠檬茶（经{engine.context.catalog.apps[apps['lemon-tea']].name}下单）"]
+    noodles, tea = labels
+    assert "饿了么" not in noodles and "美团外卖" not in tea
+
+
+def test_query_row_names_what_was_looked_up_and_the_app(engine_factory, tmp_path, capsys):
+    """真实引擎做完一次带 app 的查询和一次没有 app 的查询：时间线各一行，名称按所写次序（类别写中文类别名），
+    带 app 的加「（<app 名>）」，没有 app 的不加括号，标签检查零发现；inspect_run 的活动进度行写同一句。"""
+    engine = engine_factory()
+    looked = []
+    for label, request in (("meals", query("食品", "柠檬茶", prefer="美团")), ("tissue", query("纸巾"))):
+        _, started = act(engine, label, request)
+        assert started.status == "in_progress", started.error_code
+        looked.append(finish_activity(engine, started, label))
+    assert [(item.kind, item.status, item.data["app_id"]) for item in looked] == [
+        ("query", "completed", "meituan"), ("query", "completed", None)]
+    labels = _labels(engine, tmp_path / "out", "查询")
+    assert labels == ["查询食品、柠檬茶（美团）", "查询纸巾"]
+    assert not [(label, found) for label in labels for found in label_findings(label)]
+    with inspect_run._connect(engine.context.store.run_dir) as conn:
+        inspect_run.cmd_events(conn, argparse.Namespace(run_dir=engine.context.store.run_dir,
+                                                        type="activity_progress", agent=1, tail=0, full=False))
+    lines = capsys.readouterr().out.splitlines()
+    for item, phrase in zip(looked, labels):
+        *_, last = [row.event_seq for row in events(engine, "activity_progress") if row.activity_id == item.activity_id]
+        [line] = [line for line in lines if line.startswith(f"[{last:>5}]")]
+        assert line.endswith(f" {phrase} → completed")
 
 
 def test_merges_consecutive_progress_of_same_activity(tmp_path):

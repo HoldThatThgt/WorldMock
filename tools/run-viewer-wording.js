@@ -24,9 +24,11 @@ const ViewerWording = {};
   /* 三种手机事件的种类文字。 */
   const PHONE_LABELS = {app_foreground: 'app 前台', order_notification: '订单通知', payment_notification: '消费通知'};
   /* 没有专门写法的种类写的种类名：worldmock.life.readable.ACTIVITY_KIND_LABELS 的镜像。 */
-  const ACTIVITY_KIND_LABELS = {sleep: '睡觉', travel: '出行', interact: '互动', purchase: '购买'};
+  const ACTIVITY_KIND_LABELS = {sleep: '睡觉', travel: '出行', interact: '互动', purchase: '购买', query: '查询'};
+  /* 商品类别的中文名：worldmock.exchange.types.GOODS_CATEGORY_LABELS 的镜像，查询写类别时用。 */
+  const CATEGORY_LABELS = {snack: '零食', meal: '食品', drink: '饮料', goods: '商品'};
   /* 查看器各行里写统一写法的种类；出行、睡眠照原格式，没有专门写法的种类在目标处是「—」。 */
-  const WORDED_KINDS = new Set(['interact', 'purchase']);
+  const WORDED_KINDS = new Set(['interact', 'purchase', 'query']);
 
   /** @brief 同一个键只写一次英文错误的报告函数；页面传入它自己的（随换库清空），单独加载时用这一个。 */
   function onceReporter() {
@@ -151,10 +153,7 @@ const ViewerWording = {};
   /** @brief 用 app 写「使用<app 名>《标题》……」；在地点做事写「在<地点>：<单元名>」，系列再列各集。 */
   function interactPhrase(snapshot, contentIds) {
     const appId = snapshot.data?.app_id;
-    if (appId != null) {
-      // 过渡写法：内容轨道并入之前，没有内容的 app 使用仍会产生，空的内容身份跳过不写（收尾时删去）。
-      return `使用${name('app', appId)}${titles(contentIds.filter(key => key != null))}`;
-    }
+    if (appId != null) return `使用${name('app', appId)}${titles(contentIds)}`;
     const place = name('location', snapshot.location_id);
     const first = name('content', contentIds[0]);
     return first.series ? `在${place}：${first.unit}${titles(contentIds)}` : `在${place}：${first.unit}`;
@@ -197,25 +196,35 @@ const ViewerWording = {};
     return `购买${slots.map(slot => slot ?? segments.shift()).join('；')}`;
   }
 
-  /** @brief 一项活动的写法：互动、购买、出行各有专门的写法，其余种类写中文种类名，种类名表里没有的写「—」。
+  /** @brief 查询写「查询<名称列表>」：data.targets 各项按所写次序以「、」相连，商品写商品名、类别写中文类别名；
+   *  这几分钟有 app 在前台（data.app_id 不为空）时再加「（<app 名>）」。 */
+  function queryPhrase(snapshot) {
+    const items = snapshot.data.targets.map(item => item.kind === 'category'
+      ? CATEGORY_LABELS[item.category] : name('goods', item.goods_id)).join('、');
+    const appId = snapshot.data.app_id;
+    return appId == null ? `查询${items}` : `查询${items}（${name('app', appId)}）`;
+  }
+
+  /** @brief 一项活动的写法：互动、购买、查询、出行各有专门的写法，其余种类写中文种类名，种类名表里没有的写「—」。
    *  contentIds 是这一行各条事件指向的内容身份（按事件先后，相邻重复在这里去掉）；orders 是订单身份到商品履约记录
    *  （读 goods_id 与 app_id）的 Map。快照只读 kind、location_id、destination_id、travel_method_id、data.app_id、
-   *  data.order_ids。 */
+   *  data.order_ids、data.targets。 */
   function activityPhrase(snapshot, contentIds, orders) {
     if (snapshot.kind === 'interact') return interactPhrase(snapshot, distinct(contentIds));
     if (snapshot.kind === 'purchase') return purchasePhrase(snapshot, orders);
+    if (snapshot.kind === 'query') return queryPhrase(snapshot);
     if (snapshot.kind === 'travel') {
       return `${name('travel_method', snapshot.travel_method_id)}去${name('location', snapshot.destination_id)}`;
     }
     return ACTIVITY_KIND_LABELS[snapshot.kind] ?? '—';
   }
 
-  /** @brief 查看器一行里活动的写法：summary 是页面合并后的活动或一条事件的摘要字段（kind、location、appId、orderIds），
-   *  contentIds 是这一行指向的内容身份。互动与购买给统一写法；其余种类返回 null，由页面照原格式写。 */
+  /** @brief 查看器一行里活动的写法：summary 是页面合并后的活动或一条事件的摘要字段（kind、location、appId、orderIds、
+   *  targets），contentIds 是这一行指向的内容身份。互动、购买与查询给统一写法；其余种类返回 null，由页面照原格式写。 */
   function targetPhrase(summary, contentIds, orders) {
     if (!WORDED_KINDS.has(summary.kind)) return null;
     return activityPhrase({kind: summary.kind, location_id: summary.location,
-      data: {app_id: summary.appId, order_ids: summary.orderIds}}, contentIds, orders);
+      data: {app_id: summary.appId, order_ids: summary.orderIds, targets: summary.targets}}, contentIds, orders);
   }
 
   /** @brief 是不是三种手机事件之一（app 前台区间、订单通知、消费通知）。 */

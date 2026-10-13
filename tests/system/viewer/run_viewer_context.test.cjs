@@ -63,18 +63,19 @@ function layers(kind = 'action') {
   return JSON.parse(fixture[kind].messages[1].content);
 }
 
-test('genuine current requests have seven layers and eleven offered tools', () => {
+test('genuine current requests have seven layers and ten offered tools', () => {
   const {api, errors} = parser();
   const parsed = api.parseRequest(event());
   assert.equal(parsed.stage, 'action');
   assert.deepEqual(plain(messageBlocks(parsed).map(block => block.key)), LAYER_KEYS);
   assert.equal(messageBlocks(parsed).map(block => block.text).join(''), request().messages[1].content);
   assert.deepEqual(layers().map(layer => layer.layer), LAYER_NAMES);
-  // 现行工具面：六个世界请求（两个开始工具在前）、两个世界查询与三个记忆查询，没有已删除的 start_activity。
+  // 现行工具面按请求次序：六个世界请求（两个开始工具在前）、回看任务与三个记忆查询，没有已删除的 start_activity 与
+  // query_world。
   assert.deepEqual(fixture.action.tools.map(tool => tool.function.name), [
     'start_main_activity', 'start_side_activity', 'report_status', 'pause_activity', 'conclude_activity',
-    'revise_day_plan', 'recall_task_summary', 'query_world', 'memory_recent', 'memory_search', 'memory_time_range']);
-  assert.equal(fixture.action.tools.length, 11);
+    'revise_day_plan', 'recall_task_summary', 'memory_recent', 'memory_search', 'memory_time_range']);
+  assert.equal(fixture.action.tools.length, 10);
   assert.deepEqual(fixture.continuation.tools, fixture.action.tools);
   assert.deepEqual(fixture.continuation.messages.slice(0, 2), fixture.action.messages);
   assert.equal(parsed.warnings.length, 0);
@@ -182,11 +183,12 @@ test('tool layer drill-down writes action names in Chinese and keeps categories 
   for (const item of items) {
     assert.doesNotMatch(item.label, /undefined|null| ·  · | · (interact|travel|sleep|purchase) · /);
   }
-  // 动作的中文表只有这一张：页面的动作请求行经 ViewerContext 用同一个取词函数，表里没有的动作照原值。
+  // 动作的中文表只有这一张：页面的动作请求行经 ViewerContext 用同一个取词函数，工具层没有行的查询也在表里；
+  // 表里没有的动作照原值。
   const pairs = [['interact', 'app'], ['interact', 'location'], ['travel', 'location'], ['sleep', 'location'],
-    ['purchase', 'product'], ['purchase', 'app'], ['unknown', 'app']];
+    ['purchase', 'product'], ['purchase', 'app'], ['query', 'app'], ['unknown', 'app']];
   assert.deepEqual(pairs.map(([action, kind]) => api.actionWord(action, kind)),
-    ['使用', '做', '出行', '睡觉', '购买', '购买', 'unknown']);
+    ['使用', '做', '出行', '睡觉', '购买', '购买', '查询', 'unknown']);
   assert.equal(errors.length, 0);
 });
 

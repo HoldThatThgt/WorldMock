@@ -906,7 +906,7 @@ def _progress(sequence, snapshot, start, end):
 
 
 def _timeline_names(place, lifestyle, subject, title):
-    """目录里的名称由入参给：一个地点、一个只用来打开的 app，以及一个带一条内容的阅读 app（内容标题在书名号里，不检查）。
+    """目录里的名称由入参给：一个地点、一个 app 和其中的一条内容，另有一个阅读 app（内容标题在书名号里，不检查）。
     名称表照目录行经 display_names 建出：在样例环境的行上照抄一行、换掉身份与名称。"""
     apps, contents, locations, goods, methods = sample_catalog_rows()
     app, location = apps[0], locations[0]
@@ -920,12 +920,12 @@ def _timeline_names(place, lifestyle, subject, title):
 
 
 def _timeline_events(subject):
-    """四段真实活动区间：步行去那个地点、打开那个 app（没有内容的过渡写法）、在阅读 app 里看一条内容、睡觉。"""
+    """四段真实活动区间：步行去那个地点、在那个 app 里看那条内容、在阅读 app 里看同一条内容、睡觉。"""
     return [
         _progress(2, {"activity_id": "a-go", "kind": "travel", "status": "completed", "travel_method_id": "walking",
                       "destination_id": "loc-x"}, 100, 200),
         _progress(3, {"activity_id": "a-life", "kind": "interact",
-                      "data": {"action": "interact", "app_id": "platform", "content_id": None}}, 200, 300),
+                      "data": {"action": "interact", "app_id": "platform", "content_id": subject}}, 200, 300),
         _progress(4, {"activity_id": "a-content", "kind": "interact",
                       "data": {"action": "interact", "app_id": "reader", "content_id": subject}}, 300, 400),
         _progress(5, {"activity_id": "a-wait", "kind": "sleep"}, 400, 500),
@@ -946,7 +946,7 @@ def test_timeline_labels_count_english_kind_names_and_internal_ids_in_the_render
     assert [(item["agent_id"], item["date"], item["interval"], item["label"], item["item"], item["text"])
             for item in crafted["findings"]] == [
         (1, "1970-01-01", "08:01–08:03", "步行去poi-node-11991340957", "internal_id", "poi-node-11991340957"),
-        (1, "1970-01-01", "08:03–08:05", "使用interact", "english_kind_name", "interact")]
+        (1, "1970-01-01", "08:03–08:05", "使用interact《work》", "english_kind_name", "interact")]
     clean = _labels_report("中山公园", "瑜伽", "周报")
     assert clean == {"rows_checked": 4, "english_kind_names": 0, "internal_ids": 0, "findings": []}
 
@@ -957,7 +957,8 @@ def test_timeline_labels_count_hexadecimal_and_hash_identifiers_as_internal_ids(
     crafted = _labels_report("便利店#a1b2c3", "3e71a031bb3d", "周报")
     assert (crafted["english_kind_names"], crafted["internal_ids"]) == (0, 2)
     assert [(item["label"], item["item"], item["text"]) for item in crafted["findings"]] == [
-        ("步行去便利店#a1b2c3", "internal_id", "#a1b2c3"), ("使用3e71a031bb3d", "internal_id", "3e71a031bb3d")]
+        ("步行去便利店#a1b2c3", "internal_id", "#a1b2c3"),
+        ("使用3e71a031bb3d《周报》", "internal_id", "3e71a031bb3d")]
     near = _labels_report("便利店#a1b2c", "3e71a031bb3", "周报")
     assert (near["english_kind_names"], near["internal_ids"], near["findings"]) == (0, 0, [])
 
@@ -967,7 +968,7 @@ def test_timeline_label_that_leaks_the_english_query_kind_is_counted():
     report = _labels_report("中山公园", "query", "周报")
     assert (report["english_kind_names"], report["internal_ids"]) == (1, 0)
     assert [(item["label"], item["item"], item["text"]) for item in report["findings"]] == [
-        ("使用query", "english_kind_name", "query")]
+        ("使用query《周报》", "english_kind_name", "query")]
 
 
 def _protocol_error(sequence, call_id, code, purpose=None):

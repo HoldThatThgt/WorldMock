@@ -5,7 +5,7 @@ const {readFileSync} = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
-const {CASES, ROOT, viewer, event, droppedFile, frozenCatalog, runManifest, targets} =
+const {CASES, ROOT, epoch, viewer, event, droppedFile, frozenCatalog, runManifest, targets} =
   require('./run_viewer_harness.cjs');
 
 /** @brief 在独立上下文执行并列脚本 run-viewer-wording.js，同时收集它写的英文错误。 */
@@ -58,4 +58,26 @@ test('the events of one activity written into SQLite give the activity table tar
   t.after(() => view.close());
   assert.deepEqual(targets(view.activities()), CASES.events.map(item => item.text));
   assert.deepEqual(view.errors, []);
+});
+
+test('app use without content has no wording', async t => {
+  // 带 app 而内容身份为空的互动经页面的加载入口：空的内容身份与别的身份一样去查名称，活动表、泳道、受理行和活动段行都写
+  // 「名称缺失（null）」，英文错误恰好一次；不写成只有 app 名的「使用美团」。
+  const activity = (status, elapsed) => ({activity_id: 'bare', agent_id: 1, kind: 'interact', location_id: 'home',
+    status, planned_duration_seconds: 600, elapsed_seconds: elapsed,
+    data: {action: 'interact', app_id: 'meituan', content_id: null}});
+  const view = await viewer([
+    event('action_accepted', {status: 'in_progress', activity: activity('active', 0)}, {activity_id: 'bare'}),
+    event('activity_progress', {interval_start: epoch, interval_end: epoch + 60, activity: activity('completed', 60)},
+      {activity_id: 'bare', occurred_at: epoch + 60}),
+  ]);
+  t.after(() => view.close());
+  const phrase = '使用美团《名称缺失（null）》';
+  const markup = view.activities();
+  assert.deepEqual(targets(markup), [phrase]);
+  assert.deepEqual([...markup.matchAll(/<div class="act-lane-label" title="[^"]*">([^<]*)<\/div>/g)]
+    .map(match => match[1]), [phrase]);
+  assert.equal(view.summary(1), `已受理 · ${phrase} · 计划 10分`);
+  assert.equal(view.summary(2), `活动段 · ${phrase} · 已完成 · 已进行 1分`);
+  assert.deepEqual(view.errors, ['Missing recorded object name: null']);
 });

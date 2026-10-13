@@ -68,6 +68,18 @@ def test_unregistered_identity_is_a_fault_with_an_english_log(caplog):
     assert goods_items(["tissue", "chips", "tissue"], lambda key: names.goods[key]) == ["薯片", "纸巾×2"]
 
 
+def test_app_use_without_content_has_no_wording(caplog):
+    """带 app 而内容身份为空的互动没有写法：空的内容身份与别的身份一样去查名称，查不到就是故障，先写同文的英文错误日志；
+    不写成只有 app 名的「使用美团」。"""
+    names = sample_display_names()
+    snapshot = {"kind": "interact", "location_id": "home",
+                "data": {"action": "interact", "app_id": "meituan", "content_id": None}}
+    message = "Displayed object is not registered in the frozen environment: content None"
+    with caplog.at_level(logging.ERROR), pytest.raises(IntegrityError, match=f"^{re.escape(message)}$"):
+        activity_phrase(names, snapshot, [event_content_id({"activity": snapshot})], {})
+    assert [record.getMessage() for record in caplog.records if record.levelno == logging.ERROR][0] == message
+
+
 def test_unsupported_kind_and_missing_order_are_faults(caplog):
     """种类既没有专门写法也不在中文种类表里、购买活动的订单记录找不到：两句英文故障各自出现在日志和异常里。"""
     names = sample_display_names()

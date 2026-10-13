@@ -188,7 +188,7 @@ test('context navigation, stage filter and all rule paths are available through 
       ['environment', 'duty 由场景工作安排与世界时钟求值，今日计划改不了它'],
       ['progress', '事务提醒到点（errand_reminder）与环境确认办成（errand_completed）两种记录只写事务名称，' +
         '由人物可见的事务事件派生；二者不迁入记忆层。'],
-      ['tools', '去掉全部查询工具（世界查询与记忆查询），只留世界请求工具']]) {
+      ['tools', '去掉全部只读工具（回看任务与记忆查询），只留世界请求工具']]) {
       app.get('#ctx-rule').onchange({target: {value: rule}});
       assert.ok(app.get('#ctx-body').innerHTML.includes(sentence), sentence);
     }
@@ -212,9 +212,11 @@ test('context drills into current tools and real-shaped progress self notes', as
     app.context();
     app.get('button:message:1:tool').onclick();
     const options = app.get('#ctx-item').innerHTML;
-    // 目标类别保持原文，动作名换成中文：用内容 app 是「使用」，在地点做事是「做」。
-    assert.ok(options.includes('美团（app）'));
-    assert.ok(options.includes('美团 · 使用 · 可用'));
+    // 目标类别保持原文，动作名换成中文：用内容 app 是「使用」，在地点做事是「做」。没有内容的购物 app（美团）只用于下单和
+    // 查询，不再是 app 目标行。
+    assert.ok(options.includes('哔哩哔哩（app）'));
+    assert.ok(options.includes('哔哩哔哩 · 使用 · 可用'));
+    assert.ok(!options.includes('美团（app）'));
     // 录制的工具层里出行只有 travel 一个动作，同一目的地的各行靠出行方式的名称区分；四个旧出行动作不再出现。
     for (const method of ['步行', '公共交通', '驾车', '打车']) {
       assert.ok(options.includes(`公司 · 出行 · ${method} · 可用`), method);
@@ -227,16 +229,17 @@ test('context drills into current tools and real-shaped progress self notes', as
     assert.ok(app.get('#ctx-item').innerHTML.includes('self_note（未经核验）'));
     app.get('#ctx-item').onchange({target:{value:'0'}});
     assert.ok(app.get('#ctx-body').innerHTML.includes('先浏览。'));
-    // 工具定义块的说明按现行工具面计数：六个世界请求、两个世界查询、三个记忆查询，共十一个；录制的请求正是这十一个。
-    assert.equal(request.tools.length, 11);
+    // 工具定义块的说明按现行工具面计数：六个世界请求、一个回看工具、三个记忆查询，共十个；录制的请求正是这十个。
+    assert.equal(request.tools.length, 10);
+    assert.ok(!request.tools.some(tool => tool.function.name === 'query_world'));
     assert.deepEqual(request.tools.slice(0, 2).map(tool => tool.function.name),
       ['start_main_activity', 'start_side_activity']);
     assert.ok(!request.tools.some(tool => tool.function.name === 'start_activity'));
     app.get('button:tools').onclick();
     const filled = app.get('#ctx-body').innerHTML;
     assert.ok(filled.includes('六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）、' +
-      '两个世界查询工具（query_world、recall_task_summary）与三个记忆查询工具，共十一个，'), filled);
-    assert.ok(!filled.includes('五个世界请求工具'));
+      '一个回看工具（recall_task_summary）与三个记忆查询工具，共十个，严格参数结构，整次运行字节相同。'), filled);
+    assert.ok(!filled.includes('五个世界请求工具') && !filled.includes('query_world') && !filled.includes('十一'));
   } finally { app.close(); }
 });
 
@@ -279,6 +282,12 @@ test('context drills into an inline current tool layer and lists travel methods 
     select.onchange();
     assert.deepEqual(JSON.parse(app.get('#ctx-raw').textContent), {action: 'travel', state: '全天营业', available: true,
       name: '公司', detail: '公共交通', price: '2 元', duration: '约 8 分钟', note: '轻松', kind: 'location'});
+    // 工具定义块的「填入」说明是现行工具面的定稿，不读录制样例：一个回看工具与三个记忆查询，共十个，没有世界查询工具。
+    app.get('button:tools').onclick();
+    const filled = app.get('#ctx-body').innerHTML;
+    assert.ok(filled.includes('<dt>填入</dt><dd>六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）、' +
+      '一个回看工具（recall_task_summary）与三个记忆查询工具，共十个，严格参数结构，整次运行字节相同。</dd>'), filled);
+    assert.doesNotMatch(filled, /query_world|世界查询|十一/);
     assert.deepEqual(app.errors, []);
   } finally { app.close(); }
 });
@@ -311,13 +320,14 @@ test('context comparison keeps the slicing note when only the previous input was
 
 test('action request summaries show self_note as unverified only when the reply had text', async t => {
   const view = await viewer([
-    event('action_requested', {tool_name: 'start_side_activity', request: {action: 'interact', target: ['美团']},
+    event('action_requested', {tool_name: 'start_side_activity',
+      request: {action: 'interact', target: ['哔哩哔哩'], prefer: null},
       request_sha256: 'f'.repeat(64), reused: false, self_note: '先歇一会儿，再去买菜。'}),
     event('action_requested', {tool_name: 'start_main_activity', request: {action: 'sleep', target: '450', detail: null},
       request_sha256: 'e'.repeat(64), reused: false, self_note: null}),
   ]);
   t.after(() => view.close());
-  assert.equal(view.summary(1), '请求 开始槽位 2 的活动 · 使用 · 美团 · self_note（未经核验）：先歇一会儿，再去买菜。');
+  assert.equal(view.summary(1), '请求 开始槽位 2 的活动 · 使用 · 哔哩哔哩 · self_note（未经核验）：先歇一会儿，再去买菜。');
   assert.equal(view.summary(2), '请求 开始槽位 1 的活动 · 睡觉 · 450 分钟');
   assert.deepEqual(view.errors, []);
 });
@@ -335,9 +345,9 @@ function mainRequest(action, target, detail = null) {
   return event('action_requested', {tool_name: 'start_main_activity', request: {action, target, detail}});
 }
 
-/** @brief 构造 start_side_activity 请求：target 恒为名称数组，购买一份写一项。 */
-function sideRequest(action, ...target) {
-  return event('action_requested', {tool_name: 'start_side_activity', request: {action, target}});
+/** @brief 构造 start_side_activity 请求：三个键都出现，target 恒为名称数组（购买一份写一项），prefer 缺省为 null。 */
+function sideRequest(action, target, prefer = null) {
+  return event('action_requested', {tool_name: 'start_side_activity', request: {action, target, prefer}});
 }
 
 /** @brief 只换掉用例文件目录里某几组行的目录（其余组照用例文件）。 */
@@ -495,8 +505,8 @@ test('progress-only activity titles name both activity rows and request summarie
 
 test('the two start tools display their own arguments: place, action and detail, or action and the named objects', async t => {
   const view = await viewer([
-    sideRequest('purchase', '菜饭', '菜饭', '柠檬茶'),
-    sideRequest('interact', '美团'),
+    sideRequest('purchase', ['菜饭', '菜饭', '柠檬茶']),
+    sideRequest('interact', ['哔哩哔哩']),
     mainRequest('travel', '张江公寓', '驾车'),
     mainRequest('interact', '张江公寓', '测试休息'),
     mainRequest('sleep', '450'),
@@ -504,7 +514,7 @@ test('the two start tools display their own arguments: place, action and detail,
   t.after(() => view.close());
   // 副工具：动作在前，名称数组照所写顺序以顿号相连，同名写两次就是两份；用内容 app 的动作写「使用」。
   assert.equal(view.summary(1), '请求 开始槽位 2 的活动 · 购买 · 菜饭、菜饭、柠檬茶');
-  assert.equal(view.summary(2), '请求 开始槽位 2 的活动 · 使用 · 美团');
+  assert.equal(view.summary(2), '请求 开始槽位 2 的活动 · 使用 · 哔哩哔哩');
   // 主工具：地点名、动作、detail（出行方式名称或内容单元名）；在地点做事写「做」；睡眠只写分钟数。
   assert.equal(view.summary(3), '请求 开始槽位 1 的活动 · 张江公寓 · 出行 · 驾车');
   assert.equal(view.summary(4), '请求 开始槽位 1 的活动 · 张江公寓 · 做 · 测试休息');
@@ -547,6 +557,32 @@ test('readableReq reads the two start tools directly and keeps no branch for the
   assert.deepEqual(view.errors, []);
 });
 
+test('start requests show prefer and the query action', async t => {
+  const view = await viewer([
+    sideRequest('purchase', ['冰美式咖啡'], '瑞幸咖啡'),
+    sideRequest('purchase', ['牛肉面']),
+    sideRequest('query', ['食品'], '美团外卖'),
+    sideRequest('query', ['纸巾', '零食']),
+    sideRequest('interact', ['哔哩哔哩']),
+    event('action_requested', {tool_name: 'query_world', request: {action: 'search', category: 'meal', offset: 0}}),
+  ]);
+  t.after(() => view.close());
+  // prefer 不为 null 时在名称后写「 · 想用 <人物所写的原文>」（样例环境登记的是「美团」，写「美团外卖」也照原文），null 时不写。
+  assert.equal(view.summary(1), '请求 开始槽位 2 的活动 · 购买 · 冰美式咖啡 · 想用 瑞幸咖啡');
+  assert.equal(view.summary(2), '请求 开始槽位 2 的活动 · 购买 · 牛肉面');
+  // 查询的动作名取「上下文」画面的同一张中文表。
+  assert.equal(view.summary(3), '请求 开始槽位 2 的活动 · 查询 · 食品 · 想用 美团外卖');
+  assert.equal(view.summary(4), '请求 开始槽位 2 的活动 · 查询 · 纸巾、零食');
+  assert.equal(view.summary(5), '请求 开始槽位 2 的活动 · 使用 · 哔哩哔哩');
+  assert.equal(view.run("ViewerContext.actionWord('query', 'app')"), '查询');
+  // 已删除的 query_world 没有中文名也没有请求摘要分支：工具名原样显示，请求内容不被解读。
+  assert.equal(view.run('TOOL_LABELS.query_world'), undefined);
+  assert.equal(view.run("readableReq('query_world', {action: 'search', category: 'meal', offset: 0})"), '');
+  assert.equal(view.summary(6), '请求 query_world · ');
+  for (const sequence of [1, 2, 3, 4, 5]) assert.doesNotMatch(view.summary(sequence), /null|undefined|query|prefer/);
+  assert.deepEqual(view.errors, []);
+});
+
 test('plan_day is no longer a person tool while day plan revisions keep their label', async t => {
   const view = await viewer([
     event('action_requested', {tool_name: 'plan_day', request: {goals: [{goal: '上班'}]}}),
@@ -559,18 +595,15 @@ test('plan_day is no longer a person tool while day plan revisions keep their la
   assert.equal(view.summary(2), '请求 调整当日目标 · 2 项目标');
 });
 
-test('registered app names describe platform browse while content titles remain authoritative', async t => {
+test('registered app names and content titles are read from the frozen catalog', async t => {
   const view = await viewer([
-    activity('action_accepted','browse',{kind:'interact',location_id:'home',
-      data:{action:'interact',app_id:'bilibili',content_id:null}}),
     activity('action_accepted','content',{kind:'interact',location_id:'home',content_title:'城市生活随笔',
       data:{action:'interact',app_id:'bilibili',content_id:'c-article'}}),
   ]);
   t.after(() => view.close());
-  // 过渡写法（收尾时随没有内容的 app 使用一起删去）：带 app 而内容身份为空写「使用<app 名>」，不带书名号。
   // 标题只按内容身份取冻结目录，快照随带的 content_title 不读。
-  assert.deepEqual(targets(view.activities()), ['使用哔哩哔哩', '使用哔哩哔哩《测试文章》']);
-  assert.equal(view.summary(1), '已受理 · 使用哔哩哔哩 · 计划 10分');
+  assert.deepEqual(targets(view.activities()), ['使用哔哩哔哩《测试文章》']);
+  assert.equal(view.summary(1), '已受理 · 使用哔哩哔哩《测试文章》 · 计划 10分');
   assert.doesNotMatch(view.activities(), /城市生活随笔/);
   assert.deepEqual(view.errors, []);
 });
@@ -824,8 +857,8 @@ test('a control request that is not in the current shape fails the timeline inde
     view.close();
   }
   // 其他工具的请求不带 errands，照常显示。
-  const other = await viewer([sideRequest('interact', '美团')]);
-  assert.equal(other.summary(1), '请求 开始槽位 2 的活动 · 使用 · 美团');
+  const other = await viewer([sideRequest('interact', ['哔哩哔哩'])]);
+  assert.equal(other.summary(1), '请求 开始槽位 2 的活动 · 使用 · 哔哩哔哩');
   other.close();
 });
 
@@ -963,42 +996,43 @@ test('runs without location sessions render no session table', async t => {
 
 test('unknown app and location names are explicit and logged in English', async t => {
   const view = await viewer([
-    activity('action_accepted','browse',{kind:'interact',location_id:'home',
-      data:{action:'interact',app_id:'app-missing'}}),
+    activity('action_accepted','watch',{kind:'interact',location_id:'home',
+      data:{action:'interact',app_id:'app-missing',content_id:'c-article'}}),
     activity('action_accepted','travel',{kind:'travel',destination_id:'poi-missing'}),
     activity('action_accepted','sleep',{kind:'sleep'}),
   ]);
   t.after(() => view.close());
-  assert.deepEqual(targets(view.activities()),['使用名称缺失（app-missing）','→ 名称缺失（poi-missing）','—']);
+  assert.deepEqual(targets(view.activities()),
+    ['使用名称缺失（app-missing）《测试文章》','→ 名称缺失（poi-missing）','—']);
   assert.ok(view.errors.some(error => error.includes('app-missing')));
   assert.ok(view.errors.some(error => error.includes('poi-missing')));
   assert.ok(view.errors.every(error => !/[一-鿿]/.test(error)));
 });
 
 test('reload clears recorded names and missing-name diagnostics', async t => {
-  const browse = app => activity('action_accepted', `browse-${app}`, {kind: 'interact', location_id: 'home',
-    data: {action: 'interact', app_id: app, content_id: null}});
-  const view = await viewer([browse('missing')]);
+  const watch = app => activity('action_accepted', `watch-${app}`, {kind: 'interact', location_id: 'home',
+    data: {action: 'interact', app_id: app, content_id: 'c-article'}});
+  const view = await viewer([watch('missing')]);
   t.after(() => view.close());
-  assert.deepEqual(targets(view.activities()), ['使用名称缺失（missing）']);
+  assert.deepEqual(targets(view.activities()), ['使用名称缺失（missing）《测试文章》']);
   assert.deepEqual(view.errors, ['Missing recorded object name: missing']);
-  // 下一份库的冻结目录只登记了 missing：上一份库的名称（哔哩哔哩）不再有，上一份库的缺名记录也清空。
-  const next = {apps: [{app_id: 'missing', name: '支付宝'}], contents: [], goods: [], locations: [{location_id: 'home',
-    name: '家'}]};
-  await view.reload([browse('missing'), browse('bilibili')], {directories: [runDirectory(next)]});
-  assert.deepEqual(targets(view.activities()), ['使用支付宝', '使用名称缺失（bilibili）']);
+  // 下一份库的冻结目录只登记了 missing 这个 app：上一份库的名称（哔哩哔哩）不再有，上一份库的缺名记录也清空。
+  const next = {apps: [{app_id: 'missing', name: '支付宝'}], contents: [{content_id: 'c-article', title: '测试文章'}],
+    goods: [], locations: [{location_id: 'home', name: '家'}]};
+  await view.reload([watch('missing'), watch('bilibili')], {directories: [runDirectory(next)]});
+  assert.deepEqual(targets(view.activities()), ['使用支付宝《测试文章》', '使用名称缺失（bilibili）《测试文章》']);
   assert.deepEqual([...view.state.missingNames], ['bilibili']);
   assert.deepEqual(view.errors, ['Missing recorded object name: missing', 'Missing recorded object name: bilibili']);
 });
 
 test('raw app identifiers cannot become user-facing names or titles', async t => {
   const view=await viewer([
-    activity('action_accepted','browse',{kind:'interact',location_id:'home',
-      data:{action:'interact',app_id:'app-raw',content_id:null}}),
+    activity('action_accepted','watch',{kind:'interact',location_id:'home',
+      data:{action:'interact',app_id:'app-raw',content_id:'c-article'}}),
   ]);
   t.after(() => view.close());
-  assert.deepEqual(targets(view.activities()),['使用名称缺失（app-raw）']);
-  assert.equal(view.summary(1), '已受理 · 使用名称缺失（app-raw） · 计划 10分');
+  assert.deepEqual(targets(view.activities()),['使用名称缺失（app-raw）《测试文章》']);
+  assert.equal(view.summary(1), '已受理 · 使用名称缺失（app-raw）《测试文章》 · 计划 10分');
   assert.equal(view.errors.length,1);
 });
 
@@ -1241,40 +1275,37 @@ test('money uses authoritative envelope changes once and allows signed external 
 test('an aggregate acceptance keeps both actual travel and interaction activities', async t => {
   const travel={activity_id:'travel',kind:'travel',started_at:epoch,status:'active',elapsed_seconds:0,
     destination_id:'store',travel_method_id:'walking',data:{action:'travel'}};
-  const interaction={activity_id:'browse',kind:'interact',started_at:epoch,status:'active',elapsed_seconds:0,
-    location_id:'home',data:{action:'interact',app_id:'meituan',content_id:null}};
+  const interaction={activity_id:'watch',kind:'interact',started_at:epoch,status:'active',elapsed_seconds:0,
+    location_id:'home',data:{action:'interact',app_id:'bilibili',content_id:'c-article'}};
   const view=await viewer([
     event('action_accepted',{data:{activities:[travel,interaction]}}),
   ]);
   t.after(()=>view.close());
-  // 聚合受理里的出行活动同样带出行方式身份，活动行在目的地前写出行方式名称；没有内容的 app 使用写过渡写法「使用<app 名>」。
-  assert.deepEqual(targets(view.activities()),['步行 · → 四季便利','使用美团']);
+  // 聚合受理里的出行活动同样带出行方式身份，活动行在目的地前写出行方式名称；app 使用写统一写法。
+  assert.deepEqual(targets(view.activities()),['步行 · → 四季便利','使用哔哩哔哩《测试文章》']);
   assert.deepEqual(view.errors,[]);
 });
 
-test('SQLite content snapshots without retired title display actual content and pure browse app', async t => {
+test('SQLite content snapshots without retired title display actual content', async t => {
   const place={kind:'interact',location_id:'home',content_title:'晚间阅读',
     data:{action:'interact',app_id:null,content_id:'evening-reading'}};
   const app={kind:'interact',location_id:'home',content_title:'数据分析课程',
     data:{action:'interact',app_id:'bilibili',content_id:'analysis-course'}};
-  const browse={kind:'interact',location_id:'home',data:{action:'interact',app_id:'meituan',content_id:null}};
   const view=await viewer([
     activity('action_accepted','place-content',place),
     activity('activity_progress','place-content',{...place,status:'completed',ended_at:epoch+120}),
     activity('action_accepted','app-content',app),
-    activity('action_accepted','platform-browse',browse),
   ], {catalog: withCatalog({contents: [{content_id: 'evening-reading', title: '晚间阅读'},
     {content_id: 'analysis-course', title: '数据分析课程'}]})});
   t.after(()=>view.close());
   assert.equal(view.run("q(\"SELECT json_extract(body,'$.data.activity.content_title') AS content FROM events WHERE event_seq=1\")[0].content"),'晚间阅读');
   assert.equal(view.run("q(\"SELECT COUNT(*) AS present FROM events WHERE json_type(body,'$.data.activity.title') IS NOT NULL\")[0].present"),0);
-  // 标题按内容身份取冻结目录；没有内容的 app 使用是过渡写法「使用<app 名>」（收尾时随这种样本一起删去）。
-  assert.deepEqual(targets(view.activities()),['在家：晚间阅读','使用哔哩哔哩《数据分析课程》','使用美团']);
+  // 标题按内容身份取冻结目录。
+  assert.deepEqual(targets(view.activities()),['在家：晚间阅读','使用哔哩哔哩《数据分析课程》']);
   assert.ok(view.summary(1).includes('在家：晚间阅读'));
   assert.ok(view.summary(2).includes('在家：晚间阅读'));
   assert.ok(view.summary(3).includes('使用哔哩哔哩《数据分析课程》'));
-  assert.ok(view.summary(4).includes('使用美团'));
-  for(const sequence of [1,2,3,4]){
+  for(const sequence of [1,2,3]){
     assert.ok(!Object.hasOwn(JSON.parse(view.run(`fetchBody(${sequence})`)).data.activity,'title'));
   }
   assert.deepEqual(view.errors,[]);
@@ -1482,6 +1513,8 @@ test('activity table lanes and timeline write the shared wording and keep the ki
     {order_id: 'order-noodles', goods_id: 'beef-noodles', app_id: 'meituan', total_price_fen: 2800,
       payment_app_id: 'alipay'},
     {order_id: 'order-tissue', goods_id: 'tissue', app_id: null, total_price_fen: 600, payment_app_id: null}];
+  const lookup = {action: 'query', app_id: 'meituan', scoped: true,
+    targets: [{kind: 'category', category: 'meal'}, {kind: 'goods', goods_id: 'lemon-tea'}]};
   const view = await viewer([
     // 用哔哩哔哩连播剧集：第一条进度事件就是第一集做到头的那一条，快照里的当前内容已经换成第二集。
     accepted('watch', 'interact', 0, {data: watch('c-drama-1')}),
@@ -1500,18 +1533,26 @@ test('activity table lanes and timeline write the shared wording and keep the ki
     event('action_result', {status: 'in_progress', data: {orders}}, {activity_id: 'buy', occurred_at: at(120)}),
     accepted('drive', 'travel', 130, {destination_id: 'office', travel_method_id: 'driving', data: {action: 'travel'}}),
     accepted('sleep', 'sleep', 150, {data: {action: 'sleep'}}),
-    // 种类表里没有的种类（查询轨道并入、收尾之前的查询就是这样）：目标处「—」，类型列写原值。
-    accepted('look', 'query', 160, {data: {action: 'query', app_id: 'meituan'}}),
+    // 一次带 app 的查询（类别名与商品名）做完，一次没有 app 的查询（商品名）。
+    accepted('look', 'query', 160, {data: lookup}),
+    step('look', 'query', 160, {status: 'completed', elapsed_seconds: 420, data: lookup},
+      {interval_start: at(160), interval_end: at(167)}),
+    accepted('ask', 'query', 170, {data: {action: 'query', targets: [{kind: 'goods', goods_id: 'tissue'}],
+      app_id: null, scoped: false}}),
   ]);
   t.after(() => view.close());
   const markup = view.activities();
   const phrases = ['使用哔哩哔哩《测试剧集第一集》《测试剧集第二集》', '在家：做晚饭《备菜做饭》《吃晚饭》',
     '购买牛肉面（经美团下单）；纸巾（到店）'];
-  // 活动类型列仍是种类标签，「目标」列是写法；泳道的标签同一句，出行、睡眠的泳道照原格式「种类 目标」。
+  // 查询写「查询<名称列表>（<app 名>）」，名称按所写次序，类别写中文类别名；没有 app 的不写括号。
+  const queries = ['查询食品、柠檬茶（美团）', '查询纸巾'];
+  // 活动类型列仍是种类标签（查询是「查询」），「目标」列是写法；泳道的标签同一句，出行、睡眠的泳道照原格式「种类 目标」。
   assert.deepEqual(tableRows(markup, 'act-table').map(cells => [cells[2].replace(/<[^>]*>/g, ''), cells[3]]), [
     ['互动', phrases[0]], ['互动', phrases[1]], ['购买', phrases[2]], ['出行', '驾车 · → 公司'], ['睡眠', '—'],
-    ['query', '—']]);
-  assert.deepEqual(lanes(markup).map(lane => lane.label), [...phrases, '出行 驾车 · → 公司', '睡眠 —', 'query —']);
+    ['查询', queries[0]], ['查询', queries[1]]]);
+  assert.deepEqual(lanes(markup).map(lane => lane.label), [...phrases, '出行 驾车 · → 公司', '睡眠 —', ...queries]);
+  // 查询的类型标签用它自己的颜色。
+  assert.ok(markup.includes('<span class="act-kind" style="background:#5b8def33;color:#5b8def">查询</span>'));
   // 时间线：受理行和活动段行直接写写法；一集做到头的那条活动段行写的是刚做完的这一集。
   assert.equal(view.summary(1), `已受理 · 使用哔哩哔哩《测试剧集第一集》 · 计划 10分`);
   assert.equal(view.summary(2), '活动段 · 使用哔哩哔哩《测试剧集第一集》 · 进行中 · 已进行 30分');
@@ -1523,7 +1564,9 @@ test('activity table lanes and timeline write the shared wording and keep the ki
   // 出行、睡眠行与改动之前逐字相同。
   assert.equal(view.summary(9), '已受理 · 出行 · 驾车 · → 公司 · 计划 10分');
   assert.equal(view.summary(10), '已受理 · 睡眠 · — · 计划 10分');
-  assert.equal(view.summary(11), '已受理 · query · — · 计划 10分');
+  assert.equal(view.summary(11), `已受理 · ${queries[0]} · 计划 10分`);
+  assert.equal(view.summary(12), `活动段 · ${queries[0]} · 已完成 · 已进行 7分`);
+  assert.equal(view.summary(13), `已受理 · ${queries[1]} · 计划 10分`);
   assert.deepEqual(view.errors, []);
 });
 
@@ -1588,19 +1631,18 @@ test('phone records name their app and what happened', async t => {
 /** @brief 2026 年 9 月某日（缺省 28 日）当地 clock 时刻的整数秒。 */
 const at = (clock, day = '28') => Date.parse(`2026-09-${day}T${clock}+08:00`) / 1000;
 
-/** @brief 一次 app 使用：开始它的受理事件和一条进度事件，区间从 start 到 end，正文带这一段放过的内容（没有内容时
- *  不带）。时刻都显式给出。 */
+/** @brief 一次 app 使用（appId 为 null 时是在地点做的事）：开始它的受理事件和一条进度事件，区间从 start 到 end，
+ *  正文带这一段放过的内容。时刻都显式给出。 */
 function appUse(id, appId, contentId, start, end, {agent = 1, status = 'completed'} = {}) {
   const snapshot = fields => ({activity_id: id, kind: 'interact', location_id: 'home', started_at: start,
     planned_duration_seconds: end - start, data: {action: 'interact', app_id: appId, content_id: contentId},
     ...fields});
-  const content = contentId === null ? {} : {content: {content_id: contentId, app_id: appId,
-    completed: status === 'completed'}};
+  const content = {content_id: contentId, app_id: appId, completed: status === 'completed'};
   return [
     event('action_accepted', {status: 'in_progress', activity: snapshot({status: 'active', elapsed_seconds: 0})},
       {activity_id: id, agent_id: agent, occurred_at: start}),
     event('activity_progress', {activity: snapshot({status, elapsed_seconds: end - start}),
-      interval_start: start, interval_end: end, ...content}, {activity_id: id, agent_id: agent, occurred_at: end}),
+      interval_start: start, interval_end: end, content}, {activity_id: id, agent_id: agent, occurred_at: end}),
   ];
 }
 
@@ -1736,7 +1778,8 @@ test('only app uses of one person join, never location activities, purchases, qu
       {action: 'purchase', order_ids: ['order-notebook']}),
     event('action_result', {status: 'completed', data: {orders: [notebook]}}, {occurred_at: at('20:02:00')}),
     // 一项种类为 query、带同一个 app_id 的活动，同一秒接着一次哔哩哔哩使用。
-    ...handWritten('look', 'query', at('20:02:00'), at('20:03:00'), {action: 'query', app_id: 'bilibili'}),
+    ...handWritten('look', 'query', at('20:02:00'), at('20:03:00'), {action: 'query',
+      targets: [{kind: 'goods', goods_id: 'online-notebook'}], app_id: 'bilibili', scoped: true}),
     ...appUse('watch-2', 'bilibili', 'c-image', at('20:03:00'), at('20:04:00')),
     // 一条同一 app 的 app 前台世界事件把两次使用之间的空档补满。
     event('environment_event', {kind: 'app_foreground', app_id: 'bilibili', step: 'ordering',
@@ -1921,18 +1964,13 @@ test('an item continued in the next use is written once in the label of the cont
     ...appUse('first', 'bilibili', 'c-long', at('20:00:00'), at('20:20:00'), {status: 'cancelled'}),
     ...appUse('again', 'bilibili', 'c-long', at('20:20:00'), at('20:40:00')),
     ...appUse('other', 'bilibili', 'c-image', at('20:40:00'), at('20:45:00')),
-    // 两次没有内容的同 app 使用相接（内容轨道并入之前仍会产生）。
-    ...appUse('browse-1', 'meituan', null, at('21:00:00'), at('21:10:00')),
-    ...appUse('browse-2', 'meituan', null, at('21:10:00'), at('21:20:00')),
   ]);
   t.after(() => view.close());
   const drawn = lanes(view.activities());
   assert.equal(drawn[0].label, '使用哔哩哔哩《测试长视频》《测试图文》');
   assert.deepEqual(drawn[0].bars.map(bar => bar.title), ['2026/09/28 20:00:00–2026/09/28 20:45:00 · ' +
     '使用哔哩哔哩《测试长视频》《测试图文》 · 连续使用，共 3 段']);
-  assert.deepEqual(drawn.map(lane => lane.bars.length), [1, 1]);
-  // 过渡写法的断言（收尾时随没有内容的 app 使用一起删去）：成串不看内容，标签是「使用<app 名>」。
-  assert.equal(drawn[1].bars[0].title, '2026/09/28 21:00:00–2026/09/28 21:20:00 · 使用美团 · 连续使用，共 2 段');
+  assert.deepEqual(drawn.map(lane => lane.bars.length), [1]);
 });
 
 test('continuous uses are found without the frozen catalog', async t => {

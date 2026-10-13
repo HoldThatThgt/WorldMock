@@ -81,11 +81,11 @@ const ViewerContext = {};
     },
     tools: {
       label: '工具定义', source: 'custom/agents/life_agent.py · 原生工具；src/worldmock/agents/life_prompt.py · TOOL_DESCRIPTIONS',
-      fill: '六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）、两个世界查询工具（query_world、recall_task_summary）'
-        + '与三个记忆查询工具，共十一个，严格参数结构，整次运行字节相同。',
+      fill: '六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）、一个回看工具（recall_task_summary）'
+        + '与三个记忆查询工具，共十个，严格参数结构，整次运行字节相同。',
       steps: [
         ['稳定工具面', '不再按观察绑定枚举，名称在宿主本地按私有绑定校验。'],
-        ['最后回合', '只剩最后一个回合时与输出截断后的那次重试时去掉全部查询工具（世界查询与记忆查询），只留世界请求工具。'],
+        ['最后回合', '只剩最后一个回合时与输出截断后的那次重试时去掉全部只读工具（回看任务与记忆查询），只留世界请求工具。'],
         ['计量口径', '未提供 tools 与显式 tools: [] 分别保留；工具参数和描述均可查看。'],
       ],
     },
@@ -328,8 +328,9 @@ const ViewerContext = {};
   }
 
   /* 动作的中文名，查看器只有这一张：工具层下钻的标签和页面的动作请求行都用它。interact 按所在分组的类别取词，
-   * 用内容 app（类别 app）是「使用」，在地点做事（类别 location）是「做」。 */
-  const ACTION_WORDS = {interact: {app: '使用', location: '做'}, travel: '出行', sleep: '睡觉', purchase: '购买'};
+   * 用内容 app（类别 app）是「使用」，在地点做事（类别 location）是「做」。工具层没有查询的行，query 只用于动作请求行。 */
+  const ACTION_WORDS = {interact: {app: '使用', location: '做'}, travel: '出行', sleep: '睡觉', purchase: '购买',
+    query: '查询'};
 
   /** @brief 动作在某个目标类别下的中文名；表里没有的动作或类别照原值显示。 */
   function actionWord(action, kind) {

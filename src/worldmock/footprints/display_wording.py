@@ -18,6 +18,7 @@ from typing import Any, NamedTuple
 from worldmock.catalog.models import App, Content, Goods, Location, TravelMethod
 from worldmock.errors import IntegrityError
 from worldmock.exchange.constants import WALKING_TRAVEL_METHOD_ID, WALKING_TRAVEL_METHOD_NAME
+from worldmock.exchange.types import GOODS_CATEGORY_LABELS
 from worldmock.life.readable import ACTIVITY_KIND_LABELS
 
 #: 名称种类到名称表字段：查不到时英文错误里写的就是这个种类名。
@@ -109,7 +110,7 @@ def event_content_id(data: Mapping[str, Any]) -> str | None:
 
 def activity_phrase(names: DisplayNames, snapshot: Mapping[str, Any], content_ids: Sequence[str | None],
                     orders: Mapping[str, Mapping[str, Any]]) -> str:
-    """@brief 一项活动的写法：互动、购买、出行各有专门的写法，其余种类写中文种类表里的种类名。
+    """@brief 一项活动的写法：互动、购买、查询、出行各有专门的写法，其余种类写中文种类表里的种类名。
 
     @param content_ids 这一行各条事件指向的内容身份，按事件先后；相邻重复在这里去掉。
     @param orders 订单身份到商品履约记录（读 goods_id 与 app_id）。
@@ -120,6 +121,8 @@ def activity_phrase(names: DisplayNames, snapshot: Mapping[str, Any], content_id
         return _interact_phrase(names, snapshot, _distinct(content_ids))
     if kind == "purchase":
         return _purchase_phrase(names, snapshot, orders)
+    if kind == "query":
+        return _query_phrase(names, snapshot)
     if kind == "travel":
         method = display_name(names, "travel_method", snapshot["travel_method_id"])
         return f"{method}去{display_name(names, 'location', snapshot['destination_id'])}"
@@ -152,8 +155,6 @@ def _interact_phrase(names: DisplayNames, snapshot: Mapping[str, Any], content_i
     app_id = snapshot["data"]["app_id"]
     if app_id is not None:
         app = display_name(names, "app", app_id)
-        # 过渡写法：内容轨道并入之前，没有内容的 app 使用仍会产生，空的内容身份跳过不写（收尾时删去这一行）。
-        content_ids = [key for key in content_ids if key is not None]
         return f"使用{app}{_titles(names, content_ids)}"
     place = display_name(names, "location", snapshot["location_id"])
     first = display_name(names, "content", content_ids[0])
@@ -179,3 +180,14 @@ def _purchase_phrase(names: DisplayNames, snapshot: Mapping[str, Any],
         channel = "（到店）" if app_id is None else f"（经{display_name(names, 'app', app_id)}下单）"
         segments.append(items + channel)
     return "购买" + "；".join(segments)
+
+
+def _query_phrase(names: DisplayNames, snapshot: Mapping[str, Any]) -> str:
+    """@brief 查询写「查询<名称列表>」：data.targets 各项按所写次序以「、」相连，商品写商品名、类别写中文类别名；
+    这几分钟有 app 在前台（data.app_id 不为空）时再加「（<app 名>）」。"""
+    data = snapshot["data"]
+    items = "、".join(GOODS_CATEGORY_LABELS[item["category"]] if item["kind"] == "category"
+                     else display_name(names, "goods", item["goods_id"]) for item in data["targets"])
+    if data["app_id"] is None:
+        return f"查询{items}"
+    return f"查询{items}（{display_name(names, 'app', data['app_id'])}）"
