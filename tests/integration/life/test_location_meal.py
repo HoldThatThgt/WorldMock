@@ -14,6 +14,7 @@ from tests.life.conftest import (
     advance_next, advance_until_ready, conclude_request, context, do_at, pause_request, purchase, report_request,
     stage_errands,
 )
+from tests.life.current_world import stage_moment
 from tests.life.environment_inputs import catalog_rows, meal_environment, set_content, write_catalog_rows
 from tests.life.environment_runtime import (
     act, act_group, events, every_five_minutes, one_hour, reach, until_ended,
@@ -254,6 +255,16 @@ def test_a_location_meal_costs_nothing_and_is_not_a_receipt(engine_factory, tmp_
     assert not kinds & {"goods_received", "purchase_payment", "payment_notification", "order_notification"}
 
 
+def _end_rest_at_once(engine):
+    """点名「测试休息」，在开始的同一秒就结束：开始之后把下一次决策机会放回这一秒，时刻不动。"""
+    _, rest = act(engine, "rest", do_at("家", "测试休息"))
+    assert rest.status == "in_progress", rest.error_code
+    started = engine.context.state.current_time
+    stage_moment(engine)
+    assert engine.context.state.current_time == started
+    return rest, engine.context.state.activities[rest.activity_id].name
+
+
 def _end_rest_midway(engine):
     """「测试休息」做 5 分钟后用 conclude_activity 结束。"""
     rest = rest_until_five_minutes(engine)
@@ -292,11 +303,13 @@ def _end_dinner_at(seconds):
     return end
 
 
-@pytest.mark.parametrize("end", [_end_rest_midway, _end_rest_after_pausing, _end_dinner_at(600), _end_dinner_at(2400)],
-                         ids=["rest-midway", "rest-paused-then-ended", "dinner-while-cooking", "dinner-while-eating"])
+@pytest.mark.parametrize("end", [_end_rest_midway, _end_rest_at_once, _end_rest_after_pausing, _end_dinner_at(600),
+                                 _end_dinner_at(2400)],
+                         ids=["rest-midway", "rest-ended-in-its-first-second", "rest-paused-then-ended",
+                              "dinner-while-cooking", "dinner-while-eating"])
 def test_ending_early_settles_no_completion_effects(engine_factory, tmp_path, end):
-    """做到一半结束、暂停后再结束、系列在《备菜做饭》里结束、《吃晚饭》做到一半结束（被结束的一集不供餐）：都没有完成
-    效果，能量从不进账；被结束的这件事仍按「结束就算做完」记进度，整个单元的轮数是 1。"""
+    """做到一半结束、开始的同一秒就结束、暂停后再结束、系列在《备菜做饭》里结束、《吃晚饭》做到一半结束（被结束的一集
+    不供餐）：都没有完成效果，能量从不进账；被结束的这件事仍按「结束就算做完」记进度，整个单元的轮数是 1。"""
     engine = meal_engine(engine_factory, tmp_path, body(1000.0, None, every_five_minutes))
     activity, name = end(engine)
     _, concluded = act(engine, "end", conclude_request(name), "conclude_activity")
@@ -305,7 +318,7 @@ def test_ending_early_settles_no_completion_effects(engine_factory, tmp_path, en
     assert fed(engine) == [] and not any(energy_sources(row) for row in progress_rows(engine))
     assert all(row.data["content"]["completion_effects"] is None for row in progress_rows(engine, activity.activity_id)
                if "content" in row.data)
-    assert energy_now(engine) < 1000.0
+    assert energy_now(engine) <= 1000.0
     progress = engine.context.state.agents[1].content_progress
     unit = ("c-rest",) if name.startswith("进行测试休息") else ("dinner-1-cook", "dinner-2-eat", "dinner-3-wash")
     assert {key: (progress[key].position_seconds, progress[key].completed_rounds) for key in unit} == {
