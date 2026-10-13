@@ -1500,6 +1500,8 @@ test('activity table lanes and timeline write the shared wording and keep the ki
     event('action_result', {status: 'in_progress', data: {orders}}, {activity_id: 'buy', occurred_at: at(120)}),
     accepted('drive', 'travel', 130, {destination_id: 'office', travel_method_id: 'driving', data: {action: 'travel'}}),
     accepted('sleep', 'sleep', 150, {data: {action: 'sleep'}}),
+    // 种类表里没有的种类（查询轨道并入、收尾之前的查询就是这样）：目标处「—」，类型列写原值。
+    accepted('look', 'query', 160, {data: {action: 'query', app_id: 'meituan'}}),
   ]);
   t.after(() => view.close());
   const markup = view.activities();
@@ -1507,8 +1509,9 @@ test('activity table lanes and timeline write the shared wording and keep the ki
     '购买牛肉面（经美团下单）；纸巾（到店）'];
   // 活动类型列仍是种类标签，「目标」列是写法；泳道的标签同一句，出行、睡眠的泳道照原格式「种类 目标」。
   assert.deepEqual(tableRows(markup, 'act-table').map(cells => [cells[2].replace(/<[^>]*>/g, ''), cells[3]]), [
-    ['互动', phrases[0]], ['互动', phrases[1]], ['购买', phrases[2]], ['出行', '驾车 · → 公司'], ['睡眠', '—']]);
-  assert.deepEqual(lanes(markup).map(lane => lane.label), [...phrases, '出行 驾车 · → 公司', '睡眠 —']);
+    ['互动', phrases[0]], ['互动', phrases[1]], ['购买', phrases[2]], ['出行', '驾车 · → 公司'], ['睡眠', '—'],
+    ['query', '—']]);
+  assert.deepEqual(lanes(markup).map(lane => lane.label), [...phrases, '出行 驾车 · → 公司', '睡眠 —', 'query —']);
   // 时间线：受理行和活动段行直接写写法；一集做到头的那条活动段行写的是刚做完的这一集。
   assert.equal(view.summary(1), `已受理 · 使用哔哩哔哩《测试剧集第一集》 · 计划 10分`);
   assert.equal(view.summary(2), '活动段 · 使用哔哩哔哩《测试剧集第一集》 · 进行中 · 已进行 30分');
@@ -1520,7 +1523,35 @@ test('activity table lanes and timeline write the shared wording and keep the ki
   // 出行、睡眠行与改动之前逐字相同。
   assert.equal(view.summary(9), '已受理 · 出行 · 驾车 · → 公司 · 计划 10分');
   assert.equal(view.summary(10), '已受理 · 睡眠 · — · 计划 10分');
+  assert.equal(view.summary(11), '已受理 · query · — · 计划 10分');
   assert.deepEqual(view.errors, []);
+});
+
+test('a purchase order missing from the order records is named as missing at its own position', async t => {
+  const at = minutes => epoch + minutes * 60;
+  const accepted = (id, start, order_ids) => event('action_accepted', {status: 'in_progress',
+    activity: {activity_id: id, kind: 'purchase', location_id: 'home', status: 'active', started_at: at(start),
+      planned_duration_seconds: 600, elapsed_seconds: 0, data: {action: 'purchase', order_ids}}},
+  {activity_id: id, occurred_at: at(start)});
+  const orders = [
+    {order_id: 'order-noodles', goods_id: 'beef-noodles', app_id: 'meituan', total_price_fen: 2800,
+      payment_app_id: 'alipay'},
+    {order_id: 'order-tissue', goods_id: 'tissue', app_id: null, total_price_fen: 600, payment_app_id: null}];
+  const view = await viewer([
+    event('action_result', {status: 'in_progress', data: {orders}}, {occurred_at: at(0)}),
+    // 找不到的订单渠道不明：它在 order_ids 里排第几，就在第几段；找得到的各段仍照渠道的次序排。
+    accepted('first', 0, ['order-gone', 'order-tissue', 'order-noodles']),
+    accepted('middle', 10, ['order-tissue', 'order-lost', 'order-noodles']),
+    accepted('last', 20, ['order-noodles', 'order-tissue', 'order-gone']),
+  ]);
+  t.after(() => view.close());
+  assert.deepEqual(targets(view.activities()), [
+    '购买名称缺失（order-gone）；牛肉面（经美团下单）；纸巾（到店）',
+    '购买牛肉面（经美团下单）；名称缺失（order-lost）；纸巾（到店）',
+    '购买牛肉面（经美团下单）；纸巾（到店）；名称缺失（order-gone）']);
+  assert.equal(view.summary(2), '已受理 · 购买名称缺失（order-gone）；牛肉面（经美团下单）；纸巾（到店） · 计划 10分');
+  // 同一个身份只写一次英文错误。
+  assert.deepEqual(view.errors, ['order-gone', 'order-lost'].map(key => `Missing recorded object name: ${key}`));
 });
 
 test('result rows name the ordering channel and the payment app', async t => {

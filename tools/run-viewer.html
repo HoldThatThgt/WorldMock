@@ -721,9 +721,8 @@ function makeSummary(e){
 
 /** @brief 一条事件里活动的写法：互动与购买写统一写法（只列这条事件指向的内容），出行、睡眠等照原格式「种类 目标」。 */
 function eventPhrase(s, separator){
-  if (WORDED_KINDS.has(s.kind)) return ViewerWording.activityPhrase(snapshotOf(s),
-    [ViewerWording.eventContentId(s.played, s.contentId)], S.orders);
-  return `${actTypeLabel(s.kind, s.tg)}${s.tg||s.dest||s.appId? separator+actTargetText(s):''}`;
+  return ViewerWording.targetPhrase(s, [ViewerWording.eventContentId(s.played, s.contentId)], S.orders)
+    ?? `${actTypeLabel(s.kind, s.tg)}${s.tg||s.dest||s.appId? separator+actTargetText(s):''}`;
 }
 /** @brief 动作结果行：每条商品履约记录一段「 · 订单 <商品> ¥<金额>」接渠道，有支付 app 再接「 · 支付 <名称>」。 */
 function resultText(s){
@@ -1133,15 +1132,11 @@ function toggleDetail(row, seq){
 
 /* ---------- 活动表格（替代甘特图） ---------- */
 const AT = { sortKey:'start', sortDir:1, page:0, pageSize:50, filtered:[] };
-/* 有统一写法的活动种类；出行、睡眠等照原格式写「种类 · 目标」。 */
-const WORDED_KINDS = new Set(['interact', 'purchase']);
-/** @brief 写法要读的快照键，取自合并后的活动或一条事件的摘要字段。 */
-const snapshotOf = x => ({kind:x.kind, location_id:x.location, destination_id:x.dest, travel_method_id:x.method,
-  data:{app_id:x.appId, order_ids:x.orderIds}});
 /** @brief 活动表「目标」：互动与购买是这项活动全部受理与进度事件（按序号）的统一写法；出行写出行方式名称、目的地与
  *  路径；其余种类（睡眠和没有专门写法的种类）显示「—」。 */
 function actTargetText(a){
-  if (WORDED_KINDS.has(a.kind)) return ViewerWording.activityPhrase(snapshotOf(a), a.contents, S.orders);
+  const phrase = ViewerWording.targetPhrase(a, a.contents, S.orders);
+  if (phrase != null) return phrase;
   if (a.kind!=='travel') return '—';
   let route = a.dest ? `→ ${locLabel(a.dest)}` : '';
   if (a.origin && a.path?.length){
@@ -1156,13 +1151,12 @@ function laneBar(start, end, kind, text){
           title="${esc(fmtT(start)+'–'+fmtT(end)+' · '+text)}"></span>`;
 }
 /** @brief 泳道的一行：独自一行的活动每个执行段一个条块，标签是写法（出行、睡眠照原格式「种类 目标」）；同一个 app
- *  首尾相接的几次使用并成的一行每条连续使用一个条块，标签与悬停文字由 ViewerWording 的连续使用写出。 */
+ *  首尾相接的几次使用并成的一行，标签与各条块由 ViewerWording.useLaneRows 给出。 */
 function laneRow(row){
-  const one = row.activities[0], wording = ViewerWording.continuousUseLabel;
-  const label = row.joined ? wording(row.uses.flatMap(use=>use.segments))
-    : WORDED_KINDS.has(one.kind) ? actTargetText(one) : `${actTypeLabel(one.kind,one.tg)} ${actTargetText(one)}`.trim();
-  const bars = row.joined ? row.uses.map(use=>laneBar(use.start, use.end, 'interact', wording(use.segments) +
-      (use.segments.length>1 ? ` · 连续使用，共 ${use.segments.length} 段` : '')))
+  const one = row.activities[0];
+  const label = row.joined ? row.label : ViewerWording.targetPhrase(one, one.contents, S.orders)
+    ?? `${actTypeLabel(one.kind,one.tg)} ${actTargetText(one)}`.trim();
+  const bars = row.joined ? row.bars.map(bar=>laneBar(bar.start, bar.end, 'interact', bar.text))
     : one.intervals.map(([start,end])=>laneBar(start, end, one.kind, label));
   return `<div class="act-lane"><div class="act-lane-label" title="${esc(label)}">${esc(label)}</div>
         <div class="act-lane-track">${bars.join('')}</div></div>`;
@@ -1199,55 +1193,19 @@ function renderSessions(agent){
       </tbody>
     </table></div>`;
 }
-function renderActivities(){
-  const el = $('#act-body');
-  const agent = agentFilterVal();
-  AT.filtered = S.acts.filter(a=>!agent || String(a.agent)===agent);
-  if (!AT.filtered.length){ el.innerHTML='<div class="empty">无活动数据</div>'; return; }
-  if (AT.page >= Math.ceil(AT.filtered.length/AT.pageSize)) AT.page = 0;
-  const kinds = [...new Set(AT.filtered.map(a=>a.kind))];
-
-  const sorters = {
-    start: (x,y)=> x.start-y.start,
-    agent: (x,y)=> x.agent-y.agent || x.start-y.start,
-    kind:  (x,y)=> actTypeLabel(x.kind,x.tg).localeCompare(actTypeLabel(y.kind,y.tg),'zh') || x.start-y.start,
-  };
-  AT.filtered.sort(sorters[AT.sortKey]||sorters.start);
-  if (AT.sortDir<0) AT.filtered.reverse();
-
-  const pages = Math.ceil(AT.filtered.length/AT.pageSize);
-  const view = AT.filtered.slice(AT.page*AT.pageSize, (AT.page+1)*AT.pageSize);
-  const arrow = k => AT.sortKey===k? `<span class="arrow">${AT.sortDir>0?'▲':'▼'}</span>`:'';
-  const th = (k,label,extra) =>
-    `<th data-sk="${k}" class="${extra||''}">${label}${arrow(k)}</th>`;
-
-  el.innerHTML = `
-  ${renderActivityLanes(AT.filtered)}
-  <div class="legend" style="margin-bottom:10px">${kinds.map(k=>`<span><span class="sw" style="background:${kindColor(k)}"></span>${esc(actTypeLabel(k,null))}</span>`).join('')}
-    <span style="margin-left:auto;color:var(--fg-faint)">共 ${AT.filtered.length} 段活动 · 点击表头排序</span></div>
-  <div class="card" style="padding:0 0 0 0">
-    <table class="act-table">
-      <thead><tr>${th('start','开始')}${th('agent','人物')}${th('kind','活动类型')}
-        <th>目标</th><th>结束</th><th class="num">实际时长</th><th>连续使用</th></tr></thead>
-      <tbody>
-      ${view.map(a=>`<tr>
-        <td style="white-space:nowrap;font-family:var(--mono);font-size:12px">${fmtHM(a.start)}</td>
-        <td style="white-space:nowrap"><span class="tl-agent ${agentCls(a.agent)}">${esc(agentName(a.agent))}</span></td>
-        <td><span class="act-kind" style="background:${kindColor(a.kind)}33;color:${kindColor(a.kind)}">${esc(actTypeLabel(a.kind,a.tg))}</span></td>
-        <td>${esc(actTargetText(a))}</td>
-        <td style="white-space:nowrap;font-family:var(--mono);font-size:12px">${fmtHM(a.end)}</td>
-        <td class="num">${a.actualSeconds?fmtDur(a.actualSeconds):'—'}</td>
-        <td>${esc(ViewerWording.continuousUseMark(a, S.uses, fmtHM))}</td></tr>`).join('')}
-      </tbody>
-    </table>
-    <div class="pager">
-      <span style="margin-right:auto">第 ${AT.page+1} / ${pages} 页 · 每页 ${AT.pageSize} 条</span>
-      <button id="at-prev" ${AT.page===0?'disabled':''}>上一页</button>
-      <button id="at-next" ${AT.page>=pages-1?'disabled':''}>下一页</button>
-    </div>
-  </div>
-  ${renderSessions(agent)}`;
-
+/** @brief 活动表的一行：开始、人物、活动类型、目标、结束、实际时长和末尾的「连续使用」标记栏。 */
+function activityRow(a){
+  const mono = 'white-space:nowrap;font-family:var(--mono);font-size:12px', color = kindColor(a.kind);
+  const kind = esc(actTypeLabel(a.kind,a.tg));
+  return `<tr><td style="${mono}">${fmtHM(a.start)}</td>
+    <td style="white-space:nowrap"><span class="tl-agent ${agentCls(a.agent)}">${esc(agentName(a.agent))}</span></td>
+    <td><span class="act-kind" style="background:${color}33;color:${color}">${kind}</span></td>
+    <td>${esc(actTargetText(a))}</td><td style="${mono}">${fmtHM(a.end)}</td>
+    <td class="num">${a.actualSeconds?fmtDur(a.actualSeconds):'—'}</td>
+    <td>${esc(ViewerWording.continuousUseMark(a, S.uses, fmtHM))}</td></tr>`;
+}
+/** @brief 活动表的表头排序与翻页按钮：点了之后重画整张表。 */
+function bindActivityTable(pages){
   $$('#act-body th[data-sk]').forEach(h=>{
     h.onclick = ()=>{
       const k = h.dataset.sk;
@@ -1259,6 +1217,44 @@ function renderActivities(){
   });
   $('#at-prev').onclick = ()=>{ if (AT.page>0){ AT.page--; renderActivities(); } };
   $('#at-next').onclick = ()=>{ if (AT.page<pages-1){ AT.page++; renderActivities(); } };
+}
+function renderActivities(){
+  const el = $('#act-body');
+  const agent = agentFilterVal();
+  AT.filtered = S.acts.filter(a=>!agent || String(a.agent)===agent);
+  if (!AT.filtered.length){ el.innerHTML='<div class="empty">无活动数据</div>'; return; }
+  if (AT.page >= Math.ceil(AT.filtered.length/AT.pageSize)) AT.page = 0;
+  const kinds = [...new Set(AT.filtered.map(a=>a.kind))];
+  const sorters = {
+    start: (x,y)=> x.start-y.start,
+    agent: (x,y)=> x.agent-y.agent || x.start-y.start,
+    kind:  (x,y)=> actTypeLabel(x.kind,x.tg).localeCompare(actTypeLabel(y.kind,y.tg),'zh') || x.start-y.start,
+  };
+  AT.filtered.sort(sorters[AT.sortKey]||sorters.start);
+  if (AT.sortDir<0) AT.filtered.reverse();
+  const pages = Math.ceil(AT.filtered.length/AT.pageSize);
+  const view = AT.filtered.slice(AT.page*AT.pageSize, (AT.page+1)*AT.pageSize);
+  const arrow = k => AT.sortKey===k? `<span class="arrow">${AT.sortDir>0?'▲':'▼'}</span>`:'';
+  const th = (k,label,extra) =>
+    `<th data-sk="${k}" class="${extra||''}">${label}${arrow(k)}</th>`;
+  el.innerHTML = `
+  ${renderActivityLanes(AT.filtered)}
+  <div class="legend" style="margin-bottom:10px">${kinds.map(k=>`<span><span class="sw" style="background:${kindColor(k)}"></span>${esc(actTypeLabel(k,null))}</span>`).join('')}
+    <span style="margin-left:auto;color:var(--fg-faint)">共 ${AT.filtered.length} 段活动 · 点击表头排序</span></div>
+  <div class="card" style="padding:0 0 0 0">
+    <table class="act-table">
+      <thead><tr>${th('start','开始')}${th('agent','人物')}${th('kind','活动类型')}
+        <th>目标</th><th>结束</th><th class="num">实际时长</th><th>连续使用</th></tr></thead>
+      <tbody>${view.map(activityRow).join('')}</tbody>
+    </table>
+    <div class="pager">
+      <span style="margin-right:auto">第 ${AT.page+1} / ${pages} 页 · 每页 ${AT.pageSize} 条</span>
+      <button id="at-prev" ${AT.page===0?'disabled':''}>上一页</button>
+      <button id="at-next" ${AT.page>=pages-1?'disabled':''}>下一页</button>
+    </div>
+  </div>
+  ${renderSessions(agent)}`;
+  bindActivityTable(pages);
 }
 
 /* ---------- 折线图（Canvas 手绘 + 悬停读数） ---------- */

@@ -25,6 +25,8 @@ const ViewerWording = {};
   const PHONE_LABELS = {app_foreground: 'app 前台', order_notification: '订单通知', payment_notification: '消费通知'};
   /* 没有专门写法的种类写的种类名：worldmock.life.readable.ACTIVITY_KIND_LABELS 的镜像。 */
   const ACTIVITY_KIND_LABELS = {sleep: '睡觉', travel: '出行', interact: '互动', purchase: '购买'};
+  /* 查看器各行里写统一写法的种类；出行、睡眠照原格式，没有专门写法的种类在目标处是「—」。 */
+  const WORDED_KINDS = new Set(['interact', 'purchase']);
 
   /** @brief 同一个键只写一次英文错误的报告函数；页面传入它自己的（随换库清空），单独加载时用这一个。 */
   function onceReporter() {
@@ -171,24 +173,28 @@ const ViewerWording = {};
     return appId == null ? '（到店）' : `（经${name('app', appId)}下单）`;
   }
 
-  /** @brief 购买按订单分段：带下单 app 的订单按 app 身份升序，到店订单排最后，段间用「；」；订单记录里找不到的订单
-   *  在最后各占一段，显示「名称缺失（订单身份）」。 */
+  /** @brief 购买按订单分段：带下单 app 的订单按 app 身份升序，到店订单排最后，段间用「；」。订单记录里找不到的订单
+   *  渠道不明，留在它在 order_ids 里的位置，显示「名称缺失（订单身份）」：按 order_ids 的先后给每个渠道在它第一次出现处
+   *  留一段、给每张找不到的订单留一段，渠道的各段再照上面的次序依次填进留给渠道的位置。 */
   function purchasePhrase(snapshot, orders) {
-    const grouped = new Map(), lost = [];
+    const grouped = new Map(), slots = [];
     for (const orderId of snapshot.data?.order_ids ?? []) {
       const order = orders.get(orderId);
       if (!order) {
-        lost.push(missing(orderId));
+        slots.push(missing(orderId));
         continue;
       }
       const key = order.app_id ?? null;
-      if (!grouped.has(key)) grouped.set(key, []);
+      if (!grouped.has(key)) {
+        grouped.set(key, []);
+        slots.push(null);
+      }
       grouped.get(key).push(order.goods_id);
     }
     const apps = [...grouped.keys()].filter(key => key !== null).sort();
     const channels = grouped.has(null) ? [...apps, null] : apps;
     const segments = channels.map(appId => goodsItems(grouped.get(appId)).join('、') + orderChannel(appId));
-    return `购买${[...segments, ...lost].join('；')}`;
+    return `购买${slots.map(slot => slot ?? segments.shift()).join('；')}`;
   }
 
   /** @brief 一项活动的写法：互动、购买、出行各有专门的写法，其余种类写中文种类名，种类名表里没有的写「—」。
@@ -202,6 +208,14 @@ const ViewerWording = {};
       return `${name('travel_method', snapshot.travel_method_id)}去${name('location', snapshot.destination_id)}`;
     }
     return ACTIVITY_KIND_LABELS[snapshot.kind] ?? '—';
+  }
+
+  /** @brief 查看器一行里活动的写法：summary 是页面合并后的活动或一条事件的摘要字段（kind、location、appId、orderIds），
+   *  contentIds 是这一行指向的内容身份。互动与购买给统一写法；其余种类返回 null，由页面照原格式写。 */
+  function targetPhrase(summary, contentIds, orders) {
+    if (!WORDED_KINDS.has(summary.kind)) return null;
+    return activityPhrase({kind: summary.kind, location_id: summary.location,
+      data: {app_id: summary.appId, order_ids: summary.orderIds}}, contentIds, orders);
   }
 
   /** @brief 是不是三种手机事件之一（app 前台区间、订单通知、消费通知）。 */
@@ -305,7 +319,8 @@ const ViewerWording = {};
 
   /** @brief 把传入的活动分成泳道的行：有执行段同属一条两段及以上连续使用的 app 使用画在同一行（连带可以传递），其余
    *  每项活动自成一行。每行给出画在一起的活动（照传入的次序）、行里的各条连续使用（按开始时刻，只有一段的也在）、
-   *  行的最早开始时刻和是否并成；各行按最早开始时刻排，并列时保持传入的相对次序。 */
+   *  行的最早开始时刻和是否并成；并成的行另给标签与条块（见 joinedLane）。各行按最早开始时刻排，并列时保持传入的
+   *  相对次序。 */
   function useLaneRows(activities, uses) {
     const rowOf = new Map(), rows = [];
     for (const activity of activities) {
@@ -321,8 +336,17 @@ const ViewerWording = {};
     return rows.map(({members, activities: drawn, start}) => {
       const touched = new Set([...members].flatMap(aid => (uses.byActivity.get(aid) ?? []).map(place => place.use)));
       const lane = [...touched].sort((x, y) => x.start - y.start);
-      return {activities: drawn, uses: lane, start, joined: lane.some(use => use.segments.length > 1)};
+      const joined = lane.some(use => use.segments.length > 1);
+      return {activities: drawn, uses: lane, start, joined, ...(joined ? joinedLane(lane) : {})};
     }).sort((x, y) => x.start - y.start);
+  }
+
+  /** @brief 并成的一行：标签是这一行全部执行段的写法；每条连续使用一个条块 {start, end, text}，text 是这一条的写法，
+   *  两段及以上的再加「 · 连续使用，共 <n> 段」，页面把起止接在它前面作悬停文字。 */
+  function joinedLane(uses) {
+    return {label: continuousUseLabel(uses.flatMap(use => use.segments)),
+      bars: uses.map(use => ({start: use.start, end: use.end, text: continuousUseLabel(use.segments) +
+        (use.segments.length > 1 ? ` · 连续使用，共 ${use.segments.length} 段` : '')}))};
   }
 
   /** @brief 若干段（按先后）的写法：把各段的内容身份接起来，连同只带 kind 与 data.app_id 的快照交给活动的写法，
@@ -348,6 +372,7 @@ const ViewerWording = {};
     return use ? ` · 接续 ${formatTime(use.start)} 起的连续使用` : '';
   }
 
-  Object.assign(ViewerWording, {loadCatalog, reset, namesFrom, name, eventContentId, activityPhrase, orderChannel,
-    isPhone, phonePhrase, continuousUses, useLaneRows, continuousUseLabel, continuousUseMark, continuationNote});
+  Object.assign(ViewerWording, {loadCatalog, reset, namesFrom, name, eventContentId, activityPhrase, targetPhrase,
+    orderChannel, isPhone, phonePhrase, continuousUses, useLaneRows, continuousUseLabel, continuousUseMark,
+    continuationNote});
 }
