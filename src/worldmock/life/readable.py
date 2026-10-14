@@ -44,6 +44,11 @@ def local_date(epoch: int, timezone_name: str) -> str:
     return _local(epoch, timezone_name).date().isoformat()
 
 
+def local_day_start(epoch: int, timezone_name: str) -> int:
+    """@brief epoch 所在场景本地日期的零点时刻。"""
+    return int(_local(epoch, timezone_name).replace(hour=0, minute=0, second=0, fold=0).timestamp())
+
+
 def clock_phrase(epoch: int, now: int, timezone_name: str) -> str:
     """@brief 短语中的时刻：场景本地「HH:MM」；与 now 不在同一本地日期时前加「M月D日 」。"""
     moment = _local(epoch, timezone_name)

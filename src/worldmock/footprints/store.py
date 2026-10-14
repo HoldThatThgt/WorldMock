@@ -202,13 +202,19 @@ class FootprintStore:
     def last_event_seq_before(self, occurred_at: int) -> int:
         """@brief 发生时刻早于 occurred_at 的最后一个事件序号（没有时为 0），供按时间确定区间下界。
 
-        事件按发生时刻单调追加（_build_events 拒绝早于上一事件的时刻），所以从最新事件倒序找到的第一条即是最后一条，
-        只读区间内的事件。
+        事件按发生时刻单调追加（_build_events 拒绝早于上一事件的时刻），序号从 1 起连续，所以按序号二分查找，
+        只读对数条事件的发生时刻，不随历史或区间长度增长。
         """
-        row = self.connection.execute(
-            "SELECT event_seq FROM events WHERE json_extract(body,'$.occurred_at')<? ORDER BY event_seq DESC LIMIT 1",
-            (occurred_at,)).fetchone()
-        return row[0] if row is not None else 0
+        low, high = 0, self.last_event_seq
+        while low < high:
+            middle = (low + high + 1) // 2
+            moment = self.connection.execute(
+                "SELECT json_extract(body,'$.occurred_at') FROM events WHERE event_seq=?", (middle,)).fetchone()[0]
+            if moment < occurred_at:
+                low = middle
+            else:
+                high = middle - 1
+        return low
 
     def commit_last_seq(self, event_seq: int) -> int:
         """@brief event_seq 所在提交的末事件序号（docs/design/06-agent.md）。
@@ -250,12 +256,15 @@ class FootprintStore:
         return [Event.model_validate_json(row[0]) for row in rows]
 
     def read_decision_observations(self, agent_id: int, decision_id: str, observed_at: int) -> list[Event]:
-        """@brief 只解码人物、决策和发生时刻精确匹配的观察，保留全部匹配记录供唯一性复核。"""
+        """@brief 只解码人物、决策和发生时刻精确匹配的观察，保留全部匹配记录供唯一性复核。
+
+        发生时刻随序号单调，匹配的观察都在 observed_at 之前最后一个事件之后；沿人物与类型索引只读这一段，不扫描更早的历史。
+        """
         rows = self.connection.execute("""
             SELECT body FROM events WHERE json_extract(body,'$.agent_id')=?
-            AND json_extract(body,'$.event_type')='observation'
+            AND json_extract(body,'$.event_type')='observation' AND event_seq>?
             AND json_extract(body,'$.decision_id')=? AND json_extract(body,'$.occurred_at')=? ORDER BY event_seq
-        """, (agent_id, decision_id, observed_at))
+        """, (agent_id, self.last_event_seq_before(observed_at), decision_id, observed_at))
         return [Event.model_validate_json(row[0]) for row in rows]
 
     def read_recent_experience_sources(self, agent_id: int, before_seq: int, limit: int) -> list[Event]:

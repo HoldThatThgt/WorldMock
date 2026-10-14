@@ -18,7 +18,7 @@ from worldmock.life import schedule, sessions
 from worldmock.life.control_items import CONTROL_TOOLS, control_request
 from worldmock.life.errand_state import COMPLETED_KIND, REMINDED_KIND
 from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus, WorldState
-from worldmock.life.readable import clock_phrase, iso_time, local_date, money_phrase, portion_phrase
+from worldmock.life.readable import clock_phrase, iso_time, local_date, local_day_start, money_phrase, portion_phrase
 from worldmock.life.result_projection import public_result
 from worldmock.life.session_bounds import session_lower
 from worldmock.life.settled_text import ActivityFacts, record_lines
@@ -306,11 +306,12 @@ def _protected(context: LayerContext, item: _Record, request: tuple[int, int | N
 def rejected_today(context: LayerContext, store: FootprintStore) -> list[dict]:
     """@brief 当日真实拒绝由持久证据派生，跨会话保留且不写检查点或人物记忆。
 
-    同一决策的两条开始动作被拒时内容相同，只统计一次。
+    同一决策的两条开始动作被拒时内容相同，只统计一次。只读本地零点之前最后一个事件之后的证据，不解码更早的历史。
     """
     day = local_date(context.state.current_time, context.config.timezone)
+    after = store.last_event_seq_before(local_day_start(context.state.current_time, context.config.timezone))
     events = sorted((event for kind in ("model_response", "action_rejected", "action_accepted", "action_requested")
-                     for event in store.read_agent_events(kind, context.agent_id)
+                     for event in store.read_agent_events(kind, context.agent_id, after)
                      if event.occurred_at <= context.state.current_time
                      and local_date(event.occurred_at, context.config.timezone) == day),
                     key=lambda item: item.event_seq)

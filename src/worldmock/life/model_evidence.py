@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 import logging
 from typing import Any
-from worldmock.errors import ProtocolError
+from worldmock.errors import IntegrityError, ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.memory_evidence import _memory_evidence_data, due_reflection, memory_write_points
 from worldmock.life.decision_start import maybe_action_request_start
@@ -141,18 +141,23 @@ class ModelEvidenceRecorder:
         return {"trigger": ["reflection"], "reflection": due}
 
     def _tail_registration(self, context: "DecisionContext", data: dict) -> dict:
-        """@brief 步尾登记：观察属于本决策、事实窗口一致、没有反思条目；写入点只可能是 activity_conclusion。"""
+        """@brief 步尾登记：观察属于本决策、事实窗口一致、没有反思条目；写入点只可能是 activity_conclusion。
+
+        观察按事件身份读取；本决策的行动请求都登记在它的唯一观察之后，所以只读观察之后的请求。
+        """
         store = self.context.store
-        observation = next((event for event in reversed(store.read_agent_events("observation", context.agent_id))
-                            if event.event_id == data["observation_event_id"]
-                            and event.decision_id == context.decision_id), None)
-        if observation is None:
+        try:
+            observation = store.read_event(data["observation_event_id"])
+        except IntegrityError as exc:
+            raise ProtocolError("Memory update observation is invalid") from exc
+        if (observation.event_type != "observation" or observation.agent_id != context.agent_id
+                or observation.decision_id != context.decision_id):
             raise ProtocolError("Memory update observation is invalid")
         visible_ids = {row["source_event_id"] for row in observation.data.get("verified_experiences", [])}
         if set(data["verified_event_ids"]) != visible_ids:
             raise ProtocolError("Memory update source window is invalid")
         if any(item.get("source") == "reflection" for item in data["episodes"]):
             raise ProtocolError("Step memory update carries a reflection episode")
-        requests = store.read_agent_events("action_requested", context.agent_id)
+        requests = store.read_agent_events("action_requested", context.agent_id, observation.event_seq)
         written = bool(data["created_episode_ids"] or data["merged_episode_ids"])
         return {"trigger": memory_write_points(requests, context.decision_id, written), "reflection": None}

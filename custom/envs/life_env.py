@@ -158,12 +158,8 @@ class LifeEnv(EnvBase):
         if tool != "recall_task_summary" or type(request) is not REQUEST_MODELS["recall_task_summary"]:
             logging.error("Read query tool and request type do not match: %s", tool)
             raise ProtocolError("Read query tool and request type do not match")
-        events = engine.context.store.read_agent_events("observation", context.agent_id)
-        rows = [
-            event
-            for event in events
-            if event.decision_id == context.decision_id and event.occurred_at == int(context.observed_at.timestamp())
-        ]
+        rows = engine.context.store.read_decision_observations(
+            context.agent_id, context.decision_id, int(context.observed_at.timestamp()))
         if len(rows) != 1:
             logging.error("Read query requires one frozen decision observation, found %d", len(rows))
             raise ProtocolError("Read query requires one frozen decision observation")

@@ -1,7 +1,9 @@
 """当前进度、记忆与个人事务只消费真实可见证据。"""
 
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 from pydantic import ValidationError
@@ -10,6 +12,7 @@ from tests.unit.test_environment_engine_admission import running, world
 from worldmock.environment import load_environment
 from worldmock.errors import IntegrityError, ProtocolError
 from worldmock.footprints.models import EventDraft
+from worldmock.footprints.store import FootprintStore
 from worldmock.input_models import ModelMetadata
 from worldmock.life.errand_state import ErrandState
 from worldmock.life import errands, memory_layer, progress_layer
@@ -245,3 +248,25 @@ def test_unchanged_goal_reminder_is_not_delivered_twice_and_changed_reminder_is_
     later = unchanged.model_copy(update={"remind_at": 400})
     changed = revise_day_plan(plan, 300, [later]).goals[0]
     assert changed.registered_at == 100 and changed.remind_at == 400 and changed.reminded_at is None
+
+
+def test_rejected_today_counts_only_evidence_from_local_midnight_to_now(tmp_path):
+    """当日拒绝只取场景本地零点到此刻的持久证据：前一日最后一秒的拒绝不计，零点那一秒与之后到此刻的计入，晚于此刻的不计。"""
+    midnight = int(datetime(2026, 10, 10, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp())
+    store = FootprintStore.create(tmp_path / "run", {"run_id": "run", "agent_ids": [1]},
+                                  {"version": 0, "current_time": midnight - 1})
+
+    def rejected(moment: int, code: str) -> EventDraft:
+        item = {"path": ["tool_calls", 0, "arguments", code], "written": code, "why": code}
+        return EventDraft(event_type="action_rejected", occurred_at=moment, agent_id=1,
+                          decision_id=f"decision-{code}", action_id=f"action-{code}",
+                          data={"error_code": code, "reason": code, "items": [item]})
+
+    moments = {"YESTERDAY": midnight - 1, "MIDNIGHT": midnight, "MORNING": midnight + 60, "LATER": midnight + 120}
+    for version, (code, moment) in enumerate(moments.items(), start=1):
+        store.commit({"version": version, "current_time": moment}, [rejected(moment, code)])
+    context = SimpleNamespace(state=SimpleNamespace(current_time=midnight + 60), agent_id=1,
+                              config=SimpleNamespace(timezone="Asia/Shanghai"))
+    rows = progress_layer.rejected_today(context, store)
+    store.close()
+    assert sorted((row["why"], row["times"]) for row in rows) == [("MIDNIGHT", 1), ("MORNING", 1)]

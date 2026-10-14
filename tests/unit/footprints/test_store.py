@@ -81,7 +81,8 @@ def test_action_request_cutoff_counts_only_thinking_requests_with_the_action_too
 
 
 def test_last_event_seq_before_bounds_by_occurrence_time(store):
-    """按时间取区间下界：发生时刻严格早于给定时刻的最后一个事件序号，没有时为 0。"""
+    """按时间取区间下界：发生时刻严格早于给定时刻的最后一个事件序号，没有时为 0；空库与跨多次提交的同刻事件同样成立。"""
+    assert store.last_event_seq_before(1000) == 0
     drafts = [EventDraft(event_type='environment_event', occurred_at=moment, data={'kind': 'probe'})
               for moment in (100, 100, 120)]
     store.commit({'version': 1, 'current_time': 120, 'balance': 50}, drafts)
@@ -90,6 +91,35 @@ def test_last_event_seq_before_bounds_by_occurrence_time(store):
     assert store.last_event_seq_before(101) == 2
     assert store.last_event_seq_before(120) == 2
     assert store.last_event_seq_before(121) == 3
+    later = [EventDraft(event_type='environment_event', occurred_at=moment, data={'kind': 'probe'})
+             for moment in (120, 120, 130, 130, 130, 150)]
+    store.commit({'version': 2, 'current_time': 150, 'balance': 50}, later)
+
+    assert [store.last_event_seq_before(moment) for moment in (100, 120, 121, 130, 131, 150, 151)] == [
+        0, 2, 5, 5, 8, 8, 9]
+
+
+def test_decision_observations_match_agent_decision_and_moment_exactly(store):
+    """决策观察按人物、决策与发生时刻精确匹配，同一秒的重复观察全部保留供唯一性复核；更早或更晚时刻、别的人物或别的
+    决策的观察都不在其中，那一秒没有观察时为空。"""
+    def observation(moment: int, decision_id: str, agent_id: int = 1) -> EventDraft:
+        return EventDraft(event_type='observation', occurred_at=moment, observed_at=moment, agent_id=agent_id,
+                          decision_id=decision_id, data={})
+
+    store.commit({'version': 1, 'current_time': 120, 'balance': 50}, [
+        observation(100, 'decision-a'), observation(110, 'decision-a'), observation(110, 'decision-b'),
+        observation(110, 'decision-a', agent_id=2), observation(110, 'decision-a'), observation(120, 'decision-a'),
+    ])
+
+    def seqs(agent_id: int, decision_id: str, moment: int) -> list[int]:
+        return [event.event_seq for event in store.read_decision_observations(agent_id, decision_id, moment)]
+
+    assert seqs(1, 'decision-a', 110) == [2, 5]
+    assert seqs(1, 'decision-a', 100) == [1]
+    assert seqs(1, 'decision-a', 120) == [6]
+    assert seqs(2, 'decision-a', 110) == [4]
+    assert seqs(1, 'decision-b', 120) == []
+    assert seqs(1, 'decision-a', 105) == []
 
 
 def test_commit_last_seq_groups_one_versioned_commit_without_later_same_version_appends(store):

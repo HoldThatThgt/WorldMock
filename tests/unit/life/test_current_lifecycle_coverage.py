@@ -158,16 +158,29 @@ def test_model_response_requires_one_request_and_keeps_its_actual_cause(engine_f
     assert not engine.context.state.activities
 
 
-@pytest.mark.parametrize("observation,verified", [("missing-observation", ()), (None, ("not-visible",))])
-def test_memory_evidence_cannot_claim_another_observation_or_source_window(engine_factory, observation, verified):
+@pytest.mark.parametrize("claim", ["missing", "not-an-observation", "another-decision", "source-window"])
+def test_memory_evidence_cannot_claim_another_observation_or_source_window(engine_factory, claim):
+    """步尾登记的观察必须是本决策的那份观察事件：不存在的身份、别的事件种类、别的决策的观察，以及事实窗口不一致，
+    都按协议违约拒绝且不留登记。"""
     engine = engine_factory()
     frozen = context(engine, "memory")
     engine.begin_decision_round([frozen])
     observed = engine.observe(frozen)
+
+    def requested() -> str:
+        """同一人物、同一决策但不是观察的事件：本决策的行动请求。"""
+        engine.submit_action(DirectToolCall(frozen, "memory-action", MAIN_TOOL, do_at("家", "测试休息")))
+        return events(engine, "action_requested")[-1].event_id
+
+    claims = {"missing": lambda: "missing-observation",
+              "not-an-observation": requested,
+              "another-decision": lambda: engine.observe(context(engine, "elsewhere"))["observation_event_id"],
+              "source-window": lambda: observed["observation_event_id"]}
     evidence = MemoryUpdateEvidence(context=frozen, operation="refresh_summary", created_episode_ids=(),
         merged_episode_ids=(), episodes=(), memory_before_sha256="a" * 64, memory_sha256="b" * 64,
         episodes_sha256="c" * 64, state_sha256="d" * 64, consolidated=False,
-        observation_event_id=observation or observed["observation_event_id"], verified_event_ids=verified)
+        observation_event_id=claims[claim](),
+        verified_event_ids=("not-visible",) if claim == "source-window" else ())
     with pytest.raises(ProtocolError, match="Memory update evidence is invalid"):
         engine.record_memory_update(evidence)
     assert not events(engine, "memory_updated")
