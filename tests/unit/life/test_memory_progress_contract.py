@@ -19,6 +19,7 @@ from worldmock.life import errands, memory_layer, progress_layer
 from worldmock.life.memory_evidence import memory_write_points
 from worldmock.life.models import ActivityKind, ActivityStatus
 from worldmock.life.prompt_schemas import validate_layer
+from worldmock.life.readable import local_day_start
 from worldmock.life.result_projection import public_result
 from worldmock.life.schedule import DayPlan, PlanGoal, revise_day_plan
 from worldmock.life.settled_text import app_progress, experience_sentence, purchase_sentence, record_lines
@@ -250,9 +251,19 @@ def test_unchanged_goal_reminder_is_not_delivered_twice_and_changed_reminder_is_
     assert changed.registered_at == 100 and changed.remind_at == 400 and changed.reminded_at is None
 
 
+@pytest.mark.parametrize("zone", ["Asia/Shanghai", "America/New_York", "UTC"])
+def test_local_day_start_is_the_scenario_local_midnight(zone):
+    """本地零点按场景时区计算：同一本地日期从零点到最后一秒都回到当天零点，前一秒回到前一天零点。"""
+    midnight = int(datetime(2026, 10, 10, tzinfo=ZoneInfo(zone)).timestamp())
+    assert {local_day_start(midnight + offset, zone) for offset in (0, 1, 8 * 3600, 86399)} == {midnight}
+    assert local_day_start(midnight - 1, zone) == midnight - 86400
+
+
 def test_rejected_today_counts_only_evidence_from_local_midnight_to_now(tmp_path):
-    """当日拒绝只取场景本地零点到此刻的持久证据：前一日最后一秒的拒绝不计，零点那一秒与之后到此刻的计入，晚于此刻的不计。"""
+    """当日拒绝只取场景本地零点到此刻的持久证据：前一日最后一秒的拒绝不计，零点那一秒、清早与此刻那一秒的计入，晚于此刻的
+    不计。此刻取本地 13:00：按 UTC（本地 08:00）或美东（本地 12:00）算出的零点会漏掉清早的拒绝。"""
     midnight = int(datetime(2026, 10, 10, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp())
+    now = midnight + 13 * 3600
     store = FootprintStore.create(tmp_path / "run", {"run_id": "run", "agent_ids": [1]},
                                   {"version": 0, "current_time": midnight - 1})
 
@@ -262,11 +273,12 @@ def test_rejected_today_counts_only_evidence_from_local_midnight_to_now(tmp_path
                           decision_id=f"decision-{code}", action_id=f"action-{code}",
                           data={"error_code": code, "reason": code, "items": [item]})
 
-    moments = {"YESTERDAY": midnight - 1, "MIDNIGHT": midnight, "MORNING": midnight + 60, "LATER": midnight + 120}
+    moments = {"YESTERDAY": midnight - 1, "MIDNIGHT": midnight, "MORNING": midnight + 7 * 3600, "NOW": now,
+               "LATER": now + 60}
     for version, (code, moment) in enumerate(moments.items(), start=1):
         store.commit({"version": version, "current_time": moment}, [rejected(moment, code)])
-    context = SimpleNamespace(state=SimpleNamespace(current_time=midnight + 60), agent_id=1,
+    context = SimpleNamespace(state=SimpleNamespace(current_time=now), agent_id=1,
                               config=SimpleNamespace(timezone="Asia/Shanghai"))
     rows = progress_layer.rejected_today(context, store)
     store.close()
-    assert sorted((row["why"], row["times"]) for row in rows) == [("MIDNIGHT", 1), ("MORNING", 1)]
+    assert sorted((row["why"], row["times"]) for row in rows) == [("MIDNIGHT", 1), ("MORNING", 1), ("NOW", 1)]
