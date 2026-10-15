@@ -252,6 +252,8 @@ def test_a_draw_sees_the_stay_of_its_own_second(engine_factory, tmp_path, case):
         assert (played, ended.ended_at) == (["c-run", "c-office-stretch"], _at(8, 25))
     else:
         assert (played, ended.status) == (["c-run"], "completed")
+    if case == "walk":
+        assert engine.context.state.activities[trip].planned_end_at == _at(8, 31, 59)
     if case in {"home", "walk"}:
         assert ended.ended_at == _at(8, 20)
         assert present_location(engine.context.state, 1) == ("home" if case == "home" else None)
