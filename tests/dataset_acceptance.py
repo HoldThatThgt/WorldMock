@@ -629,4 +629,29 @@ MUTATIONS = (
          "::test_answer_is_the_second_result_and_replaying_the_action_returns_it",
          "tests/integration/life/test_query_answer.py"
          "::test_answer_stays_for_the_stay_and_leaves_a_settled_line_after_departure")),
+    # ---- 地点与 app 轨道（C）：「地点系列、暂停拒绝与关着的 app」 ----
+    SourceMutation("series_prefix_dropped", "worldmock.life.location_activities::running_series_note",
+        'return "；".join([_episode_note(content, len(contents)), *_food_notes(contents)])', "return None",
+        ("tests/unit/start_interfaces/test_running_series_note.py"
+         "::test_running_location_series_names_its_episode_then_its_meal_episodes",
+         "tests/integration/life/test_running_series_row.py"
+         "::test_running_series_row_names_the_episode_and_the_meal_episode")),
+    SourceMutation("series_pause_refusal_says_it_ends", "worldmock.life.activity_control::_continues_with_next_episode",
+        "return next_episode(catalog, agent, content, rounds) is not None", "return False",
+        ("tests/unit/life/test_series_pause_wording.py"
+         "::test_a_location_series_with_a_next_episode_gets_the_continuing_refusal",
+         "tests/integration/life/test_series_pause_refusal.py"
+         "::test_pause_179_seconds_before_a_non_last_episode_ends_says_the_series_continues")),
+    SourceMutation("next_opening_search_stops_at_six_days", "worldmock.life.content_prerequisite::time_phrase",
+        "for offset in range(1, NEXT_OPENING_DAYS + 1):", "for offset in range(1, NEXT_OPENING_DAYS):",
+        ("tests/unit/life/test_next_opening.py::test_next_opening_is_found_on_the_seventh_day_after_today",
+         "tests/integration/life/test_closed_app_state.py"
+         "::test_row_and_refusal_name_an_opening_on_the_seventh_day_or_none_within_seven_days")),
+    SourceMutation("closed_app_state_ignores_eligible_contents", "worldmock.life.content_prerequisite::app_time_state",
+        "rows = _unmet_contents(catalog, app_id, stay, local_moment)",
+        "rows = [(catalog.contents[key], ()) for key in sorted(catalog.contents_by_app.get(app_id, ()))]",
+        ("tests/unit/life/test_next_opening.py::test_app_time_state_is_null_while_some_content_can_start",
+         "tests/integration/life/test_closed_app_state.py"
+         "::test_clock_in_app_state_names_todays_hours_or_the_next_opening")),
+    # ---- 地点与 app 轨道（C）结束 ----
 )
