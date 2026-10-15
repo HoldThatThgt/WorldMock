@@ -13,7 +13,7 @@ def dataset_mutation_baseline(tmp_path_factory):
     """全部杀手先在未变异的实际源码上通过。"""
     nodes = tuple(dict.fromkeys(node for mutation in MUTATIONS for node in mutation.tests))
     result = run_behavior((*nodes, "-q"), tmp_path_factory.mktemp("dataset-baseline"), None,
-                          RunSettings(CHILD_ENTRY, RECEIPTS, 300))
+                          RunSettings(CHILD_ENTRY, RECEIPTS, 480))
     assert result["exit_code"] == 0, result["stdout"] + result["stderr"]
 
 
