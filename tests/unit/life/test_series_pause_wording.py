@@ -64,7 +64,10 @@ def test_a_location_series_with_a_next_episode_gets_the_continuing_refusal(input
 @pytest.mark.parametrize("content_id,rounds", [
     ("dinner-3-wash", {"dinner-1-cook": 1, "dinner-2-eat": 1}),
     ("c-rest", {}),
-], ids=["last-episode", "standalone-unit"])
+    ("dinner-1-cook", {"dinner-2-eat": 1, "dinner-3-wash": 1}),
+], ids=["last-episode", "standalone-unit", "later-episodes-ahead"])
 def test_an_activity_that_ends_keeps_the_ending_refusal(inputs, content_id, rounds):
-    """系列最后一集（前两集轮数 1）、独立的「测试休息」：做完就结束，拒绝仍是今天的三句。"""
+    """系列最后一集（前两集轮数 1）、独立的「测试休息」、后面各集轮数都不低于这个数的系列（第一集没有进度记录，按 1
+    去找，第二、三集轮数都是 1，不小于 1）：做完就结束，拒绝仍是今天的三句。最后一种钉住轮数恰是此刻的完成轮数加一，
+    多加一轮就会把第二集当成下一集。"""
     assert _pause_refusal(inputs, content_id, rounds) == ENDING
