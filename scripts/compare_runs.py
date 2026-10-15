@@ -999,9 +999,13 @@ def compare_events(base: Side, head: Side, context: CompareContext) -> dict:
     for base_event, head_event in zip(_export_lines(base, context, "base"), _export_lines(head, context, "head")):
         aligned = align_events(base_event, head_event, context)
         normalized = (normalize_event(aligned[0], context.base), normalize_event(aligned[1], context.head))
-        for name, value in zip(_SIDES, normalized):
-            digests[name].update(canonical_bytes(value) + b"\n")
-        layer.add(_event_key(base_event), *normalized)
+        encoded = [canonical_bytes(value) for value in normalized]
+        for name, value in zip(_SIDES, encoded):
+            digests[name].update(value + b"\n")
+        if encoded[0] == encoded[1]:
+            layer.compared += 1
+        else:
+            layer.add(_event_key(base_event), *normalized)
     for name, side in (("base", base), ("head", head)):
         manifest = _read_json(side.export / "manifest.json")
         raw = manifest.get("artifacts", {}).get("events", {}).get("sha256")
