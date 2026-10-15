@@ -13,7 +13,8 @@ from worldmock.footprints.models import EventDraft
 from worldmock.input_models import ModelMetadata
 from worldmock.life import errands
 from worldmock.life.day_planning import (
-    PlanDayOutputError, agents_missing_plan, fit_plan_day, parse_plan_day, prepare_plan_day, registration,
+    PLAN_DAY_PROMPT, PlanDayOutputError, agents_missing_plan, fit_plan_day, parse_plan_day, prepare_plan_day,
+    registration,
 )
 from worldmock.life.errand_state import ErrandState
 from worldmock.life.models import PlanDayRequest
@@ -54,6 +55,18 @@ def test_plan_day_keeps_its_own_eight_thousand_output_budget():
     request = prepare_plan_day({"已核验经历": []}, frozen.config.model.requested_model)
     assert request["max_tokens"] == 8000
     assert request["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
+def test_plan_day_template_takes_the_day_kind_from_the_arrangement():
+    """零点计划模板写明上不上班只看上班安排的 day、不看星期几：这一整句是模板的最后一行，「工作安排是固定世界事实」
+    只出现一次；零点计划请求的系统消息就是这份模板。"""
+    sentence = ("上班安排的 day 是今天上不上班的唯一依据，不看星期几：休息日没有通勤、打卡和上班，即使是星期一到星期五；"
+                "工作日照 hours 与 place 上班，即使是周末。工作安排是固定世界事实，今日目标不能改变班次；"
+                "不要安排在班次中离开工作地点，已声明休息时段除外。")
+    assert sentence in PLAN_DAY_PROMPT
+    assert PLAN_DAY_PROMPT.split("\n")[-1] == sentence
+    assert PLAN_DAY_PROMPT.count("工作安排是固定世界事实") == 1
+    assert prepare_plan_day({}, "test-model")["messages"][0]["content"] == PLAN_DAY_PROMPT
 
 
 def test_plan_capacity_cannot_trim_fixed_input_when_no_experiences_remain():

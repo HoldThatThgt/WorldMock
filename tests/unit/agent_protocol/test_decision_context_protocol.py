@@ -254,7 +254,8 @@ async def test_start_tool_descriptions_say_purpose_only_and_conditions_stay_in_t
         assert "reason" not in descriptions[tool] and "available" not in descriptions[tool]
     rules = json.loads(request["messages"][0]["content"])["rules"]
     assert [rule for rule in rules if "reason" in rule] == [
-        "工具层 available 为 false 的动作仍可提交，会按 reason 拒绝；先照原因处理。查询记忆和回看任务当场完成，不推进时间。"]
+        "工具层 available 为 false 的动作仍可提交，会按 reason 拒绝；先照原因处理。查询记忆和回看任务当场完成，不推进时间。"
+        "available 为 true 的动作单独提交都会受理；同一件事做几次、先做哪件，环境都不另作处理。"]
     task = next(target for target in expand_tool_layer(json.loads(request["messages"][1]["content"])[0])["targets"]
                 if target["name"] == "整理会议纪要")
     [work] = task["actions"]

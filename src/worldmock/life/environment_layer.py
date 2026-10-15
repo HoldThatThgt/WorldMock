@@ -1,4 +1,4 @@
-"""@brief 环境层只显示时钟、四项体感、真实位置、天气与固定工作安排。"""
+"""@brief 环境层只显示时钟、四项体感、真实位置、天气、今天的工作安排与明天的日期、星期和上不上班。"""
 
 from worldmock.life import sessions
 from worldmock.life.models import ActivityKind, SessionKind
@@ -13,7 +13,8 @@ def environment_layer(context, levels: dict[str, str]) -> dict:
     """@brief 不把内部数量、账户、身份或任意地点类型放进人物提示。"""
     return {"layer": "环境层", "observed_at": iso_time(context.state.current_time, context.config.timezone),
             "body": {key: levels[key] for key in _BODY_KEYS}, "location": _location(context),
-            "weather": WEATHER_LABELS[current_weather(context.state)], "duty": _duty(context)}
+            "weather": WEATHER_LABELS[current_weather(context.state)], "duty": _duty(context),
+            "tomorrow": _tomorrow(context)}
 
 
 def _location(context) -> dict:
@@ -37,3 +38,11 @@ def _duty(context) -> dict | None:
 
     places = {key: row.display_name for key, row in context.catalog.locations.items()}
     return duty(context.persona.work_schedule, context.state.current_time, context.config.timezone, places)
+
+
+def _tomorrow(context) -> dict:
+    """@brief 明天的日期、星期名与上不上班，按此刻所在本地日的下一天读实际人设声明；没有工作安排时 day 为 None。"""
+    from worldmock.life.work_schedule import tomorrow
+
+    places = {key: row.display_name for key, row in context.catalog.locations.items()}
+    return tomorrow(context.persona.work_schedule, context.state.current_time, context.config.timezone, places)

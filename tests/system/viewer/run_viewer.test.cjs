@@ -186,6 +186,8 @@ test('context navigation, stage filter and all rule paths are available through 
     // 「增长与退出」随个人事务与工作安排规格修订的规则文字逐条在真实页面里可查看（页面一次显示所选的一条规则）。
     for (const [rule, sentence] of [['todo', '未完成的个人事务取自人物状态，跨零点保留'],
       ['environment', 'duty 由场景工作安排与世界时钟求值，今日计划改不了它'],
+      ['environment', '日期例外改了这一天上不上班时，duty 的 note 写一句说明'],
+      ['environment', 'tomorrow 写下一个本地日的日期、星期和那天是工作日还是休息日'],
       ['progress', '事务提醒到点（errand_reminder）与环境确认办成（errand_completed）两种记录只写事务名称，' +
         '由人物可见的事务事件派生；二者不迁入记忆层。'],
       ['tools', '去掉全部只读工具（回看任务与记忆查询），只留世界请求工具']]) {

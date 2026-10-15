@@ -257,20 +257,25 @@ async def test_a_three_decision_chain_keeps_every_prefix_and_reports_each_change
 async def test_duty_is_constant_within_a_same_second_chain_and_never_enters_changes(_engine_factory) -> None:
     """同秒续接内时钟不动，环境层 duty 与所在地点一样在链内不变、不进 changes（docs/design/06-agent.md#agent-环境层-duty ）：
     有工作安排的人物在周一零点先修订今日计划、同一秒再开始等待；链首 user 消息的环境层带非空 duty（未到上班时间），两次
-    观察的 duty 逐值相同，续接的 tool 消息只交还 changes 里的今日计划，不带 duty，也不重述班次。"""
+    观察的 duty 逐值相同，续接的 tool 消息只交还 changes 里的今日计划，不带 duty，也不重述班次。明天也一样：链首环境层的
+    tomorrow 是下一个本地日的日期、星期与上不上班，两次观察逐值相同，续接的 tool 消息不带 tomorrow。"""
     engine = _engine_factory()
     run = await _plan_then_wait(engine)
     [previous], [request] = run["first"], run["second"]
     head = json.loads(previous["messages"][1]["content"])[4]
     assert head["layer"] == "环境层" and head["duty"]["status"] == "未到上班时间"
     assert head["duty"]["hours"] == "09:00–18:00"
+    assert head["tomorrow"] == {"date": "2026-01-06", "weekday": "星期二", "day": "工作日"}
     first, second = engine.context.store.read_agent_events("observation", 1)[-2:]
     assert first.data["environment_layer"]["duty"] == second.data["environment_layer"]["duty"] == head["duty"]
+    assert (first.data["environment_layer"]["tomorrow"] == second.data["environment_layer"]["tomorrow"]
+            == head["tomorrow"])
     assert run["observation"]["environment_layer"]["duty"] == head["duty"]
     assert request["messages"][1] == previous["messages"][1]
     tool = request["messages"][-1]
     assert tool["role"] == "tool" and list(json.loads(tool["content"])["changes"]) == ["day_plan"]
     assert "duty" not in tool["content"] and "09:00–18:00" not in tool["content"]
+    assert "tomorrow" not in tool["content"]
 
 
 
