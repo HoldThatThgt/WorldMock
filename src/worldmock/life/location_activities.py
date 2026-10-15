@@ -4,7 +4,8 @@
 一条不属于系列的内容自成一个单元，同一系列的各集合成一个单元；单元名是人物写进 detail 的名称。做哪个单元由人物点名，
 单元内从哪一条、哪个位置开始由共享进度决定，不抽随机数。人物用 conclude_activity 结束这件事时整个单元记为做完一轮，
 只有暂停才保留位置。内容写了 consumes_state 的单元凭状态，本人这个回调状态小于 1 时未开放：不列在工具层，照写名称
-由受理拒绝（docs/design/04-simulation-engine.md「出行、内容与查询」）。
+由受理拒绝（docs/design/04-simulation-engine.md「出行、内容与查询」）。进行中的地点系列在工具层活动目标行的 state 前面
+写正在做第几集与供餐的说法，与单元行 note 同一写法（docs/design/06-agent.md「提示与工具」）。
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from worldmock.catalog.models import Catalog, Content
 from worldmock.life.action_contract import binding_action
 from worldmock.life.content_select import content_units, representative
 from worldmock.life.guidance import Refusal
-from worldmock.life.models import ActivityKind, ActivityStatus, AgentState, ContentProgress, WorldState
+from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus, AgentState, ContentProgress, WorldState
 from worldmock.life.readable import duration_phrase
 
 
@@ -103,12 +104,41 @@ def unit_facts(contents: Sequence[Content], agent: AgentState) -> dict:
     content, position = next_content(contents, agent)
     notes = []
     if content.series is not None:
-        notes.append(f"第 {content.series.episode} 集，共 {len(contents)} 集")
+        notes.append(_episode_note(content, len(contents)))
     if position > 0:
         notes.append("上次没做完，接着做")
     notes.extend(_food_notes(contents))
     return {"duration": duration_phrase(ceil(content.duration_seconds - position)),
             "note": "；".join(notes) or None}
+
+
+def running_series_note(catalog: Catalog, activity: ActivityState) -> str | None:
+    """@brief 进行中的地点系列在工具层活动目标行的说法：「第 N 集，共 M 集」，有集供餐时再接供餐的说法，以「；」相连。
+
+    只对进行中、不经 app（活动私有数据 app_id 为空）、当前内容是系列一集的交互活动写；其余活动（暂停或待收尾的、
+    独立的一件事、一次 app 使用、出行、睡眠、购买与查询）为 None。先看种类、状态与 app_id，最后才读 content_id，
+    因为别的种类的活动私有数据里没有它。N 是当前这一集的集号，M 是目录索引 contents_by_series 里这个系列的集数；
+    供餐与单元行 note 同一个函数，不随做到第几集而变。
+
+    :param activity: 人物的一项活动。
+    """
+    if (activity.kind != ActivityKind.INTERACT or activity.status != ActivityStatus.ACTIVE
+            or activity.data["app_id"] is not None):
+        return None
+    content = catalog.contents[activity.data["content_id"]]
+    if content.series is None:
+        return None
+    contents = [catalog.contents[key] for key in catalog.contents_by_series[content.series.title]]
+    return "；".join([_episode_note(content, len(contents)), *_food_notes(contents)])
+
+
+def _episode_note(content: Content, count: int) -> str:
+    """@brief 系列一集的「第 N 集，共 M 集」：单元行 note 与进行中活动目标行的说法共用这一处写法。
+
+    :param content: 系列的一集。
+    :param count: 这个系列的集数。
+    """
+    return f"第 {content.series.episode} 集，共 {count} 集"
 
 
 def _food_notes(contents: Sequence[Content]) -> list[str]:
