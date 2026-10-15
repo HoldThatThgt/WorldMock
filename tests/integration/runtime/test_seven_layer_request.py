@@ -5,6 +5,7 @@ import pytest
 from tests.engine_fixture import engine_factory
 from tests.life.conftest import MAIN_TOOL, main_arguments, stage_day_plan
 from tests.integration.runtime.current_contract_fixtures import decide, ToolResponse
+from tests.unit.start_interfaces.test_system_layer_text import _RULES
 from worldmock.agents.life_prompt import LIFE_SYSTEM_LAYER, system_message, life_prompt_sha256
 from worldmock.life.prompt_schemas import validate_layer
 from custom.agents.life_agent import life_tool_schema_sha256
@@ -28,7 +29,7 @@ async def test_current_host_request_has_one_system_layer_and_six_user_layers(eng
         ToolResponse(MAIN_TOOL, main_arguments("interact", "家", "测试休息"))])
     assert request["messages"][0] == system_message(False)
     rules = json.loads(request["messages"][0]["content"])["rules"]
-    assert len(rules) == 20 and rules == LIFE_SYSTEM_LAYER["rules"]
+    assert len(rules) == 20 and rules == LIFE_SYSTEM_LAYER["rules"] == list(_RULES)
     layers = json.loads(request["messages"][1]["content"])
     assert [row["layer"] for row in layers] == ["工具层", "人设层", "记忆层", "待办层", "环境层", "进度层"]
     for layer in layers:
