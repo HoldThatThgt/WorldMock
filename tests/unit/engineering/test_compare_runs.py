@@ -58,10 +58,12 @@ def _config(url: str = URL, metadata_url: str = METADATA_URL, seed: int = 7) -> 
     return f'seed = {seed}\n\n[model]\nbase_url = "{url}"\nmetadata_url = "{metadata_url}"\n'.encode()
 
 
-def _workspace(initialized_at: str = "2026-10-05T00:00:00", base_url: str = URL, memory: bytes = b"# memory\n"):
-    """@brief 人物工作区快照：AGENT.json 带壁钟与地址，MEMORY.md 是事实。"""
+def _workspace(initialized_at: str = "2026-10-05T00:00:00", base_url: str = URL, memory: bytes = b"# memory\n",
+               workspace: dict | None = None):
+    """@brief 人物工作区快照：AGENT.json 带壁钟、地址与工作区所在目录，MEMORY.md 是事实。"""
     agent = {"initialized_at": initialized_at, "profile": {"name": "测试人物", "model_identity": {
-        "base_url": base_url, "metadata_url": METADATA_URL, "model_metadata": {"metadata_url": METADATA_URL}}}}
+        "base_url": base_url, "metadata_url": METADATA_URL, "model_metadata": {"metadata_url": METADATA_URL}}},
+        "workspace": workspace or {"root": "/runs/base/as2/agent-1", "memory_dir": "memory"}}
     return _tar({"AGENT.json": _bytes(agent), "MEMORY.md": memory})
 
 
@@ -397,6 +399,50 @@ def test_agent_json_initialized_at_is_masked_inside_workspace_snapshots(tmp_path
     assert any(path.startswith(".snapshots.agent:1.sha256") for path in _paths(report))
 
 
+def test_agent_json_workspace_root_is_masked_only_at_its_path(tmp_path):
+    head = Recording()
+    head.workspace = _workspace(workspace={"root": "/runs/head/as2/agent-1", "memory_dir": "memory"})
+    assert _compare(tmp_path / "root", Recording(), head)["verdict"] == "equal"
+    head.workspace = _workspace(workspace={"root": "/runs/head/as2/agent-1", "memory_dir": "notes"})
+    assert _compare(tmp_path / "sibling", Recording(), head)["verdict"] == "different"
+
+
+def _memory_line(recording: Recording, seq: int) -> bytes:
+    """@brief MEMORY.md 里一条已核验经历行，来源事件是本侧第 seq 个事件。"""
+    return f"# Memory\n\n## 已核验经历\n- 1767571800：等待 600 秒。来源事件 {recording.eid(seq)}。\n".encode()
+
+
+def test_memory_source_events_are_mapped_inside_workspace_snapshots(tmp_path):
+    base, head = Recording(), Recording(prefix="b")
+    base.workspace, head.workspace = _workspace(memory=_memory_line(base, 6)), _workspace(memory=_memory_line(head, 6))
+    report = _compare(tmp_path / "mapped", base, head)
+    assert report["verdict"] == "equal" and report["problems"] == [], _paths(report)
+    other = Recording(prefix="b")
+    other.workspace = _workspace(memory=_memory_line(other, 5))
+    assert _compare(tmp_path / "other", base, other)["verdict"] == "different"
+    unknown = Recording(prefix="b")
+    unknown.workspace = _workspace(memory=_memory_line(Recording(prefix="f"), 6))
+    report = _compare(tmp_path / "unknown", base, unknown)
+    assert report["verdict"] == "different"
+    assert [item["path"] for item in report["problems"]] == ["MEMORY.md"]
+
+
+def _memory_digests(recording: Recording, values: tuple[str, str, str]) -> Recording:
+    """@brief 两条事件里 MEMORY.md 的前后摘要：第一条从 values[0] 到 values[1]，第二条从 values[1] 到 values[2]。"""
+    _event(recording, "activity_progress")["data"].update(memory_before_sha256=values[0], memory_sha256=values[1])
+    _event(recording, "run_ended")["data"].update(memory_before_sha256=values[1], memory_sha256=values[2])
+    return recording
+
+
+def test_memory_digests_are_compared_by_first_appearance(tmp_path):
+    base = _memory_digests(Recording(), ("1" * 64, "2" * 64, "3" * 64))
+    head = _memory_digests(Recording(), ("4" * 64, "5" * 64, "6" * 64))
+    assert _compare(tmp_path / "pattern", base, head)["verdict"] == "equal"
+    repeated = _memory_digests(Recording(), ("4" * 64, "5" * 64, "5" * 64))
+    report = _compare(tmp_path / "repeated", base, repeated)
+    assert report["verdict"] == "different" and ".data.memory_sha256" in _paths(report)
+
+
 def _without_request_copy(recording: Recording) -> Recording:
     """@brief 头一侧的记录形式：模型响应不再存请求副本。"""
     _event(recording, "model_response")["data"]["request"] = None
@@ -701,6 +747,16 @@ def test_export_must_cover_the_database_prefix(tmp_path):
     lines = (head_export / "events.jsonl").read_bytes().splitlines(keepends=True)
     (head_export / "events.jsonl").write_bytes(b"".join(lines[:-1]))
     with pytest.raises(ComparisonError, match="does not cover the run database prefix at event 8"):
+        compare(Side(Chain.load([base_run]), base_export), Side(Chain.load([head_run]), head_export),
+                Options(None, (), False))
+
+
+def test_events_file_must_match_its_manifest_digest(tmp_path):
+    base_run, base_export = _write(tmp_path / "base", Recording())
+    head_run, head_export = _write(tmp_path / "head", Recording())
+    with (head_export / "events.jsonl").open("ab") as stream:
+        stream.write(b'{"event_seq":9}\n')
+    with pytest.raises(ComparisonError, match="Export artifact events.jsonl does not match its manifest digest"):
         compare(Side(Chain.load([base_run]), base_export), Side(Chain.load([head_run]), head_export),
                 Options(None, (), False))
 

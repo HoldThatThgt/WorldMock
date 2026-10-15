@@ -978,25 +978,37 @@ def _event_key(event: dict) -> str:
 
 
 def _export_lines(side: Side, context: CompareContext, side_name: str):
-    """@brief 逐行读一侧导出的 events.jsonl，核对它覆盖这一侧运行库的 (event_seq, event_id) 前缀。"""
+    """@brief 逐行读一侧导出的 events.jsonl，核对它覆盖这一侧运行库的 (event_seq, event_id) 前缀；
+    读完截止之前的行后把文件余下部分也计入摘要，整份文件必须符合导出清单记下的事件工件摘要。"""
     expected = context.ids.events[side_name]
     path = side.export / "events.jsonl"
     if not path.is_file():
         _refuse(f"Export {side.export} has no events.jsonl")
+    recorded = _read_json(side.export / "manifest.json").get("artifacts", {}).get("events", {}).get("sha256")
+    digest = hashlib.sha256()
     with path.open("rb") as stream:
         for seq, event_id in expected:
             line = stream.readline()
+            digest.update(line)
             event = json.loads(line) if line.strip() else None
             if event is None or event.get("event_seq") != seq or event.get("event_id") != event_id:
                 _refuse(f"Export {path} does not cover the run database prefix at event {seq}")
             yield event
+        for chunk in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(chunk)
+    if recorded is not None and digest.hexdigest() != recorded:
+        _refuse("Export artifact events.jsonl does not match its manifest digest")
 
 
 def compare_events(base: Side, head: Side, context: CompareContext) -> dict:
-    """@brief 逐行流式比较两份 events.jsonl；累计两侧规范化行的摘要作为导出清单的事件工件摘要。"""
+    """@brief 逐行流式比较两份 events.jsonl；累计两侧规范化行的摘要作为导出清单的事件工件摘要。
+
+    两侧行数相同（都是截止之前的事件）；strict 让两侧读取都走到底，各自核对整份文件的清单摘要。
+    """
     layer = _Layer()
     digests = {"base": hashlib.sha256(), "head": hashlib.sha256()}
-    for base_event, head_event in zip(_export_lines(base, context, "base"), _export_lines(head, context, "head")):
+    lines = (_export_lines(base, context, "base"), _export_lines(head, context, "head"))
+    for base_event, head_event in zip(*lines, strict=True):
         aligned = align_events(base_event, head_event, context)
         normalized = (normalize_event(aligned[0], context.base), normalize_event(aligned[1], context.head))
         encoded = [canonical_bytes(value) for value in normalized]
