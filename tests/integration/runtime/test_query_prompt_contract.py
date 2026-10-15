@@ -39,7 +39,7 @@ def test_real_full_slots_and_pending_conclusion_use_the_same_tool_refusal(engine
     原因一字不差。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    _, accepted = act_group(engine, "both-slots", use_app("抖音"), travel("公司"))
+    _, accepted = act_group(engine, "both-slots", use_app("Keep"), travel("公司"))
     assert [result.status for result in accepted] == ["in_progress", "in_progress"]
     watching, walking = (engine.context.state.activities[result.activity_id].name for result in accepted)
     full = engine.observe(context(engine, "slots-full"))

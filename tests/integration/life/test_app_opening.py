@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from tests.life.conftest import context, purchase, query, target_actions, tool_targets, travel, use_app
 from tests.life.current_world import stage_moment
-from tests.life.environment_runtime import act, act_group, events, finish_activity, reach
+from tests.life.environment_runtime import act, act_group, conclude_app_use, events, finish_activity, reach
 from tests.life.phone_records import foreground, moment, paying_label, phone_environment, phone_window
 from worldmock.life.activity_validation import _CONTENT_FIELDS
 from worldmock.life.name_resolution import name_book
@@ -72,7 +72,7 @@ def test_app_with_content_and_goods_opens_and_still_sells(engine_factory):
     assert tool_targets(observed)["哔哩哔哩"]["kind"] == "app"
     assert "哔哩哔哩" in observed["tool_layer"]["callable_index"]["prefer_apps"]
     assert [target.kind for target in name_book(observed).targets if target.label == "哔哩哔哩"] == ["app"]
-    finish_activity(engine, result, "open")
+    conclude_app_use(engine, result.activity_id, "open")
     _, bought = act(engine, "notebook", purchase("平台笔记本"))
     assert bought.status == "in_progress", bought.error_code
     assert [(order.goods_id, order.app_id) for order in engine.context.state.deliveries.values()] == [

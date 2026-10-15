@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from worldmock.errors import BusinessRuleError
 from worldmock.life import activity_control, admission, same_moment
 from worldmock.life.action_contract import START_TOOLS, start_tool
-from worldmock.life.content_select import (ContentRequest, content_duration_range, eligible_contents,
+from worldmock.life.content_select import (ContentRequest, OpeningDuration, eligible_contents, opening_duration,
                                            pinned_push_content)
 from worldmock.life.felt import sleep_debt_phrase
 from worldmock.life.guidance import Refusal
@@ -154,16 +154,22 @@ def _action_row(context: LayerContext, row: dict, action: dict) -> dict:
 
 
 def _app_facts(context: LayerContext, row: dict) -> dict:
-    """@brief 内容 app 行的时长与推送说明都只在此刻合格的内容里算；此刻打开会钉住某条推送时才写「有推送」。"""
+    """@brief 内容 app 行的时长与推送说明都只在此刻合格的内容里算：时长写哪一种由 content_select.opening_duration
+    判定、由 _app_duration 写成文字，没有合格内容时为 null；此刻打开会钉住某条推送时才写「有推送」。"""
     request = ContentRequest(context.agent_id, row["object_id"],
                              admission.present_location(context.state, context.agent_id))
-    duration = content_duration_range(context.catalog, context.state, request)
+    duration = opening_duration(context.catalog, context.state, request)
     pinned = pinned_push_content(eligible_contents(context.catalog, context.state, request), context.state, request)
-    phrase = None
-    if duration is not None:
-        phrase = duration_phrase(duration[0]) if duration[0] == duration[1] else (
-            f"{duration_phrase(duration[0])}–{duration_phrase(duration[1])}")
-    return {"duration": phrase, "note": None if pinned is None else f"有推送：《{pinned[0].title}》"}
+    return {"duration": None if duration is None else _app_duration(duration),
+            "note": None if pinned is None else f"有推送：《{pinned[0].title}》"}
+
+
+def _app_duration(duration: OpeningDuration) -> str:
+    """@brief 内容 app 行的时长文字：打开会先放一条已知内容时写「先放的一条<余量>」，否则写「每条<时长>」；
+    最小值与最大值按秒比较，不等时两个短语用「–」相连。"""
+    span = duration_phrase(duration.shortest) if duration.shortest == duration.longest else (
+        f"{duration_phrase(duration.shortest)}–{duration_phrase(duration.longest)}")
+    return f"先放的一条{span}" if duration.known_first else f"每条{span}"
 
 
 def _travel_facts(context: LayerContext, row: dict, action: dict) -> dict:

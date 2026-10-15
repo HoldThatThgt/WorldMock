@@ -1990,3 +1990,40 @@ test('continuous uses are found without the frozen catalog', async t => {
   assert.deepEqual(view.errors.filter(error => !missing.includes(error)),
     ['Frozen catalog is unavailable: no run manifest for this database']);
 });
+
+/** @brief 一次接连放几条的 app 使用：受理事件（当前内容是第一条）与每条一段首尾相接的进度事件，进度事件的快照换成
+ *  接着放的那一条，最后一段的快照状态是 status。items 每项是 [内容身份, 起, 止, 这一段是否把这条放完]。 */
+function feedUse(id, appId, items, status) {
+  const start = items[0][1];
+  const snapshot = (contentId, fields) => ({activity_id: id, kind: 'interact', location_id: 'home', started_at: start,
+    planned_duration_seconds: items[0][2] - start, data: {action: 'interact', app_id: appId, content_id: contentId},
+    ...fields});
+  return [
+    event('action_accepted', {status: 'in_progress', activity: snapshot(items[0][0],
+      {status: 'active', elapsed_seconds: 0})}, {activity_id: id, agent_id: 1, occurred_at: start}),
+    ...items.map(([contentId, from, to, completed], index) => event('activity_progress', {
+      activity: snapshot((items[index + 1] ?? items[index])[0],
+        {status: index === items.length - 1 ? status : 'active', elapsed_seconds: to - start}),
+      interval_start: from, interval_end: to, content: {content_id: contentId, app_id: appId, completed}},
+    {activity_id: id, agent_id: 1, occurred_at: to})),
+  ];
+}
+
+test('a feed of more than three items is written with three titles and the count in the activity table, its lane and a joined lane', async t => {
+  // 20:00 打开抖音接连放了四条，第四条放到一半被收尾；同一秒再打开抖音接着放那一条，放完停下。
+  const view = await viewer([
+    ...feedUse('feed', 'douyin', [['c-short', at('20:00:00'), at('20:02:00'), true],
+      ['c-short-2', at('20:02:00'), at('20:03:30'), true], ['c-live', at('20:03:30'), at('20:28:30'), true],
+      ['c-long', at('20:28:30'), at('20:30:00'), false]], 'cancelled'),
+    ...appUse('again', 'douyin', 'c-long', at('20:30:00'), at('21:08:30')),
+  ]);
+  t.after(() => view.close());
+  const markup = view.activities();
+  const feed = '使用抖音《测试短视频》《测试短视频二》《测试实况》等 4 条';
+  assert.deepEqual(targets(markup), [feed, '使用抖音《测试长视频》']);
+  // 两项并成一行：c-long 在两项之间相邻，只算一次，标签与唯一的条块都写前三条加「等 4 条」。
+  assert.deepEqual(lanes(markup).map(lane => lane.label), [feed]);
+  assert.deepEqual(lanes(markup)[0].bars.map(bar => bar.title),
+    [`2026/09/28 20:00:00–2026/09/28 21:08:30 · ${feed} · 连续使用，共 2 段`]);
+  assert.deepEqual(view.errors, []);
+});

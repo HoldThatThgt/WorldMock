@@ -10,7 +10,7 @@ from worldmock.life.app_push import issue_app_push, validate_app_pushes
 from worldmock.life.body import ActivityFactors, initial_body
 from worldmock.life.body_config import assemble_body_config
 from worldmock.life.content_prerequisite import prerequisite_unmet
-from worldmock.life.content_select import (ContentRequest, content_duration_range, eligible_contents,
+from worldmock.life.content_select import (ContentRequest, OpeningDuration, eligible_contents, opening_duration,
     pinned_push_content, select_content, select_from_contents)
 from worldmock.life.interact import InteractivityRuntime, _content_data
 from worldmock.life.location_activities import location_units
@@ -73,7 +73,7 @@ def test_recent_shared_partial_content_has_priority_without_query_randomness(con
         last_consumed_at=state.current_time)
     state.agents[1].content_progress[content.content_id]=progress
     before=state.random_state
-    assert content_duration_range(context.catalog,state,ContentRequest(1,'bilibili','home'))==(1680,1680)
+    assert opening_duration(context.catalog,state,ContentRequest(1,'bilibili','home'))==OpeningDuration(True,1680,1680)
     selected,pin=select_content(context.catalog,state,ContentRequest(1,'bilibili','home'),Random(7))
     assert selected.content_id=='c-course' and pin is None
     assert state.random_state==before
@@ -84,11 +84,11 @@ def test_current_app_push_pins_start_but_not_other_containers(context_state):
     state.sessions['stay'].app_pushes['bilibili']=push
     selected,pin=select_content(context.catalog,state,ContentRequest(1,'bilibili','home','activity'),Random(7))
     assert selected.content_id=='c-drama-2' and pin=='push'
-    assert content_duration_range(context.catalog,state,ContentRequest(1,'bilibili','home'))==(1800,1800)
+    assert opening_duration(context.catalog,state,ContentRequest(1,'bilibili','home'))==OpeningDuration(True,1800,1800)
     other,other_pin=select_content(context.catalog,state,ContentRequest(1,'douyin','home','other-activity'),
                                    Random(7))
     assert other_pin is None and 'douyin' in other.app_ids
-    assert content_duration_range(context.catalog,state,ContentRequest(1,'douyin','home'))==(90,2400)
+    assert opening_duration(context.catalog,state,ContentRequest(1,'douyin','home'))==OpeningDuration(False,90,2400)
     validate_app_pushes(state,context.catalog)
 
 def test_series_continues_same_binding_and_stops_after_last_episode(context_state):
@@ -134,11 +134,13 @@ def test_consumption_uses_shared_actual_position_and_repeated_boundary_has_no_ef
 
 
 def test_single_content_and_last_series_episode_stop(context_state):
+    """没有可接内容的单条与没有别的开始了的系列的最后一集放完就停：Keep 唯一的一条不可推送，最后一集之后没有别的
+    开始了没看完的系列。"""
     context,state=context_state
-    for content_id in ('c-course','c-drama-3'):
+    for content_id,app_id in (('c-run','keep'),('c-drama-3','bilibili')):
         content=context.catalog.contents[content_id]
         _,activity=start_activity(state.agents[1],ActivityStartParams('interact',content.duration_seconds,
-            data=_content_data(content,'bilibili',0,None)),state.current_time,
+            data=_content_data(content,app_id,0,None)),state.current_time,
             ActivityOrigin('action','decision','event'),context.body)
         activity=activity.model_copy(update={'media_position_seconds':content.duration_seconds,
             'elapsed_seconds':content.duration_seconds,'last_settled_at':state.current_time+content.duration_seconds,
@@ -290,10 +292,10 @@ def test_unfinished_content_that_cannot_start_now_does_not_block_the_rest_of_the
     assert select_from_contents(everything, state, request, Random(7))[0].content_id == "dingtalk-clock"
     assert select_content(context.catalog, state, request, Random(7)) == (context.catalog.contents["dingtalk-notice"],
                                                                           None)
-    assert content_duration_range(context.catalog, state, request) == (300, 300)
+    assert opening_duration(context.catalog, state, request) == OpeningDuration(False, 300, 300)
     back = replace(request, stay_location_id="office")
     assert select_content(context.catalog, state, back, Random(7))[0].content_id == "dingtalk-clock"
-    assert content_duration_range(context.catalog, state, back) == (40, 40)
+    assert opening_duration(context.catalog, state, back) == OpeningDuration(True, 40, 40)
 
 
 @pytest.mark.parametrize("seed", [1, 7, 11, 23])
@@ -313,7 +315,7 @@ def test_filter_keeps_the_order_and_random_draws_of_an_app_without_prerequisites
         content, pinned = select_content(context.catalog, state, request, stream)
         picks.append((content.content_id, pinned))
         streams.append(stream.getstate())
-        assert content_duration_range(context.catalog, state, request) == (60, 180)
+        assert opening_duration(context.catalog, state, request) == OpeningDuration(False, 60, 180)
     assert picks[0] == picks[1] and streams[0] == streams[1]
     assert streams[0] != Random(seed).getstate()
 
@@ -321,17 +323,17 @@ def test_filter_keeps_the_order_and_random_draws_of_an_app_without_prerequisites
 def test_duration_range_counts_only_eligible_contents(tmp_path):
     context, state = dingtalk_world(tmp_path, (CLOCK, LUNCH, NOTICE))
     catalog = context.catalog
-    assert content_duration_range(catalog, state, ContentRequest(1, "dingtalk", "office")) == (60, 300)
-    assert content_duration_range(catalog, state, ContentRequest(1, "dingtalk", "home")) == (300, 300)
+    assert opening_duration(catalog, state, ContentRequest(1, "dingtalk", "office")) == OpeningDuration(False, 60, 300)
+    assert opening_duration(catalog, state, ContentRequest(1, "dingtalk", "home")) == OpeningDuration(False, 300, 300)
     # 没有登记内容的 app 没有合格内容，没有时长
-    assert content_duration_range(catalog, state, ContentRequest(1, "meituan", None)) is None
+    assert opening_duration(catalog, state, ContentRequest(1, "meituan", None)) is None
 
 
 def test_app_whose_contents_are_all_ineligible_has_no_duration(tmp_path):
     context, state = dingtalk_world(tmp_path, location_id="home")
     request = ContentRequest(1, "dingtalk", "home")
     assert eligible_contents(context.catalog, state, request) == ()
-    assert content_duration_range(context.catalog, state, request) is None
+    assert opening_duration(context.catalog, state, request) is None
 
 
 def test_pushed_content_is_pinned_only_while_it_is_eligible(tmp_path):
@@ -349,11 +351,11 @@ def test_pushed_content_is_pinned_only_while_it_is_eligible(tmp_path):
 
     assert pinned(state) == (catalog.contents["dingtalk-morning"], "push")
     assert select_content(catalog, state, request, Random(7)) == (catalog.contents["dingtalk-morning"], "push")
-    assert content_duration_range(catalog, state, request) == (60, 60)
+    assert opening_duration(catalog, state, request) == OpeningDuration(True, 60, 60)
     lapsed = state.model_copy(update={"current_time": moment(12, 11)}, deep=True)
     assert pinned(lapsed) is None
     assert select_content(catalog, lapsed, request, Random(7)) == (catalog.contents["dingtalk-notice"], None)
-    assert content_duration_range(catalog, lapsed, request) == (300, 300)
+    assert opening_duration(catalog, lapsed, request) == OpeningDuration(False, 300, 300)
     assert lapsed.sessions["stay"].app_pushes["dingtalk"].status == "pending"
     returned = state.model_copy(update={"current_time": moment(13, 8, 30)}, deep=True)
     assert pinned(returned) == (catalog.contents["dingtalk-morning"], "push")

@@ -85,6 +85,71 @@ def meal_environment(destination):
     return root
 
 
+def bilibili_series_rows(prefix, title, relief):
+    """一部两集的哔哩哔哩系列的两行：第 N 集身份 <prefix>-N、标题「<title>第一集」「<title>第二集」，各 600 秒、轻体力、
+    可推送，放松缓解取 relief，社交缓解 none，合成摘要，不写前提。"""
+    return [{"app_ids": ["bilibili"], "content_id": f"{prefix}-{episode}", "duration_seconds": 600, "exertion": "light",
+             "pushable": True, "relaxation_relief": relief, "series": {"episode": episode, "title": title},
+             "social_relief": "none", "summary": f"{name}的测试用合成摘要。",
+             "summary_source": {"kind": "synthetic", "notice": "测试用合成摘要", "url": None}, "title": name}
+            for episode, name in ((1, f"{title}第一集"), (2, f"{title}第二集"))]
+
+
+def _with_contents(destination, *rows):
+    """样例环境的副本追加内容行：全部行按内容身份升序写回并刷新清单，返回副本的根目录。"""
+    root = copy_environment(destination)
+    merged = [*catalog_rows(root, "content-catalog.jsonl"), *rows]
+    write_catalog_rows(root, "content-catalog.jsonl", sorted(merged, key=lambda row: row["content_id"]))
+    return root
+
+
+def second_series_environment(destination):
+    """样例环境加一部两集的哔哩哔哩系列「测试番剧」（c-anime-1、c-anime-2，各 600 秒，放松缓解 high）。
+
+    哔哩哔哩由此有两部系列：「测试剧集」（三集各 1800 秒，缓解 medium）和「测试番剧」，接续顺序的「另一部」有得接，
+    接上时缓解档位看得出换了一条。要第三部的用例在这份副本上再追加 bilibili_series_rows("c-doc", "测试纪录片", "low")。
+    """
+    return _with_contents(destination, *bilibili_series_rows("c-anime", "测试番剧", "high"))
+
+
+def office_stretch_environment(destination):
+    """样例环境加一条 Keep 内容《办公室拉伸》（c-office-stretch，300 秒，只在公司合格，可推送，放松缓解 medium）。
+
+    Keep 由此有一条不可推送的《测试慢跑》（在家能打开、放 1200 秒）和这一条：《测试慢跑》放完那一秒人在哪，决定接不接
+    《办公室拉伸》，候选至多一条，结果不靠随机数。
+    """
+    return _with_contents(destination, {
+        "app_ids": ["keep"], "content_id": "c-office-stretch", "duration_seconds": 300, "exertion": "light",
+        "prerequisite": {"location_kinds": ["office"]}, "pushable": True, "relaxation_relief": "medium",
+        "social_relief": "none", "summary": "办公室拉伸的测试用合成摘要。",
+        "summary_source": {"kind": "synthetic", "notice": "测试用合成摘要", "url": None}, "title": "办公室拉伸"})
+
+
+#: 五集副本里「测试剧集」各集的中文集号。
+_EPISODE_NUMBERS = "一二三四五"
+
+
+def five_episode_environment(destination):
+    """「五集副本」：样例环境删去只绑定哔哩哔哩的内容行（c-article、c-course、c-image、原有的三集），c-long 只留抖音；
+    再写五集「测试剧集」c-drama-1…c-drama-5（各 400 秒、轻体力、可推送，放松缓解 medium，社交缓解 none，合成摘要）。
+
+    这份副本里自动接续只走「下一集」一种，第五集放完时没有别的系列，使用停下待收尾。全部行按内容身份升序写回并刷新
+    清单，返回副本的根目录。
+    """
+    root = copy_environment(destination)
+    rows = [row for row in catalog_rows(root, "content-catalog.jsonl") if row.get("app_ids") != ["bilibili"]]
+    next(row for row in rows if row["content_id"] == "c-long")["app_ids"] = ["douyin"]
+    for episode, number in enumerate(_EPISODE_NUMBERS, start=1):
+        title = f"测试剧集第{number}集"
+        rows.append({"app_ids": ["bilibili"], "content_id": f"c-drama-{episode}", "duration_seconds": 400,
+                     "exertion": "light", "pushable": True, "relaxation_relief": "medium",
+                     "series": {"episode": episode, "title": "测试剧集"}, "social_relief": "none",
+                     "summary": f"{title}的测试用合成摘要。",
+                     "summary_source": {"kind": "synthetic", "notice": "测试用合成摘要", "url": None}, "title": title})
+    write_catalog_rows(root, "content-catalog.jsonl", sorted(rows, key=lambda row: row["content_id"]))
+    return root
+
+
 #: 回调状态「家里的食材」的名称。
 GROCERIES = "groceries"
 

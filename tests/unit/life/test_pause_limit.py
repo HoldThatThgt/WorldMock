@@ -37,10 +37,10 @@ def _control(activity: ActivityState, tool: str) -> Refusal | None:
 @pytest.mark.parametrize("seconds,expected", [(1, False), (60, False), (179, False), (180, True), (181, True),
                                               (900, True)])
 def test_an_interaction_is_pausable_with_three_minutes_left_and_not_with_one_second_less(presence, seconds, expected):
-    """在地点做事和用内容 app 同一条线：离计划结束还剩 180 秒可以暂停，179 秒不行。"""
+    """在地点做事守 180 秒：离计划结束还剩 180 秒可以暂停，179 秒不行；用内容 app 随时可以暂停，剩多久都一样。"""
     assert activity_control.PAUSE_MIN_REMAINING_SECONDS == 180
     activity = _ending_in(seconds, presence=presence)
-    assert activity_control.pausable(occupied(activity), activity) is expected
+    assert activity_control.pausable(occupied(activity), activity) is (expected or not presence)
 
 
 def test_the_remaining_time_is_measured_from_the_current_moment_to_the_planned_end():
@@ -80,7 +80,7 @@ def test_pause_refusal_names_the_activity_and_says_it_ends_in_under_three_minute
                               f"The activity {_NAME} ends in under three minutes and cannot be paused.",
                               f"Conclude {_NAME} or let it finish.",
                               fix="Conclude this activity or let it finish instead.")
-    assert _control(_ending_in(179, presence=False), "pause_activity") == refused
+    assert _control(_ending_in(179, presence=False), "pause_activity") is None
     assert _control(_ending_in(180), "pause_activity") is None
     assert _control(_ending_in(179), "conclude_activity") is None
     assert _control(_ending_in(1), "conclude_activity") is None
@@ -100,17 +100,17 @@ def test_slot_conflict_offers_pausing_only_while_the_occupant_can_still_be_pause
 
 
 def test_second_slot_conflict_follows_the_same_limit():
-    """用内容 app 快做完时再开一个 app：下一步只写结束。"""
+    """用内容 app 时再开一个 app：app 使用随时可以暂停，离这一条结束还剩多久下一步都写结束或暂停。"""
     assert refusal(occupied(_ending_in(179, presence=False)), [app_call()]) == Blocked(
-        conflict("second", "Conclude"), (SIDE_TOOL,))
+        conflict("second", "Conclude or pause"), (SIDE_TOOL,))
     assert refusal(occupied(_ending_in(180, presence=False)), [app_call()]) == Blocked(
         conflict("second", "Conclude or pause"), (SIDE_TOOL,))
 
 
-@pytest.mark.parametrize("seconds,step", [(1, "Conclude"), (179, "Conclude"), (180, "Conclude or pause"),
-                                          (900, "Conclude or pause")])
+@pytest.mark.parametrize("seconds,step", [(1, "Conclude or pause"), (179, "Conclude or pause"),
+                                          (180, "Conclude or pause"), (900, "Conclude or pause")])
 def test_sleep_constraint_offers_pausing_only_while_the_second_slot_occupant_can_still_be_paused(seconds, step):
-    """槽位 2 的 app 内容还在做时去睡觉：睡眠约束的下一步读同一个判定，离结束不足三分钟时只写结束。"""
+    """槽位 2 的 app 使用还在放时去睡觉：睡眠约束的下一步读同一个判定，app 使用随时可以暂停，所以剩多久都写结束或暂停。"""
     blocked = refusal(occupied(_ending_in(seconds, presence=False)), [sleep_call()])
     assert blocked == Blocked(Refusal("RESOURCE_CONFLICT", "Sleep requires the second activity slot to be empty.",
                                       f"{step} the second activity first."), (MAIN_TOOL,))

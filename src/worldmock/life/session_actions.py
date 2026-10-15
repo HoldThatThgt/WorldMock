@@ -82,9 +82,9 @@ class ActionHandlers:
         这段路、回到出发地开始新的停留，槽位 2 的活动照常进行。
 
         进行中或暂停的活动先取消（agent_cancelled）再收尾；在地点做的事被这样结束即记为做完一轮（见 _change），
-        活动状态与终局说法仍是取消与「提前结束」。待收尾活动不改终态，只写总结并置 concluded_at。
+        活动状态仍是取消，终局说法是「提前结束」，一次 app 使用是「结束使用」。待收尾活动不改终态，只写总结并置 concluded_at。
         有待收尾活动而本次没有点名任何一项时以 ACTIVITY_CONCLUSION_REQUIRED 拒绝。记忆由宿主写入，环境只校验形状，
-        并在结果中登记私有来源 memory_sources。结果的 outcome 逐项写实际终局：完成、提前结束或失败（docs/design/06-agent.md）。
+        并在结果中登记私有来源 memory_sources。结果的 outcome 逐项写实际终局：完成、结束使用、提前结束或失败（docs/design/06-agent.md）。
         请求级的事务变更在活动名解析后复核、在结束与收尾之后应用，回执登记为 errands；其后的任何拒绝都使事务变更一并不生效。
         """
         items = control_items("conclude_activity", request)
@@ -127,7 +127,7 @@ class ActionHandlers:
     def _pause_activity(
         self, state: WorldState, pending: PendingAction, request: PauseActivityRequest
     ) -> tuple[WorldState, ActionResult]:
-        """@brief 暂停所选进行中活动（让出槽位）并写入自述；路上的活动、交谈与通话不能暂停。
+        """@brief 暂停所选进行中活动（让出槽位）并写入自述；只有 interact 能暂停，app 使用在路上也能，恢复只在开始地点。
 
         每项先经 activity_control.control_refusal 判定，与工具层的可用性一字不差。请求级的事务变更在活动名解析后复核、
         在暂停后应用，回执登记为 errands。

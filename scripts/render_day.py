@@ -2,7 +2,8 @@
 """@brief 从 footprints.sqlite 确定性投影人物一天的 timeline/<agent>-<date>.md。
 
 同一 activity_id 首尾相接的 activity_progress 合并为一行（起止、总时长与段数），这一行的「活动」一栏是
-worldmock.footprints.display_wording 的写法：内容按各段进度事件指向的内容依次列出，购买的商品和渠道取订单记录，
+worldmock.footprints.display_wording 的写法：内容按各段进度事件指向的内容依次列出（相邻重复只写一次；多于三条时只写
+前三条再写「等 K 条」），购买的商品和渠道取订单记录，
 名称只取这次运行冻结的环境目录，取不到即运行故障（docs/design/05-recording-engine.md「显示写法与检查工具」）。
 按 agent_id 与冻结清单的场景时区的模拟日期过滤；同库同参数输出逐字节相同。day_rows 也接受已排序的事件正文，
 质量报告的时间线标签检查据此投影同一张时间线。命令行写出的文件是 UTF-8、LF。

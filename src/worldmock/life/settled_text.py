@@ -9,7 +9,7 @@ import logging
 from typing import Any
 
 from worldmock.errors import IntegrityError
-from worldmock.footprints.display_wording import activity_phrase, display_names
+from worldmock.footprints.display_wording import activity_phrase, display_names, title_list
 from worldmock.footprints.models import Event
 from worldmock.life import activity_control
 from worldmock.life.action_evidence import placed_orders
@@ -81,9 +81,11 @@ def activity_sentence(context: LayerContext, activity: ActivityState,
 def _content_sentence(context: LayerContext, activity: ActivityState, advanced_content_id: str | None) -> str:
     """@brief 只写真正完成的内容，用内容 app 时再写确有推进的未完内容，活动名已包含动作和应用。
 
-    在地点做的事（app_id 为空）不写「（《某某》未完）」半句：被结束即记为做完一轮，截断之后也没有提示再读它。
+    放完的各条标题（不去重）交给 title_list：多于三条时只写前三条再接「等 K 条」，K 是放完的条数。「（《某某》未完）」
+    半句紧跟在截断后的列表之后，不计入 K。在地点做的事（app_id 为空）不写这半句：被结束即记为做完一轮，截断之后也
+    没有提示再读它。
     """
-    titles = "".join(f"《{context.catalog.contents[row['content_id']].title}》" for row in activity.data["played"])
+    titles = title_list([context.catalog.contents[row["content_id"]].title for row in activity.data["played"]])
     current = context.catalog.contents[activity.data["content_id"]]
     partial = activity.data["app_id"] is not None and advanced_content_id == current.content_id
     return titles + (f"（《{current.title}》未完）" if partial else "")

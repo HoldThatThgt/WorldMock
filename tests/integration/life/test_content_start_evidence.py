@@ -224,7 +224,7 @@ def test_clock_in_at_the_office_starts_the_content_and_finishes_past_the_window_
     engine = dingtalk_engine(engine_factory, tmp_path)
     stage_moment(engine, moment(*when), "office")
     observed, result = act(engine, "clock", use_app("钉钉"))
-    assert dingtalk_row(observed) == app_row(duration="约 1 分钟")
+    assert dingtalk_row(observed) == app_row(duration="每条约 1 分钟")
     assert result.status == "in_progress", result.error_code
     activity = engine.context.state.activities[result.activity_id]
     assert (activity.data["app_id"], activity.data["content_id"]) == ("dingtalk", "dingtalk-clock")
@@ -292,13 +292,13 @@ def test_unfinished_content_waits_for_its_prerequisite_and_then_continues_from_i
     assert 0 < position < 1800
     stage_moment(engine, moment(12, 12, 30), "office")
     observed, noon = act(engine, "noon", use_app("钉钉"))
-    assert dingtalk_row(observed) == app_row(duration="约 2 分钟")
+    assert dingtalk_row(observed) == app_row(duration="每条约 2 分钟")
     assert engine.context.state.activities[noon.activity_id].data["content_id"] == "dingtalk-lunch"
     finish_activity(engine, noon, "noon")
     assert engine.context.state.agents[1].content_progress["dingtalk-report"].position_seconds == position
     stage_moment(engine, moment(12, 17, 35), "office")
     observed, again = act(engine, "evening", use_app("钉钉"))
-    assert dingtalk_row(observed) == app_row(duration=duration_phrase(1800 - position))
+    assert dingtalk_row(observed) == app_row(duration=f"先放的一条{duration_phrase(1800 - position)}")
     resumed = engine.context.state.activities[again.activity_id]
     assert resumed.activity_id != first.activity_id and resumed.data["content_id"] == "dingtalk-report"
     assert resumed.data["start_position_seconds"] == position

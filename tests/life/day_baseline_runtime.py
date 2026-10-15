@@ -13,7 +13,7 @@ from tests.dayrun_baseline import day_baseline_signature, deterministic_day_runt
 from tests.frozen_inputs import fixture_metadata
 from tests.integration.runtime_fixtures import current_run_identity, write_agent_workspace
 from tests.life.conftest import do_at, purchase, query, sleep, stage_day_plan, travel, use_app
-from tests.life.environment_runtime import act, act_group, finish_activity, run_to_end
+from tests.life.environment_runtime import act, act_group, conclude_app_use, finish_activity, run_to_end
 from worldmock.catalog.identity import refresh_manifest_identity
 from worldmock.environment import environment_identity, load_environment
 from worldmock.footprints.checkpoint import snapshot_directory
@@ -62,7 +62,8 @@ def _finish_active(engine, label):
 
 def _activity_day(engine):
     """同一轮在家点名休息并买一份牛肉面、两份薯片（prefer 写「饿了么」：薯片经饿了么从三杯咖啡来，牛肉面另选到
-    一心面馆的美团）；查询「柠檬茶」（prefer 为 null），推进到做完，不为它收尾；同一轮驾车去公司并打开哔哩哔哩；
+    一心面馆的美团）；查询「柠檬茶」（prefer 为 null），推进到做完，不为它收尾；同一轮驾车去公司并打开哔哩哔哩，
+    哔哩哔哩放完第一条之后的第一次决策就收尾这次使用（连同那时待收尾的出行），出行还在路上时再推进到到达并收尾；
     在公司点名「季度销售数据整理」并做完；在公司睡 60 分钟。"""
     _, home = act_group(engine, "home-basket", do_at("家", "测试休息"),
                         purchase("牛肉面", "薯片", "薯片", prefer="饿了么"))
@@ -74,6 +75,7 @@ def _activity_day(engine):
     # 查询自己结束：做完即写下 concluded_at，不待收尾，下一组开始不被挡住。
     _, paired = act_group(engine, "travel-media", travel("公司", "驾车"), use_app("哔哩哔哩"))
     assert [item.status for item in paired] == ["in_progress", "in_progress"]
+    conclude_app_use(engine, paired[1].activity_id, "trip-media")
     _finish_active(engine, "trip")
     _, work = act(engine, "office-work", do_at("公司", "季度销售数据整理"))
     assert work.status == "in_progress"

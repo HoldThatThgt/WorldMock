@@ -17,7 +17,7 @@ MAIN_TOOL, SIDE_TOOL = "start_main_activity", "start_side_activity"
 
 
 def _activity(engine, action="interact"):
-    data = {"exertion": "idle"} if action == "interact" else {}
+    data = {"exertion": "idle", "app_id": None} if action == "interact" else {}
     params = (ActivityStartParams(action, 600, "office", "walking", {"exertion": "walking"})
               if action == "travel" else ActivityStartParams(action, 600, data=data))
     return create_activity(engine.context.state.agents[1], params,
@@ -202,7 +202,7 @@ def test_shortest_planned_duration_depends_on_how_the_duration_is_derived(engine
     """出行与内容活动的时长由路线、内容时长与共享进度派生，至少一秒即可开始（没做完的内容只剩几十秒时照样接着做）；
     睡眠与购买至少一分钟。"""
     engine = engine_factory()
-    data = {"exertion": "idle"} if action == "interact" else {}
+    data = {"exertion": "idle", "app_id": None} if action == "interact" else {}
     params = (ActivityStartParams(action, seconds, "office", "walking", {"exertion": "walking"})
               if action == "travel" else ActivityStartParams(action, seconds, data=data))
     arguments = (engine.context.state.agents[1], params, engine.context.state.current_time,

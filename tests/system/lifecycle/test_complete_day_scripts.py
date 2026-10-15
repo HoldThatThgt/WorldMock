@@ -36,8 +36,8 @@ def _concluded_names(case: Path) -> list[str]:
 
 def test_activity_day_names_units_buys_portions_and_sleeps_at_the_office(monkeypatch, tmp_path):
     """活动日：同一轮在家点名休息并买一份牛肉面、两份薯片（prefer 写「饿了么」）；查询「柠檬茶」（prefer 为 null），
-    做完不收尾；同一轮驾车去公司并打开哔哩哔哩；在公司点名「季度销售数据整理」并做完；在公司睡 60 分钟；
-    之后步行回家、夜里睡 450 分钟直到截止。运行到达截止、无失败事件、导出通过认证（由录制入口断言）。"""
+    做完不收尾；同一轮驾车去公司并打开哔哩哔哩，在午睡之前明确收尾这次使用；在公司点名「季度销售数据整理」并做完；
+    在公司睡 60 分钟；之后步行回家、夜里睡 450 分钟直到截止。运行到达截止、无失败事件、导出通过认证（由录制入口断言）。"""
     case = tmp_path / "activity"
     recorded = record_complete_day(monkeypatch, case, PROJECT, "activity")
     assert set(recorded) == {"persona_sha256", "config_sha256", "environment_identity", "seed", "summary"}
@@ -59,7 +59,27 @@ def test_activity_day_names_units_buys_portions_and_sleeps_at_the_office(monkeyp
     assert {"action": "sleep", "target": "450", "detail": None} in [request for _, request in later]
     assert not any(tool == "start_activity" for tool, _ in starts)
     _assert_preferred_orders_and_a_self_ending_query(case)
+    _assert_the_media_use_is_concluded_before_the_nap(case)
     _assert_six_artifacts_with_phone_records(case / "export", tmp_path)
+
+
+def _assert_the_media_use_is_concluded_before_the_nap(case: Path) -> None:
+    """驾车去公司时打开的哔哩哔哩：运行里有一条 conclude_activity 点到这次使用的活动名，落在午睡那条开始请求之前；
+    导出的 activities.jsonl 里这项活动的行带完整的 played，至少一项。"""
+    with sqlite3.connect(case / "run" / "footprints.sqlite") as connection:
+        rows = connection.execute("SELECT body FROM events ORDER BY event_seq").fetchall()
+    requested = [json.loads(row[0]) for row in rows]
+    requested = [body["data"] for body in requested if body["event_type"] == "action_requested"]
+    (media,) = [row for row in artifact_rows(case / "export", "activities")
+                if row["origin_action_id"] == "action-travel-media-2"]
+    assert media["activity_type"] == "interact" and media["data"]["app_id"] == "bilibili"
+    assert len(media["data"]["played"]) >= 1 and "played_count" not in media["data"]
+    concluding = [index for index, data in enumerate(requested) if data["tool_name"] == "conclude_activity"
+                  and media["name"] in [item["activity_name"] for item in data["request"]["items"]]]
+    (nap,) = [index for index, data in enumerate(requested)
+              if data["tool_name"] == "start_main_activity" and data["request"] == {
+                  "action": "sleep", "target": "60", "detail": None}]
+    assert concluding and concluding[0] < nap
 
 
 def _assert_preferred_orders_and_a_self_ending_query(case: Path) -> None:
