@@ -16,6 +16,7 @@ from worldmock.life.error_contract import ErrorItem, items_fix
 from worldmock.life.guidance import Refusal, items_refusal, refusal_for_code
 from worldmock.life.action_evidence import (_activity_terminal_draft, _activity_terminal_result,
                                             _terminal_action_records)
+from worldmock.life.content_select import next_episode
 from worldmock.life.models import (CONCLUDABLE_TERMINAL_STATUSES, ActivityKind, ActivityState, ActivityStatus,
                                    PendingAction, WorldState, active_activities)
 from worldmock.life.name_resolution import near_names
@@ -310,10 +311,21 @@ def _pause_refusal(context: Context, activity: ActivityState) -> Refusal | None:
 
 
 def _unpausable_refusal(context: Context, activity: ActivityState) -> Refusal:
-    """@brief 不能暂停的活动按第一条不成立的条件拒绝：不在进行中；是交互活动而离计划结束不足三分钟；其余种类。"""
+    """@brief 不能暂停的活动按第一条不成立的条件拒绝：不在进行中；是交互活动而离计划结束不足三分钟；其余种类。
+
+    离计划结束不足三分钟的交互活动有两种文字：做完这一集还会接下一集时（_continues_with_next_episode），原因说这一集
+    快完了、之后接着做下一集，下一步与改法是结束它或让它继续；不再接续时原因说这件事快做完了，下一步与改法是结束它或
+    等它做完。
+    """
     if activity.status != ActivityStatus.ACTIVE:
         return refusal_for_code("ACTION_REQUEST_INVALID")
     name = context.activity_names.get(activity.activity_id, activity.name)
+    if activity.kind == ActivityKind.INTERACT and _continues_with_next_episode(context, activity):
+        return Refusal("ACTIVITY_PAUSE_UNAVAILABLE",
+                       f"{name} cannot be paused while its current episode ends in under three minutes; "
+                       "it then continues with the next episode.",
+                       f"Conclude {name}, or keep it running.",
+                       fix="Conclude this activity or keep it running instead.")
     if activity.kind == ActivityKind.INTERACT:
         return Refusal("ACTIVITY_PAUSE_UNAVAILABLE",
                        f"The activity {name} ends in under three minutes and cannot be paused.",
@@ -322,6 +334,20 @@ def _unpausable_refusal(context: Context, activity: ActivityState) -> Refusal:
         return Refusal("ACTIVITY_PAUSE_UNAVAILABLE", f"The activity {name} cannot be paused while travelling.",
                        f"Conclude {name}.")
     return refusal_for_code("ACTIVITY_PAUSE_UNAVAILABLE")
+
+
+def _continues_with_next_episode(context: Context, activity: ActivityState) -> bool:
+    """@brief 交互活动做完当前这一集后是否接着做下一集：与系列接续同一个判定 content_select.next_episode。
+
+    轮数取当前内容此刻的完成轮数（没有进度记录按 0 算）加一，即这一集做完之后的完成轮数，与接续时传入的是同一个数。
+    独立内容、系列最后一集、后面各集轮数都不低于这个数的系列都不接续。读准入上下文的环境输入与人物此刻的状态。
+    """
+    catalog = context.inputs.catalog
+    agent = context.state.agents[activity.agent_id]
+    content = catalog.contents[activity.data["content_id"]]
+    progress = agent.content_progress.get(content.content_id)
+    rounds = (0 if progress is None else progress.completed_rounds) + 1
+    return next_episode(catalog, agent, content, rounds) is not None
 
 
 def _conclude_refusal(context: Context, activity: ActivityState) -> Refusal | None:
