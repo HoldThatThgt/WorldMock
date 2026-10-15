@@ -40,6 +40,12 @@ def deterministic_day_runtime(monkeypatch) -> None:
     monkeypatch.setattr(person, "datetime", _RecordedTime)
 
 
+#: 行为签名只屏蔽的代码身份字段（运行清单与导出清单里冻结的运行清单）。
+CODE_IDENTITY_FIELDS = ("code_sha256", "git_commit", "git_dirty")
+#: 行为签名里代码身份的占位。
+CODE_IDENTITY_MASK = "<code-identity>"
+
+
 def _json(value) -> bytes:
     """@brief 规范化字典顺序，不删除任何业务字段。"""
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -53,13 +59,35 @@ def _sha(content: bytes) -> str:
 class DayBaseline:
     """@brief 将路径和由路径派生的摘要一致替换，所有内容及因果引用保持可比较。"""
 
-    def __init__(self, case: Path, project: Path):
-        """@brief 绑定实际脚本工件与源项目，映射只来自真实输入或真实资产。"""
+    def __init__(self, case: Path, project: Path, mask_code_identity: bool = False):
+        """@brief 绑定实际脚本工件与源项目，映射只来自真实输入或真实资产。
+
+        @param mask_code_identity 为真时得到行为签名：只把代码身份换成占位，其余与绑定代码身份的签名相同。
+        """
         self.case = case.resolve()
         self.project = project.resolve()
+        self.mask_code_identity = mask_code_identity
+        self.code_sha256 = None
         self.hashes = {}
         self.assets = {}
         self.input_assets = set()
+
+    def _code_masked(self, manifest: dict) -> dict:
+        """@brief 行为签名时屏蔽运行清单的代码身份，其余原样。"""
+        masked = dict(manifest)
+        if self.mask_code_identity:
+            for field in CODE_IDENTITY_FIELDS:
+                if field in masked:
+                    masked[field] = CODE_IDENTITY_MASK
+        return masked
+
+    def _quality_content(self, raw: bytes) -> bytes:
+        """@brief 规范化质量报告；行为签名时以本侧代码摘要为键的计划指标改用占位键。"""
+        report = json.loads(raw)
+        metrics = report.get("day_plan_metrics")
+        if self.mask_code_identity and isinstance(metrics, dict) and self.code_sha256 in metrics:
+            metrics[CODE_IDENTITY_MASK] = metrics.pop(self.code_sha256)
+        return _json(self.normalize(report))
 
     def normalize(self, value):
         """@brief 递归替换确定的机器路径及其派生摘要，不屏蔽未知字段。"""
@@ -108,6 +136,7 @@ class DayBaseline:
         manifest = json.loads(manifest_raw)
         assert manifest["schema_version"] == 6, "baseline run manifest is not the current format"
         assert "scenario_sha256" not in manifest, "baseline run manifest contains a retired input identity"
+        self.code_sha256 = manifest.get("code_sha256")
         validate_frozen_environment(self.case / "run", manifest, [], [])
         self.input_assets = {reference["sha256"] for reference in manifest["environment_assets"].values()}
         for path in sorted((self.case / "run/assets").iterdir()):
@@ -116,7 +145,7 @@ class DayBaseline:
             normalized = self.content(raw)
             self.hashes[path.name] = _sha(normalized)
             self.assets[path.name] = raw, normalized
-        normalized_manifest = _sha(_json(self.normalize(manifest)))
+        normalized_manifest = _sha(_json(self.normalize(self._code_masked(manifest))))
         self.hashes[_sha(manifest_raw)] = normalized_manifest
         self.hashes[_sha(_json(manifest))] = normalized_manifest
         checkpoints = []
@@ -139,13 +168,15 @@ class DayBaseline:
                 continue
             relative = path.relative_to(root).as_posix()
             raw = path.read_bytes()
-            normalized = self.content(raw, relative)
+            normalized = self._quality_content(raw) if relative == "quality.json" else self.content(raw, relative)
             self.hashes[_sha(raw)] = _sha(normalized)
             normalized_bytes[relative] = normalized
             if relative.startswith("assets/"):
                 relative = "assets/" + self.hashes[path.name]
             artifacts[relative] = _sha(normalized)
         manifest = self.normalize(json.loads((root / "manifest.json").read_text(encoding="utf-8")))
+        if "frozen_run_manifest" in manifest:
+            manifest["frozen_run_manifest"] = self._code_masked(manifest["frozen_run_manifest"])
         if "quality_report" in manifest:
             manifest["quality_report"]["size_bytes"] = len(normalized_bytes["quality.json"])
         for entry in manifest.get("timeline", []):
@@ -158,3 +189,8 @@ class DayBaseline:
 def day_baseline_signature(case: Path, project: Path) -> dict:
     """@brief 从真实运行工件构造完整日可重复的行为摘要。"""
     return DayBaseline(case, project).signature()
+
+
+def behaviour_signature(case: Path, project: Path) -> dict:
+    """@brief 只屏蔽代码身份的完整日行为签名。"""
+    return DayBaseline(case, project, mask_code_identity=True).signature()

@@ -92,6 +92,57 @@ jobs:
         run: |
           printf '### %s tests: %s\n\nTested commit: %s\n\nSee the **tests-%s** artifact for JUnit results and logs.\n' "$TEST_LAYER" "$JOB_STATUS" "$GITHUB_SHA" "$TEST_LAYER" >> "$GITHUB_STEP_SUMMARY"
 
+  complete-day-behaviour:
+    name: Complete-day behaviour against the base
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: .python-version
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install runtime components
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends fonts-noto-cjk libatomic1
+          python scripts/bootstrap.py --profile release
+      - name: Check out the base with its own AS2 source
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git worktree add --detach .work/complete-day-base "$BASE_SHA"
+          cd .work/complete-day-base
+          ../../.venv/bin/python -c "from pathlib import Path; from scripts.bootstrap_sources import restore_as2; restore_as2(Path('.'))"
+      - name: Compare the two scripted complete days
+        shell: bash
+        run: |
+          set -o pipefail
+          if [ ! -f .work/complete-day-base/tests/life/behaviour_day.py ]; then
+            echo 'Base has no behaviour recorder; nothing to compare' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          status=0
+          .venv/bin/python scripts/compare_complete_days.py --base-root .work/complete-day-base --head-root . \
+            --work .work/complete-day-behaviour 2>&1 | tee .work/complete-day-behaviour.log || status=$?
+          tail -n 1 .work/complete-day-behaviour.log >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      - name: Save the comparison
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: complete-day-behaviour
+          path: .work/complete-day-behaviour/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 30
+
   coverage:
     name: Combined coverage
     needs: tests

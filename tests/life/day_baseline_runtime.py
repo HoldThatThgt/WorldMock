@@ -1,5 +1,6 @@
 """使用真实环境与完整日结算生成可重复的活动、履约和回调基线。"""
 
+from collections.abc import Callable
 from datetime import datetime, timedelta
 import json
 from pathlib import Path
@@ -96,7 +97,9 @@ def _callback_day(engine):
     assert engine.context.state.agents[1].callback_states["driving_days"] == 3
 
 
-def record_complete_day(monkeypatch, case: Path, project: Path, kind: str) -> dict:
+def record_complete_day(monkeypatch, case: Path, project: Path, kind: str,
+                        signature: Callable[[Path, Path], dict] = day_baseline_signature) -> dict:
+    """@brief 录一份脚本化完整日并返回其签名；signature 缺省为绑定代码身份的签名，行为比较传行为签名。"""
     deterministic_day_runtime(monkeypatch)
     case.mkdir(parents=True)
     inputs = _environment(case, kind)
@@ -116,6 +119,6 @@ def record_complete_day(monkeypatch, case: Path, project: Path, kind: str) -> di
         assert exported["experiment_completed"]
         return {"persona_sha256": inputs.persona_sha256, "config_sha256": inputs.config_sha256,
                 "environment_identity": environment_identity(inputs), "seed": inputs.config.seed,
-                "summary": day_baseline_signature(case, project)}
+                "summary": signature(case, project)}
     finally:
         engine.close()

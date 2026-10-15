@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.dayrun_baseline import DayBaseline, day_baseline_signature
+from tests.dayrun_baseline import CODE_IDENTITY_MASK, DayBaseline, behaviour_signature, day_baseline_signature
 from worldmock.errors import IntegrityError
 
 
@@ -21,8 +21,12 @@ def _digest(content):
     return hashlib.sha256(content).hexdigest()
 
 
-def _case(root: Path):
-    """@brief 创建带完整哈希和检查点的最小独立运行工件。"""
+#: 最小运行工件里的代码身份与提示、工具指纹。
+CODE, PROMPT, TOOLS = "c" * 64, "d" * 64, "e" * 64
+
+
+def _case(root: Path, code: str = CODE, commit: str = "f" * 40, model: dict | None = None, amount: int = 2):
+    """@brief 创建带完整哈希、检查点、代码身份与以代码摘要为键的质量报告的最小独立运行工件。"""
     from tests.integration.runtime.current_contract_fixtures import inputs
     from worldmock.environment import environment_identity
     from worldmock.footprints.assets import AssetStore
@@ -32,18 +36,23 @@ def _case(root: Path):
         (root / relative).mkdir(parents=True)
     frozen = inputs()
     assets = _freeze_environment(frozen, AssetStore(root / "run/assets"))
+    identity = model or {"prompt_sha256": PROMPT, "tool_schema_sha256": TOOLS}
     manifest = _bytes({"schema_version": 6, "persona_sha256": frozen.persona_sha256,
                        "config_sha256": frozen.config_sha256, "environment_identity": environment_identity(frozen),
-                       "environment_assets": assets, "run_id": "day-test"})
+                       "environment_assets": assets, "run_id": "day-test", "code_sha256": code,
+                       "git_commit": commit, "git_dirty": False, "model_identity": identity})
     (root / "run/manifest.json").write_bytes(manifest)
     body = _bytes({"manifest_sha256": _digest(manifest), "state": {"balance": 10}, "snapshots": {}})
     with sqlite3.connect(root / "run/footprints.sqlite") as connection:
         connection.execute("CREATE TABLE checkpoints (body TEXT, record_sha256 TEXT)")
         connection.execute("INSERT INTO checkpoints VALUES (?,?)", (body.decode(), _digest(body)))
-    events = _bytes({"event_id": "fact", "caused_by": [], "amount": 2}) + b"\n"
+    events = _bytes({"event_id": "fact", "caused_by": [], "amount": amount}) + b"\n"
     (root / "export/events.jsonl").write_bytes(events)
+    quality = _bytes({"schema_version": 8, "day_plan_metrics": {code: {"block_count": 0}}})
+    (root / "export/quality.json").write_bytes(quality)
     (root / "export/manifest.json").write_bytes(_bytes({"frozen_run_manifest": json.loads(manifest),
-        "artifacts": {"events": {"path": "events.jsonl", "sha256": _digest(events)}}}))
+        "artifacts": {"events": {"path": "events.jsonl", "sha256": _digest(events)}},
+        "quality_report": {"path": "quality.json", "size_bytes": len(quality), "sha256": _digest(quality)}}))
     return root
 
 
@@ -96,3 +105,34 @@ def test_frozen_environment_input_identity_is_authenticated_before_normalizing(t
     path.write_bytes(_bytes(manifest))
     with pytest.raises(IntegrityError):
         day_baseline_signature(case, case)
+
+
+def test_behaviour_signature_ignores_only_code_identity(tmp_path):
+    """@brief 只差代码摘要（清单、冻结清单、检查点里的清单摘要与质量报告的键一致变化）和提交：
+    行为签名相等，绑定代码身份的签名不等。"""
+    first = _case(tmp_path / "first")
+    second = _case(tmp_path / "second", code="0" * 64, commit="1" * 40)
+    assert behaviour_signature(first, first) == behaviour_signature(second, second)
+    assert day_baseline_signature(first, first) != day_baseline_signature(second, second)
+
+
+@pytest.mark.parametrize("change", ["prompt_sha256", "tool_schema_sha256", "amount"])
+def test_behaviour_signature_detects_fingerprint_and_business_changes(tmp_path, change):
+    """@brief 系统文本或工具定义的指纹、业务数额，任何一项变化都让行为签名不等。"""
+    before = _case(tmp_path / "before")
+    if change == "amount":
+        after = _case(tmp_path / "after", amount=3)
+    else:
+        after = _case(tmp_path / "after", model={"prompt_sha256": PROMPT, "tool_schema_sha256": TOOLS,
+                                                 change: "0" * 64})
+    assert behaviour_signature(before, before) != behaviour_signature(after, after)
+
+
+def test_behaviour_signature_keeps_every_other_manifest_field(tmp_path):
+    """@brief 屏蔽只改三项代码身份，其余字段原样；绑定代码身份时不改。"""
+    manifest = {"code_sha256": CODE, "git_commit": "f" * 40, "git_dirty": True, "run_id": "day-test",
+                "model_identity": {"prompt_sha256": PROMPT}, "persona_sha256": "a" * 64}
+    masked = DayBaseline(tmp_path, tmp_path, mask_code_identity=True)._code_masked(manifest)
+    assert {key for key in manifest if masked[key] != manifest[key]} == {"code_sha256", "git_commit", "git_dirty"}
+    assert {masked[key] for key in ("code_sha256", "git_commit", "git_dirty")} == {CODE_IDENTITY_MASK}
+    assert DayBaseline(tmp_path, tmp_path)._code_masked(manifest) == manifest

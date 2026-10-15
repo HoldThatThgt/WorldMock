@@ -463,3 +463,17 @@ app 的开关、订单通知和地点停留只进事件与这些工件，不进�
 `app_touch` 只剩回调足迹：`rule_id` 是冻结的 `catalog/callbacks.jsonl` 里登记的一条回调规则的身份，`step` 只取 `browse` 或 `payment`；
 没有冻结这份文件的运行不得有 `app_touch`。规则身份没有登记、或步骤不在这两个值之内，都报 `App touch step disagrees with its source`。
 坏素材或投影拒绝发布，已有正确导出不被半成品覆盖。评估同样先认证输入。查看器不做认证，它怎样读运行目录和冻结的目录素材见「显示写法与检查工具」。
+
+## 运行比对
+
+两次运行是否给了人物同样的经历按记录比对。字段分类只在这里定义，`scripts/compare_runs.py` 照此实现：
+
+- **身份**：事件的 `event_id`、`caused_by` 与工具里声明的引用字段，映射到所指事件的序号；检查点身份映射到它的 `checkpoint_created` 事件的序号；运行身份映射到段次序。映射是双射，引用指向别的事件仍然算不同。动作、活动、决策、订单等复合身份含运行身份，照原文比较：它们也是随机流的键，比对的两次运行必须使用同样的运行身份。人物工作区 `MEMORY.md` 已核验经历行里的「来源事件」身份同样映射到事件序号；`memory_updated` 记下的 `MEMORY.md` 摘要（`memory_sha256`、`memory_before_sha256`）随这些身份变化，按首次出现的次序成双射比较，文件内容在每个比较的工作区快照里逐行比较。
+- **壁钟**：只有事件顶层的 `recorded_at` 与 `wall_elapsed_ms`、人物工作区 AGENT.json 的 `initialized_at`、运行清单 `lineage` 各项的 `last_recorded_at` 与 `branched_at`、质量报告 `acceleration` 下的实测墙钟项、按记录时刻定峰谷的估价项与峰时计数、`lineage` 节的停机秒数。嵌套的同名字段是模拟时间（例如记忆层 `earlier_today[].recorded_at`），照常比较。
+- **传输记录**：`model_response` 信封里的 `transport_attempts`（失败发送的壁钟毫秒数与传输错误），不进任何提示。
+- **丢弃尾段**：`lineage` 各项描述父运行越过重启点走了多远、为何停下（`last_event_seq`、`last_event_time`、`discarded_events`、`end_reason`、`end_error`）及质量报告 `lineage` 节里对应的项。重放以拒绝重启点之后的第一次调用重现重启，来源那一段可能是被杀或传输失败，所以这几项在来源与重放之间本来就不同；丢弃尾段本身不比较。
+- **运行位置与代码身份**：运行清单与人物工作区里的模型服务地址（`base_url`、`metadata_url`），人物工作区 AGENT.json 的 `workspace.root`（工作区所在目录），以及 `code_sha256`、`git_commit`、`git_dirty`。`config_sha256` 不屏蔽：去掉两项地址后按 config.toml 原文重算摘要，再比较。
+- **其余一律是事实**，逐值比较。
+- **记录形式**的变化只能用声明的重建规则对齐。规则只用于没有任何提示、决策、准入或导出路径读取的记录形式，每条写明所依据的读取者检索；观察、绑定、动作事件、结算事件、记忆写入、模型请求与世界事实不能重建、投影或过滤，也没有按事件种类过滤的规则。
+
+模型证据是录音应答运行的录音带：`model_request.data.request` 与 `model_response.data.response` 完整保存提供商原文，含推理，不得裁剪。

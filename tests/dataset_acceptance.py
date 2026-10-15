@@ -760,4 +760,63 @@ MUTATIONS = (
          "tests/integration/life/test_closed_app_state.py"
          "::test_clock_in_app_state_names_todays_hours_or_the_next_opening")),
     # ---- 地点与 app 轨道（C）结束 ----
+    # ---- 证明工具（长时运行成本第八章）----
+    SourceMutation("cassette_compares_messages_only", "scripts.recorded_response_run::first_difference",
+        "fields = sorted(key for key in set(expected) | set(received) if _differs(expected, received, key))",
+        'fields = sorted(key for key in {"messages"} if _differs(expected, received, key))',
+        ("tests/unit/engineering/test_recorded_response_run.py"
+         "::test_a_changed_tool_schema_is_a_divergence_named_tools",
+         "tests/unit/engineering/test_recorded_response_run.py::test_an_extra_request_field_is_a_divergence")),
+    SourceMutation("restart_refusal_advances_the_cassette", "scripts.recorded_response_run::Cassette._refuse_restart",
+        "self.refused.add(boundary.segment)", "self.refused.add(boundary.segment); self.next_call += 1",
+        ("tests/unit/engineering/test_recorded_response_run.py"
+         "::test_planned_restart_refuses_once_without_advancing",)),
+    SourceMutation("pre_restart_call_matched_against_the_redone_call",
+        "scripts.recorded_response_run::Cassette._pre_restart_expected",
+        "if boundary.discarded_request is not None:", "if False:",
+        ("tests/unit/engineering/test_recorded_response_run.py"
+         "::test_pre_restart_call_is_matched_against_the_discarded_request",)),
+    SourceMutation("dummy_credential_not_checked", "scripts.recorded_response_run::Cassette.answer",
+        'if headers.get("Authorization") != f"Bearer {DUMMY_CREDENTIAL}":', "if False:",
+        ("tests/unit/engineering/test_recorded_response_run.py"
+         "::test_a_credential_other_than_the_dummy_is_refused_and_not_logged",)),
+    SourceMutation("child_keeps_real_credentials", "scripts.recorded_response_run::child_environment",
+        "variables = {name: value for name, value in parent.items() if not _secret_name(name) and not "
+        "_routing_name(name)}", "variables = dict(parent)",
+        ("tests/unit/engineering/test_recorded_response_run.py"
+         "::test_child_environment_drops_credentials_and_proxies",)),
+    SourceMutation("url_rewrite_unchecked", "scripts.recorded_response_run::rewrite_model_urls",
+        "if tomllib.loads(rewritten) != expected:", "if False:",
+        ("tests/unit/engineering/test_recorded_response_run.py"
+         "::test_url_rewrite_refuses_a_config_whose_url_is_written_differently",)),
+    SourceMutation("run_identity_drawn_twice", "scripts.recorded_response_child::one_shot_uuid",
+        "if drawn:", "if False:",
+        ("tests/unit/engineering/test_recorded_response_run.py::test_one_shot_uuid_returns_the_run_id_once",)),
+    SourceMutation("wall_clock_masked_by_key_name", "scripts.compare_runs::mask_paths",
+        "if path in paths:", 'if path.rsplit(".", 1)[-1] in {item.rsplit(".", 1)[-1] for item in paths}:',
+        ("tests/unit/engineering/test_compare_runs.py::test_nested_recorded_at_is_compared",)),
+    SourceMutation("event_wall_clock_not_masked", "scripts.compare_runs::normalize_event",
+        "event = mask_paths(event, EVENT_MASKS)", "event = dict(event)",
+        ("tests/unit/engineering/test_compare_runs.py"
+         "::test_event_and_checkpoint_ids_and_wall_clock_are_mapped_or_masked",)),
+    SourceMutation("unknown_reference_not_reported", "scripts.compare_runs::IdMaps.normalize",
+        "if ordinal is None:", "if False:",
+        ("tests/unit/engineering/test_compare_runs.py::test_a_reference_to_an_unknown_event_is_a_problem",)),
+    SourceMutation("request_copy_not_rebuilt", "scripts.compare_runs::apply_request_copy",
+        'data["request"] = request', 'data["request"] = None',
+        ("tests/unit/engineering/test_compare_runs.py::test_request_copy_rule_rebuilds_the_response_request",)),
+    SourceMutation("rule_on_decision_inputs_accepted", "scripts.compare_runs::require_allowed",
+        "if (rule.scope, rule.path) not in ALLOWED_RULE_TARGETS:", "if False:",
+        ("tests/unit/engineering/test_compare_runs.py::test_a_rule_on_decision_inputs_is_refused",)),
+    SourceMutation("pruned_actions_projection_copies_the_head", "scripts.compare_runs::project_processed_actions",
+        "projected = {key: base_actions[key] for key in head_actions if key in base_actions}",
+        "projected = dict(head_actions)",
+        ("tests/unit/engineering/test_compare_runs.py::test_processed_actions_rule_rejects_a_changed_entry",)),
+    SourceMutation("pruned_actions_required_keys_unchecked", "scripts.compare_runs::project_processed_actions",
+        "missing = sorted(key for key in required if key not in head_actions)", "missing = []",
+        ("tests/unit/engineering/test_compare_runs.py::test_processed_actions_rule_requires_every_readable_entry",)),
+    SourceMutation("version_rule_accepts_any_value", "scripts.compare_runs::apply_value_rule",
+        "if (base_value, head_value) != (rule.base_value, rule.head_value):", "if False:",
+        ("tests/unit/engineering/test_compare_runs.py::test_version_rule_accepts_only_the_declared_values",)),
+    # ---- 证明工具（长时运行成本第八章）结束 ----
 )
