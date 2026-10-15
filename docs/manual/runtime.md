@@ -69,8 +69,10 @@ start_side_activity  {"action": "interact", "target": ["哔哩哔哩"], "prefer"
 没有当场作答、不花时间的世界查询工具；记忆查询和回看任务仍然当场完成。
 用内容 app 时看到什么由环境选择，功能 app 由环境执行，人物按真实活动名称报告、暂停与结束。
 工具字段、名称解析、槽位与提醒规则见[模拟引擎](../design/04-simulation-engine.md)。
-实际模型请求和事件可在运行查看器（tools/run-viewer.html）中核对：把整个运行目录或导出目录拖进去，对象名称取自其中冻结的环境目录；
-只拖 footprints.sqlite 一个文件时对象名称显示为「名称缺失」。分发查看器时带上同目录的全部 run-viewer 脚本和样式文件。
+实际模型请求和事件可在运行查看器（tools/run-viewer.html）中核对：先用 worldmock export 导出（运行中或中途停下的运行加
+--cutoff 导出到某个事件），再把导出目录拖进去；查看器在页面里从 events.jsonl 建索引，拖放区显示读取进度。对象名称取自
+导出冻结的环境目录；人物的 MEMORY.md 总结要同时拖入运行目录。SQL 控制台查的是这个索引，三类大事件的正文已裁剪，完整的行用
+sqlite3 或 scripts/inspect_run.py 读。分发查看器时带上同目录的全部 run-viewer 脚本和样式文件。
 人物可见范围见[人物设计](../design/06-agent.md)。
 
 ## 从检查点创建分支

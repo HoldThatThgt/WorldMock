@@ -3,7 +3,7 @@
 /** @brief 将模型请求的按需读取、选择和渲染接入查看器。 */
 const ContextView = {};
 {
-  const state = {items:null, seq:null, stage:'all', view:'structure', block:null, rule:null};
+  const state = {items:null, seq:null, stage:'all', view:'structure', block:null, rule:null, ticket:0};
   const stages = {all:'全部调用', action:'选择动作', other:'其他调用'};
   const views = {structure:'结构与填充', growth:'增长与退出', comparison:'前后输入对照'};
   const statusNames = {added:'新增', changed:'内容变化', unchanged:'未变', removed:'退出当前输入'};
@@ -29,14 +29,14 @@ const ContextView = {};
     return state.items;
   }
 
-  /** @brief 通过请求事件的因果身份查找响应，不猜测相邻调用。 */
-  function responseFor(item) {
+  /** @brief 通过请求事件的因果身份查找响应，不猜测相邻调用；响应全文按字节区间读出。 */
+  async function responseFor(item) {
     const rows = q(`SELECT events.event_seq AS seq FROM events, json_each(events.body,'$.caused_by') AS cause
       WHERE json_extract(events.body,'$.event_type')='model_response' AND cause.value=?
       ORDER BY events.event_seq`, [item.id]);
     if (!rows.length) return null;
     if (rows.length !== 1) throw new Error('Multiple model responses reference one request');
-    return {seq:rows[0].seq, event:JSON.parse(fetchBody(rows[0].seq))};
+    return {seq:rows[0].seq, event:JSON.parse(await fetchBody(rows[0].seq))};
   }
 
   /** @brief 一次决策的首个请求才可能是续接：前序 assistant 的每个 tool_call 身份在本人更早的模型响应中找来源决策。 */
@@ -55,17 +55,17 @@ const ContextView = {};
     return {sources};
   }
 
-  /** @brief 读取选中请求及同人物同阶段的前一次输入；决策首个请求多于两条消息时按续接解析。 */
-  function read(seq) {
+  /** @brief 读取选中请求及同人物同阶段的前一次输入，全文按字节区间读出；决策首个请求多于两条消息时按续接解析。 */
+  async function read(seq) {
     const item = index().find(row => row.seq === seq);
     if (!item) throw new Error('Model request is not present in the loaded run');
     const previous = index().filter(row => row.seq < seq && row.agent === item.agent &&
       row.stage === item.stage).at(-1);
-    const event = JSON.parse(fetchBody(seq));
+    const event = JSON.parse(await fetchBody(seq));
     const current = ViewerContext.parseRequest(event, continuationFor(item, event));
-    const prior = previous ? JSON.parse(fetchBody(previous.seq)) : null;
+    const prior = previous ? JSON.parse(await fetchBody(previous.seq)) : null;
     const before = prior ? ViewerContext.parseRequest(prior, continuationFor(previous, prior)) : null;
-    return {item, event, current, previous, before, response:responseFor(item),
+    return {item, event, current, previous, before, response:await responseFor(item),
       changes:before ? ViewerContext.compare(current.blocks, before.blocks) : []};
   }
 
@@ -203,40 +203,43 @@ const ContextView = {};
 
   /** @brief 绑定控件到当前请求集合，按钮不越过筛选后的边界。 */
   function bindControls(items, model) {
-    $('#ctx-stage').onchange = event => {state.stage = event.target.value; state.seq = null; render();};
-    $('#ctx-request').onchange = event => {state.seq = Number(event.target.value); render();};
-    $('#ctx-view').onchange = event => {state.view = event.target.value; render();};
+    $('#ctx-stage').onchange = event => {state.stage = event.target.value; state.seq = null; return render();};
+    $('#ctx-request').onchange = event => {state.seq = Number(event.target.value); return render();};
+    $('#ctx-view').onchange = event => {state.view = event.target.value; return render();};
     const position = items.findIndex(item => item.seq === state.seq);
     $('#ctx-prev').disabled = position <= 0;
     $('#ctx-next').disabled = position < 0 || position >= items.length - 1;
-    $('#ctx-prev').onclick = () => {state.seq = items[position - 1].seq; render();};
-    $('#ctx-next').onclick = () => {state.seq = items[position + 1].seq; render();};
+    $('#ctx-prev').onclick = () => {state.seq = items[position - 1].seq; return render();};
+    $('#ctx-next').onclick = () => {state.seq = items[position + 1].seq; return render();};
     $$('#ctx-body [data-context-block]').forEach(button => {
       button.onclick = () => {
         state.block = button.dataset.contextBlock;
         state.rule = model.current.blocks.find(block => block.id === state.block)?.rule || null;
-        render();
+        return render();
       };
     });
     if (state.view === 'growth' && model) {
-      $('#ctx-rule').onchange = event => {state.rule = event.target.value; render();};
+      $('#ctx-rule').onchange = event => {state.rule = event.target.value; return render();};
     }
     bindLayer(model?.current.blocks.find(block => block.id === state.block));
   }
 
-  /** @brief 应用人物与阶段筛选，只读取当前与对照请求全文。 */
-  function render() {
+  /** @brief 应用人物与阶段筛选，只读取当前与对照请求全文；读全文期间又发起的渲染作废本次结果。 */
+  async function render() {
     const root = $('#ctx-body');
+    const ticket = ++state.ticket;
     try {
       const agent = agentFilterVal();
       const items = index().filter(item => (!agent || String(item.agent) === agent) &&
         (state.stage === 'all' || item.stage === state.stage));
       if (!items.some(item => item.seq === state.seq)) state.seq = items[0]?.seq ?? null;
-      const model = state.seq === null ? null : read(state.seq);
+      const model = state.seq === null ? null : await read(state.seq);
+      if (ticket !== state.ticket) return;
       root.innerHTML = controls(items) + (model ? content(model) : '<div class="empty">没有匹配的模型请求。</div>');
       bindControls(items, model);
     } catch (error) {
       console.error('Context viewer failed:', error);
+      if (ticket !== state.ticket) return;
       root.innerHTML = `<div role="alert">Context viewer failed: ${esc(error.message)}</div>`;
     }
   }
@@ -247,13 +250,13 @@ const ContextView = {};
     if (!item) throw new Error('Model request is not present in the loaded run');
     $('#agent-filter').value = item.agent === null ? '' : String(item.agent);
     state.seq = seq; state.stage = 'all'; state.view = 'structure'; state.block = null; state.rule = null;
-    switchView('context');
+    return switchView('context');
   }
 
   /** @brief 更换运行时清除全部上下文状态。 */
   function reset() {
     state.items = null; state.seq = null; state.stage = 'all'; state.view = 'structure';
-    state.block = null; state.rule = null;
+    state.block = null; state.rule = null; state.ticket += 1;
   }
 
   Object.assign(ContextView, {index, read, render, select, reset});
