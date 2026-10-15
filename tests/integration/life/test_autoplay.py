@@ -9,13 +9,14 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from tests.life.conftest import (
-    advance_next, conclude_request, context, pause_request, report_request, sleep, stage_day_plan, target_tools, travel,
-    use_app,
+    advance_next, conclude_request, context, do_at, pause_request, report_request, sleep, stage_day_plan,
+    target_tools, travel, use_app,
 )
 from tests.life.environment_inputs import (
-    bilibili_series_rows, copy_environment, office_stretch_environment, second_series_environment, set_content,
+    bilibili_series_rows, copy_environment, meal_environment, office_stretch_environment, second_series_environment,
+    set_content,
 )
-from tests.life.environment_runtime import act, act_group, events, settle_decision, until_ended
+from tests.life.environment_runtime import act, act_group, events, one_hour, run_to_end, settle_decision, until_ended
 from tests.life.phone_records import label_where
 from tests.life.prerequisite_inputs import OFFICE, add_rows, dingtalk_environment, example_window
 from worldmock.life.admission import present_location
@@ -167,6 +168,24 @@ def test_the_next_episode_comes_first_even_when_it_is_not_pushable(engine_factor
     assert (activity.status, activity.data["content_id"], activity.data["draw_index"]) == ("active", "c-drama-2", 1)
 
 
+def test_a_location_series_counts_its_episodes_in_draw_index(engine_factory, tmp_path):
+    """在家做三集的「做晚饭」：第一集《备菜做饭》做完的那一秒同一项活动接上第二集《吃晚饭》，接上一集也把 draw_index
+    加一，成为 1，仍在进行。"""
+    engine = engine_factory(meal_environment(tmp_path / "meal"))
+    _, dinner = act(engine, "dinner", do_at("家", "做晚饭"))
+    assert dinner.status == "in_progress", dinner.error_code
+    activity = engine.context.state.activities[dinner.activity_id]
+    assert (activity.data["app_id"], activity.data["content_id"], activity.data["draw_index"]) == (
+        None, "dinner-1-cook", 0)
+    while engine.context.state.activities[dinner.activity_id].data["content_id"] == "dinner-1-cook":
+        if engine.scheduling_state().ready_agent_ids:
+            settle_decision(engine, f"report-{engine.context.state.current_time}")
+        else:
+            advance_next(engine)
+    activity = engine.context.state.activities[dinner.activity_id]
+    assert (activity.status, activity.data["content_id"], activity.data["draw_index"]) == ("active", "dinner-2-eat", 1)
+
+
 def _open_and_pause(engine, prefix: str, content_id: str) -> str:
     """此刻打开哔哩哔哩（打开顺序挑中 content_id），五分钟后的决策里暂停它；返回活动身份。"""
     activity_id = _open(engine, "哔哩哔哩", _opening(engine, "bilibili", prefix, content_id))
@@ -179,8 +198,9 @@ def _open_and_pause(engine, prefix: str, content_id: str) -> str:
 
 @pytest.mark.parametrize("held", ["concluded", "still_paused"])
 def test_the_last_episode_continues_with_another_started_series(engine_factory, tmp_path, held):
-    """「测试番剧」最后一集放完：接这个 app 里开始了没看完的另一部「测试剧集」，从保存的第 300 秒接着放，缓解档位换成
-    它的；那部剧还停在一项暂停的使用里时被预留，这次使用停下。"""
+    """「测试番剧」最后一集放完：接这个 app 里开始了没看完的另一部「测试剧集」，从保存的第 300 秒接着放（播放位置是
+    300 秒，08:50 放完第一集，它的进度是完成一轮、位置归零），缓解档位换成它的；那部剧还停在一项暂停的使用里时被预留，
+    这次使用停下。"""
     engine = engine_factory(second_series_environment(tmp_path / "two-series"), mutate=_every(300))
     stage_day_plan(engine, submitted=True)
     drama = _open_and_pause(engine, "drama", "c-drama-1")
@@ -198,6 +218,10 @@ def test_the_last_episode_continues_with_another_started_series(engine_factory, 
         assert (activity.status, activity.data["content_id"], activity.data["draw_index"]) == ("active", "c-drama-1", 2)
         assert activity.data["start_position_seconds"] == 300
         assert activity.data["relaxation_relief_per_hour"] == 0.3
+        assert (activity.media_position_seconds, activity.planned_end_at) == (300, _at(8, 50))
+        _report_until(engine, _at(8, 50))
+        progress = engine.context.state.agents[1].content_progress["c-drama-1"]
+        assert (progress.completed_rounds, progress.position_seconds) == (1, 0)
     else:
         assert (activity.status, activity.ended_at, activity.data["content_id"]) == ("completed", _at(8, 25), "c-anime-2")
 
@@ -427,3 +451,20 @@ def test_progress_events_carry_the_played_count_and_other_snapshots_the_list(eng
     (lifecycle,) = [row for row in events(engine, "environment_event")
                     if row.data.get("kind") == "activity_concluded" and row.activity_id == activity_id]
     assert lifecycle.data["activity"]["data"]["played"] == played
+
+
+def test_a_use_truncated_at_the_cutoff_keeps_the_full_played_list(engine_factory):
+    """运行只到 09:00：08:00 打开抖音，放完《测试长视频》《测试短视频》，第三条还在放时运行截止，这次使用被截断；截断的
+    activity_truncated 事件的快照带完整的 played（与世界状态相同），不带条数 played_count。"""
+    engine = engine_factory(mutate=one_hour)
+    stage_day_plan(engine, submitted=True)
+    activity_id = _open(engine, "抖音", "douyin")
+    run_to_end(engine)
+    truncated = engine.context.state.activities[activity_id]
+    assert (truncated.status, truncated.ended_at) == ("truncated", _at(9))
+    played = truncated.data["played"]
+    assert [item["content_id"] for item in played] == ["c-long", "c-short"]
+    (record,) = [row for row in events(engine, "environment_event")
+                 if row.data.get("kind") == "activity_truncated" and row.activity_id == activity_id]
+    assert record.data["activity"]["data"]["played"] == played
+    assert "played_count" not in record.data["activity"]["data"]

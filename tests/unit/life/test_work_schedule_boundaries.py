@@ -127,3 +127,14 @@ def test_tomorrow_is_the_next_local_date_with_its_weekday_and_day_kind(moment, d
     schedule = _holiday_schedule() if declared else None
     assert tomorrow(schedule, int(moment.timestamp()), _ZONE, {}) == expected
     assert WEEKDAY_NAMES == ("星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日")
+
+
+@pytest.mark.parametrize("zone,moment,expected", [
+    ("America/New_York", datetime(2026, 3, 7, 23, 30), {"date": "2026-03-08", "weekday": "星期日", "day": "休息日"}),
+    ("Europe/Berlin", datetime(2026, 3, 28, 23, 30), {"date": "2026-03-29", "weekday": "星期日", "day": "休息日"}),
+], ids=["new-york-spring-forward", "berlin-spring-forward"])
+def test_tomorrow_adds_a_calendar_day_across_a_daylight_saving_change(zone, moment, expected):
+    """夏令时：加一天是在本地日期上加，不在时刻上加 86,400 秒。夏令时开始那一夜的前一晚 23:30，明天是下一个本地日
+    （星期日、休息日）；那一天只有 23 小时，在时刻上加 86,400 秒会落到再下一天（星期一）。"""
+    now = int(moment.replace(tzinfo=ZoneInfo(zone)).timestamp())
+    assert tomorrow(_holiday_schedule(), now, zone, {}) == expected

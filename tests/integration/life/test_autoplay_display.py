@@ -20,11 +20,12 @@ from tests.life.conftest import (
     SIDE_TOOL, activity_name, advance_until_ready, conclude_request, do_at, pause_request, progress_calls,
     report_request, target_actions, tool_targets, travel, use_app,
 )
-from tests.life.environment_inputs import five_episode_environment
+from tests.life.environment_inputs import catalog_rows, five_episode_environment, meal_environment, write_catalog_rows
 from tests.life.environment_runtime import (
     act, conclude_app_use, events, every_five_minutes, observe_only, one_hour, one_hour_every_five_minutes,
     until_ended,
 )
+from tests.life.prerequisite_inputs import app_content, dingtalk_environment
 from worldmock.footprints.timeline_labels import label_findings
 from worldmock.life.models import RecallTaskSummaryRequest
 from worldmock.life.prompt_schemas import validate_layer
@@ -108,6 +109,29 @@ def test_content_app_row_names_the_first_item_when_the_opening_knows_it(engine_f
     reopened = engine.context.state.activities[again.activity_id]
     assert reopened.data["content_id"] == "c-drama-5" and reopened.data["start_position_seconds"] == 200
     assert reopened.planned_duration_seconds == 200
+
+
+def test_content_app_row_skips_the_item_held_by_a_paused_use(engine_factory):
+    """样例环境每五分钟重估，打开抖音、08:05 暂停：停在半截的那一条被暂停的使用预留着，此刻打开不会先放它，
+    抖音一行仍写「每条约 2 分钟–约 40 分钟」，不写「先放的一条」。"""
+    engine = engine_factory(mutate=one_hour_every_five_minutes)
+    _, opened = act(engine, "clips", use_app("抖音"))
+    assert opened.status == "in_progress", opened.error_code
+    assert advance_until_ready(engine) and engine.context.state.current_time == _at(8, 5)
+    _, paused = act(engine, "pause", pause_request(activity_name(engine, opened.activity_id)), "pause_activity")
+    assert paused.status == "completed", paused.error_code
+    held = engine.context.state.activities[opened.activity_id].data["content_id"]
+    assert engine.context.state.agents[1].content_progress[held].position_seconds > 0
+    observed = observe_only(engine, "paused")
+    assert target_actions(observed, "抖音")["interact"]["duration"] == "每条约 2 分钟–约 40 分钟"
+
+
+def test_content_app_row_compares_lengths_in_seconds(engine_factory, tmp_path):
+    """钉钉副本只有 100 秒与 110 秒两条（短语都是「约 2 分钟」）：按秒比较不等，仍写成范围「每条约 2 分钟–约 2 分钟」。"""
+    root = dingtalk_environment(tmp_path / "pair", app_content("dingtalk-a", "甲", duration_seconds=100),
+                                app_content("dingtalk-b", "乙", duration_seconds=110))
+    engine = engine_factory(root)
+    assert target_actions(observe_only(engine, "home"), "钉钉")["interact"]["duration"] == "每条约 2 分钟–约 2 分钟"
 
 
 def test_running_app_use_row_says_time_used_and_the_item_playing(engine_factory, tmp_path):
@@ -197,6 +221,32 @@ def test_settled_sentence_lists_three_titles_the_count_and_the_unfinished_item(e
     memory = observe_only(engine, "road")["memory_layer"]
     found = [line for entry in memory["earlier_today"] for line in entry["settled"] if line.startswith(WATCHING)]
     assert found == [sentence]
+
+
+def test_settled_sentence_of_a_place_series_over_three_episodes_lists_three_and_the_count(engine_factory, tmp_path):
+    """在地点做的系列同样截断：家的「做晚饭」加第四集《倒垃圾》，做完四集后收尾、驾车出门；记忆层里这一段的结束句以
+    「按计划结束，《备菜做饭》《吃晚饭》《洗碗收拾厨房》等 4 条」结尾，不列第四集，没有「未完」半句。"""
+    root = meal_environment(tmp_path / "meal")
+    rows = catalog_rows(root, "content-catalog.jsonl")
+    rows.append({"content_id": "dinner-4-trash", "duration_seconds": 600, "exertion": "light",
+                 "location_kinds": ["home"], "pushable": False, "relaxation_relief": "none",
+                 "series": {"episode": 4, "title": "做晚饭"}, "social_relief": "none",
+                 "summary": "倒垃圾的测试用合成摘要。",
+                 "summary_source": {"kind": "synthetic", "notice": "测试用合成摘要", "url": None}, "title": "倒垃圾"})
+    write_catalog_rows(root, "content-catalog.jsonl", sorted(rows, key=lambda row: row["content_id"]))
+    engine = engine_factory(root)
+    _, dinner = act(engine, "dinner", do_at("家", "做晚饭"))
+    assert dinner.status == "in_progress", dinner.error_code
+    until_ended(engine, dinner.activity_id)
+    assert len(engine.context.state.activities[dinner.activity_id].data["played"]) == 4
+    name = activity_name(engine, dinner.activity_id)
+    _, ended = act(engine, "end", conclude_request(name), "conclude_activity")
+    assert ended.status == "completed", ended.error_code
+    _, trip = act(engine, "leave", travel("五里公园", "驾车"))
+    assert trip.status == "in_progress", trip.error_code
+    memory = observe_only(engine, "road")["memory_layer"]
+    found = [line for entry in memory["earlier_today"] for line in entry["settled"] if line.startswith(name)]
+    assert len(found) == 1 and found[0].endswith("，按计划结束，《备菜做饭》《吃晚饭》《洗碗收拾厨房》等 4 条"), found
 
 
 @pytest.mark.parametrize("how,played", [("concluded", 4), ("finished", 5)], ids=["concluded", "finished"])
