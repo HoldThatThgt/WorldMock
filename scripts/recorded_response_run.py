@@ -1054,6 +1054,9 @@ def main(argv: list[str] | None = None) -> int:
         return export_source(arguments.project, arguments.source, arguments.cutoff, arguments.work)
     except (RecordedResponseError, ComparisonError):
         return 2
+    except Exception:
+        logger.exception("Recorded-response run failed")
+        return 2
 
 
 if __name__ == "__main__":
