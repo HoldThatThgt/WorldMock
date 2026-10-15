@@ -10,7 +10,7 @@ from worldmock.life.activities import ActivityStartParams, start_activity, sched
 from worldmock.life.activity_control import activity_name
 from worldmock.life.app_push import open_app_push, release_app_pushes
 from worldmock.life.completion_effects import settle_completion_effects
-from worldmock.life.content_select import ContentRequest, select_content
+from worldmock.life.content_select import ContentRequest, next_episode, select_content
 from worldmock.life.location_activities import next_content
 from worldmock.life.models import ActivityState, ActivityStatus, ContentProgress, WorldState
 from worldmock.life.randomness import random_stream
@@ -163,16 +163,10 @@ class InteractivityRuntime:
         played = [*activity.data["played"], {"content_id": content.content_id,
             "from_position": activity.data["start_position_seconds"], "to_position": content.duration_seconds}]
         activity = activity.model_copy(update={"data": {**activity.data, "played": played}}, deep=True)
-        if content.series is None:
-            return activity
-        ids = self.context.catalog.contents_by_series[content.series.title]
         agent = state.agents[activity.agent_id]
-        candidates = [self.context.catalog.contents[key] for key in ids
-            if self.context.catalog.contents[key].series.episode > content.series.episode
-            and (key not in agent.content_progress or agent.content_progress[key].completed_rounds < rounds)]
-        if not candidates:
+        next_content = next_episode(self.context.catalog, agent, content, rounds)
+        if next_content is None:
             return activity
-        next_content = candidates[0]
         previous = agent.content_progress.get(next_content.content_id)
         position = 0.0 if previous is None else previous.position_seconds
         data = _content_data(next_content, activity.data["app_id"], position, None)

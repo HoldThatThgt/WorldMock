@@ -60,6 +60,21 @@ def select_from_contents(contents: tuple[Content, ...], state: WorldState, reque
     representatives = sorted((representative(unit, agent) for unit in candidates), key=lambda item: item.content_id)
     return representatives[stream.randrange(len(representatives))], None
 
+def next_episode(catalog: Catalog, agent: AgentState, content: Content, rounds: int) -> Content | None:
+    """@brief 同一系列里接在这一集之后的下一集：集号更大，且没有进度记录或完成轮数小于 rounds 的第一集。
+
+    独立内容没有下一集；按目录索引 contents_by_series 的集号次序取第一条，没有时为 None。不看内容前提、
+    pushable 与预留，不改状态。
+
+    :param rounds: 刚做完的这一集做完之后的完成轮数。
+    """
+    if content.series is None:
+        return None
+    candidates = [catalog.contents[key] for key in catalog.contents_by_series[content.series.title]
+                  if catalog.contents[key].series.episode > content.series.episode
+                  and (key not in agent.content_progress or agent.content_progress[key].completed_rounds < rounds)]
+    return candidates[0] if candidates else None
+
 def content_duration_range(catalog: Catalog, state: WorldState, request: ContentRequest) -> tuple[int, int] | None:
     """@brief 内容 app 的查询不抽样：只在合格内容里算，优先推送或未完成余量，否则全长范围；内容此刻都不合格
     （没有登记内容的 app 也是这样）时为 None。"""
