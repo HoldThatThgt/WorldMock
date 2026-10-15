@@ -39,15 +39,16 @@ def _every(seconds: int):
     return mutate
 
 
-def _opening(engine, app_id: str, prefix: str, *content_ids: str) -> str:
-    """按固定种子挑一个开始标签：生产的打开顺序此刻用这个标签的键 activity-action-<标签>:0 抽到的第一条在 content_ids 里。"""
+def _opening(engine, app_id: str, prefix: str, *content_ids: str, suffix: str = "") -> str:
+    """按固定种子挑一个开始标签：生产的打开顺序此刻用这个标签的键 activity-action-<标签><suffix>:0 抽到的第一条在
+    content_ids 里。单独一条 act 的 suffix 为空；act_group 里排第二的打开 app 一条，动作身份带「-2」。"""
     state = engine.context.state
     stay = present_location(state, 1)
 
     def accepts(label: str) -> bool:
         """这个标签打开 app 时打开顺序挑中的是不是想要的那一条。"""
-        request = ContentRequest(1, app_id, stay, f"activity-action-{label}")
-        stream = random_stream(state.random_state, f"activity-action-{label}:0")
+        request = ContentRequest(1, app_id, stay, f"activity-action-{label}{suffix}")
+        stream = random_stream(state.random_state, f"activity-action-{label}{suffix}:0")
         return select_content(engine.context.catalog, state, request, stream)[0].content_id in content_ids
 
     return label_where(prefix, accepts)
@@ -260,6 +261,43 @@ def test_a_draw_sees_the_stay_of_its_own_second(engine_factory, tmp_path, case):
     if case == "arrival_second":
         assert ended.ended_at == engine.context.state.activities[trip].ended_at == engine.context.state.current_time
         assert present_location(engine.context.state, 1) == "office"
+
+
+#: 只在家合格、可推送的 Keep 内容《居家拉伸》：路上的停留为空，它不合格；开始地点家不替路上作停留。
+_HOME_STRETCH = {
+    "app_ids": ["keep"], "content_id": "c-home-stretch", "duration_seconds": 300, "exertion": "light",
+    "prerequisite": {"location_kinds": ["home"]}, "pushable": True, "relaxation_relief": "medium",
+    "social_relief": "none", "summary": "居家拉伸的测试用合成摘要。",
+    "summary_source": {"kind": "synthetic", "notice": "测试用合成摘要", "url": None}, "title": "居家拉伸"}
+
+
+@pytest.mark.parametrize("case", ["home", "walk"])
+def test_on_the_road_content_tied_to_the_start_location_is_not_drawn(engine_factory, tmp_path, case):
+    """《办公室拉伸》副本再加只在家合格的《居家拉伸》，打开 Keep 时打开顺序放《测试慢跑》。在家：08:20 放完接上《居家拉伸》，
+    08:25 停下。步行去公司时带上 Keep：08:20 放完那一秒人在路上，停留为空，开始地点家不算，《居家拉伸》不合格，不接，
+    这次使用停下，人仍在路上。"""
+    root = office_stretch_environment(tmp_path / "stretch")
+    add_rows(root, "content-catalog.jsonl", "content_id", _HOME_STRETCH)
+    engine = engine_factory(root)
+    stage_day_plan(engine, submitted=True)
+    if case == "home":
+        keep = _open(engine, "Keep", _opening(engine, "keep", "keep", "c-run"))
+    else:
+        label = _opening(engine, "keep", "commute", "c-run", suffix="-2")
+        _, (trip, opened) = act_group(engine, label, travel("公司", "步行"), use_app("Keep"))
+        assert [trip.status, opened.status] == ["in_progress", "in_progress"], (trip.error_code, opened.error_code)
+        keep = opened.activity_id
+    assert engine.context.state.activities[keep].data["content_id"] == "c-run"
+    until_ended(engine, keep)
+    ended = engine.context.state.activities[keep]
+    played = [item["content_id"] for item in ended.data["played"]]
+    if case == "home":
+        assert (played, ended.status, ended.ended_at) == (["c-run", "c-home-stretch"], "completed", _at(8, 25))
+        assert present_location(engine.context.state, 1) == "home"
+    else:
+        assert (played, ended.status, ended.ended_at) == (["c-run"], "completed", _at(8, 20))
+        assert engine.context.state.activities[trip.activity_id].status == "active"
+        assert present_location(engine.context.state, 1) is None
 
 
 def test_a_chained_item_continues_the_same_activity(engine_factory):

@@ -163,3 +163,19 @@ def test_progress_snapshot_counts_played_items_only_for_interactions():
         key: value for key, value in full.items() if key != "data"}
     trip = running("travel", ActivityKind.TRAVEL, "first")
     assert progress_snapshot(trip, index) == activity_snapshot(trip, index)
+
+
+@pytest.mark.parametrize("status", [ActivityStatus.ACTIVE, ActivityStatus.PAUSED, ActivityStatus.CANCELLED,
+                                    ActivityStatus.TRUNCATED, ActivityStatus.COMPLETED])
+def test_app_use_progress_counts_the_item_in_hand_unless_the_use_completed(status):
+    """放完两条、已用 10 分钟的一次 app 使用：进行中、暂停中、被收尾结束、被截断都还有一条正放着或停在半截，写「放到第 3 条」；
+    放完一条后没有能接的而停下（completed）的写「放到第 2 条」。同样状态的地点单元照旧写已做时长，进行或暂停中另写剩余。"""
+    played = [{"content_id": "c-run", "from_position": 0.0, "to_position": 1200},
+              {"content_id": "c-long", "from_position": 0.0, "to_position": 1800}]
+    app_use, location = (_app_use(900, app=app).model_copy(update={"status": status, "elapsed_seconds": 600})
+                         for app in (True, False))
+    app_use = app_use.model_copy(update={"data": {**app_use.data, "played": played}})
+    count = 2 if status == ActivityStatus.COMPLETED else 3
+    assert activity_control.objective_progress(app_use) == f"已用约 10 分钟，放到第 {count} 条"
+    remaining = "，还剩约 5 分钟" if status in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED} else ""
+    assert activity_control.objective_progress(location) == f"已做约 10 分钟{remaining}"
