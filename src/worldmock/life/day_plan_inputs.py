@@ -22,10 +22,6 @@ from worldmock.life.settled_text import (
     tool_record,
 )
 
-#: 中文星期名。
-_WEEKDAYS = ("星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日")
-
-
 @dataclass(frozen=True, slots=True)
 class PlanInputs:
     """@brief 一次零点计划的输入：除经历外的载荷、按时间顺序的经历句子及其来源、其余来源事件身份。"""
@@ -73,7 +69,7 @@ def plan_inputs(context: Any, observations: Any, midnight_pending: bool, agent_i
     local = datetime.fromtimestamp(state.current_time, ZoneInfo(zone))
     payload = {
         "计划日期": plan_date(state.current_time, zone),
-        "生成时刻": f"{window.when(state.current_time)}（{_WEEKDAYS[local.weekday()]}）",
+        "生成时刻": f"{window.when(state.current_time)}（{work_schedule.WEEKDAY_NAMES[local.weekday()]}）",
         "回顾时段": f"{window.when(window.start)} 至 {window.when(window.end)}",
         "人物": _persona(context, agent_id),
         "上班安排": _duty_arrangement(context, agent_id),

@@ -1,4 +1,4 @@
-"""工作安排用例共用的场景声明（docs/design/06-agent.md#agent-工作安排声明 ；不是测试模块，不被收集）。
+"""工作安排用例共用的场景声明（docs/design/06-agent.md#agent-环境层-duty ；不是测试模块，不被收集）。
 
 仓库三份场景的全部人物都写 `work_schedule: null`，班次行为一律由用例经 `engine_factory(mutate=...)` 或场景副本构造：
 weekday_schedule 按场景日历生成与时间窗一致的声明（周一至周五同一班次、周末不当班；时间窗内的补班日写班次例外，落在

@@ -17,7 +17,7 @@ from worldmock.life.control_items import CONTROL_TOOLS
 from worldmock.life.action_contract import ACTIVITY_ACTIONS
 from worldmock.life.models import ActionStatus
 from worldmock.life.schedule import INTENT_KINDS
-from worldmock.life.work_schedule import DUTY_DAYS, DUTY_STATUSES
+from worldmock.life.work_schedule import DUTY_DAYS, DUTY_STATUSES, WEEKDAY_NAMES
 
 #: 带时区的 ISO 8601 时刻（秒精度）。
 _TIME = {"type": "string", "pattern": r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$"}
@@ -183,13 +183,16 @@ TODO_LAYER_SCHEMA: dict[str, Any] = {
 
 
 
-#: 工作日写班次、工作地点名与四种状态之一。
+#: 工作日写班次、工作地点名与四种状态之一；note 是日期例外改了上不上班时的一句说明，其余为 null。
 _DUTY = _object({"day": {"enum": list(DUTY_DAYS)}, "hours": _NULLABLE_TEXT, "place": _NULLABLE_TEXT,
-                 "breaks": {"type": "array", "items": _TEXT}, "status": {"enum": [*DUTY_STATUSES, None]}})
+                 "breaks": {"type": "array", "items": _TEXT}, "note": _NULLABLE_TEXT,
+                 "status": {"enum": [*DUTY_STATUSES, None]}})
 _DUTY["if"] = {"properties": {"day": {"const": "休息日"}}}
 _DUTY["then"] = {"properties": {"hours": {"type": "null"}, "place": {"type": "null"},
                                 "status": {"type": "null"}, "breaks": {"maxItems": 0}}}
 _DUTY["else"] = {"properties": {"hours": _TEXT, "place": _TEXT, "status": {"enum": list(DUTY_STATUSES)}}}
+#: 明天：下一个本地日的日期、星期名与那天是工作日还是休息日；没有工作安排时 day 为 null。
+_TOMORROW = _object({"date": _DATE, "weekday": {"enum": list(WEEKDAY_NAMES)}, "day": {"enum": [*DUTY_DAYS, None]}})
 ENVIRONMENT_LAYER_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "环境层",
     **_object({
@@ -199,6 +202,7 @@ ENVIRONMENT_LAYER_SCHEMA: dict[str, Any] = {
                              "travel_method": _TEXT}, optional=("travel_method",)),
         "weather": {"enum": ["晴", "多云", "小雨", "大雨", "雪"]},
         "duty": {"oneOf": [{"type": "null"}, _DUTY]},
+        "tomorrow": _TOMORROW,
     }),
 }
 

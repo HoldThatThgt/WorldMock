@@ -110,7 +110,8 @@ OWNERS = {'base_models.py': ('StrictModel',
  'life/content_prerequisite.py': ('prerequisite_unmet', 'app_prerequisite_refusal'),
  'life/content_select.py': ('eligible_contents', 'pinned_push_content'),
  'life/start_group.py': ('GROUP_REJECTION_SUFFIX', 'group_rejection', 'frozen_observation'),
- 'life/activity_control.py': ('pausable', 'PAUSE_MIN_REMAINING_SECONDS')}
+ 'life/activity_control.py': ('pausable', 'PAUSE_MIN_REMAINING_SECONDS'),
+ 'life/work_schedule.py': ('WEEKDAY_NAMES',)}
 # 语义排除仅限普通 logger、Python 类型声明、不同类作用域的薄协议钩子与导入绑定。
 SEMANTIC_EXCLUSIONS = ('module logger', 'Python type declaration', 'thin decorated protocol hook', 'import binding')
 

@@ -359,7 +359,7 @@ def test_order_status_does_not_replace_goods_received_evidence() -> None:
 
 
 def test_acting_after_a_later_reminder_counts_although_nothing_followed_the_first() -> None:
-    """更新时写下新钟点的事务会再提醒一次（docs/design/04-simulation-engine.md#simulation-engine-提醒时刻 ），提醒后行动按「某次提醒之后、下一个本地
+    """更新时写下新钟点的事务会再提醒一次（docs/design/04-simulation-engine.md#simulation-engine-唤醒-日计划与个人事务 ），提醒后行动按「某次提醒之后、下一个本地
     零点与终态之前」计：事务 1 月 5 日 12:00 被提醒、当天没有任何指向它的请求，更新后 1 月 6 日 12:00 再被提醒。购买在
     第二次提醒之后十分钟被受理时算提醒后行动；同一笔购买若在第二次提醒之前十分钟被受理（第一次提醒的本地日已过、第二次
     还没到）则不算。被提醒过的事务始终只计一条。"""
