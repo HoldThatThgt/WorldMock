@@ -116,12 +116,34 @@ def test_appetite_and_meal_bonus_reject_times_outside_the_current_local_day(hour
 
 @pytest.mark.parametrize("energy,hour,anchor,windows,expected", [
     (400, 20, 1200, MealWindows(dinner=(20, 21)), 1.32),
-    (1600, 20, 1200, MealWindows(dinner=(20, 21)), 0.15),
+    (1600, 20, 1200, MealWindows(dinner=(20, 21)), 0.0),
     (800, 8, 1200, None, 0.415),
     (1000, 20, 1600, None, 0.585),
 ])
 def test_appetite_uses_real_energy_day_phase_and_declared_meal_bonus(energy, hour, anchor, windows, expected):
     assert compute_appetite(energy, hour, windows, anchor) == pytest.approx(expected)
+
+
+#: 样例环境的饭点时段：午饭 12:00–13:00，晚饭 18:30–19:30。
+_SAMPLE_MEALS = MealWindows(lunch=(12, 13), dinner=(18.5, 19.5))
+
+
+@pytest.mark.parametrize("energy,hour,anchor,windows,expected,level", [
+    (1515.625, 12.25, 1200, _SAMPLE_MEALS, pytest.approx(0.0), "不饿"),
+    (1200, 12, 1200, _SAMPLE_MEALS, pytest.approx(0.0), "不饿"),
+    (1199, 12, 1200, _SAMPLE_MEALS, pytest.approx(0.15114375), "有点想吃"),
+    (1000, 12, 1200, _SAMPLE_MEALS, pytest.approx(0.37875), "饿"),
+    (1199, 11.99, 1200, _SAMPLE_MEALS, pytest.approx(0.0011, abs=1e-4), "不饿"),
+    (1500, 20, 1600, MealWindows(dinner=(20, 21)), pytest.approx(0.2475), "有点想吃"),
+    (1600, 20, 1600, MealWindows(dinner=(20, 21)), pytest.approx(0.0), "不饿"),
+], ids=["fed-after-lunch", "at-the-anchor", "one-below-the-anchor", "hungry-at-lunch", "one-below-outside-lunch",
+        "below-a-higher-anchor", "at-a-higher-anchor"])
+def test_meal_bonus_is_added_only_below_the_hunger_anchor(energy, hour, anchor, windows, expected, level):
+    """饭点项只在能量严格低于饥饿锚定热量时加：吃过午饭、恰在锚定热量上的人在饭点时段里是 0、读「不饿」；低于锚定
+    热量时照旧加 0.15；时段之外不加。单元用例传入的别的锚定热量按同一个门槛比较。"""
+    appetite = compute_appetite(energy, hour, windows, anchor)
+    assert appetite == expected
+    assert appetite_level(appetite, energy, 400) == level
 
 
 def test_felt_change_compares_the_actual_decision_reference_and_reports_new_or_missing_signals():

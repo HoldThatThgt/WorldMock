@@ -459,12 +459,12 @@ def test_the_evidence_sits_on_the_finishing_progress_event(engine_factory, tmp_p
     assert not {key for key in engine.context.state.activities[rest.activity_id].data if "completion" in key}
 
 
-@pytest.mark.parametrize("start_hour,appetite_before,appetite_after", [(8, "有点想吃", "不饿"), (12, "饿", "有点想吃")],
+@pytest.mark.parametrize("start_hour,appetite_before,appetite_after", [(8, "有点想吃", "不饿"), (12, "饿", "不饿")],
                          ids=["outside-meal-windows", "in-the-lunch-window"])
 def test_appetite_after_the_meal_reads_the_new_energy(engine_factory, tmp_path, start_hour, appetite_before,
                                                       appetite_after):
-    """能量 1,000 开始做「测试休息」：08:00 做完后饥饿分级从「有点想吃」降到「不饿」，那一秒的唤醒原因含
-    felt_band_change；12:00（午饭时段之内）做完后是「有点想吃」，不会到「不饿」。"""
+    """能量 1,000 开始做「测试休息」：08:00 与 12:00（午饭时段之内）做完后饥饿分级都降到「不饿」，那一秒的唤醒原因含
+    felt_band_change。"""
     def at_hour(persona, config):
         config["start_time"] = config["start_time"].replace(hour=start_hour)
         config["stop_time"] = config["stop_time"].replace(hour=start_hour)
@@ -476,8 +476,7 @@ def test_appetite_after_the_meal_reads_the_new_energy(engine_factory, tmp_path, 
     [done] = fed(engine)
     after = engine.observe(context(engine, "after"))["environment_layer"]["body"]["appetite"]
     assert after == appetite_after
-    if appetite_after == "不饿":
-        assert "felt_band_change" in settled_at(engine, done.occurred_at).data["wake_reasons"]
+    assert "felt_band_change" in settled_at(engine, done.occurred_at).data["wake_reasons"]
 
 
 def test_a_meal_alone_does_not_offer_a_decision(engine_factory, tmp_path):
